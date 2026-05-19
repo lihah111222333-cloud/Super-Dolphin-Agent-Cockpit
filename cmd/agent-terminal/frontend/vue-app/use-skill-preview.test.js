@@ -22,7 +22,7 @@ const flushPromises = async () => {
   await Promise.resolve();
 };
 
-function createSkillPreview({ text = '', threadId = '', revision = 0 } = {}) {
+function createSkillPreview({ text = '', threadId = '', revision = 0, enabled = true } = {}) {
   const composer = {
     state: reactive({
       text,
@@ -32,7 +32,7 @@ function createSkillPreview({ text = '', threadId = '', revision = 0 } = {}) {
   const selectedThreadId = ref(threadId);
   const skillRevision = ref(revision);
   const activeCwdSource = ref('/repo');
-  const vm = useSkillPreview({ composer, selectedThreadId, skillRevision, activeCwdSource });
+  const vm = useSkillPreview({ composer, selectedThreadId, skillRevision, activeCwdSource, enabled });
   return {
     composer,
     selectedThreadId,
@@ -63,6 +63,22 @@ describe('useSkillPreview', () => {
     expect(vm.composerEffectiveSelectedSkillNames.value).toEqual([]);
   });
 
+  it('does not preview or resolve selections when disabled', async () => {
+    const vm = createSkillPreview({ text: '@debug', threadId: 'thread-1', enabled: false });
+
+    await vi.advanceTimersByTimeAsync(241);
+    await flushPromises();
+    const result = await vm.resolveComposerSkillSelectionForSend('thread-1', '@debug');
+
+    expect(apiMock.callAPI).not.toHaveBeenCalled();
+    expect(result).toEqual({
+      selectedSkills: [],
+      selectedSkillRefs: [],
+      manualSkillSelection: false,
+    });
+    expect(vm.composerSkillMatches.value).toEqual([]);
+  });
+
   it('adds and removes a manually selected skill', () => {
     const vm = createSkillPreview();
 
@@ -86,7 +102,7 @@ describe('useSkillPreview', () => {
     expect(vm.composerEffectiveSelectedSkillNames.value).toEqual([]);
   });
 
-  it('merges manual selection with force-matched skills when sending', async () => {
+  it('refreshes preview matches but does not forward skill selections when sending', async () => {
     apiMock.callAPI.mockImplementation(async (method) => {
       if (method === 'skills/match/preview') {
         return {
@@ -113,9 +129,9 @@ describe('useSkillPreview', () => {
       text: 'please @force and manual',
     });
     expect(result).toEqual({
-      selectedSkills: ['ManualSkill', 'ForceSkill'],
+      selectedSkills: [],
       selectedSkillRefs: [],
-      manualSkillSelection: true,
+      manualSkillSelection: false,
     });
     expect(vm.composerSkillMatches.value).toEqual([
       { name: 'ForceSkill', matchedBy: 'force', matchedTerms: ['@force'] },
@@ -123,7 +139,7 @@ describe('useSkillPreview', () => {
     ]);
   });
 
-  it('normalizes preview matches for send resolution with case-insensitive dedupe', async () => {
+  it('normalizes preview matches for display without returning provider skill selections', async () => {
     apiMock.callAPI.mockImplementation(async (method) => {
       if (method === 'skills/match/preview') {
         return {
@@ -144,7 +160,7 @@ describe('useSkillPreview', () => {
     const result = await vm.resolveComposerSkillSelectionForSend('thread-1', 'please @force and term');
 
     expect(result).toEqual({
-      selectedSkills: ['ForceSkill'],
+      selectedSkills: [],
       selectedSkillRefs: [],
       manualSkillSelection: false,
     });
@@ -154,7 +170,7 @@ describe('useSkillPreview', () => {
     ]);
   });
 
-  it('returns empty normalized matches when preview payload is missing an array', async () => {
+  it('returns empty send selection when preview payload is missing an array', async () => {
     apiMock.callAPI.mockImplementation(async (method) => {
       if (method === 'skills/match/preview') return { matches: null };
       if (method === 'skills/list') return { skills: [] };
@@ -167,14 +183,14 @@ describe('useSkillPreview', () => {
     const result = await vm.resolveComposerSkillSelectionForSend('thread-1', 'manual only');
 
     expect(result).toEqual({
-      selectedSkills: ['ManualSkill'],
+      selectedSkills: [],
       selectedSkillRefs: [],
-      manualSkillSelection: true,
+      manualSkillSelection: false,
     });
     expect(vm.composerSkillMatches.value).toEqual([]);
   });
 
-  it('returns scoped skill refs for active-thread manual and force selections', async () => {
+  it('does not resolve scoped skill refs for active-thread manual and force selections', async () => {
     apiMock.callAPI.mockImplementation(async (method) => {
       if (method === 'skills/match/preview') {
         return {
@@ -204,28 +220,11 @@ describe('useSkillPreview', () => {
 
     const result = await vm.resolveComposerSkillSelectionForSend('thread-1', 'ship @deploy');
 
-    expect(apiMock.callAPI).toHaveBeenCalledWith('skills/list', { cwd: '/repo' });
+    expect(apiMock.callAPI).not.toHaveBeenCalledWith('skills/list', { cwd: '/repo' });
     expect(result).toEqual({
-      selectedSkills: ['Review', 'Deploy'],
-      selectedSkillRefs: [
-        {
-          key: 'project::review:/repo/.agent/skills/review',
-          name: 'Review',
-          scope: 'project',
-          personalType: '',
-          path: '/repo/.agent/skills/review',
-          source: 'manual',
-        },
-        {
-          key: 'project::deploy:/repo/.agent/skills/deploy',
-          name: 'Deploy',
-          scope: 'project',
-          personalType: '',
-          path: '/repo/.agent/skills/deploy',
-          source: 'force',
-        },
-      ],
-      manualSkillSelection: true,
+      selectedSkills: [],
+      selectedSkillRefs: [],
+      manualSkillSelection: false,
     });
   });
 

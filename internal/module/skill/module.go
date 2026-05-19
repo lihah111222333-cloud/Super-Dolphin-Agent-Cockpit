@@ -25,9 +25,9 @@ var Module = fx.Module("skill",
 			newService,
 			fx.As(new(Service)),
 			fx.As(new(contract.SkillMirrorReconciler)),
-			fx.As(new(contract.SkillNativeReplacementSource)),
 		),
 		ProvideSkillLister,
+		ProvideSkillInventoryLister,
 		ProvideSkillCatalogSource,
 		ProvideSkillHydrationSource,
 	),
@@ -47,8 +47,7 @@ type skillHandlerDeps struct {
 	fx.In
 
 	Service       Service
-	Requester     contract.ApprovalRequester `optional:"true"`
-	DreamExecutor contract.DreamExecutor     `optional:"true"`
+	DreamExecutor contract.DreamExecutor `optional:"true"`
 }
 
 func newService(deps serviceDeps) *service {
@@ -63,6 +62,8 @@ func newService(deps serviceDeps) *service {
 }
 
 func ProvideSkillLister(svc Service) SkillLister { return svc }
+
+func ProvideSkillInventoryLister(svc Service) SkillInventoryLister { return svc }
 
 func ProvideSkillCatalogSource(svc Service) SkillCatalogSource { return svc }
 
@@ -88,22 +89,7 @@ func seedBuiltInSkills(superDolphinHome string) (int, error) {
 	if home == "" {
 		return 0, fmt.Errorf("super dolphin home is required")
 	}
-	names, err := listBuiltInSkillNames()
-	if err != nil {
-		return 0, err
-	}
-	written := 0
-	hubRoot := filepath.Join(home, "skills", "personal", personalSkillTypeHub)
-	for _, name := range names {
-		ok, err := seedOneBuiltInSkill(hubRoot, name)
-		if err != nil {
-			return written, err
-		}
-		if ok {
-			written++
-		}
-	}
-	return written, nil
+	return 0, nil
 }
 
 func listBuiltInSkillNames() ([]string, error) {
@@ -193,49 +179,4 @@ func closeBuiltInSkillFile(file *os.File, writeErr error) error {
 		return fmt.Errorf("write built-in skill: %w; close: %v", writeErr, closeErr)
 	}
 	return writeErr
-}
-
-func (s *service) ReplacedNativeTools(ctx context.Context, cwd, provider string) []string {
-	if s == nil {
-		return nil
-	}
-	records, _, err := s.canonicalEffectiveSet(ctx, cwd)
-	if err != nil {
-		return nil
-	}
-	skills := make([]SkillInfo, 0, len(records))
-	for _, record := range records {
-		skills = append(skills, record.info)
-	}
-	return replacedNativeToolsForProvider(skills, provider)
-}
-
-func replacedNativeToolsForProvider(skills []SkillInfo, provider string) []string {
-	seen := make(map[string]struct{})
-	provider = strings.ToLower(strings.TrimSpace(provider))
-	for _, info := range skills {
-		collectReplacementTools(seen, info.ReplacesNative["*"])
-		collectReplacementTools(seen, info.ReplacesNative[provider])
-	}
-	return sortedReplacementNames(seen)
-}
-
-func collectReplacementTools(seen map[string]struct{}, tools []string) {
-	for _, name := range tools {
-		if strings.TrimSpace(name) != "" {
-			seen[name] = struct{}{}
-		}
-	}
-}
-
-func sortedReplacementNames(seen map[string]struct{}) []string {
-	if len(seen) == 0 {
-		return nil
-	}
-	out := make([]string, 0, len(seen))
-	for name := range seen {
-		out = append(out, name)
-	}
-	sort.Strings(out)
-	return out
 }

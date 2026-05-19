@@ -117,6 +117,19 @@ func TestCodexDreamExecutor_BinaryNotAvailableMapsToNotConfigured(t *testing.T) 
 	}
 }
 
+func TestCodexDreamExecutor_ModelUnavailableMapsToNotConfigured(t *testing.T) {
+	modelErr := fmt.Errorf("%w: codex exited with error: exit status 1 (stdout: model not found)", dreamexec.ErrModelUnavailable)
+	c := &capturingCommander{errs: []error{modelErr}}
+	exec := newDreamExecutor(c, "codex", "")
+	_, err := exec.ExecuteDream(context.Background(), "p")
+	if !errors.Is(err, contract.ErrDreamExecutorNotConfigured) {
+		t.Fatalf("expected ErrDreamExecutorNotConfigured, got %v", err)
+	}
+	if !strings.Contains(err.Error(), "model") {
+		t.Errorf("expected error to mention model, got %v", err)
+	}
+}
+
 func TestCodexDreamExecutor_OtherErrorTransparent(t *testing.T) {
 	boom := errors.New("openai rate limit")
 	c := &capturingCommander{errs: []error{boom}}

@@ -148,7 +148,7 @@ func TestImportLocalDirPublishesProjectMirrors(t *testing.T) {
 	assertPublishedReportItem(t, report.Published, "claude:project:"+RepoFingerprint(projectRoot), SkillProviderClaude, skillScopeProject, "demo-skill", "project/demo-skill")
 	assertPublishedReportItem(t, report.Published, "codex:project:"+RepoFingerprint(projectRoot), SkillProviderCodex, skillScopeProject, "demo-skill", "project/demo-skill")
 	assertFileContent(t, filepath.Join(projectRoot, ".claude", "skills", "demo-skill", "references", "guide.md"), "details")
-	assertFileContent(t, filepath.Join(projectRoot, ".codex", "skills", "demo-skill", "references", "guide.md"), "details")
+	assertFileContent(t, filepath.Join(providerProjectMirrorRoot(SkillProviderCodex, projectRoot), "demo-skill", "references", "guide.md"), "details")
 }
 
 func TestImportLocalDirRejectsSymlinkSkillsRoot(t *testing.T) {

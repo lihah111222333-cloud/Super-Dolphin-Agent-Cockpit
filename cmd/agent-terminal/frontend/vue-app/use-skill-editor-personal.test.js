@@ -22,6 +22,10 @@ vi.mock('./utils/assistant-markdown.js', () => ({
 }));
 
 import { useSkillEditor } from './composables/useSkillEditor.js';
+import {
+  importSummaryDraftPanelHint,
+  importSummaryDraftPanelTitle,
+} from './composables/useSkillImportSummaryDrafts.js';
 
 function createEditor(emit = vi.fn(), overrides = {}) {
   const props = reactive({ projectStore: { state: { active: '/repo' } } });
@@ -239,6 +243,19 @@ describe('useSkillEditor personal target payloads', () => {
     expect(vm.notice.message).toBe('生成的简介不够具体，请补充技能内容后重新生成，或手动填写。');
   });
 
+  it('does not expose technical errors when manual summary generation fails unexpectedly', async () => {
+    const { vm } = createEditor();
+    apiMock.callAPI.mockRejectedValueOnce(new Error('[-32098] dreamexec: claude exited with error: exit status 1'));
+    vm.form.name = '安全工程师';
+
+    await vm.onSuggestSkillSummary();
+
+    expect(vm.notice.level).toBe('error');
+    expect(vm.notice.message).toBe('当前无法生成简介，请稍后再试或手动填写。');
+    expect(vm.notice.message).not.toContain('-32098');
+    expect(vm.notice.message).not.toContain('claude');
+  });
+
   it('imports personal skills into the imported personal type', async () => {
 	const { vm } = createEditor();
     vm.importScope.value = 'personal';
@@ -256,6 +273,271 @@ describe('useSkillEditor personal target payloads', () => {
       scope: 'personal',
 	  personal_type: 'imported',
 	});
+  });
+
+  it('creates import summary drafts for imported skills that need descriptions without writing files', async () => {
+    const { vm } = createEditor();
+    apiMock.selectProjectDirs.mockResolvedValue(['/imports/MissingDesc', '/imports/GoodDesc']);
+    apiMock.callAPI.mockImplementation(async (method, payload) => {
+      if (method === 'skills/local/importDir') {
+        return {
+          imported: [
+            { name: 'MissingDesc', skill_file: '/skills/imported/MissingDesc/SKILL.md' },
+            { name: 'GoodDesc', skill_file: '/skills/imported/GoodDesc/SKILL.md' },
+          ],
+          failures: [],
+        };
+      }
+      if (method === 'skills/local/read' && payload?.path === '/skills/imported/MissingDesc/SKILL.md') {
+        return { skill: { content: '---\nname: MissingDesc\ntrigger_words: ["review"]\n---\n# MissingDesc\n帮助审查代码。' } };
+      }
+      if (method === 'skills/local/read' && payload?.path === '/skills/imported/GoodDesc/SKILL.md') {
+        return { skill: { content: '---\nname: GoodDesc\ndescription: 当你需要整理项目文档时使用。\n---\n# GoodDesc\n整理文档。' } };
+      }
+      if (method === 'skills/summary/suggest') {
+        return { description: '当你需要审查代码改动时使用。' };
+      }
+      return {};
+    });
+
+    await vm.onUploadSkill();
+    await vm.confirmImportScope('personal');
+
+    expect(apiMock.callAPI).toHaveBeenCalledWith('skills/summary/suggest', {
+      cwd: '/repo',
+      name: 'MissingDesc',
+      description: '',
+      content: '# MissingDesc\n帮助审查代码。',
+      scenario_words: ['review'],
+      scope: 'personal',
+    });
+    expect(apiMock.callAPI).not.toHaveBeenCalledWith('skills/summary/suggest', expect.objectContaining({
+      name: 'GoodDesc',
+    }));
+    expect(apiMock.callAPI.mock.calls.some(([method]) => method === 'skills/local/write')).toBe(false);
+    expect(vm.importSummaryDrafts.value).toEqual([
+      expect.objectContaining({
+        name: 'MissingDesc',
+        skillFile: '/skills/imported/MissingDesc/SKILL.md',
+        scope: 'personal',
+        personalType: 'imported',
+        suggestion: '当你需要审查代码改动时使用。',
+        status: 'ready',
+      }),
+    ]);
+    expect(vm.notice.message).toContain('已生成 1 条简介建议');
+  });
+
+  it('applies an import summary draft to the editor and still requires saving', async () => {
+    const { vm } = createEditor();
+    apiMock.selectProjectDirs.mockResolvedValue(['/imports/MissingDesc']);
+    apiMock.callAPI.mockImplementation(async (method, payload) => {
+      if (method === 'skills/local/importDir') {
+        return { imported: [{ name: 'MissingDesc', skill_file: '/skills/imported/MissingDesc/SKILL.md' }], failures: [] };
+      }
+      if (method === 'skills/local/read' && payload?.path === '/skills/imported/MissingDesc/SKILL.md') {
+        return { skill: { content: '---\nname: MissingDesc\n---\n# MissingDesc\n帮助审查代码。' } };
+      }
+      if (method === 'skills/summary/suggest') {
+        return { description: '当你需要审查代码改动时使用。' };
+      }
+      return {};
+    });
+
+    await vm.onUploadSkill();
+    await vm.confirmImportScope('personal');
+    apiMock.callAPI.mockClear();
+
+    await vm.applyImportSummaryDraft(0);
+
+    expect(vm.form.description).toBe('当你需要审查代码改动时使用。');
+    expect(vm.isEditorOpen.value).toBe(true);
+    expect(vm.notice.message).toBe('已采用简介建议，保存技能后生效。');
+    expect(apiMock.callAPI.mock.calls.some(([method]) => method === 'skills/local/write')).toBe(false);
+  });
+
+  it('offers a legacy summary as an import draft without calling the summary generator', async () => {
+    const { vm } = createEditor();
+    apiMock.selectProjectDirs.mockResolvedValue(['/imports/SummaryOnly']);
+    apiMock.callAPI.mockImplementation(async (method, payload) => {
+      if (method === 'skills/local/importDir') {
+        return { imported: [{ name: 'SummaryOnly', skill_file: '/skills/imported/SummaryOnly/SKILL.md' }], failures: [] };
+      }
+      if (method === 'skills/local/read' && payload?.path === '/skills/imported/SummaryOnly/SKILL.md') {
+        return { skill: { content: '---\nname: SummaryOnly\nsummary: 当你需要整理项目文档时使用。\n---\n# SummaryOnly\n整理文档。' } };
+      }
+      return {};
+    });
+
+    await vm.onUploadSkill();
+    await vm.confirmImportScope('personal');
+
+    expect(apiMock.callAPI.mock.calls.some(([method]) => method === 'skills/summary/suggest')).toBe(false);
+    expect(vm.importSummaryDrafts.value).toEqual([
+      expect.objectContaining({
+        name: 'SummaryOnly',
+        source: 'summary',
+        suggestion: '当你需要整理项目文档时使用。',
+        status: 'ready',
+      }),
+    ]);
+  });
+
+  it('does not show a failed summary draft when an imported skill already has a description', async () => {
+    const { vm } = createEditor();
+    apiMock.selectProjectDirs.mockResolvedValue(['/imports/ExistingDesc']);
+    apiMock.callAPI.mockImplementation(async (method, payload) => {
+      if (method === 'skills/local/importDir') {
+        return { imported: [{ name: 'ExistingDesc', skill_file: '/skills/imported/ExistingDesc/SKILL.md' }], failures: [] };
+      }
+      if (method === 'skills/local/read' && payload?.path === '/skills/imported/ExistingDesc/SKILL.md') {
+        return { skill: { content: '---\nname: ExistingDesc\ndescription: 处理问题\n---\n# ExistingDesc\n帮助排查项目问题。' } };
+      }
+      if (method === 'skills/summary/suggest') {
+        throw new Error('[-32098] dreamexec: claude exited with error: exit status 1');
+      }
+      return {};
+    });
+
+    await vm.onUploadSkill();
+    await vm.confirmImportScope('personal');
+
+    expect(vm.importSummaryDrafts.value).toEqual([]);
+    expect(vm.notice.message).toBe('已导入 1 个技能目录（含资源文件）');
+    expect(vm.notice.message).not.toContain('生成失败');
+    expect(vm.notice.message).not.toContain('-32098');
+    expect(vm.notice.message).not.toContain('claude');
+  });
+
+  it('can offer an improved summary draft for an imported skill with a weak existing description', async () => {
+    const { vm } = createEditor();
+    apiMock.selectProjectDirs.mockResolvedValue(['/imports/WeakDesc']);
+    apiMock.callAPI.mockImplementation(async (method, payload) => {
+      if (method === 'skills/local/importDir') {
+        return { imported: [{ name: 'WeakDesc', skill_file: '/skills/imported/WeakDesc/SKILL.md' }], failures: [] };
+      }
+      if (method === 'skills/local/read' && payload?.path === '/skills/imported/WeakDesc/SKILL.md') {
+        return { skill: { content: '---\nname: WeakDesc\ndescription: 处理问题\n---\n# WeakDesc\n帮助排查项目问题。' } };
+      }
+      if (method === 'skills/summary/suggest') {
+        return { description: '当你需要排查项目安全风险或安全配置问题时使用。' };
+      }
+      return {};
+    });
+
+    await vm.onUploadSkill();
+    await vm.confirmImportScope('personal');
+
+    expect(vm.importSummaryDrafts.value).toEqual([
+      expect.objectContaining({
+        name: 'WeakDesc',
+        status: 'ready',
+        suggestion: '当你需要排查项目安全风险或安全配置问题时使用。',
+      }),
+    ]);
+  });
+
+  it('shows a non-technical editable draft when an imported skill has no description and summary generation fails', async () => {
+    const { vm } = createEditor();
+    apiMock.selectProjectDirs.mockResolvedValue(['/imports/MissingDesc']);
+    apiMock.callAPI.mockImplementation(async (method, payload) => {
+      if (method === 'skills/local/importDir') {
+        return { imported: [{ name: 'MissingDesc', skill_file: '/skills/imported/MissingDesc/SKILL.md' }], failures: [] };
+      }
+      if (method === 'skills/local/read' && payload?.path === '/skills/imported/MissingDesc/SKILL.md') {
+        return { skill: { content: '---\nname: MissingDesc\n---\n# MissingDesc\n帮助审查代码。' } };
+      }
+      if (method === 'skills/summary/suggest') {
+        throw new Error('[-32098] dreamexec: claude exited with error: exit status 1');
+      }
+      return {};
+    });
+
+    await vm.onUploadSkill();
+    await vm.confirmImportScope('personal');
+
+    expect(vm.importSummaryDrafts.value).toEqual([
+      expect.objectContaining({
+        name: 'MissingDesc',
+        status: 'error',
+        error: '技能已正常导入。可以稍后重试，或手动补充简介。',
+      }),
+    ]);
+    expect(vm.notice.message).toBe('已导入 1 个技能目录，1 个技能可手动补充简介。');
+    expect(vm.importSummaryDrafts.value[0].error).not.toContain('-32098');
+    expect(vm.importSummaryDrafts.value[0].error).not.toContain('claude');
+  });
+
+  it('marks imported same-name conflicts as conflict drafts instead of summary failures', async () => {
+    const { vm } = createEditor();
+    apiMock.selectProjectDirs.mockResolvedValue(['/imports/ProjectSkill']);
+    apiMock.callAPI.mockImplementation(async (method, payload) => {
+      if (method === 'skills/local/importDir') {
+        return {
+          imported: [{ name: 'ProjectSkill', skill_file: '/skills/imported/ProjectSkill/SKILL.md' }],
+          failures: [],
+        };
+      }
+      if (method === 'skills/local/read' && payload?.path === '/skills/imported/ProjectSkill/SKILL.md') {
+        throw new Error('[-31003] skill same-name conflict: ProjectSkill');
+      }
+      return {};
+    });
+
+    await vm.onUploadSkill();
+    await vm.confirmImportScope('personal');
+
+    expect(apiMock.callAPI.mock.calls.some(([method]) => method === 'skills/summary/suggest')).toBe(false);
+    expect(vm.importSummaryDrafts.value).toEqual([
+      expect.objectContaining({
+        name: 'ProjectSkill',
+        status: 'conflict',
+        error: '已导入，但和项目共享技能同名，暂未启用。请在冲突提示中选择使用哪个版本。',
+      }),
+    ]);
+    expect(vm.notice.message).toContain('1 个同名技能待处理');
+    expect(vm.notice.message).not.toContain('简介建议生成失败');
+  });
+
+  it('treats imported inactive private duplicates as same-name conflicts instead of summary failures', async () => {
+    const { vm } = createEditor();
+    const importedPath = '/Users/mac/.super-dolphin/skills/personal/imported/编写计划/SKILL.md';
+    apiMock.selectProjectDirs.mockResolvedValue(['/imports/编写计划']);
+    apiMock.callAPI.mockImplementation(async (method, payload) => {
+      if (method === 'skills/local/importDir') {
+        return {
+          imported: [{ name: '编写计划', skill_file: importedPath }],
+          failures: [],
+        };
+      }
+      if (method === 'skills/local/read' && payload?.path === importedPath) {
+        throw new Error(`[-32098] skill path is not in effective skill set: ${importedPath}`);
+      }
+      return {};
+    });
+
+    await vm.onUploadSkill();
+    await vm.confirmImportScope('personal');
+
+    expect(apiMock.callAPI.mock.calls.some(([method]) => method === 'skills/summary/suggest')).toBe(false);
+    expect(vm.importSummaryDrafts.value).toEqual([
+      expect.objectContaining({
+        name: '编写计划',
+        status: 'conflict',
+        error: '已导入，但和项目共享技能同名，暂未启用。请在冲突提示中选择使用哪个版本。',
+      }),
+    ]);
+    expect(vm.importSummaryDrafts.value[0].error).not.toContain('-32098');
+    expect(vm.importSummaryDrafts.value[0].error).not.toContain(importedPath);
+    expect(vm.notice.message).toContain('1 个同名技能待处理');
+    expect(vm.notice.message).not.toContain('简介建议生成失败');
+  });
+
+  it('labels import conflict drafts as conflict handling instead of summary suggestions', async () => {
+    const drafts = [{ status: 'conflict' }];
+
+    expect(importSummaryDraftPanelTitle(drafts)).toBe('导入后需要处理');
+    expect(importSummaryDraftPanelHint(drafts)).toBe('同名技能需要先选择使用哪个版本。');
   });
 
   it('preserves imported personal type after opening an imported personal skill', async () => {
@@ -280,10 +562,59 @@ describe('useSkillEditor personal target payloads', () => {
 	expect(vm.form.scope).toBe('personal');
 	expect(vm.form.personal_type).toBe('imported');
 	expect(apiMock.callAPI).toHaveBeenCalledWith('skills/local/write', expect.objectContaining({
-	  path: 'DocsSkill',
+	  path: '/skills/imported/DocsSkill/SKILL.md',
 	  scope: 'personal',
 	  personal_type: 'imported',
 	}));
+  });
+
+  it('saves generated descriptions back to the loaded main file when the folder and skill name differ', async () => {
+    const { vm } = createEditor(vi.fn(), {
+      skillCards: [{
+        name: 'agentic-engineering',
+        dir: '/repo/.agent/skills/Agent工程学',
+        scope: 'project',
+      }],
+    });
+    apiMock.callAPI.mockImplementation(async (method, payload) => {
+      if (method === 'skills/local/read' && payload?.path === '/repo/.agent/skills/Agent工程学/SKILL.md') {
+        return { skill: { content: '---\nname: agentic-engineering\n---\n# Agent 工程学\n拆分任务。' } };
+      }
+      if (method === 'skills/local/listFiles') {
+        return { files: [{ name: 'SKILL.md', path: '/repo/.agent/skills/Agent工程学/SKILL.md', is_main: true }] };
+      }
+      if (method === 'skills/summary/suggest') {
+        return { description: '当你需要拆分或管理多步骤 Agent 工程任务时使用。' };
+      }
+      return {};
+    });
+
+    await vm.onEditSkill({
+      name: 'agentic-engineering',
+      dir: '/repo/.agent/skills/Agent工程学',
+      scope: 'project',
+    });
+    await vm.onSuggestSkillSummary();
+    vm.applySummarySuggestion();
+    await vm.onSaveSkill();
+
+    expect(apiMock.callAPI).toHaveBeenCalledWith('skills/local/write', expect.objectContaining({
+      path: '/repo/.agent/skills/Agent工程学/SKILL.md',
+      scope: 'project',
+    }));
+  });
+
+  it('rejects invalid skill names before saving a main skill file', async () => {
+    const { vm } = createEditor();
+    vm.form.name = 'Agent 工程学';
+    vm.form.description = '当你需要拆分或管理多步骤 Agent 工程任务时使用。';
+    vm.form.body = '# Agent 工程学\n拆分任务。';
+
+    await vm.onSaveSkill();
+
+    expect(apiMock.callAPI).not.toHaveBeenCalled();
+    expect(vm.notice.level).toBe('error');
+    expect(vm.notice.message).toBe('技能名称不能包含空格，请使用中文、英文、数字、- 或 _。');
   });
 
   it('warns about same-name conflicts without claiming imports overwrite other scopes', async () => {
@@ -310,6 +641,31 @@ describe('useSkillEditor personal target payloads', () => {
 
 	resolveImport({ imported: [], failures: [] });
 	await importTask;
+  });
+
+  it('reports duplicate imports as already existing instead of a generic failure', async () => {
+	const { vm, emit } = createEditor();
+	apiMock.selectProjectDirs.mockResolvedValue(['/imports/DocsSkill']);
+	apiMock.callAPI.mockImplementation(async (method) => {
+	  if (method === 'skills/local/importDir') {
+	    return {
+	      imported: [],
+	      failures: [{ source: '/imports/DocsSkill', error: 'skill already exists: DocsSkill' }],
+	    };
+	  }
+	  return {};
+	});
+
+	await vm.onUploadSkill();
+	await vm.confirmImportScope('project');
+
+	expect(emit).toHaveBeenCalledWith('refresh-skills');
+	expect(vm.notice.level).toBe('info');
+	expect(vm.notice.message).toContain('项目共享里已存在：DocsSkill');
+	expect(vm.notice.message).toContain('未重复导入');
+	expect(vm.notice.message).not.toContain('失败');
+	expect(vm.notice.message).not.toContain('成功 0');
+	expect(vm.importFailures.value).toEqual(['/imports/DocsSkill：DocsSkill 已存在，未重复导入。']);
   });
 
   it('keeps same-name conflict warning in successful save notice', async () => {
@@ -393,7 +749,7 @@ describe('useSkillEditor personal target payloads', () => {
 
     expect(vm.form.personal_type).toBe('agent');
     expect(apiMock.callAPI).toHaveBeenCalledWith('skills/local/write', expect.objectContaining({
-      path: 'AgentDocs',
+      path: '/skills/agent-docs/SKILL.md',
       scope: 'personal',
       personal_type: 'agent',
     }));

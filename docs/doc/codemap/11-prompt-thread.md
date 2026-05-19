@@ -17,9 +17,9 @@
 1. **start prompt 的正式入口不在 prompt 包里单独命名，而在 thread helper**：`internal/module/thread/start_session_helpers.go:82-94` 的 `resolveStartPromptAssembly()` 调 `PromptAssemblyRef.AssembleStart()`。
 2. **turn prompt 没有同名 helper**：仓内 `resolveTurnPromptAssembly` 为 0 命中；turn 侧真实入口是 `internal/module/turn/prompt_assembly.go:13-43` 的 `prepareTurnAssembly()`，再调 `prompt.AssembleTurn()`。
 3. **`PROMPT_START_CURRENT_DATE` 已上线且只影响 start 一次性 system block**：常量在 `internal/module/prompt/assembler.go:25`，读 env 在 `:289-291`，注入 “Today's date is ...” 在 `:273`。
-4. **dynamic section 不是固定 5 个 slot**：真实矩阵来自 `internal/module/prompt/dynamic.go:43-61`，当前不含旧 prompt 注入式 skill catalog slot。
-5. **skill 不再经 prompt catalog 注入**：V1 生产路径是 canonical skills -> provider-native mirrors；prompt 侧只保留 `SkillNativeReplacementSource` 用于 native tool suppression hints。
-6. **prompt config 不再承载 skill catalog 开关**：`internal/module/prompt/config.go` 只保留 registry / assembly / system-context cache breaker 等 prompt 开关。
+4. **dynamic section 不是固定 5 个 slot**：真实矩阵来自 `internal/module/prompt/dynamic.go:43-61`，当前不含旧 prompt 注入式 skill 列表 slot。
+5. **skill 不再经 prompt catalog 注入**：V1 生产路径是 canonical skills -> provider-native mirrors；prompt 不从 skill store 读取 native replacement，native/tool suppression hints 只来自用户禁用工具配置。
+6. **prompt config 不再承载旧 skill 列表开关**：`internal/module/prompt/config.go` 只保留 registry / assembly / system-context cache breaker 等 prompt 开关。
 7. **prompt store 不是只读**：`internal/store/prompt/contract.go:15-22` 已暴露 `WithTx / Get / Delete / InsertVersion / Upsert`；写路径在 `internal/module/prompt/service.go:290-340,382-488`。
 8. **freeze 真值是 `prompt = 27`**：`internal/archtest/freeze_registry.go:29-35` 明写 `internal/module/prompt` 包文件数 freeze 到 27。
 9. **resume 没有独立 `resume.go`**：resume 主链分散在 `thread/lifecycle.go`、`start_session.go`、`prompt_snapshot.go`、`rpc.go`；文件树里只有 `resume_test.go`、`resume_session_uuid_test.go`。
@@ -33,7 +33,7 @@
 
 | 路径 | 角色 | 本卷重点 |
 |---|---|---|
-| `internal/module/prompt/module.go` | fx 装配、prompt service wiring | `Module`、`NewServiceFx`、`SkillNativeReplacementSource` optional injection |
+| `internal/module/prompt/module.go` | fx 装配、prompt service wiring | `Module`、`NewServiceFx`、`DisabledToolsFn` optional injection |
 | `internal/module/prompt/config.go` | env config | registry / assembly / system-context cache breaker |
 | `internal/module/prompt/service.go` | registry + prompt CRUD service | built-in providers、prompt store 写入口 |
 | `internal/module/prompt/assembler.go` | start/turn assembly 真身 | start system prompt、current date hook、snapshot 生成 |
@@ -103,7 +103,8 @@
   - `AsSectionInvalidator`
   - `registerPromptHandlers`
 - `newPromptClassifier`
-- `ServiceFxParams.SkillStore` 可选接入 `contract.SkillNativeReplacementSource`，用于 native tool suppression hints。
+- `ServiceFxParams` 当前只接入 prompt config、logger、UI preference store、shared-file reader 和可选 `DisabledToolsFn`；没有 skill store 接线。
+- `DisabledToolsFn` 只把用户禁用工具配置传给 prompt assembler，作为 native/tool suppression hints 的当前来源。
 - 也就是说，**section slot 的“定义”与 provider 的“注入”是两段式**：
   1. `NewService()` 先注册静态 section + dynamic slot。
   2. 各 provider 再通过 `RegisterDynamicProvider()` 把实现挂到 slot 名上。
@@ -161,7 +162,7 @@
 | 260 | `brief` | `CacheByName` | 否 | `BriefProvider`，`service.go:141` |
 | 270 | `ant_model_override` | `CacheByName` | 否 | `AntModelOverrideStubProvider`，`service.go` |
 
-结论：**这不是“固定 5 个 dynamic slot”**。旧 prompt 注入式 skill catalog slot 已退出生产链，skills 通过 provider-native mirrors 让 Claude/Codex 自己发现。
+结论：**这不是“固定 5 个 dynamic slot”**。旧 prompt 注入式 skill 列表 slot 已退出生产链，skills 通过 provider-native mirrors 让 Claude/Codex 自己发现。
 
 ### 4.5 `dynamicSlotSections()` 如何把 slot 变成真正 section
 
@@ -177,7 +178,7 @@
   - 只按名字从 `s.dynamic` map 取 provider
   - provider 为 nil 时直接返回 nil
 - 所以即使 slot 已存在，只要 provider 没注册，**该 section 仍会渲染为空**。
-- 旧 prompt 注入式 skill catalog 已不在 slot 矩阵内；新增 dynamic provider 仍遵循“slot 注册 + provider 解析”的通用模式。
+- 旧 prompt 注入式 skill 列表已不在 slot 矩阵内；新增 dynamic provider 仍遵循“slot 注册 + provider 解析”的通用模式。
 
 ### 4.6 start 入口：`resolveStartPromptAssembly()`
 
@@ -307,8 +308,9 @@
 ### 4.13 Skills 与 prompt 的当前边界
 
 - 生产 skill 发现链路不再走 prompt catalog，也不把 skill body 注入 start/turn prompt。
-- `skill.Module` 通过 `contract.SkillMirrorReconciler` 向 provider 暴露 mirror reconcile 窄端口；Claude/Codex provider 在启动/acquire 前生成 `.claude/skills`、`.codex/skills` 与 provider home `skills` mirrors。
-- prompt 侧仍可通过 `contract.SkillNativeReplacementSource` 读取 canonical skill metadata 的 `ReplacesNative`，用于 `assembler_support.go` 里的 native tool suppression hints；这不是 skill 调用或正文注入路径。
+- `skill.Module` 通过 `contract.SkillMirrorReconciler` 向 provider 暴露 mirror reconcile 窄端口；Claude/Codex provider 在启动/acquire 前生成项目级 `.claude/skills`、`.agents/skills` 与个人级 `~/.claude/skills`、`~/.agents/skills` mirrors；显式 provider home 才使用其 `skills`。
+- prompt 不从 skill store 读取 native replacement；`ServiceFxParams` 已无 skill store 注入，`assembler_support.go` 的 `aggregateSuppressedTools()` 只聚合用户禁用工具配置。
+- provider-native skill mirror 不再通过 prompt assembly metadata 产生 native/tool suppression hints；provider-native mirror 主链看 09 provider / skill module。
 - turn 侧仍用 `SkillHydrationSource` 对显式 `SkillRef` 补版本/hash/summary 等元数据，但 provider 实际发现和调用交给 native mirror。
 
 结论：本卷只记录 prompt/thread 如何携带运行时上下文；skill runtime 主链请看 09 provider mirror 与 skill module mirror reconciler。
@@ -1216,7 +1218,7 @@ flowchart LR
   E --> E2[memory / agent_memory / memory_context]
   E --> E3[env / language / mcp / output_style]
   E --> E4[scratchpad / frc / summarize / anchors / token_budget / brief]
-  E --> E5[native tool suppression hints]
+  E --> E5[user disabled tool suppression hints]
   D --> F[resolveSections]
   E1 --> F
   E2 --> F
@@ -1404,7 +1406,7 @@ flowchart LR
 - [ ] `resolveStartPromptAssembly()` 已写成 start 真入口。
 - [ ] 已明确说明仓内无 `resolveTurnPromptAssembly`，turn 真入口是 `prepareTurnAssembly()`。
 - [ ] `dynamicSectionSpecs` 已按当前 slot 列全，不再写“固定 5 个”。
-- [ ] 已写明 skill 不再经 prompt catalog 注入，生产链路走 provider-native mirror，prompt 侧只保留 native tool suppression hints。
+- [ ] 已写明 skill 不再经 prompt catalog 注入，生产链路走 provider-native mirror，prompt 侧 native/tool suppression hints 只来自用户禁用工具配置。
 
 ### 13.2 Thread 生命周期 checklist
 

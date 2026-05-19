@@ -111,10 +111,11 @@ func stepStringState(ch byte, escaped bool) (inString bool, nextEscaped bool) {
 //	"usage":{"input_tokens":6,"cache_creation_input_tokens":7409,
 //	         "cache_read_input_tokens":16153,"output_tokens":8,...}, ...}
 type claudeEnvelope struct {
-	Type    string `json:"type"`
-	IsError bool   `json:"is_error"`
-	Result  string `json:"result"`
-	Usage   struct {
+	Type           string `json:"type"`
+	IsError        bool   `json:"is_error"`
+	APIErrorStatus int    `json:"api_error_status"`
+	Result         string `json:"result"`
+	Usage          struct {
 		InputTokens              uint64 `json:"input_tokens"`
 		OutputTokens             uint64 `json:"output_tokens"`
 		CacheCreationInputTokens uint64 `json:"cache_creation_input_tokens"`
@@ -133,6 +134,9 @@ func ExtractClaudeEnvelope(raw []byte) (string, TokenUsage, error) {
 		return "", TokenUsage{}, fmt.Errorf("dreamexec: parse claude envelope: %w", err)
 	}
 	if env.IsError {
+		if isModelUnavailableMessage(env.APIErrorStatus, env.Result) {
+			return "", TokenUsage{}, fmt.Errorf("%w: claude envelope reports model error (status=%d)", ErrModelUnavailable, env.APIErrorStatus)
+		}
 		return "", TokenUsage{}, fmt.Errorf("dreamexec: claude envelope reports error (type=%s)", env.Type)
 	}
 	if env.Type != "" && env.Type != "result" {
@@ -147,6 +151,46 @@ func ExtractClaudeEnvelope(raw []byte) (string, TokenUsage, error) {
 		CacheReadTokens: env.Usage.CacheReadInputTokens,
 	}
 	return env.Result, usage, nil
+}
+
+func modelUnavailableErrorFromOutput(parts ...[]byte) error {
+	for _, raw := range parts {
+		if !looksLikeClaudeEnvelope(raw) {
+			if isModelUnavailableMessage(0, string(raw)) {
+				return ErrModelUnavailable
+			}
+			continue
+		}
+		_, _, err := ExtractClaudeEnvelope(raw)
+		if errors.Is(err, ErrModelUnavailable) {
+			return err
+		}
+	}
+	return nil
+}
+
+func isModelUnavailableMessage(status int, message string) bool {
+	lower := strings.ToLower(message)
+	hasModelContext := strings.Contains(lower, "model")
+	if status == 404 && hasModelContext {
+		return true
+	}
+	for _, term := range []string{
+		"selected model",
+		"model may not exist",
+		"model does not exist",
+		"model not found",
+		"unknown model",
+		"invalid model",
+	} {
+		if strings.Contains(lower, term) {
+			return true
+		}
+	}
+	if hasModelContext && (strings.Contains(lower, "not have access") || strings.Contains(lower, "no access to")) {
+		return true
+	}
+	return false
 }
 
 // codexJSONLEvent 是 codex exec --json 输出的单行 JSON event 结构。

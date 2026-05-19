@@ -13,6 +13,7 @@ import (
 )
 
 func TestSkillResolutionListRPCReturnsCanonicalAndMirrorConflicts(t *testing.T) {
+	setSkillTestUserHome(t)
 	project := t.TempDir()
 	superHome := filepath.Join(t.TempDir(), ".super-dolphin")
 	svc := &service{
@@ -38,14 +39,15 @@ func TestSkillResolutionListRPCReturnsCanonicalAndMirrorConflicts(t *testing.T) 
 	if err != nil {
 		t.Fatalf("resolveOwnerIdentity: %v", err)
 	}
-	projectTarget := SkillMirrorTarget{TargetID: "codex:project:" + fingerprint, Provider: SkillProviderCodex, Scope: skillScopeProject, Root: filepath.Join(project, ".codex", "skills"), CanonicalRootID: fingerprint}
-	personalTarget := SkillMirrorTarget{TargetID: "claude:app-managed:" + owner.OwnerKey, Provider: SkillProviderClaude, Scope: skillScopePersonal, Root: filepath.Join(superHome, "providers", "claude", "skills"), CanonicalRootID: owner.OwnerKey}
+	projectTarget := SkillMirrorTarget{TargetID: "codex:project:" + fingerprint, Provider: SkillProviderCodex, Scope: skillScopeProject, Root: providerProjectMirrorRoot(SkillProviderCodex, project), CanonicalRootID: fingerprint}
+	personalTarget := SkillMirrorTarget{TargetID: "claude:user-global:" + owner.OwnerKey, Provider: SkillProviderClaude, Scope: skillScopePersonal, Root: providerPersonalMirrorRoot(SkillProviderClaude), CanonicalRootID: owner.OwnerKey}
 	if _, err := PublishSkillMirrors(context.Background(), records, []SkillMirrorTarget{projectTarget, personalTarget}); err != nil {
 		t.Fatalf("PublishSkillMirrors: %v", err)
 	}
 	writeFileWithMode(t, filepath.Join(projectTarget.Root, "drift", "references", "guide.md"), "project drift\n", 0o644)
 	writeFileWithMode(t, filepath.Join(personalTarget.Root, "notes", "references", "guide.md"), "personal drift\n", 0o644)
 	writeSkillWithSupportFiles(t, filepath.Join(project, ".claude", "skills", "scratch"), "scratch")
+	writeFileWithMode(t, filepath.Join(project, ".claude", "skills", "scratch", "references", "guide.md"), "provider scratch\n", 0o644)
 	personalManifestPath := filepath.Join(personalTarget.Root, skillMirrorManifestFile)
 	personalManifest, err := readSkillMirrorManifest(personalManifestPath)
 	if err != nil {
@@ -67,12 +69,12 @@ func TestSkillResolutionListRPCReturnsCanonicalAndMirrorConflicts(t *testing.T) 
 	}
 
 	same := findResolutionItem(t, got.Items, "same_name", "same", "")
-	assertResolutionActions(t, same, ResolutionViewDiff, ResolutionDisablePersonalForProject, ResolutionKeepSelected)
+	assertResolutionActions(t, same, ResolutionViewDiff, ResolutionKeepSelected, ResolutionRenamePersonal)
 	assertResolutionSource(t, same, skillScopeProject, "", "project/same")
 	assertResolutionSource(t, same, skillScopePersonal, personalSkillTypeUser, "personal/user/same")
 
 	projectDrift := findResolutionItem(t, got.Items, "mirror_drift", "drift", skillScopeProject)
-	assertResolutionActions(t, projectDrift, ResolutionViewDiff, ResolutionSaveAsNewSkill, ResolutionSyncBackCanonical, ResolutionCanonicalOverwrite, ResolutionConfirmDeleteDriftedMirror)
+	assertResolutionActions(t, projectDrift, ResolutionViewDiff, ResolutionSaveAsNewSkill, ResolutionSyncBackCanonical, ResolutionCanonicalOverwrite)
 	assertResolutionProviderEntry(t, projectDrift, string(SkillProviderCodex), "drift")
 
 	personalDrift := findResolutionItem(t, got.Items, "mirror_drift", "notes", skillScopePersonal)
@@ -83,7 +85,7 @@ func TestSkillResolutionListRPCReturnsCanonicalAndMirrorConflicts(t *testing.T) 
 	assertResolutionProviderEntry(t, personalDrift, string(SkillProviderClaude), "notes")
 
 	unmanaged := findResolutionItem(t, got.Items, "unmanaged_same_name", "scratch", skillScopeProject)
-	assertResolutionActions(t, unmanaged, ResolutionViewUnmanaged, ResolutionImportPersonal, ResolutionTakeoverProvider)
+	assertResolutionActions(t, unmanaged, ResolutionViewDiff, ResolutionSyncBackCanonical, ResolutionCanonicalOverwrite, ResolutionSaveAsNewSkill)
 	assertResolutionProviderEntry(t, unmanaged, string(SkillProviderClaude), "scratch")
 	personalUnmanaged := findResolutionItem(t, got.Items, "unmanaged_same_name", "loose", skillScopePersonal)
 	assertResolutionActions(t, personalUnmanaged, ResolutionViewUnmanaged, ResolutionImportPersonal)
@@ -130,6 +132,56 @@ func TestSkillResolutionListUsesRealProjectMirrorRootForSymlinkCWD(t *testing.T)
 	}
 }
 
+func TestSkillResolutionListReportsLegacyMirrorRootSymlinkAsConflict(t *testing.T) {
+	setSkillTestUserHome(t)
+	project := t.TempDir()
+	superHome := filepath.Join(t.TempDir(), ".super-dolphin")
+	svc := &service{projectRoot: project, projectSkillsRoot: defaultProjectSkillsRoot(project), superDolphinHome: superHome, http: &http.Client{}}
+	writeSkillWithSupportFiles(t, filepath.Join(project, ".agent", "skills", "build"), "build")
+	legacyCache := filepath.Join(t.TempDir(), "skills-cache")
+	if err := os.MkdirAll(legacyCache, 0o755); err != nil {
+		t.Fatalf("MkdirAll legacy cache: %v", err)
+	}
+	claudeRoot := providerProjectMirrorRoot(SkillProviderClaude, project)
+	if err := os.MkdirAll(filepath.Dir(claudeRoot), 0o755); err != nil {
+		t.Fatalf("MkdirAll claude root parent: %v", err)
+	}
+	if err := os.Symlink(legacyCache, claudeRoot); err != nil {
+		t.Fatalf("Symlink legacy root: %v", err)
+	}
+
+	got := dispatchResolutionList(t, newSkillRPCTestServer(t, svc), project)
+	item := findResolutionItem(t, got.Items, "mirror_root_symlink", "Claude 项目技能目录", skillScopeProject)
+
+	assertResolutionActions(t, item, ResolutionViewUnmanaged, "replace_provider_root_symlink")
+	if len(item.ProviderEntries) != 1 {
+		t.Fatalf("provider entries = %+v, want one root symlink entry", item.ProviderEntries)
+	}
+	if item.ProviderEntries[0].Provider != string(SkillProviderClaude) || item.ProviderEntries[0].SourceHash == "" {
+		t.Fatalf("provider entry = %+v, want claude with source hash", item.ProviderEntries[0])
+	}
+	if !sameCleanPath(filepath.FromSlash(item.ProviderEntries[0].SourcePath), claudeRoot) {
+		t.Fatalf("source_path = %q, want symlink root %q", item.ProviderEntries[0].SourcePath, claudeRoot)
+	}
+	if !sameCleanPath(filepath.FromSlash(item.ProviderEntries[0].TargetPath), claudeRoot) {
+		t.Fatalf("target_path = %q, want replacement root %q", item.ProviderEntries[0].TargetPath, claudeRoot)
+	}
+}
+
+func TestSkillResolutionListSupportsProjectOnlySameNameSelection(t *testing.T) {
+	project := t.TempDir()
+	superHome := filepath.Join(t.TempDir(), ".super-dolphin")
+	svc := &service{projectRoot: project, projectSkillsRoot: defaultProjectSkillsRoot(project), superDolphinHome: superHome, http: &http.Client{}}
+	writeSkillContent(t, filepath.Join(project, ".agent", "skills", "security-engineer"), "安全工程师规范", "# a\n")
+	writeSkillContent(t, filepath.Join(project, ".agent", "skills", "security-standards"), "安全工程师规范", "# b\n")
+
+	item := findResolutionItem(t, dispatchResolutionList(t, newSkillRPCTestServer(t, svc), project).Items, "same_name", "安全工程师规范", "")
+
+	assertResolutionActions(t, item, ResolutionViewDiff, ResolutionKeepSelected, ResolutionRenamePersonal)
+	assertResolutionSource(t, item, skillScopeProject, "", "project/security-engineer")
+	assertResolutionSource(t, item, skillScopeProject, "", "project/security-standards")
+}
+
 func TestSkillResolutionPreviewIDAuthorizesSyncBackApply(t *testing.T) {
 	project, server, canonicalDir, _, svc := setupResolutionPreviewDriftFixtureWithService(t)
 	svc.auditStore = &capturingSkillAuditStore{}
@@ -140,7 +192,7 @@ func TestSkillResolutionPreviewIDAuthorizesSyncBackApply(t *testing.T) {
 	_, err := ResolveSkillMirrorDrift(context.Background(), svc, SkillMirrorResolutionRequest{
 		Action:      ResolutionSyncBackCanonical,
 		Name:        "drift",
-		Target:      SkillMirrorTarget{TargetID: "codex:project:" + RepoFingerprint(project), Provider: SkillProviderCodex, Scope: skillScopeProject, Root: filepath.Join(project, ".codex", "skills"), CanonicalRootID: RepoFingerprint(project)},
+		Target:      SkillMirrorTarget{TargetID: "codex:project:" + RepoFingerprint(project), Provider: SkillProviderCodex, Scope: skillScopeProject, Root: providerProjectMirrorRoot(SkillProviderCodex, project), CanonicalRootID: RepoFingerprint(project)},
 		PreviewID:   proof.PreviewID,
 		PreviewHash: proof.PreviewHash,
 	})
@@ -150,27 +202,8 @@ func TestSkillResolutionPreviewIDAuthorizesSyncBackApply(t *testing.T) {
 	assertFileContent(t, filepath.Join(canonicalDir, "references", "guide.md"), "project drift\n")
 }
 
-func TestSkillResolutionListReportsCanonicalOnlyChangeAsMirrorDrift(t *testing.T) {
-	project := t.TempDir()
-	superHome := filepath.Join(t.TempDir(), ".super-dolphin")
-	svc := &service{root: t.TempDir(), projectRoot: project, projectSkillsRoot: defaultProjectSkillsRoot(project), superDolphinHome: superHome, http: &http.Client{}}
-	writeSkillWithSupportFiles(t, filepath.Join(project, ".agent", "skills", "stale"), "stale")
-	records, err := newCanonicalStore(superHome).scan(project)
-	if err != nil {
-		t.Fatalf("scan canonical records: %v", err)
-	}
-	target := SkillMirrorTarget{TargetID: "codex:project:" + RepoFingerprint(project), Provider: SkillProviderCodex, Scope: skillScopeProject, Root: filepath.Join(project, ".codex", "skills"), CanonicalRootID: RepoFingerprint(project)}
-	if _, err := PublishSkillMirrors(context.Background(), records, []SkillMirrorTarget{target}); err != nil {
-		t.Fatalf("PublishSkillMirrors: %v", err)
-	}
-	writeFileWithMode(t, filepath.Join(project, ".agent", "skills", "stale", "references", "guide.md"), "canonical v2\n", 0o644)
-
-	got := dispatchResolutionList(t, newSkillRPCTestServer(t, svc), project)
-	item := findResolutionItem(t, got.Items, "mirror_drift", "stale", skillScopeProject)
-	assertResolutionActions(t, item, ResolutionViewDiff, ResolutionSaveAsNewSkill, ResolutionSyncBackCanonical, ResolutionCanonicalOverwrite, ResolutionConfirmDeleteDriftedMirror)
-}
-
 func TestSkillResolutionMirrorTargetsUseResolvedOwnerKey(t *testing.T) {
+	setSkillTestUserHome(t)
 	project := t.TempDir()
 	superHome := filepath.Join(t.TempDir(), ".super-dolphin")
 	svc := &service{projectRoot: project, projectSkillsRoot: defaultProjectSkillsRoot(project), superDolphinHome: superHome}
@@ -180,35 +213,8 @@ func TestSkillResolutionMirrorTargetsUseResolvedOwnerKey(t *testing.T) {
 	}
 
 	targets := svc.resolutionMirrorTargets(project)
-	assertResolutionMirrorTarget(t, targets, "claude:app-managed:"+owner.OwnerKey, owner.OwnerKey)
-	assertResolutionMirrorTarget(t, targets, "codex:app-managed:"+owner.OwnerKey, owner.OwnerKey)
-}
-
-func TestSkillResolutionListAggregatesMultiMirrorDrift(t *testing.T) {
-	project := t.TempDir()
-	superHome := filepath.Join(t.TempDir(), ".super-dolphin")
-	svc := &service{root: t.TempDir(), projectRoot: project, projectSkillsRoot: defaultProjectSkillsRoot(project), superDolphinHome: superHome, http: &http.Client{}}
-	writeSkillWithSupportFiles(t, filepath.Join(project, ".agent", "skills", "multi"), "multi")
-	records, err := newCanonicalStore(superHome).scan(project)
-	if err != nil {
-		t.Fatalf("scan canonical records: %v", err)
-	}
-	fingerprint := RepoFingerprint(project)
-	claudeTarget := SkillMirrorTarget{TargetID: "claude:project:" + fingerprint, Provider: SkillProviderClaude, Scope: skillScopeProject, Root: filepath.Join(project, ".claude", "skills"), CanonicalRootID: fingerprint}
-	codexTarget := SkillMirrorTarget{TargetID: "codex:project:" + fingerprint, Provider: SkillProviderCodex, Scope: skillScopeProject, Root: filepath.Join(project, ".codex", "skills"), CanonicalRootID: fingerprint}
-	if _, err := PublishSkillMirrors(context.Background(), records, []SkillMirrorTarget{claudeTarget, codexTarget}); err != nil {
-		t.Fatalf("PublishSkillMirrors: %v", err)
-	}
-	writeFileWithMode(t, filepath.Join(claudeTarget.Root, "multi", "references", "guide.md"), "claude drift\n", 0o644)
-	writeFileWithMode(t, filepath.Join(codexTarget.Root, "multi", "references", "guide.md"), "codex drift\n", 0o644)
-
-	server := newSkillRPCTestServer(t, svc)
-	got := dispatchResolutionList(t, server, project)
-	item := findResolutionItem(t, got.Items, "multi_mirror_drift", "multi", skillScopeProject)
-	if len(item.ProviderEntries) != 2 {
-		t.Fatalf("multi provider entries = %+v, want two entries", item.ProviderEntries)
-	}
-	assertResolutionActions(t, item, ResolutionViewDiff, ResolutionSaveAsNewSkill, ResolutionSyncBackCanonical, ResolutionCanonicalOverwrite, ResolutionConfirmDeleteDriftedMirror)
+	assertResolutionMirrorTarget(t, targets, "claude:user-global:"+owner.OwnerKey, owner.OwnerKey)
+	assertResolutionMirrorTarget(t, targets, "codex:user-global:"+owner.OwnerKey, owner.OwnerKey)
 }
 
 func TestSkillResolutionPreviewRequiresNewNameForSaveAsNew(t *testing.T) {
@@ -241,8 +247,8 @@ func TestSkillResolutionPreviewCanonicalDeletedWithDriftHasTargetPath(t *testing
 	if deletePreview.Items[0].TargetPath != deletePreview.Items[0].SourcePath || deletePreview.Items[0].ConfirmDeleteMirrorHash == "" {
 		t.Fatalf("confirm-delete preview must bind drifted mirror path/hash: %+v", deletePreview.Items[0])
 	}
-	if strings.Contains(deletePreview.Items[0].BackupPath, "/.codex/skills/.super-dolphin-mirror-backup/") ||
-		!strings.Contains(deletePreview.Items[0].BackupPath, "/.codex/.super-dolphin-mirror-backup/skills/") {
+	if strings.Contains(deletePreview.Items[0].BackupPath, "/.agents/skills/.super-dolphin-mirror-backup/") ||
+		!strings.Contains(deletePreview.Items[0].BackupPath, "/.agents/.super-dolphin-mirror-backup/skills/") {
 		t.Fatalf("confirm-delete backup_path = %q, want provider backup outside skills root", deletePreview.Items[0].BackupPath)
 	}
 }
@@ -305,8 +311,8 @@ func TestSkillResolutionPreviewIDIsStoredServerSide(t *testing.T) {
 }
 
 func TestSkillResolutionPreviewImportPersonalTargetsImportedCanonical(t *testing.T) {
-	project, server := setupUnmanagedProviderConflictFixture(t)
-	item := findResolutionItem(t, dispatchResolutionList(t, server, project).Items, "unmanaged_same_name", "scratch", skillScopeProject)
+	project, server := setupOrphanUnmanagedProviderConflictFixture(t)
+	item := findResolutionItem(t, dispatchResolutionList(t, server, project).Items, "unmanaged_provider_skill", "scratch", skillScopeProject)
 
 	raw, err := server.Dispatch(context.Background(), "skills/resolution_preview", json.RawMessage(`{"cwd":"`+project+`","conflict_id":"`+item.ConflictID+`","name":"scratch","scope":"project","provider":"claude","action":"import_to_personal_imported"}`))
 	if err != nil {
@@ -321,6 +327,27 @@ func TestSkillResolutionPreviewImportPersonalTargetsImportedCanonical(t *testing
 	}
 }
 
+func TestSkillResolutionPreviewViewUnmanagedPreviewsAllProviders(t *testing.T) {
+	project, server := setupMultiProviderUnmanagedFixture(t)
+	item := findResolutionItem(t, dispatchResolutionList(t, server, project).Items, "unmanaged_provider_skill", "scratch", skillScopeProject)
+	if len(item.ProviderEntries) != 2 {
+		t.Fatalf("provider entries = %+v, want claude and codex", item.ProviderEntries)
+	}
+
+	raw, err := server.Dispatch(context.Background(), "skills/resolution_preview", json.RawMessage(`{"cwd":"`+project+`","conflict_id":"`+item.ConflictID+`","name":"scratch","scope":"project","action":"view_unmanaged"}`))
+	if err != nil {
+		t.Fatalf("view_unmanaged preview: %v", err)
+	}
+	var preview skillResolutionPreviewResult
+	if err := json.Unmarshal(raw, &preview); err != nil {
+		t.Fatalf("Unmarshal view unmanaged preview: %v", err)
+	}
+	if len(preview.Items) != 2 {
+		t.Fatalf("view_unmanaged items = %+v, want two provider previews", preview.Items)
+	}
+	assertPreviewProviders(t, preview.Items, string(SkillProviderClaude), string(SkillProviderCodex))
+}
+
 func setupResolutionPreviewDriftFixture(t *testing.T) (string, *platformrpc.Server, string, string) {
 	t.Helper()
 	project, server, canonicalDir, mirrorDir, _ := setupResolutionPreviewDriftFixtureWithService(t)
@@ -329,6 +356,7 @@ func setupResolutionPreviewDriftFixture(t *testing.T) (string, *platformrpc.Serv
 
 func setupResolutionPreviewDriftFixtureWithService(t *testing.T) (string, *platformrpc.Server, string, string, *service) {
 	t.Helper()
+	setSkillTestUserHome(t)
 	project := t.TempDir()
 	superHome := filepath.Join(t.TempDir(), ".super-dolphin")
 	svc := &service{root: t.TempDir(), projectRoot: project, projectSkillsRoot: defaultProjectSkillsRoot(project), superDolphinHome: superHome, http: &http.Client{}}
@@ -338,7 +366,7 @@ func setupResolutionPreviewDriftFixtureWithService(t *testing.T) (string, *platf
 		t.Fatalf("scan canonical records: %v", err)
 	}
 	fingerprint := RepoFingerprint(project)
-	target := SkillMirrorTarget{TargetID: "codex:project:" + fingerprint, Provider: SkillProviderCodex, Scope: skillScopeProject, Root: filepath.Join(project, ".codex", "skills"), CanonicalRootID: fingerprint}
+	target := SkillMirrorTarget{TargetID: "codex:project:" + fingerprint, Provider: SkillProviderCodex, Scope: skillScopeProject, Root: providerProjectMirrorRoot(SkillProviderCodex, project), CanonicalRootID: fingerprint}
 	if _, err := PublishSkillMirrors(context.Background(), records, []SkillMirrorTarget{target}); err != nil {
 		t.Fatalf("PublishSkillMirrors: %v", err)
 	}
@@ -360,17 +388,17 @@ func setupCanonicalDeletedDriftFixtureWithService(t *testing.T) (string, *platfo
 	if err := os.RemoveAll(canonicalDir); err != nil {
 		t.Fatalf("RemoveAll canonical: %v", err)
 	}
-	if err := os.Rename(filepath.Join(project, ".codex", "skills", "drift"), filepath.Join(project, ".codex", "skills", "deleted")); err != nil {
+	if err := os.Rename(filepath.Join(providerProjectMirrorRoot(SkillProviderCodex, project), "drift"), filepath.Join(providerProjectMirrorRoot(SkillProviderCodex, project), "deleted")); err != nil {
 		t.Fatalf("rename mirror to deleted: %v", err)
 	}
-	manifest, err := readSkillMirrorManifest(filepath.Join(project, ".codex", "skills", skillMirrorManifestFile))
+	manifest, err := readSkillMirrorManifest(filepath.Join(providerProjectMirrorRoot(SkillProviderCodex, project), skillMirrorManifestFile))
 	if err != nil {
 		t.Fatalf("read manifest: %v", err)
 	}
 	entry := manifest.Skills["drift"]
 	entry.CanonicalID = "project/deleted"
 	manifest.Skills = map[string]SkillMirrorEntry{"deleted": entry}
-	if err := writeSkillMirrorManifest(filepath.Join(project, ".codex", "skills", skillMirrorManifestFile), manifest); err != nil {
+	if err := writeSkillMirrorManifest(filepath.Join(providerProjectMirrorRoot(SkillProviderCodex, project), skillMirrorManifestFile), manifest); err != nil {
 		t.Fatalf("write manifest: %v", err)
 	}
 	return project, server, svc
@@ -391,6 +419,7 @@ func assertResolutionMirrorTarget(t *testing.T, targets []SkillMirrorTarget, tar
 
 func setupMultiMirrorDriftFixture(t *testing.T) (string, *platformrpc.Server) {
 	t.Helper()
+	setSkillTestUserHome(t)
 	project := t.TempDir()
 	superHome := filepath.Join(t.TempDir(), ".super-dolphin")
 	svc := &service{root: t.TempDir(), projectRoot: project, projectSkillsRoot: defaultProjectSkillsRoot(project), superDolphinHome: superHome, http: &http.Client{}}
@@ -401,7 +430,7 @@ func setupMultiMirrorDriftFixture(t *testing.T) (string, *platformrpc.Server) {
 	}
 	fingerprint := RepoFingerprint(project)
 	claudeTarget := SkillMirrorTarget{TargetID: "claude:project:" + fingerprint, Provider: SkillProviderClaude, Scope: skillScopeProject, Root: filepath.Join(project, ".claude", "skills"), CanonicalRootID: fingerprint}
-	codexTarget := SkillMirrorTarget{TargetID: "codex:project:" + fingerprint, Provider: SkillProviderCodex, Scope: skillScopeProject, Root: filepath.Join(project, ".codex", "skills"), CanonicalRootID: fingerprint}
+	codexTarget := SkillMirrorTarget{TargetID: "codex:project:" + fingerprint, Provider: SkillProviderCodex, Scope: skillScopeProject, Root: providerProjectMirrorRoot(SkillProviderCodex, project), CanonicalRootID: fingerprint}
 	if _, err := PublishSkillMirrors(context.Background(), records, []SkillMirrorTarget{claudeTarget, codexTarget}); err != nil {
 		t.Fatalf("PublishSkillMirrors: %v", err)
 	}
@@ -418,12 +447,34 @@ func setupUnmanagedProviderConflictFixture(t *testing.T) (string, *platformrpc.S
 
 func setupUnmanagedProviderConflictFixtureWithService(t *testing.T) (string, *platformrpc.Server, *service) {
 	t.Helper()
+	setSkillTestUserHome(t)
 	project := t.TempDir()
 	superHome := filepath.Join(t.TempDir(), ".super-dolphin")
 	svc := &service{root: t.TempDir(), projectRoot: project, projectSkillsRoot: defaultProjectSkillsRoot(project), superDolphinHome: superHome, http: &http.Client{}}
 	writeSkillWithSupportFiles(t, filepath.Join(project, ".agent", "skills", "scratch"), "scratch")
 	writeSkillContent(t, filepath.Join(project, ".claude", "skills", "scratch"), "stale-provider-name", "# scratch\n")
 	return project, newSkillRPCTestServer(t, svc), svc
+}
+
+func setupOrphanUnmanagedProviderConflictFixture(t *testing.T) (string, *platformrpc.Server) {
+	t.Helper()
+	setSkillTestUserHome(t)
+	project := t.TempDir()
+	superHome := filepath.Join(t.TempDir(), ".super-dolphin")
+	svc := &service{root: t.TempDir(), projectRoot: project, projectSkillsRoot: defaultProjectSkillsRoot(project), superDolphinHome: superHome, http: &http.Client{}}
+	writeSkillWithSupportFiles(t, filepath.Join(project, ".claude", "skills", "scratch"), "scratch")
+	return project, newSkillRPCTestServer(t, svc)
+}
+
+func setupMultiProviderUnmanagedFixture(t *testing.T) (string, *platformrpc.Server) {
+	t.Helper()
+	setSkillTestUserHome(t)
+	project := t.TempDir()
+	superHome := filepath.Join(t.TempDir(), ".super-dolphin")
+	svc := &service{root: t.TempDir(), projectRoot: project, projectSkillsRoot: defaultProjectSkillsRoot(project), superDolphinHome: superHome, http: &http.Client{}}
+	writeSkillWithSupportFiles(t, filepath.Join(project, ".claude", "skills", "scratch"), "scratch")
+	writeSkillWithSupportFiles(t, filepath.Join(providerProjectMirrorRoot(SkillProviderCodex, project), "scratch"), "scratch")
+	return project, newSkillRPCTestServer(t, svc)
 }
 
 func resolutionPreviewHashes(t *testing.T, canonicalDir, mirrorDir string) (string, string) {
@@ -502,6 +553,19 @@ func assertReadOnlyDiffPreview(t *testing.T, view skillResolutionPreviewResult) 
 	}
 }
 
+func assertPreviewProviders(t *testing.T, items []skillResolutionPreviewItem, want ...string) {
+	t.Helper()
+	got := make(map[string]bool, len(items))
+	for _, item := range items {
+		got[item.SourceProvider] = true
+	}
+	for _, provider := range want {
+		if !got[provider] {
+			t.Fatalf("preview providers = %+v, missing %q", items, provider)
+		}
+	}
+}
+
 func assertMutatingPreviewProof(t *testing.T, item skillResolutionPreviewItem, sourceHash, targetHash string) {
 	t.Helper()
 	if !strings.HasPrefix(item.PreviewID, "resolution-preview:") || item.PreviewHash == "" || item.BackupPath == "" {
@@ -538,6 +602,15 @@ func findResolutionItem(t *testing.T, items []skillResolutionItem, kind, name, s
 	}
 	t.Fatalf("missing resolution item kind=%q name=%q scope=%q in %+v", kind, name, scope, items)
 	return skillResolutionItem{}
+}
+
+func assertResolutionItemAbsent(t *testing.T, items []skillResolutionItem, kind, name, scope string) {
+	t.Helper()
+	for _, item := range items {
+		if item.Kind == kind && item.Name == name && (scope == "" || item.Scope == scope) {
+			t.Fatalf("unexpected resolution item kind=%q name=%q scope=%q in %+v", kind, name, scope, items)
+		}
+	}
 }
 
 func assertResolutionActions(t *testing.T, item skillResolutionItem, want ...string) {

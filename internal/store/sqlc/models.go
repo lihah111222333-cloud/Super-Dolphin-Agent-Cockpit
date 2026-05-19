@@ -195,21 +195,6 @@ type SharedFile struct {
 	UpdatedAt time.Time `db:"updated_at" json:"updated_at"`
 }
 
-type SkillCandidate struct {
-	ID              int64              `db:"id" json:"id"`
-	Scope           string             `db:"scope" json:"scope"`
-	Slug            string             `db:"slug" json:"slug"`
-	ContentHash     string             `db:"content_hash" json:"content_hash"`
-	RepoFingerprint string             `db:"repo_fingerprint" json:"repo_fingerprint"`
-	Status          string             `db:"status" json:"status"`
-	SkillMd         string             `db:"skill_md" json:"skill_md"`
-	ApprovedBy      string             `db:"approved_by" json:"approved_by"`
-	ApprovedAt      pgtype.Timestamptz `db:"approved_at" json:"approved_at"`
-	Reason          string             `db:"reason" json:"reason"`
-	RedactedSample  string             `db:"redacted_sample" json:"redacted_sample"`
-	CreatedAt       pgtype.Timestamptz `db:"created_at" json:"created_at"`
-}
-
 type SystemLog struct {
 	ID         int64     `db:"id" json:"id"`
 	Ts         time.Time `db:"ts" json:"ts"`

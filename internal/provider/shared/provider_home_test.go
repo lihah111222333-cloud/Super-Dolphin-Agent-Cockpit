@@ -3,7 +3,10 @@ package shared
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+
+	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 )
 
 func TestAppManagedProviderHomeUsesSuperDolphinHome(t *testing.T) {
@@ -20,10 +23,30 @@ func TestAppManagedProviderHomeUsesSuperDolphinHome(t *testing.T) {
 	}
 }
 
+func TestEnsureAppManagedProviderHomeUsesSuperDolphinHome(t *testing.T) {
+	superHome := filepath.Join(t.TempDir(), "sd-home")
+	t.Setenv(SuperDolphinHomeEnv, superHome)
+
+	got, err := EnsureAppManagedProviderHome(ProviderClaude)
+	if err != nil {
+		t.Fatalf("EnsureAppManagedProviderHome() error = %v", err)
+	}
+	want, err := filepath.EvalSymlinks(filepath.Join(superHome, "providers", "claude"))
+	if err != nil {
+		t.Fatalf("EvalSymlinks app-managed home: %v", err)
+	}
+	if got != want {
+		t.Fatalf("EnsureAppManagedProviderHome() = %q, want %q", got, want)
+	}
+	assertDirMode(t, filepath.Join(want, "skills"), 0o700)
+}
+
 func TestProviderMirrorTargetsIncludePersonalAndProjectRoots(t *testing.T) {
 	superHome := filepath.Join(t.TempDir(), "sd-home")
+	userHome := filepath.Join(t.TempDir(), "user-home")
 	project := t.TempDir()
 	t.Setenv(SuperDolphinHomeEnv, superHome)
+	t.Setenv("HOME", userHome)
 
 	targets, err := ProviderMirrorTargets(ProviderClaude, project)
 	if err != nil {
@@ -32,10 +55,10 @@ func TestProviderMirrorTargetsIncludePersonalAndProjectRoots(t *testing.T) {
 	if len(targets) != 2 {
 		t.Fatalf("targets = %d, want 2", len(targets))
 	}
-	if targets[0].HomeRoot != filepath.Join(superHome, "providers", "claude") {
+	if targets[0].HomeRoot != filepath.Join(userHome, ".claude") {
 		t.Fatalf("personal home = %q", targets[0].HomeRoot)
 	}
-	if targets[0].SkillsRoot != filepath.Join(superHome, "providers", "claude", "skills") {
+	if targets[0].SkillsRoot != filepath.Join(userHome, ".claude", "skills") {
 		t.Fatalf("personal skills = %q", targets[0].SkillsRoot)
 	}
 	wantProject, err := filepath.EvalSymlinks(project)
@@ -140,7 +163,9 @@ func TestProviderMirrorTargetsUsesCanonicalProjectRoot(t *testing.T) {
 
 func TestProviderMirrorTargetsUsesGitRootForSubdirCWD(t *testing.T) {
 	superHome := filepath.Join(t.TempDir(), "sd-home")
+	userHome := filepath.Join(t.TempDir(), "user-home")
 	t.Setenv(SuperDolphinHomeEnv, superHome)
+	t.Setenv("HOME", userHome)
 	project := t.TempDir()
 	subdir := filepath.Join(project, "cmd", "agent-terminal")
 	if err := os.MkdirAll(filepath.Join(project, ".git"), 0o755); err != nil {
@@ -158,8 +183,110 @@ func TestProviderMirrorTargetsUsesGitRootForSubdirCWD(t *testing.T) {
 	if err != nil {
 		t.Fatalf("EvalSymlinks project: %v", err)
 	}
-	if targets[1].SkillsRoot != filepath.Join(wantProject, ".codex", "skills") {
+	if targets[1].SkillsRoot != filepath.Join(wantProject, ".agents", "skills") {
 		t.Fatalf("project skills = %q, want repo root mirror", targets[1].SkillsRoot)
+	}
+}
+
+func TestEnsureNoSkillMirrorConflictsAllowsOrdinarySkillContentConflicts(t *testing.T) {
+	kinds := []string{
+		"same_name",
+		"same_name_scope_conflict",
+		"drift",
+		"mirror_drift",
+		"multi_mirror_drift",
+		"canonical_deleted_with_drift",
+		"unmanaged",
+		"unmanaged_same_name",
+		"unmanaged_provider_skill",
+	}
+	for _, kind := range kinds {
+		t.Run(kind, func(t *testing.T) {
+			report := contract.SkillMirrorReport{Conflicts: []contract.SkillMirrorReportItem{{
+				TargetID:     "codex:project:repo",
+				Scope:        "project",
+				ConflictKind: kind,
+			}}}
+
+			if err := EnsureNoSkillMirrorConflicts(report); err != nil {
+				t.Fatalf("EnsureNoSkillMirrorConflicts() error = %v, want ordinary content conflict to allow provider start", err)
+			}
+		})
+	}
+}
+
+func TestEnsureNoSkillMirrorConflictsReportsMirrorSafetyConflicts(t *testing.T) {
+	kinds := []string{
+		"publish_error",
+		"publish_targets_unconfigured",
+		"mirror_root_symlink",
+		"unknown_future_conflict",
+		"",
+	}
+	for _, kind := range kinds {
+		t.Run(kind, func(t *testing.T) {
+			report := contract.SkillMirrorReport{Conflicts: []contract.SkillMirrorReportItem{{
+				TargetID:     "codex:project:repo",
+				ConflictKind: kind,
+			}}}
+
+			err := EnsureNoSkillMirrorConflicts(report)
+			if err == nil || !strings.Contains(err.Error(), "skill mirror conflicts") {
+				t.Fatalf("EnsureNoSkillMirrorConflicts() error = %v, want blocking mirror safety conflict", err)
+			}
+		})
+	}
+}
+
+func TestProviderMirrorTargetsUsesCodexOfficialGlobalSkillsRoot(t *testing.T) {
+	userHome := filepath.Join(t.TempDir(), "user-home")
+	project := t.TempDir()
+	t.Setenv("HOME", userHome)
+
+	targets, err := ProviderMirrorTargets(ProviderCodex, project)
+	if err != nil {
+		t.Fatalf("ProviderMirrorTargets() error = %v", err)
+	}
+	if len(targets) != 2 {
+		t.Fatalf("targets = %d, want 2", len(targets))
+	}
+	if targets[0].HomeRoot != filepath.Join(userHome, ".agents") || targets[0].SkillsRoot != filepath.Join(userHome, ".agents", "skills") {
+		t.Fatalf("codex personal target = %#v, want ~/.agents/skills", targets[0])
+	}
+	wantProject, err := filepath.EvalSymlinks(project)
+	if err != nil {
+		t.Fatalf("EvalSymlinks project: %v", err)
+	}
+	if targets[1].SkillsRoot != filepath.Join(wantProject, ".agents", "skills") {
+		t.Fatalf("codex project target = %#v, want .agents/skills", targets[1])
+	}
+}
+
+func TestEnsureProviderHomeDefaultsToUserCLIHome(t *testing.T) {
+	userHome := filepath.Join(t.TempDir(), "user-home")
+	t.Setenv("HOME", userHome)
+
+	claudeHome, err := EnsureProviderHome(ProviderClaude, "")
+	if err != nil {
+		t.Fatalf("EnsureProviderHome(claude) error = %v", err)
+	}
+	wantClaudeHome, err := filepath.EvalSymlinks(filepath.Join(userHome, ".claude"))
+	if err != nil {
+		t.Fatalf("EvalSymlinks claude home: %v", err)
+	}
+	if claudeHome != wantClaudeHome {
+		t.Fatalf("claude home = %q, want user CLI home", claudeHome)
+	}
+	codexHome, err := EnsureProviderHome(ProviderCodex, "")
+	if err != nil {
+		t.Fatalf("EnsureProviderHome(codex) error = %v", err)
+	}
+	wantCodexHome, err := filepath.EvalSymlinks(filepath.Join(userHome, ".codex"))
+	if err != nil {
+		t.Fatalf("EvalSymlinks codex home: %v", err)
+	}
+	if codexHome != wantCodexHome {
+		t.Fatalf("codex home = %q, want user CLI home", codexHome)
 	}
 }
 

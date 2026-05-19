@@ -80,7 +80,7 @@ func skillRPCCommonError(err error) error {
 		return platformrpc.ErrNotFound(err.Error())
 	case errors.Is(err, ErrSkillSameNameConflict):
 		return platformrpc.ErrConflict(err.Error())
-	case errors.Is(err, ErrInvalidSkillName), errors.Is(err, errInvalidSkillExpandParam), errors.Is(err, ErrInvalidSkillScope), errors.Is(err, ErrSkillSystemScopeRemoved):
+	case errors.Is(err, ErrInvalidSkillName), errors.Is(err, ErrInvalidSkillScope), errors.Is(err, ErrSkillSystemScopeRemoved):
 		return platformrpc.ErrInvalidParams(err.Error())
 	default:
 		return nil
@@ -89,14 +89,7 @@ func skillRPCCommonError(err error) error {
 
 func skillRPCApprovalError(err error) error {
 	switch {
-	case errors.Is(err, errSkillApprovalRequired):
-		rpcErr := jrpc2.Errorf(platformrpc.CodeInvalidState, "%s", err.Error())
-		var required SkillApprovalRequiredError
-		if errors.As(err, &required) {
-			return rpcErr.WithData(required.Request)
-		}
-		return rpcErr
-	case errors.Is(err, ErrSkillSystemReviewRequired), errors.Is(err, errSkillApprovalDenied), errors.Is(err, errSkillApprovalRequesterUnavailable), errors.Is(err, errSkillApprovalProjectCacheMissing):
+	case errors.Is(err, ErrSkillSystemReviewRequired):
 		return jrpc2.Errorf(jrpc2.InternalError, "%s", err.Error())
 	default:
 		return nil
@@ -111,13 +104,10 @@ func requireRequestCWD(cwd string) error {
 }
 
 func NewSkillHandlers(deps skillHandlerDeps) platformrpc.HandlerMapResult {
-	return newSkillHandlers(deps.Service, deps.Requester, deps.DreamExecutor)
+	return newSkillHandlers(deps.Service, deps.DreamExecutor)
 }
 
-func newSkillHandlers(svc Service, requester contract.ApprovalRequester, dreams ...contract.DreamExecutor) platformrpc.HandlerMapResult {
-	if impl, ok := svc.(*service); ok {
-		impl.approvalRequester = requester
-	}
+func newSkillHandlers(svc Service, dreams ...contract.DreamExecutor) platformrpc.HandlerMapResult {
 	var dream contract.DreamExecutor
 	if len(dreams) > 0 {
 		dream = dreams[0]
@@ -147,9 +137,8 @@ func skillCoreHandlers(svc Service) handler.Map {
 		"command/exec": platformrpc.StrictHandler(func(ctx context.Context, p execParams) (any, error) {
 			return svc.ExecCommand(ctx, p.Command, p.Args, p.CWD, p.Env)
 		}),
-		"skill/list":   platformrpc.StrictHandler(skillListHandler(svc)),
-		"skill/expand": platformrpc.StrictHandler(skillExpandHandler(svc)),
-		"skills/list":  platformrpc.StrictHandler(skillsListHandler(svc)),
+		"skill/list":  platformrpc.StrictHandler(skillListHandler(svc)),
+		"skills/list": platformrpc.StrictHandler(skillsListHandler(svc)),
 	}
 }
 
@@ -262,20 +251,6 @@ func skillsListHandler(svc Service) func(context.Context, skillListParams) (any,
 			return nil, skillRPCError(err)
 		}
 		return skillsListPayload(list), nil
-	}
-}
-
-func skillExpandHandler(svc Service) func(context.Context, skillExpandParams) (skillExpandResult, error) {
-	return func(ctx context.Context, p skillExpandParams) (skillExpandResult, error) {
-		scopedCtx, err := scopedSkillContext(ctx, p.CWD)
-		if err != nil {
-			return skillExpandResult{}, err
-		}
-		result, err := expandSkillWithApproval(scopedCtx, svc, p)
-		if err != nil {
-			return skillExpandResult{}, skillRPCError(err)
-		}
-		return result, nil
 	}
 }
 
@@ -426,11 +401,4 @@ func scopedSkillContext(ctx context.Context, cwd string) (context.Context, error
 		return nil, err
 	}
 	return WithCWD(ctx, cwd), nil
-}
-
-func expandSkillWithApproval(ctx context.Context, svc Service, p skillExpandParams) (skillExpandResult, error) {
-	if impl, ok := svc.(*service); ok {
-		return impl.expandWithApproval(ctx, p)
-	}
-	return svc.Expand(ctx, p)
 }

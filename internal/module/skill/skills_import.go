@@ -42,7 +42,7 @@ func (s *service) prepareWriteLocalTarget(cwd, path, content string, scopeAndTyp
 	if err != nil {
 		return writeLocalTarget{}, err
 	}
-	if err := RequireSkillSystemReview(scope, skillSlug(path), skillContentHash(content), RepoFingerprint(cwd), "", ""); err != nil {
+	if err := RequireSkillSystemReview(scope, skillSlug(path), skillContentHash(content), RepoFingerprint(projectRootForCWD(cwd, "")), "", ""); err != nil {
 		return writeLocalTarget{}, err
 	}
 	resolvedPath, err := s.resolveWriteLocalPath(path, cwd, scope, personalType)
@@ -65,6 +65,24 @@ func (s *service) ensureWriteLocalTargetAllowed(cwd, path, content, scope, perso
 	}
 	if len(content) > maxSkillFileBytes {
 		return fmt.Errorf("content too large: %d bytes", len(content))
+	}
+	if err := validateWritableSkillMainContent(root, path, content); err != nil {
+		return err
+	}
+	return nil
+}
+
+func validateWritableSkillMainContent(root, path, content string) error {
+	if !strings.EqualFold(filepath.Base(path), skillMainFile) {
+		return nil
+	}
+	rel, err := filepath.Rel(root, filepath.Dir(path))
+	if err != nil {
+		return err
+	}
+	info := parseSkillInfo(rel, filepath.Dir(path), content, TrustProject)
+	if _, err := validateSkillName(info.Name); err != nil {
+		return fmt.Errorf("%w: %s", ErrInvalidSkillName, info.Name)
 	}
 	return nil
 }
@@ -228,7 +246,7 @@ func (s *service) importSkillUnit(resolvedSource, name, cwd, scope, personalType
 	if err != nil {
 		return nil, err
 	}
-	if err := RequireSkillSystemReview(normalizedScope, skillSlug(targetName), skillDirContentHash(resolvedSource), RepoFingerprint(cwd), "", ""); err != nil {
+	if err := RequireSkillSystemReview(normalizedScope, skillSlug(targetName), skillDirContentHash(resolvedSource), RepoFingerprint(projectRootForCWD(cwd, "")), "", ""); err != nil {
 		return nil, err
 	}
 	root, err := s.prepareScopedSkillsRoot(cwd, normalizedScope, normalizedPersonalType)

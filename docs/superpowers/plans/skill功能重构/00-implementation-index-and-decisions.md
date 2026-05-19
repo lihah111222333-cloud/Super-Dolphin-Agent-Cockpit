@@ -17,8 +17,8 @@
 - Current skill module: `internal/module/skill`
 - Current Claude provider startup path: `internal/provider/claudecli/driver.go`
 - Current Codex provider startup path: `internal/provider/codexapp/driver.go`
-- Current host-direct skill tool path: `internal/platform/toolbridge/skill_read_section.go`
-- Old cache/library runtime path: `internal/module/skilllibrary`, `internal/module/skillforge`, `internal/module/fbsd`
+- Removed host-direct skill tool compatibility guard: `internal/platform/toolbridge/host_tools.go` and `internal/platform/toolbridge/handler.go`
+- Removed cache/library runtime packages: `internal/module/skilllibrary`, `internal/module/skillforge`, `internal/module/fbsd`
 
 ## Recommended Plan Set
 
@@ -34,15 +34,15 @@ The split keeps each implementation slice reviewable, but V1 is one atomic produ
 
 ## Cross-Plan Decision Gates
 
-### D1: Bundled Provider Home
+### D1: Provider CLI Ownership And Personal Mirror
 
-**Decision:** Packaged App exposes personal mirrors through App-managed provider homes.
+**Decision:** Super-Dolphin does not bundle Claude/Codex CLI in V1. Users install and log in to Claude/Codex themselves; Super-Dolphin manages canonical skills and reconciles generated mirrors into provider-native skill directories.
 
-**Recommended default:** Packaged V1 must launch bundled providers with an App-managed provider home rooted under `~/.super-dolphin/providers/{claude,codex}`. Project mirrors still live in `<repo>/.claude/skills` and `<repo>/.codex/skills`. If a provider cannot be isolated to an App-managed home/config root, V1 provider cutover is blocked for that provider; do not fall back to writing or depending on the user's system `~/.claude` / `~/.codex` homes.
+**Recommended default:** Project mirrors live in `<repo>/.claude/skills` and `<repo>/.agents/skills`. Personal mirrors live in the provider-native user skill roots `~/.claude/skills` and `~/.agents/skills`. Codex identity/config still uses the user's `~/.codex`; that identity directory is not a skill mirror. Explicit provider homes remain advanced configuration and may use their own `skills` directory.
 
-**Reason:** This preserves the product promise that installing Super-Dolphin is enough, while avoiding writes to user-owned `~/.claude` and `~/.codex`.
+**Reason:** This matches the current product boundary: Super-Dolphin统一管理 skill，但不接管用户的 provider 登录身份，也不维护一套 bundled CLI identity.
 
-**Implementation gate:** `02-v1-provider-cutover.md` must include provider-native mirror smoke evidence before the V1 cutover is accepted. File-level mirror smoke is necessary but not sufficient; local packaged-provider smoke must launch through the Super-Dolphin Claude/Codex drivers and prove bundled providers discover a probe skill through provider-native mechanisms. The implementation must resolve bundled Claude/Codex binaries from App resources or the executable directory before falling back to PATH, and release smoke must include a PATH-negative case proving the packaged App does not depend on a user-installed `claude` or `codex`. CI may mark provider-binary smoke as environment-gated, but release acceptance cannot rely on `SKIP provider-binary`.
+**Implementation gate:** `02-v1-provider-cutover.md` must include provider-native mirror smoke evidence before the V1 cutover is accepted. File-level mirror smoke is necessary but not sufficient; smoke must launch through the Super-Dolphin Claude/Codex drivers and prove installed providers discover a probe skill through provider-native mechanisms. Missing CLI or missing login must produce a clear setup error instead of silently falling back to old injection.
 
 ### D2: Legacy `system` Scope Compatibility
 
@@ -130,7 +130,7 @@ The split keeps each implementation slice reviewable, but V1 is one atomic produ
 
 **Recommended default:** Implement in the listed order, but keep provider runtime cutover blocked behind code review until resolution list/preview/apply/export UI and RPC are available. A partial V1 branch may be tested internally, but there is no product state where old injection is removed and users cannot resolve blocking conflicts.
 
-**Reason:** Full landing with fail-closed startup is only usable when users can discover and fix conflicts before launching bundled providers.
+**Reason:** Full landing with fail-closed startup is only usable when users can discover and fix conflicts before launching their configured providers.
 
 ## Execution Rules
 
@@ -139,14 +139,14 @@ The split keeps each implementation slice reviewable, but V1 is one atomic produ
 - Do not use `git add .`; stage only owned files.
 - For every code plan, write failing tests before implementation.
 - After each plan lands, update that plan with the commit hash and validation result.
-- Provider smoke tests must state whether they used bundled provider binaries or fake test doubles.
+- Provider smoke tests must state whether they used real installed provider CLIs or fake test doubles.
 
 ## Verification Matrix
 
 | Surface | Required checks |
 |---|---|
 | Skill module filesystem/policy | `./scripts/test_with_guard.sh ./internal/module/skill -count=1` |
-| Provider cutover | `./scripts/test_with_guard.sh ./internal/provider/claudecli ./internal/provider/codexapp ./internal/platform/toolbridge ./internal/app -count=1`, mandatory frontend checks, `make sqlc-verify`, and `bash scripts/skill_native_smoke.sh` for release acceptance, including PATH-negative bundled-binary discovery |
+| Provider cutover | `./scripts/test_with_guard.sh ./internal/provider/claudecli ./internal/provider/codexapp ./internal/platform/toolbridge ./internal/app -count=1`, mandatory frontend checks, `make sqlc-verify`, and `bash scripts/skill_native_smoke.sh` for release acceptance with installed Claude/Codex CLIs plus clear missing-CLI/login negative paths |
 | V1 resolution UI/RPC | affected skill RPC tests plus mandatory frontend checks |
 | Store/sqlc proposal work | `make sqlc-verify` plus affected store tests |
 | V2 proposal generation | configured auxiliary proposal model smoke that creates a validated pending proposal from a real trigger; unset-model evidence-only mode is a negative-path test, not release acceptance |
@@ -164,6 +164,6 @@ The split keeps each implementation slice reviewable, but V1 is one atomic produ
 - Team-level central skill server.
 - Complex provider adapter matrix beyond Claude/Codex.
 - Cross-provider standardization of provider-native skill-call events.
-- Writes to system `~/.claude` or `~/.codex` without explicit import/export/takeover.
+- Writes to system provider skill roots `~/.claude/skills` or `~/.agents/skills` without explicit import/export/takeover.
 - Provider mirror as source of truth.
 - Permanent archive purge.

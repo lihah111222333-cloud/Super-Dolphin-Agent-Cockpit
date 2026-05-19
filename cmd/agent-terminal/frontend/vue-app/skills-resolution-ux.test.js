@@ -72,6 +72,61 @@ describe('SkillsPage resolution UX', () => {
     expect(vm.notice.message).toContain('读取技能冲突失败');
   });
 
+  it('does not keep a persistent no-conflict notice after checking conflicts', async () => {
+    lifecycleMock.mounted.length = 0;
+    apiMock.callAPI.mockReset().mockResolvedValue({ items: [] });
+
+    const vm = SkillsPage.setup({
+      skills: [],
+      pendingCandidates: [],
+      projectStore: { state: { active: '/repo' } },
+    }, { emit: vi.fn() });
+    vm.notice.message = '旧提示';
+
+    await vm.refreshSkillResolutions();
+
+    expect(vm.notice.message).toBe('');
+    expect(vm.resolutionConflictAlertText.value).toBe('');
+    expect(vm.showResolutionCheckButton.value).toBe(false);
+  });
+
+  it('clears stale import conflict drafts when the real conflict list is empty', async () => {
+    lifecycleMock.mounted.length = 0;
+    apiMock.callAPI.mockReset().mockResolvedValue({ items: [] });
+
+    const vm = SkillsPage.setup({
+      skills: [],
+      pendingCandidates: [],
+      projectStore: { state: { active: '/repo' } },
+    }, { emit: vi.fn() });
+    vm.importSummaryDrafts.value = [
+      { id: 'conflict', name: '编写计划', status: 'conflict', error: '同名技能待处理' },
+      { id: 'summary', name: '后端', status: 'ready', suggestion: '当你需要编写后端代码时使用。' },
+    ];
+
+    await vm.refreshSkillResolutions({ notify: false });
+
+    expect(vm.importSummaryDrafts.value).toEqual([
+      { id: 'summary', name: '后端', status: 'ready', suggestion: '当你需要编写后端代码时使用。' },
+    ]);
+  });
+
+  it('keeps same-name import conflicts out of the bottom import panel', () => {
+    const vm = SkillsPage.setup({
+      skills: [],
+      pendingCandidates: [],
+      projectStore: { state: { active: '/repo' } },
+    }, { emit: vi.fn() });
+
+    vm.importSummaryDrafts.value = [
+      { id: 'conflict', name: '编写计划', status: 'conflict', error: '同名技能待处理' },
+    ];
+
+    expect(vm.visibleImportSummaryDrafts.value).toEqual([]);
+    expect(SkillsPage.template).toContain('visibleImportSummaryDrafts.length > 0');
+    expect(SkillsPage.template).toContain('in visibleImportSummaryDrafts');
+  });
+
   it('uses keep-selected project action for same-name conflicts with multiple personal versions', () => {
     const vm = SkillsPage.setup({
       skills: [],
@@ -91,21 +146,15 @@ describe('SkillsPage resolution UX', () => {
 
     const entries = vm.resolutionActionEntries(conflict);
 
-    expect(entries).toEqual(expect.arrayContaining([
-      expect.objectContaining({
-        action: 'keep_selected',
-        label: '使用项目共享版本',
-        sourceID: 'project/Docs',
-      }),
-      expect.objectContaining({
-        action: 'keep_selected',
-        sourceID: 'personal/user/Docs',
-      }),
-      expect.objectContaining({
-        action: 'keep_selected',
-        sourceID: 'personal/imported/Docs',
-      }),
-    ]));
+    expect(entries.map((entry) => ({
+      action: entry.action,
+      label: entry.label,
+      sourceID: entry.sourceID,
+    }))).toEqual([
+      { action: 'keep_selected', label: '用项目共享版本，删除其他版本', sourceID: 'project/Docs' },
+      { action: 'keep_selected', label: '用自己创建的私人版本，删除其他版本', sourceID: 'personal/user/Docs' },
+      { action: 'keep_selected', label: '用导入的私人版本，删除其他版本', sourceID: 'personal/imported/Docs' },
+    ]);
     expect(entries.some((entry) => entry.action === 'disable_personal_for_project')).toBe(false);
   });
 
@@ -147,6 +196,15 @@ describe('SkillsPage resolution UX', () => {
     expect(SkillsPage.template).toContain('resolutionManualSteps(conflict)');
     expect(SkillsPage.template).toContain('resolutionPreviewItemSummary(item, resolutionPreview.action)');
     expect(SkillsPage.template).toContain('resolutionPreviewItemPaths(item, resolutionPreview.action)');
+    expect(SkillsPage.template).toContain('resolutionPreviewApplies(conflict, entry)');
+    expect(SkillsPage.template.indexOf('data-testid="skills-resolution-preview"')).toBeGreaterThan(
+      SkillsPage.template.indexOf('data-testid="skills-resolution-list"'),
+    );
+    expect(SkillsPage.template).toContain('data-testid="skills-resolution-name-prompt"');
+    expect(SkillsPage.template).toContain('v-model="resolutionNameInput"');
+    expect(SkillsPage.template).toContain('confirmResolutionNewName');
+    expect(SkillsPage.template).toContain('resolutionNamePromptHelpText(resolutionNamePrompt)');
+    expect(SkillsPage.template).toContain('resolutionNamePromptButtonText(resolutionNamePrompt, resolutionActioning)');
     expect(SkillsPage.template).toContain('技术信息');
   });
 });

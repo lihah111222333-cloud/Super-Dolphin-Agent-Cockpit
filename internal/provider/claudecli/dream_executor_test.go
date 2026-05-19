@@ -115,6 +115,19 @@ func TestClaudeDreamExecutor_BinaryNotAvailableMapsToNotConfigured(t *testing.T)
 	}
 }
 
+func TestClaudeDreamExecutor_ModelUnavailableMapsToNotConfigured(t *testing.T) {
+	modelErr := fmt.Errorf("%w: claude exited with error: exit status 1 (stdout: {\"type\":\"result\",\"is_error\":true,\"api_error_status\":404,\"result\":\"There's an issue with the selected model (gpt-5.5). It may not exist or you may not have access to it.\"})", dreamexec.ErrModelUnavailable)
+	c := &capturingCommander{errs: []error{modelErr}}
+	exec := newDreamExecutor(c, "claude", "")
+	_, err := exec.ExecuteDream(context.Background(), "p")
+	if !errors.Is(err, contract.ErrDreamExecutorNotConfigured) {
+		t.Fatalf("expected ErrDreamExecutorNotConfigured, got %v", err)
+	}
+	if !strings.Contains(err.Error(), "model") {
+		t.Errorf("expected error to mention model, got %v", err)
+	}
+}
+
 func TestClaudeDreamExecutor_OtherErrorTransparent(t *testing.T) {
 	boom := errors.New("auth expired")
 	c := &capturingCommander{errs: []error{boom}}

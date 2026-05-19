@@ -64,6 +64,7 @@ type projectSkillPolicy struct {
 	Version                   int                                  `json:"version"`
 	DisablePersonalForProject []projectSkillPolicyDisabledPersonal `json:"disable_personal_for_project,omitempty"`
 	KeepSelected              []projectSkillKeepSelected           `json:"keep_selected,omitempty"`
+	KeepExternalProviderSkill []projectSkillKeepExternalProvider   `json:"keep_external_provider_skill,omitempty"`
 }
 
 type projectSkillPolicyDisabledPersonal struct {
@@ -78,6 +79,12 @@ type projectSkillKeepSelected struct {
 	SelectedContentHash  string                     `json:"selected_content_hash,omitempty"`
 	ExcludedSourceIDs    []string                   `json:"excluded_source_ids,omitempty"`
 	Sources              []projectSkillPolicySource `json:"sources,omitempty"`
+}
+
+type projectSkillKeepExternalProvider struct {
+	Name       string `json:"name"`
+	Provider   string `json:"provider"`
+	SourceHash string `json:"source_hash"`
 }
 
 type projectSkillPolicySource struct {
@@ -152,19 +159,23 @@ func (s *canonicalStore) scan(cwd string) ([]canonicalSkillRecord, error) {
 }
 
 func (s *canonicalStore) scanRoots(cwd string) []canonicalScanRoot {
+	projectRoot := projectRootForCWD(cwd, "")
 	roots := []canonicalScanRoot{
-		{path: defaultProjectSkillsRoot(cwd), scope: skillScopeProject, defaultTrust: TrustProject},
+		{path: defaultProjectSkillsRoot(projectRoot), scope: skillScopeProject, defaultTrust: TrustProject},
 	}
 	if strings.TrimSpace(s.superDolphinHome) == "" {
 		return roots
 	}
 	personalRoot := filepath.Join(s.superDolphinHome, "skills", "personal")
-	return append(roots,
-		canonicalScanRoot{path: filepath.Join(personalRoot, personalSkillTypeUser), scope: skillScopePersonal, personalType: personalSkillTypeUser, defaultTrust: TrustUser},
-		canonicalScanRoot{path: filepath.Join(personalRoot, personalSkillTypeAgent), scope: skillScopePersonal, personalType: personalSkillTypeAgent, defaultTrust: TrustUser},
-		canonicalScanRoot{path: filepath.Join(personalRoot, personalSkillTypeImported), scope: skillScopePersonal, personalType: personalSkillTypeImported, defaultTrust: TrustUser},
-		canonicalScanRoot{path: filepath.Join(personalRoot, personalSkillTypeHub), scope: skillScopePersonal, personalType: personalSkillTypeHub, defaultTrust: TrustUser},
-	)
+	for _, personalType := range activePersonalSkillTypes() {
+		roots = append(roots, canonicalScanRoot{
+			path:         filepath.Join(personalRoot, personalType),
+			scope:        skillScopePersonal,
+			personalType: personalType,
+			defaultTrust: TrustUser,
+		})
+	}
+	return roots
 }
 
 func scanCanonicalRoot(root canonicalScanRoot) ([]canonicalSkillRecord, error) {
@@ -341,8 +352,9 @@ func applyProjectKeepSelectedPolicy(records []canonicalSkillRecord, selections [
 	if err != nil {
 		return nil, err
 	}
+	sourceIDsByName := canonicalSourceIDsByName(records)
 	return filterCanonicalRecords(records, func(record canonicalSkillRecord) bool {
-		return keepCanonicalRecordForProjectSelection(record, selectionByName)
+		return keepCanonicalRecordForProjectSelection(record, selectionByName, sourceIDsByName)
 	}), nil
 }
 
@@ -359,27 +371,53 @@ func projectSelectionByName(selections []projectSkillKeepSelected) (map[string]p
 	return selectionByName, nil
 }
 
-func keepCanonicalRecordForProjectSelection(record canonicalSkillRecord, selectionByName map[string]projectSkillKeepSelected) bool {
+func keepCanonicalRecordForProjectSelection(record canonicalSkillRecord, selectionByName map[string]projectSkillKeepSelected, sourceIDsByName map[string]map[string]struct{}) bool {
 	selection, ok := selectionByName[strings.ToLower(record.Name)]
 	if !ok {
 		return true
 	}
 	sourceID := canonicalSourceID(record)
-	if selectedProjectCanonicalRecord(record, selection, sourceID) {
+	selectedSourceID := strings.TrimSpace(selection.SelectedSourceID)
+	if selectedSourceID != "" && !canonicalSourceIDExistsForName(sourceIDsByName, selection.Name, selectedSourceID) {
 		return true
 	}
-	return !stringSliceContains(selection.ExcludedSourceIDs, sourceID)
+	if selectedSourceID == "" {
+		return !stringSliceContains(selection.ExcludedSourceIDs, sourceID)
+	}
+	return sourceID == selectedSourceID
 }
 
-func selectedProjectCanonicalRecord(record canonicalSkillRecord, selection projectSkillKeepSelected, sourceID string) bool {
-	return sourceID == strings.TrimSpace(selection.SelectedSourceID) &&
-		record.PersonalType == strings.TrimSpace(selection.SelectedPersonalType) &&
-		(strings.TrimSpace(selection.SelectedContentHash) == "" || record.ContentHash == strings.TrimSpace(selection.SelectedContentHash))
+func canonicalSourceIDsByName(records []canonicalSkillRecord) map[string]map[string]struct{} {
+	sourceIDsByName := make(map[string]map[string]struct{}, len(records))
+	for _, record := range records {
+		nameKey := strings.ToLower(strings.TrimSpace(record.Name))
+		if nameKey == "" {
+			continue
+		}
+		if sourceIDsByName[nameKey] == nil {
+			sourceIDsByName[nameKey] = make(map[string]struct{})
+		}
+		sourceIDsByName[nameKey][canonicalSourceID(record)] = struct{}{}
+	}
+	return sourceIDsByName
+}
+
+func canonicalSourceIDExistsForName(sourceIDsByName map[string]map[string]struct{}, name, sourceID string) bool {
+	sourceID = strings.TrimSpace(sourceID)
+	if sourceID == "" {
+		return false
+	}
+	sources := sourceIDsByName[strings.ToLower(strings.TrimSpace(name))]
+	if len(sources) == 0 {
+		return false
+	}
+	_, ok := sources[sourceID]
+	return ok
 }
 
 func readProjectSkillPolicy(cwd string) (projectSkillPolicy, error) {
 	var policy projectSkillPolicy
-	path := filepath.Join(defaultProjectSkillsRoot(cwd), projectSkillPolicyFile)
+	path := filepath.Join(defaultProjectSkillsRoot(projectRootForCWD(cwd, "")), projectSkillPolicyFile)
 	if err := rejectWritableSymlinkComponentIfExists(path); err != nil {
 		return projectSkillPolicy{}, err
 	}
@@ -407,56 +445,24 @@ func writeProjectDisablePersonalPolicy(cwd, name, personalType string) (string, 
 	}
 	next := projectSkillPolicyDisabledPersonal{Name: name, PersonalType: normalizedType}
 	policy.DisablePersonalForProject = appendProjectDisabledPersonal(policy.DisablePersonalForProject, next)
-	return writeSkillPolicyJSON(filepath.Join(defaultProjectSkillsRoot(cwd), projectSkillPolicyFile), policy, 0o644)
+	return writeSkillPolicyJSON(filepath.Join(defaultProjectSkillsRoot(projectRootForCWD(cwd, "")), projectSkillPolicyFile), policy, 0o644)
 }
 
-func writeProjectKeepSelectedPolicy(cwd, name string, sources []skillResolutionSource, selected skillResolutionSource) (string, error) {
-	name, err := validateSkillName(name)
-	if err != nil {
-		return "", err
+func projectPolicyKeepsExternalProviderSkill(policy projectSkillPolicy, name string, provider SkillProvider, sourceHash string) bool {
+	name = strings.TrimSpace(name)
+	providerValue := strings.TrimSpace(string(provider))
+	sourceHash = strings.TrimSpace(sourceHash)
+	if name == "" || providerValue == "" || sourceHash == "" {
+		return false
 	}
-	if selected.Scope != skillScopeProject {
-		return "", fmt.Errorf("selected source must be project")
-	}
-	policy, err := readProjectSkillPolicy(cwd)
-	if err != nil {
-		return "", err
-	}
-	policy.Version = 1
-	policy.KeepSelected = upsertProjectKeepSelected(policy.KeepSelected, buildProjectKeepSelected(name, sources, selected))
-	return writeSkillPolicyJSON(filepath.Join(defaultProjectSkillsRoot(cwd), projectSkillPolicyFile), policy, 0o644)
-}
-
-func buildProjectKeepSelected(name string, sources []skillResolutionSource, selected skillResolutionSource) projectSkillKeepSelected {
-	next := projectSkillKeepSelected{
-		Name:                 name,
-		SelectedSourceID:     selected.CanonicalID,
-		SelectedPersonalType: selected.PersonalType,
-		SelectedContentHash:  selected.ContentHash,
-	}
-	for _, source := range sources {
-		next.Sources = append(next.Sources, projectSkillPolicySource{
-			CanonicalID:  source.CanonicalID,
-			Scope:        source.Scope,
-			PersonalType: source.PersonalType,
-			ContentHash:  source.ContentHash,
-		})
-		if source.CanonicalID != selected.CanonicalID {
-			next.ExcludedSourceIDs = append(next.ExcludedSourceIDs, source.CanonicalID)
+	for _, item := range policy.KeepExternalProviderSkill {
+		if strings.EqualFold(item.Name, name) &&
+			strings.EqualFold(item.Provider, providerValue) &&
+			strings.TrimSpace(item.SourceHash) == sourceHash {
+			return true
 		}
 	}
-	return next
-}
-
-func upsertProjectKeepSelected(items []projectSkillKeepSelected, next projectSkillKeepSelected) []projectSkillKeepSelected {
-	filtered := items[:0]
-	for _, existing := range items {
-		if strings.EqualFold(existing.Name, next.Name) {
-			continue
-		}
-		filtered = append(filtered, existing)
-	}
-	return append(filtered, next)
+	return false
 }
 
 func appendProjectDisabledPersonal(items []projectSkillPolicyDisabledPersonal, next projectSkillPolicyDisabledPersonal) []projectSkillPolicyDisabledPersonal {
@@ -472,6 +478,9 @@ func canonicalSourceID(record canonicalSkillRecord) string {
 	name := strings.TrimSpace(record.Name)
 	switch strings.TrimSpace(record.Scope) {
 	case skillScopeProject:
+		if dirName := strings.TrimSpace(filepath.Base(filepath.Clean(record.Dir))); dirName != "" && dirName != "." {
+			return skillScopeProject + "/" + dirName
+		}
 		return skillScopeProject + "/" + name
 	case skillScopePersonal:
 		return skillScopePersonal + "/" + strings.TrimSpace(record.PersonalType) + "/" + name

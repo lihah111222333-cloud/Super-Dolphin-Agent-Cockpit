@@ -130,45 +130,21 @@ type skillListResult struct {
 	Skills []skillListItem `json:"skills"`
 }
 
-type skillExpandParams struct {
-	Name          string `json:"name"`
-	Section       string `json:"section,omitempty"`
-	MaxBytes      int64  `json:"max_bytes,omitempty"`
-	CWD           string `json:"cwd,omitempty"`
-	ApprovalScope string `json:"approval_scope,omitempty"`
-	Scope         string `json:"scope,omitempty"`
-	AgentID       string `json:"agentId,omitempty"`
-	ThreadID      string `json:"threadId,omitempty"`
-	SessionID     string `json:"sessionId,omitempty"`
-	TurnID        string `json:"turnId,omitempty"`
-}
-
-type skillExpandResult struct {
-	Name        string     `json:"name"`
-	Section     string     `json:"section"`
-	Path        string     `json:"path"`
-	Summary     string     `json:"summary"`
-	Content     string     `json:"content"`
-	Truncated   bool       `json:"truncated"`
-	TotalBytes  int64      `json:"total_bytes"`
-	ContentHash string     `json:"content_hash"`
-	Trust       TrustScope `json:"trust"`
-}
-
 func (s *service) listSkillResolutions(cwd string) (skillResolutionListResult, error) {
-	store := newCanonicalStoreForOwner(s.resolvedSuperDolphinHome(), defaultOwnerOSUID(), defaultAppProfile())
-	records, canonicalConflicts, err := resolutionCanonicalSnapshot(store, cwd)
+	superHome := s.resolvedSuperDolphinHome()
+	store := newCanonicalStoreForOwner(superHome, defaultOwnerOSUID(), defaultAppProfile())
+	rawRecords, canonicalConflicts, effectiveRecords, err := resolutionCanonicalSnapshot(store, cwd)
 	if err != nil {
 		return skillResolutionListResult{}, err
 	}
 	targets := s.resolutionMirrorTargets(cwd)
-	mirrorConflicts, err := DetectSkillMirrorConflicts(records, targets)
+	mirrorConflicts, err := DetectSkillMirrorConflicts(effectiveRecords, targets)
 	if err != nil {
 		return skillResolutionListResult{}, err
 	}
-	recordByID := canonicalRecordsByID(records)
+	recordByID := canonicalRecordsByID(rawRecords)
 	items := canonicalResolutionItems(canonicalConflicts)
-	items = append(items, mirrorResolutionItems(mirrorConflicts, recordByID)...)
+	items = append(items, mirrorResolutionItems(mirrorConflicts, recordByID, superHome)...)
 	sort.SliceStable(items, func(i, j int) bool {
 		if items[i].Kind != items[j].Kind {
 			return items[i].Kind < items[j].Kind
@@ -178,33 +154,31 @@ func (s *service) listSkillResolutions(cwd string) (skillResolutionListResult, e
 	return skillResolutionListResult{Items: items}, nil
 }
 
-func resolutionCanonicalSnapshot(store *canonicalStore, cwd string) ([]canonicalSkillRecord, []canonicalSkillConflict, error) {
+func resolutionCanonicalSnapshot(store *canonicalStore, cwd string) ([]canonicalSkillRecord, []canonicalSkillConflict, []canonicalSkillRecord, error) {
 	records, err := store.scan(cwd)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
-	records, err = store.applyEffectivePolicies(cwd, records)
+	effectiveRecords, err := store.applyEffectivePolicies(cwd, records)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
-	return records, canonicalSameNameConflicts(records), nil
+	return records, canonicalSameNameConflicts(records), effectiveRecords, nil
 }
 
 func (s *service) resolutionMirrorTargets(cwd string) []SkillMirrorTarget {
-	if resolved, err := canonicalProjectPath(cwd); err == nil && strings.TrimSpace(resolved) != "" {
-		cwd = resolved
-	}
-	fingerprint := RepoFingerprint(cwd)
+	projectRoot := s.projectRootForCWD(cwd)
+	fingerprint := RepoFingerprint(projectRoot)
 	superHome := s.resolvedSuperDolphinHome()
 	ownerKey := "sd_owner:current"
 	if owner, err := resolveOwnerIdentity(superHome, defaultOwnerOSUID(), defaultAppProfile()); err == nil {
 		ownerKey = owner.OwnerKey
 	}
 	return []SkillMirrorTarget{
-		{TargetID: "claude:project:" + fingerprint, Provider: SkillProviderClaude, Scope: skillScopeProject, Root: filepath.Join(cwd, ".claude", "skills"), CanonicalRootID: fingerprint},
-		{TargetID: "codex:project:" + fingerprint, Provider: SkillProviderCodex, Scope: skillScopeProject, Root: filepath.Join(cwd, ".codex", "skills"), CanonicalRootID: fingerprint},
-		{TargetID: "claude:app-managed:" + ownerKey, Provider: SkillProviderClaude, Scope: skillScopePersonal, Root: filepath.Join(superHome, "providers", "claude", "skills"), CanonicalRootID: ownerKey},
-		{TargetID: "codex:app-managed:" + ownerKey, Provider: SkillProviderCodex, Scope: skillScopePersonal, Root: filepath.Join(superHome, "providers", "codex", "skills"), CanonicalRootID: ownerKey},
+		{TargetID: "claude:project:" + fingerprint, Provider: SkillProviderClaude, Scope: skillScopeProject, Root: providerProjectMirrorRoot(SkillProviderClaude, projectRoot), CanonicalRootID: fingerprint},
+		{TargetID: "codex:project:" + fingerprint, Provider: SkillProviderCodex, Scope: skillScopeProject, Root: providerProjectMirrorRoot(SkillProviderCodex, projectRoot), CanonicalRootID: fingerprint},
+		{TargetID: "claude:user-global:" + ownerKey, Provider: SkillProviderClaude, Scope: skillScopePersonal, Root: providerPersonalMirrorRoot(SkillProviderClaude), CanonicalRootID: ownerKey},
+		{TargetID: "codex:user-global:" + ownerKey, Provider: SkillProviderCodex, Scope: skillScopePersonal, Root: providerPersonalMirrorRoot(SkillProviderCodex), CanonicalRootID: ownerKey},
 	}
 }
 
@@ -224,7 +198,7 @@ func canonicalResolutionItems(conflicts []canonicalSkillConflict) []skillResolut
 			item.Sources = append(item.Sources, skillResolutionSource{
 				Scope:         source.Scope,
 				PersonalType:  source.PersonalType,
-				CanonicalID:   canonicalSourceID(canonicalSkillRecord{Name: source.Name, Scope: source.Scope, PersonalType: source.PersonalType}),
+				CanonicalID:   canonicalSourceID(canonicalSkillRecord{Name: source.Name, Scope: source.Scope, PersonalType: source.PersonalType, Dir: source.Dir}),
 				ContentHash:   source.ContentHash,
 				CanonicalHash: source.DirHash,
 				Path:          filepath.ToSlash(source.Dir),
@@ -238,11 +212,14 @@ func canonicalResolutionItems(conflicts []canonicalSkillConflict) []skillResolut
 	return items
 }
 
-func mirrorResolutionItem(conflict SkillMirrorConflict, records map[string]canonicalSkillRecord) skillResolutionItem {
+func mirrorResolutionItem(conflict SkillMirrorConflict, records map[string]canonicalSkillRecord, superHome string) skillResolutionItem {
 	record := records[conflict.CanonicalID]
 	targetPath := filepath.ToSlash(record.Dir)
 	if targetPath == "" {
-		targetPath = deletedCanonicalTargetPath(conflict)
+		targetPath = deletedCanonicalTargetPath(conflict, superHome)
+	}
+	if conflict.Kind == skillConflictMirrorRootSymlink {
+		targetPath = filepath.ToSlash(conflict.MirrorPath)
 	}
 	item := skillResolutionItem{
 		Kind:             conflict.Kind,
@@ -264,11 +241,10 @@ func mirrorResolutionItem(conflict SkillMirrorConflict, records map[string]canon
 	return item
 }
 
-func deletedCanonicalTargetPath(conflict SkillMirrorConflict) string {
+func deletedCanonicalTargetPath(conflict SkillMirrorConflict, superHome string) string {
 	name := strings.TrimSpace(conflict.Name)
 	mirrorRoot := filepath.Dir(filepath.FromSlash(conflict.MirrorPath))
 	if conflict.Scope == skillScopePersonal {
-		superHome := filepath.Dir(filepath.Dir(filepath.Dir(mirrorRoot)))
 		personalType := strings.TrimSpace(conflict.PersonalType)
 		if personalType == "" {
 			personalType = personalTypeFromCanonicalID(conflict.CanonicalID)
@@ -287,11 +263,11 @@ func personalTypeFromCanonicalID(canonicalID string) string {
 	return ""
 }
 
-func mirrorResolutionItems(conflicts []SkillMirrorConflict, records map[string]canonicalSkillRecord) []skillResolutionItem {
+func mirrorResolutionItems(conflicts []SkillMirrorConflict, records map[string]canonicalSkillRecord, superHome string) []skillResolutionItem {
 	items := make([]skillResolutionItem, 0, len(conflicts))
 	seen := map[string]int{}
 	for _, conflict := range conflicts {
-		item := mirrorResolutionItem(conflict, records)
+		item := mirrorResolutionItem(conflict, records, superHome)
 		key := mirrorResolutionItemKey(conflict)
 		if idx, ok := seen[key]; ok {
 			items[idx].ProviderEntries = append(items[idx].ProviderEntries, item.ProviderEntries...)
@@ -334,16 +310,18 @@ func sameNameResolutionActions(sources []skillResolutionSource) []string {
 		}
 	}
 	if hasProject && personalCount > 0 {
-		return append(actions, ResolutionDisablePersonalForProject, ResolutionKeepSelected)
+		return append(actions, ResolutionKeepSelected, ResolutionRenamePersonal)
 	}
-	if personalCount > 1 {
-		return append(actions, ResolutionKeepSelected)
+	if len(sources) > 1 {
+		return append(actions, ResolutionKeepSelected, ResolutionRenamePersonal)
 	}
 	return actions
 }
 
 func mirrorResolutionActions(conflict SkillMirrorConflict) []string {
 	switch conflict.Kind {
+	case skillConflictExternalPersonalProjectSameName:
+		return resolutionActionNames(conflict.Actions)
 	case skillConflictUnmanagedSameName, skillConflictUnmanagedProviderSkill:
 		if len(conflict.Actions) > 0 {
 			return resolutionActionNames(conflict.Actions)
@@ -354,6 +332,8 @@ func mirrorResolutionActions(conflict SkillMirrorConflict) []string {
 			return []string{ResolutionViewDiff, ResolutionSaveAsNewPersonal, ResolutionSyncBackPersonal, ResolutionConfirmDeleteDriftedMirror}
 		}
 		return []string{ResolutionViewDiff, ResolutionSaveAsNewSkill, ResolutionSyncBackCanonical, ResolutionConfirmDeleteDriftedMirror}
+	case skillConflictMirrorRootSymlink:
+		return []string{ResolutionViewUnmanaged, ResolutionReplaceProviderRootSymlink}
 	default:
 		return driftResolutionActions(conflict.Scope)
 	}
@@ -373,7 +353,7 @@ func driftResolutionActions(scope string) []string {
 	if scope == skillScopePersonal {
 		return []string{ResolutionViewDiff, ResolutionSaveAsNewPersonal, ResolutionSyncBackPersonal, ResolutionPersonalOverwrite}
 	}
-	return []string{ResolutionViewDiff, ResolutionSaveAsNewSkill, ResolutionSyncBackCanonical, ResolutionCanonicalOverwrite, ResolutionConfirmDeleteDriftedMirror}
+	return []string{ResolutionViewDiff, ResolutionSaveAsNewSkill, ResolutionSyncBackCanonical, ResolutionCanonicalOverwrite}
 }
 
 func resolutionConflictID(item skillResolutionItem) string {
@@ -466,25 +446,37 @@ func canonicalResolutionPreviewSources(item skillResolutionItem, p skillResoluti
 	}
 	switch p.Action {
 	case ResolutionRenamePersonal, ResolutionRenamePersonalType:
-		return renamePersonalPreviewSources(item.Sources, p.NewName)
-	case ResolutionDisablePersonalForProject:
-		source, err := canonicalSourceByID(item.Sources, p.DisablePolicyTarget)
-		return source, skillResolutionSource{Path: filepath.ToSlash(filepath.Join(defaultProjectSkillsRoot(p.CWD), projectSkillPolicyFile))}, err
+		return renamePreviewSources(item.Sources, p.KeepSourceID, p.NewName)
 	case ResolutionKeepSelected:
 		source, err := canonicalSourceByID(item.Sources, p.KeepSourceID)
 		if err != nil {
 			return source, skillResolutionSource{}, err
 		}
-		if source.Scope == skillScopeProject {
-			return source, skillResolutionSource{Path: filepath.ToSlash(filepath.Join(defaultProjectSkillsRoot(p.CWD), projectSkillPolicyFile))}, nil
-		}
-		return source, skillResolutionSource{Path: personalPolicyPathForSource(source)}, nil
+		return source, source, nil
 	case ResolutionMergeManually:
 		if strings.TrimSpace(p.MergeContentHash) == "" {
 			return skillResolutionSource{}, skillResolutionSource{}, fmt.Errorf("merge_content_hash is required for merge_manually")
 		}
 	}
 	return item.Sources[0], item.Sources[1], nil
+}
+
+func renamePreviewSources(sources []skillResolutionSource, keepSourceID, newName string) (skillResolutionSource, skillResolutionSource, error) {
+	if strings.TrimSpace(keepSourceID) == "" {
+		return renamePersonalPreviewSources(sources, newName)
+	}
+	source, err := canonicalSourceByID(sources, keepSourceID)
+	if err != nil {
+		return source, skillResolutionSource{}, err
+	}
+	name, err := validateSkillName(newName)
+	if err != nil {
+		return skillResolutionSource{}, skillResolutionSource{}, fmt.Errorf("new_name is required for rename: %w", err)
+	}
+	target := source
+	target.Path = filepath.ToSlash(filepath.Join(filepath.Dir(filepath.FromSlash(source.Path)), name))
+	target.CanonicalHash = ""
+	return source, target, nil
 }
 
 func renamePersonalPreviewSources(sources []skillResolutionSource, newName string) (skillResolutionSource, skillResolutionSource, error) {
@@ -514,11 +506,6 @@ func canonicalSourceByID(sources []skillResolutionSource, id string) (skillResol
 		}
 	}
 	return skillResolutionSource{}, fmt.Errorf("source id %q is not part of conflict", id)
-}
-
-func personalPolicyPathForSource(source skillResolutionSource) string {
-	dir := filepath.Dir(filepath.Dir(filepath.Dir(filepath.FromSlash(source.Path))))
-	return filepath.ToSlash(filepath.Join(dir, personalSkillPolicyFile))
 }
 
 func syncBackResolutionAction(action string) bool {

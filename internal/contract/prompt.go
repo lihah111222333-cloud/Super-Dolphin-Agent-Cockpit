@@ -165,7 +165,6 @@ type TurnInput struct {
 	ThreadID                     string
 	Provider                     string
 	UserText                     string
-	SkillPrompt                  string
 	Attachments                  []string
 	CurrentDate                  string
 	RuntimeUserContext           map[string]string

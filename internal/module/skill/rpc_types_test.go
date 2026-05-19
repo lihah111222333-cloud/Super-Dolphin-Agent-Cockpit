@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -71,14 +72,14 @@ func TestSkillListParamsRejectsEmptyCWD(t *testing.T) {
 func newSkillRPCTestServer(t *testing.T, svc Service) *platformrpc.Server {
 	t.Helper()
 	server := platformrpc.NewServer(platformrpc.Params{Config: &contract.Config{RPCAddr: "127.0.0.1:0"}})
-	server.Register(newSkillHandlers(svc, nil).Handlers)
+	server.Register(newSkillHandlers(svc).Handlers)
 	return server
 }
 
 func TestSkillHandlersDoNotExposeCandidateRPC(t *testing.T) {
 	t.Parallel()
 
-	handlers := newSkillHandlers(newTestSkillService(t), nil).Handlers
+	handlers := newSkillHandlers(newTestSkillService(t)).Handlers
 	for _, method := range []string{
 		"skills/candidate/list/pending",
 		"skills/candidate/get",
@@ -111,7 +112,7 @@ func TestSkillSummarySuggestRPCUsesDreamExecutor(t *testing.T) {
 	svc := newTestSkillService(t)
 	dream := &fakeSkillDreamExecutor{result: `{"description":"当你需要编写或验证技能文件时使用。"}`}
 	server := platformrpc.NewServer(platformrpc.Params{Config: &contract.Config{RPCAddr: "127.0.0.1:0"}})
-	server.Register(newSkillHandlers(svc, nil, dream).Handlers)
+	server.Register(newSkillHandlers(svc, dream).Handlers)
 
 	raw, err := server.Dispatch(context.Background(), "skills/summary/suggest", json.RawMessage(`{
 		"cwd":"/tmp/project",
@@ -136,6 +137,17 @@ func TestSkillSummarySuggestRPCUsesDreamExecutor(t *testing.T) {
 			t.Fatalf("dream prompt missing %q:\n%s", want, dream.prompt)
 		}
 	}
+	for _, want := range []string{
+		"不是总结 skill 内容",
+		"LLM 什么时候应该调用",
+		"description、scenario_words",
+		"1 到 3 个最重要、最具体的调用场景",
+		"不要使用“这个技能”“本技能”“可以帮助”“用于”",
+	} {
+		if !strings.Contains(dream.prompt, want) {
+			t.Fatalf("dream prompt missing precision rule %q:\n%s", want, dream.prompt)
+		}
+	}
 }
 
 func TestSkillSummarySuggestRPCRejectsGenericDescription(t *testing.T) {
@@ -144,7 +156,7 @@ func TestSkillSummarySuggestRPCRejectsGenericDescription(t *testing.T) {
 	svc := newTestSkillService(t)
 	dream := &fakeSkillDreamExecutor{result: `{"description":"帮你处理各种问题。"}`}
 	server := platformrpc.NewServer(platformrpc.Params{Config: &contract.Config{RPCAddr: "127.0.0.1:0"}})
-	server.Register(newSkillHandlers(svc, nil, dream).Handlers)
+	server.Register(newSkillHandlers(svc, dream).Handlers)
 
 	_, err := server.Dispatch(context.Background(), "skills/summary/suggest", json.RawMessage(`{
 		"name":"通用助手",
@@ -152,6 +164,58 @@ func TestSkillSummarySuggestRPCRejectsGenericDescription(t *testing.T) {
 	}`))
 	if err == nil || !strings.Contains(err.Error(), "skill summary suggestion quality") {
 		t.Fatalf("Dispatch() error = %v, want quality rejection", err)
+	}
+}
+
+func TestParseSkillSummarySuggestionResultValidatesShapeAndWeakPhrases(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name        string
+		description string
+		wantIssue   string
+	}{
+		{
+			name:        "accepts precise invocation scenario",
+			description: "当你需要编写或验证技能文件时使用。",
+		},
+		{
+			name:        "rejects missing fixed prefix",
+			description: "需要编写或验证技能文件时使用。",
+			wantIssue:   "invalid_shape",
+		},
+		{
+			name:        "rejects missing fixed suffix",
+			description: "当你需要编写或验证技能文件。",
+			wantIssue:   "invalid_shape",
+		},
+		{
+			name:        "rejects self-referential wording",
+			description: "当你需要使用这个技能帮助你写代码时使用。",
+			wantIssue:   "self_referential",
+		},
+		{
+			name:        "rejects weak purpose wording",
+			description: "当你需要用于生成技能简介时使用。",
+			wantIssue:   "weak_wording",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			_, err := parseSkillSummarySuggestionResult(`{"description":` + strconv.Quote(tt.description) + `}`)
+			if tt.wantIssue == "" {
+				if err != nil {
+					t.Fatalf("parseSkillSummarySuggestionResult() error = %v", err)
+				}
+				return
+			}
+			if err == nil || !strings.Contains(err.Error(), "skill summary suggestion quality: "+tt.wantIssue) {
+				t.Fatalf("parseSkillSummarySuggestionResult() error = %v, want issue %q", err, tt.wantIssue)
+			}
+		})
 	}
 }
 
@@ -233,7 +297,7 @@ func TestSkillsListHostRPCIncludesDirAndSkillFile(t *testing.T) {
 	}
 }
 
-func TestSkillExpandHostRPCRejectsUnknownFields(t *testing.T) {
+func TestSkillExpandHostRPCIsNotRegistered(t *testing.T) {
 	t.Parallel()
 
 	svc := newTestSkillService(t)
@@ -246,69 +310,8 @@ func TestSkillExpandHostRPCRejectsUnknownFields(t *testing.T) {
 	if !errors.As(err, &rpcErr) {
 		t.Fatalf("Dispatch() error = %T, want *jrpc2.Error", err)
 	}
-	if rpcErr.Code != jrpc2.Code(platformrpc.CodeInvalidParams) {
-		t.Fatalf("rpcErr.Code = %v, want %v", rpcErr.Code, platformrpc.CodeInvalidParams)
-	}
-}
-
-func TestSkillExpandHostRPCMapsErrors(t *testing.T) {
-	t.Parallel()
-
-	t.Run("not_found", func(t *testing.T) {
-		server := newSkillRPCTestServer(t, newTestSkillService(t))
-		cwd := filepath.Join(t.TempDir(), "repo")
-		_, err := server.Dispatch(context.Background(), "skill/expand", json.RawMessage(`{"name":"ghost","cwd":"`+cwd+`"}`))
-		var rpcErr *jrpc2.Error
-		if !errors.As(err, &rpcErr) {
-			t.Fatalf("Dispatch() error = %T, want *jrpc2.Error", err)
-		}
-		if rpcErr.Code != jrpc2.Code(platformrpc.CodeNotFound) {
-			t.Fatalf("rpcErr.Code = %v, want %v", rpcErr.Code, jrpc2.Code(platformrpc.CodeNotFound))
-		}
-	})
-
-	t.Run("invalid_params", func(t *testing.T) {
-		svc := newTestSkillService(t)
-		cwd := filepath.Join(t.TempDir(), "repo")
-		writeScopedSystemSkill(t, svc.root, cwd, "demo", "---\nname: demo\n---\nbody")
-		server := newSkillRPCTestServer(t, svc)
-		_, err := server.Dispatch(context.Background(), "skill/expand", json.RawMessage(`{"name":"demo","cwd":"`+cwd+`","section":"../escape"}`))
-		var rpcErr *jrpc2.Error
-		if !errors.As(err, &rpcErr) {
-			t.Fatalf("Dispatch() error = %T, want *jrpc2.Error", err)
-		}
-		if rpcErr.Code != jrpc2.Code(platformrpc.CodeInvalidParams) {
-			t.Fatalf("rpcErr.Code = %v, want %v", rpcErr.Code, platformrpc.CodeInvalidParams)
-		}
-	})
-}
-
-func TestSkillExpandHostRPCResponseShape(t *testing.T) {
-	t.Parallel()
-
-	svc := newTestSkillService(t)
-	cwd := filepath.Join(t.TempDir(), "repo")
-	writeScopedSystemSkill(t, svc.root, cwd, "demo", "---\nname: demo\nsummary: Demo sum\ntrust: user\n---\n## Usage\nhello world")
-	server := platformrpc.NewServer(platformrpc.Params{Config: &contract.Config{RPCAddr: "127.0.0.1:0"}})
-	server.Register(newSkillHandlers(svc, &stubApprovalRequester{}).Handlers)
-
-	raw, err := server.Dispatch(context.Background(), "skill/expand", json.RawMessage(`{"name":"demo","cwd":"`+cwd+`","section":"## Usage","max_bytes":20}`))
-	if err != nil {
-		t.Fatalf("Dispatch() error = %v", err)
-	}
-	var got map[string]any
-	if err := json.Unmarshal(raw, &got); err != nil {
-		t.Fatalf("json.Unmarshal() error = %v", err)
-	}
-	for _, key := range []string{"name", "section", "path", "summary", "content", "truncated", "total_bytes", "content_hash", "trust"} {
-		if _, ok := got[key]; !ok {
-			t.Fatalf("missing key %q in %#v", key, got)
-		}
-	}
-	for _, key := range []string{"version", "anchor", "skill_dir"} {
-		if _, ok := got[key]; ok {
-			t.Fatalf("unexpected legacy key %q in %#v", key, got)
-		}
+	if rpcErr.Code != jrpc2.Code(-32601) {
+		t.Fatalf("rpcErr.Code = %v, want method not found", rpcErr.Code)
 	}
 }
 
@@ -487,26 +490,6 @@ func assertRPCConflict(t *testing.T, server *platformrpc.Server, method, params 
 	}
 }
 
-func TestSkillExpandHostRPCDoesNotShareLegacySystemSkillAcrossCWD(t *testing.T) {
-	t.Parallel()
-
-	systemRoot := t.TempDir()
-	projectA := filepath.Join(t.TempDir(), "wj", "langgraph")
-	projectB := filepath.Join(t.TempDir(), "wj", "go-agent-v2")
-	writeScopedSystemSkill(t, systemRoot, projectA, "shared", "---\nname: shared\nsummary: global\n---\nglobal-body")
-	svc := &service{root: systemRoot, http: &http.Client{}}
-	server := newSkillRPCTestServer(t, svc)
-
-	_, err := server.Dispatch(context.Background(), "skill/expand", json.RawMessage(`{"name":"shared","cwd":"`+projectB+`"}`))
-	var rpcErr *jrpc2.Error
-	if !errors.As(err, &rpcErr) {
-		t.Fatalf("Dispatch skill/expand error = %T, want *jrpc2.Error", err)
-	}
-	if rpcErr.Code != jrpc2.Code(platformrpc.CodeNotFound) {
-		t.Fatalf("rpcErr.Code = %v, want not found", rpcErr.Code)
-	}
-}
-
 func TestSkillRPCRejectsEmptyCWD(t *testing.T) {
 	t.Parallel()
 
@@ -517,7 +500,6 @@ func TestSkillRPCRejectsEmptyCWD(t *testing.T) {
 	}{
 		{method: "skill/list", params: `{}`},
 		{method: "skills/list", params: `{}`},
-		{method: "skill/expand", params: `{"name":"demo"}`},
 		{method: "skills/match/preview", params: `{"threadId":"t1","text":"hello"}`},
 		{method: "skills/local/read", params: `{"path":"/tmp/skill/SKILL.md"}`},
 		{method: "skills/local/listFiles", params: `{"dir":"/tmp/skill"}`},

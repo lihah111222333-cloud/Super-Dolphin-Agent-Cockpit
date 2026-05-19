@@ -2,8 +2,6 @@ package skill
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -148,6 +146,23 @@ func TestWriteLocalRejectsSkillMainSymlink(t *testing.T) {
 	assertFileContent(t, outsideFile, "outside")
 }
 
+func TestWriteLocalRejectsInvalidFrontmatterSkillName(t *testing.T) {
+	projectRoot := t.TempDir()
+	svc := &service{projectRoot: projectRoot, projectSkillsRoot: defaultProjectSkillsRoot(projectRoot), superDolphinHome: newTestSuperDolphinHome(t), http: &http.Client{}}
+
+	_, err := svc.WriteLocal(
+		skillTestContext(projectRoot),
+		"Agent工程学",
+		"---\nname: \"Agent 工程学\"\n---\n# Agent 工程学\n",
+		skillScopeProject,
+	)
+
+	if !errors.Is(err, ErrInvalidSkillName) {
+		t.Fatalf("WriteLocal invalid frontmatter name error = %v, want ErrInvalidSkillName", err)
+	}
+	assertMissing(t, filepath.Join(projectRoot, ".agent", "skills", "agent工程学", skillMainFile))
+}
+
 func TestWriteProjectPolicyRejectsSymlinkFile(t *testing.T) {
 	projectRoot := t.TempDir()
 	policyDir := defaultProjectSkillsRoot(projectRoot)
@@ -184,7 +199,7 @@ func TestWriteLocalPublishesProjectMirrors(t *testing.T) {
 	assertPublishedReportItem(t, report.Published, "claude:project:"+RepoFingerprint(projectRoot), SkillProviderClaude, skillScopeProject, "build", "project/build")
 	assertPublishedReportItem(t, report.Published, "codex:project:"+RepoFingerprint(projectRoot), SkillProviderCodex, skillScopeProject, "build", "project/build")
 	assertFileContent(t, filepath.Join(projectRoot, ".claude", "skills", "build", skillMainFile), "---\nname: build\n---\nbody")
-	assertFileContent(t, filepath.Join(projectRoot, ".codex", "skills", "build", skillMainFile), "---\nname: build\n---\nbody")
+	assertFileContent(t, filepath.Join(providerProjectMirrorRoot(SkillProviderCodex, projectRoot), "build", skillMainFile), "---\nname: build\n---\nbody")
 }
 
 func TestWriteLocalProjectIgnoresConfiguredMirrorTargets(t *testing.T) {
@@ -215,7 +230,7 @@ func TestWriteLocalProjectIgnoresConfiguredMirrorTargets(t *testing.T) {
 	assertMissing(t, filepath.Join(outsideRoot, "build", skillMainFile))
 }
 
-func TestWriteLocalPublishSkipsCanonicalSameNameConflicts(t *testing.T) {
+func TestWriteLocalPublishReportsSameNameConflictButContinuesSafeMirrorWrites(t *testing.T) {
 	projectRoot := t.TempDir()
 	superDolphinHome := filepath.Join(t.TempDir(), ".super-dolphin")
 	writeSkillWithSupportFiles(t, filepath.Join(projectRoot, ".agent", "skills", "old"), "old")
@@ -252,11 +267,10 @@ func TestWriteLocalPublishSkipsCanonicalSameNameConflicts(t *testing.T) {
 	assertConflictReportItem(t, report.Conflicts, "claude:project:"+RepoFingerprint(projectRoot), SkillProviderClaude, skillScopeProject, "build", "", "same_name")
 	assertFileContent(t, filepath.Join(projectRoot, ".agent", "skills", "build", skillMainFile), "---\nname: build\n---\nproject")
 	assertMissing(t, filepath.Join(projectRoot, ".claude", "skills", "build", skillMainFile))
-	assertFileContent(t, filepath.Join(projectRoot, ".claude", "skills", "old", skillMainFile), "---\nname: old\n---\nold")
-	assertMissing(t, filepath.Join(projectRoot, ".claude", "skills", "safe", skillMainFile))
-	if len(report.Published) != 0 || len(report.Deleted) != 0 {
-		t.Fatalf("same-name write-time publish wrote mirrors: published=%+v deleted=%+v", report.Published, report.Deleted)
-	}
+	assertMissing(t, filepath.Join(projectRoot, ".claude", "skills", "old", skillMainFile))
+	assertFileContent(t, filepath.Join(projectRoot, ".claude", "skills", "safe", skillMainFile), "---\nname: safe\n---\nsafe")
+	assertPublishedReportItem(t, report.Published, "claude:project:"+RepoFingerprint(projectRoot), SkillProviderClaude, skillScopeProject, "safe", "project/safe")
+	assertDeletedReportItem(t, report.Deleted, "claude:project:"+RepoFingerprint(projectRoot), SkillProviderClaude, skillScopeProject, "old", "project/old")
 }
 
 func TestWriteLocalPublishConflictKeepsCanonicalResult(t *testing.T) {
@@ -300,7 +314,8 @@ func TestWriteLocalPublishErrorReportIncludesDetail(t *testing.T) {
 	assertFileContent(t, filepath.Join(projectRoot, ".agent", "skills", "build", skillMainFile), "---\nname: build\n---\ncanonical")
 }
 
-func TestWriteLocalPersonalPublishesAppManagedMirrors(t *testing.T) {
+func TestWriteLocalPersonalPublishesUserGlobalMirrors(t *testing.T) {
+	setSkillTestUserHome(t)
 	projectRoot := t.TempDir()
 	superDolphinHome := filepath.Join(t.TempDir(), ".super-dolphin")
 	svc := &service{
@@ -321,10 +336,10 @@ func TestWriteLocalPersonalPublishesAppManagedMirrors(t *testing.T) {
 	if err != nil {
 		t.Fatalf("resolve owner: %v", err)
 	}
-	assertPublishedReportItem(t, report.Published, "claude:app-managed:"+owner.OwnerKey, SkillProviderClaude, skillScopePersonal, "notes", "personal/user/notes")
-	assertPublishedReportItem(t, report.Published, "codex:app-managed:"+owner.OwnerKey, SkillProviderCodex, skillScopePersonal, "notes", "personal/user/notes")
-	assertFileContent(t, filepath.Join(superDolphinHome, "providers", "claude", "skills", "notes", skillMainFile), "---\nname: notes\n---\nbody")
-	assertFileContent(t, filepath.Join(superDolphinHome, "providers", "codex", "skills", "notes", skillMainFile), "---\nname: notes\n---\nbody")
+	assertPublishedReportItem(t, report.Published, "claude:user-global:"+owner.OwnerKey, SkillProviderClaude, skillScopePersonal, "notes", "personal/user/notes")
+	assertPublishedReportItem(t, report.Published, "codex:user-global:"+owner.OwnerKey, SkillProviderCodex, skillScopePersonal, "notes", "personal/user/notes")
+	assertFileContent(t, filepath.Join(providerPersonalMirrorRoot(SkillProviderClaude), "notes", skillMainFile), "---\nname: notes\n---\nbody")
+	assertFileContent(t, filepath.Join(providerPersonalMirrorRoot(SkillProviderCodex), "notes", skillMainFile), "---\nname: notes\n---\nbody")
 }
 
 func TestDeleteLocalRemovesOwnedProjectMirrors(t *testing.T) {
@@ -343,7 +358,7 @@ func TestDeleteLocalRemovesOwnedProjectMirrors(t *testing.T) {
 	report := mustMirrorPublishReport(t, result)
 	assertDeletedReportItem(t, report.Deleted, "claude:project:"+RepoFingerprint(projectRoot), SkillProviderClaude, skillScopeProject, "build", "project/build")
 	assertMissing(t, filepath.Join(projectRoot, ".claude", "skills", "build"))
-	assertMissing(t, filepath.Join(projectRoot, ".codex", "skills", "build"))
+	assertMissing(t, filepath.Join(providerProjectMirrorRoot(SkillProviderCodex, projectRoot), "build"))
 }
 
 func TestReadLocalAcceptsPathInsideProjectSkillsRoot(t *testing.T) {
@@ -494,90 +509,6 @@ func TestListSkillsIgnoresLegacySystemRoot(t *testing.T) {
 	}
 	if names["from-system"] || !names["from-project"] {
 		t.Fatalf("ListSkills() names = %#v, want project only", names)
-	}
-}
-
-func TestExpandReturnsNotFoundForMissingSkill(t *testing.T) {
-	t.Parallel()
-
-	svc, _ := newExpandTestService(t)
-	_, err := svc.Expand(expandTestContext(svc), skillExpandParams{Name: "ghost"})
-	if !errors.Is(err, os.ErrNotExist) {
-		t.Fatalf("Expand() error = %v, want os.ErrNotExist", err)
-	}
-	if err == nil || err.Error() != "skill not found: ghost" {
-		t.Fatalf("Expand() error text = %v, want skill not found", err)
-	}
-}
-
-func TestExpandRejectsPathEscapeSection(t *testing.T) {
-	t.Parallel()
-
-	svc, root := newExpandTestService(t)
-	writeExpandTestSkill(t, root, "demo", "---\nname: demo\n---\nbody")
-
-	_, err := svc.Expand(expandTestContext(svc), skillExpandParams{Name: "demo", Section: "../escape"})
-	if !errors.Is(err, errInvalidSkillExpandParam) {
-		t.Fatalf("Expand() error = %v, want invalid params", err)
-	}
-}
-
-func TestExpandFullSkillContentHashUsesPreTruncationBytes(t *testing.T) {
-	t.Parallel()
-
-	svc, root := newExpandTestService(t)
-	content := "---\nname: demo\nsummary: short\n---\n## Usage\nhello world"
-	path := writeExpandTestSkill(t, root, "demo", content)
-
-	res, err := svc.Expand(expandTestContext(svc), skillExpandParams{Name: "demo", MaxBytes: 10})
-	if err != nil {
-		t.Fatalf("Expand() error = %v", err)
-	}
-	if res.Path != filepath.Join(path, skillMainFile) {
-		t.Fatalf("Expand() path = %q", res.Path)
-	}
-	if res.Section != "" {
-		t.Fatalf("Expand() section = %q, want empty", res.Section)
-	}
-	if !res.Truncated || res.Content != content[:10] {
-		t.Fatalf("Expand() truncation = (%v, %q)", res.Truncated, res.Content)
-	}
-	if res.TotalBytes != int64(len(content)) {
-		t.Fatalf("Expand() total_bytes = %d, want %d", res.TotalBytes, len(content))
-	}
-	wantHash := sha256.Sum256([]byte(content))
-	if res.ContentHash != hex.EncodeToString(wantHash[:]) {
-		t.Fatalf("Expand() content_hash = %q", res.ContentHash)
-	}
-}
-
-func TestExpandMarkdownSectionTruncatesAndHashesSelection(t *testing.T) {
-	t.Parallel()
-
-	svc, root := newExpandTestService(t)
-	body := "---\nname: demo\nsummary: short\n---\n## Intro\nhello\n\n### Details\n" + strings.Repeat("x", 32) + "\n\n## Done\nbye"
-	path := writeExpandTestSkill(t, root, "demo", body)
-	selected := "### Details\n" + strings.Repeat("x", 32)
-
-	res, err := svc.Expand(expandTestContext(svc), skillExpandParams{Name: "demo", Section: "### Details", MaxBytes: 12})
-	if err != nil {
-		t.Fatalf("Expand() error = %v", err)
-	}
-	if res.Path != filepath.Join(path, skillMainFile) {
-		t.Fatalf("Expand() path = %q", res.Path)
-	}
-	if res.Section != "### Details" {
-		t.Fatalf("Expand() section = %q", res.Section)
-	}
-	if !res.Truncated || res.Content != selected[:12] {
-		t.Fatalf("Expand() truncation = (%v, %q)", res.Truncated, res.Content)
-	}
-	if res.TotalBytes != int64(len(selected)) {
-		t.Fatalf("Expand() total_bytes = %d, want %d", res.TotalBytes, len(selected))
-	}
-	wantHash := sha256.Sum256([]byte(selected))
-	if res.ContentHash != hex.EncodeToString(wantHash[:]) {
-		t.Fatalf("Expand() content_hash = %q", res.ContentHash)
 	}
 }
 

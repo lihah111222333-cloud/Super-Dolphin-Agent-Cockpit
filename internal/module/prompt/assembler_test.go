@@ -186,14 +186,8 @@ func TestAssembleStartSimpleCodexCarriesSuppressedTools(t *testing.T) {
 	}
 }
 
-func TestAssembleStartSuppressesToolsForRequestedProvider(t *testing.T) {
-	source := &recordingNativeReplacementSource{
-		toolsByProvider: map[string][]string{
-			"codex":  []string{"codex_only_tool"},
-			"claude": []string{"Read"},
-		},
-	}
-	svc := NewService(&Config{}, nil, WithSkillStore(source), WithDisabledBuiltinToolsFn(func(_ context.Context, _ string, provider string) []string {
+func TestAssembleStartSuppressesUserDisabledToolsForRequestedProvider(t *testing.T) {
+	svc := NewService(&Config{}, nil, WithDisabledBuiltinToolsFn(func(_ context.Context, _ string, provider string) []string {
 		if provider == "codex" {
 			return []string{"codex_only_disabled_tool"}
 		}
@@ -204,27 +198,12 @@ func TestAssembleStartSuppressesToolsForRequestedProvider(t *testing.T) {
 	if err != nil {
 		t.Fatalf("AssembleStart() error = %v", err)
 	}
-	if !strings.Contains(assembly.BaseInstructions, "Read") || !strings.Contains(assembly.BaseInstructions, "Bash") {
+	if !strings.Contains(assembly.BaseInstructions, "Bash") {
 		t.Fatalf("BaseInstructions missing claude suppressions:\n%s", assembly.BaseInstructions)
 	}
-	for _, notWant := range []string{"codex_only_tool", "codex_only_disabled_tool"} {
-		if strings.Contains(assembly.BaseInstructions, notWant) {
-			t.Fatalf("BaseInstructions leaked codex suppression %q:\n%s", notWant, assembly.BaseInstructions)
-		}
+	if strings.Contains(assembly.BaseInstructions, "codex_only_disabled_tool") {
+		t.Fatalf("BaseInstructions leaked codex suppression:\n%s", assembly.BaseInstructions)
 	}
-	if len(source.providers) != 1 || source.providers[0] != "claude" {
-		t.Fatalf("ReplacedNativeTools providers = %#v, want claude", source.providers)
-	}
-}
-
-type recordingNativeReplacementSource struct {
-	toolsByProvider map[string][]string
-	providers       []string
-}
-
-func (s *recordingNativeReplacementSource) ReplacedNativeTools(_ context.Context, _ string, provider string) []string {
-	s.providers = append(s.providers, provider)
-	return append([]string(nil), s.toolsByProvider[provider]...)
 }
 
 func TestAssembleStartFallsBackOnBuildError(t *testing.T) {

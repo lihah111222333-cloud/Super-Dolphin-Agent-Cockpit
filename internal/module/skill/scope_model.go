@@ -57,15 +57,18 @@ type resolvedSkillPathTarget struct {
 
 func resolveCanonicalRoots(projectRoot, home string) canonicalRoots {
 	superDolphinHome := filepath.Join(strings.TrimSpace(home), ".super-dolphin")
-	return canonicalRoots{
-		Project: defaultProjectSkillsRoot(projectRoot),
-		Personal: map[string]string{
-			personalSkillTypeUser:     filepath.Join(superDolphinHome, "skills", "personal", personalSkillTypeUser),
-			personalSkillTypeAgent:    filepath.Join(superDolphinHome, "skills", "personal", personalSkillTypeAgent),
-			personalSkillTypeImported: filepath.Join(superDolphinHome, "skills", "personal", personalSkillTypeImported),
-			personalSkillTypeHub:      filepath.Join(superDolphinHome, "skills", "personal", personalSkillTypeHub),
-		},
+	personal := make(map[string]string, len(activePersonalSkillTypes()))
+	for _, personalType := range activePersonalSkillTypes() {
+		personal[personalType] = filepath.Join(superDolphinHome, "skills", "personal", personalType)
 	}
+	return canonicalRoots{
+		Project:  defaultProjectSkillsRoot(projectRoot),
+		Personal: personal,
+	}
+}
+
+func activePersonalSkillTypes() []string {
+	return []string{personalSkillTypeUser, personalSkillTypeAgent, personalSkillTypeImported}
 }
 
 func defaultProjectSkillsRoot(projectRoot string) string {
@@ -209,12 +212,12 @@ func normalizeSkillTarget(scope, personalType string) (string, string, error) {
 		return skillScopeProject, "", nil
 	case skillScopePersonal:
 		normalizedType := strings.ToLower(strings.TrimSpace(personalType))
-		switch normalizedType {
-		case personalSkillTypeUser, personalSkillTypeAgent, personalSkillTypeImported, personalSkillTypeHub:
-			return skillScopePersonal, normalizedType, nil
-		default:
-			return "", "", fmt.Errorf("%w: personal_type %q", ErrInvalidSkillScope, personalType)
+		for _, activeType := range activePersonalSkillTypes() {
+			if normalizedType == activeType {
+				return skillScopePersonal, normalizedType, nil
+			}
 		}
+		return "", "", fmt.Errorf("%w: personal_type %q", ErrInvalidSkillScope, personalType)
 	case skillScopeSystem:
 		return "", "", ErrSkillSystemScopeRemoved
 	default:
@@ -359,7 +362,7 @@ func (s *service) allSkillRootTargets(cwd string) []skillRootTarget {
 		targets = append(targets, skillRootTarget{root: cleaned, scope: scope, personalType: personalType})
 	}
 	appendUniqueSkillRoot(s.projectSkillsRootForCWD(cwd), skillScopeProject, "")
-	for _, personalType := range []string{personalSkillTypeUser, personalSkillTypeAgent, personalSkillTypeImported, personalSkillTypeHub} {
+	for _, personalType := range activePersonalSkillTypes() {
 		appendUniqueSkillRoot(s.personalSkillsRoot(personalType), skillScopePersonal, personalType)
 	}
 	return targets

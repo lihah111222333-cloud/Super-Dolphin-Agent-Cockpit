@@ -11,12 +11,15 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 	"time"
 )
 
 const skillMirrorManifestFile = ".super-dolphin-skill-mirror.json"
+
+var errSkillMirrorManifestTargetMismatch = errors.New("skill mirror manifest target mismatch")
 
 type SkillMirrorManifest struct {
 	Version         int                         `json:"version"`
@@ -46,12 +49,71 @@ func loadSkillMirrorManifest(path string, target SkillMirrorTarget) (SkillMirror
 		return SkillMirrorManifest{}, err
 	}
 	if manifest.Provider != string(target.Provider) || manifest.Scope != target.Scope || manifest.CanonicalRootID != target.CanonicalRootID {
-		return SkillMirrorManifest{}, fmt.Errorf("skill mirror manifest target mismatch")
+		return SkillMirrorManifest{}, errSkillMirrorManifestTargetMismatch
 	}
 	if manifest.Skills == nil {
 		manifest.Skills = make(map[string]SkillMirrorEntry)
 	}
 	return manifest, nil
+}
+
+func repairMismatchedSkillMirrorManifest(records []canonicalSkillRecord, target SkillMirrorTarget) (SkillMirrorManifest, error) {
+	if target.Scope != skillScopePersonal {
+		return SkillMirrorManifest{}, errSkillMirrorManifestTargetMismatch
+	}
+	manifest, err := rebuiltSkillMirrorManifest(records, target)
+	if err != nil {
+		return SkillMirrorManifest{}, err
+	}
+	if err := writeSkillMirrorManifest(filepath.Join(target.Root, skillMirrorManifestFile), manifest); err != nil {
+		return SkillMirrorManifest{}, err
+	}
+	return manifest, nil
+}
+
+func rebuiltSkillMirrorManifest(records []canonicalSkillRecord, target SkillMirrorTarget) (SkillMirrorManifest, error) {
+	manifest := newSkillMirrorManifest(target)
+	for _, record := range recordsForMirrorTarget(records, target) {
+		mirrorDir := filepath.Join(target.Root, record.Name)
+		_, exists, err := existingMirrorHash(mirrorDir)
+		if err != nil {
+			return SkillMirrorManifest{}, err
+		}
+		if !exists {
+			continue
+		}
+		canonicalHash, err := stableMirrorDirectoryHash(record.Dir)
+		if err != nil {
+			return SkillMirrorManifest{}, err
+		}
+		expectedMirrorHash, err := expectedCanonicalMirrorHash(target.Root, record, target.Scope)
+		if err != nil {
+			return SkillMirrorManifest{}, err
+		}
+		manifest.Skills[record.Name] = mirrorManifestEntry(record, canonicalHash, expectedMirrorHash)
+	}
+	return manifest, nil
+}
+
+func expectedCanonicalMirrorHash(root string, record canonicalSkillRecord, scope string) (string, error) {
+	hash, _, err := expectedCanonicalMirrorHashes(root, record, scope)
+	return hash, err
+}
+
+func expectedCanonicalMirrorHashes(root string, record canonicalSkillRecord, scope string) (string, string, error) {
+	tempDir, err := os.MkdirTemp(root, ".skill-mirror-hash-"+record.Name+"-*")
+	if err != nil {
+		return "", "", err
+	}
+	defer os.RemoveAll(tempDir)
+	if err := copyCanonicalSkillDir(record.Dir, tempDir, scope); err != nil {
+		return "", "", err
+	}
+	hash, err := stableMirrorDirectoryHash(tempDir)
+	if err != nil {
+		return "", "", err
+	}
+	return hash, skillDirContentHash(tempDir), nil
 }
 
 func newSkillMirrorManifest(target SkillMirrorTarget) SkillMirrorManifest {
@@ -167,6 +229,32 @@ func ensureMirrorManifestRegularPath(path string, allowMissing bool) error {
 	return nil
 }
 
+func rejectSymlinkAncestors(root string) error {
+	path, err := filepath.Abs(root)
+	if err != nil {
+		return fmt.Errorf("normalize skill mirror root: %w", err)
+	}
+	for {
+		parent := filepath.Dir(path)
+		if parent == path {
+			return nil
+		}
+		info, err := os.Lstat(path)
+		if err == nil {
+			if info.Mode()&os.ModeSymlink != 0 && !allowedMirrorRootSymlinkAncestor(path) {
+				return fmt.Errorf("skill mirror root ancestor is symlink: %s", path)
+			}
+		} else if !errors.Is(err, os.ErrNotExist) {
+			return err
+		}
+		path = parent
+	}
+}
+
+func allowedMirrorRootSymlinkAncestor(path string) bool {
+	return runtime.GOOS == "darwin" && (path == "/var" || path == "/tmp" || path == "/etc")
+}
+
 func validateSkillMirrorManifest(manifest SkillMirrorManifest) error {
 	for name, entry := range manifest.Skills {
 		if _, err := validateSkillName(name); err != nil {
@@ -214,7 +302,7 @@ func validatePersonalMirrorCanonicalID(name, canonicalID string) (string, error)
 	if _, normalizedType, err := normalizeSkillTarget(skillScopePersonal, parts[1]); err != nil || normalizedType != parts[1] {
 		return "", fmt.Errorf("personal mirror %s canonical_id has invalid personal type", name)
 	}
-	if strings.Contains(canonicalID, ".claude/") || strings.Contains(canonicalID, ".codex/") || strings.Contains(canonicalID, "providers/") {
+	if strings.Contains(canonicalID, ".claude/") || strings.Contains(canonicalID, ".agents/") || strings.Contains(canonicalID, ".codex/") || strings.Contains(canonicalID, "providers/") {
 		return "", fmt.Errorf("personal mirror %s canonical_id must not reference provider paths", name)
 	}
 	return parts[1], nil
@@ -365,20 +453,21 @@ func (s *service) writeTimeMirrorTargets(cwd, scope string) []SkillMirrorTarget 
 	if scope != skillScopeProject {
 		return uniqueMirrorTargets(s.configuredMirrorTargets(scope))
 	}
-	fingerprint := RepoFingerprint(cwd)
+	projectRoot := s.projectRootForCWD(cwd)
+	fingerprint := RepoFingerprint(projectRoot)
 	targets := []SkillMirrorTarget{
 		{
 			TargetID:        "claude:project:" + fingerprint,
 			Provider:        SkillProviderClaude,
 			Scope:           skillScopeProject,
-			Root:            filepath.Join(cwd, ".claude", "skills"),
+			Root:            providerProjectMirrorRoot(SkillProviderClaude, projectRoot),
 			CanonicalRootID: fingerprint,
 		},
 		{
 			TargetID:        "codex:project:" + fingerprint,
 			Provider:        SkillProviderCodex,
 			Scope:           skillScopeProject,
-			Root:            filepath.Join(cwd, ".codex", "skills"),
+			Root:            providerProjectMirrorRoot(SkillProviderCodex, projectRoot),
 			CanonicalRootID: fingerprint,
 		},
 	}
@@ -393,19 +482,45 @@ func (s *service) defaultPersonalMirrorTargets() []SkillMirrorTarget {
 	}
 	return []SkillMirrorTarget{
 		{
-			TargetID:        "claude:app-managed:" + owner.OwnerKey,
+			TargetID:        "claude:user-global:" + owner.OwnerKey,
 			Provider:        SkillProviderClaude,
 			Scope:           skillScopePersonal,
-			Root:            filepath.Join(superHome, "providers", "claude", "skills"),
+			Root:            providerPersonalMirrorRoot(SkillProviderClaude),
 			CanonicalRootID: owner.OwnerKey,
 		},
 		{
-			TargetID:        "codex:app-managed:" + owner.OwnerKey,
+			TargetID:        "codex:user-global:" + owner.OwnerKey,
 			Provider:        SkillProviderCodex,
 			Scope:           skillScopePersonal,
-			Root:            filepath.Join(superHome, "providers", "codex", "skills"),
+			Root:            providerPersonalMirrorRoot(SkillProviderCodex),
 			CanonicalRootID: owner.OwnerKey,
 		},
+	}
+}
+
+func providerProjectMirrorRoot(provider SkillProvider, projectRoot string) string {
+	switch provider {
+	case SkillProviderClaude:
+		return filepath.Join(projectRoot, ".claude", "skills")
+	case SkillProviderCodex:
+		return filepath.Join(projectRoot, ".agents", "skills")
+	default:
+		return filepath.Join(projectRoot, "."+string(provider), "skills")
+	}
+}
+
+func providerPersonalMirrorRoot(provider SkillProvider) string {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return ""
+	}
+	switch provider {
+	case SkillProviderClaude:
+		return filepath.Join(home, ".claude", "skills")
+	case SkillProviderCodex:
+		return filepath.Join(home, ".agents", "skills")
+	default:
+		return ""
 	}
 }
 

@@ -3,7 +3,9 @@ package skill
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 	"time"
@@ -18,8 +20,11 @@ const (
 	ResolutionImportPersonal             = "import_to_personal_imported"
 	ResolutionImportProject              = "import_to_project"
 	ResolutionTakeoverProvider           = "takeover_provider_skill"
+	ResolutionUseProjectSharedSkill      = "use_project_shared_skill"
+	ResolutionUseExternalProviderSkill   = "use_external_provider_skill"
 	ResolutionSaveAsNewSkill             = "save_as_new_skill"
 	ResolutionSaveAsNewPersonal          = "save_as_new_personal_skill"
+	ResolutionKeepExternalProviderSkill  = "keep_external_provider_skill"
 	ResolutionSyncBackCanonical          = "sync_back_to_canonical"
 	ResolutionSyncBackPersonal           = "sync_back_to_personal"
 	ResolutionCanonicalOverwrite         = "canonical_overwrite_mirror"
@@ -31,17 +36,17 @@ const (
 	ResolutionMergeManually              = "merge_manually"
 	ResolutionKeepSelected               = "keep_selected"
 	ResolutionConfirmDeleteDriftedMirror = "confirm_delete_drifted_mirror"
+	ResolutionReplaceProviderRootSymlink = "replace_provider_root_symlink"
 )
 
-const skillSummarySuggestPromptHeader = `你是技能简介助手。请根据输入为一个 SKILL.md 生成一句中文技能简介。
-
-要求：
-1. 只说明"什么时候使用这个技能"，不要解释实现细节。
-2. 使用固定句式："当你需要……时使用。"
-3. 要写具体场景，不要写成"帮你处理各种问题"这类泛泛能力介绍。
-4. 不要总结执行步骤，例如"先读取文件，再分析，然后输出"。
-5. 不要输出内部标记、XML 标签、markdown、代码块或多余说明。
-6. 严格输出 JSON：{"description":"当你需要……时使用。"}
+const skillSummarySuggestPromptHeader = `你是 skill 简介生成助手。你的任务不是总结 skill 内容，而是生成一句“LLM 什么时候应该调用这个 skill”的使用场景描述。
+严格输出一个中文 JSON：{"description":"当你需要……时使用。"}
+规则：
+1. description 必须只是一句话，并以“当你需要”开头、以“时使用。”结尾。
+2. 描述用户任务触发场景，不写 skill 实现步骤；提炼 1 到 3 个最重要、最具体的调用场景。
+3. 优先参考 description、scenario_words（适用场景关键词）、trigger_words、标题、正文前几段；目录名和文件名只作辅助。
+4. 不要使用“这个技能”“本技能”“可以帮助”“用于”等表述；不要写“处理各种问题”“提升效率”“辅助开发”等泛泛描述。
+5. 不要输出 Markdown、解释、候选项或多余文本；内容不明确时宁可偏窄但准确，不要泛化。
 
 输入：
 `
@@ -109,6 +114,12 @@ func skillSummarySuggestionQualityIssue(description string) string {
 		return "missing"
 	}
 	switch {
+	case !strings.HasPrefix(description, "当你需要") || !strings.HasSuffix(description, "时使用。"):
+		return "invalid_shape"
+	case skillSummaryContainsAny(strings.ToLower(description), "这个技能", "本技能", "该技能", "此技能", "this skill"):
+		return "self_referential"
+	case skillSummaryContainsAny(description, "可以帮助", "可帮助", "帮助你", "帮你", "用于"):
+		return "weak_wording"
 	case skillSummaryLooksLikeWorkflow(description):
 		return "workflow"
 	case skillSummaryLooksTooGeneric(description):
@@ -117,11 +128,18 @@ func skillSummarySuggestionQualityIssue(description string) string {
 		return "too_short"
 	case compactRuneLen(description) > 120:
 		return "too_long"
-	case !skillSummaryHasScenarioCue(description):
-		return "missing_scenario"
 	default:
 		return ""
 	}
+}
+
+func skillSummaryContainsAny(description string, terms ...string) bool {
+	for _, term := range terms {
+		if strings.Contains(description, term) {
+			return true
+		}
+	}
+	return false
 }
 
 func skillSummaryLooksTooGeneric(description string) bool {
@@ -154,15 +172,6 @@ func skillSummaryLooksLikeWorkflow(description string) bool {
 		return true
 	}
 	for _, term := range []string{"实现步骤", "执行步骤", "工作流程"} {
-		if strings.Contains(description, term) {
-			return true
-		}
-	}
-	return false
-}
-
-func skillSummaryHasScenarioCue(description string) bool {
-	for _, term := range []string{"当你需要", "当你遇到", "当你正在", "当你准备", "需要", "遇到", "正在", "准备"} {
 		if strings.Contains(description, term) {
 			return true
 		}
@@ -311,7 +320,7 @@ func normalizeResolutionAction(action string) string {
 }
 
 func sameNameApplyAction(action string) bool {
-	return action == ResolutionDisablePersonalForProject || action == ResolutionKeepSelected
+	return action == ResolutionKeepSelected || action == ResolutionRenamePersonal
 }
 
 func (s *service) applySkillResolution(ctx context.Context, p skillResolutionApplyParams) (SkillMirrorResolutionReport, error) {
@@ -345,6 +354,9 @@ func (s *service) applySkillResolution(ctx context.Context, p skillResolutionApp
 	if unmanagedProviderApplyAction(p.Action) {
 		return applyUnmanagedProviderResolution(ctx, s, req)
 	}
+	if externalPersonalProjectApplyAction(p.Action) {
+		return ResolveExternalPersonalProjectSameName(ctx, s, req)
+	}
 	return ResolveSkillMirrorDrift(ctx, s, SkillMirrorResolutionRequest{
 		Action:      p.Action,
 		Name:        resolutionApplyName(p, item),
@@ -358,35 +370,13 @@ func (s *service) applySkillResolution(ctx context.Context, p skillResolutionApp
 func (s *service) applySameNameResolution(ctx context.Context, item skillResolutionItem, preview skillResolutionPreviewItem, p skillResolutionApplyParams) (SkillMirrorResolutionReport, error) {
 	report := SkillMirrorResolutionReport{Action: p.Action, Name: resolutionApplyName(p, item)}
 	switch p.Action {
-	case ResolutionDisablePersonalForProject:
-		return s.applyDisablePersonalForProjectResolution(ctx, report, item, preview, p)
 	case ResolutionKeepSelected:
 		return s.applyKeepSelectedResolution(ctx, report, item, preview, p)
+	case ResolutionRenamePersonal:
+		return s.applyRenameSameNameResolution(ctx, report, item, preview, p)
 	default:
 		return report, fmt.Errorf("unsupported same-name resolution action %q", p.Action)
 	}
-}
-
-func (s *service) applyDisablePersonalForProjectResolution(ctx context.Context, report SkillMirrorResolutionReport, item skillResolutionItem, preview skillResolutionPreviewItem, p skillResolutionApplyParams) (SkillMirrorResolutionReport, error) {
-	source, err := canonicalSourceByID(item.Sources, p.DisablePolicyTarget)
-	if err != nil {
-		return report, err
-	}
-	if source.Scope != skillScopePersonal {
-		return report, fmt.Errorf("disable target must be a personal skill")
-	}
-	targetPath := filepath.Join(defaultProjectSkillsRoot(p.CWD), projectSkillPolicyFile)
-	if err := validateSameNamePolicyPreview(preview, source.Path, targetPath); err != nil {
-		return report, err
-	}
-	hash, err := writeProjectDisablePersonalPolicy(p.CWD, item.Name, source.PersonalType)
-	if err != nil {
-		return report, err
-	}
-	report.ResultingHash = hash
-	markSameNamePolicyMirrorPublish(ctx, s, p.CWD, item.Name, &report)
-	s.publishSkillsChanged(ctx, p.Action, item.Name, skillScopeProject)
-	return report, nil
 }
 
 func (s *service) applyKeepSelectedResolution(ctx context.Context, report SkillMirrorResolutionReport, item skillResolutionItem, preview skillResolutionPreviewItem, p skillResolutionApplyParams) (SkillMirrorResolutionReport, error) {
@@ -394,19 +384,10 @@ func (s *service) applyKeepSelectedResolution(ctx context.Context, report SkillM
 	if err != nil {
 		return report, err
 	}
-	targetPath := keepSelectedPolicyTargetPath(s, p.CWD, source)
-	if err := validateSameNamePolicyPreview(preview, source.Path, targetPath); err != nil {
+	if err := validateSameNameSourcePreview(preview, source.Path, source.Path); err != nil {
 		return report, err
 	}
-	var hash string
-	switch source.Scope {
-	case skillScopeProject:
-		hash, err = writeProjectKeepSelectedPolicy(p.CWD, item.Name, item.Sources, source)
-	case skillScopePersonal:
-		hash, err = s.writePersonalKeepSelectedPolicy(item.Name, item.Sources, source)
-	default:
-		return report, fmt.Errorf("keep selected requires a project or personal skill")
-	}
+	hash, err := removeSameNameDuplicateSources(item, source)
 	if err != nil {
 		return report, err
 	}
@@ -416,20 +397,36 @@ func (s *service) applyKeepSelectedResolution(ctx context.Context, report SkillM
 	return report, nil
 }
 
-func keepSelectedPolicyTargetPath(s *service, cwd string, source skillResolutionSource) string {
-	if source.Scope == skillScopeProject {
-		return filepath.Join(defaultProjectSkillsRoot(cwd), projectSkillPolicyFile)
+func removeSameNameDuplicateSources(item skillResolutionItem, selected skillResolutionSource) (string, error) {
+	if selected.Scope != skillScopeProject && selected.Scope != skillScopePersonal {
+		return "", fmt.Errorf("keep selected requires a project or personal skill")
 	}
-	return filepath.Join(s.resolvedSuperDolphinHome(), "skills", personalSkillPolicyFile)
-}
-
-func sameNameSourcesIncludeProject(sources []skillResolutionSource) bool {
-	for _, source := range sources {
-		if source.Scope == skillScopeProject {
-			return true
+	if err := ensureProviderSkillDirSafe(filepath.FromSlash(selected.Path)); err != nil {
+		return "", err
+	}
+	for _, source := range item.Sources {
+		if source.CanonicalID == selected.CanonicalID {
+			continue
+		}
+		if err := removeSameNameDuplicateSource(source); err != nil {
+			return "", err
 		}
 	}
-	return false
+	return skillDirContentHash(filepath.FromSlash(selected.Path)), nil
+}
+
+func removeSameNameDuplicateSource(source skillResolutionSource) error {
+	if source.Scope != skillScopeProject && source.Scope != skillScopePersonal {
+		return fmt.Errorf("remove same-name source requires a project or personal skill")
+	}
+	dir := filepath.FromSlash(source.Path)
+	if err := ensureProviderSkillDirSafe(dir); err != nil {
+		return err
+	}
+	if _, err := backupSkillDir(dir); err != nil {
+		return err
+	}
+	return os.RemoveAll(dir)
 }
 
 func publishSameNameKeepSelectedChanged(ctx context.Context, svc *service, action, name string, source skillResolutionSource) {
@@ -456,7 +453,60 @@ func markSameNamePolicyMirrorPublish(ctx context.Context, svc *service, cwd, nam
 	}
 }
 
-func validateSameNamePolicyPreview(preview skillResolutionPreviewItem, sourcePath, targetPath string) error {
+func (s *service) applyRenameSameNameResolution(ctx context.Context, report SkillMirrorResolutionReport, item skillResolutionItem, preview skillResolutionPreviewItem, p skillResolutionApplyParams) (SkillMirrorResolutionReport, error) {
+	source, err := canonicalSourceByID(item.Sources, p.KeepSourceID)
+	if err != nil {
+		return report, err
+	}
+	name, err := validateSkillName(p.NewName)
+	if err != nil {
+		return report, err
+	}
+	targetPath := filepath.ToSlash(filepath.Join(filepath.Dir(filepath.FromSlash(source.Path)), name))
+	if err := validateSameNameSourcePreview(preview, source.Path, targetPath); err != nil {
+		return report, err
+	}
+	hash, err := renameSameNameSource(source, filepath.FromSlash(targetPath), name)
+	if err != nil {
+		return report, err
+	}
+	report.ResultingHash = hash
+	markSameNamePolicyMirrorPublish(ctx, s, p.CWD, item.Name, &report)
+	publishSameNameKeepSelectedChanged(ctx, s, p.Action, item.Name, source)
+	publishSameNameKeepSelectedChanged(ctx, s, p.Action, name, source)
+	return report, nil
+}
+
+func renameSameNameSource(source skillResolutionSource, targetDir, newName string) (string, error) {
+	if source.Scope != skillScopeProject && source.Scope != skillScopePersonal {
+		return "", fmt.Errorf("rename same-name source requires a project or personal skill")
+	}
+	dir := filepath.FromSlash(source.Path)
+	if err := ensureProviderSkillDirSafe(dir); err != nil {
+		return "", err
+	}
+	if err := rejectSymlinkAncestors(filepath.Dir(targetDir)); err != nil {
+		return "", err
+	}
+	if _, err := os.Stat(targetDir); err == nil {
+		return "", fmt.Errorf("new skill target already exists: %s", targetDir)
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return "", err
+	}
+	if _, err := backupSkillDir(dir); err != nil {
+		return "", err
+	}
+	if err := os.Rename(dir, targetDir); err != nil {
+		return "", err
+	}
+	if err := rewriteCopiedSkillName(targetDir, newName); err != nil {
+		_ = os.Rename(targetDir, dir)
+		return "", err
+	}
+	return skillDirContentHash(targetDir), nil
+}
+
+func validateSameNameSourcePreview(preview skillResolutionPreviewItem, sourcePath, targetPath string) error {
 	if !sameResolutionPath(preview.SourcePath, sourcePath) {
 		return fmt.Errorf("skill resolution preview source mismatch")
 	}
@@ -495,6 +545,10 @@ func validateResolutionApplyAction(item skillResolutionItem, action string) erro
 	switch {
 	case item.Kind == skillConflictSameName:
 		return validateSameNameResolutionApplyAction(item, action)
+	case item.Kind == skillConflictUnmanagedSameName && item.Scope == skillScopeProject && projectMirrorApplyAction(action):
+		return validateMirrorResolutionApplyAction(item, action)
+	case item.Kind == skillConflictExternalPersonalProjectSameName:
+		return validateExternalPersonalProjectResolutionApplyAction(item, action)
 	case item.Kind == skillConflictUnmanagedSameName || item.Kind == skillConflictUnmanagedProviderSkill:
 		return validateUnmanagedResolutionApplyAction(action)
 	case !mirrorResolutionKind(item.Kind):
@@ -517,9 +571,19 @@ func validateUnmanagedResolutionApplyAction(action string) error {
 	return fmt.Errorf("resolution apply does not support unmanaged action %q", action)
 }
 
+func validateExternalPersonalProjectResolutionApplyAction(item skillResolutionItem, action string) error {
+	if externalPersonalProjectApplyAction(action) && resolutionActionAllowed(item.AvailableActions, action) {
+		return nil
+	}
+	return fmt.Errorf("resolution apply does not support external personal project action %q", action)
+}
+
 func validateMirrorResolutionApplyAction(item skillResolutionItem, action string) error {
 	if !resolutionActionAllowed(item.AvailableActions, action) {
 		return fmt.Errorf("resolution action %q is not available for %s", action, item.Kind)
+	}
+	if action == ResolutionConfirmDeleteDriftedMirror && item.Kind != skillConflictCanonicalDeletedWithDrift {
+		return fmt.Errorf("resolution action %q requires deleted canonical drift", action)
 	}
 	if item.Scope == skillScopeProject && !projectMirrorApplyAction(action) {
 		return fmt.Errorf("resolution apply does not support project action %q", action)
@@ -529,7 +593,7 @@ func validateMirrorResolutionApplyAction(item skillResolutionItem, action string
 
 func mirrorResolutionKind(kind string) bool {
 	switch kind {
-	case skillConflictMirrorDrift, skillConflictMultiMirrorDrift, skillConflictCanonicalDeletedWithDrift:
+	case skillConflictMirrorDrift, skillConflictMultiMirrorDrift, skillConflictCanonicalDeletedWithDrift, skillConflictMirrorRootSymlink:
 		return true
 	default:
 		return false
@@ -540,9 +604,16 @@ func projectMirrorApplyAction(action string) bool {
 	return action == ResolutionSyncBackCanonical ||
 		action == ResolutionCanonicalOverwrite ||
 		action == ResolutionSaveAsNewSkill ||
-		action == ResolutionConfirmDeleteDriftedMirror
+		action == ResolutionConfirmDeleteDriftedMirror ||
+		action == ResolutionReplaceProviderRootSymlink
 }
 
 func unmanagedProviderApplyAction(action string) bool {
 	return action == ResolutionImportPersonal || action == ResolutionImportProject || action == ResolutionTakeoverProvider
+}
+
+func externalPersonalProjectApplyAction(action string) bool {
+	return action == ResolutionUseProjectSharedSkill ||
+		action == ResolutionUseExternalProviderSkill ||
+		action == ResolutionSaveAsNewPersonal
 }

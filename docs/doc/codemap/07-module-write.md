@@ -594,7 +594,7 @@ sequenceDiagram
 - **launch 技能**：跟着 `thread/start` 走，当前只作为 legacy launch-time selection carrier 保留，不再把 skill catalog/body 注入 start prompt。
 - **turn 技能**：跟着 `turn/start` 走，作用在这一次用户消息的 `dto.TurnRequest.Skills`。
 
-生产 provider skill 发现链路在 provider 启动/acquire 前完成：canonical skills 先同步到 `.claude/skills` / `.codex/skills` 以及 provider home `skills` mirror，再由 Claude/Codex 原生发现。
+生产 provider skill 发现链路在 provider 启动/acquire 前完成：canonical skills 先同步到项目级 `.claude/skills` / `.agents/skills`，以及个人级 `~/.claude/skills` / `~/.agents/skills` 或显式 provider home `skills` mirror，再由 Claude/Codex 原生发现。
 
 这也是 blank-thread 首发最容易看错的地方：**先起线程不等于已经发出首条 turn**；真正消息发送仍然要再走一次 `turn/start`。
 

@@ -151,7 +151,11 @@ func TestListSkillsIgnoresLegacySkillsRootAtRuntime(t *testing.T) {
 
 func TestDeleteLocalStructuredTargetDoesNotCrossDeleteSameName(t *testing.T) {
 	projectRoot := filepath.Join(t.TempDir(), "repo-a")
-	superDolphinHome := filepath.Join(t.TempDir(), ".super-dolphin")
+	home := t.TempDir()
+	superDolphinHome := filepath.Join(home, ".super-dolphin")
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	t.Setenv("SUPER_DOLPHIN_HOME", superDolphinHome)
 	projectSkillsRoot := defaultProjectSkillsRoot(projectRoot)
 	personalUserRoot := filepath.Join(superDolphinHome, "skills", "personal", personalSkillTypeUser)
 	writeTestSkill(t, projectSkillsRoot, "build", "# project build")
@@ -175,6 +179,25 @@ func TestDeleteLocalStructuredTargetDoesNotCrossDeleteSameName(t *testing.T) {
 	}
 	assertMissing(t, filepath.Join(personalUserRoot, "build", skillMainFile))
 	assertArchiveContainsSkill(t, superDolphinHome, filepath.Join(skillScopePersonal, personalSkillTypeUser, "build"))
+	for _, tc := range []struct {
+		provider SkillProvider
+		root     string
+	}{
+		{provider: SkillProviderClaude, root: filepath.Join(home, ".claude", "skills")},
+		{provider: SkillProviderCodex, root: filepath.Join(home, ".agents", "skills")},
+	} {
+		manifest, err := readSkillMirrorManifest(filepath.Join(tc.root, skillMirrorManifestFile))
+		if err != nil {
+			t.Fatalf("read %s personal mirror manifest: %v", tc.provider, err)
+		}
+		if manifest.Scope != skillScopePersonal || manifest.Provider != string(tc.provider) {
+			t.Fatalf("%s personal mirror manifest = %+v, want scope=%q provider=%q", tc.provider, manifest, skillScopePersonal, tc.provider)
+		}
+		if len(manifest.Skills) != 0 {
+			t.Fatalf("%s personal mirror manifest skills = %+v, want empty after delete", tc.provider, manifest.Skills)
+		}
+		assertMissing(t, filepath.Join(tc.root, "build", skillMainFile))
+	}
 }
 
 func writeProjectSkillRoot(root string) error {

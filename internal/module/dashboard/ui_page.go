@@ -194,6 +194,9 @@ func (s *service) listDashboardTaskTraces(ctx context.Context) ([]tasktracestore
 
 func (s *service) listDashboardSkills(ctx context.Context) ([]contract.SkillInfo, error) {
 	cwd := dashboardPromptScopeCWDFromContext(ctx)
+	if s.skillInventory != nil {
+		return s.skillInventory.ListSkillInventory(contract.WithSkillCWD(ctx, cwd))
+	}
 	return safeList(s.skills != nil, func() ([]contract.SkillInfo, error) {
 		return s.skills.ListSkills(contract.WithSkillCWD(ctx, cwd))
 	})

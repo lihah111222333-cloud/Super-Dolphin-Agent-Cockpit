@@ -22,10 +22,8 @@ var builtInSkillFS embed.FS
 
 // validateSkillName 统一校验 skill name 标识符合法性。通过返回规范化后的名字（剥除首尾空白）、
 // 不通过时返回 ErrInvalidSkillName 包装的错误。调用点：
-//   - ReadLocal 的 path-based 入口不直接调用（它走 resolveSkillPath）。
-//   - P20 Phase 6 新增的 `Service.Expand(ctx, name, ...)` 必须先调用，
-//     拒绝包含 `/`, `\`, `..`、控制字符或危险字符的 name。
-//   - 单测 / RPC 参数射来的 name 亦应经此关。
+//   - ReadLocal 的 name-based 入口会先调用，path-based 入口走 resolveSkillPath。
+//   - 写入、导入、删除、匹配预览等 host 参数射来的 name 亦应经此关。
 //
 // 白名单：Unicode letter/digit + '-' + '_'，长度上限 64 rune，首字符必须是
 // Unicode letter/digit（不能以 '-' 或 '_' 开头）。

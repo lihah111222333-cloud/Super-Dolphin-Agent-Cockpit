@@ -67,6 +67,7 @@ Thumbs.db
 /.agent/skills/**/.DS_Store
 # Local Claude harness state (settings, scheduled-task locks, per-user memory stores)
 /.claude/
+/.agents/
 /.codex/
 /.code_exec/
 /.tmp/

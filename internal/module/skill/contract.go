@@ -62,12 +62,12 @@ type Service interface {
 	contract.ApprovalSource
 	SkillCommandExecutor
 	SkillLister
+	SkillInventoryLister
 	SkillHydrationSource
 	skillLocalMutationStore
 	skillRemoteStore
 	skillConfigStore
 	skillPreviewer
-	skillLegacyExpander
 	SkillRevisionSource
 	TrustRevisionSource
 }
@@ -80,6 +80,11 @@ type SkillCommandExecutor interface {
 // definition now lives in internal/contract so that cross-module consumers
 // (dashboard, prompt) do not need to import internal/module/skill.
 type SkillLister = contract.SkillLister
+
+// SkillInventoryLister is a type alias for contract.SkillInventoryLister.
+// It is only for management inventory; runtime consumers should keep using
+// SkillLister so unresolved conflicts still fail closed.
+type SkillInventoryLister = contract.SkillInventoryLister
 
 type SkillRevisionSource interface {
 	SkillRevision() uint64
@@ -139,15 +144,34 @@ type skillPreviewer interface {
 	MatchPreview(ctx context.Context, agentID, threadID, text string, input []UserInput) (any, error)
 }
 
-type skillLegacyExpander interface {
-	Expand(ctx context.Context, p skillExpandParams) (skillExpandResult, error)
-}
-
 func (s *service) ReconcileProviderMirrors(ctx context.Context, cwd string, targets []contract.SkillProviderMirrorTarget) (contract.SkillMirrorReport, error) {
 	var report SkillMirrorReport
 	if s == nil {
 		return report, errors.New("skill service is not configured")
 	}
+	projectRoot, err := s.reconcileMirrorProjectRoot(ctx, cwd)
+	if err != nil {
+		return report, err
+	}
+	mirrorTargets, err := s.providerMirrorTargets(projectRoot, targets)
+	if err != nil {
+		return report, err
+	}
+	store := newCanonicalStoreForOwner(s.resolvedSuperDolphinHome(), defaultOwnerOSUID(), defaultAppProfile())
+	cleanupReport, err := s.cleanupProjectSuppressedPersonalMirrors(projectRoot, mirrorTargets, store)
+	appendSkillMirrorReport(&report, cleanupReport)
+	if err != nil {
+		return report, err
+	}
+	for _, scope := range []string{skillScopeProject, skillScopePersonal} {
+		if err := reconcileProviderMirrorScope(ctx, &report, store, projectRoot, mirrorTargets, scope); err != nil {
+			return report, err
+		}
+	}
+	return report, nil
+}
+
+func (s *service) reconcileMirrorProjectRoot(ctx context.Context, cwd string) (string, error) {
 	cwd = strings.TrimSpace(cwd)
 	if cwd == "" {
 		cwd = cwdFromContext(ctx)
@@ -156,31 +180,23 @@ func (s *service) ReconcileProviderMirrors(ctx context.Context, cwd string, targ
 		cwd = strings.TrimSpace(s.projectRoot)
 	}
 	if cwd == "" {
-		return report, ErrMissingCWD
+		return "", ErrMissingCWD
 	}
-	projectRoot := reconcileProjectRoot(cwd, s.projectRoot)
-	mirrorTargets, err := s.providerMirrorTargets(projectRoot, targets)
+	return reconcileProjectRoot(cwd, s.projectRoot), nil
+}
+
+func reconcileProviderMirrorScope(ctx context.Context, report *SkillMirrorReport, store *canonicalStore, projectRoot string, targets []SkillMirrorTarget, scope string) error {
+	group := mirrorTargetsForScope(targets, scope)
+	records, conflicts, err := mirrorRecordsForScope(ctx, store, projectRoot, scope)
 	if err != nil {
-		return report, err
+		return err
 	}
-	store := newCanonicalStoreForOwner(s.resolvedSuperDolphinHome(), defaultOwnerOSUID(), defaultAppProfile())
-	for _, scope := range []string{skillScopeProject, skillScopePersonal} {
-		group := mirrorTargetsForScope(mirrorTargets, scope)
-		records, conflicts, err := mirrorRecordsForScope(ctx, store, projectRoot, scope)
-		if err != nil {
-			return report, err
-		}
-		if len(conflicts) > 0 {
-			appendCanonicalConflictReportItems(&report, group, conflicts)
-			continue
-		}
-		targetReport, err := PublishSkillMirrors(ctx, records, group)
-		appendSkillMirrorReport(&report, targetReport)
-		if err != nil {
-			return report, err
-		}
+	if len(conflicts) > 0 {
+		appendCanonicalConflictReportItems(report, group, conflicts)
 	}
-	return report, nil
+	targetReport, err := PublishSkillMirrors(ctx, records, group)
+	appendSkillMirrorReport(report, targetReport)
+	return err
 }
 
 func mirrorTargetsForScope(targets []SkillMirrorTarget, scope string) []SkillMirrorTarget {
@@ -194,33 +210,43 @@ func mirrorTargetsForScope(targets []SkillMirrorTarget, scope string) []SkillMir
 }
 
 func mirrorRecordsForScope(ctx context.Context, store *canonicalStore, cwd, scope string) ([]canonicalSkillRecord, []canonicalSkillConflict, error) {
-	if scope != skillScopePersonal {
-		return store.EffectiveSet(ctx, cwd)
-	}
-	records, err := store.scan(cwd)
+	records, conflicts, err := store.EffectiveSet(ctx, cwd)
 	if err != nil {
 		return nil, nil, err
 	}
-	records, err = store.applyPersonalSkillPolicy(records)
-	if err != nil {
-		return nil, nil, err
-	}
-	records = filterCanonicalRecordsForScope(records, skillScopePersonal)
-	conflicts := canonicalSameNameConflicts(records)
-	if len(conflicts) == 0 {
-		return records, nil, nil
-	}
-	return canonicalRecordsWithoutConflicts(records, conflicts), conflicts, nil
+	return filterCanonicalRecordsForScope(records, scope), conflicts, nil
 }
 
 func reconcileProjectRoot(cwd, configured string) string {
-	if configured = strings.TrimSpace(configured); configured != "" {
-		cwd = configured
+	cwd = strings.TrimSpace(cwd)
+	if cwd == "" {
+		cwd = strings.TrimSpace(configured)
 	}
-	if resolved, err := canonicalProjectPath(cwd); err == nil {
-		return resolved
+	resolved, err := canonicalProjectPath(cwd)
+	if err != nil {
+		return cwd
 	}
-	return cwd
+	if root, err := nearestProjectRoot(resolved); err == nil {
+		return root
+	}
+	return resolved
+}
+
+func nearestProjectRoot(dir string) (string, error) {
+	original := dir
+	for {
+		gitPath := filepath.Join(dir, ".git")
+		if _, err := os.Stat(gitPath); err == nil {
+			return dir, nil
+		} else if !errors.Is(err, os.ErrNotExist) {
+			return "", err
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			return original, nil
+		}
+		dir = parent
+	}
 }
 
 func (s *service) providerMirrorTargets(cwd string, targets []contract.SkillProviderMirrorTarget) ([]SkillMirrorTarget, error) {
@@ -241,15 +267,16 @@ func (s *service) providerMirrorTargets(cwd string, targets []contract.SkillProv
 			})
 			continue
 		}
-		if !s.isAppManagedProviderMirrorRoot(provider, target.HomeRoot, target.SkillsRoot) && !explicitProviderMirrorRootAllowed(target) {
-			return nil, fmt.Errorf("provider mirror target is not app-managed: provider=%s skills_root=%s", provider, strings.TrimSpace(target.SkillsRoot))
+		targetKind := s.providerPersonalMirrorTargetKind(provider, target)
+		if targetKind == "" {
+			return nil, fmt.Errorf("provider mirror target is not allowed: provider=%s skills_root=%s", provider, strings.TrimSpace(target.SkillsRoot))
 		}
 		owner, err := resolveOwnerIdentity(s.resolvedSuperDolphinHome(), defaultOwnerOSUID(), defaultAppProfile())
 		if err != nil {
 			return nil, err
 		}
 		out = append(out, SkillMirrorTarget{
-			TargetID:        string(provider) + ":app-managed:" + owner.OwnerKey,
+			TargetID:        string(provider) + ":" + targetKind + ":" + owner.OwnerKey,
 			Provider:        provider,
 			Scope:           skillScopePersonal,
 			Root:            strings.TrimSpace(target.SkillsRoot),
@@ -268,13 +295,34 @@ func normalizeProviderMirrorProvider(provider string) (SkillProvider, error) {
 }
 
 func isProjectProviderMirrorRoot(cwd string, provider SkillProvider, skillsRoot string) bool {
-	expected := filepath.Join(strings.TrimSpace(cwd), "."+string(provider), "skills")
+	expected := providerProjectMirrorRoot(provider, strings.TrimSpace(cwd))
 	return sameCleanPath(expected, skillsRoot)
+}
+
+func (s *service) providerPersonalMirrorTargetKind(provider SkillProvider, target contract.SkillProviderMirrorTarget) string {
+	switch {
+	case s.isAppManagedProviderMirrorRoot(provider, target.HomeRoot, target.SkillsRoot):
+		return "app-managed"
+	case isDefaultProviderMirrorRoot(provider, target.HomeRoot, target.SkillsRoot):
+		return "user-global"
+	case explicitProviderMirrorRootAllowed(target):
+		return "explicit-home"
+	default:
+		return ""
+	}
 }
 
 func (s *service) isAppManagedProviderMirrorRoot(provider SkillProvider, homeRoot, skillsRoot string) bool {
 	expectedHome := filepath.Join(s.resolvedSuperDolphinHome(), "providers", string(provider))
 	return sameCleanPath(expectedHome, homeRoot) && sameCleanPath(filepath.Join(expectedHome, "skills"), skillsRoot)
+}
+
+func isDefaultProviderMirrorRoot(provider SkillProvider, homeRoot, skillsRoot string) bool {
+	expectedSkills := providerPersonalMirrorRoot(provider)
+	if expectedSkills == "" {
+		return false
+	}
+	return sameCleanPath(filepath.Dir(expectedSkills), homeRoot) && sameCleanPath(expectedSkills, skillsRoot)
 }
 
 func explicitProviderMirrorRootAllowed(target contract.SkillProviderMirrorTarget) bool {

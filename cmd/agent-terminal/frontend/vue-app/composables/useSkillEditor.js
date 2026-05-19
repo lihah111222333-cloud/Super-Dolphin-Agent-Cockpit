@@ -4,10 +4,17 @@ import { logInfo, logWarn } from '../services/log.js';
 import { importSkills, suggestSkillSummary, writeSkill } from '../services/skills-api.js';
 import { renderAssistantMarkdown } from '../utils/assistant-markdown.js';
 import {
+  createSkillImportSummaryActions,
+  duplicateImportNotice,
+  importSummaryDraftMessage,
+  importSummaryDraftNotice,
+  normalizeImportFailure,
+} from './useSkillImportSummaryDrafts.js';
+import {
   listToText, inferSkillNameFromPath, summarizeItems, normalizeWordList,
   normalizePathKey, fileNameFromPath, isSkillMainFilePath,
   parseSkillMarkdown, buildSkillMarkdown, isInternalSkillReferenceWord,
-  skillDescriptionQualitySaveMessage,
+  skillDescriptionQualitySaveMessage, validateSkillNameText,
 } from '../utils/skill-parser.js';
 
 function updateNotice(notice, level, message) {
@@ -27,7 +34,7 @@ function withSkillsCwd(props, payload = {}) {
 
 function isSummarySuggestUnavailableError(error) {
   const message = (error?.message || error || '').toString();
-  return /dream executor is not configured/i.test(message);
+  return /dream executor is not configured|dreamexec|claude exited|codex exited|\[-\d+\]|exit status/i.test(message);
 }
 
 function isSummarySuggestQualityError(error) {
@@ -87,6 +94,13 @@ function personalTypeFromForm(form, fallback = 'user') {
   return personalTypeForScope(form?.scope, { personal_type: form?.personal_type }, fallback);
 }
 
+function sameSkillTarget(scope, personalType, nextScope, nextPersonalType) {
+  const currentScope = normalizeSkillScope(scope);
+  const targetScope = normalizeSkillScope(nextScope);
+  if (currentScope !== targetScope) return false;
+  return personalTypeForScope(currentScope, { personal_type: personalType }, 'user') === personalTypeForScope(targetScope, { personal_type: nextPersonalType }, 'user');
+}
+
 function skillItemMainPath(item) {
   const dir = (item?.dir || '').toString().trim();
   return dir ? `${dir}/SKILL.md` : '';
@@ -142,6 +156,26 @@ function applyParsedSkillState(state, parsed, rawContent, path = '', fallbackSum
   });
 }
 
+function resetLoadedMainSkillTarget(state) {
+  state.loadedMainSkillScope.value = '';
+  state.loadedMainSkillPersonalType.value = '';
+}
+
+function rememberLoadedMainSkillTarget(state, scope, personalType) {
+  state.loadedMainSkillScope.value = normalizeSkillScope(scope);
+  state.loadedMainSkillPersonalType.value = personalTypeForScope(state.loadedMainSkillScope.value, { personal_type: personalType }, 'user');
+}
+
+function mainSkillSavePath(state, fallbackName) {
+  const path = (state.sourcePath.value || state.activeSkillFilePath.value || '').toString().trim();
+  if (!path || !isSkillMainFilePath(path)) return fallbackName;
+  if (!state.loadedMainSkillScope.value) return path;
+  if (!sameSkillTarget(state.loadedMainSkillScope.value, state.loadedMainSkillPersonalType.value, state.form.scope, personalTypeFromForm(state.form))) {
+    return fallbackName;
+  }
+  return path;
+}
+
 function createSkillFileReaders(props, state) {
   async function loadSkillFiles(dir, preferredPath = '') {
     const raw = await callAPI('skills/local/listFiles', withSkillsCwd(props, { dir }));
@@ -184,9 +218,10 @@ function createSkillFileReaders(props, state) {
   return { loadSkillFiles, readSkillFile };
 }
 
-function createImportActions(props, emit, deps, state, readers) {
+function createImportActions(props, emit, deps, state, readers, importSummaryActions) {
   async function importSelectedSkillDirs(folderPaths, scope) {
     state.uploading.value = true;
+    state.importSummaryDrafts.value = [];
     try {
       const selectedNames = folderPaths
         .map((entryPath) => inferSkillNameFromPath(entryPath))
@@ -211,11 +246,10 @@ function createImportActions(props, emit, deps, state, readers) {
         ? imported.imported
         : (Array.isArray(imported?.skills) ? imported.skills : []);
       const failures = Array.isArray(imported?.failures) ? imported.failures : [];
-      state.importFailures.value = failures.map((item) => {
-        const source = (item?.source || '').toString().trim();
-        const message = (item?.error || '未知错误').toString().trim();
-        return `${source || '-'}：${message || '未知错误'}`;
-	      });
+      const normalizedFailures = failures.map(normalizeImportFailure);
+      const duplicateFailures = normalizedFailures.filter((item) => item.duplicate);
+      const blockingFailures = normalizedFailures.filter((item) => !item.duplicate);
+      state.importFailures.value = normalizedFailures.map((item) => item.text);
 	      const firstSkill = importedSkills[0] || null;
 	      let openImportedError = null;
 
@@ -225,13 +259,30 @@ function createImportActions(props, emit, deps, state, readers) {
 	          await readers.readSkillFile(firstSkill.skill_file, firstSkill.name || '');
 	          state.form.scope = resolvedImportScope;
 	          state.form.personal_type = resolvedImportPersonalType;
+	          rememberLoadedMainSkillTarget(state, resolvedImportScope, resolvedImportPersonalType);
 	        } catch (error) {
 	          openImportedError = error;
 	          logWarn('skills', 'upload.open_imported_failed', { error, path: firstSkill.skill_file });
 	        }
 	      }
+      const importSummaryDrafts = await importSummaryActions.refreshImportSummaryDrafts(
+        importedSkills,
+        resolvedImportScope,
+        resolvedImportPersonalType,
+      );
 	      if (failures.length > 0) {
-	        state.setNotice('error', `导入完成：成功 ${importedSkills.length}，失败 ${failures.length}`);
+	        const draftMessage = importSummaryDraftMessage(importSummaryDrafts);
+	        if (blockingFailures.length === 0) {
+	          state.setNotice(
+	            importedSkills.length > 0 ? 'success' : 'info',
+	            importedSkills.length > 0
+	              ? `导入完成：成功 ${importedSkills.length}，${duplicateImportNotice(resolvedImportScope, duplicateFailures)}${draftMessage ? `，${draftMessage}` : ''}`
+	              : duplicateImportNotice(resolvedImportScope, duplicateFailures),
+	          );
+	          return true;
+	        }
+	        const duplicateText = duplicateFailures.length > 0 ? `，已存在 ${duplicateFailures.length} 个未重复导入` : '';
+	        state.setNotice('error', `导入完成：成功 ${importedSkills.length}，失败 ${blockingFailures.length}${duplicateText}${draftMessage ? `，${draftMessage}` : ''}`);
 	        return true;
 	      }
       if (importedSkills.length === 0) {
@@ -239,10 +290,11 @@ function createImportActions(props, emit, deps, state, readers) {
 	        return true;
 	      }
 	      if (openImportedError) {
-	        state.setNotice('success', `已导入 ${importedSkills.length} 个技能目录，列表已刷新。`);
+	        const draftMessage = importSummaryDraftMessage(importSummaryDrafts);
+	        state.setNotice('success', `已导入 ${importedSkills.length} 个技能目录，列表已刷新${draftMessage ? `，${draftMessage}` : '。'}`);
 	        return true;
 	      }
-	      state.setNotice('success', `已导入 ${importedSkills.length} 个技能目录（含资源文件）`);
+	      state.setNotice('success', importSummaryDraftNotice(importedSkills.length, importSummaryDrafts));
 	      return true;
     } catch (error) {
       logWarn('skills', 'upload.failed', { error });
@@ -342,6 +394,7 @@ function createEditorActions(props, emit, deps, state, readers) {
     state.form.body = '';
     state.form.scope = 'project';
     state.form.personal_type = '';
+    resetLoadedMainSkillTarget(state);
     state.isBodyEditing.value = true;
     state.bodyEditorFocused.value = false;
     state.isEditorOpen.value = true;
@@ -369,6 +422,7 @@ function createEditorActions(props, emit, deps, state, readers) {
       state.selectedSkillName.value = item.name || '';
       state.form.scope = normalizeSkillScope(item?.scope || scopeFromTrust(item?.trust));
       state.form.personal_type = personalTypeForScope(state.form.scope, item, 'user');
+      rememberLoadedMainSkillTarget(state, state.form.scope, state.form.personal_type);
       state.isBodyEditing.value = false;
       state.bodyEditorFocused.value = false;
       state.isEditorOpen.value = true;
@@ -426,6 +480,7 @@ function createEditorActions(props, emit, deps, state, readers) {
         state.form.body = '';
         state.form.scope = 'project';
         state.form.personal_type = '';
+        resetLoadedMainSkillTarget(state);
         state.summarySource.value = '';
         state.sourcePath.value = '';
         state.skillFiles.value = [];
@@ -458,13 +513,15 @@ function createEditorActions(props, emit, deps, state, readers) {
       }
 
       const name = (state.form.name || '').trim();
-      if (!name) {
-        state.setNotice('error', '请先填写技能名称');
+      const nameError = validateSkillNameText(name);
+      if (nameError) {
+        state.setNotice('error', nameError);
         return;
       }
       const hasDescription = Boolean(((state.form.description || '').trim() || (state.form.summary || '').trim()));
       const content = buildSkillMarkdown(state.form);
       state.form.scope = normalizeSkillScope(state.form.scope);
+      const writePath = mainSkillSavePath(state, name);
       const nameKey = name.toLowerCase();
       const sameNameOtherScope = deps.skillCards.value.some((item) => {
         const itemName = (item?.name || '').toString().trim().toLowerCase();
@@ -474,13 +531,14 @@ function createEditorActions(props, emit, deps, state, readers) {
         const nextPersonalType = personalTypeFromForm(state.form);
         return itemScope !== state.form.scope || itemPersonalType !== nextPersonalType;
       });
-      const saved = await writeSkill(resolveSkillsCwd(props), name, content, state.form.scope, personalTypeFromForm(state.form));
+      const saved = await writeSkill(resolveSkillsCwd(props), writePath, content, state.form.scope, personalTypeFromForm(state.form));
       state.selectedSkillName.value = name;
       state.summarySource.value = 'frontmatter';
       if (saved?.path) {
         state.sourcePath.value = saved.path;
         state.activeSkillFilePath.value = saved.path;
       }
+      rememberLoadedMainSkillTarget(state, state.form.scope, personalTypeFromForm(state.form));
       emit('refresh-skills');
       const explicitDescription = (state.form.description || '').toString().trim();
       let saveMessage = '已保存。建议填写简介，更好使用技能。';
@@ -563,6 +621,8 @@ export function useSkillEditor(props, emit, deps) {
   const skillFiles = ref([]);
   const activeSkillFilePath = deps.activeSkillFilePath || ref('');
   const importFailures = ref([]);
+  const importSummaryDrafts = ref([]);
+  const importSummaryGenerating = ref(false);
   const notice = reactive({ level: 'info', message: '' });
   const saving = ref(false);
   const uploading = ref(false);
@@ -578,6 +638,8 @@ export function useSkillEditor(props, emit, deps) {
   const generatedSummaryPreview = ref('');
   const summarySuggestion = ref('');
   const summarySuggesting = ref(false);
+  const loadedMainSkillScope = ref('');
+  const loadedMainSkillPersonalType = ref('');
   const form = reactive({
     name: '',
     description: '',
@@ -628,6 +690,8 @@ export function useSkillEditor(props, emit, deps) {
     skillFiles,
     activeSkillFilePath,
     importFailures,
+    importSummaryDrafts,
+    importSummaryGenerating,
     notice,
     saving,
     uploading,
@@ -642,6 +706,8 @@ export function useSkillEditor(props, emit, deps) {
     importScope,
     generatedSummaryPreview,
     summarySuggestion,
+    loadedMainSkillScope,
+    loadedMainSkillPersonalType,
     form,
     resolvedIsEditingMainSkillFile,
     setNotice: (level, message) => updateNotice(notice, level, message),
@@ -680,7 +746,7 @@ export function useSkillEditor(props, emit, deps) {
         updateNotice(notice, 'error', '生成的简介不够具体，请补充技能内容后重新生成，或手动填写。');
         return;
       }
-      updateNotice(notice, 'error', `生成失败：${error?.message || error}`);
+      updateNotice(notice, 'error', '当前无法生成简介，请稍后再试或手动填写。');
     } finally {
       summarySuggesting.value = false;
     }
@@ -695,7 +761,10 @@ export function useSkillEditor(props, emit, deps) {
   }
 
   const readers = createSkillFileReaders(props, state);
-  const importActions = createImportActions(props, emit, deps, state, readers);
+  const importSummaryActions = createSkillImportSummaryActions(props, state, readers, {
+    requestSkillSummarySuggestion,
+  });
+  const importActions = createImportActions(props, emit, deps, state, readers, importSummaryActions);
   const editorActions = createEditorActions(props, emit, deps, state, readers);
 
   watch(deps.skillCards, (nextCards) => {
@@ -746,6 +815,8 @@ export function useSkillEditor(props, emit, deps) {
     isEditingMainSkillFile: resolvedIsEditingMainSkillFile,
     showRelatedSkillFiles,
     importFailures,
+    importSummaryDrafts,
+    importSummaryGenerating,
     notice,
     saving,
     uploading,
@@ -767,6 +838,7 @@ export function useSkillEditor(props, emit, deps) {
     onSuggestSkillSummary,
     applySummarySuggestion,
     ...readers,
+    ...importSummaryActions,
     ...importActions,
     ...editorActions,
   };

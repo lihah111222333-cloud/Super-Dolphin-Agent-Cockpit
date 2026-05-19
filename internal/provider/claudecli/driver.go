@@ -235,13 +235,6 @@ func (d *driver) prepareProviderHomeAndMirrors(ctx context.Context, spec startSp
 		}
 		spec.historyDir = home
 		mirrorHome = home
-	} else {
-		home, err := providershared.EnsureAppManagedProviderHome(providershared.ProviderClaude)
-		if err != nil {
-			return spec, err
-		}
-		spec.historyDir = home
-		mirrorHome = home
 	}
 	if d == nil || d.mirror == nil {
 		return spec, errors.New("claude skill mirror reconciler is required")
@@ -258,6 +251,12 @@ func (d *driver) prepareProviderHomeAndMirrors(ctx context.Context, spec startSp
 		return spec, err
 	}
 	return spec, nil
+}
+
+func (d *driver) warnSkillMirrorIssue(message string, err error) {
+	if d != nil && d.logger != nil && err != nil {
+		d.logger.Warn(message, "error", err)
+	}
 }
 
 func resolveRequestedStartConfig(spec startSpec) (string, cliLaunchConfig) {

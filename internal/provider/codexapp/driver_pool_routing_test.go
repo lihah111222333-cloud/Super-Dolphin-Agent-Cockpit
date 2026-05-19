@@ -67,7 +67,9 @@ func (r *recordingSkillMirrorReconciler) ReconcileProviderMirrors(ctx context.Co
 func TestStartSessionReconcilesMirrorsBeforePoolAcquireAndDefaultsIdentity(t *testing.T) {
 	t.Setenv(poolRoutingEnvVar, "1")
 	superHome := filepath.Join(t.TempDir(), "sd-home")
+	userHome := filepath.Join(t.TempDir(), "user-home")
 	t.Setenv(providershared.SuperDolphinHomeEnv, superHome)
+	t.Setenv("HOME", userHome)
 	workDir := t.TempDir()
 	events := []string{}
 	var gotHome string
@@ -92,20 +94,22 @@ func TestStartSessionReconcilesMirrorsBeforePoolAcquireAndDefaultsIdentity(t *te
 	if strings.Join(events, ",") != "reconcile,acquire" {
 		t.Fatalf("events = %v, want reconcile before acquire", events)
 	}
-	wantHome, err := filepath.EvalSymlinks(filepath.Join(superHome, "providers", "codex"))
+	wantHome, err := filepath.EvalSymlinks(filepath.Join(userHome, ".codex"))
 	if err != nil {
-		t.Fatalf("EvalSymlinks provider home: %v", err)
+		t.Fatalf("EvalSymlinks user codex home: %v", err)
 	}
 	if gotHome != wantHome {
 		t.Fatalf("pool codex home = %q, want %q", gotHome, wantHome)
 	}
-	assertCodexMirrorTargets(t, mirror.targets, workDir, superHome)
+	assertCodexMirrorTargets(t, mirror.targets, workDir, userHome)
 }
 
 func TestStartSessionReconcilesProjectMirrorsFromGitRootBeforePoolAcquire(t *testing.T) {
 	t.Setenv(poolRoutingEnvVar, "1")
 	superHome := filepath.Join(t.TempDir(), "sd-home")
+	userHome := filepath.Join(t.TempDir(), "user-home")
 	t.Setenv(providershared.SuperDolphinHomeEnv, superHome)
+	t.Setenv("HOME", userHome)
 	repoRoot := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(repoRoot, ".git"), 0o755); err != nil {
 		t.Fatalf("MkdirAll .git: %v", err)
@@ -133,13 +137,15 @@ func TestStartSessionReconcilesProjectMirrorsFromGitRootBeforePoolAcquire(t *tes
 	if strings.Join(events, ",") != "reconcile,acquire" {
 		t.Fatalf("events = %v, want reconcile before acquire", events)
 	}
-	assertCodexMirrorTargets(t, mirror.targets, repoRoot, superHome)
+	assertCodexMirrorTargets(t, mirror.targets, repoRoot, userHome)
 }
 
 func TestStartSessionFailsClosedWhenPreparedIdentityHasNoPool(t *testing.T) {
 	t.Setenv(poolRoutingEnvVar, "")
 	superHome := filepath.Join(t.TempDir(), "sd-home")
+	userHome := filepath.Join(t.TempDir(), "user-home")
 	t.Setenv(providershared.SuperDolphinHomeEnv, superHome)
+	t.Setenv("HOME", userHome)
 	workDir := t.TempDir()
 	mirror := &recordingSkillMirrorReconciler{}
 	d := &driver{logger: slog.Default(), mirror: mirror}
@@ -157,10 +163,10 @@ func TestStartSessionFailsClosedWhenPreparedIdentityHasNoPool(t *testing.T) {
 	if mirror.calls != 1 {
 		t.Fatalf("mirror reconcile calls = %d, want 1 before routing guard", mirror.calls)
 	}
-	assertCodexMirrorTargets(t, mirror.targets, workDir, superHome)
+	assertCodexMirrorTargets(t, mirror.targets, workDir, userHome)
 }
 
-func TestStartSessionMirrorConflictBlocksPoolAcquire(t *testing.T) {
+func TestStartSessionMirrorContentConflictAllowsPoolAcquire(t *testing.T) {
 	t.Setenv(poolRoutingEnvVar, "1")
 	superHome := filepath.Join(t.TempDir(), "sd-home")
 	t.Setenv(providershared.SuperDolphinHomeEnv, superHome)
@@ -168,21 +174,51 @@ func TestStartSessionMirrorConflictBlocksPoolAcquire(t *testing.T) {
 	acquires := atomic.Int32{}
 	pool := NewServerPool(slog.Default(), func(context.Context, string) (SpawnedServer, error) {
 		acquires.Add(1)
-		return newFakeServer("ws://unused"), nil
-	}, PoolConfig{})
+		return nil, errors.New("stop after acquire")
+	}, PoolConfig{SpawnBackoff: 1})
 	defer pool.Close(context.Background())
 	d := &driver{
 		logger: slog.Default(),
 		pool:   pool,
 		mirror: &recordingSkillMirrorReconciler{report: contract.SkillMirrorReport{Conflicts: []contract.SkillMirrorReportItem{{
 			TargetID:     "codex:project:conflict",
-			ConflictKind: "mirror_drift",
+			Scope:        "project",
+			ConflictKind: "drift",
 		}}}},
 	}
 
 	_, err := d.StartSession(context.Background(), dto.StartSessionRequest{AgentID: "agent-conflict", CWD: workDir})
-	if err == nil || !strings.Contains(err.Error(), "skill mirror conflicts") {
-		t.Fatalf("StartSession() error = %v, want skill mirror conflicts", err)
+	if err == nil || !strings.Contains(err.Error(), "stop after acquire") {
+		t.Fatalf("StartSession() error = %v, want pool acquire error after non-blocking mirror content conflict", err)
+	}
+	if acquires.Load() != 1 {
+		t.Fatalf("pool acquire calls = %d, want 1", acquires.Load())
+	}
+}
+
+func TestStartSessionMirrorSafetyConflictBlocksPoolAcquire(t *testing.T) {
+	t.Setenv(poolRoutingEnvVar, "1")
+	superHome := filepath.Join(t.TempDir(), "sd-home")
+	t.Setenv(providershared.SuperDolphinHomeEnv, superHome)
+	workDir := t.TempDir()
+	acquires := atomic.Int32{}
+	pool := NewServerPool(slog.Default(), func(context.Context, string) (SpawnedServer, error) {
+		acquires.Add(1)
+		return nil, errors.New("stop after acquire")
+	}, PoolConfig{SpawnBackoff: 1})
+	defer pool.Close(context.Background())
+	d := &driver{
+		logger: slog.Default(),
+		pool:   pool,
+		mirror: &recordingSkillMirrorReconciler{report: contract.SkillMirrorReport{Conflicts: []contract.SkillMirrorReportItem{{
+			TargetID:     "codex:project:conflict",
+			ConflictKind: "mirror_root_symlink",
+		}}}},
+	}
+
+	_, err := d.StartSession(context.Background(), dto.StartSessionRequest{AgentID: "agent-safety-conflict", CWD: workDir})
+	if err == nil || !strings.Contains(err.Error(), "skill mirror conflicts") || !strings.Contains(err.Error(), "mirror_root_symlink") {
+		t.Fatalf("StartSession() error = %v, want blocking mirror safety conflict", err)
 	}
 	if acquires.Load() != 0 {
 		t.Fatalf("pool acquire calls = %d, want 0", acquires.Load())
@@ -218,8 +254,8 @@ func TestStartSessionMirrorReconcileFailureBlocksPoolAcquire(t *testing.T) {
 	acquires := atomic.Int32{}
 	pool := NewServerPool(slog.Default(), func(context.Context, string) (SpawnedServer, error) {
 		acquires.Add(1)
-		return newFakeServer("ws://unused"), nil
-	}, PoolConfig{})
+		return nil, errors.New("stop after acquire")
+	}, PoolConfig{SpawnBackoff: 1})
 	defer pool.Close(context.Background())
 	d := &driver{
 		logger: slog.Default(),
@@ -229,7 +265,7 @@ func TestStartSessionMirrorReconcileFailureBlocksPoolAcquire(t *testing.T) {
 
 	_, err := d.StartSession(context.Background(), dto.StartSessionRequest{AgentID: "agent-blocked", CWD: workDir})
 	if err == nil || !strings.Contains(err.Error(), "mirror unavailable") {
-		t.Fatalf("StartSession() error = %v, want mirror unavailable", err)
+		t.Fatalf("StartSession() error = %v, want mirror reconcile failure", err)
 	}
 	if acquires.Load() != 0 {
 		t.Fatalf("pool acquire calls = %d, want 0", acquires.Load())
@@ -374,18 +410,15 @@ func TestStartSessionNormalizesExplicitCodexHomeBeforeMirrorAndPool(t *testing.T
 	assertExplicitCodexMirrorTargets(t, mirror.targets, workDir, wantHome)
 }
 
-func assertCodexMirrorTargets(t *testing.T, targets []contract.SkillProviderMirrorTarget, project, superHome string) {
+func assertCodexMirrorTargets(t *testing.T, targets []contract.SkillProviderMirrorTarget, project, userHome string) {
 	t.Helper()
-	wantPersonalHome, err := filepath.EvalSymlinks(filepath.Join(superHome, "providers", "codex"))
-	if err != nil {
-		t.Fatalf("EvalSymlinks personal home: %v", err)
-	}
+	wantPersonalHome := filepath.Join(userHome, ".agents")
 	wantPersonalSkills := filepath.Join(wantPersonalHome, "skills")
 	wantProject, err := filepath.EvalSymlinks(project)
 	if err != nil {
 		t.Fatalf("EvalSymlinks project: %v", err)
 	}
-	wantProjectSkills := filepath.Join(wantProject, ".codex", "skills")
+	wantProjectSkills := filepath.Join(wantProject, ".agents", "skills")
 	if len(targets) != 2 {
 		t.Fatalf("mirror targets = %#v, want personal + project", targets)
 	}
@@ -413,7 +446,7 @@ func assertExplicitCodexMirrorTargets(t *testing.T, targets []contract.SkillProv
 	if err != nil {
 		t.Fatalf("EvalSymlinks project: %v", err)
 	}
-	if targets[1].Provider != "codex" || targets[1].SkillsRoot != filepath.Join(wantProject, ".codex", "skills") {
+	if targets[1].Provider != "codex" || targets[1].SkillsRoot != filepath.Join(wantProject, ".agents", "skills") {
 		t.Fatalf("project target = %#v, want project skills under %q", targets[1], wantProject)
 	}
 }
@@ -430,107 +463,6 @@ func TestStartSessionRejectsEmptyCWDBeforeMirrorReconcile(t *testing.T) {
 	_, err := d.StartSession(context.Background(), dto.StartSessionRequest{AgentID: "agent-empty-cwd"})
 	if err == nil || !strings.Contains(err.Error(), "provider project cwd is required") {
 		t.Fatalf("StartSession() error = %v, want cwd rejection", err)
-	}
-}
-
-// TestPoolRoutingEnabledByDefault verifies the clean lifecycle path:
-// without CODEXAPP_USE_POOL set, valid identity uses the ServerPool so
-// session shutdown owns app-server/MCP/LSP process cleanup.
-func TestPoolRoutingEnabledByDefault(t *testing.T) {
-	// t.Setenv is inherited by parallel siblings, so keep the test
-	// serial to avoid env bleed.
-	t.Setenv(poolRoutingEnvVar, "")
-	spawnCalls := atomic.Int32{}
-	spawner := func(context.Context, string) (SpawnedServer, error) {
-		spawnCalls.Add(1)
-		return newFakeServer("ws://127.0.0.1:9999"), nil
-	}
-	pool := NewServerPool(slog.Default(), spawner, PoolConfig{})
-	defer pool.Close(context.Background())
-	d := newRoutingDriver(t, pool)
-
-	cfg := identityConfig(t, "glm")
-	req := dto.StartSessionRequest{AgentID: "a", Config: cfg}
-	opts, err := d.resolveSessionOptions(context.Background(), req)
-	if err != nil {
-		t.Fatalf("err = %v", err)
-	}
-	if len(opts) != 1 {
-		t.Fatalf("want 1 pool option with default routing, got %d", len(opts))
-	}
-	var so sessionOptions
-	opts[0](&so)
-	if so.poolURL != "ws://127.0.0.1:9999" {
-		t.Fatalf("poolURL = %q, want ws://127.0.0.1:9999", so.poolURL)
-	}
-	so.poolRelease()
-	if spawnCalls.Load() != 1 {
-		t.Fatalf("spawn calls = %d, want 1", spawnCalls.Load())
-	}
-}
-
-// TestResolveSessionOptionsFailsClosedOnIdentityError checks the fail-closed
-// contract: by default, a request missing codexHome must return an identity
-// error instead of falling back to the legacy server.
-func TestResolveSessionOptionsFailsClosedOnIdentityError(t *testing.T) {
-	t.Setenv(poolRoutingEnvVar, "")
-	spawnCalls := atomic.Int32{}
-	spawner := func(context.Context, string) (SpawnedServer, error) {
-		spawnCalls.Add(1)
-		return newFakeServer("ws://unused"), nil
-	}
-	pool := NewServerPool(slog.Default(), spawner, PoolConfig{})
-	defer pool.Close(context.Background())
-	d := newRoutingDriver(t, pool)
-
-	req := dto.StartSessionRequest{AgentID: "a"} // no Config
-	opts, err := d.resolveSessionOptions(context.Background(), req)
-	if err == nil || !strings.Contains(err.Error(), "codex identity required") {
-		t.Fatalf("err = %v, want codex identity required", err)
-	}
-	if opts != nil {
-		t.Fatalf("want nil opts on identity error, got %d", len(opts))
-	}
-	if spawnCalls.Load() != 0 {
-		t.Fatalf("spawner should not fire on missing identity, called %d times", spawnCalls.Load())
-	}
-}
-
-// TestPoolRoutingSuccessPath exercises the happy path: flag on +
-// valid identity + cooperative pool. The returned option slice must
-// attach the pool-provided URL to the next session.
-func TestPoolRoutingSuccessPath(t *testing.T) {
-	t.Setenv(poolRoutingEnvVar, "1")
-	fake := newFakeServer("ws://127.0.0.1:7777")
-	spawner := func(context.Context, string) (SpawnedServer, error) {
-		return fake, nil
-	}
-	pool := NewServerPool(slog.Default(), spawner, PoolConfig{})
-	defer pool.Close(context.Background())
-	d := newRoutingDriver(t, pool)
-
-	cfg := identityConfig(t, "qwen")
-	opts, err := d.resolveSessionOptions(context.Background(), dto.StartSessionRequest{AgentID: "a", Config: cfg})
-	if err != nil {
-		t.Fatalf("err = %v", err)
-	}
-	if len(opts) != 1 {
-		t.Fatalf("want 1 option, got %d", len(opts))
-	}
-	// Apply the option onto a fresh sessionOptions so we can observe
-	// the wiring without booting a real session.
-	var so sessionOptions
-	opts[0](&so)
-	if so.poolURL != "ws://127.0.0.1:7777" {
-		t.Fatalf("poolURL = %q, want ws://127.0.0.1:7777", so.poolURL)
-	}
-	if so.poolRelease == nil {
-		t.Fatal("poolRelease should be set")
-	}
-	// Releasing must land on the pool so refCount drops back to 0.
-	so.poolRelease()
-	if pool.Size() != 0 {
-		t.Fatalf("pool size = %d after release, want 0 entries retained", pool.Size())
 	}
 }
 
