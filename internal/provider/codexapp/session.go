@@ -316,6 +316,9 @@ func (s *session) StartTurn(ctx context.Context, req dto.TurnRequest) (contract.
 	if err != nil {
 		return nil, err
 	}
+	if err := s.applyTurnToolScopeRuntimeConfig(req); err != nil {
+		return nil, err
+	}
 	params := buildTurnStartParams(threadID, req)
 	// Fill model/effort from session runtimeConfig if not set by turn request.
 	// thread/config/set stores these in runtimeConfig; they take effect on the next turn.

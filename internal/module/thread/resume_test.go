@@ -27,6 +27,9 @@ func TestServiceResumeInfersProviderAndRebuildsSession(t *testing.T) {
 		CreatedAt:     123,
 		Status:        statusCreated,
 		LastEventType: "",
+		ConfigOverride: mustStoredThreadConfigRaw(t, storedThreadConfig{Runtime: map[string]any{
+			"additionalWorkingDirectories": []any{"/repo/extra"},
+		}}),
 	}}
 	bindings := &stubBindingStore{binding: &bindingstore.Binding{
 		AgentID:            "agent-1",
@@ -62,6 +65,26 @@ func TestServiceResumeInfersProviderAndRebuildsSession(t *testing.T) {
 	assertResumeRebuildSideEffects(t, sessions, threads, bindings, orch)
 }
 
+func TestResumeSessionDoesNotSynthesizeProcessCWDForDot(t *testing.T) {
+	t.Parallel()
+
+	starter := &stubSessionStarter{onResume: func(_ context.Context, req dto.ResumeSessionRequest) (contract.Session, error) {
+		if req.CWD != "" {
+			t.Fatalf("ResumeSession CWD = %q, want empty for untrusted dot cwd", req.CWD)
+		}
+		return &stubSession{threadID: "provider-thread-1"}, nil
+	}}
+	svc := &service{starter: starter}
+	if _, err := svc.resumeSession(context.Background(), ResumeRequest{
+		Provider: "codex",
+		AgentID:  "agent-dot",
+		ThreadID: "thread-dot",
+		CWD:      ".",
+	}); err != nil {
+		t.Fatalf("resumeSession() error = %v", err)
+	}
+}
+
 func assertResumeRebuildRequest(t *testing.T, req dto.ResumeSessionRequest, providerThreadID string) {
 	t.Helper()
 	if req.Provider != "codex" {
@@ -78,6 +101,10 @@ func assertResumeRebuildRequest(t *testing.T, req dto.ResumeSessionRequest, prov
 	}
 	if req.Model != "override-model" {
 		t.Fatalf("Model = %q, want override-model", req.Model)
+	}
+	wantConfig := map[string]any{"additionalWorkingDirectories": []any{"/repo/extra"}}
+	if !reflect.DeepEqual(req.Config, wantConfig) {
+		t.Fatalf("Config = %#v, want %#v", req.Config, wantConfig)
 	}
 }
 

@@ -15,12 +15,13 @@ const ToolScopeContextKey = contextKey("mcp_tool_scope")
 // metadata. Tool arguments are intentionally excluded so model-provided
 // agent_id/cwd fields cannot override this server-owned scope.
 type ToolScope struct {
-	AgentID  string
-	ThreadID string
-	TurnID   string
-	CallID   string
-	CWD      string
-	Family   string
+	AgentID        string
+	ThreadID       string
+	TurnID         string
+	CallID         string
+	CWD            string
+	WorkspaceRoots []string
+	Family         string
 }
 
 // ToolCallParams is the shared stdio/control-plane tools/call payload. Private
@@ -33,6 +34,10 @@ type ToolCallParams struct {
 	MetaThreadID string          `json:"_threadId,omitempty"`
 	MetaCallID   string          `json:"_callId,omitempty"`
 	MetaCWD      string          `json:"_cwd,omitempty"`
+	// Both spellings are accepted as private top-level metadata. Tool
+	// arguments with these names are intentionally ignored by this decoder.
+	MetaWorkspaceRoots      []string `json:"_workspaceRoots,omitempty"`
+	MetaWorkspaceRootsSnake []string `json:"_workspace_roots,omitempty"`
 }
 
 func DecodeToolCallParams(raw json.RawMessage) (ToolCallParams, error) {
@@ -49,7 +54,11 @@ func (p ToolCallParams) Scope(family string) ToolScope {
 		ThreadID: p.MetaThreadID,
 		CallID:   p.MetaCallID,
 		CWD:      p.MetaCWD,
-		Family:   family,
+		WorkspaceRoots: append(
+			append([]string(nil), p.MetaWorkspaceRoots...),
+			p.MetaWorkspaceRootsSnake...,
+		),
+		Family: family,
 	})
 }
 
@@ -59,6 +68,7 @@ func NormalizeToolScope(scope ToolScope) ToolScope {
 	scope.TurnID = strings.TrimSpace(scope.TurnID)
 	scope.CallID = strings.TrimSpace(scope.CallID)
 	scope.CWD = normalizeScopeCWD(scope.CWD)
+	scope.WorkspaceRoots = normalizeWorkspaceRoots(scope.CWD, scope.WorkspaceRoots)
 	scope.Family = normalizeScopeFamily(scope.Family)
 	return scope
 }
@@ -68,7 +78,7 @@ func WithToolScope(ctx context.Context, scope ToolScope) context.Context {
 		ctx = context.Background()
 	}
 	scope = NormalizeToolScope(scope)
-	if scope == (ToolScope{}) {
+	if scope.isEmpty() {
 		return ctx
 	}
 	ctx = context.WithValue(ctx, ToolScopeContextKey, scope)
@@ -87,7 +97,17 @@ func ToolScopeFromContext(ctx context.Context) (ToolScope, bool) {
 		return ToolScope{}, false
 	}
 	scope = NormalizeToolScope(scope)
-	return scope, scope != (ToolScope{})
+	return scope, !scope.isEmpty()
+}
+
+func (scope ToolScope) isEmpty() bool {
+	return scope.AgentID == "" &&
+		scope.ThreadID == "" &&
+		scope.TurnID == "" &&
+		scope.CallID == "" &&
+		scope.CWD == "" &&
+		len(scope.WorkspaceRoots) == 0 &&
+		scope.Family == ""
 }
 
 func normalizeScopeFamily(family string) string {
@@ -112,9 +132,47 @@ func normalizeScopeCWD(cwd string) string {
 	if filepath.IsAbs(cwd) {
 		return filepath.Clean(cwd)
 	}
-	abs, err := filepath.Abs(cwd)
-	if err != nil {
-		return filepath.Clean(cwd)
+	return ""
+}
+
+func normalizeWorkspaceRoots(cwd string, roots []string) []string {
+	out := make([]string, 0, len(roots)+1)
+	seen := map[string]struct{}{}
+	add := func(base, path string) {
+		path = normalizeWorkspaceRoot(base, path)
+		if path == "" {
+			return
+		}
+		if _, ok := seen[path]; ok {
+			return
+		}
+		seen[path] = struct{}{}
+		out = append(out, path)
 	}
-	return filepath.Clean(abs)
+	primary := normalizeWorkspaceRoot("", cwd)
+	if primary == "" {
+		return nil
+	}
+	add("", primary)
+	for _, root := range roots {
+		add(primary, root)
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+func normalizeWorkspaceRoot(base, root string) string {
+	root = strings.TrimSpace(root)
+	if root == "" {
+		return ""
+	}
+	if strings.TrimSpace(base) != "" && !filepath.IsAbs(root) {
+		root = filepath.Join(base, root)
+	}
+	if filepath.IsAbs(root) {
+		return filepath.Clean(root)
+	}
+	return ""
 }

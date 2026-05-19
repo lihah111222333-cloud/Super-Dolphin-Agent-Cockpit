@@ -156,15 +156,17 @@ func (s *service) PrepareTurn(ctx context.Context, session contract.Session, inp
 		assembledInputs = append(synthetic.Inputs, assembledInputs...)
 	}
 	req := dto.TurnRequest{
-		LocalID:              localID,
-		ThreadID:             threadID,
-		Inputs:               assembledInputs,
-		Skills:               resolvedSkills,
-		ManualSkillSelection: input.ManualSkillSelection,
-		OutputSchema:         input.OutputSchema,
-		Overrides:            s.buildOverrides(session.Capabilities(), input),
-		MCP:                  mcp,
-		DedupeKey:            strings.TrimSpace(input.DedupeKey),
+		LocalID:                      localID,
+		ThreadID:                     threadID,
+		CWD:                          strings.TrimSpace(input.CWD),
+		Inputs:                       assembledInputs,
+		Skills:                       resolvedSkills,
+		ManualSkillSelection:         input.ManualSkillSelection,
+		OutputSchema:                 input.OutputSchema,
+		Overrides:                    s.buildOverrides(session.Capabilities(), input),
+		AdditionalWorkingDirectories: append([]string(nil), input.AdditionalWorkingDirectories...),
+		MCP:                          mcp,
+		DedupeKey:                    strings.TrimSpace(input.DedupeKey),
 	}
 	assembly, err := s.prepareTurnAssembly(ctx, threadID, input, userText, req)
 	if err != nil {

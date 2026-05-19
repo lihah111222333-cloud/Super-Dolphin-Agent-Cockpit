@@ -13,6 +13,7 @@ import (
 	editpkg "github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/edit"
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/format"
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/protocol"
+	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/search"
 	platformshared "github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 )
 
@@ -64,19 +65,23 @@ func resolveMatchMode(content string, hunk editpkg.Hunk, fallback string) string
 }
 
 func collectWorkspaceEdits(root string, workspaceEdit *protocol.WorkspaceEdit) (map[string][]protocol.TextEdit, error) {
+	return collectWorkspaceEditsInRoots(root, nil, workspaceEdit)
+}
+
+func collectWorkspaceEditsInRoots(root string, roots []string, workspaceEdit *protocol.WorkspaceEdit) (map[string][]protocol.TextEdit, error) {
 	byFile := make(map[string][]protocol.TextEdit)
 	if workspaceEdit == nil {
 		return byFile, nil
 	}
 	for uri, edits := range workspaceEdit.Changes {
-		path, err := resolveWorkspacePath(root, uri)
+		path, err := resolveWorkspacePathInRoots(root, roots, uri)
 		if err != nil {
 			return nil, err
 		}
 		byFile[path] = append(byFile[path], edits...)
 	}
 	for _, doc := range workspaceEdit.DocumentChanges {
-		path, err := resolveWorkspacePath(root, doc.TextDocument.URI)
+		path, err := resolveWorkspacePathInRoots(root, roots, doc.TextDocument.URI)
 		if err != nil {
 			return nil, err
 		}
@@ -162,14 +167,18 @@ func runeOffset(line string, character int) (int, error) {
 }
 
 func resolveFilePath(ctx context.Context, path string) (string, error) {
-	root, err := toolWorkspaceRoot(ctx)
+	pathInfo, err := toolResolvePath(ctx, path)
 	if err != nil {
 		return "", err
 	}
-	return resolveWorkspacePath(root, path)
+	return pathInfo.AbsPath, nil
 }
 
 func resolveWorkspacePath(root string, uri string) (string, error) {
+	return resolveWorkspacePathInRoots(root, nil, uri)
+}
+
+func resolveWorkspacePathInRoots(root string, roots []string, uri string) (string, error) {
 	filePath, err := requireFilePath(uri)
 	if err != nil {
 		return "", err
@@ -181,7 +190,31 @@ func resolveWorkspacePath(root string, uri string) (string, error) {
 		}
 		filePath = resolved
 	}
-	return resolveWorkspaceEditPath(root, filePath)
+	pathInfo, err := search.ResolvePathInRoots(root, roots, filePath)
+	if err != nil {
+		return "", err
+	}
+	resolved := pathInfo.AbsPath
+	if evaluated, err := filepath.EvalSymlinks(resolved); err == nil {
+		resolved = filepath.Clean(evaluated)
+	}
+	allowedRoots, err := search.NormalizeRootSet(root, roots)
+	if err != nil {
+		return "", err
+	}
+	if !pathWithinAnyRoot(allowedRoots, resolved) {
+		return "", fmt.Errorf("path %q is outside workspace roots [%s]", resolved, strings.Join(allowedRoots, ", "))
+	}
+	return resolved, nil
+}
+
+func pathWithinAnyRoot(roots []string, target string) bool {
+	for _, root := range roots {
+		if platformshared.ContainsPath(root, target) {
+			return true
+		}
+	}
+	return false
 }
 
 func resolveWorkspaceEditPath(root string, filePath string) (string, error) {

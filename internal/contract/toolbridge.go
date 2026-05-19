@@ -66,5 +66,6 @@ type CodexToolSurfaceScope struct {
 	LocalThreadID    string
 	ProviderThreadID string
 	CWD              string
+	WorkspaceRoots   []string
 	Manifest         dto.MCPManifest
 }

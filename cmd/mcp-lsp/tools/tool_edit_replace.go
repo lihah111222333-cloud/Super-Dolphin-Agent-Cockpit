@@ -73,11 +73,11 @@ type functionContext struct {
 }
 
 func (h EditHandler) handleReplaceRange(ctx context.Context, req EditRequest) (any, error) {
-	root, err := toolWorkspaceRoot(ctx)
+	root, roots, err := toolWorkspaceRoots(ctx)
 	if err != nil {
 		return nil, err
 	}
-	path, err := resolveWorkspacePath(root, req.FilePath)
+	path, err := resolveWorkspacePathInRoots(root, roots, req.FilePath)
 	if err != nil {
 		return nil, err
 	}
@@ -201,11 +201,11 @@ func (h EditHandler) replaceFailure(ctx context.Context, manager lspmanager.Mana
 }
 
 func (h EditHandler) applyWorkspaceEdit(ctx context.Context, manager lspmanager.Manager, workspaceEdit *protocol.WorkspaceEdit, version int) (applyWorkspaceEditResult, error) {
-	root, err := toolWorkspaceRoot(ctx)
+	root, roots, err := toolWorkspaceRoots(ctx)
 	if err != nil {
 		return applyWorkspaceEditResult{}, err
 	}
-	files, err := collectWorkspaceEdits(root, workspaceEdit)
+	files, err := collectWorkspaceEditsInRoots(root, roots, workspaceEdit)
 	if err != nil {
 		return applyWorkspaceEditResult{}, err
 	}
@@ -243,12 +243,21 @@ func validateWorkspaceEditPaths(root string, workspaceEdit *protocol.WorkspaceEd
 	return err
 }
 
+func validateWorkspaceEditPathsInRoots(root string, roots []string, workspaceEdit *protocol.WorkspaceEdit) error {
+	_, err := collectWorkspaceEditsInRoots(root, roots, workspaceEdit)
+	return err
+}
+
 func validateCodeActionWorkspaceEditPaths(root string, actions []protocol.CodeActionResult) error {
+	return validateCodeActionWorkspaceEditPathsInRoots(root, nil, actions)
+}
+
+func validateCodeActionWorkspaceEditPathsInRoots(root string, roots []string, actions []protocol.CodeActionResult) error {
 	for _, result := range actions {
 		if result.CodeAction == nil || result.CodeAction.Edit == nil {
 			continue
 		}
-		if err := validateWorkspaceEditPaths(root, result.CodeAction.Edit); err != nil {
+		if err := validateWorkspaceEditPathsInRoots(root, roots, result.CodeAction.Edit); err != nil {
 			return err
 		}
 	}

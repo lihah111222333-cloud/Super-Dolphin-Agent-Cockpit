@@ -220,14 +220,11 @@ func (s *service) logStartedSessionCodexIdentity(
 		"rollout_path", session.RolloutPath())
 }
 
-// resolveRelativeCWD converts "." or empty to the process working directory.
+// resolveRelativeCWD preserves only caller-provided workspace paths.
 func resolveRelativeCWD(cwd string) string {
 	cwd = strings.TrimSpace(cwd)
-	if cwd != "" && cwd != "." {
-		return cwd
-	}
-	if abs, err := os.Getwd(); err == nil {
-		return abs
+	if cwd == "." {
+		return ""
 	}
 	return cwd
 }

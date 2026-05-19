@@ -177,6 +177,15 @@ func (s *session) runtimeConfigString(key string) string {
 	return sanitizeConfigStringArtifact(v)
 }
 
+func (s *session) runtimeConfigStringSlice(keys ...string) []string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.runtimeConfig == nil {
+		return nil
+	}
+	return providershared.ConfigStringSlice(s.runtimeConfig, keys...)
+}
+
 func (s *session) ensureRuntimeCodexHomeFromInitialize(reason string) {
 	if s == nil || s.transport == nil {
 		return
@@ -374,7 +383,7 @@ func (d *driver) bindStartedToolSurface(s *session, req dto.StartSessionRequest,
 	if strings.TrimSpace(providerThreadID) == "" {
 		return errors.New("codexapp: provider thread id is required for tool surface bind")
 	}
-	scope := d.codexToolSurfaceScope(req.AgentID, "", providerThreadID, req.CWD, nil)
+	scope := d.codexToolSurfaceScope(req.AgentID, "", providerThreadID, req.CWD, req.Config)
 	scope.SurfaceID = s.currentToolSurfaceID()
 	err := d.bindTools(scope)
 	if err != nil {
@@ -387,7 +396,7 @@ func (d *driver) rebuildResumeToolSurface(ctx context.Context, s *session, req d
 	if d == nil || d.prepareTools == nil {
 		return nil
 	}
-	scope := d.codexToolSurfaceScope(req.AgentID, req.ThreadID, providerThreadID, req.CWD, nil)
+	scope := d.codexToolSurfaceScope(req.AgentID, req.ThreadID, providerThreadID, req.CWD, req.Config)
 	scope.SurfaceID = s.ensureToolSurfaceID()
 	_, err := d.prepareTools(ctx, scope)
 	if err != nil {
@@ -397,21 +406,29 @@ func (d *driver) rebuildResumeToolSurface(ctx context.Context, s *session, req d
 }
 
 func (d *driver) codexToolSurfaceScope(agentID, localThreadID, providerThreadID, cwd string, cfg map[string]any) contract.CodexToolSurfaceScope {
+	cwd = strings.TrimSpace(cwd)
+	workspaceRoots := trustedWorkspaceRoots(cwd, providershared.ConfigStringSlice(cfg, "additionalWorkingDirectories", "additional_working_directories"))
+	additionalRoots := []string(nil)
+	if len(workspaceRoots) > 1 {
+		additionalRoots = workspaceRoots[1:]
+	}
 	return contract.CodexToolSurfaceScope{
 		AgentID:          strings.TrimSpace(agentID),
 		UIThreadID:       strings.TrimSpace(localThreadID),
 		LocalThreadID:    strings.TrimSpace(localThreadID),
 		ProviderThreadID: strings.TrimSpace(providerThreadID),
-		CWD:              strings.TrimSpace(cwd),
+		CWD:              cwd,
+		WorkspaceRoots:   append([]string(nil), workspaceRoots...),
 		Manifest: contract.BuildManifest(dto.ManifestContext{
-			AgentID:       strings.TrimSpace(agentID),
-			ThreadID:      strings.TrimSpace(sharedFirstNonEmpty(providerThreadID, localThreadID, agentID)),
-			CWD:           strings.TrimSpace(cwd),
-			ThreadCaps:    cloneCaps(codexCapabilities),
-			BinaryDir:     providershared.ResolveBinaryDir(cwd, cfg),
-			Env:           providershared.StringMap(cfg["env"]),
-			AutoApprove:   providershared.ConfigStringSlice(cfg, "auto_approve", "autoApprove"),
-			TransportMode: dto.ManifestTransportStdioOnly,
+			AgentID:                      strings.TrimSpace(agentID),
+			ThreadID:                     strings.TrimSpace(sharedFirstNonEmpty(providerThreadID, localThreadID, agentID)),
+			CWD:                          cwd,
+			AdditionalWorkingDirectories: additionalRoots,
+			ThreadCaps:                   cloneCaps(codexCapabilities),
+			BinaryDir:                    providershared.ResolveBinaryDir(cwd, cfg),
+			Env:                          providershared.StringMap(cfg["env"]),
+			AutoApprove:                  providershared.ConfigStringSlice(cfg, "auto_approve", "autoApprove"),
+			TransportMode:                dto.ManifestTransportStdioOnly,
 		}),
 	}
 }
