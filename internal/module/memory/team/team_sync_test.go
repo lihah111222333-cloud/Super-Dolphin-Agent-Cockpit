@@ -110,8 +110,12 @@ func TestTeamSyncInitialAndRemotePullInvalidateWithoutSelfPush(t *testing.T) {
 	withTeamMemoryRuntimeReady(t, true)
 	projectRoot := t.TempDir()
 	autoRoot := filepath.Join(t.TempDir(), "automem")
-	cfg := newTestConfig(filepath.Join(autoRoot, teamMemoryRootDirName))
+	teamRoot := filepath.Join(autoRoot, teamMemoryRootDirName)
+	cfg := newTestConfig(teamRoot)
 	cfg.projectRoot = projectRoot
+	if err := os.MkdirAll(teamRoot, 0o755); err != nil {
+		t.Fatalf("MkdirAll(team root) error = %v", err)
+	}
 	manager := NewTeamMemoryManager(cfg)
 	guard := NewTeamMemoryGuard(manager)
 	invalidator := &teamSyncInvalidatorStub{}
@@ -260,6 +264,14 @@ func TestTeamSync413LearnsServerMaxEntriesForNextPush(t *testing.T) {
 		t.Fatalf("second Push() error = %v", err)
 	}
 	assertTeamSync413SecondPush(t, second, remote.pushBatchSizes)
+}
+
+func TestResolveTeamRepoSlugFailsWhenRemoteOriginMissing(t *testing.T) {
+	projectRoot := t.TempDir()
+	_, err := resolveTeamRepoSlug(context.Background(), projectRoot)
+	if err == nil {
+		t.Fatal("resolveTeamRepoSlug() error = nil, want missing remote.origin.url to fail fast")
+	}
 }
 
 func teamSync413PushFiles(_ context.Context, req TeamSyncPushRequest) (TeamSyncPushResponse, error) {

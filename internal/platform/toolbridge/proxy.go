@@ -245,10 +245,14 @@ func (h *Handler) handleProxyToolCall(w http.ResponseWriter, ctx context.Context
 	if result == nil {
 		result = &ToolCallResult{Success: true}
 	}
-	writeJSONRPCResult(w, req.ID, map[string]any{
+	payload := map[string]any{
 		"content": toMCPContent(result.ContentItems),
 		"isError": !result.Success,
-	})
+	}
+	if len(result.StructuredContent) > 0 {
+		payload["structuredContent"] = json.RawMessage(append([]byte(nil), result.StructuredContent...))
+	}
+	writeJSONRPCResult(w, req.ID, payload)
 }
 
 func proxyToolCallErrorCode(err error) int {

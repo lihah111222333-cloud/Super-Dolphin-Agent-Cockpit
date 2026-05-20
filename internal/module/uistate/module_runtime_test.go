@@ -60,6 +60,38 @@ func TestLoadInitialStatePopulatesThreads(t *testing.T) {
 	}
 }
 
+func TestGetStateAndSidebarFilterStaleActiveThreadPreferences(t *testing.T) {
+	t.Parallel()
+
+	svc, _, err := NewService(nil, nil, nil, nil, nil, nil)
+	if err != nil {
+		t.Fatalf("NewService() error = %v", err)
+	}
+	svc.state.Threads = []ThreadSummary{{ID: "thread-live"}, {ID: "thread-cmd"}}
+	mustSetThreadPreference(t, svc, preferenceActiveThreadID, "thread-live")
+	mustSetThreadPreference(t, svc, preferenceActiveCmdThreadID, "thread-cmd")
+	requireActiveSelections(t, svc, "live selections", "thread-live", "thread-cmd")
+
+	mustSetThreadPreference(t, svc, preferenceActiveThreadID, "thread-stale")
+	mustSetThreadPreference(t, svc, preferenceActiveCmdThreadID, "thread-stale-cmd")
+	requireActiveSelections(t, svc, "stale selections", "", "")
+}
+
+func requireActiveSelections(t *testing.T, svc *service, label, wantActive, wantCmd string) {
+	t.Helper()
+	state := mustGetUIState(t, svc, context.Background(), "GetState() "+label)
+	sidebar := mustGetSidebar(t, svc, "GetSidebar() "+label)
+	assertActiveSelections(t, "GetState() "+label, state.ActiveThreadID, state.ActiveCmdThreadID, wantActive, wantCmd)
+	assertActiveSelections(t, "GetSidebar() "+label, sidebar.ActiveThreadID, sidebar.ActiveCmdThreadID, wantActive, wantCmd)
+}
+
+func assertActiveSelections(t *testing.T, label, gotActive, gotCmd, wantActive, wantCmd string) {
+	t.Helper()
+	if gotActive != wantActive || gotCmd != wantCmd {
+		t.Fatalf("%s active threads = %q/%q, want %q/%q", label, gotActive, gotCmd, wantActive, wantCmd)
+	}
+}
+
 func TestApplyTaskRuntimeToThreadRuntimeConfig_Pin(t *testing.T) {
 	t.Parallel()
 

@@ -51,6 +51,7 @@ type CodeRunResult struct {
 }
 
 type CodeRunFailure struct {
+	Success  bool   `json:"success"`
 	Error    string `json:"error"`
 	ExitCode int    `json:"exit_code"`
 }

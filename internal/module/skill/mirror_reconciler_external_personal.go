@@ -94,7 +94,7 @@ func replaceProjectSkillWithExternalPersonal(sourceDir, targetDir string) (strin
 		return "", err
 	}
 	removeTemp = false
-	return skillDirContentHash(targetDir), nil
+	return skillDirContentHash(targetDir)
 }
 
 func prepareProjectReplacementDirs(sourceDir, targetDir string) (string, error) {
@@ -167,7 +167,7 @@ func saveExternalPersonalProjectSameNameAsPersonal(ctx context.Context, svc *ser
 		return report, err
 	}
 	if err := os.RemoveAll(sourceDir); err != nil {
-		return partialMirrorResolutionReport(report, skillDirContentHash(targetDir), "retry_external_provider_cleanup"), err
+		return partialExternalPersonalCleanupFailure(report, targetDir, err)
 	}
 	if err := setMirrorResolutionResultHash(&report, targetDir); err != nil {
 		return report, err
@@ -175,6 +175,14 @@ func saveExternalPersonalProjectSameNameAsPersonal(ctx context.Context, svc *ser
 	markExternalPersonalProjectMirrorPublish(ctx, svc, skillScopePersonal, personalSkillTypeImported, name, &report)
 	svc.publishSkillsChangedForPersonalType(ctx, req.Action, name, skillScopePersonal, personalSkillTypeImported)
 	return report, nil
+}
+
+func partialExternalPersonalCleanupFailure(report SkillMirrorResolutionReport, targetDir string, cleanupErr error) (SkillMirrorResolutionReport, error) {
+	targetHash, err := skillDirContentHash(targetDir)
+	if err != nil {
+		return report, fmt.Errorf("hash external provider target after cleanup failure: %w", err)
+	}
+	return partialMirrorResolutionReport(report, targetHash, "retry_external_provider_cleanup"), cleanupErr
 }
 
 func externalPersonalProjectSource(svc *service, req SkillMirrorResolutionRequest) (string, string, skillResolutionPreviewItem, error) {

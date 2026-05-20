@@ -143,6 +143,7 @@ func TestConsolidationPromptIncludesRuntimeContext(t *testing.T) {
 	if err := os.MkdirAll(root, 0o755); err != nil {
 		t.Fatalf("MkdirAll(root) error = %v", err)
 	}
+	writeMemoryIndexFixture(t, root)
 	cfg := &Config{Enabled: true, RootDir: root}
 	consolidator := NewAutoDreamConsolidator(NewMemoryExtractor())
 	consolidator.cfg = cfg

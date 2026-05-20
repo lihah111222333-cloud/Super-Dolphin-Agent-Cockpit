@@ -108,6 +108,7 @@ func newAutoDreamMinSessionsHarness(
 		MemoryTypeFeedback,
 		"Keep answers short\nWhy: older guidance.",
 	))
+	writeMemoryIndexFixture(t, root, "- [Keep answers short](feedback/keep-answers-short.md)")
 	if err := recordConsolidation(root, now.Add(-48*time.Hour)); err != nil {
 		t.Fatalf("recordConsolidation() error = %v", err)
 	}
@@ -190,6 +191,7 @@ func TestAutoDreamKillCancelsRunningTask(t *testing.T) {
 		MemoryTypeProject,
 		"Build guidance\nWhy: keep build commands guarded.",
 	))
+	writeMemoryIndexFixture(t, root, "- [Build guidance](project/build-guidance.md)")
 	store := &autoDreamThreadStoreStub{
 		thread:  newAutoDreamRootThread(t, "thread-current", now, map[string]any{"threadKind": "main"}),
 		threads: autoDreamOtherRootThreads(t, now, 5),

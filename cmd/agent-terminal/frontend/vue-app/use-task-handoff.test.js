@@ -22,6 +22,8 @@ function makeCtx({
   runtime = null,
   withSendMessage = true,
   sendMessageImpl = null,
+  activeProject = '/repo',
+  windowCwd = '',
 } = {}) {
   const threadStore = {
     state: reactive({ agentRuntimeById, kickoffByThread: {} }),
@@ -30,7 +32,7 @@ function makeCtx({
   if (withSendMessage) {
     threadStore.sendMessage = vi.fn(sendMessageImpl || (async () => {}));
   }
-  const projectStore = { state: reactive({ active: '/repo' }) };
+  const projectStore = { state: reactive({ active: activeProject }) };
   return {
     threadStore,
     projectStore,
@@ -38,6 +40,7 @@ function makeCtx({
     activeThread: ref({ id: selectedThreadIdValue, name: threadName }),
     activeRuntime: ref(runtime),
     isCmd: ref(isCmdValue),
+    windowCwd,
   };
 }
 
@@ -201,6 +204,19 @@ describe('useTaskHandoff.continueTaskById', () => {
     expect(opts.focusMode).toBe('cmd');
   });
 
+  it('uses the window cwd when continuing from dot project scope', async () => {
+    const ctx = makeCtx({
+      activeProject: '.',
+      windowCwd: '/worktrees/task-continue',
+      agentRuntimeById: { 'task-thread': { taskId: 't-window', taskTitle: '窗口任务' } },
+    });
+    const { continueTaskById } = useTaskHandoff(ctx);
+
+    await continueTaskById('task-thread');
+
+    expect(ctx.threadStore.startThread.mock.calls[0][0]).toBe('/worktrees/task-continue');
+  });
+
   it('does nothing when continueBusy already true (concurrent guard)', async () => {
     // 让 startThread 挂起，第一调用还在 in-flight 时再来一次
     let releaseFirst;
@@ -333,6 +349,25 @@ describe('useTaskHandoff.continueCurrentTask (wrapper)', () => {
   });
 });
 
+describe('useTaskHandoff.continueCurrentTaskInNewWindow', () => {
+  it('sets visible error state and rethrows openNewWindow failures', async () => {
+    vi.mocked(callAPI).mockRejectedValueOnce(new Error('window launch failed'));
+    const ctx = makeCtx({
+      runtime: { taskId: 't-window', taskTitle: '窗口续接' },
+    });
+    const vm = useTaskHandoff(ctx);
+
+    await expect(vm.continueCurrentTaskInNewWindow()).rejects.toThrow('window launch failed');
+
+    expect(vm.taskHandoffError.value).toBe('window launch failed');
+    expect(logWarn).toHaveBeenCalledWith('ui', 'taskHandoff.continue.new_window.failed', expect.objectContaining({
+      source_thread_id: 'src-thread',
+      task_id: 't-window',
+      error: 'window launch failed',
+    }));
+  });
+});
+
 describe('taskStripExpanded 默认折叠 + 事件展开', () => {
   it('initial state 默认为折叠（false）', () => {
     const ctx = makeCtx({ runtime: { taskId: 't-collapse-init', handoffFile: 'h.md' } });
@@ -407,6 +442,21 @@ describe('useTaskHandoff.startNewTaskFromHandoff kickoff', () => {
       next_thread_id: 'new-thread-id',
       task_id: 't-new-1',
     }));
+  });
+
+  it('uses the window cwd when starting a new task from dot project scope', async () => {
+    vi.mocked(callAPI).mockResolvedValueOnce({ content: '上次完成了什么…' });
+    const ctx = makeCtx({
+      activeProject: '.',
+      windowCwd: '/worktrees/task-new',
+      runtime: { taskId: 't-new-window', taskTitle: '窗口新任务', handoffFile: 'handoff/t-new-window.md' },
+    });
+    const { startNewTaskFromHandoff } = useTaskHandoff(ctx);
+    await Promise.resolve(); await Promise.resolve(); await Promise.resolve();
+
+    await startNewTaskFromHandoff();
+
+    expect(ctx.threadStore.startThread.mock.calls[0][0]).toBe('/worktrees/task-new');
   });
 
   it('threadStore 没 sendMessage 时仍返回 thread id 但 logWarn 跳过 kickoff', async () => {

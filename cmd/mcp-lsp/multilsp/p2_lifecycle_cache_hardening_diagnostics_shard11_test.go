@@ -330,7 +330,7 @@ func TestDidCloseDoesNotTombstoneExistingFile(t *testing.T) {
 
 func TestBootstrapBootstrappingTimeoutAllowsRetry(t *testing.T) {
 	store := newBootstrapStateStore()
-	wait := make(chan bootstrapResult, 1)
+	wait := newBootstrapWait()
 	key := bootstrapKey{workspace: "workspace", uri: "file:///stuck.go"}
 	store.entries[key] = &bootstrapEntry{
 		status:    bootstrapBootstrapping,
@@ -342,13 +342,22 @@ func TestBootstrapBootstrappingTimeoutAllowsRetry(t *testing.T) {
 		t.Fatalf("prepare(stale bootstrapping) action = %v, want run retry", decision.action)
 	}
 	select {
-	case <-wait:
+	case <-wait.done:
 	default:
 		t.Fatalf("stale bootstrapping waiter was not released")
 	}
 }
 
+func TestPersistentCacheCorruptFileFailsFast(t *testing.T) {
+	runPersistentCacheCorruptFileReturnsLoadError(t)
+}
+
 func TestPersistentCacheCorruptFileReturnsLoadError(t *testing.T) {
+	runPersistentCacheCorruptFileReturnsLoadError(t)
+}
+
+func runPersistentCacheCorruptFileReturnsLoadError(t *testing.T) {
+	t.Helper()
 	cacheDir := t.TempDir()
 	t.Setenv(lspCachePersistentEnv, "1")
 	t.Setenv(lspCacheDirEnv, cacheDir)

@@ -1,6 +1,8 @@
 package historyjsonl
 
 import (
+	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -48,6 +50,25 @@ func TestCodexHistoryPrefersProviderThreadIDBeforeSessionUUID(t *testing.T) {
 	}
 	if got := messages[0].Content; got != "provider result" {
 		t.Fatalf("message content = %q, want provider_thread_id rollout", got)
+	}
+}
+
+func TestMissingProviderHistoryUsesSentinelNotStringMatching(t *testing.T) {
+	if !IsMissingProviderHistory(fmt.Errorf("wrapped: %w", errProviderHistoryNotFound)) {
+		t.Fatal("wrapped missing sentinel should be treated as missing history")
+	}
+	if IsMissingProviderHistory(errors.New("persisted thread history not found")) {
+		t.Fatal("plain matching error string should not be treated as missing history")
+	}
+}
+
+func TestReadProviderMessagesIfExistsTreatsMissingPathAsOptional(t *testing.T) {
+	_, ok, err := ReadProviderMessagesIfExists(ReadRequest{RolloutPath: filepath.Join(t.TempDir(), "missing.jsonl")})
+	if err != nil {
+		t.Fatalf("ReadProviderMessagesIfExists() error = %v", err)
+	}
+	if ok {
+		t.Fatal("ReadProviderMessagesIfExists() ok = true, want false for missing file")
 	}
 }
 

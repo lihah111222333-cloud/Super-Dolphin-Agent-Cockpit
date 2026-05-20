@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"os"
 	"strings"
 	"time"
 
@@ -220,11 +221,16 @@ func (s *session) resumeThreadAfterRecovery(ctx context.Context) error {
 	if threadID == "" {
 		return nil
 	}
+	cwd, err := s.recoveryResumeCWD()
+	if err != nil {
+		return err
+	}
 	if s.logger != nil {
-		s.logger.Info("codexapp: resuming thread after recovery", "thread_id", threadID)
+		s.logger.Info("codexapp: resuming thread after recovery", "thread_id", threadID, "cwd", cwd)
 	}
 	raw, err := callWithTimeout(ctx, s.transport, 30*time.Second, "thread/resume", threadResumeParams{
 		ThreadID: threadID,
+		Cwd:      cwd,
 	})
 	if err != nil {
 		return fmt.Errorf("codexapp: thread/resume after recovery failed: %w", err)
@@ -233,6 +239,24 @@ func (s *session) resumeThreadAfterRecovery(ctx context.Context) error {
 		s.setThreadID(newID)
 	}
 	return nil
+}
+
+func (s *session) recoveryResumeCWD() (string, error) {
+	if s == nil {
+		return "", errors.New("codexapp: recovery cwd is required")
+	}
+	cwd := strings.TrimSpace(s.runtimeConfigString("cwd"))
+	if cwd == "" || cwd == "." {
+		return "", fmt.Errorf("codexapp: recovery cwd is required for thread %q", s.ThreadID())
+	}
+	info, err := os.Stat(cwd)
+	if err != nil {
+		return "", fmt.Errorf("codexapp: recovery cwd stat %q: %w", cwd, err)
+	}
+	if !info.IsDir() {
+		return "", fmt.Errorf("codexapp: recovery cwd is not a directory: %q", cwd)
+	}
+	return cwd, nil
 }
 
 func (s *session) replayPendingTurn(ctx context.Context) error {

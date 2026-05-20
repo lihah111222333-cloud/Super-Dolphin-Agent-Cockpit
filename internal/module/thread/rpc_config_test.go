@@ -8,7 +8,10 @@ import (
 func TestDecodeConfigMap_ValidJSON(t *testing.T) {
 	t.Parallel()
 
-	got := decodeConfigMap(json.RawMessage(`{"env":{"KEY":"VALUE"}}`))
+	got, err := decodeConfigMap(json.RawMessage(`{"env":{"KEY":"VALUE"}}`))
+	if err != nil {
+		t.Fatalf("decodeConfigMap() error = %v", err)
+	}
 	if got == nil {
 		t.Fatal("decodeConfigMap() = nil, want object")
 	}
@@ -24,7 +27,11 @@ func TestDecodeConfigMap_ValidJSON(t *testing.T) {
 func TestDecodeConfigMap_Null(t *testing.T) {
 	t.Parallel()
 
-	if got := decodeConfigMap(json.RawMessage(`null`)); got != nil {
+	got, err := decodeConfigMap(json.RawMessage(`null`))
+	if err != nil {
+		t.Fatalf("decodeConfigMap(null) error = %v", err)
+	}
+	if got != nil {
 		t.Fatalf("decodeConfigMap(null) = %#v, want nil", got)
 	}
 }
@@ -32,7 +39,11 @@ func TestDecodeConfigMap_Null(t *testing.T) {
 func TestDecodeConfigMap_EmptyObject(t *testing.T) {
 	t.Parallel()
 
-	if got := decodeConfigMap(json.RawMessage(`{}`)); len(got) != 0 {
+	got, err := decodeConfigMap(json.RawMessage(`{}`))
+	if err != nil {
+		t.Fatalf("decodeConfigMap({}) error = %v", err)
+	}
+	if len(got) != 0 {
 		t.Fatalf("decodeConfigMap({}) = %#v, want nil or empty map", got)
 	}
 }
@@ -40,23 +51,27 @@ func TestDecodeConfigMap_EmptyObject(t *testing.T) {
 func TestDecodeConfigMap_InvalidJSON(t *testing.T) {
 	t.Parallel()
 
-	if got := decodeConfigMap(json.RawMessage(`"not json"`)); got != nil {
-		t.Fatalf("decodeConfigMap(\"not json\") = %#v, want nil", got)
+	if got, err := decodeConfigMap(json.RawMessage(`"not json"`)); err == nil {
+		t.Fatalf("decodeConfigMap(\"not json\") = %#v, want error", got)
 	}
 }
 
 func TestDecodeConfigMap_Array(t *testing.T) {
 	t.Parallel()
 
-	if got := decodeConfigMap(json.RawMessage(`[1,2,3]`)); got != nil {
-		t.Fatalf("decodeConfigMap([1,2,3]) = %#v, want nil", got)
+	if got, err := decodeConfigMap(json.RawMessage(`[1,2,3]`)); err == nil {
+		t.Fatalf("decodeConfigMap([1,2,3]) = %#v, want error", got)
 	}
 }
 
 func TestDecodeConfigMap_Nil(t *testing.T) {
 	t.Parallel()
 
-	if got := decodeConfigMap(nil); got != nil {
+	got, err := decodeConfigMap(nil)
+	if err != nil {
+		t.Fatalf("decodeConfigMap(nil) error = %v", err)
+	}
+	if got != nil {
 		t.Fatalf("decodeConfigMap(nil) = %#v, want nil", got)
 	}
 }

@@ -30,11 +30,16 @@ const (
 type bootstrapDecision struct {
 	action   bootstrapAction
 	previous bootstrapStatus
-	wait     <-chan bootstrapResult
+	wait     *bootstrapWait
 }
 
 type bootstrapResult struct {
 	err error
+}
+
+type bootstrapWait struct {
+	done   chan struct{}
+	result bootstrapResult
 }
 
 type bootstrapKey struct {
@@ -48,7 +53,7 @@ type bootstrapEntry struct {
 	version     int
 	err         error
 	updatedAt   time.Time
-	wait        chan bootstrapResult
+	wait        *bootstrapWait
 }
 
 type bootstrapStateStore struct {
@@ -118,7 +123,7 @@ func (s *bootstrapStateStore) prepare(workspace, uri, fingerprint string) bootst
 	entry.status = bootstrapBootstrapping
 	entry.err = nil
 	entry.updatedAt = time.Now()
-	entry.wait = make(chan bootstrapResult, 1)
+	entry.wait = newBootstrapWait()
 	return bootstrapDecision{action: bootstrapActionRun, previous: previous, wait: entry.wait}
 }
 
@@ -140,15 +145,15 @@ func (s *bootstrapStateStore) fail(workspace, uri string, err error) {
 	})
 }
 
-func (s *bootstrapStateStore) waitFor(ctx context.Context, workspace, uri string, ch <-chan bootstrapResult) error {
-	if ch == nil {
+func (s *bootstrapStateStore) waitFor(ctx context.Context, workspace, uri string, wait *bootstrapWait) error {
+	if wait == nil {
 		return nil
 	}
 	select {
 	case <-ctx.Done():
 		return ctx.Err()
-	case result := <-ch:
-		return result.err
+	case <-wait.done:
+		return wait.result.err
 	}
 }
 
@@ -185,10 +190,14 @@ func (s *bootstrapStateStore) entryLocked(key bootstrapKey) *bootstrapEntry {
 	return entry
 }
 
+func newBootstrapWait() *bootstrapWait {
+	return &bootstrapWait{done: make(chan struct{})}
+}
+
 func (e *bootstrapEntry) finishWaitLocked(err error) {
-	select {
-	case e.wait <- bootstrapResult{err: err}:
-	default:
+	if e.wait == nil {
+		return
 	}
-	close(e.wait)
+	e.wait.result = bootstrapResult{err: err}
+	close(e.wait.done)
 }

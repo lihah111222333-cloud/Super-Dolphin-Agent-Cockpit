@@ -5,7 +5,15 @@ import { logInfo, logWarn } from '../services/log.js';
 export function resolveProjectActionCwd(projectStore, windowCwd = '') {
   const active = (projectStore?.state?.active || '').toString().trim();
   if (active && active !== '.') return active;
-  return (windowCwd || '').toString().trim() || '.';
+  const scoped = (windowCwd || '').toString().trim();
+  if (scoped) return scoped;
+  throw new Error('project action cwd is required');
+}
+
+export function resolveProjectViewCwd(projectStore, windowCwd = '') {
+  const active = (projectStore?.state?.active || '').toString().trim();
+  if (active && active !== '.') return active;
+  return (windowCwd || '').toString().trim();
 }
 
 function getThreadConfigFromStore(threadStore, threadId) {
@@ -83,28 +91,67 @@ function errorTextCandidates(error) {
   ].map((item) => (item || '').toString()).filter(Boolean);
 }
 
-function formatMissingWorkDirSendNotice(error) {
-  const text = errorTextCandidates(error).join('\n').replace(/\\"/g, '"');
-  const lower = text.toLowerCase();
-  if (!lower.includes('pool work dir stat') || !lower.includes('no such file or directory')) {
-    return '';
+function normalizeErrorDetailText(text) {
+  const raw = (text || '').toString().trim();
+  if (!raw) return '';
+  const unescaped = raw.replace(/\\"/g, '"');
+  try {
+    const parsed = JSON.parse(unescaped);
+    const detail = (
+      parsed?.message
+      || parsed?.error?.message
+      || parsed?.data?.message
+      || ''
+    ).toString().trim();
+    if (detail) return detail;
+  } catch {
+    // Non-JSON Error.message values are already the backend detail.
   }
-  const match = text.match(/pool work dir stat "([^"]+)"/i);
-  const path = (match?.[1] || '').toString().trim();
-  const target = path || '后端未返回具体路径';
-  return `发送失败：该会话的工作目录已不存在。\n\n${target}\n\n请恢复该目录，或新建/重新绑定会话后继续。`;
+  return unescaped;
 }
 
-function formatSkillConflictSendNotice(error) {
+function formatErrorDetail(error) {
+  for (const candidate of errorTextCandidates(error)) {
+    const detail = normalizeErrorDetailText(candidate);
+    if (detail) return detail;
+  }
+  return String(error || '').trim();
+}
+
+function formatMissingWorkDirNotice(error, actionLabel) {
+  const text = errorTextCandidates(error).join('\n').replace(/\\"/g, '"');
+  const lower = text.toLowerCase();
+  const reportsMissingWorkdir = lower.includes('pool work dir stat') || lower.includes('cwd stat');
+  if (!reportsMissingWorkdir || !lower.includes('no such file or directory')) {
+    return '';
+  }
+  const match = text.match(/(?:pool work dir stat|cwd stat) "([^"]+)"/i);
+  const path = (match?.[1] || '').toString().trim();
+  const target = path || '后端未返回具体路径';
+  return `${actionLabel}失败：该会话的工作目录已不存在。\n\n${target}\n\n请恢复该目录，或新建/重新绑定会话后继续。`;
+}
+
+function formatSkillConflictNotice(error, actionLabel) {
   const text = errorTextCandidates(error).join('\n').replace(/\\"/g, '"');
   const lower = text.toLowerCase();
   const hasSkillConflict = lower.includes('skill mirror conflicts') || lower.includes('skill same-name conflict');
   if (!hasSkillConflict) return '';
-  return '发送失败：当前项目有技能冲突，请到技能页面处理后再发送。';
+  return `${actionLabel}失败：当前项目有技能冲突，请到技能页面处理后再试。`;
+}
+
+function formatActionFailureNotice(error, actionLabel) {
+  const detail = formatErrorDetail(error);
+  return formatMissingWorkDirNotice(error, actionLabel)
+    || formatSkillConflictNotice(error, actionLabel)
+    || `${actionLabel}失败：${detail || '后端未返回错误详情'}`;
 }
 
 function formatSendFailureNotice(error) {
-  return formatMissingWorkDirSendNotice(error) || formatSkillConflictSendNotice(error);
+  return formatActionFailureNotice(error, '发送');
+}
+
+function formatLaunchFailureNotice(error) {
+  return formatActionFailureNotice(error, '启动');
 }
 
 function isProviderPreferenceReady(providerPreferenceReady) {
@@ -163,23 +210,34 @@ async function performSend({
   providerPreferenceError,
 }) {
   let threadId = (selectedThreadId.value || '').toString().trim();
+  let startedNewThread = false;
   const text = composer.state.text;
   const attachments = [...composer.state.attachments];
   if (!text.trim() && attachments.length === 0) return;
   sendFailureNotice.value = '';
 
-  const actionCwd = resolveProjectActionCwd(projectStore, windowCwd);
   if (!threadId) {
     if (!isProviderPreferenceReady(providerPreferenceReady)) {
       sendFailureNotice.value = formatProviderPreferencePendingNotice(providerPreferenceError);
       return;
     }
-    const startOptions = await resolveStartOptions(text, modeKey.value);
-    threadId = await threadStore.startThread(actionCwd, startOptions);
+    try {
+      const actionCwd = resolveProjectActionCwd(projectStore, windowCwd);
+      const startOptions = await resolveStartOptions(text, modeKey.value);
+      threadId = await threadStore.startThread(actionCwd, startOptions);
+    } catch (err) {
+      logWarn('ui', 'chat.start.error', {
+        error: err?.message || String(err),
+      });
+      sendFailureNotice.value = formatSendFailureNotice(err);
+      throw err;
+    }
     if (!threadId) return;
+    startedNewThread = true;
     selectedThreadId.value = threadId;
   }
 
+  const actionCwd = resolveProjectActionCwd(projectStore, windowCwd);
   const savedText = text;
   const savedAttachments = attachments;
   composer.clearComposer();
@@ -214,11 +272,19 @@ function createLaunchOneAction({
       sendFailureNotice.value = formatProviderPreferencePendingNotice(providerPreferenceError);
       return Promise.resolve();
     }
+    sendFailureNotice.value = '';
     return resolveStartOptions(composer?.state?.text || '', modeKey.value)
       .then((startOptions) => props.threadStore.startThread(resolveProjectActionCwd(props.projectStore, props.windowCwd), startOptions))
       .then((id) => {
         if (!id) return;
         selectedThreadId.value = id;
+      })
+      .catch((err) => {
+        logWarn('ui', 'chat.launch.error', {
+          error: err?.message || String(err),
+        });
+        sendFailureNotice.value = formatLaunchFailureNotice(err);
+        throw err;
       });
   };
 }
@@ -275,7 +341,7 @@ export function useThreadActions(props, deps) {
     // Phase 1.8a：在 stopThread 之前先标抑制位，确保 F2 watcher 在 status='error'
     // 跳变时已能识别为用户主动 stop。
     if (typeof props.markManualAbort === 'function') {
-      try { props.markManualAbort(threadId, 'ui_stop'); } catch (_) { /* never break interrupt */ }
+      props.markManualAbort(threadId, 'ui_stop');
     }
     try {
       const result = await props.threadStore.stopThread(threadId, { source: 'ui_stop' });
@@ -311,6 +377,7 @@ export function useThreadActions(props, deps) {
         reason: 'error',
         threadId,
       });
+      throw error;
     }
   }
 
@@ -424,7 +491,7 @@ export function useThreadActions(props, deps) {
       });
       return;
     }
-    interruptCurrent({ threadId });
+    return interruptCurrent({ threadId });
   }
 
   function toggleThreadPin(threadId) {
@@ -434,14 +501,7 @@ export function useThreadActions(props, deps) {
 
   async function toggleThreadArchive(threadId) {
     if (typeof props.threadStore.toggleThreadArchive !== 'function') return;
-    try {
-      await props.threadStore.toggleThreadArchive(threadId);
-    } catch (error) {
-      logWarn('ui', 'thread.archive.toggle.failed', {
-        thread_id: (threadId || '').toString(),
-        error,
-      });
-    }
+    await props.threadStore.toggleThreadArchive(threadId);
   }
 
   function toggleArchivedThreadList() {
@@ -461,6 +521,7 @@ export function useThreadActions(props, deps) {
       logInfo('ui', 'openNewWindow.done', { cwd });
     } catch (error) {
       logWarn('ui', 'openNewWindow.failed', { error });
+      throw error;
     }
   }
 

@@ -307,19 +307,19 @@ func appendMCPInstructions(dst, src map[string]string) {
 	}
 }
 
-func readThreadRuntimeConfig(ctx context.Context, reader ThreadStateConfigReader, threadID string) map[string]any {
+func readThreadRuntimeConfig(ctx context.Context, reader ThreadStateConfigReader, threadID string) (map[string]any, error) {
 	if reader == nil {
-		return nil
+		return nil, nil
 	}
 	threadID = strings.TrimSpace(threadID)
 	if threadID == "" {
-		return nil
+		return nil, nil
 	}
 	cfg, err := reader.ReadThreadStateRuntimeConfig(ctx, threadID)
 	if err != nil {
-		return nil
+		return nil, err
 	}
-	return clone.RuntimeConfigMap(cfg)
+	return clone.RuntimeConfigMap(cfg), nil
 }
 
 func requireTurnContext(
@@ -408,6 +408,12 @@ func buildInterruptResult(status TurnStatus, envelope turnInterruptEnvelope) tur
 		result.WaitedMS = &waitedMS
 		result.ActiveObserved = &activeObserved
 	}
+	return result
+}
+
+func buildInterruptFailureResult(status TurnStatus, envelope turnInterruptEnvelope) turnInterruptResult {
+	result := buildInterruptResult(status, envelope)
+	result.OK = false
 	return result
 }
 

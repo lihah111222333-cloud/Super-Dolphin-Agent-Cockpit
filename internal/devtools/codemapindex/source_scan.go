@@ -1,6 +1,7 @@
 package codemapindex
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -27,11 +28,16 @@ var indexedSourceSkipDirs = map[string]bool{
 	"test-results":      true,
 }
 
-func ScanSourceFiles(root string) (r []string) {
+func ScanSourceFiles(root string) ([]string, error) {
+	var r []string
 	for _, dir := range indexedSourceDirs(root) {
-		r = append(r, collectSourceFilesFromDir(root, dir)...)
+		files, err := collectSourceFilesFromDir(root, dir)
+		if err != nil {
+			return nil, err
+		}
+		r = append(r, files...)
 	}
-	return appendRootIndexedFiles(root, r)
+	return appendRootIndexedFiles(root, r), nil
 }
 
 func indexedSourceDirs(root string) []string {
@@ -45,10 +51,11 @@ func indexedSourceDirs(root string) []string {
 	return dirs
 }
 
-func collectSourceFilesFromDir(root, dir string) (files []string) {
-	_ = filepath.Walk(dir, func(p string, info os.FileInfo, err error) error {
+func collectSourceFilesFromDir(root, dir string) ([]string, error) {
+	var files []string
+	if err := filepath.Walk(dir, func(p string, info os.FileInfo, err error) error {
 		if err != nil {
-			return nil
+			return err
 		}
 		if shouldSkipIndexedDir(info) {
 			return filepath.SkipDir
@@ -57,12 +64,15 @@ func collectSourceFilesFromDir(root, dir string) (files []string) {
 			return nil
 		}
 		rel, relErr := filepath.Rel(root, p)
-		if relErr == nil {
-			files = append(files, rel)
+		if relErr != nil {
+			return fmt.Errorf("source file relative path: %w", relErr)
 		}
+		files = append(files, rel)
 		return nil
-	})
-	return files
+	}); err != nil {
+		return nil, err
+	}
+	return files, nil
 }
 
 func appendRootIndexedFiles(root string, files []string) []string {

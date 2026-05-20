@@ -2,6 +2,7 @@ package orchestration
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"time"
 
@@ -128,6 +129,9 @@ func (s *service) loadPersistedRuntimeSource(ctx context.Context, agentID string
 		return persistedRuntimeSource{}, "binding_archived", nil
 	}
 	provider := persistedBindingProvider(binding)
+	if provider == "" {
+		return persistedRuntimeSource{}, "provider_missing", fmt.Errorf("persisted binding provider is required for agent %q", agentID)
+	}
 	if provider != "codex" {
 		return persistedRuntimeSource{}, "unsupported_provider", nil
 	}
@@ -147,9 +151,6 @@ func persistedBindingProvider(binding *PersistedBinding) string {
 		return ""
 	}
 	provider := strings.ToLower(strings.TrimSpace(binding.Provider))
-	if provider == "" {
-		return "codex"
-	}
 	return provider
 }
 
@@ -164,7 +165,7 @@ func (s *service) activePersistedThreadForBinding(ctx context.Context, agentID, 
 	thread, err := s.persistedThreadForBinding(ctx, agentID, remoteThreadID)
 	if err != nil {
 		if platformdb.IsNotFound(err) {
-			return nil, "", nil
+			return nil, "thread_not_found", err
 		}
 		return nil, "thread_lookup_failed", err
 	}

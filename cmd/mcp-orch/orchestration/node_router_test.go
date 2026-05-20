@@ -84,7 +84,7 @@ func (l *stubAgentLauncher) LaunchAgent(_ context.Context, req contract.LaunchRe
 func TestNodeExecutorRouter_RoutesAgentNode(t *testing.T) {
 	t.Parallel()
 	launcher := &stubAgentLauncher{threadID: "thread-x"}
-	agentExec := nodeexec.NewAgentExecutor(launcher, nil)
+	agentExec := newTestAgentExecutor(launcher, nil)
 	store := &stubRouterStore{
 		nodes: []taskdag.Node{{
 			DagKey:   "dag-1",
@@ -120,7 +120,7 @@ func TestNodeExecutorRouter_RoutesAgentNode(t *testing.T) {
 func TestNodeExecutorRouter_AgentLifecycleHooks(t *testing.T) {
 	events := []string{}
 	launcher := &stubAgentLauncher{threadID: "thread-hook"}
-	agentExec := nodeexec.NewAgentExecutor(launcher, nodeexec.WithHooks(recordingLifecycleHooks(&events)))
+	agentExec := newTestAgentExecutor(launcher, nodeexec.WithHooks(recordingLifecycleHooks(&events)))
 	store := &stubRouterStore{
 		nodes: []taskdag.Node{{
 			DagKey:   "dag-1",
@@ -171,7 +171,7 @@ func TestProvideExecutorsWireLifecycleHooks(t *testing.T) {
 func TestNodeExecutorRouter_LifecycleHookTimeoutDoesNotBlockDispatch(t *testing.T) {
 	canceled := make(chan struct{})
 	launcher := &stubAgentLauncher{threadID: "thread-hook-timeout"}
-	agentExec := nodeexec.NewAgentExecutor(launcher, nodeexec.WithHooks(map[nodeexec.HookPoint]nodeexec.HookHandler{
+	agentExec := newTestAgentExecutor(launcher, nodeexec.WithHooks(map[nodeexec.HookPoint]nodeexec.HookHandler{
 		nodeexec.HookBeforeExecute: blockingLifecycleHook{canceled: canceled},
 	}))
 	store := &stubRouterStore{
@@ -218,7 +218,7 @@ func TestNodeExecutorRouter_LifecycleHookTimeoutDoesNotBlockDispatch(t *testing.
 func TestNodeExecutorRouter_EmptyNodeTypeDefaultsToAgent(t *testing.T) {
 	t.Parallel()
 	launcher := &stubAgentLauncher{threadID: "thread-y"}
-	agentExec := nodeexec.NewAgentExecutor(launcher, nil)
+	agentExec := newTestAgentExecutor(launcher, nil)
 	store := &stubRouterStore{
 		nodes: []taskdag.Node{{
 			DagKey:   "dag-1",

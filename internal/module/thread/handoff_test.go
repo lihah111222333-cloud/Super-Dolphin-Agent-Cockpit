@@ -5,6 +5,10 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/anthropic-ai/super-agent-v3/internal/contract"
+	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
+	bindingstore "github.com/anthropic-ai/super-agent-v3/internal/store/binding"
+	sharedfilestore "github.com/anthropic-ai/super-agent-v3/internal/store/sharedfile"
 	threadstore "github.com/anthropic-ai/super-agent-v3/internal/store/thread"
 )
 
@@ -146,18 +150,91 @@ func TestHandoff_LoadsNarrowSourceFields(t *testing.T) {
 	t.Parallel()
 	row := &threadstore.Thread{
 		ThreadID:      "thread-src",
+		AgentID:       "agent-src",
 		Cwd:           "/work/repo",
 		Model:         "claude-sonnet-4",
 		AgentType:     "main",
 		ParentAgentID: "parent-agent",
 	}
-	s := &service{threadStore: &fakeThreadStoreForHandoff{row: row}}
+	s := &service{
+		threadStore: &fakeThreadStoreForHandoff{row: row},
+		bindingStore: &stubBindingStore{binding: &bindingstore.Binding{
+			AgentID:          "agent-src",
+			Provider:         "claude",
+			ProviderThreadID: "thread-src",
+			CodexThreadID:    "thread-src",
+		}},
+	}
 	src, err := s.loadThreadForHandoff(context.Background(), "thread-src")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if src.Cwd != row.Cwd || src.Model != row.Model || src.AgentType != row.AgentType ||
-		src.ParentAgentID != row.ParentAgentID || src.ThreadID != row.ThreadID {
+		src.ParentAgentID != row.ParentAgentID || src.ThreadID != row.ThreadID || src.Provider != "claude" {
 		t.Fatalf("narrow view drift: got %+v", src)
+	}
+}
+
+func TestHandoff_UsesSourceBindingProvider(t *testing.T) {
+	t.Parallel()
+
+	rolloutPath := writeExistingProviderHistoryFile(t)
+	sessions := &stubSessionProvider{}
+	starter := &startOnlySessionStarter{
+		onStart: func(_ context.Context, req dto.StartSessionRequest) (contract.Session, error) {
+			if req.Provider != "codex" {
+				t.Fatalf("provider = %q, want codex from source binding", req.Provider)
+			}
+			session := &stubSession{threadID: "019d5f6b-fb3c-7760-9d6f-54005553f5b3", rolloutPath: rolloutPath}
+			sessions.session = session
+			return session, nil
+		},
+	}
+	source := &threadstore.Thread{
+		ThreadID: "thread-src",
+		AgentID:  "agent-src",
+		Cwd:      wantStartCWD(t),
+		Model:    "gpt-5.5",
+		Prompt:   "Source task",
+		ConfigOverride: mustStoredThreadConfigRaw(t, storedThreadConfig{
+			Runtime: map[string]any{
+				taskConfigKeyID:          "task-src",
+				taskConfigKeyTitle:       "Source task",
+				taskConfigKeyHandoffFile: defaultTaskHandoffPath("task-src"),
+			},
+		}),
+	}
+	svc := NewService(
+		silentLogger(),
+		&stubThreadStore{thread: source},
+		&stubBindingStore{binding: &bindingstore.Binding{
+			AgentID:          "agent-src",
+			Provider:         "codex",
+			ProviderThreadID: "thread-src",
+			CodexThreadID:    "thread-src",
+		}},
+		sessions,
+		starter,
+		nil,
+		nil,
+		nil,
+	).(*service)
+	svc.sharedFiles = &stubSharedFileStore{files: map[string]sharedfilestore.SharedFile{
+		defaultTaskHandoffPath("task-src"): {
+			Path:    defaultTaskHandoffPath("task-src"),
+			Content: "# Task Handoff\n\n## Latest Outcome\nready",
+		},
+	}}
+
+	result, err := svc.Handoff(context.Background(), HandoffRequest{
+		SourceThreadID: "thread-src",
+		TargetAgentKey: "reviewer",
+		InitialMessage: "review this",
+	})
+	if err != nil {
+		t.Fatalf("Handoff() error = %v", err)
+	}
+	if result.SourceThreadID != "thread-src" || result.AgentKey != "reviewer" || result.NewThreadID == "" {
+		t.Fatalf("Handoff() result = %#v", result)
 	}
 }

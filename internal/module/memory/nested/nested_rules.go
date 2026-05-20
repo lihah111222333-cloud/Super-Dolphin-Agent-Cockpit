@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -20,15 +21,15 @@ func (p *ClaudeMdSourcesProvider) ResolveTurnAttachments(
 	buildCtx contract.BuildCtx,
 	turn contract.TurnInput,
 	baseSources []ClaudeMdSource,
-) []dto.AttachmentEnvelope {
+) ([]dto.AttachmentEnvelope, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
 	if p == nil || p.nested == nil || !nestedMemoryEnabled(p.deps) {
-		return nil
+		return nil, nil
 	}
 	if p.deps.resolveGate(buildCtx).DisableClaudeMds {
-		return nil
+		return nil, nil
 	}
 	p.nested.ObserveBuildContext(turn.ThreadID, buildCtx)
 	// TurnInput.Attachments is the shared trigger lane for path-bearing turn inputs.
@@ -38,7 +39,7 @@ func (p *ClaudeMdSourcesProvider) ResolveTurnAttachments(
 	p.nested.AddTriggers(turn.ThreadID, buildCtx, turn.Attachments)
 	triggers := p.nested.ConsumePending(turn.ThreadID, buildCtx)
 	if len(triggers) == 0 {
-		return nil
+		return nil, nil
 	}
 	return p.GetNestedMemoryAttachments(ctx, buildCtx, turn.ThreadID, triggers, baseSources)
 }
@@ -49,24 +50,28 @@ func (p *ClaudeMdSourcesProvider) GetNestedMemoryAttachments(
 	threadID string,
 	triggers []string,
 	baseSources []ClaudeMdSource,
-) []dto.AttachmentEnvelope {
+) ([]dto.AttachmentEnvelope, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
 	if p == nil || p.nested == nil || len(triggers) == 0 {
-		return nil
+		return nil, nil
 	}
 	attachments := make([]dto.AttachmentEnvelope, 0, len(triggers))
 	for _, target := range normalizeStringSlice(triggers) {
 		if err := ctx.Err(); err != nil {
 			break
 		}
-		attachments = p.appendNestedMemoryAttachments(attachments, ctx, buildCtx, threadID, target, baseSources)
+		next, err := p.appendNestedMemoryAttachments(attachments, ctx, buildCtx, threadID, target, baseSources)
+		if err != nil {
+			return nil, err
+		}
+		attachments = next
 	}
 	if len(attachments) == 0 {
-		return nil
+		return nil, nil
 	}
-	return attachments
+	return attachments, nil
 }
 
 func (p *ClaudeMdSourcesProvider) appendNestedMemoryAttachments(
@@ -75,44 +80,60 @@ func (p *ClaudeMdSourcesProvider) appendNestedMemoryAttachments(
 	buildCtx contract.BuildCtx,
 	threadID, target string,
 	baseSources []ClaudeMdSource,
-) []dto.AttachmentEnvelope {
-	for _, source := range resolveNestedConditionalSources(ctx, buildCtx, p.deps, target, baseSources) {
-		attachment, ok := p.resolveNestedMemoryAttachment(threadID, buildCtx, source)
+) ([]dto.AttachmentEnvelope, error) {
+	sources, err := resolveNestedConditionalSources(ctx, buildCtx, p.deps, target, baseSources)
+	if err != nil {
+		return nil, err
+	}
+	for _, source := range sources {
+		attachment, ok, err := p.resolveNestedMemoryAttachment(threadID, buildCtx, source)
+		if err != nil {
+			return nil, err
+		}
 		if !ok {
 			continue
 		}
 		attachments = append(attachments, attachment)
 	}
-	return attachments
+	return attachments, nil
 }
 
 func (p *ClaudeMdSourcesProvider) resolveNestedMemoryAttachment(
 	threadID string,
 	buildCtx contract.BuildCtx,
 	source ClaudeMdSource,
-) (dto.AttachmentEnvelope, bool) {
-	attachment, ok := nestedMemoryAttachment(source)
+) (dto.AttachmentEnvelope, bool, error) {
+	attachment, ok, err := nestedMemoryAttachment(source)
+	if err != nil {
+		return dto.AttachmentEnvelope{}, false, err
+	}
 	if !ok {
-		return dto.AttachmentEnvelope{}, false
+		return dto.AttachmentEnvelope{}, false, nil
 	}
 	if !p.nested.MarkLoaded(threadID, buildCtx, source) {
-		return dto.AttachmentEnvelope{}, false
+		return dto.AttachmentEnvelope{}, false, nil
 	}
-	return attachment, true
+	return attachment, true, nil
 }
 
 func nestedMemoryEnabled(deps Dependencies) bool {
 	return deps.NestedEnabled
 }
 
-func nestedMemoryAttachment(source ClaudeMdSource) (dto.AttachmentEnvelope, bool) {
+func nestedMemoryAttachment(source ClaudeMdSource) (dto.AttachmentEnvelope, bool, error) {
 	content := strings.TrimSpace(source.Content)
 	if content == "" {
-		return dto.AttachmentEnvelope{}, false
+		return dto.AttachmentEnvelope{}, false, nil
 	}
 	info, err := os.Stat(source.Path)
-	if err != nil || info.IsDir() {
-		return dto.AttachmentEnvelope{}, false
+	if err != nil {
+		if os.IsNotExist(err) {
+			return dto.AttachmentEnvelope{}, false, nil
+		}
+		return dto.AttachmentEnvelope{}, false, fmt.Errorf("nested memory stat %q: %w", source.Path, err)
+	}
+	if info.IsDir() {
+		return dto.AttachmentEnvelope{}, false, nil
 	}
 	updatedAt := info.ModTime().UTC()
 	attachment := contract.NormalizeAttachmentEnvelope(dto.AttachmentEnvelope{
@@ -123,7 +144,7 @@ func nestedMemoryAttachment(source ClaudeMdSource) (dto.AttachmentEnvelope, bool
 		MtimeMs:   updatedAt.UnixMilli(),
 		UpdatedAt: updatedAt.Format(time.RFC3339),
 	})
-	return attachment, contract.IsValidAttachmentEnvelope(attachment)
+	return attachment, contract.IsValidAttachmentEnvelope(attachment), nil
 }
 
 func nestedMemoryHeader(source ClaudeMdSource) string {
@@ -204,13 +225,13 @@ func resolveNestedConditionalSources(
 	deps Dependencies,
 	target string,
 	baseSources []ClaudeMdSource,
-) []ClaudeMdSource {
+) ([]ClaudeMdSource, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
 	dirs := nestedLayerDirs(buildCtx, target)
 	if len(dirs) == 0 {
-		return nil
+		return nil, nil
 	}
 	seen := make(map[string]struct{}, len(dirs)*4)
 	candidates := make([]claudeMdCandidate, 0, len(dirs)*4)
@@ -218,11 +239,16 @@ func resolveNestedConditionalSources(
 		if err := ctx.Err(); err != nil {
 			break
 		}
-		appendProjectStyleCandidates(&candidates, seen, dir, sourceTypeProject, sourceOriginProject, true)
+		if err := appendProjectStyleCandidates(&candidates, seen, dir, sourceTypeProject, sourceOriginProject, true); err != nil {
+			return nil, err
+		}
 	}
-	sources := loadClaudeMdSources(ctx, candidates)
+	sources, err := loadClaudeMdSources(ctx, candidates)
+	if err != nil {
+		return nil, err
+	}
 	sources = FilterInjectedMemoryFiles(sources, buildCtx, deps.resolveGate(buildCtx), buildCtx.ClaudeMdExcludes)
-	return filterNestedConditionalDelta(sources, target, baseSources)
+	return filterNestedConditionalDelta(sources, target, baseSources), nil
 }
 
 func nestedLayerDirs(buildCtx contract.BuildCtx, target string) []string {

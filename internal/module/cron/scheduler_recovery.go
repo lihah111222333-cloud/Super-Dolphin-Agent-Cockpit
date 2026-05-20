@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 	"time"
 
@@ -15,8 +16,8 @@ import (
 // CompleteTurn applies a terminal turn event to the cron run that is currently
 // tracking turnID. RunTick only moves a submitted turn into running; this
 // method is invoked by the BusModule terminal-event subscriber once the turn
-// actually completes or fails. Missing/non-running rows are treated as benign
-// duplicates because bus delivery can race with crash recovery or manual cleanup.
+// actually completes or fails. Missing/non-running rows are surfaced so crash
+// recovery races cannot silently drop terminal state.
 func (s *Scheduler) CompleteTurn(ctx context.Context, turnID string, success bool, terminalErr string) error {
 	turnID = strings.TrimSpace(turnID)
 	if turnID == "" {
@@ -25,9 +26,7 @@ func (s *Scheduler) CompleteTurn(ctx context.Context, turnID string, success boo
 	run, err := s.store.GetRunningRunByTurnID(ctx, turnID)
 	if err != nil {
 		if errors.Is(err, cronstore.ErrJobRunNotFound) {
-			// No running run for this turn — benign duplicate or
-			// already resolved by crash recovery.
-			return nil
+			return fmt.Errorf("cron: running run for turn %q not found: %w", turnID, err)
 		}
 		return err
 	}

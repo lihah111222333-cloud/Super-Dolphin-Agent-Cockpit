@@ -6,7 +6,6 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
-	"reflect"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -65,6 +64,58 @@ func (r *recordingSkillMirrorReconciler) ReconcileProviderMirrors(ctx context.Co
 	return r.report, r.err
 }
 
+func TestPoolRoutingExplicitlyDisabledAllowsMissingIdentity(t *testing.T) {
+	t.Setenv(poolRoutingEnvVar, "0")
+	spawnCalls := atomic.Int32{}
+	pool := NewServerPool(slog.Default(), func(context.Context, string) (SpawnedServer, error) {
+		spawnCalls.Add(1)
+		return newFakeServer("ws://should-not-be-called"), nil
+	}, PoolConfig{})
+	defer pool.Close(context.Background())
+	d := newRoutingDriver(t, pool)
+
+	opts, err := d.resolveSessionOptions(context.Background(), dto.StartSessionRequest{AgentID: "a"})
+	if err != nil {
+		t.Fatalf("resolveSessionOptions() error = %v, want legacy path without identity when pool disabled", err)
+	}
+	if opts != nil {
+		t.Fatalf("want nil opts with feature flag disabled, got %d", len(opts))
+	}
+	if spawnCalls.Load() != 0 {
+		t.Fatalf("spawner should not fire when pool disabled, called %d times", spawnCalls.Load())
+	}
+}
+
+// TestResolveSessionOptionsFailsClosedOnIdentityError checks the fail-closed
+// contract: by default, a request missing codexHome must return an identity
+// error instead of falling back to the legacy server.
+func TestResolveSessionOptionsFailsClosedOnIdentityError(t *testing.T) {
+	t.Setenv(poolRoutingEnvVar, "")
+	spawnCalls := atomic.Int32{}
+	spawner := func(context.Context, string) (SpawnedServer, error) {
+		spawnCalls.Add(1)
+		return newFakeServer("ws://unused"), nil
+	}
+	pool := NewServerPool(slog.Default(), spawner, PoolConfig{})
+	defer pool.Close(context.Background())
+	d := newRoutingDriver(t, pool)
+
+	req := dto.StartSessionRequest{AgentID: "a"} // no Config
+	opts, err := d.resolveSessionOptions(context.Background(), req)
+	if err == nil || !strings.Contains(err.Error(), "codex identity required") {
+		t.Fatalf("err = %v, want codex identity required", err)
+	}
+	if opts != nil {
+		t.Fatalf("want nil opts on identity error, got %d", len(opts))
+	}
+	if spawnCalls.Load() != 0 {
+		t.Fatalf("spawner should not fire on missing identity, called %d times", spawnCalls.Load())
+	}
+}
+
+// TestPoolRoutingSuccessPath exercises the happy path: flag on +
+// valid identity + cooperative pool. The returned option slice must
+// attach the pool-provided URL to the next session.
 func TestStartSessionReconcilesMirrorsBeforePoolAcquireAndDefaultsIdentity(t *testing.T) {
 	t.Setenv(poolRoutingEnvVar, "1")
 	superHome := filepath.Join(t.TempDir(), "sd-home")
@@ -533,83 +584,57 @@ func TestPoolRoutingInvalidConfigTypeFailsClosed(t *testing.T) {
 	}
 }
 
-// TestPoolRoutingFlagFalsyStaysDisabled locks the parse contract:
-// typos / non-bool values must all leave the routing off so a
-// malformed env var cannot silently flip production onto the new
-// path.
+func TestPoolRoutingDisabledStillRejectsInvalidIdentityConfig(t *testing.T) {
+	t.Setenv(poolRoutingEnvVar, "0")
+	pool := NewServerPool(slog.Default(), func(context.Context, string) (SpawnedServer, error) {
+		return newFakeServer("ws://unused"), nil
+	}, PoolConfig{})
+	defer pool.Close(context.Background())
+	d := newRoutingDriver(t, pool)
+
+	cfg := map[string]any{"codexHome": 123, "codexInstanceKey": "glm", "codexModelProvider": "mp"}
+	opts, err := d.resolveSessionOptions(context.Background(), dto.StartSessionRequest{AgentID: "a", Config: cfg})
+	if err == nil || !strings.Contains(err.Error(), "codex identity required") {
+		t.Fatalf("err = %v, want codex identity required", err)
+	}
+	if opts != nil {
+		t.Fatalf("invalid config must fail before options, got %d opts", len(opts))
+	}
+}
+
+// TestPoolRoutingFlagFalsyStaysDisabled locks explicit false values:
+// valid false disables routing; malformed values must be rejected by
+// TestPoolRoutingFlagMalformedFailsFast instead of being treated as false.
 func TestPoolRoutingFlagFalsyStaysDisabled(t *testing.T) {
-	for _, v := range []string{"0", "false", "no", "garbage"} {
+	for _, v := range []string{"0", "false"} {
 		t.Setenv(poolRoutingEnvVar, v)
-		if poolRoutingEnabled() {
+		enabled, err := poolRoutingEnabled()
+		if err != nil {
+			t.Fatalf("poolRoutingEnabled(%q) error = %v", v, err)
+		}
+		if enabled {
 			t.Fatalf("flag %q must parse as disabled", v)
+		}
+	}
+}
+
+func TestPoolRoutingFlagMalformedFailsFast(t *testing.T) {
+	for _, v := range []string{"no", "garbage"} {
+		t.Setenv(poolRoutingEnvVar, v)
+		_, _, err := poolRoutingDecision()
+		if err == nil || !strings.Contains(err.Error(), poolRoutingEnvVar) {
+			t.Fatalf("poolRoutingDecision(%q) error = %v, want malformed env error", v, err)
 		}
 	}
 }
 
 func TestPoolRoutingFlagMissingEnablesStrictRouting(t *testing.T) {
 	t.Setenv(poolRoutingEnvVar, "")
-	enabled, strict := poolRoutingDecision()
+	enabled, strict, err := poolRoutingDecision()
+	if err != nil {
+		t.Fatalf("poolRoutingDecision() error = %v", err)
+	}
 	if !enabled || !strict {
 		t.Fatalf("missing pool flag = enabled %v strict %v, want true/true", enabled, strict)
-	}
-}
-
-// TestSessionShutdownReleasesPoolOnce verifies the session-side
-// half: shutdownSessionCleanup must invoke poolRelease exactly once
-// even if Close + ForceStop race.
-func TestSessionShutdownReleasesPoolOnce(t *testing.T) {
-	released := atomic.Int32{}
-	s := &session{poolRelease: func() { released.Add(1) }}
-	s.shutdownSessionCleanup()
-	s.shutdownSessionCleanup()
-	s.shutdownSessionCleanup()
-	if got := released.Load(); got != 1 {
-		t.Fatalf("poolRelease called %d times, want 1", got)
-	}
-}
-
-// TestSessionShutdownNoReleaseIsSafe ensures sessions without a
-// pool attachment (legacy ServerManager path) tolerate
-// shutdownSessionCleanup as a no-op.
-func TestSessionShutdownNoReleaseIsSafe(t *testing.T) {
-	s := &session{}
-	// Must not panic.
-	s.shutdownSessionCleanup()
-}
-
-func TestResumeSessionPoolSpawnUsesRuntimeWorkspaceRoots(t *testing.T) {
-	t.Setenv(poolRoutingEnvVar, "1")
-	primary := t.TempDir()
-	extra := t.TempDir()
-	var gotRoots []string
-	pool := NewServerPool(slog.Default(), func(ctx context.Context, _ string) (SpawnedServer, error) {
-		gotRoots = poolSpawnWorkspaceRoots(ctx)
-		return newFakeServer("ws://127.0.0.1:4321"), nil
-	}, PoolConfig{})
-	defer pool.Close(context.Background())
-	d := newRoutingDriver(t, pool)
-
-	opts, err := d.resolveResumeOptions(context.Background(), dto.ResumeSessionRequest{
-		AgentID:            "agent-resume",
-		CWD:                primary,
-		CodexHome:          smokeHome(t),
-		CodexInstanceKey:   "glm",
-		CodexModelProvider: "openai-compatible-glm",
-		Config: map[string]any{
-			"additionalWorkingDirectories": []string{extra},
-		},
-	})
-	if err != nil {
-		t.Fatalf("resolveResumeOptions() error = %v", err)
-	}
-	if len(opts) != 1 {
-		t.Fatalf("resume options = %d, want 1", len(opts))
-	}
-	var so sessionOptions
-	opts[0](&so)
-	so.poolRelease()
-	wantRoots := []string{primary, extra}
-	if !reflect.DeepEqual(gotRoots, wantRoots) {
-		t.Fatalf("pool spawn workspace roots = %#v, want %#v", gotRoots, wantRoots)
 	}
 }

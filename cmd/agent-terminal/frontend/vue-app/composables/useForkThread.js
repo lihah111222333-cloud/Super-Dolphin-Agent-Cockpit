@@ -12,6 +12,7 @@ import {
   buildSeedInstructionsFromSummary,
   extractTimelineSummary,
 } from './useSummaryHandoff.js';
+import { resolveProjectActionCwd } from './useThreadActions.js';
 
 // Phase 4-fork-kickoff：fork 出新对话后让 agent 自动开场。详见 useForkThread.submit。
 // 文案 B：明确指示 agent 基于 system 里塞的摘要总结进展并提建议；
@@ -108,24 +109,18 @@ export function useForkThread(ctx) {
   async function loadSharedFiles(paths) {
     const list = Array.isArray(paths) ? paths.filter(Boolean) : [];
     if (list.length === 0) return [];
-    const settled = await Promise.allSettled(
-      list.map((path) => callAPI('ui/memory/shared-file/get', { path })),
+    return Promise.all(
+      list.map(async (path) => {
+        const detail = await callAPI('ui/memory/shared-file/get', { path });
+        if (!detail || typeof detail !== 'object') {
+          throw new Error(`shared file ${path} returned empty response`);
+        }
+        return {
+          path: (detail.path || path || '').toString(),
+          content: (detail.content || '').toString(),
+        };
+      }),
     );
-    const collected = [];
-    settled.forEach((result, idx) => {
-      if (result.status === 'fulfilled' && result.value && typeof result.value === 'object') {
-        collected.push({
-          path: (result.value.path || list[idx] || '').toString(),
-          content: (result.value.content || '').toString(),
-        });
-      } else {
-        logWarn('ui', 'forkThread.shared_file.load_failed', {
-          path: list[idx],
-          error: result.status === 'rejected' ? toErrorMessage(result.reason) : 'empty_response',
-        });
-      }
-    });
-    return collected;
   }
 
   function buildSummaryFromCurrentThread() {
@@ -169,7 +164,7 @@ export function useForkThread(ctx) {
         sharedFiles,
       });
 
-      const cwd = (ctx.projectStore?.state?.active || '.').toString();
+      const cwd = resolveProjectActionCwd(ctx.projectStore, ctx.windowCwd);
       const focusMode = ctx.isCmd?.value ? 'cmd' : 'chat';
 
       logInfo('ui', 'forkThread.start', {
@@ -202,7 +197,7 @@ export function useForkThread(ctx) {
         source_thread_id: sourceThreadId,
         error: error.value,
       });
-      return '';
+      throw err;
     } finally {
       submitting.value = false;
     }

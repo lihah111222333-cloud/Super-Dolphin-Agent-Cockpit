@@ -260,7 +260,7 @@ func findFirstLevelGoModRoots(root string) ([]string, error) {
 	entries, err := os.ReadDir(root)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return nil, nil
+			return nil, fmt.Errorf("go root %q missing: %w", root, err)
 		}
 		return nil, err
 	}

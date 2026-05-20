@@ -75,6 +75,7 @@ func TestServiceEnsureRootUsesAutoMemPathOverride(t *testing.T) {
 
 func TestServiceRunConsolidationWithoutHooks(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "memory-root")
+	writeMemoryIndexFixture(t, root)
 	consolidator := newAutoDreamConsolidator(NewMemoryExtractor(), func(context.Context, string) (string, error) {
 		return "", nil
 	})

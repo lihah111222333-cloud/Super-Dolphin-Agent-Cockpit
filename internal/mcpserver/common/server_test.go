@@ -87,6 +87,31 @@ func TestToolsCallReturnsStructuredToolError(t *testing.T) {
 	}
 }
 
+func TestToolErrorClassifiesMissingAstGrepDependency(t *testing.T) {
+	envelope := NewToolErrorEnvelope("grep", errors.New("sg not found in PATH"))
+
+	if envelope.Code != "dependency_missing" {
+		t.Fatalf("envelope code = %q, want dependency_missing", envelope.Code)
+	}
+	if !strings.Contains(envelope.Hint, "sg") || !strings.Contains(strings.ToLower(envelope.Hint), "path") {
+		t.Fatalf("envelope hint = %q, want sg/PATH install guidance", envelope.Hint)
+	}
+	if envelope.Meta["tool"] != "grep" {
+		t.Fatalf("envelope meta tool = %v, want grep", envelope.Meta["tool"])
+	}
+}
+
+func TestToolErrorClassifiesRegularFileNotFound(t *testing.T) {
+	envelope := NewToolErrorEnvelope("file", errors.New("open foo: no such file or directory"))
+
+	if envelope.Code != "file_not_found" {
+		t.Fatalf("envelope code = %q, want file_not_found", envelope.Code)
+	}
+	if !strings.Contains(envelope.Hint, "file_path") {
+		t.Fatalf("envelope hint = %q, want file_path guidance", envelope.Hint)
+	}
+}
+
 func TestToolsCallErrorEnvelopeSetsMCPIsError(t *testing.T) {
 	input := bytes.NewBufferString(`{"jsonrpc":"2.0","id":24,"method":"tools/call","params":{"name":"file","arguments":{}}}`)
 	var output bytes.Buffer

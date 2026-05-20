@@ -90,7 +90,11 @@ func main() {
 		}
 	}
 
-	idx, readmeCodemaps := buildIndex(root, codemapDir, generatedAt)
+	idx, readmeCodemaps, err := buildIndex(root, codemapDir, generatedAt)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "build index: %v\n", err)
+		os.Exit(1)
+	}
 	data, err := json.Marshal(idx)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "marshal: %v\n", err)
@@ -117,11 +121,17 @@ func main() {
 		len(idx.Files), countRefs(idx.Files), len(idx.SectionIndex), len(idx.Codemaps))
 }
 
-func buildIndex(root, codemapDir, generatedAt string) (Index, []codemapindex.ReadmeCodemap) {
-	mds := loadCodemaps(codemapDir)
+func buildIndex(root, codemapDir, generatedAt string) (Index, []codemapindex.ReadmeCodemap, error) {
+	mds, err := loadCodemaps(codemapDir)
+	if err != nil {
+		return Index{}, nil, err
+	}
 
 	// Build raw refs (still using section title strings).
-	rawFilesIndex := buildRawFilesIndex(root, mds)
+	rawFilesIndex, err := buildRawFilesIndex(root, mds)
+	if err != nil {
+		return Index{}, nil, err
+	}
 
 	// Convert rawRefs to compact Refs with section IDs.
 	filesIndex, secIndex := buildCompactFilesIndex(rawFilesIndex)
@@ -137,7 +147,7 @@ func buildIndex(root, codemapDir, generatedAt string) (Index, []codemapindex.Rea
 		Codemaps:     codemaps,
 		Files:        filesIndex,
 	}
-	return idx, readmeCodemaps
+	return idx, readmeCodemaps, nil
 }
 
 func checkGeneratedFiles(indexPath string, indexData []byte, readmePath string, readmeCodemaps []codemapindex.ReadmeCodemap, generatedAt string) {
@@ -211,8 +221,11 @@ func countRefs(files map[string]*FileEntry) int {
 	return totalRefs
 }
 
-func loadCodemaps(codemapDir string) []parsedMD {
-	mdFiles := scanMDFiles(codemapDir)
+func loadCodemaps(codemapDir string) ([]parsedMD, error) {
+	mdFiles, err := scanMDFiles(codemapDir)
+	if err != nil {
+		return nil, fmt.Errorf("scan codemap markdown: %w", err)
+	}
 	sort.Strings(mdFiles)
 	numRe := regexp.MustCompile(`^\d{2}-`)
 	var mds []parsedMD
@@ -221,7 +234,10 @@ func loadCodemaps(codemapDir string) []parsedMD {
 		if !numRe.MatchString(base) {
 			continue
 		}
-		lines := readLines(path)
+		lines, err := readLines(path)
+		if err != nil {
+			return nil, fmt.Errorf("read codemap markdown %s: %w", path, err)
+		}
 		if len(lines) == 0 {
 			continue
 		}
@@ -230,11 +246,14 @@ func loadCodemaps(codemapDir string) []parsedMD {
 			lines: lines, sections: parseSections(lines),
 		})
 	}
-	return mds
+	return mds, nil
 }
 
-func buildRawFilesIndex(root string, mds []parsedMD) map[string][]rawRef {
-	srcFiles := codemapindex.ScanSourceFiles(root)
+func buildRawFilesIndex(root string, mds []parsedMD) (map[string][]rawRef, error) {
+	srcFiles, err := codemapindex.ScanSourceFiles(root)
+	if err != nil {
+		return nil, fmt.Errorf("scan source files: %w", err)
+	}
 	sort.Strings(srcFiles)
 	filesIndex := make(map[string][]rawRef, len(srcFiles))
 	for _, src := range srcFiles {
@@ -261,7 +280,7 @@ func buildRawFilesIndex(root string, mds []parsedMD) map[string][]rawRef {
 		}
 		filesIndex[src] = refs
 	}
-	return filesIndex
+	return filesIndex, nil
 }
 
 func buildCompactFilesIndex(rawFilesIndex map[string][]rawRef) (map[string]*FileEntry, []string) {
@@ -316,22 +335,28 @@ func buildOutputCodemaps(mds []parsedMD) ([]Codemap, []codemapindex.ReadmeCodema
 	return codemaps, readmeCodemaps
 }
 
-func scanMDFiles(dir string) (r []string) {
-	filepath.Walk(dir, func(p string, i os.FileInfo, e error) error {
-		if e == nil && !i.IsDir() && strings.HasSuffix(p, ".md") {
+func scanMDFiles(dir string) ([]string, error) {
+	var r []string
+	if err := filepath.Walk(dir, func(p string, i os.FileInfo, e error) error {
+		if e != nil {
+			return e
+		}
+		if !i.IsDir() && strings.HasSuffix(p, ".md") {
 			r = append(r, p)
 		}
 		return nil
-	})
-	return
+	}); err != nil {
+		return nil, err
+	}
+	return r, nil
 }
 
-func readLines(p string) []string {
+func readLines(p string) ([]string, error) {
 	d, err := os.ReadFile(p)
 	if err != nil {
-		return nil
+		return nil, err
 	}
-	return strings.Split(string(d), "\n")
+	return strings.Split(string(d), "\n"), nil
 }
 
 func extractTitle(lines []string) string {

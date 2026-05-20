@@ -189,7 +189,7 @@ func (s *session) publishToolCallEnd(call preparedToolCall, result any, callErr 
 	}
 	header := call.header
 	header.Timestamp = time.Now()
-	success := toolCallEndSuccess(result, callErr)
+	success, errorText := toolCallEndOutcome(result, callErr)
 	ev := tooldto.ToolCallEnd{
 		ToolCallHeader: header,
 		Success:        success,
@@ -197,9 +197,77 @@ func (s *session) publishToolCallEnd(call preparedToolCall, result any, callErr 
 		ElapsedMS:      time.Since(call.started).Milliseconds(),
 	}
 	if !success {
-		ev.Error = toolCallEndError(result, callErr)
+		ev.Error = errorText
 	}
 	s.dispatcher.Publish(ev)
+}
+
+type toolCallResultEnvelope struct {
+	Success      *bool  `json:"success"`
+	IsError      *bool  `json:"isError"`
+	Error        string `json:"error"`
+	Message      string `json:"message"`
+	Reason       string `json:"reason"`
+	ContentItems []struct {
+		Text string `json:"text"`
+	} `json:"contentItems"`
+	Content []struct {
+		Text string `json:"text"`
+	} `json:"content"`
+}
+
+func toolCallEndOutcome(result any, callErr error) (bool, string) {
+	if callErr != nil {
+		return false, callErr.Error()
+	}
+	envelope, ok, err := decodeToolCallResultEnvelope(result)
+	if err != nil {
+		return false, err.Error()
+	}
+	if !ok || !envelope.explicitFailure() {
+		return true, ""
+	}
+	return false, envelope.failureText(result)
+}
+
+func decodeToolCallResultEnvelope(result any) (toolCallResultEnvelope, bool, error) {
+	if result == nil {
+		return toolCallResultEnvelope{}, false, nil
+	}
+	raw, err := json.Marshal(result)
+	if err != nil {
+		return toolCallResultEnvelope{}, false, fmt.Errorf("decode tool result envelope: marshal: %w", err)
+	}
+	trimmed := bytes.TrimSpace(raw)
+	if len(trimmed) == 0 || string(trimmed) == "null" {
+		return toolCallResultEnvelope{}, false, nil
+	}
+	var envelope toolCallResultEnvelope
+	if err := json.Unmarshal(trimmed, &envelope); err != nil {
+		return toolCallResultEnvelope{}, false, fmt.Errorf("decode tool result envelope: unmarshal: %w", err)
+	}
+	return envelope, true, nil
+}
+
+func (e toolCallResultEnvelope) explicitFailure() bool {
+	return (e.Success != nil && !*e.Success) || (e.IsError != nil && *e.IsError)
+}
+
+func (e toolCallResultEnvelope) failureText(result any) string {
+	if text := firstNonEmptyToolString(e.Error, e.Message, e.Reason); text != "" {
+		return text
+	}
+	for _, item := range e.ContentItems {
+		if text := strings.TrimSpace(item.Text); text != "" {
+			return text
+		}
+	}
+	for _, item := range e.Content {
+		if text := strings.TrimSpace(item.Text); text != "" {
+			return text
+		}
+	}
+	return previewAny(result)
 }
 
 func (s *session) activeTurnSnapshot() string {
@@ -378,54 +446,4 @@ func previewAny(value any) string {
 		return fmt.Sprint(value)
 	}
 	return string(raw)
-}
-
-func toolCallEndSuccess(result any, callErr error) bool {
-	if callErr != nil {
-		return false
-	}
-	if success, ok := explicitToolResultSuccess(result); ok {
-		return success
-	}
-	return true
-}
-
-func explicitToolResultSuccess(result any) (bool, bool) {
-	if result == nil {
-		return false, false
-	}
-	raw, err := json.Marshal(result)
-	if err != nil {
-		return false, false
-	}
-	var marker struct {
-		Success *bool `json:"success"`
-	}
-	if err := json.Unmarshal(raw, &marker); err != nil || marker.Success == nil {
-		return false, false
-	}
-	return *marker.Success, true
-}
-
-func toolCallEndError(result any, callErr error) string {
-	if callErr != nil {
-		return callErr.Error()
-	}
-	raw, err := json.Marshal(result)
-	if err != nil {
-		return ""
-	}
-	var marker struct {
-		Error   string `json:"error"`
-		Message string `json:"message"`
-	}
-	if err := json.Unmarshal(raw, &marker); err == nil {
-		if text := strings.TrimSpace(marker.Error); text != "" {
-			return text
-		}
-		if text := strings.TrimSpace(marker.Message); text != "" {
-			return text
-		}
-	}
-	return ""
 }

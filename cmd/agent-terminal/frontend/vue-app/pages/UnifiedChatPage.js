@@ -28,7 +28,7 @@ import { useThreadStatus } from '../composables/useThreadStatus.js';
 import { useThreadCards } from '../composables/useThreadCards.js';
 import { useThreadSelection } from '../composables/useThreadSelection.js';
 import { useInlineRename } from '../composables/useInlineRename.js';
-import { useThreadActions, resolveProjectActionCwd } from '../composables/useThreadActions.js';
+import { useThreadActions, resolveProjectActionCwd, resolveProjectViewCwd } from '../composables/useThreadActions.js';
 import { useKeyboardShortcuts } from '../composables/useKeyboardShortcuts.js';
 import { useFileRefPreview } from '../composables/useFileRefPreview.js';
 import { useCopyThreadInfo } from '../composables/useCopyThreadInfo.js';
@@ -187,15 +187,11 @@ function createPageFileRefPreview(props, ctx) {
 }
 
 async function fetchSharedFilesForFork(props) {
-  const cwdRaw = (props.projectStore?.state?.active || '').toString().trim();
-  const params = (cwdRaw && cwdRaw !== '.') ? { page: 'memory', cwd: cwdRaw } : { page: 'memory' };
-  try {
-    const res = await callAPI('ui/dashboard/get', params);
-    return Array.isArray(res?.memory) ? res.memory : [];
-  } catch (err) {
-    logWarn('ui', 'forkDraft.shared_files.refresh_failed', { error: (err && err.message) || String(err) });
-    return [];
-  }
+  const cwd = resolveProjectActionCwd(props.projectStore, props.windowCwd);
+  const params = { page: 'memory', cwd };
+  const res = await callAPI('ui/dashboard/get', params);
+  if (!Array.isArray(res?.memory)) throw new Error('fork shared files response memory must be an array');
+  return res.memory;
 }
 
 function createPageForkThread(props, ctx) {
@@ -206,14 +202,22 @@ function createPageForkThread(props, ctx) {
     selectedThreadId: ctx.selectedThreadId,
     activeThread: ctx.activeThread,
     isCmd: ctx.isCmd,
+    windowCwd: props.windowCwd,
   });
   // 卡片打开时拉一次共享文件列表，供内联选择器使用。
   // 初始为 null 表示“未拉过”，拉后是数组（可为空）；这让卡片能区分 加载中 / 空库。
   const availableSharedFiles = ref(null);
+  const availableSharedFilesError = ref('');
   watch(() => ctx.composer?.forkDraft?.active, async (active) => {
     if (!active) return;
+    availableSharedFilesError.value = '';
     availableSharedFiles.value = null; // 重置为 loading，保证重复打开也有 loading 闪一下
-    availableSharedFiles.value = await fetchSharedFilesForFork(props);
+    try {
+      availableSharedFiles.value = await fetchSharedFilesForFork(props);
+    } catch (error) {
+      availableSharedFilesError.value = (error?.message || String(error) || '加载共享文件失败').toString();
+      logWarn('ui', 'forkDraft.shared_files.refresh_failed', { error: availableSharedFilesError.value });
+    }
   });
   const forkSourceThreadName = computed(() => {
     const t = ctx.activeThread.value;
@@ -229,7 +233,9 @@ function createPageForkThread(props, ctx) {
           props.threadStore.saveActiveCmdThread(newId);
         }
       }
-    } catch (_e) { /* error 已在 forkThread.error 上报 */ }
+    } catch (error) {
+      throw error;
+    }
   }
   function openForkDraftFromUI(origin) {
     if (!ctx.selectedThreadId.value) return;
@@ -250,7 +256,7 @@ function createPageForkThread(props, ctx) {
   );
   return {
     submitting: forkThread.submitting,
-    error: forkThread.error,
+    error: computed(() => availableSharedFilesError.value || forkThread.error.value),
     // review M1 收尾：暴露 kickoffError 给将来的 banner/toast 消费——草稿已关时
     // 错误显示在新 thread 的 UI 上更合理；当前还没接 banner 系统，先留口子。
     kickoffError: forkThread.kickoffError,
@@ -325,7 +331,10 @@ function createPageThreadWatchdog(props, threadStore, selectedThreadId, persiste
     try {
       await threadStore.sendMessage(id, '继续', [], {});
       wd.stuckByThread.value.delete(id);
-    } catch (_) { /* swallow */ }
+    } catch (error) {
+      logWarn('ui', 'watchdog.stuck.retry.failed', { thread_id: id, error });
+      throw error;
+    }
     finally { pokingStuckThread.value = false; }
   }
   async function onForceStuckThread() {
@@ -405,6 +414,7 @@ function createPageTaskHandoff(props, ctx) {
     activeThread: ctx.activeThread,
     activeRuntime: ctx.activeRuntime,
     isCmd: ctx.isCmd,
+    windowCwd: props.windowCwd,
   });
 }
 
@@ -427,15 +437,11 @@ function createPagePromoteTask(props, threadStore, selectedThreadId, threadWatch
   async function onPromoteTaskRequested() {
     const tid = (selectedThreadId.value || '').toString().trim();
     if (!tid) return;
-    try {
-      const result = await promote.promoteTaskFromThread(tid);
-      // 成功后 banner 卡住状态可以直接清掉：升级以后 watchdog 转 task 路径，
-      // banner 提示也就不再适用。失败则保留状态让用户重试。
-      if (result && threadWatchdog && threadWatchdog.stuckByThread && threadWatchdog.stuckByThread.value) {
-        threadWatchdog.stuckByThread.value.delete(tid);
-      }
-    } catch (_) {
-      // composable 已 logWarn；UI 反馈交给 lastError prop 让用户感知。
+    const result = await promote.promoteTaskFromThread(tid);
+    // 成功后 banner 卡住状态可以直接清掉：升级以后 watchdog 转 task 路径，
+    // banner 提示也就不再适用。失败则保留状态让用户重试。
+    if (result && threadWatchdog && threadWatchdog.stuckByThread && threadWatchdog.stuckByThread.value) {
+      threadWatchdog.stuckByThread.value.delete(tid);
     }
   }
 
@@ -593,7 +599,7 @@ export const UnifiedChatPage = {
 
     const threads = computed(() => props.threadStore.getThreadsByMode(
       modeKey.value,
-      resolveProjectActionCwd(props.projectStore, props.windowCwd),
+      resolveProjectViewCwd(props.projectStore, props.windowCwd),
     ));
     const selectedThreadId = computed({
       get: () => resolveVisibleSelectedThreadId(props.threadStore, modeKey.value, threads.value),
@@ -617,7 +623,7 @@ export const UnifiedChatPage = {
     const activeStatus = computed(() => normalizeStatus(props.threadStore.getThreadStatus(selectedThreadId.value)));
     const threadStatus = useThreadStatus(props, selectedThreadId, activeStatus, pathChoiceController.showPathChoiceModal);
     const activeThread = computed(() => threads.value.find((/** @type {any} */ item) => item.id === selectedThreadId.value) || null);
-    const activeProjectCwd = computed(() => resolveProjectActionCwd(props.projectStore, props.windowCwd));
+    const activeProjectCwd = computed(() => resolveProjectViewCwd(props.projectStore, props.windowCwd));
     const chatThreadOptions = computed(() => {
       if (isCmd.value) return [];
       return threads.value;

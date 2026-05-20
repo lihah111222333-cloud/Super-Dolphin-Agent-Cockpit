@@ -84,7 +84,6 @@ type lspCacheStore struct {
 
 	persistent      bool
 	persistentReady bool
-	fallbackWarned  bool
 }
 
 type lspCacheDiskState struct {
@@ -107,13 +106,12 @@ func newLSPCacheStore(cfg lspCacheConfig) (*lspCacheStore, error) {
 		cfg.TTL = defaultLSPCacheTTL
 	}
 	store := &lspCacheStore{
-		config:         cfg,
-		now:            time.Now,
-		memory:         map[string]lspCacheValue{},
-		index:          map[lspDocumentIndexKey]lspDocumentIndexValue{},
-		tombstones:     map[string]time.Time{},
-		persistent:     cfg.Persistent,
-		fallbackWarned: false,
+		config:     cfg,
+		now:        time.Now,
+		memory:     map[string]lspCacheValue{},
+		index:      map[lspDocumentIndexKey]lspDocumentIndexValue{},
+		tombstones: map[string]time.Time{},
+		persistent: cfg.Persistent,
 	}
 	if store.persistent {
 		if err := store.ensurePersistentReady(); err != nil {
@@ -388,7 +386,7 @@ func (s *lspCacheStore) loadPersistent() error {
 		return err
 	}
 	if s.loadPersistentDiskStateLocked(disk) {
-		_ = s.persistLocked()
+		return s.persistLocked()
 	}
 	return nil
 }
@@ -403,8 +401,6 @@ func (s *lspCacheStore) readPersistentDiskStateLocked() (lspCacheDiskState, erro
 	}
 	var disk lspCacheDiskState
 	if err := json.Unmarshal(payload, &disk); err != nil {
-		s.memory = map[string]lspCacheValue{}
-		s.tombstones = map[string]time.Time{}
 		return lspCacheDiskState{}, err
 	}
 	return disk, nil
@@ -522,17 +518,6 @@ func (s *lspCacheStore) quarantinePersistentLocked() error {
 	}
 	quarantine := path + ".corrupt-" + strconv.FormatInt(time.Now().UnixNano(), 10)
 	return os.Rename(path, quarantine)
-}
-
-func (s *lspCacheStore) fallbackToMemory(err error) {
-	s.persistent = false
-	s.persistentReady = false
-	if s.fallbackWarned || s.config.Logger == nil {
-		s.fallbackWarned = true
-		return
-	}
-	s.fallbackWarned = true
-	s.config.Logger.Warn("LSP cache fell back to memory", "err", err)
 }
 
 func (s *lspCacheStore) expired(value lspCacheValue, now time.Time) bool {

@@ -347,7 +347,10 @@ func (s *service) DeleteLocal(ctx context.Context, p DeleteSkillParams) (any, er
 
 func (s *service) deletePersonalLocal(ctx context.Context, name, dir, scope, personalType string) (any, error) {
 	archiveDir := s.personalSkillArchiveDir(scope, personalType, name)
-	canonicalHash := skillDirContentHash(dir)
+	canonicalHash, err := skillDirContentHash(dir)
+	if err != nil {
+		return nil, err
+	}
 	now := time.Now().UTC()
 	record, err := s.personalDeleteArchiveRecord(name, scope, personalType, archiveDir, canonicalHash, now)
 	if err != nil {

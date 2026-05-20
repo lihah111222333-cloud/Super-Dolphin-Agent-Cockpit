@@ -103,7 +103,7 @@ func imageBlockFromURL(rawURL string) (map[string]any, error) {
 	}
 	parsed, err := url.Parse(rawURL)
 	if err != nil {
-		return nil, nil // not an image we can use; fall back
+		return nil, err
 	}
 	switch strings.ToLower(parsed.Scheme) {
 	case "http", "https":

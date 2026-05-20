@@ -193,7 +193,7 @@ func TestAgentExecutor_Execute_InvalidConfig_BadJSON(t *testing.T) {
 	}
 	out, err := exec.Execute(context.Background(), node, RunContext{})
 	if err != nil {
-		t.Fatalf("Execute() framework error = %v, want nil (failure should be NodeOutcome)", err)
+		t.Fatalf("Execute() framework error = %v, want classified validation outcome", err)
 	}
 	if out.Status != NodeStatusFailed {
 		t.Fatalf("Status = %q, want %q", out.Status, NodeStatusFailed)
@@ -218,7 +218,7 @@ func TestAgentExecutor_Execute_InvalidConfig_MissingAgentKey(t *testing.T) {
 
 	out, err := exec.Execute(context.Background(), node, RunContext{})
 	if err != nil {
-		t.Fatalf("Execute() framework error = %v, want nil", err)
+		t.Fatalf("Execute() framework error = %v, want classified validation outcome", err)
 	}
 	if out.Status != NodeStatusFailed {
 		t.Fatalf("Status = %q, want %q", out.Status, NodeStatusFailed)
@@ -246,7 +246,7 @@ func TestAgentExecutor_Execute_InvalidProvider(t *testing.T) {
 
 	out, err := exec.Execute(context.Background(), node, RunContext{})
 	if err != nil {
-		t.Fatalf("Execute() framework error = %v, want nil", err)
+		t.Fatalf("Execute() framework error = %v, want classified provider validation outcome", err)
 	}
 	if out.Status != NodeStatusFailed {
 		t.Fatalf("Status = %q, want %q", out.Status, NodeStatusFailed)
@@ -360,7 +360,7 @@ func TestAgentExecutor_Execute_NilNodeConfig(t *testing.T) {
 	node := Node{NodeType: "agent", Config: nil}
 	out, err := exec.Execute(context.Background(), node, RunContext{})
 	if err != nil {
-		t.Fatalf("Execute() framework error = %v, want nil", err)
+		t.Fatalf("Execute() framework error = %v, want classified validation outcome", err)
 	}
 	if out.Status != NodeStatusFailed {
 		t.Fatalf("Status = %q, want %q", out.Status, NodeStatusFailed)
@@ -527,10 +527,10 @@ func TestAgentExecutorExecuteSpawnNilRecorderSkipsWriteback(t *testing.T) {
 	}
 }
 
-// TestAgentExecutorExecuteSpawnEmptyThreadIDSkipsWriteback 验证 launcher
-// 返回 threadID="" 时（如 service.LaunchAgentSnapshot 失败微妙路径）跳过
-// 写回，避免错误覆盖之前的 thread id（fail-fast 语义）。
-func TestAgentExecutorExecuteSpawnEmptyThreadIDSkipsWriteback(t *testing.T) {
+// TestAgentExecutorExecuteSpawnEmptyThreadIDIsHardFailure 验证 launcher
+// 返回 threadID="" 时不能当作成功：没有可持久化的 spawning_thread_id，下游
+// ready→running 写入失败后的 retry 会重复 launch child。
+func TestAgentExecutorExecuteSpawnEmptyThreadIDIsHardFailure(t *testing.T) {
 	t.Parallel()
 	launcher := &stubAgentLauncher{threadID: ""} // launch 成功但拿不到 thread_id
 	recorder := &stubNodeSpawnRecorder{}
@@ -545,18 +545,54 @@ func TestAgentExecutorExecuteSpawnEmptyThreadIDSkipsWriteback(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Execute() error = %v", err)
 	}
-	if out.Status != NodeStatusDone {
-		t.Fatalf("Status = %q, want %q", out.Status, NodeStatusDone)
+	if out.Status != NodeStatusFailed {
+		t.Fatalf("Status = %q, want %q", out.Status, NodeStatusFailed)
+	}
+	if out.FailureClass != FailureClassHard {
+		t.Fatalf("FailureClass = %q, want %q", out.FailureClass, FailureClassHard)
+	}
+	if !strings.Contains(out.ErrorSummary, "spawning_thread_id write-back skipped") {
+		t.Fatalf("ErrorSummary = %q, want skipped write-back context", out.ErrorSummary)
 	}
 	if recorder.called != 0 {
 		t.Fatalf("RecordNodeSpawn called %d times, want 0 when threadID empty", recorder.called)
 	}
 }
 
-// TestAgentExecutor_Execute_Spawn_RecorderErrorIsSoft 验证 recorder 写回失败仅
-// 写进 NodeOutcome.ErrorSummary，不把 launch 翻成 failed（launch 已成功，
-// spawn 历史是辅助审计——详 executor_agent.go 注释）。
-func TestAgentExecutor_Execute_Spawn_RecorderErrorIsSoft(t *testing.T) {
+func TestAgentExecutorExecuteSpawnMissingKeysIsHardFailure(t *testing.T) {
+	t.Parallel()
+	launcher := &stubAgentLauncher{threadID: "thread-launched"}
+	recorder := &stubNodeSpawnRecorder{}
+	exec := NewAgentExecutor(launcher, WithRecorder(recorder))
+
+	cfg := AgentNodeConfig{Exec: AgentExecConfig{AgentKey: "implementer"}}
+	node := makeAgentNode(t, cfg)
+	node.DagKey = ""
+	node.NodeKey = ""
+
+	out, err := exec.Execute(context.Background(), node, RunContext{})
+	if err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	if out.Status != NodeStatusFailed {
+		t.Fatalf("Status = %q, want %q", out.Status, NodeStatusFailed)
+	}
+	if out.FailureClass != FailureClassHard {
+		t.Fatalf("FailureClass = %q, want %q", out.FailureClass, FailureClassHard)
+	}
+	if !strings.Contains(out.ErrorSummary, "spawning_thread_id write-back skipped") {
+		t.Fatalf("ErrorSummary = %q, want skipped write-back context", out.ErrorSummary)
+	}
+	if recorder.called != 0 {
+		t.Fatalf("RecordNodeSpawn called %d times, want 0 without keys", recorder.called)
+	}
+}
+
+// TestAgentExecutor_Execute_Spawn_RecorderErrorIsHardFailure 验证 recorder
+// 写回失败不会被当成软成功。child 已经启动但 spawning_thread_id 不可持久化时，
+// 下游 subscriber 无法可靠反查节点；必须 fail-fast，避免 dispatcher 重试时再
+// 启动第二个 child。
+func TestAgentExecutor_Execute_Spawn_RecorderErrorIsHardFailure(t *testing.T) {
 	t.Parallel()
 	launcher := &stubAgentLauncher{threadID: "thread-err"}
 	recorder := &stubNodeSpawnRecorder{err: errors.New("db connection refused")}
@@ -571,12 +607,11 @@ func TestAgentExecutor_Execute_Spawn_RecorderErrorIsSoft(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Execute() error = %v", err)
 	}
-	if out.Status != NodeStatusDone {
-		t.Fatalf("Status = %q, want %q (recorder error must NOT demote launch)",
-			out.Status, NodeStatusDone)
+	if out.Status != NodeStatusFailed {
+		t.Fatalf("Status = %q, want %q", out.Status, NodeStatusFailed)
 	}
-	if out.FailureClass != "" {
-		t.Fatalf("FailureClass = %q, want empty on soft writeback failure", out.FailureClass)
+	if out.FailureClass != FailureClassHard {
+		t.Fatalf("FailureClass = %q, want %q", out.FailureClass, FailureClassHard)
 	}
 	if out.ErrorSummary == "" {
 		t.Fatalf("ErrorSummary empty, want substring 'spawning_thread_id write-back failed'")

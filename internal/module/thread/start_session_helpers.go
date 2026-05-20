@@ -4,12 +4,16 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"strings"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
+	bindingstore "github.com/anthropic-ai/super-agent-v3/internal/store/binding"
 	"github.com/anthropic-ai/super-agent-v3/internal/util"
 	"github.com/anthropic-ai/super-agent-v3/internal/util/clone"
+	"github.com/anthropic-ai/super-agent-v3/internal/util/configutil"
 )
 
 const startDisplayNameMaxRunes = 160
@@ -93,11 +97,159 @@ func resolveStartPromptAssembly(ctx context.Context, req StartRequest, input con
 	return ensureStartAssemblySnapshot(assembly, input.Provider), nil
 }
 
-// dispatchPromptAssembly routes the call between AssembleStart (main thread /
-// user-defined agent types) and AssembleAgent (Claude-taxonomy subagent
-// types like Explore / Plan). Unknown AgentType values — including empty,
-// "main", "Writer", etc. — fall back to AssembleStart so historical callers
-// keep their existing behavior.
+func resolveResumeCWD(req ResumeRequest, state resumeState) (string, error) {
+	requested := util.FirstNonEmpty(req.CWD, req.Path)
+	stored := strings.TrimSpace(state.CWD)
+	if stored != "" && requested != "" && comparablePromptCWD(stored) != comparablePromptCWD(requested) {
+		return "", fmt.Errorf("thread resume cwd mismatch: stored cwd %q request cwd %q", stored, requested)
+	}
+	return util.FirstNonEmpty(stored, requested), nil
+}
+
+func resolveAuthoritativeResumeCWD(req ResumeRequest, state resumeState) (string, error) {
+	cwd, err := resolveResumeCWD(req, state)
+	if err != nil {
+		return "", err
+	}
+	if strings.TrimSpace(state.CWD) == "" {
+		return "", errors.New("thread resume cwd is required")
+	}
+	return cwd, nil
+}
+
+func (s *service) hydrateResumeSessionRequest(ctx context.Context, req ResumeRequest) (ResumeRequest, error) {
+	req, err := trimResumeRequest(req)
+	if err != nil {
+		return ResumeRequest{}, err
+	}
+	state, err := s.lookupResumeState(ctx, req.ThreadID)
+	if err != nil {
+		return ResumeRequest{}, err
+	}
+	req = hydrateResumeIDs(req, state)
+	req.CWD, err = resolveAuthoritativeResumeCWD(req, state)
+	if err != nil {
+		return ResumeRequest{}, err
+	}
+	req.ClaudeHome = util.FirstNonEmpty(req.ClaudeHome, state.ClaudeHome, resumeRuntimeConfigString(state.ConfigOverride.Runtime, "claudeHome", "claude_home", "history_dir"))
+	req.CodexHome = util.FirstNonEmpty(req.CodexHome, state.CodexHome)
+	req.CodexInstanceKey = util.FirstNonEmpty(req.CodexInstanceKey, state.CodexInstanceKey)
+	req.CodexModelProvider = util.FirstNonEmpty(req.CodexModelProvider, state.CodexModelProvider)
+	req.CodexDisabledNativeTools = resolveResumeCodexDisabledNativeTools(req.CodexDisabledNativeTools, state.ConfigOverride.Runtime)
+	req.Config = mergeRuntimeConfig(clone.RuntimeConfigMap(state.ConfigOverride.Runtime), req.Config)
+	req = s.injectDefaultCodexIdentityForResume(req)
+	req.PromptSnapshot, err = s.resolveResumePromptSnapshot(ctx, req, state)
+	if err != nil {
+		return ResumeRequest{}, err
+	}
+	req = hydrateResumeRuntimeSelection(req, state)
+	if err := validateHydratedResumeRequest(req); err != nil {
+		return ResumeRequest{}, err
+	}
+	return req, nil
+}
+
+func hydrateResumeIDs(req ResumeRequest, state resumeState) ResumeRequest {
+	state.PublicThreadID = util.FirstNonEmpty(state.PublicThreadID, req.ThreadID)
+	req.AgentID = util.FirstNonEmpty(req.AgentID, state.AgentID)
+	req.Provider = util.FirstNonEmpty(req.Provider, state.Provider)
+	req.ProviderThreadID = normalizeProviderThreadID(req.Provider, util.FirstNonEmpty(req.ProviderThreadID, state.ProviderThreadID))
+	req.ThreadID = state.PublicThreadID
+	return req
+}
+
+func validateHydratedResumeRequest(req ResumeRequest) error {
+	if req.Provider == "" {
+		return errors.New("provider is required")
+	}
+	if req.AgentID == "" {
+		return errors.New("agent id is required")
+	}
+	return nil
+}
+
+func hydrateResumeRuntimeSelection(req ResumeRequest, state resumeState) ResumeRequest {
+	if req.ConfigOverride.Model == nil {
+		if value := sanitizeConfigStringArtifact(state.ConfigOverride.Model); value != "" {
+			req.ConfigOverride.Model = &value
+		}
+	}
+	if req.ConfigOverride.Effort == nil {
+		if value := sanitizeConfigStringArtifact(state.ConfigOverride.Effort); value != "" {
+			req.ConfigOverride.Effort = &value
+		}
+	}
+	if req.Model == "" {
+		req.Model = resolveResumeModel(req, state)
+	}
+	if req.Effort == "" {
+		req.Effort = resolveResumeEffort(req, state)
+	}
+	return req
+}
+
+func (s *service) lookupResumeState(ctx context.Context, threadID string) (resumeState, error) {
+	state, err := s.lookupResumeThreadState(ctx, threadID)
+	if err != nil {
+		return resumeState{}, err
+	}
+	binding, err := s.resolveBinding(ctx, threadID)
+	if err != nil {
+		return resumeState{}, err
+	}
+	mergeResumeBindingState(&state, binding)
+	state.StoredCWD = state.CWD
+	return state, nil
+}
+
+func (s *service) lookupResumeThreadState(ctx context.Context, threadID string) (resumeState, error) {
+	thread, err := s.getThread(ctx, threadID)
+	if err != nil {
+		return resumeState{}, err
+	}
+	if thread == nil {
+		return resumeState{}, fmt.Errorf("thread %q missing", strings.TrimSpace(threadID))
+	}
+	cfg, err := decodeStoredThreadConfig(thread.ConfigOverride)
+	if err != nil {
+		return resumeState{}, err
+	}
+	return resumeState{
+		AgentID:           strings.TrimSpace(thread.AgentID),
+		ParentAgentID:     strings.TrimSpace(thread.ParentAgentID),
+		OwnerThreadID:     strings.TrimSpace(thread.OwnerThreadID),
+		AgentType:         strings.TrimSpace(thread.AgentType),
+		AgentMemoryScope:  strings.TrimSpace(thread.AgentMemoryScope),
+		PublicThreadID:    strings.TrimSpace(thread.ThreadID),
+		Prompt:            strings.TrimSpace(thread.Prompt),
+		Model:             sanitizeConfigStringArtifact(thread.Model),
+		ConfigOverrideRaw: clone.RawMessage(thread.ConfigOverride),
+		ConfigOverride:    cfg,
+		Effort:            sanitizeConfigStringArtifact(cfg.Effort),
+		CWD:               strings.TrimSpace(thread.Cwd),
+		CreatedAt:         thread.CreatedAt,
+	}, nil
+}
+
+func mergeResumeBindingState(state *resumeState, binding *bindingstore.Binding) {
+	if state == nil || binding == nil {
+		return
+	}
+	state.AgentID = util.FirstNonEmpty(state.AgentID, binding.AgentID)
+	state.ParentAgentID = util.FirstNonEmpty(state.ParentAgentID, strings.TrimSpace(binding.ParentAgentID))
+	state.AgentType = util.FirstNonEmpty(state.AgentType, strings.TrimSpace(binding.AgentType))
+	state.AgentMemoryScope = util.FirstNonEmpty(state.AgentMemoryScope, strings.TrimSpace(binding.AgentMemoryScope))
+	state.Provider = strings.TrimSpace(binding.Provider)
+	state.ProviderThreadID = util.FirstNonEmpty(state.ProviderThreadID, recoverableBindingProviderThreadID(binding))
+	state.PublicThreadID = util.FirstNonEmpty(state.PublicThreadID, binding.CodexThreadID)
+	state.RolloutPath = strings.TrimSpace(binding.RolloutPath)
+	state.SessionUUID = strings.TrimSpace(binding.SessionUUID)
+	state.CodexHome = strings.TrimSpace(binding.CodexHome)
+	state.CodexInstanceKey = strings.TrimSpace(binding.CodexInstanceKey)
+	state.CodexModelProvider = strings.TrimSpace(binding.CodexModelProvider)
+	state.CWD = util.FirstNonEmpty(state.CWD, binding.Cwd)
+}
+
 func dispatchPromptAssembly(ctx context.Context, req StartRequest, input contract.StartInput) (contract.StartAssembly, error) {
 	agentType := contract.AgentType(strings.TrimSpace(input.AgentType))
 	if isKnownSubagentAgentType(agentType) {
@@ -262,7 +414,7 @@ func mergeStartSessionRuntimeIdentity(runtime map[string]any, session contract.S
 	}
 	for _, key := range []string{"codexHome", "codexInstanceKey", "codexModelProvider"} {
 		value := sessionRuntimeConfigString(session, key)
-		if value == "" || firstConfigString(runtime, key) != "" {
+		if value == "" || configutil.ConfigString(runtime, key) != "" {
 			continue
 		}
 		if runtime == nil {

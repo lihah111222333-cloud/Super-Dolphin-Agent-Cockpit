@@ -104,13 +104,13 @@ func (c *stdioMCPClient) CallTool(ctx context.Context, name string, args json.Ra
 		MetadataKeyWorkspaceRoots: append([]string(nil), req.WorkspaceRoots...),
 	})
 	if err != nil {
-		return toolCallTextResult(false, err.Error()), nil
+		return toolCallTextResult(false, err.Error()), err
 	}
 	var decoded peerToolCallResponse
 	if err := json.Unmarshal(raw, &decoded); err != nil {
 		return nil, err
 	}
-	return adaptMCPResponse(decoded), nil
+	return adaptMCPResponse(decoded)
 }
 
 func (c *stdioMCPClient) request(ctx context.Context, method string, params any) (json.RawMessage, error) {

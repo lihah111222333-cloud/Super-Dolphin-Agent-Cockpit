@@ -228,7 +228,7 @@ func newAgentFailureClassStore(t *testing.T, suffix string, attempt int32, now t
 
 func newAgentFailureClassDispatcher(t *testing.T, store *dispatcherStubStore, launchErr error) *WakeupDispatcher {
 	t.Helper()
-	agentExec := nodeexec.NewAgentExecutor(&stubAgentLauncher{err: launchErr})
+	agentExec := newTestAgentExecutor(&stubAgentLauncher{err: launchErr})
 	router := NewNodeExecutorRouter(store, agentExec, nil, nil, nil, nil)
 	d, err := NewWakeupDispatcher(store, &dispatcherStubLauncher{}, nil, WakeupDispatcherConfig{})
 	if err != nil {

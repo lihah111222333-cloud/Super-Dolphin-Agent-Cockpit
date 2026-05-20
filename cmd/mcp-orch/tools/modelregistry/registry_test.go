@@ -5,7 +5,6 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 )
 
@@ -23,7 +22,10 @@ func TestFileRegistryLoadsYAML(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewFileRegistry() error = %v", err)
 	}
-	providers := registry.ListProviders()
+	providers, err := registry.ListProviders()
+	if err != nil {
+		t.Fatalf("ListProviders() error = %v", err)
+	}
 	if len(providers) != 2 {
 		t.Fatalf("providers count = %d, want 2", len(providers))
 	}
@@ -43,14 +45,19 @@ func TestFileRegistryLookupProvider(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewFileRegistry() error = %v", err)
 	}
-	got, ok := registry.LookupProvider("codex")
+	got, ok, err := registry.LookupProvider("codex")
+	if err != nil {
+		t.Fatalf("LookupProvider(codex) error = %v", err)
+	}
 	if !ok {
 		t.Fatal("LookupProvider(codex) ok = false")
 	}
 	if len(got.Models) != 2 || got.Models[1] != "o3" {
 		t.Fatalf("LookupProvider(codex) = %+v", got)
 	}
-	if _, ok := registry.LookupProvider("claude"); ok {
+	if _, ok, err := registry.LookupProvider("claude"); err != nil {
+		t.Fatalf("LookupProvider(claude) error = %v", err)
+	} else if ok {
 		t.Fatal("LookupProvider(claude) ok = true, want false")
 	}
 }
@@ -74,11 +81,17 @@ func TestFileRegistryReloadsYAMLChanges(t *testing.T) {
     models:
       - opus
 `)
-	providers := registry.ListProviders()
+	providers, err := registry.ListProviders()
+	if err != nil {
+		t.Fatalf("ListProviders() error = %v", err)
+	}
 	if len(providers) != 2 {
 		t.Fatalf("providers count after reload = %d, want 2", len(providers))
 	}
-	codex, ok := registry.LookupProvider("codex")
+	codex, ok, err := registry.LookupProvider("codex")
+	if err != nil {
+		t.Fatalf("LookupProvider(codex) error = %v", err)
+	}
 	if !ok {
 		t.Fatal("LookupProvider(codex) after reload ok = false")
 	}
@@ -99,7 +112,10 @@ func TestNewDefaultRegistryUsesEnvOverride(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewDefaultRegistry() error = %v", err)
 	}
-	providers := registry.ListProviders()
+	providers, err := registry.ListProviders()
+	if err != nil {
+		t.Fatalf("ListProviders() error = %v", err)
+	}
 	if len(providers) != 1 {
 		t.Fatalf("providers count = %d, want 1", len(providers))
 	}
@@ -108,7 +124,7 @@ func TestNewDefaultRegistryUsesEnvOverride(t *testing.T) {
 	}
 }
 
-func TestFileRegistryLogsReloadErrorAndKeepsProviders(t *testing.T) {
+func TestFileRegistryReloadErrorFailsFast(t *testing.T) {
 	path := writeModelsFile(t, `providers:
   - provider: codex
     models:
@@ -121,24 +137,16 @@ func TestFileRegistryLogsReloadErrorAndKeepsProviders(t *testing.T) {
 	}
 	writeModelsPath(t, path, "providers: [")
 
-	providers := registry.ListProviders()
-	if len(providers) != 1 || providers[0].Provider != "codex" {
-		t.Fatalf("ListProviders() after corrupt yaml = %+v", providers)
+	if _, err := registry.ListProviders(); err == nil {
+		t.Fatal("ListProviders() error = nil, want corrupt yaml error")
 	}
-	if !strings.Contains(logs.String(), "model registry reload failed; keeping previous providers") {
-		t.Fatalf("ListProviders() logs = %q, want reload warning", logs.String())
+	if logs.String() != "" {
+		t.Fatalf("ListProviders() logs = %q, want no stale fallback warning", logs.String())
 	}
 
 	logs.Reset()
-	got, ok := registry.LookupProvider("codex")
-	if !ok {
-		t.Fatal("LookupProvider(codex) after corrupt yaml ok = false")
-	}
-	if len(got.Models) != 1 || got.Models[0] != "gpt-5" {
-		t.Fatalf("LookupProvider(codex) after corrupt yaml = %+v", got)
-	}
-	if !strings.Contains(logs.String(), "model registry reload failed; keeping previous providers") {
-		t.Fatalf("LookupProvider() logs = %q, want reload warning", logs.String())
+	if _, _, err := registry.LookupProvider("codex"); err == nil {
+		t.Fatal("LookupProvider(codex) error = nil, want corrupt yaml error")
 	}
 }
 

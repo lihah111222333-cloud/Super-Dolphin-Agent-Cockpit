@@ -98,10 +98,37 @@ type stubSessionProvider struct {
 
 type stubTurnRuntimeReader struct {
 	cfg map[string]any
+	err error
 }
 
 func (s stubTurnRuntimeReader) ReadThreadStateRuntimeConfig(context.Context, string) (map[string]any, error) {
+	if s.err != nil {
+		return nil, s.err
+	}
 	return s.cfg, nil
+}
+
+func TestOrchestrationTurnStarterFailsFastOnRuntimeConfigError(t *testing.T) {
+	t.Parallel()
+
+	runtimeErr := errors.New("runtime config store failed")
+	session := &stubSession{
+		threadID: "thread-1",
+		startTurn: func(context.Context, dto.TurnRequest) (contract.TurnHandle, error) {
+			t.Fatal("StartTurn should not be called after runtime config error")
+			return nil, nil
+		},
+	}
+	starter := NewOrchestrationTurnStarter(
+		NewService(silentLogger()),
+		stubSessionProvider{session: session},
+		stubTurnRuntimeReader{err: runtimeErr},
+	)
+
+	_, err := starter.StartTurn(context.Background(), contract.TurnSubmission{AgentID: "agent-1", ThreadID: "thread-1", Inputs: []InputItem{{Type: "text", Content: "hello"}}})
+	if !errors.Is(err, runtimeErr) {
+		t.Fatalf("StartTurn() error = %v, want %v", err, runtimeErr)
+	}
 }
 
 func (p stubSessionProvider) GetSession(agentID string) (contract.Session, error) {

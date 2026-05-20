@@ -493,14 +493,8 @@ func (s *service) Snapshot(ctx context.Context, agentID string) (AgentSnapshot, 
 		snapshot = s.snapshotLocked(ctx, agent)
 		return nil
 	})
-	if err != nil && errors.Is(err, errAgentNotFound) {
-		persisted, lookupErr := s.persistedAgentSnapshot(ctx, agentID)
-		if lookupErr == nil {
-			return persisted, nil
-		}
-		if !errors.Is(lookupErr, errAgentNotFound) {
-			return AgentSnapshot{}, lookupErr
-		}
+	if errors.Is(err, errAgentNotFound) {
+		return s.persistedAgentSnapshot(ctx, agentID)
 	}
 	return snapshot, err
 }

@@ -29,6 +29,8 @@ const (
 	statusStopped  = "stopped"
 )
 
+var errLocalSessionAlreadyGone = errors.New("thread local session already gone")
+
 // SessionProvider is an alias for contract.SessionProvider.
 // Kept as a local type alias for backward compatibility within this package.
 type SessionProvider = contract.SessionProvider
@@ -74,19 +76,7 @@ type service struct {
 	threadAgentsMu sync.RWMutex
 	threadAgents   map[string]string
 
-	// resumeInFlight tracks background resume attempts in progress.
-	// Prevents stampede when multiple ReadMessages calls trigger
-	// concurrent resume for the same agent.
-	resumeInFlight sync.Map // agentID → struct{}
-
-	// resumeBlocked tracks agents whose runtime is being intentionally stopped
-	// by lifecycle actions. It closes the race where a late AgentFailed event
-	// tries to session-recover an archived/stopped agent.
-	resumeBlocked sync.Map // agentID → struct{}
-
-	// sessionRecoveryCount tracks how many times session-level
-	// recovery has been attempted per agent to prevent infinite loops.
-	sessionRecoveryCount sync.Map // agentID → *atomic.Int32
+	resumeInFlight, resumeBlocked, sessionRecoveryCount sync.Map
 
 	// promptStore is optional; when nil, thread/start skips injection and the
 	// CLI falls back to its bundled system prompt. When wired, it powers the
@@ -203,7 +193,7 @@ func (s *service) SetName(ctx context.Context, threadID, name string) error {
 
 	session, binding, err := s.resolveSession(ctx, threadID)
 	if err != nil {
-		return nil
+		return err
 	}
 	syncer, ok := session.(providerThreadNameSetter)
 	if !ok {
@@ -224,7 +214,10 @@ func (s *service) Delete(ctx context.Context, threadID string) error {
 	if err != nil {
 		return err
 	}
-	binding, _ := s.resolveBinding(ctx, id)
+	binding, handled, err := s.resolveDeleteBinding(ctx, id)
+	if handled || err != nil {
+		return err
+	}
 	if handled, err := s.deletePendingLaunchThread(ctx, id, binding); handled || err != nil {
 		return err
 	}
@@ -238,22 +231,54 @@ func (s *service) Delete(ctx context.Context, threadID string) error {
 	return s.deleteThreadState(ctx, id, stopState, binding)
 }
 
+func (s *service) resolveDeleteBinding(
+	ctx context.Context,
+	threadID string,
+) (*bindingstore.Binding, bool, error) {
+	if s.bindingStore == nil {
+		return nil, false, nil
+	}
+	binding, err := s.resolveBinding(ctx, threadID)
+	if err == nil {
+		return binding, false, nil
+	}
+	if handled, pendingErr := s.deletePendingLaunchThread(ctx, threadID, nil); handled || pendingErr != nil {
+		return nil, handled, pendingErr
+	}
+	binding, err = s.resolveBinding(ctx, threadID)
+	return binding, false, err
+}
+
 func (s *service) deletePendingLaunchThread(
 	ctx context.Context,
 	threadID string,
 	binding *bindingstore.Binding,
 ) (bool, error) {
-	if binding != nil || !s.isThreadPendingLaunch(ctx, threadID) {
+	if binding != nil {
 		return false, nil
 	}
 	if s.threadStore == nil {
-		return true, errors.New("thread store is not configured")
+		return false, nil
 	}
-	if err := s.threadStore.DeleteByThreadID(ctx, threadID); err != nil {
+	id := strings.TrimSpace(threadID)
+	if id == "" {
+		return false, nil
+	}
+	mu := s.acquirePendingLaunchLock(id)
+	mu.Lock()
+	defer mu.Unlock()
+	pendingLaunch, err := s.isThreadPendingLaunch(ctx, id)
+	if err != nil {
+		return false, err
+	}
+	if !pendingLaunch {
+		return false, nil
+	}
+	if err := s.threadStore.DeleteByThreadID(ctx, id); err != nil {
 		return true, err
 	}
-	s.pendingLaunchMu.Delete(threadID)
-	s.publishThreadStopped(threadID, "", "deleted", "deleted_pending_launch")
+	s.pendingLaunchMu.Delete(id)
+	s.publishThreadStopped(id, "", "deleted", "deleted_pending_launch")
 	return true, nil
 }
 
@@ -519,7 +544,15 @@ func (s *service) closeSessionForAgent(ctx context.Context, agentID string) erro
 	}
 	session, err := s.sessions.GetSession(agentID)
 	if err != nil {
-		return nil
+		if errors.Is(err, contract.ErrSessionNotFound) {
+			s.removeStoppedSession(agentID, generation)
+			return errLocalSessionAlreadyGone
+		}
+		return err
+	}
+	if session == nil {
+		s.removeStoppedSession(agentID, generation)
+		return errLocalSessionAlreadyGone
 	}
 	err = session.Close(ctx)
 	s.removeStoppedSession(agentID, generation)

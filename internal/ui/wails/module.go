@@ -2,6 +2,7 @@ package wails
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"os"
 	"strings"
@@ -53,7 +54,7 @@ type activeAgentCounterParams struct {
 func NewActiveAgentCounter(p activeAgentCounterParams) ActiveAgentCounter {
 	if p.Service == nil {
 		return ActiveAgentCounterFunc(func(context.Context) (int, error) {
-			return 0, nil
+			return 0, errors.New("orchestration service is not configured")
 		})
 	}
 	return ActiveAgentCounterFunc(func(ctx context.Context) (int, error) {

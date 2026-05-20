@@ -13,12 +13,13 @@ vi.mock('../services/log.js', () => ({
 }));
 
 import { useProjectStore } from './projects.js';
-import { selectProjectDir } from '../services/api.js';
+import { callAPI, selectProjectDir } from '../services/api.js';
 
 describe('projectOptions label disambiguation', () => {
     let store;
     beforeEach(() => {
         store = useProjectStore();
+        vi.mocked(callAPI).mockReset().mockResolvedValue({ projects: [], active: '.' });
         vi.mocked(selectProjectDir).mockReset().mockResolvedValue('');
         // reset state
         store.state.projects = [];
@@ -26,6 +27,7 @@ describe('projectOptions label disambiguation', () => {
         store.state.showModal = false;
         store.state.modalPath = '';
         store.state.browsing = false;
+        store.state.scopeCwd = '';
     });
 
     it('keeps short label (slice -2) when no collision', () => {
@@ -96,11 +98,53 @@ describe('projectOptions label disambiguation', () => {
         expect(store.state.browsing).toBe(false);
     });
 
+    it('rethrows native directory picker failures', async () => {
+        store.state.modalPath = '/workspace/custom-seed';
+        vi.mocked(selectProjectDir).mockRejectedValueOnce(new Error('picker failed'));
+
+        await expect(store.browseDirectory()).rejects.toThrow('picker failed');
+
+        expect(store.state.browsing).toBe(false);
+    });
+
     it('does not leak _segments into the final option objects', () => {
         store.state.projects = ['/a/b/c/d'];
         const options = store.projectOptions.value;
         for (const opt of options) {
             expect(opt).not.toHaveProperty('_segments');
         }
+    });
+
+    it('scopes project state RPCs to the current window cwd', async () => {
+        vi.mocked(callAPI).mockResolvedValue({ projects: ['/worktree'], active: '/worktree' });
+
+        store.setScopeCwd('/worktree');
+        await store.reloadProjects();
+        await store.setActive('/worktree');
+        await store.addProject('/another-worktree');
+        await store.removeProject('/another-worktree');
+
+        expect(callAPI).toHaveBeenCalledWith('ui/projects/get', { cwd: '/worktree' });
+        expect(callAPI).toHaveBeenCalledWith('ui/projects/setActive', { path: '/worktree', cwd: '/worktree' });
+        expect(callAPI).toHaveBeenCalledWith('ui/projects/add', { path: '/another-worktree', cwd: '/worktree' });
+        expect(callAPI).toHaveBeenCalledWith('ui/projects/remove', { path: '/another-worktree', cwd: '/worktree' });
+    });
+
+    it('fails fast when project RPC scope cwd is missing', async () => {
+        await expect(store.reloadProjects()).rejects.toThrow('project scope cwd is required');
+        expect(callAPI).not.toHaveBeenCalled();
+    });
+
+    it('fails fast on malformed project state responses', async () => {
+        store.setScopeCwd('/worktree');
+        vi.mocked(callAPI).mockResolvedValueOnce({});
+
+        await expect(store.reloadProjects()).rejects.toThrow('project state projects must be an array');
+
+        vi.mocked(callAPI).mockResolvedValueOnce({ projects: [], active: 123 });
+        await expect(store.reloadProjects()).rejects.toThrow('project state active must be a string');
+
+        vi.mocked(callAPI).mockResolvedValueOnce({ projects: ['/other'], active: '/missing' });
+        await expect(store.reloadProjects()).rejects.toThrow('project state active path is not in projects');
     });
 });

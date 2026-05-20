@@ -39,7 +39,7 @@ func TestPoolRoutingEnabledByDefault(t *testing.T) {
 	}
 }
 
-func TestResolveSessionOptionsFailsClosedOnIdentityError(t *testing.T) {
+func TestResolveSessionOptionsDefaultRoutingFailsClosedOnMissingIdentity(t *testing.T) {
 	t.Setenv(poolRoutingEnvVar, "")
 	spawnCalls := atomic.Int32{}
 	spawner := func(context.Context, string) (SpawnedServer, error) {

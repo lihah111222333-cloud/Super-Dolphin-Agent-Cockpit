@@ -113,7 +113,11 @@ func expectedCanonicalMirrorHashes(root string, record canonicalSkillRecord, sco
 	if err != nil {
 		return "", "", err
 	}
-	return hash, skillDirContentHash(tempDir), nil
+	contentHash, err := skillDirContentHash(tempDir)
+	if err != nil {
+		return "", "", err
+	}
+	return hash, contentHash, nil
 }
 
 func newSkillMirrorManifest(target SkillMirrorTarget) SkillMirrorManifest {

@@ -201,6 +201,11 @@ func TestAutoDreamConsolidatorConsolidateRemovesDuplicatesAndRebuildsIndex(t *te
 		"Keep answers short\nWhy: prefer concise bullet points.",
 	))
 	writeExtractFixture(t, stalePath, testMemoryEntry("Empty note", "stale", MemoryTypeFeedback, "   "))
+	writeMemoryIndexFixture(t, root,
+		"- [Keep answers short](feedback/keep-answers-short.md)",
+		"- [Keep answers short](feedback/keep-answers-short-dup.md)",
+		"- [Empty note](feedback/empty.md)",
+	)
 
 	now := time.Now()
 	setExtractFixtureTimes(t, olderPath, newerPath, now)

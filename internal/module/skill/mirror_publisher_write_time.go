@@ -212,7 +212,11 @@ func cleanupSuppressedPersonalMirrorRecord(target SkillMirrorTarget, record cano
 	if err != nil {
 		return SkillMirrorReportItem{}, false, err
 	}
-	if mirrorHash != expectedHash && skillDirContentHash(mirrorDir) != expectedContentHash {
+	mirrorContentHash, err := skillDirContentHash(mirrorDir)
+	if err != nil {
+		return SkillMirrorReportItem{}, false, err
+	}
+	if mirrorHash != expectedHash && mirrorContentHash != expectedContentHash {
 		return SkillMirrorReportItem{}, false, nil
 	}
 	item := reportItem(target, record.Name, canonicalSourceID(record), mirrorHash, "", "")

@@ -211,10 +211,10 @@ func scanRoot(repoRoot, root string, skip map[string]bool, stats map[string]*pac
 		return nil
 	}
 	var violations []Violation
-	_ = filepath.WalkDir(absRoot, func(path string, d fs.DirEntry, walkErr error) error {
+	if err := filepath.WalkDir(absRoot, func(path string, d fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			violations = append(violations, Violation{Kind: ViolationFile, File: filepath.ToSlash(path), Message: fmt.Sprintf("%s: walk error: %v", path, walkErr)})
-			return nil
+			return walkErr
 		}
 		if d.IsDir() {
 			if skip[d.Name()] {
@@ -231,7 +231,9 @@ func scanRoot(repoRoot, root string, skip map[string]bool, stats map[string]*pac
 		}
 		violations = append(violations, checkSingleFile(path, filepath.ToSlash(relPath), stats)...)
 		return nil
-	})
+	}); err != nil {
+		violations = append(violations, Violation{Kind: ViolationFile, File: filepath.ToSlash(root), Message: fmt.Sprintf("%s: walk root error: %v", root, err)})
+	}
 	return violations
 }
 

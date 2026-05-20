@@ -170,6 +170,14 @@ func runGOWORKAutoUsesAutoDiscovery(t *testing.T) {
 	}
 }
 
+func TestBrokenGoWorkFailsFast(t *testing.T) {
+	runBrokenGoWorkFailsClosed(t)
+}
+
+func TestGoRootResolverBrokenGoWorkFailsFast(t *testing.T) {
+	runBrokenGoWorkFailsClosed(t)
+}
+
 func TestResolveGoWorkRootRejectsBrokenGoWork(t *testing.T) {
 	runBrokenGoWorkFailsClosed(t)
 }
@@ -187,10 +195,16 @@ func runBrokenGoWorkFailsClosed(t *testing.T) {
 	writeFile(t, goWorkPath, "go 1.25.0\n\nuse (\n\t./backend\n")
 	target := writeGoFile(t, backend, "main.go")
 
-	_, err := ResolveGoRoot(GoRootRequest{CWD: repo, FilePath: target, Env: []string{}})
-	if err == nil || !strings.Contains(err.Error(), "go.work") {
-		t.Fatalf("ResolveGoRoot() error = %v, want broken go.work parse failure", err)
+	info, err := ResolveGoRoot(GoRootRequest{CWD: repo, FilePath: target, Env: []string{}})
+	if err == nil {
+		t.Fatalf("broken go.work error = nil, got info %#v", info)
 	}
+	for _, fragment := range []string{"parse go.work", goWorkPath} {
+		if !strings.Contains(err.Error(), fragment) {
+			t.Fatalf("broken go.work error = %v, want fragment %q", err, fragment)
+		}
+	}
+	assertGoRoot(t, info, GoRootInfo{})
 }
 
 func TestExternalGOWORKOutsideTrustedScopeFailsClosed(t *testing.T) {

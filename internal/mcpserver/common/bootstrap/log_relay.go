@@ -3,6 +3,7 @@ package bootstrap
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -98,7 +99,7 @@ func (c *Client) LogFields(ctx context.Context, level, message string, fields ma
 	if err := conn.Notify(noteCtx, mcp.MethodLog, entry); err != nil {
 		c.localLogFallback(entry, err)
 		if isTransportErr(err) {
-			return nil
+			return fmt.Errorf("log notify failed after local fallback: %w", err)
 		}
 		return err
 	}

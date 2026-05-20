@@ -9,7 +9,7 @@ import (
 func TestAutoDreamIntentRoundTrip(t *testing.T) {
 	root := t.TempDir()
 
-	assertAutoDreamIntentNil(t, root, "empty")
+	assertAutoDreamIntentMissing(t, root)
 	writeAutoDreamIntent(t, root, true)
 	assertAutoDreamIntentValue(t, root, true, "after true")
 	writeAutoDreamIntent(t, root, false)
@@ -65,14 +65,10 @@ func writeAutoDreamIntent(t *testing.T, root string, enabled bool) {
 	}
 }
 
-func assertAutoDreamIntentNil(t *testing.T, root, label string) {
+func assertAutoDreamIntentMissing(t *testing.T, root string) {
 	t.Helper()
-	got, err := ReadAutoDreamIntent(root)
-	if err != nil {
-		t.Fatalf("ReadAutoDreamIntent(%s) error = %v", label, err)
-	}
-	if got != nil {
-		t.Fatalf("ReadAutoDreamIntent(%s) = %v, want nil", label, *got)
+	if got, err := ReadAutoDreamIntent(root); err == nil || got != nil {
+		t.Fatalf("ReadAutoDreamIntent(missing) = %v err=%v, want missing file error", got, err)
 	}
 }
 

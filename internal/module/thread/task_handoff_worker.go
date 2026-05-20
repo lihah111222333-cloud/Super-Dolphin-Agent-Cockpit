@@ -2,6 +2,7 @@ package thread
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -10,75 +11,47 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/anthropic-ai/super-agent-v3/internal/util"
 	"github.com/anthropic-ai/super-agent-v3/internal/util/clone"
 	"github.com/anthropic-ai/super-agent-v3/internal/util/ctxutil"
 	"github.com/anthropic-ai/super-agent-v3/internal/util/idgen"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
-// taskHandoffDrainGrace bounds the shutdown wait for taskHandoffWorker so
-// registerSubscriptions.OnStop can't hang if sharedFiles.Upsert stalls on
-// I/O during drain. Matches nestedIngestDrainGrace in the memory module —
-// both are owned by subscription OnStop hooks.
+// taskHandoffDrainGrace bounds subscription shutdown when handoff I/O stalls.
 const taskHandoffDrainGrace = 10 * time.Second
 
-// taskHandoffRefresher is the narrow contract over *service that the
-// taskHandoffWorker needs. refreshTaskHandoffFromThread already does the
-// threadStore read, document render and sharedFiles.Upsert — the worker
-// just owns the goroutine and coalesces events per threadID.
+// taskHandoffRefresher is the narrow contract over *service.
 type taskHandoffRefresher interface {
 	refreshTaskHandoffFromThread(ctx context.Context, threadID string, seed taskHandoffRenderSeed) error
 }
 
-// taskHandoffWorker is the P22 P2 (thread S3) single owner of the
-// onTurnCompleted -> refreshTaskHandoffFromThread slow-path.
-//
-// Pre-P22 shape: the bus callback body read from threadStore, rendered a
-// handoff document and wrote to sharedFiles inline — all on the
-// dispatcher's callback goroutine. Multiple TurnCompleted events for the
-// same thread each redid the full work.
-//
-// P2 shape: the callback only calls Enqueue. A single tracked worker
-// goroutine drains a pending map keyed by threadID (latest seed wins);
-// multiple TurnCompleted events for the same thread collapse to one
-// refresh. Stop drains pending bounded by ctx so subscription OnStop
-// stays bounded even when the disk is slow.
+// taskHandoffWorker owns async TurnCompleted handoff refreshes and coalesces
+// repeated events per threadID (latest seed wins).
 type taskHandoffWorker struct {
 	refresher taskHandoffRefresher
 	logger    *slog.Logger
 
 	mu      sync.Mutex
 	pending map[string]taskHandoffRenderSeed
+	lastErr error
 
 	wake chan struct{}
 
-	startOnce sync.Once
-	stopOnce  sync.Once
-	stopCh    chan struct{}
-	doneCh    chan struct{}
+	startOnce, stopOnce sync.Once
+	stopCh, doneCh      chan struct{}
 
-	enqueuedTotal  atomic.Int64
-	coalescedTotal atomic.Int64
-	processedTotal atomic.Int64
+	enqueuedTotal, coalescedTotal, processedTotal atomic.Int64
 }
 
 func newTaskHandoffWorker(refresher taskHandoffRefresher, logger *slog.Logger) *taskHandoffWorker {
 	if logger == nil {
 		logger = pkglogger.Get()
 	}
-	return &taskHandoffWorker{
-		refresher: refresher,
-		logger:    logger,
-		pending:   map[string]taskHandoffRenderSeed{},
-		wake:      make(chan struct{}, 1),
-		stopCh:    make(chan struct{}),
-		doneCh:    make(chan struct{}),
-	}
+	return &taskHandoffWorker{refresher: refresher, logger: logger, pending: map[string]taskHandoffRenderSeed{}, wake: make(chan struct{}, 1), stopCh: make(chan struct{}), doneCh: make(chan struct{})}
 }
 
-// Start spawns the worker goroutine. Idempotent. When refresher is nil
-// the worker short-circuits: doneCh closes so Stop is immediate and
-// Enqueue remains a cheap no-op.
+// Start spawns the worker goroutine. Idempotent.
 func (w *taskHandoffWorker) Start() {
 	if w == nil {
 		return
@@ -99,11 +72,7 @@ func (w *taskHandoffWorker) Start() {
 	})
 }
 
-// Enqueue records a TurnCompleted-driven handoff refresh. Safe to call
-// from bus callbacks: O(1) map write + non-blocking wake, no disk I/O,
-// no refresher call on the callback goroutine. Repeated events for the
-// same threadID coalesce to the latest seed (handoff documents are
-// idempotent — last-write-wins mirrors pre-P22 behavior).
+// Enqueue records a TurnCompleted-driven refresh without doing I/O on the bus callback.
 func (w *taskHandoffWorker) Enqueue(threadID string, seed taskHandoffRenderSeed) {
 	if w == nil {
 		return
@@ -130,10 +99,7 @@ func (w *taskHandoffWorker) Enqueue(threadID string, seed taskHandoffRenderSeed)
 	}
 }
 
-// Stop closes the gate, drains pending, and waits bounded by ctx for the
-// worker goroutine to exit. Idempotent. Enqueue after Stop is silently
-// dropped (gate closed); this is the only drop path and is necessary
-// because post-Stop delivery would race with cancelled subscriptions.
+// Stop closes the gate, drains pending, and waits bounded by ctx.
 func (w *taskHandoffWorker) Stop(ctx context.Context) error {
 	if w == nil {
 		return nil
@@ -157,14 +123,36 @@ func (w *taskHandoffWorker) Stop(ctx context.Context) error {
 			firstErr = waitCtx.Err()
 		}
 	})
+	if firstErr == nil {
+		firstErr = w.LastError()
+	}
 	return firstErr
 }
 
-// EnqueuedTotal / CoalescedTotal / ProcessedTotal expose observability
-// counters for tests and future metric hookup (P22 observability lane).
+// EnqueuedTotal / CoalescedTotal / ProcessedTotal expose worker counters.
 func (w *taskHandoffWorker) EnqueuedTotal() int64  { return w.enqueuedTotal.Load() }
 func (w *taskHandoffWorker) CoalescedTotal() int64 { return w.coalescedTotal.Load() }
 func (w *taskHandoffWorker) ProcessedTotal() int64 { return w.processedTotal.Load() }
+
+func (w *taskHandoffWorker) LastError() error {
+	if w == nil {
+		return nil
+	}
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.lastErr
+}
+
+func (w *taskHandoffWorker) recordRefreshError(threadID string, err error) {
+	if w == nil || err == nil {
+		return
+	}
+	w.mu.Lock()
+	if w.lastErr == nil {
+		w.lastErr = fmt.Errorf("task handoff refresh failed for thread %q: %w", threadID, err)
+	}
+	w.mu.Unlock()
+}
 
 func (w *taskHandoffWorker) runWorker() {
 	defer close(w.doneCh)
@@ -179,10 +167,7 @@ func (w *taskHandoffWorker) runWorker() {
 	}
 }
 
-// drainPending pulls the current pending set out under the lock, then
-// invokes refreshTaskHandoffFromThread for each entry with the lock
-// released. Errors are logged — the handoff document is eventually
-// consistent, so a single failed refresh is not fatal.
+// drainPending refreshes pending entries and records errors for Stop.
 func (w *taskHandoffWorker) drainPending() {
 	for {
 		w.mu.Lock()
@@ -190,20 +175,19 @@ func (w *taskHandoffWorker) drainPending() {
 			w.mu.Unlock()
 			return
 		}
-		batch := make([]taskHandoffPendingEntry, 0, len(w.pending))
-		for threadID, seed := range w.pending {
-			batch = append(batch, taskHandoffPendingEntry{threadID: threadID, seed: seed})
-		}
+		batch := w.pending
 		w.pending = map[string]taskHandoffRenderSeed{}
 		w.mu.Unlock()
-		for _, entry := range batch {
-			if err := w.refresher.refreshTaskHandoffFromThread(context.Background(), entry.threadID, entry.seed); err != nil {
+		for threadID, seed := range batch {
+			if err := w.refresher.refreshTaskHandoffFromThread(context.Background(), threadID, seed); err != nil {
+				w.recordRefreshError(threadID, err)
 				if w.logger != nil {
 					w.logger.Warn("thread: task handoff worker refresh failed",
-						"thread_id", entry.threadID,
+						"thread_id", threadID,
 						"error", err,
 					)
 				}
+				continue
 			}
 			w.processedTotal.Add(1)
 		}
@@ -240,11 +224,6 @@ func (w *taskHandoffWorker) FlushForThread(ctx context.Context, threadID string)
 	return nil
 }
 
-type taskHandoffPendingEntry struct {
-	threadID string
-	seed     taskHandoffRenderSeed
-}
-
 // ---------------------------------------------------------------------------
 // PromoteTaskFromThread (was promote_task.go)
 // ---------------------------------------------------------------------------
@@ -265,8 +244,10 @@ func (s *service) PromoteTaskFromThread(ctx context.Context, threadID string) (P
 		return PromoteTaskResult{}, fmt.Errorf("thread %q not found", threadID)
 	}
 
-	stored := decodeStoredThreadConfig(thread.ConfigOverride)
-	existing := taskHandoffMetaFromRuntimeConfig(stored.Runtime)
+	stored, existing, err := promotedTaskConfig(thread.ConfigOverride)
+	if err != nil {
+		return PromoteTaskResult{}, err
+	}
 	if strings.TrimSpace(existing.TaskID) != "" {
 		return PromoteTaskResult{
 			ThreadID:    threadID,
@@ -279,10 +260,14 @@ func (s *service) PromoteTaskFromThread(ctx context.Context, threadID string) (P
 
 	meta := taskHandoffMeta{
 		TaskID:    idgen.NewID("task"),
-		TaskTitle: firstNonEmptyTaskString(strings.TrimSpace(thread.Name), strings.TrimSpace(thread.Prompt), threadID),
+		TaskTitle: util.FirstNonEmpty(strings.TrimSpace(thread.Name), strings.TrimSpace(thread.Prompt), threadID),
 	}
 	meta.HandoffFile = defaultTaskHandoffPath(meta.TaskID)
 	meta.RootTaskID = meta.TaskID
+
+	if err := s.ensureTaskHandoffShell(ctx, meta, threadID); err != nil {
+		return PromoteTaskResult{}, err
+	}
 
 	stored.Runtime = withPromotedTaskRuntime(stored.Runtime, meta)
 	raw, err := encodeStoredThreadConfig(stored)
@@ -302,17 +287,17 @@ func (s *service) PromoteTaskFromThread(ctx context.Context, threadID string) (P
 		HandoffFile: meta.HandoffFile,
 	}
 
-	if shellErr := s.ensureTaskHandoffShell(ctx, meta, threadID); shellErr != nil {
-		pkglogger.Warn("thread/promote-task: handoff shell init failed",
-			"thread_id", threadID,
-			"task_id", meta.TaskID,
-			"handoff_file", meta.HandoffFile,
-			"error", shellErr)
-		result.HandoffShellWarning = shellErr.Error()
-	}
-
 	s.emitThreadPromotedTask(threadID)
 	return result, nil
+}
+
+func promotedTaskConfig(raw json.RawMessage) (storedThreadConfig, taskHandoffMeta, error) {
+	stored, err := decodeStoredThreadConfig(raw)
+	if err != nil {
+		return storedThreadConfig{}, taskHandoffMeta{}, err
+	}
+	existing, err := taskHandoffMetaFromRuntimeConfig(stored.Runtime)
+	return stored, existing, err
 }
 
 func withPromotedTaskRuntime(runtime map[string]any, meta taskHandoffMeta) map[string]any {

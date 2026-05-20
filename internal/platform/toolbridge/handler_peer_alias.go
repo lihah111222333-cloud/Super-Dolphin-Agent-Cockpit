@@ -1,0 +1,29 @@
+package toolbridge
+
+import "strings"
+
+func legacyLSPName(canonical string) string {
+	for legacy, short := range legacyLSPToolAliases {
+		if short == canonical {
+			return legacy
+		}
+	}
+	return ""
+}
+
+func legacyOrchName(canonical string) string {
+	switch strings.TrimSpace(canonical) {
+	case "launch_agent":
+		return "orchestration_launch_agent"
+	case "send_message":
+		return "orchestration_send_message"
+	case "stop_agent":
+		return "orchestration_stop_agent"
+	case "list_agents":
+		return "orchestration_list_agents"
+	case "get_agent_report":
+		return "orchestration_get_agent_report"
+	default:
+		return ""
+	}
+}

@@ -83,11 +83,10 @@ func newResumeInvalidationService(worktreeCWD string, promptAssembly promptpkg.S
 		Status:    statusCreated,
 	}}
 	bindings := &stubBindingStore{binding: &bindingstore.Binding{
-		AgentID:          "agent-resume",
-		Provider:         "codex",
-		ProviderThreadID: "provider-thread-resume",
-		CodexThreadID:    "thread-resume",
-		Cwd:              worktreeCWD,
+		AgentID:       "agent-resume",
+		Provider:      "codex",
+		CodexThreadID: "thread-resume",
+		Cwd:           worktreeCWD,
 	}}
 	sessions := &stubSessionProvider{}
 	starter := &stubSessionStarter{onResume: func(_ context.Context, req dto.ResumeSessionRequest) (contract.Session, error) {

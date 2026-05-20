@@ -71,19 +71,15 @@ type sessionRecoveryWorker struct {
 
 	wake chan struct{}
 
-	startOnce sync.Once
-	stopOnce  sync.Once
-	stopCh    chan struct{}
-	doneCh    chan struct{}
+	startOnce, stopOnce sync.Once
+	stopCh, doneCh      chan struct{}
 
 	// inflight tracks per-event recovery goroutines. runWorker defers
 	// inflight.Wait() before close(doneCh) so Stop returns only after
 	// every recovery has observed ctx cancellation and returned.
 	inflight sync.WaitGroup
 
-	enqueuedTotal  atomic.Int64
-	coalescedTotal atomic.Int64
-	processedTotal atomic.Int64
+	enqueuedTotal, coalescedTotal, processedTotal atomic.Int64
 }
 
 func newSessionRecoveryWorker(recoverer sessionRecoverer, logger *slog.Logger) *sessionRecoveryWorker {
@@ -91,16 +87,7 @@ func newSessionRecoveryWorker(recoverer sessionRecoverer, logger *slog.Logger) *
 		logger = pkglogger.Get()
 	}
 	ctx, cancel := context.WithCancel(context.Background())
-	return &sessionRecoveryWorker{
-		recoverer: recoverer,
-		logger:    logger,
-		ctx:       ctx,
-		cancel:    cancel,
-		pending:   map[string]agentdto.AgentFailed{},
-		wake:      make(chan struct{}, 1),
-		stopCh:    make(chan struct{}),
-		doneCh:    make(chan struct{}),
-	}
+	return &sessionRecoveryWorker{recoverer: recoverer, logger: logger, ctx: ctx, cancel: cancel, pending: map[string]agentdto.AgentFailed{}, wake: make(chan struct{}, 1), stopCh: make(chan struct{}), doneCh: make(chan struct{})}
 }
 
 // Start spawns the worker dispatcher goroutine. Idempotent. When

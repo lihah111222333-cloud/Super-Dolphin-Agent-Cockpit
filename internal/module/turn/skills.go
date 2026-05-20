@@ -177,7 +177,7 @@ func (s *service) hydrateSkillRefs(ctx context.Context, refs []dto.SkillRef, man
 		if blockingErr := blockingSkillHydrationError(err); blockingErr != nil {
 			return refs, blockingErr
 		}
-		return refs, nil
+		return refs, err
 	}
 	if len(index) == 0 {
 		return refs, nil

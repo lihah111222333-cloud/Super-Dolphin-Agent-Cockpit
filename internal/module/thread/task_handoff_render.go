@@ -2,27 +2,36 @@ package thread
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"strings"
 	"time"
 
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
 	turndto "github.com/anthropic-ai/super-agent-v3/internal/dto/turn"
+	"github.com/anthropic-ai/super-agent-v3/internal/module/thread/handoffrender"
+	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
 	sharedfilestore "github.com/anthropic-ai/super-agent-v3/internal/store/sharedfile"
 	threadstore "github.com/anthropic-ai/super-agent-v3/internal/store/thread"
+	"github.com/anthropic-ai/super-agent-v3/internal/util"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
 func (s *service) taskHandoffInstructionBlock(ctx context.Context, meta taskHandoffMeta) (string, error) {
-	if s == nil || s.sharedFiles == nil || meta.HandoffFile == "" {
-		return "", nil
-	}
-	file, err := s.sharedFiles.Get(ctx, meta.HandoffFile)
-	if err != nil || file == nil {
+	store, path, err := s.requireTaskHandoffFile(meta)
+	if err != nil {
 		return "", err
 	}
-	content := truncateTaskHandoffText(file.Content, taskHandoffReadLimitChars)
+	file, err := store.Get(ctx, path)
+	if err != nil {
+		return "", err
+	}
+	if file == nil {
+		return "", fmt.Errorf("thread task handoff file %q returned no content row", path)
+	}
+	content := handoffrender.TruncateText(file.Content, taskHandoffReadLimitChars)
 	if strings.TrimSpace(content) == "" {
-		return "", nil
+		return "", fmt.Errorf("thread task handoff file %q is empty", path)
 	}
 	return strings.TrimSpace(strings.Join([]string{
 		"## Task Handoff",
@@ -31,24 +40,33 @@ func (s *service) taskHandoffInstructionBlock(ctx context.Context, meta taskHand
 	}, "\n\n")), nil
 }
 
-func joinTaskHandoffInstructions(base, block string) string {
-	base = strings.TrimSpace(base)
-	block = strings.TrimSpace(block)
-	switch {
-	case base == "":
-		return block
-	case block == "":
-		return base
-	default:
-		return base + "\n\n" + block
+func (s *service) requireTaskHandoffFile(meta taskHandoffMeta) (sharedfilestore.Store, string, error) {
+	if s == nil {
+		return nil, "", errors.New("thread task handoff service is not configured")
 	}
+	if s.sharedFiles == nil {
+		return nil, "", errors.New("thread task handoff shared file store is not configured")
+	}
+	path := strings.TrimSpace(meta.HandoffFile)
+	if path == "" {
+		return nil, "", errors.New("thread task handoff file is required")
+	}
+	return s.sharedFiles, path, nil
 }
 
 func (s *service) ensureTaskHandoffShell(ctx context.Context, meta taskHandoffMeta, sourceThreadID string) error {
-	if s == nil || s.sharedFiles == nil || meta.HandoffFile == "" {
-		return nil
+	store, path, err := s.requireTaskHandoffFile(meta)
+	if err != nil {
+		return err
 	}
-	if file, err := s.sharedFiles.Get(ctx, meta.HandoffFile); err == nil && file != nil && strings.TrimSpace(file.Content) != "" {
+	file, err := store.Get(ctx, path)
+	if err != nil && !platformdb.IsNotFound(err) {
+		return err
+	}
+	if err == nil && file == nil {
+		return fmt.Errorf("thread task handoff file %q returned no content row", path)
+	}
+	if err == nil && file != nil && strings.TrimSpace(file.Content) != "" {
 		return nil
 	}
 	content := renderTaskHandoffDocument(meta, nil, taskHandoffRenderSeed{
@@ -56,8 +74,8 @@ func (s *service) ensureTaskHandoffShell(ctx context.Context, meta taskHandoffMe
 		Status:         "initialized",
 		Outcome:        "Task handoff initialized. No completed turns have been recorded yet.",
 	}, nil)
-	_, err := s.sharedFiles.Upsert(ctx, sharedfilestore.UpsertParams{
-		Path:      meta.HandoffFile,
+	_, err = store.Upsert(ctx, sharedfilestore.UpsertParams{
+		Path:      path,
 		Content:   content,
 		UpdatedBy: systemTaskHandoffUpdatedBy,
 	})
@@ -65,25 +83,17 @@ func (s *service) ensureTaskHandoffShell(ctx context.Context, meta taskHandoffMe
 }
 
 func (s *service) refreshTaskHandoffFromThread(ctx context.Context, threadID string, seed taskHandoffRenderSeed) error {
-	if s == nil || s.sharedFiles == nil || s.threadStore == nil {
-		return nil
-	}
-	threadID = strings.TrimSpace(threadID)
-	if threadID == "" {
-		return nil
-	}
-	row, err := s.threadStore.GetByThreadID(ctx, threadID)
-	if err != nil || row == nil {
-		return err
-	}
-	meta := taskHandoffMetaFromThread(row)
-	if meta.TaskID == "" || meta.HandoffFile == "" {
-		return nil
+	row, meta, err := s.refreshTaskHandoffState(ctx, threadID)
+	if err != nil || meta.TaskID == "" || meta.HandoffFile == "" {
+		return taskHandoffRefreshMetaError(err, meta)
 	}
 	if seed.SourceThreadID == "" {
-		seed.SourceThreadID = threadID
+		seed.SourceThreadID = strings.TrimSpace(threadID)
 	}
-	history := s.readTaskHandoffHistory(ctx, threadID)
+	history, err := s.readTaskHandoffHistory(ctx, threadID)
+	if err != nil {
+		return err
+	}
 	content := renderTaskHandoffDocument(meta, row, seed, history)
 	_, err = s.sharedFiles.Upsert(ctx, sharedfilestore.UpsertParams{
 		Path:      meta.HandoffFile,
@@ -93,37 +103,75 @@ func (s *service) refreshTaskHandoffFromThread(ctx context.Context, threadID str
 	return err
 }
 
-func (s *service) readTaskHandoffHistory(ctx context.Context, threadID string) []dto.Message {
-	if s == nil {
+func taskHandoffRefreshMetaError(err error, meta taskHandoffMeta) error {
+	if err != nil {
+		return err
+	}
+	if meta.TaskID == "" && meta.HandoffFile == "" {
 		return nil
+	}
+	return fmt.Errorf("thread task handoff metadata incomplete: task_id=%q handoff_file=%q", meta.TaskID, meta.HandoffFile)
+}
+
+func (s *service) refreshTaskHandoffState(ctx context.Context, threadID string) (*threadstore.Thread, taskHandoffMeta, error) {
+	if s == nil {
+		return nil, taskHandoffMeta{}, errors.New("thread task handoff service is not configured")
+	}
+	if s.sharedFiles == nil {
+		return nil, taskHandoffMeta{}, errors.New("thread task handoff shared file store is not configured")
+	}
+	if s.threadStore == nil {
+		return nil, taskHandoffMeta{}, errors.New("thread task handoff thread store is not configured")
+	}
+	threadID = strings.TrimSpace(threadID)
+	if threadID == "" {
+		return nil, taskHandoffMeta{}, errors.New("thread id is required")
+	}
+	row, err := s.threadStore.GetByThreadID(ctx, threadID)
+	if err != nil {
+		return nil, taskHandoffMeta{}, err
+	}
+	if row == nil {
+		return nil, taskHandoffMeta{}, fmt.Errorf("thread %q missing", threadID)
+	}
+	meta, err := taskHandoffMetaFromThread(row)
+	if err != nil {
+		return nil, taskHandoffMeta{}, err
+	}
+	return row, meta, nil
+}
+
+func (s *service) readTaskHandoffHistory(ctx context.Context, threadID string) ([]dto.Message, error) {
+	if s == nil {
+		return nil, errors.New("thread task handoff service is not configured")
 	}
 	messages, err := s.ReadHistory(ctx, threadID, taskHandoffHistoryLimit)
 	if err != nil || len(messages) == 0 {
-		return nil
+		return nil, err
 	}
 	if len(messages) > taskHandoffHistoryLimit {
 		messages = messages[len(messages)-taskHandoffHistoryLimit:]
 	}
-	return messages
+	return messages, nil
 }
 
 func renderTaskHandoffDocument(meta taskHandoffMeta, row *threadstore.Thread, seed taskHandoffRenderSeed, messages []dto.Message) string {
 	now := time.Now().Format(time.RFC3339)
-	status := firstNonEmptyTaskString(seed.Status, threadStatusForHandoff(row), "in_progress")
-	outcome := firstNonEmptyTaskString(seed.Outcome, "No completed turn summary is available yet.")
+	status := util.FirstNonEmpty(seed.Status, handoffrender.ThreadStatus(row), "in_progress")
+	outcome := util.FirstNonEmpty(seed.Outcome, "No completed turn summary is available yet.")
 	lines := []string{
 		"# Task Handoff",
 		"",
 		"- task_id: " + strings.TrimSpace(meta.TaskID),
-		"- task_title: " + firstNonEmptyTaskString(meta.TaskTitle, meta.TaskID),
+		"- task_title: " + util.FirstNonEmpty(meta.TaskTitle, meta.TaskID),
 		"- updated_at: " + now,
 		"- status: " + status,
 		"- source: system_handoff",
 	}
-	if sourceThreadID := firstNonEmptyTaskString(seed.SourceThreadID, threadIDForHandoff(row)); sourceThreadID != "" {
+	if sourceThreadID := util.FirstNonEmpty(seed.SourceThreadID, handoffrender.ThreadID(row)); sourceThreadID != "" {
 		lines = append(lines, "- source_thread_id: "+sourceThreadID)
 	}
-	if cwd := threadCWDForHandoff(row); cwd != "" {
+	if cwd := handoffrender.ThreadCWD(row); cwd != "" {
 		lines = append(lines, "- cwd: "+cwd)
 	}
 	lines = append(lines,
@@ -137,8 +185,8 @@ func renderTaskHandoffDocument(meta taskHandoffMeta, row *threadstore.Thread, se
 		lines = append(lines, "- No recent message history is available.")
 	} else {
 		for _, msg := range messages {
-			role := firstNonEmptyTaskString(strings.TrimSpace(msg.Role), "message")
-			lines = append(lines, "- "+role+": "+truncateTaskHandoffText(normalizeTaskHandoffText(msg.Content), 320))
+			role := util.FirstNonEmpty(strings.TrimSpace(msg.Role), "message")
+			lines = append(lines, "- "+role+": "+handoffrender.TruncateText(handoffrender.NormalizeText(msg.Content), 320))
 		}
 	}
 	lines = append(lines,
@@ -149,7 +197,6 @@ func renderTaskHandoffDocument(meta taskHandoffMeta, row *threadstore.Thread, se
 		"## Risks",
 		"- This handoff is auto-generated from recent thread activity and may omit earlier context. Re-open the source thread when the next step depends on older details.",
 	)
-	// Phase 3.10a: 长任务进度协议。仅在 task_id 非空时追加，避免出现 _internal/progress/.md 这种坏路径。
 	if taskID := strings.TrimSpace(meta.TaskID); taskID != "" {
 		lines = append(lines,
 			"",
@@ -159,56 +206,9 @@ func renderTaskHandoffDocument(meta taskHandoffMeta, row *threadstore.Thread, se
 			"- 作用：前端 watchdog 据此识别「长任务还在推进」——progress 增长会重置自动续命累计上限，done 出现会终止自动续命。不遵守本协议仅退化为旧上限逻辑，不会让系统出错。",
 		)
 	}
-	return truncateTaskHandoffText(strings.Join(lines, "\n"), taskHandoffContentLimit)
+	return handoffrender.TruncateText(strings.Join(lines, "\n"), taskHandoffContentLimit)
 }
 
-func threadStatusForHandoff(row *threadstore.Thread) string {
-	if row == nil {
-		return ""
-	}
-	return strings.TrimSpace(row.Status)
-}
-
-func threadIDForHandoff(row *threadstore.Thread) string {
-	if row == nil {
-		return ""
-	}
-	return strings.TrimSpace(row.ThreadID)
-}
-
-func threadCWDForHandoff(row *threadstore.Thread) string {
-	if row == nil {
-		return ""
-	}
-	return strings.TrimSpace(row.Cwd)
-}
-
-func normalizeTaskHandoffText(raw string) string {
-	return strings.Join(strings.Fields(strings.ReplaceAll(strings.TrimSpace(raw), "\r\n", "\n")), " ")
-}
-
-func truncateTaskHandoffText(raw string, limit int) string {
-	raw = strings.TrimSpace(raw)
-	if raw == "" || limit <= 0 {
-		return ""
-	}
-	runes := []rune(raw)
-	if len(runes) <= limit {
-		return raw
-	}
-	return strings.TrimSpace(string(runes[:limit])) + "…"
-}
-
-func latestTurnOutcome(ev turndto.TurnCompleted) string {
-	return truncateTaskHandoffText(firstNonEmptyTaskString(ev.Summary, ev.Result, ev.Message), 1200)
-}
-
-// onTurnCompleted is the bus callback for turndto.TurnCompleted. P22 P2
-// thread S3: the callback is cheap Enqueue only. The taskHandoffWorker
-// owns the refreshTaskHandoffFromThread slow-path (threadStore read +
-// document render + sharedFiles.Upsert) and runs it off the dispatcher
-// goroutine. Multiple events for the same threadID coalesce to the
-// latest seed (last-write-wins matches pre-P22 behavior).
 func (s *service) onTurnCompleted(ev turndto.TurnCompleted) {
 	if s == nil || s.taskHandoffWorker == nil || s.sharedFiles == nil || !ev.Success {
 		return
@@ -220,7 +220,7 @@ func (s *service) onTurnCompleted(ev turndto.TurnCompleted) {
 	s.taskHandoffWorker.Enqueue(threadID, taskHandoffRenderSeed{
 		SourceThreadID: threadID,
 		Status:         strings.TrimSpace(ev.Status),
-		Outcome:        latestTurnOutcome(ev),
+		Outcome:        handoffrender.TruncateText(util.FirstNonEmpty(ev.Summary, ev.Result, ev.Message), 1200),
 	})
 }
 

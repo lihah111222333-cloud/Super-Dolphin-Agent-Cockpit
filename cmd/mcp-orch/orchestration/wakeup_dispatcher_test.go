@@ -396,6 +396,53 @@ func TestWakeupDispatcher_RouterTerminalFailureLifecycleHooks(t *testing.T) {
 	}
 }
 
+func TestWakeupDispatcher_RouterFrameworkErrorRetriesWakeup(t *testing.T) {
+	store := &dispatcherStubStore{
+		claimReply: []taskdag.Wakeup{{
+			ID:           58,
+			DagKey:       "dag-1",
+			NodeKey:      "n1",
+			RunID:        int64Ptr(7003),
+			ClaimedBy:    "worker-a",
+			AttemptCount: 1,
+		}},
+		nodesReply: []taskdag.Node{{
+			DagKey:   "dag-1",
+			NodeKey:  "n1",
+			NodeType: "agent",
+			Status:   string(nodeexec.NodeStatusReady),
+			Config:   json.RawMessage(`{"exec":{"agent_key":"alpha"},"first_turn":"hi"}`),
+		}},
+		runningErr: errors.New("running status write failed"),
+	}
+	d, err := NewWakeupDispatcher(store, &dispatcherStubLauncher{}, nil, WakeupDispatcherConfig{ClaimedBy: "worker-a"})
+	if err != nil {
+		t.Fatalf("NewWakeupDispatcher err = %v", err)
+	}
+	agentExec := newTestAgentExecutor(&stubAgentLauncher{threadID: "thread-launched"})
+	d.WithNodeRouter(NewNodeExecutorRouter(store, agentExec, nil, nil, nil, nil))
+
+	n, err := d.ProcessBatch(context.Background())
+	if err != nil {
+		t.Fatalf("ProcessBatch err = %v", err)
+	}
+	if n != 1 {
+		t.Fatalf("ProcessBatch handled = %d, want 1", n)
+	}
+	if len(store.retryCalls) != 1 {
+		t.Fatalf("RetryWakeup calls = %d, want 1 for framework error", len(store.retryCalls))
+	}
+	if len(store.failCalls) != 0 {
+		t.Fatalf("FailWakeup calls = %d, want 0 for transient framework error", len(store.failCalls))
+	}
+	if len(store.markSentCalls) != 0 {
+		t.Fatalf("MarkWakeupSent calls = %d, want 0 when framework error is surfaced", len(store.markSentCalls))
+	}
+	if !strings.Contains(store.retryCalls[0].LastError, "ready->running write failed") {
+		t.Fatalf("RetryWakeup LastError = %q, want ready->running write failed", store.retryCalls[0].LastError)
+	}
+}
+
 func TestWakeupDispatcher_RetryExhaustedLifecycleHooksKeepFailureClass(t *testing.T) {
 	events := []string{}
 	store := &dispatcherStubStore{
@@ -424,7 +471,7 @@ func TestWakeupDispatcher_RetryExhaustedLifecycleHooksKeepFailureClass(t *testin
 		t.Fatalf("NewWakeupDispatcher err = %v", err)
 	}
 	launcher := &stubAgentLauncher{err: errors.New("context_length_exceeded")}
-	agentExec := nodeexec.NewAgentExecutor(launcher, nodeexec.WithHooks(recordingLifecycleOutcomeHooks(&events)))
+	agentExec := newTestAgentExecutor(launcher, nodeexec.WithHooks(recordingLifecycleOutcomeHooks(&events)))
 	d.WithNodeRouter(NewNodeExecutorRouter(store, agentExec, nil, nil, nil, nil))
 
 	n, err := d.ProcessBatch(context.Background())
@@ -473,7 +520,7 @@ func TestWakeupDispatcher_SQLRetryHardCapInvokesLifecycleHooks(t *testing.T) {
 		t.Fatalf("NewWakeupDispatcher err = %v", err)
 	}
 	launcher := &stubAgentLauncher{err: errors.New("connection refused")}
-	agentExec := nodeexec.NewAgentExecutor(launcher, nodeexec.WithHooks(recordingLifecycleOutcomeHooks(&events)))
+	agentExec := newTestAgentExecutor(launcher, nodeexec.WithHooks(recordingLifecycleOutcomeHooks(&events)))
 	d.WithNodeRouter(NewNodeExecutorRouter(store, agentExec, nil, nil, nil, nil))
 
 	n, err := d.ProcessBatch(context.Background())
