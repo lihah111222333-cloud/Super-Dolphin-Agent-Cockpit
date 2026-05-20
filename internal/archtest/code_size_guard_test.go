@@ -134,8 +134,7 @@ func runBaselineRatchetAndShrink(t *testing.T, label, blPath string, opts archte
 	t.Helper()
 	blInfo, loadErr := archtest.LoadBaseline(blPath)
 	if loadErr != nil {
-		t.Logf("⚠️ load %s baseline failed: %v", label, loadErr)
-		return
+		t.Fatalf("load %s baseline failed: %v", label, loadErr)
 	}
 	if len(blInfo.Data) == 0 {
 		return
@@ -148,20 +147,21 @@ func runBaselineRatchetAndShrink(t *testing.T, label, blPath string, opts archte
 		}
 		t.Fatalf("%s baseline ratchet regressions (%d):\n%s", label, len(result.Violations), strings.Join(lines, "\n"))
 	}
-	fileSet := buildFileSetFiltered(opts, root, testsOnly)
+	fileSet := buildFileSetFiltered(t, opts, root, testsOnly)
 	newBL, stats := archtest.ShrinkBaseline(blInfo.Data, fileSet, func(relPath string) archtest.FileMetrics {
 		return archtest.MeasureFileMetrics(filepath.Join(root, filepath.FromSlash(relPath)))
 	})
 	if stats.Changed() {
 		if saveErr := archtest.SaveBaseline(blPath, newBL); saveErr != nil {
-			t.Logf("⚠️ save shrunk %s baseline failed: %v", label, saveErr)
+			t.Fatalf("save shrunk %s baseline failed: %v", label, saveErr)
 		} else {
 			t.Logf("🧹 %s baseline auto-shrunk: shrunk=%d graduated=%d removed=%d", label, stats.Shrunk, stats.Graduated, stats.Removed)
 		}
 	}
 }
 
-func buildFileSetFiltered(opts archtest.CheckOptions, root string, testsOnly bool) map[string]bool {
+func buildFileSetFiltered(t *testing.T, opts archtest.CheckOptions, root string, testsOnly bool) map[string]bool {
+	t.Helper()
 	scanRoots := opts.ScanRoots
 	if len(scanRoots) == 0 {
 		scanRoots = archtest.DefaultScanRoots()
@@ -169,8 +169,11 @@ func buildFileSetFiltered(opts archtest.CheckOptions, root string, testsOnly boo
 	fileSet := make(map[string]bool)
 	for _, sr := range scanRoots {
 		absRoot := filepath.Join(root, sr)
-		_ = filepath.Walk(absRoot, func(path string, info os.FileInfo, err error) error {
-			if err != nil || info.IsDir() {
+		if err := filepath.Walk(absRoot, func(path string, info os.FileInfo, err error) error {
+			if err != nil {
+				return err
+			}
+			if info.IsDir() {
 				return nil
 			}
 			if !strings.HasSuffix(path, ".go") {
@@ -181,11 +184,13 @@ func buildFileSetFiltered(opts archtest.CheckOptions, root string, testsOnly boo
 			}
 			rel, relErr := filepath.Rel(root, path)
 			if relErr != nil {
-				return nil
+				return relErr
 			}
 			fileSet[filepath.ToSlash(rel)] = true
 			return nil
-		})
+		}); err != nil {
+			t.Fatalf("build file set failed for %s: %v", absRoot, err)
+		}
 	}
 	return fileSet
 }

@@ -43,8 +43,11 @@ func TestNestedResolveConditionalDelta(t *testing.T) {
 	}
 	buildCtx := contract.BuildCtx{GitRoot: repoRoot, CWD: cwd}
 	deps := newTestDependencies(testDepsOptions{})
-	baseSources := ResolveClaudeMdSources(context.Background(), ClaudeMdResolveConfig{BuildCtx: buildCtx, Dependencies: deps})
-	gotSources := resolveNestedConditionalSources(context.Background(), buildCtx, deps, target, baseSources)
+	baseSources := mustResolveClaudeMdSources(t, ClaudeMdResolveConfig{BuildCtx: buildCtx, Dependencies: deps})
+	gotSources, err := resolveNestedConditionalSources(context.Background(), buildCtx, deps, target, baseSources)
+	if err != nil {
+		t.Fatalf("resolveNestedConditionalSources() error = %v", err)
+	}
 	got := sourcePaths(gotSources)
 	want := []string{
 		mustResolvedClaudePath(t, filepath.Join(cwd, ".claude", "rules", "parent.md")),

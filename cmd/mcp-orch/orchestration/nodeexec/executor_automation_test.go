@@ -144,7 +144,7 @@ func TestAutomationExecutor_Timeout(t *testing.T) {
 
 	out, err := exec.Execute(context.Background(), node, RunContext{})
 	if err != nil {
-		t.Fatalf("Execute() framework error = %v, want nil", err)
+		t.Fatalf("Execute() framework error = %v, want classified command timeout outcome", err)
 	}
 	if out.Status != NodeStatusFailed {
 		t.Fatalf("Status = %q, want %q", out.Status, NodeStatusFailed)

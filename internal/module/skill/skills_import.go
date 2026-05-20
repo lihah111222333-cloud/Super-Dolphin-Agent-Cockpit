@@ -246,7 +246,11 @@ func (s *service) importSkillUnit(resolvedSource, name, cwd, scope, personalType
 	if err != nil {
 		return nil, err
 	}
-	if err := RequireSkillSystemReview(normalizedScope, skillSlug(targetName), skillDirContentHash(resolvedSource), RepoFingerprint(projectRootForCWD(cwd, "")), "", ""); err != nil {
+	sourceHash, err := skillDirContentHash(resolvedSource)
+	if err != nil {
+		return nil, err
+	}
+	if err := RequireSkillSystemReview(normalizedScope, skillSlug(targetName), sourceHash, RepoFingerprint(projectRootForCWD(cwd, "")), "", ""); err != nil {
 		return nil, err
 	}
 	root, err := s.prepareScopedSkillsRoot(cwd, normalizedScope, normalizedPersonalType)

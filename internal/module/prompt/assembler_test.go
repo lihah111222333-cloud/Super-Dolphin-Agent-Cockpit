@@ -206,7 +206,7 @@ func TestAssembleStartSuppressesUserDisabledToolsForRequestedProvider(t *testing
 	}
 }
 
-func TestAssembleStartFallsBackOnBuildError(t *testing.T) {
+func TestAssembleStartReturnsErrorOnBuildError(t *testing.T) {
 	svc := NewService(&Config{}, nil)
 	if err := svc.RegisterSection(PromptSection{
 		Name:   "broken",
@@ -225,24 +225,17 @@ func TestAssembleStartFallsBackOnBuildError(t *testing.T) {
 		DeveloperInstructions: "dev",
 		Provider:              "codex",
 	})
-	if err != nil {
-		t.Fatalf("AssembleStart() error = %v", err)
+	if err == nil {
+		t.Fatalf("AssembleStart() error = nil, want section build error")
 	}
-	if !strings.Contains(assembly.BaseInstructions, "base") || assembly.DeveloperInstructions != "dev" || assembly.DisplayName != "" {
-		t.Fatalf("fallback assembly = %#v (DisplayName must be empty when only Prompt is set)", assembly)
+	if assembly.BaseInstructions != "" || assembly.DeveloperInstructions != "" || assembly.DisplayName != "" {
+		t.Fatalf("assembly = %#v, want zero value on build error", assembly)
 	}
-	// Phase 3 invariant: system-reminder content (currentDate, runtimeExtras,
-	// gitStatus) must never leak into BaseInstructions — it flows through the
-	// structured UserContext/UserContextText/SystemContext fields instead so
-	// provider bridges can route it into the synthetic user meta message.
 	if strings.Contains(assembly.BaseInstructions, "<system-reminder>") {
-		t.Fatalf("fallback BaseInstructions must not embed system-reminder: %q", assembly.BaseInstructions)
-	}
-	if _, ok := assembly.UserContext["currentDate"]; !ok {
-		t.Fatalf("fallback UserContext missing currentDate: %#v", assembly.UserContext)
+		t.Fatalf("error BaseInstructions must not embed system-reminder: %q", assembly.BaseInstructions)
 	}
 	if len(assembly.ResolvedSections) != 0 {
-		t.Fatalf("ResolvedSections = %d, want 0 on fallback", len(assembly.ResolvedSections))
+		t.Fatalf("ResolvedSections = %d, want 0 on build error", len(assembly.ResolvedSections))
 	}
 }
 

@@ -139,7 +139,7 @@ func (s *service) GetAgentDetail(ctx context.Context, agentID string) (*AgentDet
 	group.Go(func() error {
 		reportResp, reportErr = s.orchestration.GetReport(groupCtx, id)
 		if reportErr != nil {
-			return nil
+			return reportErr
 		}
 		return nil
 	})

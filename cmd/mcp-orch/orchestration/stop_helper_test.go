@@ -226,9 +226,8 @@ func TestStopSpawnedAgent_SkippedNoThreadID_NotFoundSentinel(t *testing.T) {
 	svc := &stopHelperServiceSpy{}
 
 	result, err := StopSpawnedAgent(context.Background(), threads, svc, "thr-missing")
-	if err != nil {
-		t.Fatalf("not-found sentinel must collapse to no_thread_id w/o error, got %v",
-			err)
+	if !errors.Is(err, errAgentNotFound) {
+		t.Fatalf("StopSpawnedAgent error = %v, want agent not found", err)
 	}
 	assertResult(t, result, StopResultSkippedNoThreadID)
 	assertMetric(t, metrics, StopResultSkippedNoThreadID)

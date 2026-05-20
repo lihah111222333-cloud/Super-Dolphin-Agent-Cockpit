@@ -135,12 +135,15 @@ func freezeBaselineFiltered(opts CheckOptions, testsOnly bool) Baseline {
 	if repoRoot == "" {
 		repoRoot = "."
 	}
-	files := collectGoFilesFiltered(repoRoot, opts.scanRoots(), opts.skipDirs(), testsOnly)
+	files, err := collectGoFilesFiltered(repoRoot, opts.scanRoots(), opts.skipDirs(), testsOnly)
+	if err != nil {
+		panic(fmt.Errorf("collect baseline files: %w", err))
+	}
 	bl := make(Baseline)
 	for _, absPath := range files {
 		relPath, err := filepath.Rel(repoRoot, absPath)
 		if err != nil {
-			continue
+			panic(fmt.Errorf("baseline file relative path: %w", err))
 		}
 		relPath = filepath.ToSlash(relPath)
 		m := MeasureFileMetrics(absPath)
@@ -153,16 +156,20 @@ func freezeBaselineFiltered(opts CheckOptions, testsOnly bool) Baseline {
 
 // collectGoFiles 收集扫描根下的所有 Go 文件绝对路径（含测试文件）。
 func collectGoFiles(repoRoot string, scanRoots []string, skipDirs map[string]bool) []string {
-	return collectGoFilesFiltered(repoRoot, scanRoots, skipDirs, false)
+	files, err := collectGoFilesFiltered(repoRoot, scanRoots, skipDirs, false)
+	if err != nil {
+		panic(fmt.Errorf("collect go files: %w", err))
+	}
+	return files
 }
 
-func collectGoFilesFiltered(repoRoot string, scanRoots []string, skipDirs map[string]bool, testsOnly bool) []string {
+func collectGoFilesFiltered(repoRoot string, scanRoots []string, skipDirs map[string]bool, testsOnly bool) ([]string, error) {
 	var files []string
 	for _, root := range scanRoots {
 		absRoot := filepath.Join(repoRoot, root)
-		_ = filepath.Walk(absRoot, func(path string, info os.FileInfo, err error) error {
+		if err := filepath.Walk(absRoot, func(path string, info os.FileInfo, err error) error {
 			if err != nil {
-				return nil
+				return err
 			}
 			if info.IsDir() {
 				if skipDirs[info.Name()] {
@@ -179,7 +186,9 @@ func collectGoFilesFiltered(repoRoot string, scanRoots []string, skipDirs map[st
 			}
 			files = append(files, path)
 			return nil
-		})
+		}); err != nil {
+			return nil, err
+		}
 	}
-	return files
+	return files, nil
 }

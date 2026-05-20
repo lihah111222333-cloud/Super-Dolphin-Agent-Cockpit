@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strconv"
 	"strings"
 	"sync"
@@ -23,6 +24,8 @@ const (
 	transportConnectRetryMaxWait = time.Second
 	transportHealthPingTimeout   = time.Second
 )
+
+var errConnectRetryPending = errors.New("codexapp: connect retry pending")
 
 type transport struct {
 	serverURL  string
@@ -220,7 +223,7 @@ func (t *transport) connect(ctx context.Context) error {
 	retryDelay := transportConnectRetryDelay
 	for {
 		connected, err := t.connectAttempt(ctx)
-		if err != nil {
+		if err != nil && !errors.Is(err, errConnectRetryPending) {
 			return err
 		}
 		if connected {
@@ -238,13 +241,16 @@ func (t *transport) connectAttempt(ctx context.Context) (bool, error) {
 		if procErr := t.localProcessFailure(); procErr != nil {
 			return false, procErr
 		}
-		return false, nil
+		return false, fmt.Errorf("%w: %w", errConnectRetryPending, err)
 	}
 	if err := t.connectOnce(ctx); err != nil {
 		if procErr := t.localProcessFailure(); procErr != nil {
 			return false, procErr
 		}
-		return false, nil
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return false, ctxErr
+		}
+		return false, fmt.Errorf("%w: %w", errConnectRetryPending, err)
 	}
 	return true, nil
 }

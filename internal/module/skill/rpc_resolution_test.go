@@ -483,7 +483,7 @@ func resolutionPreviewHashes(t *testing.T, canonicalDir, mirrorDir string) (stri
 	if err != nil {
 		t.Fatalf("stableMirrorDirectoryHash: %v", err)
 	}
-	return skillDirContentHash(canonicalDir), beforeMirror
+	return mustSkillDirContentHash(t, canonicalDir), beforeMirror
 }
 
 func dispatchResolutionList(t *testing.T, server *platformrpc.Server, project string) skillResolutionListResult {
@@ -578,7 +578,7 @@ func assertMutatingPreviewProof(t *testing.T, item skillResolutionPreviewItem, s
 
 func assertResolutionPreviewNoWrite(t *testing.T, canonicalDir, mirrorDir, beforeCanonical, beforeMirror string) {
 	t.Helper()
-	if after := skillDirContentHash(canonicalDir); after != beforeCanonical {
+	if after := mustSkillDirContentHash(t, canonicalDir); after != beforeCanonical {
 		t.Fatalf("canonical changed during preview: before=%s after=%s", beforeCanonical, after)
 	}
 	afterMirror, err := stableMirrorDirectoryHash(mirrorDir)

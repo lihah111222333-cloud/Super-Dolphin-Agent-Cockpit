@@ -352,7 +352,7 @@ func executeSandbox(
 ) (any, error) {
 	result, err := sandbox.Run(ctx, request)
 	if err != nil {
-		return CodeRunFailure{Error: err.Error(), ExitCode: -1}, nil
+		return CodeRunFailure{Success: false, Error: err.Error(), ExitCode: -1}, nil
 	}
 	return CodeRunResult{
 		Success:   result.ExitCode == 0,

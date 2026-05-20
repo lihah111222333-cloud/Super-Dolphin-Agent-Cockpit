@@ -224,8 +224,8 @@ func TestSkillMirrorReconcilerMatchesPersonalManifestByPersonalType(t *testing.T
 	}
 
 	conflicts, err := DetectSkillMirrorConflicts([]canonicalSkillRecord{
-		{Name: "notes", Scope: skillScopePersonal, PersonalType: personalSkillTypeAgent, Dir: agentDir, DirHash: skillDirContentHash(agentDir)},
-		{Name: "notes", Scope: skillScopePersonal, PersonalType: personalSkillTypeUser, Dir: userDir, DirHash: skillDirContentHash(userDir)},
+		{Name: "notes", Scope: skillScopePersonal, PersonalType: personalSkillTypeAgent, Dir: agentDir, DirHash: mustSkillDirContentHash(t, agentDir)},
+		{Name: "notes", Scope: skillScopePersonal, PersonalType: personalSkillTypeUser, Dir: userDir, DirHash: mustSkillDirContentHash(t, userDir)},
 	}, []SkillMirrorTarget{target})
 	if err != nil {
 		t.Fatalf("DetectSkillMirrorConflicts: %v", err)
@@ -264,7 +264,7 @@ func TestSkillMirrorReconcilerSyncBackFailsClosedWithoutAudit(t *testing.T) {
 		t.Fatalf("PublishSkillMirrors initial: %v", err)
 	}
 	writeFileWithMode(t, filepath.Join(target.Root, "build", "references", "guide.md"), "mirror edit\n", 0o644)
-	beforeHash := skillDirContentHash(skillDir)
+	beforeHash := mustSkillDirContentHash(t, skillDir)
 	previewHash, err := stableMirrorDirectoryHash(filepath.Join(target.Root, "build"))
 	if err != nil {
 		t.Fatalf("stableMirrorDirectoryHash: %v", err)
@@ -280,7 +280,7 @@ func TestSkillMirrorReconcilerSyncBackFailsClosedWithoutAudit(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "audit") {
 		t.Fatalf("ResolveSkillMirrorDrift error = %v, want audit failure", err)
 	}
-	if afterHash := skillDirContentHash(skillDir); afterHash != beforeHash {
+	if afterHash := mustSkillDirContentHash(t, skillDir); afterHash != beforeHash {
 		t.Fatalf("canonical mutated on audit failure: before=%s after=%s", beforeHash, afterHash)
 	}
 }
@@ -326,7 +326,7 @@ func TestSkillMirrorReconcilerSyncBackCopyFailureKeepsCanonical(t *testing.T) {
 	project := t.TempDir()
 	skillDir := filepath.Join(project, ".agent", "skills", "build")
 	writeSkillWithSupportFiles(t, skillDir, "build")
-	beforeHash := skillDirContentHash(skillDir)
+	beforeHash := mustSkillDirContentHash(t, skillDir)
 	records, err := newCanonicalStore("").scan(project)
 	if err != nil {
 		t.Fatalf("scan canonical records: %v", err)
@@ -343,7 +343,7 @@ func TestSkillMirrorReconcilerSyncBackCopyFailureKeepsCanonical(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "injected copy failure") {
 		t.Fatalf("replaceSkillDirFromMirrorWithCopy error = %v, want injected copy failure", err)
 	}
-	if afterHash := skillDirContentHash(skillDir); afterHash != beforeHash {
+	if afterHash := mustSkillDirContentHash(t, skillDir); afterHash != beforeHash {
 		t.Fatalf("canonical mutated on copy failure: before=%s after=%s", beforeHash, afterHash)
 	}
 }

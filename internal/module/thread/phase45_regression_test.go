@@ -111,6 +111,7 @@ func TestPhase45BaseInstructionsStayOutOfPromptStorage(t *testing.T) {
 	if _, err := svc.Start(context.Background(), StartRequest{
 		AgentID:          "agent-base",
 		Provider:         "codex",
+		CWD:              wantStartCWD(t),
 		BaseInstructions: "system prompt",
 	}); err != nil {
 		t.Fatalf("Start() error = %v", err)
@@ -291,6 +292,7 @@ func TestPhase45StartPersistsPromptSnapshot(t *testing.T) {
 	_, err := svc.Start(context.Background(), StartRequest{
 		AgentID:  "agent-start",
 		Provider: "codex",
+		CWD:      wantStartCWD(t),
 		Name:     "start name",
 	})
 	if err != nil {
@@ -326,6 +328,7 @@ func TestPhase45ExplicitNameWinsOverLegacyPromptFallback(t *testing.T) {
 	if _, err := svc.Start(context.Background(), StartRequest{
 		AgentID:  "agent-name",
 		Provider: "codex",
+		CWD:      wantStartCWD(t),
 		Name:     "clean name",
 		Prompt:   "legacy prompt",
 		PromptAssemblyRef: phase45PromptAssemblyStub{startAssembly: contract.StartAssembly{

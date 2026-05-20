@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
@@ -31,9 +32,9 @@ func TestNestedResolveTurnAttachmentsLifecycle(t *testing.T) {
 	provider := NewClaudeMdSourcesProvider(deps, nil, NewNestedRuntime(deps))
 	buildCtx := contract.BuildCtx{GitRoot: repoRoot, CWD: cwd}
 	turn := contract.TurnInput{ThreadID: "thread-1", Attachments: []string{target}}
-	baseSources := provider.ResolveClaudeMdSources(context.Background(), buildCtx)
+	baseSources := mustProviderResolveClaudeMdSources(t, provider, buildCtx)
 
-	first := provider.ResolveTurnAttachments(context.Background(), buildCtx, turn, baseSources)
+	first := mustResolveNestedTurnAttachments(t, provider, buildCtx, turn, baseSources)
 	if len(first) != 1 {
 		t.Fatalf("ResolveTurnAttachments(first) len = %d, want 1", len(first))
 	}
@@ -47,13 +48,13 @@ func TestNestedResolveTurnAttachmentsLifecycle(t *testing.T) {
 		t.Fatalf("attachment content = %q, want %q", got, "use Go style")
 	}
 
-	second := provider.ResolveTurnAttachments(context.Background(), buildCtx, turn, baseSources)
+	second := mustResolveNestedTurnAttachments(t, provider, buildCtx, turn, baseSources)
 	if len(second) != 0 {
 		t.Fatalf("ResolveTurnAttachments(second) = %#v, want no duplicate attachments", second)
 	}
 
 	provider.OnPromptInvalidate(contract.InvalidateCompact)
-	third := provider.ResolveTurnAttachments(context.Background(), buildCtx, turn, baseSources)
+	third := mustResolveNestedTurnAttachments(t, provider, buildCtx, turn, baseSources)
 	if len(third) != 1 {
 		t.Fatalf("ResolveTurnAttachments(after compact) len = %d, want 1", len(third))
 	}
@@ -67,7 +68,8 @@ func TestNestedResolveTurnAttachmentsHardDeniesManagedPaths(t *testing.T) {
 	provider := NewClaudeMdSourcesProvider(deps, nil, NewNestedRuntime(deps))
 	turn := contract.TurnInput{ThreadID: "thread-1", Attachments: []string{filepath.Join(autoRoot, "project.md")}}
 	buildCtx := contract.BuildCtx{GitRoot: projectRoot, CWD: projectRoot}
-	if got := provider.ResolveTurnAttachments(context.Background(), buildCtx, turn, nil); len(got) != 0 {
+	got := mustResolveNestedTurnAttachments(t, provider, buildCtx, turn, nil)
+	if len(got) != 0 {
 		t.Fatalf("ResolveTurnAttachments(managed) = %#v, want nil", got)
 	}
 	snapshot := provider.nested.snapshot("thread-1")
@@ -91,7 +93,7 @@ func TestNestedResolveTurnAttachmentsUsesSharedAttachmentLaneForMentionAndIDEPat
 	deps := newTestDependencies(testDepsOptions{nestedEnabled: true})
 	provider := NewClaudeMdSourcesProvider(deps, nil, NewNestedRuntime(deps))
 	buildCtx := contract.BuildCtx{GitRoot: repoRoot, CWD: cwd}
-	baseSources := provider.ResolveClaudeMdSources(context.Background(), buildCtx)
+	baseSources := mustProviderResolveClaudeMdSources(t, provider, buildCtx)
 	for _, name := range []string{"mentioned_file", "ide_opened_file"} {
 		t.Run(name, func(t *testing.T) {
 			target := filepath.Join(targetDir, name+".go")
@@ -99,10 +101,50 @@ func TestNestedResolveTurnAttachmentsUsesSharedAttachmentLaneForMentionAndIDEPat
 				t.Fatalf("WriteFile(%q) error = %v", target, err)
 			}
 			turn := contract.TurnInput{ThreadID: name, Attachments: []string{target}}
-			attachments := provider.ResolveTurnAttachments(context.Background(), buildCtx, turn, baseSources)
+			attachments := mustResolveNestedTurnAttachments(t, provider, buildCtx, turn, baseSources)
 			if len(attachments) != 1 || attachments[0].Path != mustResolvedClaudePath(t, rulePath) {
 				t.Fatalf("ResolveTurnAttachments(%s) = %#v, want rule %q", name, attachments, mustResolvedClaudePath(t, rulePath))
 			}
 		})
 	}
+}
+
+func TestNestedMemoryAttachmentReturnsStatErrors(t *testing.T) {
+	_, ok, err := nestedMemoryAttachment(ClaudeMdSource{
+		Path:    filepath.Join(t.TempDir(), "bad\x00path"),
+		Content: "use Go style",
+	})
+	if err == nil {
+		t.Fatal("nestedMemoryAttachment() error = nil, want stat error")
+	}
+	if ok {
+		t.Fatal("nestedMemoryAttachment() ok = true, want false on stat error")
+	}
+	if !strings.Contains(err.Error(), "nested memory stat") {
+		t.Fatalf("nestedMemoryAttachment() error = %v, want stat context", err)
+	}
+}
+
+func mustProviderResolveClaudeMdSources(t *testing.T, provider *ClaudeMdSourcesProvider, buildCtx contract.BuildCtx) []ClaudeMdSource {
+	t.Helper()
+	sources, err := provider.ResolveClaudeMdSources(context.Background(), buildCtx)
+	if err != nil {
+		t.Fatalf("ResolveClaudeMdSources() error = %v", err)
+	}
+	return sources
+}
+
+func mustResolveNestedTurnAttachments(
+	t *testing.T,
+	provider *ClaudeMdSourcesProvider,
+	buildCtx contract.BuildCtx,
+	turn contract.TurnInput,
+	baseSources []ClaudeMdSource,
+) []dto.AttachmentEnvelope {
+	t.Helper()
+	attachments, err := provider.ResolveTurnAttachments(context.Background(), buildCtx, turn, baseSources)
+	if err != nil {
+		t.Fatalf("ResolveTurnAttachments() error = %v", err)
+	}
+	return attachments
 }

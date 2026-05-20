@@ -412,7 +412,7 @@ func removeSameNameDuplicateSources(item skillResolutionItem, selected skillReso
 			return "", err
 		}
 	}
-	return skillDirContentHash(filepath.FromSlash(selected.Path)), nil
+	return skillDirContentHash(filepath.FromSlash(selected.Path))
 }
 
 func removeSameNameDuplicateSource(source skillResolutionSource) error {
@@ -503,7 +503,7 @@ func renameSameNameSource(source skillResolutionSource, targetDir, newName strin
 		_ = os.Rename(targetDir, dir)
 		return "", err
 	}
-	return skillDirContentHash(targetDir), nil
+	return skillDirContentHash(targetDir)
 }
 
 func validateSameNameSourcePreview(preview skillResolutionPreviewItem, sourcePath, targetPath string) error {

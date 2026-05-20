@@ -144,6 +144,36 @@ func TestHandleScopedToolsCallWithCallerUsesTrustedScope(t *testing.T) {
 	}
 }
 
+func TestHandleScopedToolsCallWithCallerWrapsSelectedToolErrors(t *testing.T) {
+	params := json.RawMessage(`{"name":"orchestration_list_agents","arguments":{},"_agentId":"agent-1"}`)
+	toolErr := errors.New("store unavailable")
+
+	result, err := handleScopedToolsCallWithCaller(context.Background(), "orch", params, func(context.Context, string, json.RawMessage) (any, error) {
+		return nil, toolErr
+	})
+	if err != nil {
+		t.Fatalf("handleScopedToolsCallWithCaller() error = %v, want structured tool error", err)
+	}
+	payload, ok := result.(map[string]any)
+	if !ok {
+		t.Fatalf("result = %#v, want map", result)
+	}
+	raw, ok := payload["structuredContent"].(json.RawMessage)
+	if !ok {
+		t.Fatalf("structuredContent = %T, want json.RawMessage", payload["structuredContent"])
+	}
+	if isError, _ := payload["isError"].(bool); !isError {
+		t.Fatalf("isError = %v, want true", payload["isError"])
+	}
+	var envelope common.ToolErrorEnvelope
+	if err := json.Unmarshal(raw, &envelope); err != nil {
+		t.Fatalf("unmarshal envelope: %v", err)
+	}
+	if envelope.Success || envelope.Error != toolErr.Error() {
+		t.Fatalf("envelope = %+v, want failed tool envelope", envelope)
+	}
+}
+
 func scopedToolsCallVerifier(t *testing.T, called *bool) func(context.Context, string, json.RawMessage) (any, error) {
 	t.Helper()
 

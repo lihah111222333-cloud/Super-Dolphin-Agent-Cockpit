@@ -2,8 +2,10 @@ package thread
 
 import (
 	"context"
+	"errors"
 	"testing"
 
+	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
 	bindingstore "github.com/anthropic-ai/super-agent-v3/internal/store/binding"
 	threadstore "github.com/anthropic-ai/super-agent-v3/internal/store/thread"
@@ -60,7 +62,7 @@ func TestServiceGetConfigPrefersSessionValueOverOfflineOverride(t *testing.T) {
 	}
 }
 
-func TestServiceGetConfigFallsBackToOfflineConfigWithoutSession(t *testing.T) {
+func TestServiceGetConfigFailsFastWithoutSession(t *testing.T) {
 	t.Parallel()
 
 	threads := &stubThreadStore{thread: &threadstore.Thread{
@@ -72,22 +74,43 @@ func TestServiceGetConfigFallsBackToOfflineConfigWithoutSession(t *testing.T) {
 	}}
 	svc := newConfigTestService(t, threads, testCodexBindingStore(), &stubSessionProvider{})
 
-	cfg, err := svc.GetConfig(context.Background(), "thread-1")
-	if err != nil {
-		t.Fatalf("GetConfig() error = %v", err)
+	_, err := svc.GetConfig(context.Background(), "thread-1")
+	if !errors.Is(err, contract.ErrSessionNotFound) {
+		t.Fatalf("GetConfig() error = %v, want session not found", err)
 	}
-	assertOfflineConfigFallback(t, cfg)
 
-	runtimeCfg, err := svc.ReadRuntimeConfig(context.Background(), "thread-1")
+	_, err = svc.ReadRuntimeConfig(context.Background(), "thread-1")
+	if !errors.Is(err, contract.ErrSessionNotFound) {
+		t.Fatalf("ReadRuntimeConfig() error = %v, want session not found", err)
+	}
+}
+
+func TestServiceGetConfigPendingLaunchReturnsOfflineConfigWithoutBindingOrSession(t *testing.T) {
+	t.Parallel()
+
+	threads := &stubThreadStore{thread: &threadstore.Thread{
+		ThreadID:      "thread-pending-launch",
+		Model:         "stored-thread-model",
+		Status:        statusCreated,
+		PendingLaunch: true,
+		ConfigOverride: mustStoredThreadConfigRaw(t, storedThreadConfig{
+			Provider:  "codex",
+			Model:     "gpt-5.5",
+			Effort:    "high",
+			Approvals: "never",
+		}),
+	}}
+	svc := newConfigTestService(t, threads, &stubBindingStore{}, &stubSessionProvider{})
+
+	cfg, err := svc.GetConfig(context.Background(), "thread-pending-launch")
 	if err != nil {
-		t.Fatalf("ReadRuntimeConfig() error = %v", err)
+		t.Fatalf("GetConfig() error = %v, want pending_launch offline config", err)
 	}
-	if runtimeCfg["approvalPolicy"] != "never" || runtimeCfg["personality"] != "balanced" {
-		t.Fatalf("ReadRuntimeConfig() = %#v", runtimeCfg)
+	if cfg.Provider != "codex" || cfg.Override.Model != "gpt-5.5" || cfg.Override.Effort != "high" || cfg.Override.Approvals != "never" {
+		t.Fatalf("GetConfig() override = %#v, provider = %q", cfg.Override, cfg.Provider)
 	}
-	toolRouting, _ := runtimeCfg["toolRouting"].(map[string]any)
-	if toolRouting["mode"] != "legacy" || toolRouting["routerProvider"] != "openai_compatible" {
-		t.Fatalf("toolRouting fallback = %#v", toolRouting)
+	if cfg.Effective.Model != "gpt-5.5" || cfg.Effective.Effort != "high" || cfg.Effective.Approvals != "never" {
+		t.Fatalf("GetConfig() effective = %#v", cfg.Effective)
 	}
 }
 
@@ -241,18 +264,23 @@ func TestServiceSetConfigPersistsOverrideForOfflineReadback(t *testing.T) {
 	assertSetConfigResult(t, got, model, approvals)
 	assertStoredOverrideAndModel(t, threads, model, personality)
 
-	svc.sessions = &stubSessionProvider{}
-	offlineCfg, err := svc.GetConfig(context.Background(), "thread-1")
+	activeCfg, err := svc.GetConfig(context.Background(), "thread-1")
 	if err != nil {
-		t.Fatalf("GetConfig() offline error = %v", err)
+		t.Fatalf("GetConfig() error = %v", err)
 	}
-	assertOfflineOverrideReadback(t, offlineCfg, model, effort, approvals)
+	assertOfflineOverrideReadback(t, activeCfg, model, effort, approvals)
 
 	runtimeCfg, err := svc.ReadRuntimeConfig(context.Background(), "thread-1")
 	if err != nil {
-		t.Fatalf("ReadRuntimeConfig() offline error = %v", err)
+		t.Fatalf("ReadRuntimeConfig() error = %v", err)
 	}
 	assertOfflineRuntimeReadback(t, runtimeCfg, approvals, personality)
+
+	svc.sessions = &stubSessionProvider{}
+	_, err = svc.GetConfig(context.Background(), "thread-1")
+	if !errors.Is(err, contract.ErrSessionNotFound) {
+		t.Fatalf("GetConfig() after session removal error = %v, want session not found", err)
+	}
 }
 
 func TestPersistThreadConfigModelPatchSemantics(t *testing.T) {
@@ -279,7 +307,7 @@ func TestPersistThreadConfigModelPatchSemantics(t *testing.T) {
 			if threads.thread.Model != tt.wantModel {
 				t.Fatalf("thread.Model = %q, want %q", threads.thread.Model, tt.wantModel)
 			}
-			if got := decodeStoredThreadConfig(threads.thread.ConfigOverride).Model; got != tt.wantStore {
+			if got := mustDecodeStoredThreadConfig(t, threads.thread.ConfigOverride).Model; got != tt.wantStore {
 				t.Fatalf("stored override model = %q, want %q", got, tt.wantStore)
 			}
 		})
@@ -387,7 +415,7 @@ func assertSetConfigResult(t *testing.T, got dto.ThreadConfig, model string, app
 
 func assertStoredOverrideAndModel(t *testing.T, threads *stubThreadStore, model string, personality string) {
 	t.Helper()
-	if stored := decodeStoredThreadConfig(threads.thread.ConfigOverride); stored.Model != model || stored.Personality != personality {
+	if stored := mustDecodeStoredThreadConfig(t, threads.thread.ConfigOverride); stored.Model != model || stored.Personality != personality {
 		t.Fatalf("stored override = %#v", stored)
 	}
 	if threads.thread.Model != model {

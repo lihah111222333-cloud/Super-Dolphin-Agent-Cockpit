@@ -14,6 +14,7 @@ type errorPronePatternGuard struct {
 
 func postScanViolations(repoRoot string, scanRoots []string, stats map[string]*packageStat) []Violation {
 	violations := deadKeyViolations(repoRoot, scanRoots, stats)
+	violations = append(violations, silentFallbackReturnViolations(repoRoot, scanRoots)...)
 	return append(violations, errorPronePatternViolations(repoRoot)...)
 }
 

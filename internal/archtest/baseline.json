@@ -1196,7 +1196,7 @@
     "max_underscore": 0,
     "global_vars": 0,
     "panic_count": 0,
-    "naked_returns": 2,
+    "naked_returns": 1,
     "empty_funcs": 0,
     "todo_count": 0,
     "max_struct_fields": 7

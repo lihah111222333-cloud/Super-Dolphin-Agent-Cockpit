@@ -14,8 +14,10 @@ import (
 func TestResolveStartConfigAppliesDefaultsAndDangerPolicy(t *testing.T) {
 	t.Parallel()
 
+	cwd := wantStartCWD(t)
 	req, err := resolveStartConfig(StartRequest{
 		Provider: " Claude ",
+		CWD:      cwd,
 		Sandbox:  json.RawMessage(`{"type":"danger-full-access"}`),
 	})
 	if err != nil {
@@ -24,41 +26,20 @@ func TestResolveStartConfigAppliesDefaultsAndDangerPolicy(t *testing.T) {
 	if req.Provider != "claude" {
 		t.Fatalf("provider = %q, want claude", req.Provider)
 	}
-	if req.CWD != wantStartCWD(t) {
-		t.Fatalf("cwd = %q, want %q", req.CWD, wantStartCWD(t))
+	if req.CWD != cwd {
+		t.Fatalf("cwd = %q, want %q", req.CWD, cwd)
 	}
 	if req.ApprovalPolicy != "never" {
 		t.Fatalf("approvalPolicy = %q, want never", req.ApprovalPolicy)
 	}
 }
 
-func TestResolveStartConfigDoesNotSynthesizeProcessCWD(t *testing.T) {
+func TestResolveStartConfigRejectsMissingCWD(t *testing.T) {
 	t.Parallel()
 
-	req, err := resolveStartConfig(StartRequest{Provider: "codex"})
-	if err != nil {
-		t.Fatalf("resolveStartConfig() error = %v", err)
-	}
-	if req.CWD != "" {
-		t.Fatalf("cwd = %q, want empty when caller did not provide a workspace", req.CWD)
-	}
-}
-
-func TestStartSessionDoesNotSynthesizeProcessCWDForDot(t *testing.T) {
-	t.Parallel()
-
-	starter := &startOnlySessionStarter{onStart: func(_ context.Context, req dto.StartSessionRequest) (contract.Session, error) {
-		if req.CWD != "" {
-			t.Fatalf("StartSession CWD = %q, want empty for untrusted dot cwd", req.CWD)
-		}
-		return &stubSession{threadID: "provider-thread-1"}, nil
-	}}
-	svc := &service{starter: starter}
-	if _, err := svc.startSession(context.Background(), StartRequest{
-		Provider: "codex",
-		CWD:      ".",
-	}, contract.StartInput{Provider: "codex"}, contract.StartAssembly{}, "agent-dot"); err != nil {
-		t.Fatalf("startSession() error = %v", err)
+	_, err := resolveStartConfig(StartRequest{Provider: "codex"})
+	if err == nil || !strings.Contains(err.Error(), "cwd is required") {
+		t.Fatalf("resolveStartConfig() error = %v, want cwd required", err)
 	}
 }
 
@@ -71,27 +52,51 @@ func TestResolveStartConfigRejectsInvalidProvider(t *testing.T) {
 	}
 }
 
+func TestResolveStartConfigRejectsDotCWD(t *testing.T) {
+	t.Parallel()
+
+	_, err := resolveStartConfig(StartRequest{Provider: "codex", CWD: "."})
+	if err == nil || !strings.Contains(err.Error(), "cwd must be explicit") {
+		t.Fatalf("resolveStartConfig() error = %v, want explicit cwd error", err)
+	}
+}
+
 func TestResolveStartConfigRejectsInvalidApprovalPolicy(t *testing.T) {
 	t.Parallel()
 
-	_, err := resolveStartConfig(StartRequest{ApprovalPolicy: "later"})
+	_, err := resolveStartConfig(StartRequest{Provider: "codex", CWD: wantStartCWD(t), ApprovalPolicy: "later"})
 	if err == nil || !strings.Contains(err.Error(), "invalid approval policy") {
 		t.Fatalf("resolveStartConfig() error = %v, want invalid approval policy", err)
 	}
 }
 
-func TestResolveStartConfigDropsMalformedSandbox(t *testing.T) {
+func TestResolveStartConfigRejectsMalformedSandbox(t *testing.T) {
 	t.Parallel()
 
-	req, err := resolveStartConfig(StartRequest{Sandbox: json.RawMessage("{")})
-	if err != nil {
-		t.Fatalf("resolveStartConfig() error = %v", err)
+	_, err := resolveStartConfig(StartRequest{Provider: "codex", CWD: wantStartCWD(t), Sandbox: json.RawMessage("{")})
+	if err == nil || !strings.Contains(err.Error(), "invalid sandbox") {
+		t.Fatalf("resolveStartConfig() error = %v, want invalid sandbox", err)
 	}
-	if len(req.Sandbox) != 0 {
-		t.Fatalf("sandbox = %q, want empty", string(req.Sandbox))
-	}
-	if req.ApprovalPolicy != "" {
-		t.Fatalf("approvalPolicy = %q, want empty", req.ApprovalPolicy)
+}
+
+func TestResolveStartConfigRejectsMalformedSandboxShape(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name    string
+		sandbox json.RawMessage
+	}{
+		{name: "object missing type", sandbox: json.RawMessage(`{}`)},
+		{name: "object non-string type", sandbox: json.RawMessage(`{"type":123}`)},
+		{name: "array", sandbox: json.RawMessage(`[]`)},
+		{name: "number", sandbox: json.RawMessage(`123`)},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := resolveStartConfig(StartRequest{Provider: "codex", CWD: wantStartCWD(t), Sandbox: tc.sandbox})
+			if err == nil || !strings.Contains(err.Error(), "invalid sandbox") {
+				t.Fatalf("resolveStartConfig() error = %v, want invalid sandbox shape", err)
+			}
+		})
 	}
 }
 
@@ -107,7 +112,7 @@ func TestResolveStartConfigAcceptsLegacyApprovalPolicies(t *testing.T) {
 		{name: "untrusted", policy: "untrusted"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			req, err := resolveStartConfig(StartRequest{ApprovalPolicy: tc.policy})
+			req, err := resolveStartConfig(StartRequest{Provider: "codex", CWD: wantStartCWD(t), ApprovalPolicy: tc.policy})
 			if err != nil {
 				t.Fatalf("resolveStartConfig() error = %v", err)
 			}
@@ -132,6 +137,7 @@ func TestServiceStartUsesResolvedStartConfig(t *testing.T) {
 	result, err := svc.Start(context.Background(), StartRequest{
 		AgentID:          "agent-start",
 		Provider:         " Claude ",
+		CWD:              wantStartCWD(t),
 		BaseInstructions: "  launch me  ",
 		Sandbox:          json.RawMessage(`{"type":"danger-full-access"}`),
 	})
@@ -230,6 +236,7 @@ func TestServiceStartRequiresProviderUUID(t *testing.T) {
 	_, err := svc.Start(context.Background(), StartRequest{
 		AgentID:  "agent-start",
 		Provider: "codex",
+		CWD:      wantStartCWD(t),
 	})
 	if err == nil || !strings.Contains(err.Error(), "provider session UUID required") {
 		t.Fatalf("Start() error = %v, want provider session UUID required", err)
@@ -261,6 +268,7 @@ func TestServiceStartAllowsDeferredClaudeProviderUUID(t *testing.T) {
 	result, err := svc.Start(context.Background(), StartRequest{
 		AgentID:  "agent-start-claude",
 		Provider: "claude",
+		CWD:      wantStartCWD(t),
 		Name:     "worker-agent",
 	})
 	if err != nil {
@@ -300,6 +308,7 @@ func TestServiceStartDoesNotPersistProviderThreadIDWithoutHistoryFile(t *testing
 	result, err := svc.Start(context.Background(), StartRequest{
 		AgentID:  "agent-start-no-history",
 		Provider: "codex",
+		CWD:      wantStartCWD(t),
 	})
 	if err != nil {
 		t.Fatalf("Start() error = %v", err)
@@ -343,6 +352,7 @@ func TestServiceStartPersistsCodexIdentityFromSessionRuntimeConfig(t *testing.T)
 	if _, err := svc.Start(context.Background(), StartRequest{
 		AgentID:  "agent-runtime-identity",
 		Provider: "codex",
+		CWD:      wantStartCWD(t),
 	}); err != nil {
 		t.Fatalf("Start() error = %v", err)
 	}
@@ -352,7 +362,11 @@ func TestServiceStartPersistsCodexIdentityFromSessionRuntimeConfig(t *testing.T)
 		bindings.upsert.CodexModelProvider != "openai" {
 		t.Fatalf("binding codex identity = %q/%q/%q, want runtime identity", bindings.upsert.CodexHome, bindings.upsert.CodexInstanceKey, bindings.upsert.CodexModelProvider)
 	}
-	storedRuntime := decodeStoredThreadConfig(threads.upsert.ConfigOverride).Runtime
+	storedConfig, err := decodeStoredThreadConfig(threads.upsert.ConfigOverride)
+	if err != nil {
+		t.Fatalf("decodeStoredThreadConfig() error = %v", err)
+	}
+	storedRuntime := storedConfig.Runtime
 	if storedRuntime["codexHome"] != codexHome ||
 		storedRuntime["codexInstanceKey"] != "default" ||
 		storedRuntime["codexModelProvider"] != "openai" {
@@ -381,6 +395,7 @@ func TestServiceStartPrefersExplicitNameForLaunchAndPersist(t *testing.T) {
 	if _, err := svc.Start(context.Background(), StartRequest{
 		AgentID:          "agent-name",
 		Provider:         "codex",
+		CWD:              wantStartCWD(t),
 		Name:             "display name",
 		Prompt:           "legacy prompt",
 		BaseInstructions: "system prompt",
@@ -419,6 +434,7 @@ func TestServiceStartUsesPromptAssemblyRef(t *testing.T) {
 	if _, err := svc.Start(context.Background(), StartRequest{
 		AgentID:          "agent-assembly",
 		Provider:         "codex",
+		CWD:              wantStartCWD(t),
 		Name:             "display name",
 		BaseInstructions: "system prompt",
 		PromptAssemblyRef: promptAssemblyStub{
@@ -449,7 +465,8 @@ func TestNewThreadHandlersDispatchStartRejectsInvalidConfig(t *testing.T) {
 		want string
 	}{
 		{name: "provider", raw: `{"provider":"other","prompt":"hello"}`, want: "invalid provider"},
-		{name: "approval", raw: `{"approval_policy":"later","prompt":"hello"}`, want: "invalid approval policy"},
+		{name: "approval", raw: `{"provider":"codex","approval_policy":"later","cwd":"/tmp/project","prompt":"hello"}`, want: "invalid approval policy"},
+		{name: "sandbox", raw: `{"sandbox":{`, want: "unexpected end of JSON input"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			_, err := server.Dispatch(context.Background(), "thread/start", json.RawMessage(tc.raw))
@@ -482,6 +499,7 @@ func TestServiceStartForwardsLaunchSkills(t *testing.T) {
 	if _, err := svc.Start(context.Background(), StartRequest{
 		AgentID:           "agent-launch-skills",
 		Provider:          "codex",
+		CWD:               wantStartCWD(t),
 		LaunchSkillNames:  []string{"planner", "reviewer"},
 		LaunchSkillRefs:   []dto.SkillRef{{Key: "project::planner:/repo/.agent/skills/planner", Name: "planner", Scope: "project", Path: "/repo/.agent/skills/planner", Source: dto.SkillSourceManual}},
 		ForceLaunchSkills: true,
@@ -521,6 +539,7 @@ func TestServiceStartLeavesLaunchSkillsEmptyByDefault(t *testing.T) {
 	if _, err := svc.Start(context.Background(), StartRequest{
 		AgentID:  "agent-legacy",
 		Provider: "codex",
+		CWD:      wantStartCWD(t),
 	}); err != nil {
 		t.Fatalf("Start() error = %v", err)
 	}
@@ -532,6 +551,26 @@ func TestServiceStartLeavesLaunchSkillsEmptyByDefault(t *testing.T) {
 	}
 	if got.ForceLaunchSkills {
 		t.Fatalf("ForceLaunchSkills should default false")
+	}
+}
+
+func TestStartSessionRejectsMissingCWD(t *testing.T) {
+	t.Parallel()
+
+	called := false
+	svc := &service{starter: &startOnlySessionStarter{
+		onStart: func(context.Context, dto.StartSessionRequest) (contract.Session, error) {
+			called = true
+			return &stubSession{threadID: "provider-thread"}, nil
+		},
+	}}
+
+	_, err := svc.startSession(context.Background(), StartRequest{Provider: "codex"}, contract.StartInput{}, contract.StartAssembly{}, "agent-1")
+	if err == nil || !strings.Contains(err.Error(), "cwd is required") {
+		t.Fatalf("startSession() error = %v, want cwd required", err)
+	}
+	if called {
+		t.Fatal("StartSession was called despite missing cwd")
 	}
 }
 
@@ -572,5 +611,5 @@ func (promptAssemblyStub) Invalidate(context.Context, contract.InvalidateReason)
 
 func wantStartCWD(t *testing.T) string {
 	t.Helper()
-	return ""
+	return "/tmp/super-agent-thread-start-test"
 }

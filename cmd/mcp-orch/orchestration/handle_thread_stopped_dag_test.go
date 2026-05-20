@@ -117,7 +117,7 @@ func TestThreadStoppedDAGFallback_InvokesLifecycleHooks(t *testing.T) {
 		}},
 	}
 	flow := &fakeFallbackFlow{}
-	agentExec := nodeexec.NewAgentExecutor(&stubAgentLauncher{}, nodeexec.WithHooks(recordingLifecycleHooks(&events)))
+	agentExec := newTestAgentExecutor(&stubAgentLauncher{}, nodeexec.WithHooks(recordingLifecycleHooks(&events)))
 	router := NewNodeExecutorRouter(&stubRouterStore{}, agentExec, nil, nil, nil, nil)
 	svc := NewService(silentLogger(), event.NewDispatcher(), nil, nil, nil, nil)
 	hc := newHookConsumerInternal(

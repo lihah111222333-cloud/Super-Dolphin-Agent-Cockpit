@@ -17,6 +17,7 @@ import { MemoryCenterPage } from './pages/MemoryCenterPage.js';
 import { SharedFilesPage } from './pages/SharedFilesPage.js';
 import { useProjectStore } from './stores/projects.js';
 import { useThreadStore } from './stores/threads.js';
+import { resolveProjectActionCwd } from './composables/useThreadActions.js';
 
 /**
  * @typedef {'chat' | 'agents' | 'dags' | 'tasks' | 'skills' | 'commands' | 'memory-center' | 'memory' | 'settings'} AppPage
@@ -78,12 +79,6 @@ const MEMORY_FIELDS = Object.freeze([
   { key: 'updated_at', label: '更新时间' },
 ]);
 
-const EMPTY_MEMORY_CENTER = Object.freeze({
-  overview: {},
-  private: { entries: [] },
-  team: { entries: [] },
-});
-
 function countMemorySimilarGroups(memoryCenter) {
   const groups = memoryCenter?.overview?.health?.similarGroups;
   return Array.isArray(groups) ? groups.length : 0;
@@ -129,10 +124,45 @@ function resetMemoryCenterState(state) {
   state.team = { entries: [] };
 }
 
+function requireArrayField(payload, key, label) {
+  const value = payload?.[key];
+  if (!Array.isArray(value)) throw new Error(`dashboard ${label} must be an array`);
+  return value;
+}
+
+function requireSharedFileRetention(payload) {
+  const value = payload?.sharedFileRetention;
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error('dashboard sharedFileRetention must be an object');
+  }
+  if (!Array.isArray(value.items)) throw new Error('dashboard sharedFileRetention.items must be an array');
+  return value;
+}
+
+function dashboardPageRequiresCwd(page) {
+  return page === 'skills' || page === 'commands' || page === 'memory';
+}
+
+function applyDashboardPagePayload(dashboard, res) {
+  if (!res || typeof res !== 'object' || Array.isArray(res)) throw new Error('dashboard response must be an object');
+  dashboard.agents = requireArrayField(res, 'agents', 'agents');
+  dashboard.dags = requireArrayField(res, 'dags', 'dags');
+  dashboard.taskAcks = requireArrayField(res, 'taskAcks', 'taskAcks');
+  dashboard.taskTraces = requireArrayField(res, 'taskTraces', 'taskTraces');
+  dashboard.skills = requireArrayField(res, 'skills', 'skills');
+  dashboard.commandCards = requireArrayField(res, 'commandCards', 'commandCards');
+  dashboard.memory = requireArrayField(res, 'memory', 'memory');
+  dashboard.finalOutputRefs = requireArrayField(res, 'finalOutputRefs', 'finalOutputRefs');
+  dashboard.sharedFileRetention = requireSharedFileRetention(res);
+}
+
 function applyMemoryCenterSnapshot(state, snapshot) {
-  state.overview = snapshot?.overview || {};
-  state.private = snapshot?.private || { entries: [] };
-  state.team = snapshot?.team || { entries: [] };
+  if (!snapshot || typeof snapshot !== 'object') throw new Error('memory center snapshot must be an object');
+  if (!snapshot.private || typeof snapshot.private !== 'object') throw new Error('memory center private snapshot must be an object');
+  if (!snapshot.team || typeof snapshot.team !== 'object') throw new Error('memory center team snapshot must be an object');
+  state.overview = snapshot.overview && typeof snapshot.overview === 'object' ? snapshot.overview : {};
+  state.private = snapshot.private;
+  state.team = snapshot.team;
 }
 
 export function routeDagBridgeEvent(method, eventType, payload, deps) {
@@ -156,42 +186,64 @@ export function openChatFromDagNode({ turnId, assignedTo }, deps) {
 }
 
 async function refreshRuntimeConfigState(runtimeConfig) {
+  const info = await callAPI('config/read', {});
+  const cwd = (info?.cwd || '').toString().trim();
+  if (!cwd) throw new Error('runtime cwd is required');
+  runtimeConfig.cwd = cwd;
+}
+
+export function parseWindowCwdFromSearch(search) {
+  const raw = (search || '').toString().trim();
+  if (!raw) return '';
+  const query = raw.startsWith('?') ? raw.slice(1) : raw;
   try {
-    const info = await callAPI('config/read', {});
-    runtimeConfig.cwd = (info?.cwd || '').toString().trim();
+    return (new URLSearchParams(query).get('ao_window_cwd') || '').toString().trim();
   } catch (error) {
-    console.warn('refresh runtime config failed', error);
-    runtimeConfig.cwd = '';
+    throw new Error(`parse window cwd query failed: ${error?.message || error}`);
   }
+}
+
+function readWindowCwdFromLocation() {
+  if (typeof window === 'undefined') return '';
+  return parseWindowCwdFromSearch(window.location?.search || '');
 }
 
 async function refreshMemoryCenterState(memoryCenter, cwd) {
   memoryCenter.loading = true;
   memoryCenter.error = '';
   try {
-    const snapshot = await callAPI('ui/memory/get', cwd ? { cwd } : {});
-    applyMemoryCenterSnapshot(memoryCenter, snapshot && typeof snapshot === 'object' ? snapshot : EMPTY_MEMORY_CENTER);
+    const scopedCwd = (cwd || '').toString().trim();
+    if (!scopedCwd) throw new Error('memory center cwd is required');
+    const snapshot = await callAPI('ui/memory/get', { cwd: scopedCwd });
+    applyMemoryCenterSnapshot(memoryCenter, snapshot);
   } catch (error) {
     console.warn('refresh memory center failed', error);
     resetMemoryCenterState(memoryCenter);
     memoryCenter.error = (error?.message || String(error) || '加载失败').toString();
+    throw error;
   } finally {
     memoryCenter.loading = false;
   }
 }
 
 async function loadWindowBootstrapSnapshot() {
-  try {
-    const result = await callAPI('ui/windowBootstrap/get', {});
-    return result?.snapshot && typeof result.snapshot === 'object' ? result.snapshot : {};
-  } catch (error) {
-    console.warn('load window bootstrap snapshot failed', error);
-    return {};
+  const result = await callAPI('ui/windowBootstrap/get', {});
+  if (!result || typeof result !== 'object') throw new Error('window bootstrap response must be an object');
+  if (!Object.prototype.hasOwnProperty.call(result, 'snapshot')) {
+    throw new Error('window bootstrap response snapshot is required');
   }
+  if (result.snapshot == null) return {};
+  if (typeof result.snapshot !== 'object' || Array.isArray(result.snapshot)) {
+    throw new Error('window bootstrap snapshot must be an object');
+  }
+  return result.snapshot;
 }
 
-async function applyWindowBootstrapSnapshot(snapshot, projectStore, threadStore, pageRef) {
-  const payload = snapshot && typeof snapshot === 'object' ? snapshot : {};
+async function applyWindowBootstrapSnapshot(snapshot, projectStore, threadStore, pageRef, windowCwd = '') {
+  if (!snapshot || typeof snapshot !== 'object' || Array.isArray(snapshot)) {
+    throw new Error('window bootstrap snapshot payload must be an object');
+  }
+  const payload = snapshot;
   const cwd = (payload.cwd || '').toString().trim();
   if (cwd) {
     await projectStore.addProject(cwd);
@@ -201,7 +253,10 @@ async function applyWindowBootstrapSnapshot(snapshot, projectStore, threadStore,
   if (nextPage) {
     pageRef.value = nextPage;
   }
-  const taskStart = payload.taskStart && typeof payload.taskStart === 'object' ? payload.taskStart : null;
+  if (payload.taskStart != null && (typeof payload.taskStart !== 'object' || Array.isArray(payload.taskStart))) {
+    throw new Error('window bootstrap taskStart must be an object');
+  }
+  const taskStart = payload.taskStart || null;
   if (taskStart) {
     const startOptions = {
       focusMode: taskStart.focusMode === 'cmd' ? 'cmd' : 'chat',
@@ -211,26 +266,26 @@ async function applyWindowBootstrapSnapshot(snapshot, projectStore, threadStore,
     const baseInstructions = typeof taskStart.baseInstructions === 'string' ? taskStart.baseInstructions.trim() : '';
     if (startName) startOptions.name = startName;
     if (baseInstructions) startOptions.baseInstructions = baseInstructions;
-    await threadStore.startThread(cwd || projectStore.state.active || '.', startOptions);
+    await threadStore.startThread(cwd || resolveProjectActionCwd(projectStore, windowCwd), startOptions);
   }
 
 }
 
-async function ensureAppActiveThread(threadStore, projectStore) {
+async function ensureAppActiveThread(threadStore, projectStore, windowCwd = '') {
   let threadId = threadStore.state.activeThreadId || '';
   if (threadId) return threadId;
 
-  threadId = await threadStore.startThread(projectStore.state.active || '.');
+  threadId = await threadStore.startThread(resolveProjectActionCwd(projectStore, windowCwd));
   if (!threadId) return '';
 
   await requestHistoryLoad(threadStore, threadId);
   return threadId;
 }
 
-async function runCommandCardForApp(card, threadStore, projectStore, pageRef) {
+async function runCommandCardForApp(card, threadStore, projectStore, pageRef, windowCwd = '') {
   const command = (card?.command_template || '').toString().trim();
   if (!command) return;
-  const threadId = await ensureAppActiveThread(threadStore, projectStore);
+  const threadId = await ensureAppActiveThread(threadStore, projectStore, windowCwd);
   if (!threadId) return;
 
   await threadStore.sendMessage(threadId, `请执行以下命令并反馈结果：\n${command}`);
@@ -294,6 +349,7 @@ export const AppRoot = {
 
     const page = ref('chat');
     const isExiting = ref(false);
+    const bootstrapError = ref('');
     // Phase 2: 跨页面「用此文件新建对话」传递通道
     const inheritedChatPayload = ref(/** @type {{ sharedFilePath?: string } | null} */ (null));
     function startInheritedChatFromSharedFile(payload) {
@@ -307,6 +363,7 @@ export const AppRoot = {
     const tasksSubTab = ref('acks');
     const buildInfo = reactive({});
     const runtimeConfig = reactive({ cwd: '' });
+    const queryWindowCwd = ref(readWindowCwdFromLocation());
 
     const dashboard = reactive({
       agents: [],
@@ -337,8 +394,9 @@ export const AppRoot = {
     const tasksItems = computed(() => (tasksSubTab.value === 'acks' ? dashboard.taskAcks : dashboard.taskTraces));
     const tasksFields = computed(() => (tasksSubTab.value === 'acks' ? TASK_ACK_FIELDS : TASK_TRACE_FIELDS));
     const windowCwd = computed(() => {
+      const queryCwd = (queryWindowCwd.value || '').toString().trim();
       const processCwd = (runtimeConfig.cwd || '').toString().trim();
-      return processCwd || '.';
+      return queryCwd || processCwd;
     });
     const activeProjectCwd = computed(() => {
       const active = (projectStore.state?.active || '').toString().trim();
@@ -362,24 +420,17 @@ export const AppRoot = {
       await refreshRuntimeConfigState(runtimeConfig);
     }
 
-    const runCommandCard = (/** @type {CommandCard} */ card) => runCommandCardForApp(card, threadStore, projectStore, page);
+    const runCommandCard = (/** @type {CommandCard} */ card) => runCommandCardForApp(card, threadStore, projectStore, page, windowCwd.value);
 
 
     async function refreshDashboardByPage(/** @type {AppPage} */ targetPage) {
       if (targetPage === 'chat' || targetPage === 'settings' || targetPage === 'memory-center') return;
       const cwd = (threadScopeCwd.value || '').toString().trim();
+      if (dashboardPageRequiresCwd(targetPage) && !cwd) {
+        throw new Error(`dashboard ${targetPage} cwd is required`);
+      }
       const res = await callAPI('ui/dashboard/get', cwd ? { page: targetPage, cwd } : { page: targetPage });
-      dashboard.agents = Array.isArray(res?.agents) ? res.agents : [];
-      dashboard.dags = Array.isArray(res?.dags) ? res.dags : [];
-      dashboard.taskAcks = Array.isArray(res?.taskAcks) ? res.taskAcks : [];
-      dashboard.taskTraces = Array.isArray(res?.taskTraces) ? res.taskTraces : [];
-      dashboard.skills = Array.isArray(res?.skills) ? res.skills : [];
-      dashboard.commandCards = Array.isArray(res?.commandCards) ? res.commandCards : [];
-      dashboard.memory = Array.isArray(res?.memory) ? res.memory : [];
-      dashboard.finalOutputRefs = Array.isArray(res?.finalOutputRefs) ? res.finalOutputRefs : [];
-      dashboard.sharedFileRetention = (res?.sharedFileRetention && typeof res.sharedFileRetention === 'object')
-        ? res.sharedFileRetention
-        : { items: [], protectedCount: 0, cleanupCandidateCount: 0 };
+      applyDashboardPagePayload(dashboard, res);
     }
 
     async function refreshMemoryCenter() {
@@ -397,6 +448,7 @@ export const AppRoot = {
     }
 
     async function bootstrap() {
+      bootstrapError.value = '';
       // Subscribe to events FIRST, before any await — ensures no events are missed
       // even if subsequent initialization steps hang or take long.
       // legacy agent-event channel removed to prevent duplicate event processing
@@ -418,12 +470,10 @@ export const AppRoot = {
       });
 
       // Initialization — runs after event subscriptions are active
-      await Promise.all([
-        refreshBuildInfo(),
-        refreshRuntimeConfig(),
-        projectStore.reloadProjects(),
-      ]);
-      await applyWindowBootstrapSnapshot(await loadWindowBootstrapSnapshot(), projectStore, threadStore, page);
+      await Promise.all([refreshBuildInfo(), refreshRuntimeConfig()]);
+      projectStore.setScopeCwd?.(windowCwd.value);
+      await projectStore.reloadProjects();
+      await applyWindowBootstrapSnapshot(await loadWindowBootstrapSnapshot(), projectStore, threadStore, page, windowCwd.value);
 
       if (typeof threadStore.setPreferenceScopeCwd === 'function') {
         threadStore.setPreferenceScopeCwd(threadScopeCwd.value);
@@ -493,6 +543,7 @@ export const AppRoot = {
 
     onMounted(() => {
       bootstrap().catch((error) => {
+        bootstrapError.value = (error?.message || String(error) || 'bootstrap failed').toString();
         console.error('bootstrap failed:', error);
       });
       const handleBeforeUnload = () => {
@@ -523,6 +574,7 @@ export const AppRoot = {
       SHARED_FILES_TIPS,
       page,
       isExiting,
+      bootstrapError,
       tasksSubTab,
       projectStore,
       threadStore,
@@ -558,8 +610,12 @@ export const AppRoot = {
 
       <main id="content" :data-testid="'page-' + page">
 
+        <div v-if="bootstrapError" class="app-fatal" data-testid="bootstrap-error">
+          {{ bootstrapError }}
+        </div>
+
         <UnifiedChatPage
-          v-if="page === 'chat'"
+          v-else-if="page === 'chat'"
           mode="chat"
           :project-store="projectStore"
           :thread-store="threadStore"

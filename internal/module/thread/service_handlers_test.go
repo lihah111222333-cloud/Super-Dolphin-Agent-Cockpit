@@ -10,6 +10,7 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
 	rpcpkg "github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
+	threadstore "github.com/anthropic-ai/super-agent-v3/internal/store/thread"
 )
 
 func TestNewServiceInitializesDefaults(t *testing.T) {
@@ -268,6 +269,62 @@ func TestNewThreadHandlersDispatchConfigSet(t *testing.T) {
 	}
 }
 
+func TestNewThreadHandlersDispatchConfigGetPendingLaunch(t *testing.T) {
+	t.Parallel()
+
+	threads := &stubThreadStore{thread: &threadstore.Thread{
+		ThreadID:      "thread-pending-launch",
+		Model:         "stored-thread-model",
+		Status:        statusCreated,
+		PendingLaunch: true,
+		ConfigOverride: mustStoredThreadConfigRaw(t, storedThreadConfig{
+			Provider:  "codex",
+			Model:     "gpt-5.5",
+			Effort:    "high",
+			Approvals: "never",
+		}),
+	}}
+	svc := newConfigTestService(t, threads, &stubBindingStore{}, &stubSessionProvider{})
+	server := newThreadTestServer(svc)
+
+	got := dispatchThreadConfigGet(t, server, "thread-pending-launch")
+	assertPendingLaunchOfflineConfig(t, got)
+}
+
+func dispatchThreadConfigGet(t *testing.T, server *rpcpkg.Server, threadID string) dto.ThreadConfig {
+	t.Helper()
+
+	req, err := json.Marshal(struct {
+		ThreadID string `json:"threadId"`
+	}{ThreadID: threadID})
+	if err != nil {
+		t.Fatalf("Marshal(thread/config/get request) error = %v", err)
+	}
+	raw, err := server.Dispatch(context.Background(), "thread/config/get", req)
+	if err != nil {
+		t.Fatalf("Dispatch(thread/config/get) error = %v, want pending_launch offline config", err)
+	}
+	var got dto.ThreadConfig
+	if err := json.Unmarshal(raw, &got); err != nil {
+		t.Fatalf("Unmarshal(thread/config/get) error = %v", err)
+	}
+	return got
+}
+
+func assertPendingLaunchOfflineConfig(t *testing.T, got dto.ThreadConfig) {
+	t.Helper()
+
+	if got.ThreadID != "thread-pending-launch" || got.Provider != "codex" {
+		t.Fatalf("Dispatch(thread/config/get) identity/provider = %#v", got)
+	}
+	if got.Override.Model != "gpt-5.5" || got.Override.Effort != "high" || got.Override.Approvals != "never" {
+		t.Fatalf("Dispatch(thread/config/get) override = %#v", got.Override)
+	}
+	if got.Effective.Model != "gpt-5.5" || got.Effective.Effort != "high" || got.Effective.Approvals != "never" {
+		t.Fatalf("Dispatch(thread/config/get) effective = %#v", got.Effective)
+	}
+}
+
 func TestNewThreadHandlersDispatchModelSetReturnsServiceCapabilityError(t *testing.T) {
 	t.Parallel()
 
@@ -415,7 +472,7 @@ func (s *stubThreadService) Start(_ context.Context, req StartRequest) (StartRes
 	s.startReq = req
 	return s.startResult, nil
 }
-func (*stubThreadService) SpawnIfNeeded(context.Context, string, string) (bool, SpawnRouting, error) {
+func (*stubThreadService) SpawnIfNeeded(context.Context, string, string, string) (bool, SpawnRouting, error) {
 	return false, SpawnRouting{}, nil
 }
 func (s *stubThreadService) Stop(context.Context, string) error { return nil }

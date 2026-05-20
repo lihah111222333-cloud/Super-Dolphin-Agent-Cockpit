@@ -26,6 +26,10 @@ import (
 //   - threadID identifies the pending_launch thread.
 //   - userInputForRouter is the first-turn user text; the router uses
 //     it to classify which provider CLI / prompt to fork.
+//   - requestCWD is the cwd supplied by the turn/start caller. It is
+//     validation-only: the implementation must launch from the cwd stored
+//     on the pending_launch row and reject mismatches before provider side
+//     effects.
 //   - launched=true means the call actually forked a process; routing
 //     is populated only in that case so the UI can show a per-thread
 //     routing badge. launched=false is a no-op for already-running
@@ -36,5 +40,5 @@ import (
 // SpawnRouting is defined in the shared internal/dto/thread package so
 // neither side of this interface has to import the other.
 type PendingLaunchSpawner interface {
-	SpawnIfNeeded(ctx context.Context, threadID, userInputForRouter string) (launched bool, routing threaddto.SpawnRouting, err error)
+	SpawnIfNeeded(ctx context.Context, threadID, userInputForRouter, requestCWD string) (launched bool, routing threaddto.SpawnRouting, err error)
 }

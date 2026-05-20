@@ -213,7 +213,7 @@ func TestPromptKeyChain_DeferSpawnRoundTrip(t *testing.T) {
 		t.Fatalf("encodeStoredThreadConfig: %v", err)
 	}
 
-	decoded := decodeStoredThreadConfig(encoded)
+	decoded := mustDecodeStoredThreadConfig(t, encoded)
 	if decoded.PromptKey != "main/launch-fav" {
 		t.Fatalf("PromptKey lost in round-trip: got %q, want main/launch-fav", decoded.PromptKey)
 	}

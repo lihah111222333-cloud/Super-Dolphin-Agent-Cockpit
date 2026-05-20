@@ -3,6 +3,7 @@ package thread
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"sort"
 	"strings"
 	"sync"
@@ -13,6 +14,7 @@ import (
 	shareddto "github.com/anthropic-ai/super-agent-v3/internal/dto/shared"
 	threaddto "github.com/anthropic-ai/super-agent-v3/internal/dto/thread"
 	platformbus "github.com/anthropic-ai/super-agent-v3/internal/platform/bus"
+	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
 	bindingstore "github.com/anthropic-ai/super-agent-v3/internal/store/binding"
 	threadstore "github.com/anthropic-ai/super-agent-v3/internal/store/thread"
 	"github.com/anthropic-ai/super-agent-v3/internal/util"
@@ -73,9 +75,11 @@ func (s *service) buildOfflineConfig(
 	if thread == nil && binding == nil {
 		return offlineConfigSnapshot{}, contract.ErrNotFound
 	}
-	stored := decodeStoredThreadConfig(offlineThreadConfigRaw(thread))
-	provider := offlineThreadProvider(binding)
-	provider = util.FirstNonEmpty(stored.Provider, provider)
+	stored, err := decodeStoredThreadConfig(offlineThreadConfigRaw(thread))
+	if err != nil {
+		return offlineConfigSnapshot{}, err
+	}
+	provider := util.FirstNonEmpty(stored.Provider, offlineThreadProvider(binding))
 	return offlineConfigSnapshot{
 		Config: dto.ThreadConfig{
 			ThreadID:               id,
@@ -214,13 +218,15 @@ func offlineThreadConfigRaw(thread *threadstore.Thread) json.RawMessage {
 	return thread.ConfigOverride
 }
 
-func decodeStoredThreadConfig(raw json.RawMessage) storedThreadConfig {
+func decodeStoredThreadConfig(raw json.RawMessage) (storedThreadConfig, error) {
 	var cfg storedThreadConfig
 	if len(raw) == 0 {
-		return cfg
+		return cfg, nil
 	}
-	_ = json.Unmarshal(raw, &cfg)
-	return cfg
+	if err := json.Unmarshal(raw, &cfg); err != nil {
+		return storedThreadConfig{}, fmt.Errorf("decode thread config override: %w", err)
+	}
+	return cfg, nil
 }
 
 func encodeStoredThreadConfig(cfg storedThreadConfig) (json.RawMessage, error) {
@@ -259,7 +265,11 @@ func (s *service) persistThreadConfig(
 	if err != nil {
 		return err
 	}
-	stored := applyConfigPatch(decodeStoredThreadConfig(thread.ConfigOverride), patch)
+	stored, err := decodeStoredThreadConfig(thread.ConfigOverride)
+	if err != nil {
+		return err
+	}
+	stored = applyConfigPatch(stored, patch)
 	raw, err := encodeStoredThreadConfig(stored)
 	if err != nil {
 		return err
@@ -382,60 +392,69 @@ func decodeLegacyParams[T any](raw []byte, target *T, legacyFn func([]byte, *T) 
 }
 
 func (s *service) resolveBindingChain(ctx context.Context, threadID string) (*bindingstore.Binding, error) {
-	binding, err := s.bindingByAgentID(ctx, threadID)
-	if binding != nil || err == nil {
-		return binding, err
+	binding, err := s.bindingStore.GetByAgentID(ctx, threadID)
+	switch {
+	case err == nil:
+		return s.rememberBinding(binding), err
+	case !platformdb.IsNotFound(err):
+		return nil, err
 	}
-	for _, lookup := range []func(context.Context, string) *bindingstore.Binding{
-		s.bindingByPersistedThreadAgent,
-		s.bindingByRememberedThreadAgent,
-		s.bindingByProviderThreadID,
-	} {
-		if binding := lookup(ctx, threadID); binding != nil {
-			return binding, nil
-		}
+	binding, threadMissing, missingErr, lookupErr := s.bindingByPersistedOrRememberedAgent(ctx, threadID)
+	if binding != nil || lookupErr != nil {
+		return binding, lookupErr
+	}
+	if binding, lookupErr := s.bindingByProviderThreadID(ctx, threadID); binding != nil || lookupErr != nil {
+		return binding, lookupErr
+	}
+	if threadMissing {
+		return nil, missingErr
 	}
 	return nil, err
 }
 
-func (s *service) bindingByAgentID(ctx context.Context, agentID string) (*bindingstore.Binding, error) {
-	binding, err := s.bindingStore.GetByAgentID(ctx, agentID)
-	if err == nil {
-		s.rememberBinding(binding)
+func (s *service) bindingByPersistedOrRememberedAgent(ctx context.Context, threadID string) (*bindingstore.Binding, bool, error, error) {
+	persistedAgentID, persistedFound, missingErr := s.lookupPersistedAgentID(ctx, threadID)
+	if missingErr != nil && !platformdb.IsNotFound(missingErr) {
+		return nil, false, nil, missingErr
 	}
-	return binding, err
-}
-
-func (s *service) bindingByPersistedThreadAgent(ctx context.Context, threadID string) *bindingstore.Binding {
-	agentID := s.lookupPersistedAgentID(ctx, threadID)
-	return s.bindingByResolvedAgentID(ctx, threadID, agentID)
-}
-
-func (s *service) bindingByRememberedThreadAgent(ctx context.Context, threadID string) *bindingstore.Binding {
-	agentID := s.lookupThreadAgent(threadID)
-	return s.bindingByResolvedAgentID(ctx, threadID, agentID)
-}
-
-func (s *service) bindingByResolvedAgentID(ctx context.Context, threadID, agentID string) *bindingstore.Binding {
-	if agentID == "" || agentID == threadID {
-		return nil
-	}
-	binding, err := s.bindingByAgentID(ctx, agentID)
-	if err != nil {
-		return nil
-	}
-	return binding
-}
-
-func (s *service) bindingByProviderThreadID(ctx context.Context, threadID string) *bindingstore.Binding {
-	for _, provider := range []string{"codex", "claude"} {
-		binding, err := s.bindingStore.GetByProviderThread(ctx, provider, threadID)
-		if err == nil {
-			s.rememberBinding(binding)
-			return binding
+	if persistedFound {
+		if binding, lookupErr := s.bindingByResolvedAgentID(ctx, threadID, persistedAgentID); binding != nil || lookupErr != nil {
+			return binding, false, nil, lookupErr
 		}
 	}
-	return nil
+	binding, lookupErr := s.bindingByResolvedAgentID(ctx, threadID, s.lookupThreadAgent(threadID))
+	if platformdb.IsNotFound(missingErr) && platformdb.IsNotFound(lookupErr) {
+		lookupErr = nil
+	}
+	return binding, platformdb.IsNotFound(missingErr), missingErr, lookupErr
+}
+
+func (s *service) bindingByResolvedAgentID(ctx context.Context, threadID, agentID string) (*bindingstore.Binding, error) {
+	if agentID == "" || agentID == threadID {
+		return nil, nil
+	}
+	binding, err := s.bindingStore.GetByAgentID(ctx, agentID)
+	switch {
+	case err == nil:
+		return s.rememberBinding(binding), nil
+	case platformdb.IsNotFound(err):
+		return nil, fmt.Errorf("thread %q binding for resolved agent_id %q not found: %w", threadID, agentID, contract.ErrNotFound)
+	default:
+		return nil, err
+	}
+}
+
+func (s *service) bindingByProviderThreadID(ctx context.Context, threadID string) (*bindingstore.Binding, error) {
+	for _, provider := range []string{"codex", "claude"} {
+		binding, err := s.bindingStore.GetByProviderThread(ctx, provider, threadID)
+		switch {
+		case err == nil:
+			return s.rememberBinding(binding), nil
+		case !platformdb.IsNotFound(err):
+			return nil, err
+		}
+	}
+	return nil, nil
 }
 
 // NewThreadSubscribers declares thread bus subscriptions for BusModule.

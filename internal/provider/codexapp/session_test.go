@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"reflect"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -11,6 +12,7 @@ import (
 
 	tooldto "github.com/anthropic-ai/super-agent-v3/internal/dto/tool"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/toolbridge"
 	"github.com/anthropic-ai/super-agent-v3/internal/provider/unified"
 	"github.com/kelindar/event"
 )
@@ -240,6 +242,61 @@ func TestOnInboundMessage_ToolCall_DispatchesLifecycleAndPrivateMetadata(t *test
 	assertAsyncToolResponseResult(t, call, map[string]any{"ok": true})
 	end := waitToolCallEnd(t, endCh)
 	assertSyntheticToolEndHeader(t, end, begin)
+}
+
+func TestOnInboundMessage_ToolCall_DispatchesStructuredFailureEnd(t *testing.T) {
+	bus := event.NewDispatcher()
+	dispatcher := unified.NewEventDispatcher(bus, nil)
+	ctx := context.Background()
+	endCh := make(chan tooldto.ToolCallEnd, 1)
+	cancelEnd := event.Subscribe(bus, func(ev tooldto.ToolCallEnd) { endCh <- ev })
+	defer cancelEnd()
+
+	manager := &ServerManager{}
+	manager.SetToolHandler(func(context.Context, RawMessage) (any, error) {
+		return &toolbridge.ToolCallResult{
+			Success: false,
+			ContentItems: []toolbridge.ToolCallContentItem{{
+				Type: "inputText",
+				Text: `{"error":"tool failed"}`,
+			}},
+		}, nil
+	})
+	resp := newRecordingResponder()
+	s := newInboundTestSession(ctx, nil, manager)
+	s.dispatcher = dispatcher
+	s.setThreadID("provider-thread-1")
+	s.setRuntimeConfig(map[string]any{"cwd": "/trusted/root"})
+
+	s.onInboundMessage(ctx, resp, RawMessage{
+		ID:     json.RawMessage(`9`),
+		Method: "item/tool/call",
+		Params: json.RawMessage(`{"name":"grep","arguments":{}}`),
+	})
+
+	call := waitResponseCall(t, resp.ch)
+	if call.err != nil {
+		t.Fatalf("response err = %v, want nil structured failure", call.err)
+	}
+	end := waitToolCallEnd(t, endCh)
+	if end.Success {
+		t.Fatalf("ToolCallEnd success = true, want false for structured tool failure")
+	}
+	if !strings.Contains(end.Error, "tool failed") {
+		t.Fatalf("ToolCallEnd error = %q, want structured failure text", end.Error)
+	}
+}
+
+func TestToolCallEndOutcomeFailsOnMalformedEnvelope(t *testing.T) {
+	t.Parallel()
+
+	success, errText := toolCallEndOutcome(make(chan int), nil)
+	if success {
+		t.Fatal("toolCallEndOutcome() success = true, want false for uninspectable result")
+	}
+	if !strings.Contains(errText, "decode tool result envelope") {
+		t.Fatalf("toolCallEndOutcome() error = %q, want decode error", errText)
+	}
 }
 
 func waitSignal(t *testing.T, ch <-chan struct{}, timeout time.Duration, msg string) {

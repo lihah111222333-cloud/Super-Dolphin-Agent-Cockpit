@@ -159,8 +159,7 @@ func validateConfigDoesNotContainBannedKeys(raw json.RawMessage) error {
 	}
 	var v any
 	if err := json.Unmarshal(raw, &v); err != nil {
-		// 解不出来不在这一层报；让上层 typed schema 解码（ParseNodeConfig）再报。
-		return nil
+		return fmt.Errorf("decode node config for banned-key scan: %w", err)
 	}
 	return walkConfigForBannedKeys(v)
 }

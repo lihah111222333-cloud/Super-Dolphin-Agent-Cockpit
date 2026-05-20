@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"fmt"
 	"strings"
 	"sync"
 
@@ -125,10 +126,10 @@ func NewClaudeMdSourcesProvider(deps Dependencies, team contract.TeamMemoryManag
 	}
 }
 
-func (p *ClaudeMdSourcesProvider) ResolveClaudeMdSources(ctx context.Context, buildCtx contract.BuildCtx) []contract.ClaudeMdSource {
+func (p *ClaudeMdSourcesProvider) ResolveClaudeMdSources(ctx context.Context, buildCtx contract.BuildCtx) ([]contract.ClaudeMdSource, error) {
 	gate := p.deps.resolveGate(buildCtx)
 	if shouldDisableClaudeMdSources(gate) {
-		return nil
+		return nil, nil
 	}
 	resolveCfg := ClaudeMdResolveConfig{
 		BuildCtx:          buildCtx,
@@ -138,16 +139,22 @@ func (p *ClaudeMdSourcesProvider) ResolveClaudeMdSources(ctx context.Context, bu
 		ManagedRoots:      defaultManagedClaudeMdRoots(),
 		UserRoot:          defaultUserClaudeMdRoot(),
 	}
-	candidates := resolveClaudeMdCandidates(resolveCfg, gate)
+	candidates, err := resolveClaudeMdCandidates(resolveCfg, gate)
+	if err != nil {
+		return nil, err
+	}
 	manifestDigest := digestClaudeMdCandidates(candidates)
 	cacheKey := claudeMdSourceCacheKey(buildCtx, gate, manifestDigest)
 	if sources, ok := p.lookup(cacheKey); ok {
-		return sources
+		return sources, nil
 	}
-	sources := loadClaudeMdSources(ctx, candidates)
+	sources, err := loadClaudeMdSources(ctx, candidates)
+	if err != nil {
+		return nil, err
+	}
 	sources = FilterInjectedMemoryFiles(sources, buildCtx, gate, buildCtx.ClaudeMdExcludes)
 	p.store(cacheKey, sources)
-	return cloneClaudeMdSources(sources)
+	return cloneClaudeMdSources(sources), nil
 }
 
 func (p *ClaudeMdSourcesProvider) OnPromptInvalidate(reason contract.InvalidateReason) {
@@ -162,12 +169,15 @@ func (p *ClaudeMdSourcesProvider) OnPromptInvalidate(reason contract.InvalidateR
 	}
 }
 
-func ResolveClaudeMdSources(ctx context.Context, cfg ClaudeMdResolveConfig) []ClaudeMdSource {
+func ResolveClaudeMdSources(ctx context.Context, cfg ClaudeMdResolveConfig) ([]ClaudeMdSource, error) {
 	gate := cfg.Dependencies.resolveGate(cfg.BuildCtx)
 	if shouldDisableClaudeMdSources(gate) {
-		return nil
+		return nil, nil
 	}
-	candidates := resolveClaudeMdCandidates(cfg, gate)
+	candidates, err := resolveClaudeMdCandidates(cfg, gate)
+	if err != nil {
+		return nil, err
+	}
 	return loadClaudeMdSources(ctx, candidates)
 }
 
@@ -234,7 +244,7 @@ func claudeMdSourceCacheKey(buildCtx contract.BuildCtx, gate GateSnapshot, manif
 	return hex.EncodeToString(digest[:])
 }
 
-func loadClaudeMdSources(ctx context.Context, candidates []claudeMdCandidate) []ClaudeMdSource {
+func loadClaudeMdSources(ctx context.Context, candidates []claudeMdCandidate) ([]ClaudeMdSource, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -243,19 +253,22 @@ func loadClaudeMdSources(ctx context.Context, candidates []claudeMdCandidate) []
 		if err := ctx.Err(); err != nil {
 			break
 		}
-		source, ok := loadClaudeMdSource(candidate)
+		source, ok, err := loadClaudeMdSource(candidate)
+		if err != nil {
+			return nil, err
+		}
 		if !ok {
 			continue
 		}
 		sources = append(sources, source)
 	}
 	if len(sources) == 0 {
-		return nil
+		return nil, nil
 	}
-	return sources
+	return sources, nil
 }
 
-func loadClaudeMdSource(candidate claudeMdCandidate) (ClaudeMdSource, bool) {
+func loadClaudeMdSource(candidate claudeMdCandidate) (ClaudeMdSource, bool, error) {
 	// Phase 1.6 removed AutoMem / TeamMem MEMORY.md from the nested
 	// ClaudeMd candidate set, so loadMemoryClaudeMdSource is no longer
 	// reachable from production. The shared filter (shouldSkipInjectedSource)
@@ -264,17 +277,17 @@ func loadClaudeMdSource(candidate claudeMdCandidate) (ClaudeMdSource, bool) {
 	return loadStandardClaudeMdSource(candidate)
 }
 
-func loadStandardClaudeMdSource(candidate claudeMdCandidate) (ClaudeMdSource, bool) {
+func loadStandardClaudeMdSource(candidate claudeMdCandidate) (ClaudeMdSource, bool, error) {
 	// Phase 2.1.A: defense-in-depth read. Even though appendClaudeMdCandidate
 	// already verified the candidate path stays under BaseDir post-EvalSymlinks,
 	// re-check at load time so a symlink swapped between candidate-time and
 	// load-time still cannot redirect the read outside BaseDir.
 	if candidate.BaseDir == "" {
-		return ClaudeMdSource{}, false
+		return ClaudeMdSource{}, false, nil
 	}
 	raw, _, err := memshared.SafeReadEntrypoint(candidate.BaseDir, candidate.Path)
 	if err != nil {
-		return ClaudeMdSource{}, false
+		return ClaudeMdSource{}, false, fmt.Errorf("load ClaudeMd source %q: %w", candidate.Path, err)
 	}
 	content := parse.StripUTF8BOM(string(raw))
 	metadata := claudeRuleMetadata{}
@@ -284,7 +297,7 @@ func loadStandardClaudeMdSource(candidate claudeMdCandidate) (ClaudeMdSource, bo
 		content = strings.TrimSpace(parse.StripHTMLComments(content))
 	}
 	if strings.TrimSpace(content) == "" {
-		return ClaudeMdSource{}, false
+		return ClaudeMdSource{}, false, nil
 	}
 	return ClaudeMdSource{
 		Path:        candidate.Path,
@@ -297,5 +310,5 @@ func loadStandardClaudeMdSource(candidate claudeMdCandidate) (ClaudeMdSource, bo
 		BaseDir:     candidate.BaseDir,
 		RuleScope:   candidate.RuleScope,
 		Digest:      candidate.Digest,
-	}, true
+	}, true, nil
 }

@@ -106,14 +106,14 @@ func loadConsolidationIndexDocument(root string, cfg *Config) (consolidationDocu
 	validatedPath, err := ValidateMemoryReadPath(root, path)
 	switch {
 	case errors.Is(err, ErrInvalidMemoryReadPath), errors.Is(err, os.ErrNotExist):
-		return consolidationDocument{Path: memoryIndexFileName, Content: "(missing)"}, nil
+		return consolidationDocument{}, err
 	case err != nil:
 		return consolidationDocument{}, err
 	}
 	raw, err := os.ReadFile(validatedPath)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
-			return consolidationDocument{Path: memoryIndexFileName, Content: "(missing)"}, nil
+			return consolidationDocument{}, err
 		}
 		return consolidationDocument{}, err
 	}

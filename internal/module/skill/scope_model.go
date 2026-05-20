@@ -317,13 +317,15 @@ func rejectWritableSymlinkPath(rootAbs, rel string) error {
 }
 
 func rejectWritableSymlinkComponentIfExists(path string) error {
-	if err := rejectWritableSymlinkComponent(path); err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			return nil
-		}
+	err := rejectWritableSymlinkComponent(path)
+	switch {
+	case err == nil:
+		return nil
+	case errors.Is(err, os.ErrNotExist):
+		return nil
+	default:
 		return err
 	}
-	return nil
 }
 
 func rejectWritableSymlinkComponent(path string) error {

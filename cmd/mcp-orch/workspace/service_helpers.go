@@ -262,11 +262,10 @@ func hashFile(path string) (string, error) {
 }
 
 func hashFileIfExists(path string) (string, error) {
-	if _, err := os.Stat(path); err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			return "", nil
-		}
+	if _, err := os.Stat(path); err == nil {
+		return hashFile(path)
+	} else if !errors.Is(err, os.ErrNotExist) {
 		return "", err
 	}
-	return hashFile(path)
+	return "", nil
 }

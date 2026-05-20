@@ -3,6 +3,7 @@ package thread
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"runtime"
 	"strings"
 
@@ -117,8 +118,12 @@ func NewThreadHandlers(svc Service, capResolver contract.CapabilityResolver) pla
 
 func newStartHandler(svc Service) handler.Func {
 	return platformrpc.LoggedStrictHandler(contract.ThreadRPCStart, func(ctx context.Context, p startParams) (any, error) {
-		logStartRPCReceived(p)
-		result, err := svc.Start(ctx, buildStartRequestFromParams(p))
+		cfg, err := decodeConfigMap(p.Config)
+		if err != nil {
+			return nil, err
+		}
+		logStartRPCReceived(p, cfg)
+		result, err := svc.Start(ctx, buildStartRequestFromParams(p, cfg))
 		if err != nil {
 			return nil, err
 		}
@@ -126,8 +131,7 @@ func newStartHandler(svc Service) handler.Func {
 	})
 }
 
-func logStartRPCReceived(p startParams) {
-	cfg := decodeConfigMap(p.Config)
+func logStartRPCReceived(p startParams, cfg map[string]any) {
 	// Observability: dump the params that thread/start actually received so
 	// we can distinguish "frontend never sent agent_key" from "backend
 	// dropped it" without running tcpdump. Values are scalar / boolean so
@@ -191,7 +195,7 @@ func shouldWarnStartProviderIdentity(p startParams, cfg map[string]any) bool {
 		configTraceString(cfg, "codexModelProvider") != ""
 }
 
-func buildStartRequestFromParams(p startParams) StartRequest {
+func buildStartRequestFromParams(p startParams, cfg map[string]any) StartRequest {
 	return StartRequest{
 		AgentID:               p.AgentID,
 		Provider:              p.Provider,
@@ -211,7 +215,7 @@ func buildStartRequestFromParams(p startParams) StartRequest {
 		Effort:                p.Effort,
 		Personality:           p.Personality,
 		Language:              p.Language,
-		Config:                decodeConfigMap(p.Config),
+		Config:                cfg,
 
 		// p20.3 §4.3：public payload 用 `selectedSkills` / `manualSkillSelection`，
 		// 内部合同归一化为 launch skill carriers；refs 保留 scope/path 以区分同名。
@@ -272,13 +276,7 @@ func buildStartResponse(result StartResult) startResponse {
 		ModelProvider:  result.ModelProvider,
 		CWD:            result.CWD,
 		ApprovalPolicy: result.ApprovalPolicy,
-		Effective: startEffectiveResponse{
-			Model:          result.Model,
-			Provider:       result.Provider,
-			ModelProvider:  result.ModelProvider,
-			CWD:            result.CWD,
-			ApprovalPolicy: result.ApprovalPolicy,
-		},
+		Effective:      startEffectiveResponse{Model: result.Model, Provider: result.Provider, ModelProvider: result.ModelProvider, CWD: result.CWD, ApprovalPolicy: result.ApprovalPolicy},
 	}
 	if result.AgentKey != "" {
 		resp.AgentKey = &result.AgentKey
@@ -313,14 +311,7 @@ func buildStartResponse(result StartResult) startResponse {
 }
 
 func buildPromoteTaskResponse(result PromoteTaskResult) promoteTaskResponse {
-	resp := promoteTaskResponse{
-		ThreadIDSnake: result.ThreadID,
-		ThreadIDCamel: result.ThreadID,
-		TaskIDSnake:   result.TaskID,
-		TaskIDCamel:   result.TaskID,
-		AlreadyTask:   result.AlreadyTask,
-		AlreadyTaskC:  result.AlreadyTask,
-	}
+	resp := promoteTaskResponse{ThreadIDSnake: result.ThreadID, ThreadIDCamel: result.ThreadID, TaskIDSnake: result.TaskID, TaskIDCamel: result.TaskID, AlreadyTask: result.AlreadyTask, AlreadyTaskC: result.AlreadyTask}
 	if result.TaskTitle != "" {
 		resp.TaskTitle = &result.TaskTitle
 		resp.TaskTitleCamel = &result.TaskTitle
@@ -336,16 +327,16 @@ func buildPromoteTaskResponse(result PromoteTaskResult) promoteTaskResponse {
 	return resp
 }
 
-func decodeConfigMap(raw json.RawMessage) map[string]any {
+func decodeConfigMap(raw json.RawMessage) (map[string]any, error) {
 	raw = trimRawJSON(raw)
 	if len(raw) == 0 {
-		return nil
+		return nil, nil
 	}
 	var cfg map[string]any
-	if err := json.Unmarshal(raw, &cfg); err != nil || len(cfg) == 0 {
-		return nil
+	if err := json.Unmarshal(raw, &cfg); err != nil {
+		return nil, fmt.Errorf("thread/start config must be an object: %w", err)
 	}
-	return cfg
+	return cfg, nil
 }
 
 func configTraceString(cfg map[string]any, key string) string {
@@ -395,9 +386,7 @@ func newForkHandler(svc Service) handler.Func {
 		if err != nil {
 			return nil, err
 		}
-		return forkResponse{
-			Thread: threadInfo{ID: result.NewThreadID, ForkedFrom: result.ForkedFrom},
-		}, nil
+		return forkResponse{Thread: threadInfo{ID: result.NewThreadID, ForkedFrom: result.ForkedFrom}}, nil
 	})
 }
 
@@ -411,16 +400,7 @@ func newHandoffHandler(svc Service) handler.Func {
 		if err != nil {
 			return nil, err
 		}
-		resp := handoffResponse{
-			SourceThreadID:      result.SourceThreadID,
-			SourceThreadIDCamel: result.SourceThreadID,
-			NewThreadID:         result.NewThreadID,
-			NewThreadIDCamel:    result.NewThreadID,
-			Thread:              threadInfo{ID: result.NewThreadID, Status: result.Status},
-			AgentID:             result.AgentID,
-			AgentIDCamel:        result.AgentID,
-			Status:              result.Status,
-		}
+		resp := handoffResponse{SourceThreadID: result.SourceThreadID, SourceThreadIDCamel: result.SourceThreadID, NewThreadID: result.NewThreadID, NewThreadIDCamel: result.NewThreadID, Thread: threadInfo{ID: result.NewThreadID, Status: result.Status}, AgentID: result.AgentID, AgentIDCamel: result.AgentID, Status: result.Status}
 		if result.AgentKey != "" {
 			resp.AgentKey = &result.AgentKey
 			resp.AgentKeyCamel = &result.AgentKey
@@ -443,11 +423,7 @@ func newRecoverHandler(svc Service) handler.Func {
 		if err != nil {
 			return nil, err
 		}
-		return recoverResponse{
-			Thread:    threadInfo{ID: result.ThreadID, Status: result.Status},
-			Recovered: result.Recovered,
-			Mode:      result.Mode,
-		}, nil
+		return recoverResponse{Thread: threadInfo{ID: result.ThreadID, Status: result.Status}, Recovered: result.Recovered, Mode: result.Mode}, nil
 	})
 }
 
@@ -555,16 +531,7 @@ func newResumeHandler(svc Service) handler.Func {
 		}
 		status := util.FirstNonEmpty(result.Status, "resumed")
 		sessionID := util.FirstNonEmpty(result.SessionID, result.ThreadID)
-		return resumeResponse{
-			Thread:         threadInfo{ID: result.ThreadID, Status: status},
-			ThreadID:       result.ThreadID,
-			ThreadIDSnake:  result.ThreadID,
-			SessionID:      sessionID,
-			SessionIDSnake: sessionID,
-			Status:         status,
-			Model:          result.Model,
-			CWD:            result.CWD,
-		}, nil
+		return resumeResponse{Thread: threadInfo{ID: result.ThreadID, Status: status}, ThreadID: result.ThreadID, ThreadIDSnake: result.ThreadID, SessionID: sessionID, SessionIDSnake: sessionID, Status: status, Model: result.Model, CWD: result.CWD}, nil
 	})
 }
 

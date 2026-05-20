@@ -146,6 +146,27 @@ func TestWriteLocalRejectsSkillMainSymlink(t *testing.T) {
 	assertFileContent(t, outsideFile, "outside")
 }
 
+func TestWriteLocalPropagatesIntermediatePathError(t *testing.T) {
+	projectRoot := t.TempDir()
+	skillsRoot := defaultProjectSkillsRoot(projectRoot)
+	if err := os.MkdirAll(skillsRoot, 0o755); err != nil {
+		t.Fatalf("MkdirAll skills root: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(skillsRoot, "blocked"), []byte("not a directory"), 0o644); err != nil {
+		t.Fatalf("WriteFile blocked path: %v", err)
+	}
+	svc := &service{projectRoot: projectRoot, projectSkillsRoot: skillsRoot, superDolphinHome: newTestSuperDolphinHome(t), http: &http.Client{}}
+
+	_, err := svc.WriteLocal(skillTestContext(projectRoot), "blocked/SKILL.md", "---\nname: blocked\n---\nbody", skillScopeProject)
+
+	if err == nil {
+		t.Fatal("WriteLocal intermediate path error = nil, want propagated filesystem error")
+	}
+	if strings.Contains(err.Error(), "symlink") {
+		t.Fatalf("WriteLocal intermediate path error = %v, want original filesystem error", err)
+	}
+}
+
 func TestWriteLocalRejectsInvalidFrontmatterSkillName(t *testing.T) {
 	projectRoot := t.TempDir()
 	svc := &service{projectRoot: projectRoot, projectSkillsRoot: defaultProjectSkillsRoot(projectRoot), superDolphinHome: newTestSuperDolphinHome(t), http: &http.Client{}}

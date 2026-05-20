@@ -3,6 +3,7 @@ package memory
 import (
 	"context"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"testing"
 
@@ -130,12 +131,20 @@ func projectScopeFixtureRoot(t *testing.T) string {
 func newTestMemoryService(t *testing.T) contract.MemoryService {
 	t.Helper()
 	root := t.TempDir()
+	projectRoot := filepath.Join(root, "project")
+	if err := os.MkdirAll(projectRoot, 0o755); err != nil {
+		t.Fatalf("MkdirAll(project root) error = %v", err)
+	}
+	cmd := exec.Command("git", "init", projectRoot)
+	if output, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("git init project root: %v\n%s", err, string(output))
+	}
 	t.Setenv(envMemoryRoot, root)
 	return NewService(&Config{
 		Enabled:     true,
 		EnableTools: true,
 		RootDir:     root,
-		ProjectRoot: filepath.Join(root, "project"),
+		ProjectRoot: projectRoot,
 		MachineID:   "test-machine",
 	})
 }

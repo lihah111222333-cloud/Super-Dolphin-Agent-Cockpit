@@ -11,6 +11,7 @@ import (
 	threadstore "github.com/anthropic-ai/super-agent-v3/internal/store/thread"
 	"github.com/anthropic-ai/super-agent-v3/internal/util"
 	"github.com/anthropic-ai/super-agent-v3/internal/util/clone"
+	"github.com/anthropic-ai/super-agent-v3/internal/util/configutil"
 )
 
 type threadStateKind string
@@ -23,29 +24,14 @@ const (
 )
 
 type threadStateFields struct {
-	RequestedThreadID  string
-	PublicThreadID     string
-	ProviderThreadID   string
-	OwnerThreadID      string
-	AgentID            string
-	ParentAgentID      string
-	AgentType          string
-	AgentMemoryScope   string
-	Provider           string
-	CWD                string
-	Model              string
-	Name               string
-	Prompt             string
-	RolloutPath        string
-	SessionUUID        string
-	ConfigOverride     json.RawMessage
-	CodexHome          string
-	CodexInstanceKey   string
-	CodexModelProvider string
-	CreatedAt          int64
-	AgentKey           string
-	PromptVersionID    *int64
-	PendingLaunch      bool
+	RequestedThreadID, PublicThreadID, ProviderThreadID, OwnerThreadID string
+	AgentID, ParentAgentID, AgentType, AgentMemoryScope                string
+	Provider, CWD, Model, Name, Prompt, RolloutPath, SessionUUID       string
+	CodexHome, CodexInstanceKey, CodexModelProvider, AgentKey          string
+	ConfigOverride                                                     json.RawMessage
+	CreatedAt                                                          int64
+	PromptVersionID                                                    *int64
+	PendingLaunch                                                      bool
 }
 
 func newThreadState(kind threadStateKind, fields threadStateFields) threadState {
@@ -149,8 +135,8 @@ func newStartResult(
 		PromptKey:       req.PromptKey,
 		PromptVersionID: req.PromptVersionID,
 		PromptKeyStale:  req.PromptKeyStale,
-		TaskID:          firstConfigString(req.Config, taskConfigKeyID, taskConfigKeyIDSnake),
-		HandoffFile:     firstConfigString(req.Config, taskConfigKeyHandoffFile, taskConfigKeyHandoffFileSnake),
+		TaskID:          configutil.ConfigString(req.Config, taskConfigKeyID, taskConfigKeyIDSnake),
+		HandoffFile:     configutil.ConfigString(req.Config, taskConfigKeyHandoffFile, taskConfigKeyHandoffFileSnake),
 	}
 }
 
@@ -165,17 +151,11 @@ const (
 )
 
 type threadEventFields struct {
-	State        threadState
-	AgentID      string
-	Status       string
-	Reason       string
-	Command      string
-	TotalCount   int
-	Pages        int
-	BeforeTokens int
-	AfterTokens  int
-	Compacted    bool
-	Estimated    bool
+	State                            threadState
+	AgentID, Status, Reason, Command string
+	TotalCount, Pages                int
+	BeforeTokens, AfterTokens        int
+	Compacted, Estimated             bool
 }
 
 func newThreadEvent(kind threadEventKind, threadID string, fields threadEventFields) any {

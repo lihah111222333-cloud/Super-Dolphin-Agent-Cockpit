@@ -2,6 +2,7 @@ import { computed, reactive, ref, watch } from '../../lib/vue.esm-browser.prod.j
 import { callAPI } from '../services/api.js';
 import { logInfo, logWarn } from '../services/log.js';
 import { truncateSummaryText } from './useSummaryHandoff.js';
+import { resolveProjectActionCwd } from './useThreadActions.js';
 
 function firstNonEmpty(...values) {
   for (const value of values) {
@@ -143,7 +144,7 @@ function buildNewWindowTaskSnapshot({ cwd, focusMode, task }) {
   };
 }
 
-export function useTaskHandoff({ threadStore, projectStore, selectedThreadId, activeThread, activeRuntime, isCmd }) {
+export function useTaskHandoff({ threadStore, projectStore, selectedThreadId, activeThread, activeRuntime, isCmd, windowCwd = '' }) {
 
   const state = reactive({
     loading: false,
@@ -191,6 +192,7 @@ export function useTaskHandoff({ threadStore, projectStore, selectedThreadId, ac
         task_id: activeTask.value?.taskId || '',
         error: state.error,
       });
+      throw error;
     } finally {
       state.loading = false;
     }
@@ -238,7 +240,7 @@ export function useTaskHandoff({ threadStore, projectStore, selectedThreadId, ac
         throw preflightError;
       }
       const id = await threadStore.startThread(
-        projectStore?.state?.active || '.',
+        resolveProjectActionCwd(projectStore, windowCwd),
         {
           ...buildContinueTaskOptions({
             focusMode: isCmd.value ? 'cmd' : 'chat',
@@ -285,7 +287,7 @@ export function useTaskHandoff({ threadStore, projectStore, selectedThreadId, ac
         task_id: task.taskId,
       });
       const id = await threadStore.startThread(
-        projectStore?.state?.active || '.',
+        resolveProjectActionCwd(projectStore, windowCwd),
         buildNewTaskOptions({
           focusMode: isCmd.value ? 'cmd' : 'chat',
           task,
@@ -324,7 +326,7 @@ export function useTaskHandoff({ threadStore, projectStore, selectedThreadId, ac
     if (!task || continueBusy.value) return;
     continueBusy.value = true;
     try {
-      const cwd = (projectStore?.state?.active || '').toString().trim();
+      const cwd = resolveProjectActionCwd(projectStore, windowCwd);
       await callAPI('ui/openNewWindow', {
         cwd,
         snapshot: buildNewWindowTaskSnapshot({
@@ -340,11 +342,13 @@ export function useTaskHandoff({ threadStore, projectStore, selectedThreadId, ac
         cwd,
       });
     } catch (error) {
+      state.error = toErrorMessage(error);
       logWarn('ui', 'taskHandoff.continue.new_window.failed', {
         source_thread_id: selectedThreadId.value || '',
         task_id: task.taskId,
-        error: toErrorMessage(error),
+        error: state.error,
       });
+      throw error;
     } finally {
       continueBusy.value = false;
     }

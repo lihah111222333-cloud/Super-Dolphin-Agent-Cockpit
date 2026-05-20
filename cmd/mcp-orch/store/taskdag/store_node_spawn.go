@@ -22,9 +22,8 @@ import (
 //     并通过 CTE 拿出旧值（previous_spawning_thread_id）；
 //  2. 旧值非空且 != 新值 → AppendTaskDagRunEvent 把
 //     {kind:"node_spawn", node_key, prev_thread_id, thread_id, ts} append 到
-//     该 dag_key 当前 running run 的 events jsonb 数组。无 running run 时返
-//     0 行：result.AppendedEvent=false，不报错（spawn 历史是辅助审计，缺失
-//     不应让 spawn 路径整体失败）。
+//     该 dag_key 当前 running run 的 events jsonb 数组。无 running run 时硬报错，
+//     避免重试历史缺失被静默吞掉。
 //
 // 不在事务内 finalize run，因为 spawn 是 run.status 'running' 阶段事件，不会
 // 影响终态判定（终态由 F6.2 maybeFinalizeRunTx 负责）。
@@ -36,9 +35,8 @@ import (
 //     value alongside the updated row).
 //   - When the previous thread id is non-empty and differs from the new one,
 //     append a `node_spawn` event into the matching running run's events
-//     jsonb array. A missing running run is treated as a soft miss
-//     (AppendedEvent=false), never an error, since the spawn history is an
-//     audit aid and absence should not fail the launch path.
+//     jsonb array. A missing running run is a hard error so retry history
+//     cannot disappear silently.
 //
 // Finalization (F6.2) is deliberately not invoked here: spawn happens while
 // the run is still 'running', so terminal-status promotion stays the
@@ -97,10 +95,10 @@ func recordNodeSpawnTx(ctx context.Context, txq *sqlc.Queries, dagKey, nodeKey s
 	return appendNodeSpawnEvent(ctx, txq, dagKey, nodeKey, runID, threadID, result)
 }
 
-// appendNodeSpawnEvent 封装「构造 payload + AppendTaskDagRunEvent + 软失败处理」三部分。
-// pgx.ErrNoRows （dag_key 下无 running run）被视为软失败，不传错上去。
+// appendNodeSpawnEvent 封装「构造 payload + AppendTaskDagRunEvent」。
+// pgx.ErrNoRows（dag_key 下无 running run）必须传错上去。
 //
-// appendNodeSpawnEvent wraps the marshal + append + soft-miss path so
+// appendNodeSpawnEvent wraps the marshal + append path so
 // recordNodeSpawnTx stays linear and under the complexity ceiling.
 func appendNodeSpawnEvent(ctx context.Context, txq *sqlc.Queries, dagKey, nodeKey string, runID int64, threadID string, result *RecordNodeSpawnResult) error {
 	payload, err := json.Marshal(nodeSpawnEvent{
@@ -120,9 +118,7 @@ func appendNodeSpawnEvent(ctx context.Context, txq *sqlc.Queries, dagKey, nodeKe
 	})
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			// No running run for dag_key — spawn-history append is a soft miss,
-			// not a hard failure (audit aid; absence shouldn't fail spawn).
-			return nil
+			return fmt.Errorf("append node_spawn event: running run not found for dag %q run %d: %w", dagKey, runID, err)
 		}
 		return err
 	}

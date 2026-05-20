@@ -134,11 +134,11 @@ func findCanonicalGitRoot(ctx context.Context, projectRoot string) (string, erro
 	cmd.Dir = fallback
 	output, err := cmd.Output()
 	if err != nil {
-		return fallback, nil
+		return "", fmt.Errorf("resolve git root for %q: %w", fallback, err)
 	}
 	lines := strings.Split(strings.ReplaceAll(string(output), "\r\n", "\n"), "\n")
 	if len(lines) == 0 {
-		return fallback, nil
+		return "", fmt.Errorf("resolve git root for %q: empty git output", fallback)
 	}
 	gitRoot := strings.TrimSpace(lines[0])
 	if gitRoot == "" {

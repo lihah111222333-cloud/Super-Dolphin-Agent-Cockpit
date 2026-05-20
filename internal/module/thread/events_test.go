@@ -102,9 +102,9 @@ func TestOnAgentLaunchedSkipsUnchangedSessionUUID(t *testing.T) {
 func TestOnAgentLaunchedUpdatesCWDAndInvalidatesWorktreePromptCache(t *testing.T) {
 	t.Parallel()
 
-	repoRoot, worktreeCWD := newPromptGitFixture(t)
+	_, worktreeCWD := newPromptGitFixture(t)
 	promptAssembly := &stubPromptAssemblyService{}
-	bindings := &eventBindingStore{binding: &bindingstore.Binding{AgentID: "agent-1", Cwd: repoRoot}}
+	bindings := &eventBindingStore{binding: &bindingstore.Binding{AgentID: "agent-1"}}
 	svc := NewServiceWithPromptAssembly(silentLogger(), nil, bindings, nil, nil, nil, nil, nil, promptAssembly, nil, nil).(*service)
 	// P22 P2 thread S4: Start + Stop the worker so the Enqueue lands and
 	// drains synchronously before the assertion runs.
@@ -127,6 +127,27 @@ func TestOnAgentLaunchedUpdatesCWDAndInvalidatesWorktreePromptCache(t *testing.T
 	if sessionUpdates := bindings.SessionUpdates(); len(sessionUpdates) != 0 {
 		t.Fatalf("session updates = %#v, want none", sessionUpdates)
 	}
+}
+
+func TestOnAgentLaunchedRejectsMismatchedCWDFromExistingBinding(t *testing.T) {
+	t.Parallel()
+
+	bindings := &eventBindingStore{binding: &bindingstore.Binding{AgentID: "agent-1", Cwd: "/repo/stored"}}
+	svc := NewService(silentLogger(), nil, bindings, nil, nil, nil, nil, nil).(*service)
+	svc.startBusWorkers()
+
+	ev := newAgentLaunchedEvent("agent-1", "thread-1", "")
+	ev.CWD = "/repo/active-window"
+	svc.onAgentLaunched(ev)
+
+	if err := svc.agentLaunchedWorker.Stop(context.Background()); err != nil {
+		t.Fatalf("agent launched worker Stop: %v", err)
+	}
+
+	if updates := bindings.CWDUpdates(); len(updates) != 0 {
+		t.Fatalf("cwd updates = %#v, want none on mismatch", updates)
+	}
+	assertBindingCWD(t, bindings.Binding(), "/repo/stored")
 }
 
 func assertSessionUUIDUpdate(t *testing.T, updates []bindingstore.UpdateSessionUUIDParams, wantAgentID, wantUUID string) {

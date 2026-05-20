@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/creachadair/jrpc2"
@@ -202,6 +203,56 @@ func TestApplyTurnStartConfigUsesApprovalPolicy(t *testing.T) {
 	}
 	if session.lastPatch.Approvals == nil || *session.lastPatch.Approvals != "on-request" {
 		t.Fatalf("last approvals patch = %#v, want on-request", session.lastPatch.Approvals)
+	}
+}
+
+func TestResolveTurnRPCCWDRejectsRequestMismatch(t *testing.T) {
+	t.Parallel()
+
+	session := &rpcHelperSession{runtimeConfig: map[string]any{"cwd": "/session/repo"}}
+	threadRuntimeConfig := map[string]any{"cwd": "/thread/worktree"}
+
+	_, err := resolveTurnRPCCWD("/active/project", session, threadRuntimeConfig)
+	if err == nil {
+		t.Fatal("resolveTurnRPCCWD() error = nil, want cwd mismatch error")
+	}
+	if !strings.Contains(err.Error(), "cwd mismatch") || !strings.Contains(err.Error(), "/thread/worktree") || !strings.Contains(err.Error(), "/active/project") {
+		t.Fatalf("resolveTurnRPCCWD() error = %v, want mismatch with both cwd values", err)
+	}
+}
+
+func TestResolveTurnRPCCWDFillsAuthoritativeCWDWhenRequestOmitsIt(t *testing.T) {
+	t.Parallel()
+
+	session := &rpcHelperSession{runtimeConfig: map[string]any{"cwd": "/session/repo"}}
+	threadRuntimeConfig := map[string]any{"cwd": "/thread/worktree"}
+
+	got, err := resolveTurnRPCCWD("", session, threadRuntimeConfig)
+	if err != nil {
+		t.Fatalf("resolveTurnRPCCWD() error = %v", err)
+	}
+	if got != "/thread/worktree" {
+		t.Fatalf("resolveTurnRPCCWD() = %q, want thread runtime cwd", got)
+	}
+}
+
+func TestResolveTurnRPCCWDRejectsMalformedRuntimeCWD(t *testing.T) {
+	t.Parallel()
+
+	session := &rpcHelperSession{runtimeConfig: map[string]any{"cwd": "/session/repo"}}
+	_, err := resolveTurnRPCCWD("/active/project", session, map[string]any{"cwd": 123})
+	if err == nil || !strings.Contains(err.Error(), `thread runtime config "cwd" must be a string`) {
+		t.Fatalf("resolveTurnRPCCWD() error = %v, want malformed thread runtime cwd", err)
+	}
+}
+
+func TestResolveTurnRPCCWDRejectsMalformedSessionRuntimeCWD(t *testing.T) {
+	t.Parallel()
+
+	session := &rpcHelperSession{runtimeConfig: map[string]any{"cwd": 123}}
+	_, err := resolveTurnRPCCWD("/active/project", session, nil)
+	if err == nil || !strings.Contains(err.Error(), `session runtime config "cwd" must be a string`) {
+		t.Fatalf("resolveTurnRPCCWD() error = %v, want malformed session runtime cwd", err)
 	}
 }
 

@@ -225,6 +225,10 @@ func visitCanonicalSkillFile(root canonicalScanRoot, path string, entry os.DirEn
 		return nil, fmt.Errorf("validate canonical skill %s: %w", path, err)
 	}
 	dir := filepath.Dir(path)
+	dirHash, err := skillDirContentHash(dir)
+	if err != nil {
+		return nil, err
+	}
 	parsed.info.Name = name
 	parsed.info.Scope = root.scope
 	parsed.info.PersonalType = root.personalType
@@ -235,7 +239,7 @@ func visitCanonicalSkillFile(root canonicalScanRoot, path string, entry os.DirEn
 		Dir:          dir,
 		SkillFile:    path,
 		ContentHash:  parsed.info.ContentHash,
-		DirHash:      skillDirContentHash(dir),
+		DirHash:      dirHash,
 		info:         parsed.info,
 	}, nil
 }

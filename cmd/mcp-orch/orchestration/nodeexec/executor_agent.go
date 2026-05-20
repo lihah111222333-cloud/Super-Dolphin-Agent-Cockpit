@@ -142,12 +142,12 @@ func NewAgentExecutor(launcher AgentLauncher, opts ...Option) *AgentExecutor {
 }
 
 // Execute 解码 node.config.exec → 调 launcher.LaunchAgent → 包装成 NodeOutcome。
-// 失败也是正常返回（NodeOutcome.Status=failed + FailureClass），只有 framework
-// 级错误（panic recover / context cancel）走 error 通道。
+// 配置、输入装载和启动失败是节点级失败，必须通过 failed NodeOutcome 携带
+// FailureClass；error 通道只保留给 context/panic/dispatcher wiring 等框架故障。
 //
 // Execute is the NodeExecutor entry: decode config, call the launcher, wrap
-// success/failure into NodeOutcome. Decoding errors map to validation;
-// launcher errors flow through classifyAgentLaunchError for triage.
+// success/failure into NodeOutcome. Node-level failures return a classified
+// failed outcome with nil error so the dispatcher can apply by-class policy.
 func (e *AgentExecutor) Execute(ctx context.Context, node Node, runCtx RunContext) (NodeOutcome, error) {
 	if ctx == nil {
 		// nil ctx 兜底：与 dispatcher.ProcessBatch / Tick 一致的防御式取默认值。
@@ -164,11 +164,11 @@ func (e *AgentExecutor) Execute(ctx context.Context, node Node, runCtx RunContex
 		}, nil
 	}
 	if cfg == nil {
-		// ParseAgentConfig 不返回 nil cfg，但防御式判一下。
+		err := errors.New("decode agent config: nil parsed config")
 		return NodeOutcome{
 			Status:       NodeStatusFailed,
 			FailureClass: FailureClassValidation,
-			ErrorSummary: "decode agent config: nil parsed config",
+			ErrorSummary: err.Error(),
 		}, nil
 	}
 	if failure := validateAgentOutputs(node.Config, cfg); failure != nil {
@@ -178,10 +178,11 @@ func (e *AgentExecutor) Execute(ctx context.Context, node Node, runCtx RunContex
 	// 2. 形状校验：agent_key 是 launcher 路由 prompt template 的关键字段，
 	//    缺它即 validation 失败（与 ADR 0001 §2.10 enum/必填基线对齐）。
 	if strings.TrimSpace(cfg.Exec.AgentKey) == "" {
+		err := errors.New("agent_key required in node.config.exec")
 		return NodeOutcome{
 			Status:       NodeStatusFailed,
 			FailureClass: FailureClassValidation,
-			ErrorSummary: "agent_key required in node.config.exec",
+			ErrorSummary: err.Error(),
 		}, nil
 	}
 	provider, providerErr := validateAgentLaunchProvider(cfg.Exec.Provider)
@@ -225,8 +226,7 @@ func (e *AgentExecutor) Execute(ctx context.Context, node Node, runCtx RunContex
 	threadID, launchErr := e.launcher.LaunchAgent(ctx, req)
 	if launchErr == nil {
 		// F1.5 写回逻辑外刷到 spawnWriteback，避免 Execute 本体圈复杂度 CC 超阈。
-		errorSummary := e.spawnWriteback(ctx, node, runCtx, threadID)
-		return finalizeAgentOutcome(errorSummary), nil
+		return finalizeAgentLaunchOutcome(e.spawnWriteback(ctx, node, runCtx, threadID)), nil
 	}
 
 	// 7. 失败 → 分类。F1.4 智能重试 dispatcher 据此查 cfg.Exec.OnFailure.ByClass。
@@ -251,6 +251,10 @@ func (e *AgentExecutor) Hooks() map[HookPoint]HookHandler {
 	return cloneHookHandlers(e.hooks)
 }
 
+func (e *AgentExecutor) HasSpawnRecorder() bool {
+	return e != nil && e.recorder != nil
+}
+
 var agentOutputsForbiddenKeys = []string{"webhook_url", "command_ref"}
 
 func validateAgentOutputs(raw json.RawMessage, _ *AgentNodeConfig) *NodeOutcome {
@@ -267,10 +271,17 @@ func finalizeAgentOutcome(errorSummary string) NodeOutcome {
 	return NodeOutcome{Status: NodeStatusDone, ErrorSummary: errorSummary}
 }
 
-// spawnWriteback 是 F1.5 写回路径的独立 helper：luach 成功 → 调 recorder 记录
+func finalizeAgentLaunchOutcome(errorSummary string) NodeOutcome {
+	if errorSummary == "" {
+		return finalizeAgentOutcome("")
+	}
+	return NodeOutcome{Status: NodeStatusFailed, FailureClass: FailureClassHard, ErrorSummary: errorSummary}
+}
+
+// spawnWriteback 是 F1.5 写回路径的独立 helper：launch 成功 → 调 recorder 记录
 // spawning_thread_id。返回值是 NodeOutcome.ErrorSummary 的候选填值：
 //   - 空串：recorder 跳过或写入成功，调用方保持原 outcome；
-//   - 非空：recorder 写入失败但 launch 已成功，调用方仅填 summary 不降级状态。
+//   - 非空：recorder 写入失败或前置条件缺失，调用方降级为 hard failure。
 //
 // 拆出独立函数主要为了把 Execute 的 CC 压住代码守卫上限（§10）。
 //
@@ -285,11 +296,11 @@ func (e *AgentExecutor) spawnWriteback(ctx context.Context, node Node, runCtx Ru
 	}
 	threadID = strings.TrimSpace(threadID)
 	if threadID == "" {
-		return ""
+		return "spawning_thread_id write-back skipped: launcher returned empty thread_id"
 	}
 	dagKey, nodeKey := resolveSpawnKeys(node, runCtx)
 	if dagKey == "" || nodeKey == "" {
-		return ""
+		return "spawning_thread_id write-back skipped: missing dag_key or node_key"
 	}
 	if err := e.recorder.RecordNodeSpawn(ctx, dagKey, nodeKey, runCtx.RunID, threadID); err != nil {
 		return truncateErrSummary(fmt.Sprintf("spawning_thread_id write-back failed: %v", err))

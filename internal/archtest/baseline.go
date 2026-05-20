@@ -68,12 +68,12 @@ type BaselineInfo struct {
 
 const baselineFileMode = 0o644
 
-// LoadBaseline 从 path 读取 baseline JSON。文件不存在时返回空 Baseline 而非错误。
+// LoadBaseline 从 path 读取 baseline JSON。文件不存在时直接报错，避免守卫基线缺失被静默忽略。
 func LoadBaseline(path string) (BaselineInfo, error) {
 	info, err := os.Stat(path)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return BaselineInfo{Data: Baseline{}}, nil
+			return BaselineInfo{}, fmt.Errorf("stat baseline: %w", err)
 		}
 		return BaselineInfo{}, fmt.Errorf("stat baseline: %w", err)
 	}
@@ -84,6 +84,9 @@ func LoadBaseline(path string) (BaselineInfo, error) {
 	var bl Baseline
 	if err := json.Unmarshal(data, &bl); err != nil {
 		return BaselineInfo{}, fmt.Errorf("parse baseline: %w", err)
+	}
+	if bl == nil {
+		return BaselineInfo{}, fmt.Errorf("baseline %s is null", path)
 	}
 	return BaselineInfo{Data: bl, ModTime: info.ModTime()}, nil
 }

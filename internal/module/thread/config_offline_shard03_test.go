@@ -2,6 +2,7 @@ package thread
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
@@ -18,12 +19,7 @@ func TestBuildOfflineRuntimeConfigIncludesModel(t *testing.T) {
 			Status:   "running",
 		},
 	}
-	svc := newConfigTestService(t, threads, &stubBindingStore{binding: &bindingstore.Binding{}}, &stubSessionProvider{})
-
-	runtime, err := svc.ReadRuntimeConfig(context.Background(), "thread-model-offline")
-	if err != nil {
-		t.Fatalf("ReadRuntimeConfig() error = %v", err)
-	}
+	runtime := mustBuildOfflineConfig(t, threads.thread, &bindingstore.Binding{Provider: "claude"}).Runtime
 
 	model, ok := runtime["model"]
 	if !ok {
@@ -54,7 +50,12 @@ func TestReadRuntimeConfigIncludesStoredPromptContext(t *testing.T) {
 			"sessionFlags":                 map[string]any{"verification_required": true},
 		}}),
 	}}
-	svc := newConfigTestService(t, threads, &stubBindingStore{binding: &bindingstore.Binding{Provider: "codex"}}, &stubSessionProvider{})
+	svc := newConfigTestService(t, threads, &stubBindingStore{binding: &bindingstore.Binding{
+		AgentID:          "agent-1",
+		Provider:         "codex",
+		ProviderThreadID: "thread-context-offline",
+		CodexThreadID:    "thread-context-offline",
+	}}, &stubSessionProvider{session: &stubSession{threadID: "thread-context-offline"}})
 
 	runtime, err := svc.ReadRuntimeConfig(context.Background(), "thread-context-offline")
 	if err != nil {
@@ -83,32 +84,24 @@ func assertRuntimeNestedValue(t *testing.T, runtime map[string]any, outer string
 	}
 }
 
-func TestSetConfigFallsBackToOfflinePersistWithoutSession(t *testing.T) {
+func TestSetConfigFailsFastWithoutSession(t *testing.T) {
 	t.Parallel()
 
 	model := "gpt-5.5"
 	effort := "high"
 	threads := newConfigPersistenceThreadStore()
-	// No session — stubSessionProvider with nil session returns ErrSessionNotFound.
 	svc := newConfigTestService(t, threads, testCodexBindingStore(), &stubSessionProvider{})
 
-	// SetConfig should succeed despite no session.
-	got, err := svc.SetConfig(context.Background(), "thread-1", dto.ThreadConfigPatch{
+	_, err := svc.SetConfig(context.Background(), "thread-1", dto.ThreadConfigPatch{
 		Model:  &model,
 		Effort: &effort,
 	})
-	if err != nil {
-		t.Fatalf("SetConfig() error = %v, want nil (offline fallback)", err)
+	if !errors.Is(err, contract.ErrSessionNotFound) {
+		t.Fatalf("SetConfig() error = %v, want session not found", err)
 	}
-	assertOfflineSetConfigOverride(t, got, model, effort)
-	// Verify persisted.
-	assertOfflineSetConfigStored(t, threads, model, effort)
-	// Verify readback via GetConfig (also offline) returns correct values.
-	offlineCfg, err := svc.GetConfig(context.Background(), "thread-1")
-	if err != nil {
-		t.Fatalf("GetConfig() offline error = %v", err)
+	if threads.thread.Model != "o4-mini" || len(threads.thread.ConfigOverride) != 0 {
+		t.Fatalf("thread config mutated despite failed SetConfig: %#v", threads.thread)
 	}
-	assertOfflineSetConfigReadback(t, offlineCfg, model, effort)
 }
 
 func assertOfflineSetConfigOverride(t *testing.T, got dto.ThreadConfig, model string, effort string) {
@@ -123,7 +116,7 @@ func assertOfflineSetConfigOverride(t *testing.T, got dto.ThreadConfig, model st
 
 func assertOfflineSetConfigStored(t *testing.T, threads *stubThreadStore, model string, effort string) {
 	t.Helper()
-	stored := decodeStoredThreadConfig(threads.thread.ConfigOverride)
+	stored := mustDecodeStoredThreadConfig(t, threads.thread.ConfigOverride)
 	if stored.Model != model || stored.Effort != effort {
 		t.Fatalf("stored override = %#v, want model=%q effort=%q", stored, model, effort)
 	}
@@ -139,7 +132,7 @@ func assertOfflineSetConfigReadback(t *testing.T, offlineCfg dto.ThreadConfig, m
 	}
 }
 
-func TestSetConfigFallsBackToOfflinePersistWithoutBinding(t *testing.T) {
+func TestSetConfigFailsFastWithoutBinding(t *testing.T) {
 	t.Parallel()
 
 	model := "claude-opus-4-7[1m]"
@@ -157,25 +150,16 @@ func TestSetConfigFallsBackToOfflinePersistWithoutBinding(t *testing.T) {
 	}}
 	svc := newConfigTestService(t, threads, &stubBindingStore{}, &stubSessionProvider{})
 
-	got, err := svc.SetConfig(context.Background(), "thread-pending-claude", dto.ThreadConfigPatch{
+	_, err := svc.SetConfig(context.Background(), "thread-pending-claude", dto.ThreadConfigPatch{
 		Model:  &model,
 		Effort: &effort,
 	})
-	if err != nil {
-		t.Fatalf("SetConfig() error = %v, want nil (offline fallback without binding)", err)
+	if !contract.IsNotFound(err) {
+		t.Fatalf("SetConfig() error = %v, want not found", err)
 	}
-	if got.Provider != "claude" {
-		t.Fatalf("Provider = %q, want claude", got.Provider)
-	}
-	if got.Override.Model != model || got.Override.Effort != effort {
-		t.Fatalf("Override = %#v, want model=%q effort=%q", got.Override, model, effort)
-	}
-	stored := decodeStoredThreadConfig(threads.thread.ConfigOverride)
-	if stored.Provider != "claude" || stored.Model != model || stored.Effort != effort {
-		t.Fatalf("stored override = %#v, want provider/model/effort preserved", stored)
-	}
-	if threads.thread.Model != model {
-		t.Fatalf("stored thread model = %q, want %q", threads.thread.Model, model)
+	stored := mustDecodeStoredThreadConfig(t, threads.thread.ConfigOverride)
+	if stored.Model != "" || stored.Effort != "" || threads.thread.Model != "sonnet" {
+		t.Fatalf("thread config mutated despite failed SetConfig: thread=%#v stored=%#v", threads.thread, stored)
 	}
 }
 
@@ -204,12 +188,12 @@ func TestServiceReadRuntimeConfigsMergesBatch(t *testing.T) {
 	t.Parallel()
 
 	svc := newBatchRuntimeConfigService(t)
-	gotMap, err := svc.ReadRuntimeConfigs(context.Background(), []string{"thread-1", "thread-2", "thread-3", "thread-4"})
+	gotMap, err := svc.ReadRuntimeConfigs(context.Background(), []string{"thread-1", "thread-2", "thread-3"})
 	if err != nil {
 		t.Fatalf("ReadRuntimeConfigs() error = %v", err)
 	}
-	if len(gotMap) != 4 {
-		t.Fatalf("ReadRuntimeConfigs() expected 4 results, got %d", len(gotMap))
+	if len(gotMap) != 3 {
+		t.Fatalf("ReadRuntimeConfigs() expected 3 results, got %d", len(gotMap))
 	}
 	assertBatchRuntimeConfigResults(t, gotMap)
 }
@@ -261,7 +245,7 @@ func batchRuntimeThreadStore(t *testing.T) *stubThreadStore {
 		AgentID:        "agent-2",
 		ConfigOverride: mustStoredThreadConfigRaw(t, storedThreadConfig{Personality: "creative"}),
 	}
-	thread3 := threadstore.Thread{ThreadID: "thread-3", AgentID: "agent-3"}
+	thread3 := threadstore.Thread{ThreadID: "thread-3", PendingLaunch: true}
 	return &stubThreadStore{
 		thread:     cloneThread(thread1),
 		threads:    []threadstore.Thread{thread1, thread2, thread3},
@@ -294,7 +278,6 @@ func assertBatchRuntimeConfigResults(t *testing.T, gotMap map[string]map[string]
 	assertRuntimeConfigFields(t, gotMap["thread-1"], "thread-1", "on-request", "balanced")
 	assertRuntimeConfigFields(t, gotMap["thread-2"], "thread-2", "never", "creative")
 	assertRuntimeConfigFields(t, gotMap["thread-3"], "thread-3", "on-failure", nil)
-	assertRuntimeConfigFields(t, gotMap["thread-4"], "thread-4", "on-failure", nil)
 	if gotMap["thread-3"]["model"] != nil {
 		t.Fatalf("ReadRuntimeConfigs()[thread-3] = %#v", gotMap["thread-3"])
 	}

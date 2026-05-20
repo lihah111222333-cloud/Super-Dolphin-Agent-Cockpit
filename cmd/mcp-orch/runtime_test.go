@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"path/filepath"
 	"strings"
@@ -126,6 +127,24 @@ func TestBootstrapRunnerStartsAndSubscribesWhenRPCAddrPresent(t *testing.T) {
 	assertBootstrapSubscription(t, client)
 }
 
+func TestBootstrapRunnerFailsWhenHookSubscriptionFails(t *testing.T) {
+	t.Setenv("GO_AGENT_PEER_MODE", "1")
+
+	subscribeErr := errors.New("subscribe failed")
+	client := &stubBootstrapClient{subscribeErr: subscribeErr}
+
+	err := bootstrapRunner{
+		cfg:    bootstrap.Config{RPCAddr: "127.0.0.1:9123", BinaryName: "mcp-orch"},
+		client: client,
+	}.Run(context.Background())
+	if !errors.Is(err, subscribeErr) {
+		t.Fatalf("Run() error = %v, want subscribe failed", err)
+	}
+	if client.closeCalls != 1 {
+		t.Fatalf("Close() calls = %d, want 1 after hook subscribe failure", client.closeCalls)
+	}
+}
+
 func waitForBootstrapSignal(t *testing.T, signal <-chan struct{}, message string) {
 	t.Helper()
 	select {
@@ -178,19 +197,18 @@ func assertBootstrapSubscription(t *testing.T, client *stubBootstrapClient) {
 	}
 }
 
-func TestNewModelRegistryFallsBackWhenDefaultRegistryFails(t *testing.T) {
+func TestNewModelRegistryFailsWhenDefaultRegistryFails(t *testing.T) {
 	t.Setenv(modelregistry.EnvRegistryPath, filepath.Join(t.TempDir(), "missing.yaml"))
 	var logs bytes.Buffer
 
-	registry := newModelRegistry(slog.New(slog.NewTextHandler(&logs, nil)))
-	providers := registry.ListProviders()
-	if len(providers) != 2 {
-		t.Fatalf("providers count = %d, want 2", len(providers))
+	registry, err := newModelRegistry(slog.New(slog.NewTextHandler(&logs, nil)))
+	if err == nil {
+		t.Fatalf("newModelRegistry() error = nil, registry = %#v", registry)
 	}
-	if providers[0].Provider != "claude" || providers[1].Provider != "codex" {
-		t.Fatalf("providers = %+v", providers)
+	if !strings.Contains(err.Error(), "model registry load failed") {
+		t.Fatalf("newModelRegistry() error = %v, want model registry load failed", err)
 	}
-	if !strings.Contains(logs.String(), "model registry load failed; falling back to static registry") {
-		t.Fatalf("logs = %q, want static fallback warning", logs.String())
+	if logs.String() != "" {
+		t.Fatalf("logs = %q, want no fallback warning", logs.String())
 	}
 }

@@ -337,14 +337,14 @@ func assertForceInvalidPatchLeavesFile(t *testing.T, root string, handler ToolHa
 	badPatch := json.RawMessage(`{"action":"replace_range","file_path":` + strconv.Quote(inside) + `,"patch":"not a patch","force":true}`)
 	got, err := handler(common.WithToolScope(context.Background(), common.ToolScope{CWD: "/"}), badPatch)
 	if err != nil {
-		t.Fatalf("force invalid patch returned transport error: %v", err)
+		t.Fatalf("replace_range returned error = %v, want structured patch failure", err)
 	}
 	failure, ok := got.(replaceRangeFailure)
 	if !ok {
-		t.Fatalf("force invalid patch result type = %T, want replaceRangeFailure", got)
+		t.Fatalf("replace_range result = %#v, want replaceRangeFailure", got)
 	}
-	if failure.Success || !strings.Contains(strings.ToLower(failure.Error), "patch") {
-		t.Fatalf("force invalid patch result = %#v, want patch grammar failure", failure)
+	if failure.Success || !strings.Contains(failure.Error, "patch") || failure.CurrentContent != "old\n" {
+		t.Fatalf("replace_range failure = %#v, want patch error with current content", failure)
 	}
 	assertFileContent(t, inside, "old\n")
 }
@@ -447,15 +447,13 @@ func TestEditFailureAfterDeadClientReturnsRetryableWithoutAutoReplay(t *testing.
 
 	got, err := handler(common.WithToolScope(context.Background(), common.ToolScope{CWD: "/"}), input)
 	if err != nil {
-		t.Fatalf("replace_range returned transport error: %v", err)
+		t.Fatalf("replace_range error = %v, want structured sync failure", err)
 	}
-	result, ok := got.(replaceRangeFailure)
+	failure, ok := got.(replaceRangeFailure)
 	if !ok {
-		t.Fatalf("result type = %T, want replaceRangeFailure", got)
+		t.Fatalf("replace_range result = %#v, want replaceRangeFailure", got)
 	}
-	if result.Success {
-		t.Fatalf("Success = true, want false for dead-client edit sync")
-	}
+	requireStringContains(t, failure.Error, "LSP client closed")
 	assertDeadClientRollbackState(t, path, original, manager)
 	envelope := newToolErrorEnvelope("edit", "go", errors.Join(multilsp.ErrTransportClosed, manager.didChangeErr))
 	if !envelope.Retryable || envelope.Code != "lsp_client_closed" {
@@ -479,6 +477,23 @@ func assertFileContent(t *testing.T, path, want string) {
 	}
 	if string(raw) != want {
 		t.Fatalf("file content mismatch for %s:\nwant %q\ngot  %q", path, want, string(raw))
+	}
+}
+
+func requireErrorContains(t *testing.T, err error, parts ...string) {
+	t.Helper()
+	if err == nil {
+		t.Fatalf("error = nil, want substrings %q", parts)
+	}
+	requireStringContains(t, err.Error(), parts...)
+}
+
+func requireStringContains(t *testing.T, text string, parts ...string) {
+	t.Helper()
+	for _, part := range parts {
+		if !strings.Contains(text, part) {
+			t.Fatalf("text = %q, want substring %q", text, part)
+		}
 	}
 }
 
@@ -515,18 +530,13 @@ func TestReplaceRangeSyncFailureReportsRollbackFailure(t *testing.T) {
 
 	got, err := handler(common.WithToolScope(context.Background(), common.ToolScope{CWD: "/"}), input)
 	if err != nil {
-		t.Fatalf("replace_range returned transport error: %v", err)
+		t.Fatalf("replace_range error = %v, want structured rollback failure", err)
 	}
-	result, ok := got.(replaceRangeFailure)
+	failure, ok := got.(replaceRangeFailure)
 	if !ok {
-		t.Fatalf("result type = %T, want replaceRangeFailure", got)
+		t.Fatalf("replace_range result = %#v, want replaceRangeFailure", got)
 	}
-	if result.Success {
-		t.Fatalf("Success = true, want false")
-	}
-	if !strings.Contains(result.Error, "lsp sync boom") || !strings.Contains(result.Error, "rollback failed") {
-		t.Fatalf("error = %q, want sync and rollback failure details", result.Error)
-	}
+	requireStringContains(t, failure.Error, "lsp sync boom", "rollback failed")
 }
 
 func TestApplyWorkspaceEditSyncFailureReportsRollbackFailure(t *testing.T) {

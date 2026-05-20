@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 	"unicode"
 
@@ -21,14 +22,12 @@ func (s *service) GetState(ctx context.Context, agentID string) (AgentStateResul
 		result = AgentStateResult{AgentID: agent.id, State: string(agent.state)}
 		return nil
 	})
-	if err != nil && errors.Is(err, errAgentNotFound) {
-		snapshot, lookupErr := s.persistedAgentSnapshot(ctx, agentID)
-		if lookupErr == nil {
-			return AgentStateResult{AgentID: snapshot.AgentID, State: snapshot.State}, nil
+	if errors.Is(err, errAgentNotFound) {
+		snapshot, snapshotErr := s.persistedAgentSnapshot(ctx, agentID)
+		if snapshotErr != nil {
+			return AgentStateResult{}, snapshotErr
 		}
-		if !errors.Is(lookupErr, errAgentNotFound) {
-			return AgentStateResult{}, lookupErr
-		}
+		return AgentStateResult{AgentID: snapshot.AgentID, State: snapshot.State}, nil
 	}
 	return result, err
 }
@@ -39,27 +38,29 @@ func (s *service) GetReport(ctx context.Context, agentID string) (AgentReportRes
 		result = agentReportLocked(agent)
 		return nil
 	})
-	if err != nil && errors.Is(err, errAgentNotFound) {
-		snapshot, lookupErr := s.persistedAgentSnapshot(ctx, agentID)
-		if lookupErr == nil {
-			report, reportErr := readPersistedAgentReportFile(agentReportFileRecordFromSnapshot(snapshot))
-			if reportErr != nil {
-				if !errors.Is(reportErr, errAgentReportNotFound) {
-					return AgentReportResult{}, reportErr
-				}
-				report = noReportFallbackText(snapshot.State)
-			}
-			return AgentReportResult{
-				AgentID: snapshot.AgentID,
-				Report:  normalizeDisplayReportText(report),
-				State:   snapshot.State,
-			}, nil
-		}
-		if !errors.Is(lookupErr, errAgentNotFound) {
-			return AgentReportResult{}, lookupErr
-		}
+	if errors.Is(err, errAgentNotFound) {
+		return s.persistedAgentReport(ctx, agentID)
 	}
 	return result, err
+}
+
+func (s *service) persistedAgentReport(ctx context.Context, agentID string) (AgentReportResult, error) {
+	snapshot, err := s.persistedAgentSnapshot(ctx, agentID)
+	if err != nil {
+		return AgentReportResult{}, err
+	}
+	report, err := readPersistedAgentReportFile(agentReportFileRecordFromSnapshot(snapshot))
+	if err != nil {
+		if errors.Is(err, errAgentReportNotFound) {
+			return AgentReportResult{AgentID: snapshot.AgentID, State: snapshot.State}, fmt.Errorf("%w: persisted report missing for %s", errAgentNotFound, snapshot.AgentID)
+		}
+		return AgentReportResult{}, err
+	}
+	return AgentReportResult{
+		AgentID: snapshot.AgentID,
+		Report:  normalizeDisplayReportText(report),
+		State:   snapshot.State,
+	}, nil
 }
 
 func (s *service) RememberReportRequest(ctx context.Context, req RememberReportRequest) (RememberReportRequestResult, error) {

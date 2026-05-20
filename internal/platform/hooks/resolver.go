@@ -147,7 +147,7 @@ func (r *HookResolver) validateResolvedReviewLease(ctx context.Context, hookCall
 	_, _, subscriberLease, err := r.readResolvedReview(ctx, hookCallID)
 	if err != nil {
 		if errors.Is(err, contract.ErrHookReviewNotFound) {
-			return nil
+			return fmt.Errorf("hook review %q not found while validating resolved lease: %w", hookCallID, err)
 		}
 		return err
 	}

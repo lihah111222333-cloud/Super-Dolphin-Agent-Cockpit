@@ -159,11 +159,15 @@ func (s *service) buildBaseUserContext(_ context.Context, sources []contract.Cla
 	return userContextPayload(base)
 }
 
-func (s *service) resolveClaudeMdSources(ctx context.Context, buildCtx BuildCtx) []contract.ClaudeMdSource {
+func (s *service) resolveClaudeMdSources(ctx context.Context, buildCtx BuildCtx) ([]contract.ClaudeMdSource, error) {
 	if s == nil || s.claudeMdProvider == nil {
-		return nil
+		return nil, nil
 	}
-	return cloneClaudeMdSources(s.claudeMdProvider.ResolveClaudeMdSources(ctx, buildCtx))
+	sources, err := s.claudeMdProvider.ResolveClaudeMdSources(ctx, buildCtx)
+	if err != nil {
+		return nil, err
+	}
+	return cloneClaudeMdSources(sources), nil
 }
 
 func baseUserContextCacheKey(sources []contract.ClaudeMdSource) string {

@@ -5,6 +5,8 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
+	"fmt"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -96,27 +98,28 @@ func SanitizeSkillProjectKey(raw string) string {
 }
 
 // ProjectKeyFromCwd resolves cwd to the skill-scoped project key.
-func ProjectKeyFromCwd(cwd string) string {
+func ProjectKeyFromCwd(cwd string) (string, error) {
 	return projectKeyFromCwd(cwd, SanitizeSkillProjectKey)
 }
 
 // MemoryProjectKeyFromCwd resolves cwd to the legacy memory/mcp-orch project key.
-func MemoryProjectKeyFromCwd(cwd string) string {
+func MemoryProjectKeyFromCwd(cwd string) (string, error) {
 	return projectKeyFromCwd(cwd, SanitizeMemoryProjectKey)
 }
 
-func projectKeyFromCwd(cwd string, sanitize func(string) string) string {
+func projectKeyFromCwd(cwd string, sanitize func(string) string) (string, error) {
 	cwd = strings.TrimSpace(cwd)
 	if cwd == "" {
-		return ""
+		return "", errors.New("project key cwd is required")
 	}
-	if canonical, err := canonicalProjectRoot(context.Background(), cwd); err == nil && strings.TrimSpace(canonical) != "" {
-		return sanitize(canonical)
+	canonical, err := canonicalProjectRoot(context.Background(), cwd)
+	if err != nil {
+		return "", err
 	}
-	if cleaned, err := cleanAbsoluteProjectPath(cwd); err == nil && strings.TrimSpace(cleaned) != "" {
-		return sanitize(cleaned)
+	if strings.TrimSpace(canonical) == "" {
+		return "", fmt.Errorf("resolve git root for %q returned empty path", cwd)
 	}
-	return sanitize(cwd)
+	return sanitize(canonical), nil
 }
 
 func sanitizeSkillProjectKeySegment(raw string) string {
@@ -163,15 +166,15 @@ func canonicalProjectRoot(ctx context.Context, cwd string) (string, error) {
 	cmd.Dir = fallback
 	output, err := cmd.Output()
 	if err != nil {
-		return fallback, nil
+		return "", fmt.Errorf("resolve git root for %q: %w", fallback, err)
 	}
 	lines := strings.Split(strings.ReplaceAll(string(output), "\r\n", "\n"), "\n")
 	if len(lines) == 0 {
-		return fallback, nil
+		return "", fmt.Errorf("resolve git root for %q returned empty output", fallback)
 	}
 	gitRoot := filepath.Clean(norm.NFC.String(strings.TrimSpace(lines[0])))
 	if gitRoot == "" {
-		return fallback, nil
+		return "", fmt.Errorf("resolve git root for %q returned empty root", fallback)
 	}
 	if len(lines) < 2 {
 		return gitRoot, nil

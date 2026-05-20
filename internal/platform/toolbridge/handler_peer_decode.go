@@ -14,7 +14,6 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/mcpcontrol"
 )
 
-// peerReadyTimeout is the max time to wait for a peer to register after startup.
 const peerReadyTimeout = 10 * time.Second
 const peerPollInterval = 300 * time.Millisecond
 
@@ -200,32 +199,6 @@ func legacyCodexToolAliases(family, canonical string) []string {
 	return nil
 }
 
-func legacyLSPName(canonical string) string {
-	for legacy, short := range legacyLSPToolAliases {
-		if short == canonical {
-			return legacy
-		}
-	}
-	return ""
-}
-
-func legacyOrchName(canonical string) string {
-	switch strings.TrimSpace(canonical) {
-	case "launch_agent":
-		return "orchestration_launch_agent"
-	case "send_message":
-		return "orchestration_send_message"
-	case "stop_agent":
-		return "orchestration_stop_agent"
-	case "list_agents":
-		return "orchestration_list_agents"
-	case "get_agent_report":
-		return "orchestration_get_agent_report"
-	default:
-		return ""
-	}
-}
-
 func codexSurfaceKeys(scope contract.CodexToolSurfaceScope) []string {
 	return nonEmptyUnique(surfaceIDKey(scope.SurfaceID), scope.AgentID, scope.ProviderThreadID, scope.LocalThreadID, scope.UIThreadID)
 }
@@ -349,7 +322,7 @@ func (h *Handler) waitForPeer(ctx context.Context, clientKind string) ([]*mcpcon
 	}
 }
 
-func adaptMCPResponse(resp peerToolCallResponse) *ToolCallResult {
+func adaptMCPResponse(resp peerToolCallResponse) (*ToolCallResult, error) {
 	items := make([]ToolCallContentItem, 0, len(resp.Content))
 	for _, item := range resp.Content {
 		items = append(items, ToolCallContentItem{
@@ -357,7 +330,32 @@ func adaptMCPResponse(resp peerToolCallResponse) *ToolCallResult {
 			Text: strings.TrimSpace(item.Text),
 		})
 	}
-	return &ToolCallResult{ContentItems: items, Success: true}
+	structuredFailure, err := structuredContentReportsFailure(resp.StructuredContent)
+	if err != nil {
+		return nil, err
+	}
+	return &ToolCallResult{
+		ContentItems:      items,
+		StructuredContent: append(json.RawMessage(nil), resp.StructuredContent...),
+		Success:           !resp.IsError && !structuredFailure,
+	}, nil
+}
+
+func structuredContentReportsFailure(raw json.RawMessage) (bool, error) {
+	if len(raw) == 0 {
+		return false, nil
+	}
+	var payload struct {
+		Success *bool `json:"success"`
+		IsError *bool `json:"isError"`
+		OK      *bool `json:"ok"`
+	}
+	if err := json.Unmarshal(raw, &payload); err != nil {
+		return false, fmt.Errorf("toolbridge: decode structuredContent: %w", err)
+	}
+	return (payload.Success != nil && !*payload.Success) ||
+		(payload.IsError != nil && *payload.IsError) ||
+		(payload.OK != nil && !*payload.OK), nil
 }
 
 func toCodexDynamicTools(tools []mcpdto.MCPTool) []contract.DynamicToolSchema {
@@ -467,16 +465,29 @@ func requiresCodexSurfaceFamilyTool(family, name string) bool {
 }
 
 func requiresCanonicalCodexSurfaceTool(name string) bool {
-	switch strings.TrimSpace(name) {
-	case "file", "inspect", "xref", "grep", "structure", "edit", "completion", "code_run", "code_run_test":
-		return true
-	case "launch_agent", "send_message", "stop_agent", "list_agents", "get_agent_report":
-		return true
-	case ToolNameMemoryRead, ToolNameMemoryWrite, ToolNameReadSection, "skill_expand_body":
-		return true
-	default:
-		return false
-	}
+	_, ok := canonicalCodexSurfaceTools[strings.TrimSpace(name)]
+	return ok
+}
+
+var canonicalCodexSurfaceTools = map[string]struct{}{
+	"file":              {},
+	"inspect":           {},
+	"xref":              {},
+	"grep":              {},
+	"structure":         {},
+	"edit":              {},
+	"completion":        {},
+	"code_run":          {},
+	"code_run_test":     {},
+	"launch_agent":      {},
+	"send_message":      {},
+	"stop_agent":        {},
+	"list_agents":       {},
+	"get_agent_report":  {},
+	ToolNameMemoryRead:  {},
+	ToolNameMemoryWrite: {},
+	ToolNameReadSection: {},
+	"skill_expand_body": {},
 }
 
 var toolCWDTraceCanonicalTools = map[string]struct{}{

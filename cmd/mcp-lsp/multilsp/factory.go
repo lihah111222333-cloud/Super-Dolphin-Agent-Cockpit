@@ -270,7 +270,7 @@ func (s *lspCacheStore) persistOnMutation(changed bool) {
 		return
 	}
 	if err := s.persistLocked(); err != nil {
-		s.fallbackToMemory(err)
+		panic(fmt.Errorf("persist lsp cache: %w", err))
 	}
 }
 

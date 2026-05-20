@@ -14,31 +14,45 @@ function normalizePath(path) {
 const state = reactive({
   projects: [],
   active: '.',
+  scopeCwd: '',
   showModal: false,
   modalPath: '',
   browsing: false,
 });
 
 function normalizeProjectList(input) {
-  if (!Array.isArray(input)) return [];
+  if (!Array.isArray(input)) throw new Error('project state projects must be an array');
   const projects = [];
   for (const item of input) {
-    const normalized = normalizePath((item || '').toString());
-    if (!normalized || normalized === '.') continue;
-    if (projects.includes(normalized)) continue;
+    if (typeof item !== 'string') throw new Error('project state project path must be a string');
+    const normalized = normalizePath(item);
+    if (!normalized || normalized === '.') throw new Error('project state project path must be explicit');
+    if (projects.includes(normalized)) throw new Error(`project state contains duplicate project path: ${normalized}`);
     projects.push(normalized);
   }
   return projects;
 }
 
 function applyProjectsState(payload) {
-  const projects = normalizeProjectList(payload?.projects);
-  let active = normalizePath((payload?.active || '.').toString()) || '.';
+  if (!payload || typeof payload !== 'object') throw new Error('project state response must be an object');
+  const projects = normalizeProjectList(payload.projects);
+  if (typeof payload.active !== 'string') throw new Error('project state active must be a string');
+  const active = normalizePath(payload.active) || '.';
   if (active !== '.' && !projects.includes(active)) {
-    active = '.';
+    throw new Error(`project state active path is not in projects: ${active}`);
   }
   state.projects = projects;
   state.active = active;
+}
+
+function setScopeCwd(cwd) {
+  state.scopeCwd = normalizePath((cwd || '').toString());
+}
+
+function scopedProjectParams(params = {}) {
+  const cwd = normalizePath((state.scopeCwd || '').toString());
+  if (!cwd || cwd === '.') throw new Error('project scope cwd is required');
+  return { ...params, cwd };
 }
 
 async function callProjectAPI(method, params = {}) {
@@ -49,54 +63,37 @@ async function callProjectAPI(method, params = {}) {
 }
 
 async function reloadProjects() {
-  try {
-    const res = await callProjectAPI('ui/projects/get', {});
-    applyProjectsState(res || {});
-    logDebug('project', 'state.reloaded', {
-      count: state.projects.length,
-      active: state.active,
-    });
-  } catch (error) {
-    logWarn('project', 'state.reload.failed', { error });
-  }
+  const res = await callProjectAPI('ui/projects/get', scopedProjectParams());
+  applyProjectsState(res);
+  logDebug('project', 'state.reloaded', {
+    count: state.projects.length,
+    active: state.active,
+  });
 }
 
 async function setActive(path) {
   const next = normalizePath(path) || '.';
-  try {
-    logWarn('project', 'active.set.start', { path: next, ts: Date.now() });
-    const res = await callProjectAPI('ui/projects/setActive', { path: next });
-    applyProjectsState(res || {});
-    logWarn('project', 'active.set.done', { active: state.active, ts: Date.now() });
-    logInfo('project', 'active.changed', { active: state.active });
-  } catch (error) {
-    logWarn('project', 'active.set.failed', { path: next, error });
-  }
+  logWarn('project', 'active.set.start', { path: next, ts: Date.now() });
+  const res = await callProjectAPI('ui/projects/setActive', scopedProjectParams({ path: next }));
+  applyProjectsState(res);
+  logWarn('project', 'active.set.done', { active: state.active, ts: Date.now() });
+  logInfo('project', 'active.changed', { active: state.active });
 }
 
 async function addProject(path) {
   const normalized = normalizePath(path);
   if (!normalized || normalized === '.') return false;
-  try {
-    const res = await callProjectAPI('ui/projects/add', { path: normalized });
-    applyProjectsState(res || {});
-    logInfo('project', 'added', { path: normalized, total: state.projects.length });
-    return true;
-  } catch (error) {
-    logWarn('project', 'add.failed', { path: normalized, error });
-    return false;
-  }
+  const res = await callProjectAPI('ui/projects/add', scopedProjectParams({ path: normalized }));
+  applyProjectsState(res);
+  logInfo('project', 'added', { path: normalized, total: state.projects.length });
+  return true;
 }
 
 async function removeProject(path) {
   const target = normalizePath(path);
-  try {
-    const res = await callProjectAPI('ui/projects/remove', { path: target });
-    applyProjectsState(res || {});
-    logInfo('project', 'removed', { path: target, total: state.projects.length });
-  } catch (error) {
-    logWarn('project', 'remove.failed', { path: target, error });
-  }
+  const res = await callProjectAPI('ui/projects/remove', scopedProjectParams({ path: target }));
+  applyProjectsState(res);
+  logInfo('project', 'removed', { path: target, total: state.projects.length });
 }
 
 function openModal(defaultPath = '') {
@@ -135,6 +132,7 @@ async function browseDirectory() {
       default_path: defaultPath,
       duration_ms: Date.now() - start,
     });
+    throw error;
   } finally {
     state.browsing = false;
   }
@@ -157,11 +155,6 @@ function confirmModal() {
 function quickAdd() {
   openModal();
 }
-
-reloadProjects().catch((error) => {
-  logWarn('project', 'state.bootstrap.failed', { error });
-});
-
 
 export function useProjectStore() {
   return {
@@ -198,6 +191,7 @@ export function useProjectStore() {
     }),
 
     setActive,
+    setScopeCwd,
     addProject,
     removeProject,
     reloadProjects,

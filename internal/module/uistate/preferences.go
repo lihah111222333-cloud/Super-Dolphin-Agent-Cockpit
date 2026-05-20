@@ -125,8 +125,8 @@ func applyPreferencesToState(state *UIState, prefs *Preferences) {
 	if state == nil || prefs == nil {
 		return
 	}
-	state.ActiveThreadID = prefs.ActiveThreadID
-	state.ActiveCmdThreadID = prefs.ActiveCmdThreadID
+	state.ActiveThreadID = activeThreadPreference(state.Threads, prefs.ActiveThreadID)
+	state.ActiveCmdThreadID = activeThreadPreference(state.Threads, prefs.ActiveCmdThreadID)
 	state.MainAgentID = deriveMainAgentID(state.Agents, prefs.MainAgentID)
 	state.StallThresholdSec = prefs.StallThresholdSec
 	state.ShowInjectedPromptInChat = cloneBoolPtr(prefs.ShowInjectedPromptInChat)
@@ -141,14 +141,27 @@ func applyPreferencesToSidebar(sidebar *Sidebar, prefs *Preferences) {
 	if sidebar == nil || prefs == nil {
 		return
 	}
-	sidebar.ActiveThreadID = prefs.ActiveThreadID
-	sidebar.ActiveCmdThreadID = prefs.ActiveCmdThreadID
+	sidebar.ActiveThreadID = activeThreadPreference(sidebar.Threads, prefs.ActiveThreadID)
+	sidebar.ActiveCmdThreadID = activeThreadPreference(sidebar.Threads, prefs.ActiveCmdThreadID)
 	sidebar.MainAgentID = deriveMainAgentID(sidebar.Agents, prefs.MainAgentID)
 	sidebar.ViewPrefsChat = clone.JSONMap(prefs.ViewPrefs.Chat)
 	sidebar.ViewPrefsCmd = clone.JSONMap(prefs.ViewPrefs.Cmd)
 	sidebar.ThreadPinsChat = cloneTimestampMap(prefs.ThreadPins.Chat)
 	sidebar.ThreadArchivesChat = projectArchivedThreadStatus(sidebar.Threads, prefs.ThreadArchives.Chat)
 	sidebar.Groups = buildThreadGroups(sidebar.Threads, prefs.ThreadPins.Chat, sidebar.ThreadArchivesChat)
+}
+
+func activeThreadPreference(threads []ThreadSummary, current string) string {
+	current = strings.TrimSpace(current)
+	if current == "" {
+		return ""
+	}
+	for _, thread := range threads {
+		if strings.TrimSpace(thread.ID) == current {
+			return current
+		}
+	}
+	return ""
 }
 
 // projectArchivedThreadStatus merges DB-side archived status into the

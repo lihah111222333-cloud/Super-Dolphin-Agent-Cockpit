@@ -129,7 +129,18 @@ describe('UnifiedChatPage preflight coverage', () => {
   it('covers interruptCurrent reject and error branches', async () => {
     const { vm: noThreadVm } = await createVm({ selectedId: '' }); const noThreadReject = vi.fn(); await noThreadVm.interruptCurrent({ reject: noThreadReject }); expect(noThreadReject).toHaveBeenCalledWith({ reason: 'no_thread' });
     const { vm: rejectVm, store: rejectStore } = await createVm(); rejectStore.stopThread.mockResolvedValueOnce({ confirmed: false, settled: false, mode: 'needs_confirm' }); const reject = vi.fn(); await rejectVm.interruptCurrent({ threadId: 'thread-active', reject }); expect(reject).toHaveBeenCalledWith({ reason: 'needs_confirm', mode: 'needs_confirm', threadId: 'thread-active' });
-    const { vm: errorVm, store: errorStore } = await createVm(); errorStore.stopThread.mockRejectedValueOnce(new Error('boom')); const errorReject = vi.fn(); await errorVm.interruptCurrent({ threadId: 'thread-active', reject: errorReject }); expect(errorReject).toHaveBeenCalledWith({ reason: 'error', threadId: 'thread-active' });
+    const { vm: errorVm, store: errorStore } = await createVm(); errorStore.stopThread.mockRejectedValueOnce(new Error('boom')); const errorReject = vi.fn(); await expect(errorVm.interruptCurrent({ threadId: 'thread-active', reject: errorReject })).rejects.toThrow('boom'); expect(errorReject).toHaveBeenCalledWith({ reason: 'error', threadId: 'thread-active' });
+  });
+
+  it('rethrows promote-task failures instead of swallowing them in the page handler', async () => {
+    vi.mocked(callAPI).mockImplementation(async (method) => {
+      if (method === 'ui/thread/promote-task') throw new Error('promote boom');
+      return {};
+    });
+    const { vm } = await createVm({ active: '/repo' });
+
+    await expect(vm.onPromoteTaskRequested()).rejects.toThrow('promote boom');
+    expect(vm.promoteTaskLastError.value).toBe('promote boom');
   });
 
   it('covers keyboard escape guards and dedupe handling', async () => {
@@ -378,7 +389,7 @@ describe('UnifiedChatPage preflight coverage', () => {
 
   it('covers openNewWindow cancel/failure', async () => {
     const { vm, store } = await createVm({ selectedId: 'thread-active' }); vi.mocked(callAPI).mockResolvedValueOnce({}); await vm.openNewWindow(); expect(vi.mocked(callAPI).mock.calls.some(([method]) => method === 'ui/openNewWindow')).toBe(false);
-    vi.mocked(callAPI).mockReset().mockResolvedValueOnce({ path: '/tmp/child' }).mockRejectedValueOnce(new Error('open failed')); await expect(vm.openNewWindow()).resolves.toBeUndefined(); expect(vi.mocked(callAPI).mock.calls.map(([method]) => method)).toEqual(['ui/selectProjectDir', 'ui/openNewWindow']);
+    vi.mocked(callAPI).mockReset().mockResolvedValueOnce({ path: '/tmp/child' }).mockRejectedValueOnce(new Error('open failed')); await expect(vm.openNewWindow()).rejects.toThrow('open failed'); expect(vi.mocked(callAPI).mock.calls.map(([method]) => method)).toEqual(['ui/selectProjectDir', 'ui/openNewWindow']);
   });
 
   it('covers file ref markdown, image, synthetic diff and empty path branches', async () => {

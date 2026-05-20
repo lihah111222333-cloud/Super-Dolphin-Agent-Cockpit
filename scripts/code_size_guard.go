@@ -124,11 +124,8 @@ func reportAndExit(label string, vs []archtest.Violation) {
 func runRatchetPhase(label, blPath string, opts archtest.CheckOptions, root string, testsOnly bool) {
 	blInfo, err := archtest.LoadBaseline(blPath)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "⚠️  加载 %s baseline 失败: %v\n", label, err)
-		return
-	}
-	if len(blInfo.Data) == 0 {
-		return
+		fmt.Fprintf(os.Stderr, "❌  加载 %s baseline 失败: %v\n", label, err)
+		os.Exit(1)
 	}
 	checkRatchetResult(label, opts, blInfo.Data)
 	shrinkAndSave(label, blPath, blInfo.Data, opts, root, testsOnly)
@@ -148,14 +145,19 @@ func checkRatchetResult(label string, opts archtest.CheckOptions, bl archtest.Ba
 }
 
 func shrinkAndSave(label, blPath string, bl archtest.Baseline, opts archtest.CheckOptions, root string, testsOnly bool) {
-	fileSet := buildFileSet(root, opts, testsOnly)
+	fileSet, err := buildFileSet(root, opts, testsOnly)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "❌  收集 %s baseline 文件集合失败: %v\n", label, err)
+		os.Exit(1)
+	}
 	measure := func(rel string) archtest.FileMetrics {
 		return archtest.MeasureFileMetrics(filepath.Join(root, filepath.FromSlash(rel)))
 	}
 	newBL, stats := archtest.ShrinkBaseline(bl, fileSet, measure)
 	if stats.Changed() {
 		if err := archtest.SaveBaseline(blPath, newBL); err != nil {
-			fmt.Fprintf(os.Stderr, "⚠️  保存收缩 %s baseline 失败: %v\n", label, err)
+			fmt.Fprintf(os.Stderr, "❌  保存收缩 %s baseline 失败: %v\n", label, err)
+			os.Exit(1)
 		} else {
 			fmt.Printf("🧹  %s baseline 收缩 — 收紧 %d, 毕业 %d, 清理 %d\n",
 				label, stats.Shrunk, stats.Graduated, stats.Removed)
@@ -185,7 +187,7 @@ func printPassSummary() {
 	fmt.Println("✅  代码守卫: 全部通过")
 }
 
-func buildFileSet(root string, opts archtest.CheckOptions, testsOnly bool) map[string]bool {
+func buildFileSet(root string, opts archtest.CheckOptions, testsOnly bool) (map[string]bool, error) {
 	scanRoots := opts.ScanRoots
 	if len(scanRoots) == 0 {
 		scanRoots = archtest.DefaultScanRoots()
@@ -196,15 +198,17 @@ func buildFileSet(root string, opts archtest.CheckOptions, testsOnly bool) map[s
 	}
 	out := make(map[string]bool)
 	for _, sr := range scanRoots {
-		walkCollect(filepath.Join(root, sr), root, skipDirs, testsOnly, out)
+		if err := walkCollect(filepath.Join(root, sr), root, skipDirs, testsOnly, out); err != nil {
+			return nil, err
+		}
 	}
-	return out
+	return out, nil
 }
 
-func walkCollect(absRoot, repoRoot string, skip map[string]bool, testsOnly bool, out map[string]bool) {
-	_ = filepath.Walk(absRoot, func(p string, info os.FileInfo, err error) error {
+func walkCollect(absRoot, repoRoot string, skip map[string]bool, testsOnly bool, out map[string]bool) error {
+	return filepath.Walk(absRoot, func(p string, info os.FileInfo, err error) error {
 		if err != nil {
-			return nil
+			return err
 		}
 		if info.IsDir() && skip[info.Name()] {
 			return filepath.SkipDir
@@ -215,9 +219,11 @@ func walkCollect(absRoot, repoRoot string, skip map[string]bool, testsOnly bool,
 		if testsOnly != strings.HasSuffix(p, "_test.go") {
 			return nil
 		}
-		if rel, e := filepath.Rel(repoRoot, p); e == nil {
-			out[filepath.ToSlash(rel)] = true
+		rel, err := filepath.Rel(repoRoot, p)
+		if err != nil {
+			return err
 		}
+		out[filepath.ToSlash(rel)] = true
 		return nil
 	})
 }

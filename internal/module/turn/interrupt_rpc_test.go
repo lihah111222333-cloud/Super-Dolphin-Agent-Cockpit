@@ -57,6 +57,47 @@ func TestTurnInterruptHandlerReturnsEnvelope(t *testing.T) {
 	}
 }
 
+func TestTurnInterruptHandlerReturnsTimeoutEnvelope(t *testing.T) {
+	t.Parallel()
+
+	handle := newStubTurnHandle("local-timeout", "provider-timeout")
+	session := &stubSession{
+		threadID: "thread-timeout",
+		startTurn: func(context.Context, dto.TurnRequest) (contract.TurnHandle, error) {
+			return handle, nil
+		},
+		interrupt: func(context.Context, dto.InterruptRequest) error { return nil },
+	}
+	svc := NewService(silentLogger()).(*service)
+	svc.interruptSettleTimeout = 25 * time.Millisecond
+	_, err := svc.StartTurn(context.Background(), session, dto.TurnRequest{
+		LocalID:  "local-timeout",
+		ThreadID: "thread-timeout",
+		Inputs:   []dto.InputItem{{Type: "text", Content: "hello"}},
+	})
+	if err != nil {
+		t.Fatalf("StartTurn() error = %v", err)
+	}
+
+	server := platformrpc.NewServer(platformrpc.Params{Config: &contract.Config{RPCAddr: "127.0.0.1:0"}})
+	server.Register(handler.Map{"turn/interrupt": turnInterruptHandler(svc, rpcHelperResolver{session: session})})
+	raw, err := server.Dispatch(context.Background(), "turn/interrupt", json.RawMessage(`{"threadId":"thread-timeout","source":"user"}`))
+	if err != nil {
+		t.Fatalf("Dispatch() error = %v, want timeout envelope result", err)
+	}
+
+	var result turnInterruptResult
+	if err := json.Unmarshal(raw, &result); err != nil {
+		t.Fatalf("json.Unmarshal() error = %v", err)
+	}
+	if result.OK || result.Mode != "interrupt_timeout" || !result.InterruptSent || !result.Confirmed {
+		t.Fatalf("interrupt result = %#v, want explicit timeout failure envelope", result)
+	}
+	if result.StateBefore != "running" || result.StateAfter != "running" {
+		t.Fatalf("interrupt result = %#v, want running->running", result)
+	}
+}
+
 func assertInterruptEnvelope(t *testing.T, result turnInterruptResult) {
 	t.Helper()
 	if !result.OK {

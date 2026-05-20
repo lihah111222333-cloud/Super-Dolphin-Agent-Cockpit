@@ -43,7 +43,7 @@ func TestTransportClosedDetachesWorkspaceClientAndRebuilds(t *testing.T) {
 	}
 }
 
-func TestRequestFailureAdvancesGenerationAndRebootstrap(t *testing.T) {
+func TestRequestFailureReturnsRetriedResultAfterRebootstrap(t *testing.T) {
 	root := canonicalScopePath(t.TempDir(), "")
 	writeGenericTestFile(t, filepath.Join(root, "package.json"), `{"name":"web"}`)
 	target := filepath.Join(root, "src", "app.ts")
@@ -55,10 +55,10 @@ func TestRequestFailureAdvancesGenerationAndRebootstrap(t *testing.T) {
 	before := mgr.CurrentDiagnosticGeneration()
 	symbols, err := mgr.DocumentSymbol(common.WithToolScope(common.WithToolScope(common.WithToolScope(context.Background(), common.ToolScope{CWD: root}), common.ToolScope{CWD: root}), common.ToolScope{CWD: root}), target)
 	if err != nil {
-		t.Fatalf("DocumentSymbol after request failure should rebuild/retry: %v", err)
+		t.Fatalf("DocumentSymbol error = %v, want successful replay after transport rebuild", err)
 	}
 	if len(symbols) != 1 || symbols[0].Name != "rebuilt" {
-		t.Fatalf("DocumentSymbol = %#v, want rebuilt symbol from second client", symbols)
+		t.Fatalf("DocumentSymbol = %#v, want retried result from rebuilt client", symbols)
 	}
 	if got := mgr.CurrentDiagnosticGeneration(); got <= before {
 		t.Fatalf("diagnostic generation = %d, want advanced beyond %d", got, before)

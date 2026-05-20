@@ -121,8 +121,9 @@ type ToolCallContentItem struct {
 }
 
 type ToolCallResult struct {
-	ContentItems []ToolCallContentItem `json:"contentItems,omitempty"`
-	Success      bool                  `json:"success"`
+	ContentItems      []ToolCallContentItem `json:"contentItems,omitempty"`
+	StructuredContent json.RawMessage       `json:"structuredContent,omitempty"`
+	Success           bool                  `json:"success"`
 }
 
 type peerToolsListResult struct {
@@ -130,7 +131,9 @@ type peerToolsListResult struct {
 }
 
 type peerToolCallResponse struct {
-	Content []peerToolCallContent `json:"content"`
+	Content           []peerToolCallContent `json:"content"`
+	StructuredContent json.RawMessage       `json:"structuredContent,omitempty"`
+	IsError           bool                  `json:"isError,omitempty"`
 }
 
 type peerToolCallContent struct {

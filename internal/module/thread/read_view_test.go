@@ -2,14 +2,16 @@ package thread
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
-	"time"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
+	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
 	bindingstore "github.com/anthropic-ai/super-agent-v3/internal/store/binding"
 	threadstore "github.com/anthropic-ai/super-agent-v3/internal/store/thread"
 )
@@ -61,7 +63,7 @@ func TestReadThreadHistoryUsesSessionThreadList(t *testing.T) {
 	}
 }
 
-func TestReadMessagesFallsBackToPersistedRolloutWithoutSession(t *testing.T) {
+func TestReadMessagesReadsPersistedHistoryWithoutLiveSession(t *testing.T) {
 	t.Parallel()
 
 	dir := t.TempDir()
@@ -96,15 +98,73 @@ func TestReadMessagesFallsBackToPersistedRolloutWithoutSession(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ReadMessages() error = %v", err)
 	}
-	want := dto.ThreadMessagesResult{
-		Messages: []dto.Message{
-			{ID: 2, AgentID: "agent-1", Role: "assistant", EventType: "agent_message", Content: "world", Timestamp: time.Date(2026, 3, 21, 1, 3, 3, 0, time.UTC)},
-			{ID: 1, AgentID: "agent-1", Role: "user", EventType: "", Content: "hello", Timestamp: time.Date(2026, 3, 21, 1, 2, 3, 0, time.UTC)},
-		},
-		Total: 2,
+	if got.Total != 2 || len(got.Messages) != 2 {
+		t.Fatalf("ReadMessages() = %#v, want two persisted messages", got)
 	}
-	if !reflect.DeepEqual(got, want) {
-		t.Fatalf("ReadMessages() = %#v, want %#v", got, want)
+	if got.Messages[0].Role != "assistant" || got.Messages[0].Content != "world" {
+		t.Fatalf("first page message = %#v, want assistant world", got.Messages[0])
+	}
+	if got.Messages[1].Role != "user" || got.Messages[1].Content != "hello" {
+		t.Fatalf("second page message = %#v, want user hello", got.Messages[1])
+	}
+}
+
+func TestReadMessagesFailsFastWithoutSessionOrPersistedHistory(t *testing.T) {
+	t.Parallel()
+
+	svc := NewService(
+		silentLogger(),
+		&historyTestThreadStore{threads: map[string]threadstore.Thread{
+			"thread-1": {ThreadID: "thread-1", AgentID: "agent-1", Prompt: "demo"},
+		}},
+		newHistoryTestBindingStore(&bindingstore.Binding{
+			AgentID:       "agent-1",
+			Provider:      "codex",
+			CodexThreadID: "thread-1",
+			CodexHome:     t.TempDir(),
+		}),
+		&historyTestSessionProvider{},
+		nil,
+		nil,
+		nil,
+		nil,
+	)
+
+	_, err := svc.ReadMessages(context.Background(), "thread-1", 10, "")
+	if !errors.Is(err, contract.ErrSessionNotFound) {
+		t.Fatalf("ReadMessages() error = %v, want missing session error", err)
+	}
+}
+
+func TestReadMessagesReturnsThreadNotFoundForMissingPersistedThread(t *testing.T) {
+	t.Parallel()
+
+	threadID := "thread-missing"
+	svc := NewService(
+		silentLogger(),
+		&historyTestThreadStore{threads: map[string]threadstore.Thread{}},
+		&failFastBindingStore{
+			agentErr: map[string]error{
+				threadID: platformdb.WrapStoreError(platformdb.ErrNotFound, "get_by_agent_id", "binding"),
+			},
+		},
+		&historyTestSessionProvider{},
+		nil,
+		nil,
+		nil,
+		nil,
+	)
+
+	_, err := svc.ReadMessages(context.Background(), threadID, 10, "")
+	if !errors.Is(err, contract.ErrNotFound) {
+		t.Fatalf("ReadMessages() error = %v, want not found", err)
+	}
+	text := err.Error()
+	if !strings.Contains(text, threadID) || !strings.Contains(text, "not found") {
+		t.Fatalf("ReadMessages() error = %q, want thread id and not found", text)
+	}
+	if strings.Contains(text, "get_by_agent_id") || strings.Contains(text, "binding") {
+		t.Fatalf("ReadMessages() error = %q, want semantic thread not found without binding store details", text)
 	}
 }
 

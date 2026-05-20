@@ -50,7 +50,7 @@ func (s *service) finishInterrupt(
 	if waited {
 		if err := s.waitForTurnSettle(ctx, active.localID, active.handle); err != nil {
 			if status, ok := s.timeoutInterruptStatus(ctx, err, active, before, start); ok {
-				return status, nil
+				return status, err
 			}
 			return TurnStatus{}, err
 		}

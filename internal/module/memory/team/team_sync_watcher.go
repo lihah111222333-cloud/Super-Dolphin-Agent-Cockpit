@@ -275,9 +275,6 @@ func (w *teamSyncWatcher) ensureStableRoot() error {
 func (w *teamSyncWatcher) addRecursive(root string) error {
 	return filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
 		if err != nil {
-			if os.IsNotExist(err) {
-				return nil
-			}
 			return err
 		}
 		if d.Type()&os.ModeSymlink != 0 {
@@ -367,7 +364,7 @@ func pathIsDir(path string) (bool, error) {
 	info, err := os.Lstat(path)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return false, nil
+			return false, err
 		}
 		return false, err
 	}

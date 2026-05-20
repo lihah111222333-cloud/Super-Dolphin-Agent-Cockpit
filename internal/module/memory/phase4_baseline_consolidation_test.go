@@ -41,6 +41,7 @@ func newPhase4ConsolidationFixture(t *testing.T) (*MemoryLifecycleHooks, *sectio
 		MemoryTypeFeedback,
 		"Phase4 baseline fixture\nWhy: drive consolidation through to invalidate.",
 	))
+	writeMemoryIndexFixture(t, root, "- [Phase4 baseline fixture](feedback/phase4-baseline.md)")
 	extractFn := func(context.Context, string) (string, error) {
 		return `{"memories":[]}`, nil
 	}
@@ -132,6 +133,7 @@ func TestPhase4BaselineLaunchAutoDreamTaskInvalidatesDurableSections(t *testing.
 		MemoryTypeFeedback,
 		"Phase4 baseline fixture\nWhy: drive auto-dream consolidation through to invalidate.",
 	))
+	writeMemoryIndexFixture(t, root, "- [Phase4 baseline fixture](feedback/phase4-baseline.md)")
 	if err := recordConsolidation(root, now.Add(-48*time.Hour)); err != nil {
 		t.Fatalf("recordConsolidation() error = %v", err)
 	}

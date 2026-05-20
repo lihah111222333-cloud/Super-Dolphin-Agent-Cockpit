@@ -10,7 +10,7 @@ import (
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
-const defaultDatabaseURL = "postgres://postgres:123@127.0.0.1:5432/go_agent_v2?sslmode=disable"
+const defaultDatabaseURL = "postgres://ai:123@127.0.0.1:5432/agent_test2?sslmode=disable"
 
 // Type aliases – canonical definitions live in contract.
 type (

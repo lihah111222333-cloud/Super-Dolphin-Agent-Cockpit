@@ -11,6 +11,7 @@ import (
 )
 
 func TestPrepareStartRequestReassignsExistingExplicitAgentID(t *testing.T) {
+	cwd := wantStartCWD(t)
 	svc := &service{
 		threadStore: &stubThreadStore{thread: &threadstore.Thread{ThreadID: "agent-dup"}},
 	}
@@ -18,6 +19,7 @@ func TestPrepareStartRequestReassignsExistingExplicitAgentID(t *testing.T) {
 		AgentID:  "agent-dup",
 		Name:     "worker",
 		Provider: "claude",
+		CWD:      cwd,
 	})
 	if err != nil {
 		t.Fatalf("prepareStartRequest() error = %v", err)
@@ -32,11 +34,13 @@ func TestPrepareStartRequestReassignsExistingExplicitAgentID(t *testing.T) {
 }
 
 func TestPrepareStartRequestPreservesAvailableExplicitAgentID(t *testing.T) {
+	cwd := wantStartCWD(t)
 	svc := &service{threadStore: &stubThreadStore{}}
 	req, agentID, release, err := svc.prepareStartRequest(context.Background(), StartRequest{
 		AgentID:  "agent-keep",
 		Name:     "worker",
 		Provider: "claude",
+		CWD:      cwd,
 	})
 	if err != nil {
 		t.Fatalf("prepareStartRequest() error = %v", err)
@@ -48,11 +52,13 @@ func TestPrepareStartRequestPreservesAvailableExplicitAgentID(t *testing.T) {
 }
 
 func TestPrepareStartRequestRejectsAgentIDWhenCollisionCheckFails(t *testing.T) {
+	cwd := wantStartCWD(t)
 	svc := &service{threadStore: &stubThreadStore{existsErr: errors.New("db unavailable")}}
 	_, _, release, err := svc.prepareStartRequest(context.Background(), StartRequest{
 		AgentID:  "agent-db-error",
 		Name:     "worker",
 		Provider: "claude",
+		CWD:      cwd,
 	})
 	if release != nil {
 		release()
@@ -66,7 +72,8 @@ func TestPrepareStartRequestRejectsAgentIDWhenCollisionCheckFails(t *testing.T) 
 }
 
 func TestPrepareStartRequestConcurrentChildReservationsAreUnique(t *testing.T) {
-	svc := &service{threadStore: &stubThreadStore{}}
+	cwd := wantStartCWD(t)
+	svc := &service{threadStore: &stubThreadStore{}, sharedFiles: &stubSharedFileStore{}}
 	const n = 2
 	start := make(chan struct{})
 	ids := make(chan string, n)
@@ -82,6 +89,7 @@ func TestPrepareStartRequestConcurrentChildReservationsAreUnique(t *testing.T) {
 				ParentAgentID: "agent-parent",
 				Name:          "worker",
 				Provider:      "claude",
+				CWD:           cwd,
 			})
 			if err != nil {
 				errs <- err

@@ -2,6 +2,7 @@ package team
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"net/url"
 	"os/exec"
@@ -293,9 +294,13 @@ func resolveTeamRepoSlug(ctx context.Context, projectRoot string) (string, error
 	cmd.Dir = projectRoot
 	output, err := cmd.Output()
 	if err != nil {
-		return "", nil
+		return "", fmt.Errorf("team sync resolve repo slug: read git remote.origin.url: %w", err)
 	}
-	return parseTeamRepoSlug(string(output)), nil
+	repoSlug := parseTeamRepoSlug(string(output))
+	if strings.TrimSpace(repoSlug) == "" {
+		return "", fmt.Errorf("team sync resolve repo slug: git remote.origin.url is empty or unsupported")
+	}
+	return repoSlug, nil
 }
 
 func parseTeamRepoSlug(raw string) string {

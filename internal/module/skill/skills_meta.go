@@ -90,7 +90,7 @@ func (s *service) visitSkillEntry(root skillScanRoot, path string, entry os.DirE
 	defaultTrust := s.defaultTrustForRoot(root.path, projectSkillsRoot)
 	record, err := parseSkillRecord(root.path, path, defaultTrust)
 	if err != nil {
-		return nil
+		return err
 	}
 	record.info.Scope = root.scope
 	record.info.PersonalType = root.personalType
