@@ -77,22 +77,14 @@ func (h *Handler) ListToolsForCodex(ctx context.Context) ([]contract.DynamicTool
 	}
 	seenToolSources := make(map[string]string, len(hostTools))
 	merged := h.appendDynamicToolsWithShadowWarning(nil, seenToolSources, "host", hostTools)
-	peerSucceeded := false
 	outcomes := h.listPeerToolsForCodex(ctx, dto.ClientKindOrch, dto.ClientKindLSP)
 	for _, outcome := range outcomes {
 		if outcome.err != nil {
-			if h != nil {
-				h.warn("toolbridge dynamic tools peer degraded", "client_kind", outcome.clientKind, "error", outcome.err)
-			}
-			continue
+			return nil, fmt.Errorf("toolbridge dynamic tools peer %s unavailable: %w", outcome.clientKind, outcome.err)
 		}
-		peerSucceeded = true
 		merged = h.appendDynamicToolsWithShadowWarning(merged, seenToolSources, outcome.clientKind, outcome.tools)
 	}
-	if len(merged) == 0 && !peerSucceeded {
-		if err := joinPeerToolErrors(outcomes); err != nil {
-			return nil, fmt.Errorf("toolbridge: no dynamic tools available: %w", err)
-		}
+	if len(merged) == 0 {
 		return nil, ErrNoPeerAvailable
 	}
 	return toCodexDynamicTools(merged), nil

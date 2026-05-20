@@ -94,7 +94,7 @@ func (h EditHandler) handleReplaceRange(ctx context.Context, req EditRequest) (a
 	content := file.content
 	plan, err := buildReplacePlan(content, req)
 	if err != nil {
-		return h.replaceFailure(ctx, manager, path, content, req.Line, err), nil
+		return h.replaceFailure(ctx, manager, path, content, req.Line, err), err
 	}
 	if plan.updatedContent == content {
 		return replaceRangeResult{
@@ -115,7 +115,7 @@ func (h EditHandler) handleReplaceRange(ctx context.Context, req EditRequest) (a
 	warning := managerWarning
 	lspSync, syncWarning, err := h.applyReplaceRangeUpdate(ctx, manager, path, file, updatedContent, normalizeEditVersion(req.Version))
 	if err != nil {
-		return h.replaceFailure(ctx, manager, path, content, plan.functionLookupLine, err), nil
+		return h.replaceFailure(ctx, manager, path, content, plan.functionLookupLine, err), err
 	}
 	if syncWarning != "" {
 		warning = syncWarning

@@ -33,7 +33,7 @@ var (
 		".java":     "java",
 		".js":       "javascript",
 		".json":     "json",
-		".jsx":      "javascript",
+		".jsx":      "javascriptreact",
 		".markdown": "markdown",
 		".md":       "markdown",
 		".mjs":      "javascript",
@@ -42,33 +42,35 @@ var (
 		".pyi":      "python",
 		".rs":       "rust",
 		".ts":       "typescript",
-		".tsx":      "typescript",
+		".tsx":      "typescriptreact",
 		".yaml":     "yaml",
 		".yml":      "yaml",
 	}
 	languageAliases = map[string]string{
-		"c":          "c",
-		"c++":        "cpp",
-		"cpp":        "cpp",
-		"css":        "css",
-		"cxx":        "cpp",
-		"go":         "go",
-		"golang":     "go",
-		"html":       "html",
-		"java":       "java",
-		"javascript": "javascript",
-		"js":         "javascript",
-		"json":       "json",
-		"markdown":   "markdown",
-		"md":         "markdown",
-		"py":         "python",
-		"python":     "python",
-		"rs":         "rust",
-		"rust":       "rust",
-		"ts":         "typescript",
-		"typescript": "typescript",
-		"yaml":       "yaml",
-		"yml":        "yaml",
+		"c":               "c",
+		"c++":             "cpp",
+		"cpp":             "cpp",
+		"css":             "css",
+		"cxx":             "cpp",
+		"go":              "go",
+		"golang":          "go",
+		"html":            "html",
+		"java":            "java",
+		"javascript":      "javascript",
+		"javascriptreact": "javascriptreact",
+		"js":              "javascript",
+		"json":            "json",
+		"markdown":        "markdown",
+		"md":              "markdown",
+		"py":              "python",
+		"python":          "python",
+		"rs":              "rust",
+		"rust":            "rust",
+		"ts":              "typescript",
+		"typescript":      "typescript",
+		"typescriptreact": "typescriptreact",
+		"yaml":            "yaml",
+		"yml":             "yaml",
 	}
 )
 
@@ -260,39 +262,43 @@ func readValidatedFileInRoots(root string, roots []string, target string, maxByt
 	return validatedFile{PathInfo: pathInfo, Content: content}, nil
 }
 
-func isSearchCandidate(path string, entry os.DirEntry, maxBytes int) bool {
+func isSearchCandidate(path string, entry os.DirEntry, maxBytes int) (bool, error) {
 	if entry == nil {
-		return false
+		return false, fmt.Errorf("missing dir entry for %s", path)
 	}
 	if entry.Type()&os.ModeSymlink != 0 {
-		return false
+		return false, nil
 	}
 	info, err := entry.Info()
 	if err != nil {
-		return false
+		return false, fmt.Errorf("stat %s: %w", path, err)
 	}
 	if !info.Mode().IsRegular() {
-		return false
+		return false, nil
 	}
 	if maxBytes > 0 && info.Size() > int64(maxBytes) {
-		return false
+		return false, nil
 	}
-	return !isBinaryFile(path)
+	binary, err := isBinaryFile(path)
+	if err != nil {
+		return false, err
+	}
+	return !binary, nil
 }
 
-func isBinaryFile(path string) bool {
+func isBinaryFile(path string) (bool, error) {
 	file, err := os.Open(path)
 	if err != nil {
-		return true
+		return false, fmt.Errorf("open %s for binary probe: %w", path, err)
 	}
 	defer func() { _ = file.Close() }()
 
 	buf := make([]byte, binaryProbeBytes)
 	n, err := file.Read(buf)
 	if err != nil && !errors.Is(err, io.EOF) {
-		return true
+		return false, fmt.Errorf("read %s for binary probe: %w", path, err)
 	}
-	return isBinaryContent(buf[:n])
+	return isBinaryContent(buf[:n]), nil
 }
 
 func isBinaryContent(content []byte) bool {

@@ -78,12 +78,15 @@ func structuredOverflow(toolName string, payload map[string]any, actualBytes, bu
 	default:
 		hint := lookupHint(toolName)
 		envelope := map[string]any{
-			"error_code":   "result_too_large",
-			"tool":         toolName,
-			"actual_bytes": actualBytes,
-			"budget_bytes": budgetBytes,
-			"summary":      extractSummary(toolName, payload),
-			"hint":         hint.Hint,
+			"success":          false,
+			"original_success": originalSuccess(payload),
+			"error":            "tool result exceeded output budget",
+			"error_code":       "result_too_large",
+			"tool":             toolName,
+			"actual_bytes":     actualBytes,
+			"budget_bytes":     budgetBytes,
+			"summary":          extractSummary(toolName, payload),
+			"hint":             hint.Hint,
 		}
 		if hint.NextAction != nil {
 			envelope["next_action"] = hint.NextAction
@@ -100,9 +103,11 @@ func editOverflowEnvelope(toolName string, payload map[string]any, actualBytes, 
 		"actual_bytes":          actualBytes,
 		"budget_bytes":          budgetBytes,
 		"hint":                  hint.Hint,
-		"success":               payload["success"],
+		"success":               false,
+		"original_success":      originalSuccess(payload),
 		"action":                payload["action"],
-		"error":                 payload["error"],
+		"error":                 "tool result exceeded output budget",
+		"original_error":        payload["error"],
 		"status":                payload["status"],
 		"applied":               payload["applied"],
 		"applied_count":         payload["applied_count"],
@@ -144,6 +149,13 @@ func editOverflowEnvelope(toolName string, payload map[string]any, actualBytes, 
 		}
 	}
 	return envelope
+}
+
+func originalSuccess(payload map[string]any) any {
+	if payload == nil {
+		return nil
+	}
+	return payload["success"]
 }
 
 func centerExcerpt(text string, maxBytes int) string {

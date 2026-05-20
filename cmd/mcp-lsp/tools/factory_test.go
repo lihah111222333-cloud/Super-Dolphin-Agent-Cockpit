@@ -4,9 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	lspexec "github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/exec"
 	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/common"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestDispatchToolActionReportsValidActionsAndClosestMatch(t *testing.T) {
@@ -86,5 +88,26 @@ func TestRenderListResultEmptyEnvelope(t *testing.T) {
 	}
 	if payload.Meta.Message != "no symbols found" {
 		t.Fatalf("empty envelope message = %q", payload.Meta.Message)
+	}
+}
+
+type failingSandbox struct {
+	err error
+}
+
+func (f failingSandbox) RootDir() string { return "" }
+
+func (f failingSandbox) Run(context.Context, lspexec.Request) (lspexec.Result, error) {
+	return lspexec.Result{}, f.err
+}
+
+func (f failingSandbox) ShellRequest(command string, workDir string, timeout time.Duration) lspexec.Request {
+	return lspexec.Request{}
+}
+
+func TestExecuteSandboxInfrastructureErrorReturnsToolError(t *testing.T) {
+	_, err := executeSandbox(context.Background(), failingSandbox{err: context.DeadlineExceeded}, lspexec.Request{}, "go", "test")
+	if err == nil || !strings.Contains(err.Error(), context.DeadlineExceeded.Error()) {
+		t.Fatalf("executeSandbox() error = %v, want infrastructure error", err)
 	}
 }

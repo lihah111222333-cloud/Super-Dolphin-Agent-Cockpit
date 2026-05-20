@@ -62,6 +62,43 @@ func TestToolBridge_ForwardsInjectedCWDToPeer(t *testing.T) {
 	}
 }
 
+func TestHandleToolCallPreservesPeerCallbackIsError(t *testing.T) {
+	peer := &mcpcontrol.ToolInstance{Peer: &stubPeer{callbackFn: func(_ context.Context, method string, _ any, result any) error {
+		if method != ProxyMethodToolsCall {
+			t.Fatalf("Callback() method = %q, want %s", method, ProxyMethodToolsCall)
+		}
+		resp, ok := result.(*peerToolCallResponse)
+		if !ok {
+			t.Fatalf("Callback() result type = %T, want *peerToolCallResponse", result)
+		}
+		resp.IsError = true
+		resp.Content = []peerToolCallContent{{Type: "text", Text: `{"success":false,"code":"path_outside_workspace"}`}}
+		resp.StructuredContent = json.RawMessage(`{"success":false,"code":"path_outside_workspace"}`)
+		return nil
+	}}}
+	h, _ := newHandlerForTest(peer)
+
+	result, err := h.HandleToolCall(context.Background(), contract.ToolCallRawMessage{
+		ID:     json.RawMessage(`1`),
+		Method: "item/tool/call",
+		Params: mustRawJSON(t, map[string]any{
+			"name":       "file",
+			"arguments":  map[string]any{},
+			"clientKind": dto.ClientKindLSP,
+		}),
+	})
+	if err != nil {
+		t.Fatalf("HandleToolCall() error = %v", err)
+	}
+	got, ok := result.(*ToolCallResult)
+	if !ok {
+		t.Fatalf("HandleToolCall() result type = %T, want *ToolCallResult", result)
+	}
+	if got == nil || got.Success {
+		t.Fatalf("HandleToolCall() = %#v, want Success false", got)
+	}
+}
+
 type trustedScopePayload struct {
 	agentID        string
 	threadID       string
