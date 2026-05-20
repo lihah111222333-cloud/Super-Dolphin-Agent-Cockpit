@@ -3,9 +3,11 @@ package tools
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/common"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	lspmanager "github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/manager"
@@ -64,12 +66,13 @@ type languageOverrideManager struct {
 	structureTestManager
 	didOpenLanguageID string
 	didOpenScope      lspmanager.ResolvedToolScope
+	didOpenErr        error
 }
 
 func (m *languageOverrideManager) DidOpen(ctx context.Context, _ string, languageID string, _ int, _ string) error {
 	m.didOpenLanguageID = languageID
 	m.didOpenScope, _ = lspmanager.ResolvedToolScopeFromContext(ctx)
-	return nil
+	return m.didOpenErr
 }
 
 func TestLanguageOverrideParticipatesInCacheKey(t *testing.T) {
@@ -104,5 +107,21 @@ func TestLanguageOverrideParticipatesInCacheKey(t *testing.T) {
 	}
 	if manager.didOpenScope.WorkspaceKey != "workspace:typescript" || manager.didOpenScope.ManagerKey != "manager:typescript" {
 		t.Fatalf("resolved scope keys = workspace %q manager %q, want override-derived cache keys", manager.didOpenScope.WorkspaceKey, manager.didOpenScope.ManagerKey)
+	}
+}
+
+func TestOpenFileReturnsErrorWhenDidOpenFails(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "main.go")
+	if err := os.WriteFile(path, []byte("package main\n"), 0o600); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
+	manager := &languageOverrideManager{didOpenErr: errors.New("did open boom")}
+	registry := &languageOverrideRegistry{manager: manager}
+	ctx := common.WithToolScope(context.Background(), common.ToolScope{CWD: root, WorkspaceRoots: []string{root}})
+
+	_, err := handlerBase{registry: registry}.openFile(ctx, path, "")
+	if err == nil || !strings.Contains(err.Error(), "did open boom") {
+		t.Fatalf("openFile() error = %v, want DidOpen failure", err)
 	}
 }

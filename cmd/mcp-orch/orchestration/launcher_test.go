@@ -603,6 +603,14 @@ func remoteLocalLauncher(t *testing.T, methods handler.Map) *remoteLauncher {
 }
 
 func startRPCServer(t *testing.T, methods handler.Map) (string, *int32) {
+	return startRPCServerWithOptions(t, methods, nil)
+}
+
+func startPushRPCServer(t *testing.T, methods handler.Map) (string, *int32) {
+	return startRPCServerWithOptions(t, methods, &jrpc2.ServerOptions{AllowPush: true})
+}
+
+func startRPCServerWithOptions(t *testing.T, methods handler.Map, opts *jrpc2.ServerOptions) (string, *int32) {
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatalf("Listen() error = %v", err)
@@ -615,7 +623,7 @@ func startRPCServer(t *testing.T, methods handler.Map) (string, *int32) {
 				return
 			}
 			atomic.AddInt32(&accepts, 1)
-			go func(c net.Conn) { _ = jrpc2.NewServer(methods, nil).Start(channel.Line(c, c)).WaitStatus() }(conn)
+			go func(c net.Conn) { _ = jrpc2.NewServer(methods, opts).Start(channel.Line(c, c)).WaitStatus() }(conn)
 		}
 	}()
 	t.Cleanup(func() { _ = ln.Close() })

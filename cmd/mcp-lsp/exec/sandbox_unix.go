@@ -3,6 +3,7 @@
 package exec
 
 import (
+	"errors"
 	"os"
 	osexec "os/exec"
 	"strings"
@@ -21,24 +22,25 @@ func setSandboxProcessAttrs(cmd *osexec.Cmd) {
 // command.
 type sandboxGuard struct{}
 
-func attachSandboxGuard(cmd *osexec.Cmd) *sandboxGuard {
+func attachSandboxGuard(cmd *osexec.Cmd) (*sandboxGuard, error) {
 	_ = cmd
-	return &sandboxGuard{}
+	return &sandboxGuard{}, nil
 }
 
 func (g *sandboxGuard) close() {}
 
-func killSandboxProcess(process *os.Process, guard *sandboxGuard) {
+func killSandboxProcess(process *os.Process, guard *sandboxGuard) error {
 	_ = guard
 	if process == nil {
-		return
+		return nil
 	}
 	// Setpgid put the child and its descendants in their own process group,
 	// so the negative-pid SIGKILL reaches the whole subtree. If the group
 	// lookup fails we still escalate with process.Kill() as a belt-and-braces
 	// fallback.
-	_ = syscall.Kill(-process.Pid, syscall.SIGKILL)
-	_ = process.Kill()
+	groupErr := syscall.Kill(-process.Pid, syscall.SIGKILL)
+	killErr := process.Kill()
+	return errors.Join(groupErr, killErr)
 }
 
 // shellRequestArgs returns the argv used by Sandbox.ShellRequest to run an

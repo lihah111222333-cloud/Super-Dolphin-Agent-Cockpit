@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -42,7 +43,10 @@ func (m *manager) bootstrapDocument(ctx context.Context, uri string) error {
 	if !m.shouldUseClientForLanguage(ref.languageID) {
 		return nil
 	}
-	coordinator := bootstrapCoordinatorFor(m)
+	coordinator, err := bootstrapCoordinatorFor(m)
+	if err != nil {
+		return err
+	}
 	if err := coordinator.syncDocument(ctx, m, cfg, ref); err != nil {
 		return err
 	}
@@ -59,7 +63,10 @@ func (m *manager) bootstrapDocumentOpenOnly(ctx context.Context, uri string) err
 	if !m.shouldUseClientForLanguage(ref.languageID) {
 		return nil
 	}
-	coordinator := bootstrapCoordinatorFor(m)
+	coordinator, err := bootstrapCoordinatorFor(m)
+	if err != nil {
+		return err
+	}
 	snapshot, err := readDocumentSnapshot(ref)
 	if err != nil {
 		return err
@@ -68,7 +75,10 @@ func (m *manager) bootstrapDocumentOpenOnly(ctx context.Context, uri string) err
 }
 
 func restoreBootstrappedWorkspace(ctx context.Context, m *manager, cfg workspaceConfig) error {
-	coordinator := bootstrapCoordinatorFor(m)
+	coordinator, err := bootstrapCoordinatorFor(m)
+	if err != nil {
+		return err
+	}
 	scope, err := m.resolvedScopeForConfig(ctx, cfg)
 	if err != nil {
 		return err
@@ -78,16 +88,20 @@ func restoreBootstrappedWorkspace(ctx context.Context, m *manager, cfg workspace
 	return nil
 }
 
-func bootstrapCoordinatorFor(m *manager) *bootstrapCoordinator {
+func bootstrapCoordinatorFor(m *manager) (*bootstrapCoordinator, error) {
 	if existing, ok := bootstrapCoordinators.Load(m); ok {
-		return existing.(*bootstrapCoordinator)
+		return existing.(*bootstrapCoordinator), nil
+	}
+	cache, err := newLSPCacheStoreFromEnv(m.logger)
+	if err != nil {
+		return nil, err
 	}
 	created := &bootstrapCoordinator{
-		cache:  newLSPCacheStoreFromEnv(m.logger),
+		cache:  cache,
 		states: newBootstrapStateStore(),
 	}
 	actual, _ := bootstrapCoordinators.LoadOrStore(m, created)
-	return actual.(*bootstrapCoordinator)
+	return actual.(*bootstrapCoordinator), nil
 }
 
 func closeBootstrapCoordinator(m *manager) {
@@ -127,11 +141,13 @@ func (c *bootstrapCoordinator) syncDocument(ctx context.Context, m *manager, cfg
 	}
 	snapshot, err := readDocumentSnapshot(ref)
 	if err != nil {
-		m.cleanupDeletedDocument(ref, scope)
-		c.states.fail(scope.bootstrapKey(), ref.uri, err)
+		joined := errors.Join(err, m.cleanupDeletedDocument(ref, scope))
+		c.states.fail(scope.bootstrapKey(), ref.uri, joined)
+		return joined
+	}
+	if err := c.cleanupOldScopeIfChanged(m, ref, scope); err != nil {
 		return err
 	}
-	c.cleanupOldScopeIfChanged(m, ref, scope)
 	return c.syncSnapshot(ctx, m, cfg, snapshot)
 }
 
@@ -145,8 +161,7 @@ func (c *bootstrapCoordinator) syncSnapshot(ctx context.Context, m *manager, cfg
 	decision := c.states.prepare(stateKey, snapshot.ref.uri, snapshot.fingerprint)
 	switch decision.action {
 	case bootstrapActionSkip:
-		c.cache.RememberDocumentScope(snapshot.ref.uri, scope, snapshot.fingerprint)
-		return nil
+		return c.cache.RememberDocumentScope(snapshot.ref.uri, scope, snapshot.fingerprint)
 	case bootstrapActionWait:
 		return c.states.waitFor(ctx, stateKey, snapshot.ref.uri, decision.wait)
 	}
@@ -180,13 +195,9 @@ func (c *bootstrapCoordinator) openSnapshotIfNeeded(ctx context.Context, m *mana
 		return nil
 	}
 	key := scope.cacheKey(snapshot.ref.languageID, snapshot.ref.uri)
-	version := 1
-	if record, cached := c.cache.Load(key); cached && cacheValueMatchesSnapshot(record, snapshot) {
-		if record.Version > 0 {
-			version = record.Version + 1
-		}
-	} else if cached {
-		c.cache.Delete(key)
+	version, err := c.openSnapshotVersion(key, snapshot)
+	if err != nil {
+		return err
 	}
 	if err := c.syncSnapshotToClient(ctx, m, cfg, snapshot, snapshotSyncRequest{
 		key:      key,
@@ -198,6 +209,20 @@ func (c *bootstrapCoordinator) openSnapshotIfNeeded(ctx context.Context, m *mana
 		return err
 	}
 	return nil
+}
+
+func (c *bootstrapCoordinator) openSnapshotVersion(key lspCacheKey, snapshot documentSnapshot) (int, error) {
+	version := 1
+	if record, cached := c.cache.Load(key); cached && cacheValueMatchesSnapshot(record, snapshot) {
+		if record.Version > 0 {
+			version = record.Version + 1
+		}
+	} else if cached {
+		if err := c.cache.Delete(key); err != nil {
+			return 0, err
+		}
+	}
+	return version, nil
 }
 
 func applyBootstrapUpdate(ctx context.Context, client Client, snapshot documentSnapshot, previous bootstrapStatus, cached bool, version int) error {
@@ -236,16 +261,16 @@ func (c *bootstrapCoordinator) refreshWorkspace(ctx context.Context, m *manager,
 	})
 }
 
-func (c *bootstrapCoordinator) cleanupOldScopeIfChanged(m *manager, ref documentRef, current ResolvedLSPToolScope) {
+func (c *bootstrapCoordinator) cleanupOldScopeIfChanged(m *manager, ref documentRef, current ResolvedLSPToolScope) error {
 	indexed, ok := c.cache.LastResolvedScope(ref.uri)
 	if !ok {
-		return
+		return nil
 	}
 	previous := indexed.LastResolvedScope
 	if previous.ScopeKey == current.ScopeKey && previous.WorkspaceKey == current.WorkspaceKey {
-		return
+		return nil
 	}
-	m.cleanupDocumentForScopes(ref.uri, previous)
+	return m.cleanupDocumentForScopes(ref.uri, previous)
 }
 
 func (s *bootstrapStateStore) delete(workspace, uri string) {
@@ -258,7 +283,7 @@ func (s *bootstrapStateStore) delete(workspace, uri string) {
 	key := bootstrapKey{workspace: workspace, uri: uri}
 	entry := s.entries[key]
 	if entry != nil && entry.wait != nil {
-		close(entry.wait)
+		entry.finishWaitLocked(errors.New("deleted bootstrap for " + uri))
 	}
 	delete(s.entries, key)
 }

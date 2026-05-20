@@ -434,6 +434,7 @@ func toolCallResultResponse(id json.RawMessage, value any) (*jsonRPCResponse, []
 	return maybeResult(id, map[string]any{
 		"content":           []textContent{{Type: "text", Text: string(raw)}},
 		"structuredContent": json.RawMessage(raw),
+		"isError":           ToolResultIsError(value),
 	}), raw, nil
 }
 

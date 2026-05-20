@@ -357,7 +357,7 @@ func adaptMCPResponse(resp peerToolCallResponse) *ToolCallResult {
 			Text: strings.TrimSpace(item.Text),
 		})
 	}
-	return &ToolCallResult{ContentItems: items, Success: true}
+	return &ToolCallResult{ContentItems: items, Success: !resp.IsError}
 }
 
 func toCodexDynamicTools(tools []mcpdto.MCPTool) []contract.DynamicToolSchema {

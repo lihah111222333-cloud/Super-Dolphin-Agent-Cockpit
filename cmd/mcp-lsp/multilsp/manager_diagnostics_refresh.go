@@ -7,7 +7,10 @@ import (
 )
 
 func (m *manager) refreshAllDiagnosticTargets(ctx context.Context, filter diagnosticFilter) error {
-	refs := m.allDiagnosticRefreshCandidates(ctx, filter)
+	refs, err := m.allDiagnosticRefreshCandidates(ctx, filter)
+	if err != nil {
+		return err
+	}
 	if len(refs) > maxRefreshFiles {
 		refs = refs[:maxRefreshFiles]
 	}
@@ -27,7 +30,9 @@ func (m *manager) refreshAllDiagnosticTargets(ctx context.Context, filter diagno
 			if _, _, scope, err := m.resolvedScopeForURI(ctx, ref.uri, ref.languageID); err == nil {
 				current = scope
 			}
-			m.cleanupDeletedDocument(ref, current)
+			if err := m.cleanupDeletedDocument(ref, current); err != nil {
+				return err
+			}
 			continue
 		}
 		if !m.shouldUseClientForLanguage(ref.languageID) {
@@ -40,7 +45,7 @@ func (m *manager) refreshAllDiagnosticTargets(ctx context.Context, filter diagno
 	return nil
 }
 
-func (m *manager) allDiagnosticRefreshCandidates(ctx context.Context, filter diagnosticFilter) []documentRef {
+func (m *manager) allDiagnosticRefreshCandidates(ctx context.Context, filter diagnosticFilter) ([]documentRef, error) {
 	seen := map[string]struct{}{}
 	var refs []documentRef
 	add := func(uri, languageID string) {
@@ -63,11 +68,15 @@ func (m *manager) allDiagnosticRefreshCandidates(ctx context.Context, filter dia
 		add(snapshot.uri, snapshot.language)
 	})
 	if resolved, ok := resolvedLSPToolScopeFromContext(ctx); ok {
-		for _, record := range bootstrapCoordinatorFor(m).cache.ScopeDocuments(resolved) {
+		coordinator, err := bootstrapCoordinatorFor(m)
+		if err != nil {
+			return nil, err
+		}
+		for _, record := range coordinator.cache.ScopeDocuments(resolved) {
 			add(record.Key.URI, cacheKeyLanguage(record.Key))
 		}
 	}
-	return refs
+	return refs, nil
 }
 
 func (m *manager) refreshDiagnosticRef(ctx context.Context, ref documentRef) error {
@@ -75,5 +84,9 @@ func (m *manager) refreshDiagnosticRef(ctx context.Context, ref documentRef) err
 	if err != nil {
 		return err
 	}
-	return bootstrapCoordinatorFor(m).syncDocument(ctx, m, cfg, ref)
+	coordinator, err := bootstrapCoordinatorFor(m)
+	if err != nil {
+		return err
+	}
+	return coordinator.syncDocument(ctx, m, cfg, ref)
 }

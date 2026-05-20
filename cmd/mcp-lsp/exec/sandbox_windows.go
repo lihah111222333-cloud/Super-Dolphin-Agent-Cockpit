@@ -3,6 +3,8 @@
 package exec
 
 import (
+	"errors"
+	"fmt"
 	"os"
 	osexec "os/exec"
 	"strings"
@@ -26,49 +28,93 @@ type sandboxGuard struct {
 	handle windows.Handle
 }
 
-func attachSandboxGuard(cmd *osexec.Cmd) *sandboxGuard {
+type sandboxWindowsHooks struct {
+	createJob        func() (windows.Handle, error)
+	openProcess      func(pid uint32) (windows.Handle, error)
+	assignProcessJob func(job, process windows.Handle) error
+	terminateJob     func(job windows.Handle, exitCode uint32) error
+	closeHandle      func(windows.Handle) error
+}
+
+func defaultSandboxWindowsHooks() sandboxWindowsHooks {
+	return sandboxWindowsHooks{
+		createJob: createSandboxJob,
+		openProcess: func(pid uint32) (windows.Handle, error) {
+			return windows.OpenProcess(windows.PROCESS_SET_QUOTA|windows.PROCESS_TERMINATE, false, pid)
+		},
+		assignProcessJob: windows.AssignProcessToJobObject,
+		terminateJob:     windows.TerminateJobObject,
+		closeHandle:      windows.CloseHandle,
+	}
+}
+
+func attachSandboxGuard(cmd *osexec.Cmd) (*sandboxGuard, error) {
+	return attachSandboxGuardWithHooks(cmd, defaultSandboxWindowsHooks())
+}
+
+func attachSandboxGuardWithHooks(cmd *osexec.Cmd, hooks sandboxWindowsHooks) (*sandboxGuard, error) {
 	if cmd == nil || cmd.Process == nil {
-		return nil
+		return nil, errors.New("missing started process")
 	}
-	handle, err := createSandboxJob()
+	hooks = fillSandboxWindowsHooks(hooks)
+	handle, err := hooks.createJob()
 	if err != nil {
-		return nil
+		return nil, fmt.Errorf("create sandbox job: %w", err)
 	}
-	procHandle, err := windows.OpenProcess(
-		windows.PROCESS_SET_QUOTA|windows.PROCESS_TERMINATE,
-		false,
-		uint32(cmd.Process.Pid),
-	)
+	procHandle, err := hooks.openProcess(uint32(cmd.Process.Pid))
 	if err != nil {
-		windows.CloseHandle(handle)
-		return nil
+		_ = hooks.closeHandle(handle)
+		return nil, fmt.Errorf("open sandbox process: %w", err)
 	}
-	defer windows.CloseHandle(procHandle)
-	if err := windows.AssignProcessToJobObject(handle, procHandle); err != nil {
-		windows.CloseHandle(handle)
-		return nil
+	defer hooks.closeHandle(procHandle)
+	if err := hooks.assignProcessJob(handle, procHandle); err != nil {
+		_ = hooks.closeHandle(handle)
+		return nil, fmt.Errorf("assign process to sandbox job: %w", err)
 	}
-	return &sandboxGuard{handle: handle}
+	return &sandboxGuard{handle: handle}, nil
+}
+
+func fillSandboxWindowsHooks(hooks sandboxWindowsHooks) sandboxWindowsHooks {
+	defaults := defaultSandboxWindowsHooks()
+	if hooks.createJob == nil {
+		hooks.createJob = defaults.createJob
+	}
+	if hooks.openProcess == nil {
+		hooks.openProcess = defaults.openProcess
+	}
+	if hooks.assignProcessJob == nil {
+		hooks.assignProcessJob = defaults.assignProcessJob
+	}
+	if hooks.terminateJob == nil {
+		hooks.terminateJob = defaults.terminateJob
+	}
+	if hooks.closeHandle == nil {
+		hooks.closeHandle = defaults.closeHandle
+	}
+	return hooks
 }
 
 func (g *sandboxGuard) close() {
 	if g == nil || g.handle == 0 {
 		return
 	}
-	windows.CloseHandle(g.handle)
+	_ = windows.CloseHandle(g.handle)
 	g.handle = 0
 }
 
-func killSandboxProcess(process *os.Process, guard *sandboxGuard) {
+func killSandboxProcess(process *os.Process, guard *sandboxGuard) error {
+	var jobErr error
 	if guard != nil && guard.handle != 0 {
 		if err := windows.TerminateJobObject(guard.handle, 1); err == nil {
-			return
+			return nil
+		} else {
+			jobErr = err
 		}
 	}
 	if process == nil {
-		return
+		return jobErr
 	}
-	_ = process.Kill()
+	return errors.Join(jobErr, process.Kill())
 }
 
 func createSandboxJob() (windows.Handle, error) {
