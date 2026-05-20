@@ -3,6 +3,7 @@ package tools
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -14,11 +15,12 @@ import (
 )
 
 type diagnosticsTestRegistry struct {
-	lastURIs      []string
-	bootstrapURIs []string
-	callOrder     []string
-	lastScope     common.ToolScope
-	scopeOK       bool
+	lastURIs          []string
+	bootstrapURIs     []string
+	callOrder         []string
+	lastScope         common.ToolScope
+	scopeOK           bool
+	bootstrapErrByURI map[string]error
 }
 
 func (r *diagnosticsTestRegistry) GetManagerForFile(context.Context, string) (lspmanager.Manager, error) {
@@ -55,6 +57,9 @@ func (*diagnosticsTestRegistry) CurrentDiagnosticGeneration() uint64 {
 func (r *diagnosticsTestRegistry) BootstrapDocument(_ context.Context, uri string) error {
 	r.callOrder = append(r.callOrder, "bootstrap")
 	r.bootstrapURIs = append(r.bootstrapURIs, uri)
+	if r.bootstrapErrByURI != nil {
+		return r.bootstrapErrByURI[uri]
+	}
 	return nil
 }
 
@@ -193,6 +198,20 @@ func TestDiagnosticsPassesTrustedToolScopeToRegistry(t *testing.T) {
 	}
 	if registry.lastScope.CWD != scopedRoot {
 		t.Fatalf("registry scope cwd = %q, want %q", registry.lastScope.CWD, scopedRoot)
+	}
+}
+
+func TestDiagnosticsReportsPartialBootstrapFailure(t *testing.T) {
+	registry := &diagnosticsTestRegistry{
+		bootstrapErrByURI: map[string]error{
+			"file:///repo/bad.ts": errors.New("bootstrap boom"),
+		},
+	}
+	handler := handlerBase{registry: registry}
+
+	_, err := handler.reactiveBootstrap(context.Background(), []string{"file:///repo/bad.ts", "file:///repo/good.ts"})
+	if err == nil || !strings.Contains(err.Error(), "bootstrap boom") || !strings.Contains(err.Error(), "bad.ts") {
+		t.Fatalf("fetchDiagnosticsWithRetry() error = %v, want partial bootstrap failure", err)
 	}
 }
 

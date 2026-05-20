@@ -87,33 +87,50 @@ function toolResultText(result, preview, keys) {
   return previewText(preview);
 }
 
+function toolPayloadFailed(result) {
+  if (!result || typeof result !== 'object' || Array.isArray(result)) return false;
+  if (result.success === false) return true;
+  if (result.isError === true || String(result.isError).trim().toLowerCase() === 'true') return true;
+  if (previewText(result.error)) return true;
+  const errorCode = previewText(result.error_code).toLowerCase();
+  return Boolean(errorCode && errorCode !== 'none');
+}
+
+function knownToolFailureSummary(label, result, preview) {
+  return `${label}${toolFailureSuffix(result, preview)}`;
+}
+
 function knownToolSummary(name, failed, result, preview) {
   if (result?.error_code === 'result_too_large') {
     const hint = result?.hint || '请缩小范围';
     return `结果过大（${hint}）`;
   }
-  if (name === 'edit') return failed ? '编辑文件失败' : '已替换文件内容';
-  if (name === 'file') return failed ? '读取文件失败' : '已读取文件';
+  if (name === 'edit') return failed ? knownToolFailureSummary('编辑文件失败', result, preview) : '已替换文件内容';
+  if (name === 'file') return failed ? knownToolFailureSummary('读取文件失败', result, preview) : '已读取文件';
   if (name === 'grep') {
+    if (failed) return knownToolFailureSummary('搜索代码失败', result, preview);
     const total = Number(result?.total ?? result?.summary?.total ?? result?.count);
     if (Number.isFinite(total)) return total > 0 ? `搜索到 ${Math.trunc(total)} 处` : '搜索无结果';
-    return failed ? '搜索代码失败' : '已搜索代码';
+    return '已搜索代码';
   }
-  if (name === 'inspect') return failed ? '查看类型信息失败' : '已查看类型信息';
+  if (name === 'inspect') return failed ? knownToolFailureSummary('查看类型信息失败', result, preview) : '已查看类型信息';
   if (name === 'xref') {
+    if (failed) return knownToolFailureSummary('查找引用失败', result, preview);
     const total = Number(result?.total ?? result?.summary?.total ?? result?.count);
     if (Number.isFinite(total)) return total > 0 ? `找到 ${Math.trunc(total)} 处引用` : '未找到引用';
-    return failed ? '查找引用失败' : '已查找引用';
+    return '已查找引用';
   }
   if (name === 'structure') {
+    if (failed) return knownToolFailureSummary('获取文档结构失败', result, preview);
     const count = Array.isArray(result) ? result.length : Number(result?.total);
     if (Number.isFinite(count)) return `获取到 ${Math.trunc(count)} 个符号`;
-    return failed ? '获取文档结构失败' : '已获取文档结构';
+    return '已获取文档结构';
   }
   if (name === 'completion') {
+    if (failed) return knownToolFailureSummary('获取补全失败', result, preview);
     const count = Array.isArray(result) ? result.length : Number(result?.total);
     if (Number.isFinite(count)) return `${Math.trunc(count)} 条补全建议`;
-    return failed ? '获取补全失败' : '已获取补全建议';
+    return '已获取补全建议';
   }
   if (name === 'code_run' || name === 'go_run' || name === 'code_run_test') return failed ? `命令执行失败${toolFailureSuffix(result, preview)}` : '命令执行成功';
 
@@ -134,11 +151,11 @@ function toolFailureSuffix(result, preview) {
 export function summarizeToolActivity(toolName, item = {}) {
   const name = displayToolName(toolName);
   const status = (item?.status || '').toString().trim().toLowerCase();
-  const failed = item?.success === false || status === 'failed' || status === 'error' || Boolean((item?.error || '').toString().trim());
-  if (status === 'running' && !failed) return { name, summary: '执行中', status: 'active' };
   const preview = item?.preview || item?.error || '';
-
   const result = parsedToolResult(preview);
+  const failed = item?.success === false || status === 'failed' || status === 'error' || Boolean((item?.error || '').toString().trim()) || toolPayloadFailed(result);
+  if (status === 'running' && !failed) return { name, summary: '执行中', status: 'active' };
+
   const known = knownToolSummary(name, failed, result, preview);
   if (known) return { name, summary: known, status: failed ? 'failed' : 'done' };
   if (failed) return { name, summary: `执行失败${toolFailureSuffix(result, preview)}`, status: 'failed' };

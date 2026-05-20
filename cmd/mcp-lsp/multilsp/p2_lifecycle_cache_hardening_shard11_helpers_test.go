@@ -25,6 +25,33 @@ func scopedManagerForTest(t *testing.T, mgr *manager, scope LSPToolScope) *manag
 	return typed
 }
 
+func mustBootstrapCoordinator(t *testing.T, mgr *manager) *bootstrapCoordinator {
+	t.Helper()
+	coordinator, err := bootstrapCoordinatorFor(mgr)
+	if err != nil {
+		t.Fatalf("bootstrapCoordinatorFor: %v", err)
+	}
+	return coordinator
+}
+
+func mustLSPCacheStore(t *testing.T, cfg lspCacheConfig) *lspCacheStore {
+	t.Helper()
+	store, err := newLSPCacheStore(cfg)
+	if err != nil {
+		t.Fatalf("newLSPCacheStore: %v", err)
+	}
+	return store
+}
+
+func mustLSPCacheStoreFromEnv(t *testing.T) *lspCacheStore {
+	t.Helper()
+	store, err := newLSPCacheStoreFromEnv(nil)
+	if err != nil {
+		t.Fatalf("newLSPCacheStoreFromEnv: %v", err)
+	}
+	return store
+}
+
 func cloneSnapshotsForShard(t *testing.T, pool *ManagerPool, shardIndex int) []pooledManager {
 	t.Helper()
 	if pool == nil || shardIndex < 0 || shardIndex >= len(pool.shards) {

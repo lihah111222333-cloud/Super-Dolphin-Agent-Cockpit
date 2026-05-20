@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"log/slog"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -42,8 +43,21 @@ var Module = fx.Module("provider.codexapp",
 
 // provideDefaultPeerSupervisor is the production constructor for PeerSupervisor.
 // Split out so the fx.Annotate above can type the result as platformrunner.Runner.
-func provideDefaultPeerSupervisor(mgr *ServerManager, logger *slog.Logger) platformrunner.Runner {
-	return NewPeerSupervisor(mgr, logger)
+func provideDefaultPeerSupervisor(mgr *ServerManager, logger *slog.Logger, cfg *contract.Config) platformrunner.Runner {
+	return NewPeerSupervisor(mgr, logger, WithPeerWorkspaceRoots(configuredPeerWorkspaceRoots(cfg)))
+}
+
+func configuredPeerWorkspaceRoots(cfg *contract.Config) func() []string {
+	return func() []string {
+		if cfg == nil {
+			return nil
+		}
+		root := strings.TrimSpace(cfg.ProjectRoot)
+		if root == "" || !filepath.IsAbs(root) {
+			return nil
+		}
+		return []string{filepath.Clean(root)}
+	}
 }
 
 // DriverFactoryParams holds the fx-injected dependencies for NewDriverFactory.

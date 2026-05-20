@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -37,9 +38,7 @@ func TestDiagnosticsAllRefreshesStaleScopedDiagnosticBeforeReturn(t *testing.T) 
 	if got := factory.currentClient().changeCount(); got == 0 {
 		t.Fatalf("Diagnostics(all) did not refresh stale scoped diagnostic; returned %#v", items)
 	}
-	if len(items) != 0 {
-		t.Fatalf("Diagnostics(all) = %#v, want empty after refresh cleared stale diagnostics", items)
-	}
+	requireEmptyDiagnosticSnapshot(t, "Diagnostics(all)", items)
 }
 
 func TestDiagnosticsAllBootstrapsUntrackedExistingDiagnosticURI(t *testing.T) {
@@ -55,8 +54,8 @@ func TestDiagnosticsAllBootstrapsUntrackedExistingDiagnosticURI(t *testing.T) {
 	if err != nil {
 		t.Fatalf("resolvedScopeForURI: %v", err)
 	}
-	bootstrapCoordinatorFor(mgr).cache.Upsert(lspCacheValue{Key: scope.cacheKey("typescript", ref.uri), Version: 1, UpdatedAt: time.Now()})
-	bootstrapCoordinatorFor(mgr).cache.RememberDocumentScope(ref.uri, scope, "fp")
+	mustBootstrapCoordinator(t, mgr).cache.Upsert(lspCacheValue{Key: scope.cacheKey("typescript", ref.uri), Version: 1, UpdatedAt: time.Now()})
+	mustBootstrapCoordinator(t, mgr).cache.RememberDocumentScope(ref.uri, scope, "fp")
 
 	items, err := mgr.Diagnostics(WithResolvedLSPToolScope(ctx, scope), nil)
 	if err != nil {
@@ -80,8 +79,8 @@ func TestDiagnosticsAllDeletedFileClearsDiagnosticsAndTombstones(t *testing.T) {
 		t.Fatalf("resolvedScopeForURI: %v", err)
 	}
 	key := scope.cacheKey("go", ref.uri)
-	bootstrapCoordinatorFor(mgr).cache.Upsert(lspCacheValue{Key: key, Version: 1, UpdatedAt: time.Now()})
-	bootstrapCoordinatorFor(mgr).cache.RememberDocumentScope(ref.uri, scope, "fp")
+	mustBootstrapCoordinator(t, mgr).cache.Upsert(lspCacheValue{Key: key, Version: 1, UpdatedAt: time.Now()})
+	mustBootstrapCoordinator(t, mgr).cache.RememberDocumentScope(ref.uri, scope, "fp")
 	if err := mgr.PublishDiagnostics(protocol.PublishDiagnosticsParams{URI: ref.uri, Diagnostics: []protocol.Diagnostic{{Message: "deleted"}}}); err != nil {
 		t.Fatalf("PublishDiagnostics: %v", err)
 	}
@@ -96,14 +95,51 @@ func TestDiagnosticsAllDeletedFileClearsDiagnosticsAndTombstones(t *testing.T) {
 	if len(items) != 0 {
 		t.Fatalf("Diagnostics(all) = %#v, want deleted diagnostic cleared", items)
 	}
-	if _, ok := bootstrapCoordinatorFor(mgr).cache.Load(key); ok {
+	if _, ok := mustBootstrapCoordinator(t, mgr).cache.Load(key); ok {
 		t.Fatalf("deleted file cache key still loads after Diagnostics(all)")
 	}
-	bootstrapCoordinatorFor(mgr).cache.mu.RLock()
-	_, tombstoned := bootstrapCoordinatorFor(mgr).cache.tombstones[key.String()]
-	bootstrapCoordinatorFor(mgr).cache.mu.RUnlock()
+	mustBootstrapCoordinator(t, mgr).cache.mu.RLock()
+	_, tombstoned := mustBootstrapCoordinator(t, mgr).cache.tombstones[key.String()]
+	mustBootstrapCoordinator(t, mgr).cache.mu.RUnlock()
 	if !tombstoned {
 		t.Fatalf("deleted file cache key was not tombstoned")
+	}
+}
+
+func TestDiagnosticsAllDeletedFilePropagatesPersistentTombstoneError(t *testing.T) {
+	root, cacheDir := setupPersistentCacheEnv(t)
+	writeGenericTestFile(t, filepath.Join(root, "go.mod"), "module deletedwrite\n\ngo 1.25.0\n")
+	target := filepath.Join(root, "deleted.go")
+	writeGenericTestFile(t, target, "package deletedwrite\n")
+	mgr := NewManager(Config{WorkspaceRoot: root}).(*manager)
+	t.Cleanup(func() { _ = mgr.Close() })
+	ctx := scopedDiagnosticsTestContext(root, "agent-deleted-write", "thread-1")
+	ref, _, scope, err := mgr.resolvedScopeForURI(ctx, fileURIFromPath(target), "go")
+	if err != nil {
+		t.Fatalf("resolvedScopeForURI: %v", err)
+	}
+	key := scope.cacheKey("go", ref.uri)
+	coordinator := mustBootstrapCoordinator(t, mgr)
+	if err := coordinator.cache.Upsert(lspCacheValue{Key: key, Version: 1, UpdatedAt: time.Now()}); err != nil {
+		t.Fatalf("seed cache: %v", err)
+	}
+	if err := coordinator.cache.RememberDocumentScope(ref.uri, scope, "fp"); err != nil {
+		t.Fatalf("remember scope: %v", err)
+	}
+	if err := mgr.PublishDiagnostics(protocol.PublishDiagnosticsParams{URI: ref.uri, Diagnostics: []protocol.Diagnostic{{Message: "deleted"}}}); err != nil {
+		t.Fatalf("PublishDiagnostics: %v", err)
+	}
+	if err := os.Remove(target); err != nil {
+		t.Fatalf("remove target: %v", err)
+	}
+	if err := os.Chmod(cacheDir, 0o500); err != nil {
+		t.Fatalf("chmod cache dir: %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(cacheDir, 0o700) })
+
+	_, err = mgr.Diagnostics(WithResolvedLSPToolScope(ctx, scope), nil)
+	if err == nil || !strings.Contains(err.Error(), "persistent cache") {
+		t.Fatalf("Diagnostics(all) error = %v, want persistent cache tombstone failure", err)
 	}
 }
 
@@ -128,14 +164,14 @@ func TestDidChangeAdvancesBootstrapCacheVersionForFullDiskBackedText(t *testing.
 	if err != nil {
 		t.Fatalf("resolvedScopeForURI: %v", err)
 	}
-	record, ok := bootstrapCoordinatorFor(mgr).cache.Load(scope.cacheKey("javascript", ref.uri))
+	record, ok := mustBootstrapCoordinator(t, mgr).cache.Load(scope.cacheKey("javascript", ref.uri))
 	if !ok {
 		t.Fatalf("cache record missing after full disk-backed DidChange")
 	}
 	if record.Version != 7 || record.Fingerprint != hashDocument([]byte(nextText)) {
 		t.Fatalf("cache record = %#v, want version 7 and changed fingerprint", record)
 	}
-	if got := bootstrapCoordinatorFor(mgr).states.status(scope.bootstrapKey(), ref.uri); got != bootstrapReady {
+	if got := mustBootstrapCoordinator(t, mgr).states.status(scope.bootstrapKey(), ref.uri); got != bootstrapReady {
 		t.Fatalf("bootstrap state = %s, want ready after full DidChange", got)
 	}
 }
@@ -281,12 +317,12 @@ func TestDidCloseDoesNotTombstoneExistingFile(t *testing.T) {
 	if err := mgr.DidClose(ctx, target); err != nil {
 		t.Fatalf("DidClose: %v", err)
 	}
-	if _, ok := bootstrapCoordinatorFor(mgr).cache.Load(key); !ok {
+	if _, ok := mustBootstrapCoordinator(t, mgr).cache.Load(key); !ok {
 		t.Fatalf("existing file cache was removed by DidClose")
 	}
-	bootstrapCoordinatorFor(mgr).cache.mu.RLock()
-	_, tombstoned := bootstrapCoordinatorFor(mgr).cache.tombstones[key.String()]
-	bootstrapCoordinatorFor(mgr).cache.mu.RUnlock()
+	mustBootstrapCoordinator(t, mgr).cache.mu.RLock()
+	_, tombstoned := mustBootstrapCoordinator(t, mgr).cache.tombstones[key.String()]
+	mustBootstrapCoordinator(t, mgr).cache.mu.RUnlock()
 	if tombstoned {
 		t.Fatalf("existing file was tombstoned by DidClose")
 	}
@@ -294,7 +330,7 @@ func TestDidCloseDoesNotTombstoneExistingFile(t *testing.T) {
 
 func TestBootstrapBootstrappingTimeoutAllowsRetry(t *testing.T) {
 	store := newBootstrapStateStore()
-	wait := make(chan struct{})
+	wait := newBootstrapWait()
 	key := bootstrapKey{workspace: "workspace", uri: "file:///stuck.go"}
 	store.entries[key] = &bootstrapEntry{
 		status:    bootstrapBootstrapping,
@@ -306,13 +342,22 @@ func TestBootstrapBootstrappingTimeoutAllowsRetry(t *testing.T) {
 		t.Fatalf("prepare(stale bootstrapping) action = %v, want run retry", decision.action)
 	}
 	select {
-	case <-wait:
+	case <-wait.done:
 	default:
 		t.Fatalf("stale bootstrapping waiter was not released")
 	}
 }
 
 func TestPersistentCacheCorruptFileFailsFast(t *testing.T) {
+	runPersistentCacheCorruptFileReturnsLoadError(t)
+}
+
+func TestPersistentCacheCorruptFileReturnsLoadError(t *testing.T) {
+	runPersistentCacheCorruptFileReturnsLoadError(t)
+}
+
+func runPersistentCacheCorruptFileReturnsLoadError(t *testing.T) {
+	t.Helper()
 	cacheDir := t.TempDir()
 	t.Setenv(lspCachePersistentEnv, "1")
 	t.Setenv(lspCacheDirEnv, cacheDir)
@@ -320,17 +365,15 @@ func TestPersistentCacheCorruptFileFailsFast(t *testing.T) {
 	if err := os.WriteFile(path, []byte("{not-json"), 0o644); err != nil {
 		t.Fatalf("write corrupt cache: %v", err)
 	}
-	defer func() {
-		if recovered := recover(); recovered == nil {
-			t.Fatal("newLSPCacheStoreFromEnv() did not panic on corrupt persistent cache")
-		}
-	}()
-	_ = newLSPCacheStoreFromEnv(nil)
+	_, err := newLSPCacheStoreFromEnv(nil)
+	if err == nil || !strings.Contains(err.Error(), "persistent cache") || !strings.Contains(err.Error(), "load") {
+		t.Fatalf("newLSPCacheStoreFromEnv() error = %v, want persistent load failure", err)
+	}
 }
 
 func TestPersistentCacheWritesAtomically(t *testing.T) {
 	root, cacheDir := setupPersistentCacheEnv(t)
-	store := newLSPCacheStoreFromEnv(nil)
+	store := mustLSPCacheStoreFromEnv(t)
 	scope := ResolvedLSPToolScope{ScopeKey: "scope", WorkspaceKey: "workspace", LSPToolScope: LSPToolScope{LanguageID: "go"}}
 	store.Upsert(lspCacheValue{Key: scope.cacheKey("go", fileURIFromPath(filepath.Join(root, "main.go"))), Version: 1})
 	path := filepath.Join(cacheDir, lspCacheFileName)
@@ -356,7 +399,7 @@ func TestPersistentCacheExpiredEntryFilteredAndPersisted(t *testing.T) {
 	fresh := lspCacheValue{Key: scope.cacheKey("go", "file:///fresh.go"), Version: 1, UpdatedAt: time.Now()}
 	writeCacheDiskState(t, cacheDir, lspCacheDiskState{Documents: []lspCacheValue{expired, fresh}})
 
-	_ = newLSPCacheStoreFromEnv(nil)
+	_ = mustLSPCacheStoreFromEnv(t)
 	disk := readCacheDiskState(t, cacheDir)
 	if len(disk.Documents) != 1 || disk.Documents[0].Key.URI != "file:///fresh.go" {
 		t.Fatalf("persisted cache documents = %#v, want only fresh entry", disk.Documents)
@@ -367,10 +410,10 @@ func TestDeletedPersistentCacheRecordDoesNotResurrectAfterRestart(t *testing.T) 
 	_, cacheDir := setupPersistentCacheEnv(t)
 	scope := ResolvedLSPToolScope{ScopeKey: "scope", WorkspaceKey: "workspace", LSPToolScope: LSPToolScope{LanguageID: "go"}}
 	key := scope.cacheKey("go", "file:///deleted.go")
-	store := newLSPCacheStoreFromEnv(nil)
+	store := mustLSPCacheStoreFromEnv(t)
 	store.Upsert(lspCacheValue{Key: key, Version: 1})
 	store.Tombstone(key)
-	restarted := newLSPCacheStore(lspCacheConfig{Persistent: true, Dir: cacheDir})
+	restarted := mustLSPCacheStore(t, lspCacheConfig{Persistent: true, Dir: cacheDir})
 	if _, ok := restarted.Load(key); ok {
 		t.Fatalf("deleted persistent cache record resurrected after restart")
 	}
@@ -419,12 +462,12 @@ func TestDeletedPersistentCacheRecordDoesNotResurrectAcrossLanguages(t *testing.
 	scope := ResolvedLSPToolScope{ScopeKey: "scope", WorkspaceKey: "workspace", LSPToolScope: LSPToolScope{LanguageID: "go"}}
 	goKey := scope.cacheKey("go", "file:///shared")
 	tsKey := scope.cacheKey("typescript", "file:///shared")
-	store := newLSPCacheStoreFromEnv(nil)
+	store := mustLSPCacheStoreFromEnv(t)
 	store.Upsert(lspCacheValue{Key: goKey, Version: 1})
 	store.Upsert(lspCacheValue{Key: tsKey, Version: 2})
 	store.Tombstone(tsKey)
 
-	restarted := newLSPCacheStore(lspCacheConfig{Persistent: true, Dir: cacheDir})
+	restarted := mustLSPCacheStore(t, lspCacheConfig{Persistent: true, Dir: cacheDir})
 	if _, ok := restarted.Load(tsKey); ok {
 		t.Fatalf("deleted TypeScript cache record resurrected after restart")
 	}
@@ -463,7 +506,7 @@ func TestBootstrapCacheMatrixForRegisteredLanguageIDs(t *testing.T) {
 			if !client.opened(fileURIFromPath(target), tc.languageID) {
 				t.Fatalf("%s target was not opened during bootstrap; opens=%#v", tc.languageID, client.openEvents())
 			}
-			indexed, ok := bootstrapCoordinatorFor(mgr).cache.LastResolvedScope(fileURIFromPath(target))
+			indexed, ok := mustBootstrapCoordinator(t, mgr).cache.LastResolvedScope(fileURIFromPath(target))
 			if !ok {
 				t.Fatalf("%s bootstrap did not remember resolved scope", tc.languageID)
 			}

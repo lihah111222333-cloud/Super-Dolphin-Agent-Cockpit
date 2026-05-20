@@ -2,6 +2,7 @@ package codexapp
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"log/slog"
 	"net"
@@ -116,6 +117,8 @@ type PeerSupervisor struct {
 	// a field so tests can assert it ran without needing real /tmp side effects.
 	cleanupHook func()
 
+	workspaceRoots func() []string
+
 	mu    sync.Mutex
 	peers []peerHandle
 }
@@ -177,11 +180,15 @@ func WithPeerPIDTracker(t peerPIDTracker) PeerSupervisorOption {
 	return func(s *PeerSupervisor) { s.pidRegistry = t }
 }
 
+func WithPeerWorkspaceRoots(fn func() []string) PeerSupervisorOption {
+	return func(s *PeerSupervisor) { s.workspaceRoots = fn }
+}
+
 // NewPeerSupervisor is the production constructor consumed by fx. It takes
 // *ServerManager for the embedded pidRegistry reference; ServerManager does
 // not participate in peer lifecycle after P1a.
-func NewPeerSupervisor(mgr *ServerManager, logger *slog.Logger) *PeerSupervisor {
-	return NewPeerSupervisorWithOptions(mgr, logger)
+func NewPeerSupervisor(mgr *ServerManager, logger *slog.Logger, opts ...PeerSupervisorOption) *PeerSupervisor {
+	return NewPeerSupervisorWithOptions(mgr, logger, opts...)
 }
 
 // NewPeerSupervisorWithOptions is the test-friendly constructor. mgr may be nil.
@@ -213,6 +220,9 @@ func NewPeerSupervisorWithOptions(mgr *ServerManager, logger *slog.Logger, opts 
 	}
 	if s.launcher == nil {
 		s.launcher = newExecPeerLauncher(s.logger)
+	}
+	if launcher, ok := s.launcher.(*execPeerLauncher); ok {
+		launcher.workspaceRoots = s.workspaceRoots
 	}
 	return s
 }
@@ -473,7 +483,8 @@ func (s *PeerSupervisor) snapshotPeers() []peerHandle {
 // returns a handle wrapping the exec.Cmd + stdin write-pipe. The supervisor
 // owns the pid-registry registration for every handle this launcher produces.
 type execPeerLauncher struct {
-	logger *slog.Logger
+	logger         *slog.Logger
+	workspaceRoots func() []string
 }
 
 func newExecPeerLauncher(logger *slog.Logger) *execPeerLauncher {
@@ -496,11 +507,17 @@ func (l *execPeerLauncher) Launch(_ context.Context, name string) (peerHandle, e
 	if err != nil {
 		return nil, err
 	}
+	env, err := l.peerEnvForTest(name, os.Environ())
+	if err != nil {
+		_ = stdinR.Close()
+		_ = stdinW.Close()
+		return nil, err
+	}
 	cmd := exec.Command(binPath)
 	cmd.Stdin = stdinR
 	cmd.Stdout = os.Stderr
 	cmd.Stderr = os.Stderr
-	cmd.Env = append(os.Environ(), peerModeEnv+"=1")
+	cmd.Env = env
 	setCodexProcessAttrs(cmd)
 	if err := cmd.Start(); err != nil {
 		_ = stdinR.Close()
@@ -570,6 +587,101 @@ func (h *execPeerHandle) Signal(sig processSig) error {
 // ---------------------------------------------------------------------------
 // Pure helpers (migrated from the deleted peer_spawn.go).
 // ---------------------------------------------------------------------------
+
+func (l *execPeerLauncher) peerEnvForTest(name string, parent []string) ([]string, error) {
+	var roots []string
+	if l != nil && l.workspaceRoots != nil {
+		roots = l.workspaceRoots()
+	}
+	return peerProcessEnv(name, parent, roots)
+}
+
+func peerProcessEnv(name string, parent []string, configuredRoots []string) ([]string, error) {
+	env := append([]string(nil), parent...)
+	env = append(env, peerModeEnv+"=1")
+	if strings.TrimSpace(name) != "mcp-lsp" {
+		return env, nil
+	}
+	if raw, ok := lookupEnvValue(env, "GO_AGENT_LSP_ROOTS"); ok {
+		return env, validateMcpLSPPeerWorkspaceRoots(raw)
+	}
+	if root, ok := lookupEnvValue(env, "GO_AGENT_LSP_ROOT"); ok {
+		return env, validateMcpLSPPeerWorkspaceRoot(root)
+	}
+	roots, err := normalizePeerWorkspaceRoots(configuredRoots)
+	if err != nil {
+		return nil, err
+	}
+	raw, err := json.Marshal(roots)
+	if err != nil {
+		return nil, err
+	}
+	env = append(env, "GO_AGENT_LSP_ROOT="+roots[0], "GO_AGENT_LSP_ROOTS="+string(raw))
+	return env, nil
+}
+
+func validateMcpLSPPeerWorkspaceRoot(root string) error {
+	root = strings.TrimSpace(root)
+	if root == "" {
+		return errors.New("mcp-lsp peer requires non-empty GO_AGENT_LSP_ROOT workspace root")
+	}
+	if !filepath.IsAbs(root) {
+		return errors.New("mcp-lsp peer GO_AGENT_LSP_ROOT workspace root must be absolute")
+	}
+	return nil
+}
+
+func validateMcpLSPPeerWorkspaceRoots(raw string) error {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return errors.New("mcp-lsp peer requires non-empty GO_AGENT_LSP_ROOTS")
+	}
+	var roots []string
+	if err := json.Unmarshal([]byte(raw), &roots); err != nil {
+		return errors.New("mcp-lsp peer GO_AGENT_LSP_ROOTS must be a JSON array: " + err.Error())
+	}
+	if len(roots) == 0 || strings.TrimSpace(roots[0]) == "" {
+		return errors.New("mcp-lsp peer requires non-empty GO_AGENT_LSP_ROOTS")
+	}
+	if !filepath.IsAbs(strings.TrimSpace(roots[0])) {
+		return errors.New("mcp-lsp peer GO_AGENT_LSP_ROOTS primary root must be absolute")
+	}
+	return nil
+}
+
+func normalizePeerWorkspaceRoots(roots []string) ([]string, error) {
+	out := make([]string, 0, len(roots))
+	seen := make(map[string]struct{}, len(roots))
+	for _, root := range roots {
+		root = strings.TrimSpace(root)
+		if root == "" {
+			continue
+		}
+		if !filepath.IsAbs(root) {
+			return nil, errors.New("mcp-lsp peer configured workspace root must be absolute")
+		}
+		root = filepath.Clean(root)
+		if _, ok := seen[root]; ok {
+			continue
+		}
+		seen[root] = struct{}{}
+		out = append(out, root)
+	}
+	if len(out) == 0 {
+		return nil, errors.New("mcp-lsp peer requires configured workspace root")
+	}
+	return out, nil
+}
+
+func lookupEnvValue(env []string, key string) (string, bool) {
+	prefix := key + "="
+	for i := len(env) - 1; i >= 0; i-- {
+		if value, ok := strings.CutPrefix(env[i], prefix); ok {
+			return value, true
+		}
+	}
+	return "", false
+}
 
 // resolvePeerBinDirs returns the ordered list of directories to probe for peer
 // binaries. GO_AGENT_PEER_BIN_DIR (path-list) wins over os.Executable()'s dir.

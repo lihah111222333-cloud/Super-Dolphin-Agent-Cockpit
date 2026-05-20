@@ -336,17 +336,28 @@ func assertForceInvalidPatchLeavesFile(t *testing.T, root string, handler ToolHa
 	}
 	badPatch := json.RawMessage(`{"action":"replace_range","file_path":` + strconv.Quote(inside) + `,"patch":"not a patch","force":true}`)
 	got, err := handler(common.WithToolScope(context.Background(), common.ToolScope{CWD: "/"}), badPatch)
-	if err != nil {
-		t.Fatalf("replace_range returned error = %v, want structured patch failure", err)
+	if err == nil || !strings.Contains(strings.ToLower(err.Error()), "patch") {
+		t.Fatalf("force invalid patch error = %v, want patch grammar failure", err)
 	}
-	failure, ok := got.(replaceRangeFailure)
-	if !ok {
-		t.Fatalf("replace_range result = %#v, want replaceRangeFailure", got)
-	}
-	if failure.Success || !strings.Contains(failure.Error, "patch") || failure.CurrentContent != "old\n" {
-		t.Fatalf("replace_range failure = %#v, want patch error with current content", failure)
+	if got != nil {
+		t.Fatalf("force invalid patch result = %#v, want nil wrapped result on error", got)
 	}
 	assertFileContent(t, inside, "old\n")
+}
+
+func TestReplaceRangeReturnsErrorForInvalidPatch(t *testing.T) {
+	root := t.TempDir()
+	inside := filepath.Join(root, "inside.txt")
+	if err := os.WriteFile(inside, []byte("old\n"), 0o600); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
+	handler := NewEditHandlerWithRoot(root, &structureTestRegistry{fileErr: lspmanager.ErrUnsupportedLanguage})
+	input := json.RawMessage(`{"action":"replace_range","file_path":` + strconv.Quote(inside) + `,"patch":"not a patch"}`)
+
+	_, err := handler(common.WithToolScope(context.Background(), common.ToolScope{CWD: "/"}), input)
+	if err == nil {
+		t.Fatalf("replace_range error = nil, want invalid patch failure")
+	}
 }
 
 func TestWorkspaceEditRejectsPathOutsideWorkspaceRoot(t *testing.T) {
@@ -446,14 +457,12 @@ func TestEditFailureAfterDeadClientReturnsRetryableWithoutAutoReplay(t *testing.
 	}
 
 	got, err := handler(common.WithToolScope(context.Background(), common.ToolScope{CWD: "/"}), input)
-	if err != nil {
-		t.Fatalf("replace_range error = %v, want structured sync failure", err)
+	if err == nil || !strings.Contains(err.Error(), "LSP client closed") {
+		t.Fatalf("replace_range error = %v, want dead-client edit sync failure", err)
 	}
-	failure, ok := got.(replaceRangeFailure)
-	if !ok {
-		t.Fatalf("replace_range result = %#v, want replaceRangeFailure", got)
+	if got != nil {
+		t.Fatalf("result = %#v, want nil wrapped result on error", got)
 	}
-	requireStringContains(t, failure.Error, "LSP client closed")
 	assertDeadClientRollbackState(t, path, original, manager)
 	envelope := newToolErrorEnvelope("edit", "go", errors.Join(multilsp.ErrTransportClosed, manager.didChangeErr))
 	if !envelope.Retryable || envelope.Code != "lsp_client_closed" {
@@ -529,14 +538,20 @@ func TestReplaceRangeSyncFailureReportsRollbackFailure(t *testing.T) {
 	}
 
 	got, err := handler(common.WithToolScope(context.Background(), common.ToolScope{CWD: "/"}), input)
-	if err != nil {
-		t.Fatalf("replace_range error = %v, want structured rollback failure", err)
+	requireSyncRollbackFailure(t, err)
+	if got != nil {
+		t.Fatalf("result = %#v, want nil wrapped result on error", got)
 	}
-	failure, ok := got.(replaceRangeFailure)
-	if !ok {
-		t.Fatalf("replace_range result = %#v, want replaceRangeFailure", got)
+}
+
+func requireSyncRollbackFailure(t *testing.T, err error) {
+	t.Helper()
+	if err == nil {
+		t.Fatalf("replace_range error = nil, want sync and rollback failure details")
 	}
-	requireStringContains(t, failure.Error, "lsp sync boom", "rollback failed")
+	if !strings.Contains(err.Error(), "lsp sync boom") || !strings.Contains(err.Error(), "rollback failed") {
+		t.Fatalf("replace_range error = %v, want sync and rollback failure details", err)
+	}
 }
 
 func TestApplyWorkspaceEditSyncFailureReportsRollbackFailure(t *testing.T) {

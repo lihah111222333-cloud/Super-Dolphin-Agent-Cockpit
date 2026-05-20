@@ -171,14 +171,22 @@ func runGOWORKAutoUsesAutoDiscovery(t *testing.T) {
 }
 
 func TestBrokenGoWorkFailsFast(t *testing.T) {
-	runBrokenGoWorkFailsFast(t)
+	runBrokenGoWorkFailsClosed(t)
 }
 
 func TestGoRootResolverBrokenGoWorkFailsFast(t *testing.T) {
-	runBrokenGoWorkFailsFast(t)
+	runBrokenGoWorkFailsClosed(t)
 }
 
-func runBrokenGoWorkFailsFast(t *testing.T) {
+func TestResolveGoWorkRootRejectsBrokenGoWork(t *testing.T) {
+	runBrokenGoWorkFailsClosed(t)
+}
+
+func TestGoRootResolverBrokenGoWorkFailsClosed(t *testing.T) {
+	runBrokenGoWorkFailsClosed(t)
+}
+
+func runBrokenGoWorkFailsClosed(t *testing.T) {
 	t.Helper()
 	repo := normalizedTempDir(t)
 	backend := filepath.Join(repo, "backend")
@@ -191,8 +199,10 @@ func runBrokenGoWorkFailsFast(t *testing.T) {
 	if err == nil {
 		t.Fatalf("broken go.work error = nil, got info %#v", info)
 	}
-	if !strings.Contains(err.Error(), "parse go.work modules") {
-		t.Fatalf("broken go.work error = %v, want parse failure", err)
+	for _, fragment := range []string{"parse go.work", goWorkPath} {
+		if !strings.Contains(err.Error(), fragment) {
+			t.Fatalf("broken go.work error = %v, want fragment %q", err, fragment)
+		}
 	}
 	assertGoRoot(t, info, GoRootInfo{})
 }

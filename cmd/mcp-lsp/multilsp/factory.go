@@ -265,13 +265,14 @@ func withWriteLock[T any](mu *sync.RWMutex, fn func() T) T {
 	return fn()
 }
 
-func (s *lspCacheStore) persistOnMutation(changed bool) {
+func (s *lspCacheStore) persistOnMutation(changed bool) error {
 	if !changed {
-		return
+		return nil
 	}
 	if err := s.persistLocked(); err != nil {
-		panic(fmt.Errorf("persist lsp cache: %w", err))
+		return fmt.Errorf("persistent cache write: %w", err)
 	}
+	return nil
 }
 
 func (c *bootstrapCoordinator) syncSnapshotToClient(
@@ -283,7 +284,9 @@ func (c *bootstrapCoordinator) syncSnapshotToClient(
 ) error {
 	scope := req.scope
 	if scope.WorkspaceKey != "" || scope.ManagerKey != "" {
-		c.cache.RememberDocumentScope(snapshot.ref.uri, scope, snapshot.fingerprint)
+		if err := c.cache.RememberDocumentScope(snapshot.ref.uri, scope, snapshot.fingerprint); err != nil {
+			return err
+		}
 	}
 	client, err := m.ensureClient(ctx, cfg)
 	if err != nil {
@@ -295,8 +298,12 @@ func (c *bootstrapCoordinator) syncSnapshotToClient(
 	if err != nil {
 		return err
 	}
-	c.cache.Upsert(cacheValueFromSnapshot(req.key, snapshot, req.version))
-	c.cache.RememberDocumentScope(snapshot.ref.uri, scope, snapshot.fingerprint)
+	if err := c.cache.Upsert(cacheValueFromSnapshot(req.key, snapshot, req.version)); err != nil {
+		return err
+	}
+	if err := c.cache.RememberDocumentScope(snapshot.ref.uri, scope, snapshot.fingerprint); err != nil {
+		return err
+	}
 	c.states.complete(scope.bootstrapKey(), snapshot.ref.uri, snapshot.fingerprint, req.version)
 	return nil
 }

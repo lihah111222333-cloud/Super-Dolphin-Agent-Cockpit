@@ -143,7 +143,9 @@ func (m *manager) ensureClientForLanguage(ctx context.Context, languageID string
 	if err != nil {
 		return nil, err
 	}
-	m.bootstrapLanguageClient(ctx, client, cfg.rootPath, cfg.languageID)
+	if err := m.bootstrapLanguageClient(ctx, client, cfg.rootPath, cfg.languageID); err != nil {
+		return nil, err
+	}
 	return client, nil
 }
 
@@ -166,27 +168,28 @@ func (m *manager) resolveLanguageWorkspace(ctx context.Context, languageID strin
 	return workspaceConfigForLanguageScope(scope, adapter)
 }
 
-func (m *manager) bootstrapLanguageClient(ctx context.Context, client Client, root, languageID string) {
+func (m *manager) bootstrapLanguageClient(ctx context.Context, client Client, root, languageID string) error {
 	scope, adapter, err := m.resolveLanguageScope(ctx, languageID, root, "")
 	if err != nil {
-		m.logBootstrapPolicy("bootstrap policy resolve failed", "lang", languageID, "root", root, "err", err)
-		return
+		return fmt.Errorf("resolve bootstrap policy for %s: %w", languageID, err)
 	}
 	policy := adapter.BootstrapPolicy(scope)
 	target, err := findBootstrapFileWithin(root, policy.FirstSourceExtensions, policy.IgnoredDirNames)
 	if err != nil {
 		m.logBootstrapPolicy("bootstrap policy walk failed", "lang", languageID, "root", root, "err", err)
-		return
+		return err
 	}
 	if target == "" {
-		return
+		return nil
 	}
 	content, err := os.ReadFile(target)
 	if err != nil {
-		m.logBootstrapPolicy("bootstrap policy read failed", "lang", languageID, "file", target, "err", err)
-		return
+		return fmt.Errorf("read bootstrap %s file %s: %w", languageID, target, err)
 	}
-	_ = client.DidOpen(ctx, fileURIFromPath(target), languageID, 0, string(content))
+	if err := client.DidOpen(ctx, fileURIFromPath(target), languageID, 0, string(content)); err != nil {
+		return fmt.Errorf("bootstrap %s DidOpen %s: %w", languageID, target, err)
+	}
+	return nil
 }
 
 func (m *manager) logBootstrapPolicy(message string, args ...any) {
@@ -313,7 +316,11 @@ func (m *manager) createAndRegisterClient(ctx context.Context, cfg workspaceConf
 }
 
 func newClientFromFactory(factory ClientFactory, cfg workspaceConfig, handler protocol.NotificationHandler) (Client, error) {
-	if envFactory, ok := factory.(ClientFactoryWithEnv); ok {
+	if len(cfg.env) > 0 {
+		envFactory, ok := factory.(ClientFactoryWithEnv)
+		if !ok {
+			return nil, fmt.Errorf("client factory does not support environment overrides for %s", cfg.key)
+		}
 		return envFactory.NewClientWithEnv(cfg.rootPath, append([]string(nil), cfg.env...), handler)
 	}
 	return factory.NewClient(cfg.rootPath, handler)
@@ -379,7 +386,9 @@ func (m *manager) DidClose(ctx context.Context, uri string) error {
 	}
 	ref, _, scope, err := m.resolvedScopeForURI(ctx, uri, "")
 	if err == nil {
-		bootstrapCoordinatorFor(m).states.delete(scope.bootstrapKey(), ref.uri)
+		if coordinator, coordinatorErr := bootstrapCoordinatorFor(m); coordinatorErr == nil {
+			coordinator.states.delete(scope.bootstrapKey(), ref.uri)
+		}
 	}
 	return nil
 }
@@ -430,15 +439,22 @@ func (m *manager) recordFullDocumentDidChange(ctx context.Context, ref documentR
 		return err
 	}
 	key := scope.cacheKey(ref.languageID, ref.uri)
-	coordinator := bootstrapCoordinatorFor(m)
-	coordinator.cache.Upsert(lspCacheValue{
+	coordinator, err := bootstrapCoordinatorFor(m)
+	if err != nil {
+		return err
+	}
+	if err := coordinator.cache.Upsert(lspCacheValue{
 		Key:             key,
 		Version:         version,
 		Fingerprint:     hashDocument([]byte(text)),
 		ModTimeUnixNano: info.ModTime().UnixNano(),
 		Size:            int64(len([]byte(text))),
-	})
-	coordinator.cache.RememberDocumentScope(ref.uri, scope, hashDocument([]byte(text)))
+	}); err != nil {
+		return err
+	}
+	if err := coordinator.cache.RememberDocumentScope(ref.uri, scope, hashDocument([]byte(text))); err != nil {
+		return err
+	}
 	coordinator.states.complete(scope.bootstrapKey(), ref.uri, hashDocument([]byte(text)), version)
 	return nil
 }

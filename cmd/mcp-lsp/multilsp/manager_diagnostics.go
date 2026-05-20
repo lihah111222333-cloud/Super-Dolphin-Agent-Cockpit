@@ -2,6 +2,7 @@ package multilsp
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"sort"
@@ -76,7 +77,9 @@ func (m *manager) Diagnostics(ctx context.Context, uris []string) ([]protocol.Pu
 	if err := m.refreshExistingDiagnosticTargets(ctx, uris, filter); err != nil {
 		return nil, err
 	}
-	m.cleanupDeletedDiagnostics(ctx, filter)
+	if err := m.cleanupDeletedDiagnostics(ctx, filter); err != nil {
+		return nil, err
+	}
 
 	items := m.currentDiagnostics(filter)
 	sort.Slice(items, func(i, j int) bool {
@@ -119,24 +122,14 @@ func (m *manager) WaitDiagnosticsStable(ctx context.Context, uris []string) erro
 	if err != nil {
 		return err
 	}
-
-	deadline := time.Now().Add(m.diagMaxWait)
-	lastUpdate := m.latestDiagnosticUpdate(filter)
-	for {
-		if time.Now().After(deadline) {
-			return nil
-		}
-		if lastUpdate.IsZero() || time.Since(lastUpdate) >= m.diagPoll {
-			return nil
-		}
-		waitFor := minDuration(m.diagPoll, time.Until(deadline))
-		if err := sleepContext(ctx, waitFor); err != nil {
-			return err
-		}
-		if next := m.latestDiagnosticUpdate(filter); next.After(lastUpdate) {
-			lastUpdate = next
-		}
+	if err := m.refreshExistingDiagnosticTargets(ctx, uris, filter); err != nil {
+		return err
 	}
+	waiter, err := m.newDiagnosticStableWait(ctx, filter, uris)
+	if err != nil {
+		return err
+	}
+	return waiter.wait()
 }
 
 func (m *manager) CurrentDiagnosticGeneration() uint64 {
@@ -161,16 +154,14 @@ func (m *manager) publishDiagnosticsForGeneration(params protocol.PublishDiagnos
 	if capturedGen < m.CurrentDiagnosticGeneration() {
 		return nil
 	}
+	uri, err := canonicalDiagnosticURI(params.URI)
+	if err != nil {
+		return err
+	}
+	params.URI = uri
 
 	scope := m.scopeForPublishedDiagnostics(params.URI)
 	key := diagnosticStoreKeyFor(scope, params.URI)
-	if len(params.Diagnostics) == 0 {
-		delete(m.diagnostics, key.String())
-		if scope.ScopeKey == "" && scope.WorkspaceKey == "" {
-			m.deleteDiagnosticsByURI(params.URI)
-		}
-		return nil
-	}
 
 	metadata := diagnosticMetadataForURI(params.URI)
 	m.diagnostics[key.String()] = diagnosticSnapshot{
@@ -227,8 +218,11 @@ func (m *manager) normalizeDiagnosticFilter(ctx context.Context, uris []string) 
 			return diagnosticFilter{}, err
 		}
 		keys[diagnosticStoreKeyFor(scope, ref.uri).String()] = struct{}{}
+		keys[diagnosticStoreKey{uri: ref.uri}.String()] = struct{}{}
 		if _, err := os.Stat(ref.absPath); err != nil && os.IsNotExist(err) {
-			m.cleanupDeletedDocument(ref, scope)
+			if err := m.cleanupDeletedDocument(ref, scope); err != nil {
+				return diagnosticFilter{}, err
+			}
 		}
 	}
 	return diagnosticFilter{keys: keys}, nil
@@ -282,7 +276,7 @@ func (f diagnosticFilter) matches(key string, snapshot diagnosticSnapshot) bool 
 	return platformshared.ContainsPath(f.workspaceRoot, path)
 }
 
-func (m *manager) cleanupDeletedDiagnostics(ctx context.Context, filter diagnosticFilter) {
+func (m *manager) cleanupDeletedDiagnostics(ctx context.Context, filter diagnosticFilter) error {
 	snapshots := make([]diagnosticSnapshot, 0)
 	m.forEachCurrentDiagnosticSnapshot(filter, func(snapshot diagnosticSnapshot) {
 		if snapshot.uri == "" {
@@ -292,6 +286,7 @@ func (m *manager) cleanupDeletedDiagnostics(ctx context.Context, filter diagnost
 			snapshots = append(snapshots, snapshot)
 		}
 	})
+	var errs []error
 	for _, snapshot := range snapshots {
 		current := ResolvedLSPToolScope{
 			LSPToolScope: LSPToolScope{
@@ -304,32 +299,51 @@ func (m *manager) cleanupDeletedDiagnostics(ctx context.Context, filter diagnost
 		if _, _, scope, err := m.resolvedScopeForURI(ctx, snapshot.uri, snapshot.language); err == nil {
 			current = scope
 		}
-		m.cleanupDocumentForScopes(snapshot.uri, current)
+		if err := m.cleanupDocumentForScopes(snapshot.uri, current); err != nil {
+			errs = append(errs, err)
+		}
 	}
+	return errors.Join(errs...)
 }
 
-func (m *manager) cleanupDeletedDocument(ref documentRef, current ResolvedLSPToolScope) {
+func (m *manager) cleanupDeletedDocument(ref documentRef, current ResolvedLSPToolScope) error {
+	coordinator, err := bootstrapCoordinatorFor(m)
+	if err != nil {
+		return err
+	}
 	scopes := []ResolvedLSPToolScope{current}
-	if indexed, ok := bootstrapCoordinatorFor(m).cache.LastResolvedScope(ref.uri); ok {
+	if indexed, ok := coordinator.cache.LastResolvedScope(ref.uri); ok {
 		scopes = append(scopes, indexed.LastResolvedScope)
 	}
-	m.cleanupDocumentForScopes(ref.uri, scopes...)
-	bootstrapCoordinatorFor(m).cache.RememberDocumentScope(ref.uri, current, "")
+	if err := m.cleanupDocumentForScopesWithCoordinator(coordinator, ref.uri, scopes...); err != nil {
+		return err
+	}
+	return coordinator.cache.RememberDocumentScope(ref.uri, current, "")
 }
 
-func (m *manager) cleanupDocumentForScopes(uri string, scopes ...ResolvedLSPToolScope) {
+func (m *manager) cleanupDocumentForScopes(uri string, scopes ...ResolvedLSPToolScope) error {
 	if strings.TrimSpace(uri) == "" {
-		return
+		return nil
 	}
-	coordinator := bootstrapCoordinatorFor(m)
+	coordinator, err := bootstrapCoordinatorFor(m)
+	if err != nil {
+		return err
+	}
+	return m.cleanupDocumentForScopesWithCoordinator(coordinator, uri, scopes...)
+}
+
+func (m *manager) cleanupDocumentForScopesWithCoordinator(coordinator *bootstrapCoordinator, uri string, scopes ...ResolvedLSPToolScope) error {
 	seen := map[string]struct{}{}
+	var errs []error
 
 	m.diagMu.Lock()
 	for _, scope := range scopes {
 		key := diagnosticStoreKeyFor(scope, uri)
 		delete(m.diagnostics, key.String())
 		seen[key.String()] = struct{}{}
-		coordinator.cache.Tombstone(scope.cacheKey(scope.LanguageID, uri))
+		if err := coordinator.cache.Tombstone(scope.cacheKey(scope.LanguageID, uri)); err != nil {
+			errs = append(errs, err)
+		}
 		coordinator.states.delete(scope.bootstrapKey(), uri)
 	}
 	for key, snapshot := range m.diagnostics {
@@ -342,11 +356,14 @@ func (m *manager) cleanupDocumentForScopes(uri string, scopes ...ResolvedLSPTool
 		delete(m.diagnostics, key)
 	}
 	m.diagMu.Unlock()
+	return errors.Join(errs...)
 }
 
 func (m *manager) scopeForPublishedDiagnostics(uri string) ResolvedLSPToolScope {
-	if indexed, ok := bootstrapCoordinatorFor(m).cache.LastResolvedScope(uri); ok {
-		return indexed.LastResolvedScope
+	if coordinator, err := bootstrapCoordinatorFor(m); err == nil {
+		if indexed, ok := coordinator.cache.LastResolvedScope(uri); ok {
+			return indexed.LastResolvedScope
+		}
 	}
 	return ResolvedLSPToolScope{LSPToolScope: LSPToolScope{LanguageID: languageFromURI(uri)}}
 }

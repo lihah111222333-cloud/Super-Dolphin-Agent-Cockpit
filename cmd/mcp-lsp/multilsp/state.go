@@ -2,6 +2,7 @@ package multilsp
 
 import (
 	"context"
+	"fmt"
 	"sync"
 	"time"
 )
@@ -29,7 +30,16 @@ const (
 type bootstrapDecision struct {
 	action   bootstrapAction
 	previous bootstrapStatus
-	wait     <-chan struct{}
+	wait     *bootstrapWait
+}
+
+type bootstrapResult struct {
+	err error
+}
+
+type bootstrapWait struct {
+	done   chan struct{}
+	result bootstrapResult
 }
 
 type bootstrapKey struct {
@@ -43,7 +53,7 @@ type bootstrapEntry struct {
 	version     int
 	err         error
 	updatedAt   time.Time
-	wait        chan struct{}
+	wait        *bootstrapWait
 }
 
 type bootstrapStateStore struct {
@@ -101,7 +111,7 @@ func (s *bootstrapStateStore) prepare(workspace, uri, fingerprint string) bootst
 		if time.Since(entry.updatedAt) <= bootstrapInFlightTTL {
 			return bootstrapDecision{action: bootstrapActionWait, previous: previous, wait: entry.wait}
 		}
-		close(entry.wait)
+		entry.finishWaitLocked(fmt.Errorf("stale bootstrap for %s in %s", uri, workspace))
 		entry.wait = nil
 	case entry.status == bootstrapReady && entry.fingerprint == fingerprint:
 		return bootstrapDecision{action: bootstrapActionSkip, previous: previous}
@@ -113,7 +123,7 @@ func (s *bootstrapStateStore) prepare(workspace, uri, fingerprint string) bootst
 	entry.status = bootstrapBootstrapping
 	entry.err = nil
 	entry.updatedAt = time.Now()
-	entry.wait = make(chan struct{})
+	entry.wait = newBootstrapWait()
 	return bootstrapDecision{action: bootstrapActionRun, previous: previous, wait: entry.wait}
 }
 
@@ -135,25 +145,15 @@ func (s *bootstrapStateStore) fail(workspace, uri string, err error) {
 	})
 }
 
-func (s *bootstrapStateStore) waitFor(ctx context.Context, workspace, uri string, ch <-chan struct{}) error {
-	if ch == nil {
+func (s *bootstrapStateStore) waitFor(ctx context.Context, workspace, uri string, wait *bootstrapWait) error {
+	if wait == nil {
 		return nil
 	}
 	select {
 	case <-ctx.Done():
 		return ctx.Err()
-	case <-ch:
-		s.mu.Lock()
-		defer s.mu.Unlock()
-
-		entry := s.entries[bootstrapKey{workspace: workspace, uri: uri}]
-		if entry == nil {
-			return nil
-		}
-		if entry.status == bootstrapError && entry.err != nil {
-			return entry.err
-		}
-		return nil
+	case <-wait.done:
+		return wait.result.err
 	}
 }
 
@@ -176,7 +176,7 @@ func (s *bootstrapStateStore) finish(workspace, uri string, apply func(*bootstra
 	entry := s.entryLocked(key)
 	apply(entry)
 	if entry.wait != nil {
-		close(entry.wait)
+		entry.finishWaitLocked(entry.err)
 		entry.wait = nil
 	}
 }
@@ -188,4 +188,16 @@ func (s *bootstrapStateStore) entryLocked(key bootstrapKey) *bootstrapEntry {
 	entry := &bootstrapEntry{status: bootstrapPending}
 	s.entries[key] = entry
 	return entry
+}
+
+func newBootstrapWait() *bootstrapWait {
+	return &bootstrapWait{done: make(chan struct{})}
+}
+
+func (e *bootstrapEntry) finishWaitLocked(err error) {
+	if e.wait == nil {
+		return
+	}
+	e.wait.result = bootstrapResult{err: err}
+	close(e.wait.done)
 }

@@ -387,7 +387,7 @@ func blockingListToolsPeer(kind string, tools []dto.MCPTool, started chan<- stri
 	}}}
 }
 
-func TestListToolsForCodex_HostToolsSurviveOrchFailure_LSPReady(t *testing.T) {
+func TestListToolsForCodexFailsWhenOrchPeerMissing(t *testing.T) {
 	host := &stubHostToolRegistry{tools: []dto.MCPTool{{Name: testHostToolName, Description: "host echo"}}}
 	registry := &stubKindRegistry{peers: map[string][]*mcpcontrol.ToolInstance{
 		dto.ClientKindOrch: {listToolsPeer(nil, errors.New("orch down"))},
@@ -399,9 +399,15 @@ func TestListToolsForCodex_HostToolsSurviveOrchFailure_LSPReady(t *testing.T) {
 	if err == nil {
 		t.Fatalf("ListToolsForCodex() error = nil, tools = %+v", got)
 	}
+	if !strings.Contains(err.Error(), dto.ClientKindOrch) {
+		t.Fatalf("ListToolsForCodex() error = %v, want orch peer failure", err)
+	}
+	if len(got) != 0 {
+		t.Fatalf("tools = %+v, want no partial list on peer failure", got)
+	}
 }
 
-func TestListToolsForCodex_LogsDegradedPeer(t *testing.T) {
+func TestListToolsForCodexFailClosedDoesNotReturnPartialPeerList(t *testing.T) {
 	host := &stubHostToolRegistry{tools: []dto.MCPTool{{Name: testHostToolName, Description: "host echo"}}}
 	registry := &stubKindRegistry{peers: map[string][]*mcpcontrol.ToolInstance{
 		dto.ClientKindOrch: {listToolsPeer(nil, errors.New("orch down"))},
@@ -418,12 +424,17 @@ func TestListToolsForCodex_LogsDegradedPeer(t *testing.T) {
 	if err == nil {
 		t.Fatalf("ListToolsForCodex() error = nil, tools = %+v", got)
 	}
-	if !strings.Contains(err.Error(), "orch down") {
-		t.Fatalf("ListToolsForCodex() error = %v, want orch down", err)
+	for _, fragment := range []string{dto.ClientKindOrch, "orch down"} {
+		if !strings.Contains(err.Error(), fragment) {
+			t.Fatalf("ListToolsForCodex() error = %v, want fragment %q", err, fragment)
+		}
+	}
+	if len(got) != 0 {
+		t.Fatalf("tools = %+v, want no partial list on peer failure", got)
 	}
 }
 
-func TestListToolsForCodex_HostToolsSurviveLSPFailure_OrchReady(t *testing.T) {
+func TestListToolsForCodexFailsWhenLSPPeerErrors(t *testing.T) {
 	host := &stubHostToolRegistry{tools: []dto.MCPTool{{Name: testHostToolName, Description: "host echo"}}}
 	registry := &stubKindRegistry{peers: map[string][]*mcpcontrol.ToolInstance{
 		dto.ClientKindOrch: {listToolsPeer([]dto.MCPTool{{Name: "spawn_agent", Description: "orch"}}, nil)},
@@ -434,6 +445,32 @@ func TestListToolsForCodex_HostToolsSurviveLSPFailure_OrchReady(t *testing.T) {
 	got, err := h.ListToolsForCodex(context.Background())
 	if err == nil {
 		t.Fatalf("ListToolsForCodex() error = nil, tools = %+v", got)
+	}
+	if !strings.Contains(err.Error(), dto.ClientKindLSP) {
+		t.Fatalf("ListToolsForCodex() error = %v, want lsp peer failure", err)
+	}
+	if len(got) != 0 {
+		t.Fatalf("tools = %+v, want no partial list on peer failure", got)
+	}
+}
+
+func TestListToolsForCodexFailsWhenLSPPeerMissing(t *testing.T) {
+	host := &stubHostToolRegistry{tools: []dto.MCPTool{{Name: testHostToolName, Description: "host echo"}}}
+	registry := &stubKindRegistry{peers: map[string][]*mcpcontrol.ToolInstance{
+		dto.ClientKindOrch: {listToolsPeer([]dto.MCPTool{{Name: "spawn_agent", Description: "orch"}}, nil)},
+		dto.ClientKindLSP:  {listToolsPeer(nil, ErrNoPeerAvailable)},
+	}}
+	h := &Handler{registry: registry, hostTools: host}
+
+	got, err := h.ListToolsForCodex(context.Background())
+	if err == nil {
+		t.Fatalf("ListToolsForCodex() error = nil, tools = %+v", got)
+	}
+	if !strings.Contains(err.Error(), dto.ClientKindLSP) {
+		t.Fatalf("ListToolsForCodex() error = %v, want lsp peer failure", err)
+	}
+	if len(got) != 0 {
+		t.Fatalf("tools = %+v, want no partial list on peer failure", got)
 	}
 }
 
@@ -448,6 +485,9 @@ func TestListToolsForCodex_HostOnlyWhenBothPeersFail(t *testing.T) {
 	got, err := h.ListToolsForCodex(context.Background())
 	if err == nil {
 		t.Fatalf("ListToolsForCodex() error = nil, tools = %+v", got)
+	}
+	if len(got) != 0 {
+		t.Fatalf("tools = %+v, want no partial host-only list on peer failure", got)
 	}
 }
 

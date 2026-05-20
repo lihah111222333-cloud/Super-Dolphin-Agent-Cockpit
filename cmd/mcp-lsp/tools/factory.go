@@ -352,7 +352,7 @@ func executeSandbox(
 ) (any, error) {
 	result, err := sandbox.Run(ctx, request)
 	if err != nil {
-		return CodeRunFailure{Success: false, Error: err.Error(), ExitCode: -1}, nil
+		return nil, common.NewCodedToolError("sandbox_exec_failed", err, true, "Inspect sandbox command setup and retry after fixing the environment.")
 	}
 	return CodeRunResult{
 		Success:   result.ExitCode == 0,
