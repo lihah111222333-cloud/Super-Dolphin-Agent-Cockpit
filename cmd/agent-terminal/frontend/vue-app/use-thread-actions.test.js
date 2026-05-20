@@ -93,6 +93,18 @@ describe('useThreadActions', () => {
     });
   });
 
+  it('launchOne does not start a deferred thread before provider preference is ready', async () => {
+    const vm = createThreadActions({
+      deps: {
+        providerPreferenceReady: ref(false),
+      },
+    });
+
+    await vm.launchOne();
+
+    expect(vm.threadStore.startThread).not.toHaveBeenCalled();
+  });
+
   it('launchOne resolves dot project scope to the window cwd', async () => {
     const vm = createThreadActions({
       props: {
@@ -189,6 +201,22 @@ describe('useThreadActions', () => {
       expect.objectContaining({ cwd: '/repo' }),
     );
     expect(vm.deps.scheduleScrollToBottom).toHaveBeenCalledWith(true);
+  });
+
+  it('send: does not auto-start a thread before provider preference is ready', async () => {
+    const vm = createThreadActions({
+      selectedThreadId: '',
+      text: 'hello world',
+      deps: {
+        providerPreferenceReady: ref(false),
+      },
+    });
+
+    await vm.send();
+
+    expect(vm.threadStore.startThread).not.toHaveBeenCalled();
+    expect(vm.threadStore.sendMessage).not.toHaveBeenCalled();
+    expect(vm.deps.composer.state.text).toBe('hello world');
   });
 
   it('send resolves dot project scope to the window cwd for start and message payloads', async () => {
