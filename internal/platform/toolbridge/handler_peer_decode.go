@@ -342,20 +342,35 @@ func adaptMCPResponse(resp peerToolCallResponse) (*ToolCallResult, error) {
 }
 
 func structuredContentReportsFailure(raw json.RawMessage) (bool, error) {
-	if len(raw) == 0 {
-		return false, nil
+	trimmed, isObject, err := normalizedStructuredContentObject(raw)
+	if err != nil || !isObject {
+		return false, err
 	}
 	var payload struct {
 		Success *bool `json:"success"`
 		IsError *bool `json:"isError"`
 		OK      *bool `json:"ok"`
 	}
-	if err := json.Unmarshal(raw, &payload); err != nil {
+	if err := json.Unmarshal(trimmed, &payload); err != nil {
 		return false, fmt.Errorf("toolbridge: decode structuredContent: %w", err)
 	}
 	return (payload.Success != nil && !*payload.Success) ||
 		(payload.IsError != nil && *payload.IsError) ||
 		(payload.OK != nil && !*payload.OK), nil
+}
+
+func normalizedStructuredContentObject(raw json.RawMessage) (json.RawMessage, bool, error) {
+	if len(raw) == 0 {
+		return nil, false, nil
+	}
+	trimmed := bytes.TrimSpace(raw)
+	if !json.Valid(trimmed) {
+		return nil, false, fmt.Errorf("toolbridge: decode structuredContent: invalid JSON")
+	}
+	if len(trimmed) == 0 || trimmed[0] != '{' {
+		return nil, false, nil
+	}
+	return trimmed, true, nil
 }
 
 func toCodexDynamicTools(tools []mcpdto.MCPTool) []contract.DynamicToolSchema {
