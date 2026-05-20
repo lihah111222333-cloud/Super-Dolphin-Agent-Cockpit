@@ -189,7 +189,7 @@ func resolveGoWorkRoot(target, projectRoot, goWorkPath, mode string) (GoRootInfo
 	workspaceRoot := filepath.Dir(goWorkPath)
 	moduleRoots, err := parseGoWorkModuleRoots(goWorkPath)
 	if err != nil {
-		return GoRootInfo{}, fmt.Errorf("parse go.work modules: %w", err)
+		return GoRootInfo{}, fmt.Errorf("parse go.work %s: %w", goWorkPath, err)
 	}
 	moduleRoot := longestContainingRoot(target, moduleRoots)
 	goModPath := ""

@@ -367,7 +367,6 @@ func runDiagnosticsMethods(t *testing.T, ctx context.Context, mgr *manager, uri 
 		t.Errorf("WaitDiagnosticsStable(%s): %v", uri, err)
 	}
 	_ = mgr.CurrentDiagnosticGeneration()
-	_ = mgr.AdvanceDiagnosticGeneration()
 }
 
 func runNavigationMethods(t *testing.T, ctx context.Context, mgr *manager, uri string, pos protocol.Position) {
@@ -436,6 +435,12 @@ func runEditMethods(t *testing.T, ctx context.Context, mgr *manager, uri string,
 
 func runLifecycleMethods(t *testing.T, ctx context.Context, mgr *manager, uri string) {
 	t.Helper()
+	runOpenChangeMethods(t, ctx, mgr, uri)
+	runCloseMethod(t, ctx, mgr, uri)
+}
+
+func runOpenChangeMethods(t *testing.T, ctx context.Context, mgr *manager, uri string) {
+	t.Helper()
 	if err := mgr.DidOpen(ctx, uri, "go", 1, "package main\n"); err != nil {
 		t.Errorf("DidOpen(%s): %v", uri, err)
 	}
@@ -444,6 +449,10 @@ func runLifecycleMethods(t *testing.T, ctx context.Context, mgr *manager, uri st
 	}); err != nil {
 		t.Errorf("DidChange(%s): %v", uri, err)
 	}
+}
+
+func runCloseMethod(t *testing.T, ctx context.Context, mgr *manager, uri string) {
+	t.Helper()
 	if err := mgr.DidClose(ctx, uri); err != nil {
 		t.Errorf("DidClose(%s): %v", uri, err)
 	}
@@ -456,8 +465,9 @@ func runAllLSPMethods(t *testing.T, ctx context.Context, mgr *manager, uri strin
 	runXRefMethods(t, ctx, mgr, uri, pos)
 	runStructureAndCompletionMethods(t, ctx, mgr, uri, pos)
 	runEditMethods(t, ctx, mgr, uri, pos, rng)
-	runLifecycleMethods(t, ctx, mgr, uri)
+	runOpenChangeMethods(t, ctx, mgr, uri)
 	runDiagnosticsMethods(t, ctx, mgr, uri)
+	runCloseMethod(t, ctx, mgr, uri)
 }
 
 // collectAllLSPMethodErrors is the goroutine-safe variant of runAllLSPMethods.
@@ -505,10 +515,10 @@ func collectAllLSPMethodErrors(ctx context.Context, mgr *manager, uri string, po
 	check("DidChange", mgr.DidChange(ctx, uri, 2, []protocol.TextDocumentContentChangeEvent{
 		{Text: "package main\n// changed\n"},
 	}))
-	check("DidClose", mgr.DidClose(ctx, uri))
 	_, err = mgr.Diagnostics(ctx, []string{uri})
 	check("Diagnostics", err)
 	check("WaitDiagnosticsStable", mgr.WaitDiagnosticsStable(ctx, []string{uri}))
+	check("DidClose", mgr.DidClose(ctx, uri))
 }
 
 func buildTestResolvedScope(t *testing.T, root, agentID, threadID, lang string) ResolvedLSPToolScope {

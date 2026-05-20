@@ -287,7 +287,7 @@ func TestRecyclerRestoresGoWorkspaceWithSavedRootEnvAndScope(t *testing.T) {
 	resolved := mustResolveWorkspaceScope(t, manager, ctx, cfg, "recycle")
 	assertFallbackRecycleScope(t, cfg, resolved)
 	targetURI := fileURIFromPath(target)
-	coordinator := seedBootstrapCache(manager, resolved, targetURI)
+	coordinator := seedBootstrapCache(t, manager, resolved, targetURI)
 	didRecycle, err := recycleWorkspaceClient(manager, resolved, workspace)
 	if err != nil {
 		t.Fatalf("recycle go workspace client: %v", err)
@@ -343,13 +343,16 @@ func assertFallbackRecycleScope(t *testing.T, cfg workspaceConfig, resolved Reso
 	}
 }
 
-func seedBootstrapCache(manager *manager, resolved ResolvedLSPToolScope, targetURI string) *bootstrapCoordinator {
-	coordinator := bootstrapCoordinatorFor(manager)
-	coordinator.cache.Upsert(lspCacheValue{
+func seedBootstrapCache(t *testing.T, manager *manager, resolved ResolvedLSPToolScope, targetURI string) *bootstrapCoordinator {
+	t.Helper()
+	coordinator := mustBootstrapCoordinator(t, manager)
+	if err := coordinator.cache.Upsert(lspCacheValue{
 		Key:         resolved.cacheKey("go", targetURI),
 		Version:     1,
 		Fingerprint: "stale-before-recycle",
-	})
+	}); err != nil {
+		t.Fatalf("seed bootstrap cache: %v", err)
+	}
 	return coordinator
 }
 

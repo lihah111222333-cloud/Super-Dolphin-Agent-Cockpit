@@ -222,4 +222,28 @@ describe('useThreadCards', () => {
       expect.objectContaining({ kind: 'tool', status: 'failed', message: 'bash · 执行失败：boom' }),
     ]);
   });
+
+  it('shows parsed failed tool preview payloads as failed process activity', () => {
+    const vm = createThreadCards({
+      activeTimeline: [
+        {
+          id: 'tool-grep',
+          kind: 'tool',
+          tool: 'mcp__lsp__grep',
+          status: 'completed',
+          success: true,
+          preview: '{"success":false,"error":"search root is unavailable","total":0}',
+          ts: '2026-03-09T10:00:00Z',
+        },
+      ],
+    });
+
+    expect(vm.activeProcessActivity.value).toEqual([
+      expect.objectContaining({
+        kind: 'tool',
+        message: 'grep · 搜索代码失败：search root is unavailable',
+        status: 'failed',
+      }),
+    ]);
+  });
 });

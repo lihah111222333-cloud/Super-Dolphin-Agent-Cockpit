@@ -2,6 +2,7 @@ package search
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -68,6 +69,9 @@ func SearchText(ctx context.Context, opts TextSearchOptions) ([]SearchMatch, err
 	if err != nil {
 		return nil, err
 	}
+	if err := validateSearchGlob(opts.Glob); err != nil {
+		return nil, err
+	}
 	pathInfo, info, err := statSearchPath(opts.Root, opts.Roots, opts.Path)
 	if err != nil {
 		return nil, err
@@ -88,6 +92,9 @@ func SearchAST(ctx context.Context, opts ASTSearchOptions) ([]SearchMatch, error
 	if query == "" {
 		return nil, errors.New("query is required")
 	}
+	if err := validateSearchGlob(opts.Glob); err != nil {
+		return nil, err
+	}
 	pathInfo, info, err := statSearchPath(opts.Root, opts.Roots, opts.Path)
 	if err != nil {
 		return nil, err
@@ -106,23 +113,7 @@ func SearchAST(ctx context.Context, opts ASTSearchOptions) ([]SearchMatch, error
 		return runSGKindSearch(ctx, query, language, pathInfo.AbsPath, pathInfo.Root, opts.Glob)
 	}
 
-	args := []string{"run", "--pattern", query, "--lang", language, "--json=stream"}
-	if glob := strings.TrimSpace(opts.Glob); glob != "" {
-		args = append(args, "--globs", glob)
-	}
-	args = append(args, pathInfo.AbsPath)
-
-	cmd := exec.CommandContext(ctx, "sg", args...)
-	cmd.Dir = pathInfo.Root
-	output, err := cmd.Output()
-	if err != nil {
-		var exitErr *exec.ExitError
-		if errors.As(err, &exitErr) && exitErr.ExitCode() == 1 {
-			return []SearchMatch{}, nil
-		}
-		return nil, fmt.Errorf("sg run: %w", err)
-	}
-	return decodeSGMatches(output, pathInfo.Root)
+	return runSGPatternSearch(ctx, query, language, pathInfo.AbsPath, pathInfo.Root, opts.Glob)
 }
 
 func FilterAndCapSearchMatches(matches []SearchMatch, maxResults int) ([]SearchMatch, int, bool) {
@@ -187,10 +178,10 @@ func walkSearchEntry(
 		return err
 	}
 	if walkErr != nil {
-		return walkErr
+		return fmt.Errorf("walk %s: %w", candidate, walkErr)
 	}
 	if entry == nil {
-		return nil
+		return fmt.Errorf("walk %s: missing dir entry", candidate)
 	}
 	if entry.IsDir() {
 		if shouldSkipDir(entry.Name()) {
@@ -198,12 +189,16 @@ func walkSearchEntry(
 		}
 		return nil
 	}
-	if !matchesPathGlob(root, candidate, glob) || !isSearchCandidate(candidate, entry, maxFileBytes) {
+	selected, err := shouldSearchPath(root, candidate, glob, maxFileBytes, entry)
+	if err != nil {
+		return err
+	}
+	if !selected {
 		return nil
 	}
 	found, err := searchTextFile(ctx, root, candidate, glob, maxFileBytes, matcher)
 	if err != nil {
-		return err
+		return fmt.Errorf("search %s: %w", candidate, err)
 	}
 	*results = append(*results, found...)
 	return nil
@@ -226,23 +221,40 @@ func searchTextFile(ctx context.Context, root, candidate, glob string, maxFileBy
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	if !matchesPathGlob(root, candidate, glob) {
-		return nil, nil
-	}
-	selected, err := findDirEntry(candidate)
+	ok, err := shouldSearchFile(root, candidate, glob, maxFileBytes)
 	if err != nil {
 		return nil, err
 	}
-	if !isSearchCandidate(candidate, selected, maxFileBytes) {
+	if !ok {
 		return nil, nil
 	}
 
 	file, err := os.Open(candidate)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("open %s: %w", candidate, err)
 	}
 	defer func() { _ = file.Close() }()
 
+	return scanSearchTextFile(ctx, candidate, maxFileBytes, matcher, file)
+}
+
+func shouldSearchFile(root, candidate, glob string, maxFileBytes int) (bool, error) {
+	selected, err := findDirEntry(candidate)
+	if err != nil {
+		return false, fmt.Errorf("read dir entry for %s: %w", candidate, err)
+	}
+	return shouldSearchPath(root, candidate, glob, maxFileBytes, selected)
+}
+
+func shouldSearchPath(root, candidate, glob string, maxFileBytes int, entry os.DirEntry) (bool, error) {
+	matched, err := matchesPathGlob(root, candidate, glob)
+	if err != nil || !matched {
+		return matched, err
+	}
+	return isSearchCandidate(candidate, entry, maxFileBytes)
+}
+
+func scanSearchTextFile(ctx context.Context, candidate string, maxFileBytes int, matcher lineMatcher, file *os.File) ([]SearchMatch, error) {
 	scanner := bufio.NewScanner(file)
 	scanner.Buffer(make([]byte, 0, 64*1024), maxInt(maxFileBytes, 64*1024))
 	results := make([]SearchMatch, 0, 8)
@@ -266,6 +278,25 @@ func searchTextFile(ctx context.Context, root, candidate, glob string, maxFileBy
 	return results, scanner.Err()
 }
 
+func runSGPatternSearch(ctx context.Context, query, language, absPath, root, glob string) ([]SearchMatch, error) {
+	args := []string{"run", "--pattern", query, "--lang", astGrepLanguageID(language), "--json=stream"}
+	if glob := strings.TrimSpace(glob); glob != "" {
+		args = append(args, "--globs", glob)
+	}
+	args = append(args, absPath)
+
+	cmd := exec.CommandContext(ctx, "sg", args...)
+	cmd.Dir = root
+	output, err := cmd.Output()
+	if err != nil {
+		if isSGNoMatchExitCodeOneWithoutStderr(err) {
+			return []SearchMatch{}, nil
+		}
+		return nil, formatSGCommandError("sg run", err)
+	}
+	return decodeSGMatches(output, root)
+}
+
 // isLikelyNodeType returns true when the query looks like a tree-sitter node
 // type name (e.g. "function_declaration", "type_spec") rather than an ast-grep
 // code pattern. Node types are strictly lowercase letters and underscores.
@@ -284,7 +315,7 @@ func isLikelyNodeType(query string) bool {
 // runSGKindSearch executes `sg scan --rule <tmpfile>` to find AST nodes by
 // their tree-sitter kind (e.g. function_declaration, type_spec).
 func runSGKindSearch(ctx context.Context, kind, language, absPath, root, glob string) ([]SearchMatch, error) {
-	rule := fmt.Sprintf("id: kind-search\nlanguage: %s\nrule:\n  kind: %s\n", language, kind)
+	rule := fmt.Sprintf("id: kind-search\nlanguage: %s\nrule:\n  kind: %s\n", astGrepLanguageID(language), kind)
 
 	tmpFile, err := os.CreateTemp("", "sg-rule-*.yml")
 	if err != nil {
@@ -312,11 +343,10 @@ func runSGKindSearch(ctx context.Context, kind, language, absPath, root, glob st
 	cmd.Dir = root
 	output, err := cmd.Output()
 	if err != nil {
-		var exitErr *exec.ExitError
-		if errors.As(err, &exitErr) && exitErr.ExitCode() == 1 {
+		if isSGNoMatchExitCodeOneWithoutStderr(err) {
 			return []SearchMatch{}, nil
 		}
-		return nil, fmt.Errorf("sg scan: %w", err)
+		return nil, formatSGCommandError("sg scan", err)
 	}
 	// sg scan --json outputs a JSON array, not NDJSON like sg run --json=stream.
 	return decodeSGScanMatches(output, root)
@@ -326,7 +356,7 @@ func runSGKindSearch(ctx context.Context, kind, language, absPath, root, glob st
 func decodeSGScanMatches(output []byte, root string) ([]SearchMatch, error) {
 	var items []sgStreamMatch
 	if err := json.Unmarshal(output, &items); err != nil {
-		return nil, fmt.Errorf("decode sg scan json: %w", err)
+		return nil, fmt.Errorf("sg scan json: %w", err)
 	}
 	results := make([]SearchMatch, 0, len(items))
 	for _, item := range items {
@@ -347,13 +377,15 @@ func decodeSGScanMatches(output []byte, root string) ([]SearchMatch, error) {
 }
 
 func decodeSGMatches(output []byte, root string) ([]SearchMatch, error) {
-	scanner := bufio.NewScanner(strings.NewReader(string(output)))
+	scanner := bufio.NewScanner(bytes.NewReader(output))
 	scanner.Buffer(make([]byte, 0, 64*1024), 2<<20)
 	results := make([]SearchMatch, 0, 16)
+	line := 0
 	for scanner.Scan() {
+		line++
 		var item sgStreamMatch
 		if err := json.Unmarshal(scanner.Bytes(), &item); err != nil {
-			return nil, fmt.Errorf("decode sg stream json: %w", err)
+			return nil, fmt.Errorf("sg json line %d: %w", line, err)
 		}
 		absPath := item.File
 		if !filepath.IsAbs(absPath) {
@@ -369,33 +401,68 @@ func decodeSGMatches(output []byte, root string) ([]SearchMatch, error) {
 		})
 	}
 	if err := scanner.Err(); err != nil {
-		return nil, fmt.Errorf("read sg stream json: %w", err)
+		return nil, fmt.Errorf("sg json scan: %w", err)
 	}
 	return results, nil
 }
 
-func matchesPathGlob(root, candidate, rawGlob string) bool {
+func validateSearchGlob(rawGlob string) error {
 	glob := filepath.ToSlash(strings.TrimSpace(rawGlob))
 	if glob == "" {
-		return true
+		return nil
+	}
+	for _, pattern := range []string{glob} {
+		if _, err := path.Match(pattern, "probe"); err != nil {
+			return fmt.Errorf("invalid glob %q: %w", rawGlob, err)
+		}
+	}
+	return nil
+}
+
+func matchesPathGlob(root, candidate, rawGlob string) (bool, error) {
+	glob := filepath.ToSlash(strings.TrimSpace(rawGlob))
+	if glob == "" {
+		return true, nil
 	}
 	rel, err := filepath.Rel(root, candidate)
 	if err != nil {
-		return false
+		return false, fmt.Errorf("resolve relative path for glob %s: %w", candidate, err)
 	}
 	slashRel := filepath.ToSlash(rel)
-	if matchesCompiledGlob(glob, slashRel) {
-		return true
+	ok, err := matchesCompiledGlob(glob, slashRel)
+	if err != nil || ok {
+		return ok, err
 	}
 	if strings.Contains(glob, "/") {
-		return false
+		return false, nil
 	}
 	return matchesCompiledGlob(glob, path.Base(slashRel))
 }
 
-func matchesCompiledGlob(pattern, candidate string) bool {
+func matchesCompiledGlob(pattern, candidate string) (bool, error) {
 	ok, err := path.Match(pattern, candidate)
-	return err == nil && ok
+	if err != nil {
+		return false, fmt.Errorf("invalid glob %q: %w", pattern, err)
+	}
+	return ok, nil
+}
+
+func formatSGCommandError(prefix string, err error) error {
+	var exitErr *exec.ExitError
+	if errors.As(err, &exitErr) {
+		stderr := strings.TrimSpace(string(exitErr.Stderr))
+		if stderr != "" {
+			return fmt.Errorf("%s: %w: %s", prefix, err, stderr)
+		}
+	}
+	return fmt.Errorf("%s: %w", prefix, err)
+}
+
+func isSGNoMatchExitCodeOneWithoutStderr(err error) bool {
+	var exitErr *exec.ExitError
+	return errors.As(err, &exitErr) &&
+		exitErr.ExitCode() == 1 &&
+		len(bytes.TrimSpace(exitErr.Stderr)) == 0
 }
 
 func normalizeASTLanguage(raw, target string, isDir bool, glob string) (string, error) {
@@ -406,6 +473,17 @@ func normalizeASTLanguage(raw, target string, isDir bool, glob string) (string, 
 		return inferred, nil
 	}
 	return "", errors.New("language is required for ast_search")
+}
+
+func astGrepLanguageID(language string) string {
+	switch strings.ToLower(strings.TrimSpace(language)) {
+	case "javascriptreact":
+		return "jsx"
+	case "typescriptreact":
+		return "tsx"
+	default:
+		return strings.ToLower(strings.TrimSpace(language))
+	}
 }
 
 func inferASTLanguage(target string, isDir bool, glob string) string {

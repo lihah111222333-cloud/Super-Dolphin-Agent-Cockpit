@@ -5,7 +5,9 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+	"time"
 
 	lspmanager "github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/manager"
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/protocol"
@@ -38,7 +40,7 @@ func resolveDiagnosticsScopeForTarget(t *testing.T, mgr *manager, ctx context.Co
 	if err != nil {
 		t.Fatalf("resolve scope: %v", err)
 	}
-	bootstrapCoordinatorFor(mgr).cache.RememberDocumentScope(ref.uri, scope, fingerprint)
+	mustBootstrapCoordinator(t, mgr).cache.RememberDocumentScope(ref.uri, scope, fingerprint)
 	return ref.uri, scope
 }
 
@@ -81,6 +83,13 @@ func requireDiagnosticMessage(t *testing.T, items []protocol.PublishDiagnosticsP
 	}
 	if items[0].Diagnostics[0].Message != message {
 		t.Fatalf("diagnostic message = %q, want %q", items[0].Diagnostics[0].Message, message)
+	}
+}
+
+func requireEmptyDiagnosticSnapshot(t *testing.T, label string, items []protocol.PublishDiagnosticsParams) {
+	t.Helper()
+	if len(items) != 1 || len(items[0].Diagnostics) != 0 {
+		t.Fatalf("%s diagnostics = %#v, want one empty ready item", label, items)
 	}
 }
 
@@ -175,7 +184,7 @@ func TestDiagnosticsRefreshesStaleFileBeforeReturn(t *testing.T) {
 	if got := client.changeCount(); got == 0 {
 		t.Fatalf("Diagnostics did not refresh stale file before return; returned %#v", items)
 	}
-	requireNoDiagnosticItems(t, "after stale file refresh", items)
+	requireEmptyDiagnosticSnapshot(t, "after stale file refresh", items)
 }
 
 func TestDeletedDiagnosticsCleanupRemovesOldAndCurrentScopedCache(t *testing.T) {
@@ -183,7 +192,7 @@ func TestDeletedDiagnosticsCleanupRemovesOldAndCurrentScopedCache(t *testing.T) 
 	writeDiagnosticsTestFile(t, root, "go.mod", "module cleanup\n")
 	target := writeDiagnosticsTestFile(t, root, "stale.go", "package cleanup\n")
 	mgr := newDiagnosticsTestManager(t, Config{WorkspaceRoot: root})
-	coordinator := bootstrapCoordinatorFor(mgr)
+	coordinator := mustBootstrapCoordinator(t, mgr)
 	ctxOld := scopedDiagnosticsTestContext(root, "agent-old", "thread-1")
 	ctxCurrent := scopedDiagnosticsTestContext(root, "agent-current", "thread-1")
 	uri, oldScope := resolveDiagnosticsScopeForTarget(t, mgr, ctxOld, target, "old")
@@ -278,7 +287,7 @@ func TestDeletedFileClearsBootstrapAndCache(t *testing.T) {
 	uri := fileURIFromPath(target)
 
 	mgr := newDiagnosticsTestManager(t, Config{WorkspaceRoot: root})
-	coordinator := bootstrapCoordinatorFor(mgr)
+	coordinator := mustBootstrapCoordinator(t, mgr)
 
 	oldScope := canonicalDeleteScope(root, "old")
 	currentScope := canonicalDeleteScope(root, "current")
@@ -336,7 +345,7 @@ func TestDiagnosticsScopeIgnoresPrivateAgentKeys(t *testing.T) {
 	if err != nil {
 		t.Fatalf("resolve trusted scope: %v", err)
 	}
-	bootstrapCoordinatorFor(mgr).cache.RememberDocumentScope(ref.uri, scope, "trusted")
+	mustBootstrapCoordinator(t, mgr).cache.RememberDocumentScope(ref.uri, scope, "trusted")
 	if err := mgr.PublishDiagnostics(protocol.PublishDiagnosticsParams{
 		URI: ref.uri,
 		Diagnostics: []protocol.Diagnostic{{
@@ -438,6 +447,63 @@ func TestDiagnosticsManagerResolvedScopeCanBeInjected(t *testing.T) {
 	}
 	if got.ManagerKey != "manager-generic" || got.WorkspaceKey != "workspace-generic" || got.ScopeKey != "lsp\x00agent-generic\x00thread-generic" {
 		t.Fatalf("resolved manager scope = %#v, want generic injected scope", got)
+	}
+}
+
+func TestWaitDiagnosticsStableFailsWhenTargetNeverPublishes(t *testing.T) {
+	root := t.TempDir()
+	writeDiagnosticsTestFile(t, root, "package.json", `{"name":"missing-diagnostics"}`)
+	target := writeDiagnosticsTestFile(t, root, "app.js", "const value = 1\n")
+	mgr := newDiagnosticsTestManager(t, Config{WorkspaceRoot: root, DiagnosticsMaxWait: time.Millisecond})
+	ctx := common.WithToolScope(context.Background(), common.ToolScope{CWD: root, WorkspaceRoots: []string{root}})
+	uri := fileURIFromPath(target)
+
+	err := mgr.WaitDiagnosticsStable(ctx, []string{uri})
+	if err == nil || !strings.Contains(err.Error(), "diagnostics") || !strings.Contains(err.Error(), "app.js") {
+		t.Fatalf("WaitDiagnosticsStable() error = %v, want no publish failure for %s", err, uri)
+	}
+}
+
+func TestWaitDiagnosticsStableFailsWhenAnyRequestedTargetNeverPublishes(t *testing.T) {
+	root := t.TempDir()
+	writeDiagnosticsTestFile(t, root, "package.json", `{"name":"partial-diagnostics"}`)
+	first := writeDiagnosticsTestFile(t, root, "one.js", "const one = 1\n")
+	second := writeDiagnosticsTestFile(t, root, "two.js", "const two = 2\n")
+	mgr := newDiagnosticsTestManager(t, Config{WorkspaceRoot: root, DiagnosticsMaxWait: time.Millisecond})
+	ctx := common.WithToolScope(context.Background(), common.ToolScope{CWD: root, WorkspaceRoots: []string{root}})
+	firstURI := fileURIFromPath(first)
+	secondURI := fileURIFromPath(second)
+	resolveDiagnosticsScopeForTarget(t, mgr, ctx, first, "first")
+	if err := mgr.PublishDiagnostics(protocol.PublishDiagnosticsParams{URI: firstURI}); err != nil {
+		t.Fatalf("PublishDiagnostics(first) error = %v", err)
+	}
+
+	err := mgr.WaitDiagnosticsStable(ctx, []string{firstURI, secondURI})
+	if err == nil || !strings.Contains(err.Error(), secondURI) {
+		t.Fatalf("WaitDiagnosticsStable() error = %v, want missing second URI", err)
+	}
+}
+
+func TestPublishEmptyDiagnosticsCountsAsObservedReadySnapshot(t *testing.T) {
+	root := t.TempDir()
+	writeDiagnosticsTestFile(t, root, "package.json", `{"name":"empty-diagnostics"}`)
+	target := writeDiagnosticsTestFile(t, root, "empty.js", "const empty = 1\n")
+	mgr := newDiagnosticsTestManager(t, Config{WorkspaceRoot: root, DiagnosticsMaxWait: time.Millisecond})
+	ctx := common.WithToolScope(context.Background(), common.ToolScope{CWD: root, WorkspaceRoots: []string{root}})
+	uri := fileURIFromPath(target)
+	resolveDiagnosticsScopeForTarget(t, mgr, ctx, target, "empty")
+	if err := mgr.PublishDiagnostics(protocol.PublishDiagnosticsParams{URI: uri}); err != nil {
+		t.Fatalf("PublishDiagnostics() error = %v", err)
+	}
+	if err := mgr.WaitDiagnosticsStable(ctx, []string{uri}); err != nil {
+		t.Fatalf("WaitDiagnosticsStable() error = %v, want observed empty diagnostics success", err)
+	}
+	items, err := mgr.Diagnostics(ctx, []string{uri})
+	if err != nil {
+		t.Fatalf("Diagnostics() error = %v", err)
+	}
+	if len(items) != 1 || len(items[0].Diagnostics) != 0 {
+		t.Fatalf("Diagnostics() = %#v, want one empty ready item", items)
 	}
 }
 

@@ -2,14 +2,17 @@ package codexapp
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/discovery"
 )
 
@@ -265,6 +268,91 @@ func TestPeerSupervisorStartsPeers(t *testing.T) {
 	if got := launcher.snapshotCount("mcp-lsp"); got != 1 {
 		t.Errorf("mcp-lsp launch count = %d, want 1", got)
 	}
+}
+
+func TestPeerProcessEnvInjectsConfiguredMcpLSPWorkspaceRoots(t *testing.T) {
+	root := t.TempDir()
+	rawRoots, err := json.Marshal([]string{root})
+	if err != nil {
+		t.Fatalf("Marshal roots: %v", err)
+	}
+
+	env, err := peerProcessEnv("mcp-lsp", []string{"PATH=/bin"}, []string{root})
+	if err != nil {
+		t.Fatalf("peerProcessEnv() error = %v", err)
+	}
+	requireEnvValue(t, env, "GO_AGENT_LSP_ROOT", root)
+	requireEnvValue(t, env, "GO_AGENT_LSP_ROOTS", string(rawRoots))
+}
+
+func TestPeerProcessEnvRejectsExplicitInvalidMcpLSPRoots(t *testing.T) {
+	_, err := peerProcessEnv("mcp-lsp", []string{"GO_AGENT_LSP_ROOTS=not-json"}, nil)
+	if err == nil || !strings.Contains(err.Error(), "GO_AGENT_LSP_ROOTS") {
+		t.Fatalf("peerProcessEnv() error = %v, want explicit roots parse failure", err)
+	}
+}
+
+func TestExecPeerLauncherFailsWhenNoRootSourceExists(t *testing.T) {
+	launcher := newExecPeerLauncher(nil)
+	launcher.workspaceRoots = func() []string { return nil }
+	_, err := launcher.peerEnvForTest("mcp-lsp", []string{"PATH=/bin"})
+	if err == nil || !strings.Contains(err.Error(), "workspace root") {
+		t.Fatalf("peer env error = %v, want visible missing root failure", err)
+	}
+}
+
+func TestProvideDefaultPeerSupervisorWiresProjectRootIntoMcpLSPLauncher(t *testing.T) {
+	root := t.TempDir()
+	runner := provideDefaultPeerSupervisor(nil, nil, &contract.Config{ProjectRoot: root})
+	supervisor, ok := runner.(*PeerSupervisor)
+	if !ok {
+		t.Fatalf("runner type = %T, want *PeerSupervisor", runner)
+	}
+	launcher, ok := supervisor.launcher.(*execPeerLauncher)
+	if !ok {
+		t.Fatalf("launcher type = %T, want *execPeerLauncher", supervisor.launcher)
+	}
+	env, err := launcher.peerEnvForTest("mcp-lsp", []string{"PATH=/bin"})
+	if err != nil {
+		t.Fatalf("peer env error = %v", err)
+	}
+	requireEnvValue(t, env, "GO_AGENT_LSP_ROOT", root)
+	var roots []string
+	if err := json.Unmarshal([]byte(requireEnvString(t, env, "GO_AGENT_LSP_ROOTS")), &roots); err != nil {
+		t.Fatalf("decode GO_AGENT_LSP_ROOTS: %v", err)
+	}
+	if len(roots) != 1 || roots[0] != root {
+		t.Fatalf("GO_AGENT_LSP_ROOTS = %#v, want [%q]", roots, root)
+	}
+}
+
+func TestProvideDefaultPeerSupervisorRejectsMissingProjectRootForMcpLSP(t *testing.T) {
+	runner := provideDefaultPeerSupervisor(nil, nil, &contract.Config{ProjectRoot: "relative"})
+	supervisor := runner.(*PeerSupervisor)
+	launcher := supervisor.launcher.(*execPeerLauncher)
+	_, err := launcher.peerEnvForTest("mcp-lsp", []string{"PATH=/bin"})
+	if err == nil || !strings.Contains(err.Error(), "workspace root") {
+		t.Fatalf("peer env error = %v, want visible workspace-root failure", err)
+	}
+}
+
+func requireEnvValue(t *testing.T, env []string, key, want string) {
+	t.Helper()
+	if got := requireEnvString(t, env, key); got != want {
+		t.Fatalf("%s = %q, want %q", key, got, want)
+	}
+}
+
+func requireEnvString(t *testing.T, env []string, key string) string {
+	t.Helper()
+	prefix := key + "="
+	for _, item := range env {
+		if strings.HasPrefix(item, prefix) {
+			return strings.TrimPrefix(item, prefix)
+		}
+	}
+	t.Fatalf("%s missing from env %#v", key, env)
+	return ""
 }
 
 func TestPeerSupervisorRestartsExitedPeer(t *testing.T) {

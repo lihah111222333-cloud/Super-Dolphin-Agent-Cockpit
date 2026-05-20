@@ -11,7 +11,7 @@ import (
 // which held its own stopCh and outlived every caller. Cleanup is
 // now amortised on access, so the goroutine is gone entirely.
 func TestNewLSPCacheStoreDoesNotSpawnCleanupGoroutine(t *testing.T) {
-	store := newLSPCacheStore(lspCacheConfig{TTL: 5 * time.Millisecond})
+	store := mustLSPCacheStore(t, lspCacheConfig{TTL: 5 * time.Millisecond})
 	if store == nil {
 		t.Fatalf("newLSPCacheStore returned nil")
 	}
@@ -29,7 +29,7 @@ func TestNewLSPCacheStoreDoesNotSpawnCleanupGoroutine(t *testing.T) {
 // so this path must stay correct.
 func TestLSPCacheStoreMaybeCleanupPurgesExpiredInline(t *testing.T) {
 	now := time.Unix(1_000, 0).UTC()
-	store := newLSPCacheStore(lspCacheConfig{TTL: 10 * time.Second})
+	store := mustLSPCacheStore(t, lspCacheConfig{TTL: 10 * time.Second})
 	// Freeze the clock so we can drive expiry deterministically.
 	store.now = func() time.Time { return now }
 
@@ -87,7 +87,7 @@ func TestLSPCacheUsesResolvedScopeLanguageSpecificHash(t *testing.T) {
 
 func TestLSPCacheTombstoneSuppressesDeletedDocumentLoad(t *testing.T) {
 	now := time.Unix(2_000, 0).UTC()
-	store := newLSPCacheStore(lspCacheConfig{TTL: 10 * time.Second})
+	store := mustLSPCacheStore(t, lspCacheConfig{TTL: 10 * time.Second})
 	store.now = func() time.Time { return now }
 
 	key := lspCacheKey{ScopeKey: "scope", WorkspaceKey: "workspace", LanguageID: "go", URI: "file:///deleted.go"}

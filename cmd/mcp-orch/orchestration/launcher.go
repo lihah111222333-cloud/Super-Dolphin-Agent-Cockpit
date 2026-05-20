@@ -14,7 +14,9 @@ import (
 	"github.com/creachadair/jrpc2"
 	"github.com/creachadair/jrpc2/channel"
 
+	turndto "github.com/anthropic-ai/super-agent-v3/internal/dto/turn"
 	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/eventsurface"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
@@ -28,8 +30,7 @@ type AgentLauncher interface {
 }
 
 type LaunchResult struct {
-	ThreadID      string
-	RemoteAgentID string
+	ThreadID, RemoteAgentID string
 }
 
 // localLauncher handles the local process mode while leaving runtime fields on agentRuntime.
@@ -91,9 +92,10 @@ func (l *localLauncher) IsRunning(_ context.Context, agent *agentRuntime) bool {
 }
 
 type remoteLauncher struct {
-	addr   string
-	mu     sync.Mutex
-	client *jrpc2.Client
+	addr      string
+	mu        sync.Mutex
+	client    *jrpc2.Client
+	eventSink remoteLauncherEventSink
 }
 
 func NewRemoteLauncher(addr string) AgentLauncher {
@@ -114,7 +116,9 @@ func (r *remoteLauncher) ensureClient(ctx context.Context) (*jrpc2.Client, error
 	if err != nil {
 		return nil, err
 	}
-	next := jrpc2.NewClient(channel.Line(raw, raw), nil)
+	next := jrpc2.NewClient(channel.Line(raw, raw), &jrpc2.ClientOptions{
+		OnNotify: r.handleNotify,
+	})
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if client = r.client; client == nil || client.IsStopped() {
@@ -286,4 +290,110 @@ func (r *remoteLauncher) Close() error {
 	err := r.client.Close()
 	r.client = nil
 	return err
+}
+
+type remoteLauncherEventSink interface {
+	handleRemoteTurnCompleted(context.Context, turndto.TurnCompleted)
+	handleRemoteTurnInterrupted(context.Context, turndto.TurnInterrupted)
+}
+
+func bindRemoteLauncherEventSink(launcher AgentLauncher, sink remoteLauncherEventSink) {
+	if binder, ok := launcher.(interface{ bindRemoteEventSink(remoteLauncherEventSink) }); ok {
+		binder.bindRemoteEventSink(sink)
+	}
+}
+
+func (r *remoteLauncher) bindRemoteEventSink(sink remoteLauncherEventSink) {
+	if r == nil {
+		return
+	}
+	r.mu.Lock()
+	r.eventSink = sink
+	r.mu.Unlock()
+}
+
+func (r *remoteLauncher) currentEventSink() remoteLauncherEventSink {
+	if r == nil {
+		return nil
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.eventSink
+}
+
+func (r *remoteLauncher) handleNotify(req *jrpc2.Request) {
+	if r == nil || req == nil {
+		return
+	}
+	sink := r.currentEventSink()
+	if sink == nil {
+		return
+	}
+	switch method := strings.TrimSpace(req.Method()); method {
+	case eventsurface.MethodTurnCompleted:
+		ev, err := eventsurface.DecodeRemoteTurnCompleted(req.UnmarshalParams)
+		if logRemoteLauncherNotifyDecodeError(method, err) {
+			return
+		}
+		sink.handleRemoteTurnCompleted(context.Background(), ev)
+	case eventsurface.MethodTurnInterrupted:
+		ev, err := eventsurface.DecodeRemoteTurnInterrupted(req.UnmarshalParams)
+		if logRemoteLauncherNotifyDecodeError(method, err) {
+			return
+		}
+		sink.handleRemoteTurnInterrupted(context.Background(), ev)
+	}
+}
+
+func logRemoteLauncherNotifyDecodeError(method string, err error) bool {
+	if err == nil {
+		return false
+	}
+	pkglogger.Warn("remoteLauncher: push notification decode failed",
+		"method", strings.TrimSpace(method),
+		"error", err)
+	return true
+}
+
+func (s *service) handleRemoteTurnCompleted(ctx context.Context, ev turndto.TurnCompleted) {
+	if s == nil || !s.hasRuntimeAgent(ev.AgentID) {
+		return
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	eventCtx := withEventTime(ctx, ev.Timestamp)
+	report := turnCompletedReportText(ev)
+	_, err := s.HandleReportEvent(eventCtx, ReportEvent{
+		AgentID:   strings.TrimSpace(ev.AgentID),
+		Report:    report,
+		EventType: eventsurface.MethodTurnCompleted,
+		EventData: mustMarshalHookReportEvent(ev),
+	})
+	if err != nil && !errors.Is(err, errAgentNotFound) {
+		logger := s.logger
+		if logger == nil {
+			logger = pkglogger.Get()
+		}
+		logger.Warn("orchestration: remote turn completion report failed",
+			"agent_id", strings.TrimSpace(ev.AgentID),
+			"thread_id", strings.TrimSpace(ev.ThreadID),
+			"turn_id", strings.TrimSpace(ev.TurnID),
+			"error", err)
+	}
+	lifecycle := ev
+	lifecycle.TurnID = ""
+	handleTurnCompletedEventWithCtx(s, s.logger, lifecycle, eventCtx)
+}
+
+func (s *service) handleRemoteTurnInterrupted(ctx context.Context, ev turndto.TurnInterrupted) {
+	if s == nil || !s.hasRuntimeAgent(ev.AgentID) {
+		return
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	lifecycle := ev
+	lifecycle.TurnID = ""
+	handleTurnInterruptedEventWithCtx(s, s.logger, lifecycle, withEventTime(ctx, ev.Timestamp))
 }

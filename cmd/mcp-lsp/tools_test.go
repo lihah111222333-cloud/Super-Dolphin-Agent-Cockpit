@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -109,11 +110,9 @@ func TestCodeRunTestRejectsAbsoluteTestPkgOutsideWorkspaceRoot(t *testing.T) {
 		"test_func": "TestShouldNotRun",
 		"test_pkg":  outsideRoot,
 	}))
-	require.NoError(t, err)
-
-	failure, ok := result.(lsptools.CodeRunFailure)
-	require.Truef(t, ok, "code_run_test result = %#v, want CodeRunFailure", result)
-	require.Contains(t, failure.Error, "outside allowed workspace roots")
+	require.Error(t, err)
+	require.Nil(t, result)
+	require.Contains(t, err.Error(), "outside allowed workspace roots")
 }
 
 func TestDirectStdioServerCodeRunTestUsesRuntimeWorkspaceRoots(t *testing.T) {
@@ -221,6 +220,28 @@ func TestHandleScopedToolsCallUsesTrustedScope(t *testing.T) {
 	payload, ok := result.(map[string]any)
 	if !ok || payload["structuredContent"] == nil {
 		t.Fatalf("handleScopedToolsCall() result = %#v, want structured content", result)
+	}
+}
+
+func TestHandleScopedToolsCallSetsIsErrorForToolEnvelope(t *testing.T) {
+	defs := []toolDefinition{{
+		Manifest: ToolManifest{Name: "file"},
+		Handler: func(context.Context, json.RawMessage) (any, error) {
+			return nil, common.NewCodedToolError("path_outside_workspace", errors.New("outside"), false, "stay inside roots")
+		},
+	}}
+	params := json.RawMessage(`{"name":"file","arguments":{}}`)
+
+	result, err := handleScopedToolsCall(context.Background(), registryToolProvider{defs: defs}, "lsp", params)
+	if err != nil {
+		t.Fatalf("handleScopedToolsCall() error = %v", err)
+	}
+	payload, ok := result.(map[string]any)
+	if !ok {
+		t.Fatalf("handleScopedToolsCall() result = %T, want map", result)
+	}
+	if payload["isError"] != true {
+		t.Fatalf("isError = %#v, want true; result=%#v", payload["isError"], payload)
 	}
 }
 

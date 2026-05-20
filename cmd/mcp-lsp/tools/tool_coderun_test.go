@@ -246,7 +246,7 @@ func TestCodeRunProjectCommandAllowsCanonicalWorkDirInAdditionalWorkspaceRoot(t 
 	}
 }
 
-func TestCodeRunSandboxErrorReturnsStructuredFailure(t *testing.T) {
+func TestCodeRunSandboxErrorReturnsToolError(t *testing.T) {
 	handler := NewCodeRunHandlerWithSandbox(codeRunTestSandbox{
 		root: t.TempDir(),
 		err:  errors.New("sandbox unavailable"),
@@ -260,14 +260,10 @@ func TestCodeRunSandboxErrorReturnsStructuredFailure(t *testing.T) {
 	}
 
 	got, err := handler(common.WithToolScope(context.Background(), common.ToolScope{CWD: "/"}), payload)
-	if err != nil {
-		t.Fatalf("code_run returned error = %v, want structured failure", err)
+	if err == nil || !strings.Contains(err.Error(), "sandbox unavailable") {
+		t.Fatalf("code_run error = %v, want sandbox unavailable", err)
 	}
-	failure, ok := got.(CodeRunFailure)
-	if !ok {
-		t.Fatalf("code_run result = %#v, want CodeRunFailure", got)
-	}
-	if failure.ExitCode != -1 || !strings.Contains(failure.Error, "sandbox unavailable") {
-		t.Fatalf("CodeRunFailure = %#v, want exit_code=-1 with sandbox error", failure)
+	if got != nil {
+		t.Fatalf("code_run result = %#v, want nil on tool error", got)
 	}
 }

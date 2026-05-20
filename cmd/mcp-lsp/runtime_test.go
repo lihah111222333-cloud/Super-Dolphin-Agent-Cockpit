@@ -174,6 +174,13 @@ func TestRuntimeWorkspaceRootsRejectEmptyPrimaryWithAbsoluteAdditionalRoot(t *te
 	}
 }
 
+func TestRuntimeServerBinaryPrefersInstalledBinaryOverride(t *testing.T) {
+	installed := filepath.Join(t.TempDir(), "gopls")
+	if got := runtimeServerBinary("gopls", installed); got != installed {
+		t.Fatalf("runtimeServerBinary() = %q, want installed override %q", got, installed)
+	}
+}
+
 func assertDocumentFallbackSymbol(
 	t *testing.T,
 	ctx context.Context,

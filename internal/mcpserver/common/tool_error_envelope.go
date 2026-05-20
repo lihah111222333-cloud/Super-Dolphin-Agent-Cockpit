@@ -2,6 +2,7 @@ package common
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -18,6 +19,30 @@ type ToolErrorEnvelope struct {
 	Retryable bool           `json:"retryable,omitempty"`
 	Hint      string         `json:"hint,omitempty"`
 	Meta      map[string]any `json:"meta,omitempty"`
+}
+
+func ToolResultIsError(value any) bool {
+	switch envelope := value.(type) {
+	case ToolErrorEnvelope:
+		return !envelope.Success
+	case *ToolErrorEnvelope:
+		return envelope == nil || !envelope.Success
+	}
+	raw, err := json.Marshal(value)
+	if err != nil {
+		return true
+	}
+	trimmed := strings.TrimSpace(string(raw))
+	if trimmed == "" || trimmed[0] != '{' {
+		return false
+	}
+	var marker struct {
+		Success *bool `json:"success"`
+	}
+	if err := json.Unmarshal(raw, &marker); err != nil {
+		return true
+	}
+	return marker.Success != nil && !*marker.Success
 }
 
 // CodedToolError allows call sites and recovery code to pin a stable error
@@ -158,6 +183,14 @@ var toolErrorClassifiers = []toolErrorClassifier{
 			return errors.Is(err, os.ErrNotExist) ||
 				strings.Contains(message, "not found") ||
 				strings.Contains(message, "no such file")
+		},
+	},
+	{
+		code: "path_outside_workspace",
+		hint: staticToolHint("Use a path under the trusted workspace roots, or add the directory to the workspace root set."),
+		match: func(_ error, message string, _ string) bool {
+			return strings.Contains(message, "outside workspace roots") ||
+				strings.Contains(message, "outside allowed workspace roots")
 		},
 	},
 	{

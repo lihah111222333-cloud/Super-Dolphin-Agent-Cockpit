@@ -197,7 +197,7 @@ func NewService(
 		recoveryStore = store
 	}
 	asyncCtx, asyncCancel := context.WithCancel(context.Background())
-	return &service{
+	svc := &service{
 		logger:         logger,
 		eventBus:       eventBus,
 		launcher:       launcher,
@@ -215,6 +215,8 @@ func NewService(
 		asyncCtx:               asyncCtx,
 		asyncCancel:            asyncCancel,
 	}
+	bindRemoteLauncherEventSink(launcher, svc)
+	return svc
 }
 
 // ProvideService is the fx constructor for the orchestration service.

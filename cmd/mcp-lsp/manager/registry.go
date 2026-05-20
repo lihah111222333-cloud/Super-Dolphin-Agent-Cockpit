@@ -24,11 +24,11 @@ var languageIDByBaseName = map[string]string{
 var languageIDByExtension = map[string]string{
 	".go":       "go",
 	".js":       "javascript",
-	".jsx":      "javascript",
+	".jsx":      "javascriptreact",
 	".mjs":      "javascript",
 	".cjs":      "javascript",
 	".ts":       "typescript",
-	".tsx":      "typescript",
+	".tsx":      "typescriptreact",
 	".py":       "python",
 	".pyi":      "python",
 	".rs":       "rust",
@@ -57,15 +57,31 @@ type languageConfig struct {
 	manager       Manager
 	scoped        ScopedManagerResolver
 	skipInstaller bool
+	binaryPath    string
+}
+
+type Installer interface {
+	EnsureInstalled(ctx context.Context, languageID string) (string, error)
+}
+
+type BinaryPathSetter interface {
+	SetBinaryPath(path string)
 }
 
 type dynamicRegistry struct {
 	mu        sync.RWMutex
 	managers  map[string]*languageConfig // mapped by language ID
-	installer *installer.Provider
+	installer Installer
 }
 
 func NewRegistry(inst *installer.Provider) *dynamicRegistry {
+	if inst == nil {
+		return NewRegistryWithInstaller(nil)
+	}
+	return NewRegistryWithInstaller(inst)
+}
+
+func NewRegistryWithInstaller(inst Installer) *dynamicRegistry {
 	return &dynamicRegistry{
 		managers:  make(map[string]*languageConfig),
 		installer: inst,
@@ -169,8 +185,15 @@ func (r *dynamicRegistry) ensureInstalled(ctx context.Context, lang string, conf
 	if r.installer == nil || config == nil || config.skipInstaller {
 		return nil
 	}
-	_, err := r.installer.EnsureInstalled(ctx, lang)
-	return err
+	path, err := r.installer.EnsureInstalled(ctx, lang)
+	if err != nil {
+		return err
+	}
+	config.binaryPath = path
+	if setter, ok := config.manager.(BinaryPathSetter); ok {
+		setter.SetBinaryPath(path)
+	}
+	return nil
 }
 
 func (r *dynamicRegistry) scopedManagerForConfig(ctx context.Context, config *languageConfig, lang, targetPath, targetURI string) (ScopedManager, error) {

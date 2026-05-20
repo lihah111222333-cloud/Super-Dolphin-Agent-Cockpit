@@ -204,7 +204,7 @@ func TestDiagnosticsAllNoCrossLanguageCacheLeak(t *testing.T) {
 		t.Fatalf("Diagnostics(all) = %#v, want only current language/workspace diagnostics", got)
 	}
 
-	cache := newLSPCacheStore(lspCacheConfig{})
+	cache := mustLSPCacheStore(t, lspCacheConfig{})
 	cache.Upsert(lspCacheValue{Key: goScope.cacheKey("go", uri), Version: 1, UpdatedAt: cache.now()})
 	if _, ok := cache.Load(tsScope.cacheKey("typescript", uri)); ok {
 		t.Fatalf("cache loaded go document through typescript scope/language")
@@ -252,7 +252,7 @@ func runGenericBootstrapCacheDiagnosticsCase(t *testing.T, tc genericBootstrapMa
 	if !client.opened(fileURIFromPath(target), tc.languageID) {
 		t.Fatalf("%s target was not opened during bootstrap; opens=%#v", tc.languageID, client.openEvents())
 	}
-	indexed, ok := bootstrapCoordinatorFor(mgr).cache.LastResolvedScope(fileURIFromPath(target))
+	indexed, ok := mustBootstrapCoordinator(t, mgr).cache.LastResolvedScope(fileURIFromPath(target))
 	if !ok {
 		t.Fatalf("%s bootstrap did not remember resolved scope", tc.languageID)
 	}
@@ -291,7 +291,7 @@ func TestDeadClientRestartRebootstrapForRegisteredLanguageIDs(t *testing.T) {
 	if len(workspace) != 1 {
 		t.Fatalf("workspace clients = %d, want 1", len(workspace))
 	}
-	resolved, ok := bootstrapCoordinatorFor(mgr).cache.LastResolvedScope(fileURIFromPath(target))
+	resolved, ok := mustBootstrapCoordinator(t, mgr).cache.LastResolvedScope(fileURIFromPath(target))
 	if !ok {
 		t.Fatal("missing resolved scope after initial bootstrap")
 	}

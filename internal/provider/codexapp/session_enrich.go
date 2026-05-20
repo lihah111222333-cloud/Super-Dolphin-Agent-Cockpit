@@ -196,7 +196,9 @@ func (s *session) publishToolCallEnd(call preparedToolCall, result any, callErr 
 		Result:         previewAny(result),
 		ElapsedMS:      time.Since(call.started).Milliseconds(),
 	}
-	ev.Error = errorText
+	if !success {
+		ev.Error = errorText
+	}
 	s.dispatcher.Publish(ev)
 }
 
@@ -252,6 +254,9 @@ func (e toolCallResultEnvelope) explicitFailure() bool {
 }
 
 func (e toolCallResultEnvelope) failureText(result any) string {
+	if text := firstNonEmptyToolString(e.Error, e.Message, e.Reason); text != "" {
+		return text
+	}
 	for _, item := range e.ContentItems {
 		if text := strings.TrimSpace(item.Text); text != "" {
 			return text
@@ -262,7 +267,7 @@ func (e toolCallResultEnvelope) failureText(result any) string {
 			return text
 		}
 	}
-	return firstNonEmptyToolString(e.Error, e.Message, e.Reason, previewAny(result))
+	return previewAny(result)
 }
 
 func (s *session) activeTurnSnapshot() string {
