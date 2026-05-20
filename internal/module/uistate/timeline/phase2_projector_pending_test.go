@@ -282,6 +282,74 @@ func TestToolCallEnd_SetsPreview(t *testing.T) {
 	}
 }
 
+func TestToolCallEnd_FailedNullResultUsesErrorPreview(t *testing.T) {
+	t.Parallel()
+	requirePhase2TimelineShape(t)
+
+	svc, dispatcher, cleanup := newPhase2TimelineHarness(t)
+	defer cleanup()
+
+	begin := tooldto.ToolCallBegin{
+		ToolCallHeader: shared.ToolCallHeader{
+			TurnHeader: phase2TurnHeader("t1", "agent-1", "turn-1"),
+			CallID:     "call-null-result-failed",
+			ToolName:   "file",
+		},
+	}
+	end := tooldto.ToolCallEnd{
+		ToolCallHeader: begin.ToolCallHeader,
+		Success:        false,
+		Result:         "null",
+		Error:          "读取文件失败：missing path",
+	}
+
+	event.Publish(dispatcher, begin)
+	waitForCondition(t, func() bool {
+		items := svc.GetByThread("t1")
+		return len(items) == 1 && items[0].Kind == "tool"
+	}, "expected tool item before failed completion")
+	event.Publish(dispatcher, end)
+
+	waitForCondition(t, func() bool {
+		items := svc.GetByThread("t1")
+		return len(items) == 1 && items[0].Status == "failed" && items[0].Done
+	}, "expected failed tool completion")
+	item := svc.GetByThread("t1")[0]
+	if got := item.Preview; got != end.Error {
+		t.Fatalf("item.Preview = %q, want %q", got, end.Error)
+	}
+}
+
+func TestToolCallEnd_FallbackFailedNullResultUsesErrorPreview(t *testing.T) {
+	t.Parallel()
+	requirePhase2TimelineShape(t)
+
+	svc, dispatcher, cleanup := newPhase2TimelineHarness(t)
+	defer cleanup()
+
+	end := tooldto.ToolCallEnd{
+		ToolCallHeader: shared.ToolCallHeader{
+			TurnHeader: phase2TurnHeader("t1", "agent-1", "turn-1"),
+			CallID:     "call-null-result-fallback",
+			ToolName:   "file",
+		},
+		Success: false,
+		Result:  "null",
+		Error:   "读取文件失败：missing path",
+	}
+
+	event.Publish(dispatcher, end)
+
+	waitForCondition(t, func() bool {
+		items := svc.GetByThread("t1")
+		return len(items) == 1 && items[0].Kind == "tool" && items[0].Status == "failed" && items[0].Done
+	}, "expected orphan failed completion to append fallback tool item")
+	item := svc.GetByThread("t1")[0]
+	if got := item.Preview; got != end.Error {
+		t.Fatalf("item.Preview = %q, want %q", got, end.Error)
+	}
+}
+
 func TestUpdateByCallID_MergesFields(t *testing.T) {
 	t.Parallel()
 	requirePhase2TimelineShape(t)

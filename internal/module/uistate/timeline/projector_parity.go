@@ -216,7 +216,7 @@ func applyToolCallCompleted(it *Item, ev tooldto.ToolCallEnd, success bool) {
 		ms := int(ev.ElapsedMS)
 		it.ElapsedMS = &ms
 	}
-	if preview := previewText(util.FirstNonEmpty(strings.TrimSpace(ev.Result), strings.TrimSpace(ev.Error))); preview != "" {
+	if preview := toolCallEndPreview(ev.Result, ev.Error, success); preview != "" {
 		it.Preview = preview
 	}
 	if errText := strings.TrimSpace(ev.Error); errText != "" {
@@ -253,7 +253,7 @@ func appendCompletedToolFallback(svc Service, threadID string, ev tooldto.ToolCa
 		ms := int(ev.ElapsedMS)
 		item.ElapsedMS = &ms
 	}
-	if preview := previewText(util.FirstNonEmpty(strings.TrimSpace(ev.Result), strings.TrimSpace(ev.Error))); preview != "" {
+	if preview := toolCallEndPreview(ev.Result, ev.Error, success); preview != "" {
 		item.Preview = preview
 	}
 	svc.Append(threadID, strings.TrimSpace(ev.AgentID), item)
@@ -365,6 +365,22 @@ func previewText(text string) string {
 		return string(runes[:200])
 	}
 	return text
+}
+
+func toolCallEndPreview(result, errText string, success bool) string {
+	result = strings.TrimSpace(result)
+	errText = strings.TrimSpace(errText)
+	if !success && isNullPreview(result) && errText != "" {
+		return previewText(errText)
+	}
+	if isNullPreview(result) {
+		result = ""
+	}
+	return previewText(util.FirstNonEmpty(result, errText))
+}
+
+func isNullPreview(text string) bool {
+	return strings.TrimSpace(text) == "null"
 }
 
 func emitTimelineUpdated(onUpdated func(string), threadID string) {
