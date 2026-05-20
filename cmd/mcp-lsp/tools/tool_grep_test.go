@@ -12,39 +12,36 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/search"
 )
 
-func TestGrepTextSearchFallsBackToLiteralOnRegexParseError(t *testing.T) {
+func TestGrepInvalidRegexReturnsErrorWithoutLiteralFallback(t *testing.T) {
 	root := t.TempDir()
 	if err := os.WriteFile(filepath.Join(root, "sample.txt"), []byte("literal [ match\n"), 0o600); err != nil {
 		t.Fatalf("write fixture: %v", err)
 	}
-	handler := NewGrepHandler(Config{WorkspaceRoot: root})
-	input, err := json.Marshal(grepToolInput{
+	_, err := callGrepTool(t, root, grepToolInput{
 		Action: "text_search",
 		Query:  "[",
 		Regex:  true,
 		Path:   root,
 		Glob:   "*.txt",
 	})
-	if err != nil {
-		t.Fatalf("marshal input: %v", err)
+	if err == nil || !strings.Contains(err.Error(), "regex") {
+		t.Fatalf("grep invalid regex error = %v, want regex syntax error", err)
 	}
+}
 
-	got, err := handler(common.WithToolScope(context.Background(), common.ToolScope{CWD: root}), input)
-	if err != nil {
-		t.Fatalf("grep returned error: %v", err)
+func TestGrepInvalidGlobReturnsError(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "sample.txt"), []byte("needle\n"), 0o600); err != nil {
+		t.Fatalf("write fixture: %v", err)
 	}
-	resp, ok := got.(grepResponse)
-	if !ok {
-		t.Fatalf("grep result type = %T, want grepResponse", got)
-	}
-	if !resp.RegexFallback {
-		t.Fatalf("RegexFallback = false, want true")
-	}
-	if resp.Showing != 1 || resp.Total != 1 {
-		t.Fatalf("counts = showing %d total %d, want 1/1", resp.Showing, resp.Total)
-	}
-	if !strings.Contains(resp.Message, "retried query as literal") {
-		t.Fatalf("message = %q, want literal fallback hint", resp.Message)
+	_, err := callGrepTool(t, root, grepToolInput{
+		Action: "text_search",
+		Query:  "needle",
+		Path:   root,
+		Glob:   "[",
+	})
+	if err == nil || !strings.Contains(err.Error(), "glob") {
+		t.Fatalf("grep invalid glob error = %v, want glob syntax error", err)
 	}
 }
 
@@ -104,4 +101,14 @@ func TestBuildGrepResponseIncludesFuncCellsWhenPresent(t *testing.T) {
 	if row[3] != 8 || row[4] != 12 {
 		t.Fatalf("func cells = %#v, want 8/12", row[3:])
 	}
+}
+
+func callGrepTool(t *testing.T, root string, input grepToolInput) (any, error) {
+	t.Helper()
+	handler := NewGrepHandler(Config{WorkspaceRoot: root})
+	payload, err := json.Marshal(input)
+	if err != nil {
+		t.Fatalf("marshal input: %v", err)
+	}
+	return handler(common.WithToolScope(context.Background(), common.ToolScope{CWD: root}), payload)
 }

@@ -87,6 +87,92 @@ func TestToolsCallReturnsStructuredToolError(t *testing.T) {
 	}
 }
 
+func TestToolsCallErrorEnvelopeSetsMCPIsError(t *testing.T) {
+	input := bytes.NewBufferString(`{"jsonrpc":"2.0","id":24,"method":"tools/call","params":{"name":"file","arguments":{}}}`)
+	var output bytes.Buffer
+	provider := captureToolProvider{call: func(context.Context, string, json.RawMessage) (any, error) {
+		return nil, NewCodedToolError("path_outside_workspace", errors.New("outside"), false, "stay inside roots")
+	}}
+
+	server := NewServer("test", "dev", NewStdioTransport(input, &output), provider)
+	if err := server.Run(context.Background()); err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	var resp struct {
+		Result struct {
+			IsError bool `json:"isError"`
+		} `json:"result"`
+	}
+	decodeJSONRPCOutput(t, output.Bytes(), &resp)
+	if !resp.Result.IsError {
+		t.Fatalf("isError = false, want true; output=%s", output.String())
+	}
+}
+
+func TestToolsCallSuccessFalsePayloadSetsMCPIsError(t *testing.T) {
+	input := bytes.NewBufferString(`{"jsonrpc":"2.0","id":25,"method":"tools/call","params":{"name":"edit","arguments":{}}}`)
+	var output bytes.Buffer
+	provider := captureToolProvider{call: func(context.Context, string, json.RawMessage) (any, error) {
+		return map[string]any{"success": false, "error": "edit failed"}, nil
+	}}
+
+	server := NewServer("test", "dev", NewStdioTransport(input, &output), provider)
+	if err := server.Run(context.Background()); err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	var resp struct {
+		Result struct {
+			IsError bool `json:"isError"`
+		} `json:"result"`
+	}
+	decodeJSONRPCOutput(t, output.Bytes(), &resp)
+	if !resp.Result.IsError {
+		t.Fatalf("isError = false, want true; output=%s", output.String())
+	}
+}
+
+func TestToolsCallStringPayloadDoesNotSetMCPIsError(t *testing.T) {
+	input := bytes.NewBufferString(`{"jsonrpc":"2.0","id":26,"method":"tools/call","params":{"name":"inspect","arguments":{}}}`)
+	var output bytes.Buffer
+	provider := captureToolProvider{call: func(context.Context, string, json.RawMessage) (any, error) {
+		return "hover text", nil
+	}}
+
+	server := NewServer("test", "dev", NewStdioTransport(input, &output), provider)
+	if err := server.Run(context.Background()); err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	var resp struct {
+		Result struct {
+			IsError bool `json:"isError"`
+		} `json:"result"`
+	}
+	decodeJSONRPCOutput(t, output.Bytes(), &resp)
+	if resp.Result.IsError {
+		t.Fatalf("isError = true, want false for string payload; output=%s", output.String())
+	}
+}
+
+func TestOutsideWorkspaceRootErrorIsStructured(t *testing.T) {
+	input := bytes.NewBufferString(`{"jsonrpc":"2.0","id":23,"method":"tools/call","params":{"name":"file","arguments":{}}}`)
+	var output bytes.Buffer
+	provider := captureToolProvider{call: func(context.Context, string, json.RawMessage) (any, error) {
+		return nil, errors.New(`path "/tmp/outside.go" is outside workspace roots [/repo]`)
+	}}
+
+	server := NewServer("test", "dev", NewStdioTransport(input, &output), provider)
+	if err := server.Run(context.Background()); err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	envelope := decodeToolErrorEnvelopeFromOutput(t, output.Bytes())
+	if envelope.Code != "path_outside_workspace" {
+		t.Fatalf("envelope code = %q, want path_outside_workspace; output=%s", envelope.Code, output.String())
+	}
+	if envelope.Retryable {
+		t.Fatalf("envelope retryable = true, want false")
+	}
+}
+
 func TestTimeoutErrorIsStructuredRetryable(t *testing.T) {
 	input := bytes.NewBufferString(`{"jsonrpc":"2.0","id":21,"method":"tools/call","params":{"name":"slow_tool","arguments":{}}}`)
 	var output bytes.Buffer
@@ -333,6 +419,13 @@ func TestWorkspaceRootForPathFromContextStrictAllowsCanonicalEquivalentRoot(t *t
 	}
 	if got != filepath.Clean(linkedExtra) {
 		t.Fatalf("root = %q, want trusted root spelling %q", got, filepath.Clean(linkedExtra))
+	}
+}
+
+func decodeJSONRPCOutput(t *testing.T, raw []byte, out any) {
+	t.Helper()
+	if err := json.Unmarshal(bytes.TrimSpace(raw), out); err != nil {
+		t.Fatalf("unmarshal response %s: %v", raw, err)
 	}
 }
 

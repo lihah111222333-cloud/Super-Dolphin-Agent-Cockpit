@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/installer"
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/manager"
@@ -301,14 +302,20 @@ func createFallbackManager(adapters *multilsp.LanguageAdapterRegistry, root stri
 }
 
 func createGenericManager(adapter multilsp.LanguageAdapter, adapters *multilsp.LanguageAdapterRegistry, root string, log *slog.Logger) (multilsp.Manager, error) {
+	return createGenericManagerWithBinary(adapter, adapters, root, log, "")
+}
+
+func createGenericManagerWithBinary(adapter multilsp.LanguageAdapter, adapters *multilsp.LanguageAdapterRegistry, root string, log *slog.Logger, binaryOverride string) (multilsp.Manager, error) {
 	command, err := adapter.ServerCommand(context.Background(), multilsp.ResolvedLanguageScope{})
 	if err != nil {
 		return nil, err
 	}
-	if strings.TrimSpace(command.Executable) == "" {
+	initialBinary := runtimeServerBinary(command.Executable, binaryOverride)
+	if strings.TrimSpace(initialBinary) == "" {
 		return nil, errors.New("language adapter server command is empty")
 	}
-	return multilsp.NewManager(multilsp.Config{
+	binary := &runtimeBinaryOverride{value: initialBinary}
+	mgr := multilsp.NewManager(multilsp.Config{
 		WorkspaceRoot:    root,
 		LanguageAdapters: adapters,
 		ClientFactory: multilsp.ClientFactoryWithEnvFunc(func(rootDir string, env []string, h protocol.NotificationHandler) (multilsp.Client, error) {
@@ -324,7 +331,7 @@ func createGenericManager(adapter multilsp.LanguageAdapter, adapters *multilsp.L
 				dir = root
 			}
 			return multilsp.NewClientWithOptions(multilsp.Options{
-				Binary:              command.Executable,
+				Binary:              binary.Get(),
 				Args:                command.Args,
 				Dir:                 dir,
 				Env:                 env,
@@ -333,7 +340,45 @@ func createGenericManager(adapter multilsp.LanguageAdapter, adapters *multilsp.L
 			})
 		}),
 		Logger: log,
-	}), nil
+	})
+	return &runtimeBinaryManager{Manager: mgr, binary: binary}, nil
+}
+
+func runtimeServerBinary(commandExecutable, binaryOverride string) string {
+	if trimmed := strings.TrimSpace(binaryOverride); trimmed != "" {
+		return trimmed
+	}
+	return strings.TrimSpace(commandExecutable)
+}
+
+type runtimeBinaryOverride struct {
+	mu    sync.RWMutex
+	value string
+}
+
+func (b *runtimeBinaryOverride) Set(path string) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if trimmed := strings.TrimSpace(path); trimmed != "" {
+		b.value = trimmed
+	}
+}
+
+func (b *runtimeBinaryOverride) Get() string {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+	return b.value
+}
+
+type runtimeBinaryManager struct {
+	multilsp.Manager
+	binary *runtimeBinaryOverride
+}
+
+func (m *runtimeBinaryManager) SetBinaryPath(path string) {
+	if m != nil && m.binary != nil {
+		m.binary.Set(path)
+	}
 }
 
 func (m *Manager) Close() error {

@@ -130,7 +130,9 @@ type peerToolsListResult struct {
 }
 
 type peerToolCallResponse struct {
-	Content []peerToolCallContent `json:"content"`
+	Content           []peerToolCallContent `json:"content"`
+	IsError           bool                  `json:"isError,omitempty"`
+	StructuredContent json.RawMessage       `json:"structuredContent,omitempty"`
 }
 
 type peerToolCallContent struct {

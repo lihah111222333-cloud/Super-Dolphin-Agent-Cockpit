@@ -156,16 +156,15 @@ func (h handlerBase) openFile(ctx context.Context, rawPath string, languageID st
 	}
 	uri := fileURI(file.Path.AbsPath)
 	manager, err := managerForFile(ctx, h.registry, file.Path.AbsPath, languageID)
-	if err != nil && normalizeLanguageIDOverride(languageID) != "" {
+	if err != nil {
 		return openFileResult{}, err
 	}
-	if err == nil {
-		// Only open file in the language server if a manager exists for it
-		openLanguageID := normalizeLanguageIDOverride(languageID)
-		if openLanguageID == "" {
-			openLanguageID = lspmanager.DetectLanguageID(file.Path.AbsPath)
-		}
-		_ = manager.DidOpen(ctx, uri, openLanguageID, 1, file.Content)
+	openLanguageID := normalizeLanguageIDOverride(languageID)
+	if openLanguageID == "" {
+		openLanguageID = lspmanager.DetectLanguageID(file.Path.AbsPath)
+	}
+	if err := manager.DidOpen(ctx, uri, openLanguageID, 1, file.Content); err != nil {
+		return openFileResult{}, fmt.Errorf("open_file DidOpen %s: %w", file.Path.DisplayPath, err)
 	}
 	return openFileResult{
 		Success:  true,
@@ -232,15 +231,28 @@ func (h handlerBase) readBatch(ctx context.Context, rawPaths []string, offset, l
 				sort.Slice(items, func(i, j int) bool {
 					return items[i].Index < items[j].Index
 				})
-				resp := batchReadResponse{Success: true, Data: make([]batchReadItem, 0, len(items)), Meta: meta}
-				for _, indexed := range items {
-					resp.Data = append(resp.Data, indexed.Item)
-				}
-				return encodeBatchReadPayload(resp), nil
+				return buildBatchReadPayload(items, meta)
 			}
 			items = append(items, item)
 		}
 	}
+}
+
+func buildBatchReadPayload(items []indexedBatchItem, meta batchReadMeta) (batchReadResponse, error) {
+	resp := batchReadResponse{Success: true, Data: make([]batchReadItem, 0, len(items)), Meta: meta}
+	var errs []error
+	for _, indexed := range items {
+		resp.Data = append(resp.Data, indexed.Item)
+		if indexed.Item.Error != "" {
+			errs = append(errs, fmt.Errorf("%s: %s", indexed.Item.FilePath, indexed.Item.Error))
+		}
+	}
+	resp.Success = len(errs) == 0
+	payload := encodeBatchReadPayload(resp)
+	if len(errs) > 0 {
+		return payload, errors.Join(errs...)
+	}
+	return payload, nil
 }
 
 func trimBatchPaths(rawPaths []string) ([]string, batchReadMeta) {

@@ -3,6 +3,7 @@ package multilsp
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -58,6 +59,7 @@ type lspDocumentIndexValue struct {
 type lspCacheConfig struct {
 	TTL        time.Duration
 	Persistent bool
+	Path       string
 	Dir        string
 	Logger     *slog.Logger
 }
@@ -90,7 +92,7 @@ type lspCacheDiskState struct {
 	Tombstones map[string]int64 `json:"tombstones,omitempty"`
 }
 
-func newLSPCacheStoreFromEnv(logger *slog.Logger) *lspCacheStore {
+func newLSPCacheStoreFromEnv(logger *slog.Logger) (*lspCacheStore, error) {
 	cfg := lspCacheConfig{
 		TTL:        defaultLSPCacheTTL,
 		Persistent: strings.TrimSpace(os.Getenv(lspCachePersistentEnv)) == "1",
@@ -100,7 +102,7 @@ func newLSPCacheStoreFromEnv(logger *slog.Logger) *lspCacheStore {
 	return newLSPCacheStore(cfg)
 }
 
-func newLSPCacheStore(cfg lspCacheConfig) *lspCacheStore {
+func newLSPCacheStore(cfg lspCacheConfig) (*lspCacheStore, error) {
 	if cfg.TTL <= 0 {
 		cfg.TTL = defaultLSPCacheTTL
 	}
@@ -114,12 +116,16 @@ func newLSPCacheStore(cfg lspCacheConfig) *lspCacheStore {
 		fallbackWarned: false,
 	}
 	if store.persistent {
-		store.ensurePersistentReady()
-		_ = store.loadPersistent()
+		if err := store.ensurePersistentReady(); err != nil {
+			return nil, fmt.Errorf("persistent cache setup: %w", err)
+		}
+		if err := store.loadPersistent(); err != nil {
+			return nil, fmt.Errorf("persistent cache load: %w", err)
+		}
 	}
 	// P22 P2 LSP-S2: no background cleanup goroutine; TTL expiry is
 	// applied inline by maybeCleanup on every Load/Upsert/WorkspaceDocuments.
-	return store
+	return store, nil
 }
 
 func (s *lspCacheStore) Enabled() bool {
@@ -156,43 +162,40 @@ func (s *lspCacheStore) Load(key lspCacheKey) (lspCacheValue, bool) {
 	return result.value, result.ok
 }
 
-func (s *lspCacheStore) Upsert(value lspCacheValue) {
+func (s *lspCacheStore) Upsert(value lspCacheValue) error {
 	if s == nil {
-		return
+		return nil
 	}
 	s.maybeCleanup()
-	withWriteLock(&s.mu, func() struct{} {
+	return withWriteLock(&s.mu, func() error {
 		value.UpdatedAt = s.now()
 		s.memory[value.Key.String()] = value
 		delete(s.tombstones, value.Key.String())
-		s.persistOnMutation(true)
-		return struct{}{}
+		return s.persistOnMutation(true)
 	})
 }
 
-func (s *lspCacheStore) Delete(key lspCacheKey) {
+func (s *lspCacheStore) Delete(key lspCacheKey) error {
 	if s == nil {
-		return
+		return nil
 	}
-	withWriteLock(&s.mu, func() struct{} {
+	return withWriteLock(&s.mu, func() error {
 		_, existed := s.memory[key.String()]
 		delete(s.memory, key.String())
-		s.persistOnMutation(existed)
-		return struct{}{}
+		return s.persistOnMutation(existed)
 	})
 }
 
-func (s *lspCacheStore) Tombstone(key lspCacheKey) {
+func (s *lspCacheStore) Tombstone(key lspCacheKey) error {
 	if s == nil {
-		return
+		return nil
 	}
-	withWriteLock(&s.mu, func() struct{} {
+	return withWriteLock(&s.mu, func() error {
 		_, existed := s.memory[key.String()]
 		delete(s.memory, key.String())
 		_, alreadyTombstoned := s.tombstones[key.String()]
 		s.tombstones[key.String()] = s.now()
-		s.persistOnMutation(existed || !alreadyTombstoned)
-		return struct{}{}
+		return s.persistOnMutation(existed || !alreadyTombstoned)
 	})
 }
 
@@ -268,9 +271,9 @@ func (s *lspCacheStore) ScopeURIs(scope ResolvedLSPToolScope) []string {
 	return uris
 }
 
-func (s *lspCacheStore) RememberDocumentScope(uri string, scope ResolvedLSPToolScope, fingerprint string) {
+func (s *lspCacheStore) RememberDocumentScope(uri string, scope ResolvedLSPToolScope, fingerprint string) error {
 	if s == nil || strings.TrimSpace(uri) == "" {
-		return
+		return nil
 	}
 	withWriteLock(&s.mu, func() struct{} {
 		s.index[lspDocumentIndexKey{URI: uri}] = lspDocumentIndexValue{
@@ -280,6 +283,7 @@ func (s *lspCacheStore) RememberDocumentScope(uri string, scope ResolvedLSPToolS
 		}
 		return struct{}{}
 	})
+	return nil
 }
 
 func (s *lspCacheStore) LastResolvedScope(uri string) (lspDocumentIndexValue, bool) {
@@ -300,6 +304,9 @@ func (s *lspCacheStore) LastResolvedScope(uri string) (lspDocumentIndexValue, bo
 }
 
 func (s *lspCacheStore) cachePath() string {
+	if path := strings.TrimSpace(s.config.Path); path != "" {
+		return filepath.Clean(path)
+	}
 	dir := strings.TrimSpace(s.config.Dir)
 	if dir == "" {
 		cacheDir, err := os.UserCacheDir()
@@ -345,28 +352,28 @@ func (s *lspCacheStore) maybeCleanup() {
 			delete(s.tombstones, key)
 			changed = true
 		}
-		s.persistOnMutation(changed)
+		if err := s.persistOnMutation(changed); err != nil && s.config.Logger != nil {
+			s.config.Logger.Warn("LSP persistent cache cleanup failed", "err", err)
+		}
 		return struct{}{}
 	})
 }
 
-func (s *lspCacheStore) ensurePersistentReady() {
+func (s *lspCacheStore) ensurePersistentReady() error {
 	path := s.cachePath()
 	if path == "" {
-		s.fallbackToMemory(errors.New("cache path is empty"))
-		return
+		return errors.New("cache path is empty")
 	}
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		s.fallbackToMemory(err)
-		return
+		return err
 	}
 	probePath := path + ".probe"
 	if err := os.WriteFile(probePath, []byte("ok"), 0o644); err != nil {
-		s.fallbackToMemory(err)
-		return
+		return err
 	}
 	_ = os.Remove(probePath)
 	s.persistentReady = true
+	return nil
 }
 
 func (s *lspCacheStore) loadPersistent() error {
@@ -392,15 +399,12 @@ func (s *lspCacheStore) readPersistentDiskStateLocked() (lspCacheDiskState, erro
 		if os.IsNotExist(err) {
 			return lspCacheDiskState{}, nil
 		}
-		s.fallbackToMemory(err)
 		return lspCacheDiskState{}, err
 	}
 	var disk lspCacheDiskState
 	if err := json.Unmarshal(payload, &disk); err != nil {
-		_ = s.quarantinePersistentLocked()
 		s.memory = map[string]lspCacheValue{}
 		s.tombstones = map[string]time.Time{}
-		_ = s.persistLocked()
 		return lspCacheDiskState{}, err
 	}
 	return disk, nil

@@ -100,7 +100,12 @@ func (s *Sandbox) Run(ctx context.Context, req Request) (Result, error) {
 	if err := command.Start(); err != nil {
 		return Result{}, err
 	}
-	guard := attachSandboxGuard(command)
+	guard, err := attachSandboxGuard(command)
+	if err != nil {
+		killErr := killSandboxProcess(command.Process, nil)
+		waitErr := command.Wait()
+		return Result{}, errors.Join(fmt.Errorf("attach sandbox guard: %w", err), killErr, waitErr)
+	}
 	defer guard.close()
 	waitCh := make(chan error, 1)
 	go func() {
@@ -269,16 +274,17 @@ func waitForCommand(ctx context.Context, command *osexec.Cmd, waitCh <-chan erro
 	case err := <-waitCh:
 		return err
 	case <-ctx.Done():
-		killSandboxProcess(command.Process, guard)
-		return <-waitCh
+		return errors.Join(killSandboxProcess(command.Process, guard), <-waitCh)
 	}
 }
 
 type limitedBuffer struct {
-	mu        sync.Mutex
-	buffer    bytes.Buffer
-	limit     int
-	truncated bool
+	mu      sync.Mutex
+	limit   int
+	head    bytes.Buffer
+	tail    []byte
+	dropped int
+	seen    int
 }
 
 func newLimitedBuffer(limit int) *limitedBuffer {
@@ -292,36 +298,50 @@ func (b *limitedBuffer) Write(p []byte) (int, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	written := len(p)
-	if b.truncated {
-		return written, nil
+	b.seen += written
+	headLimit := b.limit / 2
+	if headLimit < 1 {
+		headLimit = 1
 	}
-	remaining := b.limit - b.buffer.Len()
-	if remaining <= 0 {
-		b.truncated = true
-		return written, nil
+	if b.head.Len() < headLimit {
+		remaining := headLimit - b.head.Len()
+		chunk := p
+		if len(chunk) > remaining {
+			chunk = chunk[:remaining]
+		}
+		_, _ = b.head.Write(chunk)
 	}
-	if len(p) > remaining {
-		p = p[:remaining]
-		b.truncated = true
+	b.tail = append(b.tail, p...)
+	if len(b.tail) > b.limit {
+		b.tail = append([]byte(nil), b.tail[len(b.tail)-b.limit:]...)
 	}
-	_, _ = b.buffer.Write(p)
+	retained := b.head.Len() + len(b.tail)
+	if retained > b.seen {
+		retained = b.seen
+	}
+	b.dropped = b.seen - retained
 	return written, nil
 }
 
 func (b *limitedBuffer) String() string {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	if !b.truncated {
-		return b.buffer.String()
+	if !b.truncatedLocked() {
+		return string(b.tail)
 	}
 	var out strings.Builder
-	_, _ = io.Copy(&out, bytes.NewReader(b.buffer.Bytes()))
-	out.WriteString("\n... output truncated ...")
+	_, _ = io.Copy(&out, bytes.NewReader(b.head.Bytes()))
+	out.WriteString(fmt.Sprintf("\n... output truncated, dropped %d bytes ...\n", b.dropped))
+	out.Write(b.tail)
 	return out.String()
 }
 
 func (b *limitedBuffer) Truncated() bool {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	return b.truncated
+	return b.truncatedLocked()
+}
+
+func (b *limitedBuffer) truncatedLocked() bool {
+	return b.dropped > 0
 }

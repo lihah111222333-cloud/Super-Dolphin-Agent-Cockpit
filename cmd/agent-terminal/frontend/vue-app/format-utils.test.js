@@ -144,6 +144,26 @@ describe('tool activity formatting', () => {
     expect(summarizeToolActivity('mcp__lsp__code_run', { preview: '{"output":"cat: missing file"}', success: false })).toEqual({ name: 'code_run', summary: '命令执行失败：cat: missing file', status: 'failed' });
     expect(summarizeToolActivity('future.vendor/scan', { status: 'completed', success: true })).toEqual({ name: 'future_vendor_scan', summary: '已完成', status: 'done' });
   });
+
+  it('marks parsed tool payload failures as failed even when transport completed', () => {
+    expect(summarizeToolActivity('mcp__lsp__grep', {
+      status: 'completed',
+      success: true,
+      preview: '{"success":false,"error":"ripgrep exited 2","total":0}',
+    })).toEqual({ name: 'grep', summary: '搜索代码失败：ripgrep exited 2', status: 'failed' });
+
+    expect(summarizeToolActivity('mcp__lsp__xref', {
+      status: 'completed',
+      success: true,
+      preview: '{"isError":true,"message":"lsp peer unavailable","count":0}',
+    })).toEqual({ name: 'xref', summary: '查找引用失败：lsp peer unavailable', status: 'failed' });
+
+    expect(summarizeToolActivity('future.vendor/scan', {
+      status: 'completed',
+      success: true,
+      preview: '{"error_code":"workspace_missing","error":"workspace root is required"}',
+    })).toEqual({ name: 'future_vendor_scan', summary: '执行失败：workspace root is required', status: 'failed' });
+  });
 });
 
 describe('format split barrier via UnifiedChatPage public outputs', () => {

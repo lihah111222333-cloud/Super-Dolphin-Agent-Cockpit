@@ -242,6 +242,48 @@ func TestOnInboundMessage_ToolCall_DispatchesLifecycleAndPrivateMetadata(t *test
 	assertSyntheticToolEndHeader(t, end, begin)
 }
 
+func TestOnInboundMessage_ToolCall_ResultSuccessFalseDispatchesFailedLifecycle(t *testing.T) {
+	bus := event.NewDispatcher()
+	dispatcher := unified.NewEventDispatcher(bus, nil)
+	ctx := context.Background()
+	endCh := make(chan tooldto.ToolCallEnd, 1)
+	cancelEnd := event.Subscribe(bus, func(ev tooldto.ToolCallEnd) { endCh <- ev })
+	defer cancelEnd()
+
+	manager := &ServerManager{}
+	manager.SetToolHandler(func(context.Context, RawMessage) (any, error) {
+		return map[string]any{
+			"success": false,
+			"error":   "lsp peer unavailable",
+			"contentItems": []map[string]any{{
+				"type": "inputText",
+				"text": `{"success":false,"error":"lsp peer unavailable"}`,
+			}},
+		}, nil
+	})
+	resp := newRecordingResponder()
+	s := newInboundTestSession(ctx, nil, manager)
+	s.dispatcher = dispatcher
+
+	s.onInboundMessage(ctx, resp, RawMessage{
+		ID:     json.RawMessage(`10`),
+		Method: "item/tool/call",
+		Params: json.RawMessage(`{"name":"grep","arguments":{}}`),
+	})
+
+	call := waitResponseCall(t, resp.ch)
+	if call.err != nil {
+		t.Fatalf("response err = %v, want nil tool response transport error", call.err)
+	}
+	end := waitToolCallEnd(t, endCh)
+	if end.Success {
+		t.Fatalf("ToolCallEnd success = true, result = %s", end.Result)
+	}
+	if end.Error != "lsp peer unavailable" {
+		t.Fatalf("ToolCallEnd error = %q, want lsp peer unavailable", end.Error)
+	}
+}
+
 func waitSignal(t *testing.T, ch <-chan struct{}, timeout time.Duration, msg string) {
 	t.Helper()
 	select {

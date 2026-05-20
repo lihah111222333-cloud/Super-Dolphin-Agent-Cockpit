@@ -63,6 +63,21 @@ func TestStdioMCPClientCallToolForwardsWorkspaceRootsMetadata(t *testing.T) {
 	}
 }
 
+func TestStdioMCPClientCallToolPreservesMCPIsError(t *testing.T) {
+	transport := &fakeStdioTransport{reads: []json.RawMessage{
+		json.RawMessage(`{"jsonrpc":"2.0","id":1,"result":{"content":[{"type":"text","text":"{\"success\":false,\"code\":\"path_outside_workspace\"}"}],"isError":true,"structuredContent":{"success":false,"code":"path_outside_workspace"}}}`),
+	}}
+	client := &stdioMCPClient{transport: transport}
+
+	got, err := client.CallTool(context.Background(), "file", json.RawMessage(`{}`), ToolCallRequest{})
+	if err != nil {
+		t.Fatalf("CallTool() error = %v", err)
+	}
+	if got == nil || got.Success {
+		t.Fatalf("CallTool() success = %#v, want false", got)
+	}
+}
+
 type fakeStdioTransport struct {
 	reads  []json.RawMessage
 	writes []any

@@ -9,7 +9,7 @@ func TestInferLanguage(t *testing.T) {
 		want  string
 	}{
 		{name: "go source", input: "main.go", want: "go"},
-		{name: "javascript alias", input: "component.JSX", want: "javascript"},
+		{name: "javascript react alias", input: "component.JSX", want: "javascriptreact"},
 		{name: "typescript alias", input: "handler.mts", want: "typescript"},
 		{name: "markdown alias", input: "README.markdown", want: "markdown"},
 		{name: "yaml alias", input: "config.yml", want: "yaml"},
@@ -36,7 +36,7 @@ func TestNormalizeASTLanguage(t *testing.T) {
 		wantErr bool
 	}{
 		{name: "canonical alias", raw: "golang", want: "go"},
-		{name: "infer from target file", target: "/tmp/query.tsx", want: "typescript"},
+		{name: "infer from target file", target: "/tmp/query.tsx", want: "typescriptreact"},
 		{name: "infer from glob", target: "/tmp/project", isDir: true, glob: "**/*.py", want: "python"},
 		{name: "missing language", target: "/tmp/project", isDir: true, wantErr: true},
 	}
@@ -57,5 +57,21 @@ func TestNormalizeASTLanguage(t *testing.T) {
 				t.Fatalf("normalizeASTLanguage(%q, %q, %t, %q) = %q, want %q", tc.raw, tc.target, tc.isDir, tc.glob, got, tc.want)
 			}
 		})
+	}
+}
+
+func TestInferASTLanguageReactExtensions(t *testing.T) {
+	cases := map[string]string{
+		"/tmp/component.jsx": "javascriptreact",
+		"/tmp/component.tsx": "typescriptreact",
+	}
+	for target, want := range cases {
+		got, err := normalizeASTLanguage("", target, false, "")
+		if err != nil {
+			t.Fatalf("normalizeASTLanguage(%q) error = %v", target, err)
+		}
+		if got != want {
+			t.Fatalf("normalizeASTLanguage(%q) = %q, want %q", target, got, want)
+		}
 	}
 }

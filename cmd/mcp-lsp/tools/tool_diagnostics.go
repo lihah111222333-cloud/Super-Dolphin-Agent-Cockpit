@@ -170,7 +170,7 @@ func (h handlerBase) waitDiagnosticsStable(ctx context.Context, uris []string) (
 func (h handlerBase) reactiveBootstrap(ctx context.Context, uris []string) (int, error) {
 	count := 0
 	seen := make(map[string]struct{}, len(uris))
-	var firstErr error
+	var errs []error
 	for _, uri := range uris {
 		if len(seen) >= maxReactiveBootstrap {
 			break
@@ -180,15 +180,13 @@ func (h handlerBase) reactiveBootstrap(ctx context.Context, uris []string) (int,
 		}
 		seen[uri] = struct{}{}
 		if err := h.registry.BootstrapDocument(ctx, uri); err != nil {
-			if firstErr == nil {
-				firstErr = err
-			}
+			errs = append(errs, fmt.Errorf("%s: %w", uri, err))
 			continue
 		}
 		count++
 	}
-	if count == 0 && firstErr != nil {
-		return 0, firstErr
+	if len(errs) > 0 {
+		return count, errors.Join(errs...)
 	}
 	return count, nil
 }
