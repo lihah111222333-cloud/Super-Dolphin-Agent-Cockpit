@@ -6,6 +6,7 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
+	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
 	bindingstore "github.com/anthropic-ai/super-agent-v3/internal/store/binding"
 	threadstore "github.com/anthropic-ai/super-agent-v3/internal/store/thread"
 )
@@ -20,7 +21,7 @@ type stubThreadBindingStore struct {
 }
 
 func (s *stubThreadBindingStore) GetByProviderThread(context.Context, string, string) (*bindingstore.Binding, error) {
-	return nil, errors.New("not found")
+	return nil, platformdb.ErrNotFound
 }
 func (s *stubThreadBindingStore) Upsert(context.Context, bindingstore.UpsertParams) error { return nil }
 func (s *stubThreadBindingStore) DeleteByAgentID(_ context.Context, agentID string) error {
@@ -51,7 +52,7 @@ func (s *stubThreadBindingStore) GetByAgentID(_ context.Context, agentID string)
 	if s.getByAgentIDErr != nil {
 		return nil, s.getByAgentIDErr
 	}
-	return nil, errors.New("not found")
+	return nil, platformdb.ErrNotFound
 }
 func (s *stubThreadBindingStore) BindAgentThread(context.Context, bindingstore.BindAgentThreadParams) error {
 	return nil
@@ -65,7 +66,7 @@ func (s *stubThreadBindingStore) ListAgentThreadBindings(context.Context) ([]bin
 }
 func (s *stubThreadBindingStore) GetThreadByAgent(context.Context, string) (string, error) {
 	if s.binding == nil {
-		return "", errors.New("not found")
+		return "", platformdb.ErrNotFound
 	}
 	return s.binding.ProviderThreadID, nil
 }
@@ -86,6 +87,7 @@ func (s *stubThreadBindingStore) ListCwdMap(context.Context) (map[string]string,
 type stubThreadSessions struct {
 	agentID            string
 	session            contract.Session
+	getErr             error
 	generation         uint64
 	removed            []string
 	removedGenerations []uint64
@@ -95,6 +97,9 @@ type stubThreadSessions struct {
 func (s *stubThreadSessions) GetSession(agentID string) (contract.Session, error) {
 	if s.session != nil && agentID == s.agentID {
 		return s.session, nil
+	}
+	if s.getErr != nil {
+		return nil, s.getErr
 	}
 	return nil, errors.New("not found")
 }

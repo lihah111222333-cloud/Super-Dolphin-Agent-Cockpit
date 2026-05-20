@@ -71,8 +71,11 @@ func assertFirstPromoteResult(t *testing.T, result PromoteTaskResult) {
 func assertPromotedThreadConfig(t *testing.T, svc *service, result PromoteTaskResult) {
 	t.Helper()
 
-	stored := decodeStoredThreadConfig(svc.threadStore.(*stubThreadStore).thread.ConfigOverride)
-	meta := taskHandoffMetaFromRuntimeConfig(stored.Runtime)
+	stored := mustDecodeStoredThreadConfig(t, svc.threadStore.(*stubThreadStore).thread.ConfigOverride)
+	meta, err := taskHandoffMetaFromRuntimeConfig(stored.Runtime)
+	if err != nil {
+		t.Fatalf("parse promoted runtime config: %v", err)
+	}
 	if meta.TaskID != result.TaskID {
 		t.Fatalf("stored taskId = %q, want %q", meta.TaskID, result.TaskID)
 	}
@@ -174,35 +177,21 @@ func TestPromoteTaskFromThreadBlankID(t *testing.T) {
 	}
 }
 
-func TestPromoteTaskFromThreadHandoffShellWarningSoftFails(t *testing.T) {
+func TestPromoteTaskFromThreadHandoffShellFailureFailsFast(t *testing.T) {
 	t.Parallel()
-	thread := &threadstore.Thread{ThreadID: "thread-shellfail", Name: "Soft fail"}
+	thread := &threadstore.Thread{ThreadID: "thread-shellfail", Name: "Fail fast"}
 	files := &stubSharedFileStore{upsertErr: errors.New("disk full")}
 	svc, emitted := promoteTaskTestService(t, thread, files)
 
-	result, err := svc.PromoteTaskFromThread(context.Background(), "thread-shellfail")
-	if err != nil {
-		t.Fatalf("PromoteTaskFromThread() error = %v, want soft-fail success", err)
+	_, err := svc.PromoteTaskFromThread(context.Background(), "thread-shellfail")
+	if err == nil || !strings.Contains(err.Error(), "disk full") {
+		t.Fatalf("PromoteTaskFromThread() error = %v, want disk full failure", err)
 	}
-	if result.AlreadyTask {
-		t.Fatalf("AlreadyTask = true, want false")
+	if got := svc.threadStore.(*stubThreadStore).upsert.ThreadID; got != "" {
+		t.Fatalf("threadStore.Upsert called with thread_id=%q, want no partial promotion on shell failure", got)
 	}
-	if result.TaskID == "" {
-		t.Fatalf("TaskID empty, want generated")
-	}
-	if !strings.Contains(result.HandoffShellWarning, "disk full") {
-		t.Fatalf("HandoffShellWarning = %q, want to mention disk full", result.HandoffShellWarning)
-	}
-
-	// runtime config still persisted (decision a)
-	stored := decodeStoredThreadConfig(svc.threadStore.(*stubThreadStore).thread.ConfigOverride)
-	if got, _ := stored.Runtime[taskConfigKeyID].(string); got != result.TaskID {
-		t.Fatalf("stored taskId = %q, want %q (runtime config must persist on shell soft-fail)", got, result.TaskID)
-	}
-
-	// emit still fires so frontend can refresh agentRuntimeById
-	if len(*emitted) != 1 {
-		t.Fatalf("emitUpdated = %#v, want one event even on shell soft-fail", *emitted)
+	if len(*emitted) != 0 {
+		t.Fatalf("emitUpdated = %#v, want no event on failed promotion", *emitted)
 	}
 }
 

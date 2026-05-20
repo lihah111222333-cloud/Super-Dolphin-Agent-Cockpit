@@ -191,10 +191,13 @@ func (h *Handler) callPeerTool(ctx context.Context, peer mcpcontrol.Peer, req To
 		MetadataKeyWorkspaceRoots: append([]string(nil), req.WorkspaceRoots...),
 	}, &resp)
 	if err != nil {
-		return toolCallTextResult(false, err.Error()), nil
+		return toolCallErrorResult(err.Error()), nil
 	}
 
-	result := adaptMCPResponse(resp)
+	result, err := adaptMCPResponse(resp)
+	if err != nil {
+		return nil, err
+	}
 	h.emitToolDiff(ctx, req, snapshot)
 	return result, nil
 }
@@ -207,6 +210,10 @@ func toolCallTextResult(success bool, text string) *ToolCallResult {
 			Text: text,
 		}},
 	}
+}
+
+func toolCallErrorResult(text string) *ToolCallResult {
+	return toolCallTextResult(false, text)
 }
 
 // Managed launch context injection helpers live in handler_managed_launch.go.

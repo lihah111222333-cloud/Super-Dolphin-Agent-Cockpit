@@ -14,16 +14,13 @@ import (
 )
 
 var targetFuncs = map[string]struct{}{
-	"captureAndInjectTurnSummary":       {},
-	"mergeTrackedTurnCompletionPayload": {},
-	"threadStatusTerminalFromPayload":   {},
-	"trackedTurnTerminalFromEvent":      {},
+	"turnOutputDelta": {},
 }
 
 const (
 	maxThinFuncLines = 8
-	legacyWalkRoot   = "internal/apiserver"
-	legacySkipDir    = "internal/apiserver/codexadapter"
+	wrapperWalkRoot  = "internal/provider/codexapp"
+	wrapperSkipDir   = "internal/provider/codexapp/testdata"
 )
 
 func main() {
@@ -41,16 +38,18 @@ func collectP1TurnWrapperViolations() []string {
 	if err := requireRepoRootMarker(); err != nil {
 		return []string{err.Error()}
 	}
-	if skip, violation := legacyRootMissing(); skip {
-		return nil
-	} else if violation != "" {
+	if violation := wrapperRootViolation(); violation != "" {
 		return []string{violation}
 	}
 
 	fset := token.NewFileSet()
 	var violations []string
-	if err := filepath.WalkDir(legacyWalkRoot, visitP1TurnWrapperPath(fset, &violations)); err != nil {
-		violations = append(violations, fmt.Sprintf("walk %s: %v", legacyWalkRoot, err))
+	foundTarget := false
+	if err := filepath.WalkDir(wrapperWalkRoot, visitP1TurnWrapperPath(fset, &violations, &foundTarget)); err != nil {
+		violations = append(violations, fmt.Sprintf("walk %s: %v", wrapperWalkRoot, err))
+	}
+	if !foundTarget {
+		violations = append(violations, fmt.Sprintf("no target wrapper functions found under %s", wrapperWalkRoot))
 	}
 	return violations
 }
@@ -62,22 +61,22 @@ func requireRepoRootMarker() error {
 	return nil
 }
 
-func legacyRootMissing() (bool, string) {
-	_, err := os.Stat(legacyWalkRoot)
+func wrapperRootViolation() string {
+	_, err := os.Stat(wrapperWalkRoot)
 	if err == nil {
-		return false, ""
+		return ""
 	}
 	if os.IsNotExist(err) {
-		return true, ""
+		return fmt.Sprintf("%s not found", wrapperWalkRoot)
 	}
-	return false, fmt.Sprintf("stat %s: %v", legacyWalkRoot, err)
+	return fmt.Sprintf("stat %s: %v", wrapperWalkRoot, err)
 }
 
-func visitP1TurnWrapperPath(fset *token.FileSet, violations *[]string) fs.WalkDirFunc {
+func visitP1TurnWrapperPath(fset *token.FileSet, violations *[]string, foundTarget *bool) fs.WalkDirFunc {
 	return func(path string, d fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			*violations = append(*violations, fmt.Sprintf("walk %s: %v", path, walkErr))
-			return nil
+			return walkErr
 		}
 		if isLegacySkipDir(path, d) {
 			return filepath.SkipDir
@@ -85,13 +84,13 @@ func visitP1TurnWrapperPath(fset *token.FileSet, violations *[]string) fs.WalkDi
 		if shouldSkipP1WrapperPath(path, d) {
 			return nil
 		}
-		*violations = append(*violations, parseAndCheckP1WrapperFile(fset, path)...)
+		*violations = append(*violations, parseAndCheckP1WrapperFile(fset, path, foundTarget)...)
 		return nil
 	}
 }
 
 func isLegacySkipDir(path string, d fs.DirEntry) bool {
-	return d != nil && d.IsDir() && filepath.Clean(path) == filepath.Clean(legacySkipDir)
+	return d != nil && d.IsDir() && filepath.Clean(path) == filepath.Clean(wrapperSkipDir)
 }
 
 func shouldSkipP1WrapperPath(path string, d fs.DirEntry) bool {
@@ -101,15 +100,15 @@ func shouldSkipP1WrapperPath(path string, d fs.DirEntry) bool {
 	return !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go")
 }
 
-func parseAndCheckP1WrapperFile(fset *token.FileSet, path string) []string {
+func parseAndCheckP1WrapperFile(fset *token.FileSet, path string, foundTarget *bool) []string {
 	file, err := parser.ParseFile(fset, path, nil, parser.SkipObjectResolution)
 	if err != nil {
 		return []string{fmt.Sprintf("%s: parse error: %v", path, err)}
 	}
-	return checkParsedFileWrappers(fset, path, file)
+	return checkParsedFileWrappers(fset, path, file, foundTarget)
 }
 
-func checkParsedFileWrappers(fset *token.FileSet, path string, file *ast.File) []string {
+func checkParsedFileWrappers(fset *token.FileSet, path string, file *ast.File, foundTarget *bool) []string {
 	var violations []string
 	for _, decl := range file.Decls {
 		fd, ok := decl.(*ast.FuncDecl)
@@ -118,6 +117,9 @@ func checkParsedFileWrappers(fset *token.FileSet, path string, file *ast.File) [
 		}
 		if _, ok := targetFuncs[fd.Name.Name]; !ok {
 			continue
+		}
+		if foundTarget != nil {
+			*foundTarget = true
 		}
 		startLine := fset.Position(fd.Pos()).Line
 		lineCount := fset.Position(fd.End()).Line - startLine + 1

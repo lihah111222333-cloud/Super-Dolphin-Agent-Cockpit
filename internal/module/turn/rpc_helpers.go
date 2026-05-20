@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 	"time"
 
@@ -14,6 +15,7 @@ import (
 	threaddto "github.com/anthropic-ai/super-agent-v3/internal/dto/thread"
 	platformrpc "github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
 	"github.com/anthropic-ai/super-agent-v3/internal/util"
+	"github.com/anthropic-ai/super-agent-v3/internal/util/configutil"
 	"github.com/anthropic-ai/super-agent-v3/internal/util/ctxutil"
 )
 
@@ -43,6 +45,37 @@ func buildRPCPrepareInput(p turnStartParams, session contract.Session, threadRun
 		SelectedRefs: p.SelectedSkillRefs,
 		Derived:      inputSkills,
 	}, session)
+}
+
+func resolveTurnRPCCWD(requestCWD string, session prepareInputSession, threadRuntimeConfig map[string]any) (string, error) {
+	requestCWD = strings.TrimSpace(requestCWD)
+	authoritativeCWD, err := strictRuntimeCWD(threadRuntimeConfig, "thread runtime config")
+	if err != nil {
+		return "", err
+	}
+	if authoritativeCWD == "" {
+		if reader, ok := session.(runtimeConfigSnapshotReader); ok {
+			authoritativeCWD, err = strictRuntimeCWD(reader.RuntimeConfigSnapshot(), "session runtime config")
+			if err != nil {
+				return "", err
+			}
+		}
+	}
+	if authoritativeCWD == "" {
+		return requestCWD, nil
+	}
+	if requestCWD != "" && requestCWD != authoritativeCWD {
+		return "", platformrpc.ErrInvalidParams(fmt.Sprintf("turn/start cwd mismatch: request cwd %q does not match thread cwd %q", requestCWD, authoritativeCWD))
+	}
+	return authoritativeCWD, nil
+}
+
+func strictRuntimeCWD(cfg map[string]any, label string) (string, error) {
+	cwd, err := configutil.StrictString(cfg, label, "cwd")
+	if err != nil {
+		return "", platformrpc.ErrInvalidParams(err.Error())
+	}
+	return cwd, nil
 }
 
 func buildTurnStartInputs(raw []turnInputItemParams) ([]InputItem, []string) {
@@ -188,7 +221,7 @@ func turnStartHandler(svc Service, resolver contract.SessionResolver, spawner co
 		// threads, so eager-path threads are unaffected.
 		var spawnRouting threaddto.SpawnRouting
 		if spawner != nil {
-			launched, routing, err := spawner.SpawnIfNeeded(ctx, contract.ThreadIDFrom(ctx), collectTurnStartUserInput(p))
+			launched, routing, err := spawner.SpawnIfNeeded(ctx, contract.ThreadIDFrom(ctx), collectTurnStartUserInput(p), p.CWD)
 			if err != nil {
 				return nil, err
 			}
@@ -200,7 +233,15 @@ func turnStartHandler(svc Service, resolver contract.SessionResolver, spawner co
 			if err := platformrpc.RequireSessionCapability(session, dto.CapMessageSend); err != nil {
 				return nil, err
 			}
-			threadRuntimeConfig := readThreadRuntimeConfig(ctx, runtimeReader, contract.ThreadIDFrom(ctx))
+			threadRuntimeConfig, err := readThreadRuntimeConfig(ctx, runtimeReader, contract.ThreadIDFrom(ctx))
+			if err != nil {
+				return nil, err
+			}
+			resolvedCWD, err := resolveTurnRPCCWD(p.CWD, session, threadRuntimeConfig)
+			if err != nil {
+				return nil, err
+			}
+			p.CWD = resolvedCWD
 			input := buildRPCPrepareInput(p, session, threadRuntimeConfig)
 			if err := applyTurnStartConfig(ctx, session, p); err != nil {
 				return nil, err
@@ -236,14 +277,21 @@ func turnSteerHandler(svc Service, resolver contract.SessionResolver, capResolve
 				return nil, err
 			}
 			items, inputSkills := buildTurnStartInputs(p.Input)
-			threadRuntimeConfig := readThreadRuntimeConfig(ctx, runtimeReader, contract.ThreadIDFrom(ctx))
+			threadRuntimeConfig, err := readThreadRuntimeConfig(ctx, runtimeReader, contract.ThreadIDFrom(ctx))
+			if err != nil {
+				return nil, err
+			}
+			resolvedCWD, err := resolveTurnRPCCWD(p.CWD, session, threadRuntimeConfig)
+			if err != nil {
+				return nil, err
+			}
 			handle, err := svc.SteerTurn(ctx, session, p.ExpectedTurnID, buildPrepareInput(prepareInputSpec{
 				Inputs:                       items,
 				Prompt:                       p.Prompt,
 				ManualSkillSelection:         p.ManualSkillSelection,
 				Provider:                     p.Provider,
 				Model:                        p.Model,
-				CWD:                          p.CWD,
+				CWD:                          resolvedCWD,
 				GitRoot:                      p.GitRoot,
 				IsWorktree:                   p.IsWorktree,
 				Language:                     p.Language,
@@ -270,6 +318,9 @@ func turnInterruptHandler(svc Service, resolver contract.SessionResolver) handle
 		return withTurnSession(ctx, resolver, func(ctx context.Context, session contract.Session) (any, error) {
 			status, err := svc.InterruptTurn(ctx, session, p.Source)
 			if err != nil {
+				if errors.Is(err, context.DeadlineExceeded) {
+					return buildInterruptFailureResult(status, status.interruptEnvelope()), nil
+				}
 				return nil, err
 			}
 			return buildInterruptResult(status, status.interruptEnvelope()), nil

@@ -52,28 +52,17 @@ type agentLaunchedWorker struct {
 
 	wake chan struct{}
 
-	startOnce sync.Once
-	stopOnce  sync.Once
-	stopCh    chan struct{}
-	doneCh    chan struct{}
+	startOnce, stopOnce sync.Once
+	stopCh, doneCh      chan struct{}
 
-	enqueuedTotal  atomic.Int64
-	coalescedTotal atomic.Int64
-	processedTotal atomic.Int64
+	enqueuedTotal, coalescedTotal, processedTotal atomic.Int64
 }
 
 func newAgentLaunchedWorker(processor agentLaunchedProcessor, logger *slog.Logger) *agentLaunchedWorker {
 	if logger == nil {
 		logger = pkglogger.Get()
 	}
-	return &agentLaunchedWorker{
-		processor: processor,
-		logger:    logger,
-		pending:   map[string]agentdto.AgentLaunched{},
-		wake:      make(chan struct{}, 1),
-		stopCh:    make(chan struct{}),
-		doneCh:    make(chan struct{}),
-	}
+	return &agentLaunchedWorker{processor: processor, logger: logger, pending: map[string]agentdto.AgentLaunched{}, wake: make(chan struct{}, 1), stopCh: make(chan struct{}), doneCh: make(chan struct{})}
 }
 
 // Start spawns the worker goroutine. Idempotent. When processor is nil

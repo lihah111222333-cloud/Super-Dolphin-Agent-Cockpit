@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strconv"
 	"strings"
 	"time"
@@ -53,13 +54,17 @@ func (s *service) ReadMessages(ctx context.Context, threadID string, limit int, 
 	// would fail with "no rows in result set". Return an empty result so the
 	// sidebar selection + auto-history-load sequence doesn't spam errors while
 	// the user is still composing their first turn.
-	if s.isThreadPendingLaunch(ctx, threadID) {
+	pendingLaunch, err := s.isThreadPendingLaunch(ctx, threadID)
+	if err != nil {
+		return dto.ThreadMessagesResult{}, err
+	}
+	if pendingLaunch {
 		return dto.ThreadMessagesResult{Messages: nil, Total: 0}, nil
 	}
 	binding, err := s.resolveBinding(ctx, threadID)
 	if err != nil {
 		if errors.Is(err, contract.ErrNotFound) {
-			return dto.ThreadMessagesResult{Messages: nil, Total: 0}, nil
+			return dto.ThreadMessagesResult{}, err
 		}
 		return dto.ThreadMessagesResult{}, err
 	}
@@ -82,16 +87,16 @@ func (s *service) ReadMessages(ctx context.Context, threadID string, limit int, 
 
 func (s *service) ReadRuntimeConfig(ctx context.Context, threadID string) (map[string]any, error) {
 	session, binding, err := s.resolveSession(ctx, threadID)
+	if err != nil {
+		return nil, err
+	}
 	offline, offlineErr := s.buildOfflineConfig(ctx, threadID, binding)
 	if offlineErr != nil {
 		return nil, offlineErr
 	}
-	if err != nil {
-		return clone.RuntimeConfigMap(offline.Runtime), nil
-	}
 	reader, ok := session.(runtimeConfigReaderSession)
 	if !ok {
-		return clone.RuntimeConfigMap(offline.Runtime), nil
+		return nil, errors.New("thread runtime config reader is not available")
 	}
 	return mergeRuntimeConfig(offline.Runtime, reader.RuntimeConfigSnapshot()), nil
 }
@@ -113,10 +118,7 @@ func (s *service) ReadThreadHistory(ctx context.Context, threadID string) (*Read
 	fallbackID := readHistoryFallbackID(ref, threadID)
 	session, _, err := s.resolveSession(ctx, threadID)
 	if err != nil {
-		// Session not active (e.g. app restarted). Trigger background resume
-		// so the session is ready by the time the user sends a message.
-		s.backgroundResumeIfNeeded(ctx, threadID)
-		return buildReadHistoryResult(fallbackID), nil
+		return nil, err
 	}
 	threads, err := session.ListThreads(ctx)
 	if err != nil {
@@ -143,59 +145,79 @@ func resolveBatchBinding(threadID string, thread *threadstore.Thread, allBinding
 	return nil
 }
 
-func (s *service) resolveBatchSessionCfg(binding *bindingstore.Binding) map[string]any {
-	if binding == nil || s.sessions == nil {
-		return nil
+func (s *service) resolveBatchSessionCfg(binding *bindingstore.Binding) (map[string]any, error) {
+	if binding == nil {
+		return nil, nil
 	}
-	sess, _ := s.sessions.GetSession(binding.AgentID)
+	if s.sessions == nil {
+		return nil, errors.New("session provider is not configured")
+	}
+	sess, err := s.sessions.GetSession(binding.AgentID)
+	if err != nil {
+		return nil, err
+	}
 	if sess == nil {
-		return nil
+		return nil, contract.ErrSessionNotFound
 	}
 	if reader, ok := sess.(runtimeConfigReaderSession); ok {
-		return reader.RuntimeConfigSnapshot()
+		return reader.RuntimeConfigSnapshot(), nil
 	}
-	return nil
+	return nil, errors.New("thread runtime config reader is not available")
 }
 
 func (s *service) ReadRuntimeConfigs(ctx context.Context, threadIDs []string) (map[string]map[string]any, error) {
-	allBindings, bindingByAgent := s.loadBatchBindingIndex(ctx)
-	threadByID := s.loadBatchThreadIndex(ctx, threadIDs)
+	allBindings, bindingByAgent, err := s.loadBatchBindingIndex(ctx)
+	if err != nil {
+		return nil, err
+	}
+	threadByID, err := s.loadBatchThreadIndex(ctx, threadIDs)
+	if err != nil {
+		return nil, err
+	}
 
 	result := make(map[string]map[string]any, len(threadIDs))
 	for _, threadID := range threadIDs {
-		result[threadID] = s.resolveBatchRuntime(threadID, threadByID[threadID], allBindings, bindingByAgent)
+		runtime, err := s.resolveBatchRuntime(threadID, threadByID[threadID], allBindings, bindingByAgent)
+		if err != nil {
+			return nil, err
+		}
+		result[threadID] = runtime
 	}
 
 	return result, nil
 }
 
-func (s *service) loadBatchBindingIndex(ctx context.Context) ([]bindingstore.Binding, map[string]*bindingstore.Binding) {
+func (s *service) loadBatchBindingIndex(ctx context.Context) ([]bindingstore.Binding, map[string]*bindingstore.Binding, error) {
 	var allBindings []bindingstore.Binding
 	if s.bindingStore != nil {
-		allBindings, _ = s.bindingStore.ListAgentThreadBindings(ctx)
+		var err error
+		allBindings, err = s.bindingStore.ListAgentThreadBindings(ctx)
+		if err != nil {
+			return nil, nil, err
+		}
 	}
 	idx := make(map[string]*bindingstore.Binding, len(allBindings))
 	for i := range allBindings {
 		b := allBindings[i]
 		idx[b.AgentID] = &b
 	}
-	return allBindings, idx
+	return allBindings, idx, nil
 }
 
-func (s *service) loadBatchThreadIndex(ctx context.Context, threadIDs []string) map[string]*threadstore.Thread {
+func (s *service) loadBatchThreadIndex(ctx context.Context, threadIDs []string) (map[string]*threadstore.Thread, error) {
 	idx := make(map[string]*threadstore.Thread)
 	if s.threadStore == nil {
-		return idx
+		return nil, errors.New("thread store is not configured")
 	}
 	threads, err := s.threadStore.ListConfigsByIDs(ctx, threadIDs)
 	if err != nil {
-		return idx
+		return nil, err
 	}
 	for i := range threads {
 		t := threads[i]
 		idx[t.ThreadID] = &t
 	}
-	return idx
+	return idx, nil
 }
 
 func (s *service) resolveBatchRuntime(
@@ -203,21 +225,32 @@ func (s *service) resolveBatchRuntime(
 	thread *threadstore.Thread,
 	allBindings []bindingstore.Binding,
 	bindingByAgent map[string]*bindingstore.Binding,
-) map[string]any {
+) (map[string]any, error) {
 	binding := resolveBatchBinding(threadID, thread, allBindings, bindingByAgent)
+	if thread == nil {
+		return nil, fmt.Errorf("thread %q not found", threadID)
+	}
+	if binding == nil && strings.TrimSpace(thread.AgentID) != "" && !thread.PendingLaunch {
+		return nil, fmt.Errorf("binding missing for thread %q agent %q", threadID, thread.AgentID)
+	}
 
 	var offlineCfg storedThreadConfig
-	if thread != nil {
-		offlineCfg = decodeStoredThreadConfig(offlineThreadConfigRaw(thread))
+	var err error
+	offlineCfg, err = decodeStoredThreadConfig(offlineThreadConfigRaw(thread))
+	if err != nil {
+		return nil, err
 	}
 
 	baseRuntime := buildOfflineRuntimeConfig(offlineCfg, thread)
-	sessionCfg := s.resolveBatchSessionCfg(binding)
+	sessionCfg, err := s.resolveBatchSessionCfg(binding)
+	if err != nil {
+		return nil, err
+	}
 
 	if sessionCfg != nil {
-		return mergeRuntimeConfig(baseRuntime, sessionCfg)
+		return mergeRuntimeConfig(baseRuntime, sessionCfg), nil
 	}
-	return clone.RuntimeConfigMap(baseRuntime)
+	return clone.RuntimeConfigMap(baseRuntime), nil
 }
 
 func fallbackReadThreadHistory(ctx context.Context, svc Service, threadID string) (*ReadHistoryResult, error) {

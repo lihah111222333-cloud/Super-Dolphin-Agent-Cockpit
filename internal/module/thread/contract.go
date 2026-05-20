@@ -29,7 +29,9 @@ type Service interface {
 	// (agent_key / prompt_key / prompt_version_id / merged_candidate_keys)
 	// so callers such as turn/start can forward it to the UI — pending-spawn
 	// threads never surface this on thread/start since routing runs lazily.
-	SpawnIfNeeded(ctx context.Context, threadID, userInputForRouter string) (launched bool, routing threaddto.SpawnRouting, err error)
+	// requestCWD is validation-only; the pending row's stored cwd remains
+	// authoritative and mismatches fail before provider launch side effects.
+	SpawnIfNeeded(ctx context.Context, threadID, userInputForRouter, requestCWD string) (launched bool, routing threaddto.SpawnRouting, err error)
 
 	List(ctx context.Context) ([]Ref, error)
 	Get(ctx context.Context, id string) (*Ref, error)
@@ -77,18 +79,10 @@ type PromoteTaskResult struct {
 }
 
 type StartRequest struct {
-	Provider         string
-	AgentID          string
-	ParentAgentID    string
-	AgentType        string
-	AgentMemoryScope string
-	CWD              string
-	Model            string
-	ModelProvider    string
-	Name             string
+	Provider, AgentID, ParentAgentID, AgentType, AgentMemoryScope string
+	CWD, Model, ModelProvider, Name                               string
 	// Deprecated: use Name for display-name semantics; Prompt is kept only for legacy callers.
-	Prompt           string
-	BaseInstructions string
+	Prompt, BaseInstructions string
 	// BaseInstructionBlocks is populated by resolveRoutedPrompt when the
 	// picked prompt_template has rows in prompt_template_sections. It flows
 	// through buildStartAssemblyInput into contract.StartInput so the
@@ -237,8 +231,7 @@ type ForkResult struct {
 // The service keeps the source thread running (user may return) and starts
 // a fresh thread for the target agent, linked back via OwnerThreadID.
 type HandoffRequest struct {
-	SourceThreadID string
-	TargetAgentKey string
+	SourceThreadID, TargetAgentKey string
 	// Optional initial message to seed the new thread's display name.
 	// Empty falls back to "handoff from <source>".
 	InitialMessage string
@@ -262,14 +255,8 @@ type RecoverResult struct {
 }
 
 type LaunchAgentRequest struct {
-	AgentID     string
-	Name        string
-	ParentID    string
-	AgentType   string
-	MemoryScope string
-	Cwd         string
-	Command     []string
-	Env         []string
+	AgentID, Name, ParentID, AgentType, MemoryScope, Cwd string
+	Command, Env                                         []string
 }
 
 type Ref struct {

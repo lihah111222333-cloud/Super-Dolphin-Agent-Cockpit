@@ -52,6 +52,8 @@ type NodeExecutorRouter struct {
 	logger           *slog.Logger
 }
 
+var errAgentReadyRunningWriteFailed = errors.New("node router: ready->running write failed")
+
 // NewNodeExecutorRouter constructs a router. Any of agentExec/autoExec/
 // sharedFileReader/sharedFileWriter may be nil — node_type-specific 失败语义：
 //   - executor nil → validation 失败；
@@ -144,11 +146,12 @@ func (r *NodeExecutorRouter) RouteByWakeup(ctx context.Context, w *taskdag.Wakeu
 	}
 	nodeType := resolveNodeType(target.NodeType)
 	node := nodeexec.Node{
-		DagKey:   dagKey,
-		NodeKey:  nodeKey,
-		NodeType: nodeType,
-		Title:    target.Title,
-		Config:   append(json.RawMessage(nil), target.Config...),
+		DagKey:           dagKey,
+		NodeKey:          nodeKey,
+		NodeType:         nodeType,
+		Title:            target.Title,
+		Config:           append(json.RawMessage(nil), target.Config...),
+		SpawningThreadID: targetRecordedSpawn(target),
 	}
 	runCtx, runCtxErr := r.buildRunContext(ctx, dagKey, nodeKey, runID, nodeType, target.Config)
 	if runCtxErr != nil {
@@ -208,8 +211,7 @@ func extractFromNodes(nodeType string, cfgRaw json.RawMessage) ([]string, error)
 	parsed, err := nodeexec.ParseNodeConfig(nodeType, cfgRaw)
 	if err != nil {
 		if errors.Is(err, nodeexec.ErrUnknownNodeType) {
-			// 未知 nodeType 不是 prefetch 职责；让 dispatchByNodeType 去报。
-			return nil, nil
+			return nil, err
 		}
 		return nil, err
 	}
@@ -377,17 +379,61 @@ func (r *NodeExecutorRouter) dispatchByNodeType(ctx context.Context, nodeType st
 // 反向覆盖 done→running）；sqlc 返 (TaskDagNode, error)，0 rows 错是 pgx.ErrNoRows，
 // 走 race window D 分支（subscriber 已先推 done）。
 func (r *NodeExecutorRouter) dispatchAgent(ctx context.Context, node nodeexec.Node, runCtx nodeexec.RunContext, wakeupID int64) (nodeexec.NodeOutcome, error) {
+	var hooks map[nodeexec.HookPoint]nodeexec.HookHandler
+	if r.agentExec != nil {
+		hooks = r.agentExec.Hooks()
+	}
+	if strings.TrimSpace(node.SpawningThreadID) != "" {
+		return r.dispatchRecordedAgentSpawn(ctx, hooks, node, runCtx, wakeupID)
+	}
 	if r.agentExec == nil {
 		return validationOutcome("node router: agent executor not wired"), nil
 	}
-	hooks := r.agentExec.Hooks()
+	if !r.agentExec.HasSpawnRecorder() {
+		return nodeexec.NodeOutcome{
+			Status:       nodeexec.NodeStatusFailed,
+			FailureClass: nodeexec.FailureClassHard,
+			ErrorSummary: "node router: agent spawn recorder not wired",
+		}, nil
+	}
 	outcome, err := r.executeNodeWithLifecycleHooks(ctx, hooks, r.agentExec, node, runCtx)
 	if err != nil || outcome.Status == nodeexec.NodeStatusFailed {
 		// launch 失败 / executor 框架错：不写 running；dispatcher 会走 retry / fail 路径。
 		return outcome, err
 	}
 	// launch 成功：推 ready→running，让 subscriber 后续推 done/failed。
-	if r.advanceAgentNodeToRunning(ctx, node.DagKey, node.NodeKey, runCtx.RunID, wakeupID) {
+	advanced, advanceErr := r.advanceAgentNodeToRunning(ctx, node.DagKey, node.NodeKey, runCtx.RunID, wakeupID)
+	if advanceErr != nil {
+		return outcome, advanceErr
+	}
+	if advanced {
+		r.invokeLifecycleHook(ctx, hooks, nodeexec.HookOnStateChange, node, nodeexec.NodeOutcome{
+			Status: nodeexec.NodeStatusRunning,
+		})
+	}
+	return outcome, nil
+}
+
+func targetRecordedSpawn(target *taskdag.Node) string {
+	if target == nil || target.SpawningThreadID == nil {
+		return ""
+	}
+	return strings.TrimSpace(*target.SpawningThreadID)
+}
+
+func (r *NodeExecutorRouter) dispatchRecordedAgentSpawn(
+	ctx context.Context,
+	hooks map[nodeexec.HookPoint]nodeexec.HookHandler,
+	node nodeexec.Node,
+	runCtx nodeexec.RunContext,
+	wakeupID int64,
+) (nodeexec.NodeOutcome, error) {
+	outcome := nodeexec.NodeOutcome{Status: nodeexec.NodeStatusDone}
+	advanced, advanceErr := r.advanceAgentNodeToRunning(ctx, node.DagKey, node.NodeKey, runCtx.RunID, wakeupID)
+	if advanceErr != nil {
+		return outcome, advanceErr
+	}
+	if advanced {
 		r.invokeLifecycleHook(ctx, hooks, nodeexec.HookOnStateChange, node, nodeexec.NodeOutcome{
 			Status: nodeexec.NodeStatusRunning,
 		})
@@ -396,22 +442,21 @@ func (r *NodeExecutorRouter) dispatchAgent(ctx context.Context, node nodeexec.No
 }
 
 // advanceAgentNodeToRunning 调 UpdateRunningNodeStatus（SQL 白名单 IN ('pending','ready')）
-// 推 ready→running。错误不阻塞 dispatchAgent 返值：
-//   - pgx.ErrNoRows：0 rows = subscriber 已先推 done/failed（Window D，§2.6），
-//     metric IncDispatchAgentRunningSkippedAlreadyTerminal +Debug log；
-//   - 其它 DB 错误：Warn log + metric IncDispatchAgentRunningWriteFailed；
-//   - 成功：metric IncDispatchAgentRunningWritten。
-func (r *NodeExecutorRouter) advanceAgentNodeToRunning(ctx context.Context, dagKey, nodeKey string, runID int64, wakeupID int64) bool {
+// 推 ready→running。除已被 subscriber 推到终态的 race 外，写入失败必须返回
+// framework error 让 dispatcher 重试，不能只记日志后把 wakeup 标成功。
+func (r *NodeExecutorRouter) advanceAgentNodeToRunning(ctx context.Context, dagKey, nodeKey string, runID int64, wakeupID int64) (bool, error) {
 	if r.store == nil {
-		r.logger.Warn("node router: store nil, skip ready->running write",
+		err := errors.New("node router: store nil for ready->running write")
+		r.logger.Warn("node router: store nil, ready->running write failed",
 			"dag_key", dagKey, "node_key", nodeKey)
-		return false
+		return false, err
 	}
 	runStore, ok := any(r.store).(taskdag.RunningNodeStore)
 	if !ok {
-		r.logger.Warn("node router: store does not implement RunningNodeStore",
+		err := errors.New("node router: store does not implement RunningNodeStore")
+		r.logger.Warn("node router: ready->running write unsupported",
 			"dag_key", dagKey, "node_key", nodeKey)
-		return false
+		return false, err
 	}
 	_, updateErr := runStore.UpdateRunningNodeStatus(ctx, taskdag.RunningNodeStatusUpdate{
 		Status:   "running",
@@ -424,18 +469,18 @@ func (r *NodeExecutorRouter) advanceAgentNodeToRunning(ctx context.Context, dagK
 	switch {
 	case updateErr == nil:
 		dispatchAgentRunningMetrics.IncWritten()
-		return true
+		return true, nil
 	case errors.Is(updateErr, pgx.ErrNoRows) || platformdb.IsNotFound(updateErr):
 		// race window D：subscriber 已推终态，不在白名单 IN ('pending','ready')。
 		dispatchAgentRunningMetrics.IncSkippedAlreadyTerminal()
 		r.logger.Debug("node router: ready->running skipped, node already terminal",
 			"dag_key", dagKey, "node_key", nodeKey)
-		return false
+		return false, nil
 	default:
 		dispatchAgentRunningMetrics.IncWriteFailed()
 		r.logger.Warn("node router: ready->running write failed",
 			"dag_key", dagKey, "node_key", nodeKey, "error", updateErr)
-		return false
+		return false, fmt.Errorf("%w: %w", errAgentReadyRunningWriteFailed, updateErr)
 	}
 }
 
@@ -453,6 +498,7 @@ func (r *NodeExecutorRouter) dispatchAutomation(ctx context.Context, node nodeex
 		if err := r.completeAutomationNode(ctx, node.DagKey, node.NodeKey, runCtx.RunID, outcome.Result); err != nil {
 			r.logger.Warn("node router: automation complete propagate failed",
 				"dag_key", node.DagKey, "node_key", node.NodeKey, "error", err)
+			return outcome, fmt.Errorf("node router: automation complete propagate failed: %w", err)
 		} else {
 			r.invokeLifecycleHook(ctx, hooks, nodeexec.HookOnStateChange, node, nodeexec.NodeOutcome{
 				Status: nodeexec.NodeStatusDone,
@@ -464,8 +510,8 @@ func (r *NodeExecutorRouter) dispatchAutomation(ctx context.Context, node nodeex
 }
 
 // completeAutomationNode 在 automation 节点 Execute 成功后同步推进 status=done
-// + 调度下游。失败仅 logWarn 不阻塞主流（dispatcher 仍会 MarkWakeupSent，
-// 后续 reclaim cron / 重试可补救）。
+// + 调度下游。失败必须作为 framework error 返回，让 dispatcher 重试，避免
+// wakeup 被标记 sent 后隐藏持久化失败。
 func (r *NodeExecutorRouter) completeAutomationNode(ctx context.Context, dagKey, nodeKey string, runID int64, result json.RawMessage) error {
 	if r.store == nil {
 		return errors.New("node router: store nil, cannot complete automation node")

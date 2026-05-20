@@ -38,13 +38,13 @@ func checkP1GuardrailCases() []checkP1GuardrailCase {
 			name:       "rejects oversized wrapper",
 			setup:      setupCheckP1RejectsOversizedWrapper,
 			wantErr:    true,
-			wantStderr: []string{"too_large.go", "mergeTrackedTurnCompletionPayload", "too large for thin wrapper"},
+			wantStderr: []string{"too_large.go", "turnOutputDelta", "too large for thin wrapper"},
 		},
 		{
 			name:       "rejects heavy control flow",
 			setup:      setupCheckP1RejectsHeavyControlFlow,
 			wantErr:    true,
-			wantStderr: []string{"heavy.go", "threadStatusTerminalFromPayload", "contains heavy control flow"},
+			wantStderr: []string{"heavy.go", "turnOutputDelta", "contains heavy control flow"},
 		},
 		{
 			name:       "reports parse errors",
@@ -58,16 +58,20 @@ func checkP1GuardrailCases() []checkP1GuardrailCase {
 			wantErr:    true,
 			wantStderr: []string{"go.mod not found", "repository root"},
 		},
-		{name: "skips when legacy internal apiserver root is missing"},
+		{
+			name:       "fails when wrapper root is missing",
+			wantErr:    true,
+			wantStderr: []string{"internal/provider/codexapp", "not found"},
+		},
 	}
 }
 
 func setupCheckP1AllowsBoundaryAndIgnoresExcluded(t *testing.T, root string) {
 	t.Helper()
-	writeCheckP1SandboxFile(t, root, "internal/apiserver/thin.go", strings.Join([]string{
-		"package apiserver",
+	writeCheckP1SandboxFile(t, root, "internal/provider/codexapp/thin.go", strings.Join([]string{
+		"package codexapp",
 		"",
-		"func captureAndInjectTurnSummary() {",
+		"func turnOutputDelta() {",
 		"\tstep1()",
 		"\tstep2()",
 		"\tstep3()",
@@ -82,33 +86,33 @@ func setupCheckP1AllowsBoundaryAndIgnoresExcluded(t *testing.T, root string) {
 		"\t}",
 		"}",
 	}, "\n"))
-	writeCheckP1SandboxFile(t, root, "internal/apiserver/codexadapter/ignored.go", strings.Join([]string{
-		"package codexadapter",
+	writeCheckP1SandboxFile(t, root, "internal/provider/codexapp/testdata/ignored.go", strings.Join([]string{
+		"package testdata",
 		"",
-		"func mergeTrackedTurnCompletionPayload() {",
+		"func turnOutputDelta() {",
 		"\tfor range []int{1} {",
 		"\t\tbreak",
 		"\t}",
 		"}",
 	}, "\n"))
-	writeCheckP1SandboxFile(t, root, "internal/apiserver/ignored_test.go", strings.Join([]string{
-		"package apiserver",
+	writeCheckP1SandboxFile(t, root, "internal/provider/codexapp/ignored_test.go", strings.Join([]string{
+		"package codexapp",
 		"",
-		"func threadStatusTerminalFromPayload() {",
+		"func turnOutputDelta() {",
 		"\tfor range []int{1} {",
 		"\t\tbreak",
 		"\t}",
 		"}",
 	}, "\n"))
-	writeCheckP1SandboxFile(t, root, "internal/apiserver/ignored.txt", "func trackedTurnTerminalFromEvent() { for {} }")
+	writeCheckP1SandboxFile(t, root, "internal/provider/codexapp/ignored.txt", "func turnOutputDelta() { for {} }")
 }
 
 func setupCheckP1RejectsOversizedWrapper(t *testing.T, root string) {
 	t.Helper()
-	writeCheckP1SandboxFile(t, root, "internal/apiserver/too_large.go", strings.Join([]string{
-		"package apiserver",
+	writeCheckP1SandboxFile(t, root, "internal/provider/codexapp/too_large.go", strings.Join([]string{
+		"package codexapp",
 		"",
-		"func mergeTrackedTurnCompletionPayload() {",
+		"func turnOutputDelta() {",
 		"\tstep1()",
 		"\tstep2()",
 		"\tstep3()",
@@ -122,10 +126,10 @@ func setupCheckP1RejectsOversizedWrapper(t *testing.T, root string) {
 
 func setupCheckP1RejectsHeavyControlFlow(t *testing.T, root string) {
 	t.Helper()
-	writeCheckP1SandboxFile(t, root, "internal/apiserver/heavy.go", strings.Join([]string{
-		"package apiserver",
+	writeCheckP1SandboxFile(t, root, "internal/provider/codexapp/heavy.go", strings.Join([]string{
+		"package codexapp",
 		"",
-		"func threadStatusTerminalFromPayload() {",
+		"func turnOutputDelta() {",
 		"\tfor range []int{1} {",
 		"\t\tbreak",
 		"\t}",
@@ -135,7 +139,7 @@ func setupCheckP1RejectsHeavyControlFlow(t *testing.T, root string) {
 
 func setupCheckP1ReportsParseErrors(t *testing.T, root string) {
 	t.Helper()
-	writeCheckP1SandboxFile(t, root, "internal/apiserver/broken.go", "package apiserver\n\nfunc trackedTurnTerminalFromEvent( {\n")
+	writeCheckP1SandboxFile(t, root, "internal/provider/codexapp/broken.go", "package codexapp\n\nfunc turnOutputDelta( {\n")
 }
 
 func setupCheckP1MissingGoMod(t *testing.T, root string) {
@@ -223,8 +227,8 @@ func assertCheckP1CollectorShape(t *testing.T, collectDecl *ast.FuncDecl) {
 	if !checkP1FuncCalls(collectDecl, "filepath", "WalkDir") {
 		t.Fatal("collectP1TurnWrapperViolations should keep filepath.WalkDir")
 	}
-	if !checkP1FuncReferencesIdent(collectDecl, "legacyWalkRoot") {
-		t.Fatal("collectP1TurnWrapperViolations should use legacyWalkRoot")
+	if !checkP1FuncReferencesIdent(collectDecl, "wrapperWalkRoot") {
+		t.Fatal("collectP1TurnWrapperViolations should use wrapperWalkRoot")
 	}
 }
 

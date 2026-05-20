@@ -352,14 +352,19 @@ type jstsProjectRootWithinFinder struct {
 // findJSTSProjectRootWithin walks down from root looking for the first
 // directory that contains a JS/TS project marker. Used when no source
 // file path is available (e.g. workspace_symbol with only a language).
-func findJSTSProjectRootWithin(root string) string {
+func findJSTSProjectRootWithin(root string) (string, error) {
 	finder := &jstsProjectRootWithinFinder{}
-	_ = filepath.WalkDir(root, finder.walk)
-	return finder.result
+	if err := filepath.WalkDir(root, finder.walk); err != nil {
+		return "", err
+	}
+	return finder.result, nil
 }
 
 func (f *jstsProjectRootWithinFinder) walk(path string, d os.DirEntry, walkErr error) error {
-	if walkErr != nil || d == nil {
+	if walkErr != nil {
+		return walkErr
+	}
+	if d == nil {
 		return nil
 	}
 	if d.IsDir() {
@@ -391,14 +396,19 @@ type jstsBootstrapFileFinder struct {
 	result string
 }
 
-func findJSTSBootstrapFileWithin(root string) string {
+func findJSTSBootstrapFileWithin(root string) (string, error) {
 	finder := &jstsBootstrapFileFinder{}
-	_ = filepath.WalkDir(root, finder.walk)
-	return finder.result
+	if err := filepath.WalkDir(root, finder.walk); err != nil {
+		return "", err
+	}
+	return finder.result, nil
 }
 
 func (f *jstsBootstrapFileFinder) walk(path string, d os.DirEntry, walkErr error) error {
-	if walkErr != nil || d == nil {
+	if walkErr != nil {
+		return walkErr
+	}
+	if d == nil {
 		return nil
 	}
 	if d.IsDir() {
@@ -469,14 +479,19 @@ type javaProjectRootWithinFinder struct {
 	result string
 }
 
-func findJavaProjectRootWithin(root string) string {
+func findJavaProjectRootWithin(root string) (string, error) {
 	finder := &javaProjectRootWithinFinder{}
-	_ = filepath.WalkDir(root, finder.walk)
-	return finder.result
+	if err := filepath.WalkDir(root, finder.walk); err != nil {
+		return "", err
+	}
+	return finder.result, nil
 }
 
 func (f *javaProjectRootWithinFinder) walk(path string, d os.DirEntry, walkErr error) error {
-	if walkErr != nil || d == nil {
+	if walkErr != nil {
+		return walkErr
+	}
+	if d == nil {
 		return nil
 	}
 	if d.IsDir() {
@@ -503,14 +518,19 @@ type javaBootstrapFileFinder struct {
 	result string
 }
 
-func findJavaBootstrapFileWithin(root string) string {
+func findJavaBootstrapFileWithin(root string) (string, error) {
 	finder := &javaBootstrapFileFinder{}
-	_ = filepath.WalkDir(root, finder.walk)
-	return finder.result
+	if err := filepath.WalkDir(root, finder.walk); err != nil {
+		return "", err
+	}
+	return finder.result, nil
 }
 
 func (f *javaBootstrapFileFinder) walk(path string, d os.DirEntry, walkErr error) error {
-	if walkErr != nil || d == nil {
+	if walkErr != nil {
+		return walkErr
+	}
+	if d == nil {
 		return nil
 	}
 	if d.IsDir() {

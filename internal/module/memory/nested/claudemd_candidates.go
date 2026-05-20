@@ -3,6 +3,7 @@ package nested
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -11,8 +12,8 @@ import (
 	"strings"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
+	memshared "github.com/anthropic-ai/super-agent-v3/internal/module/memory/shared"
 	"github.com/anthropic-ai/super-agent-v3/internal/util/pathutil"
-	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
 type claudeRuleMetadata struct {
@@ -49,16 +50,24 @@ func digestClaudeMdCandidates(candidates []claudeMdCandidate) string {
 	return hex.EncodeToString(hasher.Sum(nil))
 }
 
-func resolveClaudeMdCandidates(cfg ClaudeMdResolveConfig, gate GateSnapshot) []claudeMdCandidate {
+func resolveClaudeMdCandidates(cfg ClaudeMdResolveConfig, gate GateSnapshot) ([]claudeMdCandidate, error) {
 	seen := make(map[string]struct{}, 16)
 	candidates := make([]claudeMdCandidate, 0, 16)
-	appendManagedClaudeMdCandidates(&candidates, seen, cfg)
-	appendUserClaudeMdCandidates(&candidates, seen, cfg)
+	if err := appendManagedClaudeMdCandidates(&candidates, seen, cfg); err != nil {
+		return nil, err
+	}
+	if err := appendUserClaudeMdCandidates(&candidates, seen, cfg); err != nil {
+		return nil, err
+	}
 	if !gate.BareMode {
-		appendProjectClaudeMdCandidates(&candidates, seen, cfg)
+		if err := appendProjectClaudeMdCandidates(&candidates, seen, cfg); err != nil {
+			return nil, err
+		}
 	}
 	if !gate.BareMode || gate.HasAdditionalDirsForBare {
-		appendAdditionalDirClaudeMdCandidates(&candidates, seen, cfg)
+		if err := appendAdditionalDirClaudeMdCandidates(&candidates, seen, cfg); err != nil {
+			return nil, err
+		}
 	}
 	// Phase 1.6: AutoMem / TeamMem MEMORY.md are NOT appended here anymore.
 	// MemoryEntrypointProvider (in the parent memory package) is the sole
@@ -69,66 +78,94 @@ func resolveClaudeMdCandidates(cfg ClaudeMdResolveConfig, gate GateSnapshot) []c
 	// Do NOT re-add via nested unless sanitization (BOM / frontmatter / HTML
 	// comments / truncation) and team secret scanning are unified with
 	// MemoryEntrypointProvider; otherwise the divergence regresses.
-	return candidates
+	return candidates, nil
 }
 
-func appendManagedClaudeMdCandidates(candidates *[]claudeMdCandidate, seen map[string]struct{}, cfg ClaudeMdResolveConfig) {
+func appendManagedClaudeMdCandidates(candidates *[]claudeMdCandidate, seen map[string]struct{}, cfg ClaudeMdResolveConfig) error {
 	for _, root := range managedClaudeMdRoots(cfg) {
-		appendProjectStyleCandidates(candidates, seen, root, sourceTypeManaged, sourceOriginManaged, false)
+		if err := appendProjectStyleCandidates(candidates, seen, root, sourceTypeManaged, sourceOriginManaged, false); err != nil {
+			return err
+		}
 	}
+	return nil
 }
 
-func appendUserClaudeMdCandidates(candidates *[]claudeMdCandidate, seen map[string]struct{}, cfg ClaudeMdResolveConfig) {
+func appendUserClaudeMdCandidates(candidates *[]claudeMdCandidate, seen map[string]struct{}, cfg ClaudeMdResolveConfig) error {
 	root := strings.TrimSpace(cfg.UserRoot)
 	if root == "" {
 		root = defaultUserClaudeMdRoot()
 	}
-	appendProjectStyleCandidates(candidates, seen, root, sourceTypeUser, sourceOriginUser, false)
+	return appendProjectStyleCandidates(candidates, seen, root, sourceTypeUser, sourceOriginUser, false)
 }
 
-func appendProjectClaudeMdCandidates(candidates *[]claudeMdCandidate, seen map[string]struct{}, cfg ClaudeMdResolveConfig) {
+func appendProjectClaudeMdCandidates(candidates *[]claudeMdCandidate, seen map[string]struct{}, cfg ClaudeMdResolveConfig) error {
 	for _, dir := range ancestorWalkDirs(cfg.BuildCtx.GitRoot, cfg.BuildCtx.CWD) {
-		appendProjectStyleCandidates(candidates, seen, dir, sourceTypeProject, sourceOriginProject, true)
+		if err := appendProjectStyleCandidates(candidates, seen, dir, sourceTypeProject, sourceOriginProject, true); err != nil {
+			return err
+		}
 	}
+	return nil
 }
 
-func appendAdditionalDirClaudeMdCandidates(candidates *[]claudeMdCandidate, seen map[string]struct{}, cfg ClaudeMdResolveConfig) {
+func appendAdditionalDirClaudeMdCandidates(candidates *[]claudeMdCandidate, seen map[string]struct{}, cfg ClaudeMdResolveConfig) error {
 	if !parseBoolEnv(envAdditionalDirectoriesClaudeMd, false) {
-		return
+		return nil
 	}
 	for _, dir := range normalizeStringSlice(cfg.BuildCtx.AdditionalWorkingDirectories) {
-		appendProjectStyleCandidates(candidates, seen, dir, sourceTypeProject, sourceOriginAddDir, true)
+		if err := appendProjectStyleCandidates(candidates, seen, dir, sourceTypeProject, sourceOriginAddDir, true); err != nil {
+			return err
+		}
 	}
+	return nil
 }
 
-func appendProjectStyleCandidates(candidates *[]claudeMdCandidate, seen map[string]struct{}, dir, sourceType, origin string, includeLocal bool) {
+func appendProjectStyleCandidates(candidates *[]claudeMdCandidate, seen map[string]struct{}, dir, sourceType, origin string, includeLocal bool) error {
 	dir = strings.TrimSpace(dir)
 	if dir == "" {
-		return
+		return nil
 	}
 	baseDir := cleanClaudeMdPath(dir)
-	appendClaudeMdCandidateAtPath(candidates, seen, filepath.Join(baseDir, claudeMdFileName), sourceType, origin, baseDir, "", false)
-	appendClaudeMdCandidateAtPath(candidates, seen, filepath.Join(baseDir, ".claude", claudeMdFileName), sourceType, origin, baseDir, "", false)
-	appendRuleCandidates(candidates, seen, filepath.Join(baseDir, ".claude", "rules"), sourceType, origin, baseDir)
+	if err := appendClaudeMdCandidateAtPath(candidates, seen, filepath.Join(baseDir, claudeMdFileName), sourceType, origin, baseDir, "", false); err != nil {
+		return err
+	}
+	if err := appendClaudeMdCandidateAtPath(candidates, seen, filepath.Join(baseDir, ".claude", claudeMdFileName), sourceType, origin, baseDir, "", false); err != nil {
+		return err
+	}
+	if err := appendRuleCandidates(candidates, seen, filepath.Join(baseDir, ".claude", "rules"), sourceType, origin, baseDir); err != nil {
+		return err
+	}
 	if includeLocal {
-		appendClaudeMdCandidateAtPath(candidates, seen, filepath.Join(baseDir, claudeLocalMdFileName), sourceTypeLocal, origin, baseDir, "", false)
+		if err := appendClaudeMdCandidateAtPath(candidates, seen, filepath.Join(baseDir, claudeLocalMdFileName), sourceTypeLocal, origin, baseDir, "", false); err != nil {
+			return err
+		}
 	}
+	return nil
 }
 
-func appendRuleCandidates(candidates *[]claudeMdCandidate, seen map[string]struct{}, root, sourceType, origin, baseDir string) {
-	for _, path := range ruleMarkdownFiles(root) {
-		appendClaudeMdCandidateAtPath(candidates, seen, path, sourceType, origin, baseDir, origin, true)
+func appendRuleCandidates(candidates *[]claudeMdCandidate, seen map[string]struct{}, root, sourceType, origin, baseDir string) error {
+	files, err := ruleMarkdownFiles(root)
+	if err != nil {
+		return err
 	}
+	for _, path := range files {
+		if err := appendClaudeMdCandidateAtPath(candidates, seen, path, sourceType, origin, baseDir, origin, true); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
-func appendClaudeMdCandidateAtPath(candidates *[]claudeMdCandidate, seen map[string]struct{}, path, sourceType, origin, baseDir, ruleScope string, isRule bool) {
-	appendClaudeMdCandidate(candidates, seen, claudeMdCandidate{Path: path, Type: sourceType, Origin: origin, BaseDir: baseDir, RuleScope: ruleScope, IsRule: isRule})
+func appendClaudeMdCandidateAtPath(candidates *[]claudeMdCandidate, seen map[string]struct{}, path, sourceType, origin, baseDir, ruleScope string, isRule bool) error {
+	return appendClaudeMdCandidate(candidates, seen, claudeMdCandidate{Path: path, Type: sourceType, Origin: origin, BaseDir: baseDir, RuleScope: ruleScope, IsRule: isRule})
 }
 
-func appendClaudeMdCandidate(candidates *[]claudeMdCandidate, seen map[string]struct{}, candidate claudeMdCandidate) {
-	resolvedPath, digest, ok := resolveClaudeMdCandidatePath(candidate.Path)
+func appendClaudeMdCandidate(candidates *[]claudeMdCandidate, seen map[string]struct{}, candidate claudeMdCandidate) error {
+	resolvedPath, digest, ok, err := resolveClaudeMdCandidatePath(candidate.Path)
+	if err != nil {
+		return err
+	}
 	if !ok {
-		return
+		return nil
 	}
 	// Phase 2.1.B: resolveClaudeMdCandidatePath EvalSymlinks the path but
 	// does NOT confirm the resolved location stays inside the candidate's
@@ -143,36 +180,47 @@ func appendClaudeMdCandidate(candidates *[]claudeMdCandidate, seen map[string]st
 		resolvedBase := candidate.BaseDir
 		if evaled, err := filepath.EvalSymlinks(candidate.BaseDir); err == nil {
 			resolvedBase = evaled
+		} else {
+			return fmt.Errorf("ClaudeMd base resolve %q: %w", candidate.BaseDir, err)
 		}
 		if !pathutil.ContainsPath(resolvedBase, resolvedPath) {
-			return
+			return fmt.Errorf("ClaudeMd candidate containment %q under %q: %w", resolvedPath, resolvedBase, memshared.ErrSafeReadContainment)
 		}
 	}
 	if _, exists := seen[resolvedPath]; exists {
-		return
+		return nil
 	}
 	seen[resolvedPath] = struct{}{}
 	candidate.Path = resolvedPath
 	candidate.Digest = digest
 	*candidates = append(*candidates, candidate)
+	return nil
 }
 
-func resolveClaudeMdCandidatePath(path string) (string, string, bool) {
+func resolveClaudeMdCandidatePath(path string) (string, string, bool, error) {
 	path = cleanClaudeMdPath(path)
 	if path == "" {
-		return "", "", false
+		return "", "", false, nil
 	}
 	info, err := os.Stat(path)
-	if err != nil || info.IsDir() {
-		return "", "", false
+	if err != nil {
+		if os.IsNotExist(err) {
+			return "", "", false, nil
+		}
+		return "", "", false, fmt.Errorf("ClaudeMd candidate stat %q: %w", path, err)
+	}
+	if info.IsDir() {
+		return "", "", false, nil
 	}
 	resolved := path
 	if symlinked, err := filepath.EvalSymlinks(path); err == nil {
 		resolved = cleanClaudeMdPath(symlinked)
+	} else {
+		return "", "", false, fmt.Errorf("ClaudeMd candidate resolve %q: %w", path, err)
 	}
 	digestInput := resolved + "\n" + info.ModTime().UTC().Format(timeLayoutRFC3339Nano) + "\n" + int64String(info.Size())
 	digest := sha256.Sum256([]byte(digestInput))
-	return resolved, hex.EncodeToString(digest[:]), true
+	return resolved, hex.EncodeToString(digest[:]), true, nil
 }
 
 func ancestorWalkDirs(root, cwd string) []string {
@@ -201,14 +249,23 @@ func ancestorWalkDirs(root, cwd string) []string {
 	return stack
 }
 
-func ruleMarkdownFiles(root string) []string {
+func ruleMarkdownFiles(root string) ([]string, error) {
 	root = cleanClaudeMdPath(root)
 	if root == "" {
-		return nil
+		return nil, nil
+	}
+	if _, statFailure := os.Stat(root); statFailure != nil {
+		if os.IsNotExist(statFailure) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("nested rule markdown stat %q: %w", root, statFailure)
 	}
 	files := make([]string, 0, 8)
 	if err := filepath.WalkDir(root, func(path string, entry os.DirEntry, err error) error {
-		if err != nil || entry == nil || entry.IsDir() {
+		if err != nil {
+			return err
+		}
+		if entry == nil || entry.IsDir() {
 			return nil
 		}
 		if strings.EqualFold(filepath.Ext(entry.Name()), ".md") {
@@ -216,10 +273,10 @@ func ruleMarkdownFiles(root string) []string {
 		}
 		return nil
 	}); err != nil {
-		pkglogger.Warn("nested: rule markdown walk failed", "root", root, "error", err)
+		return nil, fmt.Errorf("nested rule markdown walk %q: %w", root, err)
 	}
 	sort.Strings(files)
-	return files
+	return files, nil
 }
 
 func managedClaudeMdRoots(cfg ClaudeMdResolveConfig) []string {

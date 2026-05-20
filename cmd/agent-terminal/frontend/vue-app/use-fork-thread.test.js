@@ -20,6 +20,8 @@ function makeCtx({
   sourceRuntime = null,
   withSendMessage = true,
   sendMessageImpl = null,
+  activeProject = '/repo',
+  windowCwd = '',
 } = {}) {
   const composer = {
     forkDraft: reactive({ active: true, sharedFilePaths: [...sharedFilePaths], origin: '' }),
@@ -38,7 +40,7 @@ function makeCtx({
   if (withSendMessage) {
     threadStore.sendMessage = vi.fn(sendMessageImpl || (async () => {}));
   }
-  const projectStore = { state: reactive({ active: '/repo' }) };
+  const projectStore = { state: reactive({ active: activeProject }) };
   return {
     composer,
     threadStore,
@@ -46,6 +48,7 @@ function makeCtx({
     selectedThreadId: ref('src-thread'),
     activeThread: ref({ id: 'src-thread', name: threadName }),
     isCmd: ref(false),
+    windowCwd,
   };
 }
 
@@ -90,6 +93,19 @@ describe('useForkThread.submit', () => {
     expect(ctx.composer.closeForkDraft).toHaveBeenCalledOnce();
   });
 
+  it('uses the window cwd when the active project is dot', async () => {
+    const ctx = makeCtx({
+      activeProject: '.',
+      windowCwd: '/worktrees/fork',
+      timeline: [{ role: 'user', text: 'first message' }],
+    });
+
+    const { submit } = useForkThread(ctx);
+    await submit();
+
+    expect(ctx.threadStore.startThread.mock.calls[0][0]).toBe('/worktrees/fork');
+  });
+
   it('loads shared files via callAPI and includes them in baseInstructions', async () => {
     vi.mocked(callAPI).mockImplementation(async (method, params) => {
       if (method === 'ui/memory/shared-file/get') {
@@ -113,7 +129,7 @@ describe('useForkThread.submit', () => {
     expect(opts.baseInstructions).toContain('content for notes/a.md');
   });
 
-  it('proceeds with summary when some shared files fail to load', async () => {
+  it('fails fast when a selected shared file fails to load', async () => {
     vi.mocked(callAPI).mockImplementation(async (method, params) => {
       if (params.path === 'good.md') return { path: 'good.md', content: 'good content' };
       throw new Error('not found');
@@ -122,12 +138,10 @@ describe('useForkThread.submit', () => {
       timeline: [{ role: 'user', text: 'hi' }],
       sharedFilePaths: ['good.md', 'bad.md'],
     });
-    const { submit } = useForkThread(ctx);
-    const id = await submit();
-    expect(id).toBe('new-thread-id');
-    const [, opts] = ctx.threadStore.startThread.mock.calls[0];
-    expect(opts.baseInstructions).toContain('共享文件：good.md');
-    expect(opts.baseInstructions).not.toContain('共享文件：bad.md');
+    const { submit, error } = useForkThread(ctx);
+    await expect(submit()).rejects.toThrow('not found');
+    expect(error.value).toContain('not found');
+    expect(ctx.threadStore.startThread).not.toHaveBeenCalled();
   });
 
   it('does not call closeForkDraft when startThread returns empty id', async () => {

@@ -21,8 +21,8 @@ type ProviderModels struct {
 }
 
 type Registry interface {
-	ListProviders() []ProviderModels
-	LookupProvider(name string) (ProviderModels, bool)
+	ListProviders() ([]ProviderModels, error)
+	LookupProvider(name string) (ProviderModels, bool, error)
 }
 
 type FileRegistry struct {
@@ -80,20 +80,19 @@ func NewStaticRegistry(providers []ProviderModels) StaticRegistry {
 	return StaticRegistry{providers: cloneProviders(providers)}
 }
 
-func (r *FileRegistry) ListProviders() []ProviderModels {
+func (r *FileRegistry) ListProviders() ([]ProviderModels, error) {
 	if err := r.Reload(); err != nil {
-		r.logReloadError(err)
+		return nil, err
 	}
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-	return cloneProviders(r.providers)
+	return r.snapshot(), nil
 }
 
-func (r *FileRegistry) LookupProvider(name string) (ProviderModels, bool) {
+func (r *FileRegistry) LookupProvider(name string) (ProviderModels, bool, error) {
 	if err := r.Reload(); err != nil {
-		r.logReloadError(err)
+		return ProviderModels{}, false, err
 	}
-	return lookupProvider(r.snapshot(), name)
+	provider, ok := lookupProvider(r.snapshot(), name)
+	return provider, ok, nil
 }
 
 func (r *FileRegistry) Path() string {
@@ -111,28 +110,19 @@ func (r *FileRegistry) Reload() error {
 	return nil
 }
 
-func (r *FileRegistry) logReloadError(err error) {
-	if r.logger == nil {
-		return
-	}
-	r.logger.Warn("model registry reload failed; keeping previous providers",
-		slog.String("path", r.path),
-		slog.String("error", err.Error()),
-	)
-}
-
 func (r *FileRegistry) snapshot() []ProviderModels {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	return cloneProviders(r.providers)
 }
 
-func (r StaticRegistry) ListProviders() []ProviderModels {
-	return cloneProviders(r.providers)
+func (r StaticRegistry) ListProviders() ([]ProviderModels, error) {
+	return cloneProviders(r.providers), nil
 }
 
-func (r StaticRegistry) LookupProvider(name string) (ProviderModels, bool) {
-	return lookupProvider(r.providers, name)
+func (r StaticRegistry) LookupProvider(name string) (ProviderModels, bool, error) {
+	provider, ok := lookupProvider(r.providers, name)
+	return provider, ok, nil
 }
 
 func DefaultRegistryPath() string {

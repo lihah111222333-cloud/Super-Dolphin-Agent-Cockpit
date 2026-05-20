@@ -284,12 +284,12 @@ type historyTestSessionProvider struct {
 
 func (p *historyTestSessionProvider) GetSession(agentID string) (contract.Session, error) {
 	if p.sessions == nil {
-		return nil, errors.New("session not found")
+		return nil, contract.ErrSessionNotFound
 	}
 	if session, ok := p.sessions[strings.TrimSpace(agentID)]; ok {
 		return session, nil
 	}
-	return nil, errors.New("session not found")
+	return nil, contract.ErrSessionNotFound
 }
 
 func (p *historyTestSessionProvider) RemoveSession(string) {}

@@ -17,6 +17,7 @@ import (
 	threadstore "github.com/anthropic-ai/super-agent-v3/internal/store/thread"
 	"github.com/anthropic-ai/super-agent-v3/internal/util"
 	"github.com/anthropic-ai/super-agent-v3/internal/util/clone"
+	"github.com/anthropic-ai/super-agent-v3/internal/util/configutil"
 	"github.com/anthropic-ai/super-agent-v3/internal/util/identifier"
 )
 
@@ -186,15 +187,15 @@ func injectParentCodexIdentity(cfg map[string]any, parent *bindingstore.Binding)
 		cfg = make(map[string]any)
 	}
 	injected := false
-	if firstConfigString(cfg, "codexHome") == "" {
+	if configutil.ConfigString(cfg, "codexHome") == "" {
 		cfg["codexHome"] = home
 		injected = true
 	}
-	if firstConfigString(cfg, "codexInstanceKey") == "" {
+	if configutil.ConfigString(cfg, "codexInstanceKey") == "" {
 		cfg["codexInstanceKey"] = instanceKey
 		injected = true
 	}
-	if firstConfigString(cfg, "codexModelProvider") == "" {
+	if configutil.ConfigString(cfg, "codexModelProvider") == "" {
 		cfg["codexModelProvider"] = modelProvider
 		injected = true
 	}
@@ -276,7 +277,10 @@ func (s *service) lookupBindingCWD(ctx context.Context, agentID string) string {
 }
 
 func (s *service) ReadThreadStateRuntimeConfig(ctx context.Context, threadID string) (map[string]any, error) {
-	binding, _ := s.resolveBinding(ctx, threadID)
+	binding, err := s.resolveBinding(ctx, threadID)
+	if err != nil {
+		return nil, err
+	}
 	offline, err := s.buildOfflineConfig(ctx, threadID, binding)
 	if err != nil {
 		return nil, err
@@ -518,19 +522,17 @@ func toRef(thread threadstore.Thread) Ref {
 }
 
 func normalizeThreadID(threadID string) (string, error) {
-	id := strings.TrimSpace(threadID)
-	if id == "" {
-		return "", errors.New("thread id is required")
+	if id := strings.TrimSpace(threadID); id != "" {
+		return id, nil
 	}
-	return id, nil
+	return "", errors.New("thread id is required")
 }
 
 func agentIDFromBinding(binding *bindingstore.Binding, fallback string) string {
-	if binding == nil {
-		return strings.TrimSpace(fallback)
-	}
-	if agentID := strings.TrimSpace(binding.AgentID); agentID != "" {
-		return agentID
+	if binding != nil {
+		if agentID := strings.TrimSpace(binding.AgentID); agentID != "" {
+			return agentID
+		}
 	}
 	return strings.TrimSpace(fallback)
 }
@@ -551,10 +553,19 @@ func pageCount(totalCount, limit int) int {
 
 func (s *service) readMessagesSource(ctx context.Context, threadID string, binding *bindingstore.Binding) ([]dto.Message, error) {
 	session, err := s.sessionForBinding(binding)
-	if err == nil {
+	if err == nil && session != nil {
 		return session.ReadHistory(ctx, historyTargetID(binding, threadID), 0)
 	}
-	return s.readPersistedMessages(ctx, threadID, binding)
+	if err == nil {
+		err = contract.ErrSessionNotFound
+	} else if !errors.Is(err, contract.ErrSessionNotFound) {
+		return nil, err
+	}
+	req := historyjsonl.ReadRequest{ThreadID: strings.TrimSpace(threadID)}
+	if binding != nil {
+		req = historyjsonl.ReadRequest{Provider: binding.Provider, RolloutPath: binding.RolloutPath, ThreadID: util.FirstNonEmpty(binding.CodexThreadID, threadID), ProviderThreadID: binding.ProviderThreadID, SessionUUID: binding.SessionUUID, CodexHome: binding.CodexHome}
+	}
+	return historyjsonl.ReadProviderMessagesOrError(req, err)
 }
 
 func (s *service) sessionForBinding(binding *bindingstore.Binding) (contract.Session, error) {
@@ -565,21 +576,4 @@ func (s *service) sessionForBinding(binding *bindingstore.Binding) (contract.Ses
 		return nil, errors.New("session provider is not configured")
 	}
 	return s.sessions.GetSession(strings.TrimSpace(binding.AgentID))
-}
-
-func (s *service) readPersistedMessages(ctx context.Context, threadID string, binding *bindingstore.Binding) ([]dto.Message, error) {
-	if _, err := s.getThread(ctx, threadID); err != nil {
-		return nil, err
-	}
-	if binding == nil {
-		return nil, errors.New("thread binding is not configured")
-	}
-	return historyjsonl.ReadProviderMessages(historyjsonl.ReadRequest{
-		Provider:         binding.Provider,
-		RolloutPath:      binding.RolloutPath,
-		ThreadID:         threadID,
-		ProviderThreadID: binding.ProviderThreadID,
-		SessionUUID:      binding.SessionUUID,
-		CodexHome:        binding.CodexHome,
-	})
 }

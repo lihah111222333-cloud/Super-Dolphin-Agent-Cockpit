@@ -164,7 +164,7 @@ func resolveAgentIDForStop(
 			stopSpawnedAgentMetrics.Inc(StopResultSkippedNoThreadID)
 			logger.Warn("stop_helper: thread not found during reverse lookup",
 				"thread_id", threadID, "err", err)
-			return "", StopResultSkippedNoThreadID, nil
+			return "", StopResultSkippedNoThreadID, err
 		}
 		stopSpawnedAgentMetrics.Inc(StopResultSkippedLookupFailed)
 		logger.Warn("stop_helper: thread lookup failed",

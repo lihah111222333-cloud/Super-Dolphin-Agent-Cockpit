@@ -116,14 +116,13 @@ func SearchAST(ctx context.Context, opts ASTSearchOptions) ([]SearchMatch, error
 	cmd.Dir = pathInfo.Root
 	output, err := cmd.Output()
 	if err != nil {
-		// sg exits with code 1 when no matches are found; treat as empty.
 		var exitErr *exec.ExitError
 		if errors.As(err, &exitErr) && exitErr.ExitCode() == 1 {
-			return nil, nil
+			return []SearchMatch{}, nil
 		}
 		return nil, fmt.Errorf("sg run: %w", err)
 	}
-	return decodeSGMatches(output, pathInfo.Root), nil
+	return decodeSGMatches(output, pathInfo.Root)
 }
 
 func FilterAndCapSearchMatches(matches []SearchMatch, maxResults int) ([]SearchMatch, int, bool) {
@@ -187,7 +186,10 @@ func walkSearchEntry(
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	if walkErr != nil || entry == nil {
+	if walkErr != nil {
+		return walkErr
+	}
+	if entry == nil {
 		return nil
 	}
 	if entry.IsDir() {
@@ -201,7 +203,7 @@ func walkSearchEntry(
 	}
 	found, err := searchTextFile(ctx, root, candidate, glob, maxFileBytes, matcher)
 	if err != nil {
-		return nil
+		return err
 	}
 	*results = append(*results, found...)
 	return nil
@@ -312,19 +314,19 @@ func runSGKindSearch(ctx context.Context, kind, language, absPath, root, glob st
 	if err != nil {
 		var exitErr *exec.ExitError
 		if errors.As(err, &exitErr) && exitErr.ExitCode() == 1 {
-			return nil, nil
+			return []SearchMatch{}, nil
 		}
 		return nil, fmt.Errorf("sg scan: %w", err)
 	}
 	// sg scan --json outputs a JSON array, not NDJSON like sg run --json=stream.
-	return decodeSGScanMatches(output, root), nil
+	return decodeSGScanMatches(output, root)
 }
 
 // decodeSGScanMatches parses the JSON array output from `sg scan --json`.
-func decodeSGScanMatches(output []byte, root string) []SearchMatch {
+func decodeSGScanMatches(output []byte, root string) ([]SearchMatch, error) {
 	var items []sgStreamMatch
 	if err := json.Unmarshal(output, &items); err != nil {
-		return nil
+		return nil, fmt.Errorf("decode sg scan json: %w", err)
 	}
 	results := make([]SearchMatch, 0, len(items))
 	for _, item := range items {
@@ -341,17 +343,17 @@ func decodeSGScanMatches(output []byte, root string) []SearchMatch {
 			Text:    collapseSnippet(item.Lines, item.Text),
 		})
 	}
-	return results
+	return results, nil
 }
 
-func decodeSGMatches(output []byte, root string) []SearchMatch {
+func decodeSGMatches(output []byte, root string) ([]SearchMatch, error) {
 	scanner := bufio.NewScanner(strings.NewReader(string(output)))
 	scanner.Buffer(make([]byte, 0, 64*1024), 2<<20)
 	results := make([]SearchMatch, 0, 16)
 	for scanner.Scan() {
 		var item sgStreamMatch
 		if err := json.Unmarshal(scanner.Bytes(), &item); err != nil {
-			continue
+			return nil, fmt.Errorf("decode sg stream json: %w", err)
 		}
 		absPath := item.File
 		if !filepath.IsAbs(absPath) {
@@ -366,7 +368,10 @@ func decodeSGMatches(output []byte, root string) []SearchMatch {
 			Text:    collapseSnippet(item.Lines, item.Text),
 		})
 	}
-	return results
+	if err := scanner.Err(); err != nil {
+		return nil, fmt.Errorf("read sg stream json: %w", err)
+	}
+	return results, nil
 }
 
 func matchesPathGlob(root, candidate, rawGlob string) bool {

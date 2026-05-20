@@ -118,11 +118,16 @@ func (c *Client) sendHeartbeat(ctx context.Context, timeout time.Duration) (bool
 		ObservedConfigVersion: c.currentConfigVersion(),
 	}
 	var resp mcp.HeartbeatResponse
+	leaseRejected := false
 	if err := conn.CallResult(callCtx, mcp.MethodHeartbeat, req, &resp); err != nil {
 		if isLeaseRejectedErr(err) {
-			return true, 0, nil
+			leaseRejected = true
+		} else {
+			return false, 0, err
 		}
-		return false, 0, err
+	}
+	if leaseRejected {
+		return true, 0, nil
 	}
 	c.mu.Lock()
 	c.configVersion = resp.ConfigVersion

@@ -6,6 +6,7 @@ const stores = vi.hoisted(() => ({
   projectStore: {
     state: { active: '/repo' },
     reloadProjects: vi.fn(async () => {}),
+    setScopeCwd: vi.fn(),
     addProject: vi.fn(async () => {}),
     setActive: vi.fn(async () => {}),
   },
@@ -93,12 +94,46 @@ const flush = async (times = 16) => {
   }
 };
 
+function dashboardPayload(overrides = {}) {
+  return {
+    agents: [],
+    dags: [],
+    taskAcks: [],
+    taskTraces: [],
+    skills: [],
+    commandCards: [],
+    prompts: [],
+    memory: [],
+    finalOutputRefs: [],
+    sharedFileRetention: { items: [], protectedCount: 0, cleanupCandidateCount: 0 },
+    ...overrides,
+  };
+}
+
+function memoryCenterPayload(overrides = {}) {
+  return {
+    overview: {},
+    private: { entries: [] },
+    team: { entries: [] },
+    ...overrides,
+  };
+}
+
+function defaultAppAPI(method) {
+  if (method === 'ui/windowBootstrap/get') return { snapshot: null };
+  if (method === 'ui/dashboard/get') return dashboardPayload();
+  if (method === 'ui/memory/get') return memoryCenterPayload();
+  if (method === 'skills/candidate/list/pending') return { candidates: [] };
+  return {};
+}
+
 beforeEach(() => {
   hooks.mounted.length = 0;
   hooks.unmounted.length = 0;
 
   stores.projectStore.state = reactive({ active: '/repo' });
   stores.projectStore.reloadProjects.mockReset().mockResolvedValue(undefined);
+  stores.projectStore.setScopeCwd.mockReset();
   stores.projectStore.addProject.mockReset().mockResolvedValue(undefined);
   stores.projectStore.setActive.mockReset().mockImplementation(async (cwd) => {
     stores.projectStore.state.active = cwd;
@@ -112,7 +147,7 @@ beforeEach(() => {
   stores.threadStore.startThread.mockReset().mockResolvedValue('thread-new');
   stores.threadStore.sendMessage.mockReset().mockResolvedValue(undefined);
 
-  apiMock.callAPI.mockReset();
+  apiMock.callAPI.mockReset().mockImplementation(async (method) => defaultAppAPI(method));
   apiMock.getBuildInfo.mockReset();
   apiMock.agentCb = null;
   apiMock.bridgeCb = null;
@@ -125,6 +160,7 @@ beforeEach(() => {
   historyMock.ensureThreadSelectionFresh.mockReset().mockResolvedValue({ requestedHistory: false, syncedThreadState: false, forcedHistoryReload: false });
 
   vi.stubGlobal('window', {
+    location: { search: '' },
     addEventListener: vi.fn(),
     removeEventListener: vi.fn(),
   });
@@ -143,7 +179,7 @@ describe('AppRoot behavior', () => {
     apiMock.getBuildInfo.mockResolvedValueOnce({ version: '1.0.0' });
     apiMock.callAPI.mockImplementation(async (method) => {
       if (method === 'config/read') return { cwd: '/window' };
-      return {};
+      return defaultAppAPI(method);
     });
 
     const vm = AppRoot.setup();
@@ -167,11 +203,45 @@ describe('AppRoot behavior', () => {
     expect(globalThis.clearInterval).toHaveBeenCalledWith(42);
   });
 
+  it('surfaces bootstrap failures in fatal state', async () => {
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
+    apiMock.getBuildInfo.mockResolvedValueOnce({ version: '1.0.0' });
+    apiMock.callAPI.mockImplementation(async (method) => {
+      if (method === 'config/read') throw new Error('config unavailable');
+      return defaultAppAPI(method);
+    });
+
+    const vm = AppRoot.setup();
+    hooks.mounted.forEach((fn) => fn());
+    await flush();
+
+    expect(vm.bootstrapError.value).toBe('config unavailable');
+    expect(stores.projectStore.reloadProjects).not.toHaveBeenCalled();
+    expect(consoleError).toHaveBeenCalledWith('bootstrap failed:', expect.any(Error));
+  });
+
+  it('surfaces malformed window bootstrap responses in fatal state', async () => {
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
+    apiMock.getBuildInfo.mockResolvedValueOnce({ version: '1.0.0' });
+    apiMock.callAPI.mockImplementation(async (method) => {
+      if (method === 'config/read') return { cwd: '/window' };
+      if (method === 'ui/windowBootstrap/get') return {};
+      return defaultAppAPI(method);
+    });
+
+    const vm = AppRoot.setup();
+    hooks.mounted.forEach((fn) => fn());
+    await flush();
+
+    expect(vm.bootstrapError.value).toBe('window bootstrap response snapshot is required');
+    expect(consoleError).toHaveBeenCalledWith('bootstrap failed:', expect.any(Error));
+  });
+
   it('uses the runtime cwd as thread scope when the active project is dot', async () => {
     stores.projectStore.state.active = '.';
     apiMock.callAPI.mockImplementation(async (method) => {
       if (method === 'config/read') return { cwd: '/window-root' };
-      return {};
+      return defaultAppAPI(method);
     });
 
     AppRoot.setup();
@@ -179,6 +249,23 @@ describe('AppRoot behavior', () => {
     await flush();
 
     expect(stores.threadStore.setPreferenceScopeCwd).toHaveBeenCalledWith('/window-root');
+  });
+
+  it('prefers the Wails window cwd query over the process cwd from config/read', async () => {
+    stores.projectStore.state.active = '.';
+    globalThis.window.location.search = '?ao_window_cwd=%2Fworktrees%2Ffeature-a';
+    apiMock.callAPI.mockImplementation(async (method) => {
+      if (method === 'config/read') return { cwd: '/old-process-cwd' };
+      return defaultAppAPI(method);
+    });
+
+    const vm = AppRoot.setup();
+    hooks.mounted.forEach((fn) => fn());
+    await flush();
+
+    expect(vm.windowCwd.value).toBe('/worktrees/feature-a');
+    expect(vm.currentCwdDisplay.value).toBe('当前窗口 CWD：/worktrees/feature-a');
+    expect(stores.threadStore.setPreferenceScopeCwd).toHaveBeenCalledWith('/worktrees/feature-a');
   });
 
   it('runs command cards through an ensured active thread', async () => {
@@ -193,14 +280,32 @@ describe('AppRoot behavior', () => {
     expect(vm.page.value).toBe('chat');
   });
 
+  it('runs command cards from dot project scope through the window cwd', async () => {
+    stores.projectStore.state.active = '.';
+    stores.threadStore.state.activeThreadId = '';
+    globalThis.window.location.search = '?ao_window_cwd=%2Fworktrees%2Fcommand';
+    apiMock.callAPI.mockImplementation(async (method) => {
+      if (method === 'config/read') return { cwd: '/old-process-cwd' };
+      return defaultAppAPI(method);
+    });
+    const vm = AppRoot.setup();
+    hooks.mounted.forEach((fn) => fn());
+    await flush();
+    vm.page.value = 'commands';
+
+    await vm.runCommandCard({ command_template: 'echo hello' });
+
+    expect(stores.threadStore.startThread).toHaveBeenCalledWith('/worktrees/command');
+  });
+
   it('refreshes dashboard pages and reacts to skills changed events while on skills page', async () => {
     apiMock.getBuildInfo.mockResolvedValueOnce({ version: '1.0.0' });
     apiMock.callAPI.mockImplementation(async (method, payload) => {
       if (method === 'config/read') return { cwd: '/window' };
       if (method === 'ui/dashboard/get' && payload?.page === 'skills') {
-        return { skills: [{ name: 'SkillA' }] };
+        return dashboardPayload({ skills: [{ name: 'SkillA' }] });
       }
-      return {};
+      return defaultAppAPI(method);
     });
 
     const vm = AppRoot.setup();
@@ -221,10 +326,10 @@ describe('AppRoot behavior', () => {
     apiMock.callAPI.mockImplementation(async (method, payload) => {
       if (method === 'config/read') return { cwd: '/window' };
       if (method === 'ui/dashboard/get' && payload?.page === 'skills' && payload?.cwd === '/repo') {
-        return { skills: [{ name: 'RepoSkill' }] };
+        return dashboardPayload({ skills: [{ name: 'RepoSkill' }] });
       }
       if (method === 'ui/dashboard/get' && payload?.page === 'skills' && payload?.cwd === '/repo-next') {
-        return { skills: [{ name: 'NextSkill' }] };
+        return dashboardPayload({ skills: [{ name: 'NextSkill' }] });
       }
       return {};
     });
@@ -247,12 +352,12 @@ describe('AppRoot behavior', () => {
   it('keeps final output refs from the memory dashboard response', async () => {
     apiMock.callAPI.mockImplementation(async (method, payload) => {
       if (method === 'ui/dashboard/get' && payload?.page === 'memory') {
-        return {
+        return dashboardPayload({
           memory: [{ path: 'reports/final.pptx' }],
           finalOutputRefs: [{ path: 'reports/final.pptx', runKey: 'run-1' }],
-        };
+        });
       }
-      return {};
+      return defaultAppAPI(method);
     });
 
     const vm = AppRoot.setup();
@@ -260,6 +365,27 @@ describe('AppRoot behavior', () => {
 
     expect(vm.dashboard.memory).toEqual([{ path: 'reports/final.pptx' }]);
     expect(vm.dashboard.finalOutputRefs).toEqual([{ path: 'reports/final.pptx', runKey: 'run-1' }]);
+  });
+
+  it('rejects malformed dashboard responses instead of replacing missing fields with empty lists', async () => {
+    apiMock.callAPI.mockImplementation(async (method, payload) => {
+      if (method === 'ui/dashboard/get' && payload?.page === 'memory') {
+        return { memory: [] };
+      }
+      return defaultAppAPI(method);
+    });
+
+    const vm = AppRoot.setup();
+
+    await expect(vm.refreshDashboardByPage('memory')).rejects.toThrow('dashboard agents must be an array');
+  });
+
+  it('requires scoped cwd for project dashboard pages', async () => {
+    stores.projectStore.state.active = '.';
+    const vm = AppRoot.setup();
+
+    await expect(vm.refreshDashboardByPage('memory')).rejects.toThrow('dashboard memory cwd is required');
+    expect(apiMock.callAPI).not.toHaveBeenCalledWith('ui/dashboard/get', expect.anything());
   });
 
   it('consumes window bootstrap snapshot and starts the continued task in a new window', async () => {
@@ -284,7 +410,7 @@ describe('AppRoot behavior', () => {
           },
         };
       }
-      return {};
+      return defaultAppAPI(method);
     });
 
     const vm = AppRoot.setup();
@@ -306,12 +432,38 @@ describe('AppRoot behavior', () => {
     expect(vm.page.value).toBe('chat');
   });
 
+  it('uses window cwd for bootstrap task starts when snapshot cwd is empty', async () => {
+    globalThis.window.location.search = '?ao_window_cwd=%2Fworktrees%2Fbootstrap';
+    stores.projectStore.state.active = '.';
+    apiMock.callAPI.mockImplementation(async (method) => {
+      if (method === 'config/read') return { cwd: '/old-process-cwd' };
+      if (method === 'ui/windowBootstrap/get') {
+        return {
+          snapshot: {
+            page: 'chat',
+            taskStart: { focusMode: 'cmd', config: { taskId: 'task-window' } },
+          },
+        };
+      }
+      return defaultAppAPI(method);
+    });
+
+    AppRoot.setup();
+    hooks.mounted.forEach((fn) => fn());
+    await flush();
+
+    expect(stores.threadStore.startThread).toHaveBeenCalledWith('/worktrees/bootstrap', {
+      focusMode: 'cmd',
+      config: { taskId: 'task-window' },
+    });
+  });
+
   it('marks the memory center nav when similar memories need merging', async () => {
     apiMock.getBuildInfo.mockResolvedValueOnce({ version: '1.0.0' });
     apiMock.callAPI.mockImplementation(async (method) => {
       if (method === 'config/read') return { cwd: '/window' };
       if (method === 'ui/memory/get') {
-        return {
+        return memoryCenterPayload({
           overview: {
             health: {
               similarGroups: [
@@ -320,11 +472,9 @@ describe('AppRoot behavior', () => {
               ],
             },
           },
-          private: { entries: [] },
-          team: { entries: [] },
-        };
+        });
       }
-      return {};
+      return defaultAppAPI(method);
     });
 
     const vm = AppRoot.setup();
@@ -352,7 +502,7 @@ describe('AppRoot behavior', () => {
         legacyCandidateCalls.push(method);
         return { candidates: [{ id: 'candidate-1' }] };
       }
-      return {};
+      return defaultAppAPI(method);
     });
 
     const vm = AppRoot.setup();
@@ -372,13 +522,11 @@ describe('AppRoot behavior', () => {
         return { candidates: [{ id: 'candidate-1' }, { id: 'candidate-2' }] };
       }
       if (method === 'ui/memory/get') {
-        return {
+        return memoryCenterPayload({
           overview: { health: { similarGroups: [{ nameA: 'A', nameB: 'B' }] } },
-          private: { entries: [] },
-          team: { entries: [] },
-        };
+        });
       }
-      return {};
+      return defaultAppAPI(method);
     });
 
     const vm = AppRoot.setup();

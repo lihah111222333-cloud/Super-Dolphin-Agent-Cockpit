@@ -170,17 +170,15 @@ func resumeLifecycleError(threadID, reason string) error {
 
 func (s *service) Stop(ctx context.Context, threadID string) error {
 	ctx = util.NonNilContext(ctx)
-	// C1 fast-path: a pending_launch thread has no runtime / no binding / no
-	// session; skip stopThreadRuntime/cleanup entirely and just mark the row
-	// stopped so the card disappears. Any still-outstanding SpawnIfNeeded call
-	// on this thread will see pending_launch=false on the re-fetch and return
-	// no-op without forking the CLI.
-	if handled, err := s.stopPendingLaunchThread(ctx, threadID); handled || err != nil {
-		return err
-	}
 	stopState, err := s.resolveThreadStopState(ctx, threadID)
 	if err != nil {
-		return err
+		if handled, pendingErr := s.stopPendingLaunchThread(ctx, threadID); handled || pendingErr != nil {
+			return pendingErr
+		}
+		stopState, err = s.resolveThreadStopState(ctx, threadID)
+		if err != nil {
+			return err
+		}
 	}
 	if err := s.stopThreadRuntime(ctx, stopState, "thread_stopped", false); err != nil {
 		return err
@@ -206,8 +204,17 @@ func (s *service) stopPendingLaunchThread(ctx context.Context, threadID string) 
 		return false, nil
 	}
 	trimmed := strings.TrimSpace(threadID)
+	if trimmed == "" {
+		return false, nil
+	}
+	mu := s.acquirePendingLaunchLock(trimmed)
+	mu.Lock()
+	defer mu.Unlock()
 	row, err := s.threadStore.GetByThreadID(ctx, trimmed)
-	if err != nil || row == nil || !row.PendingLaunch {
+	if err != nil {
+		return false, err
+	}
+	if row == nil || !row.PendingLaunch {
 		return false, nil
 	}
 	if err := s.updateThreadStatus(ctx, trimmed, statusStopped); err != nil {
@@ -250,15 +257,19 @@ func (s *service) stopThreadRuntime(
 	)
 	s.blockResumeForAgent(stopState.agentID)
 	s.interruptStoppingThread(ctx, stopState.agentID, source)
+	localSessionGone := false
 	if err := s.closeSessionForAgent(ctx, stopState.agentID); err != nil {
-		s.unblockResumeForAgent(stopState.agentID)
-		pkglogger.Warn("thread: stopThreadRuntime closeSession FAILED",
-			"agent_id", stopState.agentID,
-			"error", err,
-		)
-		return err
+		if !errors.Is(err, errLocalSessionAlreadyGone) {
+			s.unblockResumeForAgent(stopState.agentID)
+			pkglogger.Warn("thread: stopThreadRuntime closeSession FAILED",
+				"agent_id", stopState.agentID,
+				"error", err,
+			)
+			return err
+		}
+		localSessionGone = true
 	}
-	err := s.stopManagedAgent(ctx, stopState.agentID, allowMissingAgent)
+	err := s.stopManagedAgent(ctx, stopState.agentID, allowMissingAgent || localSessionGone)
 	if err != nil {
 		s.unblockResumeForAgent(stopState.agentID)
 		pkglogger.Warn("thread: stopThreadRuntime DONE with error",

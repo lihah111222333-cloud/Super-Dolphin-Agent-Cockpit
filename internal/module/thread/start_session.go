@@ -9,13 +9,13 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
+	"github.com/anthropic-ai/super-agent-v3/internal/module/thread/startconfig"
 	"github.com/anthropic-ai/super-agent-v3/internal/util"
 	"github.com/anthropic-ai/super-agent-v3/internal/util/clone"
 	"github.com/anthropic-ai/super-agent-v3/internal/util/idgen"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
-const defaultStartProvider = "codex"
 const maxAgentIDReservationRetries = 64
 
 func normalizeStartRequest(req StartRequest) (StartRequest, string, error) {
@@ -193,8 +193,14 @@ func resolveStartConfig(req StartRequest) (StartRequest, error) {
 			"cwd", req.CWD,
 		)
 	}
-	req.CWD = resolveStartCWD(req.CWD)
-	req.Sandbox = sanitizeStartSandbox(req.Sandbox)
+	req.CWD, err = resolveStartCWD(req.CWD)
+	if err != nil {
+		return StartRequest{}, err
+	}
+	req.Sandbox, err = startconfig.SanitizeSandbox(req.Sandbox)
+	if err != nil {
+		return StartRequest{}, err
+	}
 	req.ApprovalPolicy, err = resolveStartApprovalPolicy(req.ApprovalPolicy, req.Sandbox)
 	if err != nil {
 		return StartRequest{}, err
@@ -205,7 +211,7 @@ func resolveStartConfig(req StartRequest) (StartRequest, error) {
 func resolveStartProvider(provider string) (string, error) {
 	normalized := strings.ToLower(strings.TrimSpace(provider))
 	if normalized == "" {
-		return defaultStartProvider, nil
+		return "", errors.New("provider is required")
 	}
 	switch normalized {
 	case "codex", "claude":
@@ -215,18 +221,24 @@ func resolveStartProvider(provider string) (string, error) {
 	}
 }
 
-func resolveStartCWD(cwd string) string {
-	cwd = strings.TrimSpace(cwd)
-	if cwd == "." {
-		return ""
+func resolveStartCWD(cwd string) (string, error) {
+	if cwd = strings.TrimSpace(cwd); cwd != "" {
+		if cwd == "." {
+			return "", errors.New("thread start cwd must be explicit; got dot")
+		}
+		return cwd, nil
 	}
-	return cwd
+	return "", errors.New("thread start cwd is required")
 }
 
 func resolveStartApprovalPolicy(policy string, sandbox json.RawMessage) (string, error) {
 	raw := strings.TrimSpace(policy)
 	if raw == "" {
-		if isDangerFullAccessSandbox(sandbox) {
+		dangerFullAccess, err := startconfig.IsDangerFullAccessSandbox(sandbox)
+		if err != nil {
+			return "", err
+		}
+		if dangerFullAccess {
 			return "never", nil
 		}
 		return "", nil
@@ -239,45 +251,14 @@ func resolveStartApprovalPolicy(policy string, sandbox json.RawMessage) (string,
 	}
 }
 
-func sanitizeStartSandbox(raw json.RawMessage) json.RawMessage {
-	raw = trimRawJSON(raw)
-	if len(raw) == 0 || !json.Valid(raw) {
-		return nil
-	}
-	return raw
-}
-
-func isDangerFullAccessSandbox(raw json.RawMessage) bool {
-	raw = sanitizeStartSandbox(raw)
-	if len(raw) == 0 {
-		return false
-	}
-	if raw[0] == '{' {
-		var payload struct {
-			Type string `json:"type"`
-		}
-		if err := json.Unmarshal(raw, &payload); err == nil {
-			return isDangerFullAccessValue(payload.Type)
-		}
-	}
-	var value string
-	if err := json.Unmarshal(raw, &value); err == nil {
-		return isDangerFullAccessValue(value)
-	}
-	return false
-}
-
-func isDangerFullAccessValue(value string) bool {
-	normalized := strings.ToLower(strings.TrimSpace(value))
-	normalized = strings.ReplaceAll(normalized, "-", "")
-	return normalized == "dangerfullaccess"
-}
-
 func (s *service) startSession(ctx context.Context, req StartRequest, input contract.StartInput, assembly contract.StartAssembly, agentID string) (contract.Session, error) {
 	if s.starter == nil {
 		return nil, errors.New("session starter is not configured")
 	}
-	cwd := resolveStartCWD(req.CWD)
+	cwd, err := resolveStartCWD(req.CWD)
+	if err != nil {
+		return nil, err
+	}
 	config := buildStartSessionConfig(req, input, assembly)
 	pkglogger.Debug("thread/start: provider session config trace",
 		"agent_id", agentID,
@@ -338,16 +319,36 @@ func logStartProviderSessionIdentity(agentID string, req StartRequest, config ma
 }
 
 func (s *service) resumeSession(ctx context.Context, req ResumeRequest) (contract.Session, error) {
-	if s.starter == nil {
-		return nil, errors.New("session starter is not configured")
-	}
 	resolvedReq, err := s.hydrateResumeSessionRequest(ctx, req)
 	if err != nil {
 		return nil, err
 	}
-	cwd := resolveStartCWD(resolvedReq.CWD)
-	sessionCtx := context.WithoutCancel(ctx)
-	return s.starter.ResumeSession(sessionCtx, dto.ResumeSessionRequest{
+	return s.resumeResolvedSession(ctx, resolvedReq)
+}
+
+func (s *service) resumeForkSession(ctx context.Context, req ResumeRequest) (contract.Session, error) {
+	resolvedReq, err := trimResumeRequest(req)
+	if err != nil {
+		return nil, err
+	}
+	if resolvedReq.Provider == "" {
+		return nil, errors.New("provider is required")
+	}
+	if resolvedReq.AgentID == "" {
+		return nil, errors.New("agent id is required")
+	}
+	return s.resumeResolvedSession(ctx, resolvedReq)
+}
+
+func (s *service) resumeResolvedSession(ctx context.Context, resolvedReq ResumeRequest) (contract.Session, error) {
+	if s.starter == nil {
+		return nil, errors.New("session starter is not configured")
+	}
+	cwd := strings.TrimSpace(resolvedReq.CWD)
+	if cwd == "" || cwd == "." {
+		return nil, errors.New("thread resume cwd is required")
+	}
+	return s.starter.ResumeSession(context.WithoutCancel(ctx), dto.ResumeSessionRequest{
 		Provider:                 resolvedReq.Provider,
 		AgentID:                  resolvedReq.AgentID,
 		ThreadID:                 resolvedReq.ThreadID,
@@ -405,13 +406,19 @@ func (s *service) resolveResumeRequest(ctx context.Context, req ResumeRequest) (
 		return ResumeRequest{}, resumeState{}, err
 	}
 	requestedThreadID := req.ThreadID
-	state := s.lookupResumeState(ctx, requestedThreadID)
+	state, err := s.lookupResumeState(ctx, requestedThreadID)
+	if err != nil {
+		return ResumeRequest{}, resumeState{}, err
+	}
 	state.PublicThreadID = util.FirstNonEmpty(state.PublicThreadID, requestedThreadID)
 	req.AgentID = util.FirstNonEmpty(req.AgentID, state.AgentID)
 	req.Provider = util.FirstNonEmpty(req.Provider, state.Provider)
 	req.ProviderThreadID = normalizeProviderThreadID(req.Provider, util.FirstNonEmpty(req.ProviderThreadID, state.ProviderThreadID))
 
-	req.CWD = util.FirstNonEmpty(req.CWD, req.Path, state.CWD)
+	req.CWD, err = resolveAuthoritativeResumeCWD(req, state)
+	if err != nil {
+		return ResumeRequest{}, resumeState{}, err
+	}
 	req.ClaudeHome = util.FirstNonEmpty(req.ClaudeHome, state.ClaudeHome, resumeRuntimeConfigString(state.ConfigOverride.Runtime, "claudeHome", "claude_home", "history_dir"))
 	req.CodexHome = util.FirstNonEmpty(req.CodexHome, state.CodexHome)
 	req.CodexInstanceKey = util.FirstNonEmpty(req.CodexInstanceKey, state.CodexInstanceKey)
@@ -436,7 +443,10 @@ func (s *service) resolveResumeRequest(ctx context.Context, req ResumeRequest) (
 	state.CodexHome = util.FirstNonEmpty(state.CodexHome, req.CodexHome)
 	state.CodexInstanceKey = util.FirstNonEmpty(state.CodexInstanceKey, req.CodexInstanceKey)
 	state.CodexModelProvider = util.FirstNonEmpty(state.CodexModelProvider, req.CodexModelProvider)
-	state.ConfigOverrideRaw = s.backfillResumeRootTaskId(ctx, state.OwnerThreadID, state.ConfigOverrideRaw)
+	state.ConfigOverrideRaw, err = s.backfillResumeRootTaskId(ctx, state.OwnerThreadID, state.ConfigOverrideRaw)
+	if err != nil {
+		return ResumeRequest{}, resumeState{}, err
+	}
 	return req, state, nil
 }
 
@@ -459,52 +469,6 @@ func trimResumeRequest(req ResumeRequest) (ResumeRequest, error) {
 	if req.ThreadID == "" {
 		return ResumeRequest{}, errors.New("thread id is required")
 	}
-	return req, nil
-}
-
-func (s *service) hydrateResumeSessionRequest(ctx context.Context, req ResumeRequest) (ResumeRequest, error) {
-	req, err := trimResumeRequest(req)
-	if err != nil {
-		return ResumeRequest{}, err
-	}
-	state := s.lookupResumeState(ctx, req.ThreadID)
-	state.PublicThreadID = util.FirstNonEmpty(state.PublicThreadID, req.ThreadID)
-	req.AgentID = util.FirstNonEmpty(req.AgentID, state.AgentID)
-	req.Provider = util.FirstNonEmpty(req.Provider, state.Provider)
-	req.ProviderThreadID = normalizeProviderThreadID(req.Provider, util.FirstNonEmpty(req.ProviderThreadID, state.ProviderThreadID))
-
-	req.CWD = util.FirstNonEmpty(req.CWD, req.Path, state.CWD)
-	req.ClaudeHome = util.FirstNonEmpty(req.ClaudeHome, state.ClaudeHome, resumeRuntimeConfigString(state.ConfigOverride.Runtime, "claudeHome", "claude_home", "history_dir"))
-	req.CodexHome = util.FirstNonEmpty(req.CodexHome, state.CodexHome)
-	req.CodexInstanceKey = util.FirstNonEmpty(req.CodexInstanceKey, state.CodexInstanceKey)
-	req.CodexModelProvider = util.FirstNonEmpty(req.CodexModelProvider, state.CodexModelProvider)
-	req.CodexDisabledNativeTools = resolveResumeCodexDisabledNativeTools(req.CodexDisabledNativeTools, state.ConfigOverride.Runtime)
-	req.Config = mergeRuntimeConfig(clone.RuntimeConfigMap(state.ConfigOverride.Runtime), req.Config)
-	req = s.injectDefaultCodexIdentityForResume(req)
-	req.PromptSnapshot = s.resolveResumePromptSnapshot(ctx, req, state)
-	if req.ConfigOverride.Model == nil {
-		if value := sanitizeConfigStringArtifact(state.ConfigOverride.Model); value != "" {
-			req.ConfigOverride.Model = &value
-		}
-	}
-	if req.ConfigOverride.Effort == nil {
-		if value := sanitizeConfigStringArtifact(state.ConfigOverride.Effort); value != "" {
-			req.ConfigOverride.Effort = &value
-		}
-	}
-	if req.Model == "" {
-		req.Model = resolveResumeModel(req, state)
-	}
-	if req.Effort == "" {
-		req.Effort = resolveResumeEffort(req, state)
-	}
-	if req.Provider == "" {
-		return ResumeRequest{}, errors.New("provider is required")
-	}
-	if req.AgentID == "" {
-		return ResumeRequest{}, errors.New("agent id is required")
-	}
-	req.ThreadID = state.PublicThreadID
 	return req, nil
 }
 
@@ -563,47 +527,6 @@ func resolveResumeEffort(req ResumeRequest, state resumeState) string {
 	}
 	return sanitizeConfigStringArtifact(state.ConfigOverride.Effort)
 }
-
-func (s *service) lookupResumeState(ctx context.Context, threadID string) resumeState {
-	state := resumeState{}
-	thread, err := s.getThread(ctx, threadID)
-	if err == nil && thread != nil {
-		state.AgentID = strings.TrimSpace(thread.AgentID)
-		state.ParentAgentID = strings.TrimSpace(thread.ParentAgentID)
-		state.OwnerThreadID = strings.TrimSpace(thread.OwnerThreadID)
-		state.AgentType = strings.TrimSpace(thread.AgentType)
-		state.AgentMemoryScope = strings.TrimSpace(thread.AgentMemoryScope)
-		state.PublicThreadID = strings.TrimSpace(thread.ThreadID)
-		state.Prompt = strings.TrimSpace(thread.Prompt)
-		state.Model = sanitizeConfigStringArtifact(thread.Model)
-		state.ConfigOverrideRaw = clone.RawMessage(thread.ConfigOverride)
-		state.ConfigOverride = decodeStoredThreadConfig(thread.ConfigOverride)
-		state.Effort = sanitizeConfigStringArtifact(state.ConfigOverride.Effort)
-		state.CWD = strings.TrimSpace(thread.Cwd)
-		state.CreatedAt = thread.CreatedAt
-	}
-	binding, err := s.resolveBinding(ctx, threadID)
-	if err == nil && binding != nil {
-		state.AgentID = util.FirstNonEmpty(state.AgentID, binding.AgentID)
-		state.ParentAgentID = util.FirstNonEmpty(state.ParentAgentID, strings.TrimSpace(binding.ParentAgentID))
-		state.AgentType = util.FirstNonEmpty(state.AgentType, strings.TrimSpace(binding.AgentType))
-		state.AgentMemoryScope = util.FirstNonEmpty(state.AgentMemoryScope, strings.TrimSpace(binding.AgentMemoryScope))
-		state.Provider = strings.TrimSpace(binding.Provider)
-		state.ProviderThreadID = util.FirstNonEmpty(state.ProviderThreadID, recoverableBindingProviderThreadID(binding))
-		state.PublicThreadID = util.FirstNonEmpty(state.PublicThreadID, binding.CodexThreadID)
-		state.RolloutPath = strings.TrimSpace(binding.RolloutPath)
-		state.SessionUUID = strings.TrimSpace(binding.SessionUUID)
-		state.CodexHome = strings.TrimSpace(binding.CodexHome)
-		state.CodexInstanceKey = strings.TrimSpace(binding.CodexInstanceKey)
-		state.CodexModelProvider = strings.TrimSpace(binding.CodexModelProvider)
-		state.CWD = util.FirstNonEmpty(state.CWD, binding.Cwd)
-		// SessionUUID is useful for diagnostics, but it is only a resumable
-		// provider_thread_id when the corresponding CLI history file exists.
-	}
-	state.StoredCWD = state.CWD
-	return state
-}
-
 func resumeRuntimeConfigString(runtime map[string]any, keys ...string) string {
 	for _, key := range keys {
 		value, _ := runtime[strings.TrimSpace(key)].(string)

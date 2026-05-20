@@ -246,12 +246,13 @@ func cloneCodexConfigMap(config map[string]any) map[string]any {
 // Routing rules (most-specific first):
 //
 //  1. Pool not wired -> no options (legacy path).
-//  2. Pool explicitly disabled + valid identity -> fail closed. The
+//  2. Pool explicitly disabled + no identity -> no options (legacy path).
+//  3. Pool explicitly disabled + valid identity -> fail closed. The
 //     prepared identity owns CODEX_HOME/mirrors, so legacy shared app-server
 //     routing would run against the ambient home instead.
-//  3. Pool enabled + invalid identity -> fail closed. StartSession must not
+//  4. Pool enabled + invalid identity -> fail closed. StartSession must not
 //     silently fall back to the shared app-server.
-//  4. Valid identity + available pool -> Acquire a SpawnedServer and
+//  5. Valid identity + available pool -> Acquire a SpawnedServer and
 //     attach its URL + release to the session via withPoolServer.
 //     ErrSpawnBackoff is surfaced to the caller so retry pressure is
 //     visible at the StartSession seam.
@@ -263,18 +264,50 @@ func (d *driver) resolveSessionOptions(ctx context.Context, req dto.StartSession
 		}
 		return legacySessionOptionsForNativeToolPolicy(policy)
 	}
-	identity, err := providershared.ResolveCodexIdentity(req.Config)
-	enabled, strict := poolRoutingDecision()
+	identity, enabled, err := d.resolveStartPoolIdentity(req)
+	if err != nil {
+		return nil, err
+	}
 	if !enabled {
+		if !hasStartCodexIdentityConfig(req.Config) {
+			return legacySessionOptionsForNativeToolPolicy(policy)
+		}
 		return d.disabledPoolSessionOptions(req, policy, err)
 	}
+	return d.acquirePoolSessionOptions(ctx, req, policy, identity)
+}
+
+func (d *driver) resolveStartPoolIdentity(req dto.StartSessionRequest) (providershared.CodexIdentity, bool, error) {
+	enabled, _, err := poolRoutingDecision()
 	if err != nil {
-		if !strict {
-			d.warnLegacyIdentityFallback(req.AgentID, err)
-			return []sessionOption(nil), nil
-		}
-		return nil, fmt.Errorf("codex identity required: %w", err)
+		return providershared.CodexIdentity{}, false, err
 	}
+	if !enabled && !hasStartCodexIdentityConfig(req.Config) {
+		return providershared.CodexIdentity{}, false, nil
+	}
+	identity, identityErr := providershared.ResolveCodexIdentity(req.Config)
+	if identityErr != nil {
+		return providershared.CodexIdentity{}, false, fmt.Errorf("codex identity required: %w", identityErr)
+	}
+	if !enabled {
+		return providershared.CodexIdentity{}, false, nil
+	}
+	return identity, true, nil
+}
+
+func hasStartCodexIdentityConfig(config map[string]any) bool {
+	if len(config) == 0 {
+		return false
+	}
+	for _, key := range []string{contract.CodexHomeKey, contract.CodexInstanceKeyKey, contract.CodexModelProviderKey} {
+		if _, ok := config[key]; ok {
+			return true
+		}
+	}
+	return false
+}
+
+func (d *driver) acquirePoolSessionOptions(ctx context.Context, req dto.StartSessionRequest, policy codexNativeToolPolicy, identity providershared.CodexIdentity) ([]sessionOption, error) {
 	owner := strings.TrimSpace(req.AgentID)
 	workDir := strings.TrimSpace(req.CWD)
 	spawnCtx := withPoolSpawnSessionConfig(ctx, workDir, req.Config, policy)
@@ -336,7 +369,10 @@ func canonicalStartRuntimeConfig(config map[string]any) map[string]any {
 func (d *driver) resolveResumeOptions(ctx context.Context, req dto.ResumeSessionRequest) ([]sessionOption, error) {
 	policy := codexNativeToolPolicyFromDisabled(req.CodexDisabledNativeTools)
 	identity, hasIdentity := resumeIdentity(req)
-	enabled, strict := poolRoutingDecision()
+	enabled, strict, err := poolRoutingDecision()
+	if err != nil {
+		return nil, err
+	}
 	if d == nil || d.pool == nil || !enabled {
 		if hasIdentity {
 			return nil, errCodexIdentityRequiresPool()
@@ -422,23 +458,22 @@ func (d *driver) warnSkillMirrorIssue(message string, err error) {
 }
 
 // poolRoutingEnabled parses the env override. Missing / empty means enabled
-// and strict so valid identity uses the ServerPool by default. Parse errors are
-// treated as disabled so a typo never silently turns the pool on.
-func poolRoutingEnabled() bool {
-	enabled, _ := poolRoutingDecision()
-	return enabled
+// and strict so valid identity uses the ServerPool by default.
+func poolRoutingEnabled() (bool, error) {
+	enabled, _, err := poolRoutingDecision()
+	return enabled, err
 }
 
-func poolRoutingDecision() (enabled bool, strict bool) {
+func poolRoutingDecision() (enabled bool, strict bool, err error) {
 	raw := strings.TrimSpace(os.Getenv(poolRoutingEnvVar))
 	if raw == "" {
-		return true, true
+		return true, true, nil
 	}
-	enabled, err := strconv.ParseBool(raw)
-	if err != nil {
-		return false, false
+	parsed, parseErr := strconv.ParseBool(raw)
+	if parseErr != nil {
+		return false, false, fmt.Errorf("%s must be a boolean: %w", poolRoutingEnvVar, parseErr)
 	}
-	return enabled, enabled
+	return parsed, parsed, nil
 }
 
 const codexDisabledNativeToolsConfigKey = "codexDisabledNativeTools"

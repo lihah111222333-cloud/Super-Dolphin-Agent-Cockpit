@@ -220,8 +220,10 @@ func containsProjectPath(paths []string, target string) bool {
 }
 
 func cloneProjectsState(value ProjectsState) *ProjectsState {
+	projects := make([]string, len(value.Projects))
+	copy(projects, value.Projects)
 	return &ProjectsState{
-		Projects: append([]string(nil), value.Projects...),
+		Projects: projects,
 		Active:   value.Active,
 	}
 }

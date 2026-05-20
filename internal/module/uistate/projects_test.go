@@ -59,6 +59,29 @@ func TestProjectHandlersDispatchRoundTrip(t *testing.T) {
 	}
 }
 
+func TestProjectHandlersEncodeEmptyProjectsAsArray(t *testing.T) {
+	t.Parallel()
+
+	_, svc, err := NewService(nil, nil, nil, nil, nil, nil)
+	if err != nil {
+		t.Fatalf("NewService() error = %v", err)
+	}
+	server := rpcpkg.NewServer(rpcpkg.Params{Config: &contract.Config{RPCAddr: "127.0.0.1:0"}})
+	server.Register(NewUIStateHandlers(svc).Handlers)
+
+	raw, err := server.Dispatch(context.Background(), "ui/projects/get", json.RawMessage(`{}`))
+	if err != nil {
+		t.Fatalf("Dispatch(ui/projects/get) error = %v", err)
+	}
+	var payload map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &payload); err != nil {
+		t.Fatalf("Unmarshal(ui/projects/get) error = %v", err)
+	}
+	if string(payload["projects"]) != "[]" {
+		t.Fatalf("projects JSON = %s, want [] in %s", payload["projects"], raw)
+	}
+}
+
 func TestAddProjectDeduplicatesEquivalentPaths(t *testing.T) {
 	t.Parallel()
 

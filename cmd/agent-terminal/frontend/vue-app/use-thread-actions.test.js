@@ -118,6 +118,22 @@ describe('useThreadActions', () => {
     expect(vm.threadStore.startThread).toHaveBeenCalledWith('/repo-root', { focusMode: 'chat', deferSpawn: true });
   });
 
+  it('launchOne: shows backend startup errors and rethrows them', async () => {
+    const backendError = new Error('{"message":"[-32098] thread: prompt assembly: ClaudeMd candidate containment failed: safe read denied"}');
+    const vm = createThreadActions({
+      threadStore: {
+        startThread: vi.fn().mockRejectedValueOnce(backendError),
+      },
+    });
+
+    await expect(vm.launchOne()).rejects.toBe(backendError);
+
+    expect(globalThis.window.alert).not.toHaveBeenCalled();
+    expect(vm.sendFailureNotice.value).toContain('启动失败');
+    expect(vm.sendFailureNotice.value).toContain('ClaudeMd');
+    expect(vm.sendFailureNotice.value).toContain('safe read');
+  });
+
   it('pipes thread config get/set calls through the thread store', async () => {
     const vm = createThreadActions();
     vm.threadStore.getThreadConfig.mockResolvedValueOnce({ threadId: 'thread-live' });
@@ -151,11 +167,11 @@ describe('useThreadActions', () => {
     expect(vm.threadStore.toggleThreadPin).toHaveBeenCalledWith('thread-live');
   });
 
-  it('swallows archive toggle failures after calling the thread store', async () => {
+  it('rethrows archive toggle failures after calling the thread store', async () => {
     const vm = createThreadActions();
     vm.threadStore.toggleThreadArchive.mockRejectedValueOnce(new Error('boom'));
 
-    await expect(vm.toggleThreadArchive('thread-live')).resolves.toBeUndefined();
+    await expect(vm.toggleThreadArchive('thread-live')).rejects.toThrow('boom');
 
     expect(vm.threadStore.toggleThreadArchive).toHaveBeenCalledWith('thread-live');
   });
@@ -217,6 +233,28 @@ describe('useThreadActions', () => {
     expect(vm.threadStore.startThread).not.toHaveBeenCalled();
     expect(vm.threadStore.sendMessage).not.toHaveBeenCalled();
     expect(vm.deps.composer.state.text).toBe('hello world');
+  });
+
+  it('send: shows backend startup errors, keeps composer, and does not send when auto-start fails', async () => {
+    const backendError = new Error('{"message":"[-32098] thread: prompt assembly: ClaudeMd candidate containment failed: safe read denied"}');
+    const vm = createThreadActions({
+      selectedThreadId: '',
+      text: 'hello world',
+      attachments: [{ path: '/tmp/a.txt' }],
+      threadStore: {
+        startThread: vi.fn().mockRejectedValueOnce(backendError),
+      },
+    });
+
+    await expect(vm.send()).rejects.toBe(backendError);
+
+    expect(globalThis.window.alert).not.toHaveBeenCalled();
+    expect(vm.deps.composer.state.text).toBe('hello world');
+    expect(vm.deps.composer.state.attachments).toEqual([{ path: '/tmp/a.txt' }]);
+    expect(vm.threadStore.sendMessage).not.toHaveBeenCalled();
+    expect(vm.sendFailureNotice.value).toContain('发送失败');
+    expect(vm.sendFailureNotice.value).toContain('ClaudeMd');
+    expect(vm.sendFailureNotice.value).toContain('safe read');
   });
 
   it('send resolves dot project scope to the window cwd for start and message payloads', async () => {
@@ -309,7 +347,7 @@ describe('useThreadActions', () => {
       'thread-live',
       'ping',
       [{ path: '/tmp/a.txt' }],
-      expect.objectContaining({ cwd: '/repo' }),
+      { manualSkillSelection: false, cwd: '/repo' },
     );
   });
 
@@ -327,7 +365,7 @@ describe('useThreadActions', () => {
     expect(vm.deps.composer.state.attachments).toEqual([{ path: '/file.txt' }]);
   });
 
-  it('send: clears stale missing-workdir notices before a later non-workdir failure', async () => {
+  it('send: shows generic backend details for non-workdir failures', async () => {
     const vm = createThreadActions({
       selectedThreadId: 'thread-live',
       text: 'retry',
@@ -337,7 +375,7 @@ describe('useThreadActions', () => {
 
     await expect(vm.send()).rejects.toThrow('network');
 
-    expect(vm.sendFailureNotice.value).toBe('');
+    expect(vm.sendFailureNotice.value).toBe('发送失败：network');
   });
 
   it('send: shows a Chinese notice when the thread worktree directory is missing', async () => {
@@ -373,6 +411,19 @@ describe('useThreadActions', () => {
     expect(vm.sendFailureNotice.value).toContain('技能页面');
   });
 
+  it('send: shows a Chinese notice when the Claude provider reports a missing cwd', async () => {
+    const vm = createThreadActions({
+      selectedThreadId: 'thread-live',
+      text: '继续 Claude',
+    });
+    vm.threadStore.sendMessage.mockRejectedValueOnce(new Error('auto-resume failed: claudecli: cwd stat "/repo/.worktrees/missing": stat /repo/.worktrees/missing: no such file or directory'));
+
+    await expect(vm.send()).rejects.toThrow('cwd stat');
+
+    expect(vm.sendFailureNotice.value).toContain('该会话的工作目录已不存在');
+    expect(vm.sendFailureNotice.value).toContain('/repo/.worktrees/missing');
+  });
+
   it('interruptCurrent: calls stopThread and invokes confirm callback on success', async () => {
     const vm = createThreadActions({ selectedThreadId: 'thread-live' });
     const control = { threadId: 'thread-live', confirm: vi.fn(), reject: vi.fn() };
@@ -384,12 +435,12 @@ describe('useThreadActions', () => {
     expect(control.reject).not.toHaveBeenCalled();
   });
 
-  it('interruptCurrent: invokes reject callback on stopThread failure', async () => {
+  it('interruptCurrent: invokes reject callback and rethrows on stopThread failure', async () => {
     const vm = createThreadActions({ selectedThreadId: 'thread-live' });
     vm.threadStore.stopThread.mockRejectedValueOnce(new Error('fail'));
     const control = { threadId: 'thread-live', confirm: vi.fn(), reject: vi.fn() };
 
-    await vm.interruptCurrent(control);
+    await expect(vm.interruptCurrent(control)).rejects.toThrow('fail');
 
     expect(control.reject).toHaveBeenCalledWith(expect.objectContaining({ reason: 'error' }));
     expect(control.confirm).not.toHaveBeenCalled();

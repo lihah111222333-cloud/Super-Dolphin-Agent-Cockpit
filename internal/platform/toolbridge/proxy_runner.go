@@ -87,11 +87,7 @@ func (r *ProxyRunner) Run(ctx context.Context) error {
 		return ctx.Err()
 	}
 
-	serveErr := make(chan error, 1)
-	go func() {
-		defer func() { _ = recover() }()
-		serveErr <- h.ServeProxy(ln)
-	}()
+	serveErr := startProxyServe(h, ln)
 
 	select {
 	case err := <-serveErr:
@@ -114,4 +110,17 @@ func (r *ProxyRunner) Run(ctx context.Context) error {
 		r.logger.Warn("toolbridge: proxy serve returned error during shutdown", "error", err)
 	}
 	return ctx.Err()
+}
+
+func startProxyServe(h *Handler, ln net.Listener) <-chan error {
+	serveErr := make(chan error, 1)
+	go func() {
+		defer func() {
+			if recovered := recover(); recovered != nil {
+				serveErr <- errors.New("toolbridge: proxy serve panic")
+			}
+		}()
+		serveErr <- h.ServeProxy(ln)
+	}()
+	return serveErr
 }

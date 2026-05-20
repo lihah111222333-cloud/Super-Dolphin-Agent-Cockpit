@@ -187,6 +187,10 @@ func (r *sessionResolver) autoResumeSession(ctx context.Context, binding *contra
 	if err != nil {
 		return nil, fmt.Errorf("resolve session: %w", err)
 	}
+	cwd, err := autoResumeBindingCWD(binding)
+	if err != nil {
+		return nil, err
+	}
 
 	threadID := ""
 	for _, candidate := range publicThreadID {
@@ -206,7 +210,7 @@ func (r *sessionResolver) autoResumeSession(ctx context.Context, binding *contra
 		AgentID:            binding.AgentID,
 		ThreadID:           threadID,
 		ProviderThreadID:   providerThreadID,
-		CWD:                binding.Cwd,
+		CWD:                cwd,
 		Config:             clone.RuntimeConfigMap(runtimeConfig),
 		CodexHome:          binding.CodexHome,
 		CodexInstanceKey:   binding.CodexInstanceKey,
@@ -259,6 +263,17 @@ func (r *sessionResolver) lookupAutoResumeRuntimeConfig(ctx context.Context, bin
 		}
 	}
 	return nil
+}
+
+func autoResumeBindingCWD(binding *contract.SessionBinding) (string, error) {
+	if binding == nil {
+		return "", contract.ErrSessionNotFound
+	}
+	cwd := strings.TrimSpace(binding.Cwd)
+	if cwd == "" || cwd == "." {
+		return "", fmt.Errorf("resolve session: auto-resume cwd is required for agent %q", strings.TrimSpace(binding.AgentID))
+	}
+	return cwd, nil
 }
 
 func recoverableAutoResumeProviderThreadID(binding *contract.SessionBinding) (string, error) {

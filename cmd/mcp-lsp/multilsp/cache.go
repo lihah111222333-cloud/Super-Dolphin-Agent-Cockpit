@@ -3,6 +3,7 @@ package multilsp
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -82,7 +83,6 @@ type lspCacheStore struct {
 
 	persistent      bool
 	persistentReady bool
-	fallbackWarned  bool
 }
 
 type lspCacheDiskState struct {
@@ -105,17 +105,20 @@ func newLSPCacheStore(cfg lspCacheConfig) *lspCacheStore {
 		cfg.TTL = defaultLSPCacheTTL
 	}
 	store := &lspCacheStore{
-		config:         cfg,
-		now:            time.Now,
-		memory:         map[string]lspCacheValue{},
-		index:          map[lspDocumentIndexKey]lspDocumentIndexValue{},
-		tombstones:     map[string]time.Time{},
-		persistent:     cfg.Persistent,
-		fallbackWarned: false,
+		config:     cfg,
+		now:        time.Now,
+		memory:     map[string]lspCacheValue{},
+		index:      map[lspDocumentIndexKey]lspDocumentIndexValue{},
+		tombstones: map[string]time.Time{},
+		persistent: cfg.Persistent,
 	}
 	if store.persistent {
-		store.ensurePersistentReady()
-		_ = store.loadPersistent()
+		if err := store.ensurePersistentReady(); err != nil {
+			panic(fmt.Errorf("lsp persistent cache not ready: %w", err))
+		}
+		if err := store.loadPersistent(); err != nil {
+			panic(fmt.Errorf("load lsp persistent cache: %w", err))
+		}
 	}
 	// P22 P2 LSP-S2: no background cleanup goroutine; TTL expiry is
 	// applied inline by maybeCleanup on every Load/Upsert/WorkspaceDocuments.
@@ -350,23 +353,21 @@ func (s *lspCacheStore) maybeCleanup() {
 	})
 }
 
-func (s *lspCacheStore) ensurePersistentReady() {
+func (s *lspCacheStore) ensurePersistentReady() error {
 	path := s.cachePath()
 	if path == "" {
-		s.fallbackToMemory(errors.New("cache path is empty"))
-		return
+		return errors.New("cache path is empty")
 	}
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		s.fallbackToMemory(err)
-		return
+		return err
 	}
 	probePath := path + ".probe"
 	if err := os.WriteFile(probePath, []byte("ok"), 0o644); err != nil {
-		s.fallbackToMemory(err)
-		return
+		return err
 	}
 	_ = os.Remove(probePath)
 	s.persistentReady = true
+	return nil
 }
 
 func (s *lspCacheStore) loadPersistent() error {
@@ -381,7 +382,7 @@ func (s *lspCacheStore) loadPersistent() error {
 		return err
 	}
 	if s.loadPersistentDiskStateLocked(disk) {
-		_ = s.persistLocked()
+		return s.persistLocked()
 	}
 	return nil
 }
@@ -392,15 +393,10 @@ func (s *lspCacheStore) readPersistentDiskStateLocked() (lspCacheDiskState, erro
 		if os.IsNotExist(err) {
 			return lspCacheDiskState{}, nil
 		}
-		s.fallbackToMemory(err)
 		return lspCacheDiskState{}, err
 	}
 	var disk lspCacheDiskState
 	if err := json.Unmarshal(payload, &disk); err != nil {
-		_ = s.quarantinePersistentLocked()
-		s.memory = map[string]lspCacheValue{}
-		s.tombstones = map[string]time.Time{}
-		_ = s.persistLocked()
 		return lspCacheDiskState{}, err
 	}
 	return disk, nil
@@ -518,17 +514,6 @@ func (s *lspCacheStore) quarantinePersistentLocked() error {
 	}
 	quarantine := path + ".corrupt-" + strconv.FormatInt(time.Now().UnixNano(), 10)
 	return os.Rename(path, quarantine)
-}
-
-func (s *lspCacheStore) fallbackToMemory(err error) {
-	s.persistent = false
-	s.persistentReady = false
-	if s.fallbackWarned || s.config.Logger == nil {
-		s.fallbackWarned = true
-		return
-	}
-	s.fallbackWarned = true
-	s.config.Logger.Warn("LSP cache fell back to memory", "err", err)
 }
 
 func (s *lspCacheStore) expired(value lspCacheValue, now time.Time) bool {

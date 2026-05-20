@@ -5,11 +5,11 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 	"time"
 
 	agentdto "github.com/anthropic-ai/super-agent-v3/internal/dto/agent"
+	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
 )
 
 func TestListAgentsIncludesPersistedAgentIDAndNameWhenRuntimeEmpty(t *testing.T) {
@@ -74,7 +74,7 @@ func TestListAgentsOverlaysRuntimeOnPersistedIdentity(t *testing.T) {
 	}
 }
 
-func TestGetReportFallsBackByAgentIDOnly(t *testing.T) {
+func TestGetReportReadsPersistedReportWhenRuntimeMissingByAgentID(t *testing.T) {
 	svc := NewService(silentLogger(), nil, nil, nil, nil, nil)
 	cwd := t.TempDir()
 	mustWritePersistedAgentReportFile(t, cwd, "agent-1", "display one", "结论：持久化\n\n修复：回读")
@@ -82,40 +82,48 @@ func TestGetReportFallsBackByAgentIDOnly(t *testing.T) {
 		{ThreadID: "agent-1", AgentID: "agent-1", Name: "display one", Cwd: cwd, Status: "created"},
 	}}
 
-	got, err := svc.GetReport(context.Background(), "agent-1")
+	report, err := svc.GetReport(context.Background(), "agent-1")
 	if err != nil {
-		t.Fatalf("GetReport(agent_id) error = %v", err)
+		t.Fatalf("GetReport(agent_id) error = %v, want persisted report", err)
 	}
-	if got.AgentID != "agent-1" || got.State != string(agentdto.StateIdle) {
-		t.Fatalf("GetReport(agent_id) = %#v, want persisted agent identity/state", got)
-	}
-	if got.Report != "结论：持久化\n\n修复：回读" {
-		t.Fatalf("GetReport(agent_id).Report = %q, want persisted report body", got.Report)
+	if report.Report != "结论：持久化\n\n修复：回读" || report.State == "" {
+		t.Fatalf("GetReport(agent_id) = %#v, want persisted report and state", report)
 	}
 	if _, err := svc.GetReport(context.Background(), "display one"); !errors.Is(err, errAgentNotFound) {
 		t.Fatalf("GetReport(name) error = %v, want agent not found", err)
 	}
 }
 
-func TestGetReportFallsBackToStateWhenPersistedReportBodyMissing(t *testing.T) {
+func TestGetReportFailsFastWhenPersistedReportBodyMissing(t *testing.T) {
 	svc := NewService(silentLogger(), nil, nil, nil, nil, nil)
 	svc.agentThreads = fakeAgentThreadStore{threads: []PersistedThread{
 		{ThreadID: "agent-1", AgentID: "agent-1", Name: "display one", Cwd: t.TempDir(), Status: "created"},
 	}}
 
-	got, err := svc.GetReport(context.Background(), "agent-1")
-	if err != nil {
-		t.Fatalf("GetReport(agent_id) error = %v, want a fallback report instead of an error", err)
-	}
-	if got.AgentID != "agent-1" || got.State != string(agentdto.StateIdle) {
-		t.Fatalf("GetReport(agent_id) = %#v, want persisted identity/state", got)
-	}
-	if !strings.Contains(got.Report, "without producing a turn report") {
-		t.Fatalf("GetReport(agent_id).Report = %q, want a no-report fallback text", got.Report)
+	if _, err := svc.GetReport(context.Background(), "agent-1"); !errors.Is(err, errAgentNotFound) {
+		t.Fatalf("GetReport(agent_id) error = %v, want agent not found", err)
 	}
 }
 
-func TestGetReportUsesAgentIDWhenPersistedNameChanges(t *testing.T) {
+func TestGetReportFallsBackToListWhenThreadIDLookupReturnsStoreNotFound(t *testing.T) {
+	svc := NewService(silentLogger(), nil, nil, nil, nil, nil)
+	cwd := t.TempDir()
+	mustWritePersistedAgentReportFile(t, cwd, "agent-1", "display one", "结论：persisted")
+	svc.agentThreads = fakeAgentThreadStore{
+		getErr:  platformdb.ErrNotFound,
+		threads: []PersistedThread{{ThreadID: "thread-1", AgentID: "agent-1", Name: "display one", Cwd: cwd, Status: "created"}},
+	}
+
+	report, err := svc.GetReport(context.Background(), "agent-1")
+	if err != nil {
+		t.Fatalf("GetReport(agent_id) error = %v, want list fallback", err)
+	}
+	if report.Report != "结论：persisted" {
+		t.Fatalf("GetReport(agent_id).Report = %q, want persisted body", report.Report)
+	}
+}
+
+func TestGetReportReadsPersistedReportAfterDisplayNameChanged(t *testing.T) {
 	svc := NewService(silentLogger(), nil, nil, nil, nil, nil)
 	cwd := t.TempDir()
 	mustWritePersistedAgentReportFile(t, cwd, "agent-1", "old name", "结论：old filename")
@@ -123,12 +131,12 @@ func TestGetReportUsesAgentIDWhenPersistedNameChanges(t *testing.T) {
 		{ThreadID: "agent-1", AgentID: "agent-1", Name: "new name", Cwd: cwd, Status: "created"},
 	}}
 
-	got, err := svc.GetReport(context.Background(), "agent-1")
+	report, err := svc.GetReport(context.Background(), "agent-1")
 	if err != nil {
-		t.Fatalf("GetReport(agent_id) error = %v", err)
+		t.Fatalf("GetReport(agent_id) error = %v, want persisted report selected by agent id prefix", err)
 	}
-	if got.Report != "结论：old filename" {
-		t.Fatalf("GetReport(agent_id).Report = %q, want report from agent_id-prefixed file", got.Report)
+	if report.Report != "结论：old filename" {
+		t.Fatalf("GetReport(agent_id).Report = %q, want old filename body", report.Report)
 	}
 	if _, err := svc.GetReport(context.Background(), "old name"); !errors.Is(err, errAgentNotFound) {
 		t.Fatalf("GetReport(old name) error = %v, want agent not found", err)
@@ -210,6 +218,7 @@ func TestGetReportRejectsRemoteThreadID(t *testing.T) {
 type fakeAgentThreadStore struct {
 	threads []PersistedThread
 	err     error
+	getErr  error
 }
 
 func (s fakeAgentThreadStore) ListAll(context.Context) ([]PersistedThread, error) {
@@ -220,6 +229,9 @@ func (s fakeAgentThreadStore) ListAll(context.Context) ([]PersistedThread, error
 }
 
 func (s fakeAgentThreadStore) GetByThreadID(_ context.Context, threadID string) (*PersistedThread, error) {
+	if s.getErr != nil {
+		return nil, s.getErr
+	}
 	if s.err != nil {
 		return nil, s.err
 	}
@@ -325,9 +337,9 @@ func TestHandleReportEventPersistsReportWhenRuntimeMissing(t *testing.T) {
 	}
 	reread, err := svc.GetReport(context.Background(), "agent-1")
 	if err != nil {
-		t.Fatalf("GetReport() error = %v", err)
+		t.Fatalf("GetReport() error = %v, want persisted report", err)
 	}
 	if reread.Report != "审核已完成，报告已落盘" {
-		t.Fatalf("GetReport().Report = %q, want the persisted report body", reread.Report)
+		t.Fatalf("GetReport().Report = %q, want persisted report body", reread.Report)
 	}
 }

@@ -236,7 +236,11 @@ func (s *service) preparePersonalMutation(ctx context.Context, action, name, tar
 	now := time.Now().UTC()
 	oldHash := ""
 	if skillMainFileExists(targetDir) {
-		oldHash = skillDirContentHash(targetDir)
+		var err error
+		oldHash, err = skillDirContentHash(targetDir)
+		if err != nil {
+			return personalSkillRecoveryRecord{}, err
+		}
 	}
 	record := s.personalRecoveryRecord(action, name, scope, personalType, oldHash, "", now)
 	if err := s.writeSkillMutationAudit(ctx, action+"_intent", record); err != nil {
@@ -246,7 +250,11 @@ func (s *service) preparePersonalMutation(ctx context.Context, action, name, tar
 }
 
 func (s *service) finalizePersonalMutation(ctx context.Context, action, targetDir string, record personalSkillRecoveryRecord) error {
-	record.NewHash = skillDirContentHash(targetDir)
+	newHash, err := skillDirContentHash(targetDir)
+	if err != nil {
+		return err
+	}
+	record.NewHash = newHash
 	if err := s.writePersonalRecoveryRecord(record, targetDir); err != nil {
 		return err
 	}

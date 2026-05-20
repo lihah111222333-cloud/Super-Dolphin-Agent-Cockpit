@@ -2,6 +2,7 @@ package nested
 
 import (
 	"context"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -10,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
+	memshared "github.com/anthropic-ai/super-agent-v3/internal/module/memory/shared"
 )
 
 func TestResolveClaudeMdSourcesOrdersLayersAndPreservesRuleMetadata(t *testing.T) {
@@ -45,7 +47,7 @@ func TestResolveClaudeMdSourcesOrdersLayersAndPreservesRuleMetadata(t *testing.T
 	writeClaudeFile(t, memoryIndexPath(teamRoot), "- [Team](team.md) — team memory")
 
 	deps := newTestDependencies(testDepsOptions{nestedEnabled: true, autoMemRoot: autoRoot, teamRoot: teamRoot})
-	sources := ResolveClaudeMdSources(context.Background(), ClaudeMdResolveConfig{
+	sources := mustResolveClaudeMdSources(t, ClaudeMdResolveConfig{
 		BuildCtx: contract.BuildCtx{
 			GitRoot:                      repoRoot,
 			CWD:                          cwd,
@@ -99,7 +101,7 @@ func TestResolveClaudeMdSourcesBareWithoutAdditionalDirsDisablesAll(t *testing.T
 	writeClaudeFile(t, filepath.Join(managedRoot, "CLAUDE.md"), "managed base")
 	writeClaudeFile(t, filepath.Join(userRoot, "CLAUDE.md"), "user base")
 	writeClaudeFile(t, filepath.Join(repoRoot, "CLAUDE.md"), "project base")
-	if got := ResolveClaudeMdSources(context.Background(), ClaudeMdResolveConfig{
+	if got := mustResolveClaudeMdSources(t, ClaudeMdResolveConfig{
 		BuildCtx:     contract.BuildCtx{GitRoot: repoRoot, CWD: repoRoot, SessionFlags: map[string]bool{"bare_mode": true}},
 		Dependencies: newTestDependencies(testDepsOptions{}),
 		ManagedRoots: []string{managedRoot},
@@ -125,7 +127,7 @@ func TestResolveClaudeMdSourcesBareHonorsExplicitAdditionalDirs(t *testing.T) {
 	writeClaudeFile(t, filepath.Join(userRoot, "CLAUDE.md"), "user base")
 	writeClaudeFile(t, filepath.Join(repoRoot, "CLAUDE.md"), "project base")
 	writeClaudeFile(t, filepath.Join(addDir, "CLAUDE.md"), "add-dir base")
-	sources := ResolveClaudeMdSources(context.Background(), ClaudeMdResolveConfig{
+	sources := mustResolveClaudeMdSources(t, ClaudeMdResolveConfig{
 		BuildCtx: contract.BuildCtx{
 			GitRoot:                      repoRoot,
 			CWD:                          repoRoot,
@@ -144,6 +146,82 @@ func TestResolveClaudeMdSourcesBareHonorsExplicitAdditionalDirs(t *testing.T) {
 	}
 	if !slices.Equal(got, want) {
 		t.Fatalf("ResolveClaudeMdSources() under bare add-dir = %#v, want %#v", got, want)
+	}
+}
+
+func TestResolveClaudeMdSourcesReturnsRuleStatErrors(t *testing.T) {
+	badRoot := filepath.Join(t.TempDir(), "bad\x00root")
+	_, err := ruleMarkdownFiles(badRoot)
+	if err == nil {
+		t.Fatal("ruleMarkdownFiles() error = nil, want invalid rules path error")
+	}
+	if !strings.Contains(err.Error(), "nested rule markdown stat") {
+		t.Fatalf("ruleMarkdownFiles() error = %v, want rule stat context", err)
+	}
+}
+
+func TestResolveClaudeMdCandidatePathReturnsStatErrors(t *testing.T) {
+	_, _, ok, err := resolveClaudeMdCandidatePath(filepath.Join(t.TempDir(), "bad\x00path"))
+	if err == nil {
+		t.Fatal("resolveClaudeMdCandidatePath() error = nil, want stat error")
+	}
+	if ok {
+		t.Fatal("resolveClaudeMdCandidatePath() ok = true, want false on stat error")
+	}
+	if !strings.Contains(err.Error(), "ClaudeMd candidate stat") {
+		t.Fatalf("resolveClaudeMdCandidatePath() error = %v, want stat context", err)
+	}
+}
+
+func TestLoadStandardClaudeMdSourceReturnsSafeReadErrors(t *testing.T) {
+	root := t.TempDir()
+	outside := filepath.Join(t.TempDir(), "CLAUDE.md")
+	writeClaudeFile(t, outside, "outside")
+	link := filepath.Join(root, "CLAUDE.md")
+	if err := os.Symlink(outside, link); err != nil {
+		t.Skipf("symlink unsupported: %v", err)
+	}
+
+	_, ok, err := loadStandardClaudeMdSource(claudeMdCandidate{
+		BaseDir: root,
+		Path:    link,
+		Type:    sourceTypeProject,
+		Origin:  sourceOriginProject,
+	})
+	if err == nil {
+		t.Fatal("loadStandardClaudeMdSource() error = nil, want SafeReadEntrypoint error")
+	}
+	if ok {
+		t.Fatal("loadStandardClaudeMdSource() ok = true, want false on read error")
+	}
+	if !strings.Contains(err.Error(), "load ClaudeMd source") {
+		t.Fatalf("loadStandardClaudeMdSource() error = %v, want source path context", err)
+	}
+	if !errors.Is(err, memshared.ErrSafeReadContainment) {
+		t.Fatalf("loadStandardClaudeMdSource() error = %v, want ErrSafeReadContainment", err)
+	}
+}
+
+func TestResolveClaudeMdSourcesReturnsContainmentErrors(t *testing.T) {
+	root := t.TempDir()
+	outside := filepath.Join(t.TempDir(), "CLAUDE.md")
+	writeClaudeFile(t, outside, "outside")
+	link := filepath.Join(root, "CLAUDE.md")
+	if err := os.Symlink(outside, link); err != nil {
+		t.Skipf("symlink unsupported: %v", err)
+	}
+
+	_, err := ResolveClaudeMdSources(context.Background(), ClaudeMdResolveConfig{
+		BuildCtx:     contract.BuildCtx{GitRoot: root, CWD: root},
+		Dependencies: newTestDependencies(testDepsOptions{}),
+		ManagedRoots: nil,
+		UserRoot:     "",
+	})
+	if err == nil {
+		t.Fatal("ResolveClaudeMdSources() error = nil, want containment error")
+	}
+	if !errors.Is(err, memshared.ErrSafeReadContainment) {
+		t.Fatalf("ResolveClaudeMdSources() error = %v, want ErrSafeReadContainment", err)
 	}
 }
 
@@ -222,7 +300,10 @@ func TestCombinedClaudeMdSourcesNoLongerInjectsAutoOrTeamMemoryFiles(t *testing.
 	})
 	buildCtx := contract.BuildCtx{GitRoot: repoRoot, CWD: repoRoot}
 	provider := NewClaudeMdSourcesProvider(deps, stubTeamMemoryManager{path: teamRoot}, nil)
-	sources := provider.ResolveClaudeMdSources(context.Background(), buildCtx)
+	sources, err := provider.ResolveClaudeMdSources(context.Background(), buildCtx)
+	if err != nil {
+		t.Fatalf("ResolveClaudeMdSources() error = %v", err)
+	}
 	if hasSourceType(sources, sourceTypeAutoMem) {
 		t.Fatalf("ResolveClaudeMdSources() unexpectedly contained %q source after Phase 1.6: %#v", sourceTypeAutoMem, sources)
 	}
@@ -327,7 +408,10 @@ func hasSourceType(sources []ClaudeMdSource, sourceType string) bool {
 
 func mustResolvedClaudePath(t *testing.T, path string) string {
 	t.Helper()
-	resolved, _, ok := resolveClaudeMdCandidatePath(path)
+	resolved, _, ok, err := resolveClaudeMdCandidatePath(path)
+	if err != nil {
+		t.Fatalf("resolveClaudeMdCandidatePath(%q) error = %v", path, err)
+	}
 	if !ok {
 		t.Fatalf("resolveClaudeMdCandidatePath(%q) = false", path)
 	}
@@ -393,7 +477,7 @@ func TestResolveClaudeMdSourcesSuppressedByOverlay(t *testing.T) {
 
 	// Counter-baseline: without overlay, sources load normally.
 	cfg.Dependencies = newTestDependencies(testDepsOptions{})
-	if got := ResolveClaudeMdSources(context.Background(), cfg); len(got) == 0 {
+	if got := mustResolveClaudeMdSources(t, cfg); len(got) == 0 {
 		t.Fatalf("counter-baseline: ResolveClaudeMdSources() = empty, want non-empty (overlay off)")
 	}
 
@@ -403,7 +487,16 @@ func TestResolveClaudeMdSourcesSuppressedByOverlay(t *testing.T) {
 			return GateSnapshot{SuppressForOverlay: true}
 		},
 	})
-	if got := ResolveClaudeMdSources(context.Background(), cfg); len(got) != 0 {
+	if got := mustResolveClaudeMdSources(t, cfg); len(got) != 0 {
 		t.Fatalf("ResolveClaudeMdSources() under SuppressForOverlay = %#v, want nil/empty", got)
 	}
+}
+
+func mustResolveClaudeMdSources(t *testing.T, cfg ClaudeMdResolveConfig) []ClaudeMdSource {
+	t.Helper()
+	sources, err := ResolveClaudeMdSources(context.Background(), cfg)
+	if err != nil {
+		t.Fatalf("ResolveClaudeMdSources() error = %v", err)
+	}
+	return sources
 }

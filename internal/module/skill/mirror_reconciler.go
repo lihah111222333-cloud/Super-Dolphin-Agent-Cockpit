@@ -123,10 +123,11 @@ func MirrorConflictsFromCanonical(conflicts []canonicalSkillConflict) []SkillMir
 }
 
 func detectSkillMirrorTargetConflicts(allRecords []canonicalSkillRecord, records map[string]canonicalSkillRecord, target SkillMirrorTarget) ([]SkillMirrorConflict, error) {
-	if conflict, ok, err := validateMirrorRootOrConflict(target); err != nil || ok {
-		if err != nil {
-			return nil, err
-		}
+	conflict, ok, err := validateMirrorRootOrConflict(target)
+	if err != nil {
+		return nil, err
+	}
+	if ok {
 		return []SkillMirrorConflict{conflict}, nil
 	}
 	manifest, manifestTargetMismatch, err := targetManifestOrRepair(allRecords, target)
@@ -305,7 +306,11 @@ func unmanagedProjectSameNameConflict(target SkillMirrorTarget, record canonical
 		if err != nil {
 			return SkillMirrorConflict{}, false, err
 		}
-		if mirrorHash == expectedHash || skillDirContentHash(mirrorDir) == expectedContentHash {
+		mirrorContentHash, err := skillDirContentHash(mirrorDir)
+		if err != nil {
+			return SkillMirrorConflict{}, false, err
+		}
+		if mirrorHash == expectedHash || mirrorContentHash == expectedContentHash {
 			return SkillMirrorConflict{}, false, nil
 		}
 	}

@@ -146,19 +146,12 @@ type newRegistryParams struct {
 	ModelRegistry modelregistry.Registry
 }
 
-func newModelRegistry(logger *slog.Logger) modelregistry.Registry {
+func newModelRegistry(logger *slog.Logger) (modelregistry.Registry, error) {
 	registry, err := modelregistry.NewDefaultRegistry(modelregistry.WithLogger(logger))
 	if err == nil {
-		return registry
+		return registry, nil
 	}
-	if logger == nil {
-		logger = pkglogger.Get()
-	}
-	logger.Warn("model registry load failed; falling back to static registry",
-		slog.String("path", modelregistry.DefaultRegistryPath()),
-		slog.String("error", err.Error()),
-	)
-	return modelregistry.NewStaticRegistry(tools.FallbackProviderModels())
+	return nil, fmt.Errorf("model registry load failed for %s: %w", modelregistry.DefaultRegistryPath(), err)
 }
 
 func newRegistry(p newRegistryParams) tools.Registry {
@@ -277,7 +270,7 @@ func (r bootstrapRunner) Run(ctx context.Context) error {
 	// P15: subscribe to lifecycle hooks so hookConsumer receives
 	// agent.session.start / agent.turn.* / agent.state.change / agent.process.exit.
 	if err := subscribeOrchestrationHooks(ctx, r.client); err != nil {
-		pkglogger.Warn("mcp-orch hook subscribe failed", "error", err)
+		return errors.Join(err, r.client.Close())
 	}
 	<-ctx.Done()
 	return r.client.Close()

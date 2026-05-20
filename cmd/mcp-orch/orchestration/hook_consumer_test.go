@@ -279,7 +279,7 @@ func TestHookConsumerAfter_TurnCompletedAdvancesDAGNodeFromHook(t *testing.T) {
 	}}}
 	flow := &dagSubscriberFlowSpy{}
 	events := []string{}
-	agentExec := nodeexec.NewAgentExecutor(&stubAgentLauncher{}, nodeexec.WithHooks(recordingLifecycleHooks(&events)))
+	agentExec := newTestAgentExecutor(&stubAgentLauncher{}, nodeexec.WithHooks(recordingLifecycleHooks(&events)))
 	consumer := newHookConsumerInternal(
 		svc,
 		silentLogger(),
@@ -345,7 +345,7 @@ func TestHookConsumerAfter_TurnInterruptedAdvancesDAGNodeFromHook(t *testing.T) 
 	}}}
 	flow := &dagSubscriberFlowSpy{}
 	events := []string{}
-	agentExec := nodeexec.NewAgentExecutor(&stubAgentLauncher{}, nodeexec.WithHooks(recordingLifecycleHooks(&events)))
+	agentExec := newTestAgentExecutor(&stubAgentLauncher{}, nodeexec.WithHooks(recordingLifecycleHooks(&events)))
 	consumer := newHookConsumerInternal(
 		svc,
 		silentLogger(),

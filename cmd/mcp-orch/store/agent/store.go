@@ -96,7 +96,7 @@ func (s *threadStore) GetByThreadID(ctx context.Context, threadID string) (*orch
 	)
 	if err != nil {
 		if err == pgx.ErrNoRows {
-			return nil, nil
+			return nil, wrapThread(err, "get_by_thread_id")
 		}
 		return nil, wrapThread(err, "get_by_thread_id")
 	}
@@ -143,7 +143,7 @@ func (s *bindingStore) GetByAgentID(ctx context.Context, agentID string) (*orche
 	)
 	if err != nil {
 		if err == pgx.ErrNoRows {
-			return nil, nil
+			return nil, wrapBinding(err, "get_by_agent_id")
 		}
 		return nil, wrapBinding(err, "get_by_agent_id")
 	}

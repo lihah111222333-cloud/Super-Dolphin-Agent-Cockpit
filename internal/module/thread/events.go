@@ -32,10 +32,6 @@ func registerThreadSubscriptions(svc *service) []context.CancelFunc {
 	}
 }
 
-// startBusWorkers starts every worker that owns a bus-callback slow-path
-// for the thread service. P22 P2 (thread S3+) wires the workers into the
-// subscription lifecycle hook so callbacks can enqueue from OnStart's
-// first tick without racing a yet-to-be-started runWorker goroutine.
 func (s *service) startBusWorkers() {
 	if s == nil {
 		return
@@ -51,9 +47,6 @@ func (s *service) startBusWorkers() {
 	}
 }
 
-// stopBusWorkers drains every bus-callback worker bounded by ctx. The
-// subscription cancel must have already fired so no new Enqueues arrive;
-// any pending entries are processed before the worker goroutine exits.
 func (s *service) stopBusWorkers(ctx context.Context) {
 	if s == nil {
 		return
@@ -69,22 +62,12 @@ func (s *service) stopBusWorkers(ctx context.Context) {
 	}
 }
 
-// drainBusWorker invokes stop(ctx) and warn-logs the error on the
-// service logger. Extracted so stopBusWorkers stays flat enough to pass
-// the archtest CC-size guard as new workers land (thread S2/S3/S4+).
 func (s *service) drainBusWorker(ctx context.Context, name string, stop func(context.Context) error) {
 	if err := stop(ctx); err != nil && s.logger != nil {
 		s.logger.Warn("thread: "+name+" drain failed", "error", err)
 	}
 }
 
-// onAgentLaunched is the bus callback for agentdto.AgentLaunched. P22 P2
-// thread S4: the callback is cheap Enqueue only. The
-// agentLaunchedWorker owns the slow-path (resolveBindingForEvent,
-// syncAgentLaunchCWD, bindingStore.UpdateSessionUUID, prompt-assembly
-// Invalidate). The coalesce key is agentID when present, falling back
-// to threadID so Claude's system:init event — which omits agent_id on
-// first turn — still dedupes correctly.
 func (s *service) onAgentLaunched(ev agentdto.AgentLaunched) {
 	if s == nil || s.agentLaunchedWorker == nil || s.bindingStore == nil {
 		return
@@ -101,12 +84,6 @@ func (s *service) onAgentLaunched(ev agentdto.AgentLaunched) {
 	s.agentLaunchedWorker.Enqueue(key, ev)
 }
 
-// processAgentLaunched carries the pre-P22 inline body of
-// onAgentLaunched: resolve the binding (by agentID or threadID),
-// sync the launch CWD (possibly invalidating the prompt-assembly cache
-// on worktree switch), then persist the session UUID when it changed.
-// Invoked exclusively by agentLaunchedWorker.drainPending after the bus
-// callback has enqueued the event.
 func (s *service) processAgentLaunched(ev agentdto.AgentLaunched) {
 	if s == nil || s.bindingStore == nil {
 		return
@@ -188,6 +165,12 @@ func (s *service) syncAgentLaunchCWD(ctx context.Context, binding *bindingstore.
 	if comparablePromptCWD(prevCWD) == nextCWD {
 		return
 	}
+	if comparablePromptCWD(prevCWD) != "" {
+		if s.logger != nil {
+			s.logger.Warn("thread: rejected cwd mismatch from agent event", "thread_id", threadID, "agent_id", agentID, "stored_cwd", prevCWD, "event_cwd", nextCWD)
+		}
+		return
+	}
 	if err := s.bindingStore.UpdateAgentCwd(ctx, bindingstore.UpdateAgentCwdParams{
 		AgentID:   agentID,
 		Cwd:       nextCWD,
@@ -224,14 +207,6 @@ func normalizedAgentLaunchCWD(s *service, binding *bindingstore.Binding, nextCWD
 const maxSessionRecoveryAttempts = 2
 
 // onAgentFailed handles passive session death. When the codexapp
-// transport-level recovery fails (WS reconnect exhausted), the session
-// dispatches AgentFailed with Recoverable=true. P22 P2 thread S2: the
-// callback only computes the coalesce target and Enqueues into the
-// sessionRecoveryWorker, which owns the slow-path (rate-limit, evict
-// zombie, ctx-aware 3s reconnect delay, backgroundResumeIfNeeded). The
-// pre-P22 naked runtimesafe.SafeGo(context.Background(), ...) +
-// time.Sleep is gone; Stop drains pending + waits for every recovery
-// goroutine to observe its ctx cancellation.
 func (s *service) onAgentFailed(ev agentdto.AgentFailed) {
 	if s == nil || s.sessionRecoveryWorker == nil {
 		return
@@ -244,18 +219,10 @@ func (s *service) onAgentFailed(ev agentdto.AgentFailed) {
 	if agentID == "" {
 		return
 	}
-	// Match processSessionRecovery's target computation so coalesce
-	// key == the identifier the worker will hand to evict / resume.
 	target := util.FirstNonEmpty(threadID, agentID)
 	s.sessionRecoveryWorker.Enqueue(target, ev)
 }
 
-// processSessionRecovery carries the pre-P22 onAgentFailed body (minus
-// the outer SafeGo + time.Sleep, which the worker now owns): rate-limit
-// the agent, evict the zombie session, wait for Codex to close the
-// thread (ctx-aware so Stop short-circuits), then call
-// backgroundResumeIfNeeded. Invoked exclusively by
-// sessionRecoveryWorker.drainPending on a tracked goroutine.
 func (s *service) processSessionRecovery(ctx context.Context, ev agentdto.AgentFailed) {
 	if s == nil {
 		return
@@ -277,7 +244,6 @@ func (s *service) processSessionRecovery(ctx context.Context, ev agentdto.AgentF
 		)
 		return
 	}
-	// Rate-limit session-level recovery to prevent infinite loops.
 	count := s.incrSessionRecoveryCount(agentID)
 	if count > maxSessionRecoveryAttempts {
 		pkglogger.Warn("thread: onAgentFailed session recovery limit reached",
@@ -293,12 +259,7 @@ func (s *service) processSessionRecovery(ctx context.Context, ev agentdto.AgentF
 		"error", ev.Error,
 		"attempt", count,
 	)
-	// Evict the dead session so Resume creates a fresh one.
 	s.evictZombieSession(ctx, target)
-	// Give Codex a moment to finish closing the thread — it returns
-	// "thread is closing; retry after closed" if we resume too fast. The
-	// sleep is ctx-aware so sessionRecoveryWorker.Stop short-circuits
-	// instead of blocking shutdown for the full 3 seconds.
 	select {
 	case <-time.After(sessionRecoveryReconnectDelay):
 	case <-ctx.Done():
@@ -315,8 +276,6 @@ func (s *service) processSessionRecovery(ctx context.Context, ev agentdto.AgentF
 	s.backgroundResumeIfNeeded(ctx, target)
 }
 
-// incrSessionRecoveryCount atomically increments and returns the
-// session-level recovery count for an agent.
 func (s *service) incrSessionRecoveryCount(agentID string) int {
 	for {
 		val, loaded := s.sessionRecoveryCount.LoadOrStore(agentID, 1)
@@ -330,8 +289,6 @@ func (s *service) incrSessionRecoveryCount(agentID string) int {
 	}
 }
 
-// resetSessionRecoveryCount clears the counter, allowing recovery again
-// (e.g. after a successful user-initiated Unarchive).
 func (s *service) resetSessionRecoveryCount(agentID string) {
 	s.sessionRecoveryCount.Delete(strings.TrimSpace(agentID))
 }

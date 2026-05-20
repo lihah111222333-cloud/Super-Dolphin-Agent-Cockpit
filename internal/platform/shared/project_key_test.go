@@ -29,15 +29,23 @@ func TestProjectKeyFromCwdPrefersCanonicalGitRoot(t *testing.T) {
 		t.Fatalf("EvalSymlinks(repo): %v", err)
 	}
 
-	if got, want := ProjectKeyFromCwd(filepath.Join(repo, "nested")), "worktrees_tag-v1.14"; got != want {
+	gotSkill, err := ProjectKeyFromCwd(filepath.Join(repo, "nested"))
+	if err != nil {
+		t.Fatalf("ProjectKeyFromCwd(git subdir) error = %v", err)
+	}
+	if got, want := gotSkill, "worktrees_tag-v1.14"; got != want {
 		t.Fatalf("ProjectKeyFromCwd(git subdir) = %q, want %q", got, want)
 	}
-	if got, want := MemoryProjectKeyFromCwd(filepath.Join(repo, "nested")), headMemoryProjectKeyOracle(canonicalRepo); got != want {
+	gotMemory, err := MemoryProjectKeyFromCwd(filepath.Join(repo, "nested"))
+	if err != nil {
+		t.Fatalf("MemoryProjectKeyFromCwd(git subdir) error = %v", err)
+	}
+	if got, want := gotMemory, headMemoryProjectKeyOracle(canonicalRepo); got != want {
 		t.Fatalf("MemoryProjectKeyFromCwd(git subdir) = %q, want %q", got, want)
 	}
 }
 
-func TestProjectKeyFromCwdFallsBackToAbsolutePath(t *testing.T) {
+func TestProjectKeyFromCwdFailsFastForNonGitDirectory(t *testing.T) {
 	t.Parallel()
 
 	cwd := filepath.Join(t.TempDir(), "wj", "super-agent-v3")
@@ -45,11 +53,11 @@ func TestProjectKeyFromCwdFallsBackToAbsolutePath(t *testing.T) {
 		t.Fatalf("mkdir cwd: %v", err)
 	}
 
-	if got, want := ProjectKeyFromCwd(cwd), "wj_super-agent-v3"; got != want {
-		t.Fatalf("ProjectKeyFromCwd(non-git) = %q, want %q", got, want)
+	if got, err := ProjectKeyFromCwd(cwd); err == nil {
+		t.Fatalf("ProjectKeyFromCwd(non-git) = %q nil error, want git root error", got)
 	}
-	if got, want := MemoryProjectKeyFromCwd(cwd), headMemoryProjectKeyOracle(cwd); got != want {
-		t.Fatalf("MemoryProjectKeyFromCwd(non-git) = %q, want %q", got, want)
+	if got, err := MemoryProjectKeyFromCwd(cwd); err == nil {
+		t.Fatalf("MemoryProjectKeyFromCwd(non-git) = %q nil error, want git root error", got)
 	}
 }
 

@@ -1,7 +1,9 @@
 package memory
 
 import (
+	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
@@ -36,6 +38,20 @@ func sectionSet(names []string) map[string]struct{} {
 		out[n] = struct{}{}
 	}
 	return out
+}
+
+func writeMemoryIndexFixture(t *testing.T, root string, lines ...string) {
+	t.Helper()
+	if err := os.MkdirAll(root, 0o755); err != nil {
+		t.Fatalf("MkdirAll(memory root) error = %v", err)
+	}
+	body := strings.Join(lines, "\n")
+	if body != "" {
+		body += "\n"
+	}
+	if err := os.WriteFile(memoryIndexPath(root), []byte(body), 0o644); err != nil {
+		t.Fatalf("WriteFile(MEMORY.md) error = %v", err)
+	}
 }
 
 // assertRecordedInvalidation enforces the exact-once contract on the

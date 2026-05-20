@@ -7,6 +7,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/anthropic-ai/super-agent-v3/internal/module/skill/skillhash"
 )
 
 func ResolveSkillMirrorDrift(ctx context.Context, svc *service, req SkillMirrorResolutionRequest) (SkillMirrorResolutionReport, error) {
@@ -119,7 +121,11 @@ func syncBackMirrorToCanonical(ctx context.Context, svc *service, req SkillMirro
 	if _, err := backupSkillDir(prepared.targetDir); err != nil {
 		return report, err
 	}
-	auditRecord := newMirrorMutationAuditRecord(req.Action, req.Name, prepared.record.Scope, prepared.record.PersonalType, skillDirContentHash(prepared.targetDir), "")
+	oldHash, err := skillhash.ExistingDir(prepared.targetDir)
+	if err != nil {
+		return report, err
+	}
+	auditRecord := newMirrorMutationAuditRecord(req.Action, req.Name, prepared.record.Scope, prepared.record.PersonalType, oldHash, "")
 	if err := svc.writeSkillMutationAudit(ctx, req.Action+"_intent", auditRecord); err != nil {
 		return report, err
 	}
@@ -159,7 +165,10 @@ func overwriteMirrorFromCanonical(ctx context.Context, svc *service, req SkillMi
 	if _, err := backupSkillDir(mirrorDir); err != nil {
 		return report, err
 	}
-	oldHash := skillDirContentHash(mirrorDir)
+	oldHash, err := skillDirContentHash(mirrorDir)
+	if err != nil {
+		return report, err
+	}
 	auditRecord := newMirrorMutationAuditRecord(req.Action, req.Name, record.Scope, record.PersonalType, oldHash, "")
 	if err := svc.writeSkillMutationAudit(ctx, req.Action+"_intent", auditRecord); err != nil {
 		return report, err
@@ -297,7 +306,10 @@ func ImportUnmanagedProviderSkill(ctx context.Context, svc *service, req SkillMi
 	if err := copyUnmanagedProviderImport(prepared); err != nil {
 		return report, err
 	}
-	report.ResultingHash = skillDirContentHash(prepared.targetDir)
+	report.ResultingHash, err = skillDirContentHash(prepared.targetDir)
+	if err != nil {
+		return report, err
+	}
 	auditRecord.NewHash = report.ResultingHash
 	if err := svc.writeSkillMutationAudit(ctx, req.Action+"_finalize", auditRecord); err != nil {
 		report.PartialFailure = true

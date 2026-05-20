@@ -2,26 +2,32 @@ package prompt
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"testing"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
+	memshared "github.com/anthropic-ai/super-agent-v3/internal/module/memory/shared"
 )
 
 type stubClaudeMdSourceProvider struct {
 	calls int
+	err   error
 }
 
-func (p *stubClaudeMdSourceProvider) ResolveClaudeMdSources(context.Context, BuildCtx) []contract.ClaudeMdSource {
+func (p *stubClaudeMdSourceProvider) ResolveClaudeMdSources(context.Context, BuildCtx) ([]contract.ClaudeMdSource, error) {
 	p.calls++
+	if p.err != nil {
+		return nil, p.err
+	}
 	return []contract.ClaudeMdSource{{
 		Path:    "/repo/CLAUDE.md",
 		Type:    "project",
 		Content: fmt.Sprintf("version-%d", p.calls),
 		Digest:  "stable-digest",
-	}}
+	}}, nil
 }
 
 func TestBuildBaseUserContextSkipsConditionalAndWrapsTeamMemory(t *testing.T) {
@@ -51,6 +57,38 @@ func TestBuildBaseUserContextSkipsConditionalAndWrapsTeamMemory(t *testing.T) {
 	}
 	if strings.Contains(text, "Conditional instructions") {
 		t.Fatalf("RenderUserContextMessage = %q, want conditional rule omitted", text)
+	}
+}
+
+func TestAssembleTurnFailsOnClaudeMdSourceError(t *testing.T) {
+	svc := NewService(&Config{}, nil)
+	provider := &stubClaudeMdSourceProvider{err: fmt.Errorf("nested rule markdown stat: permission denied")}
+	if err := svc.RegisterClaudeMdSourceProvider(provider); err != nil {
+		t.Fatalf("RegisterClaudeMdSourceProvider() error = %v", err)
+	}
+	if _, err := svc.AssembleTurn(context.Background(), TurnInput{}); err == nil {
+		t.Fatal("AssembleTurn() error = nil, want ClaudeMd source error")
+	}
+}
+
+func TestAssembleStartFailsOnClaudeMdSourceContainmentError(t *testing.T) {
+	svc := NewService(&Config{}, nil)
+	provider := &stubClaudeMdSourceProvider{
+		err: fmt.Errorf("ClaudeMd candidate containment %q under %q: %w", "/tmp/outside/CLAUDE.md", "/tmp/project", memshared.ErrSafeReadContainment),
+	}
+	if err := svc.RegisterClaudeMdSourceProvider(provider); err != nil {
+		t.Fatalf("RegisterClaudeMdSourceProvider() error = %v", err)
+	}
+
+	_, err := svc.AssembleStart(context.Background(), StartInput{CWD: "/tmp/project", Provider: "claude"})
+	if err == nil {
+		t.Fatal("AssembleStart() error = nil, want ClaudeMd containment error")
+	}
+	if !errors.Is(err, memshared.ErrSafeReadContainment) {
+		t.Fatalf("AssembleStart() error = %v, want ErrSafeReadContainment", err)
+	}
+	if !strings.Contains(err.Error(), "ClaudeMd") || !strings.Contains(err.Error(), "safe read") {
+		t.Fatalf("AssembleStart() error = %v, want ClaudeMd safe read context", err)
 	}
 }
 

@@ -385,6 +385,7 @@ type sessionRecoveryRPCRecorder struct {
 	turnStarts      int
 	initializeCalls int
 	threadResumes   int
+	threadResumeCWD string
 }
 
 func (r *sessionRecoveryRPCRecorder) handle(msg jsonRPCMessage) (json.RawMessage, bool) {
@@ -396,7 +397,7 @@ func (r *sessionRecoveryRPCRecorder) handle(msg jsonRPCMessage) (json.RawMessage
 		r.incrementInitialize()
 		return mustJSON(map[string]any{"ok": true}), true
 	case "thread/resume":
-		r.incrementThreadResume()
+		r.incrementThreadResume(msg.Params)
 		return mustJSON(map[string]any{"thread": map[string]any{"id": "thread-1"}}), true
 	case "turn/start":
 		current := r.incrementTurnStart()
@@ -412,10 +413,14 @@ func (r *sessionRecoveryRPCRecorder) incrementInitialize() {
 	r.initializeCalls++
 }
 
-func (r *sessionRecoveryRPCRecorder) incrementThreadResume() {
+func (r *sessionRecoveryRPCRecorder) incrementThreadResume(params json.RawMessage) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.threadResumes++
+	var decoded threadResumeParams
+	if err := json.Unmarshal(params, &decoded); err == nil {
+		r.threadResumeCWD = strings.TrimSpace(decoded.Cwd)
+	}
 }
 
 func (r *sessionRecoveryRPCRecorder) incrementTurnStart() int {
@@ -438,6 +443,9 @@ func (r *sessionRecoveryRPCRecorder) assertCounts(t *testing.T) {
 	if r.threadResumes != 1 {
 		t.Fatalf("thread/resume count = %d, want 1", r.threadResumes)
 	}
+	if r.threadResumeCWD == "" || r.threadResumeCWD == "." {
+		t.Fatalf("thread/resume cwd = %q, want runtime cwd", r.threadResumeCWD)
+	}
 }
 
 func newRecoveryTestSession(t *testing.T, server *httptest.Server) *session {
@@ -448,7 +456,18 @@ func newRecoveryTestSession(t *testing.T, server *httptest.Server) *session {
 	}
 	// P22 P1c: mirror driver.StartSession's explicit runtime.Start().
 	s.runtime.Start()
+	s.setRuntimeConfigValue("cwd", t.TempDir())
 	return s
+}
+
+func TestSessionResumeThreadAfterRecoveryRejectsMissingRuntimeCWD(t *testing.T) {
+	s := &session{}
+	s.setThreadID("thread-1")
+
+	err := s.resumeThreadAfterRecovery(context.Background())
+	if err == nil || !strings.Contains(err.Error(), "recovery cwd is required") {
+		t.Fatalf("resumeThreadAfterRecovery() error = %v, want cwd required", err)
+	}
 }
 
 type recoveryTestTurnHandle interface {

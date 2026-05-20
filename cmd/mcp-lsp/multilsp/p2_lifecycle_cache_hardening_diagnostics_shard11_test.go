@@ -2,15 +2,14 @@ package multilsp
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
-	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/common"
 	"os"
 	"path/filepath"
 	"testing"
 	"time"
 
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/protocol"
+	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/common"
 )
 
 func TestDiagnosticsAllRefreshesStaleScopedDiagnosticBeforeReturn(t *testing.T) {
@@ -313,7 +312,7 @@ func TestBootstrapBootstrappingTimeoutAllowsRetry(t *testing.T) {
 	}
 }
 
-func TestPersistentCacheCorruptFileQuarantinedAndRewritten(t *testing.T) {
+func TestPersistentCacheCorruptFileFailsFast(t *testing.T) {
 	cacheDir := t.TempDir()
 	t.Setenv(lspCachePersistentEnv, "1")
 	t.Setenv(lspCacheDirEnv, cacheDir)
@@ -321,25 +320,12 @@ func TestPersistentCacheCorruptFileQuarantinedAndRewritten(t *testing.T) {
 	if err := os.WriteFile(path, []byte("{not-json"), 0o644); err != nil {
 		t.Fatalf("write corrupt cache: %v", err)
 	}
-	store := newLSPCacheStoreFromEnv(nil)
-	if !store.persistent || !store.persistentReady {
-		t.Fatalf("persistent cache fell back to memory after corruption")
-	}
-	payload, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatalf("read rewritten cache: %v", err)
-	}
-	var disk lspCacheDiskState
-	if err := json.Unmarshal(payload, &disk); err != nil {
-		t.Fatalf("rewritten cache is not valid JSON: %s err=%v", payload, err)
-	}
-	matches, err := filepath.Glob(filepath.Join(cacheDir, lspCacheFileName+".corrupt-*"))
-	if err != nil {
-		t.Fatalf("glob corrupt quarantine: %v", err)
-	}
-	if len(matches) != 1 {
-		t.Fatalf("corrupt quarantine files = %#v, want one", matches)
-	}
+	defer func() {
+		if recovered := recover(); recovered == nil {
+			t.Fatal("newLSPCacheStoreFromEnv() did not panic on corrupt persistent cache")
+		}
+	}()
+	_ = newLSPCacheStoreFromEnv(nil)
 }
 
 func TestPersistentCacheWritesAtomically(t *testing.T) {

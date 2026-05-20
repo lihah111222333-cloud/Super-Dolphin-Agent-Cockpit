@@ -88,6 +88,24 @@ func TestTaskHandoffWorkerProcessesEnqueuedSeed(t *testing.T) {
 	}
 }
 
+func TestTaskHandoffWorkerSurfacesAsyncRefreshError(t *testing.T) {
+	t.Parallel()
+	stub := &stubTaskHandoffRefresher{errOut: errors.New("disk full")}
+	w := newTaskHandoffWorker(stub, pkglogger.Get())
+	w.Start()
+
+	w.Enqueue("t-error", taskHandoffRenderSeed{SourceThreadID: "t-error", Status: "in_progress"})
+	waitForTaskHandoffCount(t, stub, 1, 2*time.Second)
+
+	if got := w.ProcessedTotal(); got != 0 {
+		t.Fatalf("ProcessedTotal = %d, want 0 after refresh error", got)
+	}
+	err := w.Stop(context.Background())
+	if err == nil || !strings.Contains(err.Error(), "disk full") || !strings.Contains(err.Error(), "t-error") {
+		t.Fatalf("Stop() error = %v, want refresh error with thread id", err)
+	}
+}
+
 // TestTaskHandoffWorkerCoalescesSameThread verifies the last-write-wins
 // contract: two Enqueues for the same threadID before the worker drains
 // collapse to a single refresh that carries the *latest* seed.

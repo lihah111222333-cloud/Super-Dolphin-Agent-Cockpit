@@ -1,21 +1,19 @@
 package archtest
 
 import (
+	"errors"
+	"io/fs"
+	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
-func TestLoadBaseline_NotFound(t *testing.T) {
+func TestLoadBaseline_NotFoundFailsFast(t *testing.T) {
 	t.Parallel()
-	info, err := LoadBaseline("/nonexistent/path/baseline.json")
-	if err != nil {
-		t.Fatalf("missing file should return empty baseline, got error: %v", err)
-	}
-	if len(info.Data) != 0 {
-		t.Fatalf("expected empty baseline, got %d entries", len(info.Data))
-	}
-	if !info.ModTime.IsZero() {
-		t.Fatalf("expected zero modtime for missing file, got %v", info.ModTime)
+	_, err := LoadBaseline("/nonexistent/path/baseline.json")
+	if !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("missing file error = %v, want not-exist error", err)
 	}
 }
 
@@ -61,6 +59,35 @@ func TestSaveAndLoadBaseline(t *testing.T) {
 	}
 	if m.TodoCount != 3 {
 		t.Errorf("todo_count: got %d, want 3", m.TodoCount)
+	}
+}
+
+func TestLoadBaseline_EmptyMapAllowed(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+
+	path := filepath.Join(dir, "empty.json")
+	if err := os.WriteFile(path, []byte("{}"), baselineFileMode); err != nil {
+		t.Fatalf("write baseline fixture: %v", err)
+	}
+	loaded, err := LoadBaseline(path)
+	if err != nil {
+		t.Fatalf("LoadBaseline(empty map) error = %v, want nil", err)
+	}
+	if len(loaded.Data) != 0 {
+		t.Fatalf("loaded baseline entries = %d, want 0", len(loaded.Data))
+	}
+}
+
+func TestLoadBaseline_NullFailsFast(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	path := filepath.Join(dir, "null.json")
+	if err := os.WriteFile(path, []byte("null"), baselineFileMode); err != nil {
+		t.Fatalf("write baseline fixture: %v", err)
+	}
+	if _, err := LoadBaseline(path); err == nil || !strings.Contains(err.Error(), "baseline") || !strings.Contains(err.Error(), "null") {
+		t.Fatalf("LoadBaseline(null) error = %v, want null baseline error", err)
 	}
 }
 

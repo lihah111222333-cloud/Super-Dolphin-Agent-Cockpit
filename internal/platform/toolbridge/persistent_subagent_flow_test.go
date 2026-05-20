@@ -13,6 +13,7 @@ import (
 	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
 	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/mcpcontrol"
+	sharedfilestore "github.com/anthropic-ai/super-agent-v3/internal/store/sharedfile"
 	threadstore "github.com/anthropic-ai/super-agent-v3/internal/store/thread"
 )
 
@@ -253,12 +254,12 @@ func TestPersistentSubagentDefaultFlow_StartFiltersSpawnAgentAndToolbridgeBlocks
 	sessions := &persistentFlowSessions{byAgent: map[string]contract.Session{}}
 	starter := &persistentFlowStarter{sessions: sessions}
 	cfg := &platformconfig.Config{Agent: platformconfig.AgentConfig{PersistentSubagentDefault: true}}
-	service := threadmod.NewServiceWithPromptAssembly(nil, store, nil, sessions, starter, nil, nil, nil, nil, cfg, nil)
+	service := threadmod.NewServiceWithPromptAssemblyAndSharedFiles(nil, store, nil, persistentFlowSharedFiles{}, sessions, starter, nil, nil, nil, nil, cfg, nil, nil, nil, nil, nil, nil, nil)
 
 	result, err := service.Start(ctx, threadmod.StartRequest{
 		AgentID:       "agent-child-persistent",
 		Provider:      "codex",
-		CWD:           ".",
+		CWD:           t.TempDir(),
 		Name:          "worker-agent",
 		ParentAgentID: "agent-main",
 		EnabledTools:  []string{"spawn_agent", "orchestration_launch_agent", "request_user_input"},
@@ -308,4 +309,22 @@ func TestPersistentSubagentDefaultFlow_StartFiltersSpawnAgentAndToolbridgeBlocks
 	if len(registry.gotKinds) != 0 {
 		t.Fatalf("FindActiveByKind() kinds = %#v, want none", registry.gotKinds)
 	}
+}
+
+type persistentFlowSharedFiles struct{}
+
+func (persistentFlowSharedFiles) Get(context.Context, string) (*sharedfilestore.SharedFile, error) {
+	return nil, platformdb.ErrNotFound
+}
+
+func (persistentFlowSharedFiles) List(context.Context, sharedfilestore.ListFilter) ([]sharedfilestore.SharedFile, error) {
+	return nil, nil
+}
+
+func (persistentFlowSharedFiles) Upsert(_ context.Context, params sharedfilestore.UpsertParams) (*sharedfilestore.SharedFile, error) {
+	return &sharedfilestore.SharedFile{Path: params.Path, Content: params.Content, UpdatedBy: params.UpdatedBy}, nil
+}
+
+func (persistentFlowSharedFiles) Delete(context.Context, string) (int64, error) {
+	return 1, nil
 }

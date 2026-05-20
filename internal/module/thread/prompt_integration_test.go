@@ -54,6 +54,7 @@ func TestStartSessionUsesPromptAssembly(t *testing.T) {
 	if _, err := svc.Start(context.Background(), StartRequest{
 		AgentID:               "agent-assembly",
 		Provider:              "codex",
+		CWD:                   wantStartCWD(t),
 		Prompt:                "legacy prompt",
 		BaseInstructions:      "raw system",
 		DeveloperInstructions: "raw dev",
@@ -95,6 +96,7 @@ func TestBaseInstructionsNotFoldedIntoPrompt(t *testing.T) {
 	if _, err := svc.Start(context.Background(), StartRequest{
 		AgentID:          "agent-base",
 		Provider:         "codex",
+		CWD:              wantStartCWD(t),
 		BaseInstructions: "system prompt",
 	}); err != nil {
 		t.Fatalf("Start() error = %v", err)
@@ -190,11 +192,10 @@ func TestResumeDoesNotInvalidatePromptAssemblyWithoutWorktreeRestore(t *testing.
 		Status:    statusCreated,
 	}}
 	bindings := &stubBindingStore{binding: &bindingstore.Binding{
-		AgentID:          "agent-resume",
-		Provider:         "codex",
-		ProviderThreadID: "provider-thread-resume",
-		CodexThreadID:    "thread-resume",
-		Cwd:              "/repo",
+		AgentID:       "agent-resume",
+		Provider:      "codex",
+		CodexThreadID: "thread-resume",
+		Cwd:           "/repo",
 	}}
 	sessions := &stubSessionProvider{}
 	starter := &stubSessionStarter{onResume: func(_ context.Context, req dto.ResumeSessionRequest) (contract.Session, error) {
@@ -228,11 +229,10 @@ func TestResumeInvalidatesPromptAssemblyForWorktreeRestore(t *testing.T) {
 		Status:    statusCreated,
 	}}
 	bindings := &stubBindingStore{binding: &bindingstore.Binding{
-		AgentID:          "agent-resume",
-		Provider:         "codex",
-		ProviderThreadID: "provider-thread-resume",
-		CodexThreadID:    "thread-resume",
-		Cwd:              worktreeCWD,
+		AgentID:       "agent-resume",
+		Provider:      "codex",
+		CodexThreadID: "thread-resume",
+		Cwd:           worktreeCWD,
 	}}
 	sessions := &stubSessionProvider{}
 	starter := &stubSessionStarter{onResume: func(_ context.Context, req dto.ResumeSessionRequest) (contract.Session, error) {
@@ -354,6 +354,7 @@ func TestNameNotPollutedByPrompt(t *testing.T) {
 	if _, err := svc.Start(context.Background(), StartRequest{
 		AgentID:  "agent-name",
 		Provider: "codex",
+		CWD:      wantStartCWD(t),
 		Name:     "clean display name",
 		Prompt:   "legacy prompt should stay out of the name slot",
 	}); err != nil {

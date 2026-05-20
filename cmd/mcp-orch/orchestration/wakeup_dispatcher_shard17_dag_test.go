@@ -48,7 +48,7 @@ func TestDispatcherF151FiveNodeDAGMetricsEndpointAndAlert(t *testing.T) {
 	}
 	sink := &recordingDispatchRetryAlertSink{}
 	d, _ := NewWakeupDispatcher(store, launcher, nil, WakeupDispatcherConfig{})
-	d.WithNodeRouter(NewNodeExecutorRouter(store, nodeexec.NewAgentExecutor(agentLauncher, nil), nil, nil, nil, nil))
+	d.WithNodeRouter(NewNodeExecutorRouter(store, newTestAgentExecutor(agentLauncher, nil), nil, nil, nil, nil))
 	d.WithDispatchRetryAlertSink(sink)
 	if _, err := d.ProcessBatch(context.Background()); err != nil {
 		t.Fatalf("ProcessBatch err = %v", err)

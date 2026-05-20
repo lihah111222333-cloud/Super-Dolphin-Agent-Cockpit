@@ -166,6 +166,82 @@ func TestStopRemovesSessionByGenerationWhenAvailable(t *testing.T) {
 	}
 }
 
+func TestStopContinuesWhenLocalSessionAlreadyGone(t *testing.T) {
+	t.Parallel()
+
+	calls := []string{}
+	sessions := &stubThreadSessions{
+		agentID:    "agent-1",
+		getErr:     contract.ErrSessionNotFound,
+		generation: 11,
+		calls:      &calls,
+	}
+	orch := &stubThreadOrchestration{calls: &calls}
+	threadStore := &recordingThreadStore{
+		stubThreadStore: &stubThreadStore{thread: &threadstore.Thread{
+			ThreadID: "thread-1",
+			AgentID:  "agent-1",
+			Status:   statusCreated,
+		}},
+		calls: &calls,
+	}
+	svc := &service{
+		bindingStore: &stubThreadBindingStore{binding: &bindingstore.Binding{
+			AgentID:       "agent-1",
+			CodexThreadID: "thread-1",
+		}},
+		threadStore:   threadStore,
+		sessions:      sessions,
+		turns:         &stubTurnService{calls: &calls},
+		orchestration: orch,
+	}
+
+	if err := svc.Stop(context.Background(), "agent-1"); err != nil {
+		t.Fatalf("Stop() error = %v", err)
+	}
+	assertStopCallPresent(t, calls, "agent_stop:agent-1", "managed agent stop after stale local session")
+	assertStopCallPresent(t, calls, "thread_status:thread-1:stopped", "stopped status after stale local session")
+	if !reflect.DeepEqual(sessions.removedGenerations, []uint64{11}) {
+		t.Fatalf("removed generations = %#v, want [11]", sessions.removedGenerations)
+	}
+}
+
+func TestStopRetriesBindingAfterPendingLaunchLock(t *testing.T) {
+	t.Parallel()
+
+	calls := []string{}
+	binding := &bindingstore.Binding{
+		AgentID:          "agent-1",
+		Provider:         "codex",
+		ProviderThreadID: "thread-1",
+		CodexThreadID:    "thread-1",
+	}
+	svc := &service{
+		bindingStore: &lateResolveBindingStore{
+			stubThreadBindingStore: &stubThreadBindingStore{binding: binding, calls: &calls},
+			failLookups:            3,
+		},
+		threadStore: &recordingThreadStore{
+			stubThreadStore: &stubThreadStore{thread: &threadstore.Thread{
+				ThreadID:      "thread-1",
+				AgentID:       "agent-1",
+				Status:        statusCreated,
+				PendingLaunch: false,
+			}},
+			calls: &calls,
+		},
+		sessions:      &stubThreadSessions{agentID: "agent-1", session: &stubThreadSession{threadID: "thread-1", calls: &calls}, calls: &calls},
+		turns:         &stubTurnService{calls: &calls},
+		orchestration: &stubThreadOrchestration{calls: &calls},
+	}
+
+	if err := svc.Stop(context.Background(), "thread-1"); err != nil {
+		t.Fatalf("Stop() error = %v", err)
+	}
+	assertStopCallPresent(t, calls, "agent_stop:agent-1", "managed agent stop after binding retry")
+	assertStopCallPresent(t, calls, "thread_status:thread-1:stopped", "stopped status update after binding retry")
+}
+
 func TestArchiveStopsManagedAgentBeforeArchiving(t *testing.T) {
 	t.Parallel()
 
@@ -201,6 +277,49 @@ func TestArchiveStopsManagedAgentBeforeArchiving(t *testing.T) {
 	assertArchiveStopsManagedAgent(t, calls, orch, bindingStore, threadStore, session, sessions)
 }
 
+func TestArchiveContinuesWhenLocalSessionAlreadyGone(t *testing.T) {
+	t.Parallel()
+
+	calls := []string{}
+	sessions := &stubThreadSessions{
+		agentID: "agent-1",
+		getErr:  contract.ErrSessionNotFound,
+		calls:   &calls,
+	}
+	orch := &stubThreadOrchestration{calls: &calls}
+	bindingStore := &stubThreadBindingStore{
+		binding: &bindingstore.Binding{
+			AgentID:       "agent-1",
+			CodexThreadID: "thread-1",
+		},
+		calls: &calls,
+	}
+	threadStore := &recordingThreadStore{
+		stubThreadStore: &stubThreadStore{thread: &threadstore.Thread{
+			ThreadID: "thread-1",
+			AgentID:  "agent-1",
+			Status:   statusCreated,
+		}},
+		calls: &calls,
+	}
+	svc := &service{
+		bindingStore:  bindingStore,
+		threadStore:   threadStore,
+		sessions:      sessions,
+		turns:         &stubTurnService{calls: &calls},
+		orchestration: orch,
+	}
+
+	if err := svc.Archive(context.Background(), "thread-1"); err != nil {
+		t.Fatalf("Archive() error = %v", err)
+	}
+	assertStopCallPresent(t, calls, "agent_stop:agent-1", "managed agent stop after stale local session")
+	assertStopCallPresent(t, calls, "thread_status:thread-1:archived", "archive status after stale local session")
+	if len(bindingStore.archived) != 1 || !bindingStore.archived[0].Archived {
+		t.Fatalf("archived bindings = %#v", bindingStore.archived)
+	}
+}
+
 func assertArchiveStopsManagedAgent(
 	t *testing.T,
 	calls []string,
@@ -229,17 +348,12 @@ func assertArchiveStopsManagedAgent(
 	assertStopCallPresent(t, calls, "turn_cleanup:thread-1:thread_archived", "thread_archived cleanup")
 }
 
-func TestArchiveFallsBackWhenBindingMissing(t *testing.T) {
+func TestArchiveFailsFastWhenBindingMissing(t *testing.T) {
 	t.Parallel()
 
 	calls := []string{}
 	turns := &stubTurnService{calls: &calls}
 	orch := &stubThreadOrchestration{calls: &calls}
-	// No binding row (e.g. agent_provider_binding wiped during a DB rebuild
-	// while agent_threads survived). GetByAgentID returns platformdb.ErrNotFound
-	// — without the C2 fallback Archive() would return that error and the
-	// frontend would silently swallow it, leaving the archive button
-	// non-reactive.
 	bindingStore := &stubThreadBindingStore{
 		getByAgentIDErr: platformdb.ErrNotFound,
 		calls:           &calls,
@@ -248,35 +362,20 @@ func TestArchiveFallsBackWhenBindingMissing(t *testing.T) {
 		stubThreadStore: &stubThreadStore{thread: &threadstore.Thread{ThreadID: "thread-orphan", Status: statusCreated}},
 		calls:           &calls,
 	}
-	var stopped threaddto.Stopped
 	svc := &service{
 		bindingStore:  bindingStore,
 		threadStore:   threadStore,
 		turns:         turns,
 		orchestration: orch,
-		emitStopped: func(evt threaddto.Stopped) {
-			stopped = evt
-		},
 	}
 
 	if err := svc.Archive(context.Background(), "thread-orphan"); err != nil {
-		t.Fatalf("Archive() error = %v, want nil (no-binding fallback)", err)
+		if platformdb.IsNotFound(err) {
+			return
+		}
+		t.Fatalf("Archive() error = %v, want not found", err)
 	}
-	if threadStore.status.Status != statusArchived {
-		t.Fatalf("thread status = %#v, want archived", threadStore.status)
-	}
-	if threadStore.status.ThreadID != "thread-orphan" {
-		t.Fatalf("status update target = %q, want thread-orphan", threadStore.status.ThreadID)
-	}
-	if len(bindingStore.archived) != 0 {
-		t.Fatalf("binding archive calls = %#v, want none (no binding to update)", bindingStore.archived)
-	}
-	if orch.stoppedAgentID != "" {
-		t.Fatalf("orchestration stop called with agent = %q, want none", orch.stoppedAgentID)
-	}
-	if stopped.ThreadID != "thread-orphan" || stopped.Status != statusArchived || stopped.Reason != "archived_no_binding" {
-		t.Fatalf("stopped event = %#v, want thread-orphan/archived/archived_no_binding", stopped)
-	}
+	t.Fatal("Archive() error = nil, want not found")
 }
 
 func TestUnarchivePublishesCreatedLifecycleEvent(t *testing.T) {
@@ -346,6 +445,45 @@ func TestDeleteStopsManagedAgentBeforeDeleting(t *testing.T) {
 	assertDeleteStopsManagedAgent(t, calls, orch, bindingStore, threadStore, session, sessions)
 }
 
+func TestDeleteRetriesBindingAfterPendingLaunchLock(t *testing.T) {
+	t.Parallel()
+
+	calls := []string{}
+	binding := &bindingstore.Binding{
+		AgentID:          "agent-1",
+		Provider:         "codex",
+		ProviderThreadID: "thread-1",
+		CodexThreadID:    "thread-1",
+	}
+	bindingStore := &lateResolveBindingStore{
+		stubThreadBindingStore: &stubThreadBindingStore{binding: binding, calls: &calls},
+		failLookups:            3,
+	}
+	threadStore := &recordingThreadStore{
+		stubThreadStore: &stubThreadStore{thread: &threadstore.Thread{
+			ThreadID:      "thread-1",
+			AgentID:       "agent-1",
+			Status:        statusCreated,
+			PendingLaunch: false,
+		}},
+		calls: &calls,
+	}
+	svc := &service{
+		bindingStore:  bindingStore,
+		threadStore:   threadStore,
+		sessions:      &stubThreadSessions{agentID: "agent-1", session: &stubThreadSession{threadID: "thread-1", calls: &calls}, calls: &calls},
+		turns:         &stubTurnService{calls: &calls},
+		orchestration: &stubThreadOrchestration{calls: &calls},
+	}
+
+	if err := svc.Delete(context.Background(), "thread-1"); err != nil {
+		t.Fatalf("Delete() error = %v", err)
+	}
+	assertStopCallPresent(t, calls, "agent_stop:agent-1", "managed agent stop after binding retry")
+	assertStopCallPresent(t, calls, "binding_delete:agent-1", "binding delete after binding retry")
+	assertStopCallPresent(t, calls, "thread_delete:thread-1", "thread delete after binding retry")
+}
+
 func assertDeleteStopsManagedAgent(
 	t *testing.T,
 	calls []string,
@@ -395,6 +533,37 @@ func assertStopCallPresent(t *testing.T, calls []string, want, label string) {
 	if callIndex(calls, want) == -1 {
 		t.Fatalf("cleanup calls = %#v, want %s", calls, label)
 	}
+}
+
+type lateResolveBindingStore struct {
+	*stubThreadBindingStore
+	failLookups int
+}
+
+func (s *lateResolveBindingStore) shouldFailLookup() bool {
+	if s.failLookups <= 0 {
+		return false
+	}
+	s.failLookups--
+	return true
+}
+
+func (s *lateResolveBindingStore) GetByAgentID(ctx context.Context, agentID string) (*bindingstore.Binding, error) {
+	if s.shouldFailLookup() {
+		return nil, platformdb.ErrNotFound
+	}
+	return s.stubThreadBindingStore.GetByAgentID(ctx, agentID)
+}
+
+func (s *lateResolveBindingStore) GetByProviderThread(ctx context.Context, provider, providerThreadID string) (*bindingstore.Binding, error) {
+	if s.shouldFailLookup() {
+		return nil, platformdb.ErrNotFound
+	}
+	if s.binding != nil && s.binding.Provider == provider &&
+		(s.binding.ProviderThreadID == providerThreadID || s.binding.CodexThreadID == providerThreadID) {
+		return s.binding, nil
+	}
+	return nil, platformdb.ErrNotFound
 }
 
 func TestStopCleansManagedScratchpad(t *testing.T) {

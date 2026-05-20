@@ -2,18 +2,27 @@ package thread
 
 import (
 	"context"
+	"errors"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	shareddto "github.com/anthropic-ai/super-agent-v3/internal/dto/shared"
 	turndto "github.com/anthropic-ai/super-agent-v3/internal/dto/turn"
+	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
 	bindingstore "github.com/anthropic-ai/super-agent-v3/internal/store/binding"
 	sharedfilestore "github.com/anthropic-ai/super-agent-v3/internal/store/sharedfile"
 	threadstore "github.com/anthropic-ai/super-agent-v3/internal/store/thread"
+	"github.com/anthropic-ai/super-agent-v3/internal/util/configutil"
 )
 
+func firstConfigString(cfg map[string]any, keys ...string) string {
+	return configutil.ConfigString(cfg, keys...)
+}
+
 type stubSharedFileStore struct {
+	mu         sync.Mutex
 	files      map[string]sharedfilestore.SharedFile
 	upserts    []sharedfilestore.UpsertParams
 	getErr     error
@@ -23,15 +32,17 @@ type stubSharedFileStore struct {
 }
 
 func (s *stubSharedFileStore) Get(_ context.Context, path string) (*sharedfilestore.SharedFile, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	if s.getErr != nil {
 		return nil, s.getErr
 	}
 	if s.files == nil {
-		return nil, nil
+		return nil, platformdb.ErrNotFound
 	}
 	file, ok := s.files[path]
 	if !ok {
-		return nil, nil
+		return nil, platformdb.ErrNotFound
 	}
 	copy := file
 	return &copy, nil
@@ -42,6 +53,8 @@ func (s *stubSharedFileStore) List(context.Context, sharedfilestore.ListFilter) 
 }
 
 func (s *stubSharedFileStore) Upsert(_ context.Context, params sharedfilestore.UpsertParams) (*sharedfilestore.SharedFile, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	if s.upsertErr != nil {
 		return nil, s.upsertErr
 	}
@@ -61,6 +74,8 @@ func (s *stubSharedFileStore) Upsert(_ context.Context, params sharedfilestore.U
 }
 
 func (s *stubSharedFileStore) Delete(_ context.Context, path string) (int64, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	if s.deleteErr != nil {
 		return 0, s.deleteErr
 	}
@@ -153,6 +168,7 @@ func TestOnTurnCompletedRefreshesTaskHandoff(t *testing.T) {
 	t.Parallel()
 	thread := &threadstore.Thread{
 		ThreadID: "thread-1",
+		AgentID:  "agent-1",
 		Prompt:   "Demo Task",
 		Status:   "running",
 		Cwd:      "/repo",
@@ -166,8 +182,10 @@ func TestOnTurnCompletedRefreshesTaskHandoff(t *testing.T) {
 	}
 	files := &stubSharedFileStore{}
 	svc := &service{
-		threadStore: &stubThreadStore{thread: thread},
-		sharedFiles: files,
+		threadStore:  &stubThreadStore{thread: thread},
+		sharedFiles:  files,
+		bindingStore: &stubBindingStore{binding: &bindingstore.Binding{AgentID: "agent-1", Provider: "codex", ProviderThreadID: "thread-1", CodexThreadID: "thread-1"}},
+		sessions:     &stubSessionProvider{session: &stubSession{threadID: "thread-1"}},
 	}
 	// P22 P2 thread S3: onTurnCompleted now only enqueues into the
 	// taskHandoffWorker; the worker runs refreshTaskHandoffFromThread on
@@ -204,84 +222,90 @@ func TestOnTurnCompletedRefreshesTaskHandoff(t *testing.T) {
 	}
 }
 
-func TestBackfillResumeRootTaskId(t *testing.T) {
+func makeBackfillThread(t *testing.T, threadID, ownerThreadID string, runtime map[string]any) *threadstore.Thread {
+	t.Helper()
+	return &threadstore.Thread{
+		ThreadID:      threadID,
+		OwnerThreadID: ownerThreadID,
+		ConfigOverride: mustStoredThreadConfigRaw(t, storedThreadConfig{
+			Runtime: runtime,
+		}),
+	}
+}
+
+func mustBackfillRaw(t *testing.T, runtime map[string]any) []byte {
+	t.Helper()
+	return mustStoredThreadConfigRaw(t, storedThreadConfig{Runtime: runtime})
+}
+
+func TestBackfillResumeRootTaskIdEmptyRawReturnsUnchanged(t *testing.T) {
 	t.Parallel()
-
-	makeThread := func(t *testing.T, threadID, ownerThreadID string, runtime map[string]any) *threadstore.Thread {
-		t.Helper()
-		return &threadstore.Thread{
-			ThreadID:      threadID,
-			OwnerThreadID: ownerThreadID,
-			ConfigOverride: mustStoredThreadConfigRaw(t, storedThreadConfig{
-				Runtime: runtime,
-			}),
-		}
+	svc := &service{threadStore: &stubThreadStore{}}
+	got, err := svc.backfillResumeRootTaskId(context.Background(), "", nil)
+	if err != nil {
+		t.Fatalf("backfillResumeRootTaskId() error = %v", err)
 	}
-
-	mustEncode := func(t *testing.T, runtime map[string]any) []byte {
-		t.Helper()
-		return mustStoredThreadConfigRaw(t, storedThreadConfig{Runtime: runtime})
+	if got != nil {
+		t.Fatalf("got = %v, want nil", got)
 	}
+}
 
-	t.Run("empty raw returns unchanged", func(t *testing.T) {
-		t.Parallel()
-		svc := &service{threadStore: &stubThreadStore{}}
-		got := svc.backfillResumeRootTaskId(context.Background(), "", nil)
-		if got != nil {
-			t.Fatalf("got = %v, want nil", got)
-		}
-	})
+func TestBackfillResumeRootTaskIdWithoutTaskIDReturnsUnchanged(t *testing.T) {
+	t.Parallel()
+	svc := &service{threadStore: &stubThreadStore{}}
+	raw := mustBackfillRaw(t, map[string]any{"otherKey": "value"})
+	got, err := svc.backfillResumeRootTaskId(context.Background(), "thread-X", raw)
+	if err != nil {
+		t.Fatalf("backfillResumeRootTaskId() error = %v", err)
+	}
+	if string(got) != string(raw) {
+		t.Fatalf("got mutated, want unchanged")
+	}
+}
 
-	t.Run("no taskId returns unchanged", func(t *testing.T) {
-		t.Parallel()
-		svc := &service{threadStore: &stubThreadStore{}}
-		raw := mustEncode(t, map[string]any{"otherKey": "value"})
-		got := svc.backfillResumeRootTaskId(context.Background(), "thread-X", raw)
-		if string(got) != string(raw) {
-			t.Fatalf("got mutated, want unchanged")
-		}
+func TestBackfillResumeRootTaskIdAlreadySetReturnsUnchanged(t *testing.T) {
+	t.Parallel()
+	svc := &service{threadStore: &stubThreadStore{}}
+	raw := mustBackfillRaw(t, map[string]any{
+		taskConfigKeyID:   "task-X",
+		taskConfigKeyRoot: "task-already-set",
 	})
+	got, err := svc.backfillResumeRootTaskId(context.Background(), "thread-X", raw)
+	if err != nil {
+		t.Fatalf("backfillResumeRootTaskId() error = %v", err)
+	}
+	if string(got) != string(raw) {
+		t.Fatalf("got mutated, want unchanged")
+	}
+}
 
-	t.Run("already has rootTaskId returns unchanged", func(t *testing.T) {
-		t.Parallel()
-		svc := &service{threadStore: &stubThreadStore{}}
-		raw := mustEncode(t, map[string]any{
-			taskConfigKeyID:   "task-X",
-			taskConfigKeyRoot: "task-already-set",
-		})
-		got := svc.backfillResumeRootTaskId(context.Background(), "thread-X", raw)
-		if string(got) != string(raw) {
-			t.Fatalf("got mutated, want unchanged")
-		}
-	})
+func TestBackfillResumeRootTaskIdUsesResolvableOwnerChain(t *testing.T) {
+	t.Parallel()
+	threadByID := map[string]*threadstore.Thread{
+		"thread-root": makeBackfillThread(t, "thread-root", "", map[string]any{taskConfigKeyID: "task-root"}),
+	}
+	svc := &service{threadStore: &stubThreadStore{threadByID: threadByID}}
+	raw := mustBackfillRaw(t, map[string]any{taskConfigKeyID: "task-mid"})
+	got, err := svc.backfillResumeRootTaskId(context.Background(), "thread-root", raw)
+	if err != nil {
+		t.Fatalf("backfillResumeRootTaskId() error = %v", err)
+	}
+	stored := mustDecodeStoredThreadConfig(t, got)
+	if rootID := firstConfigString(stored.Runtime, taskConfigKeyRoot, taskConfigKeyRootSnake); rootID != "task-root" {
+		t.Fatalf("rootTaskId = %q, want task-root", rootID)
+	}
+	if taskID := firstConfigString(stored.Runtime, taskConfigKeyID, taskConfigKeyIDSnake); taskID != "task-mid" {
+		t.Fatalf("taskId mutated to %q, want task-mid", taskID)
+	}
+}
 
-	t.Run("missing rootTaskId with resolvable owner chain", func(t *testing.T) {
-		t.Parallel()
-		threadByID := map[string]*threadstore.Thread{
-			"thread-root": makeThread(t, "thread-root", "", map[string]any{taskConfigKeyID: "task-root"}),
-		}
-		svc := &service{threadStore: &stubThreadStore{threadByID: threadByID}}
-		raw := mustEncode(t, map[string]any{taskConfigKeyID: "task-mid"})
-		got := svc.backfillResumeRootTaskId(context.Background(), "thread-root", raw)
-		stored := decodeStoredThreadConfig(got)
-		if rootID := firstConfigString(stored.Runtime, taskConfigKeyRoot, taskConfigKeyRootSnake); rootID != "task-root" {
-			t.Fatalf("rootTaskId = %q, want task-root", rootID)
-		}
-		if taskID := firstConfigString(stored.Runtime, taskConfigKeyID, taskConfigKeyIDSnake); taskID != "task-mid" {
-			t.Fatalf("taskId mutated to %q, want task-mid", taskID)
-		}
-	})
-
-	t.Run("missing rootTaskId without owner falls back to self taskId", func(t *testing.T) {
-		t.Parallel()
-		svc := &service{threadStore: &stubThreadStore{}}
-		raw := mustEncode(t, map[string]any{taskConfigKeyID: "task-self"})
-		got := svc.backfillResumeRootTaskId(context.Background(), "", raw)
-		stored := decodeStoredThreadConfig(got)
-		if rootID := firstConfigString(stored.Runtime, taskConfigKeyRoot, taskConfigKeyRootSnake); rootID != "task-self" {
-			t.Fatalf("rootTaskId = %q, want fallback task-self", rootID)
-		}
-	})
+func TestBackfillResumeRootTaskIdWithoutOwnerFailsFast(t *testing.T) {
+	t.Parallel()
+	svc := &service{threadStore: &stubThreadStore{}}
+	raw := mustBackfillRaw(t, map[string]any{taskConfigKeyID: "task-self"})
+	if got, err := svc.backfillResumeRootTaskId(context.Background(), "", raw); err == nil {
+		t.Fatalf("backfillResumeRootTaskId() = %q, want missing root task error", string(got))
+	}
 }
 
 func TestEnsureHandoffExists(t *testing.T) {
@@ -325,8 +349,24 @@ func TestEnsureHandoffExists(t *testing.T) {
 		if err == nil {
 			t.Fatalf("expected error for missing file")
 		}
+		if !errors.Is(err, errTaskHandoffMissing) {
+			t.Fatalf("error = %v, want errTaskHandoffMissing", err)
+		}
 		if !strings.Contains(err.Error(), "handoff/tasks/task-Z.md") {
 			t.Fatalf("error should contain path; got %v", err)
+		}
+	})
+
+	t.Run("handoff store read error is not classified as missing", func(t *testing.T) {
+		t.Parallel()
+		files := &stubSharedFileStore{getErr: errors.New("disk read failed")}
+		svc := &service{sharedFiles: files}
+		err := svc.FlushAndVerifyTaskHandoff(context.Background(), "thread-1", "task-Z")
+		if err == nil || !strings.Contains(err.Error(), "handoff_read_failed") {
+			t.Fatalf("FlushAndVerifyTaskHandoff() error = %v, want read failure", err)
+		}
+		if strings.Contains(err.Error(), "handoff_missing") {
+			t.Fatalf("FlushAndVerifyTaskHandoff() error = %v, should not mark read errors missing", err)
 		}
 	})
 }

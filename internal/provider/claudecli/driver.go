@@ -3,7 +3,9 @@ package claudecli
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
+	"os"
 	"strings"
 	"time"
 
@@ -180,6 +182,9 @@ func (d *driver) start(ctx context.Context, spec startSpec) (contract.Session, e
 	if err := shared.CheckCtx(ctx); err != nil {
 		return nil, err
 	}
+	if err := validateStartCWD(spec.cwd); err != nil {
+		return nil, err
+	}
 	var err error
 	spec, err = d.prepareProviderHomeAndMirrors(ctx, spec)
 	if err != nil {
@@ -199,6 +204,9 @@ func (d *driver) start(ctx context.Context, spec startSpec) (contract.Session, e
 }
 
 func (d *driver) prepareSessionStart(spec startSpec) (preparedStartSession, error) {
+	if err := validateStartCWD(spec.cwd); err != nil {
+		return preparedStartSession{}, err
+	}
 	history := &historyBackend{sessionDir: spec.historyDir}
 	requestedModel, requestedConfig := resolveRequestedStartConfig(spec)
 	requestedConfig.DeveloperInstructions = promptDeveloperInstructions(cliLaunchConfig{
@@ -265,6 +273,21 @@ func (d *driver) warnSkillMirrorIssue(message string, err error) {
 	if d != nil && d.logger != nil && err != nil {
 		d.logger.Warn(message, "error", err)
 	}
+}
+
+func validateStartCWD(cwd string) error {
+	cwd = strings.TrimSpace(cwd)
+	if cwd == "" {
+		return errors.New("claudecli: cwd is required")
+	}
+	info, err := os.Stat(cwd)
+	if err != nil {
+		return fmt.Errorf("claudecli: cwd stat %q: %w", cwd, err)
+	}
+	if !info.IsDir() {
+		return fmt.Errorf("claudecli: cwd %q is not a directory", cwd)
+	}
+	return nil
 }
 
 func resolveRequestedStartConfig(spec startSpec) (string, cliLaunchConfig) {

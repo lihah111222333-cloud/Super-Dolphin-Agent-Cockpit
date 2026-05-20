@@ -107,17 +107,17 @@ func IgnoreKey(targetA, pathA, targetB, pathB string) string {
 var ignoreLock sync.Mutex
 
 // LoadIgnored 读取 privateRoot 下 .similarity-ignored.json 的 ignored set。
-// 文件不存在 → 空 set + nil err；JSON 解析失败 → err。
+// privateRoot 为空、文件不存在或 JSON 解析失败都返回错误。
 func LoadIgnored(privateRoot string) (map[string]struct{}, error) {
 	root := strings.TrimSpace(privateRoot)
 	if root == "" {
-		return map[string]struct{}{}, nil
+		return nil, errors.New("private root is empty")
 	}
 	path := filepath.Join(root, ignoredFileName)
 	raw, err := os.ReadFile(path)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
-			return map[string]struct{}{}, nil
+			return nil, fmt.Errorf("load similarity ignored: %w", err)
 		}
 		return nil, fmt.Errorf("load similarity ignored: %w", err)
 	}
@@ -151,6 +151,13 @@ func AppendIgnored(privateRoot, key string) error {
 	}
 	ignoreLock.Lock()
 	defer ignoreLock.Unlock()
+	path := filepath.Join(root, ignoredFileName)
+	if _, statErr := os.Stat(path); statErr != nil {
+		if errors.Is(statErr, os.ErrNotExist) {
+			return writeIgnored(root, map[string]struct{}{key: {}})
+		}
+		return fmt.Errorf("stat similarity ignored: %w", statErr)
+	}
 	set, err := LoadIgnored(root)
 	if err != nil {
 		return err

@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -83,9 +84,9 @@ func TestCallHostTool_ApprovalDeniedReturnsStructuredResult(t *testing.T) {
 	}
 	h := &Handler{hostTools: host}
 
-	got, err := h.callHostTool(context.Background(), ToolCallRequest{Name: testHostToolName})
+	got, err := h.callHostTool(context.Background(), ToolCallRequest{Name: testHostToolName, CWD: t.TempDir()})
 	if err != nil {
-		t.Fatalf("callHostTool() error = %v", err)
+		t.Fatalf("callHostTool() error = %v, want structured approval denied result", err)
 	}
 	envelope := decodeToolResultEnvelope(t, got)
 	if got.Success {
@@ -105,9 +106,9 @@ func TestCallHostTool_ApprovalRequiredFallbackReturnsStructuredResult(t *testing
 	host := approvalRequiredHostToolRegistry()
 	h := &Handler{hostTools: host}
 
-	got, err := h.callHostTool(context.Background(), ToolCallRequest{Name: testHostToolName})
+	got, err := h.callHostTool(context.Background(), ToolCallRequest{Name: testHostToolName, CWD: t.TempDir()})
 	if err != nil {
-		t.Fatalf("callHostTool() error = %v", err)
+		t.Fatalf("callHostTool() error = %v, want structured approval required result", err)
 	}
 	assertApprovalRequiredEnvelope(t, got)
 	if snap := skillmetrics.Read(); snap.HostToolCallApprovalReqTotal != 1 {
@@ -172,7 +173,7 @@ func TestRouteToolCall_HostToolBypassesPeer_UsesResolvedCWD(t *testing.T) {
 		hasToolName: "custom_host_tool",
 		result:      map[string]any{"name": "foo", "content": "body"},
 	}
-	resolver := &stubCWDResolver{cwd: "/resolved/cwd"}
+	resolver := &stubCWDResolver{cwd: t.TempDir()}
 	registry := &stubRegistry{}
 	h := &Handler{registry: registry, resolver: resolver, hostTools: host}
 
@@ -198,14 +199,14 @@ func assertHostDirectRoute(t *testing.T, got *ToolCallResult, host *stubHostTool
 	if host.calls != 1 {
 		t.Fatalf("host calls = %d, want 1", host.calls)
 	}
-	assertResolvedHostToolMetadata(t, host.last)
+	assertResolvedHostToolMetadata(t, host.last, resolver.cwd)
 	assertResolvedCWDResolverUsed(t, resolver)
 	assertPeerRegistryUnused(t, registry)
 }
 
-func assertResolvedHostToolMetadata(t *testing.T, call HostToolCall) {
+func assertResolvedHostToolMetadata(t *testing.T, call HostToolCall, wantCWD string) {
 	t.Helper()
-	if call.CWD != "/resolved/cwd" || call.AgentID != "agent-1" || call.ThreadID != "thread-1" || call.TurnID != "turn-1" || call.CallID != "call-1" {
+	if call.CWD != wantCWD || call.AgentID != "agent-1" || call.ThreadID != "thread-1" || call.TurnID != "turn-1" || call.CallID != "call-1" {
 		t.Fatalf("host call metadata = %+v", call)
 	}
 }
@@ -229,14 +230,15 @@ func TestRouteToolCall_HostToolPrefersInjectedCWD(t *testing.T) {
 		hasToolName: "custom_host_tool",
 		result:      map[string]any{"name": "foo", "content": "body"},
 	}
-	resolver := &stubCWDResolver{cwd: "/stale/resolved/cwd"}
+	injectedCWD := t.TempDir()
+	resolver := &stubCWDResolver{cwd: t.TempDir()}
 	h := &Handler{registry: &stubRegistry{}, resolver: resolver, hostTools: host}
 
 	got, err := h.routeToolCall(context.Background(), ToolCallRequest{
 		Name:      "custom_host_tool",
 		Arguments: json.RawMessage(`{"name":"foo"}`),
 		AgentID:   "agent-1",
-		CWD:       "/injected/cwd",
+		CWD:       injectedCWD,
 	})
 	if err != nil {
 		t.Fatalf("routeToolCall() error = %v", err)
@@ -244,8 +246,8 @@ func TestRouteToolCall_HostToolPrefersInjectedCWD(t *testing.T) {
 	if got == nil || !got.Success {
 		t.Fatalf("routeToolCall() result = %#v, want success", got)
 	}
-	if host.last.CWD != "/injected/cwd" {
-		t.Fatalf("host call cwd = %q, want /injected/cwd", host.last.CWD)
+	if host.last.CWD != injectedCWD {
+		t.Fatalf("host call cwd = %q, want %q", host.last.CWD, injectedCWD)
 	}
 	if resolver.callSeen {
 		t.Fatalf("resolver should not be called when request carries trusted cwd")
@@ -259,7 +261,7 @@ func TestCallHostTool_ObservabilityCountersAndLogs(t *testing.T) {
 		hasToolName: testHostToolName,
 		result:      map[string]any{"name": "foo", "content": "body"},
 	}
-	resolver := &stubCWDResolver{cwd: "/resolved/cwd"}
+	resolver := &stubCWDResolver{cwd: t.TempDir()}
 	var logs bytes.Buffer
 	h := &Handler{
 		resolver:  resolver,
@@ -304,7 +306,7 @@ func TestCallHostTool_CWDMissingCounterAndWarn(t *testing.T) {
 
 	got, err := h.callHostTool(context.Background(), ToolCallRequest{Name: testHostToolName, AgentID: "agent-missing"})
 	if err != nil {
-		t.Fatalf("callHostTool() error = %v", err)
+		t.Fatalf("callHostTool() error = %v, want structured cwd-required result", err)
 	}
 	if got == nil || got.Success {
 		t.Fatalf("callHostTool() result = %#v, want structured failure", got)
@@ -313,7 +315,7 @@ func TestCallHostTool_CWDMissingCounterAndWarn(t *testing.T) {
 		t.Fatalf("HostToolCallCWDMissingTotal = %d, want 1 (snapshot %+v)", snap.HostToolCallCWDMissingTotal, snap)
 	}
 	text := logs.String()
-	for _, want := range []string{"toolbridge host-direct cwd missing before call", "agent_id=agent-missing", "outcome=cwd_missing"} {
+	for _, want := range []string{"toolbridge host-direct tool call", "agent_id=agent-missing", "outcome=cwd_missing"} {
 		if !bytes.Contains([]byte(text), []byte(want)) {
 			t.Fatalf("cwd-missing observability log missing %q in %s", want, text)
 		}
@@ -394,11 +396,8 @@ func TestListToolsForCodex_HostToolsSurviveOrchFailure_LSPReady(t *testing.T) {
 	h := &Handler{registry: registry, hostTools: host}
 
 	got, err := h.ListToolsForCodex(context.Background())
-	if err != nil {
-		t.Fatalf("ListToolsForCodex() error = %v", err)
-	}
-	if len(got) != 2 || got[0].Name != testHostToolName || got[1].Name != "lsp_hover" {
-		t.Fatalf("tools = %+v, want host + lsp", got)
+	if err == nil {
+		t.Fatalf("ListToolsForCodex() error = nil, tools = %+v", got)
 	}
 }
 
@@ -416,17 +415,11 @@ func TestListToolsForCodex_LogsDegradedPeer(t *testing.T) {
 	}
 
 	got, err := h.ListToolsForCodex(context.Background())
-	if err != nil {
-		t.Fatalf("ListToolsForCodex() error = %v", err)
+	if err == nil {
+		t.Fatalf("ListToolsForCodex() error = nil, tools = %+v", got)
 	}
-	if len(got) != 2 {
-		t.Fatalf("tools = %+v, want host + surviving peer", got)
-	}
-	text := logs.String()
-	for _, want := range []string{"toolbridge dynamic tools peer degraded", "client_kind=orch", "orch down"} {
-		if !bytes.Contains([]byte(text), []byte(want)) {
-			t.Fatalf("degraded peer log missing %q in %s", want, text)
-		}
+	if !strings.Contains(err.Error(), "orch down") {
+		t.Fatalf("ListToolsForCodex() error = %v, want orch down", err)
 	}
 }
 
@@ -439,11 +432,8 @@ func TestListToolsForCodex_HostToolsSurviveLSPFailure_OrchReady(t *testing.T) {
 	h := &Handler{registry: registry, hostTools: host}
 
 	got, err := h.ListToolsForCodex(context.Background())
-	if err != nil {
-		t.Fatalf("ListToolsForCodex() error = %v", err)
-	}
-	if len(got) != 2 || got[0].Name != testHostToolName || got[1].Name != "spawn_agent" {
-		t.Fatalf("tools = %+v, want host + orch", got)
+	if err == nil {
+		t.Fatalf("ListToolsForCodex() error = nil, tools = %+v", got)
 	}
 }
 
@@ -456,11 +446,8 @@ func TestListToolsForCodex_HostOnlyWhenBothPeersFail(t *testing.T) {
 	h := &Handler{registry: registry, hostTools: host}
 
 	got, err := h.ListToolsForCodex(context.Background())
-	if err != nil {
-		t.Fatalf("ListToolsForCodex() error = %v", err)
-	}
-	if len(got) != 1 || got[0].Name != testHostToolName {
-		t.Fatalf("tools = %+v, want host only", got)
+	if err == nil {
+		t.Fatalf("ListToolsForCodex() error = nil, tools = %+v", got)
 	}
 }
 
@@ -478,6 +465,22 @@ func TestListToolsForCodex_ReturnsErrorWhenNoHostAndPeersFail(t *testing.T) {
 	if len(got) != 0 {
 		t.Fatalf("tools = %+v, want none on hard failure", got)
 	}
+}
+
+func TestListToolsForCodex_PeerPanicSurfacesAsError(t *testing.T) {
+	t.Parallel()
+
+	h := &Handler{registry: panicActiveRegistry{}}
+	_, err := h.ListToolsForCodex(context.Background())
+	if err == nil || !strings.Contains(err.Error(), "list peer tools panic") {
+		t.Fatalf("ListToolsForCodex() error = %v, want peer panic error", err)
+	}
+}
+
+type panicActiveRegistry struct{}
+
+func (panicActiveRegistry) FindActiveByKind(string) []*mcpcontrol.ToolInstance {
+	panic("registry failed")
 }
 
 func TestListToolsForCodex_DedupKeepsHostBeforePeer(t *testing.T) {

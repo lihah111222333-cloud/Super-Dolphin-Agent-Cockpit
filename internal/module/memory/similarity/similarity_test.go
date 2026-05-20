@@ -43,16 +43,14 @@ func TestIgnoreKeyTrimsWhitespace(t *testing.T) {
 }
 
 func TestLoadIgnoredMissingFile(t *testing.T) {
-	set, err := LoadIgnored(t.TempDir())
-	if err != nil || len(set) != 0 {
-		t.Fatalf("LoadIgnored() = %v err=%v, want empty set + nil", set, err)
+	if _, err := LoadIgnored(t.TempDir()); err == nil {
+		t.Fatal("LoadIgnored() error = nil, want missing file error")
 	}
 }
 
 func TestLoadIgnoredEmptyRoot(t *testing.T) {
-	set, err := LoadIgnored("")
-	if err != nil || len(set) != 0 {
-		t.Fatalf("LoadIgnored(empty) = %v err=%v, want empty set + nil", set, err)
+	if _, err := LoadIgnored(""); err == nil {
+		t.Fatal("LoadIgnored(empty) error = nil, want private root error")
 	}
 }
 
