@@ -3,8 +3,6 @@ package tools
 import (
 	"context"
 	"encoding/json"
-	"errors"
-	"regexp/syntax"
 	"strings"
 
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/format"
@@ -69,9 +67,8 @@ func (h handlerBase) handleGrep(ctx context.Context, params json.RawMessage) (an
 	limit := shared.ClampLimit(input.MaxResults, 1, maxSearchResults, defaultSearchResults)
 
 	var (
-		matches       []search.SearchMatch
-		runErr        error
-		regexFallback bool
+		matches []search.SearchMatch
+		runErr  error
 	)
 	if _, err := dispatchToolAction(ctx, "grep", input.Action, input, map[string]actionHandler[grepToolInput]{
 		"text_search": func(ctx context.Context, input grepToolInput) (any, error) {
@@ -91,11 +88,6 @@ func (h handlerBase) handleGrep(ctx context.Context, params json.RawMessage) (an
 				MaxFileBytes:  maxReadFileBytes,
 			}
 			matches, runErr = search.SearchText(ctx, opts)
-			if runErr != nil && input.Regex && isRegexSyntaxError(runErr) {
-				opts.Regex = false
-				matches, runErr = search.SearchText(ctx, opts)
-				regexFallback = runErr == nil
-			}
 			return nil, runErr
 		},
 		"ast_search": func(ctx context.Context, input grepToolInput) (any, error) {
@@ -123,25 +115,18 @@ func (h handlerBase) handleGrep(ctx context.Context, params json.RawMessage) (an
 	h.attachFuncRanges(ctx, filtered)
 	if len(filtered) == 0 {
 		return grepResponse{
-			Files:         map[string]grepFileRows{},
-			Total:         0,
-			Showing:       0,
-			RegexFallback: regexFallback,
-			Message:       emptyGrepMessage(regexFallback),
+			Files:   map[string]grepFileRows{},
+			Total:   0,
+			Showing: 0,
+			Message: emptyGrepMessage(false),
 		}, nil
 	}
 	resp := buildGrepResponse(filtered, total, truncated)
-	resp.RegexFallback = regexFallback
-	if message := grepMessage(regexFallback, resp.DroppedForPayload); message != "" {
+	if message := grepMessage(false, resp.DroppedForPayload); message != "" {
 		resp.Message = message
 	}
 	capGrepResponseBytes(&resp, middleware.ToolBudget("grep"))
 	return resp, nil
-}
-
-func isRegexSyntaxError(err error) bool {
-	var syntaxErr *syntax.Error
-	return errors.As(err, &syntaxErr)
 }
 
 func grepMessage(regexFallback bool, dropped int) string {

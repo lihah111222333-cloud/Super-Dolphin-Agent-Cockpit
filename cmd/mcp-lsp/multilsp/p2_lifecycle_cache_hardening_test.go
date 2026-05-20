@@ -200,7 +200,7 @@ func TestReleaseScopeClearsDiagnosticsBootstrapAndCache(t *testing.T) {
 		t.Fatalf("ResolveLSPToolScope: %v", err)
 	}
 	uri := fileURIFromPath(filepath.Join(root, "main.go"))
-	coordinator := bootstrapCoordinatorFor(scoped)
+	coordinator := mustBootstrapCoordinator(t, scoped)
 	key := resolved.cacheKey("go", uri)
 	coordinator.cache.Upsert(lspCacheValue{Key: key, Version: 1, UpdatedAt: time.Now()})
 	coordinator.states.complete(resolved.bootstrapKey(), uri, "fp", 1)

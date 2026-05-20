@@ -170,15 +170,15 @@ func runGOWORKAutoUsesAutoDiscovery(t *testing.T) {
 	}
 }
 
-func TestBrokenGoWorkSoftFallsBackToGoWorkRoot(t *testing.T) {
-	runBrokenGoWorkSoftFallsBackToGoWorkRoot(t)
+func TestResolveGoWorkRootRejectsBrokenGoWork(t *testing.T) {
+	runBrokenGoWorkFailsClosed(t)
 }
 
-func TestGoRootResolverBrokenGoWorkFallsBackToWorkspaceRoot(t *testing.T) {
-	runBrokenGoWorkSoftFallsBackToGoWorkRoot(t)
+func TestGoRootResolverBrokenGoWorkFailsClosed(t *testing.T) {
+	runBrokenGoWorkFailsClosed(t)
 }
 
-func runBrokenGoWorkSoftFallsBackToGoWorkRoot(t *testing.T) {
+func runBrokenGoWorkFailsClosed(t *testing.T) {
 	t.Helper()
 	repo := normalizedTempDir(t)
 	backend := filepath.Join(repo, "backend")
@@ -187,24 +187,10 @@ func runBrokenGoWorkSoftFallsBackToGoWorkRoot(t *testing.T) {
 	writeFile(t, goWorkPath, "go 1.25.0\n\nuse (\n\t./backend\n")
 	target := writeGoFile(t, backend, "main.go")
 
-	info, err := ResolveGoRoot(GoRootRequest{CWD: repo, FilePath: target, Env: []string{}})
-	if err != nil {
-		t.Fatalf("broken go.work should soft-fallback to workspace root: %v", err)
+	_, err := ResolveGoRoot(GoRootRequest{CWD: repo, FilePath: target, Env: []string{}})
+	if err == nil || !strings.Contains(err.Error(), "go.work") {
+		t.Fatalf("ResolveGoRoot() error = %v, want broken go.work parse failure", err)
 	}
-	assertGoRoot(t, info, GoRootInfo{
-		RootKind:      goRootKindGoWork,
-		WorkspaceRoot: repo,
-		GoWorkPath:    goWorkPath,
-		GOWORKMode:    goworkModeAuto,
-		ProjectRoot:   repo,
-	})
-	if len(info.ModuleRoots) != 0 || info.ModuleRoot != "" || info.GoModPath != "" {
-		t.Fatalf("broken go.work fallback should not invent module roots: %#v", info)
-	}
-	if got := goRootEnv(info); !reflect.DeepEqual(got, []string{"GOWORK=" + goWorkPath}) {
-		t.Fatalf("broken go.work fallback env = %#v, want discovered go.work", got)
-	}
-	assertFolderPaths(t, info.workspaceFolderPaths(), []string{repo})
 }
 
 func TestExternalGOWORKOutsideTrustedScopeFailsClosed(t *testing.T) {

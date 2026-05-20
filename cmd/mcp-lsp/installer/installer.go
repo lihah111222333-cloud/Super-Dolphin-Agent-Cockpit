@@ -4,7 +4,11 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"os"
 	"os/exec"
+	"path/filepath"
+	"runtime"
+	"strings"
 	"sync"
 	"time"
 
@@ -80,6 +84,60 @@ func (p *Provider) EnsureInstalled(ctx context.Context, lang string) (string, er
 	if path, err := exec.LookPath(cfg.BinaryName); err == nil {
 		return path, nil
 	}
+	if path, ok := postInstallBinaryPath(ctx, cfg); ok {
+		return path, nil
+	}
 
 	return "", fmt.Errorf("auto-install succeeded but binary %s is still not found in PATH", cfg.BinaryName)
+}
+
+func postInstallBinaryPath(ctx context.Context, cfg InstallerConfig) (string, bool) {
+	if filepath.Base(strings.TrimSpace(cfg.InstallCmd)) != "go" {
+		return "", false
+	}
+	dir := goInstallBinDir(ctx, cfg.InstallCmd)
+	if dir == "" {
+		return "", false
+	}
+	return executableInDir(dir, cfg.BinaryName)
+}
+
+func goInstallBinDir(ctx context.Context, goCmd string) string {
+	out, err := exec.CommandContext(ctx, goCmd, "env", "GOBIN", "GOPATH").Output()
+	if err != nil {
+		return ""
+	}
+	lines := strings.Split(strings.ReplaceAll(strings.TrimSpace(string(out)), "\r\n", "\n"), "\n")
+	if len(lines) < 2 {
+		return ""
+	}
+	if gobin := strings.TrimSpace(lines[0]); gobin != "" {
+		return gobin
+	}
+	gopath := strings.TrimSpace(lines[1])
+	if gopath == "" {
+		return ""
+	}
+	return filepath.Join(gopath, "bin")
+}
+
+func executableInDir(dir, binaryName string) (string, bool) {
+	binaryName = strings.TrimSpace(binaryName)
+	if strings.TrimSpace(dir) == "" || binaryName == "" {
+		return "", false
+	}
+	candidates := []string{filepath.Join(dir, binaryName)}
+	if runtime.GOOS == "windows" && filepath.Ext(binaryName) == "" {
+		candidates = append(candidates, filepath.Join(dir, binaryName+".exe"))
+	}
+	for _, candidate := range candidates {
+		st, err := os.Stat(candidate)
+		if err != nil || st.IsDir() {
+			continue
+		}
+		if runtime.GOOS == "windows" || st.Mode()&0111 != 0 {
+			return candidate, true
+		}
+	}
+	return "", false
 }

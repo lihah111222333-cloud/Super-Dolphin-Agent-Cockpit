@@ -55,6 +55,9 @@ func (c *e2eClient) DidOpen(_ context.Context, uri, languageID string, _ int, te
 	defer c.mu.Unlock()
 	c.opens = append(c.opens, genericOpenEvent{uri: uri, language: languageID})
 	c.documents[uri] = text
+	if c.handler != nil {
+		return c.handler.PublishDiagnostics(protocol.PublishDiagnosticsParams{URI: uri})
+	}
 	return nil
 }
 
@@ -65,6 +68,9 @@ func (c *e2eClient) DidChange(_ context.Context, uri string, _ int, changes []pr
 		c.documents[uri] = changes[len(changes)-1].Text
 	}
 	c.changes = append(c.changes, uri)
+	if c.handler != nil {
+		return c.handler.PublishDiagnostics(protocol.PublishDiagnosticsParams{URI: uri})
+	}
 	return nil
 }
 

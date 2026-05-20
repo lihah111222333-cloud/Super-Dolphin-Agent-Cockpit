@@ -238,6 +238,7 @@ func wrapScopedToolResult(result any) (any, error) {
 	return map[string]any{
 		"content":           []map[string]string{{"type": "text", "text": string(text)}},
 		"structuredContent": json.RawMessage(text),
+		"isError":           common.ToolResultIsError(result),
 	}, nil
 }
 

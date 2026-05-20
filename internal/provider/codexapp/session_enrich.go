@@ -189,14 +189,15 @@ func (s *session) publishToolCallEnd(call preparedToolCall, result any, callErr 
 	}
 	header := call.header
 	header.Timestamp = time.Now()
+	success := toolCallEndSuccess(result, callErr)
 	ev := tooldto.ToolCallEnd{
 		ToolCallHeader: header,
-		Success:        callErr == nil,
+		Success:        success,
 		Result:         previewAny(result),
 		ElapsedMS:      time.Since(call.started).Milliseconds(),
 	}
-	if callErr != nil {
-		ev.Error = callErr.Error()
+	if !success {
+		ev.Error = toolCallEndError(result, callErr)
 	}
 	s.dispatcher.Publish(ev)
 }
@@ -377,4 +378,54 @@ func previewAny(value any) string {
 		return fmt.Sprint(value)
 	}
 	return string(raw)
+}
+
+func toolCallEndSuccess(result any, callErr error) bool {
+	if callErr != nil {
+		return false
+	}
+	if success, ok := explicitToolResultSuccess(result); ok {
+		return success
+	}
+	return true
+}
+
+func explicitToolResultSuccess(result any) (bool, bool) {
+	if result == nil {
+		return false, false
+	}
+	raw, err := json.Marshal(result)
+	if err != nil {
+		return false, false
+	}
+	var marker struct {
+		Success *bool `json:"success"`
+	}
+	if err := json.Unmarshal(raw, &marker); err != nil || marker.Success == nil {
+		return false, false
+	}
+	return *marker.Success, true
+}
+
+func toolCallEndError(result any, callErr error) string {
+	if callErr != nil {
+		return callErr.Error()
+	}
+	raw, err := json.Marshal(result)
+	if err != nil {
+		return ""
+	}
+	var marker struct {
+		Error   string `json:"error"`
+		Message string `json:"message"`
+	}
+	if err := json.Unmarshal(raw, &marker); err == nil {
+		if text := strings.TrimSpace(marker.Error); text != "" {
+			return text
+		}
+		if text := strings.TrimSpace(marker.Message); text != "" {
+			return text
+		}
+	}
+	return ""
 }
