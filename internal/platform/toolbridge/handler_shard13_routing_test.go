@@ -77,6 +77,25 @@ func TestAdaptMCPResponseMarksStructuredFailureAsFailure(t *testing.T) {
 	}
 }
 
+func TestAdaptMCPResponseAllowsStructuredJSONStringPayload(t *testing.T) {
+	t.Parallel()
+
+	raw := json.RawMessage(`"{\"path\":\"go.mod\",\"content\":\"module example\"}"`)
+	result, err := adaptMCPResponse(peerToolCallResponse{
+		IsError:           false,
+		StructuredContent: raw,
+	})
+	if err != nil {
+		t.Fatalf("adaptMCPResponse() error = %v", err)
+	}
+	if !result.Success {
+		t.Fatalf("Success = false, want true for structuredContent JSON string")
+	}
+	if string(result.StructuredContent) != string(raw) {
+		t.Fatalf("StructuredContent = %s, want %s", result.StructuredContent, raw)
+	}
+}
+
 func TestHandleToolCallPreservesPeerCallbackIsError(t *testing.T) {
 	peer := &mcpcontrol.ToolInstance{Peer: &stubPeer{callbackFn: func(_ context.Context, method string, _ any, result any) error {
 		if method != ProxyMethodToolsCall {
