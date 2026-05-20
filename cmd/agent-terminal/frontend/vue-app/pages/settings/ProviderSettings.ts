@@ -117,6 +117,14 @@ function setupProviderSettings(props: ProviderSettingsProps) {
     return providerID || DEFAULT_PROVIDER_ID;
   }
 
+  function isMissingProviderPreference(value: unknown): boolean {
+    return value === null || value === undefined || (typeof value === 'string' && value.trim() === '');
+  }
+
+  function isSupportedProviderID(providerID: string): boolean {
+    return providerID === 'codex' || providerID === 'claude';
+  }
+
   function providerDefaults(providerID: string) {
     return normalizeProviderID(providerID) === 'claude'
       ? { model: 'sonnet', effort: 'high' }
@@ -130,16 +138,29 @@ function setupProviderSettings(props: ProviderSettingsProps) {
   async function loadActiveProviderPreference(requestSeq: number): Promise<string> {
     try {
       const value = await callAPI('ui/preferences/get', withProjectCwd({ key: PROVIDER_ACTIVE_PREF_KEY }));
-      const normalizedProviderID = normalizeProviderID(typeof value === 'string' ? value : DEFAULT_PROVIDER_ID);
+      const missingProviderPreference = isMissingProviderPreference(value);
+      const persistedProviderID = normalizeProviderConfigValue(typeof value === 'string' ? value : '');
+      if (!missingProviderPreference && (!persistedProviderID || !isSupportedProviderID(persistedProviderID))) {
+        throw new Error(`invalid provider preference: ${String(value)}`);
+      }
+      const normalizedProviderID = normalizeProviderID(persistedProviderID || DEFAULT_PROVIDER_ID);
       if (!isCurrentProviderSettingsRequest(requestSeq)) {
         return normalizeProviderID(activeProvider.value);
+      }
+      if (missingProviderPreference) {
+        await callAPI('ui/preferences/set', withProjectCwd({ key: PROVIDER_ACTIVE_PREF_KEY, value: normalizedProviderID }));
+        if (!isCurrentProviderSettingsRequest(requestSeq)) {
+          return normalizeProviderID(activeProvider.value);
+        }
       }
       activeProvider.value = normalizedProviderID;
-    } catch {
+    } catch (error: any) {
       if (!isCurrentProviderSettingsRequest(requestSeq)) {
         return normalizeProviderID(activeProvider.value);
       }
-      activeProvider.value = DEFAULT_PROVIDER_ID;
+      sandboxNotice.level = 'error';
+      sandboxNotice.message = `加载 Provider 失败：${error?.message || error}`;
+      return '';
     }
     return normalizeProviderID(activeProvider.value);
   }
@@ -318,6 +339,7 @@ function setupProviderSettings(props: ProviderSettingsProps) {
     const requestSeq = beginProviderSettingsRequest();
     const providerID = await loadActiveProviderPreference(requestSeq);
     if (!isCurrentProviderSettingsRequest(requestSeq)) return;
+    if (!providerID) return;
     await loadProviderSettingsFor(providerID, requestSeq);
   }
 

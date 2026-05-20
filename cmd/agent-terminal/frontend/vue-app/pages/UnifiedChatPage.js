@@ -545,7 +545,18 @@ export const UnifiedChatPage = {
     const isCmd = computed(() => props.mode === 'cmd');
     const modeKey = computed(() => (isCmd.value ? 'cmd' : 'chat'));
     const showWorkspace = computed(() => true);
-    const { useClaudeProvider, loadProviderPreference, toggleProviderMode } = useProviderMode();
+    const providerPreferenceCwd = computed(() => {
+      const cwd = (props.projectStore?.state?.active || '').toString().trim();
+      if (!cwd || cwd === '.') return '';
+      return cwd;
+    });
+    const {
+      useClaudeProvider,
+      providerPreferenceReady = ref(true),
+      providerPreferenceError = ref(''),
+      loadProviderPreference,
+      toggleProviderMode,
+    } = useProviderMode(providerPreferenceCwd);
 
     const layoutMode = computed({
       get: () => props.threadStore.getLayout(modeKey.value),
@@ -682,7 +693,7 @@ export const UnifiedChatPage = {
       selectedThreadId, modeKey, isCmd, composer, layoutMode, cmdCardCols,
       compacting: threadStatus.compacting, isThreadInterruptible: threadStatus.isThreadInterruptible,
       beginInlineRename: inlineRename.beginInlineRename, scheduleScrollToBottom,
-      showArchivedThreadList,
+      showArchivedThreadList, providerPreferenceReady, providerPreferenceError,
     });
 
     const threadConfigController = createThreadConfigController({ threadStore: props.threadStore, threadActions, selectedThreadId, isCmd });
@@ -723,7 +734,7 @@ export const UnifiedChatPage = {
       saveThreadConfigDraft: threadConfigController.saveThreadConfigDraft,
       restoreThreadConfigInherit: threadConfigController.restoreThreadConfigInherit,
       keyboardShortcuts,
-      useClaudeProvider, toggleProviderMode,
+      useClaudeProvider, providerPreferenceReady, providerPreferenceError, toggleProviderMode,
       activeTimeline, activeDiffText, activeMediaPreview, activeMarkdownPreview,
       activeDiffFocusFile, activeDiffFocusLine, activeStatus,
       layoutMode, cmdCardCols, splitRatio, threadRailStyle, showWorkspace,
