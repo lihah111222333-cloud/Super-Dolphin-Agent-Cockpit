@@ -107,6 +107,16 @@ function formatSendFailureNotice(error) {
   return formatMissingWorkDirSendNotice(error) || formatSkillConflictSendNotice(error);
 }
 
+function isProviderPreferenceReady(providerPreferenceReady) {
+  return providerPreferenceReady?.value !== false;
+}
+
+function formatProviderPreferencePendingNotice(providerPreferenceError) {
+  const detail = (providerPreferenceError?.value || '').toString().trim();
+  if (detail) return `Provider 初始化失败：${detail}`;
+  return 'Provider 正在初始化，请稍后再试。';
+}
+
 function formatCompactErrorMessage(error) {
   const code = (error?.code || '').toString().trim().toLowerCase();
   if (code === 'compact_timeout') return '压缩超时：未收到完成信号，请重试。';
@@ -149,6 +159,8 @@ async function performSend({
   windowCwd,
   scheduleScrollToBottom,
   sendFailureNotice,
+  providerPreferenceReady,
+  providerPreferenceError,
 }) {
   let threadId = (selectedThreadId.value || '').toString().trim();
   const text = composer.state.text;
@@ -158,6 +170,10 @@ async function performSend({
 
   const actionCwd = resolveProjectActionCwd(projectStore, windowCwd);
   if (!threadId) {
+    if (!isProviderPreferenceReady(providerPreferenceReady)) {
+      sendFailureNotice.value = formatProviderPreferencePendingNotice(providerPreferenceError);
+      return;
+    }
     const startOptions = await resolveStartOptions(text, modeKey.value);
     threadId = await threadStore.startThread(actionCwd, startOptions);
     if (!threadId) return;
@@ -184,6 +200,29 @@ async function performSend({
   }
 }
 
+function createLaunchOneAction({
+  composer,
+  modeKey,
+  selectedThreadId,
+  props,
+  sendFailureNotice,
+  providerPreferenceReady,
+  providerPreferenceError,
+}) {
+  return () => {
+    if (!isProviderPreferenceReady(providerPreferenceReady)) {
+      sendFailureNotice.value = formatProviderPreferencePendingNotice(providerPreferenceError);
+      return Promise.resolve();
+    }
+    return resolveStartOptions(composer?.state?.text || '', modeKey.value)
+      .then((startOptions) => props.threadStore.startThread(resolveProjectActionCwd(props.projectStore, props.windowCwd), startOptions))
+      .then((id) => {
+        if (!id) return;
+        selectedThreadId.value = id;
+      });
+  };
+}
+
 /**
  * @param {object} props
  * @param {object} deps
@@ -200,17 +239,17 @@ export function useThreadActions(props, deps) {
     beginInlineRename,
     scheduleScrollToBottom,
     showArchivedThreadList,
+    providerPreferenceReady,
+    providerPreferenceError,
   } = deps;
 
   const recoveringSelected = ref(false);
   const sendFailureNotice = ref('');
 
-  const launchOne = () => resolveStartOptions(composer?.state?.text || '', modeKey.value)
-    .then((startOptions) => props.threadStore.startThread(resolveProjectActionCwd(props.projectStore, props.windowCwd), startOptions))
-    .then((id) => {
-      if (!id) return;
-      selectedThreadId.value = id;
-    });
+  const launchOne = createLaunchOneAction({
+    composer, modeKey, selectedThreadId, props, sendFailureNotice,
+    providerPreferenceReady, providerPreferenceError,
+  });
 
   const getThreadConfig = (threadId) => getThreadConfigFromStore(props.threadStore, threadId);
   const setThreadConfig = (threadId, config) => setThreadConfigFromStore(props.threadStore, threadId, config);
@@ -220,7 +259,7 @@ export function useThreadActions(props, deps) {
     composer,
     modeKey,
     threadStore: props.threadStore, projectStore: props.projectStore, windowCwd: props.windowCwd,
-    scheduleScrollToBottom, sendFailureNotice,
+    scheduleScrollToBottom, sendFailureNotice, providerPreferenceReady, providerPreferenceError,
   });
 
   async function interruptCurrent(control) {

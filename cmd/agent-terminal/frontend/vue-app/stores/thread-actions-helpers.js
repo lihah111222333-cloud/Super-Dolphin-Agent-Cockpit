@@ -371,11 +371,10 @@ function normalizeSelectedSkillRefs(rawSelectedSkillRefs) {
 }
 
 async function resolveLaunchProviderPreference(getPref, cwd) {
-  const [toolbarPref, scopedPref] = await Promise.all([
-    getPref({ key: 'settings.provider.active' }),
-    getPref({ key: 'settings.provider.active', cwd }),
-  ]);
-  return normalizeProviderConfigValue(toolbarPref) || normalizeProviderConfigValue(scopedPref);
+  const scopedPref = await getPref({ key: 'settings.provider.active', cwd });
+  const scopedProvider = normalizeProviderConfigValue(scopedPref);
+  if (scopedProvider) return scopedProvider;
+  return normalizeProviderConfigValue(await getPref({ key: 'settings.provider.active' }));
 }
 
 export async function startThread(ctx, cwd = '.', options = {}) {
@@ -389,18 +388,17 @@ export async function startThread(ctx, cwd = '.', options = {}) {
   const promptKeyOverride = typeof options?.promptKey === 'string' ? options.promptKey.trim() : '';
   const needsActivePromptKey = !promptKeyOverride && !agentKeyOverride;
 
-  // Fetch every preference in parallel. Each read is wrapped with a .catch
-  // fallback so one failing preference never cancels the others — this
-  // preserves the original per-read try/catch isolation while cutting 3-4
-  // serial RTTs down to a single batch. Absent / errored reads surface as
-  // `undefined` and fall through to the default (no field set on payload).
+  // Fetch optional preferences defensively, but keep provider resolution
+  // fail-fast: a launch without a trustworthy provider must not silently
+  // fall back to another scope.
   const getPref = (req) => callAPI('ui/preferences/get', req).catch(() => undefined);
+  const getProviderPref = (req) => callAPI('ui/preferences/get', req);
   const [
     providerPref,
     activePromptKey,
     classifierEnabled,
 	  ] = await Promise.all([
-	    resolveLaunchProviderPreference(getPref, cwd),
+	    resolveLaunchProviderPreference(getProviderPref, cwd),
 	    needsActivePromptKey ? getPref({ key: 'settings.activePromptKey', cwd }) : Promise.resolve(undefined),
 	    getPref({ key: 'settings.classifierEnabled', cwd }),
 	  ]);

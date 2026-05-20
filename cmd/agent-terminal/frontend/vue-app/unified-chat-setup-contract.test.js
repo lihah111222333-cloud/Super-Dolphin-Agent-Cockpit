@@ -160,7 +160,7 @@ describe('UnifiedChatPage.setup public contract', () => {
       'activityPanelDragging', 'composerBarRef', 'presenceAnchorRef', 'workspaceRef', 'activeActivityStats',
       'activeAlerts', 'activeProcessActivity', 'selectThread', 'launchOne', 'send', 'refreshTaskHandoff', 'continueCurrentTask', 'startNewTaskFromHandoff', 'taskHandoffKickoffError', 'continueCurrentTaskInNewWindow', 'toggleTaskStrip', 'threadConfigUi',
       'updateThreadConfigModel', 'updateThreadConfigEffort', 'saveThreadConfigDraft', 'restoreThreadConfigInherit', 'useClaudeProvider',
-       'toggleProviderMode', 'interruptCurrent', 'compactCurrent', 'recoverSelected',
+       'providerPreferenceReady', 'providerPreferenceError', 'toggleProviderMode', 'interruptCurrent', 'compactCurrent', 'recoverSelected',
        'setCmdLayout', 'setCmdCardCols', 'copySelectedThreadId', 'timelinePreview', 'diffPreview',
        'showPathChoiceModal', 'pathChoiceOptions', 'pathChoiceTitle', 'pathChoiceTruncated',
        'confirmPathChoice', 'cancelPathChoice',

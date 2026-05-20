@@ -15,6 +15,8 @@ export const ChatToolbar = {
     displayStatusText: { type: String, default: '' },
     activeStatusMeta: { type: String, default: '' },
     useClaudeProvider: { type: Boolean, default: false },
+    providerPreferenceReady: { type: Boolean, default: true },
+    providerPreferenceError: { type: String, default: '' },
     selectedThreadId: { type: String, default: '' },
     threadConfigProvider: { type: String, default: '' },
     threadConfigSupportsOverride: { type: Boolean, default: false },
@@ -55,8 +57,23 @@ export const ChatToolbar = {
     'restore-thread-config-inherit',
   ],
   setup(props, { emit }) {
+    const providerToggleLabel = computed(() => {
+      if (!props.providerPreferenceReady) return 'Provider';
+      return props.useClaudeProvider ? 'Claude' : 'Codex';
+    });
+    const launchAgentLabel = computed(() => {
+      if (props.providerPreferenceReady) return '启动 Agent';
+      return 'Provider 未就绪';
+    });
+    const launchAgentTitle = computed(() => {
+      if (props.providerPreferenceReady) return '启动 Agent';
+      return props.providerPreferenceError || 'Provider 正在初始化';
+    });
     return {
       emit,
+      launchAgentLabel,
+      launchAgentTitle,
+      providerToggleLabel,
     };
   },
   template: `
@@ -117,19 +134,21 @@ export const ChatToolbar = {
         <input
           type="checkbox"
           :checked="useClaudeProvider"
+          :disabled="!providerPreferenceReady"
           @change="emit('toggle-provider-mode')"
           class="provider-toggle-input"
         />
         <span class="provider-toggle-track">
           <span class="provider-toggle-thumb"></span>
         </span>
-        <span class="provider-toggle-label">{{ useClaudeProvider ? 'Claude' : 'Codex' }}</span>
+        <span class="provider-toggle-label">{{ providerToggleLabel }}</span>
       </label>
       <button
         class="btn launch-agent-icon-btn"
         data-testid="launch-agent-button"
-        aria-label="启动 Agent"
-        title="启动 Agent"
+        :disabled="!providerPreferenceReady"
+        :aria-label="launchAgentLabel"
+        :title="launchAgentTitle"
         @click="emit('launch-one')"
       >
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
