@@ -143,6 +143,42 @@ describe('ProviderSettings behavior', () => {
     });
   });
 
+  it('materializes the default codex active provider when no preference exists', async () => {
+    apiMock.callAPI.mockImplementation(async (method, payload) => {
+      if (method === 'ui/preferences/set') return { ok: true };
+      if (method !== 'ui/preferences/get') return null;
+      return null;
+    });
+
+    const { vm } = createProviderSettings();
+    await vm.loadProviderSettings();
+
+    expect(apiMock.callAPI).toHaveBeenCalledWith('ui/preferences/set', {
+      key: 'settings.provider.active',
+      value: 'codex',
+      cwd: '/repo',
+    });
+    expect(vm.activeProvider.value).toBe('codex');
+  });
+
+  it('fails fast instead of materializing codex when active provider is invalid', async () => {
+    apiMock.callAPI.mockImplementation(async (method, payload) => {
+      if (method === 'ui/preferences/get' && payload.key === 'settings.provider.active') return 'bad-provider';
+      if (method === 'ui/preferences/set') return { ok: true };
+      return null;
+    });
+
+    const { vm } = createProviderSettings();
+    await vm.loadProviderSettings();
+
+    expect(apiMock.callAPI).not.toHaveBeenCalledWith('ui/preferences/set', expect.objectContaining({
+      key: 'settings.provider.active',
+      value: 'codex',
+    }));
+    expect(vm.sandboxNotice.level).toBe('error');
+    expect(vm.sandboxNotice.message).toContain('invalid provider preference');
+  });
+
   it('switches model and effort lists by provider', () => {
     const { vm } = createProviderSettings();
 

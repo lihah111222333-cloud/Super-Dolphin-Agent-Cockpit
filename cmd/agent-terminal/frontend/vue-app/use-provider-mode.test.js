@@ -24,16 +24,56 @@ describe('useProviderMode', () => {
 
     expect(apiMock.callAPI).toHaveBeenCalledWith('ui/preferences/get', { key: 'settings.provider.active' });
     expect(vm.useClaudeProvider.value).toBe(true);
+    expect(vm.providerPreferenceReady.value).toBe(true);
   });
 
-  it('falls back to codex mode when loading preference fails', async () => {
-    apiMock.callAPI.mockRejectedValueOnce(new Error('boom'));
+  it('persists the codex default before reporting provider preference ready', async () => {
+    apiMock.callAPI
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce({ ok: true });
     const vm = useProviderMode();
-    vm.useClaudeProvider.value = true;
+
+    expect(vm.providerPreferenceReady.value).toBe(false);
 
     await vm.loadProviderPreference();
 
+    expect(apiMock.callAPI).toHaveBeenNthCalledWith(1, 'ui/preferences/get', { key: 'settings.provider.active' });
+    expect(apiMock.callAPI).toHaveBeenNthCalledWith(2, 'ui/preferences/set', { key: 'settings.provider.active', value: 'codex' });
     expect(vm.useClaudeProvider.value).toBe(false);
+    expect(vm.providerPreferenceReady.value).toBe(true);
+  });
+
+  it('loads and materializes the active provider in the selected project scope', async () => {
+    apiMock.callAPI
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce({ ok: true });
+    const vm = useProviderMode('/repo');
+
+    await vm.loadProviderPreference();
+
+    expect(apiMock.callAPI).toHaveBeenNthCalledWith(1, 'ui/preferences/get', {
+      key: 'settings.provider.active',
+      cwd: '/repo',
+    });
+    expect(apiMock.callAPI).toHaveBeenNthCalledWith(2, 'ui/preferences/set', {
+      key: 'settings.provider.active',
+      value: 'codex',
+      cwd: '/repo',
+    });
+    expect(vm.providerPreferenceReady.value).toBe(true);
+  });
+
+  it('does not expose fake codex readiness when loading preference fails', async () => {
+    apiMock.callAPI.mockRejectedValueOnce(new Error('boom'));
+    const vm = useProviderMode();
+    vm.useClaudeProvider.value = true;
+    vm.providerPreferenceReady.value = true;
+
+    await vm.loadProviderPreference();
+
+    expect(vm.useClaudeProvider.value).toBe(true);
+    expect(vm.providerPreferenceReady.value).toBe(false);
+    expect(vm.providerPreferenceError.value).toContain('boom');
   });
 
   it('toggles provider mode and persists the next value', async () => {
@@ -42,11 +82,13 @@ describe('useProviderMode', () => {
 
     await vm.toggleProviderMode();
     expect(vm.useClaudeProvider.value).toBe(true);
+    expect(vm.providerPreferenceReady.value).toBe(true);
     expect(apiMock.callAPI).toHaveBeenCalledWith('ui/preferences/set', { key: 'settings.provider.active', value: 'claude' });
 
     apiMock.callAPI.mockResolvedValueOnce({ ok: true });
     await vm.toggleProviderMode();
     expect(vm.useClaudeProvider.value).toBe(false);
+    expect(vm.providerPreferenceReady.value).toBe(true);
     expect(apiMock.callAPI).toHaveBeenLastCalledWith('ui/preferences/set', { key: 'settings.provider.active', value: 'codex' });
   });
 
@@ -57,5 +99,6 @@ describe('useProviderMode', () => {
     await vm.toggleProviderMode();
 
     expect(vm.useClaudeProvider.value).toBe(false);
+    expect(vm.providerPreferenceReady.value).toBe(false);
   });
 });

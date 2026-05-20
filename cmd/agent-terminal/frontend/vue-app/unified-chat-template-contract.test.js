@@ -30,6 +30,7 @@ describe('UnifiedChatPage template contract', () => {
       'data-testid="chat-send-failure-notice"',
       'class="thread-rail-resizer"',
       'class="workspace-bottom-row"',
+      ':disabled="!selectedThreadId && !providerPreferenceReady"',
     ]);
   });
 
@@ -80,6 +81,7 @@ describe('UnifiedChatPage template contract', () => {
       'threadConfigNotice',
       'threadConfigNoticeLevel',
       'threadConfigMeta',
+      'providerPreferenceReady',
     ]));
     expect(ChatToolbar.emits).toEqual([
       'update-project',
@@ -101,6 +103,8 @@ describe('UnifiedChatPage template contract', () => {
       'data-testid="chat-toolbar"',
       'data-testid="provider-toggle"',
       'data-testid="launch-agent-button"',
+      ':disabled="!providerPreferenceReady"',
+      'class="provider-toggle-input"',
       'data-testid="recover-agent-button"',
       '<ProjectSelect',
     ]);

@@ -18,6 +18,7 @@ vi.mock('./services/api.js', () => ({
 }));
 
 import { effectScope } from '../lib/vue.esm-browser.prod.js';
+import { ref } from '../lib/vue.esm-browser.prod.js';
 import { useProviderMode } from './composables/useProviderMode.js';
 import { __resetPreferenceStoreForTest, savePreference } from './stores/preferences.js';
 
@@ -56,6 +57,18 @@ describe('useProviderMode cross-page reactivity', () => {
       payload: { key: 'settings.provider.active', value: 'claude' },
     });
 
+    expect(vm.useClaudeProvider.value).toBe(true);
+  });
+
+  it('reacts to scoped provider changes without letting global changes override the project scope', async () => {
+    apiMock.callAPI.mockResolvedValue({ ok: true });
+    const activeProjectCwd = ref('/repo');
+    const vm = useProviderMode(activeProjectCwd);
+
+    await savePreference('settings.provider.active', 'claude', '/repo');
+    expect(vm.useClaudeProvider.value).toBe(true);
+
+    await savePreference('settings.provider.active', 'codex');
     expect(vm.useClaudeProvider.value).toBe(true);
   });
 
