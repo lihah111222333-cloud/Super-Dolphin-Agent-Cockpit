@@ -3,6 +3,7 @@ package tools
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -16,11 +17,15 @@ import (
 
 type codeRunTestSandbox struct {
 	root string
+	err  error
 }
 
 func (s codeRunTestSandbox) RootDir() string { return s.root }
 
-func (codeRunTestSandbox) Run(context.Context, lspexec.Request) (lspexec.Result, error) {
+func (s codeRunTestSandbox) Run(context.Context, lspexec.Request) (lspexec.Result, error) {
+	if s.err != nil {
+		return lspexec.Result{}, s.err
+	}
 	return lspexec.Result{ExitCode: 0}, nil
 }
 
@@ -238,5 +243,27 @@ func TestCodeRunProjectCommandAllowsCanonicalWorkDirInAdditionalWorkspaceRoot(t 
 	}
 	if strings.TrimSpace(result.Output) != filepath.Clean(wantRoot) {
 		t.Fatalf("pwd output = %q, want real extra root %q", strings.TrimSpace(result.Output), wantRoot)
+	}
+}
+
+func TestCodeRunSandboxErrorReturnsToolError(t *testing.T) {
+	handler := NewCodeRunHandlerWithSandbox(codeRunTestSandbox{
+		root: t.TempDir(),
+		err:  errors.New("sandbox unavailable"),
+	})
+	payload, err := json.Marshal(CodeRunRequest{
+		Mode:    "project_cmd",
+		Command: "go test ./...",
+	})
+	if err != nil {
+		t.Fatalf("marshal request: %v", err)
+	}
+
+	got, err := handler(common.WithToolScope(context.Background(), common.ToolScope{CWD: "/"}), payload)
+	if err == nil || !strings.Contains(err.Error(), "sandbox unavailable") {
+		t.Fatalf("code_run error = %v, want sandbox unavailable", err)
+	}
+	if got != nil {
+		t.Fatalf("code_run result = %#v, want nil on tool error", got)
 	}
 }

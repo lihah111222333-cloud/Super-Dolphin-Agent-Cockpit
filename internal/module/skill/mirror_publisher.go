@@ -336,7 +336,10 @@ func adoptIdenticalUnmanagedMirror(manifest *SkillMirrorManifest, target SkillMi
 	if err != nil {
 		return false, err
 	}
-	mirrorContentHash := skillDirContentHash(filepath.Join(target.Root, record.Name))
+	mirrorContentHash, err := skillDirContentHash(filepath.Join(target.Root, record.Name))
+	if err != nil {
+		return false, err
+	}
 	if oldHash != expectedHash && mirrorContentHash != expectedContentHash {
 		return false, nil
 	}

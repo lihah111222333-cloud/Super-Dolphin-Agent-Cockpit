@@ -4,6 +4,8 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
+	"fmt"
 	"strings"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
@@ -206,10 +208,6 @@ func (s *service) resolveStablePromptSnapshot(
 		if storedPromptSnapshotValid(stored, provider) {
 			return stored
 		}
-		// Phase 3 parity decision: when the stored snapshot does not match the
-		// current hash (e.g. SnapshotVersion bumped from v1 to v2, or section
-		// content changed), silently re-compute with a debug log. Warn level
-		// is reserved for actual storage failures below.
 		if !promptSnapshotBlank(stored) && s.logger != nil {
 			s.logger.Debug("thread: recomputing prompt snapshot due to hash/version mismatch",
 				"thread_id", threadID, "stored_version", stored.Version)
@@ -224,22 +222,22 @@ func (s *service) resolveResumePromptSnapshot(
 	ctx context.Context,
 	req ResumeRequest,
 	state resumeState,
-) contract.PromptAssemblySnapshot {
+) (contract.PromptAssemblySnapshot, error) {
 	provider := strings.TrimSpace(util.FirstNonEmpty(req.Provider, state.Provider))
-	if stored, ok := s.preferredStoredPromptSnapshot(ctx, state.PublicThreadID, provider); ok {
-		return stored
+	if stored, ok, err := s.preferredStoredPromptSnapshot(ctx, state.PublicThreadID, provider); err != nil {
+		return contract.PromptAssemblySnapshot{}, err
+	} else if ok {
+		return stored, nil
 	}
 	caller := normalizeCallerPromptSnapshot(req.PromptSnapshot, provider)
 	if !promptSnapshotBlank(caller) {
-		return caller
+		return caller, nil
 	}
 	rebuilt, err := s.rebuildResumePromptSnapshot(ctx, state, provider)
 	if err != nil {
-		s.logResumePromptRebuildFailure(state, err)
-		return contract.PromptAssemblySnapshot{}
+		return contract.PromptAssemblySnapshot{}, err
 	}
-	s.logResumePromptRebuilt(state, rebuilt)
-	return rebuilt
+	return rebuilt, nil
 }
 
 func (s *service) rebuildResumePromptSnapshot(
@@ -247,13 +245,15 @@ func (s *service) rebuildResumePromptSnapshot(
 	state resumeState,
 	provider string,
 ) (contract.PromptAssemblySnapshot, error) {
-	if s == nil || s.promptAssembly == nil {
+	needsSnapshot, err := resumePromptSnapshotRequired(state)
+	if err != nil {
+		return contract.PromptAssemblySnapshot{}, err
+	}
+	if !needsSnapshot {
 		return contract.PromptAssemblySnapshot{}, nil
 	}
-	if strings.TrimSpace(state.ParentAgentID) == "" ||
-		strings.TrimSpace(state.AgentType) == "" ||
-		strings.TrimSpace(state.AgentMemoryScope) == "" {
-		return contract.PromptAssemblySnapshot{}, nil
+	if s == nil || s.promptAssembly == nil {
+		return contract.PromptAssemblySnapshot{}, errors.New("resume prompt assembly service is not configured")
 	}
 	req := StartRequest{
 		Provider:          strings.TrimSpace(provider),
@@ -277,54 +277,52 @@ func (s *service) rebuildResumePromptSnapshot(
 		return contract.PromptAssemblySnapshot{}, err
 	}
 	assembly = ensureStartAssemblySnapshot(assembly, provider)
-	return normalizeCallerPromptSnapshot(assembly.Snapshot, provider), nil
+	snapshot := normalizeCallerPromptSnapshot(assembly.Snapshot, provider)
+	if promptSnapshotBlank(snapshot) {
+		return contract.PromptAssemblySnapshot{}, errors.New("resume prompt snapshot rebuild produced an empty snapshot")
+	}
+	return snapshot, nil
+}
+
+func resumePromptSnapshotRequired(state resumeState) (bool, error) {
+	parent := strings.TrimSpace(state.ParentAgentID)
+	agentType := strings.TrimSpace(state.AgentType)
+	scope := strings.TrimSpace(state.AgentMemoryScope)
+	if parent == "" && agentType == "" && scope == "" {
+		return false, nil
+	}
+	var missing []string
+	if parent == "" {
+		missing = append(missing, "parent agent id")
+	}
+	if agentType == "" {
+		missing = append(missing, "agent type")
+	}
+	if scope == "" {
+		missing = append(missing, "agent memory scope")
+	}
+	if len(missing) != 0 {
+		return false, fmt.Errorf("resume prompt snapshot identity is incomplete: missing %s", strings.Join(missing, ", "))
+	}
+	return true, nil
 }
 
 func (s *service) preferredStoredPromptSnapshot(
 	ctx context.Context,
 	threadID, provider string,
-) (contract.PromptAssemblySnapshot, bool) {
+) (contract.PromptAssemblySnapshot, bool, error) {
 	stored, err := s.loadStoredPromptSnapshot(ctx, threadID)
 	if err != nil {
-		if s.logger != nil {
-			s.logger.Warn("thread: load stored prompt snapshot failed", "thread_id", threadID, "error", err)
-		}
-		return contract.PromptAssemblySnapshot{}, false
+		return contract.PromptAssemblySnapshot{}, false, fmt.Errorf("load stored prompt snapshot for %q: %w", threadID, err)
 	}
 	if storedPromptSnapshotValid(stored, provider) {
-		return stored, true
+		return stored, true, nil
 	}
-	// Phase 3 parity decision: hash/version mismatch triggers recompute via
-	// rebuildResumePromptSnapshot; downgrade to debug since this is the
-	// expected path after SnapshotVersion bumps.
 	if !promptSnapshotBlank(stored) && s.logger != nil {
 		s.logger.Debug("thread: recomputing prompt snapshot on resume due to hash/version mismatch",
 			"thread_id", threadID, "stored_version", stored.Version)
 	}
-	return contract.PromptAssemblySnapshot{}, false
-}
-
-func (s *service) logResumePromptRebuildFailure(state resumeState, err error) {
-	if s == nil || s.logger == nil {
-		return
-	}
-	s.logger.Warn("thread: rebuild resume prompt snapshot failed",
-		"thread_id", state.PublicThreadID,
-		"agent_type", state.AgentType,
-		"agent_memory_scope", state.AgentMemoryScope,
-		"error", err,
-	)
-}
-
-func (s *service) logResumePromptRebuilt(state resumeState, snapshot contract.PromptAssemblySnapshot) {
-	if s == nil || s.logger == nil || promptSnapshotBlank(snapshot) {
-		return
-	}
-	s.logger.Info("thread: rebuilt resume prompt snapshot from agent identity metadata",
-		"thread_id", state.PublicThreadID,
-		"agent_type", state.AgentType,
-		"agent_memory_scope", state.AgentMemoryScope,
-	)
+	return contract.PromptAssemblySnapshot{}, false, nil
 }
 
 func (s *service) loadStoredPromptSnapshot(ctx context.Context, threadID string) (contract.PromptAssemblySnapshot, error) {

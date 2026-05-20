@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"strings"
 	"time"
 
@@ -35,7 +36,17 @@ func (h *Handler) listPeerToolsForCodex(ctx context.Context, kinds ...string) []
 	ch := make(chan indexedOutcome, len(kinds))
 	for index, kind := range kinds {
 		go func() {
-			defer func() { _ = recover() }()
+			defer func() {
+				if recovered := recover(); recovered != nil {
+					ch <- indexedOutcome{
+						index: index,
+						outcome: peerToolsListOutcome{
+							clientKind: kind,
+							err:        fmt.Errorf("toolbridge list peer tools panic: %v", recovered),
+						},
+					}
+				}
+			}()
 			tools, err := h.listPeerTools(ctx, kind)
 			ch <- indexedOutcome{
 				index: index,
@@ -78,10 +89,10 @@ func (h *Handler) ListToolsForCodex(ctx context.Context) ([]contract.DynamicTool
 	seenToolSources := make(map[string]string, len(hostTools))
 	merged := h.appendDynamicToolsWithShadowWarning(nil, seenToolSources, "host", hostTools)
 	outcomes := h.listPeerToolsForCodex(ctx, dto.ClientKindOrch, dto.ClientKindLSP)
+	if err := joinPeerToolErrors(outcomes); err != nil {
+		return nil, fmt.Errorf("toolbridge dynamic tools peer discovery failed: %w", err)
+	}
 	for _, outcome := range outcomes {
-		if outcome.err != nil {
-			return nil, fmt.Errorf("toolbridge dynamic tools peer %s unavailable: %w", outcome.clientKind, outcome.err)
-		}
 		merged = h.appendDynamicToolsWithShadowWarning(merged, seenToolSources, outcome.clientKind, outcome.tools)
 	}
 	if len(merged) == 0 {
@@ -186,17 +197,10 @@ func (h *Handler) callHostTool(ctx context.Context, req ToolCallRequest) (*ToolC
 			"duration_ms", time.Since(started).Milliseconds(),
 		)
 	}()
-	cwd := strings.TrimSpace(req.CWD)
-	if cwd == "" {
-		cwd = h.resolveAgentCWD(ctx, req.AgentID)
-	}
-	if strings.TrimSpace(cwd) == "" {
-		h.warn("toolbridge host-direct cwd missing before call",
-			"tool", strings.TrimSpace(req.Name),
-			"agent_id", strings.TrimSpace(req.AgentID),
-			"thread_id", strings.TrimSpace(req.ThreadID),
-			"call_id", strings.TrimSpace(req.CallID),
-		)
+	cwd, cwdErr := h.resolveRequiredHostToolCWD(ctx, req)
+	if cwdErr != nil {
+		outcome = hostToolErrorOutcome(cwdErr)
+		return hostToolErrorResult(req, cwdErr), nil
 	}
 	result, err := h.hostTools.CallHostTool(ctx, HostToolCall{
 		Name:      req.Name,
@@ -292,15 +296,33 @@ func approvalRequestEnvelope(req contract.ApprovalRequest) map[string]any {
 	}
 }
 
-// resolveAgentCWD 包装 WorkDirResolver 调用，失败时返回空串（下游 service 会返 ErrMissingCWD，
-// 该错误会被 callHostTool 打包成带说明的失败 ToolCallResult）。resolver 为 nil 同理空串。
-func (h *Handler) resolveAgentCWD(ctx context.Context, agentID string) string {
+func (h *Handler) resolveRequiredHostToolCWD(ctx context.Context, req ToolCallRequest) (string, error) {
+	cwd := normalizeToolCallCWD(req.CWD)
+	if cwd == "" {
+		var err error
+		cwd, err = h.resolveAgentCWD(ctx, req.AgentID)
+		if err != nil {
+			return "", err
+		}
+	}
+	if cwd == "" {
+		return "", fmt.Errorf("%w: host tool cwd is required", contract.ErrSkillMissingCWD)
+	}
+	if info, err := os.Stat(cwd); err != nil {
+		return "", fmt.Errorf("%w: host tool cwd stat %q: %v", contract.ErrSkillMissingCWD, cwd, err)
+	} else if !info.IsDir() {
+		return "", fmt.Errorf("%w: host tool cwd is not a directory: %q", contract.ErrSkillMissingCWD, cwd)
+	}
+	return cwd, nil
+}
+
+func (h *Handler) resolveAgentCWD(ctx context.Context, agentID string) (string, error) {
 	if h == nil || h.resolver == nil {
-		return ""
+		return "", fmt.Errorf("%w: work dir resolver is not configured", contract.ErrSkillMissingCWD)
 	}
 	cwd, err := h.resolver.ResolveAgentCWD(ctx, agentID)
 	if err != nil {
-		return ""
+		return "", fmt.Errorf("%w: resolve agent cwd: %v", contract.ErrSkillMissingCWD, err)
 	}
-	return cwd
+	return normalizeToolCallCWD(cwd), nil
 }

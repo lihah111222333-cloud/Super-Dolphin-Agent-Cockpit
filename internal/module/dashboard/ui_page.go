@@ -25,6 +25,7 @@ const (
 type DashboardPage struct {
 	Agents              []AgentOverview                `json:"agents"`
 	DAGs                []contract.DAGSummary          `json:"dags"`
+	TaskAcks            []DashboardTaskAck             `json:"taskAcks"`
 	TaskTraces          []tasktracestore.TaskTrace     `json:"taskTraces"`
 	Skills              []contract.SkillInfo           `json:"skills"`
 	CommandCards        []commandcardstore.CommandCard `json:"commandCards"`
@@ -32,6 +33,13 @@ type DashboardPage struct {
 	Memory              []sharedfilestore.SharedFile   `json:"memory"`
 	FinalOutputRefs     []FinalOutputRef               `json:"finalOutputRefs"`
 	SharedFileRetention SharedFileRetention            `json:"sharedFileRetention"`
+}
+
+type DashboardTaskAck struct {
+	AckKey     string `json:"ack_key"`
+	Title      string `json:"title"`
+	Status     string `json:"status"`
+	AssignedTo string `json:"assigned_to"`
 }
 
 type dashboardPageLoader func(context.Context) error
@@ -62,6 +70,7 @@ func newDashboardPage() *DashboardPage {
 	return &DashboardPage{
 		Agents:              []AgentOverview{},
 		DAGs:                []contract.DAGSummary{},
+		TaskAcks:            []DashboardTaskAck{},
 		TaskTraces:          []tasktracestore.TaskTrace{},
 		Skills:              []contract.SkillInfo{},
 		CommandCards:        []commandcardstore.CommandCard{},
@@ -175,8 +184,7 @@ func (s *service) populateDashboardMemory(ctx context.Context, out *DashboardPag
 	out.Memory = items
 	refs, err := s.listDashboardFinalOutputRefs(ctx)
 	if err != nil {
-		out.FinalOutputRefs = []FinalOutputRef{}
-		return nil
+		return err
 	}
 	if refs == nil {
 		refs = []FinalOutputRef{}

@@ -9,25 +9,17 @@ import (
 	"time"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
+	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
 	bindingstore "github.com/anthropic-ai/super-agent-v3/internal/store/binding"
 	"github.com/anthropic-ai/super-agent-v3/internal/util/identifier"
 )
 
 type bindingRegistration struct {
-	AgentID            string
-	Provider           string
-	ProviderThreadID   string
-	PublicThreadID     string
-	CWD                string
-	RolloutPath        string
-	SessionUUID        string
-	ParentAgentID      string
-	AgentType          string
-	AgentMemoryScope   string
-	CodexHome          string
-	CodexInstanceKey   string
-	CodexModelProvider string
-	CreatedAt          int64
+	AgentID, Provider, ProviderThreadID, PublicThreadID, CWD string
+	RolloutPath, SessionUUID, ParentAgentID, AgentType       string
+	AgentMemoryScope, CodexHome, CodexInstanceKey            string
+	CodexModelProvider                                       string
+	CreatedAt                                                int64
 }
 
 type bindingWriteOutcome struct {
@@ -37,26 +29,15 @@ type bindingWriteOutcome struct {
 }
 
 func normalizeThreadState(state threadState) (threadState, error) {
-	state.PublicThreadID = strings.TrimSpace(state.PublicThreadID)
-	state.ProviderThreadID = strings.TrimSpace(state.ProviderThreadID)
-	state.OwnerThreadID = strings.TrimSpace(state.OwnerThreadID)
-	state.AgentID = strings.TrimSpace(state.AgentID)
-	state.ParentAgentID = strings.TrimSpace(state.ParentAgentID)
-	state.AgentType = strings.TrimSpace(state.AgentType)
-	state.AgentMemoryScope = strings.TrimSpace(state.AgentMemoryScope)
-	state.Provider = strings.TrimSpace(state.Provider)
-	state.CWD = strings.TrimSpace(state.CWD)
-	state.CodexHome = strings.TrimSpace(state.CodexHome)
-	state.CodexInstanceKey = strings.TrimSpace(state.CodexInstanceKey)
-	state.CodexModelProvider = strings.TrimSpace(state.CodexModelProvider)
-	state.Model = strings.TrimSpace(state.Model)
-	state.Prompt = strings.TrimSpace(state.Prompt)
+	trim := strings.TrimSpace
+	state.PublicThreadID, state.ProviderThreadID, state.OwnerThreadID = trim(state.PublicThreadID), trim(state.ProviderThreadID), trim(state.OwnerThreadID)
+	state.AgentID, state.ParentAgentID, state.AgentType = trim(state.AgentID), trim(state.ParentAgentID), trim(state.AgentType)
+	state.AgentMemoryScope, state.Provider, state.CWD = trim(state.AgentMemoryScope), trim(state.Provider), trim(state.CWD)
+	state.CodexHome, state.CodexInstanceKey, state.CodexModelProvider = trim(state.CodexHome), trim(state.CodexInstanceKey), trim(state.CodexModelProvider)
+	state.Model, state.Prompt = trim(state.Model), trim(state.Prompt)
 	if state.PublicThreadID == "" || state.AgentID == "" {
 		return threadState{}, errors.New("thread and agent ids are required")
 	}
-	// provider_thread_id is left empty when the real UUID is not yet known
-	// (e.g. Claude resolves it asynchronously). It will be filled in once
-	// the handshake completes — no placeholder needed.
 	if state.CreatedAt == 0 {
 		state.CreatedAt = time.Now().Unix()
 	}
@@ -72,20 +53,9 @@ func normalizeBindingRegistration(state threadState) (bindingRegistration, error
 		return bindingRegistration{}, err
 	}
 	return bindingRegistration{
-		AgentID:            state.AgentID,
-		Provider:           state.Provider,
-		ProviderThreadID:   providerThreadID,
-		PublicThreadID:     state.PublicThreadID,
-		CWD:                state.CWD,
-		RolloutPath:        state.RolloutPath,
-		SessionUUID:        state.SessionUUID,
-		ParentAgentID:      state.ParentAgentID,
-		AgentType:          state.AgentType,
-		AgentMemoryScope:   state.AgentMemoryScope,
-		CodexHome:          state.CodexHome,
-		CodexInstanceKey:   state.CodexInstanceKey,
-		CodexModelProvider: state.CodexModelProvider,
-		CreatedAt:          state.CreatedAt,
+		state.AgentID, state.Provider, providerThreadID, state.PublicThreadID, state.CWD,
+		state.RolloutPath, state.SessionUUID, state.ParentAgentID, state.AgentType,
+		state.AgentMemoryScope, state.CodexHome, state.CodexInstanceKey, state.CodexModelProvider, state.CreatedAt,
 	}, nil
 }
 
@@ -114,20 +84,17 @@ func (s *service) ensurePublicThreadAvailable(ctx context.Context, state threadS
 		return nil
 	}
 	existing, err := s.threadStore.GetByThreadID(ctx, state.PublicThreadID)
-	if err != nil {
-		if contract.IsNotFound(err) {
-			return nil
-		}
+	if err != nil && !contract.IsNotFound(err) {
 		return err
+	}
+	if contract.IsNotFound(err) {
+		existing = nil
 	}
 	if existing == nil {
 		return nil
 	}
 	existingAgentID := strings.TrimSpace(existing.AgentID)
 	if existingAgentID == "" {
-		// Pending-launch rows (written by startPendingThread) legitimately
-		// have no binding yet — SpawnIfNeeded is exactly the caller promoting
-		// them. Treat that as the same-owner case so the upsert can proceed.
 		if existing.PendingLaunch {
 			return nil
 		}
@@ -193,32 +160,23 @@ func (s *service) logBindingPersisted(r bindingRegistration) {
 	if s == nil || s.logger == nil {
 		return
 	}
-	s.logger.Warn("thread: registerThreadBinding persisted OK",
-		"agent_id", r.AgentID,
-		"provider", r.Provider,
-		"provider_thread_id", r.ProviderThreadID,
-		"public_thread_id", r.PublicThreadID,
-		"rollout_path", r.RolloutPath,
-		"session_uuid", r.SessionUUID)
+	s.logger.Warn("thread: registerThreadBinding persisted OK", "agent_id", r.AgentID, "provider", r.Provider,
+		"provider_thread_id", r.ProviderThreadID, "public_thread_id", r.PublicThreadID, "rollout_path", r.RolloutPath, "session_uuid", r.SessionUUID)
 }
 
 func (s *service) ensureProviderThreadAvailable(ctx context.Context, registration bindingRegistration) error {
 	if s == nil || s.bindingStore == nil {
 		return nil
 	}
-	// An empty provider_thread_id means the real UUID has not been resolved
-	// yet (e.g. Claude CLI resolves it asynchronously after the first user
-	// message). Empty strings are not meaningful unique identifiers and must
-	// not trigger binding conflicts.
 	if strings.TrimSpace(registration.ProviderThreadID) == "" {
 		return nil
 	}
 	existing, err := s.bindingStore.GetByProviderThread(ctx, registration.Provider, registration.ProviderThreadID)
-	if err != nil {
-		if contract.IsNotFound(err) {
-			return nil
-		}
+	if err != nil && !contract.IsNotFound(err) {
 		return err
+	}
+	if contract.IsNotFound(err) {
+		existing = nil
 	}
 	if existing == nil {
 		return nil
@@ -230,9 +188,6 @@ func (s *service) ensureProviderThreadAvailable(ctx context.Context, registratio
 	return s.resolveProviderThreadConflict(ctx, registration, existingAgentID)
 }
 
-// resolveProviderThreadConflict handles a provider_thread_id collision with a
-// different agent. If the blocking agent is dead (no active session), its
-// stale binding is evicted. If alive, the conflict is reported as an error.
 func (s *service) resolveProviderThreadConflict(ctx context.Context, registration bindingRegistration, existingAgentID string) error {
 	if s.isSessionAlive(existingAgentID) {
 		return fmt.Errorf("provider thread %q is already bound to agent %q (session active)", registration.ProviderThreadID, existingAgentID)
@@ -253,10 +208,6 @@ func (s *service) resolveProviderThreadConflict(ctx context.Context, registratio
 	return nil
 }
 
-// isSessionAlive reports whether the given agent currently has a live session
-// in the session provider. It is used to distinguish active binding conflicts
-// (two live agents competing for the same provider_thread_id) from orphan
-// conflicts (a dead agent's stale binding blocking a live agent).
 func (s *service) isSessionAlive(agentID string) bool {
 	if s == nil || s.sessions == nil {
 		return false
@@ -333,11 +284,12 @@ func (s *service) prepareBindingWrite(
 	registration bindingRegistration,
 ) (*bindingstore.Binding, bindingWriteOutcome, error) {
 	existing, err := s.bindingStore.GetByAgentID(ctx, registration.AgentID)
-	if err != nil {
-		if contract.IsNotFound(err) {
-			return nil, bindingWriteOutcome{AgentID: registration.AgentID}, nil
-		}
+	notFound := contract.IsNotFound(err)
+	if err != nil && !notFound {
 		return nil, bindingWriteOutcome{}, err
+	}
+	if notFound {
+		return nil, bindingWriteOutcome{AgentID: registration.AgentID}, nil
 	}
 	return existing, bindingWriteOutcome{
 		AgentID:  registration.AgentID,
@@ -530,15 +482,21 @@ func cloneBinding(binding *bindingstore.Binding) *bindingstore.Binding {
 	return &copy
 }
 
-func (s *service) lookupPersistedAgentID(ctx context.Context, threadID string) string {
+func (s *service) lookupPersistedAgentID(ctx context.Context, threadID string) (string, bool, error) {
 	if s == nil || s.threadStore == nil {
-		return ""
+		return "", false, nil
 	}
 	thread, err := s.threadStore.GetByThreadID(ctx, threadID)
-	if err != nil || thread == nil {
-		return ""
+	if err != nil {
+		if platformdb.IsNotFound(err) {
+			return "", false, fmt.Errorf("thread %q not found: %w", strings.TrimSpace(threadID), contract.ErrNotFound)
+		}
+		return "", false, err
 	}
-	return strings.TrimSpace(thread.AgentID)
+	if thread == nil {
+		return "", false, nil
+	}
+	return strings.TrimSpace(thread.AgentID), true, nil
 }
 
 type bindingRecoveryReporter struct {

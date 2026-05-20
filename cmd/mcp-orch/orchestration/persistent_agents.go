@@ -2,12 +2,14 @@ package orchestration
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
 	"time"
 
 	agentdto "github.com/anthropic-ai/super-agent-v3/internal/dto/agent"
+	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
 	platformshared "github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 )
 
@@ -56,7 +58,13 @@ func (s *service) persistedAgentSnapshot(ctx context.Context, agentID string) (A
 
 func (s *service) persistedAgentSnapshotByThreadID(ctx context.Context, agentID string) (AgentSnapshot, bool, error) {
 	thread, err := s.agentThreads.GetByThreadID(ctx, agentID)
-	if err != nil || thread == nil {
+	if err != nil {
+		if errors.Is(err, errAgentNotFound) || platformdb.IsNotFound(err) {
+			return AgentSnapshot{}, false, nil
+		}
+		return AgentSnapshot{}, false, err
+	}
+	if thread == nil {
 		return AgentSnapshot{}, false, nil
 	}
 	snapshot, ok := snapshotFromPersistedThread(*thread)

@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
@@ -59,6 +60,45 @@ func TestServiceForkCreatesIndependentAgentAndBinding(t *testing.T) {
 		t.Fatalf("Fork() error = %v", err)
 	}
 	assertForkResult(t, result, fixture)
+}
+
+func TestServiceForkRejectsMissingCWDBeforeProviderOrchestrationSideEffects(t *testing.T) {
+	t.Parallel()
+
+	originalSession := &stubSession{
+		threadID:   "thread-parent",
+		forkResult: dto.ForkResult{NewThreadID: "thread-fork"},
+	}
+	sessions := &stubSessionProvider{session: originalSession}
+	bindings := &stubBindingStore{binding: &bindingstore.Binding{
+		AgentID:          "agent-parent",
+		Provider:         "codex",
+		ProviderThreadID: "thread-parent",
+		CodexThreadID:    "thread-parent",
+	}}
+	threads := &stubThreadStore{thread: &threadstore.Thread{
+		ThreadID:  "thread-parent",
+		Prompt:    "Forked Thread",
+		Model:     "gpt-5.5",
+		CreatedAt: 123,
+	}}
+	starter := &stubSessionStarter{onResume: func(context.Context, dto.ResumeSessionRequest) (contract.Session, error) {
+		t.Fatal("ResumeSession should not be called when fork cwd is missing")
+		return nil, nil
+	}}
+	orch := &forkOrchestrationStub{}
+	svc := NewService(silentLogger(), threads, bindings, sessions, starter, nil, orch, nil).(*service)
+
+	_, err := svc.Fork(context.Background(), "thread-parent")
+	if err == nil || !strings.Contains(err.Error(), "fork cwd is required") {
+		t.Fatalf("Fork() error = %v, want cwd required", err)
+	}
+	if originalSession.forkRequest.ThreadID != "" {
+		t.Fatalf("ForkThread request = %#v, want no provider fork before cwd validation", originalSession.forkRequest)
+	}
+	if orch.launch.AgentID != "" {
+		t.Fatalf("orchestration launch = %#v, want none", orch.launch)
+	}
 }
 
 type forkServiceFixture struct {
@@ -181,6 +221,47 @@ func TestServiceRecoverReturnsResumeEnvelopeWhenSessionMissing(t *testing.T) {
 		t.Fatalf("Recover() error = %v", err)
 	}
 	assertResumeRecoverResult(t, result, fixture)
+}
+
+func TestServiceRecoverRejectsMissingCWDBeforeOrchestrationSideEffects(t *testing.T) {
+	t.Parallel()
+
+	threads := &stubThreadStore{thread: &threadstore.Thread{
+		ThreadID:  "thread-parent",
+		AgentID:   "agent-parent",
+		Prompt:    "Recovered Thread",
+		Model:     "gpt-5.5",
+		CreatedAt: 123,
+	}}
+	bindings := &stubBindingStore{binding: &bindingstore.Binding{
+		AgentID:          "agent-parent",
+		Provider:         "codex",
+		ProviderThreadID: "provider-parent",
+		CodexThreadID:    "thread-parent",
+	}}
+	starter := &stubSessionStarter{onResume: func(context.Context, dto.ResumeSessionRequest) (contract.Session, error) {
+		t.Fatal("ResumeSession should not be called when recover cwd is missing")
+		return nil, nil
+	}}
+	orch := &forkOrchestrationStub{}
+	svc := NewService(silentLogger(), threads, bindings, &stubSessionProvider{}, starter, nil, orch, nil).(*service)
+
+	_, err := svc.Recover(context.Background(), "thread-parent")
+	if err == nil || !strings.Contains(err.Error(), "recover cwd is required") {
+		t.Fatalf("Recover() error = %v, want cwd required", err)
+	}
+	if len(orch.recovered) != 0 || orch.launch.AgentID != "" {
+		t.Fatalf("orchestration side effects = recovered %#v launch %#v, want none", orch.recovered, orch.launch)
+	}
+}
+
+func TestResolveForkCWDRejectsMetaBindingMismatch(t *testing.T) {
+	t.Parallel()
+
+	_, err := resolveForkCWD("/tmp/project-a", "/tmp/project-b")
+	if err == nil || !strings.Contains(err.Error(), "fork cwd mismatch") {
+		t.Fatalf("resolveForkCWD() error = %v, want cwd mismatch", err)
+	}
 }
 
 type recoverServiceFixture struct {

@@ -489,6 +489,23 @@ func assertFileContent(t *testing.T, path, want string) {
 	}
 }
 
+func requireErrorContains(t *testing.T, err error, parts ...string) {
+	t.Helper()
+	if err == nil {
+		t.Fatalf("error = nil, want substrings %q", parts)
+	}
+	requireStringContains(t, err.Error(), parts...)
+}
+
+func requireStringContains(t *testing.T, text string, parts ...string) {
+	t.Helper()
+	for _, part := range parts {
+		if !strings.Contains(text, part) {
+			t.Fatalf("text = %q, want substring %q", text, part)
+		}
+	}
+}
+
 func TestReplaceRangeSyncFailureReportsRollbackFailure(t *testing.T) {
 	root := t.TempDir()
 	path := filepath.Join(root, "sample.go")

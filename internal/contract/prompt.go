@@ -263,11 +263,11 @@ type ClaudeMdSourceProviderRegistrar interface {
 }
 
 type ClaudeMdSourceProvider interface {
-	ResolveClaudeMdSources(ctx context.Context, buildCtx BuildCtx) []ClaudeMdSource
+	ResolveClaudeMdSources(ctx context.Context, buildCtx BuildCtx) ([]ClaudeMdSource, error)
 }
 
 type TurnAttachmentProvider interface {
-	ResolveTurnAttachments(ctx context.Context, buildCtx BuildCtx, turn TurnInput, baseSources []ClaudeMdSource) []dto.AttachmentEnvelope
+	ResolveTurnAttachments(ctx context.Context, buildCtx BuildCtx, turn TurnInput, baseSources []ClaudeMdSource) ([]dto.AttachmentEnvelope, error)
 }
 
 type TurnContextPayload struct {

@@ -96,8 +96,8 @@ func TestInterruptTurnSettleTimeoutReturnsEnvelope(t *testing.T) {
 	}
 
 	status, err := svc.InterruptTurn(context.Background(), session, "user")
-	if err != nil {
-		t.Fatalf("InterruptTurn() error = %v, want timeout envelope", err)
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("InterruptTurn() error = %v, want deadline exceeded with timeout envelope", err)
 	}
 	envelope := status.interruptEnvelope()
 	if !envelope.confirmed || envelope.mode != "interrupt_timeout" || !envelope.interruptSent {

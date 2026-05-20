@@ -101,6 +101,19 @@ func TestSearchASTExitOneWithStderrReturnsError(t *testing.T) {
 	}
 }
 
+func TestSearchASTExitOneWithoutStderrReturnsNoMatches(t *testing.T) {
+	sg := writeFakeSG(t, 1, "", "")
+	t.Setenv("PATH", filepath.Dir(sg)+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	matches, err := SearchAST(context.Background(), ASTSearchOptions{Root: t.TempDir(), Query: "bad", Language: "go"})
+	if err != nil {
+		t.Fatalf("SearchAST() error = %v, want nil no-match error", err)
+	}
+	if len(matches) != 0 {
+		t.Fatalf("SearchAST() matches = %#v, want empty no-match result", matches)
+	}
+}
+
 func TestSearchASTScanExitOneWithStderrReturnsError(t *testing.T) {
 	sg := writeFakeSG(t, 1, "", "scan parse error")
 	t.Setenv("PATH", filepath.Dir(sg)+string(os.PathListSeparator)+os.Getenv("PATH"))
@@ -113,6 +126,24 @@ func TestSearchASTScanExitOneWithStderrReturnsError(t *testing.T) {
 	_, err := SearchAST(context.Background(), ASTSearchOptions{Root: root, Path: target, Query: "function_declaration", Language: "go"})
 	if err == nil || !strings.Contains(err.Error(), "scan parse error") {
 		t.Fatalf("SearchAST scan error = %v, want sg scan stderr", err)
+	}
+}
+
+func TestSearchASTScanExitOneWithoutStderrReturnsNoMatches(t *testing.T) {
+	sg := writeFakeSG(t, 1, "", "")
+	t.Setenv("PATH", filepath.Dir(sg)+string(os.PathListSeparator)+os.Getenv("PATH"))
+	root := t.TempDir()
+	target := filepath.Join(root, "main.go")
+	if err := os.WriteFile(target, []byte("package main\nfunc main() {}\n"), 0o644); err != nil {
+		t.Fatalf("write target: %v", err)
+	}
+
+	matches, err := SearchAST(context.Background(), ASTSearchOptions{Root: root, Path: target, Query: "function_declaration", Language: "go"})
+	if err != nil {
+		t.Fatalf("SearchAST scan error = %v, want nil no-match error", err)
+	}
+	if len(matches) != 0 {
+		t.Fatalf("SearchAST scan matches = %#v, want empty no-match result", matches)
 	}
 }
 

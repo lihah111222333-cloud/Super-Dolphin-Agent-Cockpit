@@ -228,7 +228,7 @@ func TestDAGSubscriber_DoneInvokesLifecycleHooks(t *testing.T) {
 	flow := &dagSubscriberFlowSpy{}
 	threads := &dagSubscriberThreadSpy{thread: &PersistedThread{ThreadID: "thr-hooks-done", AgentID: "agent-hooks"}}
 	stop := &dagSubscriberStopSpy{}
-	agentExec := nodeexec.NewAgentExecutor(&stubAgentLauncher{}, nodeexec.WithHooks(recordingLifecycleHooks(&events)))
+	agentExec := newTestAgentExecutor(&stubAgentLauncher{}, nodeexec.WithHooks(recordingLifecycleHooks(&events)))
 	deps := setupDAGSubscriberDeps(lookup, flow, threads, stop)
 	deps.NodeRouter = NewNodeExecutorRouter(&stubRouterStore{}, agentExec, nil, nil, nil, nil)
 
@@ -281,7 +281,7 @@ func TestDAGSubscriber_FailedInvokesLifecycleHooks(t *testing.T) {
 	flow := &dagSubscriberFlowSpy{}
 	threads := &dagSubscriberThreadSpy{thread: &PersistedThread{ThreadID: "thr-hooks", AgentID: "agent-hooks"}}
 	stop := &dagSubscriberStopSpy{}
-	agentExec := nodeexec.NewAgentExecutor(&stubAgentLauncher{}, nodeexec.WithHooks(recordingLifecycleHooks(&events)))
+	agentExec := newTestAgentExecutor(&stubAgentLauncher{}, nodeexec.WithHooks(recordingLifecycleHooks(&events)))
 	deps := setupDAGSubscriberDeps(lookup, flow, threads, stop)
 	deps.NodeRouter = NewNodeExecutorRouter(&stubRouterStore{}, agentExec, nil, nil, nil, nil)
 
@@ -313,7 +313,7 @@ func TestDAGSubscriber_MaterializationFailureLifecycleHooksKeepFailureClass(t *t
 	flow := &dagSubscriberFlowSpy{}
 	threads := &dagSubscriberThreadSpy{thread: &PersistedThread{ThreadID: "thr-a2-materialize-fail", AgentID: "agent-a2"}}
 	stop := &dagSubscriberStopSpy{}
-	agentExec := nodeexec.NewAgentExecutor(&stubAgentLauncher{}, nodeexec.WithHooks(recordingLifecycleOutcomeHooks(&events)))
+	agentExec := newTestAgentExecutor(&stubAgentLauncher{}, nodeexec.WithHooks(recordingLifecycleOutcomeHooks(&events)))
 	deps := setupDAGSubscriberDeps(lookup, flow, threads, stop)
 	deps.NodeRouter = NewNodeExecutorRouter(&stubRouterStore{}, agentExec, nil, nil, nil, nil)
 

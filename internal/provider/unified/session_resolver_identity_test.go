@@ -120,6 +120,7 @@ func TestSessionResolverProviderThreadAutoResumeDoesNotUseCodexThreadID(t *testi
 				ProviderThreadID: "33333333-aaaa-bbbb-cccc-333333333333",
 				CodexThreadID:    "public-thread-3",
 				RolloutPath:      rolloutPath,
+				Cwd:              t.TempDir(),
 			},
 		}},
 		registry: NewRegistry(RegistryParams{Drivers: []contract.DriverFactory{
@@ -155,6 +156,7 @@ func TestSessionResolverAutoResumeDoesNotUseAgentIDAsThreadIDWithoutPublicThread
 				AgentID:          "agent-2",
 				ProviderThreadID: "22222222-aaaa-bbbb-cccc-222222222222",
 				RolloutPath:      rolloutPath,
+				Cwd:              t.TempDir(),
 			},
 		}},
 		registry: NewRegistry(RegistryParams{Drivers: []contract.DriverFactory{
@@ -199,6 +201,33 @@ func TestSessionResolverAutoResumeRequiresProviderHistoryFile(t *testing.T) {
 	}
 	if errors.Is(err, contract.ErrSessionNotFound) {
 		t.Fatalf("ResolveSession() error = %v, want lookup not found wrapper", err)
+	}
+	if driver.resumed != 0 {
+		t.Fatalf("ResumeSession calls = %d, want 0", driver.resumed)
+	}
+}
+
+func TestSessionResolverAutoResumeRejectsMissingBindingCWD(t *testing.T) {
+	rolloutPath := writeExistingProviderHistoryFile(t)
+	driver := &resumeCaptureDriver{name: "codex", session: &generationTestSession{threadID: "55555555-aaaa-bbbb-cccc-555555555555"}}
+	resolver := &sessionResolver{
+		bindingStore: stubBindingLookup{bindings: map[string]*contract.SessionBinding{
+			"codex:55555555-aaaa-bbbb-cccc-555555555555": {
+				Provider:         "codex",
+				AgentID:          "agent-5",
+				ProviderThreadID: "55555555-aaaa-bbbb-cccc-555555555555",
+				RolloutPath:      rolloutPath,
+			},
+		}},
+		registry: NewRegistry(RegistryParams{Drivers: []contract.DriverFactory{
+			{Name: "codex", Create: func() contract.Driver { return driver }},
+		}}),
+		sessions: NewSessionManager(nil),
+	}
+
+	_, err := resolver.ResolveSession(context.Background(), "55555555-aaaa-bbbb-cccc-555555555555")
+	if err == nil || !strings.Contains(err.Error(), "cwd is required") {
+		t.Fatalf("ResolveSession() error = %v, want cwd required", err)
 	}
 	if driver.resumed != 0 {
 		t.Fatalf("ResumeSession calls = %d, want 0", driver.resumed)

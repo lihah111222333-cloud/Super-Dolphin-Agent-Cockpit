@@ -23,6 +23,8 @@ type ReadRequest struct {
 	CodexHome        string
 }
 
+var errProviderHistoryNotFound = errors.New("persisted thread history not found")
+
 type textItem struct {
 	Type string `json:"type"`
 	Text string `json:"text,omitempty"`
@@ -53,6 +55,34 @@ func ReadProviderMessages(req ReadRequest) ([]dto.Message, error) {
 	return out, nil
 }
 
+func ReadProviderMessagesIfExists(req ReadRequest) ([]dto.Message, bool, error) {
+	if _, err := ExistingProviderPath(req); err == nil {
+		messages, readErr := ReadProviderMessages(req)
+		if readErr != nil {
+			return nil, false, readErr
+		}
+		return messages, true, nil
+	} else if !IsMissingProviderHistory(err) {
+		return nil, false, err
+	}
+	return nil, false, nil
+}
+
+func ReadProviderMessagesOrError(req ReadRequest, missingErr error) ([]dto.Message, error) {
+	messages, ok, err := ReadProviderMessagesIfExists(req)
+	if err != nil {
+		return nil, err
+	}
+	if !ok {
+		return nil, missingErr
+	}
+	return messages, nil
+}
+
+func IsMissingProviderHistory(err error) bool {
+	return errors.Is(err, os.ErrNotExist) || errors.Is(err, errProviderHistoryNotFound)
+}
+
 func ExistingProviderPath(req ReadRequest) (string, error) {
 	path, _, err := resolvePath(req)
 	if err != nil {
@@ -60,7 +90,10 @@ func ExistingProviderPath(req ReadRequest) (string, error) {
 	}
 	info, err := os.Stat(path)
 	if err != nil {
-		return "", fmt.Errorf("persisted thread history not found: %w", err)
+		if errors.Is(err, os.ErrNotExist) {
+			return "", fmt.Errorf("%w: %w", errProviderHistoryNotFound, err)
+		}
+		return "", fmt.Errorf("stat persisted thread history: %w", err)
 	}
 	if info.IsDir() {
 		return "", errors.New("persisted thread history path is a directory")
@@ -75,7 +108,7 @@ func resolvePath(req ReadRequest) (string, string, error) {
 	}
 	path := discoverPath(provider, req)
 	if path == "" {
-		return "", provider, errors.New("persisted thread history not found")
+		return "", provider, errProviderHistoryNotFound
 	}
 	return path, provider, nil
 }

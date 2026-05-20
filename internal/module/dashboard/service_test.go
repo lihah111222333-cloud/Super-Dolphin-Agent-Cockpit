@@ -68,6 +68,9 @@ func assertDashboardCoreSlices(t *testing.T, got *DashboardPage) {
 	if got.TaskTraces == nil {
 		t.Fatalf("GetDashboardPage() missing task traces slice: %#v", got)
 	}
+	if got.TaskAcks == nil {
+		t.Fatalf("GetDashboardPage() missing task acks slice: %#v", got)
+	}
 }
 
 func assertDashboardPageSlices(t *testing.T, got *DashboardPage) {
@@ -155,7 +158,7 @@ func TestGetDashboardPageMemoryIncludesFinalOutputRefs(t *testing.T) {
 	assertDashboardRetentionSummary(t, got)
 }
 
-func TestGetDashboardPageMemoryDowngradesFinalOutputRefErrors(t *testing.T) {
+func TestGetDashboardPageMemorySurfacesFinalOutputRefErrors(t *testing.T) {
 	t.Parallel()
 
 	shared := &stubSharedFileReader{
@@ -168,14 +171,11 @@ func TestGetDashboardPageMemoryDowngradesFinalOutputRefErrors(t *testing.T) {
 	svc := &service{sharedFiles: shared, orchestration: orchestration}
 
 	got, err := svc.GetDashboardPage(context.Background(), "memory")
-	if err != nil {
-		t.Fatalf("GetDashboardPage(memory) error = %v, want nil when only final output refs fail", err)
+	if !errors.Is(err, errDashboardStub) {
+		t.Fatalf("GetDashboardPage(memory) error = %v, want final output refs error", err)
 	}
-	if len(got.Memory) != 1 || got.Memory[0].Path != "reports/daily-brief.pptx" {
-		t.Fatalf("GetDashboardPage(memory).Memory = %#v, want shared files", got.Memory)
-	}
-	if got.FinalOutputRefs == nil || len(got.FinalOutputRefs) != 0 {
-		t.Fatalf("FinalOutputRefs = %#v, want empty slice after downgrade", got.FinalOutputRefs)
+	if got != nil {
+		t.Fatalf("GetDashboardPage(memory) = %#v, want nil page on final output refs error", got)
 	}
 }
 

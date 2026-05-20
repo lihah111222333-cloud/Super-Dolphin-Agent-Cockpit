@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/orchestration/nodeexec"
@@ -18,7 +19,7 @@ func TestDispatchAgent_WritesRunningOnSuccess(t *testing.T) {
 	before := DispatchAgentRunningCounters()
 
 	launcher := &stubAgentLauncher{threadID: "thr-1"}
-	agentExec := nodeexec.NewAgentExecutor(launcher, nil)
+	agentExec := newTestAgentExecutor(launcher, nil)
 	store := &stubRouterStore{
 		nodes: []taskdag.Node{{
 			DagKey:   "dag-1",
@@ -63,7 +64,7 @@ func TestDispatchAgent_RaceWindowD_NoRowsIsSilent(t *testing.T) {
 	before := DispatchAgentRunningCounters()
 
 	launcher := &stubAgentLauncher{threadID: "thr-2"}
-	agentExec := nodeexec.NewAgentExecutor(launcher, nil)
+	agentExec := newTestAgentExecutor(launcher, nil)
 	store := &stubRouterStore{
 		nodes: []taskdag.Node{{
 			DagKey:   "dag-1",
@@ -99,16 +100,14 @@ func TestDispatchAgent_RaceWindowD_NoRowsIsSilent(t *testing.T) {
 	}
 }
 
-// TestDispatchAgent_DBErrorIsLoggedNotPropagated verifies that a generic DB
-// error from UpdateRunningNodeStatus (connection drop / serialization
-// failure) advances the WriteFailed counter and is logged as a Warn, but
-// does NOT propagate back to RouteByWakeup (otherwise dispatcher would treat
-// the wakeup as transient-retry, even though child agent already launched).
-func TestDispatchAgent_DBErrorIsLoggedNotPropagated(t *testing.T) {
+// TestDispatchAgent_DBErrorIsPropagated verifies that a generic DB error from
+// UpdateRunningNodeStatus is not hidden after the child launch succeeds.
+// The framework error must propagate so dispatcher can retry/fail visibly.
+func TestDispatchAgent_DBErrorIsPropagated(t *testing.T) {
 	before := DispatchAgentRunningCounters()
 
 	launcher := &stubAgentLauncher{threadID: "thr-3"}
-	agentExec := nodeexec.NewAgentExecutor(launcher, nil)
+	agentExec := newTestAgentExecutor(launcher, nil)
 	store := &stubRouterStore{
 		nodes: []taskdag.Node{{
 			DagKey:   "dag-1",
@@ -126,8 +125,8 @@ func TestDispatchAgent_DBErrorIsLoggedNotPropagated(t *testing.T) {
 	outcome, err := router.RouteByWakeup(context.Background(), &taskdag.Wakeup{
 		ID: 99, DagKey: "dag-1", NodeKey: "n1", RunID: routerTestRunID(7),
 	})
-	if err != nil {
-		t.Fatalf("RouteByWakeup err = %v, want nil (db err must not propagate)", err)
+	if err == nil || !strings.Contains(err.Error(), "ready->running write failed") {
+		t.Fatalf("RouteByWakeup err = %v, want ready->running write failure", err)
 	}
 	if outcome.Status != nodeexec.NodeStatusDone {
 		t.Fatalf("outcome.Status = %v, want done (executor outcome preserved)", outcome.Status)
@@ -138,13 +137,48 @@ func TestDispatchAgent_DBErrorIsLoggedNotPropagated(t *testing.T) {
 	}
 }
 
+func TestDispatchAgent_RetryWithRecordedSpawnDoesNotLaunchDuplicateChild(t *testing.T) {
+	launcher := &stubAgentLauncher{threadID: "duplicate-child"}
+	agentExec := newTestAgentExecutor(launcher, nil)
+	spawningThreadID := "thread-already-launched"
+	store := &stubRouterStore{
+		nodes: []taskdag.Node{{
+			DagKey:           "dag-1",
+			NodeKey:          "n1",
+			RunID:            routerTestRunID(7),
+			NodeType:         "agent",
+			Title:            "n1",
+			Config:           json.RawMessage(`{"exec":{"agent_key":"alpha"},"first_turn":"hi"}`),
+			Status:           "ready",
+			SpawningThreadID: &spawningThreadID,
+		}},
+	}
+	router := NewNodeExecutorRouter(store, agentExec, nil, nil, nil, nil)
+
+	outcome, err := router.RouteByWakeup(context.Background(), &taskdag.Wakeup{
+		ID: 77, DagKey: "dag-1", NodeKey: "n1", RunID: routerTestRunID(7),
+	})
+	if err != nil {
+		t.Fatalf("RouteByWakeup err = %v", err)
+	}
+	if outcome.Status != nodeexec.NodeStatusDone {
+		t.Fatalf("outcome.Status = %v, want done", outcome.Status)
+	}
+	if len(launcher.calls) != 0 {
+		t.Fatalf("launcher calls = %d, want 0 when spawning_thread_id is already recorded", len(launcher.calls))
+	}
+	if len(store.runningStatusCalls) != 1 {
+		t.Fatalf("runningStatusCalls = %d, want 1", len(store.runningStatusCalls))
+	}
+}
+
 // TestDispatchAgent_LaunchFailedDoesNotWriteRunning ensures that when the
 // executor itself surfaces a launch error (or NodeStatusFailed validation),
 // dispatchAgent does NOT attempt the ready→running write — letting dispatcher
 // pick up the failure cleanly (retry / mark failed).
 func TestDispatchAgent_LaunchFailedDoesNotWriteRunning(t *testing.T) {
 	launcher := &stubAgentLauncher{err: errors.New("launch refused: bad agent_key")}
-	agentExec := nodeexec.NewAgentExecutor(launcher, nil)
+	agentExec := newTestAgentExecutor(launcher, nil)
 	store := &stubRouterStore{
 		nodes: []taskdag.Node{{
 			DagKey:   "dag-1",
@@ -167,4 +201,41 @@ func TestDispatchAgent_LaunchFailedDoesNotWriteRunning(t *testing.T) {
 	if len(store.runningStatusCalls) != 0 {
 		t.Fatalf("runningStatusCalls = %d, want 0 (must NOT write running when launch fails)", len(store.runningStatusCalls))
 	}
+}
+
+func TestDispatchAgent_SpawnWritebackFailureDoesNotWriteRunning(t *testing.T) {
+	launcher := &stubAgentLauncher{threadID: "thread-launched-unrecorded"}
+	agentExec := newTestAgentExecutor(launcher, nodeexec.WithRecorder(failingNodeSpawnRecorder{}))
+	store := &stubRouterStore{
+		nodes: []taskdag.Node{{
+			DagKey:   "dag-1",
+			NodeKey:  "n1",
+			RunID:    routerTestRunID(7),
+			NodeType: "agent",
+			Title:    "n1",
+			Config:   json.RawMessage(`{"exec":{"agent_key":"alpha"},"first_turn":"hi"}`),
+			Status:   "ready",
+		}},
+		runningStatusErr: errors.New("must not be reached"),
+	}
+	router := NewNodeExecutorRouter(store, agentExec, nil, nil, nil, nil)
+
+	outcome, err := router.RouteByWakeup(context.Background(), &taskdag.Wakeup{
+		ID: 12, DagKey: "dag-1", NodeKey: "n1", RunID: routerTestRunID(7),
+	})
+	if err != nil {
+		t.Fatalf("RouteByWakeup err = %v", err)
+	}
+	if outcome.Status != nodeexec.NodeStatusFailed || outcome.FailureClass != nodeexec.FailureClassHard {
+		t.Fatalf("outcome = (%q,%q), want hard failed", outcome.Status, outcome.FailureClass)
+	}
+	if len(store.runningStatusCalls) != 0 {
+		t.Fatalf("runningStatusCalls = %d, want 0 after spawn writeback failure", len(store.runningStatusCalls))
+	}
+}
+
+type failingNodeSpawnRecorder struct{}
+
+func (failingNodeSpawnRecorder) RecordNodeSpawn(context.Context, string, string, int64, string) error {
+	return errors.New("record spawn failed")
 }

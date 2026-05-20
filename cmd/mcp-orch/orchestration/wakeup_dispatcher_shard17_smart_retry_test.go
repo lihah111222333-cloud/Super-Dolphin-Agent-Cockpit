@@ -44,7 +44,7 @@ func TestDispatcherSmartRetryCapabilityEscalatesModelAndRetries(t *testing.T) {
 	require.Empty(t, store.failNodeCalls)
 }
 
-func TestDispatcherSmartRetryValidationAppendsErrorAndRetries(t *testing.T) {
+func TestDispatcherSmartRetryValidationFailsFastWithoutPromptPatch(t *testing.T) {
 	now := time.Date(2026, 5, 14, 10, 15, 0, 0, time.UTC)
 	store := newAgentFailureClassStore(t, "validation-append", 1, now)
 	store.nodesReply[0].Config = json.RawMessage(`{
@@ -63,16 +63,12 @@ func TestDispatcherSmartRetryValidationAppendsErrorAndRetries(t *testing.T) {
 	if _, err := d.ProcessBatch(context.Background()); err != nil {
 		t.Fatalf("ProcessBatch err = %v", err)
 	}
-	require.Len(t, store.retryCalls, 1)
-	require.Len(t, store.patchConfigCalls, 1)
-	var cfg nodeexec.AgentNodeConfig
-	require.NoError(t, json.Unmarshal(store.patchConfigCalls[0].Config, &cfg))
-	require.Contains(t, cfg.FirstTurn, "produce valid json")
-	require.Contains(t, cfg.FirstTurn, "Previous validation error")
-	require.Contains(t, cfg.FirstTurn, "missing-upstream")
-	require.Contains(t, store.retryCalls[0].LastError, "strategy=append_error")
-	require.Empty(t, store.failCalls)
-	require.Empty(t, store.failNodeCalls)
+	require.Empty(t, store.retryCalls)
+	require.Empty(t, store.patchConfigCalls)
+	require.Len(t, store.failCalls, 1)
+	require.Len(t, store.failNodeCalls, 1)
+	require.Contains(t, store.failCalls[0].LastError, "missing-upstream")
+	require.True(t, store.failNodeCalls[0].FailFast)
 }
 
 func TestDispatcherSmartRetryReplanSpawnsPlannerAgent(t *testing.T) {
@@ -89,7 +85,7 @@ func TestDispatcherSmartRetryReplanSpawnsPlannerAgent(t *testing.T) {
 		"first_turn":"go"
 	}`)
 	routerLauncher := &stubAgentLauncher{err: errors.New("model lacks capability for this graph")}
-	agentExec := nodeexec.NewAgentExecutor(routerLauncher)
+	agentExec := newTestAgentExecutor(routerLauncher)
 	router := NewNodeExecutorRouter(store, agentExec, nil, nil, nil, nil)
 	plannerLauncher := &dispatcherStubLauncher{}
 	d, err := NewWakeupDispatcher(store, plannerLauncher, nil, WakeupDispatcherConfig{})

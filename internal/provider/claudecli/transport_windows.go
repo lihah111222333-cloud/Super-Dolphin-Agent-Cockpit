@@ -4,6 +4,7 @@ package claudecli
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -151,14 +152,14 @@ func terminateByPid(pid int) error {
 	h, err := windows.OpenProcess(windows.PROCESS_TERMINATE, false, uint32(pid))
 	if err != nil {
 		if isProcessGoneErr(err) {
-			return nil
+			return fmt.Errorf("claude process %d not found before terminate: %w", pid, err)
 		}
 		return err
 	}
 	defer windows.CloseHandle(h)
 	if err := windows.TerminateProcess(h, 1); err != nil {
 		if isProcessGoneErr(err) {
-			return nil
+			return fmt.Errorf("claude process %d vanished during terminate: %w", pid, err)
 		}
 		return err
 	}

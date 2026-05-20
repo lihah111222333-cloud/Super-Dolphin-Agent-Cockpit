@@ -2,7 +2,6 @@ package orchestration
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"log/slog"
 	"net"
@@ -15,7 +14,6 @@ import (
 	"github.com/creachadair/jrpc2"
 	"github.com/creachadair/jrpc2/channel"
 
-	shareddto "github.com/anthropic-ai/super-agent-v3/internal/dto/shared"
 	turndto "github.com/anthropic-ai/super-agent-v3/internal/dto/turn"
 	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/eventsurface"
@@ -32,8 +30,7 @@ type AgentLauncher interface {
 }
 
 type LaunchResult struct {
-	ThreadID      string
-	RemoteAgentID string
+	ThreadID, RemoteAgentID string
 }
 
 // localLauncher handles the local process mode while leaving runtime fields on agentRuntime.
@@ -300,16 +297,10 @@ type remoteLauncherEventSink interface {
 	handleRemoteTurnInterrupted(context.Context, turndto.TurnInterrupted)
 }
 
-type remoteLauncherEventSinkBinder interface {
-	bindRemoteEventSink(remoteLauncherEventSink)
-}
-
 func bindRemoteLauncherEventSink(launcher AgentLauncher, sink remoteLauncherEventSink) {
-	binder, ok := launcher.(remoteLauncherEventSinkBinder)
-	if !ok {
-		return
+	if binder, ok := launcher.(interface{ bindRemoteEventSink(remoteLauncherEventSink) }); ok {
+		binder.bindRemoteEventSink(sink)
 	}
-	binder.bindRemoteEventSink(sink)
 }
 
 func (r *remoteLauncher) bindRemoteEventSink(sink remoteLauncherEventSink) {
@@ -334,83 +325,34 @@ func (r *remoteLauncher) handleNotify(req *jrpc2.Request) {
 	if r == nil || req == nil {
 		return
 	}
-	switch strings.TrimSpace(req.Method()) {
-	case eventsurface.MethodTurnCompleted:
-		ev, err := decodeRemoteTurnCompleted(req)
-		if err != nil {
-			logRemoteLauncherNotifyDecodeError(req.Method(), err)
-			return
-		}
-		if sink := r.currentEventSink(); sink != nil {
-			sink.handleRemoteTurnCompleted(context.Background(), ev)
-		}
-	case eventsurface.MethodTurnInterrupted:
-		ev, err := decodeRemoteTurnInterrupted(req)
-		if err != nil {
-			logRemoteLauncherNotifyDecodeError(req.Method(), err)
-			return
-		}
-		if sink := r.currentEventSink(); sink != nil {
-			sink.handleRemoteTurnInterrupted(context.Background(), ev)
-		}
-	}
-}
-
-func decodeRemoteTurnCompleted(req *jrpc2.Request) (turndto.TurnCompleted, error) {
-	var ev turndto.TurnCompleted
-	if err := req.UnmarshalParams(&ev); err != nil {
-		return turndto.TurnCompleted{}, err
-	}
-	if strings.TrimSpace(ev.AgentID) == "" {
-		return turndto.TurnCompleted{}, errors.New("remote turn completed missing agent_id")
-	}
-	return ev, nil
-}
-
-func decodeRemoteTurnInterrupted(req *jrpc2.Request) (turndto.TurnInterrupted, error) {
-	var ev turndto.TurnInterrupted
-	if err := req.UnmarshalParams(&ev); err == nil && strings.TrimSpace(ev.AgentID) != "" {
-		return ev, nil
-	}
-	var payload map[string]json.RawMessage
-	if err := req.UnmarshalParams(&payload); err != nil {
-		return turndto.TurnInterrupted{}, err
-	}
-	ev.TurnHeader = shareddto.TurnHeader{
-		AgentHeader: shareddto.AgentHeader{
-			ThreadHeader: shareddto.ThreadHeader{
-				ThreadID: remoteEventString(payload, "thread_id", "threadId"),
-			},
-			AgentID: remoteEventString(payload, "agent_id", "agentId"),
-		},
-		TurnIDHeader: shareddto.TurnIDHeader{
-			TurnID: remoteEventString(payload, "turn_id", "turnId"),
-		},
-	}
-	ev.Reason = remoteEventString(payload, "reason")
-	if strings.TrimSpace(ev.AgentID) == "" {
-		return turndto.TurnInterrupted{}, errors.New("remote turn interrupted missing agent_id")
-	}
-	return ev, nil
-}
-
-func remoteEventString(payload map[string]json.RawMessage, keys ...string) string {
-	for _, key := range keys {
-		var value string
-		if err := json.Unmarshal(payload[key], &value); err == nil && strings.TrimSpace(value) != "" {
-			return strings.TrimSpace(value)
-		}
-	}
-	return ""
-}
-
-func logRemoteLauncherNotifyDecodeError(method string, err error) {
-	if err == nil {
+	sink := r.currentEventSink()
+	if sink == nil {
 		return
+	}
+	switch method := strings.TrimSpace(req.Method()); method {
+	case eventsurface.MethodTurnCompleted:
+		ev, err := eventsurface.DecodeRemoteTurnCompleted(req.UnmarshalParams)
+		if logRemoteLauncherNotifyDecodeError(method, err) {
+			return
+		}
+		sink.handleRemoteTurnCompleted(context.Background(), ev)
+	case eventsurface.MethodTurnInterrupted:
+		ev, err := eventsurface.DecodeRemoteTurnInterrupted(req.UnmarshalParams)
+		if logRemoteLauncherNotifyDecodeError(method, err) {
+			return
+		}
+		sink.handleRemoteTurnInterrupted(context.Background(), ev)
+	}
+}
+
+func logRemoteLauncherNotifyDecodeError(method string, err error) bool {
+	if err == nil {
+		return false
 	}
 	pkglogger.Warn("remoteLauncher: push notification decode failed",
 		"method", strings.TrimSpace(method),
 		"error", err)
+	return true
 }
 
 func (s *service) handleRemoteTurnCompleted(ctx context.Context, ev turndto.TurnCompleted) {

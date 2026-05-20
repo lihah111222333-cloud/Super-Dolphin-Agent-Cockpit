@@ -144,7 +144,7 @@ func findScopedFiles(ctx context.Context, raw string, roots []string, limit int)
 		target, err := matchAbsoluteTarget(value, roots, false)
 		if err != nil {
 			if errors.Is(err, fs.ErrNotExist) {
-				return []scopedPath{}, false, nil
+				return nil, false, err
 			}
 			return nil, false, err
 		}
@@ -184,7 +184,7 @@ func collectRootMatches(
 ) error {
 	return filepath.WalkDir(root, func(candidate string, entry fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
-			return nil
+			return walkErr
 		}
 		if err := ctx.Err(); err != nil {
 			return err
@@ -200,7 +200,7 @@ func collectRootMatches(
 		}
 		pathInfo, err := scopedCandidate(root, candidate, false)
 		if err != nil {
-			return nil
+			return err
 		}
 		if _, ok := seen[pathInfo.Abs]; ok {
 			return nil

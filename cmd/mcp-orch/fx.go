@@ -139,8 +139,12 @@ func handleScopedToolsCallWithCaller(
 	ctx = common.WithToolScope(ctx, scope)
 	result, err := call(ctx, req.Name, req.Arguments)
 	if err != nil {
-		return nil, err
+		result = common.NewToolErrorEnvelope(req.Name, err)
 	}
+	return wrapScopedToolResult(result)
+}
+
+func wrapScopedToolResult(result any) (any, error) {
 	text, err := json.Marshal(result)
 	if err != nil {
 		return nil, err
@@ -148,7 +152,18 @@ func handleScopedToolsCallWithCaller(
 	return map[string]any{
 		"content":           []map[string]string{{"type": "text", "text": string(text)}},
 		"structuredContent": json.RawMessage(text),
+		"isError":           structuredToolResultIsError(text),
 	}, nil
+}
+
+func structuredToolResultIsError(raw []byte) bool {
+	var probe struct {
+		Success *bool `json:"success"`
+	}
+	if err := json.Unmarshal(raw, &probe); err != nil {
+		return false
+	}
+	return probe.Success != nil && !*probe.Success
 }
 
 func buildOrchestrationOptions(remoteAddr string) []fx.Option {

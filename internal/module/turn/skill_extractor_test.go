@@ -111,11 +111,11 @@ func TestExtractor_PromptDoesNotLeakRawSecrets(t *testing.T) {
 	}
 }
 
-func TestExtractor_DreamExecutorMissingSkips(t *testing.T) {
+func TestExtractor_DreamExecutorMissingFailsFast(t *testing.T) {
 	e := NewDefaultExtractor(nil, struct{}{}, NewDefaultRedactor(), NewDefaultEvaluator(), nil)
 	extracted, err := e.Extract(context.Background(), eligibleTrajectory())
-	if err != nil {
-		t.Fatalf("nil dream should not error, got %v", err)
+	if !errors.Is(err, contract.ErrDreamExecutorNotConfigured) {
+		t.Fatalf("nil dream error = %v, want not configured", err)
 	}
 	if extracted != nil {
 		t.Fatal("expected nil ExtractedSkill when dream is missing")
@@ -129,8 +129,8 @@ func TestExtractor_DreamExecutorReturnsNotConfiguredErr(t *testing.T) {
 	dream := &fakeDreamExecutor{err: contract.ErrDreamExecutorNotConfigured}
 	e := NewDefaultExtractor(dream, struct{}{}, NewDefaultRedactor(), NewDefaultEvaluator(), nil)
 	extracted, err := e.Extract(context.Background(), eligibleTrajectory())
-	if err != nil {
-		t.Fatalf("not-configured sentinel should be skip, got %v", err)
+	if !errors.Is(err, contract.ErrDreamExecutorNotConfigured) {
+		t.Fatalf("not-configured sentinel error = %v, want not configured", err)
 	}
 	if extracted != nil {
 		t.Fatal("expected nil ExtractedSkill on not-configured sentinel")
@@ -239,5 +239,15 @@ func TestExtractorRunner_StopsOnContextDone(t *testing.T) {
 	err := runner.Run(ctx)
 	if !errors.Is(err, context.DeadlineExceeded) && !errors.Is(err, context.Canceled) {
 		t.Fatalf("expected ctx err, got %v", err)
+	}
+}
+
+func TestExtractorRunner_FailsFastWhenDefaultExtractorMissingDream(t *testing.T) {
+	t.Parallel()
+
+	runner := NewExtractorRunner(NewTrajectoryCollector(nil, nil), NewDefaultExtractor(nil, struct{}{}, nil, nil, nil), nil)
+	err := runner.Run(context.Background())
+	if !errors.Is(err, contract.ErrDreamExecutorNotConfigured) {
+		t.Fatalf("Run() error = %v, want missing dream executor", err)
 	}
 }

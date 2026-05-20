@@ -28,39 +28,20 @@ type OrchestrationFacade interface {
 }
 
 type threadState struct {
-	PublicThreadID     string
-	ProviderThreadID   string
-	OwnerThreadID      string
-	AgentID            string
-	ParentAgentID      string
-	AgentType          string
-	AgentMemoryScope   string
-	Provider           string
-	CWD                string
-	Model              string
-	Name               string
-	Prompt             string
-	RolloutPath        string
-	SessionUUID        string
-	ConfigOverride     json.RawMessage
-	CodexHome          string
-	CodexInstanceKey   string
-	CodexModelProvider string
-	CreatedAt          int64
-	AgentKey           string
-	PromptVersionID    *int64
-	PendingLaunch      bool
+	PublicThreadID, ProviderThreadID, OwnerThreadID, AgentID  string
+	ParentAgentID, AgentType, AgentMemoryScope, Provider      string
+	CWD, Model, Name, Prompt, RolloutPath, SessionUUID        string
+	CodexHome, CodexInstanceKey, CodexModelProvider, AgentKey string
+	ConfigOverride                                            json.RawMessage
+	CreatedAt                                                 int64
+	PromptVersionID                                           *int64
+	PendingLaunch                                             bool
 }
 
 type threadMeta struct {
-	Name             string
-	Model            string
-	CWD              string
-	ParentAgentID    string
-	AgentType        string
-	AgentMemoryScope string
-	ConfigOverride   json.RawMessage
-	CreatedAt        int64
+	Name, Model, CWD, ParentAgentID, AgentType, AgentMemoryScope string
+	ConfigOverride                                               json.RawMessage
+	CreatedAt                                                    int64
 }
 
 type sessionGenerationProvider interface {
@@ -162,9 +143,27 @@ func (s *service) Start(ctx context.Context, req StartRequest) (StartResult, err
 	// the UI can show the card immediately; the real spawn happens in
 	// SpawnIfNeeded once turn/start arrives with real user input.
 	if isPendingLaunchIntent(req) {
+		if err := s.preflightPendingLaunch(ctx, req, agentID); err != nil {
+			return StartResult{}, err
+		}
 		return s.startPendingThread(ctx, req, agentID)
 	}
 	return s.completeStart(ctx, req, agentID)
+}
+
+func (s *service) preflightPendingLaunch(ctx context.Context, req StartRequest, agentID string) error {
+	if req.PromptAssemblyRef == nil {
+		req.PromptAssemblyRef = s.promptAssembly
+	}
+	assemblyInput, cleanupScratchpad, err := s.buildStartAssemblyInput(req, agentID)
+	if err != nil {
+		return err
+	}
+	defer cleanupScratchpad()
+	if _, err := resolveStartPromptAssembly(ctx, req, assemblyInput); err != nil {
+		return err
+	}
+	return nil
 }
 
 func (s *service) Resume(ctx context.Context, req ResumeRequest) (ResumeResult, error) {
@@ -388,14 +387,7 @@ func (s *service) persistResumedSession(
 	providerThreadID = threadState.ProviderThreadID
 	if err := s.persistThreadState(ctx, threadState, true); err != nil {
 		s.logResumePersistFailure(req.AgentID, publicThreadID, providerThreadID, err)
-		// Only publish thread.Started as a fallback when the error is NOT a
-		// binding conflict. Binding conflicts mean the provider_thread_id in
-		// threadState belongs to another agent — publishing it would cause
-		// the frontend to see a provider_mismatch and reload history with
-		// the wrong UUID, resulting in empty conversation history.
-		if !isBindingConflictError(err) {
-			s.publishThreadStarted(threadState)
-		} else {
+		if isBindingConflictError(err) {
 			// Binding conflict means the codex session carries a UUID that
 			// belongs to another active agent. Kill the zombie session to
 			// prevent delta events from arriving on a half-alive channel,
@@ -408,6 +400,7 @@ func (s *service) persistResumedSession(
 			s.stopAgent(ctx, req.AgentID)
 			return ResumeResult{}, fmt.Errorf("resume aborted due to binding conflict: %w", err)
 		}
+		return ResumeResult{}, fmt.Errorf("persist resumed thread state: %w", err)
 	}
 	if promptResumeRestoreRequiresInvalidation(state.StoredCWD, req.CWD, s.cfg) {
 		if err := s.invalidatePromptAssembly(ctx, contract.InvalidateResumeRestore); err != nil {
@@ -431,7 +424,7 @@ func (s *service) logResumePersistFailure(agentID, threadID, providerThreadID st
 	s.logger.Warn("thread: resume persist failed",
 		"error", err,
 		"binding_conflict", conflict,
-		"event_emitted", !conflict,
+		"event_emitted", false,
 		"agent_id", agentID,
 		"thread_id", threadID,
 		"provider_thread_id", providerThreadID,
@@ -490,14 +483,14 @@ func (s *service) stopAgent(ctx context.Context, agentID string) {
 	util.LogIgnoredError(s.logger, "stop managed agent failed", s.stopManagedAgent(ctx, strings.TrimSpace(agentID), true))
 }
 
-func (s *service) rememberBinding(binding *bindingstore.Binding) {
-	if binding == nil {
-		return
+func (s *service) rememberBinding(binding *bindingstore.Binding) *bindingstore.Binding {
+	if binding != nil {
+		agentID := strings.TrimSpace(binding.AgentID)
+		for _, tid := range []string{binding.ProviderThreadID, binding.CodexThreadID, binding.AgentID} {
+			s.rememberThreadAgent(tid, agentID)
+		}
 	}
-	agentID := strings.TrimSpace(binding.AgentID)
-	for _, tid := range []string{binding.ProviderThreadID, binding.CodexThreadID, binding.AgentID} {
-		s.rememberThreadAgent(tid, agentID)
-	}
+	return binding
 }
 
 func (s *service) rememberThreadAgent(threadID, agentID string) {

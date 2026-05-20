@@ -3,8 +3,8 @@ package thread
 import (
 	"context"
 	"reflect"
+	"strings"
 	"testing"
-	"time"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
@@ -65,23 +65,114 @@ func TestServiceResumeInfersProviderAndRebuildsSession(t *testing.T) {
 	assertResumeRebuildSideEffects(t, sessions, threads, bindings, orch)
 }
 
-func TestResumeSessionDoesNotSynthesizeProcessCWDForDot(t *testing.T) {
+func TestServiceResumeRejectsRequestCWDThatDiffersFromStoredThreadCWD(t *testing.T) {
 	t.Parallel()
 
-	starter := &stubSessionStarter{onResume: func(_ context.Context, req dto.ResumeSessionRequest) (contract.Session, error) {
-		if req.CWD != "" {
-			t.Fatalf("ResumeSession CWD = %q, want empty for untrusted dot cwd", req.CWD)
-		}
-		return &stubSession{threadID: "provider-thread-1"}, nil
+	const providerThreadID = "11111111-2222-3333-4444-555555555557"
+	rolloutPath := writeExistingProviderHistoryFile(t)
+	threads := &stubThreadStore{thread: &threadstore.Thread{
+		ThreadID:  "thread-1",
+		AgentID:   "agent-1",
+		Prompt:    "resume",
+		Model:     "stored-model",
+		Cwd:       "/repo/stored",
+		CreatedAt: 123,
+		Status:    statusCreated,
 	}}
-	svc := &service{starter: starter}
-	if _, err := svc.resumeSession(context.Background(), ResumeRequest{
-		Provider: "codex",
-		AgentID:  "agent-dot",
-		ThreadID: "thread-dot",
-		CWD:      ".",
-	}); err != nil {
-		t.Fatalf("resumeSession() error = %v", err)
+	bindings := &stubBindingStore{binding: &bindingstore.Binding{
+		AgentID:          "agent-1",
+		Provider:         "codex",
+		ProviderThreadID: providerThreadID,
+		CodexThreadID:    "thread-1",
+		RolloutPath:      rolloutPath,
+		Cwd:              "/repo/stored",
+	}}
+	starter := &stubSessionStarter{
+		onResume: func(context.Context, dto.ResumeSessionRequest) (contract.Session, error) {
+			t.Fatal("ResumeSession should not be called when request cwd differs from stored cwd")
+			return nil, nil
+		},
+	}
+	svc := NewService(silentLogger(), threads, bindings, &stubSessionProvider{}, starter, nil, nil, nil).(*service)
+
+	_, err := svc.Resume(context.Background(), ResumeRequest{ThreadID: "thread-1", CWD: "/repo/active-window"})
+	if err == nil {
+		t.Fatal("Resume() error = nil, want cwd mismatch error")
+	}
+	if !strings.Contains(err.Error(), "cwd mismatch") || !strings.Contains(err.Error(), "/repo/stored") || !strings.Contains(err.Error(), "/repo/active-window") {
+		t.Fatalf("Resume() error = %v, want mismatch with both cwd values", err)
+	}
+}
+
+func TestServiceResumeRejectsMissingStoredCWD(t *testing.T) {
+	t.Parallel()
+
+	const providerThreadID = "11111111-2222-3333-4444-555555555558"
+	threads := &stubThreadStore{thread: &threadstore.Thread{
+		ThreadID:  "thread-1",
+		AgentID:   "agent-1",
+		Prompt:    "resume",
+		Model:     "stored-model",
+		CreatedAt: 123,
+		Status:    statusCreated,
+	}}
+	bindings := &stubBindingStore{binding: &bindingstore.Binding{
+		AgentID:          "agent-1",
+		Provider:         "codex",
+		ProviderThreadID: providerThreadID,
+		CodexThreadID:    "thread-1",
+		RolloutPath:      writeExistingProviderHistoryFile(t),
+	}}
+	starter := &stubSessionStarter{
+		onResume: func(context.Context, dto.ResumeSessionRequest) (contract.Session, error) {
+			t.Fatal("ResumeSession should not be called when no authoritative cwd exists")
+			return nil, nil
+		},
+	}
+	svc := NewService(silentLogger(), threads, bindings, &stubSessionProvider{}, starter, nil, nil, nil).(*service)
+
+	_, err := svc.Resume(context.Background(), ResumeRequest{ThreadID: "thread-1"})
+	if err == nil {
+		t.Fatal("Resume() error = nil, want missing cwd error")
+	}
+	if !strings.Contains(err.Error(), "cwd is required") {
+		t.Fatalf("Resume() error = %v, want cwd required", err)
+	}
+}
+
+func TestServiceResumeRejectsRequestCWDWhenStoredCWDIsMissing(t *testing.T) {
+	t.Parallel()
+
+	const providerThreadID = "11111111-2222-3333-4444-555555555559"
+	threads := &stubThreadStore{thread: &threadstore.Thread{
+		ThreadID:  "thread-1",
+		AgentID:   "agent-1",
+		Prompt:    "resume",
+		Model:     "stored-model",
+		CreatedAt: 123,
+		Status:    statusCreated,
+	}}
+	bindings := &stubBindingStore{binding: &bindingstore.Binding{
+		AgentID:          "agent-1",
+		Provider:         "codex",
+		ProviderThreadID: providerThreadID,
+		CodexThreadID:    "thread-1",
+		RolloutPath:      writeExistingProviderHistoryFile(t),
+	}}
+	starter := &stubSessionStarter{
+		onResume: func(context.Context, dto.ResumeSessionRequest) (contract.Session, error) {
+			t.Fatal("ResumeSession should not use request cwd when stored cwd is missing")
+			return nil, nil
+		},
+	}
+	svc := NewService(silentLogger(), threads, bindings, &stubSessionProvider{}, starter, nil, nil, nil).(*service)
+
+	_, err := svc.Resume(context.Background(), ResumeRequest{ThreadID: "thread-1", CWD: "/repo/current-window"})
+	if err == nil {
+		t.Fatal("Resume() error = nil, want missing authoritative cwd error")
+	}
+	if !strings.Contains(err.Error(), "cwd is required") {
+		t.Fatalf("Resume() error = %v, want cwd required", err)
 	}
 }
 
@@ -500,116 +591,4 @@ func assertClaudeOverrideConfig(t *testing.T, config dto.ThreadConfigPatch, mode
 	if config.Effort == nil || *config.Effort != effort {
 		t.Fatalf("ConfigOverride.Effort = %#v, want %q", config.Effort, effort)
 	}
-}
-
-func TestServiceResumeClaudeWithoutStoredOverrideDoesNotInventConfigOverride(t *testing.T) {
-	t.Parallel()
-
-	const providerThreadID = "11111111-2222-3333-4444-555555555555"
-	rolloutPath := writeExistingProviderHistoryFile(t)
-	threads := &stubThreadStore{thread: &threadstore.Thread{
-		ThreadID:      "thread-1",
-		AgentID:       "agent-1",
-		Prompt:        "resume",
-		Model:         "sonnet",
-		Cwd:           "/repo",
-		CreatedAt:     123,
-		Status:        statusCreated,
-		LastEventType: "",
-	}}
-	bindings := &stubBindingStore{binding: &bindingstore.Binding{
-		AgentID:          "agent-1",
-		Provider:         "claude",
-		ProviderThreadID: providerThreadID,
-		CodexThreadID:    "thread-1",
-		RolloutPath:      rolloutPath,
-		Cwd:              "/repo",
-	}}
-	sessions := &stubSessionProvider{}
-	starter := &stubSessionStarter{
-		onResume: func(_ context.Context, req dto.ResumeSessionRequest) (contract.Session, error) {
-			if req.Model != "sonnet" {
-				t.Fatalf("Model = %q, want sonnet", req.Model)
-			}
-			if req.Effort != "" {
-				t.Fatalf("Effort = %q, want empty", req.Effort)
-			}
-			if req.ConfigOverride.Model != nil || req.ConfigOverride.Effort != nil {
-				t.Fatalf("ConfigOverride = %#v, want empty", req.ConfigOverride)
-			}
-			session := &stubSession{threadID: providerThreadID, rolloutPath: rolloutPath}
-			sessions.session = session
-			return session, nil
-		},
-	}
-
-	orch := &stubThreadOrchestration{}
-	svc := NewService(silentLogger(), threads, bindings, sessions, starter, nil, orch, nil).(*service)
-	if _, err := svc.Resume(context.Background(), ResumeRequest{ThreadID: "thread-1"}); err != nil {
-		t.Fatalf("Resume() error = %v", err)
-	}
-	if !reflect.DeepEqual(orch.launchReq.Env, []string{"AGENT_PROVIDER=claude", "AGENT_MODEL=sonnet"}) {
-		t.Fatalf("launch env = %#v", orch.launchReq.Env)
-	}
-}
-
-func TestBackgroundResumeIfNeededRehydratesClaudeOverrideConfig(t *testing.T) {
-	t.Parallel()
-
-	model := "claude-sonnet-4-20250514[1m]"
-	effort := "max"
-	const providerThreadID = "11111111-2222-3333-4444-555555555555"
-	rolloutPath := writeExistingProviderHistoryFile(t)
-	threads := &stubThreadStore{thread: &threadstore.Thread{
-		ThreadID:       "thread-1",
-		AgentID:        "agent-1",
-		Prompt:         "resume",
-		Model:          "sonnet",
-		Cwd:            "/repo",
-		CreatedAt:      123,
-		Status:         statusCreated,
-		ConfigOverride: mustStoredThreadConfigRaw(t, storedThreadConfig{Model: model, Effort: effort}),
-	}}
-	bindings := &stubBindingStore{binding: &bindingstore.Binding{
-		AgentID:          "agent-1",
-		Provider:         "claude",
-		ProviderThreadID: providerThreadID,
-		CodexThreadID:    "thread-1",
-		RolloutPath:      rolloutPath,
-		Cwd:              "/repo",
-	}}
-	sessions := &stubSessionProvider{}
-	resumeReqCh := make(chan dto.ResumeSessionRequest, 1)
-	starter := &stubSessionStarter{
-		onResume: func(_ context.Context, req dto.ResumeSessionRequest) (contract.Session, error) {
-			select {
-			case resumeReqCh <- req:
-			default:
-			}
-			session := &stubSession{threadID: providerThreadID, rolloutPath: rolloutPath}
-			sessions.session = session
-			return session, nil
-		},
-	}
-
-	svc := NewService(silentLogger(), threads, bindings, sessions, starter, nil, nil, nil).(*service)
-	svc.backgroundResumeIfNeeded(context.Background(), "thread-1")
-
-	select {
-	case req := <-resumeReqCh:
-		assertBackgroundClaudeOverrideResumeRequest(t, req, providerThreadID, model, effort)
-	case <-time.After(time.Second):
-		t.Fatal("backgroundResumeIfNeeded() did not trigger resume")
-	}
-}
-
-func assertBackgroundClaudeOverrideResumeRequest(t *testing.T, req dto.ResumeSessionRequest, providerThreadID, model, effort string) {
-	t.Helper()
-	if req.ProviderThreadID != providerThreadID {
-		t.Fatalf("ProviderThreadID = %q, want %s", req.ProviderThreadID, providerThreadID)
-	}
-	if req.Model != model || req.Effort != effort {
-		t.Fatalf("ResumeSession request = %#v, want model/effort restored", req)
-	}
-	assertClaudeOverrideConfig(t, req.ConfigOverride, model, effort)
 }

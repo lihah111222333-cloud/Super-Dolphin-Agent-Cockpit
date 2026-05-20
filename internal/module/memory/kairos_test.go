@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -44,6 +45,7 @@ func TestKairosLoadMemoryPromptUsesDailyLogProtocol(t *testing.T) {
 func TestKairosGetAutoMemDailyLogPath(t *testing.T) {
 	baseRoot := t.TempDir()
 	projectRoot := t.TempDir()
+	initGitRepoForMemoryTest(t, projectRoot)
 	when := time.Date(2026, 4, 15, 9, 30, 0, 0, time.FixedZone("UTC+8", 8*60*60))
 	root, err := GetAutoMemPath(baseRoot, projectRoot)
 	if err != nil {
@@ -56,6 +58,14 @@ func TestKairosGetAutoMemDailyLogPath(t *testing.T) {
 	want := filepath.Join(root, "logs", "2026", "04", "2026-04-15.md")
 	if got != want {
 		t.Fatalf("GetAutoMemDailyLogPath() = %q, want %q", got, want)
+	}
+}
+
+func initGitRepoForMemoryTest(t *testing.T, root string) {
+	t.Helper()
+	cmd := exec.Command("git", "init", root)
+	if output, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("git init %s: %v\n%s", root, err, string(output))
 	}
 }
 

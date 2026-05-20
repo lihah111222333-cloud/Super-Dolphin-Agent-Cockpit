@@ -48,7 +48,7 @@ func TestSkillResolutionApplyRPCUsesRequestCWDForProjectTarget(t *testing.T) {
 func TestSkillResolutionApplyRPCRejectsPreviewHashMismatch(t *testing.T) {
 	project, server, canonicalDir, _, svc := setupResolutionPreviewDriftFixtureWithService(t)
 	svc.auditStore = &capturingSkillAuditStore{}
-	beforeHash := skillDirContentHash(canonicalDir)
+	beforeHash := mustSkillDirContentHash(t, canonicalDir)
 	item := findResolutionItem(t, dispatchResolutionList(t, server, project).Items, "mirror_drift", "drift", skillScopeProject)
 	preview := dispatchResolutionPreview(t, server, project, item.ConflictID, ResolutionSyncBackCanonical)
 	proof := preview.Items[0]
@@ -58,7 +58,7 @@ func TestSkillResolutionApplyRPCRejectsPreviewHashMismatch(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "preview hash mismatch") {
 		t.Fatalf("resolution_apply hash mismatch error = %v, want mismatch", err)
 	}
-	if afterHash := skillDirContentHash(canonicalDir); afterHash != beforeHash {
+	if afterHash := mustSkillDirContentHash(t, canonicalDir); afterHash != beforeHash {
 		t.Fatalf("canonical mutated after rejected apply: before=%s after=%s", beforeHash, afterHash)
 	}
 }

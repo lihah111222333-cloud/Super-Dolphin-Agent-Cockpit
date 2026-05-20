@@ -4,7 +4,10 @@
 // use them without introducing circular imports.
 package configutil
 
-import "strings"
+import (
+	"fmt"
+	"strings"
+)
 
 // ConfigString returns the first non-empty string value found under any of
 // the given keys. Values are sanitized via SanitizeConfigString.
@@ -17,6 +20,43 @@ func ConfigString(cfg map[string]any, keys ...string) string {
 		}
 	}
 	return ""
+}
+
+// StrictString returns the trimmed string for the first present key and errors
+// when that key exists with a non-string value.
+func StrictString(cfg map[string]any, label string, keys ...string) (string, error) {
+	value, key, ok := StrictValue(cfg, keys...)
+	if !ok {
+		return "", nil
+	}
+	text, ok := value.(string)
+	if !ok {
+		return "", fmt.Errorf("%s %q must be a string", label, key)
+	}
+	return strings.TrimSpace(text), nil
+}
+
+// StrictBool returns the bool for the first present key and errors when that
+// key exists with a non-bool value.
+func StrictBool(cfg map[string]any, label string, keys ...string) (bool, error) {
+	value, key, ok := StrictValue(cfg, keys...)
+	if !ok {
+		return false, nil
+	}
+	flag, ok := value.(bool)
+	if !ok {
+		return false, fmt.Errorf("%s %q must be a bool", label, key)
+	}
+	return flag, nil
+}
+
+func StrictValue(cfg map[string]any, keys ...string) (any, string, bool) {
+	for _, key := range keys {
+		if value, ok := cfg[key]; ok {
+			return value, key, true
+		}
+	}
+	return nil, "", false
 }
 
 // SanitizeConfigString trims whitespace and rejects common JS/JSON

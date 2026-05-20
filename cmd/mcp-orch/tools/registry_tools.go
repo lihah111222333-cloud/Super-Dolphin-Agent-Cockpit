@@ -3,6 +3,7 @@ package tools
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 
 	sharedfilestore "github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/sharedfile"
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/tools/modelregistry"
@@ -52,51 +53,37 @@ func WithModelRegistry(registry modelregistry.Registry) ListModelsOption {
 func HandleListModels(opts ...ListModelsOption) ToolHandler {
 	registry := listModelsRegistry(opts)
 	return func(ctx context.Context, raw json.RawMessage) (any, error) {
+		if registry == nil {
+			return nil, fmt.Errorf("model registry is not configured")
+		}
 		var input ListModelsInput
 		if err := shared.DecodeInput(raw, &input); err != nil {
 			return nil, err
 		}
 		if input.Provider == "" {
-			return ListModelsResult{Providers: registry.ListProviders()}, nil
+			providers, err := registry.ListProviders()
+			if err != nil {
+				return nil, err
+			}
+			return ListModelsResult{Providers: providers}, nil
 		}
-		provider, ok := registry.LookupProvider(input.Provider)
+		provider, ok, err := registry.LookupProvider(input.Provider)
+		if err != nil {
+			return nil, err
+		}
 		if !ok {
-			return ListModelsResult{}, nil
+			return nil, fmt.Errorf("model provider %q not found", input.Provider)
 		}
 		return ListModelsResult{Providers: []ProviderModels{provider}}, nil
 	}
 }
 
 func listModelsRegistry(opts []ListModelsOption) modelregistry.Registry {
-	cfg := listModelsConfig{registry: fallbackModelRegistry()}
+	cfg := listModelsConfig{}
 	for _, opt := range opts {
 		opt(&cfg)
 	}
-	if cfg.registry == nil {
-		return fallbackModelRegistry()
-	}
 	return cfg.registry
-}
-
-func fallbackModelRegistry() modelregistry.Registry {
-	return modelregistry.NewStaticRegistry(FallbackProviderModels())
-}
-
-func FallbackProviderModels() []ProviderModels {
-	return fallbackProviderModels()
-}
-
-func fallbackProviderModels() []ProviderModels {
-	return []ProviderModels{
-		{
-			Provider: "claude",
-			Models:   []string{"opus", "opus[1m]", "sonnet", "sonnet[1m]", "haiku"},
-		},
-		{
-			Provider: "codex",
-			Models:   []string{"gpt-5.5", "gpt-5.4", "gpt-5.4-mini", "gpt-5.3-codex", "gpt-5.2", "codex-auto-review"},
-		},
-	}
 }
 
 // =====================================================

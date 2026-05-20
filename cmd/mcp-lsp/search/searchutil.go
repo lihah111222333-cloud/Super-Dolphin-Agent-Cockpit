@@ -289,9 +289,8 @@ func runSGPatternSearch(ctx context.Context, query, language, absPath, root, glo
 	cmd.Dir = root
 	output, err := cmd.Output()
 	if err != nil {
-		var exitErr *exec.ExitError
-		if errors.As(err, &exitErr) && exitErr.ExitCode() == 1 && len(bytes.TrimSpace(exitErr.Stderr)) == 0 {
-			return nil, nil
+		if isSGNoMatchExitCodeOneWithoutStderr(err) {
+			return []SearchMatch{}, nil
 		}
 		return nil, formatSGCommandError("sg run", err)
 	}
@@ -344,9 +343,8 @@ func runSGKindSearch(ctx context.Context, kind, language, absPath, root, glob st
 	cmd.Dir = root
 	output, err := cmd.Output()
 	if err != nil {
-		var exitErr *exec.ExitError
-		if errors.As(err, &exitErr) && exitErr.ExitCode() == 1 && len(bytes.TrimSpace(exitErr.Stderr)) == 0 {
-			return nil, nil
+		if isSGNoMatchExitCodeOneWithoutStderr(err) {
+			return []SearchMatch{}, nil
 		}
 		return nil, formatSGCommandError("sg scan", err)
 	}
@@ -458,6 +456,13 @@ func formatSGCommandError(prefix string, err error) error {
 		}
 	}
 	return fmt.Errorf("%s: %w", prefix, err)
+}
+
+func isSGNoMatchExitCodeOneWithoutStderr(err error) bool {
+	var exitErr *exec.ExitError
+	return errors.As(err, &exitErr) &&
+		exitErr.ExitCode() == 1 &&
+		len(bytes.TrimSpace(exitErr.Stderr)) == 0
 }
 
 func normalizeASTLanguage(raw, target string, isDir bool, glob string) (string, error) {

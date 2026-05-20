@@ -1,17 +1,11 @@
 package skill
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
 	"errors"
 	"fmt"
-	"io/fs"
-	"os"
-	"path/filepath"
-	"sort"
 	"strings"
 
-	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
+	"github.com/anthropic-ai/super-agent-v3/internal/module/skill/skillhash"
 )
 
 // ErrSkillSystemReviewRequired is returned before any system-scope skill write
@@ -50,33 +44,6 @@ func missingSystemReviewFields(slug, contentHash, repoFingerprint, approvedBy, r
 	return missing
 }
 
-func skillContentHash(content string) string {
-	sum := sha256.Sum256([]byte(content))
-	return hex.EncodeToString(sum[:])
-}
+func skillContentHash(content string) string { return skillhash.Content(content) }
 
-func skillDirContentHash(root string) string {
-	var parts []string
-	if err := filepath.WalkDir(root, func(path string, entry fs.DirEntry, err error) error {
-		if err != nil || entry.IsDir() {
-			return nil
-		}
-		if entry.Type()&os.ModeSymlink != 0 {
-			return nil
-		}
-		data, readErr := os.ReadFile(path)
-		if readErr != nil {
-			return nil
-		}
-		rel, relErr := filepath.Rel(root, path)
-		if relErr != nil {
-			rel = path
-		}
-		parts = append(parts, filepath.ToSlash(rel)+"\x00"+skillContentHash(string(data)))
-		return nil
-	}); err != nil {
-		pkglogger.Warn("skill: dir content hash walk failed", "root", root, "error", err)
-	}
-	sort.Strings(parts)
-	return skillContentHash(strings.Join(parts, "\x00"))
-}
+func skillDirContentHash(root string) (string, error) { return skillhash.Dir(root) }

@@ -244,8 +244,14 @@ func (a projectLanguageAdapter) ResolveRoot(_ context.Context, scope LSPToolScop
 		return ResolvedLanguageScope{}, err
 	} else if markerRoot != "" {
 		root = markerRoot
-	} else if nested := findProjectRootWithin(root, a.rootMarkers, a.ignoredDirNames); nested != "" {
-		root = nested
+	} else {
+		nested, walkErr := findProjectRootWithin(root, a.rootMarkers, a.ignoredDirNames)
+		if walkErr != nil {
+			return ResolvedLanguageScope{}, walkErr
+		}
+		if nested != "" {
+			root = nested
+		}
 	}
 	normalized, err := normalizeRegistryWorkspaceRoot(root)
 	if err != nil {
@@ -362,10 +368,12 @@ func findProjectRoot(path string, markers []string) (string, error) {
 	return "", nil
 }
 
-func findProjectRootWithin(root string, markers []string, ignored map[string]struct{}) string {
+func findProjectRootWithin(root string, markers []string, ignored map[string]struct{}) (string, error) {
 	finder := &projectRootWithinFinder{markers: markerSet(markers), ignored: ignored}
-	_ = filepath.WalkDir(root, finder.walk)
-	return finder.result
+	if err := filepath.WalkDir(root, finder.walk); err != nil {
+		return "", err
+	}
+	return finder.result, nil
 }
 
 type projectRootWithinFinder struct {
@@ -375,7 +383,10 @@ type projectRootWithinFinder struct {
 }
 
 func (f *projectRootWithinFinder) walk(path string, d os.DirEntry, walkErr error) error {
-	if walkErr != nil || d == nil {
+	if walkErr != nil {
+		return walkErr
+	}
+	if d == nil {
 		return nil
 	}
 	if d.IsDir() {
@@ -398,10 +409,12 @@ func projectWalkDirDecision(name string, ignored map[string]struct{}) error {
 	return nil
 }
 
-func findBootstrapFileWithin(root string, extensions []string, ignored map[string]struct{}) string {
+func findBootstrapFileWithin(root string, extensions []string, ignored map[string]struct{}) (string, error) {
 	finder := &bootstrapFileWithinFinder{extensions: extensionSet(extensions), ignored: ignored}
-	_ = filepath.WalkDir(root, finder.walk)
-	return finder.result
+	if err := filepath.WalkDir(root, finder.walk); err != nil {
+		return "", err
+	}
+	return finder.result, nil
 }
 
 type bootstrapFileWithinFinder struct {
@@ -411,7 +424,10 @@ type bootstrapFileWithinFinder struct {
 }
 
 func (f *bootstrapFileWithinFinder) walk(path string, d os.DirEntry, walkErr error) error {
-	if walkErr != nil || d == nil {
+	if walkErr != nil {
+		return walkErr
+	}
+	if d == nil {
 		return nil
 	}
 	if d.IsDir() {

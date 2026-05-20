@@ -147,6 +147,10 @@ func retryableValidationOutcome(outcome nodeexec.NodeOutcome) bool {
 	return strings.HasPrefix(outcome.ErrorSummary, "launch agent:")
 }
 
+func nonRetryableValidationFailure(outcome nodeexec.NodeOutcome) bool {
+	return outcome.FailureClass == nodeexec.FailureClassValidation && !retryableValidationOutcome(outcome)
+}
+
 type dispatchFailure struct {
 	lastErr   string
 	launchErr error
@@ -236,6 +240,13 @@ func (d *WakeupDispatcher) handleFailedRouterOutcome(ctx context.Context, w *tas
 	synthErr := fmt.Errorf("%s: %s", outcome.FailureClass, outcome.ErrorSummary)
 	lastErr := truncateWakeupError(synthErr.Error())
 	failure := dispatchFailureFrom(lastErr, synthErr, outcome)
+	if nonRetryableValidationFailure(outcome) {
+		if !d.markPermanentFail(ctx, w, fence, lastErr, synthErr) {
+			return
+		}
+		d.recordPermanentRouterFailure(ctx, w, lastErr, outcome)
+		return
+	}
 	if d.trySmartDAGRetry(ctx, w, fence, failure) {
 		return
 	}

@@ -25,17 +25,20 @@ func (s *service) AssembleStart(ctx context.Context, in StartInput) (StartAssemb
 	if err := ctx.Err(); err != nil {
 		return StartAssembly{}, err
 	}
+	buildCtx := buildStartCtx(in)
+	suppressedTools := s.aggregateSuppressedTools(ctx, strings.TrimSpace(in.CWD), strings.TrimSpace(in.Provider))
+	buildCtx.SuppressedTools = suppressedTools
+	if _, err := s.resolveClaudeMdSources(ctx, buildCtx); err != nil {
+		return StartAssembly{}, err
+	}
 	if simpleStartEnabled(in) {
 		return s.simpleStartAssembly(ctx, in), nil
 	}
 
-	buildCtx := buildStartCtx(in)
-	suppressedTools := s.aggregateSuppressedTools(ctx, strings.TrimSpace(in.CWD), strings.TrimSpace(in.Provider))
-	buildCtx.SuppressedTools = suppressedTools
 	resolved, err := s.resolveSections(ctx, s.startSections(), SectionContext{BuildCtx: buildCtx, Start: &in})
 	if err != nil {
 		s.logBuildFallback("start", err)
-		return s.fallbackStartAssembly(ctx, in), nil
+		return StartAssembly{}, err
 	}
 	// Merge DB-sourced prompt_template sections (if any). Static blocks flow
 	// into CachedPrefix, dynamic into UncachedTail. Blocks whose EnableWhen
@@ -117,16 +120,23 @@ func (s *service) AssembleTurn(ctx context.Context, in TurnInput) (TurnAssembly,
 	resolved, err := s.resolveSections(ctx, s.dynamicSections(), sectionCtx)
 	if err != nil {
 		s.logBuildFallback("turn", err)
-		return TurnAssembly{}, nil
+		return TurnAssembly{}, err
 	}
 	buildCtx := sectionCtx.BuildCtx
-	sources := s.resolveClaudeMdSources(ctx, buildCtx)
+	sources, err := s.resolveClaudeMdSources(ctx, buildCtx)
+	if err != nil {
+		return TurnAssembly{}, err
+	}
 	base := s.buildBaseUserContext(ctx, sources)
 	extras := CollectRuntimeUserContext(in, resolved)
 	merged := MergeRuntimeUserContext(base, extras)
 	attachments := s.resolveDynamicTurnAttachments(ctx, sectionCtx)
 	if provider, ok := s.claudeMdProvider.(contract.TurnAttachmentProvider); ok {
-		attachments = append(attachments, provider.ResolveTurnAttachments(ctx, buildCtx, in, sources)...)
+		extraAttachments, err := provider.ResolveTurnAttachments(ctx, buildCtx, in, sources)
+		if err != nil {
+			return TurnAssembly{}, err
+		}
+		attachments = append(attachments, extraAttachments...)
 	}
 	return TurnAssembly{
 		UserContext:      map[string]string(cloneUserContextPayload(merged)),

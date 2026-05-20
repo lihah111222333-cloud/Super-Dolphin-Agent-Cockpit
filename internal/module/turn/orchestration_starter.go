@@ -74,7 +74,10 @@ func (s orchestrationTurnStarter) StartTurn(ctx context.Context, submission cont
 		return "", sessionLookupError(err)
 	}
 	threadID := queuedThreadID(session, submission)
-	threadRuntimeConfig := readThreadRuntimeConfig(ctx, s.runtimeReader, threadID)
+	threadRuntimeConfig, err := readThreadRuntimeConfig(ctx, s.runtimeReader, threadID)
+	if err != nil {
+		return "", err
+	}
 	req, err := s.turns.PrepareTurn(ctx, session, prepareQueuedTurnInput(session, submission, threadRuntimeConfig))
 	if err != nil {
 		return "", err

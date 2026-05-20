@@ -130,17 +130,21 @@ var prepareTaskHandoffStartPinCases = []prepareTaskHandoffStartPinCase{
 		},
 	},
 	{
-		name: "shell upsert error is ignored for non-continue tasks",
+		name: "shell upsert error fails fast for non-continue tasks",
 		setup: func(t *testing.T) (*service, *StartRequest) {
 			t.Helper()
 			svc := &service{sharedFiles: &stubSharedFileStore{upsertErr: errors.New("upsert failed")}}
-			req := &StartRequest{Name: "Task Demo", Config: map[string]any{taskConfigKeyID: "task-demo"}}
+			req := &StartRequest{Name: "Task Demo", Config: map[string]any{
+				taskConfigKeyID:          "task-demo",
+				taskConfigKeyTitle:       "Task Demo",
+				taskConfigKeyHandoffFile: "handoff/tasks/task-demo.md",
+			}}
 			return svc, req
 		},
 		assert: func(t *testing.T, svc *service, req *StartRequest, err error) {
 			t.Helper()
-			if err != nil {
-				t.Fatalf("prepareTaskHandoffStart() error = %v", err)
+			if err == nil || !strings.Contains(err.Error(), "upsert failed") {
+				t.Fatalf("prepareTaskHandoffStart() error = %v, want upsert failed", err)
 			}
 			if got := firstConfigString(req.Config, taskConfigKeyHandoffFile, taskConfigKeyHandoffFileSnake); got != "handoff/tasks/task-demo.md" {
 				t.Fatalf("handoffFile = %q, want handoff/tasks/task-demo.md", got)
@@ -154,7 +158,7 @@ var prepareTaskHandoffStartPinCases = []prepareTaskHandoffStartPinCase{
 		},
 	},
 	{
-		name: "continue block load error is ignored after shell refresh",
+		name: "continue block load error fails fast after shell refresh",
 		setup: func(t *testing.T) (*service, *StartRequest) {
 			t.Helper()
 			svc := &service{sharedFiles: &stubSharedFileStore{getErr: errors.New("read failed")}}
@@ -171,14 +175,14 @@ var prepareTaskHandoffStartPinCases = []prepareTaskHandoffStartPinCase{
 		},
 		assert: func(t *testing.T, svc *service, req *StartRequest, err error) {
 			t.Helper()
-			if err != nil {
-				t.Fatalf("prepareTaskHandoffStart() error = %v", err)
+			if err == nil || !strings.Contains(err.Error(), "read failed") {
+				t.Fatalf("prepareTaskHandoffStart() error = %v, want read failed", err)
 			}
 			if req.BaseInstructions != "base" {
 				t.Fatalf("BaseInstructions = %q, want base when block load fails", req.BaseInstructions)
 			}
-			if got := len(svc.sharedFiles.(*stubSharedFileStore).upserts); got != 1 {
-				t.Fatalf("handoff shell upserts = %d, want 1", got)
+			if got := len(svc.sharedFiles.(*stubSharedFileStore).upserts); got != 0 {
+				t.Fatalf("handoff shell upserts = %d, want 0 after shell read error", got)
 			}
 		},
 	},
@@ -253,7 +257,10 @@ var resolveTaskHandoffStartPinCases = []resolveTaskHandoffStartPinCase{
 		name: "owner thread inherits task metadata and auto continues",
 		setup: func(t *testing.T) (*service, StartRequest) {
 			t.Helper()
-			thread := taskHandoffTestThread(t, "thread-source", "", "Source prompt", map[string]any{taskConfigKeyID: "task-inherited"})
+			thread := taskHandoffTestThread(t, "thread-source", "", "Source prompt", map[string]any{
+				taskConfigKeyID:          "task-inherited",
+				taskConfigKeyHandoffFile: "handoff/tasks/task-inherited.md",
+			})
 			return &service{threadStore: &stubThreadStore{thread: thread}}, StartRequest{OwnerThreadID: "thread-source"}
 		},
 		assert: func(t *testing.T, meta taskHandoffMeta, sourceThreadID string) {
@@ -306,7 +313,11 @@ var resolveTaskHandoffStartPinCases = []resolveTaskHandoffStartPinCase{
 		name: "explicit continue survives without source thread",
 		setup: func(t *testing.T) (*service, StartRequest) {
 			t.Helper()
-			req := StartRequest{Name: "Demo", Config: map[string]any{taskConfigKeyID: "task-demo", taskConfigKeyContinue: true}}
+			req := StartRequest{Name: "Demo", Config: map[string]any{
+				taskConfigKeyID:          "task-demo",
+				taskConfigKeyHandoffFile: "handoff/tasks/task-demo.md",
+				taskConfigKeyContinue:    true,
+			}}
 			return &service{}, req
 		},
 		assert: func(t *testing.T, meta taskHandoffMeta, sourceThreadID string) {
@@ -361,14 +372,18 @@ var resolveTaskHandoffStartPinCases = []resolveTaskHandoffStartPinCase{
 		},
 	},
 	{
-		name: "explicit task id without metadata falls back to Automated Task title",
+		name: "explicit task id with metadata is preserved",
 		setup: func(t *testing.T) (*service, StartRequest) {
 			t.Helper()
-			return &service{}, StartRequest{Config: map[string]any{taskConfigKeyID: "task-demo"}}
+			return &service{}, StartRequest{Config: map[string]any{
+				taskConfigKeyID:          "task-demo",
+				taskConfigKeyTitle:       "Demo Task",
+				taskConfigKeyHandoffFile: "handoff/tasks/task-demo.md",
+			}}
 		},
 		assert: func(t *testing.T, meta taskHandoffMeta, sourceThreadID string) {
 			t.Helper()
-			want := taskHandoffMeta{TaskID: "task-demo", TaskTitle: "Automated Task", HandoffFile: "handoff/tasks/task-demo.md"}
+			want := taskHandoffMeta{TaskID: "task-demo", TaskTitle: "Demo Task", HandoffFile: "handoff/tasks/task-demo.md"}
 			if meta != want || sourceThreadID != "" {
 				t.Fatalf("resolveTaskHandoffStart() = (%#v, %q), want (%#v, %q)", meta, sourceThreadID, want, "")
 			}
@@ -382,9 +397,34 @@ func TestResolveTaskHandoffStart_Pin(t *testing.T) {
 	for _, tt := range resolveTaskHandoffStartPinCases {
 		t.Run(tt.name, func(t *testing.T) {
 			svc, req := tt.setup(t)
-			meta, sourceThreadID := svc.resolveTaskHandoffStart(context.Background(), &req)
+			meta, sourceThreadID, err := svc.resolveTaskHandoffStart(context.Background(), &req)
+			if err != nil {
+				t.Fatalf("resolveTaskHandoffStart() error = %v", err)
+			}
 			tt.assert(t, meta, sourceThreadID)
 		})
+	}
+}
+
+func TestResolveTaskHandoffStartRejectsExplicitTaskWithoutMetadata(t *testing.T) {
+	t.Parallel()
+
+	svc := &service{}
+	req := StartRequest{Config: map[string]any{taskConfigKeyID: "task-demo"}}
+	_, _, err := svc.resolveTaskHandoffStart(context.Background(), &req)
+	if err == nil || !strings.Contains(err.Error(), "task handoff title is required") {
+		t.Fatalf("resolveTaskHandoffStart() error = %v, want title required", err)
+	}
+}
+
+func TestResolveTaskHandoffStartRejectsMalformedConfig(t *testing.T) {
+	t.Parallel()
+
+	svc := &service{}
+	req := StartRequest{Config: map[string]any{taskConfigKeyID: 123}}
+	_, _, err := svc.resolveTaskHandoffStart(context.Background(), &req)
+	if err == nil || !strings.Contains(err.Error(), "must be a string") {
+		t.Fatalf("resolveTaskHandoffStart() error = %v, want string type error", err)
 	}
 }
 
@@ -419,18 +459,19 @@ type resolveRootTaskIDCase struct {
 	ownerThreadID string
 	setup         func(t *testing.T) *service
 	want          string
+	wantErr       bool
 }
 
 var resolveRootTaskIDCases = []resolveRootTaskIDCase{
-	{name: "empty owner returns empty", ownerThreadID: "", setup: func(t *testing.T) *service {
+	{name: "empty owner fails fast", ownerThreadID: "", setup: func(t *testing.T) *service {
 		t.Helper()
 		return &service{threadStore: &stubThreadStore{threadByID: map[string]*threadstore.Thread{}}}
-	}, want: ""},
-	{name: "nil threadStore returns empty", ownerThreadID: "thread-A", setup: func(t *testing.T) *service { t.Helper(); return &service{} }, want: ""},
-	{name: "store ErrNotFound returns empty", ownerThreadID: "thread-missing", setup: func(t *testing.T) *service {
+	}, wantErr: true},
+	{name: "nil threadStore fails fast", ownerThreadID: "thread-A", setup: func(t *testing.T) *service { t.Helper(); return &service{} }, wantErr: true},
+	{name: "store ErrNotFound fails fast", ownerThreadID: "thread-missing", setup: func(t *testing.T) *service {
 		t.Helper()
 		return &service{threadStore: &stubThreadStore{threadByID: map[string]*threadstore.Thread{}}}
-	}, want: ""},
+	}, wantErr: true},
 	{name: "single layer (owner is root) returns its taskId", ownerThreadID: "thread-A", setup: func(t *testing.T) *service {
 		t.Helper()
 		threads := map[string]*threadstore.Thread{"thread-A": taskHandoffTestThread(t, "thread-A", "", "", map[string]any{taskConfigKeyID: "task-root"})}
@@ -447,12 +488,12 @@ var resolveRootTaskIDCases = []resolveRootTaskIDCase{
 	{name: "depth limit 10 cuts off cyclic chain", ownerThreadID: "thread-1", setup: func(t *testing.T) *service {
 		t.Helper()
 		return &service{threadStore: &stubThreadStore{threadByID: cyclicTaskHandoffThreads(t)}}
-	}, want: ""},
-	{name: "root with no taskId returns empty", ownerThreadID: "thread-A", setup: func(t *testing.T) *service {
+	}, wantErr: true},
+	{name: "root with no taskId fails fast", ownerThreadID: "thread-A", setup: func(t *testing.T) *service {
 		t.Helper()
 		threads := map[string]*threadstore.Thread{"thread-A": taskHandoffTestThread(t, "thread-A", "", "", map[string]any{})}
 		return &service{threadStore: &stubThreadStore{threadByID: threads}}
-	}, want: ""},
+	}, wantErr: true},
 }
 
 func TestResolveRootTaskId(t *testing.T) {
@@ -460,7 +501,16 @@ func TestResolveRootTaskId(t *testing.T) {
 
 	for _, tt := range resolveRootTaskIDCases {
 		t.Run(tt.name, func(t *testing.T) {
-			got := tt.setup(t).resolveRootTaskId(context.Background(), tt.ownerThreadID)
+			got, err := tt.setup(t).resolveRootTaskId(context.Background(), tt.ownerThreadID)
+			if tt.wantErr {
+				if err == nil {
+					t.Fatalf("resolveRootTaskId() error = nil, want error")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("resolveRootTaskId() error = %v", err)
+			}
 			if got != tt.want {
 				t.Fatalf("resolveRootTaskId() = %q, want %q", got, tt.want)
 			}
@@ -505,7 +555,7 @@ func runRootTaskWithoutOwnerThreadID(t *testing.T) {
 
 func runRootTaskSingleOwnerLayer(t *testing.T) {
 	t.Parallel()
-	rootThread := taskHandoffTestThread(t, "thread-root", "", "", map[string]any{taskConfigKeyID: "task-root", taskConfigKeyTitle: "Root Task"})
+	rootThread := taskHandoffTestThread(t, "thread-root", "", "", map[string]any{taskConfigKeyID: "task-root", taskConfigKeyTitle: "Root Task", taskConfigKeyHandoffFile: defaultTaskHandoffPath("task-root")})
 	svc := &service{threadStore: &stubThreadStore{thread: rootThread}, sharedFiles: &stubSharedFileStore{}, bindingStore: &stubBindingStore{}}
 	req := StartRequest{OwnerThreadID: "thread-root", AgentType: "reviewer", Name: "Reviewer"}
 	assertPreparedRootTaskID(t, svc, &req, "task-root")
@@ -514,8 +564,8 @@ func runRootTaskSingleOwnerLayer(t *testing.T) {
 func runRootTaskTwoOwnerLayers(t *testing.T) {
 	t.Parallel()
 	threadByID := map[string]*threadstore.Thread{
-		"thread-mid":  taskHandoffTestThread(t, "thread-mid", "thread-root", "", map[string]any{taskConfigKeyID: "task-mid"}),
-		"thread-root": taskHandoffTestThread(t, "thread-root", "", "", map[string]any{taskConfigKeyID: "task-root"}),
+		"thread-mid":  taskHandoffTestThread(t, "thread-mid", "thread-root", "", map[string]any{taskConfigKeyID: "task-mid", taskConfigKeyTitle: "Mid Task", taskConfigKeyHandoffFile: defaultTaskHandoffPath("task-mid")}),
+		"thread-root": taskHandoffTestThread(t, "thread-root", "", "", map[string]any{taskConfigKeyID: "task-root", taskConfigKeyTitle: "Root Task", taskConfigKeyHandoffFile: defaultTaskHandoffPath("task-root")}),
 	}
 	svc := &service{threadStore: &stubThreadStore{threadByID: threadByID}, sharedFiles: &stubSharedFileStore{}, bindingStore: &stubBindingStore{}}
 	req := StartRequest{OwnerThreadID: "thread-mid", AgentType: "deep", Name: "Deep Worker"}
@@ -524,7 +574,7 @@ func runRootTaskTwoOwnerLayers(t *testing.T) {
 
 func runExplicitRootTaskIDWins(t *testing.T) {
 	t.Parallel()
-	rootThread := taskHandoffTestThread(t, "thread-root", "", "", map[string]any{taskConfigKeyID: "task-root"})
+	rootThread := taskHandoffTestThread(t, "thread-root", "", "", map[string]any{taskConfigKeyID: "task-root", taskConfigKeyTitle: "Root Task", taskConfigKeyHandoffFile: defaultTaskHandoffPath("task-root")})
 	svc := &service{threadStore: &stubThreadStore{thread: rootThread}, sharedFiles: &stubSharedFileStore{}, bindingStore: &stubBindingStore{}}
 	req := StartRequest{OwnerThreadID: "thread-root", AgentType: "reviewer", Name: "Reviewer", Config: map[string]any{taskConfigKeyRoot: "task-explicit-override"}}
 	assertPreparedRootTaskID(t, svc, &req, "task-explicit-override")

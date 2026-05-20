@@ -93,11 +93,12 @@ type HookHandler interface {
 // updated_at / depends_on / status 等）不在此层；dispatcher 在派发前
 // 把 taskdag.Node 映射成 Node。
 type Node struct {
-	DagKey   string
-	NodeKey  string
-	NodeType string // agent | automation | hybrid
-	Title    string
-	Config   json.RawMessage // 由 ParseNodeConfig (S5.2) 解码成 typed struct
+	DagKey           string
+	NodeKey          string
+	NodeType         string // agent | automation | hybrid
+	Title            string
+	Config           json.RawMessage // 由 ParseNodeConfig (S5.2) 解码成 typed struct
+	SpawningThreadID string          // recorded child thread id for replaying post-launch writeback
 }
 
 // RunContext 是 Execute 调用时的运行时上下文。

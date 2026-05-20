@@ -66,7 +66,7 @@ func (l *recordingAgentLauncher) LaunchAgent(_ context.Context, req contract.Lau
 func TestNodeExecutorRouter_PrefetchPrevResults_FromNodes_NonEmpty(t *testing.T) {
 	t.Parallel()
 	launcher := &recordingAgentLauncher{threadID: "thr-1"}
-	agentExec := nodeexec.NewAgentExecutor(launcher, nil)
+	agentExec := newTestAgentExecutor(launcher, nil)
 	store := &stubRouterStore{
 		nodes: []taskdag.Node{
 			{
@@ -108,7 +108,7 @@ func TestNodeExecutorRouter_PrefetchPrevResults_StaysInsideRun(t *testing.T) {
 	runA := int64(1001)
 	runB := int64(1002)
 	launcher := &recordingAgentLauncher{threadID: "thr-run-b"}
-	agentExec := nodeexec.NewAgentExecutor(launcher, nil)
+	agentExec := newTestAgentExecutor(launcher, nil)
 	store := &stubRouterStore{
 		nodes: []taskdag.Node{
 			{
@@ -162,7 +162,7 @@ func TestNodeExecutorRouter_PrefetchPrevResults_StaysInsideRun(t *testing.T) {
 func TestNodeExecutorRouter_PrefetchPrevResults_FiltersNonDoneUpstream(t *testing.T) {
 	t.Parallel()
 	launcher := &recordingAgentLauncher{threadID: "thr-2"}
-	agentExec := nodeexec.NewAgentExecutor(launcher, nil)
+	agentExec := newTestAgentExecutor(launcher, nil)
 	store := &stubRouterStore{
 		nodes: []taskdag.Node{
 			{
@@ -182,10 +182,16 @@ func TestNodeExecutorRouter_PrefetchPrevResults_FiltersNonDoneUpstream(t *testin
 		DagKey: "dag-1", NodeKey: "downstream", RunID: routerTestRunID(7),
 	})
 	if err != nil {
-		t.Fatalf("RouteByWakeup err = %v", err)
+		t.Fatalf("RouteByWakeup err = %v, want node-level validation outcome", err)
 	}
 	if outcome.Status != nodeexec.NodeStatusFailed || outcome.FailureClass != nodeexec.FailureClassValidation {
 		t.Fatalf("outcome = %+v, want failed+validation", outcome)
+	}
+	if !strings.Contains(outcome.ErrorSummary, "upstream") {
+		t.Fatalf("outcome.ErrorSummary = %q, want upstream validation detail", outcome.ErrorSummary)
+	}
+	if len(launcher.calls) != 0 {
+		t.Fatalf("launcher calls = %d, want 0 after validation failure", len(launcher.calls))
 	}
 }
 
@@ -195,7 +201,7 @@ func TestNodeExecutorRouter_PrefetchPrevResults_FiltersNonDoneUpstream(t *testin
 func TestNodeExecutorRouter_PrefetchPrevResults_EmptyResultPlaceholder(t *testing.T) {
 	t.Parallel()
 	launcher := &recordingAgentLauncher{threadID: "thr-3"}
-	agentExec := nodeexec.NewAgentExecutor(launcher, nil)
+	agentExec := newTestAgentExecutor(launcher, nil)
 	store := &stubRouterStore{
 		nodes: []taskdag.Node{
 			{
@@ -231,7 +237,7 @@ func TestNodeExecutorRouter_PrefetchPrevResults_EmptyResultPlaceholder(t *testin
 func TestNodeExecutorRouter_SharedFileReader_Injected(t *testing.T) {
 	t.Parallel()
 	launcher := &recordingAgentLauncher{threadID: "thr-4"}
-	agentExec := nodeexec.NewAgentExecutor(launcher, nil)
+	agentExec := newTestAgentExecutor(launcher, nil)
 	reader := &stubRouterPrevReader{contents: map[string]string{"plan.md": "plan content"}}
 	store := &stubRouterStore{
 		nodes: []taskdag.Node{{
@@ -340,7 +346,7 @@ func TestNodeExecutorRouter_AutomationLifecycleHooks(t *testing.T) {
 func TestNodeExecutorRouter_EmptyConfig_PortsStillNonNil(t *testing.T) {
 	t.Parallel()
 	launcher := &recordingAgentLauncher{threadID: "thr-empty"}
-	agentExec := nodeexec.NewAgentExecutor(launcher, nil)
+	agentExec := newTestAgentExecutor(launcher, nil)
 	reader := &stubRouterPrevReader{}
 	writer := &stubRouterPrevWriter{}
 	store := &stubRouterStore{
@@ -377,7 +383,7 @@ func TestNodeExecutorRouter_EmptyConfig_PortsStillNonNil(t *testing.T) {
 func TestNodeExecutorRouter_ListNodesErrorPropagatesAsFrameworkErr(t *testing.T) {
 	t.Parallel()
 	launcher := &recordingAgentLauncher{threadID: "thr-err"}
-	agentExec := nodeexec.NewAgentExecutor(launcher, nil)
+	agentExec := newTestAgentExecutor(launcher, nil)
 	store := &stubRouterFlipFailStore{
 		stubRouterStore: stubRouterStore{
 			nodes: []taskdag.Node{{
@@ -408,10 +414,46 @@ func router_helper_New(store taskdag.Store, agentExec *nodeexec.AgentExecutor) *
 // AutomationExecutor done 路径下的 CompleteNodeAndScheduleDownstream 走过去。
 type stubRouterAutoStore struct {
 	stubRouterStore
+	completeErr error
 }
 
 func (s *stubRouterAutoStore) CompleteNodeAndScheduleDownstream(_ context.Context, _ taskdag.CompleteNodeInput) (*taskdag.CompleteNodeWithDownstreamResult, error) {
+	if s.completeErr != nil {
+		return nil, s.completeErr
+	}
 	return &taskdag.CompleteNodeWithDownstreamResult{}, nil
+}
+
+func TestNodeExecutorRouter_AutomationCompleteErrorIsFrameworkError(t *testing.T) {
+	t.Parallel()
+	autoExec := nodeexec.NewAutomationExecutor(
+		stubAutomationCmdGetter{},
+		stubAutomationCmdRunner{stdout: "build ok"},
+	)
+	store := &stubRouterAutoStore{
+		stubRouterStore: stubRouterStore{
+			nodes: []taskdag.Node{{
+				DagKey: "dag-1", NodeKey: "auto1", RunID: routerTestRunID(7), NodeType: "automation",
+				Status: string(nodeexec.NodeStatusReady),
+				Config: json.RawMessage(`{"exec":{"command_ref":"build"},"outputs":{"to_node_result":true}}`),
+			}},
+		},
+		completeErr: errors.New("store complete failed"),
+	}
+	router := NewNodeExecutorRouter(store, nil, autoExec, nil, nil, nil)
+
+	outcome, err := router.RouteByWakeup(context.Background(), &taskdag.Wakeup{
+		DagKey: "dag-1", NodeKey: "auto1", RunID: routerTestRunID(7),
+	})
+	if err == nil {
+		t.Fatal("RouteByWakeup err = nil, want automation complete framework error")
+	}
+	if !strings.Contains(err.Error(), "automation complete propagate failed") {
+		t.Fatalf("err = %v, want automation complete wrapper", err)
+	}
+	if outcome.Status != nodeexec.NodeStatusDone {
+		t.Fatalf("outcome.Status = %v, want done result alongside framework error", outcome.Status)
+	}
 }
 
 // stubRouterFlipFailStore 让 ListNodes 第 N 次后开始报错；用于触发 prefetch 路径

@@ -97,7 +97,7 @@ func TestServiceResumeDoesNotUseAgentIDAsClaudeProviderThreadID(t *testing.T) {
 	}}
 
 	svc := NewService(silentLogger(), threads, bindings, sessions, starter, nil, &stubThreadOrchestration{}, nil).(*service)
-	if _, err := svc.Resume(context.Background(), ResumeRequest{ThreadID: "agent-1"}); err != nil {
+	if _, err := svc.Resume(context.Background(), ResumeRequest{ThreadID: "thread-public"}); err != nil {
 		t.Fatalf("Resume() error = %v", err)
 	}
 	if resumeReq.ProviderThreadID != "" {

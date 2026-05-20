@@ -216,7 +216,7 @@ func newStartedRecoverySession(t *testing.T, serverURL string, manager *ServerMa
 	// P22 P1c: production code starts the runtime via driver.StartSession /
 	// ResumeSession. Tests that call newSession directly must mimic that.
 	s.setThreadID("thread-1")
-	s.setRuntimeConfigValue("cwd", "/repo")
+	s.setRuntimeConfigValue("cwd", t.TempDir())
 	s.runtime.Start()
 	return s
 }

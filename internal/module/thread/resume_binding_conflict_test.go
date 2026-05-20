@@ -106,11 +106,11 @@ func TestResumeBindingConflictSuppressesThreadStartedEvent(t *testing.T) {
 	}
 }
 
-// TestResumeNonConflictPersistFailureStillEmitsThreadStarted verifies that
-// when persistThreadState fails for a NON-conflict reason (e.g. transient
-// DB error), thread.Started IS still emitted as a fallback — preserving
-// the pre-fix behavior for non-binding-conflict failures.
-func TestResumeNonConflictPersistFailureStillEmitsThreadStarted(t *testing.T) {
+// TestResumeNonConflictPersistFailureFailsFast verifies that when
+// persistThreadState fails for a non-conflict reason (e.g. transient DB
+// error), Resume returns the error and does not emit a synthetic
+// thread.Started event.
+func TestResumeNonConflictPersistFailureFailsFast(t *testing.T) {
 	t.Parallel()
 
 	const providerThreadID = "11111111-2222-3333-4444-555555555572"
@@ -151,17 +151,11 @@ func TestResumeNonConflictPersistFailureStillEmitsThreadStarted(t *testing.T) {
 		startedCount.Add(1)
 	}
 
-	result, err := svc.Resume(context.Background(), ResumeRequest{ThreadID: "thread-1"})
-	if err != nil {
-		t.Fatalf("Resume() error = %v", err)
+	if _, err := svc.Resume(context.Background(), ResumeRequest{ThreadID: "thread-1"}); !errors.Is(err, errTransientDB) {
+		t.Fatalf("Resume() error = %v, want %v", err, errTransientDB)
 	}
-	if result.ThreadID != "thread-1" {
-		t.Fatalf("ThreadID = %q, want thread-1", result.ThreadID)
-	}
-
-	// For non-conflict errors, thread.Started SHOULD be emitted as fallback.
-	if count := startedCount.Load(); count != 1 {
-		t.Fatalf("thread.Started emitted %d times; want 1 (non-conflict should still emit)", count)
+	if count := startedCount.Load(); count != 0 {
+		t.Fatalf("thread.Started emitted %d times; want 0", count)
 	}
 }
 

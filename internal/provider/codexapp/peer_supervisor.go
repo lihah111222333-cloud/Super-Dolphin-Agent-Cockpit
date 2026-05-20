@@ -696,10 +696,7 @@ func resolvePeerBinDirs() ([]string, error) {
 	}
 	exe, err := os.Executable()
 	if err != nil {
-		if len(dirs) == 0 {
-			return nil, err
-		}
-		return dirs, nil
+		return nil, err
 	}
 	dirs = append(dirs, filepath.Dir(exe))
 	return dirs, nil

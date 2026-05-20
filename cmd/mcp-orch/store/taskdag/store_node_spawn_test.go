@@ -120,7 +120,7 @@ func assertSingleNodeSpawnEvent(t *testing.T, raw json.RawMessage, wantNode, wan
 	assertNodeSpawnEvent(t, arr[0], wantNode, wantPrev, wantThread)
 }
 
-func TestRecordNodeSpawn_RetryWithoutRunningRun_SoftMiss(t *testing.T) {
+func TestRecordNodeSpawn_RetryWithoutRunningRunFailsFast(t *testing.T) {
 	store, db, now := newSpawnRecorderTestStore()
 	const runID int64 = 101
 	seedRuntimeNode(t, db, now, runID, "n1", nil, "running", "agent-a")
@@ -134,25 +134,13 @@ func TestRecordNodeSpawn_RetryWithoutRunningRun_SoftMiss(t *testing.T) {
 		t.Fatalf("first spawn error = %v", err)
 	}
 
-	// 重试：覆盖应成功，但 append events 命中 0 行；store 把这种 case 视为
-	// 软失败，不返回 error。
-	res, err := store.RecordNodeSpawn(context.Background(), RecordNodeSpawnInput{
+	// 重试：覆盖会命中缺失 running run；严格 Fail-Fast 下必须返回错误，
+	// 不能把 event append 失败伪装成成功。
+	_, err := store.RecordNodeSpawn(context.Background(), RecordNodeSpawnInput{
 		DagKey: "dag-1", NodeKey: "n1", RunID: runID, ThreadID: "thread-2",
 	})
-	if err != nil {
-		t.Fatalf("retry spawn (no running run) error = %v, want nil", err)
-	}
-	if got := stringValue(res.Node.SpawningThreadID); got != "thread-2" {
-		t.Fatalf("Node.SpawningThreadID = %q, want thread-2", got)
-	}
-	if res.PreviousThreadID != "thread-1" {
-		t.Fatalf("PreviousThreadID = %q, want thread-1", res.PreviousThreadID)
-	}
-	if res.AppendedEvent {
-		t.Fatalf("AppendedEvent = true, want false when no running run exists")
-	}
-	if res.RunKey != "" {
-		t.Fatalf("RunKey = %q, want empty when append silently missed", res.RunKey)
+	if err == nil || !strings.Contains(err.Error(), "running run not found") {
+		t.Fatalf("retry spawn (no running run) error = %v, want running run failure", err)
 	}
 }
 

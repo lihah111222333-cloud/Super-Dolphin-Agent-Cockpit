@@ -2,6 +2,7 @@ package multilsp
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -31,5 +32,25 @@ func TestBootstrapWaitReturnsErrorWhenInflightEntryIsDeleted(t *testing.T) {
 	err := store.waitFor(context.Background(), "/repo", "file:///repo/a.go", decision.wait)
 	if err == nil || !strings.Contains(err.Error(), "deleted bootstrap") {
 		t.Fatalf("waitFor() error = %v, want deleted bootstrap error", err)
+	}
+}
+
+func TestBootstrapWaitBroadcastsSameFailureToMultipleWaiters(t *testing.T) {
+	store := newBootstrapStateStore()
+	first := store.prepare("/repo", "file:///repo/a.go", "fp1")
+	second := store.prepare("/repo", "file:///repo/a.go", "fp1")
+	if second.action != bootstrapActionWait {
+		t.Fatalf("second action = %v, want wait", second.action)
+	}
+
+	store.fail("/repo", "file:///repo/a.go", errors.New("bootstrap failed"))
+	for name, wait := range map[string]*bootstrapWait{
+		"first":  first.wait,
+		"second": second.wait,
+	} {
+		err := store.waitFor(context.Background(), "/repo", "file:///repo/a.go", wait)
+		if err == nil || !strings.Contains(err.Error(), "bootstrap failed") {
+			t.Fatalf("%s waitFor() error = %v, want shared bootstrap failure", name, err)
+		}
 	}
 }

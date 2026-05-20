@@ -189,7 +189,7 @@ func applyPendingMigrations(ctx context.Context, pool *pgxpool.Pool, dir string)
 	files, err := os.ReadDir(dir)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return nil
+			return fmt.Errorf("migration directory not found %q: %w", dir, err)
 		}
 		return err
 	}

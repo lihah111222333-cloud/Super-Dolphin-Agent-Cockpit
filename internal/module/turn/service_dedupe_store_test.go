@@ -199,6 +199,23 @@ func TestServiceLookupByDedupeKeyNoStoreStaysTrackerOnly(t *testing.T) {
 	}
 }
 
+func TestServiceLookupByDedupeKeyStoreMissIsNeverSubmitted(t *testing.T) {
+	t.Parallel()
+	store := newFakeDedupeStore()
+	svc := serviceWithStore(store)
+
+	status, ok, err := svc.LookupByDedupeKey(context.Background(), "dk-missing")
+	if err != nil {
+		t.Fatalf("LookupByDedupeKey() err = %v, want nil for ErrNotFound domain miss", err)
+	}
+	if ok {
+		t.Fatalf("LookupByDedupeKey() ok = true, want false for never-submitted key")
+	}
+	if status != (TurnStatus{}) {
+		t.Fatalf("LookupByDedupeKey() status = %#v, want zero status", status)
+	}
+}
+
 func TestServiceLookupByDedupeKeyStoreErrorSurfaces(t *testing.T) {
 	t.Parallel()
 	store := newFakeDedupeStore()

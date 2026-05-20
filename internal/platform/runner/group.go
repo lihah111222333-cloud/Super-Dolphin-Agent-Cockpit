@@ -9,7 +9,7 @@ import (
 	"runtime/debug"
 	"syscall"
 
-	"github.com/oklog/run"
+	"github.com/anthropic-ai/super-agent-v3/internal/util/safego"
 )
 
 type Runner interface {
@@ -37,60 +37,69 @@ func RunGroup(ctx context.Context, runners []Runner, options GroupOptions) error
 	rootCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
-	var group run.Group
-	addContextActor(&group, rootCtx, cancel)
-	if options.EnableSignals {
-		addSignalActor(&group, rootCtx, cancel)
+	resultCh := make(chan error, len(runners))
+	for _, runner := range runners {
+		current := runner
+		safego.Go(rootCtx, nil, "runner.group.runner", func(context.Context) {
+			resultCh <- runOne(rootCtx, current)
+		})
 	}
-	addRunnerActors(&group, rootCtx, cancel, runners)
-
-	return group.Run()
+	var signalCh <-chan error
+	if options.EnableSignals {
+		signalCh = startSignalWatcher(rootCtx)
+	}
+	ctxDone := rootCtx.Done()
+	var firstErr error
+	for remaining := len(runners); remaining > 0; {
+		select {
+		case err := <-resultCh:
+			remaining--
+			firstErr = preferRunGroupError(firstErr, err)
+			cancel()
+		case err := <-signalCh:
+			firstErr = preferRunGroupError(firstErr, err)
+			signalCh = nil
+			cancel()
+		case <-ctxDone:
+			firstErr = preferRunGroupError(firstErr, context.Canceled)
+			ctxDone = nil
+			cancel()
+		}
+	}
+	return firstErr
 }
 
-func addActor(group *run.Group, execute func() error, interrupt func(error)) {
-	group.Add(func() (err error) {
-		defer func() {
-			if r := recover(); r != nil {
-				err = fmt.Errorf("runner actor panic: %v\n%s", r, debug.Stack())
-			}
-		}()
-		return execute()
-	}, interrupt)
+func runOne(ctx context.Context, runner Runner) (err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			err = fmt.Errorf("runner actor panic: %v\n%s", r, debug.Stack())
+		}
+	}()
+	return runner.Run(ctx)
 }
 
-func addContextActor(group *run.Group, rootCtx context.Context, cancel context.CancelFunc) {
-	addActor(group, func() error {
-		<-rootCtx.Done()
-		return nil
-	}, func(error) {
-		cancel()
-	})
-}
-
-func addSignalActor(group *run.Group, rootCtx context.Context, cancel context.CancelFunc) {
-	addActor(group, func() error {
+func startSignalWatcher(rootCtx context.Context) <-chan error {
+	errCh := make(chan error, 1)
+	safego.Go(rootCtx, nil, "runner.group.signal", func(ctx context.Context) {
 		signals := make(chan os.Signal, 1)
 		signal.Notify(signals, syscall.SIGINT, syscall.SIGTERM)
 		defer signal.Stop(signals)
-
 		select {
-		case <-rootCtx.Done():
-			return nil
+		case <-ctx.Done():
+			return
 		case sig := <-signals:
-			return fmt.Errorf("received signal: %s", sig)
+			errCh <- fmt.Errorf("received signal: %s", sig)
 		}
-	}, func(error) {
-		cancel()
 	})
+	return errCh
 }
 
-func addRunnerActors(group *run.Group, rootCtx context.Context, cancel context.CancelFunc, runners []Runner) {
-	for _, runner := range runners {
-		current := runner
-		addActor(group, func() error {
-			return current.Run(rootCtx)
-		}, func(error) {
-			cancel()
-		})
+func preferRunGroupError(current, next error) error {
+	if next == nil {
+		return current
 	}
+	if current == nil || errors.Is(current, context.Canceled) {
+		return next
+	}
+	return current
 }

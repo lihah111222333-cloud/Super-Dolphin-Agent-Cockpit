@@ -174,7 +174,11 @@ func (m *manager) bootstrapLanguageClient(ctx context.Context, client Client, ro
 		return fmt.Errorf("resolve bootstrap policy for %s: %w", languageID, err)
 	}
 	policy := adapter.BootstrapPolicy(scope)
-	target := findBootstrapFileWithin(root, policy.FirstSourceExtensions, policy.IgnoredDirNames)
+	target, err := findBootstrapFileWithin(root, policy.FirstSourceExtensions, policy.IgnoredDirNames)
+	if err != nil {
+		m.logBootstrapPolicy("bootstrap policy walk failed", "lang", languageID, "root", root, "err", err)
+		return err
+	}
 	if target == "" {
 		return nil
 	}

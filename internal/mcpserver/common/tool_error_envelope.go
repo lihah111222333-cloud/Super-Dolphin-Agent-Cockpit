@@ -177,6 +177,13 @@ var toolErrorClassifiers = []toolErrorClassifier{
 		},
 	},
 	{
+		code: "dependency_missing",
+		hint: staticToolHint("Install ast-grep or ensure sg is available in PATH."),
+		match: func(_ error, message string, _ string) bool {
+			return strings.Contains(message, "sg not found in path")
+		},
+	},
+	{
 		code: "file_not_found",
 		hint: staticToolHint("Verify file_path is under the trusted workspace and exists on disk."),
 		match: func(err error, message string, _ string) bool {

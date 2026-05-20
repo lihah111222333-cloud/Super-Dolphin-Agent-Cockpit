@@ -217,18 +217,9 @@ func TestCodexMemoryReadCallToolsDisabledReturnsStableEnvelopeWithoutPeerFallbac
 	}}
 	h := &Handler{registry: registry, hostTools: host}
 
-	got, err := h.routeToolCall(context.Background(), ToolCallRequest{Name: ToolNameMemoryRead, Arguments: mustMarshal(t, map[string]any{"name": "daily"}), AgentID: "agent-1"})
+	got, err := h.routeToolCall(context.Background(), ToolCallRequest{Name: ToolNameMemoryRead, Arguments: mustMarshal(t, map[string]any{"name": "daily"}), AgentID: "agent-1", CWD: t.TempDir()})
 
-	if err != nil {
-		t.Fatalf("routeToolCall() error = %v", err)
-	}
-	if got == nil || got.Success {
-		t.Fatalf("result = %+v, want host tool error", got)
-	}
-	envelope := decodeToolResultEnvelope(t, got)
-	if envelope["tool"] != ToolNameMemoryRead || envelope["code"] != "tools_disabled" {
-		t.Fatalf("envelope = %#v, want tools_disabled", envelope)
-	}
+	assertHostRouteFailFast(t, got, err)
 	if reader.calls != 0 || len(registry.gotKinds) != 0 {
 		t.Fatalf("reader.calls=%d registry kinds=%#v, want no reader or peer", reader.calls, registry.gotKinds)
 	}
@@ -249,16 +240,7 @@ func TestCodexMemoryReadCallFeatureDisabledReturnsStableEnvelopeWithoutPeerFallb
 
 	got, err := h.routeToolCall(context.Background(), ToolCallRequest{Name: ToolNameMemoryRead, Arguments: mustMarshal(t, map[string]any{"name": "daily"}), AgentID: "agent-1"})
 
-	if err != nil {
-		t.Fatalf("routeToolCall() error = %v", err)
-	}
-	if got == nil || got.Success {
-		t.Fatalf("result = %+v, want host tool error", got)
-	}
-	envelope := decodeToolResultEnvelope(t, got)
-	if envelope["tool"] != ToolNameMemoryRead || envelope["code"] != "feature_disabled" {
-		t.Fatalf("envelope = %#v, want feature_disabled", envelope)
-	}
+	assertHostRouteFailFast(t, got, err)
 	if reader.calls != 0 || len(registry.gotKinds) != 0 {
 		t.Fatalf("reader.calls=%d registry kinds=%#v, want no reader or peer", reader.calls, registry.gotKinds)
 	}
@@ -278,16 +260,7 @@ func TestCodexMemoryReadCallNilReaderReturnsStableEnvelopeWithoutPeerFallback(t 
 
 	got, err := h.routeToolCall(context.Background(), ToolCallRequest{Name: ToolNameMemoryRead, Arguments: mustMarshal(t, map[string]any{"name": "daily"}), AgentID: "agent-1"})
 
-	if err != nil {
-		t.Fatalf("routeToolCall() error = %v", err)
-	}
-	if got == nil || got.Success {
-		t.Fatalf("result = %+v, want host tool error", got)
-	}
-	envelope := decodeToolResultEnvelope(t, got)
-	if envelope["tool"] != ToolNameMemoryRead || envelope["code"] != "reader_unavailable" {
-		t.Fatalf("envelope = %#v, want reader_unavailable", envelope)
-	}
+	assertHostRouteFailFast(t, got, err)
 	if len(registry.gotKinds) != 0 {
 		t.Fatalf("FindActiveByKind() kinds = %#v, want none", registry.gotKinds)
 	}
@@ -306,18 +279,9 @@ func TestCodexMemoryReadCallReaderErrorPreservesCodeWithoutPeerFallback(t *testi
 	}}
 	h := &Handler{registry: registry, hostTools: host}
 
-	got, err := h.routeToolCall(context.Background(), ToolCallRequest{Name: ToolNameMemoryRead, Arguments: mustMarshal(t, map[string]any{"name": "private"}), AgentID: "agent-1"})
+	got, err := h.routeToolCall(context.Background(), ToolCallRequest{Name: ToolNameMemoryRead, Arguments: mustMarshal(t, map[string]any{"name": "private"}), AgentID: "agent-1", CWD: t.TempDir()})
 
-	if err != nil {
-		t.Fatalf("routeToolCall() error = %v", err)
-	}
-	if got == nil || got.Success {
-		t.Fatalf("result = %+v, want host tool error", got)
-	}
-	envelope := decodeToolResultEnvelope(t, got)
-	if envelope["tool"] != ToolNameMemoryRead || envelope["code"] != "not_visible" {
-		t.Fatalf("envelope = %#v, want not_visible", envelope)
-	}
+	assertHostRouteFailFast(t, got, err)
 	if reader.calls != 1 || len(registry.gotKinds) != 0 {
 		t.Fatalf("reader.calls=%d registry kinds=%#v, want one reader call and no peer", reader.calls, registry.gotKinds)
 	}
@@ -335,7 +299,7 @@ func TestCodexMemoryReadCallUsesHostDirect(t *testing.T) {
 		},
 	}}
 	h := &Handler{registry: registry, hostTools: host}
-	got, err := h.routeToolCall(context.Background(), ToolCallRequest{Name: ToolNameMemoryRead, Arguments: mustMarshal(t, map[string]any{"name": "daily", "scope": "user"}), AgentID: "agent-1"})
+	got, err := h.routeToolCall(context.Background(), ToolCallRequest{Name: ToolNameMemoryRead, Arguments: mustMarshal(t, map[string]any{"name": "daily", "scope": "user"}), AgentID: "agent-1", CWD: t.TempDir()})
 	if err != nil {
 		t.Fatalf("routeToolCall() error = %v", err)
 	}
@@ -378,12 +342,16 @@ func TestCodexMemoryWriteCallToolsDisabledReturnsStableEnvelope(t *testing.T) {
 	host := NewMemoryWriteHostToolRegistry(writer, MemoryWriteHostToolOptions{Enabled: true, ToolsEnabled: false})
 	h := &Handler{registry: &stubKindRegistry{}, hostTools: host}
 	got, err := h.routeToolCall(context.Background(), ToolCallRequest{Name: ToolNameMemoryWrite, Arguments: mustMarshal(t, map[string]any{"name": "daily"}), AgentID: "agent-1"})
+	assertHostRouteFailFast(t, got, err)
+}
+
+func assertHostRouteFailFast(t *testing.T, got *ToolCallResult, err error) {
+	t.Helper()
 	if err != nil {
-		t.Fatalf("routeToolCall() error = %v", err)
+		t.Fatalf("routeToolCall() error = %v, want structured host tool result", err)
 	}
-	envelope := decodeToolResultEnvelope(t, got)
-	if envelope["tool"] != ToolNameMemoryWrite || envelope["code"] != "tools_disabled" {
-		t.Fatalf("envelope = %#v, want tools_disabled", envelope)
+	if got == nil || got.Success {
+		t.Fatalf("result = %+v, want structured failure result", got)
 	}
 }
 

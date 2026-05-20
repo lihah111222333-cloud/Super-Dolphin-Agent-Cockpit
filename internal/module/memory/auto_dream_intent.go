@@ -29,7 +29,7 @@ func ReadAutoDreamIntent(rootDir string) (*bool, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
-			return nil, nil
+			return nil, err
 		}
 		return nil, err
 	}

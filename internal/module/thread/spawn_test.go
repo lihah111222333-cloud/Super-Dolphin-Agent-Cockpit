@@ -2,9 +2,12 @@ package thread
 
 import (
 	"context"
+	"errors"
+	"strings"
 	"testing"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
+	threaddto "github.com/anthropic-ai/super-agent-v3/internal/dto/thread"
 	threadstore "github.com/anthropic-ai/super-agent-v3/internal/store/thread"
 )
 
@@ -70,7 +73,7 @@ func TestSpawnIfNeeded_SkipsStoppedThread(t *testing.T) {
 	}}
 	svc := &service{threadStore: store}
 
-	launched, _, err := svc.SpawnIfNeeded(context.Background(), "thread-pending-1", "hello")
+	launched, _, err := svc.SpawnIfNeeded(context.Background(), "thread-pending-1", "hello", "")
 	if err != nil {
 		t.Fatalf("SpawnIfNeeded() error = %v, want nil", err)
 	}
@@ -91,12 +94,124 @@ func TestSpawnIfNeeded_SkipsArchivedThread(t *testing.T) {
 	}}
 	svc := &service{threadStore: store}
 
-	launched, _, err := svc.SpawnIfNeeded(context.Background(), "thread-pending-2", "hello")
+	launched, _, err := svc.SpawnIfNeeded(context.Background(), "thread-pending-2", "hello", "")
 	if err != nil {
 		t.Fatalf("SpawnIfNeeded() error = %v, want nil", err)
 	}
 	if launched {
 		t.Fatal("SpawnIfNeeded() launched = true, want false for archived thread")
+	}
+}
+
+func TestStartPendingLaunchPreflightsPromptAssemblyBeforePersist(t *testing.T) {
+	t.Parallel()
+
+	store := &stubThreadStore{}
+	svc := &service{
+		threadStore: store,
+		promptAssembly: errorPromptAssembly{
+			err: errors.New("ClaudeMd candidate containment: safe read: path escapes root"),
+		},
+	}
+
+	_, err := svc.Start(context.Background(), StartRequest{
+		AgentID:    "agent-pending-preflight",
+		Provider:   "claude",
+		CWD:        "/tmp/project",
+		DeferSpawn: true,
+	})
+	if err == nil {
+		t.Fatal("Start() error = nil, want prompt assembly preflight error")
+	}
+	if !containsAll(err.Error(), "ClaudeMd", "safe read") {
+		t.Fatalf("Start() error = %v, want ClaudeMd safe read context", err)
+	}
+	if store.thread != nil || store.upsert.ThreadID != "" {
+		t.Fatalf("pending thread persisted despite preflight failure: thread=%#v upsert=%#v", store.thread, store.upsert)
+	}
+}
+
+func TestSpawnIfNeededDeletesPendingThreadOnSpawnFailure(t *testing.T) {
+	t.Parallel()
+
+	deletedIDs := []string{}
+	store := &deleteCaptureThreadStore{
+		stubThreadStore: &stubThreadStore{thread: &threadstore.Thread{
+			ThreadID:       "thread-pending-fail",
+			Status:         statusCreated,
+			PendingLaunch:  true,
+			Cwd:            "/tmp/project",
+			ConfigOverride: mustStoredThreadConfigRaw(t, storedThreadConfig{Provider: "codex"}),
+		}},
+		deletedIDs: &deletedIDs,
+	}
+	var stopped []threaddto.Stopped
+	svc := &service{
+		threadStore: store,
+		promptAssembly: errorPromptAssembly{
+			err: errors.New("codex pool disabled for explicit identity"),
+		},
+		emitStopped: func(evt threaddto.Stopped) {
+			stopped = append(stopped, evt)
+		},
+	}
+	_ = svc.acquirePendingLaunchLock("thread-pending-fail")
+
+	launched, _, err := svc.SpawnIfNeeded(context.Background(), "thread-pending-fail", "hello", "/tmp/project")
+	if err == nil {
+		t.Fatal("SpawnIfNeeded() error = nil, want spawn failure")
+	}
+	if launched {
+		t.Fatal("SpawnIfNeeded() launched = true, want false on spawn failure")
+	}
+	if len(deletedIDs) != 1 || deletedIDs[0] != "thread-pending-fail" {
+		t.Fatalf("deletedIDs = %v, want [thread-pending-fail]", deletedIDs)
+	}
+	if _, loaded := svc.pendingLaunchMu.Load("thread-pending-fail"); loaded {
+		t.Fatal("pendingLaunchMu still contains failed pending thread")
+	}
+	if len(stopped) != 1 ||
+		stopped[0].ThreadID != "thread-pending-fail" ||
+		stopped[0].Status != "deleted" ||
+		stopped[0].Reason != "pending_launch_failed" {
+		t.Fatalf("stopped events = %#v, want deleted pending_launch_failed event", stopped)
+	}
+}
+
+func TestBuildPendingSpawnRequestRejectsMissingStoredCWD(t *testing.T) {
+	t.Parallel()
+
+	row := &threadstore.Thread{
+		ThreadID:      "thread-pending-missing-cwd",
+		Status:        statusCreated,
+		PendingLaunch: true,
+	}
+
+	_, err := buildPendingSpawnRequest(row, "thread-pending-missing-cwd", "hello", "")
+	if err == nil {
+		t.Fatal("buildPendingSpawnRequest() error = nil, want missing cwd error")
+	}
+	if !containsAll(err.Error(), "pending launch", "cwd is required") {
+		t.Fatalf("buildPendingSpawnRequest() error = %v, want pending launch cwd required", err)
+	}
+}
+
+func TestBuildPendingSpawnRequestRejectsRequestCWDMismatch(t *testing.T) {
+	t.Parallel()
+
+	row := &threadstore.Thread{
+		ThreadID:      "thread-pending-cwd-mismatch",
+		Status:        statusCreated,
+		PendingLaunch: true,
+		Cwd:           "/repo/stored-worktree",
+	}
+
+	_, err := buildPendingSpawnRequest(row, "thread-pending-cwd-mismatch", "hello", "/repo/active-window")
+	if err == nil {
+		t.Fatal("buildPendingSpawnRequest() error = nil, want cwd mismatch error")
+	}
+	if !containsAll(err.Error(), "cwd mismatch", "/repo/stored-worktree", "/repo/active-window") {
+		t.Fatalf("buildPendingSpawnRequest() error = %v, want mismatch with both cwd values", err)
 	}
 }
 
@@ -193,5 +308,34 @@ type deleteCaptureThreadStore struct {
 
 func (s *deleteCaptureThreadStore) DeleteByThreadID(_ context.Context, threadID string) error {
 	*s.deletedIDs = append(*s.deletedIDs, threadID)
+	return nil
+}
+
+func containsAll(haystack string, needles ...string) bool {
+	for _, needle := range needles {
+		if !strings.Contains(haystack, needle) {
+			return false
+		}
+	}
+	return true
+}
+
+type errorPromptAssembly struct {
+	err error
+}
+
+func (p errorPromptAssembly) AssembleStart(context.Context, contract.StartInput) (contract.StartAssembly, error) {
+	return contract.StartAssembly{}, p.err
+}
+
+func (p errorPromptAssembly) AssembleTurn(context.Context, contract.TurnInput) (contract.TurnAssembly, error) {
+	return contract.TurnAssembly{}, p.err
+}
+
+func (p errorPromptAssembly) AssembleAgent(context.Context, contract.AgentInput) (contract.StartAssembly, error) {
+	return contract.StartAssembly{}, p.err
+}
+
+func (errorPromptAssembly) Invalidate(context.Context, contract.InvalidateReason) error {
 	return nil
 }

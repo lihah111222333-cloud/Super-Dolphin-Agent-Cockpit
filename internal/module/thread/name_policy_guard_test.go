@@ -91,6 +91,7 @@ func TestNamePolicy_NormalizeDoesNotDeriveNameFromPrompt(t *testing.T) {
 
 	req, _, err := normalizeStartRequest(StartRequest{
 		Provider: "codex",
+		CWD:      wantStartCWD(t),
 		Prompt:   "  user message  ",
 	})
 	if err != nil {
@@ -106,6 +107,7 @@ func TestNamePolicy_NormalizePreservesExplicitName(t *testing.T) {
 
 	req, _, err := normalizeStartRequest(StartRequest{
 		Provider: "codex",
+		CWD:      wantStartCWD(t),
 		Name:     "  my agent  ",
 		Prompt:   "some prompt",
 	})
@@ -123,6 +125,7 @@ func TestNamePolicy_NormalizeTruncatesLongName(t *testing.T) {
 	longName := strings.Repeat("あ", 200)
 	req, _, err := normalizeStartRequest(StartRequest{
 		Provider: "codex",
+		CWD:      wantStartCWD(t),
 		Name:     longName,
 	})
 	if err != nil {
@@ -155,6 +158,7 @@ func TestNamePolicy_StartWithoutNameStaysUnnamed(t *testing.T) {
 	if _, err := svc.Start(context.Background(), StartRequest{
 		AgentID:  "agent-noname",
 		Provider: "codex",
+		CWD:      wantStartCWD(t),
 		Prompt:   "hello world",
 	}); err != nil {
 		t.Fatalf("Start() error = %v", err)
@@ -185,6 +189,7 @@ func TestNamePolicy_StartWithExplicitNamePropagatesToLaunch(t *testing.T) {
 	if _, err := svc.Start(context.Background(), StartRequest{
 		AgentID:  "agent-named",
 		Provider: "codex",
+		CWD:      wantStartCWD(t),
 		Name:     "My Custom Agent",
 		Prompt:   "do something",
 	}); err != nil {

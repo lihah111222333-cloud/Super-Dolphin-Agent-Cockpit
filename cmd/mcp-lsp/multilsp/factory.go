@@ -270,10 +270,7 @@ func (s *lspCacheStore) persistOnMutation(changed bool) error {
 		return nil
 	}
 	if err := s.persistLocked(); err != nil {
-		if s.config.Persistent {
-			return fmt.Errorf("persistent cache write: %w", err)
-		}
-		s.fallbackToMemory(err)
+		return fmt.Errorf("persistent cache write: %w", err)
 	}
 	return nil
 }

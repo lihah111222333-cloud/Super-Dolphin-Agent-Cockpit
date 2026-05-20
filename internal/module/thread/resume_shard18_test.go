@@ -409,6 +409,7 @@ type stubThreadStore struct {
 	thread              *threadstore.Thread
 	threads             []threadstore.Thread
 	threadByID          map[string]*threadstore.Thread
+	getErr              error
 	upsert              threadstore.UpsertParams
 	upsertErr           error
 	existsErr           error
@@ -420,6 +421,9 @@ type stubThreadStore struct {
 }
 
 func (s *stubThreadStore) GetByThreadID(_ context.Context, threadID string) (*threadstore.Thread, error) {
+	if s.getErr != nil {
+		return nil, s.getErr
+	}
 	if s.threadByID != nil {
 		if t, ok := s.threadByID[threadID]; ok && t != nil {
 			thread := *t

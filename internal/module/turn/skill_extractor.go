@@ -41,6 +41,10 @@ type Extractor interface {
 	Extract(ctx context.Context, t Trajectory) (*ExtractedSkill, error)
 }
 
+type configuredExtractor interface {
+	ensureConfigured() error
+}
+
 // ExtractorMetrics is the observable counter set used by tests to assert
 // the extractor took the expected path. Production deployments can attach
 // these to a prometheus collector by reading the atomic ints; the type
@@ -64,8 +68,8 @@ func (m *ExtractorMetrics) incInsertFailed()       { atomic.AddInt64(&m.InsertFa
 func (m *ExtractorMetrics) incPromoted()           { atomic.AddInt64(&m.Promoted, 1) }
 
 // DefaultExtractor distills a Trajectory without writing to the removed
-// legacy candidate backend. dream is fx-optional: when nil the extractor
-// short-circuits with a metric bump and returns (nil, nil).
+// legacy candidate backend. dream is required so missing distillation
+// infrastructure fails before trajectories are silently dropped.
 type DefaultExtractor struct {
 	dream     contract.DreamExecutor // optional: nil skips
 	redactor  Redactor
@@ -118,6 +122,9 @@ func (e *DefaultExtractor) Extract(ctx context.Context, t Trajectory) (*Extracte
 	if e == nil {
 		return nil, errors.New("extractor: nil receiver")
 	}
+	if err := e.ensureConfigured(); err != nil {
+		return nil, err
+	}
 	if !e.readyToExtract(t) {
 		return nil, nil
 	}
@@ -128,7 +135,7 @@ func (e *DefaultExtractor) Extract(ctx context.Context, t Trajectory) (*Extracte
 	rawSkillMd, err := e.executeDream(ctx, t, prompt)
 	if err != nil {
 		if errors.Is(err, contract.ErrDreamExecutorNotConfigured) {
-			return nil, nil
+			return nil, err
 		}
 		return nil, err
 	}
@@ -141,15 +148,18 @@ func (e *DefaultExtractor) Extract(ctx context.Context, t Trajectory) (*Extracte
 	return extracted, nil
 }
 
+func (e *DefaultExtractor) ensureConfigured() error {
+	if e.dream == nil {
+		e.Metrics.incDreamNotConfigured()
+		return contract.ErrDreamExecutorNotConfigured
+	}
+	return nil
+}
+
 func (e *DefaultExtractor) readyToExtract(t Trajectory) bool {
 	verdict := e.evaluator.Evaluate(t)
 	if !verdict.Eligible {
 		e.logger.Debug("extractor: trajectory ineligible", "turn_id", t.TurnID, "reason", verdict.Reason)
-		return false
-	}
-	if e.dream == nil {
-		e.Metrics.incDreamNotConfigured()
-		e.logger.Info("extractor: dream executor not configured, skipping", "turn_id", t.TurnID)
 		return false
 	}
 	return true
@@ -330,6 +340,11 @@ func (r *ExtractorRunner) Run(ctx context.Context) error {
 		<-ctx.Done()
 		return ctx.Err()
 	}
+	if validator, ok := r.extractor.(configuredExtractor); ok {
+		if err := validator.ensureConfigured(); err != nil {
+			return err
+		}
+	}
 	tick := time.NewTicker(r.interval)
 	defer tick.Stop()
 	for {
@@ -356,7 +371,9 @@ func (r *ExtractorRunner) flushOnce(ctx context.Context) {
 					r.logger.Error("extractor: panic in extract", "turn_id", traj.TurnID, "panic", rec)
 				}
 			}()
-			_, _ = r.extractor.Extract(ctx, traj)
+			if _, err := r.extractor.Extract(ctx, traj); err != nil {
+				r.logger.Error("extractor: extract failed", "turn_id", traj.TurnID, "error", err)
+			}
 		}()
 	}
 }

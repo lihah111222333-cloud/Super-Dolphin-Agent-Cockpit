@@ -225,7 +225,7 @@ func TestAgentExecutorInputsFromNodesUnknownKey(t *testing.T) {
 	prev := map[string]json.RawMessage{"node-a": json.RawMessage(`{}`)}
 	out, err := exec.Execute(context.Background(), node, RunContext{DagKey: "dag-x", PrevResults: prev})
 	if err != nil {
-		t.Fatalf("Execute() = %v", err)
+		t.Fatalf("Execute() framework error = %v, want classified inputs validation outcome", err)
 	}
 	if out.Status != NodeStatusFailed {
 		t.Fatalf("Status = %q, want failed", out.Status)
@@ -257,7 +257,7 @@ func TestAgentExecutorInputsFromSharedfilesMissing(t *testing.T) {
 
 	out, err := exec.Execute(context.Background(), node, RunContext{DagKey: "dag-x", SharedFileReader: sf})
 	if err != nil {
-		t.Fatalf("Execute() = %v", err)
+		t.Fatalf("Execute() framework error = %v, want classified sharedfile validation outcome", err)
 	}
 	if out.Status != NodeStatusFailed {
 		t.Fatalf("Status = %q, want failed", out.Status)
@@ -288,7 +288,7 @@ func TestAgentExecutorInputsFromNodesNilReader(t *testing.T) {
 
 	out, err := exec.Execute(context.Background(), node, RunContext{DagKey: "dag-x"})
 	if err != nil {
-		t.Fatalf("Execute() = %v", err)
+		t.Fatalf("Execute() framework error = %v, want classified inputs validation outcome", err)
 	}
 	if out.Status != NodeStatusFailed || out.FailureClass != FailureClassValidation {
 		t.Fatalf("got (%q,%q), want (failed,validation); ErrorSummary=%q", out.Status, out.FailureClass, out.ErrorSummary)

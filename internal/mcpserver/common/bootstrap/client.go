@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 	"sync"
 	"time"
@@ -203,7 +204,7 @@ func (c *Client) EmitEvent(ctx context.Context, eventType string, payload any) e
 	if err := conn.Notify(noteCtx, mcp.MethodEvent, req); err != nil {
 		if isTransportErr(err) {
 			c.auditEventFallback(eventType, raw, err)
-			return nil
+			return fmt.Errorf("emit event notify failed after audit fallback: %w", err)
 		}
 		return err
 	}

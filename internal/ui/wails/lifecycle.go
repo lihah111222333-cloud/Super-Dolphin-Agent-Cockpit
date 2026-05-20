@@ -2,6 +2,7 @@ package wails
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"sync"
 	"sync/atomic"
@@ -14,6 +15,7 @@ const (
 	bridgeEventName      = "bridge-event"
 	agentEventName       = "agent-event"
 	quitOverlayName      = "app-will-quit"
+	quitErrorName        = "app-quit-error"
 	quitGraceDelay       = 320 * time.Millisecond
 	shutdownHardDeadline = 15 * time.Second
 )
@@ -100,7 +102,12 @@ func (l *WailsLifecycle) ShouldQuit() bool {
 		return false
 	}
 
-	activeCount := l.activeAgentCount()
+	activeCount, err := l.activeAgentCount()
+	if err != nil {
+		l.emitQuitError(err)
+		l.quitIntercepted.Store(false)
+		return false
+	}
 	if activeCount > 0 {
 		l.emitQuitOverlay(activeCount)
 		lifecycleAfterFunc(quitGraceDelay, l.requestBackendShutdown)
@@ -135,17 +142,22 @@ func (l *WailsLifecycle) EmitEvent(name string, payload any) {
 	}
 }
 
-func (l *WailsLifecycle) activeAgentCount() int {
-	if l == nil || l.counter == nil {
-		return 0
+func (l *WailsLifecycle) activeAgentCount() (int, error) {
+	if l == nil {
+		return 0, errors.New("wails lifecycle is not configured")
+	}
+	if l.counter == nil {
+		return 0, errors.New("active agent counter is not configured")
 	}
 
 	count, err := l.counter.ActiveAgentCount(context.Background())
 	if err != nil {
-		l.logger.Warn("wails: failed to count active agents", "error", err)
-		return 0
+		if l.logger != nil {
+			l.logger.Warn("wails: failed to count active agents", "error", err)
+		}
+		return 0, err
 	}
-	return count
+	return count, nil
 }
 
 func (l *WailsLifecycle) emitQuitOverlay(activeCount int) {
@@ -153,6 +165,16 @@ func (l *WailsLifecycle) emitQuitOverlay(activeCount int) {
 		"active_agents": activeCount,
 		"delay_ms":      quitGraceDelay.Milliseconds(),
 		"at":            time.Now().UTC().Format(time.RFC3339Nano),
+	})
+}
+
+func (l *WailsLifecycle) emitQuitError(err error) {
+	if err == nil {
+		return
+	}
+	l.EmitEvent(quitErrorName, map[string]any{
+		"message": err.Error(),
+		"at":      time.Now().UTC().Format(time.RFC3339Nano),
 	})
 }
 

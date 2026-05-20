@@ -13,7 +13,10 @@ func TestFindJSTSProjectRootWithinFindsFirstValidProject(t *testing.T) {
 	want := filepath.Join(root, "apps", "web")
 	writeProjectMarker(t, want, "tsconfig.json")
 
-	got := findJSTSProjectRootWithin(root)
+	got, err := findJSTSProjectRootWithin(root)
+	if err != nil {
+		t.Fatalf("findJSTSProjectRootWithin(%q) error = %v", root, err)
+	}
 	if got != want {
 		t.Fatalf("findJSTSProjectRootWithin(%q) = %q, want %q", root, got, want)
 	}
@@ -26,9 +29,24 @@ func TestFindJSTSProjectRootWithinSkipsIgnoredDirectories(t *testing.T) {
 	writeProjectMarker(t, filepath.Join(root, ".cache", "hidden"), "package.json")
 	writeProjectMarker(t, filepath.Join(root, "dist", "site"), "jsconfig.json")
 
-	got := findJSTSProjectRootWithin(root)
+	got, err := findJSTSProjectRootWithin(root)
+	if err != nil {
+		t.Fatalf("findJSTSProjectRootWithin(%q) error = %v", root, err)
+	}
 	if got != "" {
 		t.Fatalf("findJSTSProjectRootWithin(%q) = %q, want empty result", root, got)
+	}
+}
+
+func TestFindJSTSProjectRootWithinReturnsWalkError(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "missing")
+
+	got, err := findJSTSProjectRootWithin(root)
+	if err == nil {
+		t.Fatalf("findJSTSProjectRootWithin(%q) error = nil, want walk error", root)
+	}
+	if got != "" {
+		t.Fatalf("findJSTSProjectRootWithin(%q) = %q, want empty result on error", root, got)
 	}
 }
 
@@ -39,7 +57,10 @@ func TestFindJSTSBootstrapFileWithinFindsFirstValidFile(t *testing.T) {
 	want := filepath.Join(root, "apps", "web", "main.ts")
 	writeProjectMarker(t, filepath.Join(root, "apps", "web"), "main.ts")
 
-	got := findJSTSBootstrapFileWithin(root)
+	got, err := findJSTSBootstrapFileWithin(root)
+	if err != nil {
+		t.Fatalf("findJSTSBootstrapFileWithin(%q) error = %v", root, err)
+	}
 	if got != want {
 		t.Fatalf("findJSTSBootstrapFileWithin(%q) = %q, want %q", root, got, want)
 	}
@@ -52,7 +73,10 @@ func TestFindJSTSBootstrapFileWithinSkipsIgnoredDirectories(t *testing.T) {
 	writeProjectMarker(t, filepath.Join(root, ".cache", "hidden"), "main.js")
 	writeProjectMarker(t, filepath.Join(root, "dist", "site"), "app.tsx")
 
-	got := findJSTSBootstrapFileWithin(root)
+	got, err := findJSTSBootstrapFileWithin(root)
+	if err != nil {
+		t.Fatalf("findJSTSBootstrapFileWithin(%q) error = %v", root, err)
+	}
 	if got != "" {
 		t.Fatalf("findJSTSBootstrapFileWithin(%q) = %q, want empty result", root, got)
 	}
@@ -97,7 +121,10 @@ func TestFindJavaProjectRootWithinFindsFirstProject(t *testing.T) {
 	want := filepath.Join(root, "services", "api")
 	writeProjectMarker(t, want, "pom.xml")
 
-	got := findJavaProjectRootWithin(root)
+	got, err := findJavaProjectRootWithin(root)
+	if err != nil {
+		t.Fatalf("findJavaProjectRootWithin(%q) error = %v", root, err)
+	}
 	if got != want {
 		t.Fatalf("findJavaProjectRootWithin(%q) = %q, want %q", root, got, want)
 	}
@@ -110,9 +137,24 @@ func TestFindJavaProjectRootWithinSkipsIgnoredDirs(t *testing.T) {
 	writeProjectMarker(t, filepath.Join(root, ".gradle", "wrapper"), "build.gradle")
 	writeProjectMarker(t, filepath.Join(root, "build", "output"), "pom.xml")
 
-	got := findJavaProjectRootWithin(root)
+	got, err := findJavaProjectRootWithin(root)
+	if err != nil {
+		t.Fatalf("findJavaProjectRootWithin(%q) error = %v", root, err)
+	}
 	if got != "" {
 		t.Fatalf("findJavaProjectRootWithin(%q) = %q, want empty result", root, got)
+	}
+}
+
+func TestFindJavaProjectRootWithinReturnsWalkError(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "missing")
+
+	got, err := findJavaProjectRootWithin(root)
+	if err == nil {
+		t.Fatalf("findJavaProjectRootWithin(%q) error = nil, want walk error", root)
+	}
+	if got != "" {
+		t.Fatalf("findJavaProjectRootWithin(%q) = %q, want empty result on error", root, got)
 	}
 }
 
@@ -123,7 +165,10 @@ func TestFindJavaBootstrapFileWithinFindsJavaFile(t *testing.T) {
 	want := filepath.Join(root, "src", "main", "java", "App.java")
 	writeProjectMarker(t, filepath.Join(root, "src", "main", "java"), "App.java")
 
-	got := findJavaBootstrapFileWithin(root)
+	got, err := findJavaBootstrapFileWithin(root)
+	if err != nil {
+		t.Fatalf("findJavaBootstrapFileWithin(%q) error = %v", root, err)
+	}
 	if got != want {
 		t.Fatalf("findJavaBootstrapFileWithin(%q) = %q, want %q", root, got, want)
 	}

@@ -42,7 +42,7 @@ func TestStartParamsAcceptV2WireFields(t *testing.T) {
 	if params.Language != "zh" {
 		t.Fatalf("startParams language = %q, want zh", params.Language)
 	}
-	request := buildStartRequestFromParams(params)
+	request := buildStartRequestFromParams(params, nil)
 	if request.Language != "zh" {
 		t.Fatalf("StartRequest.Language = %q, want zh", request.Language)
 	}
@@ -241,24 +241,22 @@ func TestResumeParamsAcceptThreadBodyFields(t *testing.T) {
 	}
 }
 
-func TestNormalizeStartRequestDefaultsProviderWithoutPromptPollution(t *testing.T) {
+func TestNormalizeStartRequestRejectsMissingProvider(t *testing.T) {
 	t.Parallel()
 
-	req, _, err := normalizeStartRequest(StartRequest{
+	_, _, err := normalizeStartRequest(StartRequest{
 		BaseInstructions: "  launch me  ",
+		CWD:              wantStartCWD(t),
 	})
-	if err != nil {
-		t.Fatalf("normalizeStartRequest() error = %v", err)
-	}
-	if req.Provider != "codex" {
-		t.Fatalf("provider = %q, want codex", req.Provider)
+	if err == nil || !strings.Contains(err.Error(), "provider is required") {
+		t.Fatalf("normalizeStartRequest() error = %v, want provider is required", err)
 	}
 }
 
 func TestNormalizeStartRequestDoesNotDeriveNameFromPrompt(t *testing.T) {
 	t.Parallel()
 
-	req, _, err := normalizeStartRequest(StartRequest{Provider: "codex", Prompt: "  launch me  "})
+	req, _, err := normalizeStartRequest(StartRequest{Provider: "codex", Prompt: "  launch me  ", CWD: wantStartCWD(t)})
 	if err != nil {
 		t.Fatalf("normalizeStartRequest() error = %v", err)
 	}
@@ -277,9 +275,11 @@ func TestNormalizeStartRequestDropsConfigArtifacts(t *testing.T) {
 	t.Parallel()
 
 	req, _, err := normalizeStartRequest(StartRequest{
+		Provider:      "codex",
 		ModelProvider: "[object Object]",
 		Model:         "[object Object]",
 		Effort:        "undefined",
+		CWD:           wantStartCWD(t),
 	})
 	if err != nil {
 		t.Fatalf("normalizeStartRequest() error = %v", err)
@@ -287,8 +287,8 @@ func TestNormalizeStartRequestDropsConfigArtifacts(t *testing.T) {
 	if req.Model != "" || req.ModelProvider != "" || req.Effort != "" {
 		t.Fatalf("normalizeStartRequest artifacts = model %q provider %q effort %q, want empty", req.Model, req.ModelProvider, req.Effort)
 	}
-	if req.Provider != defaultStartProvider {
-		t.Fatalf("Provider = %q, want default %q", req.Provider, defaultStartProvider)
+	if req.Provider != "codex" {
+		t.Fatalf("Provider = %q, want codex", req.Provider)
 	}
 }
 
@@ -357,7 +357,7 @@ func TestStartParamsPreservesSelectedSkillRefSourcePerRef(t *testing.T) {
 		ManualSkillSelection: true,
 	}
 
-	request := buildStartRequestFromParams(params)
+	request := buildStartRequestFromParams(params, nil)
 	if len(request.LaunchSkillRefs) != 2 {
 		t.Fatalf("LaunchSkillRefs = %#v", request.LaunchSkillRefs)
 	}

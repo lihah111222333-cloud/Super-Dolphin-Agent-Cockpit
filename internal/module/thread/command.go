@@ -179,19 +179,18 @@ func bindingProvider(binding *bindingstore.Binding) string {
 func (s *service) GetConfig(ctx context.Context, threadID string) (dto.ThreadConfig, error) {
 	session, binding, err := s.resolveSession(ctx, threadID)
 	if err != nil {
-		offline, offlineErr := s.buildOfflineConfig(ctx, threadID, binding)
+		cfg, handled, offlineErr := s.pendingLaunchOfflineConfig(ctx, threadID, err)
 		if offlineErr != nil {
 			return dto.ThreadConfig{}, offlineErr
 		}
-		return offline.Config, nil
+		if handled {
+			return cfg, nil
+		}
+		return dto.ThreadConfig{}, err
 	}
 	reader, ok := session.(configReaderSession)
 	if !ok {
-		offline, offlineErr := s.buildOfflineConfig(ctx, threadID, binding)
-		if offlineErr != nil {
-			return dto.ThreadConfig{}, errors.New("thread config reader is not available")
-		}
-		return offline.Config, nil
+		return dto.ThreadConfig{}, errors.New("thread config reader is not available")
 	}
 	cfg, err := reader.ReadConfig(ctx, threadID)
 	if err != nil {
@@ -200,14 +199,32 @@ func (s *service) GetConfig(ctx context.Context, threadID string) (dto.ThreadCon
 	return s.normalizeThreadConfig(ctx, threadID, binding, cfg), nil
 }
 
+func (s *service) pendingLaunchOfflineConfig(
+	ctx context.Context,
+	threadID string,
+	resolveErr error,
+) (dto.ThreadConfig, bool, error) {
+	if !contract.IsNotFound(resolveErr) {
+		return dto.ThreadConfig{}, false, nil
+	}
+	pendingLaunch, err := s.isThreadPendingLaunch(ctx, threadID)
+	if err != nil {
+		return dto.ThreadConfig{}, false, err
+	}
+	if !pendingLaunch {
+		return dto.ThreadConfig{}, false, nil
+	}
+	offline, err := s.buildOfflineConfig(ctx, threadID, nil)
+	if err != nil {
+		return dto.ThreadConfig{}, false, err
+	}
+	return offline.Config, true, nil
+}
+
 func (s *service) SetConfig(ctx context.Context, threadID string, patch dto.ThreadConfigPatch) (dto.ThreadConfig, error) {
 	session, binding, err := s.resolveSession(ctx, threadID)
 	if err != nil {
-		// Offline fallback: thread/config/set is a persisted thread override, so
-		// it should still work when the live session is unavailable or the thread
-		// has not been bound yet (for example pending_launch threads before the
-		// first turn).
-		return s.setConfigOffline(ctx, threadID, binding, patch)
+		return dto.ThreadConfig{}, err
 	}
 	provider := bindingProvider(binding)
 	patch, err = normalizeThreadConfigPatch(ctx, session, provider, patch)
@@ -233,46 +250,6 @@ func (s *service) SetConfig(ctx context.Context, threadID string, patch dto.Thre
 		return dto.ThreadConfig{}, err
 	}
 	return applyThreadConfigReturnPatch(cfg, patch), nil
-}
-
-// setConfigOffline persists a thread config patch when no live session is
-// available. Validation is limited to what can be checked without a session
-// (model name format and effort range). The persisted values will be picked
-// up by hydrateResumeSessionRequest when the session next starts.
-func (s *service) setConfigOffline(
-	ctx context.Context,
-	threadID string,
-	binding *bindingstore.Binding,
-	patch dto.ThreadConfigPatch,
-) (dto.ThreadConfig, error) {
-	offline, offlineErr := s.buildOfflineConfig(ctx, threadID, binding)
-	if offlineErr != nil {
-		return dto.ThreadConfig{}, offlineErr
-	}
-	provider := strings.TrimSpace(offline.Config.Provider)
-	if provider == "" {
-		provider = bindingProvider(binding)
-	}
-	patch, err := normalizeThreadConfigPatchOffline(provider, patch)
-	if err != nil {
-		return dto.ThreadConfig{}, err
-	}
-	if threadConfigPatchNoop(patch) {
-		return offline.Config, nil
-	}
-	if err := s.persistThreadConfig(ctx, threadID, patch, dto.ThreadConfig{}); err != nil {
-		return dto.ThreadConfig{}, err
-	}
-	offline, offlineErr = s.buildOfflineConfig(ctx, threadID, binding)
-	if offlineErr != nil {
-		return dto.ThreadConfig{}, offlineErr
-	}
-	s.logConfigPatchApplied("thread/config/set (offline)", threadID, provider, patch)
-	s.emitThreadModelUpdated(threadID, patch.Model)
-	if err := s.invalidatePromptAssembly(ctx, contract.InvalidateProviderSwitch); err != nil {
-		return dto.ThreadConfig{}, err
-	}
-	return applyThreadConfigReturnPatch(offline.Config, patch), nil
 }
 
 func (s *service) SetModel(ctx context.Context, threadID, rawModel string) (dto.ThreadConfig, error) {

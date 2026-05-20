@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net"
+	"strings"
 	"testing"
 	"time"
 )
@@ -128,3 +129,34 @@ func TestProxyRunnerServeFailureSurfaces(t *testing.T) {
 		t.Fatal("Run did not return after closed-listener serve")
 	}
 }
+
+func TestProxyRunnerServePanicSurfaces(t *testing.T) {
+	t.Parallel()
+
+	runner := NewProxyRunner(&Handler{})
+	runner.SetListener(panicListener{})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := make(chan error, 1)
+	go func() { done <- runner.Run(ctx) }()
+	select {
+	case err := <-done:
+		if err == nil || !strings.Contains(err.Error(), "proxy serve panic") {
+			t.Fatalf("Run err = %v, want proxy serve panic", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("Run did not return after ServeProxy panic")
+	}
+}
+
+type panicListener struct{}
+
+func (panicListener) Accept() (net.Conn, error) { panic("accept failed") }
+func (panicListener) Close() error              { return nil }
+func (panicListener) Addr() net.Addr            { return dummyAddr("panic") }
+
+type dummyAddr string
+
+func (a dummyAddr) Network() string { return string(a) }
+func (a dummyAddr) String() string  { return string(a) }

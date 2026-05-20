@@ -62,6 +62,40 @@ func TestToolBridge_ForwardsInjectedCWDToPeer(t *testing.T) {
 	}
 }
 
+func TestAdaptMCPResponseMarksStructuredFailureAsFailure(t *testing.T) {
+	t.Parallel()
+
+	result, err := adaptMCPResponse(peerToolCallResponse{
+		Content:           []peerToolCallContent{{Type: "text", Text: "failed"}},
+		StructuredContent: json.RawMessage(`{"success":false,"error":"boom"}`),
+	})
+	if err != nil {
+		t.Fatalf("adaptMCPResponse() error = %v", err)
+	}
+	if result.Success {
+		t.Fatalf("Success = true, want false for structuredContent success=false")
+	}
+}
+
+func TestAdaptMCPResponseAllowsStructuredJSONStringPayload(t *testing.T) {
+	t.Parallel()
+
+	raw := json.RawMessage(`"{\"path\":\"go.mod\",\"content\":\"module example\"}"`)
+	result, err := adaptMCPResponse(peerToolCallResponse{
+		IsError:           false,
+		StructuredContent: raw,
+	})
+	if err != nil {
+		t.Fatalf("adaptMCPResponse() error = %v", err)
+	}
+	if !result.Success {
+		t.Fatalf("Success = false, want true for structuredContent JSON string")
+	}
+	if string(result.StructuredContent) != string(raw) {
+		t.Fatalf("StructuredContent = %s, want %s", result.StructuredContent, raw)
+	}
+}
+
 func TestHandleToolCallPreservesPeerCallbackIsError(t *testing.T) {
 	peer := &mcpcontrol.ToolInstance{Peer: &stubPeer{callbackFn: func(_ context.Context, method string, _ any, result any) error {
 		if method != ProxyMethodToolsCall {
@@ -413,9 +447,77 @@ func TestToolBridge_PeerError_AdaptToResult(t *testing.T) {
 
 	got, err := h.routeToolCall(context.Background(), ToolCallRequest{Name: "lsp_hover", Arguments: json.RawMessage(`{}`)})
 	if err != nil {
-		t.Fatalf("routeToolCall() error = %v, want nil", err)
+		t.Fatalf("routeToolCall() error = %v, want structured tool failure result", err)
+	}
+	if got == nil {
+		t.Fatalf("routeToolCall() result = nil, want structured failure result with fail-fast error")
 	}
 	assertSingleTextItem(t, got, peerErr.Error(), false)
+}
+
+func TestProxyToolCall_PeerErrorUsesToolResultNotJSONRPCError(t *testing.T) {
+	peerErr := errors.New("peer callback failed")
+	h, _ := newHandlerForTest(newToolCallPeer(t, "lsp_hover", json.RawMessage(`{}`), "", peerErr))
+	body := string(mustRawJSON(t, map[string]any{
+		"jsonrpc": "2.0",
+		"id":      "req-peer-error",
+		"method":  "tools/call",
+		"params": map[string]any{
+			"name":      "lsp_hover",
+			"arguments": map[string]any{},
+		},
+	}))
+
+	got := callProxyRequest(t, h, "/mcp/lsp/agent-1", body)
+	if got.Error != nil {
+		t.Fatalf("proxy response error = %+v, want tool result", got.Error)
+	}
+	result := requireProxyResultMap(t, got)
+	assertToolErrorResult(t, result)
+	content, ok := result["content"].([]any)
+	if !ok || len(content) != 1 {
+		t.Fatalf("content = %#v, want one error item", result["content"])
+	}
+	item, ok := content[0].(map[string]any)
+	if !ok || item["text"] != peerErr.Error() {
+		t.Fatalf("content[0] = %#v, want peer error text", content[0])
+	}
+}
+
+func TestProxyToolCall_PeerExplicitFailureSetsIsError(t *testing.T) {
+	h, _ := newHandlerForTest(&mcpcontrol.ToolInstance{Peer: &stubPeer{callbackFn: func(_ context.Context, method string, params any, result any) error {
+		if method != ProxyMethodToolsCall {
+			t.Fatalf("Callback() method = %q, want %s", method, ProxyMethodToolsCall)
+		}
+		assertToolCallPayload(t, params, "lsp_code_run", json.RawMessage(`{}`))
+		resp, ok := result.(*peerToolCallResponse)
+		if !ok {
+			t.Fatalf("Callback() result type = %T, want *peerToolCallResponse", result)
+		}
+		resp.Content = []peerToolCallContent{{Type: "text", Text: `{"success":false,"error":"sandbox failed"}`}}
+		resp.StructuredContent = json.RawMessage(`{"success":false,"error":"sandbox failed"}`)
+		resp.IsError = true
+		return nil
+	}}})
+	body := string(mustRawJSON(t, map[string]any{
+		"jsonrpc": "2.0",
+		"id":      "req-peer-failure",
+		"method":  "tools/call",
+		"params": map[string]any{
+			"name":      "lsp_code_run",
+			"arguments": map[string]any{},
+		},
+	}))
+
+	got := callProxyRequest(t, h, "/mcp/lsp/agent-1", body)
+	if got.Error != nil {
+		t.Fatalf("proxy response error = %+v, want tool result", got.Error)
+	}
+	result := requireProxyResultMap(t, got)
+	assertToolErrorResult(t, result)
+	if _, ok := result["structuredContent"]; !ok {
+		t.Fatalf("result = %#v, want structuredContent preserved", result)
+	}
 }
 
 func TestToolBridge_RouteToolCall_RejectsMismatchedClientKind(t *testing.T) {
