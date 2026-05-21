@@ -49,6 +49,39 @@ func TestWriteManifestConfigIncludesEnvAndAutoApprove(t *testing.T) {
 	}
 }
 
+func TestWriteManifestConfigIncludesHTTPHeaders(t *testing.T) {
+	t.Parallel()
+
+	manifest := dto.MCPManifest{Binaries: []dto.MCPBinary{{
+		Name:    "orch",
+		Type:    "http",
+		URL:     "http://127.0.0.1:39003/mcp",
+		Headers: map[string]string{"Authorization": "Bearer secret"},
+	}}}
+
+	path, cleanup, err := writeManifestConfig(manifest, "/tmp/work")
+	if err != nil {
+		t.Fatalf("writeManifestConfig() error = %v", err)
+	}
+	defer cleanup()
+
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("ReadFile(%q) error = %v", path, err)
+	}
+
+	var doc map[string]any
+	if err := json.Unmarshal(raw, &doc); err != nil {
+		t.Fatalf("json.Unmarshal() error = %v", err)
+	}
+	servers, _ := doc["mcpServers"].(map[string]any)
+	server, _ := servers["orch"].(map[string]any)
+	headers, _ := server["headers"].(map[string]any)
+	if got := headers["Authorization"]; got != "Bearer secret" {
+		t.Fatalf("server.headers = %#v, want Authorization bearer token", server["headers"])
+	}
+}
+
 func TestResolvePermissionModeAcceptsLegacyAndNewApprovalPolicies(t *testing.T) {
 	t.Parallel()
 

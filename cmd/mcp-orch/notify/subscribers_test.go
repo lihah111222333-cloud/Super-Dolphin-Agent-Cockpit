@@ -296,3 +296,111 @@ func TestDAGNotifierStopDrainsBeforeReturn(t *testing.T) {
 		t.Fatalf("expected 5 enqueues after drain, got %d", rec.len())
 	}
 }
+
+func TestDAGNotifierRunDrainsWithCanceledRunnerContext(t *testing.T) {
+	t.Parallel()
+	rec := &recordingMessageNotifier{}
+	storeStarted := make(chan struct{})
+	releaseStore := make(chan struct{})
+	var startedOnce sync.Once
+	var releaseOnce sync.Once
+	release := func() {
+		releaseOnce.Do(func() { close(releaseStore) })
+	}
+	defer release()
+	nodeCfg := jsonB(t, map[string]any{"notify_channel": "ch"})
+	store := &fakeStore{
+		listNodesFn: func(context.Context, string) ([]taskdag.Node, error) {
+			startedOnce.Do(func() { close(storeStarted) })
+			<-releaseStore
+			return []taskdag.Node{{NodeKey: "n", Config: nodeCfg}}, nil
+		},
+	}
+	n := NewDAGNotifier(slog.Default(), rec, store)
+	n.onNodeStatusChanged(taskdto.TaskNodeStatusChanged{
+		TaskNodeHeader: shareddto.TaskNodeHeader{
+			TaskDAGHeader: shareddto.TaskDAGHeader{DAGHeader: shareddto.DAGHeader{DagKey: "d"}},
+			NodeKey:       "n",
+		},
+		NewStatus: "done",
+	})
+
+	runCtx, cancel := context.WithCancel(context.Background())
+	runErr := make(chan error, 1)
+	go func() {
+		runErr <- n.Run(runCtx)
+	}()
+	select {
+	case <-storeStarted:
+	case <-time.After(time.Second):
+		t.Fatal("worker did not start draining queued event")
+	}
+
+	cancel()
+	select {
+	case err := <-runErr:
+		t.Fatalf("Run returned before drain completed: %v", err)
+	case <-time.After(25 * time.Millisecond):
+	}
+
+	release()
+	select {
+	case err := <-runErr:
+		if err != nil {
+			t.Fatalf("Run: %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("Run did not return after drain completed")
+	}
+	if rec.len() != 1 {
+		t.Fatalf("expected queued event to drain before Run returned, got %d enqueues", rec.len())
+	}
+}
+
+func TestDAGNotifierDropsWhenQueueFull(t *testing.T) {
+	t.Parallel()
+	rec := &recordingMessageNotifier{}
+	storeStarted := make(chan struct{})
+	releaseStore := make(chan struct{})
+	var startedOnce sync.Once
+	store := &fakeStore{
+		listNodesFn: func(context.Context, string) ([]taskdag.Node, error) {
+			startedOnce.Do(func() { close(storeStarted) })
+			<-releaseStore
+			return []taskdag.Node{{NodeKey: "n", Config: jsonB(t, map[string]any{"notify_channel": "ch"})}}, nil
+		},
+	}
+	n := NewDAGNotifier(slog.Default(), rec, store, WithDAGNotifyQueueCapacity(1))
+	n.Start()
+
+	n.onNodeStatusChanged(taskdto.TaskNodeStatusChanged{
+		TaskNodeHeader: shareddto.TaskNodeHeader{
+			TaskDAGHeader: shareddto.TaskDAGHeader{DAGHeader: shareddto.DAGHeader{DagKey: "d"}},
+			NodeKey:       "n",
+		},
+		NewStatus: "done",
+	})
+	select {
+	case <-storeStarted:
+	case <-time.After(time.Second):
+		t.Fatal("worker did not start processing first event")
+	}
+
+	for i := 0; i < 100; i++ {
+		n.onNodeStatusChanged(taskdto.TaskNodeStatusChanged{
+			TaskNodeHeader: shareddto.TaskNodeHeader{
+				TaskDAGHeader: shareddto.TaskDAGHeader{DAGHeader: shareddto.DAGHeader{DagKey: "d"}},
+				NodeKey:       "n",
+			},
+			NewStatus: "done",
+		})
+	}
+
+	if n.Metrics().Dropped == 0 {
+		t.Fatalf("Dropped = 0, want queue overflow drops")
+	}
+	close(releaseStore)
+	if err := n.Stop(context.Background()); err != nil {
+		t.Fatalf("DAGNotifier.Stop: %v", err)
+	}
+}

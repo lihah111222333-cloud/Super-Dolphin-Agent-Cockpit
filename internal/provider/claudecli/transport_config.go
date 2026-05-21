@@ -482,6 +482,7 @@ func manifestServer(bin dto.MCPBinary, cwd string) (string, map[string]any, bool
 			"type": "http",
 			"url":  strings.TrimSpace(bin.URL),
 		}
+		applyHeaders(server, bin.Headers)
 		applyAutoApprove(server, bin.AutoApprove)
 		return name, server, true
 	}
@@ -525,6 +526,24 @@ func buildStdioServer(bin dto.MCPBinary, cwd string) (map[string]any, bool) {
 func applyAutoApprove(server map[string]any, autoApprove []string) {
 	if len(autoApprove) > 0 {
 		server["autoApprove"] = append([]string(nil), autoApprove...)
+	}
+}
+
+func applyHeaders(server map[string]any, headers map[string]string) {
+	if len(headers) == 0 {
+		return
+	}
+	out := make(map[string]string, len(headers))
+	for key, value := range headers {
+		key = strings.TrimSpace(key)
+		value = strings.TrimSpace(value)
+		if key == "" || value == "" {
+			continue
+		}
+		out[key] = value
+	}
+	if len(out) > 0 {
+		server["headers"] = out
 	}
 }
 

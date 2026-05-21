@@ -123,6 +123,24 @@ func TestPrepareTurnUsesExecutableBinaryDirForManifest(t *testing.T) {
 	}
 }
 
+func TestPrepareTurnPrefersPeerBinDirEnvForManifest(t *testing.T) {
+	peerDir := t.TempDir()
+	writeTurnDummyBinary(t, peerDir, "mcp-lsp")
+	t.Setenv("GO_AGENT_PEER_BIN_DIR", peerDir)
+
+	svc := NewService(silentLogger())
+	session := &stubSession{threadID: "thread-1"}
+	req, err := svc.PrepareTurn(context.Background(), session, PrepareInput{})
+	if err != nil {
+		t.Fatalf("PrepareTurn() error = %v", err)
+	}
+
+	want := filepath.Join(peerDir, "mcp-lsp")
+	if got := commandForBinary(req.MCP, "lsp"); got != want {
+		t.Fatalf("lsp command = %q, want %q", got, want)
+	}
+}
+
 func TestPrepareTurnPrefersExplicitBinaryDir(t *testing.T) {
 	t.Parallel()
 
@@ -517,6 +535,14 @@ func commandForBinary(manifest dto.MCPManifest, name string) string {
 		}
 	}
 	return ""
+}
+
+func writeTurnDummyBinary(t *testing.T, dir, name string) {
+	t.Helper()
+	path := filepath.Join(dir, name)
+	if err := os.WriteFile(path, []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatalf("WriteFile(%q) error = %v", path, err)
+	}
 }
 
 func skillNames(refs []dto.SkillRef) []string {

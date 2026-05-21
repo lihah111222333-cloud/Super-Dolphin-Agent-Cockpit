@@ -14,13 +14,16 @@ var (
 	lookPath       = exec.LookPath
 )
 
+const peerBinDirEnv = "GO_AGENT_PEER_BIN_DIR"
+
 var managedBinaryNames = []string{"mcp-lsp", "mcp-orch"}
 
 func ResolveBinaryDir(cwd string, cfg map[string]any) string {
 	if dir := ConfigString(cfg, "binary_dir", "binaryDir"); dir != "" {
 		return dir
 	}
-	candidates := make([]string, 0, 3)
+	candidates := make([]string, 0, 4)
+	candidates = append(candidates, peerBinDirCandidates()...)
 	if exe, err := executablePath(); err == nil {
 		candidates = append(candidates, filepath.Dir(exe))
 	}
@@ -39,6 +42,20 @@ func ResolveBinaryDir(cwd string, cfg map[string]any) string {
 		}
 	}
 	return ""
+}
+
+func peerBinDirCandidates() []string {
+	raw := strings.TrimSpace(os.Getenv(peerBinDirEnv))
+	if raw == "" {
+		return nil
+	}
+	dirs := make([]string, 0, 1)
+	for _, part := range filepath.SplitList(raw) {
+		if dir := strings.TrimSpace(part); dir != "" {
+			dirs = append(dirs, dir)
+		}
+	}
+	return dirs
 }
 
 func lookPathBinaryDir() string {

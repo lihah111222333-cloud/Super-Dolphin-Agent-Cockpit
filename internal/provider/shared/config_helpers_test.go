@@ -18,6 +18,23 @@ func TestResolveBinaryDirPrefersExplicitConfig(t *testing.T) {
 	}
 }
 
+func TestResolveBinaryDirPrefersPeerBinDirEnv(t *testing.T) {
+	peerDir := t.TempDir()
+	exeDir := t.TempDir()
+	cwd := t.TempDir()
+	writeDummyBinary(t, peerDir, "mcp-lsp")
+	writeDummyBinary(t, exeDir, "mcp-orch")
+	t.Setenv("GO_AGENT_PEER_BIN_DIR", peerDir)
+	stubBinaryResolvers(t,
+		func() (string, error) { return filepath.Join(exeDir, "super-agent-debug"), nil },
+		func(string) (string, error) { return "", errors.New("not found") },
+	)
+
+	if got := ResolveBinaryDir(cwd, nil); got != peerDir {
+		t.Fatalf("ResolveBinaryDir() = %q, want peer bin dir %q", got, peerDir)
+	}
+}
+
 func TestResolveBinaryDirUsesExecutableDirWhenManagedBinaryPresent(t *testing.T) {
 	t.Parallel()
 
