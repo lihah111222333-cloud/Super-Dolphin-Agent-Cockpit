@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -12,6 +13,32 @@ import (
 )
 
 var ErrAgentNotFound = errors.New("agent not found")
+
+var (
+	ErrLaunchCWDRequired = errors.New("launch cwd is required")
+	ErrLaunchCWDInvalid  = errors.New("launch cwd is invalid")
+)
+
+func ValidateLaunchCWD(cwd, parentID string) error {
+	trimmedCWD := strings.TrimSpace(cwd)
+	parentID = strings.TrimSpace(parentID)
+	if cwd != "" && trimmedCWD == "" {
+		return fmt.Errorf("%w: launch_agent cwd must not be blank or whitespace-only", ErrLaunchCWDInvalid)
+	}
+	if trimmedCWD == "" {
+		if parentID != "" {
+			return fmt.Errorf("%w: launch_agent cwd is required; parent_id %q was not found or has no cwd", ErrLaunchCWDRequired, parentID)
+		}
+		return fmt.Errorf("%w: launch_agent cwd is required; pass cwd or parent_id whose agent has cwd", ErrLaunchCWDRequired)
+	}
+	if trimmedCWD != cwd {
+		return fmt.Errorf("%w: launch_agent cwd must not contain surrounding whitespace", ErrLaunchCWDInvalid)
+	}
+	if trimmedCWD == "." || !filepath.IsAbs(trimmedCWD) {
+		return fmt.Errorf("%w: launch_agent cwd must be an absolute path", ErrLaunchCWDInvalid)
+	}
+	return nil
+}
 
 // OrchestrationService defines the shared orchestration boundary used by
 // internal modules and the MCP orchestration runtime.

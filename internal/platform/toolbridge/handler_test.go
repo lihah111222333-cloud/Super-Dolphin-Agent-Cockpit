@@ -339,7 +339,6 @@ func TestToolBridge_OrchestrationLaunchInheritsParentContextFromProviderThread(t
 		"provider": "codex",
 	})
 	wantArgs := mustRawJSON(t, map[string]any{
-		"cwd":       "/repo/project",
 		"name":      "idle-agent",
 		"parent_id": "agent-parent",
 		"provider":  "codex",
@@ -377,7 +376,6 @@ func TestToolBridge_OrchestrationLaunchInheritsParentModelEffort(t *testing.T) {
 		"provider": "codex",
 	})
 	wantArgs := mustRawJSON(t, map[string]any{
-		"cwd":       "/repo/project",
 		"effort":    "xhigh",
 		"model":     "gpt-5.5",
 		"name":      "idle-agent",
@@ -413,7 +411,6 @@ func TestToolBridge_OrchestrationLaunchExplicitProviderDoesNotInheritMismatchedP
 		"provider": "claude",
 	})
 	wantArgs := mustRawJSON(t, map[string]any{
-		"cwd":       "/repo/project",
 		"effort":    "high",
 		"model":     "sonnet",
 		"name":      "idle-agent",
@@ -451,7 +448,6 @@ func TestToolBridge_OrchestrationLaunchFallsBackToUIPreferences(t *testing.T) {
 		"provider": "codex",
 	})
 	wantArgs := mustRawJSON(t, map[string]any{
-		"cwd":       "/repo/project",
 		"effort":    "high",
 		"model":     "gpt-5.4",
 		"name":      "idle-agent",
@@ -491,7 +487,6 @@ func TestToolBridge_OrchestrationLaunchFillsMissingProviderFromUIPreferences(t *
 		"name": "idle-agent",
 	})
 	wantArgs := mustRawJSON(t, map[string]any{
-		"cwd":       "/repo/project",
 		"effort":    "high",
 		"model":     "sonnet",
 		"name":      "idle-agent",
@@ -531,7 +526,6 @@ func TestToolBridge_OrchestrationLaunchUsesProviderDefaultsWhenUIPreferencesUnse
 		"provider": "codex",
 	})
 	wantArgs := mustRawJSON(t, map[string]any{
-		"cwd":       "/repo/project",
 		"effort":    "xhigh",
 		"model":     "gpt-5.5",
 		"name":      "idle-agent",
@@ -595,13 +589,12 @@ func TestToolBridge_OrchestrationLaunchPreservesExplicitParentContext(t *testing
 	assertSingleTextItem(t, got, "launching", true)
 }
 
-func TestToolBridge_OrchestrationLaunchUsesInjectedCWDOverStaleBinding(t *testing.T) {
+func TestToolBridge_OrchestrationLaunchDoesNotInjectCurrentCWDOverParent(t *testing.T) {
 	args := mustRawJSON(t, map[string]any{
 		"name":     "idle-agent",
 		"provider": "codex",
 	})
 	wantArgs := mustRawJSON(t, map[string]any{
-		"cwd":       "/repo/current",
 		"name":      "idle-agent",
 		"parent_id": "agent-parent",
 		"provider":  "codex",

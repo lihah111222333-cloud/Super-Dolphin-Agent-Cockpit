@@ -113,7 +113,7 @@ func TestThreadStoppedDAGFallback_InvokesLifecycleHooks(t *testing.T) {
 			RunID:    int64Ptr(7102),
 			NodeType: "agent",
 			Status:   "running",
-			Config:   []byte(`{"exec":{"agent_key":"alpha"},"first_turn":"hi"}`),
+			Config:   []byte(`{"exec":{"agent_key":"alpha","cwd":"/tmp/node-cwd"},"first_turn":"hi"}`),
 		}},
 	}
 	flow := &fakeFallbackFlow{}

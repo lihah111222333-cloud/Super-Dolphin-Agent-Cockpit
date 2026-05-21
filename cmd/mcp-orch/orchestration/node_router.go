@@ -17,32 +17,7 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-// NodeExecutorRouter 把 DAG-driven wakeup 按 node_type 派发到对应 NodeExecutor。
-// 与 wakeup_dispatcher.go 的直接 service.LaunchAgent 路径并存：非 DAG wakeup
-// (dag_key/node_key 空) 走旧路径，DAG wakeup 走本路由器。
-//
-// node_type 分发：
-//   - "agent"      → nodeexec.AgentExecutor.Execute
-//   - "automation" → nodeexec.AutomationExecutor.Execute（并在 Status=done 后
-//     driving CompleteNodeAndScheduleDownstream，因为 automation
-//     节点没有 child agent 在外面推动它）
-//   - "hybrid"     → NodeOutcome{Status=failed, FailureClass=validation, 含 "hybrid not implemented"}
-//     （F3.1 落地前的占位）
-//   - 空 / 未知    → 兜底当作 "agent"（dogfood DAG 兼容；F1.0 默认 node_type=agent）
-//
-// NodeExecutorRouter dispatches DAG-driven wakeups to their per-node-type
-// NodeExecutor (agent / automation / hybrid). Non-DAG wakeups (no dag_key)
-// keep going through the legacy WakeupLauncher.LaunchAgent path.
-//
-// W2 (sharedfile RunContext + F1.2 inputs) 端口在 main HEAD 6e32b39e 已落地：
-// RunContext 含 PrevResults / SharedFileReader / SharedFileWriter 三端口。
-// router 在派发前要预填这三个端口；否则 dogfood-grade DAG (cfg.Inputs.FromNodes /
-// from_sharedfiles / outputs.to_sharedfile) 走 dispatcher 路径会 fail-loud 在
-// validation "PrevResults not wired" / "SharedFileReader not wired" 上。
-//
-// dispatcher-wiring closure：sharedFileReader / sharedFileWriter 由 fx 注入
-// sharedfile_adapter.go 中的两个 adapter；prevResults 走 prefetchPrevResults
-// 自 store.ListNodes 拉。
+// NodeExecutorRouter dispatches DAG-driven wakeups by node_type; non-DAG wakeups stay on the legacy launcher.
 type NodeExecutorRouter struct {
 	store            taskdag.Store
 	agentExec        *nodeexec.AgentExecutor
@@ -80,7 +55,7 @@ func NewNodeExecutorRouter(
 	}
 }
 
-func (d *WakeupDispatcher) spawnReplanPlanner(ctx context.Context, w *taskdag.Wakeup, fence wakeupFence, failure dispatchFailure, failFast bool) {
+func (d *WakeupDispatcher) spawnReplanPlanner(ctx context.Context, w *taskdag.Wakeup, fence wakeupFence, failure dispatchFailure, node *taskdag.Node, failFast bool) {
 	if d == nil {
 		return
 	}
@@ -88,11 +63,21 @@ func (d *WakeupDispatcher) spawnReplanPlanner(ctx context.Context, w *taskdag.Wa
 		d.failSmartRetryPrepare(ctx, w, fence, failure, fmt.Errorf("replan planner unavailable"), failFast)
 		return
 	}
+	nodeType, cfgRaw := "", json.RawMessage(nil)
+	if node != nil {
+		nodeType, cfgRaw = resolveNodeType(node.NodeType), node.Config
+	}
+	cwd, err := nodeexec.ValidateLaunchCWDForNodeConfig(nodeType, cfgRaw)
+	if err != nil {
+		d.failSmartRetryPrepare(ctx, w, fence, failure, fmt.Errorf("replan planner cwd unavailable: %w", err), failFast)
+		return
+	}
 	req := LaunchRequest{
 		AgentID:   idgen.NewAgentID(),
 		Name:      sanitizeReplanLaunchName(w.DagKey, w.NodeKey),
 		AgentKey:  replanPlannerAgentKey,
 		AgentType: "agent",
+		Cwd:       cwd,
 		Prompt:    buildReplanPlannerPrompt(w, failure),
 	}
 	if err := d.launcher.LaunchAgent(ctx, req); err != nil {

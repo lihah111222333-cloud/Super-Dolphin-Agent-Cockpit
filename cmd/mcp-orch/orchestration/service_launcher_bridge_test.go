@@ -5,6 +5,8 @@ import (
 	"errors"
 	"testing"
 	"time"
+
+	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 )
 
 func TestIsRateLimited(t *testing.T) {
@@ -101,6 +103,13 @@ func TestClassifyLaunchError(t *testing.T) {
 		{"context length exceeded msg -> permanent", errors.New("context length exceeded"), launchClassPermanent},
 		{"maximum context -> permanent", errors.New("maximum context tokens"), launchClassPermanent},
 		{"prompt is too long -> permanent", errors.New("prompt is too long"), launchClassPermanent},
+		// permanent · launch contract
+		{"missing launch cwd -> permanent", contract.ErrLaunchCWDRequired, launchClassPermanent},
+		{"invalid launch cwd -> permanent", contract.ErrLaunchCWDInvalid, launchClassPermanent},
+		{"root task missing -> permanent", errors.New(`root task id missing on thread "agent-parent"`), launchClassPermanent},
+		{"task handoff title -> permanent", errors.New(`task handoff title is required for task "task-demo"`), launchClassPermanent},
+		{"task handoff file -> permanent", errors.New(`task handoff file is required for task "task-demo"`), launchClassPermanent},
+		{"task handoff config -> permanent", errors.New(`task handoff config "taskId" must be a string`), launchClassPermanent},
 		// permanent 优先级高于 transient（同时含两类关键字时归 permanent）
 		{"401 + timeout -> permanent", errors.New("401 unauthorized after i/o timeout"), launchClassPermanent},
 		// unknown · 不在任何已知关键字列表里

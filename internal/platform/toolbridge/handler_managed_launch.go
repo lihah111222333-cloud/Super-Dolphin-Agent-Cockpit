@@ -11,7 +11,7 @@ import (
 // calls, including preference resolution and compatibility checks.
 
 func (h *Handler) injectManagedLaunchContext(ctx context.Context, req ToolCallRequest) ToolCallRequest {
-	if strings.TrimSpace(req.Name) != "orchestration_launch_agent" {
+	if !isManagedLaunchToolName(req.Name) {
 		return req
 	}
 	binding, ok := h.resolveCurrentToolCallBinding(ctx, req)
@@ -24,7 +24,7 @@ func (h *Handler) injectManagedLaunchContext(ctx context.Context, req ToolCallRe
 	}
 	launchCWD := firstNonEmptyString(req.CWD, binding.CWD)
 	provider, model, effort := h.resolveManagedLaunchDefaults(ctx, binding, args, launchCWD)
-	changed := injectManagedLaunchArgs(args, binding, launchCWD, provider, model, effort)
+	changed := injectManagedLaunchArgs(args, binding, provider, model, effort)
 	if !changed {
 		return req
 	}
@@ -40,7 +40,7 @@ func (h *Handler) injectManagedLaunchContext(ctx context.Context, req ToolCallRe
 		"agent_id", binding.AgentID,
 		"provider_thread_id", binding.ProviderThreadID,
 		"injected_parent_id", mapString(args, "parent_id"),
-		"injected_cwd", mapString(args, "cwd"),
+		"args_cwd", mapString(args, "cwd"),
 		"injected_provider", mapString(args, "provider"),
 		"injected_model", mapString(args, "model"),
 		"injected_effort", mapString(args, "effort"),
@@ -49,6 +49,15 @@ func (h *Handler) injectManagedLaunchContext(ctx context.Context, req ToolCallRe
 		"has_codex_model_provider", strings.TrimSpace(binding.CodexModelProvider) != "",
 	)
 	return req
+}
+
+func isManagedLaunchToolName(name string) bool {
+	switch strings.TrimSpace(name) {
+	case "launch_agent", "orchestration_launch_agent":
+		return true
+	default:
+		return false
+	}
 }
 
 func (h *Handler) resolveManagedLaunchDefaults(ctx context.Context, binding toolCallBinding, args map[string]any, launchCWD string) (string, string, string) {

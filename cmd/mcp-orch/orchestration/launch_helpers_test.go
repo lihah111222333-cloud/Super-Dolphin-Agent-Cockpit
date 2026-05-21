@@ -11,7 +11,7 @@ func TestValidateLaunchRequestForLauncher(t *testing.T) {
 	}{
 		{
 			name:     "remote launcher skips command",
-			req:      LaunchRequest{AgentID: "agent-1"},
+			req:      LaunchRequest{AgentID: "agent-1", Cwd: "/repo"},
 			launcher: &remoteLauncher{},
 		},
 		{
@@ -22,7 +22,7 @@ func TestValidateLaunchRequestForLauncher(t *testing.T) {
 		},
 		{
 			name:     "local launcher requires command",
-			req:      LaunchRequest{AgentID: "agent-1"},
+			req:      LaunchRequest{AgentID: "agent-1", Cwd: "/repo"},
 			launcher: &localLauncher{},
 			wantErr:  "command is required",
 		},

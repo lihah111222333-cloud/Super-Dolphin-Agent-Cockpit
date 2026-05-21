@@ -265,6 +265,7 @@ func (h *Handler) callCodexSurfaceTool(ctx context.Context, surface *codexToolSu
 	}
 	entry := surface.tools[canonical]
 	req.Name = entry.realName
+	req = h.injectManagedLaunchContext(ctx, req)
 	if entry.executionKind == "host" {
 		return h.callHostTool(ctx, req)
 	}
