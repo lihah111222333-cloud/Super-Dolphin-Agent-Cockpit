@@ -2,6 +2,7 @@ package common
 
 import (
 	"context"
+	"crypto/subtle"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -14,25 +15,40 @@ import (
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
+type HTTPServerOption func(*HTTPServer)
+
+func WithBearerToken(token string) HTTPServerOption {
+	return func(h *HTTPServer) {
+		h.bearerToken = strings.TrimSpace(token)
+	}
+}
+
 // HTTPServer exposes the MCP JSON-RPC protocol over Streamable HTTP (POST /mcp).
 // Multiple Claude CLI instances can connect to the same endpoint concurrently,
 // eliminating the need for per-agent stdio sidecar processes.
 type HTTPServer struct {
-	name    string
-	version string
-	tools   ToolProvider
-	server  *http.Server
+	name        string
+	version     string
+	tools       ToolProvider
+	server      *http.Server
+	bearerToken string
 }
 
 // NewHTTPServer creates an MCP server that speaks Streamable HTTP transport.
-func NewHTTPServer(name, version string, tools ToolProvider) *HTTPServer {
+func NewHTTPServer(name, version string, tools ToolProvider, opts ...HTTPServerOption) *HTTPServer {
 	if strings.TrimSpace(name) == "" {
 		name = "mcp-server"
 	}
 	if strings.TrimSpace(version) == "" {
 		version = "dev"
 	}
-	return &HTTPServer{name: name, version: version, tools: tools}
+	h := &HTTPServer{name: name, version: version, tools: tools}
+	for _, opt := range opts {
+		if opt != nil {
+			opt(h)
+		}
+	}
+	return h
 }
 
 // Start binds to listenAddr (use "127.0.0.1:0" for dynamic port) and begins
@@ -85,6 +101,10 @@ func (h *HTTPServer) handleMCP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
+	if !h.authorized(r) {
+		w.WriteHeader(http.StatusUnauthorized)
+		return
+	}
 	defer r.Body.Close()
 	body, err := io.ReadAll(io.LimitReader(r.Body, 10*1024*1024)) // 10MB limit
 	if err != nil {
@@ -110,6 +130,20 @@ func (h *HTTPServer) handleMCP(w http.ResponseWriter, r *http.Request) {
 		pkglogger.Warn("mcp http: write response failed",
 			"server", h.name, "error", err)
 	}
+}
+
+func (h *HTTPServer) authorized(r *http.Request) bool {
+	token := strings.TrimSpace(h.bearerToken)
+	if token == "" {
+		return true
+	}
+	header := strings.TrimSpace(r.Header.Get("Authorization"))
+	const prefix = "Bearer "
+	if !strings.HasPrefix(header, prefix) {
+		return false
+	}
+	got := strings.TrimSpace(strings.TrimPrefix(header, prefix))
+	return subtle.ConstantTimeCompare([]byte(got), []byte(token)) == 1
 }
 
 func (h *HTTPServer) dispatch(ctx context.Context, req jsonRPCRequest) *jsonRPCResponse {

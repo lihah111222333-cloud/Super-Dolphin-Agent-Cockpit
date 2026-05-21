@@ -113,7 +113,12 @@ func lookupEntry(root, name, filePath string, indexEntries []indexEntry) (diskEn
 		if err != nil {
 			return diskEntry{}, false, fmt.Errorf("%w: invalid path", contract.ErrMemoryInvalidParam)
 		}
-		entry, err := readEntryFile(validated)
+		rootReal, readPath, err := prepareEntryReadTarget(root, validated)
+		if err != nil {
+			return diskEntry{}, false, err
+		}
+		afterMemoryEntryPathValidation(validated)
+		entry, err := readScannedEntryFile(rootReal, readPath, validated)
 		if errors.Is(err, os.ErrNotExist) {
 			return diskEntry{}, false, nil
 		}

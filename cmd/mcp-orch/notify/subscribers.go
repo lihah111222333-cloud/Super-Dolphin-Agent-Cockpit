@@ -22,6 +22,23 @@ import (
 // so fx.Lifecycle.OnStop never hangs on a stuck store query.
 const dagNotifyDrainGrace = 10 * time.Second
 
+const defaultDAGNotifyQueueCapacity = 1024
+
+// dagNotifyProcessTimeout bounds each worker lookup cycle so one stuck
+// store call cannot permanently block later DAG notifications.
+const dagNotifyProcessTimeout = 5 * time.Second
+
+type DAGNotifierOption func(*DAGNotifier)
+
+func WithDAGNotifyQueueCapacity(capacity int) DAGNotifierOption {
+	if capacity <= 0 {
+		panic("notify(orch): dag notifier queue capacity must be positive")
+	}
+	return func(n *DAGNotifier) {
+		n.queueCapacity = capacity
+	}
+}
+
 // dagNotifyRequest is the unit of work enqueued by the bus callback.
 type dagNotifyRequest struct {
 	ev taskdto.TaskNodeStatusChanged
@@ -36,8 +53,9 @@ type DAGNotifier struct {
 	notifier contract.MessageNotifier
 	store    taskdag.Store
 
-	mu    sync.Mutex
-	queue []dagNotifyRequest
+	mu            sync.Mutex
+	queue         []dagNotifyRequest
+	queueCapacity int
 
 	wake chan struct{}
 
@@ -49,23 +67,31 @@ type DAGNotifier struct {
 	skipped       atomic.Int64
 	enqueueErrors atomic.Int64
 	enqueued      atomic.Int64
+	dropped       atomic.Int64
 }
 
 // NewDAGNotifier wires the orch-side DAG notifier. A nil store is
 // tolerated (the subscribers then log + drop every event) so the app
 // still boots when the workspace setup doesn't include taskdag.
-func NewDAGNotifier(logger *slog.Logger, notifier contract.MessageNotifier, store taskdag.Store) *DAGNotifier {
+func NewDAGNotifier(logger *slog.Logger, notifier contract.MessageNotifier, store taskdag.Store, opts ...DAGNotifierOption) *DAGNotifier {
 	if logger == nil {
 		logger = pkglogger.Get()
 	}
-	return &DAGNotifier{
-		logger:   logger,
-		notifier: notifier,
-		store:    store,
-		wake:     make(chan struct{}, 1),
-		stopCh:   make(chan struct{}),
-		doneCh:   make(chan struct{}),
+	n := &DAGNotifier{
+		logger:        logger,
+		notifier:      notifier,
+		store:         store,
+		queueCapacity: defaultDAGNotifyQueueCapacity,
+		wake:          make(chan struct{}, 1),
+		stopCh:        make(chan struct{}),
+		doneCh:        make(chan struct{}),
 	}
+	for _, opt := range opts {
+		if opt != nil {
+			opt(n)
+		}
+	}
+	return n
 }
 
 // Start spawns the worker goroutine. Idempotent.
@@ -124,7 +150,9 @@ func (n *DAGNotifier) Run(ctx context.Context) error {
 	}
 	n.Start()
 	<-ctx.Done()
-	return n.Stop(ctx)
+	cleanupCtx, cancel := ctxutil.WithTimeout(context.Background(), dagNotifyDrainGrace)
+	defer cancel()
+	return n.Stop(cleanupCtx)
 }
 
 // Subscribe registers the orch bus subscribers. Returns a cancel that
@@ -165,6 +193,15 @@ func (n *DAGNotifier) onNodeStatusChanged(ev taskdto.TaskNodeStatusChanged) {
 	default:
 	}
 	n.mu.Lock()
+	if len(n.queue) >= n.queueCapacity {
+		n.mu.Unlock()
+		n.dropped.Add(1)
+		n.logger.Warn("notify(orch): dag notifier queue full; dropping event",
+			slog.String("dag_key", strings.TrimSpace(ev.DagKey)),
+			slog.String("node_key", strings.TrimSpace(ev.NodeKey)),
+		)
+		return
+	}
 	n.queue = append(n.queue, dagNotifyRequest{ev: ev})
 	n.mu.Unlock()
 	select {
@@ -178,7 +215,8 @@ func (n *DAGNotifier) onNodeStatusChanged(ev taskdto.TaskNodeStatusChanged) {
 func (n *DAGNotifier) processEvent(ev taskdto.TaskNodeStatusChanged) {
 	dagKey := strings.TrimSpace(ev.DagKey)
 	nodeKey := strings.TrimSpace(ev.NodeKey)
-	ctx := context.Background()
+	ctx, cancel := ctxutil.WithTimeout(context.Background(), dagNotifyProcessTimeout)
+	defer cancel()
 	node := n.findNode(ctx, dagKey, nodeKey)
 	dag := n.getDAG(ctx, dagKey)
 	alias := resolveNodeAlias(node, dag)
@@ -334,6 +372,7 @@ type Metrics struct {
 	Skipped       int64
 	Enqueued      int64
 	EnqueueErrors int64
+	Dropped       int64
 }
 
 // Metrics returns a snapshot of subscriber counters.
@@ -345,5 +384,6 @@ func (n *DAGNotifier) Metrics() Metrics {
 		Skipped:       n.skipped.Load(),
 		Enqueued:      n.enqueued.Load(),
 		EnqueueErrors: n.enqueueErrors.Load(),
+		Dropped:       n.dropped.Load(),
 	}
 }

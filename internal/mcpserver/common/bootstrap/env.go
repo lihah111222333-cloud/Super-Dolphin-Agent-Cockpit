@@ -50,6 +50,10 @@ func ReadBootConfig() Config {
 	}
 }
 
+func SessionTokenFromEnv() string {
+	return firstEnv("GO_AGENT_CTL_SESSION_TOKEN", "GO_AGENT_MCP_SESSION_TOKEN")
+}
+
 func normalizeConfig(cfg Config) (Config, bootSnapshot) {
 	boot := parseBootSnapshot(cfg.BootSnapshot)
 	cfg.RPCAddr = strings.TrimSpace(cfg.RPCAddr)

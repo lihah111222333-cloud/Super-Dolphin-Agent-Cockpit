@@ -2,6 +2,8 @@ package memory
 
 import (
 	"encoding/json"
+	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -9,9 +11,12 @@ import (
 	"strings"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
+	platformshared "github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 	"golang.org/x/text/cases"
 	"golang.org/x/text/unicode/norm"
 )
+
+var afterMemoryEntryPathValidation = func(string) {}
 
 func canonicalName(raw string) string {
 	folded := cases.Fold().String(norm.NFC.String(strings.TrimSpace(raw)))
@@ -24,15 +29,24 @@ func scanEntries(root string) ([]diskEntry, error) {
 	} else if err != nil {
 		return nil, err
 	}
+	rootReal, err := resolveRealPath(root)
+	if err != nil {
+		return nil, err
+	}
 	entries := make([]diskEntry, 0, 16)
-	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, walkErr error) error {
-		if walkErr != nil || d.IsDir() {
+	err = filepath.WalkDir(root, func(path string, d fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
 			return walkErr
 		}
-		if filepath.Ext(path) != ".md" || filepath.Base(path) == memoryIndexFileName {
+		if d.IsDir() || !isMemoryEntryCandidate(path) {
 			return nil
 		}
-		entry, err := readEntryFile(path)
+		readPath, err := validateScannedEntry(rootReal, path, d)
+		if err != nil {
+			return err
+		}
+		afterMemoryEntryPathValidation(path)
+		entry, err := readScannedEntryFile(rootReal, readPath, path)
 		if err != nil {
 			return err
 		}
@@ -46,6 +60,49 @@ func scanEntries(root string) ([]diskEntry, error) {
 	return entries, nil
 }
 
+func isMemoryEntryCandidate(path string) bool {
+	return filepath.Ext(path) == ".md" && filepath.Base(path) != memoryIndexFileName
+}
+
+func validateScannedEntry(rootReal, path string, d fs.DirEntry) (string, error) {
+	if d.Type()&fs.ModeSymlink != 0 {
+		return "", fmt.Errorf("%w: memory entry %q is a symlink", contract.ErrMemoryInvalidParam, path)
+	}
+	info, err := os.Lstat(path)
+	if err != nil {
+		return "", err
+	}
+	if info.Mode()&fs.ModeSymlink != 0 {
+		return "", fmt.Errorf("%w: memory entry %q is a symlink", contract.ErrMemoryInvalidParam, path)
+	}
+	if !info.Mode().IsRegular() {
+		return "", fmt.Errorf("%w: memory entry %q is not a regular file", contract.ErrMemoryInvalidParam, path)
+	}
+	pathReal, err := resolveRealPath(path)
+	if err != nil {
+		return "", err
+	}
+	if !platformshared.ContainsPath(rootReal, pathReal) {
+		return "", fmt.Errorf("%w: memory entry %q escapes root", contract.ErrMemoryInvalidParam, path)
+	}
+	return pathReal, nil
+}
+
+func prepareEntryReadTarget(root, path string) (string, string, error) {
+	rootReal, err := resolveRealPath(root)
+	if err != nil {
+		return "", "", err
+	}
+	pathReal, err := resolveRealPath(path)
+	if err != nil {
+		return "", "", err
+	}
+	if !platformshared.ContainsPath(rootReal, pathReal) {
+		return "", "", fmt.Errorf("%w: memory entry %q escapes root", contract.ErrMemoryInvalidParam, path)
+	}
+	return rootReal, pathReal, nil
+}
+
 func readEntryFile(path string) (diskEntry, error) {
 	content, err := os.ReadFile(path)
 	if err != nil {
@@ -55,6 +112,46 @@ func readEntryFile(path string) (diskEntry, error) {
 	if err != nil {
 		return diskEntry{}, err
 	}
+	return parseEntryFile(path, content, info)
+}
+
+func readScannedEntryFile(rootReal, readPath, sourcePath string) (diskEntry, error) {
+	info, err := os.Lstat(readPath)
+	if err != nil {
+		return diskEntry{}, err
+	}
+	if info.Mode()&fs.ModeSymlink != 0 {
+		return diskEntry{}, fmt.Errorf("%w: memory entry %q is a symlink", contract.ErrMemoryInvalidParam, sourcePath)
+	}
+	rel, err := filepath.Rel(rootReal, readPath)
+	if err != nil {
+		return diskEntry{}, err
+	}
+	root, err := os.OpenRoot(rootReal)
+	if err != nil {
+		return diskEntry{}, err
+	}
+	defer root.Close()
+	file, err := root.Open(rel)
+	if err != nil {
+		return diskEntry{}, fmt.Errorf("%w: memory entry %q escapes root: %v", contract.ErrMemoryInvalidParam, sourcePath, err)
+	}
+	defer file.Close()
+	info, err = file.Stat()
+	if err != nil {
+		return diskEntry{}, err
+	}
+	if !info.Mode().IsRegular() {
+		return diskEntry{}, fmt.Errorf("%w: memory entry %q is not a regular file", contract.ErrMemoryInvalidParam, sourcePath)
+	}
+	content, err := io.ReadAll(file)
+	if err != nil {
+		return diskEntry{}, err
+	}
+	return parseEntryFile(sourcePath, content, info)
+}
+
+func parseEntryFile(path string, content []byte, info fs.FileInfo) (diskEntry, error) {
 	frontmatter, body, ok := splitFrontmatter(string(content))
 	entry := contract.MemoryEntry{Content: strings.TrimSpace(body), SourcePath: path, UpdatedAt: info.ModTime()}
 	if ok {

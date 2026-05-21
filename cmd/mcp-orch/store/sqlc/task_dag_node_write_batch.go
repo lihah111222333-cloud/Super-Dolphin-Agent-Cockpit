@@ -26,8 +26,8 @@ type BatchUpsertTaskDagNodesParams struct {
 
 // batchUpsertTaskDagNodes is a single multi-row INSERT … ON CONFLICT statement
 // that does the equivalent of N UpsertTaskDagNode calls in 1 round-trip.
-// UNNEST aligns the 8 array params element-wise; ON CONFLICT (dag_key, node_key)
-// matches the existing uq_task_dag_nodes_dag_node UNIQUE constraint.
+// UNNEST aligns the 8 array params element-wise; ON CONFLICT targets the
+// template-node partial unique index from migration 0089.
 //
 // Casts ($6::jsonb[], $8::jsonb[]) match UpsertTaskDagNode's $6::jsonb /
 // $8::jsonb (jsonb[] is the array form). The text[] casts on $1..$5,$7 are
@@ -44,7 +44,7 @@ SELECT * FROM UNNEST(
     $7::text[],
     $8::jsonb[]
 )
-ON CONFLICT (dag_key, node_key) DO UPDATE
+ON CONFLICT (dag_key, node_key) WHERE run_id IS NULL DO UPDATE
 SET title = EXCLUDED.title,
     node_type = EXCLUDED.node_type,
     assigned_to = EXCLUDED.assigned_to,

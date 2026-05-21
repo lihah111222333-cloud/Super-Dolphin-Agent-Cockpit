@@ -113,6 +113,28 @@ func TestBuildManifest_StdioOnlyIgnoresHTTPDiscovery(t *testing.T) {
 	}
 }
 
+func TestBuildManifest_UsesPeerHTTPAuthHeader(t *testing.T) {
+	got := manifestbuilder.BuildManifest(dto.ManifestContext{
+		PeerHTTPAddrs: map[dto.ToolFamily]string{
+			dto.FamilyLSP:  "127.0.0.1:39002",
+			dto.FamilyOrch: "127.0.0.1:39003",
+		},
+		PeerHTTPTokens: map[dto.ToolFamily]string{
+			dto.FamilyLSP: "lsp-token",
+		},
+	})
+
+	lsp := requireManifestBinary(t, got, "lsp")
+	require.Equal(t, "http", lsp.Type)
+	require.Equal(t, "http://127.0.0.1:39002/mcp", lsp.URL)
+	require.Equal(t, map[string]string{"Authorization": "Bearer lsp-token"}, lsp.Headers)
+
+	orch := requireManifestBinary(t, got, "orch")
+	require.Equal(t, "http", orch.Type)
+	require.Equal(t, "http://127.0.0.1:39003/mcp", orch.URL)
+	require.Empty(t, orch.Headers)
+}
+
 func TestBuildManifest_DoesNotInjectAgentIDEnvWhenAgentIDIsSet(t *testing.T) {
 	got := manifestbuilder.BuildManifest(dto.ManifestContext{
 		AgentID:     "agent-42",

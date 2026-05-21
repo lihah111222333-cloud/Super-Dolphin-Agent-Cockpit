@@ -30,7 +30,7 @@ func discoveryPath(binaryName string, parentPID int) string {
 func WriteDiscoveryFile(binaryName string, parentPID int, addr string) error {
 	path := discoveryPath(binaryName, parentPID)
 	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, []byte(strings.TrimSpace(addr)+"\n"), 0o644); err != nil {
+	if err := os.WriteFile(tmp, []byte(strings.TrimSpace(addr)+"\n"), 0o600); err != nil {
 		return err
 	}
 	return os.Rename(tmp, path)
@@ -60,17 +60,25 @@ func CleanupDiscoveryFile(binaryName string, parentPID int) error {
 // discovery is fail-closed: if the address cannot answer a short MCP ping, the
 // discovery file is removed and no address is returned.
 func DiscoverPeerHTTPAddr(binaryName string) (string, error) {
-	return DiscoverPeerHTTPAddrForParent(binaryName, os.Getpid())
+	return DiscoverPeerHTTPAddrWithToken(binaryName, "")
+}
+
+func DiscoverPeerHTTPAddrWithToken(binaryName, token string) (string, error) {
+	return DiscoverPeerHTTPAddrForParentWithToken(binaryName, os.Getpid(), token)
 }
 
 // DiscoverPeerHTTPAddrForParent is the parent-PID-aware form used by tests and
 // parent processes that need to inspect a specific discovery file.
 func DiscoverPeerHTTPAddrForParent(binaryName string, parentPID int) (string, error) {
+	return DiscoverPeerHTTPAddrForParentWithToken(binaryName, parentPID, "")
+}
+
+func DiscoverPeerHTTPAddrForParentWithToken(binaryName string, parentPID int, token string) (string, error) {
 	addr, err := ReadDiscoveryAddr(binaryName, parentPID)
 	if err != nil {
 		return "", err
 	}
-	if err := ProbePeerHTTPAddr(addr); err != nil {
+	if err := ProbePeerHTTPAddrWithToken(addr, token); err != nil {
 		_ = CleanupDiscoveryFile(binaryName, parentPID)
 		return "", err
 	}
@@ -79,13 +87,21 @@ func DiscoverPeerHTTPAddrForParent(binaryName string, parentPID int) (string, er
 
 // ProbePeerHTTPAddr verifies that addr speaks the MCP HTTP ping endpoint.
 func ProbePeerHTTPAddr(addr string) error {
+	return ProbePeerHTTPAddrWithToken(addr, "")
+}
+
+func ProbePeerHTTPAddrWithToken(addr, token string) error {
 	addr = strings.TrimSpace(addr)
 	if !IsValidHTTPAddr(addr) {
 		return fmt.Errorf("invalid peer HTTP address %q", addr)
 	}
 	body := bytes.NewBufferString(`{"jsonrpc":"2.0","id":1,"method":"ping"}`)
 	client := &http.Client{Timeout: peerHealthProbeTimeout}
-	resp, err := client.Post("http://"+addr+"/mcp", "application/json", body)
+	req, err := newPeerProbeRequest(addr, token, body)
+	if err != nil {
+		return err
+	}
+	resp, err := client.Do(req)
 	if err != nil {
 		return err
 	}
@@ -110,6 +126,18 @@ func ProbePeerHTTPAddr(addr string) error {
 		return fmt.Errorf("peer health probe unhealthy response")
 	}
 	return nil
+}
+
+func newPeerProbeRequest(addr, token string, body io.Reader) (*http.Request, error) {
+	req, err := http.NewRequest(http.MethodPost, "http://"+addr+"/mcp", body)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	if token = strings.TrimSpace(token); token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
+	}
+	return req, nil
 }
 
 // WritePeerDiscovery writes the discovery file using the current process's

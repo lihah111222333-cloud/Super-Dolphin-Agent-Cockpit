@@ -2,11 +2,14 @@ package main
 
 import (
 	"context"
+	"errors"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/tools"
 	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/common"
+	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/common/bootstrap"
 	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/discovery"
 	platformrunner "github.com/anthropic-ai/super-agent-v3/internal/platform/runner"
@@ -15,10 +18,13 @@ import (
 
 const httpBinaryName = "mcp-orch"
 
+var errOrchHTTPSessionTokenRequired = errors.New("mcp-orch http: GO_AGENT_CTL_SESSION_TOKEN or GO_AGENT_MCP_SESSION_TOKEN required in peer mode")
+
 // httpRunner starts an HTTP MCP endpoint in peer mode so that
 // multiple Claude CLI agents can share a single mcp-orch process.
 type httpRunner struct {
-	tools common.ToolProvider
+	tools       common.ToolProvider
+	bearerToken string
 }
 
 func newHTTPRunner(registry tools.Registry) platformrunner.Runner {
@@ -26,7 +32,10 @@ func newHTTPRunner(registry tools.Registry) platformrunner.Runner {
 		// Non-peer mode: return a runner that blocks until context done.
 		return blockRunner{}
 	}
-	return &httpRunner{tools: registryToolProvider{registry: registry}}
+	return &httpRunner{
+		tools:       registryToolProvider{registry: registry},
+		bearerToken: bootstrap.SessionTokenFromEnv(),
+	}
 }
 
 // blockRunner is a no-op runner that blocks until its context is cancelled.
@@ -38,7 +47,10 @@ func (blockRunner) Run(ctx context.Context) error {
 }
 
 func (r *httpRunner) Run(ctx context.Context) error {
-	srv := common.NewHTTPServer(httpBinaryName, "dev", r.tools)
+	if strings.TrimSpace(r.bearerToken) == "" {
+		return errOrchHTTPSessionTokenRequired
+	}
+	srv := common.NewHTTPServer(httpBinaryName, "dev", r.tools, common.WithBearerToken(r.bearerToken))
 	addr, err := srv.Start(ctx, "127.0.0.1:0")
 	if err != nil {
 		pkglogger.Warn("mcp-orch http: start failed", "error", err)

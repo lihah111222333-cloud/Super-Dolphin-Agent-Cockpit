@@ -5,6 +5,7 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
+	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/common/bootstrap"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/discovery"
 )
 
@@ -21,6 +22,7 @@ func newManifestBuilder(binaryDir string, buildFn contract.ManifestBuildFunc) *m
 }
 
 func (b *manifestBuilder) Build(input PrepareInput, threadID string) dto.MCPManifest {
+	peerAddrs, peerTokens := discoverPeers()
 	return b.buildFn(dto.ManifestContext{
 		AgentID:                      input.AgentID,
 		ThreadID:                     threadID,
@@ -28,6 +30,8 @@ func (b *manifestBuilder) Build(input PrepareInput, threadID string) dto.MCPMani
 		AdditionalWorkingDirectories: append([]string(nil), input.AdditionalWorkingDirectories...),
 		ThreadCaps:                   input.ThreadCaps,
 		BinaryDir:                    b.binaryDirFor(input.BinaryDir),
+		PeerHTTPAddrs:                peerAddrs,
+		PeerHTTPTokens:               peerTokens,
 		TransportMode:                dto.ManifestTransportStdioOnly,
 	})
 }
@@ -39,18 +43,26 @@ func (b *manifestBuilder) binaryDirFor(binaryDir string) string {
 	return strings.TrimSpace(b.binaryDir)
 }
 
-// discoverPeers probes for running peer HTTP endpoints. Returns nil if none.
-func discoverPeers() map[dto.ToolFamily]string {
+// discoverPeers probes for running peer HTTP endpoints. Returns nil maps if none.
+func discoverPeers() (map[dto.ToolFamily]string, map[dto.ToolFamily]string) {
+	token := bootstrap.SessionTokenFromEnv()
 	addrs := make(map[dto.ToolFamily]string)
+	tokens := make(map[dto.ToolFamily]string)
 	for _, fam := range []dto.ToolFamily{dto.FamilyLSP, dto.FamilyOrch} {
-		addr, err := discovery.DiscoverPeerHTTPAddr("mcp-" + string(fam))
+		addr, err := discovery.DiscoverPeerHTTPAddrWithToken("mcp-"+string(fam), token)
 		if err != nil || addr == "" {
 			continue
 		}
 		addrs[fam] = addr
+		if token != "" {
+			tokens[fam] = token
+		}
 	}
 	if len(addrs) == 0 {
-		return nil
+		return nil, nil
 	}
-	return addrs
+	if len(tokens) == 0 {
+		return addrs, nil
+	}
+	return addrs, tokens
 }
