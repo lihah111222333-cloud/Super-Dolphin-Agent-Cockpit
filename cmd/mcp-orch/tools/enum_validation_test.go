@@ -168,10 +168,10 @@ func TestUpdateNodeRequestFromInput_EnumValidation(t *testing.T) {
 }
 
 // TestValidateLaunchProvider_EnumValidation 覆盖 provider 4 个 case。
-// 空串 → 返空（下游默认 codex），与其他 enum 字段不同。
+// 空串 → codex，与其他 enum 字段不同。
 //
 // TestValidateLaunchProvider_EnumValidation covers four provider cases.
-// Empty input returns empty (downstream defaults to codex).
+// Empty input returns codex.
 func TestValidateLaunchProvider_EnumValidation(t *testing.T) {
 	cases := []struct {
 		name        string
@@ -181,8 +181,8 @@ func TestValidateLaunchProvider_EnumValidation(t *testing.T) {
 	}{
 		{name: "valid-codex", raw: "codex", wantPayload: "codex"},
 		{name: "valid-claude-uppercase", raw: "CLAUDE", wantPayload: "claude"},
-		{name: "empty-ok", raw: "", wantPayload: ""},
-		{name: "whitespace-ok", raw: "   ", wantPayload: ""},
+		{name: "empty-ok", raw: "", wantPayload: "codex"},
+		{name: "whitespace-ok", raw: "   ", wantPayload: "codex"},
 		{name: "invalid", raw: "openai", wantErr: "provider"},
 	}
 	for _, tc := range cases {

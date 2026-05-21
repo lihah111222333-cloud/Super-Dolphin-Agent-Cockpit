@@ -275,7 +275,7 @@ func TestHookConsumerAfter_TurnCompletedAdvancesDAGNodeFromHook(t *testing.T) {
 		NodeKey:  "node-1",
 		NodeType: "agent",
 		Status:   "running",
-		Config:   json.RawMessage(`{"exec":{"agent_key":"source_monitor"},"outputs":{"to_node_result":true}}`),
+		Config:   json.RawMessage(`{"exec":{"agent_key":"source_monitor","cwd":"/tmp/node-cwd"},"outputs":{"to_node_result":true}}`),
 	}}}
 	flow := &dagSubscriberFlowSpy{}
 	events := []string{}
@@ -341,7 +341,7 @@ func TestHookConsumerAfter_TurnInterruptedAdvancesDAGNodeFromHook(t *testing.T) 
 		NodeKey:  "node-1",
 		NodeType: "agent",
 		Status:   "running",
-		Config:   json.RawMessage(`{"exec":{"agent_key":"source_monitor"},"outputs":{"to_node_result":true}}`),
+		Config:   json.RawMessage(`{"exec":{"agent_key":"source_monitor","cwd":"/tmp/node-cwd"},"outputs":{"to_node_result":true}}`),
 	}}}
 	flow := &dagSubscriberFlowSpy{}
 	events := []string{}

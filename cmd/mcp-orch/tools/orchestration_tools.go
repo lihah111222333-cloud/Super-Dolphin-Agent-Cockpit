@@ -291,7 +291,7 @@ func orchestrationToolDefinitions(svc contract.OrchestrationService) []ToolDefin
 			"agent_key":    StringSchema("Optional router agent_key. When set, thread/start looks up the matching prompt_template and injects its prompt_text as base_instructions."),
 			"memory_scope": EnumStringSchema("Optional child-agent scope metadata for launches.", "project", "user", "local"),
 
-			"cwd":            StringSchema("Optional working directory for the launched agent."),
+			"cwd":            StringSchema("Optional only when parent_id resolves to an existing parent agent with cwd; otherwise required. Use an explicit absolute project or workspace path."),
 			"provider":       EnumStringSchema("Provider for the launched agent. Defaults to codex when omitted.", launchAgentProviderEnum...),
 			"model":          StringSchema("Optional model identifier for the launched agent (e.g. 'sonnet', 'opus', 'claude-opus-4-7[1m]'). When omitted, the provider falls back to its own default (for claude: ~/.claude/settings.json `model`)."),
 			"effort":         StringSchema("Optional reasoning effort for the launched agent (e.g. xhigh/high/medium/low for codex, max/high/medium/low for claude)."),
@@ -356,7 +356,7 @@ func launchRequestFromExecutable(in LaunchAgentInput, exe string) (contract.Laun
 		AgentType:   strings.TrimSpace(in.AgentType),
 		AgentKey:    strings.TrimSpace(in.AgentKey),
 		MemoryScope: memoryScope,
-		Cwd:         strings.TrimSpace(in.CWD),
+		Cwd:         in.CWD,
 		Command:     []string{strings.TrimSpace(exe)},
 		Env:         launchEnv(provider, strings.TrimSpace(in.Model), strings.TrimSpace(in.Effort)),
 		Language:    strings.TrimSpace(in.Language),
@@ -368,15 +368,15 @@ func launchRequestFromExecutable(in LaunchAgentInput, exe string) (contract.Laun
 }
 
 func validateLaunchProvider(raw string) (string, error) {
-	// provider 可选；空串/纯空白 → 返空（下游默认 codex）。
+	// provider 可选；空串/纯空白 → codex。
 	// 非空时走 requireEnum 与 launchAgentProviderEnum 校验（单源驱动）。
 	//
-	// provider is optional; empty/whitespace returns empty so the downstream
-	// defaults to codex. Non-empty values are validated by requireEnum against
-	// launchAgentProviderEnum (single source of truth shared with the schema).
+	// provider is optional; empty/whitespace defaults to codex. Non-empty values
+	// are validated by requireEnum against launchAgentProviderEnum (single source
+	// of truth shared with the schema).
 	lower := strings.ToLower(strings.TrimSpace(raw))
 	if lower == "" {
-		return "", nil
+		return "codex", nil
 	}
 	return requireEnum(lower, "provider", launchAgentProviderEnum)
 }

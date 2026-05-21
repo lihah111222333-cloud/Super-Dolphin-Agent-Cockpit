@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"os"
 	"strings"
+
+	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 )
 
 // ToolErrorEnvelope is the machine-readable tool error payload returned from
@@ -177,6 +179,52 @@ var toolErrorClassifiers = []toolErrorClassifier{
 		},
 	},
 	{
+		code: "cwd_required",
+		hint: staticToolHint("Pass a non-empty cwd, or pass parent_id for an existing parent agent with cwd."),
+		match: func(err error, message string, toolName string) bool {
+			return isLaunchAgentTool(toolName) && (errors.Is(err, contract.ErrLaunchCWDRequired) ||
+				strings.Contains(message, "launch_agent cwd is required") ||
+				strings.Contains(message, "thread start cwd is required"))
+		},
+	},
+	{
+		code: "cwd_invalid",
+		hint: staticToolHint("Pass an explicit absolute cwd path; dot and relative cwd are not accepted."),
+		match: func(err error, message string, toolName string) bool {
+			return isLaunchAgentTool(toolName) && (errors.Is(err, contract.ErrLaunchCWDInvalid) ||
+				strings.Contains(message, "cwd must be explicit") ||
+				strings.Contains(message, "cwd must be an absolute path"))
+		},
+	},
+	{
+		code: "provider_required",
+		hint: staticToolHint("Pass provider as codex or claude, or use launch_agent without provider so the tool can default it to codex."),
+		match: func(_ error, message string, toolName string) bool {
+			return isLaunchAgentTool(toolName) && strings.Contains(message, "provider is required")
+		},
+	},
+	{
+		code: "provider_invalid",
+		hint: staticToolHint("Pass provider as codex or claude."),
+		match: func(_ error, message string, toolName string) bool {
+			return isLaunchAgentTool(toolName) && strings.Contains(message, "invalid provider")
+		},
+	},
+	{
+		code: "task_handoff_invalid",
+		hint: staticToolHint("Use task handoff only with a parent thread that has task metadata, or launch a plain child without task handoff metadata."),
+		match: func(_ error, message string, toolName string) bool {
+			return isLaunchAgentTool(toolName) && isTaskHandoffInvalidMessage(message)
+		},
+	},
+	{
+		code: "launch_request_invalid",
+		hint: staticToolHint("Fix the launch_agent arguments and retry; required fields must be non-empty and enum values must be supported."),
+		match: func(_ error, message string, toolName string) bool {
+			return isLaunchAgentTool(toolName) && isLaunchRequestInvalidMessage(message)
+		},
+	},
+	{
 		code: "dependency_missing",
 		hint: staticToolHint("Install ast-grep or ensure sg is available in PATH."),
 		match: func(_ error, message string, _ string) bool {
@@ -247,8 +295,34 @@ var toolErrorClassifiers = []toolErrorClassifier{
 	},
 }
 
+func isTaskHandoffInvalidMessage(message string) bool {
+	if strings.Contains(message, "root task id missing") ||
+		strings.Contains(message, "task handoff title is required") ||
+		strings.Contains(message, "task handoff file is required") {
+		return true
+	}
+	return strings.Contains(message, "task handoff config") &&
+		(strings.Contains(message, "must be a string") || strings.Contains(message, "must be a bool"))
+}
+
+func isLaunchRequestInvalidMessage(message string) bool {
+	return strings.Contains(message, " is required") ||
+		strings.Contains(message, "invalid memory_scope") ||
+		strings.Contains(message, "invalid agent") ||
+		strings.Contains(message, "must be project, user, or local")
+}
+
 func staticToolHint(value string) func(string, string) string {
 	return func(string, string) string { return value }
+}
+
+func isLaunchAgentTool(toolName string) bool {
+	switch strings.ToLower(strings.TrimSpace(toolName)) {
+	case "launch_agent", "orchestration_launch_agent":
+		return true
+	default:
+		return false
+	}
 }
 
 func firstNonEmptyString(values ...string) string {

@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+
+	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 )
 
 // AutomationKindCommandCard 是当前唯一实装的 automation.kind 取值（ADR-007 §6 登记表）。
@@ -79,6 +81,7 @@ type AgentExecConfig struct {
 	Provider      string           `json:"provider,omitempty"`      // claude | codex
 	Model         string           `json:"model,omitempty"`         // opus | sonnet | ...
 	AgentKey      string           `json:"agent_key,omitempty"`     // 查 prompt_templates 表
+	CWD           string           `json:"cwd,omitempty"`           // explicit absolute launch cwd
 	Effort        string           `json:"effort,omitempty"`        // xhigh | high | medium | low
 	Language      string           `json:"language,omitempty"`      // zh | en
 	Isolation     string           `json:"isolation,omitempty"`     // shared (默认) | worktree
@@ -172,6 +175,31 @@ func ParseNodeConfig(nodeType string, raw json.RawMessage) (*ParsedNodeConfig, e
 		return &ParsedNodeConfig{NodeType: nodeType, Hybrid: cfg}, nil
 	default:
 		return nil, fmt.Errorf("%w: %q (allowed: agent | automation | hybrid)", ErrUnknownNodeType, nodeType)
+	}
+}
+
+func ValidateLaunchCWDForNodeConfig(nodeType string, raw json.RawMessage) (string, error) {
+	parsed, err := ParseNodeConfig(nodeType, raw)
+	if err != nil {
+		return "", fmt.Errorf("%w: parse node config for launch cwd: %v", contract.ErrLaunchCWDRequired, err)
+	}
+	cwd := launchCWDFromParsedConfig(parsed)
+	if err := contract.ValidateLaunchCWD(cwd, ""); err != nil {
+		return "", err
+	}
+	return cwd, nil
+}
+
+func launchCWDFromParsedConfig(parsed *ParsedNodeConfig) string {
+	switch {
+	case parsed == nil:
+		return ""
+	case parsed.Agent != nil:
+		return parsed.Agent.Exec.CWD
+	case parsed.Hybrid != nil && parsed.Hybrid.Exec.Verifier != nil:
+		return parsed.Hybrid.Exec.Verifier.CWD
+	default:
+		return ""
 	}
 }
 

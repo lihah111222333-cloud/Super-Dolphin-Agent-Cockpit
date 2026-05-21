@@ -175,25 +175,9 @@ func (e *AgentExecutor) Execute(ctx context.Context, node Node, runCtx RunContex
 		return *failure, nil
 	}
 
-	// 2. 形状校验：agent_key 是 launcher 路由 prompt template 的关键字段，
-	//    缺它即 validation 失败（与 ADR 0001 §2.10 enum/必填基线对齐）。
-	if strings.TrimSpace(cfg.Exec.AgentKey) == "" {
-		err := errors.New("agent_key required in node.config.exec")
-		return NodeOutcome{
-			Status:       NodeStatusFailed,
-			FailureClass: FailureClassValidation,
-			ErrorSummary: err.Error(),
-		}, nil
+	if failure := normalizeAgentLaunchConfig(cfg); failure != nil {
+		return *failure, nil
 	}
-	provider, providerErr := validateAgentLaunchProvider(cfg.Exec.Provider)
-	if providerErr != nil {
-		return NodeOutcome{
-			Status:       NodeStatusFailed,
-			FailureClass: FailureClassValidation,
-			ErrorSummary: truncateErrSummary(providerErr.Error()),
-		}, nil
-	}
-	cfg.Exec.Provider = provider
 
 	// 3. F1.2 Inputs 装载：拉取 prev nodes result + sharedfiles 作为 prompt 前缀。
 	//    任一环节失败 → 如果指向 missing node_key / sharedfile path 则 validation；
@@ -229,6 +213,10 @@ func (e *AgentExecutor) Execute(ctx context.Context, node Node, runCtx RunContex
 		return finalizeAgentLaunchOutcome(e.spawnWriteback(ctx, node, runCtx, threadID)), nil
 	}
 
+	if failure := agentLaunchCWDValidationFailure(launchErr); failure != nil {
+		return *failure, nil
+	}
+
 	// 7. 失败 → 分类。F1.4 智能重试 dispatcher 据此查 cfg.Exec.OnFailure.ByClass。
 	class := classifyAgentLaunchError(launchErr)
 	return NodeOutcome{
@@ -257,6 +245,27 @@ func (e *AgentExecutor) HasSpawnRecorder() bool {
 
 var agentOutputsForbiddenKeys = []string{"webhook_url", "command_ref"}
 
+func normalizeAgentLaunchConfig(cfg *AgentNodeConfig) *NodeOutcome {
+	if strings.TrimSpace(cfg.Exec.AgentKey) == "" {
+		err := errors.New("agent_key required in node.config.exec")
+		return &NodeOutcome{
+			Status:       NodeStatusFailed,
+			FailureClass: FailureClassValidation,
+			ErrorSummary: err.Error(),
+		}
+	}
+	provider, err := validateAgentLaunchProvider(cfg.Exec.Provider)
+	if err != nil {
+		return &NodeOutcome{
+			Status:       NodeStatusFailed,
+			FailureClass: FailureClassValidation,
+			ErrorSummary: truncateErrSummary(err.Error()),
+		}
+	}
+	cfg.Exec.Provider = provider
+	return agentLaunchCWDValidationFailure(contract.ValidateLaunchCWD(cfg.Exec.CWD, ""))
+}
+
 func validateAgentOutputs(raw json.RawMessage, _ *AgentNodeConfig) *NodeOutcome {
 	return validateOutputsForbiddenKeys(raw, agentOutputsForbiddenKeys, func(key string) NodeOutcome {
 		return NodeOutcome{
@@ -265,6 +274,17 @@ func validateAgentOutputs(raw json.RawMessage, _ *AgentNodeConfig) *NodeOutcome 
 			ErrorSummary: truncateErrSummary(fmt.Sprintf("agent outputs cannot include external capability field %q", key)),
 		}
 	})
+}
+
+func agentLaunchCWDValidationFailure(err error) *NodeOutcome {
+	if !errors.Is(err, contract.ErrLaunchCWDRequired) && !errors.Is(err, contract.ErrLaunchCWDInvalid) {
+		return nil
+	}
+	return &NodeOutcome{
+		Status:       NodeStatusFailed,
+		FailureClass: FailureClassValidation,
+		ErrorSummary: truncateErrSummary(err.Error()),
+	}
 }
 
 func finalizeAgentOutcome(errorSummary string) NodeOutcome {
@@ -337,8 +357,8 @@ func resolveSpawnKeys(node Node, runCtx RunContext) (string, string) {
 //   - Name 取 node.Title，去掉控制符并限制长度，供日志/UI 展示；
 //   - AgentKey/Language 直填同名字段；
 //   - Provider/Model/Effort 通过 LaunchRequest.Env 传递给 remoteLauncher；
-//   - FirstTurn 作为初始 Prompt 注入；
-//   - RunContext 暂无 parent agent id 字段，ParentID 先保持空。
+//   - CWD 取 cfg.exec.cwd；
+//   - FirstTurn 作为初始 Prompt 注入。
 func buildLaunchRequestFromAgentConfig(cfg *AgentNodeConfig, node Node, _ RunContext) contract.LaunchRequest {
 	if cfg == nil {
 		return contract.LaunchRequest{}
@@ -347,6 +367,7 @@ func buildLaunchRequestFromAgentConfig(cfg *AgentNodeConfig, node Node, _ RunCon
 		AgentID:   idgen.NewAgentID(),
 		Name:      sanitizeLaunchName(node.Title),
 		AgentKey:  strings.TrimSpace(cfg.Exec.AgentKey),
+		Cwd:       cfg.Exec.CWD,
 		Language:  strings.TrimSpace(cfg.Exec.Language),
 		Prompt:    cfg.FirstTurn,
 		AgentType: node.NodeType, // "agent" 占位，F2/F3 hybrid 再细化
@@ -435,6 +456,9 @@ func classifyAgentLaunchError(err error) FailureClass {
 	if err == nil {
 		return FailureClassTransient
 	}
+	if errors.Is(err, contract.ErrLaunchCWDRequired) || errors.Is(err, contract.ErrLaunchCWDInvalid) {
+		return FailureClassValidation
+	}
 	msg := strings.ToLower(err.Error())
 	switch {
 	case launchErrorMatchesAny(msg, launchQuotaKeywords()):
@@ -480,6 +504,7 @@ func launchValidationKeywords() []string {
 		"401", "unauthoriz", "invalid api key", "invalid_api_key",
 		"403", "forbidden", "permission denied",
 		"402", "payment_required", "subscription expired",
+		"root task id missing", "task handoff title is required", "task handoff file is required", "task handoff config",
 	}
 }
 

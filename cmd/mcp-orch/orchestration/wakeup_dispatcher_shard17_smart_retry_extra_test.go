@@ -18,6 +18,7 @@ func TestDispatcherSmartRetryEscalationExhaustionUsesDAGFailFast(t *testing.T) {
 	store.nodesReply[0].Config = json.RawMessage(`{
 		"exec":{
 			"agent_key":"alpha",
+			"cwd":"/tmp/node-cwd",
 			"model":"opus",
 			"on_failure":{
 				"by_class":{"capability":"escalate_model"},
@@ -57,6 +58,7 @@ func TestDispatcherSmartRetryDoesNotPatchConfigWhenRetryFenceMisses(t *testing.T
 	store.nodesReply[0].Config = json.RawMessage(`{
 		"exec":{
 			"agent_key":"alpha",
+			"cwd":"/tmp/node-cwd",
 			"model":"sonnet",
 			"on_failure":{
 				"by_class":{"capability":"escalate_model"},
@@ -93,6 +95,7 @@ func TestDispatcherSmartRetryConfigPatchFailureFailsClosed(t *testing.T) {
 	store.nodesReply[0].Config = json.RawMessage(`{
 		"exec":{
 			"agent_key":"alpha",
+			"cwd":"/tmp/node-cwd",
 			"model":"sonnet",
 			"on_failure":{
 				"by_class":{"capability":"escalate_model"},
@@ -220,7 +223,7 @@ func newAgentFailureClassStore(t *testing.T, suffix string, attempt int32, now t
 			NodeKey:  nodeKey,
 			NodeType: "agent",
 			Title:    nodeKey,
-			Config:   json.RawMessage(`{"exec":{"agent_key":"alpha"},"first_turn":"go"}`),
+			Config:   json.RawMessage(`{"exec":{"agent_key":"alpha","cwd":"/tmp/node-cwd"},"first_turn":"go"}`),
 			Status:   string(nodeexec.NodeStatusReady),
 		}},
 	}
