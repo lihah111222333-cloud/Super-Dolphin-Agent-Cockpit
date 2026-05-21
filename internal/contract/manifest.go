@@ -17,9 +17,6 @@ type ManifestBuildFunc func(ctx dto.ManifestContext) dto.MCPManifest
 // BuildManifest returns declarative MCP binary metadata for external executors.
 func BuildManifest(ctx dto.ManifestContext) dto.MCPManifest {
 	families := []dto.ToolFamily{dto.FamilyLSP, dto.FamilyOrch}
-	if HasCapability(ctx.ThreadCaps, "ida") {
-		families = append(families, dto.FamilyIDA)
-	}
 
 	env := normalizeManifestEnv(ctx.Env)
 	autoApprove := append([]string(nil), ctx.AutoApprove...)

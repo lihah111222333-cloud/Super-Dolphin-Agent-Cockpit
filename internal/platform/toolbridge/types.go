@@ -170,6 +170,9 @@ func classifyTool(name string) string {
 		if strings.HasPrefix(trimmed, "lsp_") {
 			return dto.ClientKindLSP
 		}
+		if strings.HasPrefix(trimmed, "ida_") {
+			return dto.ClientKindIDA
+		}
 		return dto.ClientKindOrch
 	}
 }
