@@ -35,10 +35,15 @@ func BuildManifest(ctx dto.ManifestContext) dto.MCPManifest {
 				continue
 			}
 			if addr := strings.TrimSpace(ctx.PeerHTTPAddrs[fam]); addr != "" {
+				var headers map[string]string
+				if token := strings.TrimSpace(ctx.PeerHTTPTokens[fam]); token != "" {
+					headers = map[string]string{"Authorization": "Bearer " + token}
+				}
 				bins = append(bins, dto.MCPBinary{
 					Name:        serverName,
 					Type:        "http",
 					URL:         "http://" + addr + "/mcp",
+					Headers:     headers,
 					AutoApprove: append([]string(nil), autoApprove...),
 				})
 				continue

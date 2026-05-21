@@ -62,20 +62,15 @@ func (s *fakeScheduleStore) UpdateNextRun(ctx context.Context, dagKey string, ne
 }
 
 type fakeStarter struct {
-	starts []startedDAG
+	starts []ScheduledDAGStartRequest
 	err    error
 }
 
-type startedDAG struct {
-	dagKey        string
-	triggerSource string
-}
-
-func (s *fakeStarter) StartDAG(ctx context.Context, dagKey string, triggerSource string) error {
+func (s *fakeStarter) StartDAG(ctx context.Context, req ScheduledDAGStartRequest) error {
 	if s.err != nil {
 		return s.err
 	}
-	s.starts = append(s.starts, startedDAG{dagKey: dagKey, triggerSource: triggerSource})
+	s.starts = append(s.starts, req)
 	return nil
 }
 
@@ -92,7 +87,7 @@ func newBlockingStarter() *blockingStarter {
 	}
 }
 
-func (s *blockingStarter) StartDAG(ctx context.Context, dagKey string, triggerSource string) error {
+func (s *blockingStarter) StartDAG(ctx context.Context, req ScheduledDAGStartRequest) error {
 	s.once.Do(func() { close(s.entered) })
 	select {
 	case <-s.release:
@@ -133,6 +128,52 @@ func (h *fakeLockHandle) Unlock(ctx context.Context) error {
 	defer h.locker.mu.Unlock()
 	h.locker.unlockCalls++
 	h.locker.locked = false
+	return nil
+}
+
+type contextCheckingLockHandle struct {
+	errOnCanceled bool
+	unlockCalls   int
+}
+
+func (h *contextCheckingLockHandle) Unlock(ctx context.Context) error {
+	h.unlockCalls++
+	if h.errOnCanceled && ctx.Err() != nil {
+		return ctx.Err()
+	}
+	return nil
+}
+
+type fakeAdvisoryLockConn struct {
+	row              fakeAdvisoryLockRow
+	releaseCalls     int
+	hijackCloseCalls int
+}
+
+func (c *fakeAdvisoryLockConn) queryRow(context.Context, string, ...any) pgxRow {
+	return c.row
+}
+
+func (c *fakeAdvisoryLockConn) release() {
+	c.releaseCalls++
+}
+
+func (c *fakeAdvisoryLockConn) hijackAndClose(context.Context) error {
+	c.hijackCloseCalls++
+	return nil
+}
+
+type fakeAdvisoryLockRow struct {
+	unlocked bool
+	err      error
+}
+
+func (r fakeAdvisoryLockRow) Scan(dest ...any) error {
+	if r.err != nil {
+		return r.err
+	}
+	target := dest[0].(*bool)
+	*target = r.unlocked
 	return nil
 }
 
@@ -208,16 +249,18 @@ func TestCronScheduler_Tick_DelegatesToTicker(t *testing.T) {
 }
 
 func TestScheduledDAGTicker_Tick_ScansAndStarts(t *testing.T) {
+	dueAt := time.Date(2026, 5, 11, 7, 0, 0, 123, time.UTC)
 	store := &fakeScheduleStore{due: []DueDAG{
-		{DagKey: "daily-report", CronExpr: "0 8 * * *"},
-		{DagKey: "hourly-sync", CronExpr: "@hourly"},
+		{DagKey: "daily-report", CronExpr: "0 8 * * *", DueAt: dueAt},
+		{DagKey: "hourly-sync", CronExpr: "@hourly", DueAt: dueAt.Add(time.Minute)},
 	}}
 	starter := &fakeStarter{}
-	ticker, err := NewScheduledDAGTicker(ScheduledDAGTickerConfig{Store: store, Starter: starter})
+	ticker, err := NewScheduledDAGTicker(ScheduledDAGTickerConfig{Store: store, Starter: starter, Locker: &fakeLocker{}})
 	if err != nil {
 		t.Fatalf("NewScheduledDAGTicker: %v", err)
 	}
-	n, err := ticker.Tick(context.Background(), time.Date(2026, 5, 11, 7, 0, 0, 0, time.UTC))
+	now := time.Date(2026, 5, 11, 7, 0, 0, 0, time.UTC)
+	n, err := ticker.Tick(context.Background(), now)
 	if err != nil {
 		t.Fatalf("Tick: %v", err)
 	}
@@ -228,16 +271,22 @@ func TestScheduledDAGTicker_Tick_ScansAndStarts(t *testing.T) {
 		t.Fatalf("starts = %d, want 2", len(starter.starts))
 	}
 	for _, start := range starter.starts {
-		if start.triggerSource != scheduledTriggerSource {
-			t.Fatalf("trigger_source = %q, want %q", start.triggerSource, scheduledTriggerSource)
+		if start.TriggerSource != scheduledTriggerSource {
+			t.Fatalf("trigger_source = %q, want %q", start.TriggerSource, scheduledTriggerSource)
 		}
+	}
+	if got, want := starter.starts[0].IdempotencyKey, "scheduled:daily-report:"+dueAt.UTC().Format(time.RFC3339Nano); got != want {
+		t.Fatalf("idempotency_key = %q, want %q", got, want)
+	}
+	if !starter.starts[0].NextRunAt.Equal(time.Date(2026, 5, 11, 8, 0, 0, 0, time.UTC)) {
+		t.Fatalf("next_run_at in request = %s, want 2026-05-11T08:00:00Z", starter.starts[0].NextRunAt)
 	}
 }
 
 func TestScheduledDAGTicker_NextRunAtUpdated(t *testing.T) {
-	store := &fakeScheduleStore{due: []DueDAG{{DagKey: "hourly-sync", CronExpr: "@hourly"}}}
+	store := &fakeScheduleStore{due: []DueDAG{{DagKey: "hourly-sync", CronExpr: "@hourly", DueAt: time.Date(2026, 5, 11, 9, 0, 0, 0, time.UTC)}}}
 	starter := &fakeStarter{}
-	ticker, err := NewScheduledDAGTicker(ScheduledDAGTickerConfig{Store: store, Starter: starter})
+	ticker, err := NewScheduledDAGTicker(ScheduledDAGTickerConfig{Store: store, Starter: starter, Locker: &fakeLocker{}})
 	if err != nil {
 		t.Fatalf("NewScheduledDAGTicker: %v", err)
 	}
@@ -252,15 +301,15 @@ func TestScheduledDAGTicker_NextRunAtUpdated(t *testing.T) {
 	if !store.updates[0].nextRunAt.Equal(want) {
 		t.Fatalf("next_run_at = %s, want %s", store.updates[0].nextRunAt, want)
 	}
-	if len(starter.starts) != 1 || starter.starts[0].dagKey != "hourly-sync" {
+	if len(starter.starts) != 1 || starter.starts[0].DagKey != "hourly-sync" {
 		t.Fatalf("starts = %+v, want hourly-sync", starter.starts)
 	}
 }
 
 func TestScheduledDAGTicker_CronParseValidationError(t *testing.T) {
-	store := &fakeScheduleStore{due: []DueDAG{{DagKey: "bad", CronExpr: "not-a-cron"}}}
+	store := &fakeScheduleStore{due: []DueDAG{{DagKey: "bad", CronExpr: "not-a-cron", DueAt: time.Date(2026, 5, 11, 7, 0, 0, 0, time.UTC)}}}
 	starter := &fakeStarter{}
-	ticker, err := NewScheduledDAGTicker(ScheduledDAGTickerConfig{Store: store, Starter: starter})
+	ticker, err := NewScheduledDAGTicker(ScheduledDAGTickerConfig{Store: store, Starter: starter, Locker: &fakeLocker{}})
 	if err != nil {
 		t.Fatalf("NewScheduledDAGTicker: %v", err)
 	}
@@ -277,7 +326,7 @@ func TestScheduledDAGTicker_CronParseValidationError(t *testing.T) {
 func TestScheduledDAGTicker_ScanInfrastructureError(t *testing.T) {
 	store := &fakeScheduleStore{err: errors.New("db down")}
 	starter := &fakeStarter{}
-	ticker, err := NewScheduledDAGTicker(ScheduledDAGTickerConfig{Store: store, Starter: starter})
+	ticker, err := NewScheduledDAGTicker(ScheduledDAGTickerConfig{Store: store, Starter: starter, Locker: &fakeLocker{}})
 	if err != nil {
 		t.Fatalf("NewScheduledDAGTicker: %v", err)
 	}
@@ -293,9 +342,9 @@ func TestScheduledDAGTicker_ScanInfrastructureError(t *testing.T) {
 
 func TestScheduledDAGTicker_StartDAGErrorPassthrough(t *testing.T) {
 	startErr := errors.New("start failed")
-	store := &fakeScheduleStore{due: []DueDAG{{DagKey: "daily-report", CronExpr: "0 8 * * *"}}}
+	store := &fakeScheduleStore{due: []DueDAG{{DagKey: "daily-report", CronExpr: "0 8 * * *", DueAt: time.Date(2026, 5, 11, 7, 0, 0, 0, time.UTC)}}}
 	starter := &fakeStarter{err: startErr}
-	ticker, err := NewScheduledDAGTicker(ScheduledDAGTickerConfig{Store: store, Starter: starter})
+	ticker, err := NewScheduledDAGTicker(ScheduledDAGTickerConfig{Store: store, Starter: starter, Locker: &fakeLocker{}})
 	if err != nil {
 		t.Fatalf("NewScheduledDAGTicker: %v", err)
 	}
@@ -305,9 +354,27 @@ func TestScheduledDAGTicker_StartDAGErrorPassthrough(t *testing.T) {
 	}
 }
 
+func TestScheduledDAGTicker_DoesNotAdvanceNextRunWhenStartFails(t *testing.T) {
+	startErr := errors.New("start failed")
+	store := &fakeScheduleStore{due: []DueDAG{{DagKey: "daily-report", CronExpr: "0 8 * * *", DueAt: time.Date(2026, 5, 11, 7, 0, 0, 0, time.UTC)}}}
+	starter := &fakeStarter{err: startErr}
+	ticker, err := NewScheduledDAGTicker(ScheduledDAGTickerConfig{Store: store, Starter: starter, Locker: &fakeLocker{}})
+	if err != nil {
+		t.Fatalf("NewScheduledDAGTicker: %v", err)
+	}
+
+	_, err = ticker.Tick(context.Background(), time.Date(2026, 5, 11, 7, 0, 0, 0, time.UTC))
+	if !errors.Is(err, startErr) {
+		t.Fatalf("Tick err = %v, want startErr", err)
+	}
+	if len(store.updates) != 0 {
+		t.Fatalf("next_run_at updates = %+v, want none when StartDAG fails", store.updates)
+	}
+}
+
 func TestScheduledDAGTicker_MultiInstance_OneAcquires(t *testing.T) {
 	locker := &fakeLocker{}
-	store := &fakeScheduleStore{due: []DueDAG{{DagKey: "daily-report", CronExpr: "0 8 * * *"}}}
+	store := &fakeScheduleStore{due: []DueDAG{{DagKey: "daily-report", CronExpr: "0 8 * * *", DueAt: time.Date(2026, 5, 11, 7, 0, 0, 0, time.UTC)}}}
 	starter := newBlockingStarter()
 	first, err := NewScheduledDAGTicker(ScheduledDAGTickerConfig{Store: store, Starter: starter, Locker: locker})
 	if err != nil {
@@ -343,7 +410,7 @@ func TestScheduledDAGTicker_MultiInstance_OneAcquires(t *testing.T) {
 
 func TestScheduledDAGTicker_ReleaseOnExit(t *testing.T) {
 	locker := &fakeLocker{}
-	store := &fakeScheduleStore{due: []DueDAG{{DagKey: "daily-report", CronExpr: "0 8 * * *"}}}
+	store := &fakeScheduleStore{due: []DueDAG{{DagKey: "daily-report", CronExpr: "0 8 * * *", DueAt: time.Date(2026, 5, 11, 7, 0, 0, 0, time.UTC)}}}
 	starter := &fakeStarter{}
 	ticker, err := NewScheduledDAGTicker(ScheduledDAGTickerConfig{Store: store, Starter: starter, Locker: locker})
 	if err != nil {
@@ -359,6 +426,50 @@ func TestScheduledDAGTicker_ReleaseOnExit(t *testing.T) {
 	}
 	if locker.unlockCalls != 1 {
 		t.Fatalf("unlockCalls = %d, want 1", locker.unlockCalls)
+	}
+}
+
+func TestScheduledDAGTicker_UnlockUsesFreshCleanupContext(t *testing.T) {
+	handle := &contextCheckingLockHandle{errOnCanceled: true}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	var result error
+
+	(&ScheduledDAGTicker{}).releaseAdvisoryLock(ctx, handle, &result)
+
+	if result != nil {
+		t.Fatalf("release result = %v, want nil from fresh cleanup context", result)
+	}
+	if handle.unlockCalls != 1 {
+		t.Fatalf("unlockCalls = %d, want 1", handle.unlockCalls)
+	}
+}
+
+func TestPGAdvisoryLockHandle_UnlockFailureClosesHijackedConnection(t *testing.T) {
+	unlockErr := errors.New("unlock failed")
+	conn := &fakeAdvisoryLockConn{row: fakeAdvisoryLockRow{err: unlockErr}}
+	handle := &pgAdvisoryLockHandle{conn: conn, lockID: 42}
+
+	err := handle.Unlock(context.Background())
+	if !errors.Is(err, unlockErr) {
+		t.Fatalf("Unlock() error = %v, want unlockErr", err)
+	}
+	if conn.releaseCalls != 0 {
+		t.Fatalf("releaseCalls = %d, want 0 after failed unlock", conn.releaseCalls)
+	}
+	if conn.hijackCloseCalls != 1 {
+		t.Fatalf("hijackCloseCalls = %d, want 1", conn.hijackCloseCalls)
+	}
+}
+
+func TestNewScheduledDAGTickerRejectsNilLocker(t *testing.T) {
+	_, err := NewScheduledDAGTicker(ScheduledDAGTickerConfig{
+		Store:   &fakeScheduleStore{},
+		Starter: &fakeStarter{},
+		Locker:  nil,
+	})
+	if !errors.Is(err, ErrNilLockPool) {
+		t.Fatalf("err = %v, want ErrNilLockPool", err)
 	}
 }
 

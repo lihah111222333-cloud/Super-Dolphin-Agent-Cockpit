@@ -229,7 +229,7 @@ func (m *manager) normalizeDiagnosticFilter(ctx context.Context, uris []string) 
 }
 
 func (m *manager) currentDiagnostics(filter diagnosticFilter) []protocol.PublishDiagnosticsParams {
-	items := make([]protocol.PublishDiagnosticsParams, 0, len(m.diagnostics))
+	items := make([]protocol.PublishDiagnosticsParams, 0)
 	m.forEachCurrentDiagnosticSnapshot(filter, func(snapshot diagnosticSnapshot) {
 		items = append(items, snapshot.params)
 	})
