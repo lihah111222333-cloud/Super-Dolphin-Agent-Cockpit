@@ -26,6 +26,8 @@ import (
 // name-only skill references before provider submission.
 type skillHydrationPort = contract.SkillHydrationSource
 
+const peerBinDirEnv = "GO_AGENT_PEER_BIN_DIR"
+
 type service struct {
 	logger                 *slog.Logger
 	assembler              *inputAssembler
@@ -118,11 +120,58 @@ func newService(
 }
 
 func resolveBinaryDir() string {
+	if dir := resolvePeerBinDir(); dir != "" {
+		return dir
+	}
 	exe, err := os.Executable()
 	if err != nil {
 		return ""
 	}
 	return filepath.Dir(exe)
+}
+
+func resolvePeerBinDir() string {
+	dirs := peerBinDirCandidates()
+	if len(dirs) == 0 {
+		return ""
+	}
+	if dir := firstManagedPeerBinDir(dirs); dir != "" {
+		return dir
+	}
+	return dirs[0]
+}
+
+func peerBinDirCandidates() []string {
+	raw := strings.TrimSpace(os.Getenv(peerBinDirEnv))
+	if raw == "" {
+		return nil
+	}
+	dirs := make([]string, 0, 1)
+	for _, part := range filepath.SplitList(raw) {
+		if dir := strings.TrimSpace(part); dir != "" {
+			dirs = append(dirs, dir)
+		}
+	}
+	return dirs
+}
+
+func firstManagedPeerBinDir(dirs []string) string {
+	for _, dir := range dirs {
+		if hasManagedPeerBinary(dir) {
+			return dir
+		}
+	}
+	return ""
+}
+
+func hasManagedPeerBinary(dir string) bool {
+	for _, name := range []string{"mcp-lsp", "mcp-orch"} {
+		info, err := os.Stat(filepath.Join(dir, name))
+		if err == nil && !info.IsDir() {
+			return true
+		}
+	}
+	return false
 }
 
 func (s *service) PrepareTurn(ctx context.Context, session contract.Session, input PrepareInput) (dto.TurnRequest, error) {

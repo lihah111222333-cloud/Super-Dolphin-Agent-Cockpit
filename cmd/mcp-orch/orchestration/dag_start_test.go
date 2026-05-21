@@ -5,7 +5,9 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
+	orchcron "github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/orchestration/cron"
 	"github.com/jackc/pgx/v5/pgconn"
 
 	taskdag "github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/taskdag"
@@ -242,6 +244,35 @@ func TestStartDAG_IdempotencyKey_FlowsIntoRunKey(t *testing.T) {
 	want := "dag-1#run-abc123"
 	if resp.RunKey != want {
 		t.Errorf("resp.RunKey = %q, want %q", resp.RunKey, want)
+	}
+}
+
+func TestStartDAG_ScheduledAdapterPassesIdempotencyKey(t *testing.T) {
+	dagStore := &stubStartDAGStore{dag: &taskdag.DAG{DagKey: "dag-1"}}
+	runStore := &stubRunStore{}
+	svc := makeStartDAGService(dagStore, runStore)
+	starter := scheduledDAGStarter{svc: svc}
+	dueAt := time.Date(2026, 5, 11, 7, 0, 0, 0, time.UTC)
+
+	err := starter.StartDAG(context.Background(), orchcron.ScheduledDAGStartRequest{
+		DagKey:         "dag-1",
+		TriggerSource:  "scheduled",
+		IdempotencyKey: "scheduled:dag-1:" + dueAt.Format(time.RFC3339Nano),
+		DueAt:          dueAt,
+		NextRunAt:      dueAt.Add(time.Hour),
+	})
+	if err != nil {
+		t.Fatalf("StartDAG() error = %v, want nil", err)
+	}
+	if len(runStore.createCalls) != 1 {
+		t.Fatalf("CreateRun calls = %d, want 1", len(runStore.createCalls))
+	}
+	got := runStore.createCalls[0]
+	if got.RunKey != "dag-1#run-scheduled:dag-1:2026-05-11T07:00:00Z" {
+		t.Fatalf("RunKey = %q, want scheduled idempotency key in run key", got.RunKey)
+	}
+	if got.TriggerSource != "scheduled" {
+		t.Fatalf("TriggerSource = %q, want scheduled", got.TriggerSource)
 	}
 }
 

@@ -2,6 +2,7 @@ package memory
 
 import (
 	"context"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -96,6 +97,137 @@ project memory`)
 		t.Fatalf("Read() error = %v", err)
 	}
 	assertMemoryEntry(t, result, contract.MemoryEntry{Name: "Project Alpha", Description: "project default", Type: contract.MemoryTypeProject, Content: "project memory", SourcePath: "project/project-alpha.md"})
+}
+
+func TestServiceReadByNameRejectsSymlinkEscape(t *testing.T) {
+	svc := newTestMemoryService(t)
+	userRoot := userScopeFixtureRoot(t)
+	outsideRoot := t.TempDir()
+	outsideFile := filepath.Join(outsideRoot, "escape.md")
+	writeMemoryFixture(t, outsideFile, `---
+name: "Escaped Memory"
+description: "outside root"
+type: "user"
+---
+outside content`)
+
+	linkPath := filepath.Join(userRoot, "user", "escape.md")
+	if err := os.MkdirAll(filepath.Dir(linkPath), 0o755); err != nil {
+		t.Fatalf("MkdirAll(%q) error = %v", filepath.Dir(linkPath), err)
+	}
+	if err := os.Symlink(outsideFile, linkPath); err != nil {
+		t.Fatalf("Symlink(%q, %q) error = %v", outsideFile, linkPath, err)
+	}
+
+	result, err := svc.Read(context.Background(), contract.MemoryReadRequest{
+		Name:  "Escaped Memory",
+		Scope: contract.MemoryScopeUser,
+	})
+	if !errors.Is(err, contract.ErrMemoryInvalidParam) {
+		t.Fatalf("Read() error = %v, want ErrMemoryInvalidParam; result=%+v", err, result)
+	}
+}
+
+func TestServiceReadByNameRejectsTOCTOUSymlinkEscape(t *testing.T) {
+	svc := newTestMemoryService(t)
+	userRoot := userScopeFixtureRoot(t)
+	entryPath := filepath.Join(userRoot, "user", "race.md")
+	writeMemoryFixture(t, filepath.Join(userRoot, memoryIndexFileName), "- [Racy Memory](user/race.md) — inside root\n")
+	writeMemoryFixture(t, entryPath, `---
+name: "Racy Memory"
+description: "inside root"
+type: "user"
+---
+inside content`)
+
+	outsideRoot := t.TempDir()
+	outsideFile := filepath.Join(outsideRoot, "escape.md")
+	writeMemoryFixture(t, outsideFile, `---
+name: "Racy Memory"
+description: "outside root"
+type: "user"
+---
+outside content`)
+
+	previousHook := afterMemoryEntryPathValidation
+	swapped := false
+	afterMemoryEntryPathValidation = func(path string) {
+		if path != entryPath || swapped {
+			return
+		}
+		swapped = true
+		if err := os.Remove(path); err != nil {
+			t.Fatalf("Remove(%q) error = %v", path, err)
+		}
+		if err := os.Symlink(outsideFile, path); err != nil {
+			t.Fatalf("Symlink(%q, %q) error = %v", outsideFile, path, err)
+		}
+	}
+	t.Cleanup(func() {
+		afterMemoryEntryPathValidation = previousHook
+	})
+
+	result, err := svc.Read(context.Background(), contract.MemoryReadRequest{
+		Name:  "Racy Memory",
+		Scope: contract.MemoryScopeUser,
+	})
+	if !swapped {
+		t.Fatal("test hook did not swap the scanned file")
+	}
+	if !errors.Is(err, contract.ErrMemoryInvalidParam) {
+		t.Fatalf("Read() error = %v, want ErrMemoryInvalidParam; result=%+v", err, result)
+	}
+}
+
+func TestServiceReadByPathRejectsTOCTOUSymlinkEscape(t *testing.T) {
+	svc := newTestMemoryService(t)
+	userRoot := userScopeFixtureRoot(t)
+	entryPath := filepath.Join(userRoot, "user", "path-race.md")
+	writeMemoryFixture(t, filepath.Join(userRoot, memoryIndexFileName), "- [Path Race](user/path-race.md) — inside root\n")
+	writeMemoryFixture(t, entryPath, `---
+name: "Path Race"
+description: "inside root"
+type: "user"
+---
+inside content`)
+
+	outsideRoot := t.TempDir()
+	outsideFile := filepath.Join(outsideRoot, "escape.md")
+	writeMemoryFixture(t, outsideFile, `---
+name: "Path Race"
+description: "outside root"
+type: "user"
+---
+outside content`)
+
+	previousHook := afterMemoryEntryPathValidation
+	swapped := false
+	afterMemoryEntryPathValidation = func(path string) {
+		if path != entryPath || swapped {
+			return
+		}
+		swapped = true
+		if err := os.Remove(path); err != nil {
+			t.Fatalf("Remove(%q) error = %v", path, err)
+		}
+		if err := os.Symlink(outsideFile, path); err != nil {
+			t.Fatalf("Symlink(%q, %q) error = %v", outsideFile, path, err)
+		}
+	}
+	t.Cleanup(func() {
+		afterMemoryEntryPathValidation = previousHook
+	})
+
+	result, err := svc.Read(context.Background(), contract.MemoryReadRequest{
+		Path:  "user/path-race.md",
+		Scope: contract.MemoryScopeUser,
+	})
+	if !swapped {
+		t.Fatal("test hook did not swap the direct path file")
+	}
+	if !errors.Is(err, contract.ErrMemoryInvalidParam) {
+		t.Fatalf("Read() error = %v, want ErrMemoryInvalidParam; result=%+v", err, result)
+	}
 }
 
 func TestServiceReadTeamScopeDoesNotFallThroughToProject(t *testing.T) {

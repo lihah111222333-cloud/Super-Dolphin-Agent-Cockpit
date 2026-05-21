@@ -1,10 +1,31 @@
 package discovery
 
 import (
+	"encoding/json"
 	"net"
+	"net/http"
+	"net/http/httptest"
 	"os"
+	"strings"
 	"testing"
 )
+
+func TestWriteDiscoveryFileUsesOwnerOnlyPermissions(t *testing.T) {
+	binaryName := "mcp-test-perms"
+	parentPID := os.Getpid()
+	if err := WriteDiscoveryFile(binaryName, parentPID, "127.0.0.1:12345"); err != nil {
+		t.Fatalf("WriteDiscoveryFile() error = %v", err)
+	}
+	t.Cleanup(func() { _ = CleanupDiscoveryFile(binaryName, parentPID) })
+
+	info, err := os.Stat(discoveryPath(binaryName, parentPID))
+	if err != nil {
+		t.Fatalf("Stat() error = %v", err)
+	}
+	if got := info.Mode().Perm(); got != 0o600 {
+		t.Fatalf("mode = %o, want 600", got)
+	}
+}
 
 func TestDiscoverPeersDeletesStalePeerAddrAfterHealthProbeFailure(t *testing.T) {
 	binaryName := "mcp-lsp"
@@ -23,6 +44,42 @@ func TestDiscoverPeersDeletesStalePeerAddrAfterHealthProbeFailure(t *testing.T) 
 	}
 	if _, err := ReadDiscoveryAddr(binaryName, os.Getpid()); !os.IsNotExist(err) {
 		t.Fatalf("ReadDiscoveryAddr() after stale cleanup error = %v, want os.IsNotExist", err)
+	}
+}
+
+func TestDiscoverPeerHTTPAddrWithTokenSendsBearerToken(t *testing.T) {
+	binaryName := "mcp-test-auth"
+	wantToken := "secret"
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if got := r.Header.Get("Authorization"); got != "Bearer "+wantToken {
+			http.Error(w, "missing bearer token", http.StatusUnauthorized)
+			return
+		}
+		if r.URL.Path != "/mcp" {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"jsonrpc": "2.0",
+			"id":      1,
+			"result":  map[string]any{},
+		})
+	}))
+	t.Cleanup(server.Close)
+
+	addr := strings.TrimPrefix(server.URL, "http://")
+	if err := WriteDiscoveryFile(binaryName, os.Getpid(), addr); err != nil {
+		t.Fatalf("WriteDiscoveryFile() error = %v", err)
+	}
+	t.Cleanup(func() { _ = CleanupDiscoveryFile(binaryName, os.Getpid()) })
+
+	got, err := DiscoverPeerHTTPAddrWithToken(binaryName, wantToken)
+	if err != nil {
+		t.Fatalf("DiscoverPeerHTTPAddrWithToken() error = %v", err)
+	}
+	if got != addr {
+		t.Fatalf("DiscoverPeerHTTPAddrWithToken() = %q, want %q", got, addr)
 	}
 }
 

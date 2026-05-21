@@ -25,6 +25,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strings"
 	"sync"
 	"time"
 
@@ -263,7 +264,10 @@ const (
 	TickErrorClassValidation = "validation"
 )
 
-const scheduledTriggerSource = "scheduled"
+const (
+	scheduledTriggerSource = "scheduled"
+	advisoryUnlockTimeout  = 5 * time.Second
+)
 
 // TickError 给 Tick 调用方暴露可匹配的错误分类。
 // TickError exposes a matchable error class to Tick callers.
@@ -299,6 +303,7 @@ func classifyTickError(class, op string, err error) error {
 type DueDAG struct {
 	DagKey   string
 	CronExpr string
+	DueAt    time.Time
 }
 
 // DAGScheduleStore 是 Tick 需要的最小存储接口。
@@ -311,7 +316,15 @@ type DAGScheduleStore interface {
 // DAGStarter 是 StartDAG 的反向依赖适配口，避免 cron 子包 import 父包。
 // DAGStarter adapts StartDAG without importing the parent orchestration package.
 type DAGStarter interface {
-	StartDAG(ctx context.Context, dagKey string, triggerSource string) error
+	StartDAG(ctx context.Context, req ScheduledDAGStartRequest) error
+}
+
+type ScheduledDAGStartRequest struct {
+	DagKey         string
+	TriggerSource  string
+	IdempotencyKey string
+	DueAt          time.Time
+	NextRunAt      time.Time
 }
 
 // ScheduledDAGTicker 实现 F5.2：扫描 next_run_at 到期 DAG 并触发 StartDAG。
@@ -342,6 +355,9 @@ func NewScheduledDAGTicker(cfg ScheduledDAGTickerConfig) (*ScheduledDAGTicker, e
 	if cfg.Starter == nil {
 		return nil, ErrNilDAGStarter
 	}
+	if cfg.Locker == nil {
+		return nil, ErrNilLockPool
+	}
 	return &ScheduledDAGTicker{
 		store:   cfg.Store,
 		starter: cfg.Starter,
@@ -357,10 +373,6 @@ type AdvisoryLocker interface {
 type AdvisoryLockHandle interface {
 	Unlock(ctx context.Context) error
 }
-
-type noopAdvisoryLockHandle struct{}
-
-func (noopAdvisoryLockHandle) Unlock(context.Context) error { return nil }
 
 func (t *ScheduledDAGTicker) Tick(ctx context.Context, now time.Time) (triggered int, err error) {
 	handle, acquired, err := t.tryAdvisoryLock(ctx)
@@ -385,9 +397,6 @@ func (t *ScheduledDAGTicker) Tick(ctx context.Context, now time.Time) (triggered
 }
 
 func (t *ScheduledDAGTicker) tryAdvisoryLock(ctx context.Context) (AdvisoryLockHandle, bool, error) {
-	if t.locker == nil {
-		return noopAdvisoryLockHandle{}, true, nil
-	}
 	handle, acquired, err := t.locker.TryLock(ctx)
 	if err != nil {
 		return nil, false, classifyTickError(TickErrorClassInfrastructure, "try_advisory_lock", err)
@@ -395,8 +404,10 @@ func (t *ScheduledDAGTicker) tryAdvisoryLock(ctx context.Context) (AdvisoryLockH
 	return handle, acquired, nil
 }
 
-func (t *ScheduledDAGTicker) releaseAdvisoryLock(ctx context.Context, handle AdvisoryLockHandle, result *error) {
-	if unlockErr := handle.Unlock(ctx); unlockErr != nil && *result == nil {
+func (t *ScheduledDAGTicker) releaseAdvisoryLock(_ context.Context, handle AdvisoryLockHandle, result *error) {
+	cleanupCtx, cancel := platformconfig.WithTimeout(context.Background(), advisoryUnlockTimeout)
+	defer cancel()
+	if unlockErr := handle.Unlock(cleanupCtx); unlockErr != nil && *result == nil {
 		*result = classifyTickError(TickErrorClassInfrastructure, "advisory_unlock", unlockErr)
 	}
 }
@@ -406,10 +417,20 @@ func (t *ScheduledDAGTicker) triggerDueDAG(ctx context.Context, dag DueDAG, now 
 	if err != nil {
 		return err
 	}
+	req := ScheduledDAGStartRequest{
+		DagKey:         strings.TrimSpace(dag.DagKey),
+		TriggerSource:  scheduledTriggerSource,
+		IdempotencyKey: scheduledIdempotencyKey(dag),
+		DueAt:          dag.DueAt,
+		NextRunAt:      nextRunAt,
+	}
+	if err := t.starter.StartDAG(ctx, req); err != nil {
+		return err
+	}
 	if err := t.store.UpdateNextRun(ctx, dag.DagKey, nextRunAt); err != nil {
 		return classifyTickError(TickErrorClassInfrastructure, "update_next_run_at", err)
 	}
-	return t.starter.StartDAG(ctx, dag.DagKey, scheduledTriggerSource)
+	return nil
 }
 
 func (t *ScheduledDAGTicker) nextRunAt(dag DueDAG, now time.Time) (time.Time, error) {
@@ -418,6 +439,11 @@ func (t *ScheduledDAGTicker) nextRunAt(dag DueDAG, now time.Time) (time.Time, er
 		return time.Time{}, classifyTickError(TickErrorClassValidation, "parse_cron_expr", fmt.Errorf("dag_key=%s cron_expr=%q: %w", dag.DagKey, dag.CronExpr, err))
 	}
 	return schedule.Next(now), nil
+}
+
+func scheduledIdempotencyKey(dag DueDAG) string {
+	dueAt := dag.DueAt.UTC().Format(time.RFC3339Nano)
+	return "scheduled:" + strings.TrimSpace(dag.DagKey) + ":" + dueAt
 }
 
 type scheduleDB interface {
@@ -438,7 +464,7 @@ func NewSQLDAGScheduleStore(db scheduleDB) (*SQLDAGScheduleStore, error) {
 
 func (s *SQLDAGScheduleStore) DueDAGs(ctx context.Context, now time.Time) ([]DueDAG, error) {
 	rows, err := s.db.Query(ctx, `
-SELECT dag_key, cron_expr
+SELECT dag_key, cron_expr, next_run_at
 FROM task_dags
 WHERE trigger = 'scheduled'
   AND cron_expr <> ''
@@ -453,7 +479,7 @@ ORDER BY next_run_at ASC, id ASC
 	var dags []DueDAG
 	for rows.Next() {
 		var dag DueDAG
-		if err := rows.Scan(&dag.DagKey, &dag.CronExpr); err != nil {
+		if err := rows.Scan(&dag.DagKey, &dag.CronExpr, &dag.DueAt); err != nil {
 			return nil, err
 		}
 		dags = append(dags, dag)
@@ -500,18 +526,54 @@ func (l *PGAdvisoryLocker) TryLock(ctx context.Context) (AdvisoryLockHandle, boo
 		conn.Release()
 		return nil, false, nil
 	}
-	return &pgAdvisoryLockHandle{conn: conn, lockID: l.lockID}, true, nil
+	return &pgAdvisoryLockHandle{conn: pgxpoolAdvisoryLockConn{conn: conn}, lockID: l.lockID}, true, nil
 }
 
 type pgAdvisoryLockHandle struct {
-	conn   *pgxpool.Conn
+	conn   advisoryLockConn
 	lockID int64
 }
 
+type pgxRow interface {
+	Scan(dest ...any) error
+}
+
+type advisoryLockConn interface {
+	queryRow(ctx context.Context, sql string, args ...any) pgxRow
+	release()
+	hijackAndClose(ctx context.Context) error
+}
+
+type pgxpoolAdvisoryLockConn struct {
+	conn *pgxpool.Conn
+}
+
+func (c pgxpoolAdvisoryLockConn) queryRow(ctx context.Context, sql string, args ...any) pgxRow {
+	return c.conn.QueryRow(ctx, sql, args...)
+}
+
+func (c pgxpoolAdvisoryLockConn) release() {
+	c.conn.Release()
+}
+
+func (c pgxpoolAdvisoryLockConn) hijackAndClose(ctx context.Context) error {
+	raw := c.conn.Hijack()
+	return raw.Close(ctx)
+}
+
 func (h *pgAdvisoryLockHandle) Unlock(ctx context.Context) error {
-	defer h.conn.Release()
+	release := true
+	defer func() {
+		if release {
+			h.conn.release()
+		}
+	}()
 	var unlocked bool
-	if err := h.conn.QueryRow(ctx, `SELECT pg_advisory_unlock($1)`, h.lockID).Scan(&unlocked); err != nil {
+	if err := h.conn.queryRow(ctx, `SELECT pg_advisory_unlock($1)`, h.lockID).Scan(&unlocked); err != nil {
+		release = false
+		closeCtx, cancel := platformconfig.WithTimeout(context.Background(), advisoryUnlockTimeout)
+		defer cancel()
+		_ = h.conn.hijackAndClose(closeCtx)
 		return err
 	}
 	if !unlocked {

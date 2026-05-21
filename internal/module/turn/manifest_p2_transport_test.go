@@ -90,6 +90,83 @@ func TestManifestBuilderPropagatesAdditionalWorkingDirectories(t *testing.T) {
 	}
 }
 
+func TestManifestBuilderCarriesPeerHTTPToken(t *testing.T) {
+	t.Setenv("GO_AGENT_CTL_SESSION_TOKEN", "peer-secret")
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != "Bearer peer-secret" {
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"jsonrpc": "2.0",
+			"id":      1,
+			"result":  map[string]any{},
+		})
+	}))
+	t.Cleanup(server.Close)
+
+	addr := strings.TrimPrefix(server.URL, "http://")
+	if err := discovery.WriteDiscoveryFile("mcp-lsp", os.Getpid(), addr); err != nil {
+		t.Fatalf("WriteDiscoveryFile() error = %v", err)
+	}
+	t.Cleanup(func() { _ = discovery.CleanupDiscoveryFile("mcp-lsp", os.Getpid()) })
+
+	var got dto.ManifestContext
+	builder := newManifestBuilder("/tmp/super-agent-bin", func(ctx dto.ManifestContext) dto.MCPManifest {
+		got = ctx
+		return dto.MCPManifest{}
+	})
+
+	_ = builder.Build(PrepareInput{AgentID: "agent-p2"}, "thread-p2")
+
+	if got.PeerHTTPAddrs[dto.FamilyLSP] != addr {
+		t.Fatalf("PeerHTTPAddrs[lsp] = %q, want %q", got.PeerHTTPAddrs[dto.FamilyLSP], addr)
+	}
+	if got.PeerHTTPTokens[dto.FamilyLSP] != "peer-secret" {
+		t.Fatalf("PeerHTTPTokens[lsp] = %q, want peer-secret", got.PeerHTTPTokens[dto.FamilyLSP])
+	}
+}
+
+func TestManifestBuilderCarriesLegacyPeerHTTPToken(t *testing.T) {
+	t.Setenv("GO_AGENT_CTL_SESSION_TOKEN", "")
+	t.Setenv("GO_AGENT_MCP_SESSION_TOKEN", "legacy-peer-secret")
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != "Bearer legacy-peer-secret" {
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"jsonrpc": "2.0",
+			"id":      1,
+			"result":  map[string]any{},
+		})
+	}))
+	t.Cleanup(server.Close)
+
+	addr := strings.TrimPrefix(server.URL, "http://")
+	if err := discovery.WriteDiscoveryFile("mcp-lsp", os.Getpid(), addr); err != nil {
+		t.Fatalf("WriteDiscoveryFile() error = %v", err)
+	}
+	t.Cleanup(func() { _ = discovery.CleanupDiscoveryFile("mcp-lsp", os.Getpid()) })
+
+	var got dto.ManifestContext
+	builder := newManifestBuilder("/tmp/super-agent-bin", func(ctx dto.ManifestContext) dto.MCPManifest {
+		got = ctx
+		return dto.MCPManifest{}
+	})
+
+	_ = builder.Build(PrepareInput{AgentID: "agent-p2"}, "thread-p2")
+
+	if got.PeerHTTPAddrs[dto.FamilyLSP] != addr {
+		t.Fatalf("PeerHTTPAddrs[lsp] = %q, want %q", got.PeerHTTPAddrs[dto.FamilyLSP], addr)
+	}
+	if got.PeerHTTPTokens[dto.FamilyLSP] != "legacy-peer-secret" {
+		t.Fatalf("PeerHTTPTokens[lsp] = %q, want legacy-peer-secret", got.PeerHTTPTokens[dto.FamilyLSP])
+	}
+}
+
 func manifestBinary(t *testing.T, manifest dto.MCPManifest, family dto.ToolFamily) dto.MCPBinary {
 	t.Helper()
 	for _, bin := range manifest.Binaries {
