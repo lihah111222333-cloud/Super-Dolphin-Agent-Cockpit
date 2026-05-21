@@ -27,10 +27,15 @@ func TestBuildManifest_DefaultFamilies(t *testing.T) {
 	}
 }
 
-func TestBuildManifest_WithIDA(t *testing.T) {
+func TestBuildManifest_WithIDADoesNotExposeUnimplementedIDATools(t *testing.T) {
 	got := manifestbuilder.BuildManifest(dto.ManifestContext{ThreadCaps: dto.CapabilitySet{"ida": true}})
-	if len(got.Binaries) != 3 || got.Binaries[2].Name != "ida" {
+	if len(got.Binaries) != 2 {
 		t.Fatalf("unexpected ida manifest: %+v", got.Binaries)
+	}
+	for _, binary := range got.Binaries {
+		if binary.Name == "ida" {
+			t.Fatalf("manifest exposed unimplemented ida binary: %+v", got.Binaries)
+		}
 	}
 }
 
@@ -69,9 +74,8 @@ func TestBuildManifest_UsesProxyHTTPAddr(t *testing.T) {
 	want := []string{
 		"http://127.0.0.1:39001/mcp/lsp/agent-1",
 		"http://127.0.0.1:39001/mcp/orch/agent-1",
-		"http://127.0.0.1:39001/mcp/ida/agent-1",
 	}
-	for i, binary := range got.Binaries[:3] {
+	for i, binary := range got.Binaries[:2] {
 		if binary.Type != "http" || binary.URL != want[i] {
 			t.Fatalf("unexpected proxy binary: %+v", got.Binaries)
 		}
@@ -79,7 +83,7 @@ func TestBuildManifest_UsesProxyHTTPAddr(t *testing.T) {
 			t.Fatalf("binary %q command = %#v, want nil", binary.Name, binary.Command)
 		}
 	}
-	if len(got.Binaries) != 3 {
+	if len(got.Binaries) != 2 {
 		t.Fatalf("unexpected extra binaries under proxy mode: %+v", got.Binaries)
 	}
 }
