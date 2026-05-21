@@ -41,6 +41,66 @@ func TestPrepareCodexToolSurfaceAdvertisesShortNamesAndRoutesCalls(t *testing.T)
 	}
 }
 
+func TestCodexToolSurfaceLaunchInjectsManagedContextWithoutCWD(t *testing.T) {
+	for _, realName := range []string{"launch_agent", "orchestration_launch_agent"} {
+		t.Run(realName, func(t *testing.T) {
+			orch := &fakeMCPClient{tools: []mcpdto.MCPTool{{Name: realName, Description: "launch", InputSchema: json.RawMessage(`{"type":"object"}`)}}}
+			h := &Handler{
+				stdioClientFactory: fakeClientFactory(map[string]mcpClient{"orch": orch}),
+				bindingStore: &toolCallBindingStoreStub{bindingsByAgent: map[string]toolCallBinding{
+					"agent-parent": {
+						AgentID:  "agent-parent",
+						Provider: "codex",
+						CWD:      "/repo/project",
+					},
+				}},
+				threadStore: &toolCallThreadStoreStub{},
+				preferences: &stubUIPreferenceReader{},
+			}
+			_, err := h.PrepareCodexToolSurface(context.Background(), contract.CodexToolSurfaceScope{
+				AgentID:          "agent-parent",
+				ProviderThreadID: "provider-thread-parent",
+				CWD:              "/repo/project",
+				Manifest:         providerdto.MCPManifest{Binaries: []providerdto.MCPBinary{{Name: "orch", Command: []string{"mcp-orch"}}}},
+			})
+			if err != nil {
+				t.Fatalf("PrepareCodexToolSurface() error = %v", err)
+			}
+
+			_, err = h.HandleToolCall(context.Background(), contract.ToolCallRawMessage{Params: json.RawMessage(`{"name":"launch_agent","arguments":{"name":"idle-agent"},"_agentId":"agent-parent","_threadId":"provider-thread-parent","_callId":"call-1","_cwd":"/repo/current"}`)})
+			if err != nil {
+				t.Fatalf("HandleToolCall(launch_agent) error = %v", err)
+			}
+			if !orch.calledWith(realName) {
+				t.Fatalf("orch calls = %#v, want %s", orch.calls, realName)
+			}
+			assertCodexSurfaceLaunchInjectedArgs(t, orch.arguments)
+		})
+	}
+}
+
+func assertCodexSurfaceLaunchInjectedArgs(t *testing.T, arguments []json.RawMessage) {
+	t.Helper()
+	if len(arguments) != 1 {
+		t.Fatalf("orch arguments calls = %d, want 1", len(arguments))
+	}
+	gotArgs := decodeToolArguments(arguments[0])
+	for key, want := range map[string]string{
+		"name":      "idle-agent",
+		"parent_id": "agent-parent",
+		"provider":  "codex",
+		"model":     "gpt-5.5",
+		"effort":    "xhigh",
+	} {
+		if got := mapString(gotArgs, key); got != want {
+			t.Fatalf("argument %s = %q, want %q; args=%s", key, got, want, string(arguments[0]))
+		}
+	}
+	if got := mapString(gotArgs, "cwd"); got != "" {
+		t.Fatalf("argument cwd = %q, want omitted so parent cwd inheritance remains authoritative", got)
+	}
+}
+
 func TestCodexToolSurfaceAcceptsLegacyAliasWithoutAdvertisingIt(t *testing.T) {
 	lsp := &fakeMCPClient{tools: []mcpdto.MCPTool{{Name: "grep", InputSchema: json.RawMessage(`{"type":"object"}`)}}}
 	h := &Handler{stdioClientFactory: fakeClientFactory(map[string]mcpClient{"lsp": lsp})}
@@ -304,17 +364,19 @@ func legacyScopedToolCallParams(name string) json.RawMessage {
 }
 
 type fakeMCPClient struct {
-	tools  []mcpdto.MCPTool
-	calls  []string
-	closed int
+	tools     []mcpdto.MCPTool
+	calls     []string
+	arguments []json.RawMessage
+	closed    int
 }
 
 func (c *fakeMCPClient) ListTools(context.Context) ([]mcpdto.MCPTool, error) {
 	return append([]mcpdto.MCPTool(nil), c.tools...), nil
 }
 
-func (c *fakeMCPClient) CallTool(_ context.Context, name string, _ json.RawMessage, _ ToolCallRequest) (*ToolCallResult, error) {
+func (c *fakeMCPClient) CallTool(_ context.Context, name string, arguments json.RawMessage, _ ToolCallRequest) (*ToolCallResult, error) {
 	c.calls = append(c.calls, name)
+	c.arguments = append(c.arguments, append(json.RawMessage(nil), arguments...))
 	return toolCallTextResult(true, "ok"), nil
 }
 

@@ -156,7 +156,7 @@ func TestGetRun_IncludesRuntimeNodesForRun(t *testing.T) {
 				Title:     "N1",
 				Status:    "ready",
 				DependsOn: json.RawMessage(`[]`),
-				Config:    json.RawMessage(`{"exec":{"agent_key":"coder"}}`),
+				Config:    json.RawMessage(`{"exec":{"agent_key":"coder","cwd":"/tmp/node-cwd"}}`),
 				CreatedAt: now,
 				UpdatedAt: now,
 			},

@@ -92,7 +92,7 @@ func TestNodeExecutorRouter_RoutesAgentNode(t *testing.T) {
 			RunID:    routerTestRunID(7),
 			NodeType: "agent",
 			Title:    "n1",
-			Config:   json.RawMessage(`{"exec":{"agent_key":"alpha"},"first_turn":"hi"}`),
+			Config:   json.RawMessage(`{"exec":{"agent_key":"alpha","cwd":"/tmp/node-cwd"},"first_turn":"hi"}`),
 			Status:   "ready",
 		}},
 	}
@@ -128,7 +128,7 @@ func TestNodeExecutorRouter_AgentLifecycleHooks(t *testing.T) {
 			RunID:    routerTestRunID(7),
 			NodeType: "agent",
 			Title:    "n1",
-			Config:   json.RawMessage(`{"exec":{"agent_key":"alpha"},"first_turn":"hi"}`),
+			Config:   json.RawMessage(`{"exec":{"agent_key":"alpha","cwd":"/tmp/node-cwd"},"first_turn":"hi"}`),
 			Status:   string(nodeexec.NodeStatusReady),
 		}},
 	}
@@ -180,7 +180,7 @@ func TestNodeExecutorRouter_LifecycleHookTimeoutDoesNotBlockDispatch(t *testing.
 			NodeKey:  "n1",
 			RunID:    routerTestRunID(7),
 			NodeType: "agent",
-			Config:   json.RawMessage(`{"exec":{"agent_key":"alpha"},"first_turn":"hi"}`),
+			Config:   json.RawMessage(`{"exec":{"agent_key":"alpha","cwd":"/tmp/node-cwd"},"first_turn":"hi"}`),
 			Status:   string(nodeexec.NodeStatusReady),
 		}},
 	}
@@ -226,7 +226,7 @@ func TestNodeExecutorRouter_EmptyNodeTypeDefaultsToAgent(t *testing.T) {
 			RunID:    routerTestRunID(7),
 			NodeType: "", // 空
 			Title:    "n1",
-			Config:   json.RawMessage(`{"exec":{"agent_key":"a"},"first_turn":"x"}`),
+			Config:   json.RawMessage(`{"exec":{"agent_key":"a","cwd":"/tmp/node-cwd"},"first_turn":"x"}`),
 			Status:   "ready",
 		}},
 	}

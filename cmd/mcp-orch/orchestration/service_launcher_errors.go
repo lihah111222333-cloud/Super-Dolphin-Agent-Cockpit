@@ -51,35 +51,12 @@ const (
 	launchClassUnknown   launchErrorClass = "unknown"
 )
 
-// permanentLaunchPatterns 与前端 useAutoContinue.PERMANENT_ERROR_PATTERNS
-// 同源（5 类永久错误：401/403/quota/payment/context_length）。命中任一关键字
-// 即视为 permanent，launchRetry 直接跳出循环不重试。两层各持一份是因为
-// jrpc2 line protocol 让后端不能拿到 HTTP envelope；上游错误在哪一层先撞到
-// 就在哪一层先识别。
-var permanentLaunchPatterns = []string{
-	// permanent_unauthenticated
-	"401", "unauthoriz", "invalid api key", "invalid_api_key",
-	// permanent_forbidden
-	"403", "forbidden", "permission denied",
-	// permanent_quota_exhausted
-	"quota_exhausted", "insufficient_quota", "usage limit", "out of credits",
-	// permanent_payment_required
-	"402", "payment_required", "subscription expired",
-	// permanent_context_length_exceeded
-	"context_length_exceeded", "context length exceeded", "maximum context", "prompt is too long",
-}
+var permanentLaunchPatterns = []string{"401", "unauthoriz", "invalid api key", "invalid_api_key", "403", "forbidden", "permission denied", "quota_exhausted", "insufficient_quota", "usage limit", "out of credits", "402", "payment_required", "subscription expired", "context_length_exceeded", "context length exceeded", "maximum context", "prompt is too long", "launch cwd is required", "launch cwd is invalid", "root task id missing", "task handoff title is required", "task handoff file is required", "task handoff config"}
 
 // transientLaunchPatterns 是已知的瞬态故障关键字（连接级 / 超时 / 启动竞态）。
 // 命中则归 transient 让 launchRetry 退避后重试。和 isRateLimited（429）一起
 // 构成 transient 集合。
-var transientLaunchPatterns = []string{
-	"deadline exceeded",
-	"connection refused",
-	"transport unavailable",
-	"empty thread id",
-	"timed out",
-	"i/o timeout",
-}
+var transientLaunchPatterns = []string{"deadline exceeded", "connection refused", "transport unavailable", "empty thread id", "timed out", "i/o timeout"}
 
 // classifyLaunchError 把 launch error 分类。permanent 优先级最高（即使消息里
 // 同时含 transient 关键字，permanent 仍胜出——例如 "401 timeout"）。

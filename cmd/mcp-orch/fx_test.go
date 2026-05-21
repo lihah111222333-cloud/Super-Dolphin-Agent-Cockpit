@@ -6,11 +6,13 @@ import (
 	"errors"
 	"io"
 	"log/slog"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/orchestration"
 	taskdagstore "github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/taskdag"
+	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/common"
 	platformrunner "github.com/anthropic-ai/super-agent-v3/internal/platform/runner"
 	"github.com/kelindar/event"
@@ -172,6 +174,76 @@ func TestHandleScopedToolsCallWithCallerWrapsSelectedToolErrors(t *testing.T) {
 	if envelope.Success || envelope.Error != toolErr.Error() {
 		t.Fatalf("envelope = %+v, want failed tool envelope", envelope)
 	}
+}
+
+func TestHandleScopedToolsCallWithCallerWrapsLaunchAgentContractErrors(t *testing.T) {
+	tests := []struct {
+		name     string
+		toolName string
+		err      error
+		wantCode string
+	}{
+		{name: "missing cwd", toolName: "launch_agent", err: contract.ErrLaunchCWDRequired, wantCode: "cwd_required"},
+		{name: "missing cwd legacy alias", toolName: "orchestration_launch_agent", err: contract.ErrLaunchCWDRequired, wantCode: "cwd_required"},
+		{name: "invalid cwd", toolName: "launch_agent", err: contract.ErrLaunchCWDInvalid, wantCode: "cwd_invalid"},
+		{name: "invalid cwd legacy alias", toolName: "orchestration_launch_agent", err: contract.ErrLaunchCWDInvalid, wantCode: "cwd_invalid"},
+		{name: "missing provider", toolName: "launch_agent", err: errors.New("provider is required"), wantCode: "provider_required"},
+		{name: "missing provider legacy alias", toolName: "orchestration_launch_agent", err: errors.New("provider is required"), wantCode: "provider_required"},
+		{name: "invalid provider", toolName: "launch_agent", err: errors.New(`invalid provider "openai"`), wantCode: "provider_invalid"},
+		{name: "invalid provider legacy alias", toolName: "orchestration_launch_agent", err: errors.New(`invalid provider "openai"`), wantCode: "provider_invalid"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			params := json.RawMessage(`{"name":"` + tt.toolName + `","arguments":{},"_agentId":"agent-1"}`)
+			result, err := handleScopedToolsCallWithCaller(context.Background(), "orch", params, func(context.Context, string, json.RawMessage) (any, error) {
+				return nil, tt.err
+			})
+			if err != nil {
+				t.Fatalf("handleScopedToolsCallWithCaller() error = %v", err)
+			}
+			envelope := decodeScopedToolEnvelope(t, result)
+			if envelope.Code != tt.wantCode {
+				t.Fatalf("Code = %q, want %s", envelope.Code, tt.wantCode)
+			}
+			if envelope.Retryable {
+				t.Fatal("Retryable = true, want false")
+			}
+			assertNoLSPHint(t, envelope.Hint)
+		})
+	}
+}
+
+func decodeScopedToolEnvelope(t *testing.T, result any) common.ToolErrorEnvelope {
+	t.Helper()
+	payload, ok := result.(map[string]any)
+	if !ok {
+		t.Fatalf("result = %#v, want map", result)
+	}
+	if isError, _ := payload["isError"].(bool); !isError {
+		t.Fatalf("isError = %v, want true", payload["isError"])
+	}
+	raw, ok := payload["structuredContent"].(json.RawMessage)
+	if !ok {
+		t.Fatalf("structuredContent = %T, want json.RawMessage", payload["structuredContent"])
+	}
+	var envelope common.ToolErrorEnvelope
+	if err := json.Unmarshal(raw, &envelope); err != nil {
+		t.Fatalf("unmarshal envelope: %v", err)
+	}
+	return envelope
+}
+
+func assertNoLSPHint(t *testing.T, hint string) {
+	t.Helper()
+	for _, forbidden := range []string{"lsp", "language server"} {
+		if containsFold(hint, forbidden) {
+			t.Fatalf("Hint = %q, must not mention %s", hint, forbidden)
+		}
+	}
+}
+
+func containsFold(value, substr string) bool {
+	return strings.Contains(strings.ToLower(value), strings.ToLower(substr))
 }
 
 func scopedToolsCallVerifier(t *testing.T, called *bool) func(context.Context, string, json.RawMessage) (any, error) {

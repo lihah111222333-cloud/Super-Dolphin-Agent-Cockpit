@@ -411,7 +411,7 @@ func TestWakeupDispatcher_RouterFrameworkErrorRetriesWakeup(t *testing.T) {
 			NodeKey:  "n1",
 			NodeType: "agent",
 			Status:   string(nodeexec.NodeStatusReady),
-			Config:   json.RawMessage(`{"exec":{"agent_key":"alpha"},"first_turn":"hi"}`),
+			Config:   json.RawMessage(`{"exec":{"agent_key":"alpha","cwd":"/tmp/node-cwd"},"first_turn":"hi"}`),
 		}},
 		runningErr: errors.New("running status write failed"),
 	}
@@ -463,7 +463,7 @@ func TestWakeupDispatcher_RetryExhaustedLifecycleHooksKeepFailureClass(t *testin
 			NodeKey:  "n1",
 			NodeType: "agent",
 			Status:   string(nodeexec.NodeStatusReady),
-			Config:   json.RawMessage(`{"exec":{"agent_key":"alpha"},"first_turn":"hi"}`),
+			Config:   json.RawMessage(`{"exec":{"agent_key":"alpha","cwd":"/tmp/node-cwd"},"first_turn":"hi"}`),
 		}},
 	}
 	d, err := NewWakeupDispatcher(store, &dispatcherStubLauncher{}, nil, WakeupDispatcherConfig{ClaimedBy: "worker-a"})
@@ -512,7 +512,7 @@ func TestWakeupDispatcher_SQLRetryHardCapInvokesLifecycleHooks(t *testing.T) {
 			NodeKey:  "n1",
 			NodeType: "agent",
 			Status:   string(nodeexec.NodeStatusReady),
-			Config:   json.RawMessage(`{"exec":{"agent_key":"alpha"},"first_turn":"hi"}`),
+			Config:   json.RawMessage(`{"exec":{"agent_key":"alpha","cwd":"/tmp/node-cwd"},"first_turn":"hi"}`),
 		}},
 	}
 	d, err := NewWakeupDispatcher(store, &dispatcherStubLauncher{}, nil, WakeupDispatcherConfig{ClaimedBy: "worker-a"})

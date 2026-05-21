@@ -17,7 +17,7 @@ func TestDAGSubscriber_A2_DefaultAgentResultMaterializesTurnResult(t *testing.T)
 		NodeKey:  "agent-default",
 		NodeType: "agent",
 		Status:   "running",
-		Config:   []byte(`{"exec":{"agent_key":"implementer"}}`),
+		Config:   []byte(`{"exec":{"agent_key":"implementer","cwd":"/tmp/node-cwd"}}`),
 	}}}
 	flow := &dagSubscriberFlowSpy{}
 	deps := setupDAGSubscriberDeps(
@@ -45,7 +45,7 @@ func TestDAGSubscriber_A2_SharedfileOnlyDoesNotStoreLargeTurnResult(t *testing.T
 		NodeType: "agent",
 		Status:   "running",
 		Config: []byte(`{
-			"exec":{"agent_key":"implementer"},
+			"exec":{"agent_key":"implementer","cwd":"/tmp/node-cwd"},
 			"outputs":{
 				"to_sharedfile":{"path":"reports/agent.json","lock_mode":"exclusive"},
 				"to_node_result":false
@@ -91,7 +91,7 @@ func TestDAGSubscriber_A2_SharedfileSkippedWhenCompleteFenceRejects(t *testing.T
 		NodeType: "agent",
 		Status:   "running",
 		Config: []byte(`{
-			"exec":{"agent_key":"implementer"},
+			"exec":{"agent_key":"implementer","cwd":"/tmp/node-cwd"},
 			"outputs":{"to_sharedfile":{"path":"reports/agent-fence.json","lock_mode":"exclusive"}}
 		}`),
 	}}}
@@ -127,7 +127,7 @@ func TestDAGSubscriber_A2_AwaitingVerifyReplayCompletesAfterPriorCompleteError(t
 		NodeType: "agent",
 		Status:   "running",
 		Config: []byte(`{
-			"exec":{"agent_key":"implementer"},
+			"exec":{"agent_key":"implementer","cwd":"/tmp/node-cwd"},
 			"outputs":{"to_sharedfile":{"path":"reports/agent-replay.json","lock_mode":"exclusive"}}
 		}`),
 	}
@@ -181,7 +181,7 @@ func TestDAGSubscriber_A2_SharedfileAndNodeResultWritesBoth(t *testing.T) {
 		NodeType: "agent",
 		Status:   "running",
 		Config: []byte(`{
-			"exec":{"agent_key":"implementer"},
+			"exec":{"agent_key":"implementer","cwd":"/tmp/node-cwd"},
 			"outputs":{
 				"to_sharedfile":{"path":"reports/agent-both.json","lock_mode":"exclusive"},
 				"to_node_result":true
@@ -224,7 +224,7 @@ func TestDAGSubscriber_A2_PreservesAgentWrittenSharedfileWithNodeResultEnabled(t
 		NodeType: "agent",
 		Status:   "running",
 		Config: []byte(`{
-			"exec":{"agent_key":"paper_summarizer"},
+			"exec":{"agent_key":"paper_summarizer","cwd":"/tmp/node-cwd"},
 			"outputs":{
 				"to_sharedfile":{"path":"reports/agent-preserve-both.md","lock_mode":"exclusive"},
 				"to_node_result":true
@@ -274,7 +274,7 @@ func TestDAGSubscriber_A2_PreservesAgentWrittenSharedfile(t *testing.T) {
 		NodeType: "agent",
 		Status:   "running",
 		Config: []byte(`{
-			"exec":{"agent_key":"paper_summarizer"},
+			"exec":{"agent_key":"paper_summarizer","cwd":"/tmp/node-cwd"},
 			"outputs":{"to_sharedfile":{"path":"reports/agent-preserve.md","lock_mode":"exclusive"}}
 		}`),
 	}}}
@@ -316,7 +316,7 @@ func TestDAGSubscriber_A2_SharedfileMissingReaderFailsWithoutOverwrite(t *testin
 		NodeType: "agent",
 		Status:   "running",
 		Config: []byte(`{
-			"exec":{"agent_key":"paper_summarizer"},
+			"exec":{"agent_key":"paper_summarizer","cwd":"/tmp/node-cwd"},
 			"outputs":{"to_sharedfile":{"path":"reports/agent-no-reader.md","lock_mode":"exclusive"}}
 		}`),
 	}}}
@@ -357,7 +357,7 @@ func TestDAGSubscriber_A2_SharedfileMissingWriterFails(t *testing.T) {
 		NodeType: "agent",
 		Status:   "running",
 		Config: []byte(`{
-			"exec":{"agent_key":"implementer"},
+			"exec":{"agent_key":"implementer","cwd":"/tmp/node-cwd"},
 			"outputs":{"to_sharedfile":{"path":"reports/agent.json","lock_mode":"exclusive"}}
 		}`),
 	}}}
@@ -391,7 +391,7 @@ func TestDAGSubscriber_A2_SharedfileWriteErrorFails(t *testing.T) {
 		NodeType: "agent",
 		Status:   "running",
 		Config: []byte(`{
-			"exec":{"agent_key":"implementer"},
+			"exec":{"agent_key":"implementer","cwd":"/tmp/node-cwd"},
 			"outputs":{"to_sharedfile":{"path":"reports/fail.json","lock_mode":"exclusive"}}
 		}`),
 	}}}
@@ -428,7 +428,7 @@ func TestDAGSubscriber_A2_ToNodeResultOversizeFailsWithoutFallback(t *testing.T)
 		NodeType: "agent",
 		Status:   "running",
 		Config: []byte(`{
-			"exec":{"agent_key":"reviewer"},
+			"exec":{"agent_key":"reviewer","cwd":"/tmp/node-cwd"},
 			"outputs":{"to_node_result":true}
 		}`),
 	}}}

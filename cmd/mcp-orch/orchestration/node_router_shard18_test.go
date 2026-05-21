@@ -77,7 +77,7 @@ func TestNodeExecutorRouter_PrefetchPrevResults_FromNodes_NonEmpty(t *testing.T)
 			{
 				DagKey: "dag-1", NodeKey: "downstream", RunID: routerTestRunID(7), NodeType: "agent",
 				Title: "downstream", Status: string(nodeexec.NodeStatusReady),
-				Config: json.RawMessage(`{"exec":{"agent_key":"a"},"inputs":{"from_nodes":["upstream"]},"first_turn":"go"}`),
+				Config: json.RawMessage(`{"exec":{"agent_key":"a","cwd":"/tmp/node-cwd"},"inputs":{"from_nodes":["upstream"]},"first_turn":"go"}`),
 			},
 		},
 	}
@@ -119,7 +119,7 @@ func TestNodeExecutorRouter_PrefetchPrevResults_StaysInsideRun(t *testing.T) {
 			{
 				DagKey: "dag-1", NodeKey: "downstream", RunID: &runA, NodeType: "agent",
 				Status: string(nodeexec.NodeStatusReady),
-				Config: json.RawMessage(`{"exec":{"agent_key":"a"},"inputs":{"from_nodes":["upstream"]},"first_turn":"go A"}`),
+				Config: json.RawMessage(`{"exec":{"agent_key":"a","cwd":"/tmp/node-cwd"},"inputs":{"from_nodes":["upstream"]},"first_turn":"go A"}`),
 			},
 			{
 				DagKey: "dag-1", NodeKey: "upstream", RunID: &runB, NodeType: "agent",
@@ -129,7 +129,7 @@ func TestNodeExecutorRouter_PrefetchPrevResults_StaysInsideRun(t *testing.T) {
 			{
 				DagKey: "dag-1", NodeKey: "downstream", RunID: &runB, NodeType: "agent",
 				Status: string(nodeexec.NodeStatusReady),
-				Config: json.RawMessage(`{"exec":{"agent_key":"a"},"inputs":{"from_nodes":["upstream"]},"first_turn":"go B"}`),
+				Config: json.RawMessage(`{"exec":{"agent_key":"a","cwd":"/tmp/node-cwd"},"inputs":{"from_nodes":["upstream"]},"first_turn":"go B"}`),
 			},
 		},
 	}
@@ -173,7 +173,7 @@ func TestNodeExecutorRouter_PrefetchPrevResults_FiltersNonDoneUpstream(t *testin
 			{
 				DagKey: "dag-1", NodeKey: "downstream", RunID: routerTestRunID(7), NodeType: "agent",
 				Status: string(nodeexec.NodeStatusReady),
-				Config: json.RawMessage(`{"exec":{"agent_key":"a"},"inputs":{"from_nodes":["upstream"]},"first_turn":"go"}`),
+				Config: json.RawMessage(`{"exec":{"agent_key":"a","cwd":"/tmp/node-cwd"},"inputs":{"from_nodes":["upstream"]},"first_turn":"go"}`),
 			},
 		},
 	}
@@ -212,7 +212,7 @@ func TestNodeExecutorRouter_PrefetchPrevResults_EmptyResultPlaceholder(t *testin
 			{
 				DagKey: "dag-1", NodeKey: "downstream", RunID: routerTestRunID(7), NodeType: "agent",
 				Status: string(nodeexec.NodeStatusReady),
-				Config: json.RawMessage(`{"exec":{"agent_key":"a"},"inputs":{"from_nodes":["upstream"]},"first_turn":"go"}`),
+				Config: json.RawMessage(`{"exec":{"agent_key":"a","cwd":"/tmp/node-cwd"},"inputs":{"from_nodes":["upstream"]},"first_turn":"go"}`),
 			},
 		},
 	}
@@ -243,7 +243,7 @@ func TestNodeExecutorRouter_SharedFileReader_Injected(t *testing.T) {
 		nodes: []taskdag.Node{{
 			DagKey: "dag-1", NodeKey: "n1", RunID: routerTestRunID(7), NodeType: "agent",
 			Status: string(nodeexec.NodeStatusReady),
-			Config: json.RawMessage(`{"exec":{"agent_key":"a"},"inputs":{"from_sharedfiles":["plan.md"]},"first_turn":"go"}`),
+			Config: json.RawMessage(`{"exec":{"agent_key":"a","cwd":"/tmp/node-cwd"},"inputs":{"from_sharedfiles":["plan.md"]},"first_turn":"go"}`),
 		}},
 	}
 	router := NewNodeExecutorRouter(store, agentExec, nil, reader, nil, nil)
@@ -353,7 +353,7 @@ func TestNodeExecutorRouter_EmptyConfig_PortsStillNonNil(t *testing.T) {
 		nodes: []taskdag.Node{{
 			DagKey: "dag-1", NodeKey: "n1", RunID: routerTestRunID(7), NodeType: "agent",
 			Status: string(nodeexec.NodeStatusReady),
-			Config: json.RawMessage(`{"exec":{"agent_key":"a"},"first_turn":"go"}`),
+			Config: json.RawMessage(`{"exec":{"agent_key":"a","cwd":"/tmp/node-cwd"},"first_turn":"go"}`),
 		}},
 	}
 	router := NewNodeExecutorRouter(store, agentExec, nil, reader, writer, nil)
@@ -389,7 +389,7 @@ func TestNodeExecutorRouter_ListNodesErrorPropagatesAsFrameworkErr(t *testing.T)
 			nodes: []taskdag.Node{{
 				DagKey: "dag-1", NodeKey: "n1", RunID: routerTestRunID(7), NodeType: "agent",
 				Status: string(nodeexec.NodeStatusReady),
-				Config: json.RawMessage(`{"exec":{"agent_key":"a"},"inputs":{"from_nodes":["upstream"]},"first_turn":"go"}`),
+				Config: json.RawMessage(`{"exec":{"agent_key":"a","cwd":"/tmp/node-cwd"},"inputs":{"from_nodes":["upstream"]},"first_turn":"go"}`),
 			}},
 		},
 		failAfter: 1, // 首次 lookupTargetNode 成功，prefetch 调用失败

@@ -18,6 +18,7 @@ func TestDispatcherSmartRetryCapabilityEscalatesModelAndRetries(t *testing.T) {
 	store.nodesReply[0].Config = json.RawMessage(`{
 		"exec":{
 			"agent_key":"alpha",
+			"cwd":"/tmp/node-cwd",
 			"model":"sonnet",
 			"on_failure":{
 				"by_class":{"capability":"escalate_model"},
@@ -50,6 +51,7 @@ func TestDispatcherSmartRetryValidationFailsFastWithoutPromptPatch(t *testing.T)
 	store.nodesReply[0].Config = json.RawMessage(`{
 		"exec":{
 			"agent_key":"alpha",
+			"cwd":"/tmp/validation-cwd",
 			"on_failure":{
 				"by_class":{"validation":"append_error"},
 				"max_attempts":2
@@ -71,12 +73,50 @@ func TestDispatcherSmartRetryValidationFailsFastWithoutPromptPatch(t *testing.T)
 	require.True(t, store.failNodeCalls[0].FailFast)
 }
 
+func TestDispatcherSmartRetryLaunchCWDValidationFailsFastWithoutRetry(t *testing.T) {
+	now := time.Date(2026, 5, 14, 10, 17, 0, 0, time.UTC)
+	store := newAgentFailureClassStore(t, "launch-cwd-validation", 1, now)
+	store.nodesReply[0].Config = json.RawMessage(`{
+		"exec":{
+			"agent_key":"alpha",
+			"on_failure":{
+				"by_class":{"validation":"append_error"},
+				"default":"replan",
+				"max_attempts":2
+			}
+		},
+		"first_turn":"produce valid json"
+	}`)
+	launcher := &stubAgentLauncher{err: errors.New("launcher should not be called")}
+	agentExec := newTestAgentExecutor(launcher)
+	router := NewNodeExecutorRouter(store, agentExec, nil, nil, nil, nil)
+	plannerLauncher := &dispatcherStubLauncher{}
+	d, err := NewWakeupDispatcher(store, plannerLauncher, nil, WakeupDispatcherConfig{})
+	if err != nil {
+		t.Fatalf("NewWakeupDispatcher err = %v", err)
+	}
+	d.WithNodeRouter(router)
+
+	if _, err := d.ProcessBatch(context.Background()); err != nil {
+		t.Fatalf("ProcessBatch err = %v", err)
+	}
+	require.Empty(t, launcher.calls)
+	require.Empty(t, plannerLauncher.calls)
+	require.Empty(t, store.retryCalls)
+	require.Empty(t, store.patchConfigCalls)
+	require.Len(t, store.failCalls, 1)
+	require.Len(t, store.failNodeCalls, 1)
+	require.Contains(t, store.failCalls[0].LastError, "launch cwd is required")
+	require.True(t, store.failNodeCalls[0].FailFast)
+}
+
 func TestDispatcherSmartRetryReplanSpawnsPlannerAgent(t *testing.T) {
 	now := time.Date(2026, 5, 14, 10, 30, 0, 0, time.UTC)
 	store := newAgentFailureClassStore(t, "replan", 1, now)
 	store.nodesReply[0].Config = json.RawMessage(`{
 		"exec":{
 			"agent_key":"alpha",
+			"cwd":"/tmp/replan-cwd",
 			"on_failure":{
 				"default":"replan",
 				"max_attempts":2
@@ -100,6 +140,7 @@ func TestDispatcherSmartRetryReplanSpawnsPlannerAgent(t *testing.T) {
 	require.Len(t, plannerLauncher.calls, 1)
 	call := plannerLauncher.calls[0]
 	require.Equal(t, "dag_designer", call.AgentKey)
+	require.Equal(t, "/tmp/replan-cwd", call.Cwd)
 	require.Contains(t, call.Prompt, "dag-f14-replan")
 	require.Contains(t, call.Prompt, "agent-replan")
 	require.Contains(t, call.Prompt, "task_dag_apply_ops")
@@ -125,6 +166,7 @@ func TestDispatcherSmartRetryReplanPlannerFailureFailsClosed(t *testing.T) {
 			store.nodesReply[0].Config = json.RawMessage(`{
 				"exec":{
 					"agent_key":"alpha",
+					"cwd":"/tmp/replan-cwd",
 					"on_failure":{
 						"default":"replan",
 						"max_attempts":2
@@ -169,6 +211,7 @@ func TestDispatcherSmartRetryPermanentReplanPlannerFailureDoesNotRetryOriginalNo
 	store.nodesReply[0].Config = json.RawMessage(`{
 		"exec":{
 			"agent_key":"alpha",
+			"cwd":"/tmp/replan-cwd",
 			"on_failure":{
 				"by_class":{"needs_human":"replan"},
 				"max_attempts":2
@@ -192,6 +235,9 @@ func TestDispatcherSmartRetryPermanentReplanPlannerFailureDoesNotRetryOriginalNo
 	if len(plannerLauncher.calls) != 1 {
 		t.Fatalf("planner calls = %d, want 1 explicit replan attempt", len(plannerLauncher.calls))
 	}
+	if plannerLauncher.calls[0].Cwd != "/tmp/replan-cwd" {
+		t.Fatalf("planner Cwd = %q, want failed node cwd", plannerLauncher.calls[0].Cwd)
+	}
 	if len(store.retryCalls) != 0 {
 		t.Fatalf("retryCalls = %d, want 0 for needs_human planner failure", len(store.retryCalls))
 	}
@@ -200,12 +246,48 @@ func TestDispatcherSmartRetryPermanentReplanPlannerFailureDoesNotRetryOriginalNo
 	}
 }
 
+func TestDispatcherSmartRetryReplanMissingCWDDoesNotLaunchPlanner(t *testing.T) {
+	now := time.Date(2026, 5, 14, 10, 43, 0, 0, time.UTC)
+	store := newAgentFailureClassStore(t, "replan-missing-cwd", 1, now)
+	store.nodesReply[0].Config = json.RawMessage(`{
+		"exec":{
+			"agent_key":"alpha",
+			"on_failure":{
+				"default":"replan",
+				"max_attempts":2
+			}
+		},
+		"first_turn":"go"
+	}`)
+	plannerLauncher := &dispatcherStubLauncher{}
+	d, err := NewWakeupDispatcher(store, plannerLauncher, nil, WakeupDispatcherConfig{})
+	if err != nil {
+		t.Fatalf("NewWakeupDispatcher err = %v", err)
+	}
+	w := store.claimReply[0]
+
+	d.handleFailedRouterOutcome(context.Background(), &w, extractFence(&w), nodeexec.NodeOutcome{
+		Status:       nodeexec.NodeStatusFailed,
+		FailureClass: nodeexec.FailureClassTransient,
+		ErrorSummary: "connection refused",
+	})
+
+	require.Empty(t, plannerLauncher.calls)
+	require.Empty(t, store.retryCalls)
+	require.Empty(t, store.markSentCalls)
+	require.Len(t, store.failCalls, 1)
+	require.Len(t, store.failNodeCalls, 1)
+	require.Contains(t, store.failCalls[0].LastError, "replan planner cwd unavailable")
+	require.Contains(t, store.failCalls[0].LastError, "launch cwd is required")
+}
+
 func TestDispatcherSmartRetryPermanentFailureWithoutClassMappingDoesNotRetry(t *testing.T) {
 	now := time.Date(2026, 5, 14, 10, 45, 0, 0, time.UTC)
 	store := newAgentFailureClassStore(t, "hard-unmapped", 1, now)
 	store.nodesReply[0].Config = json.RawMessage(`{
 		"exec":{
 			"agent_key":"alpha",
+			"cwd":"/tmp/node-cwd",
 			"on_failure":{"max_attempts":2}
 		},
 		"first_turn":"go"
@@ -249,6 +331,7 @@ func TestDispatcherSmartRetryPermanentFailureDoesNotUseDefaultReplan(t *testing.
 			store.nodesReply[0].Config = json.RawMessage(`{
 				"exec":{
 					"agent_key":"alpha",
+					"cwd":"/tmp/node-cwd",
 					"on_failure":{"default":"replan","max_attempts":2}
 				},
 				"first_turn":"go"
@@ -285,6 +368,7 @@ func TestDispatcherSmartRetryReplanRespectsMaxAttempts(t *testing.T) {
 	store.nodesReply[0].Config = json.RawMessage(`{
 		"exec":{
 			"agent_key":"alpha",
+			"cwd":"/tmp/replan-cwd",
 			"on_failure":{"default":"replan","max_attempts":1}
 		},
 		"first_turn":"go"
@@ -332,6 +416,7 @@ func TestDispatcherSmartRetryUnsupportedStrategiesFailClosed(t *testing.T) {
 			store.nodesReply[0].Config = json.RawMessage(`{
 				"exec":{
 					"agent_key":"alpha",
+					"cwd":"/tmp/node-cwd",
 					"on_failure":{"default":"` + string(tt.strategy) + `","max_attempts":2}
 				},
 				"first_turn":"go"

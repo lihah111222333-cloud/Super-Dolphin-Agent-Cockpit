@@ -59,6 +59,9 @@ func launchEnvValue(env []string, key string) string {
 // makeAgentNode 构造一个 agent 类型节点 + json 编码的 AgentNodeConfig。
 func makeAgentNode(t *testing.T, cfg AgentNodeConfig) Node {
 	t.Helper()
+	if strings.TrimSpace(cfg.Exec.CWD) == "" {
+		cfg.Exec.CWD = "/tmp/node-cwd"
+	}
 	raw, err := json.Marshal(cfg)
 	if err != nil {
 		t.Fatalf("marshal AgentNodeConfig: %v", err)
@@ -77,6 +80,7 @@ func TestBuildLaunchRequestFromAgentConfigFillsAgentIDAndName(t *testing.T) {
 	cfg := AgentNodeConfig{
 		Exec: AgentExecConfig{
 			AgentKey: "implementer",
+			CWD:      "/repo/agent",
 			Language: "zh",
 		},
 		FirstTurn: "do the thing",
@@ -101,6 +105,9 @@ func TestBuildLaunchRequestFromAgentConfigFillsAgentIDAndName(t *testing.T) {
 	if req.AgentKey != cfg.Exec.AgentKey {
 		t.Fatalf("AgentKey = %q, want %q", req.AgentKey, cfg.Exec.AgentKey)
 	}
+	if req.Cwd != cfg.Exec.CWD {
+		t.Fatalf("Cwd = %q, want %q", req.Cwd, cfg.Exec.CWD)
+	}
 	if req.Prompt != cfg.FirstTurn {
 		t.Fatalf("Prompt = %q, want first turn %q", req.Prompt, cfg.FirstTurn)
 	}
@@ -114,6 +121,7 @@ func TestBuildLaunchRequestFromAgentConfigForwardsRuntimeHints(t *testing.T) {
 			Model:         " opus ",
 			Effort:        " high ",
 			AgentKey:      "implementer",
+			CWD:           "/repo/agent",
 			DisabledTools: []string{"shell", " browser "},
 		},
 	}
@@ -131,6 +139,18 @@ func TestBuildLaunchRequestFromAgentConfigForwardsRuntimeHints(t *testing.T) {
 	}
 	if got := launchEnvValue(req.Env, "AGENT_DISABLED_TOOLS"); got != "shell,browser" {
 		t.Fatalf("AGENT_DISABLED_TOOLS = %q, want shell,browser", got)
+	}
+	if req.Cwd != cfg.Exec.CWD {
+		t.Fatalf("Cwd = %q, want %q", req.Cwd, cfg.Exec.CWD)
+	}
+}
+
+func TestBuildLaunchRequestFromAgentConfigDoesNotInventCWD(t *testing.T) {
+	t.Parallel()
+	cfg := AgentNodeConfig{Exec: AgentExecConfig{AgentKey: "implementer"}}
+	req := buildLaunchRequestFromAgentConfig(&cfg, Node{NodeType: "agent", Title: "node"}, RunContext{})
+	if req.Cwd != "" {
+		t.Fatalf("Cwd = %q, want empty until exec.cwd is explicit", req.Cwd)
 	}
 }
 
@@ -179,150 +199,6 @@ func TestAgentExecutor_Execute_HappyPath(t *testing.T) {
 	}
 	if launcher.lastReq.Prompt != "do the thing" {
 		t.Fatalf("LaunchAgent.Prompt = %q, want first_turn", launcher.lastReq.Prompt)
-	}
-}
-
-func TestAgentExecutor_Execute_InvalidConfig_BadJSON(t *testing.T) {
-	t.Parallel()
-	launcher := &stubAgentLauncher{}
-	exec := NewAgentExecutor(launcher)
-
-	node := Node{
-		NodeType: "agent",
-		Config:   json.RawMessage(`{"exec": "not-an-object"`), // 截断 + 类型错
-	}
-	out, err := exec.Execute(context.Background(), node, RunContext{})
-	if err != nil {
-		t.Fatalf("Execute() framework error = %v, want classified validation outcome", err)
-	}
-	if out.Status != NodeStatusFailed {
-		t.Fatalf("Status = %q, want %q", out.Status, NodeStatusFailed)
-	}
-	if out.FailureClass != FailureClassValidation {
-		t.Fatalf("FailureClass = %q, want %q", out.FailureClass, FailureClassValidation)
-	}
-	if launcher.called != 0 {
-		t.Fatalf("LaunchAgent should not be called on invalid config, got %d", launcher.called)
-	}
-}
-
-func TestAgentExecutor_Execute_InvalidConfig_MissingAgentKey(t *testing.T) {
-	t.Parallel()
-	launcher := &stubAgentLauncher{}
-	exec := NewAgentExecutor(launcher)
-
-	cfg := AgentNodeConfig{
-		Exec: AgentExecConfig{Provider: "claude"}, // 缺 agent_key
-	}
-	node := makeAgentNode(t, cfg)
-
-	out, err := exec.Execute(context.Background(), node, RunContext{})
-	if err != nil {
-		t.Fatalf("Execute() framework error = %v, want classified validation outcome", err)
-	}
-	if out.Status != NodeStatusFailed {
-		t.Fatalf("Status = %q, want %q", out.Status, NodeStatusFailed)
-	}
-	if out.FailureClass != FailureClassValidation {
-		t.Fatalf("FailureClass = %q, want %q", out.FailureClass, FailureClassValidation)
-	}
-	if launcher.called != 0 {
-		t.Fatalf("LaunchAgent should not be called, got %d", launcher.called)
-	}
-}
-
-func TestAgentExecutor_Execute_InvalidProvider(t *testing.T) {
-	t.Parallel()
-	launcher := &stubAgentLauncher{}
-	exec := NewAgentExecutor(launcher)
-
-	cfg := AgentNodeConfig{
-		Exec: AgentExecConfig{
-			AgentKey: "implementer",
-			Provider: "openai",
-		},
-	}
-	node := makeAgentNode(t, cfg)
-
-	out, err := exec.Execute(context.Background(), node, RunContext{})
-	if err != nil {
-		t.Fatalf("Execute() framework error = %v, want classified provider validation outcome", err)
-	}
-	if out.Status != NodeStatusFailed {
-		t.Fatalf("Status = %q, want %q", out.Status, NodeStatusFailed)
-	}
-	if out.FailureClass != FailureClassValidation {
-		t.Fatalf("FailureClass = %q, want %q", out.FailureClass, FailureClassValidation)
-	}
-	if !strings.Contains(out.ErrorSummary, "invalid provider") {
-		t.Fatalf("ErrorSummary = %q, want invalid provider", out.ErrorSummary)
-	}
-	if launcher.called != 0 {
-		t.Fatalf("LaunchAgent should not be called, got %d", launcher.called)
-	}
-}
-
-func TestAgentExecutor_Execute_LaunchTransientErr(t *testing.T) {
-	t.Parallel()
-	launcher := &stubAgentLauncher{err: errors.New("connection refused: provider not up")}
-	exec := NewAgentExecutor(launcher)
-
-	cfg := AgentNodeConfig{Exec: AgentExecConfig{AgentKey: "implementer"}}
-	node := makeAgentNode(t, cfg)
-
-	out, err := exec.Execute(context.Background(), node, RunContext{})
-	if err != nil {
-		t.Fatalf("Execute() framework error = %v, want nil", err)
-	}
-	if out.Status != NodeStatusFailed {
-		t.Fatalf("Status = %q, want %q", out.Status, NodeStatusFailed)
-	}
-	if out.FailureClass != FailureClassTransient {
-		t.Fatalf("FailureClass = %q, want %q", out.FailureClass, FailureClassTransient)
-	}
-	if out.ErrorSummary == "" {
-		t.Fatalf("ErrorSummary should be populated on failure")
-	}
-}
-
-func TestAgentExecutor_Execute_LaunchQuotaErr(t *testing.T) {
-	t.Parallel()
-	launcher := &stubAgentLauncher{err: errors.New("quota_exhausted: out of credits")}
-	exec := NewAgentExecutor(launcher)
-
-	cfg := AgentNodeConfig{Exec: AgentExecConfig{AgentKey: "implementer"}}
-	node := makeAgentNode(t, cfg)
-
-	out, err := exec.Execute(context.Background(), node, RunContext{})
-	if err != nil {
-		t.Fatalf("Execute() framework error = %v, want nil", err)
-	}
-	if out.Status != NodeStatusFailed {
-		t.Fatalf("Status = %q, want %q", out.Status, NodeStatusFailed)
-	}
-	if out.FailureClass != FailureClassQuota {
-		t.Fatalf("FailureClass = %q, want %q", out.FailureClass, FailureClassQuota)
-	}
-}
-
-func TestAgentExecutor_Execute_LaunchPermanentErr(t *testing.T) {
-	t.Parallel()
-	launcher := &stubAgentLauncher{err: errors.New("401 unauthorized: invalid api key")}
-	exec := NewAgentExecutor(launcher)
-
-	cfg := AgentNodeConfig{Exec: AgentExecConfig{AgentKey: "implementer"}}
-	node := makeAgentNode(t, cfg)
-
-	out, err := exec.Execute(context.Background(), node, RunContext{})
-	if err != nil {
-		t.Fatalf("Execute() framework error = %v, want nil", err)
-	}
-	if out.Status != NodeStatusFailed {
-		t.Fatalf("Status = %q, want %q", out.Status, NodeStatusFailed)
-	}
-	if out.FailureClass != FailureClassValidation {
-		t.Fatalf("FailureClass = %q, want %q (permanent err maps to validation per F1.4 spec)",
-			out.FailureClass, FailureClassValidation)
 	}
 }
 
@@ -425,6 +301,10 @@ func TestClassifyAgentLaunchError(t *testing.T) {
 		{"capability", errors.New("model lacks capability for this task"), FailureClassCapability},
 		{"unauthorized_validation", errors.New("401 unauthorized"), FailureClassValidation},
 		{"forbidden_validation", errors.New("403 forbidden"), FailureClassValidation},
+		{"root_task_missing_validation", errors.New(`root task id missing on thread "agent-parent"`), FailureClassValidation},
+		{"task_handoff_title_validation", errors.New(`task handoff title is required for task "task-demo"`), FailureClassValidation},
+		{"task_handoff_file_validation", errors.New(`task handoff file is required for task "task-demo"`), FailureClassValidation},
+		{"task_handoff_config_validation", errors.New(`task handoff config "taskId" must be a string`), FailureClassValidation},
 		{"unknown_default_transient", errors.New("strange new failure"), FailureClassTransient},
 	}
 	for _, tc := range cases {

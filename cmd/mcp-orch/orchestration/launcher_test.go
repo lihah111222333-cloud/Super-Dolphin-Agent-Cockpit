@@ -69,6 +69,7 @@ func TestRemoteLauncher_LaunchStop(t *testing.T) {
 	require.Equal(t, "thread-1", agent.remoteThreadID)
 	require.Equal(t, "Worker UI", started["name"])
 	require.Equal(t, "agent-1", started["agent_id"])
+	require.Equal(t, "codex", started["provider"])
 	// thread/start must not receive a separate `prompt` key: the server treats
 	// it as a legacy alias for `name` and rejects (-32602) when the two differ.
 	require.NotContains(t, started, "prompt")
@@ -297,7 +298,7 @@ func TestRemoteLauncher_RPCTimeout(t *testing.T) {
 
 func TestService_LaunchWithLocal(t *testing.T) {
 	svc := NewService(silentLogger(), event.NewDispatcher(), NewLocalLauncher(nil, silentLogger()), nil, nil, nil)
-	req := LaunchRequest{AgentID: "agent-1", Command: []string{os.Args[0], "-test.run=^TestLauncherHelperProcess$"}, Env: []string{"GO_WANT_LAUNCHER_HELPER=1"}}
+	req := LaunchRequest{AgentID: "agent-1", Cwd: t.TempDir(), Command: []string{os.Args[0], "-test.run=^TestLauncherHelperProcess$"}, Env: []string{"GO_WANT_LAUNCHER_HELPER=1"}}
 	if err := svc.LaunchAgent(context.Background(), req); err != nil {
 		t.Fatalf("LaunchAgent() error = %v", err)
 	}
@@ -314,7 +315,7 @@ func TestService_LaunchWithRemote(t *testing.T) {
 			return map[string]any{"thread": map[string]any{"id": "thread-1"}, "agentId": "remote-1"}, nil
 		}),
 	}), nil, nil, nil)
-	if err := svc.LaunchAgent(context.Background(), LaunchRequest{AgentID: "agent-1", Command: []string{"ignored"}}); err != nil {
+	if err := svc.LaunchAgent(context.Background(), LaunchRequest{AgentID: "agent-1", Cwd: t.TempDir(), Command: []string{"ignored"}}); err != nil {
 		t.Fatalf("LaunchAgent() error = %v", err)
 	}
 	agent := svc.agents["remote-1"]
@@ -338,6 +339,7 @@ func TestService_LaunchAgentSnapshotReturnsFinalAgentID(t *testing.T) {
 		AgentID: "agent-1",
 		Name:    "worker-agent",
 		Prompt:  "please inspect the launch path",
+		Cwd:     t.TempDir(),
 		Command: []string{"ignored"},
 	})
 	if err != nil {
@@ -371,6 +373,7 @@ func TestService_LaunchWithRemoteSubmitsInitialPrompt(t *testing.T) {
 		AgentID: "agent-1",
 		Name:    "worker-agent",
 		Prompt:  "please inspect the launch path",
+		Cwd:     t.TempDir(),
 		Command: []string{"ignored"},
 	}); err != nil {
 		t.Fatalf("LaunchAgent() error = %v", err)
@@ -479,6 +482,7 @@ func TestService_LaunchWithRemoteStoresExplicitDisplayName(t *testing.T) {
 		AgentID: "worker-agent",
 		Name:    "worker-agent",
 		Prompt:  "请负责定位登录回调 500 根因，并给出最小修复方案",
+		Cwd:     t.TempDir(),
 		Command: []string{"ignored"},
 	}); err != nil {
 		t.Fatalf("LaunchAgent() error = %v", err)
