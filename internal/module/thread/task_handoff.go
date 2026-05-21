@@ -95,6 +95,13 @@ func (s *service) resolveTaskHandoffStart(ctx context.Context, req *StartRequest
 	if err != nil {
 		return taskHandoffMeta{}, "", err
 	}
+	auto, err := shouldAutoTaskHandoff(*req)
+	if err != nil {
+		return taskHandoffMeta{}, "", err
+	}
+	if !auto && !taskHandoffMetaRequested(explicit) {
+		return taskHandoffMeta{}, "", nil
+	}
 	sourceThreadID, err := s.resolveTaskHandoffSourceThread(ctx, req)
 	if err != nil {
 		return taskHandoffMeta{}, "", err
@@ -103,7 +110,7 @@ func (s *service) resolveTaskHandoffStart(ctx context.Context, req *StartRequest
 	if err != nil {
 		return taskHandoffMeta{}, "", err
 	}
-	meta, err := mergeTaskHandoffStart(*req, explicit, inherited, sourceThreadID)
+	meta, err := mergeTaskHandoffStart(*req, explicit, inherited, sourceThreadID, auto)
 	if err != nil {
 		return taskHandoffMeta{}, "", err
 	}
@@ -289,12 +296,7 @@ func (s *service) resolveBackfillRootTaskID(ctx context.Context, ownerThreadID, 
 	return rootTaskID, nil
 }
 
-func mergeTaskHandoffStart(
-	req StartRequest,
-	explicit taskHandoffMeta,
-	inherited taskHandoffMeta,
-	sourceThreadID string,
-) (taskHandoffMeta, error) {
+func mergeTaskHandoffStart(req StartRequest, explicit, inherited taskHandoffMeta, sourceThreadID string, auto bool) (taskHandoffMeta, error) {
 	meta := explicit
 	meta.TaskID = util.FirstNonEmpty(meta.TaskID, inherited.TaskID)
 	meta.TaskTitle = util.FirstNonEmpty(meta.TaskTitle, inherited.TaskTitle, defaultTaskTitle(req))
@@ -305,21 +307,16 @@ func mergeTaskHandoffStart(
 	}
 	meta.Continue = meta.Continue || (sourceThreadID != "" && meta.TaskID != "" && meta.TaskID == inherited.TaskID)
 	meta.RootTaskID = util.FirstNonEmpty(meta.RootTaskID, inherited.RootTaskID)
-	return autoTaskHandoffMeta(req, meta)
+	if meta.TaskID == "" && auto {
+		meta.TaskID = idgen.NewID("task")
+		meta.TaskTitle = util.FirstNonEmpty(meta.TaskTitle, defaultTaskTitle(req))
+		meta.HandoffFile = defaultTaskHandoffPath(meta.TaskID)
+	}
+	return meta, nil
 }
 
-func autoTaskHandoffMeta(req StartRequest, meta taskHandoffMeta) (taskHandoffMeta, error) {
-	auto, err := shouldAutoTaskHandoff(req)
-	if err != nil {
-		return taskHandoffMeta{}, err
-	}
-	if meta.TaskID != "" || !auto {
-		return meta, nil
-	}
-	meta.TaskID = idgen.NewID("task")
-	meta.TaskTitle = util.FirstNonEmpty(meta.TaskTitle, defaultTaskTitle(req))
-	meta.HandoffFile = defaultTaskHandoffPath(meta.TaskID)
-	return meta, nil
+func taskHandoffMetaRequested(meta taskHandoffMeta) bool {
+	return meta.TaskID != "" || meta.HandoffFile != "" || meta.RootTaskID != "" || meta.Continue
 }
 
 func validateTaskHandoffMeta(meta taskHandoffMeta) error {
@@ -384,8 +381,7 @@ func shouldAutoTaskHandoff(req StartRequest) (bool, error) {
 	if auto {
 		return true, nil
 	}
-	return strings.TrimSpace(req.ParentAgentID) != "" ||
-		strings.TrimSpace(req.OwnerThreadID) != "" ||
+	return strings.TrimSpace(req.OwnerThreadID) != "" ||
 		strings.TrimSpace(req.AgentType) != "", nil
 }
 

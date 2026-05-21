@@ -27,7 +27,7 @@ func TestDispatcherF151FiveNodeDAGMetricsEndpointAndAlert(t *testing.T) {
 			NodeKey:  "node-" + strconv.Itoa(i),
 			RunID:    &runID,
 			NodeType: "agent",
-			Config:   json.RawMessage(`{"exec":{"agent_key":"metrics"},"first_turn":"hi"}`),
+			Config:   json.RawMessage(`{"exec":{"agent_key":"metrics","cwd":"/tmp/node-cwd"},"first_turn":"hi"}`),
 			Status:   string(nodeexec.NodeStatusReady),
 		})
 	}

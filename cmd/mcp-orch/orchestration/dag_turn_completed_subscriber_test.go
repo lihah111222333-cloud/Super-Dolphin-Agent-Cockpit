@@ -223,7 +223,7 @@ func TestDAGSubscriber_DoneInvokesLifecycleHooks(t *testing.T) {
 		NodeKey:  "n1",
 		NodeType: "agent",
 		Status:   "running",
-		Config:   json.RawMessage(`{"exec":{"agent_key":"alpha"},"first_turn":"hi"}`),
+		Config:   json.RawMessage(`{"exec":{"agent_key":"alpha","cwd":"/tmp/node-cwd"},"first_turn":"hi"}`),
 	}}}
 	flow := &dagSubscriberFlowSpy{}
 	threads := &dagSubscriberThreadSpy{thread: &PersistedThread{ThreadID: "thr-hooks-done", AgentID: "agent-hooks"}}
@@ -276,7 +276,7 @@ func TestDAGSubscriber_FailedInvokesLifecycleHooks(t *testing.T) {
 		NodeKey:  "n1",
 		NodeType: "agent",
 		Status:   "running",
-		Config:   json.RawMessage(`{"exec":{"agent_key":"alpha"},"first_turn":"hi"}`),
+		Config:   json.RawMessage(`{"exec":{"agent_key":"alpha","cwd":"/tmp/node-cwd"},"first_turn":"hi"}`),
 	}}}
 	flow := &dagSubscriberFlowSpy{}
 	threads := &dagSubscriberThreadSpy{thread: &PersistedThread{ThreadID: "thr-hooks", AgentID: "agent-hooks"}}
@@ -306,7 +306,7 @@ func TestDAGSubscriber_MaterializationFailureLifecycleHooksKeepFailureClass(t *t
 		NodeType: "agent",
 		Status:   "running",
 		Config: []byte(`{
-			"exec":{"agent_key":"implementer"},
+			"exec":{"agent_key":"implementer","cwd":"/tmp/node-cwd"},
 			"outputs":{"to_sharedfile":{"path":"reports/agent.json","lock_mode":"exclusive"}}
 		}`),
 	}}}

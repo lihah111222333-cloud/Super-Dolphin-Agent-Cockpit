@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	agentdto "github.com/anthropic-ai/super-agent-v3/internal/dto/agent"
 	turndto "github.com/anthropic-ai/super-agent-v3/internal/dto/turn"
 	platformstatemachine "github.com/anthropic-ai/super-agent-v3/internal/platform/statemachine"
@@ -165,7 +166,10 @@ func launchProvider(req LaunchRequest) string {
 			return value
 		}
 	}
-	return commandFlagValue(launchCommandArgs(req.Command), "--provider")
+	if value := commandFlagValue(launchCommandArgs(req.Command), "--provider"); value != "" {
+		return value
+	}
+	return "codex"
 }
 
 func inferredLaunchSource(value int) string {
@@ -221,25 +225,16 @@ func parsePositiveInt(raw string) int {
 }
 
 func validateLaunchRequestForLauncher(req LaunchRequest, launcher AgentLauncher) error {
-	if err := validateLaunchRequestBase(req); err != nil {
-		return err
-	}
-	if requiresCommand(launcher) && len(req.Command) == 0 {
-		return errors.New("command is required")
-	}
-	return nil
-}
-
-func validateLaunchRequestBase(req LaunchRequest) error {
 	if strings.TrimSpace(req.AgentID) == "" {
 		return errors.New("agent id is required")
 	}
+	if err := contract.ValidateLaunchCWD(req.Cwd, req.ParentID); err != nil {
+		return err
+	}
+	if _, isRemote := launcher.(*remoteLauncher); !isRemote && len(req.Command) == 0 {
+		return errors.New("command is required")
+	}
 	return nil
-}
-
-func requiresCommand(launcher AgentLauncher) bool {
-	_, isRemote := launcher.(*remoteLauncher)
-	return !isRemote
 }
 
 func stopProcess(cmd *exec.Cmd) error {

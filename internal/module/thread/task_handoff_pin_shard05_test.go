@@ -281,13 +281,32 @@ var resolveTaskHandoffStartPinCases = []resolveTaskHandoffStartPinCase{
 			svc := &service{threadStore: &stubThreadStore{thread: thread}, bindingStore: &stubBindingStore{binding: &bindingstore.Binding{
 				AgentID: "agent-root", ProviderThreadID: "thread-source", CodexThreadID: "thread-source",
 			}}}
-			return svc, StartRequest{ParentAgentID: "agent-root"}
+			return svc, StartRequest{ParentAgentID: "agent-root", AgentType: "reviewer"}
 		},
 		assert: func(t *testing.T, meta taskHandoffMeta, sourceThreadID string) {
 			t.Helper()
 			want := taskHandoffMeta{TaskID: "task-demo", TaskTitle: "Inherited title", HandoffFile: "handoff/tasks/task-demo.md", Continue: true}
 			if meta != want || sourceThreadID != "thread-source" {
 				t.Fatalf("resolveTaskHandoffStart() = (%#v, %q), want (%#v, %q)", meta, sourceThreadID, want, "thread-source")
+			}
+		},
+	},
+	{
+		name: "parent agent without task request ignores inherited task metadata",
+		setup: func(t *testing.T) (*service, StartRequest) {
+			t.Helper()
+			thread := taskHandoffTestThread(t, "thread-source", "", "Ignored prompt", map[string]any{
+				taskConfigKeyID: "task-demo", taskConfigKeyTitle: "Inherited title", taskConfigKeyHandoffFile: "handoff/tasks/task-demo.md",
+			})
+			svc := &service{threadStore: &stubThreadStore{thread: thread}, bindingStore: &stubBindingStore{binding: &bindingstore.Binding{
+				AgentID: "agent-root", ProviderThreadID: "thread-source", CodexThreadID: "thread-source",
+			}}}
+			return svc, StartRequest{ParentAgentID: "agent-root", Name: "Plain child"}
+		},
+		assert: func(t *testing.T, meta taskHandoffMeta, sourceThreadID string) {
+			t.Helper()
+			if meta != (taskHandoffMeta{}) || sourceThreadID != "" {
+				t.Fatalf("resolveTaskHandoffStart() = (%#v, %q), want no task handoff", meta, sourceThreadID)
 			}
 		},
 	},

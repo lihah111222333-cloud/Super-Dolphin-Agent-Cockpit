@@ -164,6 +164,40 @@ func TestPrepareTaskHandoffStartInheritsFromParentAgent(t *testing.T) {
 	}
 }
 
+func TestPrepareTaskHandoffStartParentAgentOnlyDoesNotAutoHandoff(t *testing.T) {
+	t.Parallel()
+	svc := &service{
+		threadStore: &stubThreadStore{thread: &threadstore.Thread{
+			ThreadID: "thread-parent",
+			Prompt:   "Parent task",
+			ConfigOverride: mustStoredThreadConfigRaw(t, storedThreadConfig{Runtime: map[string]any{
+				taskConfigKeyID:          "task-parent",
+				taskConfigKeyTitle:       "Parent task",
+				taskConfigKeyHandoffFile: "handoff/tasks/task-parent.md",
+			}}),
+		}},
+		bindingStore: &stubBindingStore{binding: &bindingstore.Binding{
+			AgentID:          "agent-parent",
+			ProviderThreadID: "thread-parent",
+			CodexThreadID:    "thread-parent",
+		}},
+		sharedFiles: &stubSharedFileStore{files: map[string]sharedfilestore.SharedFile{
+			"handoff/tasks/task-parent.md": {Path: "handoff/tasks/task-parent.md", Content: "# Task Handoff"},
+		}},
+	}
+	req := StartRequest{ParentAgentID: "agent-parent", Name: "plain child"}
+
+	if err := svc.prepareTaskHandoffStart(context.Background(), &req); err != nil {
+		t.Fatalf("prepareTaskHandoffStart() error = %v", err)
+	}
+	if req.Config != nil {
+		t.Fatalf("Config = %#v, want nil for plain parent child launch", req.Config)
+	}
+	if req.OwnerThreadID != "" {
+		t.Fatalf("OwnerThreadID = %q, want empty without task handoff", req.OwnerThreadID)
+	}
+}
+
 func TestOnTurnCompletedRefreshesTaskHandoff(t *testing.T) {
 	t.Parallel()
 	thread := &threadstore.Thread{

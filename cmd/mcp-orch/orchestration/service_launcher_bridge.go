@@ -25,6 +25,11 @@ type launchedAgent struct {
 }
 
 func (s *service) launchAgentViaLauncher(ctx context.Context, req LaunchRequest) error {
+	var err error
+	req, err = s.applyLaunchRequestDefaults(ctx, req)
+	if err != nil {
+		return err
+	}
 	launched, err := s.launchAgentUntilStarted(ctx, req)
 	if err != nil {
 		return err
@@ -33,7 +38,10 @@ func (s *service) launchAgentViaLauncher(ctx context.Context, req LaunchRequest)
 }
 
 func (s *service) LaunchAgentSnapshot(ctx context.Context, req LaunchRequest) (AgentSnapshot, error) {
-	req = s.applyLaunchRequestDefaults(req)
+	req, err := s.applyLaunchRequestDefaults(ctx, req)
+	if err != nil {
+		return AgentSnapshot{}, err
+	}
 	launched, err := s.launchAgentUntilStarted(ctx, req)
 	if err != nil {
 		return AgentSnapshot{}, err
@@ -46,30 +54,20 @@ func (s *service) LaunchAgentSnapshot(ctx context.Context, req LaunchRequest) (A
 	return snapshot, nil
 }
 
-// applyLaunchRequestDefaults inherits parent metadata that child-agent tool
-// calls typically omit. Without this, orchestration_launch_agent invocations
-// reach the launcher with Cwd="", which propagates all the way to the frontend
-// project filter (thread-store-view.js getThreadsByMode) — empty cwd there
-// matches every non-dot project window, so the spawned child appears in
-// unrelated projects' lists.
-func (s *service) applyLaunchRequestDefaults(req LaunchRequest) LaunchRequest {
-	if strings.TrimSpace(req.Cwd) != "" {
-		return req
+func (s *service) applyLaunchRequestDefaults(ctx context.Context, req LaunchRequest) (LaunchRequest, error) {
+	trimmedCWD := strings.TrimSpace(req.Cwd)
+	if req.Cwd != "" || trimmedCWD != "" || strings.TrimSpace(req.ParentID) == "" {
+		return req, nil
 	}
-	parentID := strings.TrimSpace(req.ParentID)
-	if parentID == "" {
-		return req
+	snapshot, err := s.Snapshot(ctx, strings.TrimSpace(req.ParentID))
+	if err != nil {
+		if errors.Is(err, errAgentNotFound) {
+			return req, nil
+		}
+		return LaunchRequest{}, err
 	}
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	parent, err := lookupAgentByIDLocked(s.agents, parentID)
-	if err != nil || parent == nil {
-		return req
-	}
-	if cwd := strings.TrimSpace(parent.cwd); cwd != "" {
-		req.Cwd = cwd
-	}
-	return req
+	req.Cwd = strings.TrimSpace(snapshot.Cwd)
+	return req, nil
 }
 
 func (s *service) launchAgentUntilStarted(ctx context.Context, req LaunchRequest) (launchedAgent, error) {

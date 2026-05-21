@@ -410,7 +410,7 @@ func (d *WakeupDispatcher) dispatchSmartRetryAction(
 	case nodeexec.OnFailureAppendError:
 		d.appendValidationErrorAndRetry(ctx, w, fence, failure, retryCtx.node, retryCtx.policy.FailFast)
 	case nodeexec.OnFailureReplan:
-		d.spawnReplanPlanner(ctx, w, fence, failure, retryCtx.policy.FailFast)
+		d.spawnReplanPlanner(ctx, w, fence, failure, retryCtx.node, retryCtx.policy.FailFast)
 	default:
 		return false
 	}

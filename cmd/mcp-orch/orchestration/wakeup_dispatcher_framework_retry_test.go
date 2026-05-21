@@ -30,7 +30,7 @@ func TestWakeupDispatcher_RouterFrameworkErrorWithRecordedSpawnDoesNotFailDAGAtM
 			NodeKey:          "n1",
 			NodeType:         "agent",
 			Status:           string(nodeexec.NodeStatusReady),
-			Config:           json.RawMessage(`{"exec":{"agent_key":"alpha"},"first_turn":"hi"}`),
+			Config:           json.RawMessage(`{"exec":{"agent_key":"alpha","cwd":"/tmp/node-cwd"},"first_turn":"hi"}`),
 			SpawningThreadID: &spawningThreadID,
 		}},
 		runningErr: errors.New("running status write failed"),
@@ -80,7 +80,7 @@ func TestWakeupDispatcher_SpawnWritebackFailureDoesNotRetryUnrecordedLaunch(t *t
 			NodeKey:  "n1",
 			NodeType: "agent",
 			Status:   string(nodeexec.NodeStatusReady),
-			Config:   json.RawMessage(`{"exec":{"agent_key":"alpha"},"first_turn":"hi"}`),
+			Config:   json.RawMessage(`{"exec":{"agent_key":"alpha","cwd":"/tmp/node-cwd"},"first_turn":"hi"}`),
 		}},
 		runningErr: errors.New("ready->running write must not be reached"),
 	}
