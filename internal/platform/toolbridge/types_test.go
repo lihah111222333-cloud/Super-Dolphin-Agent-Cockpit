@@ -14,6 +14,23 @@ func TestClassifyToolCanonicalAndLegacyLSPNames(t *testing.T) {
 	}
 }
 
+func TestClassifyToolIDANames(t *testing.T) {
+	for _, name := range []string{"ida_ping", "ida_decompile", "ida_frida_attach"} {
+		if got := classifyTool(name); got != dto.ClientKindIDA {
+			t.Fatalf("classifyTool(%q) = %q, want %q", name, got, dto.ClientKindIDA)
+		}
+	}
+}
+
+func TestValidateProxyToolFamilyIDA(t *testing.T) {
+	if err := validateProxyToolFamily("ida", "ida_decompile"); err != nil {
+		t.Fatalf("validateProxyToolFamily() error = %v", err)
+	}
+	if err := validateProxyToolFamily("ida", "grep"); err == nil {
+		t.Fatalf("validateProxyToolFamily() error = nil, want family mismatch")
+	}
+}
+
 func TestResolveToolClientKindAcceptsCanonicalAndLegacyLSPNames(t *testing.T) {
 	for _, name := range []string{"grep", "lsp_grep"} {
 		got, err := resolveToolClientKind(ToolCallRequest{Name: name, ClientKind: dto.ClientKindLSP})
