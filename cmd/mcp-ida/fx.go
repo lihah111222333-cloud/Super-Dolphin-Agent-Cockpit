@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"strings"
 	"sync"
@@ -39,36 +40,7 @@ func run() error {
 	app := fx.New(
 		fx.NopLogger,
 		fx.Provide(
-			func(shutdowner fx.Shutdowner) bootstrap.Config {
-				cfg := bootstrap.ReadBootConfig()
-				cfg.AgentID = ""
-				cfg.Capabilities = []string{"tools/ida"}
-				cfg.FinalReport = func() *mcp.ReportRequest {
-					return &mcp.ReportRequest{
-						Report: mcp.ReportEnvelope{
-							Type: mcp.ReportVariantCompletion,
-							Completion: &mcp.CompletionReport{
-								Status: "done",
-								Report: "mcp-ida shutdown",
-							},
-						},
-					}
-				}
-				cfg.OnConfigChanged = func(notify mcp.ConfigChangedNotify) {
-					pkglogger.Info("mcp-ida config changed",
-						"binary_name", cfg.BinaryName,
-						"instance_id", cfg.InstanceID,
-						"scope", notify.Scope,
-						"config_version", notify.ConfigVersion,
-						"selector", notify.Selector,
-						"payload", string(notify.Payload),
-					)
-				}
-				cfg.OnShutdown = func(mcp.ShutdownRequest) {
-					platformshared.LogIgnoredError(pkglogger.Get(), "mcp-ida: OnShutdown", shutdowner.Shutdown())
-				}
-				return cfg
-			},
+			buildBootstrapConfig,
 			bootstrap.New,
 			newStdioServer,
 			fx.Annotate(newBootstrapRunner, fx.ResultTags(`group:"runners"`)),
@@ -90,6 +62,63 @@ func run() error {
 	return app.Stop(stopCtx)
 }
 
+func buildBootstrapConfig(shutdowner fx.Shutdowner) (bootstrap.Config, error) {
+	cfg := bootstrap.ReadBootConfig()
+	cfg.AgentID = ""
+	var err error
+	cfg.BootSnapshot, err = stripBootSnapshotCapabilities(cfg.BootSnapshot)
+	if err != nil {
+		return bootstrap.Config{}, err
+	}
+	// Do not advertise tools/ida until a real IDA provider registers
+	// concrete schemas and handlers. An empty provider is a placeholder,
+	// not a tool capability.
+	cfg.FinalReport = func() *mcp.ReportRequest {
+		return &mcp.ReportRequest{
+			Report: mcp.ReportEnvelope{
+				Type: mcp.ReportVariantCompletion,
+				Completion: &mcp.CompletionReport{
+					Status: "done",
+					Report: "mcp-ida shutdown",
+				},
+			},
+		}
+	}
+	cfg.OnConfigChanged = func(notify mcp.ConfigChangedNotify) {
+		pkglogger.Info("mcp-ida config changed",
+			"binary_name", cfg.BinaryName,
+			"instance_id", cfg.InstanceID,
+			"scope", notify.Scope,
+			"config_version", notify.ConfigVersion,
+			"selector", notify.Selector,
+			"payload", string(notify.Payload),
+		)
+	}
+	cfg.OnShutdown = func(mcp.ShutdownRequest) {
+		platformshared.LogIgnoredError(pkglogger.Get(), "mcp-ida: OnShutdown", shutdowner.Shutdown())
+	}
+	return cfg, nil
+}
+
+func stripBootSnapshotCapabilities(raw json.RawMessage) (json.RawMessage, error) {
+	if len(raw) == 0 {
+		return nil, nil
+	}
+	var snapshot map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &snapshot); err != nil {
+		return nil, fmt.Errorf("mcp-ida: parse bootstrap snapshot: %w", err)
+	}
+	if _, ok := snapshot["capabilities"]; !ok {
+		return append(json.RawMessage(nil), raw...), nil
+	}
+	delete(snapshot, "capabilities")
+	sanitized, err := json.Marshal(snapshot)
+	if err != nil {
+		return nil, fmt.Errorf("mcp-ida: sanitize bootstrap snapshot: %w", err)
+	}
+	return sanitized, nil
+}
+
 func newBootstrapRunner(cfg bootstrap.Config, client *bootstrap.Client, server *common.Server) platformrunner.Runner {
 	return bootstrapRunner{cfg: cfg, client: client, stdioReady: server.Ready()}
 }
@@ -109,8 +138,7 @@ func (r bootstrapRunner) Run(ctx context.Context) error {
 	}
 
 	if strings.TrimSpace(r.cfg.RPCAddr) == "" {
-		<-ctx.Done()
-		return nil
+		return errors.New("mcp-ida: GO_AGENT_CTL_RPC_ADDR is required")
 	}
 	if err := r.client.Start(ctx); err != nil {
 		return err
@@ -125,7 +153,7 @@ func (r bootstrapRunner) Run(ctx context.Context) error {
 type emptyToolProvider struct{}
 
 func (emptyToolProvider) ListTools(context.Context) ([]mcp.MCPTool, error) {
-	return nil, nil
+	return []mcp.MCPTool{}, nil
 }
 
 func (emptyToolProvider) CallTool(_ context.Context, name string, _ json.RawMessage) (any, error) {
@@ -190,8 +218,11 @@ func bindRuntime(lc fx.Lifecycle, params runtimeParams) {
 				cancel()
 			}
 			select {
-			case <-done:
-				return nil
+			case err := <-done:
+				if errors.Is(err, context.Canceled) {
+					return nil
+				}
+				return err
 			case <-ctx.Done():
 				return ctx.Err()
 			}
