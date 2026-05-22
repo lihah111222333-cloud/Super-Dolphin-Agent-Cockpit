@@ -1,6 +1,7 @@
 import { ref } from '../../lib/vue.esm-browser.prod.js';
 import { callAPI } from '../services/api.js';
 import { logInfo, logWarn } from '../services/log.js';
+import { isStaleThreadSelectionError } from '../utils/thread-page-utils.js';
 
 export function resolveProjectActionCwd(projectStore, windowCwd = '') {
   const active = (projectStore?.state?.active || '').toString().trim();
@@ -250,6 +251,13 @@ async function performSend({
       thread_id: threadId,
       error: err?.message || String(err),
     });
+    if (isStaleThreadSelectionError(err) && (selectedThreadId.value || '').toString().trim() === threadId) {
+      selectedThreadId.value = '';
+      logWarn('ui', 'chat.send.stale_thread_cleared', {
+        thread_id: threadId,
+        error: err?.message || String(err),
+      });
+    }
     // Restore composer content so the user doesn't lose their message
     composer.state.text = savedText;
     composer.state.attachments = [...savedAttachments];
@@ -289,6 +297,45 @@ function createLaunchOneAction({
   };
 }
 
+function createSendAction({
+  selectedThreadId,
+  composer,
+  modeKey,
+  threadStore,
+  projectStore,
+  windowCwd,
+  scheduleScrollToBottom,
+  sendFailureNotice,
+  providerPreferenceReady,
+  providerPreferenceError,
+}) {
+  let sendInFlightPromise = null;
+  return () => {
+    if (sendInFlightPromise) {
+      logInfo('ui', 'chat.send.skipped.in_flight', {
+        thread_id: (selectedThreadId.value || '').toString().trim(),
+      });
+      return sendInFlightPromise;
+    }
+    sendInFlightPromise = performSend({
+      selectedThreadId,
+      composer,
+      modeKey,
+      threadStore,
+      projectStore,
+      windowCwd,
+      scheduleScrollToBottom,
+      sendFailureNotice,
+      providerPreferenceReady,
+      providerPreferenceError,
+    })
+      .finally(() => {
+        sendInFlightPromise = null;
+      });
+    return sendInFlightPromise;
+  };
+}
+
 /**
  * @param {object} props
  * @param {object} deps
@@ -320,7 +367,7 @@ export function useThreadActions(props, deps) {
   const getThreadConfig = (threadId) => getThreadConfigFromStore(props.threadStore, threadId);
   const setThreadConfig = (threadId, config) => setThreadConfigFromStore(props.threadStore, threadId, config);
 
-  const send = () => performSend({
+  const send = createSendAction({
     selectedThreadId,
     composer,
     modeKey,

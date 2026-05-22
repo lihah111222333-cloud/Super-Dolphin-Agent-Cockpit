@@ -6,7 +6,7 @@ import { DagDetailModal } from './components/DagDetailModal.js';
 import { DagsPage } from './pages/DagsPage.js';
 import { useDagDetail } from './composables/useDagDetail.js';
 import { UnifiedChatPage } from './pages/UnifiedChatPage.js';
-import { ensureThreadSelectionFresh, requestHistoryLoad } from './utils/thread-page-utils.js';
+import { ensureThreadSelectionFresh, isStaleThreadSelectionError, requestHistoryLoad } from './utils/thread-page-utils.js';
 import { DataPage } from './pages/DataPage.js';
 import { SkillsPage } from './pages/SkillsPage.js';
 import { TasksPage } from './pages/TasksPage.js';
@@ -282,6 +282,32 @@ async function ensureAppActiveThread(threadStore, projectStore, windowCwd = '') 
   return threadId;
 }
 
+async function clearStaleThreadSelection(threadStore, threadId, reason) {
+  const id = (threadId || '').toString().trim();
+  if (!id || !threadStore?.state) return;
+  const activeThreadId = (threadStore.state.activeThreadId || '').toString().trim();
+  const activeCmdThreadId = (threadStore.state.activeCmdThreadId || '').toString().trim();
+  if (activeThreadId === id) {
+    if (typeof threadStore.saveActiveThread === 'function') await threadStore.saveActiveThread('');
+    else threadStore.state.activeThreadId = '';
+  }
+  if (activeCmdThreadId === id) {
+    if (typeof threadStore.saveActiveCmdThread === 'function') await threadStore.saveActiveCmdThread('');
+    else threadStore.state.activeCmdThreadId = '';
+  }
+  console.warn('cleared stale thread selection after session loss', { thread_id: id, reason });
+}
+
+async function ensureBootstrapThreadSelectionFresh(threadStore, threadId, options) {
+  try {
+    return await ensureThreadSelectionFresh(threadStore, threadId, options);
+  } catch (error) {
+    if (!isStaleThreadSelectionError(error)) throw error;
+    await clearStaleThreadSelection(threadStore, threadId, options?.reason || 'bootstrap');
+    return { requestedHistory: false, syncedThreadState: false, forcedHistoryReload: false };
+  }
+}
+
 async function runCommandCardForApp(card, threadStore, projectStore, pageRef, windowCwd = '') {
   const command = (card?.command_template || '').toString().trim();
   if (!command) return;
@@ -482,10 +508,10 @@ export const AppRoot = {
       await threadStore.refreshSidebarState();
 
       if (threadStore.state.activeThreadId) {
-        await ensureThreadSelectionFresh(threadStore, threadStore.state.activeThreadId, { reason: 'bootstrap' });
+        await ensureBootstrapThreadSelectionFresh(threadStore, threadStore.state.activeThreadId, { reason: 'bootstrap' });
       }
       if (threadStore.state.activeCmdThreadId && threadStore.state.activeCmdThreadId !== threadStore.state.activeThreadId) {
-        ensureThreadSelectionFresh(threadStore, threadStore.state.activeCmdThreadId, { reason: 'page-enter' }).catch(() => {});
+        ensureBootstrapThreadSelectionFresh(threadStore, threadStore.state.activeCmdThreadId, { reason: 'page-enter' }).catch(() => {});
       }
 
       refreshMemoryCenter().catch((error) => {

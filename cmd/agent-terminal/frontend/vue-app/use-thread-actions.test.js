@@ -76,6 +76,16 @@ function createThreadActions(overrides = {}) {
   };
 }
 
+function createDeferred() {
+  let resolve;
+  let reject;
+  const promise = new Promise((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  return { promise, resolve, reject };
+}
+
 beforeEach(() => {
   apiMock.callAPI.mockReset().mockResolvedValue({});
   globalThis.window = { ...(globalThis.window || {}), alert: vi.fn() };
@@ -217,6 +227,30 @@ describe('useThreadActions', () => {
       expect.objectContaining({ cwd: '/repo' }),
     );
     expect(vm.deps.scheduleScrollToBottom).toHaveBeenCalledWith(true);
+  });
+
+  it('send: ignores duplicate invocations while auto-start is still in flight', async () => {
+    const startThread = createDeferred();
+    const vm = createThreadActions({
+      selectedThreadId: '',
+      text: 'duplicate text',
+      threadStore: {
+        startThread: vi.fn(() => startThread.promise),
+      },
+    });
+
+    const firstSend = vm.send();
+    const secondSend = vm.send();
+    await Promise.resolve();
+
+    expect(vm.threadStore.startThread).toHaveBeenCalledTimes(1);
+    expect(vm.threadStore.sendMessage).not.toHaveBeenCalled();
+
+    startThread.resolve('thread-started');
+    await Promise.all([firstSend, secondSend]);
+
+    expect(vm.threadStore.sendMessage).toHaveBeenCalledTimes(1);
+    expect(vm.deps.selectedThreadId.value).toBe('thread-started');
   });
 
   it('send: does not auto-start a thread before provider preference is ready', async () => {
@@ -363,6 +397,19 @@ describe('useThreadActions', () => {
 
     expect(vm.deps.composer.state.text).toBe('will fail');
     expect(vm.deps.composer.state.attachments).toEqual([{ path: '/file.txt' }]);
+  });
+
+  it('send: clears stale selected thread when resolver cannot use the persisted session', async () => {
+    const vm = createThreadActions({
+      selectedThreadId: 'agent-stale',
+      text: 'retry later',
+    });
+    vm.threadStore.sendMessage.mockRejectedValueOnce(new Error('resolve session: thread "agent-stale": get_by_thread_id thread: timeout: context deadline exceeded'));
+
+    await expect(vm.send()).rejects.toThrow('context deadline exceeded');
+
+    expect(vm.deps.selectedThreadId.value).toBe('');
+    expect(vm.deps.composer.state.text).toBe('retry later');
   });
 
   it('send: shows generic backend details for non-workdir failures', async () => {
