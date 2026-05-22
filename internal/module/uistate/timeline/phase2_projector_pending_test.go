@@ -2,6 +2,7 @@ package timeline_test
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 
 	agentdto "github.com/anthropic-ai/super-agent-v3/internal/dto/agent"
@@ -145,6 +146,30 @@ func TestToolCallBegin_ToolKind(t *testing.T) {
 	}
 }
 
+func TestToolCallBegin_UsesArgumentsPreviewAsRunningPreview(t *testing.T) {
+	t.Parallel()
+	requirePhase2TimelineShape(t)
+
+	svc, dispatcher, cleanup := newPhase2TimelineHarness(t)
+	defer cleanup()
+
+	const argsPreview = `{"action":"read_file","file_path":"main.go"}`
+	event.Publish(dispatcher, tooldto.ToolCallBegin{
+		ToolCallHeader: shared.ToolCallHeader{
+			TurnHeader: phase2TurnHeader("t1", "agent-1", "turn-1"),
+			CallID:     "call-tool-args",
+			ToolName:   "file",
+		},
+		ArgumentsPreview: argsPreview,
+	})
+
+	waitForCondition(t, func() bool { return len(svc.GetByThread("t1")) == 1 }, "expected tool timeline item")
+	items := svc.GetByThread("t1")
+	if got := items[0].Preview; got != argsPreview {
+		t.Fatalf("items[0].Preview = %q, want arguments preview %q", got, argsPreview)
+	}
+}
+
 func TestApprovalRequested_ApprovalKind(t *testing.T) {
 	t.Parallel()
 	requirePhase2TimelineShape(t)
@@ -280,6 +305,158 @@ func TestToolCallEnd_SetsPreview(t *testing.T) {
 	if got := item.Preview; got != want {
 		t.Fatalf("item.Preview = %q, want %q", got, want)
 	}
+}
+
+func TestToolCallEnd_CompactsLongStructuredPreviewForSummary(t *testing.T) {
+	t.Parallel()
+	requirePhase2TimelineShape(t)
+
+	rawEdits := make([]map[string]any, 8)
+	for i := range rawEdits {
+		rawEdits[i] = map[string]any{
+			"range":   map[string]any{"start": map[string]any{"line": i, "character": 0}, "end": map[string]any{"line": i, "character": 1}},
+			"newText": strings.Repeat("x", 24),
+		}
+	}
+	raw, err := json.Marshal(map[string]any{
+		"isError": false,
+		"path":    strings.Repeat("/very-long-directory", 20) + "/smoke.go",
+		"structuredContent": map[string]any{
+			"success":             true,
+			"message":             strings.Repeat("formatted preview detail ", 20),
+			"text_edit_count":     2,
+			"raw_text_edits":      rawEdits,
+			"display_text_edits":  rawEdits,
+			"coordinate_contract": "raw edits are 0-based UTF-16 offsets",
+		},
+	})
+	if err != nil {
+		t.Fatalf("json.Marshal() error = %v", err)
+	}
+	if len([]rune(string(raw))) <= 200 {
+		t.Fatalf("test fixture raw preview length = %d, want > 200", len([]rune(string(raw))))
+	}
+
+	svc, dispatcher, cleanup := newPhase2TimelineHarness(t)
+	defer cleanup()
+	header := shared.ToolCallHeader{
+		TurnHeader: phase2TurnHeader("t1", "agent-1", "turn-1"),
+		CallID:     "call-format-preview",
+		ToolName:   "format_preview",
+	}
+	event.Publish(dispatcher, tooldto.ToolCallBegin{ToolCallHeader: header})
+	event.Publish(dispatcher, tooldto.ToolCallEnd{
+		ToolCallHeader: header,
+		Success:        true,
+		Result:         string(raw),
+	})
+
+	waitForCondition(t, func() bool {
+		items := svc.GetByThread("t1")
+		return len(items) == 1 && items[0].Preview != ""
+	}, "expected compacted tool result preview")
+	item := svc.GetByThread("t1")[0]
+	if len([]rune(item.Preview)) > 200 {
+		t.Fatalf("len(item.Preview) = %d, want <= 200", len([]rune(item.Preview)))
+	}
+	var preview map[string]any
+	if err := json.Unmarshal([]byte(item.Preview), &preview); err != nil {
+		t.Fatalf("preview must remain valid JSON: %v; preview=%q", err, item.Preview)
+	}
+	if preview["text_edit_count"] != float64(2) {
+		t.Fatalf("preview = %#v, want text_edit_count=2", preview)
+	}
+	if _, ok := preview["raw_text_edits"]; ok {
+		t.Fatalf("preview contains raw_text_edits after compaction: %#v", preview)
+	}
+}
+
+func TestToolCallEnd_CompactsLongArrayPreviewAsValidJSON(t *testing.T) {
+	t.Parallel()
+	requirePhase2TimelineShape(t)
+
+	symbols := make([]map[string]any, 12)
+	for i := range symbols {
+		symbols[i] = map[string]any{
+			"name":   strings.Repeat("VeryLongSymbolName", 3),
+			"detail": strings.Repeat("detail", 20),
+			"kind":   12,
+		}
+	}
+	raw, err := json.Marshal(symbols)
+	if err != nil {
+		t.Fatalf("json.Marshal() error = %v", err)
+	}
+	if len([]rune(string(raw))) <= 200 {
+		t.Fatalf("test fixture raw preview length = %d, want > 200", len([]rune(string(raw))))
+	}
+
+	item := completedPreviewItem(t, "structure", string(raw))
+	if len([]rune(item.Preview)) > 200 {
+		t.Fatalf("len(item.Preview) = %d, want <= 200", len([]rune(item.Preview)))
+	}
+	var preview map[string]any
+	if err := json.Unmarshal([]byte(item.Preview), &preview); err != nil {
+		t.Fatalf("array preview must remain valid JSON: %v; preview=%q", err, item.Preview)
+	}
+	if preview["total"] != float64(len(symbols)) {
+		t.Fatalf("preview = %#v, want total=%d", preview, len(symbols))
+	}
+	showing, _ := preview["showing"].(float64)
+	if showing < 0 || showing >= float64(len(symbols)) {
+		t.Fatalf("preview = %#v, want compact showing below %d", preview, len(symbols))
+	}
+}
+
+func TestToolCallEnd_CompactsLongObjectWithoutKnownFieldsAsValidJSON(t *testing.T) {
+	t.Parallel()
+	requirePhase2TimelineShape(t)
+
+	raw, err := json.Marshal(map[string]any{
+		"raw_text_edits":     strings.Repeat("x", 500),
+		"coordinate_details": strings.Repeat("y", 500),
+	})
+	if err != nil {
+		t.Fatalf("json.Marshal() error = %v", err)
+	}
+	if len([]rune(string(raw))) <= 200 {
+		t.Fatalf("test fixture raw preview length = %d, want > 200", len([]rune(string(raw))))
+	}
+
+	item := completedPreviewItem(t, "completion", string(raw))
+	if len([]rune(item.Preview)) > 200 {
+		t.Fatalf("len(item.Preview) = %d, want <= 200", len([]rune(item.Preview)))
+	}
+	var preview map[string]any
+	if err := json.Unmarshal([]byte(item.Preview), &preview); err != nil {
+		t.Fatalf("object preview must remain valid JSON: %v; preview=%q", err, item.Preview)
+	}
+	if preview["total"] != float64(2) {
+		t.Fatalf("preview = %#v, want total=2 fallback", preview)
+	}
+}
+
+func completedPreviewItem(t *testing.T, tool, result string) timeline.Item {
+	t.Helper()
+
+	svc, dispatcher, cleanup := newPhase2TimelineHarness(t)
+	defer cleanup()
+	header := shared.ToolCallHeader{
+		TurnHeader: phase2TurnHeader("t1", "agent-1", "turn-1"),
+		CallID:     "call-" + tool,
+		ToolName:   tool,
+	}
+	event.Publish(dispatcher, tooldto.ToolCallBegin{ToolCallHeader: header})
+	event.Publish(dispatcher, tooldto.ToolCallEnd{
+		ToolCallHeader: header,
+		Success:        true,
+		Result:         result,
+	})
+	waitForCondition(t, func() bool {
+		items := svc.GetByThread("t1")
+		return len(items) == 1 && items[0].Preview != ""
+	}, "expected compacted tool result preview")
+	return svc.GetByThread("t1")[0]
 }
 
 func TestToolCallEnd_FailedNullResultUsesErrorPreview(t *testing.T) {

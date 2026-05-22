@@ -55,6 +55,10 @@ func translateCodexEvent(raw dto.RawProviderEvent, publish func(ev any)) {
 		publish(ev)
 		return
 	}
+	if ev, ok := translateCodexRolloutToolEvent(eventType, payload); ok {
+		publish(ev)
+		return
+	}
 	if ev, ok := translateToolEvent(eventType, payload); ok {
 		publish(ev)
 		return
@@ -302,6 +306,7 @@ func translateToolEvent(eventType string, payload map[string]any) (any, bool) {
 			return nil, false
 		}
 		header := buildToolCallHeader(payload)
+		success, errorText := toolEventEndOutcome(eventType, payload)
 		result := providershared.CaptureToolResult(providershared.ToolResultMeta{
 			ThreadID:  header.ThreadID,
 			TurnID:    header.TurnID,
@@ -311,8 +316,8 @@ func translateToolEvent(eventType string, payload map[string]any) (any, bool) {
 		}, jsonPreview(payload, "result", "content"))
 		return tooldto.ToolCallEnd{
 			ToolCallHeader: header,
-			Success:        turnTerminalSuccess(eventType, payload),
-			Error:          stringValue(payload, "error", "message", "reason"),
+			Success:        success,
+			Error:          errorText,
 			Result:         result.Preview,
 			PersistedPath:  result.PersistedPath,
 			Truncated:      result.Truncated,

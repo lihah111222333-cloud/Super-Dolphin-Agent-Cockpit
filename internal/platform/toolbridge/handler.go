@@ -16,6 +16,7 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/difftracker"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/mcpcontrol"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
+	"github.com/kelindar/event"
 )
 
 // Handler fields are typed against the narrow ports in ports.go so
@@ -37,6 +38,7 @@ type Handler struct {
 	preferences  uiPreferenceReader
 	cfg          *platformconfig.Config
 	logger       *pkglogger.Logger
+	dispatcher   *event.Dispatcher
 	// hostTools 是可选依赖：agent-terminal 生产图只装配 memory_read / memory_write
 	// host-direct 工具。字段保持 nil-safe：测试或未来无 HostToolRegistry 的
 	// toolbridge 图会退回 peer 路径；当前 mcp-orch / mcp-lsp standalone 不加载
@@ -76,6 +78,7 @@ func NewHandler(in handlerIn) *Handler {
 		preferences:  in.Preferences,
 		cfg:          in.Config,
 		logger:       logger,
+		dispatcher:   in.Dispatcher,
 		hostTools:    in.HostTools,
 		surfaces:     make(map[string]*codexToolSurface),
 	}
@@ -88,7 +91,11 @@ func (h *Handler) HandleToolCall(ctx context.Context, msg contract.ToolCallRawMe
 	if err != nil {
 		return nil, err
 	}
-	if result, handled, err := h.routeCodexSurfaceToolCall(ctx, req); handled || err != nil {
+	surfaceReq := req
+	if strings.TrimSpace(surfaceReq.CallID) == "" {
+		surfaceReq.CallID = callIDFromRawJSONRPCID(msg.ID)
+	}
+	if result, handled, err := h.routeCodexSurfaceToolCall(ctx, surfaceReq); handled || err != nil {
 		return result, err
 	}
 	return h.routeToolCall(ctx, req)

@@ -3,6 +3,7 @@ package timeline
 import (
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"strings"
 
 	agentdto "github.com/anthropic-ai/super-agent-v3/internal/dto/agent"
@@ -361,10 +362,149 @@ func previewText(text string) string {
 		return ""
 	}
 	runes := []rune(text)
-	if len(runes) > 200 {
-		return string(runes[:200])
+	if len(runes) > maxPreviewRunes {
+		return string(runes[:maxPreviewRunes])
 	}
 	return text
+}
+
+const maxPreviewRunes = 200
+
+func compactToolResultPreview(text string) string {
+	text = strings.TrimSpace(text)
+	if len([]rune(text)) <= maxPreviewRunes || text == "" {
+		return ""
+	}
+	if text[0] == '[' {
+		return compactArrayPreview([]byte(text))
+	}
+	if text[0] != '{' {
+		return ""
+	}
+	var obj map[string]json.RawMessage
+	if json.Unmarshal([]byte(text), &obj) != nil {
+		return ""
+	}
+	compact := make(map[string]json.RawMessage)
+	copyPreviewFields(compact, obj)
+	if structured := decodeStructuredPreview(obj["structuredContent"]); structured != nil {
+		copyPreviewFields(compact, structured)
+	}
+	if len(compact) == 0 {
+		compact["total"] = json.RawMessage(strconv.Itoa(len(obj)))
+	}
+	return marshalLimitedPreview(compact)
+}
+
+func compactArrayPreview(raw []byte) string {
+	var items []json.RawMessage
+	if json.Unmarshal(raw, &items) != nil {
+		return ""
+	}
+	summary := map[string]json.RawMessage{
+		"total":   json.RawMessage(strconv.Itoa(len(items))),
+		"showing": json.RawMessage(strconv.Itoa(len(items))),
+	}
+	for n := len(items); n > 0; n-- {
+		summary["showing"] = json.RawMessage(strconv.Itoa(n))
+		if rawPrefix, err := json.Marshal(items[:n]); err == nil {
+			summary["items"] = rawPrefix
+		}
+		if out := marshalPreviewIfWithinLimit(summary); out != "" {
+			return out
+		}
+	}
+	delete(summary, "items")
+	summary["showing"] = json.RawMessage("0")
+	if out := marshalPreviewIfWithinLimit(summary); out != "" {
+		return out
+	}
+	return `{"total":0,"showing":0}`
+}
+
+func copyPreviewFields(dst, src map[string]json.RawMessage) {
+	for _, key := range []string{
+		"success", "isError", "error", "message", "reason", "error_code", "errorCode",
+		"action", "path", "file_path", "filePath", "total", "showing",
+		"text_edit_count", "applied_count", "applied", "persisted",
+	} {
+		if raw := src[key]; len(raw) != 0 {
+			dst[key] = raw
+		}
+	}
+}
+
+func decodeStructuredPreview(raw json.RawMessage) map[string]json.RawMessage {
+	if len(raw) == 0 {
+		return nil
+	}
+	var obj map[string]json.RawMessage
+	if json.Unmarshal(raw, &obj) != nil {
+		var text string
+		if json.Unmarshal(raw, &text) != nil || json.Unmarshal([]byte(text), &obj) != nil {
+			return nil
+		}
+	}
+	return obj
+}
+
+func marshalLimitedPreview(fields map[string]json.RawMessage) string {
+	compact := clonePreviewFields(fields)
+	if out := marshalPreviewIfWithinLimit(compact); out != "" {
+		return out
+	}
+	truncatePreviewStringFields(compact, 80)
+	if out := marshalPreviewIfWithinLimit(compact); out != "" {
+		return out
+	}
+	for _, key := range []string{"path", "file_path", "filePath", "message", "reason"} {
+		delete(compact, key)
+	}
+	if out := marshalPreviewIfWithinLimit(compact); out != "" {
+		return out
+	}
+	truncatePreviewStringFields(compact, 32)
+	if out := marshalPreviewIfWithinLimit(compact); out != "" {
+		return out
+	}
+	delete(compact, "error")
+	if out := marshalPreviewIfWithinLimit(compact); out != "" {
+		return out
+	}
+	return "{}"
+}
+
+func clonePreviewFields(fields map[string]json.RawMessage) map[string]json.RawMessage {
+	out := make(map[string]json.RawMessage, len(fields))
+	for key, raw := range fields {
+		out[key] = append(json.RawMessage(nil), raw...)
+	}
+	return out
+}
+
+func truncatePreviewStringFields(fields map[string]json.RawMessage, limit int) {
+	for key, raw := range fields {
+		var value string
+		if json.Unmarshal(raw, &value) != nil {
+			continue
+		}
+		runes := []rune(value)
+		if len(runes) <= limit {
+			continue
+		}
+		next, err := json.Marshal(string(runes[:limit]))
+		if err == nil {
+			fields[key] = next
+		}
+	}
+}
+
+func marshalPreviewIfWithinLimit(fields map[string]json.RawMessage) string {
+	raw, err := json.Marshal(fields)
+	if err != nil || len([]rune(string(raw))) > maxPreviewRunes {
+		return ""
+	}
+	return string(raw)
 }
 
 func toolCallEndPreview(result, errText string, success bool) string {
@@ -376,7 +516,11 @@ func toolCallEndPreview(result, errText string, success bool) string {
 	if isNullPreview(result) {
 		result = ""
 	}
-	return previewText(util.FirstNonEmpty(result, errText))
+	text := util.FirstNonEmpty(result, errText)
+	if compact := compactToolResultPreview(text); compact != "" {
+		return compact
+	}
+	return previewText(text)
 }
 
 func isNullPreview(text string) bool {

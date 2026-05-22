@@ -45,6 +45,10 @@ type session struct {
 	activeTurnID         string
 	pendingTurn          *turnReplayState
 	suppressed           map[string]struct{}
+	suppressedToolEnds   map[string]struct{}
+	suppressedToolOrder  []string
+	rolloutToolNames     map[string]string
+	rolloutToolOrder     []string
 	processedApprovals   map[string]*processedApprovalEntry
 	runtimeConfig        map[string]any
 	// turnOutputAccumulator buffers per-turn TurnOutputDelta (stream="message")
@@ -148,6 +152,7 @@ func newSessionWithOptions(
 		cancel:                cancel,
 		turns:                 map[string]*turnHandle{},
 		suppressed:            map[string]struct{}{},
+		suppressedToolEnds:    map[string]struct{}{},
 		processedApprovals:    map[string]*processedApprovalEntry{},
 		turnOutputAccumulator: map[string]*turnOutputBuffer{},
 	}
@@ -248,8 +253,9 @@ func (s *session) handleInboundToolCall(ctx context.Context, resp Responder, msg
 		return
 	}
 	s.publishToolCallBegin(prepared)
+	s.suppressToolEnd(prepared.header.TurnID, prepared.header.CallID, prepared.header.ToolName)
 	runtimesafe.SafeGo(s.ctx, s.logger, "codexapp.session.toolCall", func(_ context.Context) {
-		result, callErr := toolHandler(ctx, prepared.params)
+		result, callErr := toolHandler(contract.WithToolLifecycleAlreadyPublished(ctx), prepared.params)
 		s.publishToolCallEnd(prepared, result, callErr)
 		if respErr := resp.RespondWithID(msg.ID, result, callErr); respErr != nil {
 			s.logger.Warn("codexapp: tool call respond failed",
@@ -270,7 +276,7 @@ func isKnownRequestMethod(method string) bool {
 }
 func isToolCallMethod(method string) bool {
 	switch strings.TrimSpace(method) {
-	case "item/tool/call", "dynamic_tool_call", "tool.call.begin":
+	case "item/tool/call", "dynamic_tool_call", "tool.call.begin", "tools/call":
 		return true
 	}
 	return false

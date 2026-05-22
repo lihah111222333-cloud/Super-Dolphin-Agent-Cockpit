@@ -1,5 +1,6 @@
 import { hasJsonRenderSpec, extractSpecBlocks } from '../../services/json-render-engine.js';
 import { logInfo, logWarn } from '../../services/log.js';
+import { summarizeToolActivity, toolActivityDetail } from '../../utils/format-utils.js';
 
 function displayFilePath(path) {
   const raw = (path || '').toString().trim();
@@ -121,11 +122,14 @@ function createToolSummaryText(stateLabel, commandTitle) {
   return function toolSummaryText(item) {
     if (!item || typeof item !== 'object') return '';
     if (item.kind === 'tool') {
-      const tool = compactPopoverText(item.tool || '未知工具', 56);
+      const tool = summarizeToolActivity(item.tool || item.toolName || item.name, item);
+      const toolName = compactPopoverText(tool.name || '未知工具', 56);
       const elapsed = Number(item.elapsedMs);
       const elapsedText = Number.isFinite(elapsed) && elapsed > 0 ? ` · ${Math.round(elapsed)}ms` : '';
-      const detail = compactPopoverText(item.preview, 96) || compactPopoverText(displayFilePath(item.file), 96);
-      return detail ? `${tool}${elapsedText} · ${detail}` : `${tool}${elapsedText}`;
+      const summary = compactPopoverText(tool.summary, 56);
+      const detail = compactPopoverText(toolActivityDetail(item), 96) || compactPopoverText(displayFilePath(item.file), 96);
+      const head = summary ? `${toolName} · ${summary}` : toolName;
+      return detail ? `${head}${elapsedText} · ${detail}` : `${head}${elapsedText}`;
     }
     if (item.kind === 'command') {
       const status = stateLabel(item) || '命令';
@@ -144,12 +148,13 @@ function createToolSummaryText(stateLabel, commandTitle) {
 
 function toolTickerText(item) {
   if (!item || item.kind !== 'tool') return '';
-  const statusPrefix = item.status === 'failed' ? '失败 · ' : '';
-  const tool = compactPopoverText(item.tool || '未知工具', 32);
+  const tool = summarizeToolActivity(item.tool || item.toolName || item.name, item);
+  const statusPrefix = tool.status === 'failed' ? '失败 · ' : '';
+  const toolName = compactPopoverText(tool.name || '未知工具', 32);
   const elapsed = Number(item.elapsedMs);
   const elapsedText = Number.isFinite(elapsed) && elapsed > 0 ? ` ${Math.round(elapsed)}ms` : '';
-  const detail = compactPopoverText(item.preview, 68) || compactPopoverText(displayFilePath(item.file), 68);
-  return detail ? `${statusPrefix}${tool}${elapsedText} · ${detail}` : `${statusPrefix}${tool}${elapsedText}`;
+  const detail = compactPopoverText(toolActivityDetail(item), 68) || compactPopoverText(displayFilePath(item.file), 68);
+  return detail ? `${statusPrefix}${toolName}${elapsedText} · ${detail}` : `${statusPrefix}${toolName}${elapsedText}`;
 }
 
 function createCopyFilePath(copy) {

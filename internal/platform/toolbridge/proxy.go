@@ -13,8 +13,11 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	mcpdto "github.com/anthropic-ai/super-agent-v3/internal/dto/mcp"
+	shareddto "github.com/anthropic-ai/super-agent-v3/internal/dto/shared"
+	tooldto "github.com/anthropic-ai/super-agent-v3/internal/dto/tool"
 	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
 	platformshared "github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
+	"github.com/kelindar/event"
 )
 
 const (
@@ -230,21 +233,31 @@ func (h *Handler) handleProxyToolCall(w http.ResponseWriter, ctx context.Context
 	callCtx, cancel := platformconfig.WithPeerTimeout(ctx, proxyToolCallTimeout)
 	defer cancel()
 
-	result, err := h.routeToolCall(callCtx, ToolCallRequest{
+	threadID, err := h.resolveProxyThreadID(callCtx, agentID, family)
+	if err != nil {
+		writeJSONRPCError(w, req.ID, jsonRPCCodeInvalidParam, err.Error())
+		return
+	}
+	callReq := ToolCallRequest{
 		Name:       params.Name,
 		Arguments:  params.Arguments,
 		AgentID:    strings.TrimSpace(agentID),
-		ThreadID:   h.lookupProxyThreadID(callCtx, agentID),
+		ThreadID:   threadID,
 		CallID:     callIDFromJSONRPCID(req.ID),
 		ClientKind: familyToClientKind(family),
-	})
+	}
+	started := time.Now()
+	h.publishProxyToolCallBegin(callReq, started)
+	result, err := h.routeToolCall(callCtx, callReq)
 	if err != nil {
+		h.publishProxyToolCallEnd(callReq, started, nil, err)
 		writeJSONRPCError(w, req.ID, proxyToolCallErrorCode(err), err.Error())
 		return
 	}
 	if result == nil {
 		result = &ToolCallResult{Success: true}
 	}
+	h.publishProxyToolCallEnd(callReq, started, result, nil)
 	payload := map[string]any{
 		"content": toMCPContent(result.ContentItems),
 		"isError": !result.Success,
@@ -253,6 +266,70 @@ func (h *Handler) handleProxyToolCall(w http.ResponseWriter, ctx context.Context
 		payload["structuredContent"] = json.RawMessage(append([]byte(nil), result.StructuredContent...))
 	}
 	writeJSONRPCResult(w, req.ID, payload)
+}
+
+func (h *Handler) publishProxyToolCallBegin(req ToolCallRequest, started time.Time) {
+	if h == nil || h.dispatcher == nil {
+		return
+	}
+	if strings.TrimSpace(req.ThreadID) == "" {
+		return
+	}
+	event.Publish(h.dispatcher, tooldto.ToolCallBegin{
+		ToolCallHeader:   proxyToolCallHeader(req, started),
+		ArgumentsPreview: strings.TrimSpace(string(req.Arguments)),
+	})
+}
+
+func (h *Handler) publishProxyToolCallEnd(req ToolCallRequest, started time.Time, result *ToolCallResult, callErr error) {
+	if h == nil || h.dispatcher == nil {
+		return
+	}
+	if strings.TrimSpace(req.ThreadID) == "" {
+		return
+	}
+	header := proxyToolCallHeader(req, time.Now())
+	success := callErr == nil && (result == nil || result.Success)
+	ev := tooldto.ToolCallEnd{
+		ToolCallHeader: header,
+		Success:        success,
+		Result:         proxyToolResultPreview(result),
+		ElapsedMS:      time.Since(started).Milliseconds(),
+	}
+	if callErr != nil {
+		ev.Error = callErr.Error()
+	}
+	event.Publish(h.dispatcher, ev)
+}
+
+func proxyToolCallHeader(req ToolCallRequest, ts time.Time) shareddto.ToolCallHeader {
+	return shareddto.ToolCallHeader{
+		TurnHeader: shareddto.TurnHeader{
+			AgentHeader: shareddto.AgentHeader{
+				ThreadHeader: shareddto.ThreadHeader{
+					EventHeader: shareddto.EventHeader{Timestamp: ts},
+					ThreadID:    strings.TrimSpace(req.ThreadID),
+				},
+				AgentID: strings.TrimSpace(req.AgentID),
+			},
+		},
+		CallID:   strings.TrimSpace(req.CallID),
+		ToolName: strings.TrimSpace(req.Name),
+	}
+}
+
+func proxyToolResultPreview(result *ToolCallResult) string {
+	if result == nil {
+		return ""
+	}
+	if raw := bytes.TrimSpace(result.StructuredContent); len(raw) != 0 {
+		return string(raw)
+	}
+	raw, err := json.Marshal(result)
+	if err != nil {
+		return ""
+	}
+	return string(raw)
 }
 
 func proxyToolCallErrorCode(err error) int {
@@ -266,20 +343,26 @@ func proxyToolCallErrorCode(err error) int {
 	}
 }
 
-func (h *Handler) lookupProxyThreadID(ctx context.Context, agentID string) string {
-	if h == nil || h.bindingStore == nil {
-		return ""
-	}
+func (h *Handler) resolveProxyThreadID(ctx context.Context, agentID, family string) (string, error) {
 	agentID = strings.TrimSpace(agentID)
 	if agentID == "" {
-		return ""
+		return "", errors.New("toolbridge: proxy agent id is required")
+	}
+	if h == nil || h.bindingStore == nil {
+		if familyToClientKind(family) == mcpdto.ClientKindLSP {
+			return agentID, nil
+		}
+		return "", nil
 	}
 	threadID, err := h.bindingStore.GetThreadByAgent(ctx, agentID)
 	if err != nil {
-		h.warn("toolbridge: proxy thread lookup failed", "agent_id", agentID, "error", err)
-		return ""
+		return "", fmt.Errorf("toolbridge: resolve proxy thread for agent %q: %w", agentID, err)
 	}
-	return strings.TrimSpace(threadID)
+	threadID = strings.TrimSpace(threadID)
+	if threadID == "" {
+		return "", fmt.Errorf("toolbridge: resolve proxy thread for agent %q: empty thread id", agentID)
+	}
+	return threadID, nil
 }
 
 func callIDFromJSONRPCID(id any) string {
