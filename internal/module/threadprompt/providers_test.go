@@ -118,7 +118,7 @@ func TestAvailableExpertsProviderRendersFullForMultiTaskPrompt(t *testing.T) {
 	provider := AvailableExpertsProvider{catalog: NewRuntimeCatalog(&fakePromptStore{
 		templates: []promptstore.PromptTemplate{
 			expertTemplate("coder/prompt", 20, "代码任务、bug 修复、测试编写"),
-			expertTemplate("sql/expert", 10, "数据库 schema 设计、migration、复杂 SQL 查询"),
+			expertTemplate("main/sql", 10, "数据库 schema 设计、migration、复杂 SQL 查询"),
 		},
 	}, nil)}
 
@@ -136,6 +136,7 @@ func TestAvailableExpertsProviderRendersFullForMultiTaskPrompt(t *testing.T) {
 		"可用专家（通过 launch_agent 调用）：",
 		"可用专家详细说明：",
 		"调用：launch_agent(name='coder/prompt', prompt_key='coder/prompt'",
+		"调用：launch_agent(name='main/sql', prompt_key='main/sql'",
 		"判断准则：",
 	} {
 		if !strings.Contains(*text, want) {
@@ -189,7 +190,7 @@ func TestAvailableExpertsProviderExcludesCurrentPromptOnTurn(t *testing.T) {
 	provider := AvailableExpertsProvider{catalog: NewRuntimeCatalog(&fakePromptStore{
 		templates: []promptstore.PromptTemplate{
 			expertTemplate("coder/prompt", 20, "代码任务、bug 修复、测试编写"),
-			expertTemplate("sql/expert", 10, "数据库 schema 设计、migration、复杂 SQL 查询"),
+			expertTemplate("main/sql", 10, "数据库 schema 设计、migration、复杂 SQL 查询"),
 		},
 	}, nil)}
 
@@ -205,7 +206,7 @@ func TestAvailableExpertsProviderExcludesCurrentPromptOnTurn(t *testing.T) {
 	if strings.Contains(*text, "coder/prompt") {
 		t.Fatalf("Resolve() = %q, want current turn prompt excluded", *text)
 	}
-	if !strings.Contains(*text, "sql/expert") {
+	if !strings.Contains(*text, "main/sql") {
 		t.Fatalf("Resolve() = %q, want other experts retained", *text)
 	}
 }
@@ -431,7 +432,7 @@ func TestPromptDynamicProvidersLogResolveMetrics(t *testing.T) {
 	available := AvailableExpertsProvider{catalog: NewRuntimeCatalog(&fakePromptStore{
 		templates: []promptstore.PromptTemplate{
 			expertTemplate("coder/prompt", 20, "代码任务、bug 修复、测试编写"),
-			expertTemplate("sql/expert", 10, "数据库 schema 设计、migration、复杂 SQL 查询"),
+			expertTemplate("main/sql", 10, "数据库 schema 设计、migration、复杂 SQL 查询"),
 		},
 	}, nil)}
 	if text, err := available.Resolve(context.Background(), contract.SectionContext{

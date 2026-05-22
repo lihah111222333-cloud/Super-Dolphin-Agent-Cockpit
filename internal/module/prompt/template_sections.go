@@ -481,6 +481,9 @@ func promptTemplateIsUserAsset(template promptstore.PromptTemplate) bool {
 	if promptTemplateAuthoredByUser(template) {
 		return true
 	}
+	if template.ManuallyEdited {
+		return true
+	}
 	if !promptTemplateHasIntentAssetMarker(template) {
 		return false
 	}

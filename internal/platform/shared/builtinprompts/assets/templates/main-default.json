@@ -40,11 +40,20 @@
       "body_file": "sections/main-default/30-tone-style.md"
     },
     {
-      "section_key": "orchestrator_context",
-      "region": "static",
+      "section_key": "orchestrator_launch_context",
+      "region": "dynamic",
       "ordinal": 40,
       "trigger_type": "always",
+      "enable_when": {"enabled_tools_has": "orchestration_launch_agent"},
       "body_file": "sections/main-default/40-orchestrator-context.md"
+    },
+    {
+      "section_key": "orchestrator_report_context",
+      "region": "dynamic",
+      "ordinal": 41,
+      "trigger_type": "always",
+      "enable_when": {"enabled_tools_has": "orchestration_get_agent_report"},
+      "body_file": "sections/main-default/41-orchestrator-report-context.md"
     },
     {
       "section_key": "worktree_reminder",

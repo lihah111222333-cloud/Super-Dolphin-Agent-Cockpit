@@ -809,17 +809,17 @@ describe('thread store actions', () => {
   // must self-clear the cwd-scoped activePromptKey pref so the next launch
   // doesn't keep re-sending the stale pin (and the user is no longer misled
   // by a '已强制使用' badge that no longer takes effect).
-  it('clears the activePromptKey pref when thread/start reports prompt_key_stale', async () => {
+  it('clears the activePromptKey pref when thread/start reports a 0105 legacy prompt key stale', async () => {
     const store = useThreadStore();
     const prefSetCalls = [];
     apiMock.callAPI.mockImplementation(async (method, payload) => {
       if (method === 'ui/preferences/get') {
-        return mockStartPreference(payload, { provider: 'codex', activePromptKey: 'main/missing' });
+        return mockStartPreference(payload, { provider: 'codex', activePromptKey: 'main/general-en' });
       }
       if (method === 'thread/start') return {
         thread: { id: 'thread-stale' },
         prompt_key_stale: true,
-        prompt_key: 'main/missing',
+        prompt_key: 'main/general-en',
       };
       if (method === 'ui/state/get') return buildSnapshot({ threadId: 'thread-stale', activeThreadId: '' });
       if (method === 'ui/preferences/set') {
@@ -876,7 +876,7 @@ describe('thread store actions', () => {
     const prefSetCalls = [];
     apiMock.callAPI.mockImplementation(async (method, payload) => {
       if (method === 'ui/preferences/get') {
-        return mockStartPreference(payload, { provider: 'codex', activePromptKey: 'main/missing' });
+        return mockStartPreference(payload, { provider: 'codex', activePromptKey: 'main/claude-style' });
       }
       if (method === 'thread/start') return {
         thread: { id: 'thread-stale-camel' },

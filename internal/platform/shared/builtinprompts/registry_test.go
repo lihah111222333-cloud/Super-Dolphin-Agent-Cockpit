@@ -70,14 +70,25 @@ func TestDefaultRegistryLoadsEmbeddedMainDefault(t *testing.T) {
 		"engineering_principles",
 		"risky_actions",
 		"tone_style",
-		"orchestrator_context",
+		"orchestrator_launch_context",
+		"orchestrator_report_context",
 		"worktree_reminder",
 		"zh_courtesy",
 	)
 	require.Contains(t, sectionBodyByKey(sections, "identity"), "Super-Dolphin")
 	require.Contains(t, sectionBodyByKey(sections, "engineering_principles"), "完成前必须验证")
 	require.Contains(t, sectionBodyByKey(sections, "risky_actions"), "force push")
-	require.Contains(t, sectionBodyByKey(sections, "orchestrator_context"), "orchestration_launch_agent")
+	require.Contains(t, sectionBodyByKey(sections, "orchestrator_launch_context"), "orchestration_launch_agent")
+	require.NotContains(t, sectionBodyByKey(sections, "orchestrator_launch_context"), "orchestration_get_agent_report")
+	require.Contains(t, sectionBodyByKey(sections, "orchestrator_report_context"), "orchestration_get_agent_report")
+	require.NotContains(t, sectionBodyByKey(sections, "orchestrator_report_context"), "orchestration_launch_agent")
+
+	orchestratorLaunch := requireSection(t, sections, "orchestrator_launch_context")
+	require.Equal(t, "dynamic", orchestratorLaunch.Region)
+	require.JSONEq(t, `{"enabled_tools_has":"orchestration_launch_agent"}`, string(orchestratorLaunch.EnableWhen))
+	orchestratorReport := requireSection(t, sections, "orchestrator_report_context")
+	require.Equal(t, "dynamic", orchestratorReport.Region)
+	require.JSONEq(t, `{"enabled_tools_has":"orchestration_get_agent_report"}`, string(orchestratorReport.EnableWhen))
 
 	for i, section := range sections {
 		require.NotEqual(t, template.ID, section.ID)
@@ -116,6 +127,13 @@ func TestRegistryLoadsMainGeneralZhWithProductionParity(t *testing.T) {
 	require.NotContains(t, body, "我是 Claude")
 	require.NotContains(t, body, "You are Claude")
 	require.NotContains(t, body, "You are Claude Code")
+	require.Contains(t, body, "把用户原始要求拆成可核对清单")
+	require.Contains(t, body, "Done / Deferred / Not covered")
+	require.Contains(t, body, "未验证、测试失败或需求未覆盖")
+	require.Contains(t, body, "定时任务")
+	require.Contains(t, body, "main/dag_designer_zh")
+	require.Contains(t, body, "agent_key")
+	require.Contains(t, body, "command_ref")
 
 	lspBasics := requireSection(t, sections, "lsp_basics")
 	require.Contains(t, string(lspBasics.EnableWhen), "enabled_tools_has")
@@ -128,6 +146,59 @@ func TestRegistryLoadsMainGeneralZhWithProductionParity(t *testing.T) {
 
 	worktreeHint := requireSection(t, sections, "worktree_hint")
 	require.JSONEq(t, `{"isWorktree": true}`, string(worktreeHint.EnableWhen))
+}
+
+func TestRegistryCorePromptsAvoidExternalIdentityToolAndHostLeaks(t *testing.T) {
+	t.Parallel()
+
+	reg, err := NewDefaultRegistry()
+	require.NoError(t, err)
+
+	for _, promptKey := range []string{"main/default", "main/general-zh"} {
+		template, ok := reg.GetTemplate(promptKey)
+		require.True(t, ok)
+		body := strings.Join(sectionBodies(reg.SectionsByTemplateID(template.ID)), "\n")
+		requireNoExternalIdentityClaims(t, promptKey, body)
+		requireNoExternalToolProtocols(t, promptKey, body)
+		requireNoHostAssumptions(t, promptKey, body)
+		require.Contains(t, body, "高危", promptKey)
+		require.Contains(t, body, "验证", promptKey)
+	}
+}
+
+func TestMainGeneralZhResidentLSPSectionsStayThinAndRecallBacked(t *testing.T) {
+	t.Parallel()
+
+	reg, err := NewDefaultRegistry()
+	require.NoError(t, err)
+
+	template, ok := reg.GetTemplate("main/general-zh")
+	require.True(t, ok)
+	sections := reg.SectionsByTemplateID(template.ID)
+
+	lspBasics := sectionBodyByKey(sections, "lsp_basics")
+	recallLSPBasics := sectionBodyByKey(sections, "recall_lsp_basics")
+	require.NotEqual(t, strings.TrimSpace(lspBasics), strings.TrimSpace(recallLSPBasics))
+	require.LessOrEqual(t, nonBlankLineCount(lspBasics), 14)
+	require.LessOrEqual(t, sharedNonBlankLineCount(lspBasics, recallLSPBasics), 3)
+	require.Contains(t, lspBasics, "简单任务不强制凑工具")
+	require.NotContains(t, lspBasics, "每个任务必须组合使用至少 4 种 LSP 工具")
+	require.Contains(t, recallLSPBasics, "复杂跨文件改动应组合使用多种 LSP 工具")
+	require.NotContains(t, recallLSPBasics, "每个任务必须组合使用至少 4 种 LSP 工具")
+
+	lspAdvanced := sectionBodyByKey(sections, "lsp_advanced")
+	recallLSPAdvanced := sectionBodyByKey(sections, "recall_lsp_advanced")
+	require.NotEqual(t, strings.TrimSpace(lspAdvanced), strings.TrimSpace(recallLSPAdvanced))
+	require.LessOrEqual(t, nonBlankLineCount(lspAdvanced), 12)
+	require.LessOrEqual(t, sharedNonBlankLineCount(lspAdvanced, recallLSPAdvanced), 3)
+	require.Contains(t, string(requireSection(t, sections, "lsp_advanced").EnableWhen), "tags_has")
+}
+
+func TestExternalToolAndHostLeakGuardsAllowNegativeBoundaryText(t *testing.T) {
+	t.Parallel()
+
+	requireNoExternalToolProtocols(t, "negative-fixture", "不要假设 WebFetch、run_command 或 read_files 可用。")
+	requireNoHostAssumptions(t, "negative-fixture", "不要假设可见屏幕、terminal-only、no-browser、IDE sidebar 或浏览器扩展可用。")
 }
 
 func TestLoadRegistryAssignsStableNegativeTemplateIDsByPromptKey(t *testing.T) {
@@ -330,4 +401,115 @@ func sectionBodies(sections []contract.BuiltinPromptSection) []string {
 		bodies = append(bodies, section.Body)
 	}
 	return bodies
+}
+
+func requireNoExternalIdentityClaims(t *testing.T, promptKey, body string) {
+	t.Helper()
+
+	for _, phrase := range []string{
+		"我是 Claude",
+		"我是 Codex",
+		"我是 GPT",
+		"我是 Cursor",
+		"我是 Kiro",
+		"我是 Warp",
+		"我是 GitHub Copilot",
+		"我是 Traycer",
+		"我是 Cluely",
+		"You are Claude.",
+		"You are Claude Code.",
+		"You are Codex.",
+		"You are GPT.",
+		"You are Cursor.",
+		"You are Kiro.",
+		"You are Warp.",
+		"You are GitHub Copilot.",
+		"You are Traycer.",
+		"You are Cluely.",
+		"I am Claude",
+		"I am Codex",
+		"provided by Anthropic",
+		"provided by OpenAI",
+		"由 Anthropic",
+		"由 OpenAI",
+	} {
+		require.NotContains(t, body, phrase, promptKey)
+	}
+}
+
+func requireNoExternalToolProtocols(t *testing.T, promptKey, body string) {
+	t.Helper()
+
+	for _, phrase := range []string{
+		"可以通过 WebFetch",
+		"调用 WebFetch",
+		"使用 WebFetch",
+		"WebFetch 工具可用",
+		"WebFetch tool is available",
+		"run_command(",
+		"read_files(",
+		"run_command tool is available",
+		"read_files tool is available",
+		"IDE-only approval",
+		"external approval schema",
+	} {
+		require.NotContains(t, body, phrase, promptKey)
+	}
+}
+
+func requireNoHostAssumptions(t *testing.T, promptKey, body string) {
+	t.Helper()
+
+	for _, phrase := range []string{
+		"屏幕可见",
+		"可以看到屏幕",
+		"可以听到音频",
+		"音频可见",
+		"must be terminal-only",
+		"must use no-browser",
+		"IDE sidebar is available",
+		"browser extension is available",
+		"浏览器扩展已启用",
+		"浏览器扩展已经可用",
+		"可以使用浏览器扩展",
+	} {
+		require.NotContains(t, body, phrase, promptKey)
+	}
+}
+
+func nonBlankLineCount(body string) int {
+	count := 0
+	for _, line := range strings.Split(body, "\n") {
+		if strings.TrimSpace(line) != "" {
+			count++
+		}
+	}
+	return count
+}
+
+func sharedNonBlankLineCount(a, b string) int {
+	lines := map[string]struct{}{}
+	for _, line := range strings.Split(a, "\n") {
+		normalized := strings.Join(strings.Fields(line), " ")
+		if normalized != "" {
+			lines[normalized] = struct{}{}
+		}
+	}
+	count := 0
+	seen := map[string]struct{}{}
+	for _, line := range strings.Split(b, "\n") {
+		normalized := strings.Join(strings.Fields(line), " ")
+		if normalized == "" {
+			continue
+		}
+		if _, ok := lines[normalized]; !ok {
+			continue
+		}
+		if _, ok := seen[normalized]; ok {
+			continue
+		}
+		seen[normalized] = struct{}{}
+		count++
+	}
+	return count
 }

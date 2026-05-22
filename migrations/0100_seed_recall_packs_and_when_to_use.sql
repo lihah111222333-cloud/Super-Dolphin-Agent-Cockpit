@@ -129,7 +129,6 @@ ON CONFLICT (recall_topic) WHERE trigger_type = 'recall' AND recall_topic <> '' 
 WITH seed(prompt_key, when_to_use) AS (
     VALUES
     ('coder/prompt', '代码任务、bug 修复、重构、测试编写、跨文件实现'),
-    ('sql/expert', '数据库 schema、migration、复杂 SQL 查询、索引与 sqlc 工作流'),
     ('frontend', 'Vue 前端、交互状态、CSS 布局、前端测试与构建'),
     ('main/code-review', '代码审查、diff 风险评估、回归与安全问题检查'),
     ('main/code-debug', '错误排查、panic/exception/traceback 分析、最小复现定位'),

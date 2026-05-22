@@ -78,6 +78,7 @@ func TestPromptAssetsRPCListShowsOnlyUserAssetsAndReadyDrafts(t *testing.T) {
 	require.Contains(t, assets, "main/knowledge/sqlc")
 	require.Contains(t, assets, "main/expert/global-review")
 	require.Contains(t, assets, "main/expert/shared-project")
+	require.Contains(t, assets, "main/system-edited")
 	require.NotContains(t, assets, "main/expert/shared-global")
 	require.NotContains(t, assets, "main/system-seed")
 	require.NotContains(t, assets, "main/system-global")
@@ -220,6 +221,8 @@ func seedPromptAssetListScopeFixtures(store *inMemoryPromptStore) {
 	systemGlobal.Tags = json.RawMessage(`["intent:expert","scope.global"]`)
 	store.templates[systemGlobal.PromptKey] = systemGlobal
 
+	seedPromptAssetListEditedSystemFixture(store)
+
 	expert := scopedPromptTemplate("main/expert/review", "/repo/a")
 	expert.ID = 2
 	expert.Title = "Review Expert"
@@ -286,6 +289,17 @@ func seedPromptAssetListScopeFixtures(store *inMemoryPromptStore) {
 		"hit_examples":["实现功能"],
 		"miss_examples":["问天气"]
 	}`)
+}
+
+func seedPromptAssetListEditedSystemFixture(store *inMemoryPromptStore) {
+	editedSystem := scopedPromptTemplate("main/system-edited", "/repo/a")
+	editedSystem.ID = 16
+	editedSystem.Title = "User Edited System Seed"
+	editedSystem.CreatedBy = "system.seed"
+	editedSystem.UpdatedBy = "system.seed"
+	editedSystem.ManuallyEdited = true
+	editedSystem.Tags = withPromptScopeTag(json.RawMessage(`["intent:expert","edited"]`), "/repo/a")
+	store.templates[editedSystem.PromptKey] = editedSystem
 }
 
 func TestPromptsRPCGetReturnsFullSectionContent(t *testing.T) {
