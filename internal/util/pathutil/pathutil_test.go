@@ -1,6 +1,7 @@
 package pathutil
 
 import (
+	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -25,6 +26,19 @@ func TestContainsPathRejectsSiblingPrefix(t *testing.T) {
 
 	if ContainsPath(root, sibling) {
 		t.Fatalf("ContainsPath(%q, %q) = true, want false", root, sibling)
+	}
+}
+
+func TestContainsPathNormalizesMissingChildUnderSymlinkedRoot(t *testing.T) {
+	realRoot := t.TempDir()
+	linkRoot := filepath.Join(t.TempDir(), "root-link")
+	if err := os.Symlink(realRoot, linkRoot); err != nil {
+		t.Skipf("symlink unavailable: %v", err)
+	}
+	target := filepath.Join(linkRoot, "missing", "child.txt")
+
+	if !ContainsPath(linkRoot, target) {
+		t.Fatalf("ContainsPath(%q, %q) = false, want true", linkRoot, target)
 	}
 }
 

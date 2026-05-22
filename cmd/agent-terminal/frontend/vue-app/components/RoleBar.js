@@ -58,6 +58,7 @@ export const RoleBar = defineComponent({
     }
 
     function save() {
+      if (props.disabled) return;
       const trimmed = editForm.name.trim();
       if (!trimmed) return;
 
@@ -79,6 +80,7 @@ export const RoleBar = defineComponent({
     }
 
     function deleteRole() {
+      if (props.disabled) return;
       const roles = (props.roles || []).filter(r => r.key !== editingOriginalKey.value);
       emit('update:roles', roles);
       closeEditor();
@@ -156,6 +158,7 @@ export const RoleBar = defineComponent({
           actionButtons.push(
             h('button', {
               class: 'is-danger',
+              disabled: props.disabled,
               onClick: deleteRole,
             }, '删除角色'),
           );
@@ -170,7 +173,7 @@ export const RoleBar = defineComponent({
         actionButtons.push(
           h('button', {
             class: 'sp-save-btn',
-            disabled: !editForm.name.trim(),
+            disabled: props.disabled || !editForm.name.trim(),
             onClick: save,
           }, '保存'),
         );

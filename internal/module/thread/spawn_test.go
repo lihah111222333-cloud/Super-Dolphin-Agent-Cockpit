@@ -7,7 +7,10 @@ import (
 	"testing"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
+	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
 	threaddto "github.com/anthropic-ai/super-agent-v3/internal/dto/thread"
+	"github.com/anthropic-ai/super-agent-v3/internal/module/threadprompt"
+	promptstore "github.com/anthropic-ai/super-agent-v3/internal/store/prompt"
 	threadstore "github.com/anthropic-ai/super-agent-v3/internal/store/thread"
 )
 
@@ -175,6 +178,76 @@ func TestSpawnIfNeededDeletesPendingThreadOnSpawnFailure(t *testing.T) {
 		stopped[0].Status != "deleted" ||
 		stopped[0].Reason != "pending_launch_failed" {
 		t.Fatalf("stopped events = %#v, want deleted pending_launch_failed event", stopped)
+	}
+}
+
+func TestSpawnIfNeededPropagatesPromptKeyStale(t *testing.T) {
+	t.Parallel()
+
+	threadID := "thread-pending-stale"
+	store := &stubThreadStore{thread: &threadstore.Thread{
+		ThreadID:       threadID,
+		Status:         statusCreated,
+		PendingLaunch:  true,
+		Cwd:            "/tmp/project",
+		ConfigOverride: mustStoredThreadConfigRaw(t, storedThreadConfig{Provider: "claude", PromptKey: "main/missing"}),
+	}}
+	sessions := &stubSessionProvider{}
+	svc := &service{
+		threadStore:    store,
+		bindingStore:   &stubBindingStore{},
+		sessions:       sessions,
+		promptAssembly: promptAssemblyStub{},
+		promptCatalog:  threadprompt.NewRuntimeCatalog(&fakePromptStore{}, nil),
+		starter: &startOnlySessionStarter{onStart: func(_ context.Context, _ dto.StartSessionRequest) (contract.Session, error) {
+			session := &stubSession{threadID: threadID}
+			sessions.session = session
+			return session, nil
+		}},
+	}
+
+	launched, routing, err := svc.SpawnIfNeeded(context.Background(), threadID, "hello", "/tmp/project")
+	if err != nil {
+		t.Fatalf("SpawnIfNeeded() error = %v, want nil", err)
+	}
+	if !launched {
+		t.Fatal("SpawnIfNeeded() launched = false, want true")
+	}
+	if !routing.PromptKeyStale {
+		t.Fatalf("SpawnRouting.PromptKeyStale = false, want true for stale prompt key: %+v", routing)
+	}
+	if routing.PromptKey != "main/missing" {
+		t.Fatalf("SpawnRouting.PromptKey = %q, want stale prompt key preserved", routing.PromptKey)
+	}
+}
+
+func TestRunPendingSpawnPropagatesRouterError(t *testing.T) {
+	t.Parallel()
+
+	store := &fakePromptStore{
+		templates: []promptstore.PromptTemplate{
+			sqlTemplate("main/sql", "sql_expert", "db body", []string{"scope.cwd:/tmp/project"}),
+		},
+		insertErr: errors.New("version insert failed"),
+	}
+	svc := &service{
+		threadStore:   &stubThreadStore{},
+		promptCatalog: threadprompt.NewRuntimeCatalog(store, nil),
+	}
+
+	req := &StartRequest{
+		AgentID:  "thread-pending-router-error",
+		AgentKey: "sql_expert",
+		CWD:      "/tmp/project",
+		Provider: "codex",
+		Prompt:   "write SQL",
+	}
+	err := svc.runPendingSpawn(context.Background(), req, &threadstore.Thread{}, req.AgentID, req.AgentID)
+	if err == nil {
+		t.Fatal("runPendingSpawn() error = nil, want routed prompt materialization error")
+	}
+	if !containsAll(err.Error(), "materialize prompt_versions", "version insert failed") {
+		t.Fatalf("runPendingSpawn() error = %v, want routed prompt error", err)
 	}
 }
 

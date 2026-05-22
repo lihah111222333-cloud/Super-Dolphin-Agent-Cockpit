@@ -186,6 +186,7 @@ type LaunchRequest struct {
 	ParentID     string
 	AgentType    string
 	AgentKey     string
+	PromptKey    string
 	MemoryScope  string
 	Cwd          string
 	Language     string

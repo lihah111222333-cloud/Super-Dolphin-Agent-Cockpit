@@ -63,7 +63,6 @@ function buildSnapshot({
 function mockStartPreference(payload, {
   provider = 'codex',
   activePromptKey = '',
-  classifierEnabled = false,
   model = '',
   effort = '',
   codexHome = undefined,
@@ -73,7 +72,6 @@ function mockStartPreference(payload, {
   const key = payload?.key;
   if (key === 'settings.provider.active') return provider;
   if (key === 'settings.activePromptKey') return activePromptKey;
-  if (key === 'settings.classifierEnabled') return classifierEnabled;
   if (key === 'settings.provider.codex.codexHome') return codexHome;
   if (key === 'settings.provider.codex.codexInstanceKey') return codexInstanceKey;
   if (key === 'settings.provider.codex.codexModelProvider') return codexModelProvider;
@@ -500,14 +498,19 @@ describe('thread store actions', () => {
     });
   });
 
-  it('forwards use_classifier=true when settings.classifierEnabled preference is on', async () => {
+  it('ignores stale classifier preference and never forwards use_classifier', async () => {
     const store = useThreadStore();
+    let classifierLookups = 0;
     apiMock.callAPI.mockImplementation(async (method, payload) => {
       if (method === 'ui/preferences/get') {
-        return mockStartPreference(payload, { provider: 'codex', classifierEnabled: true });
+        if (payload?.key === 'settings.classifierEnabled') {
+          classifierLookups += 1;
+          return true;
+        }
+        return mockStartPreference(payload, { provider: 'codex' });
       }
-      if (method === 'thread/start') return { thread: { id: 'thread-classified' } };
-      if (method === 'ui/state/get') return buildSnapshot({ threadId: 'thread-classified', activeThreadId: '' });
+      if (method === 'thread/start') return { thread: { id: 'thread-no-classifier' } };
+      if (method === 'ui/state/get') return buildSnapshot({ threadId: 'thread-no-classifier', activeThreadId: '' });
       if (method === 'ui/preferences/set') return {};
       return {};
     });
@@ -515,22 +518,20 @@ describe('thread store actions', () => {
     await store.startThread('/repo', {});
     await flushAsync();
 
-    expect(apiMock.callAPI).toHaveBeenCalledWith('thread/start', {
-      cwd: '/repo',
-      modelProvider: 'codex',
-      config: codexIdentityConfig(),
-      use_classifier: true,
-    });
+    const call = apiMock.callAPI.mock.calls.find(([method]) => method === 'thread/start');
+    expect(classifierLookups).toBe(0);
+    expect(call).toBeDefined();
+    expect(call[1]).not.toHaveProperty('use_classifier');
   });
 
-  it('sendMessage inserts optimistic user message BEFORE turn/start resolves (fixes 5-15s invisible-message regression)', async () => {
-    // Regression: when the classifier runs inside turn/start (SpawnIfNeeded),
-    // the RPC blocks for 5-15s. The optimistic insert USED to happen after
-    // the await, so the user's own message didn't render until backend
-    // returned. This test pins the correct ordering: timeline contains the
-    // user's text while turn/start is still pending.
+  it('sendMessage inserts optimistic user message BEFORE turn/start resolves', async () => {
+    // Regression: when turn/start blocks on first-turn launch work, the
+    // optimistic insert USED to happen after the await, so the user's own
+    // message didn't render until backend returned. This test pins the correct
+    // ordering: timeline contains the user's text while turn/start is still
+    // pending.
     const store = useThreadStore();
-    const threadId = 'thread-slow-classify';
+    const threadId = 'thread-slow-turn-start';
     store.state.threads = [{ id: threadId, name: threadId, state: 'idle' }];
     store.state.timelinesByThread[threadId] = [];
 
@@ -541,7 +542,7 @@ describe('thread store actions', () => {
 
     apiMock.callAPI.mockImplementation(async (method) => {
       if (method === 'turn/start') {
-        await turnStartPending; // simulate classifier + CLI fork latency
+        await turnStartPending; // simulate first-turn launch latency
         return { ok: true };
       }
       if (method === 'ui/state/get') return buildSnapshot({ threadId, activeThreadId: threadId });
@@ -549,7 +550,7 @@ describe('thread store actions', () => {
       return {};
     });
 
-    const sendPromise = store.sendMessage(threadId, 'hello from a slow classifier turn', []);
+    const sendPromise = store.sendMessage(threadId, 'hello from a slow turn', []);
     // Two microtask ticks are enough for sendMessage to run synchronously up
     // to the `await callAPI('turn/start', ...)` point; the optimistic insert
     // must already have landed by then.
@@ -558,31 +559,10 @@ describe('thread store actions', () => {
     const timelineMidFlight = store.state.timelinesByThread[threadId] || [];
     const optimisticItem = timelineMidFlight.find((item) => (item?.id || '').includes('-optimistic-user-'));
     expect(optimisticItem).toBeDefined();
-    expect(optimisticItem.content || optimisticItem.text || '').toContain('hello from a slow classifier turn');
+    expect(optimisticItem.content || optimisticItem.text || '').toContain('hello from a slow turn');
 
     releaseTurnStart({ ok: true });
     await sendPromise;
-  });
-
-  it('omits use_classifier when preference is missing or false', async () => {
-    const store = useThreadStore();
-    apiMock.callAPI.mockImplementation(async (method, payload) => {
-      if (method === 'ui/preferences/get') {
-        return mockStartPreference(payload, { provider: 'codex' });
-      }
-      if (method === 'thread/start') return { thread: { id: 'thread-no-classify' } };
-      if (method === 'ui/state/get') return buildSnapshot({ threadId: 'thread-no-classify', activeThreadId: '' });
-      if (method === 'ui/preferences/set') return {};
-      return {};
-    });
-
-    await store.startThread('/repo', {});
-    await flushAsync();
-
-    // thread/start payload must not carry use_classifier at all
-    const call = apiMock.callAPI.mock.calls.find(([method]) => method === 'thread/start');
-    expect(call).toBeDefined();
-    expect(call[1]).not.toHaveProperty('use_classifier');
   });
 
   it.each([
@@ -829,17 +809,17 @@ describe('thread store actions', () => {
   // must self-clear the cwd-scoped activePromptKey pref so the next launch
   // doesn't keep re-sending the stale pin (and the user is no longer misled
   // by a '已强制使用' badge that no longer takes effect).
-  it('clears the activePromptKey pref when thread/start reports prompt_key_stale', async () => {
+  it('clears the activePromptKey pref when thread/start reports a 0105 legacy prompt key stale', async () => {
     const store = useThreadStore();
     const prefSetCalls = [];
     apiMock.callAPI.mockImplementation(async (method, payload) => {
       if (method === 'ui/preferences/get') {
-        return mockStartPreference(payload, { provider: 'codex', activePromptKey: 'main/missing' });
+        return mockStartPreference(payload, { provider: 'codex', activePromptKey: 'main/general-en' });
       }
       if (method === 'thread/start') return {
         thread: { id: 'thread-stale' },
         prompt_key_stale: true,
-        prompt_key: 'main/missing',
+        prompt_key: 'main/general-en',
       };
       if (method === 'ui/state/get') return buildSnapshot({ threadId: 'thread-stale', activeThreadId: '' });
       if (method === 'ui/preferences/set') {
@@ -896,7 +876,7 @@ describe('thread store actions', () => {
     const prefSetCalls = [];
     apiMock.callAPI.mockImplementation(async (method, payload) => {
       if (method === 'ui/preferences/get') {
-        return mockStartPreference(payload, { provider: 'codex', activePromptKey: 'main/missing' });
+        return mockStartPreference(payload, { provider: 'codex', activePromptKey: 'main/claude-style' });
       }
       if (method === 'thread/start') return {
         thread: { id: 'thread-stale-camel' },

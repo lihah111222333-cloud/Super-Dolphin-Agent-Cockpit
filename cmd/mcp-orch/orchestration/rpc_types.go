@@ -17,6 +17,7 @@ type launchParams struct {
 	ParentID     string            `json:"parent_id,omitempty"`
 	AgentType    string            `json:"agent_type,omitempty"`
 	AgentKey     string            `json:"agent_key,omitempty"`
+	PromptKey    string            `json:"prompt_key,omitempty"`
 	MemoryScope  string            `json:"memory_scope,omitempty"`
 	Env          map[string]string `json:"env,omitempty"`
 }
@@ -27,6 +28,8 @@ type launchConfigParams struct {
 	ParentIDLegacy string `json:"parentID,omitempty"`
 	AgentType      string `json:"agent_type,omitempty"`
 	AgentTypeAlt   string `json:"agentType,omitempty"`
+	PromptKey      string `json:"prompt_key,omitempty"`
+	PromptKeyAlt   string `json:"promptKey,omitempty"`
 	MemoryScope    string `json:"memory_scope,omitempty"`
 	MemoryScopeAlt string `json:"memoryScope,omitempty"`
 	AgentScope     string `json:"agent_memory_scope,omitempty"`
@@ -42,6 +45,8 @@ func (p *launchParams) UnmarshalJSON(data []byte) error {
 		ParentIDAlt  string             `json:"parentID"`
 		AgentType    string             `json:"agentType"`
 		AgentTypeAlt string             `json:"agent_type"`
+		PromptKey    string             `json:"promptKey"`
+		PromptKeyAlt string             `json:"prompt_key"`
 		MemoryScope  string             `json:"memoryScope"`
 		MemoryAlt    string             `json:"memory_scope"`
 		AgentScope   string             `json:"agent_memory_scope"`
@@ -66,6 +71,14 @@ func (p *launchParams) UnmarshalJSON(data []byte) error {
 				legacy.AgentType,
 				legacy.Config.AgentType,
 				legacy.Config.AgentTypeAlt,
+			)
+		}
+		if strings.TrimSpace(p.PromptKey) == "" {
+			p.PromptKey = shared.FirstTrimmed(
+				legacy.PromptKeyAlt,
+				legacy.PromptKey,
+				legacy.Config.PromptKey,
+				legacy.Config.PromptKeyAlt,
 			)
 		}
 		if strings.TrimSpace(p.MemoryScope) == "" {

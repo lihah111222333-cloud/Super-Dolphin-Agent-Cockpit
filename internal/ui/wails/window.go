@@ -40,16 +40,23 @@ func newWindowOptions(title string, debug bool, name, uiBootstrap, cwd string) a
 	return options
 }
 
-func createWindow(app *application.App, title string, debug bool, name, uiBootstrap, cwd string) *application.WebviewWindow {
+func createWindow(app *application.App, title string, debug bool, name, uiBootstrap, cwd string, bindings ...*App) *application.WebviewWindow {
 	if app == nil {
 		return nil
 	}
 	window := app.Window.NewWithOptions(newWindowOptions(title, debug, name, uiBootstrap, cwd))
-	bindFileDrop(window, app)
+	bindFileDrop(window, app, firstAppBinding(bindings))
 	return window
 }
 
-func bindFileDrop(window *application.WebviewWindow, app *application.App) {
+func firstAppBinding(bindings []*App) *App {
+	if len(bindings) == 0 {
+		return nil
+	}
+	return bindings[0]
+}
+
+func bindFileDrop(window *application.WebviewWindow, app *application.App, binding *App) {
 	if window == nil || app == nil {
 		return
 	}
@@ -58,7 +65,12 @@ func bindFileDrop(window *application.WebviewWindow, app *application.App) {
 			return
 		}
 		ctx := event.Context()
-		payload, ok := buildFilesDroppedPayload(ctx.DroppedFiles(), ctx.DropTargetDetails())
+		files := ctx.DroppedFiles()
+		details := ctx.DropTargetDetails()
+		if binding != nil {
+			binding.recordDroppedFiles(files, details)
+		}
+		payload, ok := buildFilesDroppedPayload(files, details)
 		if !ok {
 			return
 		}

@@ -67,13 +67,31 @@ func NormalizeAbsolutePath(path string) (string, error) {
 	if resolved, err := filepath.EvalSymlinks(cleaned); err == nil {
 		return filepath.Clean(normalizeWindowsDriveAlias(resolved)), nil
 	}
-	parent := filepath.Dir(cleaned)
-	if parent != "" && parent != cleaned {
-		if resolvedParent, err := filepath.EvalSymlinks(parent); err == nil {
-			return filepath.Join(filepath.Clean(normalizeWindowsDriveAlias(resolvedParent)), filepath.Base(cleaned)), nil
-		}
+	if resolved, ok := normalizeWithExistingAncestor(cleaned); ok {
+		return resolved, nil
 	}
 	return cleaned, nil
+}
+
+func normalizeWithExistingAncestor(cleaned string) (string, bool) {
+	current := cleaned
+	suffix := make([]string, 0)
+	for {
+		parent := filepath.Dir(current)
+		if current == "" || parent == current {
+			return "", false
+		}
+		resolved, err := filepath.EvalSymlinks(current)
+		if err == nil {
+			parts := append([]string{filepath.Clean(normalizeWindowsDriveAlias(resolved))}, suffix...)
+			return filepath.Join(parts...), true
+		}
+		if !errors.Is(err, os.ErrNotExist) {
+			return "", false
+		}
+		suffix = append([]string{filepath.Base(current)}, suffix...)
+		current = parent
+	}
 }
 
 func normalizeWindowsSymlinkPath(cleaned string) string {

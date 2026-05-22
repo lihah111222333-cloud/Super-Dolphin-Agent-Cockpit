@@ -3,6 +3,7 @@ package prompt
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -11,11 +12,22 @@ import (
 )
 
 type promptQuerierStub struct {
-	listFn          func(context.Context, sqlc.ListPromptTemplatesParams) ([]sqlc.ListPromptTemplatesRow, error)
-	getFn           func(context.Context, sqlc.GetPromptTemplateParams) (sqlc.GetPromptTemplateRow, error)
-	deleteFn        func(context.Context, sqlc.DeletePromptTemplateParams) (int64, error)
-	insertVersionFn func(context.Context, sqlc.InsertPromptVersionParams) (int64, error)
-	upsertFn        func(context.Context, sqlc.UpsertPromptTemplateParams) (sqlc.UpsertPromptTemplateRow, error)
+	listFn              func(context.Context, sqlc.ListPromptTemplatesParams) ([]sqlc.ListPromptTemplatesRow, error)
+	getFn               func(context.Context, sqlc.GetPromptTemplateParams) (sqlc.GetPromptTemplateRow, error)
+	deleteFn            func(context.Context, sqlc.DeletePromptTemplateParams) (int64, error)
+	insertVersionFn     func(context.Context, sqlc.InsertPromptVersionParams) (int64, error)
+	createFn            func(context.Context, sqlc.CreatePromptTemplateParams) (sqlc.CreatePromptTemplateRow, error)
+	upsertFn            func(context.Context, sqlc.UpsertPromptTemplateParams) (sqlc.UpsertPromptTemplateRow, error)
+	listSectionsFn      func(context.Context, sqlc.ListPromptTemplateSectionsByTemplateParams) ([]sqlc.PromptTemplateSection, error)
+	listSectionsBatchFn func(context.Context, sqlc.ListPromptTemplateSectionsByTemplatesParams) ([]sqlc.PromptTemplateSection, error)
+	listRecallFn        func(context.Context, sqlc.ListRecallSectionsParams) ([]sqlc.ListRecallSectionsRow, error)
+	listDefaultRulesFn  func(context.Context, sqlc.ListDefaultRuleSectionsParams) ([]sqlc.ListDefaultRuleSectionsRow, error)
+	upsertSectionFn     func(context.Context, sqlc.UpsertPromptTemplateSectionParams) (sqlc.PromptTemplateSection, error)
+	lockRecallFn        func(context.Context, sqlc.LockRecallTopicInCWDParams) error
+	upsertDraftFn       func(context.Context, sqlc.UpsertPromptIntentDraftParams) (sqlc.PromptIntentDraft, error)
+	getDraftFn          func(context.Context, sqlc.GetPromptIntentDraftParams) (sqlc.PromptIntentDraft, error)
+	listDraftsFn        func(context.Context, sqlc.ListPromptIntentDraftsParams) ([]sqlc.PromptIntentDraft, error)
+	updateDraftStatusFn func(context.Context, sqlc.UpdatePromptIntentDraftStatusParams) (sqlc.PromptIntentDraft, error)
 }
 
 func (s *promptQuerierStub) ListPromptTemplates(ctx context.Context, arg sqlc.ListPromptTemplatesParams) ([]sqlc.ListPromptTemplatesRow, error) {
@@ -46,11 +58,88 @@ func (s *promptQuerierStub) InsertPromptVersion(ctx context.Context, arg sqlc.In
 	return 0, nil
 }
 
+func (s *promptQuerierStub) CreatePromptTemplate(ctx context.Context, arg sqlc.CreatePromptTemplateParams) (sqlc.CreatePromptTemplateRow, error) {
+	if s.createFn != nil {
+		return s.createFn(ctx, arg)
+	}
+	return sqlc.CreatePromptTemplateRow{}, nil
+}
+
 func (s *promptQuerierStub) UpsertPromptTemplate(ctx context.Context, arg sqlc.UpsertPromptTemplateParams) (sqlc.UpsertPromptTemplateRow, error) {
 	if s.upsertFn != nil {
 		return s.upsertFn(ctx, arg)
 	}
 	return sqlc.UpsertPromptTemplateRow{}, nil
+}
+
+func (s *promptQuerierStub) ListPromptTemplateSectionsByTemplate(ctx context.Context, arg sqlc.ListPromptTemplateSectionsByTemplateParams) ([]sqlc.PromptTemplateSection, error) {
+	if s.listSectionsFn != nil {
+		return s.listSectionsFn(ctx, arg)
+	}
+	return nil, nil
+}
+
+func (s *promptQuerierStub) ListPromptTemplateSectionsByTemplates(ctx context.Context, arg sqlc.ListPromptTemplateSectionsByTemplatesParams) ([]sqlc.PromptTemplateSection, error) {
+	if s.listSectionsBatchFn != nil {
+		return s.listSectionsBatchFn(ctx, arg)
+	}
+	return nil, nil
+}
+
+func (s *promptQuerierStub) ListRecallSections(ctx context.Context, arg sqlc.ListRecallSectionsParams) ([]sqlc.ListRecallSectionsRow, error) {
+	if s.listRecallFn != nil {
+		return s.listRecallFn(ctx, arg)
+	}
+	return nil, nil
+}
+
+func (s *promptQuerierStub) ListDefaultRuleSections(ctx context.Context, arg sqlc.ListDefaultRuleSectionsParams) ([]sqlc.ListDefaultRuleSectionsRow, error) {
+	if s.listDefaultRulesFn != nil {
+		return s.listDefaultRulesFn(ctx, arg)
+	}
+	return nil, nil
+}
+
+func (s *promptQuerierStub) UpsertPromptTemplateSection(ctx context.Context, arg sqlc.UpsertPromptTemplateSectionParams) (sqlc.PromptTemplateSection, error) {
+	if s.upsertSectionFn != nil {
+		return s.upsertSectionFn(ctx, arg)
+	}
+	return sqlc.PromptTemplateSection{}, nil
+}
+
+func (s *promptQuerierStub) LockRecallTopicInCWD(ctx context.Context, arg sqlc.LockRecallTopicInCWDParams) error {
+	if s.lockRecallFn != nil {
+		return s.lockRecallFn(ctx, arg)
+	}
+	return nil
+}
+
+func (s *promptQuerierStub) UpsertPromptIntentDraft(ctx context.Context, arg sqlc.UpsertPromptIntentDraftParams) (sqlc.PromptIntentDraft, error) {
+	if s.upsertDraftFn != nil {
+		return s.upsertDraftFn(ctx, arg)
+	}
+	return sqlc.PromptIntentDraft{}, nil
+}
+
+func (s *promptQuerierStub) GetPromptIntentDraft(ctx context.Context, arg sqlc.GetPromptIntentDraftParams) (sqlc.PromptIntentDraft, error) {
+	if s.getDraftFn != nil {
+		return s.getDraftFn(ctx, arg)
+	}
+	return sqlc.PromptIntentDraft{}, nil
+}
+
+func (s *promptQuerierStub) ListPromptIntentDrafts(ctx context.Context, arg sqlc.ListPromptIntentDraftsParams) ([]sqlc.PromptIntentDraft, error) {
+	if s.listDraftsFn != nil {
+		return s.listDraftsFn(ctx, arg)
+	}
+	return nil, nil
+}
+
+func (s *promptQuerierStub) UpdatePromptIntentDraftStatus(ctx context.Context, arg sqlc.UpdatePromptIntentDraftStatusParams) (sqlc.PromptIntentDraft, error) {
+	if s.updateDraftStatusFn != nil {
+		return s.updateDraftStatusFn(ctx, arg)
+	}
+	return sqlc.PromptIntentDraft{}, nil
 }
 
 func TestListForwardsAgentKeyKeywordCWDAndLimit(t *testing.T) {
@@ -76,6 +165,7 @@ func TestListForwardsAgentKeyKeywordCWDAndLimit(t *testing.T) {
 				CreatedAt:   now,
 				UpdatedAt:   now,
 				Description: "code review prompt",
+				WhenToUse:   "Use for reviewing code.",
 			}}, nil
 		},
 	}}
@@ -105,6 +195,9 @@ func assertListedPrompt(t *testing.T, p PromptTemplate) {
 	}
 	if string(p.Variables) != `{"lang":"go"}` || string(p.Tags) != `["qa"]` {
 		t.Fatalf("List() JSON fields mapped incorrectly: vars=%s tags=%s", p.Variables, p.Tags)
+	}
+	if p.WhenToUse != "Use for reviewing code." {
+		t.Fatalf("List() when_to_use = %q, want review guidance", p.WhenToUse)
 	}
 }
 
@@ -137,12 +230,30 @@ func TestStoreListPromptsRespectsCWDFilter(t *testing.T) {
 func TestListReturnsEmptySliceWhenNoRows(t *testing.T) {
 	t.Parallel()
 	s := &store{q: &promptQuerierStub{}}
-	got, err := s.List(context.Background(), ListFilter{})
+	got, err := s.List(context.Background(), ListFilter{CWD: "/repo_a"})
 	if err != nil {
 		t.Fatalf("List() unexpected error: %v", err)
 	}
 	if got == nil || len(got) != 0 {
 		t.Fatalf("List() got = %v, want non-nil empty slice", got)
+	}
+}
+
+func TestListRequiresCWD(t *testing.T) {
+	t.Parallel()
+	s := &store{q: &promptQuerierStub{
+		listFn: func(context.Context, sqlc.ListPromptTemplatesParams) ([]sqlc.ListPromptTemplatesRow, error) {
+			t.Fatal("ListPromptTemplates must not run without cwd")
+			return nil, nil
+		},
+	}}
+
+	_, err := s.List(context.Background(), ListFilter{})
+	if err == nil {
+		t.Fatal("List() error = nil, want cwd required")
+	}
+	if !strings.Contains(err.Error(), "cwd is required") {
+		t.Fatalf("List() error = %v, want cwd required", err)
 	}
 }
 
@@ -154,7 +265,7 @@ func TestListWrapsQuerierError(t *testing.T) {
 			return nil, sentinel
 		},
 	}}
-	_, err := s.List(context.Background(), ListFilter{})
+	_, err := s.List(context.Background(), ListFilter{CWD: "/repo_a"})
 	if err == nil {
 		t.Fatal("List() expected error, got nil")
 	}
@@ -206,6 +317,7 @@ func promptGetRow(promptKey string, now time.Time) sqlc.GetPromptTemplateRow {
 		UpdatedBy:      "editor",
 		CreatedAt:      now,
 		UpdatedAt:      now,
+		WhenToUse:      "Use when editing scoped prompts.",
 	}
 }
 
@@ -252,6 +364,7 @@ func promptUpsertRow(arg sqlc.UpsertPromptTemplateParams, now time.Time) sqlc.Up
 		UpdatedBy:      arg.UpdatedBy,
 		CreatedAt:      now,
 		UpdatedAt:      now,
+		WhenToUse:      arg.WhenToUse,
 	}
 }
 
@@ -269,6 +382,7 @@ func promptUpsertInput() PromptTemplate {
 		ManuallyEdited: true,
 		CreatedBy:      "creator",
 		UpdatedBy:      "editor",
+		WhenToUse:      "Use when editing scoped prompts.",
 	}
 }
 
@@ -280,12 +394,18 @@ func assertPromptUpsertParams(t *testing.T, captured sqlc.UpsertPromptTemplatePa
 	if !captured.ManuallyEdited {
 		t.Fatalf("Upsert() manually_edited = false, want true")
 	}
+	if captured.WhenToUse != "Use when editing scoped prompts." {
+		t.Fatalf("Upsert() when_to_use = %q, want guidance", captured.WhenToUse)
+	}
 }
 
 func assertPromptUpsertResult(t *testing.T, got *PromptTemplate) {
 	t.Helper()
 	if got == nil || got.ID != 8 || string(got.Tags) != `["scope.cwd:/repo"]` || !got.ManuallyEdited {
 		t.Fatalf("Upsert() mapped row incorrectly: %+v", got)
+	}
+	if got.WhenToUse != "Use when editing scoped prompts." {
+		t.Fatalf("Upsert() when_to_use = %q, want guidance", got.WhenToUse)
 	}
 }
 

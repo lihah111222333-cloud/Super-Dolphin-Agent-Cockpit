@@ -24,7 +24,7 @@ func NewService(
 	orchestration OrchestrationFacade,
 	threadEvents *bus.ThreadEmitters,
 ) Service {
-	return newService(logger, threadStore, bindingStore, nil, sessions, starter, turns, orchestration, threadEvents, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	return newService(logger, threadStore, bindingStore, nil, sessions, starter, turns, orchestration, threadEvents, nil, nil, nil, nil, nil, nil, nil)
 }
 
 func NewServiceWithPromptAssembly(
@@ -40,7 +40,7 @@ func NewServiceWithPromptAssembly(
 	cfg *contract.Config,
 	toolRegistry contract.ToolRegistry,
 ) Service {
-	return newService(logger, threadStore, bindingStore, nil, sessions, starter, turns, orchestration, threadEvents, promptAssembly, cfg, toolRegistry, nil, nil, nil, nil, nil, nil)
+	return newService(logger, threadStore, bindingStore, nil, sessions, starter, turns, orchestration, threadEvents, promptAssembly, cfg, toolRegistry, nil, nil, nil, nil)
 }
 
 func NewServiceWithPromptAssemblyAndSharedFiles(
@@ -57,13 +57,11 @@ func NewServiceWithPromptAssemblyAndSharedFiles(
 	cfg *contract.Config,
 	toolRegistry contract.ToolRegistry,
 	promptStore promptstore.Store,
-	promptClassifier contract.PromptClassifier,
-	classifierFastPath contract.ClassifierFastPathFunc,
-	classifierPrune contract.ClassifierPruneCandidatesFunc,
-	classifierMaxCandidates contract.ClassifierMaxCandidatesFunc,
+	promptCatalog promptstore.RuntimePromptCatalog,
 	matchWhenEval contract.MatchWhenEvaluator,
+	enableWhenEval contract.EnableWhenEvaluator,
 ) Service {
-	return newService(logger, threadStore, bindingStore, sharedFiles, sessions, starter, turns, orchestration, threadEvents, promptAssembly, cfg, toolRegistry, promptStore, promptClassifier, classifierFastPath, classifierPrune, classifierMaxCandidates, matchWhenEval)
+	return newService(logger, threadStore, bindingStore, sharedFiles, sessions, starter, turns, orchestration, threadEvents, promptAssembly, cfg, toolRegistry, promptStore, promptCatalog, matchWhenEval, enableWhenEval)
 }
 
 func newService(
@@ -80,11 +78,9 @@ func newService(
 	cfg *contract.Config,
 	toolRegistry contract.ToolRegistry,
 	promptStore promptstore.Store,
-	promptClassifier contract.PromptClassifier,
-	clsFastPath contract.ClassifierFastPathFunc,
-	clsPrune contract.ClassifierPruneCandidatesFunc,
-	clsMaxCandidates contract.ClassifierMaxCandidatesFunc,
+	promptCatalog promptstore.RuntimePromptCatalog,
 	matchWhenEval contract.MatchWhenEvaluator,
+	enableWhenEval contract.EnableWhenEvaluator,
 ) Service {
 	if logger == nil {
 		logger = pkglogger.Get()
@@ -94,45 +90,33 @@ func newService(
 		dispatcher = threadEvents.Dispatcher()
 	}
 	s := &service{
-		logger:                  logger,
-		threadStore:             threadStore,
-		bindingStore:            bindingStore,
-		sharedFiles:             sharedFiles,
-		sessions:                sessions,
-		starter:                 starter,
-		promptAssembly:          promptAssembly,
-		cfg:                     cfg,
-		toolRegistry:            toolRegistry,
-		turns:                   turns,
-		orchestration:           orchestration,
-		bus:                     dispatcher,
-		promptStore:             promptStore,
-		classifier:              promptClassifier,
-		classifierFastPath:      clsFastPath,
-		classifierPrune:         clsPrune,
-		classifierMaxCandidates: clsMaxCandidates,
-		matchWhenEval:           matchWhenEval,
-		emitStarted:             contract.NewEmitter[threaddto.Started](dispatcher),
-		emitStopped:             contract.NewEmitter[threaddto.Stopped](dispatcher),
-		emitUpdated:             contract.NewEmitter[threaddto.Updated](dispatcher),
-		emitMessagesPage:        contract.NewEmitter[threaddto.MessagesPage](dispatcher),
-		emitCompacted:           contract.NewEmitter[threaddto.Compacted](dispatcher),
-		emitLaunched:            contract.NewEmitter[threaddto.Launched](dispatcher),
-		threadAgents:            make(map[string]string),
+		logger:           logger,
+		threadStore:      threadStore,
+		bindingStore:     bindingStore,
+		sharedFiles:      sharedFiles,
+		sessions:         sessions,
+		starter:          starter,
+		promptAssembly:   promptAssembly,
+		cfg:              cfg,
+		toolRegistry:     toolRegistry,
+		turns:            turns,
+		orchestration:    orchestration,
+		bus:              dispatcher,
+		promptStore:      promptStore,
+		promptCatalog:    promptCatalog,
+		matchWhenEval:    matchWhenEval,
+		enableWhenEval:   enableWhenEval,
+		emitStarted:      contract.NewEmitter[threaddto.Started](dispatcher),
+		emitStopped:      contract.NewEmitter[threaddto.Stopped](dispatcher),
+		emitUpdated:      contract.NewEmitter[threaddto.Updated](dispatcher),
+		emitMessagesPage: contract.NewEmitter[threaddto.MessagesPage](dispatcher),
+		emitCompacted:    contract.NewEmitter[threaddto.Compacted](dispatcher),
+		emitLaunched:     contract.NewEmitter[threaddto.Launched](dispatcher),
+		threadAgents:     make(map[string]string),
 	}
-	// P22 P2 thread S3: the taskHandoffWorker owns the
-	// onTurnCompleted -> refreshTaskHandoffFromThread slow-path so the bus
-	// callback is a cheap Enqueue. Constructed here (not in module.go)
-	// because the refresher is a service method and the worker is a
-	// service-internal resource with the same lifetime as the service.
+	// Workers live beside service methods they call; bus callbacks only enqueue.
 	s.taskHandoffWorker = newTaskHandoffWorker(s, logger)
-	// P22 P2 thread S4: same ownership story for the agentLaunchedWorker
-	// — the processor is a service method (processAgentLaunched), so the
-	// worker lives beside the service.
 	s.agentLaunchedWorker = newAgentLaunchedWorker(s, logger)
-	// P22 P2 thread S2: sessionRecoveryWorker owns the onAgentFailed
-	// slow-path (3s reconnect delay + evict + backgroundResumeIfNeeded).
-	// Same construction pattern as the other bus-callback workers.
 	s.sessionRecoveryWorker = newSessionRecoveryWorker(s, logger)
 	return s
 }

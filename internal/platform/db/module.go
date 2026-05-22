@@ -88,6 +88,14 @@ func autoMigrate(ctx context.Context, pool *pgxpool.Pool, projectRoot string) er
 //     字段已在位；
 //   - 0088: 修复 0012 增量路径遗漏的 agent_threads baseline 兼容列，
 //     当前 thread sqlc 查询会无条件读取这些列。
+//   - 0094: prompt_templates.when_to_use，prompt 编辑、路由回显与 expert
+//     渲染链路会无条件读写该列。
+//   - 0096: prompt_template_sections.trigger_type / recall_topic，prompt
+//     section 编辑与回显链路会无条件读写这两列。
+//   - 0101: prompt_intent_drafts + scoped recall index，意图式创建 RPC 会
+//     无条件读写草稿表，recall 需要 project scope。
+//   - 0103: prompt_intent_drafts.scope，待确认草稿需要保留 project/global
+//     作用范围，避免全局草稿恢复后静默保存为项目草稿。
 //
 // MinRequiredSchemaVersion is the lower bound this binary needs in
 // schema_migrations.version to operate correctly. Bumping it here forces a
@@ -95,7 +103,7 @@ func autoMigrate(ctx context.Context, pool *pgxpool.Pool, projectRoot string) er
 // that has not had `make migrate` (or the autoMigrate path) reach the
 // required level. Update the constant together with the corresponding
 // migration file when adding a hard dependency.
-const MinRequiredSchemaVersion = 88
+const MinRequiredSchemaVersion = 103
 
 // schemaVersionQueryRow 是 verifyMinSchemaVersion 的最小依赖面。
 // *pgxpool.Pool 天然满足；测试可注入纯内存桩。

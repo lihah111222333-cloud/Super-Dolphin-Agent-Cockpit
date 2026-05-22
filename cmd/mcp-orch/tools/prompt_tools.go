@@ -3,12 +3,17 @@ package tools
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"sort"
 	"strings"
 	"time"
 
 	promptstore "github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/prompt"
+	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/common"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 )
+
+const promptSectionsPreviewMaxRunes = 200
 
 type promptListInput struct {
 	Keyword string `json:"keyword,omitempty"`
@@ -65,10 +70,16 @@ func listPromptTemplates(ctx context.Context, store promptstore.Store, input pro
 	if err := requireDependency(store, "prompt store"); err != nil {
 		return nil, err
 	}
+	cwd, err := promptToolTrustedCWD(ctx)
+	if err != nil {
+		return nil, err
+	}
 	templates, err := store.List(ctx, promptstore.ListFilter{
-		AgentKey: "",
-		Keyword:  strings.TrimSpace(input.Keyword),
-		Limit:    resourceListLimit,
+		AgentKey:       "",
+		Keyword:        strings.TrimSpace(input.Keyword),
+		CWD:            cwd,
+		RuntimeVisible: true,
+		Limit:          resourceListLimit,
 	})
 	if err != nil {
 		return nil, err
@@ -80,6 +91,10 @@ func getPromptTemplate(ctx context.Context, store promptstore.Store, input promp
 	if err := requireDependency(store, "prompt store"); err != nil {
 		return promptTemplateDTO{}, err
 	}
+	cwd, err := promptToolTrustedCWD(ctx)
+	if err != nil {
+		return promptTemplateDTO{}, err
+	}
 	promptKey, err := requireTrimmed(input.PromptKey, "prompt_key")
 	if err != nil {
 		return promptTemplateDTO{}, err
@@ -89,7 +104,50 @@ func getPromptTemplate(ctx context.Context, store promptstore.Store, input promp
 	if err != nil {
 		return promptTemplateDTO{}, err
 	}
-	return promptTemplateFromStore(*template), nil
+	if !promptTemplateRuntimeVisible(*template, cwd) {
+		return promptTemplateDTO{}, fmt.Errorf("prompt %s not found", promptKey)
+	}
+	dto := promptTemplateFromStore(*template)
+	sections, err := store.ListSectionsByTemplateID(ctx, template.ID)
+	if err != nil {
+		return promptTemplateDTO{}, err
+	}
+	if preview := promptSectionsPreview(sections); preview != "" {
+		dto.PromptText = preview
+	}
+	return dto, nil
+}
+
+func promptToolTrustedCWD(ctx context.Context) (string, error) {
+	scope, ok := common.ToolScopeFromContext(ctx)
+	if !ok || strings.TrimSpace(scope.CWD) == "" {
+		return "", fmt.Errorf("prompt tools require trusted cwd")
+	}
+	return scope.CWD, nil
+}
+
+func promptTemplateRuntimeVisible(template promptstore.PromptTemplate, cwd string) bool {
+	if !template.Enabled {
+		return false
+	}
+	return promptTagsContainScope(template.Tags, strings.TrimSpace(cwd))
+}
+
+func promptTagsContainScope(raw json.RawMessage, cwd string) bool {
+	if cwd == "" {
+		return false
+	}
+	var tags []string
+	if err := json.Unmarshal(raw, &tags); err != nil {
+		return false
+	}
+	for _, tag := range tags {
+		tag = strings.TrimSpace(tag)
+		if tag == "scope.global" || tag == "scope.cwd:"+cwd {
+			return true
+		}
+	}
+	return false
 }
 
 func mapPromptTemplates(templates []promptstore.PromptTemplate) []promptTemplateDTO {
@@ -118,4 +176,54 @@ func promptTemplateFromStore(template promptstore.PromptTemplate) promptTemplate
 		UpdatedAt:      template.UpdatedAt,
 		Description:    template.Description,
 	}
+}
+
+func promptSectionsPreview(sections []promptstore.PromptTemplateSection) string {
+	sorted := make([]promptstore.PromptTemplateSection, len(sections))
+	copy(sorted, sections)
+	sort.SliceStable(sorted, func(i, j int) bool { return promptSectionPreviewLess(sorted[i], sorted[j]) })
+	blocks := make([]string, 0, len(sorted))
+	for _, section := range sorted {
+		if !section.Enabled {
+			continue
+		}
+		if strings.EqualFold(strings.TrimSpace(section.TriggerType), "recall") {
+			continue
+		}
+		if body := strings.TrimSpace(section.Body); body != "" {
+			blocks = append(blocks, body)
+		}
+	}
+	if len(blocks) == 0 {
+		return ""
+	}
+	return truncatePromptSectionsPreview(strings.Join(blocks, "\n\n"))
+}
+
+func promptSectionPreviewLess(left, right promptstore.PromptTemplateSection) bool {
+	if promptSectionRegionPriority(left.Region) != promptSectionRegionPriority(right.Region) {
+		return promptSectionRegionPriority(left.Region) < promptSectionRegionPriority(right.Region)
+	}
+	if left.Ordinal != right.Ordinal {
+		return left.Ordinal < right.Ordinal
+	}
+	if left.ID != right.ID {
+		return left.ID < right.ID
+	}
+	return left.SectionKey < right.SectionKey
+}
+
+func promptSectionRegionPriority(region string) int {
+	if strings.EqualFold(strings.TrimSpace(region), "static") {
+		return 0
+	}
+	return 1
+}
+
+func truncatePromptSectionsPreview(text string) string {
+	runes := []rune(text)
+	if len(runes) <= promptSectionsPreviewMaxRunes {
+		return text
+	}
+	return string(runes[:promptSectionsPreviewMaxRunes])
 }

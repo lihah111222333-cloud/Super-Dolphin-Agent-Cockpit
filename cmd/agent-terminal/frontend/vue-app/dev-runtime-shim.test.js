@@ -61,6 +61,7 @@ describe('dev Wails runtime shim', () => {
   afterEach(() => {
     delete globalThis.WebSocket;
     delete globalThis.window;
+    vi.useRealTimers();
     vi.restoreAllMocks();
   });
 
@@ -140,6 +141,34 @@ describe('dev Wails runtime shim', () => {
     expect(filesRequest.method).toBe('ui/selectFiles');
     ws.receive({ jsonrpc: '2.0', id: filesRequest.id, result: { paths: ['/tmp/a.txt'] } });
     await expect(filesPromise).resolves.toEqual(['/tmp/a.txt']);
+  });
+
+  it('keeps prompt intent drafting on the long RPC timeout budget', async () => {
+    vi.useFakeTimers();
+    const runtime = await loadRuntime();
+
+    const resultPromise = runtime.Call.ByID(METHOD_IDS.CALL_API, 'prompt-intents/draft', {
+      cwd: '/tmp/project',
+      kind: 'recall',
+      raw_input: 'large product price sheet',
+    });
+    await flushMicrotasks();
+
+    const ws = FakeWebSocket.instances[0];
+    const request = JSON.parse(ws.sent[0]);
+    expect(request.method).toBe('prompt-intents/draft');
+
+    let settled = false;
+    resultPromise.then(
+      () => { settled = true; },
+      () => { settled = true; },
+    );
+    await vi.advanceTimersByTimeAsync(120_000);
+    await flushMicrotasks();
+    expect(settled).toBe(false);
+
+    ws.receive({ jsonrpc: '2.0', id: request.id, result: { draft_key: 'draft-1' } });
+    await expect(resultPromise).resolves.toEqual({ draft_key: 'draft-1' });
   });
 
   it('adapts backend notifications into Wails-style bridge and agent events', async () => {

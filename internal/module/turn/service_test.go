@@ -188,6 +188,7 @@ func TestPrepareTurnInjectsTurnAssembly(t *testing.T) {
 			"terminalFocus":      "The terminal is unfocused — the user is not actively watching.",
 		},
 		ThreadRuntimeConfig: map[string]any{
+			"promptKey":                    "main/launch-fav",
 			"provider":                     "codex-thread",
 			"gitRoot":                      "/thread-repo",
 			"isWorktree":                   true,
@@ -212,6 +213,7 @@ func assertPrepareTurnAssemblyInput(t *testing.T, req dto.TurnRequest, assembly 
 	require.Equal(t, []string{"/repo/thread-extra"}, req.AdditionalWorkingDirectories)
 	require.Equal(t, "thread-1", assembly.lastTurnInput.ThreadID)
 	require.Equal(t, "please verify the cache", assembly.lastTurnInput.UserText)
+	require.Equal(t, "main/launch-fav", assembly.lastTurnInput.PromptKey)
 	require.Equal(t, "/repo", assembly.lastTurnInput.CWD)
 	require.Equal(t, "claude-sonnet", assembly.lastTurnInput.Model)
 	require.Equal(t, "codex-thread", assembly.lastTurnInput.Provider)

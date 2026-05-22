@@ -40,7 +40,7 @@ func TestFxMemoryPromptIntegration(t *testing.T) {
 	if h.assembly == nil || h.registry == nil || h.memorySvc == nil || h.threadSvc == nil {
 		t.Fatalf("fx wiring incomplete: assembly=%v registry=%v memory=%v thread=%v", h.assembly != nil, h.registry != nil, h.memorySvc != nil, h.threadSvc != nil)
 	}
-	start, err := h.assembly.AssembleStart(context.Background(), promptpkg.StartInput{Provider: "codex"})
+	start, err := h.assembly.AssembleStart(context.Background(), promptpkg.StartInput{Provider: "codex", CWD: h.projectRoot})
 	if err != nil {
 		t.Fatalf("AssembleStart() error = %v", err)
 	}
@@ -107,7 +107,7 @@ func TestAssembleTurnProducesUserContext(t *testing.T) {
 
 func TestMemoryRulesInjectIntoPrompt(t *testing.T) {
 	h := newFxHarness(t)
-	start, err := h.assembly.AssembleStart(context.Background(), promptpkg.StartInput{Provider: "codex"})
+	start, err := h.assembly.AssembleStart(context.Background(), promptpkg.StartInput{Provider: "codex", CWD: h.projectRoot})
 	if err != nil {
 		t.Fatalf("AssembleStart() error = %v", err)
 	}
@@ -130,11 +130,11 @@ func TestSectionCacheInvalidation(t *testing.T) {
 		calls++
 		return fmt.Sprintf("session guidance build #%d", calls)
 	})
-	first, err := h.assembly.AssembleTurn(context.Background(), promptpkg.TurnInput{})
+	first, err := h.assembly.AssembleTurn(context.Background(), promptpkg.TurnInput{CWD: h.projectRoot})
 	if err != nil {
 		t.Fatalf("first AssembleTurn() error = %v", err)
 	}
-	second, err := h.assembly.AssembleTurn(context.Background(), promptpkg.TurnInput{})
+	second, err := h.assembly.AssembleTurn(context.Background(), promptpkg.TurnInput{CWD: h.projectRoot})
 	if err != nil {
 		t.Fatalf("second AssembleTurn() error = %v", err)
 	}
@@ -149,7 +149,7 @@ func TestSectionCacheInvalidation(t *testing.T) {
 	if err := h.assembly.Invalidate(context.Background(), promptpkg.InvalidateClear); err != nil {
 		t.Fatalf("Invalidate() error = %v", err)
 	}
-	third, err := h.assembly.AssembleTurn(context.Background(), promptpkg.TurnInput{})
+	third, err := h.assembly.AssembleTurn(context.Background(), promptpkg.TurnInput{CWD: h.projectRoot})
 	if err != nil {
 		t.Fatalf("third AssembleTurn() error = %v", err)
 	}
@@ -259,6 +259,7 @@ func newFxHarness(t *testing.T) *fxHarness {
 			func() thread.SessionProvider { return h.bridge },
 			func() threadstore.Store { return h.threadStore },
 			func() bindingstore.Store { return h.bindingStore },
+			newE2EPromptStore,
 			func() turnpkg.Service { return &noopTurnService{} },
 			func() thread.OrchestrationFacade { return h.orchestration },
 		),

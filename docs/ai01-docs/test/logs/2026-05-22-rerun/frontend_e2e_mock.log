@@ -44,7 +44,7 @@ Running 34 tests using 8 workers
   x  24 [chromium] › tests\e2e\settings-workflows.spec.js:7:1 › settings page loads project-scoped preferences and saves prompt/provider changes (30.8s)
 
 
-  1) [chromium] › tests\e2e\app-dashboard-navigation.spec.js:6:1 › sidebar pages load dashboard data and tasks tabs switch correctly 
+  1) [chromium] › tests\e2e\app-dashboard-navigation.spec.js:6:1 › sidebar pages load dashboard data and tasks tabs switch correctly
 
     Error: [2mexpect([22m[31mlocator[39m[2m).[22mtoBeVisible[2m([22m[2m)[22m failed
 
@@ -143,7 +143,7 @@ Running 34 tests using 8 workers
 
     Error Context: test-results\chat-layout.visual-thread-rail-layout-remains-stable-chromium\error-context.md
 
-  4) [chromium] › tests\e2e\chat-layout.visual.spec.js:114:1 › workspace and diff layout remain stable 
+  4) [chromium] › tests\e2e\chat-layout.visual.spec.js:114:1 › workspace and diff layout remain stable
 
     Error: [2mexpect([22m[31mlocator[39m[2m).[22mtoBeVisible[2m([22m[2m)[22m failed
 
@@ -176,7 +176,7 @@ Running 34 tests using 8 workers
 
     Error Context: test-results\chat-layout.visual-workspace-and-diff-layout-remain-stable-chromium\error-context.md
 
-  5) [chromium] › tests\e2e\chat-workflows.spec.js:63:1 › project modal, provider toggle, and new window flow work together 
+  5) [chromium] › tests\e2e\chat-workflows.spec.js:63:1 › project modal, provider toggle, and new window flow work together
 
     [31mTest timeout of 30000ms exceeded.[39m
 
@@ -204,7 +204,7 @@ Running 34 tests using 8 workers
 
     Error Context: test-results\chat-workflows-project-mod-62cf9-w-window-flow-work-together-chromium\error-context.md
 
-  6) [chromium] › tests\e2e\chat-workflows.spec.js:119:1 › chat composer supports attachments, send, rename, archive, recover, and restore 
+  6) [chromium] › tests\e2e\chat-workflows.spec.js:119:1 › chat composer supports attachments, send, rename, archive, recover, and restore
 
     Error: [2mexpect([22m[31mlocator[39m[2m).[22mtoBeVisible[2m([22m[2m)[22m failed
 
@@ -237,7 +237,7 @@ Running 34 tests using 8 workers
 
     Error Context: test-results\chat-workflows-chat-compos-a7a71-archive-recover-and-restore-chromium\error-context.md
 
-  7) [chromium] › tests\e2e\diff-markdown-preview.spec.js:10:1 › diff markdown preview repairs desktop bridge mojibake 
+  7) [chromium] › tests\e2e\diff-markdown-preview.spec.js:10:1 › diff markdown preview repairs desktop bridge mojibake
 
     Error: [2mexpect([22m[31mlocator[39m[2m).[22mtoBeVisible[2m([22m[2m)[22m failed
 
@@ -270,7 +270,7 @@ Running 34 tests using 8 workers
 
     Error Context: test-results\diff-markdown-preview-diff-68b22-irs-desktop-bridge-mojibake-chromium\error-context.md
 
-  8) [chromium] › tests\e2e\diff-panel-grouping.spec.js:20:1 › diff panel groups multi-file changes and re-expands the focused file 
+  8) [chromium] › tests\e2e\diff-panel-grouping.spec.js:20:1 › diff panel groups multi-file changes and re-expands the focused file
 
     Error: [2mexpect([22m[31mlocator[39m[2m).[22mtoBeVisible[2m([22m[2m)[22m failed
 
@@ -303,7 +303,7 @@ Running 34 tests using 8 workers
 
     Error Context: test-results\diff-panel-grouping-diff-p-9409e-re-expands-the-focused-file-chromium\error-context.md
 
-  9) [chromium] › tests\e2e\internal-message-alias.spec.js:94:3 › internal message alias display › shows agent -> agent internal sender and receiver aliases in timeline 
+  9) [chromium] › tests\e2e\internal-message-alias.spec.js:94:3 › internal message alias display › shows agent -> agent internal sender and receiver aliases in timeline
 
     Error: [2mexpect([22m[31mlocator[39m[2m).[22mtoBeVisible[2m([22m[2m)[22m failed
 
@@ -336,7 +336,7 @@ Running 34 tests using 8 workers
 
     Error Context: test-results\internal-message-alias-int-55193-eceiver-aliases-in-timeline-chromium\error-context.md
 
-  10) [chromium] › tests\e2e\internal-message-alias.spec.js:130:3 › internal message alias display › shows system -> agent internal route for approval/report style messages 
+  10) [chromium] › tests\e2e\internal-message-alias.spec.js:130:3 › internal message alias display › shows system -> agent internal route for approval/report style messages
 
     Error: [2mexpect([22m[31mlocator[39m[2m).[22mtoHaveText[2m([22m[32mexpected[39m[2m)[22m failed
 
@@ -369,7 +369,7 @@ Running 34 tests using 8 workers
 
     Error Context: test-results\internal-message-alias-int-bb49c-roval-report-style-messages-chromium\error-context.md
 
-  11) [chromium] › tests\e2e\internal-message-alias.spec.js:158:3 › internal message alias display › resolves agent -> agent aliases after cross-thread switch instead of stale payload names 
+  11) [chromium] › tests\e2e\internal-message-alias.spec.js:158:3 › internal message alias display › resolves agent -> agent aliases after cross-thread switch instead of stale payload names
 
     Error: [2mexpect([22m[31mlocator[39m[2m).[22mtoBeVisible[2m([22m[2m)[22m failed
 
@@ -403,7 +403,7 @@ Running 34 tests using 8 workers
 
     Error Context: test-results\internal-message-alias-int-1c6f0-tead-of-stale-payload-names-chromium\error-context.md
 
-  12) [chromium] › tests\e2e\internal-message-alias.spec.js:193:3 › internal message alias display › resolves system -> agent route after cross-thread switch and normalizes system label 
+  12) [chromium] › tests\e2e\internal-message-alias.spec.js:193:3 › internal message alias display › resolves system -> agent route after cross-thread switch and normalizes system label
 
     Error: [2mexpect([22m[31mlocator[39m[2m).[22mtoBeVisible[2m([22m[2m)[22m failed
 
@@ -437,7 +437,7 @@ Running 34 tests using 8 workers
 
     Error Context: test-results\internal-message-alias-int-f40d4-and-normalizes-system-label-chromium\error-context.md
 
-  13) [chromium] › tests\e2e\internal-message-alias.spec.js:228:3 › internal message alias display › matches internal agent report bubble visual snapshot 
+  13) [chromium] › tests\e2e\internal-message-alias.spec.js:228:3 › internal message alias display › matches internal agent report bubble visual snapshot
 
     Error: [2mexpect([22m[31mlocator[39m[2m).[22mtoBeVisible[2m([22m[2m)[22m failed
 
@@ -470,7 +470,7 @@ Running 34 tests using 8 workers
 
     Error Context: test-results\internal-message-alias-int-15b8f-port-bubble-visual-snapshot-chromium\error-context.md
 
-  14) [chromium] › tests\e2e\memory-center-operations.spec.js:6:1 › memory center supports durable CRUD and shared-file promote 
+  14) [chromium] › tests\e2e\memory-center-operations.spec.js:6:1 › memory center supports durable CRUD and shared-file promote
 
     [31mTest timeout of 30000ms exceeded.[39m
 
@@ -498,7 +498,7 @@ Running 34 tests using 8 workers
 
     Error Context: test-results\memory-center-operations-m-52c9c-RUD-and-shared-file-promote-chromium\error-context.md
 
-  15) [chromium] › tests\e2e\memory-leak-regression.spec.js:64:3 › memory leak regression › thread payload cache evicts old timeline and diff entries after repeated thread loads 
+  15) [chromium] › tests\e2e\memory-leak-regression.spec.js:64:3 › memory leak regression › thread payload cache evicts old timeline and diff entries after repeated thread loads
 
     Error: [2mexpect([22m[31mreceived[39m[2m).[22mtoEqual[2m([22m[32mexpected[39m[2m) // deep equality[22m
 
@@ -533,7 +533,7 @@ Running 34 tests using 8 workers
     test-results\memory-leak-regression-mem-30130-after-repeated-thread-loads-chromium\video.webm
     ────────────────────────────────────────────────────────────────────────────────────────────────
 
-  16) [chromium] › tests\e2e\settings-workflows.spec.js:7:1 › settings page loads project-scoped preferences and saves prompt/provider changes 
+  16) [chromium] › tests\e2e\settings-workflows.spec.js:7:1 › settings page loads project-scoped preferences and saves prompt/provider changes
 
     [31mTest timeout of 30000ms exceeded.[39m
 
@@ -575,7 +575,7 @@ Running 34 tests using 8 workers
 
     Error Context: test-results\settings-workflows-setting-75598-ves-prompt-provider-changes-chromium\error-context.md
 
-  17) [chromium] › tests\e2e\skills-workflows.spec.js:7:1 › skills page supports search, edit subfiles, create, import, and delete 
+  17) [chromium] › tests\e2e\skills-workflows.spec.js:7:1 › skills page supports search, edit subfiles, create, import, and delete
 
     Error: [2mexpect([22m[31mlocator[39m[2m).[22mtoBeVisible[2m([22m[2m)[22m failed
 
@@ -608,7 +608,7 @@ Running 34 tests using 8 workers
 
     Error Context: test-results\skills-workflows-skills-pa-71211-es-create-import-and-delete-chromium\error-context.md
 
-  18) [chromium] › tests\e2e\thread-immediate-history.spec.js:37:1 › current tab chat history renders immediately even while scoped sync is blocked by later state work 
+  18) [chromium] › tests\e2e\thread-immediate-history.spec.js:37:1 › current tab chat history renders immediately even while scoped sync is blocked by later state work
 
     Error: [2mexpect([22m[31mlocator[39m[2m).[22mtoHaveCount[2m([22m[32mexpected[39m[2m)[22m failed
 
@@ -643,7 +643,7 @@ Running 34 tests using 8 workers
 
     Error Context: test-results\thread-immediate-history-c-8a374-blocked-by-later-state-work-chromium\error-context.md
 
-  19) [chromium] › tests\e2e\thread-messages-double-load.spec.js:46:3 › thread/messages duplicate load regression › bootstrap + selected-thread watch dedupe the same history load 
+  19) [chromium] › tests\e2e\thread-messages-double-load.spec.js:46:3 › thread/messages duplicate load regression › bootstrap + selected-thread watch dedupe the same history load
 
     Error: [2mexpect([22m[31mreceived[39m[2m).[22mtoBe[2m([22m[32mexpected[39m[2m) // Object.is equality[22m
 
@@ -672,7 +672,7 @@ Running 34 tests using 8 workers
 
     Error Context: test-results\thread-messages-double-loa-f0f69-edupe-the-same-history-load-chromium\error-context.md
 
-  20) [chromium] › tests\e2e\thread-messages-double-load.spec.js:168:3 › thread/messages duplicate load regression › thread switch avoids extra ui/state/get after active thread preference persists 
+  20) [chromium] › tests\e2e\thread-messages-double-load.spec.js:168:3 › thread/messages duplicate load regression › thread switch avoids extra ui/state/get after active thread preference persists
 
     Error: [2mexpect([22m[31mlocator[39m[2m).[22mtoHaveCount[2m([22m[32mexpected[39m[2m)[22m failed
 
@@ -707,7 +707,7 @@ Running 34 tests using 8 workers
 
     Error Context: test-results\thread-messages-double-loa-fad67--thread-preference-persists-chromium\error-context.md
 
-  21) [chromium] › tests\e2e\timeline-actions.spec.js:20:1 › timeline interactions cover file refs, approvals, copies, image preview, and activity panel 
+  21) [chromium] › tests\e2e\timeline-actions.spec.js:20:1 › timeline interactions cover file refs, approvals, copies, image preview, and activity panel
 
     Error: [2mexpect([22m[31mlocator[39m[2m).[22mtoBeVisible[2m([22m[2m)[22m failed
 
@@ -740,7 +740,7 @@ Running 34 tests using 8 workers
 
     Error Context: test-results\timeline-actions-timeline--0054e--preview-and-activity-panel-chromium\error-context.md
 
-  22) [chromium] › tests\e2e\timeline-actions.spec.js:199:1 › tool ticker remains visible on hover and preserves collapsed-tool summary 
+  22) [chromium] › tests\e2e\timeline-actions.spec.js:199:1 › tool ticker remains visible on hover and preserves collapsed-tool summary
 
     Error: [2mexpect([22m[31mlocator[39m[2m).[22mtoBeVisible[2m([22m[2m)[22m failed
 
@@ -773,7 +773,7 @@ Running 34 tests using 8 workers
 
     Error Context: test-results\timeline-actions-tool-tick-76d32-rves-collapsed-tool-summary-chromium\error-context.md
 
-  23) [chromium] › tests\e2e\timeline-actions.spec.js:285:1 › reasoning-like assistant text stays visible in timeline and does not show hidden popover placeholder 
+  23) [chromium] › tests\e2e\timeline-actions.spec.js:285:1 › reasoning-like assistant text stays visible in timeline and does not show hidden popover placeholder
 
     Error: [2mexpect([22m[31mlocator[39m[2m).[22mtoBeVisible[2m([22m[2m)[22m failed
 
@@ -806,7 +806,7 @@ Running 34 tests using 8 workers
 
     Error Context: test-results\timeline-actions-reasoning-e2b50--hidden-popover-placeholder-chromium\error-context.md
 
-  24) [chromium] › tests\e2e\timeline-actions.spec.js:344:1 › anchored thinking presence stays below chat body 
+  24) [chromium] › tests\e2e\timeline-actions.spec.js:344:1 › anchored thinking presence stays below chat body
 
     Error: [2mexpect([22m[31mlocator[39m[2m).[22mtoBeVisible[2m([22m[2m)[22m failed
 
@@ -840,30 +840,30 @@ Running 34 tests using 8 workers
     Error Context: test-results\timeline-actions-anchored--49f82-sence-stays-below-chat-body-chromium\error-context.md
 
   24 failed
-    [chromium] › tests\e2e\app-dashboard-navigation.spec.js:6:1 › sidebar pages load dashboard data and tasks tabs switch correctly 
+    [chromium] › tests\e2e\app-dashboard-navigation.spec.js:6:1 › sidebar pages load dashboard data and tasks tabs switch correctly
     [chromium] › tests\e2e\chat-layout.visual.spec.js:106:1 › chat page layout remains stable ──────
     [chromium] › tests\e2e\chat-layout.visual.spec.js:110:1 › thread rail layout remains stable ────
-    [chromium] › tests\e2e\chat-layout.visual.spec.js:114:1 › workspace and diff layout remain stable 
-    [chromium] › tests\e2e\chat-workflows.spec.js:63:1 › project modal, provider toggle, and new window flow work together 
-    [chromium] › tests\e2e\chat-workflows.spec.js:119:1 › chat composer supports attachments, send, rename, archive, recover, and restore 
-    [chromium] › tests\e2e\diff-markdown-preview.spec.js:10:1 › diff markdown preview repairs desktop bridge mojibake 
-    [chromium] › tests\e2e\diff-panel-grouping.spec.js:20:1 › diff panel groups multi-file changes and re-expands the focused file 
-    [chromium] › tests\e2e\internal-message-alias.spec.js:94:3 › internal message alias display › shows agent -> agent internal sender and receiver aliases in timeline 
-    [chromium] › tests\e2e\internal-message-alias.spec.js:130:3 › internal message alias display › shows system -> agent internal route for approval/report style messages 
-    [chromium] › tests\e2e\internal-message-alias.spec.js:158:3 › internal message alias display › resolves agent -> agent aliases after cross-thread switch instead of stale payload names 
-    [chromium] › tests\e2e\internal-message-alias.spec.js:193:3 › internal message alias display › resolves system -> agent route after cross-thread switch and normalizes system label 
-    [chromium] › tests\e2e\internal-message-alias.spec.js:228:3 › internal message alias display › matches internal agent report bubble visual snapshot 
-    [chromium] › tests\e2e\memory-center-operations.spec.js:6:1 › memory center supports durable CRUD and shared-file promote 
-    [chromium] › tests\e2e\memory-leak-regression.spec.js:64:3 › memory leak regression › thread payload cache evicts old timeline and diff entries after repeated thread loads 
-    [chromium] › tests\e2e\settings-workflows.spec.js:7:1 › settings page loads project-scoped preferences and saves prompt/provider changes 
-    [chromium] › tests\e2e\skills-workflows.spec.js:7:1 › skills page supports search, edit subfiles, create, import, and delete 
-    [chromium] › tests\e2e\thread-immediate-history.spec.js:37:1 › current tab chat history renders immediately even while scoped sync is blocked by later state work 
-    [chromium] › tests\e2e\thread-messages-double-load.spec.js:46:3 › thread/messages duplicate load regression › bootstrap + selected-thread watch dedupe the same history load 
-    [chromium] › tests\e2e\thread-messages-double-load.spec.js:168:3 › thread/messages duplicate load regression › thread switch avoids extra ui/state/get after active thread preference persists 
-    [chromium] › tests\e2e\timeline-actions.spec.js:20:1 › timeline interactions cover file refs, approvals, copies, image preview, and activity panel 
-    [chromium] › tests\e2e\timeline-actions.spec.js:199:1 › tool ticker remains visible on hover and preserves collapsed-tool summary 
-    [chromium] › tests\e2e\timeline-actions.spec.js:285:1 › reasoning-like assistant text stays visible in timeline and does not show hidden popover placeholder 
-    [chromium] › tests\e2e\timeline-actions.spec.js:344:1 › anchored thinking presence stays below chat body 
+    [chromium] › tests\e2e\chat-layout.visual.spec.js:114:1 › workspace and diff layout remain stable
+    [chromium] › tests\e2e\chat-workflows.spec.js:63:1 › project modal, provider toggle, and new window flow work together
+    [chromium] › tests\e2e\chat-workflows.spec.js:119:1 › chat composer supports attachments, send, rename, archive, recover, and restore
+    [chromium] › tests\e2e\diff-markdown-preview.spec.js:10:1 › diff markdown preview repairs desktop bridge mojibake
+    [chromium] › tests\e2e\diff-panel-grouping.spec.js:20:1 › diff panel groups multi-file changes and re-expands the focused file
+    [chromium] › tests\e2e\internal-message-alias.spec.js:94:3 › internal message alias display › shows agent -> agent internal sender and receiver aliases in timeline
+    [chromium] › tests\e2e\internal-message-alias.spec.js:130:3 › internal message alias display › shows system -> agent internal route for approval/report style messages
+    [chromium] › tests\e2e\internal-message-alias.spec.js:158:3 › internal message alias display › resolves agent -> agent aliases after cross-thread switch instead of stale payload names
+    [chromium] › tests\e2e\internal-message-alias.spec.js:193:3 › internal message alias display › resolves system -> agent route after cross-thread switch and normalizes system label
+    [chromium] › tests\e2e\internal-message-alias.spec.js:228:3 › internal message alias display › matches internal agent report bubble visual snapshot
+    [chromium] › tests\e2e\memory-center-operations.spec.js:6:1 › memory center supports durable CRUD and shared-file promote
+    [chromium] › tests\e2e\memory-leak-regression.spec.js:64:3 › memory leak regression › thread payload cache evicts old timeline and diff entries after repeated thread loads
+    [chromium] › tests\e2e\settings-workflows.spec.js:7:1 › settings page loads project-scoped preferences and saves prompt/provider changes
+    [chromium] › tests\e2e\skills-workflows.spec.js:7:1 › skills page supports search, edit subfiles, create, import, and delete
+    [chromium] › tests\e2e\thread-immediate-history.spec.js:37:1 › current tab chat history renders immediately even while scoped sync is blocked by later state work
+    [chromium] › tests\e2e\thread-messages-double-load.spec.js:46:3 › thread/messages duplicate load regression › bootstrap + selected-thread watch dedupe the same history load
+    [chromium] › tests\e2e\thread-messages-double-load.spec.js:168:3 › thread/messages duplicate load regression › thread switch avoids extra ui/state/get after active thread preference persists
+    [chromium] › tests\e2e\timeline-actions.spec.js:20:1 › timeline interactions cover file refs, approvals, copies, image preview, and activity panel
+    [chromium] › tests\e2e\timeline-actions.spec.js:199:1 › tool ticker remains visible on hover and preserves collapsed-tool summary
+    [chromium] › tests\e2e\timeline-actions.spec.js:285:1 › reasoning-like assistant text stays visible in timeline and does not show hidden popover placeholder
+    [chromium] › tests\e2e\timeline-actions.spec.js:344:1 › anchored thinking presence stays below chat body
   4 skipped
   6 passed (51.8s)
 

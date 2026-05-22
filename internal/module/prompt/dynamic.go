@@ -10,6 +10,9 @@ import (
 
 const (
 	DynamicSectionSessionGuidance      = contract.DynamicSectionSessionGuidance
+	DynamicSectionProjectDefaultRules  = contract.DynamicSectionProjectDefaultRules
+	DynamicSectionAvailableExperts     = contract.DynamicSectionAvailableExperts
+	DynamicSectionRecallCatalog        = contract.DynamicSectionRecallCatalog
 	DynamicSectionMemory               = contract.DynamicSectionMemory
 	DynamicSectionMemoryContext        = contract.DynamicSectionMemoryContext
 	DynamicSectionMemoryEntrypoint     = contract.DynamicSectionMemoryEntrypoint
@@ -51,6 +54,9 @@ type dynamicSectionSpec struct {
 
 var dynamicSectionSpecs = []dynamicSectionSpec{
 	{name: DynamicSectionSessionGuidance, order: 110, cachePolicy: InputScoped},
+	{name: DynamicSectionProjectDefaultRules, order: 112, cachePolicy: InputScoped},
+	{name: DynamicSectionAvailableExperts, order: 115, cachePolicy: InputScoped},
+	{name: DynamicSectionRecallCatalog, order: 118, cachePolicy: InputScoped},
 	{name: DynamicSectionMemory, order: 120, cachePolicy: InputScoped, startOnly: true},
 	{name: DynamicSectionMemoryEntrypoint, order: 122, cachePolicy: InputScoped, startOnly: true},
 	{name: DynamicSectionMemoryContext, order: 125, cachePolicy: InputScoped},

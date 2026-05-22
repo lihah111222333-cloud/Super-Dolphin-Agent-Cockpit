@@ -1,0 +1,51 @@
+-- name: UpsertPromptIntentDraft :one
+INSERT INTO prompt_intent_drafts (
+    draft_key, cwd, kind, raw_input, source_type, source_url,
+    origin_hash, license_hint, generated_card, confidence, status, scope, issues, updated_at
+) VALUES (
+    $1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, $10, $11, $12, $13::jsonb, NOW()
+)
+ON CONFLICT (draft_key) DO UPDATE SET
+    cwd = EXCLUDED.cwd,
+    kind = EXCLUDED.kind,
+    raw_input = EXCLUDED.raw_input,
+    source_type = EXCLUDED.source_type,
+    source_url = EXCLUDED.source_url,
+    origin_hash = EXCLUDED.origin_hash,
+    license_hint = EXCLUDED.license_hint,
+    generated_card = EXCLUDED.generated_card,
+    confidence = EXCLUDED.confidence,
+    status = EXCLUDED.status,
+    scope = EXCLUDED.scope,
+    issues = EXCLUDED.issues,
+    updated_at = NOW()
+RETURNING id, draft_key, cwd, kind, raw_input, source_type, source_url,
+          origin_hash, license_hint, generated_card, confidence, status, scope,
+          issues, created_at, updated_at;
+
+-- name: GetPromptIntentDraft :one
+SELECT id, draft_key, cwd, kind, raw_input, source_type, source_url,
+       origin_hash, license_hint, generated_card, confidence, status, scope,
+       issues, created_at, updated_at
+FROM prompt_intent_drafts
+WHERE draft_key = sqlc.arg(draft_key)
+  AND cwd = sqlc.arg(cwd);
+
+-- name: ListPromptIntentDrafts :many
+SELECT id, draft_key, cwd, kind, raw_input, source_type, source_url,
+       origin_hash, license_hint, generated_card, confidence, status, scope,
+       issues, created_at, updated_at
+FROM prompt_intent_drafts
+WHERE cwd = sqlc.arg(cwd)
+  AND (sqlc.arg(status)::text = '' OR status = sqlc.arg(status))
+ORDER BY updated_at DESC
+LIMIT sqlc.arg(limit_count);
+
+-- name: UpdatePromptIntentDraftStatus :one
+UPDATE prompt_intent_drafts
+SET status = sqlc.arg(status), updated_at = NOW()
+WHERE draft_key = sqlc.arg(draft_key)
+  AND cwd = sqlc.arg(cwd)
+RETURNING id, draft_key, cwd, kind, raw_input, source_type, source_url,
+          origin_hash, license_hint, generated_card, confidence, status, scope,
+          issues, created_at, updated_at;

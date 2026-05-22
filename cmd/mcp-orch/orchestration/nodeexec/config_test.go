@@ -13,6 +13,7 @@ func agentConfigFixture() AgentNodeConfig {
 			Provider:      "claude",
 			Model:         "opus",
 			AgentKey:      "architect",
+			PromptKey:     "main/architect",
 			Effort:        "high",
 			Language:      "zh",
 			Isolation:     "worktree",
@@ -73,6 +74,9 @@ func assertAgentExecRoundTrip(t *testing.T, exec AgentExecConfig) {
 	t.Helper()
 	if exec.Provider != "claude" || exec.Model != "opus" {
 		t.Errorf("Exec lost fields: %+v", exec)
+	}
+	if exec.PromptKey != "main/architect" {
+		t.Errorf("PromptKey = %q, want main/architect", exec.PromptKey)
 	}
 	if exec.Isolation != "worktree" {
 		t.Errorf("isolation = %q, want worktree", exec.Isolation)

@@ -3,6 +3,7 @@ package claudecli
 import (
 	"encoding/json"
 	"os"
+	"strings"
 	"testing"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
@@ -243,6 +244,65 @@ func TestRouterInjectedPromptReachesSystemPromptFlag(t *testing.T) {
 	}
 	if !found {
 		t.Fatalf("--system-prompt flag values = %#v, want one equal to %q", flagValues(args, "--system-prompt"), routerBody)
+	}
+}
+
+func TestStartRuntimeContextReachesSystemPromptFlag(t *testing.T) {
+	t.Parallel()
+
+	req := dto.StartSessionRequest{
+		Provider: "claude",
+		StartAssembly: dto.StartAssembly{
+			BaseInstructions: "assembled base",
+			UserContext: map[string]string{
+				"runtimeExtras": "可用专家: main/expert/prompt",
+			},
+			SystemContext: dto.SystemContext{"gitStatus": "## main\n M prompt.go"},
+		},
+	}
+	assembly := resolveStartAssembly(req, cliLaunchConfig{}, "claude")
+	args := buildCLIArgs("claude-sonnet", assembly.BaseInstructions, "", cliLaunchConfig{
+		PromptSnapshot: contract.PromptAssemblySnapshot{BaseInstructions: assembly.Snapshot.BaseInstructions},
+	})
+
+	joined := strings.Join(flagValues(args, "--system-prompt"), "\n")
+	for _, want := range []string{"assembled base", "可用专家: main/expert/prompt", "# System Context"} {
+		if !strings.Contains(joined, want) {
+			t.Fatalf("--system-prompt = %q, want substring %q", joined, want)
+		}
+	}
+}
+
+func TestStartRuntimeContextReachesBoundarySystemPromptFlag(t *testing.T) {
+	t.Parallel()
+
+	req := dto.StartSessionRequest{
+		Provider: "claude",
+		StartAssembly: dto.StartAssembly{
+			BaseInstructions: "assembled base",
+			Boundary: &dto.PromptAssemblyBoundary{
+				CachedPrefix: "cached base",
+				UncachedTail: "existing uncached tail\n\n可用专家: main/expert/prompt",
+			},
+			UserContext: map[string]string{
+				"runtimeExtras": "可用专家: main/expert/prompt",
+			},
+			SystemContext: dto.SystemContext{"gitStatus": "## main\n M prompt.go"},
+		},
+	}
+	assembly := resolveStartAssembly(req, cliLaunchConfig{}, "claude")
+	args := buildCLIArgs("claude-sonnet", assembly.BaseInstructions, "", cliLaunchConfig{
+		PromptSnapshot: assembly.Snapshot,
+	})
+
+	joined := strings.Join(flagValues(args, "--system-prompt"), "\n")
+	for _, want := range []string{"cached base", "existing uncached tail", "可用专家: main/expert/prompt", "# System Context"} {
+		if !strings.Contains(joined, want) {
+			t.Fatalf("--system-prompt = %q, want substring %q", joined, want)
+		}
+	}
+	if strings.Count(joined, "可用专家: main/expert/prompt") != 1 {
+		t.Fatalf("--system-prompt = %q, want available experts exactly once", joined)
 	}
 }
 

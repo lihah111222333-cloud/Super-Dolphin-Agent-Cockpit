@@ -233,6 +233,54 @@ func TestBuildThreadStartParamsUsesStartAssemblyInstructions(t *testing.T) {
 	}
 }
 
+func TestBuildThreadStartParamsIncludesStartRuntimeContext(t *testing.T) {
+	t.Parallel()
+
+	params := (&driver{}).buildThreadStartParams(dto.StartSessionRequest{
+		StartAssembly: dto.StartAssembly{
+			BaseInstructions: "assembled base",
+			UserContext: map[string]string{
+				"runtimeExtras": "可用专家: main/expert/prompt",
+			},
+			SystemContext: dto.SystemContext{"gitStatus": "## main\n M prompt.go"},
+		},
+	})
+
+	for _, want := range []string{"assembled base", "可用专家: main/expert/prompt", "# System Context"} {
+		if !strings.Contains(params.BaseInstructions, want) {
+			t.Fatalf("BaseInstructions = %q, want substring %q", params.BaseInstructions, want)
+		}
+	}
+}
+
+func TestBuildThreadStartParamsDoesNotDuplicateBoundaryRuntimeExtras(t *testing.T) {
+	t.Parallel()
+
+	params := (&driver{}).buildThreadStartParams(dto.StartSessionRequest{
+		StartAssembly: dto.StartAssembly{
+			BaseInstructions: "assembled base\n\n可用专家: main/expert/prompt",
+			Boundary: &dto.PromptAssemblyBoundary{
+				CachedPrefix: "assembled base",
+				UncachedTail: "可用专家: main/expert/prompt",
+			},
+			UserContext: map[string]string{
+				"currentDate":   "Today's date is 2026-05-22.",
+				"runtimeExtras": "可用专家: main/expert/prompt",
+			},
+			SystemContext: dto.SystemContext{"gitStatus": "## main\n M prompt.go"},
+		},
+	})
+
+	if strings.Count(params.BaseInstructions, "可用专家: main/expert/prompt") != 1 {
+		t.Fatalf("BaseInstructions = %q, want available experts exactly once", params.BaseInstructions)
+	}
+	for _, want := range []string{"assembled base", "Today's date is 2026-05-22.", "# System Context"} {
+		if !strings.Contains(params.BaseInstructions, want) {
+			t.Fatalf("BaseInstructions = %q, want substring %q", params.BaseInstructions, want)
+		}
+	}
+}
+
 func TestBuildThreadStartParamsDoesNotPrependLegacySkillManifest(t *testing.T) {
 	t.Parallel()
 

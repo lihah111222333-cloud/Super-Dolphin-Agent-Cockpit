@@ -10,12 +10,88 @@ import (
 	turnpkg "github.com/anthropic-ai/super-agent-v3/internal/module/turn"
 	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
 	bindingstore "github.com/anthropic-ai/super-agent-v3/internal/store/binding"
+	promptstore "github.com/anthropic-ai/super-agent-v3/internal/store/prompt"
 	threadstore "github.com/anthropic-ai/super-agent-v3/internal/store/thread"
 )
 
 type capturingSessionBridge struct {
 	session  contractpkg.Session
 	startReq dto.StartSessionRequest
+}
+
+type e2ePromptStore struct{}
+
+func newE2EPromptStore() promptstore.Store { return e2ePromptStore{} }
+
+func (e2ePromptStore) List(context.Context, promptstore.ListFilter) ([]promptstore.PromptTemplate, error) {
+	return nil, nil
+}
+
+func (e2ePromptStore) WithTx(_ context.Context, fn func(promptstore.Store) error) error {
+	return fn(e2ePromptStore{})
+}
+
+func (e2ePromptStore) Get(context.Context, string) (*promptstore.PromptTemplate, error) {
+	return nil, platformdb.ErrNotFound
+}
+
+func (e2ePromptStore) Delete(context.Context, string) error { return nil }
+
+func (e2ePromptStore) InsertVersion(context.Context, promptstore.PromptTemplateVersion) (int64, error) {
+	return 0, nil
+}
+
+func (e2ePromptStore) CreatePromptTemplate(context.Context, promptstore.PromptTemplate) (*promptstore.PromptTemplate, error) {
+	return &promptstore.PromptTemplate{}, nil
+}
+
+func (e2ePromptStore) Upsert(context.Context, promptstore.PromptTemplate) (*promptstore.PromptTemplate, error) {
+	return &promptstore.PromptTemplate{}, nil
+}
+
+func (e2ePromptStore) ListSectionsByTemplateID(context.Context, int64) ([]promptstore.PromptTemplateSection, error) {
+	return nil, nil
+}
+
+func (e2ePromptStore) ListSectionsByTemplateIDs(context.Context, []int64) ([]promptstore.PromptTemplateSection, error) {
+	return nil, nil
+}
+
+func (e2ePromptStore) ListRecallSections(context.Context, string) ([]promptstore.PromptTemplateSection, error) {
+	return nil, nil
+}
+
+func (e2ePromptStore) ListDefaultRuleSections(context.Context, string) ([]promptstore.PromptTemplateSection, error) {
+	return nil, nil
+}
+
+func (e2ePromptStore) UpsertSection(_ context.Context, section promptstore.PromptTemplateSection) (*promptstore.PromptTemplateSection, error) {
+	copy := section
+	return &copy, nil
+}
+
+func (e2ePromptStore) DeleteSection(context.Context, int64, string) error {
+	return nil
+}
+
+func (e2ePromptStore) UpsertIntentDraft(context.Context, promptstore.PromptIntentDraft) (*promptstore.PromptIntentDraft, error) {
+	return &promptstore.PromptIntentDraft{}, nil
+}
+
+func (e2ePromptStore) GetIntentDraft(context.Context, string, string) (*promptstore.PromptIntentDraft, error) {
+	return nil, platformdb.ErrNotFound
+}
+
+func (e2ePromptStore) ListIntentDrafts(context.Context, promptstore.PromptIntentDraftListFilter) ([]promptstore.PromptIntentDraft, error) {
+	return nil, nil
+}
+
+func (e2ePromptStore) UpdateIntentDraftStatus(context.Context, string, string, string) (*promptstore.PromptIntentDraft, error) {
+	return &promptstore.PromptIntentDraft{}, nil
+}
+
+func (e2ePromptStore) LockRecallTopicInCWD(context.Context, string, string) error {
+	return nil
 }
 
 func newMockSession(threadID string) contractpkg.Session { return &mockSession{threadID: threadID} }

@@ -79,9 +79,10 @@ func TestBuildLaunchRequestFromAgentConfigFillsAgentIDAndName(t *testing.T) {
 	t.Parallel()
 	cfg := AgentNodeConfig{
 		Exec: AgentExecConfig{
-			AgentKey: "implementer",
-			CWD:      "/repo/agent",
-			Language: "zh",
+			AgentKey:  "implementer",
+			PromptKey: "user/implementer",
+			CWD:       "/repo/agent",
+			Language:  "zh",
 		},
 		FirstTurn: "do the thing",
 	}
@@ -104,6 +105,9 @@ func TestBuildLaunchRequestFromAgentConfigFillsAgentIDAndName(t *testing.T) {
 	}
 	if req.AgentKey != cfg.Exec.AgentKey {
 		t.Fatalf("AgentKey = %q, want %q", req.AgentKey, cfg.Exec.AgentKey)
+	}
+	if req.PromptKey != cfg.Exec.PromptKey {
+		t.Fatalf("PromptKey = %q, want %q", req.PromptKey, cfg.Exec.PromptKey)
 	}
 	if req.Cwd != cfg.Exec.CWD {
 		t.Fatalf("Cwd = %q, want %q", req.Cwd, cfg.Exec.CWD)
@@ -199,6 +203,41 @@ func TestAgentExecutor_Execute_HappyPath(t *testing.T) {
 	}
 	if launcher.lastReq.Prompt != "do the thing" {
 		t.Fatalf("LaunchAgent.Prompt = %q, want first_turn", launcher.lastReq.Prompt)
+	}
+}
+
+func TestAgentExecutor_Execute_PromptKeyOnlyLaunches(t *testing.T) {
+	t.Parallel()
+	launcher := &stubAgentLauncher{}
+	exec := NewAgentExecutor(launcher)
+
+	cfg := AgentNodeConfig{
+		Exec: AgentExecConfig{
+			Provider:  "claude",
+			PromptKey: "user/custom-sql",
+			Language:  "zh",
+		},
+		FirstTurn: "do the sql task",
+	}
+	node := makeAgentNode(t, cfg)
+
+	out, err := exec.Execute(context.Background(), node, RunContext{
+		DagKey: "dag-x", NodeKey: "node-a", RunID: 42,
+	})
+	if err != nil {
+		t.Fatalf("Execute() framework error = %v, want nil", err)
+	}
+	if out.Status != NodeStatusDone {
+		t.Fatalf("Status = %q, want %q", out.Status, NodeStatusDone)
+	}
+	if launcher.called != 1 {
+		t.Fatalf("LaunchAgent called %d times, want 1", launcher.called)
+	}
+	if launcher.lastReq.PromptKey != "user/custom-sql" {
+		t.Fatalf("LaunchAgent.PromptKey = %q, want user/custom-sql", launcher.lastReq.PromptKey)
+	}
+	if launcher.lastReq.AgentKey != "" {
+		t.Fatalf("LaunchAgent.AgentKey = %q, want empty when config pins prompt_key only", launcher.lastReq.AgentKey)
 	}
 }
 

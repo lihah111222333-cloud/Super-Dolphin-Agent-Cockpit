@@ -26,7 +26,7 @@ type Service interface {
 	// concurrently; only the first caller per thread actually spawns.
 	// Returns launched=true iff this call performed the spawn. When
 	// launched=true the returned SpawnRouting carries the routing decision
-	// (agent_key / prompt_key / prompt_version_id / merged_candidate_keys)
+	// (agent_key / prompt_key / prompt_version_id)
 	// so callers such as turn/start can forward it to the UI — pending-spawn
 	// threads never surface this on thread/start since routing runs lazily.
 	// requestCWD is validation-only; the pending row's stored cwd remains
@@ -140,13 +140,6 @@ type StartRequest struct {
 	// path (no promptStore wired) — that case is a transient backend issue
 	// rather than a stale pin and the UI must not clear the user's pref.
 	PromptKeyStale bool
-	// UseClassifier opts this thread into Plan B: when the caller has NOT
-	// pinned a PromptKey and the router has real user input to work with,
-	// resolveRoutedPrompt runs the prompt classifier (claude -p subprocess
-	// with the full prompt library as candidates) and stamps its pick into
-	// req.PromptKey before pickRoutedTemplate runs. Off by default so the
-	// existing single-pin path stays unchanged for users who didn't opt in.
-	UseClassifier bool
 	// OwnerThreadID links this thread back to a predecessor (e.g. the source
 	// thread in a handoff). Empty for brand-new top-level threads.
 	OwnerThreadID string

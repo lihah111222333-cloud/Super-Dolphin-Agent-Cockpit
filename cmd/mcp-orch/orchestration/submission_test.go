@@ -397,6 +397,8 @@ func assertLegacyLaunchParams(t *testing.T) {
 	if legacy.AgentType != "worker" || legacy.MemoryScope != "local" {
 		t.Fatalf("legacy metadata = %#v", legacy)
 	}
+	assertLaunchPromptKeyAlias(t, `{"id":"agent-1","promptKey":"main/sql"}`, "main/sql")
+	assertLaunchPromptKeyAlias(t, `{"id":"agent-1","config":{"prompt_key":"main/review"}}`, "main/review")
 }
 
 func assertCurrentLaunchParams(t *testing.T) {
@@ -412,6 +414,18 @@ func assertCurrentLaunchParams(t *testing.T) {
 	}
 	if current.AgentType != "reviewer" || current.MemoryScope != "user" {
 		t.Fatalf("current metadata = %#v", current)
+	}
+}
+
+func assertLaunchPromptKeyAlias(t *testing.T, input, want string) {
+	t.Helper()
+
+	var params launchParams
+	if err := json.Unmarshal([]byte(input), &params); err != nil {
+		t.Fatalf("launchParams prompt_key alias err = %v", err)
+	}
+	if params.PromptKey != want {
+		t.Fatalf("launchParams PromptKey = %q, want %q", params.PromptKey, want)
 	}
 }
 

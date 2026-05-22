@@ -35,6 +35,7 @@ func NewRegistry(deps Dependencies) Registry {
 	tools := append(orchestrationToolDefinitions(deps.Orchestration), taskToolDefinitions(deps.Orchestration)...)
 	tools = append(tools, workspaceToolDefinitions(deps.Workspace)...)
 	tools = append(tools, promptToolDefinitions(deps.Prompt)...)
+	tools = append(tools, recallToolDefinitions(deps.Prompt)...)
 	tools = append(tools, commandToolDefinitions(deps.CommandCard)...)
 	tools = append(tools, sharedFileToolDefinitions(deps.SharedFile)...)
 	tools = append(tools, registryToolDefinitions(deps.SharedFile, deps.ModelRegistry)...)

@@ -50,6 +50,7 @@ type PrepareInput struct {
 	Model                        string
 	Effort                       string
 	OutputSchema                 json.RawMessage
+	PromptKey                    string
 	AgentID                      string
 	CWD                          string
 	GitRoot                      string

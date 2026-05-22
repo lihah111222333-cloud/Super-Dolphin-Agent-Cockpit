@@ -1,0 +1,75 @@
+{
+  "prompt_key": "main/default",
+  "kind": "base",
+  "title": "Super-Dolphin 默认助手",
+  "agent_key": "main",
+  "enabled": true,
+  "scope": "global",
+  "priority": 0,
+  "match_when": null,
+  "when_to_use": "",
+  "description": "Super-Dolphin 默认系统提示词。由 builtin registry 管理，普通 UI 不可编辑。",
+  "tags": ["builtin:system", "main", "default", "zh"],
+  "sections": [
+    {
+      "section_key": "identity",
+      "region": "static",
+      "ordinal": 0,
+      "trigger_type": "always",
+      "body_file": "sections/main-default/00-identity.md"
+    },
+    {
+      "section_key": "engineering_principles",
+      "region": "static",
+      "ordinal": 10,
+      "trigger_type": "always",
+      "body_file": "sections/main-default/10-engineering-principles.md"
+    },
+    {
+      "section_key": "risky_actions",
+      "region": "static",
+      "ordinal": 20,
+      "trigger_type": "always",
+      "body_file": "sections/main-default/20-risky-actions.md"
+    },
+    {
+      "section_key": "tone_style",
+      "region": "static",
+      "ordinal": 30,
+      "trigger_type": "always",
+      "body_file": "sections/main-default/30-tone-style.md"
+    },
+    {
+      "section_key": "orchestrator_launch_context",
+      "region": "dynamic",
+      "ordinal": 40,
+      "trigger_type": "always",
+      "enable_when": {"enabled_tools_has": "orchestration_launch_agent"},
+      "body_file": "sections/main-default/40-orchestrator-context.md"
+    },
+    {
+      "section_key": "orchestrator_report_context",
+      "region": "dynamic",
+      "ordinal": 41,
+      "trigger_type": "always",
+      "enable_when": {"enabled_tools_has": "orchestration_get_agent_report"},
+      "body_file": "sections/main-default/41-orchestrator-report-context.md"
+    },
+    {
+      "section_key": "worktree_reminder",
+      "region": "dynamic",
+      "ordinal": 0,
+      "trigger_type": "always",
+      "enable_when": {"isWorktree": true},
+      "body_file": "sections/main-default/50-worktree-reminder.md"
+    },
+    {
+      "section_key": "zh_courtesy",
+      "region": "dynamic",
+      "ordinal": 10,
+      "trigger_type": "always",
+      "enable_when": {"language": "zh"},
+      "body_file": "sections/main-default/60-zh-courtesy.md"
+    }
+  ]
+}

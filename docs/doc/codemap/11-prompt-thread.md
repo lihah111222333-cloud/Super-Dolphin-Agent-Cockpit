@@ -101,7 +101,6 @@
   - `AsDynamicSectionRegistrar`
   - `AsSectionInvalidator`
   - `registerPromptHandlers`
-- `newPromptClassifier`
 - `ServiceFxParams` 当前只接入 prompt config、logger、UI preference store、shared-file reader 和可选 `DisabledToolsFn`；没有 skill store 接线。
 - `DisabledToolsFn` 只把用户禁用工具配置传给 prompt assembler，作为 native/tool suppression hints 的当前来源。
 - 也就是说，**section slot 的“定义”与 provider 的“注入”是两段式**：
