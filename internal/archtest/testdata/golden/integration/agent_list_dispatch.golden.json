@@ -4,6 +4,7 @@
   "response": [
     {
       "agent_id": "agent-list-1",
+      "created_at": "2026-03-25T12:00:00Z",
       "cwd": "/tmp/agent-list/alpha",
       "id": "agent-list-1",
       "last_report": "alpha finished",
@@ -16,6 +17,7 @@
     },
     {
       "agent_id": "agent-list-2",
+      "created_at": "2026-03-25T12:00:00Z",
       "cwd": "/tmp/agent-list/beta",
       "id": "agent-list-2",
       "name": "list-beta",
