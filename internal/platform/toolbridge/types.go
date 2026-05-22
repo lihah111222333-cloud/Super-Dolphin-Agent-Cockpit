@@ -142,13 +142,14 @@ type peerToolCallContent struct {
 }
 
 var legacyLSPToolAliases = map[string]string{
-	"lsp_file":       "file",
-	"lsp_grep":       "grep",
-	"lsp_inspect":    "inspect",
-	"lsp_xref":       "xref",
-	"lsp_structure":  "structure",
-	"lsp_edit":       "edit",
-	"lsp_completion": "completion",
+	"lsp_file":           "file",
+	"lsp_grep":           "grep",
+	"lsp_inspect":        "inspect",
+	"lsp_xref":           "xref",
+	"lsp_structure":      "structure",
+	"lsp_edit":           "edit",
+	"lsp_format_preview": "format_preview",
+	"lsp_completion":     "completion",
 }
 
 func canonicalToolName(name string) string {
@@ -162,7 +163,7 @@ func canonicalToolName(name string) string {
 func classifyTool(name string) string {
 	trimmed := strings.TrimSpace(name)
 	switch canonicalToolName(trimmed) {
-	case "file", "grep", "inspect", "xref", "structure", "edit", "completion":
+	case "file", "grep", "inspect", "xref", "structure", "edit", "format_preview", "completion":
 		return dto.ClientKindLSP
 	case "code_run", "code_run_test":
 		return dto.ClientKindLSP

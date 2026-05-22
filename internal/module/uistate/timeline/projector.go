@@ -218,6 +218,7 @@ func toolCallBeginHandler(svc Service, onUpdated func(string)) func(tooldto.Tool
 			RequestID: ev.RequestID,
 			Tool:      tool,
 			ToolName:  tool,
+			Preview:   previewText(ev.ArgumentsPreview),
 			AgentID:   strings.TrimSpace(ev.AgentID),
 			TurnID:    strings.TrimSpace(ev.TurnID),
 			Ts:        ev.Timestamp.Format("2006-01-02T15:04:05Z07:00"),

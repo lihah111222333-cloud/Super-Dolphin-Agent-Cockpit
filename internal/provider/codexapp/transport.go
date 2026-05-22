@@ -301,3 +301,51 @@ func (t *transport) readLoopStep(ctx context.Context, handler any) bool {
 	}
 	return t.dispatchReadMessage(ctx, data, handler)
 }
+
+// transportServer bridges *transport to the SpawnedServer interface the pool
+// uses. Fields are intentionally narrow: the pool only cares about the
+// WebSocket URL, process liveness, and orderly shutdown.
+type transportServer struct {
+	t *transport
+}
+
+func wrapTransport(t *transport) SpawnedServer {
+	return &transportServer{t: t}
+}
+
+func (s *transportServer) ServerURL() string {
+	if s == nil || s.t == nil {
+		return ""
+	}
+	s.t.stateMu.RLock()
+	defer s.t.stateMu.RUnlock()
+	return s.t.serverURL
+}
+
+func (s *transportServer) Close(_ context.Context) error {
+	if s == nil || s.t == nil {
+		return nil
+	}
+	return s.t.shutdownTransport(true)
+}
+
+func (s *transportServer) Alive() bool {
+	if s == nil || s.t == nil {
+		return false
+	}
+	return s.t.processRunning()
+}
+
+func (s *transportServer) DiagnoseExit() (string, error) {
+	if s == nil || s.t == nil {
+		return "", nil
+	}
+	err := s.t.processFailure()
+	var tail string
+	if proc := s.t.currentProcess(); proc != nil {
+		tail = proc.stderrSummary()
+	}
+	return tail, err
+}
+
+var _ SpawnedServer = (*transportServer)(nil)

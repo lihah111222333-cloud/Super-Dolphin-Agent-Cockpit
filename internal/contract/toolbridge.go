@@ -17,9 +17,10 @@ import (
 // that toolbridge exposes to Codex (and any future provider). Lifted from
 // internal/provider/codexapp/protocol so toolbridge does not import provider.
 type DynamicToolSchema struct {
-	Name        string          `json:"name"`
-	Description string          `json:"description,omitempty"`
-	InputSchema json.RawMessage `json:"inputSchema"`
+	Name         string          `json:"name"`
+	Description  string          `json:"description,omitempty"`
+	InputSchema  json.RawMessage `json:"inputSchema"`
+	OutputSchema json.RawMessage `json:"outputSchema,omitempty"`
 }
 
 // ToolCallRawMessage carries a raw JSON-RPC tool call message from a provider
@@ -56,4 +57,15 @@ type CodexToolSurfaceScope struct {
 	CWD              string
 	WorkspaceRoots   []string
 	Manifest         dto.MCPManifest
+}
+
+type toolLifecycleAlreadyPublishedKey struct{}
+
+func WithToolLifecycleAlreadyPublished(ctx context.Context) context.Context {
+	return context.WithValue(ctx, toolLifecycleAlreadyPublishedKey{}, true)
+}
+
+func ToolLifecycleAlreadyPublished(ctx context.Context) bool {
+	value, _ := ctx.Value(toolLifecycleAlreadyPublishedKey{}).(bool)
+	return value
 }

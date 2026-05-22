@@ -323,6 +323,11 @@ func (s *session) onNotification(method string, params json.RawMessage) {
 			"agent_id", s.agentID, "method", method)
 		return
 	}
+	if s.shouldSuppressToolEndEvent(method, params) {
+		pkglogger.Warn("codexapp: suppressed duplicate tool terminal event",
+			"agent_id", s.agentID, "method", method)
+		return
+	}
 	method = strings.TrimSpace(method)
 	raw := dto.RawProviderEvent{EventType: method, Data: params}
 	if !isApprovalBridgeMethod(method) || s.approvals == nil {
