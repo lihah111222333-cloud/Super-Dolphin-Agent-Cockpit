@@ -3,6 +3,7 @@ package dashboard
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
@@ -191,6 +192,66 @@ func TestListDAGRunsRequiresDAGKey(t *testing.T) {
 	}
 }
 
+func TestStartDAGUsesOrchestration(t *testing.T) {
+	t.Parallel()
+
+	svc := &service{
+		orchestration: &stubDashboardOrchestration{
+			startDAGResult: contract.StartDAGResponse{RunKey: "dag-1#run-ui", Version: 7},
+		},
+	}
+
+	got, err := svc.StartDAG(context.Background(), " dag-1 ", " manual ", " ui-click-1 ")
+	if err != nil {
+		t.Fatalf("StartDAG() error = %v", err)
+	}
+	if got.RunKey != "dag-1#run-ui" || got.Version != 7 {
+		t.Fatalf("StartDAG() = %#v", got)
+	}
+	stub := svc.orchestration.(*stubDashboardOrchestration)
+	if stub.startDAGRequest != (contract.StartDAGRequest{DagKey: "dag-1", TriggerSource: "manual", IdempotencyKey: "ui-click-1"}) {
+		t.Fatalf("StartDAG request = %#v", stub.startDAGRequest)
+	}
+}
+
+func TestStartDAGDefaultsManualTrigger(t *testing.T) {
+	t.Parallel()
+
+	svc := &service{
+		orchestration: &stubDashboardOrchestration{
+			startDAGResult: contract.StartDAGResponse{RunKey: "run-1", Version: 1},
+		},
+	}
+
+	if _, err := svc.StartDAG(context.Background(), "dag-1", "", ""); err != nil {
+		t.Fatalf("StartDAG() error = %v", err)
+	}
+	stub := svc.orchestration.(*stubDashboardOrchestration)
+	if stub.startDAGRequest.TriggerSource != "manual" {
+		t.Fatalf("trigger source = %q, want manual", stub.startDAGRequest.TriggerSource)
+	}
+}
+
+func TestStartDAGRejectsNonManualTrigger(t *testing.T) {
+	t.Parallel()
+
+	svc := &service{orchestration: &stubDashboardOrchestration{}}
+	_, err := svc.StartDAG(context.Background(), "dag-1", "scheduled", "")
+	if err == nil || !strings.Contains(err.Error(), "manual") {
+		t.Fatalf("StartDAG() error = %v, want manual trigger rejection", err)
+	}
+}
+
+func TestStartDAGRequiresDAGKey(t *testing.T) {
+	t.Parallel()
+
+	svc := &service{orchestration: &stubDashboardOrchestration{}}
+	_, err := svc.StartDAG(context.Background(), " ", "manual", "")
+	if err == nil {
+		t.Fatal("StartDAG() error = nil, want dag key required")
+	}
+}
+
 type stubDashboardOrchestration struct {
 	snapshot        contract.AgentSnapshot
 	report          contract.AgentReportResult
@@ -202,6 +263,9 @@ type stubDashboardOrchestration struct {
 	listRunsResult  contract.ListRunsResponse
 	listRunsErr     error
 	listRunsRequest contract.ListRunsRequest
+	startDAGRequest contract.StartDAGRequest
+	startDAGResult  contract.StartDAGResponse
+	startDAGErr     error
 }
 
 // 中文：编译期断言 — stubDashboardOrchestration 必须实现
@@ -281,8 +345,12 @@ func (s *stubDashboardOrchestration) UpdateNodeStatus(context.Context, contract.
 	return contract.DAGNode{}, nil
 }
 
-func (s *stubDashboardOrchestration) StartDAG(context.Context, contract.StartDAGRequest) (contract.StartDAGResponse, error) {
-	return contract.StartDAGResponse{}, nil
+func (s *stubDashboardOrchestration) StartDAG(_ context.Context, req contract.StartDAGRequest) (contract.StartDAGResponse, error) {
+	s.startDAGRequest = req
+	if s.startDAGErr != nil {
+		return contract.StartDAGResponse{}, s.startDAGErr
+	}
+	return s.startDAGResult, nil
 }
 
 func (s *stubDashboardOrchestration) GetRun(context.Context, contract.GetRunRequest) (contract.GetRunResponse, error) {

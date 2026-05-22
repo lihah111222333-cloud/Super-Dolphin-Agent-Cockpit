@@ -314,7 +314,6 @@ func materializeSharedfileAfterClaim(
 		return nil, false
 	}
 	if exists {
-		result = encodeSharedfileResultRef(materialized.SharedfilePath)
 		if !claimNodeOutputMaterialization(ctx, deps.FlowStore, logger, node, result) {
 			return nil, false
 		}

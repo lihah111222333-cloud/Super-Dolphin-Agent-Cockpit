@@ -64,6 +64,16 @@ type DAGKeyInput struct {
 	DagKey string `json:"dag_key"`
 }
 
+type ListDAGsInput struct {
+	Status  string `json:"status,omitempty"`
+	Keyword string `json:"keyword,omitempty"`
+	Limit   int    `json:"limit,omitempty"`
+}
+
+type ListDAGsOutput struct {
+	DAGs []contract.DAGSummary `json:"dags"`
+}
+
 type UpdateNodeInput struct {
 	DagKey  string `json:"dag_key"`
 	NodeKey string `json:"node_key"`
@@ -101,6 +111,20 @@ func HandleGetDAG(svc contract.OrchestrationService) ToolHandler {
 			return nil, err
 		}
 		return svc.GetDAG(ctx, dagKey)
+	})
+}
+
+func HandleListDAGs(svc contract.OrchestrationService) ToolHandler {
+	return makeHandler(svc, "orchestration service", func(ctx context.Context, in ListDAGsInput) (any, error) {
+		dags, err := svc.ListDAGs(ctx, contract.ListDAGsFilter{
+			Status:  strings.TrimSpace(in.Status),
+			Keyword: strings.TrimSpace(in.Keyword),
+			Limit:   in.Limit,
+		})
+		if err != nil {
+			return nil, err
+		}
+		return ListDAGsOutput{DAGs: dags}, nil
 	})
 }
 
@@ -419,6 +443,11 @@ func taskToolDefinitions(svc contract.OrchestrationService) []ToolDefinition {
 			"idempotency_key": StringSchema("Optional, prevents duplicate run on retry."),
 		}, "dag_key"), HandleStartDAG(svc)),
 		// ---- reads ----
+		defineTool("task_list_dags", "List DAGs for console views and final_output retention checks.", ObjectSchema(map[string]Schema{
+			"status":  StringSchema("Optional status filter."),
+			"keyword": StringSchema("Optional keyword filter."),
+			"limit":   IntegerSchema("Optional max rows; defaults to service limit when 0/omitted."),
+		}), HandleListDAGs(svc)),
 		defineTool("task_get_dag", "Fetch a DAG and all of its nodes.", ObjectSchema(map[string]Schema{
 			"dag_key": StringSchema("Unique DAG key."),
 		}, "dag_key"), HandleGetDAG(svc)),

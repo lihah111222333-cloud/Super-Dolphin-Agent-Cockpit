@@ -311,11 +311,10 @@ func finalizeAgentLaunchOutcome(errorSummary string) NodeOutcome {
 //
 // 拆出独立函数主要为了把 Execute 的 CC 压住代码守卫上限（§10）。
 //
-// spawnWriteback is the F1.5 writeback helper. It returns the value to assign
-// to NodeOutcome.ErrorSummary: empty when the recorder was either skipped or
-// successful, non-empty when the recorder failed (callers preserve the
-// successful launch status and only annotate ErrorSummary). Pulled out so
-// Execute stays under the cyclomatic-complexity guard (10).
+// spawnWriteback is the F1.5 writeback helper. It returns an error summary:
+// empty when the recorder was either skipped or successful, non-empty when the
+// recorder failed or required writeback data is missing. Callers downgrade
+// launch success to a hard failure for non-empty summaries.
 func (e *AgentExecutor) spawnWriteback(ctx context.Context, node Node, runCtx RunContext, threadID string) string {
 	if e.recorder == nil {
 		return ""
