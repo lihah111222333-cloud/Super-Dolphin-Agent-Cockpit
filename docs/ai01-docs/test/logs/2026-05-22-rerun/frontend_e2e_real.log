@@ -1,0 +1,22 @@
+
+> agent-terminal-frontend@0.1.0 test:e2e:real
+> node scripts/run-real-e2e.cjs --skip-build --base-url=http://127.0.0.1:4511
+
+🔎 真实环境地址: http://127.0.0.1:4511
+🧪 执行用例: tests/e2e/chat-refresh.real.spec.js
+
+🚀 开始执行真实环境 E2E ...
+(node:35492) [DEP0205] DeprecationWarning: `module.register()` is deprecated. Use `module.registerHooks()` instead.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+🛡️  Running codebase size guard...
+📏 size-guard: 278 文件 (生产 157, 测试 121)
+✅ 体积守卫通过 — 无新增超限
+
+Running 2 tests using 1 worker
+
+(node:39516) [DEP0205] DeprecationWarning: `module.register()` is deprecated. Use `module.registerHooks()` instead.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+  -  1 [chromium] › tests\e2e\chat-refresh.real.spec.js:16:5 › real environment chat refresh regressions › page switch back to chat triggers immediate refresh for active thread
+  -  2 [chromium] › tests\e2e\chat-refresh.real.spec.js:67:5 › real environment chat refresh regressions › switching back to a cached thread still triggers immediate refresh path
+
+  2 skipped

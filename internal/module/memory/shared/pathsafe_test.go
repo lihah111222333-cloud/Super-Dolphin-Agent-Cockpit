@@ -3,7 +3,10 @@ package memshared_test
 import (
 	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
+	"strings"
 	"testing"
 
 	memory "github.com/anthropic-ai/super-agent-v3/internal/module/memory"
@@ -252,6 +255,10 @@ func TestSafeReadEntrypointBrokenLinkSentinelWrapsCause(t *testing.T) {
 }
 
 func TestSafeReadEntrypointReturnsPermissionForUnreadableFile(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		testSafeReadEntrypointReturnsPermissionForUnreadableFileWindows(t)
+		return
+	}
 	if os.Geteuid() == 0 {
 		t.Skip("root bypasses unix file mode permission checks")
 	}
@@ -261,6 +268,32 @@ func TestSafeReadEntrypointReturnsPermissionForUnreadableFile(t *testing.T) {
 		t.Fatalf("seed: %v", err)
 	}
 	t.Cleanup(func() { _ = os.Chmod(index, 0o644) })
+	_, _, err := shared.SafeReadEntrypoint(root, index)
+	if err == nil {
+		t.Fatalf("err = nil, want a permission error")
+	}
+	if !errors.Is(err, os.ErrPermission) {
+		t.Fatalf("err = %v, want errors.Is os.ErrPermission", err)
+	}
+}
+
+func testSafeReadEntrypointReturnsPermissionForUnreadableFileWindows(t *testing.T) {
+	t.Helper()
+	root := t.TempDir()
+	index := filepath.Join(root, "MEMORY.md")
+	if err := os.WriteFile(index, []byte("data"), 0o600); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	user := os.Getenv("USERDOMAIN") + `\` + os.Getenv("USERNAME")
+	if strings.Trim(user, `\`) == "" {
+		t.Skip("Windows user identity unavailable for ACL read-deny test")
+	}
+	if out, err := exec.Command("icacls", index, "/deny", user+":(R)").CombinedOutput(); err != nil {
+		t.Fatalf("icacls deny read error = %v output=%s", err, out)
+	}
+	t.Cleanup(func() {
+		_, _ = exec.Command("icacls", index, "/remove:d", user).CombinedOutput()
+	})
 	_, _, err := shared.SafeReadEntrypoint(root, index)
 	if err == nil {
 		t.Fatalf("err = nil, want a permission error")

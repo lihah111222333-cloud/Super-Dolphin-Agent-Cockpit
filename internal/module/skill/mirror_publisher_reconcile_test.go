@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -277,6 +278,7 @@ func TestSkillMirrorPublisherRejectsSymlinkAncestorWhenDirectParentMissing(t *te
 	}
 	linkParent := filepath.Join(base, "link-parent")
 	if err := os.Symlink(realParent, linkParent); err != nil {
+		skipIfSymlinkPrivilegeNotHeld(t, err)
 		t.Fatalf("Symlink mirror ancestor: %v", err)
 	}
 	root := filepath.Join(linkParent, "missing", ".claude", "skills")
@@ -392,6 +394,9 @@ func assertMirrorFile(t *testing.T, path string, wantExecutable bool) {
 	}
 	if !info.Mode().IsRegular() {
 		t.Fatalf("%s mode = %v, want regular file", path, info.Mode())
+	}
+	if runtime.GOOS == "windows" {
+		return
 	}
 	gotExecutable := info.Mode().Perm()&0o111 != 0
 	if gotExecutable != wantExecutable {

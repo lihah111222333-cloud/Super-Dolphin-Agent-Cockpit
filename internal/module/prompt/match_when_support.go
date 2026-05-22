@@ -17,7 +17,7 @@ func matchCWDGlob(pattern string, cwd string) bool {
 	if pattern == "" || cwd == "" {
 		return false
 	}
-	matched, err := filepath.Match(pattern, cwd)
+	matched, err := filepath.Match(filepath.ToSlash(pattern), filepath.ToSlash(cwd))
 	return err == nil && matched
 }
 
@@ -25,7 +25,7 @@ func matchCWDPrefix(prefix string, cwd string) bool {
 	if prefix == "" || cwd == "" {
 		return false
 	}
-	return strings.HasPrefix(cwd, prefix)
+	return strings.HasPrefix(filepath.ToSlash(cwd), filepath.ToSlash(prefix))
 }
 
 func matchTagsHas(keyword string, userPrompt string) bool {

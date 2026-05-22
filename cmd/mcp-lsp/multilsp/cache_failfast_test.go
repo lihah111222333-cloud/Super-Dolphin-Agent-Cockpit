@@ -31,10 +31,7 @@ func TestPersistentCacheWriteFailureReturnsError(t *testing.T) {
 	if err != nil {
 		t.Fatalf("newLSPCacheStore() error = %v", err)
 	}
-	if err := os.Chmod(dir, 0o500); err != nil {
-		t.Fatalf("chmod cache dir: %v", err)
-	}
-	t.Cleanup(func() { _ = os.Chmod(dir, 0o700) })
+	makeCacheDirUnwritableForTest(t, dir)
 
 	err = store.Upsert(lspCacheValue{Key: lspCacheKey{URI: "file:///repo/a.go"}})
 	if err == nil || !strings.Contains(err.Error(), "persistent cache") {
@@ -103,10 +100,7 @@ func TestBootstrapDocumentPropagatesPersistentCacheWriteError(t *testing.T) {
 	if _, err := bootstrapCoordinatorFor(mgr); err != nil {
 		t.Fatalf("bootstrapCoordinatorFor() setup error = %v", err)
 	}
-	if err := os.Chmod(cacheDir, 0o500); err != nil {
-		t.Fatalf("chmod cache dir: %v", err)
-	}
-	t.Cleanup(func() { _ = os.Chmod(cacheDir, 0o700) })
+	makeCacheDirUnwritableForTest(t, cacheDir)
 
 	err := mgr.BootstrapDocument(common.WithToolScope(context.Background(), common.ToolScope{CWD: root, WorkspaceRoots: []string{root}}), fileURIFromPath(target))
 	if err == nil || !strings.Contains(err.Error(), "persistent cache") {

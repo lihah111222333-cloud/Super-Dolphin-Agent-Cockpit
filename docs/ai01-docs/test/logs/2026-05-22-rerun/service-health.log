@@ -1,0 +1,22 @@
+﻿http://127.0.0.1:4511/metrics => 200 length=9746
+http://localhost:5173 => 200 length=732
+--- ports ---
+{"LocalAddress":"::1","LocalPort":5173,"OwningProcess":26324}
+{"LocalAddress":"127.0.0.1","LocalPort":8090,"OwningProcess":23572}
+{"LocalAddress":"127.0.0.1","LocalPort":4511,"OwningProcess":23572}
+--- owning processes ---
+{"ProcessName":"node","Id":26324,"Path":"D:\\Configuration\\nodejs\\node.exe"}
+{"ProcessName":"super-agent-debug","Id":23572,"Path":"D:\\project\\Super-Dolphin\\super-agent-debug.exe"}
+--- expected process search ---
+{"ProcessName":"mcp-lsp","Id":14680,"Path":"D:\\project\\Super-Dolphin\\mcp-lsp.exe"}
+{"ProcessName":"mcp-lsp","Id":37804,"Path":"D:\\project\\Super-Dolphin\\mcp-lsp.exe"}
+{"ProcessName":"mcp-orch","Id":5088,"Path":"D:\\project\\Super-Dolphin\\mcp-orch.exe"}
+{"ProcessName":"mcp-orch","Id":40424,"Path":"D:\\project\\Super-Dolphin\\mcp-orch.exe"}
+{"ProcessName":"super-agent-debug","Id":23572,"Path":"D:\\project\\Super-Dolphin\\super-agent-debug.exe"}
+--- key log markers ---
+db pool ready :: {"time":"2026-05-22 20:25:24","level":"INFO","msg":"db pool ready","project":"Super-Dolphin"}
+http asset server listening :: {"time":"2026-05-22 20:25:24","level":"INFO","msg":"http asset server listening","project":"Super-Dolphin","addr":"127.0.0.1:4511"}
+mcp-orch http: listening :: {"time":"2026-05-22 20:25:26","level":"INFO","msg":"mcp-orch http: listening","project":"Super-Dolphin","source":"mcp-control","mcp_instance_id":"mcp-orch.exe-5088-1779452726783155500","mcp_generation":1,"mcp_binary_name":"mcp-orch.exe","mcp_client_kind":"orch","mcp_pid":5088,"mcp_log_seq":7,"mcp_log_ts":1779452726801,"addr":"127.0.0.1:53451","binary":"mcp-orch","binary_name":"mcp-orch.exe","client_kind":"orch","origin_time":"2026-05-22T13:25:26.8011377+01:00","source_process":"mcp-orch.exe"}
+mcp-lsp http: listening :: {"time":"2026-05-22 20:25:28","level":"INFO","msg":"mcp-lsp http: listening","project":"Super-Dolphin","source":"mcp-control","mcp_instance_id":"mcp-lsp.exe-37804-1779452728170383600","mcp_generation":1,"mcp_binary_name":"mcp-lsp.exe","mcp_client_kind":"lsp","mcp_pid":37804,"mcp_log_seq":5,"mcp_log_ts":1779452728189,"addr":"127.0.0.1:54633","binary":"mcp-lsp","binary_name":"mcp-lsp.exe","client_kind":"lsp","origin_time":"2026-05-22T13:25:28.189397+01:00","source_process":"mcp-lsp.exe"}
+turn/start :: NOT FOUND
+TurnCompleted :: {"time":"2026-05-22 20:25:52","level":"INFO","msg":"bus event","project":"Super-Dolphin","event_type":"turn.TurnCompleted","event":{"timestamp":"2026-05-22T13:25:52.3154332+01:00","thread_id":"agent_1779452735706620800","agent_id":"agent_1779452735706620800","turn_id":"turn_1779452745405_bc95e7d2d13abeb9","success":true,"result":"我没理解“广泛大概豆腐干”具体想表达什么。你是想让我：\n\n1. 总结/解释某段内容？\n2. 搜索或修改代码？\n3. 写一段文案？\n4. 处理和“豆腐干”相关的内容？\n\n请补充一句具体需求，我再继续。","summary":"我没理解“广泛大概豆腐干”具体想表达什么。你是想让我：\n\n1. 总结/解释某段内容？\n2. 搜索或修改代码？\n3. 写一段文案？\n4. 处理和“豆腐干”相关的内容？\n\n请补充一句具体需求，我再继续。","message":"我没理解“广泛大概豆腐干”具体想表达什么。你是想让我：\n\n1. 总结/解释某段内容？\n2. 搜索或修改代码？\n3. 写一段文案？\n4. 处理和“豆腐干”相关的内容？\n\n请补充一句具体需求，我再继续。","stop_reason":"end_turn"}}

@@ -2,7 +2,6 @@ package orchestration
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"log/slog"
 	"strings"
@@ -17,7 +16,7 @@ import (
 )
 
 // ---------------------------------------------------------------------------
-// Test doubles — narrow ports only, no full taskdag.Store / *service.
+// Test doubles �?narrow ports only, no full taskdag.Store / *service.
 // ---------------------------------------------------------------------------
 
 type dagSubscriberLookupSpy struct {
@@ -133,7 +132,7 @@ func (s *dagSubscriberSharedFileReaderSpy) ReadSharedFile(_ context.Context, pat
 	return content, ok, nil
 }
 
-// helper：构造 deps + reset metric singletons 让每 case 独立计数。
+// helper：构�?deps + reset metric singletons 让每 case 独立计数�?
 func setupDAGSubscriberDeps(
 	lookup *dagSubscriberLookupSpy,
 	flow *dagSubscriberFlowSpy,
@@ -162,7 +161,7 @@ func newTurnCompletedEvent(threadID string, success bool, result string) turndto
 	}
 }
 
-// metric delta helper —— each case takes a "before" snapshot and asserts the
+// metric delta helper —�?each case takes a "before" snapshot and asserts the
 // delta. Avoids leaks between sequential subtests sharing the singleton.
 func metricDelta(before, after DAGSubscriberMetrics) DAGSubscriberMetrics {
 	return DAGSubscriberMetrics{
@@ -186,10 +185,10 @@ type nopWriter struct{}
 func (nopWriter) Write(p []byte) (int, error) { return len(p), nil }
 
 // ---------------------------------------------------------------------------
-// 9 case suite — strictly mirrors ADR-017 v1.2 §5.1.
+// 9 case suite �?strictly mirrors ADR-017 v1.2 §5.1.
 // ---------------------------------------------------------------------------
 
-// 1. happy path - done: TurnCompleted.Success=true →
+// 1. happy path - done: TurnCompleted.Success=true �?
 // CompleteNodeAndScheduleDownstream, metric CompleteDone +1.
 func TestDAGSubscriber_HappyPath_Done(t *testing.T) {
 	before := DAGSubscriberCounters()
@@ -223,7 +222,7 @@ func TestDAGSubscriber_DoneInvokesLifecycleHooks(t *testing.T) {
 		NodeKey:  "n1",
 		NodeType: "agent",
 		Status:   "running",
-		Config:   json.RawMessage(`{"exec":{"agent_key":"alpha","cwd":"/tmp/node-cwd"},"first_turn":"hi"}`),
+		Config:   testRawConfig(t, `{"exec":{"agent_key":"alpha","cwd":"/tmp/node-cwd"},"first_turn":"hi"}`),
 	}}}
 	flow := &dagSubscriberFlowSpy{}
 	threads := &dagSubscriberThreadSpy{thread: &PersistedThread{ThreadID: "thr-hooks-done", AgentID: "agent-hooks"}}
@@ -240,7 +239,7 @@ func TestDAGSubscriber_DoneInvokesLifecycleHooks(t *testing.T) {
 	}
 }
 
-// 2. happy path - failed: TurnCompleted.Success=false →
+// 2. happy path - failed: TurnCompleted.Success=false �?
 // FailNodeAndCancelDownstream, metric CompleteFailed +1.
 func TestDAGSubscriber_HappyPath_Failed(t *testing.T) {
 	before := DAGSubscriberCounters()
@@ -261,7 +260,7 @@ func TestDAGSubscriber_HappyPath_Failed(t *testing.T) {
 		t.Fatalf("failCalls[0].Reason = %q, want %q", flow.failCalls[0].Reason, "explicit failure")
 	}
 	if flow.failCalls[0].FailFast {
-		t.Fatal("failCalls[0].FailFast = true, want false (A1 不级联)")
+		t.Fatal("failCalls[0].FailFast = true, want false (A1 不级�?")
 	}
 	d := metricDelta(before, DAGSubscriberCounters())
 	if d.CompleteFailed != 1 {
@@ -276,7 +275,7 @@ func TestDAGSubscriber_FailedInvokesLifecycleHooks(t *testing.T) {
 		NodeKey:  "n1",
 		NodeType: "agent",
 		Status:   "running",
-		Config:   json.RawMessage(`{"exec":{"agent_key":"alpha","cwd":"/tmp/node-cwd"},"first_turn":"hi"}`),
+		Config:   testRawConfig(t, `{"exec":{"agent_key":"alpha","cwd":"/tmp/node-cwd"},"first_turn":"hi"}`),
 	}}}
 	flow := &dagSubscriberFlowSpy{}
 	threads := &dagSubscriberThreadSpy{thread: &PersistedThread{ThreadID: "thr-hooks", AgentID: "agent-hooks"}}
@@ -305,7 +304,7 @@ func TestDAGSubscriber_MaterializationFailureLifecycleHooksKeepFailureClass(t *t
 		NodeKey:  "agent-sharedfile",
 		NodeType: "agent",
 		Status:   "running",
-		Config: []byte(`{
+		Config: testRawConfig(t, `{
 			"exec":{"agent_key":"implementer","cwd":"/tmp/node-cwd"},
 			"outputs":{"to_sharedfile":{"path":"reports/agent.json","lock_mode":"exclusive"}}
 		}`),
@@ -331,9 +330,9 @@ func TestDAGSubscriber_MaterializationFailureLifecycleHooksKeepFailureClass(t *t
 	}
 }
 
-// 3. race A — TurnCompleted 早于 dispatchAgent 写 running：节点仍 ready。
+// 3. race A �?TurnCompleted 早于 dispatchAgent �?running：节点仍 ready�?
 // CompleteNode 白名单含 ready（commit 2）→ stub flow 返成功，metric
-// CompleteDone +1（subscriber 不区分 ready/running 转 done）。
+// CompleteDone +1（subscriber 不区�?ready/running �?done）�?
 func TestDAGSubscriber_RaceA_NodeStillReady(t *testing.T) {
 	before := DAGSubscriberCounters()
 	lookup := &dagSubscriberLookupSpy{nodes: []taskdag.Node{{DagKey: "dag-1", NodeKey: "n1", Status: "ready"}}}
@@ -353,8 +352,8 @@ func TestDAGSubscriber_RaceA_NodeStillReady(t *testing.T) {
 	}
 }
 
-// 4. race C — 节点已 failed（fallback 先到）：subscriber 跳过 + metric
-// IdempotentSkipped +1，不调 flow。
+// 4. race C �?节点�?failed（fallback 先到）：subscriber 跳过 + metric
+// IdempotentSkipped +1，不�?flow�?
 func TestDAGSubscriber_RaceC_NodeAlreadyFailed_IdempotentSkip(t *testing.T) {
 	before := DAGSubscriberCounters()
 	lookup := &dagSubscriberLookupSpy{nodes: []taskdag.Node{{DagKey: "dag-1", NodeKey: "n1", Status: "failed"}}}
@@ -374,8 +373,8 @@ func TestDAGSubscriber_RaceC_NodeAlreadyFailed_IdempotentSkip(t *testing.T) {
 	}
 }
 
-// 5. lookup empty — 反查无节点：metric LookupNoNode +1，仍调 stop_helper
-// （ev.ThreadID 可能存在但未来得及落 spawning_thread_id）。
+// 5. lookup empty �?反查无节点：metric LookupNoNode +1，仍�?stop_helper
+// （ev.ThreadID 可能存在但未来得及落 spawning_thread_id）�?
 func TestDAGSubscriber_LookupEmpty_NoNode(t *testing.T) {
 	before := DAGSubscriberCounters()
 	lookup := &dagSubscriberLookupSpy{nodes: nil}
@@ -398,7 +397,7 @@ func TestDAGSubscriber_LookupEmpty_NoNode(t *testing.T) {
 	}
 }
 
-// 6. N>1 dirty data — 反查多条：metric LookupDirtyData +1，逐条尝试推进。
+// 6. N>1 dirty data �?反查多条：metric LookupDirtyData +1，逐条尝试推进�?
 func TestDAGSubscriber_LookupDirtyData_AdvanceEveryRow(t *testing.T) {
 	before := DAGSubscriberCounters()
 	lookup := &dagSubscriberLookupSpy{nodes: []taskdag.Node{
@@ -424,9 +423,9 @@ func TestDAGSubscriber_LookupDirtyData_AdvanceEveryRow(t *testing.T) {
 	}
 }
 
-// 7. 重复 TurnCompleted — 节点已 done：跳过 + metric IdempotentSkipped。
-// （与 case 4 形式上重复但语义不同：case 4 是 race C（fallback），case 7
-// 是同一 subscriber 在 retry 链下重复收到事件）。
+// 7. 重复 TurnCompleted �?节点�?done：跳�?+ metric IdempotentSkipped�?
+// （与 case 4 形式上重复但语义不同：case 4 �?race C（fallback），case 7
+// 是同一 subscriber �?retry 链下重复收到事件）�?
 func TestDAGSubscriber_DuplicateTurnCompleted_NodeAlreadyDone(t *testing.T) {
 	before := DAGSubscriberCounters()
 	lookup := &dagSubscriberLookupSpy{nodes: []taskdag.Node{{DagKey: "dag-1", NodeKey: "n1", Status: "done"}}}
@@ -446,8 +445,8 @@ func TestDAGSubscriber_DuplicateTurnCompleted_NodeAlreadyDone(t *testing.T) {
 	}
 }
 
-// 8. stop_helper 失败 — DB 推进 done 成功，但 stop 报错：subscriber 仅
-// Warn log，不影响 DB 推进，不传错给上层 dispatcher。
+// 8. stop_helper 失败 �?DB 推进 done 成功，但 stop 报错：subscriber �?
+// Warn log，不影响 DB 推进，不传错给上�?dispatcher�?
 func TestDAGSubscriber_StopHelperFails_DoesNotPropagate(t *testing.T) {
 	before := DAGSubscriberCounters()
 	lookup := &dagSubscriberLookupSpy{nodes: []taskdag.Node{{DagKey: "dag-1", NodeKey: "n1", Status: "running"}}}
@@ -456,7 +455,7 @@ func TestDAGSubscriber_StopHelperFails_DoesNotPropagate(t *testing.T) {
 	stop := &dagSubscriberStopSpy{stopErr: errors.New("simulated stop refused")}
 	deps := setupDAGSubscriberDeps(lookup, flow, threads, stop)
 
-	// 不 panic / 不抛错 —— 函数无返值。完成后 DB 推进应已发生。
+	// �?panic / 不抛�?—�?函数无返值。完成后 DB 推进应已发生�?
 	handleDAGTurnCompleted(context.Background(), deps, discardLogger(), newTurnCompletedEvent("thr-8", true, ""))
 
 	if len(flow.completeCalls) != 1 {
@@ -468,12 +467,12 @@ func TestDAGSubscriber_StopHelperFails_DoesNotPropagate(t *testing.T) {
 	}
 }
 
-// 9. CompleteNode 超 4KB cap — store 返 validation err（用 generic error
+// 9. CompleteNode �?4KB cap �?store �?validation err（用 generic error
 // 模拟），metric CompleteSizeCapExceeded 已先 +1（subscriber 在调 SQL 之前
-// 测 size），随后 store err 走 Warn log + 不 panic。
+// �?size），随后 store err �?Warn log + �?panic�?
 func TestDAGSubscriber_CompleteSizeCapExceeded(t *testing.T) {
 	before := DAGSubscriberCounters()
-	// 构造一个 > 4KB 的 result jsonb（合法 JSON）。
+	// 构造一�?> 4KB �?result jsonb（合�?JSON）�?
 	hugePayload := `{"data":"` + strings.Repeat("x", 5000) + `"}`
 	lookup := &dagSubscriberLookupSpy{nodes: []taskdag.Node{{DagKey: "dag-1", NodeKey: "n1", Status: "running"}}}
 	flow := &dagSubscriberFlowSpy{completeErr: errors.New("simulated validation: result exceeds 4KB")}
@@ -496,8 +495,8 @@ func TestDAGSubscriber_CompleteSizeCapExceeded(t *testing.T) {
 	}
 }
 
-// Additional companion case — pgx.ErrNoRows from CompleteNode (race C SQL
-// fence rejection) → metric IdempotentSkipped, exercises §2.6 SQL fallback.
+// Additional companion case �?pgx.ErrNoRows from CompleteNode (race C SQL
+// fence rejection) �?metric IdempotentSkipped, exercises §2.6 SQL fallback.
 func TestDAGSubscriber_CompleteNodeReturnsNoRows_FenceRace(t *testing.T) {
 	before := DAGSubscriberCounters()
 	lookup := &dagSubscriberLookupSpy{nodes: []taskdag.Node{{DagKey: "dag-1", NodeKey: "n1", Status: "running"}}}

@@ -85,11 +85,15 @@ func TestProjectHandlersEncodeEmptyProjectsAsArray(t *testing.T) {
 func TestAddProjectDeduplicatesEquivalentPaths(t *testing.T) {
 	t.Parallel()
 
-	dir := t.TempDir()
 	cwd, err := os.Getwd()
 	if err != nil {
 		t.Fatalf("Getwd() error = %v", err)
 	}
+	dir, err := os.MkdirTemp(cwd, ".uistate-project-")
+	if err != nil {
+		t.Fatalf("MkdirTemp(%q) error = %v", cwd, err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
 	relative, err := filepath.Rel(cwd, dir)
 	if err != nil {
 		t.Fatalf("filepath.Rel() error = %v", err)

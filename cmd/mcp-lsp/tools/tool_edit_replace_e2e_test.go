@@ -1,9 +1,7 @@
 package tools
 
 import (
-	"context"
 	"encoding/json"
-	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/common"
 	"os"
 	"path/filepath"
 	"strings"
@@ -177,7 +175,8 @@ func yamlConfigPatchCase() unsupportedTextReplaceRangeCase {
 func runUnsupportedTextReplaceRangeCase(t *testing.T, tt unsupportedTextReplaceRangeCase) {
 	t.Helper()
 
-	path := filepath.Join(t.TempDir(), tt.file)
+	root := t.TempDir()
+	path := filepath.Join(root, tt.file)
 	if err := os.WriteFile(path, []byte(tt.content), 0o600); err != nil {
 		t.Fatalf("write fixture: %v", err)
 	}
@@ -187,7 +186,7 @@ func runUnsupportedTextReplaceRangeCase(t *testing.T, tt unsupportedTextReplaceR
 	}
 
 	handler := NewEditHandler(lspmanager.NewRegistry(nil))
-	got, err := handler(common.WithToolScope(context.Background(), common.ToolScope{CWD: "/"}), payload)
+	got, err := handler(testToolContext(root), payload)
 	if err != nil {
 		t.Fatalf("replace_range returned error: %v", err)
 	}

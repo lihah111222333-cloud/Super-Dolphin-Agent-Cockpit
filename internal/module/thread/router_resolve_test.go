@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -388,17 +389,22 @@ func TestResolveRoutedPrompt_MatchWhenAutoRoutePicksHighestPriority(t *testing.T
 // when the CWD prefix rule matches the request's CWD.
 func TestResolveRoutedPrompt_MatchWhenCWDPrefixMatches(t *testing.T) {
 	t.Parallel()
+	root := filepath.Join(t.TempDir(), "work")
+	matchWhen, err := json.Marshal(map[string]string{"cwd_prefix": filepath.ToSlash(root)})
+	if err != nil {
+		t.Fatalf("marshal match_when: %v", err)
+	}
 	store := &fakePromptStore{
 		templates: []promptstore.PromptTemplate{
 			sqlTemplateWithMatchWhen("main/work",
 				"work", "work body",
-				[]byte(`{"cwd_prefix":"/Users/mac/work"}`), 5),
+				matchWhen, 5),
 			sqlTemplate(defaultPromptKey, "main", "default body", nil),
 		},
 	}
 	s := newServiceWithRouter(store)
 
-	req := &StartRequest{CWD: "/Users/mac/work/project-x", Prompt: "hey"}
+	req := &StartRequest{CWD: filepath.ToSlash(filepath.Join(root, "project-x")), Prompt: "hey"}
 	s.resolveRoutedPrompt(context.Background(), req)
 	if req.PromptKey != "main/work" {
 		t.Fatalf("want prompt_key=main/work (cwd matched), got %q", req.PromptKey)

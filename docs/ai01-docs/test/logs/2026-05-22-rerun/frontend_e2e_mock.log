@@ -1,0 +1,922 @@
+
+> agent-terminal-frontend@0.1.0 test:e2e
+> playwright test
+
+🛡️  Running codebase size guard...
+📏 size-guard: 278 文件 (生产 157, 测试 121)
+✅ 体积守卫通过 — 无新增超限
+
+Running 34 tests using 8 workers
+
+  -   8 [chromium] › tests\e2e\chat-refresh.real.spec.js:67:5 › real environment chat refresh regressions › switching back to a cached thread still triggers immediate refresh path
+  -   3 [chromium] › tests\e2e\chat-refresh.real.spec.js:16:5 › real environment chat refresh regressions › page switch back to chat triggers immediate refresh for active thread
+  ok  9 [chromium] › tests\e2e\chat-workflows.spec.js:204:1 › cmd card stop button interrupts the selected agent and updates status (2.6s)
+  ok 10 [chromium] › tests\e2e\cwd-project-switch.spec.js:7:1 › project selector can switch cwd options and propagate active project selection (1.1s)
+  x   2 [chromium] › tests\e2e\chat-layout.visual.spec.js:110:1 › thread rail layout remains stable (8.7s)
+  x   4 [chromium] › tests\e2e\app-dashboard-navigation.spec.js:6:1 › sidebar pages load dashboard data and tasks tabs switch correctly (8.9s)
+  x   7 [chromium] › tests\e2e\chat-workflows.spec.js:119:1 › chat composer supports attachments, send, rename, archive, recover, and restore (8.8s)
+  x   1 [chromium] › tests\e2e\chat-layout.visual.spec.js:114:1 › workspace and diff layout remain stable (8.9s)
+  x   6 [chromium] › tests\e2e\chat-layout.visual.spec.js:106:1 › chat page layout remains stable (8.8s)
+  x  11 [chromium] › tests\e2e\diff-markdown-preview.spec.js:10:1 › diff markdown preview repairs desktop bridge mojibake (6.2s)
+  x  12 [chromium] › tests\e2e\diff-panel-grouping.spec.js:20:1 › diff panel groups multi-file changes and re-expands the focused file (6.3s)
+  ok 13 [chromium] › tests\e2e\focus-jump.spec.js:122:3 › focus-jump: applyRuntimeSnapshot activeThreadId 覆盖行为 › RED: 本地切换 thread 后, 后端 snapshot 不应覆盖 activeThreadId (1.7s)
+  ok 14 [chromium] › tests\e2e\focus-jump.spec.js:152:3 › focus-jump: applyRuntimeSnapshot activeThreadId 覆盖行为 › GREEN: 无本地切换时, 后端 snapshot 应正常设置 activeThreadId (2.0s)
+  ok 16 [chromium] › tests\e2e\focus-jump.spec.js:173:3 › focus-jump: applyRuntimeSnapshot activeThreadId 覆盖行为 › RED: 连续多次 sync 后, 本地选择应保持稳定 (2.3s)
+  ok 21 [chromium] › tests\e2e\memory-leak-regression.spec.js:22:3 › memory leak regression › unsubscribe before delayed runtime registration does not leave dangling listeners (731ms)
+  x  23 [chromium] › tests\e2e\memory-leak-regression.spec.js:64:3 › memory leak regression › thread payload cache evicts old timeline and diff entries after repeated thread loads (482ms)
+  x  15 [chromium] › tests\e2e\internal-message-alias.spec.js:94:3 › internal message alias display › shows agent -> agent internal sender and receiver aliases in timeline (7.3s)
+  x  17 [chromium] › tests\e2e\internal-message-alias.spec.js:130:3 › internal message alias display › shows system -> agent internal route for approval/report style messages (7.0s)
+  x  19 [chromium] › tests\e2e\internal-message-alias.spec.js:228:3 › internal message alias display › matches internal agent report bubble visual snapshot (6.6s)
+  x  18 [chromium] › tests\e2e\internal-message-alias.spec.js:158:3 › internal message alias display › resolves agent -> agent aliases after cross-thread switch instead of stale payload names (6.6s)
+  x  22 [chromium] › tests\e2e\internal-message-alias.spec.js:193:3 › internal message alias display › resolves system -> agent route after cross-thread switch and normalizes system label (6.5s)
+  -  29 [chromium] › tests\e2e\thread-rename.real.spec.js:70:5 › real environment thread rename regressions › direct thread/name/set works for the specific target thread
+  -  30 [chromium] › tests\e2e\thread-rename.real.spec.js:84:5 › real environment thread rename regressions › inline rename emits thread/name/set and updates the target card
+  x  26 [chromium] › tests\e2e\thread-immediate-history.spec.js:37:1 › current tab chat history renders immediately even while scoped sync is blocked by later state work (6.7s)
+  x  25 [chromium] › tests\e2e\skills-workflows.spec.js:7:1 › skills page supports search, edit subfiles, create, import, and delete (6.8s)
+  x  28 [chromium] › tests\e2e\thread-messages-double-load.spec.js:168:3 › thread/messages duplicate load regression › thread switch avoids extra ui/state/get after active thread preference persists (6.5s)
+  x  31 [chromium] › tests\e2e\timeline-actions.spec.js:20:1 › timeline interactions cover file refs, approvals, copies, image preview, and activity panel (6.4s)
+  x   5 [chromium] › tests\e2e\chat-workflows.spec.js:63:1 › project modal, provider toggle, and new window flow work together (31.6s)
+  x  27 [chromium] › tests\e2e\thread-messages-double-load.spec.js:46:3 › thread/messages duplicate load regression › bootstrap + selected-thread watch dedupe the same history load (10.9s)
+  x  32 [chromium] › tests\e2e\timeline-actions.spec.js:199:1 › tool ticker remains visible on hover and preserves collapsed-tool summary (6.5s)
+  x  33 [chromium] › tests\e2e\timeline-actions.spec.js:285:1 › reasoning-like assistant text stays visible in timeline and does not show hidden popover placeholder (6.7s)
+  x  34 [chromium] › tests\e2e\timeline-actions.spec.js:344:1 › anchored thinking presence stays below chat body (6.3s)
+  x  20 [chromium] › tests\e2e\memory-center-operations.spec.js:6:1 › memory center supports durable CRUD and shared-file promote (31.5s)
+  x  24 [chromium] › tests\e2e\settings-workflows.spec.js:7:1 › settings page loads project-scoped preferences and saves prompt/provider changes (30.8s)
+
+
+  1) [chromium] › tests\e2e\app-dashboard-navigation.spec.js:6:1 › sidebar pages load dashboard data and tasks tabs switch correctly 
+
+    Error: [2mexpect([22m[31mlocator[39m[2m).[22mtoBeVisible[2m([22m[2m)[22m failed
+
+    Locator: getByTestId('data-page-dags')
+    Expected: visible
+    Timeout: 5000ms
+    Error: element(s) not found
+
+    Call log:
+    [2m  - Expect "toBeVisible" with timeout 5000ms[22m
+    [2m  - waiting for getByTestId('data-page-dags')[22m
+
+
+      72 |
+      73 |   await page.getByTestId('nav-dags').click();
+    > 74 |   await expect(page.getByTestId('data-page-dags')).toBeVisible();
+         |                                                    ^
+      75 |   await expect(page.getByTestId('data-page-list-dags')).toContainText('build-release');
+      76 |
+      77 |   await page.getByTestId('nav-tasks').click();
+        at D:\project\Super-Dolphin\cmd\agent-terminal\frontend\tests\e2e\app-dashboard-navigation.spec.js:74:52
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results\app-dashboard-navigation-s-3181b-tasks-tabs-switch-correctly-chromium\test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    attachment #2: video (video/webm) ──────────────────────────────────────────────────────────────
+    test-results\app-dashboard-navigation-s-3181b-tasks-tabs-switch-correctly-chromium\video.webm
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results\app-dashboard-navigation-s-3181b-tasks-tabs-switch-correctly-chromium\error-context.md
+
+  2) [chromium] › tests\e2e\chat-layout.visual.spec.js:106:1 › chat page layout remains stable ─────
+
+    Error: [2mexpect([22m[31mlocator[39m[2m).[22mtoBeVisible[2m([22m[2m)[22m failed
+
+    Locator: getByTestId('chat-page')
+    Expected: visible
+    Timeout: 5000ms
+    Error: element(s) not found
+
+    Call log:
+    [2m  - Expect "toBeVisible" with timeout 5000ms[22m
+    [2m  - waiting for getByTestId('chat-page')[22m
+
+
+       98 |   await page.goto('/');
+       99 |   await expect(page.getByTestId('app-shell')).toBeVisible();
+    > 100 |   await expect(page.getByTestId('chat-page')).toBeVisible();
+          |                                               ^
+      101 |   await expect(page.getByTestId('thread-rail')).toBeVisible();
+      102 |   await expect(page.locator('#agent-workspace')).toBeVisible();
+      103 |   await expect(page.locator('.workspace-right-col #diff-panel')).toBeVisible();
+        at D:\project\Super-Dolphin\cmd\agent-terminal\frontend\tests\e2e\chat-layout.visual.spec.js:100:47
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results\chat-layout.visual-chat-page-layout-remains-stable-chromium\test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    attachment #2: video (video/webm) ──────────────────────────────────────────────────────────────
+    test-results\chat-layout.visual-chat-page-layout-remains-stable-chromium\video.webm
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results\chat-layout.visual-chat-page-layout-remains-stable-chromium\error-context.md
+
+  3) [chromium] › tests\e2e\chat-layout.visual.spec.js:110:1 › thread rail layout remains stable ───
+
+    Error: [2mexpect([22m[31mlocator[39m[2m).[22mtoBeVisible[2m([22m[2m)[22m failed
+
+    Locator: getByTestId('chat-page')
+    Expected: visible
+    Timeout: 5000ms
+    Error: element(s) not found
+
+    Call log:
+    [2m  - Expect "toBeVisible" with timeout 5000ms[22m
+    [2m  - waiting for getByTestId('chat-page')[22m
+
+
+       98 |   await page.goto('/');
+       99 |   await expect(page.getByTestId('app-shell')).toBeVisible();
+    > 100 |   await expect(page.getByTestId('chat-page')).toBeVisible();
+          |                                               ^
+      101 |   await expect(page.getByTestId('thread-rail')).toBeVisible();
+      102 |   await expect(page.locator('#agent-workspace')).toBeVisible();
+      103 |   await expect(page.locator('.workspace-right-col #diff-panel')).toBeVisible();
+        at D:\project\Super-Dolphin\cmd\agent-terminal\frontend\tests\e2e\chat-layout.visual.spec.js:100:47
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results\chat-layout.visual-thread-rail-layout-remains-stable-chromium\test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    attachment #2: video (video/webm) ──────────────────────────────────────────────────────────────
+    test-results\chat-layout.visual-thread-rail-layout-remains-stable-chromium\video.webm
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results\chat-layout.visual-thread-rail-layout-remains-stable-chromium\error-context.md
+
+  4) [chromium] › tests\e2e\chat-layout.visual.spec.js:114:1 › workspace and diff layout remain stable 
+
+    Error: [2mexpect([22m[31mlocator[39m[2m).[22mtoBeVisible[2m([22m[2m)[22m failed
+
+    Locator: getByTestId('chat-page')
+    Expected: visible
+    Timeout: 5000ms
+    Error: element(s) not found
+
+    Call log:
+    [2m  - Expect "toBeVisible" with timeout 5000ms[22m
+    [2m  - waiting for getByTestId('chat-page')[22m
+
+
+       98 |   await page.goto('/');
+       99 |   await expect(page.getByTestId('app-shell')).toBeVisible();
+    > 100 |   await expect(page.getByTestId('chat-page')).toBeVisible();
+          |                                               ^
+      101 |   await expect(page.getByTestId('thread-rail')).toBeVisible();
+      102 |   await expect(page.locator('#agent-workspace')).toBeVisible();
+      103 |   await expect(page.locator('.workspace-right-col #diff-panel')).toBeVisible();
+        at D:\project\Super-Dolphin\cmd\agent-terminal\frontend\tests\e2e\chat-layout.visual.spec.js:100:47
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results\chat-layout.visual-workspace-and-diff-layout-remain-stable-chromium\test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    attachment #2: video (video/webm) ──────────────────────────────────────────────────────────────
+    test-results\chat-layout.visual-workspace-and-diff-layout-remain-stable-chromium\video.webm
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results\chat-layout.visual-workspace-and-diff-layout-remain-stable-chromium\error-context.md
+
+  5) [chromium] › tests\e2e\chat-workflows.spec.js:63:1 › project modal, provider toggle, and new window flow work together 
+
+    [31mTest timeout of 30000ms exceeded.[39m
+
+    Error: locator.click: Test timeout of 30000ms exceeded.
+    Call log:
+    [2m  - waiting for locator('.project-selector')[22m
+
+
+      82 |   await expect(page.getByTestId('app-shell')).toBeVisible();
+      83 |
+    > 84 |   await page.locator('.project-selector').click();
+         |                                           ^
+      85 |   await page.locator('.project-dropdown-add').click();
+      86 |   await expect(page.locator('.modal-box')).toBeVisible();
+      87 |   await page.getByRole('button', { name: '浏览...' }).click();
+        at D:\project\Super-Dolphin\cmd\agent-terminal\frontend\tests\e2e\chat-workflows.spec.js:84:43
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results\chat-workflows-project-mod-62cf9-w-window-flow-work-together-chromium\test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    attachment #2: video (video/webm) ──────────────────────────────────────────────────────────────
+    test-results\chat-workflows-project-mod-62cf9-w-window-flow-work-together-chromium\video.webm
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results\chat-workflows-project-mod-62cf9-w-window-flow-work-together-chromium\error-context.md
+
+  6) [chromium] › tests\e2e\chat-workflows.spec.js:119:1 › chat composer supports attachments, send, rename, archive, recover, and restore 
+
+    Error: [2mexpect([22m[31mlocator[39m[2m).[22mtoBeVisible[2m([22m[2m)[22m failed
+
+    Locator: getByTestId('chat-page')
+    Expected: visible
+    Timeout: 5000ms
+    Error: element(s) not found
+
+    Call log:
+    [2m  - Expect "toBeVisible" with timeout 5000ms[22m
+    [2m  - waiting for getByTestId('chat-page')[22m
+
+
+      152 |   await page.goto('/');
+      153 |   await expect(page.getByTestId('app-shell')).toBeVisible();
+    > 154 |   await expect(page.getByTestId('chat-page')).toBeVisible();
+          |                                               ^
+      155 |   await expectVisualSnapshot(page.getByTestId('chat-page'), 'chat-page-empty-layout.png');
+      156 |
+      157 |   await page.getByTestId('composer-attach-button').click();
+        at D:\project\Super-Dolphin\cmd\agent-terminal\frontend\tests\e2e\chat-workflows.spec.js:154:47
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results\chat-workflows-chat-compos-a7a71-archive-recover-and-restore-chromium\test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    attachment #2: video (video/webm) ──────────────────────────────────────────────────────────────
+    test-results\chat-workflows-chat-compos-a7a71-archive-recover-and-restore-chromium\video.webm
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results\chat-workflows-chat-compos-a7a71-archive-recover-and-restore-chromium\error-context.md
+
+  7) [chromium] › tests\e2e\diff-markdown-preview.spec.js:10:1 › diff markdown preview repairs desktop bridge mojibake 
+
+    Error: [2mexpect([22m[31mlocator[39m[2m).[22mtoBeVisible[2m([22m[2m)[22m failed
+
+    Locator: locator('.chat-md-file-ref').first()
+    Expected: visible
+    Timeout: 5000ms
+    Error: element(s) not found
+
+    Call log:
+    [2m  - Expect "toBeVisible" with timeout 5000ms[22m
+    [2m  - waiting for locator('.chat-md-file-ref').first()[22m
+
+
+      57 |
+      58 |   const fileRef = page.locator('.chat-md-file-ref').first();
+    > 59 |   await expect(fileRef).toBeVisible();
+         |                         ^
+      60 |   await fileRef.click();
+      61 |
+      62 |   const diffPanel = page.locator('#diff-panel');
+        at D:\project\Super-Dolphin\cmd\agent-terminal\frontend\tests\e2e\diff-markdown-preview.spec.js:59:25
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results\diff-markdown-preview-diff-68b22-irs-desktop-bridge-mojibake-chromium\test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    attachment #2: video (video/webm) ──────────────────────────────────────────────────────────────
+    test-results\diff-markdown-preview-diff-68b22-irs-desktop-bridge-mojibake-chromium\video.webm
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results\diff-markdown-preview-diff-68b22-irs-desktop-bridge-mojibake-chromium\error-context.md
+
+  8) [chromium] › tests\e2e\diff-panel-grouping.spec.js:20:1 › diff panel groups multi-file changes and re-expands the focused file 
+
+    Error: [2mexpect([22m[31mlocator[39m[2m).[22mtoBeVisible[2m([22m[2m)[22m failed
+
+    Locator: getByTestId('chat-page')
+    Expected: visible
+    Timeout: 5000ms
+    Error: element(s) not found
+
+    Call log:
+    [2m  - Expect "toBeVisible" with timeout 5000ms[22m
+    [2m  - waiting for getByTestId('chat-page')[22m
+
+
+      44 |   await page.goto('/');
+      45 |   await expect(page.getByTestId('app-shell')).toBeVisible();
+    > 46 |   await expect(page.getByTestId('chat-page')).toBeVisible();
+         |                                               ^
+      47 |
+      48 |   const diffPanel = page.locator('#diff-panel');
+      49 |   const fileGroups = diffPanel.locator('.diff-file-group');
+        at D:\project\Super-Dolphin\cmd\agent-terminal\frontend\tests\e2e\diff-panel-grouping.spec.js:46:47
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results\diff-panel-grouping-diff-p-9409e-re-expands-the-focused-file-chromium\test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    attachment #2: video (video/webm) ──────────────────────────────────────────────────────────────
+    test-results\diff-panel-grouping-diff-p-9409e-re-expands-the-focused-file-chromium\video.webm
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results\diff-panel-grouping-diff-p-9409e-re-expands-the-focused-file-chromium\error-context.md
+
+  9) [chromium] › tests\e2e\internal-message-alias.spec.js:94:3 › internal message alias display › shows agent -> agent internal sender and receiver aliases in timeline 
+
+    Error: [2mexpect([22m[31mlocator[39m[2m).[22mtoBeVisible[2m([22m[2m)[22m failed
+
+    Locator: locator('.chat-item.kind-user.kind-internal.role-internal').first()
+    Expected: visible
+    Timeout: 5000ms
+    Error: element(s) not found
+
+    Call log:
+    [2m  - Expect "toBeVisible" with timeout 5000ms[22m
+    [2m  - waiting for locator('.chat-item.kind-user.kind-internal.role-internal').first()[22m
+
+
+      120 |
+      121 |     const bubble = page.locator('.chat-item.kind-user.kind-internal.role-internal').first();
+    > 122 |     await expect(bubble).toBeVisible();
+          |                          ^
+      123 |     await expect(bubble).toHaveClass(/\bkind-internal\b/);
+      124 |     await expect(bubble).toHaveClass(/\brole-internal\b/);
+      125 |     await expect(bubble.locator('.chat-item-role')).toHaveText(sourceAlias);
+        at D:\project\Super-Dolphin\cmd\agent-terminal\frontend\tests\e2e\internal-message-alias.spec.js:122:26
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results\internal-message-alias-int-55193-eceiver-aliases-in-timeline-chromium\test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    attachment #2: video (video/webm) ──────────────────────────────────────────────────────────────
+    test-results\internal-message-alias-int-55193-eceiver-aliases-in-timeline-chromium\video.webm
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results\internal-message-alias-int-55193-eceiver-aliases-in-timeline-chromium\error-context.md
+
+  10) [chromium] › tests\e2e\internal-message-alias.spec.js:130:3 › internal message alias display › shows system -> agent internal route for approval/report style messages 
+
+    Error: [2mexpect([22m[31mlocator[39m[2m).[22mtoHaveText[2m([22m[32mexpected[39m[2m)[22m failed
+
+    Locator: locator('.chat-item.kind-user .chat-item-role')
+    Expected: [32m"系统"[39m
+    Timeout: 5000ms
+    Error: element(s) not found
+
+    Call log:
+    [2m  - Expect "toHaveText" with timeout 5000ms[22m
+    [2m  - waiting for locator('.chat-item.kind-user .chat-item-role')[22m
+
+
+      151 |     await expect(page.getByTestId('app-shell')).toBeVisible();
+      152 |
+    > 153 |     await expect(page.locator('.chat-item.kind-user .chat-item-role')).toHaveText('系统');
+          |                                                                        ^
+      154 |     await expect(page.locator('.chat-item.kind-user .chat-item-route')).toHaveText(`→ ${targetAlias}`);
+      155 |     await expect(page.locator('.chat-item.kind-user .chat-item-body')).toContainText('yes');
+      156 |   });
+        at D:\project\Super-Dolphin\cmd\agent-terminal\frontend\tests\e2e\internal-message-alias.spec.js:153:72
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results\internal-message-alias-int-bb49c-roval-report-style-messages-chromium\test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    attachment #2: video (video/webm) ──────────────────────────────────────────────────────────────
+    test-results\internal-message-alias-int-bb49c-roval-report-style-messages-chromium\video.webm
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results\internal-message-alias-int-bb49c-roval-report-style-messages-chromium\error-context.md
+
+  11) [chromium] › tests\e2e\internal-message-alias.spec.js:158:3 › internal message alias display › resolves agent -> agent aliases after cross-thread switch instead of stale payload names 
+
+    Error: [2mexpect([22m[31mlocator[39m[2m).[22mtoBeVisible[2m([22m[2m)[22m failed
+
+    Locator: locator('.thread-rail-item[role="button"]').filter({ hasText: '目标代理备注' }).first()
+    Expected: visible
+    Timeout: 5000ms
+    Error: element(s) not found
+
+    Call log:
+    [2m  - Expect "toBeVisible" with timeout 5000ms[22m
+    [2m  - waiting for locator('.thread-rail-item[role="button"]').filter({ hasText: '目标代理备注' }).first()[22m
+
+
+      87 | async function openTargetThread(page, threadAlias) {
+      88 |   const threadCard = page.locator('.thread-rail-item[role="button"]').filter({ hasText: threadAlias }).first();
+    > 89 |   await expect(threadCard).toBeVisible();
+         |                            ^
+      90 |   await threadCard.click();
+      91 | }
+      92 |
+        at openTargetThread (D:\project\Super-Dolphin\cmd\agent-terminal\frontend\tests\e2e\internal-message-alias.spec.js:89:28)
+        at D:\project\Super-Dolphin\cmd\agent-terminal\frontend\tests\e2e\internal-message-alias.spec.js:185:11
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results\internal-message-alias-int-1c6f0-tead-of-stale-payload-names-chromium\test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    attachment #2: video (video/webm) ──────────────────────────────────────────────────────────────
+    test-results\internal-message-alias-int-1c6f0-tead-of-stale-payload-names-chromium\video.webm
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results\internal-message-alias-int-1c6f0-tead-of-stale-payload-names-chromium\error-context.md
+
+  12) [chromium] › tests\e2e\internal-message-alias.spec.js:193:3 › internal message alias display › resolves system -> agent route after cross-thread switch and normalizes system label 
+
+    Error: [2mexpect([22m[31mlocator[39m[2m).[22mtoBeVisible[2m([22m[2m)[22m failed
+
+    Locator: locator('.thread-rail-item[role="button"]').filter({ hasText: '审批执行代理' }).first()
+    Expected: visible
+    Timeout: 5000ms
+    Error: element(s) not found
+
+    Call log:
+    [2m  - Expect "toBeVisible" with timeout 5000ms[22m
+    [2m  - waiting for locator('.thread-rail-item[role="button"]').filter({ hasText: '审批执行代理' }).first()[22m
+
+
+      87 | async function openTargetThread(page, threadAlias) {
+      88 |   const threadCard = page.locator('.thread-rail-item[role="button"]').filter({ hasText: threadAlias }).first();
+    > 89 |   await expect(threadCard).toBeVisible();
+         |                            ^
+      90 |   await threadCard.click();
+      91 | }
+      92 |
+        at openTargetThread (D:\project\Super-Dolphin\cmd\agent-terminal\frontend\tests\e2e\internal-message-alias.spec.js:89:28)
+        at D:\project\Super-Dolphin\cmd\agent-terminal\frontend\tests\e2e\internal-message-alias.spec.js:220:11
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results\internal-message-alias-int-f40d4-and-normalizes-system-label-chromium\test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    attachment #2: video (video/webm) ──────────────────────────────────────────────────────────────
+    test-results\internal-message-alias-int-f40d4-and-normalizes-system-label-chromium\video.webm
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results\internal-message-alias-int-f40d4-and-normalizes-system-label-chromium\error-context.md
+
+  13) [chromium] › tests\e2e\internal-message-alias.spec.js:228:3 › internal message alias display › matches internal agent report bubble visual snapshot 
+
+    Error: [2mexpect([22m[31mlocator[39m[2m).[22mtoBeVisible[2m([22m[2m)[22m failed
+
+    Locator: locator('.chat-item.kind-user.kind-internal.role-internal').first()
+    Expected: visible
+    Timeout: 5000ms
+    Error: element(s) not found
+
+    Call log:
+    [2m  - Expect "toBeVisible" with timeout 5000ms[22m
+    [2m  - waiting for locator('.chat-item.kind-user.kind-internal.role-internal').first()[22m
+
+
+      242 |
+      243 |     const bubble = page.locator('.chat-item.kind-user.kind-internal.role-internal').first();
+    > 244 |     await expect(bubble).toBeVisible();
+          |                          ^
+      245 |     await expectVisualSnapshot(bubble, 'internal-agent-report-bubble.png');
+      246 |   });
+      247 | });
+        at D:\project\Super-Dolphin\cmd\agent-terminal\frontend\tests\e2e\internal-message-alias.spec.js:244:26
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results\internal-message-alias-int-15b8f-port-bubble-visual-snapshot-chromium\test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    attachment #2: video (video/webm) ──────────────────────────────────────────────────────────────
+    test-results\internal-message-alias-int-15b8f-port-bubble-visual-snapshot-chromium\video.webm
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results\internal-message-alias-int-15b8f-port-bubble-visual-snapshot-chromium\error-context.md
+
+  14) [chromium] › tests\e2e\memory-center-operations.spec.js:6:1 › memory center supports durable CRUD and shared-file promote 
+
+    [31mTest timeout of 30000ms exceeded.[39m
+
+    Error: locator.click: Test timeout of 30000ms exceeded.
+    Call log:
+    [2m  - waiting for getByTestId('memory-center-project-create')[22m
+
+
+      53 |   await expect(page.getByTestId('memory-center-page')).toBeVisible();
+      54 |
+    > 55 |   await page.getByTestId('memory-center-project-create').click();
+         |                                                          ^
+      56 |   await page.getByTestId('memory-center-editor-name').fill('Release owner');
+      57 |   await page.getByTestId('memory-center-editor-description').fill('');
+      58 |   await page.getByTestId('memory-center-editor-content').fill('Primary source is the production release runbook.');
+        at D:\project\Super-Dolphin\cmd\agent-terminal\frontend\tests\e2e\memory-center-operations.spec.js:55:58
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results\memory-center-operations-m-52c9c-RUD-and-shared-file-promote-chromium\test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    attachment #2: video (video/webm) ──────────────────────────────────────────────────────────────
+    test-results\memory-center-operations-m-52c9c-RUD-and-shared-file-promote-chromium\video.webm
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results\memory-center-operations-m-52c9c-RUD-and-shared-file-promote-chromium\error-context.md
+
+  15) [chromium] › tests\e2e\memory-leak-regression.spec.js:64:3 › memory leak regression › thread payload cache evicts old timeline and diff entries after repeated thread loads 
+
+    Error: [2mexpect([22m[31mreceived[39m[2m).[22mtoEqual[2m([22m[32mexpected[39m[2m) // deep equality[22m
+
+    [32m- Expected  - 0[39m
+    [31m+ Received  + 3[39m
+
+    [33m@@ -1,6 +1,9 @@[39m
+    [2m  Array [[22m
+    [31m+   "thread-leak-1",[39m
+    [31m+   "thread-leak-2",[39m
+    [31m+   "thread-leak-3",[39m
+    [2m    "thread-leak-4",[22m
+    [2m    "thread-leak-5",[22m
+    [2m    "thread-leak-6",[22m
+    [2m    "thread-leak-7",[22m
+    [2m    "thread-leak-8",[22m
+
+      185 |     expect(cacheState.timelineKeys).toEqual(expectedRetained);
+      186 |     expect(cacheState.diffKeys).toEqual(expectedRetained);
+    > 187 |     expect(cacheState.detailKeys).toEqual(expectedRetained);
+          |                                   ^
+      188 |     expect(cacheState.runtimeKeys).toEqual(expectedRetained);
+      189 |   });
+      190 | });
+        at D:\project\Super-Dolphin\cmd\agent-terminal\frontend\tests\e2e\memory-leak-regression.spec.js:187:35
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results\memory-leak-regression-mem-30130-after-repeated-thread-loads-chromium\test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    attachment #2: video (video/webm) ──────────────────────────────────────────────────────────────
+    test-results\memory-leak-regression-mem-30130-after-repeated-thread-loads-chromium\video.webm
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  16) [chromium] › tests\e2e\settings-workflows.spec.js:7:1 › settings page loads project-scoped preferences and saves prompt/provider changes 
+
+    [31mTest timeout of 30000ms exceeded.[39m
+
+    Error: locator.selectOption: Test timeout of 30000ms exceeded.
+    Call log:
+    [2m  - waiting for getByTestId('provider-model-select')[22m
+    [2m    - locator resolved to <select class="settings-stall-input" data-testid="provider-model-select">…</select>[22m
+    [2m  - attempting select option action[22m
+    [2m    2 × waiting for element to be visible and enabled[22m
+    [2m      - did not find some options[22m
+    [2m    - retrying select option action[22m
+    [2m    - waiting 20ms[22m
+    [2m    2 × waiting for element to be visible and enabled[22m
+    [2m      - did not find some options[22m
+    [2m    - retrying select option action[22m
+    [2m      - waiting 100ms[22m
+    [2m    26 × waiting for element to be visible and enabled[22m
+    [2m       - did not find some options[22m
+    [2m     - retrying select option action[22m
+    [2m       - waiting 500ms[22m
+
+
+      61 |   await expect(page.getByTestId('provider-personality-select')).toHaveValue('friendly');
+      62 |
+    > 63 |   await page.getByTestId('provider-model-select').selectOption('gpt-5.5');
+         |                                                   ^
+      64 |   await page.getByTestId('provider-effort-mode-select').selectOption('medium');
+      65 |   await page.getByTestId('provider-personality-select').selectOption('pragmatic');
+      66 |   await page.getByTestId('provider-summary-mode-select').selectOption('concise');
+        at D:\project\Super-Dolphin\cmd\agent-terminal\frontend\tests\e2e\settings-workflows.spec.js:63:51
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results\settings-workflows-setting-75598-ves-prompt-provider-changes-chromium\test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    attachment #2: video (video/webm) ──────────────────────────────────────────────────────────────
+    test-results\settings-workflows-setting-75598-ves-prompt-provider-changes-chromium\video.webm
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results\settings-workflows-setting-75598-ves-prompt-provider-changes-chromium\error-context.md
+
+  17) [chromium] › tests\e2e\skills-workflows.spec.js:7:1 › skills page supports search, edit subfiles, create, import, and delete 
+
+    Error: [2mexpect([22m[31mlocator[39m[2m).[22mtoBeVisible[2m([22m[2m)[22m failed
+
+    Locator: getByTestId('skills-page')
+    Expected: visible
+    Timeout: 5000ms
+    Error: element(s) not found
+
+    Call log:
+    [2m  - Expect "toBeVisible" with timeout 5000ms[22m
+    [2m  - waiting for getByTestId('skills-page')[22m
+
+
+      55 |
+      56 |   await page.getByTestId('nav-skills').click();
+    > 57 |   await expect(page.getByTestId('skills-page')).toBeVisible();
+         |                                                 ^
+      58 |   await expect(page.getByTestId('skills-list')).toContainText('backend');
+      59 |   await expectVisualSnapshot(page.getByTestId('skills-page'), 'skills-page-overview.png');
+      60 |
+        at D:\project\Super-Dolphin\cmd\agent-terminal\frontend\tests\e2e\skills-workflows.spec.js:57:49
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results\skills-workflows-skills-pa-71211-es-create-import-and-delete-chromium\test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    attachment #2: video (video/webm) ──────────────────────────────────────────────────────────────
+    test-results\skills-workflows-skills-pa-71211-es-create-import-and-delete-chromium\video.webm
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results\skills-workflows-skills-pa-71211-es-create-import-and-delete-chromium\error-context.md
+
+  18) [chromium] › tests\e2e\thread-immediate-history.spec.js:37:1 › current tab chat history renders immediately even while scoped sync is blocked by later state work 
+
+    Error: [2mexpect([22m[31mlocator[39m[2m).[22mtoHaveCount[2m([22m[32mexpected[39m[2m)[22m failed
+
+    Locator:  locator('.chat-item.kind-assistant')
+    Expected: [32m1[39m
+    Received: [31m0[39m
+    Timeout:  5000ms
+
+    Call log:
+    [2m  - Expect "toHaveCount" with timeout 5000ms[22m
+    [2m  - waiting for locator('.chat-item.kind-assistant')[22m
+    [2m    9 × locator resolved to 0 elements[22m
+    [2m      - unexpected value "0"[22m
+
+
+      157 |   await page.goto('/');
+      158 |   await expect(page.getByTestId('app-shell')).toBeVisible();
+    > 159 |   await expect(page.locator('.chat-item.kind-assistant')).toHaveCount(1);
+          |                                                           ^
+      160 |
+      161 |   await page.evaluate(() => {
+      162 |     globalThis.__AO_E2E_BACKEND_STATE__.phase = 'switch';
+        at D:\project\Super-Dolphin\cmd\agent-terminal\frontend\tests\e2e\thread-immediate-history.spec.js:159:59
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results\thread-immediate-history-c-8a374-blocked-by-later-state-work-chromium\test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    attachment #2: video (video/webm) ──────────────────────────────────────────────────────────────
+    test-results\thread-immediate-history-c-8a374-blocked-by-later-state-work-chromium\video.webm
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results\thread-immediate-history-c-8a374-blocked-by-later-state-work-chromium\error-context.md
+
+  19) [chromium] › tests\e2e\thread-messages-double-load.spec.js:46:3 › thread/messages duplicate load regression › bootstrap + selected-thread watch dedupe the same history load 
+
+    Error: [2mexpect([22m[31mreceived[39m[2m).[22mtoBe[2m([22m[32mexpected[39m[2m) // Object.is equality[22m
+
+    Expected: [32m1[39m
+    Received: [31m0[39m
+
+    Call Log:
+    - Timeout 10000ms exceeded while waiting on the predicate
+
+      155 |     }, { timeout: 10_000 }).toBe(1);
+      156 |
+    > 157 |     await expect.poll(async () => {
+          |     ^
+      158 |       return page.locator('.chat-item.kind-assistant').count();
+      159 |     }, { timeout: 10_000 }).toBe(1);
+      160 |
+        at D:\project\Super-Dolphin\cmd\agent-terminal\frontend\tests\e2e\thread-messages-double-load.spec.js:157:5
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results\thread-messages-double-loa-f0f69-edupe-the-same-history-load-chromium\test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    attachment #2: video (video/webm) ──────────────────────────────────────────────────────────────
+    test-results\thread-messages-double-loa-f0f69-edupe-the-same-history-load-chromium\video.webm
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results\thread-messages-double-loa-f0f69-edupe-the-same-history-load-chromium\error-context.md
+
+  20) [chromium] › tests\e2e\thread-messages-double-load.spec.js:168:3 › thread/messages duplicate load regression › thread switch avoids extra ui/state/get after active thread preference persists 
+
+    Error: [2mexpect([22m[31mlocator[39m[2m).[22mtoHaveCount[2m([22m[32mexpected[39m[2m)[22m failed
+
+    Locator:  locator('.chat-item.kind-assistant')
+    Expected: [32m1[39m
+    Received: [31m0[39m
+    Timeout:  5000ms
+
+    Call log:
+    [2m  - Expect "toHaveCount" with timeout 5000ms[22m
+    [2m  - waiting for locator('.chat-item.kind-assistant')[22m
+    [2m    9 × locator resolved to 0 elements[22m
+    [2m      - unexpected value "0"[22m
+
+
+      309 |     await page.goto('/');
+      310 |     await expect(page.getByTestId('app-shell')).toBeVisible();
+    > 311 |     await expect(page.locator('.chat-item.kind-assistant')).toHaveCount(1);
+          |                                                             ^
+      312 |
+      313 |     await page.evaluate(() => {
+      314 |       if (globalThis.__AO_E2E_BACKEND_STATE__) {
+        at D:\project\Super-Dolphin\cmd\agent-terminal\frontend\tests\e2e\thread-messages-double-load.spec.js:311:61
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results\thread-messages-double-loa-fad67--thread-preference-persists-chromium\test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    attachment #2: video (video/webm) ──────────────────────────────────────────────────────────────
+    test-results\thread-messages-double-loa-fad67--thread-preference-persists-chromium\video.webm
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results\thread-messages-double-loa-fad67--thread-preference-persists-chromium\error-context.md
+
+  21) [chromium] › tests\e2e\timeline-actions.spec.js:20:1 › timeline interactions cover file refs, approvals, copies, image preview, and activity panel 
+
+    Error: [2mexpect([22m[31mlocator[39m[2m).[22mtoBeVisible[2m([22m[2m)[22m failed
+
+    Locator: locator('.chat-md-file-ref').first()
+    Expected: visible
+    Timeout: 5000ms
+    Error: element(s) not found
+
+    Call log:
+    [2m  - Expect "toBeVisible" with timeout 5000ms[22m
+    [2m  - waiting for locator('.chat-md-file-ref').first()[22m
+
+
+      158 |
+      159 |   const fileRef = page.locator('.chat-md-file-ref').first();
+    > 160 |   await expect(fileRef).toBeVisible();
+          |                         ^
+      161 |   await fileRef.click();
+      162 |   await expect(page.locator('.diff-file-group.is-focused')).toContainText('main.go');
+      163 |
+        at D:\project\Super-Dolphin\cmd\agent-terminal\frontend\tests\e2e\timeline-actions.spec.js:160:25
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results\timeline-actions-timeline--0054e--preview-and-activity-panel-chromium\test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    attachment #2: video (video/webm) ──────────────────────────────────────────────────────────────
+    test-results\timeline-actions-timeline--0054e--preview-and-activity-panel-chromium\video.webm
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results\timeline-actions-timeline--0054e--preview-and-activity-panel-chromium\error-context.md
+
+  22) [chromium] › tests\e2e\timeline-actions.spec.js:199:1 › tool ticker remains visible on hover and preserves collapsed-tool summary 
+
+    Error: [2mexpect([22m[31mlocator[39m[2m).[22mtoBeVisible[2m([22m[2m)[22m failed
+
+    Locator: getByTestId('chat-page')
+    Expected: visible
+    Timeout: 5000ms
+    Error: element(s) not found
+
+    Call log:
+    [2m  - Expect "toBeVisible" with timeout 5000ms[22m
+    [2m  - waiting for getByTestId('chat-page')[22m
+
+
+      252 |   await page.goto('/');
+      253 |   await expect(page.getByTestId('app-shell')).toBeVisible();
+    > 254 |   await expect(page.getByTestId('chat-page')).toBeVisible();
+          |                                               ^
+      255 |
+      256 |   const ticker = page.locator('.chat-status-tool-ticker').first();
+      257 |   const presence = page.locator('.chat-status-presence').first();
+        at D:\project\Super-Dolphin\cmd\agent-terminal\frontend\tests\e2e\timeline-actions.spec.js:254:47
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results\timeline-actions-tool-tick-76d32-rves-collapsed-tool-summary-chromium\test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    attachment #2: video (video/webm) ──────────────────────────────────────────────────────────────
+    test-results\timeline-actions-tool-tick-76d32-rves-collapsed-tool-summary-chromium\video.webm
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results\timeline-actions-tool-tick-76d32-rves-collapsed-tool-summary-chromium\error-context.md
+
+  23) [chromium] › tests\e2e\timeline-actions.spec.js:285:1 › reasoning-like assistant text stays visible in timeline and does not show hidden popover placeholder 
+
+    Error: [2mexpect([22m[31mlocator[39m[2m).[22mtoBeVisible[2m([22m[2m)[22m failed
+
+    Locator: getByTestId('chat-page')
+    Expected: visible
+    Timeout: 5000ms
+    Error: element(s) not found
+
+    Call log:
+    [2m  - Expect "toBeVisible" with timeout 5000ms[22m
+    [2m  - waiting for getByTestId('chat-page')[22m
+
+
+      328 |   await page.goto('/');
+      329 |   await expect(page.getByTestId('app-shell')).toBeVisible();
+    > 330 |   await expect(page.getByTestId('chat-page')).toBeVisible();
+          |                                               ^
+      331 |
+      332 |   await expect(page.locator('.chat-item.role-user')).toContainText('继续修复 markdown 泄漏');
+      333 |   await expect(page.locator('.chat-item.role-assistant')).toHaveCount(1);
+        at D:\project\Super-Dolphin\cmd\agent-terminal\frontend\tests\e2e\timeline-actions.spec.js:330:47
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results\timeline-actions-reasoning-e2b50--hidden-popover-placeholder-chromium\test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    attachment #2: video (video/webm) ──────────────────────────────────────────────────────────────
+    test-results\timeline-actions-reasoning-e2b50--hidden-popover-placeholder-chromium\video.webm
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results\timeline-actions-reasoning-e2b50--hidden-popover-placeholder-chromium\error-context.md
+
+  24) [chromium] › tests\e2e\timeline-actions.spec.js:344:1 › anchored thinking presence stays below chat body 
+
+    Error: [2mexpect([22m[31mlocator[39m[2m).[22mtoBeVisible[2m([22m[2m)[22m failed
+
+    Locator: getByTestId('chat-page')
+    Expected: visible
+    Timeout: 5000ms
+    Error: element(s) not found
+
+    Call log:
+    [2m  - Expect "toBeVisible" with timeout 5000ms[22m
+    [2m  - waiting for getByTestId('chat-page')[22m
+
+
+      366 |
+      367 |   await page.goto('/');
+    > 368 |   await expect(page.getByTestId('chat-page')).toBeVisible();
+          |                                               ^
+      369 |
+      370 |   const scroller = page.locator('.chat-messages-vue').first();
+      371 |   const presence = page.locator('.chat-status-presence').first();
+        at D:\project\Super-Dolphin\cmd\agent-terminal\frontend\tests\e2e\timeline-actions.spec.js:368:47
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results\timeline-actions-anchored--49f82-sence-stays-below-chat-body-chromium\test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    attachment #2: video (video/webm) ──────────────────────────────────────────────────────────────
+    test-results\timeline-actions-anchored--49f82-sence-stays-below-chat-body-chromium\video.webm
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results\timeline-actions-anchored--49f82-sence-stays-below-chat-body-chromium\error-context.md
+
+  24 failed
+    [chromium] › tests\e2e\app-dashboard-navigation.spec.js:6:1 › sidebar pages load dashboard data and tasks tabs switch correctly 
+    [chromium] › tests\e2e\chat-layout.visual.spec.js:106:1 › chat page layout remains stable ──────
+    [chromium] › tests\e2e\chat-layout.visual.spec.js:110:1 › thread rail layout remains stable ────
+    [chromium] › tests\e2e\chat-layout.visual.spec.js:114:1 › workspace and diff layout remain stable 
+    [chromium] › tests\e2e\chat-workflows.spec.js:63:1 › project modal, provider toggle, and new window flow work together 
+    [chromium] › tests\e2e\chat-workflows.spec.js:119:1 › chat composer supports attachments, send, rename, archive, recover, and restore 
+    [chromium] › tests\e2e\diff-markdown-preview.spec.js:10:1 › diff markdown preview repairs desktop bridge mojibake 
+    [chromium] › tests\e2e\diff-panel-grouping.spec.js:20:1 › diff panel groups multi-file changes and re-expands the focused file 
+    [chromium] › tests\e2e\internal-message-alias.spec.js:94:3 › internal message alias display › shows agent -> agent internal sender and receiver aliases in timeline 
+    [chromium] › tests\e2e\internal-message-alias.spec.js:130:3 › internal message alias display › shows system -> agent internal route for approval/report style messages 
+    [chromium] › tests\e2e\internal-message-alias.spec.js:158:3 › internal message alias display › resolves agent -> agent aliases after cross-thread switch instead of stale payload names 
+    [chromium] › tests\e2e\internal-message-alias.spec.js:193:3 › internal message alias display › resolves system -> agent route after cross-thread switch and normalizes system label 
+    [chromium] › tests\e2e\internal-message-alias.spec.js:228:3 › internal message alias display › matches internal agent report bubble visual snapshot 
+    [chromium] › tests\e2e\memory-center-operations.spec.js:6:1 › memory center supports durable CRUD and shared-file promote 
+    [chromium] › tests\e2e\memory-leak-regression.spec.js:64:3 › memory leak regression › thread payload cache evicts old timeline and diff entries after repeated thread loads 
+    [chromium] › tests\e2e\settings-workflows.spec.js:7:1 › settings page loads project-scoped preferences and saves prompt/provider changes 
+    [chromium] › tests\e2e\skills-workflows.spec.js:7:1 › skills page supports search, edit subfiles, create, import, and delete 
+    [chromium] › tests\e2e\thread-immediate-history.spec.js:37:1 › current tab chat history renders immediately even while scoped sync is blocked by later state work 
+    [chromium] › tests\e2e\thread-messages-double-load.spec.js:46:3 › thread/messages duplicate load regression › bootstrap + selected-thread watch dedupe the same history load 
+    [chromium] › tests\e2e\thread-messages-double-load.spec.js:168:3 › thread/messages duplicate load regression › thread switch avoids extra ui/state/get after active thread preference persists 
+    [chromium] › tests\e2e\timeline-actions.spec.js:20:1 › timeline interactions cover file refs, approvals, copies, image preview, and activity panel 
+    [chromium] › tests\e2e\timeline-actions.spec.js:199:1 › tool ticker remains visible on hover and preserves collapsed-tool summary 
+    [chromium] › tests\e2e\timeline-actions.spec.js:285:1 › reasoning-like assistant text stays visible in timeline and does not show hidden popover placeholder 
+    [chromium] › tests\e2e\timeline-actions.spec.js:344:1 › anchored thinking presence stays below chat body 
+  4 skipped
+  6 passed (51.8s)
+
+[stderr]
+#< CLIXML
+(node:28580) [DEP0205] DeprecationWarning: `module.register()` is deprecated. Use `module.registerHooks()` instead.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+(node:30864) [DEP0205] DeprecationWarning: `module.register()` is deprecated. Use `module.registerHooks()` instead.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+(node:34708) [DEP0205] DeprecationWarning: `module.register()` is deprecated. Use `module.registerHooks()` instead.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+(node:40532) [DEP0205] DeprecationWarning: `module.register()` is deprecated. Use `module.registerHooks()` instead.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+(node:37588) [DEP0205] DeprecationWarning: `module.register()` is deprecated. Use `module.registerHooks()` instead.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+(node:30948) [DEP0205] DeprecationWarning: `module.register()` is deprecated. Use `module.registerHooks()` instead.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+(node:38928) [DEP0205] DeprecationWarning: `module.register()` is deprecated. Use `module.registerHooks()` instead.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+(node:37568) [DEP0205] DeprecationWarning: `module.register()` is deprecated. Use `module.registerHooks()` instead.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+(node:41256) [DEP0205] DeprecationWarning: `module.register()` is deprecated. Use `module.registerHooks()` instead.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+(node:24124) [DEP0205] DeprecationWarning: `module.register()` is deprecated. Use `module.registerHooks()` instead.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+(node:33012) [DEP0205] DeprecationWarning: `module.register()` is deprecated. Use `module.registerHooks()` instead.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+(node:19060) [DEP0205] DeprecationWarning: `module.register()` is deprecated. Use `module.registerHooks()` instead.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+(node:39356) [DEP0205] DeprecationWarning: `module.register()` is deprecated. Use `module.registerHooks()` instead.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+(node:12004) [DEP0205] DeprecationWarning: `module.register()` is deprecated. Use `module.registerHooks()` instead.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+(node:36060) [DEP0205] DeprecationWarning: `module.register()` is deprecated. Use `module.registerHooks()` instead.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+(node:38360) [DEP0205] DeprecationWarning: `module.register()` is deprecated. Use `module.registerHooks()` instead.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+(node:37868) [DEP0205] DeprecationWarning: `module.register()` is deprecated. Use `module.registerHooks()` instead.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+(node:39324) [DEP0205] DeprecationWarning: `module.register()` is deprecated. Use `module.registerHooks()` instead.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+(node:31216) [DEP0205] DeprecationWarning: `module.register()` is deprecated. Use `module.registerHooks()` instead.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+(node:39976) [DEP0205] DeprecationWarning: `module.register()` is deprecated. Use `module.registerHooks()` instead.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+(node:34708) [DEP0205] DeprecationWarning: `module.register()` is deprecated. Use `module.registerHooks()` instead.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+(node:38420) [DEP0205] DeprecationWarning: `module.register()` is deprecated. Use `module.registerHooks()` instead.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+(node:25824) [DEP0205] DeprecationWarning: `module.register()` is deprecated. Use `module.registerHooks()` instead.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+(node:38428) [DEP0205] DeprecationWarning: `module.register()` is deprecated. Use `module.registerHooks()` instead.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+(node:29548) [DEP0205] DeprecationWarning: `module.register()` is deprecated. Use `module.registerHooks()` instead.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+<Objs Version="1.1.0.1" xmlns="http://schemas.microsoft.com/powershell/2004/04"><Obj S="progress" RefId="0"><TN RefId="0"><T>System.Management.Automation.PSCustomObject</T><T>System.Object</T></TN><MS><I64 N="SourceId">1</I64><PR N="Record"><AV>正在准备首次使用模块。</AV><AI>0</AI><Nil /><PI>-1</PI><PC>-1</PC><T>Completed</T><SR>-1</SR><SD> </SD></PR></MS></Obj><Obj S="progress" RefId="1"><TNRef RefId="0" /><MS><I64 N="SourceId">2</I64><PR N="Record"><AV>正在准备首次使用模块。</AV><AI>0</AI><Nil /><PI>-1</PI><PC>-1</PC><T>Completed</T><SR>-1</SR><SD> </SD></PR></MS></Obj></Objs>

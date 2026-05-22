@@ -82,6 +82,7 @@ func TestSkillMirrorManifestRejectsSymlinkFile(t *testing.T) {
 	}
 	path := filepath.Join(dir, skillMirrorManifestFile)
 	if err := os.Symlink(outside, path); err != nil {
+		skipIfSymlinkPrivilegeNotHeld(t, err)
 		t.Fatalf("Symlink manifest: %v", err)
 	}
 	if _, err := readSkillMirrorManifest(path); err == nil || !strings.Contains(err.Error(), "symlink") {

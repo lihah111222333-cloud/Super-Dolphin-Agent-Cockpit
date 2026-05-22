@@ -1,0 +1,11 @@
+./scripts/test_with_guard.sh --guard-only
+✅ 入口守卫: 未发现裸跑 go test 入口。
+📏  文件≤600 函数≤80 嵌套≤4 CC≤10 下划线≤3 包文件≤30 包行≤10000
+📊  生产 baseline 棘轮通过 — 82 个文件冻结中
+📊  测试 baseline 棘轮通过 — 32 个文件冻结中
+✅  代码守卫: 全部通过
+ok  	github.com/anthropic-ai/super-agent-v3/internal/archtest	3.370s
+
+[stderr]
+#< CLIXML
+<Objs Version="1.1.0.1" xmlns="http://schemas.microsoft.com/powershell/2004/04"><Obj S="progress" RefId="0"><TN RefId="0"><T>System.Management.Automation.PSCustomObject</T><T>System.Object</T></TN><MS><I64 N="SourceId">1</I64><PR N="Record"><AV>正在准备首次使用模块。</AV><AI>0</AI><Nil /><PI>-1</PI><PC>-1</PC><T>Completed</T><SR>-1</SR><SD> </SD></PR></MS></Obj></Objs>

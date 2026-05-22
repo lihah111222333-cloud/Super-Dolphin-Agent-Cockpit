@@ -15,7 +15,7 @@ import (
 func TestDispatcherSmartRetryEscalationExhaustionUsesDAGFailFast(t *testing.T) {
 	now := time.Date(2026, 5, 14, 11, 0, 0, 0, time.UTC)
 	store := newAgentFailureClassStore(t, "escalate-exhausted", 1, now)
-	store.nodesReply[0].Config = json.RawMessage(`{
+	store.nodesReply[0].Config = testRawConfig(t, `{
 		"exec":{
 			"agent_key":"alpha",
 			"cwd":"/tmp/node-cwd",
@@ -55,7 +55,7 @@ func TestDispatcherSmartRetryDoesNotPatchConfigWhenRetryFenceMisses(t *testing.T
 	now := time.Date(2026, 5, 14, 11, 5, 0, 0, time.UTC)
 	store := newAgentFailureClassStore(t, "retry-fence-miss", 1, now)
 	store.retryRows = -1
-	store.nodesReply[0].Config = json.RawMessage(`{
+	store.nodesReply[0].Config = testRawConfig(t, `{
 		"exec":{
 			"agent_key":"alpha",
 			"cwd":"/tmp/node-cwd",
@@ -92,7 +92,7 @@ func TestDispatcherSmartRetryConfigPatchFailureFailsClosed(t *testing.T) {
 	now := time.Date(2026, 5, 14, 11, 10, 0, 0, time.UTC)
 	store := newAgentFailureClassStore(t, "patch-failure", 1, now)
 	store.patchConfigErr = errors.New("stale node config")
-	store.nodesReply[0].Config = json.RawMessage(`{
+	store.nodesReply[0].Config = testRawConfig(t, `{
 		"exec":{
 			"agent_key":"alpha",
 			"cwd":"/tmp/node-cwd",
@@ -132,7 +132,7 @@ func TestDispatcherSmartRetryConfigPatchFailureFailsClosed(t *testing.T) {
 func TestDispatcherAgentHardValidationFailureFailsWithoutRetry(t *testing.T) {
 	now := time.Date(2026, 5, 13, 9, 30, 0, 0, time.UTC)
 	store := newAgentFailureClassStore(t, "bad-config", 1, now)
-	store.nodesReply[0].Config = json.RawMessage(`{"exec":`)
+	store.nodesReply[0].Config = testRawConfig(t, `{"exec":`)
 	d := newAgentFailureClassDispatcher(t, store, errors.New("launcher should not be called"))
 
 	if _, err := d.ProcessBatch(context.Background()); err != nil {
@@ -153,7 +153,7 @@ func TestDispatcherAgentPermanentFailureAtThirdAttemptRecordsRetryAlert(t *testi
 	resetDispatchRetryMetricsForTesting()
 	now := time.Date(2026, 5, 13, 9, 45, 0, 0, time.UTC)
 	store := newAgentFailureClassStore(t, "bad-config-alert", 3, now)
-	store.nodesReply[0].Config = json.RawMessage(`{"exec":`)
+	store.nodesReply[0].Config = testRawConfig(t, `{"exec":`)
 	sink := &recordingDispatchRetryAlertSink{}
 	d := newAgentFailureClassDispatcher(t, store, errors.New("launcher should not be called"))
 	d.WithDispatchRetryAlertSink(sink)
@@ -223,7 +223,7 @@ func newAgentFailureClassStore(t *testing.T, suffix string, attempt int32, now t
 			NodeKey:  nodeKey,
 			NodeType: "agent",
 			Title:    nodeKey,
-			Config:   json.RawMessage(`{"exec":{"agent_key":"alpha","cwd":"/tmp/node-cwd"},"first_turn":"go"}`),
+			Config:   testRawConfig(t, `{"exec":{"agent_key":"alpha","cwd":"/tmp/node-cwd"},"first_turn":"go"}`),
 			Status:   string(nodeexec.NodeStatusReady),
 		}},
 	}
@@ -241,7 +241,7 @@ func newAgentFailureClassDispatcher(t *testing.T, store *dispatcherStubStore, la
 }
 
 // TestDispatcherNonDAGWakeupKeepsLegacyRetry 验证：Wakeup 没有 DagKey/NodeKey
-// 时（非 DAG 来源），新代码不应该走 DAG 决策；保持旧 RetryWakeup 路径。
+// 时（�?DAG 来源），新代码不应该�?DAG 决策；保持旧 RetryWakeup 路径�?
 func TestDispatcherNonDAGWakeupKeepsLegacyRetry(t *testing.T) {
 	now := time.Date(2026, 4, 30, 12, 0, 0, 0, time.UTC)
 	w := makeClaimedWakeup(23, "agent-D", 5, now) // DagKey/NodeKey 留空
@@ -263,11 +263,11 @@ func TestDispatcherNonDAGWakeupKeepsLegacyRetry(t *testing.T) {
 	}
 }
 
-// Phase 3.9 新增：dispatcher 把上游产出路径注入下一节点 prompt。
+// Phase 3.9 新增：dispatcher 把上游产出路径注入下一节点 prompt�?
 
-// TestBuildLaunchRequestPhase39_InjectsUpstreamOutputsIntoPrompt 验证：
-// payload 是 DownstreamWakeupPayload + UpstreamOutputs 非空时，prompt 含
-// 路径列表 + Read 提示文案。AgentID 取 payload 优先，fallback 到 wakeup。
+// TestBuildLaunchRequestPhase39_InjectsUpstreamOutputsIntoPrompt 验证�?
+// payload �?DownstreamWakeupPayload + UpstreamOutputs 非空时，prompt �?
+// 路径列表 + Read 提示文案。AgentID �?payload 优先，fallback �?wakeup�?
 func TestBuildLaunchRequestPhase39_InjectsUpstreamOutputsIntoPrompt(t *testing.T) {
 	payload, err := json.Marshal(taskdag.DownstreamWakeupPayload{
 		AgentID: "agent-downstream",
@@ -298,7 +298,7 @@ func TestBuildLaunchRequestPhase39_InjectsUpstreamOutputsIntoPrompt(t *testing.T
 }
 
 // TestBuildLaunchRequestPhase39_FallsBackToWakeupAgentWhenPayloadAgentEmpty:
-// payload 含 UpstreamOutputs 但 AgentID 空时退化用 wakeup.TargetAgentID。
+// payload �?UpstreamOutputs �?AgentID 空时退化用 wakeup.TargetAgentID�?
 func TestBuildLaunchRequestPhase39_FallsBackToWakeupAgentWhenPayloadAgentEmpty(t *testing.T) {
 	payload, _ := json.Marshal(taskdag.DownstreamWakeupPayload{
 		UpstreamOutputs: []taskdag.DownstreamUpstreamRef{
@@ -318,23 +318,21 @@ func TestBuildLaunchRequestPhase39_FallsBackToWakeupAgentWhenPayloadAgentEmpty(t
 }
 
 // TestBuildLaunchRequestPhase39_LegacyPayloadStillWorks:
-// 老式 LaunchRequest payload（无 upstream_outputs）仍然走 fallback 解析路径。
+// 老式 LaunchRequest payload（无 upstream_outputs）仍然走 fallback 解析路径�?
 func TestBuildLaunchRequestPhase39_LegacyPayloadStillWorks(t *testing.T) {
-	// 仿照 TestBuildLaunchRequestFromWakeupDecodesJSONPayload 的形状。
+	// 仿照 TestBuildLaunchRequestFromWakeupDecodesJSONPayload 的形状�?
 	legacy := `{"agent_id":"agent-legacy","prompt":"hello"}`
 	req := buildLaunchRequestFromWakeup(taskdag.Wakeup{
 		TargetAgentID: "agent-fallback",
 		PromptPayload: json.RawMessage(legacy),
 	})
-	// LaunchRequest JSON tag 不是 snake_case（看类型签名是大驼峰，json 默认大驼峰），
-	// 老 case 里测试拿到的是 fallback agent_id；这里只验证 Phase 3.9 新分支不破老路径。
-	if strings.Contains(req.Prompt, "上游节点已完成") {
-		t.Fatalf("legacy payload incorrectly routed to upstream prompt branch:\n%s", req.Prompt)
+	if req.Prompt != "hello" {
+		t.Fatalf("legacy payload prompt = %q, want hello", req.Prompt)
 	}
 }
 
-// TestRenderUpstreamPromptHint_SkipsEmptyPathRefs 验证渲染对 path 为空的 ref
-// 安静跳过（不留下 "- :" 这种空行垃圾）。
+// TestRenderUpstreamPromptHint_SkipsEmptyPathRefs 验证渲染�?path 为空�?ref
+// 安静跳过（不留下 "- :" 这种空行垃圾）�?
 func TestRenderUpstreamPromptHint_SkipsEmptyPathRefs(t *testing.T) {
 	prompt := renderUpstreamPromptHint([]taskdag.DownstreamUpstreamRef{
 		{NodeKey: "A", Path: "dag/d/A/output.json"},

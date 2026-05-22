@@ -7,8 +7,10 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 	"unicode"
@@ -24,11 +26,131 @@ const (
 
 // ContainsPath reports whether target is inside root (or equal to it).
 func ContainsPath(root, target string) bool {
-	rel, err := filepath.Rel(root, target)
+	rootPath, err := NormalizeAbsolutePath(root)
+	if err != nil || rootPath == "" {
+		return false
+	}
+	targetPath, err := NormalizeAbsolutePath(target)
+	if err != nil || targetPath == "" {
+		return false
+	}
+	if runtime.GOOS == "windows" {
+		rootPath = strings.ToLower(rootPath)
+		targetPath = strings.ToLower(targetPath)
+	}
+	rel, err := filepath.Rel(rootPath, targetPath)
 	if err != nil {
 		return false
 	}
-	return rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
+	return rel == "." || (rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)))
+}
+
+// NormalizeAbsolutePath returns a cleaned absolute path suitable for path-scope
+// comparisons. On Windows it accepts file-URI drive aliases such as /C:/repo
+// and \C:\repo, then resolves existing symlinks where possible.
+func NormalizeAbsolutePath(path string) (string, error) {
+	trimmed := strings.TrimSpace(path)
+	if trimmed == "" {
+		return "", nil
+	}
+	cleaned := filepath.Clean(normalizeWindowsDriveAlias(trimmed))
+	if !filepath.IsAbs(cleaned) {
+		absPath, err := filepath.Abs(cleaned)
+		if err != nil {
+			return "", fmt.Errorf("resolve absolute path: %w", err)
+		}
+		cleaned = filepath.Clean(normalizeWindowsDriveAlias(absPath))
+	}
+	if runtime.GOOS == "windows" {
+		return normalizeWindowsSymlinkPath(cleaned), nil
+	}
+	if resolved, err := filepath.EvalSymlinks(cleaned); err == nil {
+		return filepath.Clean(normalizeWindowsDriveAlias(resolved)), nil
+	}
+	parent := filepath.Dir(cleaned)
+	if parent != "" && parent != cleaned {
+		if resolvedParent, err := filepath.EvalSymlinks(parent); err == nil {
+			return filepath.Join(filepath.Clean(normalizeWindowsDriveAlias(resolvedParent)), filepath.Base(cleaned)), nil
+		}
+	}
+	return cleaned, nil
+}
+
+func normalizeWindowsSymlinkPath(cleaned string) string {
+	existing, suffix, hasSymlink := windowsExistingPathWithSymlink(cleaned)
+	if !hasSymlink {
+		return cleaned
+	}
+	resolved, err := filepath.EvalSymlinks(existing)
+	if err != nil {
+		return cleaned
+	}
+	resolved = filepath.Clean(normalizeWindowsDriveAlias(resolved))
+	if suffix == "" {
+		return resolved
+	}
+	return filepath.Clean(filepath.Join(resolved, suffix))
+}
+
+func windowsExistingPathWithSymlink(cleaned string) (existing, suffix string, hasSymlink bool) {
+	volume := filepath.VolumeName(cleaned)
+	rest := strings.TrimPrefix(cleaned, volume)
+	parts := strings.FieldsFunc(rest, func(r rune) bool {
+		return r == '/' || r == '\\'
+	})
+	if volume == "" {
+		existing = string(filepath.Separator)
+	} else {
+		existing = volume + string(filepath.Separator)
+	}
+	for idx, part := range parts {
+		next := filepath.Join(existing, part)
+		info, err := os.Lstat(next)
+		if err != nil {
+			return existing, filepath.Join(parts[idx:]...), hasSymlink
+		}
+		existing = next
+		if info.Mode()&os.ModeSymlink != 0 {
+			hasSymlink = true
+		}
+	}
+	return existing, "", hasSymlink
+}
+
+func normalizeWindowsDriveAlias(path string) string {
+	if runtime.GOOS != "windows" {
+		return path
+	}
+	cleaned := strings.TrimSpace(path)
+	for {
+		prefixLen, ok := windowsDriveAliasPrefixLen(cleaned)
+		if !ok {
+			break
+		}
+		cleaned = cleaned[prefixLen:]
+	}
+	return cleaned
+}
+
+func windowsDriveAliasPrefixLen(path string) (int, bool) {
+	if len(path) < 3 || !isSlash(path[0]) {
+		return 0, false
+	}
+	if isWindowsDriveLetter(path[1]) && path[2] == ':' {
+		return 1, true
+	}
+	if len(path) >= 4 && isSlash(path[1]) && isWindowsDriveLetter(path[2]) && path[3] == ':' {
+		return 2, true
+	}
+	return 0, false
+}
+
+func isSlash(b byte) bool {
+	return b == '/' || b == '\\'
+}
+
+func isWindowsDriveLetter(b byte) bool {
+	return (b >= 'A' && b <= 'Z') || (b >= 'a' && b <= 'z')
 }
 
 // SanitizeMemoryProjectKey is byte-for-byte compatible with the legacy

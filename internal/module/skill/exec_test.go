@@ -2,6 +2,9 @@ package skill
 
 import (
 	"context"
+	"os"
+	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -46,9 +49,19 @@ func TestExecCommandFallsBackToProjectRoot(t *testing.T) {
 	if out.CWD != root {
 		t.Fatalf("ExecCommand cwd mismatch: got %q want %q", out.CWD, root)
 	}
-	if got := strings.TrimSpace(out.Stdout); got != root {
+	if got := normalizePWDOutput(strings.TrimSpace(out.Stdout)); !sameCleanPath(got, root) {
 		t.Fatalf("ExecCommand stdout mismatch: got %q want %q", got, root)
 	}
+}
+
+func normalizePWDOutput(output string) string {
+	if runtime.GOOS == "windows" && strings.HasPrefix(output, "/tmp/") {
+		return filepath.Join(os.TempDir(), filepath.FromSlash(strings.TrimPrefix(output, "/tmp/")))
+	}
+	if runtime.GOOS == "windows" && len(output) >= 3 && output[0] == '/' && output[2] == '/' {
+		return strings.ToUpper(output[1:2]) + `:\` + strings.ReplaceAll(output[3:], "/", `\`)
+	}
+	return output
 }
 
 func TestExecCommandInjectsWhitelistedEnv(t *testing.T) {
@@ -101,14 +114,15 @@ func TestExecCommandOverlaysAllowedEnv(t *testing.T) {
 func TestNewServiceConfiguresProjectRootAndHTTPTimeout(t *testing.T) {
 	t.Parallel()
 
+	project := filepath.Clean("/tmp/project")
 	impl, ok := NewService(" /tmp/project ").(*service)
 	if !ok {
 		t.Fatal("NewService type assertion failed")
 	}
-	if impl.projectRoot != "/tmp/project" {
+	if impl.projectRoot != project {
 		t.Fatalf("projectRoot mismatch: got %q", impl.projectRoot)
 	}
-	if got, want := impl.projectSkillsRoot, "/tmp/project/.agent/skills"; got != want {
+	if got, want := impl.projectSkillsRoot, filepath.Join(project, ".agent", "skills"); got != want {
 		t.Fatalf("projectSkillsRoot mismatch: got %q want %q", got, want)
 	}
 	if impl.http == nil || impl.http.Timeout != 15*time.Second {

@@ -234,6 +234,77 @@ function refreshPromptsInBackground(loaders) {
   }
 }
 
+function createPromptPageState() {
+  return {
+    activeTab: ref('all'),
+    roles: ref([...DEFAULT_ROLES]),
+    currentScopeCwd: ref(''),
+    promptCards: ref([]),
+    loading: ref(false),
+    notice: reactive({ level: 'info', message: '' }),
+    fallbackMode: ref(false),
+    readonlyReason: ref(''),
+    fallbackSource: ref(''),
+    editorOpen: ref(false),
+    editorMode: ref('edit'),
+    saving: ref(false),
+    deletingId: ref(''),
+    activePromptId: ref(''),
+    activatingId: ref(''),
+    classifierEnabled: ref(false),
+    editingHasSections: ref(false),
+    advancedOpen: ref(false),
+    matchWhenDirty: ref(false),
+    form: reactive({ id: '', name: '', content: '', description: '', agentKey: '', tags: [], matchWhen: '', priority: 0 }),
+  };
+}
+
+function clipboardNotice(ok) {
+  return ok
+    ? { level: 'info', message: '已复制提示词内容' }
+    : { level: 'error', message: '复制失败' };
+}
+
+function emptyPromptMessage(fallbackMode, activeTab) {
+  if (fallbackMode) return '当前为只读降级；待后端恢复后会自动恢复。';
+  if (activeTab === 'all') return '先选择一个角色，然后点击“新建提示词”';
+  return '点击“新建提示词”开始创建';
+}
+
+function editorModalTitle(fallbackMode, editorMode) {
+  if (fallbackMode) return '查看提示词';
+  if (editorMode === 'create') return '新建提示词';
+  return '编辑提示词';
+}
+
+function editorRoleName(form, roles) {
+  if (!form.agentKey) return '未分类';
+  return roles.find(r => r.key === form.agentKey)?.name || form.agentKey;
+}
+
+function savePromptLabel(fallbackMode, saving) {
+  if (fallbackMode) return '只读模式';
+  if (saving) return '保存中...';
+  return '保存';
+}
+
+function countPromptsByAgent(cards) {
+  const counts = {};
+  for (const card of cards) {
+    const key = card.agentType || 'uncategorized';
+    counts[key] = (counts[key] || 0) + 1;
+  }
+  return counts;
+}
+
+function readonlyPromptBannerMessage(fallbackMode, fallbackSource, readonlyReason) {
+  if (!fallbackMode) return '';
+  let dataSourceTip = '当前保留已有列表或空态。';
+  if (fallbackSource === 'dashboard/prompts') dataSourceTip = '当前列表来自 dashboard/prompts 只读旁路。';
+  const reasonTip = readonlyReason ? `原因：${readonlyReason}。` : '';
+  return `prompts/list 暂不可用，页面已切换为只读模式；新建/保存/删除已禁用，后端恢复后会自动恢复。${dataSourceTip}${reasonTip}`;
+}
+
 function createLaunchPromptActions(deps) {
   const { getCwd, fallbackMode, activePromptId, activatingId, setNotice, setReadonlyActionNotice } = deps;
   async function loadActivePromptId() {
@@ -282,50 +353,15 @@ export const SystemPromptPage = defineComponent({
   },
   setup(props) {
     // ── State ────────────────────────────────────────
-    const activeTab = ref('all');
-    const roles = ref([...DEFAULT_ROLES]);
-    const currentScopeCwd = ref('');
-    const promptCards = ref([]);
-    const loading = ref(false);
-    const notice = reactive({ level: 'info', message: '' });
-    const fallbackMode = ref(false);
-    const readonlyReason = ref('');
-    const fallbackSource = ref('');
-
-    // Editor state
-    const editorOpen = ref(false);
-    const editorMode = ref('edit'); // 'edit' | 'create'
-    const saving = ref(false);
-    const deletingId = ref('');
-    // Active launch prompt: the row whose PromptText will be injected as
-    // BaseInstructions on the next thread/start. Persisted via ui/preferences
-    // under PREF_KEY_ACTIVE_PROMPT, scoped to project cwd so different repos
-    // can pin different prompts independently.
-    const activePromptId = ref('');
-    const activatingId = ref('');
-    // Plan B opt-in: when true, startThread forwards use_classifier=true so
-    // the backend router auto-picks a prompt_template from the full library
-    // via claude -p. Explicit activePromptId still wins backend-side.
-    const classifierEnabled = ref(false);
-    const editingHasSections = ref(false);
-    const advancedOpen = ref(false);
-    const matchWhenDirty = ref(false);
-    const form = reactive({
-      id: '', name: '', content: '', description: '',
-      agentKey: '',
-      tags: [],
-      matchWhen: '', priority: 0,
-    });
+    const pageState = createPromptPageState();
+    const {
+      activeTab, roles, currentScopeCwd, promptCards, loading, notice, fallbackMode, readonlyReason, fallbackSource,
+      editorOpen, editorMode, saving, deletingId, activePromptId, activatingId, classifierEnabled,
+      editingHasSections, advancedOpen, matchWhenDirty, form,
+    } = pageState;
 
     // ── Computed ─────────────────────────────────────
-    const promptCounts = computed(() => {
-      const counts = {};
-      for (const card of promptCards.value) {
-        const key = card.agentType || 'uncategorized';
-        counts[key] = (counts[key] || 0) + 1;
-      }
-      return counts;
-    });
+    const promptCounts = computed(() => countPromptsByAgent(promptCards.value));
     const filteredCards = computed(() => filterPromptCards(promptCards.value, activeTab.value));
     const cwdDisplay = computed(() =>
       currentScopeCwd.value || props.windowCwd || '未知'
@@ -341,16 +377,7 @@ export const SystemPromptPage = defineComponent({
     const saveDisabled = computed(() => fallbackMode.value || saving.value);
     const deleteDisabled = computed(() => fallbackMode.value || Boolean(deletingId.value));
     const activateDisabled = computed(() => fallbackMode.value || Boolean(activatingId.value));
-    const readonlyBannerMessage = computed(() => {
-      if (!fallbackMode.value) return '';
-      const dataSourceTip = fallbackSource.value === 'dashboard/prompts'
-        ? '当前列表来自 dashboard/prompts 只读旁路。'
-        : '当前保留已有列表或空态。';
-      const reasonTip = readonlyReason.value
-        ? `原因：${readonlyReason.value}。`
-        : '';
-      return `prompts/list 暂不可用，页面已切换为只读模式；新建/保存/删除已禁用，后端恢复后会自动恢复。${dataSourceTip}${reasonTip}`;
-    });
+    const readonlyBannerMessage = computed(() => readonlyPromptBannerMessage(fallbackMode.value, fallbackSource.value, readonlyReason.value));
 
     // ── Helpers ─────────────────────────────────────
     function setNotice(level, message) {
@@ -514,7 +541,8 @@ export const SystemPromptPage = defineComponent({
       }
       try {
         const ok = await copyTextToClipboard(text);
-        setNotice(ok ? 'info' : 'error', ok ? '已复制提示词内容' : '复制失败');
+        const noticePayload = clipboardNotice(ok);
+        setNotice(noticePayload.level, noticePayload.message);
       } catch (error) {
         setNotice('error', `复制失败：${toErrorMessage(error)}`);
       }
@@ -588,21 +616,13 @@ export const SystemPromptPage = defineComponent({
     }
 
     // ── Lifecycle ───────────────────────────────────
-    onMounted(() => {
-      logInfo('system-prompt', 'page.mounted');
+    onMounted(() => { logInfo('system-prompt', 'page.mounted'); loadCurrentScopeCwd(); loadRoles(); refreshPromptsSilently(); });
+
+    watch(() => resolveProjectCwd(props.projectStore), (next, prev) => {
+      if (next === prev) return;
       loadCurrentScopeCwd();
-      loadRoles();
       refreshPromptsSilently();
     });
-
-    watch(
-      () => resolveProjectCwd(props.projectStore),
-      (next, prev) => {
-        if (next === prev) return;
-        loadCurrentScopeCwd();
-        refreshPromptsSilently();
-      },
-    );
 
     return {
       activeTab, roles, promptCounts, saveRoles,
@@ -618,7 +638,7 @@ export const SystemPromptPage = defineComponent({
       copyPromptContent, openCreate, openEdit, closeEditor,
       setLaunchPrompt, clearLaunchPrompt, loadActivePromptId,
       toggleClassifier, loadClassifierEnabled,
-      truncate, countStats, roleIcon,
+      truncate, countStats, roleIcon, emptyPromptMessage, editorModalTitle, editorRoleName, savePromptLabel,
       // Advanced-debug tab toggle (actual CRUD lives in <sections-editor>)
       editorTab, switchEditorTab,
     };
@@ -699,7 +719,7 @@ export const SystemPromptPage = defineComponent({
             </svg>
           </div>
           <h3>暂无提示词</h3>
-          <p>{{ fallbackMode ? '当前为只读降级；待后端恢复后会自动恢复。' : (activeTab === 'all' ? '先选择一个角色，然后点击“新建提示词”' : '点击“新建提示词”开始创建') }}</p>
+          <p>{{ emptyPromptMessage(fallbackMode, activeTab) }}</p>
         </div>
 
         <!-- Loading -->
@@ -772,8 +792,8 @@ export const SystemPromptPage = defineComponent({
         <div class="modal-box sp-editor-modal" role="dialog" aria-modal="true" data-testid="sp-editor-panel">
           <div class="sp-editor-head">
             <div>
-              <div class="modal-title">{{ fallbackMode ? '查看提示词' : (editorMode === 'create' ? '新建提示词' : '编辑提示词') }}</div>
-              <div class="sp-editor-tip">{{ roleIcon(form.agentKey) }} {{ form.agentKey ? (roles.find(r => r.key === form.agentKey)?.name || form.agentKey) : '未分类' }} · {{ cwdDisplay }}</div>
+              <div class="modal-title">{{ editorModalTitle(fallbackMode, editorMode) }}</div>
+              <div class="sp-editor-tip">{{ roleIcon(form.agentKey) }} {{ editorRoleName(form, roles) }} / {{ cwdDisplay }}</div>
             </div>
             <button class="btn btn-ghost" data-testid="sp-editor-close-btn" @click="closeEditor">关闭</button>
           </div>
@@ -832,7 +852,7 @@ export const SystemPromptPage = defineComponent({
               <div class="sp-editor-actions" data-testid="sp-editor-actions">
                 <button class="btn btn-ghost" @click="closeEditor">取消</button>
                 <button class="btn btn-primary sp-save-btn" data-testid="sp-save-btn" :disabled="saveDisabled" @click="savePrompt">
-                  {{ fallbackMode ? '只读模式' : (saving ? '保存中...' : '保存') }}
+                  {{ savePromptLabel(fallbackMode, saving) }}
                 </button>
               </div>
           </div>

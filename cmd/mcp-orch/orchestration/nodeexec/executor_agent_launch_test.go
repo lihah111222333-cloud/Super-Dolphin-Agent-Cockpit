@@ -37,7 +37,7 @@ func TestAgentExecutor_ExecuteClassifiesLaunchCWDContractError(t *testing.T) {
 	t.Parallel()
 	launcher := &stubAgentLauncher{err: contract.ErrLaunchCWDRequired}
 	exec := NewAgentExecutor(launcher)
-	raw, err := json.Marshal(AgentNodeConfig{Exec: AgentExecConfig{AgentKey: "implementer", CWD: "/tmp/node-cwd"}})
+	raw, err := json.Marshal(AgentNodeConfig{Exec: AgentExecConfig{AgentKey: "implementer", CWD: testCWD(t, "node-cwd")}})
 	if err != nil {
 		t.Fatalf("marshal config: %v", err)
 	}

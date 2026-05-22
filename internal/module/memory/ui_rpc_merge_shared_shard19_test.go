@@ -159,7 +159,7 @@ func TestMergeUIMemoryEntriesRollsBackKeptEntryWhenDeleteAbsorbedFails(t *testin
 		originalPrivateIndex: readIndexEntries(t, privateRoot),
 		originalTeamIndex:    readIndexEntries(t, teamRoot),
 	}
-	makeAbsorbedEntryReadOnly(t, absorbedPath)
+	makeAbsorbedEntryDeleteFail(t, absorbedPath)
 
 	_, err = mergeUIMemoryEntries(context.Background(), memoryHandlerDeps{Service: newServiceWithConsolidator(cfg, nil, nil, nil)}, uiMemoryEntryMergeParams{
 		CWD:     projectRoot,
@@ -186,15 +186,6 @@ type mergeRollbackDeleteFailureFixture struct {
 	absorbedBody         string
 	originalPrivateIndex []MemoryIndexEntry
 	originalTeamIndex    []MemoryIndexEntry
-}
-
-func makeAbsorbedEntryReadOnly(t *testing.T, absorbedPath string) {
-	t.Helper()
-	absorbedDir := filepath.Dir(absorbedPath)
-	if err := os.Chmod(absorbedDir, 0o555); err != nil {
-		t.Fatalf("Chmod(absorbedDir read-only) error = %v", err)
-	}
-	t.Cleanup(func() { _ = os.Chmod(absorbedDir, 0o755) })
 }
 
 func assertRollbackFailureEntriesPreserved(t *testing.T, fixture mergeRollbackDeleteFailureFixture) {

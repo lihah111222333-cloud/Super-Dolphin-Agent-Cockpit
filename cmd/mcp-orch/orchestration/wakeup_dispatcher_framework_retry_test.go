@@ -2,7 +2,6 @@ package orchestration
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"testing"
 
@@ -23,14 +22,14 @@ func TestWakeupDispatcher_RouterFrameworkErrorWithRecordedSpawnDoesNotFailDAGAtM
 		}},
 		dagReply: &taskdag.DAG{
 			DagKey:   "dag-1",
-			Metadata: json.RawMessage(`{"schedule":{"default_retry":0},"fail_fast":true}`),
+			Metadata: testRawConfig(t, `{"schedule":{"default_retry":0},"fail_fast":true}`),
 		},
 		nodesReply: []taskdag.Node{{
 			DagKey:           "dag-1",
 			NodeKey:          "n1",
 			NodeType:         "agent",
 			Status:           string(nodeexec.NodeStatusReady),
-			Config:           json.RawMessage(`{"exec":{"agent_key":"alpha","cwd":"/tmp/node-cwd"},"first_turn":"hi"}`),
+			Config:           testRawConfig(t, `{"exec":{"agent_key":"alpha","cwd":"/tmp/node-cwd"},"first_turn":"hi"}`),
 			SpawningThreadID: &spawningThreadID,
 		}},
 		runningErr: errors.New("running status write failed"),
@@ -73,14 +72,14 @@ func TestWakeupDispatcher_SpawnWritebackFailureDoesNotRetryUnrecordedLaunch(t *t
 		}},
 		dagReply: &taskdag.DAG{
 			DagKey:   "dag-1",
-			Metadata: json.RawMessage(`{"schedule":{"default_retry":0},"fail_fast":true}`),
+			Metadata: testRawConfig(t, `{"schedule":{"default_retry":0},"fail_fast":true}`),
 		},
 		nodesReply: []taskdag.Node{{
 			DagKey:   "dag-1",
 			NodeKey:  "n1",
 			NodeType: "agent",
 			Status:   string(nodeexec.NodeStatusReady),
-			Config:   json.RawMessage(`{"exec":{"agent_key":"alpha","cwd":"/tmp/node-cwd"},"first_turn":"hi"}`),
+			Config:   testRawConfig(t, `{"exec":{"agent_key":"alpha","cwd":"/tmp/node-cwd"},"first_turn":"hi"}`),
 		}},
 		runningErr: errors.New("ready->running write must not be reached"),
 	}

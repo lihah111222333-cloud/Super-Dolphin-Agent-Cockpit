@@ -309,6 +309,9 @@ func URIToPath(uri string) string {
 	if trimmed == "" {
 		return ""
 	}
+	if path, err := AbsolutePathFromURI(trimmed); err == nil {
+		return filepath.ToSlash(filepath.Clean(path))
+	}
 	path := parseFileURI(trimmed)
 	path = filepath.Clean(path)
 	return filepath.ToSlash(path)

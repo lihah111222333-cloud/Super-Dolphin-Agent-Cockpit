@@ -3,6 +3,7 @@ package orchestration
 import "testing"
 
 func TestValidateLaunchRequestForLauncher(t *testing.T) {
+	cwd := testCWD(t, "repo")
 	tests := []struct {
 		name     string
 		req      LaunchRequest
@@ -11,7 +12,7 @@ func TestValidateLaunchRequestForLauncher(t *testing.T) {
 	}{
 		{
 			name:     "remote launcher skips command",
-			req:      LaunchRequest{AgentID: "agent-1", Cwd: "/repo"},
+			req:      LaunchRequest{AgentID: "agent-1", Cwd: cwd},
 			launcher: &remoteLauncher{},
 		},
 		{
@@ -22,7 +23,7 @@ func TestValidateLaunchRequestForLauncher(t *testing.T) {
 		},
 		{
 			name:     "local launcher requires command",
-			req:      LaunchRequest{AgentID: "agent-1", Cwd: "/repo"},
+			req:      LaunchRequest{AgentID: "agent-1", Cwd: cwd},
 			launcher: &localLauncher{},
 			wantErr:  "command is required",
 		},
