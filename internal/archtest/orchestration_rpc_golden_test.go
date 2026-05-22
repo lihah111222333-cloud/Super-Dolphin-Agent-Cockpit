@@ -63,6 +63,7 @@ func listAgentSnapshots(at time.Time) []contract.AgentSnapshot {
 			State:      "idle",
 			Provider:   "codex",
 			LastReport: "alpha finished",
+			CreatedAt:  at,
 			UpdatedAt:  at,
 		},
 		{
@@ -74,6 +75,7 @@ func listAgentSnapshots(at time.Time) []contract.AgentSnapshot {
 			Cwd:       "/tmp/agent-list/beta",
 			State:     "running",
 			Provider:  "codex",
+			CreatedAt: at,
 			UpdatedAt: at,
 		},
 	}
