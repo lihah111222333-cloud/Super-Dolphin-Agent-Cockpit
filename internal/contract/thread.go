@@ -38,10 +38,12 @@ type ThreadMetadataStore interface {
 // the thread module need (list / summarize). Keeping it in contract avoids
 // a lateral module→module import.
 type ThreadRef struct {
-	ID      string
-	Name    string
-	AgentID string
-	Status  string
+	ID        string
+	Name      string
+	AgentID   string
+	Status    string
+	CreatedAt int64
+	UpdatedAt int64
 }
 
 // ThreadLister is the read-only subset of thread.Service that the uistate

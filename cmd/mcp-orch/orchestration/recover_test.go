@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"os/exec"
 	"strings"
 	"testing"
 	"time"
@@ -222,6 +223,75 @@ func TestRecoverStalledAgentsPublishesTurnStalledAndResumed(t *testing.T) {
 	assertRecoverResumedEvent(t, resumed)
 }
 
+func TestRecoverStalledAgentsStopsLauncherOwnedAgent(t *testing.T) {
+	t.Parallel()
+
+	dispatcher := event.NewDispatcher()
+	t.Cleanup(func() { _ = dispatcher.Close() })
+
+	launcher := &recordingStallLauncher{}
+	svc := NewService(silentLogger(), dispatcher, launcher, nil, nil, nil)
+	stalledEvents := make(chan turndto.TurnStalled, 2)
+	resumedEvents := make(chan turndto.TurnResumed, 1)
+	stalledCancel := event.Subscribe(dispatcher, func(ev turndto.TurnStalled) {
+		stalledEvents <- ev
+	})
+	resumedCancel := event.Subscribe(dispatcher, func(ev turndto.TurnResumed) {
+		resumedEvents <- ev
+	})
+	t.Cleanup(stalledCancel)
+	t.Cleanup(resumedCancel)
+
+	oldUpdatedAt := time.Now().Add(-time.Minute)
+	agent := svc.newAgentLocked("agent-remote")
+	agent.state = agentdto.StateTurnRunning
+	agent.threadID = "thread-remote"
+	agent.remoteThreadID = "thread-remote"
+	agent.activeTurnID = "turn-remote"
+	agent.updatedAt = oldUpdatedAt
+	svc.agents[agent.id] = agent
+
+	actor := &runnerActor{logger: silentLogger(), service: svc}
+	detector := &StallDetector{threshold: 30 * time.Second, logger: silentLogger()}
+	actor.recoverStalledAgents(context.Background(), detector)
+
+	stalled := awaitTurnStalled(t, stalledEvents)
+	if stalled.AgentID != "agent-remote" || stalled.ThreadID != "thread-remote" || stalled.TurnID != "turn-remote" {
+		t.Fatalf("TurnStalled = %+v, want remote agent/thread/turn", stalled)
+	}
+	assertLauncherOwnedStallStop(t, launcher, agent, resumedEvents)
+}
+
+func assertLauncherOwnedStallStop(t *testing.T, launcher *recordingStallLauncher, agent *agentRuntime, resumedEvents <-chan turndto.TurnResumed) {
+	t.Helper()
+	if launcher.launchCalls != 0 || launcher.stopCalls != 1 {
+		t.Fatalf("launcher calls = launch:%d stop:%d, want stop once and no launch", launcher.launchCalls, launcher.stopCalls)
+	}
+	if agent.state != agentdto.StateStopping || agent.activeTurnID != "" {
+		t.Fatalf("agent state after stalled stop = state:%q active:%q, want stopping with no active turn", agent.state, agent.activeTurnID)
+	}
+	select {
+	case ev := <-resumedEvents:
+		t.Fatalf("unexpected TurnResumed event for launcher-owned agent: %+v", ev)
+	default:
+	}
+}
+
+func TestStallDetectorTreatsLocalProcessWithRemoteThreadIDAsRecoverable(t *testing.T) {
+	t.Parallel()
+
+	detector := &StallDetector{threshold: 30 * time.Second, logger: silentLogger()}
+	agent := &agentRuntime{
+		state:          agentdto.StateTurnRunning,
+		cmd:            &exec.Cmd{},
+		remoteThreadID: "thread-local",
+		updatedAt:      time.Now().Add(-time.Minute),
+	}
+	if !detector.CheckStall(agent) {
+		t.Fatal("CheckStall() = false, want true for local process with reported remote thread id")
+	}
+}
+
 func assertRecoverStalledEvent(t *testing.T, stalled turndto.TurnStalled) {
 	t.Helper()
 	if stalled.AgentID != "agent-1" {
@@ -422,4 +492,31 @@ func awaitTurnResumed(t *testing.T, events <-chan turndto.TurnResumed) turndto.T
 		var zero turndto.TurnResumed
 		return zero
 	}
+}
+
+type recordingStallLauncher struct {
+	launchCalls int
+	stopCalls   int
+}
+
+func (l *recordingStallLauncher) Launch(_ context.Context, agent *agentRuntime, _ LaunchRequest) (LaunchResult, error) {
+	l.launchCalls++
+	return LaunchResult{ThreadID: agent.remoteThreadID, RemoteAgentID: agent.id}, nil
+}
+
+func (l *recordingStallLauncher) Stop(context.Context, *agentRuntime) error {
+	l.stopCalls++
+	return nil
+}
+
+func (l *recordingStallLauncher) Archive(ctx context.Context, agent *agentRuntime) error {
+	return l.Stop(ctx, agent)
+}
+
+func (l *recordingStallLauncher) SubmitTurn(context.Context, *agentRuntime, TurnSubmission) (string, error) {
+	return "turn-remote", nil
+}
+
+func (l *recordingStallLauncher) IsRunning(_ context.Context, agent *agentRuntime) bool {
+	return agent != nil && strings.TrimSpace(agent.remoteThreadID) != ""
 }

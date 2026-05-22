@@ -2,6 +2,7 @@ package orchestration
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -160,6 +161,54 @@ func TestListAgentsIncludesPersistedReportBody(t *testing.T) {
 	}
 	if got[0].LastReport != "结论：persisted\nbody" {
 		t.Fatalf("LastReport = %q, want persisted report body", got[0].LastReport)
+	}
+}
+
+func TestListAgentsNormalizesPersistedMillisecondTimestampsForJSON(t *testing.T) {
+	svc := NewService(silentLogger(), nil, nil, nil, nil, nil)
+	svc.agentThreads = fakeAgentThreadStore{threads: []PersistedThread{
+		{
+			ThreadID:  "agent-1",
+			AgentID:   "agent-1",
+			Name:      "display one",
+			Cwd:       "/repo",
+			Status:    "created",
+			CreatedAt: 1710000000123,
+			UpdatedAt: 1710000100456,
+		},
+	}}
+
+	got, err := svc.ListAgents(context.Background())
+	if err != nil {
+		t.Fatalf("ListAgents() error = %v", err)
+	}
+	if _, err := json.Marshal(got); err != nil {
+		t.Fatalf("json.Marshal(ListAgents()) error = %v", err)
+	}
+	if got[0].CreatedAt.Year() != 2024 || got[0].UpdatedAt.Year() != 2024 {
+		t.Fatalf("timestamps = created:%v updated:%v, want normalized 2024 times", got[0].CreatedAt, got[0].UpdatedAt)
+	}
+	if got[0].CreatedAt.Nanosecond() == 0 || got[0].UpdatedAt.Nanosecond() == 0 {
+		t.Fatalf("timestamps lost millisecond precision: created:%v updated:%v", got[0].CreatedAt, got[0].UpdatedAt)
+	}
+}
+
+func TestListAgentsSortsNewestCreatedFirst(t *testing.T) {
+	svc := NewService(silentLogger(), nil, nil, nil, nil, nil)
+	svc.agentThreads = fakeAgentThreadStore{threads: []PersistedThread{
+		{ThreadID: "thread-parent", AgentID: "agent-parent", Name: "parent", Status: "created", CreatedAt: 1710000000, UpdatedAt: 1710000000},
+		{ThreadID: "thread-child", AgentID: "agent-child", Name: "child", Status: "created", CreatedAt: 1710000100, UpdatedAt: 1710000100},
+	}}
+
+	got, err := svc.ListAgents(context.Background())
+	if err != nil {
+		t.Fatalf("ListAgents() error = %v", err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("ListAgents() len = %d, want 2", len(got))
+	}
+	if got[0].AgentID != "agent-child" || got[1].AgentID != "agent-parent" {
+		t.Fatalf("agent order = [%s %s], want child before parent by created_at desc", got[0].AgentID, got[1].AgentID)
 	}
 }
 

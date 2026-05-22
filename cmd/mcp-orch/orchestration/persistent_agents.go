@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"sort"
 	"strings"
-	"time"
 
+	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	agentdto "github.com/anthropic-ai/super-agent-v3/internal/dto/agent"
 	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
 	platformshared "github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
@@ -96,7 +96,6 @@ func snapshotFromPersistedThread(thread PersistedThread) (AgentSnapshot, bool) {
 		return AgentSnapshot{}, false
 	}
 	name := strings.TrimSpace(platformshared.FirstNonEmpty(thread.Name, thread.Prompt, agentID))
-	updatedAt := persistedThreadTime(thread.UpdatedAt, thread.CreatedAt)
 	return AgentSnapshot{
 		ID:        agentID,
 		AgentID:   agentID,
@@ -107,7 +106,8 @@ func snapshotFromPersistedThread(thread PersistedThread) (AgentSnapshot, bool) {
 		ThreadID:  strings.TrimSpace(thread.ThreadID),
 		Cwd:       strings.TrimSpace(thread.Cwd),
 		State:     persistedThreadAgentState(thread),
-		UpdatedAt: updatedAt,
+		CreatedAt: contract.NormalizeUnixTime(thread.CreatedAt),
+		UpdatedAt: contract.NormalizeUnixTime(thread.UpdatedAt, thread.CreatedAt),
 	}, true
 }
 
@@ -132,15 +132,6 @@ func persistedThreadAgentState(thread PersistedThread) string {
 	default:
 		return strings.TrimSpace(thread.Status)
 	}
-}
-
-func persistedThreadTime(values ...int64) time.Time {
-	for _, value := range values {
-		if value > 0 {
-			return time.Unix(value, 0)
-		}
-	}
-	return time.Time{}
 }
 
 func mergeAgentSnapshots(persisted, runtime []AgentSnapshot) []AgentSnapshot {
@@ -183,6 +174,9 @@ func overlayRuntimeSnapshot(persisted, runtime AgentSnapshot) AgentSnapshot {
 	if persisted.ParentID != "" {
 		runtime.ParentID = persisted.ParentID
 	}
+	if !persisted.CreatedAt.IsZero() {
+		runtime.CreatedAt = persisted.CreatedAt
+	}
 	if runtime.AgentID == "" {
 		runtime.AgentID = runtime.ID
 	}
@@ -191,13 +185,17 @@ func overlayRuntimeSnapshot(persisted, runtime AgentSnapshot) AgentSnapshot {
 
 func sortAgentSnapshots(snapshots []AgentSnapshot) {
 	sort.SliceStable(snapshots, func(i, j int) bool {
-		if snapshots[i].ID != snapshots[j].ID {
-			return snapshots[i].ID < snapshots[j].ID
+		left, right := snapshots[i].CreatedAt, snapshots[j].CreatedAt
+		if left.IsZero() {
+			left = snapshots[i].UpdatedAt
 		}
-		if snapshots[i].Name != snapshots[j].Name {
-			return snapshots[i].Name < snapshots[j].Name
+		if right.IsZero() {
+			right = snapshots[j].UpdatedAt
 		}
-		return snapshots[i].Port < snapshots[j].Port
+		if !left.Equal(right) {
+			return left.After(right)
+		}
+		return snapshots[i].ID < snapshots[j].ID
 	})
 }
 

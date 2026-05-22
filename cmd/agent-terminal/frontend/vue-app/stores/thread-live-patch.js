@@ -212,6 +212,7 @@ export function applyRuntimeThreadPatch(ctx, evt, threadId, options = {}) {
   const payload = getBridgeEventPayloadObject(evt);
   const id = normalizeThreadID(threadId || payload.threadId || payload.thread_id || payload.agent_id);
   if (!id) return { handled: false, needsRecovery: false, reason: '' };
+  const allowGlobalSelectionPatch = options.allowGlobalSelectionPatch !== false;
   const hasStatus = Object.prototype.hasOwnProperty.call(payload, 'status');
   const hasInterruptible = Object.prototype.hasOwnProperty.call(payload, 'interruptible');
   const hasStatusHeader = Object.prototype.hasOwnProperty.call(payload, 'statusHeader');
@@ -235,6 +236,7 @@ export function applyRuntimeThreadPatch(ctx, evt, threadId, options = {}) {
   );
   const hasTokenUsage = Object.prototype.hasOwnProperty.call(payload, 'tokenUsage');
   const hasAgentMeta = Object.prototype.hasOwnProperty.call(payload, 'agentMeta');
+  const hasAgentRuntime = Object.prototype.hasOwnProperty.call(payload, 'agentRuntime');
   const hasActivityStats = Object.prototype.hasOwnProperty.call(payload, 'activityStats');
   const hasAlerts = Object.prototype.hasOwnProperty.call(payload, 'alerts');
   const hasActiveThreadId = Object.prototype.hasOwnProperty.call(payload, 'activeThreadId');
@@ -256,6 +258,7 @@ export function applyRuntimeThreadPatch(ctx, evt, threadId, options = {}) {
     || hasDiffRevision
     || hasTokenUsage
     || hasAgentMeta
+    || hasAgentRuntime
     || hasActivityStats
     || hasAlerts
     || hasActiveThreadId
@@ -283,6 +286,11 @@ export function applyRuntimeThreadPatch(ctx, evt, threadId, options = {}) {
   }
 
   const now = typeof options.perfNow === 'function' ? options.perfNow() : Date.now();
+  let overlayPriorityPatch;
+  if (hasOverlayPriority) {
+    const parsedOverlayPriority = Number(payload.overlayPriority);
+    overlayPriorityPatch = Number.isFinite(parsedOverlayPriority) ? parsedOverlayPriority : 0;
+  }
 
   upsertThreadEntry(ctx.state, payload.thread, payload.status);
   setSingleMapEntry(ctx.state, 'statuses', id, hasStatus ? normalizeStatus(payload.status) : undefined, { hasValue: hasStatus });
@@ -291,9 +299,9 @@ export function applyRuntimeThreadPatch(ctx, evt, threadId, options = {}) {
   setSingleMapEntry(ctx.state, 'statusDetailsByThread', id, hasStatusDetails ? (payload.statusDetails || '').toString() : undefined, { hasValue: hasStatusDetails });
   setSingleMapEntry(ctx.state, 'overlayTextByThread', id, hasOverlayText ? (payload.overlayText || '').toString() : undefined, { hasValue: hasOverlayText });
   setSingleMapEntry(ctx.state, 'overlayTypeByThread', id, hasOverlayType ? (payload.overlayType || '').toString() : undefined, { hasValue: hasOverlayType });
-  setSingleMapEntry(ctx.state, 'overlayPriorityByThread', id, hasOverlayPriority ? (Number.isFinite(Number(payload.overlayPriority)) ? Number(payload.overlayPriority) : 0) : undefined, { hasValue: hasOverlayPriority });
-  setStateValue(ctx.state, 'activeThreadId', hasActiveThreadId ? normalizeThreadID(payload.activeThreadId) : undefined, hasActiveThreadId);
-  setStateValue(ctx.state, 'activeCmdThreadId', hasActiveCmdThreadId ? normalizeThreadID(payload.activeCmdThreadId) : undefined, hasActiveCmdThreadId);
+  setSingleMapEntry(ctx.state, 'overlayPriorityByThread', id, overlayPriorityPatch, { hasValue: hasOverlayPriority });
+  setStateValue(ctx.state, 'activeThreadId', hasActiveThreadId ? normalizeThreadID(payload.activeThreadId) : undefined, hasActiveThreadId && allowGlobalSelectionPatch);
+  setStateValue(ctx.state, 'activeCmdThreadId', hasActiveCmdThreadId ? normalizeThreadID(payload.activeCmdThreadId) : undefined, hasActiveCmdThreadId && allowGlobalSelectionPatch);
   setStateValue(ctx.state, 'mainAgentId', hasMainAgentId ? (payload.mainAgentId || '').toString().trim() : undefined, hasMainAgentId);
   setStateValue(ctx.state, 'mainAgentState', hasMainAgentState ? (payload.mainAgentState || '').toString().trim() : undefined, hasMainAgentState);
   setStateValue(ctx.state, 'partial', payload.partial === true || payload.partial === 'true' || Number(payload.partial) === 1, hasPartial);
@@ -311,6 +319,7 @@ export function applyRuntimeThreadPatch(ctx, evt, threadId, options = {}) {
   }
   setObjectMapEntry(ctx.state, 'tokenUsageByThread', id, payload.tokenUsage, hasTokenUsage);
   setObjectMapEntry(ctx.state, 'agentMetaById', id, payload.agentMeta, hasAgentMeta);
+  setObjectMapEntry(ctx.state, 'agentRuntimeById', id, payload.agentRuntime, hasAgentRuntime);
   setObjectMapEntry(ctx.state, 'activityStatsByThread', id, payload.activityStats, hasActivityStats);
   setAlertsEntry(ctx.state, id, payload.alerts, hasAlerts);
 
@@ -344,5 +353,13 @@ export function applyRuntimeThreadPatch(ctx, evt, threadId, options = {}) {
     refresh_required: hasRefreshRequired,
     fallback_reason: hasRefreshRequired ? (payload.fallbackReason || '').toString() : '',
   });
-  return { handled: true, needsRecovery, reason: hasRefreshRequired ? ((payload.fallbackReason || '').toString() || 'refresh_required') : (sequenceGap ? 'sequence_gap' : (timelineResult.needsRecovery ? 'missing_timeline_item' : '')) };
+  let reason = '';
+  if (hasRefreshRequired) {
+    reason = (payload.fallbackReason || '').toString() || 'refresh_required';
+  } else if (sequenceGap) {
+    reason = 'sequence_gap';
+  } else if (timelineResult.needsRecovery) {
+    reason = 'missing_timeline_item';
+  }
+  return { handled: true, needsRecovery, reason };
 }

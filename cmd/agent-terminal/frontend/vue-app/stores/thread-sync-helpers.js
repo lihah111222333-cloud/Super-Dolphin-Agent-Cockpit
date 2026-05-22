@@ -489,19 +489,23 @@ export function handleBridgeEvent(ctx, evt) {
       ctx.state.timelinesByThread = { ...ctx.state.timelinesByThread, [activeThreadTarget]: nextTimelines };
     }
   }
-  if (methodLower === THREAD_PATCH_METHOD && activeThreadTarget) {
+  if (methodLower === THREAD_PATCH_METHOD && eventThreadTarget) {
     const patchPayload = evt?.payload || evt?.params?.payload || evt?.params || evt?.data || evt || {};
     const hasTimelineItems = Array.isArray(patchPayload?.timelineItems) && patchPayload.timelineItems.length > 0;
     logInfo('thread', 'bridge.thread_patch_received', {
-      thread_id: activeThreadTarget,
+      thread_id: eventThreadTarget,
       source: (patchPayload?.source || '').toString(),
       sequence: patchPayload?.sequence,
       has_timeline_items: hasTimelineItems,
+      is_active: Boolean(activeThreadTarget),
     });
-    const patchResult = applyRuntimeThreadPatch(ctx, evt, activeThreadTarget, { perfNow });
+    const patchResult = applyRuntimeThreadPatch(ctx, evt, eventThreadTarget, {
+      perfNow,
+      allowGlobalSelectionPatch: Boolean(activeThreadTarget),
+    });
     if (patchResult?.handled) {
       if (patchResult.needsRecovery) {
-        syncThreadState(ctx, activeThreadTarget).catch((error) => logWarn('thread', 'state.patch.recovery.failed', { error, by_event: eventName, reason: patchResult.reason || 'patch_gap' }));
+        syncThreadState(ctx, eventThreadTarget).catch((error) => logWarn('thread', 'state.patch.recovery.failed', { error, by_event: eventName, reason: patchResult.reason || 'patch_gap' }));
       }
       return;
     }
@@ -572,7 +576,14 @@ export function handleBridgeEvent(ctx, evt) {
 
   if (threadSyncSignal && activeThreadTarget) {
     const isHighPriority = sourceLower === 'thread/started' || shouldReloadThreadHistory(ctx, activeThreadTarget);
-    const debounceMs = isHighPriority ? 0 : ((sourceLower === 'thread/compacted' || sourceLower === 'thread/tokenusage/updated' || sourceLower === 'turn/completed' || sourceLower === 'turn/aborted' || typeLower === 'context_compacted') ? 80 : 200);
+    const isMediumPriority = sourceLower === 'thread/compacted'
+      || sourceLower === 'thread/tokenusage/updated'
+      || sourceLower === 'turn/completed'
+      || sourceLower === 'turn/aborted'
+      || typeLower === 'context_compacted';
+    let debounceMs = 200;
+    if (isHighPriority) debounceMs = 0;
+    else if (isMediumPriority) debounceMs = 80;
     const now = typeof performance !== 'undefined' ? performance.now() : Date.now();
     if (isHighPriority || now - ctx.syncThrottleLastRun >= ctx.SYNC_THROTTLE_MS) {
       ctx.syncThrottleLastRun = now;
