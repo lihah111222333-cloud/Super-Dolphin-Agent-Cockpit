@@ -7,8 +7,6 @@ import (
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
 )
 
-// serviceThreadListerAdapter wraps a thread.Service so it satisfies
-// contract.ThreadLister, converting []Ref → []contract.ThreadRef.
 type serviceThreadListerAdapter struct {
 	svc Service
 }
@@ -30,25 +28,24 @@ func (a *serviceThreadListerAdapter) List(ctx context.Context) ([]contract.Threa
 	out := make([]contract.ThreadRef, len(refs))
 	for i, r := range refs {
 		out[i] = contract.ThreadRef{
-			ID:      r.ID,
-			Name:    r.Name,
-			AgentID: r.AgentID,
-			Status:  r.Status,
+			ID:        r.ID,
+			Name:      r.Name,
+			AgentID:   r.AgentID,
+			Status:    r.Status,
+			CreatedAt: r.CreatedAt,
+			UpdatedAt: r.UpdatedAt,
 		}
 	}
 	return out, nil
 }
 
-// serviceConfigReaderAdapter wraps a thread.Service so it satisfies
-// contract.ThreadConfigReader and optionally contract.ThreadRuntimeConfigReader.
 type serviceConfigReaderAdapter struct {
 	svc Service
 }
 
 // NewThreadConfigReader returns a contract.ThreadConfigReader backed by the
 // given Service. The returned adapter also satisfies
-// contract.ThreadRuntimeConfigReader when the underlying Service supports
-// ReadRuntimeConfig. Returns nil when svc is nil.
+// contract.ThreadRuntimeConfigReader. Returns nil when svc is nil.
 func NewThreadConfigReader(svc Service) contract.ThreadConfigReader {
 	if svc == nil {
 		return nil
@@ -58,7 +55,6 @@ func NewThreadConfigReader(svc Service) contract.ThreadConfigReader {
 
 // NewThreadRuntimeConfigReader returns a contract.ThreadRuntimeConfigReader
 // backed by the same adapter as NewThreadConfigReader.
-// Returns nil when svc is nil.
 func NewThreadRuntimeConfigReader(svc Service) contract.ThreadRuntimeConfigReader {
 	if svc == nil {
 		return nil

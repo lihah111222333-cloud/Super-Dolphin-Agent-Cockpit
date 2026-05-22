@@ -13,6 +13,7 @@ import (
 	uidto "github.com/anthropic-ai/super-agent-v3/internal/dto/ui"
 	"github.com/anthropic-ai/super-agent-v3/internal/module/uistate/timeline"
 	"github.com/anthropic-ai/super-agent-v3/internal/store/uipreference"
+	"github.com/anthropic-ai/super-agent-v3/internal/util/clone"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
@@ -128,8 +129,10 @@ func buildInitialState(ctx context.Context, threads contract.ThreadLister, agent
 	}
 	for _, agent := range state.Agents {
 		state.Threads = upsertThreadSummary(state.Threads, ThreadSummary{
-			ID:      agent.ThreadID,
-			AgentID: agent.ID,
+			ID:        agent.ThreadID,
+			AgentID:   agent.ID,
+			CreatedAt: clone.Time(agent.CreatedAt),
+			UpdatedAt: clone.Time(agent.UpdatedAt),
 		})
 	}
 	sortThreads(state.Threads)
@@ -144,6 +147,8 @@ func summarizeThreads(items []contract.ThreadRef) []ThreadSummary {
 			ID:              strings.TrimSpace(item.ID),
 			Name:            strings.TrimSpace(item.Name),
 			AgentID:         strings.TrimSpace(item.AgentID),
+			CreatedAt:       nonZeroTimePtr(contract.NormalizeUnixTime(item.CreatedAt)),
+			UpdatedAt:       nonZeroTimePtr(contract.NormalizeUnixTime(item.UpdatedAt)),
 			LifecycleStatus: status,
 			State:           status,
 		})
@@ -162,6 +167,8 @@ func summarizeAgents(items []contract.AgentSnapshot) []AgentSummary {
 			Provider:    strings.TrimSpace(item.Provider),
 			CWD:         strings.TrimSpace(item.Cwd),
 			Port:        item.Port,
+			CreatedAt:   nonZeroTimePtr(item.CreatedAt),
+			UpdatedAt:   nonZeroTimePtr(item.UpdatedAt),
 			LastReport:  strings.TrimSpace(item.LastReport),
 			AgentState:  strings.TrimSpace(item.State),
 			LastMessage: strings.TrimSpace(item.LastReport),

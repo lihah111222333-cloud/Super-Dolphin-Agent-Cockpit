@@ -68,9 +68,18 @@ func (s *service) snapshotLocked(_ context.Context, agent *agentRuntime) AgentSn
 	if persistedAgentID == "" {
 		persistedAgentID = agent.id
 	}
+	launchID := strings.TrimSpace(agent.requestedAgentID)
+	if launchID == persistedAgentID || launchID == agent.id {
+		launchID = ""
+	}
+	createdAt := agent.startedAt
+	if createdAt.IsZero() {
+		createdAt = agent.updatedAt
+	}
 	return AgentSnapshot{
 		ID:             agent.id,
 		AgentID:        persistedAgentID,
+		LaunchID:       launchID,
 		Name:           agent.name,
 		ParentID:       agent.parentID,
 		Port:           port,
@@ -83,6 +92,7 @@ func (s *service) snapshotLocked(_ context.Context, agent *agentRuntime) AgentSn
 		Provider:       provider,
 		ProviderSource: providerSource,
 		LastReport:     normalizeDisplayReportText(agent.lastReport),
+		CreatedAt:      createdAt,
 		UpdatedAt:      agent.updatedAt,
 	}
 }

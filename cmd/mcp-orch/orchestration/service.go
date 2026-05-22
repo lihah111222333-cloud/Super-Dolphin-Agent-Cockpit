@@ -98,7 +98,7 @@ type service struct {
 	nextTurnSeq int64
 
 	// asyncCtx / asyncCancel / asyncWg track fire-and-forget goroutines
-	// (e.g. submitInitialLaunchPromptAsync, async LaunchAgent) so
+	// (e.g. async LaunchAgent) so
 	// DrainAsync can join them on shutdown instead of leaking.
 	asyncCtx    context.Context
 	asyncCancel context.CancelFunc
@@ -150,6 +150,7 @@ type agentRuntime struct {
 	threadID          string
 	remoteThreadID    string
 	remoteAgentID     string
+	requestedAgentID  string
 	activeTurnID      string
 	lastReport        string
 	reportRequesters  []string

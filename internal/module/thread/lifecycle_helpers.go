@@ -511,13 +511,14 @@ func bindingHasProviderHistoryForUUID(binding *bindingstore.Binding, providerThr
 func toRef(thread threadstore.Thread) Ref {
 	name := strings.TrimSpace(util.FirstNonEmpty(thread.Name, thread.Prompt))
 	return Ref{
-		ID:      strings.TrimSpace(thread.ThreadID),
-		Name:    name,
-		AgentID: strings.TrimSpace(thread.AgentID),
-		Status:  strings.TrimSpace(thread.Status),
-		CWD:     strings.TrimSpace(thread.Cwd),
-		Model:   strings.TrimSpace(thread.Model),
-		Port:    int(thread.Port),
+		ID:        strings.TrimSpace(thread.ThreadID),
+		Name:      name,
+		AgentID:   strings.TrimSpace(thread.AgentID),
+		Status:    strings.TrimSpace(thread.Status),
+		CreatedAt: thread.CreatedAt, UpdatedAt: thread.UpdatedAt,
+		CWD:   strings.TrimSpace(thread.Cwd),
+		Model: strings.TrimSpace(thread.Model),
+		Port:  int(thread.Port),
 	}
 }
 

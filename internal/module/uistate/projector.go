@@ -2,9 +2,10 @@ package uistate
 
 import (
 	"context"
-	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	"strings"
+	"time"
 
+	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	"github.com/kelindar/event"
 
 	tooldto "github.com/anthropic-ai/super-agent-v3/internal/dto/tool"
@@ -325,6 +326,13 @@ func chooseString(next, current string) string {
 func choosePositiveInt(next, current int) int {
 	if next > 0 {
 		return next
+	}
+	return current
+}
+
+func chooseTime(next, current *time.Time) *time.Time {
+	if next != nil && !next.IsZero() {
+		return clone.Time(next)
 	}
 	return current
 }

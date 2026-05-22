@@ -43,9 +43,11 @@ type UIState struct {
 	Groups                   []ThreadGroup                           `json:"groups,omitempty"`
 }
 type ThreadSummary struct {
-	ID      string `json:"id"`
-	Name    string `json:"name,omitempty"`
-	AgentID string `json:"agent_id,omitempty"`
+	ID        string     `json:"id"`
+	Name      string     `json:"name,omitempty"`
+	AgentID   string     `json:"agent_id,omitempty"`
+	CreatedAt *time.Time `json:"createdAt,omitempty"`
+	UpdatedAt *time.Time `json:"updatedAt,omitempty"`
 	// LifecycleStatus is the DB lifecycle truth (created/stopped/archived).
 	// State remains the UI/runtime union field and may be overwritten by
 	// deriveThreadStatuses, so archive projection must not rely on State alone.
@@ -60,21 +62,23 @@ type ThreadSummary struct {
 }
 
 type AgentSummary struct {
-	ID               string `json:"id"`
-	Name             string `json:"name,omitempty"`
-	ThreadID         string `json:"thread_id,omitempty"`
-	ProviderThreadID string `json:"provider_thread_id,omitempty"`
-	ParentID         string `json:"parent_id,omitempty"`
-	State            string `json:"state,omitempty"`
-	Provider         string `json:"provider,omitempty"`
-	Model            string `json:"model,omitempty"`
-	CWD              string `json:"cwd,omitempty"`
-	Port             int    `json:"port,omitempty"`
-	LogPath          string `json:"logPath,omitempty"`
-	LastReport       string `json:"last_report,omitempty"`
-	AgentState       string `json:"agentState,omitempty"`
-	ThreadStatus     string `json:"threadStatus,omitempty"`
-	LastMessage      string `json:"lastMessage,omitempty"`
+	ID               string     `json:"id"`
+	Name             string     `json:"name,omitempty"`
+	ThreadID         string     `json:"thread_id,omitempty"`
+	ProviderThreadID string     `json:"provider_thread_id,omitempty"`
+	ParentID         string     `json:"parent_id,omitempty"`
+	State            string     `json:"state,omitempty"`
+	Provider         string     `json:"provider,omitempty"`
+	Model            string     `json:"model,omitempty"`
+	CWD              string     `json:"cwd,omitempty"`
+	Port             int        `json:"port,omitempty"`
+	LogPath          string     `json:"logPath,omitempty"`
+	CreatedAt        *time.Time `json:"createdAt,omitempty"`
+	UpdatedAt        *time.Time `json:"updatedAt,omitempty"`
+	LastReport       string     `json:"last_report,omitempty"`
+	AgentState       string     `json:"agentState,omitempty"`
+	ThreadStatus     string     `json:"threadStatus,omitempty"`
+	LastMessage      string     `json:"lastMessage,omitempty"`
 }
 
 type TurnSummary struct {
@@ -240,11 +244,21 @@ func clonePreferences(value Preferences) *Preferences {
 }
 
 func cloneThreads(items []ThreadSummary) []ThreadSummary {
-	return append([]ThreadSummary(nil), items...)
+	out := append([]ThreadSummary(nil), items...)
+	for i := range out {
+		out[i].CreatedAt = clone.Time(items[i].CreatedAt)
+		out[i].UpdatedAt = clone.Time(items[i].UpdatedAt)
+	}
+	return out
 }
 
 func cloneAgents(items []AgentSummary) []AgentSummary {
-	return append([]AgentSummary(nil), items...)
+	out := append([]AgentSummary(nil), items...)
+	for i := range out {
+		out[i].CreatedAt = clone.Time(items[i].CreatedAt)
+		out[i].UpdatedAt = clone.Time(items[i].UpdatedAt)
+	}
+	return out
 }
 
 func cloneTokenUsages(m map[string]TokenUsage) map[string]TokenUsage {
@@ -324,6 +338,8 @@ func upsertThreadSummary(items []ThreadSummary, next ThreadSummary) []ThreadSumm
 func mergeThreadSummary(dst *ThreadSummary, src ThreadSummary) {
 	dst.Name = chooseString(src.Name, dst.Name)
 	dst.AgentID = chooseString(src.AgentID, dst.AgentID)
+	dst.CreatedAt = chooseTime(src.CreatedAt, dst.CreatedAt)
+	dst.UpdatedAt = chooseTime(src.UpdatedAt, dst.UpdatedAt)
 	dst.LifecycleStatus = chooseString(src.LifecycleStatus, dst.LifecycleStatus)
 	dst.State = chooseString(src.State, dst.State)
 	dst.ThreadStatus = chooseString(src.ThreadStatus, dst.ThreadStatus)
@@ -361,6 +377,8 @@ func mergeAgentIdentity(dst *AgentSummary, src AgentSummary) {
 	dst.Name = chooseString(src.Name, dst.Name)
 	dst.ThreadID = chooseString(src.ThreadID, dst.ThreadID)
 	dst.ParentID = chooseString(src.ParentID, dst.ParentID)
+	dst.CreatedAt = chooseTime(src.CreatedAt, dst.CreatedAt)
+	dst.UpdatedAt = chooseTime(src.UpdatedAt, dst.UpdatedAt)
 }
 
 func mergeAgentRuntime(dst *AgentSummary, src AgentSummary) {
@@ -382,6 +400,10 @@ func mergeAgentTurnInfo(dst *AgentSummary, src AgentSummary) {
 
 func sortThreads(items []ThreadSummary) {
 	sort.SliceStable(items, func(i, j int) bool {
+		leftCreatedAt, rightCreatedAt := summarySortTime(items[i].CreatedAt, items[i].UpdatedAt), summarySortTime(items[j].CreatedAt, items[j].UpdatedAt)
+		if !leftCreatedAt.Equal(rightCreatedAt) {
+			return leftCreatedAt.After(rightCreatedAt)
+		}
 		left, right := strings.TrimSpace(items[i].Name), strings.TrimSpace(items[j].Name)
 		if left == right {
 			return items[i].ID < items[j].ID
@@ -395,6 +417,10 @@ func sortThreads(items []ThreadSummary) {
 
 func sortAgents(items []AgentSummary) {
 	sort.SliceStable(items, func(i, j int) bool {
+		leftCreatedAt, rightCreatedAt := summarySortTime(items[i].CreatedAt, items[i].UpdatedAt), summarySortTime(items[j].CreatedAt, items[j].UpdatedAt)
+		if !leftCreatedAt.Equal(rightCreatedAt) {
+			return leftCreatedAt.After(rightCreatedAt)
+		}
 		if items[i].Name != items[j].Name && items[i].Name != "" && items[j].Name != "" {
 			return items[i].Name < items[j].Name
 		}
@@ -416,4 +442,18 @@ func zeroTime(value *time.Time) time.Time {
 		return time.Time{}
 	}
 	return *value
+}
+
+func summarySortTime(createdAt, updatedAt *time.Time) time.Time {
+	if t := zeroTime(createdAt); !t.IsZero() {
+		return t
+	}
+	return zeroTime(updatedAt)
+}
+
+func nonZeroTimePtr(value time.Time) *time.Time {
+	if value.IsZero() {
+		return nil
+	}
+	return clone.Time(&value)
 }

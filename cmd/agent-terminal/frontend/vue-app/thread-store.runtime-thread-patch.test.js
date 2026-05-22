@@ -147,6 +147,89 @@ describe('thread store runtime thread patch', () => {
     expect(methods).toEqual([]);
   });
 
+  it('applies live patch runtime metadata so relaunched agents are visible without snapshot refresh', async () => {
+    const store = useThreadStore();
+    const threadId = 'thread-relaunch';
+
+    store.handleBridgeEvent({
+      method: 'ui/thread/patch',
+      payload: {
+        ...buildThreadPatch({
+          threadId,
+          threadName: 'Relaunched',
+          status: 'running',
+          sequence: 21,
+          source: 'agent/launched',
+        }),
+        thread: {
+          id: threadId,
+          name: 'Relaunched',
+          state: 'running',
+          createdAt: '2026-05-22T09:00:00Z',
+          updatedAt: '2026-05-22T09:01:00Z',
+        },
+        agentRuntime: {
+          agentId: 'agent-relaunch',
+          provider: 'codex',
+          providerThreadId: 'provider-thread',
+          cwd: '/repo/current',
+          state: 'running',
+        },
+      },
+    });
+
+    expect(store.state.threads.find((thread) => thread.id === threadId)).toEqual(expect.objectContaining({
+      id: threadId,
+      name: 'Relaunched',
+      createdAt: '2026-05-22T09:00:00Z',
+    }));
+    expect(store.state.agentRuntimeById[threadId]).toEqual(expect.objectContaining({
+      agentId: 'agent-relaunch',
+      cwd: '/repo/current',
+      providerThreadId: 'provider-thread',
+    }));
+  });
+
+  it('does not let inactive child patches override the current selection', async () => {
+    const store = useThreadStore();
+    const currentThreadId = 'thread-current';
+    const childThreadId = 'thread-child';
+    store.state.activeThreadId = currentThreadId;
+    store.state.activeCmdThreadId = 'thread-cmd-current';
+    store.state.threads = [{ id: currentThreadId, name: 'Current', state: 'running' }];
+
+    store.handleBridgeEvent({
+      method: 'ui/thread/patch',
+      payload: {
+        ...buildThreadPatch({
+          threadId: childThreadId,
+          threadName: 'Child',
+          status: 'running',
+          sequence: 22,
+          source: 'agent/launched',
+        }),
+        activeThreadId: childThreadId,
+        activeCmdThreadId: childThreadId,
+        agentRuntime: {
+          agentId: 'agent-child',
+          cwd: '/repo/current',
+          state: 'running',
+        },
+      },
+    });
+
+    expect(store.state.threads.find((thread) => thread.id === childThreadId)).toEqual(expect.objectContaining({
+      id: childThreadId,
+      name: 'Child',
+    }));
+    expect(store.state.agentRuntimeById[childThreadId]).toEqual(expect.objectContaining({
+      agentId: 'agent-child',
+      cwd: '/repo/current',
+    }));
+    expect(store.state.activeThreadId).toBe(currentThreadId);
+    expect(store.state.activeCmdThreadId).toBe('thread-cmd-current');
+  });
+
   it('keeps completion events on push path without falling back to pull sync', async () => {
     const store = useThreadStore();
     const threadId = 'thread-live-complete';

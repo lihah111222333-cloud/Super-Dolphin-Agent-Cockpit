@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"reflect"
 	"testing"
 	"time"
 
@@ -42,6 +43,90 @@ func TestGetSidebarBuildsCompatibilitySnapshot(t *testing.T) {
 		t.Fatalf("GetSidebar() error = %v", err)
 	}
 	assertCompatibilitySidebarSnapshot(t, sidebar)
+}
+
+func TestSortThreadsUsesNewestCreatedAtFirst(t *testing.T) {
+	oldCreatedAt := time.Date(2026, 5, 22, 10, 0, 0, 0, time.UTC)
+	newCreatedAt := oldCreatedAt.Add(time.Minute)
+	items := []ThreadSummary{
+		{ID: "thread-old", Name: "Z old", CreatedAt: &oldCreatedAt},
+		{ID: "thread-new", Name: "A new", CreatedAt: &newCreatedAt},
+	}
+
+	sortThreads(items)
+
+	if got := []string{items[0].ID, items[1].ID}; !reflect.DeepEqual(got, []string{"thread-new", "thread-old"}) {
+		t.Fatalf("sortThreads() order = %#v, want newest created first", got)
+	}
+}
+
+func TestSortThreadsFallsBackToUpdatedAtWhenCreatedAtMissing(t *testing.T) {
+	oldUpdatedAt := time.Date(2026, 5, 22, 10, 0, 0, 0, time.UTC)
+	newUpdatedAt := oldUpdatedAt.Add(time.Minute)
+	items := []ThreadSummary{
+		{ID: "thread-old", Name: "A old", UpdatedAt: &oldUpdatedAt},
+		{ID: "thread-new", Name: "Z new", UpdatedAt: &newUpdatedAt},
+	}
+
+	sortThreads(items)
+
+	if got := []string{items[0].ID, items[1].ID}; !reflect.DeepEqual(got, []string{"thread-new", "thread-old"}) {
+		t.Fatalf("sortThreads() order = %#v, want newest updated first", got)
+	}
+}
+
+func TestBuildInitialStateSortsThreadsByThreadRefCreatedAt(t *testing.T) {
+	t.Parallel()
+
+	oldCreatedAt := time.Date(2026, 5, 22, 10, 0, 0, 0, time.UTC)
+	newCreatedAt := oldCreatedAt.Add(time.Minute)
+	state, err := buildInitialState(context.Background(), &threadListerStub{refs: []contract.ThreadRef{
+		{ID: "thread-old", Name: "A old", CreatedAt: oldCreatedAt.UnixMilli()},
+		{ID: "thread-new", Name: "Z new", CreatedAt: newCreatedAt.UnixMilli()},
+	}}, nil)
+	if err != nil {
+		t.Fatalf("buildInitialState() error = %v", err)
+	}
+	if got := []string{state.Threads[0].ID, state.Threads[1].ID}; !reflect.DeepEqual(got, []string{"thread-new", "thread-old"}) {
+		t.Fatalf("buildInitialState() thread order = %#v, want newest created_at first", got)
+	}
+	if state.Threads[0].CreatedAt == nil || !state.Threads[0].CreatedAt.Equal(newCreatedAt) {
+		t.Fatalf("thread-new CreatedAt = %v, want %s", state.Threads[0].CreatedAt, newCreatedAt)
+	}
+	if state.Threads[0].UpdatedAt != nil {
+		t.Fatalf("thread-new UpdatedAt = %v, want nil for zero source updated_at", state.Threads[0].UpdatedAt)
+	}
+}
+
+func TestSortAgentsUsesNewestCreatedAtFirst(t *testing.T) {
+	oldCreatedAt := time.Date(2026, 5, 22, 10, 0, 0, 0, time.UTC)
+	newCreatedAt := oldCreatedAt.Add(time.Minute)
+	items := []AgentSummary{
+		{ID: "agent-old", Name: "Z old", CreatedAt: &oldCreatedAt},
+		{ID: "agent-new", Name: "A new", CreatedAt: &newCreatedAt},
+	}
+
+	sortAgents(items)
+
+	if got := []string{items[0].ID, items[1].ID}; !reflect.DeepEqual(got, []string{"agent-new", "agent-old"}) {
+		t.Fatalf("sortAgents() order = %#v, want newest created first", got)
+	}
+}
+
+func TestSummarizeThreadsCarriesCreatedAtForSorting(t *testing.T) {
+	items := summarizeThreads([]contract.ThreadRef{
+		{ID: "thread-old", Name: "Z old", CreatedAt: 1710000000000, UpdatedAt: 1710000000000},
+		{ID: "thread-new", Name: "A new", CreatedAt: 1710000060000, UpdatedAt: 1710000060000},
+	})
+
+	sortThreads(items)
+
+	if got := []string{items[0].ID, items[1].ID}; !reflect.DeepEqual(got, []string{"thread-new", "thread-old"}) {
+		t.Fatalf("summarized thread order = %#v, want newest created first", got)
+	}
+	if items[0].CreatedAt == nil || items[0].CreatedAt.Year() != 2024 {
+		t.Fatalf("summarized CreatedAt = %v, want normalized 2024 timestamp", items[0].CreatedAt)
+	}
 }
 
 func assertCompatibilitySidebarSnapshot(t *testing.T, sidebar *Sidebar) {
@@ -582,5 +667,22 @@ func TestProjectArchivedThreadStatusForcesArchivedWhenDBSaysArchived(t *testing.
 	got := projectArchivedThreadStatus(threads, archived)
 	if got["t1"] < 1 {
 		t.Fatalf("ThreadArchivesChat[t1] = %d, want >= 1 (DB archived must force entry)", got["t1"])
+	}
+}
+
+func TestProjectArchivedThreadStatusUsesThreadUpdatedAtForDBArchiveTime(t *testing.T) {
+	updatedAt := time.Date(2026, 5, 22, 10, 0, 0, 0, time.UTC)
+	createdAt := updatedAt.Add(-time.Hour)
+	threads := []ThreadSummary{{
+		ID:              "t1",
+		LifecycleStatus: "archived",
+		CreatedAt:       &createdAt,
+		UpdatedAt:       &updatedAt,
+	}}
+
+	got := projectArchivedThreadStatus(threads, map[string]int64{})
+
+	if got["t1"] != updatedAt.UnixMilli() {
+		t.Fatalf("ThreadArchivesChat[t1] = %d, want updated_at %d", got["t1"], updatedAt.UnixMilli())
 	}
 }
