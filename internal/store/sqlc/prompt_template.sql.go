@@ -10,6 +10,97 @@ import (
 	"time"
 )
 
+const createPromptTemplate = `-- name: CreatePromptTemplate :one
+INSERT INTO prompt_templates (
+    prompt_key, title, agent_key, tool_name, prompt_text,
+    variables, tags, description, when_to_use, enabled, manually_edited, match_when, priority,
+    created_by, updated_by, updated_at
+) VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7::jsonb, $8, $9, $10, $11, $12::jsonb, $13, $14, $15, NOW())
+ON CONFLICT (prompt_key) DO NOTHING
+RETURNING id, prompt_key, title, agent_key, tool_name, prompt_text, variables, tags, description, when_to_use, enabled, manually_edited, match_when, priority, created_by, updated_by, created_at, updated_at
+`
+
+type CreatePromptTemplateParams struct {
+	PromptKey      string `db:"prompt_key" json:"prompt_key"`
+	Title          string `db:"title" json:"title"`
+	AgentKey       string `db:"agent_key" json:"agent_key"`
+	ToolName       string `db:"tool_name" json:"tool_name"`
+	PromptText     string `db:"prompt_text" json:"prompt_text"`
+	Column6        []byte `db:"column_6" json:"column_6"`
+	Column7        []byte `db:"column_7" json:"column_7"`
+	Description    string `db:"description" json:"description"`
+	WhenToUse      string `db:"when_to_use" json:"when_to_use"`
+	Enabled        bool   `db:"enabled" json:"enabled"`
+	ManuallyEdited bool   `db:"manually_edited" json:"manually_edited"`
+	Column12       []byte `db:"column_12" json:"column_12"`
+	Priority       int32  `db:"priority" json:"priority"`
+	CreatedBy      string `db:"created_by" json:"created_by"`
+	UpdatedBy      string `db:"updated_by" json:"updated_by"`
+}
+
+type CreatePromptTemplateRow struct {
+	ID             int64     `db:"id" json:"id"`
+	PromptKey      string    `db:"prompt_key" json:"prompt_key"`
+	Title          string    `db:"title" json:"title"`
+	AgentKey       string    `db:"agent_key" json:"agent_key"`
+	ToolName       string    `db:"tool_name" json:"tool_name"`
+	PromptText     string    `db:"prompt_text" json:"prompt_text"`
+	Variables      []byte    `db:"variables" json:"variables"`
+	Tags           []byte    `db:"tags" json:"tags"`
+	Description    string    `db:"description" json:"description"`
+	WhenToUse      string    `db:"when_to_use" json:"when_to_use"`
+	Enabled        bool      `db:"enabled" json:"enabled"`
+	ManuallyEdited bool      `db:"manually_edited" json:"manually_edited"`
+	MatchWhen      []byte    `db:"match_when" json:"match_when"`
+	Priority       int32     `db:"priority" json:"priority"`
+	CreatedBy      string    `db:"created_by" json:"created_by"`
+	UpdatedBy      string    `db:"updated_by" json:"updated_by"`
+	CreatedAt      time.Time `db:"created_at" json:"created_at"`
+	UpdatedAt      time.Time `db:"updated_at" json:"updated_at"`
+}
+
+func (q *Queries) CreatePromptTemplate(ctx context.Context, arg CreatePromptTemplateParams) (CreatePromptTemplateRow, error) {
+	row := q.db.QueryRow(ctx, createPromptTemplate,
+		arg.PromptKey,
+		arg.Title,
+		arg.AgentKey,
+		arg.ToolName,
+		arg.PromptText,
+		arg.Column6,
+		arg.Column7,
+		arg.Description,
+		arg.WhenToUse,
+		arg.Enabled,
+		arg.ManuallyEdited,
+		arg.Column12,
+		arg.Priority,
+		arg.CreatedBy,
+		arg.UpdatedBy,
+	)
+	var i CreatePromptTemplateRow
+	err := row.Scan(
+		&i.ID,
+		&i.PromptKey,
+		&i.Title,
+		&i.AgentKey,
+		&i.ToolName,
+		&i.PromptText,
+		&i.Variables,
+		&i.Tags,
+		&i.Description,
+		&i.WhenToUse,
+		&i.Enabled,
+		&i.ManuallyEdited,
+		&i.MatchWhen,
+		&i.Priority,
+		&i.CreatedBy,
+		&i.UpdatedBy,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
 const deletePromptTemplate = `-- name: DeletePromptTemplate :execrows
 DELETE FROM prompt_templates
 WHERE prompt_key = $1
@@ -28,7 +119,7 @@ func (q *Queries) DeletePromptTemplate(ctx context.Context, arg DeletePromptTemp
 }
 
 const getPromptTemplate = `-- name: GetPromptTemplate :one
-SELECT id, prompt_key, title, agent_key, tool_name, prompt_text, variables, tags, description, enabled, manually_edited, match_when, priority, created_by, updated_by, created_at, updated_at
+SELECT id, prompt_key, title, agent_key, tool_name, prompt_text, variables, tags, description, when_to_use, enabled, manually_edited, match_when, priority, created_by, updated_by, created_at, updated_at
 FROM prompt_templates
 WHERE prompt_key = $1
 `
@@ -47,6 +138,7 @@ type GetPromptTemplateRow struct {
 	Variables      []byte    `db:"variables" json:"variables"`
 	Tags           []byte    `db:"tags" json:"tags"`
 	Description    string    `db:"description" json:"description"`
+	WhenToUse      string    `db:"when_to_use" json:"when_to_use"`
 	Enabled        bool      `db:"enabled" json:"enabled"`
 	ManuallyEdited bool      `db:"manually_edited" json:"manually_edited"`
 	MatchWhen      []byte    `db:"match_when" json:"match_when"`
@@ -70,6 +162,7 @@ func (q *Queries) GetPromptTemplate(ctx context.Context, arg GetPromptTemplatePa
 		&i.Variables,
 		&i.Tags,
 		&i.Description,
+		&i.WhenToUse,
 		&i.Enabled,
 		&i.ManuallyEdited,
 		&i.MatchWhen,
@@ -126,19 +219,19 @@ func (q *Queries) InsertPromptVersion(ctx context.Context, arg InsertPromptVersi
 }
 
 const listPromptTemplates = `-- name: ListPromptTemplates :many
-SELECT id, prompt_key, title, agent_key, tool_name, prompt_text, variables, tags, description, enabled, manually_edited, match_when, priority, created_by, updated_by, created_at, updated_at
+SELECT id, prompt_key, title, agent_key, tool_name, prompt_text, variables, tags, description, when_to_use, enabled, manually_edited, match_when, priority, created_by, updated_by, created_at, updated_at
 FROM prompt_templates
 WHERE ($1::text = '' OR agent_key = $1)
   AND ($2::text = ''
     OR prompt_key ILIKE '%' || $2 || '%'
     OR title ILIKE '%' || $2 || '%'
     OR prompt_text ILIKE '%' || $2 || '%')
-  AND ($3::text = ''
-    OR NOT EXISTS (
+  AND (NOT EXISTS (
       SELECT 1
       FROM jsonb_array_elements_text(tags) AS tag(value)
       WHERE tag.value LIKE 'scope.cwd:%'
     )
+    OR tags ? 'scope.global'
     OR tags ? ('scope.cwd:' || $3::text))
 ORDER BY updated_at DESC
 LIMIT $4
@@ -161,6 +254,7 @@ type ListPromptTemplatesRow struct {
 	Variables      []byte    `db:"variables" json:"variables"`
 	Tags           []byte    `db:"tags" json:"tags"`
 	Description    string    `db:"description" json:"description"`
+	WhenToUse      string    `db:"when_to_use" json:"when_to_use"`
 	Enabled        bool      `db:"enabled" json:"enabled"`
 	ManuallyEdited bool      `db:"manually_edited" json:"manually_edited"`
 	MatchWhen      []byte    `db:"match_when" json:"match_when"`
@@ -195,6 +289,7 @@ func (q *Queries) ListPromptTemplates(ctx context.Context, arg ListPromptTemplat
 			&i.Variables,
 			&i.Tags,
 			&i.Description,
+			&i.WhenToUse,
 			&i.Enabled,
 			&i.ManuallyEdited,
 			&i.MatchWhen,
@@ -217,9 +312,9 @@ func (q *Queries) ListPromptTemplates(ctx context.Context, arg ListPromptTemplat
 const upsertPromptTemplate = `-- name: UpsertPromptTemplate :one
 INSERT INTO prompt_templates (
     prompt_key, title, agent_key, tool_name, prompt_text,
-    variables, tags, description, enabled, manually_edited, match_when, priority,
+    variables, tags, description, when_to_use, enabled, manually_edited, match_when, priority,
     created_by, updated_by, updated_at
-) VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7::jsonb, $8, $9, $10, $11::jsonb, $12, $13, $14, NOW())
+) VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7::jsonb, $8, $9, $10, $11, $12::jsonb, $13, $14, $15, NOW())
 ON CONFLICT (prompt_key) DO UPDATE
 SET title = EXCLUDED.title,
     agent_key = EXCLUDED.agent_key,
@@ -228,13 +323,14 @@ SET title = EXCLUDED.title,
     variables = EXCLUDED.variables,
     tags = EXCLUDED.tags,
     description = EXCLUDED.description,
+    when_to_use = EXCLUDED.when_to_use,
     enabled = EXCLUDED.enabled,
     manually_edited = EXCLUDED.manually_edited,
     match_when = EXCLUDED.match_when,
     priority = EXCLUDED.priority,
     updated_by = EXCLUDED.updated_by,
     updated_at = NOW()
-RETURNING id, prompt_key, title, agent_key, tool_name, prompt_text, variables, tags, description, enabled, manually_edited, match_when, priority, created_by, updated_by, created_at, updated_at
+RETURNING id, prompt_key, title, agent_key, tool_name, prompt_text, variables, tags, description, when_to_use, enabled, manually_edited, match_when, priority, created_by, updated_by, created_at, updated_at
 `
 
 type UpsertPromptTemplateParams struct {
@@ -246,9 +342,10 @@ type UpsertPromptTemplateParams struct {
 	Column6        []byte `db:"column_6" json:"column_6"`
 	Column7        []byte `db:"column_7" json:"column_7"`
 	Description    string `db:"description" json:"description"`
+	WhenToUse      string `db:"when_to_use" json:"when_to_use"`
 	Enabled        bool   `db:"enabled" json:"enabled"`
 	ManuallyEdited bool   `db:"manually_edited" json:"manually_edited"`
-	Column11       []byte `db:"column_11" json:"column_11"`
+	Column12       []byte `db:"column_12" json:"column_12"`
 	Priority       int32  `db:"priority" json:"priority"`
 	CreatedBy      string `db:"created_by" json:"created_by"`
 	UpdatedBy      string `db:"updated_by" json:"updated_by"`
@@ -264,6 +361,7 @@ type UpsertPromptTemplateRow struct {
 	Variables      []byte    `db:"variables" json:"variables"`
 	Tags           []byte    `db:"tags" json:"tags"`
 	Description    string    `db:"description" json:"description"`
+	WhenToUse      string    `db:"when_to_use" json:"when_to_use"`
 	Enabled        bool      `db:"enabled" json:"enabled"`
 	ManuallyEdited bool      `db:"manually_edited" json:"manually_edited"`
 	MatchWhen      []byte    `db:"match_when" json:"match_when"`
@@ -284,9 +382,10 @@ func (q *Queries) UpsertPromptTemplate(ctx context.Context, arg UpsertPromptTemp
 		arg.Column6,
 		arg.Column7,
 		arg.Description,
+		arg.WhenToUse,
 		arg.Enabled,
 		arg.ManuallyEdited,
-		arg.Column11,
+		arg.Column12,
 		arg.Priority,
 		arg.CreatedBy,
 		arg.UpdatedBy,
@@ -302,6 +401,7 @@ func (q *Queries) UpsertPromptTemplate(ctx context.Context, arg UpsertPromptTemp
 		&i.Variables,
 		&i.Tags,
 		&i.Description,
+		&i.WhenToUse,
 		&i.Enabled,
 		&i.ManuallyEdited,
 		&i.MatchWhen,

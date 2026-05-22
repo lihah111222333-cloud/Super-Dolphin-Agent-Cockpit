@@ -38,6 +38,14 @@ func (q fakeVersionQueryRow) QueryRow(_ context.Context, _ string, _ ...any) pgx
 	return q.row
 }
 
+func TestMinRequiredSchemaVersion(t *testing.T) {
+	t.Parallel()
+
+	if MinRequiredSchemaVersion != 103 {
+		t.Fatalf("MinRequiredSchemaVersion = %d, want 103", MinRequiredSchemaVersion)
+	}
+}
+
 // TestVerifyMinSchemaVersion_AcceptsAtOrAboveMinimum exercises the happy path
 // where schema_migrations has caught up with MinRequiredSchemaVersion.
 func TestVerifyMinSchemaVersion_AcceptsAtOrAboveMinimum(t *testing.T) {

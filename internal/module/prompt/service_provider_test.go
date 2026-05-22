@@ -3,10 +3,12 @@ package prompt
 import (
 	"context"
 	"encoding/json"
+	"sort"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
 	promptstore "github.com/anthropic-ai/super-agent-v3/internal/store/prompt"
 	"github.com/stretchr/testify/require"
@@ -60,18 +62,33 @@ func resolvedSectionsContain(sections []ResolvedPromptSection, want string) bool
 }
 
 type inMemoryPromptStore struct {
-	templates   map[string]promptstore.PromptTemplate
-	versions    []promptstore.PromptTemplateVersion
-	txCalls     int
-	upsertCalls int
-	deleteCalls int
+	templates                         map[string]promptstore.PromptTemplate
+	sections                          map[int64]map[string]promptstore.PromptTemplateSection
+	drafts                            map[string]promptstore.PromptIntentDraft
+	versions                          []promptstore.PromptTemplateVersion
+	listFilters                       []promptstore.ListFilter
+	getCalls                          int
+	txCalls                           int
+	upsertCalls                       int
+	deleteCalls                       int
+	listSectionsByTemplateIDsCalls    int
+	listSectionsByTemplateIDsCaptured []int64
+	lockRecallCalls                   []struct {
+		cwd   string
+		topic string
+	}
 }
 
 func newInMemoryPromptStore() *inMemoryPromptStore {
-	return &inMemoryPromptStore{templates: map[string]promptstore.PromptTemplate{}}
+	return &inMemoryPromptStore{
+		templates: map[string]promptstore.PromptTemplate{},
+		sections:  map[int64]map[string]promptstore.PromptTemplateSection{},
+		drafts:    map[string]promptstore.PromptIntentDraft{},
+	}
 }
 
-func (s *inMemoryPromptStore) List(context.Context, promptstore.ListFilter) ([]promptstore.PromptTemplate, error) {
+func (s *inMemoryPromptStore) List(_ context.Context, filter promptstore.ListFilter) ([]promptstore.PromptTemplate, error) {
+	s.listFilters = append(s.listFilters, filter)
 	items := make([]promptstore.PromptTemplate, 0, len(s.templates))
 	for _, template := range s.templates {
 		items = append(items, template)
@@ -85,6 +102,7 @@ func (s *inMemoryPromptStore) WithTx(_ context.Context, fn func(promptstore.Stor
 }
 
 func (s *inMemoryPromptStore) Get(_ context.Context, promptKey string) (*promptstore.PromptTemplate, error) {
+	s.getCalls++
 	template, ok := s.templates[promptKey]
 	if !ok {
 		return nil, platformdb.ErrNotFound
@@ -107,10 +125,30 @@ func (s *inMemoryPromptStore) InsertVersion(_ context.Context, version promptsto
 	return int64(len(s.versions)), nil
 }
 
+func (s *inMemoryPromptStore) CreatePromptTemplate(_ context.Context, template promptstore.PromptTemplate) (*promptstore.PromptTemplate, error) {
+	if _, ok := s.templates[template.PromptKey]; ok {
+		return nil, platformdb.ErrConflict
+	}
+	if template.ID == 0 {
+		template.ID = int64(len(s.templates) + 1)
+	}
+	now := time.Unix(1_700_000_000, int64(len(s.templates)+1)).UTC()
+	if template.CreatedAt.IsZero() {
+		template.CreatedAt = now
+	}
+	template.UpdatedAt = now
+	s.templates[template.PromptKey] = template
+	copy := template
+	return &copy, nil
+}
+
 func (s *inMemoryPromptStore) Upsert(_ context.Context, template promptstore.PromptTemplate) (*promptstore.PromptTemplate, error) {
 	s.upsertCalls++
 	now := time.Unix(1_700_000_000, int64(s.upsertCalls)).UTC()
 	if current, ok := s.templates[template.PromptKey]; ok {
+		if template.ID == 0 {
+			template.ID = current.ID
+		}
 		if template.CreatedAt.IsZero() {
 			template.CreatedAt = current.CreatedAt
 		}
@@ -127,16 +165,151 @@ func (s *inMemoryPromptStore) Upsert(_ context.Context, template promptstore.Pro
 	return &copy, nil
 }
 
-func (s *inMemoryPromptStore) ListSectionsByTemplateID(context.Context, int64) ([]promptstore.PromptTemplateSection, error) {
-	return nil, nil
+func (s *inMemoryPromptStore) ListSectionsByTemplateID(_ context.Context, templateID int64) ([]promptstore.PromptTemplateSection, error) {
+	byKey := s.sections[templateID]
+	sections := make([]promptstore.PromptTemplateSection, 0, len(byKey))
+	for _, section := range byKey {
+		sections = append(sections, section)
+	}
+	sort.Slice(sections, func(i, j int) bool {
+		if sections[i].Region != sections[j].Region {
+			return sections[i].Region < sections[j].Region
+		}
+		if sections[i].Ordinal != sections[j].Ordinal {
+			return sections[i].Ordinal < sections[j].Ordinal
+		}
+		return sections[i].SectionKey < sections[j].SectionKey
+	})
+	return sections, nil
+}
+
+func (s *inMemoryPromptStore) ListSectionsByTemplateIDs(_ context.Context, templateIDs []int64) ([]promptstore.PromptTemplateSection, error) {
+	s.listSectionsByTemplateIDsCalls++
+	s.listSectionsByTemplateIDsCaptured = append([]int64(nil), templateIDs...)
+	sections := make([]promptstore.PromptTemplateSection, 0)
+	for _, templateID := range templateIDs {
+		templateSections, err := s.ListSectionsByTemplateID(context.Background(), templateID)
+		if err != nil {
+			return nil, err
+		}
+		sections = append(sections, templateSections...)
+	}
+	return sections, nil
+}
+
+func (s *inMemoryPromptStore) ListRecallSections(_ context.Context, cwd string) ([]promptstore.PromptTemplateSection, error) {
+	var sections []promptstore.PromptTemplateSection
+	for _, template := range s.templates {
+		if !templateVisibleForCWD(template, cwd) {
+			continue
+		}
+		byKey := s.sections[template.ID]
+		for _, section := range byKey {
+			if section.TriggerType == "recall" && section.Enabled {
+				section.TemplateID = template.ID
+				section.TemplatePromptKey = template.PromptKey
+				section.TemplateTitle = template.Title
+				section.TemplateDescription = template.Description
+				section.TemplateWhenToUse = template.WhenToUse
+				section.TemplateTags = append(json.RawMessage(nil), template.Tags...)
+				sections = append(sections, section)
+			}
+		}
+	}
+	return sections, nil
+}
+
+func (s *inMemoryPromptStore) ListDefaultRuleSections(_ context.Context, cwd string) ([]promptstore.PromptTemplateSection, error) {
+	var sections []promptstore.PromptTemplateSection
+	for _, template := range s.templates {
+		if template.AgentKey != "default_rule" || !templateVisibleForCWD(template, cwd) {
+			continue
+		}
+		for _, section := range s.sections[template.ID] {
+			if section.TriggerType == "always" && section.Enabled {
+				section.TemplateID = template.ID
+				section.TemplatePromptKey = template.PromptKey
+				section.TemplateTitle = template.Title
+				section.TemplateTags = append(json.RawMessage(nil), template.Tags...)
+				sections = append(sections, section)
+			}
+		}
+	}
+	return sections, nil
+}
+
+func templateVisibleForCWD(template promptstore.PromptTemplate, cwd string) bool {
+	cwd = strings.TrimSpace(cwd)
+	for _, tag := range promptstore.TemplateTags(template.Tags) {
+		tag = strings.TrimSpace(tag)
+		if tag == "scope.global" || (cwd != "" && tag == "scope.cwd:"+cwd) {
+			return true
+		}
+	}
+	return false
 }
 
 func (s *inMemoryPromptStore) UpsertSection(_ context.Context, section promptstore.PromptTemplateSection) (*promptstore.PromptTemplateSection, error) {
 	copy := section
+	if copy.ID == 0 {
+		copy.ID = int64(len(s.sections[section.TemplateID]) + 1)
+	}
+	if s.sections[section.TemplateID] == nil {
+		s.sections[section.TemplateID] = map[string]promptstore.PromptTemplateSection{}
+	}
+	s.sections[section.TemplateID][section.SectionKey] = copy
 	return &copy, nil
 }
 
 func (s *inMemoryPromptStore) DeleteSection(context.Context, int64, string) error {
+	return nil
+}
+
+func (s *inMemoryPromptStore) UpsertIntentDraft(_ context.Context, draft promptstore.PromptIntentDraft) (*promptstore.PromptIntentDraft, error) {
+	s.drafts[draft.DraftKey] = draft
+	copy := draft
+	return &copy, nil
+}
+
+func (s *inMemoryPromptStore) GetIntentDraft(_ context.Context, cwd, draftKey string) (*promptstore.PromptIntentDraft, error) {
+	draft, ok := s.drafts[draftKey]
+	if !ok || strings.TrimSpace(draft.CWD) != strings.TrimSpace(cwd) {
+		return nil, platformdb.ErrNotFound
+	}
+	copy := draft
+	return &copy, nil
+}
+
+func (s *inMemoryPromptStore) ListIntentDrafts(_ context.Context, filter promptstore.PromptIntentDraftListFilter) ([]promptstore.PromptIntentDraft, error) {
+	var drafts []promptstore.PromptIntentDraft
+	for _, draft := range s.drafts {
+		if strings.TrimSpace(draft.CWD) != strings.TrimSpace(filter.CWD) {
+			continue
+		}
+		if filter.Status != "" && draft.Status != filter.Status {
+			continue
+		}
+		drafts = append(drafts, draft)
+	}
+	return drafts, nil
+}
+
+func (s *inMemoryPromptStore) UpdateIntentDraftStatus(_ context.Context, cwd, draftKey, status string) (*promptstore.PromptIntentDraft, error) {
+	draft, ok := s.drafts[draftKey]
+	if !ok || strings.TrimSpace(draft.CWD) != strings.TrimSpace(cwd) {
+		return nil, platformdb.ErrNotFound
+	}
+	draft.Status = strings.TrimSpace(status)
+	s.drafts[draftKey] = draft
+	copy := draft
+	return &copy, nil
+}
+
+func (s *inMemoryPromptStore) LockRecallTopicInCWD(_ context.Context, cwd, topic string) error {
+	s.lockRecallCalls = append(s.lockRecallCalls, struct {
+		cwd   string
+		topic string
+	}{cwd: strings.TrimSpace(cwd), topic: strings.TrimSpace(topic)})
 	return nil
 }
 
@@ -232,4 +405,238 @@ func TestPromptMutationsRespectCwdScope(t *testing.T) {
 			t.Fatalf("stored prompt = %+v, want manually edited updated prompt", saved)
 		}
 	})
+
+}
+
+func TestPromptWritePreservesWhenToUseWhenOmitted(t *testing.T) {
+	t.Parallel()
+
+	const promptKey = "main/scoped"
+	store := newInMemoryPromptStore()
+	template := scopedPromptTemplate(promptKey, "/repo/a")
+	template.WhenToUse = "Use when modifying scoped prompt behavior."
+	store.templates[promptKey] = template
+	svc := newPromptService(store)
+
+	got, err := svc.WritePrompt(context.Background(), "/repo/a", PromptWriteRequest{
+		ID:      promptKey,
+		Name:    "Scoped Prompt",
+		Content: "updated by user",
+	})
+	require.NoError(t, err)
+	require.Equal(t, "Use when modifying scoped prompt behavior.", got.WhenToUse)
+	require.Equal(t, "Use when modifying scoped prompt behavior.", store.templates[promptKey].WhenToUse)
+}
+
+func TestPromptWritePreservesEnabledWhenOmitted(t *testing.T) {
+	t.Parallel()
+
+	const promptKey = "main/scoped"
+	store := newInMemoryPromptStore()
+	template := scopedPromptTemplate(promptKey, "/repo/a")
+	template.Enabled = false
+	store.templates[promptKey] = template
+	svc := newPromptService(store)
+
+	got, err := svc.WritePrompt(context.Background(), "/repo/a", PromptWriteRequest{
+		ID:      promptKey,
+		Name:    "Scoped Prompt",
+		Content: "updated by user",
+	})
+	require.NoError(t, err)
+	require.False(t, got.Enabled)
+	require.False(t, store.templates[promptKey].Enabled)
+}
+
+func TestPromptWriteAppliesExplicitEnabled(t *testing.T) {
+	t.Parallel()
+
+	enabled := false
+	store := newInMemoryPromptStore()
+	svc := newPromptService(store)
+
+	got, err := svc.WritePrompt(context.Background(), "/repo/a", PromptWriteRequest{
+		Name:         "Scoped Prompt",
+		Content:      "project local prompt",
+		WhenToUse:    "Use for scoped prompt tests.",
+		WhenToUseSet: true,
+		Enabled:      &enabled,
+	})
+	require.NoError(t, err)
+	require.False(t, got.Enabled)
+	require.False(t, store.templates[got.PromptKey].Enabled)
+}
+
+func TestPromptWritePreservesPromptTextWhenContentOmitted(t *testing.T) {
+	t.Parallel()
+
+	const promptKey = "main/scoped"
+	store := newInMemoryPromptStore()
+	template := scopedPromptTemplate(promptKey, "/repo/a")
+	template.PromptText = "original body"
+	template.WhenToUse = "old guidance"
+	store.templates[promptKey] = template
+	svc := newPromptService(store)
+
+	got, err := svc.WritePrompt(context.Background(), "/repo/a", PromptWriteRequest{
+		ID:           promptKey,
+		Name:         "Scoped Prompt",
+		WhenToUse:    "Use after metadata edits.",
+		WhenToUseSet: true,
+	})
+	require.NoError(t, err)
+	require.Equal(t, "original body", got.PromptText)
+	require.Equal(t, "original body", store.templates[promptKey].PromptText)
+	require.Equal(t, "Use after metadata edits.", got.WhenToUse)
+}
+
+func TestPromptWriteRejectsMissingWhenToUse(t *testing.T) {
+	t.Parallel()
+
+	store := newInMemoryPromptStore()
+	svc := newPromptService(store)
+
+	_, err := svc.WritePrompt(context.Background(), "/repo/a", PromptWriteRequest{
+		Name:    "Scoped Prompt",
+		Content: "new body",
+	})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "when_to_use is required")
+	require.Zero(t, store.upsertCalls)
+}
+
+func TestPromptWriteUpdatesExplicitWhenToUse(t *testing.T) {
+	t.Parallel()
+
+	const promptKey = "main/scoped"
+	store := newInMemoryPromptStore()
+	template := scopedPromptTemplate(promptKey, "/repo/a")
+	template.WhenToUse = "old guidance"
+	store.templates[promptKey] = template
+	svc := newPromptService(store)
+
+	got, err := svc.WritePrompt(context.Background(), "/repo/a", PromptWriteRequest{
+		ID:           promptKey,
+		Name:         "Scoped Prompt",
+		Content:      "updated by user",
+		WhenToUse:    "Use after UI metadata edits.",
+		WhenToUseSet: true,
+	})
+	require.NoError(t, err)
+	require.Equal(t, "Use after UI metadata edits.", got.WhenToUse)
+	require.Equal(t, "Use after UI metadata edits.", store.templates[promptKey].WhenToUse)
+}
+
+func TestPromptWriteInvalidatesPromptDynamicCatalogs(t *testing.T) {
+	t.Parallel()
+
+	const promptKey = "main/scoped"
+	store := newInMemoryPromptStore()
+	store.templates[promptKey] = scopedPromptTemplate(promptKey, "/repo/a")
+	rec := &recordingSectionInvalidator{}
+	svc := newPromptService(store, rec)
+
+	_, err := svc.WritePrompt(context.Background(), "/repo/a", PromptWriteRequest{
+		ID:           promptKey,
+		Name:         "Scoped Prompt",
+		Content:      "updated by user",
+		WhenToUse:    "Use after UI metadata edits.",
+		WhenToUseSet: true,
+	})
+	require.NoError(t, err)
+	require.Equal(t, contract.InvalidateClear, rec.reason)
+	require.Equal(t, []string{contract.DynamicSectionAvailableExperts, contract.DynamicSectionRecallCatalog, contract.DynamicSectionProjectDefaultRules}, rec.names)
+}
+
+func TestPromptDeleteInvalidatesPromptDynamicCatalogs(t *testing.T) {
+	t.Parallel()
+
+	const promptKey = "main/scoped"
+	store := newInMemoryPromptStore()
+	store.templates[promptKey] = scopedPromptTemplate(promptKey, "/repo/a")
+	rec := &recordingSectionInvalidator{}
+	svc := newPromptService(store, rec)
+
+	err := svc.DeletePrompt(context.Background(), "/repo/a", promptKey)
+	require.NoError(t, err)
+	require.Equal(t, contract.InvalidateClear, rec.reason)
+	require.Equal(t, []string{contract.DynamicSectionAvailableExperts, contract.DynamicSectionRecallCatalog, contract.DynamicSectionProjectDefaultRules}, rec.names)
+}
+
+func TestPromptSectionWriteInvalidatesRecallCatalog(t *testing.T) {
+	t.Parallel()
+
+	const promptKey = "main/scoped"
+	store := newInMemoryPromptStore()
+	template := scopedPromptTemplate(promptKey, "/repo/a")
+	template.ID = 7
+	store.templates[promptKey] = template
+	rec := &recordingSectionInvalidator{}
+	svc := newPromptService(store, rec)
+
+	_, err := svc.WriteSection(context.Background(), "/repo/a", PromptSectionWriteRequest{
+		PromptKey:   promptKey,
+		SectionKey:  "recall_sqlc",
+		Region:      "dynamic",
+		Body:        "SQLC workflow body",
+		Enabled:     true,
+		TriggerType: "recall",
+		RecallTopic: "sqlc-workflow",
+	})
+	require.NoError(t, err)
+	require.Equal(t, contract.InvalidateClear, rec.reason)
+	require.Equal(t, []string{contract.DynamicSectionRecallCatalog, contract.DynamicSectionProjectDefaultRules}, rec.names)
+}
+
+func TestPromptSectionDeleteInvalidatesRecallCatalog(t *testing.T) {
+	t.Parallel()
+
+	const promptKey = "main/scoped"
+	store := newInMemoryPromptStore()
+	template := scopedPromptTemplate(promptKey, "/repo/a")
+	template.ID = 7
+	store.templates[promptKey] = template
+	store.sections[7] = map[string]promptstore.PromptTemplateSection{
+		"recall_sqlc": {TemplateID: 7, SectionKey: "recall_sqlc", TriggerType: "recall", RecallTopic: "sqlc-workflow", Enabled: true},
+	}
+	rec := &recordingSectionInvalidator{}
+	svc := newPromptService(store, rec)
+
+	err := svc.DeleteSection(context.Background(), "/repo/a", promptKey, "recall_sqlc")
+	require.NoError(t, err)
+	require.Equal(t, contract.InvalidateClear, rec.reason)
+	require.Equal(t, []string{contract.DynamicSectionRecallCatalog, contract.DynamicSectionProjectDefaultRules}, rec.names)
+}
+
+func TestPromptWriteRejectsExplicitEmptyWhenToUse(t *testing.T) {
+	t.Parallel()
+
+	const promptKey = "main/scoped"
+	store := newInMemoryPromptStore()
+	template := scopedPromptTemplate(promptKey, "/repo/a")
+	template.WhenToUse = "old guidance"
+	store.templates[promptKey] = template
+	svc := newPromptService(store)
+
+	_, err := svc.WritePrompt(context.Background(), "/repo/a", PromptWriteRequest{
+		ID:           promptKey,
+		Name:         "Scoped Prompt",
+		Content:      "updated by user",
+		WhenToUse:    "   ",
+		WhenToUseSet: true,
+	})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "when_to_use is required")
+	require.Equal(t, "old guidance", store.templates[promptKey].WhenToUse)
+}
+
+type recordingSectionInvalidator struct {
+	reason contract.InvalidateReason
+	names  []string
+}
+
+func (r *recordingSectionInvalidator) InvalidateSections(reason contract.InvalidateReason, names ...string) uint64 {
+	r.reason = reason
+	r.names = append([]string(nil), names...)
+	return 1
 }

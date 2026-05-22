@@ -11,9 +11,11 @@ type Reader interface {
 }
 
 type ListFilter struct {
-	AgentKey string
-	Keyword  string
-	Limit    int32
+	AgentKey       string
+	Keyword        string
+	CWD            string
+	RuntimeVisible bool
+	Limit          int32
 }
 
 type PromptTemplate struct {
@@ -32,12 +34,29 @@ type PromptTemplate struct {
 	CreatedAt      time.Time       `json:"created_at"`
 	UpdatedAt      time.Time       `json:"updated_at"`
 	Description    string          `json:"description"`
+	WhenToUse      string          `json:"when_to_use"`
+	MatchWhen      json.RawMessage `json:"match_when"`
+	Priority       int32           `json:"priority"`
+}
+
+type PromptTemplateSection struct {
+	ID          int64  `json:"id"`
+	TemplateID  int64  `json:"template_id"`
+	SectionKey  string `json:"section_key"`
+	Region      string `json:"region"`
+	Ordinal     int32  `json:"ordinal"`
+	Body        string `json:"body"`
+	TriggerType string `json:"trigger_type"`
+	RecallTopic string `json:"recall_topic"`
+	Enabled     bool   `json:"enabled"`
 }
 
 type Store interface {
 	Reader
 	WithTx(ctx context.Context, fn func(txStore Store) error) error
 	Get(ctx context.Context, promptKey string) (*PromptTemplate, error)
+	ListSectionsByTemplateID(ctx context.Context, templateID int64) ([]PromptTemplateSection, error)
+	GetSectionByRecallTopic(ctx context.Context, cwd, topic string) (string, error)
 	Delete(ctx context.Context, promptKey string) error
 	InsertVersion(ctx context.Context, version PromptTemplateVersion) (int64, error)
 	Upsert(ctx context.Context, template PromptTemplate) (*PromptTemplate, error)

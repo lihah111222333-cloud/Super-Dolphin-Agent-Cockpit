@@ -3,6 +3,7 @@ package thread
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"sort"
 	"strings"
 
@@ -19,86 +20,96 @@ func shouldSkipRoutedPrompt(s *service, req *StartRequest) bool {
 		pkglogger.Info("router: skip, base_instructions already set by caller",
 			"agent_key", req.AgentKey, "base_instructions_len", len(req.BaseInstructions))
 		return true
-	case s == nil || s.promptStore == nil:
-		pkglogger.Info("router: skip, prompt store not wired")
+	case s == nil || s.runtimePromptCatalog() == nil:
+		pkglogger.Info("router: skip, prompt catalog not wired")
 		return true
 	default:
 		return false
 	}
 }
 
-func (s *service) listRoutedTemplates(ctx context.Context) ([]promptstore.PromptTemplate, bool) {
-	templates, err := s.promptStore.List(ctx, promptstore.ListFilter{Limit: 200})
-	if err != nil {
-		pkglogger.Warn("router: list prompt_templates failed", "err", err)
-		return nil, false
+func (s *service) runtimePromptCatalog() promptstore.RuntimePromptCatalog {
+	if s == nil {
+		return nil
 	}
-	return templates, true
+	return s.promptCatalog
 }
 
-// resolveRoutedPrompt is called from service.Start after normalizeStartRequest.
-// It fills req.BaseInstructions / req.AgentKey / req.PromptVersionID based on
-// either an explicit req.AgentKey or router classification.
-//
-// Contract:
-//   - If req.BaseInstructions is non-empty (manual override), skip everything.
-//   - If promptStore or routerBackend is nil (fx did not wire them), skip
-//     silently — caller falls back to provider default.
-//   - Any error along the pipeline is logged and degraded per Risk 1 (c)+(b):
-//     record agent_key if we got one, leave prompt_version_id nil.
-func (s *service) resolveRoutedPrompt(ctx context.Context, req *StartRequest) {
+func (s *service) resolveRoutedPrompt(ctx context.Context, req *StartRequest) error {
 	if shouldSkipRoutedPrompt(s, req) {
-		return
+		return nil
+	}
+	trustedCWD := strings.TrimSpace(req.CWD)
+	if trustedCWD == "" {
+		return fmt.Errorf("invalid params: prompt routing requires trusted cwd")
 	}
 
 	// Read enabled candidates once. Limit is generous; rule matching is cheap
 	// and list is unlikely to exceed a few hundred rows even in large orgs.
-	templates, ok := s.listRoutedTemplates(ctx)
-	if !ok {
-		return
+	catalog := s.runtimePromptCatalog()
+	templates, err := catalog.ListTemplates(ctx, promptstore.RuntimeListFilter{CWD: trustedCWD, Limit: 200})
+	if err != nil {
+		return fmt.Errorf("router: list prompt_templates: %w", err)
 	}
 
-	// Classifier fallback: only runs when no explicit pin
-	// and UseClassifier was opted in. Haiku scores the full enabled library
-	// and stamps its pick into req.PromptKey so the normal explicit-pin branch
-	// in pickRoutedTemplate takes over. Empty pick ("no strong match") leaves
-	// req.PromptKey alone so the default persona fallback still applies.
-	s.maybeClassifyPrompt(ctx, req, templates)
-
-	// match_when auto-route: between classifier and main/default fallback.
-	// Runs only when neither caller nor classifier pinned anything and no
-	// explicit AgentKey was supplied. Picks the highest-priority enabled
-	// template whose match_when rules satisfy the current BuildCtx.
+	// match_when auto-route: between explicit pins and main/default fallback.
+	// Runs only when neither PromptKey nor AgentKey was supplied. Picks the
+	// highest-priority enabled template whose match_when rules satisfy the
+	// current BuildCtx.
 	s.maybeAutoRouteByMatchWhen(req, templates)
 
-	picked := s.pickRoutedTemplate(ctx, req, templates)
+	picked, err := s.pickRoutedTemplate(ctx, req, templates)
+	if err != nil {
+		return err
+	}
 	if picked == nil || !picked.Enabled {
 		pkglogger.Info("router: no prompt_template matched",
 			"requested_agent_key", req.AgentKey,
 			"candidate_count", len(templates))
-		return
+		return nil
 	}
 	pkglogger.Info("router: prompt_template matched",
 		"prompt_key", picked.PromptKey,
 		"agent_key", picked.AgentKey,
 		"candidate_count", len(templates),
 		"prompt_text_len", len(picked.PromptText))
-	s.applyPickedRoutedTemplate(ctx, req, picked)
+	return s.applyPickedRoutedTemplate(ctx, req, picked)
 }
 
 func (s *service) applyPickedRoutedTemplate(
 	ctx context.Context,
 	req *StartRequest,
 	picked *promptstore.PromptTemplate,
-) {
+) error {
+	versionPromptText, blocks, err := s.routedTemplateInstructions(ctx, req, picked)
+	if err != nil {
+		return err
+	}
 	// Materialize a prompt_versions snapshot so historical analyses can
 	// reproduce the exact prompt text that was injected into this thread.
-	versionID, verr := s.promptStore.InsertVersion(ctx, promptstore.PromptTemplateVersion{
+	catalog := s.runtimePromptCatalog()
+	// Per Risk 1 (b): still record agent_key / prompt_key for observability
+	// even if version materialization fails.
+	req.AgentKey = picked.AgentKey
+	req.AgentTitle = picked.Title
+	req.PromptKey = picked.PromptKey
+	if len(blocks) > 0 {
+		req.BaseInstructionBlocks = blocks
+		req.BaseInstructions = ""
+	} else {
+		req.BaseInstructions = versionPromptText
+		req.BaseInstructionBlocks = nil
+	}
+	if !promptCatalogCanInsertVersion(catalog) {
+		req.PromptVersionID = nil
+		return nil
+	}
+	versionID, verr := catalog.InsertVersion(ctx, promptstore.PromptTemplateVersion{
 		PromptKey:       picked.PromptKey,
 		Title:           picked.Title,
 		AgentKey:        picked.AgentKey,
 		ToolName:        picked.ToolName,
-		PromptText:      picked.PromptText,
+		PromptText:      versionPromptText,
 		Variables:       append(json.RawMessage(nil), picked.Variables...),
 		Tags:            append(json.RawMessage(nil), picked.Tags...),
 		Description:     picked.Description,
@@ -107,34 +118,47 @@ func (s *service) applyPickedRoutedTemplate(
 		UpdatedBy:       picked.UpdatedBy,
 		SourceUpdatedAt: &picked.UpdatedAt,
 	})
-	// Per Risk 1 (b): still record agent_key / prompt_key for observability
-	// even if version materialization fails.
-	req.AgentKey = picked.AgentKey
-	req.AgentTitle = picked.Title
-	req.PromptKey = picked.PromptKey
-	// Step 1: prefer structured sections; fall back to monolithic prompt_text
-	// when the template has not been migrated yet. A store-side error degrades
-	// to the legacy path so router routing is never blocked by this lookup.
-	sections, serr := s.promptStore.ListSectionsByTemplateID(ctx, picked.ID)
-	if serr != nil {
-		pkglogger.Warn("router: list prompt_template_sections failed; using prompt_text",
-			"err", serr, "template_id", picked.ID, "prompt_key", picked.PromptKey)
-		req.BaseInstructions = picked.PromptText
-		req.BaseInstructionBlocks = nil
-	} else if len(sections) > 0 {
-		req.BaseInstructionBlocks = convertStoreSectionsToBlocks(sections)
-		req.BaseInstructions = ""
-	} else {
-		req.BaseInstructions = picked.PromptText
-		req.BaseInstructionBlocks = nil
-	}
 	if verr != nil {
 		pkglogger.Warn("router: materialize prompt_versions failed",
 			"err", verr, "prompt_key", picked.PromptKey)
 		req.PromptVersionID = nil
-		return
+		return fmt.Errorf("router: materialize prompt_versions for %q: %w", picked.PromptKey, verr)
 	}
 	req.PromptVersionID = &versionID
+	return nil
+}
+
+type promptVersionInsertCapability interface {
+	CanInsertPromptVersion() bool
+}
+
+func promptCatalogCanInsertVersion(catalog promptstore.RuntimePromptCatalog) bool {
+	checker, ok := catalog.(promptVersionInsertCapability)
+	return !ok || checker.CanInsertPromptVersion()
+}
+
+func (s *service) routedTemplateInstructions(ctx context.Context, req *StartRequest, picked *promptstore.PromptTemplate) (string, []contract.BaseInstructionBlock, error) {
+	catalog := s.runtimePromptCatalog()
+	sections, serr := catalog.ListSectionsByTemplateID(ctx, picked.ID)
+	if serr != nil {
+		return "", nil, fmt.Errorf("router: list prompt_template_sections for %q: %w", picked.PromptKey, serr)
+	}
+	if len(sections) == 0 {
+		return picked.PromptText, nil, nil
+	}
+	blocks := convertStoreSectionsToBlocks(sections)
+	if len(blocks) == 0 {
+		return picked.PromptText, nil, nil
+	}
+	if req != nil {
+		blocks = contract.PrepareBaseInstructionBlocks(blocks, buildStartCtx(*req, s.cfg, s.toolRegistry), req.Prompt, s.enableWhenEval)
+	} else {
+		blocks = contract.PrepareBaseInstructionBlocks(blocks, contract.BuildCtx{}, "", s.enableWhenEval)
+	}
+	if len(blocks) == 0 {
+		return "", nil, nil
+	}
+	return contract.TextFromBaseInstructionBlocks(blocks), blocks, nil
 }
 
 // defaultPromptKey is the prompt_template used when the caller does not pin
@@ -164,7 +188,7 @@ func (s *service) pickRoutedTemplate(
 	_ context.Context,
 	req *StartRequest,
 	templates []promptstore.PromptTemplate,
-) *promptstore.PromptTemplate {
+) (*promptstore.PromptTemplate, error) {
 	// Explicit prompt_key beats everything else: it's the most specific pin
 	// the UI can give ("use this exact row"). If it doesn't resolve, refuse
 	// to fall through — the user picked this row, silently substituting a
@@ -173,9 +197,15 @@ func (s *service) pickRoutedTemplate(
 	if pinned := strings.TrimSpace(req.PromptKey); pinned != "" {
 		picked := findEnabledByPromptKey(templates, pinned)
 		if picked != nil {
+			if promptstore.IsRuntimeAssetTemplate(*picked) {
+				req.PromptKeyStale = true
+				pkglogger.Warn("router: pinned prompt_key targets runtime asset template",
+					"prompt_key", pinned)
+				return nil, nil
+			}
 			req.AgentKey = picked.AgentKey
 			req.AgentTitle = picked.Title
-			return picked
+			return picked, nil
 		}
 		// Caller pinned a prompt_key that did not resolve to an enabled
 		// row (deleted or disabled). Mark the request stale so newStartResult
@@ -186,22 +216,22 @@ func (s *service) pickRoutedTemplate(
 		pkglogger.Warn("router: pinned prompt_key not found",
 			"prompt_key", pinned,
 			"candidate_count", len(templates))
-		return nil
+		return nil, nil
 	}
 	if explicit := strings.TrimSpace(req.AgentKey); explicit != "" {
 		picked := firstEnabledByAgentKey(templates, explicit)
 		if picked != nil {
 			req.AgentTitle = picked.Title
 		}
-		return picked
+		return picked, nil
 	}
 	picked := findByPromptKey(templates, defaultPromptKey)
-	if picked != nil && picked.Enabled {
+	if picked != nil && promptTemplateLaunchable(*picked) {
 		req.AgentKey = picked.AgentKey
 		req.AgentTitle = picked.Title
-		return picked
+		return picked, nil
 	}
-	return nil
+	return nil, nil
 }
 
 func findEnabledByPromptKey(templates []promptstore.PromptTemplate, promptKey string) *promptstore.PromptTemplate {
@@ -212,7 +242,7 @@ func findEnabledByPromptKey(templates []promptstore.PromptTemplate, promptKey st
 	return picked
 }
 
-// convertStoreSectionsToBlocks maps enabled prompt_template_sections rows into
+// convertStoreSectionsToBlocks maps injectable prompt_template_sections rows into
 // the contract-layer BaseInstructionBlock shape consumed by assembler.go.
 // Unknown region strings degrade to Dynamic (safer: blocks end up in the
 // uncached tail rather than accidentally claiming cached-prefix slots).
@@ -222,6 +252,15 @@ func convertStoreSectionsToBlocks(sections []promptstore.PromptTemplateSection) 
 	}
 	out := make([]contract.BaseInstructionBlock, 0, len(sections))
 	for _, s := range sections {
+		if !s.Enabled {
+			continue
+		}
+		if strings.EqualFold(strings.TrimSpace(s.TriggerType), "recall") {
+			continue
+		}
+		if strings.TrimSpace(s.Body) == "" {
+			continue
+		}
 		region := contract.PromptRegionDynamic
 		if strings.EqualFold(strings.TrimSpace(s.Region), "static") {
 			region = contract.PromptRegionStatic
@@ -244,174 +283,15 @@ func firstEnabledByAgentKey(templates []promptstore.PromptTemplate, agentKey str
 	}
 	for i := range templates {
 		t := &templates[i]
-		if t.Enabled && strings.EqualFold(strings.TrimSpace(t.AgentKey), want) {
+		if promptTemplateLaunchable(*t) && strings.EqualFold(strings.TrimSpace(t.AgentKey), want) {
 			return t
 		}
 	}
 	return nil
 }
 
-// maybeClassifyPrompt runs the classifier when gates are satisfied and stamps
-// the pick into req.PromptKey so the existing pickRoutedTemplate logic can
-// take the normal explicit-pin branch. It never fails fatally: a classifier
-// error is logged and the router proceeds with the empty pin (default
-// fallback). This keeps the feature safe to enable globally.
-func (s *service) maybeClassifyPrompt(
-	ctx context.Context,
-	req *StartRequest,
-	templates []promptstore.PromptTemplate,
-) {
-	userInput, ok := resolvePromptClassificationInput(req)
-	if !ok {
-		return
-	}
-	if !s.classifierReady() {
-		return
-	}
-	candidates := classifierCandidates(templates)
-	if len(candidates) == 0 {
-		return
-	}
-	// Fast path: when tag-keyword overlap picks a clear winner (score >= 2
-	// AND runner-up gap >= 1), skip the 5-15s claude -p round trip entirely.
-	// The thresholds are deliberately tight so untagged rows like main/default
-	// can't hijack the fast path; anything ambiguous falls through to haiku.
-	if s.applyClassifierFastPath(req, candidates, userInput) {
-		return
-	}
-	s.classifyPromptWithBackend(ctx, req, candidates, userInput)
-}
-
-func resolvePromptClassificationInput(req *StartRequest) (string, bool) {
-	switch {
-	case req == nil:
-		return "", false
-	case !req.UseClassifier:
-		return "", false
-	case strings.TrimSpace(req.PromptKey) != "":
-		// Caller already pinned. Explicit pin wins over auto-classification.
-		return "", false
-	}
-	userInput := strings.TrimSpace(req.Prompt)
-	if userInput == "" {
-		// No signal to classify on. Usually means eager-spawn Start without
-		// a first turn; the caller will revisit on SpawnIfNeeded once user
-		// input arrives.
-		return "", false
-	}
-	return userInput, true
-}
-
-// classifierBackendDisabledHint is the diagnostic the router emits when the
-// per-request UseClassifier opt-in is set but the backend cannot run. After
-// the P2 fix the UI toggle is the only opt-in gate — there is no
-// ENABLE_PROMPT_CLASSIFIER env var anywhere in the codebase. The only real
-// reasons Enabled() can be false are:
-//
-//   - `claude` CLI is not on PATH (NewClaudeCLIClassifier auto-degrades to
-//     NoopClassifier in that case).
-//   - The operator force-disabled the backend with DISABLE_PROMPT_CLASSIFIER=true.
-//
-// Both are surfaced verbatim so support can grep this log line and tell the
-// user which real condition to check.
-const classifierBackendDisabledHint = "ensure `claude` CLI is on PATH and DISABLE_PROMPT_CLASSIFIER is not set to true"
-
-func (s *service) classifierReady() bool {
-	if s.classifier != nil && s.classifier.Enabled() {
-		return true
-	}
-	pkglogger.Info("router: classifier opt-in but backend disabled",
-		"hint", classifierBackendDisabledHint)
-	return false
-}
-
-func (s *service) applyClassifierFastPath(req *StartRequest, candidates []contract.PromptClassifierCandidate, userInput string) bool {
-	if s.classifierFastPath == nil {
-		return false
-	}
-	decision := s.classifierFastPath(candidates, userInput)
-	if !decision.Hit {
-		return false
-	}
-	pkglogger.Info("router: classifier fast-path picked",
-		"prompt_key", decision.Picked.PromptKey,
-		"tag_score", decision.Score,
-		"tag_gap", decision.Gap,
-		"candidate_count", len(candidates))
-	req.PromptKey = decision.Picked.PromptKey
-	return true
-}
-
-func (s *service) classifyPromptWithBackend(
-	ctx context.Context,
-	req *StartRequest,
-	candidates []contract.PromptClassifierCandidate,
-	userInput string,
-) {
-	// Prune down to top-K by tag-keyword overlap before spending LLM tokens.
-	// With 11+ candidates in typical libraries, the untrimmed prompt pushes
-	// haiku latency into the 10s range; a 5-row list keeps it closer to 3-5s.
-	beforePrune := len(candidates)
-	if s.classifierPrune != nil && s.classifierMaxCandidates != nil {
-		candidates = s.classifierPrune(candidates, userInput, s.classifierMaxCandidates())
-	}
-	res, err := s.classifier.Classify(ctx, contract.PromptClassifierInput{UserInput: userInput, Candidates: candidates})
-	if err != nil {
-		pkglogger.Warn("router: classify failed",
-			"err", err,
-			"candidate_count", len(candidates),
-			"user_input_len", len(userInput))
-		return
-	}
-	if res.PromptKey == "" {
-		pkglogger.Info("router: classifier returned empty pick",
-			"reason", res.Reason,
-			"latency_ms", res.Latency.Milliseconds(),
-			"model", res.Model)
-		return
-	}
-	pkglogger.Info("router: classifier picked",
-		"prompt_key", res.PromptKey,
-		"reason", res.Reason,
-		"latency_ms", res.Latency.Milliseconds(),
-		"model", res.Model,
-		"candidate_count", len(candidates),
-		"candidate_count_pre_prune", beforePrune)
-	req.PromptKey = res.PromptKey
-}
-
-// classifierCandidates maps enabled prompt_templates to the classifier's DTO.
-// Disabled rows are dropped so the classifier never picks a row that the
-// subsequent pickRoutedTemplate would reject on Enabled=false.
-func classifierCandidates(templates []promptstore.PromptTemplate) []contract.PromptClassifierCandidate {
-	out := make([]contract.PromptClassifierCandidate, 0, len(templates))
-	for i := range templates {
-		t := &templates[i]
-		if !t.Enabled {
-			continue
-		}
-		out = append(out, contract.PromptClassifierCandidate{
-			PromptKey:   t.PromptKey,
-			Title:       t.Title,
-			Description: t.Description,
-			Tags:        decodeClassifierTags(t.Tags),
-		})
-	}
-	return out
-}
-
-// decodeClassifierTags tolerates both the raw-JSON tags column shape and an
-// empty/missing value. The prompt store stores tags as a JSON array of
-// strings; anything else just yields an empty slice rather than failing.
-func decodeClassifierTags(raw json.RawMessage) []string {
-	if len(raw) == 0 {
-		return nil
-	}
-	var tags []string
-	if err := json.Unmarshal(raw, &tags); err != nil {
-		return nil
-	}
-	return tags
+func promptTemplateLaunchable(template promptstore.PromptTemplate) bool {
+	return template.Enabled && !promptstore.IsRuntimeAssetTemplate(template)
 }
 
 func findByPromptKey(templates []promptstore.PromptTemplate, promptKey string) *promptstore.PromptTemplate {
@@ -430,18 +310,17 @@ func findByPromptKey(templates []promptstore.PromptTemplate, promptKey string) *
 
 // d-clean: applyCandidatePoolMerge / candidateTemplateBlocks 已移除。
 // 候选池合并注入的设计已与"对齐 Claude 主线程单提示词"的目标冲突；
-// 路由现在的四档优先级为：
-//   1. 显式 pin (PromptKey / AgentKey) > 2. 分类器 opt-in > 3. match_when
-//   自动路由 > 4. main/default 兑底。
+// 路由现在的三档优先级为：
+//   1. 显式 pin (PromptKey / AgentKey) > 2. match_when 自动路由 >
+//   3. main/default 兜底。
 
 // maybeAutoRouteByMatchWhen fills req.PromptKey when no explicit pin was
-// supplied and the classifier either was off or did not score a winner. It
-// evaluates auto-route candidates in two stages: first the "specific" pool
-// (rows whose match_when has real filter conditions), then the "fallback"
-// pool (rows whose match_when is `{}`, opt-in always-match). Each pool is
-// sorted by Priority DESC (stable). Splitting the pools prevents a high-
-// priority `{}` row (e.g. main/claude-style priority=150) from shadowing
-// every user-tagged prompt — the production bug that motivated this split.
+// supplied. It evaluates auto-route candidates in two stages: first the
+// "specific" pool (rows whose match_when has real filter conditions), then the
+// "fallback" pool (rows whose match_when is `{}`, opt-in always-match). Each
+// pool is sorted by Priority DESC (stable). Splitting the pools prevents a
+// high-priority `{}` row (e.g. main/general-zh priority=160) from shadowing
+// structured match_when prompts — the production bug that motivated this split.
 // All failure modes leave req.PromptKey untouched so the main/default
 // fallback still applies.
 func (s *service) maybeAutoRouteByMatchWhen(req *StartRequest, templates []promptstore.PromptTemplate) {
@@ -516,14 +395,14 @@ func (s *service) evaluateMatchWhenPool(
 //     would just be wasted iteration.
 //
 // Each pool is sorted by Priority DESC (stable). The caller evaluates
-// specific first, then fallback, so a low-priority user prompt with real
+// specific first, then fallback, so a low-priority prompt with real structured
 // match rules wins over a high-priority `{}` row.
 func autoRouteCandidates(templates []promptstore.PromptTemplate) (specific, fallback []promptstore.PromptTemplate) {
 	specific = make([]promptstore.PromptTemplate, 0, len(templates))
 	fallback = make([]promptstore.PromptTemplate, 0, len(templates))
 	for i := range templates {
 		t := &templates[i]
-		if !t.Enabled {
+		if !promptTemplateLaunchable(*t) {
 			continue
 		}
 		if len(t.MatchWhen) == 0 {

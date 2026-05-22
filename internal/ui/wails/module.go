@@ -132,7 +132,7 @@ func NewWailsApplication(p applicationParams) *application.App {
 		p.Lifecycle.MarkFrontendReady()
 		go cleanupStaleClipboardImages(p.Logger, os.TempDir(), defaultClipboardRetention)
 	})
-	CreateMainWindow(wailsApp, title, debug)
+	createWindow(wailsApp, title, debug, "main", "", "", p.Binding)
 	return wailsApp
 }
 

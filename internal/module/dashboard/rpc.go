@@ -2,6 +2,8 @@ package dashboard
 
 import (
 	"context"
+	"errors"
+	"strings"
 
 	"github.com/creachadair/jrpc2/handler"
 
@@ -180,14 +182,18 @@ func registerDashboardCoreHandlers(m handler.Map, svc Service) {
 		return tracesResponse{Traces: page.TaskTraces}, nil
 	})
 	m["dashboard/commandCards"] = platformrpc.StrictHandler(func(ctx context.Context, _ struct{}) (any, error) {
-		page, err := svc.GetDashboardPage(ctx, "commands")
+		page, err := svc.GetDashboardPage(ctx, "commandCards")
 		if err != nil {
 			return nil, err
 		}
 		return cardsResponse{Cards: page.CommandCards}, nil
 	})
 	m["dashboard/prompts"] = platformrpc.StrictHandler(func(ctx context.Context, p dashboardPromptsParams) (any, error) {
-		ctx = withDashboardPromptScopeCWD(ctx, p.Cwd)
+		cwd := strings.TrimSpace(p.Cwd)
+		if cwd == "" {
+			return nil, errors.New("dashboard: prompt cwd is required")
+		}
+		ctx = withDashboardPromptScopeCWD(ctx, cwd)
 		page, err := svc.GetDashboardPage(ctx, "commands")
 		if err != nil {
 			return nil, err

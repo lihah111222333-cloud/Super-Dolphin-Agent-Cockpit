@@ -45,14 +45,13 @@ func (s *service) startPendingThread(ctx context.Context, req StartRequest, agen
 	createdAt := time.Now().Unix()
 	displayName := resolveDisplayName(ctx, s.threadStore, agentID, req.Prompt, req.Name)
 	pendingStored := storedThreadConfig{
-		Model:         strings.TrimSpace(req.Model),
-		Effort:        strings.TrimSpace(req.Effort),
-		Approvals:     strings.TrimSpace(req.ApprovalPolicy),
-		Personality:   strings.TrimSpace(req.Personality),
-		Provider:      strings.TrimSpace(req.Provider),
-		PromptKey:     strings.TrimSpace(req.PromptKey),
-		UseClassifier: req.UseClassifier,
-		Runtime:       clone.RuntimeConfigMap(req.Config),
+		Model:       strings.TrimSpace(req.Model),
+		Effort:      strings.TrimSpace(req.Effort),
+		Approvals:   strings.TrimSpace(req.ApprovalPolicy),
+		Personality: strings.TrimSpace(req.Personality),
+		Provider:    strings.TrimSpace(req.Provider),
+		PromptKey:   strings.TrimSpace(req.PromptKey),
+		Runtime:     clone.RuntimeConfigMap(req.Config),
 	}
 	configOverride, err := encodeStoredThreadConfig(pendingStored)
 	if err != nil {
@@ -179,6 +178,7 @@ func (s *service) SpawnIfNeeded(ctx context.Context, threadID, userInputForRoute
 		AgentTitle:      req.AgentTitle,
 		PromptKey:       req.PromptKey,
 		PromptVersionID: req.PromptVersionID,
+		PromptKeyStale:  req.PromptKeyStale,
 	}, nil
 }
 
@@ -223,7 +223,6 @@ func buildPendingSpawnRequest(row *threadstore.Thread, agentID, userInputForRout
 		Personality:      storedCfg.Personality,
 		ApprovalPolicy:   storedCfg.Approvals,
 		PromptKey:        storedCfg.PromptKey,
-		UseClassifier:    storedCfg.UseClassifier,
 		Config:           clone.RuntimeConfigMap(storedCfg.Runtime),
 	}
 	normalized, normalizedAgentID, err := normalizeStartRequest(req)
@@ -285,8 +284,7 @@ func (s *service) runPendingSpawn(
 	var cleanupScratchpad func()
 
 	g.Go(func() error {
-		s.resolveRoutedPrompt(gCtx, req)
-		return nil
+		return s.resolveRoutedPrompt(gCtx, req)
 	})
 	g.Go(func() error {
 		var aerr error
@@ -312,12 +310,12 @@ func (s *service) runPendingSpawn(
 	if err != nil {
 		return fmt.Errorf("thread: prompt assembly: %w", err)
 	}
-	// When the classifier picked a persona that isn't the anonymous default,
-	// prefix the thread name with a human-readable agent label. This is the
-	// one visible place to surface "you got routed to X" without adding a
-	// separate UI component: sidebar, chat header, and dashboard all show
-	// display_name. The prefix is a stable bracketed slug so the UI can parse
-	// it into a blue pill (see stores/thread-view.model.js:parseAgentBadge).
+	// When routing picked a persona that isn't the anonymous default, prefix the
+	// thread name with a human-readable agent label. This is the one visible
+	// place to surface "you got routed to X" without adding a separate UI
+	// component: sidebar, chat header, and dashboard all show display_name. The
+	// prefix is a stable bracketed slug so the UI can parse it into a blue pill
+	// (see stores/thread-view.model.js:parseAgentBadge).
 	displayName := resolveDisplayName(ctx, s.threadStore, agentID, req.Prompt, assembly.DisplayName)
 	displayName = applyTitleExtractionFallback(displayName, req.Prompt)
 	displayName = prependAgentBadge(displayName, req.AgentTitle, req.AgentKey)
@@ -352,6 +350,7 @@ func foldRouterOutputIntoAssemblyInput(assemblyInput *contract.StartInput, req *
 	}
 	assemblyInput.BaseInstructions = req.BaseInstructions
 	assemblyInput.DeveloperInstructions = req.DeveloperInstructions
+	assemblyInput.PromptKey = strings.TrimSpace(req.PromptKey)
 	assemblyInput.BaseInstructionBlocks = append(
 		[]contract.BaseInstructionBlock(nil),
 		req.BaseInstructionBlocks...,

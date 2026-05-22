@@ -2,9 +2,11 @@ package contract
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
 	"sort"
 	"strings"
-	"time"
 
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
 	shareddto "github.com/anthropic-ai/super-agent-v3/internal/dto/shared"
@@ -100,6 +102,9 @@ const (
 
 const (
 	DynamicSectionSessionGuidance      = "session_guidance"
+	DynamicSectionProjectDefaultRules  = "project_default_rules"
+	DynamicSectionAvailableExperts     = "available_experts"
+	DynamicSectionRecallCatalog        = "recall_catalog"
 	DynamicSectionMemory               = "memory"
 	DynamicSectionMemoryContext        = "memory_context"
 	DynamicSectionMemoryEntrypoint     = "memory_entrypoint"
@@ -129,6 +134,7 @@ type StartInput struct {
 	AgentMemoryScope string
 	Name             string
 	Prompt           string
+	PromptKey        string
 	BaseInstructions string
 	// BaseInstructionBlocks carries ordered, region-tagged fragments sourced
 	// from prompt_template_sections. When non-empty, the assembler merges
@@ -165,6 +171,7 @@ type TurnInput struct {
 	ThreadID                     string
 	Provider                     string
 	UserText                     string
+	PromptKey                    string
 	Attachments                  []string
 	CurrentDate                  string
 	RuntimeUserContext           map[string]string
@@ -189,6 +196,21 @@ type SectionContext struct {
 	BuildCtx BuildCtx
 	Start    *StartInput
 	Turn     *TurnInput
+}
+
+func SectionContextCWD(input SectionContext) string {
+	if cwd := strings.TrimSpace(input.BuildCtx.CWD); cwd != "" {
+		return cwd
+	}
+	if input.Start != nil {
+		if cwd := strings.TrimSpace(input.Start.CWD); cwd != "" {
+			return cwd
+		}
+	}
+	if input.Turn != nil {
+		return strings.TrimSpace(input.Turn.CWD)
+	}
+	return ""
 }
 
 type SectionComputeFunc func(context.Context, SectionContext) (*string, error)
@@ -227,6 +249,104 @@ type BaseInstructionBlock struct {
 	Ordinal    int
 	Body       string
 	EnableWhen []byte
+}
+
+type BuiltinPromptTemplate struct {
+	ID          int64
+	PromptKey   string
+	Kind        string
+	Title       string
+	AgentKey    string
+	ToolName    string
+	PromptText  string
+	WhenToUse   string
+	Description string
+	Tags        []string
+	Enabled     bool
+	Scope       string
+	MatchWhen   json.RawMessage
+	Priority    int
+}
+
+type BuiltinPromptSection struct {
+	ID          int64
+	TemplateID  int64
+	SectionKey  string
+	Region      string
+	Ordinal     int
+	Body        string
+	EnableWhen  json.RawMessage
+	Enabled     bool
+	TriggerType string
+	RecallTopic string
+}
+
+type BuiltinPromptRegistry interface {
+	ListTemplates() []BuiltinPromptTemplate
+	GetTemplate(promptKey string) (BuiltinPromptTemplate, bool)
+	SectionsByTemplateID(templateID int64) []BuiltinPromptSection
+}
+
+type CriticalPromptSectionError struct {
+	Section string
+	Err     error
+}
+
+func NewCriticalPromptSectionError(section string, err error) error {
+	if err == nil {
+		return nil
+	}
+	return CriticalPromptSectionError{Section: strings.TrimSpace(section), Err: err}
+}
+
+func (e CriticalPromptSectionError) Error() string {
+	if e.Section == "" {
+		return fmt.Sprintf("critical prompt section failed: %v", e.Err)
+	}
+	return fmt.Sprintf("critical prompt section %q failed: %v", e.Section, e.Err)
+}
+
+func (e CriticalPromptSectionError) Unwrap() error {
+	return e.Err
+}
+
+func IsCriticalPromptSectionError(err error) bool {
+	var target CriticalPromptSectionError
+	return errors.As(err, &target)
+}
+
+// PrepareBaseInstructionBlocks applies the assembler's ordering, trimming, and gates.
+func PrepareBaseInstructionBlocks(blocks []BaseInstructionBlock, buildCtx BuildCtx, userPrompt string, enableWhenEval EnableWhenEvaluator) []BaseInstructionBlock {
+	sorted := make([]BaseInstructionBlock, len(blocks))
+	copy(sorted, blocks)
+	sort.SliceStable(sorted, func(i, j int) bool {
+		if sorted[i].Region != sorted[j].Region {
+			return sorted[i].Region < sorted[j].Region
+		}
+		return sorted[i].Ordinal < sorted[j].Ordinal
+	})
+	out := make([]BaseInstructionBlock, 0, len(sorted))
+	for _, block := range sorted {
+		block.Body = strings.TrimSpace(block.Body)
+		if enableWhenEval != nil && !enableWhenEval(block.EnableWhen, buildCtx, userPrompt) {
+			continue
+		}
+		if block.Body != "" {
+			out = append(out, block)
+		}
+	}
+	return out
+}
+
+// TextFromBaseInstructionBlocks renders the section-only text snapshot.
+func TextFromBaseInstructionBlocks(blocks []BaseInstructionBlock) string {
+	parts := make([]string, 0, len(blocks))
+	for _, block := range blocks {
+		if body := strings.TrimSpace(block.Body); body != "" {
+			parts = append(parts, body)
+		}
+	}
+	return strings.Join(parts, "\n\n")
 }
 
 type StartAssembly = dto.StartAssembly
@@ -306,6 +426,66 @@ func RenderUserContextMessage(assembly TurnAssembly) string {
 		return WrapSystemReminder(text)
 	}
 	return WrapSystemReminder(assembly.UserContextText)
+}
+
+func RenderStartRuntimeContext(assembly StartAssembly) string {
+	payload := assembly.UserContext
+	userContextText := assembly.UserContextText
+	if startRuntimeExtrasAlreadyRendered(assembly) {
+		payload = cloneUserContextWithout(payload, "runtimeExtras")
+		userContextText = FormatUserContextText(payload)
+	}
+	userContext := RenderUserContextMessage(TurnAssembly{
+		UserContext:     payload,
+		UserContextText: userContextText,
+	})
+	return appendPromptBlock(userContext, FormatSystemContextBlock(assembly.SystemContext))
+}
+
+func startRuntimeExtrasAlreadyRendered(assembly StartAssembly) bool {
+	if strings.TrimSpace(assembly.UserContext["runtimeExtras"]) == "" {
+		return false
+	}
+	if assembly.Boundary != nil && strings.TrimSpace(assembly.Boundary.UncachedTail) != "" {
+		return true
+	}
+	return assembly.Snapshot.Boundary != nil && strings.TrimSpace(assembly.Snapshot.Boundary.UncachedTail) != ""
+}
+
+func cloneUserContextWithout(in map[string]string, dropKey string) map[string]string {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make(map[string]string, len(in))
+	for key, value := range in {
+		if key == dropKey {
+			continue
+		}
+		out[key] = value
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+func AppendStartRuntimeContext(base string, assembly StartAssembly) string {
+	return appendPromptBlock(base, RenderStartRuntimeContext(assembly))
+}
+
+func appendPromptBlock(base, block string) string {
+	base = strings.TrimSpace(base)
+	block = strings.TrimSpace(block)
+	if block == "" {
+		return base
+	}
+	if base == "" {
+		return block
+	}
+	if strings.Contains(base, block) {
+		return base
+	}
+	return base + "\n\n" + block
 }
 
 func orderedUserContextKeys(payload map[string]string) []string {
@@ -456,62 +636,6 @@ type PromptAssemblyService interface {
 	Invalidate(ctx context.Context, reason InvalidateReason) error
 }
 
-// ---------------------------------------------------------------------------
-// PromptClassifier — LLM-based prompt routing (was prompt_classifier.go)
-// ---------------------------------------------------------------------------
-
-// PromptClassifierCandidate is one prompt_template exposed to the classifier
-// for ranking. Only the human-readable metadata is sent; PromptText is
-// deliberately omitted to keep the classifier prompt under control and cost low.
-type PromptClassifierCandidate struct {
-	PromptKey   string
-	Title       string
-	Description string
-	Tags        []string
-}
-
-// PromptClassifierInput is a classification request.
-type PromptClassifierInput struct {
-	UserInput  string
-	Candidates []PromptClassifierCandidate
-}
-
-// PromptClassifierResult is the classifier's top-1 pick.
-//
-// An empty PromptKey is the explicit "no strong match" signal; callers should
-// fall through to default routing in that case rather than pick arbitrarily.
-type PromptClassifierResult struct {
-	PromptKey string
-	Reason    string
-	Latency   time.Duration
-	// Model records which model answered, for observability. Empty when the
-	// concrete implementation does not surface it.
-	Model string
-}
-
-// PromptClassifierFastPathDecision is returned by a fast-path evaluation:
-// either a confident pick (Picked, Hit=true) that lets the caller skip the
-// LLM entirely, or Hit=false meaning the tag signal was too weak / too
-// ambiguous and the caller should fall through to the LLM classifier.
-type PromptClassifierFastPathDecision struct {
-	Picked PromptClassifierCandidate
-	Hit    bool
-	Score  int
-	Gap    int
-}
-
-// PromptClassifier is the narrow contract the thread router depends on for
-// LLM-based prompt routing. The concrete implementation lives in
-// internal/module/prompt/classifier; this interface breaks the thread->prompt
-// horizontal dependency so thread only imports contract.
-type PromptClassifier interface {
-	Classify(ctx context.Context, in PromptClassifierInput) (PromptClassifierResult, error)
-	// Enabled reports whether the classifier will make a real attempt on
-	// Classify. Callers can use this to short-circuit candidate collection
-	// and logging when the feature is off.
-	Enabled() bool
-}
-
 // MatchWhenEvaluator decides whether a prompt_template's match_when JSONB
 // expression is satisfied by the given BuildCtx and user prompt. The thread
 // router calls this to implement the "match_when auto-route" tier without
@@ -519,13 +643,8 @@ type PromptClassifier interface {
 // internal/module/prompt (EvaluateMatchWhen).
 type MatchWhenEvaluator func(raw []byte, buildCtx BuildCtx, userPrompt string) bool
 
-// ClassifierFastPathFunc is the function signature for the tag-based fast-path
-// that skips the LLM round trip when there's a clear winner by tag overlap.
-type ClassifierFastPathFunc func(candidates []PromptClassifierCandidate, userInput string) PromptClassifierFastPathDecision
-
-// ClassifierPruneCandidatesFunc trims the candidate pool before sending to the
-// LLM classifier.
-type ClassifierPruneCandidatesFunc func(candidates []PromptClassifierCandidate, userInput string, max int) []PromptClassifierCandidate
-
-// ClassifierMaxCandidatesFunc returns the configured candidate cap from env.
-type ClassifierMaxCandidatesFunc func() int
+// EnableWhenEvaluator decides whether a prompt_template_section's enable_when
+// JSONB expression is satisfied by the given BuildCtx and user prompt. The
+// thread router uses this to materialize prompt_versions snapshots with the
+// same section gates the prompt assembler applies at injection time.
+type EnableWhenEvaluator func(raw []byte, buildCtx BuildCtx, userPrompt string) bool

@@ -162,44 +162,35 @@ func TestPhase2_3aSingleflightInvalidateNoStaleStore(t *testing.T) {
 	t.Parallel()
 	svc := NewService(&Config{}, nil)
 	var counter atomic.Int64
-	computeStarted := make(chan struct{})
-	var computeStartedOnce sync.Once
+	gate := newPhase2SingleflightGate(&counter)
 	const sectionName = "phase2_3a_test_counter"
 	if err := svc.RegisterSection(PromptSection{
-		Name:   sectionName,
-		Order:  10000,
-		Region: PromptRegionStatic,
-		Compute: func(ctx context.Context, _ SectionContext) (*string, error) {
-			computeStartedOnce.Do(func() { close(computeStarted) })
-			time.Sleep(50 * time.Millisecond)
-			s := fmt.Sprintf("counter=%d", counter.Add(1))
-			return &s, nil
-		},
+		Name:    sectionName,
+		Order:   10000,
+		Region:  PromptRegionStatic,
+		Compute: gate.compute,
 	}); err != nil {
 		t.Fatalf("RegisterSection() error = %v", err)
 	}
 	cwd := t.TempDir()
 
-	type assembleResult struct {
-		assembly StartAssembly
-		err      error
-	}
-	resultCh := make(chan assembleResult, 1)
+	resultCh := make(chan phase2AssembleResult, 1)
 	go func() {
 		assembly, err := svc.AssembleStart(context.Background(), StartInput{
 			Provider: "claudecli",
 			CWD:      cwd,
 			Language: "English",
 		})
-		resultCh <- assembleResult{assembly, err}
+		resultCh <- phase2AssembleResult{assembly, err}
 	}()
 
-	// Step 2: sleep 10ms 让 compute 进入 singleflight，然后 invalidate（在
-	// store 触发前）.
-	waitForPhase23aComputeStart(t, computeStarted)
+	// Step 2: 等自定义 compute 已经在旧 generation 下进入 singleflight，
+	// 然后在 store 触发前 invalidate。
+	waitForPhase2SingleflightComputeStart(t, gate, resultCh)
 	if err := svc.Invalidate(context.Background(), contract.InvalidateMemoryWrite); err != nil {
 		t.Fatalf("Invalidate() error = %v", err)
 	}
+	gate.release()
 
 	// Step 3: 等第一次 AssembleStart 完成（store 到旧 generation 桶）.
 	first := <-resultCh
@@ -237,6 +228,59 @@ func TestPhase2_3aSingleflightInvalidateNoStaleStore(t *testing.T) {
 	if !strings.Contains(third.BaseInstructions, "counter=2") {
 		t.Fatalf("third assembly should reuse cached counter=2 (no invalidate between #2 and #3), got: %q",
 			third.BaseInstructions)
+	}
+}
+
+type phase2AssembleResult struct {
+	assembly StartAssembly
+	err      error
+}
+
+type phase2SingleflightGate struct {
+	counter *atomic.Int64
+	started chan struct{}
+	done    chan struct{}
+}
+
+func newPhase2SingleflightGate(counter *atomic.Int64) *phase2SingleflightGate {
+	return &phase2SingleflightGate{
+		counter: counter,
+		started: make(chan struct{}),
+		done:    make(chan struct{}),
+	}
+}
+
+func (g *phase2SingleflightGate) compute(ctx context.Context, _ SectionContext) (*string, error) {
+	call := g.counter.Add(1)
+	if call == 1 {
+		close(g.started)
+		select {
+		case <-g.done:
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
+	}
+	s := fmt.Sprintf("counter=%d", call)
+	return &s, nil
+}
+
+func (g *phase2SingleflightGate) release() {
+	close(g.done)
+}
+
+func waitForPhase2SingleflightComputeStart(
+	t *testing.T,
+	gate *phase2SingleflightGate,
+	resultCh <-chan phase2AssembleResult,
+) {
+	t.Helper()
+	select {
+	case <-gate.started:
+	case first := <-resultCh:
+		t.Fatalf("first AssembleStart() finished before test section entered compute: err=%v assembly=%q",
+			first.err, first.assembly.BaseInstructions)
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for test section compute to start")
 	}
 }
 
@@ -283,14 +327,5 @@ func TestPhase2_3aInvalidateRoutingContract(t *testing.T) {
 	}
 	if got := internal.userContextCache.Generation(); got != gen1User {
 		t.Fatalf("InvalidateSections(): userContextCache should NOT advance (sources-keyed via sourceDigest, not sections-keyed): prev=%d got=%d", gen1User, got)
-	}
-}
-
-func waitForPhase23aComputeStart(t *testing.T, started <-chan struct{}) {
-	t.Helper()
-	select {
-	case <-started:
-	case <-time.After(time.Second):
-		t.Fatal("timed out waiting for test section compute to start")
 	}
 }

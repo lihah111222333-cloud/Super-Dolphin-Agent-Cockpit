@@ -248,8 +248,18 @@ type turnStartResult struct {
 	// thread/start; repeating it here is pointless and harmless (all four
 	// fields are zero/nil when turn/start is a no-op on the spawn axis and
 	// get elided by omitempty).
-	AgentKey        string `json:"agent_key,omitempty"`
-	AgentTitle      string `json:"agent_title,omitempty"`
-	PromptKey       string `json:"prompt_key,omitempty"`
-	PromptVersionID *int64 `json:"prompt_version_id,omitempty"`
+	AgentKey            string `json:"agent_key,omitempty"`
+	AgentTitle          string `json:"agent_title,omitempty"`
+	PromptKey           string `json:"prompt_key,omitempty"`
+	PromptVersionID     *int64 `json:"prompt_version_id,omitempty"`
+	PromptKeyStale      *bool  `json:"prompt_key_stale,omitempty"`
+	PromptKeyStaleCamel *bool  `json:"promptKeyStale,omitempty"`
+}
+
+func attachTurnPromptKeyStale(resp *turnStartResult, stale bool) {
+	if resp == nil || !stale {
+		return
+	}
+	resp.PromptKeyStale = &stale
+	resp.PromptKeyStaleCamel = &stale
 }

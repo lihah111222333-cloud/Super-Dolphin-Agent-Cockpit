@@ -87,9 +87,12 @@ func (s *service) agentForLaunchLocked(req LaunchRequest) *agentRuntime {
 	agent.command = append([]string(nil), req.Command...)
 	agent.env = append([]string(nil), req.Env...)
 	agent.port = launchPort(req)
-	agent.portSource = inferredLaunchSource(agent.port)
+	agent.portSource = ""
+	if agent.port > 0 {
+		agent.portSource = "inferred"
+	}
 	agent.provider = launchProvider(req)
-	agent.providerSource = inferredLaunchSourceString(agent.provider)
+	agent.providerSource = "inferred"
 	resetRuntimeStateLocked(agent)
 	clearAgentLifecycleErrorLocked(agent)
 	clearAgentStopReasonLocked(agent)
@@ -171,20 +174,6 @@ func launchProvider(req LaunchRequest) string {
 		return value
 	}
 	return "codex"
-}
-
-func inferredLaunchSource(value int) string {
-	if value <= 0 {
-		return ""
-	}
-	return "inferred"
-}
-
-func inferredLaunchSourceString(value string) string {
-	if strings.TrimSpace(value) == "" {
-		return ""
-	}
-	return "inferred"
 }
 
 func launchCommandArgs(command []string) []string {

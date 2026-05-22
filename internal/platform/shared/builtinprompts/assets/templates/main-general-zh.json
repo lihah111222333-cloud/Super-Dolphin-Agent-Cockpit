@@ -1,0 +1,147 @@
+{
+  "prompt_key": "main/general-zh",
+  "kind": "base",
+  "title": "Super-Dolphin 默认助手（中文）",
+  "agent_key": "main",
+  "enabled": true,
+  "scope": "global",
+  "priority": 160,
+  "match_when": {},
+  "when_to_use": "",
+  "description": "Super-Dolphin 默认系统提示词中文版。由 builtin registry 管理，基于 provider-neutral main/general-zh 生产 seed，包含工程约束、工具偏好、LSP 工具链和 recall packs。",
+  "tags": ["builtin:system", "main", "default", "zh"],
+  "sections": [
+    {
+      "section_key": "identity",
+      "region": "static",
+      "ordinal": 0,
+      "trigger_type": "always",
+      "body_file": "sections/main-general-zh/00-identity.md"
+    },
+    {
+      "section_key": "worktree_hint",
+      "region": "dynamic",
+      "ordinal": 10,
+      "trigger_type": "always",
+      "enable_when": {"isWorktree": true},
+      "body_file": "sections/main-general-zh/10-worktree-hint.md"
+    },
+    {
+      "section_key": "system_constraints",
+      "region": "static",
+      "ordinal": 20,
+      "trigger_type": "always",
+      "body_file": "sections/main-general-zh/20-system-constraints.md"
+    },
+    {
+      "section_key": "engineering",
+      "region": "static",
+      "ordinal": 30,
+      "trigger_type": "always",
+      "body_file": "sections/main-general-zh/30-engineering.md"
+    },
+    {
+      "section_key": "actions",
+      "region": "static",
+      "ordinal": 40,
+      "trigger_type": "always",
+      "body_file": "sections/main-general-zh/40-actions.md"
+    },
+    {
+      "section_key": "tool_preferences",
+      "region": "static",
+      "ordinal": 50,
+      "trigger_type": "always",
+      "body_file": "sections/main-general-zh/50-tool-preferences.md"
+    },
+    {
+      "section_key": "lsp_basics",
+      "region": "static",
+      "ordinal": 55,
+      "trigger_type": "always",
+      "enable_when": {"enabled_tools_has": ["lsp_grep", "lsp_structure", "lsp_inspect", "lsp_xref", "lsp_file", "lsp_edit", "lsp_completion"]},
+      "body_file": "sections/main-general-zh/55-lsp-basics.md"
+    },
+    {
+      "section_key": "style",
+      "region": "static",
+      "ordinal": 60,
+      "trigger_type": "always",
+      "body_file": "sections/main-general-zh/60-style.md"
+    },
+    {
+      "section_key": "output_efficiency",
+      "region": "static",
+      "ordinal": 70,
+      "trigger_type": "always",
+      "body_file": "sections/main-general-zh/70-output-efficiency.md"
+    },
+    {
+      "section_key": "lsp_advanced",
+      "region": "dynamic",
+      "ordinal": 80,
+      "trigger_type": "always",
+      "enable_when": {
+        "tags_has": ["refactor", "rename", "trace", "call hierarchy", "type hierarchy", "find references", "implementations", "bug", "重构", "重写", "改名", "重命名", "调用链", "被谁调用", "谁调用", "调用关系", "哪里调用", "类型层次", "继承体系", "接口的实现", "有几个实现", "影响面", "影响哪", "会不会影响", "牵一发", "排查", "追查", "追踪", "调试", "根因", "定位问题", "找引用", "查引用", "哪里用到", "哪里引用", "找用法", "用法", "报错", "编译错", "编译失败", "修 bug", "修复"],
+        "enabled_tools_has": ["lsp_grep", "lsp_structure", "lsp_inspect", "lsp_xref", "lsp_file", "lsp_edit", "lsp_completion"]
+      },
+      "body_file": "sections/main-general-zh/80-lsp-advanced.md"
+    },
+    {
+      "section_key": "recall_lsp_basics",
+      "region": "dynamic",
+      "ordinal": 0,
+      "trigger_type": "recall",
+      "recall_topic": "lsp-basics",
+      "body_file": "sections/main-general-zh/90-recall-lsp-basics.md"
+    },
+    {
+      "section_key": "recall_lsp_advanced",
+      "region": "dynamic",
+      "ordinal": 0,
+      "trigger_type": "recall",
+      "recall_topic": "lsp-advanced",
+      "body_file": "sections/main-general-zh/91-recall-lsp-advanced.md"
+    },
+    {
+      "section_key": "recall_sqlc_workflow",
+      "region": "dynamic",
+      "ordinal": 0,
+      "trigger_type": "recall",
+      "recall_topic": "sqlc-workflow",
+      "body_file": "sections/main-general-zh/92-recall-sqlc-workflow.md"
+    },
+    {
+      "section_key": "recall_prompt_template_editing",
+      "region": "dynamic",
+      "ordinal": 0,
+      "trigger_type": "recall",
+      "recall_topic": "prompt-template-editing",
+      "body_file": "sections/main-general-zh/93-recall-prompt-template-editing.md"
+    },
+    {
+      "section_key": "recall_frontend_vue3",
+      "region": "dynamic",
+      "ordinal": 0,
+      "trigger_type": "recall",
+      "recall_topic": "frontend-vue3",
+      "body_file": "sections/main-general-zh/94-recall-frontend-vue3.md"
+    },
+    {
+      "section_key": "recall_migration_rules",
+      "region": "dynamic",
+      "ordinal": 0,
+      "trigger_type": "recall",
+      "recall_topic": "migration-rules",
+      "body_file": "sections/main-general-zh/95-recall-migration-rules.md"
+    },
+    {
+      "section_key": "recall_guard_rules",
+      "region": "dynamic",
+      "ordinal": 0,
+      "trigger_type": "recall",
+      "recall_topic": "guard-rules",
+      "body_file": "sections/main-general-zh/96-recall-guard-rules.md"
+    }
+  ]
+}

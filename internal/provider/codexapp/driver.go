@@ -401,6 +401,7 @@ func (d *driver) startAssemblyInstructions(req dto.StartSessionRequest) (string,
 	if base == "" {
 		base = fallbackBaseInstructions
 	}
+	base = contract.AppendStartRuntimeContext(base, req.StartAssembly)
 	return base, developer
 }
 

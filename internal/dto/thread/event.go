@@ -87,6 +87,7 @@ type SpawnRouting struct {
 	AgentTitle      string `json:"agent_title,omitempty"`
 	PromptKey       string `json:"prompt_key,omitempty"`
 	PromptVersionID *int64 `json:"prompt_version_id,omitempty"`
+	PromptKeyStale  bool   `json:"prompt_key_stale,omitempty"`
 }
 
 func (Started) Type() uint32      { return shared.EventTypeThreadStarted }

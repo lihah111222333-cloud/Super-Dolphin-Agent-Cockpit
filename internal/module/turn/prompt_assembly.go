@@ -18,6 +18,7 @@ func (s *service) prepareTurnAssembly(ctx context.Context, threadID string, inpu
 		ThreadID:                     threadID,
 		Provider:                     strings.TrimSpace(input.Provider),
 		UserText:                     strings.TrimSpace(userText),
+		PromptKey:                    strings.TrimSpace(input.PromptKey),
 		Attachments:                  turnAttachmentRefs(req.Inputs),
 		CurrentDate:                  time.Now().Format("2006-01-02"),
 		Summary:                      strings.TrimSpace(input.Summary),

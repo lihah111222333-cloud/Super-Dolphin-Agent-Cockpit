@@ -39,6 +39,7 @@ func errorPronePatternViolations(repoRoot string) []Violation {
 	g.guardEmptyCWDPropagationPattern()
 	g.guardTerminalSignalCompletenessPattern()
 	g.guardDSLTypeCoercionPattern()
+	g.guardRetiredPromptClassifierPattern()
 	return g.violations
 }
 
@@ -318,17 +319,59 @@ func (g *errorPronePatternGuard) guardTerminalSignalCompletenessPattern() {
 	)
 }
 
-// guardDSLTypeCoercionPattern ensures the template-level match_when DSL
-// evaluator delegates to the dual-type (string + array) evaluator for
-// tags_has. Without this, array-form tags_has stored by the SystemPromptPage
-// UI silently fails to match — the bug from 2026-05-15 commit 72e56f7c.
+// guardDSLTypeCoercionPattern locks the split between template match_when and
+// section enable_when: template-level tags_has is retired and must fail closed,
+// while section-level enable_when.tags_has keeps the dual-type evaluator.
 func (g *errorPronePatternGuard) guardDSLTypeCoercionPattern() {
 	const rel = "internal/module/prompt/enable_when.go"
-	g.requireContains(rel, "template-level tags_has must use dual-type evaluator to support both string and array forms",
+	g.requireContains(rel, "section-level tags_has must keep dual-type evaluator",
+		"case \"tags_has\":",
 		"matchSectionTagsHas(want, userPrompt)",
+	)
+	g.requireContains(rel, "template-level tags_has must fail closed",
+		"Template-level keyword routing is retired",
+		"return false",
 	)
 	g.requireNotContains(rel, "template-level tags_has must not use string-only evaluator",
 		"matchTagsHas(matchWhenStringValue(want)",
+	)
+}
+
+// guardRetiredPromptClassifierPattern locks the PromptClassifier removal. The
+// router now relies on template match_when + harness dynamic sections; the old
+// forked Claude classifier must not re-enter the Go runtime surface.
+func (g *errorPronePatternGuard) guardRetiredPromptClassifierPattern() {
+	classifierFiles, err := filepath.Glob(filepath.Join(g.repoRoot, "internal", "module", "prompt", "classifier", "*.go"))
+	if err != nil {
+		g.addViolation("internal/module/prompt/classifier", 1, "cannot scan retired PromptClassifier package: %v", err)
+	} else if len(classifierFiles) > 0 {
+		g.addViolation("internal/module/prompt/classifier", 1, "retired PromptClassifier package must not contain Go files")
+	}
+
+	g.requireNotContains("internal/contract/prompt.go", "PromptClassifier contract surface is retired",
+		"PromptClassifier",
+		"UseClassifier",
+	)
+	g.requireNotContains("internal/module/prompt/module.go", "prompt classifier fx wiring is retired",
+		"prompt/classifier",
+		"newPromptClassifier",
+		"newClassifierFastPathFunc",
+	)
+	g.requireNotContains("internal/module/thread/contract.go", "thread start request must not expose classifier opt-in",
+		"UseClassifier",
+	)
+	g.requireNotContains("internal/module/thread/router_resolve.go", "router classifier path is retired",
+		"maybeClassifyPrompt",
+		"classifyPromptWithBackend",
+		"classifierCandidates",
+	)
+	g.requireNotContains("internal/module/thread/rpc_types.go", "thread RPC must not accept classifier opt-in",
+		"UseClassifier",
+		"use_classifier",
+	)
+	g.requireNotContains("internal/module/thread/spawn.go", "spawn path must not forward classifier opt-in",
+		"UseClassifier",
+		"use_classifier",
 	)
 }
 

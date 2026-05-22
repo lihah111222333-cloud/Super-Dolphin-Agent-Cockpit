@@ -1,0 +1,90 @@
+{
+  "health": {
+    "provider": "e2e-fixture"
+  },
+  "expert": {
+    "kind": "expert",
+    "title": "Prompt Intent E2E Expert",
+    "summary": "Reviews prompt intent E2E flows and generated prompt sections.",
+    "when_to_use": "Use when validating prompt intent draft, commit, and thread snapshot behavior.",
+    "when_not_to_use": "Do not use for unrelated frontend styling or live model quality evaluation.",
+    "workflow": [
+      "Inspect the generated draft card",
+      "Commit it into scoped prompt sections",
+      "Verify the resulting prompt snapshot markers"
+    ],
+    "constraints": [
+      "Keep fixture output deterministic",
+      "Do not encode provider identity in normal draft cards"
+    ],
+    "output": "A concise validation report with prompt keys and snapshot markers.",
+    "hit_examples": [
+      "Validate prompt intent E2E fixture flow"
+    ],
+    "miss_examples": [
+      "Tune unrelated dashboard colors"
+    ]
+  },
+  "recall": {
+    "kind": "recall",
+    "title": "Prompt Intent E2E Recall",
+    "summary": "Fixture recall package for prompt intent E2E.",
+    "recall_topic": "prompt-intent-e2e-{{RUN_ID}}",
+    "recall_body": "PROMPT_INTENT_RECALL_BODY_MARKER fixture recall body for scoped prompt_recall validation run {{RUN_ID}}.",
+    "hit_examples": [
+      "Look up prompt intent E2E recall marker"
+    ],
+    "miss_examples": [
+      "Ask for a weather forecast"
+    ]
+  },
+  "default_rule": {
+    "kind": "default_rule",
+    "title": "Prompt Intent E2E Rule",
+    "summary": "Project-only prompt intent E2E rule.",
+    "default_rule_body": "Always keep prompt intent fixture outputs deterministic for this project run {{RUN_ID}}.",
+    "hit_examples": [
+      "Create a deterministic prompt intent fixture"
+    ],
+    "miss_examples": [
+      "Use a live LLM without explicit real mode"
+    ],
+    "conflicting_rules": [
+      {
+        "title": "Existing live mode rule",
+        "summary": "May prefer live model output"
+      }
+    ],
+    "suggested_alternative": {
+      "kind": "recall",
+      "reason": "Keep provider-specific notes in recall instead of a default rule."
+    }
+  },
+  "review": {
+    "kind": "recall",
+    "title": "External Provider Notes",
+    "summary": "Reference notes from an external provider prompt.",
+    "recall_topic": "external-provider-notes-{{RUN_ID}}",
+    "recall_body": "EXTERNAL_PROVIDER_RECALL_BODY_MARKER This external provider prompt says You are Claude and mentions provider-specific tools for run {{RUN_ID}}.",
+    "hit_examples": [
+      "Look up external provider prompt notes"
+    ],
+    "miss_examples": [
+      "Enable a project default behavior"
+    ]
+  },
+  "block": {
+    "kind": "expert",
+    "title": "Blocked Fixture Expert",
+    "summary": "Missing hit examples by design.",
+    "when_to_use": "Use only to verify block issues.",
+    "workflow": [
+      "Return incomplete card"
+    ],
+    "output": "Blocked draft.",
+    "hit_examples": [],
+    "miss_examples": [
+      "Normal ready draft"
+    ]
+  }
+}

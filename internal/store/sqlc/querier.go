@@ -42,6 +42,7 @@ type Querier interface {
 	// CRUD --------------------------------------------------------------
 	CreateCronJob(ctx context.Context, arg CreateCronJobParams) (CronJob, error)
 	CreateInteraction(ctx context.Context, arg CreateInteractionParams) (AgentInteraction, error)
+	CreatePromptTemplate(ctx context.Context, arg CreatePromptTemplateParams) (CreatePromptTemplateRow, error)
 	// Legacy V2 store SQL used proposal_hash/proposal_json columns.
 	// These queries are aligned to the V2 exported public schema used for the baseline.
 	CreateTopologyApproval(ctx context.Context, arg CreateTopologyApprovalParams) (TopologyApproval, error)
@@ -74,6 +75,7 @@ type Querier interface {
 	// scheduler's caller checks local_turn_id == "" to distinguish miss
 	// from hit.
 	GetLiveTurnDedupe(ctx context.Context, arg GetLiveTurnDedupeParams) (TurnDedupeRegistry, error)
+	GetPromptIntentDraft(ctx context.Context, arg GetPromptIntentDraftParams) (PromptIntentDraft, error)
 	GetPromptTemplate(ctx context.Context, arg GetPromptTemplateParams) (GetPromptTemplateRow, error)
 	// Used by CompleteTurn to locate the active run for a completed turn without
 	// scanning all unresolved rows. turn_id is indexed by the dedupe_key B-tree
@@ -114,6 +116,7 @@ type Querier interface {
 	// Used by RenewLeases / ExtendClaimForTurnProgress to fetch only the jobs
 	// owned by this scheduler instance, avoiding a full-table scan of cron_jobs.
 	ListCronJobsClaimedBy(ctx context.Context, arg ListCronJobsClaimedByParams) ([]CronJob, error)
+	ListDefaultRuleSections(ctx context.Context, arg ListDefaultRuleSectionsParams) ([]ListDefaultRuleSectionsRow, error)
 	ListEnabledPromptRoutingTests(ctx context.Context) ([]PromptRoutingTest, error)
 	ListHookPendingReviewsByAgent(ctx context.Context, arg ListHookPendingReviewsByAgentParams) ([]ListHookPendingReviewsByAgentRow, error)
 	ListInteractions(ctx context.Context, arg ListInteractionsParams) ([]AgentInteraction, error)
@@ -130,8 +133,11 @@ type Querier interface {
 	//
 	ListObservedTokenTurns(ctx context.Context, arg ListObservedTokenTurnsParams) ([]ListObservedTokenTurnsRow, error)
 	ListPendingTopologyApprovals(ctx context.Context) ([]TopologyApproval, error)
+	ListPromptIntentDrafts(ctx context.Context, arg ListPromptIntentDraftsParams) ([]PromptIntentDraft, error)
 	ListPromptTemplateSectionsByTemplate(ctx context.Context, arg ListPromptTemplateSectionsByTemplateParams) ([]PromptTemplateSection, error)
+	ListPromptTemplateSectionsByTemplates(ctx context.Context, arg ListPromptTemplateSectionsByTemplatesParams) ([]PromptTemplateSection, error)
 	ListPromptTemplates(ctx context.Context, arg ListPromptTemplatesParams) ([]ListPromptTemplatesRow, error)
+	ListRecallSections(ctx context.Context, arg ListRecallSectionsParams) ([]ListRecallSectionsRow, error)
 	ListRecentAILogs(ctx context.Context, arg ListRecentAILogsParams) ([]ListRecentAILogsRow, error)
 	// ListRecentSessionInsights is used by the dashboard API to return the
 	// N most recent turns across all threads.
@@ -152,6 +158,7 @@ type Querier interface {
 	ListWorkspaceRunFiles(ctx context.Context, arg ListWorkspaceRunFilesParams) ([]WorkspaceRunFile, error)
 	ListWorkspaceRuns(ctx context.Context, arg ListWorkspaceRunsParams) ([]WorkspaceRun, error)
 	LoadAgentThreadPromptSnapshot(ctx context.Context, arg LoadAgentThreadPromptSnapshotParams) ([]byte, error)
+	LockRecallTopicInCWD(ctx context.Context, arg LockRecallTopicInCWDParams) error
 	MarkCronJobFailed(ctx context.Context, arg MarkCronJobFailedParams) (int64, error)
 	// MarkCronJobFinished releases the claim, records the successful run's
 	// turn id and advances scheduling fields. Conditional on claim_token so
@@ -198,6 +205,7 @@ type Querier interface {
 	UpdateAgentThreadPromptSnapshot(ctx context.Context, arg UpdateAgentThreadPromptSnapshotParams) (int64, error)
 	UpdateAgentThreadStatus(ctx context.Context, arg UpdateAgentThreadStatusParams) error
 	UpdateCronJobSchedule(ctx context.Context, arg UpdateCronJobScheduleParams) error
+	UpdatePromptIntentDraftStatus(ctx context.Context, arg UpdatePromptIntentDraftStatusParams) (PromptIntentDraft, error)
 	UpdateWorkspaceRunStatus(ctx context.Context, arg UpdateWorkspaceRunStatusParams) (WorkspaceRun, error)
 	// Codex identity columns use "'' preserves existing value" semantics so
 	// non-P1a callers that pass '' do not overwrite an already-persisted
@@ -207,6 +215,7 @@ type Querier interface {
 	UpsertAgentStatus(ctx context.Context, arg UpsertAgentStatusParams) (AgentStatus, error)
 	UpsertAgentThread(ctx context.Context, arg UpsertAgentThreadParams) error
 	UpsertCommandCard(ctx context.Context, arg UpsertCommandCardParams) (CommandCard, error)
+	UpsertPromptIntentDraft(ctx context.Context, arg UpsertPromptIntentDraftParams) (PromptIntentDraft, error)
 	UpsertPromptTemplate(ctx context.Context, arg UpsertPromptTemplateParams) (UpsertPromptTemplateRow, error)
 	// Upsert by (template_id, section_key). Touches updated_at on conflict so
 	// operators see when they last edited a row. Empty enable_when stays as-is

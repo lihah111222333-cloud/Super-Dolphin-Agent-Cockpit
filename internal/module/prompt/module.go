@@ -6,7 +6,9 @@ import (
 	"go.uber.org/fx"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
-	"github.com/anthropic-ai/super-agent-v3/internal/module/prompt/classifier"
+	platformrpc "github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared/builtinprompts"
+	promptstore "github.com/anthropic-ai/super-agent-v3/internal/store/prompt"
 	sharedfilestore "github.com/anthropic-ai/super-agent-v3/internal/store/sharedfile"
 	"github.com/anthropic-ai/super-agent-v3/internal/store/uipreference"
 )
@@ -15,41 +17,42 @@ var Module = fx.Module("prompt",
 	fx.Provide(
 		NewConfig,
 		NewServiceFx,
+		builtinprompts.NewDefaultRegistry,
 		AsPromptRegistry,
 		AsPromptAssemblyService,
 		AsDynamicSectionRegistrar,
 		AsSectionInvalidator,
 		registerPromptHandlers,
-		newPromptClassifier,
-		newClassifierFastPathFunc,
-		newClassifierPruneCandidatesFunc,
-		newClassifierMaxCandidatesFunc,
 		newMatchWhenEvaluator,
+		newEnableWhenEvaluator,
 	),
 )
 
-// newPromptClassifier reads env-driven classifier config at fx wire-up and
-// returns the resulting Classifier. Disabled/missing-binary both yield
-// NoopClassifier so downstream consumers (thread router) can always depend
-// on a non-nil value and skip feature detection on the hot path.
-func newPromptClassifier() contract.PromptClassifier {
-	return classifier.NewService(classifier.NewConfigFromEnv())
-}
-
-func newClassifierFastPathFunc() contract.ClassifierFastPathFunc {
-	return classifier.FastPath
-}
-
-func newClassifierPruneCandidatesFunc() contract.ClassifierPruneCandidatesFunc {
-	return classifier.PruneCandidates
-}
-
-func newClassifierMaxCandidatesFunc() contract.ClassifierMaxCandidatesFunc {
-	return classifier.MaxCandidatesFromEnv
-}
-
 func newMatchWhenEvaluator() contract.MatchWhenEvaluator {
 	return EvaluateMatchWhen
+}
+
+func newEnableWhenEvaluator() contract.EnableWhenEvaluator {
+	return EvaluateEnableWhen
+}
+
+type promptHandlersParams struct {
+	fx.In
+
+	Store    promptstore.Store
+	Builtin  contract.BuiltinPromptRegistry `optional:"true"`
+	Dream    contract.DreamExecutor         `optional:"true"`
+	Sections contract.SectionInvalidator    `optional:"true"`
+}
+
+func registerPromptHandlers(params promptHandlersParams) platformrpc.HandlerMapResult {
+	return buildPromptHandlersWithService(
+		newPromptServiceWithBuiltin(params.Store, params.Builtin, params.Sections),
+		params.Store,
+		params.Builtin,
+		params.Sections,
+		params.Dream,
+	)
 }
 
 // ServiceFxParams resolves optional dependencies needed to surface the

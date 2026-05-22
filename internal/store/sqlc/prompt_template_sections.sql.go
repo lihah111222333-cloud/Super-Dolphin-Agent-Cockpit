@@ -7,6 +7,8 @@ package sqlc
 
 import (
 	"context"
+
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
 const deletePromptTemplateSection = `-- name: DeletePromptTemplateSection :execrows
@@ -27,11 +29,116 @@ func (q *Queries) DeletePromptTemplateSection(ctx context.Context, arg DeletePro
 	return result.RowsAffected(), nil
 }
 
+const listDefaultRuleSections = `-- name: ListDefaultRuleSections :many
+WITH scoped AS (
+  SELECT s.id, s.template_id, s.section_key, s.region, s.ordinal, s.body,
+         s.enable_when, s.enabled, s.created_at, s.updated_at,
+         s.trigger_type, s.recall_topic,
+         t.prompt_key AS template_prompt_key,
+         t.title AS template_title,
+         t.tags AS template_tags,
+         t.priority,
+         CASE
+           WHEN t.tags ? ('scope.cwd:' || $1::text) THEN 0
+           WHEN t.tags ? 'scope.global' THEN 1
+           ELSE 2
+         END AS scope_rank,
+         CASE
+           WHEN BTRIM(t.title) <> '' THEN
+             LOWER(BTRIM(t.title)) || CHR(31) || LOWER(BTRIM(COALESCE(NULLIF(s.section_key, ''), s.body)))
+           ELSE
+             LOWER(BTRIM(COALESCE(NULLIF(s.section_key, ''), NULLIF(t.prompt_key, ''), s.body)))
+         END AS rule_identity
+  FROM prompt_template_sections s
+  JOIN prompt_templates t ON t.id = s.template_id
+  WHERE t.agent_key = 'default_rule'
+    AND s.trigger_type = 'always'
+    AND s.enabled = TRUE
+    AND t.enabled = TRUE
+    AND BTRIM(s.body) <> ''
+    AND $1::text <> ''
+    AND (t.tags ? ('scope.cwd:' || $1::text) OR t.tags ? 'scope.global')
+),
+picked AS (
+  SELECT DISTINCT ON (rule_identity)
+         id, template_id, section_key, region, ordinal, body,
+         enable_when, enabled, created_at, updated_at,
+         trigger_type, recall_topic, template_prompt_key,
+         template_title, template_tags, priority, scope_rank
+  FROM scoped
+  ORDER BY rule_identity, scope_rank, priority DESC, template_prompt_key, ordinal, id
+)
+SELECT id, template_id, section_key, region, ordinal, body,
+       enable_when, enabled, created_at, updated_at,
+       trigger_type, recall_topic,
+       template_prompt_key, template_title, template_tags
+FROM picked
+ORDER BY priority DESC, template_prompt_key, ordinal, id
+`
+
+type ListDefaultRuleSectionsParams struct {
+	CWD string `db:"cwd" json:"cwd"`
+}
+
+type ListDefaultRuleSectionsRow struct {
+	ID                int64              `db:"id" json:"id"`
+	TemplateID        int64              `db:"template_id" json:"template_id"`
+	SectionKey        string             `db:"section_key" json:"section_key"`
+	Region            string             `db:"region" json:"region"`
+	Ordinal           int32              `db:"ordinal" json:"ordinal"`
+	Body              string             `db:"body" json:"body"`
+	EnableWhen        []byte             `db:"enable_when" json:"enable_when"`
+	Enabled           bool               `db:"enabled" json:"enabled"`
+	CreatedAt         pgtype.Timestamptz `db:"created_at" json:"created_at"`
+	UpdatedAt         pgtype.Timestamptz `db:"updated_at" json:"updated_at"`
+	TriggerType       string             `db:"trigger_type" json:"trigger_type"`
+	RecallTopic       string             `db:"recall_topic" json:"recall_topic"`
+	TemplatePromptKey string             `db:"template_prompt_key" json:"template_prompt_key"`
+	TemplateTitle     string             `db:"template_title" json:"template_title"`
+	TemplateTags      []byte             `db:"template_tags" json:"template_tags"`
+}
+
+func (q *Queries) ListDefaultRuleSections(ctx context.Context, arg ListDefaultRuleSectionsParams) ([]ListDefaultRuleSectionsRow, error) {
+	rows, err := q.db.Query(ctx, listDefaultRuleSections, arg.CWD)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListDefaultRuleSectionsRow{}
+	for rows.Next() {
+		var i ListDefaultRuleSectionsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.TemplateID,
+			&i.SectionKey,
+			&i.Region,
+			&i.Ordinal,
+			&i.Body,
+			&i.EnableWhen,
+			&i.Enabled,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.TriggerType,
+			&i.RecallTopic,
+			&i.TemplatePromptKey,
+			&i.TemplateTitle,
+			&i.TemplateTags,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listPromptTemplateSectionsByTemplate = `-- name: ListPromptTemplateSectionsByTemplate :many
 SELECT id, template_id, section_key, region, ordinal, body, enable_when, enabled,
-       created_at, updated_at
+       created_at, updated_at, trigger_type, recall_topic
 FROM prompt_template_sections
-WHERE template_id = $1 AND enabled = TRUE
+WHERE template_id = $1
 ORDER BY region, ordinal, id
 `
 
@@ -59,6 +166,8 @@ func (q *Queries) ListPromptTemplateSectionsByTemplate(ctx context.Context, arg 
 			&i.Enabled,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.TriggerType,
+			&i.RecallTopic,
 		); err != nil {
 			return nil, err
 		}
@@ -70,30 +179,196 @@ func (q *Queries) ListPromptTemplateSectionsByTemplate(ctx context.Context, arg 
 	return items, nil
 }
 
+const listPromptTemplateSectionsByTemplates = `-- name: ListPromptTemplateSectionsByTemplates :many
+SELECT id, template_id, section_key, region, ordinal, body, enable_when, enabled,
+       created_at, updated_at, trigger_type, recall_topic
+FROM prompt_template_sections
+WHERE template_id = ANY($1::bigint[])
+ORDER BY template_id, region, ordinal, id
+`
+
+type ListPromptTemplateSectionsByTemplatesParams struct {
+	TemplateIds []int64 `db:"template_ids" json:"template_ids"`
+}
+
+func (q *Queries) ListPromptTemplateSectionsByTemplates(ctx context.Context, arg ListPromptTemplateSectionsByTemplatesParams) ([]PromptTemplateSection, error) {
+	rows, err := q.db.Query(ctx, listPromptTemplateSectionsByTemplates, arg.TemplateIds)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []PromptTemplateSection{}
+	for rows.Next() {
+		var i PromptTemplateSection
+		if err := rows.Scan(
+			&i.ID,
+			&i.TemplateID,
+			&i.SectionKey,
+			&i.Region,
+			&i.Ordinal,
+			&i.Body,
+			&i.EnableWhen,
+			&i.Enabled,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.TriggerType,
+			&i.RecallTopic,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listRecallSections = `-- name: ListRecallSections :many
+WITH scoped AS (
+  SELECT s.id, s.template_id, s.section_key, s.region, s.ordinal,
+         s.enable_when, s.enabled, s.created_at, s.updated_at,
+         s.trigger_type, s.recall_topic,
+         t.prompt_key AS template_prompt_key,
+         t.title AS template_title,
+         t.description AS template_description,
+         t.when_to_use AS template_when_to_use,
+         t.tags AS template_tags,
+         CASE
+           WHEN t.tags ? ('scope.cwd:' || $1::text) THEN 0
+           WHEN t.tags ? 'scope.global' THEN 1
+           ELSE 2
+         END AS scope_rank
+  FROM prompt_template_sections s
+  JOIN prompt_templates t ON t.id = s.template_id
+  WHERE s.trigger_type = 'recall'
+    AND s.enabled = TRUE
+    AND t.enabled = TRUE
+    AND BTRIM(s.recall_topic) <> ''
+    AND $1::text <> ''
+    AND (t.tags ? ('scope.cwd:' || $1::text) OR t.tags ? 'scope.global')
+),
+picked AS (
+  SELECT DISTINCT ON (BTRIM(recall_topic))
+         id, template_id, section_key, region, ordinal,
+         enable_when, enabled, created_at, updated_at,
+         trigger_type, recall_topic,
+         template_prompt_key, template_title, template_description,
+         template_when_to_use, template_tags
+  FROM scoped
+  ORDER BY BTRIM(recall_topic), scope_rank, ordinal, id
+)
+SELECT id, template_id, section_key, region, ordinal,
+       enable_when, enabled, created_at, updated_at,
+       trigger_type, recall_topic,
+       template_prompt_key, template_title, template_description,
+       template_when_to_use, template_tags
+FROM picked
+ORDER BY recall_topic, id
+`
+
+type ListRecallSectionsParams struct {
+	CWD string `db:"cwd" json:"cwd"`
+}
+
+type ListRecallSectionsRow struct {
+	ID                  int64              `db:"id" json:"id"`
+	TemplateID          int64              `db:"template_id" json:"template_id"`
+	SectionKey          string             `db:"section_key" json:"section_key"`
+	Region              string             `db:"region" json:"region"`
+	Ordinal             int32              `db:"ordinal" json:"ordinal"`
+	EnableWhen          []byte             `db:"enable_when" json:"enable_when"`
+	Enabled             bool               `db:"enabled" json:"enabled"`
+	CreatedAt           pgtype.Timestamptz `db:"created_at" json:"created_at"`
+	UpdatedAt           pgtype.Timestamptz `db:"updated_at" json:"updated_at"`
+	TriggerType         string             `db:"trigger_type" json:"trigger_type"`
+	RecallTopic         string             `db:"recall_topic" json:"recall_topic"`
+	TemplatePromptKey   string             `db:"template_prompt_key" json:"template_prompt_key"`
+	TemplateTitle       string             `db:"template_title" json:"template_title"`
+	TemplateDescription string             `db:"template_description" json:"template_description"`
+	TemplateWhenToUse   string             `db:"template_when_to_use" json:"template_when_to_use"`
+	TemplateTags        []byte             `db:"template_tags" json:"template_tags"`
+}
+
+func (q *Queries) ListRecallSections(ctx context.Context, arg ListRecallSectionsParams) ([]ListRecallSectionsRow, error) {
+	rows, err := q.db.Query(ctx, listRecallSections, arg.CWD)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListRecallSectionsRow{}
+	for rows.Next() {
+		var i ListRecallSectionsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.TemplateID,
+			&i.SectionKey,
+			&i.Region,
+			&i.Ordinal,
+			&i.EnableWhen,
+			&i.Enabled,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.TriggerType,
+			&i.RecallTopic,
+			&i.TemplatePromptKey,
+			&i.TemplateTitle,
+			&i.TemplateDescription,
+			&i.TemplateWhenToUse,
+			&i.TemplateTags,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const lockRecallTopicInCWD = `-- name: LockRecallTopicInCWD :exec
+SELECT pg_advisory_xact_lock(hashtextextended($1::text || E'\n' || $2::text, 101))
+`
+
+type LockRecallTopicInCWDParams struct {
+	CWD   string `db:"cwd" json:"cwd"`
+	Topic string `db:"topic" json:"topic"`
+}
+
+func (q *Queries) LockRecallTopicInCWD(ctx context.Context, arg LockRecallTopicInCWDParams) error {
+	_, err := q.db.Exec(ctx, lockRecallTopicInCWD, arg.CWD, arg.Topic)
+	return err
+}
+
 const upsertPromptTemplateSection = `-- name: UpsertPromptTemplateSection :one
 INSERT INTO prompt_template_sections
-    (template_id, section_key, region, ordinal, body, enable_when, enabled)
+    (template_id, section_key, region, ordinal, body, enable_when, enabled, trigger_type, recall_topic)
 VALUES
-    ($1, $2, $3, $4, $5, $6, $7)
+    ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 ON CONFLICT (template_id, section_key) DO UPDATE SET
-    region      = EXCLUDED.region,
-    ordinal     = EXCLUDED.ordinal,
-    body        = EXCLUDED.body,
-    enable_when = EXCLUDED.enable_when,
-    enabled     = EXCLUDED.enabled,
-    updated_at  = NOW()
+    region       = EXCLUDED.region,
+    ordinal      = EXCLUDED.ordinal,
+    body         = EXCLUDED.body,
+    enable_when  = EXCLUDED.enable_when,
+    enabled      = EXCLUDED.enabled,
+    trigger_type = EXCLUDED.trigger_type,
+    recall_topic = EXCLUDED.recall_topic,
+    updated_at   = NOW()
 RETURNING id, template_id, section_key, region, ordinal, body, enable_when, enabled,
-          created_at, updated_at
+          created_at, updated_at, trigger_type, recall_topic
 `
 
 type UpsertPromptTemplateSectionParams struct {
-	TemplateID int64  `db:"template_id" json:"template_id"`
-	SectionKey string `db:"section_key" json:"section_key"`
-	Region     string `db:"region" json:"region"`
-	Ordinal    int32  `db:"ordinal" json:"ordinal"`
-	Body       string `db:"body" json:"body"`
-	EnableWhen []byte `db:"enable_when" json:"enable_when"`
-	Enabled    bool   `db:"enabled" json:"enabled"`
+	TemplateID  int64  `db:"template_id" json:"template_id"`
+	SectionKey  string `db:"section_key" json:"section_key"`
+	Region      string `db:"region" json:"region"`
+	Ordinal     int32  `db:"ordinal" json:"ordinal"`
+	Body        string `db:"body" json:"body"`
+	EnableWhen  []byte `db:"enable_when" json:"enable_when"`
+	Enabled     bool   `db:"enabled" json:"enabled"`
+	TriggerType string `db:"trigger_type" json:"trigger_type"`
+	RecallTopic string `db:"recall_topic" json:"recall_topic"`
 }
 
 // Upsert by (template_id, section_key). Touches updated_at on conflict so
@@ -108,6 +383,8 @@ func (q *Queries) UpsertPromptTemplateSection(ctx context.Context, arg UpsertPro
 		arg.Body,
 		arg.EnableWhen,
 		arg.Enabled,
+		arg.TriggerType,
+		arg.RecallTopic,
 	)
 	var i PromptTemplateSection
 	err := row.Scan(
@@ -121,6 +398,8 @@ func (q *Queries) UpsertPromptTemplateSection(ctx context.Context, arg UpsertPro
 		&i.Enabled,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.TriggerType,
+		&i.RecallTopic,
 	)
 	return i, err
 }

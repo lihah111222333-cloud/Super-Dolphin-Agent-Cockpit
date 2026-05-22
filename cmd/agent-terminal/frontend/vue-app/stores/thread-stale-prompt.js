@@ -2,8 +2,8 @@
 // thread-stale-prompt.js
 //
 // Self-clean the cwd-scoped `settings.activePromptKey` UI preference when the
-// backend's thread/start router reports the caller-supplied prompt_key is
-// stale (template deleted / disabled).
+// backend's thread/start or turn/start router reports the caller-supplied
+// prompt_key is stale (template deleted / disabled).
 //
 // Why this lives in its own module:
 //   stores/thread-actions-helpers.js sits near its size-guard ceiling. Adding
@@ -13,7 +13,8 @@
 //   prompt didn't take effect" bug reports.
 //
 // Contract:
-//   - Input: thread/start RPC response object + cwd that was sent on payload.
+//   - Input: thread/start or turn/start RPC response object + cwd that was sent
+//     on payload.
 //   - When `res.prompt_key_stale === true` or `res.promptKeyStale === true`,
 //     write `settings.activePromptKey = ''` for that cwd and stamp a
 //     one-shot notice into `ctx.state.promptStaleNotice` for UI consumption.

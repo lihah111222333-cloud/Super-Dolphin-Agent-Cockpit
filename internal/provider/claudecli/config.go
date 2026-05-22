@@ -91,6 +91,8 @@ func resolveStartAssembly(req dto.StartSessionRequest, cfg cliLaunchConfig, prov
 	if value := strings.TrimSpace(assembly.BaseInstructions); value != "" {
 		baseInstructions = value
 	}
+	runtimeContext := contract.RenderStartRuntimeContext(assembly)
+	baseInstructions = contract.AppendStartRuntimeContext(baseInstructions, assembly)
 	developerInstructions := promptDeveloperInstructions(cliLaunchConfig{
 		DeveloperInstructions: cfg.DeveloperInstructions,
 		PromptSnapshot:        assembly.Snapshot,
@@ -100,8 +102,42 @@ func resolveStartAssembly(req dto.StartSessionRequest, cfg cliLaunchConfig, prov
 	}
 	assembly.BaseInstructions = baseInstructions
 	assembly.DeveloperInstructions = developerInstructions
+	if assembly.Snapshot.Boundary == nil && assembly.Boundary != nil {
+		boundary := *assembly.Boundary
+		assembly.Snapshot.Boundary = &boundary
+	}
 	assembly.Snapshot = normalizePromptSnapshot(assembly.Snapshot, baseInstructions, developerInstructions, provider)
+	assembly.Snapshot = appendRuntimeContextToSnapshotBoundary(assembly.Snapshot, runtimeContext)
 	return assembly
+}
+
+func appendRuntimeContextToSnapshotBoundary(
+	snapshot contract.PromptAssemblySnapshot,
+	runtimeContext string,
+) contract.PromptAssemblySnapshot {
+	runtimeContext = strings.TrimSpace(runtimeContext)
+	if runtimeContext == "" || snapshot.Boundary == nil {
+		return snapshot
+	}
+	boundary := *snapshot.Boundary
+	boundary.UncachedTail = appendPromptBlock(boundary.UncachedTail, runtimeContext)
+	snapshot.Boundary = &boundary
+	return snapshot
+}
+
+func appendPromptBlock(base, block string) string {
+	base = strings.TrimSpace(base)
+	block = strings.TrimSpace(block)
+	if block == "" {
+		return base
+	}
+	if base == "" {
+		return block
+	}
+	if strings.Contains(base, block) {
+		return base
+	}
+	return base + "\n\n" + block
 }
 
 func normalizePromptSnapshot(
