@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"runtime"
 	"strings"
 	"time"
 
@@ -17,6 +18,7 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/util"
 	"github.com/anthropic-ai/super-agent-v3/internal/util/configutil"
 	"github.com/anthropic-ai/super-agent-v3/internal/util/ctxutil"
+	"github.com/anthropic-ai/super-agent-v3/internal/util/pathutil"
 )
 
 func buildRPCPrepareInput(p turnStartParams, session contract.Session, threadRuntimeConfig map[string]any) PrepareInput {
@@ -64,10 +66,28 @@ func resolveTurnRPCCWD(requestCWD string, session prepareInputSession, threadRun
 	if authoritativeCWD == "" {
 		return requestCWD, nil
 	}
-	if requestCWD != "" && requestCWD != authoritativeCWD {
+	if requestCWD != "" && !sameTurnRPCCWD(requestCWD, authoritativeCWD) {
 		return "", platformrpc.ErrInvalidParams(fmt.Sprintf("turn/start cwd mismatch: request cwd %q does not match thread cwd %q", requestCWD, authoritativeCWD))
 	}
 	return authoritativeCWD, nil
+}
+
+func sameTurnRPCCWD(requestCWD, authoritativeCWD string) bool {
+	if requestCWD == authoritativeCWD {
+		return true
+	}
+	normalizedRequest, err := pathutil.NormalizeAbsolutePath(requestCWD)
+	if err != nil || normalizedRequest == "" {
+		return false
+	}
+	normalizedAuthoritative, err := pathutil.NormalizeAbsolutePath(authoritativeCWD)
+	if err != nil || normalizedAuthoritative == "" {
+		return false
+	}
+	if runtime.GOOS == "windows" {
+		return strings.EqualFold(normalizedRequest, normalizedAuthoritative)
+	}
+	return normalizedRequest == normalizedAuthoritative
 }
 
 func strictRuntimeCWD(cfg map[string]any, label string) (string, error) {
