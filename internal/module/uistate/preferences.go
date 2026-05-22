@@ -4,9 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"github.com/anthropic-ai/super-agent-v3/internal/util/clone"
 	"strconv"
 	"strings"
+	"time"
+
+	"github.com/anthropic-ai/super-agent-v3/internal/util/clone"
 )
 
 const (
@@ -183,10 +185,19 @@ func projectArchivedThreadStatus(threads []ThreadSummary, archived map[string]in
 			continue
 		}
 		if out[id] < 1 {
-			out[id] = 1
+			out[id] = archivedThreadTimestamp(thread)
 		}
 	}
 	return out
+}
+
+func archivedThreadTimestamp(thread ThreadSummary) int64 {
+	for _, ts := range []*time.Time{thread.UpdatedAt, thread.CreatedAt} {
+		if ts != nil && !ts.IsZero() {
+			return ts.UnixMilli()
+		}
+	}
+	return 1
 }
 
 func deriveMainAgentID(agents []AgentSummary, current string) string {

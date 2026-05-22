@@ -319,7 +319,6 @@ func (s *service) listAgents() []agentRuntime {
 	agents := make([]agentRuntime, 0, len(s.agents))
 	for _, agent := range s.agents {
 		snapshot := *agent
-		snapshot.cmd = nil
 		snapshot.queue = nil
 		snapshot.sm = nil
 		snapshot.exitedAt = shared.CloneTime(agent.exitedAt)

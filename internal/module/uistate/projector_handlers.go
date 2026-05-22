@@ -58,13 +58,15 @@ func (s *service) applyAgentLaunched(ev agentdto.AgentLaunched) {
 	threadID := strings.TrimSpace(ev.ThreadID)
 	agentID := strings.TrimSpace(ev.AgentID)
 	sessionID := strings.TrimSpace(ev.SessionID)
+	createdAt := nonZeroTimePtr(ev.Timestamp)
 	applyMutation(s, threadID, func() {
 		currentState := normalizeAgentLifecycleState(firstNonEmptyString(s.agentLifecycleLocked(agentID), s.threadLifecycleLocked(threadID)))
 		agentState := launchState(currentState)
 		s.state.Threads = upsertThreadSummary(s.state.Threads, ThreadSummary{
-			ID:      threadID,
-			AgentID: agentID,
-			Name:    strings.TrimSpace(ev.Name),
+			ID:        threadID,
+			AgentID:   agentID,
+			Name:      strings.TrimSpace(ev.Name),
+			CreatedAt: createdAt,
 		})
 		s.state.Agents = upsertAgentSummary(s.state.Agents, AgentSummary{
 			ID:               agentID,
@@ -77,6 +79,7 @@ func (s *service) applyAgentLaunched(ev agentdto.AgentLaunched) {
 			AgentState:       agentState,
 			Name:             strings.TrimSpace(ev.Name),
 			Provider:         strings.TrimSpace(ev.Provider),
+			CreatedAt:        createdAt,
 		})
 		if currentState == "" || currentState == "starting" {
 			s.setThreadOverlayLocked(threadID, overlayTypeMCPStartup, "", overlayPriorityMCPStartup, mcpStartupOverlayTTL)

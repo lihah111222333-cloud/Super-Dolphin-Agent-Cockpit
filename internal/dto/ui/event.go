@@ -1,6 +1,10 @@
 package ui
 
-import "github.com/anthropic-ai/super-agent-v3/internal/dto/shared"
+import (
+	"time"
+
+	"github.com/anthropic-ai/super-agent-v3/internal/dto/shared"
+)
 
 // UIProjectionUpdated reports a projection snapshot revision change.
 type UIProjectionUpdated struct {
@@ -50,9 +54,11 @@ type UIPreferencesChanged struct {
 }
 
 type ThreadPatchThread struct {
-	ID    string `json:"id"`
-	Name  string `json:"name,omitempty"`
-	State string `json:"state,omitempty"`
+	ID        string     `json:"id"`
+	Name      string     `json:"name,omitempty"`
+	State     string     `json:"state,omitempty"`
+	CreatedAt *time.Time `json:"createdAt,omitempty"`
+	UpdatedAt *time.Time `json:"updatedAt,omitempty"`
 }
 
 type ThreadPatchTokenUsage struct {
@@ -78,6 +84,7 @@ type UIThreadPatch struct {
 	DiffRevision      int64                  `json:"diffRevision,omitempty"`
 	Interruptible     *bool                  `json:"interruptible,omitempty"`
 	AgentMeta         map[string]any         `json:"agentMeta,omitempty"`
+	AgentRuntime      map[string]any         `json:"agentRuntime,omitempty"`
 	ActivityStats     *PatchActivityStats    `json:"activityStats,omitempty"`
 	Alerts            []PatchAlert           `json:"alerts,omitempty"`
 	TimelineItems     []PatchTimelineItem    `json:"timelineItems,omitempty"`

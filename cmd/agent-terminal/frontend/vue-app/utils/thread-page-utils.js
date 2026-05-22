@@ -315,7 +315,8 @@ export function buildVisibleChatThreadCards(opts) {
 
   const STALE_EXPIRY_MS = 7 * 24 * 60 * 60 * 1000;
   function detectStaleReason(archivedAt, showId) {
-    if (archivedAt > 0 && (Date.now() - archivedAt) > STALE_EXPIRY_MS) return 'expired';
+    const hasRealArchivedAt = Number.isFinite(archivedAt) && archivedAt > STALE_EXPIRY_MS;
+    if (hasRealArchivedAt && (Date.now() - archivedAt) > STALE_EXPIRY_MS) return 'expired';
     if (showId) return 'empty';
     return '';
   }
@@ -362,7 +363,7 @@ export function buildVisibleChatThreadCards(opts) {
     displayName = displayName || '新对话';
     const pinnedAt = Number(safePinnedMap[threadId]) || 0;
     const archivedAt = Number(safeArchivedMap[threadId]) || 0;
-    const isArchived = Number.isFinite(archivedAt) && archivedAt > 0;
+    const isArchived = isArchivedThread(thread);
     const runtime = safeRuntimeById[threadId];
     if (runtime) runtimeHits += 1;
     const cwdMismatch = Boolean(runtime?.cwdMismatch);

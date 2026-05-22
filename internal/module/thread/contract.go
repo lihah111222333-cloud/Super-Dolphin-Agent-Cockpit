@@ -253,17 +253,17 @@ type RecoverResult struct {
 	Recovered bool   `json:"recovered"`
 	Mode      string `json:"mode,omitempty"`
 }
-
 type LaunchAgentRequest struct {
 	AgentID, Name, ParentID, AgentType, MemoryScope, Cwd string
 	Command, Env                                         []string
 }
-
 type Ref struct {
 	ID               string `json:"id"`
 	Name             string `json:"name,omitempty"`
 	AgentID          string `json:"agent_id,omitempty"`
 	Status           string `json:"status,omitempty"`
+	CreatedAt        int64  `json:"created_at,omitempty"`
+	UpdatedAt        int64  `json:"updated_at,omitempty"`
 	Provider         string `json:"provider,omitempty"`
 	ProviderThreadID string `json:"providerThreadId,omitempty"`
 	SessionID        string `json:"sessionId,omitempty"`

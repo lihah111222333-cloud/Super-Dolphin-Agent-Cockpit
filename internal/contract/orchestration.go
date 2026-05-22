@@ -196,6 +196,7 @@ type LaunchRequest struct {
 type AgentSnapshot struct {
 	ID             string    `json:"id"`
 	AgentID        string    `json:"agent_id"`
+	LaunchID       string    `json:"launch_id,omitempty"`
 	Name           string    `json:"name"`
 	ParentID       string    `json:"parent_id,omitempty"`
 	Port           int       `json:"port"`
@@ -208,7 +209,22 @@ type AgentSnapshot struct {
 	Provider       string    `json:"provider,omitempty"`
 	ProviderSource string    `json:"provider_source,omitempty"`
 	LastReport     string    `json:"last_report,omitempty"`
+	CreatedAt      time.Time `json:"created_at"`
 	UpdatedAt      time.Time `json:"updated_at"`
+}
+
+func NormalizeUnixTime(values ...int64) time.Time {
+	for _, value := range values {
+		if value <= 0 {
+			continue
+		}
+		scale := int64(1)
+		for value/scale > 253402300799 && scale < int64(time.Second) {
+			scale *= 1000
+		}
+		return time.Unix(value/scale, (value%scale)*(int64(time.Second)/scale))
+	}
+	return time.Time{}
 }
 
 type AgentStateResult struct {
