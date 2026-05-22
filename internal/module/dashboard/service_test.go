@@ -383,7 +383,8 @@ func TestDashboardPromptsHandlerHidesSystemManagedPromptRows(t *testing.T) {
 	stub := &stubPromptReader{
 		result: []promptstore.PromptTemplate{
 			{PromptKey: "user-expert", Title: "User Expert", Tags: json.RawMessage(`["scope.cwd:/repo-a","intent:expert"]`), CreatedBy: "rpc.prompts", UpdatedBy: "rpc.prompts"},
-			{PromptKey: "user-edited-seed", Title: "User Edited Seed", Tags: json.RawMessage(`["scope.cwd:/repo-a","intent:expert"]`), CreatedBy: "system.seed", UpdatedBy: "rpc.prompts", ManuallyEdited: true},
+			{PromptKey: "rpc-updated-seed", Title: "RPC Updated Seed", Tags: json.RawMessage(`["scope.cwd:/repo-a","intent:expert"]`), CreatedBy: "system.seed", UpdatedBy: "rpc.prompts"},
+			{PromptKey: "user-edited-seed", Title: "User Edited Seed", Tags: json.RawMessage(`["scope.cwd:/repo-a","intent:expert"]`), CreatedBy: "system.seed", UpdatedBy: "system.seed", ManuallyEdited: true},
 			{PromptKey: "builtin-tagged", Title: "Builtin Tagged", Tags: json.RawMessage(`["scope.cwd:/repo-a","builtin:system"]`), CreatedBy: "rpc.prompts", UpdatedBy: "rpc.prompts"},
 			{PromptKey: "edited-builtin-tagged", Title: "Edited Builtin Tagged", Tags: json.RawMessage(`["scope.cwd:/repo-a","builtin:system"]`), CreatedBy: "system.seed", UpdatedBy: "rpc.prompts", ManuallyEdited: true},
 			{PromptKey: "system-seed", Title: "System Seed", Tags: json.RawMessage(`["scope.cwd:/repo-a","intent:expert"]`), CreatedBy: "system.seed", UpdatedBy: "system.seed"},
@@ -398,7 +399,7 @@ func TestDashboardPromptsHandlerHidesSystemManagedPromptRows(t *testing.T) {
 	}
 
 	prompts := decodeDashboardPromptsResponse(t, result)
-	assertDashboardPromptKeys(t, prompts, []string{"user-expert", "user-edited-seed"})
+	assertDashboardPromptKeys(t, prompts, []string{"user-expert", "rpc-updated-seed", "user-edited-seed"})
 }
 
 func TestGetAILogsByCategoryUsesStore(t *testing.T) {

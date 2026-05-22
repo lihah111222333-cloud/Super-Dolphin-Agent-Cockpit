@@ -46,4 +46,4 @@ LSP 工具链 · 所有 Agent 必读：
 2. 用 `code_run` 执行 `grep / rg / cat / head / tail / sed / awk / find / ls` 等可被专用工具替代的命令
 3. 不做 `xref` 影响面分析就改代码
 4. 不跑 `diagnostics` 就说验证通过 —— `diagnostics` 只查编译 / 类型，运行时行为必须跑对应测试
-5. 每个任务必须组合使用至少 4 种 LSP 工具
+5. 复杂跨文件改动应组合使用多种 LSP 工具；简单问题不强制凑工具

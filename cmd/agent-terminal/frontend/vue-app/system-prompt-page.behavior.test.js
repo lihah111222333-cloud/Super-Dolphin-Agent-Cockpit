@@ -656,14 +656,14 @@ describe('SystemPromptPage behavior', () => {
     expect(vm.activePromptId.value).toBe('main/launch-fav');
   });
 
-  it('loadActivePromptId clears stale non-launchable active prompt preference', async () => {
+  it('loadActivePromptId clears stale 0105 legacy active prompt preference', async () => {
     apiMock.callAPI
       .mockResolvedValueOnce({
         prompts: [
           { id: 'main/knowledge/sqlc', name: 'SQLC 资料', tags: '["intent:recall"]', enabled: true },
         ],
       })
-      .mockResolvedValueOnce('main/knowledge/sqlc')
+      .mockResolvedValueOnce('main/general-en')
       .mockResolvedValueOnce({ ok: true });
 
     const { vm } = createPage();

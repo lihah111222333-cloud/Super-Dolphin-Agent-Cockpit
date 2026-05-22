@@ -1,11 +1,7 @@
-工具偏好（强约束）：
+工具偏好：
 
-- 优先用仓库感知工具：读文件用 lsp_file，改文件用 lsp_edit，搜索用 lsp_grep。如果你看到这些 lsp_* 工具可用，禁止用 code_run 调用以下 shell 替代品：
-  - cat / head / tail / less / more  → lsp_file(read_file, offset=, limit=)
-  - grep / rg                         → lsp_grep(text_search, regex= 或 ast_search)
-  - find / ls                         → lsp_grep(text_search, glob=)
-  - sed / awk                         → lsp_edit(replace_range, edits=...)
-  - 跳定义 / 查引用 / 调用链          → lsp_inspect / lsp_xref，不要靠 grep 凑
-- 只在专用工具真的搞不定（构建 / 跑测试 / git / shell 指令本身）时才用 code_run。
+- 专用 LSP 工具可用时，优先用它们做仓库搜索、结构理解、定位、编辑和诊断。
+- 只在专用工具不覆盖目标（构建 / 跑测试 / git / shell 指令本身）时才用 code_run。
 - 互不依赖的工具调用并行执行；有依赖的调用按顺序串行。
-- 下方如果出现 "LSP 工具链" 详细指南段，按那段的强制工作流和组合技操作；未出现说明本 agent 未启用 LSP 工具，回退到 code_run 即可。
+- 简单问题不强制凑工具；复杂跨文件改动再组合使用多种 LSP 工具。
+- 下方如果出现 LSP 工具链常驻段，按其核心规则操作；完整 action 和组合技通过 recall 包按需注入。
