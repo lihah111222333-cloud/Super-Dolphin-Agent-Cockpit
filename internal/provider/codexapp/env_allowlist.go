@@ -12,25 +12,31 @@ import (
 // — injected explicitly by the ServerPool — is the sole authority on
 // which identity the child operates as.
 //
-// The list is deliberately minimal: we pull enough for shell script
-// correctness (PATH / HOME / USER / locale / TZ / TMPDIR) and TLS
-// cert discovery (SSL_CERT_FILE / SSL_CERT_DIR) and nothing else.
+// The list is deliberately minimal: we pull enough for executable lookup,
+// profile discovery, locale/temp handling, and TLS cert discovery.
 var codexSpawnEnvAllowlist = []string{
-	"PATH",
+	"APPDATA",
+	"COMSPEC",
 	"HOME",
-	"USER",
-	"LOGNAME",
 	"LANG",
+	"LOCALAPPDATA",
 	"LC_ALL",
 	"LC_CTYPE",
 	"LC_MESSAGES",
-	"TZ",
-	"TMPDIR",
-	"TEMP",
-	"TMP",
+	"LOGNAME",
+	"PATH",
+	"PATHEXT",
+	"PROGRAMDATA",
 	"SHELL",
 	"SSL_CERT_FILE",
 	"SSL_CERT_DIR",
+	"SYSTEMROOT",
+	"TEMP",
+	"TMP",
+	"TMPDIR",
+	"TZ",
+	"USER",
+	"USERPROFILE",
 }
 
 // buildAllowlistedSpawnEnv builds a cmd.Env slice containing only the

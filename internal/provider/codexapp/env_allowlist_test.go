@@ -107,6 +107,39 @@ func TestBuildAllowlistedSpawnEnvCaseInsensitive(t *testing.T) {
 	}
 }
 
+func TestBuildAllowlistedSpawnEnvKeepsWindowsRuntimeEnvironment(t *testing.T) {
+	t.Parallel()
+	parent := []string{
+		"Path=C:\\Program Files\\nodejs;C:\\Windows\\System32",
+		"PATHEXT=.COM;.EXE;.BAT;.CMD",
+		"ComSpec=C:\\Windows\\System32\\cmd.exe",
+		"SystemRoot=C:\\Windows",
+		"USERPROFILE=C:\\Users\\dev",
+		"APPDATA=C:\\Users\\dev\\AppData\\Roaming",
+		"LOCALAPPDATA=C:\\Users\\dev\\AppData\\Local",
+		"ProgramData=C:\\ProgramData",
+		"ChocolateyInstall=C:\\ProgramData\\chocolatey",
+	}
+	got := buildAllowlistedSpawnEnv(parent, nil)
+	text := strings.Join(got, "\n")
+	for _, want := range []string{
+		"PATHEXT=.COM;.EXE;.BAT;.CMD",
+		"ComSpec=C:\\Windows\\System32\\cmd.exe",
+		"SystemRoot=C:\\Windows",
+		"USERPROFILE=C:\\Users\\dev",
+		"APPDATA=C:\\Users\\dev\\AppData\\Roaming",
+		"LOCALAPPDATA=C:\\Users\\dev\\AppData\\Local",
+		"ProgramData=C:\\ProgramData",
+	} {
+		if !strings.Contains(text, want) {
+			t.Errorf("expected Windows runtime env %q retained, got %v", want, got)
+		}
+	}
+	if strings.Contains(text, "ChocolateyInstall=") {
+		t.Errorf("non-essential Windows env still dropped: %v", got)
+	}
+}
+
 func TestBuildAllowlistedSpawnEnvIgnoresEmptyOverrideKey(t *testing.T) {
 	t.Parallel()
 	got := buildAllowlistedSpawnEnv(nil, map[string]string{"": "ignored", "  ": "also", "OK": "v"})
