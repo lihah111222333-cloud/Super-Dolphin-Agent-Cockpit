@@ -22,8 +22,8 @@ import (
 
 func TestGoWorkEnvPropagatedToGopls(t *testing.T) {
 	t.Setenv("GOWORK", "")
-	ctx := common.WithToolScope(context.Background(), common.ToolScope{CWD: "/"})
 	repo := normalizedGoWorkFakeTempDir(t)
+	ctx := common.WithToolScope(context.Background(), common.ToolScope{CWD: repo, WorkspaceRoots: []string{repo}})
 	backend := filepath.Join(repo, "backend")
 	tools := filepath.Join(repo, "tools")
 	writeGoWorkFakeGoMod(t, backend, "example.com/backend")

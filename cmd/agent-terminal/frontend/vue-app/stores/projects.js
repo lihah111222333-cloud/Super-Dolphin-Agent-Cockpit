@@ -156,6 +156,25 @@ function quickAdd() {
   openModal();
 }
 
+function disambiguateProjectLabels(items) {
+  let changed = true;
+  while (changed) {
+    changed = false;
+    const countByLabel = {};
+    for (const item of items) countByLabel[item.label] = (countByLabel[item.label] || 0) + 1;
+    for (const item of items) {
+      if (countByLabel[item.label] <= 1 || item.label === item.full) continue;
+      const segs = item._segments;
+      const currentDepth = item.label.split('/').filter(Boolean).length;
+      const nextDepth = Math.min(currentDepth + 1, segs.length);
+      const nextLabel = segs.slice(-nextDepth).join('/') || item.full;
+      if (nextLabel === item.label) continue;
+      item.label = nextLabel;
+      changed = true;
+    }
+  }
+}
+
 export function useProjectStore() {
   return {
     state,
@@ -166,26 +185,7 @@ export function useProjectStore() {
         return { value: path, label: short, full: path, _segments: segments };
       });
       // 消歧：label 碰撞时逐步增加段数，直到唯一或到达完整路径
-      let changed = true;
-      while (changed) {
-        changed = false;
-        const countByLabel = {};
-        items.forEach((item) => {
-          countByLabel[item.label] = (countByLabel[item.label] || 0) + 1;
-        });
-        items.forEach((item) => {
-          if (countByLabel[item.label] > 1 && item.label !== item.full) {
-            const segs = item._segments;
-            const currentDepth = item.label.split('/').filter(Boolean).length;
-            const nextDepth = Math.min(currentDepth + 1, segs.length);
-            const nextLabel = segs.slice(-nextDepth).join('/') || item.full;
-            if (nextLabel !== item.label) {
-              item.label = nextLabel;
-              changed = true;
-            }
-          }
-        });
-      }
+      disambiguateProjectLabels(items);
       items.forEach((item) => delete item._segments);
       return [{ value: '.', label: '当前目录 (.)', full: '.' }, ...items];
     }),

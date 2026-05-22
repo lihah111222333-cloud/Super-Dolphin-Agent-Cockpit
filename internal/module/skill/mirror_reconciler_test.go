@@ -119,6 +119,7 @@ func TestSkillMirrorReconcilerRejectsTopLevelSymlinkProviderSkill(t *testing.T) 
 		t.Fatalf("MkdirAll target root: %v", err)
 	}
 	if err := os.Symlink(outside, filepath.Join(target.Root, "scratch")); err != nil {
+		skipIfSymlinkPrivilegeNotHeld(t, err)
 		t.Fatalf("Symlink unmanaged skill: %v", err)
 	}
 
@@ -428,6 +429,7 @@ func TestSkillMirrorReconcilerImportValidatesPreviewAndProviderPath(t *testing.T
 		t.Fatalf("MkdirAll symlink parent: %v", err)
 	}
 	if err := os.Symlink(providerRoot, symlinkRoot); err != nil {
+		skipIfSymlinkPrivilegeNotHeld(t, err)
 		t.Fatalf("Symlink provider root: %v", err)
 	}
 	_, err = ImportUnmanagedProviderSkill(context.Background(), svc, SkillMirrorResolutionRequest{

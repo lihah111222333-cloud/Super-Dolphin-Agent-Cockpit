@@ -13,7 +13,7 @@ func TestDAGSkillSeedMigration_UsesManualEditGuard(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read migration 0086: %v", err)
 	}
-	content := string(data)
+	content := strings.ReplaceAll(string(data), "\r\n", "\n")
 
 	for _, must := range []string{
 		"ALTER TABLE public.prompt_templates",
@@ -31,7 +31,7 @@ func TestDAGSkillPromptSeeds_CoverSkillCardLibrary(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read migration 0087: %v", err)
 	}
-	content := string(data)
+	content := strings.ReplaceAll(string(data), "\r\n", "\n")
 	if strings.TrimSpace(content) == "" {
 		t.Fatalf("migration 0087 is empty; F7.3 must seed prompt_template skill cards")
 	}

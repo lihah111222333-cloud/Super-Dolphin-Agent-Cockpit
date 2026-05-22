@@ -132,10 +132,7 @@ func TestDiagnosticsAllDeletedFilePropagatesPersistentTombstoneError(t *testing.
 	if err := os.Remove(target); err != nil {
 		t.Fatalf("remove target: %v", err)
 	}
-	if err := os.Chmod(cacheDir, 0o500); err != nil {
-		t.Fatalf("chmod cache dir: %v", err)
-	}
-	t.Cleanup(func() { _ = os.Chmod(cacheDir, 0o700) })
+	makeCacheDirUnwritableForTest(t, cacheDir)
 
 	_, err = mgr.Diagnostics(WithResolvedLSPToolScope(ctx, scope), nil)
 	if err == nil || !strings.Contains(err.Error(), "persistent cache") {

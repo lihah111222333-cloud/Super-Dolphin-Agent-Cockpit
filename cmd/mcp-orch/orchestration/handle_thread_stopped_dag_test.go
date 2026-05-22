@@ -12,7 +12,7 @@ import (
 	"github.com/kelindar/event"
 )
 
-// fakeFallbackLookup 是 NodeSpawningThreadLookup 的测试桩。
+// fakeFallbackLookup �?NodeSpawningThreadLookup 的测试桩�?
 type fakeFallbackLookup struct {
 	nodes []taskdag.Node
 	err   error
@@ -27,7 +27,7 @@ func (f *fakeFallbackLookup) LookupNodesBySpawningThread(_ context.Context, _ st
 	return f.nodes, nil
 }
 
-// fakeFallbackFlow 是 NodeFlowStore 的测试桩，仅 FailNodeAndCancelDownstream 真实有效。
+// fakeFallbackFlow �?NodeFlowStore 的测试桩，仅 FailNodeAndCancelDownstream 真实有效�?
 type fakeFallbackFlow struct {
 	failErr   error
 	failCalls atomic.Int64
@@ -52,7 +52,7 @@ func (f *fakeFallbackFlow) UpdateNodeStatusFlexible(_ context.Context, _ taskdag
 }
 
 // hookConsumerWithFallback wires hookConsumer + fake fallback ports. Tap nil.
-// 复用 hook_consumer_notify_test.go 的 NewService 构造范式。
+// 复用 hook_consumer_notify_test.go �?NewService 构造范式�?
 func hookConsumerWithFallback(t *testing.T, lookup taskdag.NodeSpawningThreadLookup, flow taskdag.NodeFlowStore) *hookConsumer {
 	t.Helper()
 	svc := NewService(silentLogger(), event.NewDispatcher(), nil, nil, nil, nil)
@@ -60,7 +60,7 @@ func hookConsumerWithFallback(t *testing.T, lookup taskdag.NodeSpawningThreadLoo
 }
 
 // fallbackMetricDelta snapshots dagFallbackMetrics, runs fn, returns post delta.
-// 不用 metricDelta 名字避与 dag_turn_completed_subscriber_test.go 冲突。
+// 不用 metricDelta 名字避与 dag_turn_completed_subscriber_test.go 冲突�?
 func fallbackMetricDelta(t *testing.T, fn func()) DAGFallbackMetrics {
 	t.Helper()
 	before := DAGFallbackCounters()
@@ -75,7 +75,7 @@ func fallbackMetricDelta(t *testing.T, fn func()) DAGFallbackMetrics {
 	}
 }
 
-// Case 1: fallback 触发 — 节点 ready → FailNode + metric Failed=1.
+// Case 1: fallback 触发 �?节点 ready �?FailNode + metric Failed=1.
 func TestThreadStoppedDAGFallback_FailsReadyNode(t *testing.T) {
 	lookup := &fakeFallbackLookup{
 		nodes: []taskdag.Node{{DagKey: "dag-a", NodeKey: "node-1", RunID: int64Ptr(7101), Status: "ready"}},
@@ -113,7 +113,7 @@ func TestThreadStoppedDAGFallback_InvokesLifecycleHooks(t *testing.T) {
 			RunID:    int64Ptr(7102),
 			NodeType: "agent",
 			Status:   "running",
-			Config:   []byte(`{"exec":{"agent_key":"alpha","cwd":"/tmp/node-cwd"},"first_turn":"hi"}`),
+			Config:   testRawConfig(t, `{"exec":{"agent_key":"alpha","cwd":"/tmp/node-cwd"},"first_turn":"hi"}`),
 		}},
 	}
 	flow := &fakeFallbackFlow{}
@@ -140,7 +140,7 @@ func TestThreadStoppedDAGFallback_InvokesLifecycleHooks(t *testing.T) {
 	}
 }
 
-// Case 2: 节点已 done — fallback 跳过 + metric IdempotentSkipped=1.
+// Case 2: 节点�?done �?fallback 跳过 + metric IdempotentSkipped=1.
 func TestThreadStoppedDAGFallback_SkipsTerminalNode(t *testing.T) {
 	lookup := &fakeFallbackLookup{
 		nodes: []taskdag.Node{{DagKey: "dag-a", NodeKey: "node-1", Status: "done"}},
@@ -179,14 +179,14 @@ func TestThreadStoppedDAGFallback_SkipsAwaitingVerifyNode(t *testing.T) {
 	}
 }
 
-// Case 3: 反查失败 — DB 错 → log warn + metric LookupFailed=1，不抛 error。
+// Case 3: 反查失败 �?DB �?�?log warn + metric LookupFailed=1，不�?error�?
 func TestThreadStoppedDAGFallback_LookupFailedLogsAndContinues(t *testing.T) {
 	lookup := &fakeFallbackLookup{err: errors.New("db down")}
 	flow := &fakeFallbackFlow{}
 	hc := hookConsumerWithFallback(t, lookup, flow)
 
 	delta := fallbackMetricDelta(t, func() {
-		// 不应 panic 不应 抛 error（runThreadStoppedDAGFallback 不返 error）
+		// 不应 panic 不应 �?error（runThreadStoppedDAGFallback 不返 error�?
 		hc.runThreadStoppedDAGFallback(context.Background(), "thread-1")
 	})
 
@@ -198,7 +198,7 @@ func TestThreadStoppedDAGFallback_LookupFailedLogsAndContinues(t *testing.T) {
 	}
 }
 
-// Case 4: DAG FailNode 失败 — log warn + metric FailNodeErr=1，不抛 error。
+// Case 4: DAG FailNode 失败 �?log warn + metric FailNodeErr=1，不�?error�?
 func TestThreadStoppedDAGFallback_FailNodeErrLogsAndContinues(t *testing.T) {
 	lookup := &fakeFallbackLookup{
 		nodes: []taskdag.Node{
@@ -224,11 +224,11 @@ func TestThreadStoppedDAGFallback_FailNodeErrLogsAndContinues(t *testing.T) {
 	}
 }
 
-// Case 5: 双路径互不影响 — fallback ports nil 时（runtime-only / 测试），
+// Case 5: 双路径互不影�?�?fallback ports nil 时（runtime-only / 测试），
 // handleThreadStopped 现有 agent runtime 推进逻辑仍正常工作；fallback 函数
-// 短路 return 不触发任何 metric。
+// 短路 return 不触发任�?metric�?
 func TestThreadStoppedDAGFallback_NilPortsShortCircuit(t *testing.T) {
-	hc := hookConsumerWithFallback(t, nil, nil) // 两个 ports 都 nil
+	hc := hookConsumerWithFallback(t, nil, nil) // 两个 ports �?nil
 
 	delta := fallbackMetricDelta(t, func() {
 		hc.runThreadStoppedDAGFallback(context.Background(), "thread-1")
@@ -239,7 +239,7 @@ func TestThreadStoppedDAGFallback_NilPortsShortCircuit(t *testing.T) {
 	}
 }
 
-// Case 5b: threadID 空 — 也短路 return，不触发 lookup。
+// Case 5b: threadID �?�?也短�?return，不触发 lookup�?
 func TestThreadStoppedDAGFallback_EmptyThreadIDShortCircuit(t *testing.T) {
 	lookup := &fakeFallbackLookup{}
 	flow := &fakeFallbackFlow{}
@@ -257,7 +257,7 @@ func TestThreadStoppedDAGFallback_EmptyThreadIDShortCircuit(t *testing.T) {
 	}
 }
 
-// Case 6 (extra): 反查空 — 0 nodes → metric NoNode=1.
+// Case 6 (extra): 反查�?�?0 nodes �?metric NoNode=1.
 func TestThreadStoppedDAGFallback_NoNodeMetric(t *testing.T) {
 	lookup := &fakeFallbackLookup{nodes: nil}
 	flow := &fakeFallbackFlow{}

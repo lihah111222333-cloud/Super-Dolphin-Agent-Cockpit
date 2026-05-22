@@ -48,6 +48,7 @@ func TestFindRolloutPathFallsBackToLegacyHome(t *testing.T) {
 	// Cannot run parallel — t.Setenv serialises HOME mutation.
 	fakeHome := t.TempDir()
 	t.Setenv("HOME", fakeHome)
+	t.Setenv("USERPROFILE", fakeHome)
 	t.Setenv("CODEXAPP_ALLOW_LEGACY_DEFAULT_HOME", "1")
 
 	want := writeRolloutFixture(t, filepath.Join(fakeHome, ".codex"), "thread-legacy")

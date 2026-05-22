@@ -4,6 +4,8 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
+	"strings"
 	"testing"
 )
 
@@ -112,6 +114,7 @@ func TestResolveCodexIdentityDedupsSymlinkAliases(t *testing.T) {
 	realDir := t.TempDir()
 	aliasDir := filepath.Join(t.TempDir(), "alias")
 	if err := os.Symlink(realDir, aliasDir); err != nil {
+		skipCodexIdentitySymlinkPrivilegeNotHeld(t, err)
 		t.Fatalf("Symlink error = %v", err)
 	}
 	resolveHome := func(home string) string {
@@ -134,6 +137,7 @@ func TestResolveCodexIdentityExpandsTildeViaHome(t *testing.T) {
 	// Not parallel: mutates HOME via t.Setenv.
 	realDir := t.TempDir()
 	t.Setenv("HOME", realDir)
+	t.Setenv("USERPROFILE", realDir)
 	wantReal, err := filepath.EvalSymlinks(realDir)
 	if err != nil {
 		t.Fatalf("EvalSymlinks error = %v", err)
@@ -154,6 +158,13 @@ func TestResolveCodexIdentityExpandsTildeViaHome(t *testing.T) {
 				t.Fatalf("Home = %q, want %q", ident.Home, wantReal)
 			}
 		})
+	}
+}
+
+func skipCodexIdentitySymlinkPrivilegeNotHeld(t *testing.T, err error) {
+	t.Helper()
+	if runtime.GOOS == "windows" && strings.Contains(err.Error(), "privilege") {
+		t.Skipf("symlink privilege unavailable: %v", err)
 	}
 }
 

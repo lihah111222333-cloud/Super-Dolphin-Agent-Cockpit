@@ -18,6 +18,7 @@ func TestTeamSyncWatcherEnsureStableRootFailClosedOnDrift(t *testing.T) {
 		t.Fatalf("MkdirAll(%q) error = %v", rootB, err)
 	}
 	if err := os.Symlink(rootA, link); err != nil {
+		skipIfSymlinkPrivilegeNotHeld(t, err)
 		t.Fatalf("Symlink(%q,%q) error = %v", rootA, link, err)
 	}
 	watcher := &teamSyncWatcher{root: link, canonicalRoot: rootA}
@@ -25,6 +26,7 @@ func TestTeamSyncWatcherEnsureStableRootFailClosedOnDrift(t *testing.T) {
 		t.Fatalf("Remove(%q) error = %v", link, err)
 	}
 	if err := os.Symlink(rootB, link); err != nil {
+		skipIfSymlinkPrivilegeNotHeld(t, err)
 		t.Fatalf("Symlink(%q,%q) error = %v", rootB, link, err)
 	}
 	if err := watcher.ensureStableRoot(); err == nil {

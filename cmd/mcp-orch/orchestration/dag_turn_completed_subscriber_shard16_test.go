@@ -17,7 +17,7 @@ func TestDAGSubscriber_A2_DefaultAgentResultMaterializesTurnResult(t *testing.T)
 		NodeKey:  "agent-default",
 		NodeType: "agent",
 		Status:   "running",
-		Config:   []byte(`{"exec":{"agent_key":"implementer","cwd":"/tmp/node-cwd"}}`),
+		Config:   testRawConfig(t, `{"exec":{"agent_key":"implementer","cwd":"/tmp/node-cwd"}}`),
 	}}}
 	flow := &dagSubscriberFlowSpy{}
 	deps := setupDAGSubscriberDeps(
@@ -44,7 +44,7 @@ func TestDAGSubscriber_A2_SharedfileOnlyDoesNotStoreLargeTurnResult(t *testing.T
 		NodeKey:  "agent-sharedfile",
 		NodeType: "agent",
 		Status:   "running",
-		Config: []byte(`{
+		Config: testRawConfig(t, `{
 			"exec":{"agent_key":"implementer","cwd":"/tmp/node-cwd"},
 			"outputs":{
 				"to_sharedfile":{"path":"reports/agent.json","lock_mode":"exclusive"},
@@ -90,7 +90,7 @@ func TestDAGSubscriber_A2_SharedfileSkippedWhenCompleteFenceRejects(t *testing.T
 		NodeKey:  "agent-fence",
 		NodeType: "agent",
 		Status:   "running",
-		Config: []byte(`{
+		Config: testRawConfig(t, `{
 			"exec":{"agent_key":"implementer","cwd":"/tmp/node-cwd"},
 			"outputs":{"to_sharedfile":{"path":"reports/agent-fence.json","lock_mode":"exclusive"}}
 		}`),
@@ -126,7 +126,7 @@ func TestDAGSubscriber_A2_AwaitingVerifyReplayCompletesAfterPriorCompleteError(t
 		NodeKey:  "agent-replay",
 		NodeType: "agent",
 		Status:   "running",
-		Config: []byte(`{
+		Config: testRawConfig(t, `{
 			"exec":{"agent_key":"implementer","cwd":"/tmp/node-cwd"},
 			"outputs":{"to_sharedfile":{"path":"reports/agent-replay.json","lock_mode":"exclusive"}}
 		}`),
@@ -180,7 +180,7 @@ func TestDAGSubscriber_A2_SharedfileAndNodeResultWritesBoth(t *testing.T) {
 		NodeKey:  "agent-both",
 		NodeType: "agent",
 		Status:   "running",
-		Config: []byte(`{
+		Config: testRawConfig(t, `{
 			"exec":{"agent_key":"implementer","cwd":"/tmp/node-cwd"},
 			"outputs":{
 				"to_sharedfile":{"path":"reports/agent-both.json","lock_mode":"exclusive"},
@@ -223,7 +223,7 @@ func TestDAGSubscriber_A2_PreservesAgentWrittenSharedfileWithNodeResultEnabled(t
 		NodeKey:  "agent-preserve-both",
 		NodeType: "agent",
 		Status:   "running",
-		Config: []byte(`{
+		Config: testRawConfig(t, `{
 			"exec":{"agent_key":"paper_summarizer","cwd":"/tmp/node-cwd"},
 			"outputs":{
 				"to_sharedfile":{"path":"reports/agent-preserve-both.md","lock_mode":"exclusive"},
@@ -273,7 +273,7 @@ func TestDAGSubscriber_A2_PreservesAgentWrittenSharedfile(t *testing.T) {
 		NodeKey:  "agent-preserve",
 		NodeType: "agent",
 		Status:   "running",
-		Config: []byte(`{
+		Config: testRawConfig(t, `{
 			"exec":{"agent_key":"paper_summarizer","cwd":"/tmp/node-cwd"},
 			"outputs":{"to_sharedfile":{"path":"reports/agent-preserve.md","lock_mode":"exclusive"}}
 		}`),
@@ -315,7 +315,7 @@ func TestDAGSubscriber_A2_SharedfileMissingReaderFailsWithoutOverwrite(t *testin
 		NodeKey:  "agent-no-reader",
 		NodeType: "agent",
 		Status:   "running",
-		Config: []byte(`{
+		Config: testRawConfig(t, `{
 			"exec":{"agent_key":"paper_summarizer","cwd":"/tmp/node-cwd"},
 			"outputs":{"to_sharedfile":{"path":"reports/agent-no-reader.md","lock_mode":"exclusive"}}
 		}`),
@@ -356,7 +356,7 @@ func TestDAGSubscriber_A2_SharedfileMissingWriterFails(t *testing.T) {
 		NodeKey:  "agent-no-writer",
 		NodeType: "agent",
 		Status:   "running",
-		Config: []byte(`{
+		Config: testRawConfig(t, `{
 			"exec":{"agent_key":"implementer","cwd":"/tmp/node-cwd"},
 			"outputs":{"to_sharedfile":{"path":"reports/agent.json","lock_mode":"exclusive"}}
 		}`),
@@ -390,7 +390,7 @@ func TestDAGSubscriber_A2_SharedfileWriteErrorFails(t *testing.T) {
 		NodeKey:  "agent-write-error",
 		NodeType: "agent",
 		Status:   "running",
-		Config: []byte(`{
+		Config: testRawConfig(t, `{
 			"exec":{"agent_key":"implementer","cwd":"/tmp/node-cwd"},
 			"outputs":{"to_sharedfile":{"path":"reports/fail.json","lock_mode":"exclusive"}}
 		}`),
@@ -427,7 +427,7 @@ func TestDAGSubscriber_A2_ToNodeResultOversizeFailsWithoutFallback(t *testing.T)
 		NodeKey:  "agent-result",
 		NodeType: "agent",
 		Status:   "running",
-		Config: []byte(`{
+		Config: testRawConfig(t, `{
 			"exec":{"agent_key":"reviewer","cwd":"/tmp/node-cwd"},
 			"outputs":{"to_node_result":true}
 		}`),

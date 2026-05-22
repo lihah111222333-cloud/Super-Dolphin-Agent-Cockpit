@@ -2,6 +2,7 @@ package codexapp
 
 import (
 	"encoding/json"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -121,6 +122,8 @@ func TestEnrichToolCallParams_InjectsTrustedCWD(t *testing.T) {
 }
 
 func TestEnrichToolCallParamsStrictInjectsTrustedWorkspaceRootsAndRemovesPublicAliases(t *testing.T) {
+	repo := filepath.Join(t.TempDir(), "repo")
+	api := filepath.Join(repo, "packages", "api")
 	msg := rawParams(t, map[string]any{
 		"name":           "lsp_file",
 		"cwd":            "/forged/cwd",
@@ -135,7 +138,7 @@ func TestEnrichToolCallParamsStrictInjectsTrustedWorkspaceRootsAndRemovesPublicA
 		},
 	})
 
-	out, err := enrichToolCallParamsStrict(msg, "agent-42", "thread-42", "call-42", "/repo", []string{"/repo", "/repo/packages/api"})
+	out, err := enrichToolCallParamsStrict(msg, "agent-42", "thread-42", "call-42", repo, []string{repo, api})
 	if err != nil {
 		t.Fatalf("enrichToolCallParamsStrict() error = %v", err)
 	}
@@ -148,7 +151,7 @@ func TestEnrichToolCallParamsStrictInjectsTrustedWorkspaceRootsAndRemovesPublicA
 	if !ok {
 		t.Fatalf("_workspaceRoots = %#v, want array", got["_workspaceRoots"])
 	}
-	want := []string{"/repo", "/repo/packages/api"}
+	want := []string{repo, api}
 	if len(roots) != len(want) {
 		t.Fatalf("_workspaceRoots length = %d, want %d: %#v", len(roots), len(want), roots)
 	}
@@ -160,12 +163,13 @@ func TestEnrichToolCallParamsStrictInjectsTrustedWorkspaceRootsAndRemovesPublicA
 }
 
 func TestEnrichToolCallParamsStrictResolvesRelativeWorkspaceRootsAgainstCWD(t *testing.T) {
+	repo := filepath.Join(t.TempDir(), "repo")
 	msg := rawParams(t, map[string]any{
 		"name":      "lsp_file",
 		"arguments": map[string]any{"file_path": "go.mod"},
 	})
 
-	out, err := enrichToolCallParamsStrict(msg, "agent-42", "thread-42", "call-42", "/repo", []string{"packages/api"})
+	out, err := enrichToolCallParamsStrict(msg, "agent-42", "thread-42", "call-42", repo, []string{"packages/api"})
 	if err != nil {
 		t.Fatalf("enrichToolCallParamsStrict() error = %v", err)
 	}
@@ -177,7 +181,7 @@ func TestEnrichToolCallParamsStrictResolvesRelativeWorkspaceRootsAgainstCWD(t *t
 	if !ok {
 		t.Fatalf("_workspaceRoots = %#v, want array", got["_workspaceRoots"])
 	}
-	want := []string{"/repo", "/repo/packages/api"}
+	want := []string{repo, filepath.Join(repo, "packages", "api")}
 	if len(roots) != len(want) {
 		t.Fatalf("_workspaceRoots length = %d, want %d: %#v", len(roots), len(want), roots)
 	}

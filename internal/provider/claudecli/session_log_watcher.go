@@ -241,11 +241,16 @@ func (w *sessionLogWatcher) dispatchScannedUsage(raw []byte) error {
 func (w *sessionLogWatcher) syncFileState(path string, size int64, modTime time.Time) int64 {
 	w.mu.Lock()
 	defer w.mu.Unlock()
-	if w.path != path || size < w.offset || (size == w.offset && !w.modTime.IsZero() && !w.modTime.Equal(modTime)) {
+	if w.path != path || size < w.offset {
 		w.path = path
 		w.offset = 0
 		w.modTime = modTime
 		w.lastUsage = sessionLogUsage{}
+		return w.offset
+	}
+	if size == w.offset && !w.modTime.IsZero() && !w.modTime.Equal(modTime) {
+		w.offset = 0
+		w.modTime = modTime
 	}
 	return w.offset
 }

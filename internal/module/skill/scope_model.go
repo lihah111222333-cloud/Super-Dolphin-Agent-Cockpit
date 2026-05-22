@@ -14,38 +14,34 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/anthropic-ai/super-agent-v3/internal/module/skill/ownerperms"
 	"github.com/anthropic-ai/super-agent-v3/internal/util/pathutil"
 )
 
 const (
-	skillScopeProject  = "project"
-	skillScopePersonal = "personal"
-	skillScopeSystem   = "system"
-
+	skillScopeProject         = "project"
+	skillScopePersonal        = "personal"
+	skillScopeSystem          = "system"
 	personalSkillTypeUser     = "user"
 	personalSkillTypeAgent    = "agent"
 	personalSkillTypeImported = "imported"
 	personalSkillTypeHub      = "hub"
-
-	ownerIdentitySaltFile = "owner_identity.salt"
+	ownerIdentitySaltFile     = "owner_identity.salt"
 )
 
 type canonicalRoots struct {
 	Project  string
 	Personal map[string]string
 }
-
 type ownerIdentity struct {
 	OwnerKey string
 	SaltPath string
 }
-
 type skillRootTarget struct {
 	root         string
 	scope        string
 	personalType string
 }
-
 type resolvedSkillPathTarget struct {
 	path         string
 	root         string
@@ -70,15 +66,12 @@ func resolveCanonicalRoots(projectRoot, home string) canonicalRoots {
 func activePersonalSkillTypes() []string {
 	return []string{personalSkillTypeUser, personalSkillTypeAgent, personalSkillTypeImported}
 }
-
 func defaultProjectSkillsRoot(projectRoot string) string {
-	projectRoot = strings.TrimSpace(projectRoot)
-	if projectRoot == "" {
+	if projectRoot = strings.TrimSpace(projectRoot); projectRoot == "" {
 		return ""
 	}
 	return filepath.Join(projectRoot, ".agent", "skills")
 }
-
 func defaultSuperDolphinHome() string {
 	if override := strings.TrimSpace(os.Getenv("SUPER_DOLPHIN_HOME")); override != "" {
 		return override
@@ -88,18 +81,13 @@ func defaultSuperDolphinHome() string {
 	}
 	return filepath.Join(os.TempDir(), "super-dolphin")
 }
-
-func defaultOwnerOSUID() string {
-	return fmt.Sprint(os.Getuid())
-}
-
+func defaultOwnerOSUID() string { return fmt.Sprint(os.Getuid()) }
 func defaultAppProfile() string {
 	if profile := strings.TrimSpace(os.Getenv("SUPER_DOLPHIN_APP_PROFILE")); profile != "" {
 		return profile
 	}
 	return "default"
 }
-
 func resolveOwnerIdentity(superDolphinHome, osUID, appProfile string) (ownerIdentity, error) {
 	normalizedHome, err := normalizedSuperDolphinHome(superDolphinHome)
 	if err != nil {
@@ -115,7 +103,6 @@ func resolveOwnerIdentity(superDolphinHome, osUID, appProfile string) (ownerIden
 		SaltPath: saltPath,
 	}, nil
 }
-
 func normalizedSuperDolphinHome(superDolphinHome string) (string, error) {
 	home := strings.TrimSpace(superDolphinHome)
 	if home == "" {
@@ -141,7 +128,6 @@ func readOrCreateOwnerIdentitySalt(superDolphinHome, saltPath string) ([]byte, e
 	}
 	return createOwnerIdentitySalt(saltPath)
 }
-
 func readOwnerIdentitySalt(saltPath string) ([]byte, error) {
 	info, err := os.Stat(saltPath)
 	if err != nil {
@@ -150,12 +136,11 @@ func readOwnerIdentitySalt(saltPath string) ([]byte, error) {
 	if !info.Mode().IsRegular() {
 		return nil, fmt.Errorf("owner identity salt is not a regular file")
 	}
-	if got := info.Mode().Perm(); got != 0o600 {
-		return nil, fmt.Errorf("owner identity salt permissions %v are not 0600", got)
+	if err := ownerperms.ValidateOwnerIdentitySaltPermissions(saltPath, info); err != nil {
+		return nil, err
 	}
 	return readNonEmptyOwnerIdentitySalt(saltPath)
 }
-
 func readNonEmptyOwnerIdentitySalt(saltPath string) ([]byte, error) {
 	salt, err := os.ReadFile(saltPath)
 	if err != nil {
@@ -166,7 +151,6 @@ func readNonEmptyOwnerIdentitySalt(saltPath string) ([]byte, error) {
 	}
 	return salt, nil
 }
-
 func createOwnerIdentitySalt(saltPath string) ([]byte, error) {
 	salt := make([]byte, 32)
 	if _, err := io.ReadFull(rand.Reader, salt); err != nil {
@@ -177,7 +161,6 @@ func createOwnerIdentitySalt(saltPath string) ([]byte, error) {
 	}
 	return salt, nil
 }
-
 func writeOwnerIdentitySalt(saltPath string, salt []byte) error {
 	file, err := os.OpenFile(saltPath, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
 	if err != nil {
@@ -189,23 +172,23 @@ func writeOwnerIdentitySalt(saltPath string, salt []byte) error {
 	if err := file.Close(); err != nil {
 		return fmt.Errorf("close owner identity salt: %w", err)
 	}
+	if err := ownerperms.SecureOwnerIdentitySaltPermissions(saltPath); err != nil {
+		return err
+	}
 	return nil
 }
-
 func closeOwnerIdentitySaltAfterWrite(file *os.File, writeErr error) error {
 	if closeErr := file.Close(); closeErr != nil {
 		return fmt.Errorf("write owner identity salt: %w; close: %v", writeErr, closeErr)
 	}
 	return fmt.Errorf("write owner identity salt: %w", writeErr)
 }
-
 func deriveOwnerKey(salt []byte, normalizedHome, osUID, appProfile string) string {
 	payload := normalizedHome + "\n" + strings.TrimSpace(osUID) + "\n" + strings.TrimSpace(appProfile)
 	mac := hmac.New(sha256.New, salt)
 	_, _ = mac.Write([]byte(payload))
 	return "sd_owner:" + hex.EncodeToString(mac.Sum(nil))
 }
-
 func normalizeSkillTarget(scope, personalType string) (string, string, error) {
 	switch strings.ToLower(strings.TrimSpace(scope)) {
 	case "", skillScopeProject:
@@ -224,7 +207,6 @@ func normalizeSkillTarget(scope, personalType string) (string, string, error) {
 		return "", "", fmt.Errorf("%w: %s", ErrInvalidSkillScope, scope)
 	}
 }
-
 func listSkillFiles(dir string, entries []os.DirEntry) []map[string]any {
 	files := make([]map[string]any, 0, len(entries))
 	for _, entry := range entries {
@@ -242,7 +224,6 @@ func listSkillFiles(dir string, entries []os.DirEntry) []map[string]any {
 	})
 	return files
 }
-
 func canonicalProjectPath(path string) (string, error) {
 	absolutePath, err := filepath.Abs(path)
 	if err != nil {
@@ -250,7 +231,6 @@ func canonicalProjectPath(path string) (string, error) {
 	}
 	return resolveExistingPath(absolutePath)
 }
-
 func resolveExistingPath(path string) (string, error) {
 	resolvedPath, err := filepath.EvalSymlinks(path)
 	switch {
@@ -262,18 +242,19 @@ func resolveExistingPath(path string) (string, error) {
 		return "", err
 	}
 }
-
 func pathEscapesRoot(rootPath, targetPath string) (bool, error) {
-	if _, err := filepath.Rel(rootPath, targetPath); err != nil {
-		return false, err
-	}
 	return !pathutil.ContainsPath(rootPath, targetPath), nil
 }
-
 func ensureWritableSkillPathInsideRoot(root, target string) error {
 	rootAbs, targetAbs, err := cleanWritableRootAndTarget(root, target)
 	if err != nil {
 		return err
+	}
+	if rel, relErr := filepath.Rel(rootAbs, targetAbs); relErr == nil &&
+		rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		if err := rejectWritableSymlinkPath(rootAbs, rel); err != nil {
+			return err
+		}
 	}
 	if !pathutil.ContainsPath(rootAbs, targetAbs) {
 		return fmt.Errorf("path escapes skills root: %s", target)

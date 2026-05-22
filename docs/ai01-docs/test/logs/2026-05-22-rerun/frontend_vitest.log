@@ -1,0 +1,703 @@
+
+[1m[46m RUN [49m[22m [36mv3.2.4 [39m[90mD:/project/Super-Dolphin/cmd/agent-terminal/frontend[39m
+
+🛡️  Running codebase size guard...
+📏 size-guard: 278 文件 (生产 157, 测试 121)
+✅ 体积守卫通过 — 无新增超限
+ [32m✓[39m vue-app/size-guard.test.js [2m([22m[2m5 tests[22m[2m)[22m[33m 370[2mms[22m[39m
+   [33m[2m✓[22m[39m size-guard CLI[2m > [22mpasses without violations (exit code 0) [33m 365[2mms[22m[39m
+ [32m✓[39m vue-app/dev-runtime-shim.test.js [2m([22m[2m4 tests[22m[2m)[22m[32m 186[2mms[22m[39m
+ [32m✓[39m vue-app/cron-form.test.js [2m([22m[2m9 tests[22m[2m)[22m[32m 87[2mms[22m[39m
+ [32m✓[39m vue-app/assistant-markdown-codex.test.js [2m([22m[2m16 tests[22m[2m)[22m[32m 69[2mms[22m[39m
+ [32m✓[39m vue-app/use-auto-continue.test.js [2m([22m[2m39 tests[22m[2m)[22m[33m 481[2mms[22m[39m
+ [32m✓[39m vue-app/thread-store.prefs.test.js [2m([22m[2m3 tests[22m[2m)[22m[32m 64[2mms[22m[39m
+ [32m✓[39m vue-app/streaming-sync-fix.test.js [2m([22m[2m12 tests[22m[2m)[22m[32m 114[2mms[22m[39m
+ [32m✓[39m vue-app/thread-store.runtime-thread-patch.test.js [2m([22m[2m11 tests[22m[2m)[22m[32m 157[2mms[22m[39m
+ [32m✓[39m vue-app/skills-page.test.js [2m([22m[2m41 tests[22m[2m)[22m[32m 55[2mms[22m[39m
+ [32m✓[39m vue-app/thread-store.actions.test.js [2m([22m[2m30 tests[22m[2m)[22m[32m 258[2mms[22m[39m
+ [32m✓[39m vue-app/use-skill-editor-personal.test.js [2m([22m[2m33 tests[22m[2m)[22m[32m 47[2mms[22m[39m
+ [32m✓[39m vue-app/history-sync-regression.test.js [2m([22m[2m5 tests[22m[2m)[22m[32m 34[2mms[22m[39m
+ [32m✓[39m vue-app/use-thread-actions.test.js [2m([22m[2m28 tests[22m[2m)[22m[32m 36[2mms[22m[39m
+ [32m✓[39m vue-app/use-thread-cards.test.js [2m([22m[2m11 tests[22m[2m)[22m[32m 44[2mms[22m[39m
+ [32m✓[39m vue-app/composer-bar.behavior.test.js [2m([22m[2m36 tests[22m[2m)[22m[32m 39[2mms[22m[39m
+ [32m✓[39m vue-app/thread-store.runtime-sync.test.js [2m([22m[2m27 tests[22m[2m)[22m[33m 900[2mms[22m[39m
+   [33m[2m✓[22m[39m thread store runtime sync[2m > [22mreplays active direct delta sync after an in-flight scoped sync finishes [33m 657[2mms[22m[39m
+ [32m✓[39m vue-app/diff-panel.test.js [2m([22m[2m19 tests[22m[2m)[22m[32m 33[2mms[22m[39m
+ [32m✓[39m vue-app/app-root.behavior.test.js [2m([22m[2m18 tests[22m[2m)[22m[32m 36[2mms[22m[39m
+[90mstdout[2m | vue-app/unified-chat-utils.test.js[2m > [22m[2mrequestHistoryLoad[2m > [22m[2mreturns false when threadId is empty
+[22m[39m[AO] ui.chat.historyLoad.skipped.invalid {
+  seq: [33m1[39m,
+  ts: [32m'2026-05-22T12:23:00.036Z'[39m,
+  level: [32m'info'[39m,
+  scope: [32m'ui'[39m,
+  event: [32m'chat.historyLoad.skipped.invalid'[39m,
+  fields: { thread_id: [32m''[39m, has_loader: [33mfalse[39m }
+}
+
+[90mstdout[2m | vue-app/unified-chat-utils.test.js[2m > [22m[2mrequestHistoryLoad[2m > [22m[2mreturns false when loadMessages is not a function
+[22m[39m[AO] ui.chat.historyLoad.skipped.invalid {
+  seq: [33m2[39m,
+  ts: [32m'2026-05-22T12:23:00.039Z'[39m,
+  level: [32m'info'[39m,
+  scope: [32m'ui'[39m,
+  event: [32m'chat.historyLoad.skipped.invalid'[39m,
+  fields: { thread_id: [32m'thread-1'[39m, has_loader: [33mfalse[39m }
+}
+
+[90mstdout[2m | vue-app/unified-chat-utils.test.js[2m > [22m[2mrequestHistoryLoad[2m > [22m[2mreturns false when timeline already has dialog history
+[22m[39m[AO] ui.chat.historyLoad.skipped.cached {
+  seq: [33m3[39m,
+  ts: [32m'2026-05-22T12:23:00.039Z'[39m,
+  level: [32m'info'[39m,
+  scope: [32m'ui'[39m,
+  event: [32m'chat.historyLoad.skipped.cached'[39m,
+  fields: { thread_id: [32m'thread-1'[39m, timeline_len: [33m1[39m }
+}
+
+[90mstdout[2m | vue-app/unified-chat-utils.test.js[2m > [22m[2mrequestHistoryLoad[2m > [22m[2mloads messages when dialog history exists but cache metadata is stale
+[22m[39m[AO] ui.chat.historyLoad.cached_but_stale {
+  seq: [33m4[39m,
+  ts: [32m'2026-05-22T12:23:00.039Z'[39m,
+  level: [32m'info'[39m,
+  scope: [32m'ui'[39m,
+  event: [32m'chat.historyLoad.cached_but_stale'[39m,
+  fields: { thread_id: [32m'thread-1'[39m, timeline_len: [33m1[39m }
+}
+[AO] ui.chat.historyLoad.start {
+  seq: [33m5[39m,
+  ts: [32m'2026-05-22T12:23:00.040Z'[39m,
+  level: [32m'info'[39m,
+  scope: [32m'ui'[39m,
+  event: [32m'chat.historyLoad.start'[39m,
+  fields: {
+    thread_id: [32m'thread-1'[39m,
+    sync_runtime: [33mtrue[39m,
+    force_reload: [33mfalse[39m,
+    cache_stale: [33mtrue[39m
+  }
+}
+
+[90mstdout[2m | vue-app/unified-chat-utils.test.js[2m > [22m[2mrequestHistoryLoad[2m > [22m[2mforces messages reload even when dialog history is already cached
+[22m[39m[AO] ui.chat.historyLoad.start {
+  seq: [33m6[39m,
+  ts: [32m'2026-05-22T12:23:00.040Z'[39m,
+  level: [32m'info'[39m,
+  scope: [32m'ui'[39m,
+  event: [32m'chat.historyLoad.start'[39m,
+  fields: {
+    thread_id: [32m'thread-1'[39m,
+    sync_runtime: [33mtrue[39m,
+    force_reload: [33mtrue[39m,
+    cache_stale: [33mfalse[39m
+  }
+}
+
+[90mstdout[2m | vue-app/unified-chat-utils.test.js[2m > [22m[2mrequestHistoryLoad[2m > [22m[2mloads messages when timeline only has transient process items
+[22m[39m[AO] ui.chat.historyLoad.resume_from_transient_timeline {
+  seq: [33m7[39m,
+  ts: [32m'2026-05-22T12:23:00.041Z'[39m,
+  level: [32m'info'[39m,
+  scope: [32m'ui'[39m,
+  event: [32m'chat.historyLoad.resume_from_transient_timeline'[39m,
+  fields: {
+    thread_id: [32m'thread-1'[39m,
+    timeline_len: [33m1[39m,
+    item_kinds: [ [32m'thinking'[39m ]
+  }
+}
+[AO] ui.chat.historyLoad.start {
+  seq: [33m8[39m,
+  ts: [32m'2026-05-22T12:23:00.041Z'[39m,
+  level: [32m'info'[39m,
+  scope: [32m'ui'[39m,
+  event: [32m'chat.historyLoad.start'[39m,
+  fields: {
+    thread_id: [32m'thread-1'[39m,
+    sync_runtime: [33mtrue[39m,
+    force_reload: [33mfalse[39m,
+    cache_stale: [33mfalse[39m
+  }
+}
+
+[90mstdout[2m | vue-app/unified-chat-utils.test.js[2m > [22m[2mrequestHistoryLoad[2m > [22m[2mloads messages and returns true
+[22m[39m[AO] ui.chat.historyLoad.start {
+  seq: [33m9[39m,
+  ts: [32m'2026-05-22T12:23:00.041Z'[39m,
+  level: [32m'info'[39m,
+  scope: [32m'ui'[39m,
+  event: [32m'chat.historyLoad.start'[39m,
+  fields: {
+    thread_id: [32m'thread-1'[39m,
+    sync_runtime: [33mtrue[39m,
+    force_reload: [33mfalse[39m,
+    cache_stale: [33mfalse[39m
+  }
+}
+
+[90mstdout[2m | vue-app/unified-chat-utils.test.js[2m > [22m[2mensureThreadSelectionFresh[2m > [22m[2mdoes not re-sync thread state when history load already fetched messages
+[22m[39m[AO] ui.chat.historyLoad.start {
+  seq: [33m10[39m,
+  ts: [32m'2026-05-22T12:23:00.042Z'[39m,
+  level: [32m'info'[39m,
+  scope: [32m'ui'[39m,
+  event: [32m'chat.historyLoad.start'[39m,
+  fields: {
+    thread_id: [32m'thread-1'[39m,
+    sync_runtime: [33mtrue[39m,
+    force_reload: [33mfalse[39m,
+    cache_stale: [33mfalse[39m
+  }
+}
+
+[90mstdout[2m | vue-app/unified-chat-utils.test.js[2m > [22m[2mensureThreadSelectionFresh[2m > [22m[2mforces provider history reload when thread cache is considered stale
+[22m[39m[AO] ui.chat.historyLoad.force_reload {
+  seq: [33m11[39m,
+  ts: [32m'2026-05-22T12:23:00.043Z'[39m,
+  level: [32m'info'[39m,
+  scope: [32m'ui'[39m,
+  event: [32m'chat.historyLoad.force_reload'[39m,
+  fields: { thread_id: [32m'thread-1'[39m }
+}
+
+[90mstdout[2m | vue-app/unified-chat-utils.test.js[2m > [22m[2mensureThreadSelectionFresh[2m > [22m[2msyncs the visible selection before forcing an atomic history refresh
+[22m[39m[AO] ui.chat.threadState.refresh_visible_thread {
+  seq: [33m12[39m,
+  ts: [32m'2026-05-22T12:23:00.043Z'[39m,
+  level: [32m'info'[39m,
+  scope: [32m'ui'[39m,
+  event: [32m'chat.threadState.refresh_visible_thread'[39m,
+  fields: {
+    reason: [32m'selection'[39m,
+    previous_thread_id: [32m'thread-0'[39m,
+    thread_id: [32m'thread-1'[39m
+  }
+}
+[AO] ui.chat.historyLoad.start {
+  seq: [33m13[39m,
+  ts: [32m'2026-05-22T12:23:00.043Z'[39m,
+  level: [32m'info'[39m,
+  scope: [32m'ui'[39m,
+  event: [32m'chat.historyLoad.start'[39m,
+  fields: {
+    thread_id: [32m'thread-1'[39m,
+    sync_runtime: [33mfalse[39m,
+    force_reload: [33mtrue[39m,
+    cache_stale: [33mfalse[39m
+  }
+}
+
+[90mstdout[2m | vue-app/unified-chat-utils.test.js[2m > [22m[2mensureThreadSelectionFresh[2m > [22m[2mfalls back to provider history reload when visible selection switch has no scoped sync
+[22m[39m[AO] ui.chat.historyLoad.refresh_visible_thread {
+  seq: [33m14[39m,
+  ts: [32m'2026-05-22T12:23:00.044Z'[39m,
+  level: [32m'info'[39m,
+  scope: [32m'ui'[39m,
+  event: [32m'chat.historyLoad.refresh_visible_thread'[39m,
+  fields: {
+    reason: [32m'selection'[39m,
+    previous_thread_id: [32m'thread-0'[39m,
+    thread_id: [32m'thread-1'[39m
+  }
+}
+
+[90mstdout[2m | vue-app/unified-chat-utils.test.js[2m > [22m[2mensureThreadSelectionFresh[2m > [22m[2mre-syncs selected thread state when dialog history is already cached and reload is not needed
+[22m[39m[AO] ui.chat.historyLoad.skipped.cached {
+  seq: [33m15[39m,
+  ts: [32m'2026-05-22T12:23:00.044Z'[39m,
+  level: [32m'info'[39m,
+  scope: [32m'ui'[39m,
+  event: [32m'chat.historyLoad.skipped.cached'[39m,
+  fields: { thread_id: [32m'thread-1'[39m, timeline_len: [33m1[39m }
+}
+
+[90mstdout[2m | vue-app/unified-chat-utils.test.js[2m > [22m[2mensureThreadSelectionFresh[2m > [22m[2mskips lightweight thread sync when store does not provide one
+[22m[39m[AO] ui.chat.historyLoad.skipped.cached {
+  seq: [33m16[39m,
+  ts: [32m'2026-05-22T12:23:00.045Z'[39m,
+  level: [32m'info'[39m,
+  scope: [32m'ui'[39m,
+  event: [32m'chat.historyLoad.skipped.cached'[39m,
+  fields: { thread_id: [32m'thread-1'[39m, timeline_len: [33m1[39m }
+}
+
+ [32m✓[39m vue-app/unified-chat-utils.test.js [2m([22m[2m83 tests[22m[2m)[22m[32m 31[2mms[22m[39m
+ [32m✓[39m vue-app/chat-timeline-reasoning.test.js [2m([22m[2m6 tests[22m[2m)[22m[32m 39[2mms[22m[39m
+ [32m✓[39m vue-app/chat-timeline-presence-popover.test.js [2m([22m[2m6 tests[22m[2m)[22m[32m 47[2mms[22m[39m
+ [32m✓[39m vue-app/thread-store-skill-source.test.js [2m([22m[2m1 test[22m[2m)[22m[32m 29[2mms[22m[39m
+ [32m✓[39m vue-app/assistant-markdown.test.js [2m([22m[2m14 tests[22m[2m)[22m[32m 33[2mms[22m[39m
+ [32m✓[39m vue-app/chat-timeline-split-guard.test.js [2m([22m[2m20 tests[22m[2m)[22m[32m 82[2mms[22m[39m
+ [32m✓[39m vue-app/settings-page.behavior.test.js [2m([22m[2m9 tests[22m[2m)[22m[32m 31[2mms[22m[39m
+ [32m✓[39m vue-app/use-task-handoff.test.js [2m([22m[2m35 tests[22m[2m)[22m[32m 31[2mms[22m[39m
+ [32m✓[39m vue-app/system-prompt-page.behavior.test.js [2m([22m[2m40 tests[22m[2m)[22m[32m 31[2mms[22m[39m
+ [32m✓[39m vue-app/use-skill-resolutions.test.js [2m([22m[2m23 tests[22m[2m)[22m[32m 29[2mms[22m[39m
+ [32m✓[39m vue-app/use-fork-thread.test.js [2m([22m[2m15 tests[22m[2m)[22m[32m 18[2mms[22m[39m
+ [32m✓[39m vue-app/memory-center-page.behavior.test.js [2m([22m[2m27 tests[22m[2m)[22m[32m 25[2mms[22m[39m
+ [32m✓[39m vue-app/skills-page-save-feedback.test.js [2m([22m[2m10 tests[22m[2m)[22m[32m 24[2mms[22m[39m
+ [32m✓[39m vue-app/use-thread-watchdog.test.js [2m([22m[2m33 tests[22m[2m)[22m[32m 23[2mms[22m[39m
+ [32m✓[39m vue-app/thread-store-provider-preference.test.js [2m([22m[2m2 tests[22m[2m)[22m[32m 27[2mms[22m[39m
+ [32m✓[39m vue-app/format-utils.test.js [2m([22m[2m10 tests[22m[2m)[22m[32m 56[2mms[22m[39m
+ [32m✓[39m vue-app/unified-chat-split-guard.test.js [2m([22m[2m8 tests[22m[2m)[22m[32m 100[2mms[22m[39m
+ [32m✓[39m vue-app/unified-chat-component.test.js [2m([22m[2m21 tests[22m[2m)[22m[32m 95[2mms[22m[39m
+ [32m✓[39m vue-app/thread-store.runtime-bridge-e2e.test.js [2m([22m[2m1 test[22m[2m)[22m[32m 10[2mms[22m[39m
+ [32m✓[39m vue-app/use-file-ref-preview.test.js [2m([22m[2m12 tests[22m[2m)[22m[32m 21[2mms[22m[39m
+ [32m✓[39m vue-app/auto-continue-e2e.test.js [2m([22m[2m4 tests[22m[2m)[22m[33m 2966[2mms[22m[39m
+   [33m[2m✓[22m[39m E2E · 场景 5: status_error → recover 链路[2m > [22mfull journey: idle → error → recover ok → state recovered [33m 757[2mms[22m[39m
+   [33m[2m✓[22m[39m E2E · 场景 6: fork 双失败 → user retry → success[2m > [22mfailedMap is shown and cleared after manual retry [33m 355[2mms[22m[39m
+   [33m[2m✓[22m[39m E2E · 场景 7: pref toggle journey[2m > [22moff → critical fires nothing → on → critical fires fork [33m 1118[2mms[22m[39m
+   [33m[2m✓[22m[39m E2E · 场景 8: global fuse 触发后用户 retry 仍可工作[2m > [22mafter fuse blown, user retryAutoContinue bypasses gating [33m 735[2mms[22m[39m
+ [32m✓[39m vue-app/composer-store.behavior.test.js [2m([22m[2m8 tests[22m[2m)[22m[32m 13[2mms[22m[39m
+ [32m✓[39m vue-app/unified-chat-preflight-coverage.test.js [2m([22m[2m18 tests[22m[2m)[22m[32m 187[2mms[22m[39m
+ [32m✓[39m vue-app/use-auto-scroll.test.js [2m([22m[2m10 tests[22m[2m)[22m[32m 15[2mms[22m[39m
+ [32m✓[39m vue-app/thread-history-ui.test.js [2m([22m[2m17 tests[22m[2m)[22m[32m 17[2mms[22m[39m
+ [32m✓[39m vue-app/use-resize-panels.test.js [2m([22m[2m5 tests[22m[2m)[22m[32m 14[2mms[22m[39m
+ [32m✓[39m vue-app/thread-store.deps-injection.test.js [2m([22m[2m6 tests[22m[2m)[22m[32m 16[2mms[22m[39m
+ [32m✓[39m vue-app/use-auto-continue-state-persistence.test.js [2m([22m[2m13 tests[22m[2m)[22m[32m 17[2mms[22m[39m
+ [32m✓[39m vue-app/skills-resolution-ux.test.js [2m([22m[2m8 tests[22m[2m)[22m[32m 15[2mms[22m[39m
+ [32m✓[39m vue-app/provider-settings.behavior.test.js [2m([22m[2m10 tests[22m[2m)[22m[32m 18[2mms[22m[39m
+ [32m✓[39m vue-app/builtin-tools-settings.behavior.test.js [2m([22m[2m9 tests[22m[2m)[22m[32m 13[2mms[22m[39m
+ [32m✓[39m vue-app/last-event-stamp.test.js [2m([22m[2m6 tests[22m[2m)[22m[32m 13[2mms[22m[39m
+ [32m✓[39m vue-app/unified-chat-setup-contract.test.js [2m([22m[2m4 tests[22m[2m)[22m[32m 32[2mms[22m[39m
+ [32m✓[39m vue-app/streaming-finalize-on-terminal.test.js [2m([22m[2m8 tests[22m[2m)[22m[32m 15[2mms[22m[39m
+ [32m✓[39m vue-app/context-usage-banner.test.js [2m([22m[2m38 tests[22m[2m)[22m[32m 17[2mms[22m[39m
+ [32m✓[39m vue-app/plan-utils.test.js [2m([22m[2m3 tests[22m[2m)[22m[32m 28[2mms[22m[39m
+[90mstdout[2m | vue-app/threads-utils.test.js
+[22m[39m[AO] thread.state.whitelist.applied {
+  seq: [33m1[39m,
+  ts: [32m'2026-05-22T12:23:01.976Z'[39m,
+  level: [32m'info'[39m,
+  scope: [32m'thread'[39m,
+  event: [32m'state.whitelist.applied'[39m,
+  fields: { ui_local_keys: [33m5[39m, runtime_accessor_keys: [33m24[39m }
+}
+
+ [32m✓[39m vue-app/assistant-markdown-streaming.guard.test.js [2m([22m[2m2 tests[22m[2m)[22m[32m 12[2mms[22m[39m
+ [32m✓[39m vue-app/threads-utils.test.js [2m([22m[2m67 tests[22m[2m)[22m[32m 18[2mms[22m[39m
+ [32m✓[39m vue-app/use-settings-scope.test.js [2m([22m[2m3 tests[22m[2m)[22m[32m 4[2mms[22m[39m
+ [32m✓[39m vue-app/shared-files-page.behavior.test.js [2m([22m[2m4 tests[22m[2m)[22m[32m 12[2mms[22m[39m
+ [32m✓[39m vue-app/cron-store.behavior.test.js [2m([22m[2m12 tests[22m[2m)[22m[32m 17[2mms[22m[39m
+ [32m✓[39m vue-app/unified-chat-thread-config.behavior.test.js [2m([22m[2m3 tests[22m[2m)[22m[32m 27[2mms[22m[39m
+ [32m✓[39m vue-app/preferences-store.behavior.test.js [2m([22m[2m9 tests[22m[2m)[22m[32m 13[2mms[22m[39m
+ [32m✓[39m vue-app/stores/projects.test.js [2m([22m[2m11 tests[22m[2m)[22m[32m 13[2mms[22m[39m
+ [32m✓[39m vue-app/use-context-usage-thresholds.test.js [2m([22m[2m13 tests[22m[2m)[22m[32m 11[2mms[22m[39m
+ [32m✓[39m vue-app/unified-chat-citation-actions.test.js [2m([22m[2m2 tests[22m[2m)[22m[32m 26[2mms[22m[39m
+ [32m✓[39m vue-app/use-promote-task.test.js [2m([22m[2m7 tests[22m[2m)[22m[32m 12[2mms[22m[39m
+ [32m✓[39m vue-app/path-choice-modal.test.js [2m([22m[2m9 tests[22m[2m)[22m[32m 15[2mms[22m[39m
+ [32m✓[39m vue-app/chat-timeline-host-lifecycle.test.js [2m([22m[2m4 tests[22m[2m)[22m[32m 17[2mms[22m[39m
+ [32m✓[39m vue-app/cron-api.behavior.test.js [2m([22m[2m10 tests[22m[2m)[22m[32m 10[2mms[22m[39m
+ [32m✓[39m vue-app/use-summary-handoff.test.js [2m([22m[2m38 tests[22m[2m)[22m[32m 15[2mms[22m[39m
+ [32m✓[39m vue-app/api-service.behavior.test.js [2m([22m[2m6 tests[22m[2m)[22m[32m 10[2mms[22m[39m
+ [32m✓[39m vue-app/skill-parser.test.js [2m([22m[2m43 tests[22m[2m)[22m[32m 12[2mms[22m[39m
+ [32m✓[39m vue-app/chat-toolbar-thread-config.behavior.test.js [2m([22m[2m3 tests[22m[2m)[22m[32m 11[2mms[22m[39m
+ [32m✓[39m vue-app/auto-continue-gating.test.js [2m([22m[2m12 tests[22m[2m)[22m[32m 9[2mms[22m[39m
+ [32m✓[39m vue-app/use-auto-continue-pref.test.js [2m([22m[2m14 tests[22m[2m)[22m[32m 11[2mms[22m[39m
+ [32m✓[39m vue-app/use-thread-selection.test.js [2m([22m[2m6 tests[22m[2m)[22m[32m 11[2mms[22m[39m
+ [32m✓[39m vue-app/lsp-prompt-settings.behavior.test.js [2m([22m[2m4 tests[22m[2m)[22m[32m 10[2mms[22m[39m
+ [32m✓[39m vue-app/use-provider-mode.test.js [2m([22m[2m6 tests[22m[2m)[22m[32m 14[2mms[22m[39m
+ [32m✓[39m vue-app/css-scroll-regression.test.js [2m([22m[2m4 tests[22m[2m)[22m[32m 7[2mms[22m[39m
+ [32m✓[39m vue-app/use-thread-watchdog-pref.test.js [2m([22m[2m7 tests[22m[2m)[22m[32m 15[2mms[22m[39m
+[90mstdout[2m | vue-app/log-level-subscriber.test.js[2m > [22m[2mlog level subscriber[2m > [22m[2mfires subscribers when setLogLevel changes the level
+[22m[39m[AO] log.level.changed {
+  seq: [33m1[39m,
+  ts: [32m'2026-05-22T12:23:03.012Z'[39m,
+  level: [32m'info'[39m,
+  scope: [32m'log'[39m,
+  event: [32m'level.changed'[39m,
+  fields: { level: [32m'info'[39m }
+}
+
+[90mstdout[2m | vue-app/log-level-subscriber.test.js[2m > [22m[2mlog level subscriber[2m > [22m[2mfires subscribers when setLogLevel changes the level
+[22m[39m[AO] log.level.changed {
+  seq: [33m2[39m,
+  ts: [32m'2026-05-22T12:23:03.014Z'[39m,
+  level: [32m'info'[39m,
+  scope: [32m'log'[39m,
+  event: [32m'level.changed'[39m,
+  fields: { level: [32m'debug'[39m }
+}
+
+[90mstdout[2m | vue-app/log-level-subscriber.test.js[2m > [22m[2mlog level subscriber[2m > [22m[2mdoes not fire when the new level equals the previous one
+[22m[39m[AO] log.level.changed {
+  seq: [33m3[39m,
+  ts: [32m'2026-05-22T12:23:03.016Z'[39m,
+  level: [32m'info'[39m,
+  scope: [32m'log'[39m,
+  event: [32m'level.changed'[39m,
+  fields: { level: [32m'info'[39m }
+}
+
+[90mstdout[2m | vue-app/log-level-subscriber.test.js[2m > [22m[2mlog level subscriber[2m > [22m[2mdoes not fire when the new level equals the previous one
+[22m[39m[AO] log.level.changed {
+  seq: [33m4[39m,
+  ts: [32m'2026-05-22T12:23:03.017Z'[39m,
+  level: [32m'info'[39m,
+  scope: [32m'log'[39m,
+  event: [32m'level.changed'[39m,
+  fields: { level: [32m'info'[39m }
+}
+
+[90mstdout[2m | vue-app/log-level-subscriber.test.js[2m > [22m[2mlog level subscriber[2m > [22m[2mrejects unknown levels and does not fire subscribers
+[22m[39m[AO] log.level.changed {
+  seq: [33m5[39m,
+  ts: [32m'2026-05-22T12:23:03.017Z'[39m,
+  level: [32m'info'[39m,
+  scope: [32m'log'[39m,
+  event: [32m'level.changed'[39m,
+  fields: { level: [32m'info'[39m }
+}
+
+[90mstdout[2m | vue-app/log-level-subscriber.test.js[2m > [22m[2mlog level subscriber[2m > [22m[2mreturns an unsubscribe function that detaches the callback
+[22m[39m[AO] log.level.changed {
+  seq: [33m6[39m,
+  ts: [32m'2026-05-22T12:23:03.018Z'[39m,
+  level: [32m'info'[39m,
+  scope: [32m'log'[39m,
+  event: [32m'level.changed'[39m,
+  fields: { level: [32m'info'[39m }
+}
+
+[90mstdout[2m | vue-app/log-level-subscriber.test.js[2m > [22m[2mlog level subscriber[2m > [22m[2msurvives a faulty subscriber without poisoning the others
+[22m[39m[AO] log.level.changed {
+  seq: [33m7[39m,
+  ts: [32m'2026-05-22T12:23:03.018Z'[39m,
+  level: [32m'info'[39m,
+  scope: [32m'log'[39m,
+  event: [32m'level.changed'[39m,
+  fields: { level: [32m'info'[39m }
+}
+
+[90mstdout[2m | vue-app/log-level-subscriber.test.js[2m > [22m[2mlog level subscriber[2m > [22m[2msurvives a faulty subscriber without poisoning the others
+[22m[39m[AO] log.level.changed {
+  seq: [33m8[39m,
+  ts: [32m'2026-05-22T12:23:03.019Z'[39m,
+  level: [32m'info'[39m,
+  scope: [32m'log'[39m,
+  event: [32m'level.changed'[39m,
+  fields: { level: [32m'debug'[39m }
+}
+
+[90mstdout[2m | vue-app/log-level-subscriber.test.js[2m > [22m[2mlog level subscriber[2m > [22m[2mignores onLogLevelChange when callback is not a function
+[22m[39m[AO] log.level.changed {
+  seq: [33m9[39m,
+  ts: [32m'2026-05-22T12:23:03.019Z'[39m,
+  level: [32m'info'[39m,
+  scope: [32m'log'[39m,
+  event: [32m'level.changed'[39m,
+  fields: { level: [32m'info'[39m }
+}
+
+ [32m✓[39m vue-app/log-level-subscriber.test.js [2m([22m[2m6 tests[22m[2m)[22m[32m 10[2mms[22m[39m
+ [32m✓[39m vue-app/thread-snapshot-timeline-guard.test.js [2m([22m[2m2 tests[22m[2m)[22m[32m 7[2mms[22m[39m
+ [32m✓[39m vue-app/use-thread-progress-protocol.test.js [2m([22m[2m9 tests[22m[2m)[22m[32m 9[2mms[22m[39m
+ [32m✓[39m vue-app/tool-ticker-bar.test.js [2m([22m[2m3 tests[22m[2m)[22m[32m 8[2mms[22m[39m
+ [32m✓[39m vue-app/dag-detail.test.js [2m([22m[2m6 tests[22m[2m)[22m[32m 9[2mms[22m[39m
+ [32m✓[39m vue-app/skills-api.test.js [2m([22m[2m7 tests[22m[2m)[22m[32m 7[2mms[22m[39m
+ [32m✓[39m vue-app/auto-continue-pref-card.test.js [2m([22m[2m10 tests[22m[2m)[22m[32m 9[2mms[22m[39m
+ [32m✓[39m vue-app/thread-send-auto-recover.test.js [2m([22m[2m1 test[22m[2m)[22m[32m 6[2mms[22m[39m
+ [32m✓[39m vue-app/chat-timeline-behavior.test.js [2m([22m[2m7 tests[22m[2m)[22m[32m 15[2mms[22m[39m
+[90mstdout[2m | vue-app/file-ref-preview-citation.test.js[2m > [22m[2museFileRefPreview citation linkage[2m > [22m[2mopens image preview for image citations using timeline attachments
+[22m[39m[AO] ui.chat.citation.image_preview.applied {
+  seq: [33m1[39m,
+  ts: [32m'2026-05-22T12:23:03.351Z'[39m,
+  level: [32m'info'[39m,
+  scope: [32m'ui'[39m,
+  event: [32m'chat.citation.image_preview.applied'[39m,
+  fields: {
+    asset_pointer: [32m'asset://image-1'[39m,
+    image_src: [32m''[39m,
+    resolved_path: [32m'/tmp/preview.png'[39m,
+    src: [32m'data:image/png;base64,abc'[39m
+  }
+}
+
+[90mstdout[2m | vue-app/file-ref-preview-citation.test.js[2m > [22m[2museFileRefPreview citation linkage[2m > [22m[2mfalls back to direct imageSrc payload when no attachment lookup exists
+[22m[39m[AO] ui.chat.citation.image_preview.applied {
+  seq: [33m2[39m,
+  ts: [32m'2026-05-22T12:23:03.355Z'[39m,
+  level: [32m'info'[39m,
+  scope: [32m'ui'[39m,
+  event: [32m'chat.citation.image_preview.applied'[39m,
+  fields: {
+    asset_pointer: [32m''[39m,
+    image_src: [32m'https://example.com/shot.png'[39m,
+    resolved_path: [32m'https://example.com/shot.png'[39m,
+    src: [32m'https://example.com/shot.png'[39m
+  }
+}
+
+ [32m✓[39m vue-app/file-ref-preview-citation.test.js [2m([22m[2m2 tests[22m[2m)[22m[32m 8[2mms[22m[39m
+ [32m✓[39m vue-app/chat-timeline-citation-chips.test.js [2m([22m[2m2 tests[22m[2m)[22m[32m 11[2mms[22m[39m
+ [32m✓[39m vue-app/chat-timeline-approval.test.js [2m([22m[2m4 tests[22m[2m)[22m[32m 13[2mms[22m[39m
+ [32m✓[39m vue-app/diff-service.test.js [2m([22m[2m11 tests[22m[2m)[22m[32m 9[2mms[22m[39m
+ [32m✓[39m vue-app/cron-detail.test.js [2m([22m[2m6 tests[22m[2m)[22m[32m 8[2mms[22m[39m
+ [32m✓[39m vue-app/data-page.test.js [2m([22m[2m3 tests[22m[2m)[22m[32m 8[2mms[22m[39m
+ [32m✓[39m vue-app/attachment-preview.test.js [2m([22m[2m2 tests[22m[2m)[22m[32m 7[2mms[22m[39m
+ [32m✓[39m vue-app/thread-send-optimistic-user.test.js [2m([22m[2m3 tests[22m[2m)[22m[32m 7[2mms[22m[39m
+ [32m✓[39m vue-app/thread-watchdog-gating.test.js [2m([22m[2m7 tests[22m[2m)[22m[32m 5[2mms[22m[39m
+ [32m✓[39m vue-app/token-push-regression.test.js [2m([22m[2m11 tests[22m[2m)[22m[32m 5[2mms[22m[39m
+ [32m✓[39m vue-app/use-provider-mode.cross-page.test.js [2m([22m[2m6 tests[22m[2m)[22m[32m 7[2mms[22m[39m
+ [32m✓[39m vue-app/thread-state-whitelist.test.js [2m([22m[2m3 tests[22m[2m)[22m[32m 6[2mms[22m[39m
+ [32m✓[39m vue-app/thread-view-model.test.js [2m([22m[2m8 tests[22m[2m)[22m[32m 6[2mms[22m[39m
+ [32m✓[39m vue-app/cron-panel.test.js [2m([22m[2m4 tests[22m[2m)[22m[32m 6[2mms[22m[39m
+ [32m✓[39m vue-app/pretext-layout.test.js [2m([22m[2m2 tests[22m[2m)[22m[32m 5[2mms[22m[39m
+ [32m✓[39m vue-app/activity-panel-lsp-tools.test.js [2m([22m[2m1 test[22m[2m)[22m[32m 5[2mms[22m[39m
+ [32m✓[39m vue-app/thread-snapshot-utils.test.js [2m([22m[2m8 tests[22m[2m)[22m[32m 5[2mms[22m[39m
+ [32m✓[39m vue-app/thread-ui-normalize.test.js [2m([22m[2m3 tests[22m[2m)[22m[32m 5[2mms[22m[39m
+ [32m✓[39m vue-app/thread-store.public-api.test.js [2m([22m[2m1 test[22m[2m)[22m[32m 3[2mms[22m[39m
+ [32m✓[39m vue-app/thread-send-no-eager-sync.test.js [2m([22m[2m1 test[22m[2m)[22m[32m 5[2mms[22m[39m
+ [32m✓[39m vue-app/bridge-event-parser.test.js [2m([22m[2m6 tests[22m[2m)[22m[32m 5[2mms[22m[39m
+ [32m✓[39m vue-app/status-service.test.js [2m([22m[2m2 tests[22m[2m)[22m[32m 3[2mms[22m[39m
+ [32m✓[39m vue-app/thread-time-utils.test.js [2m([22m[2m5 tests[22m[2m)[22m[32m 5[2mms[22m[39m
+ [32m✓[39m vue-app/chat-timeline-contract-surface.test.js [2m([22m[2m3 tests[22m[2m)[22m[32m 9[2mms[22m[39m
+ [32m✓[39m vue-app/skills-editor-layout.test.js [2m([22m[2m1 test[22m[2m)[22m[32m 3[2mms[22m[39m
+ [32m✓[39m vue-app/thread-store-view.test.js [2m([22m[2m1 test[22m[2m)[22m[32m 4[2mms[22m[39m
+ [32m✓[39m vue-app/citation-action-utils.test.js [2m([22m[2m2 tests[22m[2m)[22m[32m 3[2mms[22m[39m
+ [32m✓[39m vue-app/skill-match-utils.test.js [2m([22m[2m1 test[22m[2m)[22m[32m 3[2mms[22m[39m
+ [32m✓[39m vue-app/provider-config-options.test.js [2m([22m[2m2 tests[22m[2m)[22m[32m 3[2mms[22m[39m
+ [32m✓[39m vue-app/unified-chat-template-contract.test.js [2m([22m[2m6 tests[22m[2m)[22m[32m 7[2mms[22m[39m
+ [32m✓[39m vue-app/chat-timeline-internal-message.test.js [2m([22m[2m1 test[22m[2m)[22m[32m 8[2mms[22m[39m
+[90mstdout[2m | vue-app/app.test.js
+[22m[39m[AO] thread.state.whitelist.applied {
+  seq: [33m1[39m,
+  ts: [32m'2026-05-22T12:23:04.972Z'[39m,
+  level: [32m'info'[39m,
+  scope: [32m'thread'[39m,
+  event: [32m'state.whitelist.applied'[39m,
+  fields: { ui_local_keys: [33m5[39m, runtime_accessor_keys: [33m24[39m }
+}
+
+[90mstdout[2m | vue-app/app.test.js[2m > [22m[2mrefreshChatPageData[2m > [22m[2mrefreshes runtime state before loading active thread history
+[22m[39m[AO] ui.chat.historyLoad.refresh_visible_thread {
+  seq: [33m2[39m,
+  ts: [32m'2026-05-22T12:23:04.985Z'[39m,
+  level: [32m'info'[39m,
+  scope: [32m'ui'[39m,
+  event: [32m'chat.historyLoad.refresh_visible_thread'[39m,
+  fields: {
+    reason: [32m'page-enter'[39m,
+    previous_thread_id: [32m''[39m,
+    thread_id: [32m'thread-1'[39m
+  }
+}
+
+[90mstdout[2m | vue-app/app.test.js[2m > [22m[2mrefreshChatPageData[2m > [22m[2mreloads visible thread history when re-entering chat with cached dialog history
+[22m[39m[AO] ui.chat.historyLoad.refresh_visible_thread {
+  seq: [33m3[39m,
+  ts: [32m'2026-05-22T12:23:04.987Z'[39m,
+  level: [32m'info'[39m,
+  scope: [32m'ui'[39m,
+  event: [32m'chat.historyLoad.refresh_visible_thread'[39m,
+  fields: {
+    reason: [32m'page-enter'[39m,
+    previous_thread_id: [32m''[39m,
+    thread_id: [32m'thread-1'[39m
+  }
+}
+
+ [32m✓[39m vue-app/app.test.js [2m([22m[2m4 tests[22m[2m)[22m[32m 8[2mms[22m[39m
+ [32m✓[39m vue-app/workspace-chat-scroll-guard.test.js [2m([22m[2m2 tests[22m[2m)[22m[32m 3[2mms[22m[39m
+
+[2m Test Files [22m [1m[32m121 passed[39m[22m[90m (121)[39m
+[2m      Tests [22m [1m[32m1364 passed[39m[22m[90m (1364)[39m
+[2m   Start at [22m 13:22:56
+[2m   Duration [22m 8.80s[2m (transform 5.11s, setup 0ms, collect 57.66s, tests 7.80s, environment 25ms, prepare 14.86s)[22m
+
+
+[stderr]
+#< CLIXML
+[90mstderr[2m | vue-app/chat-timeline-split-guard.test.js
+[22m[39m[translate-dict] Failed to load en-zh-dict.json, using fallback: Failed to parse URL from /data/en-zh-dict.json
+
+[90mstderr[2m | vue-app/unified-chat-preflight-coverage.test.js
+[22m[39m[translate-dict] Failed to load en-zh-dict.json, using fallback: Failed to parse URL from /data/en-zh-dict.json
+
+[90mstderr[2m | vue-app/unified-chat-component.test.js
+[22m[39m[translate-dict] Failed to load en-zh-dict.json, using fallback: Failed to parse URL from /data/en-zh-dict.json
+
+[90mstderr[2m | vue-app/format-utils.test.js
+[22m[39m[translate-dict] Failed to load en-zh-dict.json, using fallback: Failed to parse URL from /data/en-zh-dict.json
+
+[90mstderr[2m | vue-app/unified-chat-split-guard.test.js
+[22m[39m[translate-dict] Failed to load en-zh-dict.json, using fallback: Failed to parse URL from /data/en-zh-dict.json
+
+[90mstderr[2m | vue-app/chat-timeline-reasoning.test.js
+[22m[39m[translate-dict] Failed to load en-zh-dict.json, using fallback: Failed to parse URL from /data/en-zh-dict.json
+
+[90mstderr[2m | vue-app/chat-timeline-presence-popover.test.js
+[22m[39m[translate-dict] Failed to load en-zh-dict.json, using fallback: Failed to parse URL from /data/en-zh-dict.json
+
+[90mstderr[2m | vue-app/app-root.behavior.test.js[2m > [22m[2mAppRoot behavior[2m > [22m[2mbootstraps runtime state, subscribes events and cleans up on unmount
+[22m[39m[TRACE-CWD] threadScopeCwd changed { next: [32m'/repo'[39m, prev: [90mundefined[39m, ts: [33m1779452579943[39m }
+
+[90mstderr[2m | vue-app/app-root.behavior.test.js[2m > [22m[2mAppRoot behavior[2m > [22m[2mbootstraps runtime state, subscribes events and cleans up on unmount
+[22m[39m[TRACE-CWD] refreshSidebarState completed { ts: [33m1779452579945[39m }
+
+[90mstderr[2m | vue-app/app-root.behavior.test.js[2m > [22m[2mAppRoot behavior[2m > [22m[2msurfaces bootstrap failures in fatal state
+[22m[39m[TRACE-CWD] threadScopeCwd changed { next: [32m'/repo'[39m, prev: [90mundefined[39m, ts: [33m1779452579950[39m }
+
+[90mstderr[2m | vue-app/app-root.behavior.test.js[2m > [22m[2mAppRoot behavior[2m > [22m[2msurfaces bootstrap failures in fatal state
+[22m[39m[TRACE-CWD] refreshSidebarState completed { ts: [33m1779452579951[39m }
+
+[90mstderr[2m | vue-app/app-root.behavior.test.js[2m > [22m[2mAppRoot behavior[2m > [22m[2msurfaces malformed window bootstrap responses in fatal state
+[22m[39m[TRACE-CWD] threadScopeCwd changed { next: [32m'/repo'[39m, prev: [90mundefined[39m, ts: [33m1779452579953[39m }
+
+[90mstderr[2m | vue-app/app-root.behavior.test.js[2m > [22m[2mAppRoot behavior[2m > [22m[2msurfaces malformed window bootstrap responses in fatal state
+[22m[39m[TRACE-CWD] refreshSidebarState completed { ts: [33m1779452579954[39m }
+
+[90mstderr[2m | vue-app/app-root.behavior.test.js[2m > [22m[2mAppRoot behavior[2m > [22m[2muses the runtime cwd as thread scope when the active project is dot
+[22m[39m[TRACE-CWD] threadScopeCwd changed { next: [32m'/window-root'[39m, prev: [32m''[39m, ts: [33m1779452579955[39m }
+
+[90mstderr[2m | vue-app/app-root.behavior.test.js[2m > [22m[2mAppRoot behavior[2m > [22m[2muses the runtime cwd as thread scope when the active project is dot
+[22m[39m[TRACE-CWD] refreshSidebarState completed { ts: [33m1779452579955[39m }
+
+[90mstderr[2m | vue-app/app-root.behavior.test.js[2m > [22m[2mAppRoot behavior[2m > [22m[2mprefers the Wails window cwd query over the process cwd from config/read
+[22m[39m[TRACE-CWD] threadScopeCwd changed { next: [32m'/worktrees/feature-a'[39m, prev: [90mundefined[39m, ts: [33m1779452579957[39m }
+
+[90mstderr[2m | vue-app/app-root.behavior.test.js[2m > [22m[2mAppRoot behavior[2m > [22m[2mprefers the Wails window cwd query over the process cwd from config/read
+[22m[39m[TRACE-CWD] refreshSidebarState completed { ts: [33m1779452579958[39m }
+
+[90mstderr[2m | vue-app/app-root.behavior.test.js[2m > [22m[2mAppRoot behavior[2m > [22m[2mruns command cards through an ensured active thread
+[22m[39m[TRACE-CWD] threadScopeCwd changed { next: [32m'/repo'[39m, prev: [90mundefined[39m, ts: [33m1779452579959[39m }
+
+[90mstderr[2m | vue-app/app-root.behavior.test.js[2m > [22m[2mAppRoot behavior[2m > [22m[2mruns command cards through an ensured active thread
+[22m[39m[TRACE-CWD] refreshSidebarState completed { ts: [33m1779452579959[39m }
+
+[90mstderr[2m | vue-app/app-root.behavior.test.js[2m > [22m[2mAppRoot behavior[2m > [22m[2mruns command cards from dot project scope through the window cwd
+[22m[39m[TRACE-CWD] threadScopeCwd changed { next: [32m'/worktrees/command'[39m, prev: [90mundefined[39m, ts: [33m1779452579961[39m }
+
+[90mstderr[2m | vue-app/app-root.behavior.test.js[2m > [22m[2mAppRoot behavior[2m > [22m[2mruns command cards from dot project scope through the window cwd
+[22m[39m[TRACE-CWD] refreshSidebarState completed { ts: [33m1779452579961[39m }
+
+[90mstderr[2m | vue-app/app-root.behavior.test.js[2m > [22m[2mAppRoot behavior[2m > [22m[2mrefreshes dashboard pages and reacts to skills changed events while on skills page
+[22m[39m[TRACE-CWD] threadScopeCwd changed { next: [32m'/repo'[39m, prev: [90mundefined[39m, ts: [33m1779452579962[39m }
+
+[90mstderr[2m | vue-app/app-root.behavior.test.js[2m > [22m[2mAppRoot behavior[2m > [22m[2mrefreshes dashboard pages and reacts to skills changed events while on skills page
+[22m[39m[TRACE-CWD] refreshSidebarState completed { ts: [33m1779452579963[39m }
+
+[90mstderr[2m | vue-app/app-root.behavior.test.js[2m > [22m[2mAppRoot behavior[2m > [22m[2mrefreshes the skills dashboard when the active project changes while viewing skills
+[22m[39m[TRACE-CWD] threadScopeCwd changed { next: [32m'/repo'[39m, prev: [90mundefined[39m, ts: [33m1779452579964[39m }
+
+[90mstderr[2m | vue-app/app-root.behavior.test.js[2m > [22m[2mAppRoot behavior[2m > [22m[2mrefreshes the skills dashboard when the active project changes while viewing skills
+[22m[39m[TRACE-CWD] refreshSidebarState completed { ts: [33m1779452579964[39m }
+
+[90mstderr[2m | vue-app/app-root.behavior.test.js[2m > [22m[2mAppRoot behavior[2m > [22m[2mrefreshes the skills dashboard when the active project changes while viewing skills
+[22m[39m[TRACE-CWD] threadScopeCwd changed { next: [32m'/repo-next'[39m, prev: [32m'/repo'[39m, ts: [33m1779452579964[39m }
+
+[90mstderr[2m | vue-app/app-root.behavior.test.js[2m > [22m[2mAppRoot behavior[2m > [22m[2mrefreshes the skills dashboard when the active project changes while viewing skills
+[22m[39m[TRACE-CWD] refreshSidebarState completed { ts: [33m1779452579965[39m }
+
+[90mstderr[2m | vue-app/app-root.behavior.test.js[2m > [22m[2mAppRoot behavior[2m > [22m[2mkeeps final output refs from the memory dashboard response
+[22m[39m[TRACE-CWD] threadScopeCwd changed { next: [32m'/repo'[39m, prev: [90mundefined[39m, ts: [33m1779452579965[39m }
+
+[90mstderr[2m | vue-app/app-root.behavior.test.js[2m > [22m[2mAppRoot behavior[2m > [22m[2mkeeps final output refs from the memory dashboard response
+[22m[39m[TRACE-CWD] refreshSidebarState completed { ts: [33m1779452579966[39m }
+
+[90mstderr[2m | vue-app/app-root.behavior.test.js[2m > [22m[2mAppRoot behavior[2m > [22m[2mrejects malformed dashboard responses instead of replacing missing fields with empty lists
+[22m[39m[TRACE-CWD] threadScopeCwd changed { next: [32m'/repo'[39m, prev: [90mundefined[39m, ts: [33m1779452579966[39m }
+
+[90mstderr[2m | vue-app/app-root.behavior.test.js[2m > [22m[2mAppRoot behavior[2m > [22m[2mrejects malformed dashboard responses instead of replacing missing fields with empty lists
+[22m[39m[TRACE-CWD] refreshSidebarState completed { ts: [33m1779452579967[39m }
+
+[90mstderr[2m | vue-app/app-root.behavior.test.js[2m > [22m[2mAppRoot behavior[2m > [22m[2mconsumes window bootstrap snapshot and starts the continued task in a new window
+[22m[39m[TRACE-CWD] threadScopeCwd changed { next: [32m'/repo'[39m, prev: [90mundefined[39m, ts: [33m1779452579969[39m }
+
+[90mstderr[2m | vue-app/app-root.behavior.test.js[2m > [22m[2mAppRoot behavior[2m > [22m[2mconsumes window bootstrap snapshot and starts the continued task in a new window
+[22m[39m[TRACE-CWD] refreshSidebarState completed { ts: [33m1779452579969[39m }
+
+[90mstderr[2m | vue-app/app-root.behavior.test.js[2m > [22m[2mAppRoot behavior[2m > [22m[2mconsumes window bootstrap snapshot and starts the continued task in a new window
+[22m[39m[TRACE-CWD] threadScopeCwd changed { next: [32m'/task-repo'[39m, prev: [32m'/repo'[39m, ts: [33m1779452579970[39m }
+
+[90mstderr[2m | vue-app/app-root.behavior.test.js[2m > [22m[2mAppRoot behavior[2m > [22m[2mconsumes window bootstrap snapshot and starts the continued task in a new window
+[22m[39m[TRACE-CWD] refreshSidebarState completed { ts: [33m1779452579970[39m }
+
+[90mstderr[2m | vue-app/app-root.behavior.test.js[2m > [22m[2mAppRoot behavior[2m > [22m[2muses window cwd for bootstrap task starts when snapshot cwd is empty
+[22m[39m[TRACE-CWD] threadScopeCwd changed { next: [32m'/worktrees/bootstrap'[39m, prev: [90mundefined[39m, ts: [33m1779452579971[39m }
+
+[90mstderr[2m | vue-app/app-root.behavior.test.js[2m > [22m[2mAppRoot behavior[2m > [22m[2muses window cwd for bootstrap task starts when snapshot cwd is empty
+[22m[39m[TRACE-CWD] refreshSidebarState completed { ts: [33m1779452579971[39m }
+
+[90mstderr[2m | vue-app/app-root.behavior.test.js[2m > [22m[2mAppRoot behavior[2m > [22m[2mmarks the memory center nav when similar memories need merging
+[22m[39m[TRACE-CWD] threadScopeCwd changed { next: [32m'/repo'[39m, prev: [90mundefined[39m, ts: [33m1779452579972[39m }
+
+[90mstderr[2m | vue-app/app-root.behavior.test.js[2m > [22m[2mAppRoot behavior[2m > [22m[2mmarks the memory center nav when similar memories need merging
+[22m[39m[TRACE-CWD] refreshSidebarState completed { ts: [33m1779452579972[39m }
+
+[90mstderr[2m | vue-app/app-root.behavior.test.js[2m > [22m[2mAppRoot behavior[2m > [22m[2mdoes not mark the memory center nav when no similar memories need merging
+[22m[39m[TRACE-CWD] threadScopeCwd changed { next: [32m'/repo'[39m, prev: [90mundefined[39m, ts: [33m1779452579973[39m }
+
+[90mstderr[2m | vue-app/app-root.behavior.test.js[2m > [22m[2mAppRoot behavior[2m > [22m[2mdoes not mark the memory center nav when no similar memories need merging
+[22m[39m[TRACE-CWD] refreshSidebarState completed { ts: [33m1779452579973[39m }
+
+[90mstderr[2m | vue-app/app-root.behavior.test.js[2m > [22m[2mAppRoot behavior[2m > [22m[2mdoes not request legacy pending skill candidates or mark the skills nav badge
+[22m[39m[TRACE-CWD] threadScopeCwd changed { next: [32m'/repo'[39m, prev: [90mundefined[39m, ts: [33m1779452579974[39m }
+
+[90mstderr[2m | vue-app/app-root.behavior.test.js[2m > [22m[2mAppRoot behavior[2m > [22m[2mdoes not request legacy pending skill candidates or mark the skills nav badge
+[22m[39m[TRACE-CWD] refreshSidebarState completed { ts: [33m1779452579974[39m }
+
+[90mstderr[2m | vue-app/app-root.behavior.test.js[2m > [22m[2mAppRoot behavior[2m > [22m[2mkeeps the memory center nav badge without restoring the legacy skills badge
+[22m[39m[TRACE-CWD] threadScopeCwd changed { next: [32m'/repo'[39m, prev: [90mundefined[39m, ts: [33m1779452579975[39m }
+
+[90mstderr[2m | vue-app/app-root.behavior.test.js[2m > [22m[2mAppRoot behavior[2m > [22m[2mkeeps the memory center nav badge without restoring the legacy skills badge
+[22m[39m[TRACE-CWD] refreshSidebarState completed { ts: [33m1779452579975[39m }
+
+[90mstderr[2m | vue-app/unified-chat-setup-contract.test.js
+[22m[39m[translate-dict] Failed to load en-zh-dict.json, using fallback: Failed to parse URL from /data/en-zh-dict.json
+
+[90mstderr[2m | vue-app/plan-utils.test.js
+[22m[39m[translate-dict] Failed to load en-zh-dict.json, using fallback: Failed to parse URL from /data/en-zh-dict.json
+
+[90mstderr[2m | vue-app/unified-chat-thread-config.behavior.test.js
+[22m[39m[translate-dict] Failed to load en-zh-dict.json, using fallback: Failed to parse URL from /data/en-zh-dict.json
+
+[90mstderr[2m | vue-app/unified-chat-citation-actions.test.js
+[22m[39m[translate-dict] Failed to load en-zh-dict.json, using fallback: Failed to parse URL from /data/en-zh-dict.json
+
+[90mstderr[2m | vue-app/chat-timeline-host-lifecycle.test.js
+[22m[39m[translate-dict] Failed to load en-zh-dict.json, using fallback: Failed to parse URL from /data/en-zh-dict.json
+
+[90mstderr[2m | vue-app/chat-timeline-behavior.test.js
+[22m[39m[translate-dict] Failed to load en-zh-dict.json, using fallback: Failed to parse URL from /data/en-zh-dict.json
+
+[90mstderr[2m | vue-app/preferences-store.behavior.test.js[2m > [22m[2mpreferences store[2m > [22m[2msavePreference rolls back the optimistic apply when the RPC fails
+[22m[39m[AO] preferences.save.failed {
+  seq: [33m1[39m,
+  ts: [32m'2026-05-22T12:23:02.216Z'[39m,
+  level: [32m'error'[39m,
+  scope: [32m'preferences'[39m,
+  event: [32m'save.failed'[39m,
+  fields: { key: [32m'settings.crash'[39m, scope: [32m''[39m, error: [32m'save failed'[39m }
+}
+
+[90mstderr[2m | vue-app/preferences-store.behavior.test.js[2m > [22m[2mpreferences store[2m > [22m[2msavePreference rollback restores the previously cached value when one existed
+[22m[39m[AO] preferences.save.failed {
+  seq: [33m2[39m,
+  ts: [32m'2026-05-22T12:23:02.219Z'[39m,
+  level: [32m'error'[39m,
+  scope: [32m'preferences'[39m,
+  event: [32m'save.failed'[39m,
+  fields: { key: [32m'settings.lang'[39m, scope: [32m''[39m, error: [32m'boom'[39m }
+}
+
+[90mstderr[2m | vue-app/chat-timeline-approval.test.js
+[22m[39m[translate-dict] Failed to load en-zh-dict.json, using fallback: Failed to parse URL from /data/en-zh-dict.json
+
+[90mstderr[2m | vue-app/chat-timeline-citation-chips.test.js
+[22m[39m[translate-dict] Failed to load en-zh-dict.json, using fallback: Failed to parse URL from /data/en-zh-dict.json
+
+(node:39020) ExperimentalWarning: localStorage is not available because --localstorage-file was not provided.
+(Use `node --trace-warnings ...` to show where the warning was created)
+[90mstderr[2m | vue-app/chat-timeline-contract-surface.test.js
+[22m[39m[translate-dict] Failed to load en-zh-dict.json, using fallback: Failed to parse URL from /data/en-zh-dict.json
+
+[90mstderr[2m | vue-app/app.test.js
+[22m[39m[translate-dict] Failed to load en-zh-dict.json, using fallback: Failed to parse URL from /data/en-zh-dict.json
+
+[90mstderr[2m | vue-app/unified-chat-template-contract.test.js
+[22m[39m[translate-dict] Failed to load en-zh-dict.json, using fallback: Failed to parse URL from /data/en-zh-dict.json
+
+[90mstderr[2m | vue-app/chat-timeline-internal-message.test.js
+[22m[39m[translate-dict] Failed to load en-zh-dict.json, using fallback: Failed to parse URL from /data/en-zh-dict.json
+
+[90mstderr[2m | vue-app/workspace-chat-scroll-guard.test.js
+[22m[39m[translate-dict] Failed to load en-zh-dict.json, using fallback: Failed to parse URL from /data/en-zh-dict.json
+
+<Objs Version="1.1.0.1" xmlns="http://schemas.microsoft.com/powershell/2004/04"><Obj S="progress" RefId="0"><TN RefId="0"><T>System.Management.Automation.PSCustomObject</T><T>System.Object</T></TN><MS><I64 N="SourceId">1</I64><PR N="Record"><AV>正在准备首次使用模块。</AV><AI>0</AI><Nil /><PI>-1</PI><PC>-1</PC><T>Completed</T><SR>-1</SR><SD> </SD></PR></MS></Obj><Obj S="progress" RefId="1"><TNRef RefId="0" /><MS><I64 N="SourceId">2</I64><PR N="Record"><AV>正在准备首次使用模块。</AV><AI>0</AI><Nil /><PI>-1</PI><PC>-1</PC><T>Completed</T><SR>-1</SR><SD> </SD></PR></MS></Obj></Objs>

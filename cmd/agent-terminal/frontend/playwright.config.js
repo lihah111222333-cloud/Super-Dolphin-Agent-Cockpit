@@ -4,6 +4,8 @@ const PORT = 4173;
 const HOST = "127.0.0.1";
 const BASE_URL = `http://${HOST}:${PORT}`;
 const IS_CI = Boolean((/** @type {any} */ (globalThis)).process?.env?.CI);
+const CHROMIUM_EXECUTABLE = (/** @type {any} */ (globalThis)).process?.env?.PLAYWRIGHT_CHROMIUM_EXECUTABLE || "";
+const CHROMIUM_LAUNCH_OPTIONS = CHROMIUM_EXECUTABLE ? { executablePath: CHROMIUM_EXECUTABLE } : {};
 
 export default defineConfig({
     testDir: "./tests/e2e",
@@ -25,6 +27,7 @@ export default defineConfig({
         trace: "on-first-retry",
         screenshot: "only-on-failure",
         video: "retain-on-failure",
+        launchOptions: CHROMIUM_LAUNCH_OPTIONS,
     },
     projects: [
         {

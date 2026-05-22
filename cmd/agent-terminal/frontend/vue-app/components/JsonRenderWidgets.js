@@ -369,13 +369,21 @@ const JrStat = defineComponent({
         return () => {
             const s = props.spec || {};
             const trend = s.trend || '';
-            const trendClass = trend === 'up' ? 'jr-stat-up' : trend === 'down' ? 'jr-stat-down' : '';
+            let trendClass = '';
+            let trendIcon = '';
+            if (trend === 'up') {
+                trendClass = 'jr-stat-up';
+                trendIcon = 'up';
+            } else if (trend === 'down') {
+                trendClass = 'jr-stat-down';
+                trendIcon = 'down';
+            }
             return h('div', { class: 'jr-root jr-stat' }, [
                 h('span', { class: 'jr-stat-label' }, s.label || ''),
                 h('span', { class: 'jr-stat-value' }, String(s.value ?? '')),
                 s.change != null
                     ? h('span', { class: `jr-stat-change ${trendClass}` }, [
-                        trend === 'up' ? '↑ ' : trend === 'down' ? '↓ ' : '',
+                        trendIcon,
                         String(s.change),
                     ])
                     : null,

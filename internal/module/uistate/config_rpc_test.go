@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"path/filepath"
 	"testing"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
@@ -17,19 +18,20 @@ import (
 func TestConfigHandlersReadAndWriteLSPPromptHint(t *testing.T) {
 	t.Parallel()
 
-	server, prefs, threads := newConfigPromptHintFixture(t)
+	server, prefs, threads, projectRoot := newConfigPromptHintFixture(t)
 	cfg := dispatchConfig[runtimeConfigResult](t, server, "config/read", `{}`)
-	assertConfigReadResult(t, cfg, threads)
+	assertConfigReadResult(t, cfg, threads, projectRoot)
 	assertLSPPromptHintRead(t, server)
 	assertLSPPromptHintWrite(t, server)
 	assertStoredLSPPromptHintOverride(t, prefs)
 }
 
-func newConfigPromptHintFixture(t *testing.T) (*platformrpc.Server, *uiPreferenceStoreStub, *configThreadServiceStub) {
+func newConfigPromptHintFixture(t *testing.T) (*platformrpc.Server, *uiPreferenceStoreStub, *configThreadServiceStub, string) {
 	t.Helper()
+	projectRoot := filepath.Clean(filepath.Join(t.TempDir(), "window"))
 	prefs := &uiPreferenceStoreStub{values: map[string]json.RawMessage{
-		preferenceStubKey("/repo", lspPromptHintOverrideKey):                           mustJSONRaw(t, "custom prompt"),
-		preferenceStubKey("/window", normalizePreferenceKey(preferenceActiveThreadID)): mustJSONRaw(t, "thread-7"),
+		preferenceStubKey("/repo", lspPromptHintOverrideKey):                             mustJSONRaw(t, "custom prompt"),
+		preferenceStubKey(projectRoot, normalizePreferenceKey(preferenceActiveThreadID)): mustJSONRaw(t, "thread-7"),
 	}}
 	sharedFiles := &sharedFileStoreStub{files: map[string]sharedfilestore.SharedFile{
 		lspPromptHintDefaultPath: {Path: lspPromptHintDefaultPath, Content: "default prompt"},
@@ -58,26 +60,26 @@ func newConfigPromptHintFixture(t *testing.T) (*platformrpc.Server, *uiPreferenc
 		},
 	}}
 	server := newConfigTestServer(
-		&contract.Config{RPCAddr: "127.0.0.1:0", ProjectRoot: "/window"},
+		&contract.Config{RPCAddr: "127.0.0.1:0", ProjectRoot: projectRoot},
 		prefs,
 		sharedFiles,
 		threads,
 	)
-	return server, prefs, threads
+	return server, prefs, threads, projectRoot
 }
 
-func assertConfigReadResult(t *testing.T, cfg runtimeConfigResult, threads *configThreadServiceStub) {
+func assertConfigReadResult(t *testing.T, cfg runtimeConfigResult, threads *configThreadServiceStub, projectRoot string) {
 	t.Helper()
-	assertConfigBasics(t, cfg)
+	assertConfigBasics(t, cfg, projectRoot)
 	assertConfigThreadLookups(t, threads)
 	assertConfigRuntimeFields(t, cfg)
 	assertConfigToolRouting(t, cfg.ToolRouting)
 	assertConfigSandbox(t, cfg.Sandbox)
 }
 
-func assertConfigBasics(t *testing.T, cfg runtimeConfigResult) {
+func assertConfigBasics(t *testing.T, cfg runtimeConfigResult, projectRoot string) {
 	t.Helper()
-	if cfg.CWD != "/window" || cfg.Model != "gpt-5.5" || cfg.ApprovalPolicy != "never" {
+	if cfg.CWD != projectRoot || cfg.Model != "gpt-5.5" || cfg.ApprovalPolicy != "never" {
 		t.Fatalf("config/read = %#v", cfg)
 	}
 }
@@ -152,8 +154,9 @@ func assertStoredLSPPromptHintOverride(t *testing.T, prefs *uiPreferenceStoreStu
 func TestConfigReadFallsBackToDefaultsWhenThreadConfigUnavailable(t *testing.T) {
 	t.Parallel()
 
+	projectRoot := filepath.Clean(filepath.Join(t.TempDir(), "window"))
 	prefs := &uiPreferenceStoreStub{values: map[string]json.RawMessage{
-		preferenceStubKey("/window", normalizePreferenceKey(preferenceActiveThreadID)): mustJSONRaw(t, "thread-9"),
+		preferenceStubKey(projectRoot, normalizePreferenceKey(preferenceActiveThreadID)): mustJSONRaw(t, "thread-9"),
 	}}
 	threads := &configThreadServiceStub{
 		getConfigErr: errors.New("session offline"),
@@ -164,14 +167,14 @@ func TestConfigReadFallsBackToDefaultsWhenThreadConfigUnavailable(t *testing.T) 
 		},
 	}
 	server := newConfigTestServer(
-		&contract.Config{RPCAddr: "127.0.0.1:0", ProjectRoot: "/window"},
+		&contract.Config{RPCAddr: "127.0.0.1:0", ProjectRoot: projectRoot},
 		prefs,
 		&sharedFileStoreStub{},
 		threads,
 	)
 
 	cfg := dispatchConfig[runtimeConfigResult](t, server, "config/read", `{}`)
-	if cfg.CWD != "/window" || cfg.Model != "o4-mini" || cfg.ApprovalPolicy != "on-failure" {
+	if cfg.CWD != projectRoot || cfg.Model != "o4-mini" || cfg.ApprovalPolicy != "on-failure" {
 		t.Fatalf("config/read fallback = %#v", cfg)
 	}
 	if cfg.ToolRouting != (runtimeConfigToolRouting{

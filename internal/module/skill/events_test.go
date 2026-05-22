@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"reflect"
+	"sync"
 	"testing"
 	"time"
 
@@ -47,8 +48,11 @@ func TestPublishSkillsChangedDebouncesBurst(t *testing.T) {
 
 	svc := NewService("").(*service)
 	svc.bindDispatcher(dispatcher)
+	releaseFlush := blockSkillsChangedFlushForTest(t, svc)
 	svc.publishSkillsChanged(context.Background(), "local_write", "first", skillScopePersonal)
 	svc.publishSkillsChanged(context.Background(), "import_dir", "second", skillScopePersonal)
+	flushSkillsChangedNowForTest(svc)
+	releaseFlush()
 
 	ev := mustReceiveSkillsChanged(t, got)
 	if ev.Action != "" || ev.Name != "" || ev.Count != 2 {
@@ -71,8 +75,11 @@ func TestPublishSkillsChangedDedupesRepeatedActions(t *testing.T) {
 
 	svc := NewService("").(*service)
 	svc.bindDispatcher(dispatcher)
+	releaseFlush := blockSkillsChangedFlushForTest(t, svc)
 	svc.publishSkillsChanged(context.Background(), "local_write", "first", skillScopePersonal)
 	svc.publishSkillsChanged(context.Background(), "write", "second", skillScopePersonal)
+	flushSkillsChangedNowForTest(svc)
+	releaseFlush()
 
 	ev := mustReceiveSkillsChanged(t, got)
 	if ev.Action != "write" || ev.Count != 1 {
@@ -239,10 +246,13 @@ func TestServiceCrossScopeFlushesBothEvents(t *testing.T) {
 	svc.root = t.TempDir()
 	svc.projectSkillsRoot = defaultProjectSkillsRoot(projectRoot)
 	svc.bindDispatcher(dispatcher)
+	releaseFlush := blockSkillsChangedFlushForTest(t, svc)
 
 	ctx := skillTestContext(projectRoot)
 	svc.publishSkillsChanged(ctx, "local_write", "first", skillScopeProject)
 	svc.publishSkillsChanged(context.Background(), "remote_write", "second", skillScopePersonal)
+	flushSkillsChangedNowForTest(svc)
+	releaseFlush()
 
 	first := mustReceiveSkillsChanged(t, got)
 	assertSkillsEventBasics(t, "first", first, "project", "first", "write", 1)
@@ -272,9 +282,12 @@ func TestServiceCrossCwdFlushesBothEvents(t *testing.T) {
 	svc.root = t.TempDir()
 	svc.projectSkillsRoot = defaultProjectSkillsRoot(projectRootA)
 	svc.bindDispatcher(dispatcher)
+	releaseFlush := blockSkillsChangedFlushForTest(t, svc)
 
 	svc.publishSkillsChanged(skillTestContext(projectRootA), "local_write", "first", skillScopeProject)
 	svc.publishSkillsChanged(skillTestContext(projectRootB), "import_dir", "second", skillScopeProject)
+	flushSkillsChangedNowForTest(svc)
+	releaseFlush()
 
 	first := mustReceiveSkillsChanged(t, got)
 	assertSkillsEventBasics(t, "first", first, "project", "first", "write", 1)
@@ -301,10 +314,13 @@ func TestServiceMergeableEventsStillCoalesce(t *testing.T) {
 	svc.root = t.TempDir()
 	svc.projectSkillsRoot = defaultProjectSkillsRoot(projectRoot)
 	svc.bindDispatcher(dispatcher)
+	releaseFlush := blockSkillsChangedFlushForTest(t, svc)
 
 	ctx := skillTestContext(projectRoot)
 	svc.publishSkillsChanged(ctx, "local_write", "first", skillScopeProject)
 	svc.publishSkillsChanged(ctx, "import_dir", "second", skillScopeProject)
+	flushSkillsChangedNowForTest(svc)
+	releaseFlush()
 
 	ev := mustReceiveSkillsChanged(t, got)
 	assertProjectRepoEvent(t, "coalesced", ev, projectRoot)
@@ -317,4 +333,21 @@ func TestServiceMergeableEventsStillCoalesce(t *testing.T) {
 	}
 
 	assertNoExtraSkillsChanged(t, got)
+}
+
+func blockSkillsChangedFlushForTest(t *testing.T, svc *service) func() {
+	t.Helper()
+	release := make(chan struct{})
+	var once sync.Once
+	svc.skillsChangedDelay = func() { <-release }
+	releaseFlush := func() { once.Do(func() { close(release) }) }
+	t.Cleanup(releaseFlush)
+	return releaseFlush
+}
+
+func flushSkillsChangedNowForTest(svc *service) {
+	svc.skillsChangedMu.Lock()
+	seq := svc.skillsChangedSeq
+	svc.skillsChangedMu.Unlock()
+	svc.flushSkillsChanged(seq)
 }

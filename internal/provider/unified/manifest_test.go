@@ -12,7 +12,7 @@ import (
 )
 
 func TestBuildManifest_DefaultFamilies(t *testing.T) {
-	binaryDir := "/tmp/default-bin"
+	binaryDir := filepath.Join(t.TempDir(), "default-bin")
 	got := manifestbuilder.BuildManifest(dto.ManifestContext{BinaryDir: binaryDir})
 	if len(got.Binaries) != 2 || got.Binaries[0].Name != "lsp" || got.Binaries[1].Name != "orch" {
 		t.Fatalf("unexpected default manifest: %+v", got.Binaries)
@@ -40,10 +40,11 @@ func TestBuildManifest_WithIDADoesNotExposeUnimplementedIDATools(t *testing.T) {
 }
 
 func TestBuildManifest_BinaryPaths(t *testing.T) {
-	got := manifestbuilder.BuildManifest(dto.ManifestContext{BinaryDir: "/tmp/bin"})
+	binaryDir := filepath.Join(t.TempDir(), "bin")
+	got := manifestbuilder.BuildManifest(dto.ManifestContext{BinaryDir: binaryDir})
 	want := []string{
-		filepath.Join("/tmp/bin", "mcp-lsp"),
-		filepath.Join("/tmp/bin", "mcp-orch"),
+		filepath.Join(binaryDir, "mcp-lsp"),
+		filepath.Join(binaryDir, "mcp-orch"),
 	}
 	for i, binary := range got.Binaries[:2] {
 		if len(binary.Command) != 1 || binary.Command[0] != want[i] {
@@ -89,9 +90,10 @@ func TestBuildManifest_UsesProxyHTTPAddr(t *testing.T) {
 }
 
 func TestBuildManifest_StdioOnlyIgnoresHTTPDiscovery(t *testing.T) {
+	binaryDir := filepath.Join(t.TempDir(), "bin")
 	got := manifestbuilder.BuildManifest(dto.ManifestContext{
 		AgentID:       "agent-1",
-		BinaryDir:     "/tmp/bin",
+		BinaryDir:     binaryDir,
 		ProxyHTTPAddr: "127.0.0.1:39001",
 		PeerHTTPAddrs: map[dto.ToolFamily]string{
 			dto.FamilyLSP:  "127.0.0.1:39002",
@@ -107,7 +109,7 @@ func TestBuildManifest_StdioOnlyIgnoresHTTPDiscovery(t *testing.T) {
 		if binary.Type == "http" || binary.URL != "" {
 			t.Fatalf("binary %q = %#v, want stdio command despite HTTP discovery", binary.Name, binary)
 		}
-		if len(binary.Command) != 1 || !strings.Contains(binary.Command[0], "/tmp/bin/mcp-") {
+		if len(binary.Command) != 1 || !strings.Contains(binary.Command[0], filepath.Join(binaryDir, "mcp-")) {
 			t.Fatalf("binary %q command = %#v, want managed stdio command", binary.Name, binary.Command)
 		}
 	}
@@ -227,19 +229,22 @@ func TestBuildManifest_PreservesDatabaseURLFromEnvironment(t *testing.T) {
 }
 
 func TestBuildManifest_LSPEnvIncludesPrimaryAndAdditionalWorkspaceRoots(t *testing.T) {
+	root := t.TempDir()
+	apiRoot := filepath.Join(root, "packages", "api")
+	webRoot := filepath.Join(root, "packages", "web")
 	got := manifestbuilder.BuildManifest(dto.ManifestContext{
-		CWD:                          "/repo",
-		AdditionalWorkingDirectories: []string{"/repo/packages/api", " /repo/packages/api ", "/repo/packages/web"},
+		CWD:                          root,
+		AdditionalWorkingDirectories: []string{apiRoot, " " + apiRoot + " ", webRoot},
 	})
 	lsp := requireManifestBinary(t, got, "lsp")
-	if lsp.Env["GO_AGENT_LSP_ROOT"] != "/repo" {
-		t.Fatalf("GO_AGENT_LSP_ROOT = %q, want /repo; env=%#v", lsp.Env["GO_AGENT_LSP_ROOT"], lsp.Env)
+	if lsp.Env["GO_AGENT_LSP_ROOT"] != root {
+		t.Fatalf("GO_AGENT_LSP_ROOT = %q, want %q; env=%#v", lsp.Env["GO_AGENT_LSP_ROOT"], root, lsp.Env)
 	}
 	var roots []string
 	if err := json.Unmarshal([]byte(lsp.Env["GO_AGENT_LSP_ROOTS"]), &roots); err != nil {
 		t.Fatalf("GO_AGENT_LSP_ROOTS = %q, want JSON array: %v", lsp.Env["GO_AGENT_LSP_ROOTS"], err)
 	}
-	want := []string{"/repo", "/repo/packages/api", "/repo/packages/web"}
+	want := []string{root, apiRoot, webRoot}
 	require.Equal(t, want, roots)
 
 	orch := requireManifestBinary(t, got, "orch")
@@ -248,8 +253,9 @@ func TestBuildManifest_LSPEnvIncludesPrimaryAndAdditionalWorkspaceRoots(t *testi
 }
 
 func TestBuildManifest_RelativeAdditionalWorkspaceRootsResolveAgainstCWD(t *testing.T) {
+	root := t.TempDir()
 	got := manifestbuilder.BuildManifest(dto.ManifestContext{
-		CWD:                          "/repo",
+		CWD:                          root,
 		AdditionalWorkingDirectories: []string{"packages/api"},
 	})
 	lsp := requireManifestBinary(t, got, "lsp")
@@ -257,7 +263,7 @@ func TestBuildManifest_RelativeAdditionalWorkspaceRootsResolveAgainstCWD(t *test
 	if err := json.Unmarshal([]byte(lsp.Env["GO_AGENT_LSP_ROOTS"]), &roots); err != nil {
 		t.Fatalf("GO_AGENT_LSP_ROOTS = %q, want JSON array: %v", lsp.Env["GO_AGENT_LSP_ROOTS"], err)
 	}
-	want := []string{"/repo", "/repo/packages/api"}
+	want := []string{root, filepath.Join(root, "packages", "api")}
 	require.Equal(t, want, roots)
 }
 
@@ -278,7 +284,7 @@ func TestBuildManifest_DropsAdditionalWorkspaceRootsWithoutTrustedCWD(t *testing
 		t.Run(name, func(t *testing.T) {
 			got := manifestbuilder.BuildManifest(dto.ManifestContext{
 				CWD:                          cwd,
-				AdditionalWorkingDirectories: []string{"/repo/packages/api"},
+				AdditionalWorkingDirectories: []string{filepath.Join(t.TempDir(), "packages", "api")},
 			})
 			lsp := requireManifestBinary(t, got, "lsp")
 			require.NotContains(t, lsp.Env, "GO_AGENT_LSP_ROOT")

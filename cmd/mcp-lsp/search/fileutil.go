@@ -211,7 +211,7 @@ func longestContainingRoot(roots []string, candidate string) string {
 }
 
 func outsideWorkspaceRootsError(candidate string, roots []string) error {
-	return fmt.Errorf("path %q is outside workspace roots [%s]", candidate, strings.Join(roots, ", "))
+	return fmt.Errorf("path %s is outside workspace roots [%s]", candidate, strings.Join(roots, ", "))
 }
 
 func ReadToolFileContent(root, target string, maxBytes int) (FileContent, error) {

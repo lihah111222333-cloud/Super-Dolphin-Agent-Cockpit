@@ -2,6 +2,7 @@ package memory
 
 import (
 	"fmt"
+	"path/filepath"
 	"strings"
 )
 
@@ -98,7 +99,7 @@ func standardMemorySystemLines(autoDir string) []string {
 		root = "<auto-memory-root>"
 	}
 	return append([]string{
-		fmt.Sprintf("Standard mode uses a single auto-memory root at `%s`; treat `%s` as the pointer index entrypoint and keep durable topic files organized beneath that root.", root, memoryIndexPath(root)),
+		fmt.Sprintf("Standard mode uses a single auto-memory root at `%s`; treat `%s` as the pointer index entrypoint and keep durable topic files organized beneath that root.", root, filepath.ToSlash(memoryIndexPath(root))),
 	}, standardOverviewLines...)
 }
 
@@ -349,8 +350,8 @@ func combinedExclusionRules() []string {
 }
 
 func combinedSaveRules(skipIndex bool, autoDir, teamDir string) []string {
-	indexPrivate := memoryIndexPath(autoDir)
-	indexTeam := memoryIndexPath(teamDir)
+	indexPrivate := filepath.ToSlash(memoryIndexPath(autoDir))
+	indexTeam := filepath.ToSlash(memoryIndexPath(teamDir))
 	rules := []string{
 		"Choose the private or team directory according to the scope guidance for the memory type; `user` is always private, `feedback` stays private unless every collaborator should follow it, and shared project conventions or external pointers usually belong in team memory.",
 		"Keep `name`, `description`, `type`, and `title` frontmatter aligned with the body.",

@@ -151,6 +151,16 @@ describe('useThreadSelection', () => {
     expect(ctx.scheduleScrollToBottom).toHaveBeenCalledWith(true);
   });
 
+  it('clears stale selected thread when freshness reports a missing persisted session', async () => {
+    vi.mocked(ensureThreadSelectionFresh).mockRejectedValueOnce(new Error('thread "agent-stale" not found: store: not found'));
+
+    const ctx = mountSelection({ selectedId: 'agent-stale' });
+    await flush();
+
+    expect(ctx.selectedThreadId.value).toBe('');
+    expect(ctx.scheduleScrollToBottom).not.toHaveBeenCalledWith(true);
+  });
+
   it('does not call resetScrollState on initial mount (prevId is empty)', async () => {
     const resetScrollState = vi.fn();
     const ctx = mountSelection({ selectedId: 'thread-1', resetScrollState });

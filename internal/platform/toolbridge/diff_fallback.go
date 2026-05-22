@@ -13,10 +13,11 @@ import (
 
 // diffFallbackTracker subscribes to ToolCallEnd and emits a git diff fallback.
 type diffFallbackTracker struct {
-	emitter  difftracker.DiffEmitter
-	resolver difftracker.WorkDirResolver
-	seen     sync.Map // map[string]struct{} — call IDs already emitted by Phase 1/fallback
-	logger   *pkglogger.Logger
+	emitter         difftracker.DiffEmitter
+	resolver        difftracker.WorkDirResolver
+	readCurrentDiff func(context.Context, string) (string, []string, bool)
+	seen            sync.Map // map[string]struct{} — call IDs already emitted by Phase 1/fallback
+	logger          *pkglogger.Logger
 }
 
 func newDiffFallbackTracker(
@@ -91,6 +92,9 @@ func (t *diffFallbackTracker) resolveCWD(ctx context.Context, agentID string) (s
 }
 
 func (t *diffFallbackTracker) currentGitDiff(ctx context.Context, cwd string) (string, []string, bool) {
+	if t.readCurrentDiff != nil {
+		return t.readCurrentDiff(ctx, cwd)
+	}
 	diffText, files, err := difftracker.EmitCurrentGitDiff(ctx, cwd)
 	if err != nil {
 		if !errors.Is(err, difftracker.ErrNotGitRepository) {

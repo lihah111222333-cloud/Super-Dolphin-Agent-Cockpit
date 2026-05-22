@@ -338,6 +338,7 @@ func mustWriteFile(t *testing.T, path, content string) {
 func mustSymlink(t *testing.T, oldname, newname string) {
 	t.Helper()
 	if err := os.Symlink(oldname, newname); err != nil {
+		skipIfSymlinkPrivilegeNotHeld(t, err)
 		t.Fatalf("Symlink(%q, %q) error = %v", oldname, newname, err)
 	}
 }
