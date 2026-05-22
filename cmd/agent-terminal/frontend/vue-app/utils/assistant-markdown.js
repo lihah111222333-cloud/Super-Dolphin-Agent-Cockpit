@@ -17,11 +17,11 @@ const markdownItKatex = /** @type {any} */ (markdownItKatexModule);
 
 
 
-const FILE_REF_COLON_RE = /^(?<path>.*?):(?<line>\d+)(?::(?<column>\d+))?(?:[-–](?<endLine>\d+)(?::(?<endColumn>\d+))?)?$/;
-const FILE_REF_HASH_RE = /^(?<path>.*?)#L(?<line>\d+)(?:C(?<column>\d+))?(?:-L(?<endLine>\d+)(?:C(?<endColumn>\d+))?)?$/;
-const FILE_REF_LINE_LABEL_RE = /^(?<path>.+?)\s*\((?:line|lines)\s*(?<line>\d+)(?:\s*[,，]\s*(?:col|column)\s*(?<column>\d+))?\)$/i;
-const INLINE_FILE_REF_LINE_LABEL_RE = /(^|[\s(（\["'，。！？、\-])(-?[A-Za-z0-9_./\\][^\s<>()]*)\s*\((?:line|lines)\s*(\d+)(?:\s*[,，]\s*(?:col|column)\s*(\d+))?\)(?=$|[\s).，。！？、:：;；\]"'\-])/gi;
-const INLINE_FILE_REF_RE = /(^|[\s(（\["'，。！？、\-])(-?[A-Za-z0-9_./\\][^\s<>()]*)(?=$|[\s).，。！？、:：;；\]"'\-])/g;
+const FILE_REF_COLON_RE = new RegExp(String.raw`^(?<path>.*?):(?<line>\d+)(:(?<column>\d+))?([-?](?<endLine>\d+)(:(?<endColumn>\d+))?)?$`);
+const FILE_REF_HASH_RE = new RegExp(String.raw`^(?<path>.*?)#L(?<line>\d+)(C(?<column>\d+))?(-L(?<endLine>\d+)(C(?<endColumn>\d+))?)?$`);
+const FILE_REF_LINE_LABEL_RE = new RegExp(String.raw`^(?<path>.+?)\s*\((line|lines)\s*(?<line>\d+)(\s*[,?c\s]*(col|column)\s*(?<column>\d+))?\)$`, 'i');
+const INLINE_FILE_REF_LINE_LABEL_RE = new RegExp(String.raw`(^|[\s(?["'?????-])(-?[A-Za-z0-9_./\\][^\s<>()]*)\s*\((line|lines)\s*(\d+)(\s*[,?c\s]*(col|column)\s*(\d+))?\)(?=$|[\s).???????:]"'-])`, 'gi');
+const INLINE_FILE_REF_RE = new RegExp(String.raw`(^|[\s(?["'?????-])(-?[A-Za-z0-9_./\\][^\s<>()]*)(?=$|[\s).???????:]"'-])`, 'g');
 const FILE_REF_TRAILING_PUNCTUATION_RE = /[),.!?;:'"。，、！？；：）】》]+$/;
 const FILE_REF_LINE_LABEL_TRAILING_PUNCTUATION_RE = /[,.!?;:'"。，、！？；：】》]+$/;
 const LONG_EXTENSION_ALLOWLIST = new Set([
@@ -297,11 +297,14 @@ function basenameFromSource(rawSource) {
   return source.split(/[\\/]/).filter(Boolean).pop() || source;
 }
 
+const RENDERABLE_IMAGE_SOURCE_RE = new RegExp(String.raw`^(data:image/|https?://|file://)`, 'i');
+const LOCAL_FILE_IMAGE_SOURCE_RE = new RegExp(String.raw`^([\\/]|~[\\/]|\.{1,2}[\\/]|[A-Za-z]:[\\/])`);
+
 function resolveRenderableImageSource(rawSource) {
   const source = (rawSource || '').toString().trim();
   if (!source) return '';
-  if (/^(?:data:image\/|https?:\/\/|file:\/\/)/i.test(source)) return source;
-  if (/^(?:[\\/]|~[\\/]|\.{1,2}[\\/]|[A-Za-z]:[\\/])/.test(source)) return toFilePreviewURL(source);
+  if (RENDERABLE_IMAGE_SOURCE_RE.test(source)) return source;
+  if (LOCAL_FILE_IMAGE_SOURCE_RE.test(source)) return toFilePreviewURL(source);
   return '';
 }
 function renderMarkdownImage(tokens, idx, options, env, self) {
@@ -407,7 +410,7 @@ function createMarkdownRenderer() {
  * 当一段 assistant 文本中此类行 ≥ 2 时，说明内容可能是内部推理泄漏，
  * 需要在每个工具调用前后插入换行，避免渲染为一坨纯文本。
  */
-const REASONING_TOOL_CALL_NAMES_RE = /(?:read_file|replace_range|open_file|did_change|rename|hover|definition|references|document_symbol|workspace_symbol|implementation|type_definition|signature_help|code_action|call_hierarchy|type_hierarchy|completion|format|semantic_tokens|folding_range|lsp_[a-z_]+|code_run(?:_test)?|exec_command|update_plan|request_user_input)/;
+const REASONING_TOOL_CALL_NAMES_RE = new RegExp(String.raw`(read_file|replace_range|open_file|did_change|rename|hover|definition|references|document_symbol|workspace_symbol|implementation|type_definition|signature_help|code_action|call_hierarchy|type_hierarchy|completion|format|semantic_tokens|folding_range|lsp_[a-z_]+|code_run(_test)?|exec_command|update_plan|request_user_input)`);
 const REASONING_TOOL_LINE_RE = new RegExp('^' + REASONING_TOOL_CALL_NAMES_RE.source + '\\s*\\(', 'i');
 
 /**
@@ -425,11 +428,11 @@ const REASONING_TOOL_INLINE_RE = new RegExp(
   'gi',
 );
 
-const REASONING_PROGRESS_SENTENCE_RE = /^(?:i(?:['’]m| am)\b|i found\b|now\b|next\b|adding\b|final verification\b|red check\b|the new test file\b|phase-\d+\b)/i;
+const REASONING_PROGRESS_SENTENCE_RE = new RegExp(String.raw`^(i(['?]m| am)\b|i found\b|now\b|next\b|adding\b|final verification\b|red check\b|the new test file\b|phase-\d+\b)`, 'i');
 const REASONING_SENTENCE_START_RE = '(?:I\\b|Now\\b|Next\\b|Adding\\b|Final\\b|RED\\b|Phase-\\d+\\b|The\\b|It\\b|If\\b|[一-龥]|`)';
-const REASONING_CODEISH_RE = /(?:`[^`]+`|\b[a-z_][a-z0-9_]*\([^)]*\)|\b[a-z]+(?:[A-Z][a-z0-9]+){1,}\b|\b[\w./-]+\.(?:[cm]?[jt]sx?|go|py|rb|java|rs|md|json|ya?ml|sql)\b)/;
+const REASONING_CODEISH_RE = new RegExp('(`[^`]+`|\\b[a-z_][a-z0-9_]*\\([^)]*\\)|\\b[a-z]+([A-Z][a-z0-9]+){1,}\\b|\\b[\\w./-]+\\.([cm]?[jt]sx?|go|py|rb|java|rs|md|json|ya?ml|sql)\\b)');
 const REASONING_SENTENCE_BOUNDARY_RE = new RegExp('([。；！？.!?])\\s*(?=' + REASONING_SENTENCE_START_RE + ')', 'g');
-const MARKDOWN_BLOCKISH_RE = /(^|\n)\s{0,3}(?:[#>*-]|\d+\.)\s|```|\n\s*\n/m;
+const MARKDOWN_BLOCKISH_RE = new RegExp('(^|\\n)\\s{0,3}([#>*-]|\\d+\\.)\\s|```|\\n\\s*\\n', 'm');
 
 function countMatches(text, regex) {
   const matches = (text || '').toString().match(regex);

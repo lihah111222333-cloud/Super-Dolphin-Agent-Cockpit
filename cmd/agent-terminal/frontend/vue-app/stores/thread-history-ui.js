@@ -249,7 +249,9 @@ function shouldFilterStaleThinkingItem(item, latestAssistantTs, hasRuntimeHistor
 
 function historyMessageToTimelineItem(threadId, message, index) {
   const role = (message?.role || '').toString().trim().toLowerCase();
-  const kind = role === 'assistant' ? 'assistant' : (role === 'user' ? 'user' : '');
+  let kind = '';
+  if (role === 'assistant') kind = 'assistant';
+  else if (role === 'user') kind = 'user';
   if (!kind) return null;
   const rawCreatedAt = message?.createdAt;
   const ts = rawCreatedAt instanceof Date ? rawCreatedAt.toISOString() : (rawCreatedAt || '').toString();

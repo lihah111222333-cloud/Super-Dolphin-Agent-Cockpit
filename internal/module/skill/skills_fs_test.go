@@ -110,6 +110,7 @@ func TestWriteLocalRejectsRelativeSymlinkEscape(t *testing.T) {
 		t.Fatalf("MkdirAll skills root: %v", err)
 	}
 	if err := os.Symlink(outsideSkillDir, filepath.Join(skillsRoot, "escape")); err != nil {
+		skipIfSymlinkPrivilegeNotHeld(t, err)
 		t.Fatalf("Symlink escape skill: %v", err)
 	}
 	svc := &service{projectRoot: projectRoot, projectSkillsRoot: skillsRoot, superDolphinHome: newTestSuperDolphinHome(t), http: &http.Client{}}
@@ -134,6 +135,7 @@ func TestWriteLocalRejectsSkillMainSymlink(t *testing.T) {
 		t.Fatalf("MkdirAll skill dir: %v", err)
 	}
 	if err := os.Symlink(outsideFile, filepath.Join(skillDir, skillMainFile)); err != nil {
+		skipIfSymlinkPrivilegeNotHeld(t, err)
 		t.Fatalf("Symlink SKILL.md: %v", err)
 	}
 	svc := &service{projectRoot: projectRoot, projectSkillsRoot: skillsRoot, superDolphinHome: newTestSuperDolphinHome(t), http: &http.Client{}}
@@ -195,6 +197,7 @@ func TestWriteProjectPolicyRejectsSymlinkFile(t *testing.T) {
 		t.Fatalf("WriteFile outside policy: %v", err)
 	}
 	if err := os.Symlink(outsideFile, filepath.Join(policyDir, projectSkillPolicyFile)); err != nil {
+		skipIfSymlinkPrivilegeNotHeld(t, err)
 		t.Fatalf("Symlink policy: %v", err)
 	}
 
@@ -318,6 +321,7 @@ func TestWriteLocalPublishErrorReportIncludesDetail(t *testing.T) {
 	legacyRoot := filepath.Join(projectRoot, ".claude", "skills")
 	mustMkdirAll(t, filepath.Dir(legacyRoot))
 	if err := os.Symlink(filepath.Join(t.TempDir(), "skills-cache"), legacyRoot); err != nil {
+		skipIfSymlinkPrivilegeNotHeld(t, err)
 		t.Fatalf("Symlink legacy root: %v", err)
 	}
 	svc := &service{projectRoot: projectRoot, projectSkillsRoot: defaultProjectSkillsRoot(projectRoot), superDolphinHome: newTestSuperDolphinHome(t), http: &http.Client{}}

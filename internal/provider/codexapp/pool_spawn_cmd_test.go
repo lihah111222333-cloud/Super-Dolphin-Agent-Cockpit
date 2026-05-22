@@ -8,6 +8,18 @@ import (
 	"testing"
 )
 
+func commandLineContains(commandLine, want string) bool {
+	if strings.Contains(commandLine, want) {
+		return true
+	}
+	escaped := strings.ReplaceAll(want, `\`, `\\`)
+	if escaped != want && strings.Contains(commandLine, escaped) {
+		return true
+	}
+	doubleEscaped := strings.ReplaceAll(want, `\`, `\\\\`)
+	return doubleEscaped != want && strings.Contains(commandLine, doubleEscaped)
+}
+
 func TestBuildPoolSpawnCmdRequiresHome(t *testing.T) {
 	t.Parallel()
 	_, err := BuildPoolSpawnCmd(context.Background(), PoolSpawnArgs{})
@@ -129,7 +141,7 @@ func TestBuildPoolSpawnCmdOverridesNativeLSPConfigForWorkDir(t *testing.T) {
 		"mcp_servers.lsp.env.GO_AGENT_LSP_ROOTS=",
 		realWorkDir,
 	} {
-		if !strings.Contains(commandLine, want) {
+		if !commandLineContains(commandLine, want) {
 			t.Fatalf("spawn argv missing %q:\n%s", want, commandLine)
 		}
 	}
@@ -162,7 +174,7 @@ func TestBuildPoolSpawnCmdOverridesNativeLSPConfigForAdditionalRootsAndBinaryDir
 		"mcp_servers.lsp.env.GO_AGENT_LSP_ROOTS=",
 		extraDir,
 	} {
-		if !strings.Contains(commandLine, want) {
+		if !commandLineContains(commandLine, want) {
 			t.Fatalf("spawn argv missing %q:\n%s", want, commandLine)
 		}
 	}
@@ -187,7 +199,7 @@ func TestBuildPoolSpawnCmdOverridesNativeLSPConfigWithEmptyRoots(t *testing.T) {
 		"mcp_servers.lsp.env.GO_AGENT_LSP_ROOTS=",
 		"[]",
 	} {
-		if !strings.Contains(commandLine, want) {
+		if !commandLineContains(commandLine, want) {
 			t.Fatalf("spawn argv missing %q:\n%s", want, commandLine)
 		}
 	}
@@ -214,7 +226,7 @@ func TestLocalSpawnAppServerArgsFailCloseNativeLSPConfig(t *testing.T) {
 		"mcp_servers.lsp.env.GO_AGENT_LSP_ROOTS=",
 		"[]",
 	} {
-		if !strings.Contains(commandLine, want) {
+		if !commandLineContains(commandLine, want) {
 			t.Fatalf("local spawn args missing %q:\n%s", want, commandLine)
 		}
 	}

@@ -148,6 +148,10 @@ export const CronJobForm = {
     });
 
     const isEdit = computed(() => !!(props.editingJob && props.editingJob.id));
+    const submitLabel = computed(() => {
+      if (submitting.value) return '提交中...';
+      return isEdit.value ? '保存' : '创建';
+    });
 
     async function pickCwd() {
       try {
@@ -203,6 +207,7 @@ export const CronJobForm = {
       submitting,
       submitError,
       isEdit,
+      submitLabel,
       pickCwd,
       submit,
       onCancel: () => emit('cancel'),
@@ -302,7 +307,7 @@ export const CronJobForm = {
 
       <div class="form-actions">
         <button type="submit" class="btn btn-primary" :disabled="submitting" data-testid="cron-form-submit">
-          {{ submitting ? '提交中…' : (isEdit ? '保存' : '创建') }}
+          {{ submitLabel }}
         </button>
         <button type="button" class="btn btn-ghost" data-testid="cron-form-cancel" @click="onCancel">取消</button>
       </div>

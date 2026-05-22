@@ -49,6 +49,7 @@ func TestDefaultApprovalCachePath_DefaultsToHome(t *testing.T) {
 	t.Setenv("SKILLS_TRUST_PATH", "")
 	home := t.TempDir()
 	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
 	got := DefaultApprovalCachePath()
 	want := filepath.Join(home, ".super-dolphin", "skills-trust.json")
 	if got != want {

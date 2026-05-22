@@ -5,7 +5,9 @@ import (
 	"errors"
 	"io/fs"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"testing"
@@ -56,7 +58,7 @@ func TestSearchTextSingleFilePropagatesCandidateProbeError(t *testing.T) {
 	if err := os.WriteFile(target, []byte("package main\n"), 0o000); err != nil {
 		t.Fatalf("write target: %v", err)
 	}
-	t.Cleanup(func() { _ = os.Chmod(target, 0o600) })
+	makeUnreadableForTest(t, target)
 
 	_, err := SearchText(context.Background(), TextSearchOptions{Root: root, Path: target, Query: "package"})
 	if err == nil || !strings.Contains(err.Error(), "binary probe") {
@@ -220,7 +222,16 @@ func (i fakeFileInfo) Sys() any           { return nil }
 func writeFakeSG(t *testing.T, exitCode int, stdout, stderr string) string {
 	t.Helper()
 	dir := t.TempDir()
-	path := filepath.Join(dir, "sg")
+	path := filepath.Join(dir, fakeSGName())
+	if runtime.GOOS == "windows" {
+		script := "@echo off\r\n" +
+			"powershell -NoProfile -ExecutionPolicy Bypass -Command \"[Console]::Out.Write(" + powershellSingleQuote(stdout) + "); [Console]::Error.Write(" + powershellSingleQuote(stderr) + "); exit " + strconv.Itoa(exitCode) + "\"\r\n" +
+			"exit /b %ERRORLEVEL%\r\n"
+		if err := os.WriteFile(path, []byte(script), 0o755); err != nil {
+			t.Fatalf("write fake sg: %v", err)
+		}
+		return path
+	}
 	script := "#!/bin/sh\n" +
 		"printf '%s' " + shellQuote(stdout) + "\n" +
 		"printf '%s' " + shellQuote(stderr) + " >&2\n" +
@@ -234,7 +245,21 @@ func writeFakeSG(t *testing.T, exitCode int, stdout, stderr string) string {
 func writeFakeSGArgs(t *testing.T, argsPath string) string {
 	t.Helper()
 	dir := t.TempDir()
-	path := filepath.Join(dir, "sg")
+	path := filepath.Join(dir, fakeSGName())
+	if runtime.GOOS == "windows" {
+		psPath := filepath.Join(dir, "sg.ps1")
+		psScript := "Set-Content -LiteralPath " + powershellSingleQuote(argsPath) + " -Value $args\nexit 1\n"
+		if err := os.WriteFile(psPath, []byte(psScript), 0o755); err != nil {
+			t.Fatalf("write fake sg args powershell: %v", err)
+		}
+		script := "@echo off\r\n" +
+			"powershell -NoProfile -ExecutionPolicy Bypass -File \"%~dp0sg.ps1\" %*\r\n" +
+			"exit /b %ERRORLEVEL%\r\n"
+		if err := os.WriteFile(path, []byte(script), 0o755); err != nil {
+			t.Fatalf("write fake sg args: %v", err)
+		}
+		return path
+	}
 	script := "#!/bin/sh\n" +
 		"printf '%s\\n' \"$@\" > " + shellQuote(argsPath) + "\n" +
 		"exit 1\n"
@@ -250,7 +275,7 @@ func readFakeSGArgs(t *testing.T, argsPath string) []string {
 	if err != nil {
 		t.Fatalf("read fake sg args: %v", err)
 	}
-	text := strings.TrimSpace(string(payload))
+	text := strings.TrimSpace(strings.ReplaceAll(string(payload), "\r\n", "\n"))
 	if text == "" {
 		return nil
 	}
@@ -268,4 +293,39 @@ func argAfter(args []string, flag string) string {
 
 func shellQuote(value string) string {
 	return "'" + strings.ReplaceAll(value, "'", "'\\''") + "'"
+}
+
+func fakeSGName() string {
+	if runtime.GOOS == "windows" {
+		return "sg.cmd"
+	}
+	return "sg"
+}
+
+func powershellSingleQuote(value string) string {
+	return "'" + strings.ReplaceAll(value, "'", "''") + "'"
+}
+
+func makeUnreadableForTest(t *testing.T, path string) {
+	t.Helper()
+	if runtime.GOOS != "windows" {
+		t.Cleanup(func() { _ = os.Chmod(path, 0o600) })
+		return
+	}
+	principal := os.Getenv("USERNAME")
+	if domain := os.Getenv("USERDOMAIN"); domain != "" && principal != "" {
+		principal = domain + `\` + principal
+	}
+	if strings.TrimSpace(principal) == "" {
+		t.Skip("USERNAME is required to make the test file unreadable on Windows")
+	}
+	deny := principal + ":(R)"
+	cmd := exec.Command("icacls", path, "/deny", deny)
+	if output, err := cmd.CombinedOutput(); err != nil {
+		t.Skipf("icacls deny read unavailable: %v; output=%s", err, output)
+	}
+	t.Cleanup(func() {
+		_ = exec.Command("icacls", path, "/remove:d", principal).Run()
+		_ = os.Chmod(path, 0o600)
+	})
 }

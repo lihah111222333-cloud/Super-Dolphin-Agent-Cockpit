@@ -7,6 +7,8 @@ import (
 )
 
 func TestSkillResolutionListReportsPolicyHiddenSameNameConflicts(t *testing.T) {
+	skipWindowsShortMirrorIntegration(t)
+
 	project := t.TempDir()
 	superHome := filepath.Join(t.TempDir(), ".super-dolphin")
 	svc := &service{projectRoot: project, projectSkillsRoot: defaultProjectSkillsRoot(project), superDolphinHome: superHome, http: &http.Client{}}

@@ -77,8 +77,9 @@ func TestToolBridge_RouteToolCall_ForwardsCodexMetadata(t *testing.T) {
 }
 
 func TestToolBridgeSelectsPeerByScope(t *testing.T) {
+	root := t.TempDir()
 	args := scopedLSPArgs(t)
-	h, registry := newHandlerForTest(wrongScopedLSPPeer(t), rightScopedLSPPeer(t))
+	h, registry := newHandlerForTest(wrongScopedLSPPeer(t), rightScopedLSPPeer(t, root))
 	registry.scoped = true
 
 	got, err := h.routeToolCall(context.Background(), ToolCallRequest{
@@ -87,14 +88,14 @@ func TestToolBridgeSelectsPeerByScope(t *testing.T) {
 		AgentID:   "agent-29",
 		ThreadID:  "thread-29",
 		CallID:    "call-29",
-		CWD:       "/trusted/root",
+		CWD:       root,
 	})
 	if err != nil {
 		t.Fatalf("HandleToolCall() error = %v", err)
 	}
 	result := requireToolCallResult(t, got)
 	assertSingleTextItem(t, result, "scoped ok", true)
-	assertTrustedScopedLookup(t, registry)
+	assertTrustedScopedLookup(t, registry, root)
 }
 
 func scopedLSPArgs(t *testing.T) json.RawMessage {
@@ -122,7 +123,7 @@ func wrongScopedLSPPeer(t *testing.T) *mcpcontrol.ToolInstance {
 	}
 }
 
-func rightScopedLSPPeer(t *testing.T) *mcpcontrol.ToolInstance {
+func rightScopedLSPPeer(t *testing.T, root string) *mcpcontrol.ToolInstance {
 	t.Helper()
 	return &mcpcontrol.ToolInstance{
 		AgentID:    "agent-29",
@@ -131,7 +132,7 @@ func rightScopedLSPPeer(t *testing.T) *mcpcontrol.ToolInstance {
 		Peer: &stubPeer{callbackFn: func(_ context.Context, method string, params any, result any) error {
 			assertScopedCallbackMethod(t, method)
 			payload := requireCallbackPayload(t, params)
-			assertScopedCallbackMetadata(t, payload)
+			assertScopedCallbackMetadata(t, payload, root)
 			assertNoReservedTopLevelKeys(t, payload)
 			assertForgedArgumentsPreserved(t, payload)
 			resp := result.(*peerToolCallResponse)
@@ -157,7 +158,7 @@ func requireCallbackPayload(t *testing.T, params any) map[string]any {
 	return payload
 }
 
-func assertScopedCallbackMetadata(t *testing.T, payload map[string]any) {
+func assertScopedCallbackMetadata(t *testing.T, payload map[string]any, root string) {
 	t.Helper()
 	if got := payload[MetadataKeyAgentID]; got != "agent-29" {
 		t.Fatalf("Callback() _agentId = %#v, want agent-29", got)
@@ -168,8 +169,8 @@ func assertScopedCallbackMetadata(t *testing.T, payload map[string]any) {
 	if got := payload[MetadataKeyCallID]; got != "call-29" {
 		t.Fatalf("Callback() _callId = %#v, want call-29", got)
 	}
-	if got := payload[MetadataKeyCWD]; got != "/trusted/root" {
-		t.Fatalf("Callback() _cwd = %#v, want /trusted/root", got)
+	if got := payload[MetadataKeyCWD]; got != root {
+		t.Fatalf("Callback() _cwd = %#v, want %s", got, root)
 	}
 }
 
@@ -195,7 +196,7 @@ func assertForgedArgumentsPreserved(t *testing.T, payload map[string]any) {
 	}
 }
 
-func scopedLSPToolCall(t *testing.T, args json.RawMessage) contract.ToolCallRawMessage {
+func scopedLSPToolCall(t *testing.T, args json.RawMessage, root string) contract.ToolCallRawMessage {
 	t.Helper()
 	return contract.ToolCallRawMessage{
 		ID:     json.RawMessage(`29`),
@@ -206,7 +207,7 @@ func scopedLSPToolCall(t *testing.T, args json.RawMessage) contract.ToolCallRawM
 			"_agentId":   "agent-29",
 			"_threadId":  "thread-29",
 			"_callId":    "call-29",
-			"_cwd":       "/trusted/root",
+			"_cwd":       root,
 			"sessionId":  "top-level-forged-session",
 			"session_id": "top-level-forged-session",
 		}),
@@ -222,13 +223,13 @@ func requireToolCallResult(t *testing.T, got any) *ToolCallResult {
 	return result
 }
 
-func assertTrustedScopedLookup(t *testing.T, registry *stubRegistry) {
+func assertTrustedScopedLookup(t *testing.T, registry *stubRegistry, root string) {
 	t.Helper()
 	if len(registry.gotScopes) != 1 {
 		t.Fatalf("FindActiveForScope() calls = %d, want 1", len(registry.gotScopes))
 	}
 	scope := registry.gotScopes[0]
-	if scope.AgentID != "agent-29" || scope.ThreadID != "thread-29" || scope.CallID != "call-29" || scope.CWD != "/trusted/root" || scope.Family != "lsp" {
+	if scope.AgentID != "agent-29" || scope.ThreadID != "thread-29" || scope.CallID != "call-29" || scope.CWD != root || scope.Family != "lsp" {
 		t.Fatalf("FindActiveForScope() scope = %#v, want trusted agent/thread/call/cwd lsp", scope)
 	}
 }

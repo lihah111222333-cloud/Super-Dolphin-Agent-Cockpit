@@ -479,6 +479,9 @@ func TestGoRootResolverLinkedWorktreeSymlinkAliasCanonicalKey(t *testing.T) {
 	realTarget := writeGoFile(t, realRoot, "main.go")
 	aliasRoot := filepath.Join(normalizedTempDir(t), "alias")
 	if err := os.Symlink(realRoot, aliasRoot); err != nil {
+		if isSymlinkPrivilegeNotHeld(err) {
+			t.Skipf("symlink privilege unavailable: %v", err)
+		}
 		t.Fatalf("create symlink alias: %v", err)
 	}
 	aliasTarget := filepath.Join(aliasRoot, "main.go")

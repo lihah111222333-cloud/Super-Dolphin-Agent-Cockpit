@@ -60,12 +60,26 @@ function runCommand(command, commandArgs, extraEnv = {}) {
     const result = spawnSync(command, commandArgs, {
         cwd: ROOT,
         stdio: 'inherit',
+        shell: process.platform === 'win32',
+        windowsHide: true,
         env: {
             ...process.env,
             ...extraEnv,
         },
     });
-    return Number(result.status || 0);
+    if (result.error) {
+        console.error(`Failed to run ${command}: ${result.error.message}`);
+        return 1;
+    }
+    if (result.signal) {
+        console.error(`${command} exited by signal ${result.signal}`);
+        return 1;
+    }
+    if (typeof result.status === 'number') {
+        return result.status;
+    }
+    console.error(`${command} exited without a status code`);
+    return 1;
 }
 
 function checkTcpReachable(baseURL) {

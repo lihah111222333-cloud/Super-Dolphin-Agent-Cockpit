@@ -2,7 +2,6 @@ package orchestration
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"strings"
 	"testing"
@@ -13,10 +12,10 @@ import (
 )
 
 // =====================================================
-// dispatcher-wiring closure：RunContext 三端口预填的单测覆盖。
+// dispatcher-wiring closure：RunContext 三端口预填的单测覆盖�?
 // =====================================================
 
-// stubRouterPrevReader 是 SharedFileReader 的最小测试假实现；记录调用次数。
+// stubRouterPrevReader �?SharedFileReader 的最小测试假实现；记录调用次数�?
 type stubRouterPrevReader struct {
 	contents map[string]string
 	calls    int
@@ -28,7 +27,7 @@ func (s *stubRouterPrevReader) ReadSharedFile(_ context.Context, path string) (s
 	return c, ok, nil
 }
 
-// stubRouterPrevWriter 是 SharedFileWriter 的最小测试假实现；记录写入。
+// stubRouterPrevWriter �?SharedFileWriter 的最小测试假实现；记录写入�?
 type stubRouterPrevWriter struct {
 	writes []struct {
 		path    string
@@ -48,8 +47,8 @@ func (s *stubRouterPrevWriter) WriteSharedFile(_ context.Context, path, content 
 	return nil
 }
 
-// recordingAgentLauncher 是 launcher 测试假实现 — 暴露最后一次 LaunchRequest
-// 内含的 Prompt，让我们能断言 inputs prefix 真被注入。
+// recordingAgentLauncher �?launcher 测试假实�?�?暴露最后一�?LaunchRequest
+// 内含�?Prompt，让我们能断言 inputs prefix 真被注入�?
 type recordingAgentLauncher struct {
 	threadID string
 	calls    []contract.LaunchRequest
@@ -61,8 +60,8 @@ func (l *recordingAgentLauncher) LaunchAgent(_ context.Context, req contract.Lau
 }
 
 // TestNodeExecutorRouter_PrefetchPrevResults_FromNodes_NonEmpty:
-// cfg.Inputs.FromNodes 非空 → prefetchPrevResults 真填上游 done 节点 result，
-// AgentExecutor 通过 RunContext.PrevResults 把内容注入到 LaunchRequest.Prompt。
+// cfg.Inputs.FromNodes 非空 �?prefetchPrevResults 真填上游 done 节点 result�?
+// AgentExecutor 通过 RunContext.PrevResults 把内容注入到 LaunchRequest.Prompt�?
 func TestNodeExecutorRouter_PrefetchPrevResults_FromNodes_NonEmpty(t *testing.T) {
 	t.Parallel()
 	launcher := &recordingAgentLauncher{threadID: "thr-1"}
@@ -72,12 +71,12 @@ func TestNodeExecutorRouter_PrefetchPrevResults_FromNodes_NonEmpty(t *testing.T)
 			{
 				DagKey: "dag-1", NodeKey: "upstream", RunID: routerTestRunID(7), NodeType: "agent",
 				Status: string(nodeexec.NodeStatusDone),
-				Result: json.RawMessage(`{"summary":"upstream done"}`),
+				Result: testRawConfig(t, `{"summary":"upstream done"}`),
 			},
 			{
 				DagKey: "dag-1", NodeKey: "downstream", RunID: routerTestRunID(7), NodeType: "agent",
 				Title: "downstream", Status: string(nodeexec.NodeStatusReady),
-				Config: json.RawMessage(`{"exec":{"agent_key":"a","cwd":"/tmp/node-cwd"},"inputs":{"from_nodes":["upstream"]},"first_turn":"go"}`),
+				Config: testRawConfig(t, `{"exec":{"agent_key":"a","cwd":"/tmp/node-cwd"},"inputs":{"from_nodes":["upstream"]},"first_turn":"go"}`),
 			},
 		},
 	}
@@ -114,22 +113,22 @@ func TestNodeExecutorRouter_PrefetchPrevResults_StaysInsideRun(t *testing.T) {
 			{
 				DagKey: "dag-1", NodeKey: "upstream", RunID: &runA, NodeType: "agent",
 				Status: string(nodeexec.NodeStatusDone),
-				Result: json.RawMessage(`{"summary":"wrong run"}`),
+				Result: testRawConfig(t, `{"summary":"wrong run"}`),
 			},
 			{
 				DagKey: "dag-1", NodeKey: "downstream", RunID: &runA, NodeType: "agent",
 				Status: string(nodeexec.NodeStatusReady),
-				Config: json.RawMessage(`{"exec":{"agent_key":"a","cwd":"/tmp/node-cwd"},"inputs":{"from_nodes":["upstream"]},"first_turn":"go A"}`),
+				Config: testRawConfig(t, `{"exec":{"agent_key":"a","cwd":"/tmp/node-cwd"},"inputs":{"from_nodes":["upstream"]},"first_turn":"go A"}`),
 			},
 			{
 				DagKey: "dag-1", NodeKey: "upstream", RunID: &runB, NodeType: "agent",
 				Status: string(nodeexec.NodeStatusDone),
-				Result: json.RawMessage(`{"summary":"right run"}`),
+				Result: testRawConfig(t, `{"summary":"right run"}`),
 			},
 			{
 				DagKey: "dag-1", NodeKey: "downstream", RunID: &runB, NodeType: "agent",
 				Status: string(nodeexec.NodeStatusReady),
-				Config: json.RawMessage(`{"exec":{"agent_key":"a","cwd":"/tmp/node-cwd"},"inputs":{"from_nodes":["upstream"]},"first_turn":"go B"}`),
+				Config: testRawConfig(t, `{"exec":{"agent_key":"a","cwd":"/tmp/node-cwd"},"inputs":{"from_nodes":["upstream"]},"first_turn":"go B"}`),
 			},
 		},
 	}
@@ -157,8 +156,8 @@ func TestNodeExecutorRouter_PrefetchPrevResults_StaysInsideRun(t *testing.T) {
 }
 
 // TestNodeExecutorRouter_PrefetchPrevResults_FiltersNonDoneUpstream:
-// 上游节点 status != done → 不入 PrevResults map；nodeexec.loadFromNodes 因此
-// 报 validation "references unknown node_key"，保 fail-loud。
+// 上游节点 status != done �?不入 PrevResults map；nodeexec.loadFromNodes 因此
+// �?validation "references unknown node_key"，保 fail-loud�?
 func TestNodeExecutorRouter_PrefetchPrevResults_FiltersNonDoneUpstream(t *testing.T) {
 	t.Parallel()
 	launcher := &recordingAgentLauncher{threadID: "thr-2"}
@@ -167,13 +166,13 @@ func TestNodeExecutorRouter_PrefetchPrevResults_FiltersNonDoneUpstream(t *testin
 		nodes: []taskdag.Node{
 			{
 				DagKey: "dag-1", NodeKey: "upstream", RunID: routerTestRunID(7), NodeType: "agent",
-				Status: string(nodeexec.NodeStatusRunning), // 未 done
-				Result: json.RawMessage(`{"x":1}`),
+				Status: string(nodeexec.NodeStatusRunning), // �?done
+				Result: testRawConfig(t, `{"x":1}`),
 			},
 			{
 				DagKey: "dag-1", NodeKey: "downstream", RunID: routerTestRunID(7), NodeType: "agent",
 				Status: string(nodeexec.NodeStatusReady),
-				Config: json.RawMessage(`{"exec":{"agent_key":"a","cwd":"/tmp/node-cwd"},"inputs":{"from_nodes":["upstream"]},"first_turn":"go"}`),
+				Config: testRawConfig(t, `{"exec":{"agent_key":"a","cwd":"/tmp/node-cwd"},"inputs":{"from_nodes":["upstream"]},"first_turn":"go"}`),
 			},
 		},
 	}
@@ -196,8 +195,8 @@ func TestNodeExecutorRouter_PrefetchPrevResults_FiltersNonDoneUpstream(t *testin
 }
 
 // TestNodeExecutorRouter_PrefetchPrevResults_EmptyResultPlaceholder:
-// 上游 done 但 Result NULL → nodeexec.loadFromNodes 走 "(empty)" 占位分支；
-// 不抛 validation。
+// 上游 done �?Result NULL �?nodeexec.loadFromNodes �?"(empty)" 占位分支�?
+// 不抛 validation�?
 func TestNodeExecutorRouter_PrefetchPrevResults_EmptyResultPlaceholder(t *testing.T) {
 	t.Parallel()
 	launcher := &recordingAgentLauncher{threadID: "thr-3"}
@@ -212,7 +211,7 @@ func TestNodeExecutorRouter_PrefetchPrevResults_EmptyResultPlaceholder(t *testin
 			{
 				DagKey: "dag-1", NodeKey: "downstream", RunID: routerTestRunID(7), NodeType: "agent",
 				Status: string(nodeexec.NodeStatusReady),
-				Config: json.RawMessage(`{"exec":{"agent_key":"a","cwd":"/tmp/node-cwd"},"inputs":{"from_nodes":["upstream"]},"first_turn":"go"}`),
+				Config: testRawConfig(t, `{"exec":{"agent_key":"a","cwd":"/tmp/node-cwd"},"inputs":{"from_nodes":["upstream"]},"first_turn":"go"}`),
 			},
 		},
 	}
@@ -232,8 +231,8 @@ func TestNodeExecutorRouter_PrefetchPrevResults_EmptyResultPlaceholder(t *testin
 }
 
 // TestNodeExecutorRouter_SharedFileReader_Injected:
-// cfg.Inputs.FromSharedfiles 非空 + SharedFileReader 注入 → reader 被调用，
-// 内容拼进 LaunchRequest.Prompt。
+// cfg.Inputs.FromSharedfiles 非空 + SharedFileReader 注入 �?reader 被调用，
+// 内容拼进 LaunchRequest.Prompt�?
 func TestNodeExecutorRouter_SharedFileReader_Injected(t *testing.T) {
 	t.Parallel()
 	launcher := &recordingAgentLauncher{threadID: "thr-4"}
@@ -243,7 +242,7 @@ func TestNodeExecutorRouter_SharedFileReader_Injected(t *testing.T) {
 		nodes: []taskdag.Node{{
 			DagKey: "dag-1", NodeKey: "n1", RunID: routerTestRunID(7), NodeType: "agent",
 			Status: string(nodeexec.NodeStatusReady),
-			Config: json.RawMessage(`{"exec":{"agent_key":"a","cwd":"/tmp/node-cwd"},"inputs":{"from_sharedfiles":["plan.md"]},"first_turn":"go"}`),
+			Config: testRawConfig(t, `{"exec":{"agent_key":"a","cwd":"/tmp/node-cwd"},"inputs":{"from_sharedfiles":["plan.md"]},"first_turn":"go"}`),
 		}},
 	}
 	router := NewNodeExecutorRouter(store, agentExec, nil, reader, nil, nil)
@@ -265,8 +264,8 @@ func TestNodeExecutorRouter_SharedFileReader_Injected(t *testing.T) {
 }
 
 // TestNodeExecutorRouter_SharedFileWriter_Injected:
-// node_type=automation + outputs.to_sharedfile 配置 + SharedFileWriter 注入 →
-// AutomationExecutor 通过 RunContext.SharedFileWriter 写入。
+// node_type=automation + outputs.to_sharedfile 配置 + SharedFileWriter 注入 �?
+// AutomationExecutor 通过 RunContext.SharedFileWriter 写入�?
 func TestNodeExecutorRouter_SharedFileWriter_Injected(t *testing.T) {
 	t.Parallel()
 	autoExec := nodeexec.NewAutomationExecutor(
@@ -279,7 +278,7 @@ func TestNodeExecutorRouter_SharedFileWriter_Injected(t *testing.T) {
 			nodes: []taskdag.Node{{
 				DagKey: "dag-1", NodeKey: "auto1", RunID: routerTestRunID(7), NodeType: "automation",
 				Status: string(nodeexec.NodeStatusReady),
-				Config: json.RawMessage(`{"exec":{"command_ref":"build"},"outputs":{"to_sharedfile":{"path":"reports/out.log","lock_mode":"exclusive"}}}`),
+				Config: testRawConfig(t, `{"exec":{"command_ref":"build"},"outputs":{"to_sharedfile":{"path":"reports/out.log","lock_mode":"exclusive"}}}`),
 			}},
 		},
 	}
@@ -316,7 +315,7 @@ func TestNodeExecutorRouter_AutomationLifecycleHooks(t *testing.T) {
 			nodes: []taskdag.Node{{
 				DagKey: "dag-1", NodeKey: "auto1", RunID: routerTestRunID(7), NodeType: "automation",
 				Status: string(nodeexec.NodeStatusReady),
-				Config: json.RawMessage(`{"exec":{"command_ref":"build"},"outputs":{"to_node_result":true}}`),
+				Config: testRawConfig(t, `{"exec":{"command_ref":"build"},"outputs":{"to_node_result":true}}`),
 			}},
 		},
 	}
@@ -342,7 +341,7 @@ func TestNodeExecutorRouter_AutomationLifecycleHooks(t *testing.T) {
 }
 
 // TestNodeExecutorRouter_EmptyConfig_PortsStillNonNil:
-// 空 cfg → 三端口字段保持 nil/empty 不报错；向后兼容 F1.0 dogfood DAG。
+// �?cfg �?三端口字段保�?nil/empty 不报错；向后兼容 F1.0 dogfood DAG�?
 func TestNodeExecutorRouter_EmptyConfig_PortsStillNonNil(t *testing.T) {
 	t.Parallel()
 	launcher := &recordingAgentLauncher{threadID: "thr-empty"}
@@ -353,7 +352,7 @@ func TestNodeExecutorRouter_EmptyConfig_PortsStillNonNil(t *testing.T) {
 		nodes: []taskdag.Node{{
 			DagKey: "dag-1", NodeKey: "n1", RunID: routerTestRunID(7), NodeType: "agent",
 			Status: string(nodeexec.NodeStatusReady),
-			Config: json.RawMessage(`{"exec":{"agent_key":"a","cwd":"/tmp/node-cwd"},"first_turn":"go"}`),
+			Config: testRawConfig(t, `{"exec":{"agent_key":"a","cwd":"/tmp/node-cwd"},"first_turn":"go"}`),
 		}},
 	}
 	router := NewNodeExecutorRouter(store, agentExec, nil, reader, writer, nil)
@@ -366,7 +365,7 @@ func TestNodeExecutorRouter_EmptyConfig_PortsStillNonNil(t *testing.T) {
 	if outcome.Status != nodeexec.NodeStatusDone {
 		t.Fatalf("outcome.Status = %v, want done", outcome.Status)
 	}
-	// 空 cfg.Inputs → reader / writer 不被调用
+	// �?cfg.Inputs �?reader / writer 不被调用
 	if reader.calls != 0 {
 		t.Fatalf("reader.calls = %d, want 0 (no inputs.from_sharedfiles)", reader.calls)
 	}
@@ -376,10 +375,10 @@ func TestNodeExecutorRouter_EmptyConfig_PortsStillNonNil(t *testing.T) {
 }
 
 // TestNodeExecutorRouter_ListNodesErrorPropagatesAsFrameworkErr:
-// prefetchPrevResults 内 store.ListNodes 报错 → framework err（让 dispatcher
-// 走 transient retry，不是节点级 validation）。
+// prefetchPrevResults �?store.ListNodes 报错 �?framework err（让 dispatcher
+// �?transient retry，不是节点级 validation）�?
 // 注意：本测试用的 store 命中 prefetch（cfg.Inputs.FromNodes 非空）后才走
-// ListNodes 二次调用；首次 lookupTargetNode 用的是预存 nodes 列表。
+// ListNodes 二次调用；首�?lookupTargetNode 用的是预�?nodes 列表�?
 func TestNodeExecutorRouter_ListNodesErrorPropagatesAsFrameworkErr(t *testing.T) {
 	t.Parallel()
 	launcher := &recordingAgentLauncher{threadID: "thr-err"}
@@ -389,7 +388,7 @@ func TestNodeExecutorRouter_ListNodesErrorPropagatesAsFrameworkErr(t *testing.T)
 			nodes: []taskdag.Node{{
 				DagKey: "dag-1", NodeKey: "n1", RunID: routerTestRunID(7), NodeType: "agent",
 				Status: string(nodeexec.NodeStatusReady),
-				Config: json.RawMessage(`{"exec":{"agent_key":"a","cwd":"/tmp/node-cwd"},"inputs":{"from_nodes":["upstream"]},"first_turn":"go"}`),
+				Config: testRawConfig(t, `{"exec":{"agent_key":"a","cwd":"/tmp/node-cwd"},"inputs":{"from_nodes":["upstream"]},"first_turn":"go"}`),
 			}},
 		},
 		failAfter: 1, // 首次 lookupTargetNode 成功，prefetch 调用失败
@@ -405,13 +404,13 @@ func TestNodeExecutorRouter_ListNodesErrorPropagatesAsFrameworkErr(t *testing.T)
 	}
 }
 
-// router_helper_New 是只为测试用的 router 构造捷径，避免每处重复写 nil 列表。
+// router_helper_New 是只为测试用�?router 构造捷径，避免每处重复�?nil 列表�?
 func router_helper_New(store taskdag.Store, agentExec *nodeexec.AgentExecutor) *NodeExecutorRouter {
 	return NewNodeExecutorRouter(store, agentExec, nil, nil, nil, nil)
 }
 
 // stubRouterAutoStore 嵌入 stubRouterStore + 实现 NodeFlowStore，让
-// AutomationExecutor done 路径下的 CompleteNodeAndScheduleDownstream 走过去。
+// AutomationExecutor done 路径下的 CompleteNodeAndScheduleDownstream 走过去�?
 type stubRouterAutoStore struct {
 	stubRouterStore
 	completeErr error
@@ -435,7 +434,7 @@ func TestNodeExecutorRouter_AutomationCompleteErrorIsFrameworkError(t *testing.T
 			nodes: []taskdag.Node{{
 				DagKey: "dag-1", NodeKey: "auto1", RunID: routerTestRunID(7), NodeType: "automation",
 				Status: string(nodeexec.NodeStatusReady),
-				Config: json.RawMessage(`{"exec":{"command_ref":"build"},"outputs":{"to_node_result":true}}`),
+				Config: testRawConfig(t, `{"exec":{"command_ref":"build"},"outputs":{"to_node_result":true}}`),
 			}},
 		},
 		completeErr: errors.New("store complete failed"),
@@ -456,8 +455,8 @@ func TestNodeExecutorRouter_AutomationCompleteErrorIsFrameworkError(t *testing.T
 	}
 }
 
-// stubRouterFlipFailStore 让 ListNodes 第 N 次后开始报错；用于触发 prefetch 路径
-// 的 framework err 测试。
+// stubRouterFlipFailStore �?ListNodes �?N 次后开始报错；用于触发 prefetch 路径
+// �?framework err 测试�?
 type stubRouterFlipFailStore struct {
 	stubRouterStore
 	failAfter int

@@ -3,6 +3,7 @@ package claudecli
 import (
 	"context"
 	"encoding/json"
+	"path/filepath"
 	"testing"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
@@ -54,6 +55,7 @@ func TestResumeSessionManifestIncludesAdditionalWorkspaceRoots(t *testing.T) {
 
 	workDir := t.TempDir()
 	extraDir := t.TempDir()
+	binaryDir := filepath.Join(t.TempDir(), "super-agent-bin")
 	d := newDriver(nil, nil, nil, nil, nil, &recordingMirrorReconciler{}, nil).(*driver)
 	sess, err := d.ResumeSession(context.Background(), dto.ResumeSessionRequest{
 		Provider:         "claude",
@@ -64,7 +66,7 @@ func TestResumeSessionManifestIncludesAdditionalWorkspaceRoots(t *testing.T) {
 		Config: map[string]any{
 			"additionalWorkingDirectories": []string{extraDir},
 			"autoApprove":                  []string{"lsp_workspace_info"},
-			"binary_dir":                   "/tmp/super-agent-bin",
+			"binary_dir":                   binaryDir,
 			"env":                          map[string]any{"CUSTOM_ENV": "value"},
 		},
 	})
@@ -82,7 +84,7 @@ func TestResumeSessionManifestIncludesAdditionalWorkspaceRoots(t *testing.T) {
 
 	assertManifestLSPRoots(t, launched, []string{workDir, extraDir})
 	lsp := requireManifestBinary(t, launched, "lsp")
-	if len(lsp.Command) == 0 || lsp.Command[0] != "/tmp/super-agent-bin/mcp-lsp" {
+	if len(lsp.Command) == 0 || lsp.Command[0] != filepath.Join(binaryDir, "mcp-lsp") {
 		t.Fatalf("lsp command = %#v, want binary_dir override", lsp.Command)
 	}
 	if got := lsp.Env["CUSTOM_ENV"]; got != "value" {

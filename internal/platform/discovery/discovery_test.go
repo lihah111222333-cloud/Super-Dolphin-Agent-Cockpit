@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -21,6 +22,9 @@ func TestWriteDiscoveryFileUsesOwnerOnlyPermissions(t *testing.T) {
 	info, err := os.Stat(discoveryPath(binaryName, parentPID))
 	if err != nil {
 		t.Fatalf("Stat() error = %v", err)
+	}
+	if runtime.GOOS == "windows" {
+		return
 	}
 	if got := info.Mode().Perm(); got != 0o600 {
 		t.Fatalf("mode = %o, want 600", got)

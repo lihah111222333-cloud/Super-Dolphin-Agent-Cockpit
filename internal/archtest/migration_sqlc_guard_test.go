@@ -16,7 +16,8 @@ func TestSqlcQueryParameterLimitPinned(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read sqlc.yaml: %v", err)
 	}
-	if !strings.Contains(string(data), "\n        query_parameter_limit: 0\n") {
+	content := strings.ReplaceAll(string(data), "\r\n", "\n")
+	if !strings.Contains(content, "\n        query_parameter_limit: 0\n") {
 		t.Fatalf("sqlc.yaml must pin gen.go.query_parameter_limit: 0 to always generate param structs per convention")
 	}
 }
@@ -26,7 +27,7 @@ func TestSqlcStrictOrderByAtSQLBlockLevel(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read sqlc.yaml: %v", err)
 	}
-	content := string(data)
+	content := strings.ReplaceAll(string(data), "\r\n", "\n")
 	if strings.Contains(content, "\n        strict_order_by: true\n") {
 		t.Fatalf("sqlc.yaml must not place strict_order_by under gen.go options; sqlc v1.30.0 rejects that location")
 	}

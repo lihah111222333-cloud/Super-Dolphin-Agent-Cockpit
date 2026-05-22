@@ -493,23 +493,6 @@ func canonicalSourceID(record canonicalSkillRecord) string {
 	}
 }
 
-func validateOwnerOnlyFileMode(path string) error {
-	info, err := os.Lstat(path)
-	if errors.Is(err, os.ErrNotExist) {
-		return nil
-	}
-	if err != nil {
-		return err
-	}
-	if !info.Mode().IsRegular() {
-		return fmt.Errorf("owner policy is not a regular file")
-	}
-	if info.Mode().Perm()&0o077 != 0 {
-		return fmt.Errorf("owner policy permissions %v are broader than owner-only", info.Mode().Perm())
-	}
-	return nil
-}
-
 func readJSONFileIfExists(path string, dst any) error {
 	data, err := os.ReadFile(path)
 	if errors.Is(err, os.ErrNotExist) {

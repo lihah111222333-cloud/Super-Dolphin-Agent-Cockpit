@@ -37,6 +37,7 @@ type service struct {
 	skillsChangedNext  uidto.SkillsChanged
 	skillsChangedQueue []uidto.SkillsChanged
 	skillsChangedSeq   uint64
+	skillsChangedDelay func()
 	// approval stores artifact-level skill trust decisions for read-only
 	// approval probes used by prompt/catalog compatibility paths.
 	approval *ApprovalCache
@@ -134,6 +135,9 @@ func (s *service) TrustRevision() uint64 { return s.SkillRevision() }
 
 func NewService(projectRoot string) Service {
 	pr := strings.TrimSpace(projectRoot)
+	if pr != "" {
+		pr = filepath.Clean(pr)
+	}
 	// Load the artifact approval cache for read-only trust probes. If loading
 	// fails during construction, degrade to an empty cache.
 	approvalCache, _ := NewApprovalCache(DefaultApprovalCachePath())
