@@ -25,7 +25,7 @@ import (
 // Contract:
 //   - threadID identifies the pending_launch thread.
 //   - userInputForRouter is the first-turn user text; the router uses
-//     it to classify which provider CLI / prompt to fork.
+//     it to evaluate prompt routing before forking the provider CLI.
 //   - requestCWD is the cwd supplied by the turn/start caller. It is
 //     validation-only: the implementation must launch from the cwd stored
 //     on the pending_launch row and reject mismatches before provider side

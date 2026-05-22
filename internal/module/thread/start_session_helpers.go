@@ -47,6 +47,7 @@ func buildStartAssemblyInput(req StartRequest, threadID string, buildCtx contrac
 		AgentMemoryScope:             req.AgentMemoryScope,
 		Name:                         req.Name,
 		Prompt:                       req.Prompt,
+		PromptKey:                    strings.TrimSpace(req.PromptKey),
 		BaseInstructions:             req.BaseInstructions,
 		BaseInstructionBlocks:        append([]contract.BaseInstructionBlock(nil), req.BaseInstructionBlocks...),
 		DeveloperInstructions:        req.DeveloperInstructions,
@@ -274,10 +275,14 @@ func toProviderStartAssembly(assembly contract.StartAssembly) dto.StartAssembly 
 	return dto.StartAssembly{
 		DisplayName:           strings.TrimSpace(assembly.DisplayName),
 		BaseInstructions:      strings.TrimSpace(assembly.BaseInstructions),
+		Boundary:              clonePromptBoundary(assembly.Boundary),
 		DeveloperInstructions: strings.TrimSpace(assembly.DeveloperInstructions),
 		ResolvedSections:      toProviderResolvedSections(assembly.ResolvedSections),
 		Snapshot:              toProviderPromptSnapshot(assembly.Snapshot),
 		SuppressedTools:       append([]string(nil), assembly.SuppressedTools...),
+		UserContext:           clone.StringMap(assembly.UserContext),
+		UserContextText:       strings.TrimSpace(assembly.UserContextText),
+		SystemContext:         dto.SystemContext(clone.StringMap(assembly.SystemContext)),
 	}
 }
 
@@ -285,10 +290,12 @@ func toProviderPromptSnapshot(snapshot contract.PromptAssemblySnapshot) dto.Prom
 	return dto.PromptAssemblySnapshot{
 		DisplayName:           strings.TrimSpace(snapshot.DisplayName),
 		BaseInstructions:      strings.TrimSpace(snapshot.BaseInstructions),
+		Boundary:              clonePromptBoundary(snapshot.Boundary),
 		DeveloperInstructions: strings.TrimSpace(snapshot.DeveloperInstructions),
 		Provider:              strings.TrimSpace(snapshot.Provider),
 		Version:               snapshot.Version,
 		Hash:                  strings.TrimSpace(snapshot.Hash),
+		SectionSnapshot:       clone.StringMap(snapshot.SectionSnapshot),
 		Generation:            snapshot.Generation,
 	}
 }
@@ -324,6 +331,7 @@ func buildStartSessionConfig(req StartRequest, input contract.StartInput, assemb
 		{input.ParentAgentID, []string{"parentAgentId", "parent_agent_id"}},
 		{input.AgentType, []string{"agentType", "agent_type"}},
 		{input.AgentMemoryScope, []string{"agentMemoryScope", "agent_memory_scope"}},
+		{input.PromptKey, []string{"promptKey", "prompt_key"}},
 		{input.Provider, []string{"provider"}},
 		{input.CWD, []string{"cwd"}},
 		{input.Model, []string{"model"}},

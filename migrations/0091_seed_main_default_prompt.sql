@@ -4,7 +4,7 @@
 --   internal/module/thread/router_resolve.go 行 145 定义
 --     const defaultPromptKey = "main/default"
 --   作为 pickRoutedTemplate 的终极兜底：当 PromptKey 没 pin、AgentKey 没 pin、
---   classifier 没匹配、match_when auto-route 也没匹配时，findByPromptKey
+--   match_when auto-route 也没匹配时，findByPromptKey
 --   会去找 main/default 这行。
 --
 --   历史 migration 0040 曾经 seed 过 main/default，但当前生产 DB 里这一行已被
@@ -73,7 +73,7 @@ INSERT INTO public.prompt_templates (
     '通用助手 (兜底)',
     'main',
     '',
-$prompt$你是通用助手，能处理编程和非编程任务。这是系统兜底提示词，在用户没有 pin 模板、没有指定 agent_key、分类器和 match_when 自动路由也都没有命中时生效。
+$prompt$你是通用助手，能处理编程和非编程任务。这是系统兜底提示词，在用户没有 pin 模板、没有指定 agent_key、match_when 自动路由也没有命中时生效。
 
 工作约定：
 - 保持直接：答 "不知道" 好过编造。
@@ -84,7 +84,7 @@ $prompt$你是通用助手，能处理编程和非编程任务。这是系统兜
 - 完成前验证：跑测试 / 检查输出再说"完成"；做不到就明说"未验证"。$prompt$,
     '{}'::jsonb,
     '["main","default","fallback"]'::jsonb,
-    '系统兜底 fallback — 无 pin / 无 agent_key / 分类器与 match_when 自动路由全部未命中时使用。match_when=NULL 表示不参与自动路由竞争，专做 pickRoutedTemplate 终极兜底。',
+    '系统兜底 fallback — 无 pin / 无 agent_key / match_when 自动路由未命中时使用。match_when=NULL 表示不参与自动路由竞争，专做 pickRoutedTemplate 终极兜底。',
     TRUE,
     NULL,
     0,

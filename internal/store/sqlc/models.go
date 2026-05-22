@@ -133,6 +133,25 @@ type CronJobRun struct {
 	UpdatedAt      pgtype.Timestamptz `db:"updated_at" json:"updated_at"`
 }
 
+type PromptIntentDraft struct {
+	ID            int64              `db:"id" json:"id"`
+	DraftKey      string             `db:"draft_key" json:"draft_key"`
+	CWD           string             `db:"cwd" json:"cwd"`
+	Kind          string             `db:"kind" json:"kind"`
+	RawInput      string             `db:"raw_input" json:"raw_input"`
+	SourceType    string             `db:"source_type" json:"source_type"`
+	SourceUrl     string             `db:"source_url" json:"source_url"`
+	OriginHash    string             `db:"origin_hash" json:"origin_hash"`
+	LicenseHint   string             `db:"license_hint" json:"license_hint"`
+	GeneratedCard []byte             `db:"generated_card" json:"generated_card"`
+	Confidence    float64            `db:"confidence" json:"confidence"`
+	Status        string             `db:"status" json:"status"`
+	Scope         string             `db:"scope" json:"scope"`
+	Issues        []byte             `db:"issues" json:"issues"`
+	CreatedAt     pgtype.Timestamptz `db:"created_at" json:"created_at"`
+	UpdatedAt     pgtype.Timestamptz `db:"updated_at" json:"updated_at"`
+}
+
 type PromptRoutingTest struct {
 	ID                int64              `db:"id" json:"id"`
 	Input             string             `db:"input" json:"input"`
@@ -144,16 +163,18 @@ type PromptRoutingTest struct {
 }
 
 type PromptTemplateSection struct {
-	ID         int64              `db:"id" json:"id"`
-	TemplateID int64              `db:"template_id" json:"template_id"`
-	SectionKey string             `db:"section_key" json:"section_key"`
-	Region     string             `db:"region" json:"region"`
-	Ordinal    int32              `db:"ordinal" json:"ordinal"`
-	Body       string             `db:"body" json:"body"`
-	EnableWhen []byte             `db:"enable_when" json:"enable_when"`
-	Enabled    bool               `db:"enabled" json:"enabled"`
-	CreatedAt  pgtype.Timestamptz `db:"created_at" json:"created_at"`
-	UpdatedAt  pgtype.Timestamptz `db:"updated_at" json:"updated_at"`
+	ID          int64              `db:"id" json:"id"`
+	TemplateID  int64              `db:"template_id" json:"template_id"`
+	SectionKey  string             `db:"section_key" json:"section_key"`
+	Region      string             `db:"region" json:"region"`
+	Ordinal     int32              `db:"ordinal" json:"ordinal"`
+	Body        string             `db:"body" json:"body"`
+	EnableWhen  []byte             `db:"enable_when" json:"enable_when"`
+	Enabled     bool               `db:"enabled" json:"enabled"`
+	CreatedAt   pgtype.Timestamptz `db:"created_at" json:"created_at"`
+	UpdatedAt   pgtype.Timestamptz `db:"updated_at" json:"updated_at"`
+	TriggerType string             `db:"trigger_type" json:"trigger_type"`
+	RecallTopic string             `db:"recall_topic" json:"recall_topic"`
 }
 
 type SessionInsight struct {

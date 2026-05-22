@@ -2,6 +2,7 @@ package thread
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"reflect"
 	"strings"
@@ -10,7 +11,9 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
 	promptpkg "github.com/anthropic-ai/super-agent-v3/internal/module/prompt"
+	"github.com/anthropic-ai/super-agent-v3/internal/module/threadprompt"
 	bindingstore "github.com/anthropic-ai/super-agent-v3/internal/store/binding"
+	promptstore "github.com/anthropic-ai/super-agent-v3/internal/store/prompt"
 	threadstore "github.com/anthropic-ai/super-agent-v3/internal/store/thread"
 )
 
@@ -72,6 +75,79 @@ func TestStartSessionUsesPromptAssembly(t *testing.T) {
 	}
 	if threads.promptSnapshot.BaseInstructions != "assembled system" || threads.promptSnapshot.DeveloperInstructions != "assembled dev" {
 		t.Fatalf("stored prompt snapshot = %#v", threads.promptSnapshot)
+	}
+}
+
+func TestNonForcedStartCarriesAvailableExpertsToProviderAssembly(t *testing.T) {
+	t.Setenv("PROMPT_START_CURRENT_DATE", "2026-05-22")
+
+	general := sqlTemplate("main/general-zh", "main", "assembled default base", []string{"scope.cwd:/repo/a"})
+	general.ID = 1
+	general.Priority = 160
+	general.MatchWhen = json.RawMessage(`{}`)
+	expert := sqlTemplate("main/expert/prompt", "main", "", []string{"scope.cwd:/repo/a", "intent:expert"})
+	expert.ID = 2
+	expert.Priority = 120
+	expert.Title = "协作编程任务处理助手"
+	expert.WhenToUse = "需要创建项目、修改代码、排查 bug 或规划多步骤软件工程任务时使用。"
+	store := &fakePromptStore{templates: []promptstore.PromptTemplate{general, expert}}
+	catalog := threadprompt.NewRuntimeCatalog(store, nil)
+
+	promptAssembly := promptpkg.NewService(&promptpkg.Config{}, nil)
+	if err := registerThreadPromptProviders(threadPromptProviderParams{
+		Registrar:     promptAssembly,
+		PromptStore:   store,
+		PromptCatalog: catalog,
+	}); err != nil {
+		t.Fatalf("registerThreadPromptProviders() error = %v", err)
+	}
+
+	threads := &stubThreadStore{}
+	sessions := &stubSessionProvider{}
+	starter := &startOnlySessionStarter{
+		onStart: func(_ context.Context, req dto.StartSessionRequest) (contract.Session, error) {
+			if req.Config["prompt_key"] != "main/general-zh" {
+				t.Fatalf("provider config prompt_key = %#v, want default fallback prompt", req.Config["prompt_key"])
+			}
+			if req.StartAssembly.UserContext["runtimeExtras"] == "" {
+				t.Fatalf("StartAssembly.UserContext = %#v, want runtimeExtras", req.StartAssembly.UserContext)
+			}
+			for _, want := range []string{"可用专家", "main/expert/prompt", "prompt_key='main/expert/prompt'"} {
+				if !strings.Contains(req.StartAssembly.UserContext["runtimeExtras"], want) {
+					t.Fatalf("runtimeExtras = %q, want substring %q", req.StartAssembly.UserContext["runtimeExtras"], want)
+				}
+			}
+			session := &stubSession{threadID: "019d5f6b-fb3c-7760-9d6f-54005553f608"}
+			sessions.session = session
+			return session, nil
+		},
+	}
+	svc := NewServiceWithPromptAssemblyAndSharedFiles(
+		silentLogger(),
+		threads,
+		nil,
+		nil,
+		sessions,
+		starter,
+		nil,
+		&stubThreadOrchestration{},
+		nil,
+		promptAssembly,
+		&contract.Config{},
+		nil,
+		store,
+		catalog,
+		promptpkg.EvaluateMatchWhen,
+		promptpkg.EvaluateEnableWhen,
+	).(*service)
+
+	if _, err := svc.Start(context.Background(), StartRequest{
+		AgentID:  "agent-non-forced",
+		Provider: "claude",
+		CWD:      "/repo/a",
+		Prompt:   "请分析这个 Go 项目的测试失败，并规划需要改哪些后端和前端文件。",
+	}); err != nil {
+		t.Fatalf("Start() error = %v", err)
 	}
 }
 

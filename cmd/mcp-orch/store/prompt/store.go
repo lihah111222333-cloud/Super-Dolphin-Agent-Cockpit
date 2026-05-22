@@ -3,9 +3,12 @@ package prompt
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"strings"
 
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/sqlc"
 	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared/builtinprompts"
 )
 
 type store struct {
@@ -23,8 +26,83 @@ func (s *store) Get(ctx context.Context, promptKey string) (*PromptTemplate, err
 	return &mapped, nil
 }
 
+func (s *store) GetSectionByRecallTopic(ctx context.Context, cwd, topic string) (string, error) {
+	cwd = strings.TrimSpace(cwd)
+	topic = strings.TrimSpace(topic)
+	if cwd == "" {
+		return "", fmt.Errorf("cwd is required for prompt recall")
+	}
+	if topic == "" {
+		return "", fmt.Errorf("topic is required for prompt recall")
+	}
+	body, err := s.q.GetPromptRecallSectionBody(ctx, sqlc.GetPromptRecallSectionBodyParams{RecallTopic: topic, Cwd: cwd})
+	if err == nil {
+		return body, nil
+	}
+	wrapped := wrapPromptError(err, "get_section", "prompt_template_section")
+	if !platformdb.IsNotFound(wrapped) {
+		return "", wrapped
+	}
+	body, ok, builtinErr := builtinRecallSectionBody(topic)
+	if builtinErr != nil {
+		return "", fmt.Errorf("get_section builtin prompt registry: %w", builtinErr)
+	}
+	if ok {
+		return body, nil
+	}
+	return "", wrapped
+}
+
+func builtinRecallSectionBody(topic string) (string, bool, error) {
+	registry, err := builtinprompts.NewDefaultRegistry()
+	if err != nil {
+		return "", false, err
+	}
+	for _, template := range registry.ListTemplates() {
+		if !template.Enabled || !builtinTemplateScopeVisibleForRecall(template.Scope) {
+			continue
+		}
+		for _, section := range registry.SectionsByTemplateID(template.ID) {
+			if section.Enabled &&
+				strings.TrimSpace(section.TriggerType) == "recall" &&
+				strings.TrimSpace(section.RecallTopic) == topic &&
+				strings.TrimSpace(section.Body) != "" {
+				return section.Body, true, nil
+			}
+		}
+	}
+	return "", false, nil
+}
+
+func builtinTemplateScopeVisibleForRecall(scope string) bool {
+	scope = strings.TrimSpace(scope)
+	return scope == "" || scope == "global"
+}
+
+func (s *store) ListSectionsByTemplateID(ctx context.Context, templateID int64) ([]PromptTemplateSection, error) {
+	rows, err := s.q.ListPromptTemplateSectionsByTemplate(ctx, templateID)
+	if err != nil {
+		return nil, wrapPromptError(err, "list_sections", "prompt_template_sections")
+	}
+	sections := make([]PromptTemplateSection, 0, len(rows))
+	for _, row := range rows {
+		sections = append(sections, fromSectionRow(row))
+	}
+	return sections, nil
+}
+
 func (s *store) List(ctx context.Context, filter ListFilter) ([]PromptTemplate, error) {
-	rows, err := s.q.ListPromptTemplates(ctx, sqlc.ListPromptTemplatesParams{Column1: filter.AgentKey, Column2: filter.Keyword, Limit: filter.Limit})
+	cwd := strings.TrimSpace(filter.CWD)
+	if filter.RuntimeVisible && cwd == "" {
+		return nil, fmt.Errorf("cwd is required for runtime-visible prompt list")
+	}
+	rows, err := s.q.ListPromptTemplates(ctx, sqlc.ListPromptTemplatesParams{
+		Column1:        filter.AgentKey,
+		Column2:        filter.Keyword,
+		RuntimeVisible: filter.RuntimeVisible,
+		Cwd:            cwd,
+		LimitCount:     filter.Limit,
+	})
 	if err != nil {
 		return nil, wrapPromptError(err, "list", "prompt_template")
 	}
@@ -77,8 +155,11 @@ func (s *store) Upsert(ctx context.Context, template PromptTemplate) (*PromptTem
 		Column6:        template.Variables,
 		Column7:        template.Tags,
 		Description:    template.Description,
+		WhenToUse:      template.WhenToUse,
 		Enabled:        template.Enabled,
 		ManuallyEdited: template.ManuallyEdited,
+		Column12:       template.MatchWhen,
+		Priority:       template.Priority,
 		CreatedBy:      template.CreatedBy,
 		UpdatedBy:      template.UpdatedBy,
 	})
@@ -106,6 +187,9 @@ func fromGetTemplate(row sqlc.GetPromptTemplateRow) PromptTemplate {
 		CreatedAt:      sqlc.TimeValue(row.CreatedAt),
 		UpdatedAt:      sqlc.TimeValue(row.UpdatedAt),
 		Description:    row.Description,
+		WhenToUse:      row.WhenToUse,
+		MatchWhen:      json.RawMessage(row.MatchWhen),
+		Priority:       row.Priority,
 	}
 }
 
@@ -126,6 +210,9 @@ func fromListTemplate(row sqlc.ListPromptTemplatesRow) PromptTemplate {
 		CreatedAt:      sqlc.TimeValue(row.CreatedAt),
 		UpdatedAt:      sqlc.TimeValue(row.UpdatedAt),
 		Description:    row.Description,
+		WhenToUse:      row.WhenToUse,
+		MatchWhen:      json.RawMessage(row.MatchWhen),
+		Priority:       row.Priority,
 	}
 }
 
@@ -146,6 +233,23 @@ func fromUpsertTemplate(row sqlc.UpsertPromptTemplateRow) PromptTemplate {
 		CreatedAt:      sqlc.TimeValue(row.CreatedAt),
 		UpdatedAt:      sqlc.TimeValue(row.UpdatedAt),
 		Description:    row.Description,
+		WhenToUse:      row.WhenToUse,
+		MatchWhen:      json.RawMessage(row.MatchWhen),
+		Priority:       row.Priority,
+	}
+}
+
+func fromSectionRow(row sqlc.ListPromptTemplateSectionsByTemplateRow) PromptTemplateSection {
+	return PromptTemplateSection{
+		ID:          row.ID,
+		TemplateID:  row.TemplateID,
+		SectionKey:  row.SectionKey,
+		Region:      row.Region,
+		Ordinal:     row.Ordinal,
+		Body:        row.Body,
+		TriggerType: row.TriggerType,
+		RecallTopic: row.RecallTopic,
+		Enabled:     row.Enabled,
 	}
 }
 

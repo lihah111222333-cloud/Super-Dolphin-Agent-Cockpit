@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"regexp"
 	"strings"
 
 	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
@@ -30,8 +31,28 @@ type upsertQuerier interface {
 	UpsertPromptTemplate(ctx context.Context, arg sqlc.UpsertPromptTemplateParams) (sqlc.UpsertPromptTemplateRow, error)
 }
 
+type createPromptTemplateQuerier interface {
+	CreatePromptTemplate(ctx context.Context, arg sqlc.CreatePromptTemplateParams) (sqlc.CreatePromptTemplateRow, error)
+}
+
 type listSectionsQuerier interface {
 	ListPromptTemplateSectionsByTemplate(ctx context.Context, arg sqlc.ListPromptTemplateSectionsByTemplateParams) ([]sqlc.PromptTemplateSection, error)
+}
+
+type listSectionsByTemplatesQuerier interface {
+	ListPromptTemplateSectionsByTemplates(ctx context.Context, arg sqlc.ListPromptTemplateSectionsByTemplatesParams) ([]sqlc.PromptTemplateSection, error)
+}
+
+type listRecallSectionsQuerier interface {
+	ListRecallSections(ctx context.Context, arg sqlc.ListRecallSectionsParams) ([]sqlc.ListRecallSectionsRow, error)
+}
+
+type listDefaultRuleSectionsQuerier interface {
+	ListDefaultRuleSections(ctx context.Context, arg sqlc.ListDefaultRuleSectionsParams) ([]sqlc.ListDefaultRuleSectionsRow, error)
+}
+
+type lockRecallTopicQuerier interface {
+	LockRecallTopicInCWD(ctx context.Context, arg sqlc.LockRecallTopicInCWDParams) error
 }
 
 type upsertSectionQuerier interface {
@@ -49,6 +70,8 @@ type store struct {
 	queries *sqlc.Queries
 	runInTx txRunner
 }
+
+var recallTopicNamePattern = regexp.MustCompile(`^[a-z0-9]+(?:-[a-z0-9]+)*$`)
 
 func NewStore(q *sqlc.Queries) Store {
 	return newStore(q, nil)
@@ -72,10 +95,14 @@ func (s *store) Get(ctx context.Context, promptKey string) (*PromptTemplate, err
 }
 
 func (s *store) List(ctx context.Context, filter ListFilter) ([]PromptTemplate, error) {
+	cwd := strings.TrimSpace(filter.CWD)
+	if cwd == "" {
+		return nil, errors.New("cwd is required for prompt template list")
+	}
 	rows, err := s.q.ListPromptTemplates(ctx, sqlc.ListPromptTemplatesParams{
 		AgentKey:   filter.AgentKey,
 		Keyword:    filter.Keyword,
-		CWD:        filter.CWD,
+		CWD:        cwd,
 		LimitCount: filter.Limit,
 	})
 	if err != nil {
@@ -131,6 +158,67 @@ func (s *store) ListSectionsByTemplateID(ctx context.Context, templateID int64) 
 	return sections, nil
 }
 
+func (s *store) ListSectionsByTemplateIDs(ctx context.Context, templateIDs []int64) ([]PromptTemplateSection, error) {
+	if len(templateIDs) == 0 {
+		return []PromptTemplateSection{}, nil
+	}
+	q, ok := s.q.(listSectionsByTemplatesQuerier)
+	if !ok {
+		return nil, wrapPromptError(errors.New("prompt store does not support list_sections"), "list_sections", "prompt_template_sections")
+	}
+	rows, err := q.ListPromptTemplateSectionsByTemplates(ctx, sqlc.ListPromptTemplateSectionsByTemplatesParams{
+		TemplateIds: templateIDs,
+	})
+	if err != nil {
+		return nil, wrapPromptError(err, "list_sections", "prompt_template_sections")
+	}
+	sections := make([]PromptTemplateSection, 0, len(rows))
+	for _, row := range rows {
+		sections = append(sections, fromListSectionRow(row))
+	}
+	return sections, nil
+}
+
+func (s *store) ListRecallSections(ctx context.Context, cwd string) ([]PromptTemplateSection, error) {
+	cwd, err := requirePromptSectionCWD(cwd)
+	if err != nil {
+		return nil, wrapPromptError(err, "list_recall_sections", "prompt_template_sections")
+	}
+	q, ok := s.q.(listRecallSectionsQuerier)
+	if !ok {
+		return nil, wrapPromptError(errors.New("prompt store does not support list_recall_sections"), "list_recall_sections", "prompt_template_sections")
+	}
+	rows, err := q.ListRecallSections(ctx, sqlc.ListRecallSectionsParams{CWD: cwd})
+	if err != nil {
+		return nil, wrapPromptError(err, "list_recall_sections", "prompt_template_sections")
+	}
+	sections := make([]PromptTemplateSection, 0, len(rows))
+	for _, row := range rows {
+		sections = append(sections, fromListRecallSectionRow(row))
+	}
+	return sections, nil
+}
+
+func (s *store) ListDefaultRuleSections(ctx context.Context, cwd string) ([]PromptTemplateSection, error) {
+	cwd, err := requirePromptSectionCWD(cwd)
+	if err != nil {
+		return nil, wrapPromptError(err, "list_default_rule_sections", "prompt_template_sections")
+	}
+	q, ok := s.q.(listDefaultRuleSectionsQuerier)
+	if !ok {
+		return nil, wrapPromptError(errors.New("prompt store does not support list_default_rule_sections"), "list_default_rule_sections", "prompt_template_sections")
+	}
+	rows, err := q.ListDefaultRuleSections(ctx, sqlc.ListDefaultRuleSectionsParams{CWD: cwd})
+	if err != nil {
+		return nil, wrapPromptError(err, "list_default_rule_sections", "prompt_template_sections")
+	}
+	sections := make([]PromptTemplateSection, 0, len(rows))
+	for _, row := range rows {
+		sections = append(sections, fromListDefaultRuleSectionRow(row))
+	}
+	return sections, nil
+}
+
 func (s *store) InsertVersion(ctx context.Context, version PromptTemplateVersion) (int64, error) {
 	q, ok := s.q.(insertVersionQuerier)
 	if !ok {
@@ -156,6 +244,38 @@ func (s *store) InsertVersion(ctx context.Context, version PromptTemplateVersion
 	return id, nil
 }
 
+func (s *store) CreatePromptTemplate(ctx context.Context, template PromptTemplate) (*PromptTemplate, error) {
+	q, ok := s.q.(createPromptTemplateQuerier)
+	if !ok {
+		return nil, wrapPromptError(errors.New("prompt store does not support create"), "create", "prompt_template")
+	}
+	row, err := q.CreatePromptTemplate(ctx, sqlc.CreatePromptTemplateParams{
+		PromptKey:      template.PromptKey,
+		Title:          template.Title,
+		AgentKey:       template.AgentKey,
+		ToolName:       template.ToolName,
+		PromptText:     template.PromptText,
+		Column6:        template.Variables,
+		Column7:        template.Tags,
+		Description:    template.Description,
+		WhenToUse:      template.WhenToUse,
+		Enabled:        template.Enabled,
+		ManuallyEdited: template.ManuallyEdited,
+		Column12:       []byte(template.MatchWhen),
+		Priority:       int32(template.Priority),
+		CreatedBy:      template.CreatedBy,
+		UpdatedBy:      template.UpdatedBy,
+	})
+	if platformdb.IsNotFound(err) {
+		err = platformdb.ErrConflict
+	}
+	if err != nil {
+		return nil, wrapPromptError(err, "create", "prompt_template")
+	}
+	mapped := fromCreateTemplate(row)
+	return &mapped, nil
+}
+
 func (s *store) Upsert(ctx context.Context, template PromptTemplate) (*PromptTemplate, error) {
 	q, ok := s.q.(upsertQuerier)
 	if !ok {
@@ -170,9 +290,10 @@ func (s *store) Upsert(ctx context.Context, template PromptTemplate) (*PromptTem
 		Column6:        template.Variables,
 		Column7:        template.Tags,
 		Description:    template.Description,
+		WhenToUse:      template.WhenToUse,
 		Enabled:        template.Enabled,
 		ManuallyEdited: template.ManuallyEdited,
-		Column11:       []byte(template.MatchWhen),
+		Column12:       []byte(template.MatchWhen),
 		Priority:       int32(template.Priority),
 		CreatedBy:      template.CreatedBy,
 		UpdatedBy:      template.UpdatedBy,
@@ -184,6 +305,29 @@ func (s *store) Upsert(ctx context.Context, template PromptTemplate) (*PromptTem
 	return &mapped, nil
 }
 
+func fromCreateTemplate(row sqlc.CreatePromptTemplateRow) PromptTemplate {
+	return PromptTemplate{
+		ID:             row.ID,
+		PromptKey:      row.PromptKey,
+		Title:          row.Title,
+		AgentKey:       row.AgentKey,
+		ToolName:       row.ToolName,
+		PromptText:     row.PromptText,
+		WhenToUse:      row.WhenToUse,
+		Variables:      json.RawMessage(row.Variables),
+		Tags:           json.RawMessage(row.Tags),
+		Enabled:        row.Enabled,
+		ManuallyEdited: row.ManuallyEdited,
+		CreatedBy:      row.CreatedBy,
+		UpdatedBy:      row.UpdatedBy,
+		CreatedAt:      row.CreatedAt,
+		UpdatedAt:      row.UpdatedAt,
+		Description:    row.Description,
+		MatchWhen:      json.RawMessage(row.MatchWhen),
+		Priority:       int(row.Priority),
+	}
+}
+
 func fromGetTemplate(row sqlc.GetPromptTemplateRow) PromptTemplate {
 	return PromptTemplate{
 		ID:             row.ID,
@@ -192,6 +336,7 @@ func fromGetTemplate(row sqlc.GetPromptTemplateRow) PromptTemplate {
 		AgentKey:       row.AgentKey,
 		ToolName:       row.ToolName,
 		PromptText:     row.PromptText,
+		WhenToUse:      row.WhenToUse,
 		Variables:      json.RawMessage(row.Variables),
 		Tags:           json.RawMessage(row.Tags),
 		Enabled:        row.Enabled,
@@ -214,6 +359,7 @@ func fromListTemplate(row sqlc.ListPromptTemplatesRow) PromptTemplate {
 		AgentKey:       row.AgentKey,
 		ToolName:       row.ToolName,
 		PromptText:     row.PromptText,
+		WhenToUse:      row.WhenToUse,
 		Variables:      json.RawMessage(row.Variables),
 		Tags:           json.RawMessage(row.Tags),
 		Enabled:        row.Enabled,
@@ -236,6 +382,7 @@ func fromUpsertTemplate(row sqlc.UpsertPromptTemplateRow) PromptTemplate {
 		AgentKey:       row.AgentKey,
 		ToolName:       row.ToolName,
 		PromptText:     row.PromptText,
+		WhenToUse:      row.WhenToUse,
 		Variables:      json.RawMessage(row.Variables),
 		Tags:           json.RawMessage(row.Tags),
 		Enabled:        row.Enabled,
@@ -266,20 +413,86 @@ func (s *store) UpsertSection(ctx context.Context, section PromptTemplateSection
 	if section.TemplateID <= 0 {
 		return nil, wrapPromptError(errors.New("prompt section template_id is required"), "upsert_section", "prompt_template_sections")
 	}
+	triggerType, err := normalizePromptSectionTriggerType(section.TriggerType)
+	if err != nil {
+		return nil, wrapPromptError(err, "upsert_section", "prompt_template_sections")
+	}
+	if err := validatePromptSectionRecallTopic(triggerType, section.RecallTopic); err != nil {
+		return nil, wrapPromptError(err, "upsert_section", "prompt_template_sections")
+	}
 	row, err := q.UpsertPromptTemplateSection(ctx, sqlc.UpsertPromptTemplateSectionParams{
-		TemplateID: section.TemplateID,
-		SectionKey: sectionKey,
-		Region:     region,
-		Ordinal:    int32(section.Ordinal),
-		Body:       section.Body,
-		EnableWhen: []byte(section.EnableWhen),
-		Enabled:    section.Enabled,
+		TemplateID:  section.TemplateID,
+		SectionKey:  sectionKey,
+		Region:      region,
+		Ordinal:     int32(section.Ordinal),
+		Body:        section.Body,
+		EnableWhen:  []byte(section.EnableWhen),
+		Enabled:     section.Enabled,
+		TriggerType: triggerType,
+		RecallTopic: normalizePromptSectionRecallTopic(triggerType, section.RecallTopic),
 	})
 	if err != nil {
 		return nil, wrapPromptError(err, "upsert_section", "prompt_template_sections")
 	}
 	mapped := fromListSectionRow(row)
 	return &mapped, nil
+}
+
+func normalizePromptSectionRecallTopic(triggerType, value string) string {
+	if triggerType != "recall" {
+		return ""
+	}
+	return strings.TrimSpace(value)
+}
+
+func validatePromptSectionRecallTopic(triggerType, value string) error {
+	if triggerType != "recall" {
+		return nil
+	}
+	topic := strings.TrimSpace(value)
+	if !validRecallTopicName(topic) {
+		return errors.New("prompt section recall_topic must be lowercase dash-separated and shorter than 64 characters")
+	}
+	return nil
+}
+
+func normalizePromptSectionTriggerType(value string) (string, error) {
+	triggerType := strings.TrimSpace(strings.ToLower(value))
+	if triggerType == "" {
+		return "always", nil
+	}
+	if triggerType != "always" && triggerType != "keyword" && triggerType != "recall" {
+		return "", errors.New("prompt section trigger_type must be 'always', 'keyword', or 'recall'")
+	}
+	return triggerType, nil
+}
+
+func requirePromptSectionCWD(cwd string) (string, error) {
+	cwd = strings.TrimSpace(cwd)
+	if cwd == "" {
+		return "", errors.New("prompt dynamic section cwd is required")
+	}
+	return cwd, nil
+}
+
+func (s *store) LockRecallTopicInCWD(ctx context.Context, cwd, topic string) error {
+	cwd, err := requirePromptSectionCWD(cwd)
+	if err != nil {
+		return wrapPromptError(err, "lock_recall_topic", "prompt_template_sections")
+	}
+	topic = strings.TrimSpace(topic)
+	if topic == "" {
+		return wrapPromptError(errors.New("recall topic is required"), "lock_recall_topic", "prompt_template_sections")
+	}
+	q, ok := s.q.(lockRecallTopicQuerier)
+	if !ok {
+		return wrapPromptError(errors.New("prompt store does not support lock_recall_topic"), "lock_recall_topic", "prompt_template_sections")
+	}
+	return wrapPromptError(q.LockRecallTopicInCWD(ctx, sqlc.LockRecallTopicInCWDParams{CWD: cwd, Topic: topic}), "lock_recall_topic", "prompt_template_sections")
+}
+
+func validRecallTopicName(topic string) bool {
+	return len(topic) < 64 && recallTopicNamePattern.MatchString(topic)
 }
 
 func (s *store) DeleteSection(ctx context.Context, templateID int64, sectionKey string) error {
@@ -306,16 +519,59 @@ func (s *store) DeleteSection(ctx context.Context, templateID int64, sectionKey 
 
 func fromListSectionRow(row sqlc.PromptTemplateSection) PromptTemplateSection {
 	return PromptTemplateSection{
-		ID:         row.ID,
-		TemplateID: row.TemplateID,
-		SectionKey: row.SectionKey,
-		Region:     row.Region,
-		Ordinal:    int(row.Ordinal),
-		Body:       row.Body,
-		EnableWhen: json.RawMessage(row.EnableWhen),
-		Enabled:    row.Enabled,
-		CreatedAt:  row.CreatedAt.Time,
-		UpdatedAt:  row.UpdatedAt.Time,
+		ID:          row.ID,
+		TemplateID:  row.TemplateID,
+		SectionKey:  row.SectionKey,
+		Region:      row.Region,
+		Ordinal:     int(row.Ordinal),
+		Body:        row.Body,
+		EnableWhen:  json.RawMessage(row.EnableWhen),
+		Enabled:     row.Enabled,
+		TriggerType: row.TriggerType,
+		RecallTopic: row.RecallTopic,
+		CreatedAt:   row.CreatedAt.Time,
+		UpdatedAt:   row.UpdatedAt.Time,
+	}
+}
+
+func fromListRecallSectionRow(row sqlc.ListRecallSectionsRow) PromptTemplateSection {
+	return PromptTemplateSection{
+		ID:                  row.ID,
+		TemplateID:          row.TemplateID,
+		SectionKey:          row.SectionKey,
+		Region:              row.Region,
+		Ordinal:             int(row.Ordinal),
+		EnableWhen:          json.RawMessage(row.EnableWhen),
+		Enabled:             row.Enabled,
+		TriggerType:         row.TriggerType,
+		RecallTopic:         row.RecallTopic,
+		TemplatePromptKey:   row.TemplatePromptKey,
+		TemplateTitle:       row.TemplateTitle,
+		TemplateDescription: row.TemplateDescription,
+		TemplateWhenToUse:   row.TemplateWhenToUse,
+		TemplateTags:        json.RawMessage(row.TemplateTags),
+		CreatedAt:           row.CreatedAt.Time,
+		UpdatedAt:           row.UpdatedAt.Time,
+	}
+}
+
+func fromListDefaultRuleSectionRow(row sqlc.ListDefaultRuleSectionsRow) PromptTemplateSection {
+	return PromptTemplateSection{
+		ID:                row.ID,
+		TemplateID:        row.TemplateID,
+		SectionKey:        row.SectionKey,
+		Region:            row.Region,
+		Ordinal:           int(row.Ordinal),
+		Body:              row.Body,
+		EnableWhen:        json.RawMessage(row.EnableWhen),
+		Enabled:           row.Enabled,
+		TriggerType:       row.TriggerType,
+		RecallTopic:       row.RecallTopic,
+		TemplatePromptKey: row.TemplatePromptKey,
+		TemplateTitle:     row.TemplateTitle,
+		TemplateTags:      json.RawMessage(row.TemplateTags),
+		CreatedAt:         row.CreatedAt.Time,
+		UpdatedAt:         row.UpdatedAt.Time,
 	}
 }
 

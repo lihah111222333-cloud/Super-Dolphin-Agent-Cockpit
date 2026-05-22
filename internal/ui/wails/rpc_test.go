@@ -1,13 +1,20 @@
 package wails
 
 import (
+	"archive/zip"
+	"bytes"
 	"context"
 	"encoding/json"
+	"encoding/xml"
+	"fmt"
 	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/config"
 	rpcpkg "github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
+	"github.com/wailsapp/wails/v3/pkg/application"
 )
 
 func TestNewRPCHandlersRegistersNativeDialogRoutes(t *testing.T) {
@@ -18,6 +25,7 @@ func TestNewRPCHandlersRegistersNativeDialogRoutes(t *testing.T) {
 		"ui/selectProjectDir",
 		"ui/selectProjectDirs",
 		"ui/selectFiles",
+		"ui/readDroppedTextFiles",
 		"ui/buildInfo",
 		"ui/saveClipboardImage",
 		"ui/log",
@@ -27,6 +35,201 @@ func TestNewRPCHandlersRegistersNativeDialogRoutes(t *testing.T) {
 		if _, ok := handlers[method]; !ok {
 			t.Fatalf("handler %q is not registered", method)
 		}
+	}
+}
+
+func TestReadDroppedTextFilesRouteReadsRecentDroppedText(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "notes.md")
+	if err := os.WriteFile(path, []byte("hello\r\nworld\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+	app := &App{}
+	app.recordDroppedFiles([]string{path}, &application.DropTargetDetails{ElementID: "prompt-intent-drop-zone"})
+	server := newWailsRPCServer(t, app)
+
+	raw, err := server.Dispatch(context.Background(), "ui/readDroppedTextFiles", mustJSON(t, map[string]any{
+		"files":    []string{path},
+		"targetId": "prompt-intent-drop-zone",
+	}))
+	if err != nil {
+		t.Fatalf("Dispatch(ui/readDroppedTextFiles) error = %v", err)
+	}
+
+	var result struct {
+		Files []struct {
+			Path      string `json:"path"`
+			Name      string `json:"name"`
+			Text      string `json:"text"`
+			SizeBytes int64  `json:"sizeBytes"`
+		} `json:"files"`
+	}
+	if err := json.Unmarshal(raw, &result); err != nil {
+		t.Fatalf("Unmarshal(ui/readDroppedTextFiles) error = %v", err)
+	}
+	if len(result.Files) != 1 {
+		t.Fatalf("files len = %d, want 1", len(result.Files))
+	}
+	if result.Files[0].Path != path || result.Files[0].Name != "notes.md" {
+		t.Fatalf("file metadata = %#v, want dropped path/name", result.Files[0])
+	}
+	if result.Files[0].Text != "hello\nworld\n" {
+		t.Fatalf("text = %q, want normalized line endings", result.Files[0].Text)
+	}
+	if result.Files[0].SizeBytes <= 0 {
+		t.Fatalf("sizeBytes = %d, want positive", result.Files[0].SizeBytes)
+	}
+}
+
+func TestReadDroppedTextFilesRouteConvertsDroppedXLSXToMarkdown(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "prices.xlsx")
+	writeXLSXFixture(t, path, []xlsxFixtureSheet{
+		{
+			Name: "报价",
+			Rows: [][]xlsxFixtureCell{
+				{sharedCell("产品"), inlineCell("套餐"), sharedCell("价格"), sharedCell("有效期")},
+				{sharedCell("基础版"), inlineCell("月付"), sharedCell("99元/月"), sharedCell("2026-12-31")},
+				{sharedCell("专业版"), inlineCell("年付"), sharedCell("2999元/年"), sharedCell("2026-12-31")},
+			},
+		},
+	})
+	app := &App{}
+	app.recordDroppedFiles([]string{path}, &application.DropTargetDetails{ElementID: "prompt-intent-drop-zone"})
+	server := newWailsRPCServer(t, app)
+
+	raw, err := server.Dispatch(context.Background(), "ui/readDroppedTextFiles", mustJSON(t, map[string]any{
+		"files":    []string{path},
+		"targetId": "prompt-intent-drop-zone",
+	}))
+	if err != nil {
+		t.Fatalf("Dispatch(ui/readDroppedTextFiles) error = %v", err)
+	}
+
+	var result struct {
+		Files []struct {
+			Name string `json:"name"`
+			Text string `json:"text"`
+		} `json:"files"`
+	}
+	if err := json.Unmarshal(raw, &result); err != nil {
+		t.Fatalf("Unmarshal(ui/readDroppedTextFiles) error = %v", err)
+	}
+	if len(result.Files) != 1 {
+		t.Fatalf("files len = %d, want 1", len(result.Files))
+	}
+	if result.Files[0].Name != "prices.xlsx" {
+		t.Fatalf("name = %q, want prices.xlsx", result.Files[0].Name)
+	}
+	want := strings.Join([]string{
+		"Sheet：报价",
+		"",
+		"| 产品 | 套餐 | 价格 | 有效期 |",
+		"| --- | --- | --- | --- |",
+		"| 基础版 | 月付 | 99元/月 | 2026-12-31 |",
+		"| 专业版 | 年付 | 2999元/年 | 2026-12-31 |",
+	}, "\n")
+	if result.Files[0].Text != want {
+		t.Fatalf("xlsx text =\n%s\nwant:\n%s", result.Files[0].Text, want)
+	}
+}
+
+func TestReadDroppedTextFilesRouteAllowsLargeDroppedXLSXUnderXLSXLimit(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "large-prices.xlsx")
+	writeXLSXFixtureWithExtra(t, path, []xlsxFixtureSheet{
+		{
+			Name: "报价",
+			Rows: [][]xlsxFixtureCell{
+				{sharedCell("产品"), sharedCell("价格")},
+				{sharedCell("基础版"), sharedCell("99元/月")},
+			},
+		},
+	}, bytes.Repeat([]byte("x"), int(maxDroppedTextFileBytes)+1024))
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatalf("Stat(%s) error = %v", path, err)
+	}
+	if info.Size() <= maxDroppedTextFileBytes {
+		t.Fatalf("xlsx fixture size = %d, want larger than text limit %d", info.Size(), maxDroppedTextFileBytes)
+	}
+	app := &App{}
+	app.recordDroppedFiles([]string{path}, &application.DropTargetDetails{ElementID: "prompt-intent-drop-zone"})
+	server := newWailsRPCServer(t, app)
+
+	raw, err := server.Dispatch(context.Background(), "ui/readDroppedTextFiles", mustJSON(t, map[string]any{
+		"files":    []string{path},
+		"targetId": "prompt-intent-drop-zone",
+	}))
+	if err != nil {
+		t.Fatalf("Dispatch(ui/readDroppedTextFiles) error = %v", err)
+	}
+	var result struct {
+		Files []struct {
+			Text string `json:"text"`
+		} `json:"files"`
+	}
+	if err := json.Unmarshal(raw, &result); err != nil {
+		t.Fatalf("Unmarshal(ui/readDroppedTextFiles) error = %v", err)
+	}
+	if len(result.Files) != 1 || !strings.Contains(result.Files[0].Text, "| 基础版 | 99元/月 |") {
+		t.Fatalf("xlsx import result = %#v, want parsed price rows", result.Files)
+	}
+}
+
+func TestReadDroppedTextFilesRouteRejectsUndroppedOrWrongTarget(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "secret.txt")
+	if err := os.WriteFile(path, []byte("secret"), 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+	app := &App{}
+	server := newWailsRPCServer(t, app)
+
+	_, err := server.Dispatch(context.Background(), "ui/readDroppedTextFiles", mustJSON(t, map[string]any{
+		"files":    []string{path},
+		"targetId": "prompt-intent-drop-zone",
+	}))
+	if err == nil || !strings.Contains(err.Error(), "was not recently dropped") {
+		t.Fatalf("undropped Dispatch error = %v, want recent-drop rejection", err)
+	}
+
+	app.recordDroppedFiles([]string{path}, &application.DropTargetDetails{ElementID: "chat-input-bar"})
+	_, err = server.Dispatch(context.Background(), "ui/readDroppedTextFiles", mustJSON(t, map[string]any{
+		"files":    []string{path},
+		"targetId": "prompt-intent-drop-zone",
+	}))
+	if err == nil || !strings.Contains(err.Error(), "was not recently dropped") {
+		t.Fatalf("wrong target Dispatch error = %v, want recent-drop rejection", err)
+	}
+}
+
+func TestReadDroppedTextFilesRouteRejectsBinaryFiles(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "archive.bin")
+	if err := os.WriteFile(path, []byte{0x00, 0x01, 0x02}, 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+	app := &App{}
+	app.recordDroppedFiles([]string{path}, &application.DropTargetDetails{ElementID: "prompt-intent-drop-zone"})
+	server := newWailsRPCServer(t, app)
+
+	_, err := server.Dispatch(context.Background(), "ui/readDroppedTextFiles", mustJSON(t, map[string]any{
+		"files":    []string{path},
+		"targetId": "prompt-intent-drop-zone",
+	}))
+	if err == nil || !strings.Contains(err.Error(), "binary file is not supported") {
+		t.Fatalf("Dispatch error = %v, want binary rejection", err)
 	}
 }
 
@@ -200,6 +403,189 @@ func newWailsRPCServer(t *testing.T, app *App) *rpcpkg.Server {
 	server := rpcpkg.NewServer(rpcpkg.Params{Config: &config.Config{RPCAddr: "127.0.0.1:0"}})
 	server.Register(NewRPCHandlers(app, nil, nil).Handlers)
 	return server
+}
+
+func mustJSON(t *testing.T, value any) json.RawMessage {
+	t.Helper()
+
+	data, err := json.Marshal(value)
+	if err != nil {
+		t.Fatalf("Marshal() error = %v", err)
+	}
+	return data
+}
+
+type xlsxFixtureSheet struct {
+	Name string
+	Rows [][]xlsxFixtureCell
+}
+
+type xlsxFixtureCell struct {
+	Text   string
+	Inline bool
+}
+
+func sharedCell(text string) xlsxFixtureCell {
+	return xlsxFixtureCell{Text: text}
+}
+
+func inlineCell(text string) xlsxFixtureCell {
+	return xlsxFixtureCell{Text: text, Inline: true}
+}
+
+func writeXLSXFixture(t *testing.T, path string, sheets []xlsxFixtureSheet) {
+	t.Helper()
+
+	writeXLSXFixtureWithExtra(t, path, sheets, nil)
+}
+
+func writeXLSXFixtureWithExtra(t *testing.T, path string, sheets []xlsxFixtureSheet, extra []byte) {
+	t.Helper()
+
+	var buf bytes.Buffer
+	writer := zip.NewWriter(&buf)
+	sharedIndex := map[string]int{}
+	var sharedValues []string
+	for _, sheet := range sheets {
+		for _, row := range sheet.Rows {
+			for _, cell := range row {
+				if cell.Inline {
+					continue
+				}
+				if _, ok := sharedIndex[cell.Text]; ok {
+					continue
+				}
+				sharedIndex[cell.Text] = len(sharedValues)
+				sharedValues = append(sharedValues, cell.Text)
+			}
+		}
+	}
+
+	addZipFile(t, writer, "[Content_Types].xml", `<?xml version="1.0" encoding="UTF-8"?>
+<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
+  <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
+  <Default Extension="xml" ContentType="application/xml"/>
+  <Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>
+  <Override PartName="/xl/sharedStrings.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sharedStrings+xml"/>
+</Types>`)
+	addZipFile(t, writer, "_rels/.rels", `<?xml version="1.0" encoding="UTF-8"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/>
+</Relationships>`)
+	addZipFile(t, writer, "xl/workbook.xml", xlsxFixtureWorkbookXML(sheets))
+	addZipFile(t, writer, "xl/_rels/workbook.xml.rels", xlsxFixtureWorkbookRelsXML(sheets))
+	addZipFile(t, writer, "xl/sharedStrings.xml", xlsxFixtureSharedStringsXML(sharedValues))
+	for i, sheet := range sheets {
+		addZipFile(t, writer, fmt.Sprintf("xl/worksheets/sheet%d.xml", i+1), xlsxFixtureWorksheetXML(sheet.Rows, sharedIndex))
+	}
+	if len(extra) > 0 {
+		addZipBytesFile(t, writer, "xl/media/large.bin", extra)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatalf("Close xlsx zip writer error = %v", err)
+	}
+	if err := os.WriteFile(path, buf.Bytes(), 0o644); err != nil {
+		t.Fatalf("WriteFile(%s) error = %v", path, err)
+	}
+}
+
+func addZipBytesFile(t *testing.T, writer *zip.Writer, name string, body []byte) {
+	t.Helper()
+
+	header := &zip.FileHeader{Name: name, Method: zip.Store}
+	file, err := writer.CreateHeader(header)
+	if err != nil {
+		t.Fatalf("Create(%s) error = %v", name, err)
+	}
+	if _, err := file.Write(body); err != nil {
+		t.Fatalf("Write(%s) error = %v", name, err)
+	}
+}
+
+func addZipFile(t *testing.T, writer *zip.Writer, name, body string) {
+	t.Helper()
+
+	file, err := writer.Create(name)
+	if err != nil {
+		t.Fatalf("Create(%s) error = %v", name, err)
+	}
+	if _, err := file.Write([]byte(body)); err != nil {
+		t.Fatalf("Write(%s) error = %v", name, err)
+	}
+}
+
+func xlsxFixtureWorkbookXML(sheets []xlsxFixtureSheet) string {
+	var b strings.Builder
+	b.WriteString(`<?xml version="1.0" encoding="UTF-8"?>` + "\n")
+	b.WriteString(`<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets>`)
+	for i, sheet := range sheets {
+		fmt.Fprintf(&b, `<sheet name="%s" sheetId="%d" r:id="rId%d"/>`, xmlAttr(sheet.Name), i+1, i+1)
+	}
+	b.WriteString(`</sheets></workbook>`)
+	return b.String()
+}
+
+func xlsxFixtureWorkbookRelsXML(sheets []xlsxFixtureSheet) string {
+	var b strings.Builder
+	b.WriteString(`<?xml version="1.0" encoding="UTF-8"?>` + "\n")
+	b.WriteString(`<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">`)
+	for i := range sheets {
+		fmt.Fprintf(&b, `<Relationship Id="rId%d" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet%d.xml"/>`, i+1, i+1)
+	}
+	b.WriteString(`</Relationships>`)
+	return b.String()
+}
+
+func xlsxFixtureSharedStringsXML(values []string) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, `<?xml version="1.0" encoding="UTF-8"?><sst xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" count="%d" uniqueCount="%d">`, len(values), len(values))
+	for _, value := range values {
+		fmt.Fprintf(&b, `<si><t>%s</t></si>`, xmlText(value))
+	}
+	b.WriteString(`</sst>`)
+	return b.String()
+}
+
+func xlsxFixtureWorksheetXML(rows [][]xlsxFixtureCell, sharedIndex map[string]int) string {
+	var b strings.Builder
+	b.WriteString(`<?xml version="1.0" encoding="UTF-8"?>` + "\n")
+	b.WriteString(`<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData>`)
+	for rowIndex, row := range rows {
+		fmt.Fprintf(&b, `<row r="%d">`, rowIndex+1)
+		for colIndex, cell := range row {
+			ref := fmt.Sprintf("%s%d", xlsxFixtureColumnName(colIndex+1), rowIndex+1)
+			if cell.Inline {
+				fmt.Fprintf(&b, `<c r="%s" t="inlineStr"><is><t>%s</t></is></c>`, ref, xmlText(cell.Text))
+				continue
+			}
+			fmt.Fprintf(&b, `<c r="%s" t="s"><v>%d</v></c>`, ref, sharedIndex[cell.Text])
+		}
+		b.WriteString(`</row>`)
+	}
+	b.WriteString(`</sheetData></worksheet>`)
+	return b.String()
+}
+
+func xlsxFixtureColumnName(col int) string {
+	var out []byte
+	for col > 0 {
+		col--
+		out = append([]byte{byte('A' + col%26)}, out...)
+		col /= 26
+	}
+	return string(out)
+}
+
+func xmlAttr(value string) string {
+	return xmlText(value)
+}
+
+func xmlText(value string) string {
+	var b bytes.Buffer
+	if err := xml.EscapeText(&b, []byte(value)); err != nil {
+		panic(err)
+	}
+	return b.String()
 }
 
 func dispatchBootstrapGet(t *testing.T, server *rpcpkg.Server) struct {

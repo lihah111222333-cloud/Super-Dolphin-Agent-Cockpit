@@ -23,6 +23,7 @@ type prepareInputSpec struct {
 	Provider                     string
 	Model                        string
 	Effort                       string
+	PromptKey                    string
 	OutputSchema                 json.RawMessage
 	AgentID                      string
 	CWD                          string
@@ -72,6 +73,7 @@ func buildPrepareInput(spec prepareInputSpec, skills prepareSkillSpec, session p
 		Model:                        strings.TrimSpace(spec.Model),
 		Effort:                       spec.Effort,
 		OutputSchema:                 append(json.RawMessage(nil), spec.OutputSchema...),
+		PromptKey:                    strings.TrimSpace(spec.PromptKey),
 		AgentID:                      strings.TrimSpace(spec.AgentID),
 		CWD:                          strings.TrimSpace(spec.CWD),
 		GitRoot:                      strings.TrimSpace(spec.GitRoot),
@@ -108,6 +110,7 @@ func mergePrepareInputRuntime(input PrepareInput, cfg map[string]any) PrepareInp
 		return input
 	}
 	input.Provider = util.FirstNonEmpty(strings.TrimSpace(input.Provider), configutil.ConfigString(cfg, "provider"))
+	input.PromptKey = util.FirstNonEmpty(strings.TrimSpace(input.PromptKey), configutil.ConfigString(cfg, "promptKey", "prompt_key"))
 	input.CWD = util.FirstNonEmpty(strings.TrimSpace(input.CWD), configutil.ConfigString(cfg, "cwd"))
 	input.Model = util.FirstNonEmpty(strings.TrimSpace(input.Model), configutil.ConfigString(cfg, "model"))
 	input.GitRoot = util.FirstNonEmpty(strings.TrimSpace(input.GitRoot), configutil.ConfigString(cfg, "gitRoot", "git_root"))

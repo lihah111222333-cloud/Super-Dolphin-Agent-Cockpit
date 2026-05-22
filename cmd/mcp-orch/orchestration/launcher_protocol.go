@@ -48,6 +48,7 @@ const (
 	LauncherParamName             = "name"
 	LauncherParamAgentType        = "agent_type"
 	LauncherParamAgentKey         = "agent_key"
+	LauncherParamPromptKey        = "prompt_key"
 	LauncherParamAgentMemoryScope = "agent_memory_scope"
 	LauncherParamParentAgentID    = "parent_agent_id"
 	LauncherParamBaseInstructions = "base_instructions"

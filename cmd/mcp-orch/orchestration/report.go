@@ -95,7 +95,10 @@ func (s *service) HandleReportEvent(ctx context.Context, event ReportEvent) (Rep
 	if eventType == "" {
 		return ReportEventResult{}, errors.New("event type is required")
 	}
-	report := resolveReportText(event)
+	report := strings.TrimSpace(event.Report)
+	if report == "" {
+		report = extractReportFromEventData(event.EventData)
+	}
 
 	result := ReportEventResult{}
 	err := s.withAgentLocked(agentID, func(agent *agentRuntime) error {
@@ -294,13 +297,6 @@ func noReportFallbackText(state string) string {
 		return "agent ended in state '" + state + "' without producing a turn report"
 	}
 	return "agent ended without producing a turn report"
-}
-
-func resolveReportText(event ReportEvent) string {
-	if report := strings.TrimSpace(event.Report); report != "" {
-		return report
-	}
-	return extractReportFromEventData(event.EventData)
 }
 
 func extractReportFromEventData(raw json.RawMessage) string {

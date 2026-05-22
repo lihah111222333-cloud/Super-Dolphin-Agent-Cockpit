@@ -90,7 +90,9 @@ func (s *service) completeStart(ctx context.Context, req StartRequest, agentID s
 	// Router resolution runs before prompt assembly so its output (BaseInstructions)
 	// is visible to the assembly step, and its sidecar metadata (AgentKey,
 	// PromptVersionID) reaches the thread Upsert via threadState.
-	s.resolveRoutedPrompt(ctx, &req)
+	if err := s.resolveRoutedPrompt(ctx, &req); err != nil {
+		return StartResult{}, err
+	}
 	if req.PromptAssemblyRef == nil {
 		req.PromptAssemblyRef = s.promptAssembly
 	}

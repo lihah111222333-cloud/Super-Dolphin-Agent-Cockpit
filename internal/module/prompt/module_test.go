@@ -41,6 +41,11 @@ func (noopPromptStore) InsertVersion(context.Context, promptstore.PromptTemplate
 	return 0, nil
 }
 
+func (noopPromptStore) CreatePromptTemplate(context.Context, promptstore.PromptTemplate) (*promptstore.PromptTemplate, error) {
+	template := promptstore.PromptTemplate{}
+	return &template, nil
+}
+
 func (noopPromptStore) Upsert(context.Context, promptstore.PromptTemplate) (*promptstore.PromptTemplate, error) {
 	template := promptstore.PromptTemplate{}
 	return &template, nil
@@ -50,12 +55,46 @@ func (noopPromptStore) ListSectionsByTemplateID(context.Context, int64) ([]promp
 	return nil, nil
 }
 
+func (noopPromptStore) ListSectionsByTemplateIDs(context.Context, []int64) ([]promptstore.PromptTemplateSection, error) {
+	return nil, nil
+}
+
+func (noopPromptStore) ListRecallSections(context.Context, string) ([]promptstore.PromptTemplateSection, error) {
+	return nil, nil
+}
+
+func (noopPromptStore) ListDefaultRuleSections(context.Context, string) ([]promptstore.PromptTemplateSection, error) {
+	return nil, nil
+}
+
 func (noopPromptStore) UpsertSection(_ context.Context, section promptstore.PromptTemplateSection) (*promptstore.PromptTemplateSection, error) {
 	copy := section
 	return &copy, nil
 }
 
 func (noopPromptStore) DeleteSection(context.Context, int64, string) error {
+	return nil
+}
+
+func (noopPromptStore) UpsertIntentDraft(context.Context, promptstore.PromptIntentDraft) (*promptstore.PromptIntentDraft, error) {
+	draft := promptstore.PromptIntentDraft{}
+	return &draft, nil
+}
+
+func (noopPromptStore) GetIntentDraft(context.Context, string, string) (*promptstore.PromptIntentDraft, error) {
+	return nil, platformdb.ErrNotFound
+}
+
+func (noopPromptStore) ListIntentDrafts(context.Context, promptstore.PromptIntentDraftListFilter) ([]promptstore.PromptIntentDraft, error) {
+	return nil, nil
+}
+
+func (noopPromptStore) UpdateIntentDraftStatus(context.Context, string, string, string) (*promptstore.PromptIntentDraft, error) {
+	draft := promptstore.PromptIntentDraft{}
+	return &draft, nil
+}
+
+func (noopPromptStore) LockRecallTopicInCWD(context.Context, string, string) error {
 	return nil
 }
 
@@ -102,7 +141,7 @@ func TestNewPromptHandlersExposeLegacyPromptsMethods(t *testing.T) {
 			merged[method] = fn
 		}
 	}
-	for _, method := range []string{"prompts/list", "prompts/write", "prompts/delete"} {
+	for _, method := range []string{"prompts/list", "prompt-assets/list", "prompts/get", "prompts/write", "prompts/delete"} {
 		if merged[method] == nil {
 			t.Fatalf("handler %q not registered", method)
 		}

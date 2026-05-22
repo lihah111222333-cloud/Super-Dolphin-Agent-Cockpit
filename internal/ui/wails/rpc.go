@@ -130,6 +130,9 @@ func NewRPCHandlers(app *App, cfg *config.Config, uiState contract.UIProjectStat
 			}
 			return map[string][]string{"paths": paths}, nil
 		}),
+		"ui/readDroppedTextFiles": rpc.StrictHandler(func(ctx context.Context, p readDroppedTextFilesParams) (any, error) {
+			return readDroppedTextFiles(app, p)
+		}),
 		"ui/windowBootstrap/get": rpc.StrictHandler(func(ctx context.Context, _ windowBootstrapGetParams) (any, error) {
 			return handleUIWindowBootstrapGet(app), nil
 		}),

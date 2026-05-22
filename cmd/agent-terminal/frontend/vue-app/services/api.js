@@ -372,6 +372,32 @@ export async function selectFiles() {
   return files;
 }
 
+export async function readDroppedTextFiles(files, targetId = '') {
+  const paths = Array.isArray(files)
+    ? files.map((item) => (item || '').toString().trim()).filter(Boolean)
+    : [];
+  if (paths.length === 0) return [];
+  logInfo('ui', 'readDroppedTextFiles.start', {
+    count: paths.length,
+    target_id: (targetId || '').toString().trim(),
+  });
+  const raw = await callAPI('ui/readDroppedTextFiles', {
+    files: paths,
+    targetId: (targetId || '').toString().trim(),
+  });
+  const items = Array.isArray(raw?.files) ? raw.files : [];
+  logInfo('ui', 'readDroppedTextFiles.done', {
+    count: items.length,
+    first: (items[0]?.path || '').toString(),
+  });
+  return items.map((item) => ({
+    path: (item?.path || '').toString(),
+    name: (item?.name || '').toString(),
+    text: (item?.text || '').toString(),
+    sizeBytes: Number(item?.sizeBytes) || 0,
+  }));
+}
+
 export async function saveClipboardImage(base64Payload) {
   const start = perfNow();
   const path = (await callByID(METHOD_IDS.SAVE_CLIPBOARD_IMAGE, base64Payload)) || '';

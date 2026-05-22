@@ -4,11 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
 	promptpkg "github.com/anthropic-ai/super-agent-v3/internal/module/prompt"
-	"github.com/anthropic-ai/super-agent-v3/internal/module/prompt/classifier"
+	"github.com/anthropic-ai/super-agent-v3/internal/module/threadprompt"
 	promptstore "github.com/anthropic-ai/super-agent-v3/internal/store/prompt"
 )
 
@@ -16,14 +17,23 @@ import (
 // resolveRoutedPrompt exercises. Other methods panic on use so an incorrect
 // code path fails loudly.
 type fakePromptStore struct {
-	templates         []promptstore.PromptTemplate
-	nextVersionID     int64
-	insertErr         error
-	lastInsertVersion promptstore.PromptTemplateVersion
+	templates            []promptstore.PromptTemplate
+	listErr              error
+	listFilters          []promptstore.ListFilter
+	sectionsByTemplateID map[int64][]promptstore.PromptTemplateSection
+	recallSections       []promptstore.PromptTemplateSection
+	recallErr            error
+	nextVersionID        int64
+	insertErr            error
+	lastInsertVersion    promptstore.PromptTemplateVersion
 }
 
-func (f *fakePromptStore) List(_ context.Context, _ promptstore.ListFilter) ([]promptstore.PromptTemplate, error) {
-	return append([]promptstore.PromptTemplate(nil), f.templates...), nil
+func (f *fakePromptStore) List(_ context.Context, filter promptstore.ListFilter) ([]promptstore.PromptTemplate, error) {
+	f.listFilters = append(f.listFilters, filter)
+	if f.listErr != nil {
+		return nil, f.listErr
+	}
+	return filterFakePromptTemplatesByCWD(f.templates, filter.CWD), nil
 }
 
 func (f *fakePromptStore) InsertVersion(_ context.Context, v promptstore.PromptTemplateVersion) (int64, error) {
@@ -33,6 +43,10 @@ func (f *fakePromptStore) InsertVersion(_ context.Context, v promptstore.PromptT
 	}
 	f.nextVersionID++
 	return f.nextVersionID, nil
+}
+
+func (f *fakePromptStore) CreatePromptTemplate(context.Context, promptstore.PromptTemplate) (*promptstore.PromptTemplate, error) {
+	return nil, errors.New("unused create prompt template")
 }
 
 func (f *fakePromptStore) Get(context.Context, string) (*promptstore.PromptTemplate, error) {
@@ -45,7 +59,16 @@ func (f *fakePromptStore) Upsert(context.Context, promptstore.PromptTemplate) (*
 func (f *fakePromptStore) WithTx(context.Context, func(promptstore.Store) error) error {
 	panic("unused")
 }
-func (f *fakePromptStore) ListSectionsByTemplateID(context.Context, int64) ([]promptstore.PromptTemplateSection, error) {
+func (f *fakePromptStore) ListSectionsByTemplateID(_ context.Context, templateID int64) ([]promptstore.PromptTemplateSection, error) {
+	return append([]promptstore.PromptTemplateSection(nil), f.sectionsByTemplateID[templateID]...), nil
+}
+func (f *fakePromptStore) ListRecallSections(context.Context, string) ([]promptstore.PromptTemplateSection, error) {
+	if f.recallErr != nil {
+		return nil, f.recallErr
+	}
+	return append([]promptstore.PromptTemplateSection(nil), f.recallSections...), nil
+}
+func (f *fakePromptStore) ListDefaultRuleSections(context.Context, string) ([]promptstore.PromptTemplateSection, error) {
 	return nil, nil
 }
 func (f *fakePromptStore) UpsertSection(context.Context, promptstore.PromptTemplateSection) (*promptstore.PromptTemplateSection, error) {
@@ -54,14 +77,28 @@ func (f *fakePromptStore) UpsertSection(context.Context, promptstore.PromptTempl
 func (f *fakePromptStore) DeleteSection(context.Context, int64, string) error {
 	panic("unused")
 }
+func (f *fakePromptStore) UpsertIntentDraft(context.Context, promptstore.PromptIntentDraft) (*promptstore.PromptIntentDraft, error) {
+	return nil, errors.New("unused upsert intent draft")
+}
+func (f *fakePromptStore) GetIntentDraft(context.Context, string, string) (*promptstore.PromptIntentDraft, error) {
+	return nil, errors.New("unused get intent draft")
+}
+func (f *fakePromptStore) ListIntentDrafts(context.Context, promptstore.PromptIntentDraftListFilter) ([]promptstore.PromptIntentDraft, error) {
+	return nil, errors.New("unused list intent drafts")
+}
+func (f *fakePromptStore) UpdateIntentDraftStatus(context.Context, string, string, string) (*promptstore.PromptIntentDraft, error) {
+	return nil, errors.New("unused update intent draft status")
+}
+func (f *fakePromptStore) LockRecallTopicInCWD(context.Context, string, string) error {
+	return errors.New("unused lock recall topic")
+}
 
-func newServiceWithRouter(store *fakePromptStore) *service {
+func newServiceWithRouter(store promptstore.Store) *service {
 	return &service{
-		promptStore:             store,
-		classifierFastPath:      classifier.FastPath,
-		classifierPrune:         classifier.PruneCandidates,
-		classifierMaxCandidates: classifier.MaxCandidatesFromEnv,
-		matchWhenEval:           promptpkg.EvaluateMatchWhen,
+		promptStore:    store,
+		promptCatalog:  threadprompt.NewRuntimeCatalog(store, nil),
+		matchWhenEval:  promptpkg.EvaluateMatchWhen,
+		enableWhenEval: promptpkg.EvaluateEnableWhen,
 	}
 }
 
@@ -74,6 +111,23 @@ func sqlTemplate(promptKey, agentKey, text string, tags []string) promptstore.Pr
 		Tags:       b,
 		Enabled:    true,
 		UpdatedAt:  time.Now(),
+	}
+}
+
+func TestConvertStoreSectionsToBlocksSkipsRecallSections(t *testing.T) {
+	t.Parallel()
+
+	blocks := convertStoreSectionsToBlocks([]promptstore.PromptTemplateSection{
+		{SectionKey: "identity", Region: "static", Body: "base identity", TriggerType: "always", Enabled: true},
+		{SectionKey: "recall_sqlc", Region: "dynamic", Body: "recall body", TriggerType: " recall ", Enabled: true},
+		{SectionKey: "workflow", Region: "dynamic", Body: "workflow body", Enabled: true},
+	})
+
+	if len(blocks) != 2 {
+		t.Fatalf("blocks len = %d, want 2: %#v", len(blocks), blocks)
+	}
+	if blocks[0].Key != "identity" || blocks[1].Key != "workflow" {
+		t.Fatalf("block keys = %#v, want identity/workflow", []string{blocks[0].Key, blocks[1].Key})
 	}
 }
 
@@ -91,7 +145,7 @@ func TestResolveRoutedPrompt_EmptyAgentKeyFallsBackToDefaultPromptKey(t *testing
 	}
 	s := newServiceWithRouter(store)
 
-	req := &StartRequest{Prompt: "any user input at all"}
+	req := &StartRequest{CWD: "/repo/a", Prompt: "any user input at all"}
 	s.resolveRoutedPrompt(context.Background(), req)
 
 	if req.AgentKey != "main" {
@@ -121,7 +175,7 @@ func TestResolveRoutedPrompt_EmptyAgentKeyAndNoDefaultLeavesRequestUntouched(t *
 	}
 	s := newServiceWithRouter(store)
 
-	req := &StartRequest{Prompt: "anything"}
+	req := &StartRequest{CWD: "/repo/a", Prompt: "anything"}
 	s.resolveRoutedPrompt(context.Background(), req)
 
 	if req.AgentKey != "" || req.PromptVersionID != nil || req.BaseInstructions != "" {
@@ -164,7 +218,7 @@ func TestResolveRoutedPrompt_ExplicitAgentKeyBypassesRouter(t *testing.T) {
 
 	// User input says "react" but AgentKey overrides \u2014 we should get ui_expert
 	// *not* by tag match, but by explicit pin.
-	req := &StartRequest{AgentKey: "ui_expert", Prompt: "write some react code"}
+	req := &StartRequest{CWD: "/repo/a", AgentKey: "ui_expert", Prompt: "write some react code"}
 	s.resolveRoutedPrompt(context.Background(), req)
 
 	if req.AgentKey != "ui_expert" {
@@ -193,7 +247,7 @@ func TestResolveRoutedPrompt_UnknownExplicitAgentKeyLeavesRequestUntouched(t *te
 	}
 	s := newServiceWithRouter(store)
 
-	req := &StartRequest{AgentKey: "does-not-exist", Prompt: "whatever"}
+	req := &StartRequest{CWD: "/repo/a", AgentKey: "does-not-exist", Prompt: "whatever"}
 	s.resolveRoutedPrompt(context.Background(), req)
 
 	if req.PromptVersionID != nil || req.BaseInstructions != "" || req.PromptKey != "" {
@@ -204,7 +258,7 @@ func TestResolveRoutedPrompt_UnknownExplicitAgentKeyLeavesRequestUntouched(t *te
 	}
 }
 
-func TestResolveRoutedPrompt_InsertVersionFailStillRecordsAgentKey(t *testing.T) {
+func TestResolveRoutedPrompt_InsertVersionFailFailsFastAfterRecordingAgentKey(t *testing.T) {
 	t.Parallel()
 	store := &fakePromptStore{
 		templates: []promptstore.PromptTemplate{
@@ -214,11 +268,14 @@ func TestResolveRoutedPrompt_InsertVersionFailStillRecordsAgentKey(t *testing.T)
 	}
 	s := newServiceWithRouter(store)
 
-	req := &StartRequest{AgentKey: "sql_expert"}
-	s.resolveRoutedPrompt(context.Background(), req)
+	req := &StartRequest{CWD: "/repo/a", AgentKey: "sql_expert"}
+	err := s.resolveRoutedPrompt(context.Background(), req)
+	if err == nil || !strings.Contains(err.Error(), "materialize prompt_versions") {
+		t.Fatalf("resolveRoutedPrompt() error = %v, want prompt_versions materialization failure", err)
+	}
 
 	if req.AgentKey != "sql_expert" {
-		t.Fatalf("agent_key should still be recorded on degrade: got %q", req.AgentKey)
+		t.Fatalf("agent_key should still be recorded before failure: got %q", req.AgentKey)
 	}
 	if req.PromptVersionID != nil {
 		t.Fatalf("prompt_version_id should be nil on insert failure: %v", req.PromptVersionID)
@@ -244,7 +301,7 @@ func TestResolveRoutedPrompt_AgentKeyMatchIsCaseAndWhitespaceInsensitive(t *test
 	store := &fakePromptStore{templates: []promptstore.PromptTemplate{tpl}}
 	s := newServiceWithRouter(store)
 
-	req := &StartRequest{AgentKey: "orchestrator"}
+	req := &StartRequest{CWD: "/repo/a", AgentKey: "orchestrator"}
 	s.resolveRoutedPrompt(context.Background(), req)
 
 	if req.BaseInstructions != "you coordinate" {
@@ -270,7 +327,7 @@ func TestResolveRoutedPrompt_ExplicitPromptKeyWinsOverAgentKey(t *testing.T) {
 	}
 	s := newServiceWithRouter(store)
 
-	req := &StartRequest{PromptKey: "main/launch-fav", AgentKey: "sql_expert"}
+	req := &StartRequest{CWD: "/repo/a", PromptKey: "main/launch-fav", AgentKey: "sql_expert"}
 	s.resolveRoutedPrompt(context.Background(), req)
 
 	if req.PromptKey != "main/launch-fav" {
@@ -299,7 +356,7 @@ func TestResolveRoutedPrompt_UnknownPromptKeyDoesNotFallback(t *testing.T) {
 	}
 	s := newServiceWithRouter(store)
 
-	req := &StartRequest{PromptKey: "main/missing"}
+	req := &StartRequest{CWD: "/repo/a", PromptKey: "main/missing"}
 	s.resolveRoutedPrompt(context.Background(), req)
 	if req.BaseInstructions != "" || req.AgentKey != "" {
 		t.Fatalf("unknown prompt_key must not fall through to default: %+v", req)
@@ -327,7 +384,7 @@ func TestResolveRoutedPrompt_DisabledPromptKeyDoesNotFallback(t *testing.T) {
 	}
 	s := newServiceWithRouter(store)
 
-	req := &StartRequest{PromptKey: "main/launch-fav"}
+	req := &StartRequest{CWD: "/repo/a", PromptKey: "main/launch-fav"}
 	s.resolveRoutedPrompt(context.Background(), req)
 	if req.BaseInstructions != "" || req.AgentKey != "" {
 		t.Fatalf("disabled pinned prompt must not silently fall back: %+v", req)
@@ -341,258 +398,10 @@ func TestResolveRoutedPrompt_DisabledTemplateSkipped(t *testing.T) {
 	store := &fakePromptStore{templates: []promptstore.PromptTemplate{tpl}}
 	s := newServiceWithRouter(store)
 
-	req := &StartRequest{AgentKey: "sql_expert"}
+	req := &StartRequest{CWD: "/repo/a", AgentKey: "sql_expert"}
 	s.resolveRoutedPrompt(context.Background(), req)
 	if req.BaseInstructions != "" || req.PromptKey != "" {
 		t.Fatalf("disabled template must be ignored: %+v", req)
-	}
-}
-
-// sqlTemplateWithMatchWhen is a convenience builder for the match_when
-// auto-route tests: it accepts a raw JSON expression (use "{}" for opt-in
-// always-match) and a priority integer. Pass nil raw to leave match_when
-// unset (= opt-out of auto-routing).
-func sqlTemplateWithMatchWhen(promptKey, agentKey, text string, matchWhen []byte, priority int) promptstore.PromptTemplate {
-	tpl := sqlTemplate(promptKey, agentKey, text, nil)
-	tpl.MatchWhen = append(json.RawMessage(nil), matchWhen...)
-	tpl.Priority = priority
-	return tpl
-}
-
-// TestResolveRoutedPrompt_MatchWhenAutoRoutePicksHighestPriority: no caller
-// pin, classifier off, two auto-route candidates with match_when={} — the
-// higher-priority row wins and its body is injected.
-func TestResolveRoutedPrompt_MatchWhenAutoRoutePicksHighestPriority(t *testing.T) {
-	t.Parallel()
-	store := &fakePromptStore{
-		templates: []promptstore.PromptTemplate{
-			sqlTemplateWithMatchWhen("main/low", "low", "low body", []byte(`{}`), 1),
-			sqlTemplateWithMatchWhen("main/hi", "hi", "hi body", []byte(`{}`), 10),
-			sqlTemplate(defaultPromptKey, "main", "default body", nil),
-		},
-	}
-	s := newServiceWithRouter(store)
-
-	req := &StartRequest{Prompt: "anything"}
-	s.resolveRoutedPrompt(context.Background(), req)
-
-	if req.PromptKey != "main/hi" {
-		t.Fatalf("want prompt_key=main/hi (priority=10), got %q", req.PromptKey)
-	}
-	if req.BaseInstructions != "hi body" {
-		t.Fatalf("want hi body injected, got %q", req.BaseInstructions)
-	}
-}
-
-// TestResolveRoutedPrompt_MatchWhenCWDPrefixMatches: auto-route fires only
-// when the CWD prefix rule matches the request's CWD.
-func TestResolveRoutedPrompt_MatchWhenCWDPrefixMatches(t *testing.T) {
-	t.Parallel()
-	store := &fakePromptStore{
-		templates: []promptstore.PromptTemplate{
-			sqlTemplateWithMatchWhen("main/work",
-				"work", "work body",
-				[]byte(`{"cwd_prefix":"/Users/mac/work"}`), 5),
-			sqlTemplate(defaultPromptKey, "main", "default body", nil),
-		},
-	}
-	s := newServiceWithRouter(store)
-
-	req := &StartRequest{CWD: "/Users/mac/work/project-x", Prompt: "hey"}
-	s.resolveRoutedPrompt(context.Background(), req)
-	if req.PromptKey != "main/work" {
-		t.Fatalf("want prompt_key=main/work (cwd matched), got %q", req.PromptKey)
-	}
-}
-
-// TestResolveRoutedPrompt_MatchWhenCWDPrefixMissFallsBackToDefault: when no
-// auto-route rule matches, the default persona still wins.
-func TestResolveRoutedPrompt_MatchWhenCWDPrefixMissFallsBackToDefault(t *testing.T) {
-	t.Parallel()
-	store := &fakePromptStore{
-		templates: []promptstore.PromptTemplate{
-			sqlTemplateWithMatchWhen("main/work",
-				"work", "work body",
-				[]byte(`{"cwd_prefix":"/Users/mac/work"}`), 5),
-			sqlTemplate(defaultPromptKey, "main", "default body", nil),
-		},
-	}
-	s := newServiceWithRouter(store)
-
-	req := &StartRequest{CWD: "/tmp/elsewhere", Prompt: "hey"}
-	s.resolveRoutedPrompt(context.Background(), req)
-	if req.PromptKey != defaultPromptKey {
-		t.Fatalf("want fallback to %q, got %q", defaultPromptKey, req.PromptKey)
-	}
-}
-
-// TestResolveRoutedPrompt_MatchWhenSkippedWhenPromptKeyPinned: caller's
-// explicit PromptKey pin takes precedence over any match_when row.
-func TestResolveRoutedPrompt_MatchWhenSkippedWhenPromptKeyPinned(t *testing.T) {
-	t.Parallel()
-	store := &fakePromptStore{
-		templates: []promptstore.PromptTemplate{
-			sqlTemplateWithMatchWhen("main/auto", "auto", "auto body", []byte(`{}`), 99),
-			sqlTemplate("main/pinned", "pinned", "pinned body", nil),
-		},
-	}
-	s := newServiceWithRouter(store)
-
-	req := &StartRequest{PromptKey: "main/pinned", Prompt: "whatever"}
-	s.resolveRoutedPrompt(context.Background(), req)
-	if req.PromptKey != "main/pinned" {
-		t.Fatalf("want pinned prompt_key preserved, got %q", req.PromptKey)
-	}
-	if req.BaseInstructions != "pinned body" {
-		t.Fatalf("want pinned body injected, got %q", req.BaseInstructions)
-	}
-}
-
-// TestResolveRoutedPrompt_MatchWhenSkippedWhenAgentKeyPinned: explicit
-// AgentKey also blocks auto-routing — the caller expressed an identity
-// preference and we honor it without overriding.
-func TestResolveRoutedPrompt_MatchWhenSkippedWhenAgentKeyPinned(t *testing.T) {
-	t.Parallel()
-	store := &fakePromptStore{
-		templates: []promptstore.PromptTemplate{
-			sqlTemplateWithMatchWhen("main/auto", "auto", "auto body", []byte(`{}`), 99),
-			sqlTemplate("main/sql", "sql_expert", "sql body", nil),
-		},
-	}
-	s := newServiceWithRouter(store)
-
-	req := &StartRequest{AgentKey: "sql_expert", Prompt: "whatever"}
-	s.resolveRoutedPrompt(context.Background(), req)
-	if req.PromptKey != "main/sql" {
-		t.Fatalf("want main/sql (agent-key pinned), got %q", req.PromptKey)
-	}
-}
-
-// TestResolveRoutedPrompt_MatchWhenDoesNotTrustDotCWD: "." is not a trusted
-// workspace root, so cwd_prefix / cwd_glob rules must not match process cwd.
-func TestResolveRoutedPrompt_MatchWhenDoesNotTrustDotCWD(t *testing.T) {
-	t.Parallel()
-	store := &fakePromptStore{
-		templates: []promptstore.PromptTemplate{
-			sqlTemplateWithMatchWhen("main/by-wd", "by-wd", "by-wd body", []byte(`{"cwd_prefix":"/"}`), 5),
-			sqlTemplate(defaultPromptKey, "main", "default body", nil),
-		},
-	}
-	s := newServiceWithRouter(store)
-
-	req := &StartRequest{CWD: ".", Prompt: "hey"}
-	s.resolveRoutedPrompt(context.Background(), req)
-	if req.PromptKey != defaultPromptKey {
-		t.Fatalf("want default prompt for untrusted dot CWD, got %q", req.PromptKey)
-	}
-}
-
-// TestResolveRoutedPrompt_MatchWhenDisabledRowIgnored: disabled rows are
-// filtered out of the auto-route candidate list even if their match_when
-// would otherwise pass.
-func TestResolveRoutedPrompt_MatchWhenDisabledRowIgnored(t *testing.T) {
-	t.Parallel()
-	tpl := sqlTemplateWithMatchWhen("main/auto", "auto", "auto body", []byte(`{}`), 99)
-	tpl.Enabled = false
-	store := &fakePromptStore{
-		templates: []promptstore.PromptTemplate{
-			tpl,
-			sqlTemplate(defaultPromptKey, "main", "default body", nil),
-		},
-	}
-	s := newServiceWithRouter(store)
-
-	req := &StartRequest{Prompt: "whatever"}
-	s.resolveRoutedPrompt(context.Background(), req)
-	if req.PromptKey != defaultPromptKey {
-		t.Fatalf("disabled auto-route row must be ignored, got %q", req.PromptKey)
-	}
-}
-
-// TestResolveRoutedPrompt_MatchWhenSpecificBeatsFallback: when a specific
-// (non-empty match_when) row matches, it must win even though a higher-
-// priority fallback (match_when={}) row exists. Reproduces the production
-// bug where main/claude-style (priority=150, match_when={}) shadowed every
-// user-created tag-based prompt. Uses tags_has string form because the
-// template-level match_when DSL only supports string today; array form is
-// the section-level dialect and would test something different.
-func TestResolveRoutedPrompt_MatchWhenSpecificBeatsFallback(t *testing.T) {
-	t.Parallel()
-	store := &fakePromptStore{
-		templates: []promptstore.PromptTemplate{
-			sqlTemplateWithMatchWhen("main/claude-style", "main",
-				"fallback body", []byte(`{}`), 150),
-			sqlTemplateWithMatchWhen("user/sql", "sql_expert",
-				"specific body", []byte(`{"tags_has":"sql"}`), 0),
-			sqlTemplate(defaultPromptKey, "main", "default body", nil),
-		},
-	}
-	s := newServiceWithRouter(store)
-
-	req := &StartRequest{Prompt: "please write me some sql"}
-	s.resolveRoutedPrompt(context.Background(), req)
-
-	if req.PromptKey != "user/sql" {
-		t.Fatalf("want user/sql (specific beats fallback), got %q", req.PromptKey)
-	}
-	if req.BaseInstructions != "specific body" {
-		t.Fatalf("want specific body injected, got %q", req.BaseInstructions)
-	}
-}
-
-// TestResolveRoutedPrompt_MatchWhenFallbackKicksInWhenNoSpecificMatches: with
-// no specific match (tags_has miss), the {} fallback row should pick up the
-// auto-route slot before main/default ultimate fallback.
-func TestResolveRoutedPrompt_MatchWhenFallbackKicksInWhenNoSpecificMatches(t *testing.T) {
-	t.Parallel()
-	store := &fakePromptStore{
-		templates: []promptstore.PromptTemplate{
-			sqlTemplateWithMatchWhen("main/claude-style", "claude_main",
-				"fallback body", []byte(`{}`), 150),
-			sqlTemplateWithMatchWhen("user/sql", "sql_expert",
-				"specific body", []byte(`{"tags_has":"sql"}`), 0),
-			sqlTemplate(defaultPromptKey, "main", "default body", nil),
-		},
-	}
-	s := newServiceWithRouter(store)
-
-	req := &StartRequest{Prompt: "hello world, nothing to do with the tag keyword"}
-	s.resolveRoutedPrompt(context.Background(), req)
-
-	if req.PromptKey != "main/claude-style" {
-		t.Fatalf("want main/claude-style (fallback after specific miss), got %q", req.PromptKey)
-	}
-	if req.BaseInstructions != "fallback body" {
-		t.Fatalf("want fallback body injected, got %q", req.BaseInstructions)
-	}
-}
-
-// TestResolveRoutedPrompt_MatchWhenSpecificPoolPriorityOrder: within the
-// specific pool, the higher-priority row must win when both match. Guards
-// the per-pool DESC ordering after the two-stage split.
-func TestResolveRoutedPrompt_MatchWhenSpecificPoolPriorityOrder(t *testing.T) {
-	t.Parallel()
-	store := &fakePromptStore{
-		templates: []promptstore.PromptTemplate{
-			sqlTemplateWithMatchWhen("user/sql-low", "sql_low",
-				"low body", []byte(`{"tags_has":"sql"}`), 1),
-			sqlTemplateWithMatchWhen("user/sql-hi", "sql_hi",
-				"hi body", []byte(`{"tags_has":"sql"}`), 10),
-			sqlTemplateWithMatchWhen("main/claude-style", "main",
-				"fallback body", []byte(`{}`), 150),
-			sqlTemplate(defaultPromptKey, "main", "default body", nil),
-		},
-	}
-	s := newServiceWithRouter(store)
-
-	req := &StartRequest{Prompt: "sql please"}
-	s.resolveRoutedPrompt(context.Background(), req)
-
-	if req.PromptKey != "user/sql-hi" {
-		t.Fatalf("want user/sql-hi (higher priority specific), got %q", req.PromptKey)
-	}
-	if req.BaseInstructions != "hi body" {
-		t.Fatalf("want hi body injected, got %q", req.BaseInstructions)
 	}
 }
 
@@ -610,7 +419,7 @@ func TestResolveRoutedPrompt_UnknownPromptKeyMarksStale(t *testing.T) {
 	}
 	s := newServiceWithRouter(store)
 
-	req := &StartRequest{PromptKey: "main/missing"}
+	req := &StartRequest{CWD: "/repo/a", PromptKey: "main/missing"}
 	s.resolveRoutedPrompt(context.Background(), req)
 
 	if !req.PromptKeyStale {
@@ -639,7 +448,7 @@ func TestResolveRoutedPrompt_DisabledPromptKeyMarksStale(t *testing.T) {
 	}
 	s := newServiceWithRouter(store)
 
-	req := &StartRequest{PromptKey: "main/launch-fav"}
+	req := &StartRequest{CWD: "/repo/a", PromptKey: "main/launch-fav"}
 	s.resolveRoutedPrompt(context.Background(), req)
 
 	if !req.PromptKeyStale {
@@ -659,7 +468,7 @@ func TestResolveRoutedPrompt_KnownPromptKeyKeepsStaleFalse(t *testing.T) {
 	}
 	s := newServiceWithRouter(store)
 
-	req := &StartRequest{PromptKey: "main/launch-fav"}
+	req := &StartRequest{CWD: "/repo/a", PromptKey: "main/launch-fav"}
 	s.resolveRoutedPrompt(context.Background(), req)
 
 	if req.PromptKeyStale {
@@ -679,7 +488,7 @@ func TestResolveRoutedPrompt_EmptyPromptKeyKeepsStaleFalse(t *testing.T) {
 	}
 	s := newServiceWithRouter(store)
 
-	req := &StartRequest{Prompt: "hello"}
+	req := &StartRequest{CWD: "/repo/a", Prompt: "hello"}
 	s.resolveRoutedPrompt(context.Background(), req)
 
 	if req.PromptKeyStale {
@@ -702,37 +511,5 @@ func TestResolveRoutedPrompt_NoStoreKeepsStaleFalse(t *testing.T) {
 	}
 	if req.PromptKey != "main/launch-fav" {
 		t.Fatalf("caller-pinned prompt_key should be preserved on degrade: %q", req.PromptKey)
-	}
-}
-
-// TestResolveRoutedPrompt_MatchWhenSpecificBeatsFallback_ArrayForm: same shape
-// as MatchWhenSpecificBeatsFallback, but uses tags_has=["sql","db"] array form,
-// which is what SystemPromptPage UI auto-generates from chip tags and what real
-// DB rows store. Hot fix 3f8c27ff lets matchWhenKeyMatches accept []any via
-// matchSectionTagsHas; this test guards that the array DSL stays wired into
-// the two-stage auto-route path. Reverting hot fix turns matchWhenStringValue
-// on a []any into "", matchTagsHas("","...") returns false, specific pool
-// becomes empty, fallback main/claude-style ({}) wins — test goes red.
-func TestResolveRoutedPrompt_MatchWhenSpecificBeatsFallback_ArrayForm(t *testing.T) {
-	t.Parallel()
-	store := &fakePromptStore{
-		templates: []promptstore.PromptTemplate{
-			sqlTemplateWithMatchWhen("main/claude-style", "main",
-				"fallback body", []byte(`{}`), 150),
-			sqlTemplateWithMatchWhen("user/sql", "sql_expert",
-				"specific body", []byte(`{"tags_has":["sql","db"]}`), 0),
-			sqlTemplate(defaultPromptKey, "main", "default body", nil),
-		},
-	}
-	s := newServiceWithRouter(store)
-
-	req := &StartRequest{Prompt: "please write me some sql"}
-	s.resolveRoutedPrompt(context.Background(), req)
-
-	if req.PromptKey != "user/sql" {
-		t.Fatalf("want user/sql (array tags_has hit), got %q", req.PromptKey)
-	}
-	if req.BaseInstructions != "specific body" {
-		t.Fatalf("want specific body injected, got %q", req.BaseInstructions)
 	}
 }

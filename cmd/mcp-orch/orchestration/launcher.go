@@ -147,14 +147,10 @@ func rpcString(v any) string {
 	return strings.TrimSpace(s)
 }
 
-func normalizeManagedAgentDisplayName(value string) string {
-	value = strings.Join(strings.Fields(strings.TrimSpace(value)), " ")
-	value = strings.Trim(value, "`\"'“”‘’[]()（）【】")
-	return strings.TrimSpace(value)
-}
-
 func managedAgentLaunchDisplayName(name string) string {
-	return normalizeManagedAgentDisplayName(name)
+	name = strings.Join(strings.Fields(strings.TrimSpace(name)), " ")
+	name = strings.Trim(name, "`\"'“”‘’[]()（）【】")
+	return strings.TrimSpace(name)
 }
 
 func (r *remoteLauncher) Launch(ctx context.Context, agent *agentRuntime, req LaunchRequest) (LaunchResult, error) {
@@ -183,6 +179,7 @@ func (r *remoteLauncher) Launch(ctx context.Context, agent *agentRuntime, req La
 		LauncherParamName:             displayName,
 		LauncherParamAgentType:        strings.TrimSpace(req.AgentType),
 		LauncherParamAgentKey:         strings.TrimSpace(req.AgentKey),
+		LauncherParamPromptKey:        strings.TrimSpace(req.PromptKey),
 		LauncherParamAgentMemoryScope: strings.TrimSpace(req.MemoryScope),
 		LauncherParamParentAgentID:    strings.TrimSpace(req.ParentID),
 		LauncherParamBaseInstructions: strings.TrimSpace(req.Instructions),
@@ -191,8 +188,8 @@ func (r *remoteLauncher) Launch(ctx context.Context, agent *agentRuntime, req La
 		LauncherParamEffort:           effort,
 		LauncherParamLanguage:         strings.TrimSpace(req.Language),
 	}
-	if cfg := launchConfigFromEnv(req.Env); len(cfg) > 0 {
-		params[LauncherParamConfig] = cfg
+	if disabledTools := envValue(req.Env, "AGENT_DISABLED_TOOLS"); disabledTools != "" {
+		params[LauncherParamConfig] = map[string]any{"disallowed_tools": disabledTools}
 	}
 	resp, err := rpcCall[map[string]any](ctx, r, LauncherMethodThreadStart, params)
 	elapsed := time.Since(start)
@@ -222,14 +219,6 @@ func (r *remoteLauncher) Launch(ctx context.Context, agent *agentRuntime, req La
 	agent.startedAt = now
 	agent.updatedAt = now
 	return result, nil
-}
-
-func launchConfigFromEnv(env []string) map[string]any {
-	cfg := map[string]any{}
-	if disabledTools := envValue(env, "AGENT_DISABLED_TOOLS"); disabledTools != "" {
-		cfg["disallowed_tools"] = disabledTools
-	}
-	return cfg
 }
 
 func (r *remoteLauncher) Stop(ctx context.Context, agent *agentRuntime) error {

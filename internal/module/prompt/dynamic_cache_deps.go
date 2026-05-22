@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"os"
 	"strings"
+
+	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 )
 
 func inputScopedSectionDependency(section PromptSection, input SectionContext) any {
@@ -18,6 +20,10 @@ func inputScopedSectionDependency(section PromptSection, input SectionContext) a
 			EnabledTools: sortedPromptValues(input.BuildCtx.EnabledTools),
 			SessionFlags: trueFlagKeys(input.BuildCtx.SessionFlags),
 		}
+	case DynamicSectionAvailableExperts:
+		return availableExpertsSectionDependency(section, input)
+	case DynamicSectionRecallCatalog, DynamicSectionProjectDefaultRules:
+		return cwdScopedSectionDependency(section, input)
 	case DynamicSectionMemory:
 		return memorySectionDependency(section, input)
 	case DynamicSectionMemoryContext:
@@ -45,6 +51,45 @@ func inputScopedSectionDependency(section PromptSection, input SectionContext) a
 		return struct {
 			Section string `json:"section"`
 		}{Section: section.Name}
+	}
+}
+
+func availableExpertsSectionDependency(section PromptSection, input SectionContext) any {
+	startPrompt := ""
+	promptKey := ""
+	if input.Start != nil {
+		startPrompt = strings.TrimSpace(input.Start.Prompt)
+		promptKey = strings.TrimSpace(input.Start.PromptKey)
+	}
+	turnUserText := ""
+	if input.Turn != nil {
+		turnUserText = strings.TrimSpace(input.Turn.UserText)
+		if promptKey == "" {
+			promptKey = strings.TrimSpace(input.Turn.PromptKey)
+		}
+	}
+	return struct {
+		Section      string `json:"section"`
+		CWD          string `json:"cwd,omitempty"`
+		StartPrompt  string `json:"startPrompt,omitempty"`
+		TurnUserText string `json:"turnUserText,omitempty"`
+		PromptKey    string `json:"promptKey,omitempty"`
+	}{
+		Section:      section.Name,
+		CWD:          contract.SectionContextCWD(input),
+		StartPrompt:  startPrompt,
+		TurnUserText: turnUserText,
+		PromptKey:    promptKey,
+	}
+}
+
+func cwdScopedSectionDependency(section PromptSection, input SectionContext) any {
+	return struct {
+		Section string `json:"section"`
+		CWD     string `json:"cwd,omitempty"`
+	}{
+		Section: section.Name,
+		CWD:     contract.SectionContextCWD(input),
 	}
 }
 

@@ -3,13 +3,18 @@ package prompt
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"log/slog"
+	"os"
+	"regexp"
+	"sort"
 	"strings"
 	"time"
 
 	"github.com/creachadair/jrpc2/handler"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
+	promptintent "github.com/anthropic-ai/super-agent-v3/internal/module/prompt/intent"
 	platformrpc "github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
 	promptstore "github.com/anthropic-ai/super-agent-v3/internal/store/prompt"
 )
@@ -17,25 +22,37 @@ import (
 // TODO(P8): add SetEnabled once the store/service contract exists end-to-end.
 type PromptService interface {
 	ListPrompts(ctx context.Context, cwd, keyword string) ([]promptstore.PromptTemplate, error)
+	ListPromptSectionsByTemplates(ctx context.Context, cwd string, templates []promptstore.PromptTemplate) (map[int64][]promptstore.PromptTemplateSection, error)
 	GetPrompt(ctx context.Context, cwd, key string) (*promptstore.PromptTemplate, error)
 	WritePrompt(ctx context.Context, cwd string, prompt PromptWriteRequest) (*promptstore.PromptTemplate, error)
-	DeletePrompt(ctx context.Context, cwd, key string) error
+	DeletePrompt(ctx context.Context, cwd, key string, scope ...string) error
 	// ListSections / WriteSection / DeleteSection back the advanced-debug UI.
 	// Ordinary users never touch these — the per-template PromptText editor
 	// remains the primary path. Sections power the Step 1/2/3b cached-prefix
 	// / uncached-tail / enable_when feature gate.
 	ListSections(ctx context.Context, cwd, promptKey string) ([]promptstore.PromptTemplateSection, error)
 	WriteSection(ctx context.Context, cwd string, req PromptSectionWriteRequest) (*promptstore.PromptTemplateSection, error)
-	DeleteSection(ctx context.Context, cwd, promptKey, sectionKey string) error
+	DeleteSection(ctx context.Context, cwd, promptKey, sectionKey string, scope ...string) error
 }
 
 type PromptWriteRequest struct {
 	ID, Name, Content, Description, AgentType string
-	// MatchWhen feeds the router's match_when auto-route rung. nil / empty
-	// means opt-out (template will not participate in auto-routing); any
-	// other raw JSONB value is evaluated per EvaluateMatchWhen.
-	MatchWhen json.RawMessage
-	Priority  int
+	// ContentSet distinguishes omitted content (preserve existing prompt_text)
+	// from an explicit empty string (clear prompt_text).
+	ContentSet bool
+	// WhenToUseSet distinguishes an omitted field (preserve existing metadata)
+	// from an explicit empty string (clear metadata).
+	WhenToUse    string
+	WhenToUseSet bool
+	// MatchWhen feeds the router's match_when auto-route rung. MatchWhenSet
+	// distinguishes omitted updates (preserve existing metadata) from explicit
+	// nil / empty updates (opt-out from auto-routing).
+	MatchWhen    json.RawMessage
+	MatchWhenSet bool
+	Priority     int
+	Enabled      *bool
+	Scope        string
+	ScopeSet     bool
 	// Tags carries client-visible scene tags (e.g. ["代码审查","bug"]).
 	// Internal scope:// tags are managed separately and merged on write.
 	Tags json.RawMessage
@@ -46,17 +63,23 @@ type PromptWriteRequest struct {
 // is the stable per-template identifier used for dedup / delete. EnableWhen
 // accepts raw JSONB bytes (nil / "{}" / "null" all mean "always inject").
 type PromptSectionWriteRequest struct {
-	PromptKey  string
-	SectionKey string
-	Region     string // "static" | "dynamic"
-	Ordinal    int
-	Body       string
-	EnableWhen []byte
-	Enabled    bool
+	PromptKey   string
+	SectionKey  string
+	Region      string // "static" | "dynamic"
+	Ordinal     int
+	Body        string
+	EnableWhen  []byte
+	Enabled     bool
+	TriggerType string
+	RecallTopic string
+	Scope       string
+	ScopeSet    bool
 }
 
 type promptService struct {
-	store promptstore.Store
+	store    promptstore.Store
+	sections contract.SectionInvalidator
+	builtin  contract.BuiltinPromptRegistry
 }
 
 type promptListParams struct {
@@ -64,18 +87,42 @@ type promptListParams struct {
 }
 
 type promptWriteParams struct {
-	ID          string          `json:"id,omitempty"`
-	Name        string          `json:"name"`
-	Content     string          `json:"content,omitempty"`
-	Description string          `json:"description,omitempty"`
-	AgentType   string          `json:"agentType,omitempty"`
-	Cwd         string          `json:"cwd,omitempty"`
-	MatchWhen   json.RawMessage `json:"match_when,omitempty"`
-	Priority    int             `json:"priority,omitempty"`
-	Tags        json.RawMessage `json:"tags,omitempty"`
+	ID          string                   `json:"id,omitempty"`
+	Name        string                   `json:"name"`
+	Content     *string                  `json:"content,omitempty"`
+	Description string                   `json:"description,omitempty"`
+	AgentType   string                   `json:"agentType,omitempty"`
+	WhenToUse   *string                  `json:"when_to_use,omitempty"`
+	Cwd         string                   `json:"cwd,omitempty"`
+	MatchWhen   promptOptionalRawMessage `json:"match_when,omitempty"`
+	Priority    int                      `json:"priority,omitempty"`
+	Enabled     *bool                    `json:"enabled,omitempty"`
+	Scope       *string                  `json:"scope,omitempty"`
+	Tags        json.RawMessage          `json:"tags,omitempty"`
+}
+
+type promptOptionalRawMessage struct {
+	Raw json.RawMessage
+	Set bool
+}
+
+func (m *promptOptionalRawMessage) UnmarshalJSON(data []byte) error {
+	m.Set = true
+	if strings.TrimSpace(string(data)) == "null" {
+		m.Raw = nil
+		return nil
+	}
+	m.Raw = append(m.Raw[:0], data...)
+	return nil
 }
 
 type promptDeleteParams struct {
+	ID    string  `json:"id"`
+	Cwd   string  `json:"cwd,omitempty"`
+	Scope *string `json:"scope,omitempty"`
+}
+
+type promptGetParams struct {
 	ID  string `json:"id"`
 	Cwd string `json:"cwd,omitempty"`
 }
@@ -86,33 +133,39 @@ type promptSectionListParams struct {
 }
 
 type promptSectionWriteParams struct {
-	PromptID   string          `json:"prompt_id"`
-	SectionKey string          `json:"section_key"`
-	Region     string          `json:"region"`
-	Ordinal    int             `json:"ordinal"`
-	Body       string          `json:"body"`
-	EnableWhen json.RawMessage `json:"enable_when,omitempty"`
-	Enabled    *bool           `json:"enabled,omitempty"`
-	Cwd        string          `json:"cwd,omitempty"`
+	PromptID    string          `json:"prompt_id"`
+	SectionKey  string          `json:"section_key"`
+	Region      string          `json:"region"`
+	Ordinal     int             `json:"ordinal"`
+	Body        string          `json:"body"`
+	EnableWhen  json.RawMessage `json:"enable_when,omitempty"`
+	Enabled     *bool           `json:"enabled,omitempty"`
+	TriggerType string          `json:"trigger_type,omitempty"`
+	RecallTopic string          `json:"recall_topic,omitempty"`
+	Cwd         string          `json:"cwd,omitempty"`
+	Scope       *string         `json:"scope,omitempty"`
 }
 
 type promptSectionDeleteParams struct {
-	PromptID   string `json:"prompt_id"`
-	SectionKey string `json:"section_key"`
-	Cwd        string `json:"cwd,omitempty"`
+	PromptID   string  `json:"prompt_id"`
+	SectionKey string  `json:"section_key"`
+	Cwd        string  `json:"cwd,omitempty"`
+	Scope      *string `json:"scope,omitempty"`
 }
 
 type promptSectionRPCItem struct {
-	ID         int64           `json:"id"`
-	PromptID   string          `json:"prompt_id"`
-	SectionKey string          `json:"section_key"`
-	Region     string          `json:"region"`
-	Ordinal    int             `json:"ordinal"`
-	Body       string          `json:"body"`
-	EnableWhen json.RawMessage `json:"enable_when,omitempty"`
-	Enabled    bool            `json:"enabled"`
-	CreatedAt  time.Time       `json:"created_at"`
-	UpdatedAt  time.Time       `json:"updated_at"`
+	ID          int64           `json:"id"`
+	PromptID    string          `json:"prompt_id"`
+	SectionKey  string          `json:"section_key"`
+	Region      string          `json:"region"`
+	Ordinal     int             `json:"ordinal"`
+	Body        string          `json:"body"`
+	EnableWhen  json.RawMessage `json:"enable_when,omitempty"`
+	Enabled     bool            `json:"enabled"`
+	TriggerType string          `json:"trigger_type"`
+	RecallTopic string          `json:"recall_topic"`
+	CreatedAt   time.Time       `json:"created_at"`
+	UpdatedAt   time.Time       `json:"updated_at"`
 }
 
 type promptRPCItem struct {
@@ -121,12 +174,19 @@ type promptRPCItem struct {
 	Content     string          `json:"content"`
 	Description string          `json:"description"`
 	AgentType   string          `json:"agentType"`
+	WhenToUse   string          `json:"when_to_use"`
 	CreatedAt   time.Time       `json:"createdAt"`
 	UpdatedAt   time.Time       `json:"updatedAt"`
 	MatchWhen   json.RawMessage `json:"match_when,omitempty"`
 	Priority    int             `json:"priority,omitempty"`
+	Enabled     bool            `json:"enabled"`
+	Scope       string          `json:"scope,omitempty"`
 	Tags        json.RawMessage `json:"tags,omitempty"`
 }
+
+const promptListContentPreviewMaxRunes = 200
+
+var promptRecallTopicPattern = regexp.MustCompile(`^[a-z0-9]+(?:-[a-z0-9]+)*$`)
 
 var _ contract.PromptAssemblyService = (*service)(nil)
 var _ PromptService = (*promptService)(nil)
@@ -163,78 +223,226 @@ func NewService(cfg *Config, logger *slog.Logger, opts ...ServiceOption) Service
 	return svc
 }
 
-func registerPromptHandlers(store promptstore.Store) platformrpc.HandlerMapResult {
-	return buildPromptHandlersWithService(newPromptService(store))
+func newPromptService(store promptstore.Store, sections ...contract.SectionInvalidator) PromptService {
+	return newPromptServiceWithBuiltin(store, nil, sections...)
 }
 
-func newPromptService(store promptstore.Store) PromptService {
-	return &promptService{store: store}
+func newPromptServiceWithBuiltin(
+	store promptstore.Store,
+	builtin contract.BuiltinPromptRegistry,
+	sections ...contract.SectionInvalidator,
+) PromptService {
+	var sectionInvalidator contract.SectionInvalidator
+	if len(sections) > 0 {
+		sectionInvalidator = sections[0]
+	}
+	return &promptService{store: store, sections: sectionInvalidator, builtin: builtin}
 }
 
-func buildPromptHandlersWithService(promptSvc PromptService) platformrpc.HandlerMapResult {
-	return platformrpc.HandlerMapResult{Handlers: handler.Map{
-		"prompts/list": platformrpc.StrictHandler(func(ctx context.Context, p promptListParams) (any, error) {
-			templates, err := promptSvc.ListPrompts(ctx, p.Cwd, "")
-			if err != nil {
-				return nil, err
-			}
-			return map[string]any{"prompts": promptItemsFromTemplates(templates)}, nil
+func buildPromptHandlersWithService(promptSvc PromptService, deps ...any) platformrpc.HandlerMapResult {
+	var promptStore promptstore.Store
+	var sectionInvalidator contract.SectionInvalidator
+	var dream contract.DreamExecutor
+	var builtin contract.BuiltinPromptRegistry
+	for _, dep := range deps {
+		switch value := dep.(type) {
+		case promptstore.Store:
+			promptStore = value
+		case contract.SectionInvalidator:
+			sectionInvalidator = value
+		case contract.DreamExecutor:
+			dream = value
+		case contract.BuiltinPromptRegistry:
+			builtin = value
+		}
+	}
+	handlers := handler.Map{
+		"prompts/list": platformrpc.StrictHandler(func(ctx context.Context, p promptListParams) (any, error) { return handlePromptList(ctx, promptSvc, p) }),
+		"prompt-assets/list": platformrpc.StrictHandler(func(ctx context.Context, p promptAssetListParams) (any, error) {
+			return handlePromptAssetList(ctx, promptStore, p)
+		}),
+		"prompts/get": platformrpc.StrictHandler(func(ctx context.Context, p promptGetParams) (any, error) {
+			return handlePromptGet(ctx, promptSvc, p)
 		}),
 		"prompts/write": platformrpc.StrictHandler(func(ctx context.Context, p promptWriteParams) (any, error) {
-			template, err := promptSvc.WritePrompt(ctx, p.Cwd, PromptWriteRequest{
-				ID:          p.ID,
-				Name:        p.Name,
-				Content:     p.Content,
-				Description: p.Description,
-				AgentType:   p.AgentType,
-				MatchWhen:   append(json.RawMessage(nil), p.MatchWhen...),
-				Priority:    p.Priority,
-				Tags:        p.Tags,
-			})
-			if err != nil {
-				return nil, err
-			}
-			return map[string]any{"prompt": promptItemFromTemplate(*template)}, nil
+			return handlePromptWrite(ctx, promptSvc, p)
 		}),
 		"prompts/delete": platformrpc.StrictHandler(func(ctx context.Context, p promptDeleteParams) (any, error) {
-			if err := promptSvc.DeletePrompt(ctx, p.Cwd, p.ID); err != nil {
-				return nil, err
-			}
-			return map[string]any{"ok": true}, nil
+			return handlePromptDelete(ctx, promptSvc, p)
 		}),
 		"prompt-sections/list": platformrpc.StrictHandler(func(ctx context.Context, p promptSectionListParams) (any, error) {
-			sections, err := promptSvc.ListSections(ctx, p.Cwd, p.PromptID)
-			if err != nil {
-				return nil, err
-			}
-			return map[string]any{"sections": promptSectionItemsFromStore(sections, p.PromptID)}, nil
+			return handlePromptSectionList(ctx, promptSvc, p)
 		}),
 		"prompt-sections/write": platformrpc.StrictHandler(func(ctx context.Context, p promptSectionWriteParams) (any, error) {
-			enabled := true
-			if p.Enabled != nil {
-				enabled = *p.Enabled
-			}
-			section, err := promptSvc.WriteSection(ctx, p.Cwd, PromptSectionWriteRequest{
-				PromptKey:  p.PromptID,
-				SectionKey: p.SectionKey,
-				Region:     p.Region,
-				Ordinal:    p.Ordinal,
-				Body:       p.Body,
-				EnableWhen: []byte(p.EnableWhen),
-				Enabled:    enabled,
-			})
-			if err != nil {
-				return nil, err
-			}
-			return map[string]any{"section": promptSectionItemFromStore(*section, p.PromptID)}, nil
+			return handlePromptSectionWrite(ctx, promptSvc, p)
 		}),
 		"prompt-sections/delete": platformrpc.StrictHandler(func(ctx context.Context, p promptSectionDeleteParams) (any, error) {
-			if err := promptSvc.DeleteSection(ctx, p.Cwd, p.PromptID, p.SectionKey); err != nil {
-				return nil, err
-			}
-			return map[string]any{"ok": true}, nil
+			return handlePromptSectionDelete(ctx, promptSvc, p)
 		}),
-	}}
+		"prompt-intents/draft": platformrpc.StrictHandler(func(ctx context.Context, p promptintent.DraftParams) (any, error) {
+			return promptintent.HandleDraft(ctx, promptStore, dream, builtin, p)
+		}),
+		"prompt-intents/dry-run": platformrpc.StrictHandler(func(ctx context.Context, p promptintent.DryRunParams) (any, error) {
+			return promptintent.HandleDryRun(ctx, promptStore, dream, builtin, p)
+		}),
+		"prompt-intents/commit": platformrpc.StrictHandler(func(ctx context.Context, p promptintent.CommitParams) (any, error) {
+			return promptintent.HandleCommit(ctx, promptStore, sectionInvalidator, builtin, p)
+		}),
+		"prompt-intents/discard": platformrpc.StrictHandler(func(ctx context.Context, p promptintent.DiscardParams) (any, error) {
+			return promptintent.HandleDiscard(ctx, promptStore, p)
+		}),
+	}
+	if strings.TrimSpace(os.Getenv("PROMPT_INTENT_E2E_DREAM_FIXTURE")) != "" {
+		handlers["prompt-intents/e2e-health"] = platformrpc.StrictHandler(func(ctx context.Context, p promptintent.E2EHealthParams) (any, error) {
+			return promptintent.HandleE2EHealth(ctx, dream, p)
+		})
+	}
+	return platformrpc.HandlerMapResult{Handlers: handlers}
+}
+
+func handlePromptList(ctx context.Context, promptSvc PromptService, p promptListParams) (any, error) {
+	templates, err := promptSvc.ListPrompts(ctx, p.Cwd, "")
+	if err != nil {
+		return nil, err
+	}
+	sectionsByTemplateID, err := promptSvc.ListPromptSectionsByTemplates(ctx, p.Cwd, templates)
+	if err != nil {
+		return nil, err
+	}
+	return map[string]any{"prompts": promptItemsFromTemplatesWithSections(templates, sectionsByTemplateID)}, nil
+}
+
+func handlePromptGet(ctx context.Context, promptSvc PromptService, p promptGetParams) (any, error) {
+	template, err := promptSvc.GetPrompt(ctx, p.Cwd, p.ID)
+	if err != nil {
+		return nil, err
+	}
+	sectionsByTemplateID, err := promptSvc.ListPromptSectionsByTemplates(ctx, p.Cwd, []promptstore.PromptTemplate{*template})
+	if err != nil {
+		return nil, err
+	}
+	return map[string]any{"prompt": promptItemFromTemplateWithFullSections(*template, sectionsByTemplateID[template.ID])}, nil
+}
+
+func handlePromptWrite(ctx context.Context, promptSvc PromptService, p promptWriteParams) (any, error) {
+	req := promptWriteRequestFromParams(p)
+	template, err := promptSvc.WritePrompt(ctx, p.Cwd, req)
+	if err != nil {
+		return nil, err
+	}
+	return map[string]any{"prompt": promptItemFromTemplate(*template)}, nil
+}
+
+func promptWriteRequestFromParams(p promptWriteParams) PromptWriteRequest {
+	content := ""
+	contentSet := false
+	if p.Content != nil {
+		content = *p.Content
+		contentSet = true
+	}
+	whenToUse := ""
+	if p.WhenToUse != nil {
+		whenToUse = *p.WhenToUse
+	}
+	var matchWhen json.RawMessage
+	if p.MatchWhen.Set {
+		matchWhen = append(json.RawMessage(nil), p.MatchWhen.Raw...)
+	}
+	return PromptWriteRequest{
+		ID:           p.ID,
+		Name:         p.Name,
+		Content:      content,
+		ContentSet:   contentSet,
+		Description:  p.Description,
+		AgentType:    p.AgentType,
+		WhenToUse:    whenToUse,
+		WhenToUseSet: p.WhenToUse != nil,
+		MatchWhen:    matchWhen,
+		MatchWhenSet: p.MatchWhen.Set,
+		Priority:     p.Priority,
+		Enabled:      p.Enabled,
+		Scope:        stringValue(p.Scope),
+		ScopeSet:     p.Scope != nil,
+		Tags:         p.Tags,
+	}
+}
+
+func stringValue(value *string) string {
+	if value == nil {
+		return ""
+	}
+	return *value
+}
+
+func validatePromptDiscoverability(template promptstore.PromptTemplate, current *promptstore.PromptTemplate, explicit bool) error {
+	if strings.TrimSpace(template.WhenToUse) != "" || current != nil && !explicit {
+		return nil
+	}
+	return errors.New("dashboard: prompt when_to_use is required")
+}
+
+func handlePromptDelete(ctx context.Context, promptSvc PromptService, p promptDeleteParams) (any, error) {
+	if err := deletePromptWithOptionalScope(ctx, promptSvc, p); err != nil {
+		return nil, err
+	}
+	return map[string]any{"ok": true}, nil
+}
+
+func deletePromptWithOptionalScope(ctx context.Context, promptSvc PromptService, p promptDeleteParams) error {
+	if p.Scope == nil {
+		return promptSvc.DeletePrompt(ctx, p.Cwd, p.ID)
+	}
+	return promptSvc.DeletePrompt(ctx, p.Cwd, p.ID, stringValue(p.Scope))
+}
+
+func handlePromptSectionList(ctx context.Context, promptSvc PromptService, p promptSectionListParams) (any, error) {
+	sections, err := promptSvc.ListSections(ctx, p.Cwd, p.PromptID)
+	if err != nil {
+		return nil, err
+	}
+	return map[string]any{"sections": promptSectionItemsFromStore(sections, p.PromptID)}, nil
+}
+
+func handlePromptSectionWrite(ctx context.Context, promptSvc PromptService, p promptSectionWriteParams) (any, error) {
+	section, err := promptSvc.WriteSection(ctx, p.Cwd, promptSectionWriteRequestFromParams(p))
+	if err != nil {
+		return nil, err
+	}
+	return map[string]any{"section": promptSectionItemFromStore(*section, p.PromptID)}, nil
+}
+
+func promptSectionWriteRequestFromParams(p promptSectionWriteParams) PromptSectionWriteRequest {
+	enabled := true
+	if p.Enabled != nil {
+		enabled = *p.Enabled
+	}
+	return PromptSectionWriteRequest{
+		PromptKey:   p.PromptID,
+		SectionKey:  p.SectionKey,
+		Region:      p.Region,
+		Ordinal:     p.Ordinal,
+		Body:        p.Body,
+		EnableWhen:  []byte(p.EnableWhen),
+		Enabled:     enabled,
+		TriggerType: p.TriggerType,
+		RecallTopic: p.RecallTopic,
+		Scope:       stringValue(p.Scope),
+		ScopeSet:    p.Scope != nil,
+	}
+}
+
+func handlePromptSectionDelete(ctx context.Context, promptSvc PromptService, p promptSectionDeleteParams) (any, error) {
+	if err := deletePromptSectionWithOptionalScope(ctx, promptSvc, p); err != nil {
+		return nil, err
+	}
+	return map[string]any{"ok": true}, nil
+}
+
+func deletePromptSectionWithOptionalScope(ctx context.Context, promptSvc PromptService, p promptSectionDeleteParams) error {
+	if p.Scope == nil {
+		return promptSvc.DeleteSection(ctx, p.Cwd, p.PromptID, p.SectionKey)
+	}
+	return promptSvc.DeleteSection(ctx, p.Cwd, p.PromptID, p.SectionKey, stringValue(p.Scope))
 }
 
 func promptSectionItemsFromStore(sections []promptstore.PromptTemplateSection, promptKey string) []promptSectionRPCItem {
@@ -247,23 +455,37 @@ func promptSectionItemsFromStore(sections []promptstore.PromptTemplateSection, p
 
 func promptSectionItemFromStore(section promptstore.PromptTemplateSection, promptKey string) promptSectionRPCItem {
 	return promptSectionRPCItem{
-		ID:         section.ID,
-		PromptID:   promptKey,
-		SectionKey: section.SectionKey,
-		Region:     section.Region,
-		Ordinal:    section.Ordinal,
-		Body:       section.Body,
-		EnableWhen: json.RawMessage(section.EnableWhen),
-		Enabled:    section.Enabled,
-		CreatedAt:  section.CreatedAt,
-		UpdatedAt:  section.UpdatedAt,
+		ID:          section.ID,
+		PromptID:    promptKey,
+		SectionKey:  section.SectionKey,
+		Region:      section.Region,
+		Ordinal:     section.Ordinal,
+		Body:        section.Body,
+		EnableWhen:  json.RawMessage(section.EnableWhen),
+		Enabled:     section.Enabled,
+		TriggerType: section.TriggerType,
+		RecallTopic: section.RecallTopic,
+		CreatedAt:   section.CreatedAt,
+		UpdatedAt:   section.UpdatedAt,
 	}
 }
 
 func promptItemsFromTemplates(templates []promptstore.PromptTemplate) []promptRPCItem {
+	return promptItemsFromTemplatesWithSections(templates, nil)
+}
+
+func promptItemsFromTemplatesWithSections(
+	templates []promptstore.PromptTemplate,
+	sectionsByTemplateID map[int64][]promptstore.PromptTemplateSection,
+) []promptRPCItem {
 	items := make([]promptRPCItem, 0, len(templates))
 	for _, template := range templates {
-		items = append(items, promptItemFromTemplate(template))
+		sections := sectionsByTemplateID[template.ID]
+		item := promptItemFromTemplate(promptTemplateWithInferredSectionIntent(template, sections))
+		if preview := promptSectionsContentPreview(sections); preview != "" {
+			item.Content = preview
+		}
+		items = append(items, item)
 	}
 	return items
 }
@@ -275,20 +497,157 @@ func promptItemFromTemplate(template promptstore.PromptTemplate) promptRPCItem {
 		Content:     template.PromptText,
 		Description: template.Description,
 		AgentType:   template.AgentKey,
+		WhenToUse:   template.WhenToUse,
 		CreatedAt:   template.CreatedAt,
 		UpdatedAt:   template.UpdatedAt,
 		MatchWhen:   append(json.RawMessage(nil), template.MatchWhen...),
 		Priority:    template.Priority,
+		Enabled:     template.Enabled,
+		Scope:       promptScopeForTemplate(template),
 		Tags:        filterVisibleTags(template.Tags),
 	}
 }
 
-// filterVisibleTags strips internal scope:// tags, returning only user-visible tags.
+func promptItemFromTemplateWithFullSections(template promptstore.PromptTemplate, sections []promptstore.PromptTemplateSection) promptRPCItem {
+	template = promptTemplateWithInferredSectionIntent(template, sections)
+	item := promptItemFromTemplate(template)
+	if content := promptEditableSectionsContent(template, sections); content != "" {
+		item.Content = content
+	}
+	return item
+}
+
+func promptTemplateIDs(templates []promptstore.PromptTemplate) []int64 {
+	ids := make([]int64, 0, len(templates))
+	seen := map[int64]struct{}{}
+	for _, template := range templates {
+		if template.ID <= 0 {
+			continue
+		}
+		if _, ok := seen[template.ID]; ok {
+			continue
+		}
+		seen[template.ID] = struct{}{}
+		ids = append(ids, template.ID)
+	}
+	return ids
+}
+
+func promptSectionsContentPreview(sections []promptstore.PromptTemplateSection) string {
+	return promptSectionsContent(sections, promptListContentPreviewMaxRunes)
+}
+
+func promptSectionsContent(sections []promptstore.PromptTemplateSection, maxRunes int) string {
+	if len(sections) == 0 {
+		return ""
+	}
+	sorted := make([]promptstore.PromptTemplateSection, len(sections))
+	copy(sorted, sections)
+	sort.SliceStable(sorted, func(i, j int) bool { return promptPreviewSectionLess(sorted[i], sorted[j]) })
+	blocks := make([]string, 0, len(sorted))
+	for _, section := range sorted {
+		if body := promptPreviewSectionBody(section); body != "" {
+			blocks = append(blocks, body)
+		}
+	}
+	if len(blocks) == 0 {
+		return ""
+	}
+	text := strings.Join(blocks, "\n\n")
+	if maxRunes <= 0 {
+		return text
+	}
+	return truncatePromptListContentPreview(text)
+}
+
+func promptEditableSectionsContent(template promptstore.PromptTemplate, sections []promptstore.PromptTemplateSection) string {
+	if promptTemplateIntentKind(template) == "recall" {
+		return promptRecallSectionsContent(sections)
+	}
+	return promptSectionsContent(sections, 0)
+}
+
+func promptRecallSectionsContent(sections []promptstore.PromptTemplateSection) string {
+	if len(sections) == 0 {
+		return ""
+	}
+	sorted := make([]promptstore.PromptTemplateSection, len(sections))
+	copy(sorted, sections)
+	sort.SliceStable(sorted, func(i, j int) bool { return promptPreviewSectionLess(sorted[i], sorted[j]) })
+	blocks := make([]string, 0, len(sorted))
+	for _, section := range sorted {
+		if !section.Enabled || !strings.EqualFold(strings.TrimSpace(section.TriggerType), "recall") {
+			continue
+		}
+		if body := strings.TrimSpace(section.Body); body != "" {
+			blocks = append(blocks, body)
+		}
+	}
+	return strings.Join(blocks, "\n\n")
+}
+
+func promptPreviewSectionLess(left, right promptstore.PromptTemplateSection) bool {
+	if left.TemplateID != right.TemplateID {
+		return left.TemplateID < right.TemplateID
+	}
+	if regionPriority(left.Region) != regionPriority(right.Region) {
+		return regionPriority(left.Region) < regionPriority(right.Region)
+	}
+	if left.Ordinal != right.Ordinal {
+		return left.Ordinal < right.Ordinal
+	}
+	if left.ID != right.ID {
+		return left.ID < right.ID
+	}
+	return left.SectionKey < right.SectionKey
+}
+
+func promptPreviewSectionBody(section promptstore.PromptTemplateSection) string {
+	if !section.Enabled || strings.EqualFold(strings.TrimSpace(section.TriggerType), "recall") {
+		return ""
+	}
+	return strings.TrimSpace(section.Body)
+}
+
+func validateRecallTopicForWrite(triggerType, topic string) error {
+	if strings.TrimSpace(strings.ToLower(triggerType)) != "recall" {
+		return nil
+	}
+	if !validPromptRecallTopicName(strings.TrimSpace(topic)) {
+		return errors.New("dashboard: recall_topic must be lowercase dash-separated and shorter than 64 characters")
+	}
+	return nil
+}
+
+func validPromptRecallTopicName(topic string) bool {
+	return len(topic) < 64 && promptRecallTopicPattern.MatchString(topic)
+}
+
+func regionPriority(region string) int {
+	switch strings.TrimSpace(strings.ToLower(region)) {
+	case "static":
+		return 0
+	case "dynamic":
+		return 1
+	default:
+		return 2
+	}
+}
+
+func truncatePromptListContentPreview(text string) string {
+	runes := []rune(text)
+	if len(runes) <= promptListContentPreviewMaxRunes {
+		return text
+	}
+	return string(runes[:promptListContentPreviewMaxRunes])
+}
+
+// filterVisibleTags strips internal scope tags, returning only user-visible tags.
 func filterVisibleTags(raw json.RawMessage) json.RawMessage {
 	tags := promptTags(raw)
 	visible := make([]string, 0, len(tags))
 	for _, t := range tags {
-		if t = strings.TrimSpace(t); t != "" && !strings.HasPrefix(t, promptScopeTagPrefix) {
+		if t = strings.TrimSpace(t); t != "" && t != "scope.global" && !strings.HasPrefix(t, promptScopeTagPrefix) {
 			visible = append(visible, t)
 		}
 	}

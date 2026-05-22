@@ -175,8 +175,8 @@ func waitForFlusherDone(t *testing.T, done <-chan error, timeout time.Duration) 
 
 // TestFlusherDeliversBulkQueue verifies the main loop processes a
 // full queue of requests and each body reaches the server. Shutdown
-// is via ctx cancel after the server has recorded everything; drain
-// semantics (bounded ctx for in-flight POSTs) are exercised by
+// is via ctx cancel after the server and flusher metrics have recorded
+// everything; drain semantics (bounded ctx for in-flight POSTs) are exercised by
 // TestFlusherDrainBoundedContext below.
 func TestFlusherDeliversBulkQueue(t *testing.T) {
 	t.Parallel()
@@ -201,16 +201,8 @@ func TestFlusherDeliversBulkQueue(t *testing.T) {
 		}
 	}
 
-	deadline := time.Now().Add(5 * time.Second)
-	for time.Now().Before(deadline) {
-		mu.Lock()
-		n := len(*bodies)
-		mu.Unlock()
-		if n >= 3 {
-			break
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
+	waitForFlusherBodies(bodies, mu, 3, 5*time.Second)
+	waitForFlusherDelivered(t, f, 3, 5*time.Second)
 	cancel()
 	select {
 	case <-done:
@@ -227,6 +219,18 @@ func TestFlusherDeliversBulkQueue(t *testing.T) {
 	if m := f.Metrics(); m.Delivered != 3 {
 		t.Fatalf("metrics Delivered = %d, want 3 (%+v)", m.Delivered, m)
 	}
+}
+
+func waitForFlusherDelivered(t *testing.T, f *Flusher, want int64, timeout time.Duration) {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		if f.Metrics().Delivered >= want {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatalf("flusher delivered %d, want %d", f.Metrics().Delivered, want)
 }
 
 // TestFlusherDrainBoundedContext exercises the shutdown drain path

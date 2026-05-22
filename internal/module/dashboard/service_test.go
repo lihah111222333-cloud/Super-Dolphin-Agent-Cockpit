@@ -358,6 +358,49 @@ func TestDashboardPromptsHandlerScopesByCWDAndReturnsPromptsKey(t *testing.T) {
 	assertDashboardPromptKeys(t, prompts, []string{"global", "other"})
 }
 
+func TestDashboardPromptsHandlerRequiresCWD(t *testing.T) {
+	t.Parallel()
+
+	stub := &stubPromptReader{
+		result: []promptstore.PromptTemplate{
+			{PromptKey: "other-project", Title: "Other", Tags: json.RawMessage(`["scope.cwd:/repo-b"]`)},
+		},
+	}
+	server := newDashboardTestServer(t, &service{prompts: stub})
+
+	_, err := server.Dispatch(context.Background(), "dashboard/prompts", json.RawMessage(`{}`))
+	if err == nil {
+		t.Fatal("Dispatch() error = nil, want cwd required")
+	}
+	if stub.calls != 0 {
+		t.Fatalf("List() calls = %d, want 0 when cwd is missing", stub.calls)
+	}
+}
+
+func TestDashboardPromptsHandlerHidesSystemManagedPromptRows(t *testing.T) {
+	t.Parallel()
+
+	stub := &stubPromptReader{
+		result: []promptstore.PromptTemplate{
+			{PromptKey: "user-expert", Title: "User Expert", Tags: json.RawMessage(`["scope.cwd:/repo-a","intent:expert"]`), CreatedBy: "rpc.prompts", UpdatedBy: "rpc.prompts"},
+			{PromptKey: "user-edited-seed", Title: "User Edited Seed", Tags: json.RawMessage(`["scope.cwd:/repo-a","intent:expert"]`), CreatedBy: "system.seed", UpdatedBy: "rpc.prompts", ManuallyEdited: true},
+			{PromptKey: "builtin-tagged", Title: "Builtin Tagged", Tags: json.RawMessage(`["scope.cwd:/repo-a","builtin:system"]`), CreatedBy: "rpc.prompts", UpdatedBy: "rpc.prompts"},
+			{PromptKey: "edited-builtin-tagged", Title: "Edited Builtin Tagged", Tags: json.RawMessage(`["scope.cwd:/repo-a","builtin:system"]`), CreatedBy: "system.seed", UpdatedBy: "rpc.prompts", ManuallyEdited: true},
+			{PromptKey: "system-seed", Title: "System Seed", Tags: json.RawMessage(`["scope.cwd:/repo-a","intent:expert"]`), CreatedBy: "system.seed", UpdatedBy: "system.seed"},
+			{PromptKey: "registry-row", Title: "Registry Row", Tags: json.RawMessage(`["scope.cwd:/repo-a","intent:expert"]`), CreatedBy: "builtin.registry", UpdatedBy: "builtin.registry"},
+		},
+	}
+	server := newDashboardTestServer(t, &service{prompts: stub})
+
+	result, err := server.Dispatch(context.Background(), "dashboard/prompts", json.RawMessage(`{"cwd":"/repo-a"}`))
+	if err != nil {
+		t.Fatalf("Dispatch() error = %v", err)
+	}
+
+	prompts := decodeDashboardPromptsResponse(t, result)
+	assertDashboardPromptKeys(t, prompts, []string{"user-expert", "user-edited-seed"})
+}
+
 func TestGetAILogsByCategoryUsesStore(t *testing.T) {
 	t.Parallel()
 

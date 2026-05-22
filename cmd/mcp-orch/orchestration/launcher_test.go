@@ -61,6 +61,7 @@ func TestRemoteLauncher_LaunchStop(t *testing.T) {
 		Name:        "Worker UI",
 		ParentID:    "agent-root",
 		AgentType:   "worker",
+		PromptKey:   "main/sql",
 		MemoryScope: "local",
 	})
 	require.NoError(t, err)
@@ -73,6 +74,7 @@ func TestRemoteLauncher_LaunchStop(t *testing.T) {
 	// it as a legacy alias for `name` and rejects (-32602) when the two differ.
 	require.NotContains(t, started, "prompt")
 	require.Equal(t, "worker", started["agent_type"])
+	require.Equal(t, "main/sql", started["prompt_key"])
 	require.Equal(t, "agent-root", started["parent_agent_id"])
 	require.Equal(t, "local", started["agent_memory_scope"])
 	require.NoError(t, launcher.Stop(context.Background(), agent))
