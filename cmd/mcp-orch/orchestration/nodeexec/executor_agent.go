@@ -246,13 +246,8 @@ func (e *AgentExecutor) HasSpawnRecorder() bool {
 var agentOutputsForbiddenKeys = []string{"webhook_url", "command_ref"}
 
 func normalizeAgentLaunchConfig(cfg *AgentNodeConfig) *NodeOutcome {
-	if strings.TrimSpace(cfg.Exec.AgentKey) == "" {
-		err := errors.New("agent_key required in node.config.exec")
-		return &NodeOutcome{
-			Status:       NodeStatusFailed,
-			FailureClass: FailureClassValidation,
-			ErrorSummary: err.Error(),
-		}
+	if failure := validateAgentLaunchIdentity(cfg); failure != nil {
+		return failure
 	}
 	provider, err := validateAgentLaunchProvider(cfg.Exec.Provider)
 	if err != nil {
@@ -274,6 +269,17 @@ func validateAgentOutputs(raw json.RawMessage, _ *AgentNodeConfig) *NodeOutcome 
 			ErrorSummary: truncateErrSummary(fmt.Sprintf("agent outputs cannot include external capability field %q", key)),
 		}
 	})
+}
+
+func validateAgentLaunchIdentity(cfg *AgentNodeConfig) *NodeOutcome {
+	if strings.TrimSpace(cfg.Exec.AgentKey) != "" || strings.TrimSpace(cfg.Exec.PromptKey) != "" {
+		return nil
+	}
+	return &NodeOutcome{
+		Status:       NodeStatusFailed,
+		FailureClass: FailureClassValidation,
+		ErrorSummary: "agent_key or prompt_key required in node.config.exec",
+	}
 }
 
 func agentLaunchCWDValidationFailure(err error) *NodeOutcome {
@@ -355,7 +361,7 @@ func resolveSpawnKeys(node Node, runCtx RunContext) (string, string) {
 // 关键映射：
 //   - AgentID 使用项目统一 agent_{monotonicNumericTimestamp} 生成器；
 //   - Name 取 node.Title，去掉控制符并限制长度，供日志/UI 展示；
-//   - AgentKey/Language 直填同名字段；
+//   - AgentKey/PromptKey/Language 直填同名字段；
 //   - Provider/Model/Effort 通过 LaunchRequest.Env 传递给 remoteLauncher；
 //   - CWD 取 cfg.exec.cwd；
 //   - FirstTurn 作为初始 Prompt 注入。
@@ -367,6 +373,7 @@ func buildLaunchRequestFromAgentConfig(cfg *AgentNodeConfig, node Node, _ RunCon
 		AgentID:   idgen.NewAgentID(),
 		Name:      sanitizeLaunchName(node.Title),
 		AgentKey:  strings.TrimSpace(cfg.Exec.AgentKey),
+		PromptKey: strings.TrimSpace(cfg.Exec.PromptKey),
 		Cwd:       cfg.Exec.CWD,
 		Language:  strings.TrimSpace(cfg.Exec.Language),
 		Prompt:    cfg.FirstTurn,

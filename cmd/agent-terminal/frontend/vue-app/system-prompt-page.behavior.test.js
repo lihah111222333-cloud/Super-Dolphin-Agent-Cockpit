@@ -4,11 +4,15 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const apiMock = vi.hoisted(() => ({
   callAPI: vi.fn(),
   copyTextToClipboard: vi.fn(),
+  onFilesDropped: vi.fn(() => () => {}),
+  readDroppedTextFiles: vi.fn(),
 }));
 
 vi.mock('./services/api.js', () => ({
   callAPI: apiMock.callAPI,
   copyTextToClipboard: apiMock.copyTextToClipboard,
+  onFilesDropped: apiMock.onFilesDropped,
+  readDroppedTextFiles: apiMock.readDroppedTextFiles,
 }));
 
 vi.mock('./services/log.js', () => ({
@@ -17,7 +21,7 @@ vi.mock('./services/log.js', () => ({
   logWarn: vi.fn(),
 }));
 
-import { SystemPromptPage, isReadonlyFallbackListError, PREF_KEY_ACTIVE_PROMPT, PREF_KEY_CLASSIFIER_ENABLED } from './pages/SystemPromptPage.js';
+import { SystemPromptPage, isReadonlyFallbackListError, PREF_KEY_ACTIVE_PROMPT } from './pages/SystemPromptPage.js';
 
 function createPage(overrides = {}) {
   const props = {
@@ -38,9 +42,101 @@ function createStatusOnlyError(status, message = `status ${status}`) {
 beforeEach(() => {
   apiMock.callAPI.mockReset();
   apiMock.copyTextToClipboard.mockReset();
+  apiMock.onFilesDropped.mockReset().mockReturnValue(() => {});
+  apiMock.readDroppedTextFiles.mockReset();
 });
 
 describe('SystemPromptPage behavior', () => {
+  it('registers PromptIntentWizard and keeps SectionsEditor behind hidden advanced debug', () => {
+    expect(SystemPromptPage.components.PromptIntentWizard).toBeTruthy();
+    expect(SystemPromptPage.components.SectionsEditor).toBeTruthy();
+    expect(SystemPromptPage.template).toContain('AI 能力与资料');
+    expect(SystemPromptPage.template).not.toContain('内置提示词');
+    expect(SystemPromptPage.template).not.toContain('系统内置');
+    expect(SystemPromptPage.template).not.toContain('builtin');
+    expect(SystemPromptPage.template).toContain('<prompt-intent-wizard');
+    expect(SystemPromptPage.template).toContain('data-testid="sp-advanced-debug"');
+    expect(SystemPromptPage.template).toContain('<sections-editor');
+    expect(SystemPromptPage.template).toContain(':prompt-id="form.id"');
+    expect(SystemPromptPage.template).toContain('v-if="advancedDebugAvailable"');
+    expect(SystemPromptPage.template).toContain('v-if="advancedDebugOpen"');
+    expect(SystemPromptPage.template).toContain(':visible="advancedDebugOpen"');
+    expect(SystemPromptPage.template).not.toContain('data-testid="sp-content-input"');
+    expect(SystemPromptPage.template).not.toContain('data-testid="sp-editor-sections-banner"');
+    expect(SystemPromptPage.template).toContain(':fallback-mode="fallbackMode || !currentProjectCwd"');
+  });
+
+  it('allows ordinary semantic edits while keeping advanced debug hidden by default', () => {
+    const { vm } = createPage();
+
+    expect(vm.advancedDebugAvailable.value).toBe(false);
+    expect(vm.editorReadonly.value).toBe(false);
+    expect(vm.editButtonCopy({}, false, vm.advancedDebugAvailable.value)).toBe('编辑');
+    expect(vm.editorTitleCopy(false, 'edit', vm.advancedDebugAvailable.value)).toBe('编辑提示词');
+    expect(SystemPromptPage.template).toContain('data-testid="sp-save-btn"');
+    expect(SystemPromptPage.template).not.toContain('data-testid="sp-save-btn" v-if="advancedDebugAvailable"');
+    expect(SystemPromptPage.template).toContain(':disabled="saving || fallbackMode"');
+    expect(SystemPromptPage.template).toContain('data-testid="sp-execution-input"');
+    expect(SystemPromptPage.template).toContain('AI 使用时怎么做');
+
+    vm.advancedDebugAvailable.value = true;
+    expect(vm.editorReadonly.value).toBe(false);
+    expect(vm.editButtonCopy({}, false, vm.advancedDebugAvailable.value)).toBe('编辑');
+    expect(vm.editorTitleCopy(false, 'edit', vm.advancedDebugAvailable.value)).toBe('编辑提示词');
+  });
+
+  it('openEdit maps when_to_use into the metadata form', async () => {
+    apiMock.callAPI.mockResolvedValueOnce({
+      prompts: [
+        {
+          id: 'coder/prompt',
+          name: 'Coder',
+          content: 'assembled preview',
+          agentType: 'coder',
+          when_to_use: 'Use for coding implementation tasks.',
+        },
+      ],
+    });
+
+    const { vm } = createPage();
+    await vm.loadPrompts();
+    vm.openEdit(vm.promptCards.value[0]);
+
+    expect(vm.form.whenToUse).toBe('Use for coding implementation tasks.');
+  });
+
+  it('savePrompt writes metadata with when_to_use and changed execution content', async () => {
+    apiMock.callAPI
+      .mockResolvedValueOnce({ prompt: { id: 'new-prompt', name: 'New Prompt' } })
+      .mockResolvedValueOnce({ prompts: [] });
+    const { vm } = createPage();
+
+    vm.editorMode.value = 'create';
+    vm.editorOpen.value = true;
+    vm.form.name = 'New Prompt';
+    vm.form.originalContent = 'previous execution description';
+    vm.form.content = 'When delegated, inspect the diff and report blocking findings first.';
+    vm.form.whenToUse = 'Use when a coding task needs delegation.';
+    await vm.savePrompt();
+
+    expect(apiMock.callAPI).toHaveBeenCalledWith('prompts/write', {
+      id: '',
+      name: 'New Prompt',
+      description: '',
+      agentType: 'main',
+      priority: 0,
+      when_to_use: 'Use when a coding task needs delegation.',
+      content: 'When delegated, inspect the diff and report blocking findings first.',
+      tags: [],
+      enabled: true,
+      scope: 'project',
+      cwd: '/test-repo',
+    });
+    expect(vm.form.id).toBe('new-prompt');
+    expect(vm.editorMode.value).toBe('edit');
+    expect(vm.editorOpen.value).toBe(true);
+  });
+
   it('defaults to all tab with editor closed', () => {
     const { vm } = createPage();
     expect(vm.activeTab.value).toBe('all');
@@ -50,8 +146,8 @@ describe('SystemPromptPage behavior', () => {
   it('switchTab changes activeTab and clears notice', () => {
     const { vm } = createPage();
     vm.notice.message = 'old';
-    vm.switchTab('coder');
-    expect(vm.activeTab.value).toBe('coder');
+    vm.switchTab('expert');
+    expect(vm.activeTab.value).toBe('expert');
     expect(vm.notice.message).toBe('');
   });
 
@@ -91,40 +187,165 @@ describe('SystemPromptPage behavior', () => {
 
     expect(vm.promptCards.value).toHaveLength(2);
     expect(vm.promptCards.value[0].name).toBe('Prompt A');
-    expect(apiMock.callAPI).toHaveBeenCalledWith('prompts/list', { cwd: '/test-repo' });
+    expect(apiMock.callAPI).toHaveBeenCalledWith('prompt-assets/list', { cwd: '/test-repo' });
   });
 
-  it('filteredCards filters by activeTab', async () => {
+  it('loadPrompts uses user asset list and marks ready drafts as pending confirmation', async () => {
     apiMock.callAPI.mockResolvedValueOnce({
       prompts: [
-        { id: 'p1', name: 'Coder Prompt', content: 'a', agentType: 'coder' },
-        { id: 'p2', name: 'PM Prompt', content: 'b', agentType: 'pm' },
+        {
+          id: 'intent/recall/ready',
+          draft_key: 'intent/recall/ready',
+          name: '价格表资料',
+          description: '从 Excel 价格表整理出的资料',
+          content: '',
+          agentType: 'main',
+          tags: '["intent:recall","pricing"]',
+          state: 'pending_confirm',
+          draft_status: 'ready_to_save',
+        },
       ],
     });
 
     const { vm } = createPage();
     await vm.loadPrompts();
 
-    // default tab is 'all' — shows everything
-    expect(vm.filteredCards.value).toHaveLength(2);
-
-    vm.switchTab('coder');
-    expect(vm.filteredCards.value).toHaveLength(1);
-    expect(vm.filteredCards.value[0].name).toBe('Coder Prompt');
-
-    vm.switchTab('pm');
-    expect(vm.filteredCards.value).toHaveLength(1);
-    expect(vm.filteredCards.value[0].name).toBe('PM Prompt');
+    expect(apiMock.callAPI).toHaveBeenCalledWith('prompt-assets/list', { cwd: '/test-repo' });
+    expect(vm.promptCards.value[0]).toMatchObject({
+      id: 'intent/recall/ready',
+      draftKey: 'intent/recall/ready',
+      assetType: 'recall',
+      state: 'pending_confirm',
+      draftStatus: 'ready_to_save',
+      isPendingDraft: true,
+    });
+    expect(SystemPromptPage.template).toContain('待确认');
+    expect(SystemPromptPage.template).toContain('item.isPendingDraft');
   });
 
-  it('TestSystemPromptPageContentTextareaDisabledInFallback', () => {
-    expect(SystemPromptPage.template).toContain(':disabled="saving || fallbackMode || editingHasSections"');
-    expect(SystemPromptPage.template).toContain("{{ fallbackMode ? '只读模式'");
-  });
-
-  it('prompts/list 404 enters readonly fallback, disables mutations, and hydrates with cwd', async () => {
+  it('uses window cwd for prompt APIs and intent wizard when active project is dot', async () => {
     apiMock.callAPI
-      .mockRejectedValueOnce(createStatusOnlyError(404, '404 prompts/list not found'))
+      .mockResolvedValueOnce({ prompts: [] })
+      .mockResolvedValueOnce({ prompt: { id: 'new-prompt', name: 'New Prompt' } })
+      .mockResolvedValueOnce({ prompts: [] });
+    const { vm } = createPage({
+      projectStore: { state: { active: '.' } },
+      windowCwd: '/repo-root',
+    });
+
+    expect(vm.currentProjectCwd.value).toBe('/repo-root');
+    await vm.loadPrompts();
+    expect(apiMock.callAPI).toHaveBeenCalledWith('prompt-assets/list', { cwd: '/repo-root' });
+
+    vm.editorMode.value = 'create';
+    vm.editorOpen.value = true;
+    vm.form.name = 'New Prompt';
+    await vm.savePrompt();
+
+    expect(apiMock.callAPI).toHaveBeenCalledWith('prompts/write', expect.objectContaining({
+      name: 'New Prompt',
+      cwd: '/repo-root',
+    }));
+    expect(apiMock.callAPI).toHaveBeenLastCalledWith('prompt-assets/list', { cwd: '/repo-root' });
+  });
+
+  it('does not send dot cwd or allow mutation while cwd is unresolved', async () => {
+    const { vm } = createPage({
+      projectStore: { state: { active: '.' } },
+      windowCwd: '.',
+    });
+    vm.promptCards.value = [{ id: 'stale', name: 'Stale Prompt' }];
+
+    expect(vm.currentProjectCwd.value).toBe('');
+    expect(vm.cwdDisplay.value).toBe('未知');
+    expect(vm.createDisabled.value).toBe(true);
+    expect(vm.saveDisabled.value).toBe(true);
+    expect(vm.deleteDisabled.value).toBe(true);
+
+    await vm.loadPrompts();
+    expect(vm.promptCards.value).toEqual([]);
+    expect(vm.fallbackMode.value).toBe(true);
+    expect(vm.readonlyReason.value).toBe('cwd unresolved');
+    expect(apiMock.callAPI).not.toHaveBeenCalled();
+
+    vm.openCreate();
+    expect(vm.intentWizardOpen.value).toBe(false);
+    expect(vm.notice.message).toContain('只读降级');
+
+    vm.editorMode.value = 'create';
+    vm.editorOpen.value = true;
+    vm.form.name = 'New Prompt';
+    await vm.savePrompt();
+
+    await vm.copyPromptContent({ id: 'stale', content: 'stale body' });
+
+    expect(apiMock.callAPI).not.toHaveBeenCalled();
+    expect(vm.notice.message).toContain('暂无可复制内容');
+  });
+
+  it('disabled prompt cards render as disabled and do not use discoverable copy', async () => {
+    apiMock.callAPI.mockResolvedValueOnce({
+      prompts: [
+        { id: 'p1', name: 'Disabled Prompt', content: 'preview', agentType: 'coder', enabled: false },
+      ],
+    });
+    const { vm } = createPage();
+    await vm.loadPrompts();
+
+    expect(vm.promptCards.value[0].enabled).toBe(false);
+    expect(vm.promptCards.value[0].preview).toBe('preview');
+    expect(SystemPromptPage.template).toContain("'is-disabled': item.enabled === false && !item.isPendingDraft");
+    expect(SystemPromptPage.template).toContain('已停用');
+    expect(SystemPromptPage.template).not.toContain('禁用后仍会被 AI 发现');
+  });
+
+  it('renders recall asset cards with description instead of empty prompt content', async () => {
+    apiMock.callAPI.mockResolvedValueOnce({
+      prompts: [
+        {
+          id: 'main/knowledge/sqlc',
+          name: 'SQLC 资料',
+          content: '',
+          description: 'SQLC migration 资料',
+          agentType: 'main',
+          tags: '["scope.cwd:/repo","intent:recall","sqlc"]',
+        },
+      ],
+    });
+    const { vm } = createPage();
+    await vm.loadPrompts();
+
+    expect(vm.promptCards.value[0].assetType).toBe('recall');
+    expect(vm.promptCards.value[0].tags).toEqual(['sqlc']);
+    expect(vm.promptCards.value[0].preview).toBe('SQLC migration 资料');
+  });
+
+  it('renders default rule cards as project rules and does not show blank preview', async () => {
+    apiMock.callAPI.mockResolvedValueOnce({
+      prompts: [
+        {
+          id: 'main/default-rule/db',
+          name: '数据库规则',
+          content: '',
+          description: '',
+          when_to_use: '',
+          agent_key: 'default_rule',
+          tags: '["scope.cwd:/repo","intent:default_rule","database"]',
+        },
+      ],
+    });
+    const { vm } = createPage();
+    await vm.loadPrompts();
+
+    expect(vm.promptCards.value[0].assetType).toBe('default_rule');
+    expect(vm.promptCards.value[0].tags).toEqual(['database']);
+    expect(vm.promptCards.value[0].preview).toBe('已保存，AI 会在相关场景中使用');
+    expect(SystemPromptPage.template).toContain('默认规则');
+  });
+
+  it('prompt-assets/list 404 enters readonly fallback, disables mutations, and hydrates with cwd', async () => {
+    apiMock.callAPI
+      .mockRejectedValueOnce(createStatusOnlyError(404, '404 prompt-assets/list not found'))
       .mockResolvedValueOnce({
         prompts: [
           {
@@ -143,16 +364,17 @@ describe('SystemPromptPage behavior', () => {
     await vm.loadPrompts();
 
     expect(vm.fallbackMode.value).toBe(true);
-    expect(vm.readonlyReason.value).toContain('404 prompts/list not found');
+    expect(vm.readonlyReason.value).toContain('404 prompt-assets/list not found');
     expect(vm.fallbackSource.value).toBe('dashboard/prompts');
     expect(vm.readonlyBannerMessage.value).toContain('只读模式');
     expect(vm.createDisabled.value).toBe(true);
     expect(vm.saveDisabled.value).toBe(true);
     expect(vm.deleteDisabled.value).toBe(true);
     expect(vm.promptCards.value[0].name).toBe('Readonly Prompt');
-    expect(apiMock.callAPI.mock.calls[1]).toEqual(['dashboard/prompts', { cwd: '/thread-cwd' }]);
+    expect(apiMock.callAPI.mock.calls[1]).toEqual(['dashboard/prompts', { cwd: '/test-repo' }]);
 
     vm.openCreate();
+    expect(vm.intentWizardOpen.value).toBe(false);
     expect(vm.editorOpen.value).toBe(false);
 
     vm.openEdit(vm.promptCards.value[0]);
@@ -162,7 +384,7 @@ describe('SystemPromptPage behavior', () => {
 
   it('fallback hydrate should send projectStore.state.active when threadStore has no cwd', async () => {
     apiMock.callAPI
-      .mockRejectedValueOnce(createStatusOnlyError(404, '404 prompts/list not found'))
+      .mockRejectedValueOnce(createStatusOnlyError(404, '404 prompt-assets/list not found'))
       .mockResolvedValueOnce({ prompts: [] });
 
     const { vm } = createPage({
@@ -198,9 +420,9 @@ describe('SystemPromptPage behavior', () => {
     expect(apiMock.callAPI).toHaveBeenCalledTimes(1);
   });
 
-  it('successful prompts/list clears fallback state after recovery', async () => {
+  it('successful prompt-assets/list clears fallback state after recovery', async () => {
     apiMock.callAPI
-      .mockRejectedValueOnce(createStatusOnlyError(404, '404 prompts/list not found'))
+      .mockRejectedValueOnce(createStatusOnlyError(404, '404 prompt-assets/list not found'))
       .mockResolvedValueOnce({
         prompts: [
           {
@@ -226,8 +448,6 @@ describe('SystemPromptPage behavior', () => {
     expect(vm.fallbackMode.value).toBe(false);
     expect(vm.readonlyReason.value).toBe('');
     expect(vm.fallbackSource.value).toBe('');
-    // createDisabled is true when activeTab==='all'; switch to a role first
-    vm.switchTab('coder');
     expect(vm.createDisabled.value).toBe(false);
     expect(vm.saveDisabled.value).toBe(false);
     expect(vm.deleteDisabled.value).toBe(false);
@@ -237,59 +457,108 @@ describe('SystemPromptPage behavior', () => {
     expect(vm.fallbackMode.value).toBe(false);
   });
 
-  it('openCreate clears form and sets create mode', () => {
+  it('create button is enabled on all tab outside fallback mode', () => {
+    const { vm } = createPage();
+    expect(vm.activeTab.value).toBe('all');
+    expect(vm.createDisabled.value).toBe(false);
+  });
+
+  it('create opens intent wizard instead of raw editor', () => {
     const { vm } = createPage();
     vm.form.name = 'old';
     vm.openCreate();
-    expect(vm.editorOpen.value).toBe(true);
-    expect(vm.editorMode.value).toBe('create');
-    expect(vm.form.name).toBe('');
-    expect(vm.form.id).toBe('');
+    expect(vm.intentWizardOpen.value).toBe(true);
+    expect(vm.editorOpen.value).toBe(false);
+    expect(vm.editorMode.value).toBe('edit');
+    expect(vm.form.name).toBe('old');
+  });
+
+  it('intent saved closes wizard, reloads prompts, and shows notice', async () => {
+    apiMock.callAPI.mockResolvedValueOnce({ prompts: [] });
+    const { vm } = createPage();
+    vm.intentWizardOpen.value = true;
+
+    await vm.handleIntentSaved();
+
+    expect(vm.intentWizardOpen.value).toBe(false);
+    expect(apiMock.callAPI).toHaveBeenCalledWith('prompt-assets/list', { cwd: '/test-repo' });
+    expect(vm.notice.message).toContain('已保存');
   });
 
   it('openEdit populates form from item', () => {
     const { vm } = createPage();
-    vm.openEdit({ id: 'x1', name: 'Test', content: 'Body', description: 'Desc' });
+    vm.openEdit({ id: 'x1', name: 'Test', content: 'Body', description: 'Desc', enabled: false });
     expect(vm.editorOpen.value).toBe(true);
     expect(vm.editorMode.value).toBe('edit');
     expect(vm.form.id).toBe('x1');
     expect(vm.form.name).toBe('Test');
     expect(vm.form.content).toBe('Body');
+    expect(vm.form.enabled).toBe(false);
+  });
+
+  it('ordinary edit toggles enabled and sends enabled in prompts/write payload', async () => {
+    const existing = {
+      id: 'coder/prompt',
+      name: '编码执行代理',
+      content: 'preview',
+      agentType: 'coder',
+      enabled: false,
+    };
+    apiMock.callAPI.mockResolvedValueOnce({ prompts: [existing] });
+    const { vm } = createPage();
+    await vm.loadPrompts();
+    vm.openEdit(vm.promptCards.value[0]);
+    vm.form.enabled = true;
+
+    apiMock.callAPI
+      .mockResolvedValueOnce({ prompt: {} })
+      .mockResolvedValueOnce({ prompts: [existing] });
+    await vm.savePrompt();
+
+    const payload = apiMock.callAPI.mock.calls.find(c => c[0] === 'prompts/write')[1];
+    expect(payload.enabled).toBe(true);
+    expect(payload).not.toHaveProperty('content');
   });
 
   it('closeEditor hides modal', () => {
     const { vm } = createPage();
-    vm.openCreate();
+    vm.openEdit({ id: 'x1', name: 'Test' });
     vm.closeEditor();
     expect(vm.editorOpen.value).toBe(false);
   });
 
-  it('savePrompt calls write API with form data', async () => {
+  it('savePrompt create keeps the editor open with returned prompt id for section editing', async () => {
     apiMock.callAPI
-      .mockResolvedValueOnce({ ok: true }) // write
+      .mockResolvedValueOnce({ prompt: { id: 'created-1', name: 'New Prompt' } }) // write
       .mockResolvedValueOnce({ prompts: [] }); // reload
 
     const { vm } = createPage();
-    vm.openCreate();
+    vm.editorMode.value = 'create';
+    vm.editorOpen.value = true;
     vm.form.name = 'New Prompt';
-    vm.form.content = 'System content';
+    vm.form.whenToUse = 'Use when writing code.';
     await vm.savePrompt();
 
     expect(apiMock.callAPI).toHaveBeenCalledWith('prompts/write', {
       id: '',
       name: 'New Prompt',
-      content: 'System content',
       description: '',
       agentType: 'main',
       priority: 0,
+      when_to_use: 'Use when writing code.',
+      tags: [],
+      enabled: true,
+      scope: 'project',
       cwd: '/test-repo',
     });
-    expect(vm.editorOpen.value).toBe(false);
+    expect(apiMock.callAPI.mock.calls[0][1]).not.toHaveProperty('content');
+    expect(vm.form.id).toBe('created-1');
+    expect(vm.editorMode.value).toBe('edit');
+    expect(vm.editorOpen.value).toBe(true);
   });
 
   it('savePrompt rejects empty name', async () => {
     const { vm } = createPage();
-    vm.openCreate();
     vm.form.name = '';
     await vm.savePrompt();
     expect(vm.notice.message).toContain('请填写提示词名称');
@@ -312,17 +581,19 @@ describe('SystemPromptPage behavior', () => {
     const { vm } = createPage();
     await vm.deletePrompt({ id: 'd1', name: 'Del' });
 
-    expect(apiMock.callAPI).toHaveBeenCalledWith('prompts/delete', { id: 'd1', cwd: '/test-repo' });
+    expect(apiMock.callAPI).toHaveBeenCalledWith('prompts/delete', { id: 'd1', scope: 'project', cwd: '/test-repo' });
     expect(vm.notice.message).toContain('已删除');
   });
 
   it('copyPromptContent copies and shows notice', async () => {
+    apiMock.callAPI.mockResolvedValueOnce({ prompt: { content: 'copy me full body' } });
     apiMock.copyTextToClipboard.mockResolvedValueOnce(true);
 
     const { vm } = createPage();
-    await vm.copyPromptContent({ content: 'copy me' });
+    await vm.copyPromptContent({ id: 'main/sectioned', content: 'copy me preview' });
 
-    expect(apiMock.copyTextToClipboard).toHaveBeenCalledWith('copy me');
+    expect(apiMock.callAPI).toHaveBeenCalledWith('prompts/get', { id: 'main/sectioned', cwd: '/test-repo' });
+    expect(apiMock.copyTextToClipboard).toHaveBeenCalledWith('copy me full body');
     expect(vm.notice.message).toContain('已复制');
   });
 
@@ -339,6 +610,18 @@ describe('SystemPromptPage behavior', () => {
     });
     expect(vm.activePromptId.value).toBe('main/launch-fav');
     expect(vm.notice.message).toContain('已设为强制使用');
+  });
+
+  it('setLaunchPrompt only allows enabled expert assets', async () => {
+    const { vm } = createPage();
+
+    await vm.setLaunchPrompt({ id: 'main/knowledge/sqlc', name: 'SQLC 资料', assetType: 'recall', enabled: true });
+    expect(apiMock.callAPI).not.toHaveBeenCalled();
+    expect(vm.notice.message).toContain('只有启用中的专家能力');
+
+    await vm.setLaunchPrompt({ id: 'main/expert/disabled', name: '停用专家', assetType: 'expert', enabled: false });
+    expect(apiMock.callAPI).not.toHaveBeenCalled();
+    expect(vm.notice.message).toContain('只有启用中的专家能力');
   });
 
   it('clearLaunchPrompt writes empty value and resets active id', async () => {
@@ -373,69 +656,35 @@ describe('SystemPromptPage behavior', () => {
     expect(vm.activePromptId.value).toBe('main/launch-fav');
   });
 
+  it('loadActivePromptId clears stale non-launchable active prompt preference', async () => {
+    apiMock.callAPI
+      .mockResolvedValueOnce({
+        prompts: [
+          { id: 'main/knowledge/sqlc', name: 'SQLC 资料', tags: '["intent:recall"]', enabled: true },
+        ],
+      })
+      .mockResolvedValueOnce('main/knowledge/sqlc')
+      .mockResolvedValueOnce({ ok: true });
+
+    const { vm } = createPage();
+    await vm.loadPrompts();
+    const got = await vm.loadActivePromptId();
+
+    expect(got).toBe('');
+    expect(vm.activePromptId.value).toBe('');
+    expect(apiMock.callAPI).toHaveBeenLastCalledWith('ui/preferences/set', {
+      key: PREF_KEY_ACTIVE_PROMPT,
+      value: '',
+      cwd: '/test-repo',
+    });
+  });
+
   it('setLaunchPrompt is a no-op in readonly fallback', async () => {
     const { vm } = createPage();
     vm.fallbackMode.value = true;
     await vm.setLaunchPrompt({ id: 'main/launch-fav' });
     expect(apiMock.callAPI).not.toHaveBeenCalled();
     expect(vm.notice.message).toContain('只读降级');
-  });
-
-  it('toggleClassifier persists enabled=true under cwd-scoped preference', async () => {
-    apiMock.callAPI.mockResolvedValueOnce({ ok: true });
-
-    const { vm } = createPage();
-    await vm.toggleClassifier(true);
-
-    expect(apiMock.callAPI).toHaveBeenCalledWith('ui/preferences/set', {
-      key: PREF_KEY_CLASSIFIER_ENABLED,
-      value: true,
-      cwd: '/test-repo',
-    });
-    expect(vm.classifierEnabled.value).toBe(true);
-    expect(vm.notice.message).toContain('已开启智能启动');
-  });
-
-  it('toggleClassifier persists enabled=false and updates notice', async () => {
-    apiMock.callAPI
-      .mockResolvedValueOnce({ ok: true }) // enable
-      .mockResolvedValueOnce({ ok: true }); // disable
-
-    const { vm } = createPage();
-    await vm.toggleClassifier(true);
-    await vm.toggleClassifier(false);
-
-    expect(apiMock.callAPI).toHaveBeenLastCalledWith('ui/preferences/set', {
-      key: PREF_KEY_CLASSIFIER_ENABLED,
-      value: false,
-      cwd: '/test-repo',
-    });
-    expect(vm.classifierEnabled.value).toBe(false);
-    expect(vm.notice.message).toContain('已关闭智能启动');
-  });
-
-  it('loadClassifierEnabled hydrates true from preference get', async () => {
-    apiMock.callAPI.mockResolvedValueOnce(true);
-
-    const { vm } = createPage();
-    const got = await vm.loadClassifierEnabled();
-
-    expect(got).toBe(true);
-    expect(apiMock.callAPI).toHaveBeenCalledWith('ui/preferences/get', {
-      key: PREF_KEY_CLASSIFIER_ENABLED,
-      cwd: '/test-repo',
-    });
-    expect(vm.classifierEnabled.value).toBe(true);
-  });
-
-  it('loadClassifierEnabled defaults to false when preference missing', async () => {
-    apiMock.callAPI.mockResolvedValueOnce(null);
-
-    const { vm } = createPage();
-    const got = await vm.loadClassifierEnabled();
-
-    expect(got).toBe(false);
-    expect(vm.classifierEnabled.value).toBe(false);
   });
 
   it('copyPromptContent reports empty', async () => {
@@ -456,26 +705,21 @@ describe('SystemPromptPage behavior', () => {
     expect(vm.truncate('')).toBe('暂无内容');
   });
 
-  it('countStats returns correct line and char counts', () => {
-    const { vm } = createPage();
-    expect(vm.countStats('a\nb\nc')).toEqual({ lines: 3, chars: 5 });
-    expect(vm.countStats('')).toEqual({ lines: 0, chars: 0 });
-  });
-
-  it('basic user flow: select role + add tags + save auto-generates match_when and sends tags', async () => {
-    // 1. Load page, switch to coder role, open create
+  it('basic user flow: semantic category selection does not become agentType', async () => {
+    // 1. Load page, switch to expert asset tab, open manual editor path used by tests.
     apiMock.callAPI.mockResolvedValueOnce({ prompts: [] }); // initial load
     const { vm } = createPage();
     await vm.loadPrompts();
-    vm.switchTab('coder');
-    vm.openCreate();
+    vm.switchTab('expert');
+    vm.editorMode.value = 'create';
+    vm.editorOpen.value = true;
 
     // 2. Fill basic fields (no advanced settings)
     vm.form.name = '代码审查专家';
     vm.form.description = '帮你审查代码质量';
-    vm.form.agentKey = 'coder';
+    vm.form.whenToUse = 'Use for code review tasks.';
+    vm.form.agentKey = '';
     vm.form.tags = ['代码审查', 'bug'];
-    vm.form.content = '你是一位资深代码审查专家。';
     // user does NOT touch matchWhen or priority (stays default)
     expect(vm.form.matchWhen).toBe('');
     expect(vm.form.priority).toBe(0);
@@ -483,7 +727,7 @@ describe('SystemPromptPage behavior', () => {
     // 3. Save
     apiMock.callAPI
       .mockResolvedValueOnce({ prompt: { id: 'new-1', name: '代码审查专家' } }) // prompts/write
-      .mockResolvedValueOnce({ prompts: [{ id: 'new-1', name: '代码审查专家', content: '你是一位资深代码审查专家。', agentType: 'coder', tags: '["代码审查","bug"]' }] }); // reload
+      .mockResolvedValueOnce({ prompts: [{ id: 'new-1', name: '代码审查专家', content: 'sections preview', agentType: 'coder', tags: '["代码审查","bug"]' }] }); // reload
     await vm.savePrompt();
 
     // 4. Verify the write call
@@ -493,64 +737,96 @@ describe('SystemPromptPage behavior', () => {
 
     // tags sent
     expect(payload.tags).toEqual(['代码审查', 'bug']);
-    // match_when auto-generated from tags (not manually set)
-    expect(payload.match_when).toEqual({ tags_has: ['代码审查', 'bug'] });
-    // agentType from role selection
-    expect(payload.agentType).toBe('coder');
+    // tags are only UI/search metadata; template-level tags_has routing is retired.
+    expect(payload.match_when).toBeUndefined();
+    // Asset tabs are not agent keys; ordinary create still defaults to main.
+    expect(payload.agentType).toBe('main');
+    expect(payload.when_to_use).toBe('Use for code review tasks.');
+    expect(payload).not.toHaveProperty('content');
     // priority stays default
     expect(payload.priority).toBe(0);
-    // editor closed after save
-    expect(vm.editorOpen.value).toBe(false);
+    // create save keeps editor open so sections can be added with the returned ID
+    expect(vm.editorOpen.value).toBe(true);
+    expect(vm.form.id).toBe('new-1');
   });
 
-  it('basic user flow: single tag generates string match_when instead of array', async () => {
+  it('basic user flow: explicit debug agent key keeps agentType', async () => {
     apiMock.callAPI.mockResolvedValueOnce({ prompts: [] });
     const { vm } = createPage();
     await vm.loadPrompts();
-    vm.switchTab('pm');
-    vm.openCreate();
+    vm.switchTab('recall');
+    vm.editorMode.value = 'create';
+    vm.editorOpen.value = true;
 
     vm.form.name = '需求分析';
     vm.form.agentKey = 'pm';
     vm.form.tags = ['需求'];
-    vm.form.content = '你是产品经理。';
+    vm.form.whenToUse = 'Use for product requirement analysis.';
 
     apiMock.callAPI
-      .mockResolvedValueOnce({ prompt: {} })
-      .mockResolvedValueOnce({ prompts: [] });
-    await vm.savePrompt();
-
-    const payload = apiMock.callAPI.mock.calls.find(c => c[0] === 'prompts/write')[1];
-    // single tag => string, not array
-    expect(payload.match_when).toEqual({ tags_has: '需求' });
-    expect(payload.agentType).toBe('pm');
-  });
-
-  it('basic user flow: no tags means no match_when', async () => {
-    apiMock.callAPI.mockResolvedValueOnce({ prompts: [] });
-    const { vm } = createPage();
-    await vm.loadPrompts();
-    vm.switchTab('coder');
-    vm.openCreate();
-
-    vm.form.name = '简单提示词';
-    vm.form.agentKey = 'coder';
-    vm.form.content = '你好。';
-    // no tags, no matchWhen
-
-    apiMock.callAPI
-      .mockResolvedValueOnce({ prompt: {} })
+      .mockResolvedValueOnce({ prompt: { id: 'new-pm' } })
       .mockResolvedValueOnce({ prompts: [] });
     await vm.savePrompt();
 
     const payload = apiMock.callAPI.mock.calls.find(c => c[0] === 'prompts/write')[1];
     expect(payload.match_when).toBeUndefined();
-    expect(payload.tags).toBeUndefined();
+    expect(payload.agentType).toBe('pm');
+    expect(payload.when_to_use).toBe('Use for product requirement analysis.');
+    expect(payload).not.toHaveProperty('content');
+    expect(vm.form.id).toBe('new-pm');
   });
 
-  it('openEdit + tag change without touching matchWhen regenerates match_when from new tags', async () => {
-    // Regression: 之前 openEdit 把现有 match_when 回填到 textarea 后，
-    // 即使用户只改 tags，保存仍把"回填值"原样写回，导致 tags 与 match_when 脱节。
+  it('basic user flow: empty tags sends an explicit empty tags array without match_when', async () => {
+    apiMock.callAPI.mockResolvedValueOnce({ prompts: [] });
+    const { vm } = createPage();
+    await vm.loadPrompts();
+    vm.switchTab('expert');
+    vm.editorMode.value = 'create';
+    vm.editorOpen.value = true;
+
+    vm.form.name = '简单提示词';
+    vm.form.agentKey = 'coder';
+    // no tags, no matchWhen
+
+    apiMock.callAPI
+      .mockResolvedValueOnce({ prompt: { id: 'new-simple' } })
+      .mockResolvedValueOnce({ prompts: [] });
+    await vm.savePrompt();
+
+    const payload = apiMock.callAPI.mock.calls.find(c => c[0] === 'prompts/write')[1];
+    expect(payload.match_when).toBeUndefined();
+    expect(payload.tags).toEqual([]);
+    expect(payload).not.toHaveProperty('content');
+    expect(vm.form.id).toBe('new-simple');
+  });
+
+  it('openEdit + clearing all tags sends an empty tags array', async () => {
+    const existing = {
+      id: 'coder/prompt',
+      name: '编码执行代理',
+      content: '...',
+      agentType: 'coder',
+      tags: ['旧标签'],
+    };
+    apiMock.callAPI.mockResolvedValueOnce({ prompts: [existing] });
+    const { vm } = createPage();
+    await vm.loadPrompts();
+    vm.openEdit(existing);
+
+    vm.form.tags = [];
+
+    apiMock.callAPI
+      .mockResolvedValueOnce({ prompt: {} })
+      .mockResolvedValueOnce({ prompts: [existing] });
+    await vm.savePrompt();
+
+    const payload = apiMock.callAPI.mock.calls.find(c => c[0] === 'prompts/write')[1];
+    expect(payload.tags).toEqual([]);
+  });
+
+  it('openEdit + tag change without touching matchWhen does not write retired tags_has', async () => {
+    // Regression: template-level tags_has routing is retired; tag-only edits
+    // must not reintroduce tags_has via the old auto-generation path.
     const existing = {
       id: 'coder/prompt',
       name: '编码执行代理',
@@ -577,12 +853,12 @@ describe('SystemPromptPage behavior', () => {
     await vm.savePrompt();
 
     const payload = apiMock.callAPI.mock.calls.find(c => c[0] === 'prompts/write')[1];
-    // match_when 必须用"当前 tags"生成，不能是旧的回填值
-    expect(payload.match_when).toEqual({ tags_has: ['代码', 'bug'] });
+    // tags_has routing is retired; saving tags must not reintroduce it.
+    expect(payload.match_when).toBeUndefined();
     expect(payload.tags).toEqual(['代码', 'bug']);
   });
 
-  it('openEdit + user edits matchWhen textarea keeps user value (dirty=true path)', async () => {
+  it('openEdit + user edits matchWhen textarea strips tags_has only payload to null', async () => {
     const existing = {
       id: 'coder/prompt',
       name: '编码执行代理',
@@ -606,6 +882,58 @@ describe('SystemPromptPage behavior', () => {
     await vm.savePrompt();
 
     const payload = apiMock.callAPI.mock.calls.find(c => c[0] === 'prompts/write')[1];
-    expect(payload.match_when).toEqual({ tags_has: ['手动定制'] });
+    expect(payload.match_when).toBeNull();
+  });
+
+  it('openEdit + user edits matchWhen textarea strips tags_has but keeps supported keys', async () => {
+    const existing = {
+      id: 'coder/prompt',
+      name: '编码执行代理',
+      content: '...',
+      agentType: 'coder',
+      tags: ['代码'],
+      match_when: { cwd_prefix: '/old' },
+    };
+    apiMock.callAPI.mockResolvedValueOnce({ prompts: [existing] });
+    const { vm } = createPage();
+    await vm.loadPrompts();
+    vm.openEdit(existing);
+
+    vm.form.matchWhen = '{"tags_has":["手动定制"],"cwd_prefix":"/repo"}';
+    vm.matchWhenDirty.value = true;
+
+    apiMock.callAPI
+      .mockResolvedValueOnce({ prompt: {} })
+      .mockResolvedValueOnce({ prompts: [existing] });
+    await vm.savePrompt();
+
+    const payload = apiMock.callAPI.mock.calls.find(c => c[0] === 'prompts/write')[1];
+    expect(payload.match_when).toEqual({ cwd_prefix: '/repo' });
+  });
+
+  it('openEdit + user clears matchWhen textarea sends null to clear routing', async () => {
+    const existing = {
+      id: 'coder/prompt',
+      name: '编码执行代理',
+      content: '...',
+      agentType: 'coder',
+      tags: ['代码'],
+      match_when: { cwd_prefix: '/repo' },
+    };
+    apiMock.callAPI.mockResolvedValueOnce({ prompts: [existing] });
+    const { vm } = createPage();
+    await vm.loadPrompts();
+    vm.openEdit(existing);
+
+    vm.form.matchWhen = '';
+    vm.matchWhenDirty.value = true;
+
+    apiMock.callAPI
+      .mockResolvedValueOnce({ prompt: {} })
+      .mockResolvedValueOnce({ prompts: [existing] });
+    await vm.savePrompt();
+
+    const payload = apiMock.callAPI.mock.calls.find(c => c[0] === 'prompts/write')[1];
+    expect(payload.match_when).toBeNull();
   });
 });

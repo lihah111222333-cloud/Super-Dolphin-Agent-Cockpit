@@ -87,9 +87,167 @@ function browserInstaller({
     triggerWords: parseFrontmatterList(content, 'trigger_words'),
     forceWords: parseFrontmatterList(content, 'force_words'),
   });
+  const defaultPromptRows = () => [
+    {
+      id: 'expert/sqlc-drift',
+      prompt_key: 'expert/sqlc-drift',
+      name: 'SQLC Drift Expert',
+      description: 'Checks source SQL before generated code.',
+      content: 'Always inspect sql/queries and migrations before trusting generated sqlc diffs.',
+      agent_key: 'coder',
+      enabled: true,
+      tags: ['scope.cwd:/workspace/project-alpha', 'intent:expert', 'sqlc', 'review'],
+    },
+    {
+      id: 'recall/prompt-intent-ux',
+      prompt_key: 'recall/prompt-intent-ux',
+      name: 'Prompt Intent UX Notes',
+      description: 'Intent wizard acceptance notes for prompt creation.',
+      content: '',
+      when_to_use: 'Use when reviewing prompt intent UX behavior.',
+      agent_key: 'main',
+      enabled: true,
+      tags: ['scope.cwd:/workspace/project-alpha', 'intent:recall', 'ux', 'prompt-intent'],
+    },
+    {
+      id: 'default-rule/no-silent-fallback',
+      prompt_key: 'default-rule/no-silent-fallback',
+      name: 'No Silent Fallback Rule',
+      description: '',
+      content: '',
+      when_to_use: 'Fail fast when required prompt intent data is missing.',
+      agent_key: 'default_rule',
+      enabled: true,
+      tags: ['scope.cwd:/workspace/project-alpha', 'intent:default_rule', 'fail-fast'],
+    },
+  ];
+  const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, Math.max(0, Number(ms) || 0)));
+  const promptTags = (kind, cwd, extra = [], scope = 'project') => [
+    ...(scope === 'global' ? ['scope.global'] : [`scope.cwd:${normalizePath(cwd)}`]),
+    `intent:${kind}`,
+    ...extra,
+  ];
+  const intentVariantFromInput = (kind, rawInput) => {
+    const text = (rawInput || '').toString().toLowerCase();
+    if (text.includes('blocked') || text.includes('block') || text.includes('阻断')) return 'blocked';
+    if (kind === 'default_rule' && (text.includes('conflict') || text.includes('冲突'))) return 'conflict';
+    if (text.includes('review') || text.includes('risk') || text.includes('风险')) return 'review';
+    return 'ready';
+  };
+  const intentIssues = (kind, variant) => {
+    if (variant === 'blocked') {
+      return [{ code: 'scope_missing', severity: 'block', message: '缺少明确适用范围，暂时不能保存' }];
+    }
+    if (variant === 'review' || variant === 'conflict') {
+      return [{ code: `${kind}_needs_review`, severity: 'review', message: '可能影响已有提示词，请先确认风险' }];
+    }
+    return [];
+  };
+  const intentCard = (kind, variant, rawInput) => {
+    const titleByKind = {
+      expert: 'SQLC 迁移审查专家',
+      recall: '提示词意图资料卡',
+      default_rule: '默认规则：先确认作用域',
+    };
+    const base = {
+      kind,
+      title: titleByKind[kind] || '提示词草稿',
+      summary: `根据输入整理的 ${kind} 草稿`,
+      when_to_use: '当任务涉及提示词意图式创建验收时使用。',
+      when_not_to_use: '与当前项目无关或缺少上下文时不要使用。',
+      workflow: ['读取需求', '检查风险', '按项目范围保存'],
+      hit_examples: ['帮我补齐提示词意图 E2E', '检查 prompt intent review 风险'],
+      miss_examples: ['闲聊一下', '生成无关图片'],
+      source_excerpt: (rawInput || '').toString().slice(0, 160),
+    };
+    if (kind === 'recall') {
+      base.recall_body = 'Intent wizard stores recall material as a searchable project-scoped card.';
+    }
+    if (kind === 'default_rule') {
+      base.default_rule_body = '保存提示词意图前必须确认项目范围，不允许静默兜底。';
+      base.conflicting_rules = variant === 'conflict'
+        ? [{ title: '旧的默认规则', summary: '旧规则允许缺少 scope 时继续保存。' }]
+        : [];
+      if (variant === 'conflict') {
+        base.suggested_alternative = {
+          kind: 'recall',
+          reason: '这段内容更像项目资料，建议先作为资料卡保存。',
+        };
+      }
+    }
+    return base;
+  };
+  const promptRowFromIntentDraft = (draft) => {
+    const card = asObject(draft.card);
+    const kind = (draft.kind || card.kind || 'expert').toString();
+    const scope = (draft.scope || '').toString() === 'global' ? 'global' : 'project';
+    const idPrefix = kind === 'default_rule' ? 'default-rule' : kind;
+    const id = `${idPrefix}/${(draft.draft_key || isoClock()).toString().replace(/[^a-zA-Z0-9_-]+/g, '-')}`;
+    return {
+      id,
+      prompt_key: id,
+      name: (card.title || 'Prompt Intent Draft').toString(),
+      description: (card.summary || '').toString(),
+      content: (card.output || card.recall_body || card.default_rule_body || '').toString(),
+      when_to_use: (card.when_to_use || '').toString(),
+      agent_key: kind === 'default_rule' ? 'default_rule' : 'main',
+      enabled: true,
+      scope,
+      tags: promptTags(kind, draft.cwd, ['saved', 'e2e'], scope),
+      created_at: isoClock(),
+    };
+  };
+
+  const promptScopeTags = (prompt) => asArray(prompt?.tags)
+    .map((tag) => (tag || '').toString().trim())
+    .filter(Boolean);
+
+  const promptScope = (prompt) => {
+    const explicit = (prompt?.scope || '').toString().trim().toLowerCase();
+    if (explicit === 'global') return 'global';
+    return promptScopeTags(prompt).includes('scope.global') ? 'global' : 'project';
+  };
+
+  const promptLogicalKey = (prompt) => {
+    const name = (prompt?.name || prompt?.title || prompt?.prompt_key || prompt?.id || '').toString().trim().toLowerCase();
+    const agent = (prompt?.agent_key || prompt?.agentType || '').toString().trim().toLowerCase();
+    const intent = promptScopeTags(prompt).find((tag) => tag.startsWith('intent:')) || '';
+    return [agent, intent, name].join('::');
+  };
+
+  const promptVisibleForCwd = (prompt, cwd) => {
+    const requested = normalizePath(cwd || '');
+    if (!requested) return true;
+    const tags = promptScopeTags(prompt);
+    if (tags.includes('scope.global')) return true;
+    const cwdTags = tags.filter((tag) => tag.startsWith('scope.cwd:'));
+    if (cwdTags.length === 0) return true;
+    return cwdTags.some((tag) => normalizePath(tag.slice('scope.cwd:'.length)) === requested);
+  };
+
+  const listPromptsForCwd = (cwd) => {
+    const requested = normalizePath(cwd || '');
+    const byKey = new Map();
+    state.prompts.forEach((prompt, index) => {
+      if (!promptVisibleForCwd(prompt, requested)) return;
+      const scope = promptScope(prompt);
+      const rank = scope === 'global' ? 1 : 0;
+      const key = promptLogicalKey(prompt);
+      const current = byKey.get(key);
+      if (!current || rank < current.rank) {
+        byKey.set(key, { prompt, index, rank });
+      }
+    });
+    return [...byKey.values()]
+      .sort((a, b) => a.index - b.index)
+      .map(({ prompt }) => ({ ...prompt, scope: promptScope(prompt) }));
+  };
 
   const source = clone(sourceConfig) || {};
   const dashboardSource = asObject(source.dashboard);
+  const sourcePrompts = asArray(source.prompts).length > 0
+    ? asArray(source.prompts)
+    : asArray(dashboardSource.prompts);
 
   const state = {
     buildInfo: {
@@ -116,6 +274,7 @@ function browserInstaller({
       prompts: clone(asArray(dashboardSource.prompts)) || [],
       memory: clone(asArray(dashboardSource.memory)) || [],
     },
+    prompts: clone(sourcePrompts.length > 0 ? sourcePrompts : defaultPromptRows()) || [],
     memoryCenter: clone(asObject(source.memoryCenter)) || {
       overview: {},
       private: { entries: [] },
@@ -163,6 +322,10 @@ function browserInstaller({
     codeOpenByPath: clone(asObject(source.codeOpenByPath)) || {},
     nextThreadSeq: Math.max(0, Number(source.nextThreadSeq) || 0),
     nextMessageSeq: 0,
+    nextPromptIntentSeq: 0,
+    promptIntentDelayMs: Number(source.promptIntentDelayMs) || 0,
+    promptIntentDrafts: {},
+    promptIntentCommits: [],
     callLog: [],
     alerts: [],
   };
@@ -595,6 +758,99 @@ function browserInstaller({
           return buildUiState();
         case 'ui/dashboard/get':
           return clone(state.dashboard);
+        case 'dashboard/prompts':
+        case 'prompt-assets/list':
+        case 'prompts/list':
+          return { prompts: clone(listPromptsForCwd(params.cwd)) };
+        case 'prompts/get': {
+          const id = (params.id || '').toString();
+          const visiblePrompts = listPromptsForCwd(params.cwd);
+          const prompt = visiblePrompts.find((item) => (item?.id || item?.prompt_key || '').toString() === id);
+          if (!prompt) throw new Error(`prompt not found: ${id}`);
+          return { prompt: clone(prompt) };
+        }
+        case 'prompts/write': {
+          const id = (params.id || params.prompt_key || `prompt/${slugify(params.name || 'new-prompt')}`).toString();
+          const scope = (params.scope || '').toString().trim().toLowerCase() === 'global' ? 'global' : 'project';
+          const scopeTag = scope === 'global'
+            ? 'scope.global'
+            : `scope.cwd:${normalizePath(params.cwd || state.activeProject || state.runtimeConfig.cwd || '')}`;
+          const userTags = (Array.isArray(params.tags) ? [...params.tags] : asArray(params.tags))
+            .map((tag) => (tag || '').toString())
+            .filter((tag) => tag && tag !== 'scope.global' && !tag.startsWith('scope.cwd:'));
+          const next = {
+            id,
+            prompt_key: id,
+            name: (params.name || id).toString(),
+            description: (params.description || '').toString(),
+            content: (params.content || params.prompt_text || '').toString(),
+            when_to_use: (params.when_to_use || '').toString(),
+            agent_key: (params.agentType || params.agent_key || 'main').toString(),
+            priority: Number(params.priority) || 0,
+            enabled: params.enabled !== false,
+            scope,
+            tags: [scopeTag, ...userTags],
+          };
+          const index = state.prompts.findIndex((item) => (item?.id || item?.prompt_key || '').toString() === id);
+          if (index >= 0) state.prompts[index] = { ...state.prompts[index], ...next };
+          else state.prompts.push(next);
+          return { prompt: clone(next) };
+        }
+        case 'prompts/delete': {
+          const id = (params.id || '').toString();
+          state.prompts = state.prompts.filter((item) => (item?.id || item?.prompt_key || '').toString() !== id);
+          return { ok: true };
+        }
+        case 'prompt-intents/draft': {
+          await sleep(state.promptIntentDelayMs);
+          const kind = (params.kind || 'expert').toString();
+          const variant = intentVariantFromInput(kind, params.raw_input);
+          state.nextPromptIntentSeq += 1;
+          const draft = {
+            draft_key: `draft-${kind}-${variant}-${state.nextPromptIntentSeq}`,
+            kind,
+            cwd: normalizePath(params.cwd || state.activeProject || state.runtimeConfig.cwd || ''),
+            status: variant === 'blocked' ? 'draft_blocked' : variant,
+            card: intentCard(kind, variant, params.raw_input),
+            issues: intentIssues(kind, variant),
+            confidence: variant === 'blocked' ? 0.52 : 0.91,
+          };
+          state.promptIntentDrafts[draft.draft_key] = clone(draft);
+          return { draft: clone(draft) };
+        }
+        case 'prompt-intents/dry-run': {
+          await sleep(state.promptIntentDelayMs);
+          return {
+            would_use: true,
+            action: 'default_rule',
+            target: '旧的默认规则',
+            reasons: ['这份草稿会建议先确认风险，再执行保存动作。'],
+            candidates: ['旧的默认规则'],
+            disclaimer: '仅用于保存前验证，不代表真实模型一定做出相同选择。',
+          };
+        }
+        case 'prompt-intents/commit': {
+          await sleep(state.promptIntentDelayMs);
+          const draftKey = (params.draft_key || '').toString();
+          const draft = asObject(state.promptIntentDrafts[draftKey]);
+          if (!draft.draft_key) throw new Error(`intent draft not found: ${draftKey}`);
+          const savedPrompt = promptRowFromIntentDraft({
+            ...draft,
+            scope: params.enable_global && params.confirm_global ? 'global' : 'project',
+          });
+          state.prompts.push(savedPrompt);
+          state.promptIntentCommits.push({ payload: clone(params), savedPrompt: clone(savedPrompt) });
+          return {
+            prompt: {
+              id: savedPrompt.id,
+              prompt_key: savedPrompt.prompt_key,
+              name: savedPrompt.name,
+              enabled: savedPrompt.enabled,
+              tags: clone(savedPrompt.tags),
+              saved_at: savedPrompt.created_at,
+            },
+          };
+        }
         case 'ui/memory/get':
           return clone(state.memoryCenter);
         case 'ui/memory/entry/get': {
@@ -903,6 +1159,9 @@ function browserInstaller({
           return clone(state.codeOpenByPath[path] || state.codeOpenByPath[normalizePath(path)] || { ok: false });
         }
         default:
+          if ((method || '').toString().startsWith('prompt-intents/')) {
+            throw new Error(`Unhandled prompt intent RPC: ${method}`);
+          }
           return {};
       }
     },

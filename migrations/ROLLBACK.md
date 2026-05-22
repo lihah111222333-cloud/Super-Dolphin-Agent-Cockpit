@@ -210,3 +210,29 @@ COMMIT;
 **影响：** 删后 router 命中 `agent_key='dag_designer'` 会取不到 prompt，「AI 帮你设计流程」UI 按钮 / thread 入口会报 prompt missing。archtest `dag_designer_prompt_seed_test.go` 依赖本行存在 → 回滚后守护测试会跳红。仅在需回退 F7.1 或 prompt 内容废弃不再采用时才回滚。刷新内容请按 `docs/migrations/prompt-seed-policy.md` 规约写新 migration 走 DO UPDATE，不走 down+up 回滚。
 
 **参考：** `docs/migrations/prompt-seed-policy.md`。
+
+---
+
+## 0104 — disable registry-backed system seed prompts
+
+**up：** `migrations/0104_disable_registry_backed_system_seed_prompts.sql`
+
+**down（手工执行）：**
+
+仅在回滚 builtin registry runtime 时重新启用这些历史 seed：
+
+```sql
+BEGIN;
+UPDATE public.prompt_templates
+SET enabled = TRUE,
+    updated_by = 'system.seed',
+    updated_at = NOW()
+WHERE prompt_key IN ('main/default', 'main/general-zh')
+  AND updated_by = 'system.registry-migration';
+
+DELETE FROM schema_migrations WHERE filename = '0104_disable_registry_backed_system_seed_prompts.sql';
+COMMIT;
+```
+
+**影响：** 回滚后 `main/default`、`main/general-zh` 的历史 DB seed 行会重新参与运行时读取；
+仅应在 builtin registry runtime 一并回退时执行，避免 registry 与 DB seed 双源重复。

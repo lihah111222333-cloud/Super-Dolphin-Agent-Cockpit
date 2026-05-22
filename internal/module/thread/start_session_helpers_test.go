@@ -29,6 +29,27 @@ func TestBuildStartAssemblyInputCarriesChildAgentMetadata(t *testing.T) {
 	}
 }
 
+func TestToProviderStartAssemblyCarriesRuntimeContext(t *testing.T) {
+	assembly := toProviderStartAssembly(contract.StartAssembly{
+		BaseInstructions: "base",
+		UserContext: map[string]string{
+			"runtimeExtras": "可用专家: main/expert/prompt",
+		},
+		UserContextText: "# runtimeExtras\n可用专家: main/expert/prompt",
+		SystemContext:   contract.SystemContext{"gitStatus": "## main\n M prompt.go"},
+	})
+
+	if assembly.UserContext["runtimeExtras"] != "可用专家: main/expert/prompt" {
+		t.Fatalf("UserContext not carried to provider start assembly: %#v", assembly.UserContext)
+	}
+	if assembly.UserContextText == "" {
+		t.Fatalf("UserContextText not carried to provider start assembly")
+	}
+	if assembly.SystemContext["gitStatus"] == "" {
+		t.Fatalf("SystemContext not carried to provider start assembly: %#v", assembly.SystemContext)
+	}
+}
+
 func TestBuildStartSessionConfigCarriesTurnContextFields(t *testing.T) {
 	cfg := buildStartSessionConfig(StartRequest{
 		ApprovalPolicy: "on-request",
@@ -39,6 +60,7 @@ func TestBuildStartSessionConfigCarriesTurnContextFields(t *testing.T) {
 	}, contract.StartInput{
 		ParentAgentID:                "agent-root",
 		AgentType:                    "worker",
+		PromptKey:                    "main/launch-fav",
 		Provider:                     "codex",
 		CWD:                          "/repo",
 		Model:                        "gpt-5.5",
@@ -65,6 +87,8 @@ func TestBuildStartSessionConfigCarriesTurnContextFields(t *testing.T) {
 	requireSessionConfigStringSlice(t, cfg, "claudeMdExcludes", []string{"/repo/**/CLAUDE.local.md"})
 	requireSessionConfigValue(t, cfg, "parentAgentId", "agent-root")
 	requireSessionConfigValue(t, cfg, "agentType", "worker")
+	requireSessionConfigValue(t, cfg, "promptKey", "main/launch-fav")
+	requireSessionConfigValue(t, cfg, "prompt_key", "main/launch-fav")
 	requireSessionConfigValue(t, cfg, "threadKind", "child_agent")
 }
 

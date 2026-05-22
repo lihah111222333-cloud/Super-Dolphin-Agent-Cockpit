@@ -12,6 +12,7 @@ import (
 	promptstore "github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/prompt"
 	sharedfilestore "github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/sharedfile"
 	workspace "github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/workspace"
+	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/common"
 	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
 )
 
@@ -52,7 +53,9 @@ func (stubWorkspaceService) GetRunFile(context.Context, string, string) (*worksp
 
 type stubPromptStore struct {
 	promptstore.Store
-	get func(context.Context, string) (*promptstore.PromptTemplate, error)
+	get                      func(context.Context, string) (*promptstore.PromptTemplate, error)
+	list                     func(context.Context, promptstore.ListFilter) ([]promptstore.PromptTemplate, error)
+	listSectionsByTemplateID func(context.Context, int64) ([]promptstore.PromptTemplateSection, error)
 }
 
 func (s stubPromptStore) Get(ctx context.Context, key string) (*promptstore.PromptTemplate, error) {
@@ -60,6 +63,20 @@ func (s stubPromptStore) Get(ctx context.Context, key string) (*promptstore.Prom
 		return nil, nil
 	}
 	return s.get(ctx, key)
+}
+
+func (s stubPromptStore) List(ctx context.Context, filter promptstore.ListFilter) ([]promptstore.PromptTemplate, error) {
+	if s.list == nil {
+		return nil, nil
+	}
+	return s.list(ctx, filter)
+}
+
+func (s stubPromptStore) ListSectionsByTemplateID(ctx context.Context, templateID int64) ([]promptstore.PromptTemplateSection, error) {
+	if s.listSectionsByTemplateID == nil {
+		return nil, nil
+	}
+	return s.listSectionsByTemplateID(ctx, templateID)
 }
 
 type stubCommandStore struct {
@@ -101,6 +118,10 @@ func mustRawInput(t *testing.T, input any) json.RawMessage {
 		t.Fatalf("json.Marshal() error = %v", err)
 	}
 	return raw
+}
+
+func promptToolTestContext() context.Context {
+	return common.WithToolScope(context.Background(), common.ToolScope{CWD: "/repo/a"})
 }
 
 func TestHandleWorkspaceGetRunNilMapsToNotFound(t *testing.T) {
@@ -148,12 +169,152 @@ func TestHandlePromptGetTranslatesNotFound(t *testing.T) {
 		},
 	})
 
-	_, err := handler(context.Background(), mustRawInput(t, promptGetInput{PromptKey: " missing "}))
+	_, err := handler(promptToolTestContext(), mustRawInput(t, promptGetInput{PromptKey: " missing "}))
 	if err == nil || err.Error() != "prompt missing not found" {
 		t.Fatalf("HandlePromptGet() error = %v", err)
 	}
 	if gotKey != "missing" {
 		t.Fatalf("HandlePromptGet() prompt_key = %q, want %q", gotKey, "missing")
+	}
+}
+
+func TestHandlePromptGetAssemblesInjectableSections(t *testing.T) {
+	t.Parallel()
+
+	handler := HandlePromptGet(stubPromptStore{
+		get: func(_ context.Context, key string) (*promptstore.PromptTemplate, error) {
+			if key != "custom/prompt" {
+				t.Fatalf("Get() key = %q, want custom/prompt", key)
+			}
+			return &promptstore.PromptTemplate{
+				ID:         42,
+				PromptKey:  "custom/prompt",
+				Title:      "Custom Prompt",
+				AgentKey:   "custom",
+				PromptText: "legacy fallback text",
+				Tags:       json.RawMessage(`["scope.cwd:/repo/a"]`),
+				Enabled:    true,
+			}, nil
+		},
+		listSectionsByTemplateID: func(_ context.Context, templateID int64) ([]promptstore.PromptTemplateSection, error) {
+			if templateID != 42 {
+				t.Fatalf("ListSectionsByTemplateID() templateID = %d, want 42", templateID)
+			}
+			return []promptstore.PromptTemplateSection{
+				{ID: 2, TemplateID: 42, SectionKey: "workflow", Region: "dynamic", Ordinal: 0, Body: "Workflow body", TriggerType: "keyword", Enabled: true},
+				{ID: 3, TemplateID: 42, SectionKey: "recall_sqlc", Region: "dynamic", Ordinal: 1, Body: "Recall pack body must stay hidden", TriggerType: "recall", Enabled: true},
+				{ID: 1, TemplateID: 42, SectionKey: "identity", Region: "static", Ordinal: 10, Body: "Identity body", TriggerType: "always", Enabled: true},
+			}, nil
+		},
+	})
+
+	result, err := handler(promptToolTestContext(), mustRawInput(t, promptGetInput{PromptKey: " custom/prompt "}))
+	if err != nil {
+		t.Fatalf("HandlePromptGet() error = %v", err)
+	}
+	got := result.(promptTemplateDTO)
+	if got.PromptText != "Identity body\n\nWorkflow body" {
+		t.Fatalf("PromptText = %q, want assembled injectable sections", got.PromptText)
+	}
+	if strings.Contains(got.PromptText, "Recall pack body") {
+		t.Fatalf("PromptText leaked recall body: %q", got.PromptText)
+	}
+}
+
+func TestHandlePromptListKeepsLegacyPromptText(t *testing.T) {
+	t.Parallel()
+
+	sectionsQueried := false
+	handler := HandlePromptList(stubPromptStore{
+		list: func(_ context.Context, filter promptstore.ListFilter) ([]promptstore.PromptTemplate, error) {
+			if filter.Keyword != "custom" {
+				t.Fatalf("List() keyword = %q, want custom", filter.Keyword)
+			}
+			if filter.CWD != "/repo/a" || !filter.RuntimeVisible {
+				t.Fatalf("List() filter scope = %+v, want runtime-visible /repo/a", filter)
+			}
+			return []promptstore.PromptTemplate{{
+				ID:         42,
+				PromptKey:  "custom/prompt",
+				Title:      "Custom Prompt",
+				AgentKey:   "custom",
+				PromptText: "legacy list text",
+				Tags:       json.RawMessage(`["scope.cwd:/repo/a"]`),
+				Enabled:    true,
+			}}, nil
+		},
+		listSectionsByTemplateID: func(context.Context, int64) ([]promptstore.PromptTemplateSection, error) {
+			sectionsQueried = true
+			return nil, nil
+		},
+	})
+
+	result, err := handler(promptToolTestContext(), mustRawInput(t, promptListInput{Keyword: " custom "}))
+	if err != nil {
+		t.Fatalf("HandlePromptList() error = %v", err)
+	}
+	got := result.([]promptTemplateDTO)
+	if len(got) != 1 {
+		t.Fatalf("len(result) = %d, want 1", len(got))
+	}
+	if got[0].PromptText != "legacy list text" {
+		t.Fatalf("PromptText = %q, want legacy list text", got[0].PromptText)
+	}
+	if sectionsQueried {
+		t.Fatal("HandlePromptList() queried sections; prompt_list must keep shared mapper behavior")
+	}
+}
+
+func TestHandlePromptToolsRequireTrustedCWD(t *testing.T) {
+	t.Parallel()
+
+	listHandler := HandlePromptList(stubPromptStore{
+		list: func(context.Context, promptstore.ListFilter) ([]promptstore.PromptTemplate, error) {
+			t.Fatal("List() must not be called without trusted cwd")
+			return nil, nil
+		},
+	})
+	if _, err := listHandler(context.Background(), mustRawInput(t, promptListInput{})); err == nil || !strings.Contains(err.Error(), "trusted cwd") {
+		t.Fatalf("HandlePromptList() error = %v, want trusted cwd", err)
+	}
+
+	getHandler := HandlePromptGet(stubPromptStore{
+		get: func(context.Context, string) (*promptstore.PromptTemplate, error) {
+			t.Fatal("Get() must not be called without trusted cwd")
+			return nil, nil
+		},
+	})
+	if _, err := getHandler(context.Background(), mustRawInput(t, promptGetInput{PromptKey: "custom/prompt"})); err == nil || !strings.Contains(err.Error(), "trusted cwd") {
+		t.Fatalf("HandlePromptGet() error = %v, want trusted cwd", err)
+	}
+}
+
+func TestHandlePromptGetHidesOutOfScopeTemplate(t *testing.T) {
+	t.Parallel()
+
+	sectionsQueried := false
+	handler := HandlePromptGet(stubPromptStore{
+		get: func(_ context.Context, key string) (*promptstore.PromptTemplate, error) {
+			return &promptstore.PromptTemplate{
+				ID:        42,
+				PromptKey: key,
+				Title:     "Other Repo Prompt",
+				Tags:      json.RawMessage(`["scope.cwd:/repo/b"]`),
+				Enabled:   true,
+			}, nil
+		},
+		listSectionsByTemplateID: func(context.Context, int64) ([]promptstore.PromptTemplateSection, error) {
+			sectionsQueried = true
+			return nil, nil
+		},
+	})
+
+	_, err := handler(promptToolTestContext(), mustRawInput(t, promptGetInput{PromptKey: "other/prompt"}))
+	if err == nil || err.Error() != "prompt other/prompt not found" {
+		t.Fatalf("HandlePromptGet() error = %v, want hidden as not found", err)
+	}
+	if sectionsQueried {
+		t.Fatal("HandlePromptGet() queried sections for out-of-scope prompt")
 	}
 }
 

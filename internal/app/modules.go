@@ -2,6 +2,8 @@ package app
 
 import (
 	"context"
+	"os"
+	"strings"
 
 	"go.uber.org/fx"
 
@@ -31,6 +33,7 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/toolbridge"
 	"github.com/anthropic-ai/super-agent-v3/internal/provider/claudecli"
 	"github.com/anthropic-ai/super-agent-v3/internal/provider/codexapp"
+	"github.com/anthropic-ai/super-agent-v3/internal/provider/e2efixture"
 	providershared "github.com/anthropic-ai/super-agent-v3/internal/provider/shared"
 	"github.com/anthropic-ai/super-agent-v3/internal/provider/unified"
 	"github.com/anthropic-ai/super-agent-v3/internal/store"
@@ -68,6 +71,7 @@ var Module = fx.Options(
 	insight.Module,
 	uistate.Module,
 	unified.Module,
+	promptIntentE2EFixtureModule(),
 	claudecli.Module,
 	codexapp.Module,
 	toolbridge.Module, // P15 新增：始终加载
@@ -85,6 +89,16 @@ var Module = fx.Options(
 		provideDisabledBuiltinToolsFn,
 	),
 )
+
+func promptIntentE2EFixtureModule() fx.Option {
+	if strings.TrimSpace(os.Getenv(e2efixture.FixturePathEnv)) == "" {
+		return fx.Options()
+	}
+	if strings.TrimSpace(os.Getenv("DREAM_PROVIDER_ORDER")) == "" {
+		_ = os.Setenv("DREAM_PROVIDER_ORDER", e2efixture.ProviderName)
+	}
+	return e2efixture.Module
+}
 
 func provideNativeToolDescriptors(registry *unified.Registry) []contract.NativeToolDescriptor {
 	if registry == nil {

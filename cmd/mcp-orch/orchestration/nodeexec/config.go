@@ -81,6 +81,7 @@ type AgentExecConfig struct {
 	Provider      string           `json:"provider,omitempty"`      // claude | codex
 	Model         string           `json:"model,omitempty"`         // opus | sonnet | ...
 	AgentKey      string           `json:"agent_key,omitempty"`     // 查 prompt_templates 表
+	PromptKey     string           `json:"prompt_key,omitempty"`    // 精确 prompt_templates.prompt_key
 	CWD           string           `json:"cwd,omitempty"`           // explicit absolute launch cwd
 	Effort        string           `json:"effort,omitempty"`        // xhigh | high | medium | low
 	Language      string           `json:"language,omitempty"`      // zh | en

@@ -1,14 +1,17 @@
 package wails
 
 import (
+	"archive/zip"
 	"bufio"
 	"bytes"
 	"context"
+	"encoding/xml"
 	"fmt"
 	"io"
 	"io/fs"
 	"os"
 	"os/exec"
+	"path"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -328,6 +331,165 @@ func codeOpenArgs(path string, line, column int) []string {
 		location = path + ":" + strings.TrimSpace(intString(line)) + ":" + strings.TrimSpace(intString(column))
 	}
 	return []string{"-g", location}
+}
+
+func renderXLSXSheet(name string, rows [][]string, truncatedRows, truncatedCols bool) string {
+	colCount := xlsxColumnCount(rows)
+	if colCount == 0 {
+		return ""
+	}
+	header := xlsxHeaderRow(rows[0], colCount)
+	lines := []string{"Sheet：" + name, "", markdownTableRow(header), markdownSeparatorRow(colCount)}
+	for _, row := range rows[1:] {
+		lines = append(lines, markdownTableRow(xlsxSizedRow(row, colCount)))
+	}
+	if truncatedRows || truncatedCols {
+		lines = append(lines, "", xlsxTruncationNote(truncatedRows, truncatedCols))
+	}
+	return strings.Join(lines, "\n")
+}
+
+func xlsxHeaderRow(row []string, colCount int) []string {
+	header := xlsxSizedRow(row, colCount)
+	for i, cell := range header {
+		if strings.TrimSpace(cell) == "" {
+			header[i] = fmt.Sprintf("列%d", i+1)
+		}
+	}
+	return header
+}
+
+func xlsxSizedRow(row []string, colCount int) []string {
+	out := make([]string, colCount)
+	for i := 0; i < colCount && i < len(row); i++ {
+		out[i] = row[i]
+	}
+	return out
+}
+
+func xlsxColumnCount(rows [][]string) int {
+	maxCols := 0
+	for _, row := range rows {
+		if len(row) > maxCols {
+			maxCols = len(row)
+		}
+	}
+	if maxCols > maxDroppedXLSXCols {
+		return maxDroppedXLSXCols
+	}
+	return maxCols
+}
+
+func xlsxRowHasText(row []string) bool {
+	for _, cell := range row {
+		if strings.TrimSpace(cell) != "" {
+			return true
+		}
+	}
+	return false
+}
+
+func markdownSeparatorRow(colCount int) string {
+	cells := make([]string, colCount)
+	for i := range cells {
+		cells[i] = "---"
+	}
+	return "| " + strings.Join(cells, " | ") + " |"
+}
+
+func markdownTableRow(cells []string) string {
+	out := make([]string, len(cells))
+	for i, cell := range cells {
+		out[i] = markdownCell(cell)
+	}
+	return "| " + strings.Join(out, " | ") + " |"
+}
+
+func markdownCell(text string) string {
+	value := strings.TrimSpace(normalizeFileText(text))
+	value = strings.ReplaceAll(value, "\n", "<br>")
+	value = strings.ReplaceAll(value, "|", `\|`)
+	runes := []rune(value)
+	if len(runes) > maxDroppedXLSXCellRunes {
+		value = string(runes[:maxDroppedXLSXCellRunes]) + "..."
+	}
+	return value
+}
+
+func xlsxTruncationNote(truncatedRows, truncatedCols bool) string {
+	parts := make([]string, 0, 2)
+	if truncatedRows {
+		parts = append(parts, fmt.Sprintf("前 %d 行", maxDroppedXLSXRows))
+	}
+	if truncatedCols {
+		parts = append(parts, fmt.Sprintf("前 %d 列", maxDroppedXLSXCols))
+	}
+	return "（已截断：仅显示" + strings.Join(parts, "、") + "）"
+}
+
+func resolveXLSXRelationshipTarget(target string) string {
+	value := strings.ReplaceAll(strings.TrimSpace(target), "\\", "/")
+	if value == "" {
+		return ""
+	}
+	if strings.HasPrefix(value, "/") {
+		return strings.TrimPrefix(path.Clean(value), "/")
+	}
+	return path.Clean(path.Join("xl", value))
+}
+
+func readXLSXZipEntry(reader *zip.Reader, name string, required bool) ([]byte, error) {
+	file := findXLSXZipEntry(reader, name)
+	if file == nil {
+		if required {
+			return nil, fmt.Errorf("xlsx entry %q is missing", name)
+		}
+		return nil, nil
+	}
+	if file.UncompressedSize64 > maxDroppedXLSXEntryBytes {
+		return nil, fmt.Errorf("xlsx entry %q exceeds import size limit", name)
+	}
+	rc, err := file.Open()
+	if err != nil {
+		return nil, err
+	}
+	defer rc.Close()
+	var buf bytes.Buffer
+	n, err := io.Copy(&buf, io.LimitReader(rc, maxDroppedXLSXEntryBytes+1))
+	if err != nil {
+		return nil, err
+	}
+	if n > maxDroppedXLSXEntryBytes {
+		return nil, fmt.Errorf("xlsx entry %q exceeds import size limit", name)
+	}
+	return buf.Bytes(), nil
+}
+
+func findXLSXZipEntry(reader *zip.Reader, name string) *zip.File {
+	want := strings.TrimPrefix(path.Clean(name), "/")
+	for _, file := range reader.File {
+		if strings.TrimPrefix(path.Clean(file.Name), "/") == want {
+			return file
+		}
+	}
+	return nil
+}
+
+func xmlLocalAttr(start xml.StartElement, local string) string {
+	for _, attr := range start.Attr {
+		if attr.Name.Local == local {
+			return attr.Value
+		}
+	}
+	return ""
+}
+
+func decodeElementText(decoder *xml.Decoder, start xml.StartElement) (string, error) {
+	var text string
+	if err := decoder.DecodeElement(&text, &start); err != nil {
+		return "", err
+	}
+	return text, nil
 }
 
 func openSystemPath(command, path string) bool {

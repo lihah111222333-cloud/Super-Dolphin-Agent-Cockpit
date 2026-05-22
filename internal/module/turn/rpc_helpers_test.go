@@ -58,6 +58,28 @@ func TestTurnStartParamsAcceptsSelectedSkillRefsCamelCase(t *testing.T) {
 	}
 }
 
+func TestTurnStartResultPromptKeyStaleSurfacedToWire(t *testing.T) {
+	t.Parallel()
+
+	stale := true
+	payload, err := json.Marshal(turnStartResult{
+		TurnID:              "turn-1",
+		PromptKey:           "main/missing",
+		PromptKeyStale:      &stale,
+		PromptKeyStaleCamel: &stale,
+	})
+	if err != nil {
+		t.Fatalf("json.Marshal() error = %v", err)
+	}
+	body := string(payload)
+	if !strings.Contains(body, `"prompt_key_stale":true`) {
+		t.Fatalf("turnStartResult JSON missing prompt_key_stale: %s", body)
+	}
+	if !strings.Contains(body, `"promptKeyStale":true`) {
+		t.Fatalf("turnStartResult JSON missing promptKeyStale: %s", body)
+	}
+}
+
 func expandedPrepareInputSession() *rpcHelperSession {
 	return &rpcHelperSession{
 		caps: dto.CapabilitySet{dto.CapMessageSend: true},

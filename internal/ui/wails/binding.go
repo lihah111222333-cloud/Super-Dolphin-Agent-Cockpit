@@ -31,6 +31,9 @@ type App struct {
 	windowBootstrapByName map[string]map[string]any
 	windowGroups          map[string]string
 
+	droppedFilesMu sync.Mutex
+	droppedFiles   map[string]droppedFileRecord
+
 	openNewWindowInvoker func(group string, n int, uiBootstrap, cwd string) (string, error)
 	currentWindowNameFn  func() string
 }
@@ -112,7 +115,7 @@ func (a *App) openNewWindow(group string, n int, uiBootstrap, cwd string) (strin
 	// TODO(P7.5): Frontend still needs to read ao_ui_bootstrap/ao_window_cwd
 	// from window.location.search before these query params affect runtime state.
 	name := buildWindowName(group, n)
-	window := createWindow(app, title, a.debug, name, uiBootstrap, cwd)
+	window := createWindow(app, title, a.debug, name, uiBootstrap, cwd, a)
 	if window == nil {
 		return "", errors.New("wails binding: failed to create window")
 	}

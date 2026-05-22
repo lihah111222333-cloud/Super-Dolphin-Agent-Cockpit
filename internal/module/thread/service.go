@@ -82,25 +82,19 @@ type service struct {
 	// CLI falls back to its bundled system prompt. When wired, it powers the
 	// agent_key → prompt_text lookup in resolveRoutedPrompt.
 	promptStore promptstore.Store
-	// classifier is an opt-in Plan B dependency. When enabled, resolveRoutedPrompt
-	// consults it for first-turn user input when the caller didn't pin a prompt_key
-	// explicitly. Nil is safe; the router guards on Enabled() and preserves the
-	// pre-classifier behavior.
-	classifier contract.PromptClassifier
-
-	// classifierFastPath, classifierPrune, classifierMaxCandidates are pure-function
-	// helpers injected from prompt/classifier at construction time. They avoid a
-	// direct import of the classifier package in the thread module. Nil-safe: the
-	// router guards on classifier != nil before calling any of these.
-	classifierFastPath      contract.ClassifierFastPathFunc
-	classifierPrune         contract.ClassifierPruneCandidatesFunc
-	classifierMaxCandidates contract.ClassifierMaxCandidatesFunc
+	// promptCatalog is the runtime read path for routed prompts. It may combine
+	// repo-owned builtin prompts with DB-owned user assets; promptStore remains
+	// the write path for prompt_versions snapshots.
+	promptCatalog promptstore.RuntimePromptCatalog
 
 	// matchWhenEval evaluates a prompt_template's match_when JSONB expression
 	// against the current BuildCtx. Injected from prompt.EvaluateMatchWhen at
 	// construction time to avoid a direct thread→prompt import. Nil-safe:
 	// maybeAutoRouteByMatchWhen skips evaluation when nil.
 	matchWhenEval contract.MatchWhenEvaluator
+
+	// enableWhenEval keeps router prompt_versions snapshots aligned with assembler gates.
+	enableWhenEval contract.EnableWhenEvaluator
 
 	// taskHandoffWorker is the P22 P2 (thread S3) single owner of the
 	// onTurnCompleted -> refreshTaskHandoffFromThread slow-path. Nil when

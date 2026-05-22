@@ -252,7 +252,7 @@ func enableWhenValueEquals(got, want any) bool {
 // without changing behavior.
 
 // EvaluateMatchWhen decides whether a prompt_template should be picked by
-// the "auto-route" rung of the router (between classifier and main/default
+// the "auto-route" rung of the router (between explicit pins and main/default
 // fallback). Semantics are deliberately different from EvaluateEnableWhen:
 //
 //   - nil / empty        → NOT a match (template opted out of auto-routing)
@@ -272,7 +272,7 @@ func enableWhenValueEquals(got, want any) bool {
 //	model           buildCtx.Model == value
 //	isWorktree      buildCtx.IsWorktree == value
 //	sessionFlags.X  buildCtx.SessionFlags[X] == value
-//	tags_has        case-insensitive substring match of value in userPrompt
+//	tags_has        retired for template match_when; always fails closed
 //
 // The two layers (template match_when + section enable_when) never share data
 // at call time; both read the same BuildCtx but are evaluated in different
@@ -298,7 +298,7 @@ func EvaluateMatchWhen(raw []byte, buildCtx contract.BuildCtx, userPrompt string
 }
 
 // matchWhenKeyMatches handles one key from a match_when expression. It
-// dispatches between the custom glob/prefix/tags keys and the shared
+// dispatches between the custom glob/prefix keys and the shared
 // BuildCtx-field equality table reused from EvaluateEnableWhen.
 func matchWhenKeyMatches(key string, want any, buildCtx contract.BuildCtx, userPrompt string) bool {
 	switch key {
@@ -307,12 +307,9 @@ func matchWhenKeyMatches(key string, want any, buildCtx contract.BuildCtx, userP
 	case "cwd_prefix":
 		return matchCWDPrefix(matchWhenStringValue(want), buildCtx.CWD)
 	case "tags_has":
-		// Reuse the section-level evaluator so template-level tags_has accepts
-		// both string ("代码") and array (["代码","bug"]) forms. Without this,
-		// any DB row whose match_when stores tags_has as a JSON array (the
-		// shape the SystemPromptPage UI auto-generates from chip tags) silently
-		// fails to match — defeating the whole point of two-stage routing.
-		return matchSectionTagsHas(want, userPrompt)
+		// Template-level keyword routing is retired. Keep section-level
+		// enable_when.tags_has in sectionEnableKeyMatches above.
+		return false
 	default:
 		// Fall through to the shared BuildCtx equality table (language /
 		// provider / model / cwd / gitRoot / isWorktree / sessionFlags.*).

@@ -149,6 +149,222 @@ func TestInputScopedSectionKeysMemoryByGateInputs(t *testing.T) {
 	}
 }
 
+func TestInputScopedSectionKeysAvailableExpertsByPromptAndCurrentTemplate(t *testing.T) {
+	section := PromptSection{Name: DynamicSectionAvailableExperts, CachePolicy: InputScoped}
+	base := SectionContext{
+		Start:    &StartInput{Prompt: "帮我做一个完整功能", PromptKey: "main/default"},
+		BuildCtx: BuildCtx{CWD: "/repo"},
+	}
+	keyA, ok := sectionInputCacheKey(section, base)
+	if !ok {
+		t.Fatal("sectionInputCacheKey() cacheable = false, want true")
+	}
+	keyA2, _ := sectionInputCacheKey(section, SectionContext{
+		Start:    &StartInput{Prompt: "帮我做一个完整功能", PromptKey: "main/default"},
+		BuildCtx: BuildCtx{CWD: "/repo"},
+	})
+	keyB, _ := sectionInputCacheKey(section, SectionContext{
+		Start:    &StartInput{Prompt: "你好", PromptKey: "main/default"},
+		BuildCtx: BuildCtx{CWD: "/repo"},
+	})
+	keyC, _ := sectionInputCacheKey(section, SectionContext{
+		Start:    &StartInput{Prompt: "帮我做一个完整功能", PromptKey: "coder/prompt"},
+		BuildCtx: BuildCtx{CWD: "/repo"},
+	})
+	keyD, _ := sectionInputCacheKey(section, SectionContext{
+		Turn:     &TurnInput{UserText: "帮我做一个完整功能", PromptKey: "main/default"},
+		BuildCtx: BuildCtx{CWD: "/repo"},
+	})
+	keyE, _ := sectionInputCacheKey(section, SectionContext{
+		Turn:     &TurnInput{UserText: "帮我做一个完整功能", PromptKey: "coder/prompt"},
+		BuildCtx: BuildCtx{CWD: "/repo"},
+	})
+	if keyA != keyA2 {
+		t.Fatalf("same available_experts inputs key mismatch: first=%q second=%q", keyA, keyA2)
+	}
+	if keyA == keyB {
+		t.Fatalf("different user prompts reused cache key: %q", keyA)
+	}
+	if keyA == keyC {
+		t.Fatalf("different current prompt keys reused cache key: %q", keyA)
+	}
+	if keyD == keyE {
+		t.Fatalf("different turn prompt keys reused cache key: %q", keyD)
+	}
+}
+
+func TestInputScopedSectionKeysAvailableExpertsUsesStartAndTurnCWD(t *testing.T) {
+	section := PromptSection{Name: DynamicSectionAvailableExperts, CachePolicy: InputScoped}
+	fromStart, ok := sectionInputCacheKey(section, SectionContext{
+		Start: &StartInput{Prompt: "帮我做一个完整功能", CWD: "/repo/start"},
+	})
+	if !ok {
+		t.Fatal("sectionInputCacheKey() cacheable = false, want true")
+	}
+	fromTurn, _ := sectionInputCacheKey(section, SectionContext{
+		Turn: &TurnInput{UserText: "帮我做一个完整功能", CWD: "/repo/turn"},
+	})
+	fromBuild, _ := sectionInputCacheKey(section, SectionContext{
+		BuildCtx: BuildCtx{CWD: "/repo/build"},
+		Start:    &StartInput{Prompt: "帮我做一个完整功能", CWD: "/repo/start"},
+	})
+	if fromStart == fromTurn {
+		t.Fatalf("start and turn cwd reused available_experts key: %q", fromStart)
+	}
+	if fromBuild == fromStart {
+		t.Fatalf("BuildCtx cwd did not take precedence over Start cwd: %q", fromBuild)
+	}
+}
+
+func TestInputScopedSectionKeysAvailableExpertsEmptyCWDDoesNotUseProcessCWD(t *testing.T) {
+	section := PromptSection{Name: DynamicSectionAvailableExperts, CachePolicy: InputScoped}
+	keyA, ok := sectionInputCacheKey(section, SectionContext{
+		Start: &StartInput{Prompt: "帮我做一个完整功能"},
+	})
+	if !ok {
+		t.Fatal("sectionInputCacheKey() cacheable = false, want true")
+	}
+	keyB, _ := sectionInputCacheKey(section, SectionContext{
+		Start:    &StartInput{Prompt: "帮我做一个完整功能"},
+		BuildCtx: BuildCtx{CWD: "/repo/a"},
+	})
+	if keyA == keyB {
+		t.Fatalf("empty cwd reused cwd-scoped available_experts key: %q", keyA)
+	}
+}
+
+func TestRecallCatalogDynamicSpecOrderAndCachePolicy(t *testing.T) {
+	spec, ok := dynamicSectionSpecForName(DynamicSectionRecallCatalog)
+	if !ok {
+		t.Fatalf("section %q missing from dynamic spec list", DynamicSectionRecallCatalog)
+	}
+	availableExperts, _ := dynamicSectionSpecForName(DynamicSectionAvailableExperts)
+	memory, _ := dynamicSectionSpecForName(DynamicSectionMemory)
+	if spec.order != 118 || spec.order <= availableExperts.order || spec.order >= memory.order {
+		t.Fatalf("recall_catalog order = %d, want 118 between available_experts=%d and memory=%d",
+			spec.order, availableExperts.order, memory.order)
+	}
+	if spec.cachePolicy != InputScoped {
+		t.Fatalf("recall_catalog cache policy = %v, want InputScoped", spec.cachePolicy)
+	}
+}
+
+func TestInputScopedSectionKeysRecallCatalogByCWD(t *testing.T) {
+	section := PromptSection{Name: DynamicSectionRecallCatalog, CachePolicy: InputScoped}
+	keyA, ok := sectionInputCacheKey(section, SectionContext{BuildCtx: BuildCtx{CWD: "/repo/a"}})
+	if !ok {
+		t.Fatal("sectionInputCacheKey() cacheable = false, want true")
+	}
+	keyA2, _ := sectionInputCacheKey(section, SectionContext{
+		BuildCtx: BuildCtx{CWD: "/repo/a"},
+		Turn:     &TurnInput{UserText: "ignore turn noise"},
+	})
+	keyB, _ := sectionInputCacheKey(section, SectionContext{BuildCtx: BuildCtx{CWD: "/repo/b"}})
+	if keyA != keyA2 {
+		t.Fatalf("same recall catalog cwd key mismatch: first=%q second=%q", keyA, keyA2)
+	}
+	if keyA == keyB {
+		t.Fatalf("different recall catalog cwd reused cache key: %q", keyA)
+	}
+}
+
+func TestInputScopedSectionKeysRecallCatalogUsesStartAndTurnCWD(t *testing.T) {
+	section := PromptSection{Name: DynamicSectionRecallCatalog, CachePolicy: InputScoped}
+	fromStart, ok := sectionInputCacheKey(section, SectionContext{Start: &StartInput{CWD: "/repo/start"}})
+	if !ok {
+		t.Fatal("sectionInputCacheKey() cacheable = false, want true")
+	}
+	fromTurn, _ := sectionInputCacheKey(section, SectionContext{Turn: &TurnInput{CWD: "/repo/turn"}})
+	fromBuild, _ := sectionInputCacheKey(section, SectionContext{
+		BuildCtx: BuildCtx{CWD: "/repo/build"},
+		Start:    &StartInput{CWD: "/repo/start"},
+	})
+	if fromStart == fromTurn {
+		t.Fatalf("start and turn cwd reused recall_catalog key: %q", fromStart)
+	}
+	if fromBuild == fromStart {
+		t.Fatalf("BuildCtx cwd did not take precedence over Start cwd: %q", fromBuild)
+	}
+}
+
+func TestInputScopedSectionKeysRecallCatalogEmptyCWDDoesNotUseProcessCWD(t *testing.T) {
+	section := PromptSection{Name: DynamicSectionRecallCatalog, CachePolicy: InputScoped}
+	keyA, ok := sectionInputCacheKey(section, SectionContext{})
+	if !ok {
+		t.Fatal("sectionInputCacheKey() cacheable = false, want true")
+	}
+	keyB, _ := sectionInputCacheKey(section, SectionContext{BuildCtx: BuildCtx{CWD: "/repo/a"}})
+	if keyA == keyB {
+		t.Fatalf("empty cwd reused cwd-scoped recall_catalog key: %q", keyA)
+	}
+}
+
+func TestProjectDefaultRulesDynamicSpecOrderAndCachePolicy(t *testing.T) {
+	spec, ok := dynamicSectionSpecForName(DynamicSectionProjectDefaultRules)
+	if !ok {
+		t.Fatalf("section %q missing from dynamic spec list", DynamicSectionProjectDefaultRules)
+	}
+	sessionGuidance, _ := dynamicSectionSpecForName(DynamicSectionSessionGuidance)
+	availableExperts, _ := dynamicSectionSpecForName(DynamicSectionAvailableExperts)
+	if spec.order != 112 || spec.order <= sessionGuidance.order || spec.order >= availableExperts.order {
+		t.Fatalf("project_default_rules order = %d, want 112 between session_guidance=%d and available_experts=%d",
+			spec.order, sessionGuidance.order, availableExperts.order)
+	}
+	if spec.cachePolicy != InputScoped {
+		t.Fatalf("project_default_rules cache policy = %v, want InputScoped", spec.cachePolicy)
+	}
+}
+
+func TestInputScopedSectionKeysProjectDefaultRulesByCWD(t *testing.T) {
+	section := PromptSection{Name: DynamicSectionProjectDefaultRules, CachePolicy: InputScoped}
+	keyA, ok := sectionInputCacheKey(section, SectionContext{BuildCtx: BuildCtx{CWD: "/repo/a"}})
+	if !ok {
+		t.Fatal("sectionInputCacheKey() cacheable = false, want true")
+	}
+	keyA2, _ := sectionInputCacheKey(section, SectionContext{
+		BuildCtx: BuildCtx{CWD: "/repo/a"},
+		Turn:     &TurnInput{UserText: "ignore turn noise"},
+	})
+	keyB, _ := sectionInputCacheKey(section, SectionContext{BuildCtx: BuildCtx{CWD: "/repo/b"}})
+	if keyA != keyA2 {
+		t.Fatalf("same project default rules cwd key mismatch: first=%q second=%q", keyA, keyA2)
+	}
+	if keyA == keyB {
+		t.Fatalf("different project default rules cwd reused cache key: %q", keyA)
+	}
+}
+
+func TestInputScopedSectionKeysProjectDefaultRulesUsesStartAndTurnCWD(t *testing.T) {
+	section := PromptSection{Name: DynamicSectionProjectDefaultRules, CachePolicy: InputScoped}
+	fromStart, ok := sectionInputCacheKey(section, SectionContext{Start: &StartInput{CWD: "/repo/start"}})
+	if !ok {
+		t.Fatal("sectionInputCacheKey() cacheable = false, want true")
+	}
+	fromTurn, _ := sectionInputCacheKey(section, SectionContext{Turn: &TurnInput{CWD: "/repo/turn"}})
+	fromBuild, _ := sectionInputCacheKey(section, SectionContext{
+		BuildCtx: BuildCtx{CWD: "/repo/build"},
+		Start:    &StartInput{CWD: "/repo/start"},
+	})
+	if fromStart == fromTurn {
+		t.Fatalf("start and turn cwd reused project_default_rules key: %q", fromStart)
+	}
+	if fromBuild == fromStart {
+		t.Fatalf("BuildCtx cwd did not take precedence over Start cwd: %q", fromBuild)
+	}
+}
+
+func TestInputScopedSectionKeysProjectDefaultRulesEmptyCWDDoesNotUseProcessCWD(t *testing.T) {
+	section := PromptSection{Name: DynamicSectionProjectDefaultRules, CachePolicy: InputScoped}
+	keyA, ok := sectionInputCacheKey(section, SectionContext{})
+	if !ok {
+		t.Fatal("sectionInputCacheKey() cacheable = false, want true")
+	}
+	keyB, _ := sectionInputCacheKey(section, SectionContext{BuildCtx: BuildCtx{CWD: "/repo/a"}})
+	if keyA == keyB {
+		t.Fatalf("empty cwd reused cwd-scoped project_default_rules key: %q", keyA)
+	}
+}
+
 func TestInputScopedSectionKeysMemoryEntrypointByHarnessEnv(t *testing.T) {
 	section := PromptSection{Name: DynamicSectionMemoryEntrypoint, CachePolicy: InputScoped}
 	buildCtx := BuildCtx{CWD: "/repo", GitRoot: "/repo", SessionFlags: map[string]bool{"team_memory": true}}

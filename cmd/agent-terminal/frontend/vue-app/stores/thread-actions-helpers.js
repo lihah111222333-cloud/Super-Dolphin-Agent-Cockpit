@@ -11,6 +11,7 @@ import {
 import { _optimisticThreadIds, OPTIMISTIC_LEAK_GUARD_MS } from './thread-optimistic.js';
 import { resolveBuiltinToolLaunchPolicy } from './builtin-tool-policy.js';
 import { compactFailureResult, dialogTimelineSignature, tokenUsageSignature, waitForCompactResponse } from './thread-compact-helpers.js';
+import { maybeHandleStalePromptKey } from './thread-stale-prompt.js';
 import { CODEX_IDENTITY_DEFAULTS, normalizeProviderConfigValue } from '../provider-config-options.js';
 import { dropSkillNamesCoveredByRefs } from '../utils/skill-ref-utils.js';
 
@@ -393,15 +394,10 @@ export async function startThread(ctx, cwd = '.', options = {}) {
   // fall back to another scope.
   const getPref = (req) => callAPI('ui/preferences/get', req).catch(() => undefined);
   const getProviderPref = (req) => callAPI('ui/preferences/get', req);
-  const [
-    providerPref,
-    activePromptKey,
-    classifierEnabled,
-	  ] = await Promise.all([
-	    resolveLaunchProviderPreference(getProviderPref, cwd),
-	    needsActivePromptKey ? getPref({ key: 'settings.activePromptKey', cwd }) : Promise.resolve(undefined),
-	    getPref({ key: 'settings.classifierEnabled', cwd }),
-	  ]);
+  const [providerPref, activePromptKey] = await Promise.all([
+    resolveLaunchProviderPreference(getProviderPref, cwd),
+    needsActivePromptKey ? getPref({ key: 'settings.activePromptKey', cwd }) : Promise.resolve(undefined),
+  ]);
 
   const modelProvider = normalizeProviderConfigValue(providerPref);
   if (!modelProvider) {
@@ -479,13 +475,6 @@ export async function startThread(ctx, cwd = '.', options = {}) {
     payload.prompt_key = promptKeyOverride;
   } else if (needsActivePromptKey && typeof activePromptKey === 'string' && activePromptKey.trim()) {
     payload.prompt_key = activePromptKey.trim();
-  }
-  // Plan B opt-in: when the user enabled 'settings.classifierEnabled' for
-  // this cwd, forward use_classifier=true so the backend router runs the
-  // prompt classifier on first-turn user input. Harmless when prompt_key is
-  // also set (explicit pin short-circuits the classifier backend-side).
-  if (classifierEnabled === true || classifierEnabled === 'true') {
-    payload.use_classifier = true;
   }
   // First user message (if any) forwarded so the backend router has input
   // to classify. Without this the router always sees empty input at
@@ -723,9 +712,10 @@ export async function sendMessage(ctx, threadId, prompt, attachments = [], optio
     if (typeof ctx.markHistoryLoaded === 'function') ctx.markHistoryLoaded(threadId);
     // Optimistic UI: insert the user's message into the local timeline BEFORE
     // awaiting turn/start. First-turn of a pending_launch thread spends
-    // 5-15s inside turn/start (SpawnIfNeeded runs the classifier + forks the
-    // claude CLI); rendering only after the RPC returns means the user stares
-    // at an empty composer for that entire window and thinks the app hung.
+    // noticeable time inside turn/start (SpawnIfNeeded routes prompts and
+    // forks the provider CLI); rendering only after the RPC returns means the
+    // user stares at an empty composer for that entire window and thinks the
+    // app hung.
     // The message stays on screen even if turn/start fails terminally — that
     // matches user intent ("I can see what I just typed"), and any error is
     // surfaced via the standard catch path below.
@@ -747,6 +737,7 @@ export async function sendMessage(ctx, threadId, prompt, attachments = [], optio
     // runs inside turn/start, not thread/start), so the backend surfaces it
     // here on the first successful turn. Merge-only: empty fields are ignored
     // so eager-path threads keep the routing that thread/start already set.
+    await maybeHandleStalePromptKey(ctx, turnStartRes, cwdValue);
     const routingUpdated = applyTurnStartRouting(threadId, turnStartRes);
     // C1: first successful turn/start means the backend has forked the CLI
     // (SpawnIfNeeded ran for pending threads, eager threads were already

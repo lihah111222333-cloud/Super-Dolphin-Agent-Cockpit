@@ -1,17 +1,5 @@
 /**
- * SectionsEditor — prompt_template_sections 的"高级调试"面板
- *
- * 作为 SystemPromptPage 编辑弹窗的"🔧 高级调试" tab 的子组件。
- * 面向 prompt 工程师，**普通用户不会看到**：需要在编辑弹窗里主动切到
- * 高级 tab 才渲染可见。
- *
- * 职责（Step 1/2/3b 的 UI 入口）：
- *   - 列出当前 prompt_template 的所有 sections（区分 static / dynamic）
- *   - 允许新增 / 编辑 / 删除 section
- *   - 暴露 enable_when JSONB 原始 JSON 编辑（初版不做语义化下拉）
- *
- * 拆成独立组件的动机是 size-guard：SystemPromptPage.js 原文件 <800 行，
- * 继续堆代码会踩硬上限；拆出来后两个文件各自清晰。
+ * SectionsEditor — prompt_template_sections editor.
  */
 // @ts-nocheck
 import {
@@ -22,14 +10,15 @@ import {
 
 import { callAPI } from '../services/api.js';
 import { logWarn } from '../services/log.js';
+import {
+  normalizeTriggerType,
+  sectionDisplayName,
+  sectionSummary,
+  validRecallTopicName,
+} from './SystemPromptPage.helpers.js';
 
 function withCwd(cwd, payload) {
   return cwd ? { ...payload, cwd } : payload;
-}
-
-function truncate(text, max = 240) {
-  if (!text) return '';
-  return text.length > max ? text.slice(0, max) + '…' : text;
 }
 
 function toErrorMessage(error) {
@@ -39,19 +28,33 @@ function toErrorMessage(error) {
   ).toString().trim();
 }
 
+function sectionCardKey(item, idx) {
+  return (item?.section_key || `section-${idx}`).toString();
+}
+
+function parseEnableWhen(raw) {
+  const text = (raw || '').toString().trim();
+  if (!text || text === 'null') return { value: undefined, error: '' };
+  try {
+    return { value: JSON.parse(text), error: '' };
+  } catch (error) {
+    return { value: undefined, error: `enable_when 不是合法 JSON：${toErrorMessage(error)}` };
+  }
+}
+
 export const SectionsEditor = {
   name: 'SectionsEditor',
   props: {
     promptId: { type: String, default: '' },
     cwd: { type: String, default: '' },
+    promptScope: { type: String, default: 'project' },
     fallbackMode: { type: Boolean, default: false },
-    // Parent 控制本组件是否"可见"：切回基础 tab 时 parent 会设 false，
-    // 本组件在 watch 里负责关掉任何打开的子模态避免"隐形弹窗"。
     visible: { type: Boolean, default: false },
   },
   setup(props) {
     const sectionsLoading = ref(false);
     const sectionsList = ref([]);
+    const expandedKeys = ref(new Set());
     const sectionEditorOpen = ref(false);
     const sectionEditorMode = ref('create');
     const sectionSaving = ref(false);
@@ -65,11 +68,20 @@ export const SectionsEditor = {
       body: '',
       enableWhen: '',
       enabled: true,
+      triggerType: 'always',
+      recallTopic: '',
     });
 
     function setNotice(level, message) {
       notice.level = level || 'info';
       notice.message = (message || '').toString().trim();
+    }
+
+    function withPromptScope(payload) {
+      return {
+        ...payload,
+        scope: props.promptScope === 'global' ? 'global' : 'project',
+      };
     }
 
     async function loadSections() {
@@ -92,16 +104,24 @@ export const SectionsEditor = {
     }
 
     function resetSectionForm() {
-      sectionForm.originalKey = '';
-      sectionForm.sectionKey = '';
-      sectionForm.region = 'dynamic';
-      sectionForm.ordinal = 0;
-      sectionForm.body = '';
-      sectionForm.enableWhen = '';
-      sectionForm.enabled = true;
+      Object.assign(sectionForm, {
+        originalKey: '',
+        sectionKey: '',
+        region: 'dynamic',
+        ordinal: 0,
+        body: '',
+        enableWhen: '',
+        enabled: true,
+        triggerType: 'always',
+        recallTopic: '',
+      });
     }
 
     function openCreate() {
+      if (props.fallbackMode) {
+        setNotice('info', '当前为只读模式，暂不支持修改分段');
+        return;
+      }
       if (!props.promptId) {
         setNotice('error', '请先保存提示词再添加分段');
         return;
@@ -112,20 +132,28 @@ export const SectionsEditor = {
     }
 
     function openEdit(item) {
-      sectionForm.originalKey = item?.section_key || '';
-      sectionForm.sectionKey = item?.section_key || '';
-      sectionForm.region = item?.region === 'static' ? 'static' : 'dynamic';
-      sectionForm.ordinal = Number(item?.ordinal || 0);
-      sectionForm.body = item?.body || '';
-      const ew = item?.enable_when;
-      if (ew == null) {
-        sectionForm.enableWhen = '';
-      } else if (typeof ew === 'string') {
-        sectionForm.enableWhen = ew;
-      } else {
-        try { sectionForm.enableWhen = JSON.stringify(ew); } catch { sectionForm.enableWhen = ''; }
+      if (props.fallbackMode) {
+        setNotice('info', '当前为只读模式，暂不支持修改分段');
+        return;
       }
-      sectionForm.enabled = item?.enabled !== false;
+      let enableWhen = '';
+      const ew = item?.enable_when;
+      if (typeof ew === 'string') {
+        enableWhen = ew;
+      } else if (ew != null) {
+        try { enableWhen = JSON.stringify(ew); } catch { enableWhen = ''; }
+      }
+      Object.assign(sectionForm, {
+        originalKey: item?.section_key || '',
+        sectionKey: item?.section_key || '',
+        region: item?.region === 'static' ? 'static' : 'dynamic',
+        ordinal: Number(item?.ordinal || 0),
+        body: item?.body || '',
+        enableWhen,
+        enabled: item?.enabled !== false,
+        triggerType: normalizeTriggerType(item?.trigger_type),
+        recallTopic: item?.recall_topic || '',
+      });
       sectionEditorMode.value = 'edit';
       sectionEditorOpen.value = true;
     }
@@ -134,36 +162,45 @@ export const SectionsEditor = {
       sectionEditorOpen.value = false;
     }
 
+    function isSectionExpanded(item, idx) {
+      return expandedKeys.value.has(sectionCardKey(item, idx));
+    }
+
+    function toggleSection(item, idx) {
+      const key = sectionCardKey(item, idx);
+      const next = new Set(expandedKeys.value);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      expandedKeys.value = next;
+    }
+
     async function saveSection() {
-      if (sectionSaving.value) return;
-      const sk = (sectionForm.sectionKey || '').trim();
-      if (!sk) {
-        setNotice('error', '请填写段名（section_key）');
+      if (props.fallbackMode) {
+        setNotice('info', '当前为只读模式，暂不支持修改分段');
         return;
       }
+      if (sectionSaving.value) return;
+      const sk = (sectionForm.sectionKey || '').trim();
+      if (!sk) { setNotice('error', '请填写段名（section_key）'); return; }
       if (sectionForm.region !== 'static' && sectionForm.region !== 'dynamic') {
         setNotice('error', 'region 必须是 static 或 dynamic');
         return;
       }
-      let parsedEnableWhen;
-      const ewText = (sectionForm.enableWhen || '').trim();
-      if (ewText && ewText !== 'null') {
-        try {
-          parsedEnableWhen = JSON.parse(ewText);
-        } catch (e) {
-          setNotice('error', `enable_when 不是合法 JSON：${toErrorMessage(e)}`);
-          return;
-        }
+      const triggerType = normalizeTriggerType(sectionForm.triggerType);
+      const recallTopic = (sectionForm.recallTopic || '').trim();
+      if (triggerType === 'recall' && !validRecallTopicName(recallTopic)) {
+        setNotice('error', 'recall_topic 必须是小写短横线命名，长度小于 64');
+        return;
       }
+      const parsedEnableWhen = parseEnableWhen(sectionForm.enableWhen);
+      if (parsedEnableWhen.error) { setNotice('error', parsedEnableWhen.error); return; }
       sectionSaving.value = true;
       try {
-        if (sectionEditorMode.value === 'edit'
-          && sectionForm.originalKey
-          && sectionForm.originalKey !== sk) {
-          await callAPI('prompt-sections/delete', withCwd(props.cwd, {
+        if (sectionEditorMode.value === 'edit' && sectionForm.originalKey && sectionForm.originalKey !== sk) {
+          await callAPI('prompt-sections/delete', withCwd(props.cwd, withPromptScope({
             prompt_id: props.promptId,
             section_key: sectionForm.originalKey,
-          }));
+          })));
         }
         const payload = {
           prompt_id: props.promptId,
@@ -172,11 +209,11 @@ export const SectionsEditor = {
           ordinal: Number(sectionForm.ordinal) || 0,
           body: sectionForm.body || '',
           enabled: !!sectionForm.enabled,
+          trigger_type: triggerType,
+          recall_topic: triggerType === 'recall' ? recallTopic : '',
         };
-        if (parsedEnableWhen !== undefined) {
-          payload.enable_when = parsedEnableWhen;
-        }
-        await callAPI('prompt-sections/write', withCwd(props.cwd, payload));
+        if (parsedEnableWhen.value !== undefined) payload.enable_when = parsedEnableWhen.value;
+        await callAPI('prompt-sections/write', withCwd(props.cwd, withPromptScope(payload)));
         sectionEditorOpen.value = false;
         await loadSections();
         setNotice('info', `分段已保存：${sk}`);
@@ -189,14 +226,18 @@ export const SectionsEditor = {
     }
 
     async function deleteSection(item) {
+      if (props.fallbackMode) {
+        setNotice('info', '当前为只读模式，暂不支持修改分段');
+        return;
+      }
       const sk = item?.section_key;
       if (!sk || sectionDeletingKey.value) return;
       sectionDeletingKey.value = sk;
       try {
-        await callAPI('prompt-sections/delete', withCwd(props.cwd, {
+        await callAPI('prompt-sections/delete', withCwd(props.cwd, withPromptScope({
           prompt_id: props.promptId,
           section_key: sk,
-        }));
+        })));
         await loadSections();
         setNotice('info', `分段已删除：${sk}`);
       } catch (error) {
@@ -210,39 +251,22 @@ export const SectionsEditor = {
     watch(
       () => [props.visible, props.promptId],
       ([nextVisible, nextId]) => {
-        if (nextVisible && nextId) {
-          loadSections();
-        }
-        if (!nextVisible) {
-          sectionEditorOpen.value = false;
-        }
+        if (nextVisible && nextId) loadSections();
+        if (!nextVisible) sectionEditorOpen.value = false;
       },
       { immediate: true },
     );
 
     return {
-      sectionsLoading, sectionsList, sectionEditorOpen, sectionEditorMode,
+      sectionsLoading, sectionsList, expandedKeys, sectionEditorOpen, sectionEditorMode,
       sectionSaving, sectionDeletingKey, sectionForm, notice,
       loadSections, openCreate, openEdit, closeSectionEditor,
-      saveSection, deleteSection, truncate,
+      saveSection, deleteSection, sectionCardKey, isSectionExpanded, toggleSection,
+      sectionDisplayName, sectionSummary, normalizeTriggerType,
     };
   },
   template: `
-    <div class="sp-sections-panel" data-testid="sp-editor-advanced">
-      <div class="sp-sections-hint">
-        <strong>分段调试（Sections）</strong>
-        <p>
-          此面板供 prompt 工程师使用。分段按 <code>region</code> 注入：
-          <code>static</code> 进可缓存前段（<code>--system-prompt</code>），
-          <code>dynamic</code> 进实时段（<code>--append-system-prompt</code>）。
-          每段可带 <code>enable_when</code> 条件（JSONB），仅当满足时才注入；
-          留空即永远注入。
-        </p>
-        <p v-if="!promptId" class="sp-sections-warn">
-          新建的提示词需要先保存（点「基础」tab 下的「保存」按钮）后，才能添加分段。
-        </p>
-      </div>
-
+    <div class="sp-sections-panel" data-testid="sp-sections-panel">
       <div class="sp-sections-toolbar" data-testid="sp-sections-toolbar">
         <button class="btn btn-secondary btn-xs"
           data-testid="sp-section-create-btn"
@@ -259,41 +283,63 @@ export const SectionsEditor = {
       </div>
       <div v-else-if="!promptId" class="empty-state" data-testid="sp-sections-unsaved">
         <h3>请先保存提示词</h3>
-        <p>先完成基础信息并保存后，再来添加分段。</p>
+        <p>保存后即可添加分段。</p>
       </div>
       <div v-else-if="sectionsList.length === 0" class="empty-state" data-testid="sp-sections-empty">
         <h3>尚未添加分段</h3>
-        <p>未添加分段时，上面的「提示词内容」会作为单一动态段注入，行为等同旧版。</p>
+        <p>点击“新增分段”开始维护注入内容。</p>
       </div>
       <div v-else class="sp-sections-list" data-testid="sp-sections-list">
         <article
           v-for="(item, idx) in sectionsList"
-          :key="item.section_key"
+          :key="sectionCardKey(item, idx)"
           class="data-card-vue sp-section-card"
-          :class="{ 'is-disabled': item.enabled === false }"
+          :class="{ 'is-disabled': item.enabled === false, 'is-open': isSectionExpanded(item, idx), 'is-recall': normalizeTriggerType(item.trigger_type) === 'recall' }"
           :data-testid="'sp-section-card-' + idx"
         >
-          <div class="sp-section-head">
-            <span class="sp-section-region"
-              :class="'is-' + (item.region === 'static' ? 'static' : 'dynamic')"
-              :title="item.region === 'static' ? '固定段 / 进可缓存前段' : '条件段 / 进实时段'">{{ item.region === 'static' ? '🔒 固定段' : '🎛 条件段' }}</span>
-            <span class="sp-section-key">{{ item.section_key }}</span>
-            <span class="sp-section-ord">#{{ item.ordinal }}</span>
+          <button
+            type="button"
+            class="sp-section-toggle"
+            :data-testid="'sp-section-toggle-' + idx"
+            @click="toggleSection(item, idx)"
+          >
+            <span class="sp-section-caret">{{ isSectionExpanded(item, idx) ? '▾' : '▸' }}</span>
+            <span class="sp-section-title-block">
+              <span class="sp-section-friendly-name">{{ sectionDisplayName(item) }}</span>
+              <span class="sp-section-key">{{ item.section_key }}</span>
+            </span>
+            <span class="sp-section-summary">{{ sectionSummary(item.body, 150) }}</span>
+            <span v-if="normalizeTriggerType(item.trigger_type) === 'recall'" class="sp-section-badge is-recall">🔗 Recall</span>
             <span v-if="item.enabled === false" class="sp-section-badge is-disabled">已停用</span>
-          </div>
-          <div v-if="item.enable_when" class="sp-section-when" :title="'enable_when JSONB：满足所有键值时才注入'">
-            条件：<code>{{ JSON.stringify(item.enable_when) }}</code>
-          </div>
-          <div v-else class="sp-section-when is-unconditional">条件：无（永远注入）</div>
-          <pre class="sp-section-body">{{ truncate(item.body, 240) }}</pre>
-          <div class="sp-section-actions">
-            <button class="btn btn-secondary btn-xs"
-              :data-testid="'sp-section-edit-btn-' + idx"
-              @click="openEdit(item)">编辑</button>
-            <button class="btn btn-ghost btn-xs btn-warning"
-              :data-testid="'sp-section-delete-btn-' + idx"
-              :disabled="sectionDeletingKey === item.section_key"
-              @click="deleteSection(item)">{{ sectionDeletingKey === item.section_key ? '删除中...' : '删除' }}</button>
+          </button>
+
+          <div v-show="isSectionExpanded(item, idx)" class="sp-section-expanded">
+            <textarea
+              class="sp-textarea sp-textarea-readonly sp-section-body-textarea"
+              rows="5"
+              :value="item.body || ''"
+              readonly
+            ></textarea>
+            <details class="sp-section-advanced">
+              <summary>高级字段</summary>
+              <dl class="sp-section-fields">
+                <div><dt>region</dt><dd>{{ item.region || 'dynamic' }}</dd></div>
+                <div><dt>ordinal</dt><dd>{{ item.ordinal || 0 }}</dd></div>
+                <div><dt>trigger_type</dt><dd>{{ normalizeTriggerType(item.trigger_type) }}</dd></div>
+                <div v-if="item.recall_topic"><dt>recall_topic</dt><dd>{{ item.recall_topic }}</dd></div>
+                <div v-if="item.enable_when"><dt>enable_when</dt><dd><code>{{ JSON.stringify(item.enable_when) }}</code></dd></div>
+              </dl>
+            </details>
+            <div class="sp-section-actions">
+              <button class="btn btn-secondary btn-xs"
+                :data-testid="'sp-section-edit-btn-' + idx"
+                :disabled="fallbackMode"
+                @click="openEdit(item)">编辑</button>
+              <button class="btn btn-ghost btn-xs btn-warning"
+                :data-testid="'sp-section-delete-btn-' + idx"
+                :disabled="fallbackMode || sectionDeletingKey === item.section_key"
+                @click="deleteSection(item)">{{ sectionDeletingKey === item.section_key ? '删除中...' : '删除' }}</button>
+            </div>
           </div>
         </article>
       </div>
@@ -316,32 +362,8 @@ export const SectionsEditor = {
           </div>
           <div class="sp-editor-body">
             <div class="sp-field">
-              <label>段类型（region）</label>
-              <select class="modal-input" v-model="sectionForm.region" :disabled="sectionSaving" data-testid="sp-section-region-select">
-                <option value="static">🔒 固定段 · 每次都注入（进缓存前段）</option>
-                <option value="dynamic">🎛 条件段 · 满足条件时才注入</option>
-              </select>
-            </div>
-            <div class="sp-field">
               <label>段名（section_key）</label>
-              <input class="modal-input" v-model="sectionForm.sectionKey" placeholder="例如 identity / tool_prefs / worktree_reminder" :disabled="sectionSaving" data-testid="sp-section-key-input" />
-              <div class="sp-field-meta">同一 prompt 内唯一；改名会先删旧行再新写一行。</div>
-            </div>
-            <div class="sp-field">
-              <label>顺序（ordinal，数字越小越靠前）</label>
-              <input type="number" class="modal-input" v-model.number="sectionForm.ordinal" :disabled="sectionSaving" data-testid="sp-section-ordinal-input" />
-            </div>
-            <div class="sp-field">
-              <label>生效条件（enable_when，原始 JSON）</label>
-              <textarea
-                class="sp-textarea"
-                rows="3"
-                v-model="sectionForm.enableWhen"
-                placeholder='留空=永远注入；示例：{"language":"zh","isWorktree":true}'
-                :disabled="sectionSaving"
-                data-testid="sp-section-enable-when-input"
-              ></textarea>
-              <div class="sp-field-meta">支持键：<code>language</code> / <code>provider</code> / <code>model</code> / <code>isWorktree</code> / <code>cwd</code> / <code>gitRoot</code> / <code>sessionFlags.&lt;name&gt;</code>。所有键 AND 匹配。</div>
+              <input class="modal-input" v-model="sectionForm.sectionKey" placeholder="identity / tool_prefs / sqlc-workflow" :disabled="sectionSaving || fallbackMode" data-testid="sp-section-key-input" />
             </div>
             <div class="sp-field">
               <label>内容（body）</label>
@@ -350,20 +372,60 @@ export const SectionsEditor = {
                 rows="8"
                 v-model="sectionForm.body"
                 placeholder="本段要注入的文本内容..."
-                :disabled="sectionSaving"
+                :disabled="sectionSaving || fallbackMode"
                 data-testid="sp-section-body-input"
               ></textarea>
             </div>
-            <div class="sp-field">
-              <label class="sp-toggle-inline">
-                <input type="checkbox" v-model="sectionForm.enabled" :disabled="sectionSaving" data-testid="sp-section-enabled-checkbox" />
-                <span>启用（enabled=false 时本段不会被加载）</span>
-              </label>
-            </div>
+            <details class="sp-section-advanced" :open="sectionForm.triggerType === 'recall' || !!sectionForm.enableWhen">
+              <summary>高级字段</summary>
+              <div class="sp-section-advanced-form">
+                <div class="sp-field">
+                  <label>region</label>
+                  <select class="modal-input" v-model="sectionForm.region" :disabled="sectionSaving || fallbackMode" data-testid="sp-section-region-select">
+                    <option value="static">static</option>
+                    <option value="dynamic">dynamic</option>
+                  </select>
+                </div>
+                <div class="sp-field">
+                  <label>ordinal</label>
+                  <input type="number" class="modal-input" v-model.number="sectionForm.ordinal" :disabled="sectionSaving || fallbackMode" data-testid="sp-section-ordinal-input" />
+                </div>
+                <div class="sp-field">
+                  <label>trigger_type</label>
+                  <select class="modal-input" v-model="sectionForm.triggerType" :disabled="sectionSaving || fallbackMode" data-testid="sp-section-trigger-select">
+                    <option value="always">always</option>
+                    <option value="keyword">keyword</option>
+                    <option value="recall">recall</option>
+                  </select>
+                </div>
+                <div v-if="sectionForm.triggerType === 'recall'" class="sp-field">
+                  <label>recall_topic</label>
+                  <input class="modal-input" v-model="sectionForm.recallTopic" placeholder="sqlc-workflow" :disabled="sectionSaving || fallbackMode" data-testid="sp-section-recall-topic-input" />
+                  <div class="sp-field-meta">lowercase-dash, length &lt; 64</div>
+                </div>
+                <div class="sp-field">
+                  <label>enable_when</label>
+                  <textarea
+                    class="sp-textarea"
+                    rows="3"
+                    v-model="sectionForm.enableWhen"
+                    placeholder='{"language":"zh","isWorktree":true}'
+                    :disabled="sectionSaving || fallbackMode"
+                    data-testid="sp-section-enable-when-input"
+                  ></textarea>
+                </div>
+                <div class="sp-field">
+                  <label class="sp-toggle-inline">
+                    <input type="checkbox" v-model="sectionForm.enabled" :disabled="sectionSaving || fallbackMode" data-testid="sp-section-enabled-checkbox" />
+                    <span>enabled</span>
+                  </label>
+                </div>
+              </div>
+            </details>
             <div class="sp-editor-actions">
               <button class="btn btn-ghost" @click="closeSectionEditor">取消</button>
               <button class="btn btn-primary"
-                :disabled="sectionSaving"
+                :disabled="sectionSaving || fallbackMode"
                 data-testid="sp-section-save-btn"
                 @click="saveSection">{{ sectionSaving ? '保存中...' : '保存分段' }}</button>
             </div>

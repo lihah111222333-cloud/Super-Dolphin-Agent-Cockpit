@@ -25,6 +25,7 @@ import {
   callAPI,
   copyTextToClipboard,
   normalizeRuntimeEventEnvelope,
+  readDroppedTextFiles,
   resolveThreadIdentity,
   selectProjectDir,
 } from './services/api.js';
@@ -78,6 +79,26 @@ describe('api service behavior', () => {
       'ui/selectProjectDir',
       expect.objectContaining({
         defaultPath: '',
+        _aoClientKind: 'web-debug-shim',
+        _aoClientRoute: '/test',
+      }),
+    );
+  });
+
+  it('reads recently dropped text files through the RPC bridge', async () => {
+    runtimeMock.byId.mockResolvedValueOnce({
+      files: [{ path: '/tmp/notes.md', name: 'notes.md', text: 'hello', sizeBytes: 5 }],
+    });
+
+    await expect(readDroppedTextFiles(['/tmp/notes.md'], 'prompt-intent-drop-zone')).resolves.toEqual([
+      { path: '/tmp/notes.md', name: 'notes.md', text: 'hello', sizeBytes: 5 },
+    ]);
+    expect(runtimeMock.byId).toHaveBeenCalledWith(
+      2963398832,
+      'ui/readDroppedTextFiles',
+      expect.objectContaining({
+        files: ['/tmp/notes.md'],
+        targetId: 'prompt-intent-drop-zone',
         _aoClientKind: 'web-debug-shim',
         _aoClientRoute: '/test',
       }),

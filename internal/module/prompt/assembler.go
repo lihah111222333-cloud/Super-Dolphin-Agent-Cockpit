@@ -37,6 +37,9 @@ func (s *service) AssembleStart(ctx context.Context, in StartInput) (StartAssemb
 
 	resolved, err := s.resolveSections(ctx, s.startSections(), SectionContext{BuildCtx: buildCtx, Start: &in})
 	if err != nil {
+		if contract.IsCriticalPromptSectionError(err) {
+			return StartAssembly{}, err
+		}
 		s.logBuildFallback("start", err)
 		return StartAssembly{}, err
 	}
@@ -119,6 +122,9 @@ func (s *service) AssembleTurn(ctx context.Context, in TurnInput) (TurnAssembly,
 	sectionCtx := buildTurnSectionContext(in)
 	resolved, err := s.resolveSections(ctx, s.dynamicSections(), sectionCtx)
 	if err != nil {
+		if contract.IsCriticalPromptSectionError(err) {
+			return TurnAssembly{}, err
+		}
 		s.logBuildFallback("turn", err)
 		return TurnAssembly{}, err
 	}

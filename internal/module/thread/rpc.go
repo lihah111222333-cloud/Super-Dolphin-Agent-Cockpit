@@ -140,7 +140,6 @@ func logStartRPCReceived(p startParams, cfg map[string]any) {
 		"agent_id", p.AgentID,
 		"agent_key", p.AgentKey,
 		"prompt_key", p.PromptKey,
-		"use_classifier", p.UseClassifier,
 		"provider", p.Provider,
 		"model_provider", p.ModelProvider,
 		"model", p.Model,
@@ -224,7 +223,6 @@ func buildStartRequestFromParams(p startParams, cfg map[string]any) StartRequest
 		ForceLaunchSkills: p.ManualSkillSelection,
 		AgentKey:          p.AgentKey,
 		PromptKey:         p.PromptKey,
-		UseClassifier:     p.UseClassifier,
 		DeferSpawn:        p.DeferSpawn,
 	}
 }

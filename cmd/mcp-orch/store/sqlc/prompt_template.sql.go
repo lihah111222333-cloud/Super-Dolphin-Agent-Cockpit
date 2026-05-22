@@ -25,7 +25,7 @@ func (q *Queries) DeletePromptTemplate(ctx context.Context, promptKey string) (i
 }
 
 const getPromptTemplate = `-- name: GetPromptTemplate :one
-SELECT id, prompt_key, title, agent_key, tool_name, prompt_text, variables, tags, description, enabled, manually_edited, created_by, updated_by, created_at, updated_at
+SELECT id, prompt_key, title, agent_key, tool_name, prompt_text, variables, tags, description, when_to_use, enabled, manually_edited, match_when, priority, created_by, updated_by, created_at, updated_at
 FROM prompt_templates
 WHERE prompt_key = $1
 `
@@ -40,8 +40,11 @@ type GetPromptTemplateRow struct {
 	Variables      []byte             `json:"variables"`
 	Tags           []byte             `json:"tags"`
 	Description    string             `json:"description"`
+	WhenToUse      string             `json:"when_to_use"`
 	Enabled        bool               `json:"enabled"`
 	ManuallyEdited bool               `json:"manually_edited"`
+	MatchWhen      []byte             `json:"match_when"`
+	Priority       int32              `json:"priority"`
 	CreatedBy      string             `json:"created_by"`
 	UpdatedBy      string             `json:"updated_by"`
 	CreatedAt      pgtype.Timestamptz `json:"created_at"`
@@ -61,14 +64,48 @@ func (q *Queries) GetPromptTemplate(ctx context.Context, promptKey string) (GetP
 		&i.Variables,
 		&i.Tags,
 		&i.Description,
+		&i.WhenToUse,
 		&i.Enabled,
 		&i.ManuallyEdited,
+		&i.MatchWhen,
+		&i.Priority,
 		&i.CreatedBy,
 		&i.UpdatedBy,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
 	return i, err
+}
+
+const getPromptRecallSectionBody = `-- name: GetPromptRecallSectionBody :one
+SELECT s.body
+FROM prompt_template_sections s
+JOIN prompt_templates t ON t.id = s.template_id
+WHERE s.recall_topic = $1
+  AND s.trigger_type = 'recall'
+  AND s.enabled = TRUE
+  AND t.enabled = TRUE
+  AND (t.tags ? ('scope.cwd:' || $2::text) OR t.tags ? 'scope.global')
+ORDER BY CASE
+    WHEN t.tags ? ('scope.cwd:' || $2::text) THEN 0
+    WHEN t.tags ? 'scope.global' THEN 1
+    ELSE 2
+  END,
+  s.ordinal,
+  s.id
+LIMIT 1
+`
+
+type GetPromptRecallSectionBodyParams struct {
+	RecallTopic string `json:"recall_topic"`
+	Cwd         string `json:"cwd"`
+}
+
+func (q *Queries) GetPromptRecallSectionBody(ctx context.Context, arg GetPromptRecallSectionBodyParams) (string, error) {
+	row := q.db.QueryRow(ctx, getPromptRecallSectionBody, arg.RecallTopic, arg.Cwd)
+	var body string
+	err := row.Scan(&body)
+	return body, err
 }
 
 const insertPromptVersion = `-- name: InsertPromptVersion :one
@@ -115,21 +152,28 @@ func (q *Queries) InsertPromptVersion(ctx context.Context, arg InsertPromptVersi
 }
 
 const listPromptTemplates = `-- name: ListPromptTemplates :many
-SELECT id, prompt_key, title, agent_key, tool_name, prompt_text, variables, tags, description, enabled, manually_edited, created_by, updated_by, created_at, updated_at
+SELECT id, prompt_key, title, agent_key, tool_name, prompt_text, variables, tags, description, when_to_use, enabled, manually_edited, match_when, priority, created_by, updated_by, created_at, updated_at
 FROM prompt_templates
 WHERE ($1::text = '' OR agent_key = $1)
   AND ($2::text = ''
     OR prompt_key ILIKE '%' || $2 || '%'
     OR title ILIKE '%' || $2 || '%'
     OR prompt_text ILIKE '%' || $2 || '%')
+  AND (NOT $3::bool
+    OR (
+      enabled = TRUE
+      AND (tags ? ('scope.cwd:' || $4::text) OR tags ? 'scope.global')
+    ))
 ORDER BY updated_at DESC
-LIMIT $3
+LIMIT $5
 `
 
 type ListPromptTemplatesParams struct {
-	Column1 string `json:"column_1"`
-	Column2 string `json:"column_2"`
-	Limit   int32  `json:"limit"`
+	Column1        string `json:"column_1"`
+	Column2        string `json:"column_2"`
+	RuntimeVisible bool   `json:"runtime_visible"`
+	Cwd            string `json:"cwd"`
+	LimitCount     int32  `json:"limit_count"`
 }
 
 type ListPromptTemplatesRow struct {
@@ -142,8 +186,11 @@ type ListPromptTemplatesRow struct {
 	Variables      []byte             `json:"variables"`
 	Tags           []byte             `json:"tags"`
 	Description    string             `json:"description"`
+	WhenToUse      string             `json:"when_to_use"`
 	Enabled        bool               `json:"enabled"`
 	ManuallyEdited bool               `json:"manually_edited"`
+	MatchWhen      []byte             `json:"match_when"`
+	Priority       int32              `json:"priority"`
 	CreatedBy      string             `json:"created_by"`
 	UpdatedBy      string             `json:"updated_by"`
 	CreatedAt      pgtype.Timestamptz `json:"created_at"`
@@ -151,7 +198,7 @@ type ListPromptTemplatesRow struct {
 }
 
 func (q *Queries) ListPromptTemplates(ctx context.Context, arg ListPromptTemplatesParams) ([]ListPromptTemplatesRow, error) {
-	rows, err := q.db.Query(ctx, listPromptTemplates, arg.Column1, arg.Column2, arg.Limit)
+	rows, err := q.db.Query(ctx, listPromptTemplates, arg.Column1, arg.Column2, arg.RuntimeVisible, arg.Cwd, arg.LimitCount)
 	if err != nil {
 		return nil, err
 	}
@@ -169,8 +216,11 @@ func (q *Queries) ListPromptTemplates(ctx context.Context, arg ListPromptTemplat
 			&i.Variables,
 			&i.Tags,
 			&i.Description,
+			&i.WhenToUse,
 			&i.Enabled,
 			&i.ManuallyEdited,
+			&i.MatchWhen,
+			&i.Priority,
 			&i.CreatedBy,
 			&i.UpdatedBy,
 			&i.CreatedAt,
@@ -186,11 +236,64 @@ func (q *Queries) ListPromptTemplates(ctx context.Context, arg ListPromptTemplat
 	return items, nil
 }
 
+const listPromptTemplateSectionsByTemplate = `-- name: ListPromptTemplateSectionsByTemplate :many
+SELECT s.id, s.template_id, s.section_key, s.region, s.ordinal, s.body,
+       s.trigger_type, s.recall_topic, s.enabled
+FROM prompt_template_sections s
+WHERE s.template_id = $1
+  AND s.enabled = TRUE
+  AND s.trigger_type <> 'recall'
+ORDER BY CASE s.region WHEN 'static' THEN 0 ELSE 1 END, s.ordinal, s.id
+`
+
+type ListPromptTemplateSectionsByTemplateRow struct {
+	ID          int64  `json:"id"`
+	TemplateID  int64  `json:"template_id"`
+	SectionKey  string `json:"section_key"`
+	Region      string `json:"region"`
+	Ordinal     int32  `json:"ordinal"`
+	Body        string `json:"body"`
+	TriggerType string `json:"trigger_type"`
+	RecallTopic string `json:"recall_topic"`
+	Enabled     bool   `json:"enabled"`
+}
+
+func (q *Queries) ListPromptTemplateSectionsByTemplate(ctx context.Context, templateID int64) ([]ListPromptTemplateSectionsByTemplateRow, error) {
+	rows, err := q.db.Query(ctx, listPromptTemplateSectionsByTemplate, templateID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListPromptTemplateSectionsByTemplateRow{}
+	for rows.Next() {
+		var i ListPromptTemplateSectionsByTemplateRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.TemplateID,
+			&i.SectionKey,
+			&i.Region,
+			&i.Ordinal,
+			&i.Body,
+			&i.TriggerType,
+			&i.RecallTopic,
+			&i.Enabled,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const upsertPromptTemplate = `-- name: UpsertPromptTemplate :one
 INSERT INTO prompt_templates (
     prompt_key, title, agent_key, tool_name, prompt_text,
-    variables, tags, description, enabled, manually_edited, created_by, updated_by, updated_at
-) VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7::jsonb, $8, $9, $10, $11, $12, NOW())
+    variables, tags, description, when_to_use, enabled, manually_edited, match_when, priority,
+    created_by, updated_by, updated_at
+) VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7::jsonb, $8, $9, $10, $11, $12::jsonb, $13, $14, $15, NOW())
 ON CONFLICT (prompt_key) DO UPDATE
 SET title = EXCLUDED.title,
     agent_key = EXCLUDED.agent_key,
@@ -199,11 +302,14 @@ SET title = EXCLUDED.title,
     variables = EXCLUDED.variables,
     tags = EXCLUDED.tags,
     description = EXCLUDED.description,
+    when_to_use = EXCLUDED.when_to_use,
     enabled = EXCLUDED.enabled,
     manually_edited = EXCLUDED.manually_edited,
+    match_when = EXCLUDED.match_when,
+    priority = EXCLUDED.priority,
     updated_by = EXCLUDED.updated_by,
     updated_at = NOW()
-RETURNING id, prompt_key, title, agent_key, tool_name, prompt_text, variables, tags, description, enabled, manually_edited, created_by, updated_by, created_at, updated_at
+RETURNING id, prompt_key, title, agent_key, tool_name, prompt_text, variables, tags, description, when_to_use, enabled, manually_edited, match_when, priority, created_by, updated_by, created_at, updated_at
 `
 
 type UpsertPromptTemplateParams struct {
@@ -215,8 +321,11 @@ type UpsertPromptTemplateParams struct {
 	Column6        []byte `json:"column_6"`
 	Column7        []byte `json:"column_7"`
 	Description    string `json:"description"`
+	WhenToUse      string `json:"when_to_use"`
 	Enabled        bool   `json:"enabled"`
 	ManuallyEdited bool   `json:"manually_edited"`
+	Column12       []byte `json:"column_12"`
+	Priority       int32  `json:"priority"`
 	CreatedBy      string `json:"created_by"`
 	UpdatedBy      string `json:"updated_by"`
 }
@@ -231,8 +340,11 @@ type UpsertPromptTemplateRow struct {
 	Variables      []byte             `json:"variables"`
 	Tags           []byte             `json:"tags"`
 	Description    string             `json:"description"`
+	WhenToUse      string             `json:"when_to_use"`
 	Enabled        bool               `json:"enabled"`
 	ManuallyEdited bool               `json:"manually_edited"`
+	MatchWhen      []byte             `json:"match_when"`
+	Priority       int32              `json:"priority"`
 	CreatedBy      string             `json:"created_by"`
 	UpdatedBy      string             `json:"updated_by"`
 	CreatedAt      pgtype.Timestamptz `json:"created_at"`
@@ -249,8 +361,11 @@ func (q *Queries) UpsertPromptTemplate(ctx context.Context, arg UpsertPromptTemp
 		arg.Column6,
 		arg.Column7,
 		arg.Description,
+		arg.WhenToUse,
 		arg.Enabled,
 		arg.ManuallyEdited,
+		arg.Column12,
+		arg.Priority,
 		arg.CreatedBy,
 		arg.UpdatedBy,
 	)
@@ -265,8 +380,11 @@ func (q *Queries) UpsertPromptTemplate(ctx context.Context, arg UpsertPromptTemp
 		&i.Variables,
 		&i.Tags,
 		&i.Description,
+		&i.WhenToUse,
 		&i.Enabled,
 		&i.ManuallyEdited,
+		&i.MatchWhen,
+		&i.Priority,
 		&i.CreatedBy,
 		&i.UpdatedBy,
 		&i.CreatedAt,

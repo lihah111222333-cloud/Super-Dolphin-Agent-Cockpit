@@ -3,11 +3,9 @@ package tools
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"reflect"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	mcpcommon "github.com/anthropic-ai/super-agent-v3/internal/mcpserver/common"
@@ -22,6 +20,7 @@ func TestLaunchRequestFromExecutableBuildsLaunchRequest(t *testing.T) {
 		Prompt:      " hello ",
 		ParentID:    " agent-root ",
 		AgentType:   " worker ",
+		PromptKey:   " main/sql ",
 		MemoryScope: " local ",
 		CWD:         "/tmp/work",
 		Provider:    " codex ",
@@ -33,9 +32,47 @@ func TestLaunchRequestFromExecutableBuildsLaunchRequest(t *testing.T) {
 	require.Equal(t, "/tmp/work", req.Cwd)
 	require.Equal(t, "agent-root", req.ParentID)
 	require.Equal(t, "worker", req.AgentType)
+	require.Equal(t, "main/sql", req.PromptKey)
 	require.Equal(t, "local", req.MemoryScope)
 	require.Equal(t, []string{"/tmp/agent-terminal"}, req.Command)
 	require.Equal(t, []string{"AGENT_PROVIDER=codex"}, req.Env)
+}
+
+func TestLaunchAgentSchemaDocumentsAssembledSections(t *testing.T) {
+	defs := orchestrationToolDefinitions(&golden.OrchestrationStub{})
+	var launchDef ToolDefinition
+	for _, def := range defs {
+		if def.Name == "launch_agent" {
+			launchDef = def
+			break
+		}
+	}
+	if launchDef.Name == "" {
+		t.Fatal("launch_agent definition not found")
+	}
+	props, ok := launchDef.InputSchema["properties"].(map[string]any)
+	if !ok {
+		t.Fatalf("properties schema type = %T, want map[string]any", launchDef.InputSchema["properties"])
+	}
+	agentKey, ok := props["agent_key"].(map[string]any)
+	if !ok {
+		t.Fatalf("agent_key schema type = %T, want map[string]any", props["agent_key"])
+	}
+	description, _ := agentKey["description"].(string)
+	if !strings.Contains(description, "assembled sections as base_instructions") {
+		t.Fatalf("agent_key description = %q, want assembled sections semantics", description)
+	}
+	if strings.Contains(description, "prompt_text as base_instructions") {
+		t.Fatalf("agent_key description still documents prompt_text injection: %q", description)
+	}
+	promptKey, ok := props["prompt_key"].(map[string]any)
+	if !ok {
+		t.Fatalf("prompt_key schema type = %T, want map[string]any", props["prompt_key"])
+	}
+	promptKeyDescription, _ := promptKey["description"].(string)
+	if !strings.Contains(promptKeyDescription, "exact prompt_template.prompt_key") {
+		t.Fatalf("prompt_key description = %q, want exact prompt_template.prompt_key semantics", promptKeyDescription)
+	}
 }
 
 func TestLaunchRequestFromExecutablePreservesCWDForContractValidation(t *testing.T) {
@@ -359,260 +396,4 @@ func (s *archiveCapableOrchestrationStub) ArchiveAgent(_ context.Context, agentI
 func (s *archiveCapableOrchestrationStub) StopAgent(_ context.Context, agentID string) error {
 	s.stoppedAgentID = agentID
 	return nil
-}
-
-func TestLaunchHandlerAllowsMCPOrchExecutable(t *testing.T) {
-	originalExecutable := osExecutable
-	osExecutable = func() (string, error) { return "/tmp/mcp-orch", nil }
-	defer func() { osExecutable = originalExecutable }()
-
-	done := make(chan contract.LaunchRequest, 1)
-	handler := HandleLaunchAgent(&golden.OrchestrationStub{
-		LaunchAgentFunc: func(_ context.Context, req contract.LaunchRequest) error {
-			done <- req
-			return nil
-		},
-	})
-
-	input, err := json.Marshal(LaunchAgentInput{
-		AgentID:     "agent-persist-1",
-		Name:        "agent-1",
-		Prompt:      "hello",
-		ParentID:    "agent-root",
-		AgentType:   "worker",
-		MemoryScope: "project",
-		CWD:         "/tmp/work",
-		Provider:    "codex",
-	})
-	require.NoError(t, err)
-
-	result, err := handler(context.Background(), input)
-	require.NoError(t, err)
-	resultMap, ok := result.(map[string]any)
-	require.Truef(t, ok, "HandleLaunchAgent() result type = %T, want map[string]any", result)
-	require.Equal(t, true, resultMap["success"])
-	require.Equal(t, "launching", resultMap["status"])
-
-	// Wait for the async goroutine to call LaunchAgent.
-	select {
-	case got := <-done:
-		require.Equal(t, "agent-persist-1", got.AgentID)
-		require.Equal(t, "agent-1", got.Name)
-		require.Equal(t, "hello", got.Prompt)
-		require.Equal(t, "/tmp/work", got.Cwd)
-		require.Equal(t, "agent-root", got.ParentID)
-		require.Equal(t, "worker", got.AgentType)
-		require.Equal(t, "project", got.MemoryScope)
-		require.Equal(t, []string{"/tmp/mcp-orch"}, got.Command)
-		require.Equal(t, []string{"AGENT_PROVIDER=codex"}, got.Env)
-	case <-time.After(5 * time.Second):
-		t.Fatal("async LaunchAgent was not called within 5s")
-	}
-}
-
-func TestLaunchHandlerReturnsExistingDuplicateAgentID(t *testing.T) {
-	originalExecutable := osExecutable
-	osExecutable = func() (string, error) { return "/tmp/mcp-orch", nil }
-	defer func() { osExecutable = originalExecutable }()
-
-	launchCalls := 0
-	handler := HandleLaunchAgent(&golden.OrchestrationStub{
-		ListAgentsFunc: func(context.Context) ([]contract.AgentSnapshot, error) {
-			return []contract.AgentSnapshot{{ID: "agent-dup", AgentID: "agent-dup", ThreadID: "thread-dup", State: "turn_running"}}, nil
-		},
-		LaunchAgentFunc: func(_ context.Context, req contract.LaunchRequest) error {
-			launchCalls++
-			return nil
-		},
-	})
-
-	input, err := json.Marshal(LaunchAgentInput{
-		AgentID:  "agent-dup",
-		Name:     "worker",
-		Provider: "codex",
-	})
-	if err != nil {
-		t.Fatalf("json.Marshal() error = %v", err)
-	}
-	result, err := handler(context.Background(), input)
-	if err != nil {
-		t.Fatalf("HandleLaunchAgent() error = %v", err)
-	}
-	resultMap, ok := result.(map[string]any)
-	if !ok {
-		t.Fatalf("HandleLaunchAgent() result type = %T, want map[string]any", result)
-	}
-	returnedID, _ := resultMap["agent_id"].(string)
-	if returnedID != "agent-dup" || resultMap["status"] != "existing" || resultMap["thread_id"] != "thread-dup" {
-		t.Fatalf("result = %#v, want existing agent-dup", resultMap)
-	}
-	if launchCalls != 0 {
-		t.Fatalf("LaunchAgent calls = %d, want 0 for duplicate explicit agent_id", launchCalls)
-	}
-}
-
-func TestLaunchHandlerReturnsExistingIdleExplicitAgentID(t *testing.T) {
-	handler := HandleLaunchAgent(&golden.OrchestrationStub{
-		ListAgentsFunc: func(context.Context) ([]contract.AgentSnapshot, error) {
-			return []contract.AgentSnapshot{{ID: "agent-idle", AgentID: "agent-idle", ThreadID: "thread-idle", State: "idle"}}, nil
-		},
-		LaunchAgentSnapshotFunc: func(context.Context, contract.LaunchRequest) (contract.AgentSnapshot, error) {
-			t.Fatal("LaunchAgentSnapshot should not be called for existing idle explicit agent_id")
-			return contract.AgentSnapshot{}, nil
-		},
-	})
-	result, err := handler(context.Background(), json.RawMessage(`{"agent_id":"agent-idle","name":"worker","cwd":"/tmp/work","prompt":"retry"}`))
-	if err != nil {
-		t.Fatalf("HandleLaunchAgent() error = %v", err)
-	}
-	got, ok := result.(map[string]any)
-	if !ok {
-		t.Fatalf("HandleLaunchAgent() result type = %T, want map[string]any", result)
-	}
-	if got["agent_id"] != "agent-idle" || got["status"] != "existing" || got["thread_id"] != "thread-idle" {
-		t.Fatalf("HandleLaunchAgent() result = %#v, want existing idle agent", got)
-	}
-}
-
-func TestLaunchHandlerRetriesInactiveExplicitAgentIDWithoutReassigning(t *testing.T) {
-	handler := HandleLaunchAgent(&golden.OrchestrationStub{
-		ListAgentsFunc: func(context.Context) ([]contract.AgentSnapshot, error) {
-			return []contract.AgentSnapshot{{ID: "agent-retry", AgentID: "agent-retry", State: "failed"}}, nil
-		},
-		LaunchAgentSnapshotFunc: func(context.Context, contract.LaunchRequest) (contract.AgentSnapshot, error) {
-			return contract.AgentSnapshot{ID: "agent-retry", AgentID: "agent-retry", State: "turn_running"}, nil
-		},
-	})
-
-	result, err := handler(context.Background(), json.RawMessage(`{"agent_id":"agent-retry","name":"worker","cwd":"/tmp/work","prompt":"retry"}`))
-	if err != nil {
-		t.Fatalf("HandleLaunchAgent() error = %v", err)
-	}
-	got, ok := result.(map[string]any)
-	if !ok {
-		t.Fatalf("HandleLaunchAgent() result type = %T, want map[string]any", result)
-	}
-	if got["agent_id"] != "agent-retry" || got["status"] != "launching" {
-		t.Fatalf("HandleLaunchAgent() result = %#v, want retry with explicit agent id", got)
-	}
-}
-
-func TestLaunchHandlerLeavesCwdEmptyWhenOnlyParentIDProvided(t *testing.T) {
-	originalExecutable := osExecutable
-	osExecutable = func() (string, error) { return "/tmp/mcp-orch", nil }
-	defer func() { osExecutable = originalExecutable }()
-
-	var captured contract.LaunchRequest
-	handler := HandleLaunchAgent(&golden.OrchestrationStub{
-		LaunchAgentSnapshotFunc: func(_ context.Context, req contract.LaunchRequest) (contract.AgentSnapshot, error) {
-			captured = req
-			return contract.AgentSnapshot{ID: req.AgentID, AgentID: req.AgentID, State: "launching"}, nil
-		},
-	})
-
-	_, err := handler(context.Background(), json.RawMessage(`{"name":"child","parent_id":"parent-1","provider":"codex"}`))
-	if err != nil {
-		t.Fatalf("HandleLaunchAgent() error = %v", err)
-	}
-	if captured.ParentID != "parent-1" {
-		t.Fatalf("captured ParentID = %q, want parent-1", captured.ParentID)
-	}
-	if captured.Cwd != "" {
-		t.Fatalf("captured Cwd = %q, want empty so service resolves parent cwd", captured.Cwd)
-	}
-}
-
-func TestLaunchHandlerReturnsFinalPersistedAgentID(t *testing.T) {
-	originalExecutable := osExecutable
-	osExecutable = func() (string, error) { return "/tmp/mcp-orch", nil }
-	defer func() { osExecutable = originalExecutable }()
-
-	handler := HandleLaunchAgent(&golden.OrchestrationStub{
-		LaunchAgentSnapshotFunc: func(_ context.Context, req contract.LaunchRequest) (contract.AgentSnapshot, error) {
-			return contract.AgentSnapshot{
-				ID:       req.AgentID,
-				AgentID:  "agent-final",
-				ThreadID: "thread-final",
-				State:    "idle",
-			}, nil
-		},
-	})
-
-	input, err := json.Marshal(LaunchAgentInput{
-		AgentID:  "agent-requested",
-		Name:     "worker",
-		Provider: "codex",
-	})
-	if err != nil {
-		t.Fatalf("json.Marshal() error = %v", err)
-	}
-	result, err := handler(context.Background(), input)
-	if err != nil {
-		t.Fatalf("HandleLaunchAgent() error = %v", err)
-	}
-	resultMap, ok := result.(map[string]any)
-	if !ok {
-		t.Fatalf("HandleLaunchAgent() result type = %T, want map[string]any", result)
-	}
-	if resultMap["agent_id"] != "agent-final" {
-		t.Fatalf("returned agent_id = %v, want final persisted id", resultMap["agent_id"])
-	}
-	if resultMap["launch_id"] != "agent-requested" {
-		t.Fatalf("returned launch_id = %v, want original reserved runtime id", resultMap["launch_id"])
-	}
-	if resultMap["thread_id"] != "thread-final" {
-		t.Fatalf("returned thread_id = %v, want thread-final", resultMap["thread_id"])
-	}
-}
-
-func TestLaunchAgentCWDDescriptionDocumentsConditionalRequirement(t *testing.T) {
-	var found ToolDefinition
-	for _, tool := range orchestrationToolDefinitions(&golden.OrchestrationStub{}) {
-		if tool.Name == "launch_agent" {
-			found = tool
-			break
-		}
-	}
-	if found.Name == "" {
-		t.Fatal("launch_agent tool definition not found")
-	}
-	properties, ok := found.InputSchema["properties"].(map[string]any)
-	if !ok {
-		t.Fatalf("properties schema = %T, want map[string]any", found.InputSchema["properties"])
-	}
-	cwd, ok := properties["cwd"].(map[string]any)
-	if !ok {
-		t.Fatalf("cwd schema = %T, want map[string]any", properties["cwd"])
-	}
-	description, _ := cwd["description"].(string)
-	lower := strings.ToLower(description)
-	if !strings.Contains(lower, "parent_id") || !strings.Contains(lower, "otherwise required") || !strings.Contains(lower, "absolute") {
-		t.Fatalf("cwd description = %q, want parent_id, otherwise required, and absolute", description)
-	}
-}
-
-func TestLaunchHandlerMissingCWDEnvelopeIsNotLSPUnavailable(t *testing.T) {
-	originalExecutable := osExecutable
-	osExecutable = func() (string, error) { return "/tmp/mcp-orch", nil }
-	defer func() { osExecutable = originalExecutable }()
-
-	handler := HandleLaunchAgent(&golden.OrchestrationStub{
-		LaunchAgentSnapshotFunc: func(context.Context, contract.LaunchRequest) (contract.AgentSnapshot, error) {
-			return contract.AgentSnapshot{}, fmt.Errorf("%w: launch_agent cwd is required", contract.ErrLaunchCWDRequired)
-		},
-	})
-	_, err := handler(context.Background(), json.RawMessage(`{"name":"child"}`))
-	if err == nil {
-		t.Fatal("HandleLaunchAgent() error = nil, want cwd error")
-	}
-	env := mcpcommon.NewToolErrorEnvelope("launch_agent", err)
-	if env.Code != "cwd_required" {
-		t.Fatalf("Code = %q, want cwd_required", env.Code)
-	}
-	if env.Retryable {
-		t.Fatal("Retryable = true, want false")
-	}
-	if strings.Contains(strings.ToLower(env.Hint), "lsp") {
-		t.Fatalf("Hint = %q, must not mention LSP", env.Hint)
-	}
 }

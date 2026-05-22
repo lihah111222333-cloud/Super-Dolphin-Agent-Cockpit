@@ -217,7 +217,7 @@ func turnStartHandler(svc Service, resolver contract.SessionResolver, spawner co
 	return platformrpc.ThreadHandler(func(ctx context.Context, p turnStartParams) (any, error) {
 		// C1: if this thread is still in pending_launch state, fork the
 		// provider CLI now using the first-turn user text for router
-		// classification. SpawnIfNeeded is a no-op for already-running
+		// evaluation. SpawnIfNeeded is a no-op for already-running
 		// threads, so eager-path threads are unaffected.
 		var spawnRouting threaddto.SpawnRouting
 		if spawner != nil {
@@ -258,13 +258,15 @@ func turnStartHandler(svc Service, resolver contract.SessionResolver, spawner co
 			// can fill its per-thread badge. Empty fields are elided via
 			// omitempty on turnStartResult; eager-path threads already got
 			// their routing from thread/start's response.
-			return turnStartResult{
+			result := turnStartResult{
 				TurnID:          handle.LocalID(),
 				AgentKey:        spawnRouting.AgentKey,
 				AgentTitle:      spawnRouting.AgentTitle,
 				PromptKey:       spawnRouting.PromptKey,
 				PromptVersionID: spawnRouting.PromptVersionID,
-			}, nil
+			}
+			attachTurnPromptKeyStale(&result, spawnRouting.PromptKeyStale)
+			return result, nil
 		})
 	})
 }

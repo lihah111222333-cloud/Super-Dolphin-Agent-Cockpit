@@ -119,6 +119,10 @@ func (s *service) dashboardPageLoaders(out *DashboardPage, page string) []dashbo
 			func(ctx context.Context) error { return s.populateDashboardCommandCards(ctx, out) },
 			func(ctx context.Context) error { return s.populateDashboardPrompts(ctx, out) },
 		}
+	case "commandcards":
+		return []dashboardPageLoader{
+			func(ctx context.Context) error { return s.populateDashboardCommandCards(ctx, out) },
+		}
 	case "memory":
 		return []dashboardPageLoader{
 			func(ctx context.Context) error { return s.populateDashboardMemory(ctx, out) },
@@ -230,11 +234,14 @@ func (s *service) listDashboardPrompts(ctx context.Context) ([]promptstore.Promp
 func filterDashboardPromptsByCWD(items []promptstore.PromptTemplate, cwd string) []promptstore.PromptTemplate {
 	requestScope := strings.TrimSpace(cwd)
 	if requestScope == "" {
-		return items
+		return []promptstore.PromptTemplate{}
 	}
 	filtered := make([]promptstore.PromptTemplate, 0, len(items))
 	for _, item := range items {
-		if dashboardPromptVisibleForCWD(item, requestScope) {
+		if dashboardPromptIsSystemManaged(item) {
+			continue
+		}
+		if requestScope == "" || dashboardPromptVisibleForCWD(item, requestScope) {
 			filtered = append(filtered, item)
 		}
 	}
@@ -264,6 +271,33 @@ func dashboardPromptTags(raw json.RawMessage) []string {
 		return []string{}
 	}
 	return tags
+}
+
+func dashboardPromptIsSystemManaged(template promptstore.PromptTemplate) bool {
+	for _, tag := range dashboardPromptTags(template.Tags) {
+		if strings.TrimSpace(tag) == "builtin:system" {
+			return true
+		}
+	}
+	if template.ManuallyEdited {
+		return false
+	}
+	if dashboardPromptAuthorIsRPC(template.CreatedBy) || dashboardPromptAuthorIsRPC(template.UpdatedBy) {
+		return false
+	}
+	return dashboardPromptAuthorLooksSystem(template.CreatedBy) || dashboardPromptAuthorLooksSystem(template.UpdatedBy)
+}
+
+func dashboardPromptAuthorIsRPC(author string) bool {
+	return strings.TrimSpace(author) == "rpc.prompts"
+}
+
+func dashboardPromptAuthorLooksSystem(author string) bool {
+	normalized := strings.ToLower(strings.TrimSpace(author))
+	return strings.HasPrefix(normalized, "system") ||
+		strings.Contains(normalized, "seed") ||
+		strings.Contains(normalized, "migration") ||
+		strings.Contains(normalized, "builtin.registry")
 }
 
 func (s *service) listDashboardMemory(ctx context.Context) ([]sharedfilestore.SharedFile, error) {
