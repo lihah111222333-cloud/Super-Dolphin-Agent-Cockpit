@@ -13,7 +13,10 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/common"
 )
 
-var ErrUnsupportedLanguage = errors.New("unsupported language for LSP toolchain")
+var (
+	ErrUnsupportedLanguage   = errors.New("unsupported language for LSP toolchain")
+	ErrUnsupportedCapability = errors.New("unsupported LSP capability")
+)
 
 var languageIDByBaseName = map[string]string{
 	"go.mod":  "gomod",

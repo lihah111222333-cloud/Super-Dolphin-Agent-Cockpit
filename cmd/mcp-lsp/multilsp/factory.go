@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"sync"
 
+	lspmanager "github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/manager"
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/protocol"
 )
 
@@ -62,7 +63,7 @@ func requestDocument[T any](
 	}
 	raw, err := m.request(ctx, client, method, buildDocumentParams(ref, build))
 	if err != nil {
-		return zero, err
+		return zero, unsupportedCapabilityError(err)
 	}
 	if decode == nil {
 		return zero, nil
@@ -173,7 +174,7 @@ func queryHierarchy[I any, R any](
 	}
 	items, err := prepareHierarchy[I](ctx, m, client, prepareMethod, ref.uri, position)
 	if err != nil {
-		return nil, err
+		return nil, unsupportedCapabilityError(err)
 	}
 	results := make([]R, 0, len(items))
 	for _, item := range items {
@@ -207,13 +208,25 @@ func resolveHierarchyDirections[I any, R any](
 		}
 		raw, err := m.request(ctx, client, step.method, step.params(item))
 		if err != nil {
-			return result, err
+			return result, unsupportedCapabilityError(err)
 		}
 		if err := step.assign(&result, raw); err != nil {
 			return result, fmt.Errorf("decode %s: %w", step.label, err)
 		}
 	}
 	return result, nil
+}
+
+func isLSPMethodNotFound(err error) bool {
+	var responseErr *responseError
+	return errors.As(err, &responseErr) && responseErr.Code == jsonRPCMethodNotFound
+}
+
+func unsupportedCapabilityError(err error) error {
+	if !isLSPMethodNotFound(err) {
+		return err
+	}
+	return fmt.Errorf("%w: %w", lspmanager.ErrUnsupportedCapability, err)
 }
 
 func decodeUnionList[T any](raw json.RawMessage, decode unionDecodeFunc[T]) ([]T, error) {
