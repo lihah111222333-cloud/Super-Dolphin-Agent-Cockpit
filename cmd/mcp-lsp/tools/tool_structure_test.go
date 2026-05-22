@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/common"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -17,11 +19,15 @@ type structureTestRegistry struct {
 	languageManager lspmanager.Manager
 	languageErr     error
 
-	gotFilePath   string
-	gotLanguageID string
+	gotFilePath           string
+	gotLanguageID         string
+	fileCalls             int
+	fileWithLanguageCalls int
+	languageCalls         int
 }
 
 func (r *structureTestRegistry) GetManagerForFile(_ context.Context, filePath string) (lspmanager.Manager, error) {
+	r.fileCalls++
 	r.gotFilePath = filePath
 	if r.fileErr != nil {
 		return nil, r.fileErr
@@ -30,6 +36,7 @@ func (r *structureTestRegistry) GetManagerForFile(_ context.Context, filePath st
 }
 
 func (r *structureTestRegistry) GetManagerForFileWithLanguage(_ context.Context, filePath string, languageID string) (lspmanager.Manager, error) {
+	r.fileWithLanguageCalls++
 	r.gotFilePath = filePath
 	r.gotLanguageID = languageID
 	if r.fileErr != nil {
@@ -39,6 +46,7 @@ func (r *structureTestRegistry) GetManagerForFileWithLanguage(_ context.Context,
 }
 
 func (r *structureTestRegistry) GetManagerForLanguage(_ context.Context, languageID string) (lspmanager.Manager, error) {
+	r.languageCalls++
 	r.gotLanguageID = languageID
 	if r.languageErr != nil {
 		return nil, r.languageErr
@@ -71,6 +79,9 @@ type structureTestManager struct {
 	gotWorkspaceQuery string
 	gotWorkspaceLang  string
 	didOpenContext    context.Context
+	bootstrapURIs     []string
+	bootstrapErr      error
+	events            []string
 }
 
 func (*structureTestManager) Close() error { return nil }
@@ -112,6 +123,7 @@ func (*structureTestManager) DocumentSymbol(context.Context, string) ([]protocol
 }
 
 func (m *structureTestManager) WorkspaceSymbol(_ context.Context, query string, languageID string) ([]protocol.WorkspaceSymbolResult, error) {
+	m.events = append(m.events, "workspace_symbol")
 	m.gotWorkspaceQuery = query
 	m.gotWorkspaceLang = languageID
 	return m.workspaceSymbols, nil
@@ -154,8 +166,10 @@ func (*structureTestManager) DidClose(context.Context, string) error {
 	return nil
 }
 
-func (*structureTestManager) BootstrapDocument(context.Context, string) error {
-	return nil
+func (m *structureTestManager) BootstrapDocument(_ context.Context, uri string) error {
+	m.events = append(m.events, "bootstrap:"+uri)
+	m.bootstrapURIs = append(m.bootstrapURIs, uri)
+	return m.bootstrapErr
 }
 
 func (*structureTestManager) BootstrapDocumentOpenOnly(context.Context, string) error {
@@ -209,6 +223,12 @@ func TestStructureWorkspaceSymbolUsesLanguageManager(t *testing.T) {
 	if registry.gotFilePath != "" {
 		t.Fatalf("GetManagerForFile called with %q, want empty", registry.gotFilePath)
 	}
+	if registry.fileCalls != 0 || registry.fileWithLanguageCalls != 0 {
+		t.Fatalf("file manager calls = direct:%d with_language:%d, want none", registry.fileCalls, registry.fileWithLanguageCalls)
+	}
+	if registry.languageCalls != 1 {
+		t.Fatalf("GetManagerForLanguage calls = %d, want 1", registry.languageCalls)
+	}
 	if registry.gotLanguageID != "javascript" {
 		t.Fatalf("GetManagerForLanguage called with %q", registry.gotLanguageID)
 	}
@@ -236,39 +256,121 @@ func TestStructureDocumentSymbolAcceptsLegacyPathAlias(t *testing.T) {
 	}
 }
 
-func TestStructureWorkspaceSymbolDetectsLanguageFromFilePath(t *testing.T) {
-	manager := &structureTestManager{
+func writeStructureTestFile(t *testing.T, root, relPath, content string) string {
+	t.Helper()
+	target := filepath.Join(root, relPath)
+	if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+		t.Fatalf("mkdir fixture: %v", err)
+	}
+	if err := os.WriteFile(target, []byte(content), 0o644); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
+	return target
+}
+
+func structureWorkspaceSymbolManager(target, name string) *structureTestManager {
+	return &structureTestManager{
 		workspaceSymbols: []protocol.WorkspaceSymbolResult{{
 			WorkspaceSymbol: &protocol.WorkspaceSymbol{
-				Name: "createService",
+				Name: name,
 				Kind: int(protocol.SymbolKindFunction),
 				Location: protocol.WorkspaceSymbolLocation{
-					URI: "file:///tmp/service.ts",
+					URI: fileURI(target),
 				},
 			},
 		}},
 	}
+}
+
+func marshalStructureParams(t *testing.T, params structureParams) json.RawMessage {
+	t.Helper()
+	input, err := json.Marshal(params)
+	if err != nil {
+		t.Fatalf("marshal input: %v", err)
+	}
+	return input
+}
+
+func assertWorkspaceSymbolFilePathRouting(t *testing.T, registry *structureTestRegistry, filePath string) {
+	t.Helper()
+	if registry.gotFilePath != filePath {
+		t.Fatalf("GetManagerForFileWithLanguage called with %q", registry.gotFilePath)
+	}
+	if registry.fileWithLanguageCalls != 1 {
+		t.Fatalf("GetManagerForFileWithLanguage calls = %d, want 1", registry.fileWithLanguageCalls)
+	}
+	if registry.languageCalls != 0 {
+		t.Fatalf("GetManagerForLanguage calls = %d, want 0 for file_path routing", registry.languageCalls)
+	}
+	if registry.gotLanguageID != "" {
+		t.Fatalf("GetManagerForFileWithLanguage language override = %q, want empty so file_path infers language", registry.gotLanguageID)
+	}
+}
+
+func assertWorkspaceSymbolBootstrapBeforeSearch(t *testing.T, manager *structureTestManager, target string) {
+	t.Helper()
+	wantTarget, err := filepath.EvalSymlinks(target)
+	if err != nil {
+		t.Fatalf("canonicalize target: %v", err)
+	}
+	if len(manager.bootstrapURIs) != 1 {
+		t.Fatalf("BootstrapDocument calls = %#v, want one call for requested file", manager.bootstrapURIs)
+	}
+	if manager.bootstrapURIs[0] != wantTarget {
+		t.Fatalf("BootstrapDocument uri = %q, want %q", manager.bootstrapURIs[0], wantTarget)
+	}
+	wantEvents := []string{"bootstrap:" + wantTarget, "workspace_symbol"}
+	if len(manager.events) != 2 || manager.events[0] != wantEvents[0] || manager.events[1] != wantEvents[1] {
+		t.Fatalf("events = %#v, want bootstrap before workspace_symbol: %#v", manager.events, wantEvents)
+	}
+}
+
+func TestStructureWorkspaceSymbolDetectsLanguageFromFilePath(t *testing.T) {
+	root := t.TempDir()
+	target := writeStructureTestFile(t, root, "frontend/service.ts", "export function createService() {}\n")
+	manager := structureWorkspaceSymbolManager(target, "createService")
 	registry := &structureTestRegistry{fileManager: manager}
 	handler := NewStructureHandler(registry)
 
-	input, err := json.Marshal(structureParams{
+	input := marshalStructureParams(t, structureParams{
 		Action:    "workspace_symbol",
 		FilePath:  "frontend/service.ts",
 		Query:     "createService",
 		Verbosity: "compact",
 	})
-	if err != nil {
-		t.Fatalf("marshal input: %v", err)
-	}
 
-	if _, err := handler(common.WithToolScope(context.Background(), common.ToolScope{CWD: "/"}), input); err != nil {
+	if _, err := handler(common.WithToolScope(context.Background(), common.ToolScope{CWD: root, WorkspaceRoots: []string{root}}), input); err != nil {
 		t.Fatalf("handler error: %v", err)
 	}
-	if registry.gotFilePath != "frontend/service.ts" {
-		t.Fatalf("GetManagerForFile called with %q", registry.gotFilePath)
-	}
+	assertWorkspaceSymbolFilePathRouting(t, registry, "frontend/service.ts")
 	if manager.gotWorkspaceLang != "typescript" {
 		t.Fatalf("WorkspaceSymbol language = %q", manager.gotWorkspaceLang)
+	}
+}
+
+func TestStructureWorkspaceSymbolBootstrapsRequestedFilePathBeforeSearch(t *testing.T) {
+	root := t.TempDir()
+	target := writeStructureTestFile(t, root, "frontend/app.js", "export function greet() {}\n")
+	manager := structureWorkspaceSymbolManager(target, "greet")
+	registry := &structureTestRegistry{fileManager: manager}
+	handler := NewStructureHandler(registry)
+
+	input := marshalStructureParams(t, structureParams{
+		Action:    "workspace_symbol",
+		FilePath:  "frontend/app.js",
+		Query:     "greet",
+		Verbosity: "compact",
+	})
+
+	if _, err := handler(common.WithToolScope(context.Background(), common.ToolScope{CWD: root, WorkspaceRoots: []string{root}}), input); err != nil {
+		t.Fatalf("handler error: %v", err)
+	}
+	assertWorkspaceSymbolBootstrapBeforeSearch(t, manager, target)
+	if manager.gotWorkspaceQuery != "greet" {
+		t.Fatalf("WorkspaceSymbol query = %q", manager.gotWorkspaceQuery)
+	}
+	if manager.gotWorkspaceLang != "javascript" {
+		t.Fatalf("WorkspaceSymbol language = %q, want javascript inferred from file_path", manager.gotWorkspaceLang)
 	}
 }
 
