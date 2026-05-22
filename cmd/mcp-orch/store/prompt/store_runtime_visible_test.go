@@ -61,6 +61,16 @@ func TestListRuntimeVisibleUsesScopedEnabledQuery(t *testing.T) {
 			t.Fatalf("list SQL missing %q:\n%s", want, db.query)
 		}
 	}
+	for _, forbidden := range []string{
+		"prompt_key NOT IN",
+		"prompt_key <>",
+		"prompt_key !=",
+		"prompt_key NOT LIKE",
+	} {
+		if strings.Contains(db.query, forbidden) {
+			t.Fatalf("runtime-visible prompt_list SQL contains prompt_key hard filter %q:\n%s", forbidden, db.query)
+		}
+	}
 	wantArgs := []any{"", " repo ", true, "/repo/a", int32(10)}
 	if !promptArgsEqual(db.args, wantArgs) {
 		t.Fatalf("List() args = %#v, want %#v", db.args, wantArgs)

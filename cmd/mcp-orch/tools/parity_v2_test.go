@@ -265,6 +265,54 @@ func TestHandlePromptListKeepsLegacyPromptText(t *testing.T) {
 	}
 }
 
+func TestHandlePromptListKeepsTask8RuntimeDiscoveryBoundary(t *testing.T) {
+	t.Parallel()
+
+	handler := HandlePromptList(stubPromptStore{
+		list: func(_ context.Context, filter promptstore.ListFilter) ([]promptstore.PromptTemplate, error) {
+			if filter.CWD != "/repo/a" || !filter.RuntimeVisible {
+				t.Fatalf("List() filter scope = %+v, want runtime-visible /repo/a", filter)
+			}
+			if filter.AgentKey != "" || filter.Keyword != "" {
+				t.Fatalf("List() filter = %+v, want no agent/key prefix filter", filter)
+			}
+			return []promptstore.PromptTemplate{
+				{PromptKey: "main/dag_designer_zh", Title: "DAG 流程设计师", Tags: json.RawMessage(`["scope.global","intent:dag_designer"]`), Enabled: true, CreatedBy: "system.seed"},
+				{PromptKey: "main/morning_briefer", Title: "企业晨报", Tags: json.RawMessage(`["scope.global","intent:enterprise_workflow"]`), Enabled: true, CreatedBy: "system.seed"},
+				{PromptKey: "main/code-generate", Title: "User Code Generate", Tags: json.RawMessage(`["scope.global","intent:expert"]`), Enabled: true, CreatedBy: "rpc.prompts", UpdatedBy: "rpc.prompts"},
+			}, nil
+		},
+	})
+
+	result, err := handler(promptToolTestContext(), mustRawInput(t, promptListInput{}))
+	if err != nil {
+		t.Fatalf("HandlePromptList() error = %v", err)
+	}
+	got := result.([]promptTemplateDTO)
+	assertPromptListKeys(t, got,
+		[]string{"main/dag_designer_zh", "main/morning_briefer", "main/code-generate"},
+		[]string{"main/dag_designer_en", "main/code-refactor", "main/code-test", "main/code-explain", "sql/expert"},
+	)
+}
+
+func assertPromptListKeys(t *testing.T, got []promptTemplateDTO, wantPresent, wantAbsent []string) {
+	t.Helper()
+	keys := map[string]bool{}
+	for _, item := range got {
+		keys[item.PromptKey] = true
+	}
+	for _, want := range wantPresent {
+		if !keys[want] {
+			t.Fatalf("prompt_list result missing %q: %#v", want, got)
+		}
+	}
+	for _, absent := range wantAbsent {
+		if keys[absent] {
+			t.Fatalf("prompt_list result unexpectedly includes %q: %#v", absent, got)
+		}
+	}
+}
+
 func TestHandlePromptToolsRequireTrustedCWD(t *testing.T) {
 	t.Parallel()
 

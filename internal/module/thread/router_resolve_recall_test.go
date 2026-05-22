@@ -3,9 +3,14 @@ package thread
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"testing"
 	"time"
 
+	"github.com/anthropic-ai/super-agent-v3/internal/contract"
+	promptpkg "github.com/anthropic-ai/super-agent-v3/internal/module/prompt"
+	"github.com/anthropic-ai/super-agent-v3/internal/module/threadprompt"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared/builtinprompts"
 	promptstore "github.com/anthropic-ai/super-agent-v3/internal/store/prompt"
 )
 
@@ -97,4 +102,112 @@ func TestResolveRoutedPrompt_RecallOnlySectionsDoNotLaunchAsDefaultPrompt(t *tes
 	if req.PromptKey != "" || req.AgentKey != "" {
 		t.Fatalf("runtime asset default must not stamp launch identity: %+v", req)
 	}
+}
+
+func TestResolveRoutedPrompt_BuiltinRecallSectionsDoNotEnterBaseInstructions(t *testing.T) {
+	t.Parallel()
+
+	reg, err := builtinprompts.NewDefaultRegistry()
+	if err != nil {
+		t.Fatalf("NewDefaultRegistry() error = %v", err)
+	}
+	catalog := threadprompt.NewRuntimeCatalog(nil, reg)
+	s := &service{promptCatalog: catalog, enableWhenEval: promptpkg.EvaluateEnableWhen}
+	req := &StartRequest{CWD: "/repo/a", PromptKey: "main/general-zh", Prompt: "hello"}
+	if err := s.resolveRoutedPrompt(context.Background(), req); err != nil {
+		t.Fatalf("resolveRoutedPrompt() error = %v", err)
+	}
+
+	if req.BaseInstructions != "" {
+		t.Fatalf("BaseInstructions = %q, want structured builtin blocks", req.BaseInstructions)
+	}
+	if len(req.BaseInstructionBlocks) == 0 {
+		t.Fatal("BaseInstructionBlocks empty, want non-recall builtin sections")
+	}
+	for _, block := range req.BaseInstructionBlocks {
+		if strings.HasPrefix(block.Key, "recall_") {
+			t.Fatalf("recall block %q entered base instructions: %#v", block.Key, req.BaseInstructionBlocks)
+		}
+		if strings.Contains(block.Body, "Prompt template 编辑") {
+			t.Fatalf("recall body entered base instructions via block %q", block.Key)
+		}
+	}
+}
+
+func TestResolveRoutedPrompt_MainDefaultOrchestratorSectionsGateIndependently(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name    string
+		tools   []string
+		want    []string
+		notWant []string
+	}{
+		{
+			name:    "no orchestration tools",
+			tools:   nil,
+			notWant: []string{"orchestrator_launch_context", "orchestrator_report_context"},
+		},
+		{
+			name:    "launch only",
+			tools:   []string{"orchestration_launch_agent"},
+			want:    []string{"orchestrator_launch_context"},
+			notWant: []string{"orchestrator_report_context"},
+		},
+		{
+			name:    "report only",
+			tools:   []string{"orchestration_get_agent_report"},
+			want:    []string{"orchestrator_report_context"},
+			notWant: []string{"orchestrator_launch_context"},
+		},
+		{
+			name:  "both tools",
+			tools: []string{"orchestration_launch_agent", "orchestration_get_agent_report"},
+			want:  []string{"orchestrator_launch_context", "orchestrator_report_context"},
+		},
+	}
+
+	for _, tt := range cases {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			req := resolveBuiltinPromptForTools(t, "main/default", tt.tools)
+			for _, key := range tt.want {
+				if !baseInstructionBlockKeys(req.BaseInstructionBlocks)[key] {
+					t.Fatalf("BaseInstructionBlocks missing %q: %#v", key, req.BaseInstructionBlocks)
+				}
+			}
+			for _, key := range tt.notWant {
+				if baseInstructionBlockKeys(req.BaseInstructionBlocks)[key] {
+					t.Fatalf("BaseInstructionBlocks unexpectedly included %q: %#v", key, req.BaseInstructionBlocks)
+				}
+			}
+		})
+	}
+}
+
+func resolveBuiltinPromptForTools(t *testing.T, promptKey string, tools []string) *StartRequest {
+	t.Helper()
+	reg, err := builtinprompts.NewDefaultRegistry()
+	if err != nil {
+		t.Fatalf("NewDefaultRegistry() error = %v", err)
+	}
+	catalog := threadprompt.NewRuntimeCatalog(nil, reg)
+	s := &service{promptCatalog: catalog, enableWhenEval: promptpkg.EvaluateEnableWhen}
+	req := &StartRequest{CWD: "/repo/a", PromptKey: promptKey, Prompt: "hello", EnabledTools: tools}
+	if err := s.resolveRoutedPrompt(context.Background(), req); err != nil {
+		t.Fatalf("resolveRoutedPrompt() error = %v", err)
+	}
+	if len(req.BaseInstructionBlocks) == 0 {
+		t.Fatalf("BaseInstructionBlocks empty for %s", promptKey)
+	}
+	return req
+}
+
+func baseInstructionBlockKeys(blocks []contract.BaseInstructionBlock) map[string]bool {
+	out := make(map[string]bool, len(blocks))
+	for _, block := range blocks {
+		out[block.Key] = true
+	}
+	return out
 }

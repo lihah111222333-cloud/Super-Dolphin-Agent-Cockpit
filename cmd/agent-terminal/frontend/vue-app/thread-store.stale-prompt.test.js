@@ -43,7 +43,7 @@ describe('thread store stale prompt cleanup', () => {
     });
   });
 
-  it('clears the activePromptKey pref when turn/start reports prompt_key_stale', async () => {
+  it('clears the activePromptKey pref when turn/start reports a 0105 legacy prompt key stale', async () => {
     const store = useThreadStore();
     const prefSetCalls = [];
     store.state.threads = [{ id: 'thread-pending-stale', name: 'thread-pending-stale', state: 'idle' }];
@@ -51,7 +51,7 @@ describe('thread store stale prompt cleanup', () => {
       if (method === 'turn/start') {
         return {
           turn_id: 'turn-stale',
-          prompt_key: 'main/missing',
+          prompt_key: 'main/claude-style-zh',
           prompt_key_stale: true,
         };
       }

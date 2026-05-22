@@ -39,6 +39,37 @@ func TestPromptRecallSeedMigration_CoversCatalogAndExpertGuidance(t *testing.T) 
 	}
 }
 
+func TestPromptMethodologyRuntimeMetadataMigration0106(t *testing.T) {
+	content := readPromptMigration(t, "0106_prompt_template_runtime_metadata.sql")
+	block := promptMethodologyRuntimeMetadataBlock(t, content)
+	for _, marker := range []string{
+		"WITH methodology_metadata",
+		"main/planning",
+		"main/code-review",
+		"main/code-debug",
+		"scope.global",
+		"intent:expert",
+		"created_by IN ('system.seed', 'seed')",
+		"updated_by IN ('system.seed', 'seed', 'migration')",
+		"updated_by LIKE 'migration:%'",
+		"manually_edited = FALSE",
+	} {
+		if !strings.Contains(block, marker) {
+			t.Fatalf("0106 methodology metadata block missing marker %q", marker)
+		}
+	}
+	if strings.Contains(block, "prompt_text") {
+		t.Fatal("0106 methodology metadata must not rewrite prompt_text")
+	}
+	for key, tokens := range promptMethodologyTokens() {
+		for _, token := range append([]string{key}, tokens...) {
+			if !strings.Contains(block, token) {
+				t.Fatalf("0106 methodology metadata for %s missing %q", key, token)
+			}
+		}
+	}
+}
+
 func TestPromptRecallSeedMigration_FailsFastWhenRequiredSeedRowsMissing(t *testing.T) {
 	content := readPromptMigration(t, "0100_seed_recall_packs_and_when_to_use.sql")
 	for _, forbidden := range []string{
@@ -72,6 +103,27 @@ func TestPromptDefaultSeeds_DoNotMentionRetiredClassifier(t *testing.T) {
 				t.Fatalf("%s must not mention retired classifier marker %q", name, forbidden)
 			}
 		}
+	}
+}
+
+func promptMethodologyRuntimeMetadataBlock(t *testing.T, content string) string {
+	t.Helper()
+	start := strings.Index(content, "Planning/review/debug methodology discovery metadata")
+	if start < 0 {
+		t.Fatal("0106 missing methodology metadata block")
+	}
+	end := strings.Index(content[start:], "\n-- Default developer expert roster repair")
+	if end < 0 {
+		t.Fatal("0106 methodology metadata block missing roster repair boundary")
+	}
+	return content[start : start+end]
+}
+
+func promptMethodologyTokens() map[string][]string {
+	return map[string][]string{
+		"main/planning":    {"method:planning", "phase:requirements", "phase:design", "phase:task_breakdown", "needs:user_confirmation", "output:handoff_plan", "evidence:acceptance_link"},
+		"main/code-review": {"method:code_review", "review:findings_first", "review:severity", "review:file_line", "review:evidence_type", "review:test_gap"},
+		"main/code-debug":  {"method:debug", "debug:error_evidence", "debug:minimal_repro", "debug:root_cause", "debug:verification", "debug:unverified_boundary"},
 	}
 }
 
