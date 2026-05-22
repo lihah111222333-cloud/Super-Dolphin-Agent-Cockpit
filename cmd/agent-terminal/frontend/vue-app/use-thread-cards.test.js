@@ -207,6 +207,61 @@ describe('useThreadCards', () => {
     ]);
   });
 
+  it('uses unified tool name and detail fallbacks for process activity summaries', () => {
+    const vm = createThreadCards({
+      activeTimeline: [
+        {
+          id: 'tool-format-result',
+          kind: 'tool',
+          toolName: 'mcp__lsp__format_preview',
+          status: 'completed',
+          success: true,
+          result: {
+            structuredContent: {
+              success: true,
+              action: 'format_preview',
+              text_edit_count: 3,
+            },
+          },
+          ts: '2026-03-09T10:00:00Z',
+        },
+        {
+          id: 'tool-grep-args',
+          kind: 'tool',
+          tool: 'mcp__lsp__grep',
+          status: 'completed',
+          success: true,
+          argumentsPreview: '{"total":4}',
+          ts: '2026-03-09T10:00:01Z',
+        },
+        {
+          id: 'tool-workspace-name',
+          kind: 'tool',
+          name: 'mcp__orch__workspace_create_run',
+          status: 'completed',
+          success: true,
+          ts: '2026-03-09T10:00:02Z',
+        },
+        {
+          id: 'tool-running-args',
+          kind: 'tool',
+          tool: 'mcp__lsp__grep',
+          status: 'running',
+          success: true,
+          argumentsPreview: '{"pattern":"TODO"}',
+          ts: '2026-03-09T10:00:03Z',
+        },
+      ],
+    });
+
+    expect(vm.activeProcessActivity.value).toEqual([
+      expect.objectContaining({ kind: 'tool', message: 'grep · 执行中 · {"pattern":"TODO"}', status: 'active' }),
+      expect.objectContaining({ kind: 'tool', message: 'workspace_create_run · 已创建工作区', status: 'done' }),
+      expect.objectContaining({ kind: 'tool', message: 'grep · 搜索到 4 处', status: 'done' }),
+      expect.objectContaining({ kind: 'tool', message: 'format_preview · 预览到 3 处格式化改动', status: 'done' }),
+    ]);
+  });
+
   it('marks failed command, tool, and file timeline items as failed from backend payloads', () => {
     const vm = createThreadCards({
       activeTimeline: [

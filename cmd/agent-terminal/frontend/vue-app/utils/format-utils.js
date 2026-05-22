@@ -33,19 +33,27 @@ export function normalizeActivityOutput(value) {
 export function displayToolName(value) {
   const raw = (value || '').toString().trim();
   if (!raw) return '未知工具';
-  const normalized = raw
+  const normalized = normalizeToolNameToken(raw)
     .replace(/[./:-]+/g, '_')
     .replace(/^functions_+/, '')
     .replace(/^function_+/, '')
     .replace(/^tools_+/, '')
     .replace(/^tool_+/, '')
-    .replace(/^mcp_+[a-z0-9]+_+/i, '')
     .replace(/_+/g, '_')
     .replace(/^_+|_+$/g, '');
   return canonicalLspToolName(normalized) || raw;
 }
 
+function normalizeToolNameToken(raw) {
+  const text = (raw || '').toString().trim();
+  if (!/^mcp__/i.test(text)) return text;
+  const parts = text.split('__');
+  if (parts.length < 3) return text;
+  return parts.slice(2).join('__');
+}
+
 function canonicalLspToolName(name) {
+  const key = (name || '').toString().toLowerCase();
   return ({
     lsp_file: 'file',
     lsp_grep: 'grep',
@@ -54,12 +62,30 @@ function canonicalLspToolName(name) {
     lsp_structure: 'structure',
     lsp_edit: 'edit',
     lsp_completion: 'completion',
-  })[name] || name;
+    lsp_format_preview: 'format_preview',
+  })[key] || name;
 }
 
 function parsedToolResult(preview) {
+  if (Array.isArray(preview)) return preview;
+  if (preview && typeof preview === 'object' && !Array.isArray(preview)) return preview;
   const text = (preview || '').toString().trim();
   if (!text || !/^[{[]/.test(text)) return null;
+  try {
+    return JSON.parse(text);
+  } catch {
+    return null;
+  }
+}
+
+function structuredToolResult(result) {
+  if (!result || typeof result !== 'object' || Array.isArray(result)) return null;
+  const structured = result.structuredContent;
+  if (!structured) return null;
+  if (typeof structured === 'object') return structured;
+  if (typeof structured !== 'string') return null;
+  const text = structured.trim();
+  if (!/^[{[]/.test(text)) return null;
   try {
     return JSON.parse(text);
   } catch {
@@ -75,6 +101,28 @@ function previewText(value) {
   } catch {
     return String(value).trim();
   }
+}
+
+function toolActivityDetailValue(item = {}) {
+  for (const key of ['preview', 'output', 'result', 'argumentsPreview', 'arguments_preview', 'error']) {
+    const value = item?.[key];
+    if (value == null) continue;
+    const text = previewText(value);
+    if (text) return { key, value, text };
+  }
+  return { key: '', value: '', text: '' };
+}
+
+export function toolActivityDetail(item = {}) {
+  return explicitToolErrorDetail(item).text || toolActivityDetailValue(item).text;
+}
+
+function explicitToolErrorDetail(item = {}) {
+  const value = item?.error;
+  if (value == null) return { key: '', value: '', text: '' };
+  const text = previewText(value);
+  if (!text) return { key: '', value: '', text: '' };
+  return { key: 'error', value, text };
 }
 
 function toolResultText(result, preview, keys) {
@@ -96,6 +144,31 @@ function toolPayloadFailed(result) {
   return Boolean(errorCode && errorCode !== 'none');
 }
 
+function formatEditCountText(result) {
+  const count = Number(result?.text_edit_count ?? result?.applied_count);
+  if (!Number.isFinite(count)) return '';
+  return `${Math.trunc(count)} 处改动`;
+}
+
+function formatPreviewSummary(result, failed, preview) {
+  if (failed) return knownToolFailureSummary('预览格式化失败', result, preview);
+  const count = Number(result?.text_edit_count);
+  if (Number.isFinite(count)) {
+    return count > 0 ? `预览到 ${Math.trunc(count)} 处格式化改动` : '无需格式化';
+  }
+  return '已预览格式化';
+}
+
+function editToolSummary(failed, result, preview) {
+  const action = previewText(result?.action).toLowerCase();
+  if (action === 'format') {
+    if (failed) return knownToolFailureSummary('格式化文件失败', result, preview);
+    const countText = formatEditCountText(result);
+    return countText ? `已应用格式化（${countText}）` : '已应用格式化';
+  }
+  return failed ? knownToolFailureSummary('编辑文件失败', result, preview) : '已替换文件内容';
+}
+
 function knownToolFailureSummary(label, result, preview) {
   return `${label}${toolFailureSuffix(result, preview)}`;
 }
@@ -105,7 +178,8 @@ function knownToolSummary(name, failed, result, preview) {
     const hint = result?.hint || '请缩小范围';
     return `结果过大（${hint}）`;
   }
-  if (name === 'edit') return failed ? knownToolFailureSummary('编辑文件失败', result, preview) : '已替换文件内容';
+  if (name === 'edit') return editToolSummary(failed, result, preview);
+  if (name === 'format_preview') return formatPreviewSummary(result, failed, preview);
   if (name === 'file') return failed ? knownToolFailureSummary('读取文件失败', result, preview) : '已读取文件';
   if (name === 'grep') {
     if (failed) return knownToolFailureSummary('搜索代码失败', result, preview);
@@ -151,10 +225,21 @@ function toolFailureSuffix(result, preview) {
 export function summarizeToolActivity(toolName, item = {}) {
   const name = displayToolName(toolName);
   const status = (item?.status || '').toString().trim().toLowerCase();
-  const preview = item?.preview || item?.error || '';
-  const result = parsedToolResult(preview);
-  const failed = item?.success === false || status === 'failed' || status === 'error' || Boolean((item?.error || '').toString().trim()) || toolPayloadFailed(result);
-  if (status === 'running' && !failed) return { name, summary: '执行中', status: 'active' };
+  const detail = toolActivityDetailValue(item);
+  const errorDetail = explicitToolErrorDetail(item);
+  const preview = errorDetail.text || detail.text;
+  const explicitFailed = item?.success === false ||
+    status === 'failed' ||
+    status === 'error' ||
+    Boolean(errorDetail.text) ||
+    (detail.key === 'error' && Boolean(preview));
+  if (status === 'running' && !explicitFailed) return { name, summary: '执行中', status: 'active' };
+
+  const parsed = parsedToolResult(detail.value);
+  const result = structuredToolResult(parsed) || parsed;
+  const failed = explicitFailed ||
+    toolPayloadFailed(parsed) ||
+    toolPayloadFailed(result);
 
   const known = knownToolSummary(name, failed, result, preview);
   if (known) return { name, summary: known, status: failed ? 'failed' : 'done' };

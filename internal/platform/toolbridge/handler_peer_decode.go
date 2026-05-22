@@ -5,12 +5,12 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"reflect"
 	"strings"
 	"time"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	mcpdto "github.com/anthropic-ai/super-agent-v3/internal/dto/mcp"
+	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/common"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/mcpcontrol"
 )
 
@@ -143,7 +143,12 @@ func addSurfaceTool(surface *codexToolSurface, out *[]contract.DynamicToolSchema
 	}
 	surface.tools[name] = entry
 	surface.aliases[name] = name
-	*out = append(*out, contract.DynamicToolSchema{Name: name, Description: tool.Description, InputSchema: tool.InputSchema})
+	*out = append(*out, contract.DynamicToolSchema{
+		Name:         name,
+		Description:  tool.Description,
+		InputSchema:  tool.InputSchema,
+		OutputSchema: tool.OutputSchema,
+	})
 	return nil
 }
 
@@ -264,12 +269,36 @@ func (h *Handler) callCodexSurfaceTool(ctx context.Context, surface *codexToolSu
 		return nil, fmt.Errorf("toolbridge: unknown codex surface tool %q", req.Name)
 	}
 	entry := surface.tools[canonical]
+	eventReq := req
+	eventReq.Name = entry.name
+	eventReq.ThreadID = codexSurfaceLifecycleThreadID(req)
+	started := time.Now()
+	publishLifecycle := !contract.ToolLifecycleAlreadyPublished(ctx)
+	if publishLifecycle {
+		h.publishProxyToolCallBegin(eventReq, started)
+	}
+	var result *ToolCallResult
+	var err error
+	defer func() {
+		if publishLifecycle {
+			h.publishProxyToolCallEnd(eventReq, started, result, err)
+		}
+	}()
 	req.Name = entry.realName
 	req = h.injectManagedLaunchContext(ctx, req)
 	if entry.executionKind == "host" {
-		return h.callHostTool(ctx, req)
+		result, err = h.callHostTool(ctx, req)
+		return result, err
 	}
-	return entry.client.CallTool(ctx, entry.realName, req.Arguments, req)
+	result, err = entry.client.CallTool(ctx, entry.realName, req.Arguments, req)
+	return result, err
+}
+
+func codexSurfaceLifecycleThreadID(req ToolCallRequest) string {
+	if agentID := strings.TrimSpace(req.AgentID); agentID != "" {
+		return agentID
+	}
+	return strings.TrimSpace(req.ThreadID)
 }
 
 func (s *codexToolSurface) Close() error {
@@ -331,15 +360,26 @@ func adaptMCPResponse(resp peerToolCallResponse) (*ToolCallResult, error) {
 			Text: strings.TrimSpace(item.Text),
 		})
 	}
-	structuredFailure, err := structuredContentReportsFailure(resp.StructuredContent)
+	structuredContent, err := normalizeToolResultStructuredContent(resp.StructuredContent)
+	if err != nil {
+		return nil, err
+	}
+	structuredFailure, err := structuredContentReportsFailure(structuredContent)
 	if err != nil {
 		return nil, err
 	}
 	return &ToolCallResult{
 		ContentItems:      items,
-		StructuredContent: append(json.RawMessage(nil), resp.StructuredContent...),
+		StructuredContent: structuredContent,
 		Success:           !resp.IsError && !structuredFailure,
 	}, nil
+}
+
+func normalizeToolResultStructuredContent(raw json.RawMessage) (json.RawMessage, error) {
+	if len(bytes.TrimSpace(raw)) == 0 {
+		return nil, nil
+	}
+	return common.StructuredContentFromRaw(raw)
 }
 
 func structuredContentReportsFailure(raw json.RawMessage) (bool, error) {
@@ -378,10 +418,12 @@ func toCodexDynamicTools(tools []mcpdto.MCPTool) []contract.DynamicToolSchema {
 	out := make([]contract.DynamicToolSchema, 0, len(tools))
 	for _, tool := range tools {
 		schema := contract.DynamicToolSchema{
-			Name:        tool.Name,
-			Description: tool.Description,
-			InputSchema: tool.InputSchema,
+			Name:         tool.Name,
+			Description:  tool.Description,
+			InputSchema:  tool.InputSchema,
+			OutputSchema: tool.OutputSchema,
 		}
+
 		setDynamicToolDeferLoading(&schema, toolDeferLoading(tool))
 		out = append(out, schema)
 	}
@@ -492,6 +534,7 @@ var canonicalCodexSurfaceTools = map[string]struct{}{
 	"grep":              {},
 	"structure":         {},
 	"edit":              {},
+	"format_preview":    {},
 	"completion":        {},
 	"code_run":          {},
 	"code_run_test":     {},
@@ -504,143 +547,4 @@ var canonicalCodexSurfaceTools = map[string]struct{}{
 	ToolNameMemoryWrite: {},
 	ToolNameReadSection: {},
 	"skill_expand_body": {},
-}
-
-var toolCWDTraceCanonicalTools = map[string]struct{}{
-	"file":                       {},
-	"grep":                       {},
-	"inspect":                    {},
-	"xref":                       {},
-	"structure":                  {},
-	"edit":                       {},
-	"completion":                 {},
-	"code_run":                   {},
-	"code_run_test":              {},
-	"orchestration_launch_agent": {},
-}
-
-func (h *Handler) resolveCurrentToolCallCWD(ctx context.Context, req ToolCallRequest) string {
-	if cwd := normalizeToolCallCWD(req.CWD); cwd != "" {
-		return cwd
-	}
-	if binding, ok := h.resolveCurrentToolCallBinding(ctx, req); ok {
-		return normalizeToolCallCWD(binding.CWD)
-	}
-	return ""
-}
-
-func normalizeToolCallCWD(cwd string) string {
-	cwd = strings.TrimSpace(cwd)
-	if cwd == "" {
-		return ""
-	}
-	return normalizeToolCallWorkspaceRoot("", cwd)
-}
-
-func (h *Handler) resolveAndWarnCurrentToolCallCWD(ctx context.Context, req ToolCallRequest) string {
-	cwd := h.resolveCurrentToolCallCWD(ctx, req)
-	h.warnPeerToolCWDTrace(ctx, req, cwd)
-	return cwd
-}
-
-func shouldWarnToolCWDTrace(toolName string) bool {
-	trimmed := strings.TrimSpace(toolName)
-	if _, ok := toolCWDTraceCanonicalTools[canonicalToolName(trimmed)]; ok {
-		return true
-	}
-	return strings.HasPrefix(trimmed, "lsp_")
-}
-
-func (h *Handler) warnPeerToolCWDTrace(ctx context.Context, req ToolCallRequest, forwardedCWD string) {
-	if !shouldWarnToolCWDTrace(req.Name) {
-		return
-	}
-	bindingCWD := ""
-	if binding, ok := h.resolveCurrentToolCallBinding(ctx, req); ok {
-		bindingCWD = strings.TrimSpace(binding.CWD)
-	}
-	h.warn("toolbridge: peer tool cwd trace",
-		"tool", strings.TrimSpace(req.Name),
-		"agent_id", strings.TrimSpace(req.AgentID),
-		"thread_id", strings.TrimSpace(req.ThreadID),
-		"call_id", strings.TrimSpace(req.CallID),
-		"req_cwd", strings.TrimSpace(req.CWD),
-		"binding_cwd", bindingCWD,
-		"forwarded_cwd", strings.TrimSpace(forwardedCWD),
-		"client_kind", strings.TrimSpace(req.ClientKind),
-	)
-}
-
-func firstString(payload map[string]json.RawMessage, keys ...string) string {
-	for _, key := range keys {
-		if value := decodeString(payload[key]); value != "" {
-			return value
-		}
-	}
-	return ""
-}
-
-func firstRaw(payload map[string]json.RawMessage, keys ...string) json.RawMessage {
-	for _, key := range keys {
-		if value := bytes.TrimSpace(payload[key]); len(value) != 0 {
-			return value
-		}
-	}
-	return nil
-}
-
-func nestedString(payload map[string]json.RawMessage, field string, keys ...string) string {
-	raw := bytes.TrimSpace(payload[field])
-	if len(raw) == 0 {
-		return ""
-	}
-	var nested map[string]json.RawMessage
-	if err := json.Unmarshal(raw, &nested); err != nil {
-		return ""
-	}
-	return firstString(nested, keys...)
-}
-
-func decodeString(raw json.RawMessage) string {
-	if len(bytes.TrimSpace(raw)) == 0 {
-		return ""
-	}
-	var value string
-	if err := json.Unmarshal(raw, &value); err != nil {
-		return ""
-	}
-	return strings.TrimSpace(value)
-}
-
-func toolDeferLoading(tool mcpdto.MCPTool) bool {
-	value := reflect.ValueOf(tool)
-	field := value.FieldByName("DeferLoading")
-	return field.IsValid() && field.Kind() == reflect.Bool && field.Bool()
-}
-
-func setDynamicToolDeferLoading(schema *contract.DynamicToolSchema, enabled bool) {
-	if schema == nil {
-		return
-	}
-	value := reflect.ValueOf(schema)
-	if value.Kind() == reflect.Pointer {
-		value = value.Elem()
-	}
-	field := value.FieldByName("DeferLoading")
-	if field.IsValid() && field.CanSet() && field.Kind() == reflect.Bool {
-		field.SetBool(enabled)
-	}
-}
-
-func lspEditAction(arguments json.RawMessage) string {
-	if len(bytes.TrimSpace(arguments)) == 0 {
-		return ""
-	}
-	var payload struct {
-		Action string `json:"action"`
-	}
-	if err := json.Unmarshal(arguments, &payload); err != nil {
-		return ""
-	}
-	return strings.TrimSpace(payload.Action)
 }

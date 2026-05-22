@@ -146,4 +146,58 @@ describe('ChatTimeline presence popover guards', () => {
     expect(vm.resolvedPresenceTarget.value).toBe('#presence-anchor');
     expect(vm.hasPresenceTarget.value).toBe(true);
   });
+
+  it('normalizes MCP tool names and uses argumentsPreview in tool summaries and ticker', () => {
+    const { vm } = setupTimeline({
+      activeStatus: 'thinking',
+      activeStatusText: '分析中',
+      items: [
+        { id: 'assistant-1', kind: 'assistant', text: '收到', done: true },
+        {
+          id: 'tool-grep-running',
+          kind: 'tool',
+          tool: 'mcp__lsp__lsp_grep',
+          status: 'running',
+          success: true,
+          argumentsPreview: '{"pattern":"TODO"}',
+          elapsedMs: 12,
+          ts: '2026-03-14T10:00:04Z',
+        },
+      ],
+    });
+
+    expect(vm.thinkingToolSummaries.value).toHaveLength(1);
+    const summaryText = vm.thinkingToolSummaries.value[0].text;
+    expect(summaryText).toContain('grep');
+    expect(summaryText).toContain('执行中');
+    expect(summaryText).toContain('"pattern":"TODO"');
+    expect(summaryText).not.toContain('mcp__lsp__');
+
+    expect(vm.collapsedToolTickerText.value).toContain('grep');
+    expect(vm.collapsedToolTickerText.value).toContain('"pattern":"TODO"');
+    expect(vm.collapsedToolTickerText.value).not.toContain('mcp__lsp__');
+  });
+
+  it('prefixes the collapsed tool ticker for structured payload failures', () => {
+    const { vm } = setupTimeline({
+      activeStatus: 'thinking',
+      activeStatusText: '分析中',
+      items: [
+        { id: 'assistant-1', kind: 'assistant', text: '收到', done: true },
+        {
+          id: 'tool-grep-failed-payload',
+          kind: 'tool',
+          tool: 'mcp__lsp__grep',
+          status: 'completed',
+          success: true,
+          preview: '{"success":false,"error":"search root is unavailable","total":0}',
+          elapsedMs: 12,
+          ts: '2026-03-14T10:00:05Z',
+        },
+      ],
+    });
+
+    expect(vm.collapsedToolTickerText.value).toContain('失败 · grep');
+    expect(vm.collapsedToolTickerText.value).toContain('search root is unavailable');
+  });
 });

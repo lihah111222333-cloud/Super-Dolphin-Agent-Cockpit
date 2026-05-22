@@ -201,6 +201,8 @@ func canonicalLSPToolName(name string) string {
 		return "edit"
 	case "lsp_completion":
 		return "completion"
+	case "lsp_format_preview":
+		return "format_preview"
 	default:
 		return strings.TrimSpace(name)
 	}
@@ -209,7 +211,7 @@ func canonicalLSPToolName(name string) string {
 func isLSPActivityTool(name string) bool {
 	trimmed := strings.TrimSpace(name)
 	switch trimmed {
-	case "file", "grep", "inspect", "xref", "structure", "edit", "completion":
+	case "file", "grep", "inspect", "xref", "structure", "edit", "completion", "format_preview":
 		return true
 	default:
 		return strings.HasPrefix(trimmed, "lsp_")

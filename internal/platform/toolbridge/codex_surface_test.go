@@ -3,16 +3,28 @@ package toolbridge
 import (
 	"context"
 	"encoding/json"
+	"reflect"
 	"testing"
+	"time"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
+
 	mcpdto "github.com/anthropic-ai/super-agent-v3/internal/dto/mcp"
 	providerdto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
+	tooldto "github.com/anthropic-ai/super-agent-v3/internal/dto/tool"
+	"github.com/kelindar/event"
+	"github.com/stretchr/testify/require"
 )
 
 func TestPrepareCodexToolSurfaceAdvertisesShortNamesAndRoutesCalls(t *testing.T) {
-	lsp := &fakeMCPClient{tools: []mcpdto.MCPTool{{Name: "lsp_grep", Description: "grep", InputSchema: json.RawMessage(`{"type":"object"}`)}}}
+	lspInputSchema := json.RawMessage(`{"type":"object","properties":{"query":{"type":"string","description":"search query"}}}`)
+	lspOutputSchema := json.RawMessage(`{"type":"object","properties":{"files":{"type":"object","description":"matches by file"}}}`)
+	lsp := &fakeMCPClient{tools: []mcpdto.MCPTool{
+		{Name: "lsp_grep", Description: "grep source", InputSchema: lspInputSchema, OutputSchema: lspOutputSchema},
+		{Name: "lsp_format_preview", Description: "preview formatting", InputSchema: json.RawMessage(`{"type":"object"}`)},
+	}}
 	orch := &fakeMCPClient{tools: []mcpdto.MCPTool{{Name: "orchestration_launch_agent", Description: "launch", InputSchema: json.RawMessage(`{"type":"object"}`)}}}
+
 	h := &Handler{stdioClientFactory: fakeClientFactory(map[string]mcpClient{"lsp": lsp, "orch": orch})}
 
 	tools, err := h.PrepareCodexToolSurface(context.Background(), contract.CodexToolSurfaceScope{
@@ -27,9 +39,22 @@ func TestPrepareCodexToolSurfaceAdvertisesShortNamesAndRoutesCalls(t *testing.T)
 	if err != nil {
 		t.Fatalf("PrepareCodexToolSurface() error = %v", err)
 	}
-	assertDynamicToolNames(t, tools, []string{"grep", "launch_agent"})
+	assertDynamicToolNames(t, tools, []string{"grep", "format_preview", "launch_agent"})
+	assertDynamicToolSchema(t, tools, "grep", "grep source", lspInputSchema, lspOutputSchema)
 
-	result, err := h.HandleToolCall(context.Background(), contract.ToolCallRawMessage{Params: json.RawMessage(`{"name":"grep","arguments":{"query":"x"},"_agentId":"agent-1","_threadId":"provider-thread-1","_callId":"call-1","_cwd":"/repo"}`)})
+	result, err := h.HandleToolCall(context.Background(), contract.ToolCallRawMessage{Params: json.RawMessage(`{"name":"format_preview","arguments":{"file_path":"smoke.go"},"_agentId":"agent-1","_threadId":"provider-thread-1","_callId":"call-1","_cwd":"/repo"}`)})
+	if err != nil {
+		t.Fatalf("HandleToolCall(format_preview) error = %v", err)
+	}
+	if !lsp.calledWith("lsp_format_preview") {
+		t.Fatalf("lsp calls = %#v, want real legacy name lsp_format_preview", lsp.calls)
+	}
+	if result == nil {
+		t.Fatal("HandleToolCall(format_preview) result = nil")
+	}
+
+	result, err = h.HandleToolCall(context.Background(), contract.ToolCallRawMessage{Params: json.RawMessage(`{"name":"grep","arguments":{"query":"x"},"_agentId":"agent-1","_threadId":"provider-thread-1","_callId":"call-2","_cwd":"/repo"}`)})
+
 	if err != nil {
 		t.Fatalf("HandleToolCall(short) error = %v", err)
 	}
@@ -122,6 +147,78 @@ func TestCodexToolSurfaceAcceptsLegacyAliasWithoutAdvertisingIt(t *testing.T) {
 	if !lsp.calledWith("grep") {
 		t.Fatalf("lsp calls = %#v, want canonical real name grep", lsp.calls)
 	}
+}
+
+func TestCodexToolSurfacePublishesLifecycleEvents(t *testing.T) {
+	dispatcher := event.NewDispatcher()
+	t.Cleanup(func() { _ = dispatcher.Close() })
+	beginCh := make(chan tooldto.ToolCallBegin, 1)
+	endCh := make(chan tooldto.ToolCallEnd, 1)
+	cancelBegin := event.Subscribe(dispatcher, func(ev tooldto.ToolCallBegin) { beginCh <- ev })
+	t.Cleanup(cancelBegin)
+	cancelEnd := event.Subscribe(dispatcher, func(ev tooldto.ToolCallEnd) { endCh <- ev })
+	t.Cleanup(cancelEnd)
+
+	lsp := &fakeMCPClient{tools: []mcpdto.MCPTool{{Name: "lsp_grep", InputSchema: json.RawMessage(`{"type":"object"}`)}}}
+	h := &Handler{
+		dispatcher:         dispatcher,
+		stdioClientFactory: fakeClientFactory(map[string]mcpClient{"lsp": lsp}),
+	}
+	_, err := h.PrepareCodexToolSurface(context.Background(), contract.CodexToolSurfaceScope{
+		AgentID:          "agent-1",
+		ProviderThreadID: "provider-thread-1",
+		CWD:              "/repo",
+		Manifest:         providerdto.MCPManifest{Binaries: []providerdto.MCPBinary{{Name: "lsp", Command: []string{"mcp-lsp"}}}},
+	})
+	require.NoError(t, err)
+
+	_, err = h.HandleToolCall(context.Background(), contract.ToolCallRawMessage{
+		ID:     json.RawMessage(`"call-1"`),
+		Params: json.RawMessage(`{"name":"grep","arguments":{"query":"targetName"},"_agentId":"agent-1","_threadId":"provider-thread-1","_cwd":"/repo"}`),
+	})
+	require.NoError(t, err)
+
+	begin := waitCodexSurfaceToolBegin(t, beginCh)
+	require.Equal(t, "agent-1", begin.ThreadID)
+	require.Equal(t, "agent-1", begin.AgentID)
+	require.Equal(t, "call-1", begin.CallID)
+	require.Equal(t, "grep", begin.ToolName)
+	require.Equal(t, `{"query":"targetName"}`, begin.ArgumentsPreview)
+	end := waitCodexSurfaceToolEnd(t, endCh)
+	require.Equal(t, begin.ThreadID, end.ThreadID)
+	require.Equal(t, begin.AgentID, end.AgentID)
+	require.Equal(t, begin.CallID, end.CallID)
+	require.Equal(t, begin.ToolName, end.ToolName)
+	require.Truef(t, end.Success, "end = %+v, want success", end)
+}
+
+func TestCodexToolSurfaceSkipsLifecycleWhenCallerAlreadyPublishes(t *testing.T) {
+	dispatcher := event.NewDispatcher()
+	t.Cleanup(func() { _ = dispatcher.Close() })
+	beginCh := make(chan tooldto.ToolCallBegin, 1)
+	endCh := make(chan tooldto.ToolCallEnd, 1)
+	cancelBegin := event.Subscribe(dispatcher, func(ev tooldto.ToolCallBegin) { beginCh <- ev })
+	t.Cleanup(cancelBegin)
+	cancelEnd := event.Subscribe(dispatcher, func(ev tooldto.ToolCallEnd) { endCh <- ev })
+	t.Cleanup(cancelEnd)
+
+	lsp := &fakeMCPClient{tools: []mcpdto.MCPTool{{Name: "lsp_grep", InputSchema: json.RawMessage(`{"type":"object"}`)}}}
+	h := &Handler{
+		dispatcher:         dispatcher,
+		stdioClientFactory: fakeClientFactory(map[string]mcpClient{"lsp": lsp}),
+	}
+	_, err := h.PrepareCodexToolSurface(context.Background(), contract.CodexToolSurfaceScope{
+		AgentID:          "agent-1",
+		ProviderThreadID: "provider-thread-1",
+		CWD:              "/repo",
+		Manifest:         providerdto.MCPManifest{Binaries: []providerdto.MCPBinary{{Name: "lsp", Command: []string{"mcp-lsp"}}}},
+	})
+	require.NoError(t, err)
+
+	ctx := contract.WithToolLifecycleAlreadyPublished(context.Background())
+	_, err = h.HandleToolCall(ctx, contract.ToolCallRawMessage{Params: json.RawMessage(`{"name":"grep","arguments":{"query":"targetName"},"_agentId":"agent-1","_threadId":"provider-thread-1","_callId":"call-1","_cwd":"/repo"}`)})
+	require.NoError(t, err)
+	assertNoCodexSurfaceToolEvents(t, beginCh, endCh)
 }
 
 func TestCodexToolSurfaceMissingSurfaceFails(t *testing.T) {
@@ -411,9 +508,75 @@ func assertDynamicToolNames(t *testing.T, tools []contract.DynamicToolSchema, wa
 			t.Fatalf("dynamic tools missing %q; got %#v", name, got)
 		}
 	}
-	for _, legacy := range []string{"lsp_grep", "orchestration_launch_agent"} {
+	for _, legacy := range []string{"lsp_grep", "lsp_format_preview", "orchestration_launch_agent"} {
 		if got[legacy] {
 			t.Fatalf("dynamic tools advertised legacy alias %q; got %#v", legacy, got)
 		}
+	}
+}
+
+func assertDynamicToolSchema(t *testing.T, tools []contract.DynamicToolSchema, name, description string, inputSchema, outputSchema json.RawMessage) {
+	t.Helper()
+	for _, tool := range tools {
+		if tool.Name != name {
+			continue
+		}
+		if tool.Description != description {
+			t.Fatalf("%s description = %q, want %q", name, tool.Description, description)
+		}
+		assertJSONRawMessageEqual(t, name+" inputSchema", tool.InputSchema, inputSchema)
+		assertJSONRawMessageEqual(t, name+" outputSchema", tool.OutputSchema, outputSchema)
+		return
+	}
+	t.Fatalf("dynamic tools missing %q; got %+v", name, tools)
+}
+
+func assertJSONRawMessageEqual(t *testing.T, label string, got, want json.RawMessage) {
+	t.Helper()
+	var gotValue any
+	var wantValue any
+	if err := json.Unmarshal(got, &gotValue); err != nil {
+		t.Fatalf("%s invalid JSON: %v", label, err)
+	}
+	if err := json.Unmarshal(want, &wantValue); err != nil {
+		t.Fatalf("%s invalid expected JSON: %v", label, err)
+	}
+	if !reflect.DeepEqual(gotValue, wantValue) {
+		t.Fatalf("%s = %s, want %s", label, got, want)
+	}
+}
+
+func waitCodexSurfaceToolBegin(t *testing.T, ch <-chan tooldto.ToolCallBegin) tooldto.ToolCallBegin {
+	t.Helper()
+	select {
+	case ev := <-ch:
+		return ev
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for codex surface ToolCallBegin")
+		return tooldto.ToolCallBegin{}
+	}
+}
+
+func waitCodexSurfaceToolEnd(t *testing.T, ch <-chan tooldto.ToolCallEnd) tooldto.ToolCallEnd {
+	t.Helper()
+	select {
+	case ev := <-ch:
+		return ev
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for codex surface ToolCallEnd")
+		return tooldto.ToolCallEnd{}
+	}
+}
+
+func assertNoCodexSurfaceToolEvents(t *testing.T, beginCh <-chan tooldto.ToolCallBegin, endCh <-chan tooldto.ToolCallEnd) {
+	t.Helper()
+	timer := time.NewTimer(50 * time.Millisecond)
+	defer timer.Stop()
+	select {
+	case ev := <-beginCh:
+		t.Fatalf("unexpected codex surface ToolCallBegin = %+v", ev)
+	case ev := <-endCh:
+		t.Fatalf("unexpected codex surface ToolCallEnd = %+v", ev)
+	case <-timer.C:
 	}
 }

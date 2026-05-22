@@ -6,6 +6,7 @@ import {
   formatTimelineTime,
   normalizeActivityOutput,
   summarizeToolActivity,
+  toolActivityDetail,
 } from '../utils/format-utils.js';
 
 import { buildVisibleChatThreadCards } from '../utils/thread-page-utils.js';
@@ -51,12 +52,16 @@ function isFailedActivity(item) {
 }
 
 function toToolProcessActivityItem(item, index) {
-  const rawTool = (item.tool || item.toolName || '').toString().trim();
+  const rawTool = (item.tool || item.toolName || item.name || '').toString().trim();
   const tool = summarizeToolActivity(rawTool, item);
+  const detail = tool.status === 'active'
+    ? normalizeActivityOutput(toolActivityDetail(item)).replace(/\n/g, ' ')
+    : '';
+  const message = detail ? `${tool.name} · ${tool.summary} · ${detail}` : `${tool.name} · ${tool.summary}`;
   return {
     id: processActivityId(item, 'tool', index),
     time: formatTimelineTime(item.ts),
-    message: `${tool.name} · ${tool.summary}`,
+    message,
     kind: 'tool',
     status: tool.status,
   };
@@ -71,9 +76,15 @@ function toApprovalProcessActivityItem(item, index) {
     time: formatTimelineTime(item.ts),
     message: command ? `审批确认 · ${command}` : '等待审批确认',
     kind: 'approval',
-    status: failed ? 'failed' : ['approved', 'rejected', 'resolved', 'submitted'].includes(status) ? 'done' : 'active',
+    status: approvalActivityStatus(status, failed),
     multiline: Boolean(command),
   };
+}
+
+function approvalActivityStatus(status, failed) {
+  if (failed) return 'failed';
+  if (['approved', 'rejected', 'resolved', 'submitted'].includes(status)) return 'done';
+  return 'active';
 }
 
 function toFileProcessActivityItem(item, index) {
@@ -90,8 +101,14 @@ function toFileProcessActivityItem(item, index) {
     time: formatTimelineTime(item.ts),
     message: `${prefix} · ${file}`,
     kind: 'file',
-    status: failed ? 'failed' : active ? 'active' : 'done',
+    status: fileActivityStatus(failed, active),
   };
+}
+
+function fileActivityStatus(failed, active) {
+  if (failed) return 'failed';
+  if (active) return 'active';
+  return 'done';
 }
 
 /**

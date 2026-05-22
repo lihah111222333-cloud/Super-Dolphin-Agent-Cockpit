@@ -3,6 +3,7 @@ package codexapp
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"reflect"
 	"strings"
 	"sync"
@@ -10,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	tooldto "github.com/anthropic-ai/super-agent-v3/internal/dto/tool"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/toolbridge"
@@ -53,12 +55,13 @@ func (r *recordingResponder) callCount() int {
 
 func newInboundTestSession(ctx context.Context, approvals *rpc.ApprovalManager, manager *ServerManager) *session {
 	s := &session{
-		agentID:    "agent-1",
-		approvals:  approvals,
-		ctx:        ctx,
-		manager:    manager,
-		suppressed: map[string]struct{}{},
-		turns:      map[string]*turnHandle{},
+		agentID:            "agent-1",
+		approvals:          approvals,
+		ctx:                ctx,
+		manager:            manager,
+		suppressed:         map[string]struct{}{},
+		suppressedToolEnds: map[string]struct{}{},
+		turns:              map[string]*turnHandle{},
 	}
 	s.setThreadID("provider-thread-1")
 	s.setRuntimeConfig(map[string]any{"cwd": "/trusted/root"})
@@ -242,6 +245,115 @@ func TestOnInboundMessage_ToolCall_DispatchesLifecycleAndPrivateMetadata(t *test
 	assertAsyncToolResponseResult(t, call, map[string]any{"ok": true})
 	end := waitToolCallEnd(t, endCh)
 	assertSyntheticToolEndHeader(t, end, begin)
+}
+
+func TestOnInboundMessage_ToolsCall_DispatchesLifecycle(t *testing.T) {
+	bus := event.NewDispatcher()
+	dispatcher := unified.NewEventDispatcher(bus, nil)
+	ctx := context.Background()
+	beginCh := make(chan tooldto.ToolCallBegin, 1)
+	endCh := make(chan tooldto.ToolCallEnd, 1)
+	cancelBegin := event.Subscribe(bus, func(ev tooldto.ToolCallBegin) { beginCh <- ev })
+	defer cancelBegin()
+	cancelEnd := event.Subscribe(bus, func(ev tooldto.ToolCallEnd) { endCh <- ev })
+	defer cancelEnd()
+
+	manager := &ServerManager{}
+	sawLifecycleContext := false
+	manager.SetToolHandler(func(ctx context.Context, _ RawMessage) (any, error) {
+		sawLifecycleContext = contract.ToolLifecycleAlreadyPublished(ctx)
+		return map[string]any{"ok": true}, nil
+	})
+	resp := newRecordingResponder()
+	s := newInboundTestSession(ctx, nil, manager)
+	s.dispatcher = dispatcher
+	s.setThreadID("provider-thread-1")
+	s.setRuntimeConfig(map[string]any{"cwd": "/trusted/root"})
+	s.mu.Lock()
+	s.activeTurnID = "turn-1"
+	s.mu.Unlock()
+
+	s.onInboundMessage(ctx, resp, RawMessage{
+		ID:     json.RawMessage(`"req-1"`),
+		Method: "tools/call",
+		Params: json.RawMessage(`{"name":"file","arguments":{"action":"read_file","file_path":"smoke.go"}}`),
+	})
+
+	begin := waitToolCallBegin(t, beginCh)
+	if begin.CallID != "req-1" || begin.ToolName != "file" {
+		t.Fatalf("begin call key = %q/%q, want req-1/file", begin.CallID, begin.ToolName)
+	}
+	call := waitResponseCall(t, resp.ch)
+	if string(call.id) != `"req-1"` {
+		t.Fatalf("response id = %s, want req-1", string(call.id))
+	}
+	if !reflect.DeepEqual(call.result, map[string]any{"ok": true}) {
+		t.Fatalf("response result = %#v, want ok result", call.result)
+	}
+	if !sawLifecycleContext {
+		t.Fatal("tool handler context missing lifecycle already-published marker")
+	}
+	end := waitToolCallEnd(t, endCh)
+	if end.CallID != begin.CallID || end.ToolName != begin.ToolName || !end.Success {
+		t.Fatalf("end = %+v, want successful req-1/file end", end)
+	}
+}
+
+func TestOnInboundMessage_ToolsCallSuppressesDuplicateRawEnd(t *testing.T) {
+	bus := event.NewDispatcher()
+	dispatcher := unified.NewEventDispatcher(bus, nil)
+	RegisterTranslators(dispatcher)
+	ctx := context.Background()
+	endCh := make(chan tooldto.ToolCallEnd, 2)
+	cancelEnd := event.Subscribe(bus, func(ev tooldto.ToolCallEnd) { endCh <- ev })
+	defer cancelEnd()
+
+	manager := &ServerManager{}
+	manager.SetToolHandler(func(context.Context, RawMessage) (any, error) {
+		return map[string]any{"ok": true}, nil
+	})
+	resp := newRecordingResponder()
+	s := newInboundTestSession(ctx, nil, manager)
+	s.dispatcher = dispatcher
+	s.mu.Lock()
+	s.activeTurnID = "turn-1"
+	s.mu.Unlock()
+
+	s.onInboundMessage(ctx, resp, RawMessage{
+		ID:     json.RawMessage(`"req-1"`),
+		Method: "tools/call",
+		Params: json.RawMessage(`{"name":"file","arguments":{"action":"read_file","file_path":"smoke.go"}}`),
+	})
+	_ = waitResponseCall(t, resp.ch)
+	first := waitToolCallEnd(t, endCh)
+	if first.CallID != "req-1" || first.ToolName != "file" {
+		t.Fatalf("first ToolCallEnd = %+v, want req-1/file", first)
+	}
+
+	s.onNotification("item/completed", json.RawMessage(`{"agentId":"agent-1","threadId":"provider-thread-1","turnId":"turn-1","callId":"req-1","name":"file","success":true,"result":{"ok":true}}`))
+	assertNoToolCallEnd(t, endCh)
+}
+
+func TestSuppressedToolEndBoundedAndTurnScoped(t *testing.T) {
+	s := newInboundTestSession(context.Background(), nil, &ServerManager{})
+	s.suppressToolEnd("turn-1", "call-1", "file")
+	if s.consumeSuppressedToolEnd("turn-2", "call-1", "file") {
+		t.Fatal("consumeSuppressedToolEnd consumed a different turn")
+	}
+	if !s.consumeSuppressedToolEnd("turn-1", "call-1", "file") {
+		t.Fatal("consumeSuppressedToolEnd did not consume matching turn/call/tool")
+	}
+	for i := 0; i < maxSuppressedToolEnds+5; i++ {
+		s.suppressToolEnd("turn-bounded", fmt.Sprintf("call-%d", i), "file")
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if got := len(s.suppressedToolEnds); got > maxSuppressedToolEnds {
+		t.Fatalf("suppressedToolEnds size = %d, want <= %d", got, maxSuppressedToolEnds)
+	}
+	if got := len(s.suppressedToolOrder); got > maxSuppressedToolEnds {
+		t.Fatalf("suppressedToolOrder size = %d, want <= %d", got, maxSuppressedToolEnds)
+	}
 }
 
 func TestOnInboundMessage_ToolCall_DispatchesStructuredFailureEnd(t *testing.T) {
@@ -451,6 +563,15 @@ func waitToolCallEnd(t *testing.T, ch <-chan tooldto.ToolCallEnd) tooldto.ToolCa
 	case <-time.After(time.Second):
 		t.Fatal("timed out waiting for ToolCallEnd")
 		return tooldto.ToolCallEnd{}
+	}
+}
+
+func assertNoToolCallEnd(t *testing.T, ch <-chan tooldto.ToolCallEnd) {
+	t.Helper()
+	select {
+	case ev := <-ch:
+		t.Fatalf("unexpected ToolCallEnd = %+v", ev)
+	case <-time.After(50 * time.Millisecond):
 	}
 }
 

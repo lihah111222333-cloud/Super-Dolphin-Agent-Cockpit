@@ -7,7 +7,7 @@ import (
 )
 
 func TestClassifyToolCanonicalAndLegacyLSPNames(t *testing.T) {
-	for _, name := range []string{"file", "grep", "inspect", "xref", "structure", "edit", "completion", "lsp_file", "lsp_grep", "lsp_edit", "lsp_hover", "code_run", "code_run_test"} {
+	for _, name := range []string{"file", "grep", "inspect", "xref", "structure", "edit", "format_preview", "completion", "lsp_file", "lsp_grep", "lsp_edit", "lsp_format_preview", "lsp_hover", "code_run", "code_run_test"} {
 		if got := classifyTool(name); got != dto.ClientKindLSP {
 			t.Fatalf("classifyTool(%q) = %q, want %q", name, got, dto.ClientKindLSP)
 		}
@@ -32,7 +32,7 @@ func TestValidateProxyToolFamilyIDA(t *testing.T) {
 }
 
 func TestResolveToolClientKindAcceptsCanonicalAndLegacyLSPNames(t *testing.T) {
-	for _, name := range []string{"grep", "lsp_grep"} {
+	for _, name := range []string{"grep", "lsp_grep", "format_preview", "lsp_format_preview"} {
 		got, err := resolveToolClientKind(ToolCallRequest{Name: name, ClientKind: dto.ClientKindLSP})
 		if err != nil {
 			t.Fatalf("resolveToolClientKind(%q) error = %v", name, err)

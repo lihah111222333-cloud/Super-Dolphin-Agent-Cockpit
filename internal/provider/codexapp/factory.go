@@ -147,8 +147,8 @@ func payloadCallID(payload map[string]any, fallbacks ...string) string {
 func payloadToolName(payload map[string]any, fallbacks ...string) string {
 	item := nestedValue(payload, "item")
 	values := append([]string{
-		stringValue(payload, "toolName", "tool_name", "tool"),
-		stringValue(item, "toolName", "tool"),
+		stringValue(payload, "name", "toolName", "tool_name", "tool"),
+		stringValue(item, "name", "toolName", "tool"),
 	}, fallbacks...)
 	return shared.FirstNonEmpty(values...)
 }

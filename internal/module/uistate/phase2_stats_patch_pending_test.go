@@ -4,11 +4,14 @@ import (
 	"context"
 	"reflect"
 	"testing"
+	"time"
 
 	sharedto "github.com/anthropic-ai/super-agent-v3/internal/dto/shared"
 	tooldto "github.com/anthropic-ai/super-agent-v3/internal/dto/tool"
 	turndto "github.com/anthropic-ai/super-agent-v3/internal/dto/turn"
+	uidto "github.com/anthropic-ai/super-agent-v3/internal/dto/ui"
 	"github.com/anthropic-ai/super-agent-v3/internal/module/uistate/timeline"
+	"github.com/kelindar/event"
 )
 
 func TestActivityStats_CommandIncrementsCommands(t *testing.T) {
@@ -124,6 +127,69 @@ func TestActivityStats_MCPNamespacedLSPToolIncrementsLSPCalls(t *testing.T) {
 	}
 }
 
+func TestActivityStats_FormatPreviewIncrementsLSPCalls(t *testing.T) {
+	t.Parallel()
+
+	svc := newProjectionTestService(t)
+	turnHeader := testTurnHeader(testAgentSessionHeader("thread-stats-format-preview", "agent-1"), "turn-1")
+
+	svc.applyToolCallBegin(tooldto.ToolCallBegin{
+		ToolCallHeader: sharedto.ToolCallHeader{TurnHeader: turnHeader, CallID: "call-format-preview-1", ToolName: "format_preview"},
+	})
+	svc.applyToolCallBegin(tooldto.ToolCallBegin{
+		ToolCallHeader: sharedto.ToolCallHeader{TurnHeader: turnHeader, CallID: "call-format-preview-2", ToolName: "mcp__lsp__lsp_format_preview"},
+	})
+
+	stats := activityStatsForThread(t, svc, "thread-stats-format-preview")
+	if stats.LSPCalls != 2 {
+		t.Fatalf("stats.LSPCalls = %d, want 2 for format_preview aliases", stats.LSPCalls)
+	}
+	if got := stats.ToolCalls["format_preview"]; got != 1 {
+		t.Fatalf("stats.ToolCalls[format_preview] = %d, want 1", got)
+	}
+	if got := stats.ToolCalls["mcp__lsp__lsp_format_preview"]; got != 1 {
+		t.Fatalf("stats.ToolCalls[mcp__lsp__lsp_format_preview] = %d, want 1", got)
+	}
+}
+
+func TestCodexSyntheticLSPToolCallPublishesTimelineAndStatsPatch(t *testing.T) {
+	t.Parallel()
+
+	dispatcher := event.NewDispatcher()
+	t.Cleanup(func() { _ = dispatcher.Close() })
+	svc := newProjectionTestService(t)
+	svc.state.Threads = []ThreadSummary{{ID: "agent-1", AgentID: "agent-1", State: "running"}}
+	svc.state.Agents = []AgentSummary{{ID: "agent-1", ThreadID: "agent-1", Provider: "codex", State: "running"}}
+	svc.bindDispatcher(dispatcher)
+	cancels := registerProjectionSubscriptions(dispatcher, svc)
+	t.Cleanup(func() {
+		for _, cancel := range cancels {
+			if cancel != nil {
+				cancel()
+			}
+		}
+	})
+	patches := make(chan uidto.UIThreadPatch, 4)
+	cancelPatch := event.Subscribe(dispatcher, func(ev uidto.UIThreadPatch) { patches <- ev })
+	t.Cleanup(cancelPatch)
+
+	turnHeader := testTurnHeader(testAgentSessionHeader("agent-1", "agent-1"), "turn-1")
+	event.Publish(dispatcher, tooldto.ToolCallBegin{
+		ToolCallHeader: sharedto.ToolCallHeader{TurnHeader: turnHeader, CallID: "call-file-1", ToolName: "file"},
+	})
+	event.Publish(dispatcher, tooldto.ToolCallEnd{
+		ToolCallHeader: sharedto.ToolCallHeader{TurnHeader: turnHeader, CallID: "call-file-1", ToolName: "file"},
+		Success:        true,
+		Result:         `{"success":true,"path":"smoke.go"}`,
+		ElapsedMS:      12,
+	})
+
+	evidence := codexLSPToolPatchEvidence{}
+	assertEventually(t, time.Second, func() bool {
+		return evidence.receive(patches)
+	}, "codex synthetic LSP tool call should publish tool timeline and activity stats patch")
+}
+
 func TestActivityStats_MCPNamespacedNonLSPToolDoesNotIncrementLSPCalls(t *testing.T) {
 	t.Parallel()
 
@@ -158,6 +224,9 @@ func TestNormalizeToolName(t *testing.T) {
 		{"legacy bare name uppercase", "LSP_GREP", "grep"},
 		{"mcp lsp namespaced", "mcp__lsp__grep", "grep"},
 		{"legacy mcp lsp namespaced", "mcp__lsp__lsp_grep", "grep"},
+		{"format preview", "format_preview", "format_preview"},
+		{"legacy format preview", "lsp_format_preview", "format_preview"},
+		{"mcp format preview", "mcp__lsp__lsp_format_preview", "format_preview"},
 		{"mcp orch namespaced", "mcp__orch__orchestration_launch_agent", "orchestration_launch_agent"},
 		{"mcp playwright namespaced", "mcp__playwright__browser_click", "browser_click"},
 		{"mcp prefix without server", "mcp__", "mcp__"},
@@ -342,4 +411,57 @@ func setActivityStatsForThread(t *testing.T, svc *service, threadID string, comm
 		LSPCalls:  lspCalls,
 		ToolCalls: cloneInt64Map(toolCalls),
 	}
+}
+
+type codexLSPToolPatchEvidence struct {
+	sawStats    bool
+	sawTimeline bool
+}
+
+func (e *codexLSPToolPatchEvidence) receive(patches <-chan uidto.UIThreadPatch) bool {
+	for {
+		select {
+		case patch := <-patches:
+			if codexLSPStatsPatchMatches(patch) {
+				e.sawStats = true
+			}
+			if codexLSPTimelinePatchMatches(patch) {
+				e.sawTimeline = true
+			}
+		default:
+			return e.sawStats && e.sawTimeline
+		}
+	}
+}
+
+func codexLSPStatsPatchMatches(patch uidto.UIThreadPatch) bool {
+	if patch.ThreadID != "agent-1" || patch.ActivityStats == nil {
+		return false
+	}
+	return patch.ActivityStats.ToolCalls["file"] == 1 && patch.ActivityStats.LSPCalls == 1
+}
+
+func codexLSPTimelinePatchMatches(patch uidto.UIThreadPatch) bool {
+	if patch.ThreadID != "agent-1" {
+		return false
+	}
+	for _, item := range patch.TimelineItems {
+		if item.Kind == "tool" && item.Tool == "file" {
+			return true
+		}
+	}
+	return false
+}
+
+func assertEventually(t *testing.T, timeout time.Duration, condition func() bool, message string) {
+	t.Helper()
+
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		if condition() {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatal(message)
 }

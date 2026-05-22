@@ -599,6 +599,11 @@ func (l *execPeerLauncher) peerEnvForTest(name string, parent []string) ([]strin
 func peerProcessEnv(name string, parent []string, configuredRoots []string) ([]string, error) {
 	env := append([]string(nil), parent...)
 	env = append(env, peerModeEnv+"=1")
+	var err error
+	env, err = ensurePeerSessionToken(env)
+	if err != nil {
+		return nil, err
+	}
 	if strings.TrimSpace(name) != "mcp-lsp" {
 		return env, nil
 	}
@@ -618,6 +623,16 @@ func peerProcessEnv(name string, parent []string, configuredRoots []string) ([]s
 	}
 	env = append(env, "GO_AGENT_LSP_ROOT="+roots[0], "GO_AGENT_LSP_ROOTS="+string(raw))
 	return env, nil
+}
+
+func ensurePeerSessionToken(env []string) ([]string, error) {
+	if _, ok := lookupTrimmedEnvValue(env, "GO_AGENT_CTL_SESSION_TOKEN"); ok {
+		return env, nil
+	}
+	if token, ok := lookupTrimmedEnvValue(env, "GO_AGENT_MCP_SESSION_TOKEN"); ok {
+		return append(env, "GO_AGENT_CTL_SESSION_TOKEN="+token), nil
+	}
+	return nil, errors.New("peer process requires GO_AGENT_CTL_SESSION_TOKEN or GO_AGENT_MCP_SESSION_TOKEN")
 }
 
 func validateMcpLSPPeerWorkspaceRoot(root string) error {
@@ -681,6 +696,12 @@ func lookupEnvValue(env []string, key string) (string, bool) {
 		}
 	}
 	return "", false
+}
+
+func lookupTrimmedEnvValue(env []string, key string) (string, bool) {
+	value, ok := lookupEnvValue(env, key)
+	value = strings.TrimSpace(value)
+	return value, ok && value != ""
 }
 
 // resolvePeerBinDirs returns the ordered list of directories to probe for peer
