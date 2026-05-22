@@ -134,6 +134,9 @@ func runWorkspaceSymbols(
 	}
 	verbosity := format.NormalizeVerbosity(req.Verbosity)
 	limit := format.WorkspaceSymbolLimit(req.MaxResults, verbosity)
+	if err := bootstrapWorkspaceSymbolTarget(ctx, manager, req.FilePath); err != nil {
+		return nil, err
+	}
 	results, err := manager.WorkspaceSymbol(ctx, query, languageID)
 	if err != nil {
 		return nil, err
@@ -153,6 +156,17 @@ func runWorkspaceSymbols(
 			return format.NewCompactList(format.CompactWorkspaceSymbols(items), total)
 		},
 	), nil
+}
+
+func bootstrapWorkspaceSymbolTarget(ctx context.Context, manager lspmanager.Manager, filePath string) error {
+	if strings.TrimSpace(filePath) == "" {
+		return nil
+	}
+	resolved, err := resolveFilePath(ctx, filePath)
+	if err != nil {
+		return err
+	}
+	return manager.BootstrapDocument(ctx, resolved)
 }
 
 func runFoldingRanges(

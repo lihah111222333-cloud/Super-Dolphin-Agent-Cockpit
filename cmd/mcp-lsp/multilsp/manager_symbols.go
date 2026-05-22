@@ -176,15 +176,76 @@ func (m *manager) WorkspaceSymbol(ctx context.Context, query string, languageID 
 	if languageID == "" {
 		return nil, fmt.Errorf("workspace symbol language is required when no file path is provided")
 	}
-	client, err := m.ensureClientForLanguage(ctx, languageID)
+	client, err := m.workspaceSymbolClient(ctx, languageID)
 	if err != nil {
 		return nil, err
 	}
 	raw, err := m.request(ctx, client, protocol.MethodWorkspaceSymbol, protocol.WorkspaceSymbolParams{Query: query})
 	if err != nil {
-		return nil, err
+		return nil, unsupportedCapabilityError(err)
 	}
 	return decodeWorkspaceSymbols(raw)
+}
+
+func (m *manager) workspaceSymbolClient(ctx context.Context, languageID string) (Client, error) {
+	if resolved, ok := resolvedLSPToolScopeFromContext(ctx); ok {
+		cfg, err := m.workspaceSymbolConfigFromResolvedScope(resolved, languageID)
+		if err != nil {
+			return nil, err
+		}
+		client, err := m.ensureClient(ctx, cfg)
+		if err != nil {
+			return nil, err
+		}
+		if workspaceSymbolResolvedScopeNeedsBootstrap(resolved) {
+			if err := m.bootstrapLanguageClient(ctx, client, cfg.rootPath, cfg.languageID); err != nil {
+				return nil, err
+			}
+		}
+		return client, nil
+	}
+	return m.ensureClientForLanguage(ctx, languageID)
+}
+
+func workspaceSymbolResolvedScopeNeedsBootstrap(resolved ResolvedLSPToolScope) bool {
+	target := resolved.TargetPath
+	return target == "" ||
+		target == resolved.CWD ||
+		target == resolved.WorkspaceRoot ||
+		target == resolved.LanguageWorkspaceRoot ||
+		target == resolved.ProjectRoot
+}
+
+func (m *manager) workspaceSymbolConfigFromResolvedScope(resolved ResolvedLSPToolScope, languageID string) (workspaceConfig, error) {
+	resolvedLanguageID := normalizeLanguageID(resolved.LanguageID)
+	if resolvedLanguageID == "" {
+		return workspaceConfig{}, fmt.Errorf("resolved workspace symbol language is empty")
+	}
+	if languageID != resolvedLanguageID {
+		return workspaceConfig{}, fmt.Errorf("workspace symbol language %q does not match resolved scope language %q", languageID, resolvedLanguageID)
+	}
+	if !m.shouldUseClientForLanguage(resolvedLanguageID) {
+		return workspaceConfig{}, fmt.Errorf("language %q is not managed by the LSP manager", resolvedLanguageID)
+	}
+	adapter, err := m.adapterForLanguage(resolvedLanguageID)
+	if err != nil {
+		return workspaceConfig{}, err
+	}
+	cfg, err := workspaceConfigForLanguageScope(ResolvedLanguageScope{
+		LanguageID:            resolvedLanguageID,
+		WorkspaceRoot:         resolved.WorkspaceRoot,
+		LanguageWorkspaceRoot: resolved.LanguageWorkspaceRoot,
+		ProjectRoot:           resolved.ProjectRoot,
+		RootKind:              resolved.RootKind,
+		LanguageSpecific:      copyLanguageSpecific(resolved.LanguageSpecific),
+	}, adapter)
+	if err != nil {
+		return workspaceConfig{}, err
+	}
+	if resolved.WorkspaceKey != "" && cfg.key != resolved.WorkspaceKey {
+		return workspaceConfig{}, fmt.Errorf("resolved workspace symbol key mismatch for %s", resolvedLanguageID)
+	}
+	return cfg, nil
 }
 
 func (m *manager) FoldingRange(ctx context.Context, uri string) ([]protocol.FoldingRange, error) {
@@ -265,7 +326,10 @@ func (m *manager) CodeAction(ctx context.Context, uri string, rng protocol.Range
 			return protocol.CodeActionParams{
 				TextDocument: protocol.TextDocumentIdentifier{URI: ref.uri},
 				Range:        rng,
-				Context:      protocol.CodeActionContext{Only: only},
+				Context: protocol.CodeActionContext{
+					Diagnostics: []protocol.Diagnostic{},
+					Only:        only,
+				},
 			}
 		},
 		decodeCodeActions,
