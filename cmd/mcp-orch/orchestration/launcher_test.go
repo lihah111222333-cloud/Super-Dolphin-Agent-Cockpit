@@ -464,6 +464,7 @@ func TestService_SubmitTurnLocalMode(t *testing.T) {
 
 func TestService_LaunchAgent_InheritsParentCwdWhenChildOmits(t *testing.T) {
 	var started map[string]any
+	parentCWD := testCWD(t, "foo")
 	svc := NewService(silentLogger(), event.NewDispatcher(), remoteLocalLauncher(t, handler.Map{
 		"thread/start": handler.New(func(_ context.Context, req map[string]any) (map[string]any, error) {
 			started = req
@@ -471,7 +472,7 @@ func TestService_LaunchAgent_InheritsParentCwdWhenChildOmits(t *testing.T) {
 		}),
 	}), nil, nil, nil)
 	parent := svc.newAgentLocked("parent-1")
-	parent.cwd = "/repo/foo"
+	parent.cwd = parentCWD
 	svc.agents[parent.id] = parent
 	if err := svc.LaunchAgent(context.Background(), LaunchRequest{
 		AgentID:  "child-1",
@@ -480,13 +481,15 @@ func TestService_LaunchAgent_InheritsParentCwdWhenChildOmits(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("LaunchAgent() error = %v", err)
 	}
-	if got, _ := started["cwd"].(string); got != "/repo/foo" {
-		t.Fatalf("REGRESSION: thread/start cwd = %q, want %q (child must inherit parent's cwd when its own is empty)", got, "/repo/foo")
+	if got, _ := started["cwd"].(string); got != parentCWD {
+		t.Fatalf("REGRESSION: thread/start cwd = %q, want %q (child must inherit parent's cwd when its own is empty)", got, parentCWD)
 	}
 }
 
 func TestService_LaunchAgent_RespectsExplicitChildCwd(t *testing.T) {
 	var started map[string]any
+	parentCWD := testCWD(t, "foo")
+	childCWD := testCWD(t, "bar")
 	svc := NewService(silentLogger(), event.NewDispatcher(), remoteLocalLauncher(t, handler.Map{
 		"thread/start": handler.New(func(_ context.Context, req map[string]any) (map[string]any, error) {
 			started = req
@@ -494,23 +497,24 @@ func TestService_LaunchAgent_RespectsExplicitChildCwd(t *testing.T) {
 		}),
 	}), nil, nil, nil)
 	parent := svc.newAgentLocked("parent-1")
-	parent.cwd = "/repo/foo"
+	parent.cwd = parentCWD
 	svc.agents[parent.id] = parent
 	if err := svc.LaunchAgent(context.Background(), LaunchRequest{
 		AgentID:  "child-1",
 		ParentID: "parent-1",
-		Cwd:      "/repo/bar",
+		Cwd:      childCWD,
 		Command:  []string{"ignored"},
 	}); err != nil {
 		t.Fatalf("LaunchAgent() error = %v", err)
 	}
-	if got, _ := started["cwd"].(string); got != "/repo/bar" {
-		t.Fatalf("explicit child cwd overridden: thread/start cwd = %q, want %q", got, "/repo/bar")
+	if got, _ := started["cwd"].(string); got != childCWD {
+		t.Fatalf("explicit child cwd overridden: thread/start cwd = %q, want %q", got, childCWD)
 	}
 }
 
 func TestService_LaunchAgentSnapshot_InheritsParentCwdWhenChildOmits(t *testing.T) {
 	var started map[string]any
+	parentCWD := testCWD(t, "foo")
 	svc := NewService(silentLogger(), event.NewDispatcher(), remoteLocalLauncher(t, handler.Map{
 		"thread/start": handler.New(func(_ context.Context, req map[string]any) (map[string]any, error) {
 			started = req
@@ -518,7 +522,7 @@ func TestService_LaunchAgentSnapshot_InheritsParentCwdWhenChildOmits(t *testing.
 		}),
 	}), nil, nil, nil)
 	parent := svc.newAgentLocked("parent-1")
-	parent.cwd = "/repo/foo"
+	parent.cwd = parentCWD
 	svc.agents[parent.id] = parent
 	if _, err := svc.LaunchAgentSnapshot(context.Background(), LaunchRequest{
 		AgentID:  "child-1",
@@ -527,8 +531,8 @@ func TestService_LaunchAgentSnapshot_InheritsParentCwdWhenChildOmits(t *testing.
 	}); err != nil {
 		t.Fatalf("LaunchAgentSnapshot() error = %v", err)
 	}
-	if got, _ := started["cwd"].(string); got != "/repo/foo" {
-		t.Fatalf("REGRESSION: LaunchAgentSnapshot thread/start cwd = %q, want %q", got, "/repo/foo")
+	if got, _ := started["cwd"].(string); got != parentCWD {
+		t.Fatalf("REGRESSION: LaunchAgentSnapshot thread/start cwd = %q, want %q", got, parentCWD)
 	}
 }
 

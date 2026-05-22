@@ -246,20 +246,36 @@ func TestHandleScopedToolsCallSetsIsErrorForToolEnvelope(t *testing.T) {
 }
 
 func TestLSPOnToolsCallInjectsScopeContext(t *testing.T) {
+	trustedRoot := t.TempDir()
 	called := false
 	defs := []toolDefinition{{
 		Manifest: ToolManifest{Name: "file"},
 		Handler: func(ctx context.Context, args json.RawMessage) (any, error) {
 			called = true
 			scope := requireToolScope(t, ctx)
-			assertTrustedToolScopeContext(t, ctx, scope)
+			assertTrustedToolScopeContext(t, ctx, scope, trustedRoot)
 			assertToolScopeHasNoSessionID(t)
 			payload := decodeScopedToolCallPayload(t, args)
 			assertForgedToolArgumentsPreserved(t, scope, payload)
 			return map[string]any{"ok": true}, nil
 		},
 	}}
-	params := json.RawMessage(`{"name":"file","arguments":{"agent_id":"forged-agent","thread_id":"forged-thread","cwd":"/forged/root","session_id":"forged-session"},"_agentId":"trusted-agent","_threadId":"trusted-thread","_callId":"trusted-call","_cwd":"/trusted/lsp","sessionId":"top-level-forged-session","session_id":"top-level-forged-session"}`)
+	params, err := json.Marshal(map[string]any{
+		"name": "file",
+		"arguments": map[string]any{
+			"agent_id":   "forged-agent",
+			"thread_id":  "forged-thread",
+			"cwd":        "/forged/root",
+			"session_id": "forged-session",
+		},
+		"_agentId":   "trusted-agent",
+		"_threadId":  "trusted-thread",
+		"_callId":    "trusted-call",
+		"_cwd":       trustedRoot,
+		"sessionId":  "top-level-forged-session",
+		"session_id": "top-level-forged-session",
+	})
+	require.NoError(t, err)
 
 	result, err := handleScopedToolsCall(context.Background(), registryToolProvider{defs: defs}, "lsp", params)
 	require.NoError(t, err)
@@ -309,13 +325,13 @@ func requireToolScope(t *testing.T, ctx context.Context) common.ToolScope {
 	return scope
 }
 
-func assertTrustedToolScopeContext(t *testing.T, ctx context.Context, scope common.ToolScope) {
+func assertTrustedToolScopeContext(t *testing.T, ctx context.Context, scope common.ToolScope, trustedRoot string) {
 	t.Helper()
 	require.Equal(t, "trusted-agent", scope.AgentID)
 	require.Equal(t, "trusted-thread", scope.ThreadID)
 	require.Equal(t, "trusted-call", scope.CallID)
-	require.Equal(t, "/trusted/lsp", scope.CWD)
-	require.Equal(t, "/trusted/lsp", common.WorkspaceRootFromContext(ctx, "/fallback"))
+	require.Equal(t, trustedRoot, scope.CWD)
+	require.Equal(t, trustedRoot, common.WorkspaceRootFromContext(ctx, "/fallback"))
 }
 
 func assertToolScopeHasNoSessionID(t *testing.T) {

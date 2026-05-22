@@ -2,6 +2,7 @@ package codexapp
 
 import (
 	"context"
+	"path/filepath"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -9,13 +10,17 @@ import (
 
 func TestServerPoolAcquireSameOwnerDifferentLSPConfigSpawnsDistinctServers(t *testing.T) {
 	t.Parallel()
+	parent := t.TempDir()
+	rootA := filepath.Join(parent, "repo-a")
+	rootB := filepath.Join(parent, "repo-b")
+	binaryDir := filepath.Join(parent, "bin-a")
 	spawnCalls := atomic.Int32{}
 	p, _ := newPoolForTest(t, newCountingFakeSpawner(&spawnCalls), PoolConfig{})
 	defer p.Close(context.Background())
 
 	id := identityFor(t, "glm")
-	ctxA := withPoolSpawnLSPConfig(context.Background(), []string{"/repo/a"}, "/bin/a")
-	ctxB := withPoolSpawnLSPConfig(context.Background(), []string{"/repo/b"}, "/bin/b")
+	ctxA := withPoolSpawnLSPConfig(context.Background(), []string{rootA}, binaryDir)
+	ctxB := withPoolSpawnLSPConfig(context.Background(), []string{rootB}, filepath.Join(parent, "bin-b"))
 	srv1, rel1, err := p.Acquire(ctxA, id, "agent-1")
 	if err != nil {
 		t.Fatalf("first Acquire: %v", err)
@@ -36,9 +41,13 @@ func TestServerPoolAcquireSameOwnerDifferentLSPConfigSpawnsDistinctServers(t *te
 
 func TestPoolSpawnPolicySignatureIncludesLSPConfig(t *testing.T) {
 	t.Parallel()
-	ctx := withPoolSpawnLSPConfig(context.Background(), []string{"/repo/a", "/repo/b"}, "/bin/a")
+	parent := t.TempDir()
+	rootA := filepath.Join(parent, "repo-a")
+	rootB := filepath.Join(parent, "repo-b")
+	binaryDir := filepath.Join(parent, "bin-a")
+	ctx := withPoolSpawnLSPConfig(context.Background(), []string{rootA, rootB}, binaryDir)
 	got := poolSpawnPolicySignature(ctx)
-	for _, want := range []string{"/repo/a", "/repo/b", "/bin/a"} {
+	for _, want := range []string{rootA, rootB, binaryDir} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("policy signature %q missing %q", got, want)
 		}
@@ -47,9 +56,10 @@ func TestPoolSpawnPolicySignatureIncludesLSPConfig(t *testing.T) {
 
 func TestPoolSpawnLSPConfigResolvesRelativeRootsAgainstPrimaryRoot(t *testing.T) {
 	t.Parallel()
-	ctx := withPoolSpawnLSPConfig(context.Background(), []string{"/repo", "packages/api"}, "")
+	repo := filepath.Join(t.TempDir(), "repo")
+	ctx := withPoolSpawnLSPConfig(context.Background(), []string{repo, "packages/api"}, "")
 	got := poolSpawnWorkspaceRoots(ctx)
-	want := []string{"/repo", "/repo/packages/api"}
+	want := []string{repo, filepath.Join(repo, "packages", "api")}
 	if strings.Join(got, "\n") != strings.Join(want, "\n") {
 		t.Fatalf("pool spawn roots = %#v, want %#v", got, want)
 	}

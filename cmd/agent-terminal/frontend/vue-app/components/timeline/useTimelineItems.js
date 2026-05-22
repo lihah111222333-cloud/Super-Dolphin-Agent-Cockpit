@@ -1,7 +1,11 @@
 import { computed, ref } from '../../../lib/vue.esm-browser.prod.js';
 
 const VISIBLE_WINDOW = 100;
-const BLOCK_MD_RE = /(?:^|\n)\s{0,3}(?:[#>*\-]|\d+\.)\s|```|\n\s*\n/;
+const BLOCK_MD_RE = new RegExp([
+  '(^|\\n)\\s{0,3}([#>*\\-]|\\d+\\.)\\s',
+  '```',
+  '\\n\\s*\\n',
+].join('|'));
 
 function isDialogItem(item) {
   const kind = (item?.kind || '').toString().trim();

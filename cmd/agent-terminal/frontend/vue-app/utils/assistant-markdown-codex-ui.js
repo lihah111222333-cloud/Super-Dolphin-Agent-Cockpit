@@ -2,7 +2,7 @@
 
 const SKILL_LINK_RE = /^app:\/\/([^/?#]+)/i;
 const CONVERSATION_LINK_RE = /^agent:\/\/([^/?#]+)/i;
-const SKILL_FILE_RE = /(?:^|[/\\])SKILL\.md(?:[?#].*)?$/i;
+const SKILL_FILE_RE = new RegExp(String.raw`(^|[/\\])SKILL\.md([?#].*)?$`, 'i');
 
 function escapeHtml(value) {
   return (value || '')
@@ -141,7 +141,11 @@ export function renderCodeCommentDirectiveCard(payload) {
   const endLine = toPositiveInt(attrs.line_range_end) || startLine;
   const location = formatLineRange(startLine, endLine);
   const title = (attrs.title || 'Code comment').toString().trim() || 'Code comment';
-  const fileMeta = path ? `${basename(path)}${location ? ` · ${location}` : ''}` : '';
+  let fileMeta = '';
+  if (path) {
+    const locationSuffix = location ? ` line ${location}` : '';
+    fileMeta = `${basename(path)}${locationSuffix}`;
+  }
   const displayLabel = fileMeta ? `${title} · ${fileMeta}` : title;
   return renderInlineBadge({
     className: 'chat-md-code-comment',

@@ -289,6 +289,7 @@ func TestSessionRuntimeConfigSnapshotIncludesPromptInstructions(t *testing.T) {
 func TestDriverStartSessionUsesUserCodexHomeWhenConfigMissing(t *testing.T) {
 	userHome := t.TempDir()
 	t.Setenv("HOME", userHome)
+	t.Setenv("USERPROFILE", userHome)
 	wantHome := mustCanonicalCodexHome(t, userHome)
 	serverURL := startCodexRPCServer(t, func(method string) json.RawMessage {
 		return startSessionInjectResult(method, wantHome)
@@ -331,6 +332,7 @@ func TestDriverStartSessionCanonicalizesRuntimeCodexHome(t *testing.T) {
 	home := t.TempDir()
 	wantHome := mustCanonicalCodexHome(t, home)
 	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
 	config := map[string]any{
 		"codexHome":          "~/.codex",
 		"codexInstanceKey":   "default",

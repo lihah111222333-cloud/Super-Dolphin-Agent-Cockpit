@@ -2,6 +2,7 @@ package memory
 
 import (
 	"context"
+	"encoding/json"
 	"sync"
 	"testing"
 	"time"
@@ -68,10 +69,22 @@ func (s *stubThreadMetadataStore) ListAll(context.Context) ([]contract.ThreadMet
 func TestMemorySubscribersWireTeamSyncToThreadLifecycle(t *testing.T) {
 	dispatcher := event.NewDispatcher()
 	repoRoot := t.TempDir()
+	configOverride, err := json.Marshal(map[string]any{
+		"runtime": map[string]any{
+			"gitRoot": repoRoot,
+			"sessionFlags": map[string]bool{
+				"memory_kairos": true,
+			},
+			"isWorktree": true,
+		},
+	})
+	if err != nil {
+		t.Fatalf("marshal config override: %v", err)
+	}
 	store := &stubThreadMetadataStore{meta: &contract.ThreadMetadata{
 		ThreadID:       "thread-1",
 		Cwd:            repoRoot,
-		ConfigOverride: []byte(`{"runtime":{"gitRoot":"` + repoRoot + `","sessionFlags":{"memory_kairos":true},"isWorktree":true}}`),
+		ConfigOverride: configOverride,
 	}}
 	syncer := &recordingTeamSync{}
 	coordinator := newTeamSyncCoordinator(syncer, store, nil)

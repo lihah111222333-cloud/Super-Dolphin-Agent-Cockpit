@@ -22,8 +22,8 @@ import (
 
 func TestGoWorkMultiModuleDiagnostics(t *testing.T) {
 	t.Setenv("GOWORK", "")
-	ctx := common.WithToolScope(context.Background(), common.ToolScope{CWD: "/"})
 	repo := normalizedGoWorkE2ETempDir(t)
+	ctx := common.WithToolScope(context.Background(), common.ToolScope{CWD: repo, WorkspaceRoots: []string{repo}})
 	backend := filepath.Join(repo, "backend")
 	tools := filepath.Join(repo, "tools")
 	writeGoWorkE2EGoMod(t, backend, "example.com/backend")

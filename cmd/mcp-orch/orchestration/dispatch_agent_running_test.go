@@ -2,7 +2,6 @@ package orchestration
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"strings"
 	"testing"
@@ -27,7 +26,7 @@ func TestDispatchAgent_WritesRunningOnSuccess(t *testing.T) {
 			RunID:    routerTestRunID(7),
 			NodeType: "agent",
 			Title:    "n1",
-			Config:   json.RawMessage(`{"exec":{"agent_key":"alpha","cwd":"/tmp/node-cwd"},"first_turn":"hi"}`),
+			Config:   testRawConfig(t, `{"exec":{"agent_key":"alpha","cwd":"/tmp/node-cwd"},"first_turn":"hi"}`),
 			Status:   "ready",
 		}},
 	}
@@ -58,7 +57,7 @@ func TestDispatchAgent_WritesRunningOnSuccess(t *testing.T) {
 // TestDispatchAgent_RaceWindowD_NoRowsIsSilent covers ADR-017 v1.2 §2.6
 // Window D: subscriber already pushed done/failed before dispatchAgent
 // finishes its UpdateRunningNodeStatus call. pgx.ErrNoRows must be swallowed
-// silently — dispatchAgent still returns the executor outcome, the metric
+// silently �?dispatchAgent still returns the executor outcome, the metric
 // counter records SkippedAlreadyTerminal +1 (not WriteFailed).
 func TestDispatchAgent_RaceWindowD_NoRowsIsSilent(t *testing.T) {
 	before := DispatchAgentRunningCounters()
@@ -72,7 +71,7 @@ func TestDispatchAgent_RaceWindowD_NoRowsIsSilent(t *testing.T) {
 			RunID:    routerTestRunID(7),
 			NodeType: "agent",
 			Title:    "n1",
-			Config:   json.RawMessage(`{"exec":{"agent_key":"alpha","cwd":"/tmp/node-cwd"},"first_turn":"hi"}`),
+			Config:   testRawConfig(t, `{"exec":{"agent_key":"alpha","cwd":"/tmp/node-cwd"},"first_turn":"hi"}`),
 			Status:   "done", // subscriber already pushed terminal
 		}},
 		runningStatusErr: pgx.ErrNoRows,
@@ -115,7 +114,7 @@ func TestDispatchAgent_DBErrorIsPropagated(t *testing.T) {
 			RunID:    routerTestRunID(7),
 			NodeType: "agent",
 			Title:    "n1",
-			Config:   json.RawMessage(`{"exec":{"agent_key":"alpha","cwd":"/tmp/node-cwd"},"first_turn":"hi"}`),
+			Config:   testRawConfig(t, `{"exec":{"agent_key":"alpha","cwd":"/tmp/node-cwd"},"first_turn":"hi"}`),
 			Status:   "ready",
 		}},
 		runningStatusErr: errors.New("simulated DB connection drop"),
@@ -148,7 +147,7 @@ func TestDispatchAgent_RetryWithRecordedSpawnDoesNotLaunchDuplicateChild(t *test
 			RunID:            routerTestRunID(7),
 			NodeType:         "agent",
 			Title:            "n1",
-			Config:           json.RawMessage(`{"exec":{"agent_key":"alpha","cwd":"/tmp/node-cwd"},"first_turn":"hi"}`),
+			Config:           testRawConfig(t, `{"exec":{"agent_key":"alpha","cwd":"/tmp/node-cwd"},"first_turn":"hi"}`),
 			Status:           "ready",
 			SpawningThreadID: &spawningThreadID,
 		}},
@@ -174,7 +173,7 @@ func TestDispatchAgent_RetryWithRecordedSpawnDoesNotLaunchDuplicateChild(t *test
 
 // TestDispatchAgent_LaunchFailedDoesNotWriteRunning ensures that when the
 // executor itself surfaces a launch error (or NodeStatusFailed validation),
-// dispatchAgent does NOT attempt the ready→running write — letting dispatcher
+// dispatchAgent does NOT attempt the ready→running write �?letting dispatcher
 // pick up the failure cleanly (retry / mark failed).
 func TestDispatchAgent_LaunchFailedDoesNotWriteRunning(t *testing.T) {
 	launcher := &stubAgentLauncher{err: errors.New("launch refused: bad agent_key")}
@@ -186,7 +185,7 @@ func TestDispatchAgent_LaunchFailedDoesNotWriteRunning(t *testing.T) {
 			RunID:    routerTestRunID(7),
 			NodeType: "agent",
 			Title:    "n1",
-			Config:   json.RawMessage(`{"exec":{"agent_key":"bad","cwd":"/tmp/node-cwd"},"first_turn":"hi"}`),
+			Config:   testRawConfig(t, `{"exec":{"agent_key":"bad","cwd":"/tmp/node-cwd"},"first_turn":"hi"}`),
 			Status:   "ready",
 		}},
 	}
@@ -213,7 +212,7 @@ func TestDispatchAgent_SpawnWritebackFailureDoesNotWriteRunning(t *testing.T) {
 			RunID:    routerTestRunID(7),
 			NodeType: "agent",
 			Title:    "n1",
-			Config:   json.RawMessage(`{"exec":{"agent_key":"alpha","cwd":"/tmp/node-cwd"},"first_turn":"hi"}`),
+			Config:   testRawConfig(t, `{"exec":{"agent_key":"alpha","cwd":"/tmp/node-cwd"},"first_turn":"hi"}`),
 			Status:   "ready",
 		}},
 		runningStatusErr: errors.New("must not be reached"),

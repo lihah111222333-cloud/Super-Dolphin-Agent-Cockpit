@@ -41,8 +41,8 @@ func TestNestedResolveTurnAttachmentsLifecycle(t *testing.T) {
 	if got := first[0].Kind; got != dto.AttachmentKindNestedMemory {
 		t.Fatalf("attachment kind = %q, want %q", got, dto.AttachmentKindNestedMemory)
 	}
-	if got := first[0].Path; got != mustResolvedClaudePath(t, rulePath) {
-		t.Fatalf("attachment path = %q, want %q", got, mustResolvedClaudePath(t, rulePath))
+	if got, want := first[0].Path, filepath.ToSlash(mustResolvedClaudePath(t, rulePath)); got != want {
+		t.Fatalf("attachment path = %q, want %q", got, want)
 	}
 	if got := first[0].Content; got != "use Go style" {
 		t.Fatalf("attachment content = %q, want %q", got, "use Go style")
@@ -102,8 +102,9 @@ func TestNestedResolveTurnAttachmentsUsesSharedAttachmentLaneForMentionAndIDEPat
 			}
 			turn := contract.TurnInput{ThreadID: name, Attachments: []string{target}}
 			attachments := mustResolveNestedTurnAttachments(t, provider, buildCtx, turn, baseSources)
-			if len(attachments) != 1 || attachments[0].Path != mustResolvedClaudePath(t, rulePath) {
-				t.Fatalf("ResolveTurnAttachments(%s) = %#v, want rule %q", name, attachments, mustResolvedClaudePath(t, rulePath))
+			want := filepath.ToSlash(mustResolvedClaudePath(t, rulePath))
+			if len(attachments) != 1 || attachments[0].Path != want {
+				t.Fatalf("ResolveTurnAttachments(%s) = %#v, want rule %q", name, attachments, want)
 			}
 		})
 	}

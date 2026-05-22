@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"os"
+	"path/filepath"
 	"testing"
 )
 
@@ -12,13 +13,13 @@ func TestSessionReadHistoryFallsBackToResolvedThreadID(t *testing.T) {
 
 	// Setup: create a JSONL file named by claude session UUID, not agentID.
 	dir := t.TempDir()
-	projectsDir := dir + "/projects/test-project"
+	projectsDir := filepath.Join(dir, "projects", "test-project")
 	if err := os.MkdirAll(projectsDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
 	claudeUUID := "882e42ab-6ee2-4d32-86ce-a4fb11027ba6"
 	agentID := "agent_123_abc"
-	jsonlPath := projectsDir + "/" + claudeUUID + ".jsonl"
+	jsonlPath := filepath.Join(projectsDir, claudeUUID+".jsonl")
 	if err := os.WriteFile(jsonlPath, []byte(`{"type":"user","message":{"role":"user","content":[{"type":"text","text":"hello"}]}}`+"\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -90,12 +91,12 @@ func TestSessionRolloutPathReturnsClaudeHistoryFile(t *testing.T) {
 	t.Parallel()
 
 	dir := t.TempDir()
-	projectsDir := dir + "/projects/test-project"
+	projectsDir := filepath.Join(dir, "projects", "test-project")
 	if err := os.MkdirAll(projectsDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
 	claudeUUID := "882e42ab-6ee2-4d32-86ce-a4fb11027ba6"
-	jsonlPath := projectsDir + "/" + claudeUUID + ".jsonl"
+	jsonlPath := filepath.Join(projectsDir, claudeUUID+".jsonl")
 	if err := os.WriteFile(jsonlPath, []byte("{}\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}

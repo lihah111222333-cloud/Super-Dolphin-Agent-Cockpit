@@ -253,12 +253,13 @@ func TestExtractJSONRPCMethodsScript_ReportsWalkAndParseErrorsButKeepsValidOutpu
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("stdout lines = %v, want %v", got, want)
 	}
+	normalizedStderr := filepath.ToSlash(stderr)
 	for _, wantErr := range []string{
 		"extract_jsonrpc_methods: parse internal/module/thread/broken.go",
 		"extract_jsonrpc_methods: walk internal/module/turn",
 		"extract_jsonrpc_methods: walk internal/module/uistate",
 	} {
-		if !strings.Contains(stderr, wantErr) {
+		if !strings.Contains(normalizedStderr, wantErr) {
 			t.Fatalf("stderr = %q, want substring %q", stderr, wantErr)
 		}
 	}

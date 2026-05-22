@@ -35,6 +35,7 @@ func TestStartSessionReconcilesMirrorsBeforeLaunchWithUserClaudeHome(t *testing.
 	userHome := filepath.Join(t.TempDir(), "user-home")
 	t.Setenv(providershared.SuperDolphinHomeEnv, superHome)
 	t.Setenv("HOME", userHome)
+	t.Setenv("USERPROFILE", userHome)
 	workDir := t.TempDir()
 	events := []string{}
 	mirror := &recordingMirrorReconciler{
@@ -73,6 +74,7 @@ func TestStartSessionReconcilesProjectMirrorsFromGitRootBeforeLaunch(t *testing.
 	userHome := filepath.Join(t.TempDir(), "user-home")
 	t.Setenv(providershared.SuperDolphinHomeEnv, superHome)
 	t.Setenv("HOME", userHome)
+	t.Setenv("USERPROFILE", userHome)
 	repoRoot := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(repoRoot, ".git"), 0o755); err != nil {
 		t.Fatalf("MkdirAll .git: %v", err)
@@ -269,6 +271,7 @@ func TestStartSessionOmitsClaudeHomeFromRuntimeSnapshotByDefault(t *testing.T) {
 	userHome := filepath.Join(t.TempDir(), "user-home")
 	t.Setenv(providershared.SuperDolphinHomeEnv, superHome)
 	t.Setenv("HOME", userHome)
+	t.Setenv("USERPROFILE", userHome)
 	workDir := t.TempDir()
 	next := newBufferedTransport(t, "claude-session-runtime-home")
 	overrideLaunchCLI(t, func(_, _, _, _ string, cfg cliLaunchConfig, _ dto.MCPManifest, _ string) (*transport, func(), error) {
@@ -299,6 +302,7 @@ func TestStartSessionOmitsClaudeHomeFromRuntimeSnapshotByDefault(t *testing.T) {
 func TestStartSessionNormalizesExplicitClaudeHomeBeforeLaunchAndMirror(t *testing.T) {
 	userHome := t.TempDir()
 	t.Setenv("HOME", userHome)
+	t.Setenv("USERPROFILE", userHome)
 	explicitHome := filepath.Join(userHome, "explicit-claude")
 	if err := os.MkdirAll(explicitHome, 0o700); err != nil {
 		t.Fatalf("MkdirAll explicit home: %v", err)

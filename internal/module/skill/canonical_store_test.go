@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/anthropic-ai/super-agent-v3/internal/module/skill/ownerperms"
 )
 
 func TestCanonicalStoreListIncludesProjectAndActivePersonal(t *testing.T) {
@@ -377,9 +379,7 @@ func TestEffectiveSetRejectsOwnerPolicyWithBroadPermissions(t *testing.T) {
 		}},
 	})
 	policyPath := filepath.Join(superDolphinHome, "skills", personalSkillPolicyFile)
-	if err := os.Chmod(policyPath, 0o644); err != nil {
-		t.Fatalf("Chmod policy: %v", err)
-	}
+	makeOwnerOnlyFileBroadForTest(t, policyPath)
 
 	_, _, err = newCanonicalStoreForOwner(superDolphinHome, "1001", "profile-a").EffectiveSet(context.Background(), project)
 	if err == nil || !strings.Contains(err.Error(), "permissions") {
@@ -468,7 +468,11 @@ func projectKeepSelected(name, selectedSourceID string, excludedSourceIDs ...str
 
 func writePersonalSkillPolicy(t *testing.T, superDolphinHome string, policy personalSkillPolicy) {
 	t.Helper()
-	writeJSONFile(t, filepath.Join(superDolphinHome, "skills", personalSkillPolicyFile), policy, 0o600)
+	path := filepath.Join(superDolphinHome, "skills", personalSkillPolicyFile)
+	writeJSONFile(t, path, policy, 0o600)
+	if err := ownerperms.SecureOwnerOnlyFilePermissions(path); err != nil {
+		t.Fatalf("secure personal skill policy permissions: %v", err)
+	}
 }
 
 func writeJSONFile(t *testing.T, path string, value any, mode os.FileMode) {

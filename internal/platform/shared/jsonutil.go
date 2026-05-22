@@ -3,12 +3,11 @@ package shared
 import (
 	"bytes"
 	"encoding/json"
-	"fmt"
-	"path/filepath"
 	"strings"
 
 	mcp "github.com/anthropic-ai/super-agent-v3/internal/dto/mcp"
 	"github.com/anthropic-ai/super-agent-v3/internal/util/clone"
+	"github.com/anthropic-ai/super-agent-v3/internal/util/pathutil"
 )
 
 func DecodeInput(input json.RawMessage, dst any) error {
@@ -67,17 +66,5 @@ func CloneJSONMap(input map[string]any) map[string]any { return clone.JSONMap(in
 func CloneRuntimeConfigMap(cfg map[string]any) map[string]any { return clone.RuntimeConfigMap(cfg) }
 
 func NormalizeAbsolutePath(path string) (string, error) {
-	trimmed := strings.TrimSpace(path)
-	if trimmed == "" {
-		return "", nil
-	}
-	absPath, err := filepath.Abs(trimmed)
-	if err != nil {
-		return "", fmt.Errorf("resolve absolute path: %w", err)
-	}
-	cleaned := filepath.Clean(absPath)
-	if resolved, err := filepath.EvalSymlinks(cleaned); err == nil {
-		cleaned = filepath.Clean(resolved)
-	}
-	return cleaned, nil
+	return pathutil.NormalizeAbsolutePath(path)
 }

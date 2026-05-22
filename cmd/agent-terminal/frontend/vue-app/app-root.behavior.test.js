@@ -19,6 +19,8 @@ const stores = vi.hoisted(() => ({
     handleBridgeEvent: vi.fn(),
     startThread: vi.fn(async () => 'thread-new'),
     sendMessage: vi.fn(async () => {}),
+    saveActiveThread: vi.fn(async (id) => { stores.threadStore.state.activeThreadId = id || ''; }),
+    saveActiveCmdThread: vi.fn(async (id) => { stores.threadStore.state.activeCmdThreadId = id || ''; }),
   },
 }));
 const apiMock = vi.hoisted(() => {
@@ -72,6 +74,13 @@ vi.mock('./stores/threads.js', () => ({ useThreadStore: () => stores.threadStore
 vi.mock('./utils/thread-page-utils.js', () => ({
   requestHistoryLoad: historyMock.requestHistoryLoad,
   ensureThreadSelectionFresh: historyMock.ensureThreadSelectionFresh,
+  isStaleThreadSelectionError: (error) => {
+    const text = [error?.message || '', error?.cause?.message || '', typeof error === 'string' ? error : ''].join('\n').toLowerCase();
+    return text.includes('session not found')
+      || text.includes('session is not available')
+      || (text.includes('thread "') && text.includes('not found: store: not found'))
+      || (text.includes('resolve session: thread') && text.includes('context deadline exceeded'));
+  },
 }));
 vi.mock('./components/SidebarNav.js', () => ({ SidebarNav: { name: 'SidebarNav' } }));
 vi.mock('./components/ProjectModal.js', () => ({ ProjectModal: { name: 'ProjectModal' } }));
@@ -146,6 +155,8 @@ beforeEach(() => {
   stores.threadStore.handleBridgeEvent.mockReset();
   stores.threadStore.startThread.mockReset().mockResolvedValue('thread-new');
   stores.threadStore.sendMessage.mockReset().mockResolvedValue(undefined);
+  stores.threadStore.saveActiveThread.mockReset().mockImplementation(async (id) => { stores.threadStore.state.activeThreadId = id || ''; });
+  stores.threadStore.saveActiveCmdThread.mockReset().mockImplementation(async (id) => { stores.threadStore.state.activeCmdThreadId = id || ''; });
 
   apiMock.callAPI.mockReset().mockImplementation(async (method) => defaultAppAPI(method));
   apiMock.getBuildInfo.mockReset();
@@ -201,6 +212,31 @@ describe('AppRoot behavior', () => {
     expect(apiMock.bridgeOff).toHaveBeenCalled();
     expect(apiMock.quitOff).toHaveBeenCalled();
     expect(globalThis.clearInterval).toHaveBeenCalledWith(42);
+  });
+
+  it('clears stale bootstrap thread selection when the live session is gone', async () => {
+    const consoleWarn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    stores.threadStore.state.activeThreadId = 'agent-stale';
+    stores.threadStore.state.activeCmdThreadId = 'agent-stale';
+    apiMock.callAPI.mockImplementation(async (method) => {
+      if (method === 'config/read') return { cwd: '/window' };
+      return defaultAppAPI(method);
+    });
+    historyMock.ensureThreadSelectionFresh.mockRejectedValueOnce(new Error('session not found for agent "agent-stale"'));
+
+    const vm = AppRoot.setup();
+    hooks.mounted.forEach((fn) => fn());
+    await flush();
+
+    expect(vm.bootstrapError.value).toBe('');
+    expect(stores.threadStore.saveActiveThread).toHaveBeenCalledWith('');
+    expect(stores.threadStore.saveActiveCmdThread).toHaveBeenCalledWith('');
+    expect(stores.threadStore.state.activeThreadId).toBe('');
+    expect(stores.threadStore.state.activeCmdThreadId).toBe('');
+    expect(consoleWarn).toHaveBeenCalledWith(
+      'cleared stale thread selection after session loss',
+      expect.objectContaining({ thread_id: 'agent-stale', reason: 'bootstrap' }),
+    );
   });
 
   it('surfaces bootstrap failures in fatal state', async () => {

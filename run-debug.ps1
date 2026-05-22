@@ -168,6 +168,45 @@ function Test-HttpReady {
     }
 }
 
+function Test-CodexCli {
+    param([Parameter(Mandatory)][string]$Command)
+    try {
+        & $Command --version *> $null
+        return ($LASTEXITCODE -eq 0)
+    } catch {
+        return $false
+    }
+}
+
+function Add-CodexCliToPath {
+    # WindowsApps exposes a codex.exe that can be discovered by `where`,
+    # but this machine may deny direct execution. Prefer the usable local
+    # Codex bundle that the desktop app places under LOCALAPPDATA.
+    if (Test-CodexCli -Command 'codex') { return }
+
+    $candidateDirs = @()
+    if ($env:LOCALAPPDATA) {
+        $bundleRoot = Join-Path $env:LOCALAPPDATA 'OpenAI\Codex\bin'
+        if (Test-Path -LiteralPath $bundleRoot) {
+            $candidateDirs += Get-ChildItem -LiteralPath $bundleRoot -Directory -ErrorAction SilentlyContinue |
+                Where-Object { Test-Path -LiteralPath (Join-Path $_.FullName 'codex.exe') } |
+                Sort-Object LastWriteTime -Descending |
+                ForEach-Object { $_.FullName }
+        }
+    }
+
+    foreach ($dir in $candidateDirs) {
+        $exe = Join-Path $dir 'codex.exe'
+        if (Test-CodexCli -Command $exe) {
+            $env:Path = $dir + [IO.Path]::PathSeparator + $env:Path
+            Write-Host "  -> Codex CLI PATH 已修正: $dir"
+            return
+        }
+    }
+
+    Write-Host '  !! 未找到可执行的 Codex CLI；Codex provider 对话可能无法启动'
+}
+
 function Start-ViteDev {
     param([Parameter(Mandatory)][string]$FrontDir)
 
@@ -256,6 +295,8 @@ Write-Host '  [4] 直接启动已编译二进制 (debug + vite HMR)'
 Write-Host '  [5] 按 git tag 编译 debug'
 Write-Host ''
 $choice = Read-Host '选择 (1/2/3/4/5)'
+
+Add-CodexCliToPath
 
 $BuildDir  = $null
 $Mode      = $null
