@@ -339,6 +339,12 @@ func (a *runnerActor) recoverStalledAgents(ctx context.Context, stallDetector *S
 			stalledFor = detectedAt.Sub(agent.updatedAt)
 		}
 		a.service.publishTurnStalled(&agent, agent.threadID, agent.activeTurnID, recoverReasonStall, stalledFor, detectedAt)
+		if agent.cmd == nil && agent.remoteThreadID != "" {
+			if err := a.service.stopAgentViaLauncher(ctx, agent.id, recoverReasonStall); err != nil {
+				a.logger.Warn("orchestration: stalled launcher-owned agent stop failed", "agent_id", agent.id, "error", err)
+			}
+			continue
+		}
 		if err := a.service.recoverWithReason(ctx, agent.id, recoverReasonStall); err != nil {
 			a.logger.Warn("orchestration: stalled agent recovery failed", "agent_id", agent.id, "error", err)
 		}

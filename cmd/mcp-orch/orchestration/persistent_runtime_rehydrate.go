@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	agentdto "github.com/anthropic-ai/super-agent-v3/internal/dto/agent"
 	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
 	platformshared "github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
@@ -263,15 +264,13 @@ func persistedRuntimePort(thread *PersistedThread) int {
 
 func persistedRuntimeTime(binding *PersistedBinding, thread *PersistedThread) time.Time {
 	if thread != nil {
-		if t := persistedThreadTime(thread.UpdatedAt, thread.CreatedAt); !t.IsZero() {
+		if t := contract.NormalizeUnixTime(thread.UpdatedAt, thread.CreatedAt); !t.IsZero() {
 			return t
 		}
 	}
 	if binding != nil {
-		for _, value := range []int64{binding.UpdatedAt, binding.CreatedAt} {
-			if value > 0 {
-				return time.Unix(value, 0)
-			}
+		if t := contract.NormalizeUnixTime(binding.UpdatedAt, binding.CreatedAt); !t.IsZero() {
+			return t
 		}
 	}
 	return time.Now()

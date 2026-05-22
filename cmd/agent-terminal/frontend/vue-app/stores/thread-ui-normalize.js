@@ -25,11 +25,16 @@ export function normalizeCmdCardCols(value) {
 }
 
 export function normalizeThread(item) {
-  return {
+  const thread = {
     id: item?.id || '',
     name: item?.name || '',
     state: normalizeStatus(item?.state || 'idle'),
   };
+  const createdAt = item?.createdAt || item?.created_at || '';
+  const updatedAt = item?.updatedAt || item?.updated_at || '';
+  if (createdAt) thread.createdAt = createdAt;
+  if (updatedAt) thread.updatedAt = updatedAt;
+  return thread;
 }
 
 export function normalizeThreadTimestampMap(value) {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -197,6 +198,130 @@ func TestListAgentsHandlerFiltersCommaSeparatedState(t *testing.T) {
 	}
 }
 
+func TestListAgentsHandlerDefaultsToTrustedScopeCWD(t *testing.T) {
+	handler := HandleListAgents(&golden.OrchestrationStub{
+		ListAgentsFunc: func(context.Context) ([]contract.AgentSnapshot, error) {
+			return []contract.AgentSnapshot{
+				{ID: "other-agent", AgentID: "other-agent", State: "idle", Cwd: "/repo/other"},
+				{ID: "current-agent", AgentID: "current-agent", State: "idle", Cwd: "/repo/current"},
+			}, nil
+		},
+	})
+	ctx := mcpcommon.WithToolScope(context.Background(), mcpcommon.ToolScope{CWD: "/repo/current"})
+
+	result, err := handler(ctx, json.RawMessage(`{}`))
+	if err != nil {
+		t.Fatalf("HandleListAgents() error = %v", err)
+	}
+	got, ok := result.([]contract.AgentSnapshot)
+	if !ok {
+		t.Fatalf("HandleListAgents() result type = %T, want []contract.AgentSnapshot", result)
+	}
+	if len(got) != 1 || got[0].AgentID != "current-agent" {
+		t.Fatalf("HandleListAgents() = %#v, want only current cwd agent", got)
+	}
+}
+
+func TestListAgentsHandlerExcludesLegacyAgentsWithoutCWDWhenFiltering(t *testing.T) {
+	handler := HandleListAgents(&golden.OrchestrationStub{
+		ListAgentsFunc: func(context.Context) ([]contract.AgentSnapshot, error) {
+			return []contract.AgentSnapshot{
+				{ID: "other-agent", AgentID: "other-agent", State: "idle", Cwd: "/repo/other"},
+				{ID: "legacy-agent", AgentID: "legacy-agent", State: "idle"},
+				{ID: "current-agent", AgentID: "current-agent", State: "idle", Cwd: "/repo/current"},
+			}, nil
+		},
+	})
+	ctx := mcpcommon.WithToolScope(context.Background(), mcpcommon.ToolScope{CWD: "/repo/current"})
+
+	result, err := handler(ctx, json.RawMessage(`{}`))
+	if err != nil {
+		t.Fatalf("HandleListAgents() error = %v", err)
+	}
+	got, ok := result.([]contract.AgentSnapshot)
+	if !ok {
+		t.Fatalf("HandleListAgents() result type = %T, want []contract.AgentSnapshot", result)
+	}
+	gotIDs := []string{}
+	for _, agent := range got {
+		gotIDs = append(gotIDs, agent.AgentID)
+	}
+	if !reflect.DeepEqual(gotIDs, []string{"current-agent"}) {
+		t.Fatalf("HandleListAgents() agent IDs = %#v, want only current cwd agents", gotIDs)
+	}
+}
+
+func TestListAgentsHandlerCWDFilterStillDefaultsToActiveAgents(t *testing.T) {
+	handler := HandleListAgents(&golden.OrchestrationStub{
+		ListAgentsFunc: func(context.Context) ([]contract.AgentSnapshot, error) {
+			return []contract.AgentSnapshot{
+				{ID: "stopped-agent", AgentID: "stopped-agent", State: "stopped", Cwd: "/repo/current"},
+				{ID: "current-agent", AgentID: "current-agent", State: "idle", Cwd: "/repo/current"},
+			}, nil
+		},
+	})
+	ctx := mcpcommon.WithToolScope(context.Background(), mcpcommon.ToolScope{CWD: "/repo/current"})
+
+	result, err := handler(ctx, json.RawMessage(`{}`))
+	if err != nil {
+		t.Fatalf("HandleListAgents() error = %v", err)
+	}
+	got, ok := result.([]contract.AgentSnapshot)
+	if !ok {
+		t.Fatalf("HandleListAgents() result type = %T, want []contract.AgentSnapshot", result)
+	}
+	if len(got) != 1 || got[0].AgentID != "current-agent" {
+		t.Fatalf("HandleListAgents() = %#v, want only active current cwd agent", got)
+	}
+}
+
+func TestListAgentsHandlerFiltersExplicitCWDWithoutTrustedScope(t *testing.T) {
+	handler := HandleListAgents(&golden.OrchestrationStub{
+		ListAgentsFunc: func(context.Context) ([]contract.AgentSnapshot, error) {
+			return []contract.AgentSnapshot{
+				{ID: "other-agent", AgentID: "other-agent", State: "idle", Cwd: "/repo/other"},
+				{ID: "current-agent", AgentID: "current-agent", State: "idle", Cwd: "/repo/current"},
+			}, nil
+		},
+	})
+
+	result, err := handler(context.Background(), json.RawMessage(`{"cwd":"/repo/current"}`))
+	if err != nil {
+		t.Fatalf("HandleListAgents() error = %v", err)
+	}
+	got, ok := result.([]contract.AgentSnapshot)
+	if !ok {
+		t.Fatalf("HandleListAgents() result type = %T, want []contract.AgentSnapshot", result)
+	}
+	if len(got) != 1 || got[0].AgentID != "current-agent" {
+		t.Fatalf("HandleListAgents() = %#v, want explicit cwd agent", got)
+	}
+}
+
+func TestListAgentsHandlerTrustedScopeCWDOverridesArgumentCWD(t *testing.T) {
+	handler := HandleListAgents(&golden.OrchestrationStub{
+		ListAgentsFunc: func(context.Context) ([]contract.AgentSnapshot, error) {
+			return []contract.AgentSnapshot{
+				{ID: "evil-agent", AgentID: "evil-agent", State: "idle", Cwd: "/repo/evil"},
+				{ID: "trusted-agent", AgentID: "trusted-agent", State: "idle", Cwd: "/repo/trusted"},
+			}, nil
+		},
+	})
+	ctx := mcpcommon.WithToolScope(context.Background(), mcpcommon.ToolScope{CWD: "/repo/trusted"})
+
+	result, err := handler(ctx, json.RawMessage(`{"cwd":"/repo/evil"}`))
+	if err != nil {
+		t.Fatalf("HandleListAgents() error = %v", err)
+	}
+	got, ok := result.([]contract.AgentSnapshot)
+	if !ok {
+		t.Fatalf("HandleListAgents() result type = %T, want []contract.AgentSnapshot", result)
+	}
+	if len(got) != 1 || got[0].AgentID != "trusted-agent" {
+		t.Fatalf("HandleListAgents() = %#v, want trusted cwd agent", got)
+	}
+}
+
 func TestStopAgentHandlerArchivesWhenSupported(t *testing.T) {
 	svc := &archiveCapableOrchestrationStub{}
 	handler := HandleStopAgent(svc)
@@ -285,18 +410,18 @@ func TestLaunchHandlerAllowsMCPOrchExecutable(t *testing.T) {
 	}
 }
 
-func TestLaunchHandlerReassignsDuplicateAgentIDBeforeAsyncLaunch(t *testing.T) {
+func TestLaunchHandlerReturnsExistingDuplicateAgentID(t *testing.T) {
 	originalExecutable := osExecutable
 	osExecutable = func() (string, error) { return "/tmp/mcp-orch", nil }
 	defer func() { osExecutable = originalExecutable }()
 
-	done := make(chan contract.LaunchRequest, 1)
+	launchCalls := 0
 	handler := HandleLaunchAgent(&golden.OrchestrationStub{
 		ListAgentsFunc: func(context.Context) ([]contract.AgentSnapshot, error) {
-			return []contract.AgentSnapshot{{ID: "agent-dup", AgentID: "agent-dup"}}, nil
+			return []contract.AgentSnapshot{{ID: "agent-dup", AgentID: "agent-dup", ThreadID: "thread-dup", State: "turn_running"}}, nil
 		},
 		LaunchAgentFunc: func(_ context.Context, req contract.LaunchRequest) error {
-			done <- req
+			launchCalls++
 			return nil
 		},
 	})
@@ -318,16 +443,57 @@ func TestLaunchHandlerReassignsDuplicateAgentIDBeforeAsyncLaunch(t *testing.T) {
 		t.Fatalf("HandleLaunchAgent() result type = %T, want map[string]any", result)
 	}
 	returnedID, _ := resultMap["agent_id"].(string)
-	if returnedID == "" || returnedID == "agent-dup" || !strings.HasPrefix(returnedID, "agent_") {
-		t.Fatalf("returned agent_id = %q, want reassigned generated id", returnedID)
+	if returnedID != "agent-dup" || resultMap["status"] != "existing" || resultMap["thread_id"] != "thread-dup" {
+		t.Fatalf("result = %#v, want existing agent-dup", resultMap)
 	}
-	select {
-	case got := <-done:
-		if got.AgentID != returnedID {
-			t.Fatalf("async launch AgentID = %q, want returned id %q", got.AgentID, returnedID)
-		}
-	case <-time.After(5 * time.Second):
-		t.Fatal("async LaunchAgent was not called within 5s")
+	if launchCalls != 0 {
+		t.Fatalf("LaunchAgent calls = %d, want 0 for duplicate explicit agent_id", launchCalls)
+	}
+}
+
+func TestLaunchHandlerReturnsExistingIdleExplicitAgentID(t *testing.T) {
+	handler := HandleLaunchAgent(&golden.OrchestrationStub{
+		ListAgentsFunc: func(context.Context) ([]contract.AgentSnapshot, error) {
+			return []contract.AgentSnapshot{{ID: "agent-idle", AgentID: "agent-idle", ThreadID: "thread-idle", State: "idle"}}, nil
+		},
+		LaunchAgentSnapshotFunc: func(context.Context, contract.LaunchRequest) (contract.AgentSnapshot, error) {
+			t.Fatal("LaunchAgentSnapshot should not be called for existing idle explicit agent_id")
+			return contract.AgentSnapshot{}, nil
+		},
+	})
+	result, err := handler(context.Background(), json.RawMessage(`{"agent_id":"agent-idle","name":"worker","cwd":"/tmp/work","prompt":"retry"}`))
+	if err != nil {
+		t.Fatalf("HandleLaunchAgent() error = %v", err)
+	}
+	got, ok := result.(map[string]any)
+	if !ok {
+		t.Fatalf("HandleLaunchAgent() result type = %T, want map[string]any", result)
+	}
+	if got["agent_id"] != "agent-idle" || got["status"] != "existing" || got["thread_id"] != "thread-idle" {
+		t.Fatalf("HandleLaunchAgent() result = %#v, want existing idle agent", got)
+	}
+}
+
+func TestLaunchHandlerRetriesInactiveExplicitAgentIDWithoutReassigning(t *testing.T) {
+	handler := HandleLaunchAgent(&golden.OrchestrationStub{
+		ListAgentsFunc: func(context.Context) ([]contract.AgentSnapshot, error) {
+			return []contract.AgentSnapshot{{ID: "agent-retry", AgentID: "agent-retry", State: "failed"}}, nil
+		},
+		LaunchAgentSnapshotFunc: func(context.Context, contract.LaunchRequest) (contract.AgentSnapshot, error) {
+			return contract.AgentSnapshot{ID: "agent-retry", AgentID: "agent-retry", State: "turn_running"}, nil
+		},
+	})
+
+	result, err := handler(context.Background(), json.RawMessage(`{"agent_id":"agent-retry","name":"worker","cwd":"/tmp/work","prompt":"retry"}`))
+	if err != nil {
+		t.Fatalf("HandleLaunchAgent() error = %v", err)
+	}
+	got, ok := result.(map[string]any)
+	if !ok {
+		t.Fatalf("HandleLaunchAgent() result type = %T, want map[string]any", result)
+	}
+	if got["agent_id"] != "agent-retry" || got["status"] != "launching" {
+		t.Fatalf("HandleLaunchAgent() result = %#v, want retry with explicit agent id", got)
 	}
 }
 

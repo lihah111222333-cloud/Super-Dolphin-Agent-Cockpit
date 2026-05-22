@@ -4,11 +4,13 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	shareddto "github.com/anthropic-ai/super-agent-v3/internal/dto/shared"
+	mcpcommon "github.com/anthropic-ai/super-agent-v3/internal/mcpserver/common"
 	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
@@ -48,6 +50,7 @@ type AgentIDInput struct {
 
 type ListAgentsInput struct {
 	State           string `json:"state,omitempty"`
+	CWD             string `json:"cwd,omitempty"`
 	IncludeInactive bool   `json:"include_inactive,omitempty"`
 	IncludeReports  bool   `json:"include_reports,omitempty"`
 	Limit           int    `json:"limit,omitempty"`
@@ -88,8 +91,23 @@ func HandleLaunchAgent(svc contract.OrchestrationService) ToolHandler {
 			"cwd", strings.TrimSpace(in.CWD),
 			"has_effort", strings.TrimSpace(in.Effort) != "",
 		)
-		agentID, releaseAgentID := reserveLaunchAgentID(ctx, svc, req.AgentID)
+		snapshot, matched, err := matchingAgentID(ctx, svc, req.AgentID)
+		if err != nil {
+			return nil, err
+		}
+		if matched {
+			result := launchAgentAcceptedResult(snapshot, req.AgentID)
+			result["status"] = "existing"
+			return successResult(result), nil
+		}
+		agentID, releaseAgentID, reserved, err := reserveLaunchAgentID(ctx, svc, req.AgentID)
+		if err != nil {
+			return nil, err
+		}
 		req.AgentID = agentID
+		if !reserved {
+			return nil, fmt.Errorf("agent %q launch already in progress", req.AgentID)
+		}
 		if snapshotSvc, ok := svc.(launchAgentSnapshotter); ok {
 			defer releaseAgentID()
 			snapshot, err := snapshotSvc.LaunchAgentSnapshot(ctx, req)
@@ -119,6 +137,58 @@ func HandleLaunchAgent(svc contract.OrchestrationService) ToolHandler {
 	})
 }
 
+func matchingAgentID(ctx context.Context, svc contract.OrchestrationService, agentID string) (contract.AgentSnapshot, bool, error) {
+	agentID = strings.TrimSpace(agentID)
+	if agentID == "" {
+		return contract.AgentSnapshot{}, false, nil
+	}
+	agents, err := svc.ListAgents(ctx)
+	if err != nil {
+		return contract.AgentSnapshot{}, false, err
+	}
+	for _, agent := range agents {
+		if !(strings.TrimSpace(agent.ID) == agentID || strings.TrimSpace(agent.AgentID) == agentID || strings.TrimSpace(agent.LaunchID) == agentID) {
+			continue
+		}
+		if stoppingAgentState(agent.State) {
+			return contract.AgentSnapshot{}, false, fmt.Errorf("agent %q is stopping", agentID)
+		}
+		if archivedAgentState(agent.State) {
+			return contract.AgentSnapshot{}, false, fmt.Errorf("agent %q is archived; restore it before relaunching with the same agent_id", agentID)
+		}
+		if activeAgentState(agent.State) {
+			return agent, true, nil
+		}
+	}
+	return contract.AgentSnapshot{}, false, nil
+}
+
+func activeAgentState(state string) bool {
+	switch strings.TrimSpace(state) {
+	case "provisioning", "idle", "turn_queued", "turn_starting", "turn_running", "awaiting_user_input", "recovering":
+		return true
+	default:
+		return false
+	}
+}
+
+func stoppingAgentState(state string) bool {
+	return strings.TrimSpace(state) == "stopping"
+}
+
+func archivedAgentState(state string) bool {
+	switch strings.TrimSpace(state) {
+	case "stopped", "archived":
+		return true
+	default:
+		return false
+	}
+}
+
+func blocksLaunchAgentIDState(state string) bool {
+	return activeAgentState(state) || stoppingAgentState(state) || archivedAgentState(state)
+}
+
 func launchAgentAcceptedResult(snapshot contract.AgentSnapshot, reservedID string) map[string]any {
 	agentID := shared.FirstTrimmed(snapshot.AgentID, snapshot.ID, reservedID)
 	result := map[string]any{"agent_id": agentID, "status": "launching"}
@@ -131,46 +201,67 @@ func launchAgentAcceptedResult(snapshot contract.AgentSnapshot, reservedID strin
 	return result
 }
 
-func reserveLaunchAgentID(ctx context.Context, svc contract.OrchestrationService, requested string) (string, func()) {
-	existing := existingLaunchAgentIDs(ctx, svc)
+func reserveLaunchAgentID(ctx context.Context, svc contract.OrchestrationService, requested string) (string, func(), bool, error) {
+	existing, activeExisting, err := existingLaunchAgentIDs(ctx, svc)
+	if err != nil {
+		return "", nil, false, err
+	}
 	launchAgentIDMu.Lock()
 	defer launchAgentIDMu.Unlock()
 	if launchAgentIDReservations == nil {
 		launchAgentIDReservations = make(map[string]struct{})
 	}
 	candidate := strings.TrimSpace(requested)
-	if candidate == "" {
-		candidate = shared.NewAgentID()
+	if candidate != "" {
+		if _, ok := launchAgentIDReservations[candidate]; ok {
+			return candidate, func() {}, false, nil
+		}
+		if _, ok := activeExisting[candidate]; ok {
+			return candidate, func() {}, false, nil
+		}
+		launchAgentIDReservations[candidate] = struct{}{}
+		return candidate, releaseLaunchAgentID(candidate), true, nil
 	}
+	candidate = shared.NewAgentID()
 	for i := 0; i < 64; i++ {
 		if !launchAgentIDInUseLocked(candidate, existing) {
 			launchAgentIDReservations[candidate] = struct{}{}
-			return candidate, releaseLaunchAgentID(candidate)
+			return candidate, releaseLaunchAgentID(candidate), true, nil
 		}
 		candidate = shared.NewAgentID()
 	}
 	launchAgentIDReservations[candidate] = struct{}{}
-	return candidate, releaseLaunchAgentID(candidate)
+	return candidate, releaseLaunchAgentID(candidate), true, nil
 }
 
-func existingLaunchAgentIDs(ctx context.Context, svc contract.OrchestrationService) map[string]struct{} {
+func existingLaunchAgentIDs(ctx context.Context, svc contract.OrchestrationService) (map[string]struct{}, map[string]struct{}, error) {
 	existing := make(map[string]struct{})
+	activeExisting := make(map[string]struct{})
 	if svc == nil {
-		return existing
+		return existing, activeExisting, nil
 	}
 	agents, err := svc.ListAgents(ctx)
 	if err != nil {
-		return existing
+		return nil, nil, err
 	}
 	for _, agent := range agents {
 		if id := strings.TrimSpace(agent.ID); id != "" {
 			existing[id] = struct{}{}
+			if blocksLaunchAgentIDState(agent.State) {
+				activeExisting[id] = struct{}{}
+			}
 		}
 		if id := strings.TrimSpace(agent.AgentID); id != "" {
 			existing[id] = struct{}{}
+			if blocksLaunchAgentIDState(agent.State) {
+				activeExisting[id] = struct{}{}
+			}
+		}
+		if id := strings.TrimSpace(agent.LaunchID); id != "" && blocksLaunchAgentIDState(agent.State) {
+			activeExisting[id] = struct{}{}
 		}
 	}
-	return existing
+	return existing, activeExisting, nil
 }
 
 func launchAgentIDInUseLocked(agentID string, existing map[string]struct{}) bool {
@@ -246,22 +337,28 @@ func HandleStopAgent(svc contract.OrchestrationService) ToolHandler {
 
 func HandleListAgents(svc contract.OrchestrationService) ToolHandler {
 	return makeHandler(svc, "orchestration service", func(ctx context.Context, in ListAgentsInput) (any, error) {
+		cwdFilter, err := listAgentsCWDFilter(ctx, in.CWD)
+		if err != nil {
+			return nil, err
+		}
 		agents, err := svc.ListAgents(ctx)
 		if err != nil {
 			pkglogger.Warn("orchestration_list_agents: list failed",
 				"state", strings.TrimSpace(in.State),
+				"cwd", cwdFilter,
 				"include_inactive", in.IncludeInactive,
 				"include_reports", in.IncludeReports,
 				"limit", in.Limit,
 				"error", err)
 			return nil, err
 		}
-		filtered := filterListAgentSnapshots(agents, in)
+		filtered := filterListAgentSnapshots(agents, in, cwdFilter)
 		if len(filtered) != len(agents) || !in.IncludeReports {
 			pkglogger.Warn("orchestration_list_agents: compacted response",
 				"total", len(agents),
 				"returned", len(filtered),
 				"state", strings.TrimSpace(in.State),
+				"cwd", cwdFilter,
 				"include_inactive", in.IncludeInactive,
 				"include_reports", in.IncludeReports,
 				"limit", in.Limit)
@@ -283,7 +380,7 @@ func HandleGetAgentReport(svc contract.OrchestrationService) ToolHandler {
 func orchestrationToolDefinitions(svc contract.OrchestrationService) []ToolDefinition {
 	return buildToolDefinitions(
 		defineTool("launch_agent", "Launch a managed orchestration agent.", ObjectSchema(map[string]Schema{
-			"agent_id":     StringSchema("Optional persisted orchestration agent ID. When omitted, the launcher generates an agent_... ID; never use name as the truth source."),
+			"agent_id":     StringSchema("Stable persisted orchestration agent ID for this subtask. Reuse the same agent_id when polling or retrying the same subtask; omit only when intentionally launching a separate parallel agent. An active duplicate agent_id returns the existing agent instead of launching another."),
 			"name":         StringSchema("User-facing agent name. Prefer a short friendly name tied to the task; avoid paths, IDs, and generic labels like worker-agent."),
 			"prompt":       StringSchema("Optional initial prompt to submit as the launched agent's first turn."),
 			"parent_id":    StringSchema("Optional parent agent ID for child-agent launches."),
@@ -307,6 +404,7 @@ func orchestrationToolDefinitions(svc contract.OrchestrationService) []ToolDefin
 		}, "agent_id"), HandleStopAgent(svc)),
 		defineTool("list_agents", "List orchestration agents and current runtime snapshots. Defaults to active agents only and omits report bodies; use get_agent_report for full reports.", ObjectSchema(map[string]Schema{
 			"state":            StringSchema("Optional state filter, e.g. idle, turn_running, stopped. Comma-separated values are accepted."),
+			"cwd":              StringSchema("Optional absolute cwd filter. When trusted tool-call scope includes _cwd, list_agents defaults to that trusted _cwd and uses it instead of this argument."),
 			"include_inactive": BooleanSchema("Include stopped/failed historical agents. Defaults to false."),
 			"include_reports":  BooleanSchema("Include last_report bodies in list output. Defaults to false; prefer get_agent_report."),
 			"limit":            IntegerSchema("Maximum number of agents to return after filtering. 0 means no explicit limit."),
@@ -407,7 +505,7 @@ func launchEnv(provider, model, effort string) []string {
 	return env
 }
 
-func filterListAgentSnapshots(agents []contract.AgentSnapshot, in ListAgentsInput) []contract.AgentSnapshot {
+func filterListAgentSnapshots(agents []contract.AgentSnapshot, in ListAgentsInput, cwdFilter string) []contract.AgentSnapshot {
 	states := parseAgentStateFilter(in.State)
 	limit := in.Limit
 	if limit < 0 {
@@ -415,12 +513,7 @@ func filterListAgentSnapshots(agents []contract.AgentSnapshot, in ListAgentsInpu
 	}
 	filtered := make([]contract.AgentSnapshot, 0, len(agents))
 	for _, agent := range agents {
-		state := strings.ToLower(strings.TrimSpace(agent.State))
-		if len(states) > 0 {
-			if _, ok := states[state]; !ok {
-				continue
-			}
-		} else if !in.IncludeInactive && inactiveAgentListState(state) {
+		if !includeAgentSnapshotInList(agent, states, in.IncludeInactive, cwdFilter) {
 			continue
 		}
 		if !in.IncludeReports {
@@ -432,6 +525,44 @@ func filterListAgentSnapshots(agents []contract.AgentSnapshot, in ListAgentsInpu
 		}
 	}
 	return filtered
+}
+
+func includeAgentSnapshotInList(agent contract.AgentSnapshot, states map[string]struct{}, includeInactive bool, cwdFilter string) bool {
+	agentCWD := normalizeListAgentCWD(agent.Cwd)
+	if cwdFilter != "" && agentCWD != cwdFilter {
+		return false
+	}
+	state := strings.ToLower(strings.TrimSpace(agent.State))
+	if len(states) > 0 {
+		_, ok := states[state]
+		return ok
+	}
+	return includeInactive || !inactiveAgentListState(state)
+}
+
+func listAgentsCWDFilter(ctx context.Context, inputCWD string) (string, error) {
+	if scope, ok := mcpcommon.ToolScopeFromContext(ctx); ok && scope.CWD != "" {
+		return normalizeListAgentCWD(scope.CWD), nil
+	}
+	cwd := strings.TrimSpace(inputCWD)
+	if cwd == "" {
+		return "", nil
+	}
+	if cwd != inputCWD {
+		return "", fmt.Errorf("list_agents cwd must not contain surrounding whitespace")
+	}
+	if !filepath.IsAbs(cwd) {
+		return "", fmt.Errorf("list_agents cwd must be an absolute path")
+	}
+	return filepath.Clean(cwd), nil
+}
+
+func normalizeListAgentCWD(cwd string) string {
+	cwd = strings.TrimSpace(cwd)
+	if cwd == "" || !filepath.IsAbs(cwd) {
+		return cwd
+	}
+	return filepath.Clean(cwd)
 }
 
 func parseAgentStateFilter(raw string) map[string]struct{} {

@@ -2,13 +2,14 @@ package uistate
 
 import (
 	"encoding/json"
-	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	"strings"
 	"time"
 
+	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	sharedto "github.com/anthropic-ai/super-agent-v3/internal/dto/shared"
 	uidto "github.com/anthropic-ai/super-agent-v3/internal/dto/ui"
 	"github.com/anthropic-ai/super-agent-v3/internal/module/uistate/timeline"
+	"github.com/anthropic-ai/super-agent-v3/internal/util/clone"
 	"github.com/kelindar/event"
 )
 
@@ -133,9 +134,11 @@ func (s *service) threadPatchLocked(threadID, source string) uidto.UIThreadPatch
 		summary = s.effectiveThreadSummaryLocked(summary, time.Now())
 		status, header, details := threadPatchPresentation(summary)
 		patch.Thread = &uidto.ThreadPatchThread{
-			ID:    summary.ID,
-			Name:  summary.Name,
-			State: status,
+			ID:        summary.ID,
+			Name:      summary.Name,
+			State:     status,
+			CreatedAt: clone.Time(summary.CreatedAt),
+			UpdatedAt: clone.Time(summary.UpdatedAt),
 		}
 		patch.Status = status
 		patch.StatusHeader = header
@@ -145,10 +148,31 @@ func (s *service) threadPatchLocked(threadID, source string) uidto.UIThreadPatch
 		patch.OverlayPriority = summary.OverlayPriority
 		patch.Interruptible = patchInterruptible(status)
 	}
+	if runtimeEntry, ok := s.threadAgentRuntimeLocked(id); ok {
+		patch.AgentRuntime = runtimeEntry
+	}
 	s.applyThreadTimelineLocked(&patch, id)
 	s.applyThreadActivityStatsLocked(&patch, id)
 	s.applyThreadDiffLocked(&patch, id, source)
 	return patch
+}
+
+func (s *service) threadAgentRuntimeLocked(threadID string) (map[string]any, bool) {
+	threadID = strings.TrimSpace(threadID)
+	if threadID == "" {
+		return nil, false
+	}
+	for _, agent := range s.state.Agents {
+		if strings.TrimSpace(agent.ThreadID) != threadID {
+			continue
+		}
+		agentID := strings.TrimSpace(agent.ID)
+		if agentID == "" {
+			return nil, false
+		}
+		return buildAgentRuntimeEntry(&agent, agentID, threadID), true
+	}
+	return nil, false
 }
 
 func (s *service) nextPatchSequenceLocked(threadID string) int64 {

@@ -3,12 +3,26 @@ import { deriveChatAgents, deriveCmdAgents } from './thread-view.model.js';
 import { parseEpochMillis, parseThreadCreatedAtFromID } from './thread-time-utils.js';
 
 export function createThreadViewHelpers(state) {
-  function resolveThreadCreatedAt(threadId) {
-    const id = (threadId || '').toString().trim();
+  function resolveThreadCreatedAt(thread) {
+    const id = (thread?.id || thread || '').toString().trim();
     if (!id) return 0;
+    if (thread && typeof thread === 'object') {
+      for (const key of ['createdAt', 'created_at', 'startedAt', 'started_at']) {
+        const ts = parseEpochMillis(thread[key]);
+        if (ts > 0) return ts;
+      }
+      for (const key of ['updatedAt', 'updated_at']) {
+        const ts = parseEpochMillis(thread[key]);
+        if (ts > 0) return ts;
+      }
+    }
     const meta = state.agentMetaById?.[id];
     if (meta && typeof meta === 'object') {
       for (const key of ['createdAt', 'created_at', 'startedAt', 'started_at']) {
+        const ts = parseEpochMillis(meta[key]);
+        if (ts > 0) return ts;
+      }
+      for (const key of ['updatedAt', 'updated_at']) {
         const ts = parseEpochMillis(meta[key]);
         if (ts > 0) return ts;
       }
@@ -32,7 +46,7 @@ export function createThreadViewHelpers(state) {
     for (let i = 0; i < list.length; i += 1) {
       const id = (list[i]?.id || '').toString().trim();
       indexByID.set(id, i);
-      createdAtByID.set(id, resolveThreadCreatedAt(id));
+      createdAtByID.set(id, resolveThreadCreatedAt(list[i]));
     }
     list.sort((left, right) => {
       const leftID = (left?.id || '').toString().trim();

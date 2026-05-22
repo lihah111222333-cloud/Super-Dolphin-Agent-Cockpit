@@ -34,9 +34,8 @@ func (s *service) launchAgentViaLauncher(ctx context.Context, req LaunchRequest)
 	if err != nil {
 		return err
 	}
-	return s.submitInitialLaunchPrompt(ctx, launched.agentID, launched.result, req)
+	return s.submitInitialLaunchPromptOrStop(ctx, launched.agentID, launched.result, req)
 }
-
 func (s *service) LaunchAgentSnapshot(ctx context.Context, req LaunchRequest) (AgentSnapshot, error) {
 	req, err := s.applyLaunchRequestDefaults(ctx, req)
 	if err != nil {
@@ -46,14 +45,11 @@ func (s *service) LaunchAgentSnapshot(ctx context.Context, req LaunchRequest) (A
 	if err != nil {
 		return AgentSnapshot{}, err
 	}
-	snapshot, err := s.Snapshot(ctx, launched.agentID)
-	if err != nil {
+	if err := s.submitInitialLaunchPromptOrStop(ctx, launched.agentID, launched.result, req); err != nil {
 		return AgentSnapshot{}, err
 	}
-	s.submitInitialLaunchPromptAsync(launched.agentID, launched.result, req)
-	return snapshot, nil
+	return s.Snapshot(ctx, launched.agentID)
 }
-
 func (s *service) applyLaunchRequestDefaults(ctx context.Context, req LaunchRequest) (LaunchRequest, error) {
 	trimmedCWD := strings.TrimSpace(req.Cwd)
 	if req.Cwd != "" || trimmedCWD != "" || strings.TrimSpace(req.ParentID) == "" {
@@ -69,7 +65,6 @@ func (s *service) applyLaunchRequestDefaults(ctx context.Context, req LaunchRequ
 	req.Cwd = strings.TrimSpace(snapshot.Cwd)
 	return req, nil
 }
-
 func (s *service) launchAgentUntilStarted(ctx context.Context, req LaunchRequest) (launchedAgent, error) {
 	attempt, handled, err := s.prepareLauncherLaunch(ctx, req)
 	if handled || err != nil {
@@ -77,7 +72,6 @@ func (s *service) launchAgentUntilStarted(ctx context.Context, req LaunchRequest
 	}
 	return s.launchWithRetry(ctx, attempt, req)
 }
-
 func (s *service) launchWithRetry(ctx context.Context, attempt launcherLaunchAttempt, req LaunchRequest) (launchedAgent, error) {
 	var lastErr error
 	for i := 0; i < maxLaunchRetries; i++ {
@@ -94,84 +88,63 @@ func (s *service) launchWithRetry(ctx context.Context, attempt launcherLaunchAtt
 			return launchedAgent{agentID: shared.FirstTrimmed(result.RemoteAgentID, attempt.agentID), result: result}, nil
 		}
 		lastErr = launchErr
-		// Phase 1.8b: permanent 直接跳出避免烧配额；transient/unknown 继续退避
-		// 重试（unknown 视作 transient 是保守选择，避免误杀新型瞬态错误）。
 		if classifyLaunchError(launchErr) == launchClassPermanent {
 			break
 		}
 	}
 	return launchedAgent{}, s.finishLauncherLaunch(ctx, attempt, LaunchResult{}, lastErr)
 }
-
 func (s *service) submitInitialLaunchPrompt(ctx context.Context, agentID string, result LaunchResult, req LaunchRequest) error {
 	prompt := strings.TrimSpace(req.Prompt)
 	if prompt == "" {
-		pkglogger.Warn("orchestration: launch prompt auto-submit skipped",
-			"agent_id", agentID, "reason", "empty_prompt")
+		pkglogger.Warn("orchestration: launch prompt auto-submit skipped", "agent_id", agentID, "reason", "empty_prompt")
 		return nil
 	}
 	threadID := strings.TrimSpace(result.ThreadID)
 	submission := TurnSubmission{
 		AgentID:  agentID,
 		ThreadID: threadID,
-		Inputs: []shareddto.InputItem{{
-			Type:    "text",
-			Content: prompt,
-		}},
+		Inputs:   []shareddto.InputItem{{Type: "text", Content: prompt}},
 	}
-	pkglogger.Warn("orchestration: launch prompt auto-submit begin",
-		"agent_id", agentID,
-		"thread_id", threadID,
-		"prompt_len", len([]rune(prompt)))
+	pkglogger.Warn("orchestration: launch prompt auto-submit begin", "agent_id", agentID, "thread_id", threadID, "prompt_len", len([]rune(prompt)))
 	if err := s.submitTurnViaLauncher(ctx, submission); err != nil {
-		pkglogger.Warn("orchestration: launch prompt auto-submit failed",
-			"agent_id", agentID,
-			"thread_id", threadID,
-			"error", err)
+		pkglogger.Warn("orchestration: launch prompt auto-submit failed", "agent_id", agentID, "thread_id", threadID, "error", err)
 		return err
 	}
-	pkglogger.Warn("orchestration: launch prompt auto-submit accepted",
-		"agent_id", agentID,
-		"thread_id", threadID)
+	pkglogger.Warn("orchestration: launch prompt auto-submit accepted", "agent_id", agentID, "thread_id", threadID)
 	return nil
 }
-
-func (s *service) submitInitialLaunchPromptAsync(agentID string, result LaunchResult, req LaunchRequest) {
-	if strings.TrimSpace(req.Prompt) == "" {
-		return
-	}
-	s.asyncWg.Add(1)
-	// Bounded lifetime: s.asyncCtx is canceled on service drain (DrainAsync);
-	// additionally capped by AsyncLaunchTimeout. Tracked via s.asyncWg.
-	go func() {
-		defer s.asyncWg.Done()
-		bgCtx, cancel := platformconfig.WithTimeout(s.asyncCtx, platformconfig.AsyncLaunchTimeout)
+func (s *service) submitInitialLaunchPromptOrStop(ctx context.Context, agentID string, result LaunchResult, req LaunchRequest) error {
+	if err := s.submitInitialLaunchPrompt(ctx, agentID, result, req); err != nil {
+		cleanupCtx, cancel := platformconfig.WithTimeout(context.Background(), platformconfig.AsyncLaunchTimeout)
 		defer cancel()
-		if err := s.submitInitialLaunchPrompt(bgCtx, agentID, result, req); err != nil {
-			pkglogger.Warn("orchestration: async launch prompt failed",
-				"agent_id", agentID, "error", err)
+		if stopErr := s.stopAgentViaLauncher(cleanupCtx, agentID, "initial_prompt_failed"); stopErr != nil {
+			return errors.Join(err, fmt.Errorf("stop launched agent after initial prompt failure: %w", stopErr))
 		}
-	}()
+		return err
+	}
+	return nil
 }
-
 func (s *service) prepareLauncherLaunch(ctx context.Context, req LaunchRequest) (launcherLaunchAttempt, bool, error) {
 	if err := validateLaunchRequestForLauncher(req, s.launcher); err != nil {
-		pkglogger.Warn("orchestration: launch rejected: validation failed",
-			"agent_id", req.AgentID, "name", req.Name, "error", err)
+		pkglogger.Warn("orchestration: launch rejected: validation failed", "agent_id", req.AgentID, "name", req.Name, "error", err)
 		return launcherLaunchAttempt{}, true, err
 	}
 	s.mu.Lock()
-	agent := s.agentForLaunchLocked(req)
-	if launchInProgress(ctx, s, agent) {
-		pkglogger.Warn("orchestration: launch rejected: already in progress",
-			"agent_id", agent.id, "state", agent.state,
-			"launch_seq", agent.launchSeq, "last_exited_seq", agent.lastExitedSeq)
+	if existing, err := lookupAgentByIdentityLocked(s.agents, req.AgentID, agentIdentityLocalOnly); err == nil && launchInProgress(ctx, s, existing) {
+		pkglogger.Warn("orchestration: launch rejected: already in progress", "agent_id", existing.id, "state", existing.state, "launch_seq", existing.launchSeq, "last_exited_seq", existing.lastExitedSeq)
 		s.mu.Unlock()
-		return launcherLaunchAttempt{}, true, fmt.Errorf("agent %q already launched", agent.id)
+		return launcherLaunchAttempt{}, true, fmt.Errorf("agent %q already launched", existing.id)
 	}
+	for _, existing := range s.agents {
+		if strings.TrimSpace(existing.requestedAgentID) == req.AgentID && launchInProgress(ctx, s, existing) {
+			s.mu.Unlock()
+			return launcherLaunchAttempt{}, true, fmt.Errorf("agent %q already launched", existing.id)
+		}
+	}
+	agent := s.agentForLaunchLocked(req)
 	if err := s.prepareLaunchLocked(ctx, agent); err != nil {
-		pkglogger.Warn("orchestration: launch rejected: prepare failed",
-			"agent_id", agent.id, "state", agent.state, "error", err)
+		pkglogger.Warn("orchestration: launch rejected: prepare failed", "agent_id", agent.id, "state", agent.state, "error", err)
 		s.mu.Unlock()
 		return launcherLaunchAttempt{}, true, err
 	}
@@ -189,15 +162,16 @@ func (s *service) prepareLauncherLaunch(ctx context.Context, req LaunchRequest) 
 	s.mu.Unlock()
 	return attempt, false, nil
 }
-
 func launchInProgress(ctx context.Context, s *service, agent *agentRuntime) bool {
+	if agent == nil || agent.state == agentdto.StateFailed || agent.state == agentdto.StateStopped {
+		return false
+	}
 	if s.agentRunningLocked(ctx, agent) {
 		return true
 	}
 	return agent.launchSeq > agent.lastExitedSeq &&
 		(agent.state == agentdto.StateProvisioning || agent.state == agentdto.StateRecovering)
 }
-
 func (s *service) finishLauncherLaunch(ctx context.Context, attempt launcherLaunchAttempt, result LaunchResult, launchErr error) error {
 	s.mu.Lock()
 	agent, err := lookupAgentBySeqLocked(s.agents, attempt.agentID, attempt.expectedSeq)
@@ -216,7 +190,6 @@ func (s *service) finishLauncherLaunch(ctx context.Context, attempt launcherLaun
 	}
 	return s.completeLauncherLaunchLocked(ctx, agent, &attempt.launching, result)
 }
-
 func (s *service) discardStaleLaunchResult(ctx context.Context, launching *agentRuntime, launchErr error) error {
 	if launchErr == nil {
 		if stopErr := s.launcher.Stop(ctx, launching); stopErr != nil {
@@ -226,7 +199,6 @@ func (s *service) discardStaleLaunchResult(ctx context.Context, launching *agent
 	}
 	return launchErr
 }
-
 func (s *service) failLauncherLaunchLocked(ctx context.Context, agent, launching *agentRuntime, launchErr error) error {
 	var lastErr string
 	if launching != nil {
@@ -243,7 +215,6 @@ func (s *service) failLauncherLaunchLocked(ctx context.Context, agent, launching
 	}
 	return err
 }
-
 func (s *service) completeLauncherLaunchLocked(ctx context.Context, agent, launching *agentRuntime, result LaunchResult) error {
 	adoptLaunchStateLocked(agent, launching)
 	bindLaunchResult(agent, result)
@@ -270,7 +241,6 @@ func (s *service) completeLauncherLaunchLocked(ctx context.Context, agent, launc
 	s.mu.Unlock()
 	return nil
 }
-
 func (s *service) rekeyLaunchedAgentLocked(agent *agentRuntime) error {
 	if agent == nil {
 		return nil
@@ -287,7 +257,6 @@ func (s *service) rekeyLaunchedAgentLocked(agent *agentRuntime) error {
 	s.agents[finalID] = agent
 	return nil
 }
-
 func (s *service) stopAgentViaLauncher(ctx context.Context, agentID, reason string) error {
 	agentID = strings.TrimSpace(agentID)
 	if agentID == "" {
@@ -341,7 +310,6 @@ func (s *service) archiveAgentViaLauncher(ctx context.Context, agentID, reason s
 	s.exitMonitor.Emit(agentID, launchSeq, nil)
 	return true, nil
 }
-
 func (s *service) hasLocalRuntimeAgent(agentID string) bool {
 	agentID = strings.TrimSpace(agentID)
 	if agentID == "" {
@@ -354,7 +322,6 @@ func (s *service) hasLocalRuntimeAgent(agentID string) bool {
 	})
 	return hasLocal
 }
-
 func (s *service) shouldStopViaLauncher(ctx context.Context, agentID string) bool {
 	shouldStop := false
 	if err := s.withAgentReadLocked(agentID, func(agent *agentRuntime) error {
@@ -369,7 +336,6 @@ func (s *service) shouldStopViaLauncher(ctx context.Context, agentID string) boo
 	}
 	return shouldStop
 }
-
 func (s *service) prepareLauncherStop(ctx context.Context, agentID, reason string) (*agentRuntime, uint64, error) {
 	var (
 		agentRef  *agentRuntime
@@ -395,7 +361,6 @@ func (s *service) prepareLauncherStop(ctx context.Context, agentID, reason strin
 	}
 	return agentRef, launchSeq, nil
 }
-
 func (s *service) submitTurnViaLauncher(ctx context.Context, req TurnSubmission) error {
 	agentID, err := submissionAgentID(req)
 	if err != nil {
@@ -411,7 +376,6 @@ func (s *service) submitTurnViaLauncher(ctx context.Context, req TurnSubmission)
 	}
 	return s.enqueueLocalTurnSubmission(ctx, agentID, req)
 }
-
 func submissionAgentID(req TurnSubmission) (string, error) {
 	agentID := strings.TrimSpace(req.AgentID)
 	if agentID == "" {
@@ -440,7 +404,6 @@ func (s *service) trySubmitRemoteTurn(ctx context.Context, agentID string, req T
 	s.finishRemoteTurnSubmitSuccess(ctx, attempt, remoteTurnID)
 	return true, nil
 }
-
 func (s *service) prepareRemoteTurnSubmit(ctx context.Context, agentID string, req TurnSubmission) (remoteTurnSubmitAttempt, bool, error) {
 	attempt := remoteTurnSubmitAttempt{}
 	handled := true
@@ -474,7 +437,6 @@ func (s *service) prepareRemoteTurnSubmit(ctx context.Context, agentID string, r
 	})
 	return attempt, handled, err
 }
-
 func (s *service) finishRemoteTurnSubmitSuccess(ctx context.Context, attempt remoteTurnSubmitAttempt, remoteTurnID string) {
 	_ = s.withAgentLocked(attempt.agentID, func(agent *agentRuntime) error {
 		if agent.activeTurnID != attempt.turnID {
@@ -490,19 +452,15 @@ func (s *service) finishRemoteTurnSubmitSuccess(ctx context.Context, attempt rem
 		return nil
 	})
 }
-
 func (s *service) finishRemoteTurnSubmitFailure(ctx context.Context, attempt remoteTurnSubmitAttempt, submitErr error) {
 	s.finishTurnStartFailure(ctx, turnWork{agentID: attempt.agentID, turnID: attempt.turnID}, submitErr)
 }
-
 func (s *service) canSubmitViaLauncher(ctx context.Context, agent *agentRuntime) bool {
 	return s.launcher != nil && agent.cmd == nil && s.launcher.IsRunning(ctx, agent)
 }
-
 func remoteAgentBusy(agent *agentRuntime) bool {
 	return agent.state != agentdto.StateIdle || agent.activeTurnID != ""
 }
-
 func (s *service) enqueueLocalTurnSubmission(ctx context.Context, agentID string, req TurnSubmission) error {
 	waitForSession, err := s.submitAgentReadyState(ctx, agentID)
 	if err != nil {
@@ -536,7 +494,6 @@ func (s *service) enqueueLocalTurnSubmission(ctx context.Context, agentID string
 		return nil
 	})
 }
-
 func (s *service) agentRunningLocked(ctx context.Context, agent *agentRuntime) bool {
 	if agent == nil {
 		return false
@@ -546,7 +503,6 @@ func (s *service) agentRunningLocked(ctx context.Context, agent *agentRuntime) b
 	}
 	return agent.cmd != nil
 }
-
 func adoptLaunchStateLocked(dst, src *agentRuntime) {
 	if dst == nil || src == nil {
 		return
@@ -561,7 +517,6 @@ func adoptLaunchStateLocked(dst, src *agentRuntime) {
 	dst.exitedAt = shared.CloneTime(src.exitedAt)
 	dst.lastError = src.lastError
 }
-
 func bindLaunchResult(agent *agentRuntime, result LaunchResult) {
 	if agent == nil {
 		return

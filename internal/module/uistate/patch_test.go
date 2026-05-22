@@ -39,6 +39,40 @@ func TestApplyTokensUpdatedPublishesThreadPatch(t *testing.T) {
 	assertTokensThreadPatch(t, mustReceiveThreadPatch(t, got))
 }
 
+func TestThreadPatchIncludesRuntimeAndSortTimestamps(t *testing.T) {
+	t.Parallel()
+
+	svc, _ := newPatchTestService(t)
+	createdAt := time.Unix(1710000000, 123000000).UTC()
+	updatedAt := time.Unix(1710000060, 0).UTC()
+	svc.state.Threads = []ThreadSummary{{ID: "thread-relaunch", Name: "Relaunched", State: "running", CreatedAt: &createdAt, UpdatedAt: &updatedAt}}
+	svc.state.Agents = []AgentSummary{{
+		ID:               "agent-relaunch",
+		ThreadID:         "thread-relaunch",
+		State:            "running",
+		AgentState:       "running",
+		Provider:         "codex",
+		ProviderThreadID: "provider-thread",
+		CWD:              "/repo/current",
+		CreatedAt:        &createdAt,
+		UpdatedAt:        &updatedAt,
+	}}
+
+	svc.mu.Lock()
+	patch := svc.threadPatchLocked("thread-relaunch", "agent/launched")
+	svc.mu.Unlock()
+
+	if patch.Thread == nil || patch.Thread.CreatedAt == nil || !patch.Thread.CreatedAt.Equal(createdAt) {
+		t.Fatalf("patch.Thread.CreatedAt = %#v, want %s", patch.Thread, createdAt)
+	}
+	if got, _ := patch.AgentRuntime["cwd"].(string); got != "/repo/current" {
+		t.Fatalf("patch.AgentRuntime[cwd] = %q, want /repo/current; runtime=%#v", got, patch.AgentRuntime)
+	}
+	if got, _ := patch.AgentRuntime["providerThreadId"].(string); got != "provider-thread" {
+		t.Fatalf("patch.AgentRuntime[providerThreadId] = %q, want provider-thread", got)
+	}
+}
+
 func newPatchTestService(t *testing.T) (*service, *event.Dispatcher) {
 	t.Helper()
 	dispatcher := event.NewDispatcher()
