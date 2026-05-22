@@ -145,7 +145,7 @@ func (s *service) populateDashboardTaskTraces(ctx context.Context, out *Dashboar
 }
 
 func (s *service) populateDashboardDAGs(ctx context.Context, out *DashboardPage) error {
-	if s.orchestration == nil {
+	if s.effectiveDAGRuntime() == nil {
 		return nil
 	}
 	items, err := s.ListDAGs(ctx, contract.ListDAGsFilter{Limit: dashboardPageDefaultLimit})
@@ -307,7 +307,7 @@ func (s *service) listDashboardMemory(ctx context.Context) ([]sharedfilestore.Sh
 }
 
 func (s *service) listDashboardFinalOutputRefs(ctx context.Context) ([]FinalOutputRef, error) {
-	if s.orchestration == nil {
+	if s.effectiveDAGRuntime() == nil {
 		return []FinalOutputRef{}, nil
 	}
 	dags, err := s.ListDAGs(ctx, contract.ListDAGsFilter{Limit: dashboardFinalOutputDAGLimit})

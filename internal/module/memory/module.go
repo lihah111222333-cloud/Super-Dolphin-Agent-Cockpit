@@ -42,6 +42,7 @@ type memoryHandlerDeps struct {
 
 	Service             Service                       `optional:"true"`
 	Orchestration       contract.OrchestrationService `optional:"true"`
+	DAGRuntime          contract.DAGRuntime           `optional:"true"`
 	SharedFiles         sharedfilestore.Reader        `optional:"true"`
 	SharedFilesDeleter  sharedfilestore.Deleter       `optional:"true"`
 	SharedFilesUpserter sharedfilestore.Upserter      `optional:"true"`

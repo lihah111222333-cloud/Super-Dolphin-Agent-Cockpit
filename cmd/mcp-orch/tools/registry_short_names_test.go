@@ -21,6 +21,20 @@ func TestRegistryAdvertisesShortOrchestrationNames(t *testing.T) {
 	}
 }
 
+func TestRegistryAdvertisesDAGConsoleReadTools(t *testing.T) {
+	registry := NewRegistry(Dependencies{})
+	got := make(map[string]bool)
+	for _, tool := range registry.List() {
+		got[tool.Name] = true
+	}
+
+	for _, want := range []string{"task_list_dags", "task_get_dag", "task_list_runs", "task_start_dag"} {
+		if !got[want] {
+			t.Fatalf("registry.List() missing DAG console tool %q; got %#v", want, got)
+		}
+	}
+}
+
 func TestRegistryLookupAcceptsLegacyOrchestrationAliases(t *testing.T) {
 	registry := NewRegistry(Dependencies{})
 
