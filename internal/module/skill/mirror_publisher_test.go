@@ -225,6 +225,7 @@ func TestSkillMirrorPublisherFailsClosedOnSymlinksAndPathEscape(t *testing.T) {
 		t.Fatalf("MkdirAll legacy parent: %v", err)
 	}
 	if err := os.Symlink(filepath.Join(project, ".multi-agent", "skills-cache"), legacyRoot); err != nil {
+		skipIfSymlinkPrivilegeNotHeld(t, err)
 		t.Fatalf("Symlink legacy root: %v", err)
 	}
 	_, err = PublishSkillMirrors(context.Background(), records, []SkillMirrorTarget{
@@ -239,6 +240,7 @@ func TestSkillMirrorPublisherFailsClosedOnSymlinksAndPathEscape(t *testing.T) {
 		t.Fatalf("MkdirAll bad root: %v", err)
 	}
 	if err := os.Symlink(t.TempDir(), filepath.Join(badRoot, "build")); err != nil {
+		skipIfSymlinkPrivilegeNotHeld(t, err)
 		t.Fatalf("Symlink final mirror dir: %v", err)
 	}
 	_, err = PublishSkillMirrors(context.Background(), records, []SkillMirrorTarget{
@@ -267,6 +269,7 @@ func TestSkillMirrorPublisherRejectsParentSymlinkRoot(t *testing.T) {
 	}
 	root := filepath.Join(project, ".agents-parent-symlink", "skills")
 	if err := os.Symlink(t.TempDir(), filepath.Dir(root)); err != nil {
+		skipIfSymlinkPrivilegeNotHeld(t, err)
 		t.Fatalf("Symlink parent mirror dir: %v", err)
 	}
 
@@ -283,6 +286,7 @@ func TestSkillMirrorPublisherRejectsCanonicalSymlinkEntries(t *testing.T) {
 	dir := filepath.Join(project, ".agent", "skills", "build")
 	writeSkillWithSupportFiles(t, dir, "build")
 	if err := os.Symlink(filepath.Join(t.TempDir(), "secret"), filepath.Join(dir, "references", "escape.md")); err != nil {
+		skipIfSymlinkPrivilegeNotHeld(t, err)
 		t.Fatalf("Symlink canonical entry: %v", err)
 	}
 	records, err := newCanonicalStore("").scan(project)
@@ -453,6 +457,7 @@ func TestReconcileProviderMirrorsRecognizesProjectTargetThroughSymlinkCWD(t *tes
 	}
 	aliasProject := filepath.Join(t.TempDir(), "alias-project")
 	if err := os.Symlink(realProject, aliasProject); err != nil {
+		skipIfSymlinkPrivilegeNotHeld(t, err)
 		t.Fatalf("Symlink project: %v", err)
 	}
 	writeSkillWithSupportFiles(t, filepath.Join(realProject, ".agent", "skills", "build"), "build")

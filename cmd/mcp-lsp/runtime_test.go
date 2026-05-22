@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
@@ -92,7 +93,7 @@ func TestRuntimeRootUsesWorkspaceRootsEnvWhenPrimaryRootMissing(t *testing.T) {
 	primary := t.TempDir()
 	extra := t.TempDir()
 	t.Setenv("GO_AGENT_LSP_ROOT", "")
-	t.Setenv("GO_AGENT_LSP_ROOTS", `["`+primary+`","`+extra+`"]`)
+	setRuntimeWorkspaceRootsEnv(t, primary, extra)
 
 	got, err := runtimeRoot()
 	if err != nil {
@@ -136,7 +137,7 @@ func TestRuntimeRootRejectsMissingWorkspaceRootEnv(t *testing.T) {
 func TestRuntimeWorkspaceRootsResolveRelativeRootsAgainstPrimaryRoot(t *testing.T) {
 	unsetEnvForTest(t, "GO_AGENT_LSP_ROOT")
 	primary := t.TempDir()
-	t.Setenv("GO_AGENT_LSP_ROOTS", `["`+primary+`","packages/api"]`)
+	setRuntimeWorkspaceRootsEnv(t, primary, "packages/api")
 
 	got, err := runtimeWorkspaceRoots()
 	if err != nil {
@@ -166,12 +167,21 @@ func TestRuntimeWorkspaceRootsRejectRelativePrimaryRoot(t *testing.T) {
 func TestRuntimeWorkspaceRootsRejectEmptyPrimaryWithAbsoluteAdditionalRoot(t *testing.T) {
 	unsetEnvForTest(t, "GO_AGENT_LSP_ROOT")
 	extra := t.TempDir()
-	t.Setenv("GO_AGENT_LSP_ROOTS", `["","`+extra+`"]`)
+	setRuntimeWorkspaceRootsEnv(t, "", extra)
 
 	_, err := runtimeWorkspaceRoots()
 	if err == nil {
 		t.Fatal("runtimeWorkspaceRoots() error = nil, want missing primary root failure")
 	}
+}
+
+func setRuntimeWorkspaceRootsEnv(t *testing.T, roots ...string) {
+	t.Helper()
+	raw, err := json.Marshal(roots)
+	if err != nil {
+		t.Fatalf("marshal GO_AGENT_LSP_ROOTS: %v", err)
+	}
+	t.Setenv("GO_AGENT_LSP_ROOTS", string(raw))
 }
 
 func TestRuntimeServerBinaryPrefersInstalledBinaryOverride(t *testing.T) {

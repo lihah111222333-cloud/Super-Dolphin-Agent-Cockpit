@@ -116,6 +116,7 @@ outside content`)
 		t.Fatalf("MkdirAll(%q) error = %v", filepath.Dir(linkPath), err)
 	}
 	if err := os.Symlink(outsideFile, linkPath); err != nil {
+		skipIfSymlinkPrivilegeNotHeld(t, err)
 		t.Fatalf("Symlink(%q, %q) error = %v", outsideFile, linkPath, err)
 	}
 
@@ -160,6 +161,7 @@ outside content`)
 			t.Fatalf("Remove(%q) error = %v", path, err)
 		}
 		if err := os.Symlink(outsideFile, path); err != nil {
+			skipIfSymlinkPrivilegeNotHeld(t, err)
 			t.Fatalf("Symlink(%q, %q) error = %v", outsideFile, path, err)
 		}
 	}
@@ -211,6 +213,7 @@ outside content`)
 			t.Fatalf("Remove(%q) error = %v", path, err)
 		}
 		if err := os.Symlink(outsideFile, path); err != nil {
+			skipIfSymlinkPrivilegeNotHeld(t, err)
 			t.Fatalf("Symlink(%q, %q) error = %v", outsideFile, path, err)
 		}
 	}

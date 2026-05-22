@@ -2,6 +2,7 @@ import { watch } from '../../lib/vue.esm-browser.prod.js';
 import { logInfo, logWarn } from '../services/log.js';
 import {
   ensureThreadSelectionFresh,
+  isStaleThreadSelectionError,
 } from '../utils/thread-page-utils.js';
 
 /**
@@ -78,6 +79,15 @@ export function useThreadSelection(opts) {
           thread_id: nextId,
           error,
         });
+        if (isStaleThreadSelectionError(error) && (selectedThreadId.value || '').toString().trim() === nextId) {
+          selectedThreadId.value = '';
+          logWarn('ui', 'chat.selection.stale_cleared', {
+            previous_thread_id: previousId,
+            thread_id: nextId,
+            error: error?.message || String(error),
+          });
+          return;
+        }
       }
       scheduleScrollToBottom(true);
       logInfo('ui', 'chat.selection.watch.done', {

@@ -13,12 +13,12 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 )
 
-// makeGetRunService 构造测试用 service：仅注入 runStore（GetRun 只用 runStore）。
+// makeGetRunService 构造测试用 service：仅注入 runStore（GetRun 只用 runStore）�?
 // makeGetRunService builds the service under test for GetRun, wiring only the
 // runStore (GetRun does not touch dagStore).
 func makeGetRunService(runStore taskdag.RunStore) *service {
-	// dagStore 也注入是为了让 service.dagStore != nil 通过初期防御检查，
-	// 与 makeStartDAGService 保持一致。
+	// dagStore 也注入是为了�?service.dagStore != nil 通过初期防御检查，
+	// �?makeStartDAGService 保持一致�?
 	// dagStore is also wired so that service.dagStore != nil passes any future
 	// defensive checks; mirrors makeStartDAGService.
 	return &service{dagStore: &stubStartDAGStore{}, runStore: runStore}
@@ -121,7 +121,7 @@ func assertGetRunScalars(t *testing.T, run contract.Run) {
 
 func assertBudgetLimitDefensiveCopy(t *testing.T, run *contract.Run, srcRun *taskdag.Run) {
 	t.Helper()
-	// BudgetLimit cloneInt64 独立性断言：修改源 row 指向的 int64，dto 拷贝不应变。
+	// BudgetLimit cloneInt64 独立性断言：修改源 row 指向�?int64，dto 拷贝不应变�?
 	// BudgetLimit defensive-copy assertion: mutating the source pointer's value
 	// must not leak into the DTO.
 	if run.BudgetLimit == nil || *run.BudgetLimit != 100 {
@@ -155,8 +155,8 @@ func TestGetRun_IncludesRuntimeNodesForRun(t *testing.T) {
 				RunID:     &runID,
 				Title:     "N1",
 				Status:    "ready",
-				DependsOn: json.RawMessage(`[]`),
-				Config:    json.RawMessage(`{"exec":{"agent_key":"coder","cwd":"/tmp/node-cwd"}}`),
+				DependsOn: testRawConfig(t, `[]`),
+				Config:    testRawConfig(t, `{"exec":{"agent_key":"coder","cwd":"/tmp/node-cwd"}}`),
 				CreatedAt: now,
 				UpdatedAt: now,
 			},
@@ -181,7 +181,7 @@ func TestGetRun_IncludesRuntimeNodesForRun(t *testing.T) {
 
 func TestUpdateNodeParams_UnmarshalLegacyRunIDAlias(t *testing.T) {
 	var params updateNodeParams
-	if err := json.Unmarshal([]byte(`{"dagKey":"dag-1","nodeKey":"n1","runId":77,"status":"done"}`), &params); err != nil {
+	if err := json.Unmarshal(testRawConfig(t, `{"dagKey":"dag-1","nodeKey":"n1","runId":77,"status":"done"}`), &params); err != nil {
 		t.Fatalf("json.Unmarshal(updateNodeParams) error = %v", err)
 	}
 	req := updateNodeRequestFromParams(params)
@@ -190,7 +190,7 @@ func TestUpdateNodeParams_UnmarshalLegacyRunIDAlias(t *testing.T) {
 	}
 }
 
-// ---- run_key 缺失 → required 校验 ----
+// ---- run_key 缺失 �?required 校验 ----
 func TestGetRun_BlankRunKey_Rejected(t *testing.T) {
 	stub := &stubRunStore{}
 	svc := makeGetRunService(stub)
@@ -210,17 +210,17 @@ func TestGetRun_BlankRunKey_Rejected(t *testing.T) {
 	}
 }
 
-// ---- runStore 未注入 → ErrRunStoreUnset ----
+// ---- runStore 未注�?�?ErrRunStoreUnset ----
 func TestGetRun_RunStoreUnset(t *testing.T) {
-	svc := &service{} // 裸 service，runStore == nil
+	svc := &service{} // �?service，runStore == nil
 	_, err := svc.GetRun(context.Background(), contract.GetRunRequest{RunKey: "dag-1#run-abc"})
 	if !errors.Is(err, ErrRunStoreUnset) {
 		t.Fatalf("GetRun() error = %v, want errors.Is(ErrRunStoreUnset)", err)
 	}
 }
 
-// ---- service 本身为 nil → ErrRunStoreUnset（与 ListRuns / StartDAG 一致） ----
-// ---- nil service → ErrRunStoreUnset (matches ListRuns / StartDAG defense) ----
+// ---- service 本身�?nil �?ErrRunStoreUnset（与 ListRuns / StartDAG 一致） ----
+// ---- nil service �?ErrRunStoreUnset (matches ListRuns / StartDAG defense) ----
 
 func TestGetRun_NilService_ReturnsErrRunStoreUnset(t *testing.T) {
 	_, err := (*service)(nil).GetRun(context.Background(), contract.GetRunRequest{RunKey: "dag-1#run-abc"})
@@ -229,8 +229,8 @@ func TestGetRun_NilService_ReturnsErrRunStoreUnset(t *testing.T) {
 	}
 }
 
-// ---- IsNotFound 域错误 → ErrRunNotFound ----
-// pgx.ErrNoRows 走 platformdb.IsNotFound 命中路径，service 应包成 ErrRunNotFound。
+// ---- IsNotFound 域错�?�?ErrRunNotFound ----
+// pgx.ErrNoRows �?platformdb.IsNotFound 命中路径，service 应包�?ErrRunNotFound�?
 // pgx.ErrNoRows is IsNotFound-matched; service must wrap it into
 // ErrRunNotFound so the tool layer can translate to bilingual MCP error.
 func TestGetRun_NotFound_WrapsErrRunNotFound(t *testing.T) {
@@ -243,8 +243,8 @@ func TestGetRun_NotFound_WrapsErrRunNotFound(t *testing.T) {
 	}
 }
 
-// ---- runStore (nil run, nil err) 防御兜底 → ErrRunNotFound ----
-// 实际 store 实现不会返 (nil, nil)，但 service 的防御分支必须可达。
+// ---- runStore (nil run, nil err) 防御兜底 �?ErrRunNotFound ----
+// 实际 store 实现不会�?(nil, nil)，但 service 的防御分支必须可达�?
 // Real store impls never return (nil, nil), but the service's defensive
 // branch must remain reachable for future regressions.
 func TestGetRun_NilRunNilErr_DefensiveNotFound(t *testing.T) {
@@ -257,7 +257,7 @@ func TestGetRun_NilRunNilErr_DefensiveNotFound(t *testing.T) {
 	}
 }
 
-// ---- 非 NotFound 错误透传，不误转为 ErrRunNotFound ----
+// ---- �?NotFound 错误透传，不误转�?ErrRunNotFound ----
 // Generic IO error must NOT be silently mapped to ErrRunNotFound.
 func TestGetRun_OtherError_PassThrough(t *testing.T) {
 	boom := errors.New("connection lost")
@@ -277,13 +277,13 @@ func TestGetRun_OtherError_PassThrough(t *testing.T) {
 }
 
 // ---- DTO 转换：Events / Metadata defensive copy ----
-// service 层 dagRunDTO 应做 RawMessage 防御拷贝，避免 caller 修改 events
-// 渗回 store 缓存。
+// service �?dagRunDTO 应做 RawMessage 防御拷贝，避�?caller 修改 events
+// 渗回 store 缓存�?
 // dagRunDTO must defensively copy RawMessage fields so callers cannot mutate
 // store-backed slices.
 func TestGetRun_DTO_DefensiveCopiesRawMessages(t *testing.T) {
-	events := json.RawMessage(`[{"k":"v"}]`)
-	metadata := json.RawMessage(`{"a":1}`)
+	events := testRawConfig(t, `[{"k":"v"}]`)
+	metadata := testRawConfig(t, `{"a":1}`)
 	stub := &stubRunStore{
 		getRunReply: &taskdag.Run{
 			RunKey:   "dag-1#run-abc",
@@ -302,7 +302,7 @@ func TestGetRun_DTO_DefensiveCopiesRawMessages(t *testing.T) {
 	if string(resp.Run.Events) != string(events) || string(resp.Run.Metadata) != string(metadata) {
 		t.Fatalf("resp.Run events/metadata content mismatch")
 	}
-	// 改 caller 拿到的 byte：原 store 行不应被影响。
+	// �?caller 拿到�?byte：原 store 行不应被影响�?
 	if len(resp.Run.Events) > 0 {
 		resp.Run.Events[0] = 'X'
 		if events[0] == 'X' {
@@ -317,10 +317,10 @@ func TestGetRun_DTO_DefensiveCopiesRawMessages(t *testing.T) {
 	}
 }
 
-// stubRunStore.ListRuns 在 dag_start_test.go 之外补上，覆盖 T3.2 service.ListRuns
+// stubRunStore.ListRuns �?dag_start_test.go 之外补上，覆�?T3.2 service.ListRuns
 // 单元测试需要的行为定制。listRunsReply / listRunsErr / listRunsCalls /
-// listRunsLastFilter 字段定义在 dag_start_test.go 的 stubRunStore struct
-// 上，本文件只提供其 ListRuns 方法实现，避免包级 var 造成的串话并发隐患。
+// listRunsLastFilter 字段定义�?dag_start_test.go �?stubRunStore struct
+// 上，本文件只提供�?ListRuns 方法实现，避免包�?var 造成的串话并发隐患�?
 //
 // stubRunStore.ListRuns is implemented in this file (instead of
 // dag_start_test.go) so this file owns the T3.2 list_runs tests; the
@@ -335,7 +335,7 @@ func (s *stubRunStore) ListRuns(_ context.Context, filter taskdag.ListRunsFilter
 	return s.listRunsReply, nil
 }
 
-// ---- happy path：返多 run ----
+// ---- happy path：返�?run ----
 // ---- happy path: returns multiple runs ----
 
 func TestListRuns_HappyPath(t *testing.T) {
@@ -395,7 +395,7 @@ func TestListRuns_StatusFilterPassthrough(t *testing.T) {
 
 	_, err := svc.ListRuns(context.Background(), contract.ListRunsRequest{
 		DagKey: "dag-1",
-		Status: " failed ", // 验证 service 调 strings.TrimSpace
+		Status: " failed ", // 验证 service �?strings.TrimSpace
 	})
 	if err != nil {
 		t.Fatalf("ListRuns() error = %v", err)
@@ -405,7 +405,7 @@ func TestListRuns_StatusFilterPassthrough(t *testing.T) {
 	}
 }
 
-// ---- limit 默认 50（不传 limit） ----
+// ---- limit 默认 50（不�?limit�?----
 // ---- limit defaults to 50 when omitted ----
 
 func TestListRuns_DefaultLimit(t *testing.T) {
@@ -437,7 +437,7 @@ func TestListRuns_ExplicitLimitPassthrough(t *testing.T) {
 	}
 }
 
-// ---- limit=0 走 ClampLimit 默认值 50 ----
+// ---- limit=0 �?ClampLimit 默认�?50 ----
 // ---- limit=0 routed through ClampLimit default (50) ----
 
 func TestListRuns_LimitZero_DefaultsToFifty(t *testing.T) {
@@ -453,7 +453,7 @@ func TestListRuns_LimitZero_DefaultsToFifty(t *testing.T) {
 	}
 }
 
-// ---- limit<0 走 ClampLimit 默认值 50 ----
+// ---- limit<0 �?ClampLimit 默认�?50 ----
 // ---- limit<0 routed through ClampLimit default (50) ----
 
 func TestListRuns_LimitNegative_DefaultsToFifty(t *testing.T) {
@@ -465,15 +465,15 @@ func TestListRuns_LimitNegative_DefaultsToFifty(t *testing.T) {
 		t.Fatalf("ListRuns() error = %v", err)
 	}
 	if got := stub.listRunsLastFilter.Limit; got != 50 {
-		t.Errorf("filter.Limit = %d, want 50 (ClampLimit val<min → default)", got)
+		t.Errorf("filter.Limit = %d, want 50 (ClampLimit val<min �?default)", got)
 	}
 }
 
-// ---- limit 超大值 → service cap 到 200 ----
-// ---- very large limit → capped by service to 200 ----
+// ---- limit 超大�?�?service cap �?200 ----
+// ---- very large limit �?capped by service to 200 ----
 //
-// service 层 ClampLimit(val, 1, 200, 50) 会把 >200 的调用手推回 200，
-// 避免调用方传 99999999 后透到 SQL 层。
+// service �?ClampLimit(val, 1, 200, 50) 会把 >200 的调用手推回 200�?
+// 避免调用方传 99999999 后透到 SQL 层�?
 // service-side ClampLimit(val, 1, 200, 50) caps anything above 200 so a
 // 99999999 caller cannot push that limit down to SQL.
 func TestListRuns_LimitVeryLarge_CappedToTwoHundred(t *testing.T) {
@@ -489,7 +489,7 @@ func TestListRuns_LimitVeryLarge_CappedToTwoHundred(t *testing.T) {
 	}
 }
 
-// ---- runStore == nil 防御与 StartDAG 一致 ----
+// ---- runStore == nil 防御�?StartDAG 一�?----
 // ---- runStore == nil defense (matches StartDAG) ----
 
 func TestListRuns_RunStoreUnset(t *testing.T) {
@@ -514,7 +514,7 @@ func TestListRuns_DagKeyRequired(t *testing.T) {
 	}
 }
 
-// ---- store 错误透传（包装信息含 dag_key） ----
+// ---- store 错误透传（包装信息含 dag_key�?----
 // ---- store error propagated (wrapped with dag_key) ----
 
 func TestListRuns_StoreErrorPropagated(t *testing.T) {

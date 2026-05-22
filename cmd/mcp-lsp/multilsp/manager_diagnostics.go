@@ -311,14 +311,29 @@ func (m *manager) cleanupDeletedDocument(ref documentRef, current ResolvedLSPToo
 	if err != nil {
 		return err
 	}
-	scopes := []ResolvedLSPToolScope{current}
-	if indexed, ok := coordinator.cache.LastResolvedScope(ref.uri); ok {
-		scopes = append(scopes, indexed.LastResolvedScope)
+	var errs []error
+	for _, uri := range deletedDocumentURIs(ref) {
+		scopes := []ResolvedLSPToolScope{current}
+		if indexed, ok := coordinator.cache.LastResolvedScope(uri); ok {
+			scopes = append(scopes, indexed.LastResolvedScope)
+		}
+		if err := m.cleanupDocumentForScopesWithCoordinator(coordinator, uri, scopes...); err != nil {
+			errs = append(errs, err)
+		}
+		if err := coordinator.cache.RememberDocumentScope(uri, current, ""); err != nil {
+			errs = append(errs, err)
+		}
 	}
-	if err := m.cleanupDocumentForScopesWithCoordinator(coordinator, ref.uri, scopes...); err != nil {
-		return err
+	return errors.Join(errs...)
+}
+
+func deletedDocumentURIs(ref documentRef) []string {
+	uris := []string{ref.uri}
+	raw := strings.TrimSpace(ref.raw)
+	if strings.HasPrefix(raw, "file://") && raw != ref.uri {
+		uris = append(uris, raw)
 	}
-	return coordinator.cache.RememberDocumentScope(ref.uri, current, "")
+	return uris
 }
 
 func (m *manager) cleanupDocumentForScopes(uri string, scopes ...ResolvedLSPToolScope) error {

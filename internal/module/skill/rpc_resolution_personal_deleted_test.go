@@ -68,7 +68,15 @@ func setupPersonalCanonicalDeletedDriftFixture(t *testing.T) (string, *platformr
 
 func dispatchResolutionPreviewForScope(t *testing.T, server *platformrpc.Server, project, conflictID, name, scope, provider, action string) skillResolutionPreviewResult {
 	t.Helper()
-	raw, err := server.Dispatch(context.Background(), "skills/resolution_preview", json.RawMessage(`{"cwd":"`+project+`","conflict_id":"`+conflictID+`","name":"`+name+`","scope":"`+scope+`","provider":"`+provider+`","action":"`+action+`","include_diff":true}`))
+	raw, err := server.Dispatch(context.Background(), "skills/resolution_preview", mustRawJSON(t, map[string]any{
+		"cwd":          project,
+		"conflict_id":  conflictID,
+		"name":         name,
+		"scope":        scope,
+		"provider":     provider,
+		"action":       action,
+		"include_diff": true,
+	}))
 	if err != nil {
 		t.Fatalf("Dispatch %s preview: %v", action, err)
 	}

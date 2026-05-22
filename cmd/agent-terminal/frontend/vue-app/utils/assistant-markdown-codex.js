@@ -14,7 +14,10 @@ const PROTECTED_MARKDOWN_RE = /```[\s\S]*?```|`[^`\n]+`/g;
 const BLOCKQUOTE_CALLOUT_RE = /^\s*<p>\[!(NOTE|TIP|IMPORTANT|WARNING|CAUTION)\](?:<br>\s*)?/i;
 const TABLE_CELL_ALIGN_RE = /<(th|td)([^>]*)\sstyle="text-align:(left|center|right);?"([^>]*)>/gi;
 const TASK_LIST_ITEM_RE = /<li([^>]*)>\s*\[( |x|X)\]\s*([\s\S]*?)<\/li>/gi;
-const DIRECTIVE_RE = /(^|[\s(（\["'，。！？、\-]):(codex-file-citation|codex-terminal-citation|codex-image-citation|task-stub|automation-update|code-comment)(?:\[([^\]\n]*)\])?(?:\{([^{}\n]*)\})?/g;
+const DIRECTIVE_RE = new RegExp(
+  String.raw`(^|[\s(??["'?????????-]):(codex-file-citation|codex-terminal-citation|codex-image-citation|task-stub|automation-update|code-comment)(?:\[([^\]\n]*)\])?(?:\{([^{}\n]*)\})?`,
+  'g',
+);
 const DIRECTIVE_ATTR_RE = /([A-Za-z_][\w-]*)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'{}]+))/g;
 const DIRECTIVE_PLACEHOLDER_RE = /§§CDX:([^§]+)§§/g;
 const TOP_LEVEL_ORDERED_RE = /^\d+\.\s+/;

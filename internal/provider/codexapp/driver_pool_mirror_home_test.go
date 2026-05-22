@@ -20,6 +20,7 @@ func TestStartSessionDefaultCodexHomeDoesNotRedirectPersonalMirror(t *testing.T)
 	userHome := filepath.Join(t.TempDir(), "user-home")
 	t.Setenv(providershared.SuperDolphinHomeEnv, superHome)
 	t.Setenv("HOME", userHome)
+	t.Setenv("USERPROFILE", userHome)
 	workDir := t.TempDir()
 	var gotHome string
 	pool := NewServerPool(slog.Default(), func(_ context.Context, home string) (SpawnedServer, error) {

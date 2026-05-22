@@ -3,7 +3,9 @@ package common
 import (
 	"context"
 	"encoding/json"
+	pathpkg "path"
 	"path/filepath"
+	"runtime"
 	"strings"
 
 	platformshared "github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
@@ -129,6 +131,9 @@ func normalizeScopeCWD(cwd string) string {
 	if cwd == "" {
 		return ""
 	}
+	if runtime.GOOS == "windows" && isSlashRootedPOSIXPath(cwd) {
+		return pathpkg.Clean(cwd)
+	}
 	if filepath.IsAbs(cwd) {
 		return filepath.Clean(cwd)
 	}
@@ -168,6 +173,9 @@ func normalizeWorkspaceRoot(base, root string) string {
 	if root == "" {
 		return ""
 	}
+	if runtime.GOOS == "windows" && isSlashRootedPOSIXPath(root) {
+		return pathpkg.Clean(root)
+	}
 	if strings.TrimSpace(base) != "" && !filepath.IsAbs(root) {
 		root = filepath.Join(base, root)
 	}
@@ -175,4 +183,16 @@ func normalizeWorkspaceRoot(base, root string) string {
 		return filepath.Clean(root)
 	}
 	return ""
+}
+
+func isSlashRootedPOSIXPath(path string) bool {
+	return strings.HasPrefix(path, "/") && !strings.HasPrefix(path, "//") && !isWindowsDriveAlias(path)
+}
+
+func isWindowsDriveAlias(path string) bool {
+	return len(path) >= 3 && path[0] == '/' && isWindowsDriveLetter(path[1]) && path[2] == ':'
+}
+
+func isWindowsDriveLetter(b byte) bool {
+	return (b >= 'A' && b <= 'Z') || (b >= 'a' && b <= 'z')
 }

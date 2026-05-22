@@ -139,6 +139,7 @@ func TestService_LaunchAgent_RejectsMissingCwdWhenPersistedParentHasNoCwd(t *tes
 
 func TestService_LaunchAgent_InheritsPersistedParentCwdWhenRuntimeMissing(t *testing.T) {
 	var started map[string]any
+	parentCWD := testCWD(t, "parent")
 	svc := NewService(silentLogger(), event.NewDispatcher(), remoteLocalLauncher(t, handler.Map{
 		"thread/start": handler.New(func(_ context.Context, req map[string]any) (map[string]any, error) {
 			started = req
@@ -146,7 +147,7 @@ func TestService_LaunchAgent_InheritsPersistedParentCwdWhenRuntimeMissing(t *tes
 		}),
 	}), nil, nil, nil)
 	svc.agentThreads = fakeAgentThreadStore{threads: []PersistedThread{
-		{ThreadID: "thread-parent", AgentID: "agent-parent", Name: "parent", Cwd: "/repo/parent", Status: "created"},
+		{ThreadID: "thread-parent", AgentID: "agent-parent", Name: "parent", Cwd: parentCWD, Status: "created"},
 	}}
 
 	err := svc.LaunchAgent(context.Background(), LaunchRequest{
@@ -157,13 +158,14 @@ func TestService_LaunchAgent_InheritsPersistedParentCwdWhenRuntimeMissing(t *tes
 	if err != nil {
 		t.Fatalf("LaunchAgent() error = %v, want persisted parent cwd inheritance", err)
 	}
-	if got, _ := started["cwd"].(string); got != "/repo/parent" {
+	if got, _ := started["cwd"].(string); got != parentCWD {
 		t.Fatalf("thread/start cwd = %q, want persisted parent cwd", got)
 	}
 }
 
 func TestService_LaunchAgent_InheritsRuntimeParentCwd(t *testing.T) {
 	var started map[string]any
+	parentCWD := testCWD(t, "runtime-parent")
 	svc := NewService(silentLogger(), event.NewDispatcher(), remoteLocalLauncher(t, handler.Map{
 		"thread/start": handler.New(func(_ context.Context, req map[string]any) (map[string]any, error) {
 			started = req
@@ -171,7 +173,7 @@ func TestService_LaunchAgent_InheritsRuntimeParentCwd(t *testing.T) {
 		}),
 	}), nil, nil, nil)
 	parent := svc.newAgentLocked("agent-parent")
-	parent.cwd = "/repo/runtime-parent"
+	parent.cwd = parentCWD
 	svc.agents[parent.id] = parent
 
 	err := svc.LaunchAgent(context.Background(), LaunchRequest{
@@ -182,13 +184,14 @@ func TestService_LaunchAgent_InheritsRuntimeParentCwd(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LaunchAgent() error = %v, want runtime parent cwd inheritance", err)
 	}
-	if got, _ := started["cwd"].(string); got != "/repo/runtime-parent" {
+	if got, _ := started["cwd"].(string); got != parentCWD {
 		t.Fatalf("thread/start cwd = %q, want runtime parent cwd", got)
 	}
 }
 
 func TestService_LaunchAgentSnapshot_InheritsPersistedParentCwdWhenRuntimeMissing(t *testing.T) {
 	var started map[string]any
+	parentCWD := testCWD(t, "parent")
 	svc := NewService(silentLogger(), event.NewDispatcher(), remoteLocalLauncher(t, handler.Map{
 		"thread/start": handler.New(func(_ context.Context, req map[string]any) (map[string]any, error) {
 			started = req
@@ -196,13 +199,13 @@ func TestService_LaunchAgentSnapshot_InheritsPersistedParentCwdWhenRuntimeMissin
 		}),
 	}), nil, nil, nil)
 	svc.agentThreads = fakeAgentThreadStore{threads: []PersistedThread{
-		{ThreadID: "thread-parent", AgentID: "agent-parent", Name: "parent", Cwd: "/repo/parent", Status: "created"},
+		{ThreadID: "thread-parent", AgentID: "agent-parent", Name: "parent", Cwd: parentCWD, Status: "created"},
 	}}
 
 	if _, err := svc.LaunchAgentSnapshot(context.Background(), LaunchRequest{AgentID: "agent-child", ParentID: "agent-parent", Command: []string{"ignored"}}); err != nil {
 		t.Fatalf("LaunchAgentSnapshot() error = %v, want persisted parent cwd inheritance", err)
 	}
-	if got, _ := started["cwd"].(string); got != "/repo/parent" {
+	if got, _ := started["cwd"].(string); got != parentCWD {
 		t.Fatalf("thread/start cwd = %q, want persisted parent cwd", got)
 	}
 }

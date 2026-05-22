@@ -241,7 +241,7 @@ func TestSkillListHostRPCResponseHidesLegacyFields(t *testing.T) {
 	writeScopedSystemSkill(t, svc.root, cwd, "demo-skill", "---\nname: demo-skill\ndescription: Demo desc\nsummary: Demo sum\ndisable_model_invocation: true\n---\n# Demo")
 	server := newSkillRPCTestServer(t, svc)
 
-	raw, err := server.Dispatch(context.Background(), "skill/list", json.RawMessage(`{"cwd":"`+cwd+`"}`))
+	raw, err := server.Dispatch(context.Background(), "skill/list", mustRawJSON(t, map[string]any{"cwd": cwd}))
 	if err != nil {
 		t.Fatalf("Dispatch() error = %v", err)
 	}
@@ -275,7 +275,7 @@ func TestSkillsListHostRPCIncludesDirAndSkillFile(t *testing.T) {
 	writeScopedSystemSkill(t, svc.root, cwd, "demo-skill", "---\nname: demo-skill\nsummary: Demo\n---\n# Demo")
 	server := newSkillRPCTestServer(t, svc)
 
-	raw, err := server.Dispatch(context.Background(), "skills/list", json.RawMessage(`{"cwd":"`+cwd+`"}`))
+	raw, err := server.Dispatch(context.Background(), "skills/list", mustRawJSON(t, map[string]any{"cwd": cwd}))
 	if err != nil {
 		t.Fatalf("Dispatch skills/list: %v", err)
 	}
@@ -305,7 +305,7 @@ func TestSkillExpandHostRPCIsNotRegistered(t *testing.T) {
 	writeScopedSystemSkill(t, svc.root, cwd, "demo", "---\nname: demo\n---\n## Usage\nhello")
 	server := newSkillRPCTestServer(t, svc)
 
-	_, err := server.Dispatch(context.Background(), "skill/expand", json.RawMessage(`{"name":"demo","cwd":"`+cwd+`","if_hash":"abc"}`))
+	_, err := server.Dispatch(context.Background(), "skill/expand", mustRawJSON(t, map[string]any{"name": "demo", "cwd": cwd, "if_hash": "abc"}))
 	var rpcErr *jrpc2.Error
 	if !errors.As(err, &rpcErr) {
 		t.Fatalf("Dispatch() error = %T, want *jrpc2.Error", err)
@@ -357,7 +357,7 @@ type skillsListRPCResult struct {
 
 func dispatchSkillsListForTest(t *testing.T, server *platformrpc.Server, cwd string) skillsListRPCResult {
 	t.Helper()
-	rawScoped, err := server.Dispatch(context.Background(), "skills/list", json.RawMessage(`{"cwd":"`+cwd+`"}`))
+	rawScoped, err := server.Dispatch(context.Background(), "skills/list", mustRawJSON(t, map[string]any{"cwd": cwd}))
 	if err != nil {
 		t.Fatalf("Dispatch scoped skills/list: %v", err)
 	}
@@ -407,6 +407,8 @@ func assertSkillsListRejectsMissingCWD(t *testing.T, server *platformrpc.Server)
 }
 
 func TestSkillLocalDeleteRPCRequiresExplicitTarget(t *testing.T) {
+	skipWindowsShortMirrorIntegration(t)
+
 	t.Parallel()
 
 	projectRoot := filepath.Join(t.TempDir(), "repo")
@@ -424,10 +426,10 @@ func TestSkillLocalDeleteRPCRequiresExplicitTarget(t *testing.T) {
 	}
 	server := newSkillRPCTestServer(t, svc)
 
-	assertDeleteRPCInvalidParams(t, server, `{"cwd":"`+projectRoot+`","name":"build"}`)
-	assertDeleteRPCInvalidParams(t, server, `{"cwd":"`+projectRoot+`","name":"build","scope":"personal"}`)
+	assertDeleteRPCInvalidParams(t, server, mustRawJSON(t, map[string]any{"cwd": projectRoot, "name": "build"}))
+	assertDeleteRPCInvalidParams(t, server, mustRawJSON(t, map[string]any{"cwd": projectRoot, "name": "build", "scope": "personal"}))
 
-	_, err := server.Dispatch(context.Background(), "skills/local/delete", json.RawMessage(`{"cwd":"`+projectRoot+`","name":"build","scope":"project"}`))
+	_, err := server.Dispatch(context.Background(), "skills/local/delete", mustRawJSON(t, map[string]any{"cwd": projectRoot, "name": "build", "scope": "project"}))
 	if err != nil {
 		t.Fatalf("Dispatch project delete: %v", err)
 	}
@@ -435,7 +437,7 @@ func TestSkillLocalDeleteRPCRequiresExplicitTarget(t *testing.T) {
 		t.Fatalf("personal skill should remain after project delete: %v", err)
 	}
 
-	_, err = server.Dispatch(context.Background(), "skills/local/delete", json.RawMessage(`{"cwd":"`+projectRoot+`","name":"build","scope":"personal","personal_type":"user"}`))
+	_, err = server.Dispatch(context.Background(), "skills/local/delete", mustRawJSON(t, map[string]any{"cwd": projectRoot, "name": "build", "scope": "personal", "personal_type": "user"}))
 	if err != nil {
 		t.Fatalf("Dispatch personal delete: %v", err)
 	}
@@ -462,13 +464,13 @@ func TestSkillLocalReadAndMatchRPCMapSameNameConflict(t *testing.T) {
 	}
 	server := newSkillRPCTestServer(t, svc)
 
-	assertRPCConflict(t, server, "skills/local/read", `{"cwd":"`+projectRoot+`","path":"build"}`)
-	assertRPCConflict(t, server, "skills/match/preview", `{"cwd":"`+projectRoot+`","text":"build"}`)
+	assertRPCConflict(t, server, "skills/local/read", mustRawJSON(t, map[string]any{"cwd": projectRoot, "path": "build"}))
+	assertRPCConflict(t, server, "skills/match/preview", mustRawJSON(t, map[string]any{"cwd": projectRoot, "text": "build"}))
 }
 
-func assertDeleteRPCInvalidParams(t *testing.T, server *platformrpc.Server, params string) {
+func assertDeleteRPCInvalidParams(t *testing.T, server *platformrpc.Server, params json.RawMessage) {
 	t.Helper()
-	_, err := server.Dispatch(context.Background(), "skills/local/delete", json.RawMessage(params))
+	_, err := server.Dispatch(context.Background(), "skills/local/delete", params)
 	var rpcErr *jrpc2.Error
 	if !errors.As(err, &rpcErr) {
 		t.Fatalf("delete error = %T, want *jrpc2.Error", err)
@@ -478,9 +480,9 @@ func assertDeleteRPCInvalidParams(t *testing.T, server *platformrpc.Server, para
 	}
 }
 
-func assertRPCConflict(t *testing.T, server *platformrpc.Server, method, params string) {
+func assertRPCConflict(t *testing.T, server *platformrpc.Server, method string, params json.RawMessage) {
 	t.Helper()
-	_, err := server.Dispatch(context.Background(), method, json.RawMessage(params))
+	_, err := server.Dispatch(context.Background(), method, params)
 	var rpcErr *jrpc2.Error
 	if !errors.As(err, &rpcErr) {
 		t.Fatalf("%s error = %T, want *jrpc2.Error", method, err)

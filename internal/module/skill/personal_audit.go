@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/anthropic-ai/super-agent-v3/internal/module/skill/ownerperms"
 	auditstore "github.com/anthropic-ai/super-agent-v3/internal/store/auditlog"
 )
 
@@ -149,7 +150,7 @@ func cleanSlashPath(path string) string {
 func (s *canonicalStore) readPersonalSkillPolicy() (personalSkillPolicy, error) {
 	var policy personalSkillPolicy
 	path := filepath.Join(s.superDolphinHome, "skills", personalSkillPolicyFile)
-	if err := validateOwnerOnlyFileMode(path); err != nil {
+	if err := ownerperms.ValidateOwnerOnlyFilePath(path, "owner policy"); err != nil {
 		return personalSkillPolicy{}, err
 	}
 	if err := readJSONFileIfExists(path, &policy); err != nil {

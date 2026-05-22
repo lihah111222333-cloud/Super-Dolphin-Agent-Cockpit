@@ -88,7 +88,8 @@ export function parseUnifiedDiff(diffText) {
 
     if (line.startsWith('@@')) {
       ensureCurrent();
-      const match = line.match(/^@@\s+\-(\d+)(?:,\d+)?\s+\+(\d+)(?:,\d+)?\s+@@/);
+      const hunkHeaderRe = new RegExp('^@@\\s+\\-(\\d+)(?:,\\d+)?\\s+\\+(\\d+)(?:,\\d+)?\\s+@@');
+      const match = line.match(hunkHeaderRe);
       oldLine = Number(match?.[1] || 1);
       newLine = Number(match?.[2] || 1);
       current.lines.push({

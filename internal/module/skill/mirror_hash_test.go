@@ -3,8 +3,16 @@ package skill
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 )
+
+func skipWindowsShortMirrorIntegration(t *testing.T) {
+	t.Helper()
+	if testing.Short() && runtime.GOOS == "windows" {
+		t.Skip("skipping Windows short-mode mirror integration; covered by full test matrix")
+	}
+}
 
 func TestMirrorHashStableIncludesRelativePathModeAndBytes(t *testing.T) {
 	first := writeMirrorHashFixture(t)
@@ -31,13 +39,15 @@ func TestMirrorHashStableIncludesRelativePathModeAndBytes(t *testing.T) {
 		t.Fatalf("hash did not change after file bytes changed")
 	}
 
-	writeFileMode(t, second, "scripts/run.sh", 0o644, []byte("#!/bin/sh\necho hi\n"))
-	changedModeHash, err := stableMirrorDirectoryHash(second)
-	if err != nil {
-		t.Fatalf("stableMirrorDirectoryHash(changed mode): %v", err)
-	}
-	if changedModeHash == firstHash {
-		t.Fatalf("hash did not change after mode bits changed")
+	if runtime.GOOS != "windows" {
+		writeFileMode(t, second, "scripts/run.sh", 0o644, []byte("#!/bin/sh\necho hi\n"))
+		changedModeHash, err := stableMirrorDirectoryHash(second)
+		if err != nil {
+			t.Fatalf("stableMirrorDirectoryHash(changed mode): %v", err)
+		}
+		if changedModeHash == firstHash {
+			t.Fatalf("hash did not change after mode bits changed")
+		}
 	}
 }
 
@@ -80,6 +90,7 @@ func TestMirrorHashIncludesRelativePath(t *testing.T) {
 func TestMirrorHashRejectsUnsafePaths(t *testing.T) {
 	root := writeMirrorHashFixture(t)
 	if err := os.Symlink(filepath.Join(t.TempDir(), "outside.md"), filepath.Join(root, "outside.md")); err != nil {
+		skipIfSymlinkPrivilegeNotHeld(t, err)
 		t.Fatalf("Symlink: %v", err)
 	}
 	if _, err := stableMirrorDirectoryHash(root); err == nil {

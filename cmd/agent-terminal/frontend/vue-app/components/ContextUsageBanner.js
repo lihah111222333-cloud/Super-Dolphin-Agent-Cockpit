@@ -118,10 +118,20 @@ export const ContextUsageBanner = {
       const c = Number(props.stuckInfo && props.stuckInfo.count) || 0;
       return c > 0 ? c : '多';
     }
+    function retryTitle() {
+      if (isPermanentFailure()) return '??????????????????';
+      if (props.retrying) return '???...';
+      return '???????????';
+    }
+    function retryLabel() {
+      if (props.retrying) return '???...';
+      if (isPermanentFailure()) return '?????';
+      return '????';
+    }
     return {
       levelLabel, failedReasonLabel, failedErrorSnippet, isPermanentFailure,
       showTokenSection, showFailedSection, showStuckSection, stuckDurationLabel, visible,
-      isCumulativeLimit, cumulativeCountLabel,
+      isCumulativeLimit, cumulativeCountLabel, retryTitle, retryLabel,
       onCompact, onFork, onRetry, onRetryStuck, onForceStuck, onMarkStuckDone, onPromoteTask,
     };
   },
@@ -172,9 +182,9 @@ export const ContextUsageBanner = {
           class="btn btn-primary btn-xs context-usage-banner-action"
           data-testid="auto-continue-retry-btn"
           :disabled="retrying || isPermanentFailure()"
-          :title="isPermanentFailure() ? '永久错误，重试无用 — 请按上面文案处理' : (retrying ? '重试中…' : '手动重试起一个继承对话')"
+          :title="retryTitle()"
           @click="onRetry"
-        >{{ retrying ? '重试中…' : (isPermanentFailure() ? '需手动处理' : '一键重试') }}</button>
+        >{{ retryLabel() }}</button>
         <span v-if="retryError" data-testid="auto-continue-retry-error" style="color:var(--color-danger,#c33); margin-left:8px;">{{ retryError }}</span>
       </div>
       <div
