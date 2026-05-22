@@ -32,6 +32,11 @@ type jsonRPCMessage struct {
 	Error   *jsonRPCError   `json:"error,omitempty"`
 }
 
+type codexRolloutFrame struct {
+	Type    string          `json:"type"`
+	Payload json.RawMessage `json:"payload"`
+}
+
 type initializeRPCResult struct {
 	CodexHome string `json:"codexHome"`
 }
@@ -313,8 +318,27 @@ func (t *transport) dispatchReadMessage(ctx context.Context, data []byte, handle
 	msg := RawMessage{ID: rpcMsg.ID, Method: rpcMsg.Method, Params: rpcMsg.Params}
 	if strings.TrimSpace(msg.Method) != "" {
 		invokeReadHandler(ctx, t, msg, handler)
+		return true
+	}
+	if msg, ok := decodeCodexRolloutFrame(data); ok {
+		invokeReadHandler(ctx, t, msg, handler)
 	}
 	return true
+}
+
+func decodeCodexRolloutFrame(data []byte) (RawMessage, bool) {
+	var frame codexRolloutFrame
+	if err := json.Unmarshal(data, &frame); err != nil {
+		return RawMessage{}, false
+	}
+	method := strings.TrimSpace(frame.Type)
+	if method == "" || len(frame.Payload) == 0 {
+		return RawMessage{}, false
+	}
+	if strings.TrimSpace(string(frame.Payload)) == "" {
+		return RawMessage{}, false
+	}
+	return RawMessage{Method: method, Params: frame.Payload}, true
 }
 
 func invokeReadHandler(ctx context.Context, resp Responder, msg RawMessage, handler any) {

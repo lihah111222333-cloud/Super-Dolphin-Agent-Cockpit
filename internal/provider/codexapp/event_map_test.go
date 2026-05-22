@@ -6,6 +6,8 @@ import (
 	"testing"
 
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
+	tooldto "github.com/anthropic-ai/super-agent-v3/internal/dto/tool"
+	providershared "github.com/anthropic-ai/super-agent-v3/internal/provider/shared"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
@@ -123,5 +125,451 @@ func TestTranslateCodexEventIgnoresClaudeColonTurnEvents(t *testing.T) {
 		}, func(ev any) {
 			t.Fatalf("translateCodexEvent(%q) published %#v, want no typed event", method, ev)
 		})
+	}
+}
+
+func TestTranslateToolEventUsesNameFieldForDynamicToolBegin(t *testing.T) {
+	var got []any
+	translateCodexEvent(dto.RawProviderEvent{
+		EventType: "item/tool/call",
+		Data: map[string]any{
+			"agentId":   "agent-1",
+			"threadId":  "provider-thread-1",
+			"turnId":    "turn-1",
+			"callId":    "call-1",
+			"name":      "file",
+			"arguments": map[string]any{"action": "read_file", "file_path": "smoke.go"},
+		},
+	}, func(ev any) { got = append(got, ev) })
+
+	if len(got) != 1 {
+		t.Fatalf("published events = %d, want 1", len(got))
+	}
+	begin, ok := got[0].(tooldto.ToolCallBegin)
+	if !ok {
+		t.Fatalf("event type = %T, want ToolCallBegin", got[0])
+	}
+	if begin.ToolName != "file" {
+		t.Fatalf("ToolName = %q, want file", begin.ToolName)
+	}
+}
+
+func TestTranslateToolEventUsesNameFieldForDynamicToolEnd(t *testing.T) {
+	var got []any
+	translateCodexEvent(dto.RawProviderEvent{
+		EventType: "item/completed",
+		Data: map[string]any{
+			"agentId":  "agent-1",
+			"threadId": "provider-thread-1",
+			"turnId":   "turn-1",
+			"callId":   "call-1",
+			"name":     "format_preview",
+			"success":  true,
+			"result":   map[string]any{"success": true, "text_edit_count": 2},
+		},
+	}, func(ev any) { got = append(got, ev) })
+
+	if len(got) != 1 {
+		t.Fatalf("published events = %d, want 1", len(got))
+	}
+	end, ok := got[0].(tooldto.ToolCallEnd)
+	if !ok {
+		t.Fatalf("event type = %T, want ToolCallEnd", got[0])
+	}
+	if end.ToolName != "format_preview" || !end.Success {
+		t.Fatalf("ToolCallEnd = %+v, want successful format_preview end", end)
+	}
+}
+
+func TestTranslateToolEventMarksNestedResultFailure(t *testing.T) {
+	var got []any
+	translateCodexEvent(dto.RawProviderEvent{
+		EventType: "item/completed",
+		Data: map[string]any{
+			"agentId": "agent-1",
+			"turnId":  "turn-1",
+			"callId":  "call-1",
+			"name":    "grep",
+			"result": map[string]any{
+				"success": false,
+				"error":   "grep failed",
+			},
+		},
+	}, func(ev any) { got = append(got, ev) })
+
+	if len(got) != 1 {
+		t.Fatalf("published events = %d, want 1", len(got))
+	}
+	end, ok := got[0].(tooldto.ToolCallEnd)
+	if !ok {
+		t.Fatalf("event type = %T, want ToolCallEnd", got[0])
+	}
+	if end.Success || end.Error != "grep failed" {
+		t.Fatalf("ToolCallEnd = %+v, want nested result failure", end)
+	}
+}
+
+func TestTranslateCodexRolloutFunctionCallPublishesToolCallBegin(t *testing.T) {
+	var got []any
+	translateCodexEvent(dto.RawProviderEvent{
+		EventType: "response_item",
+		Data: map[string]any{
+			"agentId":   "agent-1",
+			"threadId":  "provider-thread-1",
+			"turnId":    "turn-1",
+			"type":      "function_call",
+			"name":      "file",
+			"namespace": "mcp__lsp__",
+			"arguments": `{"action":"read_file","file_path":"smoke.go"}`,
+			"call_id":   "call-file",
+		},
+	}, func(ev any) { got = append(got, ev) })
+
+	if len(got) != 1 {
+		t.Fatalf("published events = %d, want 1", len(got))
+	}
+	begin, ok := got[0].(tooldto.ToolCallBegin)
+	if !ok {
+		t.Fatalf("event type = %T, want ToolCallBegin", got[0])
+	}
+	if begin.CallID != "call-file" || begin.ToolName != "mcp__lsp__file" {
+		t.Fatalf("ToolCallBegin = %+v, want call-file/mcp__lsp__file", begin)
+	}
+	if begin.ArgumentsPreview != `{"action":"read_file","file_path":"smoke.go"}` {
+		t.Fatalf("ArgumentsPreview = %q, want raw JSON arguments", begin.ArgumentsPreview)
+	}
+}
+
+func TestTranslateCodexRolloutToolCallPublishesToolCallBegin(t *testing.T) {
+	var got []any
+	translateCodexEvent(dto.RawProviderEvent{
+		EventType: "response_item",
+		Data: map[string]any{
+			"agentId":  "agent-1",
+			"threadId": "provider-thread-1",
+			"turnId":   "turn-1",
+			"item": map[string]any{
+				"type":    "tool_call",
+				"name":    "grep",
+				"call_id": "call-grep",
+				"arguments": map[string]any{
+					"pattern": "ToolCallBegin",
+					"path":    "internal/provider/codexapp",
+				},
+			},
+		},
+	}, func(ev any) { got = append(got, ev) })
+
+	if len(got) != 1 {
+		t.Fatalf("published events = %d, want 1", len(got))
+	}
+	begin, ok := got[0].(tooldto.ToolCallBegin)
+	if !ok {
+		t.Fatalf("event type = %T, want ToolCallBegin", got[0])
+	}
+	if begin.CallID != "call-grep" || begin.ToolName != "grep" {
+		t.Fatalf("ToolCallBegin = %+v, want call-grep/grep", begin)
+	}
+	if !strings.Contains(begin.ArgumentsPreview, "ToolCallBegin") {
+		t.Fatalf("ArgumentsPreview = %q, want grep arguments", begin.ArgumentsPreview)
+	}
+}
+
+func TestTranslateCodexRolloutMCPToolCallEndPublishesToolCallEnd(t *testing.T) {
+	var got []any
+	translateCodexEvent(dto.RawProviderEvent{
+		EventType: "event_msg",
+		Data: map[string]any{
+			"agentId":  "agent-1",
+			"threadId": "provider-thread-1",
+			"turnId":   "turn-1",
+			"type":     "mcp_tool_call_end",
+			"call_id":  "call-format",
+			"invocation": map[string]any{
+				"server":    "lsp",
+				"tool":      "format_preview",
+				"arguments": map[string]any{"file_path": "smoke.go"},
+			},
+			"duration": map[string]any{"secs": float64(0), "nanos": float64(4349125)},
+			"result": map[string]any{
+				"Ok": map[string]any{
+					"content": []any{map[string]any{
+						"type": "text",
+						"text": `{"success":true,"text_edit_count":1}`,
+					}},
+					"structuredContent": map[string]any{"success": true, "text_edit_count": float64(1)},
+					"isError":           false,
+				},
+			},
+		},
+	}, func(ev any) { got = append(got, ev) })
+
+	if len(got) != 1 {
+		t.Fatalf("published events = %d, want 1", len(got))
+	}
+	end, ok := got[0].(tooldto.ToolCallEnd)
+	if !ok {
+		t.Fatalf("event type = %T, want ToolCallEnd", got[0])
+	}
+	if end.CallID != "call-format" || end.ToolName != "mcp__lsp__format_preview" || !end.Success {
+		t.Fatalf("ToolCallEnd = %+v, want successful format_preview end", end)
+	}
+	if !strings.Contains(end.Result, `"text_edit_count":1`) {
+		t.Fatalf("Result = %q, want tool result preview", end.Result)
+	}
+	if end.ElapsedMS != 4 {
+		t.Fatalf("ElapsedMS = %d, want 4", end.ElapsedMS)
+	}
+}
+
+func TestTranslateCodexRolloutToolResultPrefersStructuredContentPreview(t *testing.T) {
+	var got []any
+	translateCodexEvent(dto.RawProviderEvent{
+		EventType: "event_msg",
+		Data: map[string]any{
+			"agentId":  "agent-1",
+			"threadId": "provider-thread-1",
+			"turnId":   "turn-1",
+			"item": map[string]any{
+				"type":    "tool_result",
+				"call_id": "call-grep",
+				"invocation": map[string]any{
+					"server": "lsp",
+					"tool":   "grep",
+				},
+				"duration": map[string]any{"secs": float64(0), "nanos": float64(3123456)},
+				"result": map[string]any{
+					"Ok": map[string]any{
+						"content": []any{map[string]any{
+							"type": "text",
+							"text": "plain text fallback",
+						}},
+						"structuredContent": map[string]any{
+							"success": true,
+							"matches": []any{"internal/provider/codexapp/event_map.go"},
+						},
+						"isError": false,
+					},
+				},
+			},
+		},
+	}, func(ev any) { got = append(got, ev) })
+
+	if len(got) != 1 {
+		t.Fatalf("published events = %d, want 1", len(got))
+	}
+	end, ok := got[0].(tooldto.ToolCallEnd)
+	if !ok {
+		t.Fatalf("event type = %T, want ToolCallEnd", got[0])
+	}
+	if end.CallID != "call-grep" || end.ToolName != "mcp__lsp__grep" || !end.Success {
+		t.Fatalf("ToolCallEnd = %+v, want successful call-grep/mcp__lsp__grep", end)
+	}
+	if !strings.Contains(end.Result, `"matches"`) {
+		t.Fatalf("Result = %q, want structuredContent preview", end.Result)
+	}
+	if strings.Contains(end.Result, "plain text fallback") {
+		t.Fatalf("Result = %q, want structuredContent before content text", end.Result)
+	}
+	if end.ElapsedMS != 3 {
+		t.Fatalf("ElapsedMS = %d, want 3", end.ElapsedMS)
+	}
+}
+
+func TestTranslateCodexRolloutToolResultSupportsLowercaseOKWrapper(t *testing.T) {
+	var got []any
+	translateCodexEvent(dto.RawProviderEvent{
+		EventType: "event_msg",
+		Data: map[string]any{
+			"agentId": "agent-1",
+			"turnId":  "turn-1",
+			"item": map[string]any{
+				"type":    "tool_result",
+				"call_id": "call-grep",
+				"invocation": map[string]any{
+					"server": "lsp",
+					"tool":   "grep",
+				},
+				"result": map[string]any{
+					"ok": map[string]any{
+						"content": []any{map[string]any{
+							"type": "text",
+							"text": "plain text fallback",
+						}},
+						"structuredContent": map[string]any{
+							"success": true,
+							"total":   float64(2),
+						},
+						"isError": false,
+					},
+				},
+			},
+		},
+	}, func(ev any) { got = append(got, ev) })
+
+	if len(got) != 1 {
+		t.Fatalf("published events = %d, want 1", len(got))
+	}
+	end, ok := got[0].(tooldto.ToolCallEnd)
+	if !ok {
+		t.Fatalf("event type = %T, want ToolCallEnd", got[0])
+	}
+	if end.CallID != "call-grep" || end.ToolName != "mcp__lsp__grep" || !end.Success {
+		t.Fatalf("ToolCallEnd = %+v, want successful lowercase ok result", end)
+	}
+	if !strings.Contains(end.Result, `"total":2`) || strings.Contains(end.Result, "plain text fallback") {
+		t.Fatalf("Result = %q, want lowercase ok structuredContent before content text", end.Result)
+	}
+}
+
+func TestTranslateCodexRolloutResponseItemToolResultSupportsDirectMCPResult(t *testing.T) {
+	var got []any
+	translateCodexEvent(dto.RawProviderEvent{
+		EventType: "response_item",
+		Data: map[string]any{
+			"agentId":  "agent-1",
+			"threadId": "provider-thread-1",
+			"turnId":   "turn-1",
+			"item": map[string]any{
+				"type":     "tool_result",
+				"call_id":  "call-grep",
+				"toolName": "grep",
+				"result": map[string]any{
+					"content": []any{map[string]any{
+						"type": "text",
+						"text": "plain text fallback",
+					}},
+					"structuredContent": map[string]any{
+						"success": false,
+						"error":   "direct mcp failure",
+						"matches": []any{"internal/provider/codexapp/event_map.go"},
+					},
+					"isError": true,
+				},
+			},
+		},
+	}, func(ev any) { got = append(got, ev) })
+
+	if len(got) != 1 {
+		t.Fatalf("published events = %d, want 1", len(got))
+	}
+	end, ok := got[0].(tooldto.ToolCallEnd)
+	if !ok {
+		t.Fatalf("event type = %T, want ToolCallEnd", got[0])
+	}
+	if end.CallID != "call-grep" || end.ToolName != "grep" {
+		t.Fatalf("ToolCallEnd = %+v, want call-grep/grep", end)
+	}
+	if end.Success || end.Error != "direct mcp failure" {
+		t.Fatalf("ToolCallEnd = %+v, want direct MCP failure", end)
+	}
+	if !strings.Contains(end.Result, `"matches"`) || strings.Contains(end.Result, "plain text fallback") {
+		t.Fatalf("Result = %q, want structuredContent before content text", end.Result)
+	}
+}
+
+func TestTranslateCodexRolloutToolResultUsesCaptureHook(t *testing.T) {
+	providershared.SetCaptureToolResultHook(func(meta providershared.ToolResultMeta, raw string) providershared.ToolResultRecord {
+		if meta.CallID != "call-grep" || meta.ToolName != "mcp__lsp__grep" {
+			t.Fatalf("capture meta = %+v, want call-grep/mcp__lsp__grep", meta)
+		}
+		if !strings.Contains(raw, `"matches"`) {
+			t.Fatalf("capture raw = %q, want structured preview", raw)
+		}
+		return providershared.ToolResultRecord{
+			Preview:       `{"captured":true}`,
+			PersistedPath: "/tmp/tool-result.json",
+			Truncated:     true,
+			OriginalSize:  1234,
+		}
+	})
+	t.Cleanup(func() { providershared.SetCaptureToolResultHook(nil) })
+
+	var got []any
+	translateCodexEvent(dto.RawProviderEvent{
+		EventType: "event_msg",
+		Data: map[string]any{
+			"agentId": "agent-1",
+			"turnId":  "turn-1",
+			"item": map[string]any{
+				"type":    "tool_result",
+				"call_id": "call-grep",
+				"invocation": map[string]any{
+					"server": "lsp",
+					"tool":   "grep",
+				},
+				"result": map[string]any{
+					"Ok": map[string]any{
+						"structuredContent": map[string]any{"matches": []any{"a.go"}},
+						"isError":           false,
+					},
+				},
+			},
+		},
+	}, func(ev any) { got = append(got, ev) })
+
+	if len(got) != 1 {
+		t.Fatalf("published events = %d, want 1", len(got))
+	}
+	end, ok := got[0].(tooldto.ToolCallEnd)
+	if !ok {
+		t.Fatalf("event type = %T, want ToolCallEnd", got[0])
+	}
+	if end.Result != `{"captured":true}` || end.PersistedPath != "/tmp/tool-result.json" || !end.Truncated || end.OriginalSize != 1234 {
+		t.Fatalf("ToolCallEnd capture fields = %+v, want captured preview/path/truncation", end)
+	}
+}
+
+func TestTranslateCodexRolloutFunctionCallOutputWithoutToolNameIsIgnored(t *testing.T) {
+	translateCodexEvent(dto.RawProviderEvent{
+		EventType: "event_msg",
+		Data: map[string]any{
+			"agentId": "agent-1",
+			"turnId":  "turn-1",
+			"item": map[string]any{
+				"type":    "function_call_output",
+				"call_id": "call-file",
+				"output":  `{"success":true}`,
+			},
+		},
+	}, func(ev any) {
+		t.Fatalf("function_call_output without ToolName published %#v, want no typed event", ev)
+	})
+}
+
+func TestTranslateCodexRolloutMCPToolCallEndMarksToolError(t *testing.T) {
+	var got []any
+	translateCodexEvent(dto.RawProviderEvent{
+		EventType: "event_msg",
+		Data: map[string]any{
+			"agentId": "agent-1",
+			"turnId":  "turn-1",
+			"type":    "mcp_tool_call_end",
+			"call_id": "call-file",
+			"invocation": map[string]any{
+				"server": "lsp",
+				"tool":   "file",
+			},
+			"result": map[string]any{
+				"Ok": map[string]any{
+					"content": []any{map[string]any{
+						"type": "text",
+						"text": "structured output error",
+					}},
+					"isError": true,
+				},
+			},
+		},
+	}, func(ev any) { got = append(got, ev) })
+
+	if len(got) != 1 {
+		t.Fatalf("published events = %d, want 1", len(got))
+	}
+	end, ok := got[0].(tooldto.ToolCallEnd)
+	if !ok {
+		t.Fatalf("event type = %T, want ToolCallEnd", got[0])
+	}
+	if end.Success || end.Error != "structured output error" {
+		t.Fatalf("ToolCallEnd = %+v, want content text error", end)
 	}
 }

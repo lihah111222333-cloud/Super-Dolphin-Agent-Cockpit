@@ -228,6 +228,10 @@ func newTestSupervisor(t *testing.T, opts ...PeerSupervisorOption) (*PeerSupervi
 	return s, launcher, tracker
 }
 
+func testPeerParentEnv() []string {
+	return []string{"PATH=/bin", "GO_AGENT_CTL_SESSION_TOKEN=test-peer-token"}
+}
+
 // runSupervisor starts Run in a goroutine and returns a done channel that
 // closes when Run returns. Callers are responsible for cancelling the ctx.
 func runSupervisor(ctx context.Context, s *PeerSupervisor) <-chan error {
@@ -277,7 +281,7 @@ func TestPeerProcessEnvInjectsConfiguredMcpLSPWorkspaceRoots(t *testing.T) {
 		t.Fatalf("Marshal roots: %v", err)
 	}
 
-	env, err := peerProcessEnv("mcp-lsp", []string{"PATH=/bin"}, []string{root})
+	env, err := peerProcessEnv("mcp-lsp", testPeerParentEnv(), []string{root})
 	if err != nil {
 		t.Fatalf("peerProcessEnv() error = %v", err)
 	}
@@ -285,8 +289,23 @@ func TestPeerProcessEnvInjectsConfiguredMcpLSPWorkspaceRoots(t *testing.T) {
 	requireEnvValue(t, env, "GO_AGENT_LSP_ROOTS", string(rawRoots))
 }
 
+func TestPeerProcessEnvRequiresSessionToken(t *testing.T) {
+	_, err := peerProcessEnv("mcp-orch", []string{"PATH=/bin"}, nil)
+	if err == nil || !strings.Contains(err.Error(), "GO_AGENT_CTL_SESSION_TOKEN") {
+		t.Fatalf("peerProcessEnv() error = %v, want visible missing session token failure", err)
+	}
+}
+
+func TestPeerProcessEnvCarriesLegacySessionTokenAsCanonical(t *testing.T) {
+	env, err := peerProcessEnv("mcp-orch", []string{"PATH=/bin", "GO_AGENT_MCP_SESSION_TOKEN=legacy-token"}, nil)
+	if err != nil {
+		t.Fatalf("peerProcessEnv() error = %v", err)
+	}
+	requireEnvValue(t, env, "GO_AGENT_CTL_SESSION_TOKEN", "legacy-token")
+}
+
 func TestPeerProcessEnvRejectsExplicitInvalidMcpLSPRoots(t *testing.T) {
-	_, err := peerProcessEnv("mcp-lsp", []string{"GO_AGENT_LSP_ROOTS=not-json"}, nil)
+	_, err := peerProcessEnv("mcp-lsp", append(testPeerParentEnv(), "GO_AGENT_LSP_ROOTS=not-json"), nil)
 	if err == nil || !strings.Contains(err.Error(), "GO_AGENT_LSP_ROOTS") {
 		t.Fatalf("peerProcessEnv() error = %v, want explicit roots parse failure", err)
 	}
@@ -295,7 +314,7 @@ func TestPeerProcessEnvRejectsExplicitInvalidMcpLSPRoots(t *testing.T) {
 func TestExecPeerLauncherFailsWhenNoRootSourceExists(t *testing.T) {
 	launcher := newExecPeerLauncher(nil)
 	launcher.workspaceRoots = func() []string { return nil }
-	_, err := launcher.peerEnvForTest("mcp-lsp", []string{"PATH=/bin"})
+	_, err := launcher.peerEnvForTest("mcp-lsp", testPeerParentEnv())
 	if err == nil || !strings.Contains(err.Error(), "workspace root") {
 		t.Fatalf("peer env error = %v, want visible missing root failure", err)
 	}
@@ -312,7 +331,7 @@ func TestProvideDefaultPeerSupervisorWiresProjectRootIntoMcpLSPLauncher(t *testi
 	if !ok {
 		t.Fatalf("launcher type = %T, want *execPeerLauncher", supervisor.launcher)
 	}
-	env, err := launcher.peerEnvForTest("mcp-lsp", []string{"PATH=/bin"})
+	env, err := launcher.peerEnvForTest("mcp-lsp", testPeerParentEnv())
 	if err != nil {
 		t.Fatalf("peer env error = %v", err)
 	}
@@ -330,7 +349,7 @@ func TestProvideDefaultPeerSupervisorRejectsMissingProjectRootForMcpLSP(t *testi
 	runner := provideDefaultPeerSupervisor(nil, nil, &contract.Config{ProjectRoot: "relative"})
 	supervisor := runner.(*PeerSupervisor)
 	launcher := supervisor.launcher.(*execPeerLauncher)
-	_, err := launcher.peerEnvForTest("mcp-lsp", []string{"PATH=/bin"})
+	_, err := launcher.peerEnvForTest("mcp-lsp", testPeerParentEnv())
 	if err == nil || !strings.Contains(err.Error(), "workspace root") {
 		t.Fatalf("peer env error = %v, want visible workspace-root failure", err)
 	}

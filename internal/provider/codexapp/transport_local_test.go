@@ -21,7 +21,10 @@ import (
 	"testing"
 	"time"
 
+	tooldto "github.com/anthropic-ai/super-agent-v3/internal/dto/tool"
+	"github.com/anthropic-ai/super-agent-v3/internal/provider/unified"
 	"github.com/gorilla/websocket"
+	"github.com/kelindar/event"
 )
 
 type localCodexHelper struct {
@@ -183,6 +186,58 @@ func TestTransportStartupFailureCleansUpOrphans(t *testing.T) {
 	}
 	childPID := waitForHelperChildPID(t, helper.childPIDPath, time.Second)
 	waitForProcessExit(t, childPID, 5*time.Second)
+}
+
+func TestTransportDispatchReadMessage_CodexRolloutFramesDispatchToolLifecycle(t *testing.T) {
+	bus := event.NewDispatcher()
+	dispatcher := unified.NewEventDispatcher(bus, nil)
+	RegisterTranslators(dispatcher)
+	beginCh := make(chan tooldto.ToolCallBegin, 1)
+	endCh := make(chan tooldto.ToolCallEnd, 1)
+	cancelBegin := event.Subscribe(bus, func(ev tooldto.ToolCallBegin) { beginCh <- ev })
+	defer cancelBegin()
+	cancelEnd := event.Subscribe(bus, func(ev tooldto.ToolCallEnd) { endCh <- ev })
+	defer cancelEnd()
+
+	ctx := context.Background()
+	s := newInboundTestSession(ctx, nil, &ServerManager{})
+	s.dispatcher = dispatcher
+	transport := &transport{}
+	handler := func(ctx context.Context, resp Responder, msg RawMessage) {
+		s.onInboundMessage(ctx, resp, msg)
+	}
+
+	transport.dispatchReadMessage(ctx, []byte(`{
+		"timestamp":"2026-05-21T13:49:04.055Z",
+		"type":"response_item",
+		"payload":{
+			"type":"function_call",
+			"name":"file",
+			"namespace":"mcp__lsp__",
+			"arguments":"{\"action\":\"read_file\",\"file_path\":\"smoke.go\"}",
+			"call_id":"call-file"
+		}
+	}`), handler)
+	begin := waitToolCallBegin(t, beginCh)
+	if begin.CallID != "call-file" || begin.ToolName != "mcp__lsp__file" {
+		t.Fatalf("ToolCallBegin = %+v, want call-file/mcp__lsp__file", begin)
+	}
+
+	transport.dispatchReadMessage(ctx, []byte(`{
+		"timestamp":"2026-05-21T13:49:04.057Z",
+		"type":"event_msg",
+		"payload":{
+			"type":"mcp_tool_call_end",
+			"call_id":"call-file",
+			"invocation":{"server":"lsp","tool":"file","arguments":{"action":"read_file","file_path":"smoke.go"}},
+			"duration":{"secs":0,"nanos":2062541},
+			"result":{"Ok":{"content":[{"type":"text","text":"\" 1: package main\\n\""}],"structuredContent":{"value":" 1: package main\n"},"isError":false}}
+		}
+	}`), handler)
+	end := waitToolCallEnd(t, endCh)
+	if end.CallID != "call-file" || end.ToolName != "mcp__lsp__file" || !end.Success {
+		t.Fatalf("ToolCallEnd = %+v, want successful call-file/mcp__lsp__file", end)
+	}
 }
 
 func TestCodexHelperProcess(t *testing.T) {

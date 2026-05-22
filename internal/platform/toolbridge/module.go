@@ -59,6 +59,7 @@ type handlerIn struct {
 	Preferences  uiPreferenceReader        `optional:"true"`
 	Config       *platformconfig.Config    `optional:"true"`
 	Logger       *pkglogger.Logger         `optional:"true"`
+	Dispatcher   *event.Dispatcher         `optional:"true"`
 	// HostTools is an fx optional field: in the agent-terminal graph it is
 	// filled by provideHostToolRegistry; tests or future no-provider graphs
 	// can leave it nil and the Handler falls back to the peer path.

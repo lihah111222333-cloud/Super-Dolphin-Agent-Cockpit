@@ -91,8 +91,36 @@ func TestAdaptMCPResponseAllowsStructuredJSONStringPayload(t *testing.T) {
 	if !result.Success {
 		t.Fatalf("Success = false, want true for structuredContent JSON string")
 	}
-	if string(result.StructuredContent) != string(raw) {
-		t.Fatalf("StructuredContent = %s, want %s", result.StructuredContent, raw)
+	var structured map[string]string
+	if err := json.Unmarshal(result.StructuredContent, &structured); err != nil {
+		t.Fatalf("StructuredContent = %s, want object: %v", result.StructuredContent, err)
+	}
+	if structured["value"] != `{"path":"go.mod","content":"module example"}` {
+		t.Fatalf("StructuredContent value = %q, want wrapped JSON string", structured["value"])
+	}
+}
+
+func TestAdaptMCPResponseWrapsStructuredJSONArrayPayload(t *testing.T) {
+	t.Parallel()
+
+	result, err := adaptMCPResponse(peerToolCallResponse{
+		StructuredContent: json.RawMessage(`[{"name":"targetName"},{"name":"useTarget"}]`),
+	})
+	if err != nil {
+		t.Fatalf("adaptMCPResponse() error = %v", err)
+	}
+	if !result.Success {
+		t.Fatalf("Success = false, want true for structuredContent JSON array")
+	}
+	var structured struct {
+		Items []map[string]any `json:"items"`
+		Total int              `json:"total"`
+	}
+	if err := json.Unmarshal(result.StructuredContent, &structured); err != nil {
+		t.Fatalf("StructuredContent = %s, want object: %v", result.StructuredContent, err)
+	}
+	if structured.Total != 2 || len(structured.Items) != 2 {
+		t.Fatalf("StructuredContent = %s, want total/items wrapper", result.StructuredContent)
 	}
 }
 

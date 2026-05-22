@@ -540,6 +540,22 @@ func TestListToolsForCodex_DedupKeepsHostBeforePeer(t *testing.T) {
 	}
 }
 
+func TestListToolsForCodexPreservesToolDetails(t *testing.T) {
+	inputSchema := json.RawMessage(`{"type":"object","properties":{"query":{"type":"string","description":"search query"}}}`)
+	outputSchema := json.RawMessage(`{"type":"object","properties":{"files":{"type":"object","description":"matches by file"}}}`)
+	registry := &stubKindRegistry{peers: map[string][]*mcpcontrol.ToolInstance{
+		dto.ClientKindOrch: {listToolsPeer([]dto.MCPTool{{Name: "orchestration_launch_agent", Description: "launch", InputSchema: json.RawMessage(`{"type":"object"}`)}}, nil)},
+		dto.ClientKindLSP:  {listToolsPeer([]dto.MCPTool{{Name: "grep", Description: "grep source", InputSchema: inputSchema, OutputSchema: outputSchema}}, nil)},
+	}}
+	h := &Handler{registry: registry}
+
+	got, err := h.ListToolsForCodex(context.Background())
+	if err != nil {
+		t.Fatalf("ListToolsForCodex() error = %v", err)
+	}
+	assertDynamicToolSchema(t, got, "grep", "grep source", inputSchema, outputSchema)
+}
+
 func TestListToolsForCodex_LogsShadowedPeerTool(t *testing.T) {
 	host := &stubHostToolRegistry{tools: []dto.MCPTool{{Name: "dupe", Description: "host wins"}}}
 	registry := &stubKindRegistry{peers: map[string][]*mcpcontrol.ToolInstance{
