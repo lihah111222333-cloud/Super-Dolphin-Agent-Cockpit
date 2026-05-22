@@ -119,7 +119,7 @@ describe('SystemPromptPage behavior', () => {
 
   it('TestSystemPromptPageContentTextareaDisabledInFallback', () => {
     expect(SystemPromptPage.template).toContain(':disabled="saving || fallbackMode || editingHasSections"');
-    expect(SystemPromptPage.template).toContain("{{ fallbackMode ? '只读模式'");
+    expect(SystemPromptPage.template).toContain('{{ savePromptLabel(fallbackMode, saving) }}');
   });
 
   it('prompts/list 404 enters readonly fallback, disables mutations, and hydrates with cwd', async () => {

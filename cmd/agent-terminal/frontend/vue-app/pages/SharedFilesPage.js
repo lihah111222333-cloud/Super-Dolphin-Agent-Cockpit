@@ -359,6 +359,8 @@ export const SharedFilesPage = {
       confirmDeletePath.value = target;
     }
 
+    function deleteActionLabel(file) { if (retention.isDeletionProtected(file)) return '???'; if (deletingPath.value === file.path) return '???...'; return '??'; }
+
     function cancelDelete() {
       if (deletingPath.value) return;
       confirmDeletePath.value = '';
@@ -421,14 +423,9 @@ export const SharedFilesPage = {
       setTimeout(() => { refreshing.value = false; }, 800);
     }
 
-    watch(() => props.files, () => {
-      refreshing.value = false;
-    });
+    watch(() => props.files, () => { refreshing.value = false; });
 
-    onBeforeUnmount(() => {
-      if (noticeTimer) clearTimeout(noticeTimer);
-      if (copyTimer) clearTimeout(copyTimer);
-    });
+    onBeforeUnmount(() => { if (noticeTimer) clearTimeout(noticeTimer); if (copyTimer) clearTimeout(copyTimer); });
 
     return {
       items,
@@ -458,6 +455,7 @@ export const SharedFilesPage = {
       isFinalOutputFile: finalOutput.isFinalOutputFile,
       isDeletionProtected: retention.isDeletionProtected,
       deletionProtectionLabel: retention.deletionProtectionLabel,
+      deleteActionLabel,
       openViewer,
       closeViewer,
       openPromote,
@@ -671,7 +669,7 @@ export const SharedFilesPage = {
                 :disabled="deletingPath === item.path || isDeletionProtected(item)"
                 :title="deletionProtectionLabel(item)"
                 @click="askDelete(item)"
-              >{{ isDeletionProtected(item) ? '已保护' : (deletingPath === item.path ? '删除中...' : '删除') }}</button>
+              >{{ deleteActionLabel(item) }}</button>
               <button
                 class="btn btn-ghost btn-xs"
                 :data-testid="'shared-files-fork-' + idx"

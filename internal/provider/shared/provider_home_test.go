@@ -3,6 +3,7 @@ package shared
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -47,6 +48,7 @@ func TestProviderMirrorTargetsIncludePersonalAndProjectRoots(t *testing.T) {
 	project := t.TempDir()
 	t.Setenv(SuperDolphinHomeEnv, superHome)
 	t.Setenv("HOME", userHome)
+	t.Setenv("USERPROFILE", userHome)
 
 	targets, err := ProviderMirrorTargets(ProviderClaude, project)
 	if err != nil {
@@ -117,6 +119,7 @@ func TestProviderMirrorTargetsUsesCanonicalExplicitHome(t *testing.T) {
 	}
 	aliasHome := filepath.Join(t.TempDir(), "alias-codex")
 	if err := os.Symlink(realHome, aliasHome); err != nil {
+		skipProviderHomeSymlinkPrivilegeNotHeld(t, err)
 		t.Fatalf("Symlink explicit home: %v", err)
 	}
 	home, err := EnsureProviderHome(ProviderCodex, aliasHome)
@@ -145,6 +148,7 @@ func TestProviderMirrorTargetsUsesCanonicalProjectRoot(t *testing.T) {
 	}
 	aliasProject := filepath.Join(t.TempDir(), "alias-project")
 	if err := os.Symlink(realProject, aliasProject); err != nil {
+		skipProviderHomeSymlinkPrivilegeNotHeld(t, err)
 		t.Fatalf("Symlink project: %v", err)
 	}
 
@@ -166,6 +170,7 @@ func TestProviderMirrorTargetsUsesGitRootForSubdirCWD(t *testing.T) {
 	userHome := filepath.Join(t.TempDir(), "user-home")
 	t.Setenv(SuperDolphinHomeEnv, superHome)
 	t.Setenv("HOME", userHome)
+	t.Setenv("USERPROFILE", userHome)
 	project := t.TempDir()
 	subdir := filepath.Join(project, "cmd", "agent-terminal")
 	if err := os.MkdirAll(filepath.Join(project, ".git"), 0o755); err != nil {
@@ -242,6 +247,7 @@ func TestProviderMirrorTargetsUsesCodexOfficialGlobalSkillsRoot(t *testing.T) {
 	userHome := filepath.Join(t.TempDir(), "user-home")
 	project := t.TempDir()
 	t.Setenv("HOME", userHome)
+	t.Setenv("USERPROFILE", userHome)
 
 	targets, err := ProviderMirrorTargets(ProviderCodex, project)
 	if err != nil {
@@ -265,6 +271,7 @@ func TestProviderMirrorTargetsUsesCodexOfficialGlobalSkillsRoot(t *testing.T) {
 func TestEnsureProviderHomeDefaultsToUserCLIHome(t *testing.T) {
 	userHome := filepath.Join(t.TempDir(), "user-home")
 	t.Setenv("HOME", userHome)
+	t.Setenv("USERPROFILE", userHome)
 
 	claudeHome, err := EnsureProviderHome(ProviderClaude, "")
 	if err != nil {
@@ -314,7 +321,17 @@ func assertDirMode(t *testing.T, path string, want os.FileMode) {
 	if err != nil {
 		t.Fatalf("stat %s: %v", path, err)
 	}
+	if runtime.GOOS == "windows" {
+		return
+	}
 	if got := info.Mode().Perm(); got != want {
 		t.Fatalf("mode %s = %o, want %o", path, got, want)
+	}
+}
+
+func skipProviderHomeSymlinkPrivilegeNotHeld(t *testing.T, err error) {
+	t.Helper()
+	if runtime.GOOS == "windows" && strings.Contains(err.Error(), "privilege") {
+		t.Skipf("symlink privilege unavailable: %v", err)
 	}
 }

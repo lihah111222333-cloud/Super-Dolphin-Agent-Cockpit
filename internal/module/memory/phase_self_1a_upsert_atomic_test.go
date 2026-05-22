@@ -116,14 +116,18 @@ func TestPhaseSelf1a_UpsertStructuredConcurrentRaceFree(t *testing.T) {
 	if err != nil {
 		t.Fatalf("newDiskStore() error = %v", err)
 	}
-	const (
-		name        = "Phase self.1a concurrent"
-		concurrency = 16
-		rounds      = 50
-	)
+	const name = "Phase self.1a concurrent"
+	concurrency, rounds := concurrentUpsertLoad()
 	counters := runConcurrentUpserts(t, store, name, concurrency, rounds)
 	assertConcurrentUpsertCounters(t, counters, concurrency*rounds)
 	assertConcurrentUpsertFinalContent(t, store, name)
+}
+
+func concurrentUpsertLoad() (concurrency, rounds int) {
+	if testing.Short() {
+		return 8, 10
+	}
+	return 16, 50
 }
 
 type upsertRaceCounters struct {

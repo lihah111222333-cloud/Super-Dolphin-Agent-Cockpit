@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -218,6 +219,24 @@ func TestResolveTurnRPCCWDRejectsRequestMismatch(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "cwd mismatch") || !strings.Contains(err.Error(), "/thread/worktree") || !strings.Contains(err.Error(), "/active/project") {
 		t.Fatalf("resolveTurnRPCCWD() error = %v, want mismatch with both cwd values", err)
+	}
+}
+
+func TestResolveTurnRPCCWDAcceptsEquivalentWindowsSeparators(t *testing.T) {
+	t.Parallel()
+	if runtime.GOOS != "windows" {
+		t.Skip("Windows drive separator equivalence is Windows-specific")
+	}
+
+	session := &rpcHelperSession{runtimeConfig: map[string]any{"cwd": `D:\project\Super-Dolphin`}}
+	threadRuntimeConfig := map[string]any{"cwd": `D:\project\Super-Dolphin`}
+
+	got, err := resolveTurnRPCCWD("D:/project/Super-Dolphin", session, threadRuntimeConfig)
+	if err != nil {
+		t.Fatalf("resolveTurnRPCCWD() error = %v", err)
+	}
+	if got != `D:\project\Super-Dolphin` {
+		t.Fatalf("resolveTurnRPCCWD() = %q, want authoritative thread runtime cwd", got)
 	}
 }
 

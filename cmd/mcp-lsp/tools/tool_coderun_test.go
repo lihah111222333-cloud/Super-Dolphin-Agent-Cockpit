@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -50,7 +51,8 @@ func (s *recordingCodeRunTestSandbox) ShellRequest(command string, workDir strin
 }
 
 func TestCodeRunUnsupportedLanguageReturnsCapabilityError(t *testing.T) {
-	handler := NewCodeRunHandlerWithSandbox(codeRunTestSandbox{root: t.TempDir()})
+	root := t.TempDir()
+	handler := NewCodeRunHandlerWithSandbox(codeRunTestSandbox{root: root})
 	payload, err := json.Marshal(CodeRunRequest{
 		Mode:     "run",
 		Language: "python",
@@ -60,7 +62,7 @@ func TestCodeRunUnsupportedLanguageReturnsCapabilityError(t *testing.T) {
 		t.Fatalf("marshal request: %v", err)
 	}
 
-	_, err = handler(common.WithToolScope(context.Background(), common.ToolScope{CWD: "/"}), payload)
+	_, err = handler(testToolContext(root), payload)
 	if err == nil {
 		t.Fatal("code_run python error = nil, want unsupported capability")
 	}
@@ -127,15 +129,12 @@ func TestCodeRunProjectCommandUsesTrustedToolScopeCWD(t *testing.T) {
 	}
 	payload, err := json.Marshal(CodeRunRequest{
 		Mode:    "project_cmd",
-		Command: "pwd",
+		Command: printWorkingDirectoryCommand(),
 	})
 	if err != nil {
 		t.Fatalf("marshal request: %v", err)
 	}
-	ctx := context.WithValue(context.Background(), common.ToolScopeContextKey, common.ToolScope{
-		CWD:    trustedRoot,
-		Family: "lsp",
-	})
+	ctx := testToolContext(trustedRoot)
 
 	got, err := handler(ctx, payload)
 	if err != nil {
@@ -167,7 +166,7 @@ func TestCodeRunProjectCommandAllowsAbsoluteWorkDirInAdditionalWorkspaceRoot(t *
 	}
 	payload, err := json.Marshal(CodeRunRequest{
 		Mode:    "project_cmd",
-		Command: "pwd",
+		Command: printWorkingDirectoryCommand(),
 		WorkDir: extraRoot,
 	})
 	if err != nil {
@@ -199,6 +198,13 @@ func TestCodeRunProjectCommandAllowsAbsoluteWorkDirInAdditionalWorkspaceRoot(t *
 	}
 }
 
+func printWorkingDirectoryCommand() string {
+	if runtime.GOOS == "windows" {
+		return "cd"
+	}
+	return "pwd"
+}
+
 func TestCodeRunProjectCommandAllowsCanonicalWorkDirInAdditionalWorkspaceRoot(t *testing.T) {
 	startupRoot := t.TempDir()
 	primaryRoot := t.TempDir()
@@ -214,7 +220,7 @@ func TestCodeRunProjectCommandAllowsCanonicalWorkDirInAdditionalWorkspaceRoot(t 
 	}
 	payload, err := json.Marshal(CodeRunRequest{
 		Mode:    "project_cmd",
-		Command: "pwd",
+		Command: printWorkingDirectoryCommand(),
 		WorkDir: realExtraRoot,
 	})
 	if err != nil {
@@ -247,8 +253,9 @@ func TestCodeRunProjectCommandAllowsCanonicalWorkDirInAdditionalWorkspaceRoot(t 
 }
 
 func TestCodeRunSandboxErrorReturnsToolError(t *testing.T) {
+	root := t.TempDir()
 	handler := NewCodeRunHandlerWithSandbox(codeRunTestSandbox{
-		root: t.TempDir(),
+		root: root,
 		err:  errors.New("sandbox unavailable"),
 	})
 	payload, err := json.Marshal(CodeRunRequest{
@@ -259,7 +266,7 @@ func TestCodeRunSandboxErrorReturnsToolError(t *testing.T) {
 		t.Fatalf("marshal request: %v", err)
 	}
 
-	got, err := handler(common.WithToolScope(context.Background(), common.ToolScope{CWD: "/"}), payload)
+	got, err := handler(testToolContext(root), payload)
 	if err == nil || !strings.Contains(err.Error(), "sandbox unavailable") {
 		t.Fatalf("code_run error = %v, want sandbox unavailable", err)
 	}

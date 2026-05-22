@@ -538,7 +538,7 @@ func readBindAgentThreadSQL(t *testing.T) string {
 	if err != nil {
 		t.Fatalf("ReadFile(%q) error = %v", path, err)
 	}
-	return string(content)
+	return strings.ReplaceAll(string(content), "\r\n", "\n")
 }
 
 func extractSQLBlock(t *testing.T, sql, start, end string) string {

@@ -121,6 +121,8 @@ func TestSkillResolutionApplySameNameRenameSelectedSource(t *testing.T) {
 }
 
 func TestSkillResolutionApplySameNameKeepSelectedProjectDuplicateByDirectory(t *testing.T) {
+	skipWindowsShortMirrorIntegration(t)
+
 	project := t.TempDir()
 	superHome := filepath.Join(t.TempDir(), ".super-dolphin")
 	svc := &service{projectRoot: project, projectSkillsRoot: defaultProjectSkillsRoot(project), superDolphinHome: superHome, http: &http.Client{}}
@@ -242,7 +244,14 @@ func dispatchResolutionApplyWithName(t *testing.T, server *platformrpc.Server, p
 
 func dispatchResolutionPreviewWithKeepSource(t *testing.T, server *platformrpc.Server, project, conflictID, keepSourceID string) skillResolutionPreviewResult {
 	t.Helper()
-	raw, err := server.Dispatch(context.Background(), "skills/resolution_preview", json.RawMessage(`{"cwd":"`+project+`","conflict_id":"`+conflictID+`","name":"same","scope":"project","action":"`+ResolutionKeepSelected+`","keep_source_id":"`+keepSourceID+`"}`))
+	raw, err := server.Dispatch(context.Background(), "skills/resolution_preview", mustRawJSON(t, map[string]any{
+		"cwd":            project,
+		"conflict_id":    conflictID,
+		"name":           "same",
+		"scope":          "project",
+		"action":         ResolutionKeepSelected,
+		"keep_source_id": keepSourceID,
+	}))
 	if err != nil {
 		t.Fatalf("Dispatch keep_selected preview with keep_source_id: %v", err)
 	}
@@ -251,7 +260,15 @@ func dispatchResolutionPreviewWithKeepSource(t *testing.T, server *platformrpc.S
 
 func dispatchResolutionPreviewWithRenameSource(t *testing.T, server *platformrpc.Server, project, conflictID, keepSourceID, newName string) skillResolutionPreviewResult {
 	t.Helper()
-	raw, err := server.Dispatch(context.Background(), "skills/resolution_preview", json.RawMessage(`{"cwd":"`+project+`","conflict_id":"`+conflictID+`","name":"same","scope":"project","action":"`+ResolutionRenamePersonal+`","keep_source_id":"`+keepSourceID+`","new_name":"`+newName+`"}`))
+	raw, err := server.Dispatch(context.Background(), "skills/resolution_preview", mustRawJSON(t, map[string]any{
+		"cwd":            project,
+		"conflict_id":    conflictID,
+		"name":           "same",
+		"scope":          "project",
+		"action":         ResolutionRenamePersonal,
+		"keep_source_id": keepSourceID,
+		"new_name":       newName,
+	}))
 	if err != nil {
 		t.Fatalf("Dispatch rename_personal preview with keep_source_id: %v", err)
 	}

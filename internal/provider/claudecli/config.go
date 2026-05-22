@@ -5,6 +5,7 @@ import (
 	"maps"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
@@ -17,6 +18,9 @@ func resolveAbsCWD(cwd string) string {
 	cwd = strings.TrimSpace(cwd)
 	if cwd == "" || cwd == "." {
 		return ""
+	}
+	if runtime.GOOS == "windows" && strings.HasPrefix(cwd, "/") && !strings.HasPrefix(cwd, "//") {
+		return cwd
 	}
 	if filepath.IsAbs(cwd) {
 		return cwd

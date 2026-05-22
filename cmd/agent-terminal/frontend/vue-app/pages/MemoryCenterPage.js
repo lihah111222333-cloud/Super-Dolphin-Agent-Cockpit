@@ -89,6 +89,38 @@ function statusLabel(enabled) {
   return enabled ? '已启用' : '未启用';
 }
 
+function normalizeAutoDreamIntent(value) {
+  if (value === true) return true;
+  if (value === false) return false;
+  return null;
+}
+
+function useAutoDreamControls(overview, setNotice, emit) {
+  const runtimeEnabled = computed(() => overview.value.autoDreamEnabled === true);
+  const intent = computed(() => normalizeAutoDreamIntent(overview.value.autoDreamIntent));
+  const enabled = computed(() => (intent.value === null ? runtimeEnabled.value : intent.value));
+  const status = computed(() => (enabled.value ? '已开启' : '已关闭'));
+  const pendingRestart = computed(() => intent.value !== null && intent.value !== runtimeEnabled.value);
+  const toggling = ref(false);
+
+  async function toggle() {
+    if (toggling.value) return;
+    const next = !enabled.value;
+    toggling.value = true;
+    try {
+      await callAPI('ui/memory/auto-dream/set-intent', { enabled: next });
+      setNotice('warning', `自动沉淀已切换为${next ? '开启' : '关闭'}，重启 agent-terminal 后生效`);
+      emit('refresh');
+    } catch (error) {
+      setNotice('error', `切换自动沉淀失败：${(error && error.message) || String(error || '')}`);
+    } finally {
+      toggling.value = false;
+    }
+  }
+
+  return { enabled, status, pendingRestart, toggling, toggle };
+}
+
 export const MemoryCenterPage = {
   name: 'MemoryCenterPage',
   props: {
@@ -110,19 +142,7 @@ export const MemoryCenterPage = {
 
     const currentCwd = computed(() => firstNonEmpty(overview.value.projectRoot));
     const systemDisabled = computed(() => overview.value.enabled === false);
-    const autoDreamRuntimeEnabled = computed(() => overview.value.autoDreamEnabled === true);
-    const autoDreamIntent = computed(() => {
-      const v = overview.value.autoDreamIntent;
-      return v === true ? true : v === false ? false : null;
-    });
-    const autoDreamEnabled = computed(() => (
-      autoDreamIntent.value === null ? autoDreamRuntimeEnabled.value : autoDreamIntent.value
-    ));
-    const autoDreamStatusLabel = computed(() => (autoDreamEnabled.value ? '已开启' : '已关闭'));
-    const autoDreamPendingRestart = computed(() => (
-      autoDreamIntent.value !== null && autoDreamIntent.value !== autoDreamRuntimeEnabled.value
-    ));
-    const autoDreamToggling = ref(false);
+    const autoDream = useAutoDreamControls(overview, setNotice, emit);
 
     const health = computed(() => overview.value.health || null);
     function healthPercent(count, max) {
@@ -257,21 +277,6 @@ export const MemoryCenterPage = {
 
     function setBusy(path) { busyPath.value = path || ''; }
 
-    async function toggleAutoDream() {
-      if (autoDreamToggling.value) return;
-      const next = !autoDreamEnabled.value;
-      autoDreamToggling.value = true;
-      try {
-        await callAPI('ui/memory/auto-dream/set-intent', { enabled: next });
-        setNotice('warning', `自动沉淀已切换为${next ? '开启' : '关闭'} — 重启 agent-terminal 后生效`);
-        emit('refresh');
-      } catch (error) {
-        setNotice('error', `切换自动沉淀失败：${(error && error.message) || String(error || '')}`);
-      } finally {
-        autoDreamToggling.value = false;
-      }
-    }
-
     // --- Tab switching ---
     const activeTab = ref('pref');
     const visibleEntries = computed(() => {
@@ -372,11 +377,11 @@ export const MemoryCenterPage = {
       searchExpanded,
       toggleSearch,
       systemDisabled,
-      autoDreamEnabled,
-      autoDreamStatusLabel,
-      autoDreamPendingRestart,
-      autoDreamToggling,
-      toggleAutoDream,
+      autoDreamEnabled: autoDream.enabled,
+      autoDreamStatusLabel: autoDream.status,
+      autoDreamPendingRestart: autoDream.pendingRestart,
+      autoDreamToggling: autoDream.toggling,
+      toggleAutoDream: autoDream.toggle,
       health,
       healthPrefPercent,
       healthProjPercent,

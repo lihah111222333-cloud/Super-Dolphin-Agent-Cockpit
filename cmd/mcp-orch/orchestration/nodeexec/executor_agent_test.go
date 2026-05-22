@@ -60,7 +60,7 @@ func launchEnvValue(env []string, key string) string {
 func makeAgentNode(t *testing.T, cfg AgentNodeConfig) Node {
 	t.Helper()
 	if strings.TrimSpace(cfg.Exec.CWD) == "" {
-		cfg.Exec.CWD = "/tmp/node-cwd"
+		cfg.Exec.CWD = testCWD(t, "node-cwd")
 	}
 	raw, err := json.Marshal(cfg)
 	if err != nil {

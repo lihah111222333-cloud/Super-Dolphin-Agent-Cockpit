@@ -61,6 +61,9 @@ func TestToolbridgeDiffFallbackSubscribersRegisterCancelAndDeliver(t *testing.T)
 		emitted = append(emitted, diff)
 		return nil
 	}, resolverFunc(func(context.Context, string) (string, error) { return repo, nil }), nil)
+	tracker.readCurrentDiff = func(context.Context, string) (string, []string, bool) {
+		return "diff --git a/tracked.txt b/tracked.txt\n", []string{"tracked.txt"}, true
+	}
 	spec := NewToolbridgeDiffFallbackSubscribers(tracker).Spec
 
 	cancel := spec.Register(dispatcher)

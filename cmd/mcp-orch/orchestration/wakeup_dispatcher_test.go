@@ -2,7 +2,6 @@ package orchestration
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"strings"
 	"sync"
@@ -13,10 +12,10 @@ import (
 	taskdag "github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/taskdag"
 )
 
-// dispatcherStubStore 是 Phase 3.1/3.2 单测用的 taskdag.Store 假实现，
-// 关注 ClaimDueWakeups + MarkWakeupSent + RetryWakeup + FailWakeup 行为：
-// 记录入参 + 按预设结果返回。其余方法返回安全 zero / 错误，避免
-// dispatcher 误用未接通的 store 接口面。
+// dispatcherStubStore �?Phase 3.1/3.2 单测用的 taskdag.Store 假实现，
+// 关注 ClaimDueWakeups + MarkWakeupSent + RetryWakeup + FailWakeup 行为�?
+// 记录入参 + 按预设结果返回。其余方法返回安�?zero / 错误，避�?
+// dispatcher 误用未接通的 store 接口面�?
 type dispatcherStubStore struct {
 	taskdag.Store // 默认 nil 嵌入，调用任何未覆盖方法都会 panic（暴露遗漏）
 
@@ -29,7 +28,7 @@ type dispatcherStubStore struct {
 	markSentErr   error
 
 	retryCalls []taskdag.RetryWakeupInput
-	retryRows  int64 // <0 = 模拟 SQL attempt_count >= 8 触发的兜底 fail
+	retryRows  int64 // <0 = 模拟 SQL attempt_count >= 8 触发的兜�?fail
 	retryErr   error
 
 	failCalls   []taskdag.FailWakeupInput
@@ -37,8 +36,8 @@ type dispatcherStubStore struct {
 	failRowsSet bool
 	failErr     error
 
-	// Phase 3.5w: DAG-aware 决策需要的 stub 字段。默认 dagReply=nil 让
-	// resolveDAGRetryPolicy 退化到旧 RetryWakeup 路径，老用例不受影响。
+	// Phase 3.5w: DAG-aware 决策需要的 stub 字段。默�?dagReply=nil �?
+	// resolveDAGRetryPolicy 退化到�?RetryWakeup 路径，老用例不受影响�?
 	dagReply         *taskdag.DAG
 	dagErr           error
 	nodesReply       []taskdag.Node
@@ -160,7 +159,7 @@ func (s *dispatcherStubStore) RetryWakeup(_ context.Context, input taskdag.Retry
 	if s.retryErr != nil {
 		return 0, s.retryErr
 	}
-	// 默认返回 1（重试成功写入）；显式设 retryRows<0 模拟 SQL 兜底（attempt 上限）。
+	// 默认返回 1（重试成功写入）；显式设 retryRows<0 模拟 SQL 兜底（attempt 上限）�?
 	if s.retryRows == 0 {
 		return 1, nil
 	}
@@ -184,8 +183,8 @@ func (s *dispatcherStubStore) FailWakeup(_ context.Context, input taskdag.FailWa
 	return s.failRows, nil
 }
 
-// dispatcherStubLauncher 是 WakeupLauncher 的假实现：记录每次 LaunchAgent
-// 的入参 + 按预设错误队列返回。空队列时一律成功。
+// dispatcherStubLauncher �?WakeupLauncher 的假实现：记录每�?LaunchAgent
+// 的入�?+ 按预设错误队列返回。空队列时一律成功�?
 type dispatcherStubLauncher struct {
 	calls []LaunchRequest
 	errs  []error // FIFO；超出长度后默认 nil
@@ -278,7 +277,7 @@ func TestWakeupDispatcherFailsDAGWakeupMissingRunID(t *testing.T) {
 }
 
 func TestWakeupDispatcherTickEmptyClaimReturnsZero(t *testing.T) {
-	store := &dispatcherStubStore{} // claimReply 默认 nil → 空 slice 等价
+	store := &dispatcherStubStore{} // claimReply 默认 nil �?�?slice 等价
 	d, err := NewWakeupDispatcher(store, nil, nil, WakeupDispatcherConfig{})
 	if err != nil {
 		t.Fatalf("NewWakeupDispatcher err = %v", err)
@@ -354,14 +353,14 @@ func TestWakeupDispatcher_RouterTerminalFailureLifecycleHooks(t *testing.T) {
 			RunID:         int64Ptr(7001),
 			ClaimedBy:     "worker-a",
 			AttemptCount:  1,
-			PromptPayload: json.RawMessage(`{}`),
+			PromptPayload: testRawConfig(t, `{}`),
 		}},
 		nodesReply: []taskdag.Node{{
 			DagKey:   "dag-1",
 			NodeKey:  "auto1",
 			NodeType: "automation",
 			Status:   string(nodeexec.NodeStatusReady),
-			Config:   json.RawMessage(`{"exec":{"command_ref":"missing-runner"}}`),
+			Config:   testRawConfig(t, `{"exec":{"command_ref":"missing-runner"}}`),
 		}},
 	}
 	d, err := NewWakeupDispatcher(store, &dispatcherStubLauncher{}, nil, WakeupDispatcherConfig{ClaimedBy: "worker-a"})
@@ -411,7 +410,7 @@ func TestWakeupDispatcher_RouterFrameworkErrorRetriesWakeup(t *testing.T) {
 			NodeKey:  "n1",
 			NodeType: "agent",
 			Status:   string(nodeexec.NodeStatusReady),
-			Config:   json.RawMessage(`{"exec":{"agent_key":"alpha","cwd":"/tmp/node-cwd"},"first_turn":"hi"}`),
+			Config:   testRawConfig(t, `{"exec":{"agent_key":"alpha","cwd":"/tmp/node-cwd"},"first_turn":"hi"}`),
 		}},
 		runningErr: errors.New("running status write failed"),
 	}
@@ -456,14 +455,14 @@ func TestWakeupDispatcher_RetryExhaustedLifecycleHooksKeepFailureClass(t *testin
 		}},
 		dagReply: &taskdag.DAG{
 			DagKey:   "dag-1",
-			Metadata: json.RawMessage(`{"schedule":{"default_retry":0}}`),
+			Metadata: testRawConfig(t, `{"schedule":{"default_retry":0}}`),
 		},
 		nodesReply: []taskdag.Node{{
 			DagKey:   "dag-1",
 			NodeKey:  "n1",
 			NodeType: "agent",
 			Status:   string(nodeexec.NodeStatusReady),
-			Config:   json.RawMessage(`{"exec":{"agent_key":"alpha","cwd":"/tmp/node-cwd"},"first_turn":"hi"}`),
+			Config:   testRawConfig(t, `{"exec":{"agent_key":"alpha","cwd":"/tmp/node-cwd"},"first_turn":"hi"}`),
 		}},
 	}
 	d, err := NewWakeupDispatcher(store, &dispatcherStubLauncher{}, nil, WakeupDispatcherConfig{ClaimedBy: "worker-a"})
@@ -512,7 +511,7 @@ func TestWakeupDispatcher_SQLRetryHardCapInvokesLifecycleHooks(t *testing.T) {
 			NodeKey:  "n1",
 			NodeType: "agent",
 			Status:   string(nodeexec.NodeStatusReady),
-			Config:   json.RawMessage(`{"exec":{"agent_key":"alpha","cwd":"/tmp/node-cwd"},"first_turn":"hi"}`),
+			Config:   testRawConfig(t, `{"exec":{"agent_key":"alpha","cwd":"/tmp/node-cwd"},"first_turn":"hi"}`),
 		}},
 	}
 	d, err := NewWakeupDispatcher(store, &dispatcherStubLauncher{}, nil, WakeupDispatcherConfig{ClaimedBy: "worker-a"})
@@ -616,7 +615,7 @@ func TestWakeupDispatcherTickWrapsStoreError(t *testing.T) {
 }
 
 func TestWakeupDispatcherTickHandlesNilContextSafely(t *testing.T) {
-	// dispatcher 不应该 panic 当 caller 传 nil ctx——内部回退到 Background。
+	// dispatcher 不应�?panic �?caller �?nil ctx——内部回退�?Background�?
 	store := &dispatcherStubStore{}
 	d, err := NewWakeupDispatcher(store, nil, nil, WakeupDispatcherConfig{})
 	if err != nil {
@@ -638,7 +637,7 @@ func TestWakeupDispatcherConfigOrDefaultsKeepsExplicitValues(t *testing.T) {
 	}
 }
 
-// === Phase 3.2 tests · 主循环 + launch + 状态推进 =====================
+// === Phase 3.2 tests · 主循�?+ launch + 状态推�?=====================
 
 func makeClaimedWakeup(id int64, agentID string, attempt int32, now time.Time) taskdag.Wakeup {
 	lease := now.Add(30 * time.Second)

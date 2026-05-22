@@ -298,6 +298,7 @@ func setupProviderRootSymlinkResolutionFixture(t *testing.T) (string, *platformr
 		t.Fatalf("MkdirAll claude root parent: %v", err)
 	}
 	if err := os.Symlink(legacyCache, claudeRoot); err != nil {
+		skipIfSymlinkPrivilegeNotHeld(t, err)
 		t.Fatalf("Symlink legacy root: %v", err)
 	}
 	return project, newSkillRPCTestServer(t, svc), claudeRoot, legacyCache, audit

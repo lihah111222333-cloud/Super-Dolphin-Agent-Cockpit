@@ -13,6 +13,17 @@ import { perfNow } from '../stores/thread-actions-helpers.js';
 const HISTORY_LOAD_WARN_MS = 500;
 const SELECTION_FLOW_WARN_MS = 500;
 
+export function isStaleThreadSelectionError(error) {
+  const text = [
+    typeof error === 'string' ? error : '',
+    error?.message || '',
+    error?.cause?.message || '',
+  ].join('\n').toLowerCase();
+  if (text.includes('session not found') || text.includes('session is not available')) return true;
+  if (text.includes('thread "') && text.includes('not found: store: not found')) return true;
+  return text.includes('resolve session: thread') && text.includes('context deadline exceeded');
+}
+
 function logTimedDebugOrWarn(event, fields, durationMs, warnThresholdMs) {
   const log = durationMs > warnThresholdMs ? logWarn : logDebug;
   log('ui', event, {
@@ -132,12 +143,18 @@ export async function ensureThreadSelectionFresh(threadStore, threadId, options 
       thread_id: id,
     });
     const concurrentStart = perfNow();
-    const requestedHistory = await requestHistoryLoad(threadStore, id, { syncRuntime: false, force: true }).catch(err => {
+    const requestedHistory = await requestHistoryLoad(threadStore, id, { syncRuntime: false, force: true }).catch((err) => {
       logWarn('ui', 'chat.selection.requestHistoryLoad.failed', { thread_id: id, error: err?.message || String(err) });
+      if (isStaleThreadSelectionError(err)) {
+        throw err;
+      }
       return false;
     });
-    await threadStore.syncThreadState(id).catch(err => {
+    await threadStore.syncThreadState(id).catch((err) => {
       logWarn('ui', 'chat.selection.syncThreadState.failed', { thread_id: id, error: err?.message || String(err) });
+      if (isStaleThreadSelectionError(err)) {
+        throw err;
+      }
     });
     const concurrentDuration = Math.round(perfNow() - concurrentStart);
     const totalDuration = Math.round(perfNow() - selectionStart);

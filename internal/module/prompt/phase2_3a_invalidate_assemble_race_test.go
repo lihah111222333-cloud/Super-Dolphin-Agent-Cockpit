@@ -162,12 +162,15 @@ func TestPhase2_3aSingleflightInvalidateNoStaleStore(t *testing.T) {
 	t.Parallel()
 	svc := NewService(&Config{}, nil)
 	var counter atomic.Int64
+	computeStarted := make(chan struct{})
+	var computeStartedOnce sync.Once
 	const sectionName = "phase2_3a_test_counter"
 	if err := svc.RegisterSection(PromptSection{
 		Name:   sectionName,
 		Order:  10000,
 		Region: PromptRegionStatic,
 		Compute: func(ctx context.Context, _ SectionContext) (*string, error) {
+			computeStartedOnce.Do(func() { close(computeStarted) })
 			time.Sleep(50 * time.Millisecond)
 			s := fmt.Sprintf("counter=%d", counter.Add(1))
 			return &s, nil
@@ -193,7 +196,7 @@ func TestPhase2_3aSingleflightInvalidateNoStaleStore(t *testing.T) {
 
 	// Step 2: sleep 10ms 让 compute 进入 singleflight，然后 invalidate（在
 	// store 触发前）.
-	time.Sleep(10 * time.Millisecond)
+	waitForPhase23aComputeStart(t, computeStarted)
 	if err := svc.Invalidate(context.Background(), contract.InvalidateMemoryWrite); err != nil {
 		t.Fatalf("Invalidate() error = %v", err)
 	}
@@ -280,5 +283,14 @@ func TestPhase2_3aInvalidateRoutingContract(t *testing.T) {
 	}
 	if got := internal.userContextCache.Generation(); got != gen1User {
 		t.Fatalf("InvalidateSections(): userContextCache should NOT advance (sources-keyed via sourceDigest, not sections-keyed): prev=%d got=%d", gen1User, got)
+	}
+}
+
+func waitForPhase23aComputeStart(t *testing.T, started <-chan struct{}) {
+	t.Helper()
+	select {
+	case <-started:
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for test section compute to start")
 	}
 }

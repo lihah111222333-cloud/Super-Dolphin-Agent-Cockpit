@@ -14,6 +14,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/anthropic-ai/super-agent-v3/internal/module/skill/ownerperms"
 	"github.com/anthropic-ai/super-agent-v3/internal/util/pathutil"
 )
 
@@ -150,8 +151,8 @@ func readOwnerIdentitySalt(saltPath string) ([]byte, error) {
 	if !info.Mode().IsRegular() {
 		return nil, fmt.Errorf("owner identity salt is not a regular file")
 	}
-	if got := info.Mode().Perm(); got != 0o600 {
-		return nil, fmt.Errorf("owner identity salt permissions %v are not 0600", got)
+	if err := ownerperms.ValidateOwnerIdentitySaltPermissions(saltPath, info); err != nil {
+		return nil, err
 	}
 	return readNonEmptyOwnerIdentitySalt(saltPath)
 }
@@ -188,6 +189,9 @@ func writeOwnerIdentitySalt(saltPath string, salt []byte) error {
 	}
 	if err := file.Close(); err != nil {
 		return fmt.Errorf("close owner identity salt: %w", err)
+	}
+	if err := ownerperms.SecureOwnerIdentitySaltPermissions(saltPath); err != nil {
+		return err
 	}
 	return nil
 }

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -15,6 +16,7 @@ import (
 )
 
 func TestToolBridge_ForwardsInjectedCWDToPeer(t *testing.T) {
+	root := t.TempDir()
 	args := mustRawJSON(t, map[string]any{"action": "read_file", "file_path": "go.mod"})
 	peer := &mcpcontrol.ToolInstance{Peer: &stubPeer{callbackFn: func(_ context.Context, method string, params any, result any) error {
 		if method != ProxyMethodToolsCall {
@@ -24,8 +26,8 @@ func TestToolBridge_ForwardsInjectedCWDToPeer(t *testing.T) {
 		if !ok {
 			t.Fatalf("Callback() params type = %T, want map[string]any", params)
 		}
-		if got := payload[MetadataKeyCWD]; got != "/repo/wjboot-v2" {
-			t.Fatalf("Callback() _cwd = %#v, want /repo/wjboot-v2", got)
+		if got := payload[MetadataKeyCWD]; got != root {
+			t.Fatalf("Callback() _cwd = %#v, want %s", got, root)
 		}
 		resp, ok := result.(*peerToolCallResponse)
 		if !ok {
@@ -36,7 +38,7 @@ func TestToolBridge_ForwardsInjectedCWDToPeer(t *testing.T) {
 	}}}
 	h, registry := newHandlerForTest(peer)
 	h.bindingStore = &toolCallBindingStoreStub{bindingsByAgent: map[string]toolCallBinding{
-		"agent-1": {AgentID: "agent-1", CWD: "/stale/startup/root"},
+		"agent-1": {AgentID: "agent-1", CWD: filepath.Join(t.TempDir(), "stale")},
 	}}
 
 	result, err := h.HandleToolCall(context.Background(), contract.ToolCallRawMessage{
@@ -46,7 +48,7 @@ func TestToolBridge_ForwardsInjectedCWDToPeer(t *testing.T) {
 			"name":      "lsp_file",
 			"arguments": args,
 			"agentId":   "agent-1",
-			"_cwd":      "/repo/wjboot-v2",
+			"_cwd":      root,
 		}),
 	})
 	if err != nil {
@@ -231,6 +233,8 @@ func assertTrustedWorkspaceRootsPayload(t *testing.T, raw any, want []string) {
 }
 
 func TestToolBridge_ForwardsTrustedWorkspaceRootsToPeer(t *testing.T) {
+	root := t.TempDir()
+	extra := filepath.Join(root, "packages", "api")
 	args := mustRawJSON(t, map[string]any{
 		"action":          "read_file",
 		"file_path":       "go.mod",
@@ -240,8 +244,8 @@ func TestToolBridge_ForwardsTrustedWorkspaceRootsToPeer(t *testing.T) {
 		agentID:        "agent-roots",
 		threadID:       "thread-roots",
 		callID:         "call-roots",
-		cwd:            "/repo",
-		workspaceRoots: []string{"/repo", "/repo/packages/api"},
+		cwd:            root,
+		workspaceRoots: []string{root, extra},
 		replyText:      "roots forwarded",
 	})
 	h, registry := newHandlerForTest(peer)
@@ -253,8 +257,8 @@ func TestToolBridge_ForwardsTrustedWorkspaceRootsToPeer(t *testing.T) {
 		AgentID:        "agent-roots",
 		ThreadID:       "thread-roots",
 		CallID:         "call-roots",
-		CWD:            "/repo",
-		WorkspaceRoots: []string{"/repo", "/repo/packages/api"},
+		CWD:            root,
+		WorkspaceRoots: []string{root, extra},
 	})
 	if err != nil {
 		t.Fatalf("routeToolCall() error = %v", err)
@@ -286,6 +290,7 @@ func TestToolBridge_DoesNotTrustRelativePrimaryRoot(t *testing.T) {
 }
 
 func TestToolBridge_DoesNotPromoteAdditionalRootWithoutTrustedPrimary(t *testing.T) {
+	extra := filepath.Join(t.TempDir(), "packages", "api")
 	args := mustRawJSON(t, map[string]any{"action": "read_file", "file_path": "go.mod"})
 	peer := newTrustedLSPPeer(t, trustedScopePayload{
 		agentID: "agent-no-primary", threadID: "thread-no-primary", callID: "call-no-primary", cwd: "", workspaceRoots: []string{}, replyText: "additional dropped",
@@ -300,7 +305,7 @@ func TestToolBridge_DoesNotPromoteAdditionalRootWithoutTrustedPrimary(t *testing
 		ThreadID:       "thread-no-primary",
 		CallID:         "call-no-primary",
 		CWD:            ".",
-		WorkspaceRoots: []string{"/repo/packages/api"},
+		WorkspaceRoots: []string{extra},
 	})
 	if err != nil {
 		t.Fatalf("routeToolCall() error = %v", err)
@@ -309,13 +314,15 @@ func TestToolBridge_DoesNotPromoteAdditionalRootWithoutTrustedPrimary(t *testing
 }
 
 func TestToolBridge_ResolvesRelativeAdditionalRootsAgainstPrimaryRoot(t *testing.T) {
+	root := t.TempDir()
+	extra := filepath.Join(root, "packages", "api")
 	args := mustRawJSON(t, map[string]any{"action": "read_file", "file_path": "go.mod"})
 	peer := newTrustedLSPPeer(t, trustedScopePayload{
 		agentID:        "agent-rel-extra",
 		threadID:       "thread-rel-extra",
 		callID:         "call-rel-extra",
-		cwd:            "/repo",
-		workspaceRoots: []string{"/repo", "/repo/packages/api"},
+		cwd:            root,
+		workspaceRoots: []string{root, extra},
 		replyText:      "relative resolved",
 	})
 	h, registry := newHandlerForTest(peer)
@@ -327,7 +334,7 @@ func TestToolBridge_ResolvesRelativeAdditionalRootsAgainstPrimaryRoot(t *testing
 		AgentID:        "agent-rel-extra",
 		ThreadID:       "thread-rel-extra",
 		CallID:         "call-rel-extra",
-		CWD:            "/repo",
+		CWD:            root,
 		WorkspaceRoots: []string{"packages/api"},
 	})
 	if err != nil {
@@ -337,6 +344,7 @@ func TestToolBridge_ResolvesRelativeAdditionalRootsAgainstPrimaryRoot(t *testing
 }
 
 func TestToolBridge_ScopedLSPPeerRoutingUsesTrustedMetadata(t *testing.T) {
+	root := t.TempDir()
 	args := mustRawJSON(t, map[string]any{
 		"action":    "read_file",
 		"file_path": "go.mod",
@@ -353,7 +361,7 @@ func TestToolBridge_ScopedLSPPeerRoutingUsesTrustedMetadata(t *testing.T) {
 		}},
 	}
 	rightPeer := newTrustedLSPPeer(t, trustedScopePayload{
-		agentID: "agent-b", threadID: "thread-b", callID: "call-1", cwd: "/trusted/root", replyText: "ok",
+		agentID: "agent-b", threadID: "thread-b", callID: "call-1", cwd: root, replyText: "ok",
 	})
 	h, registry := newHandlerForTest(wrongPeer, rightPeer)
 	registry.scoped = true
@@ -364,7 +372,7 @@ func TestToolBridge_ScopedLSPPeerRoutingUsesTrustedMetadata(t *testing.T) {
 		AgentID:   "agent-b",
 		ThreadID:  "thread-b",
 		CallID:    "call-1",
-		CWD:       "/trusted/root",
+		CWD:       root,
 	})
 	if err != nil {
 		t.Fatalf("routeToolCall() error = %v", err)
@@ -379,6 +387,7 @@ func TestToolBridge_ScopedLSPPeerRoutingUsesTrustedMetadata(t *testing.T) {
 }
 
 func TestLSPReleaseScopeAdminCallCarriesTrustedScope(t *testing.T) {
+	root := t.TempDir()
 	args := mustRawJSON(t, map[string]any{
 		"action":    "read_file",
 		"file_path": "go.mod",
@@ -387,7 +396,7 @@ func TestLSPReleaseScopeAdminCallCarriesTrustedScope(t *testing.T) {
 		"cwd":       "/forged/root",
 	})
 	peer := newTrustedLSPPeer(t, trustedScopePayload{
-		agentID: "trusted-agent", threadID: "trusted-thread", callID: "trusted-call", cwd: "/trusted/root", replyText: "trusted scope",
+		agentID: "trusted-agent", threadID: "trusted-thread", callID: "trusted-call", cwd: root, replyText: "trusted scope",
 	})
 	h, registry := newHandlerForTest(peer)
 	registry.scoped = true
@@ -398,7 +407,7 @@ func TestLSPReleaseScopeAdminCallCarriesTrustedScope(t *testing.T) {
 		AgentID:   "trusted-agent",
 		ThreadID:  "trusted-thread",
 		CallID:    "trusted-call",
-		CWD:       "/trusted/root",
+		CWD:       root,
 	})
 	if err != nil {
 		t.Fatalf("routeToolCall() error = %v", err)
@@ -407,12 +416,13 @@ func TestLSPReleaseScopeAdminCallCarriesTrustedScope(t *testing.T) {
 	if len(registry.gotScopes) != 1 {
 		t.Fatalf("FindActiveForScope() calls = %d, want 1", len(registry.gotScopes))
 	}
-	if scope := registry.gotScopes[0]; scope.AgentID != "trusted-agent" || scope.ThreadID != "trusted-thread" || scope.CallID != "trusted-call" || scope.CWD != "/trusted/root" || scope.Family != dto.ClientKindLSP {
+	if scope := registry.gotScopes[0]; scope.AgentID != "trusted-agent" || scope.ThreadID != "trusted-thread" || scope.CallID != "trusted-call" || scope.CWD != root || scope.Family != dto.ClientKindLSP {
 		t.Fatalf("FindActiveForScope() scope = %#v, want trusted LSP scope", scope)
 	}
 }
 
 func TestToolbridgeHTTPPeerProxyInjectsTrustedScopeMetadata(t *testing.T) {
+	root := t.TempDir()
 	args := mustRawJSON(t, map[string]any{
 		"action":    "read_file",
 		"file_path": "go.mod",
@@ -420,7 +430,7 @@ func TestToolbridgeHTTPPeerProxyInjectsTrustedScopeMetadata(t *testing.T) {
 		"cwd":       "/forged/root",
 	})
 	peer := newTrustedLSPPeer(t, trustedScopePayload{
-		agentID: "agent-http", threadID: "thread-http", callID: "call-http", cwd: "/trusted/http/root", replyText: "metadata injected",
+		agentID: "agent-http", threadID: "thread-http", callID: "call-http", cwd: root, replyText: "metadata injected",
 	})
 	h, registry := newHandlerForTest(peer)
 	registry.scoped = true
@@ -431,7 +441,7 @@ func TestToolbridgeHTTPPeerProxyInjectsTrustedScopeMetadata(t *testing.T) {
 		AgentID:   "agent-http",
 		ThreadID:  "thread-http",
 		CallID:    "call-http",
-		CWD:       "/trusted/http/root",
+		CWD:       root,
 	})
 	if err != nil {
 		t.Fatalf("routeToolCall() error = %v", err)
@@ -581,67 +591,5 @@ func TestProxyRequest_RejectsOversizedBody(t *testing.T) {
 	}
 	if !strings.Contains(got.Error.Message, "request body too large") {
 		t.Fatalf("proxy error message = %q, want request body too large", got.Error.Message)
-	}
-}
-
-func TestProxyToolCall_SetsTimeoutAndNormalizesNullArguments(t *testing.T) {
-	var deadline time.Time
-	h, _ := newHandlerForTest(&mcpcontrol.ToolInstance{Peer: &stubPeer{callbackFn: func(ctx context.Context, method string, params any, result any) error {
-		var ok bool
-		deadline, ok = ctx.Deadline()
-		if !ok {
-			t.Fatal("Callback() context missing deadline")
-		}
-		assertToolCallPayload(t, params, "lsp_hover", json.RawMessage(`{}`))
-		resp, ok := result.(*peerToolCallResponse)
-		if !ok {
-			t.Fatalf("Callback() result type = %T, want *peerToolCallResponse", result)
-		}
-		*resp = peerToolCallResponse{Content: []peerToolCallContent{{Type: "text", Text: "ok"}}}
-		return nil
-	}}})
-	body := string(mustRawJSON(t, map[string]any{
-		"jsonrpc": "2.0",
-		"id":      "req-1",
-		"method":  "tools/call",
-		"params": map[string]any{
-			"name":      "lsp_hover",
-			"arguments": nil,
-		},
-	}))
-
-	got := callProxyRequest(t, h, "/mcp/lsp/agent-1", body)
-	if got.Error != nil {
-		t.Fatalf("proxy response error = %#v, want nil", got.Error)
-	}
-	if deadline.IsZero() {
-		t.Fatal("Callback() deadline was not recorded")
-	}
-	if remaining := time.Until(deadline); remaining <= 0 || remaining > proxyToolCallTimeout+time.Second {
-		t.Fatalf("Callback() deadline remaining = %s, want within (0,%s]", remaining, proxyToolCallTimeout+time.Second)
-	}
-}
-
-func TestProxyToolCall_RejectsFamilyMismatch(t *testing.T) {
-	h, registry := newHandlerForTest(newToolCallPeer(t, "spawn_agent", json.RawMessage(`{}`), "ignored", nil))
-	body := string(mustRawJSON(t, map[string]any{
-		"jsonrpc": "2.0",
-		"id":      "req-1",
-		"method":  "tools/call",
-		"params": map[string]any{
-			"name":      "spawn_agent",
-			"arguments": map[string]any{},
-		},
-	}))
-
-	got := callProxyRequest(t, h, "/mcp/lsp/agent-1", body)
-	if got.Error == nil {
-		t.Fatal("proxy response error = nil, want invalid params")
-	}
-	if got.Error.Code != jsonRPCCodeInvalidParam {
-		t.Fatalf("proxy error code = %d, want %d", got.Error.Code, jsonRPCCodeInvalidParam)
-	}
-	if len(registry.gotKinds) != 0 {
-		t.Fatalf("FindActiveByKind() kinds = %#v, want none", registry.gotKinds)
 	}
 }

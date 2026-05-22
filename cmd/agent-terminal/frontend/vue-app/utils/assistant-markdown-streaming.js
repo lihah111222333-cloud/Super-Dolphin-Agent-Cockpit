@@ -3,9 +3,13 @@ import { logWarn } from '../services/log.js';
 import { measureTailHeight, getWidthVersion, getFontVersion, setInvalidateCallback } from '../services/pretext-layout.js';
 
 const FENCE_DELIMITER_RE = /^(`{3,}|~{3,})/;
-const BLOCKISH_TRAILING_LINE_RE = /^\s*(?:#{1,6}\s|>\s|\|.*\|?|(?:-{3,}|\*{3,}|_{3,})\s*$)/;
+const BLOCKISH_TRAILING_LINE_RE = new RegExp(
+  String.raw`^\s*(#{1,6}\s|>\s|\|.*\|?|(-{3,}|\*{3,}|_{3,})\s*$)`,
+);
 const INLINE_BALANCED_MARKDOWN_RE = /(`[^`\n]+`|\*\*[^*\n]+\*\*|(^|[^*])\*[^*\n]+\*([^*]|$)|~~[^~\n]+~~|\[[^\]\n]+\]\([^\)\n]+\))/;
-const SENTENCE_END_RE = /[。！？!?；;：:.…](?:[)\]"'”’`*_~]+)?$/;
+const SENTENCE_END_RE = new RegExp(
+  String.raw`[?????;.!?]([)\]"'??*_~]+)?$`,
+);
 
 function normalizeStreamingMarkdownText(rawText) {
   return (rawText || '').toString().replace(/\r\n?/g, '\n');

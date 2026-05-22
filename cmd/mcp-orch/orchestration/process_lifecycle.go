@@ -191,8 +191,8 @@ func (s *service) forceKillProcess(agentID string, launchSeq uint64) error {
 		proc = agent.cmd.Process
 	}
 	s.mu.RUnlock()
-	if proc == nil {
-		return fmt.Errorf("orchestration: timed out waiting for process exit for agent %q", agentID)
+	if proc == nil || proc.Pid <= 0 {
+		return fmt.Errorf("orchestration: timed out waiting for process exit for agent %q; no live process handle", agentID)
 	}
 	if err := proc.Kill(); err != nil && !errors.Is(err, os.ErrProcessDone) {
 		s.logger.Warn("orchestration: failed to force-kill timed out agent process", "agent_id", agentID, "launch_seq", launchSeq, "error", err)

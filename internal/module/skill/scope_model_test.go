@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/anthropic-ai/super-agent-v3/internal/module/skill/ownerperms"
 )
 
 func TestResolveCanonicalRoots_ProjectAndPersonal(t *testing.T) {
@@ -40,6 +42,7 @@ func TestDefaultSuperDolphinHome(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("SUPER_DOLPHIN_HOME", "")
 	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
 	if got, want := defaultSuperDolphinHome(), filepath.Join(home, ".super-dolphin"); got != want {
 		t.Fatalf("defaultSuperDolphinHome() fallback = %q, want %q", got, want)
 	}
@@ -127,8 +130,8 @@ func assertOwnerSaltMode(t *testing.T, saltPath string) {
 	if err != nil {
 		t.Fatalf("stat salt: %v", err)
 	}
-	if got := info.Mode().Perm(); got != 0o600 {
-		t.Fatalf("salt permissions = %v, want 0600", got)
+	if err := ownerperms.ValidateOwnerIdentitySaltPermissions(saltPath, info); err != nil {
+		t.Fatalf("salt permissions are not owner-only: %v", err)
 	}
 }
 

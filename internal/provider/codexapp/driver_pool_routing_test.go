@@ -122,6 +122,7 @@ func TestStartSessionReconcilesMirrorsBeforePoolAcquireAndDefaultsIdentity(t *te
 	userHome := filepath.Join(t.TempDir(), "user-home")
 	t.Setenv(providershared.SuperDolphinHomeEnv, superHome)
 	t.Setenv("HOME", userHome)
+	t.Setenv("USERPROFILE", userHome)
 	workDir := t.TempDir()
 	events := []string{}
 	var gotHome string
@@ -162,6 +163,7 @@ func TestStartSessionReconcilesProjectMirrorsFromGitRootBeforePoolAcquire(t *tes
 	userHome := filepath.Join(t.TempDir(), "user-home")
 	t.Setenv(providershared.SuperDolphinHomeEnv, superHome)
 	t.Setenv("HOME", userHome)
+	t.Setenv("USERPROFILE", userHome)
 	repoRoot := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(repoRoot, ".git"), 0o755); err != nil {
 		t.Fatalf("MkdirAll .git: %v", err)
@@ -198,6 +200,7 @@ func TestStartSessionFailsClosedWhenPreparedIdentityHasNoPool(t *testing.T) {
 	userHome := filepath.Join(t.TempDir(), "user-home")
 	t.Setenv(providershared.SuperDolphinHomeEnv, superHome)
 	t.Setenv("HOME", userHome)
+	t.Setenv("USERPROFILE", userHome)
 	workDir := t.TempDir()
 	mirror := &recordingSkillMirrorReconciler{}
 	d := &driver{logger: slog.Default(), mirror: mirror}
@@ -429,6 +432,7 @@ func TestStartSessionNormalizesExplicitCodexHomeBeforeMirrorAndPool(t *testing.T
 	}
 	aliasHome := filepath.Join(t.TempDir(), "alias-codex")
 	if err := os.Symlink(realHome, aliasHome); err != nil {
+		skipIfSymlinkPrivilegeNotHeld(t, err)
 		t.Fatalf("Symlink codex home: %v", err)
 	}
 	wantHome, err := filepath.EvalSymlinks(realHome)

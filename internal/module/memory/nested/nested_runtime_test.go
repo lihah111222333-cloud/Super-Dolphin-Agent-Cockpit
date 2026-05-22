@@ -10,7 +10,8 @@ import (
 
 func TestNestedRuntimeLifecycleResetAndMatcherRoot(t *testing.T) {
 	runtime := NewNestedRuntime(newTestDependencies(testDepsOptions{}))
-	buildA := contract.BuildCtx{GitRoot: "/repo", CWD: "/repo/service"}
+	repoRoot := filepath.Join(t.TempDir(), "repo")
+	buildA := contract.BuildCtx{GitRoot: repoRoot, CWD: filepath.Join(repoRoot, "service")}
 	firstTarget := filepath.Join(buildA.CWD, "main.go")
 	runtime.AddTriggers("thread-1", buildA, []string{"main.go"})
 	assertPendingTrigger(t, runtime, buildA, firstTarget, "ConsumePending()")
@@ -29,7 +30,7 @@ func TestNestedRuntimeLifecycleResetAndMatcherRoot(t *testing.T) {
 	snapshot = runtime.snapshot("thread-1")
 	assertNestedSnapshot(t, snapshot, 1, 1, -1, "provider switch snapshot")
 
-	buildB := contract.BuildCtx{GitRoot: "/repo", CWD: "/repo/other"}
+	buildB := contract.BuildCtx{GitRoot: repoRoot, CWD: filepath.Join(repoRoot, "other")}
 	secondTarget := filepath.Join(buildB.CWD, "other.go")
 	runtime.AddTriggers("thread-1", buildB, []string{"other.go"})
 	snapshot = runtime.snapshot("thread-1")
@@ -138,7 +139,8 @@ func TestNestedRuntimeAllowsReloadWhenDigestChanges(t *testing.T) {
 
 func TestNestedRuntimeAddsReadToolTriggersFromToolResult(t *testing.T) {
 	runtime := NewNestedRuntime(newTestDependencies(testDepsOptions{}))
-	buildCtx := contract.BuildCtx{GitRoot: "/repo", CWD: "/repo/service"}
+	repoRoot := filepath.Join(t.TempDir(), "repo")
+	buildCtx := contract.BuildCtx{GitRoot: repoRoot, CWD: filepath.Join(repoRoot, "service")}
 	runtime.ObserveBuildContext("thread-1", buildCtx)
 	runtime.AddToolReadResult("thread-1", "Read", "Contents of src/main.go:\npackage main", "")
 	pending := runtime.ConsumePending("thread-1", buildCtx)
@@ -154,21 +156,24 @@ func TestNestedRuntimeAddsReadToolTriggersFromToolResult(t *testing.T) {
 // `Contents of <path>:` line surfaces as a pending trigger.
 func TestNestedRuntimePersistedToolReadHonorsCacheRoot(t *testing.T) {
 	cacheRoot := t.TempDir()
+	repoRoot := filepath.Join(t.TempDir(), "repo")
+	cwd := filepath.Join(repoRoot, "service")
+	target := filepath.ToSlash(filepath.Join(cwd, "main.go"))
 	persistedPath := filepath.Join(cacheRoot, "tool-output.txt")
-	if err := os.WriteFile(persistedPath, []byte("Contents of /repo/service/main.go:\npackage main\n"), 0o600); err != nil {
+	if err := os.WriteFile(persistedPath, []byte("Contents of "+target+":\npackage main\n"), 0o600); err != nil {
 		t.Fatalf("write persisted tool output: %v", err)
 	}
 	runtime := NewNestedRuntime(newTestDependencies(testDepsOptions{}))
 	runtime.SetToolReadCacheRoot(cacheRoot)
-	buildCtx := contract.BuildCtx{GitRoot: "/repo", CWD: "/repo/service"}
+	buildCtx := contract.BuildCtx{GitRoot: repoRoot, CWD: cwd}
 	runtime.ObserveBuildContext("thread-1", buildCtx)
 	// Empty preview forces the helper to fall back to the persisted file; if
 	// the SafeReadEntrypoint plumbing is wrong the test fails because no
 	// trigger is produced.
 	runtime.AddToolReadResult("thread-1", "Read", "", persistedPath)
 	pending := runtime.ConsumePending("thread-1", buildCtx)
-	want := "/repo/service/main.go"
-	if len(pending) != 1 || pending[0] != want {
+	want := target
+	if len(pending) != 1 || filepath.ToSlash(pending[0]) != want {
 		t.Fatalf("ConsumePending(persisted in cacheRoot) = %#v, want [%q]", pending, want)
 	}
 }

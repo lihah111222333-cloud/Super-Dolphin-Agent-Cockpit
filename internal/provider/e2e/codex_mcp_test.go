@@ -264,6 +264,7 @@ func TestCodexStartSession_PreservesUserConfigFields_E2E(t *testing.T) {
 func TestCodexStartSession_ReconcilesNativeSkillMirrorsBeforeProviderStart_E2E(t *testing.T) {
 	userHome := t.TempDir()
 	t.Setenv("HOME", userHome)
+	t.Setenv("USERPROFILE", userHome)
 	events := []string{}
 	recorder := &codexRPCRecorder{events: &events}
 	serverURL := startCodexRPCServer(t, recorder)

@@ -69,6 +69,37 @@ func TestSessionLogWatcherResetsAfterTruncate(t *testing.T) {
 	}
 }
 
+func TestSessionLogWatcherSameSizeModTimeRescanKeepsDedupState(t *testing.T) {
+	line := watcherPollLine("session-1", "2026-04-13T00:00:00Z", 1, 2, 3, 4)
+	usage, ok := parseLogLineUsage(line)
+	if !ok {
+		t.Fatal("parseLogLineUsage() ok = false")
+	}
+
+	emitted := 0
+	watcher := newSessionLogWatcher(sessionLogWatcherConfig{
+		OnUsage: func(sessionLogUsage) { emitted++ },
+	})
+	watcher.path = "session.jsonl"
+	watcher.offset = int64(len(line) + 1)
+	watcher.modTime = time.Unix(1, 0)
+	watcher.lastUsage = usage
+
+	offset := watcher.syncFileState(watcher.path, watcher.offset, time.Unix(2, 0))
+	if offset != 0 {
+		t.Fatalf("syncFileState() offset = %d, want rescan from 0", offset)
+	}
+	if watcher.lastUsage != usage {
+		t.Fatalf("lastUsage reset on same-size modTime change: %#v", watcher.lastUsage)
+	}
+	if err := watcher.dispatchScannedUsage(line); err != nil {
+		t.Fatalf("dispatchScannedUsage() error = %v", err)
+	}
+	if emitted != 0 {
+		t.Fatalf("duplicate usage emitted = %d, want 0", emitted)
+	}
+}
+
 func watcherPollLine(sessionID, timestamp string, input, cacheCreation, cacheRead, output int) []byte {
 	raw, _ := json.Marshal(map[string]any{
 		"type":      "assistant",

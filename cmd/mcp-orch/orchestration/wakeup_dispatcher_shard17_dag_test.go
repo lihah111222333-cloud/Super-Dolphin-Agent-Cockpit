@@ -2,7 +2,6 @@ package orchestration
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -27,7 +26,7 @@ func TestDispatcherF151FiveNodeDAGMetricsEndpointAndAlert(t *testing.T) {
 			NodeKey:  "node-" + strconv.Itoa(i),
 			RunID:    &runID,
 			NodeType: "agent",
-			Config:   json.RawMessage(`{"exec":{"agent_key":"metrics","cwd":"/tmp/node-cwd"},"first_turn":"hi"}`),
+			Config:   testRawConfig(t, `{"exec":{"agent_key":"metrics","cwd":"/tmp/node-cwd"},"first_turn":"hi"}`),
 			Status:   string(nodeexec.NodeStatusReady),
 		})
 	}
@@ -82,9 +81,9 @@ func TestDispatcherF151FiveNodeDAGMetricsEndpointAndAlert(t *testing.T) {
 	}
 }
 
-// TestDispatcherDAGRetryFailsAtMaxAttemptsWithFailFastCascade 验证：
-// default_retry=0（MaxAttempts=1）+ fail_fast=true，AttemptCount=1（首次失败即达上限）
-// → markPermanentFail + FailNodeAndCancelDownstream(FailFast=true)，不再调 RetryWakeup。
+// TestDispatcherDAGRetryFailsAtMaxAttemptsWithFailFastCascade 验证�?
+// default_retry=0（MaxAttempts=1�? fail_fast=true，AttemptCount=1（首次失败即达上限）
+// �?markPermanentFail + FailNodeAndCancelDownstream(FailFast=true)，不再调 RetryWakeup�?
 func TestDispatcherDAGRetryFailsAtMaxAttemptsWithFailFastCascade(t *testing.T) {
 	now := time.Date(2026, 4, 30, 12, 0, 0, 0, time.UTC)
 	store := &dispatcherStubStore{
@@ -119,7 +118,7 @@ func TestDispatcherDAGRetryFailsAtMaxAttemptsWithFailFastCascade(t *testing.T) {
 func TestDispatcherDAGPermanentFailureSkipsCascadeWhenFailWakeupFenceMisses(t *testing.T) {
 	now := time.Date(2026, 5, 13, 10, 0, 0, 0, time.UTC)
 	store := newAgentFailureClassStore(t, "permanent-fence-miss", 1, now)
-	store.nodesReply[0].Config = json.RawMessage(`{"exec":`)
+	store.nodesReply[0].Config = testRawConfig(t, `{"exec":`)
 	store.failRowsSet = true
 	store.failRows = 0
 	d := newAgentFailureClassDispatcher(t, store, errors.New("launcher should not be called"))
@@ -153,9 +152,9 @@ func TestDispatcherDAGRetryExhaustionSkipsCascadeWhenFailWakeupFenceMisses(t *te
 	}
 }
 
-// TestDispatcherDAGRetryFailsAtMaxAttemptsNoFailFast 验证 fail_fast=false 时仍调
-// FailNodeAndCancelDownstream（store 层根据 FailFast 自决是否级联，这里只验
-// dispatcher 把 FailFast=false 透传过去）。
+// TestDispatcherDAGRetryFailsAtMaxAttemptsNoFailFast 验证 fail_fast=false 时仍�?
+// FailNodeAndCancelDownstream（store 层根�?FailFast 自决是否级联，这里只�?
+// dispatcher �?FailFast=false 透传过去）�?
 func TestDispatcherDAGRetryFailsAtMaxAttemptsNoFailFast(t *testing.T) {
 	now := time.Date(2026, 4, 30, 12, 0, 0, 0, time.UTC)
 	store := &dispatcherStubStore{

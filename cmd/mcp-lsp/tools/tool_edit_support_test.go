@@ -169,7 +169,8 @@ func TestReplaceRangeAppliesUnsupportedTextFilesWithoutLSPManager(t *testing.T) 
 
 func assertUnsupportedTextReplace(t *testing.T, file, content, oldText, newText, want string) {
 	t.Helper()
-	path := filepath.Join(t.TempDir(), file)
+	root := t.TempDir()
+	path := filepath.Join(root, file)
 	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
 		t.Fatalf("write fixture: %v", err)
 	}
@@ -186,7 +187,7 @@ func assertUnsupportedTextReplace(t *testing.T, file, content, oldText, newText,
 		t.Fatalf("marshal input: %v", err)
 	}
 
-	got, err := handler(common.WithToolScope(context.Background(), common.ToolScope{CWD: "/"}), input)
+	got, err := handler(testToolContext(root), input)
 	if err != nil {
 		t.Fatalf("replace_range returned error: %v", err)
 	}
@@ -335,7 +336,7 @@ func assertForceInvalidPatchLeavesFile(t *testing.T, root string, handler ToolHa
 		t.Fatalf("write inside fixture: %v", err)
 	}
 	badPatch := json.RawMessage(`{"action":"replace_range","file_path":` + strconv.Quote(inside) + `,"patch":"not a patch","force":true}`)
-	got, err := handler(common.WithToolScope(context.Background(), common.ToolScope{CWD: "/"}), badPatch)
+	got, err := handler(testToolContext(root), badPatch)
 	if err == nil || !strings.Contains(strings.ToLower(err.Error()), "patch") {
 		t.Fatalf("force invalid patch error = %v, want patch grammar failure", err)
 	}
@@ -354,7 +355,7 @@ func TestReplaceRangeReturnsErrorForInvalidPatch(t *testing.T) {
 	handler := NewEditHandlerWithRoot(root, &structureTestRegistry{fileErr: lspmanager.ErrUnsupportedLanguage})
 	input := json.RawMessage(`{"action":"replace_range","file_path":` + strconv.Quote(inside) + `,"patch":"not a patch"}`)
 
-	_, err := handler(common.WithToolScope(context.Background(), common.ToolScope{CWD: "/"}), input)
+	_, err := handler(testToolContext(root), input)
 	if err == nil {
 		t.Fatalf("replace_range error = nil, want invalid patch failure")
 	}
@@ -456,7 +457,7 @@ func TestEditFailureAfterDeadClientReturnsRetryableWithoutAutoReplay(t *testing.
 		t.Fatalf("marshal input: %v", err)
 	}
 
-	got, err := handler(common.WithToolScope(context.Background(), common.ToolScope{CWD: "/"}), input)
+	got, err := handler(testToolContext(root), input)
 	if err == nil || !strings.Contains(err.Error(), "LSP client closed") {
 		t.Fatalf("replace_range error = %v, want dead-client edit sync failure", err)
 	}
@@ -537,7 +538,7 @@ func TestReplaceRangeSyncFailureReportsRollbackFailure(t *testing.T) {
 		t.Fatalf("marshal input: %v", err)
 	}
 
-	got, err := handler(common.WithToolScope(context.Background(), common.ToolScope{CWD: "/"}), input)
+	got, err := handler(testToolContext(root), input)
 	requireSyncRollbackFailure(t, err)
 	if got != nil {
 		t.Fatalf("result = %#v, want nil wrapped result on error", got)
@@ -581,7 +582,7 @@ func TestApplyWorkspaceEditSyncFailureReportsRollbackFailure(t *testing.T) {
 		}},
 	}}
 
-	_, err := (EditHandler{root: root}).applyWorkspaceEdit(common.WithToolScope(context.Background(), common.ToolScope{CWD: "/"}), manager, edit, defaultEditVersion)
+	_, err := (EditHandler{root: root}).applyWorkspaceEdit(testToolContext(root), manager, edit, defaultEditVersion)
 	if err == nil {
 		t.Fatalf("applyWorkspaceEdit error = nil, want sync/rollback failure")
 	}
