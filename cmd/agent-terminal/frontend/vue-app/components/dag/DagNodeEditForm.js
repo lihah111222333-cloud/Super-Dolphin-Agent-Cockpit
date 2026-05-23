@@ -65,6 +65,15 @@ function selectedAgent(nodes, selectedKey) {
   return agents.find((node, index) => nodeKey(node, index) === selectedKey) || agents[0] || null;
 }
 
+function nodeDisplayTitle(node, index) {
+  const title = textValue(node?.title, node?.name);
+  return title || `步骤 ${index + 1}`;
+}
+
+function userSaveErrorText(error) {
+  return error ? '保存步骤失败，请稍后重试。' : '';
+}
+
 export const DagNodeEditForm = {
   name: 'DagNodeEditForm',
   props: {
@@ -92,12 +101,7 @@ export const DagNodeEditForm = {
     const agentNodes = computed(() => (Array.isArray(props.nodes) ? props.nodes : []).filter((node) => nodeType(node) === 'agent'));
     const selected = computed(() => selectedAgent(agentNodes.value, form.nodeKey));
     const editingDisabled = computed(() => Boolean((props.disabledReason || '').trim()));
-    const saveErrorText = computed(() => {
-      const err = props.saveError;
-      if (!err) return '';
-      if (typeof err === 'string') return err;
-      return err.message || JSON.stringify(err);
-    });
+    const saveErrorText = computed(() => userSaveErrorText(props.saveError));
     const modelOptions = computed(() => {
       const provider = form.provider;
       const options = MODEL_OPTIONS_BY_PROVIDER[provider] || [];
@@ -115,7 +119,7 @@ export const DagNodeEditForm = {
         const outputs = parseObject(config.outputs);
         const target = parseObject(outputs.to_sharedfile);
         form.nodeKey = key;
-        form.title = textValue(node.title, node.name, key);
+        form.title = nodeDisplayTitle(node, agentNodes.value.indexOf(node));
         form.provider = textValue(exec.provider);
         form.model = canonicalizeModelValue(form.provider, exec.model);
         form.promptKey = textValue(exec.prompt_key, exec.promptKey);
@@ -132,6 +136,10 @@ export const DagNodeEditForm = {
 
     function chooseNode(event) {
       form.nodeKey = event?.target?.value || '';
+    }
+
+    function displayNodeLabel(node, index) {
+      return nodeDisplayTitle(node, index);
     }
 
     function buildConfig() {
@@ -176,28 +184,28 @@ export const DagNodeEditForm = {
       });
     }
 
-    return { agentNodes, chooseNode, editingDisabled, form, modelOptions, parseList, saveErrorText, submit };
+    return { agentNodes, chooseNode, displayNodeLabel, editingDisabled, form, modelOptions, parseList, saveErrorText, submit };
   },
   template: `
     <section class="dag-detail-section dag-node-edit-form" data-testid="dag-node-edit-form">
-      <div class="dag-section-title">Agent Node</div>
-      <div v-if="agentNodes.length === 0" class="dag-console-muted" data-testid="dag-node-edit-empty">暂无 agent 节点</div>
+      <div class="dag-section-title">步骤设置</div>
+      <div v-if="agentNodes.length === 0" class="dag-console-muted" data-testid="dag-node-edit-empty">暂无可配置步骤</div>
       <form v-else class="dag-node-edit-grid" @submit.prevent="submit">
         <div v-if="editingDisabled" class="dag-console-muted dag-node-edit-wide" data-testid="dag-node-edit-disabled-reason">{{ disabledReason }}</div>
         <label>
-          <span>Node</span>
+          <span>步骤</span>
           <select :value="form.nodeKey" data-testid="dag-node-edit-select" :disabled="editingDisabled" @change="chooseNode">
             <option v-for="(node, index) in agentNodes" :key="node.node_key || node.nodeKey || index" :value="node.node_key || node.nodeKey || node.key || node.id">
-              {{ node.title || node.name || node.node_key || node.nodeKey }}
+              {{ displayNodeLabel(node, index) }}
             </option>
           </select>
         </label>
         <label>
-          <span>Title</span>
+          <span>名称</span>
           <input v-model="form.title" data-testid="dag-node-edit-title" :disabled="editingDisabled" />
         </label>
         <label>
-          <span>Provider</span>
+          <span>执行引擎</span>
           <select v-model="form.provider" data-testid="dag-node-edit-provider" :disabled="editingDisabled">
             <option value="">默认</option>
             <option value="claude">claude</option>
@@ -205,52 +213,52 @@ export const DagNodeEditForm = {
           </select>
         </label>
         <label>
-          <span>Model</span>
+          <span>模型</span>
           <select v-model="form.model" data-testid="dag-node-edit-model" :disabled="editingDisabled">
             <option value="">默认</option>
             <option v-for="option in modelOptions" :key="option.value" :value="option.value">{{ option.label }}</option>
           </select>
         </label>
         <label>
-          <span>Prompt Key</span>
+          <span>提示词</span>
           <input v-model="form.promptKey" data-testid="dag-node-edit-prompt-key" :disabled="editingDisabled" />
         </label>
         <label>
-          <span>Depends On</span>
+          <span>依赖步骤</span>
           <input v-model="form.dependsOn" data-testid="dag-node-edit-depends-on" :disabled="editingDisabled" />
         </label>
         <label class="dag-node-edit-wide">
-          <span>Prompt</span>
+          <span>指令</span>
           <textarea v-model="form.firstTurn" rows="4" data-testid="dag-node-edit-first-turn" :disabled="editingDisabled"></textarea>
         </label>
         <label>
-          <span>Input Nodes</span>
+          <span>输入步骤</span>
           <input v-model="form.fromNodes" data-testid="dag-node-edit-input-nodes" :disabled="editingDisabled" />
         </label>
         <label>
-          <span>Input Shared Files</span>
+          <span>输入文件</span>
           <input v-model="form.fromSharedfiles" data-testid="dag-node-edit-input-sharedfiles" :disabled="editingDisabled" />
         </label>
         <label>
-          <span>Output File</span>
+          <span>输出文件</span>
           <input v-model="form.toSharedfilePath" data-testid="dag-node-edit-output-file" :disabled="editingDisabled" />
         </label>
         <label>
-          <span>Lock</span>
+          <span>写入方式</span>
           <select v-model="form.lockMode" data-testid="dag-node-edit-lock-mode" :disabled="editingDisabled">
-            <option value="exclusive">exclusive</option>
-            <option value="append">append</option>
-            <option value="shared">shared</option>
+            <option value="exclusive">独占写入</option>
+            <option value="append">追加写入</option>
+            <option value="shared">共享读取</option>
           </select>
         </label>
         <label class="dag-node-edit-check">
           <input type="checkbox" v-model="form.toNodeResult" data-testid="dag-node-edit-to-result" :disabled="editingDisabled" />
-          <span>to_node_result</span>
+          <span>作为步骤结果</span>
         </label>
         <div v-if="saveErrorText" class="dag-console-error-inline dag-node-edit-wide" data-testid="dag-node-edit-error">{{ saveErrorText }}</div>
         <div class="dag-node-edit-actions">
           <button type="submit" class="btn btn-primary" data-testid="dag-node-edit-save" :disabled="editingDisabled || savingNodeKey === form.nodeKey">
-            {{ savingNodeKey === form.nodeKey ? '保存中' : 'Save Node' }}
+            {{ savingNodeKey === form.nodeKey ? '保存中' : '保存步骤' }}
           </button>
         </div>
       </form>

@@ -115,6 +115,31 @@
   gap: 14px;
 }
 
+.dag-advanced-section {
+  min-width: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--card);
+}
+
+.dag-advanced-section summary {
+  cursor: pointer;
+  padding: 10px;
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.dag-advanced-section[open] {
+  display: grid;
+  gap: 10px;
+  padding: 0 10px 10px;
+}
+
+.dag-advanced-section[open] summary {
+  margin: 0 -10px;
+}
+
 .dag-console-detail-heading {
   min-width: 0;
   display: flex;

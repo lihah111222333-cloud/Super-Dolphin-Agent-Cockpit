@@ -30,6 +30,51 @@ function finalOutputPresent(value) {
   return false;
 }
 
+function userErrorText(error, fallback) {
+  return error ? fallback : '';
+}
+
+const DAG_STATUS_LABELS = {
+  draft: '草稿',
+  ready: '可运行',
+  running: '运行中',
+  succeeded: '成功',
+  done: '成功',
+  failed: '失败',
+  cancelled: '已取消',
+  canceled: '已取消',
+  pending: '待开始',
+  queued: '排队中',
+  starting: '启动中',
+  awaiting_verify: '待确认',
+  skipped: '已跳过',
+  idle: '空闲',
+};
+
+const RUN_STATUS_LABELS = {
+  ...DAG_STATUS_LABELS,
+  ready: '等待运行',
+};
+
+const TRIGGER_LABELS = {
+  manual: '手动',
+  scheduled: '定时',
+  schedule: '定时',
+  cron: '定时',
+};
+
+function statusLabel(value, labels = DAG_STATUS_LABELS) {
+  const normalized = normalizedValue(value);
+  if (!normalized) return '-';
+  return labels[normalized] || textValue(value);
+}
+
+function triggerTypeLabel(value) {
+  const normalized = normalizedValue(value);
+  if (!normalized) return '-';
+  return TRIGGER_LABELS[normalized] || textValue(value);
+}
+
 function triggerLabel(item) {
   const trigger = item.trigger || item.trigger_config || item.triggerConfig;
   const schedule = textValue(
@@ -51,13 +96,17 @@ function triggerLabel(item) {
     );
   if (triggerType === '-' && schedule === '-') return '-';
   if (triggerType === '-') return schedule;
-  if (schedule === '-') return triggerType;
-  return `${triggerType} ${schedule}`;
+  const label = triggerTypeLabel(triggerType);
+  if (schedule === '-') return label;
+  return `${label} ${schedule}`;
 }
 
 function latestRunLabel(item) {
   const run = item.latest_run || item.latestRun || item.run;
-  if (typeof run === 'string') return textValue(run);
+  if (typeof run === 'string') {
+    const mapped = statusLabel(run, RUN_STATUS_LABELS);
+    return mapped === textValue(run) ? '有运行记录' : mapped;
+  }
   const runKey = textValue(
     run?.run_key,
     run?.runKey,
@@ -71,9 +120,8 @@ function latestRunLabel(item) {
     item.latestRunStatus,
   );
   if (runKey === '-' && status === '-') return '-';
-  if (runKey === '-') return status;
-  if (status === '-') return runKey;
-  return `${runKey} · ${status}`;
+  if (status !== '-') return statusLabel(status, RUN_STATUS_LABELS);
+  return '有运行记录';
 }
 
 function hasFinalOutput(item) {
@@ -92,7 +140,7 @@ function hasFinalOutput(item) {
 }
 
 const STARTABLE_DAG_STATUSES = new Set(['draft', 'ready']);
-const STARTABLE_DAG_TRIGGERS = new Set(['manual', 'scheduled']);
+const STARTABLE_DAG_TRIGGERS = new Set(['manual', 'scheduled', 'schedule', 'cron']);
 const ACTIVE_RUN_STATUSES = new Set(['pending', 'ready', 'queued', 'starting', 'running', 'awaiting_verify']);
 const TERMINAL_DAG_STATUSES = new Set(['done', 'failed', 'cancelled', 'canceled', 'skipped']);
 
@@ -146,12 +194,18 @@ function hasActiveRun(items, detailState) {
   return runs.some((run) => ACTIVE_RUN_STATUSES.has(runStatusOf(run)));
 }
 
+function dagTitle(item, index, key) {
+  const title = textValue(item.title, item.name);
+  return title === '-' ? `任务流程 ${index + 1}` : title;
+}
+
 function normalizeDag(item, index) {
   const key = textValue(item.dag_key, item.dagKey, item.key, item.id);
+  const status = textValue(item.status, item.state);
   return {
     key,
-    title: textValue(item.title, item.name, key),
-    status: textValue(item.status, item.state),
+    title: dagTitle(item, index, key),
+    status: statusLabel(status),
     triggerLabel: triggerLabel(item),
     latestRunLabel: latestRunLabel(item),
     hasFinalOutput: hasFinalOutput(item),
@@ -173,7 +227,7 @@ export const DagsPage = {
   },
   props: {
     items: { type: Array, default: () => [] },
-    emptyText: { type: String, default: '暂无 DAG' },
+    emptyText: { type: String, default: '暂无任务流程' },
     loading: { type: Boolean, default: false },
     error: { type: String, default: '' },
   },
@@ -187,47 +241,39 @@ export const DagsPage = {
     const selectedDagKey = computed(() => selectedRow.value?.key === '-' ? '' : selectedRow.value?.key || '');
     const selectedDagItems = computed(() => dagCandidates(selectedRow.value, detailState, selectedDagKey.value));
     const selectedFinalOutput = computed(() => detailState.finalOutput);
+    const pageErrorText = computed(() => userErrorText(props.error, '加载任务流程失败，请稍后重试。'));
     const designNodes = computed(() => (
       Array.isArray(detailState.templateNodes) && detailState.templateNodes.length
         ? detailState.templateNodes
         : detailState.nodes
     ));
     const startDisabledReason = computed(() => {
-      if (!selectedRow.value || !selectedDagKey.value) return '未选择 DAG';
-      if (props.loading || detailState.loading) return 'DAG 详情加载中';
-      if (detailState.error) return 'DAG 详情不可用';
-      if (detailState.runsError) return '运行历史不可用，无法确认是否有运行中 run';
+      if (!selectedRow.value || !selectedDagKey.value) return '未选择任务流程';
+      if (props.loading || detailState.loading) return '任务流程详情加载中';
+      if (detailState.error) return '任务流程详情不可用';
+      if (detailState.runsError) return '运行历史不可用，无法确认是否正在运行';
       if (detailState.starting) return '启动中';
-      if (hasActiveRun(selectedDagItems.value, detailState)) return '已有运行中 run';
+      if (hasActiveRun(selectedDagItems.value, detailState)) return '已有运行正在进行';
       const status = dagStatusOf(selectedDagItems.value);
-      if (!STARTABLE_DAG_STATUSES.has(status)) return '当前状态不可启动';
+      if (!STARTABLE_DAG_STATUSES.has(status)) return '当前流程状态不可运行';
       const trigger = dagTriggerOf(selectedDagItems.value);
-      if (!STARTABLE_DAG_TRIGGERS.has(trigger)) return '当前触发方式不可启动';
+      if (!STARTABLE_DAG_TRIGGERS.has(trigger)) return '当前触发方式不可运行';
       return '';
     });
     const editDisabledReason = computed(() => {
-      if (!selectedRow.value || !selectedDagKey.value) return '未选择 DAG';
-      if (props.loading || detailState.loading) return 'DAG 详情加载中';
-      if (detailState.error) return 'DAG 详情不可用，不能编辑节点';
-      if (detailState.runsError) return '运行历史不可用，不能编辑节点';
-      if (hasActiveRun(selectedDagItems.value, detailState)) return '已有运行中 run，不能编辑节点';
+      if (!selectedRow.value || !selectedDagKey.value) return '未选择任务流程';
+      if (props.loading || detailState.loading) return '任务流程详情加载中';
+      if (detailState.error) return '任务流程详情不可用，不能编辑步骤';
+      if (detailState.runsError) return '运行历史不可用，不能编辑步骤';
+      if (hasActiveRun(selectedDagItems.value, detailState)) return '已有运行正在进行，不能编辑步骤';
       const status = dagStatusOf(selectedDagItems.value);
-      if (status === 'running') return '当前 DAG 正在运行，不能编辑节点';
-      if (TERMINAL_DAG_STATUSES.has(status)) return 'DAG 已终态，不能编辑节点';
+      if (status === 'running') return '当前任务流程正在运行，不能编辑步骤';
+      if (TERMINAL_DAG_STATUSES.has(status)) return '任务流程已结束，不能编辑步骤';
       return '';
     });
-    const startErrorText = computed(() => {
-      const err = detailState.startError;
-      if (!err) return '';
-      if (typeof err === 'string') return err;
-      return err.message || JSON.stringify(err);
-    });
-    const runsErrorText = computed(() => {
-      const err = detailState.runsError;
-      if (!err) return '';
-      if (typeof err === 'string') return err;
-      return err.message || JSON.stringify(err);
-    });
+    const detailErrorText = computed(() => userErrorText(detailState.error, '任务流程详情不可用，请稍后重试。'));
+    const startErrorText = computed(() => userErrorText(detailState.startError, '运行任务流程失败，请稍后重试。'));
+    const runsErrorText = computed(() => userErrorText(detailState.runsError, '无法加载运行历史，请稍后重试。'));
 
     watch(
       () => rows.value.map((row) => row.listKey).join('\n'),
@@ -284,10 +330,12 @@ export const DagsPage = {
 
     return {
       dagDetail,
+      detailErrorText,
       detailState,
       designNodes,
       editDisabledReason,
       openChat,
+      pageErrorText,
       rows,
       runsErrorText,
       saveAgentNode,
@@ -306,7 +354,7 @@ export const DagsPage = {
       <AutoContinuePrefCard />
       <div class="panel-header" data-testid="dag-console-header">
         <div class="ph-bar"></div>
-        <div class="ph-text"><h2>DAG Console</h2></div>
+        <div class="ph-text"><h2>任务流程</h2></div>
         <button
           type="button"
           class="btn"
@@ -318,12 +366,12 @@ export const DagsPage = {
         <aside class="dag-console-list-pane" data-testid="dag-console-list">
           <div v-if="loading" class="empty-state dag-console-empty" data-testid="dag-console-loading">
             <div class="es-icon">D</div>
-            <h3>正在加载 DAG</h3>
+            <h3>正在加载任务流程</h3>
           </div>
-          <div v-else-if="error" class="empty-state dag-console-empty dag-console-error" data-testid="dag-console-error">
+          <div v-else-if="pageErrorText" class="empty-state dag-console-empty dag-console-error" data-testid="dag-console-error">
             <div class="es-icon">D</div>
-            <h3>加载 DAG 失败</h3>
-            <p>{{ error }}</p>
+            <h3>加载任务流程失败</h3>
+            <p>{{ pageErrorText }}</p>
           </div>
           <div v-else-if="rows.length === 0" class="empty-state dag-console-empty" data-testid="dag-console-empty">
             <div class="es-icon">D</div>
@@ -341,13 +389,13 @@ export const DagsPage = {
             >
               <span class="dag-console-row-main">
                 <span class="dag-console-title">{{ row.title }}</span>
-                <span class="dag-console-key">{{ row.key }}</span>
+                <span class="dag-console-key">{{ row.latestRunLabel === '-' ? '暂无运行' : '最近运行：' + row.latestRunLabel }}</span>
               </span>
               <span class="dag-console-row-meta">
                 <span class="dag-console-status">{{ row.status }}</span>
                 <span class="dag-console-trigger">{{ row.triggerLabel }}</span>
                 <span class="dag-console-run">{{ row.latestRunLabel }}</span>
-                <span v-if="row.hasFinalOutput" class="dag-console-final" data-testid="dag-console-final-marker">Final</span>
+                <span v-if="row.hasFinalOutput" class="dag-console-final" data-testid="dag-console-final-marker">最终结果</span>
               </span>
             </button>
           </div>
@@ -356,18 +404,18 @@ export const DagsPage = {
         <section class="dag-console-detail-pane" data-testid="dag-console-detail">
           <div v-if="loading" class="empty-state dag-console-empty" data-testid="dag-console-detail-loading">
             <div class="es-icon">D</div>
-            <h3>正在加载 DAG</h3>
+            <h3>正在加载任务流程</h3>
           </div>
-          <div v-else-if="error" class="empty-state dag-console-empty dag-console-error" data-testid="dag-console-detail-error">
+          <div v-else-if="pageErrorText" class="empty-state dag-console-empty dag-console-error" data-testid="dag-console-detail-error">
             <div class="es-icon">D</div>
-            <h3>加载 DAG 失败</h3>
-            <p>{{ error }}</p>
+            <h3>加载任务流程失败</h3>
+            <p>{{ pageErrorText }}</p>
           </div>
           <div v-else-if="selectedRow" class="dag-console-detail-grid">
             <div class="dag-console-detail-heading">
               <div>
                 <h3>{{ selectedRow.title }}</h3>
-                <span>{{ selectedRow.key }}</span>
+                <span>{{ selectedRow.latestRunLabel === '-' ? '暂无运行' : '最近运行：' + selectedRow.latestRunLabel }}</span>
               </div>
               <button
                 type="button"
@@ -376,47 +424,10 @@ export const DagsPage = {
                 :disabled="Boolean(startDisabledReason)"
                 :title="startDisabledReason"
                 @click="startSelectedDag"
-              >{{ detailState.starting ? '启动中' : 'Start' }}</button>
+              >{{ detailState.starting ? '启动中' : '运行' }}</button>
             </div>
             <div v-if="startDisabledReason" class="dag-console-muted" data-testid="dag-start-disabled-reason">{{ startDisabledReason }}</div>
             <div v-if="startErrorText" class="dag-console-error-inline" data-testid="dag-start-error">{{ startErrorText }}</div>
-            <dl class="dag-console-facts">
-              <div>
-                <dt>状态</dt>
-                <dd>{{ selectedRow.status }}</dd>
-              </div>
-              <div>
-                <dt>触发</dt>
-                <dd>{{ selectedRow.triggerLabel }}</dd>
-              </div>
-              <div>
-                <dt>最近运行</dt>
-                <dd>{{ selectedRow.latestRunLabel }}</dd>
-              </div>
-              <div>
-                <dt>最终产物</dt>
-                <dd>{{ selectedRow.hasFinalOutput ? '已记录' : '-' }}</dd>
-              </div>
-            </dl>
-            <div v-if="detailState.loading" class="dag-console-muted" data-testid="dag-detail-loading-inline">正在加载详情</div>
-            <div v-if="detailState.error" class="dag-console-error-inline" data-testid="dag-detail-load-error">
-              {{ typeof detailState.error === 'string' ? detailState.error : detailState.error.message }}
-            </div>
-            <DagNodeList :nodes="detailState.nodes" @open-chat="openChat" />
-            <DagTopologyPanel :nodes="designNodes" />
-            <DagNodeEditForm
-              :nodes="designNodes"
-              :saving-node-key="detailState.savingNodeKey"
-              :save-error="detailState.saveError"
-              :disabled-reason="editDisabledReason"
-              @save-agent-node="saveAgentNode"
-            />
-            <DagSharedFilesPanel :nodes="designNodes" />
-            <DagRunHistoryPanel
-              :runs="detailState.runs"
-              :selected-run-key="detailState.selectedRunKey"
-              @select-run="selectRun"
-            />
             <DagFinalOutputPanel
               v-if="runsErrorText"
               data-testid="dag-runs-error"
@@ -428,6 +439,46 @@ export const DagsPage = {
               :final-output="selectedFinalOutput"
               :runs-error="null"
             />
+            <dl class="dag-console-facts">
+              <div>
+                <dt>流程状态</dt>
+                <dd>{{ selectedRow.status }}</dd>
+              </div>
+              <div>
+                <dt>触发</dt>
+                <dd>{{ selectedRow.triggerLabel }}</dd>
+              </div>
+              <div>
+                <dt>最近运行</dt>
+                <dd>{{ selectedRow.latestRunLabel }}</dd>
+              </div>
+              <div>
+                <dt>最终结果</dt>
+                <dd>{{ selectedRow.hasFinalOutput ? '已记录' : '-' }}</dd>
+              </div>
+            </dl>
+            <div v-if="detailState.loading" class="dag-console-muted" data-testid="dag-detail-loading-inline">正在加载详情</div>
+            <div v-if="detailErrorText" class="dag-console-error-inline" data-testid="dag-detail-load-error">
+              {{ detailErrorText }}
+            </div>
+            <DagRunHistoryPanel
+              :runs="detailState.runs"
+              :selected-run-key="detailState.selectedRunKey"
+              @select-run="selectRun"
+            />
+            <DagNodeList :nodes="detailState.nodes" @open-chat="openChat" />
+            <details class="dag-advanced-section">
+              <summary>高级设置</summary>
+              <DagTopologyPanel :nodes="designNodes" />
+              <DagNodeEditForm
+                :nodes="designNodes"
+                :saving-node-key="detailState.savingNodeKey"
+                :save-error="detailState.saveError"
+                :disabled-reason="editDisabledReason"
+                @save-agent-node="saveAgentNode"
+              />
+              <DagSharedFilesPanel :nodes="designNodes" />
+            </details>
           </div>
           <div v-else class="empty-state dag-console-empty" data-testid="dag-console-detail-empty">
             <div class="es-icon">D</div>
