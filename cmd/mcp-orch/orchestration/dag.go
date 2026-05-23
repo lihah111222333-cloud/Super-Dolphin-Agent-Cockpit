@@ -397,6 +397,8 @@ func dagSummaryDTO(item taskdag.DAG) DAGSummary {
 		Status:      item.Status,
 		CreatedBy:   item.CreatedBy,
 		Metadata:    append(json.RawMessage(nil), item.Metadata...),
+		Trigger:     item.Trigger,
+		CronExpr:    item.CronExpr,
 		StartedAt:   shared.CloneTime(item.StartedAt),
 		FinishedAt:  shared.CloneTime(item.FinishedAt),
 		CreatedAt:   item.CreatedAt,

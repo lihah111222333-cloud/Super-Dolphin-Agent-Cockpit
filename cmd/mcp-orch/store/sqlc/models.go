@@ -76,6 +76,8 @@ type TaskDag struct {
 	Status      string             `json:"status"`
 	CreatedBy   string             `json:"created_by"`
 	Metadata    []byte             `json:"metadata"`
+	Trigger     string             `json:"trigger"`
+	CronExpr    string             `json:"cron_expr"`
 	StartedAt   pgtype.Timestamptz `json:"started_at"`
 	FinishedAt  pgtype.Timestamptz `json:"finished_at"`
 	CreatedAt   pgtype.Timestamptz `json:"created_at"`
