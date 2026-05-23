@@ -28,7 +28,7 @@ test('DAG console opens detail, starts runs, reads final output, and opens child
         {
           dag_key: 'daily-brief',
           title: 'Daily Brief',
-          status: 'idle',
+          status: 'ready',
           trigger: { type: 'manual' },
           latest_run: {
             run_key: 'run-file',
@@ -52,7 +52,7 @@ test('DAG console opens detail, starts runs, reads final output, and opens child
         dag: {
           dag_key: 'daily-brief',
           title: 'Daily Brief',
-          status: 'idle',
+          status: 'ready',
           trigger: { type: 'manual' },
         },
         nodes: [
@@ -192,4 +192,65 @@ test('DAG console opens detail, starts runs, reads final output, and opens child
   await expect.poll(async () => (await readMethodCalls(page, 'dashboard/dagRun')).length).toBeGreaterThanOrEqual(3);
   expect(await readMethodCalls(page, 'dashboard/dagStart')).toHaveLength(1);
   expect(await readMethodCalls(page, 'ui/memory/shared-file/get')).toHaveLength(1);
+});
+
+test('DAG console blocks start when an active run is outside recent history', async ({ page }) => {
+  await installMockBackend(page, {
+    projects: ['/workspace/project-alpha'],
+    activeProject: '/workspace/project-alpha',
+    runtimeConfig: { cwd: '/workspace/project-alpha' },
+    dashboard: {
+      dags: [{
+        dag_key: 'hidden-active',
+        title: 'Hidden Active',
+        status: 'ready',
+        trigger: { type: 'manual' },
+        latest_run: { run_key: 'run-1', status: 'succeeded' },
+      }],
+    },
+    dagDetails: {
+      'hidden-active': {
+        dag: {
+          dag_key: 'hidden-active',
+          title: 'Hidden Active',
+          status: 'ready',
+          trigger: { type: 'manual' },
+        },
+        nodes: [{ node_key: 'collect', title: 'Collect template', status: 'pending', node_type: 'agent' }],
+      },
+    },
+    dagRuns: {
+      'hidden-active': [
+        { run_key: 'run-1', status: 'succeeded' },
+        { run_key: 'run-2', status: 'succeeded' },
+        { run_key: 'run-3', status: 'succeeded' },
+        { run_key: 'run-4', status: 'failed' },
+        { run_key: 'run-5', status: 'cancelled' },
+        { run_key: 'run-hidden', status: 'running' },
+      ],
+    },
+    dagRunDetails: {
+      'run-1': {
+        run: { run_key: 'run-1', status: 'succeeded' },
+        nodes: [{ node_key: 'collect', title: 'Collect finished', status: 'done', node_type: 'agent' }],
+      },
+    },
+  });
+
+  await page.goto('/');
+  await expect(page.getByTestId('app-shell')).toBeVisible();
+
+  await page.getByTestId('nav-dags').click();
+  await expect(page.getByTestId('dag-console')).toBeVisible();
+  await expect(page.getByTestId('dag-run-history')).toContainText('run-1');
+  await expect(page.getByTestId('dag-run-history')).not.toContainText('run-hidden');
+  await expect(page.getByTestId('dag-start-button')).toBeDisabled();
+  await expect(page.getByTestId('dag-start-disabled-reason')).toContainText('已有运行中 run');
+
+  const runsCalls = await readMethodCalls(page, 'dashboard/dagRuns');
+  expect(runsCalls).toEqual(expect.arrayContaining([
+    expect.objectContaining({ params: expect.objectContaining({ dagKey: 'hidden-active', limit: 5 }) }),
+    expect.objectContaining({ params: expect.objectContaining({ dagKey: 'hidden-active', status: 'running', limit: 1 }) }),
+  ]));
+  expect(await readMethodCalls(page, 'dashboard/dagStart')).toHaveLength(0);
 });

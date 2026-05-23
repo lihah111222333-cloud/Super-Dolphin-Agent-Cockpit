@@ -28,7 +28,8 @@ func TestListDAGsReadsScheduleColumns(t *testing.T) {
 	if len(got) != 1 {
 		t.Fatalf("ListDAGs() len = %d, want 1", len(got))
 	}
-	assertSQLContainsAll(t, db.query, []string{"trigger", "cron_expr"})
+	assertSQLContainsAll(t, db.query, []string{"version", "trigger", "cron_expr"})
+	assertInt64Field(t, got[0], "Version", 42)
 	assertStringField(t, got[0], "Trigger", "scheduled")
 	assertStringField(t, got[0], "CronExpr", "0 8 * * *")
 	if !reflect.DeepEqual(db.args, []any{"ready", "brief", int32(10)}) {
@@ -46,8 +47,9 @@ func TestGetDAGReadsScheduleColumns(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetDAG() error = %v", err)
 	}
-	assertSQLContainsAll(t, db.queryRow, []string{"trigger", "cron_expr"})
+	assertSQLContainsAll(t, db.queryRow, []string{"version", "trigger", "cron_expr"})
 	requireDAGSchedule(t, *got)
+	assertInt64Field(t, *got, "Version", 42)
 }
 
 func TestGetDAGForUpdateReadsScheduleColumns(t *testing.T) {
@@ -60,8 +62,9 @@ func TestGetDAGForUpdateReadsScheduleColumns(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetDAGForUpdate() error = %v", err)
 	}
-	assertSQLContainsAll(t, db.queryRow, []string{"trigger", "cron_expr", "FOR UPDATE"})
+	assertSQLContainsAll(t, db.queryRow, []string{"version", "trigger", "cron_expr", "FOR UPDATE"})
 	requireDAGSchedule(t, *got)
+	assertInt64Field(t, *got, "Version", 42)
 }
 
 func TestUpsertDAGReturnsScheduleColumns(t *testing.T) {
@@ -81,13 +84,14 @@ func TestUpsertDAGReturnsScheduleColumns(t *testing.T) {
 	if err != nil {
 		t.Fatalf("UpsertDAG() error = %v", err)
 	}
-	assertSQLContainsAll(t, db.queryRow, []string{"RETURNING", "trigger", "cron_expr"})
+	assertSQLContainsAll(t, db.queryRow, []string{"RETURNING", "version", "trigger", "cron_expr"})
 	requireDAGSchedule(t, *got)
+	assertInt64Field(t, *got, "Version", 42)
 }
 
 func scheduleTaskDAGValues(now time.Time) []any {
 	return []any{
-		int64(7), "daily-brief", "Daily Brief", "Morning report", "ready", "agent-1", []byte(`{}`),
+		int64(7), "daily-brief", int64(42), "Daily Brief", "Morning report", "ready", "agent-1", []byte(`{}`),
 		"scheduled", "0 8 * * *", timestamptzValue(now), timestamptzValue(time.Time{}),
 		timestamptzValue(now), timestamptzValue(now),
 	}
@@ -108,6 +112,18 @@ func assertStringField(t *testing.T, value any, fieldName, want string) {
 	}
 	if got := field.String(); got != want {
 		t.Fatalf("%s = %q, want %q", fieldName, got, want)
+	}
+}
+
+func assertInt64Field(t *testing.T, value any, fieldName string, want int64) {
+	t.Helper()
+
+	field := reflect.ValueOf(value).FieldByName(fieldName)
+	if !field.IsValid() {
+		t.Fatalf("%T missing field %s", value, fieldName)
+	}
+	if got := field.Int(); got != want {
+		t.Fatalf("%s = %d, want %d", fieldName, got, want)
 	}
 }
 

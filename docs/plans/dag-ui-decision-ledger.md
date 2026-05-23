@@ -30,7 +30,7 @@ DAG 后端、C-A lifecycle、final_output、sharedfile、prompt_template-first �
 | UI-D5 | 子 agent/thread 跳转 | 用 `spawning_thread_id` 作为一等链接，不解析 `node.result`；thread 已归档时显示“已归档/可打开历史”。 | T6.1 |
 | UI-D6 | AI 帮你设计流程入口 | DAG 页放“AI 设计流程”按钮，点击后创建/切到新 thread，并注入 designer prompt 与可用资源列表；不在 DAG 页内做复杂 wizard。 | T8.1/T8.2 |
 | UI-D7 | 节点编辑表单范围 | v1 只做 typed schema 表单，先覆盖 agent 节点的 prompt/model/provider/inputs/outputs/depends_on；automation/hybrid 先只读或高级折叠。 | F8.1/F8.2 |
-| UI-D8 | 拓扑图技术路线 | v1 用 mermaid 只读拓扑 + 节点点击联动详情；拖拽编辑/d3/canvas 放后续。 | F9.1 |
+| UI-D8 | 拓扑图技术路线 | v1 先用 mermaid source 只读拓扑，节点点击联动详情后置；拖拽编辑/d3/canvas 放后续。 | F9.1 |
 | UI-D9 | run 历史入口 | DAG 详情内置 Recent Runs Panel，默认选最近 run；点击历史 run 后切换 runtime 节点状态快照与 final_output。完整事件/错误摘要后置到 trace/error catalog。 | F10.1 |
 | UI-D10 | Shared Files 清理体验 | H15 做软删除/TTL 预览/批量清理；被 `final_output` 引用、pinned、running run 相关文件默认保护。删除前给 UI 可见确认和导出提示。 | H15 |
 | UI-D11 | final_output 通知入口 | v1 先在 DAG 详情和 Shared Files 展示；定时任务产品化时，通知/任务摘要里加“查看最终产物”链接，但不推送中间产物。 | H15/通知后续 |
@@ -38,7 +38,7 @@ DAG 后端、C-A lifecycle、final_output、sharedfile、prompt_template-first �
 | UI-D13 | waiting_human/HITL | 不进 M3；等真实 ask_human 场景出现后，一次性设计审批卡、timeout、reject/approve 后续状态。 | H10 |
 | UI-D14 | sharedfile 锁可视化 | F11 剩余范围是 reads/writes/lock_mode 与节点联动；final_output 高亮已由 H14 完成，不再算 F11 阻塞。 | F11.1 |
 | UI-D15 | 模板/实例编辑关系 | 当前不做 DAG template library；用户微调的是 DAG draft/ready 定义，run 使用 snapshot。旧 P10 的“Save as template”后置。 | F8/F10 后续 |
-| UI-D16 | 运行中编辑策略 | 运行中 DAG 只允许已完成节点后追加满足条件的新节点；普通 edit/remove/update_dag 在 UI 禁用并解释原因。 | F4.5/F8 |
+| UI-D16 | 运行中编辑策略 | 当前先禁用运行中 DAG 的所有模板编辑（含 add_node），UI 解释原因；等 runtime append 真闭环后再恢复“已完成节点后追加新节点”。 | F4.5/F8 |
 | UI-D17 | 多 run 并发可视化 | F6.5 前 UI 可以按当前单 running run 认知；F6.5 后 Run History 必须区分并发 run，不把模板状态和 run 状态混在一起。 | F6.5/F10 |
 | UI-D18 | Wails 壳范围 | 不把 `internal/ui/wails/frontend/index.html` 当 DAG UI 主目标；如要迁移/替换壳，另开桌面壳任务。 | UI 基建后续 |
 | UI-D19 | 实时事件与大规模拓扑阈值 | v1 继续用 3-5s polling；WS/订阅、cursor node page、cluster/virtualized topology 只在真实大 DAG 或 stale UI 痛点出现后恢复。禁止提前渲染 10000-node mermaid。 | T5/T7/F9/scale 后续 |
@@ -57,7 +57,7 @@ DAG 后端、C-A lifecycle、final_output、sharedfile、prompt_template-first �
    已完成。覆盖 T5/T6/T7/F10 的最小闭环：列表字段、详情节点列表、Start、子 thread 链接、最近 run/history、final_output 卡片。目标是“能看见、能启动、能追踪”。实现落在本地 `main` 的 `fee60718`、`2912c602`、`66afaffb`、`f18bc138`，并由 merge `81f0893b` 封入主线；封口修正后，选中 run 的节点列表以 `dashboard/dagRun` / `task_get_run` 返回的 runtime nodes 为准，模板节点只作无 run fallback。
 
 3. **U2：AI 设计 + 用户微调闭环**
-   已完成最小闭环。覆盖 T8/F8/F9 的首切：DAG 页 AI 设计按钮创建 `dag_designer` thread 并发送 kickoff；DAG 详情支持 agent 节点的 provider/model/prompt_key/first_turn/depends_on/inputs/outputs/sharedfile lock 编辑，通过 `dashboard/dagApplyOps` + `baseVersion` 保存；右侧显示只读 mermaid source 拓扑与节点 sharedfile 读写/lock 摘要。实现落在本地 `main` 的 `0d8afe45`，并由 merge `8ca3cfa2` 封入主线。未提前做复杂 wizard、拖拽拓扑、全局 Shared Files 清理、动态 prompt/model registry picker 或 bundle/multi-artifact。
+   已完成最小闭环。覆盖 T8/F8/F9 的首切：DAG 页 AI 设计按钮创建 `dag_designer` thread 并发送 kickoff；DAG 详情支持 agent 节点的 provider/model/prompt_key/first_turn/depends_on/inputs/outputs/sharedfile lock 编辑，通过 `dashboard/dagApplyOps` + `baseVersion` 保存；右侧显示只读 mermaid source 拓扑与节点 sharedfile 读写/lock 摘要。审查封口补齐 Start/Edit 门禁：Start 仅允许 `draft/ready` + manual/scheduled + 无 active run，节点编辑在 active run / running / 终态时禁用；拓扑仍是只读 source，点击联动后置。实现落在本地 `main` 的 `0d8afe45`，并由 merge `8ca3cfa2` 封入主线。未提前做复杂 wizard、拖拽拓扑、全局 Shared Files 清理、动态 prompt/model registry picker 或 bundle/multi-artifact。
 
 4. **U3：Shared Files / retention / cleanup**
    覆盖 H15/F11：final_output 保护、中间产物折叠、TTL/软删/批量清理、reads/writes/lock_mode 联动。H15 首切只落安全底座：retention 元数据 + final_output 删除保护；批量清理 UI 仍按本项后续设计。
@@ -70,5 +70,5 @@ DAG 后端、C-A lifecycle、final_output、sharedfile、prompt_template-first �
 - H14 已完成 final_output UI；F11 不再承担 final_output 高亮，只剩 sharedfile 锁可视化和中间产物体验深化。
 - H15 首切已把 final_output 引用文件纳入删除保护和 retention 元数据；还没有做 TTL 规则、批量清理、导出确认、pinned / running run 保护 UI。
 - Need 1 的用户可见闭环已由 U1 DAG Console v1 补齐：列表字段、详情、Start、节点进度、子 thread 链接、run history、final_output 卡片均已有前端与 e2e smoke 覆盖。
-- Need 2 的最小 UI 闭环已由 U2 补齐：AI 设计入口、agent 节点微调、OCC 保存、只读拓扑和 detail 内 sharedfile 读写摘要已落地。动态 prompt/model registry picker、全局 Shared Files 锁可视化和真实 dogfood 下的批量清理仍是后续项。
+- Need 2 的最小 UI 闭环已由 U2 补齐：AI 设计入口、agent 节点微调、OCC 保存、Start/Edit 门禁、只读拓扑和 detail 内 sharedfile 读写摘要已落地。动态 prompt/model registry picker、拓扑点击联动、全局 Shared Files 锁可视化和真实 dogfood 下的批量清理仍是后续项。
 - 旧 P10 的模板库/preview/lineage/cost preview、金融预设、大规模 UI、WS 实时事件、多人编辑冲突均已登记为非 v1 项；其中已被蓝图砍掉的旧 P8/P9/P12/P13 类能力，恢复时必须另立新 ADR/任务。

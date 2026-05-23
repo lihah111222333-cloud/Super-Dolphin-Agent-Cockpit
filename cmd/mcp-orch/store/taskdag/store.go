@@ -312,6 +312,7 @@ func fromDAG(row sqlc.TaskDag) DAG {
 	return DAG{
 		ID:          row.ID,
 		DagKey:      row.DagKey,
+		Version:     row.Version,
 		Title:       row.Title,
 		Description: row.Description,
 		Status:      row.Status,

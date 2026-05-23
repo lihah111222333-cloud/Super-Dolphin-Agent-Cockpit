@@ -73,7 +73,7 @@ func (s *service) GetDAGDetail(ctx context.Context, dagKey string) (*contract.DA
 	return &detail, nil
 }
 
-func (s *service) ListDAGRuns(ctx context.Context, dagKey string, limit int32) ([]contract.Run, error) {
+func (s *service) ListDAGRuns(ctx context.Context, dagKey, status string, limit int32) ([]contract.Run, error) {
 	runtime := s.effectiveDAGRuntime()
 	if runtime == nil {
 		return nil, errOrchestrationServiceNotAvailable
@@ -85,6 +85,7 @@ func (s *service) ListDAGRuns(ctx context.Context, dagKey string, limit int32) (
 	limit = int32(util.ClampLimit(int(limit), 1, maxLogLimit, 50))
 	resp, err := runtime.ListRuns(ctx, contract.ListRunsRequest{
 		DagKey: key,
+		Status: strings.TrimSpace(status),
 		Limit:  limit,
 	})
 	if err != nil {

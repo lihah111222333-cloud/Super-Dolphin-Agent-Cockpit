@@ -402,6 +402,7 @@ func dagSummaryDTO(item taskdag.DAG) DAGSummary {
 	return DAGSummary{
 		ID:          item.ID,
 		DagKey:      item.DagKey,
+		Version:     item.Version,
 		Title:       item.Title,
 		Description: item.Description,
 		Status:      item.Status,
