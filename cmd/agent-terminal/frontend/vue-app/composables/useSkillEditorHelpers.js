@@ -114,6 +114,7 @@ export function isCurrentEditorTarget(state, item, scope, personalType) {
 export function applyParsedSkillState(state, parsed, rawContent, path = '', fallbackSummary = '', fallbackSource = '') {
   const explicitSummary = parsed.summary || '';
   state.form.name = parsed.name || state.form.name || '';
+  state.form.displayName = parsed.displayName || '';
   state.form.description = parsed.description || explicitSummary || '';
   state.form.summary = explicitSummary;
   state.generatedSummaryPreview.value = (!parsed.description && !explicitSummary && fallbackSource === 'generated')

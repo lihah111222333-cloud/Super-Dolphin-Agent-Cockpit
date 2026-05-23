@@ -202,11 +202,23 @@ describe('cleanScalar', () => {
 // ─── parseSkillMarkdown ─────────────────────────────────────────────
 describe('parseSkillMarkdown', () => {
     it('parses complete SKILL.md', () => {
-        const content = '---\nname: MySkill\ndescription: Does things\ntags: [go, js]\n---\n# Body\nSome content';
+        const content = '---\nname: MySkill\ndisplay_name: My Skill\ndescription: Does things\ntags: [go, js]\n---\n# Body\nSome content';
         const result = parseSkillMarkdown(content);
         expect(result.name).toBe('MySkill');
+        expect(result.displayName).toBe('My Skill');
         expect(result.description).toBe('Does things');
         expect(result.body).toContain('# Body');
+    });
+
+    it('parses title as a display name alias', () => {
+        const result = parseSkillMarkdown('---\nname: docker-container-deploy\ntitle: Docker 容器化部署\n---\nbody');
+        expect(result.displayName).toBe('Docker 容器化部署');
+    });
+
+    it('converts safe legacy display names into runtime names', () => {
+        const result = parseSkillMarkdown('---\nname: Agent 工程学\n---\nbody');
+        expect(result.name).toBe('agent-工程学');
+        expect(result.displayName).toBe('Agent 工程学');
     });
 
     it('uses fallback name', () => {
@@ -237,6 +249,22 @@ describe('quoteYAML', () => {
 
     it('handles empty', () => {
         expect(quoteYAML('')).toBe('""');
+    });
+});
+
+describe('buildSkillMarkdown', () => {
+    it('writes display_name separately from the runtime name', () => {
+        const markdown = buildSkillMarkdown({
+            name: 'docker-container-deploy',
+            displayName: 'Docker 容器化部署',
+            description: '当你需要部署容器时使用。',
+            triggerWordsText: '',
+            forceWordsText: '',
+            internalScenarioWordsText: '',
+            body: '## 使用\n\nDeploy.',
+        });
+        expect(markdown).toContain('name: "docker-container-deploy"');
+        expect(markdown).toContain('display_name: "Docker 容器化部署"');
     });
 });
 

@@ -8,6 +8,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/anthropic-ai/super-agent-v3/internal/module/skill/mirrorpath"
 )
 
 const (
@@ -85,7 +87,7 @@ func DetectSkillMirrorConflicts(records []canonicalSkillRecord, targets []SkillM
 	driftCount := map[string]int{}
 	recordsByScopeName := canonicalRecordsByMirrorKey(records)
 	for i := range targets {
-		targets[i].Root = resolveValidMirrorRootSymlink(targets[i].Root)
+		targets[i].Root = mirrorpath.ResolveValidRootSymlink(targets[i].Root)
 	}
 	for _, target := range targets {
 		targetConflicts, err := detectSkillMirrorTargetConflicts(records, recordsByScopeName, target)
@@ -578,7 +580,7 @@ func validateExistingMirrorRoot(target SkillMirrorTarget) error {
 	if err := validateSkillMirrorTarget(target); err != nil {
 		return err
 	}
-	if err := rejectSymlinkAncestors(target.Root); err != nil {
+	if err := mirrorpath.RejectSymlinkAncestors(target.Root); err != nil {
 		return err
 	}
 	info, err := os.Lstat(target.Root)

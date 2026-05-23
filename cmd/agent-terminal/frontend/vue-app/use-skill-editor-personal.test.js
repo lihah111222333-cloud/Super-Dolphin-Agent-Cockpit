@@ -614,7 +614,7 @@ describe('useSkillEditor personal target payloads', () => {
 
     expect(apiMock.callAPI).not.toHaveBeenCalled();
     expect(vm.notice.level).toBe('error');
-    expect(vm.notice.message).toBe('技能名称不能包含非法字符，请使用中文、英文、数字、空格、- 或 _。');
+    expect(vm.notice.message).toBe('技能名称不能包含非法字符，请使用中文、英文、数字、- 或 _；带空格的展示文本请填写显示名称。');
   });
 
   it('warns about same-name conflicts without claiming imports overwrite other scopes', async () => {

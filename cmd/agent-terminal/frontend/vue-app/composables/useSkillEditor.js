@@ -242,6 +242,7 @@ function createEditorActions(props, emit, deps, state, readers) {
     state.skillFiles.value = [];
     state.activeSkillFilePath.value = '';
     state.form.name = '';
+    state.form.displayName = '';
     state.form.description = '';
     state.form.summary = '';
     state.generatedSummaryPreview.value = '';
@@ -280,6 +281,9 @@ function createEditorActions(props, emit, deps, state, readers) {
       state.selectedSkillName.value = item.name || '';
       state.form.scope = normalizeSkillScope(item?.scope || scopeFromTrust(item?.trust));
       state.form.personal_type = personalTypeForScope(state.form.scope, item, 'user');
+      if (!state.form.displayName) {
+        state.form.displayName = (item?.displayName || item?.display_name || item?.title || '').toString().trim();
+      }
       rememberLoadedMainSkillTarget(state, state.form.scope, state.form.personal_type);
       state.isBodyEditing.value = false;
       state.bodyEditorFocused.value = false;
@@ -328,6 +332,7 @@ function createEditorActions(props, emit, deps, state, readers) {
       if (deletesCurrentEditorTarget) {
         state.selectedSkillName.value = '';
         state.form.name = '';
+        state.form.displayName = '';
         state.form.description = '';
         state.form.summary = '';
         state.generatedSummaryPreview.value = '';
@@ -500,6 +505,7 @@ export function useSkillEditor(props, emit, deps) {
   const loadedMainSkillPersonalType = ref('');
   const form = reactive({
     name: '',
+    displayName: '',
     description: '',
     summary: '',
     triggerWordsText: '',
