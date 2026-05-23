@@ -83,6 +83,7 @@ var Module = fx.Options(
 	// immediately and causes agent state to go to "failed".
 	fx.Provide(
 		AsRPCRunner,
+		fx.Annotate(newMCPOrchDAGRuntime, fx.As(new(contract.DAGRuntime))),
 		newThreadOrchestrationFacade,
 		newRuntimeReporter,
 		provideNativeToolDescriptors,

@@ -33,25 +33,37 @@ func turnHistoryFromSnapshot(snapshot AgentSnapshot) []TurnRef {
 	}}
 }
 
+func (s *service) effectiveDAGRuntime() contract.DAGRuntime {
+	if s == nil {
+		return nil
+	}
+	if s.dagRuntime != nil {
+		return s.dagRuntime
+	}
+	return s.orchestration
+}
+
 func (s *service) ListDAGs(ctx context.Context, filter contract.ListDAGsFilter) ([]contract.DAGSummary, error) {
-	if s.orchestration == nil {
+	runtime := s.effectiveDAGRuntime()
+	if runtime == nil {
 		return nil, errOrchestrationServiceNotAvailable
 	}
 	filter.Status = strings.TrimSpace(filter.Status)
 	filter.Keyword = strings.TrimSpace(filter.Keyword)
 	filter.Limit = util.ClampLimit(filter.Limit, 1, maxLogLimit, defaultLogLimit)
-	return s.orchestration.ListDAGs(ctx, filter)
+	return runtime.ListDAGs(ctx, filter)
 }
 
 func (s *service) GetDAGDetail(ctx context.Context, dagKey string) (*contract.DAGDetail, error) {
-	if s.orchestration == nil {
+	runtime := s.effectiveDAGRuntime()
+	if runtime == nil {
 		return nil, errOrchestrationServiceNotAvailable
 	}
 	key := strings.TrimSpace(dagKey)
 	if key == "" {
 		return nil, errors.New("dashboard: dag key is required")
 	}
-	detail, err := s.orchestration.GetDAG(ctx, key)
+	detail, err := runtime.GetDAG(ctx, key)
 	if err != nil {
 		return nil, err
 	}
@@ -59,7 +71,8 @@ func (s *service) GetDAGDetail(ctx context.Context, dagKey string) (*contract.DA
 }
 
 func (s *service) ListDAGRuns(ctx context.Context, dagKey string, limit int32) ([]contract.Run, error) {
-	if s.orchestration == nil {
+	runtime := s.effectiveDAGRuntime()
+	if runtime == nil {
 		return nil, errOrchestrationServiceNotAvailable
 	}
 	key := strings.TrimSpace(dagKey)
@@ -67,7 +80,7 @@ func (s *service) ListDAGRuns(ctx context.Context, dagKey string, limit int32) (
 		return nil, errors.New("dashboard: dag key is required")
 	}
 	limit = int32(util.ClampLimit(int(limit), 1, maxLogLimit, 50))
-	resp, err := s.orchestration.ListRuns(ctx, contract.ListRunsRequest{
+	resp, err := runtime.ListRuns(ctx, contract.ListRunsRequest{
 		DagKey: key,
 		Limit:  limit,
 	})
@@ -78,4 +91,27 @@ func (s *service) ListDAGRuns(ctx context.Context, dagKey string, limit int32) (
 		return []contract.Run{}, nil
 	}
 	return resp.Runs, nil
+}
+
+func (s *service) StartDAG(ctx context.Context, dagKey, triggerSource, idempotencyKey string) (contract.StartDAGResponse, error) {
+	runtime := s.effectiveDAGRuntime()
+	if runtime == nil {
+		return contract.StartDAGResponse{}, errOrchestrationServiceNotAvailable
+	}
+	key := strings.TrimSpace(dagKey)
+	if key == "" {
+		return contract.StartDAGResponse{}, errors.New("dashboard: dag key is required")
+	}
+	source := strings.TrimSpace(triggerSource)
+	if source == "" {
+		source = "manual"
+	}
+	if source != "manual" {
+		return contract.StartDAGResponse{}, errors.New("dashboard: dag start trigger source must be manual")
+	}
+	return runtime.StartDAG(ctx, contract.StartDAGRequest{
+		DagKey:         key,
+		TriggerSource:  source,
+		IdempotencyKey: strings.TrimSpace(idempotencyKey),
+	})
 }

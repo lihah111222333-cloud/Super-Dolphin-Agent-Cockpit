@@ -95,6 +95,12 @@ type dagRunsParams struct {
 	Limit  int32  `json:"limit,omitempty"`
 }
 
+type dagStartParams struct {
+	DAGKey         string `json:"dagKey,omitempty"`
+	TriggerSource  string `json:"triggerSource,omitempty"`
+	IdempotencyKey string `json:"idempotencyKey,omitempty"`
+}
+
 // --- typed RPC response structs (replace map[string]any wrappers) ---
 
 type agentsResponse struct {
@@ -148,6 +154,11 @@ type dagDetailResponse struct {
 
 type dagRunsResponse struct {
 	Runs []contract.Run `json:"runs"`
+}
+
+type dagStartResponse struct {
+	RunKey  string `json:"runKey"`
+	Version int64  `json:"version"`
 }
 
 type aiLogStatsResponse struct {
@@ -249,6 +260,31 @@ func registerDashboardDataHandlers(m handler.Map, svc Service) {
 		}
 		return busLogsResponse{Logs: logs}, nil
 	})
+	registerDashboardDAGHandlers(m, svc)
+	m["dashboard/aiLogs/recent"] = platformrpc.StrictHandler(func(ctx context.Context, p limitParams) (any, error) {
+		logs, err := svc.GetRecentAILogs(ctx, p.Limit)
+		if err != nil {
+			return nil, err
+		}
+		return aiLogsResponse{Logs: logs}, nil
+	})
+	m["dashboard/aiLogs/stats"] = platformrpc.StrictHandler(func(ctx context.Context, _ struct{}) (any, error) {
+		stats, err := svc.GetAILogStats(ctx)
+		if err != nil {
+			return nil, err
+		}
+		return aiLogStatsResponse{Stats: stats}, nil
+	})
+	m["dashboard/logs"] = platformrpc.StrictHandler(func(ctx context.Context, p logsParams) (any, error) {
+		logs, err := svc.GetLogs(ctx, p.ToFilter(p.Source))
+		if err != nil {
+			return nil, err
+		}
+		return logsResponse{Logs: logs}, nil
+	})
+}
+
+func registerDashboardDAGHandlers(m handler.Map, svc Service) {
 	m["dashboard/dags"] = platformrpc.StrictHandler(func(ctx context.Context, p dagsParams) (any, error) {
 		dags, err := svc.ListDAGs(ctx, p.ToFilter())
 		if err != nil {
@@ -270,26 +306,12 @@ func registerDashboardDataHandlers(m handler.Map, svc Service) {
 		}
 		return dagRunsResponse{Runs: runs}, nil
 	})
-	m["dashboard/aiLogs/recent"] = platformrpc.StrictHandler(func(ctx context.Context, p limitParams) (any, error) {
-		logs, err := svc.GetRecentAILogs(ctx, p.Limit)
+	m["dashboard/dagStart"] = platformrpc.StrictHandler(func(ctx context.Context, p dagStartParams) (any, error) {
+		resp, err := svc.StartDAG(ctx, p.DAGKey, p.TriggerSource, p.IdempotencyKey)
 		if err != nil {
 			return nil, err
 		}
-		return aiLogsResponse{Logs: logs}, nil
-	})
-	m["dashboard/aiLogs/stats"] = platformrpc.StrictHandler(func(ctx context.Context, _ struct{}) (any, error) {
-		stats, err := svc.GetAILogStats(ctx)
-		if err != nil {
-			return nil, err
-		}
-		return aiLogStatsResponse{Stats: stats}, nil
-	})
-	m["dashboard/logs"] = platformrpc.StrictHandler(func(ctx context.Context, p logsParams) (any, error) {
-		logs, err := svc.GetLogs(ctx, p.ToFilter(p.Source))
-		if err != nil {
-			return nil, err
-		}
-		return logsResponse{Logs: logs}, nil
+		return dagStartResponse{RunKey: resp.RunKey, Version: resp.Version}, nil
 	})
 }
 

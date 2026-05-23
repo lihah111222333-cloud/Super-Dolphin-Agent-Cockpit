@@ -253,15 +253,14 @@ func TestDAGSubscriber_A2_PreservesAgentWrittenSharedfileWithNodeResultEnabled(t
 	if len(flow.claimCalls) != 1 {
 		t.Fatalf("claimCalls = %d, want 1", len(flow.claimCalls))
 	}
-	wantRef := `{"sharedfile":{"path":"reports/agent-preserve-both.md"}}`
-	if got := string(flow.claimCalls[0].Result); got != wantRef {
-		t.Fatalf("ClaimNodeOutputMaterialization.Result = %s, want sharedfile reference", got)
+	if got := string(flow.claimCalls[0].Result); got != payload {
+		t.Fatalf("ClaimNodeOutputMaterialization.Result = %s, want real TurnCompleted result %s", got, payload)
 	}
 	if len(flow.completeCalls) != 1 {
 		t.Fatalf("completeCalls = %d, want 1", len(flow.completeCalls))
 	}
-	if got := string(flow.completeCalls[0].Result); got != wantRef {
-		t.Fatalf("CompleteNodeInput.Result = %s, want sharedfile reference", got)
+	if got := string(flow.completeCalls[0].Result); got != payload {
+		t.Fatalf("CompleteNodeInput.Result = %s, want real TurnCompleted result %s", got, payload)
 	}
 }
 
