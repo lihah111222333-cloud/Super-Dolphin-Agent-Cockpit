@@ -54,6 +54,7 @@ MULTI_AGENT_MEMORY_FEATURE_TEAMMEM ?= 1
 export ENABLE_MEMORY_SYSTEM
 export ENABLE_MEMORY_TOOLS
 export MULTI_AGENT_MEMORY_FEATURE_TEAMMEM
+DEV_CONTROL_SESSION_TOKEN ?= dev-local-$(shell date +%s)-$(shell echo $$$$)
 
 # When agent-terminal runs via `go run`, its own binary lives under a go-build
 # tempdir, so spawnToolbridgePeers cannot locate mcp-orch / mcp-lsp next to it.
@@ -65,12 +66,14 @@ build-peer-binaries:
 	go build -o bin/mcp-lsp ./cmd/mcp-lsp
 
 run-agent-terminal-debug: build-peer-binaries
-	GO_AGENT_PEER_BIN_DIR=$(CURDIR)/bin \
+	GO_AGENT_CTL_SESSION_TOKEN=$(DEV_CONTROL_SESSION_TOKEN) \
+		GO_AGENT_PEER_BIN_DIR=$(CURDIR)/bin \
 		go run ./cmd/frida-bootstrap --frida-version "$(FRIDA_DEVKIT_VERSION)" -- \
 		go run -tags frida -ldflags "$(FRIDA_LDFLAGS)" ./cmd/agent-terminal --debug --debug-port $(AGENT_TERMINAL_DEBUG_PORT)
 
 run-agent-terminal-debug-plain: build-peer-binaries
-	GO_AGENT_PEER_BIN_DIR=$(CURDIR)/bin \
+	GO_AGENT_CTL_SESSION_TOKEN=$(DEV_CONTROL_SESSION_TOKEN) \
+		GO_AGENT_PEER_BIN_DIR=$(CURDIR)/bin \
 		go run ./cmd/agent-terminal --debug --debug-port $(AGENT_TERMINAL_DEBUG_PORT)
 
 mcp:
