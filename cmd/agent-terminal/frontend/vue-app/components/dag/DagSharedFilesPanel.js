@@ -25,22 +25,52 @@ function nodeKey(node, index) {
   return textValue(node?.node_key, node?.nodeKey, node?.key, node?.id) || `node_${index + 1}`;
 }
 
+const LOCK_MODE_LABELS = {
+  exclusive: '独占写入',
+  append: '追加写入',
+  shared: '共享读取',
+};
+
+function lockModeLabel(value) {
+  const mode = textValue(value);
+  if (!mode) return '-';
+  return LOCK_MODE_LABELS[mode.toLowerCase()] || mode;
+}
+
+function accessLabel(mode, lockMode) {
+  return lockMode && lockMode !== '-' ? `${mode} · ${lockMode}` : mode;
+}
+
 function sharedFileRows(nodes) {
   const rows = [];
   for (const [index, node] of nodes.entries()) {
     const key = nodeKey(node, index);
+    const stepLabel = `第 ${index + 1} 步`;
     const config = parseObject(node?.config);
     const inputs = parseObject(config.inputs);
     const outputs = parseObject(config.outputs);
     const reads = Array.isArray(inputs.from_sharedfiles) ? inputs.from_sharedfiles : [];
-    for (const path of reads) rows.push({ nodeKey: key, path: textValue(path), mode: 'read', lockMode: '-' });
-    const target = parseObject(outputs.to_sharedfile);
-    if (target.path) {
+    for (const path of reads) {
       rows.push({
         nodeKey: key,
+        stepLabel,
+        path: textValue(path),
+        mode: '读取',
+        lockMode: '-',
+        accessLabel: '读取',
+      });
+    }
+    const target = parseObject(outputs.to_sharedfile);
+    if (target.path) {
+      const mode = '写入';
+      const lockMode = lockModeLabel(target.lock_mode || target.lockMode);
+      rows.push({
+        nodeKey: key,
+        stepLabel,
         path: textValue(target.path),
-        mode: 'write',
-        lockMode: textValue(target.lock_mode, target.lockMode) || '-',
+        mode,
+        lockMode,
+        accessLabel: accessLabel(mode, lockMode),
       });
     }
   }
@@ -58,13 +88,13 @@ export const DagSharedFilesPanel = {
   },
   template: `
     <section class="dag-detail-section dag-sharedfiles-panel" data-testid="dag-sharedfiles-panel">
-      <div class="dag-section-title">Shared Files</div>
-      <div v-if="rows.length === 0" class="dag-console-muted" data-testid="dag-sharedfiles-empty">暂无 sharedfile 读写</div>
+      <div class="dag-section-title">工作文件</div>
+      <div v-if="rows.length === 0" class="dag-console-muted" data-testid="dag-sharedfiles-empty">暂无工作文件读写</div>
       <div v-else class="dag-sharedfile-list">
         <div v-for="row in rows" :key="row.nodeKey + ':' + row.mode + ':' + row.path" class="dag-sharedfile-row">
-          <span>{{ row.nodeKey }}</span>
+          <span>{{ row.stepLabel }}</span>
           <strong>{{ row.path }}</strong>
-          <small>{{ row.mode }} · {{ row.lockMode }}</small>
+          <small>{{ row.accessLabel }}</small>
         </div>
       </div>
     </section>
