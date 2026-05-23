@@ -411,6 +411,7 @@ describe('AppRoot behavior', () => {
     expect(AppRoot.template).toContain(':loading="dashboardRequest.dags.loading"');
     expect(AppRoot.template).toContain(':error="dashboardRequest.dags.error"');
     expect(AppRoot.template).toContain('@open-chat="openDagChildThread"');
+    expect(AppRoot.template).toContain("@refresh-dags=\"refreshDashboardByPage('dags')\"");
     expect(AppRoot.template).not.toContain('@select="dagDetail.open"');
     expect(AppRoot.template).not.toContain('<DagDetailModal');
     expect(vm.NAV_ITEMS.find((item) => item.key === 'dags')?.label).toBe('任务流程');

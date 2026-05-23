@@ -608,6 +608,7 @@ type seedNode struct {
 	deps   []string
 	status string
 	agent  string
+	thread string
 }
 
 const completeDownstreamRunID int64 = 501
@@ -656,6 +657,9 @@ func seedDAGRows(t *testing.T, db *fakeTaskDAGDB, now time.Time, nodes []seedNod
 			id := runID
 			row.RunID = sqlc.Int8ValuePtr(&id)
 			key = dagRunNodeKey("dag-1", n.key, runID)
+		}
+		if n.thread != "" {
+			row.SpawningThreadID = sqlc.Text{String: n.thread, Valid: true}
 		}
 		db.nodes[key] = row
 	}

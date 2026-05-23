@@ -733,6 +733,7 @@ export const AppRoot = {
           :error="dashboardRequest.dags.error"
           @open-chat="openDagChildThread"
           @design-flow="startDagDesignerThread"
+          @refresh-dags="refreshDashboardByPage('dags')"
         />
 
         <TasksPage

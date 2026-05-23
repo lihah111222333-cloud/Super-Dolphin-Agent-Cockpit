@@ -39,7 +39,7 @@ func TestMCPOrchDAGRuntimeListDAGsCallsPeerTool(t *testing.T) {
 func TestMCPOrchDAGRuntimeStartDAGCallsPeerTool(t *testing.T) {
 	t.Parallel()
 
-	caller := &recordingDAGToolCaller{result: `{"RunKey":"dag-1#run-ui","Version":3}`}
+	caller := &recordingDAGToolCaller{result: `{"run_key":"dag-1#run-ui","version":3}`}
 	runtime := &mcpOrchDAGRuntime{tools: caller}
 
 	resp, err := runtime.StartDAG(context.Background(), contract.StartDAGRequest{
@@ -57,6 +57,27 @@ func TestMCPOrchDAGRuntimeStartDAGCallsPeerTool(t *testing.T) {
 		"dag_key":         "dag-1",
 		"trigger_source":  "manual",
 		"idempotency_key": "ui-1",
+	})
+}
+
+func TestMCPOrchDAGRuntimeTerminateDAGCallsPeerTool(t *testing.T) {
+	t.Parallel()
+
+	caller := &recordingDAGToolCaller{result: `{}`}
+	runtime := &mcpOrchDAGRuntime{tools: caller}
+
+	err := runtime.TerminateDAG(context.Background(), contract.TerminateDAGRequest{
+		DagKey: " dag-1 ",
+		RunKey: " run-1 ",
+		Reason: " user_requested ",
+	})
+	if err != nil {
+		t.Fatalf("TerminateDAG() error = %v", err)
+	}
+	assertDAGToolCall(t, caller, "task_terminate_dag", map[string]any{
+		"dag_key": "dag-1",
+		"run_key": "run-1",
+		"reason":  "user_requested",
 	})
 }
 

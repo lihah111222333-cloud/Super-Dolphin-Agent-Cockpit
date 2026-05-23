@@ -14,16 +14,23 @@ import (
 // 记录最近一次 LaunchAgent 调用入参 + 注入返回错误 + 返回 threadID，
 // 便于断言。F1.5 后 LaunchAgent 返回值是 (threadID, error)。
 type stubAgentLauncher struct {
-	called   int
-	lastReq  contract.LaunchRequest
-	threadID string
-	err      error
+	called         int
+	lastReq        contract.LaunchRequest
+	threadID       string
+	err            error
+	stoppedThreads []string
+	stopErr        error
 }
 
 func (s *stubAgentLauncher) LaunchAgent(_ context.Context, req contract.LaunchRequest) (string, error) {
 	s.called++
 	s.lastReq = req
 	return s.threadID, s.err
+}
+
+func (s *stubAgentLauncher) StopLaunchedThread(_ context.Context, threadID string) error {
+	s.stoppedThreads = append(s.stoppedThreads, strings.TrimSpace(threadID))
+	return s.stopErr
 }
 
 // stubNodeSpawnRecorder 是 NodeSpawnRecorder 接口的测试假实现。
@@ -534,6 +541,29 @@ func TestAgentExecutor_Execute_Spawn_RecorderErrorIsHardFailure(t *testing.T) {
 	}
 	if out.ErrorSummary == "" {
 		t.Fatalf("ErrorSummary empty, want substring 'spawning_thread_id write-back failed'")
+	}
+}
+
+func TestAgentExecutor_Execute_Spawn_RecorderErrorStopsLaunchedThread(t *testing.T) {
+	t.Parallel()
+	launcher := &stubAgentLauncher{threadID: "thread-late"}
+	recorder := &stubNodeSpawnRecorder{err: errors.New("node already cancelled")}
+	exec := NewAgentExecutor(launcher, WithRecorder(recorder))
+
+	cfg := AgentNodeConfig{Exec: AgentExecConfig{AgentKey: "implementer"}}
+	node := makeAgentNode(t, cfg)
+
+	out, err := exec.Execute(context.Background(), node, RunContext{
+		DagKey: "dag-x", NodeKey: "node-a", RunID: 1001,
+	})
+	if err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	if out.Status != NodeStatusFailed {
+		t.Fatalf("Status = %q, want %q", out.Status, NodeStatusFailed)
+	}
+	if got := launcher.stoppedThreads; len(got) != 1 || got[0] != "thread-late" {
+		t.Fatalf("stoppedThreads = %v, want [thread-late]", got)
 	}
 }
 

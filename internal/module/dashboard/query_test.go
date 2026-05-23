@@ -89,6 +89,7 @@ func TestDashboardExtraHandlersRegistered(t *testing.T) {
 		"dashboard/dagRuns",
 		"dashboard/dagRun",
 		"dashboard/dagStart",
+		"dashboard/dagTerminate",
 		"dashboard/dagApplyOps",
 	} {
 		if _, ok := handlers[method]; !ok {
@@ -252,6 +253,7 @@ func TestDashboardDAGHandlersReturnData(t *testing.T) {
 	assertDashboardDAGRuns(t, server, orchestration)
 	assertDashboardDAGRun(t, server, orchestration)
 	assertDashboardDAGStart(t, server, orchestration)
+	assertDashboardDAGTerminate(t, server, orchestration)
 	assertDashboardDAGApplyOps(t, server, orchestration)
 }
 
@@ -364,6 +366,17 @@ func assertDashboardDAGStart(t *testing.T, server *platformrpc.Server, orchestra
 	}
 }
 
+func assertDashboardDAGTerminate(t *testing.T, server *platformrpc.Server, orchestration *stubDashboardOrchestration) {
+	t.Helper()
+
+	if err := dispatchDashboardInto(server, "dashboard/dagTerminate", `{"dagKey":"dag-1","runKey":"run-1","reason":"user_requested"}`, &struct{}{}); err != nil {
+		t.Fatalf("dispatch dag terminate error = %v", err)
+	}
+	if orchestration.terminateDAGRequest != (contract.TerminateDAGRequest{DagKey: "dag-1", RunKey: "run-1", Reason: "user_requested"}) {
+		t.Fatalf("TerminateDAG() request = %#v", orchestration.terminateDAGRequest)
+	}
+}
+
 func assertDashboardDAGApplyOps(t *testing.T, server *platformrpc.Server, orchestration *stubDashboardOrchestration) {
 	t.Helper()
 
@@ -435,6 +448,7 @@ func TestDashboardDAGHandlersReturnServiceNotAvailableWithoutOrchestration(t *te
 	assertDashboardMethodServiceUnavailable(t, server, "dashboard/dagDetail", `{"dagKey":"dag-1"}`)
 	assertDashboardMethodServiceUnavailable(t, server, "dashboard/dagRun", `{"runKey":"run-1"}`)
 	assertDashboardMethodServiceUnavailable(t, server, "dashboard/dagStart", `{"dagKey":"dag-1"}`)
+	assertDashboardMethodServiceUnavailable(t, server, "dashboard/dagTerminate", `{"dagKey":"dag-1","runKey":"run-1"}`)
 	assertDashboardMethodServiceUnavailable(t, server, "dashboard/dagApplyOps", `{"dagKey":"dag-1","baseVersion":1,"ops":[]}`)
 }
 

@@ -123,8 +123,12 @@ func TestDispatcherDAGPermanentFailureSkipsCascadeWhenFailWakeupFenceMisses(t *t
 	store.failRows = 0
 	d := newAgentFailureClassDispatcher(t, store, errors.New("launcher should not be called"))
 
-	if _, err := d.ProcessBatch(context.Background()); err != nil {
+	n, err := d.ProcessBatch(context.Background())
+	if err != nil {
 		t.Fatalf("ProcessBatch err = %v", err)
+	}
+	if n != 0 {
+		t.Fatalf("ProcessBatch handled = %d, want 0 when FailWakeup fence misses", n)
 	}
 	if len(store.failCalls) != 1 {
 		t.Fatalf("failCalls = %d, want 1", len(store.failCalls))
@@ -141,8 +145,12 @@ func TestDispatcherDAGRetryExhaustionSkipsCascadeWhenFailWakeupFenceMisses(t *te
 	store.failRows = 0
 	d := newAgentFailureClassDispatcher(t, store, errors.New("connection refused"))
 
-	if _, err := d.ProcessBatch(context.Background()); err != nil {
+	n, err := d.ProcessBatch(context.Background())
+	if err != nil {
 		t.Fatalf("ProcessBatch err = %v", err)
+	}
+	if n != 0 {
+		t.Fatalf("ProcessBatch handled = %d, want 0 when FailWakeup fence misses", n)
 	}
 	if len(store.failCalls) != 1 {
 		t.Fatalf("failCalls = %d, want 1", len(store.failCalls))

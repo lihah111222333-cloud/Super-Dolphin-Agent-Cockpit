@@ -65,6 +65,10 @@ type AgentLauncher interface {
 	LaunchAgent(ctx context.Context, req contract.LaunchRequest) (threadID string, err error)
 }
 
+type LaunchedThreadStopper interface {
+	StopLaunchedThread(ctx context.Context, threadID string) error
+}
+
 // NodeSpawnRecorder 是 F1.5 / ADR-009 引入的 thread_id 写回端口。
 // 生产实现是 store/taskdag.NodeSpawnRecorderStore —— *store 类型同时满足该
 // 接口；runID 限定本次 run 的节点行，测试注入 stub recorder 断言写回入参与
@@ -328,9 +332,21 @@ func (e *AgentExecutor) spawnWriteback(ctx context.Context, node Node, runCtx Ru
 		return "spawning_thread_id write-back skipped: missing dag_key or node_key"
 	}
 	if err := e.recorder.RecordNodeSpawn(ctx, dagKey, nodeKey, runCtx.RunID, threadID); err != nil {
-		return truncateErrSummary(fmt.Sprintf("spawning_thread_id write-back failed: %v", err))
+		return e.stopLaunchedThreadAfterWritebackFailure(ctx, threadID, err)
 	}
 	return ""
+}
+
+func (e *AgentExecutor) stopLaunchedThreadAfterWritebackFailure(ctx context.Context, threadID string, cause error) string {
+	summary := fmt.Sprintf("spawning_thread_id write-back failed: %v", cause)
+	stopper, ok := e.launcher.(LaunchedThreadStopper)
+	if !ok {
+		return truncateErrSummary(summary)
+	}
+	if err := stopper.StopLaunchedThread(ctx, threadID); err != nil {
+		return truncateErrSummary(summary + "; stop launched thread failed: " + err.Error())
+	}
+	return truncateErrSummary(summary + "; launched thread stopped")
 }
 
 // resolveSpawnKeys 从 RunContext / node 中提取 dagKey + nodeKey，优先 RunContext

@@ -139,6 +139,30 @@ func (s *service) StartDAG(ctx context.Context, dagKey, triggerSource, idempoten
 	})
 }
 
+func (s *service) TerminateDAG(ctx context.Context, dagKey, runKey, reason string) error {
+	runtime := s.effectiveDAGRuntime()
+	if runtime == nil {
+		return errOrchestrationServiceNotAvailable
+	}
+	key := strings.TrimSpace(dagKey)
+	if key == "" {
+		return errors.New("dashboard: dag key is required")
+	}
+	run := strings.TrimSpace(runKey)
+	if run == "" {
+		return errors.New("dashboard: run key is required")
+	}
+	cause := strings.TrimSpace(reason)
+	if cause == "" {
+		cause = "user_requested"
+	}
+	return runtime.TerminateDAG(ctx, contract.TerminateDAGRequest{
+		DagKey: key,
+		RunKey: run,
+		Reason: cause,
+	})
+}
+
 func (s *service) ApplyDAGOps(ctx context.Context, req contract.ApplyOpsRequest) (contract.ApplyOpsResponse, error) {
 	runtime := s.effectiveDAGRuntime()
 	if runtime == nil {
