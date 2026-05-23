@@ -71,6 +71,7 @@ type TaskAck struct {
 type TaskDag struct {
 	ID          int64              `json:"id"`
 	DagKey      string             `json:"dag_key"`
+	Version     int64              `json:"version"`
 	Title       string             `json:"title"`
 	Description string             `json:"description"`
 	Status      string             `json:"status"`

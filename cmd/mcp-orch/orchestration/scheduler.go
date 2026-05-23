@@ -152,4 +152,4 @@ func generateRunKey(dagKey, idempotencyKey string) string {
 	return fmt.Sprintf("%s#run-%d", dagKey, time.Now().UnixNano())
 }
 
-func dagVersionFor(_ *taskdag.DAG) int64 { return 0 }
+func dagVersionFor(dag *taskdag.DAG) int64 { return dag.Version }

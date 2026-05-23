@@ -71,6 +71,7 @@ export const DagNodeEditForm = {
     nodes: { type: Array, default: () => [] },
     savingNodeKey: { type: String, default: '' },
     saveError: { type: [String, Object], default: null },
+    disabledReason: { type: String, default: '' },
   },
   emits: ['save-agent-node'],
   setup(props, { emit }) {
@@ -90,6 +91,7 @@ export const DagNodeEditForm = {
     });
     const agentNodes = computed(() => (Array.isArray(props.nodes) ? props.nodes : []).filter((node) => nodeType(node) === 'agent'));
     const selected = computed(() => selectedAgent(agentNodes.value, form.nodeKey));
+    const editingDisabled = computed(() => Boolean((props.disabledReason || '').trim()));
     const saveErrorText = computed(() => {
       const err = props.saveError;
       if (!err) return '';
@@ -165,6 +167,7 @@ export const DagNodeEditForm = {
     }
 
     function submit() {
+      if (editingDisabled.value) return;
       emit('save-agent-node', {
         nodeKey: form.nodeKey,
         title: form.title,
@@ -173,16 +176,17 @@ export const DagNodeEditForm = {
       });
     }
 
-    return { agentNodes, chooseNode, form, modelOptions, parseList, saveErrorText, submit };
+    return { agentNodes, chooseNode, editingDisabled, form, modelOptions, parseList, saveErrorText, submit };
   },
   template: `
     <section class="dag-detail-section dag-node-edit-form" data-testid="dag-node-edit-form">
       <div class="dag-section-title">Agent Node</div>
       <div v-if="agentNodes.length === 0" class="dag-console-muted" data-testid="dag-node-edit-empty">暂无 agent 节点</div>
       <form v-else class="dag-node-edit-grid" @submit.prevent="submit">
+        <div v-if="editingDisabled" class="dag-console-muted dag-node-edit-wide" data-testid="dag-node-edit-disabled-reason">{{ disabledReason }}</div>
         <label>
           <span>Node</span>
-          <select :value="form.nodeKey" data-testid="dag-node-edit-select" @change="chooseNode">
+          <select :value="form.nodeKey" data-testid="dag-node-edit-select" :disabled="editingDisabled" @change="chooseNode">
             <option v-for="(node, index) in agentNodes" :key="node.node_key || node.nodeKey || index" :value="node.node_key || node.nodeKey || node.key || node.id">
               {{ node.title || node.name || node.node_key || node.nodeKey }}
             </option>
@@ -190,11 +194,11 @@ export const DagNodeEditForm = {
         </label>
         <label>
           <span>Title</span>
-          <input v-model="form.title" data-testid="dag-node-edit-title" />
+          <input v-model="form.title" data-testid="dag-node-edit-title" :disabled="editingDisabled" />
         </label>
         <label>
           <span>Provider</span>
-          <select v-model="form.provider" data-testid="dag-node-edit-provider">
+          <select v-model="form.provider" data-testid="dag-node-edit-provider" :disabled="editingDisabled">
             <option value="">默认</option>
             <option value="claude">claude</option>
             <option value="codex">codex</option>
@@ -202,50 +206,50 @@ export const DagNodeEditForm = {
         </label>
         <label>
           <span>Model</span>
-          <select v-model="form.model" data-testid="dag-node-edit-model">
+          <select v-model="form.model" data-testid="dag-node-edit-model" :disabled="editingDisabled">
             <option value="">默认</option>
             <option v-for="option in modelOptions" :key="option.value" :value="option.value">{{ option.label }}</option>
           </select>
         </label>
         <label>
           <span>Prompt Key</span>
-          <input v-model="form.promptKey" data-testid="dag-node-edit-prompt-key" />
+          <input v-model="form.promptKey" data-testid="dag-node-edit-prompt-key" :disabled="editingDisabled" />
         </label>
         <label>
           <span>Depends On</span>
-          <input v-model="form.dependsOn" data-testid="dag-node-edit-depends-on" />
+          <input v-model="form.dependsOn" data-testid="dag-node-edit-depends-on" :disabled="editingDisabled" />
         </label>
         <label class="dag-node-edit-wide">
           <span>Prompt</span>
-          <textarea v-model="form.firstTurn" rows="4" data-testid="dag-node-edit-first-turn"></textarea>
+          <textarea v-model="form.firstTurn" rows="4" data-testid="dag-node-edit-first-turn" :disabled="editingDisabled"></textarea>
         </label>
         <label>
           <span>Input Nodes</span>
-          <input v-model="form.fromNodes" data-testid="dag-node-edit-input-nodes" />
+          <input v-model="form.fromNodes" data-testid="dag-node-edit-input-nodes" :disabled="editingDisabled" />
         </label>
         <label>
           <span>Input Shared Files</span>
-          <input v-model="form.fromSharedfiles" data-testid="dag-node-edit-input-sharedfiles" />
+          <input v-model="form.fromSharedfiles" data-testid="dag-node-edit-input-sharedfiles" :disabled="editingDisabled" />
         </label>
         <label>
           <span>Output File</span>
-          <input v-model="form.toSharedfilePath" data-testid="dag-node-edit-output-file" />
+          <input v-model="form.toSharedfilePath" data-testid="dag-node-edit-output-file" :disabled="editingDisabled" />
         </label>
         <label>
           <span>Lock</span>
-          <select v-model="form.lockMode" data-testid="dag-node-edit-lock-mode">
+          <select v-model="form.lockMode" data-testid="dag-node-edit-lock-mode" :disabled="editingDisabled">
             <option value="exclusive">exclusive</option>
             <option value="append">append</option>
             <option value="shared">shared</option>
           </select>
         </label>
         <label class="dag-node-edit-check">
-          <input type="checkbox" v-model="form.toNodeResult" data-testid="dag-node-edit-to-result" />
+          <input type="checkbox" v-model="form.toNodeResult" data-testid="dag-node-edit-to-result" :disabled="editingDisabled" />
           <span>to_node_result</span>
         </label>
         <div v-if="saveErrorText" class="dag-console-error-inline dag-node-edit-wide" data-testid="dag-node-edit-error">{{ saveErrorText }}</div>
         <div class="dag-node-edit-actions">
-          <button type="submit" class="btn btn-primary" data-testid="dag-node-edit-save" :disabled="savingNodeKey === form.nodeKey">
+          <button type="submit" class="btn btn-primary" data-testid="dag-node-edit-save" :disabled="editingDisabled || savingNodeKey === form.nodeKey">
             {{ savingNodeKey === form.nodeKey ? '保存中' : 'Save Node' }}
           </button>
         </div>

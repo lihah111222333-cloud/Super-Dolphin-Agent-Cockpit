@@ -38,7 +38,8 @@ func TestDAGRuntimeOnlyListDAGs(t *testing.T) {
 func TestDAGRuntimeOnlyGetDAGDetail(t *testing.T) {
 	t.Parallel()
 
-	svc := &service{dagRuntime: newDAGRuntimeOnlyStub()}
+	dagRuntime := newDAGRuntimeOnlyStub()
+	svc := &service{dagRuntime: dagRuntime}
 
 	detail, err := svc.GetDAGDetail(context.Background(), " dag-1 ")
 	if err != nil {
@@ -52,11 +53,15 @@ func TestDAGRuntimeOnlyGetDAGDetail(t *testing.T) {
 func TestDAGRuntimeOnlyListDAGRuns(t *testing.T) {
 	t.Parallel()
 
-	svc := &service{dagRuntime: newDAGRuntimeOnlyStub()}
+	dagRuntime := newDAGRuntimeOnlyStub()
+	svc := &service{dagRuntime: dagRuntime}
 
-	runs, err := svc.ListDAGRuns(context.Background(), " dag-1 ", 3)
+	runs, err := svc.ListDAGRuns(context.Background(), " dag-1 ", " running ", 3)
 	if err != nil {
 		t.Fatalf("ListDAGRuns() error = %v", err)
+	}
+	if dagRuntime.listRunsRequest.Status != "running" {
+		t.Fatalf("ListDAGRuns() status = %#v, want running", dagRuntime.listRunsRequest)
 	}
 	if len(runs) != 1 || runs[0].RunKey != "run-1" {
 		t.Fatalf("ListDAGRuns() = %#v", runs)

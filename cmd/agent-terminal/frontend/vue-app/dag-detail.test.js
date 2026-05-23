@@ -34,6 +34,10 @@ describe('useDagDetail', () => {
         };
       }
       if (method === 'dashboard/dagRuns') {
+        if (params.status === 'running') {
+          expect(params).toEqual({ dagKey: 'dag-1', status: 'running', limit: 1 });
+          return { runs: [] };
+        }
         expect(params).toEqual({ dagKey: 'dag-1', limit: 5 });
         return {
           runs: [{
@@ -122,6 +126,33 @@ describe('useDagDetail', () => {
     expect(detail.state.runsError).toBe(runsError);
     expect(detail.state.runs).toEqual([]);
     expect(detail.state.finalOutput).toBeNull();
+  });
+
+  it('loads a running run separately so active gates are not limited to recent history', async () => {
+    apiMock.callAPI.mockImplementation(async (method, params) => {
+      if (method === 'dashboard/dagDetail') {
+        return { dag: { dag_key: 'dag-1', title: 'Daily Brief' }, nodes: [] };
+      }
+      if (method === 'dashboard/dagRuns') {
+        if (params.status === 'running') {
+          expect(params).toEqual({ dagKey: 'dag-1', status: 'running', limit: 1 });
+          return { runs: [{ run_key: 'run-hidden', status: 'running' }] };
+        }
+        expect(params).toEqual({ dagKey: 'dag-1', limit: 5 });
+        return { runs: [{ run_key: 'run-done', status: 'succeeded' }] };
+      }
+      if (method === 'dashboard/dagRun') {
+        expect(params).toEqual({ runKey: 'run-done' });
+        return { run: { run_key: 'run-done', status: 'succeeded' }, nodes: [] };
+      }
+      throw new Error(`unexpected method ${method}`);
+    });
+
+    const detail = useDagDetail();
+    await detail.open({ dag_key: 'dag-1' });
+
+    expect(detail.state.runs.map((run) => run.run_key)).toEqual(['run-done']);
+    expect(detail.state.activeRun).toMatchObject({ run_key: 'run-hidden', status: 'running' });
   });
 
   it('selects a run and exposes that run final_output', async () => {
