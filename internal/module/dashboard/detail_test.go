@@ -253,19 +253,21 @@ func TestStartDAGRequiresDAGKey(t *testing.T) {
 }
 
 type stubDashboardOrchestration struct {
-	snapshot        contract.AgentSnapshot
-	report          contract.AgentReportResult
-	listDAGsResult  []contract.DAGSummary
-	listDAGsErr     error
-	listDAGsFilter  contract.ListDAGsFilter
-	dagDetail       contract.DAGDetail
-	getDAGKey       string
-	listRunsResult  contract.ListRunsResponse
-	listRunsErr     error
-	listRunsRequest contract.ListRunsRequest
-	startDAGRequest contract.StartDAGRequest
-	startDAGResult  contract.StartDAGResponse
-	startDAGErr     error
+	snapshot         contract.AgentSnapshot
+	report           contract.AgentReportResult
+	listDAGsResult   []contract.DAGSummary
+	listDAGsErr      error
+	listDAGsFilter   contract.ListDAGsFilter
+	dagDetail        contract.DAGDetail
+	getDAGKey        string
+	listRunsResult   contract.ListRunsResponse
+	listRunsByDAG    map[string]contract.ListRunsResponse
+	listRunsErr      error
+	listRunsRequest  contract.ListRunsRequest
+	listRunsRequests []contract.ListRunsRequest
+	startDAGRequest  contract.StartDAGRequest
+	startDAGResult   contract.StartDAGResponse
+	startDAGErr      error
 }
 
 // 中文：编译期断言 — stubDashboardOrchestration 必须实现
@@ -363,8 +365,12 @@ func (s *stubDashboardOrchestration) ApplyOps(context.Context, contract.ApplyOps
 
 func (s *stubDashboardOrchestration) ListRuns(_ context.Context, req contract.ListRunsRequest) (contract.ListRunsResponse, error) {
 	s.listRunsRequest = req
+	s.listRunsRequests = append(s.listRunsRequests, req)
 	if s.listRunsErr != nil {
 		return contract.ListRunsResponse{}, s.listRunsErr
+	}
+	if s.listRunsByDAG != nil {
+		return s.listRunsByDAG[req.DagKey], nil
 	}
 	return s.listRunsResult, nil
 }
