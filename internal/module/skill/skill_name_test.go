@@ -6,22 +6,11 @@ import (
 	"testing"
 )
 
-func Test_validateSkillName_AcceptsChineseLetters(t *testing.T) {
+func Test_validateSkillName_AcceptsChineseLettersAndSpaces(t *testing.T) {
 	names := []string{
-		"使用git工作区",
-		"使用超能力",
-		"头脑风暴",
-		"子代理驱动开发",
-		"完成前验证",
-		"执行计划",
-		"接收代码审查",
-		"测试驱动开发",
-		"系统化调试",
-		"结束开发分支",
-		"编写技能",
-		"编写计划",
-		"请求代码审查",
-		"调度并行代理",
+		"使用git工作区", "使用超能力", "头脑风暴", "子代理驱动开发",
+		"Docker 容器化部署", "GORM 数据库操作", "Git 原子提交规范",
+		"MySQL 高可用运维", "Python 量化机器学习", "Markdown 报告规范",
 	}
 	for _, name := range names {
 		t.Run(name, func(t *testing.T) {

@@ -7,7 +7,6 @@ import (
 	"path/filepath"
 	"strings"
 	"unicode"
-	"unicode/utf8"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	"github.com/anthropic-ai/super-agent-v3/internal/util/pathutil"
@@ -27,26 +26,23 @@ var builtInSkillFS embed.FS
 //
 // 白名单：Unicode letter/digit + '-' + '_'，长度上限 64 rune，首字符必须是
 // Unicode letter/digit（不能以 '-' 或 '_' 开头）。
+func isValidSkillRune(r rune) bool {
+	if unicode.IsLetter(r) || unicode.IsDigit(r) {
+		return true
+	}
+	return r == '-' || r == '_' || r == ' '
+}
+
 func validateSkillName(name string) (string, error) {
 	name = strings.TrimSpace(name)
-	if name == "" {
-		return "", ErrInvalidSkillName
-	}
-	if utf8.RuneCountInString(name) > 64 {
-		return "", ErrInvalidSkillName
-	}
 	runes := []rune(name)
-	if !unicode.IsLetter(runes[0]) && !unicode.IsDigit(runes[0]) {
+	if len(runes) == 0 || len(runes) > 64 || (!unicode.IsLetter(runes[0]) && !unicode.IsDigit(runes[0])) {
 		return "", ErrInvalidSkillName
 	}
 	for _, r := range runes {
-		if unicode.IsLetter(r) || unicode.IsDigit(r) {
-			continue
+		if !isValidSkillRune(r) {
+			return "", ErrInvalidSkillName
 		}
-		if r == '-' || r == '_' {
-			continue
-		}
-		return "", ErrInvalidSkillName
 	}
 	return name, nil
 }
@@ -70,13 +66,6 @@ func RepoFingerprint(projectRoot string) string {
 	return repofingerprint.MustCompute(projectRoot)
 }
 
-// NormalizeArtifactLocator 将 kind + 原始 locator 规范化为审批 key 中的稳定字符串。
-//
-// 规则：
-//   - metadata ：locator 必须为空（整个 skill 级元数据是单一产物）。
-//   - body：`SKILL.md` 或 `SKILL.md#Anchor`；anchor 不包含 `/` 或 `..`；空 anchor 时仅
-//     返回 `SKILL.md`。
-//   - resource：相对路径，filepath.Clean 后不得包含 `..` 段；不得以 `/` 开头。
 func NormalizeArtifactLocator(kind, locator string) (string, error) {
 	if !IsValidArtifactKind(kind) {
 		return "", fmt.Errorf("invalid artifact kind: %q", kind)
@@ -89,11 +78,11 @@ func NormalizeArtifactLocator(kind, locator string) (string, error) {
 		return normalizeBodyLocator(trimmed)
 	case ArtifactKindResource:
 		return normalizeResourceLocator(trimmed)
+	default:
+		return "", fmt.Errorf("unreachable artifact kind: %q", kind)
 	}
-	return "", fmt.Errorf("unreachable artifact kind: %q", kind)
 }
 
-// normalizeMetadataLocator 验证 metadata 产物的 locator 必须为空。
 func normalizeMetadataLocator(trimmed string) (string, error) {
 	if trimmed != "" {
 		return "", errors.New("metadata artifact must have empty locator")
@@ -101,12 +90,10 @@ func normalizeMetadataLocator(trimmed string) (string, error) {
 	return "", nil
 }
 
-// normalizeBodyLocator 规范化 body 产物的 locator：`SKILL.md` 或 `SKILL.md#Anchor`。
 func normalizeBodyLocator(trimmed string) (string, error) {
 	if trimmed == "" {
 		return "SKILL.md", nil
 	}
-	// 允许 SKILL.md#Anchor 或 #Anchor 或 SKILL.md
 	base, anchor, hasAnchor := strings.Cut(trimmed, "#")
 	base = strings.TrimSpace(base)
 	if base == "" {
@@ -128,7 +115,6 @@ func normalizeBodyLocator(trimmed string) (string, error) {
 	return base + "#" + anchor, nil
 }
 
-// normalizeResourceLocator 规范化 resource 产物的 locator：必须为相对路径，不得逃逸 skill 目录。
 func normalizeResourceLocator(trimmed string) (string, error) {
 	if trimmed == "" {
 		return "", errors.New("resource locator cannot be empty")
@@ -146,12 +132,9 @@ func normalizeResourceLocator(trimmed string) (string, error) {
 	return cleaned, nil
 }
 
-// TrustScope is a type alias for contract.TrustScope. The canonical definition
-// now lives in internal/contract so that cross-module consumers (dashboard,
-// prompt) do not need to import internal/module/skill.
+// TrustScope is a type alias for contract.TrustScope.
 type TrustScope = contract.TrustScope
 
-// Trust-scope constants — aliases for the canonical contract values.
 const (
 	TrustUnknown = contract.TrustUnknown
 	TrustUser    = contract.TrustUser
@@ -159,8 +142,7 @@ const (
 	TrustSigned  = contract.TrustSigned
 )
 
-// parseTrustScope 把 frontmatter 的字符串解析为 TrustScope。未知值返回 TrustUnknown，
-// 调用方应据此回落到 inferTrustFromRoot 的推断结果。
+// parseTrustScope parses frontmatter string to TrustScope.
 func parseTrustScope(raw string) TrustScope {
 	switch strings.ToLower(strings.TrimSpace(raw)) {
 	case "user", "trusted":
@@ -169,30 +151,21 @@ func parseTrustScope(raw string) TrustScope {
 		return TrustProject
 	case "signed", "verified":
 		return TrustSigned
+	default:
+		return TrustUnknown
 	}
-	return TrustUnknown
 }
 
-// inferTrustFromRoot 根据 skill 文件所在根目录推断默认信任域。
-//
-// 输入：
-//   - dir：skill 目录的绝对/规范化路径（parseSkillInfo 的 dir 参数即可）
-//   - projectRoot：本 session 的项目级 skills root（可为空）
-//   - userRoot：用户级 skills root（`~/.super-dolphin/skills/personal/...` 或 env 覆盖值）
-//
-// 匹配策略：先看 projectRoot（优先级高，命中即 untrusted）、再看 userRoot。都不匹配
-// 时返回 TrustProject 作为安全兜底——宁可多弹一次审批也不放过未知源。
+// inferTrustFromRoot infers trust scope from skill root directory.
 func inferTrustFromRoot(dir, projectRoot, userRoot string) TrustScope {
 	dir = normalizeTrustRoot(dir)
 	if dir == "" {
 		return TrustProject
 	}
-	projectRoot = normalizeTrustRoot(projectRoot)
-	userRoot = normalizeTrustRoot(userRoot)
-	if projectRoot != "" && pathutil.ContainsPath(projectRoot, dir) {
+	if pRoot := normalizeTrustRoot(projectRoot); pRoot != "" && pathutil.ContainsPath(pRoot, dir) {
 		return TrustProject
 	}
-	if userRoot != "" && pathutil.ContainsPath(userRoot, dir) {
+	if uRoot := normalizeTrustRoot(userRoot); uRoot != "" && pathutil.ContainsPath(uRoot, dir) {
 		return TrustUser
 	}
 	return TrustProject

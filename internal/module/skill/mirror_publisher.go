@@ -22,6 +22,9 @@ type SkillMirrorTarget struct {
 
 func PublishSkillMirrors(ctx context.Context, records []canonicalSkillRecord, targets []SkillMirrorTarget) (SkillMirrorReport, error) {
 	var report SkillMirrorReport
+	for i := range targets {
+		targets[i].Root = resolveValidMirrorRootSymlink(targets[i].Root)
+	}
 	for _, target := range targets {
 		if err := ctx.Err(); err != nil {
 			return report, err

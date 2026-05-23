@@ -136,8 +136,8 @@ export function validateSkillNameText(value) {
   if (chars.length > 64) {
     return '技能名称不能超过 64 个字符。';
   }
-  if (!/^[\p{L}\p{N}_-]+$/u.test(text)) {
-    return '技能名称不能包含空格，请使用中文、英文、数字、- 或 _。';
+  if (!/^[\p{L}\p{N}_ -]+$/u.test(text)) {
+    return '技能名称不能包含非法字符，请使用中文、英文、数字、空格、- 或 _。';
   }
   return '';
 }
