@@ -28,6 +28,7 @@
 > 2026-05-14 第二十轮 **F12.1 smart retry dispatcher 落地**：`exec.on_failure` 从骨架 schema 接入生产 dispatcher。`by_class` 命中后支持 capability→`escalate_model`（先 `RetryWakeup` fence 成功，再用 `PatchTaskDagNodeConfigIfUnchanged` 窄口 patch agent `exec.model`）、validation→`append_error`（先 fence 成功，再窄口追加上一轮 validation 诊断进 `first_turn`）、`replan`（spawn `dag_designer` planner agent 并提示使用 `task_dag_apply_ops` 修图）和 `fail_fast`；`RetryPolicy` 仍是未配置 `on_failure` 节点的 fallback。复审补强：hard/needs_human 未显式 by_class 映射时保持永久失败、不被 default retry/replan 误接管；`max_attempts` 在 replan 前生效；`skip`/`ask_human` 暂未实现业务语义时 fail-closed；smart retry 终态失败使用 DAG `fail_fast`；retry fence 未命中不 patch 节点 config，且 config patch 不再走整行 `UpsertNode` 覆盖并发 ApplyOps。**F 阶段 done 计数：26 → 27**；剩余后端主线优先 F6.5，UI F8-F11 仍按用户计划统一设计。
 > 2026-05-14 第二十一轮 **F6.5 multi-run DAG isolation 落地**：StartDAG 创建 run 后复制模板节点为 `run_id` runtime 节点，并只 promote 当前 run 的 root；运行时 node mutation / downstream promote+enqueue / finalize / wakeup / retry / subscriber / thread.stopped fallback / spawning_thread_id write-back 均带 run_id，`task_dispatch_node` 改为显式 `run_id` 定位 runtime node。迁移 0089 移除单 DAG 只能一个 running run 的 partial unique，改为模板 `(dag_key,node_key) WHERE run_id IS NULL` 与 runtime `(dag_key,run_id,node_key) WHERE run_id IS NOT NULL` 唯一约束，并给 wakeup 增加 run_id FK/index。测试补齐同 DAG 两 run 节点状态、下游 wakeup idempotency key、final_output finalize、fail-fast cascade、node_spawn 事件隔离；`AppendTaskDagRunEvent` 不再接受 run_id=0 作为“任意 running run”。**F 阶段 done 计数：27 → 28**；后端主线剩余主要是 UI 相关 F8-F11 与若干 H follow-up。
 > 2026-05-23 第二十二轮 **DAG Console v1 / U1 落地并封版**：本地 `main` 上 `fee60718` 补 dashboard DAG runtime bridge 与 `dashboard/dagStart`，`2912c602` 将 DAG 页升级为两 pane console shell，`66afaffb` 接通 detail / Start / run history / `final_output` / 节点 metadata / `spawning_thread_id` 子 thread 跳转，`f18bc138` 增加 Playwright e2e smoke，merge `81f0893b` 封入主线。封口修正后，选中 run 的节点列表改由 `dashboard/dagRun` / `task_get_run` 返回 runtime nodes，模板节点只作无 run fallback，避免 UI 把模板节点误当运行态节点。U1 只覆盖“能看见、能启动、能追踪”：不做 AI 设计按钮、节点编辑表单、Mermaid 拓扑、完整事件/错误时间线、TTL/批量清理、bundle/multi-artifact。**M2 用户可见 DAG 闭环完成**；**F 阶段 done 计数：28 → 29**（F10.1）。
+> 2026-05-23 第二十三轮 **U2 AI 设计 + 用户微调最小闭环落地**：feature commit `0d8afe45` + merge `8ca3cfa2`。DAG 页新增“AI 设计流程”入口，创建 `dag_designer` thread 并用 `main/dag_designer_zh` kickoff；DAG detail 新增 agent 节点编辑表单，覆盖 provider/model/prompt_key/first_turn/depends_on/inputs/outputs/sharedfile lock，并通过新增 `dashboard/dagApplyOps` RPC 调 `task_dag_apply_ops`，保存时携带 `DAGSummary.version` 作为 `baseVersion` 做 OCC；同时增加只读 mermaid source 拓扑和 detail 内 sharedfile 读写/lock 摘要。审查修正已覆盖：缺 `baseVersion` fail-fast、显式 `baseVersion=0` 可用、缺 provider 不写默认 `claude`、kickoff 失败仍保留新 thread、Mermaid 使用安全 ID、并发测试桩加锁。**F 阶段 done 计数：29 → 31**（F8.1 + F9.1）。F8.2 仅完成本地 provider/model options 与 prompt_key 输入的最小形态，动态 `list_models` / `prompt_list` picker 后置，不算 full done；F11.1 全局 Shared Files 锁可视化仍留 U3。
 
 ---
 
@@ -36,8 +37,8 @@
 | 阶段 | 任务数 | 状态 | 总 size | 关键产出 |
 |---|---|---|---|---|
 | **S 骨架** | **24** | **✅ 封板：17 done / 1 推迟 F (S2.4) / 2 推迟 T5 (S6.1+S6.2) / 4 转 T0 作业** | ~25% | 14 处补丁 + ADR 0001 + 删死代码；行为完全不变 |
-| **T 工具** | 18 + 9 T0 | **🟡 T1.1 + T1.2-mid + T2.1+T2.2 + T3.1+T3.2 + T4.1+T4.4 后端八连发 done；T5.1/T5.2/T5.3/T6.1/T7.1 已由 DAG Console v1 覆盖；T8.x 仍留 U2。** | ~65% | MCP 工具 9/9 就位（含 registry）；DAG Console v1 已能看见、启动、追踪；AI 设计师 UI 待 U2 |
-| F 功能 | 38 | 🟡 **29 done**（+ F1.5 / F4.1 / F6.3 于 2026-05-11；+ F1.2 / F2.2 / F4.2 / F7.1 于 2026-05-12 第二轮；+ F4.5 于 2026-05-12 round-3 wiring batch；+ F7.2 于 2026-05-12 第四轮 worktree 并行 + 互审；+ F14.1 于 2026-05-12 第五轮 codex 实装 + claude 互审；**F1.3 于 2026-05-13 经 C-A A2 / ADR-018 `3e70e468` + review-fix `02009e22` 重新升 ✅ done**；**F7.3 于 2026-05-13 `329d525d` + `d0de46ed` 升 ✅ done**；**F1.4 于 2026-05-13 `e64e4234` + review-fix `02009e22` 升 ✅ done**；**F15.1 于 2026-05-13 `e2d8aa6c` 升 ✅ done**；**F4.3 / F4.4 / F13.1 / F12.1 / F6.5 于 2026-05-14 升 ✅ done**；**F10.1 于 2026-05-23 DAG Console v1 升 ✅ done**） / 1 完成占位 F6.1 / 4 未开工 / 4 降 H（F3.1-3.4，详 ADR-014）。另：dispatcher wiring 全链接通 + size_cap 4KB enforce + events ring trim N=50 + Tarjan SCC + task_dispatch_node MCP tool + schema sanity gate（不在 F 表位，但在 round-3 batch 中携带落地）；**Phase 4 / M3 backend dogfood 已通过 `b9e8269d` / `ddf1b16f` / `019cf8a5`** | ~70% | 行为兑现：cron 真跑、AI 设计师上岗（含 seed 库菜单）、智能重试/dispatch 观测落地、multi-run DAG runtime 隔离落地；DAG Console v1 让用户可见闭环成型；backend dogfood 10 节点闭环已绿 |
+| **T 工具** | 18 + 9 T0 | **🟡 T1.1 + T1.2-mid + T2.1+T2.2 + T3.1+T3.2 + T4.1+T4.4 后端八连发 done；T5.1/T5.2/T5.3/T6.1/T7.1 已由 DAG Console v1 覆盖；T8.1/T8.2 已由 U2 最小闭环覆盖。** | ~70% | MCP 工具 9/9 就位（含 registry）；DAG Console v1 已能看见、启动、追踪；AI 设计师 UI 已能创建 designer thread 并 kickoff |
+| F 功能 | 38 | 🟡 **31 done**（+ F1.5 / F4.1 / F6.3 于 2026-05-11；+ F1.2 / F2.2 / F4.2 / F7.1 于 2026-05-12 第二轮；+ F4.5 于 2026-05-12 round-3 wiring batch；+ F7.2 于 2026-05-12 第四轮 worktree 并行 + 互审；+ F14.1 于 2026-05-12 第五轮 codex 实装 + claude 互审；**F1.3 于 2026-05-13 经 C-A A2 / ADR-018 `3e70e468` + review-fix `02009e22` 重新升 ✅ done**；**F7.3 于 2026-05-13 `329d525d` + `d0de46ed` 升 ✅ done**；**F1.4 于 2026-05-13 `e64e4234` + review-fix `02009e22` 升 ✅ done**；**F15.1 于 2026-05-13 `e2d8aa6c` 升 ✅ done**；**F4.3 / F4.4 / F13.1 / F12.1 / F6.5 于 2026-05-14 升 ✅ done**；**F10.1 于 2026-05-23 DAG Console v1 升 ✅ done**；**F8.1 / F9.1 于 2026-05-23 U2 最小闭环升 ✅ done**） / 1 完成占位 F6.1 / 1 部分完成 F8.2 / 1 未开工 F11.1 / 4 降 H（F3.1-3.4，详 ADR-014）。另：dispatcher wiring 全链接通 + size_cap 4KB enforce + events ring trim N=50 + Tarjan SCC + task_dispatch_node MCP tool + schema sanity gate（不在 F 表位，但在 round-3 batch 中携带落地）；**Phase 4 / M3 backend dogfood 已通过 `b9e8269d` / `ddf1b16f` / `019cf8a5`** | ~75% | 行为兑现：cron 真跑、AI 设计师上岗（含 seed 库菜单）、智能重试/dispatch 观测落地、multi-run DAG runtime 隔离落地；DAG Console v1 + U2 让用户可见与微调闭环成型；backend dogfood 10 节点闭环已绿 |
 | H 加固 | 按需 | 🟡 H14 已落地；H15 删除保护/retention 元数据首切已落地，其余按需 | ~10% | 生产问题驱动，不预排；final_output UI 入口已补齐，retention/cleanup 先保护最终产物，再做批量清理体验 |
 
 里程碑：
@@ -158,8 +159,8 @@ af542629  feat(nodeexec): ValidateTransition + IsTerminal (S7.1)
 | ~~**T5.3**~~ | ✅ done | UI Start 按钮（`dashboard/dagStart`） | `pages/DagsPage.js` / DAG Console v1 |
 | ~~**T6.1**~~ | ✅ done | UI 节点行 → 子 agent thread 链接（`spawning_thread_id`） | `components/dag/DagNodeList.js` / DAG Console v1 |
 | ~~**T7.1**~~ | ✅ done | UI DAG 列表字段显示（刷新走 dashboard bridge） | `pages/DagsPage.js` / DAG Console v1 |
-| **T8.1** | ⛔ 前端方案待审 | UI 「AI 帮你设计流程」按钮 | `pages/DagsPage.js` |
-| **T8.2** | ⛔ 依赖 T8.1 | base 设计师 prompt 占位 | prompt_template 表 |
+| ~~**T8.1**~~ | ✅ done | UI 「AI 帮你设计流程」按钮 | `pages/DagsPage.js` + `app.js` / U2 commit `0d8afe45` + merge `8ca3cfa2` |
+| ~~**T8.2**~~ | ✅ done | base 设计师 prompt kickoff | 复用已落地 `main/dag_designer_zh`，U2 从 UI 创建 `dag_designer` thread 后主动发送 kickoff |
 | **T9.1** | 🟡 部分 done | codemap 索引随 T1-T4 同步刷新中（02-mcp-orch.md / 04-app-contract.md / 10-store.md 已同步） | `docs/doc/codemap/` |
 
 ### 2.1 T 阶段快车道总结 (2026-05-10 二次审查后)
@@ -184,7 +185,7 @@ f972627d  T0.8 doc-sync script
 
 **剩余 task 阔住点**：
 - T0.1 / T0.2 / T0.3 → 需本地 PG 环境（T1.2 / T3.1 / T3.2 已完成）
-- T5.x / T6.1 / T7.1 / T8.x → 需前端方案用户审认过
+- T5.x / T6.1 / T7.1 / T8.x → 已分别由 U1/U2 覆盖；后续前端新能力仍按 UI 决策台账先定范围
 
 **UI 决策台账**：2026-05-14 已新增 `docs/plans/dag-ui-decision-ledger.md`，集中记录 DAG UI 已锁边界、仍需用户拍板项、旧 P10 愿景降级项与推荐实现顺序；后续前端任务开工前先对齐该台账。
 
@@ -213,12 +214,12 @@ f972627d  T0.8 doc-sync script
 | ~~**T5.3**~~ ✅ done | UI Start 按钮（draft/ready 时可点 → 调 `dashboard/dagStart` → `task_start_dag`） | `cmd/agent-terminal/frontend/vue-app/pages/DagsPage.js` / commit `66afaffb` + merge `81f0893b` | e2e smoke 覆盖 Start CTA 请求与运行反馈 | T5.2, T1.1 | M | N |
 | ~~**T6.1**~~ ✅ done | UI 节点行展示 `spawning_thread_id` 子 agent thread 链接 | `components/dag/DagNodeList.js` + `cmd/agent-terminal/frontend/vue-app/app.js` / commit `66afaffb` + merge `81f0893b` | e2e smoke 覆盖 `thread-child` 文本；AppRoot 单测覆盖切到 child chat thread | T5.2 | S | Y |
 | ~~**T7.1**~~ ✅ done | UI 列表显示 `trigger / status / version / latest_run_status`（刷新仍走 dashboard bridge） | `cmd/agent-terminal/frontend/vue-app/pages/DagsPage.js` / commits `2912c602` `66afaffb` + merge `81f0893b` | behavior tests + e2e smoke 覆盖列表/详情路径 | T1.1, T3.1 | M | Y |
-| **T8.1** | UI「AI 帮你设计流程」按钮（spawn 新 thread + 调 orchestration_launch_agent） | `pages/DagsPage.js` | e2e：点按钮 → 新 thread 创建 → 跳转到 thread | T4.1-T4.4 | M | N（**方案先发用户**） |
-| **T8.2** | base 设计师 prompt 占位（实际 prompt 在 F7） | `cmd/mcp-orch/...` 相关 prompt_template 占位 | 占位 prompt 注入正确 | T8.1 | S | N |
+| ~~**T8.1**~~ ✅ done | UI「AI 帮你设计流程」按钮（创建 `dag_designer` thread + kickoff） | `cmd/agent-terminal/frontend/vue-app/pages/DagsPage.js` + `app.js` / commit `0d8afe45` + merge `8ca3cfa2` | behavior test 覆盖点按钮 → `startThread` 创建 AI 设计流程 thread → `sendMessage(..., {kickoff:true})` → 切到 chat；kickoff 失败时仍保留新 thread 并清理 kickoff marker | T4.1-T4.4 | M | N |
+| ~~**T8.2**~~ ✅ done | base 设计师 prompt kickoff（实际 prompt 已由 F7.1/F7.2 seed） | `main/dag_designer_zh` + UI kickoff prompt | UI 复用 `dag_designer` / `main/dag_designer_zh`，不新增重复 prompt seed | T8.1 | S | N |
 | **T9.1** | codemap 索引刷新 | `docs/doc/codemap/02-mcp-orch.md` 等 | 新工具入索引 | T1-T4 完成 | S | N |
 
 **T 阶段验收**：
-- M2 里程碑：UI 上能看到 DAG → 点 Start → 节点状态变化（**目前 cron / AI 设计师都还是占位**）
+- M2 里程碑：UI 上能看到 DAG → 点 Start → 节点状态变化；U2 后 AI 设计师入口也可创建 designer thread 并 kickoff
 - 端到端 `task_create_dag → task_dag_apply_ops 改一个节点 → task_start_dag → 看到节点状态变化` 通过
 - AI（任意 thread 中的 LLM）能调 `task_dag_apply_ops` 改 DAG（手动让它做也能成）
 
@@ -230,7 +231,7 @@ f972627d  T0.8 doc-sync script
 - T5.1 / T5.2 / T5.3 各一次（前端**每次方案先发用户**）
 - T6.1 单独
 - T7.1 单独
-- T8.1 / T8.2 各一次
+- ~~T8.1 / T8.2~~ ✅ 已由 U2 合并到一次前端闭环提交 `0d8afe45` + merge `8ca3cfa2`
 - T9.1 单独（codemap）
 
 约 12-14 个 commit。
@@ -278,9 +279,9 @@ f972627d  T0.8 doc-sync script
 | ~~**F7.1**~~ ✅ done | AI 设计师 prompt（中文版）seed 0084 + archtest 守护关键内容不被悄悄抽干 | `migrations/0084_seed_dag_designer_prompt_zh.sql` + `internal/archtest/dag_designer_prompt_seed_test.go` / commits `49fd0143` `52da9d36` + merge `94502cec` | archtest 校验 prompt 包含完整可用资源列表 / 关键指令 keyword 不丢失 | T4.1-T4.4 | M | Y |
 | ~~**F7.2**~~ ✅ done | AI 设计师 prompt（英文版）seed 0085 + archtest EN 守卫 | `migrations/0085_seed_dag_designer_prompt_en.sql`（200 行）+ `internal/archtest/dag_designer_prompt_seed_en_test.go`（136 行）/ commits `4b49c5fd` `fe4d00f2` + merge `da01120a` | archtest 校验完整可用资源列表 + 关键 keyword + 英文+中文 routing tag 不丢失 | F7.1 ✅ | S | N |
 | ~~**F7.3**~~ ✅ done（新增 / ADR-014 §2.3） | **prompt_template seed 库**：13 张通用 AI 微技能已落地（`morning_briefer` / `paper_summarizer` / `pr_summarizer` / `weekly_reviewer` / `data_inspector` / `email_drafter` / `health_reporter` / `topic_curator` / `source_monitor` / `note_organizer` / `todo_prioritizer` / `learning_card` / `trip_briefer`）。字段约束已守住：`variables='{}'::jsonb`、`prompt_text` 不写 `{{var}}` 替换符、tags 仅供 UI/admin 列表元数据、不写已 drop 的 `router_priority`。 | `migrations/0086_prompt_template_manually_edited.sql` + `migrations/0087_seed_prompt_template_skill_cards.sql` + `cmd/mcp-orch/store/prompt/*` + `cmd/mcp-orch/sql/queries/prompt_template.sql` + `cmd/mcp-orch/store/sqlc/prompt_template.sql.go` + `cmd/mcp-orch/tools/prompt_tools.go` + root/internal `prompt_template` store/sqlc/UI 写路径 + `internal/archtest/dag_skill_seeds_test.go` / commits `329d525d` `d0de46ed` `5db953b3` | 单测/archtest：`PromptTemplate` mapping 覆盖 `ManuallyEdited`；0086 DDL 守卫；0087 required key / exactly 13 / per-row seed 字段 / guarded DO UPDATE / 禁 dead routing 与模板占位符守卫。验证：`go test ./cmd/mcp-orch/store/prompt ./cmd/mcp-orch/tools ./internal/store/prompt ./internal/module/prompt ./internal/archtest -count=1` PASS。人工改 prompt 后重跑 0087 不覆盖由 SQL `WHERE public.prompt_templates.manually_edited = FALSE` + UI/后台写路径置 TRUE 保证。 | T4.2 prompt_list ✅ / F1.1 ✅ / F1.2 ✅ / **F1.3-rework via C-A A2** ✅ / F7.1 ✅ | M | Y |
-| **F8.1** | UI 节点编辑表单（typed schema → form field 映射规则） | `components/NodeEditForm.js` 新建 | 单测：schema 渲染对应控件 | S5.1 | L | Y（前端独立，**方案先发用户**） |
-| **F8.2** | UI 表单下拉框接 `list_models` / `list_prompt_templates` | 同上 | e2e：下拉框数据正确 | F8.1, T4.1-T4.4 | M | N |
-| **F9.1** | UI mermaid 拓扑图（DAG → mermaid 字符串） | `components/DagTopology.js` 新建 | e2e：截图对比 | T5.2 | M | Y |
+| ~~**F8.1**~~ ✅ done | UI agent 节点编辑表单首切：node/title/provider/model/prompt_key/first_turn/depends_on/inputs.from_nodes/inputs.from_sharedfiles/outputs.to_sharedfile/lock_mode/to_node_result → `task_dag_apply_ops` `update_node`；保存携带 `DAGSummary.version` 作为 `baseVersion`，缺版本 fail-fast | `cmd/agent-terminal/frontend/vue-app/components/dag/DagNodeEditForm.js` + `composables/useDagDetail.js` + `internal/module/dashboard/rpc.go` / commit `0d8afe45` + merge `8ca3cfa2` | 单测覆盖表单 payload、缺 provider 不写默认 `claude`、缺 `baseVersion` 不调用 RPC、显式 `baseVersion=0` 可保存、adapter ops payload 透传 | S5.1 / F4.x ApplyOps ✅ | L | Y |
+| **F8.2** | 🟡 部分完成：provider/model 使用本地 provider config options，prompt_key 先用文本输入；动态接 `list_models` / `prompt_list` 的 picker 后置，不阻塞 U2 最小闭环 | `DagNodeEditForm.js` | 后续若恢复：e2e 覆盖 registry 下拉数据与 prompt_template 选择；当前 U2 已可手动填写 prompt_key / model 并保存 | F8.1, T4.1-T4.4 | M | N |
+| ~~**F9.1**~~ ✅ done | UI 只读 Mermaid source 拓扑（DAG nodes + depends_on → 安全 ID 的 mermaid 字符串）；拖拽编辑/d3/canvas 后置 | `cmd/agent-terminal/frontend/vue-app/components/dag/DagTopologyPanel.js` / commit `0d8afe45` + merge `8ca3cfa2` | behavior test 覆盖拓扑组件挂载、依赖边生成与 Mermaid 安全 ID，不提前做大图渲染/拖拽 | T5.2 | M | Y |
 | ~~**F10.1**~~ ✅ done | UI recent run 历史面板 | `cmd/agent-terminal/frontend/vue-app/components/dag/DagRunHistoryPanel.js` + `useDagDetail.js` / commit `66afaffb` + merge `81f0893b` + runtime-node 封口修正 | e2e smoke 覆盖 recent runs、selected run 的 `final_output`、selected run runtime nodes 与 `spawning_thread_id`；`dashboard/dagRuns` / `dashboard/dagRun` 错误在 UI 状态中显式暴露。完整 event/error timeline 后置 | T3.2 | M | Y |
 | **F11.1** | UI sharedfile 锁可视化（节点 reads/writes 联动；final_output 高亮已由 H14 完成，F11 不再重复承担） | `pages/SharedFilesPage.js` 修改 | e2e：sharedfile 显示"被节点 X 占用" | F1.3 | M | Y |
 | ~~**F12.1**~~ ✅ done | 智能重试 strategy dispatcher：`exec.on_failure.by_class` 分发已接生产 dispatcher。capability→`escalate_model` 升级 agent model 后重跑；validation→`append_error` 注入上一轮错误后重跑；`replan` spawn `dag_designer` planner agent 改图；`fail_fast` 立即终态失败。边界：`RetryPolicy` 仍是无 `on_failure` 节点 fallback；hard/needs_human 未显式 by_class 映射时不重试，也不被 default replan 接管；`max_attempts` 约束 replan；`skip`/`ask_human` 业务语义未落地前 fail-closed；subscriber/output materialization validation retry 仍是后续 follow-up。 | `cmd/mcp-orch/orchestration/retry_strategy.go` + `wakeup_dispatcher.go` + `nodeexec/executor_agent.go` + `cmd/mcp-orch/sql/queries/task_dag_node_write.sql` + store/sqlc/taskdag 窄口 patch + tests + ADR 0001 | 单测：capability 升级到 Opus 并 retry；validation 追加 diagnostic 并 retry；replan spawn planner；unmapped hard 不 retry；hard/needs_human + default replan 不启动 planner；replan at max 不 spawn；skip/ask_human fail-closed；escalation exhausted 使用 DAG fail_fast；RetryWakeup fence miss 不 patch config；config patch 携带 old-config fence。验证：orchestration/nodeexec/taskdag 包测 + `cmd/mcp-orch/...` + guard + diff check。 | F1.4 ✅ | L | N |
@@ -299,7 +300,9 @@ f972627d  T0.8 doc-sync script
 - 用例必须覆盖单节点 result > 4KB（验证 ADR-006 size_cap + summarization 触发）
 - 用例必须能在 metric 端点读取 `dispatch_failed_total` / `retry_count_per_node` 计数（F15.1）
 
-**2026-05-13 backend dogfood 结果**：上述三项后端硬阈值已通过。正向 DAG `m3-dogfood-20260514-0021` 为 10/10 done；负向 DAG `m3-dogfood-20260514-0021-negative` 的 `long_node_result_rejected` 按 ADR-006 失败；metrics 默认 family 校验通过。DAG Console v1 已补齐 T5/T6/T7/F10 的用户可见首切；剩余 M3 缺口收窄到 T8/F8/F9 的 AI 设计 + 用户微调前端闭环、第二天 cron 真实复跑和 capability 类失败升级到 Opus 的完整产品路径。
+**2026-05-13 backend dogfood 结果**：上述三项后端硬阈值已通过。正向 DAG `m3-dogfood-20260514-0021` 为 10/10 done；负向 DAG `m3-dogfood-20260514-0021-negative` 的 `long_node_result_rejected` 按 ADR-006 失败；metrics 默认 family 校验通过。DAG Console v1 已补齐 T5/T6/T7/F10 的用户可见首切。
+
+**2026-05-23 U2 UI 结果**：AI 设计按钮、agent 节点微调表单、OCC 保存、只读 mermaid source 拓扑与 detail 内 sharedfile 读写摘要已落地。M3 剩余缺口不再是“是否能在 UI 设计/微调 DAG”，而是完整产品路径验证：第二天 cron 真实复跑、capability 类失败升级到 Opus 的端到端 dogfood，以及是否需要把 F8.2 动态 picker / F11.1 全局 sharedfile 锁可视化纳入下一轮体验。
 
 **2026-05-14 final output MVP/H14 结果**：backend dogfood 后的产品入口问题先做最小闭环。run 完成后的最终产物可以继续存在于 Shared Files 中；后端通过 `task_dag_runs.metadata.final_output` 暴露“哪个 sharedfile/text/json 是本次可收最终产物”的结构化指针。H14 已让 DAG 详情读取最新 run final_output，并让 Shared Files 页面基于该指针高亮/筛选最终产物；中间产物的 TTL/retention/批量清理仍留 H15。
 
@@ -339,8 +342,8 @@ f972627d  T0.8 doc-sync script
 
 ### 里程碑 M2 完成 = 阶段 S + T1.1, T1.2, T3.1, T3.2, T5.1, T5.2, T5.3（DAG Console v1 已覆盖）
 **用户可见**：UI 上能看到 DAG → 点 Start → 节点跑起来。
-**还不能**：cron 自动触发；AI 帮你设计流程的智能化。
-**进度**：T1.1 / T1.2 / T3.1 / T3.2 / T5.1 / T5.2 / T5.3 ✅；T6.1 / T7.1 由 DAG Console v1 一并覆盖。后端 MCP 表面全套已在位。
+**还不能**：这里不声明 cron 真实隔天复跑、能力类失败升级、批量清理等 M3/M4 产品路径已经 dogfood。
+**进度**：T1.1 / T1.2 / T3.1 / T3.2 / T5.1 / T5.2 / T5.3 ✅；T6.1 / T7.1 由 DAG Console v1 一并覆盖；T8.1 / T8.2 由 U2 覆盖。后端 MCP 表面全套已在位。
 
 ### 里程碑 M3 完成 = 阶段 S + T + F 全部
 **用户可见**：两大需求 + 智能重试全部端到端通。
@@ -355,8 +358,8 @@ f972627d  T0.8 doc-sync script
 
 **Need 2（AI 帮你设计流程）落地必备 task**：
 - S1.1 ✅, S2.2 ✅, S4 ✅, S5 ✅（NodeExecutor + ops + typed schema）
-- T2.1 ✅ / T2.2 ✅ / T4.1 ✅ / T4.2 ✅ / T4.3 ✅ / T4.4 ✅ / T5.2 ✅ / T8.1 / T8.2（ops 工具 + registry + UI 按钮）
-- F1.1-F1.3 ✅, F4.1-F4.5 ✅, **F7.1 ✅ / F7.2 ✅ / F7.3 ✅（seed 库已落地）**, F8.1, F8.2（剩余主缺口是 UI 微调表单与下拉选择）
+- T2.1 ✅ / T2.2 ✅ / T4.1 ✅ / T4.2 ✅ / T4.3 ✅ / T4.4 ✅ / T5.2 ✅ / T8.1 ✅ / T8.2 ✅（ops 工具 + registry + UI 按钮 + designer kickoff）
+- F1.1-F1.3 ✅, F4.1-F4.5 ✅, **F7.1 ✅ / F7.2 ✅ / F7.3 ✅（seed 库已落地）**, F8.1 ✅, F9.1 ✅；F8.2 动态 picker 为体验后续，不阻塞 U2 最小闭环
 
 ---
 

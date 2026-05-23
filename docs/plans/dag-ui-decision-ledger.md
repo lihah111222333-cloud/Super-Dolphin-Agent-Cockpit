@@ -1,7 +1,7 @@
 # DAG UI 决策台账
 
-> 日期：2026-05-14；2026-05-23 更新 U1 完成状态
-> 状态：UI 方案总台账。U1 DAG Console v1 已落地；本文只记录产品/UI 决策，不替代具体 implementation plan。
+> 日期：2026-05-14；2026-05-23 更新 U1/U2 完成状态
+> 状态：UI 方案总台账。U1 DAG Console v1 与 U2 AI 设计 + 用户微调最小闭环已落地；本文只记录产品/UI 决策，不替代具体 implementation plan。
 > 适用范围：当前真实前端以 `cmd/agent-terminal/frontend/vue-app` 为准；`internal/ui/wails/frontend` 仍是嵌入壳/占位，不作为 DAG UI 设计源头。
 
 ## 1. 为什么单列本文
@@ -57,7 +57,7 @@ DAG 后端、C-A lifecycle、final_output、sharedfile、prompt_template-first �
    已完成。覆盖 T5/T6/T7/F10 的最小闭环：列表字段、详情节点列表、Start、子 thread 链接、最近 run/history、final_output 卡片。目标是“能看见、能启动、能追踪”。实现落在本地 `main` 的 `fee60718`、`2912c602`、`66afaffb`、`f18bc138`，并由 merge `81f0893b` 封入主线；封口修正后，选中 run 的节点列表以 `dashboard/dagRun` / `task_get_run` 返回的 runtime nodes 为准，模板节点只作无 run fallback。
 
 3. **U2：AI 设计 + 用户微调闭环**
-   覆盖 T8/F8/F9：AI 设计按钮、typed schema 表单、mermaid 拓扑、用户改一处 prompt 后 Start。目标是 Need 2 端到端。
+   已完成最小闭环。覆盖 T8/F8/F9 的首切：DAG 页 AI 设计按钮创建 `dag_designer` thread 并发送 kickoff；DAG 详情支持 agent 节点的 provider/model/prompt_key/first_turn/depends_on/inputs/outputs/sharedfile lock 编辑，通过 `dashboard/dagApplyOps` + `baseVersion` 保存；右侧显示只读 mermaid source 拓扑与节点 sharedfile 读写/lock 摘要。实现落在本地 `main` 的 `0d8afe45`，并由 merge `8ca3cfa2` 封入主线。未提前做复杂 wizard、拖拽拓扑、全局 Shared Files 清理、动态 prompt/model registry picker 或 bundle/multi-artifact。
 
 4. **U3：Shared Files / retention / cleanup**
    覆盖 H15/F11：final_output 保护、中间产物折叠、TTL/软删/批量清理、reads/writes/lock_mode 联动。H15 首切只落安全底座：retention 元数据 + final_output 删除保护；批量清理 UI 仍按本项后续设计。
@@ -70,5 +70,5 @@ DAG 后端、C-A lifecycle、final_output、sharedfile、prompt_template-first �
 - H14 已完成 final_output UI；F11 不再承担 final_output 高亮，只剩 sharedfile 锁可视化和中间产物体验深化。
 - H15 首切已把 final_output 引用文件纳入删除保护和 retention 元数据；还没有做 TTL 规则、批量清理、导出确认、pinned / running run 保护 UI。
 - Need 1 的用户可见闭环已由 U1 DAG Console v1 补齐：列表字段、详情、Start、节点进度、子 thread 链接、run history、final_output 卡片均已有前端与 e2e smoke 覆盖。
-- Need 2 的后端与 prompt_template seed 已基本到位，剩余主要是 T8/F8/F9 UI 设计与实现。
+- Need 2 的最小 UI 闭环已由 U2 补齐：AI 设计入口、agent 节点微调、OCC 保存、只读拓扑和 detail 内 sharedfile 读写摘要已落地。动态 prompt/model registry picker、全局 Shared Files 锁可视化和真实 dogfood 下的批量清理仍是后续项。
 - 旧 P10 的模板库/preview/lineage/cost preview、金融预设、大规模 UI、WS 实时事件、多人编辑冲突均已登记为非 v1 项；其中已被蓝图砍掉的旧 P8/P9/P12/P13 类能力，恢复时必须另立新 ADR/任务。
