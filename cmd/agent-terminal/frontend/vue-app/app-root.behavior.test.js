@@ -404,6 +404,8 @@ describe('AppRoot behavior', () => {
   });
 
   it('wires the DAG page to dashboard DAGs without exposing the legacy detail modal', () => {
+    const vm = AppRoot.setup();
+
     expect(AppRoot.template).toContain('<DagsPage');
     expect(AppRoot.template).toContain(':items="dashboard.dags"');
     expect(AppRoot.template).toContain(':loading="dashboardRequest.dags.loading"');
@@ -411,6 +413,7 @@ describe('AppRoot behavior', () => {
     expect(AppRoot.template).toContain('@open-chat="openDagChildThread"');
     expect(AppRoot.template).not.toContain('@select="dagDetail.open"');
     expect(AppRoot.template).not.toContain('<DagDetailModal');
+    expect(vm.NAV_ITEMS.find((item) => item.key === 'dags')?.label).toBe('任务流程');
   });
 
   it('opens a DAG child thread from the DAG page', async () => {
@@ -432,8 +435,16 @@ describe('AppRoot behavior', () => {
       name: 'AI 设计流程',
       agentKey: 'dag_designer',
       promptKey: 'main/dag_designer_zh',
-      prompt: expect.stringContaining('dag-1'),
+      prompt: expect.stringContaining('任务流程'),
     });
+    const prompt = stores.threadStore.startThread.mock.calls[0]?.[1]?.prompt || '';
+    expect(prompt).toContain('Daily Brief');
+    expect(prompt).not.toContain('dag-1');
+    expect(prompt).not.toContain('DAG');
+    expect(prompt).not.toContain('model');
+    expect(prompt).not.toContain('prompt');
+    expect(prompt).not.toContain('command');
+    expect(prompt).not.toContain('sharedfile');
     expect(stores.threadStore.saveActiveThread).toHaveBeenCalledWith('thread-new');
     expect(stores.threadStore.sendMessage).toHaveBeenCalledWith(
       'thread-new',
@@ -498,7 +509,7 @@ describe('AppRoot behavior', () => {
   it('exposes DAG dashboard refresh failures instead of rendering them as empty lists', async () => {
     apiMock.callAPI.mockImplementation(async (method, payload) => {
       if (method === 'ui/dashboard/get' && payload?.page === 'dags') {
-        throw new Error('dag backend offline');
+        throw new Error('dag backend offline for dag_key=dag-a run_key=run-1');
       }
       return defaultAppAPI(method);
     });
@@ -508,7 +519,9 @@ describe('AppRoot behavior', () => {
     await flush();
 
     expect(vm.dashboardRequest.dags.loading).toBe(false);
-    expect(vm.dashboardRequest.dags.error).toContain('dag backend offline');
+    expect(vm.dashboardRequest.dags.error).toBe('加载任务流程失败，请稍后重试。');
+    expect(vm.dashboardRequest.dags.error).not.toContain('dag_key');
+    expect(vm.dashboardRequest.dags.error).not.toContain('run_key');
   });
 
   it('refreshes the DAG dashboard from node status bridge events while viewing DAGs', async () => {

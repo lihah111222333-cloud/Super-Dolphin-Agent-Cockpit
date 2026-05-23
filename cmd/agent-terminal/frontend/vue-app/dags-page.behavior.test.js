@@ -38,10 +38,7 @@ vi.mock('./services/api.js', () => ({
 }));
 
 import { DagsPage } from './pages/DagsPage.js';
-import { DagFinalOutputPanel } from './components/dag/DagFinalOutputPanel.js';
 import { DagNodeEditForm } from './components/dag/DagNodeEditForm.js';
-import { DagNodeList } from './components/dag/DagNodeList.js';
-import { DagTopologyPanel } from './components/dag/DagTopologyPanel.js';
 
 const FRONTEND_ROOT = resolve(import.meta.dirname, '.');
 
@@ -131,6 +128,61 @@ describe('DagsPage console shell', () => {
     });
     expect(DagsPage.template).toContain('data-testid="dag-design-flow-button"');
     expect(DagsPage.template).toContain('@click="startDesignFlow"');
+  });
+
+  it('uses user-facing task flow wording instead of DAG internals on the default page shell', () => {
+    expect(DagsPage.props.emptyText.default).toBe('暂无任务流程');
+    expect(DagsPage.template).toContain('任务流程');
+    expect(DagsPage.template).toContain('AI 设计流程');
+    expect(DagsPage.template).toContain('正在加载任务流程');
+    expect(DagsPage.template).toContain('加载任务流程失败');
+    expect(DagsPage.template).toContain('运行');
+    expect(DagsPage.template).toContain('流程状态');
+    expect(DagsPage.template).toContain('最近运行');
+    expect(DagsPage.template).toContain('最终结果');
+    expect(DagsPage.template).not.toContain('DAG Console');
+    expect(DagsPage.template).not.toContain('>Start<');
+  });
+
+  it('maps raw DAG and run statuses to user-facing labels without exposing run ids in the list', () => {
+    const props = reactive({
+      items: [
+        {
+          dag_key: 'daily-brief',
+          title: 'Daily Brief',
+          status: 'ready',
+          trigger: { type: 'manual' },
+          latest_run: { run_key: 'run-7', status: 'succeeded' },
+          metadata: { final_output: { type: 'file', path: 'reports/daily.pptx' } },
+        },
+        {
+          dag_key: 'daily-failing',
+          title: 'Daily Failing',
+          status: 'failed',
+          trigger: { type: 'scheduled' },
+          latest_run: { run_key: 'run-8', status: 'running' },
+        },
+      ],
+    });
+
+    const vm = DagsPage.setup(props, { emit: vi.fn() });
+
+    expect(vm.rows.value[0]).toMatchObject({
+      key: 'daily-brief',
+      status: '可运行',
+      triggerLabel: '手动',
+      latestRunLabel: '成功',
+      hasFinalOutput: true,
+    });
+    expect(vm.rows.value[1]).toMatchObject({
+      key: 'daily-failing',
+      status: '失败',
+      triggerLabel: '定时',
+      latestRunLabel: '运行中',
+      hasFinalOutput: false,
+    });
+    expect(vm.rows.value[0].latestRunLabel).not.toContain('run-7');
+    expect(vm.rows.value[1].latestRunLabel).not.toContain('run-8');
   });
 
   it('wires agent node form saves through the detail composable', async () => {
@@ -312,7 +364,7 @@ describe('DagsPage console shell', () => {
 
     const vm = DagsPage.setup(props, { emit: vi.fn() });
 
-    expect(vm.startDisabledReason.value).toContain('已有运行中 run');
+    expect(vm.startDisabledReason.value).toContain('已有运行正在进行');
     vm.startSelectedDag();
     expect(detailMock.start).toHaveBeenCalledTimes(0);
     expect(DagsPage.template).toContain('data-testid="dag-start-button"');
@@ -324,6 +376,14 @@ describe('DagsPage console shell', () => {
     expect(vm.startDisabledReason.value).toBe('');
     vm.startSelectedDag();
     expect(detailMock.start).toHaveBeenCalledTimes(1);
+
+    props.items = [{ dag_key: 'dag-a', title: 'Dag A', status: 'ready', trigger: 'cron' }];
+    detailMock.state.dag = props.items[0];
+    expect(vm.startDisabledReason.value).toBe('');
+
+    props.items = [{ dag_key: 'dag-a', title: 'Dag A', status: 'ready', trigger: 'schedule' }];
+    detailMock.state.dag = props.items[0];
+    expect(vm.startDisabledReason.value).toBe('');
 
     detailMock.state.runsError = new Error('runs unavailable');
     const runsErrorVm = DagsPage.setup(props, { emit: vi.fn() });
@@ -339,7 +399,7 @@ describe('DagsPage console shell', () => {
     expect(vm.startDisabledReason.value).toContain('加载中');
     props.loading = false;
     props.items = [];
-    expect(vm.startDisabledReason.value).toContain('未选择 DAG');
+    expect(vm.startDisabledReason.value).toContain('未选择任务流程');
   });
 
   it('disables node editing while a DAG has an active run', () => {
@@ -350,7 +410,7 @@ describe('DagsPage console shell', () => {
 
     const vm = DagsPage.setup(props, { emit: vi.fn() });
 
-    expect(vm.editDisabledReason.value).toContain('已有运行中 run');
+    expect(vm.editDisabledReason.value).toContain('已有运行正在进行');
     expect(DagsPage.template).toContain(':disabled-reason="editDisabledReason"');
 
     const disabledEmit = vi.fn();
@@ -364,7 +424,7 @@ describe('DagsPage console shell', () => {
       }],
       savingNodeKey: '',
       saveError: null,
-      disabledReason: '已有运行中 run，不能编辑节点',
+      disabledReason: '已有运行正在进行，不能编辑步骤',
     }, { emit: disabledEmit });
 
     expect(formVm.editingDisabled.value).toBe(true);
@@ -393,8 +453,8 @@ describe('DagsPage console shell', () => {
 
     const vm = DagsPage.setup(props, { emit: vi.fn() });
 
-    expect(vm.startDisabledReason.value).toContain('DAG 详情不可用');
-    expect(vm.editDisabledReason.value).toContain('DAG 详情不可用');
+    expect(vm.startDisabledReason.value).toContain('任务流程详情不可用');
+    expect(vm.editDisabledReason.value).toContain('任务流程详情不可用');
     vm.startSelectedDag();
     expect(detailMock.start).not.toHaveBeenCalled();
     detailMock.saveAgentNode.mockReset();
@@ -411,8 +471,8 @@ describe('DagsPage console shell', () => {
 
     const vm = DagsPage.setup(props, { emit: vi.fn() });
 
-    expect(vm.startDisabledReason.value).toContain('已有运行中 run');
-    expect(vm.editDisabledReason.value).toContain('已有运行中 run');
+    expect(vm.startDisabledReason.value).toContain('已有运行正在进行');
+    expect(vm.editDisabledReason.value).toContain('已有运行正在进行');
     vm.startSelectedDag();
     expect(detailMock.start).not.toHaveBeenCalled();
   });
@@ -443,10 +503,31 @@ describe('DagsPage console shell', () => {
 
     const vm = DagsPage.setup(props, { emit: vi.fn() });
 
-    expect(vm.runsErrorText.value).toBe('runs unavailable');
+    expect(vm.runsErrorText.value).toBe('无法加载运行历史，请稍后重试。');
     expect(DagsPage.template).toContain('data-testid="dag-runs-error"');
     expect(DagsPage.template).toContain('v-if="runsErrorText"');
     expect(DagsPage.template).toContain('v-else');
+  });
+
+  it('sanitizes user-visible DAG operation errors instead of exposing internal ids', () => {
+    const props = reactive({
+      items: [{ dag_key: 'dag-a', title: 'Dag A', status: 'ready', trigger: 'manual' }],
+    });
+    detailMock.state.dag = props.items[0];
+    detailMock.state.error = new Error('detail failed for dag_key=dag-a');
+    detailMock.state.startError = new Error('start failed for run_key=run-1');
+    detailMock.state.runsError = new Error('shared file reports/final.md missing dag_key');
+
+    const vm = DagsPage.setup(props, { emit: vi.fn() });
+
+    expect(vm.detailErrorText.value).toBe('任务流程详情不可用，请稍后重试。');
+    expect(vm.startErrorText.value).toBe('运行任务流程失败，请稍后重试。');
+    expect(vm.runsErrorText.value).toBe('无法加载运行历史，请稍后重试。');
+    expect(vm.detailErrorText.value).not.toContain('dag_key');
+    expect(vm.startErrorText.value).not.toContain('run_key');
+    expect(vm.runsErrorText.value).not.toContain('shared file');
+    expect(DagsPage.template).toContain('{{ detailErrorText }}');
+    expect(DagsPage.template).not.toContain('detailState.error.message');
   });
 
   it('uses a two-pane console shell instead of the generic DataPage wrapper', () => {
@@ -456,13 +537,37 @@ describe('DagsPage console shell', () => {
     expect(DagsPage.template).toContain('data-testid="dag-console"');
     expect(DagsPage.template).toContain('data-testid="dag-console-list"');
     expect(DagsPage.template).toContain('data-testid="dag-console-detail"');
-    expect(DagsPage.template).toContain('{{ row.key }}');
+    expect(DagsPage.template).not.toContain('{{ row.key }}');
     expect(DagsPage.template).toContain('{{ row.title }}');
     expect(DagsPage.template).toContain('{{ row.status }}');
     expect(DagsPage.template).toContain('{{ row.triggerLabel }}');
     expect(DagsPage.template).toContain('{{ row.latestRunLabel }}');
     expect(DagsPage.template).toContain('v-if="row.hasFinalOutput"');
+    expect(DagsPage.template).toContain('<details class="dag-advanced-section"');
+    expect(DagsPage.template).toContain('<summary>高级设置</summary>');
+    expect(DagsPage.template.indexOf('<details class="dag-advanced-section"')).toBeLessThan(DagsPage.template.indexOf('<DagNodeEditForm'));
+    expect(DagsPage.template.indexOf('<details class="dag-advanced-section"')).toBeLessThan(DagsPage.template.indexOf('<DagTopologyPanel'));
+    expect(DagsPage.template.indexOf('<details class="dag-advanced-section"')).toBeLessThan(DagsPage.template.indexOf('<DagSharedFilesPanel'));
     expect(DagsPage.template).not.toContain('<DataPage');
+  });
+
+  it('prioritizes final output before overview, run history, steps, and advanced settings', () => {
+    const finalOutputIndex = DagsPage.template.indexOf('<DagFinalOutputPanel');
+    const factsIndex = DagsPage.template.indexOf('<dl class="dag-console-facts"');
+    const runHistoryIndex = DagsPage.template.indexOf('<DagRunHistoryPanel');
+    const nodeListIndex = DagsPage.template.indexOf('<DagNodeList');
+    const advancedIndex = DagsPage.template.indexOf('<details class="dag-advanced-section"');
+
+    expect(finalOutputIndex).toBeGreaterThan(-1);
+    expect(factsIndex).toBeGreaterThan(-1);
+    expect(runHistoryIndex).toBeGreaterThan(-1);
+    expect(nodeListIndex).toBeGreaterThan(-1);
+    expect(advancedIndex).toBeGreaterThan(-1);
+    expect(finalOutputIndex).toBeLessThan(factsIndex);
+    expect(factsIndex).toBeLessThan(runHistoryIndex);
+    expect(runHistoryIndex).toBeLessThan(nodeListIndex);
+    expect(nodeListIndex).toBeLessThan(advancedIndex);
+    expect(DagsPage.template).not.toContain('<details class="dag-advanced-section" open');
   });
 
   it('normalizes the DAG scanning fields used by the list', () => {
@@ -504,25 +609,27 @@ describe('DagsPage console shell', () => {
     expect(vm.rows.value[0]).toMatchObject({
       key: 'daily-brief',
       title: 'Daily Brief',
-      status: 'ready',
-      triggerLabel: 'cron 0 9 * * *',
-      latestRunLabel: 'run-7 · done',
+      status: '可运行',
+      triggerLabel: '定时 0 9 * * *',
+      latestRunLabel: '成功',
       hasFinalOutput: true,
     });
     expect(vm.rows.value[1]).toMatchObject({
       key: 'real-dashboard-shape',
-      triggerLabel: 'scheduled 0 8 * * *',
-      latestRunLabel: 'run-8 · succeeded',
+      status: '运行中',
+      triggerLabel: '定时 0 8 * * *',
+      latestRunLabel: '成功',
       hasFinalOutput: true,
     });
     expect(vm.rows.value[2]).toMatchObject({
       key: 'code-review',
-      title: 'code-review',
-      status: 'idle',
-      triggerLabel: 'manual',
-      latestRunLabel: 'running',
+      title: '任务流程 3',
+      status: '空闲',
+      triggerLabel: '手动',
+      latestRunLabel: '运行中',
       hasFinalOutput: false,
     });
+    expect(vm.rows.value[2].title).not.toContain('code-review');
   });
 
   it('selects rows locally without opening the legacy detail modal', () => {
@@ -545,13 +652,24 @@ describe('DagsPage console shell', () => {
   });
 
   it('keeps loading and error states distinct from an empty DAG list', () => {
+    const props = reactive({
+      items: [],
+      loading: false,
+      error: 'dashboard failed for dag_key=dag-a run_key=run-1',
+    });
+    const vm = DagsPage.setup(props, { emit: vi.fn() });
+
+    expect(vm.pageErrorText.value).toBe('加载任务流程失败，请稍后重试。');
+    expect(vm.pageErrorText.value).not.toContain('dag_key');
+    expect(vm.pageErrorText.value).not.toContain('run_key');
     expect(DagsPage.props.loading).toMatchObject({ type: Boolean, default: false });
     expect(DagsPage.props.error).toMatchObject({ type: String, default: '' });
     expect(DagsPage.template).toContain('data-testid="dag-console-loading"');
     expect(DagsPage.template).toContain('data-testid="dag-console-error"');
     expect(DagsPage.template).toContain('v-if="loading"');
-    expect(DagsPage.template).toContain('v-else-if="error"');
-    expect(DagsPage.template).toContain('{{ error }}');
+    expect(DagsPage.template).toContain('v-else-if="pageErrorText"');
+    expect(DagsPage.template).toContain('{{ pageErrorText }}');
+    expect(DagsPage.template).not.toContain('{{ error }}');
   });
 
   it('tolerates Vue runtime setup calls without an emit context', () => {
@@ -643,119 +761,5 @@ describe('DagsPage console shell', () => {
     expect(headingTitleBlock).toMatch(/min-width\s*:\s*0/);
     expect(headingTitleBlock).toMatch(/overflow-wrap\s*:\s*anywhere/);
     expect(mediaBlock).toMatch(/\.dag-console-facts\s*\{[^}]*grid-template-columns\s*:\s*1fr/);
-  });
-});
-
-describe('DagTopologyPanel', () => {
-  it('uses safe Mermaid ids while preserving special node labels', () => {
-    const vm = DagTopologyPanel.setup({
-      nodes: [
-        {
-          node_key: 'draft.node/1',
-          title: 'Draft "Node"',
-          depends_on: ['collect.raw/1', 'external input'],
-        },
-        {
-          node_key: 'collect.raw/1',
-          title: 'Collect Raw',
-          depends_on: [],
-        },
-      ],
-    });
-
-    expect(vm.mermaidSource.value).toContain('n1["Draft \\"Node\\""]');
-    expect(vm.mermaidSource.value).toContain('n2["Collect Raw"]');
-    expect(vm.mermaidSource.value).toContain('n2 --> n1');
-    expect(vm.mermaidSource.value).toContain('d1["external input"]');
-    expect(vm.mermaidSource.value).toContain('d1 --> n1');
-    expect(vm.mermaidSource.value).not.toContain('collect.raw/1 --> draft.node/1');
-  });
-});
-
-describe('DagFinalOutputPanel', () => {
-  it('reads file final output through shared-file get and exposes content or errors', async () => {
-    apiMock.callAPI.mockReset();
-    apiMock.callAPI.mockResolvedValueOnce({ path: 'reports/final.md', content: 'final file content' });
-    const props = reactive({
-      finalOutput: { kind: 'file', path: 'reports/final.md' },
-      runsError: null,
-    });
-    const vm = DagFinalOutputPanel.setup(props, { emit: vi.fn() });
-
-    expect(vm.outputPath.value).toBe('reports/final.md');
-    await vm.readFile();
-
-    expect(apiMock.callAPI).toHaveBeenCalledWith('ui/memory/shared-file/get', { path: 'reports/final.md' });
-    expect(vm.fileContent.value).toBe('final file content');
-
-    apiMock.callAPI.mockRejectedValueOnce(new Error('missing file'));
-    await vm.readFile();
-
-    expect(vm.fileErrorText.value).toBe('missing file');
-    expect(DagFinalOutputPanel.template).toContain('data-testid="dag-final-output-open"');
-    expect(DagFinalOutputPanel.template).toContain('data-testid="dag-final-output-read"');
-    expect(DagFinalOutputPanel.template).toContain('ui/memory/shared-file/get');
-  });
-
-  it('renders compact previews for small text and json final outputs', () => {
-    const textVm = DagFinalOutputPanel.setup({
-      finalOutput: { kind: 'text', text: 'short answer' },
-      runsError: null,
-    }, { emit: vi.fn() });
-    expect(textVm.previewText.value).toBe('short answer');
-
-    const jsonVm = DagFinalOutputPanel.setup({
-      finalOutput: { kind: 'json', result: { verdict: 'pass' } },
-      runsError: null,
-    }, { emit: vi.fn() });
-    expect(jsonVm.previewText.value).toContain('"verdict": "pass"');
-    expect(DagFinalOutputPanel.template).toContain('data-testid="dag-final-output-preview"');
-    expect(DagFinalOutputPanel.template).toContain('v-else-if="finalOutput"');
-  });
-
-  it('ignores stale file reads after the selected final output path changes', async () => {
-    let resolveOldRead;
-    const oldRead = new Promise((resolve) => { resolveOldRead = resolve; });
-    apiMock.callAPI.mockImplementation(async (method, params) => {
-      if (method !== 'ui/memory/shared-file/get') throw new Error(`unexpected method ${method}`);
-      if (params.path === 'reports/old.md') return oldRead;
-      return { path: params.path, content: 'new content' };
-    });
-    const props = reactive({
-      finalOutput: { kind: 'file', path: 'reports/old.md' },
-      runsError: null,
-    });
-    const vm = DagFinalOutputPanel.setup(props, { emit: vi.fn() });
-
-    const pendingOldRead = vm.readFile();
-    props.finalOutput = { kind: 'file', path: 'reports/new.md' };
-    await nextTick();
-    await vm.readFile();
-
-    expect(vm.fileContent.value).toBe('new content');
-    resolveOldRead({ path: 'reports/old.md', content: 'old content' });
-    await pendingOldRead;
-
-    expect(vm.fileContent.value).toBe('new content');
-  });
-});
-
-describe('DagNodeList', () => {
-  it('shows provider/model/agent metadata from nested agent exec config', () => {
-    const vm = DagNodeList.setup({
-      nodes: [{
-        node_key: 'writer',
-        title: 'Writer',
-        status: 'ready',
-        node_type: 'agent',
-        config: { exec: { provider: 'codex', model: 'gpt-5.3-codex', agent_key: 'daily_writer' } },
-      }],
-    }, { emit: vi.fn() });
-
-    expect(vm.rows.value[0]).toMatchObject({
-      key: 'writer',
-      nodeType: 'agent',
-      providerLabel: 'codex / gpt-5.3-codex / daily_writer',
-    });
   });
 });

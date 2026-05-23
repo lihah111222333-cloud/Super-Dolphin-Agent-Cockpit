@@ -13,29 +13,36 @@ function nodeKey(node) {
   return textValue(node?.node_key, node?.nodeKey, node?.key, node?.id);
 }
 
-function parseObject(value) {
-  if (!value) return {};
-  if (typeof value === 'object') return value;
-  if (typeof value !== 'string') return {};
-  try {
-    const parsed = JSON.parse(value);
-    return parsed && typeof parsed === 'object' ? parsed : {};
-  } catch {
-    return {};
-  }
-}
-
-function nodeProviderLabel(node) {
-  const config = parseObject(node?.config);
-  const exec = parseObject(config.exec || node?.exec);
-  const provider = textValue(node?.provider, node?.provider_id, node?.providerId, exec.provider);
-  const model = textValue(node?.model, node?.model_id, node?.modelId, exec.model);
-  const agent = textValue(node?.agent_key, node?.agentKey, node?.agent, exec.agent_key, exec.agentKey);
-  return [provider, model, agent].filter((item) => item !== '-').join(' / ') || '-';
-}
-
 function spawningThreadId(node) {
   return textValue(node?.spawning_thread_id, node?.spawningThreadId, node?.thread_id, node?.threadId);
+}
+
+const STEP_STATUS_LABELS = {
+  draft: '草稿',
+  ready: '可运行',
+  running: '运行中',
+  succeeded: '成功',
+  done: '成功',
+  failed: '失败',
+  cancelled: '已取消',
+  canceled: '已取消',
+  pending: '待开始',
+  queued: '排队中',
+  starting: '启动中',
+  awaiting_verify: '待确认',
+  skipped: '已跳过',
+  idle: '空闲',
+};
+
+function statusLabel(value) {
+  const status = textValue(value);
+  if (status === '-') return '-';
+  return STEP_STATUS_LABELS[status.toLowerCase()] || status;
+}
+
+function nodeTitle(node, index) {
+  const title = textValue(node?.title, node?.name);
+  return title === '-' ? `步骤 ${index + 1}` : title;
 }
 
 export const DagNodeList = {
@@ -47,10 +54,9 @@ export const DagNodeList = {
   setup(props, { emit }) {
     const rows = computed(() => (Array.isArray(props.nodes) ? props.nodes : []).map((node, index) => ({
       key: nodeKey(node) === '-' ? `node-${index}` : nodeKey(node),
-      title: textValue(node?.title, node?.name, nodeKey(node)),
-      status: textValue(node?.status, node?.state),
-      nodeType: textValue(node?.node_type, node?.nodeType, node?.type),
-      providerLabel: nodeProviderLabel(node),
+      title: nodeTitle(node, index),
+      status: statusLabel(node?.status || node?.state),
+      chatLabel: '查看对话',
       spawningThreadId: spawningThreadId(node),
       raw: node,
     })));
@@ -64,17 +70,13 @@ export const DagNodeList = {
   },
   template: `
     <section class="dag-detail-section dag-node-list" data-testid="dag-node-list">
-      <div class="dag-section-title">Nodes</div>
-      <div v-if="rows.length === 0" class="dag-console-muted" data-testid="dag-node-list-empty">暂无节点</div>
+      <div class="dag-section-title">步骤</div>
+      <div v-if="rows.length === 0" class="dag-console-muted" data-testid="dag-node-list-empty">暂无步骤</div>
       <div v-else class="dag-node-list-grid">
         <article v-for="row in rows" :key="row.key" class="dag-node-card">
           <div class="dag-node-card-head">
             <strong>{{ row.title }}</strong>
             <span>{{ row.status }}</span>
-          </div>
-          <div class="dag-node-meta">
-            <span>{{ row.nodeType }}</span>
-            <span>{{ row.providerLabel }}</span>
           </div>
           <button
             v-if="row.spawningThreadId !== '-'"
@@ -82,7 +84,7 @@ export const DagNodeList = {
             class="dag-link-button"
             data-testid="dag-node-open-chat"
             @click="openChat(row)"
-          >{{ row.spawningThreadId }}</button>
+          >{{ row.chatLabel }}</button>
         </article>
       </div>
     </section>
