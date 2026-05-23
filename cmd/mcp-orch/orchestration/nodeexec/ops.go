@@ -77,8 +77,8 @@ func (OpAddNode) Kind() OpKind { return OpKindAddNode }
 //
 // 关键不变量：禁改 status —— status 由生命周期路径管，ApplyOps 不许碰；禁改
 // node_key / node_type —— wire 上无字段位、即便用户硬塞也由 strict unmarshal
-// 拦下；禁改 agent_key —— agent_key 是 config 内的字段，patch 顶层不许出现
-// （改 agent 路由应通过 assigned_to 改 wakeup 派发，或改 config 里嵌的字段）。
+// 拦下；agent_key 顶层不许出现，config 内只允许直接路径 config.exec.agent_key
+// 随完整 exec 配置一起保存；改 agent 路由应通过 assigned_to 改 wakeup 派发。
 type NodePatch struct {
 	Title      *string         `json:"title,omitempty"`
 	AssignedTo *string         `json:"assigned_to,omitempty"`
@@ -92,19 +92,20 @@ type NodePatch struct {
 //
 // 拒的场景：
 //   - patch 顶层出现非白名单 key（含禁改 4 件套 + 拼写错误随机 key）。
-//   - patch.config 任意嵌套层出现 banned 4 件套之一：status / node_key /
-//     node_type / agent_key（R2 P1：深层 banned key 防 AI 把 agent_key
-//     藏进 config 内层蒙混过关）。
+//   - patch.config 任意嵌套层出现 banned key：status / node_key /
+//     node_type；agent_key 只允许作为直接 config.exec.agent_key 出现，
+//     其余位置一律拒绝。
 var ErrNodePatchBannedField = errors.New("node patch: banned field")
 
-// nodePatchBannedDeepKeys 是 patch.config 任意嵌套层都不允许出现的 key 集合。
-// 与顶层禁改 4 件套语义一致：status 由生命周期管 / node_key / node_type 不可
-// 改 / agent_key 必须改 assigned_to 而非 config 内层 prompt 字段。
+// nodePatchBannedDeepKeys 是 patch.config 内要拒绝的 key 集合。status 由
+// 生命周期管，node_key / node_type 不可改；agent_key 只允许作为完整 exec
+// 配置的一部分出现在直接路径 config.exec.agent_key。
 //
 // 深层校验对应 R2 P1（嵌套 banned key 测试 gap）：拒掉
 // `{"config":{"agent_key":"evil"}}` 与 `{"config":{"nested":{"status":"x"}}}`。
 // 与 executor_automation.go 的 automationOutputsForbiddenKeys 不同：
-// 后者是 outputs 子 schema 的「agent prompt 注入」语义，本集合只管 4 件套。
+// 后者是 outputs 子 schema 的「agent prompt 注入」语义，本集合只管节点
+// 身份与生命周期字段。
 var nodePatchBannedDeepKeys = map[string]struct{}{
 	"status":    {},
 	"node_key":  {},
@@ -161,29 +162,36 @@ func validateConfigDoesNotContainBannedKeys(raw json.RawMessage) error {
 	if err := json.Unmarshal(raw, &v); err != nil {
 		return fmt.Errorf("decode node config for banned-key scan: %w", err)
 	}
-	return walkConfigForBannedKeys(v)
+	return walkConfigForBannedKeys(v, nil)
 }
 
 // walkConfigForBannedKeys 对任意 JSON 值做深度优先扫，命中 banned key 返回。
-func walkConfigForBannedKeys(v any) error {
+func walkConfigForBannedKeys(v any, path []string) error {
 	switch node := v.(type) {
 	case map[string]any:
 		for key, child := range node {
-			if _, banned := nodePatchBannedDeepKeys[key]; banned {
-				return fmt.Errorf("%w: config contains banned key %q (status/node_key/node_type/agent_key are not patchable, even nested)", ErrNodePatchBannedField, key)
+			if _, banned := nodePatchBannedDeepKeys[key]; banned && !isAllowedConfigAgentKey(key, path) {
+				return fmt.Errorf("%w: config contains banned key %q (status/node_key/node_type are not patchable; agent_key is only allowed at config.exec.agent_key)", ErrNodePatchBannedField, key)
 			}
-			if err := walkConfigForBannedKeys(child); err != nil {
+			if err := walkConfigForBannedKeys(child, append(path, key)); err != nil {
 				return err
 			}
 		}
 	case []any:
 		for _, child := range node {
-			if err := walkConfigForBannedKeys(child); err != nil {
+			if err := walkConfigForBannedKeys(child, append(path, "[]")); err != nil {
 				return err
 			}
 		}
 	}
 	return nil
+}
+
+func isAllowedConfigAgentKey(key string, path []string) bool {
+	if key != "agent_key" || len(path) == 0 {
+		return false
+	}
+	return len(path) == 1 && path[0] == "exec"
 }
 
 // OpUpdateNode 修改单个节点（draft/ready 状态）。

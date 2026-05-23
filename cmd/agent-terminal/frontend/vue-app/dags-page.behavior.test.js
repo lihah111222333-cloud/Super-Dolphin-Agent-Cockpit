@@ -17,10 +17,13 @@ const detailMock = vi.hoisted(() => ({
     finalOutput: null,
     starting: false,
     startError: null,
+    savingNodeKey: '',
+    saveError: null,
   },
   open: vi.fn(),
   start: vi.fn(),
   selectRun: vi.fn(),
+  saveAgentNode: vi.fn(),
 }));
 const apiMock = vi.hoisted(() => ({
   callAPI: vi.fn(async () => null),
@@ -35,7 +38,9 @@ vi.mock('./services/api.js', () => ({
 
 import { DagsPage } from './pages/DagsPage.js';
 import { DagFinalOutputPanel } from './components/dag/DagFinalOutputPanel.js';
+import { DagNodeEditForm } from './components/dag/DagNodeEditForm.js';
 import { DagNodeList } from './components/dag/DagNodeList.js';
+import { DagTopologyPanel } from './components/dag/DagTopologyPanel.js';
 
 const FRONTEND_ROOT = resolve(import.meta.dirname, '.');
 
@@ -61,9 +66,12 @@ function resetDetailMockState() {
   detailMock.state.finalOutput = null;
   detailMock.state.starting = false;
   detailMock.state.startError = null;
+  detailMock.state.savingNodeKey = '';
+  detailMock.state.saveError = null;
   detailMock.open.mockReset();
   detailMock.start.mockReset();
   detailMock.selectRun.mockReset();
+  detailMock.saveAgentNode.mockReset();
   apiMock.callAPI.mockReset().mockImplementation(async () => null);
 }
 
@@ -87,6 +95,9 @@ describe('DagsPage console shell', () => {
     expect(DagsPage.components?.DagNodeList).toBeTruthy();
     expect(DagsPage.components?.DagRunHistoryPanel).toBeTruthy();
     expect(DagsPage.components?.DagFinalOutputPanel).toBeTruthy();
+    expect(DagsPage.components?.DagNodeEditForm).toBeTruthy();
+    expect(DagsPage.components?.DagTopologyPanel).toBeTruthy();
+    expect(DagsPage.components?.DagSharedFilesPanel).toBeTruthy();
     expect(vm.dagDetail).toBe(detailMock);
     expect(vm.detailState).toBe(detailMock.state);
     expect(detailMock.open).toHaveBeenCalledWith(props.items[0]);
@@ -97,6 +108,191 @@ describe('DagsPage console shell', () => {
     expect(DagsPage.template).toContain('<DagNodeList');
     expect(DagsPage.template).toContain('<DagRunHistoryPanel');
     expect(DagsPage.template).toContain('<DagFinalOutputPanel');
+    expect(DagsPage.template).toContain('<DagNodeEditForm');
+    expect(DagsPage.template).toContain('<DagTopologyPanel');
+    expect(DagsPage.template).toContain('<DagSharedFilesPanel');
+  });
+
+  it('emits AI design requests with the selected DAG context', () => {
+    const emit = vi.fn();
+    const props = reactive({
+      items: [{ dag_key: 'dag-a', title: 'Dag A' }],
+      emptyText: '暂无 DAG',
+    });
+
+    const vm = DagsPage.setup(props, { emit });
+    vm.startDesignFlow();
+
+    expect(emit).toHaveBeenCalledWith('design-flow', {
+      dagKey: 'dag-a',
+      title: 'Dag A',
+    });
+    expect(DagsPage.template).toContain('data-testid="dag-design-flow-button"');
+    expect(DagsPage.template).toContain('@click="startDesignFlow"');
+  });
+
+  it('wires agent node form saves through the detail composable', async () => {
+    const props = reactive({ items: [{ dag_key: 'dag-a', title: 'Dag A' }] });
+    detailMock.state.nodes = [{
+      node_key: 'draft',
+      title: 'Draft',
+      node_type: 'agent',
+      config: { exec: { provider: 'claude', model: 'sonnet', prompt_key: 'main/writer' } },
+    }];
+    detailMock.saveAgentNode.mockResolvedValueOnce(undefined);
+
+    const vm = DagsPage.setup(props, { emit: vi.fn() });
+    await vm.saveAgentNode({
+      nodeKey: 'draft',
+      title: 'Draft v2',
+      dependsOn: [],
+      config: { exec: { provider: 'claude', model: 'opus', prompt_key: 'main/writer' }, first_turn: 'write the report' },
+    });
+
+    expect(detailMock.saveAgentNode).toHaveBeenCalledWith({
+      nodeKey: 'draft',
+      title: 'Draft v2',
+      dependsOn: [],
+      config: { exec: { provider: 'claude', model: 'opus', prompt_key: 'main/writer' }, first_turn: 'write the report' },
+    });
+    expect(DagsPage.template).toContain('@save-agent-node="saveAgentNode"');
+    expect(DagsPage.template).toContain(':saving-node-key="detailState.savingNodeKey"');
+    expect(DagsPage.template).toContain(':save-error="detailState.saveError"');
+  });
+
+  it('preserves hidden exec agent_key when the agent node form submits full config edits', async () => {
+    const emit = vi.fn();
+    const props = reactive({
+      nodes: [{
+        node_key: 'draft',
+        title: 'Draft',
+        node_type: 'agent',
+        depends_on: [],
+        config: {
+          exec: {
+            provider: 'claude',
+            model: 'sonnet',
+            prompt_key: 'main/writer',
+            agent_key: 'daily_writer',
+          },
+          first_turn: 'old prompt',
+          inputs: { preserved_input: true },
+          outputs: { preserved_output: true },
+        },
+      }],
+      savingNodeKey: '',
+      saveError: null,
+    });
+
+    const vm = DagNodeEditForm.setup(props, { emit });
+    await nextTick();
+    vm.form.model = 'opus';
+    vm.form.firstTurn = 'new prompt';
+    vm.submit();
+
+    expect(emit).toHaveBeenCalledWith('save-agent-node', expect.objectContaining({
+      nodeKey: 'draft',
+      config: expect.objectContaining({
+        exec: expect.objectContaining({
+          agent_key: 'daily_writer',
+          model: 'opus',
+          prompt_key: 'main/writer',
+        }),
+        first_turn: 'new prompt',
+        inputs: expect.objectContaining({ preserved_input: true }),
+        outputs: expect.objectContaining({ preserved_output: true }),
+      }),
+    }));
+  });
+
+  it('does not pin a default provider when the existing agent config omits provider', async () => {
+    const emit = vi.fn();
+    const props = reactive({
+      nodes: [{
+        node_key: 'draft',
+        title: 'Draft',
+        node_type: 'agent',
+        depends_on: [],
+        config: {
+          exec: {
+            model: 'sonnet',
+            prompt_key: 'main/writer',
+            agent_key: 'daily_writer',
+          },
+          first_turn: 'old prompt',
+        },
+      }],
+      savingNodeKey: '',
+      saveError: null,
+    });
+
+    const vm = DagNodeEditForm.setup(props, { emit });
+    await nextTick();
+    expect(vm.form.provider).toBe('');
+    vm.form.firstTurn = 'new prompt';
+    vm.submit();
+
+    const payload = emit.mock.calls[0]?.[1];
+    expect(payload.config.exec).not.toHaveProperty('provider');
+    expect(payload.config.exec).toMatchObject({
+      model: 'sonnet',
+      prompt_key: 'main/writer',
+      agent_key: 'daily_writer',
+    });
+  });
+
+  it('passes edited agent form payload through the page save and start path', async () => {
+    const formEmit = vi.fn();
+    const props = reactive({ items: [{ dag_key: 'dag-a', title: 'Dag A' }] });
+    detailMock.state.dag = { dag_key: 'dag-a', title: 'Dag A', version: 3 };
+    detailMock.state.nodes = [{
+      node_key: 'draft',
+      title: 'Draft',
+      node_type: 'agent',
+      depends_on: ['collect'],
+      config: {
+        exec: { prompt_key: 'main/writer', agent_key: 'daily_writer' },
+        first_turn: 'old prompt',
+      },
+    }];
+    detailMock.saveAgentNode.mockResolvedValueOnce(undefined);
+
+    const pageVm = DagsPage.setup(props, { emit: vi.fn() });
+    const formVm = DagNodeEditForm.setup({
+      nodes: detailMock.state.nodes,
+      savingNodeKey: '',
+      saveError: null,
+    }, { emit: formEmit });
+    await nextTick();
+    formVm.form.title = 'Draft v2';
+    formVm.form.provider = 'codex';
+    formVm.form.model = 'gpt-5.5';
+    formVm.form.firstTurn = 'write the final report';
+    formVm.form.toSharedfilePath = 'reports/final.md';
+    formVm.submit();
+
+    const payload = formEmit.mock.calls[0]?.[1];
+    await pageVm.saveAgentNode(payload);
+    pageVm.startSelectedDag();
+
+    expect(detailMock.saveAgentNode).toHaveBeenCalledWith(expect.objectContaining({
+      nodeKey: 'draft',
+      title: 'Draft v2',
+      dependsOn: ['collect'],
+      config: expect.objectContaining({
+        exec: expect.objectContaining({
+          provider: 'codex',
+          model: 'gpt-5.5',
+          prompt_key: 'main/writer',
+          agent_key: 'daily_writer',
+        }),
+        first_turn: 'write the final report',
+        outputs: expect.objectContaining({
+          to_sharedfile: { path: 'reports/final.md', lock_mode: 'exclusive' },
+        }),
+      }),
+    }));
+    expect(detailMock.start).toHaveBeenCalledTimes(1);
   });
 
   it('exposes start disabled reason, starts through the detail composable, and keeps running latest runs startable', () => {
@@ -357,6 +553,32 @@ describe('DagsPage console shell', () => {
     expect(headingTitleBlock).toMatch(/min-width\s*:\s*0/);
     expect(headingTitleBlock).toMatch(/overflow-wrap\s*:\s*anywhere/);
     expect(mediaBlock).toMatch(/\.dag-console-facts\s*\{[^}]*grid-template-columns\s*:\s*1fr/);
+  });
+});
+
+describe('DagTopologyPanel', () => {
+  it('uses safe Mermaid ids while preserving special node labels', () => {
+    const vm = DagTopologyPanel.setup({
+      nodes: [
+        {
+          node_key: 'draft.node/1',
+          title: 'Draft "Node"',
+          depends_on: ['collect.raw/1', 'external input'],
+        },
+        {
+          node_key: 'collect.raw/1',
+          title: 'Collect Raw',
+          depends_on: [],
+        },
+      ],
+    });
+
+    expect(vm.mermaidSource.value).toContain('n1["Draft \\"Node\\""]');
+    expect(vm.mermaidSource.value).toContain('n2["Collect Raw"]');
+    expect(vm.mermaidSource.value).toContain('n2 --> n1');
+    expect(vm.mermaidSource.value).toContain('d1["external input"]');
+    expect(vm.mermaidSource.value).toContain('d1 --> n1');
+    expect(vm.mermaidSource.value).not.toContain('collect.raw/1 --> draft.node/1');
   });
 });
 

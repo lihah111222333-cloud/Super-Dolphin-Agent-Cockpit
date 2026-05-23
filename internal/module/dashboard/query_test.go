@@ -87,7 +87,9 @@ func TestDashboardExtraHandlersRegistered(t *testing.T) {
 		"dashboard/dags",
 		"dashboard/dagDetail",
 		"dashboard/dagRuns",
+		"dashboard/dagRun",
 		"dashboard/dagStart",
+		"dashboard/dagApplyOps",
 	} {
 		if _, ok := handlers[method]; !ok {
 			t.Fatalf("%s handler missing from %#v", method, handlers)
@@ -250,6 +252,7 @@ func TestDashboardDAGHandlersReturnData(t *testing.T) {
 	assertDashboardDAGRuns(t, server, orchestration)
 	assertDashboardDAGRun(t, server, orchestration)
 	assertDashboardDAGStart(t, server, orchestration)
+	assertDashboardDAGApplyOps(t, server, orchestration)
 }
 
 func assertDashboardDAGList(t *testing.T, server *platformrpc.Server, orchestration *stubDashboardOrchestration) {
@@ -361,25 +364,85 @@ func assertDashboardDAGStart(t *testing.T, server *platformrpc.Server, orchestra
 	}
 }
 
+func assertDashboardDAGApplyOps(t *testing.T, server *platformrpc.Server, orchestration *stubDashboardOrchestration) {
+	t.Helper()
+
+	orchestration.applyOpsResult = contract.ApplyOpsResponse{NewVersion: 12}
+	var resp struct {
+		NewVersion int64 `json:"newVersion"`
+	}
+	if err := dispatchDashboardInto(server, "dashboard/dagApplyOps", `{"dagKey":"dag-1","baseVersion":11,"ops":[{"op":"update_node","node_key":"draft","patch":{"title":"Draft v2"}}]}`, &resp); err != nil {
+		t.Fatalf("dispatch dag apply ops error = %v", err)
+	}
+	assertDashboardDAGApplyOpsResponse(t, resp.NewVersion)
+	assertDashboardDAGApplyOpsRequest(t, orchestration.applyOpsRequest)
+}
+
+func assertDashboardDAGApplyOpsResponse(t *testing.T, newVersion int64) {
+	t.Helper()
+
+	if newVersion != 12 {
+		t.Fatalf("dag apply ops newVersion = %d, want 12", newVersion)
+	}
+}
+
+func assertDashboardDAGApplyOpsRequest(t *testing.T, req contract.ApplyOpsRequest) {
+	t.Helper()
+
+	if req.DagKey != "dag-1" {
+		t.Fatalf("ApplyOps() request = %#v", req)
+	}
+	if req.BaseVersion != 11 {
+		t.Fatalf("ApplyOps() request = %#v", req)
+	}
+	if string(req.Ops) != `[{"op":"update_node","node_key":"draft","patch":{"title":"Draft v2"}}]` {
+		t.Fatalf("ApplyOps() ops = %s", req.Ops)
+	}
+}
+
+func TestDashboardDAGApplyOpsRequiresBaseVersion(t *testing.T) {
+	t.Parallel()
+
+	orchestration := &stubDashboardOrchestration{
+		applyOpsResult: contract.ApplyOpsResponse{NewVersion: 1},
+	}
+	server := newDashboardTestServer(t, &service{orchestration: orchestration})
+
+	if err := dispatchDashboardInto(server, "dashboard/dagApplyOps", `{"dagKey":"dag-1","ops":[{"op":"update_node","node_key":"draft","patch":{"title":"Draft"}}]}`, &struct{}{}); err == nil || !strings.Contains(err.Error(), "baseVersion") {
+		t.Fatalf("dispatch missing baseVersion error = %v, want baseVersion required", err)
+	}
+	if orchestration.applyOpsCalled {
+		t.Fatalf("ApplyOps called for request missing baseVersion")
+	}
+
+	var resp struct {
+		NewVersion int64 `json:"newVersion"`
+	}
+	if err := dispatchDashboardInto(server, "dashboard/dagApplyOps", `{"dagKey":"dag-1","baseVersion":0,"ops":[{"op":"update_node","node_key":"draft","patch":{"title":"Draft"}}]}`, &resp); err != nil {
+		t.Fatalf("dispatch explicit zero baseVersion error = %v", err)
+	}
+	if orchestration.applyOpsRequest.BaseVersion != 0 {
+		t.Fatalf("ApplyOps() baseVersion = %d, want 0", orchestration.applyOpsRequest.BaseVersion)
+	}
+}
+
 func TestDashboardDAGHandlersReturnServiceNotAvailableWithoutOrchestration(t *testing.T) {
 	t.Parallel()
 
 	server := newDashboardTestServer(t, &service{})
 
-	if err := dispatchDashboardInto(server, "dashboard/dags", `{"keyword":"build"}`, &struct{}{}); err == nil || !strings.Contains(err.Error(), "service not available") {
-		t.Fatalf("dispatch dags error = %v, want service not available", err)
-	}
+	assertDashboardMethodServiceUnavailable(t, server, "dashboard/dags", `{"keyword":"build"}`)
+	assertDashboardMethodServiceUnavailable(t, server, "dashboard/dagDetail", `{"dagKey":"dag-1"}`)
+	assertDashboardMethodServiceUnavailable(t, server, "dashboard/dagRun", `{"runKey":"run-1"}`)
+	assertDashboardMethodServiceUnavailable(t, server, "dashboard/dagStart", `{"dagKey":"dag-1"}`)
+	assertDashboardMethodServiceUnavailable(t, server, "dashboard/dagApplyOps", `{"dagKey":"dag-1","baseVersion":1,"ops":[]}`)
+}
 
-	if err := dispatchDashboardInto(server, "dashboard/dagDetail", `{"dagKey":"dag-1"}`, &struct{}{}); err == nil || !strings.Contains(err.Error(), "service not available") {
-		t.Fatalf("dispatch dag detail error = %v, want service not available", err)
-	}
+func assertDashboardMethodServiceUnavailable(t *testing.T, server *platformrpc.Server, method, payload string) {
+	t.Helper()
 
-	if err := dispatchDashboardInto(server, "dashboard/dagRun", `{"runKey":"run-1"}`, &struct{}{}); err == nil || !strings.Contains(err.Error(), "service not available") {
-		t.Fatalf("dispatch dag run error = %v, want service not available", err)
-	}
-
-	if err := dispatchDashboardInto(server, "dashboard/dagStart", `{"dagKey":"dag-1"}`, &struct{}{}); err == nil || !strings.Contains(err.Error(), "service not available") {
-		t.Fatalf("dispatch dag start error = %v, want service not available", err)
+	if err := dispatchDashboardInto(server, method, payload, &struct{}{}); err == nil || !strings.Contains(err.Error(), "service not available") {
+		t.Fatalf("dispatch %s error = %v, want service not available", method, err)
 	}
 }
 

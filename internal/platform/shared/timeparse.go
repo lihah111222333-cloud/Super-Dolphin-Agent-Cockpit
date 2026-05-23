@@ -35,6 +35,14 @@ func DecodeHistoryMetadata(raw json.RawMessage) map[string]any {
 // CloneTime delegates to clone.Time.
 func CloneTime(value *time.Time) *time.Time { return clone.Time(value) }
 
+func CloneInt64(value *int64) *int64 {
+	if value == nil {
+		return nil
+	}
+	cloned := *value
+	return &cloned
+}
+
 type eventTimeKey struct{}
 
 func WithEventTime(ctx context.Context, timestamp time.Time) context.Context {

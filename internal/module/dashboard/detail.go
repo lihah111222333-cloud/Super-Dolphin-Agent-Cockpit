@@ -1,8 +1,11 @@
 package dashboard
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
@@ -133,4 +136,41 @@ func (s *service) StartDAG(ctx context.Context, dagKey, triggerSource, idempoten
 		TriggerSource:  source,
 		IdempotencyKey: strings.TrimSpace(idempotencyKey),
 	})
+}
+
+func (s *service) ApplyDAGOps(ctx context.Context, req contract.ApplyOpsRequest) (contract.ApplyOpsResponse, error) {
+	runtime := s.effectiveDAGRuntime()
+	if runtime == nil {
+		return contract.ApplyOpsResponse{}, errOrchestrationServiceNotAvailable
+	}
+	key := strings.TrimSpace(req.DagKey)
+	if key == "" {
+		return contract.ApplyOpsResponse{}, errors.New("dashboard: dag key is required")
+	}
+	if req.BaseVersion < 0 {
+		return contract.ApplyOpsResponse{}, errors.New("dashboard: dag base version must be non-negative")
+	}
+	if err := validateDashboardApplyOps(req.Ops); err != nil {
+		return contract.ApplyOpsResponse{}, err
+	}
+	return runtime.ApplyOps(ctx, contract.ApplyOpsRequest{
+		DagKey:      key,
+		BaseVersion: req.BaseVersion,
+		Ops:         append([]byte(nil), req.Ops...),
+	})
+}
+
+func validateDashboardApplyOps(raw json.RawMessage) error {
+	trimmed := bytes.TrimSpace(raw)
+	if len(trimmed) == 0 {
+		return errors.New("dashboard: dag ops are required")
+	}
+	var ops []json.RawMessage
+	if err := json.Unmarshal(trimmed, &ops); err != nil {
+		return fmt.Errorf("dashboard: dag ops must be a non-empty array: %w", err)
+	}
+	if len(ops) == 0 {
+		return errors.New("dashboard: dag ops are required")
+	}
+	return nil
 }

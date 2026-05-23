@@ -107,7 +107,7 @@ func TestNodePatch_UnmarshalStrict_EmptyOk(t *testing.T) {
 
 // TestNodePatch_UnmarshalStrict_NestedBannedKeysInConfig 关键 case：
 // banned 4 件套藏在 patch.config 内层也要拒（R2 P1）。
-// 选项 A：拒——「不许改 agent_key」语义在 config 内层一致。
+// agent_key 是例外：完整 config 覆盖必须能保留合法 exec.agent_key。
 //
 // 覆盖 4 个 banned key × 2 个嵌套深度（直接嵌 + 多层嵌套 + 数组里）。
 func TestNodePatch_UnmarshalStrict_NestedBannedKeysInConfig(t *testing.T) {
@@ -123,6 +123,9 @@ func TestNodePatch_UnmarshalStrict_NestedBannedKeysInConfig(t *testing.T) {
 		{"direct_node_type", `{"config":{"node_type":"agent"}}`, "node_type"},
 		{"nested_object_agent_key", `{"config":{"inner":{"deep":{"agent_key":"evil"}}}}`, "agent_key"},
 		{"array_element_agent_key", `{"config":{"items":[{"foo":1},{"agent_key":"evil"}]}}`, "agent_key"},
+		{"exec_nested_agent_key", `{"config":{"exec":{"verifier":{"agent_key":"evil"}}}}`, "agent_key"},
+		{"exec_array_agent_key", `{"config":{"exec":{"items":[{"agent_key":"evil"}]}}}`, "agent_key"},
+		{"exec_array_direct_agent_key", `{"config":{"exec":[{"agent_key":"evil"}]}}`, "agent_key"},
 	}
 	for _, c := range cases {
 		c := c
@@ -140,6 +143,19 @@ func TestNodePatch_UnmarshalStrict_NestedBannedKeysInConfig(t *testing.T) {
 				t.Errorf("nested banned %s: err = %v, should contain %q", c.name, err, c.want)
 			}
 		})
+	}
+}
+
+func TestNodePatch_UnmarshalStrict_AllowsExecAgentKeyInFullConfig(t *testing.T) {
+	t.Parallel()
+
+	raw := `{"config":{"exec":{"provider":"claude","model":"opus","agent_key":"writer"},"first_turn":"new prompt"}}`
+	var p NodePatch
+	if err := json.Unmarshal([]byte(raw), &p); err != nil {
+		t.Fatalf("exec agent_key should be allowed for full config replace: %v", err)
+	}
+	if !strings.Contains(string(p.Config), `"agent_key":"writer"`) {
+		t.Fatalf("Config = %s, want preserved exec.agent_key", p.Config)
 	}
 }
 

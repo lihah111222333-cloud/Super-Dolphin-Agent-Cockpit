@@ -60,6 +60,44 @@ func TestMCPOrchDAGRuntimeStartDAGCallsPeerTool(t *testing.T) {
 	})
 }
 
+func TestMCPOrchDAGRuntimeApplyOpsCallsPeerTool(t *testing.T) {
+	t.Parallel()
+
+	caller := &recordingDAGToolCaller{result: `{"new_version":12}`}
+	runtime := &mcpOrchDAGRuntime{tools: caller}
+
+	resp, err := runtime.ApplyOps(context.Background(), contract.ApplyOpsRequest{
+		DagKey:      " dag-1 ",
+		BaseVersion: 11,
+		Ops:         json.RawMessage(`[{"op":"update_node","node_key":"draft","patch":{"title":"Draft v2"}}]`),
+	})
+	if err != nil {
+		t.Fatalf("ApplyOps() error = %v", err)
+	}
+	if resp.NewVersion != 12 {
+		t.Fatalf("ApplyOps() = %#v", resp)
+	}
+	assertDAGToolCall(t, caller, "task_dag_apply_ops", map[string]any{
+		"dag_key":      "dag-1",
+		"base_version": float64(11),
+	})
+	ops, ok := caller.argument["ops"].([]any)
+	if !ok || len(ops) != 1 {
+		t.Fatalf("argument[ops] = %#v, want one op", caller.argument["ops"])
+	}
+	op, ok := ops[0].(map[string]any)
+	if !ok {
+		t.Fatalf("argument[ops][0] = %#v, want object", ops[0])
+	}
+	patch, ok := op["patch"].(map[string]any)
+	if !ok {
+		t.Fatalf("argument[ops][0].patch = %#v, want object", op["patch"])
+	}
+	if op["op"] != "update_node" || op["node_key"] != "draft" || patch["title"] != "Draft v2" {
+		t.Fatalf("argument[ops][0] = %#v, want update_node draft title patch", op)
+	}
+}
+
 func TestMCPOrchDAGRuntimeGetRunCallsPeerTool(t *testing.T) {
 	t.Parallel()
 
