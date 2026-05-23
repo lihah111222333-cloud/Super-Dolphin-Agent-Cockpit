@@ -237,6 +237,10 @@ func TestDashboardDAGHandlersReturnData(t *testing.T) {
 		listRunsResult: contract.ListRunsResponse{
 			Runs: []contract.Run{{RunKey: "run-1", DagKey: "dag-1", Status: "succeeded"}},
 		},
+		getRunResult: contract.GetRunResponse{
+			Run:   contract.Run{RunKey: "run-1", DagKey: "dag-1", Status: "succeeded"},
+			Nodes: []contract.DAGNode{{NodeKey: "node-1", Title: "Runtime Node", Status: "done"}},
+		},
 		startDAGResult: contract.StartDAGResponse{RunKey: "dag-1#run-ui", Version: 9},
 	}
 	server := newDashboardTestServer(t, &service{orchestration: orchestration})
@@ -244,6 +248,7 @@ func TestDashboardDAGHandlersReturnData(t *testing.T) {
 	assertDashboardDAGList(t, server, orchestration)
 	assertDashboardDAGDetail(t, server, orchestration)
 	assertDashboardDAGRuns(t, server, orchestration)
+	assertDashboardDAGRun(t, server, orchestration)
 	assertDashboardDAGStart(t, server, orchestration)
 }
 
@@ -320,6 +325,24 @@ func assertDashboardDAGRuns(t *testing.T, server *platformrpc.Server, orchestrat
 	}
 }
 
+func assertDashboardDAGRun(t *testing.T, server *platformrpc.Server, orchestration *stubDashboardOrchestration) {
+	t.Helper()
+
+	var runResp contract.GetRunResponse
+	if err := dispatchDashboardInto(server, "dashboard/dagRun", `{"runKey":"run-1"}`, &runResp); err != nil {
+		t.Fatalf("dispatch dag run error = %v", err)
+	}
+	if orchestration.getRunRequest.RunKey != "run-1" {
+		t.Fatalf("GetRun() request = %#v", orchestration.getRunRequest)
+	}
+	if runResp.Run.RunKey != "run-1" {
+		t.Fatalf("dag run response = %#v", runResp)
+	}
+	if len(runResp.Nodes) != 1 || runResp.Nodes[0].Status != "done" {
+		t.Fatalf("dag run response nodes = %#v", runResp.Nodes)
+	}
+}
+
 func assertDashboardDAGStart(t *testing.T, server *platformrpc.Server, orchestration *stubDashboardOrchestration) {
 	t.Helper()
 
@@ -349,6 +372,10 @@ func TestDashboardDAGHandlersReturnServiceNotAvailableWithoutOrchestration(t *te
 
 	if err := dispatchDashboardInto(server, "dashboard/dagDetail", `{"dagKey":"dag-1"}`, &struct{}{}); err == nil || !strings.Contains(err.Error(), "service not available") {
 		t.Fatalf("dispatch dag detail error = %v, want service not available", err)
+	}
+
+	if err := dispatchDashboardInto(server, "dashboard/dagRun", `{"runKey":"run-1"}`, &struct{}{}); err == nil || !strings.Contains(err.Error(), "service not available") {
+		t.Fatalf("dispatch dag run error = %v, want service not available", err)
 	}
 
 	if err := dispatchDashboardInto(server, "dashboard/dagStart", `{"dagKey":"dag-1"}`, &struct{}{}); err == nil || !strings.Contains(err.Error(), "service not available") {

@@ -49,6 +49,7 @@ export function useDagDetail() {
     error: null,
     runsError: null,
     dag: null,
+    templateNodes: [],
     nodes: [],
     runs: [],
     run: null,
@@ -70,12 +71,45 @@ export function useDagDetail() {
     state.saveError = null;
   }
 
-  function selectRun(runKey) {
+  async function loadRun(seq, runKey) {
+    const result = await callAPI('dashboard/dagRun', { runKey });
+    if (seq !== openSeq || state.selectedRunKey !== runKey) return;
+    const run = result?.run;
+    if (!run || typeof run !== 'object') {
+      throw new Error('DAG run detail missing run');
+    }
+    if (!Array.isArray(result?.nodes)) {
+      throw new Error('DAG run detail missing nodes');
+    }
+    state.run = run;
+    state.nodes = result.nodes;
+    state.finalOutput = normalizeFinalOutput(state.run);
+  }
+
+  async function selectRun(runKey, seq = openSeq) {
+    if (seq !== openSeq) return;
     const selectedKey = (runKey || '').toString().trim();
     const run = state.runs.find((item) => runKeyFromItem(item) === selectedKey) || null;
     state.selectedRunKey = run ? runKeyFromItem(run) : '';
     state.run = run;
     state.finalOutput = normalizeFinalOutput(run);
+    state.runsError = null;
+    if (!run) {
+      state.nodes = Array.isArray(state.templateNodes) ? state.templateNodes : [];
+      return;
+    }
+    const targetRunKey = state.selectedRunKey;
+    state.nodes = [];
+    try {
+      await loadRun(seq, targetRunKey);
+    } catch (error) {
+      if (seq !== openSeq || state.selectedRunKey !== targetRunKey) return;
+      state.run = null;
+      state.finalOutput = null;
+      state.nodes = [];
+      state.runsError = error;
+      logWarn('ui', 'useDagDetail.run.failed', { runKey: targetRunKey, error });
+    }
   }
 
   async function loadRuns(seq, dagKey, preferredRunKey = '') {
@@ -88,7 +122,7 @@ export function useDagDetail() {
       const selected = preferredKey && state.runs.some((item) => runKeyFromItem(item) === preferredKey)
         ? preferredKey
         : runKeyFromItem(state.runs[0]);
-      selectRun(selected);
+      await selectRun(selected, seq);
     } catch (error) {
       if (seq === openSeq) {
         state.runs = [];
@@ -105,7 +139,8 @@ export function useDagDetail() {
     const detail = await callAPI('dashboard/dagDetail', { dagKey });
     if (seq !== openSeq) return;
     state.dag = detail?.dag || item || null;
-    state.nodes = Array.isArray(detail?.nodes) ? detail.nodes : [];
+    state.templateNodes = Array.isArray(detail?.nodes) ? detail.nodes : [];
+    state.nodes = state.templateNodes;
     await loadRuns(seq, dagKey, preferredRunKey);
   }
 
@@ -113,6 +148,7 @@ export function useDagDetail() {
     const seq = ++openSeq;
     resetTransient();
     state.dag = item || null;
+    state.templateNodes = [];
     state.nodes = [];
     state.runs = [];
     state.run = null;

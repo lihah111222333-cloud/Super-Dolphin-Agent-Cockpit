@@ -60,6 +60,29 @@ func TestMCPOrchDAGRuntimeStartDAGCallsPeerTool(t *testing.T) {
 	})
 }
 
+func TestMCPOrchDAGRuntimeGetRunCallsPeerTool(t *testing.T) {
+	t.Parallel()
+
+	caller := &recordingDAGToolCaller{
+		result: `{"run":{"run_key":"dag-1#run-1","dag_key":"dag-1","status":"running"},"nodes":[{"node_key":"n1","status":"running","spawning_thread_id":"thread-child"}]}`,
+	}
+	runtime := &mcpOrchDAGRuntime{tools: caller}
+
+	resp, err := runtime.GetRun(context.Background(), contract.GetRunRequest{RunKey: " dag-1#run-1 "})
+	if err != nil {
+		t.Fatalf("GetRun() error = %v", err)
+	}
+	if resp.Run.RunKey != "dag-1#run-1" {
+		t.Fatalf("GetRun().Run = %#v", resp.Run)
+	}
+	if len(resp.Nodes) != 1 || resp.Nodes[0].NodeKey != "n1" || resp.Nodes[0].SpawningThreadID == nil || *resp.Nodes[0].SpawningThreadID != "thread-child" {
+		t.Fatalf("GetRun().Nodes = %#v", resp.Nodes)
+	}
+	assertDAGToolCall(t, caller, "task_get_run", map[string]any{
+		"run_key": "dag-1#run-1",
+	})
+}
+
 func TestMCPOrchDAGRuntimePropagatesPeerFailure(t *testing.T) {
 	t.Parallel()
 

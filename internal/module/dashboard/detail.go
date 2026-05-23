@@ -93,6 +93,25 @@ func (s *service) ListDAGRuns(ctx context.Context, dagKey string, limit int32) (
 	return resp.Runs, nil
 }
 
+func (s *service) GetDAGRun(ctx context.Context, runKey string) (contract.GetRunResponse, error) {
+	runtime := s.effectiveDAGRuntime()
+	if runtime == nil {
+		return contract.GetRunResponse{}, errOrchestrationServiceNotAvailable
+	}
+	key := strings.TrimSpace(runKey)
+	if key == "" {
+		return contract.GetRunResponse{}, errors.New("dashboard: run key is required")
+	}
+	resp, err := runtime.GetRun(ctx, contract.GetRunRequest{RunKey: key})
+	if err != nil {
+		return contract.GetRunResponse{}, err
+	}
+	if resp.Nodes == nil {
+		resp.Nodes = []contract.DAGNode{}
+	}
+	return resp, nil
+}
+
 func (s *service) StartDAG(ctx context.Context, dagKey, triggerSource, idempotencyKey string) (contract.StartDAGResponse, error) {
 	runtime := s.effectiveDAGRuntime()
 	if runtime == nil {
