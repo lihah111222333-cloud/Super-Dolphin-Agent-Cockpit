@@ -326,7 +326,10 @@ func dbPromptRuntimeUpdateSurfaces(t *testing.T) []promptSurface {
 	t.Helper()
 
 	var surfaces []promptSurface
-	for _, name := range []string{"0090_refresh_dag_designer_prompt_run_id_signature.sql"} {
+	for _, name := range []string{
+		"0090_refresh_dag_designer_prompt_run_id_signature.sql",
+		"0108_refresh_dag_designer_prompt_final_node_key.sql",
+	} {
 		sql := readPromptMigration(t, name)
 		for i, literal := range sqlStringLiterals(sql) {
 			surfaces = appendPromptSurface(surfaces, promptSurface{

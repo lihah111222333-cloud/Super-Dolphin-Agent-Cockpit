@@ -338,6 +338,8 @@ func dagDesignerRequiredRuntimeTokens() []string {
 		"task_create_dag",
 		"task_dag_apply_ops",
 		"task_get_dag",
+		"final_node_key",
+		"final_output",
 		"to_node_result",
 		"to_sharedfile",
 		"on_failure",
