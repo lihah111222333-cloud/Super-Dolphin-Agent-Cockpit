@@ -139,6 +139,91 @@
   overflow-wrap: anywhere;
 }
 
+.dag-topology-source {
+  margin: 0;
+  max-height: 220px;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  padding: 10px;
+  color: var(--text);
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+}
+
+.dag-node-edit-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.dag-node-edit-grid label {
+  min-width: 0;
+  display: grid;
+  gap: 5px;
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.dag-node-edit-grid input,
+.dag-node-edit-grid select,
+.dag-node-edit-grid textarea {
+  min-width: 0;
+  width: 100%;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--text);
+  padding: 7px 8px;
+  font: inherit;
+}
+
+.dag-node-edit-wide,
+.dag-node-edit-actions {
+  grid-column: 1 / -1;
+}
+
+.dag-node-edit-check {
+  align-content: end;
+  grid-template-columns: auto 1fr;
+}
+
+.dag-node-edit-check input {
+  width: auto;
+}
+
+.dag-sharedfile-list {
+  display: grid;
+  gap: 8px;
+}
+
+.dag-sharedfile-row {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(90px, 0.7fr) minmax(0, 1.4fr) auto;
+  gap: 8px;
+  align-items: center;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  padding: 8px;
+}
+
+.dag-sharedfile-row span,
+.dag-sharedfile-row strong,
+.dag-sharedfile-row small {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.dag-sharedfile-row span,
+.dag-sharedfile-row small {
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
 .dag-detail-section {
   min-width: 0;
   border: 1px solid var(--border);
@@ -313,6 +398,11 @@
   }
 
   .dag-console-facts {
+    grid-template-columns: 1fr;
+  }
+
+  .dag-node-edit-grid,
+  .dag-sharedfile-row {
     grid-template-columns: 1fr;
   }
 }

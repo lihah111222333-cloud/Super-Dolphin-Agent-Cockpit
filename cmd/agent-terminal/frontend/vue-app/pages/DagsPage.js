@@ -1,8 +1,11 @@
 import { computed, ref, watch } from '../../lib/vue.esm-browser.prod.js';
 import { AutoContinuePrefCard } from '../components/AutoContinuePrefCard.js';
 import { DagFinalOutputPanel } from '../components/dag/DagFinalOutputPanel.js';
+import { DagNodeEditForm } from '../components/dag/DagNodeEditForm.js';
 import { DagNodeList } from '../components/dag/DagNodeList.js';
 import { DagRunHistoryPanel } from '../components/dag/DagRunHistoryPanel.js';
+import { DagSharedFilesPanel } from '../components/dag/DagSharedFilesPanel.js';
+import { DagTopologyPanel } from '../components/dag/DagTopologyPanel.js';
 import { useDagDetail } from '../composables/useDagDetail.js';
 
 function textValue(...values) {
@@ -99,7 +102,15 @@ function normalizeDag(item, index) {
 
 export const DagsPage = {
   name: 'DagsPage',
-  components: { AutoContinuePrefCard, DagFinalOutputPanel, DagNodeList, DagRunHistoryPanel },
+  components: {
+    AutoContinuePrefCard,
+    DagFinalOutputPanel,
+    DagNodeEditForm,
+    DagNodeList,
+    DagRunHistoryPanel,
+    DagSharedFilesPanel,
+    DagTopologyPanel,
+  },
   props: {
     items: { type: Array, default: () => [] },
     emptyText: { type: String, default: '暂无 DAG' },
@@ -115,6 +126,11 @@ export const DagsPage = {
     const selectedRow = computed(() => rows.value.find((row) => row.listKey === selectedKey.value) || rows.value[0] || null);
     const selectedDagKey = computed(() => selectedRow.value?.key === '-' ? '' : selectedRow.value?.key || '');
     const selectedFinalOutput = computed(() => detailState.finalOutput);
+    const designNodes = computed(() => (
+      Array.isArray(detailState.templateNodes) && detailState.templateNodes.length
+        ? detailState.templateNodes
+        : detailState.nodes
+    ));
     const startDisabledReason = computed(() => {
       if (!selectedRow.value || !selectedDagKey.value) return '未选择 DAG';
       if (props.loading || detailState.loading) return 'DAG 详情加载中';
@@ -175,17 +191,31 @@ export const DagsPage = {
       emit('open-chat', threadId);
     }
 
+    function startDesignFlow() {
+      emit('design-flow', {
+        dagKey: selectedDagKey.value,
+        title: selectedRow.value?.title || '',
+      });
+    }
+
+    async function saveAgentNode(payload) {
+      await dagDetail.saveAgentNode(payload);
+    }
+
     return {
       dagDetail,
       detailState,
+      designNodes,
       openChat,
       rows,
       runsErrorText,
+      saveAgentNode,
       selectedRow,
       selectedFinalOutput,
       selectDag,
       selectRun,
       startDisabledReason,
+      startDesignFlow,
       startErrorText,
       startSelectedDag,
     };
@@ -196,6 +226,12 @@ export const DagsPage = {
       <div class="panel-header" data-testid="dag-console-header">
         <div class="ph-bar"></div>
         <div class="ph-text"><h2>DAG Console</h2></div>
+        <button
+          type="button"
+          class="btn"
+          data-testid="dag-design-flow-button"
+          @click="startDesignFlow"
+        >AI 设计流程</button>
       </div>
       <div class="dag-console-shell">
         <aside class="dag-console-list-pane" data-testid="dag-console-list">
@@ -286,6 +322,14 @@ export const DagsPage = {
               {{ typeof detailState.error === 'string' ? detailState.error : detailState.error.message }}
             </div>
             <DagNodeList :nodes="detailState.nodes" @open-chat="openChat" />
+            <DagTopologyPanel :nodes="designNodes" />
+            <DagNodeEditForm
+              :nodes="designNodes"
+              :saving-node-key="detailState.savingNodeKey"
+              :save-error="detailState.saveError"
+              @save-agent-node="saveAgentNode"
+            />
+            <DagSharedFilesPanel :nodes="designNodes" />
             <DagRunHistoryPanel
               :runs="detailState.runs"
               :selected-run-key="detailState.selectedRunKey"

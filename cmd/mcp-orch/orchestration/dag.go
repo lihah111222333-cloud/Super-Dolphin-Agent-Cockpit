@@ -270,18 +270,8 @@ func upsertDAG(ctx context.Context, store taskdag.DAGMutationStore, req CreateDA
 	})
 }
 
-// upsertDAGNodes 把 req.Nodes 全量写入 task_dag_nodes。
-//
-// C1 优化：优先走批量路径——store 实现 taskdag.BatchUpsertingNodeStore 时
-// 单条 multi-row INSERT … ON CONFLICT … DO UPDATE 一次 round-trip 完成 N 行；
-// 不实现（如测试 mock）则 fallback 到 N 次单行 UpsertNode，行为完全等价
-// （UpsertNode 也是 ON CONFLICT DO UPDATE 同列，故批量与单行 UPSERT 语义
-// 一致；status/result/run_id/reads/writes 都不在 INSERT 列、回到 DEFAULT/原值）。
-//
-// 选择窄接口 type-assert 而非把方法塞 DAGMutationStore：DAGMutationStore 当前
-// 2 direct + 1 embedded 处于 InterfaceIsolation 预算上限，新增方法会破预算
-// （contract.go:39 注释明确预算）。Phase 4.x 起 service 大量复用批量路径
-// 时再讨论是否升预算 / 加新聚合接口。
+// upsertDAGNodes writes template nodes, using the optional batch port when the
+// store exposes it so DAGMutationStore stays within its interface budget.
 func upsertDAGNodes(ctx context.Context, store taskdag.DAGMutationStore, dagKey string, nodes []CreateDAGNodeRequest) error {
 	if len(nodes) == 0 {
 		return nil
@@ -303,7 +293,16 @@ func upsertDAGNodes(ctx context.Context, store taskdag.DAGMutationStore, dagKey 
 }
 
 func loadDAGDetail(ctx context.Context, store taskdag.DAGDetailStore, dagKey string) (DAGDetail, error) {
-	dag, err := store.GetDAG(ctx, strings.TrimSpace(dagKey))
+	trimmedKey := strings.TrimSpace(dagKey)
+	reader, hasVersion := store.(taskdag.DAGVersionReader)
+	var versionBefore int64
+	var err error
+	if hasVersion {
+		if versionBefore, err = reader.GetDAGVersion(ctx, trimmedKey); err != nil {
+			return DAGDetail{}, fmt.Errorf("get dag version for detail: %w", err)
+		}
+	}
+	dag, err := store.GetDAG(ctx, trimmedKey)
 	if err != nil {
 		return DAGDetail{}, err
 	}
@@ -311,7 +310,18 @@ func loadDAGDetail(ctx context.Context, store taskdag.DAGDetailStore, dagKey str
 	if err != nil {
 		return DAGDetail{}, err
 	}
-	return DAGDetail{DAG: dagSummaryDTO(*dag), Nodes: mapDAGNodes(nodes)}, nil
+	summary := dagSummaryDTO(*dag)
+	if hasVersion {
+		versionAfter, err := reader.GetDAGVersion(ctx, dag.DagKey)
+		if err != nil {
+			return DAGDetail{}, fmt.Errorf("get dag version for detail: %w", err)
+		}
+		if versionAfter != versionBefore {
+			return DAGDetail{}, fmt.Errorf("dag detail version changed while loading: dag=%s before=%d after=%d", dag.DagKey, versionBefore, versionAfter)
+		}
+		summary.Version = versionAfter
+	}
+	return DAGDetail{DAG: summary, Nodes: mapDAGNodes(nodes)}, nil
 }
 
 func dagNodeFromRequest(dagKey string, req CreateDAGNodeRequest) taskdag.Node {
@@ -423,12 +433,12 @@ func dagNodeDTO(item taskdag.Node) DAGNode {
 		FinishedAt:     shared.CloneTime(item.FinishedAt),
 		CreatedAt:      item.CreatedAt,
 		UpdatedAt:      item.UpdatedAt,
-		ActiveTurnID:   cloneString(item.ActiveTurnID),
-		ActiveWakeupID: cloneInt64(item.ActiveWakeupID),
+		ActiveTurnID:   trimStringPtr(item.ActiveTurnID),
+		ActiveWakeupID: shared.CloneInt64(item.ActiveWakeupID),
 		LastEventAt:    shared.CloneTime(item.LastEventAt),
 		// F1.5 / ADR-009: spawning_thread_id 透出给 task_get_dag / DAG detail
 		// 调用方（UI 拼「节点行 → 子 agent thread」跳转链接）。
-		SpawningThreadID: cloneString(item.SpawningThreadID),
+		SpawningThreadID: trimStringPtr(item.SpawningThreadID),
 	}
 }
 
@@ -441,22 +451,6 @@ func decodeDependsOn(raw json.RawMessage) []string {
 		return nil
 	}
 	return values
-}
-
-func cloneString(value *string) *string {
-	if value == nil {
-		return nil
-	}
-	copied := strings.TrimSpace(*value)
-	return &copied
-}
-
-func cloneInt64(value *int64) *int64 {
-	if value == nil {
-		return nil
-	}
-	copied := *value
-	return &copied
 }
 
 // =====================================================
@@ -515,9 +509,7 @@ func (e *IdempotencyKeyExhaustedError) Error() string {
 	return fmt.Sprintf("%s (run_key=%s, status=%s)", ErrIdempotencyKeyExhausted.Error(), e.RunKey, e.Status)
 }
 
-func (e *IdempotencyKeyExhaustedError) Unwrap() error {
-	return ErrIdempotencyKeyExhausted
-}
+func (e *IdempotencyKeyExhaustedError) Unwrap() error { return ErrIdempotencyKeyExhausted }
 
 // ErrRunStoreUnset 表示 service 未注入 RunStore（测试裸构造路径）不能调
 // StartDAG。生产路径 ProvideService 会 setter 注入 RunStore。
@@ -546,44 +538,21 @@ func (s *service) TerminateDAG(_ context.Context, _ TerminateDAGRequest) error {
 	return ErrLifecycleNotImplemented
 }
 
-// ---- ApplyOps 顶层（F4.0）----
-//
-// task_dag_apply_ops 在 service 层的入口分层：
-//   - 本块负责顶层 unmarshal + 形状校验 + 错误分类（F4.0）。
-//   - 4 个 op_kind 的业务实现（add_node / update_node / remove_node /
-//     update_dag）由 F4.1-F4.4 在 applyTypedOps 里补齐。
-//
-// 原计划拆独立文件 dag_ops.go，但 cmd/mcp-orch/orchestration 包文件数已
-// 贴近 30 上限（代码守卫），拆出会超限；暂留在 dag.go，后续如果该包
-// 拆子包（路线 N 计划）再独立 dag_ops.go。
-//
-// Top-level ApplyOps (F4.0) lives here rather than in a dedicated dag_ops.go
-// because the orchestration package is already at the codeguard file-count
-// budget (≤ 30 non-test files); splitting would break the guard. The four
-// typed op handlers will land inside applyTypedOps in F4.1-F4.4.
+// ApplyOps stays in dag.go because this package is already at the codeguard
+// file-count budget; typed op helpers live in dag_query.go.
 
 // ErrApplyOpsInvalid 是 ApplyOps 顶层校验失败的 sentinel（InvalidArgument
 // 类）。errors.Is 可用：errors.Is(err, ErrApplyOpsInvalid)。
-//
-// ErrApplyOpsInvalid is the InvalidArgument-class sentinel for top-level
-// ApplyOps validation failures; matchable with errors.Is.
 var ErrApplyOpsInvalid = errors.New("orchestration: apply_ops invalid request")
 
 // ErrVersionConflict 是 ApplyOps base_version OCC 冲突的 sentinel。
 // errors.Is(err, ErrVersionConflict) 可命中。调用方应重新拉 dag.version
 // 重试整套 ops（并重新干上下文决策）。
-//
-// ErrVersionConflict signals OCC failure on ApplyOps. The caller must refetch
-// the current dag.version, re-derive ops, and retry.
 var ErrVersionConflict = errors.New("orchestration: apply_ops version conflict")
 
 // ErrApplyOpsStoreNotConfigured 表示 service.dagStore 未实现 DAGOpsStore /
 // DAGOpsTxRunner（测试裸构造路径）。生产路径 ProvideService 注入的
 // taskdag.Store 同时实现两者、不会命中。
-//
-// ErrApplyOpsStoreNotConfigured fires when the service's dag store does not
-// satisfy DAGOpsStore / DAGOpsTxRunner. The production wiring (taskdag.Store)
-// implements both; only bare-construction test paths can hit this.
 var ErrApplyOpsStoreNotConfigured = errors.New("orchestration: apply_ops dag store does not implement DAGOpsStore/DAGOpsTxRunner")
 
 // ApplyOps 对 DAG 执行一组 typed ops（add_node / update_node / remove_node /
@@ -601,30 +570,17 @@ var ErrApplyOpsStoreNotConfigured = errors.New("orchestration: apply_ops dag sto
 // handler（translate*Error）按 errors.Is 转译为中英双语用户消息。这样
 // service 层与 transport 层职责单一：service 决定「是不是合法」，transport
 // 决定「怎么说人话」。
-//
-// ApplyOps applies a typed op batch (add_node / update_node / remove_node /
-// update_dag) with base_version OCC; it is the shared entry point for the AI
-// designer, the UI form, and the ops MCP tool. F4.0 lands only the top-level
-// unmarshal + shape validation + error classification — the four typed op
-// handlers come in F4.1-F4.4 inside applyTypedOps.
 func (s *service) ApplyOps(ctx context.Context, req contract.ApplyOpsRequest) (contract.ApplyOpsResponse, error) {
 	if req.BaseVersion < 0 {
 		// base_version 必须非负：0 表示「首次写入空 DAG」，>0 是 OCC 期望
 		// 版本。负数没有定义，直接拒。
-		// base_version must be non-negative; 0 means "first write on empty
-		// DAG" and >0 is the OCC expected version. Negative is undefined.
-		return contract.ApplyOpsResponse{}, fmt.Errorf(
-			"%w: base_version must be non-negative, got %d",
-			ErrApplyOpsInvalid, req.BaseVersion,
-		)
+		return contract.ApplyOpsResponse{}, fmt.Errorf("%w: base_version must be non-negative, got %d", ErrApplyOpsInvalid, req.BaseVersion)
 	}
 
 	var ops nodeexec.Ops
 	// ops 字段为空时按「无操作」处理：解码空 RawMessage 在 encoding/json
 	// 里会 panic 不直观，提前归一为 "null"。下游 applyTypedOps 收到 nil
 	// slice 走主路径，由 F4.1+ 决定是 noop 还是错。
-	// Treat an absent ops payload as JSON null so downstream sees a nil
-	// slice on the main path; F4.1+ decides noop-vs-error semantics.
 	raw := req.Ops
 	if len(raw) == 0 {
 		raw = json.RawMessage("null")
@@ -692,13 +648,8 @@ func isNoopOpsBatch(parts partitionedOps) bool {
 	return len(parts.dagUpdates) == 0 && len(parts.adds) == 0 && len(parts.updates) == 0 && len(parts.removes) == 0
 }
 
-// applyEmptyOpsShortCircuit 事务外 noop 路径：仅读当前 task_dags.version，校 OCC
-// base_version，返回同一 version 作为 NewVersion（无写操作不推进 version）。
-//
-// 错误语义与事务内路径对齐：
-//   - dag_key 不存在     → 透传 taskdag store 返回的 IsNotFound err（调用方用 platformdb.IsNotFound判）。
-//   - base_version != actual → ErrVersionConflict。
-//   - dagStore 不实现 DAGVersionReader（古 stub）→ ErrApplyOpsStoreNotConfigured。
+// applyEmptyOpsShortCircuit keeps noop ApplyOps lock-free while preserving the
+// same OCC and missing-store errors as the transactional write path.
 func (s *service) applyEmptyOpsShortCircuit(ctx context.Context, dagKey string, baseVersion int64) (contract.ApplyOpsResponse, error) {
 	reader, ok := s.dagStore.(taskdag.DAGVersionReader)
 	if !ok {
