@@ -27,6 +27,12 @@ type AgentDetail struct {
 	LastReport  string        `json:"last_report"`
 }
 
+type DashboardDAG struct {
+	contract.DAGSummary
+	LatestRun      *contract.Run `json:"latest_run,omitempty"`
+	HasFinalOutput bool          `json:"hasFinalOutput"`
+}
+
 type FinalOutputRef struct {
 	Path          string `json:"path"`
 	RunKey        string `json:"runKey,omitempty"`

@@ -403,6 +403,70 @@ describe('AppRoot behavior', () => {
     expect(vm.dashboard.finalOutputRefs).toEqual([{ path: 'reports/final.pptx', runKey: 'run-1' }]);
   });
 
+  it('wires the DAG page to dashboard DAGs without exposing the legacy detail modal', () => {
+    expect(AppRoot.template).toContain('<DagsPage');
+    expect(AppRoot.template).toContain(':items="dashboard.dags"');
+    expect(AppRoot.template).toContain(':loading="dashboardRequest.dags.loading"');
+    expect(AppRoot.template).toContain(':error="dashboardRequest.dags.error"');
+    expect(AppRoot.template).not.toContain('@select="dagDetail.open"');
+    expect(AppRoot.template).not.toContain('<DagDetailModal');
+  });
+
+  it('refreshes the DAG dashboard when entering the DAG page', async () => {
+    apiMock.callAPI.mockImplementation(async (method, payload) => {
+      if (method === 'ui/dashboard/get' && payload?.page === 'dags') {
+        return dashboardPayload({ dags: [{ dag_key: 'dag-1' }] });
+      }
+      return defaultAppAPI(method);
+    });
+
+    const vm = AppRoot.setup();
+    vm.page.value = 'dags';
+    await flush();
+
+    expect(apiMock.callAPI).toHaveBeenCalledWith('ui/dashboard/get', { page: 'dags', cwd: '/repo' });
+    expect(vm.dashboard.dags).toEqual([{ dag_key: 'dag-1' }]);
+  });
+
+  it('exposes DAG dashboard refresh failures instead of rendering them as empty lists', async () => {
+    apiMock.callAPI.mockImplementation(async (method, payload) => {
+      if (method === 'ui/dashboard/get' && payload?.page === 'dags') {
+        throw new Error('dag backend offline');
+      }
+      return defaultAppAPI(method);
+    });
+
+    const vm = AppRoot.setup();
+    vm.page.value = 'dags';
+    await flush();
+
+    expect(vm.dashboardRequest.dags.loading).toBe(false);
+    expect(vm.dashboardRequest.dags.error).toContain('dag backend offline');
+  });
+
+  it('refreshes the DAG dashboard from node status bridge events while viewing DAGs', async () => {
+    apiMock.callAPI.mockImplementation(async (method, payload) => {
+      if (method === 'ui/dashboard/get' && payload?.page === 'dags') {
+        return dashboardPayload({ dags: [{ dag_key: 'dag-2', status: 'running' }] });
+      }
+      return defaultAppAPI(method);
+    });
+
+    const vm = AppRoot.setup();
+    hooks.mounted.forEach((fn) => fn());
+    await flush();
+
+    vm.page.value = 'dags';
+    await flush();
+    apiMock.callAPI.mockClear();
+
+    apiMock.bridgeCb?.({ method: 'task/node/statusChanged', payload: { dag_key: 'dag-2' } });
+    await flush();
+
+    expect(apiMock.callAPI).toHaveBeenCalledWith('ui/dashboard/get', { page: 'dags', cwd: '/repo' });
+    expect(vm.dashboard.dags).toEqual([{ dag_key: 'dag-2', status: 'running' }]);
+  });
+
   it('rejects malformed dashboard responses instead of replacing missing fields with empty lists', async () => {
     apiMock.callAPI.mockImplementation(async (method, payload) => {
       if (method === 'ui/dashboard/get' && payload?.page === 'memory') {

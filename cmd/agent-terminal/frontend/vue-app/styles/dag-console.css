@@ -1,0 +1,192 @@
+.dag-console-page {
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.dag-console-shell {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(280px, 360px) minmax(0, 1fr);
+  gap: 12px;
+  overflow: hidden;
+}
+
+.dag-console-list-pane,
+.dag-console-detail-pane {
+  min-width: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  overflow: auto;
+}
+
+.dag-console-list-pane {
+  padding: 8px;
+  overflow: auto;
+}
+
+.dag-console-list {
+  display: grid;
+  gap: 8px;
+}
+
+.dag-console-row {
+  width: 100%;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: var(--card);
+  color: var(--text);
+  padding: 10px;
+  display: grid;
+  gap: 8px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.dag-console-row:hover,
+.dag-console-row:focus-visible,
+.dag-console-row.active {
+  border-color: var(--primary);
+  outline: none;
+}
+
+.dag-console-row-main,
+.dag-console-row-meta {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.dag-console-row-main {
+  justify-content: space-between;
+}
+
+.dag-console-row-meta {
+  flex-wrap: wrap;
+}
+
+.dag-console-title,
+.dag-console-key,
+.dag-console-status,
+.dag-console-trigger,
+.dag-console-run,
+.dag-console-final {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.dag-console-title {
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.dag-console-key,
+.dag-console-trigger,
+.dag-console-run {
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.dag-console-status,
+.dag-console-final {
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 2px 7px;
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.dag-console-final {
+  border-color: var(--success);
+  color: var(--success);
+}
+
+.dag-console-detail-pane {
+  padding: 14px;
+  overflow: auto;
+}
+
+.dag-console-detail-grid {
+  display: grid;
+  gap: 14px;
+}
+
+.dag-console-detail-heading {
+  min-width: 0;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.dag-console-detail-heading h3 {
+  min-width: 0;
+  margin: 0;
+  color: var(--text);
+  font-size: 16px;
+  overflow-wrap: anywhere;
+}
+
+.dag-console-detail-heading span {
+  color: var(--text-muted);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.dag-console-facts {
+  margin: 0;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.dag-console-facts div {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 10px;
+  background: var(--card);
+}
+
+.dag-console-facts dt {
+  margin-bottom: 5px;
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.dag-console-facts dd {
+  margin: 0;
+  color: var(--text);
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+
+.dag-console-empty {
+  min-height: 180px;
+}
+
+.dag-console-error p {
+  margin: 6px 0 0;
+  color: var(--text-muted);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 920px) {
+  .dag-console-shell {
+    grid-template-columns: 1fr;
+    overflow: auto;
+  }
+
+  .dag-console-list-pane,
+  .dag-console-detail-pane {
+    overflow: visible;
+  }
+
+  .dag-console-facts {
+    grid-template-columns: 1fr;
+  }
+}
