@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-GLOBAL_GO_WRAPPER="${GLOBAL_GO_WRAPPER:-}"
+ROOT_DIR="$(cd -- "${BASH_SOURCE[0]%/*}/.." && pwd)"
+source "$ROOT_DIR/scripts/real_go_resolver.sh"
 
 usage() {
   cat <<'USAGE'
@@ -14,27 +14,6 @@ Examples:
   scripts/go_with_guard.sh build ./...
   scripts/go_with_guard.sh vet ./...
 USAGE
-}
-
-resolve_real_go() {
-  if [[ -n "${REAL_GO_BIN:-}" && -x "${REAL_GO_BIN}" ]]; then
-    printf '%s\n' "$REAL_GO_BIN"
-    return 0
-  fi
-
-  local self_dir self_path candidate
-  self_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-  self_path="$self_dir/go"
-  while IFS= read -r candidate; do
-    [[ -n "$candidate" ]] || continue
-    if [[ "$candidate" != "$self_path" && "$candidate" != "$GLOBAL_GO_WRAPPER" ]]; then
-      printf '%s\n' "$candidate"
-      return 0
-    fi
-  done < <(which -a go 2>/dev/null || true)
-
-  echo "❌ 未找到真实 go 二进制，请先设置 REAL_GO_BIN。" >&2
-  exit 1
 }
 
 run_guard() {
@@ -61,7 +40,9 @@ main() {
   esac
 
   local real_go
-  real_go="$(resolve_real_go)"
+  if ! real_go="$(resolve_real_go)"; then
+    exit 1
+  fi
   case "$1" in
     test|build|vet)
       run_guard "$real_go"
