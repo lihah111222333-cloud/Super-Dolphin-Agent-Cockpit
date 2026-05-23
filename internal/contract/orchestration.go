@@ -318,8 +318,8 @@ type StartDAGRequest struct {
 }
 
 type StartDAGResponse struct {
-	RunKey  string // 新 run 的唯一键（例 dag_xxx#run_2026-05-10T08:00）
-	Version int64  // 该 run snapshot 的 dag.version
+	RunKey  string `json:"run_key"` // 新 run 的唯一键（例 dag_xxx#run_2026-05-10T08:00）
+	Version int64  `json:"version"` // 该 run snapshot 的 dag.version
 }
 
 // DAG v2 骨架阶段 T2.1+T2.2: ApplyOps 入参出参。
