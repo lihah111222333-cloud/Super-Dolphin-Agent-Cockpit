@@ -2,6 +2,7 @@ package dashboard
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"strings"
 
@@ -105,6 +106,12 @@ type dagStartParams struct {
 	IdempotencyKey string `json:"idempotencyKey,omitempty"`
 }
 
+type dagApplyOpsParams struct {
+	DAGKey      string          `json:"dagKey,omitempty"`
+	BaseVersion *int64          `json:"baseVersion"`
+	Ops         json.RawMessage `json:"ops"`
+}
+
 // --- typed RPC response structs (replace map[string]any wrappers) ---
 
 type agentsResponse struct {
@@ -165,6 +172,10 @@ type dagRunResponse = contract.GetRunResponse
 type dagStartResponse struct {
 	RunKey  string `json:"runKey"`
 	Version int64  `json:"version"`
+}
+
+type dagApplyOpsResponse struct {
+	NewVersion int64 `json:"newVersion"`
 }
 
 type aiLogStatsResponse struct {
@@ -325,6 +336,20 @@ func registerDashboardDAGHandlers(m handler.Map, svc Service) {
 			return nil, err
 		}
 		return dagStartResponse{RunKey: resp.RunKey, Version: resp.Version}, nil
+	})
+	m["dashboard/dagApplyOps"] = platformrpc.StrictHandler(func(ctx context.Context, p dagApplyOpsParams) (any, error) {
+		if p.BaseVersion == nil {
+			return nil, errors.New("baseVersion is required")
+		}
+		resp, err := svc.ApplyDAGOps(ctx, contract.ApplyOpsRequest{
+			DagKey:      p.DAGKey,
+			BaseVersion: *p.BaseVersion,
+			Ops:         append(json.RawMessage(nil), p.Ops...),
+		})
+		if err != nil {
+			return nil, err
+		}
+		return dagApplyOpsResponse{NewVersion: resp.NewVersion}, nil
 	})
 }
 

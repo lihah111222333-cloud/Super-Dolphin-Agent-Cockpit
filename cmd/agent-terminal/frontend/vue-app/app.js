@@ -15,6 +15,7 @@ import { SharedFilesPage } from './pages/SharedFilesPage.js';
 import { useProjectStore } from './stores/projects.js';
 import { useThreadStore } from './stores/threads.js';
 import { resolveProjectActionCwd } from './composables/useThreadActions.js';
+import { logWarn } from './services/log.js';
 
 /**
  * @typedef {'chat' | 'agents' | 'dags' | 'tasks' | 'skills' | 'commands' | 'memory-center' | 'memory' | 'settings'} AppPage
@@ -299,6 +300,75 @@ async function runCommandCardForApp(card, threadStore, projectStore, pageRef, wi
   pageRef.value = 'chat';
 }
 
+function buildDagDesignerPrompt(context = {}) {
+  return [
+    '请帮我设计或微调一个 DAG 流程。',
+    context?.dagKey ? `当前 DAG: ${context.dagKey}` : '当前没有选定 DAG，可以从新流程开始。',
+    context?.title ? `标题: ${context.title}` : '',
+    '先查可用 model / prompt / command / sharedfile 资源，再给出节点拓扑，用户确认后再落库。',
+  ].filter(Boolean).join('\n');
+}
+
+async function startDagDesignerThreadForApp(context, deps) {
+  const cwd = resolveProjectActionCwd(deps.projectStore, deps.windowCwd);
+  const prompt = buildDagDesignerPrompt(context);
+  const threadId = await deps.threadStore.startThread(cwd, {
+    focusMode: 'chat',
+    name: 'AI 设计流程',
+    agentKey: 'dag_designer',
+    promptKey: 'main/dag_designer_zh',
+    prompt,
+  });
+  if (!threadId) return;
+  await deps.threadStore.saveActiveThread(threadId);
+  deps.page.value = 'chat';
+  try {
+    await deps.threadStore.sendMessage(threadId, prompt, [], { kickoff: true, cwd });
+  } catch (error) {
+    const stateRef = deps.threadStore?.state;
+    if (stateRef?.kickoffByThread) {
+      const next = { ...stateRef.kickoffByThread };
+      delete next[threadId];
+      stateRef.kickoffByThread = next;
+    }
+    logWarn('ui', 'dagDesigner.kickoff_failed', {
+      thread_id: threadId,
+      dag_key: context?.dagKey || '',
+      error: error?.message || String(error),
+    });
+  }
+}
+
+async function startDagDesignerThreadOnceForApp(context, page, projectStore, threadStore, windowCwdRef, inFlight) {
+  if (inFlight.value) return;
+  inFlight.value = true;
+  try {
+    await startDagDesignerThreadForApp(context, {
+      page,
+      projectStore,
+      threadStore,
+      windowCwd: windowCwdRef.value,
+    });
+  } finally {
+    inFlight.value = false;
+  }
+}
+
+function startInheritedChatFromSharedFileForApp(payload, inheritedChatPayload, pageRef) {
+  if (!payload || typeof payload !== 'object') return;
+  const path = (payload.sharedFilePath || '').toString().trim();
+  if (!path) return;
+  inheritedChatPayload.value = { sharedFilePath: path, ts: Date.now() };
+  pageRef.value = 'chat';
+}
+
+async function openDagChildThreadForApp(threadId, threadStore, pageRef) {
+  const id = (threadId || '').toString().trim();
+  if (!id) return;
+  await threadStore.saveActiveThread(id);
+  pageRef.value = 'chat';
+}
+
 export function shouldRefreshChatPageOnEnter(/** @type {string} */ nextPage, /** @type {string | null | undefined} */ prevPage) {
   return nextPage === 'chat' && Boolean(prevPage) && prevPage !== nextPage;
 }
@@ -358,19 +428,15 @@ export const AppRoot = {
     const bootstrapError = ref('');
     // Phase 2: 跨页面「用此文件新建对话」传递通道
     const inheritedChatPayload = ref(/** @type {{ sharedFilePath?: string } | null} */ (null));
+    const dagDesignerStarting = ref(false);
     function startInheritedChatFromSharedFile(payload) {
-      if (!payload || typeof payload !== 'object') return;
-      const path = (payload.sharedFilePath || '').toString().trim();
-      if (!path) return;
-      // 每次创建新引用，watch 必触发
-      inheritedChatPayload.value = { sharedFilePath: path, ts: Date.now() };
-      page.value = 'chat';
+      startInheritedChatFromSharedFileForApp(payload, inheritedChatPayload, page);
     }
     async function openDagChildThread(threadId) {
-      const id = (threadId || '').toString().trim();
-      if (!id) return;
-      await threadStore.saveActiveThread(id);
-      page.value = 'chat';
+      await openDagChildThreadForApp(threadId, threadStore, page);
+    }
+    async function startDagDesignerThread(context = {}) {
+      await startDagDesignerThreadOnceForApp(context, page, projectStore, threadStore, windowCwd, dagDesignerStarting);
     }
     const tasksSubTab = ref('acks');
     const buildInfo = reactive({});
@@ -615,6 +681,7 @@ export const AppRoot = {
       inheritedChatPayload,
       startInheritedChatFromSharedFile,
       openDagChildThread,
+      startDagDesignerThread,
       clearInheritedChatPayload: () => { inheritedChatPayload.value = null; },
       tasksItems,
       tasksFields,
@@ -661,6 +728,7 @@ export const AppRoot = {
           :loading="dashboardRequest.dags.loading"
           :error="dashboardRequest.dags.error"
           @open-chat="openDagChildThread"
+          @design-flow="startDagDesignerThread"
         />
 
         <TasksPage

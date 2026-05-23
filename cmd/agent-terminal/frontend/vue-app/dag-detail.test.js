@@ -224,6 +224,132 @@ describe('useDagDetail', () => {
     expect(detail.state.finalOutput).toEqual({ kind: 'text', text: 'started result' });
   });
 
+  it('saves an agent node through dashboard apply ops and refreshes the same dag', async () => {
+    const applyOpsCalls = [];
+    apiMock.callAPI.mockImplementation(async (method, params) => {
+      if (method === 'dashboard/dagDetail') {
+        return {
+          dag: { dag_key: 'dag-1', title: 'Daily Brief', version: params.dagKey === 'dag-1' ? 7 : 0 },
+          nodes: [{
+            node_key: 'draft',
+            title: 'Draft report',
+            node_type: 'agent',
+            depends_on: ['collect'],
+            config: {
+              exec: { provider: 'claude', model: 'sonnet', prompt_key: 'main/writer' },
+              first_turn: 'old prompt',
+            },
+          }],
+        };
+      }
+      if (method === 'dashboard/dagRuns') return { runs: [] };
+      if (method === 'dashboard/dagApplyOps') {
+        applyOpsCalls.push(params);
+        return { newVersion: 8 };
+      }
+      throw new Error(`unexpected method ${method}`);
+    });
+
+    const detail = useDagDetail();
+    await detail.open({ dag_key: 'dag-1' });
+    await detail.saveAgentNode({
+      nodeKey: 'draft',
+      title: 'Draft report v2',
+      dependsOn: ['collect'],
+      config: {
+        exec: { provider: 'claude', model: 'opus', prompt_key: 'main/writer' },
+        first_turn: 'new prompt',
+      },
+    });
+
+    expect(detail.state.saveError).toBeNull();
+    expect(detail.state.savingNodeKey).toBe('');
+    expect(applyOpsCalls).toHaveLength(1);
+    expect(applyOpsCalls[0]).toEqual({
+      dagKey: 'dag-1',
+      baseVersion: 7,
+      ops: [{
+        op: 'update_node',
+        node_key: 'draft',
+        patch: {
+          title: 'Draft report v2',
+          depends_on: ['collect'],
+          config: {
+            exec: { provider: 'claude', model: 'opus', prompt_key: 'main/writer' },
+            first_turn: 'new prompt',
+          },
+        },
+      }],
+    });
+    expect(apiMock.callAPI.mock.calls.filter(([method]) => method === 'dashboard/dagDetail')).toHaveLength(2);
+  });
+
+  it('allows node saves with initial DAG version zero', async () => {
+    const applyOpsCalls = [];
+    apiMock.callAPI.mockImplementation(async (method, params) => {
+      if (method === 'dashboard/dagDetail') {
+        return {
+          dag: { dag_key: 'dag-1', title: 'Daily Brief', version: 0 },
+          nodes: [{
+            node_key: 'draft',
+            title: 'Draft report',
+            node_type: 'agent',
+            depends_on: [],
+            config: {
+              exec: { provider: 'claude', model: 'sonnet', prompt_key: 'main/writer' },
+              first_turn: 'old prompt',
+            },
+          }],
+        };
+      }
+      if (method === 'dashboard/dagRuns') return { runs: [] };
+      if (method === 'dashboard/dagApplyOps') {
+        applyOpsCalls.push(params);
+        return { newVersion: 1 };
+      }
+      throw new Error(`unexpected method ${method}`);
+    });
+
+    const detail = useDagDetail();
+    await detail.open({ dag_key: 'dag-1' });
+    await detail.saveAgentNode({
+      nodeKey: 'draft',
+      title: 'Draft report v2',
+      dependsOn: [],
+      config: {
+        exec: { provider: 'claude', model: 'opus', prompt_key: 'main/writer' },
+        first_turn: 'new prompt',
+      },
+    });
+
+    expect(detail.state.saveError).toBeNull();
+    expect(applyOpsCalls).toHaveLength(1);
+    expect(applyOpsCalls[0].baseVersion).toBe(0);
+  });
+
+  it('rejects node saves before calling apply ops when DAG version is missing', async () => {
+    apiMock.callAPI.mockImplementation(async (method) => {
+      if (method === 'dashboard/dagDetail') {
+        return { dag: { dag_key: 'dag-1', title: 'Daily Brief' }, nodes: [] };
+      }
+      if (method === 'dashboard/dagRuns') return { runs: [] };
+      throw new Error(`unexpected method ${method}`);
+    });
+
+    const detail = useDagDetail();
+    await detail.open({ dag_key: 'dag-1' });
+    await detail.saveAgentNode({
+      nodeKey: 'draft',
+      title: 'Draft',
+      dependsOn: [],
+      config: { exec: { provider: 'claude', model: 'sonnet', prompt_key: 'main/writer' } },
+    });
+
+    expect(detail.state.saveError).toBeInstanceOf(Error);
+    expect(detail.state.saveError.message).toContain('DAG version');
+    expect(apiMock.callAPI.mock.calls.some(([method]) => method === 'dashboard/dagApplyOps')).toBe(false);
+  });
+
   it('ignores duplicate start calls while a start is already running', async () => {
     let resolveStart;
     const startPromise = new Promise((resolve) => { resolveStart = resolve; });

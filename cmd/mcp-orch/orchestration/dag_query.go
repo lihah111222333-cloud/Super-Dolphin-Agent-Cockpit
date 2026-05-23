@@ -153,7 +153,7 @@ func dagRunDTO(row taskdag.Run) contract.Run {
 		FinishedAt:         shared.CloneTime(row.FinishedAt),
 		Events:             append([]byte(nil), row.Events...),
 		BudgetUsed:         row.BudgetUsed,
-		BudgetLimit:        cloneInt64(row.BudgetLimit),
+		BudgetLimit:        shared.CloneInt64(row.BudgetLimit),
 		Metadata:           append([]byte(nil), row.Metadata...),
 		CreatedAt:          row.CreatedAt,
 		UpdatedAt:          row.UpdatedAt,
