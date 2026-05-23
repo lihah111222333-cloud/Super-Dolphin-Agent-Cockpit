@@ -1,25 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-GLOBAL_GO_WRAPPER="${GLOBAL_GO_WRAPPER:-}"
+ROOT_DIR="$(cd -- "${BASH_SOURCE[0]%/*}/.." && pwd)"
+source "$ROOT_DIR/scripts/real_go_resolver.sh"
 
-resolve_real_go() {
-  local candidate
-  while IFS= read -r candidate; do
-    [[ -n "$candidate" ]] || continue
-    if [[ "$candidate" != "$GLOBAL_GO_WRAPPER" ]]; then
-      printf '%s\n' "$candidate"
-      return 0
-    fi
-  done < <(which -a go 2>/dev/null || true)
-  return 1
-}
-
-REAL_GO_BIN_VALUE="${REAL_GO_BIN:-$(resolve_real_go || true)}"
-
-if [[ -z "$REAL_GO_BIN_VALUE" ]]; then
-  echo "❌ 未找到真实 go 二进制，无法启动受守卫保护的 shell。" >&2
+if ! REAL_GO_BIN_VALUE="$(resolve_real_go)"; then
   exit 1
 fi
 
