@@ -408,8 +408,18 @@ describe('AppRoot behavior', () => {
     expect(AppRoot.template).toContain(':items="dashboard.dags"');
     expect(AppRoot.template).toContain(':loading="dashboardRequest.dags.loading"');
     expect(AppRoot.template).toContain(':error="dashboardRequest.dags.error"');
+    expect(AppRoot.template).toContain('@open-chat="openDagChildThread"');
     expect(AppRoot.template).not.toContain('@select="dagDetail.open"');
     expect(AppRoot.template).not.toContain('<DagDetailModal');
+  });
+
+  it('opens a DAG child thread from the DAG page', async () => {
+    const vm = AppRoot.setup();
+
+    await vm.openDagChildThread('child-thread-1');
+
+    expect(stores.threadStore.saveActiveThread).toHaveBeenCalledWith('child-thread-1');
+    expect(vm.page.value).toBe('chat');
   });
 
   it('refreshes the DAG dashboard when entering the DAG page', async () => {
