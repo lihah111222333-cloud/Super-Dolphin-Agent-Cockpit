@@ -49,6 +49,9 @@ type DAGRuntime interface {
 	StartDAG(ctx context.Context, req StartDAGRequest) (StartDAGResponse, error)
 	ListRuns(ctx context.Context, req ListRunsRequest) (ListRunsResponse, error)
 	GetRun(ctx context.Context, req GetRunRequest) (GetRunResponse, error)
+	// ApplyOps 对 DAG 执行一组 typed ops (add/update/remove/update_dag) + base_version OCC。
+	// Ops 字段是 raw JSON（wire 格式），service 内部解码为 nodeexec.Ops。
+	ApplyOps(ctx context.Context, req ApplyOpsRequest) (ApplyOpsResponse, error)
 }
 
 // OrchestrationService defines the shared orchestration boundary used by
@@ -76,9 +79,6 @@ type OrchestrationService interface {
 	// After F6.5 it returns the run's runtime nodes; task_get_dag reads only
 	// DAG template nodes.
 	GetRun(ctx context.Context, req GetRunRequest) (GetRunResponse, error)
-	// ApplyOps 对 DAG 执行一组 typed ops (add/update/remove/update_dag) + base_version OCC。
-	// Ops 字段是 raw JSON（wire 格式），service 内部解码为 nodeexec.Ops。
-	ApplyOps(ctx context.Context, req ApplyOpsRequest) (ApplyOpsResponse, error)
 	// DispatchNode 是 ADR-004 「无 assignee 就绪节点」的显式推进入口：
 	// 给粘在 ready / pending 无 assignee 状态的节点指派一个 assigned_to
 	// 后立即 enqueue 一条 wakeup，让 dispatcher 能指取跳 launch。
@@ -334,7 +334,7 @@ type ApplyOpsRequest struct {
 }
 
 type ApplyOpsResponse struct {
-	NewVersion int64
+	NewVersion int64 `json:"new_version"`
 }
 
 // GetRunRequest 是 task_get_run / OrchestrationService.GetRun 的入参。
@@ -436,6 +436,7 @@ func isEmptyJSON(raw json.RawMessage) bool {
 type DAGSummary struct {
 	ID          int64           `json:"id"`
 	DagKey      string          `json:"dag_key"`
+	Version     int64           `json:"version"`
 	Title       string          `json:"title"`
 	Description string          `json:"description,omitempty"`
 	Status      string          `json:"status"`

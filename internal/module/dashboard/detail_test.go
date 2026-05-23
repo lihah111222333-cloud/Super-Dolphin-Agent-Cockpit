@@ -2,8 +2,10 @@ package dashboard
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
@@ -285,7 +287,42 @@ func TestStartDAGRequiresDAGKey(t *testing.T) {
 	}
 }
 
+func TestApplyDAGOpsRejectsMissingOps(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name string
+		ops  json.RawMessage
+	}{
+		{"missing", nil},
+		{"null", json.RawMessage(`null`)},
+		{"empty_array", json.RawMessage(`[]`)},
+		{"blank", json.RawMessage(`   `)},
+	}
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			stub := &stubDashboardOrchestration{}
+			svc := &service{orchestration: stub}
+
+			_, err := svc.ApplyDAGOps(context.Background(), contract.ApplyOpsRequest{
+				DagKey:      "dag-1",
+				BaseVersion: 0,
+				Ops:         tc.ops,
+			})
+			if err == nil || !strings.Contains(err.Error(), "ops") {
+				t.Fatalf("ApplyDAGOps() error = %v, want ops required", err)
+			}
+			if len(stub.applyOpsRequest.Ops) != 0 {
+				t.Fatalf("ApplyOps should not be called, got request %#v", stub.applyOpsRequest)
+			}
+		})
+	}
+}
+
 type stubDashboardOrchestration struct {
+	mu               sync.Mutex
 	snapshot         contract.AgentSnapshot
 	report           contract.AgentReportResult
 	listDAGsResult   []contract.DAGSummary
@@ -303,6 +340,10 @@ type stubDashboardOrchestration struct {
 	startDAGRequest  contract.StartDAGRequest
 	startDAGResult   contract.StartDAGResponse
 	startDAGErr      error
+	applyOpsRequest  contract.ApplyOpsRequest
+	applyOpsResult   contract.ApplyOpsResponse
+	applyOpsErr      error
+	applyOpsCalled   bool
 }
 
 // 中文：编译期断言 — stubDashboardOrchestration 必须实现
@@ -395,11 +436,18 @@ func (s *stubDashboardOrchestration) GetRun(_ context.Context, req contract.GetR
 	return s.getRunResult, nil
 }
 
-func (s *stubDashboardOrchestration) ApplyOps(context.Context, contract.ApplyOpsRequest) (contract.ApplyOpsResponse, error) {
-	return contract.ApplyOpsResponse{}, nil
+func (s *stubDashboardOrchestration) ApplyOps(_ context.Context, req contract.ApplyOpsRequest) (contract.ApplyOpsResponse, error) {
+	s.applyOpsCalled = true
+	s.applyOpsRequest = req
+	if s.applyOpsErr != nil {
+		return contract.ApplyOpsResponse{}, s.applyOpsErr
+	}
+	return s.applyOpsResult, nil
 }
 
 func (s *stubDashboardOrchestration) ListRuns(_ context.Context, req contract.ListRunsRequest) (contract.ListRunsResponse, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	s.listRunsRequest = req
 	s.listRunsRequests = append(s.listRunsRequests, req)
 	if s.listRunsErr != nil {

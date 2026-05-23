@@ -422,6 +422,63 @@ describe('AppRoot behavior', () => {
     expect(vm.page.value).toBe('chat');
   });
 
+  it('starts an AI DAG designer thread from the DAG page', async () => {
+    const vm = AppRoot.setup();
+
+    await vm.startDagDesignerThread({ dagKey: 'dag-1', title: 'Daily Brief' });
+
+    expect(stores.threadStore.startThread).toHaveBeenCalledWith('/repo', {
+      focusMode: 'chat',
+      name: 'AI 设计流程',
+      agentKey: 'dag_designer',
+      promptKey: 'main/dag_designer_zh',
+      prompt: expect.stringContaining('dag-1'),
+    });
+    expect(stores.threadStore.saveActiveThread).toHaveBeenCalledWith('thread-new');
+    expect(stores.threadStore.sendMessage).toHaveBeenCalledWith(
+      'thread-new',
+      expect.stringContaining('Daily Brief'),
+      [],
+      expect.objectContaining({ kickoff: true, cwd: '/repo' }),
+    );
+    expect(vm.page.value).toBe('chat');
+    expect(AppRoot.template).toContain('@design-flow="startDagDesignerThread"');
+  });
+
+  it('ignores duplicate AI DAG designer starts while one is in flight', async () => {
+    let resolveStart;
+    stores.threadStore.startThread.mockImplementationOnce(() => new Promise((resolve) => {
+      resolveStart = () => resolve('thread-new');
+    }));
+    const vm = AppRoot.setup();
+
+    const first = vm.startDagDesignerThread({ dagKey: 'dag-1', title: 'Daily Brief' });
+    const second = vm.startDagDesignerThread({ dagKey: 'dag-1', title: 'Daily Brief' });
+    await flush();
+
+    expect(stores.threadStore.startThread).toHaveBeenCalledTimes(1);
+    resolveStart();
+    await first;
+    await second;
+
+    expect(stores.threadStore.sendMessage).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps the AI DAG designer thread visible when kickoff send fails', async () => {
+    stores.threadStore.sendMessage.mockImplementationOnce(async (threadId) => {
+      stores.threadStore.state.kickoffByThread = { [threadId]: 'prompt' };
+      throw new Error('turn start failed');
+    });
+    const vm = AppRoot.setup();
+
+    await expect(vm.startDagDesignerThread({ dagKey: 'dag-1', title: 'Daily Brief' })).resolves.toBeUndefined();
+
+    expect(stores.threadStore.saveActiveThread).toHaveBeenCalledWith('thread-new');
+    expect(stores.threadStore.sendMessage).toHaveBeenCalledTimes(1);
+    expect(stores.threadStore.state.kickoffByThread).toEqual({});
+    expect(vm.page.value).toBe('chat');
+  });
+
   it('refreshes the DAG dashboard when entering the DAG page', async () => {
     apiMock.callAPI.mockImplementation(async (method, payload) => {
       if (method === 'ui/dashboard/get' && payload?.page === 'dags') {

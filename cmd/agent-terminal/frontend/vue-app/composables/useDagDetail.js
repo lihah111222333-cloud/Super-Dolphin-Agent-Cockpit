@@ -33,12 +33,41 @@ function dagKeyFromItem(item) {
   return (item?.dag_key || item?.dagKey || item?.key || item?.id || '').toString().trim();
 }
 
+function dagVersionFromItem(item) {
+  const value = item?.version ?? item?.Version;
+  if (value === undefined || value === null || value === '') return null;
+  const version = Number(value);
+  return Number.isFinite(version) && version >= 0 ? version : null;
+}
+
 function runKeyFromItem(item) {
   return (item?.run_key || item?.runKey || item?.key || item?.id || '').toString().trim();
 }
 
 function makeStartIdempotencyKey(dagKey) {
   return `dag-start:${dagKey}:${Date.now()}:${Math.random().toString(36).slice(2)}`;
+}
+
+function normalizeNodeSavePayload(payload = {}) {
+  const nodeKey = (payload.nodeKey || payload.node_key || '').toString().trim();
+  if (!nodeKey) throw new Error('缺少 node key');
+  const patch = {};
+  if (Object.prototype.hasOwnProperty.call(payload, 'title')) {
+    patch.title = (payload.title || '').toString().trim();
+  }
+  if (Object.prototype.hasOwnProperty.call(payload, 'dependsOn')) {
+    patch.depends_on = Array.isArray(payload.dependsOn)
+      ? payload.dependsOn.map((item) => (item || '').toString().trim()).filter(Boolean)
+      : [];
+  }
+  if (Object.prototype.hasOwnProperty.call(payload, 'config')) {
+    patch.config = payload.config && typeof payload.config === 'object' ? payload.config : {};
+  }
+  return {
+    op: 'update_node',
+    node_key: nodeKey,
+    patch,
+  };
 }
 
 export function useDagDetail() {
@@ -212,6 +241,39 @@ export function useDagDetail() {
     }
   }
 
+  async function saveAgentNode(payload) {
+    const op = normalizeNodeSavePayload(payload);
+    const seq = openSeq;
+    const dagKey = dagKeyFromItem(state.dag);
+    state.saveError = null;
+    if (!dagKey) {
+      state.saveError = new Error('缺少 DAG key');
+      return;
+    }
+    const baseVersion = dagVersionFromItem(state.dag);
+    if (baseVersion === null) {
+      state.saveError = new Error('缺少 DAG version，无法执行 apply_ops');
+      return;
+    }
+    state.savingNodeKey = op.node_key;
+    try {
+      await callAPI('dashboard/dagApplyOps', {
+        dagKey,
+        baseVersion,
+        ops: [op],
+      });
+      if (seq !== openSeq) return;
+      await loadDetail(seq, dagKey, state.dag, state.selectedRunKey);
+    } catch (error) {
+      if (seq === openSeq) {
+        state.saveError = error;
+        logWarn('ui', 'useDagDetail.save_agent_node.failed', { dagKey, nodeKey: op.node_key, error });
+      }
+    } finally {
+      if (seq === openSeq) state.savingNodeKey = '';
+    }
+  }
+
   function close() {
     openSeq += 1;
     state.show = false;
@@ -233,5 +295,5 @@ export function useDagDetail() {
     if (node) node.status = status;
   }
 
-  return { state, open, close, selectRun, start, updateNodeStatus, handleStatusEvent };
+  return { state, open, close, selectRun, start, saveAgentNode, updateNodeStatus, handleStatusEvent };
 }

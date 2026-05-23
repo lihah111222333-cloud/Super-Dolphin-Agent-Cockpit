@@ -63,6 +63,16 @@ func (r *mcpOrchDAGRuntime) StartDAG(ctx context.Context, req contract.StartDAGR
 	return out, err
 }
 
+func (r *mcpOrchDAGRuntime) ApplyOps(ctx context.Context, req contract.ApplyOpsRequest) (contract.ApplyOpsResponse, error) {
+	var out contract.ApplyOpsResponse
+	err := r.call(ctx, "task_dag_apply_ops", map[string]any{
+		"dag_key":      strings.TrimSpace(req.DagKey),
+		"base_version": req.BaseVersion,
+		"ops":          json.RawMessage(append([]byte(nil), req.Ops...)),
+	}, &out)
+	return out, err
+}
+
 func (r *mcpOrchDAGRuntime) ListRuns(ctx context.Context, req contract.ListRunsRequest) (contract.ListRunsResponse, error) {
 	var out contract.ListRunsResponse
 	err := r.call(ctx, "task_list_runs", map[string]any{

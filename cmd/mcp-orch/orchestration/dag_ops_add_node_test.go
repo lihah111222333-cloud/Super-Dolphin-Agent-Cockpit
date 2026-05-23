@@ -30,6 +30,7 @@ type stubDAGOpsStore struct {
 
 	currentVersion int64
 	versionErr     error
+	versionReads   []int64
 	dagStatus      string // F4.5 现 DAG 状态；空串 = "draft" (默认)
 	getDagErr      error  // F4.5 模拟 GetDAG 错误用
 	dagTrigger     string
@@ -61,6 +62,9 @@ func (s *stubDAGOpsStore) GetDAGVersion(_ context.Context, _ string) (int64, err
 	s.getVersionReadCalls++
 	if s.versionErr != nil {
 		return 0, s.versionErr
+	}
+	if idx := s.getVersionReadCalls - 1; idx >= 0 && idx < len(s.versionReads) {
+		return s.versionReads[idx], nil
 	}
 	return s.currentVersion, nil
 }
