@@ -279,6 +279,9 @@ function browserInstaller({
         ? clone(retentionSource)
         : { items: [], protectedCount: 0, cleanupCandidateCount: 0 },
     },
+    dagDetails: clone(asObject(source.dagDetails)) || {},
+    dagRuns: clone(asObject(source.dagRuns)) || {},
+    dagStart: clone(asObject(source.dagStart)) || {},
     prompts: clone(sourcePrompts.length > 0 ? sourcePrompts : defaultPromptRows()) || [],
     memoryCenter: clone(asObject(source.memoryCenter)) || {
       overview: {},
@@ -656,6 +659,31 @@ function browserInstaller({
     state.callLog.push({ method, params: clone(params ?? {}) });
   }
 
+  function requireDagKey(params) {
+    const dagKey = (params.dagKey || params.dag_key || '').toString().trim();
+    if (!dagKey) throw new Error('dagKey is required');
+    return dagKey;
+  }
+
+  function requireConfiguredDag(map, dagKey, label) {
+    if (!Object.prototype.hasOwnProperty.call(map, dagKey)) {
+      throw new Error(`${label} not found: ${dagKey}`);
+    }
+    return map[dagKey];
+  }
+
+  function dagRunsForKey(dagKey) {
+    const configured = requireConfiguredDag(state.dagRuns, dagKey, 'dag runs');
+    if (Array.isArray(configured)) return configured;
+    return asArray(asObject(configured).runs);
+  }
+
+  function applyLimit(items, limit) {
+    const max = Number(limit);
+    if (!Number.isFinite(max) || max <= 0) return items;
+    return items.slice(0, max);
+  }
+
   function buildTurnItem(input) {
     const parts = [];
     const attachments = [];
@@ -765,6 +793,31 @@ function browserInstaller({
           return buildUiState();
         case 'ui/dashboard/get':
           return clone(state.dashboard);
+        case 'dashboard/dagDetail': {
+          const dagKey = requireDagKey(params);
+          const detail = requireConfiguredDag(state.dagDetails, dagKey, 'dag detail');
+          return clone({
+            dag: asObject(detail).dag,
+            nodes: asArray(asObject(detail).nodes),
+          });
+        }
+        case 'dashboard/dagRuns': {
+          const dagKey = requireDagKey(params);
+          return { runs: clone(applyLimit(dagRunsForKey(dagKey), params.limit)) };
+        }
+        case 'dashboard/dagStart': {
+          const dagKey = requireDagKey(params);
+          if (!(params.idempotencyKey || '').toString().trim()) {
+            throw new Error('idempotencyKey is required');
+          }
+          const configured = asObject(requireConfiguredDag(state.dagStart, dagKey, 'dag start'));
+          const run = asObject(configured.run);
+          if (run.run_key || run.runKey || run.key || run.id) {
+            const current = dagRunsForKey(dagKey);
+            state.dagRuns[dagKey] = [clone(run), ...current];
+          }
+          return clone(asObject(configured.response));
+        }
         case 'dashboard/prompts':
         case 'prompt-assets/list':
         case 'prompts/list':
