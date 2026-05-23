@@ -43,6 +43,24 @@ func TestPromptTemplateExpertConsolidationMigrationListsExpectedTargetsAndGuards
 	}
 }
 
+func TestPromptTemplateExpertConsolidationMigrationNormalizesNullableJSONSnapshotFields(t *testing.T) {
+	t.Parallel()
+
+	content := readMigrationFixture(t, promptTemplateExpertConsolidationMigrationName)
+	for _, check := range []string{
+		"COALESCE(p.variables, '{}'::jsonb)",
+		"COALESCE(p.tags, '[]'::jsonb)",
+		"match_when JSONB,",
+	} {
+		if !strings.Contains(content, check) {
+			t.Fatalf("%s missing nullable JSON snapshot handling %q", promptTemplateExpertConsolidationMigrationName, check)
+		}
+	}
+	if strings.Contains(content, "match_when JSONB NOT NULL") {
+		t.Fatalf("%s must preserve NULL match_when as the opt-out routing state", promptTemplateExpertConsolidationMigrationName)
+	}
+}
+
 func TestPromptTemplateExpertConsolidationDeletesDuplicatesAndUpdatesCodeTask(t *testing.T) {
 	ctx, conn, schema := setupPromptTemplateCleanupMigrationTest(t)
 	for _, key := range duplicateDeveloperExpertKeys {
@@ -64,6 +82,29 @@ func TestPromptTemplateExpertConsolidationDeletesDuplicatesAndUpdatesCodeTask(t 
 	for _, key := range []string{"main/code-review", "main/code-debug", "main/planning"} {
 		requirePromptCleanupTemplateExists(t, ctx, conn, key)
 		requireExpertConsolidationWhenToUseContains(t, ctx, conn, key, []string{"original when " + key})
+	}
+}
+
+func TestPromptTemplateExpertConsolidationHandlesNullableSeedJSONFields(t *testing.T) {
+	ctx, conn, schema := setupPromptTemplateCleanupMigrationTest(t)
+	insertExpertConsolidationTemplate(t, ctx, conn, "main/code-task", "system.seed", "system.seed", false)
+
+	applyPromptTemplateExpertConsolidation0107(t, ctx, conn, schema)
+
+	var variables string
+	var matchWhenIsNull bool
+	if err := conn.QueryRow(ctx, `
+SELECT variables::text, match_when IS NULL
+FROM prompt_template_expert_consolidation_0107_restore
+WHERE prompt_key = 'main/code-task'
+`).Scan(&variables, &matchWhenIsNull); err != nil {
+		t.Fatalf("query 0107 restore nullable JSON fields: %v", err)
+	}
+	if variables != "{}" {
+		t.Fatalf("restore variables = %s, want {}", variables)
+	}
+	if !matchWhenIsNull {
+		t.Fatalf("restore match_when should preserve NULL opt-out routing state")
 	}
 }
 
@@ -134,29 +175,6 @@ func TestPromptTemplateExpertConsolidationRollbackRestoresDeletedSnapshotsWithou
 		requireExpertConsolidationTagsContain(t, ctx, conn, key, "legacy:"+key)
 	}
 	requireExpertConsolidationWhenToUseContains(t, ctx, conn, "main/code-task", []string{"original when main/code-task"})
-}
-
-func TestPromptTemplateExpertConsolidationWithNullColumns(t *testing.T) {
-	ctx, conn, schema := setupPromptTemplateCleanupMigrationTest(t)
-
-	// Insert templates with explicit NULL values for variables, tags, and match_when
-	_, err := conn.Exec(ctx, `
-INSERT INTO prompt_templates (
-    prompt_key, title, agent_key, prompt_text, variables, tags, match_when,
-    enabled, manually_edited, created_by, updated_by
-) VALUES ($1, $1, 'main', $2, NULL, NULL, NULL, TRUE, FALSE, $3, $4)
-`, "main/code-generate", "prompt text code-generate", "system.seed", "system.seed")
-	if err != nil {
-		t.Fatalf("failed to insert template with NULLs: %v", err)
-	}
-
-	insertExpertConsolidationTemplate(t, ctx, conn, "main/code-task", "system.seed", "system.seed", false)
-
-	// Applying the migration should not raise NOT NULL constraint violations now
-	applyPromptTemplateExpertConsolidation0107(t, ctx, conn, schema)
-
-	// Verify that the duplicate template was successfully processed and deleted
-	requirePromptCleanupTemplateMissing(t, ctx, conn, "main/code-generate")
 }
 
 func applyPromptTemplateExpertConsolidation0107(t *testing.T, ctx context.Context, conn *pgx.Conn, schema string) {
