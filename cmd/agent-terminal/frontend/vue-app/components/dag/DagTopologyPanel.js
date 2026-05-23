@@ -13,11 +13,11 @@ function nodeKey(node, index) {
   return textValue(node?.node_key, node?.nodeKey, node?.key, node?.id) || `node_${index + 1}`;
 }
 
-function nodeTitle(node, key) {
-  return textValue(node?.title, node?.name, key) || key;
+function nodeTitle(node, index) {
+  return textValue(node?.title, node?.name) || `步骤 ${index + 1}`;
 }
 
-function dependsOn(node) {
+function dependencyKeys(node) {
   const raw = node?.depends_on || node?.dependsOn || [];
   if (Array.isArray(raw)) return raw.map((item) => textValue(item)).filter(Boolean);
   if (typeof raw !== 'string') return [];
@@ -43,38 +43,69 @@ export const DagTopologyPanel = {
       const key = nodeKey(node, index);
       return {
         key,
-        title: nodeTitle(node, key),
-        dependsOn: dependsOn(node),
+        title: nodeTitle(node, index),
+        dependsOn: dependencyKeys(node),
       };
     }));
     const mermaidSource = computed(() => {
       const lines = ['flowchart TD'];
       const knownIds = new Map(rows.value.map((row, index) => [row.key, `n${index + 1}`]));
+      const missingLabels = new Map();
       const missingIds = new Map();
       const idForDependency = (key) => {
         if (knownIds.has(key)) return knownIds.get(key);
         if (!missingIds.has(key)) missingIds.set(key, `d${missingIds.size + 1}`);
         return missingIds.get(key);
       };
+      const labelForDependency = (key) => {
+        if (!missingLabels.has(key)) missingLabels.set(key, `外部依赖 ${missingLabels.size + 1}`);
+        return missingLabels.get(key);
+      };
       for (const row of rows.value) {
         lines.push(`  ${knownIds.get(row.key)}["${mermaidLabel(row.title)}"]`);
       }
+      const visibleRows = rows.value.map((row) => ({
+        ...row,
+        dependsOn: row.dependsOn.map((key) => ({
+          key,
+          label: knownIds.has(key)
+            ? rows.value.find((item) => item.key === key)?.title || labelForDependency(key)
+            : labelForDependency(key),
+        })),
+      }));
       for (const row of rows.value) {
         const rowId = knownIds.get(row.key);
-        for (const dep of row.dependsOn) {
-          const depId = idForDependency(dep);
-          if (!knownIds.has(dep)) lines.push(`  ${depId}["${mermaidLabel(dep)}"]`);
+        for (const dep of visibleRows.find((item) => item.key === row.key)?.dependsOn || []) {
+          const depId = idForDependency(dep.key);
+          if (!knownIds.has(dep.key)) lines.push(`  ${depId}["${mermaidLabel(dep.label)}"]`);
           lines.push(`  ${depId} --> ${rowId}`);
         }
       }
       return lines.join('\n');
     });
-    return { rows, mermaidSource };
+    const visibleRows = computed(() => {
+      const knownKeys = new Set(rows.value.map((row) => row.key));
+      const missingLabels = new Map();
+      const labelForDependency = (key) => {
+        if (!missingLabels.has(key)) missingLabels.set(key, `外部依赖 ${missingLabels.size + 1}`);
+        return missingLabels.get(key);
+      };
+      return rows.value.map((row) => ({
+        ...row,
+        dependsOn: row.dependsOn.map((key) => ({
+          key,
+          label: knownKeys.has(key)
+            ? rows.value.find((item) => item.key === key)?.title || labelForDependency(key)
+            : labelForDependency(key),
+        })),
+      }));
+    });
+    return { rows: visibleRows, mermaidSource };
   },
   template: `
     <section class="dag-detail-section dag-topology-panel" data-testid="dag-topology-panel">
-      <div class="dag-section-title">Topology</div>
-      <div v-if="rows.length === 0" class="dag-console-muted" data-testid="dag-topology-empty">暂无拓扑</div>
+      <div class="dag-section-title">流程图</div>
+      <div v-if="rows.length === 0" class="dag-console-muted" data-testid="dag-topology-empty">暂无流程图</div>
       <pre v-else class="dag-topology-source" data-testid="dag-topology-mermaid">{{ mermaidSource }}</pre>
     </section>
   `,

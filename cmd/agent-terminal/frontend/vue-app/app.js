@@ -29,7 +29,7 @@ const REFRESH_INTERVAL_MS = 10000;
 const NAV_ITEMS = Object.freeze([
   { key: 'chat', icon: '💬', label: 'Chat' },
   { key: 'prompts', icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><path d="M12 18v-6"/><path d="M9 15l3-3 3 3"/></svg>', label: '提示词' },
-  { key: 'dags', icon: 'D', label: 'DAG' },
+  { key: 'dags', icon: 'D', label: '任务流程' },
   { key: 'tasks', icon: 'T', label: '任务' },
   { key: 'skills', icon: 'S', label: '技能' },
   { key: 'commands', icon: 'C', label: '命令' },
@@ -302,11 +302,15 @@ async function runCommandCardForApp(card, threadStore, projectStore, pageRef, wi
 
 function buildDagDesignerPrompt(context = {}) {
   return [
-    '请帮我设计或微调一个 DAG 流程。',
-    context?.dagKey ? `当前 DAG: ${context.dagKey}` : '当前没有选定 DAG，可以从新流程开始。',
-    context?.title ? `标题: ${context.title}` : '',
-    '先查可用 model / prompt / command / sharedfile 资源，再给出节点拓扑，用户确认后再落库。',
+    '请帮我设计或微调一个任务流程。',
+    context?.title ? `当前任务流程：${context.title}` : '当前没有选定任务流程，可以从新流程开始。',
+    '先了解可用能力和工作文件，再给出步骤顺序、每步目标和最终结果。用户确认后再保存。',
   ].filter(Boolean).join('\n');
+}
+
+function dashboardPageErrorText(targetPage) {
+  if (targetPage === 'dags') return '加载任务流程失败，请稍后重试。';
+  return '加载页面失败，请稍后重试。';
 }
 
 async function startDagDesignerThreadForApp(context, deps) {
@@ -519,7 +523,7 @@ export const AppRoot = {
         const res = await callAPI('ui/dashboard/get', cwd ? { page: targetPage, cwd } : { page: targetPage });
         applyDashboardPagePayload(dashboard, res);
       } catch (error) {
-        if (request) request.error = (error?.message || String(error) || 'dashboard refresh failed').toString();
+        if (request) request.error = dashboardPageErrorText(targetPage);
         throw error;
       } finally {
         if (request) request.loading = false;

@@ -10,10 +10,12 @@ function textValue(...values) {
   return '';
 }
 
-function errorText(error) {
-  if (!error) return '';
-  if (typeof error === 'string') return error;
-  return error.message || JSON.stringify(error);
+function userRunsErrorText(error) {
+  return error ? '无法加载运行历史，请稍后重试。' : '';
+}
+
+function finalOutputFileErrorText(error) {
+  return error ? '无法读取最终结果文件，请稍后重试。' : '';
 }
 
 function previewValue(value) {
@@ -24,6 +26,20 @@ function previewValue(value) {
   }
   if (typeof value === 'number' || typeof value === 'boolean') return String(value);
   return JSON.stringify(value, null, 2);
+}
+
+const OUTPUT_KIND_LABELS = {
+  file: '文件',
+  sharedfile: '文件',
+  shared_file: '文件',
+  text: '文本',
+  json: '数据',
+};
+
+function outputKindLabel(value) {
+  const kind = textValue(value);
+  if (!kind) return '-';
+  return OUTPUT_KIND_LABELS[kind.toLowerCase()] || kind;
 }
 
 export const DagFinalOutputPanel = {
@@ -39,18 +55,18 @@ export const DagFinalOutputPanel = {
     const reading = ref(false);
     const outputPath = computed(() => {
       const output = props.finalOutput || {};
-      return textValue(output.path, output.sharedfile?.path, output.sharedFile?.path);
+      return textValue(output.path, output.sharedfile?.path, output.sharedFile?.path, output.shared_file?.path);
     });
-    const outputKind = computed(() => textValue(props.finalOutput?.kind, props.finalOutput?.type) || '-');
-    const runsErrorText = computed(() => errorText(props.runsError));
-    const fileErrorText = computed(() => errorText(fileError.value));
+    const outputKind = computed(() => outputKindLabel(props.finalOutput?.kind || props.finalOutput?.type));
+    const runsErrorText = computed(() => userRunsErrorText(props.runsError));
+    const fileErrorText = computed(() => finalOutputFileErrorText(fileError.value));
     const previewText = computed(() => {
       const output = props.finalOutput || {};
       return previewValue(output.text)
         || previewValue(output.content)
         || previewValue(output.result)
         || previewValue(output.value)
-        || (props.finalOutput && !outputPath.value ? previewValue(output) : '');
+        || (props.finalOutput && !outputPath.value ? '已生成最终结果，暂不支持预览。' : '');
     });
 
     watch(outputPath, () => {
@@ -70,7 +86,7 @@ export const DagFinalOutputPanel = {
       try {
         const detail = await callAPI('ui/memory/shared-file/get', { path });
         if (!detail || typeof detail !== 'object') {
-          throw new Error(`shared file ${path} returned empty response`);
+          throw new Error('无法读取最终结果文件：返回内容为空');
         }
         if (seq !== readSeq || path !== outputPath.value) return;
         fileContent.value = (detail.content || '').toString();
@@ -100,7 +116,7 @@ export const DagFinalOutputPanel = {
   },
   template: `
     <section class="dag-detail-section dag-final-output-panel" data-testid="dag-final-output-panel">
-      <div class="dag-section-title">Final output</div>
+      <div class="dag-section-title">最终结果</div>
       <div v-if="runsErrorText" class="dag-console-error-inline" data-testid="dag-runs-error">{{ runsErrorText }}</div>
       <div v-else>
         <div v-if="outputPath" class="dag-final-file">
@@ -114,7 +130,7 @@ export const DagFinalOutputPanel = {
           <pre v-if="fileContent" class="dag-final-preview" data-testid="dag-final-output-content">{{ fileContent }}</pre>
         </div>
         <pre v-else-if="finalOutput" class="dag-final-preview" data-testid="dag-final-output-preview">{{ previewText }}</pre>
-        <div v-else class="dag-console-muted" data-testid="dag-final-output-empty">当前运行尚未标记最终产物。</div>
+        <div v-else class="dag-console-muted" data-testid="dag-final-output-empty">当前运行尚未标记最终结果。</div>
       </div>
     </section>
   `,
