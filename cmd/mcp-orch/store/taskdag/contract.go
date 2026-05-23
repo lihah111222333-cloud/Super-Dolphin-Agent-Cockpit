@@ -551,6 +551,7 @@ type ReleaseWorkerLeaseInput struct {
 type DAG struct {
 	ID          int64
 	DagKey      string
+	Version     int64
 	Title       string
 	Description string
 	Status      string

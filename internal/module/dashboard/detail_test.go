@@ -153,12 +153,12 @@ func TestListDAGRunsUsesOrchestration(t *testing.T) {
 		},
 	}
 
-	got, err := svc.ListDAGRuns(context.Background(), " dag-1 ", 5)
+	got, err := svc.ListDAGRuns(context.Background(), " dag-1 ", " running ", 5)
 	if err != nil {
 		t.Fatalf("ListDAGRuns() error = %v", err)
 	}
 	stub := svc.orchestration.(*stubDashboardOrchestration)
-	if stub.listRunsRequest.DagKey != "dag-1" || stub.listRunsRequest.Limit != 5 {
+	if stub.listRunsRequest.DagKey != "dag-1" || stub.listRunsRequest.Status != "running" || stub.listRunsRequest.Limit != 5 {
 		t.Fatalf("ListRuns() request = %#v", stub.listRunsRequest)
 	}
 	if len(got) != 1 || got[0].RunKey != "run-1" {
@@ -175,7 +175,7 @@ func TestListDAGRunsDefaultLimitMatchesOrchestration(t *testing.T) {
 		},
 	}
 
-	if _, err := svc.ListDAGRuns(context.Background(), "dag-1", 0); err != nil {
+	if _, err := svc.ListDAGRuns(context.Background(), "dag-1", "", 0); err != nil {
 		t.Fatalf("ListDAGRuns() error = %v", err)
 	}
 	stub := svc.orchestration.(*stubDashboardOrchestration)
@@ -188,7 +188,7 @@ func TestListDAGRunsRequiresDAGKey(t *testing.T) {
 	t.Parallel()
 
 	svc := &service{orchestration: &stubDashboardOrchestration{}}
-	_, err := svc.ListDAGRuns(context.Background(), " ", 5)
+	_, err := svc.ListDAGRuns(context.Background(), " ", "", 5)
 	if err == nil {
 		t.Fatal("ListDAGRuns() error = nil, want dag key required")
 	}

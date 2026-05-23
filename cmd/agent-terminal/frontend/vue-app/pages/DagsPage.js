@@ -17,6 +17,11 @@ function textValue(...values) {
   return '-';
 }
 
+function normalizedValue(...values) {
+  const text = textValue(...values);
+  return text === '-' ? '' : text.toLowerCase();
+}
+
 function finalOutputPresent(value) {
   if (value === true) return true;
   if (!value) return false;
@@ -86,6 +91,61 @@ function hasFinalOutput(item) {
     || finalOutputPresent(run.metadata?.finalOutput);
 }
 
+const STARTABLE_DAG_STATUSES = new Set(['draft', 'ready']);
+const STARTABLE_DAG_TRIGGERS = new Set(['manual', 'scheduled']);
+const ACTIVE_RUN_STATUSES = new Set(['pending', 'ready', 'queued', 'starting', 'running', 'awaiting_verify']);
+const TERMINAL_DAG_STATUSES = new Set(['done', 'failed', 'cancelled', 'canceled', 'skipped']);
+
+function dagKeyFromItem(item) {
+  const key = textValue(item?.dag_key, item?.dagKey, item?.key, item?.id);
+  return key === '-' ? '' : key;
+}
+
+function dagCandidates(row, detailState, dagKey) {
+  const items = [];
+  const detailDag = detailState?.dag;
+  if (detailDag && (!dagKey || dagKeyFromItem(detailDag) === dagKey)) {
+    items.push(detailDag);
+  }
+  if (row?.raw) items.push(row.raw);
+  return items;
+}
+
+function dagStatusOf(items) {
+  for (const item of items) {
+    const status = normalizedValue(item?.status, item?.state);
+    if (status) return status;
+  }
+  return '';
+}
+
+function dagTriggerOf(items) {
+  for (const item of items) {
+    const trigger = item?.trigger || item?.trigger_config || item?.triggerConfig;
+    const value = typeof trigger === 'string'
+      ? normalizedValue(trigger)
+      : normalizedValue(trigger?.type, trigger?.kind, item?.trigger_type, item?.triggerType);
+    if (value) return value;
+  }
+  return '';
+}
+
+function runStatusOf(run) {
+  return normalizedValue(run?.status, run?.state);
+}
+
+function hasActiveRun(items, detailState) {
+  const runs = [];
+  for (const item of items) {
+    runs.push(item?.latest_run || item?.latestRun || item?.run);
+    runs.push({ status: item?.latest_run_status || item?.latestRunStatus });
+  }
+  runs.push(detailState?.run);
+  runs.push(detailState?.activeRun);
+  if (Array.isArray(detailState?.runs)) runs.push(...detailState.runs);
+  return runs.some((run) => ACTIVE_RUN_STATUSES.has(runStatusOf(run)));
+}
+
 function normalizeDag(item, index) {
   const key = textValue(item.dag_key, item.dagKey, item.key, item.id);
   return {
@@ -125,6 +185,7 @@ export const DagsPage = {
     const rows = computed(() => props.items.map((item, index) => normalizeDag(item, index)));
     const selectedRow = computed(() => rows.value.find((row) => row.listKey === selectedKey.value) || rows.value[0] || null);
     const selectedDagKey = computed(() => selectedRow.value?.key === '-' ? '' : selectedRow.value?.key || '');
+    const selectedDagItems = computed(() => dagCandidates(selectedRow.value, detailState, selectedDagKey.value));
     const selectedFinalOutput = computed(() => detailState.finalOutput);
     const designNodes = computed(() => (
       Array.isArray(detailState.templateNodes) && detailState.templateNodes.length
@@ -134,7 +195,25 @@ export const DagsPage = {
     const startDisabledReason = computed(() => {
       if (!selectedRow.value || !selectedDagKey.value) return '未选择 DAG';
       if (props.loading || detailState.loading) return 'DAG 详情加载中';
+      if (detailState.error) return 'DAG 详情不可用';
+      if (detailState.runsError) return '运行历史不可用，无法确认是否有运行中 run';
       if (detailState.starting) return '启动中';
+      if (hasActiveRun(selectedDagItems.value, detailState)) return '已有运行中 run';
+      const status = dagStatusOf(selectedDagItems.value);
+      if (!STARTABLE_DAG_STATUSES.has(status)) return '当前状态不可启动';
+      const trigger = dagTriggerOf(selectedDagItems.value);
+      if (!STARTABLE_DAG_TRIGGERS.has(trigger)) return '当前触发方式不可启动';
+      return '';
+    });
+    const editDisabledReason = computed(() => {
+      if (!selectedRow.value || !selectedDagKey.value) return '未选择 DAG';
+      if (props.loading || detailState.loading) return 'DAG 详情加载中';
+      if (detailState.error) return 'DAG 详情不可用，不能编辑节点';
+      if (detailState.runsError) return '运行历史不可用，不能编辑节点';
+      if (hasActiveRun(selectedDagItems.value, detailState)) return '已有运行中 run，不能编辑节点';
+      const status = dagStatusOf(selectedDagItems.value);
+      if (status === 'running') return '当前 DAG 正在运行，不能编辑节点';
+      if (TERMINAL_DAG_STATUSES.has(status)) return 'DAG 已终态，不能编辑节点';
       return '';
     });
     const startErrorText = computed(() => {
@@ -199,6 +278,7 @@ export const DagsPage = {
     }
 
     async function saveAgentNode(payload) {
+      if (editDisabledReason.value) return;
       await dagDetail.saveAgentNode(payload);
     }
 
@@ -206,6 +286,7 @@ export const DagsPage = {
       dagDetail,
       detailState,
       designNodes,
+      editDisabledReason,
       openChat,
       rows,
       runsErrorText,
@@ -327,6 +408,7 @@ export const DagsPage = {
               :nodes="designNodes"
               :saving-node-key="detailState.savingNodeKey"
               :save-error="detailState.saveError"
+              :disabled-reason="editDisabledReason"
               @save-agent-node="saveAgentNode"
             />
             <DagSharedFilesPanel :nodes="designNodes" />

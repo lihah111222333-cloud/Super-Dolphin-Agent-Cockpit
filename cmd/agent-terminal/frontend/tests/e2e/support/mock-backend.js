@@ -696,6 +696,15 @@ function browserInstaller({
     return items.slice(0, max);
   }
 
+  function filterRunsByStatus(items, status) {
+    const target = (status || '').toString().trim();
+    if (!target) return items;
+    return items.filter((item) => {
+      const run = asObject(item);
+      return (run.status || run.state || '').toString().trim() === target;
+    });
+  }
+
   function buildTurnItem(input) {
     const parts = [];
     const attachments = [];
@@ -815,7 +824,8 @@ function browserInstaller({
         }
         case 'dashboard/dagRuns': {
           const dagKey = requireDagKey(params);
-          return { runs: clone(applyLimit(dagRunsForKey(dagKey), params.limit)) };
+          const filtered = filterRunsByStatus(dagRunsForKey(dagKey), params.status);
+          return { runs: clone(applyLimit(filtered, params.limit)) };
         }
         case 'dashboard/dagRun': {
           return dagRunDetailForKey(params.runKey || params.run_key);

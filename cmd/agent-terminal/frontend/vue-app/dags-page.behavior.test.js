@@ -12,6 +12,7 @@ const detailMock = vi.hoisted(() => ({
     dag: null,
     nodes: [],
     runs: [],
+    activeRun: null,
     run: null,
     selectedRunKey: '',
     finalOutput: null,
@@ -61,6 +62,7 @@ function resetDetailMockState() {
   detailMock.state.dag = null;
   detailMock.state.nodes = [];
   detailMock.state.runs = [];
+  detailMock.state.activeRun = null;
   detailMock.state.run = null;
   detailMock.state.selectedRunKey = '';
   detailMock.state.finalOutput = null;
@@ -243,8 +245,8 @@ describe('DagsPage console shell', () => {
 
   it('passes edited agent form payload through the page save and start path', async () => {
     const formEmit = vi.fn();
-    const props = reactive({ items: [{ dag_key: 'dag-a', title: 'Dag A' }] });
-    detailMock.state.dag = { dag_key: 'dag-a', title: 'Dag A', version: 3 };
+    const props = reactive({ items: [{ dag_key: 'dag-a', title: 'Dag A', status: 'ready', trigger: 'manual' }] });
+    detailMock.state.dag = { dag_key: 'dag-a', title: 'Dag A', status: 'ready', trigger: 'manual', version: 3 };
     detailMock.state.nodes = [{
       node_key: 'draft',
       title: 'Draft',
@@ -295,9 +297,9 @@ describe('DagsPage console shell', () => {
     expect(detailMock.start).toHaveBeenCalledTimes(1);
   });
 
-  it('exposes start disabled reason, starts through the detail composable, and keeps running latest runs startable', () => {
+  it('exposes start disabled reason and blocks running DAG starts before calling the detail composable', () => {
     const props = reactive({
-      items: [{ dag_key: 'dag-a', title: 'Dag A', latest_run: { status: 'running' } }],
+      items: [{ dag_key: 'dag-a', title: 'Dag A', status: 'ready', trigger: 'manual', latest_run: { status: 'running' } }],
       loading: false,
       error: '',
     });
@@ -310,12 +312,25 @@ describe('DagsPage console shell', () => {
 
     const vm = DagsPage.setup(props, { emit: vi.fn() });
 
-    expect(vm.startDisabledReason.value).toBe('');
+    expect(vm.startDisabledReason.value).toContain('已有运行中 run');
     vm.startSelectedDag();
-    expect(detailMock.start).toHaveBeenCalledTimes(1);
+    expect(detailMock.start).toHaveBeenCalledTimes(0);
     expect(DagsPage.template).toContain('data-testid="dag-start-button"');
     expect(DagsPage.template).toContain('startDisabledReason');
     expect(DagsPage.template).toContain('startErrorText');
+
+    props.items = [{ dag_key: 'dag-a', title: 'Dag A', status: 'ready', trigger: 'manual' }];
+    detailMock.state.dag = props.items[0];
+    expect(vm.startDisabledReason.value).toBe('');
+    vm.startSelectedDag();
+    expect(detailMock.start).toHaveBeenCalledTimes(1);
+
+    detailMock.state.runsError = new Error('runs unavailable');
+    const runsErrorVm = DagsPage.setup(props, { emit: vi.fn() });
+    expect(runsErrorVm.startDisabledReason.value).toContain('运行历史不可用');
+    runsErrorVm.startSelectedDag();
+    expect(detailMock.start).toHaveBeenCalledTimes(1);
+    detailMock.state.runsError = null;
 
     detailMock.state.starting = true;
     expect(DagsPage.setup(props, { emit: vi.fn() }).startDisabledReason.value).toContain('启动中');
@@ -325,6 +340,81 @@ describe('DagsPage console shell', () => {
     props.loading = false;
     props.items = [];
     expect(vm.startDisabledReason.value).toContain('未选择 DAG');
+  });
+
+  it('disables node editing while a DAG has an active run', () => {
+    const props = reactive({
+      items: [{ dag_key: 'dag-a', title: 'Dag A', status: 'ready', trigger: 'manual', latest_run: { status: 'running' } }],
+    });
+    detailMock.state.dag = props.items[0];
+
+    const vm = DagsPage.setup(props, { emit: vi.fn() });
+
+    expect(vm.editDisabledReason.value).toContain('已有运行中 run');
+    expect(DagsPage.template).toContain(':disabled-reason="editDisabledReason"');
+
+    const disabledEmit = vi.fn();
+    const formVm = DagNodeEditForm.setup({
+      nodes: [{
+        node_key: 'draft',
+        title: 'Draft',
+        node_type: 'agent',
+        depends_on: [],
+        config: { exec: { provider: 'claude' } },
+      }],
+      savingNodeKey: '',
+      saveError: null,
+      disabledReason: '已有运行中 run，不能编辑节点',
+    }, { emit: disabledEmit });
+
+    expect(formVm.editingDisabled.value).toBe(true);
+    formVm.submit();
+    expect(disabledEmit).not.toHaveBeenCalled();
+    expect(DagNodeEditForm.template).toContain('data-testid="dag-node-edit-disabled-reason"');
+    expect(DagNodeEditForm.template).toContain(':disabled="editingDisabled"');
+
+    props.items = [{ dag_key: 'dag-a', title: 'Dag A', status: 'ready', trigger: 'manual' }];
+    detailMock.state.dag = props.items[0];
+    detailMock.state.runsError = new Error('runs unavailable');
+    const runsErrorVm = DagsPage.setup(props, { emit: vi.fn() });
+    expect(runsErrorVm.editDisabledReason.value).toContain('运行历史不可用');
+    detailMock.saveAgentNode.mockReset();
+    runsErrorVm.saveAgentNode({ nodeKey: 'draft' });
+    expect(detailMock.saveAgentNode).not.toHaveBeenCalled();
+    detailMock.state.runsError = null;
+  });
+
+  it('blocks start and node editing when DAG detail failed to load', () => {
+    const props = reactive({
+      items: [{ dag_key: 'dag-a', title: 'Dag A', status: 'ready', trigger: 'manual' }],
+    });
+    detailMock.state.dag = props.items[0];
+    detailMock.state.error = new Error('detail unavailable');
+
+    const vm = DagsPage.setup(props, { emit: vi.fn() });
+
+    expect(vm.startDisabledReason.value).toContain('DAG 详情不可用');
+    expect(vm.editDisabledReason.value).toContain('DAG 详情不可用');
+    vm.startSelectedDag();
+    expect(detailMock.start).not.toHaveBeenCalled();
+    detailMock.saveAgentNode.mockReset();
+    vm.saveAgentNode({ nodeKey: 'draft' });
+    expect(detailMock.saveAgentNode).not.toHaveBeenCalled();
+  });
+
+  it('blocks start and node editing when a hidden active run is loaded outside recent history', () => {
+    const props = reactive({
+      items: [{ dag_key: 'dag-a', title: 'Dag A', status: 'ready', trigger: 'manual' }],
+    });
+    detailMock.state.dag = props.items[0];
+    detailMock.state.activeRun = { run_key: 'run-hidden', status: 'running' };
+
+    const vm = DagsPage.setup(props, { emit: vi.fn() });
+
+    expect(vm.startDisabledReason.value).toContain('已有运行中 run');
+    expect(vm.editDisabledReason.value).toContain('已有运行中 run');
+    vm.startSelectedDag();
+    expect(detailMock.start).not.toHaveBeenCalled();
   });
 
   it('selects runs from the history panel and passes selected-run final output to the final output panel', () => {

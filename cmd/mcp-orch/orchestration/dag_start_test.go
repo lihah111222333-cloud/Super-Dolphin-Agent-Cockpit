@@ -53,6 +53,7 @@ type stubRunStore struct {
 	listRunNodesReply []taskdag.Node
 	listRunNodesErr   error
 	listRunNodesCalls []runNodeCall
+	lockedDAG         *taskdag.DAG
 
 	// ListRuns 行为定制（T3.2）。listRunsReply 默认 nil（store 返空 slice），
 	// listRunsErr 非 nil 走错误路径。listRunsCalls / listRunsLastFilter 用于
@@ -89,6 +90,9 @@ func (s *stubRunStore) CountActiveRunsByDagKey(_ context.Context, dagKey string)
 func (s *stubRunStore) GetDAGForUpdate(_ context.Context, dagKey string) (*taskdag.DAG, error) {
 	s.lockCalls = append(s.lockCalls, dagKey)
 	s.callOrder = append(s.callOrder, "lock:"+dagKey)
+	if s.lockedDAG != nil {
+		return s.lockedDAG, nil
+	}
 	return &taskdag.DAG{DagKey: dagKey}, nil
 }
 
@@ -174,6 +178,29 @@ func TestStartDAG_HappyPath(t *testing.T) {
 	}
 	assertHappyStartDAGResponse(t, resp)
 	assertHappyStartDAGStoreCalls(t, runStore)
+}
+
+func TestStartDAG_UsesLockedDAGVersionSnapshot(t *testing.T) {
+	dagStore := &stubStartDAGStore{dag: &taskdag.DAG{DagKey: "dag-1", Version: 3}}
+	runStore := &stubRunStore{lockedDAG: &taskdag.DAG{DagKey: "dag-1", Version: 7}}
+	svc := makeStartDAGService(dagStore, runStore)
+
+	resp, err := svc.StartDAG(context.Background(), StartDAGRequest{
+		DagKey:        "dag-1",
+		TriggerSource: "manual",
+	})
+	if err != nil {
+		t.Fatalf("StartDAG() error = %v, want nil", err)
+	}
+	if resp.Version != 7 {
+		t.Fatalf("resp.Version = %d, want locked dag version 7", resp.Version)
+	}
+	if len(runStore.createCalls) != 1 {
+		t.Fatalf("CreateRun calls = %d, want 1", len(runStore.createCalls))
+	}
+	if got := runStore.createCalls[0].DagVersionSnapshot; got != 7 {
+		t.Fatalf("CreateRun DagVersionSnapshot = %d, want 7", got)
+	}
 }
 
 func assertHappyStartDAGResponse(t *testing.T, resp StartDAGResponse) {

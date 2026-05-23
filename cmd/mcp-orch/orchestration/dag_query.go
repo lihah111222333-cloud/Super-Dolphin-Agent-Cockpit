@@ -264,10 +264,9 @@ func rememberNodeOp(seen map[string]seenNodeOp, nodeKey string, index int, kind 
 // 步骤：
 //  1. GetDAGVersionForUpdate + 比对 base_version
 //  2. GetDAG 读 dag.status + CountRunningRunsByDagKey 读 active run
-//  3. F4.5 不变量：若 dag.status='running' 或存在 running run——
-//     a. parts.updates 非空 → 拒为 ErrApplyOpsInvalid
-//     b. ListNodes 拿现有节点 → 验证 add_node.depends_on 全部指向一个 status='done' 节点
-//     否则拒为 ErrApplyOpsInvalid
+//  3. F4.5 不变量：若 dag.status='running' 或存在 running run，拒绝会改写模板的
+//     update_dag / add_node / update_node / remove_node，避免当前 run 的 runtime nodes
+//     与模板节点漂移。
 //  4. 空 ops → 直接返当前 version（noop）
 //  5. plan add + plan update + plan remove → 合并 adjacency → DetectCycle
 //  6. 顺序持久化：先 add，再 update，最后 delete
@@ -315,15 +314,15 @@ func preflightOpsBatch(ctx context.Context, tx taskdag.DAGOpsStore, dagKey strin
 	if err != nil {
 		return 0, nil, taskdag.DAGSchedule{}, fmt.Errorf("count running runs: %w", err)
 	}
-	existing, err := tx.ListNodes(ctx, dagKey)
-	if err != nil {
-		return 0, nil, taskdag.DAGSchedule{}, fmt.Errorf("list nodes: %w", err)
-	}
-	if err := enforceRunningDAGInvariants(dag.Status, activeRuns, parts, existing); err != nil {
+	if err := enforceRunningDAGInvariants(dag.Status, activeRuns, parts); err != nil {
 		return 0, nil, taskdag.DAGSchedule{}, err
 	}
 	if err := rejectTerminalDAGOps(dag.Status); err != nil {
 		return 0, nil, taskdag.DAGSchedule{}, err
+	}
+	existing, err := tx.ListNodes(ctx, dagKey)
+	if err != nil {
+		return 0, nil, taskdag.DAGSchedule{}, fmt.Errorf("list nodes: %w", err)
 	}
 	schedule, err := dagScheduleForOps(ctx, tx, dagKey, parts)
 	if err != nil {
@@ -356,25 +355,19 @@ func bumpDAGVersionTx(ctx context.Context, tx taskdag.DAGOpsStore, dagKey string
 }
 
 // enforceRunningDAGInvariants 是 F4.5 主体：在 DAG 状态为 running 或存在
-// running run 时仅允许 add_node，且新节点的 depends_on 必须全部指向
-// status='done' 的现有节点。与 PlanAddNodes 独立调试点不同：后者不读运行态，
-// 这里专门面向 running DAG 动态补改场景。
+// running run 时拒绝任何会改写模板的 ApplyOps。runtime append 尚未闭环前，
+// running add_node 只写模板节点会让当前 run 看不到/调度不到新节点，因此也必须
+// fail-fast。
 //
 // 设计取舍：
-//   - update_dag / update_node / remove_node 在 draft 下合法，但 running 下
+//   - update_dag / add_node / update_node / remove_node 在 draft 下合法，但 running 下
 //     必须显式拒绝。
-//   - add_node.depends_on 指向现有节点 (existing) 中 status='done' 才可插入。同批
-//     加入的新节点 (status 默认 pending) 不能作为 depends_on 目标 —— 这会让新节点
-//     互相等什么都不能跑。这是蓝图 v2 §5 “dynamic patch” 的宝贵限制。
-func enforceRunningDAGInvariants(dagStatus string, activeRuns int64, parts partitionedOps, existing []taskdag.Node) error {
+func enforceRunningDAGInvariants(dagStatus string, activeRuns int64, parts partitionedOps) error {
 	reason, running := runningDAGReason(dagStatus, activeRuns)
 	if !running {
 		return nil
 	}
-	if err := rejectMutableOpsInRunningDAG(reason, parts); err != nil {
-		return err
-	}
-	return enforceRunningAddNodeDeps(reason, parts.adds, existing)
+	return rejectMutableOpsInRunningDAG(reason, parts)
 }
 
 func rejectTerminalDAGOps(dagStatus string) error {
@@ -398,43 +391,18 @@ func runningDAGReason(dagStatus string, activeRuns int64) (string, bool) {
 
 func rejectMutableOpsInRunningDAG(reason string, parts partitionedOps) error {
 	if len(parts.dagUpdates) > 0 {
-		return fmt.Errorf("%w: %s, update_dag not allowed (only add_node depends_on done nodes)", ErrApplyOpsInvalid, reason)
+		return fmt.Errorf("%w: %s, update_dag not allowed while runtime append is incomplete", ErrApplyOpsInvalid, reason)
+	}
+	if len(parts.adds) > 0 {
+		return fmt.Errorf("%w: %s, add_node not allowed until runtime append support is implemented", ErrApplyOpsInvalid, reason)
 	}
 	if len(parts.updates) > 0 {
-		return fmt.Errorf("%w: %s, update_node not allowed (only add_node depends_on done nodes)", ErrApplyOpsInvalid, reason)
+		return fmt.Errorf("%w: %s, update_node not allowed while runtime append is incomplete", ErrApplyOpsInvalid, reason)
 	}
 	if len(parts.removes) > 0 {
-		return fmt.Errorf("%w: %s, remove_node not allowed (only add_node depends_on done nodes)", ErrApplyOpsInvalid, reason)
+		return fmt.Errorf("%w: %s, remove_node not allowed while runtime append is incomplete", ErrApplyOpsInvalid, reason)
 	}
 	return nil
-}
-
-func enforceRunningAddNodeDeps(reason string, adds nodeexec.Ops, existing []taskdag.Node) error {
-	doneSet := doneNodeKeys(existing)
-	for i, op := range adds {
-		add, ok := op.(nodeexec.OpAddNode)
-		if !ok {
-			// 防御：partitionOps 保证 parts.adds 只包含 OpAddNode。
-			return fmt.Errorf("%w: ops[%d] expected add_node, got %s", ErrApplyOpsInvalid, i, op.Kind())
-		}
-		for _, dep := range nodeexec.NormalizeDependsOn(add.Node.DependsOn) {
-			if _, done := doneSet[dep]; !done {
-				return fmt.Errorf("%w: %s, add_node %q depends_on %q must reference a done node", ErrApplyOpsInvalid, reason, add.Node.NodeKey, dep)
-			}
-		}
-	}
-	return nil
-}
-
-// doneNodeKeys 抽出 existing 中 status=="done" 的 NodeKey 集合。
-func doneNodeKeys(existing []taskdag.Node) map[string]struct{} {
-	out := make(map[string]struct{}, len(existing))
-	for _, n := range existing {
-		if n.Status == "done" {
-			out[n.NodeKey] = struct{}{}
-		}
-	}
-	return out
 }
 
 // opsBatchPlan 是 planOpsBatch 输出：add 的 NodeSpec + update 的 Change，外加

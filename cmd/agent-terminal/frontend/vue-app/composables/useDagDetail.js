@@ -81,6 +81,7 @@ export function useDagDetail() {
     templateNodes: [],
     nodes: [],
     runs: [],
+    activeRun: null,
     run: null,
     selectedRunKey: '',
     finalOutput: null,
@@ -143,10 +144,15 @@ export function useDagDetail() {
 
   async function loadRuns(seq, dagKey, preferredRunKey = '') {
     state.runsError = null;
+    state.activeRun = null;
     try {
       const runsResult = await callAPI('dashboard/dagRuns', { dagKey, limit: RECENT_RUN_LIMIT });
       if (seq !== openSeq) return;
       state.runs = Array.isArray(runsResult?.runs) ? runsResult.runs : [];
+      const activeResult = await callAPI('dashboard/dagRuns', { dagKey, status: 'running', limit: 1 });
+      if (seq !== openSeq) return;
+      const activeRuns = Array.isArray(activeResult?.runs) ? activeResult.runs : [];
+      state.activeRun = activeRuns[0] || null;
       const preferredKey = (preferredRunKey || '').toString().trim();
       const selected = preferredKey && state.runs.some((item) => runKeyFromItem(item) === preferredKey)
         ? preferredKey
@@ -155,6 +161,7 @@ export function useDagDetail() {
     } catch (error) {
       if (seq === openSeq) {
         state.runs = [];
+        state.activeRun = null;
         state.run = null;
         state.selectedRunKey = '';
         state.finalOutput = null;
@@ -180,6 +187,7 @@ export function useDagDetail() {
     state.templateNodes = [];
     state.nodes = [];
     state.runs = [];
+    state.activeRun = null;
     state.run = null;
     state.selectedRunKey = '';
     state.finalOutput = null;
