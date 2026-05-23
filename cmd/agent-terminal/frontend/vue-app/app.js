@@ -366,6 +366,12 @@ export const AppRoot = {
       inheritedChatPayload.value = { sharedFilePath: path, ts: Date.now() };
       page.value = 'chat';
     }
+    async function openDagChildThread(threadId) {
+      const id = (threadId || '').toString().trim();
+      if (!id) return;
+      await threadStore.saveActiveThread(id);
+      page.value = 'chat';
+    }
     const tasksSubTab = ref('acks');
     const buildInfo = reactive({});
     const runtimeConfig = reactive({ cwd: '' });
@@ -608,6 +614,7 @@ export const AppRoot = {
       memoryFields: MEMORY_FIELDS,
       inheritedChatPayload,
       startInheritedChatFromSharedFile,
+      openDagChildThread,
       clearInheritedChatPayload: () => { inheritedChatPayload.value = null; },
       tasksItems,
       tasksFields,
@@ -653,6 +660,7 @@ export const AppRoot = {
           :items="dashboard.dags"
           :loading="dashboardRequest.dags.loading"
           :error="dashboardRequest.dags.error"
+          @open-chat="openDagChildThread"
         />
 
         <TasksPage
