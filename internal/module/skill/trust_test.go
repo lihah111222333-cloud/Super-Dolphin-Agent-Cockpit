@@ -24,15 +24,15 @@ func TestValidateSkillName(t *testing.T) {
 		// 非法场景
 		{"", false, ""},
 		{"   ", false, ""},
-		{"foo/bar", false, ""},       // 路径分隔
-		{"foo\\bar", false, ""},      // windows 分隔
-		{"../etc", false, ""},        // 路径逃逸
-		{"foo bar", true, "foo bar"}, // 空格
-		{"foo.md", false, ""},        // 点号
-		{"-foo", false, ""},          // 连字符开头
-		{"_foo", false, ""},          // 下划线开头
-		{"foo:bar", false, ""},       // 冒号
-		{"\x00abc", false, ""},       // 控制字符
+		{"foo/bar", false, ""},  // 路径分隔
+		{"foo\\bar", false, ""}, // windows 分隔
+		{"../etc", false, ""},   // 路径逃逸
+		{"foo bar", false, ""},  // runtime name 不允许空格，展示名走 display_name
+		{"foo.md", false, ""},   // 点号
+		{"-foo", false, ""},     // 连字符开头
+		{"_foo", false, ""},     // 下划线开头
+		{"foo:bar", false, ""},  // 冒号
+		{"\x00abc", false, ""},  // 控制字符
 	}
 	for _, c := range cases {
 		t.Run(c.in, func(t *testing.T) {

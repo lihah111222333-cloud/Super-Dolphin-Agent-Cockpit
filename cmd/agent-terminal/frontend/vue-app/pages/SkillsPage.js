@@ -9,8 +9,8 @@ import { useSkillResolutions } from '../composables/useSkillResolutions.js';
 import { useSkillSaveFeedback } from '../composables/useSkillSaveFeedback.js';
 import { isInternalSkillReferenceWord, isSkillMainFilePath, normalizePathKey } from '../utils/skill-parser.js';
 
-/** @typedef {{ name?: string, dir?: string, description?: string, summary?: string, trigger_words?: string[], force_words?: string[] }} SkillListItem */
-/** @typedef {{ name: string, dir: string, description: string, summary: string, triggerWords: string[], forceWords: string[], displayScenarioWords: string[] }} SkillCard */
+/** @typedef {{ name?: string, display_name?: string, displayName?: string, dir?: string, description?: string, summary?: string, trigger_words?: string[], force_words?: string[] }} SkillListItem */
+/** @typedef {{ name: string, displayName: string, displayLabel: string, dir: string, description: string, summary: string, triggerWords: string[], forceWords: string[], displayScenarioWords: string[] }} SkillCard */
 /** @typedef {{ skills?: SkillListItem[], projectStore?: { state?: { active?: string } } | null }} SkillsPageProps */
 
 export { normalizeWordList, listToText, inferSkillNameFromPath,
@@ -60,10 +60,14 @@ export const SkillsPage = {
     const skillCards = computed(() => {
       const list = Array.isArray(props.skills) ? props.skills : [];
       return list.map((item) => {
+        const name = (item?.name || '').toString();
+        const displayName = (item?.display_name || item?.displayName || item?.title || '').toString().trim();
         const triggerWords = Array.isArray(item?.trigger_words) ? item.trigger_words : [];
         const forceWords = Array.isArray(item?.force_words) ? item.force_words : [];
         return {
-          name: (item?.name || '').toString(),
+          name,
+          displayName,
+          displayLabel: displayName || name,
           dir: (item?.dir || '').toString(),
           description: (item?.description || '').toString(),
           summary: (item?.summary || item?.description || '').toString(),
@@ -72,7 +76,7 @@ export const SkillsPage = {
           personal_type: (item?.personal_type || item?.personalType || '').toString(),
           triggerWords,
           forceWords,
-          displayScenarioWords: mergeSkillWords(item?.name, triggerWords, forceWords),
+          displayScenarioWords: mergeSkillWords(name, triggerWords, forceWords),
         };
       });
     });
@@ -100,6 +104,8 @@ export const SkillsPage = {
       return baseList.filter((item) => {
         const haystack = [
           item.name,
+          item.displayName,
+          item.displayLabel,
           item.description,
           item.summary,
           item.dir,
@@ -462,7 +468,8 @@ export const SkillsPage = {
               >
                 <div class="skill-card-header">
                   <div class="skill-card-heading">
-                    <div class="skill-card-title">{{ item.name }}</div>
+                    <div class="skill-card-title">{{ item.displayLabel }}</div>
+                    <div v-if="item.displayName" class="skill-card-path" :title="item.name">{{ item.name }}</div>
                     <div class="skill-card-path" :title="item.dir">{{ item.dir || '-' }}</div>
                   </div>
                   <div class="skill-card-tags">
@@ -580,6 +587,10 @@ export const SkillsPage = {
             <div class="skills-field">
               <label>技能名称</label>
               <input v-model="form.name" :disabled="!isEditingMainSkillFile" class="modal-input" data-testid="skills-editor-name-input" placeholder="例如：backend" />
+            </div>
+            <div class="skills-field">
+              <label>显示名称</label>
+              <input v-model="form.displayName" :disabled="!isEditingMainSkillFile" class="modal-input" data-testid="skills-editor-display-name-input" placeholder="例如：后端开发" />
             </div>
             <div class="skills-field">
               <div class="skills-editor-label-row">

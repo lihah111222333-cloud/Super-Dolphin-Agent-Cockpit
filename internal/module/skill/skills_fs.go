@@ -10,6 +10,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	skillidentity "github.com/anthropic-ai/super-agent-v3/internal/module/skill/identity"
 )
 
 type skillNotFoundError string
@@ -59,7 +61,8 @@ func (s *service) ListSkillInventory(ctx context.Context) ([]SkillInfo, error) {
 }
 
 func (s *service) resolveSkillRecordByName(name, cwd string) (skillRecord, error) {
-	normalized, err := validateSkillName(name)
+	trimmed := strings.TrimSpace(name)
+	normalized, _, err := normalizeSkillIdentityName(trimmed, "")
 	if err != nil {
 		return skillRecord{}, err
 	}
@@ -70,12 +73,48 @@ func (s *service) resolveSkillRecordByName(name, cwd string) (skillRecord, error
 	if conflict, ok := canonicalConflictByName(conflicts, normalized); ok {
 		return skillRecord{}, skillSameNameConflictError{Conflicts: []canonicalSkillConflict{conflict}}
 	}
+	matches := make([]skillRecord, 0, 1)
 	for _, record := range records {
-		if strings.EqualFold(strings.TrimSpace(record.Name), normalized) {
-			return skillRecordFromCanonical(record), nil
+		if skillidentity.MatchesSkillCandidate(record.info, trimmed, normalized) {
+			matches = append(matches, skillRecordFromCanonical(record))
 		}
 	}
+	if len(matches) == 1 {
+		return matches[0], nil
+	}
+	if len(matches) > 1 {
+		return skillRecord{}, fmt.Errorf("ambiguous skill name alias: %s", trimmed)
+	}
 	return skillRecord{}, skillNotFoundError(normalized)
+}
+
+func (s *service) resolveCanonicalRecordByNameInTarget(name, cwd, scope, personalType string) (canonicalSkillRecord, error) {
+	trimmed := strings.TrimSpace(name)
+	normalized, _, err := normalizeSkillIdentityName(trimmed, "")
+	if err != nil {
+		return canonicalSkillRecord{}, err
+	}
+	store := newCanonicalStoreForOwner(strings.TrimSpace(s.superDolphinHome), defaultOwnerOSUID(), defaultAppProfile())
+	records, err := store.scan(cwd)
+	if err != nil {
+		return canonicalSkillRecord{}, err
+	}
+	matches := make([]canonicalSkillRecord, 0, 1)
+	for _, record := range records {
+		if record.Scope != scope || record.PersonalType != personalType {
+			continue
+		}
+		if skillidentity.MatchesSkillCandidate(record.info, trimmed, normalized) {
+			matches = append(matches, record)
+		}
+	}
+	if len(matches) == 1 {
+		return matches[0], nil
+	}
+	if len(matches) > 1 {
+		return canonicalSkillRecord{}, fmt.Errorf("ambiguous skill name alias: %s", trimmed)
+	}
+	return canonicalSkillRecord{}, skillNotFoundError(normalized)
 }
 
 func (s *service) canonicalEffectiveSet(ctx context.Context, cwd string) ([]canonicalSkillRecord, []canonicalSkillConflict, error) {
@@ -322,15 +361,16 @@ func (s *service) DeleteLocal(ctx context.Context, p DeleteSkillParams) (any, er
 	if err != nil {
 		return nil, err
 	}
-	name, err := validateSkillName(p.Name)
+	_, scope, personalType, err := s.canonicalRootForTarget(cwd, p.Scope, p.PersonalType)
 	if err != nil {
 		return nil, err
 	}
-	root, scope, personalType, err := s.canonicalRootForTarget(cwd, p.Scope, p.PersonalType)
+	record, err := s.resolveCanonicalRecordByNameInTarget(p.Name, cwd, scope, personalType)
 	if err != nil {
 		return nil, err
 	}
-	dir := filepath.Join(root, skillSlug(name))
+	name := record.Name
+	dir := record.Dir
 	if err := ensureSkillMainFilePresent(dir); err != nil {
 		return nil, err
 	}

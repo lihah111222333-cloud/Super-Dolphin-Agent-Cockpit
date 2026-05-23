@@ -106,6 +106,66 @@ func TestMatchPreviewUsesResolvedIDForConfiguredSkills(t *testing.T) {
 	}
 }
 
+func TestMatchPreviewExplicitDisplayNameAliasReturnsCanonicalName(t *testing.T) {
+	t.Parallel()
+
+	svc := newTestSkillService(t)
+	cwd := filepath.Join(t.TempDir(), "repo")
+	writeSkillContent(t, filepath.Join(cwd, ".agent", "skills", "Docker 容器化部署"), "Docker 容器化部署", "# docker\n")
+
+	out, err := svc.MatchPreview(skillTestContext(cwd), "agent", "thread", "please @Docker 容器化部署 now", nil)
+	if err != nil {
+		t.Fatalf("MatchPreview returned error: %v", err)
+	}
+	result, ok := out.(map[string]any)
+	if !ok {
+		t.Fatalf("MatchPreview result type mismatch: %T", out)
+	}
+	matches, ok := result["matches"].([]matchItem)
+	if !ok {
+		t.Fatalf("matches type mismatch: %T", result["matches"])
+	}
+	if len(matches) != 1 {
+		t.Fatalf("matches len mismatch: got %d: %+v", len(matches), matches)
+	}
+	if matches[0].Name != "docker-容器化部署" || matches[0].MatchedBy != "force" {
+		t.Fatalf("display alias match mismatch: %+v", matches[0])
+	}
+	if len(matches[0].MatchedTerms) != 1 || matches[0].MatchedTerms[0] != "@Docker 容器化部署" {
+		t.Fatalf("display alias terms mismatch: %+v", matches[0].MatchedTerms)
+	}
+}
+
+func TestMatchPreviewConfiguredDisplayNameAliasReturnsCanonicalName(t *testing.T) {
+	t.Parallel()
+
+	svc := newTestSkillService(t)
+	cwd := filepath.Join(t.TempDir(), "repo")
+	writeSkillContent(t, filepath.Join(cwd, ".agent", "skills", "Docker 容器化部署"), "Docker 容器化部署", "# docker\n")
+	svc.readConfigState = func(_ context.Context, resolvedID string) (any, error) {
+		return map[string]any{"agent_id": resolvedID, "skills": []any{"Docker 容器化部署"}}, nil
+	}
+
+	out, err := svc.MatchPreview(skillTestContext(cwd), "agent", "thread", "", nil)
+	if err != nil {
+		t.Fatalf("MatchPreview returned error: %v", err)
+	}
+	result, ok := out.(map[string]any)
+	if !ok {
+		t.Fatalf("MatchPreview result type mismatch: %T", out)
+	}
+	matches, ok := result["matches"].([]matchItem)
+	if !ok {
+		t.Fatalf("matches type mismatch: %T", result["matches"])
+	}
+	if len(matches) != 1 {
+		t.Fatalf("matches len mismatch: got %d: %+v", len(matches), matches)
+	}
+	if matches[0].Name != "docker-容器化部署" || matches[0].MatchedBy != "configured" {
+		t.Fatalf("configured display alias match mismatch: %+v", matches[0])
+	}
+}
+
 func newTestSkillService(t *testing.T) *service {
 	t.Helper()
 	return &service{root: t.TempDir(), superDolphinHome: newTestSuperDolphinHome(t), http: &http.Client{}}

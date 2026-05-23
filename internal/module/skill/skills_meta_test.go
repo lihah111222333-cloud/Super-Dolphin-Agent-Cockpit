@@ -56,6 +56,25 @@ func TestParseSkillRecord_AcceptsNormalFile(t *testing.T) {
 	}
 }
 
+func TestParseSkillInfo_ReadsDisplayNameFrontmatter(t *testing.T) {
+	content := "---\nname: docker-container-deploy\ndisplay_name: Docker 容器化部署\ndescription: hi\n---\nbody"
+	info := helperParse(t, content, TrustProject)
+	if info.Name != "docker-container-deploy" {
+		t.Fatalf("name = %q", info.Name)
+	}
+	if info.DisplayName != "Docker 容器化部署" {
+		t.Fatalf("display name = %q", info.DisplayName)
+	}
+}
+
+func TestParseSkillInfo_ReadsTitleAsDisplayNameAlias(t *testing.T) {
+	content := "---\nname: docker-container-deploy\ntitle: Docker 容器化部署\n---\nbody"
+	info := helperParse(t, content, TrustProject)
+	if info.DisplayName != "Docker 容器化部署" {
+		t.Fatalf("display name = %q", info.DisplayName)
+	}
+}
+
 // helperParse wraps parseSkillInfo with a fixed rel/dir so tests focus on content parsing.
 func helperParse(t *testing.T, content string, defaultTrust TrustScope) SkillInfo {
 	t.Helper()

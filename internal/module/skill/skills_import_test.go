@@ -501,6 +501,36 @@ func TestImportLocalDirAcceptsLegacyRootAsExplicitSource(t *testing.T) {
 	}
 }
 
+func TestImportLocalDirConvertsSafeLegacyDisplayName(t *testing.T) {
+	t.Parallel()
+
+	projectRoot := t.TempDir()
+	sourceRoot := t.TempDir()
+	sourceDir := filepath.Join(sourceRoot, "Docker 容器化部署")
+	writeSkillContent(t, sourceDir, "Docker 容器化部署", "# docker\n")
+	svc := &service{projectRoot: projectRoot, root: t.TempDir(), projectSkillsRoot: defaultProjectSkillsRoot(projectRoot)}
+
+	out, err := svc.ImportLocalDir(skillTestContext(projectRoot), importSkillDirParams{Path: sourceDir, Scope: "project"})
+	if err != nil {
+		t.Fatalf("ImportLocalDir() error = %v", err)
+	}
+	result, ok := out.(map[string]any)
+	if !ok {
+		t.Fatalf("ImportLocalDir() result type = %T", out)
+	}
+	if got, present := result["failures"]; present {
+		t.Fatalf("ImportLocalDir() failures = %#v, want no failures", got)
+	}
+	imported, ok := result["imported"].([]map[string]any)
+	if !ok || len(imported) != 1 {
+		t.Fatalf("ImportLocalDir() imported = %#v, want single import", result["imported"])
+	}
+	if gotName, _ := imported[0]["name"].(string); gotName != "docker-容器化部署" {
+		t.Fatalf("ImportLocalDir() imported name = %q, want canonical name", gotName)
+	}
+	assertFileContent(t, filepath.Join(projectRoot, ".agent", "skills", "docker-容器化部署", skillMainFile), "---\nname: docker-容器化部署\ndisplay_name: \"Docker 容器化部署\"\n---\n# docker\n")
+}
+
 func TestImportLocalDirRejectsExistingTarget(t *testing.T) {
 	t.Parallel()
 
