@@ -3,6 +3,9 @@ package taskdag
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"sort"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgtype"
@@ -76,6 +79,69 @@ func (s *store) PromoteRootNodesToReady(ctx context.Context, dagKey string, runI
 			RunID:  runID,
 		})
 	}, "promote_root_nodes_to_ready", "task_dag_node")
+}
+
+func (s *store) TerminateRun(ctx context.Context, input TerminateRunInput) (TerminateRunResult, error) {
+	if err := requireRuntimeRunID("terminate_run", input.RunID); err != nil {
+		return TerminateRunResult{}, err
+	}
+	reason := strings.TrimSpace(input.Reason)
+	if reason == "" {
+		reason = "user_requested"
+	}
+	event, err := json.Marshal(map[string]any{
+		"kind":   "run_cancelled",
+		"reason": reason,
+	})
+	if err != nil {
+		return TerminateRunResult{}, fmt.Errorf("marshal run cancel event: %w", err)
+	}
+	var result TerminateRunResult
+	err = sqlc.WithTxOrReuse(ctx, s.q, func(txq *sqlc.Queries) error {
+		threadIDs, err := txq.CancelTaskDagRunNodes(ctx, sqlc.CancelTaskDagRunNodesParams{
+			DagKey:  input.DagKey,
+			RunID:   input.RunID,
+			Column3: reason,
+		})
+		if err != nil {
+			return fmt.Errorf("cancel run nodes: %w", err)
+		}
+		result.SpawnedThreadIDs = nonEmptyTextValues(threadIDs)
+		if _, err := txq.CancelTaskDagRunWakeups(ctx, sqlc.CancelTaskDagRunWakeupsParams{
+			DagKey:    input.DagKey,
+			RunID:     input.RunID,
+			LastError: "run_cancelled: " + reason,
+		}); err != nil {
+			return fmt.Errorf("cancel run wakeups: %w", err)
+		}
+		if _, err := txq.CancelTaskDagRun(ctx, sqlc.CancelTaskDagRunParams{
+			DagKey:  input.DagKey,
+			ID:      input.RunID,
+			RunKey:  input.RunKey,
+			Column4: event,
+		}); err != nil {
+			return fmt.Errorf("cancel run: %w", err)
+		}
+		return nil
+	})
+	if err != nil {
+		return TerminateRunResult{}, wrapTaskDAGError(err, "terminate_run", "task_dag_run")
+	}
+	return result, nil
+}
+
+func nonEmptyTextValues(values []pgtype.Text) []string {
+	out := make([]string, 0, len(values))
+	for _, value := range values {
+		if !value.Valid {
+			continue
+		}
+		if text := strings.TrimSpace(value.String); text != "" {
+			out = append(out, text)
+		}
+	}
+	sort.Strings(out)
+	return out
 }
 
 // fromTaskDagRun 把 sqlc 生成的行结构体转成 contract 层 Run。

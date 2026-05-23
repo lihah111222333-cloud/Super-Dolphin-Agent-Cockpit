@@ -56,7 +56,7 @@ UPDATE task_dag_nodes
 SET status = 'ready',
     updated_at = NOW()
 WHERE dag_key = $1
-  AND run_id = $2
+  AND run_id = $2::bigint
   AND status = 'pending'
   AND jsonb_array_length(depends_on) = 0;
 
@@ -187,6 +187,52 @@ WHERE r.id = $2
   AND r.status = 'running'
   AND (SELECT final_status FROM final) IS NOT NULL
 RETURNING r.run_key, r.status;
+
+-- name: CancelTaskDagRunNodes :many
+UPDATE task_dag_nodes
+SET status = 'cancelled',
+    result = jsonb_build_object('kind', 'run_cancelled', 'reason', $3::text),
+    active_turn_id = NULL,
+    active_wakeup_id = NULL,
+    finished_at = COALESCE(finished_at, NOW()),
+    last_event_at = NOW(),
+    updated_at = NOW()
+WHERE dag_key = $1
+  AND run_id = $2::bigint
+  AND status NOT IN ('done','failed','cancelled','skipped')
+RETURNING spawning_thread_id;
+
+-- name: CancelTaskDagRunWakeups :execrows
+UPDATE task_dag_wakeups
+SET status = 'failed',
+    last_error = $3,
+    claimed_at = NULL,
+    claimed_by = '',
+    lease_expires_at = NULL,
+    updated_at = NOW()
+WHERE dag_key = $1
+  AND run_id = $2
+  AND status IN ('pending','dispatching','sent');
+
+-- name: CancelTaskDagRun :one
+UPDATE task_dag_runs
+SET status      = 'cancelled',
+    finished_at = NOW(),
+    updated_at  = NOW(),
+    events      = CASE
+        WHEN jsonb_array_length(events || jsonb_build_array($4::jsonb)) <= 50
+            THEN events || jsonb_build_array($4::jsonb)
+        ELSE COALESCE((
+            SELECT jsonb_agg(elem ORDER BY ord)
+            FROM jsonb_array_elements(events || jsonb_build_array($4::jsonb)) WITH ORDINALITY AS t(elem, ord)
+            WHERE ord > jsonb_array_length(events || jsonb_build_array($4::jsonb)) - 50
+        ), '[]'::jsonb)
+    END
+WHERE dag_key = $1
+  AND id = $2
+  AND run_key = $3
+  AND status = 'running'
+RETURNING id, run_key, dag_key, dag_version_snapshot, trigger_source, status, started_at, finished_at, events, budget_used, budget_limit, metadata, created_at, updated_at;
 
 -- name: AppendTaskDagRunEvent :one
 -- F1.5: 把一个 JSON event append 到 task_dag_runs.events 数组。

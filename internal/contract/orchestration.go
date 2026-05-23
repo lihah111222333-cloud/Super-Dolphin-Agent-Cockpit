@@ -47,6 +47,7 @@ type DAGRuntime interface {
 	GetDAG(ctx context.Context, dagKey string) (DAGDetail, error)
 	ListDAGs(ctx context.Context, filter ListDAGsFilter) ([]DAGSummary, error)
 	StartDAG(ctx context.Context, req StartDAGRequest) (StartDAGResponse, error)
+	TerminateDAG(ctx context.Context, req TerminateDAGRequest) error
 	ListRuns(ctx context.Context, req ListRunsRequest) (ListRunsResponse, error)
 	GetRun(ctx context.Context, req GetRunRequest) (GetRunResponse, error)
 	// ApplyOps 对 DAG 执行一组 typed ops (add/update/remove/update_dag) + base_version OCC。
@@ -109,6 +110,15 @@ type DispatchNodeResponse struct {
 	Node     DAGNode `json:"node"`
 	WakeupID int64   `json:"wakeup_id,omitempty"`
 	Enqueued bool    `json:"enqueued"`
+}
+
+// TerminateDAGRequest asks the runtime to cancel a running DAG execution.
+// RunKey is required so callers cancel one execution instance, not the DAG
+// template. DagKey is kept as a fence against cross-DAG run_key mistakes.
+type TerminateDAGRequest struct {
+	DagKey string `json:"dag_key"`
+	RunKey string `json:"run_key"`
+	Reason string `json:"reason,omitempty"`
 }
 
 // ListRunsRequest 是 OrchestrationService.ListRuns 的入参（T3.2）。

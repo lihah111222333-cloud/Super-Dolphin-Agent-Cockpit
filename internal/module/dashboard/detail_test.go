@@ -267,6 +267,34 @@ func TestStartDAGDefaultsManualTrigger(t *testing.T) {
 	}
 }
 
+func TestTerminateDAGUsesRuntimeAndDefaultsReason(t *testing.T) {
+	t.Parallel()
+
+	svc := &service{
+		orchestration: &stubDashboardOrchestration{},
+	}
+
+	err := svc.TerminateDAG(context.Background(), " dag-1 ", " run-1 ", " ")
+	if err != nil {
+		t.Fatalf("TerminateDAG() error = %v", err)
+	}
+	stub := svc.orchestration.(*stubDashboardOrchestration)
+	if stub.terminateDAGRequest != (contract.TerminateDAGRequest{DagKey: "dag-1", RunKey: "run-1", Reason: "user_requested"}) {
+		t.Fatalf("TerminateDAG request = %#v", stub.terminateDAGRequest)
+	}
+}
+
+func TestTerminateDAGRejectsMissingRunKey(t *testing.T) {
+	t.Parallel()
+
+	svc := &service{orchestration: &stubDashboardOrchestration{}}
+
+	err := svc.TerminateDAG(context.Background(), "dag-1", " ", "")
+	if err == nil || !strings.Contains(err.Error(), "run key") {
+		t.Fatalf("TerminateDAG() error = %v, want run key required", err)
+	}
+}
+
 func TestStartDAGRejectsNonManualTrigger(t *testing.T) {
 	t.Parallel()
 
@@ -322,28 +350,30 @@ func TestApplyDAGOpsRejectsMissingOps(t *testing.T) {
 }
 
 type stubDashboardOrchestration struct {
-	mu               sync.Mutex
-	snapshot         contract.AgentSnapshot
-	report           contract.AgentReportResult
-	listDAGsResult   []contract.DAGSummary
-	listDAGsErr      error
-	listDAGsFilter   contract.ListDAGsFilter
-	dagDetail        contract.DAGDetail
-	getDAGKey        string
-	listRunsResult   contract.ListRunsResponse
-	listRunsByDAG    map[string]contract.ListRunsResponse
-	listRunsErr      error
-	listRunsRequest  contract.ListRunsRequest
-	listRunsRequests []contract.ListRunsRequest
-	getRunResult     contract.GetRunResponse
-	getRunRequest    contract.GetRunRequest
-	startDAGRequest  contract.StartDAGRequest
-	startDAGResult   contract.StartDAGResponse
-	startDAGErr      error
-	applyOpsRequest  contract.ApplyOpsRequest
-	applyOpsResult   contract.ApplyOpsResponse
-	applyOpsErr      error
-	applyOpsCalled   bool
+	mu                  sync.Mutex
+	snapshot            contract.AgentSnapshot
+	report              contract.AgentReportResult
+	listDAGsResult      []contract.DAGSummary
+	listDAGsErr         error
+	listDAGsFilter      contract.ListDAGsFilter
+	dagDetail           contract.DAGDetail
+	getDAGKey           string
+	listRunsResult      contract.ListRunsResponse
+	listRunsByDAG       map[string]contract.ListRunsResponse
+	listRunsErr         error
+	listRunsRequest     contract.ListRunsRequest
+	listRunsRequests    []contract.ListRunsRequest
+	getRunResult        contract.GetRunResponse
+	getRunRequest       contract.GetRunRequest
+	startDAGRequest     contract.StartDAGRequest
+	startDAGResult      contract.StartDAGResponse
+	startDAGErr         error
+	terminateDAGRequest contract.TerminateDAGRequest
+	terminateDAGErr     error
+	applyOpsRequest     contract.ApplyOpsRequest
+	applyOpsResult      contract.ApplyOpsResponse
+	applyOpsErr         error
+	applyOpsCalled      bool
 }
 
 // 中文：编译期断言 — stubDashboardOrchestration 必须实现
@@ -429,6 +459,11 @@ func (s *stubDashboardOrchestration) StartDAG(_ context.Context, req contract.St
 		return contract.StartDAGResponse{}, s.startDAGErr
 	}
 	return s.startDAGResult, nil
+}
+
+func (s *stubDashboardOrchestration) TerminateDAG(_ context.Context, req contract.TerminateDAGRequest) error {
+	s.terminateDAGRequest = req
+	return s.terminateDAGErr
 }
 
 func (s *stubDashboardOrchestration) GetRun(_ context.Context, req contract.GetRunRequest) (contract.GetRunResponse, error) {

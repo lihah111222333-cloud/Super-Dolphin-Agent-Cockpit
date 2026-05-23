@@ -527,17 +527,7 @@ type StartDAGRequest = contract.StartDAGRequest
 type StartDAGResponse = contract.StartDAGResponse
 
 // TerminateDAGRequest 是终止一次 DAG run 的入参。
-type TerminateDAGRequest struct {
-	DagKey string // 必填
-	RunKey string // 必填，目标 run
-	Reason string // 可选，写入 events 字段
-}
-
-// TerminateDAG 终止一次 run（标 cancelled，级联取消 pending/ready 节点）。
-// 骨架阶段：仅返回 ErrLifecycleNotImplemented；F6.x 真实落地。
-func (s *service) TerminateDAG(_ context.Context, _ TerminateDAGRequest) error {
-	return ErrLifecycleNotImplemented
-}
+type TerminateDAGRequest = contract.TerminateDAGRequest
 
 // ApplyOps stays in dag.go because this package is already at the codeguard
 // file-count budget; typed op helpers live in dag_query.go.
