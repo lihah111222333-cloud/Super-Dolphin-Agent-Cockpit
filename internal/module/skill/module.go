@@ -61,32 +61,26 @@ func newService(deps serviceDeps) *service {
 	return svc
 }
 
-func ProvideSkillLister(svc Service) SkillLister { return svc }
-
+func ProvideSkillLister(svc Service) SkillLister                   { return svc }
 func ProvideSkillInventoryLister(svc Service) SkillInventoryLister { return svc }
-
-func ProvideSkillCatalogSource(svc Service) SkillCatalogSource { return svc }
-
+func ProvideSkillCatalogSource(svc Service) SkillCatalogSource     { return svc }
 func ProvideSkillHydrationSource(svc Service) SkillHydrationSource { return svc }
 
 const builtInSkillRoot = "embedded_skills"
 
 func runBuiltinSkillSeed(lc fx.Lifecycle, svc Service) {
-	seeder, ok := svc.(*service)
-	if !ok || seeder == nil {
-		return
+	if seeder, ok := svc.(*service); ok && seeder != nil {
+		lc.Append(fx.Hook{
+			OnStart: func(context.Context) error {
+				_, err := seedBuiltInSkills(seeder.resolvedSuperDolphinHome())
+				return err
+			},
+		})
 	}
-	lc.Append(fx.Hook{
-		OnStart: func(context.Context) error {
-			_, err := seedBuiltInSkills(seeder.resolvedSuperDolphinHome())
-			return err
-		},
-	})
 }
 
 func seedBuiltInSkills(superDolphinHome string) (int, error) {
-	home := strings.TrimSpace(superDolphinHome)
-	if home == "" {
+	if strings.TrimSpace(superDolphinHome) == "" {
 		return 0, fmt.Errorf("super dolphin home is required")
 	}
 	return 0, nil
@@ -99,8 +93,7 @@ func listBuiltInSkillNames() ([]string, error) {
 	}
 	names := make([]string, 0, len(entries))
 	for _, entry := range entries {
-		name := entry.Name()
-		if entry.IsDir() && builtInSkillExists(name) {
+		if name := entry.Name(); entry.IsDir() && builtInSkillExists(name) {
 			names = append(names, name)
 		}
 	}

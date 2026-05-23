@@ -176,14 +176,14 @@ func TestWriteLocalRejectsInvalidFrontmatterSkillName(t *testing.T) {
 	_, err := svc.WriteLocal(
 		skillTestContext(projectRoot),
 		"Agent工程学",
-		"---\nname: \"Agent 工程学\"\n---\n# Agent 工程学\n",
+		"---\nname: \"Agent/工程学\"\n---\n# Agent/工程学\n",
 		skillScopeProject,
 	)
 
 	if !errors.Is(err, ErrInvalidSkillName) {
 		t.Fatalf("WriteLocal invalid frontmatter name error = %v, want ErrInvalidSkillName", err)
 	}
-	assertMissing(t, filepath.Join(projectRoot, ".agent", "skills", "agent工程学", skillMainFile))
+	assertMissing(t, filepath.Join(projectRoot, ".agent", "skills", "agent/工程学", skillMainFile))
 }
 
 func TestWriteProjectPolicyRejectsSymlinkFile(t *testing.T) {

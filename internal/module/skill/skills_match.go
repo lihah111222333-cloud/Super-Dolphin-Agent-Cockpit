@@ -13,23 +13,22 @@ type matchItem struct {
 
 func (s *service) MatchPreview(ctx context.Context, agentID, threadID, text string, input []UserInput) (any, error) {
 	resolvedThreadID := resolveSkillMatchPreviewThreadID(agentID, threadID)
-	collector := s.newSkillsAutoMatchCollector(ctx)
-	matches, err := collector(resolvedThreadID, text, input)
+	matches, err := s.newSkillsAutoMatchCollector(ctx)(resolvedThreadID, text, input)
 	if err != nil {
 		return nil, err
 	}
 	items := make([]matchItem, 0, len(matches))
-	for _, match := range matches {
-		if name := strings.TrimSpace(match.Name); name != "" {
-			items = append(items, matchItem{Name: name, MatchedBy: match.MatchedBy, MatchedTerms: append([]string(nil), match.MatchedTerms...)})
+	for _, m := range matches {
+		if name := strings.TrimSpace(m.Name); name != "" {
+			items = append(items, matchItem{Name: name, MatchedBy: m.MatchedBy, MatchedTerms: append([]string(nil), m.MatchedTerms...)})
 		}
 	}
 	return map[string]any{"thread_id": resolvedThreadID, "matches": items}, nil
 }
 
 func resolveSkillMatchPreviewThreadID(agentID, threadID string) string {
-	if threadID = strings.TrimSpace(threadID); threadID != "" {
-		return threadID
+	if tid := strings.TrimSpace(threadID); tid != "" {
+		return tid
 	}
 	return strings.TrimSpace(agentID)
 }
@@ -92,7 +91,7 @@ func configuredSkillNames(config any) []string {
 	}
 	switch skills := raw.(type) {
 	case []string:
-		return normalizeSkillNames(skills)
+		return uniqStrings(skills)
 	case []any:
 		names := make([]string, 0, len(skills))
 		for _, item := range skills {
@@ -100,7 +99,7 @@ func configuredSkillNames(config any) []string {
 				names = append(names, name)
 			}
 		}
-		return normalizeSkillNames(names)
+		return uniqStrings(names)
 	default:
 		return nil
 	}
@@ -108,9 +107,9 @@ func configuredSkillNames(config any) []string {
 
 func collectLocalAutoMatchedSkills(prompt string, skills []SkillInfo) []autoMatchedSkill {
 	matches := make([]autoMatchedSkill, 0, len(skills))
-	for _, skill := range skills {
-		if kind, terms := classifySkillMatch(prompt, skill); kind != "" {
-			matches = append(matches, autoMatchedSkill{Name: skill.Name, MatchedBy: kind, MatchedTerms: terms})
+	for _, s := range skills {
+		if kind, terms := classifySkillMatch(prompt, s); kind != "" {
+			matches = append(matches, autoMatchedSkill{Name: s.Name, MatchedBy: kind, MatchedTerms: terms})
 		}
 	}
 	return matches
@@ -120,17 +119,14 @@ func dedupeAutoMatchedSkills(matches []autoMatchedSkill) []autoMatchedSkill {
 	uniq := make([]autoMatchedSkill, 0, len(matches))
 	seen := make(map[string]struct{}, len(matches))
 	for _, match := range matches {
-		name := strings.TrimSpace(match.Name)
-		if name == "" {
-			continue
+		if name := strings.TrimSpace(match.Name); name != "" {
+			key := strings.ToLower(name + "\x00" + strings.TrimSpace(match.MatchedBy))
+			if _, ok := seen[key]; !ok {
+				seen[key] = struct{}{}
+				match.Name = name
+				uniq = append(uniq, match)
+			}
 		}
-		key := strings.ToLower(name + "\x00" + strings.TrimSpace(match.MatchedBy))
-		if _, ok := seen[key]; ok {
-			continue
-		}
-		seen[key] = struct{}{}
-		match.Name = name
-		uniq = append(uniq, match)
 	}
 	return uniq
 }
@@ -138,9 +134,9 @@ func dedupeAutoMatchedSkills(matches []autoMatchedSkill) []autoMatchedSkill {
 func joinMatchText(text string, input []UserInput) string {
 	parts := []string{strings.TrimSpace(text)}
 	for _, item := range input {
-		for _, value := range []string{item.Text, item.Name, item.Path, item.Content} {
-			if value = strings.TrimSpace(value); value != "" {
-				parts = append(parts, value)
+		for _, v := range []string{item.Text, item.Name, item.Path, item.Content} {
+			if v = strings.TrimSpace(v); v != "" {
+				parts = append(parts, v)
 			}
 		}
 	}
@@ -166,9 +162,8 @@ func classifySkillMatch(prompt string, skill SkillInfo) (string, []string) {
 }
 
 func explicitTerms(prompt string, skill SkillInfo) []string {
-	candidates := []string{"@" + skill.Name, "[skill:" + skill.Name + "]"}
-	explicit := make([]string, 0, len(candidates))
-	for _, term := range matchedTerms(prompt, candidates) {
+	explicit := make([]string, 0)
+	for _, term := range matchedTerms(prompt, []string{"@" + skill.Name, "[skill:" + skill.Name + "]"}) {
 		lower := strings.ToLower(strings.TrimSpace(term))
 		if strings.HasPrefix(lower, "@") || strings.HasPrefix(lower, "[skill:") {
 			explicit = append(explicit, term)
@@ -180,12 +175,9 @@ func explicitTerms(prompt string, skill SkillInfo) []string {
 func matchedTerms(prompt string, terms []string) []string {
 	found := make([]string, 0, len(terms))
 	for _, raw := range terms {
-		term := strings.TrimSpace(raw)
-		if term != "" && strings.Contains(prompt, strings.ToLower(term)) {
+		if term := strings.TrimSpace(raw); term != "" && strings.Contains(prompt, strings.ToLower(term)) {
 			found = append(found, term)
 		}
 	}
 	return uniqStrings(found)
 }
-
-func normalizeSkillNames(names []string) []string { return uniqStrings(names) }

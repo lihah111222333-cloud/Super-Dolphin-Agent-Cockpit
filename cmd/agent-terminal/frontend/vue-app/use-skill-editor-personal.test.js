@@ -606,15 +606,15 @@ describe('useSkillEditor personal target payloads', () => {
 
   it('rejects invalid skill names before saving a main skill file', async () => {
     const { vm } = createEditor();
-    vm.form.name = 'Agent 工程学';
+    vm.form.name = 'Agent/工程学';
     vm.form.description = '当你需要拆分或管理多步骤 Agent 工程任务时使用。';
-    vm.form.body = '# Agent 工程学\n拆分任务。';
+    vm.form.body = '# Agent/工程学\n拆分任务。';
 
     await vm.onSaveSkill();
 
     expect(apiMock.callAPI).not.toHaveBeenCalled();
     expect(vm.notice.level).toBe('error');
-    expect(vm.notice.message).toBe('技能名称不能包含空格，请使用中文、英文、数字、- 或 _。');
+    expect(vm.notice.message).toBe('技能名称不能包含非法字符，请使用中文、英文、数字、空格、- 或 _。');
   });
 
   it('warns about same-name conflicts without claiming imports overwrite other scopes', async () => {
