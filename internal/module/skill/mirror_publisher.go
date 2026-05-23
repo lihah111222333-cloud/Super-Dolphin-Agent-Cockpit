@@ -11,6 +11,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/anthropic-ai/super-agent-v3/internal/module/skill/mirrorpath"
 )
 
 var skillMirrorRootLocks sync.Map
@@ -23,7 +25,7 @@ type SkillMirrorTarget struct {
 func PublishSkillMirrors(ctx context.Context, records []canonicalSkillRecord, targets []SkillMirrorTarget) (SkillMirrorReport, error) {
 	var report SkillMirrorReport
 	for i := range targets {
-		targets[i].Root = resolveValidMirrorRootSymlink(targets[i].Root)
+		targets[i].Root = mirrorpath.ResolveValidRootSymlink(targets[i].Root)
 	}
 	for _, target := range targets {
 		if err := ctx.Err(); err != nil {
@@ -203,7 +205,7 @@ func validateMirrorRoot(root string) error {
 	return nil
 }
 func prepareMirrorRoot(root string) error {
-	if err := rejectSymlinkAncestors(root); err != nil {
+	if err := mirrorpath.RejectSymlinkAncestors(root); err != nil {
 		return err
 	}
 	info, err := os.Lstat(root)
@@ -370,7 +372,7 @@ func unchangedOwnedMirror(managed, exists bool, entry SkillMirrorEntry, oldHash,
 	return capProjectMirrorTrustFrontmatter(content) == content, nil
 }
 func replaceChangedMirrorRecord(manifest *SkillMirrorManifest, target SkillMirrorTarget, record canonicalSkillRecord, canonicalHash string, item SkillMirrorReportItem) (SkillMirrorReportItem, bool, error) {
-	newHash, err := replaceMirrorSkillDir(target.Root, record.Name, record.Dir, target.Scope)
+	newHash, err := replaceMirrorSkillDir(target.Root, record.Name, record.Dir, target.Scope, record.info.DisplayName)
 	if err != nil {
 		return item, false, err
 	}
@@ -379,6 +381,12 @@ func replaceChangedMirrorRecord(manifest *SkillMirrorManifest, target SkillMirro
 	manifest.GeneratedAt = time.Now().UTC()
 	return item, true, nil
 }
+
+type skillMirrorIdentity struct {
+	Name        string
+	DisplayName string
+}
+
 func existingMirrorHash(dir string) (string, bool, error) {
 	info, err := os.Lstat(dir)
 	if errors.Is(err, os.ErrNotExist) {
@@ -396,13 +404,17 @@ func existingMirrorHash(dir string) (string, bool, error) {
 	hash, err := stableMirrorDirectoryHash(dir)
 	return hash, true, err
 }
-func replaceMirrorSkillDir(root, name, canonicalDir, scope string) (string, error) {
+func replaceMirrorSkillDir(root, name, canonicalDir, scope string, displayName ...string) (string, error) {
 	tempDir, err := os.MkdirTemp(root, ".skill-mirror-"+name+"-*")
 	if err != nil {
 		return "", err
 	}
 	defer os.RemoveAll(tempDir)
-	if err := copyCanonicalSkillDir(canonicalDir, tempDir, scope); err != nil {
+	identity := skillMirrorIdentity{Name: name}
+	if len(displayName) > 0 {
+		identity.DisplayName = displayName[0]
+	}
+	if err := copyCanonicalSkillDir(canonicalDir, tempDir, scope, identity); err != nil {
 		return "", err
 	}
 	hash, err := stableMirrorDirectoryHash(tempDir)
@@ -415,8 +427,8 @@ func replaceMirrorSkillDir(root, name, canonicalDir, scope string) (string, erro
 	}
 	return hash, os.Rename(tempDir, finalDir)
 }
-func copyCanonicalSkillDir(src, dst, scope string) error {
-	return filepath.WalkDir(src, func(path string, entry fs.DirEntry, walkErr error) error {
+func copyCanonicalSkillDir(src, dst, scope string, identity ...skillMirrorIdentity) error {
+	err := filepath.WalkDir(src, func(path string, entry fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			return walkErr
 		}
@@ -429,6 +441,13 @@ func copyCanonicalSkillDir(src, dst, scope string) error {
 		}
 		return copyCanonicalSkillEntry(path, filepath.Join(dst, filepath.FromSlash(rel)), rel, scope, entry)
 	})
+	if err != nil {
+		return err
+	}
+	if len(identity) > 0 && strings.TrimSpace(identity[0].Name) != "" {
+		return rewriteCopiedSkillIdentity(dst, identity[0].Name, identity[0].DisplayName)
+	}
+	return nil
 }
 func safeCanonicalCopyRelativePath(root, path string) (string, error) {
 	absPath, err := filepath.Abs(path)
@@ -443,7 +462,7 @@ func safeCanonicalCopyRelativePath(root, path string) (string, error) {
 	if rel == "." {
 		return rel, nil
 	}
-	if unsafeMirrorRelativePath(rel) {
+	if mirrorpath.UnsafeRelative(rel) {
 		return "", fmt.Errorf("unsafe canonical path %s escapes root", path)
 	}
 	return rel, nil

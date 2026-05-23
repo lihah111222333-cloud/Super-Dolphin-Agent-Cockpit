@@ -52,6 +52,7 @@ func (t TrustScope) Trusted() bool {
 // not need to mutate skills.
 type SkillInfo struct {
 	Name         string   `json:"name"`
+	DisplayName  string   `json:"display_name,omitempty"`
 	Dir          string   `json:"dir"`
 	Scope        string   `json:"scope,omitempty"`
 	PersonalType string   `json:"personal_type,omitempty"`

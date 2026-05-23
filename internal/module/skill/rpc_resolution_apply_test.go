@@ -163,6 +163,35 @@ func TestSkillResolutionApplyRPCImportsUnmanagedProviderSkill(t *testing.T) {
 	assertFileContent(t, filepath.Join(providerPersonalMirrorRoot(SkillProviderCodex), "scratch", skillMainFile), "---\nname: scratch\n---\n# scratch\n")
 }
 
+func TestSkillResolutionApplyImportsLegacyDisplayNameProviderSkill(t *testing.T) {
+	project := t.TempDir()
+	providerRoot := providerProjectMirrorRoot(SkillProviderCodex, project)
+	displayName := "Docker 容器化部署"
+	canonicalName := "docker-容器化部署"
+	unmanagedDir := filepath.Join(providerRoot, displayName)
+	writeSkillContent(t, unmanagedDir, displayName, "# docker\n")
+	previewHash, err := stableMirrorDirectoryHash(unmanagedDir)
+	if err != nil {
+		t.Fatalf("stableMirrorDirectoryHash: %v", err)
+	}
+	svc := &service{projectRoot: project, projectSkillsRoot: defaultProjectSkillsRoot(project), superDolphinHome: filepath.Join(t.TempDir(), ".super-dolphin"), auditStore: &capturingSkillAuditStore{}}
+	target := SkillMirrorTarget{TargetID: "codex:project:repo", Provider: SkillProviderCodex, Scope: skillScopeProject, Root: providerRoot, CanonicalRootID: "repo"}
+
+	report, err := ImportUnmanagedProviderSkill(context.Background(), svc, SkillMirrorResolutionRequest{
+		Action:      "import_to_project",
+		Name:        displayName,
+		Target:      target,
+		PreviewHash: previewHash,
+	})
+	if err != nil {
+		t.Fatalf("ImportUnmanagedProviderSkill legacy display name: %v", err)
+	}
+	if report.Name != canonicalName {
+		t.Fatalf("report name = %q, want canonical name %q", report.Name, canonicalName)
+	}
+	assertFileContent(t, filepath.Join(project, ".agent", "skills", canonicalName, skillMainFile), "---\nname: "+canonicalName+"\ndisplay_name: \"Docker 容器化部署\"\n---\n# docker\n")
+}
+
 func TestSkillResolutionApplyRPCTakesOverUnmanagedProviderSkill(t *testing.T) {
 	project, server, svc := setupOrphanUnmanagedProviderConflictFixtureWithService(t)
 	svc.auditStore = &capturingSkillAuditStore{}

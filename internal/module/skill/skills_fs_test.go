@@ -169,21 +169,70 @@ func TestWriteLocalPropagatesIntermediatePathError(t *testing.T) {
 	}
 }
 
-func TestWriteLocalRejectsInvalidFrontmatterSkillName(t *testing.T) {
+func TestWriteLocalRejectsUnsafeFrontmatterSkillName(t *testing.T) {
 	projectRoot := t.TempDir()
 	svc := &service{projectRoot: projectRoot, projectSkillsRoot: defaultProjectSkillsRoot(projectRoot), superDolphinHome: newTestSuperDolphinHome(t), http: &http.Client{}}
 
 	_, err := svc.WriteLocal(
 		skillTestContext(projectRoot),
 		"Agent工程学",
-		"---\nname: \"Agent/工程学\"\n---\n# Agent/工程学\n",
+		"---\nname: \"../bad\"\n---\n# Agent 工程学\n",
 		skillScopeProject,
 	)
 
 	if !errors.Is(err, ErrInvalidSkillName) {
 		t.Fatalf("WriteLocal invalid frontmatter name error = %v, want ErrInvalidSkillName", err)
 	}
-	assertMissing(t, filepath.Join(projectRoot, ".agent", "skills", "agent/工程学", skillMainFile))
+	assertMissing(t, filepath.Join(projectRoot, ".agent", "skills", "agent工程学", skillMainFile))
+}
+
+func TestReadLocalAcceptsLegacyDisplayNameAlias(t *testing.T) {
+	projectRoot := t.TempDir()
+	svc := &service{projectRoot: projectRoot, projectSkillsRoot: defaultProjectSkillsRoot(projectRoot), superDolphinHome: newTestSuperDolphinHome(t), http: &http.Client{}}
+	writeSkillContent(t, filepath.Join(projectRoot, ".agent", "skills", "Docker 容器化部署"), "Docker 容器化部署", "# legacy body\n")
+
+	out, err := svc.ReadLocal(skillTestContext(projectRoot), "Docker 容器化部署")
+	if err != nil {
+		t.Fatalf("ReadLocal legacy display alias error = %v", err)
+	}
+	result, ok := out.(map[string]any)
+	if !ok {
+		t.Fatalf("ReadLocal result type = %T", out)
+	}
+	skill, ok := result["skill"].(map[string]any)
+	if !ok {
+		t.Fatalf("ReadLocal skill type = %T", result["skill"])
+	}
+	if got, _ := skill["path"].(string); !sameCleanPath(got, filepath.Join(projectRoot, ".agent", "skills", "Docker 容器化部署", skillMainFile)) {
+		t.Fatalf("ReadLocal path = %q, want legacy dir SKILL.md", got)
+	}
+	if got, _ := skill["content"].(string); !strings.Contains(got, "name: Docker 容器化部署") {
+		t.Fatalf("ReadLocal content = %q, want original legacy frontmatter", got)
+	}
+}
+
+func TestDeleteLocalAcceptsLegacyDisplayNameAlias(t *testing.T) {
+	projectRoot := t.TempDir()
+	svc := &service{projectRoot: projectRoot, projectSkillsRoot: defaultProjectSkillsRoot(projectRoot), superDolphinHome: newTestSuperDolphinHome(t), http: &http.Client{}}
+	legacyDir := filepath.Join(projectRoot, ".agent", "skills", "Docker 容器化部署")
+	writeSkillContent(t, legacyDir, "Docker 容器化部署", "# legacy body\n")
+
+	out, err := svc.DeleteLocal(skillTestContext(projectRoot), DeleteSkillParams{Name: "Docker 容器化部署", Scope: skillScopeProject})
+	if err != nil {
+		t.Fatalf("DeleteLocal legacy display alias error = %v", err)
+	}
+	result, ok := out.(map[string]any)
+	if !ok {
+		t.Fatalf("DeleteLocal result type = %T", out)
+	}
+	if got, _ := result["name"].(string); got != "docker-容器化部署" {
+		t.Fatalf("DeleteLocal name = %q, want canonical name", got)
+	}
+	if got, _ := result["dir"].(string); !sameCleanPath(got, legacyDir) {
+		t.Fatalf("DeleteLocal dir = %q, want legacy dir", got)
+	}
+	assertMissing(t, legacyDir)
+	assertMissing(t, filepath.Join(projectRoot, ".agent", "skills", "docker-容器化部署"))
 }
 
 func TestWriteProjectPolicyRejectsSymlinkFile(t *testing.T) {

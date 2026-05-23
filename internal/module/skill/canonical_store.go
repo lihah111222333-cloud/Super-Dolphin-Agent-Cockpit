@@ -220,7 +220,7 @@ func visitCanonicalSkillFile(root canonicalScanRoot, path string, entry os.DirEn
 	if err != nil {
 		return nil, fmt.Errorf("parse canonical skill %s: %w", path, err)
 	}
-	name, err := validateSkillName(parsed.info.Name)
+	name, displayName, err := normalizeSkillIdentityName(parsed.info.Name, parsed.info.DisplayName)
 	if err != nil {
 		return nil, fmt.Errorf("validate canonical skill %s: %w", path, err)
 	}
@@ -230,6 +230,7 @@ func visitCanonicalSkillFile(root canonicalScanRoot, path string, entry os.DirEn
 		return nil, err
 	}
 	parsed.info.Name = name
+	parsed.info.DisplayName = displayName
 	parsed.info.Scope = root.scope
 	parsed.info.PersonalType = root.personalType
 	return &canonicalSkillRecord{
@@ -332,7 +333,7 @@ func applyProjectDisabledPersonalPolicy(records []canonicalSkillRecord, disabled
 	}
 	disabled := make(map[string]struct{}, len(disabledItems))
 	for _, item := range disabledItems {
-		name, err := validateSkillName(item.Name)
+		name, _, err := normalizeSkillIdentityName(item.Name, "")
 		if err != nil {
 			return nil, fmt.Errorf("invalid project skill policy name: %w", err)
 		}
@@ -365,7 +366,7 @@ func applyProjectKeepSelectedPolicy(records []canonicalSkillRecord, selections [
 func projectSelectionByName(selections []projectSkillKeepSelected) (map[string]projectSkillKeepSelected, error) {
 	selectionByName := make(map[string]projectSkillKeepSelected, len(selections))
 	for _, selection := range selections {
-		name, err := validateSkillName(selection.Name)
+		name, _, err := normalizeSkillIdentityName(selection.Name, "")
 		if err != nil {
 			return nil, fmt.Errorf("invalid project skill policy name: %w", err)
 		}
@@ -432,7 +433,7 @@ func readProjectSkillPolicy(cwd string) (projectSkillPolicy, error) {
 }
 
 func writeProjectDisablePersonalPolicy(cwd, name, personalType string) (string, error) {
-	name, err := validateSkillName(name)
+	name, _, err := normalizeSkillIdentityName(name, "")
 	if err != nil {
 		return "", err
 	}
