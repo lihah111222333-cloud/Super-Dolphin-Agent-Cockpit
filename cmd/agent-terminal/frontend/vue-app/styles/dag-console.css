@@ -132,9 +132,135 @@
 }
 
 .dag-console-detail-heading span {
+  display: block;
+  margin-top: 4px;
   color: var(--text-muted);
   font-size: 12px;
   overflow-wrap: anywhere;
+}
+
+.dag-detail-section {
+  min-width: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--card);
+  padding: 10px;
+}
+
+.dag-section-title {
+  margin-bottom: 8px;
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.dag-console-muted,
+.dag-console-error-inline {
+  color: var(--text-muted);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.dag-console-error-inline {
+  color: var(--danger);
+}
+
+.dag-node-list-grid,
+.dag-run-list {
+  display: grid;
+  gap: 8px;
+}
+
+.dag-node-card,
+.dag-run-row {
+  min-width: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  padding: 9px;
+}
+
+.dag-node-card-head,
+.dag-node-meta,
+.dag-run-row {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.dag-node-card-head {
+  justify-content: space-between;
+}
+
+.dag-node-card-head strong,
+.dag-node-card-head span,
+.dag-node-meta span,
+.dag-run-row span,
+.dag-run-row small,
+.dag-final-file code,
+.dag-final-preview {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.dag-node-card-head span,
+.dag-node-meta,
+.dag-run-row small,
+.dag-final-kind {
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.dag-link-button,
+.dag-run-row {
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+}
+
+.dag-link-button {
+  margin-top: 8px;
+  border: 0;
+  background: transparent;
+  padding: 0;
+  color: var(--primary);
+}
+
+.dag-run-row {
+  width: 100%;
+  justify-content: space-between;
+}
+
+.dag-run-row:hover,
+.dag-run-row:focus-visible,
+.dag-run-row.active {
+  border-color: var(--primary);
+  outline: none;
+}
+
+.dag-final-file {
+  display: grid;
+  gap: 8px;
+}
+
+.dag-final-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.dag-final-preview {
+  max-height: 220px;
+  margin: 0;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  padding: 10px;
+  color: var(--text);
+  font-size: 12px;
+  white-space: pre-wrap;
 }
 
 .dag-console-facts {

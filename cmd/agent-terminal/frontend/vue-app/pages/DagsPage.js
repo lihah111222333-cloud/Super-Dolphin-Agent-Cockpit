@@ -1,5 +1,9 @@
 import { computed, ref, watch } from '../../lib/vue.esm-browser.prod.js';
 import { AutoContinuePrefCard } from '../components/AutoContinuePrefCard.js';
+import { DagFinalOutputPanel } from '../components/dag/DagFinalOutputPanel.js';
+import { DagNodeList } from '../components/dag/DagNodeList.js';
+import { DagRunHistoryPanel } from '../components/dag/DagRunHistoryPanel.js';
+import { useDagDetail } from '../composables/useDagDetail.js';
 
 function textValue(...values) {
   for (const value of values) {
@@ -95,17 +99,40 @@ function normalizeDag(item, index) {
 
 export const DagsPage = {
   name: 'DagsPage',
-  components: { AutoContinuePrefCard },
+  components: { AutoContinuePrefCard, DagFinalOutputPanel, DagNodeList, DagRunHistoryPanel },
   props: {
     items: { type: Array, default: () => [] },
     emptyText: { type: String, default: '暂无 DAG' },
     loading: { type: Boolean, default: false },
     error: { type: String, default: '' },
   },
-  setup(props) {
+  setup(props, ctx) {
+    const emit = ctx?.emit || (() => {});
+    const dagDetail = useDagDetail();
+    const detailState = dagDetail.state;
     const selectedKey = ref('');
     const rows = computed(() => props.items.map((item, index) => normalizeDag(item, index)));
     const selectedRow = computed(() => rows.value.find((row) => row.listKey === selectedKey.value) || rows.value[0] || null);
+    const selectedDagKey = computed(() => selectedRow.value?.key === '-' ? '' : selectedRow.value?.key || '');
+    const selectedFinalOutput = computed(() => detailState.finalOutput);
+    const startDisabledReason = computed(() => {
+      if (!selectedRow.value || !selectedDagKey.value) return '未选择 DAG';
+      if (props.loading || detailState.loading) return 'DAG 详情加载中';
+      if (detailState.starting) return '启动中';
+      return '';
+    });
+    const startErrorText = computed(() => {
+      const err = detailState.startError;
+      if (!err) return '';
+      if (typeof err === 'string') return err;
+      return err.message || JSON.stringify(err);
+    });
+    const runsErrorText = computed(() => {
+      const err = detailState.runsError;
+      if (!err) return '';
+      if (typeof err === 'string') return err;
+      return err.message || JSON.stringify(err);
+    });
 
     watch(
       () => rows.value.map((row) => row.listKey).join('\n'),
@@ -126,10 +153,41 @@ export const DagsPage = {
       selectedKey.value = row.listKey;
     }
 
+    watch(
+      () => selectedDagKey.value,
+      (dagKey) => {
+        const row = selectedRow.value;
+        if (dagKey && row?.raw) dagDetail.open(row.raw);
+      },
+      { immediate: true, flush: 'sync' },
+    );
+
+    function startSelectedDag() {
+      if (startDisabledReason.value) return;
+      dagDetail.start();
+    }
+
+    function selectRun(runKey) {
+      dagDetail.selectRun(runKey);
+    }
+
+    function openChat(threadId) {
+      emit('open-chat', threadId);
+    }
+
     return {
+      dagDetail,
+      detailState,
+      openChat,
       rows,
+      runsErrorText,
       selectedRow,
+      selectedFinalOutput,
       selectDag,
+      selectRun,
+      startDisabledReason,
+      startErrorText,
+      startSelectedDag,
     };
   },
   template: `
@@ -190,9 +248,21 @@ export const DagsPage = {
           </div>
           <div v-else-if="selectedRow" class="dag-console-detail-grid">
             <div class="dag-console-detail-heading">
-              <h3>{{ selectedRow.title }}</h3>
-              <span>{{ selectedRow.key }}</span>
+              <div>
+                <h3>{{ selectedRow.title }}</h3>
+                <span>{{ selectedRow.key }}</span>
+              </div>
+              <button
+                type="button"
+                class="btn btn-primary"
+                data-testid="dag-start-button"
+                :disabled="Boolean(startDisabledReason)"
+                :title="startDisabledReason"
+                @click="startSelectedDag"
+              >{{ detailState.starting ? '启动中' : 'Start' }}</button>
             </div>
+            <div v-if="startDisabledReason" class="dag-console-muted" data-testid="dag-start-disabled-reason">{{ startDisabledReason }}</div>
+            <div v-if="startErrorText" class="dag-console-error-inline" data-testid="dag-start-error">{{ startErrorText }}</div>
             <dl class="dag-console-facts">
               <div>
                 <dt>状态</dt>
@@ -211,6 +281,27 @@ export const DagsPage = {
                 <dd>{{ selectedRow.hasFinalOutput ? '已记录' : '-' }}</dd>
               </div>
             </dl>
+            <div v-if="detailState.loading" class="dag-console-muted" data-testid="dag-detail-loading-inline">正在加载详情</div>
+            <div v-if="detailState.error" class="dag-console-error-inline" data-testid="dag-detail-load-error">
+              {{ typeof detailState.error === 'string' ? detailState.error : detailState.error.message }}
+            </div>
+            <DagNodeList :nodes="detailState.nodes" @open-chat="openChat" />
+            <DagRunHistoryPanel
+              :runs="detailState.runs"
+              :selected-run-key="detailState.selectedRunKey"
+              @select-run="selectRun"
+            />
+            <DagFinalOutputPanel
+              v-if="runsErrorText"
+              data-testid="dag-runs-error"
+              :final-output="null"
+              :runs-error="detailState.runsError"
+            />
+            <DagFinalOutputPanel
+              v-else
+              :final-output="selectedFinalOutput"
+              :runs-error="null"
+            />
           </div>
           <div v-else class="empty-state dag-console-empty" data-testid="dag-console-detail-empty">
             <div class="es-icon">D</div>
