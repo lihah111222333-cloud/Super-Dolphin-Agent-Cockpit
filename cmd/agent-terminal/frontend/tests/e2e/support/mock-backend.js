@@ -245,6 +245,7 @@ function browserInstaller({
 
   const source = clone(sourceConfig) || {};
   const dashboardSource = asObject(source.dashboard);
+  const retentionSource = asObject(dashboardSource.sharedFileRetention);
   const sourcePrompts = asArray(source.prompts).length > 0
     ? asArray(source.prompts)
     : asArray(dashboardSource.prompts);
@@ -273,6 +274,10 @@ function browserInstaller({
       commandCards: clone(asArray(dashboardSource.commandCards)) || [],
       prompts: clone(asArray(dashboardSource.prompts)) || [],
       memory: clone(asArray(dashboardSource.memory)) || [],
+      finalOutputRefs: clone(asArray(dashboardSource.finalOutputRefs)) || [],
+      sharedFileRetention: Array.isArray(retentionSource.items)
+        ? clone(retentionSource)
+        : { items: [], protectedCount: 0, cleanupCandidateCount: 0 },
     },
     prompts: clone(sourcePrompts.length > 0 ? sourcePrompts : defaultPromptRows()) || [],
     memoryCenter: clone(asObject(source.memoryCenter)) || {
@@ -750,6 +755,8 @@ function browserInstaller({
         }
         case 'config/read':
           return clone(state.runtimeConfig);
+        case 'ui/windowBootstrap/get':
+          return { snapshot: null };
         case 'thread/list':
           return { threads: buildUiState().threads };
         case 'ui/sidebar/get':

@@ -556,6 +556,8 @@ type DAG struct {
 	Status      string
 	CreatedBy   string
 	Metadata    json.RawMessage
+	Trigger     string
+	CronExpr    string
 	StartedAt   *time.Time
 	FinishedAt  *time.Time
 	CreatedAt   time.Time

@@ -8,10 +8,10 @@ SET title = EXCLUDED.title,
     created_by = EXCLUDED.created_by,
     metadata = EXCLUDED.metadata,
     updated_at = NOW()
-RETURNING id, dag_key, title, description, status, created_by, metadata, started_at, finished_at, created_at, updated_at;
+RETURNING id, dag_key, title, description, status, created_by, metadata, trigger, cron_expr, started_at, finished_at, created_at, updated_at;
 
 -- name: ListTaskDags :many
-SELECT id, dag_key, title, description, status, created_by, metadata, started_at, finished_at, created_at, updated_at
+SELECT id, dag_key, title, description, status, created_by, metadata, trigger, cron_expr, started_at, finished_at, created_at, updated_at
 FROM task_dags
 WHERE ($1::text = '' OR status = $1)
   AND ($2::text = ''
@@ -22,12 +22,12 @@ ORDER BY updated_at DESC, id DESC
 LIMIT $3;
 
 -- name: GetTaskDag :one
-SELECT id, dag_key, title, description, status, created_by, metadata, started_at, finished_at, created_at, updated_at
+SELECT id, dag_key, title, description, status, created_by, metadata, trigger, cron_expr, started_at, finished_at, created_at, updated_at
 FROM task_dags
 WHERE dag_key = $1;
 
 -- name: GetTaskDagForUpdate :one
-SELECT id, dag_key, title, description, status, created_by, metadata, started_at, finished_at, created_at, updated_at
+SELECT id, dag_key, title, description, status, created_by, metadata, trigger, cron_expr, started_at, finished_at, created_at, updated_at
 FROM task_dags
 WHERE dag_key = $1
 FOR UPDATE;

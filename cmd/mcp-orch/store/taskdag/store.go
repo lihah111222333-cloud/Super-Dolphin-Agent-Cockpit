@@ -317,6 +317,8 @@ func fromDAG(row sqlc.TaskDag) DAG {
 		Status:      row.Status,
 		CreatedBy:   row.CreatedBy,
 		Metadata:    row.Metadata,
+		Trigger:     row.Trigger,
+		CronExpr:    row.CronExpr,
 		StartedAt:   timestampPtr(row.StartedAt),
 		FinishedAt:  timestampPtr(row.FinishedAt),
 		CreatedAt:   timeValue(row.CreatedAt),

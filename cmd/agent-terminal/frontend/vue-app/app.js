@@ -2,12 +2,9 @@ import { ref, reactive, computed, onMounted, onBeforeUnmount, watch } from '../l
 import { callAPI, getBuildInfo, onBridgeEvent, onAppWillQuit } from './services/api.js';
 import { SidebarNav } from './components/SidebarNav.js';
 import { ProjectModal } from './components/ProjectModal.js';
-import { DagDetailModal } from './components/DagDetailModal.js';
 import { DagsPage } from './pages/DagsPage.js';
-import { useDagDetail } from './composables/useDagDetail.js';
 import { UnifiedChatPage } from './pages/UnifiedChatPage.js';
 import { ensureThreadSelectionFresh, isStaleThreadSelectionError, requestHistoryLoad } from './utils/thread-page-utils.js';
-import { DataPage } from './pages/DataPage.js';
 import { SkillsPage } from './pages/SkillsPage.js';
 import { TasksPage } from './pages/TasksPage.js';
 import { CommandsPage } from './pages/CommandsPage.js';
@@ -42,12 +39,6 @@ const NAV_ITEMS = Object.freeze([
 
 const AGENTS_FIELDS = Object.freeze([
   { key: 'agent_id', label: 'Agent' },
-  { key: 'status', label: '状态' },
-  { key: 'updated_at', label: '更新时间' },
-]);
-
-const DAGS_FIELDS = Object.freeze([
-  { key: 'dag_key', label: 'DAG' },
   { key: 'status', label: '状态' },
   { key: 'updated_at', label: '更新时间' },
 ]);
@@ -168,21 +159,11 @@ function applyMemoryCenterSnapshot(state, snapshot) {
 export function routeDagBridgeEvent(method, eventType, payload, deps) {
   const key = (method || eventType || '').toString().trim().toLowerCase();
   if (key !== 'task/node/statuschanged') return;
-  deps?.dagDetail?.handleStatusEvent?.(payload || {});
   if (deps?.page?.value === 'dags') {
     deps.refreshDashboardByPage?.('dags').catch((err) => {
       console.warn('refresh dag list after node event failed', err);
     });
   }
-}
-
-export function openChatFromDagNode({ turnId, assignedTo }, deps) {
-  const trimmed = (turnId || '').toString().trim();
-  if (trimmed && typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
-    navigator.clipboard.writeText(trimmed).catch(() => {});
-  }
-  if (deps?.page) deps.page.value = 'chat';
-  return { turnId: trimmed, assignedTo: (assignedTo || '').toString().trim() };
 }
 
 async function refreshRuntimeConfigState(runtimeConfig) {
@@ -359,7 +340,6 @@ export const AppRoot = {
     SidebarNav,
     ProjectModal,
     UnifiedChatPage,
-    DataPage,
     DagsPage,
     SkillsPage,
     TasksPage,
@@ -401,6 +381,9 @@ export const AppRoot = {
       memory: [],
       finalOutputRefs: [],
       sharedFileRetention: { items: [], protectedCount: 0, cleanupCandidateCount: 0 },
+    });
+    const dashboardRequest = reactive({
+      dags: { loading: false, error: '' },
     });
     const memoryCenter = reactive({
       loading: false,
@@ -451,12 +434,24 @@ export const AppRoot = {
 
     async function refreshDashboardByPage(/** @type {AppPage} */ targetPage) {
       if (targetPage === 'chat' || targetPage === 'settings' || targetPage === 'memory-center') return;
-      const cwd = (threadScopeCwd.value || '').toString().trim();
-      if (dashboardPageRequiresCwd(targetPage) && !cwd) {
-        throw new Error(`dashboard ${targetPage} cwd is required`);
+      const request = targetPage === 'dags' ? dashboardRequest.dags : null;
+      if (request) {
+        request.loading = true;
+        request.error = '';
       }
-      const res = await callAPI('ui/dashboard/get', cwd ? { page: targetPage, cwd } : { page: targetPage });
-      applyDashboardPagePayload(dashboard, res);
+      const cwd = (threadScopeCwd.value || '').toString().trim();
+      try {
+        if (dashboardPageRequiresCwd(targetPage) && !cwd) {
+          throw new Error(`dashboard ${targetPage} cwd is required`);
+        }
+        const res = await callAPI('ui/dashboard/get', cwd ? { page: targetPage, cwd } : { page: targetPage });
+        applyDashboardPagePayload(dashboard, res);
+      } catch (error) {
+        if (request) request.error = (error?.message || String(error) || 'dashboard refresh failed').toString();
+        throw error;
+      } finally {
+        if (request) request.loading = false;
+      }
     }
 
     async function refreshMemoryCenter() {
@@ -489,7 +484,7 @@ export const AppRoot = {
             refreshDashboardByPage('skills').catch((error) => { console.warn('refresh page failed: skills', error); });
           }
         }
-        routeDagBridgeEvent(method, eventType, payload, { page, refreshDashboardByPage, dagDetail });
+        routeDagBridgeEvent(method, eventType, payload, { page, refreshDashboardByPage });
       });
       unsubscribeAppWillQuit = onAppWillQuit(() => {
         isExiting.value = true;
@@ -593,8 +588,6 @@ export const AppRoot = {
       if (refreshTimer) clearInterval(refreshTimer);
     });
 
-    const dagDetail = useDagDetail();
-    const openDagChat = (/** @type {any} */ ev) => openChatFromDagNode(ev, { page });
     return {
       NAV_ITEMS,
       SHARED_FILES_TIPS,
@@ -606,9 +599,9 @@ export const AppRoot = {
       threadStore,
       buildInfo,
       dashboard,
+      dashboardRequest,
       memoryCenter,
       agentsFields: AGENTS_FIELDS,
-      dagsFields: DAGS_FIELDS,
       taskAckFields: TASK_ACK_FIELDS,
       taskTraceFields: TASK_TRACE_FIELDS,
       commandFields: COMMAND_FIELDS,
@@ -626,8 +619,6 @@ export const AppRoot = {
       refreshDashboardByPage,
       refreshMemoryCenter,
       runCommandCard,
-      dagDetail,
-      openDagChat,
     };
   },
   template: `
@@ -660,8 +651,8 @@ export const AppRoot = {
         <DagsPage
           v-else-if="page === 'dags'"
           :items="dashboard.dags"
-          :fields="dagsFields"
-          @select="dagDetail.open"
+          :loading="dashboardRequest.dags.loading"
+          :error="dashboardRequest.dags.error"
         />
 
         <TasksPage
@@ -717,21 +708,6 @@ export const AppRoot = {
       </main>
 
       <ProjectModal :store="projectStore" />
-      <DagDetailModal
-        :show="dagDetail.state.show"
-        :loading="dagDetail.state.loading"
-        :error="dagDetail.state.error"
-        :dag="dagDetail.state.dag"
-        :nodes="dagDetail.state.nodes"
-        :runs="dagDetail.state.runs"
-        :run="dagDetail.state.run"
-        :final-output="dagDetail.state.finalOutput"
-        :saving-node-key="dagDetail.state.savingNodeKey"
-        :save-error="dagDetail.state.saveError"
-        @close="dagDetail.close"
-        @update-node-status="(ev) => dagDetail.updateNodeStatus(ev.nodeKey, ev.status)"
-        @open-chat="openDagChat"
-      />
       <div class="app-exit-overlay" :class="{ active: isExiting }" aria-hidden="true">
         <div class="app-exit-overlay-inner">
           <img src="/vue-app/assets/exit-splash.png" alt="" class="app-exit-overlay-icon" />
