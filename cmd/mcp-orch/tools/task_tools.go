@@ -279,7 +279,7 @@ func listRunsRequestFromInput(in ListRunsInput) (contract.ListRunsRequest, error
 
 // HandleStartDAG 是 task_start_dag MCP 工具的 handler（T1.1）。
 // 骨架阶段：service.StartDAG 返回 ErrLifecycleNotImplemented，
-// MCP 客户端会收到结构化错误；T1.2 接通真实路径后返回 RunKey + Version。
+// MCP 客户端会收到结构化错误；T1.2 接通真实路径后返回 run_key + version。
 //
 // 错误转译（路线 N）：
 //   - ErrIdempotencyKeyExhausted → 中英双语提示 + 携带旧 RunKey + status，
