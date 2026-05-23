@@ -58,8 +58,8 @@ test('DAG console opens detail, starts runs, reads final output, and opens child
         nodes: [
           {
             node_key: 'collect',
-            title: 'Collect inputs',
-            status: 'succeeded',
+            title: 'Collect template',
+            status: 'pending',
             node_type: 'agent',
             config: {
               exec: {
@@ -68,7 +68,6 @@ test('DAG console opens detail, starts runs, reads final output, and opens child
                 agent_key: 'analyst',
               },
             },
-            spawning_thread_id: 'thread-child',
           },
         ],
       },
@@ -89,6 +88,48 @@ test('DAG console opens detail, starts runs, reads final output, and opens child
         },
       ],
     },
+    dagRunDetails: {
+      'run-file': {
+        run: {
+          run_key: 'run-file',
+          status: 'succeeded',
+          started_at: '2026-05-23 09:00:00',
+          metadata: { final_output: { kind: 'file', path: 'reports/final.md' } },
+        },
+        nodes: [
+          {
+            node_key: 'collect',
+            title: 'Collect inputs',
+            status: 'succeeded',
+            node_type: 'agent',
+            config: {
+              exec: {
+                provider: 'openai',
+                model: 'gpt-5',
+                agent_key: 'analyst',
+              },
+            },
+            spawning_thread_id: 'thread-child',
+          },
+        ],
+      },
+      'run-json': {
+        run: {
+          run_key: 'run-json',
+          status: 'succeeded',
+          started_at: '2026-05-23 08:00:00',
+          metadata: { final_output: { kind: 'json', result: { verdict: 'pass' } } },
+        },
+        nodes: [
+          {
+            node_key: 'collect',
+            title: 'Collect json',
+            status: 'done',
+            node_type: 'agent',
+          },
+        ],
+      },
+    },
     dagStart: {
       'daily-brief': {
         response: { runKey: 'run-started' },
@@ -98,6 +139,15 @@ test('DAG console opens detail, starts runs, reads final output, and opens child
           started_at: '2026-05-23 09:02:00',
           metadata: { final_output: { kind: 'text', text: 'started output' } },
         },
+        nodes: [
+          {
+            node_key: 'collect',
+            title: 'Collect started',
+            status: 'done',
+            node_type: 'agent',
+            spawning_thread_id: 'thread-child',
+          },
+        ],
       },
     },
   });
@@ -122,11 +172,13 @@ test('DAG console opens detail, starts runs, reads final output, and opens child
 
   await page.getByTestId('dag-run-history-row').filter({ hasText: 'run-json' }).click();
   await expect(page.getByTestId('dag-final-output-preview')).toContainText('"verdict": "pass"');
+  await expect(page.getByTestId('dag-node-list')).toContainText('Collect json');
 
   await expect(page.getByTestId('dag-start-button')).toBeEnabled();
   await page.getByTestId('dag-start-button').click();
   await expect(page.getByTestId('dag-run-history')).toContainText('run-started');
   await expect(page.getByTestId('dag-final-output-preview')).toContainText('started output');
+  await expect(page.getByTestId('dag-node-list')).toContainText('Collect started');
 
   await expect(page.getByTestId('dag-node-open-chat')).toContainText('thread-child');
   await page.getByTestId('dag-node-open-chat').click();
@@ -137,6 +189,7 @@ test('DAG console opens detail, starts runs, reads final output, and opens child
 
   await expect.poll(async () => (await readMethodCalls(page, 'dashboard/dagDetail')).length).toBeGreaterThanOrEqual(2);
   await expect.poll(async () => (await readMethodCalls(page, 'dashboard/dagRuns')).length).toBeGreaterThanOrEqual(2);
+  await expect.poll(async () => (await readMethodCalls(page, 'dashboard/dagRun')).length).toBeGreaterThanOrEqual(3);
   expect(await readMethodCalls(page, 'dashboard/dagStart')).toHaveLength(1);
   expect(await readMethodCalls(page, 'ui/memory/shared-file/get')).toHaveLength(1);
 });

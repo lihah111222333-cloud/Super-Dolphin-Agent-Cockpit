@@ -95,6 +95,10 @@ type dagRunsParams struct {
 	Limit  int32  `json:"limit,omitempty"`
 }
 
+type dagRunParams struct {
+	RunKey string `json:"runKey,omitempty"`
+}
+
 type dagStartParams struct {
 	DAGKey         string `json:"dagKey,omitempty"`
 	TriggerSource  string `json:"triggerSource,omitempty"`
@@ -155,6 +159,8 @@ type dagDetailResponse struct {
 type dagRunsResponse struct {
 	Runs []contract.Run `json:"runs"`
 }
+
+type dagRunResponse = contract.GetRunResponse
 
 type dagStartResponse struct {
 	RunKey  string `json:"runKey"`
@@ -305,6 +311,13 @@ func registerDashboardDAGHandlers(m handler.Map, svc Service) {
 			return nil, err
 		}
 		return dagRunsResponse{Runs: runs}, nil
+	})
+	m["dashboard/dagRun"] = platformrpc.StrictHandler(func(ctx context.Context, p dagRunParams) (any, error) {
+		resp, err := svc.GetDAGRun(ctx, p.RunKey)
+		if err != nil {
+			return nil, err
+		}
+		return dagRunResponse(resp), nil
 	})
 	m["dashboard/dagStart"] = platformrpc.StrictHandler(func(ctx context.Context, p dagStartParams) (any, error) {
 		resp, err := svc.StartDAG(ctx, p.DAGKey, p.TriggerSource, p.IdempotencyKey)

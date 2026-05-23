@@ -192,6 +192,39 @@ func TestListDAGRunsRequiresDAGKey(t *testing.T) {
 	}
 }
 
+func TestGetDAGRunUsesRuntimeNodes(t *testing.T) {
+	t.Parallel()
+
+	threadID := "thread-child"
+	svc := &service{
+		dagRuntime: &stubDashboardOrchestration{
+			getRunResult: contract.GetRunResponse{
+				Run: contract.Run{RunKey: "dag-1#run-1", DagKey: "dag-1", Status: "running"},
+				Nodes: []contract.DAGNode{{
+					NodeKey:          "node-1",
+					Status:           "running",
+					SpawningThreadID: &threadID,
+				}},
+			},
+		},
+	}
+
+	got, err := svc.GetDAGRun(context.Background(), " dag-1#run-1 ")
+	if err != nil {
+		t.Fatalf("GetDAGRun() error = %v", err)
+	}
+	stub := svc.dagRuntime.(*stubDashboardOrchestration)
+	if stub.getRunRequest.RunKey != "dag-1#run-1" {
+		t.Fatalf("GetRun() request = %#v", stub.getRunRequest)
+	}
+	if got.Run.RunKey != "dag-1#run-1" {
+		t.Fatalf("GetDAGRun().Run = %#v", got.Run)
+	}
+	if len(got.Nodes) != 1 || got.Nodes[0].SpawningThreadID == nil || *got.Nodes[0].SpawningThreadID != "thread-child" {
+		t.Fatalf("GetDAGRun().Nodes = %#v", got.Nodes)
+	}
+}
+
 func TestStartDAGUsesOrchestration(t *testing.T) {
 	t.Parallel()
 
@@ -265,6 +298,8 @@ type stubDashboardOrchestration struct {
 	listRunsErr      error
 	listRunsRequest  contract.ListRunsRequest
 	listRunsRequests []contract.ListRunsRequest
+	getRunResult     contract.GetRunResponse
+	getRunRequest    contract.GetRunRequest
 	startDAGRequest  contract.StartDAGRequest
 	startDAGResult   contract.StartDAGResponse
 	startDAGErr      error
@@ -355,8 +390,9 @@ func (s *stubDashboardOrchestration) StartDAG(_ context.Context, req contract.St
 	return s.startDAGResult, nil
 }
 
-func (s *stubDashboardOrchestration) GetRun(context.Context, contract.GetRunRequest) (contract.GetRunResponse, error) {
-	return contract.GetRunResponse{}, nil
+func (s *stubDashboardOrchestration) GetRun(_ context.Context, req contract.GetRunRequest) (contract.GetRunResponse, error) {
+	s.getRunRequest = req
+	return s.getRunResult, nil
 }
 
 func (s *stubDashboardOrchestration) ApplyOps(context.Context, contract.ApplyOpsRequest) (contract.ApplyOpsResponse, error) {
