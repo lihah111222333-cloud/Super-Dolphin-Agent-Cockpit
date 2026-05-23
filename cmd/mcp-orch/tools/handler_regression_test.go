@@ -90,6 +90,59 @@ func TestCreateDAGRequestFromInputMapsCreatedBy(t *testing.T) {
 	}
 }
 
+func TestHandleCreateDAGPreservesFinalNodeKey(t *testing.T) {
+	var got contract.CreateDAGRequest
+	handler := HandleCreateDAG(&golden.OrchestrationStub{
+		CreateDAGFunc: func(_ context.Context, req contract.CreateDAGRequest) (contract.DAGDetail, error) {
+			got = req
+			return contract.DAGDetail{}, nil
+		},
+	})
+
+	_, err := handler(context.Background(), json.RawMessage(`{
+		"agent_id":"designer-1",
+		"dag_key":"dag-final",
+		"title":"Daily final output",
+		"schedule":{"trigger":"manual"},
+		"final_node_key":" delivery_writer ",
+		"nodes":[
+			{"node_key":"source_monitor","title":"Source monitor"},
+			{"node_key":"delivery_writer","title":"Delivery writer","depends_on":["source_monitor"]}
+		]
+	}`))
+	if err != nil {
+		t.Fatalf("HandleCreateDAG() error = %v", err)
+	}
+	var metadata map[string]any
+	if err := json.Unmarshal(got.Metadata, &metadata); err != nil {
+		t.Fatalf("unmarshal metadata: %v raw=%s", err, string(got.Metadata))
+	}
+	if metadata["final_node_key"] != "delivery_writer" {
+		t.Fatalf("metadata.final_node_key = %v, want delivery_writer (metadata=%v)", metadata["final_node_key"], metadata)
+	}
+}
+
+func TestHandleCreateDAGRejectsUnknownFinalNodeKey(t *testing.T) {
+	handler := HandleCreateDAG(&golden.OrchestrationStub{
+		CreateDAGFunc: func(context.Context, contract.CreateDAGRequest) (contract.DAGDetail, error) {
+			t.Fatal("CreateDAG should not be called for unknown final_node_key")
+			return contract.DAGDetail{}, nil
+		},
+	})
+
+	_, err := handler(context.Background(), json.RawMessage(`{
+		"agent_id":"designer-1",
+		"dag_key":"dag-final",
+		"title":"Daily final output",
+		"schedule":{"trigger":"manual"},
+		"final_node_key":"missing_final",
+		"nodes":[{"node_key":"source_monitor","title":"Source monitor"}]
+	}`))
+	if err == nil || err.Error() != "final_node_key missing_final does not match any node_key" {
+		t.Fatalf("HandleCreateDAG() error = %v, want final_node_key validation", err)
+	}
+}
+
 func TestOrchestrationNilGuardsUseConsistentMessage(t *testing.T) {
 	handlers := []struct {
 		name    string
