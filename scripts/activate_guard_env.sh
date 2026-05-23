@@ -10,25 +10,11 @@ if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
   exit 1
 fi
 
-ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+ROOT_DIR="$(cd -- "${BASH_SOURCE[0]%/*}/.." && pwd)"
 WRAPPER_GO="$ROOT_DIR/scripts/go"
-GLOBAL_GO_WRAPPER="${GLOBAL_GO_WRAPPER:-}"
+source "$ROOT_DIR/scripts/real_go_resolver.sh"
 
-resolve_real_go() {
-  local candidate
-  while IFS= read -r candidate; do
-    [[ -n "$candidate" ]] || continue
-    if [[ "$candidate" != "$WRAPPER_GO" && "$candidate" != "$GLOBAL_GO_WRAPPER" ]]; then
-      printf '%s\n' "$candidate"
-      return 0
-    fi
-  done < <(which -a go 2>/dev/null || true)
-  return 1
-}
-
-REAL_GO_BIN_VALUE="$(resolve_real_go || true)"
-if [[ -z "$REAL_GO_BIN_VALUE" ]]; then
-  echo "❌ 未找到真实 go 二进制，无法激活守卫环境。" >&2
+if ! REAL_GO_BIN_VALUE="$(resolve_real_go)"; then
   return 1
 fi
 
