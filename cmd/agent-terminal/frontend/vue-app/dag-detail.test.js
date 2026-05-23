@@ -30,7 +30,7 @@ describe('useDagDetail', () => {
         expect(params).toEqual({ dagKey: 'dag-1' });
         return {
           dag: { dag_key: 'dag-1', title: 'Daily Brief' },
-          nodes: [{ node_key: 'report', title: 'Report' }],
+          nodes: [{ node_key: 'report', title: 'Report template', status: 'pending' }],
         };
       }
       if (method === 'dashboard/dagRuns') {
@@ -51,6 +51,30 @@ describe('useDagDetail', () => {
           }],
         };
       }
+      if (method === 'dashboard/dagRun') {
+        expect(params).toEqual({ runKey: 'run-1' });
+        return {
+          run: {
+            run_key: 'run-1',
+            dag_key: 'dag-1',
+            status: 'succeeded',
+            metadata: {
+              final_output: {
+                kind: 'file',
+                role: 'final_output',
+                path: 'reports/daily-brief.pptx',
+                source_node_key: 'report',
+              },
+            },
+          },
+          nodes: [{
+            node_key: 'report',
+            title: 'Report runtime',
+            status: 'succeeded',
+            spawning_thread_id: 'thread-child',
+          }],
+        };
+      }
       throw new Error(`unexpected method ${method}`);
     });
 
@@ -61,6 +85,11 @@ describe('useDagDetail', () => {
     expect(detail.state.loading).toBe(false);
     expect(detail.state.dag.title).toBe('Daily Brief');
     expect(detail.state.nodes).toHaveLength(1);
+    expect(detail.state.nodes[0]).toMatchObject({
+      title: 'Report runtime',
+      status: 'succeeded',
+      spawning_thread_id: 'thread-child',
+    });
     expect(detail.state.run.run_key).toBe('run-1');
     expect(detail.state.finalOutput).toEqual({
       kind: 'file',
@@ -96,7 +125,7 @@ describe('useDagDetail', () => {
   });
 
   it('selects a run and exposes that run final_output', async () => {
-    apiMock.callAPI.mockImplementation(async (method) => {
+    apiMock.callAPI.mockImplementation(async (method, params) => {
       if (method === 'dashboard/dagDetail') {
         return { dag: { dag_key: 'dag-1', title: 'Daily Brief' }, nodes: [] };
       }
@@ -114,6 +143,20 @@ describe('useDagDetail', () => {
           ],
         };
       }
+      if (method === 'dashboard/dagRun') {
+        if (params.runKey === 'run-new') {
+          return {
+            run: { run_key: 'run-new', metadata: { final_output: { kind: 'text', text: 'new result' } } },
+            nodes: [{ node_key: 'report', status: 'running' }],
+          };
+        }
+        if (params.runKey === 'run-old') {
+          return {
+            run: { run_key: 'run-old', metadata: { final_output: { kind: 'text', text: 'old result' } } },
+            nodes: [{ node_key: 'report', status: 'done', spawning_thread_id: 'thread-old' }],
+          };
+        }
+      }
       throw new Error(`unexpected method ${method}`);
     });
 
@@ -121,11 +164,12 @@ describe('useDagDetail', () => {
     await detail.open({ dag_key: 'dag-1' });
 
     expect(detail.state.selectedRunKey).toBe('run-new');
-    detail.selectRun('run-old');
+    await detail.selectRun('run-old');
 
     expect(detail.state.selectedRunKey).toBe('run-old');
     expect(detail.state.run.run_key).toBe('run-old');
     expect(detail.state.finalOutput).toEqual({ kind: 'text', text: 'old result' });
+    expect(detail.state.nodes[0]).toMatchObject({ status: 'done', spawning_thread_id: 'thread-old' });
   });
 
   it('starts a dag, refreshes detail and runs, and selects the returned run', async () => {
@@ -146,6 +190,16 @@ describe('useDagDetail', () => {
               metadata: { final_output: { kind: 'text', text: 'started result' } },
             },
           ],
+        };
+      }
+      if (method === 'dashboard/dagRun') {
+        const text = params.runKey === 'run-started' ? 'started result' : 'existing result';
+        return {
+          run: {
+            run_key: params.runKey,
+            metadata: { final_output: { kind: 'text', text } },
+          },
+          nodes: [{ node_key: 'report', status: params.runKey === 'run-started' ? 'done' : 'running' }],
         };
       }
       if (method === 'dashboard/dagStart') {
@@ -197,7 +251,7 @@ describe('useDagDetail', () => {
   it('does not expose a start error when post-start detail refresh fails', async () => {
     const refreshError = new Error('detail refresh failed');
     let detailCalls = 0;
-    apiMock.callAPI.mockImplementation(async (method) => {
+    apiMock.callAPI.mockImplementation(async (method, params) => {
       if (method === 'dashboard/dagDetail') {
         detailCalls += 1;
         if (detailCalls === 1) return { dag: { dag_key: 'dag-1', title: 'Daily Brief' }, nodes: [] };
@@ -265,7 +319,7 @@ describe('useDagDetail', () => {
   });
 
   it('normalizes final_output from a JSON metadata string', async () => {
-    apiMock.callAPI.mockImplementation(async (method) => {
+    apiMock.callAPI.mockImplementation(async (method, params) => {
       if (method === 'dashboard/dagDetail') {
         return { dag: { dag_key: 'dag-1', title: 'Daily Brief' }, nodes: [] };
       }
@@ -275,6 +329,16 @@ describe('useDagDetail', () => {
             run_key: 'run-1',
             metadata: '{"final_output":{"kind":"json","result":{"verdict":"pass"}}}',
           }],
+        };
+      }
+      if (method === 'dashboard/dagRun') {
+        expect(params).toEqual({ runKey: 'run-1' });
+        return {
+          run: {
+            run_key: 'run-1',
+            metadata: '{"final_output":{"kind":"json","result":{"verdict":"pass"}}}',
+          },
+          nodes: [{ node_key: 'report', status: 'done' }],
         };
       }
       throw new Error(`unexpected method ${method}`);
@@ -287,6 +351,41 @@ describe('useDagDetail', () => {
       kind: 'json',
       result: { verdict: 'pass' },
     });
+    expect(detail.state.runsError).toBeNull();
+    expect(detail.state.nodes[0]).toMatchObject({ node_key: 'report', status: 'done' });
+  });
+
+  it('surfaces malformed dag run detail without mixing stale run data', async () => {
+    apiMock.callAPI.mockImplementation(async (method) => {
+      if (method === 'dashboard/dagDetail') {
+        return {
+          dag: { dag_key: 'dag-1', title: 'Daily Brief' },
+          nodes: [{ node_key: 'report', status: 'pending' }],
+        };
+      }
+      if (method === 'dashboard/dagRuns') {
+        return {
+          runs: [{
+            run_key: 'run-1',
+            metadata: { final_output: { kind: 'text', text: 'list output' } },
+          }],
+        };
+      }
+      if (method === 'dashboard/dagRun') {
+        return { nodes: [{ node_key: 'report', status: 'done' }] };
+      }
+      throw new Error(`unexpected method ${method}`);
+    });
+
+    const detail = useDagDetail();
+    await detail.open({ dag_key: 'dag-1' });
+
+    expect(detail.state.selectedRunKey).toBe('run-1');
+    expect(detail.state.run).toBeNull();
+    expect(detail.state.finalOutput).toBeNull();
+    expect(detail.state.nodes).toEqual([]);
+    expect(detail.state.runsError).toBeInstanceOf(Error);
+    expect(detail.state.runsError.message).toContain('missing run');
   });
 
   it('ignores stale detail responses from earlier opens', async () => {

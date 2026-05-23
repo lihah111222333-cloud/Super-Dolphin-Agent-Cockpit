@@ -76,6 +76,17 @@ func (r *mcpOrchDAGRuntime) ListRuns(ctx context.Context, req contract.ListRunsR
 	return out, err
 }
 
+func (r *mcpOrchDAGRuntime) GetRun(ctx context.Context, req contract.GetRunRequest) (contract.GetRunResponse, error) {
+	var out contract.GetRunResponse
+	err := r.call(ctx, "task_get_run", map[string]any{
+		"run_key": strings.TrimSpace(req.RunKey),
+	}, &out)
+	if out.Nodes == nil {
+		out.Nodes = []contract.DAGNode{}
+	}
+	return out, err
+}
+
 func (r *mcpOrchDAGRuntime) call(ctx context.Context, toolName string, args any, out any) error {
 	if r == nil || r.tools == nil {
 		return errors.New("app: mcp-orch DAG runtime is not configured")

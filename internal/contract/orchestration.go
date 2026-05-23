@@ -48,6 +48,7 @@ type DAGRuntime interface {
 	ListDAGs(ctx context.Context, filter ListDAGsFilter) ([]DAGSummary, error)
 	StartDAG(ctx context.Context, req StartDAGRequest) (StartDAGResponse, error)
 	ListRuns(ctx context.Context, req ListRunsRequest) (ListRunsResponse, error)
+	GetRun(ctx context.Context, req GetRunRequest) (GetRunResponse, error)
 }
 
 // OrchestrationService defines the shared orchestration boundary used by
