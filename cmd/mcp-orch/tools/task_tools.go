@@ -25,12 +25,13 @@ var (
 )
 
 type CreateDAGInput struct {
-	AgentID     string               `json:"agent_id"`
-	DagKey      string               `json:"dag_key"`
-	Title       string               `json:"title"`
-	Description string               `json:"description,omitempty"`
-	Schedule    DAGScheduleInput     `json:"schedule"`
-	Nodes       []CreateDAGNodeInput `json:"nodes,omitempty"`
+	AgentID      string               `json:"agent_id"`
+	DagKey       string               `json:"dag_key"`
+	Title        string               `json:"title"`
+	Description  string               `json:"description,omitempty"`
+	Schedule     DAGScheduleInput     `json:"schedule"`
+	FinalNodeKey string               `json:"final_node_key,omitempty"`
+	Nodes        []CreateDAGNodeInput `json:"nodes,omitempty"`
 }
 
 type DAGScheduleInput struct {
@@ -476,6 +477,7 @@ func createDAGSchema() Schema {
 			"max_concurrency":     IntegerSchema("Maximum parallel runnable nodes."),
 			"queue_policy":        StringSchema("Ready-queue policy."),
 		}),
+		"final_node_key": StringSchema("Optional node_key that produces the run-level final_output."),
 		"nodes": ArraySchema(ObjectSchema(map[string]Schema{
 			"node_key":    StringSchema("Unique node key within the DAG."),
 			"title":       StringSchema("Node title."),
@@ -509,11 +511,15 @@ func createDAGRequestFromInput(in CreateDAGInput) (contract.CreateDAGRequest, er
 	if err != nil {
 		return contract.CreateDAGRequest{}, err
 	}
-	metadata, err := encodeJSONRaw(createDAGMetadata(in.Schedule))
+	nodes, err := createDAGNodesFromInput(in.Nodes)
 	if err != nil {
 		return contract.CreateDAGRequest{}, err
 	}
-	nodes, err := createDAGNodesFromInput(in.Nodes)
+	finalNodeKey, err := normalizeFinalNodeKey(in.FinalNodeKey, nodes)
+	if err != nil {
+		return contract.CreateDAGRequest{}, err
+	}
+	metadata, err := encodeJSONRaw(createDAGMetadata(in.Schedule, finalNodeKey))
 	if err != nil {
 		return contract.CreateDAGRequest{}, err
 	}
@@ -593,8 +599,25 @@ func updateNodeRequestFromInput(in UpdateNodeInput) (contract.UpdateNodeStatusRe
 // 旧版 metadata 字段 (S15.1 删除 / migrations/0075_dag_v2_compat.sql 迁移) 不再处理：
 // 数据库老行已一次性映射到 trigger 一等字段，tools 入参 schema 不再接受，
 // 调用方如果传入会被忽略（向后兼容）。
-func createDAGMetadata(schedule DAGScheduleInput) map[string]any {
-	return map[string]any{"schedule": scheduleMap(schedule)}
+func createDAGMetadata(schedule DAGScheduleInput, finalNodeKey string) map[string]any {
+	metadata := map[string]any{"schedule": scheduleMap(schedule)}
+	if finalNodeKey != "" {
+		metadata["final_node_key"] = finalNodeKey
+	}
+	return metadata
+}
+
+func normalizeFinalNodeKey(raw string, nodes []contract.CreateDAGNodeRequest) (string, error) {
+	finalNodeKey := strings.TrimSpace(raw)
+	if finalNodeKey == "" {
+		return "", nil
+	}
+	for _, node := range nodes {
+		if node.NodeKey == finalNodeKey {
+			return finalNodeKey, nil
+		}
+	}
+	return "", fmt.Errorf("final_node_key %s does not match any node_key", finalNodeKey)
 }
 
 func nodeConfig(execution *DAGExecutionInput) map[string]any {
