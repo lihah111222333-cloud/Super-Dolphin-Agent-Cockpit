@@ -13,6 +13,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	skillidentity "github.com/anthropic-ai/super-agent-v3/internal/module/skill/identity"
 	"gopkg.in/yaml.v3"
 )
 
@@ -255,6 +256,18 @@ func parseMetaLine(line string) (string, string, bool) {
 var metaScalarAppliers = map[string]func(*SkillInfo, string){
 	"name": func(info *SkillInfo, value string) {
 		info.Name = parseScalar(value)
+	},
+	"display_name": func(info *SkillInfo, value string) {
+		info.DisplayName = parseScalar(value)
+	},
+	"display-name": func(info *SkillInfo, value string) {
+		info.DisplayName = parseScalar(value)
+	},
+	"displayname": func(info *SkillInfo, value string) {
+		info.DisplayName = parseScalar(value)
+	},
+	"title": func(info *SkillInfo, value string) {
+		info.DisplayName = parseScalar(value)
 	},
 	"description": func(info *SkillInfo, value string) {
 		info.Description = parseScalar(value)
@@ -603,27 +616,4 @@ func upsertSkillSummary(content, summary string) string {
 	return strings.Join([]string{"---", strings.Join(next, "\n"), "---", body}, "\n")
 }
 
-func skillSlug(name string) string {
-	name = strings.TrimSpace(name)
-	if name == "" {
-		return "skill"
-	}
-	var b strings.Builder
-	lastDash := false
-	for _, r := range strings.ToLower(name) {
-		switch {
-		case unicode.IsLetter(r) || unicode.IsDigit(r):
-			b.WriteRune(r)
-			lastDash = false
-		case lastDash:
-		default:
-			b.WriteRune('-')
-			lastDash = true
-		}
-	}
-	slug := strings.Trim(b.String(), "-")
-	if slug == "" {
-		return "skill"
-	}
-	return slug
-}
+func skillSlug(name string) string { return skillidentity.Slug(name) }

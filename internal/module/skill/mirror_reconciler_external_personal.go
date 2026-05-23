@@ -28,6 +28,7 @@ func useProjectSharedForExternalPersonal(ctx context.Context, svc *service, req 
 	if err != nil {
 		return report, err
 	}
+	report.Name = record.Name
 	sourceDir, _, preview, err := externalPersonalProjectSource(svc, req)
 	if err != nil {
 		return report, err
@@ -48,8 +49,8 @@ func useProjectSharedForExternalPersonal(ctx context.Context, svc *service, req 
 			return report, err
 		}
 	}
-	markExternalPersonalProjectMirrorPublish(ctx, svc, skillScopeProject, "", req.Name, &report)
-	svc.publishSkillsChanged(ctx, req.Action, req.Name, skillScopeProject)
+	markExternalPersonalProjectMirrorPublish(ctx, svc, skillScopeProject, "", record.Name, &report)
+	svc.publishSkillsChanged(ctx, req.Action, record.Name, skillScopeProject)
 	return report, nil
 }
 
@@ -59,6 +60,7 @@ func useExternalForExternalPersonalProject(ctx context.Context, svc *service, re
 	if err != nil {
 		return report, err
 	}
+	report.Name = record.Name
 	sourceDir, _, preview, err := externalPersonalProjectSource(svc, req)
 	if err != nil {
 		return report, err
@@ -74,8 +76,8 @@ func useExternalForExternalPersonalProject(ctx context.Context, svc *service, re
 		return report, err
 	}
 	report.ResultingHash = hash
-	markExternalPersonalProjectMirrorPublish(ctx, svc, skillScopeProject, "", req.Name, &report)
-	svc.publishSkillsChanged(ctx, req.Action, req.Name, skillScopeProject)
+	markExternalPersonalProjectMirrorPublish(ctx, svc, skillScopeProject, "", record.Name, &report)
+	svc.publishSkillsChanged(ctx, req.Action, record.Name, skillScopeProject)
 	return report, nil
 }
 
@@ -163,7 +165,7 @@ func saveExternalPersonalProjectSameNameAsPersonal(ctx context.Context, svc *ser
 	if err := replaceSkillDirFromMirror(sourceDir, targetDir); err != nil {
 		return report, err
 	}
-	if err := rewriteCopiedSkillName(targetDir, name); err != nil {
+	if err := rewriteCopiedSkillIdentity(targetDir, name, ""); err != nil {
 		return report, err
 	}
 	if err := os.RemoveAll(sourceDir); err != nil {
@@ -201,7 +203,7 @@ func externalPersonalProjectCanonicalRecord(ctx context.Context, svc *service, r
 	if err != nil {
 		return canonicalSkillRecord{}, err
 	}
-	name, err := validateSkillName(req.Name)
+	name, _, err := normalizeSkillIdentityName(req.Name, "")
 	if err != nil {
 		return canonicalSkillRecord{}, err
 	}

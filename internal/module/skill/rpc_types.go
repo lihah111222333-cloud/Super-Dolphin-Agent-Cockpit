@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
+	"github.com/anthropic-ai/super-agent-v3/internal/module/skill/mirrorpath"
 	platformrpc "github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
 )
 
@@ -485,7 +486,7 @@ func renameSameNameSource(source skillResolutionSource, targetDir, newName strin
 	if err := ensureProviderSkillDirSafe(dir); err != nil {
 		return "", err
 	}
-	if err := rejectSymlinkAncestors(filepath.Dir(targetDir)); err != nil {
+	if err := mirrorpath.RejectSymlinkAncestors(filepath.Dir(targetDir)); err != nil {
 		return "", err
 	}
 	if _, err := os.Stat(targetDir); err == nil {
@@ -499,7 +500,7 @@ func renameSameNameSource(source skillResolutionSource, targetDir, newName strin
 	if err := os.Rename(dir, targetDir); err != nil {
 		return "", err
 	}
-	if err := rewriteCopiedSkillName(targetDir, newName); err != nil {
+	if err := rewriteCopiedSkillIdentity(targetDir, newName, ""); err != nil {
 		_ = os.Rename(targetDir, dir)
 		return "", err
 	}

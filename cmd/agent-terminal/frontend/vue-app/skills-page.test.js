@@ -262,7 +262,7 @@ describe('SkillsPage', () => {
     expect(vm.skillFiles.value).toEqual([]);
     expect(vm.activeSkillFilePath.value).toBe('');
     expect(vm.form).toEqual({
-      name: '',
+      name: '', displayName: '',
       description: '',
       summary: '',
       triggerWordsText: '',

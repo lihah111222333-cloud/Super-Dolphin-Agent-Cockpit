@@ -3,6 +3,8 @@ package skill
 import (
 	"context"
 	"strings"
+
+	skillidentity "github.com/anthropic-ai/super-agent-v3/internal/module/skill/identity"
 )
 
 type matchItem struct {
@@ -50,7 +52,7 @@ func (s *service) newSkillsAutoMatchCollector(ctx context.Context) func(string, 
 			return nil, err
 		}
 		prompt := strings.ToLower(strings.TrimSpace(joinMatchText(text, input)))
-		matches, err := s.collectConfiguredAutoMatchedSkills(ctx, resolvedID)
+		matches, err := s.collectConfiguredAutoMatchedSkills(ctx, resolvedID, skills)
 		if err != nil {
 			return nil, err
 		}
@@ -59,7 +61,7 @@ func (s *service) newSkillsAutoMatchCollector(ctx context.Context) func(string, 
 	}
 }
 
-func (s *service) collectConfiguredAutoMatchedSkills(ctx context.Context, resolvedID string) ([]autoMatchedSkill, error) {
+func (s *service) collectConfiguredAutoMatchedSkills(ctx context.Context, resolvedID string, skills []SkillInfo) ([]autoMatchedSkill, error) {
 	resolvedID = strings.TrimSpace(resolvedID)
 	if resolvedID == "" {
 		return nil, nil
@@ -71,6 +73,9 @@ func (s *service) collectConfiguredAutoMatchedSkills(ctx context.Context, resolv
 	// TODO(P7): replace config-read derived matches with a provider-backed matcher once provider context can express explicit vs force configured bindings.
 	items := make([]autoMatchedSkill, 0)
 	for _, name := range configuredSkillNames(config) {
+		if canonicalName, ok := skillidentity.CanonicalNameForAlias(name, skills); ok {
+			name = canonicalName
+		}
 		items = append(items, autoMatchedSkill{Name: name, MatchedBy: "configured"})
 	}
 	return items, nil
@@ -162,8 +167,13 @@ func classifySkillMatch(prompt string, skill SkillInfo) (string, []string) {
 }
 
 func explicitTerms(prompt string, skill SkillInfo) []string {
-	explicit := make([]string, 0)
-	for _, term := range matchedTerms(prompt, []string{"@" + skill.Name, "[skill:" + skill.Name + "]"}) {
+	aliases := skillidentity.Aliases(skill.Name, skill.DisplayName)
+	candidates := make([]string, 0, len(aliases)*2)
+	for _, alias := range aliases {
+		candidates = append(candidates, "@"+alias, "[skill:"+alias+"]")
+	}
+	explicit := make([]string, 0, len(candidates))
+	for _, term := range matchedTerms(prompt, candidates) {
 		lower := strings.ToLower(strings.TrimSpace(term))
 		if strings.HasPrefix(lower, "@") || strings.HasPrefix(lower, "[skill:") {
 			explicit = append(explicit, term)

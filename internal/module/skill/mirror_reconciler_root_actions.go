@@ -6,6 +6,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/anthropic-ai/super-agent-v3/internal/module/skill/mirrorpath"
 )
 
 func replaceProviderRootSymlink(ctx context.Context, svc *service, req SkillMirrorResolutionRequest) (SkillMirrorResolutionReport, error) {
@@ -16,7 +18,7 @@ func replaceProviderRootSymlink(ctx context.Context, svc *service, req SkillMirr
 	if err := validateSkillMirrorTarget(req.Target); err != nil {
 		return report, err
 	}
-	if err := rejectSymlinkAncestors(filepath.Dir(req.Target.Root)); err != nil {
+	if err := mirrorpath.RejectSymlinkAncestors(filepath.Dir(req.Target.Root)); err != nil {
 		return report, err
 	}
 	linkTarget, previewHash, err := verifyProviderRootSymlinkPreview(svc, req)

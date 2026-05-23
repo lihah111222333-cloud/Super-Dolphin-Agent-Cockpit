@@ -6,9 +6,9 @@ import (
 	"fmt"
 	"path/filepath"
 	"strings"
-	"unicode"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
+	skillidentity "github.com/anthropic-ai/super-agent-v3/internal/module/skill/identity"
 	"github.com/anthropic-ai/super-agent-v3/internal/util/pathutil"
 	"github.com/anthropic-ai/super-agent-v3/internal/util/repofingerprint"
 )
@@ -19,32 +19,20 @@ var ErrInvalidSkillName = errors.New("invalid skill name")
 //go:embed all:embedded_skills
 var builtInSkillFS embed.FS
 
-// validateSkillName 统一校验 skill name 标识符合法性。通过返回规范化后的名字（剥除首尾空白）、
-// 不通过时返回 ErrInvalidSkillName 包装的错误。调用点：
-//   - ReadLocal 的 name-based 入口会先调用，path-based 入口走 resolveSkillPath。
-//   - 写入、导入、删除、匹配预览等 host 参数射来的 name 亦应经此关。
-//
-// 白名单：Unicode letter/digit + '-' + '_'，长度上限 64 rune，首字符必须是
-// Unicode letter/digit（不能以 '-' 或 '_' 开头）。
-func isValidSkillRune(r rune) bool {
-	if unicode.IsLetter(r) || unicode.IsDigit(r) {
-		return true
+// validateSkillName keeps runtime skill identifiers strict.
+func validateSkillName(name string) (string, error) {
+	if normalized, ok := skillidentity.ValidateName(name); ok {
+		return normalized, nil
 	}
-	return r == '-' || r == '_' || r == ' '
+	return "", ErrInvalidSkillName
 }
 
-func validateSkillName(name string) (string, error) {
-	name = strings.TrimSpace(name)
-	runes := []rune(name)
-	if len(runes) == 0 || len(runes) > 64 || (!unicode.IsLetter(runes[0]) && !unicode.IsDigit(runes[0])) {
-		return "", ErrInvalidSkillName
+func normalizeSkillIdentityName(name, displayName string) (string, string, error) {
+	normalizedName, normalizedDisplay, ok := skillidentity.Normalize(name, displayName)
+	if !ok {
+		return "", "", ErrInvalidSkillName
 	}
-	for _, r := range runes {
-		if !isValidSkillRune(r) {
-			return "", ErrInvalidSkillName
-		}
-	}
-	return name, nil
+	return normalizedName, normalizedDisplay, nil
 }
 
 // ============================================================================
