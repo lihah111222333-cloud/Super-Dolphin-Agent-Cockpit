@@ -136,6 +136,29 @@ func TestPromptTemplateExpertConsolidationRollbackRestoresDeletedSnapshotsWithou
 	requireExpertConsolidationWhenToUseContains(t, ctx, conn, "main/code-task", []string{"original when main/code-task"})
 }
 
+func TestPromptTemplateExpertConsolidationWithNullColumns(t *testing.T) {
+	ctx, conn, schema := setupPromptTemplateCleanupMigrationTest(t)
+
+	// Insert templates with explicit NULL values for variables, tags, and match_when
+	_, err := conn.Exec(ctx, `
+INSERT INTO prompt_templates (
+    prompt_key, title, agent_key, prompt_text, variables, tags, match_when,
+    enabled, manually_edited, created_by, updated_by
+) VALUES ($1, $1, 'main', $2, NULL, NULL, NULL, TRUE, FALSE, $3, $4)
+`, "main/code-generate", "prompt text code-generate", "system.seed", "system.seed")
+	if err != nil {
+		t.Fatalf("failed to insert template with NULLs: %v", err)
+	}
+
+	insertExpertConsolidationTemplate(t, ctx, conn, "main/code-task", "system.seed", "system.seed", false)
+
+	// Applying the migration should not raise NOT NULL constraint violations now
+	applyPromptTemplateExpertConsolidation0107(t, ctx, conn, schema)
+
+	// Verify that the duplicate template was successfully processed and deleted
+	requirePromptCleanupTemplateMissing(t, ctx, conn, "main/code-generate")
+}
+
 func applyPromptTemplateExpertConsolidation0107(t *testing.T, ctx context.Context, conn *pgx.Conn, schema string) {
 	t.Helper()
 
