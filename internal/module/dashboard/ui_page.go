@@ -172,7 +172,7 @@ func (s *service) buildDashboardDAGs(ctx context.Context, items []contract.DAGSu
 		index, item := index, item
 		out[index] = DashboardDAG{DAGSummary: item}
 		group.Go(func() error {
-			runs, err := s.ListDAGRuns(groupCtx, item.DagKey, 1)
+			runs, err := s.ListDAGRuns(groupCtx, item.DagKey, "", 1)
 			if err != nil {
 				return err
 			}
@@ -361,7 +361,7 @@ func (s *service) listDashboardFinalOutputRefs(ctx context.Context) ([]FinalOutp
 	for _, dag := range dags {
 		dag := dag
 		group.Go(func() error {
-			runs, runErr := s.ListDAGRuns(groupCtx, dag.DagKey, dashboardFinalOutputRunLimit)
+			runs, runErr := s.ListDAGRuns(groupCtx, dag.DagKey, "", dashboardFinalOutputRunLimit)
 			if runErr != nil {
 				return runErr
 			}

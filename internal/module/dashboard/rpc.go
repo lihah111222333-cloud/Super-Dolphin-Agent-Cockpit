@@ -93,6 +93,7 @@ type dagDetailParams struct {
 
 type dagRunsParams struct {
 	DAGKey string `json:"dagKey,omitempty"`
+	Status string `json:"status,omitempty"`
 	Limit  int32  `json:"limit,omitempty"`
 }
 
@@ -317,7 +318,7 @@ func registerDashboardDAGHandlers(m handler.Map, svc Service) {
 		return dagDetailResponse{DAG: detail.DAG, Nodes: detail.Nodes}, nil
 	})
 	m["dashboard/dagRuns"] = platformrpc.StrictHandler(func(ctx context.Context, p dagRunsParams) (any, error) {
-		runs, err := svc.ListDAGRuns(ctx, p.DAGKey, p.Limit)
+		runs, err := svc.ListDAGRuns(ctx, p.DAGKey, p.Status, p.Limit)
 		if err != nil {
 			return nil, err
 		}

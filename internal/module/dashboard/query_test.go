@@ -311,13 +311,13 @@ func assertDashboardDAGRuns(t *testing.T, server *platformrpc.Server, orchestrat
 	var runsResp struct {
 		Runs []contract.Run `json:"runs"`
 	}
-	if err := dispatchDashboardInto(server, "dashboard/dagRuns", `{"dagKey":"dag-1","limit":5}`, &runsResp); err != nil {
+	if err := dispatchDashboardInto(server, "dashboard/dagRuns", `{"dagKey":"dag-1","status":"running","limit":5}`, &runsResp); err != nil {
 		t.Fatalf("dispatch dag runs error = %v", err)
 	}
 	if orchestration.listRunsRequest.DagKey != "dag-1" {
 		t.Fatalf("ListRuns() dag key request = %#v", orchestration.listRunsRequest)
 	}
-	if orchestration.listRunsRequest.Limit != 5 {
+	if orchestration.listRunsRequest.Status != "running" || orchestration.listRunsRequest.Limit != 5 {
 		t.Fatalf("ListRuns() request = %#v", orchestration.listRunsRequest)
 	}
 	if len(runsResp.Runs) != 1 {

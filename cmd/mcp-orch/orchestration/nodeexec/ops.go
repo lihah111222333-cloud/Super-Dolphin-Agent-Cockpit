@@ -56,8 +56,8 @@ type NodeSpec struct {
 	Config    json.RawMessage `json:"config,omitempty"` // 由 ParseNodeConfig 解码（S5.2）
 }
 
-// OpAddNode 加节点（draft/ready/running 状态都允许；
-// running 状态下 service 层会校验 depends_on 必须指向 done 节点——动态可重写约束）。
+// OpAddNode 加节点。draft/ready 下由 service 层持久化到模板；running/active run
+// 下当前先 fail-fast，等 runtime append 闭环后再恢复动态追加约束。
 type OpAddNode struct {
 	Node NodeSpec `json:"node"`
 }
