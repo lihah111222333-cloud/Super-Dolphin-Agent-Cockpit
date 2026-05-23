@@ -10,7 +10,7 @@
 - [DAG 改造实施计划](../../../plans/dag改造实施计划.md)：主线阶段状态、F/H 项进度、M3 dogfood、H14/H15 记录。
 - [DAG agent 节点 lifecycle 闭环 C-A 实施计划](../../../plans/dag-lifecycle-c-a-implementation.md)：C-A lifecycle 闭环计划及 C1/C2/C3/A1/A2 落地记录。
 - [DAG UI 决策台账](../../../plans/dag-ui-decision-ledger.md)：DAG UI 已锁边界、后续 UI 拍板入口和推荐顺序。
-- [DAG Console v1 实施计划](2026-05-23-dag-console-v1-narrow-plan.md)：下一阶段 U1 最小 UI/RPC 落地拆分，供 worktree + 子代理执行。
+- [DAG Console v1 实施计划](2026-05-23-dag-console-v1-narrow-plan.md)：U1 最小 UI/RPC 已落地并封口；后续只作为范围边界和验证清单。
 
 ## 契约与审计
 

@@ -1,7 +1,7 @@
 # DAG UI 决策台账
 
-> 日期：2026-05-14
-> 状态：UI 方案拍板前的总台账。本文只记录产品/UI 决策，不替代具体 implementation plan。
+> 日期：2026-05-14；2026-05-23 更新 U1 完成状态
+> 状态：UI 方案总台账。U1 DAG Console v1 已落地；本文只记录产品/UI 决策，不替代具体 implementation plan。
 > 适用范围：当前真实前端以 `cmd/agent-terminal/frontend/vue-app` 为准；`internal/ui/wails/frontend` 仍是嵌入壳/占位，不作为 DAG UI 设计源头。
 
 ## 1. 为什么单列本文
@@ -31,7 +31,7 @@ DAG 后端、C-A lifecycle、final_output、sharedfile、prompt_template-first �
 | UI-D6 | AI 帮你设计流程入口 | DAG 页放“AI 设计流程”按钮，点击后创建/切到新 thread，并注入 designer prompt 与可用资源列表；不在 DAG 页内做复杂 wizard。 | T8.1/T8.2 |
 | UI-D7 | 节点编辑表单范围 | v1 只做 typed schema 表单，先覆盖 agent 节点的 prompt/model/provider/inputs/outputs/depends_on；automation/hybrid 先只读或高级折叠。 | F8.1/F8.2 |
 | UI-D8 | 拓扑图技术路线 | v1 用 mermaid 只读拓扑 + 节点点击联动详情；拖拽编辑/d3/canvas 放后续。 | F9.1 |
-| UI-D9 | run 历史入口 | DAG 详情内置 Run History Panel，默认选最近 run；点击历史 run 后切换节点状态快照、final_output、事件/错误摘要。 | F10.1 |
+| UI-D9 | run 历史入口 | DAG 详情内置 Recent Runs Panel，默认选最近 run；点击历史 run 后切换 runtime 节点状态快照与 final_output。完整事件/错误摘要后置到 trace/error catalog。 | F10.1 |
 | UI-D10 | Shared Files 清理体验 | H15 做软删除/TTL 预览/批量清理；被 `final_output` 引用、pinned、running run 相关文件默认保护。删除前给 UI 可见确认和导出提示。 | H15 |
 | UI-D11 | final_output 通知入口 | v1 先在 DAG 详情和 Shared Files 展示；定时任务产品化时，通知/任务摘要里加“查看最终产物”链接，但不推送中间产物。 | H15/通知后续 |
 | UI-D12 | 错误信息人话翻译 | failure_class、ADR-006 size cap、caller identity、verdict_lost 等进入错误 catalog；节点详情展示“发生了什么 / 下一步怎么修”。 | H1/F12 |
@@ -54,7 +54,7 @@ DAG 后端、C-A lifecycle、final_output、sharedfile、prompt_template-first �
    先用本文收齐决策，再写一份 DAG Console v1 spec。只做设计，不改前端。
 
 2. **U1：DAG Console v1**
-   覆盖 T5/T6/T7/F10 的最小闭环：列表字段、详情节点列表、Start、子 thread 链接、最近 run/history、final_output 卡片。目标是“能看见、能启动、能追踪”。
+   已完成。覆盖 T5/T6/T7/F10 的最小闭环：列表字段、详情节点列表、Start、子 thread 链接、最近 run/history、final_output 卡片。目标是“能看见、能启动、能追踪”。实现落在本地 `main` 的 `fee60718`、`2912c602`、`66afaffb`、`f18bc138`，并由 merge `81f0893b` 封入主线；封口修正后，选中 run 的节点列表以 `dashboard/dagRun` / `task_get_run` 返回的 runtime nodes 为准，模板节点只作无 run fallback。
 
 3. **U2：AI 设计 + 用户微调闭环**
    覆盖 T8/F8/F9：AI 设计按钮、typed schema 表单、mermaid 拓扑、用户改一处 prompt 后 Start。目标是 Need 2 端到端。
@@ -69,6 +69,6 @@ DAG 后端、C-A lifecycle、final_output、sharedfile、prompt_template-first �
 
 - H14 已完成 final_output UI；F11 不再承担 final_output 高亮，只剩 sharedfile 锁可视化和中间产物体验深化。
 - H15 首切已把 final_output 引用文件纳入删除保护和 retention 元数据；还没有做 TTL 规则、批量清理、导出确认、pinned / running run 保护 UI。
-- Need 1 还缺 T7 列表字段和 F10 run 历史 UI 才算用户可见闭环。
+- Need 1 的用户可见闭环已由 U1 DAG Console v1 补齐：列表字段、详情、Start、节点进度、子 thread 链接、run history、final_output 卡片均已有前端与 e2e smoke 覆盖。
 - Need 2 的后端与 prompt_template seed 已基本到位，剩余主要是 T8/F8/F9 UI 设计与实现。
 - 旧 P10 的模板库/preview/lineage/cost preview、金融预设、大规模 UI、WS 实时事件、多人编辑冲突均已登记为非 v1 项；其中已被蓝图砍掉的旧 P8/P9/P12/P13 类能力，恢复时必须另立新 ADR/任务。
