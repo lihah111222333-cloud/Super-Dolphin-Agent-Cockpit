@@ -40,9 +40,20 @@ func ValidateLaunchCWD(cwd, parentID string) error {
 	return nil
 }
 
+// DAGRuntime is the narrow DAG read/start boundary used by the desktop app.
+// The app process does not embed mcp-orch; production adapters may satisfy this
+// by proxying to an active mcp-orch peer.
+type DAGRuntime interface {
+	GetDAG(ctx context.Context, dagKey string) (DAGDetail, error)
+	ListDAGs(ctx context.Context, filter ListDAGsFilter) ([]DAGSummary, error)
+	StartDAG(ctx context.Context, req StartDAGRequest) (StartDAGResponse, error)
+	ListRuns(ctx context.Context, req ListRunsRequest) (ListRunsResponse, error)
+}
+
 // OrchestrationService defines the shared orchestration boundary used by
 // internal modules and the MCP orchestration runtime.
 type OrchestrationService interface {
+	DAGRuntime
 	LaunchAgent(ctx context.Context, req LaunchRequest) error
 	ListAgents(ctx context.Context) ([]AgentSnapshot, error)
 	StopAgent(ctx context.Context, agentID string) error
@@ -57,11 +68,7 @@ type OrchestrationService interface {
 	RememberReportRequest(ctx context.Context, req RememberReportRequest) (RememberReportRequestResult, error)
 	HandleReportEvent(ctx context.Context, event ReportEvent) (ReportEventResult, error)
 	CreateDAG(ctx context.Context, req CreateDAGRequest) (DAGDetail, error)
-	GetDAG(ctx context.Context, dagKey string) (DAGDetail, error)
-	ListDAGs(ctx context.Context, filter ListDAGsFilter) ([]DAGSummary, error)
 	UpdateNodeStatus(ctx context.Context, req UpdateNodeStatusRequest) (DAGNode, error)
-	// StartDAG 触发 DAG 一次新执行（骨架阶段 stub，返回 ErrLifecycleNotImplemented）。
-	StartDAG(ctx context.Context, req StartDAGRequest) (StartDAGResponse, error)
 	// GetRun 按 run_key 查询单条 run（task_get_run MCP 工具承载点）。
 	// F6.5 后返回该 run 的 runtime nodes；task_get_dag 只读 DAG 模板节点。
 	// GetRun fetches a single run by run_key (backs the task_get_run MCP tool).
@@ -71,9 +78,6 @@ type OrchestrationService interface {
 	// ApplyOps 对 DAG 执行一组 typed ops (add/update/remove/update_dag) + base_version OCC。
 	// Ops 字段是 raw JSON（wire 格式），service 内部解码为 nodeexec.Ops。
 	ApplyOps(ctx context.Context, req ApplyOpsRequest) (ApplyOpsResponse, error)
-	// ListRuns 列出指定 DAG 的最近 run（dag_key 必填，可选 status / limit）。
-	// ListRuns lists recent runs for a DAG (dag_key required, optional status / limit).
-	ListRuns(ctx context.Context, req ListRunsRequest) (ListRunsResponse, error)
 	// DispatchNode 是 ADR-004 「无 assignee 就绪节点」的显式推进入口：
 	// 给粘在 ready / pending 无 assignee 状态的节点指派一个 assigned_to
 	// 后立即 enqueue 一条 wakeup，让 dispatcher 能指取跳 launch。

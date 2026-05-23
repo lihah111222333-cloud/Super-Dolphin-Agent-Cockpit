@@ -529,6 +529,52 @@ func TestDeleteUISharedFileAllowsUnreferencedSharedFile(t *testing.T) {
 	}
 }
 
+func TestDeleteUISharedFileUsesDAGRuntimeGuardWithoutOrchestration(t *testing.T) {
+	t.Parallel()
+
+	deleter := &recordingSharedFileDeleter{}
+	deps := memoryHandlerDeps{
+		SharedFilesDeleter: deleter,
+		DAGRuntime: &finalOutputOrchestrationStub{
+			dags: []contract.DAGSummary{{DagKey: "dag-1"}},
+			runs: []contract.Run{{
+				RunKey:   "run-1",
+				DagKey:   "dag-1",
+				Metadata: json.RawMessage(`{"final_output":{"kind":"file","path":"reports/final.md"}}`),
+			}},
+		},
+	}
+
+	deleted, err := deleteUISharedFile(context.Background(), deps, uiSharedFileDeleteParams{Path: "scratch/intermediate.md"})
+	if err != nil {
+		t.Fatalf("deleteUISharedFile() error = %v", err)
+	}
+	if !deleted {
+		t.Fatal("deleteUISharedFile() deleted = false, want true")
+	}
+	if deleter.calls != 1 {
+		t.Fatalf("Delete() calls = %d, want 1", deleter.calls)
+	}
+}
+
+func TestDeleteUISharedFileRequiresFinalOutputGuard(t *testing.T) {
+	t.Parallel()
+
+	deleter := &recordingSharedFileDeleter{}
+	deps := memoryHandlerDeps{SharedFilesDeleter: deleter}
+
+	deleted, err := deleteUISharedFile(context.Background(), deps, uiSharedFileDeleteParams{Path: "reports/final.md"})
+	if err == nil {
+		t.Fatal("deleteUISharedFile() error = nil, want missing final_output guard failure")
+	}
+	if deleted {
+		t.Fatal("deleteUISharedFile() deleted = true, want false")
+	}
+	if deleter.calls != 0 {
+		t.Fatalf("Delete() calls = %d, want 0", deleter.calls)
+	}
+}
+
 type stubSharedFileReader struct {
 	files map[string]sharedfilestore.SharedFile
 }

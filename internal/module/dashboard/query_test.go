@@ -87,6 +87,7 @@ func TestDashboardExtraHandlersRegistered(t *testing.T) {
 		"dashboard/dags",
 		"dashboard/dagDetail",
 		"dashboard/dagRuns",
+		"dashboard/dagStart",
 	} {
 		if _, ok := handlers[method]; !ok {
 			t.Fatalf("%s handler missing from %#v", method, handlers)
@@ -236,12 +237,14 @@ func TestDashboardDAGHandlersReturnData(t *testing.T) {
 		listRunsResult: contract.ListRunsResponse{
 			Runs: []contract.Run{{RunKey: "run-1", DagKey: "dag-1", Status: "succeeded"}},
 		},
+		startDAGResult: contract.StartDAGResponse{RunKey: "dag-1#run-ui", Version: 9},
 	}
 	server := newDashboardTestServer(t, &service{orchestration: orchestration})
 
 	assertDashboardDAGList(t, server, orchestration)
 	assertDashboardDAGDetail(t, server, orchestration)
 	assertDashboardDAGRuns(t, server, orchestration)
+	assertDashboardDAGStart(t, server, orchestration)
 }
 
 func assertDashboardDAGList(t *testing.T, server *platformrpc.Server, orchestration *stubDashboardOrchestration) {
@@ -317,6 +320,24 @@ func assertDashboardDAGRuns(t *testing.T, server *platformrpc.Server, orchestrat
 	}
 }
 
+func assertDashboardDAGStart(t *testing.T, server *platformrpc.Server, orchestration *stubDashboardOrchestration) {
+	t.Helper()
+
+	var startResp struct {
+		RunKey  string `json:"runKey"`
+		Version int64  `json:"version"`
+	}
+	if err := dispatchDashboardInto(server, "dashboard/dagStart", `{"dagKey":"dag-1","triggerSource":"manual","idempotencyKey":"ui-123"}`, &startResp); err != nil {
+		t.Fatalf("dispatch dag start error = %v", err)
+	}
+	if startResp.RunKey != "dag-1#run-ui" || startResp.Version != 9 {
+		t.Fatalf("dag start response = %#v", startResp)
+	}
+	if orchestration.startDAGRequest != (contract.StartDAGRequest{DagKey: "dag-1", TriggerSource: "manual", IdempotencyKey: "ui-123"}) {
+		t.Fatalf("StartDAG() request = %#v", orchestration.startDAGRequest)
+	}
+}
+
 func TestDashboardDAGHandlersReturnServiceNotAvailableWithoutOrchestration(t *testing.T) {
 	t.Parallel()
 
@@ -328,6 +349,10 @@ func TestDashboardDAGHandlersReturnServiceNotAvailableWithoutOrchestration(t *te
 
 	if err := dispatchDashboardInto(server, "dashboard/dagDetail", `{"dagKey":"dag-1"}`, &struct{}{}); err == nil || !strings.Contains(err.Error(), "service not available") {
 		t.Fatalf("dispatch dag detail error = %v, want service not available", err)
+	}
+
+	if err := dispatchDashboardInto(server, "dashboard/dagStart", `{"dagKey":"dag-1"}`, &struct{}{}); err == nil || !strings.Contains(err.Error(), "service not available") {
+		t.Fatalf("dispatch dag start error = %v, want service not available", err)
 	}
 }
 

@@ -445,7 +445,7 @@ func deleteUISharedFile(ctx context.Context, deps memoryHandlerDeps, req uiShare
 	if path == "" {
 		return false, publicValidationErr("path is required")
 	}
-	if err := ensureSharedFileDeleteAllowed(ctx, deps.Orchestration, path); err != nil {
+	if err := ensureSharedFileDeleteAllowed(ctx, sharedFileDeleteGuardRuntime(deps), path); err != nil {
 		return false, err
 	}
 	count, err := deps.SharedFilesDeleter.Delete(ctx, path)
@@ -460,11 +460,18 @@ const (
 	sharedFileDeleteGuardRunLimit int32 = 100
 )
 
-func ensureSharedFileDeleteAllowed(ctx context.Context, orchestration contract.OrchestrationService, path string) error {
-	if orchestration == nil {
-		return nil
+func sharedFileDeleteGuardRuntime(deps memoryHandlerDeps) contract.DAGRuntime {
+	if deps.DAGRuntime != nil {
+		return deps.DAGRuntime
 	}
-	protected, err := sharedFileReferencedByFinalOutput(ctx, orchestration, path)
+	return deps.Orchestration
+}
+
+func ensureSharedFileDeleteAllowed(ctx context.Context, dagRuntime contract.DAGRuntime, path string) error {
+	if dagRuntime == nil {
+		return publicValidationErr("shared file final_output delete guard is unavailable; retry after DAG orchestration is connected")
+	}
+	protected, err := sharedFileReferencedByFinalOutput(ctx, dagRuntime, path)
 	if err != nil {
 		return fmt.Errorf("check shared file final_output references: %w", err)
 	}
@@ -474,17 +481,17 @@ func ensureSharedFileDeleteAllowed(ctx context.Context, orchestration contract.O
 	return nil
 }
 
-func sharedFileReferencedByFinalOutput(ctx context.Context, orchestration contract.OrchestrationService, path string) (bool, error) {
+func sharedFileReferencedByFinalOutput(ctx context.Context, dagRuntime contract.DAGRuntime, path string) (bool, error) {
 	target := strings.TrimSpace(path)
 	if target == "" {
 		return false, nil
 	}
-	dags, err := listDAGsForDeleteGuard(ctx, orchestration)
+	dags, err := listDAGsForDeleteGuard(ctx, dagRuntime)
 	if err != nil {
 		return false, err
 	}
 	for _, dag := range dags {
-		protected, err := dagFinalOutputReferencesPath(ctx, orchestration, dag.DagKey, target)
+		protected, err := dagFinalOutputReferencesPath(ctx, dagRuntime, dag.DagKey, target)
 		if err != nil || protected {
 			return protected, err
 		}
@@ -492,8 +499,8 @@ func sharedFileReferencedByFinalOutput(ctx context.Context, orchestration contra
 	return false, nil
 }
 
-func listDAGsForDeleteGuard(ctx context.Context, orchestration contract.OrchestrationService) ([]contract.DAGSummary, error) {
-	dags, err := orchestration.ListDAGs(ctx, contract.ListDAGsFilter{Limit: sharedFileDeleteGuardDAGLimit})
+func listDAGsForDeleteGuard(ctx context.Context, dagRuntime contract.DAGRuntime) ([]contract.DAGSummary, error) {
+	dags, err := dagRuntime.ListDAGs(ctx, contract.ListDAGsFilter{Limit: sharedFileDeleteGuardDAGLimit})
 	if err != nil {
 		return nil, err
 	}
@@ -503,12 +510,12 @@ func listDAGsForDeleteGuard(ctx context.Context, orchestration contract.Orchestr
 	return dags, nil
 }
 
-func dagFinalOutputReferencesPath(ctx context.Context, orchestration contract.OrchestrationService, dagKey, target string) (bool, error) {
+func dagFinalOutputReferencesPath(ctx context.Context, dagRuntime contract.DAGRuntime, dagKey, target string) (bool, error) {
 	dagKey = strings.TrimSpace(dagKey)
 	if dagKey == "" {
 		return false, nil
 	}
-	runs, err := orchestration.ListRuns(ctx, contract.ListRunsRequest{
+	runs, err := dagRuntime.ListRuns(ctx, contract.ListRunsRequest{
 		DagKey: dagKey,
 		Limit:  sharedFileDeleteGuardRunLimit,
 	})
