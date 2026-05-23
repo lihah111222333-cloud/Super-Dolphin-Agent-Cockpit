@@ -281,6 +281,7 @@ function browserInstaller({
     },
     dagDetails: clone(asObject(source.dagDetails)) || {},
     dagRuns: clone(asObject(source.dagRuns)) || {},
+    dagRunDetails: clone(asObject(source.dagRunDetails)) || {},
     dagStart: clone(asObject(source.dagStart)) || {},
     prompts: clone(sourcePrompts.length > 0 ? sourcePrompts : defaultPromptRows()) || [],
     memoryCenter: clone(asObject(source.memoryCenter)) || {
@@ -678,6 +679,17 @@ function browserInstaller({
     return asArray(asObject(configured).runs);
   }
 
+  function dagRunDetailForKey(runKey) {
+    const key = (runKey || '').toString().trim();
+    if (!key) throw new Error('runKey is required');
+    const configured = requireConfiguredDag(state.dagRunDetails, key, 'dag run');
+    const detail = asObject(configured);
+    return {
+      run: clone(asObject(detail.run)),
+      nodes: clone(asArray(detail.nodes)),
+    };
+  }
+
   function applyLimit(items, limit) {
     const max = Number(limit);
     if (!Number.isFinite(max) || max <= 0) return items;
@@ -805,6 +817,9 @@ function browserInstaller({
           const dagKey = requireDagKey(params);
           return { runs: clone(applyLimit(dagRunsForKey(dagKey), params.limit)) };
         }
+        case 'dashboard/dagRun': {
+          return dagRunDetailForKey(params.runKey || params.run_key);
+        }
         case 'dashboard/dagStart': {
           const dagKey = requireDagKey(params);
           if (!(params.idempotencyKey || '').toString().trim()) {
@@ -815,6 +830,13 @@ function browserInstaller({
           if (run.run_key || run.runKey || run.key || run.id) {
             const current = dagRunsForKey(dagKey);
             state.dagRuns[dagKey] = [clone(run), ...current];
+            const runKey = (run.run_key || run.runKey || run.key || run.id).toString();
+            if (!state.dagRunDetails[runKey]) {
+              state.dagRunDetails[runKey] = {
+                run: clone(run),
+                nodes: clone(asArray(configured.nodes)),
+              };
+            }
           }
           return clone(asObject(configured.response));
         }
