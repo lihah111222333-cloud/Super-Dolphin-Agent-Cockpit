@@ -133,9 +133,10 @@ func RegisterDAGTurnCompletedSubscriber(
 //  3. For each node:
 //     a. Short-circuit if already terminal (race C / duplicate
 //     TurnCompleted) — metric IdempotentSkipped.
-//     b. Materialize CompleteNodeInput.Result from ev.Result and the agent
-//     node's config.outputs. Empty ev.Result fires metric
-//     CompleteResultEmpty as a soft alarm.
+//     b. Materialize CompleteNodeInput.Result from the completed agent turn
+//     text (Result/Summary/Message) and the agent node's config.outputs.
+//     Empty agent output fails unless a configured sharedfile already exists;
+//     empty non-agent output keeps the legacy CompleteResultEmpty soft alarm.
 //     c. ev.Success=true → FlowStore.CompleteNodeAndScheduleDownstream
 //     (metric CompleteDone / size-cap / DB err).
 //     ev.Success=false → FlowStore.FailNodeAndCancelDownstream
@@ -218,12 +219,16 @@ func advanceNodeForTurnCompleted(
 			"dag_key", node.DagKey, "node_key", node.NodeKey, "status", node.Status)
 		return
 	}
-	if strings.TrimSpace(ev.Result) == "" {
+	result := ev.Result
+	if ev.Success && strings.TrimSpace(node.NodeType) == "agent" {
+		result = turnCompletedReportText(ev)
+	}
+	if strings.TrimSpace(result) == "" {
 		dagSubscriberMetrics.IncCompleteResultEmpty()
 	}
 
 	if ev.Success {
-		advanceNodeDoneForSuccess(ctx, deps, logger, node, ev.Result)
+		advanceNodeDoneForSuccess(ctx, deps, logger, node, result)
 		return
 	}
 	advanceNodeFailed(ctx, deps.FlowStore, deps.NodeRouter, logger, node, ev)
@@ -266,7 +271,7 @@ func failNodeForMaterializationFailure(
 	}
 	logger.Warn("dag subscriber: materialize agent output failed",
 		"dag_key", node.DagKey, "node_key", node.NodeKey, "reason", failure.Reason)
-	if advanceNodeFailedWithReason(ctx, deps.FlowStore, logger, node, failure.Reason) && deps.NodeRouter != nil {
+	if advanceNodeFailedWithReason(ctx, deps.FlowStore, logger, node, failure.Reason, true) && deps.NodeRouter != nil {
 		deps.NodeRouter.invokeTerminalFailureHooksForTaskNode(ctx, node, nodeexec.NodeOutcome{
 			Status:       nodeexec.NodeStatusFailed,
 			FailureClass: classifyMaterializationFailure(failure),
@@ -320,6 +325,11 @@ func materializeSharedfileAfterClaim(
 		logger.Debug("dag subscriber: configured sharedfile already exists, preserve existing content",
 			"dag_key", node.DagKey, "node_key", node.NodeKey, "path", materialized.SharedfilePath)
 		return result, true
+	}
+	if strings.TrimSpace(materialized.RawResult) == "" {
+		failNodeForMaterializationFailure(ctx, deps, logger, node,
+			validationMaterializationFailure("empty agent output and configured sharedfile is missing"))
+		return nil, false
 	}
 	if failure := validateAgentSharedfileWriter(deps.SharedFileWriter); failure != nil {
 		failNodeForMaterializationFailure(ctx, deps, logger, node, failure)
@@ -392,7 +402,7 @@ func advanceNodeFailed(
 	if reason == "" {
 		reason = "turn_completed_failure"
 	}
-	if advanceNodeFailedWithReason(ctx, flow, logger, node, reason) && router != nil {
+	if advanceNodeFailedWithReason(ctx, flow, logger, node, reason, false) && router != nil {
 		router.invokeTerminalFailureHooksForTaskNode(ctx, node, nodeexec.NodeOutcome{
 			Status:       nodeexec.NodeStatusFailed,
 			ErrorSummary: reason,
@@ -406,13 +416,14 @@ func advanceNodeFailedWithReason(
 	logger *slog.Logger,
 	node *taskdag.Node,
 	reason string,
+	failFast bool,
 ) bool {
 	_, err := flow.FailNodeAndCancelDownstream(ctx, taskdag.FailNodeInput{
 		DagKey:   node.DagKey,
 		NodeKey:  node.NodeKey,
 		RunID:    taskNodeRunID(node),
 		Reason:   reason,
-		FailFast: false,
+		FailFast: failFast,
 	})
 	switch {
 	case err == nil:
@@ -444,7 +455,7 @@ func claimNodeOutputMaterialization(
 	if !ok {
 		logger.Warn("dag subscriber: output materialization claim not wired",
 			"dag_key", node.DagKey, "node_key", node.NodeKey)
-		advanceNodeFailedWithReason(ctx, flow, logger, node, "infrastructure: output materialization claim not wired")
+		advanceNodeFailedWithReason(ctx, flow, logger, node, "infrastructure: output materialization claim not wired", true)
 		return false
 	}
 	_, err := claimer.ClaimNodeOutputMaterialization(ctx, taskdag.OutputMaterializationClaimInput{
@@ -518,6 +529,15 @@ func prepareTurnCompletedResult(
 	}
 	path := configuredSharedfilePath(cfg.Outputs)
 	emitNodeResult := shouldMaterializeAgentNodeResult(cfg.Outputs)
+	if strings.TrimSpace(rawResult) == "" {
+		if !emitNodeResult && path != "" {
+			return turnOutputMaterialization{
+				Result:         encodeSharedfileResultRef(path),
+				SharedfilePath: path,
+			}, nil
+		}
+		return turnOutputMaterialization{}, validationMaterializationFailure("empty agent output")
+	}
 	nodeResult, failure := buildAgentNodeResult(rawResult, emitNodeResult)
 	if failure != nil {
 		return turnOutputMaterialization{}, failure

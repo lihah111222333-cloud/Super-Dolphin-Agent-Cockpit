@@ -215,6 +215,98 @@ func TestDAGSubscriber_HappyPath_Done(t *testing.T) {
 	}
 }
 
+func TestDAGSubscriber_AgentResultFallsBackToSummary(t *testing.T) {
+	lookup := &dagSubscriberLookupSpy{nodes: []taskdag.Node{{
+		DagKey:   "dag-1",
+		NodeKey:  "final",
+		NodeType: "agent",
+		Status:   "running",
+		Config: testRawConfig(t, `{
+			"exec":{"agent_key":"alpha","cwd":"/tmp/node-cwd"},
+			"outputs":{"to_node_result":true}
+		}`),
+	}}}
+	flow := &dagSubscriberFlowSpy{}
+	threads := &dagSubscriberThreadSpy{thread: &PersistedThread{ThreadID: "thr-summary", AgentID: "agent-summary"}}
+	stop := &dagSubscriberStopSpy{}
+	deps := setupDAGSubscriberDeps(lookup, flow, threads, stop)
+
+	ev := newTurnCompletedEvent("thr-summary", true, "")
+	ev.Summary = "DAG_E2E_OK_20260524"
+	handleDAGTurnCompleted(context.Background(), deps, discardLogger(), ev)
+
+	if len(flow.completeCalls) != 1 {
+		t.Fatalf("completeCalls = %d, want 1", len(flow.completeCalls))
+	}
+	if got, want := string(flow.completeCalls[0].Result), `{"text":"DAG_E2E_OK_20260524"}`; got != want {
+		t.Fatalf("complete result = %s, want %s", got, want)
+	}
+	if len(flow.failCalls) != 0 {
+		t.Fatalf("failCalls = %d, want 0", len(flow.failCalls))
+	}
+}
+
+func TestDAGSubscriber_AgentSuccessWithEmptyOutputFailsNode(t *testing.T) {
+	lookup := &dagSubscriberLookupSpy{nodes: []taskdag.Node{{
+		DagKey:   "dag-1",
+		NodeKey:  "final",
+		NodeType: "agent",
+		Status:   "running",
+		Config: testRawConfig(t, `{
+			"exec":{"agent_key":"alpha","cwd":"/tmp/node-cwd"},
+			"outputs":{"to_node_result":true}
+		}`),
+	}}}
+	flow := &dagSubscriberFlowSpy{}
+	threads := &dagSubscriberThreadSpy{thread: &PersistedThread{ThreadID: "thr-empty-agent", AgentID: "agent-empty"}}
+	stop := &dagSubscriberStopSpy{}
+	deps := setupDAGSubscriberDeps(lookup, flow, threads, stop)
+
+	handleDAGTurnCompleted(context.Background(), deps, discardLogger(), newTurnCompletedEvent("thr-empty-agent", true, ""))
+
+	if len(flow.completeCalls) != 0 {
+		t.Fatalf("completeCalls = %d, want 0 for empty agent output", len(flow.completeCalls))
+	}
+	if len(flow.failCalls) != 1 {
+		t.Fatalf("failCalls = %d, want 1", len(flow.failCalls))
+	}
+	if got := flow.failCalls[0].Reason; !strings.Contains(got, "empty agent output") {
+		t.Fatalf("failure reason = %q, want empty agent output", got)
+	}
+	if !flow.failCalls[0].FailFast {
+		t.Fatal("FailFast = false, want true so pending downstream is canceled")
+	}
+}
+
+func TestDAGSubscriber_NonAgentSuccessKeepsLegacyEmptyResult(t *testing.T) {
+	before := DAGSubscriberCounters()
+	lookup := &dagSubscriberLookupSpy{nodes: []taskdag.Node{{
+		DagKey:   "dag-1",
+		NodeKey:  "n1",
+		NodeType: "automation",
+		Status:   "running",
+	}}}
+	flow := &dagSubscriberFlowSpy{}
+	threads := &dagSubscriberThreadSpy{thread: &PersistedThread{ThreadID: "thr-non-agent", AgentID: "agent-non-agent"}}
+	stop := &dagSubscriberStopSpy{}
+	deps := setupDAGSubscriberDeps(lookup, flow, threads, stop)
+
+	ev := newTurnCompletedEvent("thr-non-agent", true, "")
+	ev.Summary = "summary must not become non-agent result"
+	handleDAGTurnCompleted(context.Background(), deps, discardLogger(), ev)
+
+	if len(flow.completeCalls) != 1 {
+		t.Fatalf("completeCalls = %d, want 1", len(flow.completeCalls))
+	}
+	if got, want := string(flow.completeCalls[0].Result), `{}`; got != want {
+		t.Fatalf("complete result = %s, want %s", got, want)
+	}
+	d := metricDelta(before, DAGSubscriberCounters())
+	if d.CompleteResultEmpty != 1 {
+		t.Fatalf("CompleteResultEmpty delta = %d, want 1", d.CompleteResultEmpty)
+	}
+}
+
 func TestDAGSubscriber_DoneInvokesLifecycleHooks(t *testing.T) {
 	events := []string{}
 	lookup := &dagSubscriberLookupSpy{nodes: []taskdag.Node{{
