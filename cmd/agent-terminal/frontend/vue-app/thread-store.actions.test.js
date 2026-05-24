@@ -219,7 +219,6 @@ describe('thread store actions', () => {
     });
   });
 
-
   it('forwards explicit name and base instructions when starting a thread', async () => {
     const store = useThreadStore();
     apiMock.callAPI.mockImplementation(async (method, payload) => {

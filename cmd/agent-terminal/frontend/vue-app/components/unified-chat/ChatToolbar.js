@@ -62,12 +62,10 @@ export const ChatToolbar = {
       return props.useClaudeProvider ? 'Claude' : 'Codex';
     });
     const launchAgentLabel = computed(() => {
-      if (props.providerPreferenceReady) return '启动 Agent';
-      return 'Provider 未就绪';
+      return '新对话';
     });
     const launchAgentTitle = computed(() => {
-      if (props.providerPreferenceReady) return '启动 Agent';
-      return props.providerPreferenceError || 'Provider 正在初始化';
+      return '新对话：发送第一条消息时才会创建会话';
     });
     return {
       emit,
@@ -146,7 +144,6 @@ export const ChatToolbar = {
       <button
         class="btn launch-agent-icon-btn"
         data-testid="launch-agent-button"
-        :disabled="!providerPreferenceReady"
         :aria-label="launchAgentLabel"
         :title="launchAgentTitle"
         @click="emit('launch-one')"

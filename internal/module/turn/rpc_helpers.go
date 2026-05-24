@@ -274,6 +274,7 @@ func turnStartHandler(svc Service, resolver contract.SessionResolver, spawner co
 			if err != nil {
 				return nil, err
 			}
+			completeLaunchIntentIfAvailable(ctx, spawner)
 			// Forward the routing decision made by SpawnIfNeeded so the UI
 			// can fill its per-thread badge. Empty fields are elided via
 			// omitempty on turnStartResult; eager-path threads already got
@@ -289,6 +290,14 @@ func turnStartHandler(svc Service, resolver contract.SessionResolver, spawner co
 			return result, nil
 		})
 	})
+}
+
+func completeLaunchIntentIfAvailable(ctx context.Context, spawner contract.PendingLaunchSpawner) {
+	completer, ok := spawner.(contract.LaunchIntentCompleter)
+	if !ok {
+		return
+	}
+	completer.CompleteLaunchIntent(ctx, contract.ThreadIDFrom(ctx))
 }
 
 func turnSteerHandler(svc Service, resolver contract.SessionResolver, capResolver contract.CapabilityResolver, runtimeReader ThreadStateConfigReader) handler.Func {
