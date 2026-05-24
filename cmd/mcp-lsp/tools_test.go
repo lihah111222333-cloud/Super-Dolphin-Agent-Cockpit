@@ -285,6 +285,7 @@ func TestLSPOnToolsCallInjectsScopeContext(t *testing.T) {
 
 func TestHandleScopedToolsCallUsesRuntimeRootForDirectMCPClient(t *testing.T) {
 	trustedRoot := t.TempDir()
+	unsetEnvForTest(t, "GO_AGENT_LSP_ROOTS")
 	t.Setenv("GO_AGENT_LSP_ROOT", trustedRoot)
 	called := false
 	defs := []toolDefinition{{
@@ -565,29 +566,27 @@ func canonicalToolTestRoot(t *testing.T, root string) string {
 	return realRoot
 }
 
-func TestEditSchemaExposesRuntimeFields(t *testing.T) {
+func TestEditSchemaExposesPatchDiskFieldsOnly(t *testing.T) {
 	props, ok := lspEditSchema["properties"].(map[string]any)
 	if !ok {
 		t.Fatalf("edit schema properties type = %T", lspEditSchema["properties"])
 	}
-	for _, field := range []string{"persist_to_disk", "version"} {
+	for _, field := range []string{"patch", "version"} {
 		if _, ok := props[field]; !ok {
 			t.Fatalf("edit schema missing runtime field %q", field)
 		}
 	}
-}
-
-func TestEditSchemaIncludesForce(t *testing.T) {
-	props, ok := lspEditSchema["properties"].(map[string]any)
-	if !ok {
-		t.Fatalf("edit schema properties type = %T", lspEditSchema["properties"])
+	for _, field := range []string{"action", "line", "column", "end_line", "end_column", "edits", "new_name", "new_text", "only", "persist_to_disk", "force"} {
+		if _, ok := props[field]; ok {
+			t.Fatalf("edit schema exposes removed non-patch field %q", field)
+		}
 	}
-	force, ok := props["force"].(map[string]any)
+	required, ok := lspEditSchema["required"].([]string)
 	if !ok {
-		t.Fatalf("edit schema missing boolean force property; props=%#v", props)
+		t.Fatalf("edit schema required type = %T", lspEditSchema["required"])
 	}
-	if force["type"] != "boolean" {
-		t.Fatalf("force schema type = %#v, want boolean", force["type"])
+	if !reflect.DeepEqual(required, []string{"file_path", "patch"}) {
+		t.Fatalf("edit schema required = %#v, want file_path and patch", required)
 	}
 }
 
