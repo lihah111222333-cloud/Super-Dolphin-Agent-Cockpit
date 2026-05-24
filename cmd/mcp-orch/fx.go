@@ -179,6 +179,8 @@ func buildOrchestrationOptions(remoteAddr string) []fx.Option {
 				orchestration.ProvideServiceInterface,
 				orchestration.ProvideHookAfterHandler,
 				orchestration.ProvideRPCFacade,
+				provideSQLDAGScheduleStore,
+				providePGAdvisoryLocker,
 				// ADR-017 v1.2 §2.9：DAG turn.completed subscriber 的窄端口 provider。
 				orchestration.ProvideDAGSubscriberNodeFlowStore,
 				orchestration.ProvideDAGSubscriberStopAgentService,
@@ -192,6 +194,7 @@ func buildOrchestrationOptions(remoteAddr string) []fx.Option {
 			fx.Invoke(orchestration.RegisterDAGTurnCompletedSubscriber),
 			fx.Provide(fx.Annotate(orchestration.ProvideWakeupDispatcherRunner, fx.ResultTags(`group:"runners"`))),
 			fx.Provide(fx.Annotate(orchestration.ProvideWakeupReclaimerRunner, fx.ResultTags(`group:"runners"`))),
+			fx.Provide(fx.Annotate(provideScheduledDAGCronRunner, fx.ResultTags(`group:"runners"`))),
 		),
 		fx.Provide(func(lc fx.Lifecycle, turnStarter orchestration.TurnStarter, logger *slog.Logger) orchestration.AgentLauncher {
 			return buildLauncher(lc, turnStarter, logger, remoteAddr)
