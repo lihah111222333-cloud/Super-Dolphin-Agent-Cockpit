@@ -137,7 +137,7 @@ export function validateSkillNameText(value) {
     return '技能名称不能超过 64 个字符。';
   }
   if (!/^[\p{L}\p{N}_-]+$/u.test(text)) {
-    return '技能名称不能包含空格，请使用中文、英文、数字、- 或 _。';
+    return '技能名称不能包含非法字符，请使用中文、英文、数字、- 或 _；带空格的展示文本请填写显示名称。';
   }
   return '';
 }
@@ -153,9 +153,46 @@ function isInternalSkillMarkerSummary(value) {
   return /^<\/?[A-Z][A-Z0-9_-]*>$/.test((value || '').toString().trim());
 }
 
+function skillNameSlug(value) {
+  const text = (value || '').toString().trim().toLowerCase();
+  let slug = '';
+  let lastDash = false;
+  for (const char of Array.from(text)) {
+    if (/[\p{L}\p{N}]/u.test(char)) {
+      slug += char;
+      lastDash = false;
+    } else if (!lastDash) {
+      slug += '-';
+      lastDash = true;
+    }
+  }
+  return slug.replace(/^-+|-+$/g, '') || 'skill';
+}
+
+function isSafeLegacyDisplayName(value) {
+  const text = (value || '').toString().trim();
+  if (!text || !text.includes(' ') || Array.from(text).length > 120) return false;
+  const chars = Array.from(text);
+  if (!/[\p{L}\p{N}]/u.test(chars[0])) return false;
+  return chars.every((char) => /[\p{L}\p{N} _-]/u.test(char));
+}
+
+function normalizeParsedSkillIdentity(rawName, rawDisplayName, fallbackName = '') {
+  const originalName = cleanScalar(rawName);
+  const displayName = cleanScalar(rawDisplayName);
+  if (originalName && !displayName && validateSkillNameText(originalName) && isSafeLegacyDisplayName(originalName)) {
+    return { name: skillNameSlug(originalName), displayName: originalName };
+  }
+  return { name: originalName || fallbackName, displayName };
+}
+
 export function parseSkillMarkdown(content, fallbackName = '') {
   const { attrs, body } = parseFrontmatter(content);
-  const name = cleanScalar(attrs.name) || fallbackName;
+  const { name, displayName } = normalizeParsedSkillIdentity(
+    attrs.name,
+    attrs.display_name ?? attrs.displayname ?? attrs.title ?? '',
+    fallbackName,
+  );
   const description = cleanScalar(attrs.description);
   const rawSummary = cleanScalar(attrs.summary ?? attrs.digest ?? '');
   const summary = isInternalSkillMarkerSummary(rawSummary) ? '' : rawSummary;
@@ -176,6 +213,7 @@ export function parseSkillMarkdown(content, fallbackName = '') {
   ].join(','));
   return {
     name,
+    displayName,
     description,
     summary,
     triggerWords,
@@ -252,10 +290,12 @@ export function skillDescriptionQualitySaveMessage(description) {
 
 export function buildSkillMarkdown(form) {
   const name = (form.name || '').trim();
+  const displayName = (form.displayName || '').trim();
   const description = ((form.description || '').trim() || (form.summary || '').trim());
   const triggerWords = normalizeWordList(`${form.triggerWordsText || ''},${form.forceWordsText || ''},${form.internalScenarioWordsText || ''}`);
   const body = (form.body || '').toString().trim();
   const lines = ['---', `name: ${quoteYAML(name)}`];
+  if (displayName) lines.push(`display_name: ${quoteYAML(displayName)}`);
   if (description) lines.push(`description: ${quoteYAML(description)}`);
   if (triggerWords.length > 0) {
     lines.push(`trigger_words: [${triggerWords.map(quoteYAML).join(', ')}]`);

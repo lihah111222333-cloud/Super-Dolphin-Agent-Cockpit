@@ -26,6 +26,7 @@ func skillListPayload(skills []SkillInfo) skillListResult {
 	for _, info := range skills {
 		items = append(items, skillListItem{
 			Name:                   info.Name,
+			DisplayName:            info.DisplayName,
 			Scope:                  info.Scope,
 			PersonalType:           info.PersonalType,
 			Summary:                info.Summary,

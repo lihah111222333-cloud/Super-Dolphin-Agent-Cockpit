@@ -92,7 +92,7 @@ func (s *canonicalStore) applyPersonalSkillPolicy(records []canonicalSkillRecord
 func personalSelectionByName(selections []personalSkillKeepSelected) (map[string]personalSkillKeepSelected, error) {
 	selectionByName := make(map[string]personalSkillKeepSelected, len(selections))
 	for _, selection := range selections {
-		name, err := validateSkillName(selection.Name)
+		name, _, err := normalizeSkillIdentityName(selection.Name, "")
 		if err != nil {
 			return nil, fmt.Errorf("invalid personal skill policy name: %w", err)
 		}

@@ -9,11 +9,7 @@ import (
 	"strings"
 )
 
-const (
-	importModeAuto   = "auto"
-	importModeSingle = "single"
-	importModeBatch  = "batch"
-)
+const importModeAuto, importModeSingle, importModeBatch = "auto", "single", "batch"
 
 var errNoSkillDirectoriesFound = errors.New("no skill directories found")
 var errSkillMainFileNotFound = fmt.Errorf("%s not found", skillMainFile)
@@ -30,11 +26,7 @@ func normalizeImportMode(mode string) (string, error) {
 	}
 }
 
-type writeLocalTarget struct {
-	path         string
-	scope        string
-	personalType string
-}
+type writeLocalTarget struct{ path, scope, personalType string }
 
 func (s *service) prepareWriteLocalTarget(cwd, path, content string, scopeAndType ...string) (writeLocalTarget, error) {
 	requestedScope, requestedPersonalType := resolveRequestedSkillTarget(scopeAndType...)
@@ -81,7 +73,7 @@ func validateWritableSkillMainContent(root, path, content string) error {
 		return err
 	}
 	info := parseSkillInfo(rel, filepath.Dir(path), content, TrustProject)
-	if _, err := validateSkillName(info.Name); err != nil {
+	if _, _, err := normalizeSkillIdentityName(info.Name, info.DisplayName); err != nil {
 		return fmt.Errorf("%w: %s", ErrInvalidSkillName, info.Name)
 	}
 	return nil
@@ -242,7 +234,7 @@ func (s *service) importSkillUnit(resolvedSource, name, cwd, scope, personalType
 	if err != nil {
 		return nil, err
 	}
-	targetName, err := importTargetSkillName(resolvedSource, name)
+	targetName, displayName, err := importTargetSkillIdentity(resolvedSource, name)
 	if err != nil {
 		return nil, err
 	}
@@ -265,9 +257,9 @@ func (s *service) importSkillUnit(resolvedSource, name, cwd, scope, personalType
 		return nil, err
 	}
 	if normalizedScope == skillScopePersonal {
-		return s.importPersonalSkillUnit(resolvedSource, targetName, targetDir, normalizedScope, normalizedPersonalType)
+		return s.importPersonalSkillUnit(resolvedSource, targetName, displayName, targetDir, normalizedScope, normalizedPersonalType)
 	}
-	files, bytes, err := copyImportedSkillDir(resolvedSource, targetDir, targetName)
+	files, bytes, err := copyImportedSkillDir(resolvedSource, targetDir, targetName, displayName)
 	if err != nil {
 		return nil, err
 	}
@@ -281,12 +273,12 @@ func (s *service) importSkillUnit(resolvedSource, name, cwd, scope, personalType
 	}, nil
 }
 
-func (s *service) importPersonalSkillUnit(resolvedSource, targetName, targetDir, scope, personalType string) (map[string]any, error) {
+func (s *service) importPersonalSkillUnit(resolvedSource, targetName, displayName, targetDir, scope, personalType string) (map[string]any, error) {
 	record, err := s.preparePersonalMutation(context.Background(), "personal_import", targetName, targetDir, scope, personalType)
 	if err != nil {
 		return nil, err
 	}
-	files, bytes, err := copyImportedSkillDir(resolvedSource, targetDir, targetName)
+	files, bytes, err := copyImportedSkillDir(resolvedSource, targetDir, targetName, displayName)
 	if err != nil {
 		return nil, err
 	}
@@ -306,21 +298,28 @@ func (s *service) importPersonalSkillUnit(resolvedSource, targetName, targetDir,
 	}, nil
 }
 
-func importTargetSkillName(resolvedSource, requestedName string) (string, error) {
-	targetName := strings.TrimSpace(requestedName)
-	if targetName == "" {
-		targetName = filepath.Base(resolvedSource)
+func importTargetSkillIdentity(resolvedSource, requestedName string) (string, string, error) {
+	if requestedName = strings.TrimSpace(requestedName); requestedName != "" {
+		name, err := validateSkillName(requestedName)
+		return name, "", err
 	}
-	return validateSkillName(targetName)
+	if name, err := validateSkillName(filepath.Base(resolvedSource)); err == nil {
+		return name, "", nil
+	}
+	record, err := parseSkillRecord(filepath.Dir(resolvedSource), filepath.Join(resolvedSource, skillMainFile), TrustProject)
+	if err != nil {
+		return "", "", err
+	}
+	return normalizeSkillIdentityName(record.info.Name, record.info.DisplayName)
 }
 
-func copyImportedSkillDir(resolvedSource, targetDir, targetName string) (int, int64, error) {
+func copyImportedSkillDir(resolvedSource, targetDir, targetName, displayName string) (int, int64, error) {
 	files, bytes, err := copySkillDir(resolvedSource, targetDir)
 	if err != nil {
 		_ = os.RemoveAll(targetDir)
 		return 0, 0, err
 	}
-	if err := rewriteCopiedSkillName(targetDir, targetName); err != nil {
+	if err := rewriteCopiedSkillIdentity(targetDir, targetName, displayName); err != nil {
 		_ = os.RemoveAll(targetDir)
 		return 0, 0, err
 	}

@@ -14,13 +14,16 @@ CREATE TABLE IF NOT EXISTS public.prompt_template_expert_consolidation_0107_rest
     when_to_use TEXT NOT NULL DEFAULT '',
     enabled BOOLEAN NOT NULL DEFAULT TRUE,
     manually_edited BOOLEAN NOT NULL DEFAULT FALSE,
-    match_when JSONB NOT NULL DEFAULT '{}'::jsonb,
+    match_when JSONB,
     priority INTEGER NOT NULL DEFAULT 0,
     created_by TEXT NOT NULL DEFAULT '',
     updated_by TEXT NOT NULL DEFAULT '',
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+ALTER TABLE public.prompt_template_expert_consolidation_0107_restore
+    ALTER COLUMN match_when DROP NOT NULL;
 
 WITH affected_keys(prompt_key) AS (
     VALUES
@@ -55,8 +58,8 @@ SELECT
     p.agent_key,
     p.tool_name,
     p.prompt_text,
-    p.variables,
-    p.tags,
+    COALESCE(p.variables, '{}'::jsonb),
+    COALESCE(p.tags, '[]'::jsonb),
     p.description,
     p.when_to_use,
     p.enabled,

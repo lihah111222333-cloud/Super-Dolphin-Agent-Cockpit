@@ -11,10 +11,11 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
-	"runtime"
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/anthropic-ai/super-agent-v3/internal/module/skill/mirrorpath"
 )
 
 const skillMirrorManifestFile = ".super-dolphin-skill-mirror.json"
@@ -106,7 +107,7 @@ func expectedCanonicalMirrorHashes(root string, record canonicalSkillRecord, sco
 		return "", "", err
 	}
 	defer os.RemoveAll(tempDir)
-	if err := copyCanonicalSkillDir(record.Dir, tempDir, scope); err != nil {
+	if err := copyCanonicalSkillDir(record.Dir, tempDir, scope, skillMirrorIdentity{Name: record.Name, DisplayName: record.info.DisplayName}); err != nil {
 		return "", "", err
 	}
 	hash, err := stableMirrorDirectoryHash(tempDir)
@@ -233,32 +234,6 @@ func ensureMirrorManifestRegularPath(path string, allowMissing bool) error {
 	return nil
 }
 
-func rejectSymlinkAncestors(root string) error {
-	path, err := filepath.Abs(root)
-	if err != nil {
-		return fmt.Errorf("normalize skill mirror root: %w", err)
-	}
-	for {
-		parent := filepath.Dir(path)
-		if parent == path {
-			return nil
-		}
-		info, err := os.Lstat(path)
-		if err == nil {
-			if info.Mode()&os.ModeSymlink != 0 && !allowedMirrorRootSymlinkAncestor(path) {
-				return fmt.Errorf("skill mirror root ancestor is symlink: %s", path)
-			}
-		} else if !errors.Is(err, os.ErrNotExist) {
-			return err
-		}
-		path = parent
-	}
-}
-
-func allowedMirrorRootSymlinkAncestor(path string) bool {
-	return runtime.GOOS == "darwin" && (path == "/var" || path == "/tmp" || path == "/etc")
-}
-
 func validateSkillMirrorManifest(manifest SkillMirrorManifest) error {
 	for name, entry := range manifest.Skills {
 		if _, err := validateSkillName(name); err != nil {
@@ -282,7 +257,7 @@ func validateSkillMirrorManifest(manifest SkillMirrorManifest) error {
 func validatePersonalMirrorEntry(name string, entry SkillMirrorEntry) error {
 	canonicalID := filepath.ToSlash(strings.TrimSpace(entry.CanonicalID))
 	personalType := strings.TrimSpace(entry.PersonalType)
-	if unsafeMirrorRelativePath(canonicalID) {
+	if mirrorpath.UnsafeRelative(canonicalID) {
 		return fmt.Errorf("personal mirror %s canonical_id must be home-relative", name)
 	}
 	canonicalType, err := validatePersonalMirrorCanonicalID(name, canonicalID)
@@ -348,11 +323,11 @@ func readMirrorHashFile(root, path string, entry fs.DirEntry, walkErr error) (*m
 	if walkErr != nil || entry == nil || entry.IsDir() {
 		return nil, walkErr
 	}
-	info, err := safeMirrorFileInfo(path, entry)
+	info, err := mirrorpath.SafeFileInfo(path, entry)
 	if err != nil {
 		return nil, err
 	}
-	rel, err := safeMirrorRelativePath(root, path)
+	rel, err := mirrorpath.SafeRelative(root, path)
 	if err != nil || rel == skillMirrorManifestFile {
 		return nil, err
 	}
@@ -361,55 +336,6 @@ func readMirrorHashFile(root, path string, entry fs.DirEntry, walkErr error) (*m
 		return nil, fmt.Errorf("read mirror file %s: %w", path, err)
 	}
 	return &mirrorHashFile{rel: rel, mode: info.Mode(), data: data}, nil
-}
-
-func safeMirrorFileInfo(path string, entry fs.DirEntry) (fs.FileInfo, error) {
-	info, err := entry.Info()
-	if err != nil {
-		return nil, fmt.Errorf("stat mirror path %s: %w", path, err)
-	}
-	if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
-		return nil, fmt.Errorf("unsafe mirror path %s", path)
-	}
-	return info, nil
-}
-
-func safeMirrorRelativePath(root, path string) (string, error) {
-	absPath, err := filepath.Abs(path)
-	if err != nil {
-		return "", fmt.Errorf("normalize mirror path %s: %w", path, err)
-	}
-	rel, err := filepath.Rel(root, filepath.Clean(absPath))
-	if err != nil {
-		return "", fmt.Errorf("rel mirror path %s: %w", path, err)
-	}
-	rel = filepath.ToSlash(rel)
-	if unsafeMirrorRelativePath(rel) {
-		return "", fmt.Errorf("unsafe mirror path %s escapes root", path)
-	}
-	return rel, nil
-}
-
-func unsafeMirrorRelativePath(rel string) bool {
-	if unsafeMirrorRelativeValue(rel) {
-		return true
-	}
-	for _, part := range strings.Split(rel, "/") {
-		if unsafeMirrorRelativePart(part) {
-			return true
-		}
-	}
-	return false
-}
-
-func unsafeMirrorRelativeValue(rel string) bool {
-	return rel == "" || rel == "." || rel == ".." ||
-		filepath.IsAbs(rel) || strings.Contains(rel, "\x00") ||
-		strings.HasPrefix(rel, "../")
-}
-
-func unsafeMirrorRelativePart(part string) bool {
-	return part == "" || part == "." || part == ".."
 }
 
 func hashMirrorFiles(files []mirrorHashFile) string {
