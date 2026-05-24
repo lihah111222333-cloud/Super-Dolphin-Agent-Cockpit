@@ -72,6 +72,43 @@ func TestEffectiveSetIgnoresInactiveHubProjectDuplicate(t *testing.T) {
 	assertNotHasCanonicalSkill(t, records, "build", skillScopePersonal, personalSkillTypeHub)
 }
 
+func TestCanonicalStoreConvertsSafeLegacyDisplayName(t *testing.T) {
+	project := t.TempDir()
+	home := t.TempDir()
+	writeSkillContent(t, filepath.Join(project, ".agent", "skills", "Docker 容器化部署"), "Docker 容器化部署", "# legacy display name\n")
+
+	records, conflicts, err := newTestCanonicalStore(project, home).EffectiveSet(context.Background(), project)
+	if err != nil {
+		t.Fatalf("EffectiveSet: %v", err)
+	}
+	if len(conflicts) != 0 {
+		t.Fatalf("conflicts = %+v", conflicts)
+	}
+	if len(records) != 1 {
+		t.Fatalf("records len = %d, want 1: %+v", len(records), records)
+	}
+	if records[0].Name != "docker-容器化部署" {
+		t.Fatalf("name = %q", records[0].Name)
+	}
+	if records[0].info.DisplayName != "Docker 容器化部署" {
+		t.Fatalf("display name = %q", records[0].info.DisplayName)
+	}
+}
+
+func TestCanonicalStoreRejectsUnsafeLegacyDisplayName(t *testing.T) {
+	project := t.TempDir()
+	home := t.TempDir()
+	writeSkillContent(t, filepath.Join(project, ".agent", "skills", "bad"), "../bad", "# unsafe name\n")
+
+	_, _, err := newTestCanonicalStore(project, home).EffectiveSet(context.Background(), project)
+	if err == nil {
+		t.Fatalf("EffectiveSet error = nil, want invalid skill name")
+	}
+	if !errors.Is(err, ErrInvalidSkillName) {
+		t.Fatalf("EffectiveSet error = %v, want ErrInvalidSkillName", err)
+	}
+}
+
 func TestEffectiveSetSameNameIsCaseInsensitiveConflict(t *testing.T) {
 	project := t.TempDir()
 	home := t.TempDir()
@@ -208,6 +245,31 @@ func TestEffectiveSetProjectPolicyDisablesPersonalForOnlyThatProject(t *testing.
 		canonicalSkillConflictSource{Scope: skillScopeProject, PersonalType: "", Name: "build"},
 		canonicalSkillConflictSource{Scope: skillScopePersonal, PersonalType: personalSkillTypeUser, Name: "build"},
 	)
+}
+
+func TestEffectiveSetProjectPolicyAcceptsLegacyDisplayName(t *testing.T) {
+	project := t.TempDir()
+	home := t.TempDir()
+	superDolphinHome := filepath.Join(home, ".super-dolphin")
+	writeSkillContent(t, filepath.Join(project, ".agent", "skills", "Docker 容器化部署"), "Docker 容器化部署", "# project\n")
+	writeSkillContent(t, filepath.Join(superDolphinHome, "skills", "personal", "user", "Docker 容器化部署"), "Docker 容器化部署", "# personal\n")
+	writeProjectSkillPolicy(t, project, projectSkillPolicy{
+		Version: 1,
+		DisablePersonalForProject: []projectSkillPolicyDisabledPersonal{{
+			Name:         "Docker 容器化部署",
+			PersonalType: personalSkillTypeUser,
+		}},
+	})
+
+	records, conflicts, err := newCanonicalStore(superDolphinHome).EffectiveSet(context.Background(), project)
+	if err != nil {
+		t.Fatalf("EffectiveSet: %v", err)
+	}
+	if len(conflicts) != 0 {
+		t.Fatalf("conflicts = %+v, want legacy display policy to resolve same-name conflict", conflicts)
+	}
+	assertHasCanonicalSkill(t, records, "docker-容器化部署", skillScopeProject, "")
+	assertNotHasCanonicalSkill(t, records, "docker-容器化部署", skillScopePersonal, personalSkillTypeUser)
 }
 
 func TestEffectiveSetProjectKeepSelectedSuppressesFuturePersonalDuplicate(t *testing.T) {

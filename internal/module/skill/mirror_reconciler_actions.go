@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/anthropic-ai/super-agent-v3/internal/module/skill/mirrorpath"
 	"github.com/anthropic-ai/super-agent-v3/internal/module/skill/skillhash"
 )
 
@@ -118,6 +119,7 @@ func syncBackMirrorToCanonical(ctx context.Context, svc *service, req SkillMirro
 	if err != nil {
 		return report, err
 	}
+	report.Name = prepared.record.Name
 	if _, err := backupSkillDir(prepared.targetDir); err != nil {
 		return report, err
 	}
@@ -125,7 +127,7 @@ func syncBackMirrorToCanonical(ctx context.Context, svc *service, req SkillMirro
 	if err != nil {
 		return report, err
 	}
-	auditRecord := newMirrorMutationAuditRecord(req.Action, req.Name, prepared.record.Scope, prepared.record.PersonalType, oldHash, "")
+	auditRecord := newMirrorMutationAuditRecord(req.Action, prepared.record.Name, prepared.record.Scope, prepared.record.PersonalType, oldHash, "")
 	if err := svc.writeSkillMutationAudit(ctx, req.Action+"_intent", auditRecord); err != nil {
 		return report, err
 	}
@@ -139,13 +141,13 @@ func syncBackMirrorToCanonical(ctx context.Context, svc *service, req SkillMirro
 	if err := updateOwnedMirrorManifest(req.Target, prepared.record, prepared.mirrorHash); err != nil {
 		return partialMirrorResolutionReport(report, report.ResultingHash, "retry_manifest_write"), err
 	}
-	markResolutionMirrorPublish(ctx, svc, req, prepared.record.Scope, prepared.record.PersonalType, req.Name, &report)
+	markResolutionMirrorPublish(ctx, svc, req, prepared.record.Scope, prepared.record.PersonalType, prepared.record.Name, &report)
 	if err := svc.writeSkillMutationAudit(ctx, req.Action+"_finalize", auditRecord); err != nil {
 		report.PartialFailure = true
 		report.FollowUpAction = "retry_audit_finalize"
 		return report, err
 	}
-	svc.publishSkillsChangedForPersonalType(ctx, req.Action, req.Name, prepared.record.Scope, prepared.record.PersonalType)
+	svc.publishSkillsChangedForPersonalType(ctx, req.Action, prepared.record.Name, prepared.record.Scope, prepared.record.PersonalType)
 	return report, nil
 }
 
@@ -155,6 +157,7 @@ func overwriteMirrorFromCanonical(ctx context.Context, svc *service, req SkillMi
 	if err != nil {
 		return report, err
 	}
+	report.Name = record.Name
 	preview, _, err := verifyResolutionRequestPreview(svc, req, mirrorDir)
 	if err != nil {
 		return report, err
@@ -169,11 +172,11 @@ func overwriteMirrorFromCanonical(ctx context.Context, svc *service, req SkillMi
 	if err != nil {
 		return report, err
 	}
-	auditRecord := newMirrorMutationAuditRecord(req.Action, req.Name, record.Scope, record.PersonalType, oldHash, "")
+	auditRecord := newMirrorMutationAuditRecord(req.Action, record.Name, record.Scope, record.PersonalType, oldHash, "")
 	if err := svc.writeSkillMutationAudit(ctx, req.Action+"_intent", auditRecord); err != nil {
 		return report, err
 	}
-	newHash, err := replaceMirrorSkillDir(req.Target.Root, req.Name, record.Dir, req.Target.Scope)
+	newHash, err := replaceMirrorSkillDir(req.Target.Root, record.Name, record.Dir, req.Target.Scope, record.info.DisplayName)
 	if err != nil {
 		return report, err
 	}
@@ -185,7 +188,7 @@ func overwriteMirrorFromCanonical(ctx context.Context, svc *service, req SkillMi
 	if err := svc.writeSkillMutationAudit(ctx, req.Action+"_finalize", auditRecord); err != nil {
 		return partialMirrorResolutionReport(report, newHash, "retry_audit_finalize"), err
 	}
-	svc.publishSkillsChangedForPersonalType(ctx, req.Action, req.Name, record.Scope, record.PersonalType)
+	svc.publishSkillsChangedForPersonalType(ctx, req.Action, record.Name, record.Scope, record.PersonalType)
 	return report, nil
 }
 
@@ -208,7 +211,7 @@ func saveMirrorAsNewCanonical(ctx context.Context, svc *service, req SkillMirror
 	if err := replaceSkillDirFromMirror(prepared.mirrorDir, prepared.targetDir); err != nil {
 		return report, err
 	}
-	if err := rewriteCopiedSkillName(prepared.targetDir, req.NewName); err != nil {
+	if err := rewriteCopiedSkillIdentity(prepared.targetDir, req.NewName, ""); err != nil {
 		return report, err
 	}
 	if err := setMirrorResolutionResultHash(&report, prepared.targetDir); err != nil {
@@ -299,7 +302,8 @@ func ImportUnmanagedProviderSkill(ctx context.Context, svc *service, req SkillMi
 	if err != nil {
 		return report, err
 	}
-	auditRecord := newMirrorMutationAuditRecord(req.Action, req.Name, prepared.scope, prepared.personalType, "", "")
+	report.Name = prepared.name
+	auditRecord := newMirrorMutationAuditRecord(req.Action, prepared.name, prepared.scope, prepared.personalType, "", "")
 	if err := svc.writeSkillMutationAudit(ctx, req.Action+"_intent", auditRecord); err != nil {
 		return report, err
 	}
@@ -317,19 +321,21 @@ func ImportUnmanagedProviderSkill(ctx context.Context, svc *service, req SkillMi
 		return report, err
 	}
 	markImportMirrorPublish(ctx, svc, req, prepared, &report)
-	svc.publishSkillsChangedForPersonalType(ctx, req.Action, req.Name, prepared.scope, prepared.personalType)
+	svc.publishSkillsChangedForPersonalType(ctx, req.Action, prepared.name, prepared.scope, prepared.personalType)
 	return report, nil
 }
 
 type unmanagedProviderImport struct {
-	sourceDir    string
-	targetDir    string
-	name         string
-	scope        string
-	personalType string
+	sourceDir, targetDir string
+	name, displayName    string
+	scope, personalType  string
 }
 
 func prepareUnmanagedProviderImport(svc *service, req SkillMirrorResolutionRequest) (unmanagedProviderImport, error) {
+	name, displayName, err := normalizeSkillIdentityName(req.Name, "")
+	if err != nil {
+		return unmanagedProviderImport{}, err
+	}
 	sourceDir, _, preview, err := unmanagedProviderSource(svc, req)
 	if err != nil {
 		return unmanagedProviderImport{}, err
@@ -341,13 +347,13 @@ func prepareUnmanagedProviderImport(svc *service, req SkillMirrorResolutionReque
 	if err := verifyResolutionPreviewTarget(preview, targetDir); err != nil {
 		return unmanagedProviderImport{}, err
 	}
-	if err := ensureSkillDirAbsent(targetDir, req.Name); err != nil {
+	if err := ensureSkillDirAbsent(targetDir, name); err != nil {
 		return unmanagedProviderImport{}, err
 	}
 	if _, err := backupSkillDir(targetDir); err != nil {
 		return unmanagedProviderImport{}, err
 	}
-	return unmanagedProviderImport{sourceDir: sourceDir, targetDir: targetDir, name: req.Name, scope: scope, personalType: personalType}, nil
+	return unmanagedProviderImport{sourceDir: sourceDir, targetDir: targetDir, name: name, displayName: displayName, scope: scope, personalType: personalType}, nil
 }
 
 func copyUnmanagedProviderImport(prepared unmanagedProviderImport) error {
@@ -357,7 +363,7 @@ func copyUnmanagedProviderImport(prepared unmanagedProviderImport) error {
 	if _, _, err := copySkillDir(prepared.sourceDir, prepared.targetDir); err != nil {
 		return err
 	}
-	return rewriteCopiedSkillName(prepared.targetDir, prepared.name)
+	return rewriteCopiedSkillIdentity(prepared.targetDir, prepared.name, prepared.displayName)
 }
 
 func markImportMirrorPublish(ctx context.Context, svc *service, req SkillMirrorResolutionRequest, prepared unmanagedProviderImport, report *SkillMirrorResolutionReport) {
@@ -365,7 +371,7 @@ func markImportMirrorPublish(ctx context.Context, svc *service, req SkillMirrorR
 	if targetCWD, err := projectRootFromMirrorTarget(req.Target); err == nil {
 		cwd = targetCWD
 	}
-	publishReport := svc.publishWriteTimeMirrorsForScope(ctx, cwd, prepared.scope, prepared.personalType, req.Name)
+	publishReport := svc.publishWriteTimeMirrorsForScope(ctx, cwd, prepared.scope, prepared.personalType, prepared.name)
 	if len(publishReport.Conflicts) > 0 {
 		report.PartialFailure = true
 		report.FollowUpAction = "retry_mirror_publish"
@@ -378,10 +384,11 @@ func TakeoverProviderSkill(ctx context.Context, svc *service, req SkillMirrorRes
 	if err != nil {
 		return report, err
 	}
+	report.Name = prepared.record.Name
 	if err := backupProviderSkillTakeover(prepared); err != nil {
 		return report, err
 	}
-	auditRecord := newMirrorMutationAuditRecord(req.Action, req.Name, req.Target.Scope, "", "", prepared.previewHash)
+	auditRecord := newMirrorMutationAuditRecord(req.Action, prepared.record.Name, req.Target.Scope, "", "", prepared.previewHash)
 	if err := svc.writeSkillMutationAudit(ctx, req.Action+"_intent", auditRecord); err != nil {
 		return report, err
 	}
@@ -393,13 +400,13 @@ func TakeoverProviderSkill(ctx context.Context, svc *service, req SkillMirrorRes
 		return report, err
 	}
 	report.ResultingHash = resultingHash
-	markResolutionMirrorPublish(ctx, svc, req, prepared.record.Scope, prepared.record.PersonalType, req.Name, &report)
+	markResolutionMirrorPublish(ctx, svc, req, prepared.record.Scope, prepared.record.PersonalType, prepared.record.Name, &report)
 	if err := svc.writeSkillMutationAudit(ctx, req.Action+"_finalize", auditRecord); err != nil {
 		report.PartialFailure = true
 		report.FollowUpAction = "retry_audit_finalize"
 		return report, err
 	}
-	svc.publishSkillsChangedForPersonalType(ctx, req.Action, req.Name, req.Target.Scope, "")
+	svc.publishSkillsChangedForPersonalType(ctx, req.Action, prepared.record.Name, req.Target.Scope, "")
 	return report, nil
 }
 
@@ -449,14 +456,14 @@ func replaceCanonicalFromProviderTakeover(prepared providerSkillTakeover) (strin
 	if err := replaceCanonicalSkillDirFromMirror(prepared.sourceDir, prepared.record.Dir); err != nil {
 		return "", err
 	}
-	if err := rewriteCopiedSkillName(prepared.record.Dir, prepared.record.Name); err != nil {
+	if err := rewriteCopiedSkillIdentity(prepared.record.Dir, prepared.record.Name, prepared.record.info.DisplayName); err != nil {
 		return "", err
 	}
 	return stableMirrorDirectoryHash(prepared.record.Dir)
 }
 
 func replaceProviderTakeoverMirror(req SkillMirrorResolutionRequest, record canonicalSkillRecord) (string, error) {
-	mirrorHash, err := replaceMirrorSkillDir(req.Target.Root, req.Name, record.Dir, req.Target.Scope)
+	mirrorHash, err := replaceMirrorSkillDir(req.Target.Root, record.Name, record.Dir, req.Target.Scope, record.info.DisplayName)
 	if err != nil {
 		return "", err
 	}
@@ -498,17 +505,17 @@ func takeoverCanonicalRecord(ctx context.Context, svc *service, req SkillMirrorR
 	if err != nil {
 		return canonicalSkillRecord{}, err
 	}
-	for _, record := range records {
-		if record.Scope == skillScopeProject && record.Name == req.Name {
-			return record, nil
-		}
-	}
-	name, err := validateSkillName(req.Name)
+	name, displayName, err := normalizeSkillIdentityName(req.Name, "")
 	if err != nil {
 		return canonicalSkillRecord{}, err
 	}
+	for _, record := range records {
+		if record.Scope == skillScopeProject && record.Name == name {
+			return record, nil
+		}
+	}
 	dir := filepath.Join(defaultProjectSkillsRoot(projectRootForCWD(projectRoot, "")), name)
-	return canonicalSkillRecord{Name: name, Scope: skillScopeProject, Dir: dir}, nil
+	return canonicalSkillRecord{Name: name, Scope: skillScopeProject, Dir: dir, info: SkillInfo{Name: name, DisplayName: displayName}}, nil
 }
 
 func replaceCanonicalSkillDirFromMirror(sourceDir, targetDir string) error {
@@ -524,7 +531,7 @@ func copyMirrorSkillDir(source, target string) (int, int64, error) {
 		if sameCleanPath(source, path) {
 			return os.Mkdir(target, 0o755)
 		}
-		rel, err := safeMirrorRelativePath(source, path)
+		rel, err := mirrorpath.SafeRelative(source, path)
 		if err != nil {
 			return err
 		}
@@ -532,7 +539,7 @@ func copyMirrorSkillDir(source, target string) (int, int64, error) {
 		if entry.IsDir() {
 			return os.MkdirAll(dst, 0o755)
 		}
-		info, err := safeMirrorFileInfo(path, entry)
+		info, err := mirrorpath.SafeFileInfo(path, entry)
 		if err != nil {
 			return err
 		}

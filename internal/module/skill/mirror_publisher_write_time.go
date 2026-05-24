@@ -156,7 +156,7 @@ func projectSuppressedPersonalRecords(cwd string, records []canonicalSkillRecord
 func projectSuppressedPersonalSourceIDs(policy projectSkillPolicy) (map[string]struct{}, error) {
 	out := map[string]struct{}{}
 	for _, item := range policy.DisablePersonalForProject {
-		name, err := validateSkillName(item.Name)
+		name, _, err := normalizeSkillIdentityName(item.Name, "")
 		if err != nil {
 			return nil, err
 		}
@@ -167,7 +167,7 @@ func projectSuppressedPersonalSourceIDs(policy projectSkillPolicy) (map[string]s
 		out[canonicalSourceID(canonicalSkillRecord{Name: name, Scope: skillScopePersonal, PersonalType: personalType})] = struct{}{}
 	}
 	for _, selection := range policy.KeepSelected {
-		name, err := validateSkillName(selection.Name)
+		name, _, err := normalizeSkillIdentityName(selection.Name, "")
 		if err != nil {
 			return nil, err
 		}

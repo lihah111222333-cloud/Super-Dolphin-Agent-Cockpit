@@ -238,7 +238,7 @@ func TestSkillListHostRPCResponseHidesLegacyFields(t *testing.T) {
 
 	svc := newTestSkillService(t)
 	cwd := filepath.Join(t.TempDir(), "repo")
-	writeScopedSystemSkill(t, svc.root, cwd, "demo-skill", "---\nname: demo-skill\ndescription: Demo desc\nsummary: Demo sum\ndisable_model_invocation: true\n---\n# Demo")
+	writeScopedSystemSkill(t, svc.root, cwd, "demo-skill", "---\nname: demo-skill\ndisplay_name: Demo Skill\ndescription: Demo desc\nsummary: Demo sum\ndisable_model_invocation: true\n---\n# Demo")
 	server := newSkillRPCTestServer(t, svc)
 
 	raw, err := server.Dispatch(context.Background(), "skill/list", mustRawJSON(t, map[string]any{"cwd": cwd}))
@@ -255,10 +255,13 @@ func TestSkillListHostRPCResponseHidesLegacyFields(t *testing.T) {
 		t.Fatalf("len(skills) = %d, want 1", len(got.Skills))
 	}
 	entry := got.Skills[0]
-	for _, key := range []string{"name", "summary", "description", "trust", "content_hash", "disable_model_invocation"} {
+	for _, key := range []string{"name", "display_name", "summary", "description", "trust", "content_hash", "disable_model_invocation"} {
 		if _, ok := entry[key]; !ok {
 			t.Fatalf("missing key %q in %#v", key, entry)
 		}
+	}
+	if entry["display_name"] != "Demo Skill" {
+		t.Fatalf("display_name = %q", entry["display_name"])
 	}
 	for _, key := range []string{"dir", "trigger_words", "force_words", "allowed_tools"} {
 		if _, ok := entry[key]; ok {
@@ -272,7 +275,7 @@ func TestSkillsListHostRPCIncludesDirAndSkillFile(t *testing.T) {
 
 	svc := newTestSkillService(t)
 	cwd := filepath.Join(t.TempDir(), "repo")
-	writeScopedSystemSkill(t, svc.root, cwd, "demo-skill", "---\nname: demo-skill\nsummary: Demo\n---\n# Demo")
+	writeScopedSystemSkill(t, svc.root, cwd, "demo-skill", "---\nname: demo-skill\ndisplay_name: Demo Skill\nsummary: Demo\n---\n# Demo")
 	server := newSkillRPCTestServer(t, svc)
 
 	raw, err := server.Dispatch(context.Background(), "skills/list", mustRawJSON(t, map[string]any{"cwd": cwd}))
@@ -289,6 +292,9 @@ func TestSkillsListHostRPCIncludesDirAndSkillFile(t *testing.T) {
 		t.Fatalf("len(skills) = %d, want 1", len(got.Skills))
 	}
 	item := got.Skills[0]
+	if item.DisplayName != "Demo Skill" {
+		t.Fatalf("display name = %q", item.DisplayName)
+	}
 	if item.Dir == "" || filepath.Base(item.Dir) != "demo-skill" {
 		t.Fatalf("dir = %q, want canonical skill dir", item.Dir)
 	}

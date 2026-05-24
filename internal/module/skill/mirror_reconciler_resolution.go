@@ -6,14 +6,19 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"regexp"
 	"strings"
 	"time"
+
+	skillidentity "github.com/anthropic-ai/super-agent-v3/internal/module/skill/identity"
 )
 
 func resolutionRecordAndMirrorDir(ctx context.Context, svc *service, req SkillMirrorResolutionRequest) (canonicalSkillRecord, string, error) {
 	if svc == nil {
 		return canonicalSkillRecord{}, "", fmt.Errorf("skill service is required")
+	}
+	name, _, err := normalizeSkillIdentityName(req.Name, "")
+	if err != nil {
+		return canonicalSkillRecord{}, "", err
 	}
 	cwd := cwdFromContext(ctx)
 	if strings.TrimSpace(cwd) == "" {
@@ -27,25 +32,25 @@ func resolutionRecordAndMirrorDir(ctx context.Context, svc *service, req SkillMi
 	if err != nil {
 		return canonicalSkillRecord{}, "", err
 	}
-	if record, ok := findResolutionRecord(records, req, personalType); ok {
-		return record, filepath.Join(req.Target.Root, req.Name), nil
+	if record, ok := findResolutionRecord(records, req, name, personalType); ok {
+		return record, filepath.Join(req.Target.Root, name), nil
 	}
-	if record, mirrorDir, ok, err := deletedCanonicalResolutionRecord(svc, cwd, req, personalType); err != nil || ok {
+	if record, mirrorDir, ok, err := deletedCanonicalResolutionRecord(svc, cwd, req, name, personalType); err != nil || ok {
 		return record, mirrorDir, err
 	}
-	return canonicalSkillRecord{}, "", fmt.Errorf("canonical skill not found: %s", req.Name)
+	return canonicalSkillRecord{}, "", fmt.Errorf("canonical skill not found: %s", name)
 }
 
-func findResolutionRecord(records []canonicalSkillRecord, req SkillMirrorResolutionRequest, personalType string) (canonicalSkillRecord, bool) {
+func findResolutionRecord(records []canonicalSkillRecord, req SkillMirrorResolutionRequest, name, personalType string) (canonicalSkillRecord, bool) {
 	for _, record := range records {
-		if record.Name == req.Name && record.Scope == req.Target.Scope && resolutionRecordPersonalTypeMatches(record, personalType) {
+		if record.Name == name && record.Scope == req.Target.Scope && resolutionRecordPersonalTypeMatches(record, personalType) {
 			return record, true
 		}
 	}
 	return canonicalSkillRecord{}, false
 }
 
-func deletedCanonicalResolutionRecord(svc *service, cwd string, req SkillMirrorResolutionRequest, personalType string) (canonicalSkillRecord, string, bool, error) {
+func deletedCanonicalResolutionRecord(svc *service, cwd string, req SkillMirrorResolutionRequest, name, personalType string) (canonicalSkillRecord, string, bool, error) {
 	if !deletedCanonicalRestoreAction(req.Action) {
 		return canonicalSkillRecord{}, "", false, nil
 	}
@@ -53,14 +58,14 @@ func deletedCanonicalResolutionRecord(svc *service, cwd string, req SkillMirrorR
 	if err != nil {
 		return canonicalSkillRecord{}, "", true, err
 	}
-	entry, ok := manifest.Skills[req.Name]
+	entry, ok := manifest.Skills[name]
 	if !ok {
 		return canonicalSkillRecord{}, "", false, nil
 	}
 	scope := deletedCanonicalScope(req.Target.Scope)
 	personalType = deletedCanonicalPersonalType(personalType, entry)
-	record := deletedCanonicalRecord(svc, cwd, strings.TrimSpace(req.Name), scope, personalType, entry.CanonicalHash)
-	return record, filepath.Join(req.Target.Root, req.Name), true, nil
+	record := deletedCanonicalRecord(svc, cwd, name, scope, personalType, entry.CanonicalHash)
+	return record, filepath.Join(req.Target.Root, name), true, nil
 }
 
 func deletedCanonicalRestoreAction(action string) bool {
@@ -104,11 +109,15 @@ func resolutionRequestPersonalType(req SkillMirrorResolutionRequest) (string, er
 	if req.Target.Scope != skillScopePersonal {
 		return "", nil
 	}
+	name, _, err := normalizeSkillIdentityName(req.Name, "")
+	if err != nil {
+		return "", err
+	}
 	manifest, err := readTargetManifest(req.Target)
 	if err != nil {
 		return "", err
 	}
-	entry, ok := manifest.Skills[req.Name]
+	entry, ok := manifest.Skills[name]
 	if !ok {
 		return "", nil
 	}
@@ -227,16 +236,14 @@ func verifyResolutionPreviewTarget(preview skillResolutionPreviewItem, targetDir
 }
 
 func resolveOriginalMirrorAfterSaveAsNew(req SkillMirrorResolutionRequest, prepared canonicalMirrorResolution) error {
-	newHash, err := replaceMirrorSkillDir(req.Target.Root, req.Name, prepared.record.Dir, req.Target.Scope)
+	newHash, err := replaceMirrorSkillDir(req.Target.Root, prepared.record.Name, prepared.record.Dir, req.Target.Scope, prepared.record.info.DisplayName)
 	if err != nil {
 		return err
 	}
 	return updateOwnedMirrorManifest(req.Target, prepared.record, newHash)
 }
 
-var skillNameFrontmatterLineRE = regexp.MustCompile(`(?m)^name\s*:\s*.*$`)
-
-func rewriteCopiedSkillName(dir, newName string) error {
+func rewriteCopiedSkillIdentity(dir, newName, displayName string) error {
 	name, err := validateSkillName(newName)
 	if err != nil {
 		return err
@@ -246,17 +253,11 @@ func rewriteCopiedSkillName(dir, newName string) error {
 	if err != nil {
 		return err
 	}
-	content := strings.ReplaceAll(string(data), "\r\n", "\n")
-	frontmatter, body, ok := splitFrontmatter(content)
+	content, ok := skillidentity.RewriteFrontmatter(string(data), name, displayName)
 	if !ok {
 		return nil
 	}
-	if skillNameFrontmatterLineRE.MatchString(frontmatter) {
-		frontmatter = skillNameFrontmatterLineRE.ReplaceAllString(frontmatter, "name: "+name)
-	} else {
-		frontmatter = "name: " + name + "\n" + frontmatter
-	}
-	return os.WriteFile(path, []byte("---\n"+frontmatter+"\n---\n"+body), 0o644)
+	return os.WriteFile(path, []byte(content), 0o644)
 }
 
 func sameResolutionPath(previewPath, path string) bool {
@@ -267,7 +268,7 @@ func sameResolutionPath(previewPath, path string) bool {
 }
 
 func canonicalResolutionTargetDir(svc *service, record canonicalSkillRecord, req SkillMirrorResolutionRequest) (string, error) {
-	name := strings.TrimSpace(req.Name)
+	name := strings.TrimSpace(record.Name)
 	if req.NewName != "" {
 		var err error
 		name, err = validateSkillName(req.NewName)
@@ -288,20 +289,24 @@ func unmanagedProviderSource(svc *service, req SkillMirrorResolutionRequest) (st
 	if err := validateExistingMirrorRoot(req.Target); err != nil {
 		return "", "", skillResolutionPreviewItem{}, err
 	}
-	name, err := validateSkillName(req.Name)
+	name, displayName, err := normalizeSkillIdentityName(req.Name, "")
 	if err != nil {
 		return "", "", skillResolutionPreviewItem{}, err
 	}
-	sourceDir := filepath.Join(req.Target.Root, name)
-	preview, hash, err := verifyResolutionRequestPreview(svc, req, sourceDir)
-	if err != nil {
-		return "", "", skillResolutionPreviewItem{}, err
+	var lastErr error
+	for _, sourceName := range uniqStrings([]string{displayName, strings.TrimSpace(req.Name), name}) {
+		sourceDir := filepath.Join(req.Target.Root, sourceName)
+		preview, hash, err := verifyResolutionRequestPreview(svc, req, sourceDir)
+		if err == nil {
+			return sourceDir, hash, preview, nil
+		}
+		lastErr = err
 	}
-	return sourceDir, hash, preview, nil
+	return "", "", skillResolutionPreviewItem{}, lastErr
 }
 
 func importCanonicalTargetDir(svc *service, req SkillMirrorResolutionRequest) (string, string, string, error) {
-	name, err := validateSkillName(req.Name)
+	name, _, err := normalizeSkillIdentityName(req.Name, "")
 	if err != nil {
 		return "", "", "", err
 	}
@@ -389,7 +394,7 @@ func confirmDeleteMirrorTarget(req SkillMirrorResolutionRequest) (confirmDeleteM
 	if err := validateExistingMirrorRoot(req.Target); err != nil {
 		return confirmDeleteMirrorDetails{}, err
 	}
-	name, err := validateSkillName(req.Name)
+	name, _, err := normalizeSkillIdentityName(req.Name, "")
 	if err != nil {
 		return confirmDeleteMirrorDetails{}, err
 	}

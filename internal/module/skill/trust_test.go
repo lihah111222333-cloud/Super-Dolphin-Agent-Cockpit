@@ -27,7 +27,7 @@ func TestValidateSkillName(t *testing.T) {
 		{"foo/bar", false, ""},  // 路径分隔
 		{"foo\\bar", false, ""}, // windows 分隔
 		{"../etc", false, ""},   // 路径逃逸
-		{"foo bar", false, ""},  // 空格
+		{"foo bar", false, ""},  // runtime name 不允许空格，展示名走 display_name
 		{"foo.md", false, ""},   // 点号
 		{"-foo", false, ""},     // 连字符开头
 		{"_foo", false, ""},     // 下划线开头

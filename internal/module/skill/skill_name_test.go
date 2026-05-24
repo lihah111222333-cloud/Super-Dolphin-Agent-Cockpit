@@ -6,26 +6,48 @@ import (
 	"testing"
 )
 
-func Test_validateSkillName_AcceptsChineseLetters(t *testing.T) {
+func Test_validateSkillName_AcceptsChineseLettersAndStrictSeparators(t *testing.T) {
 	names := []string{
-		"使用git工作区",
-		"使用超能力",
-		"头脑风暴",
-		"子代理驱动开发",
-		"完成前验证",
-		"执行计划",
-		"接收代码审查",
-		"测试驱动开发",
-		"系统化调试",
-		"结束开发分支",
-		"编写技能",
-		"编写计划",
-		"请求代码审查",
-		"调度并行代理",
+		"使用git工作区", "使用超能力", "头脑风暴", "子代理驱动开发",
+		"Docker-容器化部署", "GORM_数据库操作", "Git-原子提交规范",
+		"MySQL-高可用运维", "Python_量化机器学习", "Markdown-报告规范",
 	}
 	for _, name := range names {
 		t.Run(name, func(t *testing.T) {
 			assertValidSkillName(t, name)
+		})
+	}
+}
+
+func Test_validateSkillName_RejectsDisplayNamesWithSpaces(t *testing.T) {
+	for _, name := range []string{
+		"Docker 容器化部署", "GORM 数据库操作", "Git 原子提交规范",
+		"MySQL 高可用运维", "Python 量化机器学习", "Markdown 报告规范",
+	} {
+		t.Run(name, func(t *testing.T) {
+			assertInvalidSkillName(t, name)
+		})
+	}
+}
+
+func Test_normalizeSkillIdentityName_ConvertsSafeLegacyDisplayNames(t *testing.T) {
+	cases := map[string]string{
+		"Docker 容器化部署":  "docker-容器化部署",
+		"GORM 数据库操作":    "gorm-数据库操作",
+		"Git 原子提交规范":    "git-原子提交规范",
+		"MySQL 高可用运维":   "mysql-高可用运维",
+		"Python 量化机器学习": "python-量化机器学习",
+		"Markdown 报告规范": "markdown-报告规范",
+	}
+	for displayName, wantName := range cases {
+		t.Run(displayName, func(t *testing.T) {
+			gotName, gotDisplay, err := normalizeSkillIdentityName(displayName, "")
+			if err != nil {
+				t.Fatalf("normalizeSkillIdentityName(%q) err = %v", displayName, err)
+			}
+			if gotName != wantName || gotDisplay != displayName {
+				t.Fatalf("normalizeSkillIdentityName(%q) = (%q, %q), want (%q, %q)", displayName, gotName, gotDisplay, wantName, displayName)
+			}
 		})
 	}
 }

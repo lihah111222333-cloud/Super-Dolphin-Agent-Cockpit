@@ -115,6 +115,7 @@ type skillListParams struct {
 
 type skillListItem struct {
 	Name                   string     `json:"name"`
+	DisplayName            string     `json:"display_name,omitempty"`
 	Dir                    string     `json:"dir,omitempty"`
 	SkillFile              string     `json:"skill_file,omitempty"`
 	Scope                  string     `json:"scope,omitempty"`
