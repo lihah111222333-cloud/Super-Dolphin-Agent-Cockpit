@@ -13,14 +13,29 @@ export function updateNotice(notice, level, message) {
   notice.message = (message || '').toString();
 }
 
+export const MISSING_SKILLS_CWD_MESSAGE = '项目路径未就绪，无法读取或保存技能。';
+
+function normalizeSkillsCwd(value) {
+  const text = (value || '').toString().trim();
+  return text && text !== '.' ? text : '';
+}
+
 export function resolveSkillsCwd(props) {
-  const activeProject = (props?.projectStore?.state?.active || '').toString().trim();
-  return activeProject && activeProject !== '.' ? activeProject : '';
+  return normalizeSkillsCwd(props?.cwd) || normalizeSkillsCwd(props?.projectStore?.state?.active);
+}
+
+export function requireSkillsCwd(props) {
+  const cwd = resolveSkillsCwd(props);
+  if (!cwd) throw new Error(MISSING_SKILLS_CWD_MESSAGE);
+  return cwd;
 }
 
 export function withSkillsCwd(props, payload = {}) {
-  const cwd = resolveSkillsCwd(props);
-  return cwd ? { ...payload, cwd } : payload;
+  return { ...payload, cwd: requireSkillsCwd(props) };
+}
+
+export function isMissingSkillsCwdError(error) {
+  return (error?.message || error || '').toString() === MISSING_SKILLS_CWD_MESSAGE;
 }
 
 export function isSummarySuggestUnavailableError(error) {
