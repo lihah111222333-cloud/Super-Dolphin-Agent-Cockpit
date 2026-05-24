@@ -208,11 +208,6 @@ func legacyActionHint(label string, action string) string {
 		case "open":
 			return `legacy action "open" is accepted as "open_file"`
 		}
-	case "edit":
-		switch action {
-		case "did_change", "change":
-			return `use "replace_range" with patch, edits, or coordinates`
-		}
 	case "xref":
 		if action == "references" {
 			return `use tool "xref" with action "references"`

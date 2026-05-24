@@ -24,10 +24,6 @@ func arrayOfStringsProp(desc string) schema {
 	return schema{"type": "array", "description": desc, "items": map[string]any{"type": "string"}}
 }
 
-func arrayOfObjectsProp(desc string) schema {
-	return schema{"type": "array", "description": desc, "items": map[string]any{"type": "object", "additionalProperties": true}}
-}
-
 func objectSchema(props map[string]schema, required ...string) schema {
 	s := schema{"type": "object", "additionalProperties": false}
 	if len(props) > 0 {
@@ -114,22 +110,11 @@ var lspStructureSchema = objectSchema(map[string]schema{
 }, "action")
 
 var lspEditSchema = objectSchema(map[string]schema{
-	"action":          enumProp("Operation", "rename", "code_action", "format", "replace_range"),
-	"file_path":       stringProp("File path (absolute or relative, auto-resolved)"),
-	"language_id":     stringProp("Optional trusted language adapter override"),
-	"line":            integerProp("1-based line (for rename/code_action)"),
-	"column":          integerProp("1-based column (for rename/code_action)"),
-	"end_line":        integerProp("End line for code_action range"),
-	"end_column":      integerProp("End column for code_action range"),
-	"patch":           stringProp("Single-hunk patch text for replace_range"),
-	"edits":           arrayOfObjectsProp("Array of edits for replace_range: [{old_string, new_string}]"),
-	"new_name":        stringProp("New name for rename"),
-	"new_text":        stringProp("Legacy rename alias; replacement text for replace_range"),
-	"persist_to_disk": booleanProp("Compatibility flag for rename; default true. Set false to return workspace_edit without applying"),
-	"version":         integerProp("Document version for applied edit flow. Default: 2"),
-	"only":            arrayOfStringsProp("Code action kinds filter"),
-	"force":           booleanProp("Force persist when an apply safety guard allows override; never bypasses trusted scope, root containment, symlink/path safety, patch grammar, or adapter capability"),
-}, "action", "file_path")
+	"file_path":   stringProp("File path (absolute or relative, auto-resolved)"),
+	"language_id": stringProp("Optional trusted language adapter override"),
+	"patch":       stringProp("Patch text to apply to disk"),
+	"version":     integerProp("Document version for applied edit flow. Default: 2"),
+}, "file_path", "patch")
 
 var lspCompletionSchema = objectSchema(map[string]schema{
 	"file_path":   stringProp("File path (absolute or relative, auto-resolved)"),

@@ -21,10 +21,11 @@ func TestShouldTrackDiff(t *testing.T) {
 		arguments json.RawMessage
 		want      bool
 	}{
-		{name: "rename", toolName: "lsp_edit", arguments: mustRawJSON(t, map[string]any{"action": "rename"}), want: true},
-		{name: "replace_range", toolName: "lsp_edit", arguments: mustRawJSON(t, map[string]any{"action": "replace_range"}), want: true},
-		{name: "format", toolName: "lsp_edit", arguments: mustRawJSON(t, map[string]any{"action": "format"}), want: false},
-		{name: "other tool", toolName: "lsp_hover", arguments: mustRawJSON(t, map[string]any{"action": "rename"}), want: false},
+		{name: "edit patch", toolName: "edit", arguments: mustRawJSON(t, map[string]any{"file_path": "sample.go", "patch": "@@\n-old\n+new\n"}), want: true},
+		{name: "legacy alias edit patch", toolName: "lsp_edit", arguments: mustRawJSON(t, map[string]any{"file_path": "sample.go", "patch": "@@\n-old\n+new\n"}), want: true},
+		{name: "edit without patch", toolName: "edit", arguments: mustRawJSON(t, map[string]any{"file_path": "sample.go"}), want: false},
+		{name: "legacy action no longer drives diff", toolName: "lsp_edit", arguments: mustRawJSON(t, map[string]any{"action": "replace_range"}), want: false},
+		{name: "other tool", toolName: "lsp_hover", arguments: mustRawJSON(t, map[string]any{"file_path": "sample.go", "patch": "@@\n-old\n+new\n"}), want: false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -289,7 +290,7 @@ func assertFamilyOnlyScopedLookup(t *testing.T, registry *stubRegistry) {
 
 func TestToolBridge_RouteToolCall_EmitsDiffForTrackedLspEdit(t *testing.T) {
 	repo := initGitRepo(t, map[string]string{"tracked.txt": "before\n"})
-	args := mustRawJSON(t, map[string]any{"action": "rename"})
+	args := mustRawJSON(t, map[string]any{"file_path": "tracked.txt", "patch": "@@\n-before\n+after\n"})
 	peer := trackedDiffPeer(t, repo)
 	h, _ := newHandlerForTest(peer)
 	var emitted []difftracker.DiffResult
@@ -368,7 +369,7 @@ func assertTrackedDiffText(t *testing.T, diff difftracker.DiffResult) {
 
 func TestToolBridge_RouteToolCall_EmitsDiffWithInjectedCWD(t *testing.T) {
 	repo := initGitRepo(t, map[string]string{"tracked.txt": "before\n"})
-	args := mustRawJSON(t, map[string]any{"action": "rename"})
+	args := mustRawJSON(t, map[string]any{"file_path": "tracked.txt", "patch": "@@\n-before\n+after\n"})
 	peer := &mcpcontrol.ToolInstance{Peer: &stubPeer{callbackFn: func(_ context.Context, method string, params any, result any) error {
 		if method != "tools/call" {
 			t.Fatalf("Callback() method = %q, want tools/call", method)

@@ -138,19 +138,6 @@ func setDynamicToolDeferLoading(schema *contract.DynamicToolSchema, enabled bool
 	}
 }
 
-func lspEditAction(arguments json.RawMessage) string {
-	if len(bytes.TrimSpace(arguments)) == 0 {
-		return ""
-	}
-	var payload struct {
-		Action string `json:"action"`
-	}
-	if err := json.Unmarshal(arguments, &payload); err != nil {
-		return ""
-	}
-	return strings.TrimSpace(payload.Action)
-}
-
 func callIDFromRawJSONRPCID(id json.RawMessage) string {
 	trimmed := bytes.TrimSpace(id)
 	if len(trimmed) == 0 {
