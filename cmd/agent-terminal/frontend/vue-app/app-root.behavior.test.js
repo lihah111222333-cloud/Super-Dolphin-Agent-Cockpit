@@ -186,6 +186,14 @@ afterEach(() => {
 });
 
 describe('AppRoot behavior', () => {
+  it('passes thread scope cwd into the skills page', () => {
+    const vm = AppRoot.setup();
+
+    expect(vm.threadScopeCwd.value).toBe('/repo');
+    expect(AppRoot.template).toContain('<SkillsPage');
+    expect(AppRoot.template).toContain(':cwd="threadScopeCwd"');
+  });
+
   it('bootstraps runtime state, subscribes events and cleans up on unmount', async () => {
     apiMock.getBuildInfo.mockResolvedValueOnce({ version: '1.0.0' });
     apiMock.callAPI.mockImplementation(async (method) => {

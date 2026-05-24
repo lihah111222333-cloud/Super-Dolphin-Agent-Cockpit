@@ -508,6 +508,7 @@ func TestSkillRPCRejectsEmptyCWD(t *testing.T) {
 	}{
 		{method: "skill/list", params: `{}`},
 		{method: "skills/list", params: `{}`},
+		{method: "skills/resolution_list", params: `{}`},
 		{method: "skills/match/preview", params: `{"threadId":"t1","text":"hello"}`},
 		{method: "skills/local/read", params: `{"path":"/tmp/skill/SKILL.md"}`},
 		{method: "skills/local/listFiles", params: `{"dir":"/tmp/skill"}`},

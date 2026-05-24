@@ -27,3 +27,24 @@ func TestSkillMirrorReconcilerDetectsExternalPersonalProjectSameName(t *testing.
 	}
 	assertMirrorConflictActions(t, conflict, "view_diff", "use_project_shared_skill", "use_external_provider_skill", "save_as_new_personal_skill")
 }
+
+func TestSkillMirrorReconcilerIgnoresOrphanExternalPersonalProviderSkill(t *testing.T) {
+	project := t.TempDir()
+	records, err := newCanonicalStore("").scan(project)
+	if err != nil {
+		t.Fatalf("scan canonical records: %v", err)
+	}
+	target := SkillMirrorTarget{TargetID: "claude:user-global:owner", Provider: SkillProviderClaude, Scope: skillScopePersonal, Root: filepath.Join(t.TempDir(), ".claude", "skills"), CanonicalRootID: "sd_owner:owner"}
+	writeSkillWithSupportFiles(t, filepath.Join(target.Root, "scratch"), "scratch")
+
+	conflicts, err := DetectSkillMirrorConflicts(records, []SkillMirrorTarget{target})
+	if err != nil {
+		t.Fatalf("DetectSkillMirrorConflicts: %v", err)
+	}
+
+	for _, conflict := range conflicts {
+		if conflict.Kind == "unmanaged_provider_skill" && conflict.Name == "scratch" && conflict.Scope == skillScopePersonal {
+			t.Fatalf("conflicts = %+v, want orphan external personal provider skill ignored", conflicts)
+		}
+	}
+}

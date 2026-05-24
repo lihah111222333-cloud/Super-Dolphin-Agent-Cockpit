@@ -18,15 +18,16 @@ import { useSkillResolutions } from './composables/useSkillResolutions.js';
 
 function createResolutions(emit = vi.fn()) {
   const notice = { level: '', message: '' };
+  const activeCwdSource = ref('/repo');
   const vm = useSkillResolutions({
-    activeCwdSource: ref('/repo'),
+    activeCwdSource,
     emit,
     setNotice: (level, message) => {
       notice.level = level;
       notice.message = message;
     },
   });
-  return { emit, notice, vm };
+  return { activeCwdSource, emit, notice, vm };
 }
 
 beforeEach(() => {
@@ -37,6 +38,26 @@ beforeEach(() => {
 });
 
 describe('useSkillResolutions', () => {
+  it('does not call backend while active cwd is missing', async () => {
+    const { activeCwdSource, notice, vm } = createResolutions();
+    activeCwdSource.value = '';
+    vm.resolutionConflicts.value = [{ conflict_id: 'stale-conflict', name: 'DocsSkill' }];
+    vm.resolutionPreview.value = { conflict_id: 'stale-conflict' };
+    vm.resolutionNamePrompt.value = { conflict: { conflict_id: 'stale-conflict' } };
+    vm.resolutionNameInput.value = 'stale-name';
+
+    const result = await vm.refreshSkillResolutions({ notify: false, notifyOnError: true });
+
+    expect(result).toEqual([]);
+    expect(apiMock.listSkillResolutions).not.toHaveBeenCalled();
+    expect(vm.resolutionConflicts.value).toEqual([]);
+    expect(vm.resolutionPreview.value).toBe(null);
+    expect(vm.resolutionNamePrompt.value).toBe(null);
+    expect(vm.resolutionNameInput.value).toBe('');
+    expect(vm.showResolutionCheckButton.value).toBe(false);
+    expect(notice.message).toBe('');
+  });
+
   it('loads resolution conflicts from the active cwd', async () => {
     const { notice, vm } = createResolutions();
     apiMock.listSkillResolutions.mockResolvedValueOnce([

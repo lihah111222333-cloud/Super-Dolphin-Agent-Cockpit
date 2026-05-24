@@ -180,6 +180,46 @@ describe('SkillsPage resolution UX', () => {
     expect(vm.resolutionConflictAlertText.value).toContain('发现 1 个技能冲突');
   });
 
+  it('waits for a concrete cwd before automatic conflict scanning', async () => {
+    lifecycleMock.mounted.length = 0;
+    const projectStore = reactive({ state: { active: '.' } });
+    apiMock.callAPI.mockReset().mockResolvedValue({ items: [] });
+
+    const vm = SkillsPage.setup({
+      skills: [],
+      pendingCandidates: [],
+      projectStore,
+    }, { emit: vi.fn() });
+
+    await lifecycleMock.mounted[0]();
+    expect(apiMock.callAPI).not.toHaveBeenCalled();
+    expect(vm.showResolutionCheckButton.value).toBe(false);
+    expect(vm.notice.message).toBe('');
+
+    projectStore.state.active = '/repo';
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(apiMock.callAPI).toHaveBeenCalledWith('skills/resolution_list', { cwd: '/repo' });
+  });
+
+  it('uses the explicit cwd prop before projectStore active project for conflict scanning', async () => {
+    lifecycleMock.mounted.length = 0;
+    apiMock.callAPI.mockReset().mockResolvedValue({ items: [] });
+
+    SkillsPage.setup({
+      skills: [],
+      pendingCandidates: [],
+      cwd: '/window-repo',
+      projectStore: { state: { active: '.' } },
+    }, { emit: vi.fn() });
+
+    await lifecycleMock.mounted[0]();
+
+    expect(apiMock.callAPI).toHaveBeenCalledTimes(1);
+    expect(apiMock.callAPI).toHaveBeenCalledWith('skills/resolution_list', { cwd: '/window-repo' });
+  });
+
   it('shows conflict entry, user-facing preview and action explanations with a direct reminder', () => {
     expect(SkillsPage.template).toContain('data-testid="skills-resolution-alert"');
     expect(SkillsPage.template).toContain('resolutionConflictAlertText');
