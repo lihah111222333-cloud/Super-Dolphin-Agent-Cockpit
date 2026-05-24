@@ -8,6 +8,7 @@ import (
 
 func TestSkillResolutionListReportsPolicyHiddenSameNameConflicts(t *testing.T) {
 	skipWindowsShortMirrorIntegration(t)
+	setSkillTestUserHome(t)
 
 	project := t.TempDir()
 	superHome := filepath.Join(t.TempDir(), ".super-dolphin")

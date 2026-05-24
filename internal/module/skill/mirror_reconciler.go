@@ -270,6 +270,9 @@ func detectSkillMirrorNameConflict(records map[string]canonicalSkillRecord, targ
 }
 
 func unmanagedMirrorNameConflict(target SkillMirrorTarget, record canonicalSkillRecord, name, mirrorDir, mirrorHash string, canonicalExists, manifestTargetMismatch bool) (SkillMirrorConflict, bool, error) {
+	if target.Scope == skillScopePersonal && !canonicalExists {
+		return SkillMirrorConflict{}, false, nil
+	}
 	if canonicalExists && target.Scope == skillScopeProject {
 		return unmanagedProjectSameNameConflict(target, record, name, mirrorDir, mirrorHash, manifestTargetMismatch)
 	}
