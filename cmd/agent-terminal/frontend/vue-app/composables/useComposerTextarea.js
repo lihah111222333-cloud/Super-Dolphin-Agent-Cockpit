@@ -2,6 +2,8 @@ import { ref, nextTick } from '../../lib/vue.esm-browser.prod.js';
 import { logDebug } from '../services/log.js';
 import {
   applyComposerTextareaAutoHeight,
+  COMPOSER_APP_HEIGHT_MAX_RATIO,
+  COMPOSER_CHAT_READABLE_MIN_HEIGHT,
   COMPOSER_INPUT_BOUNDARY_GAP,
   COMPOSER_INPUT_MAX_HEIGHT,
   COMPOSER_INPUT_MIN_HEIGHT,
@@ -30,13 +32,28 @@ export function useComposerTextarea() {
     const boundaryTop = boundary && typeof boundary.getBoundingClientRect === 'function'
       ? boundary.getBoundingClientRect().top
       : COMPOSER_INPUT_BOUNDARY_GAP;
+    const composerShell = input.closest?.('.chat-composer-shell')
+      || input.closest?.('.workspace-bottom-row')
+      || null;
+    const composerRect = composerShell && typeof composerShell.getBoundingClientRect === 'function'
+      ? composerShell.getBoundingClientRect()
+      : null;
+    const composerChromeHeight = composerRect
+      ? Math.max(0, Math.floor((Number(composerRect.height) || 0) - (Number(rect.height) || 0)))
+      : 0;
     const availableHeight = Math.floor(
       rect.bottom - Math.max(boundaryTop, COMPOSER_INPUT_BOUNDARY_GAP) - COMPOSER_INPUT_BOUNDARY_GAP,
     );
     if (!Number.isFinite(availableHeight) || availableHeight <= 0) {
       return fallbackMaxHeight;
     }
-    return Math.max(COMPOSER_INPUT_MIN_HEIGHT, availableHeight);
+    return Math.max(
+      COMPOSER_INPUT_MIN_HEIGHT,
+      Math.min(
+        availableHeight - COMPOSER_CHAT_READABLE_MIN_HEIGHT - COMPOSER_INPUT_BOUNDARY_GAP - composerChromeHeight,
+        Math.round(viewportHeight * COMPOSER_APP_HEIGHT_MAX_RATIO) - composerChromeHeight,
+      ),
+    );
   }
 
   function syncComposerInputHeight() {
