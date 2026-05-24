@@ -113,9 +113,9 @@ func sessionGuidanceCases() []sessionGuidanceCase {
 		},
 		{
 			name:         "persistent_child_agents_prefer_managed_launch",
-			enabledTools: []string{"spawn_agent", "orchestration_launch_agent", "grep", "file"},
+			enabledTools: []string{"spawn_agent", "orchestration_launch_agent", "orchestration_get_agent_report", "grep", "file"},
 			flags:        map[string]bool{"persistent_subagent_default": true, "explore_agent_enabled": true},
-			want:         []string{"`orchestration_launch_agent`", "persistent UI-visible agent"},
+			want:         []string{"`orchestration_launch_agent`", "persistent UI-visible agent", "`orchestration_get_agent_report`", "wait"},
 			absent:       []string{"`spawn_agent`", "temporary background subtasks", "explore-oriented `spawn_agent` subtask", "Use `spawn_agent` only for well-scoped parallel subtasks."},
 		},
 		{

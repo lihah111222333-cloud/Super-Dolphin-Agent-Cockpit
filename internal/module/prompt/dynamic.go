@@ -173,6 +173,10 @@ func sessionGuidanceAgentDelegationItem(enabled map[string]struct{}, flags map[s
 		hasSpawn = false
 	}
 	if hasManaged && sessionGuidancePersistentSubagentDefault(flags) {
+		reportTool := sessionGuidanceToolEnabled(enabled, "orchestration_get_agent_report", "get_agent_report")
+		if reportTool {
+			return "When creating a child agent for the user, use `orchestration_launch_agent` so it appears as a persistent UI-visible agent. Give it a short, user-friendly task name rather than an internal slug or generic role label. After launch, wait on `orchestration_get_agent_report` before reporting that the child is finished."
+		}
 		return "When creating a child agent for the user, use `orchestration_launch_agent` so it appears as a persistent UI-visible agent. Give it a short, user-friendly task name rather than an internal slug or generic role label."
 	}
 	if hasSpawn && sessionGuidanceForkMode(flags) {

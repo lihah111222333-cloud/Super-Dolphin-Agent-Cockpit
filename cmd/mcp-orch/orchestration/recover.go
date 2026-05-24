@@ -14,9 +14,10 @@ import (
 )
 
 const (
-	recoverReasonManual     = "manual"
-	recoverReasonStall      = "stall_detected"
-	turnResumeReasonRecover = "recover_succeeded"
+	recoverReasonManual      = "manual"
+	recoverReasonStall       = "stall_detected"
+	recoverReasonProcessExit = "process_exit_error"
+	turnResumeReasonRecover  = "recover_succeeded"
 )
 
 type StallDetector struct {
@@ -42,6 +43,13 @@ func (s *service) Recover(ctx context.Context, agentID string) error {
 }
 
 func (s *service) recoverWithReason(ctx context.Context, agentID, reason string) error {
+	if s.canRecoverAgentViaLauncher(ctx, agentID) {
+		return s.recoverLauncherWithReason(ctx, agentID, reason)
+	}
+	return s.recoverLocalWithReason(ctx, agentID, reason)
+}
+
+func (s *service) recoverLocalWithReason(ctx context.Context, agentID, reason string) error {
 	return s.withAgentLocked(agentID, func(agent *agentRuntime) error {
 		threadID := agent.threadID
 		turnID := agent.activeTurnID
@@ -51,7 +59,9 @@ func (s *service) recoverWithReason(ctx context.Context, agentID, reason string)
 			return err
 		}
 		if resumed {
-			s.publishTurnResumed(agent, threadID, turnID, turnResumeReasonRecover, resolveEventTime(ctx, time.Now()))
+			resumedAt := time.Now()
+			s.suppressStoppedHookThreadUntilLocked(threadID, resumedAt)
+			s.publishTurnResumed(agent, threadID, turnID, turnResumeReasonRecover, resolveEventTime(ctx, resumedAt))
 		}
 		s.logger.Info("orchestration: agent recovered", "agent_id", agent.id, "pid", processPID(agent.cmd))
 		return nil
@@ -59,6 +69,7 @@ func (s *service) recoverWithReason(ctx context.Context, agentID, reason string)
 }
 
 func recoverAgent(ctx context.Context, s *service, agent *agentRuntime) (bool, error) {
+	activeTurnID := strings.TrimSpace(agent.activeTurnID)
 	replay, shouldReplay, err := loadRecoveredTurnSubmission(ctx, s, agent)
 	if err != nil {
 		return false, err
@@ -76,6 +87,9 @@ func recoverAgent(ctx context.Context, s *service, agent *agentRuntime) (bool, e
 		return false, err
 	}
 	if !shouldReplay {
+		if shouldWriteRecoveryNoReplayFallback(agent, activeTurnID) {
+			return false, s.setNoReportFallbackLocked(ctx, agent)
+		}
 		return false, nil
 	}
 	if err := replayRecoveredTurn(ctx, s, agent, replay); err != nil {
@@ -87,6 +101,11 @@ func recoverAgent(ctx context.Context, s *service, agent *agentRuntime) (bool, e
 		"turn_id", replay.ExpectedTurnID,
 	)
 	return true, nil
+}
+
+func shouldWriteRecoveryNoReplayFallback(agent *agentRuntime, activeTurnID string) bool {
+	return agent != nil && strings.TrimSpace(agent.lastReport) == "" &&
+		(strings.TrimSpace(activeTurnID) != "" || len(agent.reportRequesters) > 0)
 }
 
 func normalizeRecoveryState(ctx context.Context, s *service, agent *agentRuntime) error {
