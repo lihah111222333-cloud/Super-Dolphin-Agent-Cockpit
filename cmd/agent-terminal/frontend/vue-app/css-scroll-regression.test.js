@@ -61,6 +61,13 @@ describe('[regression] CSS scroll-jump guards', () => {
       ).toBe(false);
     }
   });
+
+  it('composer textarea allows user-controlled vertical resizing', () => {
+    const css = readCSS('styles/composer.css');
+    const block = cssBlock(css, '.chat-input-row-vue textarea,\n#chatInput');
+
+    expect(block).toMatch(/resize\s*:\s*vertical/);
+  });
 });
 describe('[regression] activity tool detail layout guards', () => {
   it('keeps per-tool counts in a right-aligned numeric column', () => {
