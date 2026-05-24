@@ -26,7 +26,8 @@ func TestStartParamsAcceptV2WireFields(t *testing.T) {
 		"summary":"concise",
 		"effort":"high",
 		"personality":"pragmatic",
-		"language":"zh"
+		"language":"zh",
+		"launchIntentId":"launch_018f00e0-39fc-72ac-a47a-2a858c75d111"
 	}`)
 	if err := json.Unmarshal(input, &params); err != nil {
 		t.Fatalf("json.Unmarshal() error = %v", err)
@@ -45,6 +46,9 @@ func TestStartParamsAcceptV2WireFields(t *testing.T) {
 	request := buildStartRequestFromParams(params, nil)
 	if request.Language != "zh" {
 		t.Fatalf("StartRequest.Language = %q, want zh", request.Language)
+	}
+	if request.LaunchIntentID != "launch_018f00e0-39fc-72ac-a47a-2a858c75d111" {
+		t.Fatalf("StartRequest.LaunchIntentID = %q", request.LaunchIntentID)
 	}
 }
 
@@ -250,6 +254,18 @@ func TestNormalizeStartRequestRejectsMissingProvider(t *testing.T) {
 	})
 	if err == nil || !strings.Contains(err.Error(), "provider is required") {
 		t.Fatalf("normalizeStartRequest() error = %v, want provider is required", err)
+	}
+}
+
+func TestNormalizeStartRequestRejectsAgentIDWithLaunchIntentID(t *testing.T) {
+	t.Parallel()
+
+	_, _, err := normalizeStartRequest(StartRequest{
+		AgentID: "agent_from_client", LaunchIntentID: "launch_018f00e0-39fc-72ac-a47a-2a858c75d111",
+		Provider: "codex", CWD: wantStartCWD(t),
+	})
+	if err == nil || !strings.Contains(err.Error(), "agent_id cannot be provided with launch_intent_id") {
+		t.Fatalf("normalizeStartRequest() error = %v, want agent_id rejection", err)
 	}
 }
 

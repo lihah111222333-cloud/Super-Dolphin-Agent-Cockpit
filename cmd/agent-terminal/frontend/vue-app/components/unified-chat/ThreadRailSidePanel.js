@@ -150,7 +150,7 @@ export const ThreadRailSidePanel = {
         </button>
       </header>
       <div v-if="visibleChatThreadCards.length === 0" class="thread-rail-empty" data-testid="thread-empty-state">
-        {{ showArchivedThreadList ? '暂无归档会话' : '暂无会话，点击顶部「启动 Agent」开始对话' }}
+        {{ showArchivedThreadList ? '暂无归档会话' : '暂无会话，点击顶部「新对话」开始草稿' }}
       </div>
       <div v-else class="thread-rail-list hide-scrollbar" data-testid="thread-list">
         <div
