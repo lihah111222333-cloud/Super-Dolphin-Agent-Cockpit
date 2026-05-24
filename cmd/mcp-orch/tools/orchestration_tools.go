@@ -143,7 +143,7 @@ func matchingAgentID(ctx context.Context, svc contract.OrchestrationService, age
 	if agentID == "" {
 		return contract.AgentSnapshot{}, false, nil
 	}
-	agents, err := svc.ListAgents(ctx)
+	agents, err := listAgentSnapshots(ctx, svc)
 	if err != nil {
 		return contract.AgentSnapshot{}, false, err
 	}
@@ -241,7 +241,7 @@ func existingLaunchAgentIDs(ctx context.Context, svc contract.OrchestrationServi
 	if svc == nil {
 		return existing, activeExisting, nil
 	}
-	agents, err := svc.ListAgents(ctx)
+	agents, err := listAgentSnapshots(ctx, svc)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -342,7 +342,7 @@ func HandleListAgents(svc contract.OrchestrationService) ToolHandler {
 		if err != nil {
 			return nil, err
 		}
-		agents, err := svc.ListAgents(ctx)
+		agents, err := listAgentSnapshots(ctx, svc)
 		if err != nil {
 			pkglogger.Warn("orchestration_list_agents: list failed",
 				"state", strings.TrimSpace(in.State),
@@ -354,6 +354,11 @@ func HandleListAgents(svc contract.OrchestrationService) ToolHandler {
 			return nil, err
 		}
 		filtered := filterListAgentSnapshots(agents, in, cwdFilter)
+		if in.IncludeReports {
+			if err := hydrateListAgentReports(ctx, svc, filtered); err != nil {
+				return nil, err
+			}
+		}
 		if len(filtered) != len(agents) || !in.IncludeReports {
 			pkglogger.Warn("orchestration_list_agents: compacted response",
 				"total", len(agents),
@@ -368,14 +373,30 @@ func HandleListAgents(svc contract.OrchestrationService) ToolHandler {
 	})
 }
 
-func HandleGetAgentReport(svc contract.OrchestrationService) ToolHandler {
-	return makeHandler(svc, "orchestration service", func(ctx context.Context, in AgentIDInput) (any, error) {
-		agentID, err := requireTrimmed(in.AgentID, "agent_id")
-		if err != nil {
-			return nil, err
+func listAgentSnapshots(ctx context.Context, svc contract.OrchestrationService) ([]contract.AgentSnapshot, error) {
+	listCtx, cancel := platformconfig.WithTimeoutIfNone(ctx, platformconfig.RPCRequestTimeout)
+	defer cancel()
+	return svc.ListAgents(listCtx)
+}
+
+func hydrateListAgentReports(ctx context.Context, svc contract.OrchestrationService, agents []contract.AgentSnapshot) error {
+	reportCtx, cancel := platformconfig.WithTimeoutIfNone(ctx, platformconfig.RPCRequestTimeout)
+	defer cancel()
+	for i := range agents {
+		if strings.TrimSpace(agents[i].LastReport) != "" {
+			continue
 		}
-		return svc.GetReport(ctx, agentID)
-	})
+		agentID := shared.FirstTrimmed(agents[i].AgentID, agents[i].ID)
+		if agentID == "" {
+			continue
+		}
+		report, err := svc.GetReport(reportCtx, agentID)
+		if err != nil {
+			return fmt.Errorf("hydrate agent report %q: %w", agentID, err)
+		}
+		agents[i].LastReport = report.Report
+	}
+	return nil
 }
 
 func orchestrationToolDefinitions(svc contract.OrchestrationService) []ToolDefinition {
@@ -411,8 +432,11 @@ func orchestrationToolDefinitions(svc contract.OrchestrationService) []ToolDefin
 			"include_reports":  BooleanSchema("Include last_report bodies in list output. Defaults to false; prefer get_agent_report."),
 			"limit":            IntegerSchema("Maximum number of agents to return after filtering. 0 means no explicit limit."),
 		}), HandleListAgents(svc)),
-		defineTool("get_agent_report", "Read the last known report for an orchestration agent. Pass the persisted agent_id returned by launch/list; display name is not an identifier.", ObjectSchema(map[string]Schema{
-			"agent_id": StringSchema("Persisted target orchestration agent ID returned by launch/list; do not pass name."),
+		defineTool("get_agent_report", "Read the current report snapshot for an orchestration agent. Pass wait=true when a parent agent must block for a child report. Pass the persisted agent_id returned by launch/list; display name is not an identifier.", ObjectSchema(map[string]Schema{
+			"agent_id":     StringSchema("Persisted target orchestration agent ID returned by launch/list; do not pass name."),
+			"wait":         BooleanSchema("Defaults to false. When true, wait until a report, failed/stopped fallback, or timeout."),
+			"requester_id": StringSchema("Optional explicit parent/requester agent id. Defaults to the trusted tool scope agent_id when available."),
+			"timeout_ms":   IntegerSchema("Optional maximum wait in milliseconds when wait=true. Defaults to the RPC request timeout."),
 		}, "agent_id"), HandleGetAgentReport(svc)),
 	)
 }

@@ -12,13 +12,9 @@ import (
 	platformshared "github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 )
 
-// Terminal event-type and thread-status tables plus the
-// report-text payload scan order now live in report_protocol.go.
-// See P22 P4 §64 / §122 / §283.
-
 func (s *service) GetState(ctx context.Context, agentID string) (AgentStateResult, error) {
 	var result AgentStateResult
-	err := s.withAgentReadLockedByAgentID(agentID, func(agent *agentRuntime) error {
+	err := s.withAgentReadLockedByAgentID(ctx, agentID, func(agent *agentRuntime) error {
 		result = AgentStateResult{AgentID: agent.id, State: string(agent.state)}
 		return nil
 	})
@@ -34,7 +30,7 @@ func (s *service) GetState(ctx context.Context, agentID string) (AgentStateResul
 
 func (s *service) GetReport(ctx context.Context, agentID string) (AgentReportResult, error) {
 	var result AgentReportResult
-	err := s.withAgentReadLockedByAgentID(agentID, func(agent *agentRuntime) error {
+	err := s.withAgentReadLockedByAgentID(ctx, agentID, func(agent *agentRuntime) error {
 		result = agentReportLocked(agent)
 		return nil
 	})
@@ -85,7 +81,6 @@ func (s *service) RememberReportRequest(ctx context.Context, req RememberReportR
 	return result, err
 }
 
-// TODO(p2-b15): deliver drained requester notifications into the UI timeline once a stable V3 delivery path exists.
 func (s *service) HandleReportEvent(ctx context.Context, event ReportEvent) (ReportEventResult, error) {
 	agentID := strings.TrimSpace(event.AgentID)
 	if agentID == "" {
@@ -102,27 +97,9 @@ func (s *service) HandleReportEvent(ctx context.Context, event ReportEvent) (Rep
 
 	result := ReportEventResult{}
 	err := s.withAgentLocked(agentID, func(agent *agentRuntime) error {
-		if report != "" {
-			setReportLocked(ctx, agent, report)
-			if err := persistAgentReportFile(agentReportFileRecordFromRuntime(agent)); err != nil {
-				return err
-			}
-		}
-		notified := []string(nil)
-		if report != "" || isTerminalReportEvent(eventType, event.EventData) {
-			notified = drainReportRequestersLocked(ctx, agent)
-		}
-		if report == "" {
-			report = strings.TrimSpace(agent.lastReport)
-		}
-		result = ReportEventResult{
-			Success:              true,
-			AgentID:              agent.id,
-			EventType:            eventType,
-			Report:               report,
-			NotifiedRequesterIDs: notified,
-		}
-		return nil
+		var applyErr error
+		result, applyErr = s.applyReportEventLocked(ctx, agent, eventType, event.EventData, report)
+		return applyErr
 	})
 	if fallback, ok := s.reportEventFallbackResult(ctx, agentID, eventType, report, err); ok {
 		return fallback, nil
@@ -130,10 +107,6 @@ func (s *service) HandleReportEvent(ctx context.Context, event ReportEvent) (Rep
 	return result, err
 }
 
-// reportEventFallbackResult builds a HandleReportEvent success result by
-// persisting the report straight to disk when the in-memory runtime is
-// gone (mcp-orch restarted mid-turn). ok is false when the runtime error
-// is not errAgentNotFound or the report could not be written.
 func (s *service) reportEventFallbackResult(ctx context.Context, agentID, eventType, report string, runtimeErr error) (ReportEventResult, bool) {
 	if !errors.Is(runtimeErr, errAgentNotFound) {
 		return ReportEventResult{}, false
@@ -149,12 +122,6 @@ func (s *service) reportEventFallbackResult(ctx context.Context, agentID, eventT
 	}, true
 }
 
-// persistReportWithoutRuntime writes a report straight to disk for an
-// agent whose in-memory runtime is gone — e.g. mcp-orch restarted
-// mid-turn and lost s.agents before the turn-completed event arrived.
-// It resolves cwd/name from the persisted thread snapshot, the same
-// fallback source GetReport reads, so a completed turn's report still
-// reaches disk. Returns true only when the report was actually written.
 func (s *service) persistReportWithoutRuntime(ctx context.Context, agentID, report string) bool {
 	if strings.TrimSpace(report) == "" {
 		return false
@@ -267,12 +234,6 @@ func drainReportRequestersLocked(ctx context.Context, agent *agentRuntime) []str
 	return requesters
 }
 
-// turnCompletedReportText derives the report body for a completed turn.
-// A successful turn carries its answer in result/summary/message; a
-// failed turn carries none of those, only error/reason/stop_reason.
-// Without the failure fallback a failed child agent's report stays
-// empty and the parent's get_agent_report degrades to "not found",
-// silently hiding the failure.
 func turnCompletedReportText(ev turndto.TurnCompleted) string {
 	if text := platformshared.FirstTrimmed(ev.Result, ev.Summary, ev.Message); text != "" {
 		return text
@@ -286,17 +247,11 @@ func turnCompletedReportText(ev turndto.TurnCompleted) string {
 	return "turn failed without detail"
 }
 
-// noReportFallbackText is the body GetReport returns when a persisted
-// agent snapshot exists but no report file was ever written — the turn
-// never reached turn:complete, or mcp-orch restarted and lost the
-// in-memory runtime before a report event could be persisted. Returning
-// this in place of errAgentReportNotFound lets the parent agent see the
-// agent's terminal state instead of a bare "not found".
-func noReportFallbackText(state string) string {
-	if state = strings.TrimSpace(state); state != "" {
-		return "agent ended in state '" + state + "' without producing a turn report"
+func resolveReportText(event ReportEvent) string {
+	if report := strings.TrimSpace(event.Report); report != "" {
+		return report
 	}
-	return "agent ended without producing a turn report"
+	return extractReportFromEventData(event.EventData)
 }
 
 func extractReportFromEventData(raw json.RawMessage) string {

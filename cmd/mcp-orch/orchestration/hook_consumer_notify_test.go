@@ -5,9 +5,11 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/kelindar/event"
 
+	agentdto "github.com/anthropic-ai/super-agent-v3/internal/dto/agent"
 	shareddto "github.com/anthropic-ai/super-agent-v3/internal/dto/shared"
 	threaddto "github.com/anthropic-ai/super-agent-v3/internal/dto/thread"
 	turndto "github.com/anthropic-ai/super-agent-v3/internal/dto/turn"
@@ -98,6 +100,31 @@ func TestHookConsumerFiresTapOnThreadStopped(t *testing.T) {
 	hc.handleThreadStopped(context.Background(), ev)
 	if len(tap.stopped) != 1 {
 		t.Fatalf("want 1 stopped tap, got %d", len(tap.stopped))
+	}
+}
+
+func TestThreadStoppedHookDoesNotRepublishAlreadyStoppedAgent(t *testing.T) {
+	dispatcher := event.NewDispatcher()
+	t.Cleanup(func() { _ = dispatcher.Close() })
+	stopped := make(chan agentdto.AgentStopped, 1)
+	cancel := event.Subscribe(dispatcher, func(ev agentdto.AgentStopped) {
+		stopped <- ev
+	})
+	defer cancel()
+	svc := NewService(silentLogger(), dispatcher, nil, nil, nil, nil)
+	hc := newHookConsumerInternal(svc, silentLogger(), nil, nil, nil)
+	agent := svc.newAgentLocked("agent-1")
+	agent.state = agentdto.StateStopped
+	agent.threadID = "thread-1"
+	agent.remoteThreadID = "thread-1"
+	svc.agents[agent.id] = agent
+
+	hc.handleThreadStopped(context.Background(), threaddto.Stopped{ThreadID: "thread-1", AgentID: "agent-1", Reason: "remote_stopped"})
+
+	select {
+	case ev := <-stopped:
+		t.Fatalf("unexpected duplicate AgentStopped event: %#v", ev)
+	case <-time.After(20 * time.Millisecond):
 	}
 }
 

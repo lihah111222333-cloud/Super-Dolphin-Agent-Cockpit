@@ -206,6 +206,29 @@ func TestArchiveAgentInvokesLauncherArchiveNotStop(t *testing.T) {
 	}
 }
 
+func TestArchiveAgentViaLauncherDoesNotEmitExitForNonSettledLauncher(t *testing.T) {
+	launcher := &archiveAgentLauncher{}
+	svc := NewService(silentLogger(), nil, launcher, nil, nil, nil)
+	agent := svc.newAgentLocked("agent-1")
+	agent.state = agentdto.StateIdle
+	agent.remoteThreadID = "provider-thread-1"
+	agent.launchSeq = 1
+	svc.agents[agent.id] = agent
+
+	archived, err := svc.archiveAgentViaLauncher(context.Background(), "agent-1", "archived")
+	if err != nil || !archived {
+		t.Fatalf("archiveAgentViaLauncher() = (%v, %v), want archived nil", archived, err)
+	}
+	select {
+	case ev := <-svc.exitMonitor.ExitEvents():
+		t.Fatalf("unexpected synthetic exit event for non-settled archive launcher: %#v", ev)
+	default:
+	}
+	if agent.state != agentdto.StateStopping {
+		t.Fatalf("agent.state = %q, want %q", agent.state, agentdto.StateStopping)
+	}
+}
+
 type archiveAgentThreadStore struct {
 	threads     []PersistedThread
 	updated     PersistedThreadStatusUpdate
