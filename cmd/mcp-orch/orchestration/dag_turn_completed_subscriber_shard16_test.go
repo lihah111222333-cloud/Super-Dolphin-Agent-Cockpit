@@ -83,6 +83,96 @@ func TestDAGSubscriber_A2_SharedfileOnlyDoesNotStoreLargeTurnResult(t *testing.T
 	}
 }
 
+func TestDAGSubscriber_A2_SharedfileOnlyEmptyTurnUsesExistingSharedfile(t *testing.T) {
+	lookup := &dagSubscriberLookupSpy{nodes: []taskdag.Node{{
+		DagKey:   "dag-a2",
+		NodeKey:  "agent-sharedfile-existing",
+		NodeType: "agent",
+		Status:   "running",
+		Config: testRawConfig(t, `{
+			"exec":{"agent_key":"implementer","cwd":"/tmp/node-cwd"},
+			"outputs":{
+				"to_sharedfile":{"path":"reports/final.pptx","lock_mode":"exclusive"},
+				"to_node_result":false
+			}
+		}`),
+	}}}
+	flow := &dagSubscriberFlowSpy{}
+	reader := &dagSubscriberSharedFileReaderSpy{contents: map[string]string{"reports/final.pptx": "existing final file"}}
+	writer := &dagSubscriberSharedFileWriterSpy{}
+	deps := setupDAGSubscriberDeps(
+		lookup,
+		flow,
+		&dagSubscriberThreadSpy{thread: &PersistedThread{ThreadID: "thr-a2-sharedfile-existing", AgentID: "agent-a2-existing"}},
+		&dagSubscriberStopSpy{},
+	)
+	deps.SharedFileReader = reader
+	deps.SharedFileWriter = writer
+
+	handleDAGTurnCompleted(context.Background(), deps, discardLogger(), newTurnCompletedEvent("thr-a2-sharedfile-existing", true, ""))
+
+	if len(flow.failCalls) != 0 {
+		t.Fatalf("failCalls = %d, want 0 when configured sharedfile exists", len(flow.failCalls))
+	}
+	if len(flow.claimCalls) != 1 {
+		t.Fatalf("claimCalls = %d, want 1 for existing sharedfile promotion", len(flow.claimCalls))
+	}
+	if len(flow.completeCalls) != 1 {
+		t.Fatalf("completeCalls = %d, want 1", len(flow.completeCalls))
+	}
+	if got := string(flow.completeCalls[0].Result); got != `{"sharedfile":{"path":"reports/final.pptx"}}` {
+		t.Fatalf("CompleteNodeInput.Result = %s, want sharedfile reference", got)
+	}
+	if len(writer.writes) != 0 {
+		t.Fatalf("sharedfile writes = %d, want 0 when preserving existing file", len(writer.writes))
+	}
+}
+
+func TestDAGSubscriber_A2_SharedfileOnlyEmptyTurnFailsWhenFileMissing(t *testing.T) {
+	lookup := &dagSubscriberLookupSpy{nodes: []taskdag.Node{{
+		DagKey:   "dag-a2",
+		NodeKey:  "agent-sharedfile-missing",
+		NodeType: "agent",
+		Status:   "running",
+		Config: testRawConfig(t, `{
+			"exec":{"agent_key":"implementer","cwd":"/tmp/node-cwd"},
+			"outputs":{
+				"to_sharedfile":{"path":"reports/missing.pptx","lock_mode":"exclusive"},
+				"to_node_result":false
+			}
+		}`),
+	}}}
+	flow := &dagSubscriberFlowSpy{}
+	writer := &dagSubscriberSharedFileWriterSpy{}
+	deps := setupDAGSubscriberDeps(
+		lookup,
+		flow,
+		&dagSubscriberThreadSpy{thread: &PersistedThread{ThreadID: "thr-a2-sharedfile-missing", AgentID: "agent-a2-missing"}},
+		&dagSubscriberStopSpy{},
+	)
+	deps.SharedFileReader = &dagSubscriberSharedFileReaderSpy{}
+	deps.SharedFileWriter = writer
+
+	handleDAGTurnCompleted(context.Background(), deps, discardLogger(), newTurnCompletedEvent("thr-a2-sharedfile-missing", true, ""))
+
+	if len(flow.completeCalls) != 0 || len(flow.claimCalls) != 0 {
+		t.Fatalf("complete/claim calls = %d/%d, want 0/0 for missing sharedfile with empty output",
+			len(flow.completeCalls), len(flow.claimCalls))
+	}
+	if len(flow.failCalls) != 1 {
+		t.Fatalf("failCalls = %d, want 1", len(flow.failCalls))
+	}
+	if !flow.failCalls[0].FailFast {
+		t.Fatal("FailFast = false, want true so pending downstream is canceled")
+	}
+	if got := flow.failCalls[0].Reason; !strings.Contains(got, "configured sharedfile is missing") {
+		t.Fatalf("failure reason = %q, want configured sharedfile is missing", got)
+	}
+	if len(writer.writes) != 0 {
+		t.Fatalf("sharedfile writes = %d, want 0 when output is empty and file is missing", len(writer.writes))
+	}
+}
+
 func TestDAGSubscriber_A2_SharedfileSkippedWhenCompleteFenceRejects(t *testing.T) {
 	payload := `{"summary":"late duplicate output"}`
 	lookup := &dagSubscriberLookupSpy{nodes: []taskdag.Node{{
