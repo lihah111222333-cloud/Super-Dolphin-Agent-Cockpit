@@ -31,7 +31,6 @@ func (s *service) listPersistedAgentSnapshots(ctx context.Context) ([]AgentSnaps
 		if _, exists := seen[snapshot.AgentID]; exists {
 			continue
 		}
-		attachPersistedAgentReport(&snapshot)
 		seen[snapshot.AgentID] = struct{}{}
 		snapshots = append(snapshots, snapshot)
 	}

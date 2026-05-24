@@ -120,11 +120,18 @@ func overrideLaunchCLI(t *testing.T, fn func(string, string, string, string, cli
 	t.Helper()
 	launchCLIOverrideMu.Lock()
 	prev := launchCLI
+	prevAuth := readClaudeAuthStatus
 	launchCLI = fn
+	readClaudeAuthStatus = loggedInClaudeAuthStatus
 	t.Cleanup(func() {
 		launchCLI = prev
+		readClaudeAuthStatus = prevAuth
 		launchCLIOverrideMu.Unlock()
 	})
+}
+
+func loggedInClaudeAuthStatus(context.Context, string, string, cliLaunchConfig) (claudeAuthStatus, string, error) {
+	return claudeAuthStatus{LoggedIn: true, AuthMethod: "test", APIProvider: "firstParty"}, `{"loggedIn":true}`, nil
 }
 
 func snapshotSessionState(s *session) (string, string, chan struct{}) {

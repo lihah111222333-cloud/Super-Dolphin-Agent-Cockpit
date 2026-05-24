@@ -9,6 +9,8 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/orchestration/nodeexec"
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/taskdag"
+	agentdto "github.com/anthropic-ai/super-agent-v3/internal/dto/agent"
+	threaddto "github.com/anthropic-ai/super-agent-v3/internal/dto/thread"
 	"github.com/kelindar/event"
 )
 
@@ -101,6 +103,59 @@ func TestThreadStoppedDAGFallback_FailsReadyNode(t *testing.T) {
 	}
 	if delta.Failed != 1 {
 		t.Fatalf("expected metric Failed=1, got %+v", delta)
+	}
+}
+
+func TestRecoveringOldThreadStoppedSkipsDAGFallback(t *testing.T) {
+	lookup := &fakeFallbackLookup{
+		nodes: []taskdag.Node{{DagKey: "dag-a", NodeKey: "node-1", RunID: int64Ptr(7101), Status: "running"}},
+	}
+	flow := &fakeFallbackFlow{}
+	svc := NewService(silentLogger(), event.NewDispatcher(), nil, nil, nil, nil)
+	agent := svc.newAgentLocked("agent-remote")
+	agent.state = agentdto.StateRecovering
+	agent.threadID = "thread-old"
+	agent.remoteThreadID = "thread-old"
+	svc.agents[agent.id] = agent
+	hc := newHookConsumerInternal(svc, silentLogger(), nil, lookup, flow)
+
+	hc.handleThreadStopped(context.Background(), threaddto.Stopped{
+		ThreadID: "thread-old",
+		AgentID:  "agent-remote",
+		Reason:   "old_thread_stopped_after_recovery_started",
+	})
+
+	if lookup.calls.Load() != 0 || flow.failCalls.Load() != 0 {
+		t.Fatalf("stale recovering stop fallback calls = lookup:%d fail:%d, want none", lookup.calls.Load(), flow.failCalls.Load())
+	}
+	if agent.state != agentdto.StateRecovering || agent.remoteThreadID != "thread-old" {
+		t.Fatalf("agent after stale recovering stop = state:%q thread:%q, want recovery unchanged", agent.state, agent.remoteThreadID)
+	}
+}
+
+func TestRecoveredReplayOldThreadStoppedSkipsDAGFallbackAfterRekey(t *testing.T) {
+	launcher := &recordingStallLauncher{remoteAgentID: "agent-remote-new"}
+	svc := NewService(silentLogger(), event.NewDispatcher(), launcher, nil, nil, nil)
+	svc.recoveryStore = launcherReplayStore(t, "agent-remote")
+	agent := launcherRecoveryAgent(svc, "agent-remote")
+	lookup := &fakeFallbackLookup{nodes: []taskdag.Node{{DagKey: "dag-a", NodeKey: "node-1", RunID: int64Ptr(7102), Status: "running"}}}
+	flow := &fakeFallbackFlow{}
+
+	if err := svc.recoverWithReason(context.Background(), agent.id, recoverReasonStall); err != nil {
+		t.Fatalf("recoverWithReason() error = %v", err)
+	}
+	hc := newHookConsumerInternal(svc, silentLogger(), nil, lookup, flow)
+	hc.handleThreadStopped(context.Background(), threaddto.Stopped{
+		ThreadID: "thread-remote",
+		AgentID:  "agent-remote",
+		Reason:   "old_thread_stopped_after_rekey",
+	})
+
+	if lookup.calls.Load() != 0 || flow.failCalls.Load() != 0 {
+		t.Fatalf("old rekeyed stop fallback calls = lookup:%d fail:%d, want none", lookup.calls.Load(), flow.failCalls.Load())
+	}
+	if agent.id != "agent-remote-new" || agent.state != agentdto.StateTurnQueued {
+		t.Fatalf("agent after rekeyed stale stop = id:%q state:%q, want replaying rekeyed agent unchanged", agent.id, agent.state)
 	}
 }
 

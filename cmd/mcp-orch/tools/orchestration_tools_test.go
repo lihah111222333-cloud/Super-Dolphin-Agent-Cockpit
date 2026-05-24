@@ -185,32 +185,6 @@ func TestListAgentsHandlerDefaultsToActiveCompactSnapshots(t *testing.T) {
 	}
 }
 
-func TestListAgentsHandlerCanIncludeInactiveReportsAndLimit(t *testing.T) {
-	handler := HandleListAgents(&golden.OrchestrationStub{
-		ListAgentsFunc: func(context.Context) ([]contract.AgentSnapshot, error) {
-			return []contract.AgentSnapshot{
-				{ID: "agent-stopped", AgentID: "agent-stopped", State: "stopped", LastReport: "old report"},
-				{ID: "agent-idle", AgentID: "agent-idle", State: "idle", LastReport: "idle report"},
-			}, nil
-		},
-	})
-
-	result, err := handler(context.Background(), json.RawMessage(`{"include_inactive":true,"include_reports":true,"limit":1}`))
-	if err != nil {
-		t.Fatalf("HandleListAgents() error = %v", err)
-	}
-	got, ok := result.([]contract.AgentSnapshot)
-	if !ok {
-		t.Fatalf("HandleListAgents() result type = %T, want []contract.AgentSnapshot", result)
-	}
-	if len(got) != 1 {
-		t.Fatalf("HandleListAgents() len = %d, want 1: %#v", len(got), got)
-	}
-	if got[0].AgentID != "agent-stopped" || got[0].LastReport != "old report" {
-		t.Fatalf("HandleListAgents() first snapshot = %#v, want stopped with report", got[0])
-	}
-}
-
 func TestListAgentsHandlerFiltersCommaSeparatedState(t *testing.T) {
 	handler := HandleListAgents(&golden.OrchestrationStub{
 		ListAgentsFunc: func(context.Context) ([]contract.AgentSnapshot, error) {

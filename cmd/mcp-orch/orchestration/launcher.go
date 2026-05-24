@@ -229,6 +229,8 @@ func (r *remoteLauncher) Stop(ctx context.Context, agent *agentRuntime) error {
 	return err
 }
 
+func (r *remoteLauncher) StopSettlesAgent() bool { return true }
+
 func (r *remoteLauncher) Archive(ctx context.Context, agent *agentRuntime) error {
 	if agent == nil || agent.remoteThreadID == "" {
 		return nil
@@ -352,23 +354,14 @@ func (s *service) handleRemoteTurnCompleted(ctx context.Context, ev turndto.Turn
 		ctx = context.Background()
 	}
 	eventCtx := withEventTime(ctx, ev.Timestamp)
-	report := turnCompletedReportText(ev)
 	_, err := s.HandleReportEvent(eventCtx, ReportEvent{
 		AgentID:   strings.TrimSpace(ev.AgentID),
-		Report:    report,
+		Report:    turnCompletedReportText(ev),
 		EventType: eventsurface.MethodTurnCompleted,
 		EventData: mustMarshalHookReportEvent(ev),
 	})
 	if err != nil && !errors.Is(err, errAgentNotFound) {
-		logger := s.logger
-		if logger == nil {
-			logger = pkglogger.Get()
-		}
-		logger.Warn("orchestration: remote turn completion report failed",
-			"agent_id", strings.TrimSpace(ev.AgentID),
-			"thread_id", strings.TrimSpace(ev.ThreadID),
-			"turn_id", strings.TrimSpace(ev.TurnID),
-			"error", err)
+		pkglogger.Warn("orchestration: remote turn completion report failed", "agent_id", strings.TrimSpace(ev.AgentID), "thread_id", strings.TrimSpace(ev.ThreadID), "turn_id", strings.TrimSpace(ev.TurnID), "error", err)
 	}
 	lifecycle := ev
 	lifecycle.TurnID = ""
@@ -382,7 +375,24 @@ func (s *service) handleRemoteTurnInterrupted(ctx context.Context, ev turndto.Tu
 	if ctx == nil {
 		ctx = context.Background()
 	}
+	eventCtx := withEventTime(ctx, ev.Timestamp)
+	reason := strings.TrimSpace(ev.Reason)
+	report := ""
+	if reason != "" {
+		report = "turn failed: " + reason
+	}
+	if _, err := s.HandleReportEvent(eventCtx, ReportEvent{AgentID: strings.TrimSpace(ev.AgentID), Report: report, EventType: "turn.aborted", EventData: mustMarshalHookReportEvent(ev)}); err != nil && !errors.Is(err, errAgentNotFound) {
+		pkglogger.Warn("orchestration: remote turn interruption report failed", "agent_id", strings.TrimSpace(ev.AgentID), "thread_id", strings.TrimSpace(ev.ThreadID), "turn_id", strings.TrimSpace(ev.TurnID), "error", err)
+	}
 	lifecycle := ev
 	lifecycle.TurnID = ""
-	handleTurnInterruptedEventWithCtx(s, s.logger, lifecycle, withEventTime(ctx, ev.Timestamp))
+	handleTurnInterruptedEventWithCtx(s, s.logger, lifecycle, eventCtx)
+}
+
+func (s *service) stopAgentAfterPermanentTurnFailure(agentID, threadID, source string) {
+	cleanupCtx, cancel := platformconfig.WithTimeout(context.Background(), platformconfig.AsyncLaunchTimeout)
+	defer cancel()
+	if err := s.stopAgentViaLauncher(cleanupCtx, strings.TrimSpace(agentID), source); err != nil {
+		pkglogger.Warn("orchestration: permanent turn failure cleanup stop failed", "agent_id", strings.TrimSpace(agentID), "thread_id", strings.TrimSpace(threadID), "source", source, "error", err)
+	}
 }
