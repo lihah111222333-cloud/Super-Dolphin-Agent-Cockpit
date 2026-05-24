@@ -1,17 +1,13 @@
 import { callAPI } from '../services/api.js';
 import { logWarn } from '../services/log.js';
+import { requireSkillsCwd } from './useSkillEditorHelpers.js';
 import {
   fileNameFromPath, listToText, normalizePathKey, normalizeWordList,
   parseSkillMarkdown, skillDescriptionQualityIssue, summarizeItems,
 } from '../utils/skill-parser.js';
 
-function resolveSkillsCwd(props) {
-  const activeProject = (props?.projectStore?.state?.active || '').toString().trim();
-  return activeProject && activeProject !== '.' ? activeProject : '';
-}
-
 function withSkillsCwd(cwd, payload = {}) {
-  return cwd ? { ...payload, cwd } : payload;
+  return { ...payload, cwd };
 }
 
 function normalizeSkillScope(scope) {
@@ -138,7 +134,7 @@ export function createSkillImportSummaryActions(props, state, readers, options =
   const requestSkillSummarySuggestion = options.requestSkillSummarySuggestion;
 
   async function createImportSummaryDraft(item, scope, personalType, index) {
-    const cwd = resolveSkillsCwd(props);
+    const cwd = requireSkillsCwd(props);
     const skillFile = importedSkillFilePath(item);
     const fallbackName = (item?.name || '').toString().trim();
     const dirName = fileNameFromPath(skillFile.replace(/[\\/]SKILL\.md$/i, ''));

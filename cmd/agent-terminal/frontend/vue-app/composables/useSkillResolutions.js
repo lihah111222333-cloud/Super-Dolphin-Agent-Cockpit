@@ -145,9 +145,20 @@ function createResolutionListHandlers({
     const notify = options?.notify !== false;
     const notifyOnError = notify || options?.notifyOnError === true;
     const collapseOnConflict = options?.collapseOnConflict === true;
+    const activeCwd = (activeCwdSource.value || '').toString().trim();
+    if (!activeCwd || activeCwd === '.') {
+      resolutionConflicts.value = [];
+      resolutionPreview.value = null;
+      resolutionNamePrompt.value = null;
+      resolutionNameInput.value = '';
+      resolutionPanelCollapsed.value = false;
+      resolutionLoadError.value = '';
+      resolutionLoading.value = false;
+      return [];
+    }
     resolutionLoading.value = true;
     try {
-      const conflicts = await listSkillResolutions(activeCwdSource.value);
+      const conflicts = await listSkillResolutions(activeCwd);
       const normalizedConflicts = conflicts.map(normalizeResolutionConflict);
       resolutionConflicts.value = normalizedConflicts;
       resolutionLoadError.value = '';
