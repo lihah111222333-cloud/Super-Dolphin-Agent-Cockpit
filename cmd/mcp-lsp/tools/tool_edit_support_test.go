@@ -71,7 +71,7 @@ func TestReadFileUsesMetaCWDForExternalAbsolutePath(t *testing.T) {
 	}
 }
 
-func TestBuildRangeReplacePlanRestoresCRLF(t *testing.T) {
+func TestBuildPatchReplacePlanRestoresCRLF(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "sample.txt")
 	raw := "a\r\nb\r\nc\r\n"
 	if err := os.WriteFile(path, []byte(raw), 0o600); err != nil {
@@ -82,38 +82,23 @@ func TestBuildRangeReplacePlanRestoresCRLF(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read file: %v", err)
 	}
-	plan, err := buildRangeReplacePlan(file.content, EditRequest{
-		Line:      2,
-		Column:    1,
-		EndLine:   2,
-		EndColumn: 2,
-		NewText:   "x\r\ny",
+	plan, err := buildReplacePlan(file.content, EditRequest{
+		Patch: strings.Join([]string{
+			"@@",
+			"-b",
+			"+x",
+			"+y",
+			"",
+		}, "\n"),
 	})
 	if err != nil {
-		t.Fatalf("build range plan: %v", err)
+		t.Fatalf("build patch plan: %v", err)
 	}
 	if plan.updatedContent != "a\nx\ny\nc\n" {
 		t.Fatalf("updated content mismatch: %q", plan.updatedContent)
 	}
 	if restored := file.diskContent(plan.updatedContent); restored != "a\r\nx\r\ny\r\nc\r\n" {
 		t.Fatalf("restored mismatch: %q", restored)
-	}
-}
-
-func TestApplyTextEditsNormalizesInsertedCRLF(t *testing.T) {
-	content := "a\nb\n"
-	updated, err := applyTextEdits(content, []protocol.TextEdit{{
-		Range: protocol.Range{
-			Start: protocol.Position{Line: 0, Character: 0},
-			End:   protocol.Position{Line: 0, Character: 1},
-		},
-		NewText: "x\r\ny",
-	}})
-	if err != nil {
-		t.Fatalf("apply text edits: %v", err)
-	}
-	if updated != "x\ny\nb\n" {
-		t.Fatalf("updated mismatch: %q", updated)
 	}
 }
 
@@ -176,12 +161,13 @@ func assertUnsupportedTextReplace(t *testing.T, file, content, oldText, newText,
 	}
 	handler := NewEditHandler(&structureTestRegistry{fileErr: lspmanager.ErrUnsupportedLanguage})
 	input, err := json.Marshal(EditRequest{
-		Action:   "replace_range",
 		FilePath: path,
-		Edits: []ReplaceEdit{{
-			OldString: oldText,
-			NewString: newText,
-		}},
+		Patch: strings.Join([]string{
+			"@@",
+			"-" + oldText,
+			"+" + newText,
+			"",
+		}, "\n"),
 	})
 	if err != nil {
 		t.Fatalf("marshal input: %v", err)
@@ -189,7 +175,7 @@ func assertUnsupportedTextReplace(t *testing.T, file, content, oldText, newText,
 
 	got, err := handler(testToolContext(root), input)
 	if err != nil {
-		t.Fatalf("replace_range returned error: %v", err)
+		t.Fatalf("edit returned error: %v", err)
 	}
 	result := requireReplaceRangeResult(t, got)
 	if !strings.Contains(result.Warning, "LSP sync skipped") {
@@ -213,35 +199,6 @@ func requireReplaceRangeResult(t *testing.T, got any) replaceRangeResult {
 	return result
 }
 
-func TestRenameRejectsPathOutsideWorkspaceRootBeforeLSPRequest(t *testing.T) {
-	root := t.TempDir()
-	outsideDir := t.TempDir()
-	outside := filepath.Join(outsideDir, "outside.go")
-	if err := os.WriteFile(outside, []byte("package main\n\nvar oldName = 1\n"), 0o600); err != nil {
-		t.Fatalf("write outside fixture: %v", err)
-	}
-	registry := &structureTestRegistry{fileManager: &structureTestManager{}}
-	handler := NewEditHandlerWithRoot(root, registry)
-	input, err := json.Marshal(EditRequest{
-		Action:   "rename",
-		FilePath: outside,
-		Line:     3,
-		Column:   5,
-		NewName:  "newName",
-	})
-	if err != nil {
-		t.Fatalf("marshal input: %v", err)
-	}
-
-	_, err = handler(common.WithToolScope(context.Background(), common.ToolScope{CWD: root}), input)
-	if err == nil || !strings.Contains(err.Error(), "outside workspace root") {
-		t.Fatalf("rename error = %v, want outside workspace root", err)
-	}
-	if registry.gotFilePath != "" {
-		t.Fatalf("GetManagerForFile called with %q; want no LSP request for outside root", registry.gotFilePath)
-	}
-}
-
 func TestReplaceRangeRejectsPathOutsideWorkspaceRoot(t *testing.T) {
 	root := t.TempDir()
 	outsideDir := t.TempDir()
@@ -251,9 +208,8 @@ func TestReplaceRangeRejectsPathOutsideWorkspaceRoot(t *testing.T) {
 	}
 	handler := NewEditHandlerWithRoot(root, &structureTestRegistry{fileErr: lspmanager.ErrUnsupportedLanguage})
 	input, err := json.Marshal(EditRequest{
-		Action:   "replace_range",
 		FilePath: outside,
-		Edits:    []ReplaceEdit{{OldString: "old", NewString: "new"}},
+		Patch:    "@@\n-old\n+new\n",
 	})
 	if err != nil {
 		t.Fatalf("marshal input: %v", err)
@@ -261,7 +217,7 @@ func TestReplaceRangeRejectsPathOutsideWorkspaceRoot(t *testing.T) {
 
 	_, err = handler(common.WithToolScope(context.Background(), common.ToolScope{CWD: root}), input)
 	if err == nil || !strings.Contains(err.Error(), "outside workspace root") {
-		t.Fatalf("replace_range error = %v, want outside workspace root", err)
+		t.Fatalf("edit error = %v, want outside workspace root", err)
 	}
 	raw, readErr := os.ReadFile(outside)
 	if readErr != nil {
@@ -285,9 +241,8 @@ func TestReplaceRangeRejectsSymlinkEscapingWorkspaceRoot(t *testing.T) {
 	}
 	handler := NewEditHandlerWithRoot(root, &structureTestRegistry{fileErr: lspmanager.ErrUnsupportedLanguage})
 	input, err := json.Marshal(EditRequest{
-		Action:   "replace_range",
 		FilePath: link,
-		Edits:    []ReplaceEdit{{OldString: "old", NewString: "new"}},
+		Patch:    "@@\n-old\n+new\n",
 	})
 	if err != nil {
 		t.Fatalf("marshal input: %v", err)
@@ -295,7 +250,7 @@ func TestReplaceRangeRejectsSymlinkEscapingWorkspaceRoot(t *testing.T) {
 
 	_, err = handler(common.WithToolScope(context.Background(), common.ToolScope{CWD: root}), input)
 	if err == nil || !strings.Contains(err.Error(), "outside workspace root") {
-		t.Fatalf("replace_range error = %v, want outside workspace root", err)
+		t.Fatalf("edit error = %v, want outside workspace root", err)
 	}
 	raw, readErr := os.ReadFile(outside)
 	if readErr != nil {
@@ -304,46 +259,6 @@ func TestReplaceRangeRejectsSymlinkEscapingWorkspaceRoot(t *testing.T) {
 	if string(raw) != "old\n" {
 		t.Fatalf("outside symlink target was modified: %q", raw)
 	}
-}
-
-func TestEditForceDoesNotBypassTrustedScopeOrPathSafety(t *testing.T) {
-	root := t.TempDir()
-	handler := NewEditHandlerWithRoot(root, &structureTestRegistry{fileErr: lspmanager.ErrUnsupportedLanguage})
-
-	assertForceCannotEscapeWorkspaceRoot(t, handler)
-	assertForceInvalidPatchLeavesFile(t, root, handler)
-}
-
-func assertForceCannotEscapeWorkspaceRoot(t *testing.T, handler ToolHandler) {
-	t.Helper()
-	outside := filepath.Join(t.TempDir(), "outside.txt")
-	if err := os.WriteFile(outside, []byte("old\n"), 0o600); err != nil {
-		t.Fatalf("write outside fixture: %v", err)
-	}
-	input := json.RawMessage(`{"action":"replace_range","file_path":` + strconv.Quote(outside) + `,"edits":[{"old_string":"old","new_string":"new"}],"force":true}`)
-
-	_, err := handler(common.WithToolScope(context.Background(), common.ToolScope{CWD: t.TempDir()}), input)
-	if err == nil || !strings.Contains(err.Error(), "outside workspace root") {
-		t.Fatalf("force outside-root error = %v, want workspace root rejection", err)
-	}
-	assertFileContent(t, outside, "old\n")
-}
-
-func assertForceInvalidPatchLeavesFile(t *testing.T, root string, handler ToolHandler) {
-	t.Helper()
-	inside := filepath.Join(root, "inside.txt")
-	if err := os.WriteFile(inside, []byte("old\n"), 0o600); err != nil {
-		t.Fatalf("write inside fixture: %v", err)
-	}
-	badPatch := json.RawMessage(`{"action":"replace_range","file_path":` + strconv.Quote(inside) + `,"patch":"not a patch","force":true}`)
-	got, err := handler(testToolContext(root), badPatch)
-	if err == nil || !strings.Contains(strings.ToLower(err.Error()), "patch") {
-		t.Fatalf("force invalid patch error = %v, want patch grammar failure", err)
-	}
-	if got != nil {
-		t.Fatalf("force invalid patch result = %#v, want nil wrapped result on error", got)
-	}
-	assertFileContent(t, inside, "old\n")
 }
 
 func TestReplaceRangeReturnsErrorForInvalidPatch(t *testing.T) {
@@ -353,68 +268,11 @@ func TestReplaceRangeReturnsErrorForInvalidPatch(t *testing.T) {
 		t.Fatalf("write fixture: %v", err)
 	}
 	handler := NewEditHandlerWithRoot(root, &structureTestRegistry{fileErr: lspmanager.ErrUnsupportedLanguage})
-	input := json.RawMessage(`{"action":"replace_range","file_path":` + strconv.Quote(inside) + `,"patch":"not a patch"}`)
+	input := json.RawMessage(`{"file_path":` + strconv.Quote(inside) + `,"patch":"not a patch"}`)
 
 	_, err := handler(testToolContext(root), input)
 	if err == nil {
-		t.Fatalf("replace_range error = nil, want invalid patch failure")
-	}
-}
-
-func TestWorkspaceEditRejectsPathOutsideWorkspaceRoot(t *testing.T) {
-	root := t.TempDir()
-	outsideDir := t.TempDir()
-	outside := filepath.Join(outsideDir, "outside.txt")
-	if err := os.WriteFile(outside, []byte("old\n"), 0o600); err != nil {
-		t.Fatalf("write outside fixture: %v", err)
-	}
-	edit := &protocol.WorkspaceEdit{Changes: map[string][]protocol.TextEdit{
-		fileURI(outside): {{
-			Range: protocol.Range{
-				Start: protocol.Position{Line: 0, Character: 0},
-				End:   protocol.Position{Line: 0, Character: 3},
-			},
-			NewText: "new",
-		}},
-	}}
-
-	_, _, err := loadWorkspaceEditUpdates(root, edit)
-	if err == nil || !strings.Contains(err.Error(), "outside workspace root") {
-		t.Fatalf("load workspace edit error = %v, want outside workspace root", err)
-	}
-}
-
-func TestWorkspaceEditRejectsSymlinkEscapingWorkspaceRoot(t *testing.T) {
-	root := t.TempDir()
-	outsideDir := t.TempDir()
-	outside := filepath.Join(outsideDir, "target.txt")
-	if err := os.WriteFile(outside, []byte("old\n"), 0o600); err != nil {
-		t.Fatalf("write outside fixture: %v", err)
-	}
-	link := filepath.Join(root, "link.txt")
-	if err := os.Symlink(outside, link); err != nil {
-		t.Skipf("symlink unavailable: %v", err)
-	}
-	edit := &protocol.WorkspaceEdit{Changes: map[string][]protocol.TextEdit{
-		fileURI(link): {{
-			Range: protocol.Range{
-				Start: protocol.Position{Line: 0, Character: 0},
-				End:   protocol.Position{Line: 0, Character: 3},
-			},
-			NewText: "new",
-		}},
-	}}
-
-	_, _, err := loadWorkspaceEditUpdates(root, edit)
-	if err == nil || !strings.Contains(err.Error(), "outside workspace root") {
-		t.Fatalf("load workspace edit error = %v, want outside workspace root", err)
-	}
-	raw, readErr := os.ReadFile(outside)
-	if readErr != nil {
-		t.Fatalf("read outside fixture: %v", readErr)
-	}
-	if string(raw) != "old\n" {
-		t.Fatalf("outside symlink target was modified: %q", raw)
+		t.Fatalf("edit error = nil, want invalid patch failure")
 	}
 }
 
@@ -445,13 +303,13 @@ func TestEditFailureAfterDeadClientReturnsRetryableWithoutAutoReplay(t *testing.
 	}
 	handler := NewEditHandlerWithRoot(root, &structureTestRegistry{fileManager: manager})
 	input, err := json.Marshal(EditRequest{
-		Action:    "replace_range",
-		FilePath:  path,
-		Line:      3,
-		Column:    12,
-		EndLine:   3,
-		EndColumn: 17,
-		NewText:   "new()",
+		FilePath: path,
+		Patch: strings.Join([]string{
+			"@@",
+			"-func f() { old() }",
+			"+func f() { new() }",
+			"",
+		}, "\n"),
 	})
 	if err != nil {
 		t.Fatalf("marshal input: %v", err)
@@ -459,7 +317,7 @@ func TestEditFailureAfterDeadClientReturnsRetryableWithoutAutoReplay(t *testing.
 
 	got, err := handler(testToolContext(root), input)
 	if err == nil || !strings.Contains(err.Error(), "LSP client closed") {
-		t.Fatalf("replace_range error = %v, want dead-client edit sync failure", err)
+		t.Fatalf("edit error = %v, want dead-client edit sync failure", err)
 	}
 	if got != nil {
 		t.Fatalf("result = %#v, want nil wrapped result on error", got)
@@ -490,23 +348,6 @@ func assertFileContent(t *testing.T, path, want string) {
 	}
 }
 
-func requireErrorContains(t *testing.T, err error, parts ...string) {
-	t.Helper()
-	if err == nil {
-		t.Fatalf("error = nil, want substrings %q", parts)
-	}
-	requireStringContains(t, err.Error(), parts...)
-}
-
-func requireStringContains(t *testing.T, text string, parts ...string) {
-	t.Helper()
-	for _, part := range parts {
-		if !strings.Contains(text, part) {
-			t.Fatalf("text = %q, want substring %q", text, part)
-		}
-	}
-}
-
 func TestReplaceRangeSyncFailureReportsRollbackFailure(t *testing.T) {
 	root := t.TempDir()
 	path := filepath.Join(root, "sample.go")
@@ -526,13 +367,13 @@ func TestReplaceRangeSyncFailureReportsRollbackFailure(t *testing.T) {
 	}
 	handler := NewEditHandlerWithRoot(root, &structureTestRegistry{fileManager: manager})
 	input, err := json.Marshal(EditRequest{
-		Action:    "replace_range",
-		FilePath:  path,
-		Line:      3,
-		Column:    12,
-		EndLine:   3,
-		EndColumn: 17,
-		NewText:   "new()",
+		FilePath: path,
+		Patch: strings.Join([]string{
+			"@@",
+			"-func f() { old() }",
+			"+func f() { new() }",
+			"",
+		}, "\n"),
 	})
 	if err != nil {
 		t.Fatalf("marshal input: %v", err)
@@ -548,45 +389,9 @@ func TestReplaceRangeSyncFailureReportsRollbackFailure(t *testing.T) {
 func requireSyncRollbackFailure(t *testing.T, err error) {
 	t.Helper()
 	if err == nil {
-		t.Fatalf("replace_range error = nil, want sync and rollback failure details")
+		t.Fatalf("edit error = nil, want sync and rollback failure details")
 	}
 	if !strings.Contains(err.Error(), "lsp sync boom") || !strings.Contains(err.Error(), "rollback failed") {
-		t.Fatalf("replace_range error = %v, want sync and rollback failure details", err)
-	}
-}
-
-func TestApplyWorkspaceEditSyncFailureReportsRollbackFailure(t *testing.T) {
-	root := t.TempDir()
-	path := filepath.Join(root, "sample.go")
-	if err := os.WriteFile(path, []byte("old\n"), 0o600); err != nil {
-		t.Fatalf("write fixture: %v", err)
-	}
-	manager := &editFailureManager{
-		didChangeErr: errors.New("lsp sync boom"),
-		didChangeHook: func(uri string) {
-			if err := os.Remove(uri); err != nil {
-				t.Fatalf("remove updated file before rollback: %v", err)
-			}
-			if err := os.Mkdir(uri, 0o700); err != nil {
-				t.Fatalf("replace file with directory before rollback: %v", err)
-			}
-		},
-	}
-	edit := &protocol.WorkspaceEdit{Changes: map[string][]protocol.TextEdit{
-		fileURI(path): {{
-			Range: protocol.Range{
-				Start: protocol.Position{Line: 0, Character: 0},
-				End:   protocol.Position{Line: 0, Character: 3},
-			},
-			NewText: "new",
-		}},
-	}}
-
-	_, err := (EditHandler{root: root}).applyWorkspaceEdit(testToolContext(root), manager, edit, defaultEditVersion)
-	if err == nil {
-		t.Fatalf("applyWorkspaceEdit error = nil, want sync/rollback failure")
-	}
-	if !strings.Contains(err.Error(), "lsp sync boom") || !strings.Contains(err.Error(), "rollback failed") {
-		t.Fatalf("error = %q, want sync and rollback failure details", err.Error())
+		t.Fatalf("edit error = %v, want sync and rollback failure details", err)
 	}
 }

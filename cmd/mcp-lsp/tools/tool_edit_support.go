@@ -2,17 +2,14 @@ package tools
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
-	"unicode/utf8"
 
 	editpkg "github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/edit"
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/format"
-	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/protocol"
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/search"
 	platformshared "github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 )
@@ -64,118 +61,12 @@ func resolveMatchMode(content string, hunk editpkg.Hunk, fallback string) string
 	return string(mode)
 }
 
-func collectWorkspaceEdits(root string, workspaceEdit *protocol.WorkspaceEdit) (map[string][]protocol.TextEdit, error) {
-	return collectWorkspaceEditsInRoots(root, nil, workspaceEdit)
-}
-
-func collectWorkspaceEditsInRoots(root string, roots []string, workspaceEdit *protocol.WorkspaceEdit) (map[string][]protocol.TextEdit, error) {
-	byFile := make(map[string][]protocol.TextEdit)
-	if workspaceEdit == nil {
-		return byFile, nil
-	}
-	for uri, edits := range workspaceEdit.Changes {
-		path, err := resolveWorkspacePathInRoots(root, roots, uri)
-		if err != nil {
-			return nil, err
-		}
-		byFile[path] = append(byFile[path], edits...)
-	}
-	for _, doc := range workspaceEdit.DocumentChanges {
-		path, err := resolveWorkspacePathInRoots(root, roots, doc.TextDocument.URI)
-		if err != nil {
-			return nil, err
-		}
-		byFile[path] = append(byFile[path], doc.Edits...)
-	}
-	return byFile, nil
-}
-
-func applyTextEdits(content string, edits []protocol.TextEdit) (string, error) {
-	type indexedEdit struct {
-		edit  protocol.TextEdit
-		start int
-		end   int
-	}
-	indexed := make([]indexedEdit, 0, len(edits))
-	for _, item := range edits {
-		start, err := offsetForPosition(content, item.Range.Start)
-		if err != nil {
-			return "", err
-		}
-		end, err := offsetForPosition(content, item.Range.End)
-		if err != nil {
-			return "", err
-		}
-		indexed = append(indexed, indexedEdit{edit: item, start: start, end: end})
-	}
-	sort.Slice(indexed, func(i, j int) bool {
-		if indexed[i].start == indexed[j].start {
-			return indexed[i].end < indexed[j].end
-		}
-		return indexed[i].start < indexed[j].start
-	})
-	lastEnd := -1
-	for _, item := range indexed {
-		if item.start < lastEnd {
-			return "", errors.New("workspace edit contains overlapping ranges")
-		}
-		lastEnd = item.end
-	}
-	var builder strings.Builder
-	offset := 0
-	for _, item := range indexed {
-		builder.WriteString(content[offset:item.start])
-		builder.WriteString(normalizeLineEndings(item.edit.NewText))
-		offset = item.end
-	}
-	builder.WriteString(content[offset:])
-	return builder.String(), nil
-}
-
-func offsetForPosition(content string, position protocol.Position) (int, error) {
-	if position.Line < 0 || position.Character < 0 {
-		return 0, errors.New("position must be non-negative")
-	}
-	lines := splitNormalizedLines(content)
-	if position.Line >= len(lines) {
-		return 0, errors.New("line is out of range")
-	}
-	offset := 0
-	for idx := 0; idx < position.Line; idx++ {
-		offset += len(lines[idx]) + 1
-	}
-	columnOffset, err := runeOffset(lines[position.Line], position.Character)
-	if err != nil {
-		return 0, err
-	}
-	return offset + columnOffset, nil
-}
-
-func runeOffset(line string, character int) (int, error) {
-	if character == 0 {
-		return 0, nil
-	}
-	offset := 0
-	for range character {
-		if offset >= len(line) {
-			return 0, errors.New("column is out of range")
-		}
-		_, size := utf8.DecodeRuneInString(line[offset:])
-		offset += size
-	}
-	return offset, nil
-}
-
 func resolveFilePath(ctx context.Context, path string) (string, error) {
 	pathInfo, err := toolResolvePath(ctx, path)
 	if err != nil {
 		return "", err
 	}
 	return pathInfo.AbsPath, nil
-}
-
-func resolveWorkspacePath(root string, uri string) (string, error) {
-	return resolveWorkspacePathInRoots(root, nil, uri)
 }
 
 func resolveWorkspacePathInRoots(root string, roots []string, uri string) (string, error) {
@@ -217,40 +108,6 @@ func pathWithinAnyRoot(roots []string, target string) bool {
 	return false
 }
 
-func resolveWorkspaceEditPath(root string, filePath string) (string, error) {
-	trimmed := strings.TrimSpace(filePath)
-	if trimmed == "" {
-		return "", errors.New("file_path is required")
-	}
-	candidate := trimmed
-	if root != "" && !filepath.IsAbs(candidate) {
-		candidate = filepath.Join(root, candidate)
-	}
-	absPath, err := filepath.Abs(candidate)
-	if err != nil {
-		return "", fmt.Errorf("resolve absolute path: %w", err)
-	}
-	cleaned := filepath.Clean(absPath)
-	if resolved, err := filepath.EvalSymlinks(cleaned); err == nil {
-		cleaned = filepath.Clean(resolved)
-	}
-	if root == "" {
-		return cleaned, nil
-	}
-	rootPath, err := filepath.Abs(root)
-	if err != nil {
-		return "", fmt.Errorf("resolve workspace root: %w", err)
-	}
-	rootPath = filepath.Clean(rootPath)
-	if resolved, err := filepath.EvalSymlinks(rootPath); err == nil {
-		rootPath = filepath.Clean(resolved)
-	}
-	if !platformshared.ContainsPath(rootPath, cleaned) {
-		return "", fmt.Errorf("path %q is outside workspace root %q", cleaned, rootPath)
-	}
-	return cleaned, nil
-}
-
 func readFileWithMode(path string) (editableFile, error) {
 	info, err := os.Stat(path)
 	if err != nil {
@@ -267,25 +124,6 @@ func readFileWithMode(path string) (editableFile, error) {
 		mode:       info.Mode().Perm(),
 		lineEnding: detectLineEnding(raw),
 	}, nil
-}
-
-func restoreFiles(originals map[string]editableFile, updated map[string]string) error {
-	restored := 0
-	failed := 0
-	details := make([]string, 0)
-	for _, path := range sortedKeys(updated) {
-		file := originals[path]
-		if err := os.WriteFile(path, []byte(file.raw), file.mode); err != nil {
-			failed++
-			details = append(details, fmt.Sprintf("%s: %v", path, err))
-			continue
-		}
-		restored++
-	}
-	if failed == 0 {
-		return nil
-	}
-	return fmt.Errorf("partial rollback: %d files restored, %d failed: %s", restored, failed, strings.Join(details, "; "))
 }
 
 func normalizeHunks(hunks []editpkg.Hunk) []editpkg.Hunk {
@@ -356,28 +194,6 @@ func joinHunkNewText(hunks []editpkg.Hunk) string {
 		items = append(items, hunk.NewText)
 	}
 	return strings.Join(items, "\n")
-}
-
-func joinHunksAsPatch(hunks []editpkg.Hunk) string {
-	blocks := make([]string, 0, len(hunks))
-	for _, hunk := range hunks {
-		var block strings.Builder
-		block.WriteString("@@ \n")
-		for _, line := range splitNormalizedLines(hunk.OldText) {
-			block.WriteString("-")
-			block.WriteString(line)
-			block.WriteByte('\n')
-		}
-		if hunk.NewText != "" {
-			for _, line := range splitNormalizedLines(hunk.NewText) {
-				block.WriteString("+")
-				block.WriteString(line)
-				block.WriteByte('\n')
-			}
-		}
-		blocks = append(blocks, strings.TrimRight(block.String(), "\n"))
-	}
-	return strings.Join(blocks, "\n")
 }
 
 func uniqueStrings(items []string) []string {
