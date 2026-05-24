@@ -146,6 +146,248 @@ func TestHandleTurnInterruptedEventIsIdempotent(t *testing.T) {
 	}
 }
 
+func TestRemoteTurnInterruptedAuthErrorStopsAgentAndWritesReport(t *testing.T) {
+	t.Parallel()
+
+	launcher := &recordingSettledStopLauncher{}
+	svc := NewService(silentLogger(), nil, launcher, nil, nil, nil)
+	agent := svc.newAgentLocked("agent-remote")
+	agent.state = agentdto.StateTurnRunning
+	agent.threadID = "thread-auth"
+	agent.remoteThreadID = "thread-auth"
+	agent.activeTurnID = "turn-auth"
+	svc.agents[agent.id] = agent
+
+	svc.handleRemoteTurnInterrupted(context.Background(), interruptedEventAt(
+		"agent-remote",
+		"thread-auth",
+		"turn-auth",
+		"Authentication failed. Please log in again.",
+		time.Unix(1710000000, 0).UTC(),
+	))
+
+	if launcher.stopCalls != 1 {
+		t.Fatalf("launcher.stopCalls = %d, want 1 for auth interruption cleanup", launcher.stopCalls)
+	}
+	got, err := svc.GetReport(context.Background(), "agent-remote")
+	if err != nil {
+		t.Fatalf("GetReport() error = %v", err)
+	}
+	if got.Report == "" || !strings.Contains(got.Report, "Authentication failed") {
+		t.Fatalf("GetReport().Report = %q, want auth interruption report", got.Report)
+	}
+	if !agent.stopRequested || agent.state == agentdto.StateTurnRunning || agent.state == agentdto.StateTurnQueued || agent.state == agentdto.StateTurnStarting {
+		t.Fatalf("agent state after auth interruption = state:%q stopRequested:%v, want stop requested and not running/pending", agent.state, agent.stopRequested)
+	}
+}
+
+func TestRemoteTurnInterruptedClaudeAPIConnectionRefusedStopsAgent(t *testing.T) {
+	t.Parallel()
+
+	launcher := &recordingSettledStopLauncher{}
+	svc := NewService(silentLogger(), nil, launcher, nil, nil, nil)
+	agent := svc.newAgentLocked("agent-remote")
+	agent.state = agentdto.StateTurnRunning
+	agent.threadID = "thread-claude"
+	agent.remoteThreadID = "thread-claude"
+	agent.activeTurnID = "turn-claude"
+	agent.launchSeq = 1
+	svc.agents[agent.id] = agent
+
+	svc.handleRemoteTurnInterrupted(context.Background(), interruptedEventAt(
+		"agent-remote",
+		"thread-claude",
+		"turn-claude",
+		"API Error: Unable to connect to API (ConnectionRefused)",
+		time.Unix(1710000000, 0).UTC(),
+	))
+
+	if launcher.stopCalls != 1 {
+		t.Fatalf("launcher.stopCalls = %d, want 1 for Claude API connection refusal cleanup", launcher.stopCalls)
+	}
+	got, err := svc.GetReport(context.Background(), "agent-remote")
+	if err != nil {
+		t.Fatalf("GetReport() error = %v", err)
+	}
+	if got.Report == "" || !strings.Contains(got.Report, "Unable to connect to API") {
+		t.Fatalf("GetReport().Report = %q, want Claude API connection refusal report", got.Report)
+	}
+	if !agent.stopRequested || agent.state != agentdto.StateStopped || agent.activeTurnID != "" {
+		t.Fatalf("agent after cleanup = state:%q stopRequested:%v activeTurnID:%q, want stopped with cleared active turn", agent.state, agent.stopRequested, agent.activeTurnID)
+	}
+}
+
+func TestRemoteTurnInterruptedClaudeModelUnavailableStopsAgent(t *testing.T) {
+	t.Parallel()
+
+	launcher := &recordingSettledStopLauncher{}
+	svc := NewService(silentLogger(), nil, launcher, nil, nil, nil)
+	agent := svc.newAgentLocked("agent-remote")
+	agent.state = agentdto.StateTurnRunning
+	agent.threadID = "thread-claude"
+	agent.remoteThreadID = "thread-claude"
+	agent.activeTurnID = "turn-claude"
+	agent.launchSeq = 1
+	svc.agents[agent.id] = agent
+
+	reason := "There's an issue with the selected model (gpt-5.5). It may not exist or you may not have access to it. Run --model to pick a different model."
+	svc.handleRemoteTurnInterrupted(context.Background(), interruptedEventAt(
+		"agent-remote",
+		"thread-claude",
+		"turn-claude",
+		reason,
+		time.Unix(1710000000, 0).UTC(),
+	))
+
+	if launcher.stopCalls != 1 {
+		t.Fatalf("launcher.stopCalls = %d, want 1 for Claude model unavailable cleanup", launcher.stopCalls)
+	}
+	got, err := svc.GetReport(context.Background(), "agent-remote")
+	if err != nil {
+		t.Fatalf("GetReport() error = %v", err)
+	}
+	if got.Report == "" || !strings.Contains(got.Report, "selected model") {
+		t.Fatalf("GetReport().Report = %q, want Claude model unavailable report", got.Report)
+	}
+	if !agent.stopRequested || agent.state != agentdto.StateStopped || agent.activeTurnID != "" {
+		t.Fatalf("agent after cleanup = state:%q stopRequested:%v activeTurnID:%q, want stopped with cleared active turn", agent.state, agent.stopRequested, agent.activeTurnID)
+	}
+}
+
+func TestRemoteTurnInterruptedClaudeModelUnavailableFinalStateVisibleAsStopped(t *testing.T) {
+	t.Parallel()
+
+	launcher := &recordingSettledStopLauncher{}
+	svc := NewService(silentLogger(), nil, launcher, nil, nil, nil)
+	agent := svc.newAgentLocked("agent-remote")
+	agent.state = agentdto.StateTurnRunning
+	agent.threadID = "thread-claude"
+	agent.remoteThreadID = "thread-claude"
+	agent.activeTurnID = "turn-claude"
+	agent.launchSeq = 1
+	svc.agents[agent.id] = agent
+
+	reason := "There's an issue with the selected model (gpt-5.5). It may not exist or you may not have access to it. Run --model to pick a different model."
+	svc.handleRemoteTurnInterrupted(context.Background(), interruptedEventAt(
+		"agent-remote",
+		"thread-claude",
+		"turn-claude",
+		reason,
+		time.Unix(1710000000, 0).UTC(),
+	))
+
+	report, err := svc.GetReport(context.Background(), "agent-remote")
+	if err != nil {
+		t.Fatalf("GetReport() error = %v", err)
+	}
+	if report.State != string(agentdto.StateStopped) {
+		t.Fatalf("GetReport().State = %q, want %q", report.State, agentdto.StateStopped)
+	}
+	if report.Report == "" || !strings.Contains(report.Report, "selected model") {
+		t.Fatalf("GetReport().Report = %q, want Claude model unavailable report", report.Report)
+	}
+
+	assertOnlyListedAgentState(t, svc, "agent-remote", agentdto.StateStopped)
+}
+
+func TestRemoteTurnCompletedClaudeModelUnavailableFinalStateVisibleAsStopped(t *testing.T) {
+	t.Parallel()
+
+	launcher := &recordingSettledStopLauncher{}
+	svc := NewService(silentLogger(), nil, launcher, nil, nil, nil)
+	agent := svc.newAgentLocked("agent-remote")
+	agent.state = agentdto.StateTurnRunning
+	agent.threadID = "thread-claude"
+	agent.remoteThreadID = "thread-claude"
+	agent.activeTurnID = "turn-claude"
+	agent.launchSeq = 1
+	svc.agents[agent.id] = agent
+
+	reason := "There's an issue with the selected model (gpt-5.5). It may not exist or you may not have access to it. Run --model to pick a different model."
+	svc.handleRemoteTurnCompleted(context.Background(), completedEventAt(
+		"agent-remote",
+		"thread-claude",
+		"turn-claude",
+		false,
+		reason,
+		time.Unix(1710000000, 0).UTC(),
+	))
+
+	report, err := svc.GetReport(context.Background(), "agent-remote")
+	if err != nil {
+		t.Fatalf("GetReport() error = %v", err)
+	}
+	if report.State != string(agentdto.StateStopped) {
+		t.Fatalf("GetReport().State = %q, want %q", report.State, agentdto.StateStopped)
+	}
+	if report.Report == "" || !strings.Contains(report.Report, "selected model") {
+		t.Fatalf("GetReport().Report = %q, want Claude model unavailable report", report.Report)
+	}
+
+	assertOnlyListedAgentState(t, svc, "agent-remote", agentdto.StateStopped)
+}
+
+func TestHookTurnCompletedClaudeModelUnavailableFinalStateVisibleAsStopped(t *testing.T) {
+	t.Parallel()
+
+	launcher := &recordingSettledStopLauncher{}
+	svc := NewService(silentLogger(), nil, launcher, nil, nil, nil)
+	consumer := newHookConsumer(svc, silentLogger())
+	agent := svc.newAgentLocked("agent-remote")
+	agent.state = agentdto.StateTurnRunning
+	agent.threadID = "thread-claude"
+	agent.remoteThreadID = "thread-claude"
+	agent.activeTurnID = "turn-claude"
+	agent.launchSeq = 1
+	svc.agents[agent.id] = agent
+
+	reason := "There's an issue with the selected model (gpt-5.5). It may not exist or you may not have access to it. Run --model to pick a different model."
+	consumer.handleTurnCompleted(context.Background(), completedEventAt("agent-remote", "thread-claude", "turn-claude", false, reason, time.Unix(1710000000, 0).UTC()))
+
+	report, err := svc.GetReport(context.Background(), "agent-remote")
+	if err != nil {
+		t.Fatalf("GetReport() error = %v", err)
+	}
+	if report.State != string(agentdto.StateStopped) {
+		t.Fatalf("GetReport().State = %q, want %q", report.State, agentdto.StateStopped)
+	}
+	if report.Report == "" || !strings.Contains(report.Report, "selected model") {
+		t.Fatalf("GetReport().Report = %q, want Claude model unavailable report", report.Report)
+	}
+}
+
+func TestRemoteTurnInterruptedEmptyReasonWritesTerminalFallbackReport(t *testing.T) {
+	t.Parallel()
+
+	launcher := &recordingStallLauncher{}
+	svc := NewService(silentLogger(), nil, launcher, nil, nil, nil)
+	agent := svc.newAgentLocked("agent-remote")
+	agent.state = agentdto.StateTurnRunning
+	agent.threadID = "thread-empty"
+	agent.remoteThreadID = "thread-empty"
+	agent.activeTurnID = "turn-empty"
+	svc.agents[agent.id] = agent
+
+	svc.handleRemoteTurnInterrupted(context.Background(), interruptedEventAt(
+		"agent-remote",
+		"thread-empty",
+		"turn-empty",
+		"",
+		time.Unix(1710000000, 0).UTC(),
+	))
+
+	if launcher.stopCalls != 0 {
+		t.Fatalf("launcher.stopCalls = %d, want 0 for empty interruption reason", launcher.stopCalls)
+	}
+	got, err := svc.GetReport(context.Background(), "agent-remote")
+	if err != nil {
+		t.Fatalf("GetReport() error = %v", err)
+	}
+	if got.Report == "" || !strings.Contains(got.Report, "without producing a turn report") {
+		t.Fatalf("GetReport().Report = %q, want terminal fallback report", got.Report)
+	}
+}
+
 func TestHandleTurnCompletedEventConvergesAfterInterrupt(t *testing.T) {
 	t.Parallel()
 
@@ -315,4 +557,19 @@ func readAgentSnapshot(t *testing.T, svc *service, agentID string) agentSnapshot
 		t.Fatalf("withAgentReadLocked(%q) error = %v", agentID, err)
 	}
 	return snapshot
+}
+
+func assertOnlyListedAgentState(t *testing.T, svc *service, agentID string, want agentdto.AgentState) {
+	t.Helper()
+
+	snapshots, err := svc.ListAgents(context.Background())
+	if err != nil {
+		t.Fatalf("ListAgents() error = %v", err)
+	}
+	if len(snapshots) != 1 || snapshots[0].ID != agentID {
+		t.Fatalf("ListAgents() = %#v, want only %s", snapshots, agentID)
+	}
+	if snapshots[0].State != string(want) {
+		t.Fatalf("ListAgents()[%s].State = %q, want %q", agentID, snapshots[0].State, want)
+	}
 }

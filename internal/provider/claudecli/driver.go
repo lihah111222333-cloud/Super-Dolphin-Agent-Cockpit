@@ -190,7 +190,7 @@ func (d *driver) start(ctx context.Context, spec startSpec) (contract.Session, e
 	if err != nil {
 		return nil, err
 	}
-	started, err := d.prepareSessionStart(spec)
+	started, err := d.prepareSessionStart(ctx, spec)
 	if err != nil {
 		return nil, err
 	}
@@ -203,7 +203,7 @@ func (d *driver) start(ctx context.Context, spec startSpec) (contract.Session, e
 	return s, nil
 }
 
-func (d *driver) prepareSessionStart(spec startSpec) (preparedStartSession, error) {
+func (d *driver) prepareSessionStart(ctx context.Context, spec startSpec) (preparedStartSession, error) {
 	if err := validateStartCWD(spec.cwd); err != nil {
 		return preparedStartSession{}, err
 	}
@@ -218,6 +218,9 @@ func (d *driver) prepareSessionStart(spec startSpec) (preparedStartSession, erro
 	launchConfig := canonicalizeClaudeLaunchConfig(launchModel, requestedConfig)
 	if launchConfig.ClaudeHome == "" {
 		launchConfig.ClaudeHome = strings.TrimSpace(spec.historyDir)
+	}
+	if err := preflightClaudeAuth(ctx, d.binaryPath, spec.cwd, launchConfig); err != nil {
+		return preparedStartSession{}, err
 	}
 	tr, cleanup, err := launchCLI(
 		d.binaryPath,

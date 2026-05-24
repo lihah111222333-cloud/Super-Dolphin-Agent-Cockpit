@@ -210,7 +210,7 @@ type AgentSnapshot struct {
 	Provider       string    `json:"provider,omitempty"`
 	ProviderSource string    `json:"provider_source,omitempty"`
 	LastReport     string    `json:"last_report,omitempty"`
-	CreatedAt      time.Time `json:"created_at"`
+	CreatedAt      time.Time `json:"created_at,omitzero"`
 	UpdatedAt      time.Time `json:"updated_at"`
 }
 

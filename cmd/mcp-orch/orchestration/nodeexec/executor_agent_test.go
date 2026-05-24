@@ -344,6 +344,7 @@ func TestClassifyAgentLaunchError(t *testing.T) {
 		{"task_handoff_title_validation", errors.New(`task handoff title is required for task "task-demo"`), FailureClassValidation},
 		{"task_handoff_file_validation", errors.New(`task handoff file is required for task "task-demo"`), FailureClassValidation},
 		{"task_handoff_config_validation", errors.New(`task handoff config "taskId" must be a string`), FailureClassValidation},
+		{"claude_model_unavailable_validation", errors.New("There's an issue with the selected model (gpt-5.5). It may not exist or you may not have access to it. Run --model to pick a different model."), FailureClassValidation},
 		{"unknown_default_transient", errors.New("strange new failure"), FailureClassTransient},
 	}
 	for _, tc := range cases {

@@ -115,6 +115,13 @@ func (s *session) handleConnectionDead(params json.RawMessage) {
 		"thread_id", s.ThreadID(),
 		"reason", reason,
 	)
+	if strings.TrimSpace(s.ThreadID()) == "" {
+		err := errors.New("codexapp: startup failed: " + strings.TrimSpace(reason))
+		if s.transport != nil {
+			s.transport.failPending(err)
+		}
+		return
+	}
 	if err := shared.CheckCtx(s.ctx); err != nil {
 		pkglogger.Warn("codexapp: handleConnectionDead skipped (ctx done)",
 			"agent_id", s.agentID,

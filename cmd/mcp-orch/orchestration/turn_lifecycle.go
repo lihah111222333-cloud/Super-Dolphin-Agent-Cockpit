@@ -32,6 +32,9 @@ func handleTurnCompletedEventWithCtx(svc *service, logger *slog.Logger, ev turnd
 	ctx := withEventTime(parent, ev.Timestamp)
 	err := svc.CompleteTurn(ctx, ev.AgentID, ev.TurnID, ev.Success, ev.Error)
 	if shouldIgnoreTurnLifecycleErr(svc, ev.AgentID, ev.TurnID, err) {
+		if detail := turnCompletedReportText(ev); !errors.Is(err, errAgentNotFound) && !ev.Success && detail != "" && classifyLaunchError(errors.New(detail)) == launchClassPermanent {
+			svc.stopAgentAfterPermanentTurnFailure(ev.AgentID, ev.ThreadID, "turn_completed_permanent")
+		}
 		return
 	}
 	if ctx.Err() != nil {
@@ -58,6 +61,9 @@ func handleTurnInterruptedEventWithCtx(svc *service, logger *slog.Logger, ev tur
 	ctx := withEventTime(parent, ev.Timestamp)
 	err := svc.interruptTurn(ctx, ev.AgentID, ev.TurnID, ev.Reason)
 	if shouldIgnoreTurnLifecycleErr(svc, ev.AgentID, ev.TurnID, err) {
+		if reason := strings.TrimSpace(ev.Reason); !errors.Is(err, errAgentNotFound) && reason != "" && classifyLaunchError(errors.New(reason)) == launchClassPermanent {
+			svc.stopAgentAfterPermanentTurnFailure(ev.AgentID, ev.ThreadID, "turn_interrupted_permanent")
+		}
 		return
 	}
 	if ctx.Err() != nil {

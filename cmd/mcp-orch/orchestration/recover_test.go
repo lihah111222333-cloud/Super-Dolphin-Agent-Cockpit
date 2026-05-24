@@ -12,6 +12,7 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/taskdag"
 	agentdto "github.com/anthropic-ai/super-agent-v3/internal/dto/agent"
 	shareddto "github.com/anthropic-ai/super-agent-v3/internal/dto/shared"
+	threaddto "github.com/anthropic-ai/super-agent-v3/internal/dto/thread"
 	turndto "github.com/anthropic-ai/super-agent-v3/internal/dto/turn"
 	"github.com/kelindar/event"
 )
@@ -24,6 +25,37 @@ func TestRecoverReplaysStoreBackedActiveTurnAheadOfQueuedWork(t *testing.T) {
 		t.Fatalf("Recover() error = %v", err)
 	}
 	assertRecoveredReplayQueue(t, agent)
+}
+
+func TestRecoveredReplayCurrentThreadStoppedWritesFallback(t *testing.T) {
+	t.Parallel()
+
+	svc, agent := newRecoverReplayService(t)
+	agent.reportRequesters = []string{"agent-parent"}
+	if err := svc.Recover(context.Background(), agent.id); err != nil {
+		t.Fatalf("Recover() error = %v", err)
+	}
+	work := svc.claimTurnWork(context.Background())
+	if len(work) != 1 || work[0].threadID != "thread-1" {
+		t.Fatalf("claimTurnWork() = %#v, want recovered work on thread-1", work)
+	}
+
+	newHookConsumer(svc, silentLogger()).handleThreadStopped(context.Background(), threaddto.Stopped{
+		EventHeader: shareddto.EventHeader{Timestamp: time.Now().Add(time.Hour)},
+		ThreadID:    "thread-1",
+		AgentID:     "agent-1",
+		Reason:      "process_exited",
+	})
+	got, err := svc.GetReport(context.Background(), "agent-1")
+	if err != nil {
+		t.Fatalf("GetReport() error = %v", err)
+	}
+	if !strings.Contains(got.Report, "without producing a turn report") {
+		t.Fatalf("GetReport().Report = %q, want stopped fallback report", got.Report)
+	}
+	if len(agent.reportRequesters) != 0 {
+		t.Fatalf("agent.reportRequesters = %v, want drained", agent.reportRequesters)
+	}
 }
 
 func newRecoverReplayService(t *testing.T) (*service, *agentRuntime) {
@@ -182,6 +214,31 @@ func TestRecoverWithoutActiveTurnDoesNotPublishTurnResumed(t *testing.T) {
 	}
 }
 
+func TestRecoverWithoutReplayWritesFallbackReport(t *testing.T) {
+	t.Parallel()
+
+	svc := NewService(silentLogger(), nil, nil, nil, nil, nil)
+	agent := svc.newAgentLocked("agent-1")
+	agent.command = []string{"sh", "-c", "sleep 60"}
+	agent.state = agentdto.StateTurnRunning
+	agent.threadID = "thread-1"
+	agent.activeTurnID = "turn-active"
+	agent.reportRequesters = []string{"agent-parent"}
+	agent.lastError = "process crashed"
+	svc.agents[agent.id] = agent
+	t.Cleanup(func() { cleanupAgentProcess(agent) })
+
+	if err := svc.Recover(context.Background(), agent.id); err != nil {
+		t.Fatalf("Recover() error = %v", err)
+	}
+	if !strings.Contains(agent.lastReport, "process crashed") || !strings.Contains(agent.lastReport, "without producing a turn report") {
+		t.Fatalf("agent.lastReport = %q, want no-replay fallback with crash detail", agent.lastReport)
+	}
+	if len(agent.reportRequesters) != 0 {
+		t.Fatalf("agent.reportRequesters = %v, want drained", agent.reportRequesters)
+	}
+}
+
 func TestRecoverStalledAgentsPublishesTurnStalledAndResumed(t *testing.T) {
 	t.Parallel()
 
@@ -223,7 +280,7 @@ func TestRecoverStalledAgentsPublishesTurnStalledAndResumed(t *testing.T) {
 	assertRecoverResumedEvent(t, resumed)
 }
 
-func TestRecoverStalledAgentsStopsLauncherOwnedAgent(t *testing.T) {
+func TestRecoverStalledAgentsRestartsLauncherOwnedAgent(t *testing.T) {
 	t.Parallel()
 
 	dispatcher := event.NewDispatcher()
@@ -259,21 +316,59 @@ func TestRecoverStalledAgentsStopsLauncherOwnedAgent(t *testing.T) {
 	if stalled.AgentID != "agent-remote" || stalled.ThreadID != "thread-remote" || stalled.TurnID != "turn-remote" {
 		t.Fatalf("TurnStalled = %+v, want remote agent/thread/turn", stalled)
 	}
-	assertLauncherOwnedStallStop(t, launcher, agent, resumedEvents)
+	assertLauncherOwnedStallRecovery(t, launcher, agent, resumedEvents)
 }
 
-func assertLauncherOwnedStallStop(t *testing.T, launcher *recordingStallLauncher, agent *agentRuntime, resumedEvents <-chan turndto.TurnResumed) {
+func assertLauncherOwnedStallRecovery(t *testing.T, launcher *recordingStallLauncher, agent *agentRuntime, resumedEvents <-chan turndto.TurnResumed) {
 	t.Helper()
-	if launcher.launchCalls != 0 || launcher.stopCalls != 1 {
-		t.Fatalf("launcher calls = launch:%d stop:%d, want stop once and no launch", launcher.launchCalls, launcher.stopCalls)
+	if launcher.launchCalls != 1 || launcher.stopCalls != 1 {
+		t.Fatalf("launcher calls = launch:%d stop:%d, want stop once and launch once", launcher.launchCalls, launcher.stopCalls)
 	}
-	if agent.state != agentdto.StateStopping || agent.activeTurnID != "" {
-		t.Fatalf("agent state after stalled stop = state:%q active:%q, want stopping with no active turn", agent.state, agent.activeTurnID)
+	if agent.state != agentdto.StateIdle || agent.activeTurnID != "" || agent.remoteThreadID == "" {
+		t.Fatalf("agent state after stalled recovery = state:%q active:%q remote:%q, want idle recovered remote runtime", agent.state, agent.activeTurnID, agent.remoteThreadID)
 	}
 	select {
 	case ev := <-resumedEvents:
 		t.Fatalf("unexpected TurnResumed event for launcher-owned agent: %+v", ev)
 	default:
+	}
+}
+
+func TestHandleProcessExitErrorAutoRecoversLocalAgent(t *testing.T) {
+	t.Parallel()
+
+	svc := NewService(silentLogger(), nil, nil, nil, nil, nil)
+	agent := svc.newAgentLocked("agent-local")
+	agent.command = []string{"sh", "-c", "sleep 60"}
+	agent.state = agentdto.StateIdle
+	agent.launchSeq = 1
+	svc.agents[agent.id] = agent
+	t.Cleanup(func() { cleanupAgentProcess(agent) })
+
+	svc.handleProcessExit(context.Background(), agent.id, 1, errors.New("process crashed"))
+
+	if agent.state != agentdto.StateIdle || agent.cmd == nil || agent.launchSeq <= 1 {
+		t.Fatalf("agent after process exit recovery = state:%q cmd:%v launchSeq:%d, want relaunched idle agent", agent.state, agent.cmd != nil, agent.launchSeq)
+	}
+}
+
+func TestProcessExitAutoRecoveryStopsAtRetryLimit(t *testing.T) {
+	t.Parallel()
+
+	svc := NewService(silentLogger(), nil, nil, nil, nil, nil)
+	agent := svc.newAgentLocked("agent-local")
+	agent.command = []string{"sh", "-c", "sleep 60"}
+
+	for i := 0; i < maxProcessExitAutoRecoveries; i++ {
+		if !shouldAutoRecoverProcessExitLocked(svc, agent, errors.New("process crashed")) {
+			t.Fatalf("shouldAutoRecoverProcessExitLocked() attempt %d = false, want true before limit", i+1)
+		}
+	}
+	if shouldAutoRecoverProcessExitLocked(svc, agent, errors.New("process crashed")) {
+		t.Fatalf("shouldAutoRecoverProcessExitLocked() after retry limit = true, want false")
+	}
+	if !strings.Contains(agent.lastError, "auto recovery retry limit reached") {
+		t.Fatalf("agent.lastError = %q, want retry limit detail", agent.lastError)
 	}
 }
 
@@ -412,6 +507,8 @@ func TestFireOrForceLockedIncludesContextWhenStateMachineMissing(t *testing.T) {
 type stubRecoveryTurnStore struct {
 	nodes   []taskdag.Node
 	wakeups map[int64]taskdag.Wakeup
+	listErr error
+	getErr  error
 }
 
 func replayableRecoveryTurnStore() stubRecoveryTurnStore {
@@ -437,6 +534,9 @@ func replayableRecoveryTurnStore() stubRecoveryTurnStore {
 }
 
 func (s stubRecoveryTurnStore) ListRunningNodesByAssignee(_ context.Context, assignee string) ([]taskdag.Node, error) {
+	if s.listErr != nil {
+		return nil, s.listErr
+	}
 	filtered := make([]taskdag.Node, 0, len(s.nodes))
 	for _, node := range s.nodes {
 		if node.AssignedTo == assignee {
@@ -447,6 +547,9 @@ func (s stubRecoveryTurnStore) ListRunningNodesByAssignee(_ context.Context, ass
 }
 
 func (s stubRecoveryTurnStore) GetWakeup(_ context.Context, id int64) (*taskdag.Wakeup, error) {
+	if s.getErr != nil {
+		return nil, s.getErr
+	}
 	wakeup, ok := s.wakeups[id]
 	if !ok {
 		return nil, errors.New("wakeup not found")
@@ -495,17 +598,48 @@ func awaitTurnResumed(t *testing.T, events <-chan turndto.TurnResumed) turndto.T
 }
 
 type recordingStallLauncher struct {
-	launchCalls int
-	stopCalls   int
+	launchCalls   int
+	stopCalls     int
+	launchAgent   *agentRuntime
+	stopAgent     *agentRuntime
+	launchReq     LaunchRequest
+	launchErr     error
+	stopErr       error
+	submitErr     error
+	remoteAgentID string
+	stopThreads   []string
+	afterLaunch   func()
 }
 
-func (l *recordingStallLauncher) Launch(_ context.Context, agent *agentRuntime, _ LaunchRequest) (LaunchResult, error) {
+func (l *recordingStallLauncher) Launch(_ context.Context, agent *agentRuntime, req LaunchRequest) (LaunchResult, error) {
 	l.launchCalls++
-	return LaunchResult{ThreadID: agent.remoteThreadID, RemoteAgentID: agent.id}, nil
+	l.launchAgent = agent
+	l.launchReq = req
+	if l.launchErr != nil {
+		return LaunchResult{}, l.launchErr
+	}
+	remoteAgentID := strings.TrimSpace(l.remoteAgentID)
+	if remoteAgentID == "" {
+		remoteAgentID = agent.id
+	}
+	agent.remoteThreadID = "thread-recovered"
+	agent.remoteAgentID = remoteAgentID
+	agent.launchSeq++
+	if l.afterLaunch != nil {
+		l.afterLaunch()
+	}
+	return LaunchResult{ThreadID: agent.remoteThreadID, RemoteAgentID: remoteAgentID}, nil
 }
 
-func (l *recordingStallLauncher) Stop(context.Context, *agentRuntime) error {
+func (l *recordingStallLauncher) Stop(_ context.Context, agent *agentRuntime) error {
 	l.stopCalls++
+	l.stopAgent = agent
+	if agent != nil {
+		l.stopThreads = append(l.stopThreads, agent.remoteThreadID)
+	}
+	if l.stopErr != nil {
+		return l.stopErr
+	}
 	return nil
 }
 
@@ -514,6 +648,9 @@ func (l *recordingStallLauncher) Archive(ctx context.Context, agent *agentRuntim
 }
 
 func (l *recordingStallLauncher) SubmitTurn(context.Context, *agentRuntime, TurnSubmission) (string, error) {
+	if l.submitErr != nil {
+		return "", l.submitErr
+	}
 	return "turn-remote", nil
 }
 
