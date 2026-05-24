@@ -17,6 +17,11 @@ export function resolveProjectViewCwd(projectStore, windowCwd = '') {
   return (windowCwd || '').toString().trim();
 }
 
+function readWindowCwd(windowCwd) {
+  const value = typeof windowCwd === 'function' ? windowCwd() : windowCwd;
+  return (value || '').toString();
+}
+
 function getThreadConfigFromStore(threadStore, threadId) {
   if (typeof threadStore?.getThreadConfig !== 'function') return Promise.resolve(null);
   return threadStore.getThreadConfig(threadId);
@@ -181,20 +186,43 @@ function setCmdCardColsValue(cmdCardCols, value) {
   cmdCardCols.value = value;
 }
 
-async function resolveStartOptions(text, focusMode) {
-  const startOptions = { focusMode };
-  // Forward the user's first message so the backend router has input to
-  // classify against prompt_templates tags. Without this the router gets
-  // an empty string and falls back to no injection.
-  if (typeof text === 'string' && text.trim()) {
-    startOptions.prompt = text;
-  } else {
-    // C1 opt-in: empty composer means the user clicked “启动 Agent” without
-    // typing yet. Tell the backend to create a pending_launch row instead
-    // of forking Claude CLI immediately — the real spawn happens on the
-    // first turn/start once router has real user input to classify.
-    startOptions.deferSpawn = true;
+function createLaunchIntentId() {
+  const randomUUID = globalThis.crypto?.randomUUID;
+  if (typeof randomUUID !== 'function') {
+    throw new Error('crypto.randomUUID is required to create a launch intent id');
   }
+  return `launch_${randomUUID.call(globalThis.crypto)}`;
+}
+
+function createLaunchIntentState() {
+  let intentId = '';
+  let threadId = '';
+  return {
+    current() {
+      if (!intentId) intentId = createLaunchIntentId();
+      return intentId;
+    },
+    bindThread(id) {
+      threadId = (id || '').toString().trim();
+    },
+    reset() {
+      intentId = '';
+      threadId = '';
+    },
+    resetIfThread(id) {
+      const target = (id || '').toString().trim();
+      if (target && target === threadId) this.reset();
+    },
+  };
+}
+
+async function resolveStartOptions(focusMode, launchIntentId = '') {
+  const startOptions = { focusMode, deferSpawn: true };
+  if (typeof launchIntentId === 'string' && launchIntentId.trim()) {
+    startOptions.launchIntentId = launchIntentId.trim();
+  }
+  // The first user message is sent by sendMessage/turn/start immediately after
+  // this pending thread exists, so thread/start must not launch the provider.
   return startOptions;
 }
 
@@ -209,6 +237,7 @@ async function performSend({
   sendFailureNotice,
   providerPreferenceReady,
   providerPreferenceError,
+  launchIntent,
 }) {
   let threadId = (selectedThreadId.value || '').toString().trim();
   let startedNewThread = false;
@@ -223,9 +252,13 @@ async function performSend({
       return;
     }
     try {
-      const actionCwd = resolveProjectActionCwd(projectStore, windowCwd);
-      const startOptions = await resolveStartOptions(text, modeKey.value);
+      const actionCwd = resolveProjectActionCwd(projectStore, readWindowCwd(windowCwd));
+      const launchIntentId = launchIntent?.current?.() || '';
+      const startOptions = await resolveStartOptions(modeKey.value, launchIntentId);
+      startOptions.optimisticUserMessage = { text, attachments };
+      startOptions.skipInitialRuntimeSync = true;
       threadId = await threadStore.startThread(actionCwd, startOptions);
+      launchIntent?.bindThread?.(threadId);
     } catch (err) {
       logWarn('ui', 'chat.start.error', {
         error: err?.message || String(err),
@@ -238,13 +271,14 @@ async function performSend({
     selectedThreadId.value = threadId;
   }
 
-  const actionCwd = resolveProjectActionCwd(projectStore, windowCwd);
+  const actionCwd = resolveProjectActionCwd(projectStore, readWindowCwd(windowCwd));
   const savedText = text;
   const savedAttachments = attachments;
   composer.clearComposer();
   try {
     const sendOptions = { manualSkillSelection: false, cwd: actionCwd };
     await threadStore.sendMessage(threadId, text, attachments, sendOptions);
+    launchIntent?.resetIfThread?.(threadId);
     scheduleScrollToBottom(true);
   } catch (err) {
     logWarn('ui', 'chat.send.error_restore', {
@@ -267,33 +301,15 @@ async function performSend({
 }
 
 function createLaunchOneAction({
-  composer,
-  modeKey,
   selectedThreadId,
-  props,
   sendFailureNotice,
-  providerPreferenceReady,
-  providerPreferenceError,
+  launchIntent,
 }) {
   return () => {
-    if (!isProviderPreferenceReady(providerPreferenceReady)) {
-      sendFailureNotice.value = formatProviderPreferencePendingNotice(providerPreferenceError);
-      return Promise.resolve();
-    }
     sendFailureNotice.value = '';
-    return resolveStartOptions(composer?.state?.text || '', modeKey.value)
-      .then((startOptions) => props.threadStore.startThread(resolveProjectActionCwd(props.projectStore, props.windowCwd), startOptions))
-      .then((id) => {
-        if (!id) return;
-        selectedThreadId.value = id;
-      })
-      .catch((err) => {
-        logWarn('ui', 'chat.launch.error', {
-          error: err?.message || String(err),
-        });
-        sendFailureNotice.value = formatLaunchFailureNotice(err);
-        throw err;
-      });
+    launchIntent?.reset?.();
+    selectedThreadId.value = '';
+    return Promise.resolve();
   };
 }
 
@@ -308,6 +324,7 @@ function createSendAction({
   sendFailureNotice,
   providerPreferenceReady,
   providerPreferenceError,
+  launchIntent,
 }) {
   let sendInFlightPromise = null;
   return () => {
@@ -328,6 +345,7 @@ function createSendAction({
       sendFailureNotice,
       providerPreferenceReady,
       providerPreferenceError,
+      launchIntent,
     })
       .finally(() => {
         sendInFlightPromise = null;
@@ -358,10 +376,11 @@ export function useThreadActions(props, deps) {
 
   const recoveringSelected = ref(false);
   const sendFailureNotice = ref('');
+  const launchIntent = createLaunchIntentState();
 
   const launchOne = createLaunchOneAction({
-    composer, modeKey, selectedThreadId, props, sendFailureNotice,
-    providerPreferenceReady, providerPreferenceError,
+    selectedThreadId, sendFailureNotice,
+    launchIntent,
   });
 
   const getThreadConfig = (threadId) => getThreadConfigFromStore(props.threadStore, threadId);
@@ -371,8 +390,8 @@ export function useThreadActions(props, deps) {
     selectedThreadId,
     composer,
     modeKey,
-    threadStore: props.threadStore, projectStore: props.projectStore, windowCwd: props.windowCwd,
-    scheduleScrollToBottom, sendFailureNotice, providerPreferenceReady, providerPreferenceError,
+    threadStore: props.threadStore, projectStore: props.projectStore, windowCwd: () => props.windowCwd,
+    scheduleScrollToBottom, sendFailureNotice, providerPreferenceReady, providerPreferenceError, launchIntent,
   });
 
   async function interruptCurrent(control) {
@@ -403,6 +422,7 @@ export function useThreadActions(props, deps) {
         mode,
       });
       if (settled) {
+        launchIntent.resetIfThread(threadId);
         control?.confirm?.({
           mode,
           threadId,

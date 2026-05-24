@@ -195,10 +195,6 @@ func (s *service) Stop(ctx context.Context, threadID string) error {
 	return nil
 }
 
-// stopPendingLaunchThread handles Stop's pending_launch fast-path. Returns
-// (handled=true, nil) once the row has been marked stopped; (false, nil) when
-// the thread is running (caller continues with the normal stop flow);
-// (true, err) when the pending status write itself failed.
 func (s *service) stopPendingLaunchThread(ctx context.Context, threadID string) (bool, error) {
 	if s.threadStore == nil {
 		return false, nil
@@ -220,7 +216,7 @@ func (s *service) stopPendingLaunchThread(ctx context.Context, threadID string) 
 	if err := s.updateThreadStatus(ctx, trimmed, statusStopped); err != nil {
 		return true, err
 	}
-	s.pendingLaunchMu.Delete(trimmed)
+	s.CompleteLaunchIntent(ctx, trimmed)
 	s.publishThreadStopped(trimmed, "", statusStopped, "stopped_pending_launch")
 	return true, nil
 }

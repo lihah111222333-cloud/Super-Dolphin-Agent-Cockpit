@@ -62,10 +62,9 @@ type startParams struct {
 	// PromptText as BaseInstructions. Empty = fall back to agent_key /
 	// default routing.
 	PromptKey string `json:"prompt_key,omitempty"`
-	// DeferSpawn opts into the C1 "pending_launch" flow: create the thread
-	// row without forking the provider CLI; the actual spawn happens on the
-	// first turn once router has real user input to evaluate match_when.
-	DeferSpawn bool `json:"defer_spawn,omitempty"`
+	// DeferSpawn creates a pending row; the actual spawn happens on first turn.
+	DeferSpawn     bool   `json:"defer_spawn,omitempty"`
+	LaunchIntentID string `json:"launch_intent_id,omitempty"`
 }
 
 // handoffParams is the RPC payload for thread/handoff.
@@ -178,6 +177,7 @@ func (p *startParams) fillLegacyStringFields(payload map[string]json.RawMessage)
 		compatStringAssignment{target: &p.ApprovalPolicy, field: "approval policy", keys: []string{"approval_policy", "approvalPolicy"}},
 		compatStringAssignment{target: &p.AgentID, field: "agent id", keys: []string{"agent_id", "agentId"}},
 		compatStringAssignment{target: &p.ParentAgentID, field: "parent agent id", keys: []string{"parent_agent_id", "parentAgentId", "parentId", "parentID"}},
+		compatStringAssignment{target: &p.LaunchIntentID, field: "launch intent id", keys: []string{"launch_intent_id", "launchIntentId"}},
 		compatStringAssignment{target: &p.AgentType, field: "agent type", keys: []string{"agent_type", "agentType"}},
 		compatStringAssignment{target: &p.AgentMemoryScope, field: "agent memory scope", keys: []string{"agent_memory_scope", "agentMemoryScope", "memory_scope", "memoryScope"}},
 		compatStringAssignment{target: &p.BaseInstructions, field: "base instructions", keys: []string{"base_instructions", "baseInstructions", "instructions"}},
