@@ -620,6 +620,7 @@ export const AppRoot = {
       tasksFields,
       windowCwd,
       activeProjectCwd,
+      threadScopeCwd,
       currentCwdDisplay,
       sidebarBadges,
       refreshBuildInfo,
@@ -675,6 +676,7 @@ export const AppRoot = {
         <SkillsPage
           v-else-if="page === 'skills'"
           :skills="dashboard.skills"
+          :cwd="threadScopeCwd"
           :project-store="projectStore"
           @refresh-skills="refreshDashboardByPage('skills')"
         />
