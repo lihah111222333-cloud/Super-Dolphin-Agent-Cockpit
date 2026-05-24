@@ -394,7 +394,95 @@ describe('ComposerBar behavior', () => {
     vm.setComposerInputRef(textarea);
     vm.onInput();
 
-    expect(textarea.style.height).toBe('564px');
+    expect(textarea.style.height).toBe('388px');
+    expect(textarea.style.overflowY).toBe('auto');
+  });
+
+  it('preserves readable chat space when long input reaches the workspace boundary', () => {
+    const { vm } = createComposerBar({ text: 'very long text' });
+    const boundary = {
+      getBoundingClientRect: () => ({ top: 120 }),
+    };
+    const textarea = {
+      style: {},
+      scrollHeight: 1400,
+      getBoundingClientRect: () => ({ bottom: 700 }),
+      closest: () => boundary,
+    };
+
+    vm.setComposerInputRef(textarea);
+    vm.onInput();
+
+    expect(textarea.style.height).toBe('388px');
+    expect(textarea.style.overflowY).toBe('auto');
+  });
+
+  it('caps long input to half of the application height', () => {
+    const { vm } = createComposerBar({ text: 'very long text in a tall workspace' });
+    const boundary = {
+      getBoundingClientRect: () => ({ top: 20 }),
+    };
+    const textarea = {
+      style: {},
+      scrollHeight: 1400,
+      getBoundingClientRect: () => ({ bottom: 900 }),
+      closest: () => boundary,
+    };
+
+    vm.setComposerInputRef(textarea);
+    vm.onInput();
+
+    expect(textarea.style.height).toBe('500px');
+    expect(textarea.style.overflowY).toBe('auto');
+  });
+
+  it('reserves readable chat space after composer chrome outside the textarea', () => {
+    const { vm } = createComposerBar({ text: 'very long text with attachments' });
+    const boundary = {
+      getBoundingClientRect: () => ({ top: 100 }),
+    };
+    const composerShell = {
+      getBoundingClientRect: () => ({ top: 420, bottom: 700, height: 280 }),
+    };
+    const textarea = {
+      style: {},
+      scrollHeight: 1400,
+      getBoundingClientRect: () => ({ top: 620, bottom: 700, height: 80 }),
+      closest: (selector) => {
+        if (selector === '.chat-composer-shell') return composerShell;
+        return boundary;
+      },
+    };
+
+    vm.setComposerInputRef(textarea);
+    vm.onInput();
+
+    expect(textarea.style.height).toBe('208px');
+    expect(textarea.style.overflowY).toBe('auto');
+  });
+
+  it('falls back to the minimum input height when chrome leaves little workspace room', () => {
+    const { vm } = createComposerBar({ text: 'very long text in a short window' });
+    const boundary = {
+      getBoundingClientRect: () => ({ top: 520 }),
+    };
+    const composerShell = {
+      getBoundingClientRect: () => ({ top: 640, bottom: 700, height: 60 }),
+    };
+    const textarea = {
+      style: {},
+      scrollHeight: 1200,
+      getBoundingClientRect: () => ({ top: 660, bottom: 700, height: 40 }),
+      closest: (selector) => {
+        if (selector === '.chat-composer-shell') return composerShell;
+        return boundary;
+      },
+    };
+
+    vm.setComposerInputRef(textarea);
+    vm.onInput();
+
+    expect(textarea.style.height).toBe('38px');
     expect(textarea.style.overflowY).toBe('auto');
   });
 
@@ -509,7 +597,7 @@ describe('ComposerBar behavior', () => {
 
     vm.setComposerInputRef(textarea);
     await flushPromises();
-    expect(textarea.style.height).toBe('564px');
+    expect(textarea.style.height).toBe('388px');
     expect(textarea.style.overflowY).toBe('auto');
 
     vm.onCompositionStart();
