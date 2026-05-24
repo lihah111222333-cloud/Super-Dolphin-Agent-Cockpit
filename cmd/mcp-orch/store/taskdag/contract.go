@@ -679,6 +679,26 @@ type ListRunsFilter struct {
 	Limit  int32  // 0 表示走默认上限
 }
 
+// TerminateRunInput cancels one runtime run and all of its non-terminal nodes.
+// RunID is mandatory to keep multi-run isolation exact.
+type TerminateRunInput struct {
+	DagKey string
+	RunKey string
+	RunID  int64
+	Reason string
+}
+
+type TerminateRunResult struct {
+	SpawnedThreadIDs []string
+}
+
+// RunTerminationStore is the narrow lifecycle port for callers that only need
+// run cancellation. RunStore also embeds this method so production wiring gets
+// a compile-time guarantee instead of a runtime-only type assertion.
+type RunTerminationStore interface {
+	TerminateRun(ctx context.Context, input TerminateRunInput) (TerminateRunResult, error)
+}
+
 // RunStore 是 task_dag_runs 的窄接口。接口实现由 store_compile_assertions_test.go
 // 的 var _ RunStore = (*store)(nil) 编译期断言守护。
 // 接口签名：
@@ -689,6 +709,10 @@ type ListRunsFilter struct {
 //   - PromoteRootNodesToReady:  StartDAG 在新 run 创建后调用，把 dag_key 下
 //     depends_on=[] 且 status='pending' 的根节点提为
 //     'ready'。返回受影响行数
+//   - ScheduleRootWakeups:      StartDAG 在根节点 ready 后调用，只给有 assigned_to
+//     的 runtime 根节点入队 wakeup；无 assigned_to 的根节点保持 ready 等人工接管
+//   - TerminateRun:             取消一条 running run 及其非终态 runtime 节点 / wakeups
+//     并返回事务内捕获的 spawned thread IDs
 //   - WithRunTx:                在单一 PG 事务内组合调用其它 RunStore 方法
 //     （例：StartDAG 原子性 CreateRun + Promote）。不
 //     嵌入 OrchestrationStore / DAGMutationStore 是为了
@@ -704,5 +728,7 @@ type RunStore interface {
 	ListRuns(ctx context.Context, filter ListRunsFilter) ([]Run, error)
 	CloneNodesForRun(ctx context.Context, dagKey string, runID int64) (int64, error)
 	PromoteRootNodesToReady(ctx context.Context, dagKey string, runID int64) (int64, error)
+	ScheduleRootWakeups(ctx context.Context, dagKey string, runID int64) (int64, error)
+	TerminateRun(ctx context.Context, input TerminateRunInput) (TerminateRunResult, error)
 	WithRunTx(ctx context.Context, fn func(tx RunStore) error) error
 }

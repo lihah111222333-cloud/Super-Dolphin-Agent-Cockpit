@@ -55,13 +55,12 @@ func NewNodeExecutorRouter(
 	}
 }
 
-func (d *WakeupDispatcher) spawnReplanPlanner(ctx context.Context, w *taskdag.Wakeup, fence wakeupFence, failure dispatchFailure, node *taskdag.Node, failFast bool) {
+func (d *WakeupDispatcher) spawnReplanPlanner(ctx context.Context, w *taskdag.Wakeup, fence wakeupFence, failure dispatchFailure, node *taskdag.Node, failFast bool) bool {
 	if d == nil {
-		return
+		return false
 	}
 	if d.launcher == nil {
-		d.failSmartRetryPrepare(ctx, w, fence, failure, fmt.Errorf("replan planner unavailable"), failFast)
-		return
+		return d.failSmartRetryPrepare(ctx, w, fence, failure, fmt.Errorf("replan planner unavailable"), failFast)
 	}
 	nodeType, cfgRaw := "", json.RawMessage(nil)
 	if node != nil {
@@ -69,8 +68,7 @@ func (d *WakeupDispatcher) spawnReplanPlanner(ctx context.Context, w *taskdag.Wa
 	}
 	cwd, err := nodeexec.ValidateLaunchCWDForNodeConfig(nodeType, cfgRaw)
 	if err != nil {
-		d.failSmartRetryPrepare(ctx, w, fence, failure, fmt.Errorf("replan planner cwd unavailable: %w", err), failFast)
-		return
+		return d.failSmartRetryPrepare(ctx, w, fence, failure, fmt.Errorf("replan planner cwd unavailable: %w", err), failFast)
 	}
 	req := LaunchRequest{
 		AgentID:   idgen.NewAgentID(),
@@ -81,10 +79,9 @@ func (d *WakeupDispatcher) spawnReplanPlanner(ctx context.Context, w *taskdag.Wa
 		Prompt:    buildReplanPlannerPrompt(w, failure),
 	}
 	if err := d.launcher.LaunchAgent(ctx, req); err != nil {
-		d.failSmartRetryPrepare(ctx, w, fence, failure, fmt.Errorf("replan planner launch failed: %w", err), failFast)
-		return
+		return d.failSmartRetryPrepare(ctx, w, fence, failure, fmt.Errorf("replan planner launch failed: %w", err), failFast)
 	}
-	d.markLaunched(ctx, w, fence)
+	return d.markLaunched(ctx, w, fence)
 }
 
 func sanitizeReplanLaunchName(dagKey, nodeKey string) string {
@@ -554,6 +551,20 @@ func (a *serviceAgentLauncher) LaunchAgent(ctx context.Context, req contract.Lau
 		return "", err
 	}
 	return strings.TrimSpace(snap.ThreadID), nil
+}
+
+func (a *serviceAgentLauncher) StopLaunchedThread(ctx context.Context, threadID string) error {
+	if a == nil || a.svc == nil {
+		return errors.New("service agent launcher: nil receiver")
+	}
+	result, err := StopSpawnedAgent(ctx, a.svc.agentThreads, a.svc, threadID)
+	if terminateStopResultError(result, err) {
+		if err == nil {
+			err = fmt.Errorf("spawned agent stop result %s", result)
+		}
+		return err
+	}
+	return nil
 }
 
 // storeNodeSpawnRecorderAdapter 把 store/taskdag.NodeSpawnRecorderStore 的宽接口

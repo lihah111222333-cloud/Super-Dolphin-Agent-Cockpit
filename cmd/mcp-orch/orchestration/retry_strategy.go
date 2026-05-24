@@ -215,9 +215,10 @@ func (d *WakeupDispatcher) failDAGNodeAndCancelDownstream(ctx context.Context, w
 	}
 }
 
-func (d *WakeupDispatcher) handleRetryHardCap(ctx context.Context, w *taskdag.Wakeup, fence wakeupFence, failure dispatchFailure) {
+func (d *WakeupDispatcher) handleRetryHardCap(ctx context.Context, w *taskdag.Wakeup, fence wakeupFence, failure dispatchFailure) bool {
 	exhaustedErr := "retry attempts exhausted: " + failure.lastErr
-	if d.markPermanentFail(ctx, w, fence, exhaustedErr, failure.launchErr) {
+	handled := d.markPermanentFail(ctx, w, fence, exhaustedErr, failure.launchErr)
+	if handled {
 		if alert, shouldAlert := recordDispatchRetryMetric(w, failure.lastErr); shouldAlert {
 			d.emitDispatchRetryAlert(ctx, alert)
 		}
@@ -226,6 +227,7 @@ func (d *WakeupDispatcher) handleRetryHardCap(ctx context.Context, w *taskdag.Wa
 	d.logger.Warn("wakeup dispatcher: retry attempts exhausted → failed",
 		"wakeup_id", w.ID,
 		"target_agent_id", w.TargetAgentID)
+	return handled
 }
 
 func (d *WakeupDispatcher) failDAGNodeForRetryHardCap(ctx context.Context, w *taskdag.Wakeup, lastErr string, failure dispatchFailure) {
@@ -236,28 +238,28 @@ func (d *WakeupDispatcher) failDAGNodeForRetryHardCap(ctx context.Context, w *ta
 	d.failDAGNodeAndCancelDownstream(ctx, w, lastErr, failFast, failure.outcome)
 }
 
-func (d *WakeupDispatcher) handleFailedRouterOutcome(ctx context.Context, w *taskdag.Wakeup, fence wakeupFence, outcome nodeexec.NodeOutcome) {
+func (d *WakeupDispatcher) handleFailedRouterOutcome(ctx context.Context, w *taskdag.Wakeup, fence wakeupFence, outcome nodeexec.NodeOutcome) bool {
 	synthErr := fmt.Errorf("%s: %s", outcome.FailureClass, outcome.ErrorSummary)
 	lastErr := truncateWakeupError(synthErr.Error())
 	failure := dispatchFailureFrom(lastErr, synthErr, outcome)
 	if nonRetryableValidationFailure(outcome) {
 		if !d.markPermanentFail(ctx, w, fence, lastErr, synthErr) {
-			return
+			return false
 		}
 		d.recordPermanentRouterFailure(ctx, w, lastErr, outcome)
-		return
+		return true
 	}
-	if d.trySmartDAGRetry(ctx, w, fence, failure) {
-		return
+	if tried, ok := d.trySmartDAGRetry(ctx, w, fence, failure); tried {
+		return ok
 	}
 	if !failureOutcomePermanent(outcome) {
-		d.markTransientRetry(ctx, w, fence, failure)
-		return
+		return d.markTransientRetry(ctx, w, fence, failure)
 	}
 	if !d.markPermanentFail(ctx, w, fence, lastErr, synthErr) {
-		return
+		return false
 	}
 	d.recordPermanentRouterFailure(ctx, w, lastErr, outcome)
+	return true
 }
 
 func (d *WakeupDispatcher) recordPermanentRouterFailure(ctx context.Context, w *taskdag.Wakeup, lastErr string, outcome nodeexec.NodeOutcome) {
@@ -281,22 +283,25 @@ type dagRetryContext struct {
 	onFailure *nodeexec.OnFailureConfig
 }
 
-func (d *WakeupDispatcher) trySmartDAGRetry(ctx context.Context, w *taskdag.Wakeup, fence wakeupFence, failure dispatchFailure) bool {
+func (d *WakeupDispatcher) trySmartDAGRetry(ctx context.Context, w *taskdag.Wakeup, fence wakeupFence, failure dispatchFailure) (bool, bool) {
 	if !canSmartRetry(d, w) {
-		return false
+		return false, false
 	}
 	retryCtx, ok := d.resolveDAGRetryContext(ctx, w.DagKey, w.NodeKey, routeRunID(w))
 	if !ok || retryCtx.node == nil || retryCtx.onFailure == nil {
-		return false
+		return false, false
 	}
 	strategy, ok := smartRetryStrategyFor(retryCtx.onFailure, failure.outcome.FailureClass)
 	if !ok {
-		return false
+		return false, false
 	}
-	if d.handleSmartRetryPreflight(ctx, w, fence, failure, retryCtx, strategy) {
-		return true
+	preflight := strategy == nodeexec.OnFailureFailFast ||
+		!smartRetryStrategyImplemented(strategy) ||
+		int(w.AttemptCount) >= nodeexec.MaxAttemptsFor(retryCtx.onFailure)
+	if preflight {
+		return true, d.handleSmartRetryPreflight(ctx, w, fence, failure, retryCtx, strategy)
 	}
-	return d.dispatchSmartRetryAction(ctx, w, fence, failure, retryCtx, strategy)
+	return true, d.dispatchSmartRetryAction(ctx, w, fence, failure, retryCtx, strategy)
 }
 
 func smartRetryStrategyFor(cfg *nodeexec.OnFailureConfig, class nodeexec.FailureClass) (nodeexec.OnFailureStrategy, bool) {
@@ -352,16 +357,15 @@ func (d *WakeupDispatcher) handleSmartRetryPreflight(
 ) bool {
 	switch {
 	case strategy == nodeexec.OnFailureFailFast:
-		d.failSmartRetry(ctx, w, fence, failure, failure.lastErr, true)
+		return d.failSmartRetry(ctx, w, fence, failure, failure.lastErr, true)
 	case !smartRetryStrategyImplemented(strategy):
-		d.failUnsupportedSmartRetryStrategy(ctx, w, fence, failure, strategy, retryCtx.policy.FailFast)
+		return d.failUnsupportedSmartRetryStrategy(ctx, w, fence, failure, strategy, retryCtx.policy.FailFast)
 	case int(w.AttemptCount) >= nodeexec.MaxAttemptsFor(retryCtx.onFailure):
 		reason := "max attempts reached: " + failure.lastErr
-		d.failSmartRetry(ctx, w, fence, failure, reason, retryCtx.policy.FailFast)
+		return d.failSmartRetry(ctx, w, fence, failure, reason, retryCtx.policy.FailFast)
 	default:
 		return false
 	}
-	return true
 }
 
 func smartRetryStrategyRerunsNode(strategy nodeexec.OnFailureStrategy) bool {
@@ -404,17 +408,16 @@ func (d *WakeupDispatcher) dispatchSmartRetryAction(
 ) bool {
 	switch strategy {
 	case nodeexec.OnFailureRetry:
-		d.retryWakeup(ctx, w, fence, failure)
+		return d.retryWakeup(ctx, w, fence, failure)
 	case nodeexec.OnFailureEscalateModel:
-		d.escalateModelAndRetry(ctx, w, fence, failure, retryCtx.node, retryCtx.onFailure, retryCtx.policy.FailFast)
+		return d.escalateModelAndRetry(ctx, w, fence, failure, retryCtx.node, retryCtx.onFailure, retryCtx.policy.FailFast)
 	case nodeexec.OnFailureAppendError:
-		d.appendValidationErrorAndRetry(ctx, w, fence, failure, retryCtx.node, retryCtx.policy.FailFast)
+		return d.appendValidationErrorAndRetry(ctx, w, fence, failure, retryCtx.node, retryCtx.policy.FailFast)
 	case nodeexec.OnFailureReplan:
-		d.spawnReplanPlanner(ctx, w, fence, failure, retryCtx.node, retryCtx.policy.FailFast)
+		return d.spawnReplanPlanner(ctx, w, fence, failure, retryCtx.node, retryCtx.policy.FailFast)
 	default:
 		return false
 	}
-	return true
 }
 
 func (d *WakeupDispatcher) resolveDAGRetryContext(ctx context.Context, dagKey, nodeKey string, runID int64) (dagRetryContext, bool) {
@@ -485,26 +488,23 @@ func (d *WakeupDispatcher) escalateModelAndRetry(
 	node *taskdag.Node,
 	cfg *nodeexec.OnFailureConfig,
 	failFast bool,
-) {
+) bool {
 	if resolveNodeType(node.NodeType) != "agent" {
 		err := fmt.Errorf("escalate_model unsupported for node_type %q", node.NodeType)
-		d.failSmartRetryPrepare(ctx, w, fence, failure, err, failFast)
-		return
+		return d.failSmartRetryPrepare(ctx, w, fence, failure, err, failFast)
 	}
 	current := currentAgentModel(node)
 	next, ok := nodeexec.EscalationModelFor(cfg, current)
 	if !ok {
 		reason := "escalation chain exhausted: " + failure.lastErr
-		d.failSmartRetry(ctx, w, fence, failure, reason, failFast)
-		return
+		return d.failSmartRetry(ctx, w, fence, failure, reason, failFast)
 	}
 	updated, err := patchAgentExecModel(node.Config, next)
 	if err != nil {
-		d.failSmartRetryPrepare(ctx, w, fence, failure, err, failFast)
-		return
+		return d.failSmartRetryPrepare(ctx, w, fence, failure, err, failFast)
 	}
 	failure.lastErr = truncateWakeupError(fmt.Sprintf("strategy=escalate_model model=%s: %s", next, failure.lastErr))
-	d.retryWakeupWithSmartRetryConfig(ctx, w, fence, failure, node, updated, failFast)
+	return d.retryWakeupWithSmartRetryConfig(ctx, w, fence, failure, node, updated, failFast)
 }
 
 func (d *WakeupDispatcher) appendValidationErrorAndRetry(
@@ -514,19 +514,17 @@ func (d *WakeupDispatcher) appendValidationErrorAndRetry(
 	failure dispatchFailure,
 	node *taskdag.Node,
 	failFast bool,
-) {
+) bool {
 	if resolveNodeType(node.NodeType) != "agent" {
 		err := fmt.Errorf("append_error unsupported for node_type %q", node.NodeType)
-		d.failSmartRetryPrepare(ctx, w, fence, failure, err, failFast)
-		return
+		return d.failSmartRetryPrepare(ctx, w, fence, failure, err, failFast)
 	}
 	updated, err := appendAgentValidationDiagnostic(node.Config, failure.outcome.ErrorSummary)
 	if err != nil {
-		d.failSmartRetryPrepare(ctx, w, fence, failure, err, failFast)
-		return
+		return d.failSmartRetryPrepare(ctx, w, fence, failure, err, failFast)
 	}
 	failure.lastErr = truncateWakeupError("strategy=append_error: " + failure.lastErr)
-	d.retryWakeupWithSmartRetryConfig(ctx, w, fence, failure, node, updated, failFast)
+	return d.retryWakeupWithSmartRetryConfig(ctx, w, fence, failure, node, updated, failFast)
 }
 
 func (d *WakeupDispatcher) retryWakeupWithSmartRetryConfig(
@@ -537,18 +535,16 @@ func (d *WakeupDispatcher) retryWakeupWithSmartRetryConfig(
 	node *taskdag.Node,
 	config json.RawMessage,
 	failFast bool,
-) {
+) bool {
 	if d == nil {
-		return
+		return false
 	}
 	if d.store == nil || node == nil {
-		d.failSmartRetryPrepare(ctx, w, fence, failure, fmt.Errorf("smart retry config patch: missing dispatcher store or node"), failFast)
-		return
+		return d.failSmartRetryPrepare(ctx, w, fence, failure, fmt.Errorf("smart retry config patch: missing dispatcher store or node"), failFast)
 	}
 	patcher, ok := any(d.store).(taskdag.SmartRetryConfigStore)
 	if !ok {
-		d.failSmartRetryPrepare(ctx, w, fence, failure, fmt.Errorf("smart retry config patch: store missing SmartRetryConfigStore"), failFast)
-		return
+		return d.failSmartRetryPrepare(ctx, w, fence, failure, fmt.Errorf("smart retry config patch: store missing SmartRetryConfigStore"), failFast)
 	}
 	rows, err := patcher.RetryWakeupWithNodeConfigPatch(ctx, taskdag.RetryWakeupWithNodeConfigPatchInput{
 		RetryWakeup: taskdag.RetryWakeupInput{
@@ -568,19 +564,18 @@ func (d *WakeupDispatcher) retryWakeupWithSmartRetryConfig(
 		},
 	})
 	if err != nil {
-		d.failSmartRetryPrepare(ctx, w, fence, failure, err, failFast)
-		return
+		return d.failSmartRetryPrepare(ctx, w, fence, failure, err, failFast)
 	}
 	if rows == 0 {
-		d.handleRetryHardCap(ctx, w, fence, failure)
-		return
+		return d.handleRetryHardCap(ctx, w, fence, failure)
 	}
 	d.recordRetryAccepted(ctx, w, failure)
+	return true
 }
 
-func (d *WakeupDispatcher) failSmartRetryPrepare(ctx context.Context, w *taskdag.Wakeup, fence wakeupFence, failure dispatchFailure, err error, failFast bool) {
+func (d *WakeupDispatcher) failSmartRetryPrepare(ctx context.Context, w *taskdag.Wakeup, fence wakeupFence, failure dispatchFailure, err error, failFast bool) bool {
 	reason := truncateWakeupError("smart retry prepare failed: " + err.Error())
-	d.failSmartRetry(ctx, w, fence, failure, reason, failFast)
+	return d.failSmartRetry(ctx, w, fence, failure, reason, failFast)
 }
 
 func (d *WakeupDispatcher) failUnsupportedSmartRetryStrategy(
@@ -590,19 +585,20 @@ func (d *WakeupDispatcher) failUnsupportedSmartRetryStrategy(
 	failure dispatchFailure,
 	strategy nodeexec.OnFailureStrategy,
 	failFast bool,
-) {
+) bool {
 	reason := truncateWakeupError(fmt.Sprintf("unsupported smart retry strategy %q: %s", strategy, failure.lastErr))
-	d.failSmartRetry(ctx, w, fence, failure, reason, failFast)
+	return d.failSmartRetry(ctx, w, fence, failure, reason, failFast)
 }
 
-func (d *WakeupDispatcher) failSmartRetry(ctx context.Context, w *taskdag.Wakeup, fence wakeupFence, failure dispatchFailure, reason string, failFast bool) {
+func (d *WakeupDispatcher) failSmartRetry(ctx context.Context, w *taskdag.Wakeup, fence wakeupFence, failure dispatchFailure, reason string, failFast bool) bool {
 	if !d.markPermanentFail(ctx, w, fence, reason, failure.launchErr) {
-		return
+		return false
 	}
 	if alert, shouldAlert := recordDispatchRetryMetric(w, failure.lastErr); shouldAlert {
 		d.emitDispatchRetryAlert(ctx, alert)
 	}
 	d.failDAGNodeAndCancelDownstream(ctx, w, reason, failFast, failure.outcome)
+	return true
 }
 
 func (d *WakeupDispatcher) recordRetryAccepted(ctx context.Context, w *taskdag.Wakeup, failure dispatchFailure) {

@@ -16,54 +16,8 @@ import (
 	robcron "github.com/robfig/cron/v3"
 )
 
-// =====================================================
-// DAG v2 T3.1: task_get_run service 实现
-// DAG v2 T3.2: task_list_runs service 实现
-// DAG v2 T3.1/T3.2: task_get_run / task_list_runs service implementation
-// =====================================================
-//
-// service.GetRun 接通 RunStore.GetRun(run_key)，把存储域 Run 转换为
-// contract.Run DTO，并返回该 run 的 runtime nodes。task_get_dag 只读
-// DAG 模板节点。
-//
-// service.ListRuns 接通 RunStore.ListRuns(filter)，列出指定 DAG 的最近 run。
-// dag_key 必填、status 透传、limit 默认 50。
-//
-// service.GetRun wires through RunStore.GetRun(run_key), converts the
-// storage-domain Run into a contract.Run DTO, and returns that run's runtime
-// nodes. task_get_dag reads only DAG template nodes.
-//
-// service.ListRuns wires through RunStore.ListRuns(filter), listing recent
-// runs for a DAG. dag_key required; status passed through; limit defaults to 50.
-
-// ErrRunNotFound 表示 GetRun 调用时 run_key 不存在。
-// 与 ErrDAGNotFound 对齐：service 层 sentinel + tool 层中英双语转译。
-//
-// ErrRunNotFound is returned by GetRun when the supplied run_key does not
-// exist. Mirrors ErrDAGNotFound's pattern: service-layer sentinel +
-// bilingual translation at the tool layer.
 var ErrRunNotFound = errors.New("orchestration: run_key not found")
 
-// GetRun 按 run_key 取一条 task_dag_runs。
-//
-// 防御性检查与 ListRuns / StartDAG 对齐：service 自身或 runStore 未注入时统一
-// 返 ErrRunStoreUnset（同一个 sentinel，调用方 errors.Is 判断更省事）。运行时
-// 调用路径上 ProvideService 的 setter 注入会保证两者非 nil（fx 提供路线 N 后已守护）。
-//
-// 错误转译：runStore 返回的域错误若 IsNotFound 命中 → 包装 ErrRunNotFound
-// sentinel；其他错误透传并附 run_key 上下文。
-//
-// GetRun fetches a single task_dag_runs row by run_key.
-//
-// Defensive checks align with ListRuns / StartDAG: if the service itself or
-// runStore is unset, we return the same ErrRunStoreUnset sentinel so callers
-// have a single errors.Is target. In the production path ProvideService's
-// setter injection guarantees both are non-nil (route N's fx wiring guards
-// that already).
-//
-// Error translation: when runStore returns a domain error matched by
-// IsNotFound we wrap ErrRunNotFound; other errors are passed through with
-// the run_key for context.
 func (s *service) GetRun(ctx context.Context, req contract.GetRunRequest) (contract.GetRunResponse, error) {
 	if s == nil || s.runStore == nil {
 		return contract.GetRunResponse{}, ErrRunStoreUnset
@@ -82,25 +36,6 @@ func (s *service) GetRun(ctx context.Context, req contract.GetRunRequest) (contr
 	return getRunResponse(ctx, s.runStore, runKey, run)
 }
 
-// ListRuns 列出指定 DAG 的最近 run（T3.2）。
-//   - dag_key 必填；空字符串报错。
-//   - status 可选（store 层 ListTaskDagRunsByKey 把空串视为不过滤；
-//     合法状态枚举由 migration 0080 task_dag_runs.status CHECK 锁全集，
-//     service 不重复校验，错误 status 由 DB 直接拒绝）。
-//   - limit 走 shared.ClampLimit(val, 1, 200, 50)：<1 → 默认 50，>200 → cap 200。
-//     M2 阶段 50 够用，200 是防呆上限（调用方传 99999999 不会透到 SQL 层）。
-//     store_run.go:46 还会用 limit<=0 → 50 兜底，为例外路径多一道保险。
-//   - runStore == nil 防御与 StartDAG 一致：返 ErrRunStoreUnset，避免裸构造
-//     测试路径走到 nil pointer。
-//
-// ListRuns lists recent runs for a DAG (T3.2).
-//   - dag_key required; empty string returns an error.
-//   - status optional; the store treats empty as no filter and migration 0080
-//     CHECK constrains the legal status set, so the service does not re-validate.
-//   - limit goes through shared.ClampLimit(val, 1, 200, 50): <1 → default 50,
-//     >200 → capped to 200. M2 callers rarely need more, and 200 keeps a stray
-//     99999999 from reaching SQL. store_run.go:46 still defaults limit<=0 to 50.
-//   - runStore == nil defense matches StartDAG: returns ErrRunStoreUnset.
 func (s *service) ListRuns(ctx context.Context, req contract.ListRunsRequest) (contract.ListRunsResponse, error) {
 	if s == nil || s.runStore == nil {
 		return contract.ListRunsResponse{}, ErrRunStoreUnset
@@ -109,11 +44,7 @@ func (s *service) ListRuns(ctx context.Context, req contract.ListRunsRequest) (c
 	if dagKey == "" {
 		return contract.ListRunsResponse{}, fmt.Errorf("orchestration: ListRuns: dag_key required")
 	}
-	filter := taskdag.ListRunsFilter{
-		DagKey: dagKey,
-		Status: strings.TrimSpace(req.Status),
-		Limit:  int32(shared.ClampLimit(int(req.Limit), 1, 200, 50)),
-	}
+	filter := taskdag.ListRunsFilter{DagKey: dagKey, Status: strings.TrimSpace(req.Status), Limit: int32(shared.ClampLimit(int(req.Limit), 1, 200, 50))}
 	rows, err := s.runStore.ListRuns(ctx, filter)
 	if err != nil {
 		return contract.ListRunsResponse{}, fmt.Errorf("orchestration: ListRuns(%q): %w", dagKey, err)
@@ -121,12 +52,76 @@ func (s *service) ListRuns(ctx context.Context, req contract.ListRunsRequest) (c
 	return contract.ListRunsResponse{Runs: mapRuns(rows)}, nil
 }
 
-// mapRuns 把 store 层 taskdag.Run slice 转为 contract.Run slice，
-// 复用 dagRunDTO 做单行转换以保持与 GetRun 路径一致的防御拷贝语义。
-//
-// mapRuns converts a slice of taskdag.Run into contract.Run, reusing
-// dagRunDTO for per-row conversion so defensive-copy semantics stay aligned
-// with the GetRun path.
+func (s *service) TerminateDAG(ctx context.Context, req TerminateDAGRequest) error {
+	dagKey, runKey, run, err := s.terminableRun(ctx, req)
+	if err != nil || run == nil {
+		return err
+	}
+	input := taskdag.TerminateRunInput{DagKey: dagKey, RunKey: runKey, RunID: run.ID, Reason: strings.TrimSpace(req.Reason)}
+	result, err := s.runStore.TerminateRun(ctx, input)
+	if err != nil {
+		if platformdb.IsNotFound(err) {
+			latest, getErr := s.runStore.GetRun(ctx, runKey)
+			if getErr == nil && latest != nil && strings.TrimSpace(latest.DagKey) == dagKey && latest.Status != "running" {
+				return nil
+			}
+		}
+		return fmt.Errorf("orchestration: TerminateDAG(%q/%q): %w", dagKey, runKey, err)
+	}
+	return s.stopSpawnedAgentThreads(ctx, dagKey, run.ID, result.SpawnedThreadIDs)
+}
+
+func (s *service) terminableRun(ctx context.Context, req TerminateDAGRequest) (string, string, *taskdag.Run, error) {
+	dagKey, runKey := strings.TrimSpace(req.DagKey), strings.TrimSpace(req.RunKey)
+	if s == nil || s.runStore == nil {
+		return "", "", nil, ErrRunStoreUnset
+	}
+	if dagKey == "" {
+		return "", "", nil, fmt.Errorf("orchestration: TerminateDAG: dag_key required")
+	}
+	if runKey == "" {
+		return "", "", nil, fmt.Errorf("orchestration: TerminateDAG: run_key required")
+	}
+	run, err := s.runStore.GetRun(ctx, runKey)
+	if platformdb.IsNotFound(err) {
+		return "", "", nil, fmt.Errorf("%w: %s", ErrRunNotFound, runKey)
+	}
+	if err != nil {
+		return "", "", nil, fmt.Errorf("orchestration: TerminateDAG(%q): GetRun(%q): %w", dagKey, runKey, err)
+	}
+	if run == nil {
+		return "", "", nil, fmt.Errorf("%w: %s", ErrRunNotFound, runKey)
+	}
+	if strings.TrimSpace(run.DagKey) != dagKey {
+		return "", "", nil, fmt.Errorf("orchestration: TerminateDAG: run_key %s does not belong to dag_key %s", runKey, dagKey)
+	}
+	if run.Status != "running" {
+		return dagKey, runKey, nil, nil
+	}
+	return dagKey, runKey, run, nil
+}
+
+func (s *service) stopSpawnedAgentThreads(ctx context.Context, dagKey string, runID int64, threadIDs []string) error {
+	var stopErrs []error
+	for _, threadID := range threadIDs {
+		result, err := StopSpawnedAgent(ctx, s.agentThreads, s, threadID)
+		if terminateStopResultError(result, err) {
+			if err == nil {
+				err = fmt.Errorf("spawned agent stop result %s", result)
+			}
+			stopErrs = append(stopErrs, fmt.Errorf("thread_id=%s result=%s: %w", threadID, result, err))
+		}
+	}
+	if len(stopErrs) > 0 {
+		return fmt.Errorf("orchestration: TerminateDAG(%q run_id=%d): stop spawned agents: %w", dagKey, runID, errors.Join(stopErrs...))
+	}
+	return nil
+}
+
+func terminateStopResultError(result StopResult, err error) bool {
+	return err != nil || (result != "" && result != StopResultSuccess && result != StopResultSkippedAlreadyStopped && result != StopResultSkippedAlreadyArchived)
+}
+
 func mapRuns(items []taskdag.Run) []contract.Run {
 	mapped := make([]contract.Run, 0, len(items))
 	for _, item := range items {
@@ -135,44 +130,15 @@ func mapRuns(items []taskdag.Run) []contract.Run {
 	return mapped
 }
 
-// dagRunDTO 把存储层 taskdag.Run 转成 contract.Run DTO（值拷贝 + RawMessage
-// defensive copy，防上层修改 events/metadata 渗回 store 缓存）。
-//
-// dagRunDTO converts a storage-layer taskdag.Run into the contract.Run DTO
-// (value copy + defensive RawMessage copy so callers cannot mutate
-// events/metadata back into a store-side cache).
 func dagRunDTO(row taskdag.Run) contract.Run {
-	return contract.Run{
-		ID:                 row.ID,
-		RunKey:             row.RunKey,
-		DagKey:             row.DagKey,
-		DagVersionSnapshot: row.DagVersionSnapshot,
-		TriggerSource:      row.TriggerSource,
-		Status:             row.Status,
-		StartedAt:          row.StartedAt,
-		FinishedAt:         shared.CloneTime(row.FinishedAt),
-		Events:             append([]byte(nil), row.Events...),
-		BudgetUsed:         row.BudgetUsed,
-		BudgetLimit:        shared.CloneInt64(row.BudgetLimit),
-		Metadata:           append([]byte(nil), row.Metadata...),
-		CreatedAt:          row.CreatedAt,
-		UpdatedAt:          row.UpdatedAt,
-	}
+	out := contract.Run(row)
+	out.FinishedAt = shared.CloneTime(row.FinishedAt)
+	out.Events = append([]byte(nil), row.Events...)
+	out.BudgetLimit = shared.CloneInt64(row.BudgetLimit)
+	out.Metadata = append([]byte(nil), row.Metadata...)
+	return out
 }
 
-// =====================================================
-// DAG v2 F4.1/F4.2: ApplyOps add_node + update_node helpers
-// =====================================================
-//
-// 拆函数策略：partitionOps → planOpsBatch (调 PlanAddNodes + PlanUpdateNodes
-// + DetectCycle) → persistOpsBatch (顺序 UpsertNode add 后 update)。F4.1
-// 的 ensureAllAddNodeOps / runAddNodeBatch / existingNodesForPlan /
-// persistAddNodeSpecs 沿用主干，新增 update 路径与之共存，让 dag.go 本体
-// 行数不超守卫上限。位于同包，可见性不变。
-
-// partitionedOps 是 ops 按 op_kind 拆分后的结果。F4.2 仅 add + update 实装；
-// 其他 op_kind 由 partitionOps 直接 fail-fast 返 ErrLifecycleNotImplemented，
-// 与 F4.1 ensureAllAddNodeOps 的兜底语义一致（避免进事务后中途发现）。
 type partitionedOps struct {
 	dagUpdates nodeexec.Ops
 	adds       nodeexec.Ops
@@ -180,20 +146,8 @@ type partitionedOps struct {
 	removes    nodeexec.Ops
 }
 
-// ErrDuplicateOpForNode 是同一 ApplyOps 批里出现两个针对同一 node_key 的
-// add_node / update_node / remove_node 时返回的 sentinel。
-// errors.Is(err, ErrDuplicateOpForNode) 可命中；service 层仍会同时包一层
-// ErrApplyOpsInvalid 让上层 errors.Is 路径不变。
-//
-// 设计决策（R2 P1）：同批同 node_key 两个 update_node 选 reject 而非后写
-// 覆盖。后写覆盖会让 ApplyOps 语义变成「隐式合并 patch」，与调用方明示传
-// 两次 patch 的意图不一致；让 AI / 表单发现重复立刻报错是更安全选择。
-// 需「合并 patch」语义可以让调用方自己合完后发一个 update_node。
 var ErrDuplicateOpForNode = errors.New("orchestration: duplicate op for same node_key in batch")
 
-// partitionOps 把 ops 按 op_kind 分组：update_dag → dagUpdates，add_node → adds，
-// update_node → updates，remove_node → removes。
-//
 // 同批 dedup（R2 P1）：同一个 node_key 不允许被多条 node-scoped op 同时命中，
 // 护住「后写覆盖/先改再删/先加再删」这类语义歧义。重复命中 → fail-fast 包
 // ErrDuplicateOpForNode / ErrApplyOpsInvalid。
@@ -257,20 +211,8 @@ func rememberNodeOp(seen map[string]seenNodeOp, nodeKey string, index int, kind 
 	return nil
 }
 
-// runOpsBatch 在 PG 事务内跑一批已 partition 的 ops：F4.1 add + F4.2 update + F4.5
-// dag.status 不变量。OCC 双重护栏：pre-check 比对 base_version；bump 失锁返
-// ErrVersionConflict（与 F4.1 同 sentinel，调用方 errors.Is 命中相同分支）。
-//
-// 步骤：
-//  1. GetDAGVersionForUpdate + 比对 base_version
-//  2. GetDAG 读 dag.status + CountRunningRunsByDagKey 读 active run
-//  3. F4.5 不变量：若 dag.status='running' 或存在 running run，拒绝会改写模板的
-//     update_dag / add_node / update_node / remove_node，避免当前 run 的 runtime nodes
-//     与模板节点漂移。
-//  4. 空 ops → 直接返当前 version（noop）
-//  5. plan add + plan update + plan remove → 合并 adjacency → DetectCycle
-//  6. 顺序持久化：先 add，再 update，最后 delete
-//  7. BumpDAGVersion
+// runOpsBatch executes partitioned ApplyOps in one transaction with OCC and
+// running-DAG mutation guards before planning, persisting, and bumping version.
 func runOpsBatch(ctx context.Context, tx taskdag.DAGOpsStore, dagKey string, baseVersion int64, parts partitionedOps) (contract.ApplyOpsResponse, error) {
 	current, existing, schedule, err := preflightOpsBatch(ctx, tx, dagKey, baseVersion, parts)
 	if err != nil {
@@ -390,17 +332,15 @@ func runningDAGReason(dagStatus string, activeRuns int64) (string, bool) {
 }
 
 func rejectMutableOpsInRunningDAG(reason string, parts partitionedOps) error {
-	if len(parts.dagUpdates) > 0 {
-		return fmt.Errorf("%w: %s, update_dag not allowed while runtime append is incomplete", ErrApplyOpsInvalid, reason)
-	}
-	if len(parts.adds) > 0 {
-		return fmt.Errorf("%w: %s, add_node not allowed until runtime append support is implemented", ErrApplyOpsInvalid, reason)
-	}
-	if len(parts.updates) > 0 {
-		return fmt.Errorf("%w: %s, update_node not allowed while runtime append is incomplete", ErrApplyOpsInvalid, reason)
-	}
-	if len(parts.removes) > 0 {
-		return fmt.Errorf("%w: %s, remove_node not allowed while runtime append is incomplete", ErrApplyOpsInvalid, reason)
+	for _, item := range []struct {
+		name string
+		ops  nodeexec.Ops
+	}{
+		{"update_dag", parts.dagUpdates}, {"add_node", parts.adds}, {"update_node", parts.updates}, {"remove_node", parts.removes},
+	} {
+		if len(item.ops) > 0 {
+			return fmt.Errorf("%w: %s, %s not allowed while runtime append is incomplete", ErrApplyOpsInvalid, reason, item.name)
+		}
 	}
 	return nil
 }
@@ -468,33 +408,26 @@ func planDAGUpdates(ops nodeexec.Ops, current taskdag.DAGSchedule) ([]plannedDAG
 		if err != nil {
 			return nil, err
 		}
-		patches = append(patches, plannedDAGPatch{
-			patch:     patch,
-			nextRunAt: nextRunAtForFinalSchedule(patch, finalSchedule),
-		})
+		patches = append(patches, plannedDAGPatch{patch: patch, nextRunAt: nextRunAtForFinalSchedule(patch, finalSchedule)})
 	}
 	return patches, nil
 }
 
 func normalizeDAGPatch(patch nodeexec.DAGPatch) nodeexec.DAGPatch {
-	return nodeexec.DAGPatch{
-		Title:       trimStringPtr(patch.Title),
-		Description: trimStringPtr(patch.Description),
-		Trigger:     trimStringPtr(patch.Trigger),
-		CronExpr:    trimStringPtr(patch.CronExpr),
-		OwnerID:     trimStringPtr(patch.OwnerID),
-	}
+	return nodeexec.DAGPatch{Title: trimStringPtr(patch.Title), Description: trimStringPtr(patch.Description), Trigger: trimStringPtr(patch.Trigger), CronExpr: trimStringPtr(patch.CronExpr), OwnerID: trimStringPtr(patch.OwnerID)}
 }
 
 func validateDAGPatch(patch nodeexec.DAGPatch, current taskdag.DAGSchedule) (taskdag.DAGSchedule, error) {
 	if isEmptyDAGPatch(patch) {
 		return taskdag.DAGSchedule{}, fmt.Errorf("%w: update_dag patch must set at least one field", ErrApplyOpsInvalid)
 	}
-	if err := validateDAGPatchTrigger(patch.Trigger); err != nil {
-		return taskdag.DAGSchedule{}, err
+	if patch.Trigger != nil && !isValidDAGTrigger(*patch.Trigger) {
+		return taskdag.DAGSchedule{}, fmt.Errorf("%w: update_dag trigger %q must be one of manual/auto/scheduled/external", ErrApplyOpsInvalid, *patch.Trigger)
 	}
-	if err := validateDAGPatchCronExpr(patch.CronExpr); err != nil {
-		return taskdag.DAGSchedule{}, err
+	if patch.CronExpr != nil && *patch.CronExpr != "" {
+		if _, err := dagPatchCronParser.Parse(*patch.CronExpr); err != nil {
+			return taskdag.DAGSchedule{}, fmt.Errorf("%w: update_dag cron_expr %q invalid: %v", ErrApplyOpsInvalid, *patch.CronExpr, err)
+		}
 	}
 	finalSchedule := finalDAGSchedule(current, patch)
 	if err := validateDAGPatchFinalSchedule(patch, finalSchedule); err != nil {
@@ -503,27 +436,8 @@ func validateDAGPatch(patch nodeexec.DAGPatch, current taskdag.DAGSchedule) (tas
 	return finalSchedule, nil
 }
 
-func validateDAGPatchTrigger(trigger *string) error {
-	if trigger != nil && !isValidDAGTrigger(*trigger) {
-		return fmt.Errorf("%w: update_dag trigger %q must be one of manual/auto/scheduled/external", ErrApplyOpsInvalid, *trigger)
-	}
-	return nil
-}
-
-func validateDAGPatchCronExpr(cronExpr *string) error {
-	if cronExpr != nil && *cronExpr != "" {
-		if _, err := dagPatchCronParser.Parse(*cronExpr); err != nil {
-			return fmt.Errorf("%w: update_dag cron_expr %q invalid: %v", ErrApplyOpsInvalid, *cronExpr, err)
-		}
-	}
-	return nil
-}
-
 func finalDAGSchedule(current taskdag.DAGSchedule, patch nodeexec.DAGPatch) taskdag.DAGSchedule {
-	schedule := taskdag.DAGSchedule{
-		Trigger:  strings.TrimSpace(current.Trigger),
-		CronExpr: strings.TrimSpace(current.CronExpr),
-	}
+	schedule := taskdag.DAGSchedule{Trigger: strings.TrimSpace(current.Trigger), CronExpr: strings.TrimSpace(current.CronExpr)}
 	if schedule.Trigger == "" {
 		schedule.Trigger = "manual"
 	}
@@ -556,11 +470,7 @@ func validateDAGPatchFinalSchedule(patch nodeexec.DAGPatch, final taskdag.DAGSch
 }
 
 func isEmptyDAGPatch(patch nodeexec.DAGPatch) bool {
-	return patch.Title == nil &&
-		patch.Description == nil &&
-		patch.Trigger == nil &&
-		patch.CronExpr == nil &&
-		patch.OwnerID == nil
+	return patch.Title == nil && patch.Description == nil && patch.Trigger == nil && patch.CronExpr == nil && patch.OwnerID == nil
 }
 
 func isValidDAGTrigger(trigger string) bool {
@@ -584,10 +494,7 @@ func trimStringPtr(value *string) *string {
 func existingNodesForPlan(nodes []taskdag.Node) []nodeexec.ExistingNode {
 	out := make([]nodeexec.ExistingNode, 0, len(nodes))
 	for _, n := range nodes {
-		out = append(out, nodeexec.ExistingNode{
-			NodeKey:   n.NodeKey,
-			DependsOn: decodeDependsOn(n.DependsOn),
-		})
+		out = append(out, nodeexec.ExistingNode{NodeKey: n.NodeKey, DependsOn: decodeDependsOn(n.DependsOn)})
 	}
 	return out
 }
@@ -598,18 +505,10 @@ func existingNodesForPlan(nodes []taskdag.Node) []nodeexec.ExistingNode {
 func existingFullForPlan(nodes []taskdag.Node, addSpecs []nodeexec.NodeSpec) []nodeexec.ExistingNodeFull {
 	out := make([]nodeexec.ExistingNodeFull, 0, len(nodes)+len(addSpecs))
 	for _, n := range nodes {
-		out = append(out, nodeexec.ExistingNodeFull{
-			NodeKey:   n.NodeKey,
-			DependsOn: decodeDependsOn(n.DependsOn),
-			Status:    n.Status,
-		})
+		out = append(out, nodeexec.ExistingNodeFull{NodeKey: n.NodeKey, DependsOn: decodeDependsOn(n.DependsOn), Status: n.Status})
 	}
 	for _, spec := range addSpecs {
-		out = append(out, nodeexec.ExistingNodeFull{
-			NodeKey:   spec.NodeKey,
-			DependsOn: spec.DependsOn,
-			Status:    string(nodeexec.NodeStatusPending),
-		})
+		out = append(out, nodeexec.ExistingNodeFull{NodeKey: spec.NodeKey, DependsOn: spec.DependsOn, Status: string(nodeexec.NodeStatusPending)})
 	}
 	return out
 }
@@ -662,15 +561,7 @@ func persistDAGPatches(ctx context.Context, tx taskdag.DAGOpsStore, dagKey strin
 
 func dagPatchInput(dagKey string, planned plannedDAGPatch) taskdag.UpdateDAGPatchInput {
 	patch := planned.patch
-	return taskdag.UpdateDAGPatchInput{
-		DagKey:      dagKey,
-		Title:       cloneStringPtr(patch.Title),
-		Description: cloneStringPtr(patch.Description),
-		Trigger:     cloneStringPtr(patch.Trigger),
-		CronExpr:    cloneStringPtr(patch.CronExpr),
-		OwnerID:     cloneStringPtr(patch.OwnerID),
-		NextRunAt:   planned.nextRunAt,
-	}
+	return taskdag.UpdateDAGPatchInput{DagKey: dagKey, Title: cloneStringPtr(patch.Title), Description: cloneStringPtr(patch.Description), Trigger: cloneStringPtr(patch.Trigger), CronExpr: cloneStringPtr(patch.CronExpr), OwnerID: cloneStringPtr(patch.OwnerID), NextRunAt: planned.nextRunAt}
 }
 
 func nextRunAtForFinalSchedule(patch nodeexec.DAGPatch, schedule taskdag.DAGSchedule) *time.Time {
@@ -699,14 +590,7 @@ func cloneStringPtr(value *string) *string {
 // persistAddNodeSpecs 顺序调 UpsertNode 把 NodeSpec 转为 taskdag.Node 写入表。
 func persistAddNodeSpecs(ctx context.Context, tx taskdag.DAGOpsStore, dagKey string, specs []nodeexec.NodeSpec) error {
 	for _, spec := range specs {
-		node := taskdag.Node{
-			DagKey:    dagKey,
-			NodeKey:   strings.TrimSpace(spec.NodeKey),
-			Title:     strings.TrimSpace(spec.Title),
-			NodeType:  strings.TrimSpace(spec.NodeType),
-			DependsOn: dependsOnJSON(spec.DependsOn),
-			Config:    append(json.RawMessage(nil), spec.Config...),
-		}
+		node := taskdag.Node{DagKey: dagKey, NodeKey: strings.TrimSpace(spec.NodeKey), Title: strings.TrimSpace(spec.Title), NodeType: strings.TrimSpace(spec.NodeType), DependsOn: dependsOnJSON(spec.DependsOn), Config: append(json.RawMessage(nil), spec.Config...)}
 		if _, err := tx.UpsertNode(ctx, node); err != nil {
 			return fmt.Errorf("upsert node %s: %w", node.NodeKey, err)
 		}

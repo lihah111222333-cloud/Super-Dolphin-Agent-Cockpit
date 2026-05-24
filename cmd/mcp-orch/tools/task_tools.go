@@ -184,6 +184,13 @@ type StartDAGInput struct {
 	IdempotencyKey string `json:"idempotency_key,omitempty"`
 }
 
+// TerminateDAGInput 是 task_terminate_dag MCP 工具的 typed 入参。
+type TerminateDAGInput struct {
+	DagKey string `json:"dag_key"`
+	RunKey string `json:"run_key"`
+	Reason string `json:"reason,omitempty"`
+}
+
 // GetRunInput 是 task_get_run MCP 工具的 typed 入参（T3.1）。
 // GetRunInput is the typed input for the task_get_run MCP tool (T3.1).
 type GetRunInput struct {
@@ -306,6 +313,19 @@ func HandleStartDAG(svc contract.OrchestrationService) ToolHandler {
 	})
 }
 
+func HandleTerminateDAG(svc contract.OrchestrationService) ToolHandler {
+	return makeHandler(svc, "orchestration service", func(ctx context.Context, in TerminateDAGInput) (any, error) {
+		req, err := terminateDAGRequestFromInput(in)
+		if err != nil {
+			return nil, err
+		}
+		if err := svc.TerminateDAG(ctx, req); err != nil {
+			return nil, translateTerminateDAGError(req, err)
+		}
+		return struct{}{}, nil
+	})
+}
+
 // startDAGRequestFromInput 把 StartDAGInput 校验为 contract.StartDAGRequest。
 // trigger_source 可选：非空必须命中 startDAGTriggerEnum（schema 单源 +
 // migration 0082 CHECK 双闸）。
@@ -330,6 +350,22 @@ func startDAGRequestFromInput(in StartDAGInput) (contract.StartDAGRequest, error
 		DagKey:         dagKey,
 		TriggerSource:  trigger,
 		IdempotencyKey: strings.TrimSpace(in.IdempotencyKey),
+	}, nil
+}
+
+func terminateDAGRequestFromInput(in TerminateDAGInput) (contract.TerminateDAGRequest, error) {
+	dagKey, err := requireTrimmed(in.DagKey, "dag_key")
+	if err != nil {
+		return contract.TerminateDAGRequest{}, err
+	}
+	runKey, err := requireTrimmed(in.RunKey, "run_key")
+	if err != nil {
+		return contract.TerminateDAGRequest{}, err
+	}
+	return contract.TerminateDAGRequest{
+		DagKey: dagKey,
+		RunKey: runKey,
+		Reason: strings.TrimSpace(in.Reason),
 	}, nil
 }
 
@@ -373,6 +409,16 @@ func translateGetRunError(runKey string, err error) error {
 	return err
 }
 
+func translateTerminateDAGError(req contract.TerminateDAGRequest, err error) error {
+	if errors.Is(err, orchestration.ErrRunNotFound) {
+		return fmt.Errorf(
+			"无法停止：run 不存在或已不可访问 (dag_key=%s, run_key=%s); cannot stop missing run (dag_key=%s, run_key=%s): %w",
+			req.DagKey, req.RunKey, req.DagKey, req.RunKey, err,
+		)
+	}
+	return err
+}
+
 // translateStartDAGError 把 service 层的 sentinel 包装成中英双语 MCP 错误。
 // 保留 errors.Is 可命中原 sentinel（依赖 fmt.Errorf %w）。
 //
@@ -410,7 +456,7 @@ func translateStartDAGError(dagKey string, err error) error {
 // taskToolDefinitions 按 CRUD + lifecycle 分组排序，让读者一眼看出 DAG
 // 写入 / 生命周期 / 读取 三类工具的边界：
 //   - 写入类（状态变更）：task_create_dag / task_dag_apply_ops / task_update_node
-//   - 生命周期（起停）：task_start_dag
+//   - 生命周期（起停）：task_start_dag / task_terminate_dag
 //   - 读取类：task_get_dag / task_get_run / task_list_runs
 //
 // taskToolDefinitions groups tools as writes → lifecycle → reads so readers
@@ -443,6 +489,11 @@ func taskToolDefinitions(svc contract.OrchestrationService) []ToolDefinition {
 			"trigger_source":  EnumStringSchema("Trigger source.", startDAGTriggerEnum...),
 			"idempotency_key": StringSchema("Optional, prevents duplicate run on retry."),
 		}, "dag_key"), HandleStartDAG(svc)),
+		defineTool("task_terminate_dag", "Cancel one running DAG execution by run_key. This marks non-terminal runtime nodes cancelled and stops pending/dispatching/sent wakeups.", ObjectSchema(map[string]Schema{
+			"dag_key": StringSchema("DAG key used as a fence for the run."),
+			"run_key": StringSchema("Run key to cancel."),
+			"reason":  StringSchema("Optional cancellation reason."),
+		}, "dag_key", "run_key"), HandleTerminateDAG(svc)),
 		// ---- reads ----
 		defineTool("task_list_dags", "List DAGs for console views and final_output retention checks.", ObjectSchema(map[string]Schema{
 			"status":  StringSchema("Optional status filter."),

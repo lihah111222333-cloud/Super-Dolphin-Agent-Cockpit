@@ -107,6 +107,12 @@ type dagStartParams struct {
 	IdempotencyKey string `json:"idempotencyKey,omitempty"`
 }
 
+type dagTerminateParams struct {
+	DAGKey string `json:"dagKey,omitempty"`
+	RunKey string `json:"runKey,omitempty"`
+	Reason string `json:"reason,omitempty"`
+}
+
 type dagApplyOpsParams struct {
 	DAGKey      string          `json:"dagKey,omitempty"`
 	BaseVersion *int64          `json:"baseVersion"`
@@ -337,6 +343,12 @@ func registerDashboardDAGHandlers(m handler.Map, svc Service) {
 			return nil, err
 		}
 		return dagStartResponse{RunKey: resp.RunKey, Version: resp.Version}, nil
+	})
+	m["dashboard/dagTerminate"] = platformrpc.StrictHandler(func(ctx context.Context, p dagTerminateParams) (any, error) {
+		if err := svc.TerminateDAG(ctx, p.DAGKey, p.RunKey, p.Reason); err != nil {
+			return nil, err
+		}
+		return struct{}{}, nil
 	})
 	m["dashboard/dagApplyOps"] = platformrpc.StrictHandler(func(ctx context.Context, p dagApplyOpsParams) (any, error) {
 		if p.BaseVersion == nil {

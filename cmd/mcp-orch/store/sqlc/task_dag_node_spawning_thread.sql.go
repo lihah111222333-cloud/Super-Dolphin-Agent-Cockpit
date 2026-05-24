@@ -25,6 +25,7 @@ updated AS (
   WHERE dag_key = $2 AND node_key = $3
     AND run_id = $4
     AND $4::bigint > 0
+    AND status NOT IN ('done', 'failed', 'cancelled', 'skipped')
   RETURNING id, dag_key, node_key, run_id, title, node_type, assigned_to, depends_on,
             status, command_ref, config, result, started_at, finished_at,
             created_at, updated_at, active_turn_id, active_wakeup_id,

@@ -4,6 +4,8 @@ import { callAPI } from '../services/api.js';
 import { logWarn } from '../services/log.js';
 
 const RECENT_RUN_LIMIT = 5;
+const TERMINABLE_RUN_STATUSES = new Set(['running']);
+const TERMINAL_RUN_STATUSES = new Set(['succeeded', 'failed', 'cancelled']);
 
 function parseJSONLike(value) {
   if (!value) return null;
@@ -44,6 +46,23 @@ function runKeyFromItem(item) {
   return (item?.run_key || item?.runKey || item?.key || item?.id || '').toString().trim();
 }
 
+function runStatusFromItem(item) {
+  return (item?.status || item?.run_status || item?.runStatus || '').toString().trim().toLowerCase();
+}
+
+function terminableRunKey(activeRun, selectedRun, candidateRun) {
+  for (const run of [activeRun, selectedRun, candidateRun]) {
+    if (!TERMINABLE_RUN_STATUSES.has(runStatusFromItem(run))) continue;
+    const key = runKeyFromItem(run);
+    if (key) return key;
+  }
+  return '';
+}
+
+function runIsTerminal(run) {
+  return TERMINAL_RUN_STATUSES.has(runStatusFromItem(run));
+}
+
 function makeStartIdempotencyKey(dagKey) {
   return `dag-start:${dagKey}:${Date.now()}:${Math.random().toString(36).slice(2)}`;
 }
@@ -70,6 +89,94 @@ function normalizeNodeSavePayload(payload = {}) {
   };
 }
 
+function resetTransient(state) {
+  state.error = null;
+  state.loading = false;
+  state.runsError = null;
+  state.starting = false;
+  state.startError = null;
+  state.terminating = false;
+  state.terminateError = null;
+  state.terminateWarning = null;
+  state.savingNodeKey = '';
+  state.saveError = null;
+}
+
+function resetOpenState(state, item) {
+  state.dag = item || null;
+  state.templateNodes = [];
+  state.nodes = [];
+  state.runs = [];
+  state.activeRun = null;
+  state.run = null;
+  state.selectedRunKey = '';
+  state.finalOutput = null;
+  state.show = true;
+}
+
+async function terminateRunFlow(ctx, candidateRun) {
+  const { state, getSeq, loadDetail } = ctx;
+  if (state.terminating) return;
+  const seq = getSeq();
+  const dagKey = dagKeyFromItem(state.dag);
+  const runKey = terminableRunKey(state.activeRun, state.run, candidateRun);
+  state.terminateError = null;
+  state.terminateWarning = null;
+  if (!dagKey) {
+    state.terminateError = new Error('缺少 DAG key');
+    return { ok: false, refreshed: false };
+  }
+  if (!runKey) {
+    state.terminateError = new Error('缺少运行中的 run');
+    return { ok: false, refreshed: false };
+  }
+  state.terminating = true;
+  try {
+    await callAPI('dashboard/dagTerminate', { dagKey, runKey, reason: 'user_requested' });
+  } catch (error) {
+    return handleTerminateFailure(ctx, seq, dagKey, runKey, error);
+  }
+  if (seq !== getSeq()) return { ok: false, refreshed: false };
+  try {
+    await loadDetail(seq, dagKey, state.dag, runKey);
+  } catch (error) {
+    if (seq === getSeq()) {
+      state.error = error;
+      logWarn('ui', 'useDagDetail.terminate.refresh_failed', { dagKey, runKey, error });
+    }
+  } finally {
+    if (seq === getSeq()) state.terminating = false;
+  }
+  return { ok: true, refreshed: true };
+}
+
+async function handleTerminateFailure(ctx, seq, dagKey, runKey, error) {
+  const { state, getSeq, loadDetail } = ctx;
+  let refreshed = false;
+  if (seq === getSeq()) {
+    logWarn('ui', 'useDagDetail.terminate.failed', { dagKey, runKey, error });
+    try {
+      await loadDetail(seq, dagKey, state.dag, runKey);
+      refreshed = true;
+    } catch (refreshError) {
+      if (seq === getSeq()) {
+        state.error = refreshError;
+        logWarn('ui', 'useDagDetail.terminate.error_refresh_failed', { dagKey, runKey, error: refreshError });
+      }
+    }
+    if (seq === getSeq()) {
+      if (runIsTerminal(state.run)) {
+        state.terminateWarning = error;
+        state.terminateError = null;
+      } else {
+        state.terminateError = error;
+      }
+      state.terminating = false;
+    }
+  }
+  return { ok: seq === getSeq() && runIsTerminal(state.run), refreshed };
+}
+
 export function useDagDetail() {
   let openSeq = 0;
   const state = reactive({
@@ -87,19 +194,12 @@ export function useDagDetail() {
     finalOutput: null,
     starting: false,
     startError: null,
+    terminating: false,
+    terminateError: null,
+    terminateWarning: null,
     savingNodeKey: '',
     saveError: null,
   });
-
-  function resetTransient() {
-    state.error = null;
-    state.loading = false;
-    state.runsError = null;
-    state.starting = false;
-    state.startError = null;
-    state.savingNodeKey = '';
-    state.saveError = null;
-  }
 
   async function loadRun(seq, runKey) {
     const result = await callAPI('dashboard/dagRun', { runKey });
@@ -182,16 +282,8 @@ export function useDagDetail() {
 
   async function open(item) {
     const seq = ++openSeq;
-    resetTransient();
-    state.dag = item || null;
-    state.templateNodes = [];
-    state.nodes = [];
-    state.runs = [];
-    state.activeRun = null;
-    state.run = null;
-    state.selectedRunKey = '';
-    state.finalOutput = null;
-    state.show = true;
+    resetTransient(state);
+    resetOpenState(state, item);
     const dagKey = dagKeyFromItem(item);
     if (!dagKey) {
       state.error = '缺少 DAG key';
@@ -215,6 +307,8 @@ export function useDagDetail() {
     const seq = openSeq;
     const dagKey = dagKeyFromItem(state.dag);
     state.startError = null;
+    state.terminateError = null;
+    state.terminateWarning = null;
     if (!dagKey) {
       state.startError = new Error('缺少 DAG key');
       return;
@@ -247,6 +341,10 @@ export function useDagDetail() {
     } finally {
       if (seq === openSeq) state.starting = false;
     }
+  }
+
+  async function terminateActiveRun(candidateRun = null) {
+    return terminateRunFlow({ state, getSeq: () => openSeq, loadDetail }, candidateRun);
   }
 
   async function saveAgentNode(payload) {
@@ -286,6 +384,7 @@ export function useDagDetail() {
     openSeq += 1;
     state.show = false;
     state.starting = false;
+    state.terminating = false;
   }
 
   function updateNodeStatus(nodeKey, status) {
@@ -303,5 +402,5 @@ export function useDagDetail() {
     if (node) node.status = status;
   }
 
-  return { state, open, close, selectRun, start, saveAgentNode, updateNodeStatus, handleStatusEvent };
+  return { state, open, close, selectRun, start, terminateActiveRun, saveAgentNode, updateNodeStatus, handleStatusEvent };
 }

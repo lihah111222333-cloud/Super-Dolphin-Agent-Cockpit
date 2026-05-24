@@ -47,11 +47,11 @@ func TestService_StartDAG_NotImplemented(t *testing.T) {
 	}
 }
 
-func TestService_TerminateDAG_NotImplemented(t *testing.T) {
+func TestService_TerminateDAG_RunStoreUnset(t *testing.T) {
 	s := &service{}
 	err := s.TerminateDAG(context.Background(), TerminateDAGRequest{DagKey: "dag-x", RunKey: "run-y"})
-	if !errors.Is(err, ErrLifecycleNotImplemented) {
-		t.Fatalf("TerminateDAG err = %v, want ErrLifecycleNotImplemented", err)
+	if !errors.Is(err, ErrRunStoreUnset) {
+		t.Fatalf("TerminateDAG err = %v, want ErrRunStoreUnset", err)
 	}
 }
 

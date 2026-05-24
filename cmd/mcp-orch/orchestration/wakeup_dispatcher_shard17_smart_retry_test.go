@@ -150,6 +150,62 @@ func TestDispatcherSmartRetryReplanSpawnsPlannerAgent(t *testing.T) {
 	require.Empty(t, store.failNodeCalls)
 }
 
+func TestDispatcherSmartRetryReplanFenceMissIsNotHandled(t *testing.T) {
+	now := time.Date(2026, 5, 14, 10, 32, 0, 0, time.UTC)
+	store := newAgentFailureClassStore(t, "replan-fence-miss", 1, now)
+	store.markSentRowsSet = true
+	store.markSentRows = 0
+	store.nodesReply[0].Config = testRawConfig(t, `{
+		"exec":{
+			"agent_key":"alpha",
+			"cwd":"/tmp/replan-cwd",
+			"on_failure":{"default":"replan","max_attempts":2}
+		},
+		"first_turn":"go"
+	}`)
+	routerLauncher := &stubAgentLauncher{err: errors.New("model lacks capability for this graph")}
+	agentExec := newTestAgentExecutor(routerLauncher)
+	router := NewNodeExecutorRouter(store, agentExec, nil, nil, nil, nil)
+	plannerLauncher := &dispatcherStubLauncher{}
+	d, err := NewWakeupDispatcher(store, plannerLauncher, nil, WakeupDispatcherConfig{})
+	if err != nil {
+		t.Fatalf("NewWakeupDispatcher err = %v", err)
+	}
+	d.WithNodeRouter(router)
+
+	n, err := d.ProcessBatch(context.Background())
+	if err != nil {
+		t.Fatalf("ProcessBatch err = %v", err)
+	}
+	require.Equal(t, 0, n)
+	require.Len(t, plannerLauncher.calls, 1)
+	require.Len(t, store.markSentCalls, 1)
+}
+
+func TestDispatcherSmartRetryFailFastFenceMissIsNotHandled(t *testing.T) {
+	now := time.Date(2026, 5, 14, 10, 33, 0, 0, time.UTC)
+	store := newAgentFailureClassStore(t, "failfast-fence-miss", 1, now)
+	store.failRowsSet = true
+	store.failRows = 0
+	store.nodesReply[0].Config = testRawConfig(t, `{
+		"exec":{
+			"agent_key":"alpha",
+			"cwd":"/tmp/replan-cwd",
+			"on_failure":{"default":"fail_fast","max_attempts":2}
+		},
+		"first_turn":"go"
+	}`)
+	d := newAgentFailureClassDispatcher(t, store, errors.New("model lacks capability for this graph"))
+
+	n, err := d.ProcessBatch(context.Background())
+	if err != nil {
+		t.Fatalf("ProcessBatch err = %v", err)
+	}
+	require.Equal(t, 0, n)
+	require.Len(t, store.failCalls, 1)
+	require.Empty(t, store.failNodeCalls)
+}
+
 func TestDispatcherSmartRetryReplanPlannerFailureFailsClosed(t *testing.T) {
 	now := time.Date(2026, 5, 14, 10, 35, 0, 0, time.UTC)
 	tests := []struct {

@@ -124,6 +124,10 @@ function latestRunLabel(item) {
   return '有运行记录';
 }
 
+function latestRunLabelFromRun(run) {
+  return latestRunLabel({ latest_run: run });
+}
+
 function hasFinalOutput(item) {
   const run = item.latest_run || item.latestRun || {};
   const metadata = item.metadata || {};
@@ -141,7 +145,7 @@ function hasFinalOutput(item) {
 
 const STARTABLE_DAG_STATUSES = new Set(['draft', 'ready']);
 const STARTABLE_DAG_TRIGGERS = new Set(['manual', 'scheduled', 'schedule', 'cron']);
-const ACTIVE_RUN_STATUSES = new Set(['pending', 'ready', 'queued', 'starting', 'running', 'awaiting_verify']);
+const ACTIVE_RUN_STATUSES = new Set(['running']);
 const TERMINAL_DAG_STATUSES = new Set(['done', 'failed', 'cancelled', 'canceled', 'skipped']);
 
 function dagKeyFromItem(item) {
@@ -182,16 +186,69 @@ function runStatusOf(run) {
   return normalizedValue(run?.status, run?.state);
 }
 
-function hasActiveRun(items, detailState) {
+function runKeyOf(run) {
+  const key = textValue(run?.run_key, run?.runKey, run?.key, run?.id);
+  return key === '-' ? '' : key;
+}
+
+function detailRunsAreAuthoritative(detailState, dagKey) {
+  const detailKey = dagKeyFromItem(detailState?.dag);
+  const hasLoadedRuns = Array.isArray(detailState?.runs) && detailState.runs.length > 0;
+  const hasRunEvidence = Boolean(
+    detailState?.activeRun
+      || detailState?.run
+      || hasLoadedRuns,
+  );
+  return Boolean(
+    detailKey
+      && (!dagKey || detailKey === dagKey)
+      && !detailState?.loading
+      && !detailState?.error
+      && !detailState?.runsError
+      && hasRunEvidence,
+  );
+}
+
+function collectDetailRuns(detailState) {
+  const out = [];
+  const seen = new Set();
+  for (const run of [detailState?.run, detailState?.activeRun, ...(Array.isArray(detailState?.runs) ? detailState.runs : [])]) {
+    const key = runKeyOf(run);
+    if (key && seen.has(key)) continue;
+    if (key) seen.add(key);
+    out.push(run);
+  }
+  return out;
+}
+
+function collectListRuns(items) {
   const runs = [];
   for (const item of items) {
     runs.push(item?.latest_run || item?.latestRun || item?.run);
     runs.push({ status: item?.latest_run_status || item?.latestRunStatus });
   }
-  runs.push(detailState?.run);
-  runs.push(detailState?.activeRun);
-  if (Array.isArray(detailState?.runs)) runs.push(...detailState.runs);
+  return runs;
+}
+
+function detailLatestRunLabel(detailState, dagKey) {
+  if (!detailRunsAreAuthoritative(detailState, dagKey)) return '';
+  const runs = collectDetailRuns(detailState).filter(Boolean);
+  if (runs.length) return latestRunLabelFromRun(runs[0]);
+  return '-';
+}
+
+function hasActiveRun(items, detailState, dagKey) {
+  const runs = detailRunsAreAuthoritative(detailState, dagKey)
+    ? collectDetailRuns(detailState)
+    : collectListRuns(items).concat(collectDetailRuns(detailState));
   return runs.some((run) => ACTIVE_RUN_STATUSES.has(runStatusOf(run)));
+}
+
+function terminableActiveRun(items, detailState, dagKey) {
+  const runs = detailRunsAreAuthoritative(detailState, dagKey)
+    ? collectDetailRuns(detailState)
+    : collectListRuns(items).concat(collectDetailRuns(detailState));
+  return runs.find((run) => ACTIVE_RUN_STATUSES.has(runStatusOf(run)) && Boolean(runKeyOf(run))) || null;
 }
 
 function dagTitle(item, index, key) {
@@ -231,12 +288,18 @@ export const DagsPage = {
     loading: { type: Boolean, default: false },
     error: { type: String, default: '' },
   },
+  emits: ['open-chat', 'design-flow', 'refresh-dags'],
   setup(props, ctx) {
     const emit = ctx?.emit || (() => {});
     const dagDetail = useDagDetail();
     const detailState = dagDetail.state;
     const selectedKey = ref('');
-    const rows = computed(() => props.items.map((item, index) => normalizeDag(item, index)));
+    const rows = computed(() => props.items.map((item, index) => {
+      const row = normalizeDag(item, index);
+      const dagKey = row.key === '-' ? '' : row.key;
+      const detailLabel = detailLatestRunLabel(detailState, dagKey);
+      return detailLabel ? { ...row, latestRunLabel: detailLabel } : row;
+    }));
     const selectedRow = computed(() => rows.value.find((row) => row.listKey === selectedKey.value) || rows.value[0] || null);
     const selectedDagKey = computed(() => selectedRow.value?.key === '-' ? '' : selectedRow.value?.key || '');
     const selectedDagItems = computed(() => dagCandidates(selectedRow.value, detailState, selectedDagKey.value));
@@ -253,11 +316,22 @@ export const DagsPage = {
       if (detailState.error) return '任务流程详情不可用';
       if (detailState.runsError) return '运行历史不可用，无法确认是否正在运行';
       if (detailState.starting) return '启动中';
-      if (hasActiveRun(selectedDagItems.value, detailState)) return '已有运行正在进行';
+      if (hasActiveRun(selectedDagItems.value, detailState, selectedDagKey.value)) return '已有运行正在进行';
       const status = dagStatusOf(selectedDagItems.value);
       if (!STARTABLE_DAG_STATUSES.has(status)) return '当前流程状态不可运行';
       const trigger = dagTriggerOf(selectedDagItems.value);
       if (!STARTABLE_DAG_TRIGGERS.has(trigger)) return '当前触发方式不可运行';
+      return '';
+    });
+    const selectedTerminableRun = computed(() => terminableActiveRun(selectedDagItems.value, detailState, selectedDagKey.value));
+    const stopActionVisible = computed(() => Boolean(selectedTerminableRun.value));
+    const stopDisabledReason = computed(() => {
+      if (!selectedRow.value || !selectedDagKey.value) return '未选择任务流程';
+      if (props.loading || detailState.loading) return '任务流程详情加载中';
+      if (detailState.error) return '任务流程详情不可用';
+      if (detailState.runsError) return '运行历史不可用，无法确认是否正在运行';
+      if (detailState.terminating) return '停止中';
+      if (!stopActionVisible.value) return '暂无运行中任务';
       return '';
     });
     const editDisabledReason = computed(() => {
@@ -265,7 +339,7 @@ export const DagsPage = {
       if (props.loading || detailState.loading) return '任务流程详情加载中';
       if (detailState.error) return '任务流程详情不可用，不能编辑步骤';
       if (detailState.runsError) return '运行历史不可用，不能编辑步骤';
-      if (hasActiveRun(selectedDagItems.value, detailState)) return '已有运行正在进行，不能编辑步骤';
+      if (hasActiveRun(selectedDagItems.value, detailState, selectedDagKey.value)) return '已有运行正在进行，不能编辑步骤';
       const status = dagStatusOf(selectedDagItems.value);
       if (status === 'running') return '当前任务流程正在运行，不能编辑步骤';
       if (TERMINAL_DAG_STATUSES.has(status)) return '任务流程已结束，不能编辑步骤';
@@ -273,6 +347,8 @@ export const DagsPage = {
     });
     const detailErrorText = computed(() => userErrorText(detailState.error, '任务流程详情不可用，请稍后重试。'));
     const startErrorText = computed(() => userErrorText(detailState.startError, '运行任务流程失败，请稍后重试。'));
+    const terminateErrorText = computed(() => userErrorText(detailState.terminateError, '停止任务流程失败，请稍后重试。'));
+    const terminateWarningText = computed(() => (detailState.terminateWarning ? '任务流程已停止，但部分子代理停止失败。' : ''));
     const runsErrorText = computed(() => userErrorText(detailState.runsError, '无法加载运行历史，请稍后重试。'));
 
     watch(
@@ -306,6 +382,12 @@ export const DagsPage = {
     function startSelectedDag() {
       if (startDisabledReason.value) return;
       dagDetail.start();
+    }
+
+    async function stopSelectedDag() {
+      if (stopDisabledReason.value) return;
+      await dagDetail.terminateActiveRun(selectedTerminableRun.value);
+      if (!detailState.terminateError) emit('refresh-dags');
     }
 
     function selectRun(runKey) {
@@ -343,10 +425,15 @@ export const DagsPage = {
       selectedFinalOutput,
       selectDag,
       selectRun,
+      stopActionVisible,
+      stopDisabledReason,
+      stopSelectedDag,
       startDisabledReason,
       startDesignFlow,
       startErrorText,
       startSelectedDag,
+      terminateErrorText,
+      terminateWarningText,
     };
   },
   template: `
@@ -417,17 +504,30 @@ export const DagsPage = {
                 <h3>{{ selectedRow.title }}</h3>
                 <span>{{ selectedRow.latestRunLabel === '-' ? '暂无运行' : '最近运行：' + selectedRow.latestRunLabel }}</span>
               </div>
-              <button
-                type="button"
-                class="btn btn-primary"
-                data-testid="dag-start-button"
-                :disabled="Boolean(startDisabledReason)"
-                :title="startDisabledReason"
-                @click="startSelectedDag"
-              >{{ detailState.starting ? '启动中' : '运行' }}</button>
+              <div class="dag-console-actions">
+                <button
+                  v-if="stopActionVisible"
+                  type="button"
+                  class="btn dag-stop-button"
+                  data-testid="dag-stop-button"
+                  :disabled="Boolean(stopDisabledReason)"
+                  :title="stopDisabledReason"
+                  @click="stopSelectedDag"
+                >{{ detailState.terminating ? '停止中' : '停止' }}</button>
+                <button
+                  type="button"
+                  class="btn btn-primary"
+                  data-testid="dag-start-button"
+                  :disabled="Boolean(startDisabledReason)"
+                  :title="startDisabledReason"
+                  @click="startSelectedDag"
+                >{{ detailState.starting ? '启动中' : '运行' }}</button>
+              </div>
             </div>
             <div v-if="startDisabledReason" class="dag-console-muted" data-testid="dag-start-disabled-reason">{{ startDisabledReason }}</div>
             <div v-if="startErrorText" class="dag-console-error-inline" data-testid="dag-start-error">{{ startErrorText }}</div>
+            <div v-if="terminateErrorText" class="dag-console-error-inline" data-testid="dag-terminate-error">{{ terminateErrorText }}</div>
+            <div v-if="terminateWarningText" class="dag-console-warning-inline" data-testid="dag-terminate-warning">{{ terminateWarningText }}</div>
             <DagFinalOutputPanel
               v-if="runsErrorText"
               data-testid="dag-runs-error"

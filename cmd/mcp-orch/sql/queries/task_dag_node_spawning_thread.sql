@@ -8,8 +8,9 @@
 --     再 UPDATE 拿新值，最后 LEFT JOIN 合并返回。省一次 round-trip：
 --       - 旧值（previous_spawning_thread_id）进 task_dag_runs.events 形成历史链；
 --       - 新值（spawning_thread_id）由调用方 sanity check。
---   - WHERE 不限定 status：F1.4 智能重试可能把节点先置为 'retrying' 再 spawn，
---     不应被 status 闸门挡住。dag_key + node_key 是节点唯一键。
+--   - WHERE 只排除终态：F1.4 智能重试可能把节点先置为 'retrying' 再 spawn，
+--     不应被窄 status 闸门挡住；但 DAG run 终止后，迟到的 spawn 写回必须
+--     fence miss，让调用方停止刚启动的 child thread。
 --   - 与 migration 0083 partial index (WHERE spawning_thread_id IS NOT NULL)
 --     协同：UPDATE 覆盖时索引自动维护，无需额外操作。
 
@@ -28,6 +29,7 @@ updated AS (
   WHERE dag_key = $2 AND node_key = $3
     AND run_id = $4
     AND $4::bigint > 0
+    AND status NOT IN ('done', 'failed', 'cancelled', 'skipped')
   RETURNING id, dag_key, node_key, run_id, title, node_type, assigned_to, depends_on,
             status, command_ref, config, result, started_at, finished_at,
             created_at, updated_at, active_turn_id, active_wakeup_id,

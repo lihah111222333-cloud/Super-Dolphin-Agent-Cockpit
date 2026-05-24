@@ -302,6 +302,10 @@ func (db *fakeTaskDAGDB) updateNodeSpawningThread(args ...any) ([]any, error) {
 	if !ok {
 		return nil, pgx.ErrNoRows
 	}
+	switch row.Status {
+	case "done", "failed", "cancelled", "skipped":
+		return nil, pgx.ErrNoRows
+	}
 	prev := row.SpawningThreadID
 	row.SpawningThreadID = spawningThread
 	row.UpdatedAt = timestamptzValue(db.now)

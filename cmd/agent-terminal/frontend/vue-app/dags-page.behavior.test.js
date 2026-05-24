@@ -9,6 +9,7 @@ const detailMock = vi.hoisted(() => ({
     loading: false,
     error: null,
     runsError: null,
+    show: false,
     dag: null,
     nodes: [],
     runs: [],
@@ -18,11 +19,15 @@ const detailMock = vi.hoisted(() => ({
     finalOutput: null,
     starting: false,
     startError: null,
+    terminating: false,
+    terminateError: null,
+    terminateWarning: null,
     savingNodeKey: '',
     saveError: null,
   },
   open: vi.fn(),
   start: vi.fn(),
+  terminateActiveRun: vi.fn(),
   selectRun: vi.fn(),
   saveAgentNode: vi.fn(),
 }));
@@ -56,6 +61,7 @@ function resetDetailMockState() {
   detailMock.state.loading = false;
   detailMock.state.error = null;
   detailMock.state.runsError = null;
+  detailMock.state.show = false;
   detailMock.state.dag = null;
   detailMock.state.nodes = [];
   detailMock.state.runs = [];
@@ -65,14 +71,22 @@ function resetDetailMockState() {
   detailMock.state.finalOutput = null;
   detailMock.state.starting = false;
   detailMock.state.startError = null;
+  detailMock.state.terminating = false;
+  detailMock.state.terminateError = null;
+  detailMock.state.terminateWarning = null;
   detailMock.state.savingNodeKey = '';
   detailMock.state.saveError = null;
   detailMock.open.mockReset();
   detailMock.start.mockReset();
+  detailMock.terminateActiveRun.mockReset();
   detailMock.selectRun.mockReset();
   detailMock.saveAgentNode.mockReset();
   apiMock.callAPI.mockReset().mockImplementation(async () => null);
 }
+
+const dagA = () => ({ dag_key: 'dag-a', title: 'Dag A', status: 'ready', trigger: 'manual' });
+const dagProps = (extra = {}) => reactive({ items: [{ ...dagA(), ...extra }] });
+const setDetailDag = (extra = {}) => Object.assign(detailMock.state, { dag: dagA(), ...extra });
 
 beforeEach(() => {
   resetDetailMockState();
@@ -402,6 +416,139 @@ describe('DagsPage console shell', () => {
     expect(vm.startDisabledReason.value).toContain('未选择任务流程');
   });
 
+  it('shows a stop action for active runs and calls terminate on the detail composable', async () => {
+    const props = dagProps();
+    setDetailDag({ activeRun: { run_key: 'run-active', status: 'running' } });
+    const emit = vi.fn();
+
+    const vm = DagsPage.setup(props, { emit });
+
+    expect(vm.stopDisabledReason.value).toBe('');
+    await vm.stopSelectedDag();
+    expect(detailMock.terminateActiveRun).toHaveBeenCalledTimes(1);
+    expect(emit).toHaveBeenCalledWith('refresh-dags');
+    expect(DagsPage.template).toContain('data-testid="dag-stop-button"');
+    expect(DagsPage.template).toContain('terminateErrorText');
+
+    detailMock.state.terminating = true;
+    expect(DagsPage.setup(props, { emit: vi.fn() }).stopDisabledReason.value).toContain('停止中');
+  });
+
+  it('does not refresh the DAG list after terminate reports an error', async () => {
+    const props = dagProps();
+    setDetailDag({ activeRun: { run_key: 'run-active', status: 'running' } });
+    detailMock.terminateActiveRun.mockImplementation(async () => {
+      detailMock.state.terminateError = new Error('terminate refused');
+    });
+    const emit = vi.fn();
+
+    const vm = DagsPage.setup(props, { emit });
+    await vm.stopSelectedDag();
+
+    expect(detailMock.terminateActiveRun).toHaveBeenCalledTimes(1);
+    expect(emit).not.toHaveBeenCalledWith('refresh-dags');
+  });
+
+  it('waits for terminate to settle before refreshing the DAG list', async () => {
+    const props = dagProps();
+    setDetailDag({ activeRun: { run_key: 'run-active', status: 'running' } });
+    let resolveTerminate;
+    detailMock.terminateActiveRun.mockImplementation(() => new Promise((resolve) => { resolveTerminate = resolve; }));
+    const emit = vi.fn();
+
+    const vm = DagsPage.setup(props, { emit });
+    const stopPromise = vm.stopSelectedDag();
+    await Promise.resolve();
+    expect(emit).not.toHaveBeenCalledWith('refresh-dags');
+
+    resolveTerminate();
+    await stopPromise;
+    expect(emit).toHaveBeenCalledWith('refresh-dags');
+  });
+
+  it('uses loaded run detail instead of stale list latest_run when deciding whether stop is available', () => {
+    const props = dagProps({ latest_run: { run_key: 'stale-run', status: 'running' } });
+    setDetailDag({
+      runs: [{ run_key: 'stale-run', status: 'cancelled' }],
+      run: { run_key: 'stale-run', status: 'cancelled' },
+      activeRun: null,
+    });
+
+    const vm = DagsPage.setup(props, { emit: vi.fn() });
+
+    expect(vm.rows.value[0].latestRunLabel).toBe('已取消');
+    expect(vm.selectedRow.value.latestRunLabel).toBe('已取消');
+    expect(vm.stopActionVisible.value).toBe(false);
+    expect(vm.stopDisabledReason.value).toContain('暂无运行中任务');
+    vm.stopSelectedDag();
+    expect(detailMock.terminateActiveRun).not.toHaveBeenCalled();
+    expect(vm.startDisabledReason.value).toBe('');
+  });
+
+  it('uses refreshed terminal run detail instead of stale detail history for the same run', () => {
+    const props = dagProps({ latest_run: { run_key: 'stale-run', status: 'running' } });
+    setDetailDag({
+      runs: [{ run_key: 'stale-run', status: 'running' }],
+      run: { run_key: 'stale-run', status: 'cancelled' },
+      activeRun: null,
+    });
+
+    const vm = DagsPage.setup(props, { emit: vi.fn() });
+
+    expect(vm.rows.value[0].latestRunLabel).toBe('已取消');
+    expect(vm.stopActionVisible.value).toBe(false);
+    expect(vm.startDisabledReason.value).toBe('');
+  });
+
+  it('does not let empty detail history hide an active list latest_run', () => {
+    const props = dagProps({ latest_run: { run_key: 'stale-run', status: 'running' } });
+    setDetailDag({ runs: [], run: null, activeRun: null, show: true, loading: false, runsError: null });
+
+    const vm = DagsPage.setup(props, { emit: vi.fn() });
+
+    expect(vm.rows.value[0].latestRunLabel).toBe('运行中');
+    expect(vm.stopActionVisible.value).toBe(true);
+    expect(vm.startDisabledReason.value).toContain('已有运行正在进行');
+    expect(vm.editDisabledReason.value).toContain('已有运行正在进行');
+    vm.stopSelectedDag();
+    expect(detailMock.terminateActiveRun).toHaveBeenCalledWith({ run_key: 'stale-run', status: 'running' });
+  });
+
+  it('does not expose stop for non-running run statuses even when they have a run key', () => {
+    const props = dagProps();
+    setDetailDag({ run: { run_key: 'run-queued', status: 'queued' } });
+
+    const vm = DagsPage.setup(props, { emit: vi.fn() });
+
+    expect(vm.stopActionVisible.value).toBe(false);
+    expect(vm.stopDisabledReason.value).toContain('暂无运行中任务');
+    vm.stopSelectedDag();
+    expect(detailMock.terminateActiveRun).not.toHaveBeenCalled();
+  });
+
+  it('keeps list latest_run visible when detail loading failed', () => {
+    const props = dagProps({ latest_run: { run_key: 'stale-run', status: 'running' } });
+    setDetailDag({ runs: [], run: null, activeRun: null, show: true, loading: false, runsError: null, error: new Error('detail unavailable') });
+
+    const vm = DagsPage.setup(props, { emit: vi.fn() });
+
+    expect(vm.rows.value[0].latestRunLabel).toBe('运行中');
+    expect(vm.stopActionVisible.value).toBe(true);
+    expect(vm.stopDisabledReason.value).toContain('任务流程详情不可用');
+  });
+
+  it('does not expose stop when the only active signal has no run key to terminate', () => {
+    const props = dagProps();
+    setDetailDag({ activeRun: { status: 'running' } });
+
+    const vm = DagsPage.setup(props, { emit: vi.fn() });
+
+    expect(vm.stopActionVisible.value).toBe(false);
+    expect(vm.stopDisabledReason.value).toContain('暂无运行中任务');
+    vm.stopSelectedDag();
+    expect(detailMock.terminateActiveRun).not.toHaveBeenCalled();
+  });
+
   it('disables node editing while a DAG has an active run', () => {
     const props = reactive({
       items: [{ dag_key: 'dag-a', title: 'Dag A', status: 'ready', trigger: 'manual', latest_run: { status: 'running' } }],
@@ -517,15 +664,19 @@ describe('DagsPage console shell', () => {
     detailMock.state.error = new Error('detail failed for dag_key=dag-a');
     detailMock.state.startError = new Error('start failed for run_key=run-1');
     detailMock.state.runsError = new Error('shared file reports/final.md missing dag_key');
+    detailMock.state.terminateError = new Error('terminate failed for dag_key=dag-a run_key=run-1');
 
     const vm = DagsPage.setup(props, { emit: vi.fn() });
 
     expect(vm.detailErrorText.value).toBe('任务流程详情不可用，请稍后重试。');
     expect(vm.startErrorText.value).toBe('运行任务流程失败，请稍后重试。');
     expect(vm.runsErrorText.value).toBe('无法加载运行历史，请稍后重试。');
+    expect(vm.terminateErrorText.value).toBe('停止任务流程失败，请稍后重试。');
     expect(vm.detailErrorText.value).not.toContain('dag_key');
     expect(vm.startErrorText.value).not.toContain('run_key');
     expect(vm.runsErrorText.value).not.toContain('shared file');
+    expect(vm.terminateErrorText.value).not.toContain('dag_key');
+    expect(vm.terminateErrorText.value).not.toContain('run_key');
     expect(DagsPage.template).toContain('{{ detailErrorText }}');
     expect(DagsPage.template).not.toContain('detailState.error.message');
   });
@@ -751,6 +902,7 @@ describe('DagsPage console shell', () => {
     const listPaneBlock = cssBlock(css, '.dag-console-list-pane');
     const detailPaneBlock = cssBlock(css, '.dag-console-detail-pane');
     const headingTitleBlock = cssBlock(css, '.dag-console-detail-heading h3');
+    const stopButtonBlock = cssBlock(css, '.dag-stop-button');
     const mediaBlock = css.match(/@media\s*\(max-width:\s*920px\)\s*\{([\s\S]*)\}\s*$/)?.[1] || '';
 
     expect(pageBlock).toMatch(/min-height\s*:\s*0/);
@@ -760,6 +912,8 @@ describe('DagsPage console shell', () => {
     expect(detailPaneBlock).toMatch(/overflow\s*:\s*auto/);
     expect(headingTitleBlock).toMatch(/min-width\s*:\s*0/);
     expect(headingTitleBlock).toMatch(/overflow-wrap\s*:\s*anywhere/);
+    expect(stopButtonBlock).toContain('var(--error)');
+    expect(css).toMatch(/\.dag-console-error-inline\s*\{[^}]*color\s*:\s*var\(--error\)/);
     expect(mediaBlock).toMatch(/\.dag-console-facts\s*\{[^}]*grid-template-columns\s*:\s*1fr/);
   });
 });

@@ -363,6 +363,124 @@ func (q *Queries) FinalizeTaskDagRunIfAllNodesTerminal(ctx context.Context, arg 
 	return items, nil
 }
 
+const cancelTaskDagRunNodes = `-- name: CancelTaskDagRunNodes :many
+UPDATE task_dag_nodes
+SET status = 'cancelled',
+    result = jsonb_build_object('kind', 'run_cancelled', 'reason', $3::text),
+    active_turn_id = NULL,
+    active_wakeup_id = NULL,
+    finished_at = COALESCE(finished_at, NOW()),
+    last_event_at = NOW(),
+    updated_at = NOW()
+WHERE dag_key = $1
+  AND run_id = $2::bigint
+  AND status NOT IN ('done','failed','cancelled','skipped')
+RETURNING spawning_thread_id
+`
+
+type CancelTaskDagRunNodesParams struct {
+	DagKey  string `json:"dag_key"`
+	RunID   int64  `json:"run_id"`
+	Column3 string `json:"column_3"`
+}
+
+func (q *Queries) CancelTaskDagRunNodes(ctx context.Context, arg CancelTaskDagRunNodesParams) ([]pgtype.Text, error) {
+	rows, err := q.db.Query(ctx, cancelTaskDagRunNodes, arg.DagKey, arg.RunID, arg.Column3)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []pgtype.Text{}
+	for rows.Next() {
+		var spawningThreadID pgtype.Text
+		if err := rows.Scan(&spawningThreadID); err != nil {
+			return nil, err
+		}
+		items = append(items, spawningThreadID)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const cancelTaskDagRunWakeups = `-- name: CancelTaskDagRunWakeups :execrows
+UPDATE task_dag_wakeups
+SET status = 'failed',
+    last_error = $3,
+    claimed_at = NULL,
+    claimed_by = '',
+    lease_expires_at = NULL,
+    updated_at = NOW()
+WHERE dag_key = $1
+  AND run_id = $2
+  AND status IN ('pending','dispatching','sent')
+`
+
+type CancelTaskDagRunWakeupsParams struct {
+	DagKey    string `json:"dag_key"`
+	RunID     int64  `json:"run_id"`
+	LastError string `json:"last_error"`
+}
+
+func (q *Queries) CancelTaskDagRunWakeups(ctx context.Context, arg CancelTaskDagRunWakeupsParams) (int64, error) {
+	result, err := q.db.Exec(ctx, cancelTaskDagRunWakeups, arg.DagKey, arg.RunID, arg.LastError)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const cancelTaskDagRun = `-- name: CancelTaskDagRun :one
+UPDATE task_dag_runs
+SET status      = 'cancelled',
+    finished_at = NOW(),
+    updated_at  = NOW(),
+    events      = CASE
+        WHEN jsonb_array_length(events || jsonb_build_array($4::jsonb)) <= 50
+            THEN events || jsonb_build_array($4::jsonb)
+        ELSE COALESCE((
+            SELECT jsonb_agg(elem ORDER BY ord)
+            FROM jsonb_array_elements(events || jsonb_build_array($4::jsonb)) WITH ORDINALITY AS t(elem, ord)
+            WHERE ord > jsonb_array_length(events || jsonb_build_array($4::jsonb)) - 50
+        ), '[]'::jsonb)
+    END
+WHERE dag_key = $1
+  AND id = $2
+  AND run_key = $3
+  AND status = 'running'
+RETURNING id, run_key, dag_key, dag_version_snapshot, trigger_source, status, started_at, finished_at, events, budget_used, budget_limit, metadata, created_at, updated_at
+`
+
+type CancelTaskDagRunParams struct {
+	DagKey  string `json:"dag_key"`
+	ID      int64  `json:"id"`
+	RunKey  string `json:"run_key"`
+	Column4 []byte `json:"column_4"`
+}
+
+func (q *Queries) CancelTaskDagRun(ctx context.Context, arg CancelTaskDagRunParams) (TaskDagRun, error) {
+	row := q.db.QueryRow(ctx, cancelTaskDagRun, arg.DagKey, arg.ID, arg.RunKey, arg.Column4)
+	var i TaskDagRun
+	err := row.Scan(
+		&i.ID,
+		&i.RunKey,
+		&i.DagKey,
+		&i.DagVersionSnapshot,
+		&i.TriggerSource,
+		&i.Status,
+		&i.StartedAt,
+		&i.FinishedAt,
+		&i.Events,
+		&i.BudgetUsed,
+		&i.BudgetLimit,
+		&i.Metadata,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
 const appendTaskDagRunEvent = `-- name: AppendTaskDagRunEvent :one
 UPDATE task_dag_runs
 SET events     = CASE

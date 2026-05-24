@@ -44,12 +44,7 @@ func (s *service) StartDAG(ctx context.Context, req StartDAGRequest) (StartDAGRe
 	runKey := generateRunKey(dagKey, req.IdempotencyKey)
 	triggerSource := strings.TrimSpace(req.TriggerSource)
 	dagVersion := dagVersionFor(dag)
-	input := taskdag.CreateRunInput{
-		RunKey:             runKey,
-		DagKey:             dagKey,
-		DagVersionSnapshot: dagVersion,
-		TriggerSource:      triggerSource,
-	}
+	input := taskdag.CreateRunInput{RunKey: runKey, DagKey: dagKey, DagVersionSnapshot: dagVersion, TriggerSource: triggerSource}
 	return s.runStartDAGWithFallback(ctx, dagKey, runKey, input)
 }
 
@@ -92,6 +87,9 @@ func (s *service) runStartDAGWithFallback(ctx context.Context, dagKey, runKey st
 		if _, err := tx.PromoteRootNodesToReady(ctx, dagKey, run.ID); err != nil {
 			return fmt.Errorf("PromoteRootNodesToReady: %w", err)
 		}
+		if _, err := tx.ScheduleRootWakeups(ctx, dagKey, run.ID); err != nil {
+			return fmt.Errorf("ScheduleRootWakeups: %w", err)
+		}
 		resp = StartDAGResponse{RunKey: run.RunKey, Version: run.DagVersionSnapshot}
 		return nil
 	})
@@ -130,7 +128,12 @@ func (s *service) resolveStartDAGUniqueViolation(ctx context.Context, dagKey, ru
 	existing, getErr := s.runStore.GetRun(ctx, runKey)
 	if getErr == nil && existing != nil {
 		switch existing.Status {
-		case "running", "succeeded":
+		case "running":
+			if _, err := s.runStore.ScheduleRootWakeups(ctx, dagKey, existing.ID); err != nil {
+				return StartDAGResponse{}, fmt.Errorf("orchestration: StartDAG(%q): ScheduleRootWakeups existing run %s: %w", dagKey, existing.RunKey, err)
+			}
+			return StartDAGResponse{RunKey: existing.RunKey, Version: existing.DagVersionSnapshot}, nil
+		case "succeeded":
 			return StartDAGResponse{RunKey: existing.RunKey, Version: existing.DagVersionSnapshot}, nil
 		case "failed", "cancelled":
 			return StartDAGResponse{}, &IdempotencyKeyExhaustedError{RunKey: existing.RunKey, Status: existing.Status}

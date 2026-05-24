@@ -255,6 +255,242 @@ describe('useDagDetail', () => {
     expect(detail.state.finalOutput).toEqual({ kind: 'text', text: 'started result' });
   });
 
+  it('terminates the active run and refreshes run state', async () => {
+    let terminated = false;
+    apiMock.callAPI.mockImplementation(async (method, params) => {
+      if (method === 'dashboard/dagDetail') {
+        return { dag: { dag_key: 'dag-1', title: 'Daily Brief' }, nodes: [] };
+      }
+      if (method === 'dashboard/dagRuns') {
+        if (params.status === 'running') {
+          return { runs: terminated ? [] : [{ run_key: 'run-active', status: 'running' }] };
+        }
+        return { runs: [{ run_key: 'run-active', status: terminated ? 'cancelled' : 'running' }] };
+      }
+      if (method === 'dashboard/dagRun') {
+        return { run: { run_key: params.runKey, status: terminated ? 'cancelled' : 'running' }, nodes: [] };
+      }
+      if (method === 'dashboard/dagTerminate') {
+        expect(params).toEqual({ dagKey: 'dag-1', runKey: 'run-active', reason: 'user_requested' });
+        terminated = true;
+        return {};
+      }
+      throw new Error(`unexpected method ${method}`);
+    });
+
+    const detail = useDagDetail();
+    await detail.open({ dag_key: 'dag-1' });
+    await detail.terminateActiveRun();
+
+    expect(detail.state.terminating).toBe(false);
+    expect(detail.state.terminateError).toBeNull();
+    expect(detail.state.activeRun).toBeNull();
+    expect(detail.state.run.status).toBe('cancelled');
+    expect(apiMock.callAPI.mock.calls.filter(([method]) => method === 'dashboard/dagTerminate')).toHaveLength(1);
+  });
+
+  it('keeps terminate error after failure refresh still shows a non-terminal run', async () => {
+    const terminateError = new Error('terminate refused');
+    apiMock.callAPI.mockImplementation(async (method, params) => {
+      if (method === 'dashboard/dagDetail') {
+        return { dag: { dag_key: 'dag-1', title: 'Daily Brief' }, nodes: [] };
+      }
+      if (method === 'dashboard/dagRuns') {
+        if (params.status === 'running') {
+          return { runs: [{ run_key: 'run-active', status: 'running' }] };
+        }
+        return { runs: [{ run_key: 'run-active', status: 'running' }] };
+      }
+      if (method === 'dashboard/dagRun') {
+        return { run: { run_key: params.runKey, status: 'running' }, nodes: [] };
+      }
+      if (method === 'dashboard/dagTerminate') {
+        throw terminateError;
+      }
+      throw new Error(`unexpected method ${method}`);
+    });
+
+    const detail = useDagDetail();
+    await detail.open({ dag_key: 'dag-1' });
+    const detailCallsBefore = apiMock.callAPI.mock.calls.filter(([method]) => method === 'dashboard/dagDetail').length;
+    const runsCallsBefore = apiMock.callAPI.mock.calls.filter(([method]) => method === 'dashboard/dagRuns').length;
+    const runCallsBefore = apiMock.callAPI.mock.calls.filter(([method]) => method === 'dashboard/dagRun').length;
+
+    const result = await detail.terminateActiveRun();
+
+    expect(result).toEqual({ ok: false, refreshed: true });
+    expect(detail.state.terminating).toBe(false);
+    expect(detail.state.terminateError).toBe(terminateError);
+    expect(detail.state.terminateWarning).toBe(null);
+    expect(detail.state.activeRun).toEqual({ run_key: 'run-active', status: 'running' });
+    expect(detail.state.run).toEqual({ run_key: 'run-active', status: 'running' });
+    expect(apiMock.callAPI.mock.calls.filter(([method]) => method === 'dashboard/dagDetail')).toHaveLength(detailCallsBefore + 1);
+    expect(apiMock.callAPI.mock.calls.filter(([method]) => method === 'dashboard/dagRuns')).toHaveLength(runsCallsBefore + 2);
+    expect(apiMock.callAPI.mock.calls.filter(([method]) => method === 'dashboard/dagRun')).toHaveLength(runCallsBefore + 1);
+  });
+
+  it('refreshes cancelled state and stores a warning when terminate reports post-cancel stop failure', async () => {
+    const terminateError = new Error('stop spawned agent failed');
+    apiMock.callAPI.mockImplementation(async (method, params) => {
+      if (method === 'dashboard/dagDetail') {
+        return { dag: { dag_key: 'dag-1', title: 'Daily Brief' }, nodes: [] };
+      }
+      if (method === 'dashboard/dagRuns') {
+        if (params.status === 'running') {
+          return { runs: [{ run_key: 'run-active', status: 'running' }] };
+        }
+        return { runs: [{ run_key: 'run-active', status: 'running' }] };
+      }
+      if (method === 'dashboard/dagRun') {
+        return { run: { run_key: params.runKey, status: 'running' }, nodes: [] };
+      }
+      if (method === 'dashboard/dagTerminate') {
+        apiMock.callAPI.mockImplementation(async (refreshMethod, refreshParams) => {
+          if (refreshMethod === 'dashboard/dagDetail') {
+            return { dag: { dag_key: 'dag-1', title: 'Daily Brief' }, nodes: [] };
+          }
+          if (refreshMethod === 'dashboard/dagRuns') {
+            if (refreshParams.status === 'running') return { runs: [] };
+            return { runs: [{ run_key: 'run-active', status: 'cancelled' }] };
+          }
+          if (refreshMethod === 'dashboard/dagRun') {
+            return { run: { run_key: refreshParams.runKey, status: 'cancelled' }, nodes: [] };
+          }
+          throw new Error(`unexpected refresh method ${refreshMethod}`);
+        });
+        throw terminateError;
+      }
+      throw new Error(`unexpected method ${method}`);
+    });
+
+    const detail = useDagDetail();
+    await detail.open({ dag_key: 'dag-1' });
+    const result = await detail.terminateActiveRun();
+
+    expect(result.ok).toBe(true);
+    expect(detail.state.terminating).toBe(false);
+    expect(detail.state.terminateError).toBeNull();
+    expect(detail.state.terminateWarning).toBe(terminateError);
+    expect(detail.state.activeRun).toBeNull();
+    expect(detail.state.run.status).toBe('cancelled');
+  });
+
+  it('clears stale terminate warnings before starting a new run', async () => {
+    apiMock.callAPI.mockImplementation(async (method, params) => {
+      if (method === 'dashboard/dagDetail') {
+        return { dag: { dag_key: 'dag-1', title: 'Daily Brief' }, nodes: [] };
+      }
+      if (method === 'dashboard/dagRuns') {
+        if (params.status === 'running') return { runs: [] };
+        return { runs: [{ run_key: 'run-started', status: 'running' }] };
+      }
+      if (method === 'dashboard/dagRun') {
+        return { run: { run_key: params.runKey, status: 'running' }, nodes: [] };
+      }
+      if (method === 'dashboard/dagStart') {
+        return { run_key: 'run-started' };
+      }
+      throw new Error(`unexpected method ${method}`);
+    });
+
+    const detail = useDagDetail();
+    await detail.open({ dag_key: 'dag-1' });
+    detail.state.terminateWarning = new Error('old stop warning');
+    await detail.start();
+
+    expect(detail.state.terminateWarning).toBeNull();
+    expect(detail.state.terminateError).toBeNull();
+  });
+
+  it('does not terminate a non-running selected run when no active running run is loaded', async () => {
+    apiMock.callAPI.mockImplementation(async (method, params) => {
+      if (method === 'dashboard/dagDetail') {
+        return { dag: { dag_key: 'dag-1', title: 'Daily Brief' }, nodes: [] };
+      }
+      if (method === 'dashboard/dagRuns') {
+        if (params.status === 'running') return { runs: [] };
+        return { runs: [{ run_key: 'run-queued', status: 'queued' }] };
+      }
+      if (method === 'dashboard/dagRun') {
+        return { run: { run_key: params.runKey, status: 'queued' }, nodes: [] };
+      }
+      throw new Error(`unexpected method ${method}`);
+    });
+
+    const detail = useDagDetail();
+    await detail.open({ dag_key: 'dag-1' });
+    await detail.terminateActiveRun();
+
+    expect(detail.state.terminateError?.message).toBe('缺少运行中的 run');
+    expect(detail.state.run.status).toBe('queued');
+    expect(apiMock.callAPI.mock.calls.filter(([method]) => method === 'dashboard/dagTerminate')).toHaveLength(0);
+  });
+
+  it('terminates a list-sourced active run when detail has no run loaded', async () => {
+    let terminated = false;
+    apiMock.callAPI.mockImplementation(async (method, params) => {
+      if (method === 'dashboard/dagDetail') return { dag: { dag_key: 'dag-1', title: 'Daily Brief' }, nodes: [] };
+      if (method === 'dashboard/dagRuns') {
+        if (params.status === 'running') return { runs: [] };
+        return { runs: terminated ? [{ run_key: 'run-list', status: 'cancelled' }] : [] };
+      }
+      if (method === 'dashboard/dagRun') return { run: { run_key: params.runKey, status: 'cancelled' }, nodes: [] };
+      if (method === 'dashboard/dagTerminate') {
+        expect(params).toEqual({ dagKey: 'dag-1', runKey: 'run-list', reason: 'user_requested' });
+        terminated = true;
+        return {};
+      }
+      throw new Error(`unexpected method ${method}`);
+    });
+
+    const detail = useDagDetail();
+    await detail.open({ dag_key: 'dag-1' });
+    await detail.terminateActiveRun({ run_key: 'run-list', status: 'running' });
+
+    expect(detail.state.terminateError).toBeNull();
+    expect(detail.state.run.status).toBe('cancelled');
+  });
+
+  it('keeps terminating true until the post-terminate refresh finishes', async () => {
+    let terminated = false;
+    let detailCalls = 0;
+    let resolveRefreshDetail;
+    const refreshDetail = new Promise((resolve) => { resolveRefreshDetail = resolve; });
+    apiMock.callAPI.mockImplementation(async (method, params) => {
+      if (method === 'dashboard/dagDetail') {
+        detailCalls += 1;
+        if (detailCalls === 1) return { dag: { dag_key: 'dag-1', title: 'Daily Brief' }, nodes: [] };
+        return refreshDetail;
+      }
+      if (method === 'dashboard/dagRuns') {
+        if (params.status === 'running') {
+          return { runs: terminated ? [] : [{ run_key: 'run-active', status: 'running' }] };
+        }
+        return { runs: [{ run_key: 'run-active', status: terminated ? 'cancelled' : 'running' }] };
+      }
+      if (method === 'dashboard/dagRun') {
+        return { run: { run_key: params.runKey, status: terminated ? 'cancelled' : 'running' }, nodes: [] };
+      }
+      if (method === 'dashboard/dagTerminate') {
+        terminated = true;
+        return {};
+      }
+      throw new Error(`unexpected method ${method}`);
+    });
+
+    const detail = useDagDetail();
+    await detail.open({ dag_key: 'dag-1' });
+    const terminatePromise = detail.terminateActiveRun();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(detail.state.terminating).toBe(true);
+
+    resolveRefreshDetail({ dag: { dag_key: 'dag-1', title: 'Daily Brief' }, nodes: [] });
+    await terminatePromise;
+    expect(detail.state.terminating).toBe(false);
+  });
+
   it('saves an agent node through dashboard apply ops and refreshes the same dag', async () => {
     const applyOpsCalls = [];
     apiMock.callAPI.mockImplementation(async (method, params) => {

@@ -164,6 +164,23 @@
   overflow-wrap: anywhere;
 }
 
+.dag-console-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.dag-stop-button {
+  border: 1px solid var(--error);
+  background: transparent;
+  color: var(--error);
+}
+
+.dag-stop-button:hover:not(:disabled) {
+  background: rgba(248, 113, 113, 0.08);
+}
+
 .dag-topology-source {
   margin: 0;
   max-height: 220px;
@@ -272,7 +289,7 @@
 }
 
 .dag-console-error-inline {
-  color: var(--danger);
+  color: var(--error);
 }
 
 .dag-node-list-grid,
