@@ -411,6 +411,7 @@ type stubThreadStore struct {
 	threadByID          map[string]*threadstore.Thread
 	getErr              error
 	upsert              threadstore.UpsertParams
+	upsertCount         int
 	upsertErr           error
 	existsErr           error
 	countChildrenErr    error
@@ -504,6 +505,7 @@ func (s *stubThreadStore) Upsert(_ context.Context, params threadstore.UpsertPar
 	if s.upsertErr != nil {
 		return s.upsertErr
 	}
+	s.upsertCount++
 	s.upsert = params
 	s.thread = &threadstore.Thread{
 		ThreadID:       params.ThreadID,

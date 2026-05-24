@@ -16,6 +16,7 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/util"
 	"github.com/anthropic-ai/super-agent-v3/internal/util/clone"
 	"github.com/anthropic-ai/super-agent-v3/internal/util/configutil"
+	"github.com/anthropic-ai/super-agent-v3/internal/util/idempotency"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
@@ -91,14 +92,16 @@ func (s *service) startPendingThread(ctx context.Context, req StartRequest, agen
 		PendingLaunch:    true,
 	})); err != nil {
 		return StartResult{}, fmt.Errorf("thread: upsert pending_launch row: %w", err)
+	} else if intentID := strings.TrimSpace(req.LaunchIntentID); intentID != "" {
+		s.launchIntentByThread.Store(state.PublicThreadID, intentID)
 	}
 	meta, err := taskHandoffMetaFromRuntimeConfig(req.Config)
 	if err != nil {
-		return StartResult{}, err
+		return StartResult{}, s.cleanupFailedPendingLaunch(ctx, state.PublicThreadID, agentID, err)
 	}
 	if meta.TaskID != "" {
 		if err := s.ensureTaskHandoffShell(ctx, meta, state.OwnerThreadID); err != nil {
-			return StartResult{}, err
+			return StartResult{}, s.cleanupFailedPendingLaunch(ctx, state.PublicThreadID, agentID, err)
 		}
 	}
 	s.publishThreadStarted(state)
@@ -156,7 +159,9 @@ func (s *service) SpawnIfNeeded(ctx context.Context, threadID, userInputForRoute
 	mu := s.acquirePendingLaunchLock(threadID)
 	mu.Lock()
 	defer mu.Unlock()
-
+	if err, ok := idempotency.MappedError(&s.launchIntentByThread, &s.launchIntentRegistry, threadID); ok {
+		return false, SpawnRouting{}, err
+	}
 	row, needSpawn, err := s.loadPendingLaunchRow(ctx, threadID)
 	if err != nil || !needSpawn {
 		return false, SpawnRouting{}, err
@@ -236,21 +241,24 @@ func buildPendingSpawnRequest(row *threadstore.Thread, agentID, userInputForRout
 }
 
 func (s *service) cleanupFailedPendingLaunch(ctx context.Context, threadID, agentID string, cause error) error {
-	if cause == nil {
-		return nil
-	}
-	if s == nil || s.threadStore == nil {
+	if cause == nil || s == nil || s.threadStore == nil {
 		return cause
 	}
 	threadID = strings.TrimSpace(threadID)
-	agentID = strings.TrimSpace(agentID)
 	if threadID == "" {
 		return cause
 	}
+	retained := idempotency.RetainMappedError(&s.launchIntentByThread, &s.launchIntentRegistry, threadID, cause)
 	if err := s.threadStore.DeleteByThreadID(ctx, threadID); err != nil {
-		return errors.Join(cause, fmt.Errorf("thread: delete failed pending_launch row %q: %w", threadID, err))
+		cause = idempotency.Retain(errors.Join(cause, fmt.Errorf("thread: delete failed pending_launch row %q: %w", threadID, err)))
+		idempotency.RetainMappedError(&s.launchIntentByThread, &s.launchIntentRegistry, threadID, cause)
+		return cause
 	}
-	s.pendingLaunchMu.Delete(threadID)
+	if retained {
+		s.pendingLaunchMu.Delete(threadID)
+	} else {
+		s.CompleteLaunchIntent(ctx, threadID)
+	}
 	s.publishThreadStopped(threadID, agentID, "deleted", "pending_launch_failed")
 	return cause
 }
@@ -283,9 +291,7 @@ func (s *service) runPendingSpawn(
 	var assemblyInput contract.StartInput
 	var cleanupScratchpad func()
 
-	g.Go(func() error {
-		return s.resolveRoutedPrompt(gCtx, req)
-	})
+	g.Go(func() error { return s.resolveRoutedPrompt(gCtx, req) })
 	g.Go(func() error {
 		var aerr error
 		assemblyInput, cleanupScratchpad, aerr = s.buildStartAssemblyInput(snapshot, agentID)
@@ -310,30 +316,17 @@ func (s *service) runPendingSpawn(
 	if err != nil {
 		return fmt.Errorf("thread: prompt assembly: %w", err)
 	}
-	// When routing picked a persona that isn't the anonymous default, prefix the
-	// thread name with a human-readable agent label. This is the one visible
-	// place to surface "you got routed to X" without adding a separate UI
-	// component: sidebar, chat header, and dashboard all show display_name. The
-	// prefix is a stable bracketed slug so the UI can parse it into a blue pill
-	// (see stores/thread-view.model.js:parseAgentBadge).
 	displayName := resolveDisplayName(ctx, s.threadStore, agentID, req.Prompt, assembly.DisplayName)
 	displayName = applyTitleExtractionFallback(displayName, req.Prompt)
 	displayName = prependAgentBadge(displayName, req.AgentTitle, req.AgentKey)
-	if err := s.launchAgent(ctx, agentID, req.CWD, displayName,
-		req.ParentAgentID, req.AgentType, req.AgentMemoryScope,
-		req.Provider, req.Model); err != nil {
-		return fmt.Errorf("thread: launch agent: %w", err)
+	if err := s.launchAgent(ctx, agentID, req.CWD, displayName, req.ParentAgentID, req.AgentType, req.AgentMemoryScope, req.Provider, req.Model); err != nil {
+		return idempotency.Retain(fmt.Errorf("thread: launch agent: %w", err))
 	}
 	agentLaunched = true
 	session, err := s.establishStartedSession(ctx, *req, assemblyInput, assembly, agentID)
 	if err != nil {
 		return fmt.Errorf("thread: establish session: %w", err)
 	}
-	// persistStartedSession is the eager path's final step: it builds the
-	// thread state, upserts the agent_threads row (clearing pending_launch),
-	// writes the binding row, saves the prompt snapshot, and publishes
-	// thread.started. Reusing it keeps pending spawns DB-shape identical to
-	// eager starts.
 	if _, err := s.persistStartedSession(ctx, *req, assemblyInput, assembly, agentID, displayName, session); err != nil {
 		return fmt.Errorf("thread: persist launched session: %w", err)
 	}
@@ -343,7 +336,6 @@ func (s *service) runPendingSpawn(
 	return nil
 }
 
-// foldRouterOutputIntoAssemblyInput preserves router-produced prompt fields.
 func foldRouterOutputIntoAssemblyInput(assemblyInput *contract.StartInput, req *StartRequest) {
 	if assemblyInput == nil || req == nil {
 		return
@@ -357,7 +349,6 @@ func foldRouterOutputIntoAssemblyInput(assemblyInput *contract.StartInput, req *
 	)
 }
 
-// prependAgentBadge renders `[label] displayName` for non-default personas.
 func prependAgentBadge(displayName, agentTitle, agentKey string) string {
 	key := strings.TrimSpace(agentKey)
 	if key == "" || strings.EqualFold(key, "main") {
@@ -374,7 +365,6 @@ func prependAgentBadge(displayName, agentTitle, agentKey string) string {
 	return prefix + displayName
 }
 
-// cleanupPendingSpawn releases pending state when runPendingSpawn fails.
 func cleanupPendingSpawn(
 	ctx context.Context,
 	s *service,

@@ -139,10 +139,8 @@ type StartRequest struct {
 	// notify the user. Not an input. Must remain false for the wire-degrade
 	// path (no promptStore wired) — that case is a transient backend issue
 	// rather than a stale pin and the UI must not clear the user's pref.
-	PromptKeyStale bool
-	// OwnerThreadID links this thread back to a predecessor (e.g. the source
-	// thread in a handoff). Empty for brand-new top-level threads.
-	OwnerThreadID string
+	PromptKeyStale                bool
+	OwnerThreadID, LaunchIntentID string
 
 	// DeferSpawn opts into the C1 "pending_launch" flow: the service writes
 	// the agent_threads row without forking the provider CLI and returns a
