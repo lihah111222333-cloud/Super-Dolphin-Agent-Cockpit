@@ -28,7 +28,10 @@ import {
 } from './composables/useSkillImportSummaryDrafts.js';
 
 function createEditor(emit = vi.fn(), overrides = {}) {
-  const props = reactive({ projectStore: { state: { active: '/repo' } } });
+  const props = reactive({
+    cwd: overrides.cwd ?? '',
+    projectStore: overrides.projectStore ?? { state: { active: '/repo' } },
+  });
   const vm = useSkillEditor(props, emit, { skillCards: ref(overrides.skillCards || []) });
   return { emit, vm };
 }
@@ -39,6 +42,114 @@ beforeEach(() => {
 });
 
 describe('useSkillEditor personal target payloads', () => {
+  it('uses explicit cwd when opening skill details and project store is not ready', async () => {
+    const { vm } = createEditor(vi.fn(), {
+      cwd: '/thread-repo',
+      projectStore: { state: { active: '.' } },
+    });
+    apiMock.callAPI.mockImplementation(async (method, payload) => {
+      if (method === 'skills/local/read' && payload?.path === '/skills/thread/SKILL.md') {
+        return { skill: { content: '---\nname: ThreadSkill\n---\n# body' } };
+      }
+      if (method === 'skills/local/listFiles' && payload?.dir === '/skills/thread') {
+        return { files: [{ name: 'SKILL.md', path: '/skills/thread/SKILL.md', is_main: true }] };
+      }
+      return {};
+    });
+
+    await vm.onEditSkill({ name: 'ThreadSkill', dir: '/skills/thread', scope: 'project' });
+
+    expect(apiMock.callAPI).toHaveBeenCalledWith('skills/local/read', {
+      path: '/skills/thread/SKILL.md',
+      cwd: '/thread-repo',
+    });
+    expect(apiMock.callAPI).toHaveBeenCalledWith('skills/local/listFiles', {
+      dir: '/skills/thread',
+      cwd: '/thread-repo',
+    });
+  });
+
+  it('uses explicit cwd when saving and project store is not ready', async () => {
+    const { vm } = createEditor(vi.fn(), {
+      cwd: '/thread-repo',
+      projectStore: { state: { active: '' } },
+    });
+
+    vm.form.name = 'ThreadSkill';
+    vm.form.description = 'Use when editing the current project skill.';
+    vm.form.body = '## body';
+
+    await vm.onSaveSkill();
+
+    expect(apiMock.callAPI).toHaveBeenCalledWith('skills/local/write', expect.objectContaining({
+      cwd: '/thread-repo',
+      path: 'ThreadSkill',
+    }));
+  });
+
+  it('uses explicit cwd for import summary reads and suggestions', async () => {
+    const { vm } = createEditor(vi.fn(), {
+      cwd: '/thread-repo',
+      projectStore: { state: { active: '.' } },
+    });
+    apiMock.selectProjectDirs.mockResolvedValue(['/imports/MissingDesc']);
+    apiMock.callAPI.mockImplementation(async (method, payload) => {
+      if (method === 'skills/local/importDir') {
+        return { imported: [{ name: 'MissingDesc', skill_file: '/skills/imported/MissingDesc/SKILL.md' }], failures: [] };
+      }
+      if (method === 'skills/local/read' && payload?.path === '/skills/imported/MissingDesc/SKILL.md') {
+        return { skill: { content: '---\nname: MissingDesc\n---\n# MissingDesc\nNeeds docs.' } };
+      }
+      if (method === 'skills/summary/suggest') {
+        return { description: 'Use when filling in missing skill details.' };
+      }
+      return {};
+    });
+
+    await vm.onUploadSkill();
+    await vm.confirmImportScope('personal');
+
+    expect(apiMock.callAPI).toHaveBeenCalledWith('skills/local/importDir', expect.objectContaining({
+      cwd: '/thread-repo',
+    }));
+    expect(apiMock.callAPI).toHaveBeenCalledWith('skills/local/read', {
+      path: '/skills/imported/MissingDesc/SKILL.md',
+      cwd: '/thread-repo',
+    });
+    expect(apiMock.callAPI).toHaveBeenCalledWith('skills/summary/suggest', expect.objectContaining({
+      cwd: '/thread-repo',
+      name: 'MissingDesc',
+    }));
+  });
+
+  it('blocks local skill RPCs when cwd is not ready', async () => {
+    const { vm } = createEditor(vi.fn(), {
+      cwd: '',
+      projectStore: { state: { active: '.' } },
+    });
+
+    await vm.onEditSkill({ name: 'ThreadSkill', dir: '/skills/thread', scope: 'project' });
+
+    expect(apiMock.callAPI).not.toHaveBeenCalled();
+    expect(vm.notice.level).toBe('error');
+    expect(vm.notice.message).toContain('项目路径未就绪');
+  });
+
+  it('blocks summary suggestions when cwd is not ready', async () => {
+    const { vm } = createEditor(vi.fn(), {
+      cwd: '',
+      projectStore: { state: { active: '.' } },
+    });
+    vm.form.name = 'ThreadSkill';
+    vm.form.body = '## body';
+
+    await vm.onSuggestSkillSummary();
+
+    expect(apiMock.callAPI).not.toHaveBeenCalled();
+    expect(vm.notice.level).toBe('error');
+    expect(vm.notice.message).toContain('项目路径未就绪');
+  });
+
   it('saves personal skills with user personal type', async () => {
     const { vm } = createEditor();
 

@@ -6,6 +6,7 @@ import { renderAssistantMarkdown } from '../utils/assistant-markdown.js';
 import {
   applyParsedSkillState,
   isCurrentEditorTarget,
+  isMissingSkillsCwdError,
   isSummarySuggestQualityError,
   isSummarySuggestUnavailableError,
   mainSkillSavePath,
@@ -13,9 +14,9 @@ import {
   personalTypeForScope,
   personalTypeFromForm,
   rememberLoadedMainSkillTarget,
+  requireSkillsCwd,
   requestSkillSummarySuggestion,
   resetLoadedMainSkillTarget,
-  resolveSkillsCwd,
   scopeFromTrust,
   updateNotice,
   withSkillsCwd,
@@ -95,7 +96,7 @@ function createImportActions(props, emit, deps, state, readers, importSummaryAct
       const resolvedImportScope = normalizeSkillScope(scope);
       const resolvedImportPersonalType = personalTypeForScope(resolvedImportScope, null, 'imported');
       const imported = await importSkills(
-        resolveSkillsCwd(props),
+        requireSkillsCwd(props),
         folderPaths,
         resolvedImportScope,
         resolvedImportPersonalType,
@@ -369,7 +370,7 @@ function createEditorActions(props, emit, deps, state, readers) {
           throw new Error('缺少文件路径，无法保存');
         }
         const scope = normalizeSkillScope(state.form.scope);
-        await writeSkill(resolveSkillsCwd(props), targetPath, (state.form.body || '').toString(), scope, personalTypeFromForm(state.form));
+        await writeSkill(requireSkillsCwd(props), targetPath, (state.form.body || '').toString(), scope, personalTypeFromForm(state.form));
         state.setNotice('success', `文件已保存：${fileNameFromPath(targetPath) || targetPath}`);
         closeEditor();
         return;
@@ -394,7 +395,7 @@ function createEditorActions(props, emit, deps, state, readers) {
         const nextPersonalType = personalTypeFromForm(state.form);
         return itemScope !== state.form.scope || itemPersonalType !== nextPersonalType;
       });
-      const saved = await writeSkill(resolveSkillsCwd(props), writePath, content, state.form.scope, personalTypeFromForm(state.form));
+      const saved = await writeSkill(requireSkillsCwd(props), writePath, content, state.form.scope, personalTypeFromForm(state.form));
       state.selectedSkillName.value = name;
       state.summarySource.value = 'frontmatter';
       if (saved?.path) {
@@ -587,7 +588,7 @@ export function useSkillEditor(props, emit, deps) {
     try {
       summarySuggestion.value = '';
       updateNotice(notice, 'info', '正在生成简介...');
-      const description = await requestSkillSummarySuggestion(resolveSkillsCwd(props), {
+      const description = await requestSkillSummarySuggestion(requireSkillsCwd(props), {
         name: form.name,
         description: form.description,
         content: form.body,
@@ -602,6 +603,10 @@ export function useSkillEditor(props, emit, deps) {
       updateNotice(notice, 'info', '已生成简介建议，采用后再保存。');
     } catch (error) {
       logWarn('skills', 'summary.suggest.failed', { error, name: (form.name || '').trim() });
+      if (isMissingSkillsCwdError(error)) {
+        updateNotice(notice, 'error', error.message);
+        return;
+      }
       if (isSummarySuggestUnavailableError(error)) {
         updateNotice(notice, 'error', '当前无法生成简介，请稍后再试或手动填写。');
         return;

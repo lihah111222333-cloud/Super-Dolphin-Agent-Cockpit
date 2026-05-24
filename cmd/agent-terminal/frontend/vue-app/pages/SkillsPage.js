@@ -11,7 +11,7 @@ import { isInternalSkillReferenceWord, isSkillMainFilePath, normalizePathKey } f
 
 /** @typedef {{ name?: string, display_name?: string, displayName?: string, dir?: string, description?: string, summary?: string, trigger_words?: string[], force_words?: string[] }} SkillListItem */
 /** @typedef {{ name: string, displayName: string, displayLabel: string, dir: string, description: string, summary: string, triggerWords: string[], forceWords: string[], displayScenarioWords: string[] }} SkillCard */
-/** @typedef {{ skills?: SkillListItem[], projectStore?: { state?: { active?: string } } | null }} SkillsPageProps */
+/** @typedef {{ skills?: SkillListItem[], cwd?: string, projectStore?: { state?: { active?: string } } | null }} SkillsPageProps */
 
 export { normalizeWordList, listToText, inferSkillNameFromPath,
   summarizeItems, normalizePathKey, fileNameFromPath,
@@ -24,6 +24,7 @@ export const SkillsPage = {
   name: 'SkillsPage',
   props: {
     skills: { type: Array, default: () => [] },
+    cwd: { type: String, default: '' },
     projectStore: { type: Object, default: null },
   },
   emits: ['refresh-skills'],
@@ -141,6 +142,8 @@ export const SkillsPage = {
     const sourcePath = ref('');
     const activeSkillFilePath = ref('');
     const activeCwdSource = computed(() => {
+      const explicit = (props.cwd || '').toString().trim();
+      if (explicit && explicit !== '.') return explicit;
       const active = (props.projectStore?.state?.active || '').toString().trim();
       return active && active !== '.' ? active : '';
     });

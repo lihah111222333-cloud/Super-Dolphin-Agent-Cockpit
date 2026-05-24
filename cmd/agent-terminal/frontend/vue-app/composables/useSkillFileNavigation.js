@@ -1,5 +1,6 @@
 import { callAPI } from '../services/api.js';
 import { logWarn } from '../services/log.js';
+import { requireSkillsCwd } from './useSkillEditorHelpers.js';
 import { resolveRenderedMarkdownAction } from '../utils/assistant-markdown-click.js';
 import {
   inferSkillNameFromPath,
@@ -10,8 +11,7 @@ import {
 } from '../utils/skill-parser.js';
 
 function withSkillsCwd(deps, payload = {}) {
-  const cwd = (deps?.activeCwdSource?.value || '').toString().trim();
-  return cwd ? { ...payload, cwd } : payload;
+  return { ...payload, cwd: requireSkillsCwd({ cwd: deps?.activeCwdSource?.value }) };
 }
 
 /**
