@@ -20,18 +20,32 @@ func TestValidateTransition_AllLegal(t *testing.T) {
 		{NodeStatusRunning, NodeStatusRetrying, "fail with retries"},
 		{NodeStatusRunning, NodeStatusSkipped, "on_failure=skip"},
 		{NodeStatusRunning, NodeStatusWaitingHuman, "on_failure=ask_human"},
+		{NodeStatusRunning, NodeStatusCancelled, "user cancelled run"},
 		{NodeStatusRetrying, NodeStatusReady, "backoff over"},
 		{NodeStatusRetrying, NodeStatusFailed, "give up"},
 		{NodeStatusRetrying, NodeStatusCancelled, "upstream fail_fast while retrying"},
 		{NodeStatusWaitingHuman, NodeStatusReady, "approved"},
 		{NodeStatusWaitingHuman, NodeStatusFailed, "rejected"},
+		{NodeStatusWaitingHuman, NodeStatusCancelled, "user cancelled run while waiting"},
 	}
-	if got, want := len(legal), 14; got != want {
+	if got, want := len(legal), 16; got != want {
 		t.Fatalf("legal transitions in test = %d, want %d (与 legalTransitions map 同步)", got, want)
 	}
 	for _, tc := range legal {
 		if err := ValidateTransition(tc.from, tc.to); err != nil {
 			t.Errorf("%q→%q (%s) should be legal, got: %v", tc.from, tc.to, tc.desc, err)
+		}
+	}
+}
+
+func TestRunningAndWaitingHumanCanTransitionToCancelled(t *testing.T) {
+	t.Parallel()
+	for _, from := range []NodeStatus{NodeStatusRunning, NodeStatusWaitingHuman} {
+		if err := ValidateTransition(from, NodeStatusCancelled); err != nil {
+			t.Fatalf("%s → cancelled should be legal for user run termination, got: %v", from, err)
+		}
+		if _, ok := legalTransitions[transition{from, NodeStatusCancelled}]; !ok {
+			t.Fatalf("legalTransitions 缺少 %s → cancelled 条目", from)
 		}
 	}
 }

@@ -30,8 +30,6 @@ func (s *stubStartDAGStore) GetDAG(_ context.Context, _ string) (*taskdag.DAG, e
 	return s.dag, nil
 }
 
-// stubRunStore 实现 RunStore，支持 happy / 错误 / WithRunTx / GetRun / ListRuns 行为定制。
-// stubRunStore implements RunStore for happy / error / WithRunTx / GetRun / ListRuns paths.
 type stubRunStore struct {
 	taskdag.RunStore // nil 嵌入：未覆盖方法 panic
 
@@ -47,20 +45,21 @@ type stubRunStore struct {
 
 	withTxErr error // 模拟事务整体失败 (L3: 可传 *pgconn.PgError 走 unique violation 路径)
 
-	getRunReply *taskdag.Run // 不为 nil 代表 GetRun 命中 (幂等路径)
-	getRunErr   error        // 不为 nil 走 GetRun 错误路径；IsNotFound 表示未命中 → unresolved unique violation
+	getRunReply *taskdag.Run
+	getRunErr   error
 
 	listRunNodesReply []taskdag.Node
 	listRunNodesErr   error
 	listRunNodesCalls []runNodeCall
 	lockedDAG         *taskdag.DAG
 
-	// ListRuns 行为定制（T3.2）。listRunsReply 默认 nil（store 返空 slice），
-	// listRunsErr 非 nil 走错误路径。listRunsCalls / listRunsLastFilter 用于
-	// 观测调用次数与最后一次 filter，让测试可以并发 t.Parallel() 安全跑。
-	// ListRuns customization (T3.2). listRunsReply defaults to nil (empty),
-	// listRunsErr drives the error path. listRunsCalls / listRunsLastFilter are
-	// observation hooks so tests stay parallel-safe (no package-level state).
+	scheduleRootWakeupsRows  int64
+	scheduleRootWakeupsErr   error
+	scheduleRootWakeupsCalls []runNodeCall
+	terminateRunErr          error
+	terminateRunResult       taskdag.TerminateRunResult
+	terminateRunCalls        []taskdag.TerminateRunInput
+
 	listRunsReply      []taskdag.Run
 	listRunsErr        error
 	listRunsCalls      []taskdag.ListRunsFilter
@@ -151,6 +150,27 @@ func (s *stubRunStore) ListRunNodes(_ context.Context, dagKey string, runID int6
 	return s.listRunNodesReply, nil
 }
 
+func (s *stubRunStore) ScheduleRootWakeups(_ context.Context, dagKey string, runID int64) (int64, error) {
+	s.scheduleRootWakeupsCalls = append(s.scheduleRootWakeupsCalls, runNodeCall{DagKey: dagKey, RunID: runID})
+	s.callOrder = append(s.callOrder, "schedule_roots:"+dagKey)
+	if s.scheduleRootWakeupsErr != nil {
+		return 0, s.scheduleRootWakeupsErr
+	}
+	return s.scheduleRootWakeupsRows, nil
+}
+
+func (s *stubRunStore) TerminateRun(_ context.Context, input taskdag.TerminateRunInput) (taskdag.TerminateRunResult, error) {
+	s.terminateRunCalls = append(s.terminateRunCalls, input)
+	s.callOrder = append(s.callOrder, "terminate:"+input.DagKey)
+	if platformdb.IsNotFound(s.terminateRunErr) && s.getRunReply != nil {
+		s.getRunReply.Status = "cancelled"
+	}
+	if s.terminateRunErr != nil {
+		return taskdag.TerminateRunResult{}, s.terminateRunErr
+	}
+	return s.terminateRunResult, nil
+}
+
 // uniqueViolationErr 交付一个 SQLSTATE 23505 错误供 stub.WithRunTx 返回，
 // 以便驱动 service 走 GetRun-first fallback 路径。
 func uniqueViolationErr(constraintName string) error {
@@ -178,6 +198,30 @@ func TestStartDAG_HappyPath(t *testing.T) {
 	}
 	assertHappyStartDAGResponse(t, resp)
 	assertHappyStartDAGStoreCalls(t, runStore)
+}
+
+func TestStartDAG_SchedulesRootWakeupsAfterPromote(t *testing.T) {
+	dagStore := &stubStartDAGStore{dag: &taskdag.DAG{DagKey: "dag-1"}}
+	runStore := &stubRunStore{promoteRows: 1, scheduleRootWakeupsRows: 1}
+	svc := makeStartDAGService(dagStore, runStore)
+
+	if _, err := svc.StartDAG(context.Background(), StartDAGRequest{
+		DagKey:        "dag-1",
+		TriggerSource: "manual",
+	}); err != nil {
+		t.Fatalf("StartDAG() error = %v, want nil", err)
+	}
+
+	if len(runStore.scheduleRootWakeupsCalls) != 1 {
+		t.Fatalf("ScheduleRootWakeups calls = %d, want 1", len(runStore.scheduleRootWakeupsCalls))
+	}
+	if got := runStore.scheduleRootWakeupsCalls[0]; got.DagKey != "dag-1" || got.RunID != 99 {
+		t.Fatalf("ScheduleRootWakeups call = %+v, want dag-1 run_id=99", got)
+	}
+	wantOrder := []string{"lock:dag-1", "create:dag-1", "clone:dag-1", "promote:dag-1", "schedule_roots:dag-1"}
+	if strings.Join(runStore.callOrder, "|") != strings.Join(wantOrder, "|") {
+		t.Fatalf("callOrder = %v, want %v", runStore.callOrder, wantOrder)
+	}
 }
 
 func TestStartDAG_UsesLockedDAGVersionSnapshot(t *testing.T) {
@@ -248,7 +292,7 @@ func TestStartDAG_LocksDAGBeforeCreateRun(t *testing.T) {
 	if err != nil {
 		t.Fatalf("StartDAG() error = %v, want nil", err)
 	}
-	want := []string{"lock:dag-1", "create:dag-1", "clone:dag-1", "promote:dag-1"}
+	want := []string{"lock:dag-1", "create:dag-1", "clone:dag-1", "promote:dag-1", "schedule_roots:dag-1"}
 	if strings.Join(runStore.callOrder, ",") != strings.Join(want, ",") {
 		t.Fatalf("call order = %v, want %v", runStore.callOrder, want)
 	}
@@ -339,11 +383,12 @@ func TestStartDAG_DAGNotFound(t *testing.T) {
 // L3 GetRun-first 策略：同 IdempotencyKey 重入 → INSERT 冲突 (run_key UNIQUE) →
 // tx 外 GetRun(run_key) 命中，路线 N 下 status=running 仍复用返已有 run。
 func TestStartDAG_IdempotencyKeyReplay_ReturnsExistingRun(t *testing.T) {
-	existing := &taskdag.Run{RunKey: "dag-1#run-abc", DagKey: "dag-1", DagVersionSnapshot: 7, Status: "running"}
+	existing := &taskdag.Run{ID: 123, RunKey: "dag-1#run-abc", DagKey: "dag-1", DagVersionSnapshot: 7, Status: "running"}
 	dagStore := &stubStartDAGStore{dag: &taskdag.DAG{DagKey: "dag-1"}}
 	runStore := &stubRunStore{
-		withTxErr:   uniqueViolationErr("task_dag_runs_run_key_key"),
-		getRunReply: existing, // GetRun 命中 running → 幂等路径
+		withTxErr:               uniqueViolationErr("task_dag_runs_run_key_key"),
+		getRunReply:             existing, // GetRun 命中 running → 幂等路径
+		scheduleRootWakeupsRows: 1,
 	}
 	svc := makeStartDAGService(dagStore, runStore)
 
@@ -362,6 +407,34 @@ func TestStartDAG_IdempotencyKeyReplay_ReturnsExistingRun(t *testing.T) {
 	}
 	if got := len(runStore.getRunCalls); got != 1 {
 		t.Errorf("GetRun fallback calls = %d, want 1", got)
+	}
+	if len(runStore.scheduleRootWakeupsCalls) != 1 {
+		t.Fatalf("ScheduleRootWakeups fallback calls = %d, want 1", len(runStore.scheduleRootWakeupsCalls))
+	}
+	if got := runStore.scheduleRootWakeupsCalls[0]; got.DagKey != "dag-1" || got.RunID != 123 {
+		t.Fatalf("ScheduleRootWakeups fallback call = %+v, want dag-1 run_id=123", got)
+	}
+}
+
+func TestStartDAG_IdempotencyKeyReplay_RootWakeupFailurePropagates(t *testing.T) {
+	existing := &taskdag.Run{ID: 123, RunKey: "dag-1#run-abc", DagKey: "dag-1", DagVersionSnapshot: 7, Status: "running"}
+	dagStore := &stubStartDAGStore{dag: &taskdag.DAG{DagKey: "dag-1"}}
+	runStore := &stubRunStore{
+		withTxErr:              uniqueViolationErr("task_dag_runs_run_key_key"),
+		getRunReply:            existing,
+		scheduleRootWakeupsErr: errors.New("wakeup store down"),
+	}
+	svc := makeStartDAGService(dagStore, runStore)
+
+	_, err := svc.StartDAG(context.Background(), StartDAGRequest{
+		DagKey:         "dag-1",
+		IdempotencyKey: "abc",
+	})
+	if err == nil {
+		t.Fatalf("StartDAG() error = nil, want root wakeup scheduling failure")
+	}
+	if !strings.Contains(err.Error(), "ScheduleRootWakeups existing run") {
+		t.Fatalf("StartDAG() error = %q, want ScheduleRootWakeups existing run context", err.Error())
 	}
 }
 

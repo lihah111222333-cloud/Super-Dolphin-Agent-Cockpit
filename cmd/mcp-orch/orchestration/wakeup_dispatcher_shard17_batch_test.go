@@ -32,6 +32,34 @@ func TestWakeupDispatcherProcessBatchSuccessMarksSent(t *testing.T) {
 	require.Empty(t, store.failCalls)
 }
 
+func TestWakeupDispatcherMarkLaunchedReportsFenceMiss(t *testing.T) {
+	now := time.Date(2026, 4, 30, 12, 0, 0, 0, time.UTC)
+	store := &dispatcherStubStore{markSentRowsSet: true, markSentRows: 0}
+	d, err := NewWakeupDispatcher(store, nil, nil, WakeupDispatcherConfig{})
+	require.NoError(t, err)
+	w := makeClaimedWakeup(7, "agent-1", 1, now)
+
+	require.False(t, d.markLaunched(context.Background(), &w, extractFence(&w)))
+	require.Len(t, store.markSentCalls, 1)
+}
+
+func TestWakeupDispatcherProcessBatchDoesNotCountMarkSentFenceMiss(t *testing.T) {
+	now := time.Date(2026, 4, 30, 12, 0, 0, 0, time.UTC)
+	store := &dispatcherStubStore{
+		claimReply:      []taskdag.Wakeup{makeClaimedWakeup(11, "agent-X", 1, now)},
+		markSentRowsSet: true,
+		markSentRows:    0,
+	}
+	launcher := &dispatcherStubLauncher{}
+	d, err := NewWakeupDispatcher(store, launcher, nil, WakeupDispatcherConfig{ClaimedBy: "mcp-orch-dispatcher-test"})
+	require.NoError(t, err)
+	n, err := d.ProcessBatch(context.Background())
+	require.NoError(t, err)
+	require.Equal(t, 0, n)
+	require.Len(t, launcher.calls, 1)
+	require.Len(t, store.markSentCalls, 1)
+}
+
 func TestWakeupDispatcherProcessBatchTransientFailureCallsRetry(t *testing.T) {
 	now := time.Date(2026, 4, 30, 12, 0, 0, 0, time.UTC)
 	store := &dispatcherStubStore{

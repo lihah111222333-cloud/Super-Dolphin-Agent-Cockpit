@@ -109,8 +109,9 @@ var stopSpawnedAgentMetrics stopSpawnedAgentSink = stopSpawnedAgentNoopSink{}
 //
 // The returned error is non-nil only when the underlying lookup or
 // stop call surfaced a real failure (StopResultSkippedLookupFailed /
-// StopResultFailed). Callers MUST NOT propagate it — it is provided
-// solely so the caller can include it in a structured log entry.
+// StopResultFailed). Subscriber callers log instead of propagating because
+// DAG advance is the source of truth; API termination callers may surface
+// stop failures after the run cancel fence is committed.
 // All other StopResult values come with err == nil.
 func StopSpawnedAgent(
 	ctx context.Context,

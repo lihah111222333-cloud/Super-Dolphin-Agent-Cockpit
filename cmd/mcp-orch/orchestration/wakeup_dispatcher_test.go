@@ -23,9 +23,10 @@ type dispatcherStubStore struct {
 	claimReply []taskdag.Wakeup
 	claimErr   error
 
-	markSentCalls []taskdag.MarkWakeupSentInput
-	markSentRows  int64
-	markSentErr   error
+	markSentCalls   []taskdag.MarkWakeupSentInput
+	markSentRows    int64
+	markSentRowsSet bool
+	markSentErr     error
 
 	retryCalls []taskdag.RetryWakeupInput
 	retryRows  int64 // <0 = 模拟 SQL attempt_count >= 8 触发的兜�?fail
@@ -147,6 +148,9 @@ func (s *dispatcherStubStore) MarkWakeupSent(_ context.Context, input taskdag.Ma
 	s.markSentCalls = append(s.markSentCalls, input)
 	if s.markSentErr != nil {
 		return 0, s.markSentErr
+	}
+	if s.markSentRowsSet {
+		return s.markSentRows, nil
 	}
 	if s.markSentRows == 0 {
 		return 1, nil

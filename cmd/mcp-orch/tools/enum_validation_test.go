@@ -3,6 +3,8 @@ package tools
 import (
 	"strings"
 	"testing"
+
+	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 )
 
 // TestEnumValidation_SchemaHandlerSingleSource 验证 schema 与 handler 共用
@@ -123,6 +125,25 @@ func TestStartDAGRequestFromInput(t *testing.T) {
 				t.Fatalf("trigger = %q, want %q", req.TriggerSource, tc.wantTrigger)
 			}
 		})
+	}
+}
+
+func TestTerminateDAGRequestFromInput(t *testing.T) {
+	req, err := terminateDAGRequestFromInput(TerminateDAGInput{
+		DagKey: " dag-1 ",
+		RunKey: " run-1 ",
+		Reason: " user_requested ",
+	})
+	if err != nil {
+		t.Fatalf("terminateDAGRequestFromInput() error = %v", err)
+	}
+	if req != (contract.TerminateDAGRequest{DagKey: "dag-1", RunKey: "run-1", Reason: "user_requested"}) {
+		t.Fatalf("request = %#v", req)
+	}
+
+	_, err = terminateDAGRequestFromInput(TerminateDAGInput{DagKey: "dag-1"})
+	if err == nil || !strings.Contains(err.Error(), "run_key") {
+		t.Fatalf("missing run_key error = %v, want run_key", err)
 	}
 }
 
