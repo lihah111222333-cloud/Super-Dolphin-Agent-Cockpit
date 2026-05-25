@@ -12,6 +12,7 @@ import { _optimisticThreadIds, OPTIMISTIC_LEAK_GUARD_MS } from './thread-optimis
 import { resolveBuiltinToolLaunchPolicy } from './builtin-tool-policy.js';
 import { compactFailureResult, dialogTimelineSignature, tokenUsageSignature, waitForCompactResponse } from './thread-compact-helpers.js';
 import { maybeHandleStalePromptKey } from './thread-stale-prompt.js';
+import { touchThreadUpdatedAt } from './thread-actions-timestamps.js';
 import { CODEX_IDENTITY_DEFAULTS, normalizeProviderConfigValue } from '../provider-config-options.js';
 import { dropSkillNamesCoveredByRefs } from '../utils/skill-ref-utils.js';
 
@@ -725,7 +726,7 @@ export async function sendMessage(ctx, threadId, prompt, attachments = [], optio
     // matches user intent ("I can see what I just typed"), and any error is
     // surfaced via the standard catch path below.
     const userText = input.filter((i) => i?.type === 'text').map((i) => i.text).join('\n').trim();
-    if (userText || attachments.length > 0) upsertOptimisticUserTimelineItem(ctx, threadId, userText, attachments);
+    if (userText || attachments.length > 0) { touchThreadUpdatedAt(ctx, threadId, new Date().toISOString()); upsertOptimisticUserTimelineItem(ctx, threadId, userText, attachments); }
     let turnStartRes;
     try {
       turnStartRes = await callAPI('turn/start', requestPayload);

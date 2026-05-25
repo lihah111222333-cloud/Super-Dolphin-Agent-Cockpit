@@ -151,10 +151,26 @@ func (s *service) threadPatchLocked(threadID, source string) uidto.UIThreadPatch
 	if runtimeEntry, ok := s.threadAgentRuntimeLocked(id); ok {
 		patch.AgentRuntime = runtimeEntry
 	}
+	if agentMeta := s.threadPatchAgentMetaLocked(id); len(agentMeta) > 0 {
+		patch.AgentMeta = agentMeta
+	}
 	s.applyThreadTimelineLocked(&patch, id)
 	s.applyThreadActivityStatsLocked(&patch, id)
 	s.applyThreadDiffLocked(&patch, id, source)
 	return patch
+}
+
+func (s *service) threadPatchAgentMetaLocked(threadID string) map[string]any {
+	recentByThread := latestTurnsByThread(s.state.ActiveTurn, s.state.RecentTurns)
+	turn, ok := recentByThread[strings.TrimSpace(threadID)]
+	if !ok {
+		return nil
+	}
+	ts := recentTurnTime(turn)
+	if ts.IsZero() {
+		return nil
+	}
+	return map[string]any{"lastActiveAt": ts.UTC().Format(time.RFC3339Nano)}
 }
 
 func (s *service) threadAgentRuntimeLocked(threadID string) (map[string]any, bool) {
