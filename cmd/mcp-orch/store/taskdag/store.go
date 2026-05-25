@@ -2,12 +2,16 @@ package taskdag
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/sqlc"
 	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
 )
+
+var ErrDAGDeleteActiveRun = errors.New("task_dag: delete blocked by active running run")
 
 type store struct {
 	q *sqlc.Queries
@@ -59,6 +63,37 @@ func (s *store) GetDAG(ctx context.Context, dagKey string) (*DAG, error) {
 	return queryOne(func() (sqlc.TaskDag, error) {
 		return s.q.GetTaskDag(ctx, dagKey)
 	}, "get", "task_dag", fromDAG)
+}
+
+func (s *store) DeleteDAG(ctx context.Context, dagKey string) (int64, error) {
+	key := strings.TrimSpace(dagKey)
+	if key == "" {
+		return 0, errors.New("delete task_dag: dag_key is required")
+	}
+	var rows int64
+	err := sqlc.WithTxOrReuse(ctx, s.q, func(txq *sqlc.Queries) error {
+		txStore := &store{q: txq}
+		if _, err := txStore.lockDAGForDelete(ctx, key); err != nil {
+			return err
+		}
+		active, err := txStore.CountRunningRunsByDagKey(ctx, key)
+		if err != nil {
+			return err
+		}
+		if active > 0 {
+			return ErrDAGDeleteActiveRun
+		}
+		if err := txStore.deleteDAGDependents(ctx, key); err != nil {
+			return err
+		}
+		deleted, err := txStore.deleteDAGRow(ctx, key)
+		if err != nil {
+			return err
+		}
+		rows = deleted
+		return nil
+	})
+	return rows, wrapTaskDAGError(err, "delete", "task_dag")
 }
 
 func (s *store) UpsertNode(ctx context.Context, node Node) (*Node, error) {

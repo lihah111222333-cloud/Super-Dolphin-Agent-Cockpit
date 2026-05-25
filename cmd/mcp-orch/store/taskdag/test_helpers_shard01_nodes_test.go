@@ -31,6 +31,89 @@ func (db *fakeTaskDAGDB) deleteTaskDagNode(args ...any) (int64, error) {
 	return 1, nil
 }
 
+func (db *fakeTaskDAGDB) lockTaskDAGForDelete(args ...any) ([]any, error) {
+	if len(args) != 1 {
+		return nil, fmt.Errorf("lock dag args len = %d, want 1", len(args))
+	}
+	dagKey, ok := args[0].(string)
+	if !ok {
+		return nil, fmt.Errorf("dag key arg = %T", args[0])
+	}
+	row, ok := db.dags[dagKey]
+	if !ok {
+		return nil, pgx.ErrNoRows
+	}
+	return []any{row.ID}, nil
+}
+
+func (db *fakeTaskDAGDB) deleteTaskDagWakeupsByDAG(args ...any) (int64, error) {
+	dagKey, err := deleteDAGKeyArg(args)
+	if err != nil {
+		return 0, err
+	}
+	var rows int64
+	for key, row := range db.wakeups {
+		if row.DagKey == dagKey {
+			delete(db.wakeups, key)
+			rows++
+		}
+	}
+	return rows, nil
+}
+
+func (db *fakeTaskDAGDB) deleteTaskDagNodesByDAG(args ...any) (int64, error) {
+	dagKey, err := deleteDAGKeyArg(args)
+	if err != nil {
+		return 0, err
+	}
+	var rows int64
+	for key, row := range db.nodes {
+		if row.DagKey == dagKey {
+			delete(db.nodes, key)
+			rows++
+		}
+	}
+	return rows, nil
+}
+
+func (db *fakeTaskDAGDB) deleteTaskDagRunsByDAG(args ...any) (int64, error) {
+	dagKey, err := deleteDAGKeyArg(args)
+	if err != nil {
+		return 0, err
+	}
+	var rows int64
+	for key, row := range db.runs {
+		if row.DagKey == dagKey {
+			delete(db.runs, key)
+			rows++
+		}
+	}
+	return rows, nil
+}
+
+func (db *fakeTaskDAGDB) deleteTaskDAGRow(args ...any) (int64, error) {
+	dagKey, err := deleteDAGKeyArg(args)
+	if err != nil {
+		return 0, err
+	}
+	if _, ok := db.dags[dagKey]; !ok {
+		return 0, nil
+	}
+	delete(db.dags, dagKey)
+	return 1, nil
+}
+
+func deleteDAGKeyArg(args []any) (string, error) {
+	if len(args) != 1 {
+		return "", fmt.Errorf("delete dag args len = %d, want 1", len(args))
+	}
+	dagKey, ok := args[0].(string)
+	if !ok {
+		return "", fmt.Errorf("dag key arg = %T", args[0])
+	}
+	return dagKey, nil
+}
+
 func (db *fakeTaskDAGDB) assignNode(args ...any) ([]any, error) {
 	if len(args) != 4 {
 		return nil, fmt.Errorf("assign node args len = %d, want 4", len(args))

@@ -10,6 +10,7 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/orchestration/nodeexec"
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/taskdag"
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
+	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 )
 
@@ -528,6 +529,29 @@ type StartDAGResponse = contract.StartDAGResponse
 
 // TerminateDAGRequest 是终止一次 DAG run 的入参。
 type TerminateDAGRequest = contract.TerminateDAGRequest
+
+func (s *service) DeleteDAG(ctx context.Context, req contract.DeleteDAGRequest) error {
+	dagKey := strings.TrimSpace(req.DagKey)
+	if dagKey == "" {
+		return errors.New("orchestration: dag key is required")
+	}
+	return s.withDAGStore(func(store taskdag.OrchestrationStore) error {
+		deleter, ok := any(store).(taskdag.DAGDeleteStore)
+		if ok {
+			rows, err := deleter.DeleteDAG(ctx, dagKey)
+			switch {
+			case errors.Is(err, taskdag.ErrDAGDeleteActiveRun):
+				return fmt.Errorf("%w: dag_key=%s", ErrDAGAlreadyRunning, dagKey)
+			case platformdb.IsNotFound(err) || (err == nil && rows == 0):
+				return fmt.Errorf("%w: dag_key=%s", ErrDAGNotFound, dagKey)
+			case err != nil:
+				return err
+			}
+			return nil
+		}
+		return errors.New("orchestration: dag delete store not configured")
+	})
+}
 
 // ApplyOps stays in dag.go because this package is already at the codeguard
 // file-count budget; typed op helpers live in dag_query.go.

@@ -87,6 +87,20 @@ func TestDAGRuntimeOnlyStartDAG(t *testing.T) {
 	}
 }
 
+func TestDAGRuntimeOnlyDeleteDAG(t *testing.T) {
+	t.Parallel()
+
+	dagRuntime := newDAGRuntimeOnlyStub()
+	svc := &service{dagRuntime: dagRuntime}
+
+	if err := svc.DeleteDAG(context.Background(), " dag-1 "); err != nil {
+		t.Fatalf("DeleteDAG() error = %v", err)
+	}
+	if dagRuntime.deleteDAGRequest != (contract.DeleteDAGRequest{DagKey: "dag-1"}) {
+		t.Fatalf("DeleteDAG() request = %#v", dagRuntime.deleteDAGRequest)
+	}
+}
+
 func newDAGRuntimeOnlyStub() *stubDashboardOrchestration {
 	return &stubDashboardOrchestration{
 		listDAGsResult: []contract.DAGSummary{{DagKey: "dag-1", Title: "Dag One", Status: "running"}},

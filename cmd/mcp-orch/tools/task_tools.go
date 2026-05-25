@@ -191,6 +191,10 @@ type TerminateDAGInput struct {
 	Reason string `json:"reason,omitempty"`
 }
 
+type DeleteDAGInput struct {
+	DagKey string `json:"dag_key"`
+}
+
 // GetRunInput 是 task_get_run MCP 工具的 typed 入参（T3.1）。
 // GetRunInput is the typed input for the task_get_run MCP tool (T3.1).
 type GetRunInput struct {
@@ -326,6 +330,19 @@ func HandleTerminateDAG(svc contract.OrchestrationService) ToolHandler {
 	})
 }
 
+func HandleDeleteDAG(svc contract.OrchestrationService) ToolHandler {
+	return makeHandler(svc, "orchestration service", func(ctx context.Context, in DeleteDAGInput) (any, error) {
+		dagKey, err := requireTrimmed(in.DagKey, "dag_key")
+		if err != nil {
+			return nil, err
+		}
+		if err := svc.DeleteDAG(ctx, contract.DeleteDAGRequest{DagKey: dagKey}); err != nil {
+			return nil, translateDeleteDAGError(dagKey, err)
+		}
+		return struct{}{}, nil
+	})
+}
+
 // startDAGRequestFromInput 把 StartDAGInput 校验为 contract.StartDAGRequest。
 // trigger_source 可选：非空必须命中 startDAGTriggerEnum（schema 单源 +
 // migration 0082 CHECK 双闸）。
@@ -419,6 +436,22 @@ func translateTerminateDAGError(req contract.TerminateDAGRequest, err error) err
 	return err
 }
 
+func translateDeleteDAGError(dagKey string, err error) error {
+	if errors.Is(err, orchestration.ErrDAGAlreadyRunning) {
+		return fmt.Errorf(
+			"无法删除：任务流程仍有运行中的 run，请先停止或等待完成 (dag_key=%s); cannot delete DAG with an active run (dag_key=%s): %w",
+			dagKey, dagKey, err,
+		)
+	}
+	if errors.Is(err, orchestration.ErrDAGNotFound) {
+		return fmt.Errorf(
+			"无法删除：DAG 不存在 (dag_key=%s); cannot delete missing DAG (dag_key=%s): %w",
+			dagKey, dagKey, err,
+		)
+	}
+	return err
+}
+
 // translateStartDAGError 把 service 层的 sentinel 包装成中英双语 MCP 错误。
 // 保留 errors.Is 可命中原 sentinel（依赖 fmt.Errorf %w）。
 //
@@ -494,6 +527,9 @@ func taskToolDefinitions(svc contract.OrchestrationService) []ToolDefinition {
 			"run_key": StringSchema("Run key to cancel."),
 			"reason":  StringSchema("Optional cancellation reason."),
 		}, "dag_key", "run_key"), HandleTerminateDAG(svc)),
+		defineTool("task_delete_dag", "Delete a DAG template and its completed run history. Refuses deletion while any run is active.", ObjectSchema(map[string]Schema{
+			"dag_key": StringSchema("DAG key to delete."),
+		}, "dag_key"), HandleDeleteDAG(svc)),
 		// ---- reads ----
 		defineTool("task_list_dags", "List DAGs for console views and final_output retention checks.", ObjectSchema(map[string]Schema{
 			"status":  StringSchema("Optional status filter."),

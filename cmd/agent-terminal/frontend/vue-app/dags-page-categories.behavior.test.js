@@ -84,4 +84,30 @@ describe('DagsPage category filters', () => {
     expect(css).toContain('flex-wrap: wrap;');
     expect(css).toContain('overflow-wrap: anywhere;');
   });
+
+  it('allows selecting empty categories and shows the category empty state', () => {
+    const props = reactive({
+      items: [
+        { dag_key: 'manual-done', title: 'Manual Done', status: 'ready', trigger: 'manual', latest_run: { run_key: 'run-4', status: 'done' } },
+      ],
+      emptyText: '暂无 DAG',
+    });
+
+    const vm = DagsPage.setup(props, { emit: vi.fn() });
+
+    expect(vm.categoryTabs.value.map((tab) => `${tab.key}:${tab.count}`)).toEqual(['running:0', 'scheduled:0', 'history:1']);
+    expect(vm.activeCategory.value).toBe('history');
+
+    vm.setCategory('running');
+    expect(vm.activeCategory.value).toBe('running');
+    expect(vm.visibleRows.value).toEqual([]);
+    expect(vm.selectedRow.value).toBeNull();
+
+    vm.setCategory('scheduled');
+    expect(vm.activeCategory.value).toBe('scheduled');
+    expect(vm.visibleRows.value).toEqual([]);
+
+    expect(DagsPage.template).not.toContain(':disabled="tab.count === 0"');
+    expect(DagsPage.template).toContain('data-testid="dag-category-empty"');
+  });
 });

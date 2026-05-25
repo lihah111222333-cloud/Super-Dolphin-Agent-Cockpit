@@ -142,6 +142,10 @@ type DAGVersionReader interface {
 	GetDAGVersion(ctx context.Context, dagKey string) (int64, error)
 }
 
+type DAGDeleteStore interface {
+	DeleteDAG(ctx context.Context, dagKey string) (int64, error)
+}
+
 type DAGLockStore interface {
 	GetDAGForUpdate(ctx context.Context, dagKey string) (*DAG, error)
 	GetNodesForUpdate(ctx context.Context, dagKey string) ([]Node, error)

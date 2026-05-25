@@ -113,6 +113,10 @@ type dagTerminateParams struct {
 	Reason string `json:"reason,omitempty"`
 }
 
+type dagDeleteParams struct {
+	DAGKey string `json:"dagKey,omitempty"`
+}
+
 type dagApplyOpsParams struct {
 	DAGKey      string          `json:"dagKey,omitempty"`
 	BaseVersion *int64          `json:"baseVersion"`
@@ -346,6 +350,12 @@ func registerDashboardDAGHandlers(m handler.Map, svc Service) {
 	})
 	m["dashboard/dagTerminate"] = platformrpc.StrictHandler(func(ctx context.Context, p dagTerminateParams) (any, error) {
 		if err := svc.TerminateDAG(ctx, p.DAGKey, p.RunKey, p.Reason); err != nil {
+			return nil, err
+		}
+		return struct{}{}, nil
+	})
+	m["dashboard/dagDelete"] = platformrpc.StrictHandler(func(ctx context.Context, p dagDeleteParams) (any, error) {
+		if err := svc.DeleteDAG(ctx, p.DAGKey); err != nil {
 			return nil, err
 		}
 		return struct{}{}, nil

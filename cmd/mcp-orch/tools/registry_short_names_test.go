@@ -28,7 +28,7 @@ func TestRegistryAdvertisesDAGConsoleReadTools(t *testing.T) {
 		got[tool.Name] = true
 	}
 
-	for _, want := range []string{"task_list_dags", "task_get_dag", "task_list_runs", "task_start_dag", "task_terminate_dag"} {
+	for _, want := range []string{"task_list_dags", "task_get_dag", "task_list_runs", "task_start_dag", "task_terminate_dag", "task_delete_dag"} {
 		if !got[want] {
 			t.Fatalf("registry.List() missing DAG console tool %q; got %#v", want, got)
 		}
