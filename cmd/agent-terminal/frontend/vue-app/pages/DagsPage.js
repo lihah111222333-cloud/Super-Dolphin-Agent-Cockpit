@@ -146,7 +146,13 @@ function hasFinalOutput(item) {
 const STARTABLE_DAG_STATUSES = new Set(['draft', 'ready']);
 const STARTABLE_DAG_TRIGGERS = new Set(['manual', 'scheduled', 'schedule', 'cron']);
 const ACTIVE_RUN_STATUSES = new Set(['running']);
+const CATEGORY_ACTIVE_RUN_STATUSES = new Set(['running', 'starting', 'queued', 'awaiting_verify']);
 const TERMINAL_DAG_STATUSES = new Set(['done', 'failed', 'cancelled', 'canceled', 'skipped']);
+const DAG_CATEGORY_DEFS = [
+  { key: 'running', label: '进行中' },
+  { key: 'scheduled', label: '定时任务' },
+  { key: 'history', label: '历史记录' },
+];
 
 function dagKeyFromItem(item) {
   const key = textValue(item?.dag_key, item?.dagKey, item?.key, item?.id);
@@ -271,6 +277,27 @@ function normalizeDag(item, index) {
   };
 }
 
+function rowHasActiveRun(row) {
+  return CATEGORY_ACTIVE_RUN_STATUSES.has(dagStatusOf([row?.raw]))
+    || collectListRuns([row?.raw]).some((run) => CATEGORY_ACTIVE_RUN_STATUSES.has(runStatusOf(run)));
+}
+
+function rowIsScheduled(row) {
+  const trigger = dagTriggerOf([row?.raw]);
+  return trigger === 'scheduled' || trigger === 'schedule' || trigger === 'cron';
+}
+
+function rowMatchesCategory(row, category) {
+  if (category === 'running') return rowHasActiveRun(row);
+  if (category === 'scheduled') return rowIsScheduled(row);
+  if (category === 'history') return !rowHasActiveRun(row) && !rowIsScheduled(row);
+  return false;
+}
+
+function firstAvailableCategory(tabs) {
+  return tabs.find((tab) => tab.count > 0)?.key || '';
+}
+
 export const DagsPage = {
   name: 'DagsPage',
   components: {
@@ -300,7 +327,17 @@ export const DagsPage = {
       const detailLabel = detailLatestRunLabel(detailState, dagKey);
       return detailLabel ? { ...row, latestRunLabel: detailLabel } : row;
     }));
-    const selectedRow = computed(() => rows.value.find((row) => row.listKey === selectedKey.value) || rows.value[0] || null);
+    const activeCategory = ref('');
+    const categoryTabs = computed(() => DAG_CATEGORY_DEFS.map((def) => ({
+      ...def,
+      count: rows.value.filter((row) => rowMatchesCategory(row, def.key)).length,
+    })));
+    const visibleRows = computed(() => (
+      activeCategory.value
+        ? rows.value.filter((row) => rowMatchesCategory(row, activeCategory.value))
+        : []
+    ));
+    const selectedRow = computed(() => visibleRows.value.find((row) => row.listKey === selectedKey.value) || visibleRows.value[0] || null);
     const selectedDagKey = computed(() => selectedRow.value?.key === '-' ? '' : selectedRow.value?.key || '');
     const selectedDagItems = computed(() => dagCandidates(selectedRow.value, detailState, selectedDagKey.value));
     const selectedFinalOutput = computed(() => detailState.finalOutput);
@@ -352,18 +389,39 @@ export const DagsPage = {
     const runsErrorText = computed(() => userErrorText(detailState.runsError, '无法加载运行历史，请稍后重试。'));
 
     watch(
-      () => rows.value.map((row) => row.listKey).join('\n'),
+      () => categoryTabs.value.map((tab) => `${tab.key}:${tab.count}`).join('|'),
       () => {
         if (!rows.value.length) {
+          activeCategory.value = '';
+          return;
+        }
+        const activeTab = categoryTabs.value.find((tab) => tab.key === activeCategory.value);
+        if (!activeTab || activeTab.count === 0) {
+          activeCategory.value = firstAvailableCategory(categoryTabs.value);
+        }
+      },
+      { immediate: true, flush: 'sync' },
+    );
+
+    watch(
+      () => visibleRows.value.map((row) => row.listKey).join('\n'),
+      () => {
+        if (!visibleRows.value.length) {
           selectedKey.value = '';
           return;
         }
-        if (!rows.value.some((row) => row.listKey === selectedKey.value)) {
-          selectedKey.value = rows.value[0].listKey;
+        if (!visibleRows.value.some((row) => row.listKey === selectedKey.value)) {
+          selectedKey.value = visibleRows.value[0].listKey;
         }
       },
-      { immediate: true },
+      { immediate: true, flush: 'sync' },
     );
+
+    function setCategory(category) {
+      const tab = categoryTabs.value.find((item) => item.key === category);
+      if (!tab || tab.count === 0) return;
+      activeCategory.value = tab.key;
+    }
 
     function selectDag(row) {
       if (!row) return;
@@ -411,6 +469,8 @@ export const DagsPage = {
     }
 
     return {
+      activeCategory,
+      categoryTabs,
       dagDetail,
       detailErrorText,
       detailState,
@@ -425,6 +485,7 @@ export const DagsPage = {
       selectedFinalOutput,
       selectDag,
       selectRun,
+      setCategory,
       stopActionVisible,
       stopDisabledReason,
       stopSelectedDag,
@@ -434,6 +495,7 @@ export const DagsPage = {
       startSelectedDag,
       terminateErrorText,
       terminateWarningText,
+      visibleRows,
     };
   },
   template: `
@@ -464,27 +526,47 @@ export const DagsPage = {
             <div class="es-icon">D</div>
             <h3>{{ emptyText }}</h3>
           </div>
-          <div v-else class="dag-console-list">
-            <button
-              v-for="(row, idx) in rows"
-              :key="row.listKey"
-              type="button"
-              class="dag-console-row"
-              :class="{ active: selectedRow && selectedRow.listKey === row.listKey }"
-              :data-testid="'dag-console-row-' + idx"
-              @click="selectDag(row)"
-            >
-              <span class="dag-console-row-main">
-                <span class="dag-console-title">{{ row.title }}</span>
-                <span class="dag-console-key">{{ row.latestRunLabel === '-' ? '暂无运行' : '最近运行：' + row.latestRunLabel }}</span>
-              </span>
-              <span class="dag-console-row-meta">
-                <span class="dag-console-status">{{ row.status }}</span>
-                <span class="dag-console-trigger">{{ row.triggerLabel }}</span>
-                <span class="dag-console-run">{{ row.latestRunLabel }}</span>
-                <span v-if="row.hasFinalOutput" class="dag-console-final" data-testid="dag-console-final-marker">最终结果</span>
-              </span>
-            </button>
+          <div v-else class="dag-console-list-wrap">
+            <div class="dag-category-tabs" data-testid="dag-category-tabs" role="tablist" aria-label="任务流程分类">
+              <button
+                v-for="tab in categoryTabs"
+                :key="tab.key"
+                type="button"
+                role="tab"
+                class="dag-category-tab"
+                :class="{ active: activeCategory === tab.key }"
+                :disabled="tab.count === 0"
+                :aria-selected="activeCategory === tab.key ? 'true' : 'false'"
+                :data-testid="'dag-category-tab-' + tab.key"
+                @click="setCategory(tab.key)"
+              >
+                <span>{{ tab.label }}</span>
+                <span class="dag-category-count">{{ tab.count }}</span>
+              </button>
+            </div>
+            <div v-if="visibleRows.length === 0" class="dag-console-muted dag-console-category-empty" data-testid="dag-category-empty">当前分类暂无任务流程</div>
+            <div v-else class="dag-console-list">
+              <button
+                v-for="(row, idx) in visibleRows"
+                :key="row.listKey"
+                type="button"
+                class="dag-console-row"
+                :class="{ active: selectedRow && selectedRow.listKey === row.listKey }"
+                :data-testid="'dag-console-row-' + idx"
+                @click="selectDag(row)"
+              >
+                <span class="dag-console-row-main">
+                  <span class="dag-console-title">{{ row.title }}</span>
+                  <span class="dag-console-key">{{ row.latestRunLabel === '-' ? '暂无运行' : '最近运行：' + row.latestRunLabel }}</span>
+                </span>
+                <span class="dag-console-row-meta">
+                  <span class="dag-console-status">{{ row.status }}</span>
+                  <span class="dag-console-trigger">{{ row.triggerLabel }}</span>
+                  <span class="dag-console-run">{{ row.latestRunLabel }}</span>
+                  <span v-if="row.hasFinalOutput" class="dag-console-final" data-testid="dag-console-final-marker">最终结果</span>
+                </span>
+              </button>
+            </div>
           </div>
         </aside>
 
