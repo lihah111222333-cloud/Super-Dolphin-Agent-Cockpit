@@ -3,31 +3,42 @@ import { deriveChatAgents, deriveCmdAgents } from './thread-view.model.js';
 import { parseEpochMillis, parseThreadCreatedAtFromID } from './thread-time-utils.js';
 
 export function createThreadViewHelpers(state) {
-  function resolveThreadCreatedAt(thread) {
+  function resolveMaxTimestamp(source, keys) {
+    if (!source || typeof source !== 'object') return 0;
+    let max = 0;
+    for (const key of keys) {
+      const ts = parseEpochMillis(source[key]);
+      if (ts > max) max = ts;
+    }
+    return max;
+  }
+
+  function resolveThreadActivityAt(thread) {
     const id = (thread?.id || thread || '').toString().trim();
     if (!id) return 0;
-    if (thread && typeof thread === 'object') {
-      for (const key of ['createdAt', 'created_at', 'startedAt', 'started_at']) {
-        const ts = parseEpochMillis(thread[key]);
-        if (ts > 0) return ts;
-      }
-      for (const key of ['updatedAt', 'updated_at']) {
-        const ts = parseEpochMillis(thread[key]);
-        if (ts > 0) return ts;
-      }
-    }
     const meta = state.agentMetaById?.[id];
-    if (meta && typeof meta === 'object') {
-      for (const key of ['createdAt', 'created_at', 'startedAt', 'started_at']) {
-        const ts = parseEpochMillis(meta[key]);
-        if (ts > 0) return ts;
-      }
-      for (const key of ['updatedAt', 'updated_at']) {
-        const ts = parseEpochMillis(meta[key]);
-        if (ts > 0) return ts;
-      }
+    const threadActivityAt = resolveMaxTimestamp(thread, ['updatedAt', 'updated_at']);
+    let activityAt = threadActivityAt;
+    if (!isThreadWorking(thread, id)) {
+      const recentTurnAt = resolveMaxTimestamp(meta, ['lastActiveAt', 'last_active_at']);
+      if (recentTurnAt > activityAt) activityAt = recentTurnAt;
     }
+    if (activityAt > 0) return activityAt;
+    const createdKeys = ['createdAt', 'created_at', 'startedAt', 'started_at'];
+    const createdAt = Math.max(resolveMaxTimestamp(thread, createdKeys), resolveMaxTimestamp(meta, createdKeys));
+    if (createdAt > 0) return createdAt;
     return parseThreadCreatedAtFromID(id);
+  }
+
+  function isThreadWorking(thread, id) {
+    const raw = (state.statuses?.[id] || thread?.threadStatus || thread?.state || thread?.status || '').toString().trim().toLowerCase();
+    return raw === 'starting'
+      || raw === 'thinking'
+      || raw === 'responding'
+      || raw === 'running'
+      || raw === 'editing'
+      || raw === 'waiting'
+      || raw === 'syncing';
   }
 
   function displayName(thread) {
@@ -42,11 +53,11 @@ export function createThreadViewHelpers(state) {
     const list = Array.isArray(threads) ? threads.slice() : [];
     if (list.length <= 1) return list;
     const indexByID = new Map();
-    const createdAtByID = new Map();
+    const activityAtByID = new Map();
     for (let i = 0; i < list.length; i += 1) {
       const id = (list[i]?.id || '').toString().trim();
       indexByID.set(id, i);
-      createdAtByID.set(id, resolveThreadCreatedAt(list[i]));
+      activityAtByID.set(id, resolveThreadActivityAt(list[i]));
     }
     list.sort((left, right) => {
       const leftID = (left?.id || '').toString().trim();
@@ -58,9 +69,9 @@ export function createThreadViewHelpers(state) {
       if (leftPinned !== rightPinned) return leftPinned ? -1 : 1;
       if (leftPinned && rightPinned && leftPinnedAt !== rightPinnedAt) return rightPinnedAt - leftPinnedAt;
       if (!leftPinned && !rightPinned) {
-        const leftCreatedAt = createdAtByID.get(leftID) ?? 0;
-        const rightCreatedAt = createdAtByID.get(rightID) ?? 0;
-        if (leftCreatedAt !== rightCreatedAt) return rightCreatedAt - leftCreatedAt;
+        const leftActivityAt = activityAtByID.get(leftID) ?? 0;
+        const rightActivityAt = activityAtByID.get(rightID) ?? 0;
+        if (leftActivityAt !== rightActivityAt) return rightActivityAt - leftActivityAt;
       }
       return (indexByID.get(leftID) ?? 0) - (indexByID.get(rightID) ?? 0);
     });
