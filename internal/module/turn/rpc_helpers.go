@@ -64,7 +64,7 @@ func resolveTurnRPCCWD(requestCWD string, session prepareInputSession, threadRun
 		}
 	}
 	if authoritativeCWD == "" {
-		return requestCWD, nil
+		return "", platformrpc.ErrInvalidParams("turn cwd missing: thread runtime config and session runtime config do not define cwd")
 	}
 	if requestCWD != "" && !sameTurnRPCCWD(requestCWD, authoritativeCWD) {
 		return "", platformrpc.ErrInvalidParams(fmt.Sprintf("turn/start cwd mismatch: request cwd %q does not match thread cwd %q", requestCWD, authoritativeCWD))
