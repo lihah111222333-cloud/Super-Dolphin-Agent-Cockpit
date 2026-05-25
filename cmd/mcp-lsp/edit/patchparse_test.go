@@ -99,6 +99,46 @@ func TestParseMultiAcceptsLenientHeaders(t *testing.T) {
 	}
 }
 
+func TestParseMultiAcceptsUnifiedDiffFileHeaders(t *testing.T) {
+	patch := "--- a/file.go\n+++ b/file.go\n@@ -1,2 +1,2 @@\n-old\n+new\n context\n"
+	hunks, err := ParseMulti(patch)
+	if err != nil {
+		t.Fatalf("ParseMulti returned error: %v", err)
+	}
+	if len(hunks) != 1 {
+		t.Fatalf("len(hunks) = %d, want 1", len(hunks))
+	}
+	if hunks[0].OldText != "old\n" {
+		t.Fatalf("OldText = %q, want old text", hunks[0].OldText)
+	}
+	if hunks[0].NewText != "new\n" {
+		t.Fatalf("NewText = %q, want new text", hunks[0].NewText)
+	}
+	if !reflect.DeepEqual(hunks[0].AfterContext, []string{"context"}) {
+		t.Fatalf("AfterContext = %#v, want context", hunks[0].AfterContext)
+	}
+}
+
+func TestParseMultiAcceptsApplyPatchUpdateFileWrapper(t *testing.T) {
+	patch := "*** Begin Patch\n*** Update File: file.go\n@@\n-old\n+new\n context\n*** End Patch\n"
+	hunks, err := ParseMulti(patch)
+	if err != nil {
+		t.Fatalf("ParseMulti returned error: %v", err)
+	}
+	if len(hunks) != 1 {
+		t.Fatalf("len(hunks) = %d, want 1", len(hunks))
+	}
+	if hunks[0].OldText != "old\n" {
+		t.Fatalf("OldText = %q, want old text", hunks[0].OldText)
+	}
+	if hunks[0].NewText != "new\n" {
+		t.Fatalf("NewText = %q, want new text", hunks[0].NewText)
+	}
+	if !reflect.DeepEqual(hunks[0].AfterContext, []string{"context"}) {
+		t.Fatalf("AfterContext = %#v, want context", hunks[0].AfterContext)
+	}
+}
+
 func TestParseMultiRejectsLeadingImplicitHunk(t *testing.T) {
 	_, err := ParseMulti("-old\n+new\n@@ second\n-old2\n+new2\n")
 	if !errors.Is(err, ErrInvalidPatch) {
