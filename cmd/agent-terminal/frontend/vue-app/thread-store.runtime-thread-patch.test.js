@@ -190,6 +190,248 @@ describe('thread store runtime thread patch', () => {
     }));
   });
 
+  it('updates thread timestamps from same name/state patches and reorders chat threads by latest updatedAt', () => {
+    const store = useThreadStore();
+    const repliedThreadId = 'thread-old-replied';
+    const newerCreatedThreadId = 'thread-newer-created';
+    store.state.activeThreadId = repliedThreadId;
+    store.state.threads = [
+      {
+        id: repliedThreadId,
+        name: 'Old with latest reply',
+        state: 'idle',
+        createdAt: '2026-05-22T10:00:00Z',
+        updatedAt: '2026-05-22T10:00:00Z',
+      },
+      {
+        id: newerCreatedThreadId,
+        name: 'Newer created',
+        state: 'idle',
+        createdAt: '2026-05-22T10:04:00Z',
+        updatedAt: '2026-05-22T10:04:00Z',
+      },
+    ];
+
+    store.handleBridgeEvent({
+      method: 'ui/thread/patch',
+      payload: {
+        threadId: repliedThreadId,
+        source: 'item/agentMessage/delta',
+        sequence: 22,
+        thread: {
+          id: repliedThreadId,
+          name: 'Old with latest reply',
+          state: 'idle',
+          updatedAt: '2026-05-22T10:05:00Z',
+        },
+        status: 'idle',
+      },
+    });
+
+    expect(store.state.threads.find((thread) => thread.id === repliedThreadId)?.updatedAt).toBe('2026-05-22T10:05:00Z');
+    expect(store.getThreadsByMode('chat').map((thread) => thread.id)).toEqual([repliedThreadId, newerCreatedThreadId]);
+  });
+
+  it('does not reorder chat threads for running stream patches with newer activity timestamps', () => {
+    const store = useThreadStore();
+    const runningThreadId = 'thread-running';
+    const idleThreadId = 'thread-idle';
+    store.state.activeThreadId = runningThreadId;
+    store.state.threads = [
+      {
+        id: runningThreadId,
+        name: 'Running',
+        state: 'running',
+        createdAt: '2026-05-22T10:00:00Z',
+        updatedAt: '2026-05-22T10:00:00Z',
+      },
+      {
+        id: idleThreadId,
+        name: 'Idle completion',
+        state: 'idle',
+        createdAt: '2026-05-22T10:04:00Z',
+        updatedAt: '2026-05-22T10:04:00Z',
+      },
+    ];
+    store.state.agentMetaById = {
+      [idleThreadId]: { lastActiveAt: '2026-05-22T10:04:00Z' },
+    };
+
+    store.handleBridgeEvent({
+      method: 'ui/thread/patch',
+      payload: {
+        threadId: runningThreadId,
+        source: 'item/agentMessage/delta',
+        sequence: 23,
+        thread: {
+          id: runningThreadId,
+          name: 'Running',
+          state: 'running',
+          updatedAt: '2026-05-22T10:05:00Z',
+        },
+        status: 'running',
+        agentMeta: { lastActiveAt: '2026-05-22T10:05:00Z' },
+      },
+    });
+
+    expect(store.state.agentMetaById[runningThreadId]?.lastActiveAt).toBe('2026-05-22T10:05:00Z');
+    expect(store.state.threads.find((thread) => thread.id === runningThreadId)?.updatedAt).toBe('2026-05-22T10:00:00Z');
+    expect(store.getThreadsByMode('chat').map((thread) => thread.id)).toEqual([idleThreadId, runningThreadId]);
+  });
+
+  it('does not let turn started patches overwrite optimistic send ordering', () => {
+    const store = useThreadStore();
+    const sendingThreadId = 'thread-sending';
+    const idleThreadId = 'thread-idle';
+    store.state.activeThreadId = sendingThreadId;
+    store.state.threads = [
+      {
+        id: sendingThreadId,
+        name: 'Sending',
+        state: 'running',
+        createdAt: '2026-05-22T10:00:00Z',
+        updatedAt: '2026-05-22T10:06:00Z',
+      },
+      {
+        id: idleThreadId,
+        name: 'Idle completion',
+        state: 'idle',
+        createdAt: '2026-05-22T10:05:00Z',
+        updatedAt: '2026-05-22T10:05:00Z',
+      },
+    ];
+
+    store.handleBridgeEvent({
+      method: 'ui/thread/patch',
+      payload: {
+        threadId: sendingThreadId,
+        source: 'turn/started',
+        sequence: 24,
+        thread: {
+          id: sendingThreadId,
+          name: 'Sending',
+          state: 'thinking',
+          updatedAt: '2026-05-22T10:00:00Z',
+        },
+        status: 'thinking',
+        agentMeta: { lastActiveAt: '2026-05-22T10:00:00Z' },
+      },
+    });
+
+    expect(store.state.threads.find((thread) => thread.id === sendingThreadId)?.updatedAt).toBe('2026-05-22T10:06:00Z');
+    expect(store.getThreadsByMode('chat').map((thread) => thread.id)).toEqual([sendingThreadId, idleThreadId]);
+  });
+
+  it('reorders chat threads for idle patches with newer agent activity', () => {
+    const store = useThreadStore();
+    const completedThreadId = 'thread-completed';
+    const olderThreadId = 'thread-older';
+    store.state.activeThreadId = completedThreadId;
+    store.state.threads = [
+      {
+        id: olderThreadId,
+        name: 'Older completion',
+        state: 'idle',
+        createdAt: '2026-05-22T10:05:00Z',
+        updatedAt: '2026-05-22T10:05:00Z',
+      },
+      {
+        id: completedThreadId,
+        name: 'Completed',
+        state: 'running',
+        createdAt: '2026-05-22T10:00:00Z',
+        updatedAt: '2026-05-22T10:00:00Z',
+      },
+    ];
+    store.state.agentMetaById = {
+      [olderThreadId]: { lastActiveAt: '2026-05-22T10:05:00Z' },
+    };
+
+    store.handleBridgeEvent({
+      method: 'ui/thread/patch',
+      payload: {
+        threadId: completedThreadId,
+        source: 'turn/completed',
+        sequence: 24,
+        thread: {
+          id: completedThreadId,
+          name: 'Completed',
+          state: 'idle',
+        },
+        status: 'idle',
+        agentMeta: { lastActiveAt: '2026-05-22T10:06:00Z' },
+      },
+    });
+
+    expect(store.state.agentMetaById[completedThreadId]?.lastActiveAt).toBe('2026-05-22T10:06:00Z');
+    expect(store.getThreadsByMode('chat').map((thread) => thread.id)).toEqual([completedThreadId, olderThreadId]);
+  });
+
+  it('merges live agent metadata without dropping snapshot aliases', () => {
+    const store = useThreadStore();
+    const threadId = 'thread-completed';
+    store.state.threads = [{ id: threadId, name: threadId, state: 'idle' }];
+    store.state.agentMetaById = {
+      [threadId]: { alias: 'Readable name' },
+    };
+
+    store.handleBridgeEvent({
+      method: 'ui/thread/patch',
+      payload: {
+        threadId,
+        source: 'turn/completed',
+        sequence: 25,
+        thread: { id: threadId, name: threadId, state: 'idle' },
+        status: 'idle',
+        agentMeta: { lastActiveAt: '2026-05-22T10:06:00Z' },
+      },
+    });
+
+    expect(store.state.agentMetaById[threadId]).toEqual({
+      alias: 'Readable name',
+      lastActiveAt: '2026-05-22T10:06:00Z',
+    });
+  });
+
+  it('does not preserve stale lifecycle fields when applying a normalized live patch', () => {
+    const store = useThreadStore();
+    const threadId = 'thread-reactivated';
+    store.state.threads = [{
+      id: threadId,
+      name: 'Reactivated',
+      state: 'archived',
+      lifecycleStatus: 'archived',
+      createdAt: '2026-05-22T10:00:00Z',
+      updatedAt: '2026-05-22T10:00:00Z',
+    }];
+
+    store.handleBridgeEvent({
+      method: 'ui/thread/patch',
+      payload: {
+        threadId,
+        source: 'agent/launched',
+        sequence: 23,
+        thread: {
+          id: threadId,
+          name: 'Reactivated',
+          state: 'running',
+          updatedAt: '2026-05-22T10:05:00Z',
+        },
+        status: 'running',
+      },
+    });
+
+    const updated = store.state.threads.find((thread) => thread.id === threadId);
+    expect(updated).toEqual(expect.objectContaining({
+      id: threadId,
+      name: 'Reactivated',
+      state: 'running',
+      createdAt: '2026-05-22T10:00:00Z',
+      updatedAt: '2026-05-22T10:05:00Z',
+    }));
+    expect(updated).not.toHaveProperty('lifecycleStatus');
+  });
+
   it('does not let inactive child patches override the current selection', async () => {
     const store = useThreadStore();
     const currentThreadId = 'thread-current';
