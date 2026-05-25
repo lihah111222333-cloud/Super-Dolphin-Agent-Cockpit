@@ -225,6 +225,13 @@ var toolErrorClassifiers = []toolErrorClassifier{
 		},
 	},
 	{
+		code: "invalid_input",
+		hint: staticToolHint("Fix the node status transition; use ready → running → done for successful manual completion."),
+		match: func(_ error, message string, toolName string) bool {
+			return isTaskUpdateNodeTool(toolName) && strings.HasPrefix(strings.TrimSpace(message), "transition:")
+		},
+	},
+	{
 		code: "dependency_missing",
 		hint: staticToolHint("Install ast-grep or ensure sg is available in PATH."),
 		match: func(_ error, message string, _ string) bool {
@@ -323,6 +330,10 @@ func isLaunchAgentTool(toolName string) bool {
 	default:
 		return false
 	}
+}
+
+func isTaskUpdateNodeTool(toolName string) bool {
+	return strings.ToLower(strings.TrimSpace(toolName)) == "task_update_node"
 }
 
 func firstNonEmptyString(values ...string) string {
