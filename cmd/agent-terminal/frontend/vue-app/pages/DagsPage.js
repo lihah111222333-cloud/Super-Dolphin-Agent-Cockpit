@@ -328,6 +328,7 @@ export const DagsPage = {
       return detailLabel ? { ...row, latestRunLabel: detailLabel } : row;
     }));
     const activeCategory = ref('');
+    const categoryManuallySelected = ref(false);
     const categoryTabs = computed(() => DAG_CATEGORY_DEFS.map((def) => ({
       ...def,
       count: rows.value.filter((row) => rowMatchesCategory(row, def.key)).length,
@@ -386,18 +387,30 @@ export const DagsPage = {
     const startErrorText = computed(() => userErrorText(detailState.startError, '运行任务流程失败，请稍后重试。'));
     const terminateErrorText = computed(() => userErrorText(detailState.terminateError, '停止任务流程失败，请稍后重试。'));
     const terminateWarningText = computed(() => (detailState.terminateWarning ? '任务流程已停止，但部分子代理停止失败。' : ''));
+    const deleteErrorText = computed(() => userErrorText(detailState.deleteError, '删除任务流程失败，请稍后重试。'));
     const runsErrorText = computed(() => userErrorText(detailState.runsError, '无法加载运行历史，请稍后重试。'));
+    const deleteDisabledReason = computed(() => {
+      if (!selectedRow.value || !selectedDagKey.value) return '未选择任务流程';
+      if (props.loading || detailState.loading) return '任务流程详情加载中';
+      if (detailState.error) return '任务流程详情不可用，不能删除';
+      if (detailState.runsError) return '运行历史不可用，无法确认是否正在运行';
+      if (detailState.deleting) return '删除中';
+      if (hasActiveRun(selectedDagItems.value, detailState, selectedDagKey.value)) return '已有运行正在进行，不能删除';
+      return '';
+    });
 
     watch(
       () => categoryTabs.value.map((tab) => `${tab.key}:${tab.count}`).join('|'),
       () => {
         if (!rows.value.length) {
           activeCategory.value = '';
+          categoryManuallySelected.value = false;
           return;
         }
         const activeTab = categoryTabs.value.find((tab) => tab.key === activeCategory.value);
-        if (!activeTab || activeTab.count === 0) {
+        if (!activeTab || (!categoryManuallySelected.value && activeTab.count === 0)) {
           activeCategory.value = firstAvailableCategory(categoryTabs.value);
+          categoryManuallySelected.value = false;
         }
       },
       { immediate: true, flush: 'sync' },
@@ -419,8 +432,9 @@ export const DagsPage = {
 
     function setCategory(category) {
       const tab = categoryTabs.value.find((item) => item.key === category);
-      if (!tab || tab.count === 0) return;
+      if (!tab) return;
       activeCategory.value = tab.key;
+      categoryManuallySelected.value = true;
     }
 
     function selectDag(row) {
@@ -448,6 +462,14 @@ export const DagsPage = {
       if (!detailState.terminateError) emit('refresh-dags');
     }
 
+    async function deleteSelectedDag() {
+      if (deleteDisabledReason.value) return;
+      const confirmed = globalThis.confirm(`删除任务流程「${selectedRow.value.title}」？删除后会移除该流程及历史运行记录。`);
+      if (!confirmed) return;
+      const result = await dagDetail.deleteDAG();
+      if (result?.ok && !detailState.deleteError) emit('refresh-dags');
+    }
+
     function selectRun(runKey) {
       dagDetail.selectRun(runKey);
     }
@@ -472,6 +494,9 @@ export const DagsPage = {
       activeCategory,
       categoryTabs,
       dagDetail,
+      deleteDisabledReason,
+      deleteErrorText,
+      deleteSelectedDag,
       detailErrorText,
       detailState,
       designNodes,
@@ -535,7 +560,6 @@ export const DagsPage = {
                 role="tab"
                 class="dag-category-tab"
                 :class="{ active: activeCategory === tab.key }"
-                :disabled="tab.count === 0"
                 :aria-selected="activeCategory === tab.key ? 'true' : 'false'"
                 :data-testid="'dag-category-tab-' + tab.key"
                 @click="setCategory(tab.key)"
@@ -588,6 +612,14 @@ export const DagsPage = {
               </div>
               <div class="dag-console-actions">
                 <button
+                  type="button"
+                  class="btn dag-delete-button"
+                  data-testid="dag-delete-button"
+                  :disabled="Boolean(deleteDisabledReason)"
+                  :title="deleteDisabledReason"
+                  @click="deleteSelectedDag"
+                >{{ detailState.deleting ? '删除中' : '删除' }}</button>
+                <button
                   v-if="stopActionVisible"
                   type="button"
                   class="btn dag-stop-button"
@@ -610,6 +642,7 @@ export const DagsPage = {
             <div v-if="startErrorText" class="dag-console-error-inline" data-testid="dag-start-error">{{ startErrorText }}</div>
             <div v-if="terminateErrorText" class="dag-console-error-inline" data-testid="dag-terminate-error">{{ terminateErrorText }}</div>
             <div v-if="terminateWarningText" class="dag-console-warning-inline" data-testid="dag-terminate-warning">{{ terminateWarningText }}</div>
+            <div v-if="deleteErrorText" class="dag-console-error-inline" data-testid="dag-delete-error">{{ deleteErrorText }}</div>
             <DagFinalOutputPanel
               v-if="runsErrorText"
               data-testid="dag-runs-error"

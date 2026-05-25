@@ -163,6 +163,22 @@ func (s *service) TerminateDAG(ctx context.Context, dagKey, runKey, reason strin
 	})
 }
 
+func (s *service) DeleteDAG(ctx context.Context, dagKey string) error {
+	runtime := s.effectiveDAGRuntime()
+	if runtime == nil {
+		return errOrchestrationServiceNotAvailable
+	}
+	deleter, ok := any(runtime).(contract.DAGDeleteRuntime)
+	if !ok {
+		return errOrchestrationServiceNotAvailable
+	}
+	key := strings.TrimSpace(dagKey)
+	if key == "" {
+		return errors.New("dashboard: dag key is required")
+	}
+	return deleter.DeleteDAG(ctx, contract.DeleteDAGRequest{DagKey: key})
+}
+
 func (s *service) ApplyDAGOps(ctx context.Context, req contract.ApplyOpsRequest) (contract.ApplyOpsResponse, error) {
 	runtime := s.effectiveDAGRuntime()
 	if runtime == nil {

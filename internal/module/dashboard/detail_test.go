@@ -370,6 +370,8 @@ type stubDashboardOrchestration struct {
 	startDAGErr         error
 	terminateDAGRequest contract.TerminateDAGRequest
 	terminateDAGErr     error
+	deleteDAGRequest    contract.DeleteDAGRequest
+	deleteDAGErr        error
 	applyOpsRequest     contract.ApplyOpsRequest
 	applyOpsResult      contract.ApplyOpsResponse
 	applyOpsErr         error
@@ -464,6 +466,11 @@ func (s *stubDashboardOrchestration) StartDAG(_ context.Context, req contract.St
 func (s *stubDashboardOrchestration) TerminateDAG(_ context.Context, req contract.TerminateDAGRequest) error {
 	s.terminateDAGRequest = req
 	return s.terminateDAGErr
+}
+
+func (s *stubDashboardOrchestration) DeleteDAG(_ context.Context, req contract.DeleteDAGRequest) error {
+	s.deleteDAGRequest = req
+	return s.deleteDAGErr
 }
 
 func (s *stubDashboardOrchestration) GetRun(_ context.Context, req contract.GetRunRequest) (contract.GetRunResponse, error) {

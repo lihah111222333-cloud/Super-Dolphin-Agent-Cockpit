@@ -25,6 +25,7 @@ type Service interface {
 	GetDAGRun(ctx context.Context, runKey string) (contract.GetRunResponse, error)
 	StartDAG(ctx context.Context, dagKey, triggerSource, idempotencyKey string) (contract.StartDAGResponse, error)
 	TerminateDAG(ctx context.Context, dagKey, runKey, reason string) error
+	DeleteDAG(ctx context.Context, dagKey string) error
 	ApplyDAGOps(ctx context.Context, req contract.ApplyOpsRequest) (contract.ApplyOpsResponse, error)
 	Query(ctx context.Context, query string, args ...any) ([]map[string]any, error)
 	GetAILogsByCategory(ctx context.Context, category, keyword string, limit int) ([]ailogstore.AILog, error)

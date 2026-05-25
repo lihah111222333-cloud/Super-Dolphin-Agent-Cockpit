@@ -98,6 +98,8 @@ function resetTransient(state) {
   state.terminating = false;
   state.terminateError = null;
   state.terminateWarning = null;
+  state.deleting = false;
+  state.deleteError = null;
   state.savingNodeKey = '';
   state.saveError = null;
 }
@@ -197,6 +199,8 @@ export function useDagDetail() {
     terminating: false,
     terminateError: null,
     terminateWarning: null,
+    deleting: false,
+    deleteError: null,
     savingNodeKey: '',
     saveError: null,
   });
@@ -347,6 +351,32 @@ export function useDagDetail() {
     return terminateRunFlow({ state, getSeq: () => openSeq, loadDetail }, candidateRun);
   }
 
+  async function deleteDAG() {
+    if (state.deleting) return { ok: false };
+    const seq = openSeq;
+    const dagKey = dagKeyFromItem(state.dag);
+    state.deleteError = null;
+    if (!dagKey) {
+      state.deleteError = new Error('缺少 DAG key');
+      return { ok: false };
+    }
+    state.deleting = true;
+    try {
+      await callAPI('dashboard/dagDelete', { dagKey });
+      if (seq !== openSeq) return { ok: false };
+      close();
+      return { ok: true };
+    } catch (error) {
+      if (seq === openSeq) {
+        state.deleteError = error;
+        logWarn('ui', 'useDagDetail.delete.failed', { dagKey, error });
+      }
+      return { ok: false };
+    } finally {
+      if (seq === openSeq) state.deleting = false;
+    }
+  }
+
   async function saveAgentNode(payload) {
     const op = normalizeNodeSavePayload(payload);
     const seq = openSeq;
@@ -385,6 +415,7 @@ export function useDagDetail() {
     state.show = false;
     state.starting = false;
     state.terminating = false;
+    state.deleting = false;
   }
 
   function updateNodeStatus(nodeKey, status) {
@@ -402,5 +433,5 @@ export function useDagDetail() {
     if (node) node.status = status;
   }
 
-  return { state, open, close, selectRun, start, terminateActiveRun, saveAgentNode, updateNodeStatus, handleStatusEvent };
+  return { state, open, close, selectRun, start, terminateActiveRun, deleteDAG, saveAgentNode, updateNodeStatus, handleStatusEvent };
 }

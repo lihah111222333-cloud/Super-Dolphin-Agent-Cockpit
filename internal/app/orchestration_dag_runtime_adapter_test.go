@@ -81,6 +81,21 @@ func TestMCPOrchDAGRuntimeTerminateDAGCallsPeerTool(t *testing.T) {
 	})
 }
 
+func TestMCPOrchDAGRuntimeDeleteDAGCallsPeerTool(t *testing.T) {
+	t.Parallel()
+
+	caller := &recordingDAGToolCaller{result: `{}`}
+	runtime := &mcpOrchDAGRuntime{tools: caller}
+
+	err := runtime.DeleteDAG(context.Background(), contract.DeleteDAGRequest{DagKey: " dag-1 "})
+	if err != nil {
+		t.Fatalf("DeleteDAG() error = %v", err)
+	}
+	assertDAGToolCall(t, caller, "task_delete_dag", map[string]any{
+		"dag_key": "dag-1",
+	})
+}
+
 func TestMCPOrchDAGRuntimeApplyOpsCallsPeerTool(t *testing.T) {
 	t.Parallel()
 

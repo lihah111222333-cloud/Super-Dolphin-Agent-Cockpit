@@ -26,6 +26,10 @@ var fakeTaskDAGExecRoutes = []fakeTaskDAGExecRoute{
 	{token: "CascadeFailPendingTaskDagNode", run: (*fakeTaskDAGDB).cascadeFailPendingNode},
 	{token: "PromoteSingleNodePendingToReady", run: (*fakeTaskDAGDB).promoteSingleNodePendingToReady},
 	{token: "DeleteTaskDagNode", run: (*fakeTaskDAGDB).deleteTaskDagNode},
+	{token: "DELETE FROM task_dag_wakeups WHERE dag_key", run: (*fakeTaskDAGDB).deleteTaskDagWakeupsByDAG},
+	{token: "DELETE FROM task_dag_nodes WHERE dag_key", run: (*fakeTaskDAGDB).deleteTaskDagNodesByDAG},
+	{token: "DELETE FROM task_dag_runs WHERE dag_key", run: (*fakeTaskDAGDB).deleteTaskDagRunsByDAG},
+	{token: "DELETE FROM task_dags WHERE dag_key", run: (*fakeTaskDAGDB).deleteTaskDAGRow},
 }
 
 func (db *fakeTaskDAGDB) execCommandLocked(sql string, args ...any) (pgconn.CommandTag, error) {
@@ -67,6 +71,7 @@ type fakeTaskDAGQueryRowRoute struct {
 
 var fakeTaskDAGQueryRowRoutes = []fakeTaskDAGQueryRowRoute{
 	{tokens: []string{"CountActiveTaskDagRunsByKey"}, run: (*fakeTaskDAGDB).countActiveTaskDagRunsByKey},
+	{tokens: []string{"SELECT id FROM task_dags", "FOR UPDATE"}, run: (*fakeTaskDAGDB).lockTaskDAGForDelete},
 	{tokens: []string{"AssignTaskDagNode"}, run: (*fakeTaskDAGDB).assignNode},
 	{tokens: []string{"BindRunningTaskDagNodeTurn"}, run: (*fakeTaskDAGDB).bindRunningNodeTurn},
 	{tokens: []string{"CompleteTaskDagNode"}, run: (*fakeTaskDAGDB).completeNode},

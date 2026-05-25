@@ -155,6 +155,47 @@ describe('useDagDetail', () => {
     expect(detail.state.activeRun).toMatchObject({ run_key: 'run-hidden', status: 'running' });
   });
 
+  it('deletes the open DAG and clears detail state', async () => {
+    apiMock.callAPI.mockImplementation(async (method, params) => {
+      if (method === 'dashboard/dagDelete') {
+        expect(params).toEqual({ dagKey: 'dag-1' });
+        return {};
+      }
+      throw new Error(`unexpected method ${method}`);
+    });
+
+    const detail = useDagDetail();
+    detail.state.dag = { dag_key: 'dag-1', title: 'Daily Brief' };
+    detail.state.show = true;
+
+    const result = await detail.deleteDAG();
+
+    expect(result).toEqual({ ok: true });
+    expect(detail.state.deleting).toBe(false);
+    expect(detail.state.deleteError).toBeNull();
+    expect(detail.state.show).toBe(false);
+    expect(apiMock.callAPI).toHaveBeenCalledWith('dashboard/dagDelete', { dagKey: 'dag-1' });
+  });
+
+  it('keeps the current DAG visible when delete fails', async () => {
+    const deleteError = new Error('active run');
+    apiMock.callAPI.mockImplementation(async (method) => {
+      if (method === 'dashboard/dagDelete') throw deleteError;
+      throw new Error(`unexpected method ${method}`);
+    });
+
+    const detail = useDagDetail();
+    detail.state.dag = { dag_key: 'dag-1', title: 'Daily Brief' };
+    detail.state.show = true;
+
+    const result = await detail.deleteDAG();
+
+    expect(result).toEqual({ ok: false });
+    expect(detail.state.deleteError).toBe(deleteError);
+    expect(detail.state.show).toBe(true);
+    expect(logMock.logWarn).toHaveBeenCalledWith('ui', 'useDagDetail.delete.failed', expect.objectContaining({ dagKey: 'dag-1', error: deleteError }));
+  });
+
   it('selects a run and exposes that run final_output', async () => {
     apiMock.callAPI.mockImplementation(async (method, params) => {
       if (method === 'dashboard/dagDetail') {

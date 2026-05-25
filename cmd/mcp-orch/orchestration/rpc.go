@@ -11,6 +11,7 @@ import (
 
 	"github.com/creachadair/jrpc2/handler"
 
+	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	shareddto "github.com/anthropic-ai/super-agent-v3/internal/dto/shared"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
@@ -136,6 +137,9 @@ func ProvideRPCFacade(svc Service) rpc.HandlerMapResult {
 		}),
 		"task/dag/list": rpc.StrictHandler(func(ctx context.Context, p listDAGsParams) (any, error) {
 			return svc.ListDAGs(ctx, listDAGsFilterFromParams(p))
+		}),
+		"task/dag/delete": rpc.StrictHandler(func(ctx context.Context, p dagKeyParams) (any, error) {
+			return nil, svc.DeleteDAG(ctx, contract.DeleteDAGRequest{DagKey: p.DagKey})
 		}),
 		"task/node/update": rpc.StrictHandler(func(ctx context.Context, p updateNodeParams) (any, error) {
 			return svc.UpdateNodeStatus(ctx, updateNodeRequestFromParams(p))

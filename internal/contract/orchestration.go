@@ -55,10 +55,15 @@ type DAGRuntime interface {
 	ApplyOps(ctx context.Context, req ApplyOpsRequest) (ApplyOpsResponse, error)
 }
 
+type DAGDeleteRuntime interface {
+	DeleteDAG(ctx context.Context, req DeleteDAGRequest) error
+}
+
 // OrchestrationService defines the shared orchestration boundary used by
 // internal modules and the MCP orchestration runtime.
 type OrchestrationService interface {
 	DAGRuntime
+	DAGDeleteRuntime
 	LaunchAgent(ctx context.Context, req LaunchRequest) error
 	ListAgents(ctx context.Context) ([]AgentSnapshot, error)
 	StopAgent(ctx context.Context, agentID string) error
@@ -119,6 +124,10 @@ type TerminateDAGRequest struct {
 	DagKey string `json:"dag_key"`
 	RunKey string `json:"run_key"`
 	Reason string `json:"reason,omitempty"`
+}
+
+type DeleteDAGRequest struct {
+	DagKey string `json:"dag_key"`
 }
 
 // ListRunsRequest 是 OrchestrationService.ListRuns 的入参（T3.2）。
