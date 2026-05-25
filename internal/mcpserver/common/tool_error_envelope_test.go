@@ -69,6 +69,35 @@ func TestClassifyToolErrorLaunchRequestInvalid(t *testing.T) {
 	}
 }
 
+func TestClassifyToolErrorTaskUpdateNodeTransitionInvalidInput(t *testing.T) {
+	env := NewToolErrorEnvelope(
+		"task_update_node",
+		errors.New(`transition: "ready" → "done" 非法 (见 nodeexec/status.go legalTransitions)`),
+	)
+	if env.Code != "invalid_input" {
+		t.Fatalf("Code = %q, want invalid_input", env.Code)
+	}
+	if env.Retryable {
+		t.Fatal("Retryable = true, want false")
+	}
+	hint := strings.ToLower(env.Hint)
+	for _, forbidden := range []string{"lsp", "language server"} {
+		if strings.Contains(hint, forbidden) {
+			t.Fatalf("Hint = %q, must not mention %s", env.Hint, forbidden)
+		}
+	}
+}
+
+func TestClassifyToolErrorNonUpdateNodeTransitionDoesNotBecomeInvalidInput(t *testing.T) {
+	env := NewToolErrorEnvelope(
+		"task_start_dag",
+		errors.New(`transition: "ready" → "done" 非法 (见 nodeexec/status.go legalTransitions)`),
+	)
+	if env.Code == "invalid_input" {
+		t.Fatalf("Code = %q, want non-invalid_input for non task_update_node transition errors", env.Code)
+	}
+}
+
 func assertLaunchToolError(t *testing.T, env ToolErrorEnvelope, wantCode string) {
 	t.Helper()
 	if env.Code != wantCode {
