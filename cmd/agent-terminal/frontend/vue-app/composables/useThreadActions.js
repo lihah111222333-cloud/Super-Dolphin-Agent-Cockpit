@@ -22,6 +22,10 @@ function readWindowCwd(windowCwd) {
   return (value || '').toString();
 }
 
+function normalizeOptionalCwd(value) {
+  return (value || '').toString().trim();
+}
+
 function getThreadConfigFromStore(threadStore, threadId) {
   if (typeof threadStore?.getThreadConfig !== 'function') return Promise.resolve(null);
   return threadStore.getThreadConfig(threadId);
@@ -48,6 +52,28 @@ function getThreadRuntimeFromStore(threadStore, threadId) {
   if (!id) return {};
   const runtime = threadStore?.state?.agentRuntimeById?.[id];
   return runtime && typeof runtime === 'object' ? runtime : {};
+}
+
+function getThreadModelFromStore(threadStore, threadId) {
+  const id = (threadId || '').toString().trim();
+  if (!id) return {};
+  const threads = threadStore?.state?.threads;
+  if (!Array.isArray(threads)) return {};
+  const thread = threads.find((candidate) => (candidate?.id || '').toString().trim() === id);
+  return thread && typeof thread === 'object' ? thread : {};
+}
+
+function resolveExistingThreadActionCwd(threadStore, threadId) {
+  const runtimeCwd = normalizeOptionalCwd(getThreadRuntimeFromStore(threadStore, threadId).cwd);
+  if (runtimeCwd) return runtimeCwd;
+  return normalizeOptionalCwd(getThreadModelFromStore(threadStore, threadId).cwd);
+}
+
+function createSendOptions(cwd) {
+  const options = { manualSkillSelection: false };
+  const cwdValue = normalizeOptionalCwd(cwd);
+  if (cwdValue) options.cwd = cwdValue;
+  return options;
 }
 
 function getThreadCapabilitiesFromStore(threadStore, threadId) {
@@ -241,6 +267,7 @@ async function performSend({
 }) {
   let threadId = (selectedThreadId.value || '').toString().trim();
   let startedNewThread = false;
+  let startedNewThreadCwd = '';
   const text = composer.state.text;
   const attachments = [...composer.state.attachments];
   if (!text.trim() && attachments.length === 0) return;
@@ -258,6 +285,7 @@ async function performSend({
       startOptions.optimisticUserMessage = { text, attachments };
       startOptions.skipInitialRuntimeSync = true;
       threadId = await threadStore.startThread(actionCwd, startOptions);
+      startedNewThreadCwd = actionCwd;
       launchIntent?.bindThread?.(threadId);
     } catch (err) {
       logWarn('ui', 'chat.start.error', {
@@ -271,12 +299,14 @@ async function performSend({
     selectedThreadId.value = threadId;
   }
 
-  const actionCwd = resolveProjectActionCwd(projectStore, readWindowCwd(windowCwd));
+  const actionCwd = startedNewThread
+    ? startedNewThreadCwd
+    : resolveExistingThreadActionCwd(threadStore, threadId);
   const savedText = text;
   const savedAttachments = attachments;
   composer.clearComposer();
   try {
-    const sendOptions = { manualSkillSelection: false, cwd: actionCwd };
+    const sendOptions = createSendOptions(actionCwd);
     await threadStore.sendMessage(threadId, text, attachments, sendOptions);
     launchIntent?.resetIfThread?.(threadId);
     scheduleScrollToBottom(true);

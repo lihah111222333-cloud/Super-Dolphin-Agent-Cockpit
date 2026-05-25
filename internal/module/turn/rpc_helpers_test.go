@@ -277,6 +277,20 @@ func TestResolveTurnRPCCWDFillsAuthoritativeCWDWhenRequestOmitsIt(t *testing.T) 
 	}
 }
 
+func TestResolveTurnRPCCWDRejectsMissingAuthoritativeCWD(t *testing.T) {
+	t.Parallel()
+
+	session := &rpcHelperSession{}
+
+	_, err := resolveTurnRPCCWD("/active/project", session, nil)
+	if err == nil {
+		t.Fatal("resolveTurnRPCCWD() error = nil, want missing authoritative cwd error")
+	}
+	if !strings.Contains(err.Error(), "turn cwd missing") {
+		t.Fatalf("resolveTurnRPCCWD() error = %v, want missing authoritative cwd error", err)
+	}
+}
+
 func TestResolveTurnRPCCWDRejectsMalformedRuntimeCWD(t *testing.T) {
 	t.Parallel()
 
