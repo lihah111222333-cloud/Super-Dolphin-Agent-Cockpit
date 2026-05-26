@@ -232,10 +232,9 @@ func TestApplyTurnStartConfigUsesApprovalPolicy(t *testing.T) {
 func TestResolveTurnRPCCWDRejectsRequestMismatch(t *testing.T) {
 	t.Parallel()
 
-	session := &rpcHelperSession{runtimeConfig: map[string]any{"cwd": "/session/repo"}}
 	threadRuntimeConfig := map[string]any{"cwd": "/thread/worktree"}
 
-	_, err := resolveTurnRPCCWD("/active/project", session, threadRuntimeConfig)
+	_, err := resolveTurnRPCCWD("/active/project", threadRuntimeConfig)
 	if err == nil {
 		t.Fatal("resolveTurnRPCCWD() error = nil, want cwd mismatch error")
 	}
@@ -250,10 +249,9 @@ func TestResolveTurnRPCCWDAcceptsEquivalentWindowsSeparators(t *testing.T) {
 		t.Skip("Windows drive separator equivalence is Windows-specific")
 	}
 
-	session := &rpcHelperSession{runtimeConfig: map[string]any{"cwd": `D:\project\Super-Dolphin`}}
 	threadRuntimeConfig := map[string]any{"cwd": `D:\project\Super-Dolphin`}
 
-	got, err := resolveTurnRPCCWD("D:/project/Super-Dolphin", session, threadRuntimeConfig)
+	got, err := resolveTurnRPCCWD("D:/project/Super-Dolphin", threadRuntimeConfig)
 	if err != nil {
 		t.Fatalf("resolveTurnRPCCWD() error = %v", err)
 	}
@@ -265,10 +263,9 @@ func TestResolveTurnRPCCWDAcceptsEquivalentWindowsSeparators(t *testing.T) {
 func TestResolveTurnRPCCWDFillsAuthoritativeCWDWhenRequestOmitsIt(t *testing.T) {
 	t.Parallel()
 
-	session := &rpcHelperSession{runtimeConfig: map[string]any{"cwd": "/session/repo"}}
 	threadRuntimeConfig := map[string]any{"cwd": "/thread/worktree"}
 
-	got, err := resolveTurnRPCCWD("", session, threadRuntimeConfig)
+	got, err := resolveTurnRPCCWD("", threadRuntimeConfig)
 	if err != nil {
 		t.Fatalf("resolveTurnRPCCWD() error = %v", err)
 	}
@@ -280,9 +277,7 @@ func TestResolveTurnRPCCWDFillsAuthoritativeCWDWhenRequestOmitsIt(t *testing.T) 
 func TestResolveTurnRPCCWDRejectsMissingAuthoritativeCWD(t *testing.T) {
 	t.Parallel()
 
-	session := &rpcHelperSession{}
-
-	_, err := resolveTurnRPCCWD("/active/project", session, nil)
+	_, err := resolveTurnRPCCWD("/active/project", nil)
 	if err == nil {
 		t.Fatal("resolveTurnRPCCWD() error = nil, want missing authoritative cwd error")
 	}
@@ -291,23 +286,24 @@ func TestResolveTurnRPCCWDRejectsMissingAuthoritativeCWD(t *testing.T) {
 	}
 }
 
-func TestResolveTurnRPCCWDRejectsMalformedRuntimeCWD(t *testing.T) {
+func TestResolveTurnRPCCWDRejectsMissingPersistedCWD(t *testing.T) {
 	t.Parallel()
 
-	session := &rpcHelperSession{runtimeConfig: map[string]any{"cwd": "/session/repo"}}
-	_, err := resolveTurnRPCCWD("/active/project", session, map[string]any{"cwd": 123})
-	if err == nil || !strings.Contains(err.Error(), `thread runtime config "cwd" must be a string`) {
-		t.Fatalf("resolveTurnRPCCWD() error = %v, want malformed thread runtime cwd", err)
+	_, err := resolveTurnRPCCWD("", nil)
+	if err == nil {
+		t.Fatal("resolveTurnRPCCWD() error = nil, want missing persisted cwd error")
+	}
+	if !strings.Contains(err.Error(), "turn cwd missing") {
+		t.Fatalf("resolveTurnRPCCWD() error = %v, want missing persisted cwd error", err)
 	}
 }
 
-func TestResolveTurnRPCCWDRejectsMalformedSessionRuntimeCWD(t *testing.T) {
+func TestResolveTurnRPCCWDRejectsMalformedRuntimeCWD(t *testing.T) {
 	t.Parallel()
 
-	session := &rpcHelperSession{runtimeConfig: map[string]any{"cwd": 123}}
-	_, err := resolveTurnRPCCWD("/active/project", session, nil)
-	if err == nil || !strings.Contains(err.Error(), `session runtime config "cwd" must be a string`) {
-		t.Fatalf("resolveTurnRPCCWD() error = %v, want malformed session runtime cwd", err)
+	_, err := resolveTurnRPCCWD("/active/project", map[string]any{"cwd": 123})
+	if err == nil || !strings.Contains(err.Error(), `thread runtime config "cwd" must be a string`) {
+		t.Fatalf("resolveTurnRPCCWD() error = %v, want malformed thread runtime cwd", err)
 	}
 }
 

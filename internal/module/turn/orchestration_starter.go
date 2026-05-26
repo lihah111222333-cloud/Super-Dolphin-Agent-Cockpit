@@ -74,7 +74,7 @@ func (s orchestrationTurnStarter) StartTurn(ctx context.Context, submission cont
 		return "", sessionLookupError(err)
 	}
 	threadID := queuedThreadID(session, submission)
-	threadRuntimeConfig, err := readThreadRuntimeConfig(ctx, s.runtimeReader, threadID)
+	threadRuntimeConfig, err := readQueuedThreadRuntimeConfig(ctx, s.runtimeReader, threadID)
 	if err != nil {
 		return "", err
 	}
@@ -100,6 +100,17 @@ func sessionLookupError(err error) error {
 		return errors.New("agent session not ready, ensure agent/launch completed")
 	}
 	return err
+}
+
+func readQueuedThreadRuntimeConfig(ctx context.Context, reader ThreadStateConfigReader, threadID string) (map[string]any, error) {
+	cfg, err := readThreadRuntimeConfig(ctx, reader, threadID)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := resolveTurnRPCCWD("", cfg); err != nil {
+		return nil, err
+	}
+	return cfg, nil
 }
 
 func prepareQueuedTurnInput(session sessionCaps, submission contract.TurnSubmission, threadRuntimeConfig map[string]any) PrepareInput {

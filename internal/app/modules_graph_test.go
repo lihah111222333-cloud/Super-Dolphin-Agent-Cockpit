@@ -9,6 +9,7 @@ import (
 	"github.com/kelindar/event"
 	"go.uber.org/fx"
 
+	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	uiwails "github.com/anthropic-ai/super-agent-v3/internal/ui/wails"
 )
 
@@ -38,11 +39,13 @@ func TestAppModuleGraphIsClosed(t *testing.T) {
 
 	// Silent logger so the dry-run doesn't spam stderr.
 	_ = slog.New(slog.NewTextHandler(io.Discard, nil))
+	var stateReader contract.ThreadStateConfigReader
 
 	if err := fx.ValidateApp(
 		Module,
 		uiwails.Module,
 		frontend,
+		fx.Populate(&stateReader),
 		fx.Invoke(BindRuntime),
 	); err != nil {
 		t.Fatalf("fx.ValidateApp failed: %v", err)
