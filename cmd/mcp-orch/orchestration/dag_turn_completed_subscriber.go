@@ -120,36 +120,11 @@ func RegisterDAGTurnCompletedSubscriber(
 	})
 }
 
-// handleDAGTurnCompleted is the per-event entry point invoked by the
-// resilient subscriber. The function is split out so unit tests can drive
-// it directly without booting fx.
-//
-// Flow (ADR-017 v1.2 §2.8):
-//  1. Reverse lookup nodes carrying ev.ThreadID via LookupStore. Empty
-//     result → metric LookupNoNode, return. DB error → metric LookupFailed,
-//     return.
-//  2. N>1 result → metric LookupDirtyData, iterate every row (the partial
-//     index is non-UNIQUE — retry / recovery chains can dual-mount).
-//  3. For each node:
-//     a. Short-circuit if already terminal (race C / duplicate
-//     TurnCompleted) — metric IdempotentSkipped.
-//     b. Materialize CompleteNodeInput.Result from the completed agent turn
-//     text (Result/Summary/Message) and the agent node's config.outputs.
-//     Empty agent output fails unless a configured sharedfile already exists;
-//     empty non-agent output keeps the legacy CompleteResultEmpty soft alarm.
-//     c. ev.Success=true → FlowStore.CompleteNodeAndScheduleDownstream
-//     (metric CompleteDone / size-cap / DB err).
-//     ev.Success=false → FlowStore.FailNodeAndCancelDownstream
-//     (metric CompleteFailed).
-//  4. After the DB advance, call stop_helper.StopSpawnedAgent (ADR-016
-//     §3.2 hard constraint — never inline the 5 contracts). Failure is a
-//     Warn log; the subscriber does NOT propagate the error and continues
-//     to the next node.
-//
-// Important guarantees:
-//   - ctx.Err() short-circuit on every iteration (lifecycle cancel propagation).
-//   - The subscriber never invokes dispatcher. A2 uses nodeexec's config parser
-//     and sharedfile writer port, but still avoids aggregate store / service access.
+// handleDAGTurnCompleted is the per-event subscriber entry point. It reverse
+// looks up nodes for the completed thread, advances every non-terminal match,
+// then stops the spawned agent after the DB state is authoritative.
+// It never invokes dispatcher; A2 only reuses nodeexec config parsing and
+// sharedfile ports for output materialization.
 func handleDAGTurnCompleted(
 	ctx context.Context,
 	deps DAGSubscriberDeps,
@@ -493,9 +468,7 @@ func encodeTurnResultForNodeUpdate(raw string) json.RawMessage {
 	if json.Valid([]byte(trimmed)) {
 		return json.RawMessage(trimmed)
 	}
-	wrapped, err := json.Marshal(struct {
-		Text string `json:"text"`
-	}{Text: raw})
+	wrapped, err := json.Marshal(map[string]string{"text": raw})
 	if err != nil {
 		return json.RawMessage(`{}`)
 	}
@@ -516,10 +489,7 @@ type turnOutputMaterialization struct {
 // prepareTurnCompletedResult is the ADR-018/A2 boundary: agent nodes use
 // the real TurnCompleted.Result, not launch metadata, as their persisted
 // output. Non-agent rows keep the ADR-017 normalization path for compatibility.
-func prepareTurnCompletedResult(
-	node *taskdag.Node,
-	rawResult string,
-) (turnOutputMaterialization, *turnOutputMaterializationFailure) {
+func prepareTurnCompletedResult(node *taskdag.Node, rawResult string) (turnOutputMaterialization, *turnOutputMaterializationFailure) {
 	if node == nil || strings.TrimSpace(node.NodeType) != "agent" {
 		return turnOutputMaterialization{Result: encodeTurnResultForNodeUpdate(rawResult)}, nil
 	}
@@ -531,10 +501,7 @@ func prepareTurnCompletedResult(
 	emitNodeResult := shouldMaterializeAgentNodeResult(cfg.Outputs)
 	if strings.TrimSpace(rawResult) == "" {
 		if !emitNodeResult && path != "" {
-			return turnOutputMaterialization{
-				Result:         encodeSharedfileResultRef(path),
-				SharedfilePath: path,
-			}, nil
+			return turnOutputMaterialization{Result: encodeSharedfileResultRef(path), SharedfilePath: path}, nil
 		}
 		return turnOutputMaterialization{}, validationMaterializationFailure("empty agent output")
 	}
@@ -542,11 +509,7 @@ func prepareTurnCompletedResult(
 	if failure != nil {
 		return turnOutputMaterialization{}, failure
 	}
-	return turnOutputMaterialization{
-		Result:         finalAgentMaterializedResult(rawResult, nodeResult, path, emitNodeResult),
-		SharedfilePath: path,
-		RawResult:      rawResult,
-	}, nil
+	return turnOutputMaterialization{Result: finalAgentMaterializedResult(rawResult, nodeResult, path, emitNodeResult), SharedfilePath: path, RawResult: rawResult}, nil
 }
 
 func parseAgentOutputConfig(raw json.RawMessage) (*nodeexec.AgentNodeConfig, *turnOutputMaterializationFailure) {
@@ -568,21 +531,13 @@ func buildAgentNodeResult(rawResult string, emit bool) (json.RawMessage, *turnOu
 	if len(nodeResult) <= completeNodeResultCap {
 		return nodeResult, nil
 	}
-	return nil, &turnOutputMaterializationFailure{
-		Reason: fmt.Sprintf(
-			"result exceeds 4KB size cap (%d > %d bytes), configure outputs.to_sharedfile (ADR-006)",
-			len(nodeResult), completeNodeResultCap,
-		),
-		SizeCapExceeded: true,
-	}
+	return nil, &turnOutputMaterializationFailure{Reason: fmt.Sprintf(
+		"result exceeds 4KB size cap (%d > %d bytes), configure outputs.to_sharedfile (ADR-006)",
+		len(nodeResult), completeNodeResultCap,
+	), SizeCapExceeded: true}
 }
 
-func writeAgentTurnSharedfile(
-	ctx context.Context,
-	writer nodeexec.SharedFileWriter,
-	path string,
-	rawResult string,
-) *turnOutputMaterializationFailure {
+func writeAgentTurnSharedfile(ctx context.Context, writer nodeexec.SharedFileWriter, path, rawResult string) *turnOutputMaterializationFailure {
 	if path == "" {
 		return nil
 	}
@@ -595,11 +550,7 @@ func writeAgentTurnSharedfile(
 	return nil
 }
 
-func configuredSharedfileAlreadyExists(
-	ctx context.Context,
-	reader nodeexec.SharedFileReader,
-	path string,
-) (bool, *turnOutputMaterializationFailure) {
+func configuredSharedfileAlreadyExists(ctx context.Context, reader nodeexec.SharedFileReader, path string) (bool, *turnOutputMaterializationFailure) {
 	if path == "" {
 		return false, nil
 	}
@@ -642,10 +593,7 @@ func finalAgentMaterializedResult(rawResult string, nodeResult json.RawMessage, 
 }
 
 func shouldMaterializeAgentNodeResult(out nodeexec.OutputsConfig) bool {
-	if out.ToNodeResult {
-		return true
-	}
-	return configuredSharedfilePath(out) == ""
+	return out.ToNodeResult || configuredSharedfilePath(out) == ""
 }
 
 func configuredSharedfilePath(out nodeexec.OutputsConfig) string {
@@ -656,13 +604,7 @@ func configuredSharedfilePath(out nodeexec.OutputsConfig) string {
 }
 
 func encodeSharedfileResultRef(path string) json.RawMessage {
-	payload, err := json.Marshal(struct {
-		Sharedfile struct {
-			Path string `json:"path"`
-		} `json:"sharedfile"`
-	}{Sharedfile: struct {
-		Path string `json:"path"`
-	}{Path: path}})
+	payload, err := json.Marshal(map[string]map[string]string{"sharedfile": {"path": path}})
 	if err != nil {
 		return json.RawMessage(`{}`)
 	}
