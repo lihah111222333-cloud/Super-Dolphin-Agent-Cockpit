@@ -24,6 +24,7 @@ function createThreadActions(overrides = {}) {
       agentRuntimeById: overrides.runtimeById ?? {},
       sendBlockedNoticesByThread: {},
       sendHoldNoticesByThread: {},
+      threads: overrides.threads ?? [],
     }),
     startThread: vi.fn().mockResolvedValue('thread-started'),
     getThreadConfig: vi.fn().mockResolvedValue(null),
@@ -460,6 +461,37 @@ describe('useThreadActions', () => {
     );
   });
 
+  it('send: reuses the thread start cwd for the first message even if project scope changes during start', async () => {
+    const projectStore = { state: { active: '/repo' } };
+    const vm = createThreadActions({
+      selectedThreadId: '',
+      text: 'hello while project changes',
+      props: { projectStore },
+      threadStore: {
+        startThread: vi.fn().mockImplementation(async () => {
+          projectStore.state.active = '/other-repo';
+          return 'thread-started';
+        }),
+      },
+    });
+
+    await vm.send();
+
+    expect(vm.threadStore.startThread).toHaveBeenCalledWith('/repo', {
+      focusMode: 'chat',
+      deferSpawn: true,
+      launchIntentId: 'launch_018f00e0-39fc-72ac-a47a-2a858c75d111',
+      optimisticUserMessage: { text: 'hello while project changes', attachments: [] },
+      skipInitialRuntimeSync: true,
+    });
+    expect(vm.threadStore.sendMessage).toHaveBeenCalledWith(
+      'thread-started',
+      'hello while project changes',
+      [],
+      { manualSkillSelection: false, cwd: '/repo' },
+    );
+  });
+
   it('send: starts a new thread before sending and does not forward skill selections', async () => {
     const vm = createThreadActions({
       selectedThreadId: '',
@@ -488,7 +520,61 @@ describe('useThreadActions', () => {
     expect(vm.threadStore.startThread.mock.invocationCallOrder[0]).toBeLessThan(vm.threadStore.sendMessage.mock.invocationCallOrder[0]);
   });
 
-  it('send: does not forward selected skill refs for active threads', async () => {
+  it('send: uses the selected thread runtime cwd for active threads', async () => {
+    const vm = createThreadActions({
+      selectedThreadId: 'thread-live',
+      text: 'ping worktree',
+      props: {
+        windowCwd: '/repo',
+        projectStore: { state: { active: '/repo' } },
+      },
+      runtimeById: {
+        'thread-live': { cwd: '/repo/.worktrees/provider-connecting-overlay' },
+      },
+    });
+
+    await vm.send();
+
+    expect(vm.threadStore.startThread).not.toHaveBeenCalled();
+    expect(vm.threadStore.sendMessage).toHaveBeenCalledWith(
+      'thread-live',
+      'ping worktree',
+      [],
+      {
+        manualSkillSelection: false,
+        cwd: '/repo/.worktrees/provider-connecting-overlay',
+      },
+    );
+  });
+
+  it('send: falls back to the selected thread model cwd when runtime cwd is not visible', async () => {
+    const vm = createThreadActions({
+      selectedThreadId: 'thread-live',
+      text: 'ping model cwd',
+      props: {
+        windowCwd: '/repo',
+        projectStore: { state: { active: '/repo' } },
+      },
+      threads: [
+        { id: 'thread-live', name: 'Thread Live', state: 'idle', cwd: '/repo/.worktrees/model-cwd' },
+      ],
+    });
+
+    await vm.send();
+
+    expect(vm.threadStore.startThread).not.toHaveBeenCalled();
+    expect(vm.threadStore.sendMessage).toHaveBeenCalledWith(
+      'thread-live',
+      'ping model cwd',
+      [],
+      {
+        manualSkillSelection: false,
+        cwd: '/repo/.worktrees/model-cwd',
+      },
+    );
+  });
+
+  it('send: omits cwd for active threads when no thread cwd is locally visible', async () => {
     const vm = createThreadActions({
       selectedThreadId: 'thread-live',
       text: 'ping with skills',
@@ -500,7 +586,7 @@ describe('useThreadActions', () => {
       'thread-live',
       'ping with skills',
       [],
-      { manualSkillSelection: false, cwd: '/repo' },
+      { manualSkillSelection: false },
     );
   });
 
@@ -532,7 +618,7 @@ describe('useThreadActions', () => {
       'thread-live',
       'ping',
       [{ path: '/tmp/a.txt' }],
-      { manualSkillSelection: false, cwd: '/repo' },
+      { manualSkillSelection: false },
     );
   });
 

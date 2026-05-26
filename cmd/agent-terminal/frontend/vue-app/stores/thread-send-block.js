@@ -22,6 +22,13 @@ export function isThreadSendHeldInState(state, threadId) {
   return Boolean(getThreadSendHoldNoticeFromState(state, threadId));
 }
 
+export function assertThreadCanSendInState(state, threadId) {
+  const blockedNotice = getThreadSendBlockedNoticeFromState(state, threadId);
+  if (blockedNotice) throw new Error(blockedNotice);
+  const holdNotice = getThreadSendHoldNoticeFromState(state, threadId);
+  if (holdNotice) throw new Error(holdNotice);
+}
+
 export function clearThreadSendBlockedNoticeInState(state, threadId) {
   const id = (threadId || '').toString().trim();
   const notices = state?.sendBlockedNoticesByThread;
@@ -38,6 +45,11 @@ export function clearThreadSendHoldNoticeInState(state, threadId) {
   const next = { ...notices };
   delete next[id];
   state.sendHoldNoticesByThread = next;
+}
+
+export function clearThreadSendNoticesInState(state, threadId) {
+  clearThreadSendBlockedNoticeInState(state, threadId);
+  clearThreadSendHoldNoticeInState(state, threadId);
 }
 
 export function clearThreadSendHoldNoticesInState(state) {

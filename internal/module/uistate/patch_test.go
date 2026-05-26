@@ -9,6 +9,7 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/dto/shared"
 	threaddto "github.com/anthropic-ai/super-agent-v3/internal/dto/thread"
 	tooldto "github.com/anthropic-ai/super-agent-v3/internal/dto/tool"
+	turndto "github.com/anthropic-ai/super-agent-v3/internal/dto/turn"
 	uidto "github.com/anthropic-ai/super-agent-v3/internal/dto/ui"
 	"github.com/kelindar/event"
 )
@@ -70,6 +71,31 @@ func TestThreadPatchIncludesRuntimeAndSortTimestamps(t *testing.T) {
 	}
 	if got, _ := patch.AgentRuntime["providerThreadId"].(string); got != "provider-thread" {
 		t.Fatalf("patch.AgentRuntime[providerThreadId] = %q, want provider-thread", got)
+	}
+}
+
+func TestTurnCompletedPatchIncludesLastActiveAt(t *testing.T) {
+	t.Parallel()
+
+	svc, dispatcher := newPatchTestService(t)
+	got := subscribeThreadPatch(t, dispatcher)
+	startedAt := time.Date(2026, 5, 22, 10, 0, 0, 0, time.UTC)
+	completedAt := startedAt.Add(2 * time.Minute)
+	turnHeader := testTurnHeader(testAgentSessionHeader("thread-completed", "agent-completed"), "turn-completed")
+
+	turnHeader.Timestamp = startedAt
+	svc.applyTurnStarted(turndto.TurnStarted{TurnHeader: turnHeader})
+	_ = mustReceiveThreadPatch(t, got)
+
+	turnHeader.Timestamp = completedAt
+	svc.applyTurnCompleted(turndto.TurnCompleted{TurnHeader: turnHeader, Success: true})
+	patch := mustReceiveThreadPatch(t, got)
+
+	if patch.Source != "turn/completed" || patch.Status != "idle" {
+		t.Fatalf("completion patch status = %#v", patch)
+	}
+	if got, _ := patch.AgentMeta["lastActiveAt"].(string); got != completedAt.Format(time.RFC3339Nano) {
+		t.Fatalf("patch.AgentMeta[lastActiveAt] = %q, want %s; meta=%#v", got, completedAt.Format(time.RFC3339Nano), patch.AgentMeta)
 	}
 }
 

@@ -12,7 +12,8 @@ import { _optimisticThreadIds, OPTIMISTIC_LEAK_GUARD_MS } from './thread-optimis
 import { resolveBuiltinToolLaunchPolicy } from './builtin-tool-policy.js';
 import { compactFailureResult, dialogTimelineSignature, tokenUsageSignature, waitForCompactResponse } from './thread-compact-helpers.js';
 import { maybeHandleStalePromptKey } from './thread-stale-prompt.js';
-import { callTurnStartWithSendBlock, clearThreadSendBlockedNoticeInState, clearThreadSendHoldNoticeInState, getThreadSendBlockedNoticeFromState, getThreadSendHoldNoticeFromState, setThreadSendBlockedNoticeFromError, setThreadSendHoldNoticeFromError } from './thread-send-block.js';
+import { assertThreadCanSendInState, callTurnStartWithSendBlock, clearThreadSendNoticesInState, getThreadSendBlockedNoticeFromState, setThreadSendBlockedNoticeFromError, setThreadSendHoldNoticeFromError } from './thread-send-block.js';
+import { touchThreadUpdatedAt } from './thread-actions-timestamps.js';
 import { CODEX_IDENTITY_DEFAULTS, normalizeProviderConfigValue } from '../provider-config-options.js';
 import { dropSkillNamesCoveredByRefs } from '../utils/skill-ref-utils.js';
 
@@ -638,8 +639,7 @@ export async function recoverThread(ctx, threadId) {
   logInfo('thread', 'recover.start', { thread_id: id });
   try {
     const result = await callAPI('thread/recover', { threadId: id });
-    clearThreadSendBlockedNoticeInState(ctx.state, id);
-    clearThreadSendHoldNoticeInState(ctx.state, id);
+    clearThreadSendNoticesInState(ctx.state, id);
     await ctx.syncRuntimeState();
     logInfo('thread', 'recover.done', { thread_id: id, recovered: Boolean(result?.recovered), mode: (result?.mode || '').toString(), duration_ms: Math.round(perfNow() - start) });
     return result;
@@ -655,10 +655,7 @@ export async function sendMessage(ctx, threadId, prompt, attachments = [], optio
   const text = (prompt || '').trim();
   const hasAttachments = attachments.length > 0;
   if (!threadId || (!text && !hasAttachments)) return;
-  const blockedNotice = getThreadSendBlockedNoticeFromState(ctx.state, threadId);
-  if (blockedNotice) throw new Error(blockedNotice);
-  const holdNotice = getThreadSendHoldNoticeFromState(ctx.state, threadId);
-  if (holdNotice) throw new Error(holdNotice);
+  assertThreadCanSendInState(ctx.state, threadId);
   const input = [];
   let localImageCount = 0;
   let remoteImageCount = 0;
@@ -733,7 +730,10 @@ export async function sendMessage(ctx, threadId, prompt, attachments = [], optio
     // matches user intent ("I can see what I just typed"), and any error is
     // surfaced via the standard catch path below.
     const userText = input.filter((i) => i?.type === 'text').map((i) => i.text).join('\n').trim();
-    if (userText || attachments.length > 0) upsertOptimisticUserTimelineItem(ctx, threadId, userText, attachments);
+    if (userText || attachments.length > 0) {
+      touchThreadUpdatedAt(ctx, threadId, new Date().toISOString());
+      upsertOptimisticUserTimelineItem(ctx, threadId, userText, attachments);
+    }
     const turnStartRes = await callTurnStartWithSendBlock(ctx, threadId, requestPayload, isSessionNotAvailableError, recoverThread);
     turnStartAccepted = true;
     // pending-launch threads get their routing decision lazily (SpawnIfNeeded
