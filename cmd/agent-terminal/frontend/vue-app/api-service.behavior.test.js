@@ -27,6 +27,7 @@ import {
   normalizeRuntimeEventEnvelope,
   readDroppedTextFiles,
   resolveThreadIdentity,
+  saveTextFile,
   selectProjectDir,
 } from './services/api.js';
 
@@ -99,6 +100,28 @@ describe('api service behavior', () => {
       expect.objectContaining({
         files: ['/tmp/notes.md'],
         targetId: 'prompt-intent-drop-zone',
+        _aoClientKind: 'web-debug-shim',
+        _aoClientRoute: '/test',
+      }),
+    );
+  });
+
+  it('saves text files through the native save RPC', async () => {
+    runtimeMock.byId.mockResolvedValueOnce({ path: '/tmp/final-report.md' });
+
+    await expect(saveTextFile({
+      defaultPath: '/repo',
+      defaultFilename: 'final-report.md',
+      content: '# Final report\nready',
+    })).resolves.toBe('/tmp/final-report.md');
+
+    expect(runtimeMock.byId).toHaveBeenCalledWith(
+      2963398832,
+      'ui/saveTextFile',
+      expect.objectContaining({
+        defaultPath: '/repo',
+        defaultFilename: 'final-report.md',
+        content: '# Final report\nready',
         _aoClientKind: 'web-debug-shim',
         _aoClientRoute: '/test',
       }),

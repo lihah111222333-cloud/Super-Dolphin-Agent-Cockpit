@@ -529,7 +529,6 @@ func launchValidationKeywords() []string {
 		"selected model", "may not exist or you may not have access",
 		"not have access to it", "pick a different model",
 		"model unavailable", "model_not_found", "model not found",
-		"root task id missing", "task handoff title is required", "task handoff file is required", "task handoff config",
 	}
 }
 

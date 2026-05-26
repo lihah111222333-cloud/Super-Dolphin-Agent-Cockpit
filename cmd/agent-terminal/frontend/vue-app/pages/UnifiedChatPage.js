@@ -33,12 +33,6 @@ import { useKeyboardShortcuts } from '../composables/useKeyboardShortcuts.js';
 import { useFileRefPreview } from '../composables/useFileRefPreview.js';
 import { useCopyThreadInfo } from '../composables/useCopyThreadInfo.js';
 import { useFileDrop } from '../composables/useFileDrop.js';
-import { useTaskHandoff } from '../composables/useTaskHandoff.js';
-import { usePromoteTask } from '../composables/usePromoteTask.js';
-import { useAutoContinue } from '../composables/useAutoContinue.js';
-import { useThreadWatchdog, normalizeStuckEntry } from '../composables/useThreadWatchdog.js';
-import { useAutoContinueStatePersistence } from '../composables/useAutoContinueStatePersistence.js';
-import { useThreadProgressProtocol } from '../composables/useThreadProgressProtocol.js';
 import { useForkThread } from '../composables/useForkThread.js';
 import { getTokenLevel } from '../utils/format-utils.js';
 import { useContextUsageThresholds } from '../composables/useContextUsageThresholds.js';
@@ -127,18 +121,6 @@ function attachPageNonEnumerableState(exposed, ctx) {
     openForkDraftFromUI: { value: ctx.openForkDraftFromUI, enumerable: false, configurable: true },
     forkSourceThreadName: { value: ctx.forkSourceThreadName, enumerable: false, configurable: true },
     forkAvailableSharedFiles: { value: ctx.forkAvailableSharedFiles, enumerable: false, configurable: true },
-    activeAutoContinueFailed: { value: ctx.activeAutoContinueFailed, enumerable: false, configurable: true },
-    autoContinueRetrying: { value: ctx.autoContinueRetrying, enumerable: false, configurable: true },
-    autoContinueRetryError: { value: ctx.autoContinueRetryError, enumerable: false, configurable: true },
-    onRetryAutoContinue: { value: ctx.onRetryAutoContinue, enumerable: false, configurable: true },
-    failedAutoContinueByThreadId: { value: ctx.failedAutoContinueByThreadId, enumerable: false, configurable: true },
-    // Phase 2.2 promote-task：spread 进 ctx 后仍需显式挂载到 exposed，否则模板里
-    // @promote-task="onPromoteTaskRequested" 解析为 undefined，emit 静默丢失。
-    onPromoteTaskRequested: { value: ctx.onPromoteTaskRequested, enumerable: false, configurable: true },
-    promotingTask: { value: ctx.promotingTask, enumerable: false, configurable: true },
-    promoteTaskLastError: { value: ctx.promoteTaskLastError, enumerable: false, configurable: true },
-    threadIsTask: { value: ctx.threadIsTask, enumerable: false, configurable: true },
-    threadTaskId: { value: ctx.threadTaskId, enumerable: false, configurable: true },
   });
 }
 
@@ -284,232 +266,6 @@ function createPageForkThread(props, ctx) {
     open: openForkDraftFromUI,
     sourceThreadName: forkSourceThreadName,
     availableSharedFiles,
-  };
-}
-
-function createPageAutoContinue(props, taskHandoff, selectedThreadId, persistenceHook) {
-  const r = useAutoContinue({
-    threadStore: props.threadStore,
-    continueTaskById: taskHandoff.continueTaskById,
-    onStateChange: typeof persistenceHook === 'function' ? persistenceHook : null,
-  });
-  const activeAutoContinueFailed = computed(
-    () => r.failedAutoContinueByThread.value.get((selectedThreadId.value || '').toString().trim()) || null,
-  );
-  // Phase 1.6 sidebar 失败标记：把 reactive Map 转 plain object 给 ThreadRailSidePanel
-  const failedAutoContinueByThreadId = computed(() => {
-    const map = r.failedAutoContinueByThread.value;
-    const out = {};
-    if (map && typeof map.entries === 'function') {
-      for (const [tid, info] of map.entries()) out[tid] = info;
-    }
-    return out;
-  });
-  const autoContinueRetrying = ref(false);
-  const autoContinueRetryErrorByThread = ref(new Map());
-  const autoContinueRetryError = computed(() => {
-    const tid = (selectedThreadId.value || '').toString().trim();
-    if (!tid) return '';
-    return autoContinueRetryErrorByThread.value.get(tid) || '';
-  });
-  function setAutoContinueRetryError(threadId, message) {
-    const tid = (threadId || '').toString().trim();
-    if (!tid) return;
-    const next = new Map(autoContinueRetryErrorByThread.value);
-    const msg = (message || '').toString().trim();
-    if (msg) next.set(tid, msg);
-    else next.delete(tid);
-    autoContinueRetryErrorByThread.value = next;
-  }
-  async function onRetryAutoContinue() {
-    const id = (selectedThreadId.value || '').toString().trim();
-    if (!id || autoContinueRetrying.value) return;
-    autoContinueRetrying.value = true;
-    setAutoContinueRetryError(id, '');
-    try { await r.retryAutoContinue(id); }
-    catch (err) { setAutoContinueRetryError(id, (err && err.message) || String(err)); }
-    finally { autoContinueRetrying.value = false; }
-  }
-  return {
-    autoContinueFailedByThread: r.failedAutoContinueByThread,
-    autoContinueRetry: r.retryAutoContinue,
-    activeAutoContinueFailed, autoContinueRetrying, autoContinueRetryError, onRetryAutoContinue,
-    failedAutoContinueByThreadId,
-    markManualAbort: r.markManualAbort,
-    clearManualAbort: r.clearManualAbort,
-    manualAbortByThread: r.manualAbortByThread,
-  };
-}
-
-function createPageThreadWatchdog(props, threadStore, selectedThreadId, persistenceHook) {
-  // Phase 3.10b: 注入长任务进度协议读侧；watchdog 戳前对比 progress / done 决定是否重置上限或终止
-  const progressProtocol = useThreadProgressProtocol();
-  const wd = useThreadWatchdog({
-    threadStore,
-    sendMessage: (tid, prompt) => threadStore.sendMessage(tid, prompt, [], {}),
-    onStateChange: typeof persistenceHook === 'function' ? persistenceHook : null,
-    progressProtocol,
-  });
-  wd.start();
-  // composable lifecycle 与组件绑定：UnifiedChatPage onBeforeUnmount 调 stop。
-  const activeStuckInfo = computed(() => {
-    const tid = (selectedThreadId.value || '').toString().trim();
-    if (!tid) return null;
-    return normalizeStuckEntry(wd.stuckByThread.value.get(tid));
-  });
-  const pokingStuckThread = ref(false);
-  async function onRetryStuckThread() {
-    const id = (selectedThreadId.value || '').toString().trim();
-    if (!id || pokingStuckThread.value) return;
-    pokingStuckThread.value = true;
-    try {
-      await threadStore.sendMessage(id, '继续', [], {});
-      wd.stuckByThread.value.delete(id);
-    } catch (error) {
-      logWarn('ui', 'watchdog.stuck.retry.failed', { thread_id: id, error });
-      throw error;
-    }
-    finally { pokingStuckThread.value = false; }
-  }
-  async function onForceStuckThread() {
-    // 累计上限时用户强制再戳一次：clear cumulative count + clear stuck 后再戳。
-    const id = (selectedThreadId.value || '').toString().trim();
-    if (!id || pokingStuckThread.value) return;
-    wd.resetCumulativePokeCount(id);
-    wd.clearStuck(id);
-    await onRetryStuckThread();
-  }
-  function onMarkStuckDone() {
-    // 标记完成：清空累计 + 卡住状态，不发消息。
-    const id = (selectedThreadId.value || '').toString().trim();
-    if (!id) return;
-    wd.resetCumulativePokeCount(id);
-    wd.clearStuck(id);
-  }
-  return {
-    threadWatchdogStop: wd.stop,
-    stuckByThread: wd.stuckByThread,
-    cumulativePokeCountByThread: wd.cumulativePokeCountByThread,
-    resetCumulativePokeCount: wd.resetCumulativePokeCount,
-    activeStuckInfo,
-    pokingStuckThread,
-    onRetryStuckThread,
-    onForceStuckThread,
-    onMarkStuckDone,
-  };
-}
-
-function createPagePersistedAutoContinue(props, taskHandoff, selectedThreadId) {
-  // Phase 1.7f / 1.8a 持久化：协调 watchdog 累计计数 + manualAbort 抑制位写共享文件。
-  // closure 引用 autoContinue / threadWatchdog（创建顺序在后），调用时已赋值 OK。
-  let autoContinue; let threadWatchdog;
-  const persistence = useAutoContinueStatePersistence({
-    getStateSnapshot: (tid) => {
-      const abortInfo = autoContinue && autoContinue.manualAbortByThread && autoContinue.manualAbortByThread.value && autoContinue.manualAbortByThread.value.get(tid);
-      const pokeCount = threadWatchdog && threadWatchdog.cumulativePokeCountByThread && threadWatchdog.cumulativePokeCountByThread.value && threadWatchdog.cumulativePokeCountByThread.value.get(tid);
-      return {
-        manualAbortAt: (abortInfo && abortInfo.at) || 0,
-        manualAbortSource: (abortInfo && abortInfo.source) || null,
-        watchdogPokeCount: Number(pokeCount) || 0,
-      };
-    },
-    applyStateSnapshot: (tid, snap) => {
-      if (snap.manualAbortAt && autoContinue && autoContinue.manualAbortByThread && autoContinue.manualAbortByThread.value) {
-        autoContinue.manualAbortByThread.value.set(tid, {
-          at: Number(snap.manualAbortAt) || 0,
-          source: (snap.manualAbortSource || 'persisted').toString(),
-        });
-      }
-      const restoredCount = Number(snap.watchdogPokeCount) || 0;
-      if (restoredCount > 0 && threadWatchdog && threadWatchdog.cumulativePokeCountByThread && threadWatchdog.cumulativePokeCountByThread.value) {
-        threadWatchdog.cumulativePokeCountByThread.value.set(tid, restoredCount);
-      }
-    },
-  });
-  autoContinue = createPageAutoContinue(props, taskHandoff, selectedThreadId, persistence.scheduleWrite);
-  threadWatchdog = createPageThreadWatchdog(props, props.threadStore, selectedThreadId, persistence.scheduleWrite);
-  onBeforeUnmount(() => {
-    threadWatchdog.threadWatchdogStop();
-    persistence.disposeAll();
-  });
-  // selectedThreadId 变化时 lazy load 该 thread 的持久化 state（manualAbort + 累计计数）。
-  watch(selectedThreadId, (tid) => {
-    const id = (tid || '').toString().trim();
-    if (id) persistence.loadStateForThread(id);
-  }, { immediate: true });
-  return { autoContinue, threadWatchdog, persistence };
-}
-
-function createPageTaskHandoff(props, ctx) {
-  return useTaskHandoff({
-    threadStore: props.threadStore,
-    projectStore: props.projectStore,
-    selectedThreadId: ctx.selectedThreadId,
-    activeThread: ctx.activeThread,
-    activeRuntime: ctx.activeRuntime,
-    isCmd: ctx.isCmd,
-    windowCwd: props.windowCwd,
-  });
-}
-
-// Phase 2.2 · 把普通 thread 升级为 task thread。两个入口（ComposerBar 配置面板
-// 「升级为自动化任务」按钮 + ContextUsageBanner 卡住时升级按钮）共用同一个
-// composable + handler，busy/error 状态共享。后端 RPC 是幂等的，但前端仍然防
-// 重复点击，避免日志吵。
-function createPagePromoteTask(props, threadStore, selectedThreadId, threadWatchdog) {
-  const promote = usePromoteTask();
-  const promoteTaskErrorByThread = ref(new Map());
-  // threadIsTask / threadTaskId 来自当前 selectedThreadId 的 runtime。
-  const threadTaskId = computed(() => {
-    const tid = (selectedThreadId.value || '').toString().trim();
-    if (!tid) return '';
-    const rt = threadStore?.state?.agentRuntimeById?.[tid];
-    if (!rt || typeof rt !== 'object') return '';
-    return ((rt.taskId || rt.task_id) || '').toString().trim();
-  });
-  const threadIsTask = computed(() => Boolean(threadTaskId.value));
-  const promoteTaskLastError = computed(() => {
-    const tid = (selectedThreadId.value || '').toString().trim();
-    if (!tid) return '';
-    return promoteTaskErrorByThread.value.get(tid) || '';
-  });
-
-  function setPromoteTaskError(threadId, message) {
-    const tid = (threadId || '').toString().trim();
-    if (!tid) return;
-    const next = new Map(promoteTaskErrorByThread.value);
-    const msg = (message || '').toString().trim();
-    if (msg) next.set(tid, msg);
-    else next.delete(tid);
-    promoteTaskErrorByThread.value = next;
-  }
-
-  async function onPromoteTaskRequested() {
-    const tid = (selectedThreadId.value || '').toString().trim();
-    if (!tid) return;
-    setPromoteTaskError(tid, '');
-    let result;
-    try {
-      result = await promote.promoteTaskFromThread(tid);
-    } catch (error) {
-      const msg = (promote.lastError.value || (error && error.message) || String(error || '')).toString().trim() || 'promote-task RPC failed';
-      setPromoteTaskError(tid, msg);
-      throw error;
-    }
-    // 成功后 banner 卡住状态可以直接清掉：升级以后 watchdog 转 task 路径，
-    // banner 提示也就不再适用。失败则保留状态让用户重试。
-    if (result && threadWatchdog && threadWatchdog.stuckByThread && threadWatchdog.stuckByThread.value) {
-      threadWatchdog.stuckByThread.value.delete(tid);
-    }
-    return result;
-  }
-
-  return {
-    promotingTask: promote.promoting,
-    promoteTaskLastError,
-    threadIsTask,
-    threadTaskId,
-    onPromoteTaskRequested,
   };
 }
 
@@ -711,6 +467,12 @@ export const UnifiedChatPage = {
     const showArchivedThreadList = ref(false);
 
     const activeTimeline = computed(() => props.threadStore.getThreadTimeline(selectedThreadId.value));
+    const chatEmptyText = computed(() => {
+      const name = (activeThread.value?.name || '').toString().trim();
+      const items = Array.isArray(activeTimeline.value) ? activeTimeline.value : [];
+      if (name === 'AI 设计流程' && items.length === 0) return '我们应该设计点什么？';
+      return '暂无消息，先发送一句话试试。';
+    });
     const activeThreadDiffText = computed(() => props.threadStore.getThreadDiff(selectedThreadId.value));
 
     const {
@@ -756,12 +518,7 @@ export const UnifiedChatPage = {
     });
 
     const copyThreadInfo = createPageCopyThreadInfo(selectedThreadId, activeProjectCwd, threadCards, activeThread, activeStatus, useClaudeProvider, props);
-    const taskHandoff = createPageTaskHandoff(props, { selectedThreadId, activeThread, activeRuntime: threadCards.activeRuntime, isCmd });
-    const persistedAutoContinue = createPagePersistedAutoContinue(props, taskHandoff, selectedThreadId);
-    const autoContinue = persistedAutoContinue.autoContinue;
-    const threadWatchdog = persistedAutoContinue.threadWatchdog;
     const forkPage = createPageForkThread(props, { composer, selectedThreadId, activeThread, isCmd, emit: typeof setupCtx?.emit === 'function' ? setupCtx.emit : () => {} });
-    const promoteTask = createPagePromoteTask(props, props.threadStore, selectedThreadId, threadWatchdog);
     const tokenLevelByThreadId = createPageTokenLevels(props, threads);
 
     bindPageThreadSelection(props, {
@@ -772,10 +529,7 @@ export const UnifiedChatPage = {
     const selectThread = (threadId) => selectThreadInPage(selectedThreadId, props.threadStore, threadId);
     const inlineRename = useInlineRename(props, threadCards.visibleChatThreadCards, selectThread);
 
-    // Phase 1.8a：把 autoContinue.markManualAbort 注入到 useThreadActions（需 createPageAutoContinue 在前）。
-    const threadActionsProps = Object.create(props);
-    threadActionsProps.markManualAbort = autoContinue.markManualAbort;
-    const threadActions = createPageThreadActions(threadActionsProps, {
+    const threadActions = createPageThreadActions(props, {
       selectedThreadId, modeKey, isCmd, composer, layoutMode, cmdCardCols,
       compacting: threadStatus.compacting, isThreadInterruptible: threadStatus.isThreadInterruptible,
       beginInlineRename: inlineRename.beginInlineRename, scheduleScrollToBottom,
@@ -813,7 +567,6 @@ export const UnifiedChatPage = {
       composer, isCmd, threads, selectedThreadId, activeThread,
       chatThreadOptions, showArchivedThreadList,
       threadCards, threadStatus, threadActions, inlineRename, copyThreadInfo, fileRefPreview, batchDeleteStaleThreads: props.threadStore.batchDeleteStaleThreads,
-      taskHandoff,
       threadConfigUi: threadConfigController.threadConfigUi,
       updateThreadConfigModel: threadConfigController.updateThreadConfigModel,
       updateThreadConfigEffort: threadConfigController.updateThreadConfigEffort,
@@ -821,7 +574,7 @@ export const UnifiedChatPage = {
       restoreThreadConfigInherit: threadConfigController.restoreThreadConfigInherit,
       keyboardShortcuts,
       useClaudeProvider, providerPreferenceReady, providerPreferenceError, toggleProviderMode,
-      activeTimeline, activeDiffText, activeMediaPreview, activeMarkdownPreview,
+      activeTimeline, chatEmptyText, activeDiffText, activeMediaPreview, activeMarkdownPreview,
       activeDiffFocusFile, activeDiffFocusLine, activeStatus, activeThreadSendBlocked,
       layoutMode, cmdCardCols, splitRatio, threadRailStyle, showWorkspace,
       chatComposerShellStyle, activityPanelRowStyle, timelinePreview, diffPreview,
@@ -847,9 +600,6 @@ export const UnifiedChatPage = {
       forkSourceThreadName: forkPage.sourceThreadName,
       forkAvailableSharedFiles: forkPage.availableSharedFiles,
       tokenLevelByThreadId,
-      ...autoContinue,
-      ...threadWatchdog,
-      ...promoteTask,
       onTimelineCitationClick,
       onPreviewDirtyChange,
       isPreviewDirty,

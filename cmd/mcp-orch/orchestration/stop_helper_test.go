@@ -12,14 +12,23 @@ import (
 // stopHelperThreadSpy is the AgentThreadLookup test double — returns the
 // programmed thread / error and records call count.
 type stopHelperThreadSpy struct {
-	thread *PersistedThread
-	err    error
-	calls  int
+	thread      *PersistedThread
+	err         error
+	calls       int
+	update      PersistedThreadStatusUpdate
+	updateCalls int
+	updateErr   error
 }
 
 func (s *stopHelperThreadSpy) GetByThreadID(_ context.Context, _ string) (*PersistedThread, error) {
 	s.calls++
 	return s.thread, s.err
+}
+
+func (s *stopHelperThreadSpy) UpdateStatus(_ context.Context, update PersistedThreadStatusUpdate) error {
+	s.updateCalls++
+	s.update = update
+	return s.updateErr
 }
 
 // stopHelperServiceSpy is the StopAgentService test double — programmed
@@ -162,6 +171,29 @@ func TestStopSpawnedAgent_SkippedAlreadyArchived(t *testing.T) {
 	}
 	assertResult(t, result, StopResultSkippedAlreadyArchived)
 	assertMetric(t, metrics, StopResultSkippedAlreadyArchived)
+}
+
+func TestStopSpawnedAgent_MarksPersistedThreadStoppedWhenRuntimeAlreadyGone(t *testing.T) {
+	metrics := withMetricSpy(t)
+	threads := &stopHelperThreadSpy{
+		thread: &PersistedThread{ThreadID: "thr-1", AgentID: "agent-1", Status: "created"},
+	}
+	svc := &stopHelperServiceSpy{
+		stopErr: fmt.Errorf("wrapped: %w", errAgentNotFound),
+	}
+
+	result, err := StopSpawnedAgent(context.Background(), threads, svc, "thr-1")
+	if err != nil {
+		t.Fatalf("already-gone runtime must not surface error, got %v", err)
+	}
+	assertResult(t, result, StopResultSkippedAlreadyArchived)
+	assertMetric(t, metrics, StopResultSkippedAlreadyArchived)
+	if threads.updateCalls != 1 {
+		t.Fatalf("UpdateStatus calls = %d, want 1", threads.updateCalls)
+	}
+	if threads.update.ThreadID != "thr-1" || threads.update.Status != "stopped" || threads.update.UpdatedAt <= 0 {
+		t.Fatalf("UpdateStatus = %#v, want thread stopped", threads.update)
+	}
 }
 
 func TestStopSpawnedAgent_SkippedBindingMissing(t *testing.T) {

@@ -23,6 +23,7 @@ export const ChatTimeline = {
     activeStatus: { type: String, default: 'idle' },
     activeStatusText: { type: String, default: '' },
     activeStatusMeta: { type: String, default: '' },
+    emptyText: { type: String, default: '暂无消息，先发送一句话试试。' },
     pinnedPlanVisible: { type: Boolean, default: false },
     pinnedPlanItemId: { type: [String, Number], default: null },
     resolveThreadDisplayName: { type: Function, default: null },
@@ -284,7 +285,7 @@ export const ChatTimeline = {
       @mouseleave="onAttachmentHoverLeave"
       @scroll.passive="onAttachmentHoverLeave"
     >
-      <div v-if="timelineItems.length === 0" class="chat-empty">暂无消息，先发送一句话试试。</div>
+      <div v-if="timelineItems.length === 0" class="chat-empty">{{ emptyText }}</div>
 
       <div v-if="hasMore" class="chat-load-more">
         <button class="chat-load-more-btn" @click="showMore">显示更早消息 ({{ timelineItems.length - visibleItems.length }} 条)</button>

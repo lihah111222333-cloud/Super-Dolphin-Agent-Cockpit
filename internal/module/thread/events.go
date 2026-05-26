@@ -28,16 +28,12 @@ func registerThreadSubscriptions(svc *service) []context.CancelFunc {
 	return []context.CancelFunc{
 		contract.ResilientSubscribe(svc.bus, svc.onAgentLaunched, svc.logger),
 		contract.ResilientSubscribe(svc.bus, svc.onAgentFailed, svc.logger),
-		contract.ResilientSubscribe(svc.bus, svc.onTurnCompleted, svc.logger),
 	}
 }
 
 func (s *service) startBusWorkers() {
 	if s == nil {
 		return
-	}
-	if s.taskHandoffWorker != nil {
-		s.taskHandoffWorker.Start()
 	}
 	if s.agentLaunchedWorker != nil {
 		s.agentLaunchedWorker.Start()
@@ -50,9 +46,6 @@ func (s *service) startBusWorkers() {
 func (s *service) stopBusWorkers(ctx context.Context) {
 	if s == nil {
 		return
-	}
-	if s.taskHandoffWorker != nil {
-		s.drainBusWorker(ctx, "task handoff worker", s.taskHandoffWorker.Stop)
 	}
 	if s.agentLaunchedWorker != nil {
 		s.drainBusWorker(ctx, "agent launched worker", s.agentLaunchedWorker.Stop)

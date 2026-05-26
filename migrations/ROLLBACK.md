@@ -474,10 +474,13 @@ metadata，以及默认开发专家 roster repair。它带 system-owned、未手
 BEGIN;
 
 UPDATE public.prompt_templates t
-SET prompt_text = REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(
+SET prompt_text = REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(
         t.prompt_text,
         E'    "agent_key": "code-debug",',
         E'    "provider": "claude",\n    "model": "opus",\n    "agent_key": "code-debug",'
+    ),
+        E'    "model": "<selected model from list_models()>",\n    "on_failure"',
+        E'    "provider": "claude",\n    "model": "opus",\n    "on_failure"'
     ),
         '"escalation_chain": []',
         '"escalation_chain": ["sonnet","opus"]'
@@ -512,10 +515,13 @@ WHERE t.prompt_key = 'main/dag_designer_zh'
   AND t.manually_edited = FALSE;
 
 UPDATE public.prompt_templates t
-SET prompt_text = REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(
+SET prompt_text = REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(
         t.prompt_text,
         E'    "agent_key": "code-debug",',
         E'    "provider": "claude",\n    "model": "opus",\n    "agent_key": "code-debug",'
+    ),
+        E'    "model": "<selected model from list_models()>",\n    "on_failure"',
+        E'    "provider": "claude",\n    "model": "opus",\n    "on_failure"'
     ),
         '"escalation_chain": []',
         '"escalation_chain": ["sonnet","opus"]'

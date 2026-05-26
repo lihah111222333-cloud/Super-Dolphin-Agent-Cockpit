@@ -151,7 +151,7 @@ describe('DagsPage console shell', () => {
     expect(DagsPage.template).toContain('正在加载任务流程');
     expect(DagsPage.template).toContain('加载任务流程失败');
     expect(DagsPage.template).toContain('运行');
-    expect(DagsPage.template).toContain('流程状态');
+    for (const label of ['任务状态', '运行计划']) expect(DagsPage.template).toContain(label);
     expect(DagsPage.template).toContain('最近运行');
     expect(DagsPage.template).toContain('最终结果');
     expect(DagsPage.template).not.toContain('DAG Console');
@@ -165,7 +165,7 @@ describe('DagsPage console shell', () => {
           dag_key: 'daily-brief',
           title: 'Daily Brief',
           status: 'ready',
-          trigger: { type: 'manual' },
+          trigger: { type: 'manual' }, cron_expr: '0 8 * * *',
           latest_run: { run_key: 'run-7', status: 'succeeded' },
           metadata: { final_output: { type: 'file', path: 'reports/daily.pptx' } },
         },
@@ -760,15 +760,15 @@ describe('DagsPage console shell', () => {
     expect(vm.rows.value[0]).toMatchObject({
       key: 'daily-brief',
       title: 'Daily Brief',
-      status: '可运行',
-      triggerLabel: '定时 0 9 * * *',
+      status: '已启用',
+      triggerLabel: '每天 09:00',
       latestRunLabel: '成功',
       hasFinalOutput: true,
     });
     expect(vm.rows.value[1]).toMatchObject({
       key: 'real-dashboard-shape',
       status: '运行中',
-      triggerLabel: '定时 0 8 * * *',
+      triggerLabel: '每天 08:00',
       latestRunLabel: '成功',
       hasFinalOutput: true,
     });

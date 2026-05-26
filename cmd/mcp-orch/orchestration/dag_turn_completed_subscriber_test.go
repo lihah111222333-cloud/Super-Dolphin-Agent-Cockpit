@@ -91,6 +91,10 @@ func (s *dagSubscriberThreadSpy) GetByThreadID(_ context.Context, _ string) (*Pe
 	return s.thread, s.err
 }
 
+func (s *dagSubscriberThreadSpy) UpdateStatus(context.Context, PersistedThreadStatusUpdate) error {
+	return nil
+}
+
 type dagSubscriberStopSpy struct {
 	stopErr error
 	stopped []string

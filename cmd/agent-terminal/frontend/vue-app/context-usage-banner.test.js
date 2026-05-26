@@ -5,8 +5,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { ContextUsageBanner } from './components/ContextUsageBanner.js';
 
 function instantiate(props, emit = vi.fn()) {
-  const merged = { ...ContextUsageBanner.props && {}, ...props };
-  // 模拟 vue 默认值填充
+  const merged = { ...props };
   const finalProps = {};
   for (const [k, def] of Object.entries(ContextUsageBanner.props)) {
     finalProps[k] = (k in merged) ? merged[k] : def.default;
@@ -16,38 +15,16 @@ function instantiate(props, emit = vi.fn()) {
 }
 
 describe('ContextUsageBanner · visibility', () => {
-  it('not visible when level=normal and no failedInfo', () => {
-    const { visible, showTokenSection, showFailedSection } = instantiate({ level: 'normal' });
+  it('not visible when level=normal', () => {
+    const { visible, showTokenSection } = instantiate({ level: 'normal' });
     expect(visible()).toBe(false);
     expect(showTokenSection()).toBe(false);
-    expect(showFailedSection()).toBe(false);
   });
 
-  it('visible (token only) when level=critical without failedInfo', () => {
-    const { visible, showTokenSection, showFailedSection } = instantiate({ level: 'critical' });
+  it.each(['warn', 'danger', 'critical'])('visible when level=%s', (level) => {
+    const { visible, showTokenSection } = instantiate({ level });
     expect(visible()).toBe(true);
     expect(showTokenSection()).toBe(true);
-    expect(showFailedSection()).toBe(false);
-  });
-
-  it('visible (failed only) when failedInfo present even at level=normal', () => {
-    const { visible, showTokenSection, showFailedSection } = instantiate({
-      level: 'normal',
-      failedInfo: { reason: 'continue_failed', error_message: 'boom' },
-    });
-    expect(visible()).toBe(true);
-    expect(showTokenSection()).toBe(false);
-    expect(showFailedSection()).toBe(true);
-  });
-
-  it('visible (both sections) when level=critical AND failedInfo present', () => {
-    const { visible, showTokenSection, showFailedSection } = instantiate({
-      level: 'critical',
-      failedInfo: { reason: 'compact_then_continue_failed' },
-    });
-    expect(visible()).toBe(true);
-    expect(showTokenSection()).toBe(true);
-    expect(showFailedSection()).toBe(true);
   });
 });
 
@@ -58,51 +35,9 @@ describe('ContextUsageBanner · level label', () => {
     ['warn', '提醒'],
     ['normal', ''],
     ['unknown', ''],
-  ])('levelLabel(%s) → %s', (level, expected) => {
+  ])('levelLabel(%s) -> %s', (level, expected) => {
     const { levelLabel } = instantiate({ level });
     expect(levelLabel()).toBe(expected);
-  });
-});
-
-describe('ContextUsageBanner · failedReasonLabel translation', () => {
-  it.each([
-    ['continue_failed', '自动续接失败'],
-    ['compact_then_continue_failed', '上下文压缩与自动续接均失败'],
-    ['recover_then_continue_failed', '进程恢复与自动续接均失败'],
-    ['gated_thread_already_continued', '此 thread 已自动续接过 1 次'],
-    ['gated_global_fuse_blown', '系统级自动续接保险丝已触发'],
-  ])('translates known reason %s', (reason, label) => {
-    const { failedReasonLabel } = instantiate({ failedInfo: { reason } });
-    expect(failedReasonLabel()).toBe(label);
-  });
-
-  it('falls back to generic label for unknown reason', () => {
-    const { failedReasonLabel } = instantiate({ failedInfo: { reason: 'mystery_x' } });
-    expect(failedReasonLabel()).toBe('自动续接失败');
-  });
-
-  it('returns empty when failedInfo is null', () => {
-    const { failedReasonLabel } = instantiate({});
-    expect(failedReasonLabel()).toBe('');
-  });
-});
-
-describe('ContextUsageBanner · failedErrorSnippet truncation', () => {
-  it('returns empty when no error_message', () => {
-    const { failedErrorSnippet } = instantiate({ failedInfo: { reason: 'continue_failed' } });
-    expect(failedErrorSnippet()).toBe('');
-  });
-
-  it('truncates to 120 chars', () => {
-    const long = 'x'.repeat(500);
-    const { failedErrorSnippet } = instantiate({ failedInfo: { reason: 'continue_failed', error_message: long } });
-    expect(failedErrorSnippet().length).toBe(120);
-    expect(failedErrorSnippet()).toBe('x'.repeat(120));
-  });
-
-  it('preserves message under 120 chars', () => {
-    const { failedErrorSnippet } = instantiate({ failedInfo: { reason: 'x', error_message: 'short error' } });
-    expect(failedErrorSnippet()).toBe('short error');
   });
 });
 
@@ -114,14 +49,14 @@ describe('ContextUsageBanner · emits', () => {
     expect(emit).toHaveBeenCalledWith('compact');
   });
 
-  it('onCompact does NOT emit when compacting', () => {
+  it('onCompact does not emit when compacting', () => {
     const emit = vi.fn();
     const { onCompact } = instantiate({ canCompact: true, compacting: true }, emit);
     onCompact();
     expect(emit).not.toHaveBeenCalled();
   });
 
-  it('onCompact does NOT emit when !canCompact', () => {
+  it('onCompact does not emit when canCompact=false', () => {
     const emit = vi.fn();
     const { onCompact } = instantiate({ canCompact: false, compacting: false }, emit);
     onCompact();
@@ -134,98 +69,53 @@ describe('ContextUsageBanner · emits', () => {
     onFork();
     expect(emit).toHaveBeenCalledWith('fork');
   });
-
-  it('onRetry emits retry-auto-continue when not retrying', () => {
-    const emit = vi.fn();
-    const { onRetry } = instantiate({ retrying: false }, emit);
-    onRetry();
-    expect(emit).toHaveBeenCalledWith('retry-auto-continue');
-  });
-
-  it('onRetry does NOT emit when retrying', () => {
-    const emit = vi.fn();
-    const { onRetry } = instantiate({ retrying: true }, emit);
-    onRetry();
-    expect(emit).not.toHaveBeenCalled();
-  });
-});
-
-// R2 fix：retryError prop 渲染
-describe('ContextUsageBanner · R2 retry error display', () => {
-  it('declares retryError prop with empty default', () => {
-    expect(ContextUsageBanner.props.retryError.default).toBe('');
-  });
-
-  it('template references auto-continue-retry-error testid', () => {
-    expect(ContextUsageBanner.template).toContain('auto-continue-retry-error');
-  });
-
-  it('template renders retryError span only when value is truthy', () => {
-    // 验证模板中 v-if="retryError" 存在
-    expect(ContextUsageBanner.template).toContain('v-if="retryError"');
-  });
 });
 
 describe('ContextUsageBanner · component shape', () => {
-  it('declares all expected props with defaults', () => {
-    expect(ContextUsageBanner.props.failedInfo.default).toBe(null);
-    expect(ContextUsageBanner.props.retrying.default).toBe(false);
+  it('only declares token banner props', () => {
+    expect(Object.keys(ContextUsageBanner.props).sort()).toEqual([
+      'canCompact',
+      'compacting',
+      'contextWindow',
+      'level',
+      'usedPercent',
+      'usedTokens',
+    ].sort());
   });
 
-  it('declares retry-auto-continue in emits', () => {
-    expect(ContextUsageBanner.emits).toContain('retry-auto-continue');
-    expect(ContextUsageBanner.emits).toContain('compact');
-    expect(ContextUsageBanner.emits).toContain('fork');
+  it('only declares compact and fork emits', () => {
+    expect(ContextUsageBanner.emits).toEqual(['compact', 'fork']);
   });
 
-  it('template references retry test-id and failed row test-id', () => {
-    expect(ContextUsageBanner.template).toContain('auto-continue-failed-row');
-    expect(ContextUsageBanner.template).toContain('auto-continue-retry-btn');
-    expect(ContextUsageBanner.template).toContain("@click=\"onRetry\"");
+  it('template keeps token actions', () => {
+    expect(ContextUsageBanner.template).toContain('@click="onCompact"');
+    expect(ContextUsageBanner.template).toContain('@click="onFork"');
+    expect(ContextUsageBanner.template).toContain('data-testid="context-usage-banner"');
   });
 });
 
-// Phase 2.2b · banner stuck section 升级为自动化任务按钮
-describe('ContextUsageBanner · Phase 2.2b promote-task button', () => {
-  it('declares promote-task in emits + threadIsTask / promotingTask props', () => {
-    expect(ContextUsageBanner.emits).toContain('promote-task');
-    expect(ContextUsageBanner.props.threadIsTask.default).toBe(false);
-    expect(ContextUsageBanner.props.promotingTask.default).toBe(false);
+describe('ContextUsageBanner · removed auto continue and watchdog UI', () => {
+  it('does not expose auto-continue props, emits, handlers, or test ids', () => {
+    expect(ContextUsageBanner.props.failedInfo).toBeUndefined();
+    expect(ContextUsageBanner.props.retrying).toBeUndefined();
+    expect(ContextUsageBanner.props.retryError).toBeUndefined();
+    expect(ContextUsageBanner.emits).not.toContain('retry-auto-continue');
+    expect(ContextUsageBanner.template).not.toContain('auto-continue-failed-row');
+    expect(ContextUsageBanner.template).not.toContain('auto-continue-retry-btn');
+    expect(ContextUsageBanner.template).not.toContain('auto-continue-retry-error');
+    expect(ContextUsageBanner.template).not.toContain('onRetry');
   });
 
-  it('template renders promote-task button only when not already a task', () => {
-    expect(ContextUsageBanner.template).toContain('thread-stuck-promote-btn');
-    expect(ContextUsageBanner.template).toContain('v-if="!threadIsTask"');
-    expect(ContextUsageBanner.template).toContain('@click="onPromoteTask"');
-  });
-
-  it('onPromoteTask emits when not already task and not in flight', () => {
-    const emit = vi.fn();
-    const { onPromoteTask } = instantiate({ threadIsTask: false, promotingTask: false }, emit);
-    onPromoteTask();
-    expect(emit).toHaveBeenCalledWith('promote-task');
-  });
-
-  it('onPromoteTask does NOT emit when threadIsTask=true', () => {
-    const emit = vi.fn();
-    const { onPromoteTask } = instantiate({ threadIsTask: true, promotingTask: false }, emit);
-    onPromoteTask();
-    expect(emit).not.toHaveBeenCalled();
-  });
-
-  it('onPromoteTask does NOT emit when promotingTask=true (in flight)', () => {
-    const emit = vi.fn();
-    const { onPromoteTask } = instantiate({ threadIsTask: false, promotingTask: true }, emit);
-    onPromoteTask();
-    expect(emit).not.toHaveBeenCalled();
-  });
-
-  it('declares promoteTaskError prop with empty default', () => {
-    expect(ContextUsageBanner.props.promoteTaskError.default).toBe('');
-  });
-
-  it('template renders promote-task error span only when threadIsTask=false AND error present', () => {
-    expect(ContextUsageBanner.template).toContain('thread-stuck-promote-error');
-    expect(ContextUsageBanner.template).toContain('v-if="!threadIsTask && promoteTaskError"');
+  it('does not expose watchdog props, emits, handlers, or test ids', () => {
+    expect(ContextUsageBanner.props.stuckInfo).toBeUndefined();
+    expect(ContextUsageBanner.props.pokingStuck).toBeUndefined();
+    expect(ContextUsageBanner.emits).not.toContain('retry-stuck-thread');
+    expect(ContextUsageBanner.emits).not.toContain('force-stuck-thread');
+    expect(ContextUsageBanner.emits).not.toContain('mark-stuck-done');
+    expect(ContextUsageBanner.template).not.toContain('thread-stuck-row');
+    expect(ContextUsageBanner.template).not.toContain('thread-stuck-poke-btn');
+    expect(ContextUsageBanner.template).not.toContain('thread-stuck-force-btn');
+    expect(ContextUsageBanner.template).not.toContain('thread-stuck-mark-done-btn');
+    expect(ContextUsageBanner.template).not.toContain('watchdog');
   });
 });

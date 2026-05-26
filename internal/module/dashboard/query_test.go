@@ -245,7 +245,15 @@ func TestDashboardDAGHandlersReturnData(t *testing.T) {
 			Run:   contract.Run{RunKey: "run-1", DagKey: "dag-1", Status: "succeeded"},
 			Nodes: []contract.DAGNode{{NodeKey: "node-1", Title: "Runtime Node", Status: "done"}},
 		},
-		startDAGResult: contract.StartDAGResponse{RunKey: "dag-1#run-ui", Version: 9},
+		startDAGResult: contract.StartDAGResponse{
+			RunID:            88,
+			RunKey:           "dag-1#run-ui",
+			Version:          9,
+			ReadyRootNodes:   1,
+			ScheduledWakeups: 0,
+			ExecutionState:   "waiting_for_assignee",
+			Warning:          "dispatch required",
+		},
 	}
 	server := newDashboardTestServer(t, &service{orchestration: orchestration})
 
@@ -354,14 +362,34 @@ func assertDashboardDAGStart(t *testing.T, server *platformrpc.Server, orchestra
 	t.Helper()
 
 	var startResp struct {
-		RunKey  string `json:"runKey"`
-		Version int64  `json:"version"`
+		RunID            int64  `json:"runId"`
+		RunKey           string `json:"runKey"`
+		Version          int64  `json:"version"`
+		ReadyRootNodes   int64  `json:"readyRootNodes"`
+		ScheduledWakeups int64  `json:"scheduledWakeups"`
+		ExecutionState   string `json:"executionState"`
+		Warning          string `json:"warning"`
 	}
 	if err := dispatchDashboardInto(server, "dashboard/dagStart", `{"dagKey":"dag-1","triggerSource":"manual","idempotencyKey":"ui-123"}`, &startResp); err != nil {
 		t.Fatalf("dispatch dag start error = %v", err)
 	}
 	if startResp.RunKey != "dag-1#run-ui" || startResp.Version != 9 {
 		t.Fatalf("dag start response = %#v", startResp)
+	}
+	if startResp.RunID != 88 {
+		t.Fatalf("dag start runId = %d, want 88", startResp.RunID)
+	}
+	if startResp.ReadyRootNodes != 1 {
+		t.Fatalf("dag start readyRootNodes = %d, want 1", startResp.ReadyRootNodes)
+	}
+	if startResp.ScheduledWakeups != 0 {
+		t.Fatalf("dag start scheduledWakeups = %d, want 0", startResp.ScheduledWakeups)
+	}
+	if startResp.ExecutionState != "waiting_for_assignee" {
+		t.Fatalf("dag start executionState = %q, want waiting_for_assignee", startResp.ExecutionState)
+	}
+	if startResp.Warning != "dispatch required" {
+		t.Fatalf("dag start warning = %q, want dispatch required", startResp.Warning)
 	}
 	if orchestration.startDAGRequest != (contract.StartDAGRequest{DagKey: "dag-1", TriggerSource: "manual", IdempotencyKey: "ui-123"}) {
 		t.Fatalf("StartDAG() request = %#v", orchestration.startDAGRequest)

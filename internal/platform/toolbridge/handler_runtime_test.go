@@ -58,7 +58,7 @@ type toolCallRuntimeFixtures struct {
 func newToolCallRuntimeFixtures(t *testing.T) toolCallRuntimeFixtures {
 	t.Helper()
 	validRuntime := map[string]any{
-		"taskId": "task-1",
+		"runId": "run-1",
 		"sessionFlags": map[string]any{
 			"persistent_subagent_default": true,
 		},

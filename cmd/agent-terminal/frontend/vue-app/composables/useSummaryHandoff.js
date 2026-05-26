@@ -1,6 +1,6 @@
 // @ts-nocheck
 // 通用「摘要 → seed instructions」工具。
-// 既被 useTaskHandoff（task 接力）使用，也被 useForkThread（普通对话继承）使用。
+// 被 useForkThread 用于普通对话继承摘要。
 //
 // 设计取舍：
 // - 纯函数，无 side effect，便于单测。
@@ -183,7 +183,7 @@ function extractProgressSection(items) {
  */
 // fork 摘要场景特化的 truncate：超额时保留尾部（picked 已按 [首条, 全 plan, 尾 N]
 // 排序，尾部是最近内容，对承接最有价值）。前缀 '…' 提示有截断。
-// task-handoff 仍用通用 truncateSummaryText（保留首部），语义不冲突。
+// 普通继承摘要仍用通用 truncateSummaryText（保留首部）。
 // review P1 #3 修复：之前 truncateSummaryText 一刀切保留首部，超 4000 时把
 // 「尾 12」最近内容截掉，跟 fork 意图相反。
 function clipPickedKeepTail(text, limit) {

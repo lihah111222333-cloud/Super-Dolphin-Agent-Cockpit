@@ -122,7 +122,7 @@
 - `workspace_tool_compat.go`：把 workspace service 输出适配成 MCP 兼容 DTO，补 `workspace_root` / `files_merged` / `finished_at` 等字段。
 - `prompt_tools.go`：prompt template list/get 工具；走通用 resource tool builder。
 - `command_tools.go`：command card list/get 工具；带固定 list limit（50）。
-- `shared_file_tools.go`：shared file read/write MCP 工具；保留 10 MiB 内容上限；read 走 `sharedfilepath.ValidateReadPath`，write 走 `sharedfilepath.ValidateAgentWritePath`（拒绝 `handoff/tasks/` 系统保留段）；3.7 起不再持有本地 `systemHandoffPrefix` / `normalizePath`。
+- `shared_file_tools.go`：shared file read/write MCP 工具；保留 10 MiB 内容上限；read 走 `sharedfilepath.ValidateReadPath`，write 走 `sharedfilepath.ValidateAgentWritePath`；3.7 起不再持有本地路径 normalize 逻辑。
 - `memory_tools.go`：当前仅保留 package 壳，不定义或注册 `memory_read` / `memory_write`。
 - 测试文件：`handler_regression_test.go`、`orchestration_tools_test.go`、`parity_v2_test.go`、`workspace_tools_compat_test.go`。
 
@@ -193,7 +193,7 @@
 
 sharedfile 三个 leaf helper 包不在 `cmd/mcp-orch/` 树下，但同时被 mcp-orch store 与桌面端 `internal/store/sharedfile` 复用，故在此一并登记：
 
-- `internal/platform/sharedfilepath/policy.go`：Phase 3.7 路径校验。`ValidateWritePath`（白名单 handoff/ dag/ inbox/ reports/ _internal/ + traversal/absolute reject）/ `ValidateAgentWritePath`（在 ValidateWritePath 上叠 `handoff/tasks/` 系统保留段）/ `ValidateReadPath`（仅 traversal/absolute；不强制白名单以兼容历史行）+ 5 个 sentinel error（`ErrPathEmpty` / `ErrPathAbsolute` / `ErrPathTraversal` / `ErrPathPrefixNotAllowed` / `ErrPathSystemReserved`）+ `IsSystemHandoffPath` helper。
+- `internal/platform/sharedfilepath/policy.go`：Phase 3.7 路径校验。`ValidateWritePath`（白名单 handoff/ dag/ inbox/ reports/ _internal/ + traversal/absolute reject）/ `ValidateAgentWritePath`（当前等同 `ValidateWritePath`）/ `ValidateReadPath`（仅 traversal/absolute；不强制白名单以兼容历史行）+ 4 个 sentinel error（`ErrPathEmpty` / `ErrPathAbsolute` / `ErrPathTraversal` / `ErrPathPrefixNotAllowed`）。
 - `internal/platform/sharedfilefs/disk.go`：Phase 3.6 disk primitive。`Config{CWD, InlineThresholdBytes}`（CWD 空 → 上层退化 DB-only） / `ResolveAbs` 二次 sandbox 边界 / `WriteAtomic`（mkdir + tmp + fsync + rename + 目录 fsync） / `ReadDisk` / `RemoveDisk` / `ModTime`；`SandboxDir = ".agnet/shared"`；`DefaultInlineThresholdBytes = 100*1024`；不依赖 SQL，只做 IO。
 - `internal/platform/sharedfilegitignore/gitignore.go`：Phase 3.8 `.gitignore` 默认策略。`Ensure(cwd, *slog.Logger)` per-process `sync.Once` per cwd，识别 leading slash / 无 trailing slash / 父目录通配 `.agnet/shared/` 等价形式；写入走 tmp+fsync+rename；空 cwd no-op。接通点目前只在两个 sharedfile store 的 `writeDiskAndDecideInline` 写盘前 best-effort 调一次（失败被吞掉，不阻断 sharedfile 写）；plan §3.8 提到的 startThread 触发器尚未额外接通——若 thread 启动后从未写 sharedfile，`.gitignore` 不会被追加（接受退化）。
 

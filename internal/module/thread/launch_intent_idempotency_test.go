@@ -9,14 +9,13 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
-	sharedfilestore "github.com/anthropic-ai/super-agent-v3/internal/store/sharedfile"
 	"github.com/anthropic-ai/super-agent-v3/internal/util/idempotency"
 )
 
 func TestStartLaunchIntentReusesPendingThreadResult(t *testing.T) {
 	cwd := wantStartCWD(t)
 	threads := &stubThreadStore{}
-	svc := &service{threadStore: threads, sharedFiles: &stubSharedFileStore{}}
+	svc := &service{threadStore: threads}
 	req := StartRequest{
 		LaunchIntentID: "launch_018f00e0-39fc-72ac-a47a-2a858c75d111",
 		Provider:       "claude",
@@ -50,7 +49,7 @@ func TestStartLaunchIntentReusesPendingThreadResult(t *testing.T) {
 func TestStartLaunchIntentConcurrentCallsCreateOnePendingThread(t *testing.T) {
 	cwd := wantStartCWD(t)
 	threads := &stubThreadStore{}
-	svc := &service{threadStore: threads, sharedFiles: &stubSharedFileStore{}}
+	svc := &service{threadStore: threads}
 	req := StartRequest{
 		LaunchIntentID: "launch_018f00e0-39fc-72ac-a47a-2a858c75d111",
 		Provider:       "claude",
@@ -99,7 +98,7 @@ func TestStartLaunchIntentConcurrentCallsCreateOnePendingThread(t *testing.T) {
 }
 
 func TestStartLaunchIntentRejectsMalformedID(t *testing.T) {
-	svc := &service{threadStore: &stubThreadStore{}, sharedFiles: &stubSharedFileStore{}}
+	svc := &service{threadStore: &stubThreadStore{}}
 
 	_, err := svc.Start(context.Background(), StartRequest{
 		LaunchIntentID: "../agent_unsafe",
@@ -119,7 +118,7 @@ func TestStartLaunchIntentRejectsMalformedID(t *testing.T) {
 func TestStartLaunchIntentRejectsParameterMismatch(t *testing.T) {
 	cwd := wantStartCWD(t)
 	threads := &stubThreadStore{}
-	svc := &service{threadStore: threads, sharedFiles: &stubSharedFileStore{}}
+	svc := &service{threadStore: threads}
 	req := StartRequest{
 		LaunchIntentID: "launch_018f00e0-39fc-72ac-a47a-2a858c75d111",
 		Provider:       "claude",
@@ -147,7 +146,7 @@ func TestStartLaunchIntentRejectsParameterMismatch(t *testing.T) {
 func TestStartLaunchIntentRetryAfterPendingCleanupCreatesFreshThread(t *testing.T) {
 	cwd := wantStartCWD(t)
 	threads := &cleanupCountingThreadStore{}
-	svc := &service{threadStore: threads, sharedFiles: &stubSharedFileStore{}}
+	svc := &service{threadStore: threads}
 	req := StartRequest{
 		LaunchIntentID: "launch_018f00e0-39fc-72ac-a47a-2a858c75d111",
 		Provider:       "claude",
@@ -177,7 +176,7 @@ func TestStartLaunchIntentRetryAfterPendingCleanupCreatesFreshThread(t *testing.
 func TestStartLaunchIntentRetainsKeyAfterPendingCleanupRetainedError(t *testing.T) {
 	cwd := wantStartCWD(t)
 	threads := &cleanupCountingThreadStore{}
-	svc := &service{threadStore: threads, sharedFiles: &stubSharedFileStore{}}
+	svc := &service{threadStore: threads}
 	req := StartRequest{
 		LaunchIntentID: "launch_018f00e0-39fc-72ac-a47a-2a858c75d111",
 		Provider:       "claude",
@@ -202,7 +201,7 @@ func TestStartLaunchIntentRetainsKeyAfterPendingCleanupRetainedError(t *testing.
 
 func TestStartLaunchIntentRetainsKeyWhenPendingCleanupDeleteFails(t *testing.T) {
 	threads := &cleanupCountingThreadStore{deleteErr: errors.New("delete failed")}
-	svc := &service{threadStore: threads, sharedFiles: &stubSharedFileStore{}}
+	svc := &service{threadStore: threads}
 	req := StartRequest{
 		LaunchIntentID: "launch_018f00e0-39fc-72ac-a47a-2a858c75d111",
 		Provider:       "claude",
@@ -265,81 +264,10 @@ func TestStartLaunchIntentRetainedPendingCleanupDeleteFailureBlocksDirectSpawnRe
 	}
 }
 
-func TestStartLaunchIntentRetainsKeyWhenInitialPendingCleanupDeleteFails(t *testing.T) {
-	deleteErr := errors.New("delete failed")
-	threads := &cleanupCountingThreadStore{deleteErr: deleteErr}
-	sharedFiles := &secondGetNilSharedFileStore{}
-	svc := &service{threadStore: threads, sharedFiles: sharedFiles}
-	newReq := func() StartRequest {
-		return StartRequest{
-			LaunchIntentID: "launch_018f00e0-39fc-72ac-a47a-2a858c75d111",
-			Provider:       "claude",
-			CWD:            wantStartCWD(t),
-			DeferSpawn:     true,
-			Config: map[string]any{
-				taskConfigKeyID:          "task-demo",
-				taskConfigKeyTitle:       "Task Demo",
-				taskConfigKeyHandoffFile: "handoff/tasks/task-demo.md",
-			},
-		}
-	}
-	if _, err := svc.Start(context.Background(), newReq()); !errors.Is(err, deleteErr) {
-		t.Fatalf("first Start() error = %v, want delete failure", err)
-	}
-	threads.deleteErr = nil
-	if _, err := svc.Start(context.Background(), newReq()); !errors.Is(err, deleteErr) {
-		t.Fatalf("second Start() error = %v, want retained delete failure", err)
-	}
-	if threads.upsertCount != 1 {
-		t.Fatalf("thread upserts = %d, want retained error without retry", threads.upsertCount)
-	}
-}
-
-func TestStartLaunchIntentInitialPendingCleanupDeleteFailureBlocksDirectSpawnRetry(t *testing.T) {
-	deleteErr := errors.New("delete failed")
-	threads := &cleanupCountingThreadStore{deleteErr: deleteErr}
-	sharedFiles := &secondGetNilSharedFileStore{}
-	svc := &service{threadStore: threads, sharedFiles: sharedFiles}
-	req := StartRequest{
-		LaunchIntentID: "launch_018f00e0-39fc-72ac-a47a-2a858c75d111",
-		Provider:       "claude",
-		CWD:            wantStartCWD(t),
-		DeferSpawn:     true,
-		Config: map[string]any{
-			taskConfigKeyID:          "task-demo",
-			taskConfigKeyTitle:       "Task Demo",
-			taskConfigKeyHandoffFile: "handoff/tasks/task-demo.md",
-		},
-	}
-	if _, err := svc.Start(context.Background(), req); !errors.Is(err, deleteErr) {
-		t.Fatalf("Start() error = %v, want delete failure", err)
-	}
-	if threads.thread == nil || threads.thread.ThreadID == "" {
-		t.Fatal("Start() did not leave a pending thread row for direct retry coverage")
-	}
-	threads.deleteErr = nil
-	deletesBefore := threads.deleteCount
-	upsertsBefore := threads.upsertCount
-
-	launched, _, err := svc.SpawnIfNeeded(context.Background(), threads.thread.ThreadID, "hello", req.CWD)
-	if !errors.Is(err, deleteErr) {
-		t.Fatalf("SpawnIfNeeded() error = %v, want retained delete failure", err)
-	}
-	if launched {
-		t.Fatal("SpawnIfNeeded() launched = true, want retained failure without launch")
-	}
-	if threads.deleteCount != deletesBefore {
-		t.Fatalf("thread deletes = %d, want %d after retained direct retry", threads.deleteCount, deletesBefore)
-	}
-	if threads.upsertCount != upsertsBefore {
-		t.Fatalf("thread upserts = %d, want %d after retained direct retry", threads.upsertCount, upsertsBefore)
-	}
-}
-
 func TestStartLaunchIntentCompleteAllowsKeyReuse(t *testing.T) {
 	cwd := wantStartCWD(t)
 	threads := &stubThreadStore{}
-	svc := &service{threadStore: threads, sharedFiles: &stubSharedFileStore{}}
+	svc := &service{threadStore: threads}
 	req := StartRequest{
 		LaunchIntentID: "launch_018f00e0-39fc-72ac-a47a-2a858c75d111",
 		Provider:       "claude",
@@ -386,7 +314,7 @@ func assertPendingTerminalAllowsKeyReuse(t *testing.T, terminate func(context.Co
 	t.Helper()
 	cwd := wantStartCWD(t)
 	threads := &stubThreadStore{}
-	svc := &service{threadStore: threads, sharedFiles: &stubSharedFileStore{}}
+	svc := &service{threadStore: threads}
 	req := StartRequest{
 		LaunchIntentID: "launch_018f00e0-39fc-72ac-a47a-2a858c75d111",
 		Provider:       "claude",
@@ -411,35 +339,6 @@ func assertPendingTerminalAllowsKeyReuse(t *testing.T, terminate func(context.Co
 	}
 	if threads.upsertCount != 2 {
 		t.Fatalf("thread upserts = %d, want 2", threads.upsertCount)
-	}
-}
-
-func TestStartLaunchIntentCleansPendingRowAfterPostUpsertFailure(t *testing.T) {
-	threads := &cleanupCountingThreadStore{}
-	sharedFiles := &secondGetNilSharedFileStore{}
-	svc := &service{threadStore: threads, sharedFiles: sharedFiles}
-	req := StartRequest{
-		LaunchIntentID: "launch_018f00e0-39fc-72ac-a47a-2a858c75d111",
-		Provider:       "claude",
-		CWD:            wantStartCWD(t),
-		DeferSpawn:     true,
-		Config: map[string]any{
-			taskConfigKeyID:          "task-demo",
-			taskConfigKeyTitle:       "Task Demo",
-			taskConfigKeyHandoffFile: "handoff/tasks/task-demo.md",
-		},
-	}
-	if _, err := svc.Start(context.Background(), req); err == nil || !strings.Contains(err.Error(), "returned no content row") {
-		t.Fatalf("Start() error = %v, want post-upsert handoff shell error", err)
-	}
-	sharedFiles.forceNil = false
-	req.Config = nil
-	if _, err := svc.Start(context.Background(), req); err != nil {
-		t.Fatalf("retry Start() error = %v", err)
-	}
-
-	if threads.upsertCount != 2 || threads.deleteCount != 1 {
-		t.Fatalf("upserts/deletes = %d/%d, want 2/1", threads.upsertCount, threads.deleteCount)
 	}
 }
 
@@ -560,20 +459,6 @@ type cleanupCountingThreadStore struct {
 func (s *cleanupCountingThreadStore) DeleteByThreadID(context.Context, string) error {
 	s.deleteCount++
 	return s.deleteErr
-}
-
-type secondGetNilSharedFileStore struct {
-	stubSharedFileStore
-	getCount int
-	forceNil bool
-}
-
-func (s *secondGetNilSharedFileStore) Get(ctx context.Context, path string) (*sharedfilestore.SharedFile, error) {
-	s.getCount++
-	if s.forceNil || s.getCount == 2 {
-		return nil, nil
-	}
-	return s.stubSharedFileStore.Get(ctx, path)
 }
 
 type snapshotPromptAssembly struct{}

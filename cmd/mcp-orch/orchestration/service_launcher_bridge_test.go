@@ -121,10 +121,6 @@ func TestClassifyLaunchError(t *testing.T) {
 		// permanent · launch contract
 		{"missing launch cwd -> permanent", contract.ErrLaunchCWDRequired, launchClassPermanent},
 		{"invalid launch cwd -> permanent", contract.ErrLaunchCWDInvalid, launchClassPermanent},
-		{"root task missing -> permanent", errors.New(`root task id missing on thread "agent-parent"`), launchClassPermanent},
-		{"task handoff title -> permanent", errors.New(`task handoff title is required for task "task-demo"`), launchClassPermanent},
-		{"task handoff file -> permanent", errors.New(`task handoff file is required for task "task-demo"`), launchClassPermanent},
-		{"task handoff config -> permanent", errors.New(`task handoff config "taskId" must be a string`), launchClassPermanent},
 		// permanent 优先级高于 transient（同时含两类关键字时归 permanent）
 		{"401 + timeout -> permanent", errors.New("401 unauthorized after i/o timeout"), launchClassPermanent},
 		// unknown · 不在任何已知关键字列表里

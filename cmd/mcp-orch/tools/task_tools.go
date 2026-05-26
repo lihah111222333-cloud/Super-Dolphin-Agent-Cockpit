@@ -497,11 +497,11 @@ func translateStartDAGError(dagKey string, err error) error {
 func taskToolDefinitions(svc contract.OrchestrationService) []ToolDefinition {
 	return buildToolDefinitions(
 		// ---- writes ----
-		defineTool("task_create_dag", "Create or upsert a DAG and its nodes in the orchestration store.", createDAGSchema(), HandleCreateDAG(svc)),
+		defineTool("task_create_dag", "Create or upsert a DAG template and its nodes in the orchestration store. This does not start execution; if the user asked to run/execute now, call task_start_dag after create succeeds.", createDAGSchema(), HandleCreateDAG(svc)),
 		defineTool("task_dag_apply_ops", "Apply a typed ops batch (add_node / update_node / remove_node / update_dag) with base_version OCC. Ops shape: see nodeexec.Ops. Skeleton stage returns ErrLifecycleNotImplemented.", ObjectSchema(map[string]Schema{
 			"dag_key":      StringSchema("Target DAG key."),
 			"base_version": IntegerSchema("Expected current dag.version (OCC; mismatch returns conflict)."),
-			"ops":          ArraySchema(ObjectSchema(map[string]Schema{}, "op"), "Typed ops array; each item must include 'op' discriminator."),
+			"ops":          ArraySchema(applyOpsOpSchema(), "Typed ops array; each item must include 'op' discriminator."),
 		}, "dag_key", "base_version", "ops"), HandleApplyOps(svc)),
 		defineTool("task_update_node", "Update the runtime status for a DAG node.", ObjectSchema(map[string]Schema{
 			"dag_key":  StringSchema("DAG key."),
@@ -517,7 +517,7 @@ func taskToolDefinitions(svc contract.OrchestrationService) []ToolDefinition {
 			"assigned_to": StringSchema("Agent id to dispatch the node to."),
 		}, "dag_key", "node_key", "run_id", "assigned_to"), HandleDispatchNode(svc)),
 		// ---- lifecycle ----
-		defineTool("task_start_dag", "Trigger a new DAG execution (creates a run, snapshots dag.version). Skeleton stage returns ErrLifecycleNotImplemented; T1.2 wires the real path.", ObjectSchema(map[string]Schema{
+		defineTool("task_start_dag", "Trigger a DAG execution (creates a run and snapshots dag.version). The response includes run_id, scheduled_wakeups, and execution_state; if scheduled_wakeups=0 with waiting_for_assignee, call task_dispatch_node.", ObjectSchema(map[string]Schema{
 			"dag_key":         StringSchema("DAG to start."),
 			"trigger_source":  EnumStringSchema("Trigger source.", startDAGTriggerEnum...),
 			"idempotency_key": StringSchema("Optional, prevents duplicate run on retry."),

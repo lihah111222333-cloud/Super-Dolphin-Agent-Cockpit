@@ -3,6 +3,7 @@ package tools
 import (
 	"context"
 	"encoding/json"
+	"slices"
 	"testing"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
@@ -140,6 +141,37 @@ func TestHandleCreateDAGRejectsUnknownFinalNodeKey(t *testing.T) {
 	}`))
 	if err == nil || err.Error() != "final_node_key missing_final does not match any node_key" {
 		t.Fatalf("HandleCreateDAG() error = %v, want final_node_key validation", err)
+	}
+}
+
+func TestTaskDAGApplyOpsSchemaExposesOpDiscriminator(t *testing.T) {
+	defs := taskToolDefinitions(nil)
+	var applyOps ToolDefinition
+	for _, def := range defs {
+		if def.Name == "task_dag_apply_ops" {
+			applyOps = def
+			break
+		}
+	}
+	if applyOps.Name == "" {
+		t.Fatal("task_dag_apply_ops tool definition not found")
+	}
+	props := applyOps.InputSchema["properties"].(map[string]any)
+	ops := props["ops"].(map[string]any)
+	items := ops["items"].(map[string]any)
+	itemProps := items["properties"].(map[string]any)
+	opSchema, ok := itemProps["op"].(map[string]any)
+	if !ok {
+		t.Fatalf("task_dag_apply_ops ops.items.properties = %#v, want op discriminator schema", itemProps)
+	}
+	for _, want := range []string{"update_dag", "add_node", "update_node", "remove_node"} {
+		if !slices.Contains(EnumValues(Schema(opSchema)), want) {
+			t.Fatalf("op enum = %#v, want %s", opSchema["enum"], want)
+		}
+	}
+	required := items["required"].([]string)
+	if !slices.Contains(required, "op") {
+		t.Fatalf("ops.items.required = %#v, want op", required)
 	}
 }
 

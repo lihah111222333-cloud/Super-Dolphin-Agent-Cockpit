@@ -1,10 +1,6 @@
 package orchestration
 
-import (
-	"context"
-
-	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/taskdag"
-)
+import "github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/taskdag"
 
 // ProvideDAGSubscriberNodeFlowStore narrows the aggregate taskdag.Store down
 // to the NodeFlowStore needed by the DAG turn.completed subscriber
@@ -32,10 +28,8 @@ func ProvideDAGSubscriberStopAgentService(s *service) StopAgentService {
 // ProvideDAGSubscriberAgentThreadLookup adapts the orchestration-internal
 // AgentThreadStore (set on *service.agentThreads via runtime wiring) into
 // the AgentThreadLookup narrow port. The store ALREADY satisfies the
-// interface signature (GetByThreadID exists on AgentThreadStore), but fx
-// resolves by declared interface — this adapter exposes the single
-// GetByThreadID method without dragging ListAll / UpdateStatus into the
-// subscriber's DI graph.
+// required lookup/status methods, but fx resolves by declared interface — this
+// provider keeps ListAll out of the subscriber's DI graph.
 //
 // Returning a nil AgentThreadLookup when *service has no agentThreads
 // wired is intentional: StopSpawnedAgent's preflight handles a nil
@@ -51,16 +45,5 @@ func ProvideDAGSubscriberAgentThreadLookup(s *service) AgentThreadLookup {
 	if s == nil || s.agentThreads == nil {
 		return nil
 	}
-	return agentThreadLookupAdapter{store: s.agentThreads}
-}
-
-// agentThreadLookupAdapter narrows AgentThreadStore (3 methods) down to
-// AgentThreadLookup (1 method). Kept as a value type with a single embedded
-// store pointer — no allocations on the lookup path.
-type agentThreadLookupAdapter struct {
-	store AgentThreadStore
-}
-
-func (a agentThreadLookupAdapter) GetByThreadID(ctx context.Context, threadID string) (*PersistedThread, error) {
-	return a.store.GetByThreadID(ctx, threadID)
+	return s.agentThreads
 }
