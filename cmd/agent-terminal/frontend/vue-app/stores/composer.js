@@ -1,12 +1,14 @@
 import { reactive, computed } from '../../lib/vue.esm-browser.prod.js';
 import { saveClipboardImage, selectFiles } from '../services/api.js';
 import { logDebug, logInfo, logWarn } from '../services/log.js';
+import { createComposerDraftController } from './composer-drafts.js';
 
 const state = reactive({
   text: '',
   attachments: [],
   attaching: false,
 });
+const draftController = createComposerDraftController(state, logDebug);
 
 // Phase 2: 「新建继承对话」卡片状态。独立于 composer 输入状态，主要处理：
 // - 卡片是否展开
@@ -56,8 +58,7 @@ function removeForkSharedFile(path) {
 
 function clearComposer() {
   const attachmentCount = state.attachments.length;
-  state.text = '';
-  state.attachments = [];
+  draftController.clearCurrentDraft();
   logDebug('composer', 'cleared', { attachment_count: attachmentCount });
 }
 
@@ -348,6 +349,10 @@ export function useComposerStore() {
     attachByPaths,
     handlePaste,
     handleDrop,
+    activateDraft: draftController.activateDraft,
+    clearDraft: draftController.clearDraft,
+    restoreDraft: draftController.restoreDraft,
+    resetComposerDrafts: draftController.resetDrafts,
     // Phase 2: forkDraft
     forkDraft,
     openForkDraft,

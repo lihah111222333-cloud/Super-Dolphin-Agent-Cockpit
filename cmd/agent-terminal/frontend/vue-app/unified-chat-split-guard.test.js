@@ -86,6 +86,8 @@ function makeStores(opts = {}) {
       pinnedThreadAtById: opts.pinned ?? {},
       archivedThreadAtById: opts.archived ?? {},
       agentRuntimeById: opts.runtime ?? {},
+      sendBlockedNoticesByThread: opts.sendBlocked ?? {},
+      sendHoldNoticesByThread: opts.sendHold ?? {},
       skillRevision: 0,
       agentMetaById: opts.meta ?? {},
       diffTextByThread: diff,
@@ -144,7 +146,7 @@ afterEach(() => { for (const fn of hooks.unmounted.splice(0)) fn(); hooks.mounte
 describe('UnifiedChatPage split guard coverage', () => {
   it('locks setup return contract', async () => {
     const { vm } = await createVm();
-    const expected = 'composer,isCmd,threads,selectedThreadId,activeThread,chatThreadOptions,showArchivedThreadList,chatActiveThreadCards,chatArchivedThreadCards,visibleChatThreadCards,activeChatThreadCount,archivedChatThreadCount,activeTimeline,activeDiffText,activeMediaPreview,activeMarkdownPreview,activeDiffFocusFile,activeDiffFocusLine,activeStatus,activeStatusHeader,activeStatusDetails,activeStatusMeta,activeTokenInline,activeTokenTooltip,activeTokenLevel,activeTokenUsage,compacting,canCompact,compactResultText,compactResultTone,compactSuccessCount,canInterrupt,recoveringSelected,sendFailureNotice,displayStatusText,noActiveThread,copyButtonLabel,layoutMode,cmdCardCols,splitRatio,threadRailStyle,showOverview,showWorkspace,chatComposerShellStyle,activityPanelRowStyle,activePinnedPlan,activeTask,taskHandoffVisible,taskHandoffLoading,taskHandoffError,taskHandoffPreview,taskHandoffUpdatedAt,taskHandoffUpdatedBy,taskStripExpanded,continueTaskBusy,stats,recentThreads,cmdCards,dragging,threadRailDragging,activityPanelDragging,composerBarRef,presenceAnchorRef,workspaceRef,activeActivityStats,activeAlerts,activeProcessActivity,selectThread,launchOne,send,refreshTaskHandoff,continueCurrentTask,startNewTaskFromHandoff,taskHandoffKickoffError,continueCurrentTaskInNewWindow,toggleTaskStrip,scheduleScrollToBottom,scrollToTop,resetScrollState,isAtBottom,useClaudeProvider,providerPreferenceReady,providerPreferenceError,toggleProviderMode,interruptCurrent,compactCurrent,recoverSelected,setCmdLayout,setCmdCardCols,copySelectedThreadId,timelinePreview,diffPreview,showPathChoiceModal,pathChoiceOptions,pathChoiceTitle,pathChoiceTruncated,confirmPathChoice,cancelPathChoice,onThreadRailResizeStart,onResizeStart,onActivityResizeStart,stopSelected,renameSelected,loadCardHistory,renameCard,stopCard,toggleThreadPin,toggleThreadArchive,toggleArchivedThreadList,openNewWindow,editingThreadId,editingAlias,renamingThreadId,setRenameInputRef,beginInlineRename,submitInlineRename,handleInlineRenameEnter,cancelInlineRename,handleInlineRenameBlur,getDisplayName,resolveThreadDisplayName,dismissPinnedPlan,deleteStaleThreads,pinnedPlanCardSpec,onTimelineFileRefClick,threadConfigUi,updateThreadConfigModel,updateThreadConfigEffort,saveThreadConfigDraft,restoreThreadConfigInherit'.split(',').sort();
+    const expected = 'composer,isCmd,threads,selectedThreadId,activeThread,chatThreadOptions,showArchivedThreadList,chatActiveThreadCards,chatArchivedThreadCards,visibleChatThreadCards,activeChatThreadCount,archivedChatThreadCount,activeTimeline,activeDiffText,activeMediaPreview,activeMarkdownPreview,activeDiffFocusFile,activeDiffFocusLine,activeStatus,activeThreadSendBlocked,activeStatusHeader,activeStatusDetails,activeStatusMeta,activeTokenInline,activeTokenTooltip,activeTokenLevel,activeTokenUsage,compacting,canCompact,compactResultText,compactResultTone,compactSuccessCount,canInterrupt,recoveringSelected,sendFailureNotice,displayStatusText,noActiveThread,copyButtonLabel,layoutMode,cmdCardCols,splitRatio,threadRailStyle,showOverview,showWorkspace,chatComposerShellStyle,activityPanelRowStyle,activePinnedPlan,activeTask,taskHandoffVisible,taskHandoffLoading,taskHandoffError,taskHandoffPreview,taskHandoffUpdatedAt,taskHandoffUpdatedBy,taskStripExpanded,continueTaskBusy,stats,recentThreads,cmdCards,dragging,threadRailDragging,activityPanelDragging,composerBarRef,presenceAnchorRef,workspaceRef,activeActivityStats,activeAlerts,activeProcessActivity,selectThread,launchOne,send,refreshTaskHandoff,continueCurrentTask,startNewTaskFromHandoff,taskHandoffKickoffError,continueCurrentTaskInNewWindow,toggleTaskStrip,scheduleScrollToBottom,scrollToTop,resetScrollState,isAtBottom,useClaudeProvider,providerPreferenceReady,providerPreferenceError,toggleProviderMode,interruptCurrent,compactCurrent,recoverSelected,setCmdLayout,setCmdCardCols,copySelectedThreadId,timelinePreview,diffPreview,showPathChoiceModal,pathChoiceOptions,pathChoiceTitle,pathChoiceTruncated,confirmPathChoice,cancelPathChoice,onThreadRailResizeStart,onResizeStart,onActivityResizeStart,stopSelected,renameSelected,loadCardHistory,renameCard,stopCard,toggleThreadPin,toggleThreadArchive,toggleArchivedThreadList,openNewWindow,editingThreadId,editingAlias,renamingThreadId,setRenameInputRef,beginInlineRename,submitInlineRename,handleInlineRenameEnter,cancelInlineRename,handleInlineRenameBlur,getDisplayName,resolveThreadDisplayName,dismissPinnedPlan,deleteStaleThreads,pinnedPlanCardSpec,onTimelineFileRefClick,threadConfigUi,updateThreadConfigModel,updateThreadConfigEffort,saveThreadConfigDraft,restoreThreadConfigInherit'.split(',').sort();
     expect(Object.keys(vm).sort()).toEqual(expected);
     expect(vm).not.toHaveProperty('resolvePathChoice');
   });
@@ -173,6 +175,77 @@ describe('UnifiedChatPage split guard coverage', () => {
     expect(vm.activeStatusMeta.value).toContain('正在应用新的 Claude 配置');
   });
 
+  it('marks raw failed thread statuses as composer send-blocked', async () => {
+    const { vm } = await createVm({
+      status: { 'thread-active': 'failed' },
+    });
+
+    expect(vm.activeStatus.value).toBe('error');
+    expect(vm.activeThreadSendBlocked.value).toBe(true);
+  });
+
+  it('marks an idle thread as send-blocked after provider cwd disappears', async () => {
+    const missingCwd = '/Users/ai/.config/superpowers/worktrees/Super-Dolphin/fix-session-error-leak/.tmp-missing-cwd-agent.8vlje0';
+    composer.state.text = '111';
+    const { vm, store } = await createVm({
+      selectedId: 'thread-active',
+      active: '/repo',
+      status: { 'thread-active': 'idle' },
+      runtime: { 'thread-active': { cwd: missingCwd } },
+    });
+    const sendError = new Error(`{"message":"[-32098] resolve session: thread \\"missing-cwd-repro-20260525\\": resolve session: auto-resume failed: resolve provider project cwd realpath: lstat ${missingCwd}: no such file or directory"}`);
+    store.sendMessage.mockImplementationOnce(async () => {
+      store.state.sendBlockedNoticesByThread = { 'thread-active': `发送失败：${sendError.message}` };
+      throw sendError;
+    });
+
+    await expect(vm.send()).rejects.toThrow('resolve provider project cwd realpath');
+
+    expect(vm.activeStatus.value).toBe('idle');
+    expect(vm.activeThreadSendBlocked.value).toBe(true);
+    expect(vm.sendFailureNotice.value).toContain(missingCwd);
+
+    store.sendMessage.mockClear();
+    composer.state.text = '222';
+    await vm.send();
+    expect(store.sendMessage).not.toHaveBeenCalled();
+  });
+
+  it('keeps an idle thread send-blocked from local send failure state', async () => {
+    composer.state.text = 'after failure';
+    const { vm, store } = await createVm({
+      selectedId: 'thread-active',
+      status: { 'thread-active': 'idle' },
+      sendBlocked: { 'thread-active': '发送失败：backend boom' },
+    });
+
+    expect(vm.activeStatus.value).toBe('idle');
+    expect(vm.activeThreadSendBlocked.value).toBe(true);
+
+    await vm.send();
+
+    expect(store.sendMessage).not.toHaveBeenCalled();
+    expect(vm.sendFailureNotice.value).toContain('backend boom');
+    expect(composer.state.text).toBe('after failure');
+  });
+
+  it('keeps an idle thread send-held from local sync hold state', async () => {
+    composer.state.text = 'after sync failure';
+    const { vm, store } = await createVm({
+      selectedId: 'thread-active',
+      status: { 'thread-active': 'idle' },
+      sendHold: { 'thread-active': '发送状态同步失败：local sync failed。请刷新会话状态后继续。' },
+    });
+
+    expect(vm.activeStatus.value).toBe('idle');
+    expect(vm.activeThreadSendBlocked.value).toBe(true);
+
+    await vm.send();
+
+    expect(store.sendMessage).not.toHaveBeenCalled();
+    expect(vm.sendFailureNotice.value).toContain('local sync failed');
+    expect(composer.state.text).toBe('after sync failure');
+  });
 
   it('covers public action methods', async () => {
     composer.state.text = 'hello'; composer.state.attachments = [{ name: 'a.txt' }];
