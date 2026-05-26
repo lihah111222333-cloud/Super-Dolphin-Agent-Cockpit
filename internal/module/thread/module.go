@@ -37,6 +37,7 @@ var Module = fx.Module("thread",
 	fx.Provide(NewThreadLister),
 	fx.Provide(NewThreadConfigReader),
 	fx.Provide(NewThreadRuntimeConfigReader),
+	fx.Provide(NewThreadStateRuntimeConfigReader),
 	fx.Invoke(registerThreadPromptProviders),
 )
 
