@@ -1,23 +1,27 @@
 // @ts-nocheck
- import {
-   compactThread,
-   forceCompleteThread,
-   getThreadConfig,
-   getThreadArchivedAt,
-   getThreadPinnedAt,
-   promptRenameThread,
-   recoverThread,
-   renameThread,
-   saveActiveCmdThread,
-   saveActiveThread,
-   sendMessage,
-   setThreadConfig,
- 
-   setThreadArchived,
-   setThreadPinned,
-   startThread,
-   stopThread,
- } from './thread-actions-helpers.js';
+import {
+  compactThread,
+  forceCompleteThread,
+  getThreadConfig,
+  getThreadArchivedAt,
+  getThreadPinnedAt,
+  promptRenameThread,
+  recoverThread,
+  renameThread,
+  saveActiveCmdThread,
+  saveActiveThread,
+  sendMessage,
+  setThreadConfig,
+  setThreadArchived,
+  setThreadPinned,
+  startThread,
+  stopThread,
+} from './thread-actions-helpers.js';
+import {
+  clearThreadSendBlockedNoticeInState,
+  getThreadSendBlockedNoticeFromState,
+  isThreadSendBlockedInState,
+} from './thread-send-block.js';
 import {
   PREF_ARCHIVED_THREADS_CHAT,
   PREF_PINNED_THREADS_CHAT,
@@ -85,6 +89,9 @@ export function createThreadActions(state, deps) {
     stopThread: (threadId, options) => stopThread(ctx, threadId, options),
     recoverThread: (threadId) => recoverThread(ctx, threadId),
     sendMessage: (threadId, prompt, attachments, options) => sendMessage(ctx, threadId, prompt, attachments, options),
+    getThreadSendBlockedNotice: (threadId) => getThreadSendBlockedNoticeFromState(state, threadId),
+    isThreadSendBlocked: (threadId) => isThreadSendBlockedInState(state, threadId),
+    clearThreadSendBlockedNotice: (threadId) => clearThreadSendBlockedNoticeInState(state, threadId),
     compactThread: (threadId) => compactThread(ctx, threadId),
     forceCompleteThread: (threadId) => forceCompleteThread(ctx, threadId),
     getThreadPinnedAt: (threadId) => getThreadPinnedAt(ctx, threadId),

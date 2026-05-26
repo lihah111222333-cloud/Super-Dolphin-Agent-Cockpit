@@ -108,7 +108,7 @@ function resetThreadStore(store) {
   store.setPreferenceScopeCwd('');
   Object.assign(store.state, {
     activeThreadId: '',
-    activeCmdThreadId: '',
+    activeCmdThreadId: '', sendBlockedNoticesByThread: {}, sendHoldNoticesByThread: {},
 
     pinnedThreadAtById: {},
     archivedThreadAtById: {},

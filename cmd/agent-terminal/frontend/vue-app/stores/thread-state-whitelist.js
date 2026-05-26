@@ -7,6 +7,12 @@ const UI_LOCAL_STATE_KEYS = Object.freeze([
   // (template was deleted / disabled). startThread sets a notice string;
   // UI components consume it to render a one-shot toast and reset to ''.
   'promptStaleNotice',
+  // Local-only send gate. Backend snapshots may still report idle after a
+  // turn/start failure, so this must not live in runtime snapshot state.
+  'sendBlockedNoticesByThread',
+  // Temporary send hold for accepted sends whose follow-up UI/runtime sync
+  // failed. A successful runtime refresh clears this automatically.
+  'sendHoldNoticesByThread',
 ]);
 
 const RUNTIME_STATE_KEYS = Object.freeze([

@@ -188,4 +188,55 @@ describe('useThreadSelection', () => {
     await flush();
     expect(resetScrollState).toHaveBeenCalledTimes(2);
   });
+
+  it('scrolls immediately on existing thread switches before freshness resolves', async () => {
+    const ctx = mountSelection({ selectedId: 'thread-A' });
+    await flush();
+    ctx.resetScrollState.mockClear();
+    ctx.scheduleScrollToBottom.mockClear();
+
+    let resolveFreshness;
+    vi.mocked(ensureThreadSelectionFresh).mockImplementationOnce(() => new Promise((resolve) => {
+      resolveFreshness = resolve;
+    }));
+
+    ctx.selectedThreadId.value = 'thread-B';
+    await nextTick();
+    await Promise.resolve();
+
+    expect(ctx.resetScrollState).toHaveBeenCalledTimes(1);
+    expect(ctx.scheduleScrollToBottom).toHaveBeenCalledTimes(1);
+    expect(ctx.scheduleScrollToBottom).toHaveBeenLastCalledWith(true);
+
+    resolveFreshness({ requestedHistory: true, syncedThreadState: true, forcedHistoryReload: false });
+    await flush();
+
+    expect(ctx.scheduleScrollToBottom).toHaveBeenCalledTimes(1);
+    expect(ctx.scheduleScrollToBottom).toHaveBeenLastCalledWith(true);
+  });
+
+  it('does not let a stale selection refresh scroll the newly selected thread', async () => {
+    const ctx = mountSelection({ selectedId: 'thread-A' });
+    await flush();
+    ctx.scheduleScrollToBottom.mockClear();
+
+    let resolveThreadB;
+    vi.mocked(ensureThreadSelectionFresh).mockImplementationOnce(() => new Promise((resolve) => {
+      resolveThreadB = resolve;
+    }));
+
+    ctx.selectedThreadId.value = 'thread-B';
+    await nextTick();
+    await Promise.resolve();
+    expect(ctx.scheduleScrollToBottom).toHaveBeenCalledTimes(1);
+
+    ctx.selectedThreadId.value = 'thread-C';
+    await flush();
+    const callsAfterThreadC = ctx.scheduleScrollToBottom.mock.calls.length;
+
+    resolveThreadB({ requestedHistory: true, syncedThreadState: true, forcedHistoryReload: false });
+    await flush();
+
+    expect(ctx.scheduleScrollToBottom).toHaveBeenCalledTimes(callsAfterThreadC);
+  });
 });
