@@ -254,20 +254,20 @@ export async function refreshSidebarState(ctx, options = {}) {
   const { callAPI, logDebug, logWarn } = ctx;
   if (ctx.sidebarRefreshPromise && !options.force) {
     ctx.sidebarRefreshPending = true;
-    logWarn('thread', 'sidebar.refresh.pending_join', { ts: Date.now() });
+    logDebug('thread', 'sidebar.refresh.pending_join', { ts: Date.now() });
     return ctx.sidebarRefreshPromise;
   }
   const start = perfNow();
-  logWarn('thread', 'sidebar.refresh.start', { ts: Date.now(), force: options.force });
+  logDebug('thread', 'sidebar.refresh.start', { ts: Date.now(), force: options.force });
   
   ctx.sidebarRefreshPending = false;
   
   const currentPromise = (async () => {
     try {
       const snapshotRequest = beginRuntimeSnapshotRequest(ctx, (ctx.state.activeThreadId || '').toString().trim() || '__sidebar__');
-      logWarn('thread', 'sidebar.refresh.api_call_start', { ts: Date.now() });
+      logDebug('thread', 'sidebar.refresh.api_call_start', { ts: Date.now() });
       const sidebar = await callAPI('ui/sidebar/get', ctx.withPreferenceScope({}));
-      logWarn('thread', 'sidebar.refresh.api_call_done', { duration_ms: perfNow() - start, ts: Date.now() });
+      logDebug('thread', 'sidebar.refresh.api_call_done', { duration_ms: perfNow() - start, ts: Date.now() });
       if (!isLatestRuntimeSnapshotRequest(ctx, snapshotRequest)) return;
       if (typeof ctx.saveScrollPosition === 'function') ctx.saveScrollPosition();
       ctx.applyRuntimeSnapshot(ctx.state, sidebar || {}, {
