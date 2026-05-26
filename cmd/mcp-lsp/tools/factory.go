@@ -7,6 +7,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -208,11 +210,6 @@ func legacyActionHint(label string, action string) string {
 		case "open":
 			return `legacy action "open" is accepted as "open_file"`
 		}
-	case "edit":
-		switch action {
-		case "did_change", "change":
-			return `use "replace_range" with patch, edits, or coordinates`
-		}
 	case "xref":
 		if action == "references" {
 			return `use tool "xref" with action "references"`
@@ -310,7 +307,79 @@ func resolveFilePositionRequest(ctx context.Context, params filePositionParams) 
 	if err != nil {
 		return "", protocol.Position{}, err
 	}
+	if err := validateResolvedFilePosition(filePath, params.Line, params.Column); err != nil {
+		return "", protocol.Position{}, err
+	}
 	return filePath, position, nil
+}
+
+func validateResolvedFilePosition(filePath string, line int, column int) error {
+	content, err := os.ReadFile(filePath)
+	if err != nil {
+		return err
+	}
+	lines := splitNormalizedLines(string(content))
+	if line > len(lines) {
+		return newLineOutOfRangeError(line, len(lines))
+	}
+	lineText := lines[line-1]
+	lineLength := len([]rune(lineText))
+	if column > lineLength {
+		return newPositionOutOfRangeError(line, column, lineText, lineLength)
+	}
+	return nil
+}
+
+func newLineOutOfRangeError(line int, lineCount int) error {
+	err := common.NewCodedToolError(
+		"line_out_of_range",
+		fmt.Errorf("line %d is beyond end of file with %d lines", line, lineCount),
+		false,
+		"Read the target file with file.read_file to choose an existing 1-based line before retrying.",
+	)
+	var coded *common.CodedToolError
+	if errors.As(err, &coded) {
+		coded.Meta = map[string]any{
+			"requested_line": line,
+			"line_count":     lineCount,
+		}
+	}
+	return err
+}
+
+var positionIdentifierRE = regexp.MustCompile(`[A-Za-z_][A-Za-z0-9_]*`)
+
+func newPositionOutOfRangeError(line int, column int, lineText string, lineLength int) error {
+	err := common.NewCodedToolError(
+		"position_out_of_range",
+		fmt.Errorf("column %d is beyond end of line %d, max column is %d", column, line, lineLength),
+		false,
+		"Retry with a column inside the target identifier; inspect meta.line_text and meta.suggested_columns for valid 1-based columns.",
+	)
+	var coded *common.CodedToolError
+	if errors.As(err, &coded) {
+		coded.Meta = map[string]any{
+			"line":              line,
+			"line_text":         lineText,
+			"line_length":       lineLength,
+			"requested_column":  column,
+			"suggested_columns": suggestedIdentifierColumns(lineText),
+		}
+	}
+	return err
+}
+
+func suggestedIdentifierColumns(lineText string) []map[string]any {
+	matches := positionIdentifierRE.FindAllStringIndex(lineText, -1)
+	suggestions := make([]map[string]any, 0, len(matches))
+	for _, match := range matches {
+		identifier := lineText[match[0]:match[1]]
+		suggestions = append(suggestions, map[string]any{
+			"identifier": identifier,
+			"column":     match[0] + 1,
+		})
+	}
+	return suggestions
 }
 
 func normalizeAction(raw string) string {

@@ -224,6 +224,7 @@ func buildStartRequestFromParams(p startParams, cfg map[string]any) StartRequest
 		AgentKey:          p.AgentKey,
 		PromptKey:         p.PromptKey,
 		DeferSpawn:        p.DeferSpawn,
+		LaunchIntentID:    p.LaunchIntentID,
 	}
 }
 

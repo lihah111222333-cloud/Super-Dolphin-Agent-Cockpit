@@ -21,9 +21,10 @@ const maxAgentIDReservationRetries = 64
 func normalizeStartRequest(req StartRequest) (StartRequest, string, error) {
 	req = trimStartRequest(req)
 	req.Name = normalizeStartDisplayName(req.Name)
+	if req.LaunchIntentID != "" && req.AgentID != "" {
+		return StartRequest{}, "", errors.New("thread: agent_id cannot be provided with launch_intent_id")
+	}
 	if req.AgentID == "" {
-		// Root agent: timestamp-only ID. Collision is checked at
-		// the service layer which retries with a fresh timestamp.
 		req.AgentID = idgen.NewAgentID()
 	}
 	req, err := resolveStartConfig(req)

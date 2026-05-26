@@ -14,14 +14,6 @@ import (
 	platformrunner "github.com/anthropic-ai/super-agent-v3/internal/platform/runner"
 )
 
-// P22 P4 S4b: the local `generationAwareSessionCleaner` interface was
-// deleted. RemoveSessionGeneration is now part of the owner contract
-// contract.OrchestrationSessionCleaner, so the service calls it
-// directly without a type-assertion side-channel. See
-// internal/contract/orchestration.go for the interface definition and
-// docs/plans/迁移/p22/P4_DependencyDirectionAndHiddenContracts.md §279
-// for the rationale.
-
 func (s *service) BindSessionGeneration(ctx context.Context, agentID string, generation uint64) error {
 	if generation == 0 {
 		return errors.New("session generation is required")
@@ -33,18 +25,6 @@ func (s *service) BindSessionGeneration(ctx context.Context, agentID string, gen
 	})
 }
 
-// removeSession releases any platform-owned session bound to agent.
-// P22 P4 S4b: pre-S4b logic type-asserted to a local
-// `generationAwareSessionCleaner` and, on match, called
-// RemoveSessionGeneration (or no-op'd when generation was 0). The
-// type-assertion failure path fell through to RemoveSession — a
-// courtesy for non-generation-aware implementations. RemoveSessionGeneration
-// is now part of the owner contract so every implementation provides
-// it; we therefore only call RemoveSessionGeneration, and generation==0
-// is a deliberate no-op: racing the current session via
-// RemoveSession could evict a freshly bound session between a stop
-// request and this cleanup pass (see
-// TestRemoveSessionGenerationAwareCleanerDoesNotFallbackToCurrent).
 func (s *service) removeSession(agent *agentRuntime) {
 	if s.sessionCleaner == nil || agent == nil {
 		return
@@ -93,12 +73,12 @@ func (s *service) claimTurnWork(ctx context.Context) []turnWork {
 
 func (s *service) handleProcessExit(ctx context.Context, agentID string, launchSeq uint64, err error) {
 	s.mu.Lock()
-	defer s.mu.Unlock()
 
 	agent, lookupErr := lookupAgentBySeqLocked(s.agents, agentID, launchSeq)
 	if lookupErr != nil {
 		s.logger.Warn("orchestration: process exit ignored (stale seq)",
 			"agent_id", agentID, "launch_seq", launchSeq, "error", err)
+		s.mu.Unlock()
 		return
 	}
 	// P22 P3 exactly-once fence on (agentID, launchSeq): once an exit has been
@@ -109,15 +89,19 @@ func (s *service) handleProcessExit(ctx context.Context, agentID string, launchS
 		s.logger.Debug("orchestration: duplicate process exit ignored (seq already drained)",
 			"agent_id", agentID, "launch_seq", launchSeq,
 			"last_exited_seq", agent.lastExitedSeq)
+		s.mu.Unlock()
 		return
 	}
 	stateBefore := agent.state
+	shouldRecover := shouldAutoRecoverProcessExitLocked(s, agent, err)
+	recoverViaLauncher := shouldRecover && shouldRecoverViaLauncher(ctx, s, agent)
+	recoverAgentID := agent.id
 	now := resolveEventTime(ctx, agent.updatedAt, agent.startedAt)
 	agent.cmd = nil
 	agent.exitedAt = &now
 	agent.lastExitedSeq = launchSeq
 	agent.updatedAt = now
-	resetRuntimeStateLocked(agent)
+	resetRuntimeAfterProcessExitLocked(agent, recoverViaLauncher)
 	s.removeSession(agent)
 	s.recordProcessExitError(agent, err)
 	s.handleProcessExitTransition(ctx, agent)
@@ -128,7 +112,10 @@ func (s *service) handleProcessExit(ctx context.Context, agentID string, launchS
 	if agent.stopRequested && strings.TrimSpace(agent.stopReason) != "" {
 		s.publishAgentStopped(agent, agent.stopReason)
 	}
+	s.setProcessExitFallbackReportLocked(ctx, agent, launchSeq, shouldRecover)
 	clearAgentStopReasonLocked(agent)
+	s.mu.Unlock()
+	s.recoverAfterProcessExit(ctx, recoverAgentID, launchSeq, shouldRecover)
 }
 
 func (s *service) recordProcessExitError(agent *agentRuntime, err error) {
@@ -217,11 +204,6 @@ func NewRunnerActor(logger *slog.Logger, service *service) platformrunner.Runner
 	return &runnerActor{logger: logger, service: service}
 }
 
-// runGracePeriodOnStop bounds how long drainOnStop waits for in-flight
-// cmd.Wait goroutines and the StopAllAgents fan-out after ctx is cancelled.
-// Separate from processExitWaitTimeout: drainOnStop is the runner-side
-// shutdown budget, while processExitWaitTimeout is the per-agent wait for
-// waitForProcessExit.
 const runnerShutdownDrainGrace = 30 * time.Second
 
 func (a *runnerActor) Run(ctx context.Context) error {
@@ -248,19 +230,6 @@ func (a *runnerActor) Run(ctx context.Context) error {
 	}
 }
 
-// drainOnStop is the P22 P3 §stop 顺序 implementation. The sequence is:
-//
-//  1. Fan-out StopAllAgents on a background goroutine so the stop path's
-//     internal waitForProcessExit polling (which needs lastExitedSeq to
-//     advance) does NOT block the actor from consuming exit events here.
-//  2. Drain the monitor: wait for every in-flight cmd.Wait goroutine to
-//     publish its exit result, bounded by runnerShutdownDrainGrace.
-//  3. Keep consuming exitEvents concurrently; handleProcessExit is safe under
-//     exactly-once because the fence in handleProcessExit guards against
-//     double delivery between the monitor event and stopAgent's synthetic
-//     emit.
-//  4. Once both stopAll and monitor.Drain have completed, flush any
-//     remaining buffered events before returning to Run.
 func (a *runnerActor) drainOnStop(exitEvents <-chan waitResult) {
 	stopDone := make(chan struct{})
 	go func() {
@@ -339,14 +308,12 @@ func (a *runnerActor) recoverStalledAgents(ctx context.Context, stallDetector *S
 			stalledFor = detectedAt.Sub(agent.updatedAt)
 		}
 		a.service.publishTurnStalled(&agent, agent.threadID, agent.activeTurnID, recoverReasonStall, stalledFor, detectedAt)
-		if agent.cmd == nil && agent.remoteThreadID != "" {
-			if err := a.service.stopAgentViaLauncher(ctx, agent.id, recoverReasonStall); err != nil {
-				a.logger.Warn("orchestration: stalled launcher-owned agent stop failed", "agent_id", agent.id, "error", err)
-			}
-			continue
-		}
 		if err := a.service.recoverWithReason(ctx, agent.id, recoverReasonStall); err != nil {
 			a.logger.Warn("orchestration: stalled agent recovery failed", "agent_id", agent.id, "error", err)
+			if notifyErr := a.service.notifyRecoveryFailure(ctx, agent.id, err); notifyErr != nil {
+				a.logger.Warn("orchestration: stalled recovery failure report notification failed",
+					"agent_id", agent.id, "error", notifyErr)
+			}
 		}
 	}
 }

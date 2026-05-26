@@ -64,7 +64,7 @@ func resolveTurnRPCCWD(requestCWD string, session prepareInputSession, threadRun
 		}
 	}
 	if authoritativeCWD == "" {
-		return requestCWD, nil
+		return "", platformrpc.ErrInvalidParams("turn cwd missing: thread runtime config and session runtime config do not define cwd")
 	}
 	if requestCWD != "" && !sameTurnRPCCWD(requestCWD, authoritativeCWD) {
 		return "", platformrpc.ErrInvalidParams(fmt.Sprintf("turn/start cwd mismatch: request cwd %q does not match thread cwd %q", requestCWD, authoritativeCWD))
@@ -274,6 +274,7 @@ func turnStartHandler(svc Service, resolver contract.SessionResolver, spawner co
 			if err != nil {
 				return nil, err
 			}
+			completeLaunchIntentIfAvailable(ctx, spawner)
 			// Forward the routing decision made by SpawnIfNeeded so the UI
 			// can fill its per-thread badge. Empty fields are elided via
 			// omitempty on turnStartResult; eager-path threads already got
@@ -289,6 +290,14 @@ func turnStartHandler(svc Service, resolver contract.SessionResolver, spawner co
 			return result, nil
 		})
 	})
+}
+
+func completeLaunchIntentIfAvailable(ctx context.Context, spawner contract.PendingLaunchSpawner) {
+	completer, ok := spawner.(contract.LaunchIntentCompleter)
+	if !ok {
+		return
+	}
+	completer.CompleteLaunchIntent(ctx, contract.ThreadIDFrom(ctx))
 }
 
 func turnSteerHandler(svc Service, resolver contract.SessionResolver, capResolver contract.CapabilityResolver, runtimeReader ThreadStateConfigReader) handler.Func {

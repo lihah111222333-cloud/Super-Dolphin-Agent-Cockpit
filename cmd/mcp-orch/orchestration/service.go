@@ -53,20 +53,6 @@ type ListRunsRequest = contract.ListRunsRequest
 type ListRunsResponse = contract.ListRunsResponse
 type Run = contract.Run
 
-// P22 P4 S4c1: orchestration no longer exports a package-level `Module`
-// variable. Per P4 §278 the root entry (cmd/mcp-orch/fx.go
-// buildOrchestrationOptions) now composes the orchestration wiring
-// explicitly from the exported building blocks below — ProvideService /
-// ProvideServiceInterface / ProvideHookAfterHandler / ProvideRPCFacade
-// / RegisterTurnLifecycle / RegisterApprovalLifecycle. The archtest
-// TestOrchestrationNoModuleExport locks this in place so the subpackage
-// cannot re-grow a wholesale `Module` export.
-//
-// Keeping the building blocks exported rather than re-bundling them under
-// a "helper" name keeps root assembly explicit and lets cmd/mcp-orch
-// insert additional providers (noop cleaners, launcher variants,
-// standalone stubs) without having to peel apart a pre-built bundle.
-
 var (
 	errAgentNotFound          = contract.ErrAgentNotFound
 	errIllegalStateTransition = errors.New("illegal state transition")
@@ -74,32 +60,25 @@ var (
 )
 
 type service struct {
-	logger         *slog.Logger
-	eventBus       *event.Dispatcher
-	launcher       AgentLauncher
-	sessionCleaner SessionCleaner
-	turnStarter    TurnStarter
-	dagStore       taskdag.OrchestrationStore
-	runStore       taskdag.RunStore // T1.2: StartDAG / T3.x 跳入 RunStore；Tx 交给 runStore.WithRunTx 起
-	// dispatchStore 是 task_dispatch_node (ADR-004 §Open Q1) 使用的窄端口。
-	// 生产未绑时为 nil；service.DispatchNode 返 ErrDispatchStoreUnset。
-	dispatchStore          taskdag.DispatchNodeStore
-	recoveryStore          recoveryTurnStore
-	agentThreads           AgentThreadStore
-	agentBindings          AgentBindingStore
-	machineCfg             platformstatemachine.Config
-	processExitWaitTimeout time.Duration
-	// exitMonitor is the P22 P3 single owner of every locally-launched
-	// agent process's cmd.Wait. runnerActor consumes its ExitEvents;
-	// launcher-driven stops call Emit directly. See exit_monitor.go.
-	exitMonitor *processExitMonitor
-	mu          sync.RWMutex
-	agents      map[string]*agentRuntime
-	nextTurnSeq int64
+	logger                   *slog.Logger
+	eventBus                 *event.Dispatcher
+	launcher                 AgentLauncher
+	sessionCleaner           SessionCleaner
+	turnStarter              TurnStarter
+	dagStore                 taskdag.OrchestrationStore
+	runStore                 taskdag.RunStore
+	dispatchStore            taskdag.DispatchNodeStore
+	recoveryStore            recoveryTurnStore
+	agentThreads             AgentThreadStore
+	agentBindings            AgentBindingStore
+	machineCfg               platformstatemachine.Config
+	processExitWaitTimeout   time.Duration
+	exitMonitor              *processExitMonitor
+	mu                       sync.RWMutex
+	agents                   map[string]*agentRuntime
+	suppressedStoppedThreads sync.Map
+	nextTurnSeq              int64
 
-	// asyncCtx / asyncCancel / asyncWg track fire-and-forget goroutines
-	// (e.g. async LaunchAgent) so
-	// DrainAsync can join them on shutdown instead of leaking.
 	asyncCtx    context.Context
 	asyncCancel context.CancelFunc
 	asyncWg     sync.WaitGroup
@@ -114,19 +93,10 @@ type serviceParams struct {
 	SessionCleaner SessionCleaner
 	TurnStarter    TurnStarter
 	DAGStore       taskdag.OrchestrationStore `optional:"true"`
-	// RunStore 为 StartDAG 必需依赖（WithRunTx + GetRun + CreateRun + Promote）。
-	// 不加 optional：缺 provider 时 fx.New 启动期立即报 missing dependencies，
-	// 而非延迟到运行期 ErrRunStoreUnset（参 RunStore wiring bug 复盘）。
-	// RunStore is required by StartDAG (WithRunTx + GetRun + CreateRun + Promote).
-	// Marking it non-optional makes fx.New surface missing dependency errors at
-	// startup instead of letting them surface as runtime ErrRunStoreUnset.
-	RunStore      taskdag.RunStore
-	AgentThreads  AgentThreadStore  `optional:"true"`
-	AgentBindings AgentBindingStore `optional:"true"`
-	// DispatchStore 是 task_dispatch_node (ADR-004 §Open Q1) 使用的窄端口。
-	// optional: 旧测试路径 / standalone 模式不装载 taskdag.Module 时依然能
-	// 启动；service.DispatchNode 遇到 nil 时返 ErrDispatchStoreUnset。
-	DispatchStore taskdag.DispatchNodeStore `optional:"true"`
+	RunStore       taskdag.RunStore
+	AgentThreads   AgentThreadStore          `optional:"true"`
+	AgentBindings  AgentBindingStore         `optional:"true"`
+	DispatchStore  taskdag.DispatchNodeStore `optional:"true"`
 }
 
 type recoveryTurnStore interface {
@@ -134,39 +104,26 @@ type recoveryTurnStore interface {
 }
 
 type agentRuntime struct {
-	id                string
-	name              string
-	parentID          string
-	cwd               string
-	command           []string
-	env               []string
-	port              int
-	runtimePort       int
-	portSource        string
-	provider          string
-	runtimeProvider   string
-	providerSource    string
-	state             agentdto.AgentState
-	threadID          string
-	remoteThreadID    string
-	remoteAgentID     string
-	requestedAgentID  string
-	activeTurnID      string
-	lastReport        string
-	reportRequesters  []string
-	lastError         string
-	startedAt         time.Time
-	updatedAt         time.Time
-	exitedAt          *time.Time
-	launchSeq         uint64
-	lastExitedSeq     uint64
-	monitoredSeq      uint64
-	sessionGeneration uint64
-	stopRequested     bool
-	stopReason        string
-	cmd               *exec.Cmd
-	queue             *SubmissionQueue
-	sm                *stateless.StateMachine
+	id, name, prompt, instructions, parentID, agentType, agentKey, memoryScope, language, cwd string
+	command, env                                                                              []string
+	port, runtimePort                                                                         int
+	portSource, provider, runtimeProvider, providerSource                                     string
+	state                                                                                     agentdto.AgentState
+	threadID, remoteThreadID, pendingLaunchThreadID                                           string
+	pendingLaunchThreadAt                                                                     time.Time
+	remoteAgentID, requestedAgentID, activeTurnID, lastReport                                 string
+	reportRequesters                                                                          []string
+	lastError                                                                                 string
+	startedAt, updatedAt                                                                      time.Time
+	exitedAt                                                                                  *time.Time
+	launchSeq, lastExitedSeq, monitoredSeq, sessionGeneration                                 uint64
+	autoRecoverCount                                                                          int
+	autoRecoverSince                                                                          time.Time
+	stopRequested                                                                             bool
+	stopReason                                                                                string
+	cmd                                                                                       *exec.Cmd
+	queue                                                                                     *SubmissionQueue
+	sm                                                                                        *stateless.StateMachine
 }
 
 type monitorTarget struct {
@@ -220,30 +177,17 @@ func NewService(
 	return svc
 }
 
-// ProvideService is the fx constructor for the orchestration service.
-// Exported by P22 P4 S4c1 so cmd/mcp-orch/fx.go can assemble the
-// orchestration wiring at root instead of consuming a package-level
-// `Module`. Returns the private *service pointer so fx can resolve the
-// concrete type for invokes that need it; ProvideServiceInterface
-// adapts the same pointer to the public Service / contract.Orchestration
-// Service interface.
 func ProvideService(p serviceParams) *service {
 	svc := NewService(p.Logger, p.EventBus, p.Launcher, p.SessionCleaner, p.TurnStarter, p.DAGStore)
-	svc.runStore = p.RunStore // T1.2: StartDAG 需跳入；setter 注入以保 NewService 签名不变
+	svc.runStore = p.RunStore
 	svc.agentThreads = p.AgentThreads
 	svc.agentBindings = p.AgentBindings
-	svc.dispatchStore = p.DispatchStore // dispatcher wiring batch §4：可为 nil，遇到后走 ErrDispatchStoreUnset
+	svc.dispatchStore = p.DispatchStore
 	return svc
 }
 
-// ProvideServiceInterface adapts the private *service pointer into the
-// public Service / contract.OrchestrationService interface. Previously
-// this was an anonymous func inside `var Module`; exporting it keeps the
-// adapter available to root-level fx assembly (P22 P4 S4c1).
 func ProvideServiceInterface(s *service) Service { return s }
 
-// RegisterTurnLifecycle was `registerTurnLifecycle` pre-P22 P4 S4c1.
-// Exported so cmd/mcp-orch/fx.go can fx.Invoke it during root assembly.
 func RegisterTurnLifecycle(lc fx.Lifecycle, dispatcher *event.Dispatcher, svc *service, logger *slog.Logger) {
 	if logger == nil {
 		logger = pkglogger.Get()
@@ -344,16 +288,8 @@ type ProvideWakeupDispatcherRunnerIn struct {
 	Logger  *slog.Logger `optional:"true"`
 }
 
-// ProvideWakeupDispatcher 是 dispatcher-wiring batch §1 拆出的 *WakeupDispatcher
-// fx 单例 provider。同一个 *WakeupDispatcher 供两个消费点复用：
-//   - ProvideWakeupDispatcherRunner: 适配成 platformrunner.Runner 加入 group:"runners";
-//   - WireWakeupDispatcherRouter:     fx.Invoke 装上 NodeExecutorRouter。
-//
-// taskdag.Store 为 nil 时返 nil + nil error，表示「standalone / 旧测试路径」，
-// 下游 Runner provider 会退化为 NoopRunner。
-//
-// ProvideWakeupDispatcher exposes a singleton *WakeupDispatcher so both the
-// runner adapter and the router-wiring invoke share the same instance.
+// ProvideWakeupDispatcher creates the shared dispatcher used by the runner
+// adapter and router wiring; nil Store disables it for standalone tests.
 func ProvideWakeupDispatcher(in ProvideWakeupDispatcherRunnerIn) (*WakeupDispatcher, error) {
 	logger := in.Logger
 	if logger == nil {
@@ -366,19 +302,8 @@ func ProvideWakeupDispatcher(in ProvideWakeupDispatcherRunnerIn) (*WakeupDispatc
 	return NewWakeupDispatcher(in.Store, in.Service, logger, WakeupDispatcherConfig{})
 }
 
-// ProvideWakeupDispatcherRunner (Phase 3.2) returns the wakeup dispatcher as
-// a Runner for injection into run.Group via group:"runners". The dispatcher
-// claims due wakeups via taskdag.Store, hands each off to
-// *service.LaunchAgent, and drives state transitions (MarkWakeupSent /
-// RetryWakeup / FailWakeup).
-//
-// dispatcher-wiring batch §1 后重构：从「独立构造」转为「包装
-// ProvideWakeupDispatcher 返的单例」，依赖一致。
-//
-// Wired with fx.Provide + group:"runners" from cmd/mcp-orch/fx.go so
-// run.Group manages the goroutine lifecycle. *WakeupDispatcher is optional
-// (nil when taskdag.Store is absent), and this adapter falls back to a
-// no-op runner.
+// ProvideWakeupDispatcherRunner adapts the optional shared wakeup dispatcher
+// into a run.Group runner, falling back to a no-op when the store is absent.
 func ProvideWakeupDispatcherRunner(dispatcher *WakeupDispatcher) platformrunner.Runner {
 	if dispatcher == nil {
 		return platformrunner.NoopRunner{}
@@ -465,7 +390,10 @@ func (s *service) SubmitTurn(ctx context.Context, req TurnSubmission) error {
 }
 
 func (s *service) ListAgents(ctx context.Context) ([]AgentSnapshot, error) {
-	snapshots := s.runtimeAgentSnapshots(ctx)
+	snapshots, err := s.runtimeAgentSnapshots(ctx)
+	if err != nil {
+		return nil, err
+	}
 	if s.agentThreads != nil {
 		persisted, err := s.listPersistedAgentSnapshots(ctx)
 		if err != nil {
@@ -477,20 +405,9 @@ func (s *service) ListAgents(ctx context.Context) ([]AgentSnapshot, error) {
 	return snapshots, nil
 }
 
-func (s *service) runtimeAgentSnapshots(ctx context.Context) []AgentSnapshot {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
-	snapshots := make([]AgentSnapshot, 0, len(s.agents))
-	for _, agent := range s.agents {
-		snapshots = append(snapshots, s.snapshotLocked(ctx, agent))
-	}
-	return snapshots
-}
-
 func (s *service) Snapshot(ctx context.Context, agentID string) (AgentSnapshot, error) {
 	var snapshot AgentSnapshot
-	err := s.withAgentReadLockedByAgentID(agentID, func(agent *agentRuntime) error {
+	err := s.withAgentReadLockedByAgentID(ctx, agentID, func(agent *agentRuntime) error {
 		snapshot = s.snapshotLocked(ctx, agent)
 		return nil
 	})

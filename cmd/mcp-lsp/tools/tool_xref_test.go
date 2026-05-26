@@ -3,8 +3,11 @@ package tools
 import (
 	"context"
 	"encoding/json"
-	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/common"
+	"os"
+	"path/filepath"
 	"testing"
+
+	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/common"
 
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/protocol"
 )
@@ -20,11 +23,12 @@ func (m *xrefReferencesManager) References(_ context.Context, _ string, _ protoc
 }
 
 func TestReferencesDefaultIncludesDeclaration(t *testing.T) {
+	dir, filePath := writeXRefFixture(t)
 	manager := &xrefReferencesManager{}
 	handler := NewXRefHandler(&structureTestRegistry{fileManager: manager})
 	input, err := json.Marshal(xrefParams{
 		Action:   "references",
-		FilePath: "/tmp/sample.go",
+		FilePath: filePath,
 		Line:     1,
 		Column:   1,
 	})
@@ -32,7 +36,7 @@ func TestReferencesDefaultIncludesDeclaration(t *testing.T) {
 		t.Fatalf("marshal input: %v", err)
 	}
 
-	if _, err := handler(common.WithToolScope(context.Background(), common.ToolScope{CWD: "/"}), input); err != nil {
+	if _, err := handler(common.WithToolScope(context.Background(), common.ToolScope{CWD: dir}), input); err != nil {
 		t.Fatalf("references returned error: %v", err)
 	}
 	if !manager.gotIncludeDeclaration {
@@ -41,12 +45,13 @@ func TestReferencesDefaultIncludesDeclaration(t *testing.T) {
 }
 
 func TestReferencesCanDisableDeclaration(t *testing.T) {
+	dir, filePath := writeXRefFixture(t)
 	manager := &xrefReferencesManager{gotIncludeDeclaration: true}
 	handler := NewXRefHandler(&structureTestRegistry{fileManager: manager})
 	includeDeclaration := false
 	input, err := json.Marshal(xrefParams{
 		Action:             "references",
-		FilePath:           "/tmp/sample.go",
+		FilePath:           filePath,
 		Line:               1,
 		Column:             1,
 		IncludeDeclaration: &includeDeclaration,
@@ -55,10 +60,20 @@ func TestReferencesCanDisableDeclaration(t *testing.T) {
 		t.Fatalf("marshal input: %v", err)
 	}
 
-	if _, err := handler(common.WithToolScope(context.Background(), common.ToolScope{CWD: "/"}), input); err != nil {
+	if _, err := handler(common.WithToolScope(context.Background(), common.ToolScope{CWD: dir}), input); err != nil {
 		t.Fatalf("references returned error: %v", err)
 	}
 	if manager.gotIncludeDeclaration {
 		t.Fatalf("includeDeclaration = true, want explicit false")
 	}
+}
+
+func writeXRefFixture(t *testing.T) (string, string) {
+	t.Helper()
+	dir := t.TempDir()
+	filePath := filepath.Join(dir, "sample.go")
+	if err := os.WriteFile(filePath, []byte("package sample\n"), 0o644); err != nil {
+		t.Fatalf("write xref fixture: %v", err)
+	}
+	return dir, filePath
 }

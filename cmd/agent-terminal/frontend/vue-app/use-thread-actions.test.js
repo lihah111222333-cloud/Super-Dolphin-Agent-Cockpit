@@ -22,6 +22,7 @@ function createThreadActions(overrides = {}) {
   const threadStore = {
     state: reactive({
       agentRuntimeById: overrides.runtimeById ?? {},
+      threads: overrides.threads ?? [],
     }),
     startThread: vi.fn().mockResolvedValue('thread-started'),
     getThreadConfig: vi.fn().mockResolvedValue(null),
@@ -87,24 +88,56 @@ function createDeferred() {
 }
 
 beforeEach(() => {
+  vi.restoreAllMocks();
   apiMock.callAPI.mockReset().mockResolvedValue({});
   globalThis.window = { ...(globalThis.window || {}), alert: vi.fn() };
+  vi.spyOn(globalThis.crypto, 'randomUUID')
+    .mockReturnValueOnce('018f00e0-39fc-72ac-a47a-2a858c75d111')
+    .mockReturnValueOnce('018f00e0-39fc-72ac-a47a-2a858c75d222')
+    .mockReturnValue('018f00e0-39fc-72ac-a47a-2a858c75d333');
 });
 
 describe('useThreadActions', () => {
-  it('launchOne starts a deferred thread when composer is empty', async () => {
-    const vm = createThreadActions();
+  it('launchOne opens a local draft without creating a backend thread when composer is empty', async () => {
+    const vm = createThreadActions({ selectedThreadId: 'thread-live' });
 
     await vm.launchOne();
 
-    expect(vm.threadStore.startThread).toHaveBeenCalledWith('/repo', {
+    expect(vm.deps.selectedThreadId.value).toBe('');
+    expect(vm.threadStore.startThread).not.toHaveBeenCalled();
+  });
+
+  it('launchOne draft creates a launch intent only when the first message is sent', async () => {
+    const vm = createThreadActions({ selectedThreadId: 'thread-live' });
+
+    await vm.launchOne();
+    expect(vm.threadStore.startThread).not.toHaveBeenCalled();
+
+    vm.deps.composer.state.text = 'bind provider now';
+    await vm.send();
+    await vm.launchOne();
+    vm.deps.composer.state.text = 'new provider-safe launch';
+    await vm.send();
+
+    expect(vm.threadStore.startThread).toHaveBeenNthCalledWith(1, '/repo', {
       focusMode: 'chat',
       deferSpawn: true,
+      launchIntentId: 'launch_018f00e0-39fc-72ac-a47a-2a858c75d111',
+      optimisticUserMessage: { text: 'bind provider now', attachments: [] },
+      skipInitialRuntimeSync: true,
+    });
+    expect(vm.threadStore.startThread).toHaveBeenNthCalledWith(2, '/repo', {
+      focusMode: 'chat',
+      deferSpawn: true,
+      launchIntentId: 'launch_018f00e0-39fc-72ac-a47a-2a858c75d222',
+      optimisticUserMessage: { text: 'new provider-safe launch', attachments: [] },
+      skipInitialRuntimeSync: true,
     });
   });
 
-  it('launchOne does not start a deferred thread before provider preference is ready', async () => {
+  it('launchOne opens a local draft even before provider preference is ready', async () => {
     const vm = createThreadActions({
+      selectedThreadId: 'thread-live',
       deps: {
         providerPreferenceReady: ref(false),
       },
@@ -112,11 +145,13 @@ describe('useThreadActions', () => {
 
     await vm.launchOne();
 
+    expect(vm.deps.selectedThreadId.value).toBe('');
     expect(vm.threadStore.startThread).not.toHaveBeenCalled();
   });
 
-  it('launchOne resolves dot project scope to the window cwd', async () => {
+  it('launchOne local draft does not resolve or start project-scoped backend work', async () => {
     const vm = createThreadActions({
+      selectedThreadId: 'thread-live',
       props: {
         windowCwd: '/repo-root',
         projectStore: { state: { active: '.' } },
@@ -125,23 +160,24 @@ describe('useThreadActions', () => {
 
     await vm.launchOne();
 
-    expect(vm.threadStore.startThread).toHaveBeenCalledWith('/repo-root', { focusMode: 'chat', deferSpawn: true });
+    expect(vm.deps.selectedThreadId.value).toBe('');
+    expect(vm.threadStore.startThread).not.toHaveBeenCalled();
   });
 
-  it('launchOne: shows backend startup errors and rethrows them', async () => {
+  it('launchOne does not surface backend startup errors because it only opens a local draft', async () => {
     const backendError = new Error('{"message":"[-32098] thread: prompt assembly: ClaudeMd candidate containment failed: safe read denied"}');
     const vm = createThreadActions({
+      selectedThreadId: 'thread-live',
       threadStore: {
         startThread: vi.fn().mockRejectedValueOnce(backendError),
       },
     });
 
-    await expect(vm.launchOne()).rejects.toBe(backendError);
+    await vm.launchOne();
 
     expect(globalThis.window.alert).not.toHaveBeenCalled();
-    expect(vm.sendFailureNotice.value).toContain('启动失败');
-    expect(vm.sendFailureNotice.value).toContain('ClaudeMd');
-    expect(vm.sendFailureNotice.value).toContain('safe read');
+    expect(vm.threadStore.startThread).not.toHaveBeenCalled();
+    expect(vm.sendFailureNotice.value).toBe('');
   });
 
   it('pipes thread config get/set calls through the thread store', async () => {
@@ -218,7 +254,13 @@ describe('useThreadActions', () => {
 
     await vm.send();
 
-    expect(vm.threadStore.startThread).toHaveBeenCalledWith('/repo', { focusMode: 'chat', prompt: 'hello world' });
+    expect(vm.threadStore.startThread).toHaveBeenCalledWith('/repo', {
+      focusMode: 'chat',
+      deferSpawn: true,
+      launchIntentId: 'launch_018f00e0-39fc-72ac-a47a-2a858c75d111',
+      optimisticUserMessage: { text: 'hello world', attachments: [] },
+      skipInitialRuntimeSync: true,
+    });
     expect(vm.deps.selectedThreadId.value).toBe('thread-started');
     expect(vm.threadStore.sendMessage).toHaveBeenCalledWith(
       'thread-started',
@@ -227,6 +269,35 @@ describe('useThreadActions', () => {
       expect.objectContaining({ cwd: '/repo' }),
     );
     expect(vm.deps.scheduleScrollToBottom).toHaveBeenCalledWith(true);
+  });
+
+  it('send: uses the latest window cwd when app bootstrap updates props after setup', async () => {
+    const vm = createThreadActions({
+      selectedThreadId: '',
+      text: 'hello world',
+      props: {
+        projectStore: { state: { active: '.' } },
+        windowCwd: '',
+      },
+    });
+
+    vm.props.windowCwd = '/async-window-cwd';
+
+    await vm.send();
+
+    expect(vm.threadStore.startThread).toHaveBeenCalledWith('/async-window-cwd', {
+      focusMode: 'chat',
+      deferSpawn: true,
+      launchIntentId: 'launch_018f00e0-39fc-72ac-a47a-2a858c75d111',
+      optimisticUserMessage: { text: 'hello world', attachments: [] },
+      skipInitialRuntimeSync: true,
+    });
+    expect(vm.threadStore.sendMessage).toHaveBeenCalledWith(
+      'thread-started',
+      'hello world',
+      [],
+      expect.objectContaining({ cwd: '/async-window-cwd' }),
+    );
   });
 
   it('send: ignores duplicate invocations while auto-start is still in flight', async () => {
@@ -291,6 +362,37 @@ describe('useThreadActions', () => {
     expect(vm.sendFailureNotice.value).toContain('safe read');
   });
 
+  it('send: preserves launch intent after start failure so retained backend failures stay keyed', async () => {
+    const backendError = new Error('provider failed');
+    const vm = createThreadActions({
+      selectedThreadId: '',
+      text: 'hello world',
+      threadStore: {
+        startThread: vi.fn()
+          .mockRejectedValueOnce(backendError)
+          .mockResolvedValueOnce('thread-started'),
+      },
+    });
+
+    await expect(vm.send()).rejects.toBe(backendError);
+    await vm.send();
+
+    expect(vm.threadStore.startThread).toHaveBeenNthCalledWith(1, '/repo', {
+      focusMode: 'chat',
+      deferSpawn: true,
+      launchIntentId: 'launch_018f00e0-39fc-72ac-a47a-2a858c75d111',
+      optimisticUserMessage: { text: 'hello world', attachments: [] },
+      skipInitialRuntimeSync: true,
+    });
+    expect(vm.threadStore.startThread).toHaveBeenNthCalledWith(2, '/repo', {
+      focusMode: 'chat',
+      deferSpawn: true,
+      launchIntentId: 'launch_018f00e0-39fc-72ac-a47a-2a858c75d111',
+      optimisticUserMessage: { text: 'hello world', attachments: [] },
+      skipInitialRuntimeSync: true,
+    });
+  });
+
   it('send resolves dot project scope to the window cwd for start and message payloads', async () => {
     const vm = createThreadActions({
       selectedThreadId: '',
@@ -303,12 +405,49 @@ describe('useThreadActions', () => {
 
     await vm.send();
 
-    expect(vm.threadStore.startThread).toHaveBeenCalledWith('/repo-root', { focusMode: 'chat', prompt: 'hello from root' });
+    expect(vm.threadStore.startThread).toHaveBeenCalledWith('/repo-root', {
+      focusMode: 'chat',
+      deferSpawn: true,
+      launchIntentId: 'launch_018f00e0-39fc-72ac-a47a-2a858c75d111',
+      optimisticUserMessage: { text: 'hello from root', attachments: [] },
+      skipInitialRuntimeSync: true,
+    });
     expect(vm.threadStore.sendMessage).toHaveBeenCalledWith(
       'thread-started',
       'hello from root',
       [],
       expect.objectContaining({ cwd: '/repo-root' }),
+    );
+  });
+
+  it('send: reuses the thread start cwd for the first message even if project scope changes during start', async () => {
+    const projectStore = { state: { active: '/repo' } };
+    const vm = createThreadActions({
+      selectedThreadId: '',
+      text: 'hello while project changes',
+      props: { projectStore },
+      threadStore: {
+        startThread: vi.fn().mockImplementation(async () => {
+          projectStore.state.active = '/other-repo';
+          return 'thread-started';
+        }),
+      },
+    });
+
+    await vm.send();
+
+    expect(vm.threadStore.startThread).toHaveBeenCalledWith('/repo', {
+      focusMode: 'chat',
+      deferSpawn: true,
+      launchIntentId: 'launch_018f00e0-39fc-72ac-a47a-2a858c75d111',
+      optimisticUserMessage: { text: 'hello while project changes', attachments: [] },
+      skipInitialRuntimeSync: true,
+    });
+    expect(vm.threadStore.sendMessage).toHaveBeenCalledWith(
+      'thread-started',
+      'hello while project changes',
+      [],
+      { manualSkillSelection: false, cwd: '/repo' },
     );
   });
 
@@ -323,7 +462,10 @@ describe('useThreadActions', () => {
 
     expect(vm.threadStore.startThread).toHaveBeenCalledWith('/repo', {
       focusMode: 'chat',
-      prompt: 'boot launch',
+      deferSpawn: true,
+      launchIntentId: 'launch_018f00e0-39fc-72ac-a47a-2a858c75d111',
+      optimisticUserMessage: { text: 'boot launch', attachments: [{ path: '/tmp/a.txt' }] },
+      skipInitialRuntimeSync: true,
     });
     expect(vm.threadStore.sendMessage).toHaveBeenCalledWith(
       'thread-started',
@@ -337,7 +479,61 @@ describe('useThreadActions', () => {
     expect(vm.threadStore.startThread.mock.invocationCallOrder[0]).toBeLessThan(vm.threadStore.sendMessage.mock.invocationCallOrder[0]);
   });
 
-  it('send: does not forward selected skill refs for active threads', async () => {
+  it('send: uses the selected thread runtime cwd for active threads', async () => {
+    const vm = createThreadActions({
+      selectedThreadId: 'thread-live',
+      text: 'ping worktree',
+      props: {
+        windowCwd: '/repo',
+        projectStore: { state: { active: '/repo' } },
+      },
+      runtimeById: {
+        'thread-live': { cwd: '/repo/.worktrees/provider-connecting-overlay' },
+      },
+    });
+
+    await vm.send();
+
+    expect(vm.threadStore.startThread).not.toHaveBeenCalled();
+    expect(vm.threadStore.sendMessage).toHaveBeenCalledWith(
+      'thread-live',
+      'ping worktree',
+      [],
+      {
+        manualSkillSelection: false,
+        cwd: '/repo/.worktrees/provider-connecting-overlay',
+      },
+    );
+  });
+
+  it('send: falls back to the selected thread model cwd when runtime cwd is not visible', async () => {
+    const vm = createThreadActions({
+      selectedThreadId: 'thread-live',
+      text: 'ping model cwd',
+      props: {
+        windowCwd: '/repo',
+        projectStore: { state: { active: '/repo' } },
+      },
+      threads: [
+        { id: 'thread-live', name: 'Thread Live', state: 'idle', cwd: '/repo/.worktrees/model-cwd' },
+      ],
+    });
+
+    await vm.send();
+
+    expect(vm.threadStore.startThread).not.toHaveBeenCalled();
+    expect(vm.threadStore.sendMessage).toHaveBeenCalledWith(
+      'thread-live',
+      'ping model cwd',
+      [],
+      {
+        manualSkillSelection: false,
+        cwd: '/repo/.worktrees/model-cwd',
+      },
+    );
+  });
+
+  it('send: omits cwd for active threads when no thread cwd is locally visible', async () => {
     const vm = createThreadActions({
       selectedThreadId: 'thread-live',
       text: 'ping with skills',
@@ -349,7 +545,7 @@ describe('useThreadActions', () => {
       'thread-live',
       'ping with skills',
       [],
-      { manualSkillSelection: false, cwd: '/repo' },
+      { manualSkillSelection: false },
     );
   });
 
@@ -381,7 +577,7 @@ describe('useThreadActions', () => {
       'thread-live',
       'ping',
       [{ path: '/tmp/a.txt' }],
-      { manualSkillSelection: false, cwd: '/repo' },
+      { manualSkillSelection: false },
     );
   });
 

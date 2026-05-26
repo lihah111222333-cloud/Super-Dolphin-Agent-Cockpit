@@ -12,15 +12,13 @@ import (
 )
 
 func TestDispatchToolActionReportsValidActionsAndClosestMatch(t *testing.T) {
-	_, err := dispatchToolAction(common.WithToolScope(context.Background(), common.ToolScope{CWD: "/"}), "edit", "code_acton", struct{}{}, map[string]actionHandler[struct{}]{
-		"rename":        func(context.Context, struct{}) (any, error) { return nil, nil },
-		"code_action":   func(context.Context, struct{}) (any, error) { return nil, nil },
-		"replace_range": func(context.Context, struct{}) (any, error) { return nil, nil },
+	_, err := dispatchToolAction(common.WithToolScope(context.Background(), common.ToolScope{CWD: "/"}), "file", "read_fiel", struct{}{}, map[string]actionHandler[struct{}]{
+		"read_file": func(context.Context, struct{}) (any, error) { return nil, nil },
 	})
 	if err == nil {
 		t.Fatalf("dispatch error = nil, want unsupported action")
 	}
-	for _, want := range []string{"valid actions:", "code_action", "replace_range", `did you mean "code_action"`} {
+	for _, want := range []string{"valid actions:", "read_file", `did you mean "read_file"`} {
 		if !strings.Contains(err.Error(), want) {
 			t.Fatalf("dispatch error = %q, want %q", err.Error(), want)
 		}

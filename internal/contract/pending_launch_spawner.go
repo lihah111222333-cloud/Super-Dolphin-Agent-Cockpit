@@ -42,3 +42,7 @@ import (
 type PendingLaunchSpawner interface {
 	SpawnIfNeeded(ctx context.Context, threadID, userInputForRouter, requestCWD string) (launched bool, routing threaddto.SpawnRouting, err error)
 }
+
+type LaunchIntentCompleter interface {
+	CompleteLaunchIntent(ctx context.Context, threadID string)
+}

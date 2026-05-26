@@ -29,9 +29,9 @@ type unsupportedTextReplaceRangeCase struct {
 func unsupportedTextReplaceRangeCases() []unsupportedTextReplaceRangeCase {
 	return []unsupportedTextReplaceRangeCase{
 		markdownContextPatchCase(),
-		plaintextMultipleEditsCase(),
+		plaintextMultiHunkPatchCase(),
 		plaintextBareHeaderPatchCase(),
-		jsonCoordinateEditCase(),
+		jsonPatchCase(),
 		yamlConfigPatchCase(),
 	}
 }
@@ -52,7 +52,6 @@ func markdownContextPatchCase() unsupportedTextReplaceRangeCase {
 		}, "\n"),
 		req: func(path string) EditRequest {
 			return EditRequest{
-				Action:   "replace_range",
 				FilePath: path,
 				Patch: strings.Join([]string{
 					"@@ target status",
@@ -76,19 +75,23 @@ func markdownContextPatchCase() unsupportedTextReplaceRangeCase {
 	}
 }
 
-func plaintextMultipleEditsCase() unsupportedTextReplaceRangeCase {
+func plaintextMultiHunkPatchCase() unsupportedTextReplaceRangeCase {
 	return unsupportedTextReplaceRangeCase{
-		name:    "plaintext multiple edits",
+		name:    "plaintext multi-hunk patch",
 		file:    "notes.txt",
 		content: "alpha\nbeta\nomega\n",
 		req: func(path string) EditRequest {
 			return EditRequest{
-				Action:   "replace_range",
 				FilePath: path,
-				Edits: []ReplaceEdit{
-					{OldString: "alpha", NewString: "ALPHA"},
-					{OldString: "omega", NewString: "OMEGA"},
-				},
+				Patch: strings.Join([]string{
+					"@@ alpha",
+					"-alpha",
+					"+ALPHA",
+					"@@ omega",
+					"-omega",
+					"+OMEGA",
+					"",
+				}, "\n"),
 			}
 		},
 		want: "ALPHA\nbeta\nOMEGA\n",
@@ -102,7 +105,6 @@ func plaintextBareHeaderPatchCase() unsupportedTextReplaceRangeCase {
 		content: "alpha\nbeta\nomega\n",
 		req: func(path string) EditRequest {
 			return EditRequest{
-				Action:   "replace_range",
 				FilePath: path,
 				Patch: strings.Join([]string{
 					"@@",
@@ -116,20 +118,20 @@ func plaintextBareHeaderPatchCase() unsupportedTextReplaceRangeCase {
 	}
 }
 
-func jsonCoordinateEditCase() unsupportedTextReplaceRangeCase {
+func jsonPatchCase() unsupportedTextReplaceRangeCase {
 	return unsupportedTextReplaceRangeCase{
-		name:    "json coordinate edit",
+		name:    "json patch",
 		file:    "config.json",
 		content: "{\n  \"enabled\": false,\n  \"name\": \"demo\"\n}\n",
 		req: func(path string) EditRequest {
 			return EditRequest{
-				Action:    "replace_range",
-				FilePath:  path,
-				Line:      2,
-				Column:    14,
-				EndLine:   2,
-				EndColumn: 19,
-				NewText:   "true",
+				FilePath: path,
+				Patch: strings.Join([]string{
+					"@@ enabled",
+					"-  \"enabled\": false,",
+					"+  \"enabled\": true,",
+					"",
+				}, "\n"),
 			}
 		},
 		want: "{\n  \"enabled\": true,\n  \"name\": \"demo\"\n}\n",
@@ -150,7 +152,6 @@ func yamlConfigPatchCase() unsupportedTextReplaceRangeCase {
 		}, "\n"),
 		req: func(path string) EditRequest {
 			return EditRequest{
-				Action:   "replace_range",
 				FilePath: path,
 				Patch: strings.Join([]string{
 					"@@ yaml feature",

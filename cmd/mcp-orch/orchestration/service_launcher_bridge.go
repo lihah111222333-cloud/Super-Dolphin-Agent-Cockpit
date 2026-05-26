@@ -18,7 +18,6 @@ type launcherLaunchAttempt struct {
 	expectedSeq uint64
 	launching   agentRuntime
 }
-
 type launchedAgent struct {
 	agentID string
 	result  LaunchResult
@@ -206,7 +205,6 @@ func (s *service) failLauncherLaunchLocked(ctx context.Context, agent, launching
 	}
 	err := s.commitLaunchFailureLocked(ctx, agent, launchErr, lastErr)
 	s.mu.Unlock()
-	// Clean up any residual resources on the launching copy (remote thread, etc.).
 	if launching != nil && s.launcher != nil {
 		if stopErr := s.launcher.Stop(ctx, launching); stopErr != nil {
 			pkglogger.Warn("orchestration: fail launch cleanup stop failed",
@@ -275,17 +273,11 @@ func (s *service) stopAgentViaLauncher(ctx context.Context, agentID, reason stri
 	if err := s.launcher.Stop(ctx, agent); err != nil {
 		return err
 	}
-	s.exitMonitor.Emit(agentID, launchSeq, nil)
+	if settler, ok := s.launcher.(interface{ StopSettlesAgent() bool }); ok && settler.StopSettlesAgent() {
+		s.handleProcessExit(ctx, agentID, launchSeq, nil)
+	}
 	return nil
 }
-
-// archiveAgentViaLauncher invokes the remote thread/archive RPC for launcher-
-// owned agents. Local runtime agents still need the legacy local stop path; once
-// that completes the caller falls back to the persisted DB archive write.
-// Returns (true, nil) only when the remote archive flow ran (the main app
-// already did UpdateStatus(archived) + SetArchived + cleanup + publish).
-// Returns (false, nil) when there is no live runtime and the caller should fall
-// back to the persisted DB write path.
 func (s *service) archiveAgentViaLauncher(ctx context.Context, agentID, reason string) (bool, error) {
 	agentID = strings.TrimSpace(agentID)
 	if agentID == "" {
@@ -307,7 +299,9 @@ func (s *service) archiveAgentViaLauncher(ctx context.Context, agentID, reason s
 	if err := s.launcher.Archive(ctx, agent); err != nil {
 		return false, err
 	}
-	s.exitMonitor.Emit(agentID, launchSeq, nil)
+	if settler, ok := s.launcher.(interface{ StopSettlesAgent() bool }); ok && settler.StopSettlesAgent() {
+		s.handleProcessExit(ctx, agentID, launchSeq, nil)
+	}
 	return true, nil
 }
 func (s *service) hasLocalRuntimeAgent(agentID string) bool {
@@ -322,6 +316,7 @@ func (s *service) hasLocalRuntimeAgent(agentID string) bool {
 	})
 	return hasLocal
 }
+
 func (s *service) shouldStopViaLauncher(ctx context.Context, agentID string) bool {
 	shouldStop := false
 	if err := s.withAgentReadLocked(agentID, func(agent *agentRuntime) error {
@@ -399,6 +394,11 @@ func (s *service) trySubmitRemoteTurn(ctx context.Context, agentID string, req T
 	remoteTurnID, submitErr := s.launcher.SubmitTurn(ctx, attempt.agent, attempt.req)
 	if submitErr != nil {
 		s.finishRemoteTurnSubmitFailure(ctx, attempt, submitErr)
+		if classifyLaunchError(submitErr) == launchClassPermanent {
+			cleanupCtx, cancel := platformconfig.WithTimeout(context.Background(), platformconfig.AsyncLaunchTimeout)
+			defer cancel()
+			submitErr = errors.Join(submitErr, s.stopAgentViaLauncher(cleanupCtx, attempt.agentID, "remote_turn_submit_failed"))
+		}
 		return true, submitErr
 	}
 	s.finishRemoteTurnSubmitSuccess(ctx, attempt, remoteTurnID)

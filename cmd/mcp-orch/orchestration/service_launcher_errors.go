@@ -12,10 +12,6 @@ import (
 const (
 	maxLaunchRetries = 3
 	launchRetryBase  = 2 * time.Second
-	// rateLimitBackoff is the wait used when the previous launch error looks
-	// like an HTTP 429 / rate limit. The launcher uses jrpc2 over a line
-	// protocol so we cannot read Retry-After; this fixed default still beats
-	// the linear path by ~30x and is consistent with provider docs (60s).
 	rateLimitBackoff = 60 * time.Second
 )
 
@@ -40,9 +36,6 @@ func waitRetryBackoff(ctx context.Context, attempt int, agentID string, prevErr 
 	}
 }
 
-// launchErrorClass 把 launch error 分成三类，让 launchWithRetry 决定是
-// 继续重试 (transient/unknown) 还是直接跳出 (permanent)。值类型为 typed
-// string 让 switch 编译期检查并方便日志/前端 reason 字段对齐。
 type launchErrorClass string
 
 const (
@@ -51,15 +44,10 @@ const (
 	launchClassUnknown   launchErrorClass = "unknown"
 )
 
-var permanentLaunchPatterns = []string{"401", "unauthoriz", "invalid api key", "invalid_api_key", "403", "forbidden", "permission denied", "quota_exhausted", "insufficient_quota", "usage limit", "out of credits", "402", "payment_required", "subscription expired", "context_length_exceeded", "context length exceeded", "maximum context", "prompt is too long", "launch cwd is required", "launch cwd is invalid", "root task id missing", "task handoff title is required", "task handoff file is required", "task handoff config"}
+var permanentLaunchPatterns = []string{"401", "unauthoriz", "authentication failed", "authentication required", "not authenticated", "not logged in", "login required", "login-required", "login_required", "please log in", "please run /login", "sign in", "auth expired", "auth token expired", "session expired", "unable to connect to api (connectionrefused)", "selected model", "may not exist or you may not have access", "not have access to it", "pick a different model", "model unavailable", "model_not_found", "model not found", "invalid api key", "invalid_api_key", "403", "forbidden", "permission denied", "quota_exhausted", "insufficient_quota", "usage limit", "out of credits", "402", "payment_required", "subscription expired", "context_length_exceeded", "context length exceeded", "maximum context", "prompt is too long", "launch cwd is required", "launch cwd is invalid", "root task id missing", "task handoff title is required", "task handoff file is required", "task handoff config"}
 
-// transientLaunchPatterns 是已知的瞬态故障关键字（连接级 / 超时 / 启动竞态）。
-// 命中则归 transient 让 launchRetry 退避后重试。和 isRateLimited（429）一起
-// 构成 transient 集合。
 var transientLaunchPatterns = []string{"deadline exceeded", "connection refused", "transport unavailable", "empty thread id", "timed out", "i/o timeout"}
 
-// classifyLaunchError 把 launch error 分类。permanent 优先级最高（即使消息里
-// 同时含 transient 关键字，permanent 仍胜出——例如 "401 timeout"）。
 func classifyLaunchError(err error) launchErrorClass {
 	if err == nil {
 		return launchClassTransient
@@ -84,9 +72,6 @@ func classifyLaunchError(err error) launchErrorClass {
 	return launchClassUnknown
 }
 
-// isRateLimited reports whether err looks like an HTTP 429 / rate limit
-// response. We cannot read Retry-After (jrpc2 line protocol strips it), so we
-// match common substrings the upstream surfaces in its error message.
 func isRateLimited(err error) bool {
 	if err == nil {
 		return false

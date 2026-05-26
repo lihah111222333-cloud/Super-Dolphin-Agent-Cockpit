@@ -11,6 +11,7 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	shareddto "github.com/anthropic-ai/super-agent-v3/internal/dto/shared"
 	threaddto "github.com/anthropic-ai/super-agent-v3/internal/dto/thread"
+	"github.com/anthropic-ai/super-agent-v3/internal/util/idempotency"
 	"github.com/anthropic-ai/super-agent-v3/internal/util/identifier"
 	"github.com/anthropic-ai/super-agent-v3/internal/util/safego"
 
@@ -72,6 +73,9 @@ type service struct {
 	// thread/start is still launching and has not persisted agent_threads yet.
 	agentIDMu           sync.Mutex
 	agentIDReservations map[string]struct{}
+
+	launchIntentRegistry idempotency.Registry[StartResult]
+	launchIntentByThread sync.Map
 
 	threadAgentsMu sync.RWMutex
 	threadAgents   map[string]string
@@ -271,7 +275,7 @@ func (s *service) deletePendingLaunchThread(
 	if err := s.threadStore.DeleteByThreadID(ctx, id); err != nil {
 		return true, err
 	}
-	s.pendingLaunchMu.Delete(id)
+	s.CompleteLaunchIntent(ctx, id)
 	s.publishThreadStopped(id, "", "deleted", "deleted_pending_launch")
 	return true, nil
 }
