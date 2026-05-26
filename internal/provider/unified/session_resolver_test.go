@@ -20,8 +20,9 @@ func (s stubThreadLookup) GetByThreadID(context.Context, string) (*contract.Sess
 }
 
 type stubBindingLookup struct {
-	bindings map[string]*contract.SessionBinding
-	errs     map[string]error
+	bindings  map[string]*contract.SessionBinding
+	errs      map[string]error
+	agentErrs map[string]error
 }
 
 func (s stubBindingLookup) GetByProviderThread(_ context.Context, provider, providerThreadID string) (*contract.SessionBinding, error) {
@@ -36,6 +37,9 @@ func (s stubBindingLookup) GetByProviderThread(_ context.Context, provider, prov
 }
 
 func (s stubBindingLookup) GetByAgentID(_ context.Context, agentID string) (*contract.SessionBinding, error) {
+	if err, ok := s.agentErrs[agentID]; ok {
+		return nil, err
+	}
 	for _, b := range s.bindings {
 		if b != nil && b.AgentID == agentID {
 			return b, nil
@@ -97,5 +101,107 @@ func TestSessionResolverResolveSessionReturnsLookupErrors(t *testing.T) {
 	_, err := resolver.ResolveSession(context.Background(), "thread-404")
 	if err == nil || !strings.Contains(err.Error(), "db unavailable") {
 		t.Fatalf("ResolveSession() error = %v", err)
+	}
+}
+
+func TestSessionResolverReturnsBindingLookupErrorForKnownThread(t *testing.T) {
+	t.Parallel()
+
+	wantErr := errors.New("binding db unavailable")
+	resolver := &sessionResolver{
+		threadStore: stubThreadLookup{thread: &contract.SessionThreadRef{
+			ThreadID: "public-thread-1",
+			AgentID:  "agent-1",
+			Status:   "running",
+		}},
+		bindingStore: stubBindingLookup{
+			agentErrs: map[string]error{"agent-1": wantErr},
+		},
+		registry: NewRegistry(RegistryParams{Drivers: []contract.DriverFactory{
+			{Name: "codex", Create: func() contract.Driver { return nil }},
+		}}),
+		sessions: NewSessionManager(nil),
+	}
+
+	_, err := resolver.ResolveSession(context.Background(), "public-thread-1")
+	if err == nil || !strings.Contains(err.Error(), "binding db unavailable") {
+		t.Fatalf("ResolveSession() error = %v, want binding lookup error", err)
+	}
+}
+
+func TestSessionResolverDoesNotAutoResumeStoppedOrArchivedThread(t *testing.T) {
+	t.Parallel()
+
+	for _, status := range []string{"stopped", "archived"} {
+		t.Run(status, func(t *testing.T) {
+			t.Parallel()
+
+			rolloutPath := writeExistingProviderHistoryFile(t)
+			driver := &resumeCaptureDriver{name: "codex", session: &generationTestSession{threadID: "11111111-aaaa-bbbb-cccc-111111111113"}}
+			resolver := &sessionResolver{
+				threadStore: stubThreadLookup{thread: &contract.SessionThreadRef{
+					ThreadID: "public-thread-1",
+					AgentID:  "agent-1",
+					Status:   status,
+				}},
+				bindingStore: stubBindingLookup{bindings: map[string]*contract.SessionBinding{
+					"codex:provider-thread-1": {
+						Provider:         "codex",
+						AgentID:          "agent-1",
+						ProviderThreadID: "11111111-aaaa-bbbb-cccc-111111111113",
+						RolloutPath:      rolloutPath,
+						Cwd:              "/repo",
+					},
+				}},
+				registry: NewRegistry(RegistryParams{Drivers: []contract.DriverFactory{
+					{Name: "codex", Create: func() contract.Driver { return driver }},
+				}}),
+				sessions: NewSessionManager(nil),
+			}
+
+			_, err := resolver.ResolveSession(context.Background(), "public-thread-1")
+			if err == nil || !strings.Contains(err.Error(), status) {
+				t.Fatalf("ResolveSession() error = %v, want lifecycle %q error", err, status)
+			}
+			if driver.resumed != 0 {
+				t.Fatalf("ResumeSession calls = %d, want 0 for %s thread", driver.resumed, status)
+			}
+		})
+	}
+}
+
+func TestSessionResolverProviderThreadDoesNotAutoResumeStoppedThread(t *testing.T) {
+	t.Parallel()
+
+	rolloutPath := writeExistingProviderHistoryFile(t)
+	driver := &resumeCaptureDriver{name: "codex", session: &generationTestSession{threadID: "11111111-aaaa-bbbb-cccc-111111111114"}}
+	resolver := &sessionResolver{
+		threadStore: stubThreadLookup{thread: &contract.SessionThreadRef{
+			ThreadID: "public-thread-1",
+			AgentID:  "agent-1",
+			Status:   "stopped",
+		}},
+		bindingStore: stubBindingLookup{bindings: map[string]*contract.SessionBinding{
+			"codex:11111111-aaaa-bbbb-cccc-111111111114": {
+				Provider:         "codex",
+				AgentID:          "agent-1",
+				ProviderThreadID: "11111111-aaaa-bbbb-cccc-111111111114",
+				CodexThreadID:    "public-thread-1",
+				RolloutPath:      rolloutPath,
+				Cwd:              "/repo",
+			},
+		}},
+		registry: NewRegistry(RegistryParams{Drivers: []contract.DriverFactory{
+			{Name: "codex", Create: func() contract.Driver { return driver }},
+		}}),
+		sessions: NewSessionManager(nil),
+	}
+
+	_, err := resolver.ResolveSession(context.Background(), "11111111-aaaa-bbbb-cccc-111111111114")
+	if err == nil || !strings.Contains(err.Error(), "stopped") {
+		t.Fatalf("ResolveSession() error = %v, want stopped lifecycle error", err)
+	}
+	if driver.resumed != 0 {
+		t.Fatalf("ResumeSession calls = %d, want 0 for stopped provider-thread route", driver.resumed)
 	}
 }
