@@ -13,6 +13,7 @@ import (
 	bindingstore "github.com/anthropic-ai/super-agent-v3/internal/store/binding"
 	"github.com/anthropic-ai/super-agent-v3/internal/util"
 	"github.com/anthropic-ai/super-agent-v3/internal/util/clone"
+	"github.com/anthropic-ai/super-agent-v3/internal/util/idempotency"
 	"github.com/anthropic-ai/super-agent-v3/internal/util/identifier"
 )
 
@@ -107,18 +108,9 @@ func (s *service) completeStart(ctx context.Context, req StartRequest, agentID s
 		return StartResult{}, err
 	}
 	displayName := resolveDisplayName(ctx, s.threadStore, agentID, req.Prompt, assembly.DisplayName)
-	if err := s.launchAgent(
-		ctx,
-		agentID,
-		req.CWD,
-		displayName,
-		req.ParentAgentID,
-		req.AgentType,
-		req.AgentMemoryScope,
-		req.Provider,
-		req.Model,
-	); err != nil {
-		return StartResult{}, err
+	if err := s.launchAgent(ctx, agentID, req.CWD, displayName, req.ParentAgentID,
+		req.AgentType, req.AgentMemoryScope, req.Provider, req.Model); err != nil {
+		return StartResult{}, idempotency.Retain(err)
 	}
 	session, err := s.establishStartedSession(ctx, req, assemblyInput, assembly, agentID)
 	if err != nil {
@@ -134,16 +126,39 @@ func (s *service) completeStart(ctx context.Context, req StartRequest, agentID s
 
 func (s *service) Start(ctx context.Context, req StartRequest) (StartResult, error) {
 	ctx = util.NonNilContext(ctx)
+	if req.LaunchIntentID = strings.TrimSpace(req.LaunchIntentID); req.LaunchIntentID == "" {
+		return s.startOnce(ctx, req)
+	}
+	intentID, err := idempotency.NormalizeKey("thread/start: launch_intent_id", req.LaunchIntentID)
+	if err != nil {
+		return StartResult{}, err
+	}
+	req.LaunchIntentID = intentID
+	result, err := s.launchIntentRegistry.DoJSON(intentID, startRequestFingerprint(req), func() (StartResult, error) {
+		return s.startOnce(ctx, req)
+	})
+	if err == nil && result.ThreadID != "" {
+		s.launchIntentByThread.Store(result.ThreadID, intentID)
+	}
+	return result, err
+}
+
+func (s *service) CompleteLaunchIntent(_ context.Context, threadID string) {
+	threadID = strings.TrimSpace(threadID)
+	s.pendingLaunchMu.Delete(threadID)
+	idempotency.ForgetMappedUnlessError(&s.launchIntentByThread, &s.launchIntentRegistry, threadID)
+}
+func startRequestFingerprint(req StartRequest) StartRequest {
+	req.LaunchIntentID, req.AgentTitle, req.PromptAssemblyRef, req.PromptVersionID, req.PromptKeyStale = "", "", nil, nil, false
+	return req
+}
+
+func (s *service) startOnce(ctx context.Context, req StartRequest) (StartResult, error) {
 	req, agentID, releaseAgentID, err := s.prepareStartRequest(ctx, req)
 	if err != nil {
 		return StartResult{}, err
 	}
 	defer releaseAgentID()
-	// C1 — when the caller has nothing to classify yet (empty composer) we
-	// defer the provider-CLI fork to the first turn. startPendingThread writes
-	// a placeholder agent_threads row with pending_launch=true and returns so
-	// the UI can show the card immediately; the real spawn happens in
-	// SpawnIfNeeded once turn/start arrives with real user input.
 	if isPendingLaunchIntent(req) {
 		if err := s.preflightPendingLaunch(ctx, req, agentID); err != nil {
 			return StartResult{}, err
@@ -196,17 +211,14 @@ func (s *service) establishStartedSession(
 	agentID string,
 ) (contract.Session, error) {
 	if _, err := s.startSession(ctx, req, input, assembly, agentID); err != nil {
-		s.stopAgent(ctx, agentID)
-		return nil, err
+		return nil, idempotency.RetainOnError(err, s.stopAgent(ctx, agentID))
 	}
 	if err := s.bindSessionGeneration(ctx, agentID); err != nil {
-		s.stopAgent(ctx, agentID)
-		return nil, err
+		return nil, idempotency.RetainOnError(err, s.stopAgent(ctx, agentID))
 	}
 	session, err := s.lookupSession(agentID)
 	if err != nil {
-		s.stopAgent(ctx, agentID)
-		return nil, err
+		return nil, idempotency.RetainOnError(err, s.stopAgent(ctx, agentID))
 	}
 	return session, nil
 }
@@ -221,22 +233,19 @@ func (s *service) persistStartedSession(
 ) (StartResult, error) {
 	providerUUID, err := requireStartedProviderUUID(session, req.Provider, agentID)
 	if err != nil {
-		s.stopAgent(ctx, agentID)
-		return StartResult{}, err
+		return StartResult{}, idempotency.RetainOnError(err, s.stopAgent(ctx, agentID))
 	}
 	effectiveModel, effectiveCWD, _ := enrichFromSessionConfig(session, req.Model, req.CWD)
 	identity, err := resolveStartCodexIdentity(req.Config)
 	if err != nil {
-		s.stopAgent(ctx, agentID)
-		return StartResult{}, err
+		return StartResult{}, idempotency.RetainOnError(err, s.stopAgent(ctx, agentID))
 	}
 	codexHome := util.FirstNonEmpty(identity.Home, sessionRuntimeConfigString(session, "codexHome"))
 	codexInstanceKey := util.FirstNonEmpty(identity.InstanceKey, sessionRuntimeConfigString(session, "codexInstanceKey"))
 	codexModelProvider := util.FirstNonEmpty(identity.ModelProvider, sessionRuntimeConfigString(session, "codexModelProvider"))
 	configOverride, err := encodeStoredThreadConfig(buildStartStoredThreadConfig(req, input, assembly, session))
 	if err != nil {
-		s.stopAgent(ctx, agentID)
-		return StartResult{}, err
+		return StartResult{}, idempotency.RetainOnError(err, s.stopAgent(ctx, agentID))
 	}
 	s.logStartedSessionCodexIdentity(req, agentID, codexHome, identity, session)
 	rolloutPath := session.RolloutPath()
@@ -266,11 +275,21 @@ func (s *service) persistStartedSession(
 	publicThreadID := state.PublicThreadID
 	providerThreadID = state.ProviderThreadID
 	if err := s.persistThreadState(ctx, state, true); err != nil {
-		s.stopAgent(ctx, agentID)
-		return StartResult{}, err
+		return StartResult{}, idempotency.Retain(errors.Join(err, s.stopAgent(ctx, agentID)))
 	}
 	if err := s.savePromptSnapshot(ctx, publicThreadID, assembly); err != nil {
-		s.stopAgent(ctx, agentID)
+		err = idempotency.RetainOnError(err, s.stopAgent(ctx, agentID))
+		var cleanupErr error
+		if s.bindingStore != nil {
+			cleanupErr = errors.Join(cleanupErr, s.bindingStore.DeleteByAgentID(ctx, agentID))
+		}
+		if s.threadStore != nil {
+			cleanupErr = errors.Join(cleanupErr, s.threadStore.DeleteByThreadID(ctx, publicThreadID))
+		}
+		s.forgetThreadAgents(publicThreadID, providerThreadID)
+		if cleanupErr != nil {
+			err = idempotency.Retain(errors.Join(err, cleanupErr))
+		}
 		return StartResult{}, err
 	}
 	s.logIgnoredTaskHandoffError("refresh task handoff on start", publicThreadID, s.refreshTaskHandoffFromThread(ctx, publicThreadID, taskHandoffRenderSeed{
@@ -481,8 +500,8 @@ func (s *service) lookupThreadMeta(ctx context.Context, threadID string) threadM
 	}
 }
 
-func (s *service) stopAgent(ctx context.Context, agentID string) {
-	util.LogIgnoredError(s.logger, "stop managed agent failed", s.stopManagedAgent(ctx, strings.TrimSpace(agentID), true))
+func (s *service) stopAgent(ctx context.Context, agentID string) error {
+	return s.stopManagedAgent(ctx, strings.TrimSpace(agentID), true)
 }
 
 func (s *service) rememberBinding(binding *bindingstore.Binding) *bindingstore.Binding {

@@ -315,6 +315,7 @@ func (t *transport) dispatchReadMessage(ctx context.Context, data []byte, handle
 	if t.handleResponse(rpcMsg) {
 		return true
 	}
+	t.failPendingConnectionDead(rpcMsg)
 	msg := RawMessage{ID: rpcMsg.ID, Method: rpcMsg.Method, Params: rpcMsg.Params}
 	if strings.TrimSpace(msg.Method) != "" {
 		invokeReadHandler(ctx, t, msg, handler)
@@ -324,6 +325,14 @@ func (t *transport) dispatchReadMessage(ctx context.Context, data []byte, handle
 		invokeReadHandler(ctx, t, msg, handler)
 	}
 	return true
+}
+
+func (t *transport) failPendingConnectionDead(msg jsonRPCMessage) {
+	if strings.TrimSpace(msg.Method) != "connection.dead" {
+		return
+	}
+	reason := shared.FirstNonEmpty(stringValue(decodeEventPayload(msg.Params), "error", "message"), "connection lost")
+	t.failPending(fmt.Errorf("codexapp: connection dead: %s", reason))
 }
 
 func decodeCodexRolloutFrame(data []byte) (RawMessage, bool) {

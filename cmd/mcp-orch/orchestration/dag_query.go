@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"strings"
 	"time"
 
@@ -518,9 +519,7 @@ func existingFullForPlan(nodes []taskdag.Node, addSpecs []nodeexec.NodeSpec) []n
 // 节点的 dep。把 add 路径中 update 没见过的 key 补进 update 路径即可。
 func mergeAdjacency(adjAdd, adjUpd map[string][]string) map[string][]string {
 	merged := make(map[string][]string, len(adjAdd)+len(adjUpd))
-	for k, v := range adjUpd {
-		merged[k] = v
-	}
+	maps.Copy(merged, adjUpd)
 	for k, v := range adjAdd {
 		if _, ok := merged[k]; !ok {
 			merged[k] = v

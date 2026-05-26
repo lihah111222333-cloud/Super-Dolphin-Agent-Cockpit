@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os/exec"
 	"strings"
+	"time"
 )
 
 func (s *service) UpdateRuntime(ctx context.Context, report RuntimeReport) error {
@@ -167,8 +168,8 @@ func resetRuntimeStateLocked(agent *agentRuntime) {
 	}
 	agent.runtimePort = 0
 	agent.runtimeProvider = ""
-	agent.remoteThreadID = ""
-	agent.remoteAgentID = ""
+	agent.remoteThreadID, agent.pendingLaunchThreadID = "", ""
+	agent.pendingLaunchThreadAt, agent.remoteAgentID = time.Time{}, ""
 }
 
 // clearAgentLifecycleErrorLocked zeroes the per-lifecycle error + stop

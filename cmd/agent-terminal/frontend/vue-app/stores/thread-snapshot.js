@@ -308,7 +308,13 @@ function patchThreadListIdentitySafe(state, nextThreads, patch) {
   }
   const identitySafeThreads = nextThreads.map((t) => {
     const existing = existingThreadById.get(t.id);
-    return existing && existing.name === t.name && existing.state === t.state ? existing : t;
+    return existing
+      && existing.name === t.name
+      && existing.state === t.state
+      && existing.createdAt === t.createdAt
+      && existing.updatedAt === t.updatedAt
+      ? existing
+      : t;
   });
   const oldThreadsStr = state.threads.map((t) => t.id).join(',');
   const newThreadsStr = identitySafeThreads.map((t) => t.id).join(',');

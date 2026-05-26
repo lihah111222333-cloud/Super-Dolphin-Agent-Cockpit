@@ -39,16 +39,7 @@ const (
 	hookRelayKindTurnItemCompleted = "turn.item_completed"
 )
 
-// NotifyTap observes core-turn terminal events coming through the hook
-// consumer chain. Implementations forward into the orch MessageNotifier
-// (cmd/mcp-orch/notify) or any other side-channel. The tap is called
-// synchronously on the hook-dispatch goroutine, so every method must
-// be non-blocking — the expected implementation is a TryEnqueue onto
-// a bounded channel and immediately return.
-//
-// A nil NotifyTap on the hookConsumer is treated as no-op. Handlers
-// fire the tap after the existing report / state handling completes so
-// an errant tap cannot disrupt the consumer's primary path.
+// NotifyTap observes terminal hook events; implementations must be non-blocking.
 type NotifyTap interface {
 	OnTurnCompleted(ctx context.Context, ev turndto.TurnCompleted)
 	OnTurnInterrupted(ctx context.Context, ev turndto.TurnInterrupted)
@@ -60,14 +51,9 @@ type hookConsumer struct {
 	logger    *slog.Logger
 	notifyTap NotifyTap
 
-	// dagFallbackLookup / dagFallbackFlow 是 ADR-017 v1.2 §2.5 + §3.4 锁外
-	// DAG fallback 分支的依赖。未装配（测试 / runtime-only mode）为 nil
-	// 时 runThreadStoppedDAGFallback 直接 return，不影响现有 hook 语义。
 	dagFallbackLookup taskdag.NodeSpawningThreadLookup
 	dagFallbackFlow   taskdag.NodeFlowStore
 
-	// dagTurnCompletedDeps lets hook-delivered turn.completed events reuse
-	// the same DAG node completion path as the in-process bus subscriber.
 	dagTurnCompletedDeps DAGSubscriberDeps
 }
 
@@ -76,34 +62,11 @@ type hookContextEnvelope struct {
 	Event json.RawMessage `json:"event"`
 }
 
-// newHookConsumer keeps the pre-existing 2-arg signature for in-package
-// tests (notably the hook_consumer_test suite). Wire-level fx injection
-// uses HookAfterHandlerParams + ProvideHookAfterHandler so the optional
-// NotifyTap can be discovered without breaking these tests.
-//
-// P22 P4 S4c2: the previously exported HookConsumer interface,
-// NewHookConsumer constructor, and ProvideHookConsumer provider formed
-// a subpackage bootstrap-hook protocol shell. Root assembly now wires
-// the handler via contract.BootstrapHookAfterHandler, so this package
-// no longer exports the interface or constructor. The archtest in
-// internal/archtest/orchestration_no_hookconsumer_export_guard_test.go
-// locks this in place.
-//
-// ADR-017 v1.2 dag fallback ports default nil (test / runtime-only mode);
-// fx wiring goes through ProvideHookAfterHandler + HookAfterHandlerParams.
 func newHookConsumer(svc *service, logger *slog.Logger) *hookConsumer {
 	return newHookConsumerInternal(svc, logger, nil, nil, nil)
 }
 
 // HookAfterHandlerParams is the fx.In bundle for ProvideHookAfterHandler.
-// A nil NotifyTap is valid (treated as no-op), so downstream modules
-// that do not register a tap — or unit tests that wire the orchestration
-// providers without the orch notify module — boot cleanly.
-//
-// DAGFallbackLookup / DAGFallbackFlow are optional ADR-017 v1.2 §2.5
-// thread.stopped DAG fallback ports. When the DAG store module is not
-// wired (e.g. agent-runtime-only deployment, unit-test harness) the
-// fallback short-circuits at runThreadStoppedDAGFallback's nil check.
 type HookAfterHandlerParams struct {
 	fx.In
 
@@ -119,10 +82,6 @@ type HookAfterHandlerParams struct {
 	NodeRouter        *NodeExecutorRouter              `optional:"true"`
 }
 
-// ProvideHookAfterHandler is the fx-facing constructor. It returns the
-// bootstrap-side after-hook as a plain function (contract.BootstrapHookAfterHandler)
-// so the root assembly plumbs it straight into bootstrap.HookConfig.OnAfter
-// without typing on any orchestration subpackage interface.
 func ProvideHookAfterHandler(p HookAfterHandlerParams) contract.BootstrapHookAfterHandler {
 	return newHookConsumerInternal(
 		p.Service,
@@ -244,9 +203,10 @@ func (c *hookConsumer) handleThreadStarted(ctx context.Context, ev threaddto.Sta
 	provider := normalizeRuntimeProvider(ev.Provider)
 	err := c.svc.withAgentLocked(ev.AgentID, func(agent *agentRuntime) error {
 		threadID := strings.TrimSpace(ev.ThreadID)
-		if threadID != "" {
-			agent.threadID = threadID
-			agent.remoteThreadID = threadID
+		if threadID != "" && launchOwnsHookThreadBinding(agent.state) {
+			recordPendingLaunchThreadLocked(agent, threadID, ev.Timestamp)
+		} else if threadID != "" {
+			agent.threadID, agent.remoteThreadID = threadID, threadID
 		}
 		beforeProvider, beforeProviderSource := snapshotProvider(agent)
 		applyRuntimeReportLocked(agent, 0, provider)
@@ -260,12 +220,8 @@ func (c *hookConsumer) handleThreadStarted(ctx context.Context, ev threaddto.Sta
 	c.logUnexpectedHookError("thread started", ev.AgentID, ev.ThreadID, err)
 }
 
-// shouldDeferIdleHook implements the single-writer guard against
-// launch_succeeded double-fire. While agent.state is provisioning or
-// recovering, commitLaunchSuccessLocked is the authoritative writer of the
-// state->idle transition; an idle event arriving via the hook channel must
-// be dropped so the state machine fires launch_succeeded exactly once.
-// All other (state, nextState) pairs flow through the normal path.
+// shouldDeferIdleHook keeps launch/recovery commit as the single writer for
+// provisioning/recovering -> idle; other states use normal hook sync.
 func shouldDeferIdleHook(nextState string, agentState agentdto.AgentState) bool {
 	if nextState != string(agentdto.StateIdle) {
 		return false
@@ -276,11 +232,7 @@ func shouldDeferIdleHook(nextState string, agentState agentdto.AgentState) bool 
 func (c *hookConsumer) handleStateChanged(ctx context.Context, ev agentdto.StateChanged) {
 	nextState := strings.TrimSpace(ev.NewState)
 	if !isKnownMirroredState(nextState) {
-		c.logger.Warn("orchestration: ignoring unknown mirrored agent state",
-			"agent_id", ev.AgentID,
-			"thread_id", ev.ThreadID,
-			"state", nextState,
-		)
+		c.logger.Warn("orchestration: ignoring unknown mirrored agent state", "agent_id", ev.AgentID, "thread_id", ev.ThreadID, "state", nextState)
 		return
 	}
 	err := c.svc.withAgentLocked(ev.AgentID, func(agent *agentRuntime) error {
@@ -312,15 +264,12 @@ func (c *hookConsumer) handleStateChanged(ctx context.Context, ev agentdto.State
 		}
 		before := string(agent.state)
 		threadID := strings.TrimSpace(ev.ThreadID)
-		if threadID != "" {
-			agent.threadID = threadID
-			agent.remoteThreadID = threadID
+		if !bindStateChangedHookThreadLocked(agent, threadID, nextState) {
+			return nil
 		}
-		if nextState == string(agentdto.StateIdle) || nextState == string(agentdto.StateStopped) || nextState == string(agentdto.StateFailed) {
-			agent.activeTurnID = ""
-		}
+		clearTerminalActiveTurnLocked(agent, nextState)
 		if before != nextState {
-			if err := c.svc.hookSyncFireLocked(ctx, agent, nextState); err != nil {
+			if err := c.svc.syncStateChangedHookLocked(ctx, agent, nextState); err != nil {
 				c.logger.Warn("orchestration: hook state sync fire failed",
 					"agent_id", agent.id,
 					"from", before,
@@ -329,6 +278,7 @@ func (c *hookConsumer) handleStateChanged(ctx context.Context, ev agentdto.State
 				)
 			}
 		}
+		c.svc.setStateChangedFallbackReportLocked(ctx, agent, nextState)
 		agent.updatedAt = resolveEventTime(ctx, agent.updatedAt)
 		return nil
 	})
@@ -336,30 +286,30 @@ func (c *hookConsumer) handleStateChanged(ctx context.Context, ev agentdto.State
 }
 
 func (c *hookConsumer) handleThreadStopped(ctx context.Context, ev threaddto.Stopped) {
-	// 锁内：现有 agent runtime 推进（保留，只做 in-memory state + 事件投递）。
-	// ADR-017 v1.2 §2.5：DAG 分支重量级 PG 事务 + 级联 update，重点携出锁外避免
-	// 同 agent 高频 hook 路径序列化阻塞。
+	stoppedAccepted := true
 	err := c.svc.withAgentLocked(ev.AgentID, func(agent *agentRuntime) error {
 		before := string(agent.state)
-		threadID := strings.TrimSpace(ev.ThreadID)
-		if threadID != "" {
-			agent.threadID = threadID
-			agent.remoteThreadID = threadID
+		if threadID := strings.TrimSpace(ev.ThreadID); c.svc.stoppedHookThreadSuppressed(threadID, ev.Timestamp) ||
+			recoveringOldThreadHook(agent, threadID) || !bindStoppedHookThreadLocked(agent, threadID) {
+			stoppedAccepted = false
+			return nil
 		}
-		agent.activeTurnID = ""
-		agent.stopReason = strings.TrimSpace(ev.Reason)
+		agent.activeTurnID, agent.stopReason = "", strings.TrimSpace(ev.Reason)
 		if err := c.svc.hookSyncForceStoppedLocked(ctx, agent); err != nil {
-			c.logger.Warn("orchestration: hook sync force stopped failed",
-				"agent_id", agent.id,
-				"from", before,
-				"error", err,
-			)
+			c.logger.Warn("orchestration: hook sync force stopped failed", "agent_id", agent.id, "from", before, "error", err)
 		}
 		agent.updatedAt = resolveEventTime(ctx, agent.updatedAt)
+		c.svc.setStoppedFallbackReportLocked(ctx, agent)
 		c.svc.publishAgentStopped(agent, ev.Reason)
 		return nil
 	})
+	if errors.Is(err, errAgentNotFound) && c.svc.stoppedHookThreadSuppressed(ev.ThreadID, ev.Timestamp) {
+		return
+	}
 	c.logUnexpectedHookError("thread stopped", ev.AgentID, ev.ThreadID, err)
+	if err == nil && !stoppedAccepted {
+		return
+	}
 
 	// ADR-017 v1.2 §2.5 + §3.4 锁外修正：DAG fallback 分支。锁释放后同步调，
 	// 与 agent runtime 推进解耦；推进失败 log warn 不抛。
@@ -370,14 +320,7 @@ func (c *hookConsumer) handleThreadStopped(ctx context.Context, ev threaddto.Sto
 	}
 }
 
-// runThreadStoppedDAGFallback 是 ADR-017 v1.2 §2.5 + §3.4 的锁外 DAG 反应
-// 分支：当 subscriber 主路未推进节点终态时（spawned agent crash / launch 后
-// 未出 first_turn / hook 以外原因被外部杀止），thread.stopped 作为兜底把
-// 节点推到 failed。与主路双路并发很常见，靠 isTerminalNodeStatus + SQL
-// 白名单 + pgx.ErrNoRows 三层幂等保证不重复推进。
-//
-// dagFallbackLookup / dagFallbackFlow 默认 nil — 未装配 DAG store 的部署路径
-// （测试 / runtime-only mode）直接跳过该分支，不影响现有 hook 语义。
+// runThreadStoppedDAGFallback advances the DAG fallback outside the agent lock.
 func (c *hookConsumer) runThreadStoppedDAGFallback(ctx context.Context, threadID string) {
 	threadID = strings.TrimSpace(threadID)
 	if threadID == "" {

@@ -12,6 +12,7 @@ import { _optimisticThreadIds, OPTIMISTIC_LEAK_GUARD_MS } from './thread-optimis
 import { resolveBuiltinToolLaunchPolicy } from './builtin-tool-policy.js';
 import { compactFailureResult, dialogTimelineSignature, tokenUsageSignature, waitForCompactResponse } from './thread-compact-helpers.js';
 import { maybeHandleStalePromptKey } from './thread-stale-prompt.js';
+import { touchThreadUpdatedAt } from './thread-actions-timestamps.js';
 import { CODEX_IDENTITY_DEFAULTS, normalizeProviderConfigValue } from '../provider-config-options.js';
 import { dropSkillNamesCoveredByRefs } from '../utils/skill-ref-utils.js';
 
@@ -114,7 +115,7 @@ function upsertOptimisticUserTimelineItem(ctx, threadId, userText, attachments) 
       (item?.id || '').toString().includes('-optimistic-')
       || normalizedAttachments.length > 0
     ))
-    : -1;
+    : existing.findIndex((item) => item?.kind === 'user' && (item?.id || '').toString().includes('-optimistic-') && sameOptimisticAttachmentList(Array.isArray(item?.attachments) ? item.attachments : [], normalizedAttachments));
 
   if (matchingIndex >= 0) {
     const current = existing[matchingIndex];
@@ -482,11 +483,13 @@ export async function startThread(ctx, cwd = '.', options = {}) {
   // internal/module/thread/router_resolve.go resolveRoutedPrompt.
   const launchPrompt = typeof options?.prompt === 'string' ? options.prompt.trim() : '';
   if (launchPrompt) payload.prompt = launchPrompt;
+  const launchIntentId = typeof options?.launchIntentId === 'string' ? options.launchIntentId.trim() : '';
+  if (launchIntentId) payload.launchIntentId = launchIntentId;
   const startName = typeof options?.name === 'string' ? options.name.trim() : '';
   if (startName) payload.name = startName;
   const baseInstructions = typeof options?.baseInstructions === 'string' ? options.baseInstructions.trim() : '';
   if (baseInstructions) payload.baseInstructions = baseInstructions;
-  // C1: opt-in flag forwarded from launchOne when the composer is empty.
+  // C1: opt-in flag for callers that explicitly request a pending_launch row.
   // Backend creates an agent_threads row with pending_launch=true and
   // skips the Claude CLI fork; the spawn happens lazily on the first
   // turn/start via SpawnIfNeeded. See internal/module/thread/spawn.go.
@@ -558,13 +561,16 @@ export async function startThread(ctx, cwd = '.', options = {}) {
   const pendingLaunch = Boolean(res?.pending_launch ?? res?.pendingLaunch);
   setThreadPendingLaunch(id, pendingLaunch);
   if (!ctx.state.threads.some((t) => t.id === id)) ctx.state.threads = [...ctx.state.threads, { id, name: id, state: 'idle' }];
-  _optimisticThreadIds.set(id, Date.now() + OPTIMISTIC_LEAK_GUARD_MS);
-  await ctx.syncRuntimeState();
-  const focusMode = options?.focusMode === 'cmd' ? 'cmd' : 'chat';
-  // Phase 1.4b：自动续接调度器调用时传 skipSaveActive=true，新 thread 不抢用户当前焦点。
-  if (!options?.skipSaveActive) {
-    if (focusMode === 'cmd') saveActiveCmdThread(ctx, id); else saveActiveThread(ctx, id);
+  const optimisticUserMessage = options?.optimisticUserMessage;
+  if (optimisticUserMessage && typeof optimisticUserMessage === 'object') {
+    const optimisticText = (optimisticUserMessage.text || '').toString().trim();
+    const optimisticAttachments = Array.isArray(optimisticUserMessage.attachments) ? optimisticUserMessage.attachments : [];
+    if (optimisticText || optimisticAttachments.length > 0) upsertOptimisticUserTimelineItem(ctx, id, optimisticText, optimisticAttachments);
   }
+  _optimisticThreadIds.set(id, Date.now() + OPTIMISTIC_LEAK_GUARD_MS);
+  const focusMode = options?.focusMode === 'cmd' ? 'cmd' : 'chat';
+  const saveActive = () => { if (!options?.skipSaveActive) { if (focusMode === 'cmd') saveActiveCmdThread(ctx, id); else saveActiveThread(ctx, id); } };
+  if (options?.skipInitialRuntimeSync === true) { saveActive(); ctx.syncRuntimeState().catch((error) => logWarn('thread', 'start.initial_sync.background_failed', { thread_id: id, error })); } else { await ctx.syncRuntimeState(); saveActive(); }
 
   logInfo('thread', 'start.done', {
     thread_id: id,
@@ -720,7 +726,7 @@ export async function sendMessage(ctx, threadId, prompt, attachments = [], optio
     // matches user intent ("I can see what I just typed"), and any error is
     // surfaced via the standard catch path below.
     const userText = input.filter((i) => i?.type === 'text').map((i) => i.text).join('\n').trim();
-    if (userText || attachments.length > 0) upsertOptimisticUserTimelineItem(ctx, threadId, userText, attachments);
+    if (userText || attachments.length > 0) { touchThreadUpdatedAt(ctx, threadId, new Date().toISOString()); upsertOptimisticUserTimelineItem(ctx, threadId, userText, attachments); }
     let turnStartRes;
     try {
       turnStartRes = await callAPI('turn/start', requestPayload);

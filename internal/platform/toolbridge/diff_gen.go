@@ -60,16 +60,20 @@ func (h *Handler) emitToolDiff(ctx context.Context, req ToolCallRequest, snapsho
 func shouldTrackDiff(toolName string, arguments json.RawMessage) bool {
 	switch canonicalToolName(toolName) {
 	case "edit":
-		return lspEditActionIsDiff(arguments)
+		return lspEditPatchIsDiff(arguments)
 	}
 	return false
 }
 
-func lspEditActionIsDiff(arguments json.RawMessage) bool {
-	action := lspEditAction(arguments)
-	switch action {
-	case "rename", "replace_range":
-		return true
+func lspEditPatchIsDiff(arguments json.RawMessage) bool {
+	if len(strings.TrimSpace(string(arguments))) == 0 {
+		return false
 	}
-	return false
+	var payload struct {
+		Patch string `json:"patch"`
+	}
+	if err := json.Unmarshal(arguments, &payload); err != nil {
+		return false
+	}
+	return strings.TrimSpace(payload.Patch) != ""
 }

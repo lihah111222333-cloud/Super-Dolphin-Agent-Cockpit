@@ -80,22 +80,11 @@ func (s *service) agentForLaunchLocked(req LaunchRequest) *agentRuntime {
 		agent = s.newAgentLocked(req.AgentID)
 		s.agents[req.AgentID] = agent
 	}
-	agent.requestedAgentID = req.AgentID
-	agent.name = managedAgentLaunchDisplayName(req.Name)
-	agent.parentID = req.ParentID
-	agent.cwd = req.Cwd
-	agent.command = append([]string(nil), req.Command...)
-	agent.env = append([]string(nil), req.Env...)
-	agent.port = launchPort(req)
-	agent.portSource = ""
-	if agent.port > 0 {
-		agent.portSource = "inferred"
-	}
-	agent.provider = launchProvider(req)
-	agent.providerSource = "inferred"
+	applyLaunchRequestLocked(agent, req)
 	resetRuntimeStateLocked(agent)
 	clearAgentLifecycleErrorLocked(agent)
 	clearAgentStopReasonLocked(agent)
+	clearAgentAutoRecoveryLocked(agent)
 	return agent
 }
 
@@ -106,6 +95,7 @@ func (s *service) prepareLaunchStateLocked(ctx context.Context, agent *agentRunt
 	resetRuntimeStateLocked(agent)
 	clearAgentLifecycleErrorLocked(agent)
 	clearAgentTurnStateLocked(agent)
+	clearAgentAutoRecoveryLocked(agent)
 	agent.updatedAt = resolveEventTime(ctx, agent.updatedAt)
 	return nil
 }

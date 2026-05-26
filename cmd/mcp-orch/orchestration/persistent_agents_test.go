@@ -144,7 +144,7 @@ func TestGetReportReadsPersistedReportAfterDisplayNameChanged(t *testing.T) {
 	}
 }
 
-func TestListAgentsIncludesPersistedReportBody(t *testing.T) {
+func TestListAgentsOmitsPersistedReportBody(t *testing.T) {
 	svc := NewService(silentLogger(), nil, nil, nil, nil, nil)
 	cwd := t.TempDir()
 	mustWritePersistedAgentReportFile(t, cwd, "agent-1", "display one", "结论：persisted\nbody")
@@ -159,8 +159,8 @@ func TestListAgentsIncludesPersistedReportBody(t *testing.T) {
 	if len(got) != 1 {
 		t.Fatalf("ListAgents() len = %d, want 1: %#v", len(got), got)
 	}
-	if got[0].LastReport != "结论：persisted\nbody" {
-		t.Fatalf("LastReport = %q, want persisted report body", got[0].LastReport)
+	if got[0].LastReport != "" {
+		t.Fatalf("LastReport = %q, want omitted", got[0].LastReport)
 	}
 }
 
@@ -209,6 +209,25 @@ func TestListAgentsSortsNewestCreatedFirst(t *testing.T) {
 	}
 	if got[0].AgentID != "agent-child" || got[1].AgentID != "agent-parent" {
 		t.Fatalf("agent order = [%s %s], want child before parent by created_at desc", got[0].AgentID, got[1].AgentID)
+	}
+}
+
+func TestListAgentsHonorsContextWhileRuntimeLockHeld(t *testing.T) {
+	t.Parallel()
+	svc := NewService(silentLogger(), nil, nil, nil, nil, nil)
+	svc.mu.Lock()
+	defer svc.mu.Unlock()
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+	defer cancel()
+	done := make(chan error, 1)
+	go func() { _, err := svc.ListAgents(ctx); done <- err }()
+	select {
+	case err := <-done:
+		if !errors.Is(err, context.DeadlineExceeded) {
+			t.Fatalf("ListAgents() error = %v, want context deadline exceeded", err)
+		}
+	case <-time.After(200 * time.Millisecond):
+		t.Fatal("ListAgents() did not return after context deadline while runtime lock was held")
 	}
 }
 
