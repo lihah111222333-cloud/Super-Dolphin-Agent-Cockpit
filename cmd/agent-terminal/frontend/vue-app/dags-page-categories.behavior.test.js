@@ -70,6 +70,7 @@ describe('DagsPage category filters', () => {
     vm.setCategory('history');
     expect(vm.visibleRows.value.map((row) => row.key)).toEqual(['manual-done', 'manual-draft']);
     expect(vm.selectedRow.value.key).toBe('manual-done');
+    expect(vm.visibleRows.value.find((row) => row.key === 'manual-draft')?.latestRunLabel).toBe('未启动');
 
     expect(DagsPage.template).toContain('data-testid="dag-category-tabs"');
     expect(DagsPage.template).toContain('role="tablist"');

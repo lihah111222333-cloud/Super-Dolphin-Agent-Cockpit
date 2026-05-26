@@ -166,12 +166,12 @@ describe('extractTimelineSummary', () => {
   });
 
   it('assistant 长结论不被旧 280 狠截（agent 承接需要完整结论）', () => {
-    const longConclusion = '上次结论：经过排查，问题在 useThreadProgressProtocol 的 NotFound 静默路径，' + 'X'.repeat(400);
+    const longConclusion = '上次结论：经过排查，问题在 shared file 读取的 NotFound 显式错误路径，' + 'X'.repeat(400);
     const result = extractTimelineSummary([
       { id: 'a1', kind: 'assistant', text: longConclusion },
     ]);
     expect(result).toContain('上次结论');
-    expect(result).toContain('useThreadProgressProtocol');
+    expect(result).toContain('shared file');
     expect(result).toContain('NotFound');
   });
 

@@ -325,7 +325,9 @@ func TestServiceStartDoesNotPersistProviderThreadIDWithoutHistoryFile(t *testing
 }
 
 func TestServiceStartPersistsCodexIdentityFromSessionRuntimeConfig(t *testing.T) {
-	t.Parallel()
+	// This scenario verifies identity reported by the launched session itself;
+	// keep legacy default-home injection out of the process-wide test env.
+	t.Setenv(legacyDefaultCodexHomeEnvVar, "")
 
 	const providerUUID = "019d5f6b-fb3c-7760-9d6f-54005553f5c1"
 	threads := &stubThreadStore{}

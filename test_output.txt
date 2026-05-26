@@ -109,7 +109,6 @@
 {"time":"2026-05-15 00:23:47","level":"INFO","msg":"router: skip, base_instructions already set by caller","agent_key":"","base_instructions_len":10}
 {"time":"2026-05-15 00:23:47","level":"WARN","msg":"thread/start: provider session identity trace","agent_id":"agent-assembly","provider":"codex","req_model_provider":"","req_model":"","req_effort":"","config_provider":"codex","config_model_provider":"","config_codex_model_provider":"","config_model":"","config_effort":""}
 {"time":"2026-05-15 00:23:47","level":"WARN","msg":"thread: persist started session codex identity","agent_id":"agent-assembly","provider":"codex","codex_home":"","has_strict_identity":false,"session_runtime_codex_home":"","rollout_path":""}
-{"time":"2026-05-15 00:23:47","level":"WARN","msg":"thread/promote-task: handoff shell init failed","thread_id":"thread-shellfail","task_id":"task_1778775827324_d4e2b06a63b8983e","handoff_file":"handoff/tasks/task_1778775827324_d4e2b06a63b8983e.md","error":"disk full"}
 {"time":"2026-05-15 00:23:47","level":"WARN","msg":"thread/start: provider resolved","provider_input":"codex","model_provider_input":"","resolved_provider":"codex","cwd":""}
 {"time":"2026-05-15 00:23:47","level":"INFO","msg":"router: skip, prompt store not wired"}
 {"time":"2026-05-15 00:23:47","level":"WARN","msg":"thread/start: provider session identity trace","agent_id":"agent-name","provider":"codex","req_model_provider":"","req_model":"","req_effort":"","config_provider":"codex","config_model_provider":"","config_codex_model_provider":"","config_model":"","config_effort":""}

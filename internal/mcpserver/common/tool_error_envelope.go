@@ -211,13 +211,6 @@ var toolErrorClassifiers = []toolErrorClassifier{
 		},
 	},
 	{
-		code: "task_handoff_invalid",
-		hint: staticToolHint("Use task handoff only with a parent thread that has task metadata, or launch a plain child without task handoff metadata."),
-		match: func(_ error, message string, toolName string) bool {
-			return isLaunchAgentTool(toolName) && isTaskHandoffInvalidMessage(message)
-		},
-	},
-	{
 		code: "launch_request_invalid",
 		hint: staticToolHint("Fix the launch_agent arguments and retry; required fields must be non-empty and enum values must be supported."),
 		match: func(_ error, message string, toolName string) bool {
@@ -229,6 +222,13 @@ var toolErrorClassifiers = []toolErrorClassifier{
 		hint: staticToolHint("Fix the node status transition; use ready → running → done for successful manual completion."),
 		match: func(_ error, message string, toolName string) bool {
 			return isTaskUpdateNodeTool(toolName) && strings.HasPrefix(strings.TrimSpace(message), "transition:")
+		},
+	},
+	{
+		code: "invalid_input",
+		hint: staticToolHint("Fix the tool arguments using the tool schema and current resource state, then retry."),
+		match: func(_ error, message string, toolName string) bool {
+			return isTaskTool(toolName) && strings.Contains(message, "invalid request")
 		},
 	},
 	{
@@ -244,7 +244,8 @@ var toolErrorClassifiers = []toolErrorClassifier{
 		match: func(err error, message string, _ string) bool {
 			return errors.Is(err, os.ErrNotExist) ||
 				strings.Contains(message, "not found") ||
-				strings.Contains(message, "no such file")
+				strings.Contains(message, "no such file") ||
+				strings.Contains(message, "no rows in result set")
 		},
 	},
 	{
@@ -302,16 +303,6 @@ var toolErrorClassifiers = []toolErrorClassifier{
 	},
 }
 
-func isTaskHandoffInvalidMessage(message string) bool {
-	if strings.Contains(message, "root task id missing") ||
-		strings.Contains(message, "task handoff title is required") ||
-		strings.Contains(message, "task handoff file is required") {
-		return true
-	}
-	return strings.Contains(message, "task handoff config") &&
-		(strings.Contains(message, "must be a string") || strings.Contains(message, "must be a bool"))
-}
-
 func isLaunchRequestInvalidMessage(message string) bool {
 	return strings.Contains(message, " is required") ||
 		strings.Contains(message, "invalid memory_scope") ||
@@ -334,6 +325,10 @@ func isLaunchAgentTool(toolName string) bool {
 
 func isTaskUpdateNodeTool(toolName string) bool {
 	return strings.ToLower(strings.TrimSpace(toolName)) == "task_update_node"
+}
+
+func isTaskTool(toolName string) bool {
+	return strings.HasPrefix(strings.ToLower(strings.TrimSpace(toolName)), "task_")
 }
 
 func firstNonEmptyString(values ...string) string {

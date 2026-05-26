@@ -131,7 +131,7 @@ func HandleSharedFileList(store sharedfilestore.Store) ToolHandler {
 		return SharedFileListResult{
 			Files:             entries,
 			AllowedPrefixes:   sharedfilepath.WritePrefixes(),
-			AllowedPrefixHint: "writes must start with one of allowed_prefixes; agent writes additionally cannot touch handoff/tasks/ (system reserved)",
+			AllowedPrefixHint: "writes must start with one of allowed_prefixes",
 		}, nil
 	})
 }

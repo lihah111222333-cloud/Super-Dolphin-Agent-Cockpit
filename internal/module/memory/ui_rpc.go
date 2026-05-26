@@ -400,16 +400,6 @@ type uiSharedFileDeleteParams struct {
 	Path string `json:"path"`
 }
 
-type uiSharedFilePromoteParams struct {
-	CWD         string `json:"cwd,omitempty"`
-	SharedPath  string `json:"sharedPath"`
-	Target      string `json:"target,omitempty"`
-	Name        string `json:"name"`
-	Description string `json:"description"`
-	Type        string `json:"type"`
-	Content     string `json:"content,omitempty"`
-}
-
 type UISharedFileDetail struct {
 	Path      string    `json:"path"`
 	Content   string    `json:"content,omitempty"`
@@ -532,28 +522,6 @@ func dagFinalOutputReferencesPath(ctx context.Context, dagRuntime contract.DAGRu
 		}
 	}
 	return false, nil
-}
-
-func promoteSharedFileToMemory(ctx context.Context, deps memoryHandlerDeps, req uiSharedFilePromoteParams) (UIMemoryEntryDetail, error) {
-	if deps.SharedFiles == nil {
-		return UIMemoryEntryDetail{}, errors.New("shared file store is not configured")
-	}
-	file, err := getUISharedFile(ctx, deps, uiSharedFileGetParams{Path: req.SharedPath})
-	if err != nil {
-		return UIMemoryEntryDetail{}, err
-	}
-	content := strings.TrimSpace(req.Content)
-	if content == "" {
-		content = strings.TrimSpace(file.Content)
-	}
-	return upsertUIMemoryEntry(ctx, deps, uiMemoryEntryUpsertParams{
-		CWD:         req.CWD,
-		Target:      req.Target,
-		Name:        req.Name,
-		Description: req.Description,
-		Type:        req.Type,
-		Content:     content,
-	})
 }
 
 // ---------------------------------------------------------------------------

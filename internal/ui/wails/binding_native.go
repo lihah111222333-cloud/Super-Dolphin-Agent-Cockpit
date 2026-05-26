@@ -146,12 +146,66 @@ func (a *App) selectFiles(defaultPath string) ([]string, error) {
 	return paths, err
 }
 
+func (a *App) saveTextFile(defaultPath, defaultFilename, content string) (string, error) {
+	filename := normalizeSaveFilename(defaultFilename)
+	if filename == "" {
+		return "", errors.New("save text file: default filename is required")
+	}
+	dir, err := a.promptExportDirectory(defaultPath)
+	if err != nil {
+		return "", err
+	}
+	if dir == "" {
+		return "", nil
+	}
+	path := filepath.Join(dir, filename)
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		return "", fmt.Errorf("save text file: write %q: %w", path, err)
+	}
+	return path, nil
+}
+
+func (a *App) promptExportDirectory(defaultPath string) (string, error) {
+	if a != nil && a.saveDirectoryInvoker != nil {
+		return a.saveDirectoryInvoker(defaultPath)
+	}
+	dialog, err := a.newExportDirectoryDialog(defaultPath)
+	if err != nil {
+		return "", err
+	}
+	path, err := dialog.PromptForSingleSelection()
+	if isDialogCancelError(err) || path == "" {
+		return "", nil
+	}
+	return path, err
+}
+
 func (a *App) newDialog() (*application.OpenFileDialogStruct, error) {
 	app, err := a.requireWailsApp()
 	if err != nil {
 		return nil, err
 	}
 	dialog := app.Dialog.OpenFile()
+	if current := app.Window.Current(); current != nil {
+		dialog = dialog.AttachToWindow(current)
+	}
+	return dialog, nil
+}
+
+func (a *App) newExportDirectoryDialog(defaultPath string) (*application.OpenFileDialogStruct, error) {
+	app, err := a.requireWailsApp()
+	if err != nil {
+		return nil, err
+	}
+	dialog := app.Dialog.OpenFile().
+		SetTitle("导出文件").
+		SetMessage("选择保存文件夹").
+		SetButtonText("导出").
+		SetDirectory(resolveDialogDirectory(defaultPath)).
+		CanChooseDirectories(true).
+		CanChooseFiles(false).
+		CanCreateDirectories(true).
+		ShowHiddenFiles(true)
 	if current := app.Window.Current(); current != nil {
 		dialog = dialog.AttachToWindow(current)
 	}
@@ -187,6 +241,18 @@ func resolveDialogDirectory(defaultPath string) string {
 		return defaultDialogDirectory()
 	}
 	return absPath
+}
+
+func normalizeSaveFilename(name string) string {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return ""
+	}
+	base := filepath.Base(name)
+	if base == "." || base == string(filepath.Separator) {
+		return ""
+	}
+	return base
 }
 
 func isDialogCancelError(err error) bool {

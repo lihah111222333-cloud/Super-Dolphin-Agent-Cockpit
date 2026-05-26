@@ -92,7 +92,7 @@ func assertActiveSelections(t *testing.T, label, gotActive, gotCmd, wantActive, 
 	}
 }
 
-func TestApplyTaskRuntimeToThreadRuntimeConfig_Pin(t *testing.T) {
+func TestApplyTaskRuntimeToThreadRuntimeConfigDoesNotExposeLegacyTaskMetadata(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -110,22 +110,14 @@ func TestApplyTaskRuntimeToThreadRuntimeConfig_Pin(t *testing.T) {
 			want:       map[string]map[string]any{"thread-5": {"taskId": "keep"}},
 		},
 		{
-			name:       "creates runtime entry from canonical keys",
+			name:       "does not create runtime entry from legacy task keys",
 			threadID:   "thread-6",
 			cfg:        map[string]any{"taskId": "task-1", "taskTitle": "Title", "handoffFile": "handoff.md", "ownerThreadId": "thread-parent", "rootTaskId": "task-root"},
 			runtimeMap: map[string]map[string]any{},
-			want: map[string]map[string]any{
-				"thread-6": {
-					"taskId":        "task-1",
-					"taskTitle":     "Title",
-					"handoffFile":   "handoff.md",
-					"ownerThreadId": "thread-parent",
-					"rootTaskId":    "task-root",
-				},
-			},
+			want:       map[string]map[string]any{},
 		},
 		{
-			name:     "updates existing runtime entry from alias keys and skips blank values",
+			name:     "keeps existing runtime entry unchanged when legacy task aliases are present",
 			threadID: "thread-7",
 			cfg: map[string]any{
 				"task_id":         " task-2 ",
@@ -144,12 +136,10 @@ func TestApplyTaskRuntimeToThreadRuntimeConfig_Pin(t *testing.T) {
 			},
 			want: map[string]map[string]any{
 				"thread-7": {
-					"taskId":        "task-2",
-					"taskTitle":     "keep-title",
-					"handoffFile":   "keep-file",
-					"ownerThreadId": "owner-thread",
-					"rootTaskId":    "task-root-snake",
-					"stable":        true,
+					"taskId":      "keep-task",
+					"taskTitle":   "keep-title",
+					"handoffFile": "keep-file",
+					"stable":      true,
 				},
 			},
 		},

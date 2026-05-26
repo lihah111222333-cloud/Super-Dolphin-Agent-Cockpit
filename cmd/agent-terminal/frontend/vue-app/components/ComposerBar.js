@@ -34,21 +34,11 @@ export const ComposerBar = {
     threadConfigNotice: { type: String, default: '' },
     threadConfigNoticeLevel: { type: String, default: 'info' },
     threadConfigMeta: { type: Object, default: () => ({ override: {}, effective: {} }) },
-    // Phase 2.2a：thread 是否已升级为自动化任务（runtime.taskId 非空）。
-    // 决定下拉里渲染的是「升级」按钮还是「已是任务」状态行。
-    threadIsTask: { type: Boolean, default: false },
-    // Phase 2.2a：promote-task RPC in-flight，按钮 disable + 改文案。
-    promotingTask: { type: Boolean, default: false },
-    // Phase 2.2a：已是任务时显示当前 taskId 让用户确认是哪条任务。
-    threadTaskId: { type: String, default: '' },
-    // Phase 2.2a：promote-task RPC 上一次错误（usePromoteTask.lastError）。
-    // 非空时按钮下方显示一行红字反馈，让用户知道为什么没升级成功。
-    promoteTaskError: { type: String, default: '' },
   },
   emits: [
     'send', 'interrupt', 'compact',
     'update-thread-config-model', 'update-thread-config-effort', 'save-thread-config', 'restore-thread-config-inherit',
-    'open-fork-draft', 'promote-task',
+    'open-fork-draft',
   ],
   setup(props, { emit }) {
     const {
@@ -83,13 +73,6 @@ export const ComposerBar = {
     function hasReadyInput() {
       if (props.disabled || props.sendDisabled) return false;
       return props.composer.canSend.value;
-    }
-
-    // Phase 2.2a · 配置面板基础入口。已是 task 或 RPC in-flight 时不发；
-    // 单向升级（plan §2.2a「UI 必须只展示单向升级语义」），不提供取消 toggle。
-    function onPromoteTask() {
-      if (props.promotingTask || props.threadIsTask) return;
-      emit('promote-task');
     }
 
     const interrupt = useComposerInterrupt(props, emit, { hasReadyInput, onSend });
@@ -221,7 +204,6 @@ export const ComposerBar = {
       onRemoveAttachment,
       threadConfigInlineNotice,
       threadConfigInlineNoticeColor,
-      onPromoteTask,
 
       ...interrupt,
       ...dragDrop,
@@ -381,28 +363,6 @@ export const ComposerBar = {
                   </select>
                 </label>
               </div>
-              <div
-                v-if="threadIsTask || promoteTaskError"
-                class="project-dropdown-divider"
-                style="margin: 4px 0px;"
-              ></div>
-              <div
-                v-if="threadIsTask || promoteTaskError"
-                class="composer-thread-promote-section"
-                style="padding: 8px 14px; display: flex; flex-direction: column; gap: 6px;"
-              >
-                <span style="font-size: 11px; color: var(--text-muted); font-weight: 500;">自动化任务</span>
-                <div v-if="threadIsTask" data-testid="thread-config-promote-already" style="font-size: 11px; color: var(--text-muted); line-height: 1.45;">
-                  已是自动化任务<span v-if="threadTaskId" style="opacity:0.7; margin-left:4px;">（{{ threadTaskId }}）</span>
-                  <div style="opacity: 0.65; margin-top: 2px;">token 满 / 状态出错时会自动续接，不再需要手动点继续。</div>
-                </div>
-                <span
-                  v-else-if="promoteTaskError"
-                  data-testid="thread-config-promote-error"
-                  :title="promoteTaskError"
-                  style="font-size: 10px; color: var(--error, #f87171); line-height: 1.35;"
-                >升级失败：{{ promoteTaskError }}</span>
-              </div>
               <div v-if="!threadConfigInherited" style="padding: 6px 14px 10px; display: flex; justify-content: center;">
                 <button
                   class="btn btn-ghost btn-xs"
@@ -415,20 +375,6 @@ export const ComposerBar = {
                 </button>
               </div>
             </div>
-            <button
-              v-if="!isCmd && threadId && !threadIsTask"
-              class="composer-token-chip composer-promote-chip"
-              type="button"
-              data-testid="composer-promote-chip"
-              :disabled="promotingTask"
-              :title="promotingTask ? '升级中…' : '把当前对话升级为自动化任务（token 满 / 出错自动续接，单向）'"
-              @click="onPromoteTask"
-            >
-              <svg viewBox="0 0 24 24" aria-hidden="true" class="composer-promote-chip-icon">
-                <path d="M12 4v16m-7-9l7-7 7 7" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-              </svg>
-              <span>{{ promotingTask ? '升级中…' : '转为自动任务' }}</span>
-            </button>
             <div
               v-if="threadConfigInlineNotice"
               class="composer-thread-config-notice"

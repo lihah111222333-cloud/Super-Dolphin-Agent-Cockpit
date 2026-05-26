@@ -1,9 +1,9 @@
 import { computed, onBeforeUnmount, reactive, ref, watch } from '../../lib/vue.esm-browser.prod.js';
-import { callAPI } from '../services/api.js';
+import { callAPI, saveTextFile } from '../services/api.js';
 
-const GUIDE_PREF_KEY = 'shared-files.guide-collapsed';
 const SORT_PREF_KEY = 'shared-files.sort-mode';
 const SORT_MODES = /** @type {const} */ (['updated-desc', 'updated-asc', 'path-asc']);
+const FILE_CATEGORIES = /** @type {const} */ (['all', 'final', 'work']);
 
 function ensureArray(value) {
   return Array.isArray(value) ? value : [];
@@ -16,7 +16,7 @@ function formatTimestamp(value) {
   return date.toLocaleString('zh-CN', { hour12: false });
 }
 
-function previewText(raw, fallback = '点击"查看内容"加载全文。') {
+function previewText(raw, fallback = '点击"打开"加载全文。') {
   const text = (raw || '').toString().trim();
   if (!text) return fallback;
   const lines = text.split('\n');
@@ -24,26 +24,18 @@ function previewText(raw, fallback = '点击"查看内容"加载全文。') {
   return joined.length > 260 ? `${joined.slice(0, 260)}…` : joined;
 }
 
+function summaryText(raw, fallback = '暂无摘要') {
+  const text = (raw || '').toString().trim();
+  if (!text) return fallback;
+  const joined = text.split('\n').map((line) => line.trim()).filter(Boolean).slice(0, 2).join(' ');
+  return joined.length > 180 ? `${joined.slice(0, 180)}…` : joined;
+}
+
 function toErrorMessage(error) {
   return (
     (error && typeof error === 'object' && typeof error.message === 'string' ? error.message : '')
     || String(error || '')
   ).toString().trim();
-}
-
-function titleFromPath(path) {
-  const normalized = (path || '').toString().trim().split('/').pop() || 'shared-file';
-  const base = normalized.replace(/\.[^.]+$/, '').replace(/[-_]+/g, ' ').trim();
-  if (!base) return 'Shared file memory';
-  return base.replace(/\b\w/g, (ch) => ch.toUpperCase());
-}
-
-function descriptionFromContent(content, path) {
-  const firstLine = (content || '').toString().split(/\r?\n/).map((line) => line.trim()).find(Boolean);
-  if (firstLine) {
-    return firstLine.length > 100 ? `${firstLine.slice(0, 100)}…` : firstLine;
-  }
-  return `From shared file ${path || '-'}`;
 }
 
 function splitPath(path) {
@@ -54,6 +46,11 @@ function splitPath(path) {
   return { dir: normalized.slice(0, idx + 1), base: normalized.slice(idx + 1) || normalized };
 }
 
+function exportNameFromPath(path) {
+  const base = splitPath(path).base;
+  return base && base !== '未命名' ? base : 'shared-file.txt';
+}
+
 function formatBytes(len) {
   if (!Number.isFinite(len) || len <= 0) return '0 B';
   if (len < 1024) return `${len} B`;
@@ -61,8 +58,12 @@ function formatBytes(len) {
   return `${(len / 1024 / 1024).toFixed(1)} MB`;
 }
 
-function isTaskHandoffPath(path) {
-  return (path || '').toString().trim().startsWith('handoff/tasks/');
+function fileUpdatedAt(file) {
+  return file?.updated_at || file?.updatedAt || '';
+}
+
+function fileContent(file) {
+  return (file?.content || '').toString();
 }
 
 function normalizeFinalOutputRefs(value) {
@@ -98,17 +99,12 @@ function normalizeRetentionItems(value) {
 }
 
 function useFinalOutputMarkers(props) {
-  const showFinalOnly = ref(false);
   const currentFilePaths = computed(() => new Set(ensureArray(props.files).map((file) => (file?.path || '').toString().trim()).filter(Boolean)));
   const finalOutputRefByPath = computed(() => {
     const refs = normalizeFinalOutputRefs(props.finalOutputRefs);
     return new Map(refs.filter((ref) => currentFilePaths.value.has(ref.path)).map((ref) => [ref.path, ref]));
   });
   const finalOutputCount = computed(() => finalOutputRefByPath.value.size);
-
-  watch(finalOutputCount, (next) => {
-    if (next === 0) showFinalOnly.value = false;
-  });
 
   function finalOutputRefFor(file) {
     const path = (file?.path || '').toString().trim();
@@ -120,15 +116,7 @@ function useFinalOutputMarkers(props) {
     return Boolean(finalOutputRefFor(file));
   }
 
-  function toggleFinalOnly() {
-    if (finalOutputCount.value === 0) {
-      showFinalOnly.value = false;
-      return;
-    }
-    showFinalOnly.value = !showFinalOnly.value;
-  }
-
-  return { showFinalOnly, finalOutputCount, finalOutputRefFor, isFinalOutputFile, toggleFinalOnly };
+  return { finalOutputCount, finalOutputRefFor, isFinalOutputFile };
 }
 
 function useSharedFileRetention(props, finalOutput) {
@@ -154,21 +142,61 @@ function useSharedFileRetention(props, finalOutput) {
   function deletionProtectionLabel(file) {
     const protection = deletionProtectionFor(file);
     if (!protection) return '';
-    if (protection.reason === 'final_output') return '最终产物由 DAG run 引用，不能直接删除。';
-    return '该共享文件受保留策略保护。';
+    if (protection.reason === 'final_output') return '最终产物由任务结果引用，不能直接删除。';
+    return '该文件受保留策略保护。';
   }
 
   return { deletionProtectionFor, isDeletionProtected, deletionProtectionLabel };
 }
 
-function emptyPromoteForm() {
+function useSharedFileCategories(items, filteredItems, finalOutput, searchText) {
+  const fileCategory = ref('all');
+  const finalOutputItems = computed(() => filteredItems.value.filter((item) => finalOutput.isFinalOutputFile(item)));
+  const workItems = computed(() => filteredItems.value.filter((item) => !finalOutput.isFinalOutputFile(item)));
+  const workFileCount = computed(() => Math.max(0, items.value.length - finalOutput.finalOutputCount.value));
+  const categoryTabs = computed(() => [
+    { key: 'all', label: '全部', count: items.value.length },
+    { key: 'final', label: '最终产物', count: finalOutput.finalOutputCount.value },
+    { key: 'work', label: '工作文件', count: workFileCount.value },
+  ]);
+  const visibleItems = computed(() => {
+    if (fileCategory.value === 'final') return finalOutputItems.value;
+    if (fileCategory.value === 'work') return workItems.value;
+    return filteredItems.value;
+  });
+  const categoryEmptyTitle = computed(() => {
+    if (searchText.value.trim()) return '没有匹配的文件';
+    if (fileCategory.value === 'final') return '无内容';
+    if (fileCategory.value === 'work') return '当前没有工作文件';
+    return '没有文件';
+  });
+  const categoryEmptyText = computed(() => {
+    if (searchText.value.trim()) return '当前过滤没有命中任何条目，试着清空搜索或换个关键词。';
+    if (fileCategory.value === 'final') return 'Agent 生成可交付结果后，会显示在这里。';
+    if (fileCategory.value === 'work') return 'Agent 生成草稿、摘录或中间材料后，会显示在这里。';
+    return 'Agent 生成报告、草稿或数据文件后，会显示在这里。';
+  });
+
+  function setFileCategory(value) {
+    const next = (value || '').toString();
+    if (FILE_CATEGORIES.includes(next)) fileCategory.value = next;
+  }
+
+  function fileRoleLabel(file) {
+    return finalOutput.isFinalOutputFile(file) ? '最终产物' : '工作文件';
+  }
+
   return {
-    sharedPath: '',
-    target: 'private',
-    type: 'reference',
-    name: '',
-    description: '',
-    content: '',
+    fileCategory,
+    finalOutputItems,
+    workItems,
+    workFileCount,
+    categoryTabs,
+    visibleItems,
+    categoryEmptyTitle,
+    categoryEmptyText,
+    setFileCategory,
+    fileRoleLabel,
   };
 }
 
@@ -203,21 +231,18 @@ export const SharedFilesPage = {
     finalOutputRefs: { type: Array, default: () => [] },
     sharedFileRetention: { type: Object, default: () => ({}) },
   },
-  emits: ['open-memory-center', 'refresh', 'start-inherited-chat'],
+  emits: ['refresh', 'start-inherited-chat'],
   setup(props, { emit }) {
     const notice = reactive({ level: 'info', message: '' });
     const viewing = ref(false);
-    const promoteOpen = ref(false);
     const loadingDetailPath = ref('');
-    const saving = ref(false);
+    const exportingPath = ref('');
     const deletingPath = ref('');
     const confirmDeletePath = ref('');
     const selectedFile = reactive({ path: '', content: '', updatedBy: '', updatedAt: '' });
-    const promoteForm = reactive(emptyPromoteForm());
     const searchText = ref('');
     const finalOutput = useFinalOutputMarkers(props);
     const retention = useSharedFileRetention(props, finalOutput);
-    const guideCollapsed = ref(false);
     const sortMode = ref('updated-desc');
     const refreshing = ref(false);
     const copiedInViewer = ref(false);
@@ -225,20 +250,15 @@ export const SharedFilesPage = {
     let noticeTimer = null;
     let copyTimer = null;
 
-    loadPreference(GUIDE_PREF_KEY, false).then((value) => {
-      guideCollapsed.value = Boolean(value);
-    });
     loadPreference(SORT_PREF_KEY, 'updated-desc').then((value) => {
       if (SORT_MODES.includes(value)) sortMode.value = value;
     });
 
     const items = computed(() => ensureArray(props.files));
-    const taskHandoffCount = computed(() => items.value.filter((item) => isTaskHandoffPath(item?.path)).length);
 
     const filteredItems = computed(() => {
       const needle = searchText.value.trim().toLowerCase();
       const list = items.value.filter((item) => {
-        if (finalOutput.showFinalOnly.value && !finalOutput.isFinalOutputFile(item)) return false;
         if (!needle) return true;
         const path = (item?.path || '').toString().toLowerCase();
         const updatedBy = (item?.updated_by || item?.updatedBy || '').toString().toLowerCase();
@@ -258,6 +278,8 @@ export const SharedFilesPage = {
       }
       return list;
     });
+
+    const categories = useSharedFileCategories(items, filteredItems, finalOutput, searchText);
 
     function setNotice(level, message) {
       notice.level = level || 'info';
@@ -297,7 +319,7 @@ export const SharedFilesPage = {
         selectedFile.updatedAt = detail.updatedAt;
         viewing.value = true;
       } catch (error) {
-        setNotice('error', `读取共享文件失败：${toErrorMessage(error)}`);
+        setNotice('error', `读取文件失败：${toErrorMessage(error)}`);
       }
     }
 
@@ -306,46 +328,27 @@ export const SharedFilesPage = {
       copiedInViewer.value = false;
     }
 
-    async function openPromote(file) {
+    async function exportSharedFile(file) {
+      const target = (file?.path || '').toString().trim();
+      if (!target || exportingPath.value) return;
+      exportingPath.value = target;
       try {
-        const detail = await loadSharedFile(file?.path, file?.content);
+        const detail = await loadSharedFile(target, file?.content);
         if (!detail) return;
-        Object.assign(promoteForm, emptyPromoteForm(), {
-          sharedPath: detail.path,
-          name: titleFromPath(detail.path),
-          description: descriptionFromContent(detail.content, detail.path),
+        const savedPath = await saveTextFile({
+          defaultPath: props.cwd || '',
+          defaultFilename: exportNameFromPath(detail.path),
           content: detail.content,
         });
-        promoteOpen.value = true;
+        if (savedPath) {
+          setNotice('info', `已保存到：${savedPath}`);
+        } else {
+          setNotice('info', '已取消保存。');
+        }
       } catch (error) {
-        setNotice('error', `加载 Promote 表单失败：${toErrorMessage(error)}`);
-      }
-    }
-
-    function closePromote() {
-      promoteOpen.value = false;
-      Object.assign(promoteForm, emptyPromoteForm());
-    }
-
-    async function savePromote() {
-      if (saving.value) return;
-      saving.value = true;
-      try {
-        await callAPI('ui/memory/shared-file/promote', {
-          cwd: props.cwd || '',
-          sharedPath: promoteForm.sharedPath,
-          target: promoteForm.target,
-          name: promoteForm.name,
-          description: promoteForm.description,
-          type: promoteForm.type,
-          content: promoteForm.content,
-        });
-        closePromote();
-        setNotice('info', '已从共享文件创建记忆，建议到"记忆中心"继续维护。');
-      } catch (error) {
-        setNotice('error', `Promote 失败：${toErrorMessage(error)}`);
+        setNotice('error', `导出失败：${toErrorMessage(error)}`);
       } finally {
-        saving.value = false;
+        exportingPath.value = '';
       }
     }
 
@@ -359,7 +362,11 @@ export const SharedFilesPage = {
       confirmDeletePath.value = target;
     }
 
-    function deleteActionLabel(file) { if (retention.isDeletionProtected(file)) return '???'; if (deletingPath.value === file.path) return '???...'; return '??'; }
+    function deleteActionLabel(file) {
+      if (retention.isDeletionProtected(file)) return '不可删除';
+      if (deletingPath.value === file.path) return '删除中...';
+      return '删除';
+    }
 
     function cancelDelete() {
       if (deletingPath.value) return;
@@ -373,7 +380,7 @@ export const SharedFilesPage = {
       try {
         await callAPI('ui/memory/shared-file/delete', { path: target });
         if (selectedFile.path === target) viewing.value = false;
-        setNotice('info', `已删除共享文件：${target}`);
+        setNotice('info', `已删除文件：${target}`);
         confirmDeletePath.value = '';
         emit('refresh');
       } catch (error) {
@@ -400,11 +407,6 @@ export const SharedFilesPage = {
       }
     }
 
-    function toggleGuide() {
-      guideCollapsed.value = !guideCollapsed.value;
-      savePreference(GUIDE_PREF_KEY, guideCollapsed.value);
-    }
-
     function clearSearch() {
       searchText.value = '';
     }
@@ -429,28 +431,27 @@ export const SharedFilesPage = {
 
     return {
       items,
-      taskHandoffCount,
       filteredItems,
+      ...categories,
       notice,
       viewing,
-      promoteOpen,
       loadingDetailPath,
-      saving,
+      exportingPath,
       deletingPath,
       confirmDeletePath,
       selectedFile,
-      promoteForm,
       searchText,
-      showFinalOnly: finalOutput.showFinalOnly,
       sortMode,
-      guideCollapsed,
       refreshing,
       copiedInViewer,
       finalOutputCount: finalOutput.finalOutputCount,
       formatTimestamp,
       previewText,
+      summaryText,
       splitPath,
       formatBytes,
+      fileUpdatedAt,
+      fileContent,
       finalOutputRefFor: finalOutput.finalOutputRefFor,
       isFinalOutputFile: finalOutput.isFinalOutputFile,
       isDeletionProtected: retention.isDeletionProtected,
@@ -458,19 +459,14 @@ export const SharedFilesPage = {
       deleteActionLabel,
       openViewer,
       closeViewer,
-      openPromote,
-      closePromote,
-      savePromote,
+      exportSharedFile,
       askDelete,
       cancelDelete,
       confirmDelete,
       copyViewerContent,
-      toggleGuide,
       clearSearch,
-      toggleFinalOnly: finalOutput.toggleFinalOnly,
       changeSort,
       handleRefresh,
-      openMemoryCenter: () => emit('open-memory-center'),
       startInheritedChat: (file) => emitStartInheritedChat(emit, file),
     };
   },
@@ -478,7 +474,7 @@ export const SharedFilesPage = {
     <section id="page-shared-files" class="page active shared-files-page" data-testid="shared-files-page">
       <div class="panel-header">
         <div class="ph-bar"></div>
-        <div class="ph-text"><h2>共享文件</h2></div>
+        <div class="ph-text"><h2>文件产物</h2></div>
         <div class="memory-center-toolbar" data-testid="shared-files-toolbar">
           <div class="memory-center-search">
             <span class="memory-center-search-icon" aria-hidden="true">
@@ -491,7 +487,7 @@ export const SharedFilesPage = {
               v-model="searchText"
               class="memory-center-search-input"
               data-testid="shared-files-search"
-              placeholder="搜索 path / 内容 / 更新者"
+              placeholder="搜索文件名 / 内容"
             />
             <button
               v-if="searchText"
@@ -509,15 +505,46 @@ export const SharedFilesPage = {
           >
             <option value="updated-desc">最新更新</option>
             <option value="updated-asc">最早更新</option>
-            <option value="path-asc">按 Path</option>
+            <option value="path-asc">按文件名</option>
           </select>
-          <button
-            class="btn btn-secondary btn-toolbar-sm"
-            data-testid="shared-files-final-toggle"
-            :class="{ 'btn-primary': showFinalOnly }"
-            :disabled="finalOutputCount === 0"
-            @click="toggleFinalOnly"
-          >最终产物 {{ finalOutputCount }}</button>
+          <div class="shared-files-category-tabs" data-testid="shared-files-category-tabs" role="tablist" aria-label="文件产物分类">
+            <button
+              type="button"
+              class="shared-files-category-tab"
+              :class="{ active: fileCategory === 'all' }"
+              data-testid="shared-files-category-tab-all"
+              role="tab"
+              :aria-selected="fileCategory === 'all' ? 'true' : 'false'"
+              @click="setFileCategory('all')"
+            >
+              <span>全部</span>
+              <span class="shared-files-category-count">{{ items.length }}</span>
+            </button>
+            <button
+              type="button"
+              class="shared-files-category-tab"
+              :class="{ active: fileCategory === 'final' }"
+              data-testid="shared-files-category-tab-final"
+              role="tab"
+              :aria-selected="fileCategory === 'final' ? 'true' : 'false'"
+              @click="setFileCategory('final')"
+            >
+              <span>最终产物</span>
+              <span class="shared-files-category-count">{{ finalOutputCount }}</span>
+            </button>
+            <button
+              type="button"
+              class="shared-files-category-tab"
+              :class="{ active: fileCategory === 'work' }"
+              data-testid="shared-files-category-tab-work"
+              role="tab"
+              :aria-selected="fileCategory === 'work' ? 'true' : 'false'"
+              @click="setFileCategory('work')"
+            >
+              <span>工作文件</span>
+              <span class="shared-files-category-count">{{ workFileCount }}</span>
+            </button>
+          </div>
           <button
             class="btn btn-secondary btn-toolbar-sm"
             data-testid="shared-files-refresh"
@@ -532,59 +559,6 @@ export const SharedFilesPage = {
 
       <div class="panel-body memory-center-body memory-center-body-has-toolbar" data-testid="shared-files-body">
         <div
-          class="data-card-vue memory-center-callout"
-          :class="{ 'is-collapsed': guideCollapsed }"
-          data-testid="shared-files-callout"
-        >
-          <div class="memory-center-callout-head">
-            <div>
-              <div class="memory-center-callout-title">
-                共享文件 · Agent 协作中转站
-                <span class="jr-badge jr-badge-default">{{ items.length }} 条</span>
-              </div>
-              <div v-if="!guideCollapsed" class="memory-center-callout-subtitle">
-                协作草稿不会自动进入长期记忆；值得保留的内容点"提升为长期记忆"。
-              </div>
-            </div>
-            <div class="memory-center-callout-actions">
-              <button
-                class="btn btn-ghost btn-toolbar-sm"
-                data-testid="shared-files-guide-toggle"
-                @click="toggleGuide"
-              >{{ guideCollapsed ? '展开指引' : '收起指引' }}</button>
-              <button
-                class="btn btn-secondary btn-toolbar-sm"
-                data-testid="shared-files-open-memory-center"
-                @click="openMemoryCenter"
-              >打开记忆中心</button>
-            </div>
-          </div>
-          <div v-if="!guideCollapsed" class="memory-center-callout-body">
-            <div class="memory-center-guide-grid">
-              <article class="memory-center-guide-card">
-                <div class="memory-center-guide-title">什么时候放这里</div>
-                <div class="memory-center-guide-text">命令输出摘录、待整理笔记、handoff 清单、跨 Agent 中间结果。</div>
-              </article>
-              <article class="memory-center-guide-card">
-                <div class="memory-center-guide-title">什么时候 Promote</div>
-                <div class="memory-center-guide-text">当内容已经稳定、可复用、值得跨会话保留时，再整理为长期记忆。</div>
-              </article>
-              <article class="memory-center-guide-card">
-                <div class="memory-center-guide-title">注意</div>
-                <div class="memory-center-guide-text">若你选择 feedback / project 类型，内容需要补全 <code>Why:</code> 和 <code>How to apply:</code> 才能通过校验。</div>
-              </article>
-              <article class="memory-center-guide-card">
-                <div class="memory-center-guide-title">任务接力摘要</div>
-                <div class="memory-center-guide-text">
-                  系统为自动化任务维护的接力摘要也会出现在这里，路径固定在 <code>handoff/tasks/</code> 下。
-                  它用于短期任务连续性，不等于长期记忆。当前共 {{ taskHandoffCount }} 份。
-                </div>
-              </article>
-            </div>
-          </div>
-        </div>
-
-        <div
           v-if="notice.message"
           class="settings-prompt-notice memory-notice-fade"
           :class="'is-' + notice.level"
@@ -598,71 +572,57 @@ export const SharedFilesPage = {
             <circle cx="36" cy="36" r="7" fill="var(--surface)" stroke="currentColor"/>
             <path d="M33 36h6M36 33v6" stroke-linecap="round"/>
           </svg>
-          <div class="memory-empty-title">暂无共享文件</div>
+          <div class="memory-empty-title">还没有文件产物</div>
           <div class="memory-empty-text">
-            Agent 在对话里调用 <code>shared_file_write</code> 工具后，会话中间产物会出现在这里。你也可以从记忆中心打开演示用法。
-          </div>
-          <div class="memory-empty-text">
-            任务接力摘要会由系统自动写到 <code>handoff/tasks/</code>；如果这里仍为空，说明当前还没有自动化任务产出接力摘要。
-          </div>
-          <div class="memory-empty-actions">
-            <button class="btn btn-secondary btn-toolbar-sm" @click="openMemoryCenter">了解记忆中心</button>
+            Agent 生成报告、草稿或数据文件后，会显示在这里。
           </div>
         </div>
 
-        <div v-else-if="filteredItems.length === 0" class="memory-empty" data-testid="shared-files-filter-empty">
-          <svg class="memory-empty-illustration" viewBox="0 0 48 48" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true">
-            <circle cx="20" cy="20" r="10"/>
-            <path d="M28 28l8 8" stroke-linecap="round"/>
-            <path d="M15 20h10" stroke-linecap="round" opacity="0.5"/>
-          </svg>
-          <div class="memory-empty-title">没有匹配的共享文件</div>
-          <div class="memory-empty-text">当前过滤没有命中任何条目，试着清空搜索或换个关键词。</div>
+        <div v-else-if="visibleItems.length === 0" class="shared-files-text-empty" data-testid="shared-files-category-empty">
+          <div class="shared-files-text-empty-title">{{ categoryEmptyTitle }}</div>
+          <div v-if="fileCategory !== 'final' || searchText" class="shared-files-text-empty-body">{{ categoryEmptyText }}</div>
           <div class="memory-empty-actions">
-            <button class="btn btn-secondary btn-toolbar-sm" @click="clearSearch">清空搜索</button>
+            <button v-if="searchText" class="btn btn-secondary btn-toolbar-sm" @click="clearSearch">清空搜索</button>
           </div>
         </div>
 
-        <div v-else class="memory-entry-grid" data-testid="shared-files-list">
+        <div v-else class="shared-files-list" data-testid="shared-files-list">
           <article
-            v-for="(item, idx) in filteredItems"
+            v-for="(item, idx) in visibleItems"
             :key="item.path || idx"
-            class="data-card-vue memory-entry-card"
+            class="data-card-vue shared-files-card"
             :class="{ 'is-final-output': isFinalOutputFile(item) }"
           >
-            <div class="memory-entry-head">
-              <div class="shared-files-title-row">
-                <div>
-                  <div class="shared-files-basename" :title="item.path">{{ splitPath(item.path).base }}</div>
-                  <div v-if="splitPath(item.path).dir" class="shared-files-dirname" :title="item.path">{{ splitPath(item.path).dir }}</div>
-                  <span class="memory-sr-only">{{ item.path }}</span>
-                </div>
+            <div class="shared-files-card-main">
+              <div class="shared-files-card-head">
+                <div class="shared-files-card-title" :title="item.path">{{ splitPath(item.path).base }}</div>
                 <span
                   v-if="isFinalOutputFile(item)"
                   class="jr-badge jr-badge-success"
                   data-testid="shared-files-final-badge"
                 >最终产物</span>
               </div>
-              <div class="memory-entry-updated">{{ formatTimestamp(item.updated_at) }}</div>
+              <div class="shared-files-card-meta">
+                <span>{{ fileRoleLabel(item) }}</span>
+                <span>{{ formatTimestamp(fileUpdatedAt(item)) }}</span>
+                <span>{{ formatBytes(fileContent(item).length) }}</span>
+              </div>
+              <div class="memory-sr-only">{{ item.path }}</div>
+              <div class="shared-files-card-summary">{{ summaryText(item.content) }}</div>
             </div>
-            <div class="memory-entry-meta">
-              <span>{{ item.updated_by || '-' }}</span>
-              <span class="shared-files-size-hint">{{ formatBytes((item.content || '').length) }}</span>
-            </div>
-            <pre class="memory-entry-preview">{{ previewText(item.content) }}</pre>
             <div class="memory-card-actions shared-files-actions">
               <button
                 class="btn btn-secondary btn-xs"
                 :data-testid="'shared-files-view-' + idx"
                 :disabled="loadingDetailPath === item.path"
                 @click="openViewer(item)"
-              >{{ loadingDetailPath === item.path ? '加载中...' : '查看内容' }}</button>
+              >{{ loadingDetailPath === item.path ? '加载中...' : '打开' }}</button>
               <button
-                class="btn btn-primary btn-xs"
-                :data-testid="'shared-files-promote-' + idx"
-                :disabled="loadingDetailPath === item.path"
-                @click="openPromote(item)"
-              >提升为长期记忆</button>
+                class="btn btn-secondary btn-xs"
+                :data-testid="'shared-files-export-' + idx"
+                :disabled="loadingDetailPath === item.path || !!exportingPath"
+                @click="exportSharedFile(item)"
+              >{{ exportingPath === item.path ? '导出中...' : '导出' }}</button>
               <button
                 class="btn btn-danger btn-xs"
                 :data-testid="'shared-files-delete-' + idx"
@@ -675,20 +635,26 @@ export const SharedFilesPage = {
                 :data-testid="'shared-files-fork-' + idx"
                 :title="'以此文件为背景新建一个继承对话'"
                 @click="startInheritedChat(item)"
-              >用此文件新建对话</button>
+              >用此文件继续对话</button>
             </div>
           </article>
         </div>
       </div>
 
       <div v-if="viewing" class="modal-overlay" data-testid="shared-files-viewer-overlay" @click.self="closeViewer">
-        <div class="modal-box memory-modal" role="dialog" aria-modal="true" data-testid="shared-files-viewer">
+        <div class="modal-box memory-modal shared-files-viewer-modal" role="dialog" aria-modal="true" data-testid="shared-files-viewer">
           <div class="memory-modal-head">
-            <div>
-              <div class="modal-title">共享文件内容</div>
+            <div class="shared-files-viewer-title">
+              <div class="modal-title">文件预览</div>
               <div class="memory-modal-tip" :title="selectedFile.path">{{ selectedFile.path }}</div>
             </div>
             <div class="memory-modal-head-actions">
+              <button
+                class="btn btn-secondary btn-xs"
+                data-testid="shared-files-viewer-export"
+                :disabled="!selectedFile.path || !!exportingPath"
+                @click="exportSharedFile(selectedFile)"
+              >{{ exportingPath === selectedFile.path ? '导出中...' : '导出' }}</button>
               <button
                 class="btn btn-secondary btn-xs"
                 data-testid="shared-files-viewer-copy"
@@ -698,8 +664,16 @@ export const SharedFilesPage = {
               <button class="btn btn-ghost" data-testid="shared-files-viewer-close" @click="closeViewer">关闭</button>
             </div>
           </div>
-          <div class="data-row-vue"><strong>更新者</strong><span>{{ selectedFile.updatedBy || '-' }}</span></div>
-          <div class="data-row-vue"><strong>更新时间</strong><span>{{ formatTimestamp(selectedFile.updatedAt) }}</span></div>
+          <div class="shared-files-viewer-meta">
+            <div class="shared-files-viewer-meta-item">
+              <span class="shared-files-viewer-meta-label">来源</span>
+              <span class="shared-files-viewer-meta-value">{{ selectedFile.updatedBy || '-' }}</span>
+            </div>
+            <div class="shared-files-viewer-meta-item">
+              <span class="shared-files-viewer-meta-label">更新时间</span>
+              <span class="shared-files-viewer-meta-value">{{ formatTimestamp(selectedFile.updatedAt) }}</span>
+            </div>
+          </div>
           <pre class="memory-entry-preview shared-files-content-preview">{{ selectedFile.content || '文件为空' }}</pre>
         </div>
       </div>
@@ -708,7 +682,7 @@ export const SharedFilesPage = {
         <div class="modal-box memory-modal" role="dialog" aria-modal="true" data-testid="shared-files-delete-modal">
           <div class="memory-modal-head">
             <div>
-              <div class="modal-title">删除共享文件</div>
+              <div class="modal-title">删除文件</div>
               <div class="memory-modal-tip">{{ confirmDeletePath }}</div>
             </div>
             <button
@@ -719,7 +693,7 @@ export const SharedFilesPage = {
             >关闭</button>
           </div>
           <div class="memory-form-helper">
-            共享文件一旦删除无法恢复。如果还需要这份内容，先"提升为长期记忆"再删除。
+            文件删除后无法恢复。删除前请确认这份内容不再需要。
           </div>
           <div class="memory-editor-actions">
             <button
@@ -738,71 +712,6 @@ export const SharedFilesPage = {
         </div>
       </div>
 
-      <div v-if="promoteOpen" class="modal-overlay" data-testid="shared-files-promote-overlay" @click.self="closePromote">
-        <div class="modal-box memory-modal" role="dialog" aria-modal="true" data-testid="shared-files-promote-modal">
-          <div class="memory-modal-head">
-            <div>
-              <div class="modal-title">提升为长期记忆</div>
-              <div class="memory-modal-tip">{{ promoteForm.sharedPath }}</div>
-            </div>
-            <button class="btn btn-ghost" data-testid="shared-files-promote-close" @click="closePromote">关闭</button>
-          </div>
-
-          <div class="modal-input-row">
-            <div class="modal-input-flex">
-              <label class="settings-inline-label">目标</label>
-              <select v-model="promoteForm.target" class="modal-input" data-testid="shared-files-promote-target">
-                <option value="private">私有记忆</option>
-                <option value="team">团队记忆</option>
-              </select>
-            </div>
-            <div class="modal-input-flex">
-              <label class="settings-inline-label">类型</label>
-              <select v-model="promoteForm.type" class="modal-input" data-testid="shared-files-promote-type">
-                <option value="reference">reference</option>
-                <option value="project">project</option>
-                <option value="feedback">feedback</option>
-                <option value="user">user</option>
-              </select>
-            </div>
-          </div>
-
-          <div class="modal-input-row">
-            <div class="modal-input-flex">
-              <label class="settings-inline-label">名称</label>
-              <input v-model="promoteForm.name" class="modal-input" data-testid="shared-files-promote-name" placeholder="例如：Core dashboard location" />
-            </div>
-          </div>
-
-          <div class="modal-input-row">
-            <div class="modal-input-flex">
-              <label class="settings-inline-label">描述</label>
-              <input v-model="promoteForm.description" class="modal-input" data-testid="shared-files-promote-description" placeholder="一句话说明为什么值得长期保留" />
-            </div>
-          </div>
-
-          <div class="modal-input-row">
-            <div class="modal-input-flex">
-              <label class="settings-inline-label">内容</label>
-              <textarea v-model="promoteForm.content" rows="10" class="modal-input" data-testid="shared-files-promote-content"></textarea>
-            </div>
-          </div>
-
-          <div class="memory-form-helper">
-            如果你切换成 <code>feedback</code> 或 <code>project</code>，请补全 <code>Why:</code> 与 <code>How to apply:</code> 两段。
-          </div>
-
-          <div class="memory-editor-actions">
-            <button class="btn btn-ghost" data-testid="shared-files-promote-cancel" @click="closePromote">取消</button>
-            <button
-              class="btn btn-primary"
-              data-testid="shared-files-promote-save"
-              :disabled="saving"
-              @click="savePromote"
-            >{{ saving ? '保存中...' : '创建记忆' }}</button>
-          </div>
-        </div>
-      </div>
     </section>
   `,
 };

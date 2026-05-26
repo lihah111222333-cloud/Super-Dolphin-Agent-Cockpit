@@ -15,7 +15,6 @@ import (
 	"time"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
-	sharedfilestore "github.com/anthropic-ai/super-agent-v3/internal/store/sharedfile"
 )
 
 func TestMergeUIMemoryEntriesUsesTeamGuardWhenKeptEntryIsTeam(t *testing.T) {
@@ -414,59 +413,6 @@ func TestMergeUIMemoryEntriesRejectsDissimilarEntriesAndKeepsBoth(t *testing.T) 
 	}
 }
 
-func TestPromoteSharedFileToMemory(t *testing.T) {
-	projectRoot := t.TempDir()
-	privateRoot := filepath.Join(t.TempDir(), "private")
-	cfg := &Config{
-		Enabled:             true,
-		EnableTools:         true,
-		ProjectRoot:         projectRoot,
-		RootDir:             t.TempDir(),
-		AutoMemPathOverride: privateRoot,
-	}
-	now := time.Date(2026, 4, 20, 16, 0, 0, 0, time.UTC)
-	deps := memoryHandlerDeps{
-		Service: newServiceWithConsolidator(cfg, nil, nil, nil),
-		SharedFiles: stubSharedFileReader{
-			files: map[string]sharedfilestore.SharedFile{
-				"handoff/release.txt": {
-					Path:      "handoff/release.txt",
-					Content:   "Grafana dashboard lives at https://grafana.example.com/team/core.",
-					UpdatedBy: "alice",
-					UpdatedAt: now,
-				},
-			},
-		},
-		Sections: &recordingSectionInvalidator{},
-	}
-
-	entry, err := promoteSharedFileToMemory(context.Background(), deps, uiSharedFilePromoteParams{
-		CWD:         projectRoot,
-		SharedPath:  "handoff/release.txt",
-		Target:      "private",
-		Name:        "Core Grafana dashboard",
-		Description: "Where the team dashboard is maintained",
-		Type:        "reference",
-	})
-	if err != nil {
-		t.Fatalf("promoteSharedFileToMemory() error = %v", err)
-	}
-	if entry.Name != "Core Grafana dashboard" {
-		t.Fatalf("entry = %#v", entry)
-	}
-	loaded, err := getUIMemoryEntry(context.Background(), deps, uiMemoryEntryGetParams{
-		CWD:    projectRoot,
-		Target: "private",
-		Path:   entry.Path,
-	})
-	if err != nil {
-		t.Fatalf("getUIMemoryEntry(promoted) error = %v", err)
-	}
-	if loaded.Content != "Grafana dashboard lives at https://grafana.example.com/team/core." {
-		t.Fatalf("loaded.Content = %q", loaded.Content)
-	}
-}
-
 func TestDeleteUISharedFileRejectsFinalOutputReference(t *testing.T) {
 	t.Parallel()
 
@@ -573,23 +519,6 @@ func TestDeleteUISharedFileRequiresFinalOutputGuard(t *testing.T) {
 	if deleter.calls != 0 {
 		t.Fatalf("Delete() calls = %d, want 0", deleter.calls)
 	}
-}
-
-type stubSharedFileReader struct {
-	files map[string]sharedfilestore.SharedFile
-}
-
-func (s stubSharedFileReader) Get(_ context.Context, path string) (*sharedfilestore.SharedFile, error) {
-	item, ok := s.files[path]
-	if !ok {
-		return nil, os.ErrNotExist
-	}
-	copy := item
-	return &copy, nil
-}
-
-func (s stubSharedFileReader) List(context.Context, sharedfilestore.ListFilter) ([]sharedfilestore.SharedFile, error) {
-	return nil, nil
 }
 
 type recordingSharedFileDeleter struct {

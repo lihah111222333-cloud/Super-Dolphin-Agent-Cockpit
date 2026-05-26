@@ -193,7 +193,6 @@ func newPromptAssemblyStartService(t *testing.T, repoRoot string) (*service, *ca
 		&contract.Config{ProjectRoot: repoRoot},
 		promptToolRegistryStub{instances: []contract.ToolInstance{{BinaryName: "mcp-lsp", ClientKind: "lsp", Status: mcpdto.StatusActive}}},
 	).(*service)
-	svc.sharedFiles = &stubSharedFileStore{}
 	return svc, assembly, orch
 }
 
