@@ -27,13 +27,14 @@ import {
   markLocalActiveThreadDirty,
   normalizeProviderThreadID,
 } from './thread-snapshot.js';
+import { clearThreadSendHoldNoticesInState } from './thread-send-block.js';
 
 export { normalizeThreadID, toNormalizedEventString, getBridgeEventThreadId, getBridgeEventMethod, getBridgeEventType, getBridgeEventCommand, collectBridgeEventItemKinds, isContextCompactionItemKind, isCompactCommand } from './bridge-event-parser.js';
 export { normalizeEpochMillis, parseEpochMillis, parseThreadCreatedAtFromID, ensureThreadOrderIndex, sortThreadsByStableFirstSeen } from './thread-time-utils.js';
 export { normalizePreferenceScopeCwd, normalizeSplitRatio, normalizeThreadRailWidth, normalizeCmdCardCols, normalizeThread, normalizeThreadTimestampMap } from './thread-ui-normalize.js';
 export { withPreferenceScope, shouldSyncAfterPreferencePersist } from './thread-prefs.js';
 
-const state = reactive({ activeThreadId: '', activeCmdThreadId: '', pinnedThreadAtById: {}, archivedThreadAtById: {}, promptStaleNotice: '' });
+const state = reactive({ activeThreadId: '', activeCmdThreadId: '', pinnedThreadAtById: {}, archivedThreadAtById: {}, promptStaleNotice: '', sendBlockedNoticesByThread: {}, sendHoldNoticesByThread: {} });
 const runtimeRootState = reactive({
   threads: [], statuses: {}, interruptibleByThread: {}, viewPrefsChat: null, viewPrefsCmd: null,
   statusHeadersByThread: {}, statusDetailsByThread: {}, overlayTextByThread: {}, overlayTypeByThread: {}, overlayPriorityByThread: {},
@@ -73,13 +74,23 @@ const syncManager = createSyncManager(state, {
   normalizeProviderThreadID,
 });
 syncManagerRef = syncManager;
+async function syncRuntimeStateAndClearSendHolds(...args) {
+  const result = await syncManager.syncRuntimeState(...args);
+  clearThreadSendHoldNoticesInState(state);
+  return result;
+}
+async function refreshSidebarStateAndClearSendHolds(...args) {
+  const result = await syncManager.refreshSidebarState(...args);
+  clearThreadSendHoldNoticesInState(state);
+  return result;
+}
 const actionManager = createThreadActions(state, {
   ...serviceDeps,
-  syncRuntimeState: syncManager.syncRuntimeState,
+  syncRuntimeState: syncRuntimeStateAndClearSendHolds,
   syncThreadState: syncManager.syncThreadState,
   loadMessages: syncManager.loadMessages,
   markHistoryLoaded: syncManager.markHistoryLoaded,
-  refreshSidebarState: syncManager.refreshSidebarState,
+  refreshSidebarState: refreshSidebarStateAndClearSendHolds,
   persistPreferenceAndSync: preferenceManager.persistPreferenceAndSync,
   withPreferenceScope,
   getPreferenceScopeCwd: preferenceManager.getPreferenceScopeCwd,
@@ -100,7 +111,7 @@ export function useThreadStore() {
     setPreferenceScopeCwd: preferenceManager.setPreferenceScopeCwd,
     getPreferenceScopeCwd: preferenceManager.getPreferenceScopeCwd,
     saveActiveThread: actionManager.saveActiveThread,
-    refreshSidebarState: syncManager.refreshSidebarState,
+    refreshSidebarState: refreshSidebarStateAndClearSendHolds,
     syncThreadState: syncManager.syncThreadState,
     syncThreadDiffState: syncManager.syncThreadDiffState,
     getThreadConfig: actionManager.getThreadConfig,
@@ -113,6 +124,9 @@ export function useThreadStore() {
     loadMessages: syncManager.loadMessages,
     markHistoryLoaded: syncManager.markHistoryLoaded,
     sendMessage: actionManager.sendMessage,
+    getThreadSendBlockedNotice: actionManager.getThreadSendBlockedNotice,
+    isThreadSendBlocked: actionManager.isThreadSendBlocked,
+    clearThreadSendBlockedNotice: actionManager.clearThreadSendBlockedNotice,
     handleAgentEvent: syncManager.handleAgentEvent,
     handleBridgeEvent: syncManager.handleBridgeEvent,
     saveActiveCmdThread: actionManager.saveActiveCmdThread,

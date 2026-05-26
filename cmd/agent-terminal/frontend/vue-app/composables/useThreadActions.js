@@ -1,6 +1,7 @@
-import { ref } from '../../lib/vue.esm-browser.prod.js';
+import { ref, watch } from '../../lib/vue.esm-browser.prod.js';
 import { callAPI } from '../services/api.js';
 import { logInfo, logWarn } from '../services/log.js';
+import { isThreadErrorStatus } from '../services/status.js';
 import { isStaleThreadSelectionError } from '../utils/thread-page-utils.js';
 
 export function resolveProjectActionCwd(projectStore, windowCwd = '') {
@@ -124,16 +125,26 @@ function formatErrorDetail(error) {
   return String(error || '').trim();
 }
 
-function formatMissingWorkDirNotice(error, actionLabel) {
+function missingWorkDirFailure(error) {
   const text = errorTextCandidates(error).join('\n').replace(/\\"/g, '"');
   const lower = text.toLowerCase();
-  const reportsMissingWorkdir = lower.includes('pool work dir stat') || lower.includes('cwd stat');
+  const reportsMissingWorkdir = lower.includes('pool work dir stat')
+    || lower.includes('cwd stat')
+    || lower.includes('resolve provider project cwd realpath');
   if (!reportsMissingWorkdir || !lower.includes('no such file or directory')) {
-    return '';
+    return null;
   }
-  const match = text.match(/(?:pool work dir stat|cwd stat) "([^"]+)"/i);
-  const path = (match?.[1] || '').toString().trim();
-  const target = path || '后端未返回具体路径';
+  const quoted = text.match(/(?:pool work dir stat|cwd stat) "([^"]+)"/i);
+  const realpath = text.match(/resolve provider project cwd realpath:\s*lstat\s+([^:\n]+):/i);
+  const lstat = text.match(/lstat\s+([^:\n]+):\s+no such file or directory/i);
+  const path = (quoted?.[1] || realpath?.[1] || lstat?.[1] || '').toString().trim();
+  return { path };
+}
+
+function formatMissingWorkDirNotice(error, actionLabel) {
+  const failure = missingWorkDirFailure(error);
+  if (!failure) return '';
+  const target = failure.path || '后端未返回具体路径';
   return `${actionLabel}失败：该会话的工作目录已不存在。\n\n${target}\n\n请恢复该目录，或新建/重新绑定会话后继续。`;
 }
 
@@ -154,6 +165,130 @@ function formatActionFailureNotice(error, actionLabel) {
 
 function formatSendFailureNotice(error) {
   return formatActionFailureNotice(error, '发送');
+}
+
+function formatThreadErrorSendBlockedNotice() {
+  return '当前会话已报错，不能继续发送。请先恢复会话，或新建/继承一个会话后继续。';
+}
+
+function isSelectedThreadSendBlocked(threadStore, threadId) {
+  const id = (threadId || '').toString().trim();
+  if (!id || typeof threadStore?.getThreadStatus !== 'function') return false;
+  return isThreadErrorStatus(threadStore.getThreadStatus(id));
+}
+
+function getThreadSendBlockedNotice(sendBlockedNoticesByThread, threadId) {
+  const id = (threadId || '').toString().trim();
+  if (!id) return '';
+  const map = sendBlockedNoticesByThread?.value;
+  return map instanceof Map ? (map.get(id) || '').toString() : '';
+}
+
+function getThreadSendHoldNotice(sendHoldNoticesByThread, threadId) {
+  const id = (threadId || '').toString().trim();
+  if (!id) return '';
+  const map = sendHoldNoticesByThread?.value;
+  return map instanceof Map ? (map.get(id) || '').toString() : '';
+}
+
+function getStoreThreadSendBlockedNotice(threadStore, threadId) {
+  const id = (threadId || '').toString().trim();
+  if (!id) return '';
+  if (typeof threadStore?.getThreadSendBlockedNotice === 'function') {
+    return (threadStore.getThreadSendBlockedNotice(id) || '').toString();
+  }
+  const notices = threadStore?.state?.sendBlockedNoticesByThread;
+  return notices && typeof notices === 'object' ? (notices[id] || '').toString() : '';
+}
+
+function getStoreThreadSendHoldNotice(threadStore, threadId) {
+  const id = (threadId || '').toString().trim();
+  if (!id) return '';
+  const notices = threadStore?.state?.sendHoldNoticesByThread;
+  return notices && typeof notices === 'object' ? (notices[id] || '').toString() : '';
+}
+
+function isStoreThreadSendBlocked(threadStore, threadId) {
+  const id = (threadId || '').toString().trim();
+  if (!id) return false;
+  if (typeof threadStore?.isThreadSendBlocked === 'function') {
+    return Boolean(threadStore.isThreadSendBlocked(id));
+  }
+  return Boolean(getStoreThreadSendBlockedNotice(threadStore, id));
+}
+
+function setThreadSendBlockedNotice(sendBlockedNoticesByThread, threadId, notice) {
+  const id = (threadId || '').toString().trim();
+  const detail = (notice || '').toString().trim();
+  if (!id || !detail || !sendBlockedNoticesByThread) return;
+  const next = new Map(sendBlockedNoticesByThread.value instanceof Map ? sendBlockedNoticesByThread.value : []);
+  next.set(id, detail);
+  sendBlockedNoticesByThread.value = next;
+}
+
+function setThreadSendHoldNotice(sendHoldNoticesByThread, threadId, notice) {
+  const id = (threadId || '').toString().trim();
+  const detail = (notice || '').toString().trim();
+  if (!id || !detail || !sendHoldNoticesByThread) return;
+  const next = new Map(sendHoldNoticesByThread.value instanceof Map ? sendHoldNoticesByThread.value : []);
+  next.set(id, detail);
+  sendHoldNoticesByThread.value = next;
+}
+
+function clearThreadSendBlockedNotice(sendBlockedNoticesByThread, threadId) {
+  const id = (threadId || '').toString().trim();
+  const map = sendBlockedNoticesByThread?.value;
+  if (!id || !(map instanceof Map) || !map.has(id)) return;
+  const next = new Map(map);
+  next.delete(id);
+  sendBlockedNoticesByThread.value = next;
+}
+
+function clearThreadSendHoldNotice(sendHoldNoticesByThread, threadId) {
+  const id = (threadId || '').toString().trim();
+  const map = sendHoldNoticesByThread?.value;
+  if (!id || !(map instanceof Map) || !map.has(id)) return;
+  const next = new Map(map);
+  next.delete(id);
+  sendHoldNoticesByThread.value = next;
+}
+
+function clearStoreThreadSendBlockedNotice(threadStore, threadId) {
+  const id = (threadId || '').toString().trim();
+  if (!id) return;
+  if (typeof threadStore?.clearThreadSendBlockedNotice === 'function') {
+    threadStore.clearThreadSendBlockedNotice(id);
+    return;
+  }
+  const notices = threadStore?.state?.sendBlockedNoticesByThread;
+  if (!notices || typeof notices !== 'object' || !Object.prototype.hasOwnProperty.call(notices, id)) return;
+  const next = { ...notices };
+  delete next[id];
+  threadStore.state.sendBlockedNoticesByThread = next;
+}
+
+function clearStoreThreadSendHoldNotice(threadStore, threadId) {
+  const id = (threadId || '').toString().trim();
+  const notices = threadStore?.state?.sendHoldNoticesByThread;
+  if (!id || !notices || typeof notices !== 'object' || !Object.prototype.hasOwnProperty.call(notices, id)) return;
+  const next = { ...notices };
+  delete next[id];
+  threadStore.state.sendHoldNoticesByThread = next;
+}
+
+function shouldApplySendFailureToCurrentSelection(selectedThreadId, sourceThreadId, options = {}) {
+  const currentThreadId = (selectedThreadId?.value || '').toString().trim();
+  const failedThreadId = (sourceThreadId || '').toString().trim();
+  const allowEmptySelection = Boolean(options.allowEmptySelection);
+  if (!failedThreadId) return allowEmptySelection && !currentThreadId;
+  if (!currentThreadId) return allowEmptySelection;
+  return currentThreadId === failedThreadId;
+}
+
+function getSelectedThreadSendNotice(threadStore, sendBlockedNoticesByThread, sendHoldNoticesByThread, threadId) {
+  return getThreadSendBlockedNotice(sendBlockedNoticesByThread, threadId) || getThreadSendHoldNotice(sendHoldNoticesByThread, threadId)
+    || getStoreThreadSendBlockedNotice(threadStore, threadId) || getStoreThreadSendHoldNotice(threadStore, threadId)
+    || (isSelectedThreadSendBlocked(threadStore, threadId) || isStoreThreadSendBlocked(threadStore, threadId) ? formatThreadErrorSendBlockedNotice() : '');
 }
 
 function formatLaunchFailureNotice(error) {
@@ -235,6 +370,8 @@ async function performSend({
   windowCwd,
   scheduleScrollToBottom,
   sendFailureNotice,
+  sendBlockedNoticesByThread,
+  sendHoldNoticesByThread,
   providerPreferenceReady,
   providerPreferenceError,
   launchIntent,
@@ -245,6 +382,30 @@ async function performSend({
   const attachments = [...composer.state.attachments];
   if (!text.trim() && attachments.length === 0) return;
   sendFailureNotice.value = '';
+  const blockedNotice = getThreadSendBlockedNotice(sendBlockedNoticesByThread, threadId);
+  if (blockedNotice) {
+    sendFailureNotice.value = blockedNotice;
+    return;
+  }
+  const holdNotice = getThreadSendHoldNotice(sendHoldNoticesByThread, threadId);
+  if (holdNotice) {
+    sendFailureNotice.value = holdNotice;
+    return;
+  }
+  const storeBlockedNotice = getStoreThreadSendBlockedNotice(threadStore, threadId);
+  if (storeBlockedNotice) {
+    sendFailureNotice.value = storeBlockedNotice;
+    return;
+  }
+  const storeHoldNotice = getStoreThreadSendHoldNotice(threadStore, threadId);
+  if (storeHoldNotice) {
+    sendFailureNotice.value = storeHoldNotice;
+    return;
+  }
+  if (isSelectedThreadSendBlocked(threadStore, threadId) || isStoreThreadSendBlocked(threadStore, threadId)) {
+    sendFailureNotice.value = formatThreadErrorSendBlockedNotice();
+    return;
+  }
 
   if (!threadId) {
     if (!isProviderPreferenceReady(providerPreferenceReady)) {
@@ -263,12 +424,17 @@ async function performSend({
       logWarn('ui', 'chat.start.error', {
         error: err?.message || String(err),
       });
-      sendFailureNotice.value = formatSendFailureNotice(err);
+      if (shouldApplySendFailureToCurrentSelection(selectedThreadId, threadId, { allowEmptySelection: true })) {
+        sendFailureNotice.value = formatSendFailureNotice(err);
+      }
       throw err;
     }
     if (!threadId) return;
     startedNewThread = true;
     selectedThreadId.value = threadId;
+    if (typeof composer.clearDraft === 'function') {
+      composer.clearDraft('', modeKey.value);
+    }
   }
 
   const actionCwd = resolveProjectActionCwd(projectStore, readWindowCwd(windowCwd));
@@ -285,17 +451,31 @@ async function performSend({
       thread_id: threadId,
       error: err?.message || String(err),
     });
+    let clearedStaleSelection = false;
     if (isStaleThreadSelectionError(err) && (selectedThreadId.value || '').toString().trim() === threadId) {
       selectedThreadId.value = '';
+      clearedStaleSelection = true;
       logWarn('ui', 'chat.send.stale_thread_cleared', {
         thread_id: threadId,
         error: err?.message || String(err),
       });
     }
-    // Restore composer content so the user doesn't lose their message
-    composer.state.text = savedText;
-    composer.state.attachments = [...savedAttachments];
-    sendFailureNotice.value = formatSendFailureNotice(err);
+    const notice = formatSendFailureNotice(err);
+    const localBlocked = getStoreThreadSendBlockedNotice(threadStore, threadId) || isStoreThreadSendBlocked(threadStore, threadId);
+    if (localBlocked) setThreadSendBlockedNotice(sendBlockedNoticesByThread, threadId, notice);
+    else setThreadSendHoldNotice(sendHoldNoticesByThread, threadId, notice);
+    if (typeof composer.restoreDraft === 'function') {
+      composer.restoreDraft(threadId, modeKey.value, { text: savedText, attachments: savedAttachments });
+    }
+    const applyFailureToCurrentSelection = shouldApplySendFailureToCurrentSelection(selectedThreadId, threadId, {
+      allowEmptySelection: clearedStaleSelection,
+    });
+    if (applyFailureToCurrentSelection) {
+      // Restore composer content so the user doesn't lose their message.
+      composer.state.text = savedText;
+      composer.state.attachments = [...savedAttachments];
+      sendFailureNotice.value = notice;
+    }
     throw err;
   }
 }
@@ -322,6 +502,8 @@ function createSendAction({
   windowCwd,
   scheduleScrollToBottom,
   sendFailureNotice,
+  sendBlockedNoticesByThread,
+  sendHoldNoticesByThread,
   providerPreferenceReady,
   providerPreferenceError,
   launchIntent,
@@ -343,6 +525,8 @@ function createSendAction({
       windowCwd,
       scheduleScrollToBottom,
       sendFailureNotice,
+      sendBlockedNoticesByThread,
+      sendHoldNoticesByThread,
       providerPreferenceReady,
       providerPreferenceError,
       launchIntent,
@@ -363,20 +547,26 @@ export function useThreadActions(props, deps) {
     selectedThreadId,
     modeKey,
     isCmd,
-    composer,
-    layoutMode,
-    cmdCardCols,
-    isThreadInterruptible,
-    beginInlineRename,
-    scheduleScrollToBottom,
-    showArchivedThreadList,
-    providerPreferenceReady,
-    providerPreferenceError,
+    composer, layoutMode, cmdCardCols, isThreadInterruptible, beginInlineRename,
+    scheduleScrollToBottom, showArchivedThreadList, providerPreferenceReady, providerPreferenceError,
+    sendBlockedNoticesByThread: providedSendBlockedNoticesByThread,
+    sendHoldNoticesByThread: providedSendHoldNoticesByThread,
   } = deps;
 
-  const recoveringSelected = ref(false);
-  const sendFailureNotice = ref('');
+  const recoveringSelected = ref(false); const sendFailureNotice = ref('');
+  const sendBlockedNoticesByThread = providedSendBlockedNoticesByThread || ref(new Map()); const sendHoldNoticesByThread = providedSendHoldNoticesByThread || ref(new Map());
   const launchIntent = createLaunchIntentState();
+
+  watch(
+    () => selectedThreadId.value,
+    (id, prevId) => {
+      const nextThreadId = (id || '').toString().trim();
+      const previousThreadId = (prevId || '').toString().trim();
+      if (nextThreadId === previousThreadId) return;
+      sendFailureNotice.value = getSelectedThreadSendNotice(props.threadStore, sendBlockedNoticesByThread, sendHoldNoticesByThread, nextThreadId);
+    },
+    { flush: 'sync', immediate: true },
+  );
 
   const launchOne = createLaunchOneAction({
     selectedThreadId, sendFailureNotice,
@@ -391,7 +581,7 @@ export function useThreadActions(props, deps) {
     composer,
     modeKey,
     threadStore: props.threadStore, projectStore: props.projectStore, windowCwd: () => props.windowCwd,
-    scheduleScrollToBottom, sendFailureNotice, providerPreferenceReady, providerPreferenceError, launchIntent,
+    scheduleScrollToBottom, sendFailureNotice, sendBlockedNoticesByThread, sendHoldNoticesByThread, providerPreferenceReady, providerPreferenceError, launchIntent,
   });
 
   async function interruptCurrent(control) {
@@ -499,6 +689,10 @@ export function useThreadActions(props, deps) {
       }
       const message = '已触发进程恢复，请等待连接重建。';
       logInfo('ui', 'chat.recover.done', { thread_id: threadId, message });
+      clearThreadSendBlockedNotice(sendBlockedNoticesByThread, threadId);
+      clearThreadSendHoldNotice(sendHoldNoticesByThread, threadId);
+      clearStoreThreadSendBlockedNotice(props.threadStore, threadId);
+      clearStoreThreadSendHoldNotice(props.threadStore, threadId);
       alertOrWarnUserMessage(message);
       return { ok: true, threadId, message };
     } catch (error) {

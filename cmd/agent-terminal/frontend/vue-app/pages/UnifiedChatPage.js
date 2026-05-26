@@ -15,7 +15,7 @@ import { ContextUsageBanner } from '../components/ContextUsageBanner.js';
 import { ComposerForkDraftCard } from '../components/ComposerForkDraftCard.js';
 import { ActivityPanel } from '../components/ActivityPanel.js';
 import { PathChoiceModal } from '../components/PathChoiceModal.js';
-import { normalizeStatus } from '../services/status.js';
+import { isThreadErrorStatus, normalizeStatus } from '../services/status.js';
 import { logInfo, logWarn } from '../services/log.js';
 import { callAPI } from '../services/api.js';
 import { observeContainerWidth, disconnectContainerObserver } from '../services/pretext-layout.js';
@@ -127,6 +127,11 @@ function attachPageNonEnumerableState(exposed, ctx) {
     openForkDraftFromUI: { value: ctx.openForkDraftFromUI, enumerable: false, configurable: true },
     forkSourceThreadName: { value: ctx.forkSourceThreadName, enumerable: false, configurable: true },
     forkAvailableSharedFiles: { value: ctx.forkAvailableSharedFiles, enumerable: false, configurable: true },
+    activeAutoContinueFailed: { value: ctx.activeAutoContinueFailed, enumerable: false, configurable: true },
+    autoContinueRetrying: { value: ctx.autoContinueRetrying, enumerable: false, configurable: true },
+    autoContinueRetryError: { value: ctx.autoContinueRetryError, enumerable: false, configurable: true },
+    onRetryAutoContinue: { value: ctx.onRetryAutoContinue, enumerable: false, configurable: true },
+    failedAutoContinueByThreadId: { value: ctx.failedAutoContinueByThreadId, enumerable: false, configurable: true },
     // Phase 2.2 promote-task：spread 进 ctx 后仍需显式挂载到 exposed，否则模板里
     // @promote-task="onPromoteTaskRequested" 解析为 undefined，emit 静默丢失。
     onPromoteTaskRequested: { value: ctx.onPromoteTaskRequested, enumerable: false, configurable: true },
@@ -168,6 +173,8 @@ function createPageThreadActions(props, ctx) {
     beginInlineRename: ctx.beginInlineRename,
     scheduleScrollToBottom: ctx.scheduleScrollToBottom,
     showArchivedThreadList: ctx.showArchivedThreadList,
+    sendBlockedNoticesByThread: ctx.sendBlockedNoticesByThread,
+    sendHoldNoticesByThread: ctx.sendHoldNoticesByThread,
   });
 }
 
@@ -208,13 +215,26 @@ function createPageForkThread(props, ctx) {
   // 初始为 null 表示“未拉过”，拉后是数组（可为空）；这让卡片能区分 加载中 / 空库。
   const availableSharedFiles = ref(null);
   const availableSharedFilesError = ref('');
-  watch(() => ctx.composer?.forkDraft?.active, async (active) => {
+  let availableSharedFilesRequestSeq = 0;
+  watch(() => [
+    ctx.composer?.forkDraft?.active ? '1' : '0',
+    (ctx.selectedThreadId.value || '').toString().trim(),
+  ].join('\n'), async () => {
+    const active = Boolean(ctx.composer?.forkDraft?.active);
+    const sourceThreadId = (ctx.selectedThreadId.value || '').toString().trim();
+    const requestSeq = ++availableSharedFilesRequestSeq;
     if (!active) return;
+    const isCurrentRequest = () => requestSeq === availableSharedFilesRequestSeq
+      && Boolean(ctx.composer?.forkDraft?.active)
+      && (ctx.selectedThreadId.value || '').toString().trim() === sourceThreadId;
     availableSharedFilesError.value = '';
     availableSharedFiles.value = null; // 重置为 loading，保证重复打开也有 loading 闪一下
     try {
-      availableSharedFiles.value = await fetchSharedFilesForFork(props);
+      const files = await fetchSharedFilesForFork(props);
+      if (!isCurrentRequest()) return;
+      availableSharedFiles.value = files;
     } catch (error) {
+      if (!isCurrentRequest()) return;
       availableSharedFilesError.value = (error?.message || String(error) || '加载共享文件失败').toString();
       logWarn('ui', 'forkDraft.shared_files.refresh_failed', { error: availableSharedFilesError.value });
     }
@@ -286,14 +306,28 @@ function createPageAutoContinue(props, taskHandoff, selectedThreadId, persistenc
     return out;
   });
   const autoContinueRetrying = ref(false);
-  const autoContinueRetryError = ref(''); // R2 fix：失败反馈不再吃掉
+  const autoContinueRetryErrorByThread = ref(new Map());
+  const autoContinueRetryError = computed(() => {
+    const tid = (selectedThreadId.value || '').toString().trim();
+    if (!tid) return '';
+    return autoContinueRetryErrorByThread.value.get(tid) || '';
+  });
+  function setAutoContinueRetryError(threadId, message) {
+    const tid = (threadId || '').toString().trim();
+    if (!tid) return;
+    const next = new Map(autoContinueRetryErrorByThread.value);
+    const msg = (message || '').toString().trim();
+    if (msg) next.set(tid, msg);
+    else next.delete(tid);
+    autoContinueRetryErrorByThread.value = next;
+  }
   async function onRetryAutoContinue() {
     const id = (selectedThreadId.value || '').toString().trim();
     if (!id || autoContinueRetrying.value) return;
     autoContinueRetrying.value = true;
-    autoContinueRetryError.value = '';
+    setAutoContinueRetryError(id, '');
     try { await r.retryAutoContinue(id); }
-    catch (err) { autoContinueRetryError.value = (err && err.message) || String(err); }
+    catch (err) { setAutoContinueRetryError(id, (err && err.message) || String(err)); }
     finally { autoContinueRetrying.value = false; }
   }
   return {
@@ -424,6 +458,7 @@ function createPageTaskHandoff(props, ctx) {
 // 重复点击，避免日志吵。
 function createPagePromoteTask(props, threadStore, selectedThreadId, threadWatchdog) {
   const promote = usePromoteTask();
+  const promoteTaskErrorByThread = ref(new Map());
   // threadIsTask / threadTaskId 来自当前 selectedThreadId 的 runtime。
   const threadTaskId = computed(() => {
     const tid = (selectedThreadId.value || '').toString().trim();
@@ -433,21 +468,45 @@ function createPagePromoteTask(props, threadStore, selectedThreadId, threadWatch
     return ((rt.taskId || rt.task_id) || '').toString().trim();
   });
   const threadIsTask = computed(() => Boolean(threadTaskId.value));
+  const promoteTaskLastError = computed(() => {
+    const tid = (selectedThreadId.value || '').toString().trim();
+    if (!tid) return '';
+    return promoteTaskErrorByThread.value.get(tid) || '';
+  });
+
+  function setPromoteTaskError(threadId, message) {
+    const tid = (threadId || '').toString().trim();
+    if (!tid) return;
+    const next = new Map(promoteTaskErrorByThread.value);
+    const msg = (message || '').toString().trim();
+    if (msg) next.set(tid, msg);
+    else next.delete(tid);
+    promoteTaskErrorByThread.value = next;
+  }
 
   async function onPromoteTaskRequested() {
     const tid = (selectedThreadId.value || '').toString().trim();
     if (!tid) return;
-    const result = await promote.promoteTaskFromThread(tid);
+    setPromoteTaskError(tid, '');
+    let result;
+    try {
+      result = await promote.promoteTaskFromThread(tid);
+    } catch (error) {
+      const msg = (promote.lastError.value || (error && error.message) || String(error || '')).toString().trim() || 'promote-task RPC failed';
+      setPromoteTaskError(tid, msg);
+      throw error;
+    }
     // 成功后 banner 卡住状态可以直接清掉：升级以后 watchdog 转 task 路径，
     // banner 提示也就不再适用。失败则保留状态让用户重试。
     if (result && threadWatchdog && threadWatchdog.stuckByThread && threadWatchdog.stuckByThread.value) {
       threadWatchdog.stuckByThread.value.delete(tid);
     }
+    return result;
   }
 
   return {
     promotingTask: promote.promoting,
-    promoteTaskLastError: promote.lastError,
+    promoteTaskLastError,
     threadIsTask,
     threadTaskId,
     onPromoteTaskRequested,
@@ -611,6 +670,15 @@ export const UnifiedChatPage = {
         }
       },
     });
+    watch(
+      () => [modeKey.value, selectedThreadId.value],
+      () => {
+        if (typeof composer.activateDraft === 'function') {
+          composer.activateDraft(selectedThreadId.value, modeKey.value);
+        }
+      },
+      { immediate: true, flush: 'sync' },
+    );
 
     const pathChoiceController = createPathChoiceController(selectedThreadId);
     const isPreviewDirty = ref(false);
@@ -620,7 +688,19 @@ export const UnifiedChatPage = {
     });
     watch(selectedThreadId, () => { isPreviewDirty.value = false; });
 
-    const activeStatus = computed(() => normalizeStatus(props.threadStore.getThreadStatus(selectedThreadId.value)));
+    const sendBlockedNoticesByThread = ref(new Map());
+    const sendHoldNoticesByThread = ref(new Map());
+    const activeRawStatus = computed(() => (props.threadStore.getThreadStatus(selectedThreadId.value) || '').toString());
+    const activeStatus = computed(() => normalizeStatus(activeRawStatus.value));
+    const activeThreadSendBlocked = computed(() => {
+      const threadId = (selectedThreadId.value || '').toString().trim();
+      const storeBlocked = typeof props.threadStore.isThreadSendBlocked === 'function'
+        ? props.threadStore.isThreadSendBlocked(threadId)
+        : Boolean(threadId && props.threadStore?.state?.sendBlockedNoticesByThread?.[threadId]);
+      const storeHeld = Boolean(threadId && props.threadStore?.state?.sendHoldNoticesByThread?.[threadId]);
+      return isThreadErrorStatus(activeRawStatus.value)
+        || Boolean(threadId && (sendBlockedNoticesByThread.value.has(threadId) || sendHoldNoticesByThread.value.has(threadId) || storeBlocked || storeHeld));
+    });
     const threadStatus = useThreadStatus(props, selectedThreadId, activeStatus, pathChoiceController.showPathChoiceModal);
     const activeThread = computed(() => threads.value.find((/** @type {any} */ item) => item.id === selectedThreadId.value) || null);
     const activeProjectCwd = computed(() => resolveProjectViewCwd(props.projectStore, props.windowCwd));
@@ -699,7 +779,7 @@ export const UnifiedChatPage = {
       selectedThreadId, modeKey, isCmd, composer, layoutMode, cmdCardCols,
       compacting: threadStatus.compacting, isThreadInterruptible: threadStatus.isThreadInterruptible,
       beginInlineRename: inlineRename.beginInlineRename, scheduleScrollToBottom,
-      showArchivedThreadList, providerPreferenceReady, providerPreferenceError,
+      showArchivedThreadList, providerPreferenceReady, providerPreferenceError, sendBlockedNoticesByThread, sendHoldNoticesByThread,
     });
 
     const threadConfigController = createThreadConfigController({ threadStore: props.threadStore, threadActions, selectedThreadId, isCmd });
@@ -742,7 +822,7 @@ export const UnifiedChatPage = {
       keyboardShortcuts,
       useClaudeProvider, providerPreferenceReady, providerPreferenceError, toggleProviderMode,
       activeTimeline, activeDiffText, activeMediaPreview, activeMarkdownPreview,
-      activeDiffFocusFile, activeDiffFocusLine, activeStatus,
+      activeDiffFocusFile, activeDiffFocusLine, activeStatus, activeThreadSendBlocked,
       layoutMode, cmdCardCols, splitRatio, threadRailStyle, showWorkspace,
       chatComposerShellStyle, activityPanelRowStyle, timelinePreview, diffPreview,
       showPathChoiceModal: pathChoiceController.showPathChoiceModal,

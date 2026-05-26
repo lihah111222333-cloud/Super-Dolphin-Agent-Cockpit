@@ -1,6 +1,6 @@
 // @ts-nocheck
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { reactive, ref } from '../lib/vue.esm-browser.prod.js';
+import { nextTick, reactive, ref } from '../lib/vue.esm-browser.prod.js';
 
 const apiMock = vi.hoisted(() => ({
   callAPI: vi.fn(),
@@ -22,6 +22,8 @@ function createThreadActions(overrides = {}) {
   const threadStore = {
     state: reactive({
       agentRuntimeById: overrides.runtimeById ?? {},
+      sendBlockedNoticesByThread: {},
+      sendHoldNoticesByThread: {},
     }),
     startThread: vi.fn().mockResolvedValue('thread-started'),
     getThreadConfig: vi.fn().mockResolvedValue(null),
@@ -56,6 +58,8 @@ function createThreadActions(overrides = {}) {
     composer: {
       state: composerState,
       clearComposer: vi.fn(() => { composerState.text = ''; composerState.attachments = []; }),
+      clearDraft: vi.fn(),
+      restoreDraft: vi.fn(),
     },
     layoutMode: ref(overrides.layoutMode ?? 'mix'),
     cmdCardCols: ref(overrides.cmdCardCols ?? 3),
@@ -86,6 +90,21 @@ function createDeferred() {
   return { promise, resolve, reject };
 }
 
+async function flush() {
+  await Promise.resolve();
+  await nextTick();
+}
+
+function mockNextSendBackendFailure(vm, threadId, error) {
+  vm.threadStore.sendMessage.mockImplementationOnce(async () => {
+    vm.threadStore.state.sendBlockedNoticesByThread = {
+      ...(vm.threadStore.state.sendBlockedNoticesByThread || {}),
+      [threadId]: `发送失败：${error?.message || String(error)}`,
+    };
+    throw error;
+  });
+}
+
 beforeEach(() => {
   vi.restoreAllMocks();
   apiMock.callAPI.mockReset().mockResolvedValue({});
@@ -97,6 +116,28 @@ beforeEach(() => {
 });
 
 describe('useThreadActions', () => {
+  it('surfaces an existing blocked notice for the initially selected thread', () => {
+    const sendBlockedNoticesByThread = ref(new Map([['thread-a', '发送失败：backend boom']]));
+
+    const vm = createThreadActions({
+      selectedThreadId: 'thread-a',
+      deps: { sendBlockedNoticesByThread },
+    });
+
+    expect(vm.sendFailureNotice.value).toBe('发送失败：backend boom');
+  });
+
+  it('surfaces an existing error-status block for the initially selected thread', () => {
+    const vm = createThreadActions({
+      selectedThreadId: 'thread-error',
+      threadStore: {
+        getThreadStatus: vi.fn(() => 'error'),
+      },
+    });
+
+    expect(vm.sendFailureNotice.value).toContain('当前会话已报错');
+  });
+
   it('launchOne opens a local draft without creating a backend thread when composer is empty', async () => {
     const vm = createThreadActions({ selectedThreadId: 'thread-live' });
 
@@ -495,13 +536,32 @@ describe('useThreadActions', () => {
     );
   });
 
+  it('send: blocks manual sends on an errored selected thread before calling the backend', async () => {
+    const vm = createThreadActions({
+      selectedThreadId: 'thread-error',
+      text: '继续',
+      attachments: [{ path: '/tmp/a.txt' }],
+      threadStore: {
+        getThreadStatus: vi.fn(() => 'error'),
+      },
+    });
+
+    await vm.send();
+
+    expect(vm.threadStore.startThread).not.toHaveBeenCalled();
+    expect(vm.threadStore.sendMessage).not.toHaveBeenCalled();
+    expect(vm.deps.composer.state.text).toBe('继续');
+    expect(vm.deps.composer.state.attachments).toEqual([{ path: '/tmp/a.txt' }]);
+    expect(vm.sendFailureNotice.value).toContain('当前会话已报错');
+  });
+
   it('send: restores composer content on sendMessage failure', async () => {
     const vm = createThreadActions({
       selectedThreadId: 'thread-live',
       text: 'will fail',
       attachments: [{ path: '/file.txt' }],
     });
-    vm.threadStore.sendMessage.mockRejectedValueOnce(new Error('network'));
+    mockNextSendBackendFailure(vm, 'thread-live', new Error('network'));
 
     await expect(vm.send()).rejects.toThrow('network');
 
@@ -520,19 +580,110 @@ describe('useThreadActions', () => {
 
     expect(vm.deps.selectedThreadId.value).toBe('');
     expect(vm.deps.composer.state.text).toBe('retry later');
+    await flush();
+    expect(vm.sendFailureNotice.value).toContain('context deadline exceeded');
   });
 
-  it('send: shows generic backend details for non-workdir failures', async () => {
+  it('send: shows generic backend details and blocks repeated sends after non-workdir failures', async () => {
     const vm = createThreadActions({
       selectedThreadId: 'thread-live',
       text: 'retry',
     });
     vm.sendFailureNotice.value = '旧的工作目录提示';
-    vm.threadStore.sendMessage.mockRejectedValueOnce(new Error('network'));
+    mockNextSendBackendFailure(vm, 'thread-live', new Error('network'));
 
     await expect(vm.send()).rejects.toThrow('network');
 
     expect(vm.sendFailureNotice.value).toBe('发送失败：network');
+    expect(vm.deps.composer.state.text).toBe('retry');
+
+    vm.threadStore.sendMessage.mockClear();
+    vm.deps.composer.state.text = 'retry again';
+    await vm.send();
+
+    expect(vm.threadStore.sendMessage).not.toHaveBeenCalled();
+    expect(vm.deps.composer.state.text).toBe('retry again');
+    expect(vm.sendFailureNotice.value).toBe('发送失败：network');
+  });
+
+  it('send: holds repeated sends when the send action rejects without a store marker', async () => {
+    const vm = createThreadActions({
+      selectedThreadId: 'thread-live',
+      text: 'retry',
+    });
+    vm.threadStore.sendMessage.mockRejectedValueOnce(new Error('local sync failed'));
+
+    await expect(vm.send()).rejects.toThrow('local sync failed');
+
+    expect(vm.sendFailureNotice.value).toBe('发送失败：local sync failed');
+
+    vm.threadStore.sendMessage.mockClear();
+    vm.deps.composer.state.text = 'retry again';
+    await vm.send();
+
+    expect(vm.threadStore.sendMessage).not.toHaveBeenCalled();
+    expect(vm.sendFailureNotice.value).toBe('发送失败：local sync failed');
+  });
+
+  it('send: clears the failure notice only when the selected thread changes', async () => {
+    const vm = createThreadActions({
+      selectedThreadId: 'thread-a',
+      text: 'retry',
+    });
+    vm.threadStore.sendMessage.mockRejectedValueOnce(new Error('network'));
+
+    await expect(vm.send()).rejects.toThrow('network');
+    expect(vm.sendFailureNotice.value).toBe('发送失败：network');
+
+    vm.deps.selectedThreadId.value = 'thread-a';
+    await flush();
+    expect(vm.sendFailureNotice.value).toBe('发送失败：network');
+
+    vm.deps.selectedThreadId.value = 'thread-b';
+    await flush();
+    expect(vm.sendFailureNotice.value).toBe('');
+  });
+
+  it('send: does not surface a late failure after the selected thread changed', async () => {
+    const pendingSend = createDeferred();
+    const sendBlockedNoticesByThread = ref(new Map());
+    const vm = createThreadActions({
+      selectedThreadId: 'thread-a',
+      text: 'retry after switch',
+      deps: { sendBlockedNoticesByThread },
+    });
+    vm.threadStore.sendMessage.mockImplementationOnce(() => pendingSend.promise);
+
+    const sendPromise = vm.send();
+    vm.deps.selectedThreadId.value = 'thread-b';
+    vm.deps.composer.state.text = 'thread-b draft';
+    vm.deps.composer.state.attachments = [{ path: '/thread-b.txt' }];
+    await flush();
+
+    vm.threadStore.state.sendBlockedNoticesByThread = { 'thread-a': '发送失败：late network' };
+    pendingSend.reject(new Error('late network'));
+    await expect(sendPromise).rejects.toThrow('late network');
+
+    expect(vm.sendFailureNotice.value).toBe('');
+    expect(vm.deps.composer.state.text).toBe('thread-b draft');
+    expect(vm.deps.composer.state.attachments).toEqual([{ path: '/thread-b.txt' }]);
+    expect(vm.deps.composer.restoreDraft).toHaveBeenCalledWith('thread-a', 'chat', {
+      text: 'retry after switch',
+      attachments: [],
+    });
+    expect(sendBlockedNoticesByThread.value.get('thread-a')).toBe('发送失败：late network');
+    expect(sendBlockedNoticesByThread.value.has('thread-b')).toBe(false);
+
+    vm.deps.selectedThreadId.value = 'thread-a';
+    await flush();
+    expect(vm.sendFailureNotice.value).toBe('发送失败：late network');
+
+    vm.threadStore.sendMessage.mockClear();
+    vm.deps.composer.state.text = 'retry thread-a';
+    await vm.send();
+
+    expect(vm.threadStore.sendMessage).not.toHaveBeenCalled();
+    expect(vm.deps.composer.state.text).toBe('retry thread-a');
   });
 
   it('send: shows a Chinese notice when the thread worktree directory is missing', async () => {
@@ -551,6 +702,29 @@ describe('useThreadActions', () => {
     expect(vm.sendFailureNotice.value).toContain('该会话的工作目录已不存在');
     expect(vm.sendFailureNotice.value).toContain('/repo/.worktrees/missing');
     expect(vm.sendFailureNotice.value).toContain('请恢复该目录，或新建/重新绑定会话后继续');
+  });
+
+  it('send: blocks repeated sends after provider cwd realpath reports a missing directory', async () => {
+    const vm = createThreadActions({
+      selectedThreadId: 'missing-cwd-repro-20260525',
+      text: '111',
+    });
+    const missingCwd = '/Users/ai/.config/superpowers/worktrees/Super-Dolphin/fix-session-error-leak/.tmp-missing-cwd-agent.8vlje0';
+    mockNextSendBackendFailure(vm, 'missing-cwd-repro-20260525', new Error(`{"message":"[-32098] resolve session: thread \\"missing-cwd-repro-20260525\\": resolve session: auto-resume failed: resolve provider project cwd realpath: lstat ${missingCwd}: no such file or directory"}`));
+
+    await expect(vm.send()).rejects.toThrow('resolve provider project cwd realpath');
+
+    expect(vm.threadStore.sendMessage).toHaveBeenCalledTimes(1);
+    expect(vm.sendFailureNotice.value).toContain('该会话的工作目录已不存在');
+    expect(vm.sendFailureNotice.value).toContain(missingCwd);
+
+    vm.threadStore.sendMessage.mockClear();
+    vm.deps.composer.state.text = '222';
+    await vm.send();
+
+    expect(vm.threadStore.sendMessage).not.toHaveBeenCalled();
+    expect(vm.deps.composer.state.text).toBe('222');
+    expect(vm.sendFailureNotice.value).toContain(missingCwd);
   });
 
   it('send: shows a Chinese notice when skill mirror safety conflicts block provider startup', async () => {
@@ -645,11 +819,15 @@ describe('useThreadActions', () => {
   });
 
   it('recoverSelected: calls recoverThread, returns a notice and resets the recovering flag', async () => {
-    const vm = createThreadActions({ selectedThreadId: 'thread-live' });
+    const vm = createThreadActions({
+      selectedThreadId: 'thread-live',
+      threadStore: { clearThreadSendBlockedNotice: vi.fn() },
+    });
 
     const result = await vm.recoverSelected();
 
     expect(vm.threadStore.recoverThread).toHaveBeenCalledWith('thread-live');
+    expect(vm.threadStore.clearThreadSendBlockedNotice).toHaveBeenCalledWith('thread-live');
     expect(vm.recoveringSelected.value).toBe(false);
     expect(result).toEqual(expect.objectContaining({ ok: true, threadId: 'thread-live' }));
     expect(result.message).toContain('恢复');

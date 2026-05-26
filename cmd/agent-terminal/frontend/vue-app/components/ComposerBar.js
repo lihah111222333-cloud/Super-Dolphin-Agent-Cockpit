@@ -12,6 +12,7 @@ export const ComposerBar = {
   props: {
     composer: { type: Object, required: true },
     disabled: { type: Boolean, default: false },
+    sendDisabled: { type: Boolean, default: false },
     threadId: { type: String, default: '' },
     interruptible: { type: Boolean, default: false },
     compacting: { type: Boolean, default: false },
@@ -80,6 +81,7 @@ export const ComposerBar = {
       return 'var(--info, #60a5fa)';
     });
     function hasReadyInput() {
+      if (props.disabled || props.sendDisabled) return false;
       return props.composer.canSend.value;
     }
 

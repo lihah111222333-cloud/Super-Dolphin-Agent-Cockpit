@@ -23,6 +23,7 @@ beforeEach(() => {
   apiMock.saveClipboardImage.mockReset();
   apiMock.selectFiles.mockReset();
   const store = useComposerStore();
+  store.resetComposerDrafts();
   store.clearComposer();
   store.state.attaching = false;
 });
@@ -185,5 +186,44 @@ describe('composer store behavior', () => {
     expect(store.state.text).toBe('');
     expect(store.state.attachments).toEqual([]);
     expect(store.canSend.value).toBe(false);
+  });
+
+  it('keeps draft text and attachments isolated by thread', () => {
+    const store = useComposerStore();
+
+    store.activateDraft('thread-a', 'chat');
+    store.state.text = 'draft A';
+    store.attachByPaths(['/tmp/a.txt']);
+
+    store.activateDraft('thread-b', 'chat');
+    expect(store.state.text).toBe('');
+    expect(store.state.attachments).toEqual([]);
+
+    store.state.text = 'draft B';
+    store.activateDraft('thread-a', 'chat');
+    expect(store.state.text).toBe('draft A');
+    expect(store.state.attachments.map((item) => item.path)).toEqual(['/tmp/a.txt']);
+
+    store.activateDraft('thread-b', 'chat');
+    expect(store.state.text).toBe('draft B');
+    expect(store.state.attachments).toEqual([]);
+  });
+
+  it('clears only the active draft', () => {
+    const store = useComposerStore();
+
+    store.activateDraft('thread-a', 'chat');
+    store.state.text = 'draft A';
+    store.activateDraft('thread-b', 'chat');
+    store.state.text = 'draft B';
+
+    store.clearComposer();
+    expect(store.state.text).toBe('');
+
+    store.activateDraft('thread-a', 'chat');
+    expect(store.state.text).toBe('draft A');
+
+    store.activateDraft('thread-b', 'chat');
+    expect(store.state.text).toBe('');
   });
 });
