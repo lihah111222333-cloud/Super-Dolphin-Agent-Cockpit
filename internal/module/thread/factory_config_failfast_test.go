@@ -355,6 +355,54 @@ func TestReadThreadStateRuntimeConfigFailsFastOnBindingLookupError(t *testing.T)
 	}
 }
 
+func TestReadThreadStateRuntimeConfigIncludesPersistedCWD(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name    string
+		thread  *threadstore.Thread
+		binding *bindingstore.Binding
+		want    string
+	}{
+		{
+			name:    "thread cwd",
+			thread:  &threadstore.Thread{ThreadID: "thread-1", AgentID: "agent-1", Cwd: "/thread/worktree"},
+			binding: &bindingstore.Binding{AgentID: "agent-1", Cwd: "/thread/worktree"},
+			want:    "/thread/worktree",
+		},
+		{
+			name:    "binding cwd",
+			thread:  &threadstore.Thread{ThreadID: "thread-1", AgentID: "agent-1"},
+			binding: &bindingstore.Binding{AgentID: "agent-1", Cwd: "/binding/worktree"},
+			want:    "/binding/worktree",
+		},
+		{
+			name:    "thread cwd overrides empty runtime cwd",
+			thread:  &threadstore.Thread{ThreadID: "thread-1", AgentID: "agent-1", Cwd: "/thread/worktree", ConfigOverride: json.RawMessage(`{"runtime":{"cwd":""}}`)},
+			binding: &bindingstore.Binding{AgentID: "agent-1", Cwd: "/thread/worktree"},
+			want:    "/thread/worktree",
+		},
+		{
+			name:    "binding cwd overrides stale runtime cwd",
+			thread:  &threadstore.Thread{ThreadID: "thread-1", AgentID: "agent-1", ConfigOverride: json.RawMessage(`{"runtime":{"cwd":"/stale/worktree"}}`)},
+			binding: &bindingstore.Binding{AgentID: "agent-1", Cwd: "/binding/worktree"},
+			want:    "/binding/worktree",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			svc := &service{threadStore: &stubThreadStore{thread: tc.thread}, bindingStore: &stubBindingStore{binding: tc.binding}}
+			got, err := svc.ReadThreadStateRuntimeConfig(context.Background(), "thread-1")
+			if err != nil {
+				t.Fatalf("ReadThreadStateRuntimeConfig() error = %v", err)
+			}
+			if got["cwd"] != tc.want {
+				t.Fatalf("ReadThreadStateRuntimeConfig()[cwd] = %v, want %q; runtime=%#v", got["cwd"], tc.want, got)
+			}
+		})
+	}
+}
+
 func TestPersistResumedSessionFailsFastOnPersistError(t *testing.T) {
 	t.Parallel()
 

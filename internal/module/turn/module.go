@@ -24,13 +24,10 @@ var Module = fx.Module("turn",
 		// Publish the narrow CronTurnExecutor adapter so the cron module
 		// can prepare/start/track turns without importing internal/module/turn.
 		provideCronTurnExecutor,
-		fx.Annotate(
-			NewOrchestrationTurnStarter,
-			fx.ParamTags("", "", `optional:"true"`),
-		),
+		NewOrchestrationTurnStarter,
 		fx.Annotate(
 			NewTurnHandlers,
-			fx.ParamTags("", `optional:"true"`, "", `optional:"true"`, `optional:"true"`, `optional:"true"`),
+			fx.ParamTags("", `optional:"true"`, "", `optional:"true"`, "", `optional:"true"`),
 		),
 		// P0b Step 2: trajectory collector. observation.Contract is
 		// optional so deployments without observation still wire turn

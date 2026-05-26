@@ -7,7 +7,6 @@ import (
 	"go.uber.org/fx"
 )
 
-// Keep the owner-side launch contract in internal/contract, not turn.
 var _ contract.PendingLaunchSpawner = (Service)(nil)
 
 var Module = fx.Module("thread",
@@ -15,34 +14,23 @@ var Module = fx.Module("thread",
 		fx.Annotate(
 			NewServiceWithPromptAssemblyAndSharedFiles,
 			fx.ParamTags("", `optional:"true"`, `optional:"true"`, `optional:"true"`, `optional:"true"`, `optional:"true"`, `optional:"true"`, `optional:"true"`, `optional:"true"`, `optional:"true"`, `optional:"true"`, `optional:"true"`, `optional:"true"`, `optional:"true"`, `optional:"true"`, `optional:"true"`),
-			// fx.As replaces the original output, so publish both native
-			// thread.Service and the narrow cross-module launch contract.
 			fx.As(new(Service)),
 			fx.As(new(contract.PendingLaunchSpawner)),
 		),
-		fx.Annotate(
-			NewThreadHandlers,
-			fx.ParamTags("", `optional:"true"`),
-		),
-		provideThreadConcreteService,
+		fx.Annotate(NewThreadHandlers, fx.ParamTags("", `optional:"true"`)),
+		provideThreadConcreteOutputs,
 		provideRuntimePromptCatalog,
 		NewThreadSubscribers,
-		// Let cron start threads without importing internal/module/thread.
 		provideCronThreadStarter,
 	),
-	fx.Provide(
-		fx.Annotate(threadBusWorkersAsRunner, fx.ResultTags(`group:"runners"`)),
-	),
-	fx.Provide(NewBindingRecoveryReporter),
-	fx.Provide(NewThreadLister),
-	fx.Provide(NewThreadConfigReader),
-	fx.Provide(NewThreadRuntimeConfigReader),
+	fx.Provide(fx.Annotate(threadBusWorkersAsRunner, fx.ResultTags(`group:"runners"`))),
+	fx.Provide(NewBindingRecoveryReporter, NewThreadLister, NewThreadConfigReader, NewThreadRuntimeConfigReader),
 	fx.Invoke(registerThreadPromptProviders),
 )
 
-func provideThreadConcreteService(svc Service) *service {
+func provideThreadConcreteOutputs(svc Service) (*service, contract.ThreadStateConfigReader) {
 	concrete, _ := svc.(*service)
-	return concrete
+	return concrete, concrete
 }
 
 func provideCronThreadStarter(svc Service) contract.CronThreadStarter {
@@ -51,7 +39,6 @@ func provideCronThreadStarter(svc Service) contract.CronThreadStarter {
 
 type threadPromptProviderParams struct {
 	fx.In
-
 	Registrar     contract.DynamicSectionRegistrar `optional:"true"`
 	PromptStore   promptstore.Store                `optional:"true"`
 	Builtin       contract.BuiltinPromptRegistry   `optional:"true"`
@@ -68,7 +55,6 @@ func registerThreadPromptProviders(params threadPromptProviderParams) error {
 
 type runtimePromptCatalogParams struct {
 	fx.In
-
 	PromptStore promptstore.Store              `optional:"true"`
 	Builtin     contract.BuiltinPromptRegistry `optional:"true"`
 }

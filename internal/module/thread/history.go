@@ -241,7 +241,7 @@ func (s *service) resolveBatchRuntime(
 		return nil, err
 	}
 
-	baseRuntime := buildOfflineRuntimeConfig(offlineCfg, thread)
+	baseRuntime := buildOfflineRuntimeConfig(offlineCfg, thread, binding)
 	sessionCfg, err := s.resolveBatchSessionCfg(binding)
 	if err != nil {
 		return nil, err
