@@ -35,7 +35,7 @@ class M3DogfoodHarnessTest(unittest.TestCase):
     def test_main_ops_build_prompt_template_first_ten_node_dag(self):
         dogfood = load_script()
 
-        ops = dogfood.build_main_ops("agent_m3", "reports/m3-dogfood")
+        ops = dogfood.build_main_ops("agent_m3", "reports/m3-dogfood", cwd="/repo/current")
         add_ops = [op for op in ops if op["op"] == "add_node"]
         update_ops = [op for op in ops if op["op"] == "update_node"]
 
@@ -43,37 +43,49 @@ class M3DogfoodHarnessTest(unittest.TestCase):
         self.assertEqual(len(update_ops), 0)
         self.assertTrue(all(op["node"]["node_type"] == "agent" for op in add_ops))
         self.assertFalse(any("command_ref" in op["node"] for op in add_ops))
+        self.assertTrue(all(op["node"]["config"]["exec"]["cwd"] == "/repo/current" for op in add_ops))
+        node_keys = {op["node"]["node_key"] for op in add_ops}
+        self.assertTrue(all(
+            set(op["node"].get("depends_on", [])) <= node_keys
+            for op in add_ops
+        ))
 
         agent_keys = {
             op["node"]["config"]["exec"]["agent_key"]
             for op in add_ops
         }
-        self.assertGreaterEqual(len(agent_keys), 3)
+        self.assertEqual(len(agent_keys), 10)
         self.assertIn("morning_briefer", agent_keys)
-        self.assertIn("paper_summarizer", agent_keys)
-        self.assertIn("topic_curator", agent_keys)
+        self.assertIn("pr_summarizer", agent_keys)
+        self.assertIn("health_reporter", agent_keys)
+        self.assertIn("docs-writer", agent_keys)
+        self.assertNotIn("paper_summarizer", agent_keys)
+        self.assertNotIn("topic_curator", agent_keys)
+        self.assertNotIn("trip_briefer", agent_keys)
 
-        paper = next(op for op in add_ops if op["node"]["node_key"] == "paper_summarizer")
-        paper_config = paper["node"]["config"]
+        pr_summary = next(op for op in add_ops if op["node"]["node_key"] == "pr_summarizer")
+        pr_config = pr_summary["node"]["config"]
         self.assertEqual(
-            paper_config["outputs"]["to_sharedfile"]["path"],
-            "reports/m3-dogfood/paper_summarizer.md",
+            pr_config["outputs"]["to_sharedfile"]["path"],
+            "reports/m3-dogfood/pr_summarizer.md",
         )
-        self.assertFalse(paper_config["outputs"].get("to_node_result", False))
-        self.assertIn(">4KB", paper_config["first_turn"])
-        self.assertIn("topic_curator", paper_config["inputs"]["from_nodes"])
-        self.assertNotIn("summarization", paper_config["inputs"])
+        self.assertFalse(pr_config["outputs"].get("to_node_result", False))
+        self.assertIn(">4KB", pr_config["first_turn"])
+        self.assertIn("data_inspector", pr_config["inputs"]["from_nodes"])
+        self.assertNotIn("summarization", pr_config["inputs"])
 
     def test_negative_ops_and_metrics_cover_hard_thresholds(self):
         dogfood = load_script()
 
-        ops = dogfood.build_negative_ops("agent_m3", "reports/m3-dogfood")
+        ops = dogfood.build_negative_ops("agent_m3", "reports/m3-dogfood", cwd="/repo/current")
         add = next(op for op in ops if op["op"] == "add_node")
         self.assertFalse(any(op["op"] == "update_node" for op in ops))
         outputs = add["node"]["config"]["outputs"]
         self.assertTrue(outputs["to_node_result"])
         self.assertNotIn("to_sharedfile", outputs)
         self.assertIn(">4KB", add["node"]["config"]["first_turn"])
+        self.assertEqual(add["node"]["config"]["exec"]["cwd"], "/repo/current")
+        self.assertEqual(add["node"]["config"]["exec"]["agent_key"], "pr_summarizer")
 
         self.assertEqual(
             dogfood.required_metric_names(),
@@ -102,6 +114,50 @@ class M3DogfoodHarnessTest(unittest.TestCase):
         result = client.request("initialize", {"protocolVersion": "2024-11-05"})
 
         self.assertEqual(result["serverInfo"]["name"], "fake-mcp")
+
+    def test_call_tool_sends_trusted_scope_metadata(self):
+        dogfood = load_script()
+        client = FakeClient()
+        client.tool_scope = {
+            "_agentId": "agent_m3",
+            "_threadId": "thread_m3",
+            "_callId": "call_m3",
+            "_cwd": "/repo/current",
+            "_workspaceRoots": ["/repo/current"],
+        }
+
+        dogfood.call_tool(client, "prompt_list", {"keyword": ""})
+
+        params = client.raw_calls[0]
+        self.assertEqual(params["_cwd"], "/repo/current")
+        self.assertEqual(params["_agentId"], "agent_m3")
+        self.assertEqual(params["arguments"], {"keyword": ""})
+        self.assertNotIn("_cwd", params["arguments"])
+
+    def test_call_tool_raises_structured_tool_errors(self):
+        dogfood = load_script()
+        client = FakeClient(result={
+            "success": False,
+            "error": "prompt tools require trusted cwd",
+            "code": "lsp_unavailable",
+            "retryable": True,
+        })
+
+        with self.assertRaises(dogfood.MCPError) as cm:
+            dogfood.call_tool(client, "prompt_list", {"keyword": ""})
+
+        self.assertIn("prompt_list failed", str(cm.exception))
+        self.assertIn("lsp_unavailable", str(cm.exception))
+        self.assertIn("trusted cwd", str(cm.exception))
+
+    def test_validate_prompts_accepts_prompt_list_items_envelope(self):
+        dogfood = load_script()
+        rows = [
+            {"agent_key": key, "enabled": True}
+            for key in dogfood.REQUIRED_AGENT_KEYS
+        ]
+
+        dogfood.validate_prompts({"items": rows, "total": len(rows)})
 
     def test_metrics_fetch_keeps_environment_proxy_for_remote_url(self):
         dogfood = load_script()
@@ -141,7 +197,7 @@ class M3DogfoodHarnessTest(unittest.TestCase):
         dogfood = load_script()
         client = FakeClient()
 
-        dispatched = dogfood.dispatch_ready_nodes(client, "dag-a", [
+        dispatched = dogfood.dispatch_ready_nodes(client, "dag-a", 42, [
             {"node_key": "ready-empty", "status": "ready", "assigned_to": ""},
             {"node_key": "ready-owned", "status": "ready", "assigned_to": "agent_old"},
             {"node_key": "pending-empty", "status": "pending", "assigned_to": ""},
@@ -153,6 +209,7 @@ class M3DogfoodHarnessTest(unittest.TestCase):
             ("task_dispatch_node", {
                 "dag_key": "dag-a",
                 "node_key": "ready-empty",
+                "run_id": 42,
                 "assigned_to": "agent_m3",
             })
         ])
@@ -305,6 +362,7 @@ retry_count_per_node_overflow_total 0
     def test_wait_for_dag_requires_expected_node_keys_before_terminal_success(self):
         dogfood = load_script()
         client = FakeDAGClient([{
+            "run": {"id": 42},
             "nodes": [{"node_key": "only-one", "status": "done"}],
         }])
 
@@ -312,6 +370,7 @@ retry_count_per_node_overflow_total 0
             dogfood.wait_for_dag(
                 client,
                 "dag-a",
+                "run-a",
                 timeout_sec=0.01,
                 poll_sec=0,
                 assignee="agent_m3",
@@ -322,8 +381,8 @@ retry_count_per_node_overflow_total 0
     def test_wait_for_dag_accepts_partial_poll_before_full_terminal_success(self):
         dogfood = load_script()
         client = FakeDAGClient([
-            {"nodes": [{"node_key": "first", "status": "running"}]},
-            {"nodes": [
+            {"run": {"id": 42}, "nodes": [{"node_key": "first", "status": "running"}]},
+            {"run": {"id": 42}, "nodes": [
                 {"node_key": "first", "status": "done"},
                 {"node_key": "second", "status": "done"},
             ]},
@@ -332,6 +391,7 @@ retry_count_per_node_overflow_total 0
         dogfood.wait_for_dag(
             client,
             "dag-a",
+            "run-a",
             timeout_sec=1,
             poll_sec=0,
             assignee="agent_m3",
@@ -341,17 +401,20 @@ retry_count_per_node_overflow_total 0
 
         self.assertEqual(
             [call[1]["name"] for call in client.calls],
-            ["task_get_dag", "task_get_dag"],
+            ["task_get_run", "task_get_run"],
         )
 
 
 class FakeClient:
-    def __init__(self):
+    def __init__(self, result=None):
         self.calls = []
+        self.raw_calls = []
+        self.result = {"ok": True} if result is None else result
 
     def request(self, method, params):
+        self.raw_calls.append(params)
         self.calls.append((params["name"], params["arguments"]))
-        return {"structuredContent": {"ok": True}}
+        return {"structuredContent": self.result}
 
 
 class FakeDAGClient:
@@ -361,7 +424,7 @@ class FakeDAGClient:
 
     def request(self, method, params):
         self.calls.append((method, params))
-        if params["name"] == "task_get_dag":
+        if params["name"] == "task_get_run":
             if len(self.details) > 1:
                 return {"structuredContent": self.details.pop(0)}
             return {"structuredContent": self.details[0]}
