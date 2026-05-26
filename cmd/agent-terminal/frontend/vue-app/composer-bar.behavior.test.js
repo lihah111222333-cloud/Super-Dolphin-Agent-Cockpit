@@ -70,6 +70,7 @@ function createComposerBar(overrides = {}, emit = vi.fn()) {
       removeAttachment: vi.fn(),
     },
     disabled: overrides.disabled ?? false,
+    sendDisabled: overrides.sendDisabled ?? false,
     threadId: Object.prototype.hasOwnProperty.call(overrides, 'threadId') ? overrides.threadId : 'thread-1',
     interruptible: overrides.interruptible ?? false,
     compacting: overrides.compacting ?? false,
@@ -148,6 +149,32 @@ describe('ComposerBar behavior', () => {
   it('skips send when the composer has no ready input', () => {
     const emit = vi.fn();
     const { vm } = createComposerBar({ canSend: false }, emit);
+
+    const preventDefault = vi.fn();
+    vm.onSend({ type: 'keydown', key: 'Enter', preventDefault, isComposing: false });
+
+    expect(preventDefault).not.toHaveBeenCalled();
+    expect(emit).not.toHaveBeenCalled();
+  });
+
+  it('skips send while disabled even when the composer has ready input', () => {
+    const emit = vi.fn();
+    const { vm } = createComposerBar({ disabled: true, canSend: true }, emit);
+
+    const preventDefault = vi.fn();
+    vm.onSend({ type: 'keydown', key: 'Enter', preventDefault, isComposing: false });
+
+    expect(preventDefault).not.toHaveBeenCalled();
+    expect(emit).not.toHaveBeenCalled();
+  });
+
+  it('blocks send without disabling draft editing when sendDisabled is true', () => {
+    const emit = vi.fn();
+    const { vm, props } = createComposerBar({ sendDisabled: true, canSend: true }, emit);
+
+    expect(props.disabled).toBe(false);
+    expect(vm.hasReadyInput()).toBe(false);
+    expect(ComposerBar.template).toContain(':disabled="disabled"');
 
     const preventDefault = vi.fn();
     vm.onSend({ type: 'keydown', key: 'Enter', preventDefault, isComposing: false });

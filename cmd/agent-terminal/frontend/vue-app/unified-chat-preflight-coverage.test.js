@@ -68,6 +68,15 @@ import { PathChoiceModal } from './components/PathChoiceModal.js';
 import { UnifiedChatPage } from './pages/UnifiedChatPage.js';
 
 const flush = async () => { await Promise.resolve(); await Promise.resolve(); await nextTick(); };
+function createDeferred() {
+  let resolve;
+  let reject;
+  const promise = new Promise((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  return { promise, resolve, reject };
+}
 async function runMountedHooks() {
   for (const hook of hooks.mounted.splice(0)) {
     await hook();
@@ -96,6 +105,16 @@ const createVm = async (opts = {}) => { const { store, projectStore, current } =
 beforeEach(() => {
   hooks.mounted.length = 0; hooks.unmounted.length = 0; hooks.droppedCleanup.mockClear(); diffMock.last = null; autoScroll.schedule.mockClear(); provider.load.mockClear(); provider.toggle.mockClear(); provider.useClaude = false;
   composer.state.text = ''; composer.state.attachments = []; composer.clearComposer.mockClear(); composer.attachByPaths.mockClear();
+  composer.forkDraft = reactive({ active: false, sharedFilePaths: [], origin: '' });
+  composer.openForkDraft = vi.fn((options = {}) => {
+    composer.forkDraft.active = true;
+    composer.forkDraft.origin = (options?.origin || '').toString().trim();
+    const path = (options?.sharedFilePath || '').toString().trim();
+    if (path && !composer.forkDraft.sharedFilePaths.includes(path)) composer.forkDraft.sharedFilePaths.push(path);
+  });
+  composer.closeForkDraft = vi.fn(() => { composer.forkDraft.active = false; composer.forkDraft.sharedFilePaths = []; composer.forkDraft.origin = ''; });
+  composer.addForkSharedFile = vi.fn((path) => { const value = (path || '').toString().trim(); if (value) composer.forkDraft.sharedFilePaths.push(value); });
+  composer.removeForkSharedFile = vi.fn((path) => { const idx = composer.forkDraft.sharedFilePaths.indexOf(path); if (idx >= 0) composer.forkDraft.sharedFilePaths.splice(idx, 1); });
   vi.mocked(callAPI).mockReset().mockResolvedValue({}); vi.mocked(copyTextToClipboard).mockReset().mockResolvedValue(true); vi.mocked(resolveThreadIdentity).mockReset().mockResolvedValue({});
   try { sessionStorage.removeItem('__plan_dismissed_v2__'); } catch {}
   globalThis.window = { addEventListener: vi.fn(), removeEventListener: vi.fn(), setTimeout: (...args) => setTimeout(...args), clearTimeout: (id) => clearTimeout(id), setInterval: (...args) => setInterval(...args), clearInterval: (id) => clearInterval(id), alert: vi.fn(), confirm: vi.fn(() => true) };
@@ -141,6 +160,82 @@ describe('UnifiedChatPage preflight coverage', () => {
 
     await expect(vm.onPromoteTaskRequested()).rejects.toThrow('promote boom');
     expect(vm.promoteTaskLastError.value).toBe('promote boom');
+  });
+
+  it('keeps promote-task failures bound to the thread that produced them', async () => {
+    vi.mocked(callAPI).mockImplementation(async (method) => {
+      if (method === 'ui/thread/promote-task') throw new Error('promote boom');
+      return {};
+    });
+    const { vm } = await createVm({ active: '/repo' });
+
+    await expect(vm.onPromoteTaskRequested()).rejects.toThrow('promote boom');
+    expect(vm.promoteTaskLastError.value).toBe('promote boom');
+
+    vm.selectThread('thread-2');
+    await flush();
+    expect(vm.selectedThreadId.value).toBe('thread-2');
+    expect(vm.promoteTaskLastError.value).toBe('');
+
+    vm.selectThread('thread-active');
+    await flush();
+    expect(vm.promoteTaskLastError.value).toBe('promote boom');
+  });
+
+  it('keeps auto-continue retry errors bound to the selected thread', async () => {
+    const pendingFlush = createDeferred();
+    vi.mocked(callAPI).mockImplementation(async (method) => {
+      if (method === 'ui/task/flush_and_verify') return pendingFlush.promise;
+      return {};
+    });
+    const { vm } = await createVm({
+      active: '/repo',
+      runtime: {
+        'thread-active': { taskId: 'task-active', taskTitle: 'Active task', handoffFile: 'handoff/active.md' },
+        'thread-2': { taskId: 'task-2', taskTitle: 'Second task', handoffFile: 'handoff/second.md' },
+      },
+    });
+
+    const retryPromise = vm.onRetryAutoContinue();
+    vm.selectThread('thread-2');
+    await flush();
+
+    pendingFlush.reject(new Error('retry boom'));
+    await retryPromise;
+
+    expect(vm.selectedThreadId.value).toBe('thread-2');
+    expect(vm.autoContinueRetryError.value).toBe('');
+
+    vm.selectThread('thread-active');
+    await flush();
+    expect(vm.autoContinueRetryError.value).toBe('retry boom');
+  });
+
+  it('does not surface stale fork shared-file refresh errors after selected thread changes', async () => {
+    const pendingDashboard = createDeferred();
+    let dashboardCalls = 0;
+    vi.mocked(callAPI).mockImplementation(async (method) => {
+      if (method === 'ui/dashboard/get') {
+        dashboardCalls += 1;
+        if (dashboardCalls === 1) return pendingDashboard.promise;
+        return { memory: [] };
+      }
+      return {};
+    });
+    const { vm } = await createVm({ active: '/repo' });
+
+    vm.openForkDraftFromUI('context-banner');
+    await flush();
+    vm.selectThread('thread-2');
+    await flush();
+
+    const handledPendingDashboard = pendingDashboard.promise.catch(() => {});
+    pendingDashboard.reject(new Error('dashboard failed'));
+    await handledPendingDashboard;
+    await flush();
+
+    expect(vm.selectedThreadId.value).toBe('thread-2');
+    expect(vm.forkError.value).toBe('');
   });
 
   it('covers keyboard escape guards and dedupe handling', async () => {

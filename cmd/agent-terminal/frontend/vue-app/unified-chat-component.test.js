@@ -16,6 +16,7 @@ const composerStoreMock = vi.hoisted(() => ({
   },
   attachByPaths: vi.fn(() => 0),
   clearComposer: vi.fn(),
+  activateDraft: vi.fn(),
 }));
 
 vi.mock('../lib/vue.esm-browser.prod.js', async () => {
@@ -68,6 +69,7 @@ beforeEach(() => {
     composerStoreMock.state.text = '';
     composerStoreMock.state.attachments = [];
   });
+  composerStoreMock.activateDraft.mockReset();
 
   globalThis.window = {
     ...(globalThis.window || {}),
@@ -387,6 +389,19 @@ describe('UnifiedChatPage.setup chat rail integration', () => {
     expect(threadStore.sendMessage).toHaveBeenCalledWith('thread-new', 'hello split', [{ path: '/tmp/a.txt' }], expect.objectContaining({ cwd: '/workspace/chat' }));
     expect(composerStoreMock.clearComposer).toHaveBeenCalled();
     expect(autoScrollMock.scheduleScrollToBottom).toHaveBeenCalledWith(true);
+  });
+
+  it('binds composer draft scope to the selected chat thread', async () => {
+    const { threadStore, currentThreadId } = makeAutoScrollThreadStore();
+    currentThreadId.value = 'thread-active';
+    const projectStore = { ...makeProjectStore(), state: reactive({ active: '/workspace/chat', showModal: false, projects: ['/workspace/chat'] }) };
+
+    const vm = UnifiedChatPage.setup({ threadStore, projectStore, mode: 'chat' });
+
+    expect(composerStoreMock.activateDraft).toHaveBeenCalledWith('thread-active', 'chat');
+
+    vm.selectedThreadId.value = '';
+    expect(composerStoreMock.activateDraft).toHaveBeenLastCalledWith('', 'chat');
   });
 
   it('does not request skill catalog from chat composer setup', async () => {

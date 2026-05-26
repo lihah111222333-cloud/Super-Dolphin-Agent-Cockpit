@@ -89,6 +89,14 @@ function toErrorMessage(error) {
   return ((error && typeof error === 'object' && typeof error.message === 'string' ? error.message : '') || String(error || '')).toString().trim();
 }
 
+function buildSourceTitleFromThread(thread) {
+  const name = (thread?.name || '').toString().trim();
+  const id = (thread?.id || '').toString().trim();
+  if (name) return `继承自会话：${name}`;
+  if (id) return `继承自会话：${id}`;
+  return '继承自前一个对话';
+}
+
 /**
  * @param {{
  *   threadStore: any,
@@ -132,12 +140,7 @@ export function useForkThread(ctx) {
   }
 
   function buildSourceTitle() {
-    const thread = ctx.activeThread?.value;
-    const name = (thread?.name || '').toString().trim();
-    const id = (thread?.id || '').toString().trim();
-    if (name) return `继承自会话：${name}`;
-    if (id) return `继承自会话：${id}`;
-    return '继承自前一个对话';
+    return buildSourceTitleFromThread(ctx.activeThread?.value);
   }
 
   /**
@@ -149,18 +152,22 @@ export function useForkThread(ctx) {
     error.value = '';
     kickoffError.value = '';
     const sourceThreadId = (ctx.selectedThreadId.value || '').toString().trim();
+    const sourceTitle = buildSourceTitleFromThread(ctx.activeThread?.value);
+    const isCurrentSourceThread = () => (ctx.selectedThreadId.value || '').toString().trim() === sourceThreadId;
     try {
       const summary = buildSummaryFromCurrentThread();
       const sharedFiles = await loadSharedFiles(ctx.composer.forkDraft.sharedFilePaths);
 
       if (!summary && sharedFiles.length === 0) {
-        error.value = '当前会话没有可用上下文，且未挂载共享文件，无法生成继承摘要。';
+        if (isCurrentSourceThread()) {
+          error.value = '当前会话没有可用上下文，且未挂载共享文件，无法生成继承摘要。';
+        }
         logWarn('ui', 'forkThread.skipped_empty', { source_thread_id: sourceThreadId });
         return '';
       }
 
       const baseInstructions = buildSeedInstructionsFromSummary(summary, {
-        sourceTitle: buildSourceTitle(),
+        sourceTitle,
         sharedFiles,
       });
 
@@ -176,7 +183,7 @@ export function useForkThread(ctx) {
 
       const newThreadId = await ctx.threadStore.startThread(cwd, {
         focusMode,
-        name: buildSourceTitle(),
+        name: sourceTitle,
         baseInstructions,
       });
 
@@ -192,10 +199,11 @@ export function useForkThread(ctx) {
       }
       return newThreadId || '';
     } catch (err) {
-      error.value = toErrorMessage(err) || '新建继承对话失败';
+      const msg = toErrorMessage(err) || '新建继承对话失败';
+      if (isCurrentSourceThread()) error.value = msg;
       logWarn('ui', 'forkThread.failed', {
         source_thread_id: sourceThreadId,
-        error: error.value,
+        error: msg,
       });
       throw err;
     } finally {
