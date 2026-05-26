@@ -105,6 +105,9 @@ func (r *sessionResolver) resolveThreadSession(ctx context.Context, threadID str
 	if ref == nil {
 		return nil, platformdb.ErrNotFound
 	}
+	if err := rejectAutoResumeLifecycle(ref); err != nil {
+		return nil, err
+	}
 	agentID := strings.TrimSpace(ref.AgentID)
 	if agentID == "" {
 		return nil, fmt.Errorf("resolve session: thread %q has no agent id", threadID)
@@ -119,6 +122,9 @@ func (r *sessionResolver) resolveThreadSession(ctx context.Context, threadID str
 	}
 	binding, err := r.bindingStore.GetByAgentID(ctx, agentID)
 	if err != nil {
+		if !platformdb.IsNotFound(err) {
+			return nil, err
+		}
 		return nil, contract.ErrSessionNotFound
 	}
 	return r.autoResumeSession(ctx, binding, ref.RuntimeConfig, ref.ThreadID, threadID)
@@ -136,6 +142,9 @@ func (r *sessionResolver) resolveProviderThreadSession(ctx context.Context, thre
 				errs = append(errs, fmt.Errorf("provider %q: %w", provider, err))
 			}
 			continue
+		}
+		if err := r.rejectBindingAutoResumeLifecycle(ctx, binding); err != nil {
+			return nil, err
 		}
 		agentID := strings.TrimSpace(binding.AgentID)
 		if agentID == "" {
@@ -263,6 +272,41 @@ func (r *sessionResolver) lookupAutoResumeRuntimeConfig(ctx context.Context, bin
 		}
 	}
 	return nil
+}
+
+func (r *sessionResolver) rejectBindingAutoResumeLifecycle(ctx context.Context, binding *contract.SessionBinding) error {
+	if r == nil || r.threadStore == nil || binding == nil {
+		return nil
+	}
+	for _, candidate := range []string{binding.CodexThreadID, binding.AgentID} {
+		candidate = strings.TrimSpace(candidate)
+		if candidate == "" {
+			continue
+		}
+		ref, err := r.threadStore.GetByThreadID(ctx, candidate)
+		if err != nil {
+			if platformdb.IsNotFound(err) {
+				continue
+			}
+			return err
+		}
+		if err := rejectAutoResumeLifecycle(ref); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func rejectAutoResumeLifecycle(ref *contract.SessionThreadRef) error {
+	if ref == nil {
+		return nil
+	}
+	switch status := strings.TrimSpace(ref.Status); status {
+	case "stopped", "archived":
+		return fmt.Errorf("resolve session: thread %q is %s", strings.TrimSpace(ref.ThreadID), status)
+	default:
+		return nil
+	}
 }
 
 func autoResumeBindingCWD(binding *contract.SessionBinding) (string, error) {

@@ -382,6 +382,42 @@ func TestResumeSessionKeepsExplicitClaudeHomeBeforeLaunchAndMirror(t *testing.T)
 	assertExplicitClaudeMirrorTargets(t, mirror.targets, workDir, wantHome)
 }
 
+func TestResumeSessionRuntimeConfigSnapshotIncludesCWDAndRequestConfig(t *testing.T) {
+	workDir := t.TempDir()
+	next := newBufferedTransport(t, "claude-session-runtime-cwd")
+	overrideLaunchCLI(t, func(_, _, _, _ string, _ cliLaunchConfig, _ dto.MCPManifest, _ string) (*transport, func(), error) {
+		return next.tr, func() { next.finish() }, nil
+	})
+	d := newDriver(nil, nil, nil, nil, nil, &recordingMirrorReconciler{}, nil).(*driver)
+
+	got, err := d.ResumeSession(context.Background(), dto.ResumeSessionRequest{
+		AgentID:          "agent-claude-runtime",
+		ThreadID:         "thread-claude-runtime",
+		ProviderThreadID: "11111111-2222-3333-4444-555555555555",
+		CWD:              workDir,
+		Config: map[string]any{
+			"gitRoot":  workDir,
+			"provider": "claude",
+		},
+	})
+	if err != nil {
+		t.Fatalf("ResumeSession() error = %v", err)
+	}
+	next.finish()
+	defer got.Close(context.Background())
+
+	runtimeCfg := got.(*session).RuntimeConfigSnapshot()
+	if runtimeCfg["cwd"] != workDir {
+		t.Fatalf("RuntimeConfigSnapshot()[cwd] = %#v, want %q; snapshot=%#v", runtimeCfg["cwd"], workDir, runtimeCfg)
+	}
+	if runtimeCfg["provider"] != "claude" {
+		t.Fatalf("RuntimeConfigSnapshot()[provider] = %#v, want claude; snapshot=%#v", runtimeCfg["provider"], runtimeCfg)
+	}
+	if runtimeCfg["gitRoot"] != workDir {
+		t.Fatalf("RuntimeConfigSnapshot()[gitRoot] = %#v, want %q; snapshot=%#v", runtimeCfg["gitRoot"], workDir, runtimeCfg)
+	}
+}
+
 func assertFileContent(t *testing.T, path, want string) {
 	t.Helper()
 	data, err := os.ReadFile(path)
