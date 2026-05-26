@@ -40,6 +40,7 @@ func Parse(patch string) (Hunk, error) {
 	if err != nil {
 		return Hunk{}, err
 	}
+	lines = normalizeLLMPatchEnvelope(lines)
 	if len(lines) == 0 {
 		return Hunk{}, ErrEmptyPatch
 	}
@@ -65,6 +66,7 @@ func ParseMulti(patch string) ([]Hunk, error) {
 	if err != nil {
 		return nil, err
 	}
+	lines = normalizeLLMPatchEnvelope(lines)
 	if len(lines) == 0 {
 		return nil, ErrEmptyPatch
 	}
@@ -101,6 +103,36 @@ func parseImplicitHunk(lines []string) ([]Hunk, error) {
 		return nil, err
 	}
 	return []Hunk{hunk}, nil
+}
+
+func normalizeLLMPatchEnvelope(lines []string) []string {
+	trimmed := dropApplyPatchEnvelope(lines)
+	return dropUnifiedDiffFileHeaders(trimmed)
+}
+
+func dropApplyPatchEnvelope(lines []string) []string {
+	if len(lines) == 0 || lines[0] != "*** Begin Patch" {
+		return lines
+	}
+	out := make([]string, 0, len(lines))
+	for _, line := range lines[1:] {
+		switch {
+		case line == "*** End Patch":
+			return out
+		case strings.HasPrefix(line, "*** Update File:"), strings.HasPrefix(line, "*** Begin Patch"):
+			continue
+		default:
+			out = append(out, line)
+		}
+	}
+	return out
+}
+
+func dropUnifiedDiffFileHeaders(lines []string) []string {
+	if len(lines) < 2 || !strings.HasPrefix(lines[0], "--- ") || !strings.HasPrefix(lines[1], "+++ ") {
+		return lines
+	}
+	return lines[2:]
 }
 
 func containsPatchHeader(lines []string) bool {

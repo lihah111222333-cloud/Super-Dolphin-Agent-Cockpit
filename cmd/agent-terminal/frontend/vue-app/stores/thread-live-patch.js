@@ -23,7 +23,49 @@ function cloneTimelineItem(item) {
   return next;
 }
 
-function upsertThreadEntry(state, threadPatch, statusPatch) {
+function copyThreadTimestamp(next, current, key, snakeKey) {
+  if (Object.prototype.hasOwnProperty.call(next, key)) return;
+  const value = current?.[key] || current?.[snakeKey];
+  if (value) next[key] = value;
+}
+
+function isWorkingStatus(value) {
+  const normalized = normalizeStatus(value);
+  return normalized === 'starting'
+    || normalized === 'thinking'
+    || normalized === 'responding'
+    || normalized === 'running'
+    || normalized === 'editing'
+    || normalized === 'waiting'
+    || normalized === 'syncing';
+}
+
+function isTransientRunningPatchSource(source) {
+  const normalized = toNormalizedEventString(source);
+  return normalized.startsWith('item/')
+    || normalized === 'turn/started'
+    || normalized === 'turn/outputdelta'
+    || normalized === 'turn/resumed'
+    || normalized === 'turn/inputreceived';
+}
+
+function mergeNormalizedThreadEntry(current, normalized, options = {}) {
+  const next = {
+    id: normalized.id || current?.id || '',
+    name: normalized.name || current?.name || '',
+    state: normalized.state || current?.state || 'idle',
+  };
+  copyThreadTimestamp(next, normalized, 'createdAt', 'created_at');
+  copyThreadTimestamp(next, current, 'createdAt', 'created_at');
+  if (options.preserveCurrentUpdatedAt) copyThreadTimestamp(next, current, 'updatedAt', 'updated_at');
+  else {
+    copyThreadTimestamp(next, normalized, 'updatedAt', 'updated_at');
+    copyThreadTimestamp(next, current, 'updatedAt', 'updated_at');
+  }
+  return next;
+}
+
+function upsertThreadEntry(state, threadPatch, statusPatch, source = '') {
   const base = Array.isArray(state.threads) ? state.threads : [];
   const nextStatus = typeof statusPatch === 'string' && statusPatch ? normalizeStatus(statusPatch) : '';
   const normalized = threadPatch
@@ -34,9 +76,19 @@ function upsertThreadEntry(state, threadPatch, statusPatch) {
   if (!threadId) return;
   const existingIndex = base.findIndex((item) => item?.id === threadId);
   const current = existingIndex >= 0 ? base[existingIndex] : null;
-  const nextEntry = normalized || normalizeThread({ ...(current || { id: threadId }), state: nextStatus || current?.state || 'idle' });
+  const preserveCurrentUpdatedAt = Boolean(current && normalized && isWorkingStatus(normalized.state) && isTransientRunningPatchSource(source));
+  const nextEntry = normalized
+    ? mergeNormalizedThreadEntry(current, normalized, { preserveCurrentUpdatedAt })
+    : normalizeThread({ ...(current || { id: threadId }), state: nextStatus || current?.state || 'idle' });
   if (nextStatus && !threadPatch) nextEntry.state = nextStatus;
-  if (current && current.id === nextEntry.id && current.name === nextEntry.name && current.state === nextEntry.state) return;
+  if (
+    current
+    && current.id === nextEntry.id
+    && current.name === nextEntry.name
+    && current.state === nextEntry.state
+    && current.createdAt === nextEntry.createdAt
+    && current.updatedAt === nextEntry.updatedAt
+  ) return;
   const nextThreads = base.slice();
   if (existingIndex >= 0) nextThreads[existingIndex] = nextEntry;
   else nextThreads.push(nextEntry);
@@ -76,7 +128,10 @@ function setObjectMapEntry(state, key, threadId, value, hasOwnValue) {
     state[key] = next;
     return;
   }
-  const normalized = value && typeof value === 'object' ? { ...value } : {};
+  let normalized = value && typeof value === 'object' ? { ...value } : {};
+  if (key === 'agentMetaById' && current[threadId] && typeof current[threadId] === 'object') {
+    normalized = { ...current[threadId], ...normalized };
+  }
   Object.freeze(normalized);
   if (JSON.stringify(current[threadId]) === JSON.stringify(normalized)) return;
   state[key] = { ...current, [threadId]: normalized };
@@ -292,7 +347,7 @@ export function applyRuntimeThreadPatch(ctx, evt, threadId, options = {}) {
     overlayPriorityPatch = Number.isFinite(parsedOverlayPriority) ? parsedOverlayPriority : 0;
   }
 
-  upsertThreadEntry(ctx.state, payload.thread, payload.status);
+  upsertThreadEntry(ctx.state, payload.thread, payload.status, payload.source);
   setSingleMapEntry(ctx.state, 'statuses', id, hasStatus ? normalizeStatus(payload.status) : undefined, { hasValue: hasStatus });
   setSingleMapEntry(ctx.state, 'interruptibleByThread', id, Boolean(payload.interruptible), { hasValue: hasInterruptible });
   setSingleMapEntry(ctx.state, 'statusHeadersByThread', id, hasStatusHeader ? (payload.statusHeader || '').toString() : undefined, { hasValue: hasStatusHeader });
