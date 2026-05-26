@@ -408,6 +408,27 @@ export async function saveClipboardImage(base64Payload) {
   return path;
 }
 
+export async function saveTextFile({ defaultPath = '', defaultFilename = '', content = '' } = {}) {
+  const filename = (defaultFilename || '').toString().trim();
+  if (!filename) throw new Error('saveTextFile defaultFilename is required');
+  logInfo('ui', 'saveTextFile.start', {
+    default_path: (defaultPath || '').toString(),
+    default_filename: filename,
+    content_len: (content || '').toString().length,
+  });
+  const raw = await callAPI('ui/saveTextFile', {
+    defaultPath: (defaultPath || '').toString(),
+    defaultFilename: filename,
+    content: (content || '').toString(),
+  });
+  const path = raw && typeof raw === 'object' && typeof raw.path === 'string' ? raw.path : '';
+  logInfo('ui', 'saveTextFile.done', {
+    selected: Boolean(path),
+    path,
+  });
+  return path;
+}
+
 export async function copyTextToClipboard(text) {
   const value = (text || '').toString().trim();
   if (!value) return false;

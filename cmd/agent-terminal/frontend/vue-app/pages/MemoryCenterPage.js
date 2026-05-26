@@ -126,7 +126,7 @@ export const MemoryCenterPage = {
   props: {
     model: { type: Object, required: true },
   },
-  emits: ['refresh', 'open-shared-files'],
+  emits: ['refresh'],
   setup(props, { emit }) {
     const notice = reactive({ level: 'info', message: '' });
     const busyPath = ref('');
@@ -407,7 +407,6 @@ export const MemoryCenterPage = {
       createPreference,
       createProject,
       askEditorDelete,
-      openSharedFiles: () => emit('open-shared-files'),
     };
   },
   template: `
@@ -578,10 +577,6 @@ export const MemoryCenterPage = {
               </div>
             </div>
           </article>
-        </div>
-
-        <div class="mc-footer-link">
-          <button class="btn btn-ghost btn-xs" data-testid="memory-center-open-shared-files" @click="openSharedFiles">查看共享文件 →</button>
         </div>
       </div>
 

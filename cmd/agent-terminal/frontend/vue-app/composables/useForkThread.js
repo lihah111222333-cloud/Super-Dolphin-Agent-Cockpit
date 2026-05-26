@@ -19,41 +19,19 @@ import { resolveProjectActionCwd } from './useThreadActions.js';
 // 简短稳定，便于 timeline selector 用 text 匹配过滤这条 user 消息。
 const FORK_KICKOFF_PROMPT = '请基于上文摘要，简要总结上次进展并提出下一步建议。';
 
-// 子 agent thread（DAG 子节点 / 用户主动 spawn 的子 agent）不应触发 kickoff——
-// 用户根本不打开这些 thread 看，agent 主动开场是噪声。
-// 判定：runtime.rootTaskId 存在且 !== runtime.taskId（root thread 自身两者相等，见
-// internal/module/thread/promote_task.go::PromoteTaskFromThread）。
-function isSubAgentRuntime(runtime) {
-  if (!runtime || typeof runtime !== 'object') return false;
-  const taskId = (runtime.taskId || runtime.task_id || '').toString().trim();
-  const rootTaskId = (runtime.rootTaskId || runtime.root_task_id || '').toString().trim();
-  return Boolean(taskId && rootTaskId && rootTaskId !== taskId);
-}
-
 // 返回错误字符串（成功 / 跳过返回空字符串）。失败时 useForkThread.submit 会把这个
 // 错误暴露在 kickoffError ref 上——sendMessage 内部已经做 isSessionNotAvailableError
 // recover+retry 兜底，能走到这层 catch 说明 recover 也失败了，agent 真挂了，需要让
 // UI 有机会感知（review M1）。
 async function maybeSendKickoff(ctx, sourceThreadId, newThreadId) {
-  const sourceRuntime = ctx.threadStore?.state?.agentRuntimeById?.[sourceThreadId];
   const hasSendMessage = typeof ctx.threadStore?.sendMessage === 'function';
   // 诊断日志：让生产 [AO] 能看到决策路径全状态。bug 报告「UI 没看到生效」
-  // 时第一时间能定位是 wiring 没接通 / sub-agent 误判 / sendMessage 未注入。
+  // 时第一时间能定位是 wiring 没接通 / sendMessage 未注入。
   logInfo('ui', 'forkThread.kickoff_check', {
     source_thread_id: sourceThreadId,
     new_thread_id: newThreadId,
-    has_source_runtime: Boolean(sourceRuntime && typeof sourceRuntime === 'object'),
-    source_task_id: ((sourceRuntime?.taskId || sourceRuntime?.task_id) || '').toString(),
-    source_root_task_id: ((sourceRuntime?.rootTaskId || sourceRuntime?.root_task_id) || '').toString(),
-    is_sub_agent: isSubAgentRuntime(sourceRuntime),
     has_send_message: hasSendMessage,
   });
-  if (isSubAgentRuntime(sourceRuntime)) {
-    logInfo('ui', 'forkThread.kickoff_skipped_sub_agent', {
-      source_thread_id: sourceThreadId, new_thread_id: newThreadId,
-    });
-    return '';
-  }
   if (!hasSendMessage) {
     logWarn('ui', 'forkThread.kickoff_no_send_message', {
       source_thread_id: sourceThreadId, new_thread_id: newThreadId,

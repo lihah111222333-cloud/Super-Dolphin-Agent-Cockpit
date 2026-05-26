@@ -258,14 +258,14 @@ func writeExistingProviderHistoryFile(t *testing.T) string {
 	return path
 }
 
-func TestGetSidebarIncludesTaskHandoffMetadataInRuntime(t *testing.T) {
+func TestGetSidebarDoesNotExposeLegacyTaskMetadataInRuntime(t *testing.T) {
 	t.Parallel()
 
 	threads := &configThreadServiceStub{
 		runtimeConfigResult: map[string]any{
 			"taskId":      "task-demo",
 			"taskTitle":   "Memory Center Refactor",
-			"handoffFile": "handoff/tasks/task-demo.md",
+			"handoffFile": "legacy-task.md",
 		},
 	}
 	svc, _, err := NewService(nil, nil, nil, nil, nil, threads)
@@ -280,14 +280,10 @@ func TestGetSidebarIncludesTaskHandoffMetadataInRuntime(t *testing.T) {
 		t.Fatalf("GetSidebar() error = %v", err)
 	}
 	runtime := sidebar.AgentRuntimeByID["thread-1"]
-	if got, _ := runtime["taskId"].(string); got != "task-demo" {
-		t.Fatalf("runtime.taskId = %q, want %q", got, "task-demo")
-	}
-	if got, _ := runtime["taskTitle"].(string); got != "Memory Center Refactor" {
-		t.Fatalf("runtime.taskTitle = %q, want %q", got, "Memory Center Refactor")
-	}
-	if got, _ := runtime["handoffFile"].(string); got != "handoff/tasks/task-demo.md" {
-		t.Fatalf("runtime.handoffFile = %q, want %q", got, "handoff/tasks/task-demo.md")
+	for _, key := range []string{"taskId", "taskTitle", "handoffFile"} {
+		if _, ok := runtime[key]; ok {
+			t.Fatalf("runtime[%q] unexpectedly exposed legacy task metadata: %+v", key, runtime)
+		}
 	}
 }
 

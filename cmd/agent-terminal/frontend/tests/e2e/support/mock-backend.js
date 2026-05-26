@@ -974,14 +974,6 @@ function browserInstaller({
             updatedAt: file.updated_at || file.updatedAt || '',
           });
         }
-        case 'ui/memory/shared-file/promote': {
-          const file = findSharedFile(params.sharedPath);
-          if (!file) throw new Error(`shared file not found: ${params.sharedPath || ''}`);
-          return upsertMemoryEntry({
-            ...params,
-            content: (params.content || file.content || '').toString(),
-          });
-        }
         case 'ui/memory/shared-file/delete': {
           const target = (params.path || '').toString().trim();
           if (!target) throw new Error('path is required');

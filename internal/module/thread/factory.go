@@ -11,7 +11,6 @@ import (
 	threadstore "github.com/anthropic-ai/super-agent-v3/internal/store/thread"
 	"github.com/anthropic-ai/super-agent-v3/internal/util"
 	"github.com/anthropic-ai/super-agent-v3/internal/util/clone"
-	"github.com/anthropic-ai/super-agent-v3/internal/util/configutil"
 )
 
 type threadStateKind string
@@ -135,8 +134,6 @@ func newStartResult(
 		PromptKey:       req.PromptKey,
 		PromptVersionID: req.PromptVersionID,
 		PromptKeyStale:  req.PromptKeyStale,
-		TaskID:          configutil.ConfigString(req.Config, taskConfigKeyID, taskConfigKeyIDSnake),
-		HandoffFile:     configutil.ConfigString(req.Config, taskConfigKeyHandoffFile, taskConfigKeyHandoffFileSnake),
 	}
 }
 

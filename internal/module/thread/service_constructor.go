@@ -115,7 +115,6 @@ func newService(
 		threadAgents:     make(map[string]string),
 	}
 	// Workers live beside service methods they call; bus callbacks only enqueue.
-	s.taskHandoffWorker = newTaskHandoffWorker(s, logger)
 	s.agentLaunchedWorker = newAgentLaunchedWorker(s, logger)
 	s.sessionRecoveryWorker = newSessionRecoveryWorker(s, logger)
 	return s

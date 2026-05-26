@@ -336,9 +336,57 @@ type StartDAGRequest struct {
 	IdempotencyKey string // 可选，防重复 run
 }
 
+const (
+	StartDAGExecutionQueued             = "queued"
+	StartDAGExecutionWaitingForAssignee = "waiting_for_assignee"
+	StartDAGExecutionRunning            = "running"
+	StartDAGExecutionNoReadyRoots       = "no_ready_roots"
+	StartDAGExecutionSucceeded          = "succeeded"
+)
+
 type StartDAGResponse struct {
-	RunKey  string `json:"run_key"` // 新 run 的唯一键（例 dag_xxx#run_2026-05-10T08:00）
-	Version int64  `json:"version"` // 该 run snapshot 的 dag.version
+	RunID            int64  `json:"run_id,omitempty"`  // task_dag_runs.id；dispatch runtime node 时需要
+	RunKey           string `json:"run_key"`           // 新 run 的唯一键（例 dag_xxx#run_2026-05-10T08:00）
+	Version          int64  `json:"version"`           // 该 run snapshot 的 dag.version
+	ReadyRootNodes   int64  `json:"ready_root_nodes"`  // 本次 start 置为 ready 的根节点数
+	ScheduledWakeups int64  `json:"scheduled_wakeups"` // 已 enqueue 的根节点 wakeup 数
+	ExecutionState   string `json:"execution_state,omitempty"`
+	Warning          string `json:"warning,omitempty"`
+}
+
+func NewStartDAGResponse(runID int64, runKey string, version, readyRootNodes, scheduledWakeups int64) StartDAGResponse {
+	state, warning := StartDAGExecutionDiagnostics(readyRootNodes, scheduledWakeups)
+	return StartDAGResponse{
+		RunID:            runID,
+		RunKey:           runKey,
+		Version:          version,
+		ReadyRootNodes:   readyRootNodes,
+		ScheduledWakeups: scheduledWakeups,
+		ExecutionState:   state,
+		Warning:          warning,
+	}
+}
+
+func NewExistingStartDAGResponse(runID int64, runKey string, version int64, status string, scheduledWakeups int64) StartDAGResponse {
+	state := StartDAGExecutionRunning
+	if scheduledWakeups > 0 {
+		state = StartDAGExecutionQueued
+	}
+	if status == "succeeded" {
+		state = StartDAGExecutionSucceeded
+	}
+	return StartDAGResponse{RunID: runID, RunKey: runKey, Version: version, ScheduledWakeups: scheduledWakeups, ExecutionState: state}
+}
+
+func StartDAGExecutionDiagnostics(readyRootNodes, scheduledWakeups int64) (string, string) {
+	if scheduledWakeups > 0 {
+		return StartDAGExecutionQueued, ""
+	}
+	if readyRootNodes > 0 {
+		return StartDAGExecutionWaitingForAssignee,
+			"run 已启动，但 ready 根节点没有 assigned_to，未 enqueue wakeup；请调用 task_dispatch_node 指派节点后继续执行。"
+	}
+	return StartDAGExecutionNoReadyRoots, "run 已启动，但没有可调度的根节点；请检查 DAG 节点依赖。"
 }
 
 // DAG v2 骨架阶段 T2.1+T2.2: ApplyOps 入参出参。

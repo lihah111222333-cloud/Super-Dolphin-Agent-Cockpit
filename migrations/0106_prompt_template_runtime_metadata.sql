@@ -10,10 +10,13 @@
 BEGIN;
 
 UPDATE public.prompt_templates t
-SET prompt_text = REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(
+SET prompt_text = REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(
         t.prompt_text,
         E'    "provider": "claude",\n    "model": "opus",\n    "agent_key": "code-debug",',
         E'    "agent_key": "code-debug",'
+    ),
+        E'    "provider": "claude",\n    "model": "opus",',
+        E'    "model": "<selected model from list_models()>",'
     ),
         '"escalation_chain": ["sonnet","opus"]',
         '"escalation_chain": []'
@@ -66,10 +69,13 @@ WHERE t.prompt_key = 'main/dag_designer_zh'
   AND t.manually_edited = FALSE;
 
 UPDATE public.prompt_templates t
-SET prompt_text = REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(
+SET prompt_text = REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(
         t.prompt_text,
         E'    "provider": "claude",\n    "model": "opus",\n    "agent_key": "code-debug",',
         E'    "agent_key": "code-debug",'
+    ),
+        E'    "provider": "claude",\n    "model": "opus",',
+        E'    "model": "<selected model from list_models()>",'
     ),
         '"escalation_chain": ["sonnet","opus"]',
         '"escalation_chain": []'

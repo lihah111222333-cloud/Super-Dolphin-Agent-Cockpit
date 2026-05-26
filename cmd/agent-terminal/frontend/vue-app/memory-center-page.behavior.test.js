@@ -142,6 +142,12 @@ describe('MemoryCenterPage editor validation', () => {
 
 describe('MemoryCenterPage health and destructive actions', () => {
 
+  it('does not expose a shared files footer link from the memory center', () => {
+    expect(MemoryCenterPage.template).not.toContain('memory-center-open-shared-files');
+    expect(MemoryCenterPage.template).not.toContain('查看共享文件');
+    expect(MemoryCenterPage.emits).toEqual(['refresh']);
+  });
+
   it('normalizes health percentage when maxPerCategory is missing', () => {
     const { vm } = setupPage({ health: { preferenceCount: 4, projectCount: 2 } });
     expect(vm.healthPrefPercent.value).toBe(100);

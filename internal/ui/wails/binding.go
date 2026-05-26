@@ -35,6 +35,7 @@ type App struct {
 	droppedFiles   map[string]droppedFileRecord
 
 	openNewWindowInvoker func(group string, n int, uiBootstrap, cwd string) (string, error)
+	saveDirectoryInvoker func(defaultPath string) (string, error)
 	currentWindowNameFn  func() string
 }
 

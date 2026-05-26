@@ -316,6 +316,32 @@ func (s fakeAgentThreadStore) UpdateStatus(context.Context, PersistedThreadStatu
 	return nil
 }
 
+type recordingAgentThreadStore struct {
+	threads []PersistedThread
+	update  PersistedThreadStatusUpdate
+	updates int
+}
+
+func (s *recordingAgentThreadStore) ListAll(context.Context) ([]PersistedThread, error) {
+	return append([]PersistedThread(nil), s.threads...), nil
+}
+
+func (s *recordingAgentThreadStore) GetByThreadID(_ context.Context, threadID string) (*PersistedThread, error) {
+	for _, thread := range s.threads {
+		if thread.ThreadID == threadID {
+			found := thread
+			return &found, nil
+		}
+	}
+	return nil, errAgentNotFound
+}
+
+func (s *recordingAgentThreadStore) UpdateStatus(_ context.Context, update PersistedThreadStatusUpdate) error {
+	s.update = update
+	s.updates++
+	return nil
+}
+
 func mustWritePersistedAgentReportFile(t *testing.T, cwd, agentID, name, report string) {
 	t.Helper()
 	path := filepath.Join(cwd, ".agnet", "report", agentID+"+"+name)
@@ -409,5 +435,86 @@ func TestHandleReportEventPersistsReportWhenRuntimeMissing(t *testing.T) {
 	}
 	if reread.Report != "审核已完成，报告已落盘" {
 		t.Fatalf("GetReport().Report = %q, want persisted report body", reread.Report)
+	}
+}
+
+func TestHandleReportEventStopsPersistedThreadWhenAbortedRuntimeMissing(t *testing.T) {
+	svc := NewService(silentLogger(), nil, nil, nil, nil, nil)
+	cwd := t.TempDir()
+	threads := &recordingAgentThreadStore{threads: []PersistedThread{
+		{ThreadID: "agent-1", AgentID: "agent-1", Name: "display one", Cwd: cwd, Status: "created"},
+	}}
+	svc.agentThreads = threads
+	// svc.agents is empty: the runtime was lost before the abort event arrived.
+
+	got, err := svc.HandleReportEvent(context.Background(), ReportEvent{
+		AgentID:   "agent-1",
+		EventType: "turn_aborted",
+		Report:    "aborted by user",
+	})
+	if err != nil {
+		t.Fatalf("HandleReportEvent() error = %v, want fallback persist to succeed", err)
+	}
+	if !got.Success || got.Report != "aborted by user" {
+		t.Fatalf("HandleReportEvent() = %#v, want success carrying the abort report", got)
+	}
+	if threads.updates != 1 {
+		t.Fatalf("UpdateStatus calls = %d, want 1", threads.updates)
+	}
+	if threads.update.ThreadID != "agent-1" || threads.update.Status != "stopped" || threads.update.UpdatedAt == 0 {
+		t.Fatalf("UpdateStatus = %#v, want agent-1 stopped with timestamp", threads.update)
+	}
+}
+
+func TestHandleReportEventStopsPersistedThreadWhenRuntimeLossStopEventHasNoReport(t *testing.T) {
+	svc := NewService(silentLogger(), nil, nil, nil, nil, nil)
+	threads := &recordingAgentThreadStore{threads: []PersistedThread{
+		{ThreadID: "agent-1", AgentID: "agent-1", Name: "display one", Status: "created"},
+	}}
+	svc.agentThreads = threads
+	// connection.dead often arrives without a final report body; it still means
+	// the persisted UI thread must stop when the runtime is already gone.
+
+	got, err := svc.HandleReportEvent(context.Background(), ReportEvent{
+		AgentID:   "agent-1",
+		EventType: "connection.dead",
+		EventData: json.RawMessage(`{"error":"connection lost"}`),
+	})
+	if err != nil {
+		t.Fatalf("HandleReportEvent() error = %v, want stop fallback to succeed", err)
+	}
+	if !got.Success || got.Report != "" {
+		t.Fatalf("HandleReportEvent() = %#v, want success with empty report", got)
+	}
+	if threads.updates != 1 {
+		t.Fatalf("UpdateStatus calls = %d, want 1", threads.updates)
+	}
+	if threads.update.ThreadID != "agent-1" || threads.update.Status != "stopped" || threads.update.UpdatedAt == 0 {
+		t.Fatalf("UpdateStatus = %#v, want agent-1 stopped with timestamp", threads.update)
+	}
+}
+
+func TestHandleReportEventDoesNotStopPersistedThreadWhenCompletedRuntimeMissing(t *testing.T) {
+	svc := NewService(silentLogger(), nil, nil, nil, nil, nil)
+	cwd := t.TempDir()
+	threads := &recordingAgentThreadStore{threads: []PersistedThread{
+		{ThreadID: "agent-1", AgentID: "agent-1", Name: "display one", Cwd: cwd, Status: "created"},
+	}}
+	svc.agentThreads = threads
+	// A completed turn can leave a reusable session idle; do not collapse it to stopped.
+
+	got, err := svc.HandleReportEvent(context.Background(), ReportEvent{
+		AgentID:   "agent-1",
+		EventType: "turn/completed",
+		Report:    "normal reply",
+	})
+	if err != nil {
+		t.Fatalf("HandleReportEvent() error = %v, want fallback persist to succeed", err)
+	}
+	if !got.Success || got.Report != "normal reply" {
+		t.Fatalf("HandleReportEvent() = %#v, want success carrying the report", got)
+	}
+	if threads.updates != 0 {
+		t.Fatalf("UpdateStatus calls = %d, want 0 for normal turn completion", threads.updates)
 	}
 }

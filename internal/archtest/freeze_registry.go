@@ -18,14 +18,6 @@ type explicitFreeze struct {
 
 var explicitFreezeRegistry = []explicitFreeze{
 	{
-		Path:       "internal/module/memory",
-		Kind:       ViolationPackageCount,
-		Limit:      31,
-		Reason:     "上下文继承与预警合并 (Phase 1.6 / 2.1) 后 memory 包多出 auto-continue state RPC 套件；临时超 30 默认上限，后续拆 sub-package 后取消。",
-		Owner:      "chat",
-		RemoveWhen: "memory 包拆出 auto-continue 子包后文件数回落 ≤ 30，删除该 freeze。",
-	},
-	{
 		Path:       "cmd/mcp-orch/orchestration",
 		Kind:       ViolationPackageCount,
 		Limit:      41,

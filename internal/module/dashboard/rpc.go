@@ -181,8 +181,13 @@ type dagRunsResponse struct {
 type dagRunResponse = contract.GetRunResponse
 
 type dagStartResponse struct {
-	RunKey  string `json:"runKey"`
-	Version int64  `json:"version"`
+	RunID            int64  `json:"runId,omitempty"`
+	RunKey           string `json:"runKey"`
+	Version          int64  `json:"version"`
+	ReadyRootNodes   int64  `json:"readyRootNodes"`
+	ScheduledWakeups int64  `json:"scheduledWakeups"`
+	ExecutionState   string `json:"executionState,omitempty"`
+	Warning          string `json:"warning,omitempty"`
 }
 
 type dagApplyOpsResponse struct {
@@ -346,7 +351,15 @@ func registerDashboardDAGHandlers(m handler.Map, svc Service) {
 		if err != nil {
 			return nil, err
 		}
-		return dagStartResponse{RunKey: resp.RunKey, Version: resp.Version}, nil
+		return dagStartResponse{
+			RunID:            resp.RunID,
+			RunKey:           resp.RunKey,
+			Version:          resp.Version,
+			ReadyRootNodes:   resp.ReadyRootNodes,
+			ScheduledWakeups: resp.ScheduledWakeups,
+			ExecutionState:   resp.ExecutionState,
+			Warning:          resp.Warning,
+		}, nil
 	})
 	m["dashboard/dagTerminate"] = platformrpc.StrictHandler(func(ctx context.Context, p dagTerminateParams) (any, error) {
 		if err := svc.TerminateDAG(ctx, p.DAGKey, p.RunKey, p.Reason); err != nil {
