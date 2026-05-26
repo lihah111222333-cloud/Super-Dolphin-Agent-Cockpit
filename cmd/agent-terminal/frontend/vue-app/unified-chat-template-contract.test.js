@@ -31,6 +31,7 @@ describe('UnifiedChatPage template contract', () => {
       'class="thread-rail-resizer"',
       'class="workspace-bottom-row"',
       ':disabled="!selectedThreadId && !providerPreferenceReady"',
+      ':send-disabled="activeThreadSendBlocked"',
     ]);
   });
 

@@ -39,6 +39,8 @@ function resetThreadStore(store) {
   Object.assign(store.state, {
     activeThreadId: '',
     activeCmdThreadId: '',
+    sendBlockedNoticesByThread: {},
+    sendHoldNoticesByThread: {},
     threads: [],
     statuses: {},
     interruptibleByThread: {},

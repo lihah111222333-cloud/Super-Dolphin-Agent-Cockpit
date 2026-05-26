@@ -13,6 +13,16 @@ vi.mock('./services/log.js', () => ({
 const { callAPI } = await import('./services/api.js');
 const { useForkThread } = await import('./composables/useForkThread.js');
 
+function createDeferred() {
+  let resolve;
+  let reject;
+  const promise = new Promise((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  return { promise, resolve, reject };
+}
+
 function makeCtx({
   timeline = [],
   sharedFilePaths = [],
@@ -142,6 +152,59 @@ describe('useForkThread.submit', () => {
     await expect(submit()).rejects.toThrow('not found');
     expect(error.value).toContain('not found');
     expect(ctx.threadStore.startThread).not.toHaveBeenCalled();
+  });
+
+  it('does not surface late submit failures after selected thread changes', async () => {
+    const pendingSharedFile = createDeferred();
+    vi.mocked(callAPI).mockImplementation(async (method, params) => {
+      if (method === 'ui/memory/shared-file/get' && params.path === 'notes/a.md') {
+        return pendingSharedFile.promise;
+      }
+      return {};
+    });
+    const ctx = makeCtx({
+      timeline: [{ role: 'user', text: 'hi from A' }],
+      sharedFilePaths: ['notes/a.md'],
+    });
+    const { submit, error } = useForkThread(ctx);
+
+    const submitPromise = submit().catch(() => {});
+    ctx.selectedThreadId.value = 'thread-b';
+    ctx.activeThread.value = { id: 'thread-b', name: 'Thread B' };
+
+    const handledPendingSharedFile = pendingSharedFile.promise.catch(() => {});
+    pendingSharedFile.reject(new Error('shared file failed'));
+    await Promise.all([submitPromise, handledPendingSharedFile]);
+
+    expect(error.value).toBe('');
+    expect(ctx.threadStore.startThread).not.toHaveBeenCalled();
+  });
+
+  it('keeps the source title captured when submit continues after a thread switch', async () => {
+    const pendingSharedFile = createDeferred();
+    vi.mocked(callAPI).mockImplementation(async (method, params) => {
+      if (method === 'ui/memory/shared-file/get' && params.path === 'notes/a.md') {
+        return pendingSharedFile.promise;
+      }
+      return {};
+    });
+    const ctx = makeCtx({
+      threadName: 'Thread A',
+      timeline: [{ role: 'user', text: 'hi from A' }],
+      sharedFilePaths: ['notes/a.md'],
+    });
+    const { submit } = useForkThread(ctx);
+
+    const submitPromise = submit();
+    ctx.selectedThreadId.value = 'thread-b';
+    ctx.activeThread.value = { id: 'thread-b', name: 'Thread B' };
+    pendingSharedFile.resolve({ path: 'notes/a.md', content: 'content from A' });
+    await submitPromise;
+
+    const [, opts] = ctx.threadStore.startThread.mock.calls[0];
+    expect(opts.name).toBe('继承自会话：Thread A');
+    expect(opts.baseInstructions).toContain('来源：继承自会话：Thread A');
+    expect(opts.baseInstructions).not.toContain('Thread B');
   });
 
   it('does not call closeForkDraft when startThread returns empty id', async () => {

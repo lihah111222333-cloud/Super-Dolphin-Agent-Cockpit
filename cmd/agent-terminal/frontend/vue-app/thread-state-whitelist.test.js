@@ -12,6 +12,8 @@ import {
 describe('thread-state-whitelist', () => {
   it('exports the expected whitelist buckets', () => {
     expect(THREAD_STORE_UI_LOCAL_STATE_WHITELIST).toContain('activeThreadId');
+    expect(THREAD_STORE_UI_LOCAL_STATE_WHITELIST).toContain('sendBlockedNoticesByThread');
+    expect(THREAD_STORE_UI_LOCAL_STATE_WHITELIST).toContain('sendHoldNoticesByThread');
     expect(THREAD_STORE_RUNTIME_STATE_KEYS).toContain('threads');
     expect(THREAD_STORE_STATE_WHITELIST).toContain('activeThreadId');
     expect(THREAD_STORE_STATE_WHITELIST).not.toContain('threads');

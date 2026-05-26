@@ -37,6 +37,8 @@ describe('thread store stale prompt cleanup', () => {
     const store = useThreadStore();
     Object.assign(store.state, {
       promptStaleNotice: '',
+      sendBlockedNoticesByThread: {},
+      sendHoldNoticesByThread: {},
       threads: [],
       timelinesByThread: {},
       kickoffByThread: {},

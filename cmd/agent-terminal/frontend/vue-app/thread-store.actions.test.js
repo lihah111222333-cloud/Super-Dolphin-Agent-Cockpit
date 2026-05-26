@@ -90,6 +90,8 @@ function resetThreadStore(store) {
     activeThreadId: '',
     activeCmdThreadId: '',
     promptStaleNotice: '',
+    sendBlockedNoticesByThread: {},
+    sendHoldNoticesByThread: {},
 
     pinnedThreadAtById: {},
     archivedThreadAtById: {},
