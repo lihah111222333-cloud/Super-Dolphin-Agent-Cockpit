@@ -48,11 +48,13 @@ export function useThreadSelection(opts) {
       });
       if (!nextId) return;
 
+      const changedFromExistingThread = nextId !== previousId && Boolean(previousId);
       // [FIX] 仅在线程 ID 真正变化且 prevId 已有值时才重置:
       // - immediate 首次触发 (prevId 为 undefined → '') 时不 reset，让 scheduleScrollToBottom 处理
       // - 同 ID 重复写入（snapshot 覆写）不 reset
-      if (resetScrollState && nextId !== previousId && previousId) {
+      if (resetScrollState && changedFromExistingThread) {
         resetScrollState();
+        scheduleScrollToBottom(true);
       }
 
       /** @type {ThreadSelectionFreshness} */
@@ -89,7 +91,10 @@ export function useThreadSelection(opts) {
           return;
         }
       }
-      scheduleScrollToBottom(true);
+      if ((selectedThreadId.value || '').toString().trim() !== nextId) return;
+      if (!changedFromExistingThread) {
+        scheduleScrollToBottom(true);
+      }
       logInfo('ui', 'chat.selection.watch.done', {
         previous_thread_id: previousId,
         thread_id: nextId,

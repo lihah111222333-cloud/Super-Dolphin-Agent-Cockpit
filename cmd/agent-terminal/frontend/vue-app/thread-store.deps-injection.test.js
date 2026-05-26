@@ -7,6 +7,8 @@ function buildRuntimeState(overrides = {}) {
   return {
     activeThreadId: '',
     activeCmdThreadId: '',
+    sendBlockedNoticesByThread: {},
+    sendHoldNoticesByThread: {},
 
     pinnedThreadAtById: {},
     archivedThreadAtById: {},

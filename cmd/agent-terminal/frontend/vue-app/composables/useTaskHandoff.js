@@ -24,6 +24,10 @@ function previewTaskHandoff(content, limit = 2400) {
   return truncateSummaryText(content, limit);
 }
 
+function sameLoadTarget(a, b) {
+  return a.threadId === b.threadId && a.taskId === b.taskId && a.handoffFile === b.handoffFile;
+}
+
 // 从任意 thread runtime 对象抽 task 描述；runtime 没有 taskId 返 null。
 // 抽出为独立 helper 是为了让 activeTask（selected thread）和 continueTaskById（任意 thread）复用同一套字段映射逻辑。
 export function buildTaskFromRuntime(runtime, fallbackTitle = '') {
@@ -165,24 +169,43 @@ export function useTaskHandoff({ threadStore, projectStore, selectedThreadId, ac
   const expanded = ref(false);
 
   const activeTask = computed(() => buildTaskFromRuntime(activeRuntime.value, activeThread.value?.name));
+  let loadRequestSeq = 0;
+
+  function currentLoadTarget() {
+    const task = activeTask.value;
+    return {
+      threadId: firstNonEmpty(selectedThreadId.value),
+      taskId: firstNonEmpty(task?.taskId),
+      handoffFile: firstNonEmpty(task?.handoffFile),
+    };
+  }
 
   async function loadTaskHandoff() {
     const task = activeTask.value;
     const path = firstNonEmpty(task?.handoffFile);
+    const loadTarget = currentLoadTarget();
+    const requestSeq = loadRequestSeq + 1;
+    loadRequestSeq = requestSeq;
+    const isLatestRequest = () => requestSeq === loadRequestSeq;
+    const isCurrentRequest = () => isLatestRequest() && sameLoadTarget(loadTarget, currentLoadTarget());
     state.loading = true;
     state.error = '';
     try {
       if (!path) {
-        state.content = '';
-        state.updatedAt = '';
-        state.updatedBy = '';
+        if (isCurrentRequest()) {
+          state.content = '';
+          state.updatedAt = '';
+          state.updatedBy = '';
+        }
         return;
       }
       const detail = await callAPI('ui/memory/shared-file/get', { path });
+      if (!isCurrentRequest()) return;
       state.content = (detail?.content || '').toString();
       state.updatedBy = (detail?.updatedBy || '').toString();
       state.updatedAt = (detail?.updatedAt || '').toString();
     } catch (error) {
+      if (!isCurrentRequest()) return;
       state.error = toErrorMessage(error);
       state.content = '';
       state.updatedBy = '';
@@ -194,7 +217,7 @@ export function useTaskHandoff({ threadStore, projectStore, selectedThreadId, ac
       });
       throw error;
     } finally {
-      state.loading = false;
+      if (isLatestRequest()) state.loading = false;
     }
   }
 
@@ -324,6 +347,7 @@ export function useTaskHandoff({ threadStore, projectStore, selectedThreadId, ac
   async function continueTaskInNewWindow() {
     const task = activeTask.value;
     if (!task || continueBusy.value) return;
+    const actionTarget = currentLoadTarget();
     continueBusy.value = true;
     try {
       const cwd = resolveProjectActionCwd(projectStore, windowCwd);
@@ -337,14 +361,15 @@ export function useTaskHandoff({ threadStore, projectStore, selectedThreadId, ac
       });
 
       logInfo('ui', 'taskHandoff.continue.new_window.done', {
-        source_thread_id: selectedThreadId.value || '',
+        source_thread_id: actionTarget.threadId,
         task_id: task.taskId,
         cwd,
       });
     } catch (error) {
+      if (!sameLoadTarget(actionTarget, currentLoadTarget())) throw error;
       state.error = toErrorMessage(error);
       logWarn('ui', 'taskHandoff.continue.new_window.failed', {
-        source_thread_id: selectedThreadId.value || '',
+        source_thread_id: actionTarget.threadId,
         task_id: task.taskId,
         error: state.error,
       });
@@ -355,7 +380,11 @@ export function useTaskHandoff({ threadStore, projectStore, selectedThreadId, ac
   }
 
   watch(
-    () => firstNonEmpty(activeTask.value?.taskId, activeTask.value?.handoffFile),
+    () => [
+      firstNonEmpty(selectedThreadId.value),
+      firstNonEmpty(activeTask.value?.taskId),
+      firstNonEmpty(activeTask.value?.handoffFile),
+    ].join('\n'),
     () => {
       // 切 thread / task 时重置为折叠：保证每进入一个任务都是默认紧凑 chip。
       // sync flush 让重置随 activeRuntime 赋值同步发生，在测试里不需 nextTick 就

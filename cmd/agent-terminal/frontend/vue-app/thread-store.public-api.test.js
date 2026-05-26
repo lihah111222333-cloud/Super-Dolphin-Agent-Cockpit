@@ -15,6 +15,7 @@ import { useThreadStore } from './stores/threads.js';
 
 const PUBLIC_API_KEYS = [
   'compactThread',
+  'clearThreadSendBlockedNotice',
   'displayName',
   'forceCompleteThread',
   'getCmdCardCols',
@@ -33,6 +34,7 @@ const PUBLIC_API_KEYS = [
   'getThreadInterruptible',
   'getThreadPinnedAt',
   'getThreadRailWidth',
+  'getThreadSendBlockedNotice',
   'getThreadStatus',
   'getThreadStatusDetails',
   'getThreadStatusHeader',
@@ -41,6 +43,7 @@ const PUBLIC_API_KEYS = [
   'getThreadsByMode',
   'handleAgentEvent',
   'handleBridgeEvent',
+  'isThreadSendBlocked',
   'loadMessages',
   'markHistoryLoaded',
   'promptRenameThread',

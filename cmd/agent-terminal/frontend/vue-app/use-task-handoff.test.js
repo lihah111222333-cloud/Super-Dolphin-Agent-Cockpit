@@ -44,6 +44,16 @@ function makeCtx({
   };
 }
 
+function createDeferred() {
+  let resolve;
+  let reject;
+  const promise = new Promise((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  return { promise, resolve, reject };
+}
+
 beforeEach(() => {
   vi.mocked(callAPI).mockReset();
   vi.mocked(callAPI).mockResolvedValue({});
@@ -366,6 +376,32 @@ describe('useTaskHandoff.continueCurrentTaskInNewWindow', () => {
       error: 'window launch failed',
     }));
   });
+
+  it('does not surface late openNewWindow failures after selected task changes', async () => {
+    const pendingOpen = createDeferred();
+    vi.mocked(callAPI).mockImplementation(async (method) => {
+      if (method === 'ui/openNewWindow') return pendingOpen.promise;
+      return {};
+    });
+    const ctx = makeCtx({
+      selectedThreadId: 'thread-a',
+      threadName: 'Thread A',
+      runtime: { taskId: 'task-a', taskTitle: 'Task A', handoffFile: 'handoff/a.md' },
+    });
+    const vm = useTaskHandoff(ctx);
+
+    const openPromise = vm.continueCurrentTaskInNewWindow().catch(() => {});
+    ctx.selectedThreadId.value = 'thread-b';
+    ctx.activeThread.value = { id: 'thread-b', name: 'Thread B' };
+    ctx.activeRuntime.value = { taskId: 'task-b', taskTitle: 'Task B', handoffFile: 'handoff/b.md' };
+
+    const handledPendingOpen = pendingOpen.promise.catch(() => {});
+    pendingOpen.reject(new Error('window launch failed'));
+    await Promise.all([openPromise, handledPendingOpen]);
+
+    expect(vm.taskHandoffError.value).toBe('');
+    expect(logWarn).not.toHaveBeenCalledWith('ui', 'taskHandoff.continue.new_window.failed', expect.anything());
+  });
 });
 
 describe('taskStripExpanded 默认折叠 + 事件展开', () => {
@@ -405,6 +441,53 @@ describe('taskStripExpanded 默认折叠 + 事件展开', () => {
     await Promise.resolve();
     expect(taskHandoffError.value).toBe('boom');
     expect(taskStripExpanded.value).toBe(true);
+  });
+
+  it('ignores late handoff content after selected task changes', async () => {
+    const pendingLoad = createDeferred();
+    vi.mocked(callAPI).mockReturnValueOnce(pendingLoad.promise);
+    const ctx = makeCtx({ runtime: null });
+    const vm = useTaskHandoff(ctx);
+
+    ctx.selectedThreadId.value = 'thread-a';
+    ctx.activeThread.value = { id: 'thread-a', name: 'Thread A' };
+    ctx.activeRuntime.value = { taskId: 'task-a', handoffFile: 'handoff/a.md' };
+    const loadPromise = vm.refreshTaskHandoff();
+
+    ctx.selectedThreadId.value = 'thread-b';
+    ctx.activeThread.value = { id: 'thread-b', name: 'Thread B' };
+    ctx.activeRuntime.value = { taskId: 'task-b', handoffFile: 'handoff/b.md' };
+
+    pendingLoad.resolve({ content: 'handoff from task A', updatedAt: 'old', updatedBy: 'agent-a' });
+    await loadPromise;
+
+    expect(vm.taskHandoffPreview.value).toBe('');
+    expect(vm.taskHandoffError.value).toBe('');
+    expect(vm.taskHandoffUpdatedAt.value).toBe('');
+    expect(vm.taskHandoffUpdatedBy.value).toBe('');
+  });
+
+  it('ignores late handoff load errors after selected task changes', async () => {
+    const pendingLoad = createDeferred();
+    vi.mocked(callAPI).mockReturnValueOnce(pendingLoad.promise);
+    const ctx = makeCtx({ runtime: null });
+    const vm = useTaskHandoff(ctx);
+
+    ctx.selectedThreadId.value = 'thread-a';
+    ctx.activeThread.value = { id: 'thread-a', name: 'Thread A' };
+    ctx.activeRuntime.value = { taskId: 'task-a', handoffFile: 'handoff/a.md' };
+    const loadPromise = vm.refreshTaskHandoff().catch(() => {});
+
+    ctx.selectedThreadId.value = 'thread-b';
+    ctx.activeThread.value = { id: 'thread-b', name: 'Thread B' };
+    ctx.activeRuntime.value = { taskId: 'task-b', handoffFile: 'handoff/b.md' };
+
+    const handledPendingLoad = pendingLoad.promise.catch(() => {});
+    pendingLoad.reject(new Error('task A handoff failed'));
+    await Promise.all([loadPromise, handledPendingLoad]);
+
+    expect(vm.taskHandoffError.value).toBe('');
+    expect(vm.taskStripExpanded.value).toBe(false);
   });
 
   // 注：「切 thread/task 重置为折叠」这个行为由 useTaskHandoff 里 immediate+sync
