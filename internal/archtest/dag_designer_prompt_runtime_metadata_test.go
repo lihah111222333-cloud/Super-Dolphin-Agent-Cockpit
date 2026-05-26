@@ -269,6 +269,8 @@ func dagDesigner0106ProviderModelReplacements() map[string]string {
 		`    "provider": "claude",
     "model": "opus",
     "agent_key": "code-debug",`: `    "agent_key": "code-debug",`,
+		`    "provider": "claude",
+    "model": "opus",`: `    "model": "<selected model from list_models()>",`,
 		`"escalation_chain": ["sonnet","opus"]`:                                                 `"escalation_chain": []`,
 		`"verifier":   { "provider": "claude", "model": "sonnet", "agent_key": "code-review" }`: `"verifier":   { "agent_key": "code-review" }`,
 		`list_models(provider="claude")`:                                                        `list_models()`,

@@ -342,7 +342,8 @@
 }
 
 .dag-console-muted,
-.dag-console-error-inline {
+.dag-console-error-inline,
+.dag-console-success-inline {
   color: var(--text-muted);
   font-size: 12px;
   overflow-wrap: anywhere;
@@ -350,6 +351,75 @@
 
 .dag-console-error-inline {
   color: var(--error);
+}
+
+.dag-console-success-inline {
+  color: var(--success);
+}
+
+.dag-delete-modal {
+  display: grid;
+  gap: 14px;
+}
+
+.dag-delete-modal-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.dag-delete-modal-title {
+  color: var(--text);
+  font-size: 14px;
+  font-weight: 650;
+}
+
+.dag-delete-modal-tip,
+.dag-delete-modal-body {
+  color: var(--text-muted);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.dag-delete-modal-tip {
+  margin-top: 4px;
+}
+
+.dag-schedule-fields {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 10px;
+}
+
+.dag-schedule-field {
+  display: grid;
+  gap: 6px;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.dag-schedule-field input,
+.dag-schedule-field select {
+  width: 100%;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--text);
+  padding: 8px 10px;
+  font: inherit;
+}
+
+.dag-schedule-preview {
+  color: var(--text-muted);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.dag-delete-modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
 }
 
 .dag-node-list-grid,

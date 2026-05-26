@@ -47,6 +47,10 @@ type storedThreadConfig struct {
 	// loses the explicit prompt_key pin and the router silently degrades to
 	// the default persona on the first turn.
 	PromptKey string `json:"prompt_key,omitempty"`
+	// AgentKey is also stashed for pending-launch intake threads. The thread
+	// can have a visible name and a pinned agent persona before the user sends
+	// the first real requirement; SpawnIfNeeded restores the pin for routing.
+	AgentKey string `json:"agent_key,omitempty"`
 }
 
 type offlineConfigSnapshot struct {
@@ -340,25 +344,6 @@ func (s *service) emitThreadModelUpdated(threadID string, model *string) {
 		return
 	}
 	s.emitUpdated(threaddto.Updated{EventHeader: shareddto.EventHeader{Timestamp: time.Now()}, ThreadID: strings.TrimSpace(threadID), Model: model})
-}
-
-// emitThreadPromotedTask publishes a thread/updated event with no model /
-// name payload purely to make the uistate projector rerun
-// refreshThreadPatchLocked for this thread. The refresh re-evaluates
-// applyTaskRuntimeToThreadRuntime, which now finds taskId / handoffFile /
-// taskTitle in the persisted runtime config and pushes them into
-// agentRuntimeById on the frontend. Phase 2.1: without this nudge the
-// frontend would not see the new task fields until the next natural
-// thread/updated or sidebar refresh.
-func (s *service) emitThreadPromotedTask(threadID string) {
-	if s == nil || s.emitUpdated == nil {
-		return
-	}
-	tid := strings.TrimSpace(threadID)
-	if tid == "" {
-		return
-	}
-	s.emitUpdated(threaddto.Updated{EventHeader: shareddto.EventHeader{Timestamp: time.Now()}, ThreadID: tid})
 }
 
 func (s *service) normalizeThreadConfig(

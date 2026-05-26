@@ -362,18 +362,6 @@ export function handleBridgeEvent(ctx, evt) {
   const eventName = eventMethod || eventBridgeType || '';
   const sourceLower = toNormalizedEventString(evt?.source || evt?.params?.source || evt?.payload?.source || evt?.data?.source);
   let eventThreadId = getBridgeEventThreadId(evt);
-  // Phase 1.7a：watchdog 戳点 —— 任何带 threadId 的后端事件都刷新 lastEventTs，
-  // useThreadWatchdog (Phase 1.7b) 据此判断 thread 事件源是否停滞。
-  // Phase 1.7c：偏好关闭时实际跳过由 useThreadWatchdog scan 内 prefRef 检查处理；
-  // 戳点保持纯净不引入 RPC（避免高频路径 lazy load preferences）。lastEvent 写入
-  // 与否对 pref=false 场景无副作用：scan 不响应 → 不戳消息 → 不记录 stuck。
-  if (eventThreadId) {
-    const stampTid = normalizeThreadID(eventThreadId);
-    if (stampTid) {
-      const map = ctx.state.lastBackendEventAtByThread || (ctx.state.lastBackendEventAtByThread = {});
-      map[stampTid] = Date.now();
-    }
-  }
   if (isSkillsChangedSignal) {
     ctx.state.skillRevision = Number(ctx.state.skillRevision || 0) + 1;
     logInfo('thread', 'skills.changed', { revision: ctx.state.skillRevision, skills_dir: (evt?.skillsDir || evt?.payload?.skillsDir || evt?.params?.skillsDir || '').toString() });

@@ -76,41 +76,60 @@ beforeEach(() => {
 });
 
 describe('DagsPage delete action', () => {
-  it('confirms deletion, calls the detail composable, and refreshes the DAG list', async () => {
+  it('opens an in-app confirmation before deleting and refreshes the DAG list after confirm', async () => {
     const props = dagProps();
     setDetailDag({ runs: [{ run_key: 'run-done', status: 'succeeded' }] });
     detailMock.deleteDAG.mockResolvedValueOnce({ ok: true });
-    vi.stubGlobal('confirm', vi.fn(() => true));
     const emit = vi.fn();
 
     const vm = DagsPage.setup(props, { emit });
     expect(vm.deleteDisabledReason.value).toBe('');
-    await vm.deleteSelectedDag();
+    vm.deleteSelectedDag();
 
-    expect(globalThis.confirm).toHaveBeenCalledWith(expect.stringContaining('删除'));
+    expect(vm.deleteConfirmTarget.value).toEqual({ dagKey: 'dag-a', title: 'Dag A' });
+    expect(detailMock.deleteDAG).not.toHaveBeenCalled();
+    await vm.confirmDeleteDAG();
+
     expect(detailMock.deleteDAG).toHaveBeenCalledTimes(1);
     expect(emit).toHaveBeenCalledWith('refresh-dags');
+    expect(vm.deleteSuccessText.value).toBe('已删除「Dag A」');
+    expect(vm.deleteConfirmTarget.value).toBeNull();
     expect(DagsPage.template).toContain('data-testid="dag-delete-button"');
+    expect(DagsPage.template).toContain('data-testid="dag-delete-overlay"');
+    expect(DagsPage.template).toContain('data-testid="dag-delete-confirm"');
+    expect(DagsPage.template).toContain('data-testid="dag-delete-success"');
     expect(DagsPage.template).toContain('deleteErrorText');
   });
 
-  it('does not delete without confirmation or when an active run is present', async () => {
+  it('does not open confirmation when an active run is present and cancel keeps data intact', async () => {
     const props = dagProps({ latest_run: { run_key: 'run-active', status: 'running' } });
     setDetailDag({ activeRun: { run_key: 'run-active', status: 'running' } });
-    vi.stubGlobal('confirm', vi.fn(() => true));
     const vm = DagsPage.setup(props, { emit: vi.fn() });
 
     expect(vm.deleteDisabledReason.value).toContain('正在进行');
-    await vm.deleteSelectedDag();
+    expect(DagsPage.template).toContain('data-testid="dag-delete-disabled-reason"');
+    vm.deleteSelectedDag();
     expect(detailMock.deleteDAG).not.toHaveBeenCalled();
-    expect(globalThis.confirm).not.toHaveBeenCalled();
+    expect(vm.deleteConfirmTarget.value).toBeNull();
 
     props.items = [{ dag_key: 'dag-a', title: 'Dag A', status: 'ready', trigger: 'manual' }];
     detailMock.state.dag = props.items[0];
     detailMock.state.activeRun = null;
-    vi.stubGlobal('confirm', vi.fn(() => false));
-    await vm.deleteSelectedDag();
+    vm.deleteSelectedDag();
+    expect(vm.deleteConfirmTarget.value).toEqual({ dagKey: 'dag-a', title: 'Dag A' });
+    vm.cancelDeleteDAG();
+    expect(vm.deleteConfirmTarget.value).toBeNull();
     expect(detailMock.deleteDAG).not.toHaveBeenCalled();
+  });
+
+  it('allows cleanup deletion when run history loading fails but list state is not active', () => {
+    const props = dagProps({ latest_run: { run_key: 'run-done', status: 'succeeded' } });
+    setDetailDag({ runsError: new Error('runs unavailable') });
+    const vm = DagsPage.setup(props, { emit: vi.fn() });
+
+    expect(vm.deleteDisabledReason.value).toBe('');
+    vm.deleteSelectedDag();
+    expect(vm.deleteConfirmTarget.value).toEqual({ dagKey: 'dag-a', title: 'Dag A' });
   });
 
   it('does not refresh the DAG list after delete reports an error', async () => {
@@ -120,13 +139,14 @@ describe('DagsPage delete action', () => {
       detailMock.state.deleteError = new Error('delete refused');
       return { ok: false };
     });
-    vi.stubGlobal('confirm', vi.fn(() => true));
     const emit = vi.fn();
 
     const vm = DagsPage.setup(props, { emit });
-    await vm.deleteSelectedDag();
+    vm.deleteSelectedDag();
+    await vm.confirmDeleteDAG();
 
     expect(detailMock.deleteDAG).toHaveBeenCalledTimes(1);
     expect(emit).not.toHaveBeenCalledWith('refresh-dags');
+    expect(vm.deleteConfirmTarget.value).toEqual({ dagKey: 'dag-a', title: 'Dag A' });
   });
 });

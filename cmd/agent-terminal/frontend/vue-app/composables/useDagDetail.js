@@ -50,6 +50,34 @@ function runStatusFromItem(item) {
   return (item?.status || item?.run_status || item?.runStatus || '').toString().trim().toLowerCase();
 }
 
+function startExecutionStateFromItem(item) {
+  return (item?.execution_state || item?.executionState || '').toString().trim().toLowerCase();
+}
+
+function numberFromItem(...values) {
+  for (const value of values) {
+    if (value === undefined || value === null || value === '') continue;
+    const number = Number(value);
+    if (Number.isFinite(number)) return number;
+  }
+  return null;
+}
+
+function startWarningFromResult(result) {
+  const explicit = (result?.warning || result?.Warning || '').toString().trim();
+  if (explicit) return explicit;
+  const executionState = startExecutionStateFromItem(result);
+  const readyRootNodes = numberFromItem(result?.readyRootNodes, result?.ready_root_nodes);
+  const scheduledWakeups = numberFromItem(result?.scheduledWakeups, result?.scheduled_wakeups);
+  if (executionState === 'waiting_for_assignee' || (readyRootNodes > 0 && scheduledWakeups === 0)) {
+    return '已启动，但根节点还未指派执行代理，等待指派后继续执行。';
+  }
+  if (executionState === 'no_ready_roots') {
+    return '已启动，但暂时没有可调度的根节点。';
+  }
+  return null;
+}
+
 function terminableRunKey(activeRun, selectedRun, candidateRun) {
   for (const run of [activeRun, selectedRun, candidateRun]) {
     if (!TERMINABLE_RUN_STATUSES.has(runStatusFromItem(run))) continue;
@@ -89,17 +117,25 @@ function normalizeNodeSavePayload(payload = {}) {
   };
 }
 
+function scheduleCronExprFromPayload(payload = {}) {
+  return (payload.cronExpr || payload.cron_expr || '').toString().trim();
+}
+
 function resetTransient(state) {
   state.error = null;
   state.loading = false;
   state.runsError = null;
   state.starting = false;
   state.startError = null;
+  state.startWarning = null;
+  state.startExecutionState = '';
   state.terminating = false;
   state.terminateError = null;
   state.terminateWarning = null;
   state.deleting = false;
   state.deleteError = null;
+  state.scheduling = false;
+  state.scheduleError = null;
   state.savingNodeKey = '';
   state.saveError = null;
 }
@@ -114,6 +150,36 @@ function resetOpenState(state, item) {
   state.selectedRunKey = '';
   state.finalOutput = null;
   state.show = true;
+}
+
+function initialDagDetailState() {
+  return {
+    show: false,
+    loading: false,
+    error: null,
+    runsError: null,
+    dag: null,
+    templateNodes: [],
+    nodes: [],
+    runs: [],
+    activeRun: null,
+    run: null,
+    selectedRunKey: '',
+    finalOutput: null,
+    starting: false,
+    startError: null,
+    startWarning: null,
+    startExecutionState: '',
+    terminating: false,
+    terminateError: null,
+    terminateWarning: null,
+    deleting: false,
+    deleteError: null,
+    scheduling: false,
+    scheduleError: null,
+    savingNodeKey: '',
+    saveError: null,
+  };
 }
 
 async function terminateRunFlow(ctx, candidateRun) {
@@ -179,31 +245,56 @@ async function handleTerminateFailure(ctx, seq, dagKey, runKey, error) {
   return { ok: seq === getSeq() && runIsTerminal(state.run), refreshed };
 }
 
+function scheduleApplyOps(cronExpr) {
+  return [{
+    op: 'update_dag',
+    patch: {
+      trigger: 'scheduled',
+      cron_expr: cronExpr,
+    },
+  }];
+}
+
+async function setScheduleFlow(ctx, payload = {}) {
+  const { state, getSeq, loadDetail } = ctx;
+  if (state.scheduling) return { ok: false };
+  const seq = getSeq();
+  const dagKey = dagKeyFromItem(state.dag);
+  const cronExpr = scheduleCronExprFromPayload(payload);
+  state.scheduleError = null;
+  if (!dagKey) {
+    state.scheduleError = new Error('缺少 DAG key');
+    return { ok: false };
+  }
+  if (!cronExpr) {
+    state.scheduleError = new Error('缺少 cron 表达式');
+    return { ok: false };
+  }
+  const baseVersion = dagVersionFromItem(state.dag);
+  if (baseVersion === null) {
+    state.scheduleError = new Error('缺少 DAG version，无法执行 apply_ops');
+    return { ok: false };
+  }
+  state.scheduling = true;
+  try {
+    await callAPI('dashboard/dagApplyOps', { dagKey, baseVersion, ops: scheduleApplyOps(cronExpr) });
+    if (seq !== getSeq()) return { ok: false };
+    await loadDetail(seq, dagKey, state.dag, state.selectedRunKey);
+    return { ok: true };
+  } catch (error) {
+    if (seq === getSeq()) {
+      state.scheduleError = error;
+      logWarn('ui', 'useDagDetail.set_schedule.failed', { dagKey, error });
+    }
+    return { ok: false };
+  } finally {
+    if (seq === getSeq()) state.scheduling = false;
+  }
+}
+
 export function useDagDetail() {
   let openSeq = 0;
-  const state = reactive({
-    show: false,
-    loading: false,
-    error: null,
-    runsError: null,
-    dag: null,
-    templateNodes: [],
-    nodes: [],
-    runs: [],
-    activeRun: null,
-    run: null,
-    selectedRunKey: '',
-    finalOutput: null,
-    starting: false,
-    startError: null,
-    terminating: false,
-    terminateError: null,
-    terminateWarning: null,
-    deleting: false,
-    deleteError: null,
-    savingNodeKey: '',
-    saveError: null,
-  });
+  const state = reactive(initialDagDetailState());
 
   async function loadRun(seq, runKey) {
     const result = await callAPI('dashboard/dagRun', { runKey });
@@ -311,6 +402,8 @@ export function useDagDetail() {
     const seq = openSeq;
     const dagKey = dagKeyFromItem(state.dag);
     state.startError = null;
+    state.startWarning = null;
+    state.startExecutionState = '';
     state.terminateError = null;
     state.terminateWarning = null;
     if (!dagKey) {
@@ -334,6 +427,8 @@ export function useDagDetail() {
       return;
     }
     if (seq !== openSeq) return;
+    state.startExecutionState = startExecutionStateFromItem(result);
+    state.startWarning = startWarningFromResult(result);
     const runKey = runKeyFromItem(result);
     try {
       await loadDetail(seq, dagKey, state.dag, runKey);
@@ -410,12 +505,17 @@ export function useDagDetail() {
     }
   }
 
+  async function setSchedule(payload = {}) {
+    return setScheduleFlow({ state, getSeq: () => openSeq, loadDetail }, payload);
+  }
+
   function close() {
     openSeq += 1;
     state.show = false;
     state.starting = false;
     state.terminating = false;
     state.deleting = false;
+    state.scheduling = false;
   }
 
   function updateNodeStatus(nodeKey, status) {
@@ -433,5 +533,5 @@ export function useDagDetail() {
     if (node) node.status = status;
   }
 
-  return { state, open, close, selectRun, start, terminateActiveRun, deleteDAG, saveAgentNode, updateNodeStatus, handleStatusEvent };
+  return { state, open, close, selectRun, start, terminateActiveRun, deleteDAG, saveAgentNode, setSchedule, updateNodeStatus, handleStatusEvent };
 }

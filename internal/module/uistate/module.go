@@ -143,9 +143,7 @@ func (s *service) enrichFromDB(ctx context.Context, agents []AgentSummary, threa
 			cfg, _ = s.runtimeConfig.ReadRuntimeConfig(ctx, threadID)
 		}
 
-		if len(cfg) > 0 {
-			applyTaskRuntimeToThreadRuntimeConfig(threadID, cfg, runtimeMap)
-		}
+		applyTaskRuntimeToThreadRuntimeConfig(threadID, cfg, runtimeMap)
 	}
 	if len(byAgent) == 0 {
 		return
@@ -195,38 +193,9 @@ func ensureThreadRuntime(thread ThreadSummary, entry bindingEntry, runtimeMap ma
 }
 
 func applyTaskRuntimeToThreadRuntimeConfig(threadID string, cfg map[string]any, runtimeMap map[string]map[string]any) {
-	rt := runtimeMap[threadID]
-	if rt == nil {
-		rt = map[string]any{}
-		runtimeMap[threadID] = rt
-	}
-	setRuntimeStringField(rt, cfg, "taskId", "taskId", "task_id")
-	setRuntimeStringField(rt, cfg, "taskTitle", "taskTitle", "task_title")
-	setRuntimeStringField(rt, cfg, "handoffFile", "handoffFile", "handoff_file")
-	setRuntimeStringField(rt, cfg, "ownerThreadId", "ownerThreadId", "owner_thread_id")
-	setRuntimeStringField(rt, cfg, "rootTaskId", "rootTaskId", "root_task_id")
-}
-
-func setRuntimeStringField(rt map[string]any, cfg map[string]any, field string, keys ...string) {
-	if value := runtimeConfigStringValue(cfg, keys...); value != "" {
-		rt[field] = value
-	}
-}
-
-func runtimeConfigStringValue(cfg map[string]any, keys ...string) string {
-	for _, key := range keys {
-		value, ok := cfg[key]
-		if !ok {
-			continue
-		}
-		text, ok := value.(string)
-		if ok {
-			if text = strings.TrimSpace(text); text != "" {
-				return text
-			}
-		}
-	}
-	return ""
+	_ = threadID
+	_ = cfg
+	_ = runtimeMap
 }
 
 func (s *service) loadBindingIndex(ctx context.Context) map[string]bindingEntry {

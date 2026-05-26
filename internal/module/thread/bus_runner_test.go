@@ -98,7 +98,6 @@ func TestThreadBusWorkersAsRunnerRunStopsWorkers(t *testing.T) {
 		t.Fatal("Run did not stop after context cancel")
 	}
 
-	assertClosed(t, svc.taskHandoffWorker.stopCh, "task handoff stopCh")
 	assertClosed(t, svc.agentLaunchedWorker.stopCh, "agent launched stopCh")
 	assertClosed(t, svc.sessionRecoveryWorker.stopCh, "session recovery stopCh")
 

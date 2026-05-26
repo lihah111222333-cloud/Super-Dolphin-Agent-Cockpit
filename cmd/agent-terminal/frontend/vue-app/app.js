@@ -15,7 +15,6 @@ import { SharedFilesPage } from './pages/SharedFilesPage.js';
 import { useProjectStore } from './stores/projects.js';
 import { useThreadStore } from './stores/threads.js';
 import { resolveProjectActionCwd } from './composables/useThreadActions.js';
-import { logWarn } from './services/log.js';
 
 /**
  * @typedef {'chat' | 'agents' | 'dags' | 'tasks' | 'skills' | 'commands' | 'memory-center' | 'memory' | 'settings'} AppPage
@@ -235,22 +234,6 @@ async function applyWindowBootstrapSnapshot(snapshot, projectStore, threadStore,
   if (nextPage) {
     pageRef.value = nextPage;
   }
-  if (payload.taskStart != null && (typeof payload.taskStart !== 'object' || Array.isArray(payload.taskStart))) {
-    throw new Error('window bootstrap taskStart must be an object');
-  }
-  const taskStart = payload.taskStart || null;
-  if (taskStart) {
-    const startOptions = {
-      focusMode: taskStart.focusMode === 'cmd' ? 'cmd' : 'chat',
-      config: taskStart.config && typeof taskStart.config === 'object' ? taskStart.config : {},
-    };
-    const startName = typeof taskStart.name === 'string' ? taskStart.name.trim() : '';
-    const baseInstructions = typeof taskStart.baseInstructions === 'string' ? taskStart.baseInstructions.trim() : '';
-    if (startName) startOptions.name = startName;
-    if (baseInstructions) startOptions.baseInstructions = baseInstructions;
-    await threadStore.startThread(cwd || resolveProjectActionCwd(projectStore, windowCwd), startOptions);
-  }
-
 }
 
 async function ensureAppActiveThread(threadStore, projectStore, windowCwd = '') {
@@ -300,47 +283,23 @@ async function runCommandCardForApp(card, threadStore, projectStore, pageRef, wi
   pageRef.value = 'chat';
 }
 
-function buildDagDesignerPrompt(context = {}) {
-  return [
-    '请帮我设计或微调一个任务流程。',
-    context?.title ? `当前任务流程：${context.title}` : '当前没有选定任务流程，可以从新流程开始。',
-    '先了解可用能力和工作文件，再给出步骤顺序、每步目标和最终结果。用户确认后再保存。',
-  ].filter(Boolean).join('\n');
-}
-
 function dashboardPageErrorText(targetPage) {
   if (targetPage === 'dags') return '加载任务流程失败，请稍后重试。';
   return '加载页面失败，请稍后重试。';
 }
 
-async function startDagDesignerThreadForApp(context, deps) {
+async function startDagDesignerThreadForApp(_context, deps) {
   const cwd = resolveProjectActionCwd(deps.projectStore, deps.windowCwd);
-  const prompt = buildDagDesignerPrompt(context);
   const threadId = await deps.threadStore.startThread(cwd, {
     focusMode: 'chat',
     name: 'AI 设计流程',
     agentKey: 'dag_designer',
     promptKey: 'main/dag_designer_zh',
-    prompt,
+    deferSpawn: true,
   });
   if (!threadId) return;
   await deps.threadStore.saveActiveThread(threadId);
   deps.page.value = 'chat';
-  try {
-    await deps.threadStore.sendMessage(threadId, prompt, [], { kickoff: true, cwd });
-  } catch (error) {
-    const stateRef = deps.threadStore?.state;
-    if (stateRef?.kickoffByThread) {
-      const next = { ...stateRef.kickoffByThread };
-      delete next[threadId];
-      stateRef.kickoffByThread = next;
-    }
-    logWarn('ui', 'dagDesigner.kickoff_failed', {
-      thread_id: threadId,
-      dag_key: context?.dagKey || '',
-      error: error?.message || String(error),
-    });
-  }
 }
 
 async function startDagDesignerThreadOnceForApp(context, page, projectStore, threadStore, windowCwdRef, inFlight) {

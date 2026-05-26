@@ -18,6 +18,7 @@ export const WorkspaceChatPanel = {
     activeStatus: { type: String, default: '' },
     displayStatusText: { type: String, default: '' },
     activeStatusMeta: { type: String, default: '' },
+    emptyText: { type: String, default: '暂无消息，先发送一句话试试。' },
     resolveThreadDisplayName: { type: Function, default: (value) => value },
     presenceTarget: { type: Object, default: null },
     pinnedPlanCardSpec: { type: Function, default: () => ({}) },
@@ -66,6 +67,7 @@ export const WorkspaceChatPanel = {
         :active-status="activeStatus"
         :active-status-text="displayStatusText"
         :active-status-meta="activeStatusMeta"
+        :empty-text="emptyText"
         :pinned-plan-visible="Boolean(activePinnedPlan)"
         :pinned-plan-item-id="activePinnedPlan ? activePinnedPlan.id : null"
         :resolve-thread-display-name="resolveThreadDisplayName"

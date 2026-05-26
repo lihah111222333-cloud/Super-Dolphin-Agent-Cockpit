@@ -246,26 +246,14 @@ describe('useForkThread.submit', () => {
     expect(options.kickoff).toBe(true);
   });
 
-  it('源是自动化任务（taskId === rootTaskId）时仍触发 kickoff', async () => {
-    // promote_task / launch_task 路径下 root thread 的 rootTaskId 与 taskId 相等
+  it('source runtime metadata does not suppress kickoff', async () => {
     const ctx = makeCtx({
       timeline: [{ role: 'user', text: 'hi' }],
-      sourceRuntime: { taskId: 'task_root_1', rootTaskId: 'task_root_1' },
+      sourceRuntime: { sessionFlags: { persistentSubagentDefault: true } },
     });
     const { submit } = useForkThread(ctx);
     await submit();
     expect(ctx.threadStore.sendMessage).toHaveBeenCalledOnce();
-  });
-
-  it('源是 DAG 子节点 / 子 agent（rootTaskId !== taskId）时跳过 kickoff', async () => {
-    const ctx = makeCtx({
-      timeline: [{ role: 'user', text: 'hi' }],
-      sourceRuntime: { taskId: 'task_node_b', rootTaskId: 'task_dag_root' },
-    });
-    const { submit } = useForkThread(ctx);
-    const id = await submit();
-    expect(id).toBe('new-thread-id'); // fork 主流程仍成功
-    expect(ctx.threadStore.sendMessage).not.toHaveBeenCalled();
   });
 
   it('kickoff sendMessage 抛错时 fork 主流程仍返回新 thread id（review M1：kickoffError 被设）', async () => {

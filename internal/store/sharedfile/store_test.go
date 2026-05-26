@@ -143,14 +143,14 @@ func TestUpsertForwardsPayloadAndMapsRow(t *testing.T) {
 		},
 	}}
 	got, err := s.Upsert(context.Background(), UpsertParams{
-		Path:      "handoff/tasks/demo.md",
+		Path:      "reports/demo.md",
 		Content:   "hello",
 		UpdatedBy: "system",
 	})
 	if err != nil {
 		t.Fatalf("Upsert() unexpected error: %v", err)
 	}
-	if captured.Path != "handoff/tasks/demo.md" || captured.Content != "hello" || captured.UpdatedBy != "system" {
+	if captured.Path != "reports/demo.md" || captured.Content != "hello" || captured.UpdatedBy != "system" {
 		t.Fatalf("Upsert() forwarded wrong params: %+v", captured)
 	}
 	if got == nil || got.Path != captured.Path || got.Content != "hello" || got.UpdatedBy != "system" {

@@ -25,6 +25,7 @@ function setupTimeline(overrides = {}, emit = vi.fn()) {
       activeStatus: overrides.activeStatus ?? 'idle',
       activeStatusText: overrides.activeStatusText ?? '',
       activeStatusMeta: overrides.activeStatusMeta ?? '',
+      emptyText: overrides.emptyText ?? '暂无消息，先发送一句话试试。',
       pinnedPlanVisible: overrides.pinnedPlanVisible ?? false,
       pinnedPlanItemId: overrides.pinnedPlanItemId ?? null,
       resolveThreadDisplayName: overrides.resolveThreadDisplayName ?? null,
@@ -41,6 +42,7 @@ describe('ChatTimeline contract surface', () => {
       'activeStatus',
       'activeStatusText',
       'activeStatusMeta',
+      'emptyText',
       'pinnedPlanVisible',
       'pinnedPlanItemId',
       'resolveThreadDisplayName',
@@ -50,6 +52,7 @@ describe('ChatTimeline contract surface', () => {
     expect(ChatTimeline.props.activeStatus.default).toBe('idle');
     expect(ChatTimeline.props.activeStatusText.default).toBe('');
     expect(ChatTimeline.props.activeStatusMeta.default).toBe('');
+    expect(ChatTimeline.props.emptyText.default).toBe('暂无消息，先发送一句话试试。');
     expect(ChatTimeline.props.pinnedPlanVisible.default).toBe(false);
     expect(ChatTimeline.props.pinnedPlanItemId.default).toBe(null);
     expect(ChatTimeline.props.resolveThreadDisplayName.default).toBe(null);
@@ -89,6 +92,7 @@ describe('ChatTimeline contract surface', () => {
     expect(template).toContain(":attachment-api=\"attachmentPreviewApi\"");
     expect(template).toContain(":markdown-action-handlers=\"jsonRenderMarkdownActionHandlers\"");
     expect(template).toContain('has-plan-pin');
+    expect(template).toContain('{{ emptyText }}');
     expect(template).toContain('is-citation-target');
     expect(template).toContain('chat-presence-row--anchored');
     expect(template).toContain('chat-status-presence--popoverable');

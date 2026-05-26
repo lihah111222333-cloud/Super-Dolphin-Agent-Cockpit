@@ -1,12 +1,18 @@
 import { computed, ref, watch } from '../../lib/vue.esm-browser.prod.js';
-import { AutoContinuePrefCard } from '../components/AutoContinuePrefCard.js';
 import { DagFinalOutputPanel } from '../components/dag/DagFinalOutputPanel.js';
 import { DagNodeEditForm } from '../components/dag/DagNodeEditForm.js';
 import { DagNodeList } from '../components/dag/DagNodeList.js';
 import { DagRunHistoryPanel } from '../components/dag/DagRunHistoryPanel.js';
+import { DagScheduleModal } from '../components/dag/DagScheduleModal.js';
 import { DagSharedFilesPanel } from '../components/dag/DagSharedFilesPanel.js';
 import { DagTopologyPanel } from '../components/dag/DagTopologyPanel.js';
 import { useDagDetail } from '../composables/useDagDetail.js';
+import {
+  isScheduledTrigger,
+  scheduleLabelFromDagItem,
+  scheduledTaskStatusLabel,
+  useDagScheduleAction,
+} from '../composables/useDagScheduleAction.js';
 
 function textValue(...values) {
   for (const value of values) {
@@ -77,15 +83,7 @@ function triggerTypeLabel(value) {
 
 function triggerLabel(item) {
   const trigger = item.trigger || item.trigger_config || item.triggerConfig;
-  const schedule = textValue(
-    trigger?.schedule,
-    trigger?.cron,
-    trigger?.expression,
-    item.schedule,
-    item.cron,
-    item.cron_expr,
-    item.cronExpr,
-  );
+  const readableSchedule = scheduleLabelFromDagItem(item);
   const triggerType = typeof trigger === 'string'
     ? textValue(trigger)
     : textValue(
@@ -94,11 +92,11 @@ function triggerLabel(item) {
       item.trigger_type,
       item.triggerType,
     );
-  if (triggerType === '-' && schedule === '-') return '-';
-  if (triggerType === '-') return schedule;
+  if (triggerType === '-' && !readableSchedule) return '-';
+  if (triggerType === '-') return readableSchedule;
   const label = triggerTypeLabel(triggerType);
-  if (schedule === '-') return label;
-  return `${label} ${schedule}`;
+  if (isScheduledTrigger(normalizedValue(triggerType)) && readableSchedule) return readableSchedule;
+  return label;
 }
 
 function latestRunLabel(item) {
@@ -128,6 +126,12 @@ function latestRunLabelFromRun(run) {
   return latestRunLabel({ latest_run: run });
 }
 
+function displayLatestRunLabel(latestLabel, dagStatus, trigger) {
+  if (latestLabel !== '-') return latestLabel;
+  if (isScheduledTrigger(trigger)) return '未运行';
+  return dagStatus === 'draft' || dagStatus === 'ready' ? '未启动' : '-';
+}
+
 function hasFinalOutput(item) {
   const run = item.latest_run || item.latestRun || {};
   const metadata = item.metadata || {};
@@ -153,6 +157,10 @@ const DAG_CATEGORY_DEFS = [
   { key: 'scheduled', label: '定时任务' },
   { key: 'history', label: '历史记录' },
 ];
+
+function displayStatusLabel(status, trigger) {
+  return scheduledTaskStatusLabel(status, trigger) || statusLabel(status);
+}
 
 function dagKeyFromItem(item) {
   const key = textValue(item?.dag_key, item?.dagKey, item?.key, item?.id);
@@ -265,12 +273,16 @@ function dagTitle(item, index, key) {
 function normalizeDag(item, index) {
   const key = textValue(item.dag_key, item.dagKey, item.key, item.id);
   const status = textValue(item.status, item.state);
+  const normalizedStatus = normalizedValue(status);
+  const trigger = dagTriggerOf([item]);
+  const latestLabel = latestRunLabel(item);
   return {
     key,
     title: dagTitle(item, index, key),
-    status: statusLabel(status),
+    status: displayStatusLabel(status, trigger),
     triggerLabel: triggerLabel(item),
-    latestRunLabel: latestRunLabel(item),
+    scheduleLabel: scheduleLabelFromDagItem(item),
+    latestRunLabel: displayLatestRunLabel(latestLabel, normalizedStatus, trigger),
     hasFinalOutput: hasFinalOutput(item),
     raw: item,
     listKey: key === '-' ? `dag-${index}` : key,
@@ -301,11 +313,11 @@ function firstAvailableCategory(tabs) {
 export const DagsPage = {
   name: 'DagsPage',
   components: {
-    AutoContinuePrefCard,
     DagFinalOutputPanel,
     DagNodeEditForm,
     DagNodeList,
     DagRunHistoryPanel,
+    DagScheduleModal,
     DagSharedFilesPanel,
     DagTopologyPanel,
   },
@@ -321,6 +333,8 @@ export const DagsPage = {
     const dagDetail = useDagDetail();
     const detailState = dagDetail.state;
     const selectedKey = ref('');
+    const deleteSuccessText = ref('');
+    const deleteConfirmTarget = ref(null);
     const rows = computed(() => props.items.map((item, index) => {
       const row = normalizeDag(item, index);
       const dagKey = row.key === '-' ? '' : row.key;
@@ -386,6 +400,11 @@ export const DagsPage = {
     const detailErrorText = computed(() => userErrorText(detailState.error, '任务流程详情不可用，请稍后重试。'));
     const startErrorText = computed(() => userErrorText(detailState.startError, '运行任务流程失败，请稍后重试。'));
     const terminateErrorText = computed(() => userErrorText(detailState.terminateError, '停止任务流程失败，请稍后重试。'));
+    const startWarningText = computed(() => {
+      if (detailState.startExecutionState === 'waiting_for_assignee') return '任务流程已启动，等待指派执行代理。';
+      if (detailState.startExecutionState === 'no_ready_roots') return '任务流程已启动，但暂时没有可运行步骤。';
+      return detailState.startWarning ? '任务流程已启动，等待下一步调度。' : '';
+    });
     const terminateWarningText = computed(() => (detailState.terminateWarning ? '任务流程已停止，但部分子代理停止失败。' : ''));
     const deleteErrorText = computed(() => userErrorText(detailState.deleteError, '删除任务流程失败，请稍后重试。'));
     const runsErrorText = computed(() => userErrorText(detailState.runsError, '无法加载运行历史，请稍后重试。'));
@@ -393,10 +412,22 @@ export const DagsPage = {
       if (!selectedRow.value || !selectedDagKey.value) return '未选择任务流程';
       if (props.loading || detailState.loading) return '任务流程详情加载中';
       if (detailState.error) return '任务流程详情不可用，不能删除';
-      if (detailState.runsError) return '运行历史不可用，无法确认是否正在运行';
       if (detailState.deleting) return '删除中';
       if (hasActiveRun(selectedDagItems.value, detailState, selectedDagKey.value)) return '已有运行正在进行，不能删除';
       return '';
+    });
+    const scheduleAction = useDagScheduleAction({
+      props,
+      detailState,
+      selectedRow,
+      selectedDagKey,
+      selectedDagItems,
+      dagDetail,
+      emit,
+      startableStatuses: STARTABLE_DAG_STATUSES,
+      dagStatusOf,
+      dagTriggerOf,
+      hasActiveRun,
     });
 
     watch(
@@ -433,12 +464,18 @@ export const DagsPage = {
     function setCategory(category) {
       const tab = categoryTabs.value.find((item) => item.key === category);
       if (!tab) return;
+      deleteSuccessText.value = '';
+      deleteConfirmTarget.value = null;
+      scheduleAction.cancelScheduleDAG();
       activeCategory.value = tab.key;
       categoryManuallySelected.value = true;
     }
 
     function selectDag(row) {
       if (!row) return;
+      deleteSuccessText.value = '';
+      deleteConfirmTarget.value = null;
+      scheduleAction.cancelScheduleDAG();
       selectedKey.value = row.listKey;
     }
 
@@ -462,12 +499,29 @@ export const DagsPage = {
       if (!detailState.terminateError) emit('refresh-dags');
     }
 
-    async function deleteSelectedDag() {
+    function deleteSelectedDag() {
+      deleteSuccessText.value = '';
       if (deleteDisabledReason.value) return;
-      const confirmed = globalThis.confirm(`删除任务流程「${selectedRow.value.title}」？删除后会移除该流程及历史运行记录。`);
-      if (!confirmed) return;
+      deleteConfirmTarget.value = {
+        dagKey: selectedDagKey.value,
+        title: selectedRow.value.title,
+      };
+    }
+
+    function cancelDeleteDAG() {
+      if (detailState.deleting) return;
+      deleteConfirmTarget.value = null;
+    }
+
+    async function confirmDeleteDAG() {
+      const target = deleteConfirmTarget.value;
+      if (!target || detailState.deleting) return;
       const result = await dagDetail.deleteDAG();
-      if (result?.ok && !detailState.deleteError) emit('refresh-dags');
+      if (result?.ok && !detailState.deleteError) {
+        deleteSuccessText.value = `已删除「${target.title}」`;
+        deleteConfirmTarget.value = null;
+        emit('refresh-dags');
+      }
     }
 
     function selectRun(runKey) {
@@ -492,11 +546,16 @@ export const DagsPage = {
 
     return {
       activeCategory,
+      ...scheduleAction,
       categoryTabs,
       dagDetail,
+      cancelDeleteDAG,
+      confirmDeleteDAG,
+      deleteConfirmTarget,
       deleteDisabledReason,
       deleteErrorText,
       deleteSelectedDag,
+      deleteSuccessText,
       detailErrorText,
       detailState,
       designNodes,
@@ -518,6 +577,7 @@ export const DagsPage = {
       startDesignFlow,
       startErrorText,
       startSelectedDag,
+      startWarningText,
       terminateErrorText,
       terminateWarningText,
       visibleRows,
@@ -525,7 +585,6 @@ export const DagsPage = {
   },
   template: `
     <section id="page-dags" class="page active dag-console-page" data-testid="dag-console">
-      <AutoContinuePrefCard />
       <div class="panel-header" data-testid="dag-console-header">
         <div class="ph-bar"></div>
         <div class="ph-text"><h2>任务流程</h2></div>
@@ -620,6 +679,15 @@ export const DagsPage = {
                   @click="deleteSelectedDag"
                 >{{ detailState.deleting ? '删除中' : '删除' }}</button>
                 <button
+                  v-if="scheduleActionVisible"
+                  type="button"
+                  class="btn"
+                  data-testid="dag-schedule-button"
+                  :disabled="Boolean(scheduleDisabledReason)"
+                  :title="scheduleDisabledReason"
+                  @click="openScheduleModal"
+                >{{ detailState.scheduling ? '保存中' : scheduleActionLabel }}</button>
+                <button
                   v-if="stopActionVisible"
                   type="button"
                   class="btn dag-stop-button"
@@ -639,10 +707,14 @@ export const DagsPage = {
               </div>
             </div>
             <div v-if="startDisabledReason" class="dag-console-muted" data-testid="dag-start-disabled-reason">{{ startDisabledReason }}</div>
+            <div v-if="deleteDisabledReason" class="dag-console-muted" data-testid="dag-delete-disabled-reason">{{ deleteDisabledReason }}</div>
             <div v-if="startErrorText" class="dag-console-error-inline" data-testid="dag-start-error">{{ startErrorText }}</div>
+            <div v-if="startWarningText" class="dag-console-warning-inline" data-testid="dag-start-warning">{{ startWarningText }}</div>
             <div v-if="terminateErrorText" class="dag-console-error-inline" data-testid="dag-terminate-error">{{ terminateErrorText }}</div>
             <div v-if="terminateWarningText" class="dag-console-warning-inline" data-testid="dag-terminate-warning">{{ terminateWarningText }}</div>
             <div v-if="deleteErrorText" class="dag-console-error-inline" data-testid="dag-delete-error">{{ deleteErrorText }}</div>
+            <div v-if="deleteSuccessText" class="dag-console-success-inline" data-testid="dag-delete-success">{{ deleteSuccessText }}</div>
+            <div v-if="scheduleErrorText" class="dag-console-error-inline" data-testid="dag-schedule-error">{{ scheduleErrorText }}</div>
             <DagFinalOutputPanel
               v-if="runsErrorText"
               data-testid="dag-runs-error"
@@ -654,15 +726,15 @@ export const DagsPage = {
               :final-output="selectedFinalOutput"
               :runs-error="null"
             />
-            <dl class="dag-console-facts">
-              <div>
-                <dt>流程状态</dt>
-                <dd>{{ selectedRow.status }}</dd>
-              </div>
-              <div>
-                <dt>触发</dt>
-                <dd>{{ selectedRow.triggerLabel }}</dd>
-              </div>
+	            <dl class="dag-console-facts">
+	              <div>
+	                <dt>任务状态</dt>
+	                <dd>{{ selectedRow.status }}</dd>
+	              </div>
+	              <div>
+	                <dt>运行计划</dt>
+	                <dd>{{ selectedRow.triggerLabel }}</dd>
+	              </div>
               <div>
                 <dt>最近运行</dt>
                 <dd>{{ selectedRow.latestRunLabel }}</dd>
@@ -681,8 +753,11 @@ export const DagsPage = {
               :selected-run-key="detailState.selectedRunKey"
               @select-run="selectRun"
             />
-            <DagNodeList :nodes="detailState.nodes" @open-chat="openChat" />
-            <details class="dag-advanced-section">
+	            <details class="dag-steps-section">
+	              <summary>执行步骤</summary>
+	              <DagNodeList :nodes="detailState.nodes" @open-chat="openChat" />
+	            </details>
+	            <details class="dag-advanced-section">
               <summary>高级设置</summary>
               <DagTopologyPanel :nodes="designNodes" />
               <DagNodeEditForm
@@ -700,6 +775,61 @@ export const DagsPage = {
             <h3>{{ emptyText }}</h3>
           </div>
         </section>
+      </div>
+      <DagScheduleModal
+        :open="scheduleConfirmOpen"
+        :title="selectedRow ? selectedRow.title : ''"
+        :action-label="scheduleActionLabel"
+        :preset="schedulePreset"
+        :time="scheduleTime"
+        :weekday="scheduleWeekday"
+        :month-day="scheduleMonthDay"
+        :preview-text="schedulePreviewText"
+        :input-error="scheduleInputError"
+        :schedule-error-text="scheduleErrorText"
+        :saving="detailState.scheduling"
+        @update-preset="updateSchedulePreset"
+        @update-time="updateScheduleTime"
+        @update-weekday="updateScheduleWeekday"
+        @update-month-day="updateScheduleMonthDay"
+        @cancel="cancelScheduleDAG"
+        @confirm="confirmScheduleSelectedDag"
+      />
+      <div v-if="deleteConfirmTarget" class="modal-overlay dag-delete-overlay" data-testid="dag-delete-overlay" @click.self="cancelDeleteDAG">
+        <div class="modal-box dag-delete-modal" role="dialog" aria-modal="true" data-testid="dag-delete-modal">
+          <div class="dag-delete-modal-head">
+            <div>
+              <div class="dag-delete-modal-title">删除任务流程</div>
+              <div class="dag-delete-modal-tip">{{ deleteConfirmTarget.title }}</div>
+            </div>
+            <button
+              type="button"
+              class="btn btn-ghost"
+              data-testid="dag-delete-close"
+              :disabled="detailState.deleting"
+              @click="cancelDeleteDAG"
+            >关闭</button>
+          </div>
+          <div class="dag-delete-modal-body">
+            删除后会移除该流程及历史运行记录。该操作不可撤销。
+          </div>
+          <div class="dag-delete-modal-actions">
+            <button
+              type="button"
+              class="btn btn-ghost"
+              data-testid="dag-delete-cancel"
+              :disabled="detailState.deleting"
+              @click="cancelDeleteDAG"
+            >取消</button>
+            <button
+              type="button"
+              class="btn dag-delete-button"
+              data-testid="dag-delete-confirm"
+              :disabled="detailState.deleting"
+              @click="confirmDeleteDAG"
+            >{{ detailState.deleting ? '删除中' : '确认删除' }}</button>
+          </div>
+        </div>
       </div>
     </section>
   `,

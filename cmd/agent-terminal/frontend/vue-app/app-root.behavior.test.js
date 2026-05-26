@@ -434,7 +434,7 @@ describe('AppRoot behavior', () => {
     expect(vm.page.value).toBe('chat');
   });
 
-  it('starts an AI DAG designer thread from the DAG page', async () => {
+  it('opens an AI DAG designer intake thread without sending a fabricated requirement', async () => {
     const vm = AppRoot.setup();
 
     await vm.startDagDesignerThread({ dagKey: 'dag-1', title: 'Daily Brief' });
@@ -444,23 +444,14 @@ describe('AppRoot behavior', () => {
       name: 'AI 设计流程',
       agentKey: 'dag_designer',
       promptKey: 'main/dag_designer_zh',
-      prompt: expect.stringContaining('任务流程'),
+      deferSpawn: true,
     });
-    const prompt = stores.threadStore.startThread.mock.calls[0]?.[1]?.prompt || '';
-    expect(prompt).toContain('Daily Brief');
-    expect(prompt).not.toContain('dag-1');
-    expect(prompt).not.toContain('DAG');
-    expect(prompt).not.toContain('model');
-    expect(prompt).not.toContain('prompt');
-    expect(prompt).not.toContain('command');
-    expect(prompt).not.toContain('sharedfile');
+    const startOptions = stores.threadStore.startThread.mock.calls[0]?.[1] || {};
+    expect(startOptions).not.toHaveProperty('prompt');
+    expect(JSON.stringify(startOptions)).not.toContain('Daily Brief');
+    expect(JSON.stringify(startOptions)).not.toContain('dag-1');
     expect(stores.threadStore.saveActiveThread).toHaveBeenCalledWith('thread-new');
-    expect(stores.threadStore.sendMessage).toHaveBeenCalledWith(
-      'thread-new',
-      expect.stringContaining('Daily Brief'),
-      [],
-      expect.objectContaining({ kickoff: true, cwd: '/repo' }),
-    );
+    expect(stores.threadStore.sendMessage).not.toHaveBeenCalled();
     expect(vm.page.value).toBe('chat');
     expect(AppRoot.template).toContain('@design-flow="startDagDesignerThread"');
   });
@@ -481,21 +472,16 @@ describe('AppRoot behavior', () => {
     await first;
     await second;
 
-    expect(stores.threadStore.sendMessage).toHaveBeenCalledTimes(1);
+    expect(stores.threadStore.sendMessage).not.toHaveBeenCalled();
   });
 
-  it('keeps the AI DAG designer thread visible when kickoff send fails', async () => {
-    stores.threadStore.sendMessage.mockImplementationOnce(async (threadId) => {
-      stores.threadStore.state.kickoffByThread = { [threadId]: 'prompt' };
-      throw new Error('turn start failed');
-    });
+  it('keeps the AI DAG designer intake thread visible without a kickoff turn', async () => {
     const vm = AppRoot.setup();
 
     await expect(vm.startDagDesignerThread({ dagKey: 'dag-1', title: 'Daily Brief' })).resolves.toBeUndefined();
 
     expect(stores.threadStore.saveActiveThread).toHaveBeenCalledWith('thread-new');
-    expect(stores.threadStore.sendMessage).toHaveBeenCalledTimes(1);
-    expect(stores.threadStore.state.kickoffByThread).toEqual({});
+    expect(stores.threadStore.sendMessage).not.toHaveBeenCalled();
     expect(vm.page.value).toBe('chat');
   });
 
@@ -575,76 +561,6 @@ describe('AppRoot behavior', () => {
 
     await expect(vm.refreshDashboardByPage('memory')).rejects.toThrow('dashboard memory cwd is required');
     expect(apiMock.callAPI).not.toHaveBeenCalledWith('ui/dashboard/get', expect.anything());
-  });
-
-  it('consumes window bootstrap snapshot and starts the continued task in a new window', async () => {
-    apiMock.getBuildInfo.mockResolvedValueOnce({ version: '1.0.0' });
-    apiMock.callAPI.mockImplementation(async (method) => {
-      if (method === 'config/read') return { cwd: '/window' };
-      if (method === 'ui/windowBootstrap/get') {
-        return {
-          snapshot: {
-            page: 'chat',
-            cwd: '/task-repo',
-            taskStart: {
-              focusMode: 'chat',
-              config: {
-                taskId: 'task-demo',
-                taskTitle: 'Memory Center Refactor',
-                handoffFile: 'handoff/tasks/task-demo.md',
-                continueTask: true,
-                autoTaskHandoff: true,
-              },
-            },
-          },
-        };
-      }
-      return defaultAppAPI(method);
-    });
-
-    const vm = AppRoot.setup();
-    hooks.mounted.forEach((fn) => fn());
-    await flush();
-
-    expect(stores.projectStore.addProject).toHaveBeenCalledWith('/task-repo');
-    expect(stores.projectStore.setActive).toHaveBeenCalledWith('/task-repo');
-    expect(stores.threadStore.startThread).toHaveBeenCalledWith('/task-repo', {
-      focusMode: 'chat',
-      config: {
-        taskId: 'task-demo',
-        taskTitle: 'Memory Center Refactor',
-        handoffFile: 'handoff/tasks/task-demo.md',
-        continueTask: true,
-        autoTaskHandoff: true,
-      },
-    });
-    expect(vm.page.value).toBe('chat');
-  });
-
-  it('uses window cwd for bootstrap task starts when snapshot cwd is empty', async () => {
-    globalThis.window.location.search = '?ao_window_cwd=%2Fworktrees%2Fbootstrap';
-    stores.projectStore.state.active = '.';
-    apiMock.callAPI.mockImplementation(async (method) => {
-      if (method === 'config/read') return { cwd: '/old-process-cwd' };
-      if (method === 'ui/windowBootstrap/get') {
-        return {
-          snapshot: {
-            page: 'chat',
-            taskStart: { focusMode: 'cmd', config: { taskId: 'task-window' } },
-          },
-        };
-      }
-      return defaultAppAPI(method);
-    });
-
-    AppRoot.setup();
-    hooks.mounted.forEach((fn) => fn());
-    await flush();
-
-    expect(stores.threadStore.startThread).toHaveBeenCalledWith('/worktrees/bootstrap', {
-      focusMode: 'cmd',
-      config: { taskId: 'task-window' },
-    });
   });
 
   it('marks the memory center nav when similar memories need merging', async () => {

@@ -42,21 +42,6 @@ func TestClassifyToolErrorLaunchProviderInvalid(t *testing.T) {
 	}
 }
 
-func TestClassifyToolErrorLaunchTaskHandoffInvalid(t *testing.T) {
-	for _, message := range []string{
-		`root task id missing on thread "agent-parent"`,
-		`task handoff title is required for task "task-demo"`,
-		`task handoff file is required for task "task-demo"`,
-		`task handoff config "taskId" must be a string`,
-		`task handoff config "continueTask" must be a bool`,
-	} {
-		t.Run(message, func(t *testing.T) {
-			env := NewToolErrorEnvelope("launch_agent", errors.New(message))
-			assertLaunchToolError(t, env, "task_handoff_invalid")
-		})
-	}
-}
-
 func TestClassifyToolErrorLaunchRequestInvalid(t *testing.T) {
 	for _, message := range []string{
 		"name is required",
@@ -66,6 +51,38 @@ func TestClassifyToolErrorLaunchRequestInvalid(t *testing.T) {
 			env := NewToolErrorEnvelope("launch_agent", errors.New(message))
 			assertLaunchToolError(t, env, "launch_request_invalid")
 		})
+	}
+}
+
+func TestClassifyToolErrorDAGApplyOpsInvalidInput(t *testing.T) {
+	env := NewToolErrorEnvelope(
+		"task_dag_apply_ops",
+		errors.New("orchestration: apply_ops invalid request: ops[0]: missing 'op' discriminator"),
+	)
+	if env.Code != "invalid_input" {
+		t.Fatalf("Code = %q, want invalid_input", env.Code)
+	}
+	if env.Retryable {
+		t.Fatal("Retryable = true, want false")
+	}
+	if strings.Contains(strings.ToLower(env.Hint), "lsp") {
+		t.Fatalf("Hint = %q, must not mention lsp", env.Hint)
+	}
+}
+
+func TestClassifyToolErrorDAGNoRowsDoesNotUseLSP(t *testing.T) {
+	env := NewToolErrorEnvelope(
+		"task_get_dag",
+		errors.New("get dag version for detail: get_version task_dag: no rows in result set"),
+	)
+	if env.Code != "file_not_found" {
+		t.Fatalf("Code = %q, want file_not_found", env.Code)
+	}
+	if env.Retryable {
+		t.Fatal("Retryable = true, want false")
+	}
+	if strings.Contains(strings.ToLower(env.Hint), "lsp") {
+		t.Fatalf("Hint = %q, must not mention lsp", env.Hint)
 	}
 }
 

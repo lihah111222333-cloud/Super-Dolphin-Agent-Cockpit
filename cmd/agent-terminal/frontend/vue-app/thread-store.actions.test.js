@@ -123,7 +123,7 @@ async function flushAsync() {
   await Promise.resolve();
 }
 
-async function startThreadUntilSync(store, res, runtime = {}, cwd = '/repo') {
+async function startThreadUntilSync(store, res, runtime = {}, cwd = '/repo', options = {}) {
   let releaseSync = () => {};
   const syncGate = new Promise((resolve) => { releaseSync = resolve; });
   store.state.agentRuntimeById = runtime;
@@ -137,7 +137,7 @@ async function startThreadUntilSync(store, res, runtime = {}, cwd = '/repo') {
     if (method === 'ui/preferences/set') return {};
     return {};
   });
-  const pending = store.startThread(cwd, {});
+  const pending = store.startThread(cwd, options);
   for (let i = 0; i < 10 && !apiMock.callAPI.mock.calls.some(([method]) => method === 'ui/state/get'); i += 1) await flushAsync();
   return { pending, releaseSync };
 }
@@ -189,7 +189,25 @@ describe('thread store actions', () => {
     expect(repoBVisibleThreadIds).toEqual(['thread-b']);
   });
 
-  it('forwards explicit config payload when starting a thread', async () => {
+  it('uses the launch name for optimistic started threads before runtime sync returns', async () => {
+    const store = useThreadStore();
+
+    const { pending, releaseSync } = await startThreadUntilSync(
+      store,
+      { thread: { id: 'thread-design' } },
+      {},
+      '/repo',
+      { focusMode: 'chat', name: 'AI 设计流程' },
+    );
+    const optimistic = store.state.threads.find((item) => item.id === 'thread-design');
+
+    releaseSync();
+    await pending;
+
+    expect(optimistic?.name).toBe('AI 设计流程');
+  });
+
+  it('forwards explicit provider config payload when starting a thread', async () => {
     const store = useThreadStore();
     apiMock.callAPI.mockImplementation(async (method, payload) => {
       if (method === 'ui/preferences/get') {
@@ -203,9 +221,7 @@ describe('thread store actions', () => {
 
     await store.startThread('/repo', {
       config: {
-        taskId: 'task-demo',
-        handoffFile: 'handoff/tasks/task-demo.md',
-        continueTask: true,
+        sessionFlags: { persistentSubagentDefault: true },
       },
     });
     await flushAsync();
@@ -214,9 +230,7 @@ describe('thread store actions', () => {
       cwd: '/repo',
       modelProvider: 'codex',
       config: codexIdentityConfig({
-        taskId: 'task-demo',
-        handoffFile: 'handoff/tasks/task-demo.md',
-        continueTask: true,
+        sessionFlags: { persistentSubagentDefault: true },
       }),
     });
   });
@@ -234,11 +248,10 @@ describe('thread store actions', () => {
     });
 
     await store.startThread('/repo', {
-      name: 'Memory Center Refactor · 新任务',
-      baseInstructions: '来源任务：Memory Center Refactor',
+      name: 'Memory Center Refactor · 新对话',
+      baseInstructions: '来源对话：Memory Center Refactor',
       config: {
-        taskTitle: 'Memory Center Refactor · 新任务',
-        autoTaskHandoff: true,
+        sessionFlags: { seededConversation: true },
       },
     });
     await flushAsync();
@@ -246,11 +259,10 @@ describe('thread store actions', () => {
     expect(apiMock.callAPI).toHaveBeenCalledWith('thread/start', {
       cwd: '/repo',
       modelProvider: 'codex',
-      name: 'Memory Center Refactor · 新任务',
-      baseInstructions: '来源任务：Memory Center Refactor',
+      name: 'Memory Center Refactor · 新对话',
+      baseInstructions: '来源对话：Memory Center Refactor',
       config: codexIdentityConfig({
-        taskTitle: 'Memory Center Refactor · 新任务',
-        autoTaskHandoff: true,
+        sessionFlags: { seededConversation: true },
       }),
     });
   });

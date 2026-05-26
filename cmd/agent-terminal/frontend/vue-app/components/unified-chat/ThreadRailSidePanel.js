@@ -18,8 +18,6 @@ export const ThreadRailSidePanel = {
     setRenameInputRef: { type: Function, default: null },
     // Phase 1 遗留：会话上下文警报等级 map，键为 thread.id，值为 'normal'|'warn'|'danger'|'critical'
     tokenLevelByThreadId: { type: Object, default: () => ({}) },
-    // Phase 1.6 自动续接失败标记 map，键为 thread.id，值为失败 info object（{kind, last_action, reason, error_message, ts}）
-    failedAutoContinueByThreadId: { type: Object, default: () => ({}) },
   },
   emits: [
     'open-new-window',
@@ -247,12 +245,6 @@ export const ThreadRailSidePanel = {
               :title="'上下文使用率已达 ' + tokenLevelByThreadId[thread.id] + ' 阈值'"
               data-testid="thread-rail-token-badge"
             >⚠</span>
-            <span
-              v-if="editingThreadId !== thread.id && failedAutoContinueByThreadId[thread.id]"
-              class="thread-auto-continue-failed-badge"
-              :title="'自动续接失败：' + (failedAutoContinueByThreadId[thread.id].reason || 'unknown')"
-              data-testid="thread-rail-auto-continue-failed-badge"
-            >●</span>
           </div>
           <div v-if="thread.showId" class="thread-rail-item-id">{{ thread.id }}</div>
           <div class="thread-rail-item-meta">

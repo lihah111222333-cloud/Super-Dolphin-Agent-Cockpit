@@ -26,6 +26,20 @@ func (s *store) ScheduleRootWakeups(ctx context.Context, dagKey string, runID in
 	return inserted, nil
 }
 
+// PromoteAndScheduleRunRoots promotes root runtime nodes to ready and then
+// enqueues wakeups for roots that already have an assignee.
+func PromoteAndScheduleRunRoots(ctx context.Context, store RunStore, dagKey string, runID int64) (int64, int64, error) {
+	readyRootNodes, err := store.PromoteRootNodesToReady(ctx, dagKey, runID)
+	if err != nil {
+		return 0, 0, fmt.Errorf("PromoteRootNodesToReady: %w", err)
+	}
+	scheduledWakeups, err := store.ScheduleRootWakeups(ctx, dagKey, runID)
+	if err != nil {
+		return 0, 0, fmt.Errorf("ScheduleRootWakeups: %w", err)
+	}
+	return readyRootNodes, scheduledWakeups, nil
+}
+
 func (s *store) scheduleRootWakeup(ctx context.Context, node *Node, runID int64) (int64, error) {
 	if node.RunID == nil || *node.RunID != runID {
 		return 0, fmt.Errorf("schedule root wakeup: unexpected run_id for node %s/%s", node.DagKey, node.NodeKey)
