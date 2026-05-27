@@ -61,6 +61,9 @@ func assertStopInterruptsAndCleansState(t *testing.T, svc *service, turns *stubT
 		"thread-1:thread_stopped":          {},
 		"provider-thread-1:thread_stopped": {},
 	})
+	if _, blocked := svc.resumeBlocked.Load("agent-1"); blocked {
+		t.Fatal("resumeBlocked has not been cleared for agent-1 after successful Stop")
+	}
 }
 
 func assertStopStoresAndSessions(t *testing.T, svc *service) {
@@ -275,6 +278,9 @@ func TestArchiveStopsManagedAgentBeforeArchiving(t *testing.T) {
 		t.Fatalf("Archive() error = %v", err)
 	}
 	assertArchiveStopsManagedAgent(t, calls, orch, bindingStore, threadStore, session, sessions)
+	if _, blocked := svc.resumeBlocked.Load("agent-1"); blocked {
+		t.Fatal("resumeBlocked has not been cleared for agent-1 after successful Archive")
+	}
 }
 
 func TestArchiveContinuesWhenLocalSessionAlreadyGone(t *testing.T) {
@@ -443,6 +449,9 @@ func TestDeleteStopsManagedAgentBeforeDeleting(t *testing.T) {
 		t.Fatalf("Delete() error = %v", err)
 	}
 	assertDeleteStopsManagedAgent(t, calls, orch, bindingStore, threadStore, session, sessions)
+	if _, blocked := svc.resumeBlocked.Load("agent-1"); blocked {
+		t.Fatal("resumeBlocked has not been cleared for agent-1 after successful Delete")
+	}
 }
 
 func TestDeleteRetriesBindingAfterPendingLaunchLock(t *testing.T) {
