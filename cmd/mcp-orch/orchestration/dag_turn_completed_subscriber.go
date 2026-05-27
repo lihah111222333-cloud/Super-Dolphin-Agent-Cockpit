@@ -155,9 +155,6 @@ func handleDAGTurnCompleted(
 		dagSubscriberMetrics.IncLookupNoNode()
 		logger.Debug("dag subscriber: no node carries this thread id",
 			"thread_id", threadID)
-		// Still call stop_helper — agent may exist (race against
-		// dispatchAgent recording spawning_thread_id). Failure is logged.
-		stopSpawnedAgentForSubscriber(ctx, deps, logger, threadID)
 		return
 	}
 	if len(nodes) > 1 {
