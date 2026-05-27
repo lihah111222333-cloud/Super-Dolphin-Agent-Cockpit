@@ -3,6 +3,7 @@ package tools
 import (
 	"context"
 	"encoding/json"
+	"reflect"
 	"slices"
 	"testing"
 
@@ -144,6 +145,118 @@ func TestHandleCreateDAGRejectsUnknownFinalNodeKey(t *testing.T) {
 	}
 }
 
+func TestHandleCreateDAGPreservesNodeConfig(t *testing.T) {
+	var got contract.CreateDAGRequest
+	handler := HandleCreateDAG(&golden.OrchestrationStub{
+		CreateDAGFunc: func(_ context.Context, req contract.CreateDAGRequest) (contract.DAGDetail, error) {
+			got = req
+			return contract.DAGDetail{}, nil
+		},
+	})
+
+	_, err := handler(context.Background(), json.RawMessage(`{
+		"agent_id":"designer-1",
+		"dag_key":"dag-config",
+		"title":"Runnable DAG",
+		"schedule":{"trigger":"scheduled"},
+		"nodes":[{
+			"node_key":"smoke",
+			"title":"Smoke",
+			"node_type":"automation",
+			"config":{"exec":{"kind":"command_card","command_ref":"build"},"outputs":{"to_node_result":true}}
+		}]
+	}`))
+	if err != nil {
+		t.Fatalf("HandleCreateDAG() error = %v", err)
+	}
+	if len(got.Nodes) != 1 {
+		t.Fatalf("nodes = %d, want 1", len(got.Nodes))
+	}
+	assertJSONEqual(t, got.Nodes[0].Config, `{"exec":{"kind":"command_card","command_ref":"build"},"outputs":{"to_node_result":true}}`)
+}
+
+func TestHandleCreateDAGSynthesizesAutomationConfigFromCommandRef(t *testing.T) {
+	var got contract.CreateDAGRequest
+	handler := HandleCreateDAG(&golden.OrchestrationStub{
+		CreateDAGFunc: func(_ context.Context, req contract.CreateDAGRequest) (contract.DAGDetail, error) {
+			got = req
+			return contract.DAGDetail{}, nil
+		},
+	})
+
+	_, err := handler(context.Background(), json.RawMessage(`{
+		"agent_id":"designer-1",
+		"dag_key":"dag-command-ref",
+		"title":"Runnable DAG",
+		"schedule":{"trigger":"scheduled"},
+		"nodes":[{
+			"node_key":"smoke",
+			"title":"Smoke",
+			"node_type":"automation",
+			"command_ref":" build "
+		}]
+	}`))
+	if err != nil {
+		t.Fatalf("HandleCreateDAG() error = %v", err)
+	}
+	if len(got.Nodes) != 1 {
+		t.Fatalf("nodes = %d, want 1", len(got.Nodes))
+	}
+	assertJSONEqual(t, got.Nodes[0].Config, `{"exec":{"kind":"command_card","command_ref":"build"}}`)
+}
+
+func TestHandleCreateDAGMergesCommandRefIntoAutomationConfig(t *testing.T) {
+	var got contract.CreateDAGRequest
+	handler := HandleCreateDAG(&golden.OrchestrationStub{
+		CreateDAGFunc: func(_ context.Context, req contract.CreateDAGRequest) (contract.DAGDetail, error) {
+			got = req
+			return contract.DAGDetail{}, nil
+		},
+	})
+
+	_, err := handler(context.Background(), json.RawMessage(`{
+		"agent_id":"designer-1",
+		"dag_key":"dag-config-output",
+		"title":"Runnable DAG",
+		"schedule":{"trigger":"scheduled"},
+		"nodes":[{
+			"node_key":"smoke",
+			"title":"Smoke",
+			"node_type":"automation",
+			"command_ref":" build ",
+			"config":{"outputs":{"to_node_result":true}}
+		}]
+	}`))
+	if err != nil {
+		t.Fatalf("HandleCreateDAG() error = %v", err)
+	}
+	if len(got.Nodes) != 1 {
+		t.Fatalf("nodes = %d, want 1", len(got.Nodes))
+	}
+	assertJSONEqual(t, got.Nodes[0].Config, `{"exec":{"kind":"command_card","command_ref":"build"},"outputs":{"to_node_result":true}}`)
+}
+
+func TestTaskCreateDAGSchemaExposesNodeConfig(t *testing.T) {
+	defs := taskToolDefinitions(nil)
+	var createDAG ToolDefinition
+	for _, def := range defs {
+		if def.Name == "task_create_dag" {
+			createDAG = def
+			break
+		}
+	}
+	if createDAG.Name == "" {
+		t.Fatal("task_create_dag tool definition not found")
+	}
+	props := createDAG.InputSchema["properties"].(map[string]any)
+	nodes := props["nodes"].(map[string]any)
+	items := nodes["items"].(map[string]any)
+	nodeProps := items["properties"].(map[string]any)
+	if _, ok := nodeProps["config"].(map[string]any); !ok {
+		t.Fatalf("task_create_dag node properties = %#v, want config schema", nodeProps)
+	}
+}
+
 func TestTaskDAGApplyOpsSchemaExposesOpDiscriminator(t *testing.T) {
 	defs := taskToolDefinitions(nil)
 	var applyOps ToolDefinition
@@ -172,6 +285,21 @@ func TestTaskDAGApplyOpsSchemaExposesOpDiscriminator(t *testing.T) {
 	required := items["required"].([]string)
 	if !slices.Contains(required, "op") {
 		t.Fatalf("ops.items.required = %#v, want op", required)
+	}
+}
+
+func assertJSONEqual(t *testing.T, got json.RawMessage, want string) {
+	t.Helper()
+	var gotValue any
+	if err := json.Unmarshal(got, &gotValue); err != nil {
+		t.Fatalf("unmarshal got JSON: %v raw=%s", err, string(got))
+	}
+	var wantValue any
+	if err := json.Unmarshal([]byte(want), &wantValue); err != nil {
+		t.Fatalf("unmarshal want JSON: %v raw=%s", err, want)
+	}
+	if !reflect.DeepEqual(gotValue, wantValue) {
+		t.Fatalf("JSON = %s, want %s", string(got), want)
 	}
 }
 
