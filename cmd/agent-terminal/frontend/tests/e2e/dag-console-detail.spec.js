@@ -3,6 +3,13 @@ import { test, expect } from '@playwright/test';
 
 import { installMockBackend, readBackendState, readMethodCalls } from './support/mock-backend.js';
 
+async function openStepsSection(page) {
+  const stepsSection = page.locator('details.dag-steps-section');
+  if ((await stepsSection.getAttribute('open')) === null) {
+    await stepsSection.locator('summary').click();
+  }
+}
+
 test('DAG console opens detail, starts runs, reads final output, and opens child threads', async ({ page }) => {
   await installMockBackend(page, {
     projects: ['/workspace/project-alpha'],
@@ -157,30 +164,32 @@ test('DAG console opens detail, starts runs, reads final output, and opens child
 
   await page.getByTestId('nav-dags').click();
   await expect(page.getByTestId('dag-console')).toBeVisible();
-  await expect(page.getByTestId('dag-console-list')).toContainText('daily-brief');
+  await expect(page.getByTestId('dag-console-list')).toContainText('Daily Brief');
   await expect(page.getByTestId('dag-console-final-marker')).toBeVisible();
 
+  await openStepsSection(page);
   await expect(page.getByTestId('dag-node-list')).toContainText('Collect inputs');
-  await expect(page.getByTestId('dag-node-list')).toContainText('succeeded');
-  await expect(page.getByTestId('dag-node-list')).toContainText('agent');
-  await expect(page.getByTestId('dag-node-list')).toContainText('openai / gpt-5 / analyst');
-  await expect(page.getByTestId('dag-run-history')).toContainText('run-file');
+  await expect(page.getByTestId('dag-node-list')).toContainText('成功');
+  await expect(page.getByTestId('dag-node-list')).toContainText('查看对话');
+  await expect(page.getByTestId('dag-run-history')).toContainText('2026-05-23 09:00:00');
   await expect(page.getByTestId('dag-final-output-panel')).toContainText('reports/final.md');
 
   await page.getByTestId('dag-final-output-read').click();
   await expect(page.getByTestId('dag-final-output-content')).toContainText('Smoke file content from sharedfile');
 
-  await page.getByTestId('dag-run-history-row').filter({ hasText: 'run-json' }).click();
+  await page.getByTestId('dag-run-history-row').filter({ hasText: '2026-05-23 08:00:00' }).click();
   await expect(page.getByTestId('dag-final-output-preview')).toContainText('"verdict": "pass"');
   await expect(page.getByTestId('dag-node-list')).toContainText('Collect json');
 
   await expect(page.getByTestId('dag-start-button')).toBeEnabled();
   await page.getByTestId('dag-start-button').click();
-  await expect(page.getByTestId('dag-run-history')).toContainText('run-started');
+  await expect(page.getByTestId('dag-run-history')).toContainText('2026-05-23 09:02:00');
   await expect(page.getByTestId('dag-final-output-preview')).toContainText('started output');
   await expect(page.getByTestId('dag-node-list')).toContainText('Collect started');
 
-  await expect(page.getByTestId('dag-node-open-chat')).toContainText('thread-child');
+  await openStepsSection(page);
+  await expect(page.getByTestId('dag-node-open-chat')).toContainText('查看对话');
+  await expect(page.getByTestId('dag-node-open-chat')).toBeVisible();
   await page.getByTestId('dag-node-open-chat').click();
   await expect(page.getByTestId('chat-page')).toBeVisible();
 
@@ -242,10 +251,11 @@ test('DAG console blocks start when an active run is outside recent history', as
 
   await page.getByTestId('nav-dags').click();
   await expect(page.getByTestId('dag-console')).toBeVisible();
-  await expect(page.getByTestId('dag-run-history')).toContainText('run-1');
-  await expect(page.getByTestId('dag-run-history')).not.toContainText('run-hidden');
+  await expect(page.getByTestId('dag-run-history')).toContainText('第 1 次运行');
+  await expect(page.getByTestId('dag-run-history-row')).toHaveCount(5);
+  await expect(page.getByTestId('dag-run-history')).not.toContainText('运行中');
   await expect(page.getByTestId('dag-start-button')).toBeDisabled();
-  await expect(page.getByTestId('dag-start-disabled-reason')).toContainText('已有运行中 run');
+  await expect(page.getByTestId('dag-start-disabled-reason')).toContainText('已有运行正在进行');
 
   const runsCalls = await readMethodCalls(page, 'dashboard/dagRuns');
   expect(runsCalls).toEqual(expect.arrayContaining([
