@@ -3,13 +3,15 @@ package tools
 import (
 	"context"
 	"encoding/json"
-	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/common"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/middleware"
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/search"
+	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/common"
 )
 
 func TestGrepInvalidRegexReturnsErrorWithoutLiteralFallback(t *testing.T) {
@@ -69,6 +71,67 @@ func TestGrepTextSearchEmptyResultHasMessage(t *testing.T) {
 	}
 }
 
+func TestGrepDefaultMaxResultsIsFifty(t *testing.T) {
+	root := t.TempDir()
+	var body strings.Builder
+	for i := range 60 {
+		fmt.Fprintf(&body, "needle-%02d\n", i)
+	}
+	if err := os.WriteFile(filepath.Join(root, "sample.txt"), []byte(body.String()), 0o600); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
+
+	got, err := callGrepTool(t, root, grepToolInput{
+		Action: "text_search",
+		Query:  "needle",
+		Path:   root,
+		Glob:   "*.txt",
+	})
+	if err != nil {
+		t.Fatalf("grep returned error: %v", err)
+	}
+	resp, ok := got.(grepResponse)
+	if !ok {
+		t.Fatalf("grep result type = %T, want grepResponse", got)
+	}
+	if resp.Showing != maxSearchResults {
+		t.Fatalf("showing = %d, want %d", resp.Showing, maxSearchResults)
+	}
+	if !resp.Truncated {
+		t.Fatalf("truncated = false, want true")
+	}
+	if resp.DroppedForPayload != 0 {
+		t.Fatalf("dropped_for_payload = %d, want 0", resp.DroppedForPayload)
+	}
+}
+
+func TestGrepHandlerAppliesSixteenKiBPayloadBudget(t *testing.T) {
+	root := t.TempDir()
+	writeLargeGrepFixture(t, root)
+
+	got, err := callGrepTool(t, root, grepToolInput{
+		Action:     "text_search",
+		Query:      "needle",
+		Path:       root,
+		Glob:       "*.txt",
+		MaxResults: maxSearchResults,
+	})
+	if err != nil {
+		t.Fatalf("grep returned error: %v", err)
+	}
+	resp, ok := got.(grepResponse)
+	if !ok {
+		t.Fatalf("grep result type = %T, want grepResponse", got)
+	}
+	raw := mustMarshalGrepResponse(t, resp)
+	if len(raw) > middleware.ToolBudget("grep") {
+		t.Fatalf("grep payload = %d bytes, want <= %d", len(raw), middleware.ToolBudget("grep"))
+	}
+	if resp.DroppedForPayload == 0 || resp.Showing >= maxSearchResults {
+		t.Fatalf("grep budget did not drop rows: showing=%d dropped=%d", resp.Showing, resp.DroppedForPayload)
+	}
+}
+
 func TestBuildGrepResponseOmitsFuncCellsWhenAbsent(t *testing.T) {
 	resp := buildGrepResponse([]search.SearchMatch{{
 		File: "/tmp/sample.go",
@@ -100,6 +163,72 @@ func TestBuildGrepResponseIncludesFuncCellsWhenPresent(t *testing.T) {
 	}
 	if row[3] != 8 || row[4] != 12 {
 		t.Fatalf("func cells = %#v, want 8/12", row[3:])
+	}
+}
+
+func TestCapGrepResponseBytesCountsTruncationMessage(t *testing.T) {
+	const budget = 256
+	resp := grepResponseCrossingBudgetByMessage(t, budget)
+
+	capGrepResponseBytes(&resp, budget)
+	raw := mustMarshalGrepResponse(t, resp)
+	if len(raw) > budget {
+		t.Fatalf("capped response = %d bytes, want <= %d: %s", len(raw), budget, raw)
+	}
+	if resp.Showing != 0 {
+		t.Fatalf("showing = %d, want dropped to 0", resp.Showing)
+	}
+	if resp.DroppedForPayload <= 1 {
+		t.Fatalf("dropped_for_payload = %d, want incremented", resp.DroppedForPayload)
+	}
+}
+
+func grepResponseCrossingBudgetByMessage(t *testing.T, budget int) grepResponse {
+	t.Helper()
+	resp := grepResponse{
+		Files: map[string]grepFileRows{
+			"/tmp/sample.go": {
+				Cols: []string{"line", "col", "text"},
+			},
+		},
+		Total:             1,
+		Showing:           1,
+		Truncated:         true,
+		DroppedForPayload: 1,
+	}
+	for size := 1; size < 512; size++ {
+		candidate := resp
+		fileRows := candidate.Files["/tmp/sample.go"]
+		fileRows.Rows = [][]any{{1, 1, strings.Repeat("x", size)}}
+		candidate.Files = map[string]grepFileRows{"/tmp/sample.go": fileRows}
+		rawWithoutMessage := mustMarshalGrepResponse(t, candidate)
+		candidate.Message = grepMessage(candidate.RegexFallback, candidate.DroppedForPayload)
+		rawWithMessage := mustMarshalGrepResponse(t, candidate)
+		if len(rawWithoutMessage) <= budget && len(rawWithMessage) > budget {
+			return candidate
+		}
+	}
+	t.Fatalf("test fixture did not find a response crossing budget only after message")
+	return grepResponse{}
+}
+
+func mustMarshalGrepResponse(t *testing.T, resp grepResponse) []byte {
+	t.Helper()
+	raw, err := json.Marshal(resp)
+	if err != nil {
+		t.Fatalf("marshal grep response: %v", err)
+	}
+	return raw
+}
+
+func writeLargeGrepFixture(t *testing.T, root string) {
+	t.Helper()
+	for i := range 50 {
+		name := fmt.Sprintf("file-%02d-%s.txt", i, strings.Repeat("x", 120))
+		body := "needle " + strings.Repeat("payload", 30) + "\n"
+		if err := os.WriteFile(filepath.Join(root, name), []byte(body), 0o600); err != nil {
+			t.Fatalf("write grep fixture: %v", err)
+		}
 	}
 }
 
