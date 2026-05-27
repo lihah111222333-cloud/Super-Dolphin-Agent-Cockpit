@@ -126,7 +126,30 @@ func mergePrepareInputRuntime(input PrepareInput, cfg map[string]any) PrepareInp
 	if input.FRCConfig == nil {
 		input.FRCConfig = configFRCConfig(cfg, "frcConfig", "frc_config")
 	}
+	if providerNativeSkillsDisabled(cfg) {
+		input.ManualSkillSelection = true
+	}
 	return input
+}
+
+func providerNativeSkillsDisabled(cfg map[string]any) bool {
+	for _, key := range []string{"providerNativeSkills", "provider_native_skills"} {
+		raw, ok := cfg[key]
+		if !ok {
+			continue
+		}
+		enabled, ok := raw.(bool)
+		return ok && !enabled
+	}
+	for _, key := range []string{"disableProviderNativeSkills", "disable_provider_native_skills"} {
+		raw, ok := cfg[key]
+		if !ok {
+			continue
+		}
+		disabled, ok := raw.(bool)
+		return ok && disabled
+	}
+	return false
 }
 
 func configBool(cfg map[string]any, keys ...string) bool {

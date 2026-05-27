@@ -456,16 +456,11 @@ describe('AppRoot behavior', () => {
           'task_dag_apply_ops',
           'task_start_dag',
         ],
-        additionalDisallowedTools: expect.arrayContaining([
-          'Skill(头脑风暴)',
-          'Skill(编写计划)',
-          'Skill(执行计划)',
-          'Skill(子代理驱动开发)',
-          'Skill(使用git工作区)',
-        ]),
+        providerNativeSkills: false,
       }),
     }));
     const startOptions = stores.threadStore.startThread.mock.calls[0]?.[1] || {};
+    expect(startOptions.config?.additionalDisallowedTools).toBeUndefined();
     expect(startOptions.config?.disallowedTools).toBeUndefined();
     expect(startOptions).not.toHaveProperty('prompt');
     expect(JSON.stringify(startOptions)).not.toContain('Daily Brief');

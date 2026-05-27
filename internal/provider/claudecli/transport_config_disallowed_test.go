@@ -43,6 +43,44 @@ func TestBuildCLIArgsUsesConfiguredBuiltinToolsAllowlist(t *testing.T) {
 	}
 }
 
+func TestBuildCLIArgsRemovesSkillWhenProviderNativeSkillsDisabled(t *testing.T) {
+	t.Parallel()
+
+	args := buildCLIArgs("claude-sonnet", "system", "/tmp/mcp.json", cliLaunchConfig{
+		BuiltinTools:                []string{"WebFetch", "Skill", "Task"},
+		DisableProviderNativeSkills: true,
+	})
+	got := flagValues(args, "--tools")
+	want := []string{"WebFetch,Task"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("--tools = %#v, want %#v", got, want)
+	}
+	if got := flagValues(args, "--disallowedTools"); len(got) != 0 {
+		t.Fatalf("--disallowedTools with --tools allowlist = %#v, want none", got)
+	}
+}
+
+func TestBuildCLIArgsDisallowsSkillWhenProviderNativeSkillsDisabledWithoutAllowlist(t *testing.T) {
+	t.Parallel()
+
+	args := buildCLIArgs("claude-sonnet", "system", "/tmp/mcp.json", cliLaunchConfig{
+		DisableProviderNativeSkills: true,
+	})
+	got := flagValues(args, "--disallowedTools")
+	if len(got) != 1 {
+		t.Fatalf("--disallowedTools count = %#v, want one merged flag", got)
+	}
+	ids := strings.Split(got[0], ",")
+	if !containsDisallowedToolID(ids, "Skill") {
+		t.Fatalf("--disallowedTools = %#v, missing Skill", ids)
+	}
+	for _, id := range ids {
+		if strings.HasPrefix(id, "Skill(") {
+			t.Fatalf("--disallowedTools = %#v, must not use skill-name blacklist", ids)
+		}
+	}
+}
+
 func TestBuildCLIArgsUsesEmptyBuiltinToolsAllowlist(t *testing.T) {
 	t.Parallel()
 
@@ -241,6 +279,49 @@ func TestConfigFromMapParsesAdditionalDisallowedToolsKeys(t *testing.T) {
 			}
 			if !reflect.DeepEqual(got, tc.want) {
 				t.Fatalf("AdditionalDisallowedTools = %#v, want %#v", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestConfigFromMapParsesProviderNativeSkillsIsolation(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name  string
+		input map[string]any
+		want  bool
+	}{
+		{
+			name:  "default keeps provider native skills",
+			input: map[string]any{"effort": "high"},
+			want:  false,
+		},
+		{
+			name:  "positive flag false disables provider native skills",
+			input: map[string]any{"providerNativeSkills": false},
+			want:  true,
+		},
+		{
+			name:  "snake flag false disables provider native skills",
+			input: map[string]any{"provider_native_skills": false},
+			want:  true,
+		},
+		{
+			name:  "explicit disable flag true disables provider native skills",
+			input: map[string]any{"disableProviderNativeSkills": true},
+			want:  true,
+		},
+		{
+			name:  "positive flag true keeps provider native skills",
+			input: map[string]any{"providerNativeSkills": true},
+			want:  false,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got := configFromMap(tc.input).DisableProviderNativeSkills
+			if got != tc.want {
+				t.Fatalf("DisableProviderNativeSkills = %v, want %v", got, tc.want)
 			}
 		})
 	}
