@@ -26,9 +26,10 @@ const (
 )
 
 type GoRootRequest struct {
-	CWD      string
-	FilePath string
-	Env      []string
+	CWD           string
+	FilePath      string
+	Env           []string
+	NoiseDirNames []string
 }
 
 type GoRootInfo struct {
@@ -57,7 +58,8 @@ func ResolveGoRoot(req GoRootRequest) (GoRootInfo, error) {
 		return GoRootInfo{}, err
 	}
 	env := goRootRequestEnv(req)
-	if info, handled, err := resolveGoRootFromGOWORK(target, projectRoot, env); handled || err != nil {
+	noiseDirNames := resolvedGoNoiseDirNames(req.NoiseDirNames)
+	if info, handled, err := resolveGoRootFromGOWORK(target, projectRoot, env, noiseDirNames); handled || err != nil {
 		return info, err
 	}
 	goWorkPath, err := findGoWorkPath(target)
@@ -67,7 +69,7 @@ func ResolveGoRoot(req GoRootRequest) (GoRootInfo, error) {
 	if goWorkPath != "" {
 		return resolveGoWorkRoot(target, projectRoot, goWorkPath, goworkModeAuto)
 	}
-	return resolveGoRootWithoutGoWork(target, projectRoot, goworkModeAuto)
+	return resolveGoRootWithoutGoWork(target, projectRoot, goworkModeAuto, noiseDirNames)
 }
 
 func resolveGoRootRequestPaths(req GoRootRequest) (string, string, error) {
@@ -98,14 +100,14 @@ func goRootRequestEnv(req GoRootRequest) []string {
 	return os.Environ()
 }
 
-func resolveGoRootFromGOWORK(target, projectRoot string, env []string) (GoRootInfo, bool, error) {
+func resolveGoRootFromGOWORK(target, projectRoot string, env []string, noiseDirNames []string) (GoRootInfo, bool, error) {
 	gowork, ok := envValue(env, "GOWORK")
 	if !ok {
 		return GoRootInfo{}, false, nil
 	}
 	trimmed := strings.TrimSpace(gowork)
 	if strings.EqualFold(trimmed, goworkModeOff) {
-		info, err := resolveGoRootWithoutGoWork(target, projectRoot, goworkModeOff)
+		info, err := resolveGoRootWithoutGoWork(target, projectRoot, goworkModeOff, noiseDirNames)
 		return info, true, err
 	}
 	if trimmed == "" || strings.EqualFold(trimmed, goworkModeAuto) {
@@ -125,7 +127,7 @@ func resolveGoRootFromGOWORK(target, projectRoot string, env []string) (GoRootIn
 	return info, true, err
 }
 
-func resolveGoRootWithoutGoWork(target, projectRoot, mode string) (GoRootInfo, error) {
+func resolveGoRootWithoutGoWork(target, projectRoot, mode string, noiseDirNames []string) (GoRootInfo, error) {
 	if goModPath, err := findGoModPath(target); err != nil {
 		return GoRootInfo{}, err
 	} else if goModPath != "" {
@@ -148,7 +150,7 @@ func resolveGoRootWithoutGoWork(target, projectRoot, mode string) (GoRootInfo, e
 	if fallbackRoot == "" {
 		fallbackRoot = filepath.Dir(target)
 	}
-	modules, err := findFirstLevelGoModRoots(fallbackRoot)
+	modules, err := findFirstLevelGoModRoots(fallbackRoot, noiseDirNames)
 	if err != nil {
 		return GoRootInfo{}, err
 	}
@@ -252,7 +254,7 @@ func findUpwardFile(path, name string) (string, error) {
 	return "", nil
 }
 
-func findFirstLevelGoModRoots(root string) ([]string, error) {
+func findFirstLevelGoModRoots(root string, noiseDirNames []string) ([]string, error) {
 	root, err := normalizeOptionalPath(root, "")
 	if err != nil {
 		return nil, err
@@ -269,7 +271,7 @@ func findFirstLevelGoModRoots(root string) ([]string, error) {
 		if !entry.IsDir() {
 			continue
 		}
-		if shouldSkipGoChildModuleDir(entry.Name()) {
+		if shouldSkipGoChildModuleDir(entry.Name(), noiseDirNames) {
 			continue
 		}
 		if fileExists(filepath.Join(root, entry.Name(), "go.mod")) {
@@ -279,8 +281,23 @@ func findFirstLevelGoModRoots(root string) ([]string, error) {
 	return cleanSortedUniquePaths(modules), nil
 }
 
-func shouldSkipGoChildModuleDir(name string) bool {
-	return strings.HasPrefix(name, ".") || strings.HasPrefix(name, "_")
+func shouldSkipGoChildModuleDir(name string, noiseDirNames []string) bool {
+	if strings.HasPrefix(name, ".") || strings.HasPrefix(name, "_") {
+		return true
+	}
+	_, ok := stringSetFromList(resolvedGoNoiseDirNames(noiseDirNames))[name]
+	return ok
+}
+
+func resolvedGoNoiseDirNames(noiseDirNames []string) []string {
+	if len(noiseDirNames) > 0 {
+		return noiseDirNames
+	}
+	names := make([]string, 0, len(defaultLanguageServiceNoiseDirSet))
+	for name := range defaultLanguageServiceNoiseDirSet {
+		names = append(names, name)
+	}
+	return names
 }
 
 func resolveGoTargetPath(filePath, cwd string) (string, error) {
