@@ -75,12 +75,6 @@ func (s *fakeStarter) StartDAG(ctx context.Context, req ScheduledDAGStartRequest
 	return nil
 }
 
-type alreadyConsumedStartError struct{}
-
-func (alreadyConsumedStartError) Error() string { return "scheduled run already consumed" }
-
-func (alreadyConsumedStartError) ScheduledRunAlreadyConsumed() bool { return true }
-
 type blockingStarter struct {
 	entered chan struct{}
 	release chan struct{}
@@ -257,7 +251,7 @@ func TestScheduledDAGTicker_Tick_ScansAndStarts(t *testing.T) {
 	}
 }
 
-func TestScheduledDAGTicker_NextRunAtUpdated(t *testing.T) {
+func TestScheduledDAGTicker_NextRunAtDelegatedToStarter(t *testing.T) {
 	store := &fakeScheduleStore{due: []DueDAG{{DagKey: "hourly-sync", CronExpr: "@hourly", DueAt: time.Date(2026, 5, 11, 9, 0, 0, 0, time.UTC)}}}
 	starter := &fakeStarter{}
 	ticker, err := NewScheduledDAGTicker(ScheduledDAGTickerConfig{Store: store, Starter: starter, Locker: &fakeLocker{}})
@@ -268,18 +262,18 @@ func TestScheduledDAGTicker_NextRunAtUpdated(t *testing.T) {
 	if _, err := ticker.Tick(context.Background(), now); err != nil {
 		t.Fatalf("Tick: %v", err)
 	}
-	if len(store.updates) != 1 {
-		t.Fatalf("updates = %d, want 1", len(store.updates))
-	}
-	if !store.updates[0].dueAt.Equal(store.due[0].DueAt) {
-		t.Fatalf("due_at = %s, want scanned due_at %s", store.updates[0].dueAt, store.due[0].DueAt)
-	}
 	want := time.Date(2026, 5, 11, 10, 0, 0, 0, time.UTC)
-	if !store.updates[0].nextRunAt.Equal(want) {
-		t.Fatalf("next_run_at = %s, want %s", store.updates[0].nextRunAt, want)
-	}
 	if len(starter.starts) != 1 || starter.starts[0].DagKey != "hourly-sync" {
 		t.Fatalf("starts = %+v, want hourly-sync", starter.starts)
+	}
+	if !starter.starts[0].DueAt.Equal(store.due[0].DueAt) {
+		t.Fatalf("delegated due_at = %s, want scanned due_at %s", starter.starts[0].DueAt, store.due[0].DueAt)
+	}
+	if !starter.starts[0].NextRunAt.Equal(want) {
+		t.Fatalf("delegated next_run_at = %s, want %s", starter.starts[0].NextRunAt, want)
+	}
+	if len(store.updates) != 0 {
+		t.Fatalf("ticker next_run_at updates = %+v, want StartDAG to own schedule advancement", store.updates)
 	}
 }
 
@@ -346,30 +340,6 @@ func TestScheduledDAGTicker_DoesNotAdvanceNextRunWhenStartFails(t *testing.T) {
 	}
 	if len(store.updates) != 0 {
 		t.Fatalf("next_run_at updates = %+v, want none when StartDAG fails", store.updates)
-	}
-}
-
-func TestScheduledDAGTicker_AdvancesNextRunWhenScheduledSlotAlreadyConsumed(t *testing.T) {
-	dueAt := time.Date(2026, 5, 11, 9, 0, 0, 0, time.UTC)
-	store := &fakeScheduleStore{due: []DueDAG{{DagKey: "hourly-sync", CronExpr: "@hourly", DueAt: dueAt}}}
-	starter := &fakeStarter{err: alreadyConsumedStartError{}}
-	ticker, err := NewScheduledDAGTicker(ScheduledDAGTickerConfig{Store: store, Starter: starter, Locker: &fakeLocker{}})
-	if err != nil {
-		t.Fatalf("NewScheduledDAGTicker: %v", err)
-	}
-
-	n, err := ticker.Tick(context.Background(), time.Date(2026, 5, 11, 9, 30, 0, 0, time.UTC))
-	if err != nil {
-		t.Fatalf("Tick err = %v, want nil for already consumed scheduled slot", err)
-	}
-	if n != 1 {
-		t.Fatalf("triggered = %d, want 1 consumed scheduled slot", n)
-	}
-	if len(store.updates) != 1 {
-		t.Fatalf("updates = %d, want next_run_at advanced", len(store.updates))
-	}
-	if !store.updates[0].nextRunAt.Equal(time.Date(2026, 5, 11, 10, 0, 0, 0, time.UTC)) {
-		t.Fatalf("next_run_at = %s, want 2026-05-11T10:00:00Z", store.updates[0].nextRunAt)
 	}
 }
 

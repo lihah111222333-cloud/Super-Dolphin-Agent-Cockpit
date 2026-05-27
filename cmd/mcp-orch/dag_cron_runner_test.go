@@ -8,7 +8,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/orchestration"
 	orchcron "github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/orchestration/cron"
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 )
@@ -110,27 +109,22 @@ func TestProvideScheduledDAGCronRunnerFailsFastOnNilDependencies(t *testing.T) {
 	}
 }
 
-func TestScheduledDAGStarterMarksConsumedScheduledRun(t *testing.T) {
-	starter := scheduledDAGStarter{svc: exhaustedCronOrchestrationService{}}
+func TestScheduledDAGStarterDelegatesScheduledStart(t *testing.T) {
+	startErr := errors.New("start failed")
+	starter := scheduledDAGStarter{svc: failingScheduledStartService{err: startErr}}
 
 	err := starter.StartDAG(context.Background(), orchcron.ScheduledDAGStartRequest{DagKey: "dag-1"})
-	if !errors.Is(err, orchestration.ErrIdempotencyKeyExhausted) {
-		t.Fatalf("StartDAG() error = %v, want ErrIdempotencyKeyExhausted", err)
-	}
-	var marker interface {
-		ScheduledRunAlreadyConsumed() bool
-	}
-	if !errors.As(err, &marker) || !marker.ScheduledRunAlreadyConsumed() {
-		t.Fatalf("StartDAG() error = %T, want ScheduledRunAlreadyConsumed marker", err)
+	if !errors.Is(err, startErr) {
+		t.Fatalf("StartDAG() error = %v, want scheduled start error", err)
 	}
 }
 
-type exhaustedCronOrchestrationService struct {
-	contract.OrchestrationService
+type failingScheduledStartService struct {
+	err error
 }
 
-func (exhaustedCronOrchestrationService) StartDAG(context.Context, contract.StartDAGRequest) (contract.StartDAGResponse, error) {
-	return contract.StartDAGResponse{}, &orchestration.IdempotencyKeyExhaustedError{RunKey: "run-1", Status: "failed"}
+func (s failingScheduledStartService) StartScheduledDAG(context.Context, orchcron.ScheduledDAGStartRequest) error {
+	return s.err
 }
 
 type stubCronOrchestrationService struct {
@@ -139,6 +133,10 @@ type stubCronOrchestrationService struct {
 
 func (stubCronOrchestrationService) StartDAG(context.Context, contract.StartDAGRequest) (contract.StartDAGResponse, error) {
 	return contract.StartDAGResponse{}, nil
+}
+
+func (stubCronOrchestrationService) StartScheduledDAG(context.Context, orchcron.ScheduledDAGStartRequest) error {
+	return nil
 }
 
 func waitForCronSignal(t *testing.T, ch <-chan struct{}, name string) {

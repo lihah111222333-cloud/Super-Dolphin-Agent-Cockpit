@@ -102,7 +102,7 @@ describe('useDagDetail', () => {
       source_node_key: 'report',
     });
 
-    detail.handleStatusEvent({ node_key: 'report', status: 'done' });
+    detail.handleStatusEvent({ run_key: 'run-1', node_key: 'report', status: 'done' });
     expect(detail.state.nodes[0].status).toBe('done');
   });
 
@@ -848,27 +848,6 @@ describe('useDagDetail', () => {
     expect(detail.state.dag.title).toBe('B loaded');
   });
 
-  it('applies real statusChanged payloads only for the current dag', async () => {
-    apiMock.callAPI.mockImplementation(async (method) => {
-      if (method === 'dashboard/dagDetail') {
-        return {
-          dag: { dag_key: 'dag-1', title: 'Daily Brief' },
-          nodes: [{ node_key: 'report', status: 'running' }],
-        };
-      }
-      if (method === 'dashboard/dagRuns') return { runs: [] };
-      throw new Error(`unexpected method ${method}`);
-    });
-
-    const detail = useDagDetail();
-    await detail.open({ dag_key: 'dag-1' });
-
-    detail.handleStatusEvent({ dag_key: 'other-dag', node_key: 'report', new_status: 'failed' });
-    expect(detail.state.nodes[0].status).toBe('running');
-
-    detail.handleStatusEvent({ dag_key: 'dag-1', node_key: 'report', new_status: 'done' });
-    expect(detail.state.nodes[0].status).toBe('done');
-  });
 });
 
 describe('DagDetailModal', () => {

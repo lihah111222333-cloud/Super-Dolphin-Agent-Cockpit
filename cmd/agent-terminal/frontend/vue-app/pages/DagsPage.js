@@ -327,7 +327,7 @@ export const DagsPage = {
     emptyText: { type: String, default: '暂无任务流程' },
     loading: { type: Boolean, default: false },
     error: { type: String, default: '' },
-    statusEvent: { type: Object, default: null },
+    statusEvents: { type: Array, default: () => [] },
   },
   emits: ['open-chat', 'design-flow', 'refresh-dags'],
   setup(props, ctx) {

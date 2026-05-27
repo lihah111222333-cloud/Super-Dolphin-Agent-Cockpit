@@ -25,7 +25,7 @@ WHERE dag_key = $1
 ORDER BY started_at DESC, id DESC
 LIMIT $3;
 
--- name: LockTaskDagRunForCompletion :one
+-- name: LockTaskDagRunForCompletionForUpdate :one
 SELECT id
 FROM task_dag_runs
 WHERE dag_key = $1

@@ -245,3 +245,11 @@ func (s *store) WithRunTx(ctx context.Context, fn func(tx RunStore) error) error
 		return fn(&store{db: tx, q: txq})
 	}), "with_run_tx", "task_dag_run")
 }
+
+func (s *store) UpdateScheduledDAGNextRun(ctx context.Context, dagKey string, dueAt, nextRunAt time.Time) (int64, error) {
+	return s.q.UpdateTaskDagNextRun(ctx, sqlc.UpdateTaskDagNextRunParams{
+		NextRunAt: pgtype.Timestamptz{Time: nextRunAt, Valid: true},
+		DagKey:    dagKey,
+		DueAt:     pgtype.Timestamptz{Time: dueAt, Valid: true},
+	})
+}

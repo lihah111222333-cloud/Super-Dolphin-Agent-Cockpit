@@ -46,6 +46,13 @@ function runKeyFromItem(item) {
   return (item?.run_key || item?.runKey || item?.key || item?.id || '').toString().trim();
 }
 
+function runIDFromItem(item) {
+  const value = item?.run_id ?? item?.runId ?? item?.id;
+  if (value === undefined || value === null || value === '') return null;
+  const id = Number(value);
+  return Number.isFinite(id) && id > 0 ? id : null;
+}
+
 function runStatusFromItem(item) {
   return (item?.status || item?.run_status || item?.runStatus || '').toString().trim().toLowerCase();
 }
@@ -580,6 +587,15 @@ export function useDagDetail() {
     const eventDagKey = (payload.dag_key || payload.dagKey || '').toString().trim();
     const currentDagKey = dagKeyFromItem(state.dag);
     if (eventDagKey && currentDagKey && eventDagKey !== currentDagKey) return;
+    const eventRunKey = runKeyFromItem(payload);
+    const currentRunKey = runKeyFromItem(state.run) || state.selectedRunKey;
+    const eventRunID = runIDFromItem(payload);
+    const currentRunID = runIDFromItem(state.run);
+    const canCompareRunKey = Boolean(eventRunKey && currentRunKey);
+    const canCompareRunID = eventRunID !== null && currentRunID !== null;
+    if (!canCompareRunKey && !canCompareRunID) return;
+    if (canCompareRunKey && eventRunKey !== currentRunKey) return;
+    if (canCompareRunID && eventRunID !== currentRunID) return;
     const status = (payload.new_status || payload.newStatus || payload.status || '').toString().trim();
     if (!nodeKey || !status || !Array.isArray(state.nodes)) return;
     const node = state.nodes.find((item) => (item?.node_key || item?.nodeKey || '').toString().trim() === nodeKey);

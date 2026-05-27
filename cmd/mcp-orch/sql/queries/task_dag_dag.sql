@@ -121,12 +121,12 @@ ORDER BY next_run_at ASC, id ASC;
 
 -- name: UpdateTaskDagNextRun :execrows
 UPDATE task_dags
-SET next_run_at = $1,
+SET next_run_at = sqlc.arg(next_run_at),
     updated_at = NOW()
-WHERE dag_key = $2
+WHERE dag_key = sqlc.arg(dag_key)
   AND trigger = 'scheduled'
   AND cron_expr <> ''
-  AND next_run_at = $3;
+  AND next_run_at = sqlc.arg(due_at);
 
 -- name: TryTaskDagAdvisoryLock :one
 SELECT pg_try_advisory_lock($1);

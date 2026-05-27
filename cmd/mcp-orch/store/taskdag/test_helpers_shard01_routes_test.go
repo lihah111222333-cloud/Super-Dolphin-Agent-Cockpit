@@ -72,7 +72,7 @@ type fakeTaskDAGQueryRowRoute struct {
 var fakeTaskDAGQueryRowRoutes = []fakeTaskDAGQueryRowRoute{
 	{tokens: []string{"CountActiveTaskDagRunsByKey"}, run: (*fakeTaskDAGDB).countActiveTaskDagRunsByKey},
 	{tokens: []string{"LockTaskDagForDelete"}, run: (*fakeTaskDAGDB).lockTaskDAGForDelete},
-	{tokens: []string{"LockTaskDagRunForCompletion"}, run: (*fakeTaskDAGDB).lockTaskDAGRunForCompletion},
+	{tokens: []string{"LockTaskDagRunForCompletionForUpdate"}, run: (*fakeTaskDAGDB).lockTaskDAGRunForCompletion},
 	{tokens: []string{"AssignTaskDagNode"}, run: (*fakeTaskDAGDB).assignNode},
 	{tokens: []string{"BindRunningTaskDagNodeTurn"}, run: (*fakeTaskDAGDB).bindRunningNodeTurn},
 	{tokens: []string{"CompleteTaskDagNode"}, run: (*fakeTaskDAGDB).completeNode},

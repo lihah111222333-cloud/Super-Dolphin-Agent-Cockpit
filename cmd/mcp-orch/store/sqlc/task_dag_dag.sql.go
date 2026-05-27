@@ -333,13 +333,13 @@ WHERE dag_key = $2
 `
 
 type UpdateTaskDagNextRunParams struct {
-	NextRunAt   pgtype.Timestamptz `json:"next_run_at"`
-	DagKey      string             `json:"dag_key"`
-	NextRunAt_2 pgtype.Timestamptz `json:"next_run_at_2"`
+	NextRunAt pgtype.Timestamptz `json:"next_run_at"`
+	DagKey    string             `json:"dag_key"`
+	DueAt     pgtype.Timestamptz `json:"due_at"`
 }
 
 func (q *Queries) UpdateTaskDagNextRun(ctx context.Context, arg UpdateTaskDagNextRunParams) (int64, error) {
-	result, err := q.db.Exec(ctx, updateTaskDagNextRun, arg.NextRunAt, arg.DagKey, arg.NextRunAt_2)
+	result, err := q.db.Exec(ctx, updateTaskDagNextRun, arg.NextRunAt, arg.DagKey, arg.DueAt)
 	if err != nil {
 		return 0, err
 	}

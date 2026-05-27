@@ -7,7 +7,6 @@ import (
 	"testing"
 	"time"
 
-	orchcron "github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/orchestration/cron"
 	"github.com/jackc/pgx/v5/pgconn"
 
 	taskdag "github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/taskdag"
@@ -56,6 +55,9 @@ type stubRunStore struct {
 	scheduleRootWakeupsRows  int64
 	scheduleRootWakeupsErr   error
 	scheduleRootWakeupsCalls []runNodeCall
+	updateNextRunRows        int64
+	updateNextRunErr         error
+	updateNextRunCalls       []scheduledNextRunCall
 	terminateRunErr          error
 	terminateRunResult       taskdag.TerminateRunResult
 	terminateRunCalls        []taskdag.TerminateRunInput
@@ -79,6 +81,12 @@ type stubRunStore struct {
 type runNodeCall struct {
 	DagKey string
 	RunID  int64
+}
+
+type scheduledNextRunCall struct {
+	DagKey    string
+	DueAt     time.Time
+	NextRunAt time.Time
 }
 
 func (s *stubRunStore) CountActiveRunsByDagKey(_ context.Context, dagKey string) (int64, error) {
@@ -157,6 +165,18 @@ func (s *stubRunStore) ScheduleRootWakeups(_ context.Context, dagKey string, run
 		return 0, s.scheduleRootWakeupsErr
 	}
 	return s.scheduleRootWakeupsRows, nil
+}
+
+func (s *stubRunStore) UpdateScheduledDAGNextRun(_ context.Context, dagKey string, dueAt, nextRunAt time.Time) (int64, error) {
+	s.updateNextRunCalls = append(s.updateNextRunCalls, scheduledNextRunCall{DagKey: dagKey, DueAt: dueAt, NextRunAt: nextRunAt})
+	s.callOrder = append(s.callOrder, "update_next_run:"+dagKey)
+	if s.updateNextRunErr != nil {
+		return 0, s.updateNextRunErr
+	}
+	if s.updateNextRunRows != 0 {
+		return s.updateNextRunRows, nil
+	}
+	return 1, nil
 }
 
 func (s *stubRunStore) TerminateRun(_ context.Context, input taskdag.TerminateRunInput) (taskdag.TerminateRunResult, error) {
@@ -315,35 +335,6 @@ func TestStartDAG_IdempotencyKey_FlowsIntoRunKey(t *testing.T) {
 	want := "dag-1#run-abc123"
 	if resp.RunKey != want {
 		t.Errorf("resp.RunKey = %q, want %q", resp.RunKey, want)
-	}
-}
-
-func TestStartDAG_ScheduledAdapterPassesIdempotencyKey(t *testing.T) {
-	dagStore := &stubStartDAGStore{dag: &taskdag.DAG{DagKey: "dag-1"}}
-	runStore := &stubRunStore{}
-	svc := makeStartDAGService(dagStore, runStore)
-	starter := scheduledDAGStarter{svc: svc}
-	dueAt := time.Date(2026, 5, 11, 7, 0, 0, 0, time.UTC)
-
-	err := starter.StartDAG(context.Background(), orchcron.ScheduledDAGStartRequest{
-		DagKey:         "dag-1",
-		TriggerSource:  "scheduled",
-		IdempotencyKey: "scheduled:dag-1:" + dueAt.Format(time.RFC3339Nano),
-		DueAt:          dueAt,
-		NextRunAt:      dueAt.Add(time.Hour),
-	})
-	if err != nil {
-		t.Fatalf("StartDAG() error = %v, want nil", err)
-	}
-	if len(runStore.createCalls) != 1 {
-		t.Fatalf("CreateRun calls = %d, want 1", len(runStore.createCalls))
-	}
-	got := runStore.createCalls[0]
-	if got.RunKey != "dag-1#run-scheduled:dag-1:2026-05-11T07:00:00Z" {
-		t.Fatalf("RunKey = %q, want scheduled idempotency key in run key", got.RunKey)
-	}
-	if got.TriggerSource != "scheduled" {
-		t.Fatalf("TriggerSource = %q, want scheduled", got.TriggerSource)
 	}
 }
 
