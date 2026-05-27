@@ -191,7 +191,31 @@ func TestPrepareTurnSkipsHydrateWhenAlreadyPopulated(t *testing.T) {
 		t.Fatalf("ListSkills should not be called when all fields populated, got %d", lookup.calls.list)
 	}
 	if got := req.Skills[0]; got.Prompt != "" || got.Summary != "user summary" || got.Version != "v1" {
-		t.Fatalf("hydrate must not overwrite existing fields: %+v", got)
+		t.Fatalf("hydrate must not overwrite existing fields except stripping Prompt: %+v", got)
+	}
+}
+
+func TestPrepareTurnStripsLegacyPromptForManualAndAutoMatchedSkills(t *testing.T) {
+	t.Parallel()
+
+	svc := NewService(silentLogger())
+	session := &stubSession{threadID: "thread-strip-prompt"}
+	req, err := svc.PrepareTurn(context.Background(), session, PrepareInput{
+		Prompt: "please use @debug on this issue",
+		Skills: []dto.SkillRef{{Name: "explicit", Prompt: "legacy explicit body", Summary: "explicit summary"}},
+		CandidateSkills: []dto.SkillRef{{Name: "debug", Prompt: "legacy auto body", Summary: "debug summary"}},
+	})
+	if err != nil {
+		t.Fatalf("PrepareTurn error: %v", err)
+	}
+	if len(req.Skills) != 2 {
+		t.Fatalf("want 2 skills, got %d: %+v", len(req.Skills), req.Skills)
+	}
+	if got := req.Skills[0]; got.Name != "explicit" || got.Prompt != "" || got.Summary != "explicit summary" {
+		t.Fatalf("explicit skill not normalized to metadata-only: %+v", got)
+	}
+	if got := req.Skills[1]; got.Name != "debug" || got.Prompt != "" || got.Summary != "debug summary" {
+		t.Fatalf("auto-matched skill not normalized to metadata-only: %+v", got)
 	}
 }
 

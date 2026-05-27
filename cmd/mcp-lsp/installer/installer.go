@@ -22,6 +22,21 @@ type InstallerConfig struct {
 	Language    string
 }
 
+type InstallStatus string
+
+const (
+	InstallStatusPathFound         InstallStatus = "path_found"
+	InstallStatusInstalledPath     InstallStatus = "installed_path"
+	InstallStatusInstalledFallback InstallStatus = "installed_fallback"
+)
+
+type InstallResult struct {
+	Path   string
+	Status InstallStatus
+	Lang   string
+	Binary string
+}
+
 type Provider struct {
 	mu      sync.Mutex
 	configs map[string]InstallerConfig
@@ -44,19 +59,31 @@ func (p *Provider) Register(lang string, cfg InstallerConfig) {
 }
 
 // EnsureInstalled checks if the binary exists, if not it attempts to auto-install it.
-// Returns the binary name/path.
+// Returns the resolved binary path.
 func (p *Provider) EnsureInstalled(ctx context.Context, lang string) (string, error) {
+	result, err := p.EnsureInstalledDetailed(ctx, lang)
+	if err != nil {
+		return "", err
+	}
+	return result.Path, nil
+}
+
+func (p *Provider) EnsureInstalledDetailed(ctx context.Context, lang string) (InstallResult, error) {
 	p.mu.Lock()
 	cfg, ok := p.configs[lang]
 	p.mu.Unlock()
 
 	if !ok {
-		return "", fmt.Errorf("no installer config found for language: %s", lang)
+		return InstallResult{}, fmt.Errorf("no installer config found for language: %s", lang)
 	}
+
+	result := InstallResult{Lang: lang, Binary: cfg.BinaryName}
 
 	// 1. Check if binary is in PATH
 	if path, err := exec.LookPath(cfg.BinaryName); err == nil {
-		return path, nil
+		result.Path = path
+		result.Status = InstallStatusPathFound
+		return result, nil
 	}
 
 	p.logger.Info("LSP binary not found, attempting auto-install...",
@@ -71,7 +98,7 @@ func (p *Provider) EnsureInstalled(ctx context.Context, lang string) (string, er
 	start := time.Now()
 	out, err := cmd.CombinedOutput()
 	if err != nil {
-		return "", fmt.Errorf("failed to auto-install %s (%s %v): %w\nOutput: %s",
+		return InstallResult{}, fmt.Errorf("failed to auto-install %s (%s %v): %w\nOutput: %s",
 			cfg.BinaryName, cfg.InstallCmd, cfg.InstallArgs, err, string(out))
 	}
 
@@ -82,13 +109,31 @@ func (p *Provider) EnsureInstalled(ctx context.Context, lang string) (string, er
 
 	// 3. Verify it is now in PATH
 	if path, err := exec.LookPath(cfg.BinaryName); err == nil {
-		return path, nil
+		result.Path = path
+		result.Status = InstallStatusInstalledPath
+		p.logResolvedBinary(result)
+		return result, nil
 	}
 	if path, ok := postInstallBinaryPath(ctx, cfg); ok {
-		return path, nil
+		result.Path = path
+		result.Status = InstallStatusInstalledFallback
+		p.logResolvedBinary(result)
+		return result, nil
 	}
 
-	return "", fmt.Errorf("auto-install succeeded but binary %s is still not found in PATH", cfg.BinaryName)
+	return InstallResult{}, fmt.Errorf("auto-install succeeded but binary %s is still not found in PATH", cfg.BinaryName)
+}
+
+func (p *Provider) logResolvedBinary(result InstallResult) {
+	if p == nil || p.logger == nil || strings.TrimSpace(result.Path) == "" {
+		return
+	}
+	p.logger.Info("LSP binary resolved",
+		slog.String("lang", result.Lang),
+		slog.String("binary", result.Binary),
+		slog.String("path", result.Path),
+		slog.String("status", string(result.Status)),
+	)
 }
 
 func postInstallBinaryPath(ctx context.Context, cfg InstallerConfig) (string, bool) {
