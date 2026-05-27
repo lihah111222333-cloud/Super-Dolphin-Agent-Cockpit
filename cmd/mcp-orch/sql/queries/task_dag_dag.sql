@@ -123,7 +123,10 @@ ORDER BY next_run_at ASC, id ASC;
 UPDATE task_dags
 SET next_run_at = $1,
     updated_at = NOW()
-WHERE dag_key = $2;
+WHERE dag_key = $2
+  AND trigger = 'scheduled'
+  AND cron_expr <> ''
+  AND next_run_at = $3;
 
 -- name: TryTaskDagAdvisoryLock :one
 SELECT pg_try_advisory_lock($1);

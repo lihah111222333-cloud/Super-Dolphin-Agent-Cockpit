@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/orchestration"
 	orchcron "github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/orchestration/cron"
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 )
@@ -107,6 +108,29 @@ func TestProvideScheduledDAGCronRunnerFailsFastOnNilDependencies(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestScheduledDAGStarterMarksConsumedScheduledRun(t *testing.T) {
+	starter := scheduledDAGStarter{svc: exhaustedCronOrchestrationService{}}
+
+	err := starter.StartDAG(context.Background(), orchcron.ScheduledDAGStartRequest{DagKey: "dag-1"})
+	if !errors.Is(err, orchestration.ErrIdempotencyKeyExhausted) {
+		t.Fatalf("StartDAG() error = %v, want ErrIdempotencyKeyExhausted", err)
+	}
+	var marker interface {
+		ScheduledRunAlreadyConsumed() bool
+	}
+	if !errors.As(err, &marker) || !marker.ScheduledRunAlreadyConsumed() {
+		t.Fatalf("StartDAG() error = %T, want ScheduledRunAlreadyConsumed marker", err)
+	}
+}
+
+type exhaustedCronOrchestrationService struct {
+	contract.OrchestrationService
+}
+
+func (exhaustedCronOrchestrationService) StartDAG(context.Context, contract.StartDAGRequest) (contract.StartDAGResponse, error) {
+	return contract.StartDAGResponse{}, &orchestration.IdempotencyKeyExhaustedError{RunKey: "run-1", Status: "failed"}
 }
 
 type stubCronOrchestrationService struct {

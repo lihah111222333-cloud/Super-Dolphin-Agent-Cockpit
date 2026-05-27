@@ -7,6 +7,7 @@ import { DagScheduleModal } from '../components/dag/DagScheduleModal.js';
 import { DagSharedFilesPanel } from '../components/dag/DagSharedFilesPanel.js';
 import { DagTopologyPanel } from '../components/dag/DagTopologyPanel.js';
 import { useDagDetail } from '../composables/useDagDetail.js';
+import { useDagStatusEventBridge } from '../composables/useDagStatusEventBridge.js';
 import {
   isScheduledTrigger,
   scheduleLabelFromDagItem,
@@ -326,6 +327,7 @@ export const DagsPage = {
     emptyText: { type: String, default: '暂无任务流程' },
     loading: { type: Boolean, default: false },
     error: { type: String, default: '' },
+    statusEvent: { type: Object, default: null },
   },
   emits: ['open-chat', 'design-flow', 'refresh-dags'],
   setup(props, ctx) {
@@ -487,6 +489,7 @@ export const DagsPage = {
       },
       { immediate: true, flush: 'sync' },
     );
+    useDagStatusEventBridge(props, dagDetail);
 
     async function startSelectedDag() {
       if (startDisabledReason.value) return;

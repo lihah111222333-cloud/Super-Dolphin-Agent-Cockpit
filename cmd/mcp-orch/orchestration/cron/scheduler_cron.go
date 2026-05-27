@@ -307,7 +307,7 @@ type DueDAG struct {
 // DAGScheduleStore is the minimal storage port needed by Tick.
 type DAGScheduleStore interface {
 	DueDAGs(ctx context.Context, now time.Time) ([]DueDAG, error)
-	UpdateNextRun(ctx context.Context, dagKey string, nextRunAt time.Time) error
+	UpdateNextRun(ctx context.Context, dagKey string, dueAt time.Time, nextRunAt time.Time) error
 }
 
 // DAGStarter 是 StartDAG 的反向依赖适配口，避免 cron 子包 import 父包。
@@ -340,9 +340,10 @@ type ScheduledDAGTickerConfig struct {
 }
 
 var (
-	ErrNilScheduleStore = errors.New("cron: nil schedule store")
-	ErrNilDAGStarter    = errors.New("cron: nil dag starter")
-	ErrNilLockPool      = errors.New("cron: nil advisory lock pool")
+	ErrNilScheduleStore     = errors.New("cron: nil schedule store")
+	ErrNilDAGStarter        = errors.New("cron: nil dag starter")
+	ErrNilLockPool          = errors.New("cron: nil advisory lock pool")
+	ErrScheduleStateChanged = errors.New("cron: scheduled dag state changed before next_run_at update")
 )
 
 func NewScheduledDAGTicker(cfg ScheduledDAGTickerConfig) (*ScheduledDAGTicker, error) {
@@ -422,12 +423,36 @@ func (t *ScheduledDAGTicker) triggerDueDAG(ctx context.Context, dag DueDAG, now 
 		NextRunAt:      nextRunAt,
 	}
 	if err := t.starter.StartDAG(ctx, req); err != nil {
-		return err
+		if !isScheduledRunAlreadyConsumed(err) {
+			return err
+		}
 	}
-	if err := t.store.UpdateNextRun(ctx, dag.DagKey, nextRunAt); err != nil {
+	if err := t.store.UpdateNextRun(ctx, dag.DagKey, dag.DueAt, nextRunAt); err != nil {
 		return classifyTickError(TickErrorClassInfrastructure, "update_next_run_at", err)
 	}
 	return nil
+}
+
+type scheduledRunAlreadyConsumed interface {
+	ScheduledRunAlreadyConsumed() bool
+}
+
+func NewScheduledRunAlreadyConsumedError(err error) error {
+	if err == nil {
+		return nil
+	}
+	return scheduledRunAlreadyConsumedError{err: err}
+}
+
+type scheduledRunAlreadyConsumedError struct{ err error }
+
+func (e scheduledRunAlreadyConsumedError) Error() string                   { return e.err.Error() }
+func (e scheduledRunAlreadyConsumedError) Unwrap() error                   { return e.err }
+func (scheduledRunAlreadyConsumedError) ScheduledRunAlreadyConsumed() bool { return true }
+
+func isScheduledRunAlreadyConsumed(err error) bool {
+	var marker scheduledRunAlreadyConsumed
+	return errors.As(err, &marker) && marker.ScheduledRunAlreadyConsumed()
 }
 
 func (t *ScheduledDAGTicker) nextRunAt(dag DueDAG, now time.Time) (time.Time, error) {

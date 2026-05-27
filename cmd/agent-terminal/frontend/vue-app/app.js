@@ -169,11 +169,22 @@ function applyMemoryCenterSnapshot(state, snapshot) {
 export function routeDagBridgeEvent(method, eventType, payload, deps) {
   const key = (method || eventType || '').toString().trim().toLowerCase();
   if (key !== 'task/node/statuschanged') return;
+  deps?.recordDagNodeStatusEvent?.(payload);
   if (deps?.page?.value === 'dags') {
     deps.refreshDashboardByPage?.('dags').catch((err) => {
       console.warn('refresh dag list after node event failed', err);
     });
   }
+}
+
+function createDagNodeStatusEventRecorder(target) {
+  let seq = 0;
+  return (payload) => {
+    target.value = {
+      seq: ++seq,
+      payload: payload && typeof payload === 'object' ? { ...payload } : payload,
+    };
+  };
 }
 
 async function refreshRuntimeConfigState(runtimeConfig) {
@@ -419,6 +430,8 @@ export const AppRoot = {
     const buildInfo = reactive({});
     const runtimeConfig = reactive({ cwd: '' });
     const queryWindowCwd = ref(readWindowCwdFromLocation());
+    const dagNodeStatusEvent = ref(null);
+    const recordDagNodeStatusEvent = createDagNodeStatusEventRecorder(dagNodeStatusEvent);
 
     const dashboard = reactive({
       agents: [],
@@ -533,7 +546,7 @@ export const AppRoot = {
             refreshDashboardByPage('skills').catch((error) => { console.warn('refresh page failed: skills', error); });
           }
         }
-        routeDagBridgeEvent(method, eventType, payload, { page, refreshDashboardByPage });
+        routeDagBridgeEvent(method, eventType, payload, { page, refreshDashboardByPage, recordDagNodeStatusEvent });
       });
       unsubscribeAppWillQuit = onAppWillQuit(() => {
         isExiting.value = true;
@@ -649,6 +662,7 @@ export const AppRoot = {
       buildInfo,
       dashboard,
       dashboardRequest,
+      dagNodeStatusEvent,
       memoryCenter,
       agentsFields: AGENTS_FIELDS,
       taskAckFields: TASK_ACK_FIELDS,
@@ -705,6 +719,7 @@ export const AppRoot = {
           :items="dashboard.dags"
           :loading="dashboardRequest.dags.loading"
           :error="dashboardRequest.dags.error"
+          :status-event="dagNodeStatusEvent"
           @open-chat="openDagChildThread"
           @design-flow="startDagDesignerThread"
           @refresh-dags="refreshDashboardByPage('dags')"

@@ -15,7 +15,7 @@ func TestTerminateRunCancelsRunningRunAndNonTerminalNodes(t *testing.T) {
 
 	store, db, now := newTaskDAGTestStore()
 	seedRuntimeDAG(t, db, now, []seedNode{
-		{key: "done-node", status: "done"},
+		{key: "done-node", status: "done", thread: "thr-done"},
 		{key: "ready-node", status: "ready", thread: "thr-ready"},
 		{key: "running-node", status: "running", thread: "thr-running"},
 		{key: "pending-node", status: "pending"},
@@ -31,8 +31,8 @@ func TestTerminateRunCancelsRunningRunAndNonTerminalNodes(t *testing.T) {
 	if err != nil {
 		t.Fatalf("TerminateRun() error = %v, want nil", err)
 	}
-	if got := strings.Join(result.SpawnedThreadIDs, ","); got != "thr-ready,thr-running" {
-		t.Fatalf("TerminateRun spawned thread IDs = %q, want transaction-captured ready/running thread IDs", got)
+	if got := strings.Join(result.SpawnedThreadIDs, ","); got != "thr-done,thr-ready,thr-running" {
+		t.Fatalf("TerminateRun spawned thread IDs = %q, want all persisted spawned thread IDs for the run", got)
 	}
 
 	if got := runStatusByKey(t, db, "run-cancel"); got != "cancelled" {
@@ -115,8 +115,8 @@ func TestTerminateRunCancelledRunReturnsPersistedSpawnedThreadIDs(t *testing.T) 
 	if err != nil {
 		t.Fatalf("TerminateRun() error = %v, want nil for already-cancelled retry", err)
 	}
-	if got := strings.Join(result.SpawnedThreadIDs, ","); got != "thr-cancelled" {
-		t.Fatalf("TerminateRun spawned thread IDs = %q, want persisted thread IDs for retry", got)
+	if got := strings.Join(result.SpawnedThreadIDs, ","); got != "thr-cancelled,thr-done" {
+		t.Fatalf("TerminateRun spawned thread IDs = %q, want all persisted thread IDs for retry", got)
 	}
 }
 

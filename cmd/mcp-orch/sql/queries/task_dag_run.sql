@@ -25,6 +25,14 @@ WHERE dag_key = $1
 ORDER BY started_at DESC, id DESC
 LIMIT $3;
 
+-- name: LockTaskDagRunForCompletion :one
+SELECT id
+FROM task_dag_runs
+WHERE dag_key = $1
+  AND id = $2
+  AND status = 'running'
+FOR UPDATE;
+
 -- name: CountActiveTaskDagRunsByKey :one
 -- ApplyOps 在持有 task_dags 行锁后读取 active run，用于保护运行中的 DAG 模板；
 -- 这不是 StartDAG 的事务外预检，StartDAG 仍由 0076 partial unique 兜底。

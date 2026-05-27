@@ -159,8 +159,23 @@ func (a *App) saveTextFile(defaultPath, defaultFilename, content string) (string
 		return "", nil
 	}
 	path := filepath.Join(dir, filename)
-	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
-		return "", fmt.Errorf("save text file: write %q: %w", path, err)
+	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
+	if err != nil {
+		return "", fmt.Errorf("save text file: create %q: %w", path, err)
+	}
+	data := []byte(content)
+	n, writeErr := file.Write(data)
+	if writeErr == nil && n != len(data) {
+		writeErr = fmt.Errorf("short write: wrote %d of %d bytes", n, len(data))
+	}
+	if closeErr := file.Close(); closeErr != nil {
+		writeErr = errors.Join(writeErr, closeErr)
+	}
+	if writeErr != nil {
+		if removeErr := os.Remove(path); removeErr != nil {
+			writeErr = errors.Join(writeErr, fmt.Errorf("remove incomplete file: %w", removeErr))
+		}
+		return "", fmt.Errorf("save text file: write %q: %w", path, writeErr)
 	}
 	return path, nil
 }
