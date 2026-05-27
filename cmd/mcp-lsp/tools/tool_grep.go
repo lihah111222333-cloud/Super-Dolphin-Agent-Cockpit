@@ -14,7 +14,7 @@ import (
 )
 
 const (
-	defaultSearchResults = 30
+	defaultSearchResults = 50
 	maxSearchResults     = 50
 )
 
@@ -188,17 +188,12 @@ func (p *documentSymbolProvider) Symbols(absPath string) ([]protocol.DocumentSym
 
 func capGrepResponseBytes(resp *grepResponse, maxBytes int) {
 	for {
+		resp.Message = grepMessage(resp.RegexFallback, resp.DroppedForPayload)
 		raw, err := json.Marshal(resp)
 		if err != nil || len(raw) <= maxBytes {
-			if message := grepMessage(resp.RegexFallback, resp.DroppedForPayload); message != "" {
-				resp.Message = message
-			}
 			return
 		}
 		if !dropLastGrepRow(resp) {
-			if message := grepMessage(resp.RegexFallback, resp.DroppedForPayload); message != "" {
-				resp.Message = message
-			}
 			return
 		}
 		resp.Truncated = true

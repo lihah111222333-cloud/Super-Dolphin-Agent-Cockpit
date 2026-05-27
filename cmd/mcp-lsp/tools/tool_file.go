@@ -21,7 +21,7 @@ import (
 )
 
 const (
-	defaultReadFileLimit       = 300
+	defaultReadFileLimit       = 250
 	maxReadFileLimit           = 2000
 	maxReadFileBytes           = 2 << 20
 	lspReadFileBatchMax        = 10
