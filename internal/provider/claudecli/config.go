@@ -40,14 +40,15 @@ func resolveBinaryPath() string {
 
 func configFromMap(cfg map[string]any) cliLaunchConfig {
 	return cliLaunchConfig{
-		ApprovalPolicy:        providershared.ConfigString(cfg, "approval_policy", "approvals"),
-		Sandbox:               providershared.ConfigString(cfg, "sandbox"),
-		Summary:               providershared.ConfigString(cfg, "summary"),
-		Effort:                providershared.ConfigString(cfg, "effort"),
-		Personality:           providershared.ConfigString(cfg, "personality"),
-		DeveloperInstructions: providershared.ConfigString(cfg, "developer_instructions", "developerInstructions"),
-		BuiltinTools:          builtinToolsFromMap(cfg),
-		DisallowedTools:       disallowedBuiltinToolsFromMap(cfg),
+		ApprovalPolicy:            providershared.ConfigString(cfg, "approval_policy", "approvals"),
+		Sandbox:                   providershared.ConfigString(cfg, "sandbox"),
+		Summary:                   providershared.ConfigString(cfg, "summary"),
+		Effort:                    providershared.ConfigString(cfg, "effort"),
+		Personality:               providershared.ConfigString(cfg, "personality"),
+		DeveloperInstructions:     providershared.ConfigString(cfg, "developer_instructions", "developerInstructions"),
+		BuiltinTools:              builtinToolsFromMap(cfg),
+		DisallowedTools:           disallowedBuiltinToolsFromMap(cfg),
+		AdditionalDisallowedTools: additionalDisallowedToolsFromMap(cfg),
 	}
 }
 
@@ -72,6 +73,21 @@ func builtinToolsFromMap(cfg map[string]any) []string {
 // every upstream built-in tool".
 func disallowedBuiltinToolsFromMap(cfg map[string]any) []string {
 	for _, key := range []string{"disallowed_tools", "disallowedTools", "disallowed_builtin_tools", "disallowedBuiltinTools"} {
+		raw, ok := cfg[key]
+		if !ok {
+			continue
+		}
+		ids := providershared.NormalizeConfigStringSlice(raw)
+		if ids == nil {
+			return []string{}
+		}
+		return ids
+	}
+	return nil
+}
+
+func additionalDisallowedToolsFromMap(cfg map[string]any) []string {
+	for _, key := range []string{"additional_disallowed_tools", "additionalDisallowedTools", "extra_disallowed_tools", "extraDisallowedTools", "claude_additional_disallowed_tools", "claudeAdditionalDisallowedTools"} {
 		raw, ok := cfg[key]
 		if !ok {
 			continue

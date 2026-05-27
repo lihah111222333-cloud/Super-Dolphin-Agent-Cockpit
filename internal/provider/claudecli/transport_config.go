@@ -51,8 +51,9 @@ type cliLaunchConfig struct {
 	// BuiltinTools is the allowlist passed to Claude CLI --tools. Nil keeps the
 	// legacy disallow-list path; non-nil (including empty) expresses an explicit
 	// launch-time native tool visibility choice.
-	BuiltinTools    []string
-	DisallowedTools []string
+	BuiltinTools              []string
+	DisallowedTools           []string
+	AdditionalDisallowedTools []string
 }
 
 var launchCLI = launchCLIWithManifest
@@ -200,7 +201,7 @@ func buildCLIArgs(model, instructions, mcpConfigPath string, cfg cliLaunchConfig
 	args = appendFlagIfSet(args, "--effort", normalizeEffort(model, cfg.Effort))
 	if cfg.BuiltinTools != nil {
 		args = append(args, "--tools", resolveToolsFlag(cfg.BuiltinTools))
-	} else if disallowed := resolveDisallowedToolsFlag(cfg.DisallowedTools); disallowed != "" {
+	} else if disallowed := resolveDisallowedToolsFlag(cfg.DisallowedTools, cfg.AdditionalDisallowedTools); disallowed != "" {
 		args = append(args, "--disallowedTools", disallowed)
 	}
 	if mcpConfigPath = strings.TrimSpace(mcpConfigPath); mcpConfigPath != "" {
@@ -251,21 +252,32 @@ func resolveToolsFlag(allowlist []string) string {
 	return strings.Join(ids, ",")
 }
 
-// resolveDisallowedToolsFlag turns the configured list into the --disallowedTools
-// flag value. nil → legacy default; non-nil empty → "" (caller skips the flag);
-// otherwise the trimmed IDs are comma-joined.
-func resolveDisallowedToolsFlag(override []string) string {
+// resolveDisallowedToolsFlag turns the configured lists into the --disallowedTools
+// flag value. nil override means legacy defaults; a non-nil empty override skips
+// defaults unless additional items are present.
+func resolveDisallowedToolsFlag(override []string, additional ...[]string) string {
 	source := override
 	if source == nil {
 		source = defaultDisallowedBuiltinTools()
 	}
 	ids := make([]string, 0, len(source))
-	for _, raw := range source {
-		id := strings.TrimSpace(raw)
-		if id == "" {
-			continue
+	seen := map[string]struct{}{}
+	appendIDs := func(values []string) {
+		for _, raw := range values {
+			id := strings.TrimSpace(raw)
+			if id == "" {
+				continue
+			}
+			if _, exists := seen[id]; exists {
+				continue
+			}
+			seen[id] = struct{}{}
+			ids = append(ids, id)
 		}
-		ids = append(ids, id)
+	}
+	appendIDs(source)
+	for _, values := range additional {
+		appendIDs(values)
 	}
 	return strings.Join(ids, ",")
 }
