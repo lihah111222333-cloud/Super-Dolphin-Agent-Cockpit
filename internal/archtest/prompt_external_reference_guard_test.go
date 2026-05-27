@@ -233,7 +233,8 @@ func builtinRegistryPromptSurfaces(t *testing.T, reg contract.BuiltinPromptRegis
 				continue
 			}
 			runtimeGated := hasEnableWhen(section.EnableWhen)
-			allowedInternalTools := runtimeGated && strings.Contains(section.SectionKey, "orchestrator")
+			allowedInternalTools := runtimeGated && (strings.Contains(section.SectionKey, "orchestrator") ||
+				strings.Contains(section.SectionKey, "dag_designer"))
 			source := fmt.Sprintf("builtin:%s.section.%s", tmpl.PromptKey, section.SectionKey)
 			surfaces = appendPromptSurface(surfaces, promptSurface{
 				Source:         source + ".body",

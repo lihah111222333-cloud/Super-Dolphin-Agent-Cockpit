@@ -14,9 +14,7 @@ type Registry struct {
 }
 
 func newRegistry(loaded []loadedTemplate) *Registry {
-	sort.SliceStable(loaded, func(i, j int) bool {
-		return loaded[i].Config.PromptKey < loaded[j].Config.PromptKey
-	})
+	sort.SliceStable(loaded, loadedTemplateLess(loaded))
 
 	registry := &Registry{
 		templates:            make([]contract.BuiltinPromptTemplate, 0, len(loaded)),
@@ -25,13 +23,36 @@ func newRegistry(loaded []loadedTemplate) *Registry {
 	}
 	nextSectionID := firstBuiltinSectionID
 	for i, item := range loaded {
-		templateID := firstBuiltinID - int64(i)
+		templateID := builtinTemplateID(item.Config, i)
 		template := buildTemplate(templateID, item.Config)
 		registry.templates = append(registry.templates, template)
 		registry.templatesByPromptKey[template.PromptKey] = template
 		registry.sectionsByTemplateID[templateID] = buildSections(templateID, &nextSectionID, item.Sections)
 	}
 	return registry
+}
+
+func loadedTemplateLess(loaded []loadedTemplate) func(i, j int) bool {
+	return func(i, j int) bool {
+		left, right := loaded[i].Config, loaded[j].Config
+		if left.ID != nil && right.ID != nil && *left.ID != *right.ID {
+			return *left.ID > *right.ID
+		}
+		if left.ID != nil && right.ID == nil {
+			return true
+		}
+		if left.ID == nil && right.ID != nil {
+			return false
+		}
+		return left.PromptKey < right.PromptKey
+	}
+}
+
+func builtinTemplateID(cfg templateConfig, index int) int64 {
+	if cfg.ID != nil {
+		return *cfg.ID
+	}
+	return firstBuiltinID - int64(index)
 }
 
 func buildTemplate(id int64, cfg templateConfig) contract.BuiltinPromptTemplate {

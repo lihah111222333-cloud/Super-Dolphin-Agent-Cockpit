@@ -148,6 +148,52 @@ func TestRegistryLoadsMainGeneralZhWithProductionParity(t *testing.T) {
 	require.JSONEq(t, `{"isWorktree": true}`, string(worktreeHint.EnableWhen))
 }
 
+func TestRegistryLoadsDAGDesignerPrompts(t *testing.T) {
+	t.Parallel()
+
+	reg, err := NewDefaultRegistry()
+	require.NoError(t, err)
+
+	zh, ok := reg.GetTemplate("main/dag_designer_zh")
+	require.True(t, ok)
+	require.Equal(t, int64(-100002), zh.ID)
+	require.Equal(t, "dag_designer", zh.AgentKey)
+	require.True(t, zh.Enabled)
+	require.Equal(t, "global", zh.Scope)
+	require.Contains(t, zh.Tags, "builtin:system")
+	require.Contains(t, zh.Tags, "intent:dag_designer")
+
+	en, ok := reg.GetTemplate("main/dag_designer_en")
+	require.True(t, ok)
+	require.Equal(t, int64(-100003), en.ID)
+	require.Equal(t, "dag_designer", en.AgentKey)
+	require.False(t, en.Enabled)
+
+	sections := reg.SectionsByTemplateID(zh.ID)
+	requireSectionKeys(t, sections, "dag_designer_runtime_tools")
+	body := sectionBodyByKey(sections, "dag_designer_runtime_tools")
+	for _, want := range []string{
+		"list_models()",
+		"prompt_list(keyword?)",
+		"command_list(keyword?)",
+		"shared_file_list(prefix?)",
+		"task_create_dag",
+		"task_get_dag",
+		"node.config.exec",
+		"assigned_to",
+		"waiting_for_assignee",
+		"final_output",
+		"provider-native Skill",
+	} {
+		require.Contains(t, body, want)
+	}
+	require.JSONEq(t, `{"enabled_tools_all":["list_models","prompt_list","command_list","shared_file_list","task_create_dag","task_get_dag","task_dag_apply_ops","task_start_dag"]}`, string(requireSection(t, sections, "dag_designer_runtime_tools").EnableWhen))
+
+	enSections := reg.SectionsByTemplateID(en.ID)
+	enBody := sectionBodyByKey(enSections, "dag_designer_runtime_tools")
+	require.Contains(t, enBody, "provider-native Skill")
+}
+
 func TestRegistryCorePromptsAvoidExternalIdentityToolAndHostLeaks(t *testing.T) {
 	t.Parallel()
 
@@ -219,6 +265,19 @@ func TestLoadRegistryAssignsStableNegativeTemplateIDsByPromptKey(t *testing.T) {
 	z, ok := reg.GetTemplate("main/z")
 	require.True(t, ok)
 	require.Equal(t, int64(-100001), z.ID)
+}
+
+func TestLoadRegistryRejectsDuplicateResolvedTemplateIDs(t *testing.T) {
+	t.Parallel()
+
+	_, err := LoadRegistryFromFS(testFS{
+		"manifest.json":    `{"version":1,"templates":["templates/a.json","templates/b.json"]}`,
+		"templates/a.json": minimalTemplateJSONWithID("main/a", -100010, "sections/a.md"),
+		"templates/b.json": minimalTemplateJSONWithID("main/b", -100010, "sections/b.md"),
+		"sections/a.md":    `a body`,
+		"sections/b.md":    `b body`,
+	})
+	require.ErrorContains(t, err, `duplicate resolved template id -100010`)
 }
 
 func TestRegistryRejectsExternalProviderIdentity(t *testing.T) {
@@ -342,6 +401,20 @@ func minimalTemplateJSON(promptKey, bodyFile string) string {
 		"tags":["builtin:system"],
 		"sections":[{"section_key":"identity","region":"static","ordinal":0,"trigger_type":"always","body_file":%q}]
 	}`, promptKey, bodyFile)
+}
+
+func minimalTemplateJSONWithID(promptKey string, id int64, bodyFile string) string {
+	return fmt.Sprintf(`{
+		"prompt_key":%q,
+		"id":%d,
+		"kind":"base",
+		"title":"Test",
+		"agent_key":"main",
+		"enabled":true,
+		"scope":"global",
+		"tags":["builtin:system"],
+		"sections":[{"section_key":"identity","region":"static","ordinal":0,"trigger_type":"always","body_file":%q}]
+	}`, promptKey, id, bodyFile)
 }
 
 func requireSectionKeys(t *testing.T, sections []contract.BuiltinPromptSection, keys ...string) {
