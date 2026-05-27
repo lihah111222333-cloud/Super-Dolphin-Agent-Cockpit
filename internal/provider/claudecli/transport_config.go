@@ -51,9 +51,10 @@ type cliLaunchConfig struct {
 	// BuiltinTools is the allowlist passed to Claude CLI --tools. Nil keeps the
 	// legacy disallow-list path; non-nil (including empty) expresses an explicit
 	// launch-time native tool visibility choice.
-	BuiltinTools              []string
-	DisallowedTools           []string
-	AdditionalDisallowedTools []string
+	BuiltinTools                []string
+	DisallowedTools             []string
+	AdditionalDisallowedTools   []string
+	DisableProviderNativeSkills bool
 }
 
 var launchCLI = launchCLIWithManifest
@@ -199,9 +200,13 @@ func buildCLIArgs(model, instructions, mcpConfigPath string, cfg cliLaunchConfig
 	args = appendSystemPromptFlags(args, instructions, cfg)
 	args = appendFlagIfSet(args, "--permission-mode", resolvePermissionMode(cfg.ApprovalPolicy, cfg.Sandbox))
 	args = appendFlagIfSet(args, "--effort", normalizeEffort(model, cfg.Effort))
-	if cfg.BuiltinTools != nil {
-		args = append(args, "--tools", resolveToolsFlag(cfg.BuiltinTools))
-	} else if disallowed := resolveDisallowedToolsFlag(cfg.DisallowedTools, cfg.AdditionalDisallowedTools); disallowed != "" {
+	builtinTools := cfg.BuiltinTools
+	if cfg.DisableProviderNativeSkills && builtinTools != nil {
+		builtinTools = withoutToolID(builtinTools, "Skill")
+	}
+	if builtinTools != nil {
+		args = append(args, "--tools", resolveToolsFlag(builtinTools))
+	} else if disallowed := resolveDisallowedToolsFlag(cfg.DisallowedTools, additionalDisallowedTools(cfg)); disallowed != "" {
 		args = append(args, "--disallowedTools", disallowed)
 	}
 	if mcpConfigPath = strings.TrimSpace(mcpConfigPath); mcpConfigPath != "" {
@@ -250,6 +255,26 @@ func resolveToolsFlag(allowlist []string) string {
 		ids = append(ids, id)
 	}
 	return strings.Join(ids, ",")
+}
+
+func withoutToolID(values []string, blocked string) []string {
+	out := make([]string, 0, len(values))
+	for _, raw := range values {
+		id := strings.TrimSpace(raw)
+		if id == "" || strings.EqualFold(id, strings.TrimSpace(blocked)) {
+			continue
+		}
+		out = append(out, id)
+	}
+	return out
+}
+
+func additionalDisallowedTools(cfg cliLaunchConfig) []string {
+	if !cfg.DisableProviderNativeSkills {
+		return cfg.AdditionalDisallowedTools
+	}
+	ids := append([]string(nil), cfg.AdditionalDisallowedTools...)
+	return append(ids, "Skill")
 }
 
 // resolveDisallowedToolsFlag turns the configured lists into the --disallowedTools

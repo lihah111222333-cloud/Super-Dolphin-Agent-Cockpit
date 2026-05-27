@@ -40,15 +40,16 @@ func resolveBinaryPath() string {
 
 func configFromMap(cfg map[string]any) cliLaunchConfig {
 	return cliLaunchConfig{
-		ApprovalPolicy:            providershared.ConfigString(cfg, "approval_policy", "approvals"),
-		Sandbox:                   providershared.ConfigString(cfg, "sandbox"),
-		Summary:                   providershared.ConfigString(cfg, "summary"),
-		Effort:                    providershared.ConfigString(cfg, "effort"),
-		Personality:               providershared.ConfigString(cfg, "personality"),
-		DeveloperInstructions:     providershared.ConfigString(cfg, "developer_instructions", "developerInstructions"),
-		BuiltinTools:              builtinToolsFromMap(cfg),
-		DisallowedTools:           disallowedBuiltinToolsFromMap(cfg),
-		AdditionalDisallowedTools: additionalDisallowedToolsFromMap(cfg),
+		ApprovalPolicy:              providershared.ConfigString(cfg, "approval_policy", "approvals"),
+		Sandbox:                     providershared.ConfigString(cfg, "sandbox"),
+		Summary:                     providershared.ConfigString(cfg, "summary"),
+		Effort:                      providershared.ConfigString(cfg, "effort"),
+		Personality:                 providershared.ConfigString(cfg, "personality"),
+		DeveloperInstructions:       providershared.ConfigString(cfg, "developer_instructions", "developerInstructions"),
+		BuiltinTools:                builtinToolsFromMap(cfg),
+		DisallowedTools:             disallowedBuiltinToolsFromMap(cfg),
+		AdditionalDisallowedTools:   additionalDisallowedToolsFromMap(cfg),
+		DisableProviderNativeSkills: providerNativeSkillsDisabledFromMap(cfg),
 	}
 }
 
@@ -99,6 +100,26 @@ func additionalDisallowedToolsFromMap(cfg map[string]any) []string {
 		return ids
 	}
 	return nil
+}
+
+func providerNativeSkillsDisabledFromMap(cfg map[string]any) bool {
+	for _, key := range []string{"providerNativeSkills", "provider_native_skills"} {
+		raw, ok := cfg[key]
+		if !ok {
+			continue
+		}
+		enabled, ok := raw.(bool)
+		return ok && !enabled
+	}
+	for _, key := range []string{"disableProviderNativeSkills", "disable_provider_native_skills"} {
+		raw, ok := cfg[key]
+		if !ok {
+			continue
+		}
+		disabled, ok := raw.(bool)
+		return ok && disabled
+	}
+	return false
 }
 
 func resolveStartAssembly(req dto.StartSessionRequest, cfg cliLaunchConfig, provider string) contract.StartAssembly {
