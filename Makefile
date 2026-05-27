@@ -1,4 +1,4 @@
-.PHONY: build build-plain build-agent-terminal build-agent-terminal-plain run run-plain run-agent-terminal-debug run-agent-terminal-debug-plain build-peer-binaries test test-deferred vet clean guard guard-shell protocol-sync-check rpc-regression-check codemap-check codemap-refresh setup-cgo ui-cover-build ui-cover-run ui-cover-report app-cover-build app-cover-run app-cover-report log-audit p2-audit ida-test-all ida-test-heavy sqlc-generate sqlc-verify
+.PHONY: build build-plain build-agent-terminal build-agent-terminal-plain frontend-deps frontend-build run run-plain run-agent-terminal-debug run-agent-terminal-debug-plain build-peer-binaries test test-deferred vet clean guard guard-shell protocol-sync-check rpc-regression-check codemap-check codemap-refresh setup-cgo ui-cover-build ui-cover-run ui-cover-report app-cover-build app-cover-run app-cover-report log-audit p2-audit ida-test-all ida-test-heavy sqlc-generate sqlc-verify
 
 # Auto-detect macOS version to avoid ld warnings about version mismatch.
 # Override with: make MIN_MACOS_VERSION=15.0 build
@@ -7,6 +7,7 @@ FRIDA_VERSION_FILE ?= build/frida-version.txt
 FRIDA_DEVKIT_VERSION ?= $(shell cat $(FRIDA_VERSION_FILE) 2>/dev/null)
 FRIDA_LDFLAGS ?= -X github.com/multi-agent/go-agent-v2/pkg/idamcp.defaultFridaVersion=$(FRIDA_DEVKIT_VERSION)
 AGENT_TERMINAL_DEBUG_PORT ?= 4501
+FRONTEND_DIR := cmd/agent-terminal/frontend
 
 # NOTE: Do NOT use 'export CGO_*FLAGS' here — it causes cache thrashing between
 #       make and IDE/terminal builds (Go caches key on CGO flags).
@@ -21,29 +22,40 @@ else
 	@echo "ℹ️  Not Darwin, skipping CGO macOS flags"
 endif
 
-build: guard
+build: guard frontend-build
 	go run ./cmd/frida-bootstrap --frida-version "$(FRIDA_DEVKIT_VERSION)" -- \
 		go build -tags frida -ldflags "$(FRIDA_LDFLAGS)" ./...
 	@$(MAKE) --no-print-directory _hook_check
 
-build-plain: guard
+build-plain: guard frontend-build
 	go build ./...
 
-build-agent-terminal:
+build-agent-terminal: frontend-build
 	go run ./cmd/frida-bootstrap --frida-version "$(FRIDA_DEVKIT_VERSION)" -- \
 		go build -tags frida -ldflags "$(FRIDA_LDFLAGS)" -o bin/agent-terminal ./cmd/agent-terminal
 
-build-agent-terminal-plain:
+build-agent-terminal-plain: frontend-build
 	go build -o bin/agent-terminal ./cmd/agent-terminal
+
+frontend-deps:
+	cd $(FRONTEND_DIR) && \
+	if [ ! -d node_modules ] || [ package-lock.json -nt node_modules ] || [ package.json -nt node_modules ]; then \
+		npm ci; \
+	else \
+		echo "frontend dependencies are up to date"; \
+	fi
+
+frontend-build: frontend-deps
+	cd $(FRONTEND_DIR) && npm run build
 
 # 推荐用 ./run-debug.sh：会跑 npm install/build、pre-flight 守卫
 # 这两个 target 只覆盖最小启动路径，前端 dist 必须先 build 过，否则 UI 是空的。
 # .env 由 internal/platform/config.loadDotEnv 自动加载，二者都能读到。
-run:
+run: frontend-build
 	go run ./cmd/frida-bootstrap --frida-version "$(FRIDA_DEVKIT_VERSION)" -- \
 		go run -tags frida -ldflags "$(FRIDA_LDFLAGS)" ./cmd/agent-terminal
 
-run-plain:
+run-plain: frontend-build
 	go run ./cmd/agent-terminal
 
 # Memory subsystem defaults (override on the command line if you really
@@ -65,13 +77,13 @@ build-peer-binaries:
 	go build -o bin/mcp-orch ./cmd/mcp-orch
 	go build -o bin/mcp-lsp ./cmd/mcp-lsp
 
-run-agent-terminal-debug: build-peer-binaries
+run-agent-terminal-debug: frontend-build build-peer-binaries
 	GO_AGENT_CTL_SESSION_TOKEN=$(DEV_CONTROL_SESSION_TOKEN) \
 		GO_AGENT_PEER_BIN_DIR=$(CURDIR)/bin \
 		go run ./cmd/frida-bootstrap --frida-version "$(FRIDA_DEVKIT_VERSION)" -- \
 		go run -tags frida -ldflags "$(FRIDA_LDFLAGS)" ./cmd/agent-terminal --debug --debug-port $(AGENT_TERMINAL_DEBUG_PORT)
 
-run-agent-terminal-debug-plain: build-peer-binaries
+run-agent-terminal-debug-plain: frontend-build build-peer-binaries
 	GO_AGENT_CTL_SESSION_TOKEN=$(DEV_CONTROL_SESSION_TOKEN) \
 		GO_AGENT_PEER_BIN_DIR=$(CURDIR)/bin \
 		go run ./cmd/agent-terminal --debug --debug-port $(AGENT_TERMINAL_DEBUG_PORT)
@@ -85,7 +97,7 @@ mcp:
 DEFERRED_TEST_PKGS := ./internal/provider/claudecli ./internal/provider/codexapp
 TEST_WITH_GUARD := ./scripts/test_with_guard.sh
 
-test:
+test: frontend-build
 	$(TEST_WITH_GUARD) $$(go list ./... | grep -v -E '/(provider/claudecli|provider/codexapp)$$') -race -count=1
 	@echo "\n=== deferred E2E packages (sequential, -p 1) ==="
 	$(TEST_WITH_GUARD) $(DEFERRED_TEST_PKGS) -race -count=1 -p 1 -timeout 120s

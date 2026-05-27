@@ -29,6 +29,7 @@ const detailMock = vi.hoisted(() => ({
   terminateActiveRun: vi.fn(),
   selectRun: vi.fn(),
   saveAgentNode: vi.fn(),
+  handleStatusEvent: vi.fn(),
 }));
 
 vi.mock('./composables/useDagDetail.js', () => ({

@@ -29,7 +29,7 @@ const detailMock = vi.hoisted(() => ({
   start: vi.fn(),
   terminateActiveRun: vi.fn(),
   selectRun: vi.fn(),
-  saveAgentNode: vi.fn(),
+  saveAgentNode: vi.fn(), handleStatusEvent: vi.fn(),
 }));
 const apiMock = vi.hoisted(() => ({
   callAPI: vi.fn(async () => null),
@@ -80,7 +80,7 @@ function resetDetailMockState() {
   detailMock.start.mockReset();
   detailMock.terminateActiveRun.mockReset();
   detailMock.selectRun.mockReset();
-  detailMock.saveAgentNode.mockReset();
+  detailMock.saveAgentNode.mockReset(); detailMock.handleStatusEvent.mockReset();
   apiMock.callAPI.mockReset().mockImplementation(async () => null);
 }
 

@@ -33,6 +33,7 @@ const detailMock = vi.hoisted(() => ({
   deleteDAG: vi.fn(),
   selectRun: vi.fn(),
   saveAgentNode: vi.fn(),
+  handleStatusEvent: vi.fn(),
   setSchedule: vi.fn(),
   setScheduleEnabled: vi.fn(),
 }));
@@ -74,6 +75,7 @@ function resetDetailMockState() {
   detailMock.deleteDAG.mockReset();
   detailMock.selectRun.mockReset();
   detailMock.saveAgentNode.mockReset();
+  detailMock.handleStatusEvent.mockReset();
   detailMock.setSchedule.mockReset();
   detailMock.setScheduleEnabled.mockReset();
 }
