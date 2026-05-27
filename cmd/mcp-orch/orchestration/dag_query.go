@@ -96,10 +96,12 @@ func (s *service) terminableRun(ctx context.Context, req TerminateDAGRequest) (s
 	if strings.TrimSpace(run.DagKey) != dagKey {
 		return "", "", nil, fmt.Errorf("orchestration: TerminateDAG: run_key %s does not belong to dag_key %s", runKey, dagKey)
 	}
-	if run.Status != "running" {
+	switch run.Status {
+	case "running", "cancelled":
+		return dagKey, runKey, run, nil
+	default:
 		return dagKey, runKey, nil, nil
 	}
-	return dagKey, runKey, run, nil
 }
 
 func (s *service) stopSpawnedAgentThreads(ctx context.Context, dagKey string, runID int64, threadIDs []string) error {

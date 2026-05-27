@@ -127,6 +127,21 @@ func (db *fakeTaskDAGDB) cancelTaskDagRun(args ...any) ([]any, error) {
 	return taskDagRunValues(updated), nil
 }
 
+func (db *fakeTaskDAGDB) getTaskDagRun(args ...any) ([]any, error) {
+	if len(args) != 1 {
+		return nil, fmt.Errorf("get run args len = %d, want 1", len(args))
+	}
+	runKey, ok := args[0].(string)
+	if !ok {
+		return nil, fmt.Errorf("run key arg = %T", args[0])
+	}
+	run, ok := db.runs[runKey]
+	if !ok {
+		return nil, pgx.ErrNoRows
+	}
+	return taskDagRunValues(run), nil
+}
+
 func taskDagRunValues(row sqlc.TaskDagRun) []any {
 	return []any{
 		row.ID,

@@ -576,6 +576,9 @@ func (a *serviceAgentLauncher) StopLaunchedThread(ctx context.Context, threadID 
 	return nil
 }
 
-func ProvideAgentExecutor(launcher nodeexec.AgentLauncher, recorder nodeexec.NodeSpawnRecorder, hooks NodeLifecycleHooks) *nodeexec.AgentExecutor {
-	return nodeexec.NewAgentExecutor(launcher, nodeexec.WithRecorder(recorder), nodeexec.WithHooks(map[nodeexec.HookPoint]nodeexec.HookHandler(hooks)))
+func ProvideAgentExecutor(launcher nodeexec.AgentLauncher, recorder nodeexec.NodeSpawnRecorder, hooks NodeLifecycleHooks) (*nodeexec.AgentExecutor, error) {
+	if recorder == nil {
+		return nil, errors.New("node router: agent executor requires node spawn recorder")
+	}
+	return nodeexec.NewAgentExecutor(launcher, nodeexec.WithRecorder(recorder), nodeexec.WithHooks(map[nodeexec.HookPoint]nodeexec.HookHandler(hooks))), nil
 }

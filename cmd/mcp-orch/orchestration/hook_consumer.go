@@ -300,7 +300,7 @@ func (c *hookConsumer) handleThreadStopped(ctx context.Context, ev threaddto.Sto
 		}
 		agent.updatedAt = resolveEventTime(ctx, agent.updatedAt)
 		c.svc.setStoppedFallbackReportLocked(ctx, agent)
-		c.svc.publishAgentStopped(agent, ev.Reason)
+		emitEvent(c.svc.eventBus, eventTypeAgentStopped, eventAgentID(agent), agent, ev.Reason)
 		return nil
 	})
 	if errors.Is(err, errAgentNotFound) && c.svc.stoppedHookThreadSuppressed(ev.ThreadID, ev.Timestamp) {
