@@ -469,9 +469,9 @@ func TestDAGSubscriber_RaceC_NodeAlreadyFailed_IdempotentSkip(t *testing.T) {
 	}
 }
 
-// 5. lookup empty �?反查无节点：metric LookupNoNode +1，仍�?stop_helper
-// （ev.ThreadID 可能存在但未来得及落 spawning_thread_id）�?
-func TestDAGSubscriber_LookupEmpty_NoNode(t *testing.T) {
+// 5. lookup empty: metric LookupNoNode +1 and do not stop the thread.
+// A TurnCompleted event from a normal chat thread is not a DAG-spawned agent.
+func TestDAGSubscriber_LookupEmpty_NoNodeDoesNotStopThread(t *testing.T) {
 	before := DAGSubscriberCounters()
 	lookup := &dagSubscriberLookupSpy{nodes: nil}
 	flow := &dagSubscriberFlowSpy{}
@@ -484,8 +484,8 @@ func TestDAGSubscriber_LookupEmpty_NoNode(t *testing.T) {
 	if len(flow.completeCalls) != 0 {
 		t.Fatalf("completeCalls = %d, want 0 (no node to advance)", len(flow.completeCalls))
 	}
-	if len(stop.stopped) != 1 {
-		t.Fatalf("stopped = %d, want 1 (stop_helper still called)", len(stop.stopped))
+	if len(stop.stopped) != 0 {
+		t.Fatalf("stopped = %d, want 0 (no DAG node owns this thread)", len(stop.stopped))
 	}
 	d := metricDelta(before, DAGSubscriberCounters())
 	if d.LookupNoNode != 1 {
