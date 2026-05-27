@@ -415,7 +415,7 @@ func planDAGUpdates(ops nodeexec.Ops, current taskdag.DAGSchedule) ([]plannedDAG
 }
 
 func normalizeDAGPatch(patch nodeexec.DAGPatch) nodeexec.DAGPatch {
-	return nodeexec.DAGPatch{Title: trimStringPtr(patch.Title), Description: trimStringPtr(patch.Description), Trigger: trimStringPtr(patch.Trigger), CronExpr: trimStringPtr(patch.CronExpr), OwnerID: trimStringPtr(patch.OwnerID)}
+	return nodeexec.DAGPatch{Title: trimStringPtr(patch.Title), Description: trimStringPtr(patch.Description), Trigger: trimStringPtr(patch.Trigger), CronExpr: trimStringPtr(patch.CronExpr), OwnerID: trimStringPtr(patch.OwnerID), ScheduleEnabled: patch.ScheduleEnabled}
 }
 
 func validateDAGPatch(patch nodeexec.DAGPatch, current taskdag.DAGSchedule) (taskdag.DAGSchedule, error) {
@@ -452,7 +452,7 @@ func finalDAGSchedule(current taskdag.DAGSchedule, patch nodeexec.DAGPatch) task
 }
 
 func validateDAGPatchFinalSchedule(patch nodeexec.DAGPatch, final taskdag.DAGSchedule) error {
-	if patch.Trigger == nil && patch.CronExpr == nil {
+	if patch.Trigger == nil && patch.CronExpr == nil && patch.ScheduleEnabled == nil {
 		return nil
 	}
 	if final.Trigger == "scheduled" {
@@ -471,7 +471,7 @@ func validateDAGPatchFinalSchedule(patch nodeexec.DAGPatch, final taskdag.DAGSch
 }
 
 func isEmptyDAGPatch(patch nodeexec.DAGPatch) bool {
-	return patch.Title == nil && patch.Description == nil && patch.Trigger == nil && patch.CronExpr == nil && patch.OwnerID == nil
+	return patch.Title == nil && patch.Description == nil && patch.Trigger == nil && patch.CronExpr == nil && patch.OwnerID == nil && patch.ScheduleEnabled == nil
 }
 
 func isValidDAGTrigger(trigger string) bool {
@@ -560,11 +560,23 @@ func persistDAGPatches(ctx context.Context, tx taskdag.DAGOpsStore, dagKey strin
 
 func dagPatchInput(dagKey string, planned plannedDAGPatch) taskdag.UpdateDAGPatchInput {
 	patch := planned.patch
-	return taskdag.UpdateDAGPatchInput{DagKey: dagKey, Title: cloneStringPtr(patch.Title), Description: cloneStringPtr(patch.Description), Trigger: cloneStringPtr(patch.Trigger), CronExpr: cloneStringPtr(patch.CronExpr), OwnerID: cloneStringPtr(patch.OwnerID), NextRunAt: planned.nextRunAt}
+	return taskdag.UpdateDAGPatchInput{
+		DagKey:          dagKey,
+		Title:           cloneStringPtr(patch.Title),
+		Description:     cloneStringPtr(patch.Description),
+		Trigger:         cloneStringPtr(patch.Trigger),
+		CronExpr:        cloneStringPtr(patch.CronExpr),
+		OwnerID:         cloneStringPtr(patch.OwnerID),
+		NextRunAt:       planned.nextRunAt,
+		ScheduleEnabled: patch.ScheduleEnabled,
+	}
 }
 
 func nextRunAtForFinalSchedule(patch nodeexec.DAGPatch, schedule taskdag.DAGSchedule) *time.Time {
-	if patch.Trigger == nil && patch.CronExpr == nil {
+	if patch.Trigger == nil && patch.CronExpr == nil && patch.ScheduleEnabled == nil {
+		return nil
+	}
+	if patch.ScheduleEnabled != nil && !*patch.ScheduleEnabled {
 		return nil
 	}
 	if schedule.Trigger != "scheduled" || schedule.CronExpr == "" {

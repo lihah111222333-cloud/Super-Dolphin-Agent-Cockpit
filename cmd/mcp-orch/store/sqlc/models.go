@@ -79,6 +79,7 @@ type TaskDag struct {
 	Metadata    []byte             `json:"metadata"`
 	Trigger     string             `json:"trigger"`
 	CronExpr    string             `json:"cron_expr"`
+	NextRunAt   pgtype.Timestamptz `json:"next_run_at"`
 	StartedAt   pgtype.Timestamptz `json:"started_at"`
 	FinishedAt  pgtype.Timestamptz `json:"finished_at"`
 	CreatedAt   pgtype.Timestamptz `json:"created_at"`

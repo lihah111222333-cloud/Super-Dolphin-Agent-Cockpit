@@ -255,6 +255,23 @@ function scheduleApplyOps(cronExpr) {
   }];
 }
 
+function scheduleEnabledApplyOps(enabled) {
+  return [{
+    op: 'update_dag',
+    patch: {
+      schedule_enabled: Boolean(enabled),
+    },
+  }];
+}
+
+function applyOpsBaseVersion(state) {
+  const baseVersion = dagVersionFromItem(state.dag);
+  if (baseVersion === null) {
+    return { baseVersion: null, error: new Error('缺少 DAG version，无法执行 apply_ops') };
+  }
+  return { baseVersion, error: null };
+}
+
 async function setScheduleFlow(ctx, payload = {}) {
   const { state, getSeq, loadDetail } = ctx;
   if (state.scheduling) return { ok: false };
@@ -270,9 +287,9 @@ async function setScheduleFlow(ctx, payload = {}) {
     state.scheduleError = new Error('缺少 cron 表达式');
     return { ok: false };
   }
-  const baseVersion = dagVersionFromItem(state.dag);
-  if (baseVersion === null) {
-    state.scheduleError = new Error('缺少 DAG version，无法执行 apply_ops');
+  const { baseVersion, error: versionError } = applyOpsBaseVersion(state);
+  if (versionError) {
+    state.scheduleError = versionError;
     return { ok: false };
   }
   state.scheduling = true;
@@ -285,6 +302,38 @@ async function setScheduleFlow(ctx, payload = {}) {
     if (seq === getSeq()) {
       state.scheduleError = error;
       logWarn('ui', 'useDagDetail.set_schedule.failed', { dagKey, error });
+    }
+    return { ok: false };
+  } finally {
+    if (seq === getSeq()) state.scheduling = false;
+  }
+}
+
+async function setScheduleEnabledFlow(ctx, payload = {}) {
+  const { state, getSeq, loadDetail } = ctx;
+  if (state.scheduling) return { ok: false };
+  const seq = getSeq();
+  const dagKey = dagKeyFromItem(state.dag);
+  state.scheduleError = null;
+  if (!dagKey) {
+    state.scheduleError = new Error('缺少 DAG key');
+    return { ok: false };
+  }
+  const { baseVersion, error: versionError } = applyOpsBaseVersion(state);
+  if (versionError) {
+    state.scheduleError = versionError;
+    return { ok: false };
+  }
+  state.scheduling = true;
+  try {
+    await callAPI('dashboard/dagApplyOps', { dagKey, baseVersion, ops: scheduleEnabledApplyOps(payload.enabled) });
+    if (seq !== getSeq()) return { ok: false };
+    await loadDetail(seq, dagKey, state.dag, state.selectedRunKey);
+    return { ok: true };
+  } catch (error) {
+    if (seq === getSeq()) {
+      state.scheduleError = error;
+      logWarn('ui', 'useDagDetail.set_schedule_enabled.failed', { dagKey, error });
     }
     return { ok: false };
   } finally {
@@ -509,6 +558,10 @@ export function useDagDetail() {
     return setScheduleFlow({ state, getSeq: () => openSeq, loadDetail }, payload);
   }
 
+  async function setScheduleEnabled(payload = {}) {
+    return setScheduleEnabledFlow({ state, getSeq: () => openSeq, loadDetail }, payload);
+  }
+
   function close() {
     openSeq += 1;
     state.show = false;
@@ -533,5 +586,5 @@ export function useDagDetail() {
     if (node) node.status = status;
   }
 
-  return { state, open, close, selectRun, start, terminateActiveRun, deleteDAG, saveAgentNode, setSchedule, updateNodeStatus, handleStatusEvent };
+  return { state, open, close, selectRun, start, terminateActiveRun, deleteDAG, saveAgentNode, setSchedule, setScheduleEnabled, updateNodeStatus, handleStatusEvent };
 }

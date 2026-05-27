@@ -158,8 +158,8 @@ const DAG_CATEGORY_DEFS = [
   { key: 'history', label: '历史记录' },
 ];
 
-function displayStatusLabel(status, trigger) {
-  return scheduledTaskStatusLabel(status, trigger) || statusLabel(status);
+function displayStatusLabel(status, trigger, item) {
+  return scheduledTaskStatusLabel(status, trigger, item) || statusLabel(status);
 }
 
 function dagKeyFromItem(item) {
@@ -279,7 +279,7 @@ function normalizeDag(item, index) {
   return {
     key,
     title: dagTitle(item, index, key),
-    status: displayStatusLabel(status, trigger),
+    status: displayStatusLabel(status, trigger, item),
     triggerLabel: triggerLabel(item),
     scheduleLabel: scheduleLabelFromDagItem(item),
     latestRunLabel: displayLatestRunLabel(latestLabel, normalizedStatus, trigger),
@@ -488,9 +488,10 @@ export const DagsPage = {
       { immediate: true, flush: 'sync' },
     );
 
-    function startSelectedDag() {
+    async function startSelectedDag() {
       if (startDisabledReason.value) return;
-      dagDetail.start();
+      await dagDetail.start();
+      if (!detailState.startError) emit('refresh-dags');
     }
 
     async function stopSelectedDag() {
@@ -678,6 +679,15 @@ export const DagsPage = {
                   :title="deleteDisabledReason"
                   @click="deleteSelectedDag"
                 >{{ detailState.deleting ? '删除中' : '删除' }}</button>
+                <button
+                  v-if="scheduleToggleVisible"
+                  type="button"
+                  class="btn"
+                  data-testid="dag-schedule-toggle-button"
+                  :disabled="Boolean(scheduleToggleDisabledReason)"
+                  :title="scheduleToggleDisabledReason"
+                  @click="toggleScheduleEnabled"
+                >{{ detailState.scheduling ? '保存中' : scheduleToggleLabel }}</button>
                 <button
                   v-if="scheduleActionVisible"
                   type="button"

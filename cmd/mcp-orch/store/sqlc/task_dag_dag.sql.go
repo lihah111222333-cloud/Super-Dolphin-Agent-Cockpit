@@ -10,7 +10,7 @@ import (
 )
 
 const getTaskDag = `-- name: GetTaskDag :one
-SELECT id, dag_key, version, title, description, status, created_by, metadata, trigger, cron_expr, started_at, finished_at, created_at, updated_at
+SELECT id, dag_key, version, title, description, status, created_by, metadata, trigger, cron_expr, next_run_at, started_at, finished_at, created_at, updated_at
 FROM task_dags
 WHERE dag_key = $1
 `
@@ -29,6 +29,7 @@ func (q *Queries) GetTaskDag(ctx context.Context, dagKey string) (TaskDag, error
 		&i.Metadata,
 		&i.Trigger,
 		&i.CronExpr,
+		&i.NextRunAt,
 		&i.StartedAt,
 		&i.FinishedAt,
 		&i.CreatedAt,
@@ -38,7 +39,7 @@ func (q *Queries) GetTaskDag(ctx context.Context, dagKey string) (TaskDag, error
 }
 
 const getTaskDagForUpdate = `-- name: GetTaskDagForUpdate :one
-SELECT id, dag_key, version, title, description, status, created_by, metadata, trigger, cron_expr, started_at, finished_at, created_at, updated_at
+SELECT id, dag_key, version, title, description, status, created_by, metadata, trigger, cron_expr, next_run_at, started_at, finished_at, created_at, updated_at
 FROM task_dags
 WHERE dag_key = $1
 FOR UPDATE
@@ -58,6 +59,7 @@ func (q *Queries) GetTaskDagForUpdate(ctx context.Context, dagKey string) (TaskD
 		&i.Metadata,
 		&i.Trigger,
 		&i.CronExpr,
+		&i.NextRunAt,
 		&i.StartedAt,
 		&i.FinishedAt,
 		&i.CreatedAt,
@@ -67,7 +69,7 @@ func (q *Queries) GetTaskDagForUpdate(ctx context.Context, dagKey string) (TaskD
 }
 
 const listTaskDags = `-- name: ListTaskDags :many
-SELECT id, dag_key, version, title, description, status, created_by, metadata, trigger, cron_expr, started_at, finished_at, created_at, updated_at
+SELECT id, dag_key, version, title, description, status, created_by, metadata, trigger, cron_expr, next_run_at, started_at, finished_at, created_at, updated_at
 FROM task_dags
 WHERE ($1::text = '' OR status = $1)
   AND ($2::text = ''
@@ -104,6 +106,7 @@ func (q *Queries) ListTaskDags(ctx context.Context, arg ListTaskDagsParams) ([]T
 			&i.Metadata,
 			&i.Trigger,
 			&i.CronExpr,
+			&i.NextRunAt,
 			&i.StartedAt,
 			&i.FinishedAt,
 			&i.CreatedAt,
@@ -129,7 +132,7 @@ SET title = EXCLUDED.title,
     created_by = EXCLUDED.created_by,
     metadata = EXCLUDED.metadata,
     updated_at = NOW()
-RETURNING id, dag_key, version, title, description, status, created_by, metadata, trigger, cron_expr, started_at, finished_at, created_at, updated_at
+RETURNING id, dag_key, version, title, description, status, created_by, metadata, trigger, cron_expr, next_run_at, started_at, finished_at, created_at, updated_at
 `
 
 type UpsertTaskDagParams struct {
@@ -162,6 +165,7 @@ func (q *Queries) UpsertTaskDag(ctx context.Context, arg UpsertTaskDagParams) (T
 		&i.Metadata,
 		&i.Trigger,
 		&i.CronExpr,
+		&i.NextRunAt,
 		&i.StartedAt,
 		&i.FinishedAt,
 		&i.CreatedAt,

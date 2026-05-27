@@ -32,11 +32,12 @@ type Op interface {
 // DAGPatch 是 update_dag 允许修改的 DAG 元数据子集。
 // 字段全 *T，nil 表示"不改"，*T 表示"改成此值"。
 type DAGPatch struct {
-	Title       *string `json:"title,omitempty"`
-	Description *string `json:"description,omitempty"`
-	Trigger     *string `json:"trigger,omitempty"`   // manual | auto | scheduled | external
-	CronExpr    *string `json:"cron_expr,omitempty"` // 仅 trigger=scheduled 时有意义
-	OwnerID     *string `json:"owner_id,omitempty"`
+	Title           *string `json:"title,omitempty"`
+	Description     *string `json:"description,omitempty"`
+	Trigger         *string `json:"trigger,omitempty"`   // manual | auto | scheduled | external
+	CronExpr        *string `json:"cron_expr,omitempty"` // 仅 trigger=scheduled 时有意义
+	OwnerID         *string `json:"owner_id,omitempty"`
+	ScheduleEnabled *bool   `json:"schedule_enabled,omitempty"`
 }
 
 // OpUpdateDAG 修改 DAG 元数据（draft/ready 状态）。

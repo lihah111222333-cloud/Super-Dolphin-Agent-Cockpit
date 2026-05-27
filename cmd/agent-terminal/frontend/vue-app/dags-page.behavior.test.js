@@ -727,8 +727,8 @@ describe('DagsPage console shell', () => {
         {
           dag_key: 'daily-brief',
           title: 'Daily Brief',
-          status: 'ready',
-          trigger: { type: 'cron', schedule: '0 9 * * *' },
+          status: 'ready', trigger: { type: 'cron', schedule: '0 9 * * *' },
+          next_run_at: '2026-05-27T01:00:00Z',
           latest_run: { run_key: 'run-7', status: 'done' },
           metadata: { final_output: { type: 'file', path: 'reports/daily.pptx' } },
         },

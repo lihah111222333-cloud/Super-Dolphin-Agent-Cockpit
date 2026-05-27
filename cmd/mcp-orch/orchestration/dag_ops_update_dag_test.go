@@ -266,6 +266,77 @@ func TestApplyOps_UpdateDAG_ScheduledReusesExistingCron(t *testing.T) {
 	}
 }
 
+func TestApplyOps_UpdateDAG_DisablesExistingSchedule(t *testing.T) {
+	t.Parallel()
+
+	stub := &stubDAGOpsStore{
+		currentVersion: 1,
+		dagTrigger:     "scheduled",
+		dagCronExpr:    "0 8 * * *",
+	}
+	s := makeApplyOpsService(stub)
+	req := contract.ApplyOpsRequest{
+		DagKey:      "dag-a",
+		BaseVersion: 1,
+		Ops:         json.RawMessage(`[{"op":"update_dag","patch":{"schedule_enabled":false}}]`),
+	}
+
+	resp, err := s.ApplyOps(context.Background(), req)
+	if err != nil {
+		t.Fatalf("ApplyOps disable schedule err = %v, want nil", err)
+	}
+	if resp.NewVersion != 2 {
+		t.Fatalf("NewVersion = %d, want 2", resp.NewVersion)
+	}
+	if len(stub.dagPatchCalls) != 1 {
+		t.Fatalf("dagPatchCalls = %d, want 1", len(stub.dagPatchCalls))
+	}
+	got := stub.dagPatchCalls[0]
+	if got.ScheduleEnabled == nil || *got.ScheduleEnabled {
+		t.Fatalf("ScheduleEnabled = %#v, want false", got.ScheduleEnabled)
+	}
+	if got.Trigger != nil || got.CronExpr != nil {
+		t.Fatalf("disable schedule should preserve trigger/cron patch, got trigger=%#v cron=%#v", got.Trigger, got.CronExpr)
+	}
+	if got.NextRunAt != nil {
+		t.Fatalf("NextRunAt = %#v, want nil so store clears next_run_at", got.NextRunAt)
+	}
+}
+
+func TestApplyOps_UpdateDAG_EnablesExistingSchedule(t *testing.T) {
+	t.Parallel()
+
+	stub := &stubDAGOpsStore{
+		currentVersion: 1,
+		dagTrigger:     "scheduled",
+		dagCronExpr:    "0 8 * * *",
+	}
+	s := makeApplyOpsService(stub)
+	req := contract.ApplyOpsRequest{
+		DagKey:      "dag-a",
+		BaseVersion: 1,
+		Ops:         json.RawMessage(`[{"op":"update_dag","patch":{"schedule_enabled":true}}]`),
+	}
+
+	resp, err := s.ApplyOps(context.Background(), req)
+	if err != nil {
+		t.Fatalf("ApplyOps enable schedule err = %v, want nil", err)
+	}
+	if resp.NewVersion != 2 {
+		t.Fatalf("NewVersion = %d, want 2", resp.NewVersion)
+	}
+	if len(stub.dagPatchCalls) != 1 {
+		t.Fatalf("dagPatchCalls = %d, want 1", len(stub.dagPatchCalls))
+	}
+	got := stub.dagPatchCalls[0]
+	if got.ScheduleEnabled == nil || !*got.ScheduleEnabled {
+		t.Fatalf("ScheduleEnabled = %#v, want true", got.ScheduleEnabled)
+	}
+	if got.NextRunAt == nil || !got.NextRunAt.After(time.Now()) {
+		t.Fatalf("NextRunAt = %#v, want future next run time", got.NextRunAt)
+	}
+}
+
 func TestApplyOps_UpdateDAG_ScheduledRejectsInvalidExistingCron(t *testing.T) {
 	t.Parallel()
 

@@ -56,4 +56,22 @@ describe('DagsPage start diagnostics', () => {
     expect(vm.startWarningText.value).toContain('等待指派');
     expect(DagsPage.template).toContain('data-testid="dag-start-warning"');
   });
+
+  it('refreshes the DAG list after a successful start so category counts use the new run snapshot', async () => {
+    const props = reactive({
+      items: [{ dag_key: 'dag-a', title: 'Dag A', status: 'ready', trigger: 'manual' }],
+    });
+    Object.assign(detailMock.state, {
+      dag: props.items[0],
+      startError: null,
+    });
+    detailMock.start.mockResolvedValueOnce(undefined);
+    const emit = vi.fn();
+
+    const vm = DagsPage.setup(props, { emit });
+    await vm.startSelectedDag();
+
+    expect(detailMock.start).toHaveBeenCalledTimes(1);
+    expect(emit).toHaveBeenCalledWith('refresh-dags');
+  });
 });

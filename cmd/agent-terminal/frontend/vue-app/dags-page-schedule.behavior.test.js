@@ -34,6 +34,7 @@ const detailMock = vi.hoisted(() => ({
   selectRun: vi.fn(),
   saveAgentNode: vi.fn(),
   setSchedule: vi.fn(),
+  setScheduleEnabled: vi.fn(),
 }));
 
 vi.mock('./composables/useDagDetail.js', () => ({
@@ -74,6 +75,7 @@ function resetDetailMockState() {
   detailMock.selectRun.mockReset();
   detailMock.saveAgentNode.mockReset();
   detailMock.setSchedule.mockReset();
+  detailMock.setScheduleEnabled.mockReset();
 }
 
 describe('DagsPage schedule action', () => {
@@ -181,6 +183,7 @@ describe('DagsPage schedule action', () => {
         status: 'ready',
         trigger: 'scheduled',
         cron_expr: '0 8 * * *',
+        next_run_at: '2026-05-27T02:00:00Z',
         latest_run: null,
       }],
     });
@@ -197,5 +200,33 @@ describe('DagsPage schedule action', () => {
     expect(DagsPage.template).toContain('scheduleActionLabel');
     expect(DagsPage.template).not.toContain('<dt>流程状态</dt>');
     expect(DagsPage.template).not.toContain('<dt>触发</dt>');
+  });
+
+  it('uses next_run_at as the real scheduled task enablement state and toggles it', async () => {
+    const props = reactive({
+      items: [{
+        dag_key: 'scheduled-review',
+        title: 'Provider 自注册原生工具 - 代码审查',
+        status: 'ready',
+        trigger: 'scheduled',
+        cron_expr: '0 8 * * *',
+        next_run_at: null,
+        latest_run: null,
+      }],
+    });
+    detailMock.state.dag = { ...props.items[0], version: 7 };
+    detailMock.setScheduleEnabled.mockResolvedValueOnce({ ok: true });
+    const emit = vi.fn();
+
+    const vm = DagsPage.setup(props, { emit });
+
+    expect(vm.rows.value[0].status).toBe('已暂停');
+    expect(vm.scheduleToggleVisible.value).toBe(true);
+    expect(vm.scheduleToggleLabel.value).toBe('启用自动运行');
+    await vm.toggleScheduleEnabled();
+
+    expect(detailMock.setScheduleEnabled).toHaveBeenCalledWith({ enabled: true });
+    expect(emit).toHaveBeenCalledWith('refresh-dags');
+    expect(DagsPage.template).toContain('data-testid="dag-schedule-toggle-button"');
   });
 });
