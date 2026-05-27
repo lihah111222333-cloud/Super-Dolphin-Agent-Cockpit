@@ -17,23 +17,23 @@
 -- name: UpdateTaskDagNodeSpawningThread :one
 WITH old AS (
   SELECT spawning_thread_id AS previous_spawning_thread_id
-  FROM task_dag_nodes
-  WHERE dag_key = $2 AND node_key = $3
-    AND run_id = $4
+  FROM task_dag_nodes AS n
+  WHERE n.dag_key = $2 AND n.node_key = $3
+    AND n.run_id = $4
     AND $4::bigint > 0
 ),
 updated AS (
-  UPDATE task_dag_nodes
+  UPDATE task_dag_nodes AS n
   SET spawning_thread_id = $1,
       updated_at = NOW()
-  WHERE dag_key = $2 AND node_key = $3
-    AND run_id = $4
+  WHERE n.dag_key = $2 AND n.node_key = $3
+    AND n.run_id = $4
     AND $4::bigint > 0
-    AND status NOT IN ('done', 'failed', 'cancelled', 'skipped')
-  RETURNING id, dag_key, node_key, run_id, title, node_type, assigned_to, depends_on,
-            status, command_ref, config, result, started_at, finished_at,
-            created_at, updated_at, active_turn_id, active_wakeup_id,
-            last_event_at, spawning_thread_id
+    AND n.status NOT IN ('done', 'failed', 'cancelled', 'skipped')
+  RETURNING n.id, n.dag_key, n.node_key, n.run_id, n.title, n.node_type, n.assigned_to, n.depends_on,
+            n.status, n.command_ref, n.config, n.result, n.started_at, n.finished_at,
+            n.created_at, n.updated_at, n.active_turn_id, n.active_wakeup_id,
+            n.last_event_at, n.spawning_thread_id
 )
 SELECT updated.id, updated.dag_key, updated.node_key, updated.run_id, updated.title,
        updated.node_type, updated.assigned_to, updated.depends_on,

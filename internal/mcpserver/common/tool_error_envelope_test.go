@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
+	"github.com/jackc/pgx/v5/pgconn"
 )
 
 func TestClassifyToolErrorLaunchCWDRequired(t *testing.T) {
@@ -83,6 +84,25 @@ func TestClassifyToolErrorDAGNoRowsDoesNotUseLSP(t *testing.T) {
 	}
 	if strings.Contains(strings.ToLower(env.Hint), "lsp") {
 		t.Fatalf("Hint = %q, must not mention lsp", env.Hint)
+	}
+}
+
+func TestClassifyToolErrorPostgresUndefinedTableDoesNotUseLSP(t *testing.T) {
+	env := NewToolErrorEnvelope(
+		"task_list_dags",
+		&pgconn.PgError{Code: "42P01", Message: `relation "task_dags" does not exist`},
+	)
+	if env.Code != "database_schema_missing" {
+		t.Fatalf("Code = %q, want database_schema_missing", env.Code)
+	}
+	if env.Retryable {
+		t.Fatal("Retryable = true, want false")
+	}
+	hint := strings.ToLower(env.Hint)
+	for _, forbidden := range []string{"lsp", "language server"} {
+		if strings.Contains(hint, forbidden) {
+			t.Fatalf("Hint = %q, must not mention %s", env.Hint, forbidden)
+		}
 	}
 }
 

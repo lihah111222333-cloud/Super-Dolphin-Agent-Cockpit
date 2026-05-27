@@ -109,12 +109,10 @@ func TestProjectionSubscriptionsDeriveWaitingStatus(t *testing.T) {
 			ApprovalID:     "approval-3",
 		},
 	})
-	time.Sleep(20 * time.Millisecond)
 
-	sidebar, err := svc.GetSidebar(context.Background())
-	if err != nil {
-		t.Fatalf("GetSidebar() error = %v", err)
-	}
+	sidebar := waitForSidebarState(t, svc, func(sidebar *Sidebar) bool {
+		return sidebar.Statuses["thread-3"] == "waiting"
+	})
 	if got := sidebar.Statuses["thread-3"]; got != "waiting" {
 		t.Fatalf("sidebar.Statuses[thread-3] = %q, want waiting", got)
 	}

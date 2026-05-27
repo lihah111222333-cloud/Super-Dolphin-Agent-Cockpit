@@ -22,23 +22,28 @@ func TestEnumValidation_SchemaHandlerSingleSource(t *testing.T) {
 		fromVar    []string
 	}{
 		{
+			name:       "task_list_dags.status",
+			fromSchema: enumValuesFromToolSchema(t, taskToolDefinitions(nil), "task_list_dags", "status"),
+			fromVar:    listDAGsStatusEnum,
+		},
+		{
 			name:       "task_list_runs.status",
-			fromSchema: EnumValues(EnumStringSchema("d", listRunsStatusEnum...)),
+			fromSchema: enumValuesFromToolSchema(t, taskToolDefinitions(nil), "task_list_runs", "status"),
 			fromVar:    listRunsStatusEnum,
 		},
 		{
 			name:       "task_start_dag.trigger_source",
-			fromSchema: EnumValues(EnumStringSchema("d", startDAGTriggerEnum...)),
+			fromSchema: enumValuesFromToolSchema(t, taskToolDefinitions(nil), "task_start_dag", "trigger_source"),
 			fromVar:    startDAGTriggerEnum,
 		},
 		{
 			name:       "task_update_node.status",
-			fromSchema: EnumValues(EnumStringSchema("d", updateNodeStatusEnum...)),
+			fromSchema: enumValuesFromToolSchema(t, taskToolDefinitions(nil), "task_update_node", "status"),
 			fromVar:    updateNodeStatusEnum,
 		},
 		{
 			name:       "orchestration_launch_agent.provider",
-			fromSchema: EnumValues(EnumStringSchema("d", launchAgentProviderEnum...)),
+			fromSchema: enumValuesFromToolSchema(t, orchestrationToolDefinitions(nil), "launch_agent", "provider"),
 			fromVar:    launchAgentProviderEnum,
 		},
 	}
@@ -55,6 +60,26 @@ func TestEnumValidation_SchemaHandlerSingleSource(t *testing.T) {
 			}
 		})
 	}
+}
+
+func enumValuesFromToolSchema(t *testing.T, defs []ToolDefinition, toolName, propertyName string) []string {
+	t.Helper()
+	for _, def := range defs {
+		if def.Name != toolName {
+			continue
+		}
+		props, ok := def.InputSchema["properties"].(map[string]any)
+		if !ok {
+			t.Fatalf("%s schema properties = %#v, want map[string]any", toolName, def.InputSchema["properties"])
+		}
+		raw, ok := props[propertyName].(map[string]any)
+		if !ok {
+			t.Fatalf("%s.%s schema = %#v, want map[string]any", toolName, propertyName, props[propertyName])
+		}
+		return EnumValues(Schema(raw))
+	}
+	t.Fatalf("tool %q not found", toolName)
+	return nil
 }
 
 // TestListRunsRequestFromInput 覆盖 status 字段的 4 个 case：合法/非法/空/空白。
@@ -77,6 +102,38 @@ func TestListRunsRequestFromInput(t *testing.T) {
 		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			req, err := listRunsRequestFromInput(tc.in)
+			if tc.wantErr != "" {
+				if err == nil || !strings.Contains(err.Error(), tc.wantErr) {
+					t.Fatalf("err = %v, want substring %q", err, tc.wantErr)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("unexpected err: %v", err)
+			}
+			if req.Status != tc.wantStatus {
+				t.Fatalf("status = %q, want %q", req.Status, tc.wantStatus)
+			}
+		})
+	}
+}
+
+func TestListDAGsRequestFromInput(t *testing.T) {
+	cases := []struct {
+		name       string
+		in         ListDAGsInput
+		wantErr    string
+		wantStatus string
+	}{
+		{name: "valid", in: ListDAGsInput{Status: " draft "}, wantStatus: "draft"},
+		{name: "empty-status-ok", in: ListDAGsInput{}, wantStatus: ""},
+		{name: "whitespace-status-ok", in: ListDAGsInput{Status: "   "}, wantStatus: ""},
+		{name: "invalid-status", in: ListDAGsInput{Status: "bogus"}, wantErr: "status"},
+	}
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			req, err := listDAGsFilterFromInput(tc.in)
 			if tc.wantErr != "" {
 				if err == nil || !strings.Contains(err.Error(), tc.wantErr) {
 					t.Fatalf("err = %v, want substring %q", err, tc.wantErr)

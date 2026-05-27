@@ -9,6 +9,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/fxadapter"
 	orchnotify "github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/notify"
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/orchestration"
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/orchestration/nodeexec"
@@ -25,6 +26,7 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/common/bootstrap"
 	platformbus "github.com/anthropic-ai/super-agent-v3/internal/platform/bus"
 	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
+	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
 	platformshared "github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 	"github.com/kelindar/event"
@@ -38,6 +40,7 @@ func run() error {
 	app := fx.New(
 		fx.NopLogger,
 		platformconfig.Module,
+		platformdb.Module,
 		platformbus.Module,
 		orchnotify.Module,
 		promptstore.Module,
@@ -48,7 +51,6 @@ func run() error {
 		fx.Options(buildOrchestrationOptions(remoteAddr)...),
 		fx.Provide(
 			newLogger,
-			newPool,
 			newQueries,
 			newAgentThreadStore,
 			newAgentBindingStore,
@@ -66,7 +68,6 @@ func run() error {
 			fx.Annotate(newStdioRunner, fx.ResultTags(`group:"runners"`)),
 			fx.Annotate(newHTTPRunner, fx.ResultTags(`group:"runners"`)),
 		),
-		fx.Invoke(registerPoolLifecycle),
 		fx.Invoke(bindRuntime),
 	)
 	if err := app.Err(); err != nil {
@@ -209,7 +210,7 @@ func buildOrchestrationOptions(remoteAddr string) []fx.Option {
 			// fx singletons + serviceAgentLauncher adapter。这些 provider 让 W1/W2 以来
 			// “孤儿”的 AgentExecutor / AutomationExecutor 代码正式被危口调到。
 			orchestration.NewServiceAgentLauncher,
-			orchestration.NewStoreNodeSpawnRecorder,
+			fxadapter.NewStoreNodeSpawnRecorder,
 			orchestration.ProvideNodeLifecycleHooks,
 			orchestration.ProvideAutomationExecutor,
 			// dispatcher-wiring closure：sharedfile 端口 adapter —— store/sharedfile.Store

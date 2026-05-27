@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/sqlc"
+	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/sqlctx"
 )
 
 // Phase 3.5 / 3B · 节点失败重试策略
@@ -30,8 +31,8 @@ func (s *store) FailNodeAndCancelDownstream(ctx context.Context, input FailNodeI
 		return nil, err
 	}
 	var result FailNodeResult
-	err := sqlc.WithTxOrReuse(ctx, s.q, func(txq *sqlc.Queries) error {
-		txStore := &store{q: txq}
+	err := sqlctx.WithTxOrReuse(ctx, s.db, s.q, func(txq *sqlc.Queries, txdb sqlc.DBTX) error {
+		txStore := &store{db: txdb, q: txq}
 		node, failErr := failNodeTx(ctx, txStore, input.DagKey, input.NodeKey, input.RunID, failNodeReason{
 			Kind:   failNodeKindExhaustedRetries,
 			Reason: input.Reason,
@@ -72,10 +73,10 @@ func failNodeTx(ctx context.Context, txStore *store, dagKey, nodeKey string, run
 	return updateNodeStatus(func() (sqlc.TaskDagNode, error) {
 		return txStore.q.FailTaskDagNodeIfNonTerminal(ctx, sqlc.FailTaskDagNodeIfNonTerminalParams{
 			Status:  "failed",
-			Column2: encoded,
+			Result:  encoded,
 			DagKey:  dagKey,
 			NodeKey: nodeKey,
-			RunID:   runID,
+			RunID:   int64Ptr(runID),
 		})
 	}, "fail_non_terminal")
 }
@@ -142,7 +143,7 @@ func cascadeFailPendingNodeTx(ctx context.Context, txStore *store, dagKey, nodeK
 		Result:  encoded,
 		DagKey:  dagKey,
 		NodeKey: nodeKey,
-		RunID:   runID,
+		RunID:   int64Ptr(runID),
 	})
 	if err != nil {
 		return false, err

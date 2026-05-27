@@ -16,12 +16,15 @@ func (db *fakeTaskDAGDB) cancelTaskDagRunNodes(args ...any) (int64, error) {
 func (db *fakeTaskDAGDB) cancelTaskDagRunNodesReturningThreads(args ...any) ([][]any, error) {
 	if err := requireFakeTaskDAGArgs(args, 3, "cancel run nodes",
 		fakeTaskDAGTypedArg[string](0, "dag key"),
-		fakeTaskDAGTypedArg[int64](1, "run id"),
+		fakeTaskDAGInt8Arg(1, "run id"),
 		fakeTaskDAGTypedArg[string](2, "reason")); err != nil {
 		return nil, err
 	}
 	dagKey := args[0].(string)
-	runID := args[1].(int64)
+	runID, err := fakeInt8Arg(args, 1, "run id")
+	if err != nil {
+		return nil, err
+	}
 	reason := args[2].(string)
 	result, err := json.Marshal(map[string]string{
 		"kind":   "run_cancelled",
@@ -54,12 +57,15 @@ func (db *fakeTaskDAGDB) cancelTaskDagRunNodesReturningThreads(args ...any) ([][
 func (db *fakeTaskDAGDB) cancelTaskDagRunWakeups(args ...any) (int64, error) {
 	if err := requireFakeTaskDAGArgs(args, 3, "cancel run wakeups",
 		fakeTaskDAGTypedArg[string](0, "dag key"),
-		fakeTaskDAGTypedArg[int64](1, "run id"),
+		fakeTaskDAGInt8Arg(1, "run id"),
 		fakeTaskDAGTypedArg[string](2, "last error")); err != nil {
 		return 0, err
 	}
 	dagKey := args[0].(string)
-	runID := args[1].(int64)
+	runID, err := fakeInt8Arg(args, 1, "run id")
+	if err != nil {
+		return 0, err
+	}
 	lastError := args[2].(string)
 	var failed int64
 	for id, row := range db.wakeups {
@@ -90,13 +96,16 @@ func isCancelableWakeupStatus(status string) bool {
 func (db *fakeTaskDAGDB) cancelTaskDagRun(args ...any) ([]any, error) {
 	if err := requireFakeTaskDAGArgs(args, 4, "cancel run",
 		fakeTaskDAGTypedArg[string](0, "dag key"),
-		fakeTaskDAGTypedArg[int64](1, "run id"),
+		fakeTaskDAGInt8Arg(1, "run id"),
 		fakeTaskDAGTypedArg[string](2, "run key"),
 		fakeTaskDAGTypedArg[[]byte](3, "event")); err != nil {
 		return nil, err
 	}
 	dagKey := args[0].(string)
-	runID := args[1].(int64)
+	runID, err := fakeInt8Arg(args, 1, "run id")
+	if err != nil {
+		return nil, err
+	}
 	runKey := args[2].(string)
 	payload := args[3].([]byte)
 	run, ok := db.runs[runKey]

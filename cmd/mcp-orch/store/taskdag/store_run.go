@@ -11,6 +11,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/sqlc"
+	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/sqlctx"
 )
 
 // CreateRun 是 RunStore.CreateRun 的实现：StartDAG 阶段插入新 run 记录。
@@ -67,7 +68,7 @@ func (s *store) CloneNodesForRun(ctx context.Context, dagKey string, runID int64
 	return queryValue(func() (int64, error) {
 		return s.q.CloneTaskDagNodesForRun(ctx, sqlc.CloneTaskDagNodesForRunParams{
 			DagKey: dagKey,
-			RunID:  runID,
+			RunID:  int64Ptr(runID),
 		})
 	}, "clone_nodes_for_run", "task_dag_node")
 }
@@ -75,8 +76,8 @@ func (s *store) CloneNodesForRun(ctx context.Context, dagKey string, runID int64
 func (s *store) PromoteRootNodesToReady(ctx context.Context, dagKey string, runID int64) (int64, error) {
 	return queryValue(func() (int64, error) {
 		return s.q.PromoteRootNodesToReady(ctx, sqlc.PromoteRootNodesToReadyParams{
-			DagKey: dagKey,
-			RunID:  runID,
+			DagKey:  dagKey,
+			Column2: runID,
 		})
 	}, "promote_root_nodes_to_ready", "task_dag_node")
 }
@@ -97,10 +98,10 @@ func (s *store) TerminateRun(ctx context.Context, input TerminateRunInput) (Term
 		return TerminateRunResult{}, fmt.Errorf("marshal run cancel event: %w", err)
 	}
 	var result TerminateRunResult
-	err = sqlc.WithTxOrReuse(ctx, s.q, func(txq *sqlc.Queries) error {
+	err = sqlctx.WithTxOrReuse(ctx, s.db, s.q, func(txq *sqlc.Queries, _ sqlc.DBTX) error {
 		threadIDs, err := txq.CancelTaskDagRunNodes(ctx, sqlc.CancelTaskDagRunNodesParams{
 			DagKey:  input.DagKey,
-			RunID:   input.RunID,
+			Column2: input.RunID,
 			Column3: reason,
 		})
 		if err != nil {
@@ -109,7 +110,7 @@ func (s *store) TerminateRun(ctx context.Context, input TerminateRunInput) (Term
 		result.SpawnedThreadIDs = nonEmptyTextValues(threadIDs)
 		if _, err := txq.CancelTaskDagRunWakeups(ctx, sqlc.CancelTaskDagRunWakeupsParams{
 			DagKey:    input.DagKey,
-			RunID:     input.RunID,
+			RunID:     int64Ptr(input.RunID),
 			LastError: "run_cancelled: " + reason,
 		}); err != nil {
 			return fmt.Errorf("cancel run wakeups: %w", err)
@@ -190,7 +191,7 @@ func nullableInt64(v pgtype.Int8) *int64 {
 	return &n
 }
 
-// WithRunTx 走 sqlc.WithTx 起单一 PG 事务，fn 拿到的 tx RunStore 是
+// WithRunTx 起单一 PG 事务，fn 拿到的 tx RunStore 是
 // 事务绑定的 *store 运行时实例，所有 RunStore 方法调用都在同事务内。
 //
 // 主要调用点：service.StartDAG 使用 WithRunTx 原子化 CreateRun +
@@ -198,7 +199,7 @@ func nullableInt64(v pgtype.Int8) *int64 {
 // 根节点未 ready”脱状态。 PG 事务跨 task_dag_runs / task_dag_nodes 两
 // 表不是问题。
 func (s *store) WithRunTx(ctx context.Context, fn func(tx RunStore) error) error {
-	return wrapTaskDAGError(sqlc.WithTx(ctx, s.q, func(txq *sqlc.Queries) error {
-		return fn(&store{q: txq})
+	return wrapTaskDAGError(sqlctx.WithTx(ctx, s.db, s.q, func(txq *sqlc.Queries, tx sqlc.DBTX) error {
+		return fn(&store{db: tx, q: txq})
 	}), "with_run_tx", "task_dag_run")
 }

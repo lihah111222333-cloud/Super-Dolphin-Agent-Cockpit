@@ -130,9 +130,9 @@ func (db *fakeTaskDAGDB) assignNode(args ...any) ([]any, error) {
 	if !ok {
 		return nil, fmt.Errorf("node key arg = %T", args[2])
 	}
-	runID, ok := args[3].(int64)
-	if !ok {
-		return nil, fmt.Errorf("run id arg = %T", args[3])
+	runID, err := fakeInt8Arg(args, 3, "run id")
+	if err != nil {
+		return nil, err
 	}
 	row, ok := db.nodes[dagRunNodeKey(dagKey, nodeKey, runID)]
 	if !ok || (row.Status != "pending" && row.Status != "ready") {
@@ -169,9 +169,9 @@ func (db *fakeTaskDAGDB) cloneTaskDagNodesForRun(args ...any) (int64, error) {
 	if !ok {
 		return 0, fmt.Errorf("dag key arg = %T", args[0])
 	}
-	runID, ok := args[1].(int64)
-	if !ok {
-		return 0, fmt.Errorf("run id arg = %T", args[1])
+	runID, err := fakeInt8Arg(args, 1, "run id")
+	if err != nil {
+		return 0, err
 	}
 	var cloned int64
 	for _, row := range db.nodes {
@@ -209,9 +209,9 @@ func (db *fakeTaskDAGDB) promoteRootNodesToReady(args ...any) (int64, error) {
 	if !ok {
 		return 0, fmt.Errorf("dag key arg = %T", args[0])
 	}
-	runID, ok := args[1].(int64)
-	if !ok {
-		return 0, fmt.Errorf("run id arg = %T", args[1])
+	runID, err := fakeInt8Arg(args, 1, "run id")
+	if err != nil {
+		return 0, err
 	}
 	var promoted int64
 	for key, row := range db.nodes {
@@ -245,9 +245,9 @@ func (db *fakeTaskDAGDB) promoteSingleNodePendingToReady(args ...any) (int64, er
 	if !ok {
 		return 0, fmt.Errorf("node key arg = %T", args[1])
 	}
-	runID, ok := args[2].(int64)
-	if !ok {
-		return 0, fmt.Errorf("run id arg = %T", args[2])
+	runID, err := fakeInt8Arg(args, 2, "run id")
+	if err != nil {
+		return 0, err
 	}
 	key := dagNodeLookupKey(dagKey, nodeKey, runID)
 	row, ok := db.nodes[key]
@@ -276,9 +276,9 @@ func (db *fakeTaskDAGDB) cascadeFailPendingNode(args ...any) (int64, error) {
 	if !ok {
 		return 0, fmt.Errorf("node key arg = %T", args[2])
 	}
-	runID, ok := args[3].(int64)
-	if !ok {
-		return 0, fmt.Errorf("run id arg = %T", args[3])
+	runID, err := fakeInt8Arg(args, 3, "run id")
+	if err != nil {
+		return 0, err
 	}
 	key := dagNodeLookupKey(dagKey, nodeKey, runID)
 	if db.beforeFailNonTerminal != nil {

@@ -221,8 +221,8 @@ ci-l3-release: ci-l0 ci-l1 ci-l2-claude
 	@echo "[ci-l3-release] all layered gates finished"
 
 # ---------------------------------------------------------------------------
-# sqlc — generate typed query code from sql/queries/*.sql against the schema
-# snapshot enumerated in root sqlc.yaml. Pin the CLI version so every
+# sqlc — generate typed query code from each sqlc.yaml schema/query snapshot.
+# Pin the CLI version so every
 # contributor and CI node produces byte-identical output; drift would defeat
 # the whole point of a type-safe store layer.
 SQLC_VERSION ?= v1.30.0
@@ -234,14 +234,21 @@ SQLC := go run github.com/sqlc-dev/sqlc/cmd/sqlc@$(SQLC_VERSION)
 
 sqlc-generate:
 	$(SQLC) generate
-	@echo "✅ sqlc generate (schema + sql/queries -> internal/store/sqlc)"
+	$(SQLC) generate -f cmd/mcp-orch/sqlc.yaml
+	@echo "✅ sqlc generate (root + cmd/mcp-orch)"
 
 # CI gate: regenerate and fail if the working tree drifts from committed output.
 sqlc-verify:
 	$(SQLC) generate
-	@if ! git diff --quiet -- internal/store/sqlc; then \
+	$(SQLC) generate -f cmd/mcp-orch/sqlc.yaml
+	@if [ -n "$$(git status --porcelain -- internal/store/sqlc cmd/mcp-orch/store/sqlc)" ]; then \
 		echo "❌ sqlc-generated code is out of date; run 'make sqlc-generate' and commit."; \
-		git --no-pager diff -- internal/store/sqlc; \
+		git --no-pager diff -- internal/store/sqlc cmd/mcp-orch/store/sqlc; \
+		UNTRACKED=$$(git ls-files --others --exclude-standard -- internal/store/sqlc cmd/mcp-orch/store/sqlc); \
+		if [ -n "$$UNTRACKED" ]; then \
+			echo "Untracked generated files:"; \
+			echo "$$UNTRACKED"; \
+		fi; \
 		exit 1; \
 	fi
-	@echo "✅ sqlc-verify (generated code matches sql/queries + migrations)"
+	@echo "✅ sqlc-verify (generated code matches root + cmd/mcp-orch sqlc configs)"

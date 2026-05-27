@@ -51,6 +51,7 @@ func BuildManifest(ctx dto.ManifestContext) dto.MCPManifest {
 		}
 		binaryName := "mcp-" + string(fam)
 		binEnv := cloneManifestEnv(env)
+		addMCPProjectRootEnv(binEnv, ctx)
 		if fam == dto.FamilyLSP {
 			addLSPWorkspaceRootEnv(binEnv, ctx)
 		}
@@ -62,6 +63,61 @@ func BuildManifest(ctx dto.ManifestContext) dto.MCPManifest {
 		})
 	}
 	return dto.MCPManifest{Binaries: bins}
+}
+
+const manifestProjectRootEnvKey = "PROJECT_ROOT"
+
+func addMCPProjectRootEnv(env map[string]string, ctx dto.ManifestContext) {
+	if value := strings.TrimSpace(env[manifestProjectRootEnvKey]); value != "" {
+		env[manifestProjectRootEnvKey] = normalizeManifestProjectRoot(value)
+		return
+	}
+	if value := strings.TrimSpace(os.Getenv(manifestProjectRootEnvKey)); value != "" {
+		env[manifestProjectRootEnvKey] = normalizeManifestProjectRoot(value)
+		return
+	}
+	if value := strings.TrimSpace(ctx.ProjectRoot); value != "" {
+		env[manifestProjectRootEnvKey] = normalizeManifestProjectRoot(value)
+		return
+	}
+	if root := inferManifestProjectRootFromBinaryDir(ctx.BinaryDir); root != "" {
+		env[manifestProjectRootEnvKey] = root
+	}
+}
+
+func inferManifestProjectRootFromBinaryDir(binaryDir string) string {
+	dir := normalizeManifestProjectRoot(binaryDir)
+	if dir == "" {
+		return ""
+	}
+	for {
+		if hasManifestMigrationsDir(dir) {
+			return dir
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			return ""
+		}
+		dir = parent
+	}
+}
+
+func normalizeManifestProjectRoot(path string) string {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return ""
+	}
+	if !filepath.IsAbs(path) {
+		if abs, err := filepath.Abs(path); err == nil {
+			path = abs
+		}
+	}
+	return filepath.Clean(path)
+}
+
+func hasManifestMigrationsDir(root string) bool {
+	info, err := os.Stat(filepath.Join(root, "migrations"))
+	return err == nil && info.IsDir()
 }
 
 func addLSPWorkspaceRootEnv(env map[string]string, ctx dto.ManifestContext) {

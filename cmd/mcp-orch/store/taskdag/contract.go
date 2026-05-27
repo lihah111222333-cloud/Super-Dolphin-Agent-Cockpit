@@ -122,7 +122,7 @@ type DAGOpsStore interface {
 // fn，在同一事务内调 GetDAGVersionForUpdate / UpsertNode / BumpDAGVersion
 // 以下泉到一起：OCC 校验 + 节点写入 + version 推进 原子化。
 //
-// 实现上与 UnitOfWorkStore.WithTx 同走 sqlc.WithTx，但传出去的 store 接口是
+// 实现上与 UnitOfWorkStore.WithTx 同走事务 helper，但传出去的 store 接口是
 // DAGOpsStore 而非 DAGMutationStore，避免造成 DAGMutationStore 超 Interface
 // Isolation 预算。
 type DAGOpsTxRunner interface {

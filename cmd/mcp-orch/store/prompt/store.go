@@ -7,15 +7,17 @@ import (
 	"strings"
 
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/sqlc"
+	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/sqlctx"
 	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared/builtinprompts"
 )
 
 type store struct {
-	q *sqlc.Queries
+	db sqlc.DBTX
+	q  *sqlc.Queries
 }
 
-func NewStore(q *sqlc.Queries) Store { return &store{q: q} }
+func NewStore(db sqlc.DBTX) Store { return &store{db: db, q: sqlc.New(db)} }
 
 func (s *store) Get(ctx context.Context, promptKey string) (*PromptTemplate, error) {
 	row, err := s.q.GetPromptTemplate(ctx, promptKey)
@@ -114,8 +116,8 @@ func (s *store) List(ctx context.Context, filter ListFilter) ([]PromptTemplate, 
 }
 
 func (s *store) WithTx(ctx context.Context, fn func(txStore Store) error) error {
-	return wrapPromptError(sqlc.WithTx(ctx, s.q, func(txq *sqlc.Queries) error {
-		return fn(&store{q: txq})
+	return wrapPromptError(sqlctx.WithTx(ctx, s.db, s.q, func(txq *sqlc.Queries, tx sqlc.DBTX) error {
+		return fn(&store{db: tx, q: txq})
 	}), "with_tx", "prompt_template")
 }
 

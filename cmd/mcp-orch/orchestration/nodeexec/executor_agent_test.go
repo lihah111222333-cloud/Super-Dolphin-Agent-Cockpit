@@ -33,6 +33,43 @@ func (s *stubAgentLauncher) StopLaunchedThread(_ context.Context, threadID strin
 	return s.stopErr
 }
 
+type stubPrePromptAgentLauncher struct {
+	events         []string
+	threadID       string
+	err            error
+	legacyCalled   bool
+	stoppedThreads []string
+}
+
+func (s *stubPrePromptAgentLauncher) LaunchAgent(context.Context, contract.LaunchRequest) (string, error) {
+	s.legacyCalled = true
+	return "", errors.New("legacy LaunchAgent should not be called")
+}
+
+func (s *stubPrePromptAgentLauncher) LaunchAgentWithSpawnRecord(
+	_ context.Context,
+	_ contract.LaunchRequest,
+	record func(threadID string) error,
+) (string, error) {
+	s.events = append(s.events, "launch")
+	if s.err != nil {
+		return "", s.err
+	}
+	if record != nil {
+		if err := record(s.threadID); err != nil {
+			return "", err
+		}
+		s.events = append(s.events, "record")
+	}
+	s.events = append(s.events, "submit")
+	return s.threadID, nil
+}
+
+func (s *stubPrePromptAgentLauncher) StopLaunchedThread(_ context.Context, threadID string) error {
+	s.stoppedThreads = append(s.stoppedThreads, strings.TrimSpace(threadID))
+	return nil
+}
+
 // stubNodeSpawnRecorder 是 NodeSpawnRecorder 接口的测试假实现。
 // 记录最近一次 RecordNodeSpawn 入参 + 返回注入错误。
 type stubNodeSpawnRecorder struct {
@@ -399,6 +436,35 @@ func TestAgentExecutor_Execute_Spawn_WritesBackThreadID(t *testing.T) {
 	}
 	if recorder.lastThreadID != "thread-success" {
 		t.Fatalf("RecordNodeSpawn threadID = %q, want thread-success", recorder.lastThreadID)
+	}
+}
+
+func TestAgentExecutor_Execute_Spawn_RecordsBeforeInitialPromptWhenLauncherSupportsIt(t *testing.T) {
+	t.Parallel()
+	launcher := &stubPrePromptAgentLauncher{threadID: "thread-pre-prompt"}
+	recorder := &stubNodeSpawnRecorder{}
+	exec := NewAgentExecutor(launcher, WithRecorder(recorder))
+
+	cfg := AgentNodeConfig{Exec: AgentExecConfig{AgentKey: "implementer"}}
+	node := makeAgentNode(t, cfg)
+
+	out, err := exec.Execute(context.Background(), node, RunContext{
+		DagKey: "dag-x", NodeKey: "node-a", RunID: 1001,
+	})
+	if err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	if out.Status != NodeStatusDone {
+		t.Fatalf("Status = %q, want %q", out.Status, NodeStatusDone)
+	}
+	if launcher.legacyCalled {
+		t.Fatal("legacy LaunchAgent was called; want pre-prompt recording path")
+	}
+	if strings.Join(launcher.events, ",") != "launch,record,submit" {
+		t.Fatalf("events = %v, want launch,record,submit", launcher.events)
+	}
+	if recorder.called != 1 || recorder.lastThreadID != "thread-pre-prompt" {
+		t.Fatalf("RecordNodeSpawn = (%d,%q), want once with thread-pre-prompt", recorder.called, recorder.lastThreadID)
 	}
 }
 

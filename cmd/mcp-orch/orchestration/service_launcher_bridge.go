@@ -36,6 +36,10 @@ func (s *service) launchAgentViaLauncher(ctx context.Context, req LaunchRequest)
 	return s.submitInitialLaunchPromptOrStop(ctx, launched.agentID, launched.result, req)
 }
 func (s *service) LaunchAgentSnapshot(ctx context.Context, req LaunchRequest) (AgentSnapshot, error) {
+	return s.launchAgentSnapshot(ctx, req, nil)
+}
+
+func (s *service) launchAgentSnapshot(ctx context.Context, req LaunchRequest, beforeInitialPrompt func(agentID string, result LaunchResult) error) (AgentSnapshot, error) {
 	req, err := s.applyLaunchRequestDefaults(ctx, req)
 	if err != nil {
 		return AgentSnapshot{}, err
@@ -44,11 +48,26 @@ func (s *service) LaunchAgentSnapshot(ctx context.Context, req LaunchRequest) (A
 	if err != nil {
 		return AgentSnapshot{}, err
 	}
+	if beforeInitialPrompt != nil {
+		if err := beforeInitialPrompt(launched.agentID, launched.result); err != nil {
+			return AgentSnapshot{}, s.stopLaunchedAgentAfterBeforePromptFailure(launched.agentID, err)
+		}
+	}
 	if err := s.submitInitialLaunchPromptOrStop(ctx, launched.agentID, launched.result, req); err != nil {
 		return AgentSnapshot{}, err
 	}
 	return s.Snapshot(ctx, launched.agentID)
 }
+
+func (s *service) stopLaunchedAgentAfterBeforePromptFailure(agentID string, cause error) error {
+	cleanupCtx, cancel := platformconfig.WithTimeout(context.Background(), platformconfig.AsyncLaunchTimeout)
+	defer cancel()
+	if stopErr := s.stopAgentViaLauncher(cleanupCtx, agentID, "before_initial_prompt_failed"); stopErr != nil {
+		return errors.Join(cause, fmt.Errorf("stop launched agent after before-prompt failure: %w", stopErr))
+	}
+	return cause
+}
+
 func (s *service) applyLaunchRequestDefaults(ctx context.Context, req LaunchRequest) (LaunchRequest, error) {
 	trimmedCWD := strings.TrimSpace(req.Cwd)
 	if req.Cwd != "" || trimmedCWD != "" || strings.TrimSpace(req.ParentID) == "" {

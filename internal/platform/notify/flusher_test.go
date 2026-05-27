@@ -130,6 +130,7 @@ func TestFlusherSendsQueuedRequest(t *testing.T) {
 	go func() { done <- f.Run(ctx) }()
 
 	waitForFlusherBodies(bodies, mu, 1, 2*time.Second)
+	waitForFlusherDelivered(t, f, 1, 2*time.Second)
 	cancel()
 	waitForFlusherDone(t, done, time.Second)
 

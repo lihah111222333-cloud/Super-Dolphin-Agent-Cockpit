@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
+	"github.com/jackc/pgx/v5/pgconn"
 )
 
 // ToolErrorEnvelope is the machine-readable tool error payload returned from
@@ -143,6 +144,18 @@ type toolErrorClassifier struct {
 }
 
 var toolErrorClassifiers = []toolErrorClassifier{
+	{
+		code: "database_schema_missing",
+		hint: staticToolHint("The database schema is missing or behind; start the service with migration lifecycle enabled or apply migrations before retrying."),
+		match: func(err error, message string, _ string) bool {
+			var pgErr *pgconn.PgError
+			if errors.As(err, &pgErr) {
+				return pgErr.Code == "42P01" || pgErr.Code == "42703"
+			}
+			return strings.Contains(message, "relation ") && strings.Contains(message, "does not exist") ||
+				strings.Contains(message, "column ") && strings.Contains(message, "does not exist")
+		},
+	},
 	{
 		code: "internal_panic",
 		hint: staticToolHint("The tool handler panicked; inspect logs and retry only after the bug is fixed."),

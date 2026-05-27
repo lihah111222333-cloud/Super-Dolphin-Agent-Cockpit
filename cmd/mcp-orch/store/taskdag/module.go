@@ -1,10 +1,13 @@
 package taskdag
 
-import "go.uber.org/fx"
+import (
+	"github.com/jackc/pgx/v5/pgxpool"
+	"go.uber.org/fx"
+)
 
 var Module = fx.Module("store.taskdag",
 	fx.Provide(
-		NewStore,
+		NewStoreFromPool,
 		ProvideOrchestrationStore,
 		// ProvideRunStore 把同一 *store 实例并行登记为 RunStore binding，
 		// 修复 RunStore wiring bug：消费方 (orchestration.serviceParams) 可命中此 provider。
@@ -29,13 +32,19 @@ var Module = fx.Module("store.taskdag",
 	),
 )
 
+func NewStoreFromPool(pool *pgxpool.Pool) Store {
+	return NewStore(pool)
+}
+
 // ProvideNodeSpawnRecorderStore 从聚合 Store type-assert 出 F1.5 / ADR-009
 // nodeexec.AgentExecutor 写回 spawning_thread_id 所需的窄端口 NodeSpawnRecorderStore。
 //
 // ProvideNodeSpawnRecorderStore narrows the aggregate Store to NodeSpawnRecorderStore
-// (F1.5 / ADR-009, consumed by orchestration.NewStoreNodeSpawnRecorder). Safety is
+// (F1.5 / ADR-009, consumed by fxadapter.NewStoreNodeSpawnRecorder). Safety is
 // statically guarded by store_compile_assertions_test.go.
-func ProvideNodeSpawnRecorderStore(store Store) NodeSpawnRecorderStore { return store.(NodeSpawnRecorderStore) }
+func ProvideNodeSpawnRecorderStore(store Store) NodeSpawnRecorderStore {
+	return store.(NodeSpawnRecorderStore)
+}
 
 // ProvideNodeSpawningThreadLookup narrows the aggregate Store to
 // NodeSpawningThreadLookup (consumed by the DAG turn.completed subscriber /

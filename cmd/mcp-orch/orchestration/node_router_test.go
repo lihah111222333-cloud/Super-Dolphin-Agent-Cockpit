@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/fxadapter"
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/orchestration/nodeexec"
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/taskdag"
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
@@ -336,7 +337,7 @@ func TestServiceAgentLauncher_NilReceiverSafe(t *testing.T) {
 // 给出 nil adapter，让 AgentExecutor 跳过写回（F1.5 silent skip 语义）�?
 func TestStoreNodeSpawnRecorder_NilStoreReturnsNilAdapter(t *testing.T) {
 	t.Parallel()
-	if got := NewStoreNodeSpawnRecorder(nil); got != nil {
+	if got := fxadapter.NewStoreNodeSpawnRecorder(nil); got != nil {
 		t.Fatalf("NewStoreNodeSpawnRecorder(nil) = %T, want nil", got)
 	}
 }

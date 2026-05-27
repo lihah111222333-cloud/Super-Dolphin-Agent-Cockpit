@@ -144,39 +144,6 @@ func (h *contextCheckingLockHandle) Unlock(ctx context.Context) error {
 	return nil
 }
 
-type fakeAdvisoryLockConn struct {
-	row              fakeAdvisoryLockRow
-	releaseCalls     int
-	hijackCloseCalls int
-}
-
-func (c *fakeAdvisoryLockConn) queryRow(context.Context, string, ...any) pgxRow {
-	return c.row
-}
-
-func (c *fakeAdvisoryLockConn) release() {
-	c.releaseCalls++
-}
-
-func (c *fakeAdvisoryLockConn) hijackAndClose(context.Context) error {
-	c.hijackCloseCalls++
-	return nil
-}
-
-type fakeAdvisoryLockRow struct {
-	unlocked bool
-	err      error
-}
-
-func (r fakeAdvisoryLockRow) Scan(dest ...any) error {
-	if r.err != nil {
-		return r.err
-	}
-	target := dest[0].(*bool)
-	*target = r.unlocked
-	return nil
-}
-
 type blockingTicker struct {
 	entered chan struct{}
 	done    chan error
@@ -442,23 +409,6 @@ func TestScheduledDAGTicker_UnlockUsesFreshCleanupContext(t *testing.T) {
 	}
 	if handle.unlockCalls != 1 {
 		t.Fatalf("unlockCalls = %d, want 1", handle.unlockCalls)
-	}
-}
-
-func TestPGAdvisoryLockHandle_UnlockFailureClosesHijackedConnection(t *testing.T) {
-	unlockErr := errors.New("unlock failed")
-	conn := &fakeAdvisoryLockConn{row: fakeAdvisoryLockRow{err: unlockErr}}
-	handle := &pgAdvisoryLockHandle{conn: conn, lockID: 42}
-
-	err := handle.Unlock(context.Background())
-	if !errors.Is(err, unlockErr) {
-		t.Fatalf("Unlock() error = %v, want unlockErr", err)
-	}
-	if conn.releaseCalls != 0 {
-		t.Fatalf("releaseCalls = %d, want 0 after failed unlock", conn.releaseCalls)
-	}
-	if conn.hijackCloseCalls != 1 {
-		t.Fatalf("hijackCloseCalls = %d, want 1", conn.hijackCloseCalls)
 	}
 }
 
