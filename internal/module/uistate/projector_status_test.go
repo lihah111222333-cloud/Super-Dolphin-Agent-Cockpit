@@ -7,6 +7,7 @@ import (
 
 	agentdto "github.com/anthropic-ai/super-agent-v3/internal/dto/agent"
 	sharedto "github.com/anthropic-ai/super-agent-v3/internal/dto/shared"
+	threaddto "github.com/anthropic-ai/super-agent-v3/internal/dto/thread"
 	tooldto "github.com/anthropic-ai/super-agent-v3/internal/dto/tool"
 	turndto "github.com/anthropic-ai/super-agent-v3/internal/dto/turn"
 	"github.com/kelindar/event"
@@ -206,6 +207,133 @@ func TestAgentStateChangesAreNotPreservedAsIdle(t *testing.T) {
 
 	svc.applyAgentStateChanged(agentdto.StateChanged{AgentSessionHeader: header, NewState: "turn_running"})
 	assertThreadStatus(t, svc, "running")
+}
+
+func TestAgentStoppedClearsActiveTurnBeforeSidebarProjection(t *testing.T) {
+	t.Parallel()
+
+	svc := newProjectionTestService(t)
+	header := testAgentSessionHeader("thread-stopped", "agent-stopped")
+	turnHeader := testTurnHeader(header, "turn-stopped")
+
+	svc.applyAgentStateChanged(agentdto.StateChanged{AgentSessionHeader: header, NewState: "turn_running"})
+	svc.applyTurnStarted(turndto.TurnStarted{TurnHeader: turnHeader})
+	svc.applyItemStarted(turndto.ItemStarted{TurnHeader: turnHeader, ItemType: "command_execution", Command: "ls"})
+
+	runningSidebar, err := svc.GetSidebar(context.Background())
+	if err != nil {
+		t.Fatalf("GetSidebar() before stop error = %v", err)
+	}
+	if got := runningSidebar.Statuses["thread-stopped"]; got != "running" {
+		t.Fatalf("sidebar.Statuses[thread-stopped] before stop = %q, want running", got)
+	}
+
+	svc.applyAgentStopped(agentdto.AgentStopped{AgentSessionHeader: header})
+
+	sidebar, err := svc.GetSidebar(context.Background())
+	if err != nil {
+		t.Fatalf("GetSidebar() after stop error = %v", err)
+	}
+	if sidebar.ActiveTurn != nil {
+		t.Fatalf("sidebar.ActiveTurn after stop = %#v, want nil", sidebar.ActiveTurn)
+	}
+	if got := sidebar.Statuses["thread-stopped"]; got == "running" {
+		t.Fatalf("sidebar.Statuses[thread-stopped] after stop = %q, want terminal non-running status", got)
+	}
+	if got := sidebar.StatusHeadersByThread["thread-stopped"]; got == "工作中" {
+		t.Fatalf("StatusHeadersByThread[thread-stopped] after stop = %q, want non-working header", got)
+	}
+
+	svc.mu.Lock()
+	patch := svc.threadPatchLocked("thread-stopped", "agent/stopped")
+	svc.mu.Unlock()
+	if patch.Status == "running" {
+		t.Fatalf("agent stopped patch status = %q, want non-running", patch.Status)
+	}
+	if patch.StatusHeader == "工作中" {
+		t.Fatalf("agent stopped patch header = %q, want non-working header", patch.StatusHeader)
+	}
+}
+
+func TestArchivedThreadStatusWinsOverStaleActiveTurn(t *testing.T) {
+	t.Parallel()
+
+	svc := newProjectionTestService(t)
+	svc.state.Threads = []ThreadSummary{{
+		ID:              "thread-archived-active",
+		AgentID:         "agent-archived-active",
+		State:           "archived",
+		ThreadStatus:    "archived",
+		LifecycleStatus: "archived",
+	}}
+	svc.state.Agents = []AgentSummary{{
+		ID:           "agent-archived-active",
+		ThreadID:     "thread-archived-active",
+		State:        "running",
+		AgentState:   "running",
+		ThreadStatus: "running",
+	}}
+	svc.state.ActiveTurn = &TurnSummary{ThreadID: "thread-archived-active", Status: "running"}
+
+	sidebar, err := svc.GetSidebar(context.Background())
+	if err != nil {
+		t.Fatalf("GetSidebar() error = %v", err)
+	}
+	if got := sidebar.Statuses["thread-archived-active"]; got != "archived" {
+		t.Fatalf("sidebar.Statuses[thread-archived-active] = %q, want archived", got)
+	}
+	if got := sidebar.StatusHeadersByThread["thread-archived-active"]; got == "工作中" {
+		t.Fatalf("StatusHeadersByThread[thread-archived-active] = %q, want non-working header", got)
+	}
+
+	svc.mu.Lock()
+	patch := svc.threadPatchLocked("thread-archived-active", "thread/archived")
+	svc.mu.Unlock()
+	if patch.Status != "archived" {
+		t.Fatalf("archived patch status = %q, want archived", patch.Status)
+	}
+	if patch.StatusHeader == "工作中" {
+		t.Fatalf("archived patch header = %q, want non-working header", patch.StatusHeader)
+	}
+}
+
+func TestArchivedThreadStatusSurvivesLaterAgentStopped(t *testing.T) {
+	t.Parallel()
+
+	svc := newProjectionTestService(t)
+	header := testAgentSessionHeader("thread-archived-stop", "agent-archived-stop")
+
+	svc.applyThreadStopped(threaddto.Stopped{
+		ThreadID: "thread-archived-stop",
+		AgentID:  "agent-archived-stop",
+		Status:   "archived",
+		Reason:   "archived",
+	})
+	svc.applyAgentStopped(agentdto.AgentStopped{
+		AgentSessionHeader: header,
+		Reason:             "archived",
+	})
+
+	sidebar, err := svc.GetSidebar(context.Background())
+	if err != nil {
+		t.Fatalf("GetSidebar() error = %v", err)
+	}
+	if got := sidebar.Statuses["thread-archived-stop"]; got != "archived" {
+		t.Fatalf("sidebar.Statuses[thread-archived-stop] = %q, want archived", got)
+	}
+	if got := sidebar.StatusHeadersByThread["thread-archived-stop"]; got != "已归档" {
+		t.Fatalf("StatusHeadersByThread[thread-archived-stop] = %q, want 已归档", got)
+	}
+
+	svc.mu.Lock()
+	patch := svc.threadPatchLocked("thread-archived-stop", "agent/stopped")
+	svc.mu.Unlock()
+	if patch.Status != "archived" {
+		t.Fatalf("agent stopped patch status = %q, want archived", patch.Status)
+	}
+	if patch.StatusHeader != "已归档" {
+		t.Fatalf("agent stopped patch header = %q, want 已归档", patch.StatusHeader)
+	}
 }
 
 func newProjectionTestService(t *testing.T) *service {

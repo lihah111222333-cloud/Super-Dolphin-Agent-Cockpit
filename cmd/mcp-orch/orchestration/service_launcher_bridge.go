@@ -273,9 +273,7 @@ func (s *service) stopAgentViaLauncher(ctx context.Context, agentID, reason stri
 	if err := s.launcher.Stop(ctx, agent); err != nil {
 		return err
 	}
-	if settler, ok := s.launcher.(interface{ StopSettlesAgent() bool }); ok && settler.StopSettlesAgent() {
-		s.handleProcessExit(ctx, agentID, launchSeq, nil)
-	}
+	s.handleProcessExit(ctx, agentID, launchSeq, nil)
 	return nil
 }
 func (s *service) archiveAgentViaLauncher(ctx context.Context, agentID, reason string) (bool, error) {
@@ -299,11 +297,10 @@ func (s *service) archiveAgentViaLauncher(ctx context.Context, agentID, reason s
 	if err := s.launcher.Archive(ctx, agent); err != nil {
 		return false, err
 	}
-	if settler, ok := s.launcher.(interface{ StopSettlesAgent() bool }); ok && settler.StopSettlesAgent() {
-		s.handleProcessExit(ctx, agentID, launchSeq, nil)
-	}
+	s.handleProcessExit(ctx, agentID, launchSeq, nil)
 	return true, nil
 }
+
 func (s *service) hasLocalRuntimeAgent(agentID string) bool {
 	agentID = strings.TrimSpace(agentID)
 	if agentID == "" {

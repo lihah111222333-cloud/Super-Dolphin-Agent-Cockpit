@@ -340,6 +340,10 @@ func threadPatchPresentation(summary ThreadSummary) (string, string, string) {
 	if status, header, details, ok := sidebarThreadOverlay(&summary); ok {
 		return status, header, details
 	}
+	if status, ok := lifecycleSidebarStatus(summary.LifecycleStatus); ok {
+		header, details := sidebarStatusText(status, summary.LastMessage)
+		return status, header, details
+	}
 	status := patchStatus(firstNonEmptyString(summary.ThreadStatus, summary.State))
 	header, details := sidebarStatusText(status, summary.LastMessage)
 	return status, header, details
@@ -372,7 +376,7 @@ func tokenUsagePatch(ev uidto.UITokensUpdated) *uidto.ThreadPatchTokenUsage {
 
 func patchStatus(status string) string {
 	switch strings.ToLower(strings.TrimSpace(status)) {
-	case "starting", "thinking", "responding", "running", "editing", "waiting", "syncing":
+	case "starting", "thinking", "responding", "running", "editing", "waiting", "syncing", "archived":
 		return strings.ToLower(strings.TrimSpace(status))
 	case "error", "failed":
 		return "error"

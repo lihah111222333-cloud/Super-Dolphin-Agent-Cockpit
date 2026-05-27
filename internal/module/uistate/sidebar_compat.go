@@ -307,6 +307,14 @@ func latestTurnsByThread(active *TurnSummary, items []TurnSummary) map[string]Tu
 }
 
 func sidebarThreadStatus(thread *ThreadSummary, agent *AgentSummary, active *TurnSummary) string {
+	if thread != nil {
+		if status, ok := lifecycleSidebarStatus(thread.LifecycleStatus); ok {
+			return status
+		}
+		if status, ok := terminalSidebarStatus(firstNonEmptyString(thread.ThreadStatus, thread.State)); ok {
+			return status
+		}
+	}
 	if active != nil && strings.TrimSpace(active.ThreadID) == strings.TrimSpace(thread.ID) {
 		return normalizeSidebarStatus(firstNonEmptyString(active.Status, "running"))
 	}
@@ -321,6 +329,26 @@ func sidebarThreadStatus(thread *ThreadSummary, agent *AgentSummary, active *Tur
 		}
 	}
 	return "idle"
+}
+
+func lifecycleSidebarStatus(raw string) (string, bool) {
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case "archived":
+		return "archived", true
+	default:
+		return "", false
+	}
+}
+
+func terminalSidebarStatus(raw string) (string, bool) {
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case "archived", "error", "failed":
+		return normalizeSidebarStatus(raw), true
+	case "stopped", "stopping":
+		return "idle", true
+	default:
+		return "", false
+	}
 }
 
 func normalizeSidebarStatus(raw string) string {
@@ -369,6 +397,8 @@ func sidebarStatusText(status, lastMessage string) (string, string) {
 		return "等待确认", strings.TrimSpace(lastMessage)
 	case "syncing":
 		return "同步中", strings.TrimSpace(lastMessage)
+	case "archived":
+		return "已归档", strings.TrimSpace(lastMessage)
 	case "error":
 		details := firstNonEmptyString(lastMessage, "请查看最近输出")
 		return "发生错误", details
