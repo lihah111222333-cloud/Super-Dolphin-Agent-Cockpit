@@ -93,6 +93,33 @@ func TestTerminateRunCancelsOnlyActiveWakeupsForTargetRun(t *testing.T) {
 	}
 }
 
+func TestTerminateRunCancelledRunReturnsPersistedSpawnedThreadIDs(t *testing.T) {
+	t.Parallel()
+
+	store, db, now := newTaskDAGTestStore()
+	seedRuntimeDAG(t, db, now, []seedNode{
+		{key: "cancelled-node", status: "cancelled", thread: "thr-cancelled"},
+		{key: "done-node", status: "done", thread: "thr-done"},
+	})
+	seedRunningRunForTerminate(db, "dag-1", "run-cancelled", completeDownstreamRunID)
+	run := db.runs["run-cancelled"]
+	run.Status = "cancelled"
+	db.runs["run-cancelled"] = run
+
+	result, err := any(store).(RunTerminationStore).TerminateRun(context.Background(), TerminateRunInput{
+		DagKey: "dag-1",
+		RunKey: "run-cancelled",
+		RunID:  completeDownstreamRunID,
+		Reason: "user_requested",
+	})
+	if err != nil {
+		t.Fatalf("TerminateRun() error = %v, want nil for already-cancelled retry", err)
+	}
+	if got := strings.Join(result.SpawnedThreadIDs, ","); got != "thr-cancelled" {
+		t.Fatalf("TerminateRun spawned thread IDs = %q, want persisted thread IDs for retry", got)
+	}
+}
+
 func TestTerminateRunRollsBackNodeAndWakeupCancelsWhenRunRowMisses(t *testing.T) {
 	t.Parallel()
 

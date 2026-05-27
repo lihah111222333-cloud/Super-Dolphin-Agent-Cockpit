@@ -159,9 +159,15 @@ func TestNodeExecutorRouter_AgentLifecycleHooks(t *testing.T) {
 
 func TestProvideExecutorsWireLifecycleHooks(t *testing.T) {
 	hooks := ProvideNodeLifecycleHooks(discardLogger())
-	agentExec := ProvideAgentExecutor(&stubAgentLauncher{}, nil, hooks)
+	agentExec, err := ProvideAgentExecutor(&stubAgentLauncher{}, noopNodeSpawnRecorder{}, hooks)
+	if err != nil {
+		t.Fatalf("ProvideAgentExecutor() error = %v, want nil", err)
+	}
 	if got := agentExec.Hooks(); got[nodeexec.HookBeforeExecute] == nil || got[nodeexec.HookOnFailure] == nil {
 		t.Fatalf("agent hooks = %v, want production lifecycle hooks wired", got)
+	}
+	if _, err := ProvideAgentExecutor(&stubAgentLauncher{}, nil, hooks); err == nil {
+		t.Fatalf("ProvideAgentExecutor(nil recorder) error = nil, want fail-fast")
 	}
 	autoExec := ProvideAutomationExecutor(stubAutomationCmdGetter{}, stubAutomationCmdRunner{}, hooks)
 	if got := autoExec.Hooks(); got[nodeexec.HookBeforeExecute] == nil || got[nodeexec.HookOnFailure] == nil {
@@ -333,11 +339,13 @@ func TestServiceAgentLauncher_NilReceiverSafe(t *testing.T) {
 	}
 }
 
-// TestStoreNodeSpawnRecorder_NilStoreReturnsNilAdapter：nil store 输入�?
-// 给出 nil adapter，让 AgentExecutor 跳过写回（F1.5 silent skip 语义）�?
-func TestStoreNodeSpawnRecorder_NilStoreReturnsNilAdapter(t *testing.T) {
+func TestStoreNodeSpawnRecorder_NilStoreFailsFast(t *testing.T) {
 	t.Parallel()
-	if got := fxadapter.NewStoreNodeSpawnRecorder(nil); got != nil {
+	got, err := fxadapter.NewStoreNodeSpawnRecorder(nil)
+	if err == nil {
+		t.Fatalf("NewStoreNodeSpawnRecorder(nil) error = nil, want fail-fast")
+	}
+	if got != nil {
 		t.Fatalf("NewStoreNodeSpawnRecorder(nil) = %T, want nil", got)
 	}
 }

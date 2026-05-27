@@ -43,7 +43,7 @@ func WithTxOrReuse(ctx context.Context, db sqlc.DBTX, q *sqlc.Queries, fn func(t
 	if beginner, ok := db.(txBeginner); ok && beginner != nil {
 		return withTxBeginner(ctx, beginner, func(tx pgx.Tx) error { return fn(q.WithTx(tx), tx) })
 	}
-	return fn(q, db)
+	return errors.New("sqlc queries requires transaction-capable DBTX")
 }
 
 func withTxBeginner(ctx context.Context, beginner txBeginner, fn func(tx pgx.Tx) error) error {

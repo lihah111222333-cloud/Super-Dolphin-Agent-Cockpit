@@ -12,11 +12,11 @@ type storeNodeSpawnRecorderAdapter struct {
 	store taskdag.NodeSpawnRecorderStore
 }
 
-func NewStoreNodeSpawnRecorder(store taskdag.NodeSpawnRecorderStore) nodeexec.NodeSpawnRecorder {
+func NewStoreNodeSpawnRecorder(store taskdag.NodeSpawnRecorderStore) (nodeexec.NodeSpawnRecorder, error) {
 	if store == nil {
-		return nil
+		return nil, errors.New("store node spawn recorder: nil store")
 	}
-	return &storeNodeSpawnRecorderAdapter{store: store}
+	return &storeNodeSpawnRecorderAdapter{store: store}, nil
 }
 
 func (a *storeNodeSpawnRecorderAdapter) RecordNodeSpawn(ctx context.Context, dagKey, nodeKey string, runID int64, threadID string) error {

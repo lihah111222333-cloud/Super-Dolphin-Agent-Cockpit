@@ -101,7 +101,7 @@ func (s *service) commitLaunchSuccessLocked(ctx context.Context, agent *agentSta
 		}
 		return err
 	}
-	s.publishAgentLaunched(agent)
+	emitEvent(s.eventBus, eventTypeAgentLaunched, eventAgentID(agent), agent, agent.cwd)
 	return nil
 }
 
@@ -332,7 +332,7 @@ func (s *service) prepareLauncherRecovery(ctx context.Context, agentID, reason s
 		}
 		agent.launchSeq++
 		agent.pendingLaunchThreadID, agent.pendingLaunchThreadAt = "", time.Time{}
-		s.publishAgentRecovering(agent, reason)
+		emitEvent(s.eventBus, eventTypeAgentRecovering, eventAgentID(agent), agent, reason)
 		attempt = launcherRecoveryAttempt{
 			agentID: agent.id, expectedSeq: agent.launchSeq, launching: *agent,
 			threadID: threadID, turnID: turnID, req: recoveryLaunchRequest(agent),

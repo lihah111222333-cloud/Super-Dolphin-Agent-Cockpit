@@ -3,11 +3,13 @@ package taskdag
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/sqlc"
@@ -121,6 +123,13 @@ func (s *store) TerminateRun(ctx context.Context, input TerminateRunInput) (Term
 			RunKey:  input.RunKey,
 			Column4: event,
 		}); err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				threadIDs, loadErr := cancelledRunSpawnedThreadIDs(ctx, txq, input)
+				if loadErr == nil {
+					result.SpawnedThreadIDs = threadIDs
+					return nil
+				}
+			}
 			return fmt.Errorf("cancel run: %w", err)
 		}
 		return nil
@@ -129,6 +138,28 @@ func (s *store) TerminateRun(ctx context.Context, input TerminateRunInput) (Term
 		return TerminateRunResult{}, wrapTaskDAGError(err, "terminate_run", "task_dag_run")
 	}
 	return result, nil
+}
+
+func cancelledRunSpawnedThreadIDs(ctx context.Context, q *sqlc.Queries, input TerminateRunInput) ([]string, error) {
+	run, err := q.GetTaskDagRun(ctx, input.RunKey)
+	if err != nil {
+		return nil, err
+	}
+	if run.ID != input.RunID || run.DagKey != input.DagKey || run.Status != "cancelled" {
+		return nil, pgx.ErrNoRows
+	}
+	nodes, err := q.ListTaskDagRunNodes(ctx, sqlc.ListTaskDagRunNodesParams{DagKey: input.DagKey, RunID: int64Ptr(input.RunID)})
+	if err != nil {
+		return nil, err
+	}
+	values := make([]pgtype.Text, 0, len(nodes))
+	for _, node := range nodes {
+		if node.Status != "cancelled" {
+			continue
+		}
+		values = append(values, node.SpawningThreadID)
+	}
+	return nonEmptyTextValues(values), nil
 }
 
 func nonEmptyTextValues(values []pgtype.Text) []string {

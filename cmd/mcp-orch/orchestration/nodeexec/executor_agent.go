@@ -21,17 +21,17 @@ import (
 //
 // F1.5 新增：launch 成功 + 拿到 child thread_id 后，调注入的
 // NodeSpawnRecorder 把 thread_id 写回 task_dag_nodes.spawning_thread_id
-// （重试时旧值进 task_dag_runs.events 形成历史链）。recorder 为 nil 时降级
-// 为「仅 launch、不写回」的 F1.1 行为，便于既有测试与早期 wiring 渐进迁移。
+// （重试时旧值进 task_dag_runs.events 形成历史链）。生产 provider 要求 recorder
+// 非 nil；直接构造器保留 nil 只用于旧单测和纯 launch 语义。
 //
 // AgentExecutor wires the agent execution pathway: decode node.config.exec
 // into a typed AgentExecConfig, ask an AgentLauncher to start a sub-agent,
 // translate launch errors into classified NodeOutcomes so the smart-retry
 // dispatcher (F1.4) can dispatch by_class strategies, and — new in F1.5 —
 // once a child thread_id is returned, hand it to a NodeSpawnRecorder so
-// task_dag_nodes.spawning_thread_id is written back (ADR-009). Passing a nil
-// recorder downgrades to the F1.1 behaviour (launch-only, no write-back) so
-// pre-F1.5 tests and wiring keep compiling without changes elsewhere.
+// task_dag_nodes.spawning_thread_id is written back (ADR-009). Production
+// providers fail fast when the recorder is absent; the direct constructor only
+// permits nil for legacy unit tests and launch-only semantics.
 //
 // 与 wakeup_dispatcher 的边界：本 task 落地 NodeExecutor 抽象，dispatcher 当前
 // 仍可直接调 service.LaunchAgent（向后兼容）。F2/F3 才统一切到 NodeExecutor，
@@ -111,12 +111,10 @@ type NodeSpawnRecorder interface {
 type Option func(*AgentExecutor)
 
 // WithRecorder 注入 NodeSpawnRecorder（F1.5 / ADR-009 spawning_thread_id 写回端口）。
-// 不传该 option → recorder 为 nil → Execute 跳过 F1.5 写回（仅 launch），保留 F1.1 旧行为；
-// 这种「静默降级」是有意的渐进 wiring，与 inputs 端口（nil 即视为未履行）的 fail-loud 不同。
+// 生产 wiring 必须注入 recorder；不传该 option 时仅直接构造器保留 launch-only 旧单测语义。
 //
-// WithRecorder injects the F1.5 NodeSpawnRecorder. Omitting it leaves recorder
-// nil, which preserves the F1.1 launch-only behaviour by design — write-back
-// is auxiliary, not part of agent semantics.
+// WithRecorder injects the F1.5 NodeSpawnRecorder. Production wiring must pass
+// it; omitting it is reserved for direct legacy tests and launch-only callers.
 func WithRecorder(recorder NodeSpawnRecorder) Option {
 	return func(e *AgentExecutor) { e.recorder = recorder }
 }

@@ -361,6 +361,8 @@ func (s *service) prepareLauncherStop(ctx context.Context, agentID, reason strin
 			return err
 		}
 		if !changed {
+			agentRef = agent
+			launchSeq = agent.launchSeq
 			return nil
 		}
 		agentRef = agent

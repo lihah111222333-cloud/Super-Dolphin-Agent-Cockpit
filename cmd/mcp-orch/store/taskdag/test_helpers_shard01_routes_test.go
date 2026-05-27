@@ -81,6 +81,7 @@ var fakeTaskDAGQueryRowRoutes = []fakeTaskDAGQueryRowRoute{
 	{tokens: []string{"UpdateTaskDagNodeStatusFlexible"}, run: (*fakeTaskDAGDB).updateNodeStatusFlexible},
 	{tokens: []string{"UpdateRunningTaskDagNodeStatus"}, run: (*fakeTaskDAGDB).updateRunningNodeStatus},
 	{tokens: []string{"UpdateTaskDagNodeSpawningThread"}, run: (*fakeTaskDAGDB).updateNodeSpawningThread},
+	{tokens: []string{"GetTaskDagRun"}, run: (*fakeTaskDAGDB).getTaskDagRun},
 	{tokens: []string{"CancelTaskDagRun"}, run: (*fakeTaskDAGDB).cancelTaskDagRun},
 	{tokens: []string{"AppendTaskDagRunEvent"}, run: (*fakeTaskDAGDB).appendRunEvent},
 	{tokens: []string{"jsonb_build_array($2::jsonb)"}, run: (*fakeTaskDAGDB).appendRunEvent},

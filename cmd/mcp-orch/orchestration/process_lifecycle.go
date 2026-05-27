@@ -110,7 +110,7 @@ func (s *service) handleProcessExit(ctx context.Context, agentID string, launchS
 		"state_before", stateBefore, "state_after", agent.state,
 		"stop_requested", agent.stopRequested, "exit_error", err)
 	if agent.stopRequested && strings.TrimSpace(agent.stopReason) != "" {
-		s.publishAgentStopped(agent, agent.stopReason)
+		emitEvent(s.eventBus, eventTypeAgentStopped, eventAgentID(agent), agent, agent.stopReason)
 	}
 	s.setProcessExitFallbackReportLocked(ctx, agent, launchSeq, shouldRecover)
 	clearAgentStopReasonLocked(agent)
@@ -124,7 +124,7 @@ func (s *service) recordProcessExitError(agent *agentRuntime, err error) {
 	}
 	agent.lastError = err.Error()
 	if !agent.stopRequested {
-		s.publishAgentFailed(agent, err.Error(), true)
+		emitEvent(s.eventBus, eventTypeAgentFailed, eventAgentID(agent), agent, err.Error(), true)
 	}
 }
 

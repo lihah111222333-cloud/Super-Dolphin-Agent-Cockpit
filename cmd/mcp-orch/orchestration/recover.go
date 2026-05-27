@@ -53,7 +53,7 @@ func (s *service) recoverLocalWithReason(ctx context.Context, agentID, reason st
 	return s.withAgentLocked(agentID, func(agent *agentRuntime) error {
 		threadID := agent.threadID
 		turnID := agent.activeTurnID
-		s.publishAgentRecovering(agent, reason)
+		emitEvent(s.eventBus, eventTypeAgentRecovering, eventAgentID(agent), agent, reason)
 		resumed, err := recoverAgent(ctx, s, agent)
 		if err != nil {
 			return err

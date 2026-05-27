@@ -57,8 +57,8 @@ func TestTerminateDAG_TerminalRunIsIdempotent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("TerminateDAG() terminal run error = %v, want nil", err)
 	}
-	if len(runStore.terminateRunCalls) != 0 {
-		t.Fatalf("TerminateRun calls = %d, want 0 for terminal run", len(runStore.terminateRunCalls))
+	if len(runStore.terminateRunCalls) != 1 {
+		t.Fatalf("TerminateRun calls = %d, want 1 so cancelled run can retry spawned-agent stops", len(runStore.terminateRunCalls))
 	}
 }
 
@@ -196,6 +196,57 @@ func TestTerminateDAG_ReturnsStopFailureAfterCancellingRun(t *testing.T) {
 	}
 	if got := strings.Join(runStore.callOrder, ","); got != "terminate:dag-1,stop:agent-running" {
 		t.Fatalf("call order = %s, want cancel committed before stop failure is returned", got)
+	}
+}
+
+func TestTerminateDAG_RetriesSpawnedAgentStopAfterCancelledRun(t *testing.T) {
+	stopErr := errors.New("remote stop failed")
+	threadID := "thr-running"
+	runStore := &stubRunStore{
+		getRunReply: &taskdag.Run{
+			ID:     77,
+			RunKey: "dag-1#run-1",
+			DagKey: "dag-1",
+			Status: "running",
+		},
+		terminateRunResult: taskdag.TerminateRunResult{SpawnedThreadIDs: []string{threadID}},
+		listRunNodesReply: []taskdag.Node{
+			{DagKey: "dag-1", NodeKey: "n1", RunID: int64Ptr(77), SpawningThreadID: &threadID},
+		},
+	}
+	launcher := &terminateLauncherSpy{stopErr: stopErr, runStore: runStore}
+	svc := NewService(silentLogger(), nil, launcher, nil, nil, nil)
+	svc.runStore = runStore
+	svc.agentThreads = fakeAgentThreadStore{threads: []PersistedThread{{ThreadID: threadID, AgentID: "agent-running"}}}
+	agent := svc.newAgentLocked("agent-running")
+	agent.state = agentdto.StateIdle
+	agent.remoteThreadID = threadID
+	agent.launchSeq = 3
+	svc.agents[agent.id] = agent
+
+	err := svc.TerminateDAG(context.Background(), TerminateDAGRequest{
+		DagKey: "dag-1",
+		RunKey: "dag-1#run-1",
+		Reason: "user_requested",
+	})
+	if !errors.Is(err, stopErr) {
+		t.Fatalf("first TerminateDAG() error = %v, want wrapped stop failure", err)
+	}
+
+	runStore.getRunReply.Status = "cancelled"
+	err = svc.TerminateDAG(context.Background(), TerminateDAGRequest{
+		DagKey: "dag-1",
+		RunKey: "dag-1#run-1",
+		Reason: "user_requested",
+	})
+	if err != nil && !errors.Is(err, stopErr) {
+		t.Fatalf("retry TerminateDAG() error = %v, want nil or wrapped stop failure", err)
+	}
+	if len(runStore.terminateRunCalls) != 2 {
+		t.Fatalf("TerminateRun calls = %d, want retry to ask store for cancelled-run thread IDs", len(runStore.terminateRunCalls))
+	}
+	if got := strings.Join(launcher.stopCalls, ","); got != "agent-running,agent-running" {
+		t.Fatalf("launcher stop calls = %v, want retry to stop spawned agent again", launcher.stopCalls)
 	}
 }
 

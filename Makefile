@@ -241,7 +241,7 @@ sqlc-generate:
 sqlc-verify:
 	$(SQLC) generate
 	$(SQLC) generate -f cmd/mcp-orch/sqlc.yaml
-	@if [ -n "$$(git status --porcelain -- internal/store/sqlc cmd/mcp-orch/store/sqlc)" ]; then \
+	@if [ -n "$$(git status --porcelain --untracked-files=all -- internal/store/sqlc cmd/mcp-orch/store/sqlc)" ]; then \
 		echo "❌ sqlc-generated code is out of date; run 'make sqlc-generate' and commit."; \
 		git --no-pager diff -- internal/store/sqlc cmd/mcp-orch/store/sqlc; \
 		UNTRACKED=$$(git ls-files --others --exclude-standard -- internal/store/sqlc cmd/mcp-orch/store/sqlc); \
