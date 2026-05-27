@@ -418,6 +418,7 @@ describe('AppRoot behavior', () => {
     expect(AppRoot.template).toContain(':items="dashboard.dags"');
     expect(AppRoot.template).toContain(':loading="dashboardRequest.dags.loading"');
     expect(AppRoot.template).toContain(':error="dashboardRequest.dags.error"');
+    expect(AppRoot.template).toContain(':status-event="dagNodeStatusEvent"');
     expect(AppRoot.template).toContain('@open-chat="openDagChildThread"');
     expect(AppRoot.template).toContain("@refresh-dags=\"refreshDashboardByPage('dags')\"");
     expect(AppRoot.template).not.toContain('@select="dagDetail.open"');
@@ -555,6 +556,7 @@ describe('AppRoot behavior', () => {
 
     expect(apiMock.callAPI).toHaveBeenCalledWith('ui/dashboard/get', { page: 'dags', cwd: '/repo' });
     expect(vm.dashboard.dags).toEqual([{ dag_key: 'dag-2', status: 'running' }]);
+    expect(vm.dagNodeStatusEvent.value.payload).toEqual({ dag_key: 'dag-2' });
   });
 
   it('rejects malformed dashboard responses instead of replacing missing fields with empty lists', async () => {

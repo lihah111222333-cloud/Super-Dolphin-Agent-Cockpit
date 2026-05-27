@@ -625,6 +625,7 @@ func seedDAG(t *testing.T, db *fakeTaskDAGDB, now time.Time, nodes []seedNode) {
 
 func seedRuntimeDAG(t *testing.T, db *fakeTaskDAGDB, now time.Time, nodes []seedNode) {
 	t.Helper()
+	seedRunningRunForTerminate(db, "dag-1", "run-complete", completeDownstreamRunID)
 	seedDAGRows(t, db, now, nodes, completeDownstreamRunID)
 }
 

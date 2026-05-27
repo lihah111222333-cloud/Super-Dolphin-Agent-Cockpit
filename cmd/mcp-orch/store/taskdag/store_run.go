@@ -101,43 +101,53 @@ func (s *store) TerminateRun(ctx context.Context, input TerminateRunInput) (Term
 	}
 	var result TerminateRunResult
 	err = sqlctx.WithTxOrReuse(ctx, s.db, s.q, func(txq *sqlc.Queries, _ sqlc.DBTX) error {
-		threadIDs, err := txq.CancelTaskDagRunNodes(ctx, sqlc.CancelTaskDagRunNodesParams{
-			DagKey:  input.DagKey,
-			Column2: input.RunID,
-			Column3: reason,
-		})
+		threadIDs, err := terminateRunTx(ctx, txq, input, reason, event)
 		if err != nil {
-			return fmt.Errorf("cancel run nodes: %w", err)
+			return err
 		}
-		result.SpawnedThreadIDs = nonEmptyTextValues(threadIDs)
-		if _, err := txq.CancelTaskDagRunWakeups(ctx, sqlc.CancelTaskDagRunWakeupsParams{
-			DagKey:    input.DagKey,
-			RunID:     int64Ptr(input.RunID),
-			LastError: "run_cancelled: " + reason,
-		}); err != nil {
-			return fmt.Errorf("cancel run wakeups: %w", err)
-		}
-		if _, err := txq.CancelTaskDagRun(ctx, sqlc.CancelTaskDagRunParams{
-			DagKey:  input.DagKey,
-			ID:      input.RunID,
-			RunKey:  input.RunKey,
-			Column4: event,
-		}); err != nil {
-			if errors.Is(err, pgx.ErrNoRows) {
-				threadIDs, loadErr := cancelledRunSpawnedThreadIDs(ctx, txq, input)
-				if loadErr == nil {
-					result.SpawnedThreadIDs = threadIDs
-					return nil
-				}
-			}
-			return fmt.Errorf("cancel run: %w", err)
-		}
+		result.SpawnedThreadIDs = threadIDs
 		return nil
 	})
 	if err != nil {
 		return TerminateRunResult{}, wrapTaskDAGError(err, "terminate_run", "task_dag_run")
 	}
 	return result, nil
+}
+
+func terminateRunTx(ctx context.Context, txq *sqlc.Queries, input TerminateRunInput, reason string, event []byte) ([]string, error) {
+	if _, err := txq.CancelTaskDagRunNodes(ctx, sqlc.CancelTaskDagRunNodesParams{
+		DagKey:  input.DagKey,
+		Column2: input.RunID,
+		Column3: reason,
+	}); err != nil {
+		return nil, fmt.Errorf("cancel run nodes: %w", err)
+	}
+	if _, err := txq.CancelTaskDagRunWakeups(ctx, sqlc.CancelTaskDagRunWakeupsParams{
+		DagKey:    input.DagKey,
+		RunID:     int64Ptr(input.RunID),
+		LastError: "run_cancelled: " + reason,
+	}); err != nil {
+		return nil, fmt.Errorf("cancel run wakeups: %w", err)
+	}
+	if _, err := txq.CancelTaskDagRun(ctx, sqlc.CancelTaskDagRunParams{
+		DagKey:  input.DagKey,
+		ID:      input.RunID,
+		RunKey:  input.RunKey,
+		Column4: event,
+	}); err != nil {
+		return terminateRunAlreadyCancelled(ctx, txq, input, err)
+	}
+	return runSpawnedThreadIDs(ctx, txq, input.DagKey, input.RunID)
+}
+
+func terminateRunAlreadyCancelled(ctx context.Context, txq *sqlc.Queries, input TerminateRunInput, cancelErr error) ([]string, error) {
+	if errors.Is(cancelErr, pgx.ErrNoRows) {
+		threadIDs, loadErr := cancelledRunSpawnedThreadIDs(ctx, txq, input)
+		if loadErr == nil {
+			return threadIDs, nil
+		}
+	}
+	return nil, fmt.Errorf("cancel run: %w", cancelErr)
 }
 
 func cancelledRunSpawnedThreadIDs(ctx context.Context, q *sqlc.Queries, input TerminateRunInput) ([]string, error) {
@@ -148,15 +158,16 @@ func cancelledRunSpawnedThreadIDs(ctx context.Context, q *sqlc.Queries, input Te
 	if run.ID != input.RunID || run.DagKey != input.DagKey || run.Status != "cancelled" {
 		return nil, pgx.ErrNoRows
 	}
-	nodes, err := q.ListTaskDagRunNodes(ctx, sqlc.ListTaskDagRunNodesParams{DagKey: input.DagKey, RunID: int64Ptr(input.RunID)})
+	return runSpawnedThreadIDs(ctx, q, input.DagKey, input.RunID)
+}
+
+func runSpawnedThreadIDs(ctx context.Context, q *sqlc.Queries, dagKey string, runID int64) ([]string, error) {
+	nodes, err := q.ListTaskDagRunNodes(ctx, sqlc.ListTaskDagRunNodesParams{DagKey: dagKey, RunID: int64Ptr(runID)})
 	if err != nil {
 		return nil, err
 	}
 	values := make([]pgtype.Text, 0, len(nodes))
 	for _, node := range nodes {
-		if node.Status != "cancelled" {
-			continue
-		}
 		values = append(values, node.SpawningThreadID)
 	}
 	return nonEmptyTextValues(values), nil

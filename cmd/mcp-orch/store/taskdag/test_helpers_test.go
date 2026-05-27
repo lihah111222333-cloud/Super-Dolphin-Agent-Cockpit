@@ -18,6 +18,7 @@ type fakeTaskDAGDB struct {
 	dags    map[string]sqlc.TaskDag
 	wakeups map[int64]sqlc.TaskDagWakeup
 	nodes   map[string]sqlc.TaskDagNode
+	ops     []string
 	// F6.2: runs 用于模拟 task_dag_runs 一行，键是 run_key；finalize SQL 拦截会读写它。
 	// F6.2: runs simulates task_dag_runs rows keyed by run_key so the finalize
 	// SQL interceptor can mutate run.status when all nodes reach terminal.
@@ -98,6 +99,7 @@ func (db *fakeTaskDAGDB) cloneLocked() *fakeTaskDAGDB {
 		row.Metadata = cloneBytes(row.Metadata)
 		cloned.runs[key] = row
 	}
+	cloned.ops = append([]string(nil), db.ops...)
 	return cloned
 }
 
@@ -107,6 +109,7 @@ func (db *fakeTaskDAGDB) replaceLocked(snapshot *fakeTaskDAGDB) {
 	db.wakeups = snapshot.wakeups
 	db.nodes = snapshot.nodes
 	db.runs = snapshot.runs
+	db.ops = snapshot.ops
 	db.wakeupSeq = snapshot.wakeupSeq
 	db.runSeq = snapshot.runSeq
 }

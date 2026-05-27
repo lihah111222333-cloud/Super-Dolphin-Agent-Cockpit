@@ -6,6 +6,7 @@ import (
 	"log/slog"
 
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/fxadapter"
+	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/orchestration"
 	orchcron "github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/orchestration/cron"
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/sqlc"
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
@@ -56,6 +57,9 @@ func (s scheduledDAGStarter) StartDAG(ctx context.Context, req orchcron.Schedule
 		TriggerSource:  req.TriggerSource,
 		IdempotencyKey: req.IdempotencyKey,
 	})
+	if errors.Is(err, orchestration.ErrIdempotencyKeyExhausted) {
+		return orchcron.NewScheduledRunAlreadyConsumedError(err)
+	}
 	return err
 }
 

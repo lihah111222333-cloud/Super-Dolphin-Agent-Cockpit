@@ -81,6 +81,36 @@ func TestSaveTextFileRoutePromptsAndWritesChosenPath(t *testing.T) {
 	}
 }
 
+func TestSaveTextFileRouteRejectsExistingTarget(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	target := filepath.Join(dir, "final-report.md")
+	if err := os.WriteFile(target, []byte("existing"), 0o644); err != nil {
+		t.Fatalf("seed existing file: %v", err)
+	}
+	server := newWailsRPCServer(t, &App{
+		saveDirectoryInvoker: func(defaultPath string) (string, error) {
+			return dir, nil
+		},
+	})
+
+	_, err := server.Dispatch(context.Background(), "ui/saveTextFile", json.RawMessage(`{
+		"defaultFilename":"final-report.md",
+		"content":"new content"
+	}`))
+	if err == nil {
+		t.Fatal("Dispatch(ui/saveTextFile) error = nil, want existing target rejection")
+	}
+	got, readErr := os.ReadFile(target)
+	if readErr != nil {
+		t.Fatalf("ReadFile(%q) error = %v", target, readErr)
+	}
+	if string(got) != "existing" {
+		t.Fatalf("existing file content = %q, want unchanged", got)
+	}
+}
+
 func TestSaveTextFileRouteTreatsCancelAsEmptyPath(t *testing.T) {
 	t.Parallel()
 

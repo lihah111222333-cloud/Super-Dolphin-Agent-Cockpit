@@ -43,7 +43,7 @@ func (stubDAGScheduleStore) DueDAGs(context.Context, time.Time) ([]orchcron.DueD
 	return nil, nil
 }
 
-func (stubDAGScheduleStore) UpdateNextRun(context.Context, string, time.Time) error {
+func (stubDAGScheduleStore) UpdateNextRun(context.Context, string, time.Time, time.Time) error {
 	return nil
 }
 

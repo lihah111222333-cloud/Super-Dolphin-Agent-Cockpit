@@ -34,6 +34,9 @@ type scheduledDAGStarter struct{ svc *service }
 
 func (s scheduledDAGStarter) StartDAG(ctx context.Context, req orchcron.ScheduledDAGStartRequest) error {
 	_, err := s.svc.StartDAG(ctx, StartDAGRequest{DagKey: req.DagKey, TriggerSource: req.TriggerSource, IdempotencyKey: req.IdempotencyKey})
+	if errors.Is(err, ErrIdempotencyKeyExhausted) {
+		return orchcron.NewScheduledRunAlreadyConsumedError(err)
+	}
 	return err
 }
 

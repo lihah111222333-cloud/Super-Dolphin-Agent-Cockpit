@@ -142,6 +142,26 @@ func (db *fakeTaskDAGDB) getTaskDagRun(args ...any) ([]any, error) {
 	return taskDagRunValues(run), nil
 }
 
+func (db *fakeTaskDAGDB) lockTaskDAGRunForCompletion(args ...any) ([]any, error) {
+	if err := requireFakeTaskDAGArgs(args, 2, "lock run for completion",
+		fakeTaskDAGTypedArg[string](0, "dag key"),
+		fakeTaskDAGInt8Arg(1, "run id")); err != nil {
+		return nil, err
+	}
+	dagKey := args[0].(string)
+	runID, err := fakeInt8Arg(args, 1, "run id")
+	if err != nil {
+		return nil, err
+	}
+	db.ops = append(db.ops, "lock_run_for_completion")
+	for _, run := range db.runs {
+		if run.DagKey == dagKey && run.ID == runID && run.Status == "running" {
+			return []any{run.ID}, nil
+		}
+	}
+	return nil, pgx.ErrNoRows
+}
+
 func taskDagRunValues(row sqlc.TaskDagRun) []any {
 	return []any{
 		row.ID,

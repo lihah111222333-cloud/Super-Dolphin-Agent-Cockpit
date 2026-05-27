@@ -327,15 +327,19 @@ UPDATE task_dags
 SET next_run_at = $1,
     updated_at = NOW()
 WHERE dag_key = $2
+  AND trigger = 'scheduled'
+  AND cron_expr <> ''
+  AND next_run_at = $3
 `
 
 type UpdateTaskDagNextRunParams struct {
-	NextRunAt pgtype.Timestamptz `json:"next_run_at"`
-	DagKey    string             `json:"dag_key"`
+	NextRunAt   pgtype.Timestamptz `json:"next_run_at"`
+	DagKey      string             `json:"dag_key"`
+	NextRunAt_2 pgtype.Timestamptz `json:"next_run_at_2"`
 }
 
 func (q *Queries) UpdateTaskDagNextRun(ctx context.Context, arg UpdateTaskDagNextRunParams) (int64, error) {
-	result, err := q.db.Exec(ctx, updateTaskDagNextRun, arg.NextRunAt, arg.DagKey)
+	result, err := q.db.Exec(ctx, updateTaskDagNextRun, arg.NextRunAt, arg.DagKey, arg.NextRunAt_2)
 	if err != nil {
 		return 0, err
 	}
