@@ -214,6 +214,72 @@ describe('streaming sync fix', () => {
     }
   });
 
+  it('deduplicates repeated streaming delta chunks when appending local assistant text', () => {
+    const store = useThreadStore();
+    const threadId = 'thread-delta-repeat';
+    store.state.activeThreadId = threadId;
+    store.state.threads = [{ id: threadId, name: 'T', state: 'running' }];
+    store.markHistoryLoaded(threadId);
+
+    store.handleBridgeEvent({ method: 'item/agentMessage/delta', payload: { threadId, delta: '2' } });
+    store.handleBridgeEvent({ method: 'item/agentMessage/delta', payload: { threadId, delta: '2' } });
+
+    const visible = store.getThreadTimeline(threadId);
+    expect(visible).toHaveLength(1);
+    expect(visible[0].text).toBe('2');
+  });
+
+  it('merges overlapping streaming delta chunks without duplicating the overlap', () => {
+    const store = useThreadStore();
+    const threadId = 'thread-delta-overlap';
+    store.state.activeThreadId = threadId;
+    store.state.threads = [{ id: threadId, name: 'T', state: 'running' }];
+    store.markHistoryLoaded(threadId);
+
+    store.handleBridgeEvent({ method: 'item/agentMessage/delta', payload: { threadId, delta: '正常' } });
+    store.handleBridgeEvent({ method: 'item/agentMessage/delta', payload: { threadId, delta: '常数学' } });
+
+    const visible = store.getThreadTimeline(threadId);
+    expect(visible).toHaveLength(1);
+    expect(visible[0].text).toBe('正常数学');
+  });
+
+  it('prefers the longer history assistant text over the shorter local streaming buffer', async () => {
+    const store = useThreadStore();
+    const threadId = 'thread-history-overlap';
+    store.state.activeThreadId = threadId;
+    store.state.threads = [{ id: threadId, name: 'T', state: 'responding' }];
+    store.state.timelinesByThread[threadId] = [
+      { id: 'assistant-stream', kind: 'assistant', text: '正常正常', done: false, ts: '2026-03-08T00:00:00Z' },
+    ];
+
+    apiMock.callAPI.mockImplementation(async (method) => {
+      if (method === 'thread/messages') {
+        return {
+          messages: [
+            { id: 'assistant-final', role: 'assistant', content: '正常正常数学', createdAt: '2026-03-08T00:00:01Z' },
+          ],
+        };
+      }
+      if (method === 'ui/state/get') {
+        return buildSnapshot({
+          threadId,
+          activeThreadId: threadId,
+          status: 'responding',
+          timelineItems: [
+            { id: 'assistant-final', kind: 'assistant', text: '正常正常数学', ts: '2026-03-08T00:00:01Z' },
+          ],
+        });
+      }
+      return {};
+    });
+
+    await store.loadMessages(threadId, 300, { syncRuntime: false });
+    const visible = store.getThreadTimeline(threadId);
+    expect(visible.some((item) => item.text === '正常正常')).toBe(false);
+    expect(visible.some((item) => item.text === '正常正常数学')).toBe(true);
+  });
+
   // ─── Layer 2: Regression guard ───
 
   it('regression guard prevents remote partial timeline from overwriting local full timeline', async () => {

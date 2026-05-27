@@ -47,8 +47,8 @@ type InputItem = shareddto.InputItem
 //     稳定引用元数据；provider 侧不读取正文，但 turn 层用它避免同名选择退化为
 //     name-only。
 //   - Version：skill 版本或内容 hash（可选）；用于去重键 `name@version`。
-//   - Prompt：全文 SKILL.md body（仅 hydration 路径用作 fallback 容器；
-//     codex/claude provider 都不再消费此字段拼 turn input）。
+//   - Prompt：兼容旧 payload 的全文 SKILL.md carrier；生产 turn/provider-native
+//     链路不消费该字段注入正文，PrepareTurn 会在归一化阶段清空它。
 //   - Summary：摘要文本（UI/观测与 hydration 输出）。
 //   - Source：决策来源，供观测性日志划分 manual/force/trigger/native；
 //     expand 仅作为历史观测值兼容保留，V1 provider-native 链路不再产生它。
@@ -71,9 +71,9 @@ const (
 	SkillSourceUnspecified SkillSource = ""
 	// SkillSourceManual：用户在 UI 显式勾选。
 	SkillSourceManual SkillSource = "manual"
-	// SkillSourceForce：skillResolver 匹配 ForceWords 命中，必走全文。
+	// SkillSourceForce：强匹配/强意图来源标记；生产链路不因此注入全文。
 	SkillSourceForce SkillSource = "force"
-	// SkillSourceTrigger：匹配 TriggerWords，软命中，默认走 Summary。
+	// SkillSourceTrigger：软匹配来源标记；生产链路仅保留元数据，不驱动摘要注入语义。
 	SkillSourceTrigger SkillSource = "trigger"
 	// SkillSourceExpand：历史 skill_expand 二次注入来源；V1 不再由生产链路产生。
 	SkillSourceExpand SkillSource = "expand"

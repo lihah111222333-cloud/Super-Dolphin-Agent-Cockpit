@@ -115,6 +115,7 @@ func cloneLSPConfig(cfg contract.LSPConfig) contract.LSPConfig {
 		GoDirectoryFilters:          slices.Clone(cfg.GoDirectoryFilters),
 		ProjectAdapters:             cloneLSPProjectAdapters(cfg.ProjectAdapters),
 		DocumentFallbackLanguageIDs: slices.Clone(cfg.DocumentFallbackLanguageIDs),
+		DisableInitialWorkspaceBootstrap: cfg.DisableInitialWorkspaceBootstrap,
 	}
 }
 

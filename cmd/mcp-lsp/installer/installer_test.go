@@ -49,12 +49,33 @@ exit 1
 		InstallArgs: []string{"install", "golang.org/x/tools/gopls@latest"},
 	})
 
-	got, err := p.EnsureInstalled(context.Background(), "go")
+	result, err := p.EnsureInstalledDetailed(context.Background(), "go")
 	if err != nil {
-		t.Fatalf("EnsureInstalled() error = %v", err)
+		t.Fatalf("EnsureInstalledDetailed() error = %v", err)
 	}
 	want := filepath.Join(installBin, "gopls")
+	if result.Path != want {
+		t.Fatalf("EnsureInstalledDetailed().Path = %q, want %q", result.Path, want)
+	}
+	if result.Status != InstallStatusInstalledFallback {
+		t.Fatalf("EnsureInstalledDetailed().Status = %q, want %q", result.Status, InstallStatusInstalledFallback)
+	}
+}
+
+func TestExecutableInDirPrefersWindowsExeSuffix(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("windows-only path resolution behavior")
+	}
+	dir := t.TempDir()
+	want := filepath.Join(dir, "gopls.exe")
+	if err := os.WriteFile(want, []byte("binary"), 0o644); err != nil {
+		t.Fatalf("WriteFile(gopls.exe): %v", err)
+	}
+	got, ok := executableInDir(dir, "gopls")
+	if !ok {
+		t.Fatal("executableInDir() ok = false, want true")
+	}
 	if got != want {
-		t.Fatalf("EnsureInstalled() = %q, want %q", got, want)
+		t.Fatalf("executableInDir() = %q, want %q", got, want)
 	}
 }

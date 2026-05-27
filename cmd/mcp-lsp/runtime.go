@@ -312,9 +312,10 @@ func setupInstaller() *installer.Provider {
 
 func createFallbackManager(adapters *multilsp.LanguageAdapterRegistry, root string, log *slog.Logger) multilsp.Manager {
 	return multilsp.NewManager(multilsp.Config{
-		WorkspaceRoot:    root,
-		LanguageAdapters: adapters,
-		Logger:           log,
+		WorkspaceRoot:                    root,
+		LanguageAdapters:                 adapters,
+		Logger:                           log,
+		DisableInitialWorkspaceBootstrap: true,
 	})
 }
 
@@ -333,8 +334,9 @@ func createGenericManagerWithBinary(adapter multilsp.LanguageAdapter, adapters *
 	}
 	binary := &runtimeBinaryOverride{value: initialBinary}
 	mgr := multilsp.NewManager(multilsp.Config{
-		WorkspaceRoot:    root,
-		LanguageAdapters: adapters,
+		WorkspaceRoot:                    root,
+		LanguageAdapters:                 adapters,
+		DisableInitialWorkspaceBootstrap: true,
 		ClientFactory: multilsp.ClientFactoryWithEnvFunc(func(rootDir string, env []string, h protocol.NotificationHandler) (multilsp.Client, error) {
 			// rootDir is supplied per-call from cfg.rootPath so the
 			// language server subprocess Dir tracks the workspace being

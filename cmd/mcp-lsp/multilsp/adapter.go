@@ -180,9 +180,7 @@ func (goLanguageAdapter) EnvPolicy(scope ResolvedLanguageScope) []string {
 
 func (goLanguageAdapter) BootstrapPolicy(ResolvedLanguageScope) BootstrapPolicy {
 	return BootstrapPolicy{
-		OpenTarget:           true,
-		OpenSiblingDocuments: true,
-		SiblingExtensions:    []string{".go"},
+		OpenTarget: true,
 	}
 }
 

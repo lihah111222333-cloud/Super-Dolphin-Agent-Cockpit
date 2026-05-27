@@ -72,6 +72,7 @@ func DefaultLSPConfig() contract.LSPConfig {
 			},
 		},
 		DocumentFallbackLanguageIDs: []string{"markdown", "json", "yaml"},
+		DisableInitialWorkspaceBootstrap: true,
 	}
 }
 
@@ -80,6 +81,7 @@ func lspConfigFromEnv() contract.LSPConfig {
 	cfg.NoiseDirNames = envStringSliceOr("LSP_NOISE_DIRS", cfg.NoiseDirNames)
 	cfg.GoDirectoryFilters = envStringSliceOr("LSP_GO_DIRECTORY_FILTERS", cfg.GoDirectoryFilters)
 	cfg.DocumentFallbackLanguageIDs = envStringSliceOr("LSP_DOCUMENT_FALLBACK_LANGUAGES", cfg.DocumentFallbackLanguageIDs)
+	cfg.DisableInitialWorkspaceBootstrap = envBoolOr("LSP_DISABLE_INITIAL_WORKSPACE_BOOTSTRAP", cfg.DisableInitialWorkspaceBootstrap)
 	applyProjectAdapterEnv(cfg.ProjectAdapters, contract.LSPServiceJSTS, "LSP_JSTS")
 	applyProjectAdapterEnv(cfg.ProjectAdapters, contract.LSPServicePython, "LSP_PYTHON")
 	applyProjectAdapterEnv(cfg.ProjectAdapters, contract.LSPServiceRust, "LSP_RUST")
@@ -114,6 +116,7 @@ func cloneLSPConfig(cfg contract.LSPConfig) contract.LSPConfig {
 		GoDirectoryFilters:          slices.Clone(cfg.GoDirectoryFilters),
 		ProjectAdapters:             cloneLSPProjectAdapters(cfg.ProjectAdapters),
 		DocumentFallbackLanguageIDs: slices.Clone(cfg.DocumentFallbackLanguageIDs),
+		DisableInitialWorkspaceBootstrap: cfg.DisableInitialWorkspaceBootstrap,
 	}
 }
 

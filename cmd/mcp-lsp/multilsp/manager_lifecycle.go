@@ -169,6 +169,9 @@ func (m *manager) resolveLanguageWorkspace(ctx context.Context, languageID strin
 }
 
 func (m *manager) bootstrapLanguageClient(ctx context.Context, client Client, root, languageID string) error {
+	if m != nil && m.disableInitialWorkspaceBootstrap {
+		return nil
+	}
 	scope, adapter, err := m.resolveLanguageScope(ctx, languageID, root, "")
 	if err != nil {
 		return fmt.Errorf("resolve bootstrap policy for %s: %w", languageID, err)
