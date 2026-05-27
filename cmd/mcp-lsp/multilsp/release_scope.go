@@ -2,6 +2,7 @@ package multilsp
 
 import (
 	"errors"
+	"fmt"
 	"slices"
 	"strings"
 )
@@ -51,7 +52,7 @@ func (p *ManagerPool) ReleaseScope(req ReleaseScopeRequest) (ReleaseScopeResult,
 	}
 
 	result, toClose := p.detachReleaseScopeManagers(req)
-	closed, firstErr := closeReleaseScopeManagers(toClose)
+	closed, firstErr := closeReleaseScopeManagers(req, toClose)
 	result.ClosedManagers += closed
 	if req.Drain && result.BusyLeases == 0 {
 		result.Drained = true
@@ -136,16 +137,32 @@ func mergeReleaseScopeResult(dst *ReleaseScopeResult, src ReleaseScopeResult) {
 	}
 }
 
-func closeReleaseScopeManagers(managers []*manager) (int, error) {
+func closeReleaseScopeManagers(req ReleaseScopeRequest, managers []*manager) (int, error) {
 	var firstErr error
 	closed := 0
 	for _, mgr := range managers {
+		if mgr == nil {
+			continue
+		}
+		if mgr.logger != nil {
+			mgr.logger.Info("LSP release scope closing manager",
+				"scope_kind", req.ScopeKind,
+				"agent_id", req.AgentID,
+				"thread_id", req.ThreadID,
+				"manager_key", req.ManagerKey,
+				"drain", req.Drain,
+				"reason", req.Reason,
+			)
+		}
 		if err := mgr.closeWithoutPool(); err != nil && firstErr == nil {
 			firstErr = err
 		}
 		closed++
 	}
-	return closed, firstErr
+	if firstErr != nil {
+		return closed, fmt.Errorf("release scope close failed: %w", firstErr)
+	}
+	return closed, nil
 }
 
 func normalizeReleaseScopeRequest(req ReleaseScopeRequest) ReleaseScopeRequest {

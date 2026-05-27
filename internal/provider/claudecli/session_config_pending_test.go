@@ -132,6 +132,20 @@ func TestAllowedModelsIncludesShortlistAndCurrentValue(t *testing.T) {
 	}
 }
 
+func TestAllowedModelsDoesNotAdvertiseLatestLongSlug(t *testing.T) {
+	s := &session{model: "claude-opus-4-7[1m]"}
+	models, err := s.AllowedModels(context.Background())
+	if err != nil {
+		t.Fatalf("AllowedModels() error = %v", err)
+	}
+	if containsString(models, "claude-opus-4-7") || containsString(models, "claude-opus-4-7[1m]") {
+		t.Fatalf("AllowedModels() = %#v, want latest model aliases only", models)
+	}
+	if !containsString(models, "opus[1m]") {
+		t.Fatalf("AllowedModels() = %#v, want opus[1m]", models)
+	}
+}
+
 func TestReadConfigDoesNotTreatLiveStateAsOverride(t *testing.T) {
 	s := &session{
 		threadID:       "thread-1",
@@ -191,6 +205,19 @@ func TestReadConfigFallsBackToSettingsModelWithoutInventingOverride(t *testing.T
 	}
 	if cfg.Override.Model != "" || cfg.Override.Effort != "" {
 		t.Fatalf("Override = %#v, want no synthetic override", cfg.Override)
+	}
+}
+
+func TestRuntimeConfigSnapshotReportsTransportModelAlias(t *testing.T) {
+	s := &session{
+		threadID:       "thread-1",
+		model:          "claude-opus-4-7[1m]",
+		transportModel: "opus[1m]",
+	}
+
+	got := s.RuntimeConfigSnapshot()
+	if got["model"] != "opus[1m]" {
+		t.Fatalf("RuntimeConfigSnapshot()[model] = %#v, want opus[1m]", got["model"])
 	}
 }
 

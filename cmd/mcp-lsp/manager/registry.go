@@ -67,6 +67,10 @@ type Installer interface {
 	EnsureInstalled(ctx context.Context, languageID string) (string, error)
 }
 
+type InstallerWithDetails interface {
+	EnsureInstalledDetailed(ctx context.Context, languageID string) (installer.InstallResult, error)
+}
+
 type BinaryPathSetter interface {
 	SetBinaryPath(path string)
 }
@@ -188,7 +192,7 @@ func (r *dynamicRegistry) ensureInstalled(ctx context.Context, lang string, conf
 	if r.installer == nil || config == nil || config.skipInstaller {
 		return nil
 	}
-	path, err := r.installer.EnsureInstalled(ctx, lang)
+	path, err := r.ensureInstalledPath(ctx, lang)
 	if err != nil {
 		return err
 	}
@@ -197,6 +201,17 @@ func (r *dynamicRegistry) ensureInstalled(ctx context.Context, lang string, conf
 		setter.SetBinaryPath(path)
 	}
 	return nil
+}
+
+func (r *dynamicRegistry) ensureInstalledPath(ctx context.Context, lang string) (string, error) {
+	if detailed, ok := r.installer.(InstallerWithDetails); ok {
+		result, err := detailed.EnsureInstalledDetailed(ctx, lang)
+		if err != nil {
+			return "", err
+		}
+		return result.Path, nil
+	}
+	return r.installer.EnsureInstalled(ctx, lang)
 }
 
 func (r *dynamicRegistry) scopedManagerForConfig(ctx context.Context, config *languageConfig, lang, targetPath, targetURI string) (ScopedManager, error) {

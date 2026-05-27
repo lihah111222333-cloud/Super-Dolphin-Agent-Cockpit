@@ -352,6 +352,26 @@ async function syncThreadHistoryAtomic(ctx, threadId) {
   return loadMessages(ctx, id, 300, { syncRuntime: false });
 }
 
+function hasSubstantiveDeltaText(value) {
+  return typeof value === 'string' ? value.length > 0 : Boolean(value);
+}
+
+function appendStreamingDeltaText(existingText, delta) {
+  const base = (existingText || '').toString();
+  const incoming = (delta || '').toString();
+  if (!incoming) return base;
+  if (!base) return incoming;
+  if (base.endsWith(incoming)) return base;
+  if (incoming.endsWith(base)) return incoming;
+  const maxOverlap = Math.min(base.length, incoming.length);
+  for (let overlap = maxOverlap; overlap > 0; overlap -= 1) {
+    if (base.slice(-overlap) === incoming.slice(0, overlap)) {
+      return base + incoming.slice(overlap);
+    }
+  }
+  return base + incoming;
+}
+
 export function handleBridgeEvent(ctx, evt) {
   const { logInfo, logWarn } = ctx;
   const eventMethod = getBridgeEventMethod(evt);
@@ -468,7 +488,7 @@ export function handleBridgeEvent(ctx, evt) {
 
   if (methodLower === 'item/agentmessage/delta' && activeThreadTarget) {
     const delta = evt?.payload?.delta;
-    if (delta) {
+    if (hasSubstantiveDeltaText(delta)) {
       const existing = ctx.state.timelinesByThread?.[activeThreadTarget] || [];
       const isStreamingItem = (it) => it?.kind === 'assistant' && it?.done === false && !it?.streamingFinalized;
       let lastIndex = -1;
@@ -477,14 +497,18 @@ export function handleBridgeEvent(ctx, evt) {
       }
       const nextTimelines = [...existing];
       if (lastIndex >= 0) {
-        nextTimelines[lastIndex] = { ...nextTimelines[lastIndex], text: (nextTimelines[lastIndex].text || '') + delta };
+        const prevItem = nextTimelines[lastIndex];
+        nextTimelines[lastIndex] = {
+          ...prevItem,
+          text: appendStreamingDeltaText(prevItem?.text, delta),
+        };
       } else {
         const ts = new Date().toISOString();
         const turnId = (evt?.payload?.turnId || evt?.payload?.turn_id || '').toString().trim();
         const streamingId = turnId
           ? `${activeThreadTarget}-${turnId}-streaming`
           : `${activeThreadTarget}-stream-${Date.now()}-streaming`;
-        nextTimelines.push({ id: streamingId, kind: 'assistant', text: delta, done: false, ts });
+        nextTimelines.push({ id: streamingId, kind: 'assistant', text: (delta || '').toString(), done: false, ts });
       }
       ctx.state.timelinesByThread = { ...ctx.state.timelinesByThread, [activeThreadTarget]: nextTimelines };
     }
