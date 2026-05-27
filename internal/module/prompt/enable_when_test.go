@@ -169,6 +169,34 @@ func TestEnableWhen_EnabledToolsHas(t *testing.T) {
 	assertEnableWhen(t, "enabled tool empty string", []byte(`{"enabled_tools_has":""}`), withLsp, "", false)
 }
 
+func TestEnableWhen_EnabledToolsAll(t *testing.T) {
+	t.Parallel()
+	withDAGTools := contract.BuildCtx{EnabledTools: []string{
+		"list_models",
+		"prompt_list",
+		"command_list",
+		"shared_file_list",
+		"task_create_dag",
+		"task_get_dag",
+		"task_dag_apply_ops",
+		"task_start_dag",
+	}}
+	missingApplyOps := contract.BuildCtx{EnabledTools: []string{
+		"list_models",
+		"prompt_list",
+		"command_list",
+		"shared_file_list",
+		"task_create_dag",
+		"task_get_dag",
+		"task_start_dag",
+	}}
+
+	allTools := []byte(`{"enabled_tools_all":["list_models","prompt_list","command_list","shared_file_list","task_create_dag","task_get_dag","task_dag_apply_ops","task_start_dag"]}`)
+	assertEnableWhen(t, "enabled tools all pass", allTools, withDAGTools, "", true)
+	assertEnableWhen(t, "enabled tools all missing one", allTools, missingApplyOps, "", false)
+	assertEnableWhen(t, "enabled tools all invalid type", []byte(`{"enabled_tools_all":"grep"}`), withDAGTools, "", false)
+}
+
 func assertEnableWhen(t *testing.T, name string, raw []byte, ctx contract.BuildCtx, prompt string, want bool) {
 	t.Helper()
 	if got := EvaluateEnableWhen(raw, ctx, prompt); got != want {

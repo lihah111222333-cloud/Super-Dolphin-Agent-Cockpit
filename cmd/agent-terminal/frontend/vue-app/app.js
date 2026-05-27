@@ -24,6 +24,43 @@ import { resolveProjectActionCwd } from './composables/useThreadActions.js';
  * @typedef {{ type?: string, method?: string, params?: { type?: string, method?: string }, payload?: { type?: string, method?: string }, data?: { type?: string, method?: string } }} BridgeEventEnvelope
  */
 const REFRESH_INTERVAL_MS = 10000;
+const DAG_DESIGNER_ENABLED_TOOLS = Object.freeze([
+  'list_models',
+  'prompt_list',
+  'command_list',
+  'shared_file_list',
+  'task_create_dag',
+  'task_get_dag',
+  'task_dag_apply_ops',
+  'task_start_dag',
+]);
+const DAG_DESIGNER_BLOCKED_PROVIDER_NATIVE_SKILLS = Object.freeze([
+  'Agent工程学',
+  'MCP协议',
+  'ui-ux-design',
+  'vue3',
+  '使用git工作区',
+  '使用超能力',
+  '后端',
+  '头脑风暴',
+  '子代理驱动开发',
+  '安全工程师规范',
+  '完成前验证',
+  '思维与决策辅助',
+  '执行计划',
+  '接收代码审查',
+  '核心信息提取与总结',
+  '测试驱动开发',
+  '系统化调试',
+  '结束开发分支',
+  '编写技能',
+  '编写计划',
+  '请求代码审查',
+  '调度并行代理',
+]);
+const DAG_DESIGNER_ADDITIONAL_DISALLOWED_TOOLS = Object.freeze(
+  DAG_DESIGNER_BLOCKED_PROVIDER_NATIVE_SKILLS.map((skill) => `Skill(${skill})`),
+);
 
 const NAV_ITEMS = Object.freeze([
   { key: 'chat', icon: '💬', label: 'Chat' },
@@ -296,6 +333,10 @@ async function startDagDesignerThreadForApp(_context, deps) {
     agentKey: 'dag_designer',
     promptKey: 'main/dag_designer_zh',
     deferSpawn: true,
+    config: {
+      enabledTools: [...DAG_DESIGNER_ENABLED_TOOLS],
+      additionalDisallowedTools: [...DAG_DESIGNER_ADDITIONAL_DISALLOWED_TOOLS],
+    },
   });
   if (!threadId) return;
   await deps.threadStore.saveActiveThread(threadId);

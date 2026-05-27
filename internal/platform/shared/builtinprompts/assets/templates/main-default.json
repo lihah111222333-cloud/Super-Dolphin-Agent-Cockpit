@@ -1,5 +1,6 @@
 {
   "prompt_key": "main/default",
+  "id": -100000,
   "kind": "base",
   "title": "Super-Dolphin 默认助手",
   "agent_key": "main",

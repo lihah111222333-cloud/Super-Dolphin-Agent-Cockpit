@@ -17,6 +17,7 @@ type manifestConfig struct {
 }
 
 type templateConfig struct {
+	ID          *int64          `json:"id"`
 	PromptKey   string          `json:"prompt_key"`
 	Kind        string          `json:"kind"`
 	Title       string          `json:"title"`

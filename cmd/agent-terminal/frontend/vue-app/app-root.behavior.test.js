@@ -439,14 +439,34 @@ describe('AppRoot behavior', () => {
 
     await vm.startDagDesignerThread({ dagKey: 'dag-1', title: 'Daily Brief' });
 
-    expect(stores.threadStore.startThread).toHaveBeenCalledWith('/repo', {
+    expect(stores.threadStore.startThread).toHaveBeenCalledWith('/repo', expect.objectContaining({
       focusMode: 'chat',
       name: 'AI 设计流程',
       agentKey: 'dag_designer',
       promptKey: 'main/dag_designer_zh',
       deferSpawn: true,
-    });
+      config: expect.objectContaining({
+        enabledTools: [
+          'list_models',
+          'prompt_list',
+          'command_list',
+          'shared_file_list',
+          'task_create_dag',
+          'task_get_dag',
+          'task_dag_apply_ops',
+          'task_start_dag',
+        ],
+        additionalDisallowedTools: expect.arrayContaining([
+          'Skill(头脑风暴)',
+          'Skill(编写计划)',
+          'Skill(执行计划)',
+          'Skill(子代理驱动开发)',
+          'Skill(使用git工作区)',
+        ]),
+      }),
+    }));
     const startOptions = stores.threadStore.startThread.mock.calls[0]?.[1] || {};
+    expect(startOptions.config?.disallowedTools).toBeUndefined();
     expect(startOptions).not.toHaveProperty('prompt');
     expect(JSON.stringify(startOptions)).not.toContain('Daily Brief');
     expect(JSON.stringify(startOptions)).not.toContain('dag-1');

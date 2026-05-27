@@ -186,7 +186,69 @@ func TestResolveRoutedPrompt_MainDefaultOrchestratorSectionsGateIndependently(t 
 	}
 }
 
+func TestResolveRoutedPrompt_BuiltinDAGDesignerPromptKeyLaunchesWithToolGuidance(t *testing.T) {
+	t.Parallel()
+
+	req := resolveBuiltinPromptForTools(t, "main/dag_designer_zh", []string{
+		"list_models",
+		"prompt_list",
+		"command_list",
+		"shared_file_list",
+		"task_create_dag",
+		"task_get_dag",
+		"task_dag_apply_ops",
+		"task_start_dag",
+	})
+	if req.PromptKeyStale {
+		t.Fatalf("PromptKeyStale = true, want builtin DAG designer prompt to resolve: %+v", req)
+	}
+	if req.AgentKey != "dag_designer" {
+		t.Fatalf("AgentKey = %q, want dag_designer", req.AgentKey)
+	}
+	if !baseInstructionBlockKeys(req.BaseInstructionBlocks)["dag_designer_runtime_tools"] {
+		t.Fatalf("BaseInstructionBlocks missing DAG designer section: %#v", req.BaseInstructionBlocks)
+	}
+	body := contract.TextFromBaseInstructionBlocks(req.BaseInstructionBlocks)
+	for _, want := range []string{"node.config.exec", "assigned_to", "waiting_for_assignee", "final_output"} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("DAG designer body missing %q:\n%s", want, body)
+		}
+	}
+}
+
+func TestResolveRoutedPrompt_BuiltinDAGDesignerRequiresCompleteDAGToolset(t *testing.T) {
+	t.Parallel()
+
+	req := resolveBuiltinPromptForToolsAllowEmpty(t, "main/dag_designer_zh", []string{
+		"list_models",
+		"prompt_list",
+		"command_list",
+		"shared_file_list",
+		"task_create_dag",
+		"task_get_dag",
+		"task_start_dag",
+	})
+	if req.PromptKeyStale {
+		t.Fatalf("PromptKeyStale = true, want builtin DAG designer prompt to resolve: %+v", req)
+	}
+	if req.AgentKey != "dag_designer" {
+		t.Fatalf("AgentKey = %q, want dag_designer", req.AgentKey)
+	}
+	if baseInstructionBlockKeys(req.BaseInstructionBlocks)["dag_designer_runtime_tools"] {
+		t.Fatalf("DAG designer section injected without task_dag_apply_ops: %#v", req.BaseInstructionBlocks)
+	}
+}
+
 func resolveBuiltinPromptForTools(t *testing.T, promptKey string, tools []string) *StartRequest {
+	t.Helper()
+	req := resolveBuiltinPromptForToolsAllowEmpty(t, promptKey, tools)
+	if len(req.BaseInstructionBlocks) == 0 {
+		t.Fatalf("BaseInstructionBlocks empty for %s", promptKey)
+	}
+	return req
+}
+
+func resolveBuiltinPromptForToolsAllowEmpty(t *testing.T, promptKey string, tools []string) *StartRequest {
 	t.Helper()
 	reg, err := builtinprompts.NewDefaultRegistry()
 	if err != nil {
@@ -197,9 +259,6 @@ func resolveBuiltinPromptForTools(t *testing.T, promptKey string, tools []string
 	req := &StartRequest{CWD: "/repo/a", PromptKey: promptKey, Prompt: "hello", EnabledTools: tools}
 	if err := s.resolveRoutedPrompt(context.Background(), req); err != nil {
 		t.Fatalf("resolveRoutedPrompt() error = %v", err)
-	}
-	if len(req.BaseInstructionBlocks) == 0 {
-		t.Fatalf("BaseInstructionBlocks empty for %s", promptKey)
 	}
 	return req
 }
