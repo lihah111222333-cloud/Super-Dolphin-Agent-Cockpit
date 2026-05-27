@@ -484,6 +484,24 @@ describe('UnifiedChatPage.setup chat rail integration', () => {
 
   });
 
+  it('does not show elapsed status meta for archived selected thread', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-03-09T00:00:00Z'));
+    try {
+      const { threadStore, statuses, statusHeaders } = makeAutoScrollThreadStore();
+      statuses['thread-active'] = 'archived';
+      statusHeaders['thread-active'] = '已归档';
+      const projectStore = { ...makeProjectStore(), state: reactive({ active: '.', showModal: false, projects: ['.'] }) };
+      const vm = UnifiedChatPage.setup({ threadStore, projectStore, mode: 'chat' });
+
+      expect(vm.displayStatusText.value).toBe('已归档');
+      expect(vm.activeStatusMeta.value).toBe('');
+      expect(globalThis.window.setInterval).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('submits inline rename on Enter and keeps edit mode for save-button blur', async () => {
     const { threadStore } = makeAutoScrollThreadStore();
     threadStore.renameThread = vi.fn(async () => ({}));

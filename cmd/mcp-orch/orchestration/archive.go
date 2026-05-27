@@ -74,7 +74,18 @@ func (s *service) stopArchiveTarget(ctx context.Context, requestedAgentID string
 		stopAgentID = strings.TrimSpace(target.agentID)
 	}
 	s.ensureRuntimeForPersistedAgent(ctx, stopAgentID)
-	return s.archiveAgentViaLauncher(ctx, stopAgentID, "archived")
+	archived, err := s.archiveAgentViaLauncher(ctx, stopAgentID, "archived")
+	if archived || err != nil {
+		return archived, err
+	}
+	settler, ok := s.launcher.(interface{ StopSettlesAgent() bool })
+	remoteThreadID := strings.TrimSpace(target.threadID)
+	archiveAgentID := platformshared.FirstTrimmed(target.agentID, stopAgentID)
+	if s.launcher == nil || !ok || !settler.StopSettlesAgent() || remoteThreadID == "" || archiveAgentID == "" {
+		return false, nil
+	}
+	agent := &agentRuntime{id: archiveAgentID, requestedAgentID: archiveAgentID, threadID: remoteThreadID, remoteThreadID: remoteThreadID, remoteAgentID: archiveAgentID}
+	return true, s.launcher.Archive(ctx, agent)
 }
 
 func (s *service) archivePersistedArchiveTarget(ctx context.Context, target persistedArchiveTarget) (bool, error) {
