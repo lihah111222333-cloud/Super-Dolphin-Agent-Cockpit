@@ -43,21 +43,6 @@
     "empty_funcs": 0,
     "todo_count": 0
   },
-  "cmd/mcp-orch/orchestration/cron/scheduler_cron_sql_test.go": {
-    "lines": 46,
-    "max_func_len": 14,
-    "max_nesting": 1,
-    "max_complexity": 4,
-    "max_params": 3,
-    "max_returns": 2,
-    "max_underscore": 1,
-    "global_vars": 0,
-    "panic_count": 0,
-    "naked_returns": 0,
-    "empty_funcs": 1,
-    "todo_count": 0,
-    "max_struct_fields": 2
-  },
   "cmd/mcp-orch/store/taskdag/scan_helpers_test.go": {
     "lines": 114,
     "max_func_len": 25,
@@ -143,20 +128,6 @@
     "naked_returns": 0,
     "empty_funcs": 0,
     "todo_count": 1
-  },
-  "internal/archtest/sqlc_bypass_guard_test.go": {
-    "lines": 42,
-    "max_func_len": 35,
-    "max_nesting": 2,
-    "max_complexity": 7,
-    "max_params": 1,
-    "max_returns": 0,
-    "max_underscore": 0,
-    "global_vars": 0,
-    "panic_count": 0,
-    "naked_returns": 0,
-    "empty_funcs": 0,
-    "todo_count": 2
   },
   "internal/mcpserver/common/server_test.go": {
     "lines": 313,

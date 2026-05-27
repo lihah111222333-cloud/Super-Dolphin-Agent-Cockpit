@@ -27,29 +27,11 @@ sql:
       - "../../migrations/0089_dag_v2_multi_run_node_isolation.sql"
       - "../../migrations/0094_add_when_to_use_column.sql"
       - "../../migrations/0096_add_section_recall_columns.sql"
-      # =====================================================================
-      # HAND-MAINTAINED SQLC OUTPUT — read before running `make sqlc` or upgrading sqlc.
-      # =====================================================================
-      # As of 2026-05-12 several generated files under store/sqlc/ were hand-
-      # edited to ship F1.5 / F4.1 / F6.3 without forcing a sqlc v1.30 → v1.31+
-      # upgrade. Re-running `make sqlc` against the current schema set (or
-      # against a live PG with all migrations applied) will OVERWRITE these
-      # edits. Re-apply each marker afterwards or upgrade sqlc and re-test.
-      #
-      # Hand-edited files (all under cmd/mcp-orch/store/sqlc/):
-      #   1. models.go                          — TaskDagNode.SpawningThreadID column (F1.5)
-      #   2. task_dag_node_read.sql.go          — SELECT list + Scan (F1.5)
-      #   3. task_dag_node_runtime.sql.go       — SELECT list + Scan (F1.5)
-      #   4. task_dag_node_write.sql.go         — INSERT/UPDATE columns + RETURNING
-      #                                            + PromoteSingleNodePendingToReady
-      #                                            + ClaimTaskDagNodeOutputMaterialization
-      #                                            (F1.5 + F6.3 + A2)
-      #   5. task_dag_node_spawning_thread.sql.go — entire file new (F1.5 CTE)
-      #   5b. task_dag_node_lookup.sql.go — entire file new (ADR-017 §2.2 reverse lookup)
-      #   6. task_dag_run.sql.go                — AppendTaskDagRunEvent + jsonb_build_array
-      #                                            及 FinalizeTaskDagRunIfAllNodesTerminal (F1.5 + F6.2 + R1 P0 #1)
-      #   7. db_accessor.go                     — QueriesDB(*Queries) DBTX bypass (F4.1)
-      #
+      - "sql/schema_sqlc_patch.sql"
+      # sql/schema_sqlc_patch.sql mirrors parseable column shapes from
+      # idempotent DO-block migrations that sqlc v1.30 cannot statically apply.
+      # It is not a runtime migration; generated output must stay reproducible
+      # via `make sqlc-generate` and checked by `make sqlc-verify`.
       # Migrations intentionally NOT in the schema list above:
       #   - 0076 (one_running_run_per_dag): DO $$...$$ 预检块（重复 running run
       #     RAISE EXCEPTION），sqlc v1.30 静态解析不能识别，会报。CREATE UNIQUE
@@ -57,8 +39,7 @@ sql:
       #   - 0082 (trigger_source_check): DO $$...$$ 包裹 ALTER TABLE ADD CHECK
       #     的幂等保护，同上原因 sqlc v1.30 解析不了。CHECK 约束不影响 query plan。
       #   - 0083 (spawning_thread_id): 同样 DO $$...$$ 幂等保护。spawning_thread_id
-      #     列需要 Go 层 model 识别，所以 models.go 以及几个 node 生成文件手维了
-      #     SpawningThreadID 字段（上表条目 1-5）。
+      #     的列 shape 已由 sql/schema_sqlc_patch.sql 提供给 sqlc。
       #
       # Long-term fix tracked in dag改造实施计划.md follow-up: either upgrade sqlc
       # to v1.31+ (handles DO blocks), or split idempotent DO guards into wrapper
@@ -71,4 +52,4 @@ sql:
         sql_package: "pgx/v5"
         emit_json_tags: true
         emit_empty_slices: true
-        omit_unused_structs: true
+        omit_unused_structs: false

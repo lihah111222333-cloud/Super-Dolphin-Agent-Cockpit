@@ -5,7 +5,9 @@ import (
 	"errors"
 	"log/slog"
 
+	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/fxadapter"
 	orchcron "github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/orchestration/cron"
+	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/sqlc"
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	platformrunner "github.com/anthropic-ai/super-agent-v3/internal/platform/runner"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -57,18 +59,18 @@ func (s scheduledDAGStarter) StartDAG(ctx context.Context, req orchcron.Schedule
 	return err
 }
 
-func provideSQLDAGScheduleStore(pool *pgxpool.Pool) (orchcron.DAGScheduleStore, error) {
-	if pool == nil {
-		return nil, errors.New("mcp-orch: scheduled dag cron requires db pool")
+func provideSQLDAGScheduleStore(q *sqlc.Queries) (orchcron.DAGScheduleStore, error) {
+	if q == nil {
+		return nil, errors.New("mcp-orch: scheduled dag cron requires sqlc queries")
 	}
-	return orchcron.NewSQLDAGScheduleStore(pool)
+	return fxadapter.NewSQLDAGScheduleStore(q)
 }
 
 func providePGAdvisoryLocker(pool *pgxpool.Pool) (orchcron.AdvisoryLocker, error) {
 	if pool == nil {
 		return nil, errors.New("mcp-orch: scheduled dag cron advisory lock requires db pool")
 	}
-	return orchcron.NewPGAdvisoryLocker(pool, scheduledDAGCronAdvisoryLockID)
+	return fxadapter.NewPGAdvisoryLocker(pool, scheduledDAGCronAdvisoryLockID)
 }
 
 func provideScheduledDAGCronRunner(

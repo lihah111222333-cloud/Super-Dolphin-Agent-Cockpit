@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/sqlc"
+	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/sqlctx"
 )
 
 // Phase 3.4 / 3B · CompleteNode 自动 enqueue 下游：节点完成后查 DAG 拓扑找
@@ -31,8 +32,8 @@ func (s *store) CompleteNodeAndScheduleDownstream(ctx context.Context, input Com
 		return nil, err
 	}
 	var result CompleteNodeWithDownstreamResult
-	err := sqlc.WithTxOrReuse(ctx, s.q, func(txq *sqlc.Queries) error {
-		txStore := &store{q: txq}
+	err := sqlctx.WithTxOrReuse(ctx, s.db, s.q, func(txq *sqlc.Queries, txdb sqlc.DBTX) error {
+		txStore := &store{db: txdb, q: txq}
 		node, completeErr := txStore.CompleteNode(ctx, input)
 		if completeErr != nil {
 			return completeErr
@@ -82,7 +83,7 @@ func maybeFinalizeRunTx(ctx context.Context, txStore *store, dagKey string, runI
 	}
 	rows, err := txStore.q.FinalizeTaskDagRunIfAllNodesTerminal(ctx, sqlc.FinalizeTaskDagRunIfAllNodesTerminalParams{
 		DagKey: dagKey,
-		RunID:  runID,
+		ID:     runID,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("finalize run for dag %s: %w", dagKey, err)
@@ -143,7 +144,7 @@ func scheduleDownstreamWakeupsTx(ctx context.Context, txStore *store, completed 
 		rowsAffected, promoteErr := txStore.q.PromoteSingleNodePendingToReady(ctx, sqlc.PromoteSingleNodePendingToReadyParams{
 			DagKey:  cand.DagKey,
 			NodeKey: cand.NodeKey,
-			RunID:   completedRunID,
+			RunID:   int64Ptr(completedRunID),
 		})
 		if promoteErr != nil {
 			return nil, nil, fmt.Errorf("promote %s/%s pending→ready: %w", cand.DagKey, cand.NodeKey, promoteErr)

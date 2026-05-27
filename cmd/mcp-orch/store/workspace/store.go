@@ -4,18 +4,20 @@ import (
 	"context"
 
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/sqlc"
+	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/sqlctx"
 	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
 )
 
 type store struct {
-	q *sqlc.Queries
+	db sqlc.DBTX
+	q  *sqlc.Queries
 }
 
-func NewStore(q *sqlc.Queries) Store { return &store{q: q} }
+func NewStore(db sqlc.DBTX) Store { return &store{db: db, q: sqlc.New(db)} }
 
 func (s *store) WithTx(ctx context.Context, fn func(txStore Store) error) error {
-	err := sqlc.WithTx(ctx, s.q, func(txq *sqlc.Queries) error {
-		return fn(&store{q: txq})
+	err := sqlctx.WithTx(ctx, s.db, s.q, func(txq *sqlc.Queries, tx sqlc.DBTX) error {
+		return fn(&store{db: tx, q: txq})
 	})
 	return wrapWorkspaceError(err, "with_tx", "workspace")
 }

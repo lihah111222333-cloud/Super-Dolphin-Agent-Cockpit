@@ -7,7 +7,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/sqlc"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 )
@@ -19,7 +18,7 @@ func TestListDAGsReadsScheduleColumns(t *testing.T) {
 	db := &captureListDAGsDB{
 		rows: [][]any{scheduleTaskDAGValues(now)},
 	}
-	store := NewStore(sqlc.New(db))
+	store := NewStore(db)
 
 	got, err := store.ListDAGs(context.Background(), ListDAGsFilter{Status: "ready", Keyword: "brief", Limit: 10})
 	if err != nil {
@@ -42,7 +41,7 @@ func TestGetDAGReadsScheduleColumns(t *testing.T) {
 	t.Parallel()
 
 	db := &captureListDAGsDB{row: scheduleTaskDAGValues(time.Unix(1700000000, 0).UTC())}
-	store := NewStore(sqlc.New(db))
+	store := NewStore(db)
 
 	got, err := store.GetDAG(context.Background(), "daily-brief")
 	if err != nil {
@@ -58,7 +57,7 @@ func TestGetDAGForUpdateReadsScheduleColumns(t *testing.T) {
 	t.Parallel()
 
 	db := &captureListDAGsDB{row: scheduleTaskDAGValues(time.Unix(1700000000, 0).UTC())}
-	store := NewStore(sqlc.New(db)).(DAGLockStore)
+	store := NewStore(db).(DAGLockStore)
 
 	got, err := store.GetDAGForUpdate(context.Background(), "daily-brief")
 	if err != nil {
@@ -74,7 +73,7 @@ func TestUpsertDAGReturnsScheduleColumns(t *testing.T) {
 	t.Parallel()
 
 	db := &captureListDAGsDB{row: scheduleTaskDAGValues(time.Unix(1700000000, 0).UTC())}
-	store := NewStore(sqlc.New(db))
+	store := NewStore(db)
 
 	got, err := store.UpsertDAG(context.Background(), DAG{
 		DagKey:      "daily-brief",
@@ -95,9 +94,9 @@ func TestUpsertDAGReturnsScheduleColumns(t *testing.T) {
 
 func scheduleTaskDAGValues(now time.Time) []any {
 	return []any{
-		int64(7), "daily-brief", int64(42), "Daily Brief", "Morning report", "ready", "agent-1", []byte(`{}`),
-		"scheduled", "0 8 * * *", timestamptzValue(now.Add(time.Hour)), timestamptzValue(now), timestamptzValue(time.Time{}),
-		timestamptzValue(now), timestamptzValue(now),
+		int64(7), "daily-brief", "Daily Brief", "Morning report", "ready", "agent-1", []byte(`{}`),
+		timestamptzValue(now), timestamptzValue(time.Time{}), timestamptzValue(now), timestamptzValue(now),
+		"scheduled", "owner-1", "0 8 * * *", timestamptzValue(now.Add(time.Hour)), int64(42),
 	}
 }
 

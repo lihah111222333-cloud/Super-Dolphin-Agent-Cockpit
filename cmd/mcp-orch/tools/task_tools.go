@@ -19,6 +19,7 @@ import (
 // builder (EnumStringSchema) and the handler-layer requireEnum fallback.
 // Any change to one must update the other; tests cover the wiring.
 var (
+	listDAGsStatusEnum   = []string{"draft", "active", "ready", "running", "archived"}
 	listRunsStatusEnum   = []string{"running", "succeeded", "failed", "cancelled"}
 	startDAGTriggerEnum  = []string{"manual", "auto", "scheduled", "external"}
 	updateNodeStatusEnum = []string{"pending", "running", "done", "failed"}
@@ -118,11 +119,11 @@ func HandleGetDAG(svc contract.OrchestrationService) ToolHandler {
 
 func HandleListDAGs(svc contract.OrchestrationService) ToolHandler {
 	return makeHandler(svc, "orchestration service", func(ctx context.Context, in ListDAGsInput) (any, error) {
-		dags, err := svc.ListDAGs(ctx, contract.ListDAGsFilter{
-			Status:  strings.TrimSpace(in.Status),
-			Keyword: strings.TrimSpace(in.Keyword),
-			Limit:   in.Limit,
-		})
+		filter, err := listDAGsFilterFromInput(in)
+		if err != nil {
+			return nil, err
+		}
+		dags, err := svc.ListDAGs(ctx, filter)
 		if err != nil {
 			return nil, err
 		}
@@ -260,6 +261,22 @@ func HandleListRuns(svc contract.OrchestrationService) ToolHandler {
 		}
 		return svc.ListRuns(ctx, req)
 	})
+}
+
+func listDAGsFilterFromInput(in ListDAGsInput) (contract.ListDAGsFilter, error) {
+	status := strings.TrimSpace(in.Status)
+	if status != "" {
+		validated, err := requireEnum(status, "status", listDAGsStatusEnum)
+		if err != nil {
+			return contract.ListDAGsFilter{}, err
+		}
+		status = validated
+	}
+	return contract.ListDAGsFilter{
+		Status:  status,
+		Keyword: strings.TrimSpace(in.Keyword),
+		Limit:   in.Limit,
+	}, nil
 }
 
 // listRunsRequestFromInput 把 ListRunsInput 校验为 contract.ListRunsRequest。
@@ -533,7 +550,7 @@ func taskToolDefinitions(svc contract.OrchestrationService) []ToolDefinition {
 		}, "dag_key"), HandleDeleteDAG(svc)),
 		// ---- reads ----
 		defineTool("task_list_dags", "List DAGs for console views and final_output retention checks.", ObjectSchema(map[string]Schema{
-			"status":  StringSchema("Optional status filter."),
+			"status":  EnumStringSchema("Optional status filter.", listDAGsStatusEnum...),
 			"keyword": StringSchema("Optional keyword filter."),
 			"limit":   IntegerSchema("Optional max rows; defaults to service limit when 0/omitted."),
 		}), HandleListDAGs(svc)),

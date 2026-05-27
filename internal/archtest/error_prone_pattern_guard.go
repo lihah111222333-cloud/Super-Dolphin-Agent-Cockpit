@@ -162,7 +162,7 @@ func (g *errorPronePatternGuard) guardAtomicConfigPatchPattern() {
 
 	const storeRel = "cmd/mcp-orch/store/taskdag/store_wakeup.go"
 	g.requireContains(storeRel, "multi-resource retry preparation must combine retry state and config CAS in one transaction",
-		"sqlc.WithTxOrReuse",
+		"sqlctx.WithTxOrReuse",
 		"RetryTaskDagWakeup",
 		"PatchTaskDagNodeConfigIfUnchanged",
 		"wrapTaskDAGError(err, \"retry_with_config_patch\", \"task_dag_wakeup\")",

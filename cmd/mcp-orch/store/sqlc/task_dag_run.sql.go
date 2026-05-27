@@ -11,6 +11,213 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const appendTaskDagRunEvent = `-- name: AppendTaskDagRunEvent :one
+UPDATE task_dag_runs
+SET events     = CASE
+        WHEN jsonb_array_length(events || jsonb_build_array($2::jsonb)) <= 50
+            THEN events || jsonb_build_array($2::jsonb)
+        ELSE COALESCE((
+            SELECT jsonb_agg(elem ORDER BY ord)
+            FROM jsonb_array_elements(events || jsonb_build_array($2::jsonb)) WITH ORDINALITY AS t(elem, ord)
+            WHERE ord > jsonb_array_length(events || jsonb_build_array($2::jsonb)) - 50
+        ), '[]'::jsonb)
+    END,
+    updated_at = NOW()
+WHERE dag_key = $1
+  AND status = 'running'
+  AND id = $3
+RETURNING run_key
+`
+
+type AppendTaskDagRunEventParams struct {
+	DagKey  string `json:"dag_key"`
+	Column2 []byte `json:"column_2"`
+	ID      int64  `json:"id"`
+}
+
+// F1.5: 把一个 JSON event append 到 task_dag_runs.events 数组。
+//
+// 场景：AgentExecutor spawn 子 agent 时，如果是重试（旧 spawning_thread_id
+// 已存在），把 {kind: "node_spawn", node_key, prev_thread_id, thread_id, ts}
+// 落到 events 数组保留历史链。详 ADR-009 §3 / §5 Q4。
+//
+// 当前实现：jsonb_build_array($2::jsonb) 包成单元素数组再 || 拼接，强制
+// 走 PG jsonb 的「array append」语义；events 列默认 '[]'::jsonb（参见
+// migration 0074）。然后通过 CASE 包一层环形截断（仅保留最近 50 条）。
+//
+// 工艺修复（R1 P0 #1，W3）：早期写法 `events || $2::jsonb` 看起来是 array append，
+// 但当 bind 端误传 object（kind/node_key 等顶层 JSON object）时 PG `||` 走
+// 「object concat」(merge by key) 而非 append，导致历史链静默被合并/覆盖。
+// jsonb_build_array() 强制把右操作数包成数组，无论 bind 类型都保证 array
+// append 语义；同 store 层调用方也保持原 payload（单条 object），不需双重数组。
+//
+// 环形截断（R1 P1 #5 + R2 P0 #2，W2）：events 列若不限长会无界增长，单条 run 高频重试
+// 时尾部能膨胀到几十 KB jsonb 数据，拖累 task_get_run 列表 / Detail 渲染。本 query
+// 在 append 后保留**最近 50 条**事件——CASE 内 jsonb_array_length 判断 + 截尾片段
+// 走 jsonb_array_elements WITH ORDINALITY 重组。50 是经验值，覆盖典型 retry 链
+// （单节点 7 次重试 × 多节点）仍留富余；阈值需要调整时改 50 字面常量即可。
+//
+// F6.5 后同 dag_key 可以同时有多个 running run；调用方必须传 run_id，
+// 0 行返回（run 不存在/非 running）调用方静默吞，不视为错误。
+func (q *Queries) AppendTaskDagRunEvent(ctx context.Context, arg AppendTaskDagRunEventParams) (string, error) {
+	row := q.db.QueryRow(ctx, appendTaskDagRunEvent, arg.DagKey, arg.Column2, arg.ID)
+	var run_key string
+	err := row.Scan(&run_key)
+	return run_key, err
+}
+
+const cancelTaskDagRun = `-- name: CancelTaskDagRun :one
+UPDATE task_dag_runs
+SET status      = 'cancelled',
+    finished_at = NOW(),
+    updated_at  = NOW(),
+    events      = CASE
+        WHEN jsonb_array_length(events || jsonb_build_array($4::jsonb)) <= 50
+            THEN events || jsonb_build_array($4::jsonb)
+        ELSE COALESCE((
+            SELECT jsonb_agg(elem ORDER BY ord)
+            FROM jsonb_array_elements(events || jsonb_build_array($4::jsonb)) WITH ORDINALITY AS t(elem, ord)
+            WHERE ord > jsonb_array_length(events || jsonb_build_array($4::jsonb)) - 50
+        ), '[]'::jsonb)
+    END
+WHERE dag_key = $1
+  AND id = $2
+  AND run_key = $3
+  AND status = 'running'
+RETURNING id, run_key, dag_key, dag_version_snapshot, trigger_source, status, started_at, finished_at, events, budget_used, budget_limit, metadata, created_at, updated_at
+`
+
+type CancelTaskDagRunParams struct {
+	DagKey  string `json:"dag_key"`
+	ID      int64  `json:"id"`
+	RunKey  string `json:"run_key"`
+	Column4 []byte `json:"column_4"`
+}
+
+func (q *Queries) CancelTaskDagRun(ctx context.Context, arg CancelTaskDagRunParams) (TaskDagRun, error) {
+	row := q.db.QueryRow(ctx, cancelTaskDagRun,
+		arg.DagKey,
+		arg.ID,
+		arg.RunKey,
+		arg.Column4,
+	)
+	var i TaskDagRun
+	err := row.Scan(
+		&i.ID,
+		&i.RunKey,
+		&i.DagKey,
+		&i.DagVersionSnapshot,
+		&i.TriggerSource,
+		&i.Status,
+		&i.StartedAt,
+		&i.FinishedAt,
+		&i.Events,
+		&i.BudgetUsed,
+		&i.BudgetLimit,
+		&i.Metadata,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const cancelTaskDagRunNodes = `-- name: CancelTaskDagRunNodes :many
+UPDATE task_dag_nodes
+SET status = 'cancelled',
+    result = jsonb_build_object('kind', 'run_cancelled', 'reason', $3::text),
+    active_turn_id = NULL,
+    active_wakeup_id = NULL,
+    finished_at = COALESCE(finished_at, NOW()),
+    last_event_at = NOW(),
+    updated_at = NOW()
+WHERE dag_key = $1
+  AND run_id = $2::bigint
+  AND status NOT IN ('done','failed','cancelled','skipped')
+RETURNING spawning_thread_id
+`
+
+type CancelTaskDagRunNodesParams struct {
+	DagKey  string `json:"dag_key"`
+	Column2 int64  `json:"column_2"`
+	Column3 string `json:"column_3"`
+}
+
+func (q *Queries) CancelTaskDagRunNodes(ctx context.Context, arg CancelTaskDagRunNodesParams) ([]pgtype.Text, error) {
+	rows, err := q.db.Query(ctx, cancelTaskDagRunNodes, arg.DagKey, arg.Column2, arg.Column3)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []pgtype.Text{}
+	for rows.Next() {
+		var spawning_thread_id pgtype.Text
+		if err := rows.Scan(&spawning_thread_id); err != nil {
+			return nil, err
+		}
+		items = append(items, spawning_thread_id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const cancelTaskDagRunWakeups = `-- name: CancelTaskDagRunWakeups :execrows
+UPDATE task_dag_wakeups
+SET status = 'failed',
+    last_error = $3,
+    claimed_at = NULL,
+    claimed_by = '',
+    lease_expires_at = NULL,
+    updated_at = NOW()
+WHERE dag_key = $1
+  AND run_id = $2
+  AND status IN ('pending','dispatching','sent')
+`
+
+type CancelTaskDagRunWakeupsParams struct {
+	DagKey    string      `json:"dag_key"`
+	RunID     pgtype.Int8 `json:"run_id"`
+	LastError string      `json:"last_error"`
+}
+
+func (q *Queries) CancelTaskDagRunWakeups(ctx context.Context, arg CancelTaskDagRunWakeupsParams) (int64, error) {
+	result, err := q.db.Exec(ctx, cancelTaskDagRunWakeups, arg.DagKey, arg.RunID, arg.LastError)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const cloneTaskDagNodesForRun = `-- name: CloneTaskDagNodesForRun :execrows
+INSERT INTO task_dag_nodes (
+  dag_key, node_key, title, node_type, assigned_to, depends_on,
+  status, command_ref, config, result, run_id, reads, writes
+)
+SELECT
+  n.dag_key, n.node_key, n.title, n.node_type, n.assigned_to, n.depends_on,
+  'pending', n.command_ref, n.config, NULL, $2, n.reads, n.writes
+FROM task_dag_nodes n
+WHERE n.dag_key = $1
+  AND n.run_id IS NULL
+ON CONFLICT (dag_key, run_id, node_key) WHERE run_id IS NOT NULL DO NOTHING
+`
+
+type CloneTaskDagNodesForRunParams struct {
+	DagKey string      `json:"dag_key"`
+	RunID  pgtype.Int8 `json:"run_id"`
+}
+
+// StartDAG 调用：把 DAG 模板节点(run_id IS NULL)复制为当前 run 的 runtime
+// 节点。status/result/active fields 重置为执行实例自己的生命周期；模板行不变。
+func (q *Queries) CloneTaskDagNodesForRun(ctx context.Context, arg CloneTaskDagNodesForRunParams) (int64, error) {
+	result, err := q.db.Exec(ctx, cloneTaskDagNodesForRun, arg.DagKey, arg.RunID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const countActiveTaskDagRunsByKey = `-- name: CountActiveTaskDagRunsByKey :one
 SELECT COUNT(*)::bigint AS active
 FROM task_dag_runs
@@ -42,7 +249,7 @@ type CreateTaskDagRunParams struct {
 	BudgetLimit        pgtype.Int8 `json:"budget_limit"`
 }
 
-// DAG v2 T1.2-mid: task_dag_runs CRUD + 根节点 promote 入口。
+// DAG v2 F6.5: task_dag_runs CRUD + runtime node snapshot 入口。
 // 蓝图 v2 §5 决策 C 混合：每次 StartDAG 创建一条 run；T1.2-mid 阶段单 DAG
 // 单 run，多并发 reject。F6.5 升级为 multi-run + 节点复制带 run_id。
 // StartDAG 调用：插入新 run；run_key 由 service 层生成（保证 UNIQUE）。
@@ -77,148 +284,6 @@ func (q *Queries) CreateTaskDagRun(ctx context.Context, arg CreateTaskDagRunPara
 	return i, err
 }
 
-const getTaskDagRun = `-- name: GetTaskDagRun :one
-SELECT id, run_key, dag_key, dag_version_snapshot, trigger_source, status, started_at, finished_at, events, budget_used, budget_limit, metadata, created_at, updated_at
-FROM task_dag_runs
-WHERE run_key = $1
-`
-
-func (q *Queries) GetTaskDagRun(ctx context.Context, runKey string) (TaskDagRun, error) {
-	row := q.db.QueryRow(ctx, getTaskDagRun, runKey)
-	var i TaskDagRun
-	err := row.Scan(
-		&i.ID,
-		&i.RunKey,
-		&i.DagKey,
-		&i.DagVersionSnapshot,
-		&i.TriggerSource,
-		&i.Status,
-		&i.StartedAt,
-		&i.FinishedAt,
-		&i.Events,
-		&i.BudgetUsed,
-		&i.BudgetLimit,
-		&i.Metadata,
-		&i.CreatedAt,
-		&i.UpdatedAt,
-	)
-	return i, err
-}
-
-const listTaskDagRunsByKey = `-- name: ListTaskDagRunsByKey :many
-SELECT id, run_key, dag_key, dag_version_snapshot, trigger_source, status, started_at, finished_at, events, budget_used, budget_limit, metadata, created_at, updated_at
-FROM task_dag_runs
-WHERE dag_key = $1
-  AND ($2::text = '' OR status = $2)
-ORDER BY started_at DESC, id DESC
-LIMIT $3
-`
-
-type ListTaskDagRunsByKeyParams struct {
-	DagKey  string `json:"dag_key"`
-	Column2 string `json:"column_2"`
-	Limit   int32  `json:"limit"`
-}
-
-// 按 dag_key + 可选 status 过滤；空 status 表示全部状态。
-// 与 ListTaskDags 风格一致：$2=” 当作未过滤。
-func (q *Queries) ListTaskDagRunsByKey(ctx context.Context, arg ListTaskDagRunsByKeyParams) ([]TaskDagRun, error) {
-	rows, err := q.db.Query(ctx, listTaskDagRunsByKey, arg.DagKey, arg.Column2, arg.Limit)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	items := []TaskDagRun{}
-	for rows.Next() {
-		var i TaskDagRun
-		if err := rows.Scan(
-			&i.ID,
-			&i.RunKey,
-			&i.DagKey,
-			&i.DagVersionSnapshot,
-			&i.TriggerSource,
-			&i.Status,
-			&i.StartedAt,
-			&i.FinishedAt,
-			&i.Events,
-			&i.BudgetUsed,
-			&i.BudgetLimit,
-			&i.Metadata,
-			&i.CreatedAt,
-			&i.UpdatedAt,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
-const promoteRootNodesToReady = `-- name: PromoteRootNodesToReady :execrows
-UPDATE task_dag_nodes
-SET status = 'ready',
-    updated_at = NOW()
-WHERE dag_key = $1
-  AND run_id = $2
-  AND status = 'pending'
-  AND jsonb_array_length(depends_on) = 0
-`
-
-const cloneTaskDagNodesForRun = `-- name: CloneTaskDagNodesForRun :execrows
-INSERT INTO task_dag_nodes (
-  dag_key, node_key, title, node_type, assigned_to, depends_on,
-  status, command_ref, config, result, run_id, reads, writes
-)
-SELECT
-  n.dag_key, n.node_key, n.title, n.node_type, n.assigned_to, n.depends_on,
-  'pending', n.command_ref, n.config, NULL, $2, n.reads, n.writes
-FROM task_dag_nodes n
-WHERE n.dag_key = $1
-  AND n.run_id IS NULL
-ON CONFLICT (dag_key, run_id, node_key) WHERE run_id IS NOT NULL DO NOTHING
-`
-
-type CloneTaskDagNodesForRunParams struct {
-	DagKey string `json:"dag_key"`
-	RunID  int64  `json:"run_id"`
-}
-
-func (q *Queries) CloneTaskDagNodesForRun(ctx context.Context, arg CloneTaskDagNodesForRunParams) (int64, error) {
-	result, err := q.db.Exec(ctx, cloneTaskDagNodesForRun, arg.DagKey, arg.RunID)
-	if err != nil {
-		return 0, err
-	}
-	return result.RowsAffected(), nil
-}
-
-// StartDAG 在新 run 创建后调用：把 dag_key 下所有 depends_on=[] 且 status='pending'
-// 的根节点提升为 'ready'。返回受影响行数（service 层用于断言至少一个根节点被
-// 提升，否则视为 DAG 无可执行起点）。
-// 状态机：pending → ready 是合法转移（见 nodeexec/types.go ValidTransitions）。
-type PromoteRootNodesToReadyParams struct {
-	DagKey string `json:"dag_key"`
-	RunID  int64  `json:"run_id"`
-}
-
-func (q *Queries) PromoteRootNodesToReady(ctx context.Context, arg PromoteRootNodesToReadyParams) (int64, error) {
-	result, err := q.db.Exec(ctx, promoteRootNodesToReady, arg.DagKey, arg.RunID)
-	if err != nil {
-		return 0, err
-	}
-	return result.RowsAffected(), nil
-}
-
-// finalizeTaskDagRunIfAllNodesTerminal 是 F6.2 新增的 :many query。sqlc
-// generate 下次 realignment 会重写本函数；现阶段按 models.go 的 omit_unused_structs
-// 手维额外生代码。SQL 语义详见 cmd/mcp-orch/sql/queries/task_dag_run.sql
-// 同名查询注释。
-//
-// finalizeTaskDagRunIfAllNodesTerminal mirrors the same-named query in
-// cmd/mcp-orch/sql/queries/task_dag_run.sql. Kept hand-maintained for the same
-// reason models.TaskDagRun is hand-maintained (sqlc realignment out of scope).
 const finalizeTaskDagRunIfAllNodesTerminal = `-- name: FinalizeTaskDagRunIfAllNodesTerminal :many
 WITH node_counts AS (
   SELECT
@@ -322,29 +387,44 @@ WHERE r.id = $2
 RETURNING r.run_key, r.status
 `
 
-// FinalizeTaskDagRunIfAllNodesTerminalRow 是 finalize 查询返回的最小投影（run_key + status）。
-// FinalizeTaskDagRunIfAllNodesTerminalRow is the projection returned by the
-// finalize query (run_key + status).
+type FinalizeTaskDagRunIfAllNodesTerminalParams struct {
+	DagKey string `json:"dag_key"`
+	ID     int64  `json:"id"`
+}
+
 type FinalizeTaskDagRunIfAllNodesTerminalRow struct {
 	RunKey string `json:"run_key"`
 	Status string `json:"status"`
 }
 
-// FinalizeTaskDagRunIfAllNodesTerminal 调用 finalize SQL。受影响 0 行时返回空
-// slice（表示节点还未全部终态或 dag_key 下已无 'running' run）；受影响 1 行
-// 时返回包含被推进 run 的 run_key + 新终态 status。
+// F6.5: run 终态判定 — 当 dag_key + run_id 下所有 task_dag_nodes.status 已进入终态
+// (done/failed/cancelled/skipped) 时，按优先级把 status='running' 的 run
+// 推进到对应终态并写 finished_at；否则 0 行受影响、run 保持 'running'。
 //
-// FinalizeTaskDagRunIfAllNodesTerminal runs the finalize SQL. An empty slice
-// means the statement was a no-op (either some nodes are still non-terminal
-// or no 'running' run exists for dag_key). A one-element slice carries the
-// (run_key, status) of the row that was just flipped to its terminal status.
-type FinalizeTaskDagRunIfAllNodesTerminalParams struct {
-	DagKey string `json:"dag_key"`
-	RunID  int64  `json:"run_id"`
-}
-
+// 优先级（含义：什么 status 占主导）：
+//  1. 任意节点 failed                 → run.status = 'failed'
+//  2. 否则任意节点 cancelled          → run.status = 'cancelled'
+//  3. 否则全部 done / skipped         → run.status = 'succeeded'
+//  4. 还有非终态(pending/ready/running/retrying/waiting_human) → final_status=NULL
+//     UPDATE WHERE 子句因此不命中，run 保持 'running'
+//
+// F6.2: When every task_dag_node under dag_key has reached a terminal status
+// (done/failed/cancelled/skipped), flip the matching 'running' run row to the
+// aggregated terminal status with the priority above and set finished_at.
+// Otherwise the statement is a no-op and the run stays 'running'.
+//
+// DAG final-output MVP: if task_dags.metadata.final_node_key points at a node
+// and the aggregate final status is succeeded, promote that node's result into
+// task_dag_runs.metadata.final_output. Large payloads should keep using the
+// existing {"sharedfile":{"path":"..."}} node.result envelope; the run metadata
+// stores only the sharedfile path as the user-facing final output pointer.
+//
+// 与 0080 status CHECK 对齐：枚举锁定 running|succeeded|failed|cancelled，
+// final_status 取值都在白名单内、不会触发 CHECK 违例。
+//
+// F6.5 multi-run：WHERE r.id=$2 AND r.dag_key=$1 精确定位目标 run。
 func (q *Queries) FinalizeTaskDagRunIfAllNodesTerminal(ctx context.Context, arg FinalizeTaskDagRunIfAllNodesTerminalParams) ([]FinalizeTaskDagRunIfAllNodesTerminalRow, error) {
-	rows, err := q.db.Query(ctx, finalizeTaskDagRunIfAllNodesTerminal, arg.DagKey, arg.RunID)
+	rows, err := q.db.Query(ctx, finalizeTaskDagRunIfAllNodesTerminal, arg.DagKey, arg.ID)
 	if err != nil {
 		return nil, err
 	}
@@ -363,104 +443,14 @@ func (q *Queries) FinalizeTaskDagRunIfAllNodesTerminal(ctx context.Context, arg 
 	return items, nil
 }
 
-const cancelTaskDagRunNodes = `-- name: CancelTaskDagRunNodes :many
-UPDATE task_dag_nodes
-SET status = 'cancelled',
-    result = jsonb_build_object('kind', 'run_cancelled', 'reason', $3::text),
-    active_turn_id = NULL,
-    active_wakeup_id = NULL,
-    finished_at = COALESCE(finished_at, NOW()),
-    last_event_at = NOW(),
-    updated_at = NOW()
-WHERE dag_key = $1
-  AND run_id = $2::bigint
-  AND status NOT IN ('done','failed','cancelled','skipped')
-RETURNING spawning_thread_id
+const getTaskDagRun = `-- name: GetTaskDagRun :one
+SELECT id, run_key, dag_key, dag_version_snapshot, trigger_source, status, started_at, finished_at, events, budget_used, budget_limit, metadata, created_at, updated_at
+FROM task_dag_runs
+WHERE run_key = $1
 `
 
-type CancelTaskDagRunNodesParams struct {
-	DagKey  string `json:"dag_key"`
-	RunID   int64  `json:"run_id"`
-	Column3 string `json:"column_3"`
-}
-
-func (q *Queries) CancelTaskDagRunNodes(ctx context.Context, arg CancelTaskDagRunNodesParams) ([]pgtype.Text, error) {
-	rows, err := q.db.Query(ctx, cancelTaskDagRunNodes, arg.DagKey, arg.RunID, arg.Column3)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	items := []pgtype.Text{}
-	for rows.Next() {
-		var spawningThreadID pgtype.Text
-		if err := rows.Scan(&spawningThreadID); err != nil {
-			return nil, err
-		}
-		items = append(items, spawningThreadID)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
-const cancelTaskDagRunWakeups = `-- name: CancelTaskDagRunWakeups :execrows
-UPDATE task_dag_wakeups
-SET status = 'failed',
-    last_error = $3,
-    claimed_at = NULL,
-    claimed_by = '',
-    lease_expires_at = NULL,
-    updated_at = NOW()
-WHERE dag_key = $1
-  AND run_id = $2
-  AND status IN ('pending','dispatching','sent')
-`
-
-type CancelTaskDagRunWakeupsParams struct {
-	DagKey    string `json:"dag_key"`
-	RunID     int64  `json:"run_id"`
-	LastError string `json:"last_error"`
-}
-
-func (q *Queries) CancelTaskDagRunWakeups(ctx context.Context, arg CancelTaskDagRunWakeupsParams) (int64, error) {
-	result, err := q.db.Exec(ctx, cancelTaskDagRunWakeups, arg.DagKey, arg.RunID, arg.LastError)
-	if err != nil {
-		return 0, err
-	}
-	return result.RowsAffected(), nil
-}
-
-const cancelTaskDagRun = `-- name: CancelTaskDagRun :one
-UPDATE task_dag_runs
-SET status      = 'cancelled',
-    finished_at = NOW(),
-    updated_at  = NOW(),
-    events      = CASE
-        WHEN jsonb_array_length(events || jsonb_build_array($4::jsonb)) <= 50
-            THEN events || jsonb_build_array($4::jsonb)
-        ELSE COALESCE((
-            SELECT jsonb_agg(elem ORDER BY ord)
-            FROM jsonb_array_elements(events || jsonb_build_array($4::jsonb)) WITH ORDINALITY AS t(elem, ord)
-            WHERE ord > jsonb_array_length(events || jsonb_build_array($4::jsonb)) - 50
-        ), '[]'::jsonb)
-    END
-WHERE dag_key = $1
-  AND id = $2
-  AND run_key = $3
-  AND status = 'running'
-RETURNING id, run_key, dag_key, dag_version_snapshot, trigger_source, status, started_at, finished_at, events, budget_used, budget_limit, metadata, created_at, updated_at
-`
-
-type CancelTaskDagRunParams struct {
-	DagKey  string `json:"dag_key"`
-	ID      int64  `json:"id"`
-	RunKey  string `json:"run_key"`
-	Column4 []byte `json:"column_4"`
-}
-
-func (q *Queries) CancelTaskDagRun(ctx context.Context, arg CancelTaskDagRunParams) (TaskDagRun, error) {
-	row := q.db.QueryRow(ctx, cancelTaskDagRun, arg.DagKey, arg.ID, arg.RunKey, arg.Column4)
+func (q *Queries) GetTaskDagRun(ctx context.Context, runKey string) (TaskDagRun, error) {
+	row := q.db.QueryRow(ctx, getTaskDagRun, runKey)
 	var i TaskDagRun
 	err := row.Scan(
 		&i.ID,
@@ -481,43 +471,81 @@ func (q *Queries) CancelTaskDagRun(ctx context.Context, arg CancelTaskDagRunPara
 	return i, err
 }
 
-const appendTaskDagRunEvent = `-- name: AppendTaskDagRunEvent :one
-UPDATE task_dag_runs
-SET events     = CASE
-        WHEN jsonb_array_length(events || jsonb_build_array($2::jsonb)) <= 50
-            THEN events || jsonb_build_array($2::jsonb)
-        ELSE COALESCE((
-            SELECT jsonb_agg(elem ORDER BY ord)
-            FROM jsonb_array_elements(events || jsonb_build_array($2::jsonb)) WITH ORDINALITY AS t(elem, ord)
-            WHERE ord > jsonb_array_length(events || jsonb_build_array($2::jsonb)) - 50
-        ), '[]'::jsonb)
-    END,
-    updated_at = NOW()
+const listTaskDagRunsByKey = `-- name: ListTaskDagRunsByKey :many
+SELECT id, run_key, dag_key, dag_version_snapshot, trigger_source, status, started_at, finished_at, events, budget_used, budget_limit, metadata, created_at, updated_at
+FROM task_dag_runs
 WHERE dag_key = $1
-  AND status = 'running'
-  AND id = $3
-RETURNING run_key
+  AND ($2::text = '' OR status = $2)
+ORDER BY started_at DESC, id DESC
+LIMIT $3
 `
 
-// AppendTaskDagRunEventParams binds (dag_key, event_json) for the events
-// jsonb array append in task_dag_runs. The event payload should be a single
-// JSON object; the SQL wraps it with jsonb_build_array() so the || operator
-// always runs array-append semantics, even when bind would otherwise feed an
-// object into || (which PG treats as object-merge, silently losing history).
-// R1 P0 #1 工艺修复：see queries/task_dag_run.sql for the long-form rationale.
-type AppendTaskDagRunEventParams struct {
+type ListTaskDagRunsByKeyParams struct {
 	DagKey  string `json:"dag_key"`
-	Column2 []byte `json:"column_2"`
-	RunID   int64  `json:"run_id"`
+	Column2 string `json:"column_2"`
+	Limit   int32  `json:"limit"`
 }
 
-// AppendTaskDagRunEvent appends a JSON event to the running run's events
-// jsonb array. Returns pgx.ErrNoRows when the targeted run is missing or no
-// longer running (callers may treat that as a soft miss; the store layer wraps
-// with platformdb.IsNotFound).
-func (q *Queries) AppendTaskDagRunEvent(ctx context.Context, arg AppendTaskDagRunEventParams) (string, error) {
-	row := q.db.QueryRow(ctx, appendTaskDagRunEvent, arg.DagKey, arg.Column2, arg.RunID)
-	var runKey string
-	err := row.Scan(&runKey)
-	return runKey, err
+// 按 dag_key + 可选 status 过滤；空 status 表示全部状态。
+// 与 ListTaskDags 风格一致：$2=” 当作未过滤。
+func (q *Queries) ListTaskDagRunsByKey(ctx context.Context, arg ListTaskDagRunsByKeyParams) ([]TaskDagRun, error) {
+	rows, err := q.db.Query(ctx, listTaskDagRunsByKey, arg.DagKey, arg.Column2, arg.Limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []TaskDagRun{}
+	for rows.Next() {
+		var i TaskDagRun
+		if err := rows.Scan(
+			&i.ID,
+			&i.RunKey,
+			&i.DagKey,
+			&i.DagVersionSnapshot,
+			&i.TriggerSource,
+			&i.Status,
+			&i.StartedAt,
+			&i.FinishedAt,
+			&i.Events,
+			&i.BudgetUsed,
+			&i.BudgetLimit,
+			&i.Metadata,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const promoteRootNodesToReady = `-- name: PromoteRootNodesToReady :execrows
+UPDATE task_dag_nodes
+SET status = 'ready',
+    updated_at = NOW()
+WHERE dag_key = $1
+  AND run_id = $2::bigint
+  AND status = 'pending'
+  AND jsonb_array_length(depends_on) = 0
+`
+
+type PromoteRootNodesToReadyParams struct {
+	DagKey  string `json:"dag_key"`
+	Column2 int64  `json:"column_2"`
+}
+
+// StartDAG 在新 run 创建后调用：把 dag_key 下所有 depends_on=[] 且 status='pending'
+// 且属于当前 run_id 的根节点提升为 'ready'。返回受影响行数（service 层用于断言至少一个根节点被
+// 提升，否则视为 DAG 无可执行起点）。
+// 状态机：pending → ready 是合法转移（见 nodeexec/types.go ValidTransitions）。
+func (q *Queries) PromoteRootNodesToReady(ctx context.Context, arg PromoteRootNodesToReadyParams) (int64, error) {
+	result, err := q.db.Exec(ctx, promoteRootNodesToReady, arg.DagKey, arg.Column2)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }

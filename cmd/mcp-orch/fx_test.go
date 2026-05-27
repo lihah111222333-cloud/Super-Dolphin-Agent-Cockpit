@@ -130,6 +130,23 @@ func TestBuildOrchestrationOptionsIncludesScheduledDAGCronRunner(t *testing.T) {
 	}
 }
 
+func TestRunIncludesDBMigrationLifecycleModule(t *testing.T) {
+	file, err := parser.ParseFile(token.NewFileSet(), "fx.go", nil, 0)
+	if err != nil {
+		t.Fatalf("parse fx.go: %v", err)
+	}
+	fn := findFuncDecl(file, "run")
+	if fn == nil {
+		t.Fatal("run not found")
+	}
+	if !funcBodyContainsSelector(fn, "platformdb", "Module") {
+		t.Fatal("run must include platformdb.Module so standalone mcp-orch creates and migrates a fresh database")
+	}
+	if funcBodyContainsIdent(fn, "registerPoolLifecycle") {
+		t.Fatal("run must not use the close-only pool lifecycle instead of platformdb.Module")
+	}
+}
+
 func findFuncDecl(file *ast.File, name string) *ast.FuncDecl {
 	for _, decl := range file.Decls {
 		fn, ok := decl.(*ast.FuncDecl)
@@ -138,6 +155,23 @@ func findFuncDecl(file *ast.File, name string) *ast.FuncDecl {
 		}
 	}
 	return nil
+}
+
+func funcBodyContainsSelector(fn *ast.FuncDecl, xName, selName string) bool {
+	found := false
+	ast.Inspect(fn.Body, func(n ast.Node) bool {
+		sel, ok := n.(*ast.SelectorExpr)
+		if !ok || sel.Sel.Name != selName {
+			return true
+		}
+		x, ok := sel.X.(*ast.Ident)
+		if ok && x.Name == xName {
+			found = true
+			return false
+		}
+		return true
+	})
+	return found
 }
 
 func funcBodyContainsIdent(fn *ast.FuncDecl, name string) bool {

@@ -109,20 +109,22 @@ func assignTaskDAGValue(target any, value any) error {
 
 func taskDagWakeupValues(row sqlc.TaskDagWakeup) []any {
 	return []any{
-		row.ID, row.DagKey, row.NodeKey, row.RunID, row.WakeupKind, row.TargetAgentID,
-		append([]byte(nil), row.PromptPayload...), row.IdempotencyKey, row.Status, row.AttemptCount,
-		row.NextRetryAt, row.ClaimedAt, row.ClaimedBy, row.LeaseExpiresAt, row.SentAt,
-		row.BoundTurnID, row.TurnBoundAt, row.LastError, row.CreatedAt, row.UpdatedAt,
+		row.ID, row.DagKey, row.NodeKey, row.WakeupKind, row.TargetAgentID,
+		append([]byte(nil), row.PromptPayload...), row.IdempotencyKey, row.Status,
+		row.AttemptCount, row.NextRetryAt, row.ClaimedAt, row.ClaimedBy,
+		row.LeaseExpiresAt, row.SentAt, row.BoundTurnID, row.TurnBoundAt,
+		row.LastError, row.CreatedAt, row.UpdatedAt, row.RunID,
 	}
 }
 
 func taskDagNodeValues(row sqlc.TaskDagNode) []any {
 	return []any{
-		row.ID, row.DagKey, row.NodeKey, row.RunID, row.Title, row.NodeType, row.AssignedTo,
-		append([]byte(nil), row.DependsOn...), row.Status, row.CommandRef, append([]byte(nil), row.Config...),
-		append([]byte(nil), row.Result...), row.StartedAt, row.FinishedAt, row.CreatedAt, row.UpdatedAt,
-		row.ActiveTurnID, row.ActiveWakeupID, row.LastEventAt,
-		// F1.5 / ADR-009: spawning_thread_id column trailing 18 historical columns.
+		row.ID, row.DagKey, row.NodeKey, row.Title, row.NodeType, row.AssignedTo,
+		append([]byte(nil), row.DependsOn...), row.Status, row.CommandRef,
+		append([]byte(nil), row.Config...), append([]byte(nil), row.Result...),
+		row.StartedAt, row.FinishedAt, row.CreatedAt, row.UpdatedAt,
+		row.ActiveTurnID, row.ActiveWakeupID, row.LastEventAt, row.RunID,
+		append([]byte(nil), row.Reads...), append([]byte(nil), row.Writes...),
 		row.SpawningThreadID,
 	}
 }

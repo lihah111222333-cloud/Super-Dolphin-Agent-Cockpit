@@ -75,7 +75,7 @@ func dispatcherWiringGuardCases() []dispatcherWiringGuardCase {
 				// + serviceAgentLauncher adapter (让 AgentExecutor 用上生产 launcher)
 				"orchestration.NewServiceAgentLauncher",
 				// + NodeSpawnRecorder adapter (让 AgentExecutor 写回 thread_id)
-				"orchestration.NewStoreNodeSpawnRecorder",
+				"fxadapter.NewStoreNodeSpawnRecorder",
 				// dispatcher-wiring closure: sharedfile reader / writer adapter
 				// 供 NodeExecutorRouter 预填 RunContext。缺任一 → dogfood-grade DAG
 				// (from_sharedfiles / outputs.to_sharedfile) 走 dispatcher 路径会

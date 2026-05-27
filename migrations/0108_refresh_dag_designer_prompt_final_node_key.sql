@@ -16,6 +16,7 @@ SET prompt_text = REPLACE(
     updated_by = 'migration:0108'
 WHERE prompt_key = 'main/dag_designer_zh'
   AND manually_edited = FALSE
+  AND created_by IN ('system.seed', 'seed')
   AND prompt_text LIKE '%description?, schedule, nodes?)%';
 
 UPDATE public.prompt_templates
@@ -28,6 +29,7 @@ SET prompt_text = REPLACE(
     updated_by = 'migration:0108'
 WHERE prompt_key = 'main/dag_designer_zh'
   AND manually_edited = FALSE
+  AND created_by IN ('system.seed', 'seed')
   AND prompt_text LIKE '%每个节点的 node_key / title / node_type / depends_on / 关键 config。%';
 
 UPDATE public.prompt_templates
@@ -40,6 +42,7 @@ SET prompt_text = REPLACE(
     updated_by = 'migration:0108'
 WHERE prompt_key = 'main/dag_designer_zh'
   AND manually_edited = FALSE
+  AND created_by IN ('system.seed', 'seed')
   AND prompt_text LIKE '%哪些节点写 sharedfile。%';
 
 UPDATE public.prompt_templates
@@ -55,6 +58,7 @@ SET prompt_text = REPLACE(
     updated_by = 'migration:0108'
 WHERE prompt_key = 'main/dag_designer_zh'
   AND manually_edited = FALSE
+  AND created_by IN ('system.seed', 'seed')
   AND prompt_text LIKE '%6. **trigger 三种**：%';
 
 UPDATE public.prompt_templates
@@ -67,6 +71,7 @@ SET prompt_text = REPLACE(
     updated_by = 'migration:0108'
 WHERE prompt_key = 'main/dag_designer_zh'
   AND manually_edited = FALSE
+  AND created_by IN ('system.seed', 'seed')
   AND prompt_text LIKE '%7. **错误信息一律给到用户**%';
 
 UPDATE public.prompt_templates
@@ -79,6 +84,7 @@ SET prompt_text = REPLACE(
     updated_by = 'migration:0108'
 WHERE prompt_key = 'main/dag_designer_zh'
   AND manually_edited = FALSE
+  AND created_by IN ('system.seed', 'seed')
   AND prompt_text LIKE '%schedule.trigger="scheduled"，然后%';
 
 UPDATE public.prompt_templates
@@ -91,6 +97,7 @@ SET prompt_text = REPLACE(
     updated_by = 'migration:0108'
 WHERE prompt_key = 'main/dag_designer_en'
   AND manually_edited = FALSE
+  AND created_by IN ('system.seed', 'seed')
   AND prompt_text LIKE '%description?, schedule, nodes?)%';
 
 UPDATE public.prompt_templates
@@ -103,6 +110,7 @@ SET prompt_text = REPLACE(
     updated_by = 'migration:0108'
 WHERE prompt_key = 'main/dag_designer_en'
   AND manually_edited = FALSE
+  AND created_by IN ('system.seed', 'seed')
   AND prompt_text LIKE '%key config for each node. Show the text sketch%';
 
 UPDATE public.prompt_templates
@@ -115,6 +123,7 @@ SET prompt_text = REPLACE(
     updated_by = 'migration:0108'
 WHERE prompt_key = 'main/dag_designer_en'
   AND manually_edited = FALSE
+  AND created_by IN ('system.seed', 'seed')
   AND prompt_text LIKE '%which nodes write sharedfile outputs.%';
 
 UPDATE public.prompt_templates
@@ -130,6 +139,7 @@ SET prompt_text = REPLACE(
     updated_by = 'migration:0108'
 WHERE prompt_key = 'main/dag_designer_en'
   AND manually_edited = FALSE
+  AND created_by IN ('system.seed', 'seed')
   AND prompt_text LIKE '%6. **Three triggers**:%';
 
 UPDATE public.prompt_templates
@@ -142,6 +152,7 @@ SET prompt_text = REPLACE(
     updated_by = 'migration:0108'
 WHERE prompt_key = 'main/dag_designer_en'
   AND manually_edited = FALSE
+  AND created_by IN ('system.seed', 'seed')
   AND prompt_text LIKE '%7. **Always surface tool errors to the user**%';
 
 UPDATE public.prompt_templates
@@ -154,4 +165,5 @@ SET prompt_text = REPLACE(
     updated_by = 'migration:0108'
 WHERE prompt_key = 'main/dag_designer_en'
   AND manually_edited = FALSE
+  AND created_by IN ('system.seed', 'seed')
   AND prompt_text LIKE '%once to create it with schedule.trigger="scheduled"%';

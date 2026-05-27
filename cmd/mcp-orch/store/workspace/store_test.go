@@ -48,7 +48,7 @@ func TestCreateWorkspaceRun(t *testing.T) {
 		},
 	}
 
-	store := NewStore(sqlc.New(db))
+	store := NewStore(db)
 	run, err := store.UpsertRun(context.Background(), WorkspaceRun{
 		RunKey:        "run-1",
 		DagKey:        "dag-1",
@@ -97,7 +97,7 @@ func TestGetWorkspaceRun(t *testing.T) {
 		},
 	}
 
-	store := NewStore(sqlc.New(db))
+	store := NewStore(db)
 	run, err := store.GetRun(context.Background(), "run-get")
 	if err != nil {
 		t.Fatalf("GetRun() error = %v", err)
@@ -158,7 +158,7 @@ func TestListWorkspaceRuns(t *testing.T) {
 		},
 	}
 
-	store := NewStore(sqlc.New(db))
+	store := NewStore(db)
 	runs, err := store.ListRuns(context.Background(), ListRunsFilter{
 		Status: "active",
 		DagKey: "dag-list",

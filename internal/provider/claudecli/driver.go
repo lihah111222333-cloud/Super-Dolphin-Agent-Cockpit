@@ -144,6 +144,9 @@ func (d *driver) StartSession(ctx context.Context, req dto.StartSessionRequest) 
 func (d *driver) ResumeSession(ctx context.Context, req dto.ResumeSessionRequest) (contract.Session, error) {
 	snapshot := req.PromptSnapshot
 	rawConfig := resumeSessionRuntimeConfig(req)
+	launchConfig := configFromMap(rawConfig)
+	launchConfig.Effort = strings.TrimSpace(req.Effort)
+	launchConfig.PromptSnapshot = snapshot
 	manifest := manifestbuilder.BuildManifest(dto.ManifestContext{
 		AgentID:  strings.TrimSpace(req.AgentID),
 		ThreadID: strings.TrimSpace(req.ThreadID),
@@ -169,11 +172,8 @@ func (d *driver) ResumeSession(ctx context.Context, req dto.ResumeSessionRequest
 			DeveloperInstructions: strings.TrimSpace(snapshot.DeveloperInstructions),
 			Snapshot:              snapshot,
 		},
-		manifest: manifest,
-		config: cliLaunchConfig{
-			Effort:         strings.TrimSpace(req.Effort),
-			PromptSnapshot: snapshot,
-		},
+		manifest:       manifest,
+		config:         launchConfig,
 		historyDir:     req.ClaudeHome,
 		configOverride: req.ConfigOverride,
 		rawConfig:      rawConfig,

@@ -45,10 +45,16 @@ func TestDAGDesignerPromptRefresh_FinalNodeKeySignature(t *testing.T) {
 		"Final deliverable",
 		"`final_node_key=\"review\"`",
 		"manually_edited = FALSE",
+		"created_by IN ('system.seed', 'seed')",
 		"updated_by = 'migration:0108'",
 	} {
 		if !strings.Contains(content, must) {
 			t.Errorf("migration 0108 missing prompt refresh marker %q", must)
 		}
+	}
+	updates := strings.Count(content, "UPDATE public.prompt_templates")
+	seedGuards := strings.Count(content, "created_by IN ('system.seed', 'seed')")
+	if seedGuards != updates {
+		t.Fatalf("migration 0108 seed guard count = %d, want one per prompt update (%d)", seedGuards, updates)
 	}
 }
