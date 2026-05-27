@@ -39,6 +39,7 @@ vi.mock('./services/api.js', () => ({
 }));
 
 import { DagsPage } from './pages/DagsPage.js';
+import { requireDagStatusEventPayload, useDagStatusEventBridge } from './composables/useDagStatusEventBridge.js';
 
 beforeEach(() => {
   detailMock.open.mockReset();
@@ -59,5 +60,32 @@ describe('DagsPage node status bridge events', () => {
     await nextTick();
 
     expect(detailMock.handleStatusEvent).toHaveBeenCalledWith(payload);
+  });
+
+  it('does not coalesce multiple same-tick node status events', () => {
+    const props = reactive({
+      items: [{ dag_key: 'dag-a', title: 'Dag A' }],
+      emptyText: '暂无 DAG',
+      statusEvent: null,
+    });
+
+    DagsPage.setup(props, { emit: vi.fn() });
+    const first = { dag_key: 'dag-a', node_key: 'draft', new_status: 'running' };
+    const second = { dag_key: 'dag-a', node_key: 'report', new_status: 'done' };
+    props.statusEvent = { seq: 1, payload: first };
+    props.statusEvent = { seq: 2, payload: second };
+
+    expect(detailMock.handleStatusEvent).toHaveBeenNthCalledWith(1, first);
+    expect(detailMock.handleStatusEvent).toHaveBeenNthCalledWith(2, second);
+  });
+
+  it('fails fast when a bridge node status event has no payload', () => {
+    expect(() => requireDagStatusEventPayload({ seq: 1 })).toThrow('dag status event payload is required');
+  });
+
+  it('fails fast when the DAG detail status handler is missing', () => {
+    expect(() => {
+      useDagStatusEventBridge(reactive({ statusEvent: null }), {});
+    }).toThrow('dag status event handler is required');
   });
 });

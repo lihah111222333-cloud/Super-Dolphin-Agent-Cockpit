@@ -169,9 +169,12 @@ function applyMemoryCenterSnapshot(state, snapshot) {
 export function routeDagBridgeEvent(method, eventType, payload, deps) {
   const key = (method || eventType || '').toString().trim().toLowerCase();
   if (key !== 'task/node/statuschanged') return;
-  deps?.recordDagNodeStatusEvent?.(payload);
+  if (!payload || typeof payload !== 'object') throw new Error('dag node status event payload is required');
+  if (typeof deps?.recordDagNodeStatusEvent !== 'function') throw new Error('dag node status event recorder is required');
+  deps.recordDagNodeStatusEvent(payload);
   if (deps?.page?.value === 'dags') {
-    deps.refreshDashboardByPage?.('dags').catch((err) => {
+    if (typeof deps.refreshDashboardByPage !== 'function') throw new Error('dag dashboard refresh handler is required');
+    deps.refreshDashboardByPage('dags').catch((err) => {
       console.warn('refresh dag list after node event failed', err);
     });
   }
