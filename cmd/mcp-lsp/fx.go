@@ -79,6 +79,7 @@ func run() error {
 				}
 				return cfg
 			},
+			platformconfig.New,
 			bootstrap.New,
 			newManager,
 			newToolHandlers,
