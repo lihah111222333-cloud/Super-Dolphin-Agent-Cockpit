@@ -155,6 +155,9 @@ func TestNew_DefaultsLSPConfig(t *testing.T) {
 	if !slices.Contains(cfg.LSP.GoDirectoryFilters, "-docs") {
 		t.Fatalf("LSP gopls directory filters = %#v, missing -docs", cfg.LSP.GoDirectoryFilters)
 	}
+	if !cfg.LSP.DisableInitialWorkspaceBootstrap {
+		t.Fatal("LSP disable initial workspace bootstrap default = false, want true")
+	}
 }
 
 func TestNew_LoadsLSPConfigFromDotEnv(t *testing.T) {
@@ -214,6 +217,7 @@ func clearLSPConfigEnv(t *testing.T) {
 		"LSP_RUST_IGNORED_DIRS",
 		"LSP_JAVA_IGNORED_DIRS",
 		"LSP_CSS_IGNORED_DIRS",
+		"LSP_DISABLE_INITIAL_WORKSPACE_BOOTSTRAP",
 	} {
 		t.Setenv(key, "")
 	}

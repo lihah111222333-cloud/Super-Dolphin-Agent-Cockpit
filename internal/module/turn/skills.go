@@ -57,6 +57,9 @@ func normalizeSkillRefs(groups ...[]dto.SkillRef) []dto.SkillRef {
 			ref.PersonalType = strings.TrimSpace(ref.PersonalType)
 			ref.Path = strings.TrimSpace(ref.Path)
 			ref.Version = strings.TrimSpace(ref.Version)
+			// Production turn payloads stay metadata-only. Legacy Prompt carriers
+			// may still arrive on the wire for backward compatibility, but
+			// provider-native mirror discovery owns body visibility now.
 			ref.Prompt = ""
 			if ref.Name == "" {
 				continue

@@ -86,21 +86,23 @@ func (fn ClientFactoryWithEnvFunc) NewClientWithEnv(rootDir string, env []string
 }
 
 type Config struct {
-	WorkspaceRoot           string
-	ClientFactory           ClientFactory
-	LanguageAdapters        *LanguageAdapterRegistry
-	DiagnosticsInitialDelay time.Duration
-	DiagnosticsPollInterval time.Duration
-	DiagnosticsMaxWait      time.Duration
-	Logger                  *slog.Logger
+	WorkspaceRoot                    string
+	ClientFactory                    ClientFactory
+	LanguageAdapters                 *LanguageAdapterRegistry
+	DiagnosticsInitialDelay          time.Duration
+	DiagnosticsPollInterval          time.Duration
+	DiagnosticsMaxWait               time.Duration
+	Logger                           *slog.Logger
+	DisableInitialWorkspaceBootstrap bool
 }
 
 type manager struct {
-	workspaceRoot string
-	factory       ClientFactory
-	adapters      *LanguageAdapterRegistry
-	logger        *slog.Logger
-	pool          *ManagerPool
+	workspaceRoot                    string
+	factory                          ClientFactory
+	adapters                         *LanguageAdapterRegistry
+	logger                           *slog.Logger
+	pool                             *ManagerPool
+	disableInitialWorkspaceBootstrap bool
 
 	mu         sync.RWMutex
 	ensureMu   sync.Mutex
@@ -172,15 +174,16 @@ func NewManager(cfg Config) Manager {
 		}
 	}
 	mgr := &manager{
-		workspaceRoot: root,
-		factory:       cfg.ClientFactory,
-		adapters:      cfg.LanguageAdapters,
-		logger:        cfg.Logger,
-		workspaces:    make(map[string]*workspaceClient),
-		diagnostics:   make(map[string]diagnosticSnapshot),
-		diagInitial:   chooseDuration(cfg.DiagnosticsInitialDelay, defaultDiagnosticsInitialDelay),
-		diagPoll:      chooseDuration(cfg.DiagnosticsPollInterval, defaultDiagnosticsPollInterval),
-		diagMaxWait:   chooseDuration(cfg.DiagnosticsMaxWait, defaultDiagnosticsMaxWait),
+		workspaceRoot:                    root,
+		factory:                          cfg.ClientFactory,
+		adapters:                         cfg.LanguageAdapters,
+		logger:                           cfg.Logger,
+		workspaces:                       make(map[string]*workspaceClient),
+		diagnostics:                      make(map[string]diagnosticSnapshot),
+		diagInitial:                      chooseDuration(cfg.DiagnosticsInitialDelay, defaultDiagnosticsInitialDelay),
+		diagPoll:                         chooseDuration(cfg.DiagnosticsPollInterval, defaultDiagnosticsPollInterval),
+		diagMaxWait:                      chooseDuration(cfg.DiagnosticsMaxWait, defaultDiagnosticsMaxWait),
+		disableInitialWorkspaceBootstrap: cfg.DisableInitialWorkspaceBootstrap,
 	}
 	if mgr.adapters == nil {
 		mgr.adapters = NewDefaultLanguageAdapterRegistry()

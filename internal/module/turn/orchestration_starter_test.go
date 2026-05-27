@@ -138,7 +138,7 @@ func TestTurnModuleRequiresThreadStateRuntimeConfigReader(t *testing.T) {
 	t.Parallel()
 
 	var starter contract.OrchestrationTurnStarter
-	err := fx.ValidateApp(
+	app := fx.New(
 		Module,
 		fx.Supply(silentLogger()),
 		fx.Provide(func() contract.PromptAssemblyService { return &stubPromptAssemblyService{} }),
@@ -146,6 +146,7 @@ func TestTurnModuleRequiresThreadStateRuntimeConfigReader(t *testing.T) {
 		fx.Provide(func() contract.ApprovalResponder { return noopApprovalResponder{} }),
 		fx.Populate(&starter),
 	)
+	err := app.Err()
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "contract.ThreadStateConfigReader")
 }

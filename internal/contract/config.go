@@ -34,6 +34,7 @@ type LSPConfig struct {
 	GoDirectoryFilters          []string
 	ProjectAdapters             map[string]LSPProjectAdapterConfig
 	DocumentFallbackLanguageIDs []string
+	DisableInitialWorkspaceBootstrap bool
 }
 
 // LSPProjectAdapterConfig holds per-language project discovery configuration.

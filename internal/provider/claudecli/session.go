@@ -151,7 +151,7 @@ func runtimeConfigMap(raw map[string]any) map[string]any {
 
 func (s *session) applyRuntimeConfigSnapshotLocked(out map[string]any) {
 	snapshot := s.runtimePromptSnapshotLocked()
-	putRuntimeConfigString(out, "model", s.model)
+	putRuntimeConfigString(out, "model", s.currentTransportModelLocked())
 	putRuntimeConfigString(out, "baseInstructions", promptSnapshotBaseInstructions(snapshot, s.instructions))
 	putRuntimeConfigString(out, "approvalPolicy", s.config.ApprovalPolicy)
 	putRuntimeConfigString(out, "developerInstructions", promptDeveloperInstructions(cliLaunchConfig{
