@@ -32,12 +32,27 @@ export function cronExprFromDagItem(item) {
   return schedule === '-' ? '' : schedule;
 }
 
+export function scheduleEnabledFromDagItem(item) {
+  const trigger = item?.trigger || item?.trigger_config || item?.triggerConfig;
+  const nextRunAt = textValue(
+    trigger?.next_run_at,
+    trigger?.nextRunAt,
+    item?.next_run_at,
+    item?.nextRunAt,
+  );
+  return nextRunAt !== '-';
+}
+
 function cronExprOf(items) {
   for (const item of items) {
     const value = cronExprFromDagItem(item);
     if (value) return value;
   }
   return '';
+}
+
+function scheduleEnabledOf(items) {
+  return items.some((item) => scheduleEnabledFromDagItem(item));
 }
 
 const DEFAULT_SCHEDULE = { preset: 'daily', time: '08:00', weekday: '1', monthDay: '1' };
@@ -125,10 +140,13 @@ export function scheduleLabelFromDagItem(item) {
   return scheduleLabelFromCron(cronExprFromDagItem(item));
 }
 
-export function scheduledTaskStatusLabel(status, trigger) {
+export function scheduledTaskStatusLabel(status, trigger, item = null) {
   if (!isScheduledTrigger(trigger)) return '';
   const normalizedStatus = normalizedValue(status);
   if (normalizedStatus === 'running') return '运行中';
+  if (item && cronExprFromDagItem(item)) {
+    return scheduleEnabledFromDagItem(item) ? '已启用' : '已暂停';
+  }
   if (['ready', 'queued', 'starting'].includes(normalizedStatus)) return '已启用';
   if (['draft', 'pending', 'idle'].includes(normalizedStatus)) return '未启用';
   return '';
@@ -180,8 +198,12 @@ export function useDagScheduleAction({
   const scheduleInputError = ref('');
   const scheduleNeedsChoice = ref(false);
   const scheduleTrigger = computed(() => dagTriggerOf(selectedDagItems.value));
+  const scheduleCronExpr = computed(() => cronExprOf(selectedDagItems.value));
+  const scheduleEnabled = computed(() => scheduleEnabledOf(selectedDagItems.value));
   const scheduleCanEditTrigger = computed(() => ['manual', 'scheduled', 'schedule', 'cron'].includes(scheduleTrigger.value));
   const scheduleActionLabel = computed(() => (['scheduled', 'schedule', 'cron'].includes(scheduleTrigger.value) ? '修改计划' : '创建定时任务'));
+  const scheduleToggleVisible = computed(() => isScheduledTrigger(scheduleTrigger.value) && Boolean(scheduleCronExpr.value));
+  const scheduleToggleLabel = computed(() => (scheduleEnabled.value ? '暂停自动运行' : '启用自动运行'));
   const scheduleDisabledReason = computed(() => {
     if (!selectedRow.value || !selectedDagKey.value) return '未选择任务流程';
     if (props.loading || detailState.loading) return '任务流程详情加载中';
@@ -193,6 +215,10 @@ export function useDagScheduleAction({
     if (!startableStatuses.has(status)) return '当前流程状态不可设置定时';
     if (!scheduleCanEditTrigger.value) return '当前触发方式不可设置定时';
     return '';
+  });
+  const scheduleToggleDisabledReason = computed(() => {
+    if (!scheduleToggleVisible.value) return '当前任务没有运行计划';
+    return scheduleDisabledReason.value;
   });
   const scheduleActionVisible = computed(() => (
     startableStatuses.has(dagStatusOf(selectedDagItems.value))
@@ -253,6 +279,12 @@ export function useDagScheduleAction({
     }
   }
 
+  async function toggleScheduleEnabled() {
+    if (scheduleToggleDisabledReason.value) return;
+    const result = await dagDetail.setScheduleEnabled({ enabled: !scheduleEnabled.value });
+    if (result?.ok && !detailState.scheduleError) emit('refresh-dags');
+  }
+
   function updateSchedulePreset(value) {
     schedulePreset.value = value;
     scheduleNeedsChoice.value = false;
@@ -280,15 +312,20 @@ export function useDagScheduleAction({
     scheduleActionVisible,
     scheduleConfirmOpen,
     scheduleDisabledReason,
+    scheduleEnabled,
     scheduleErrorText,
     scheduleInputError,
     scheduleActionLabel,
     scheduleMonthDay,
     schedulePreset,
     schedulePreviewText,
+    scheduleToggleDisabledReason,
+    scheduleToggleLabel,
+    scheduleToggleVisible,
     scheduleTime,
-    scheduleWeekday,
-    updateScheduleMonthDay,
+	    scheduleWeekday,
+	    toggleScheduleEnabled,
+	    updateScheduleMonthDay,
     updateSchedulePreset,
     updateScheduleTime,
     updateScheduleWeekday,

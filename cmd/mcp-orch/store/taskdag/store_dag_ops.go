@@ -80,14 +80,16 @@ SET title = COALESCE($2, title),
     trigger = COALESCE($4, trigger),
     cron_expr = COALESCE($5, cron_expr),
     owner_id = COALESCE($6, owner_id),
-    next_run_at = CASE
-      WHEN COALESCE($4, trigger) = 'scheduled'
-        AND COALESCE($5, cron_expr) <> ''
-      THEN CASE
-        WHEN $4 IS NOT NULL OR $5 IS NOT NULL OR next_run_at IS NULL THEN COALESCE($7, next_run_at)
-        ELSE next_run_at
-      END
-      ELSE NULL
+	    next_run_at = CASE
+	      WHEN $8::boolean IS NOT NULL AND $8::boolean = FALSE THEN NULL
+	      WHEN COALESCE($4, trigger) = 'scheduled'
+	        AND COALESCE($5, cron_expr) <> ''
+	      THEN CASE
+	        WHEN $8::boolean IS NOT NULL AND $8::boolean = TRUE THEN COALESCE($7, next_run_at)
+	        WHEN $4 IS NOT NULL OR $5 IS NOT NULL OR next_run_at IS NULL THEN COALESCE($7, next_run_at)
+	        ELSE next_run_at
+	      END
+	      ELSE NULL
     END,
     updated_at = NOW()
 WHERE dag_key = $1`
@@ -99,11 +101,19 @@ WHERE dag_key = $1`
 		nullableStringArg(input.CronExpr),
 		nullableStringArg(input.OwnerID),
 		nullableTimeArg(input.NextRunAt),
+		nullableBoolArg(input.ScheduleEnabled),
 	)
 	if err != nil {
 		return 0, wrapTaskDAGError(err, "update_patch", "task_dag")
 	}
 	return tag.RowsAffected(), nil
+}
+
+func nullableBoolArg(value *bool) any {
+	if value == nil {
+		return nil
+	}
+	return *value
 }
 
 func nullableStringArg(value *string) any {

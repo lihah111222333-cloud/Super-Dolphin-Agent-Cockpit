@@ -511,6 +511,7 @@ type DAGSummary struct {
 	Metadata    json.RawMessage `json:"metadata,omitempty"`
 	Trigger     string          `json:"trigger,omitempty"`
 	CronExpr    string          `json:"cron_expr,omitempty"`
+	NextRunAt   *time.Time      `json:"next_run_at,omitempty"`
 	StartedAt   *time.Time      `json:"started_at,omitempty"`
 	FinishedAt  *time.Time      `json:"finished_at,omitempty"`
 	CreatedAt   time.Time       `json:"created_at"`

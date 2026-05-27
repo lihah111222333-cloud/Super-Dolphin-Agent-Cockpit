@@ -563,6 +563,7 @@ type DAG struct {
 	Metadata    json.RawMessage
 	Trigger     string
 	CronExpr    string
+	NextRunAt   *time.Time
 	StartedAt   *time.Time
 	FinishedAt  *time.Time
 	CreatedAt   time.Time
@@ -575,13 +576,14 @@ type DAGSchedule struct {
 }
 
 type UpdateDAGPatchInput struct {
-	DagKey      string
-	Title       *string
-	Description *string
-	Trigger     *string
-	CronExpr    *string
-	OwnerID     *string
-	NextRunAt   *time.Time
+	DagKey          string
+	Title           *string
+	Description     *string
+	Trigger         *string
+	CronExpr        *string
+	OwnerID         *string
+	NextRunAt       *time.Time
+	ScheduleEnabled *bool
 }
 
 type Node struct {

@@ -27,15 +27,17 @@ func TestUpdateDAGPatch_ExecutesNarrowMetadataUpdate(t *testing.T) {
 	cronExpr := "0 8 * * *"
 	ownerID := "owner-1"
 	nextRunAt := time.Unix(1700003600, 0).UTC()
+	scheduleEnabled := true
 
 	rows, err := updater.UpdateDAGPatch(context.Background(), UpdateDAGPatchInput{
-		DagKey:      "dag-1",
-		Title:       &title,
-		Description: &description,
-		Trigger:     &trigger,
-		CronExpr:    &cronExpr,
-		OwnerID:     &ownerID,
-		NextRunAt:   &nextRunAt,
+		DagKey:          "dag-1",
+		Title:           &title,
+		Description:     &description,
+		Trigger:         &trigger,
+		CronExpr:        &cronExpr,
+		OwnerID:         &ownerID,
+		NextRunAt:       &nextRunAt,
+		ScheduleEnabled: &scheduleEnabled,
 	})
 	if err != nil {
 		t.Fatalf("UpdateDAGPatch() error = %v", err)
@@ -58,6 +60,8 @@ func assertUpdateDAGPatchSQL(t *testing.T, sql string) {
 		"cron_expr = COALESCE",
 		"owner_id = COALESCE",
 		"next_run_at = CASE",
+		"$8::boolean IS NOT NULL AND $8::boolean = FALSE THEN NULL",
+		"$8::boolean IS NOT NULL AND $8::boolean = TRUE THEN COALESCE($7, next_run_at)",
 		"COALESCE($7, next_run_at)",
 	})
 	if strings.Contains(sql, "THEN NOW()") {
@@ -78,7 +82,7 @@ func assertSQLContainsAll(t *testing.T, sql string, wants []string) {
 func assertUpdateDAGPatchArgs(t *testing.T, args []any, nextRunAt time.Time) {
 	t.Helper()
 
-	want := []any{"dag-1", "Daily", "Morning", "scheduled", "0 8 * * *", "owner-1", nextRunAt}
+	want := []any{"dag-1", "Daily", "Morning", "scheduled", "0 8 * * *", "owner-1", nextRunAt, true}
 	if !reflect.DeepEqual(args, want) {
 		t.Fatalf("args = %#v, want %#v", args, want)
 	}
