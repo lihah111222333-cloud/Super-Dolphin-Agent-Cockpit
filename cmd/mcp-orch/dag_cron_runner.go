@@ -6,7 +6,6 @@ import (
 	"log/slog"
 
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/fxadapter"
-	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/orchestration"
 	orchcron "github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/orchestration/cron"
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/sqlc"
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
@@ -48,19 +47,15 @@ func (r scheduledDAGCronRunner) Run(ctx context.Context) error {
 }
 
 type scheduledDAGStarter struct {
-	svc contract.OrchestrationService
+	svc scheduledDAGStartService
 }
 
 func (s scheduledDAGStarter) StartDAG(ctx context.Context, req orchcron.ScheduledDAGStartRequest) error {
-	_, err := s.svc.StartDAG(ctx, contract.StartDAGRequest{
-		DagKey:         req.DagKey,
-		TriggerSource:  req.TriggerSource,
-		IdempotencyKey: req.IdempotencyKey,
-	})
-	if errors.Is(err, orchestration.ErrIdempotencyKeyExhausted) {
-		return orchcron.NewScheduledRunAlreadyConsumedError(err)
-	}
-	return err
+	return s.svc.StartScheduledDAG(ctx, req)
+}
+
+type scheduledDAGStartService interface {
+	StartScheduledDAG(context.Context, orchcron.ScheduledDAGStartRequest) error
 }
 
 func provideSQLDAGScheduleStore(q *sqlc.Queries) (orchcron.DAGScheduleStore, error) {
@@ -92,12 +87,16 @@ func provideScheduledDAGCronRunner(
 	if svc == nil {
 		return nil, errors.New("mcp-orch: scheduled dag cron service is nil")
 	}
+	scheduledSvc, ok := svc.(scheduledDAGStartService)
+	if !ok {
+		return nil, errors.New("mcp-orch: scheduled dag cron service does not support scheduled start")
+	}
 	if logger == nil {
 		return nil, errors.New("mcp-orch: scheduled dag cron logger is nil")
 	}
 	ticker, err := orchcron.NewScheduledDAGTicker(orchcron.ScheduledDAGTickerConfig{
 		Store:   store,
-		Starter: scheduledDAGStarter{svc: svc},
+		Starter: scheduledDAGStarter{svc: scheduledSvc},
 		Locker:  locker,
 	})
 	if err != nil {

@@ -303,8 +303,10 @@ type DueDAG struct {
 	DueAt    time.Time
 }
 
-// DAGScheduleStore 是 Tick 需要的最小存储接口。
-// DAGScheduleStore is the minimal storage port needed by Tick.
+// DAGScheduleStore 是 Tick 扫描 due DAG 所需的存储接口；UpdateNextRun 由
+// SQL adapter 暴露给服务层事务内 scheduled start 复用。
+// DAGScheduleStore scans due DAGs; UpdateNextRun remains on the SQL adapter so
+// the service layer can reuse the same fenced statement inside scheduled start.
 type DAGScheduleStore interface {
 	DueDAGs(ctx context.Context, now time.Time) ([]DueDAG, error)
 	UpdateNextRun(ctx context.Context, dagKey string, dueAt time.Time, nextRunAt time.Time) error
@@ -422,37 +424,7 @@ func (t *ScheduledDAGTicker) triggerDueDAG(ctx context.Context, dag DueDAG, now 
 		DueAt:          dag.DueAt,
 		NextRunAt:      nextRunAt,
 	}
-	if err := t.starter.StartDAG(ctx, req); err != nil {
-		if !isScheduledRunAlreadyConsumed(err) {
-			return err
-		}
-	}
-	if err := t.store.UpdateNextRun(ctx, dag.DagKey, dag.DueAt, nextRunAt); err != nil {
-		return classifyTickError(TickErrorClassInfrastructure, "update_next_run_at", err)
-	}
-	return nil
-}
-
-type scheduledRunAlreadyConsumed interface {
-	ScheduledRunAlreadyConsumed() bool
-}
-
-func NewScheduledRunAlreadyConsumedError(err error) error {
-	if err == nil {
-		return nil
-	}
-	return scheduledRunAlreadyConsumedError{err: err}
-}
-
-type scheduledRunAlreadyConsumedError struct{ err error }
-
-func (e scheduledRunAlreadyConsumedError) Error() string                   { return e.err.Error() }
-func (e scheduledRunAlreadyConsumedError) Unwrap() error                   { return e.err }
-func (scheduledRunAlreadyConsumedError) ScheduledRunAlreadyConsumed() bool { return true }
-
-func isScheduledRunAlreadyConsumed(err error) bool {
-	var marker scheduledRunAlreadyConsumed
-	return errors.As(err, &marker) && marker.ScheduledRunAlreadyConsumed()
+	return t.starter.StartDAG(ctx, req)
 }
 
 func (t *ScheduledDAGTicker) nextRunAt(dag DueDAG, now time.Time) (time.Time, error) {

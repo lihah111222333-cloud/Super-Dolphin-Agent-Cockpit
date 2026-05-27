@@ -523,7 +523,7 @@ func (q *Queries) ListTaskDagRunsByKey(ctx context.Context, arg ListTaskDagRunsB
 	return items, nil
 }
 
-const lockTaskDagRunForCompletion = `-- name: LockTaskDagRunForCompletion :one
+const lockTaskDagRunForCompletionForUpdate = `-- name: LockTaskDagRunForCompletionForUpdate :one
 SELECT id
 FROM task_dag_runs
 WHERE dag_key = $1
@@ -532,13 +532,13 @@ WHERE dag_key = $1
 FOR UPDATE
 `
 
-type LockTaskDagRunForCompletionParams struct {
+type LockTaskDagRunForCompletionForUpdateParams struct {
 	DagKey string `json:"dag_key"`
 	ID     int64  `json:"id"`
 }
 
-func (q *Queries) LockTaskDagRunForCompletion(ctx context.Context, arg LockTaskDagRunForCompletionParams) (int64, error) {
-	row := q.db.QueryRow(ctx, lockTaskDagRunForCompletion, arg.DagKey, arg.ID)
+func (q *Queries) LockTaskDagRunForCompletionForUpdate(ctx context.Context, arg LockTaskDagRunForCompletionForUpdateParams) (int64, error) {
+	row := q.db.QueryRow(ctx, lockTaskDagRunForCompletionForUpdate, arg.DagKey, arg.ID)
 	var id int64
 	err := row.Scan(&id)
 	return id, err

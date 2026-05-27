@@ -47,9 +47,9 @@ func (s *sqlDAGScheduleStore) DueDAGs(ctx context.Context, now time.Time) ([]orc
 
 func (s *sqlDAGScheduleStore) UpdateNextRun(ctx context.Context, dagKey string, dueAt time.Time, nextRunAt time.Time) error {
 	rows, err := s.q.UpdateTaskDagNextRun(ctx, sqlc.UpdateTaskDagNextRunParams{
-		NextRunAt:   pgtype.Timestamptz{Time: nextRunAt, Valid: true},
-		DagKey:      dagKey,
-		NextRunAt_2: pgtype.Timestamptz{Time: dueAt, Valid: true},
+		NextRunAt: pgtype.Timestamptz{Time: nextRunAt, Valid: true},
+		DagKey:    dagKey,
+		DueAt:     pgtype.Timestamptz{Time: dueAt, Valid: true},
 	})
 	if err != nil {
 		return err

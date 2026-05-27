@@ -15,6 +15,7 @@ import { SharedFilesPage } from './pages/SharedFilesPage.js';
 import { useProjectStore } from './stores/projects.js';
 import { useThreadStore } from './stores/threads.js';
 import { resolveProjectActionCwd } from './composables/useThreadActions.js';
+import { requireDagNodeStatusPayload } from './composables/useDagStatusEventBridge.js';
 
 /**
  * @typedef {'chat' | 'agents' | 'dags' | 'tasks' | 'skills' | 'commands' | 'memory-center' | 'memory' | 'settings'} AppPage
@@ -169,9 +170,9 @@ function applyMemoryCenterSnapshot(state, snapshot) {
 export function routeDagBridgeEvent(method, eventType, payload, deps) {
   const key = (method || eventType || '').toString().trim().toLowerCase();
   if (key !== 'task/node/statuschanged') return;
-  if (!payload || typeof payload !== 'object') throw new Error('dag node status event payload is required');
+  const statusPayload = requireDagNodeStatusPayload(payload, 'dag node status event payload is required');
   if (typeof deps?.recordDagNodeStatusEvent !== 'function') throw new Error('dag node status event recorder is required');
-  deps.recordDagNodeStatusEvent(payload);
+  deps.recordDagNodeStatusEvent(statusPayload);
   if (deps?.page?.value === 'dags') {
     if (typeof deps.refreshDashboardByPage !== 'function') throw new Error('dag dashboard refresh handler is required');
     deps.refreshDashboardByPage('dags').catch((err) => {
@@ -183,10 +184,11 @@ export function routeDagBridgeEvent(method, eventType, payload, deps) {
 function createDagNodeStatusEventRecorder(target) {
   let seq = 0;
   return (payload) => {
-    target.value = {
+    const next = {
       seq: ++seq,
       payload: payload && typeof payload === 'object' ? { ...payload } : payload,
     };
+    target.value = [...target.value, next];
   };
 }
 
@@ -433,8 +435,8 @@ export const AppRoot = {
     const buildInfo = reactive({});
     const runtimeConfig = reactive({ cwd: '' });
     const queryWindowCwd = ref(readWindowCwdFromLocation());
-    const dagNodeStatusEvent = ref(null);
-    const recordDagNodeStatusEvent = createDagNodeStatusEventRecorder(dagNodeStatusEvent);
+    const dagNodeStatusEvents = ref([]);
+    const recordDagNodeStatusEvent = createDagNodeStatusEventRecorder(dagNodeStatusEvents);
 
     const dashboard = reactive({
       agents: [],
@@ -665,7 +667,7 @@ export const AppRoot = {
       buildInfo,
       dashboard,
       dashboardRequest,
-      dagNodeStatusEvent,
+      dagNodeStatusEvents,
       memoryCenter,
       agentsFields: AGENTS_FIELDS,
       taskAckFields: TASK_ACK_FIELDS,
@@ -722,7 +724,7 @@ export const AppRoot = {
           :items="dashboard.dags"
           :loading="dashboardRequest.dags.loading"
           :error="dashboardRequest.dags.error"
-          :status-event="dagNodeStatusEvent"
+          :status-events="dagNodeStatusEvents"
           @open-chat="openDagChildThread"
           @design-flow="startDagDesignerThread"
           @refresh-dags="refreshDashboardByPage('dags')"

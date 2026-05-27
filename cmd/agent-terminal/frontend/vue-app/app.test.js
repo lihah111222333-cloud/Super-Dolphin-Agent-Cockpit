@@ -23,8 +23,26 @@ describe('routeDagBridgeEvent', () => {
     })).toThrow('dag node status event payload is required');
   });
 
+  it('fails fast when DAG node status events miss required fields', () => {
+    expect(() => routeDagBridgeEvent('task/node/statusChanged', '', { dag_key: 'dag-a', run_key: 'run-1', new_status: 'running' }, {
+      page: { value: 'dags' },
+      recordDagNodeStatusEvent: vi.fn(),
+      refreshDashboardByPage: vi.fn(async () => {}),
+    })).toThrow('dag status event node key is required');
+    expect(() => routeDagBridgeEvent('task/node/statusChanged', '', { dag_key: 'dag-a', run_key: 'run-1', node_key: 'draft' }, {
+      page: { value: 'dags' },
+      recordDagNodeStatusEvent: vi.fn(),
+      refreshDashboardByPage: vi.fn(async () => {}),
+    })).toThrow('dag status event status is required');
+    expect(() => routeDagBridgeEvent('task/node/statusChanged', '', { dag_key: 'dag-a', node_key: 'draft', new_status: 'running' }, {
+      page: { value: 'dags' },
+      recordDagNodeStatusEvent: vi.fn(),
+      refreshDashboardByPage: vi.fn(async () => {}),
+    })).toThrow('dag status event run identity is required');
+  });
+
   it('fails fast when the status event recorder is missing', () => {
-    expect(() => routeDagBridgeEvent('task/node/statusChanged', '', { dag_key: 'dag-a' }, {
+    expect(() => routeDagBridgeEvent('task/node/statusChanged', '', { dag_key: 'dag-a', run_key: 'run-1', node_key: 'draft', new_status: 'running' }, {
       page: { value: 'dags' },
       refreshDashboardByPage: vi.fn(async () => {}),
     })).toThrow('dag node status event recorder is required');

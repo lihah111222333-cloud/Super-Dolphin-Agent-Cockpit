@@ -77,7 +77,7 @@ func lockRunForCompletionTx(ctx context.Context, txStore *store, dagKey string, 
 	if err := requireRuntimeRunID("lock_run_for_completion", runID); err != nil {
 		return err
 	}
-	if _, err := txStore.q.LockTaskDagRunForCompletion(ctx, sqlc.LockTaskDagRunForCompletionParams{
+	if _, err := txStore.q.LockTaskDagRunForCompletionForUpdate(ctx, sqlc.LockTaskDagRunForCompletionForUpdateParams{
 		DagKey: dagKey,
 		ID:     runID,
 	}); err != nil {

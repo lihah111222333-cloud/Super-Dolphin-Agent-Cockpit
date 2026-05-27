@@ -8,6 +8,7 @@ import (
 	"time"
 
 	orchcron "github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/orchestration/cron"
+	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/orchestration/scheduledstart"
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/taskdag"
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
@@ -30,16 +31,6 @@ func (noopScheduler) Schedule(_ context.Context, _ string) error { return ErrSch
 
 func NewNoopScheduler() Scheduler { return noopScheduler{} }
 
-type scheduledDAGStarter struct{ svc *service }
-
-func (s scheduledDAGStarter) StartDAG(ctx context.Context, req orchcron.ScheduledDAGStartRequest) error {
-	_, err := s.svc.StartDAG(ctx, StartDAGRequest{DagKey: req.DagKey, TriggerSource: req.TriggerSource, IdempotencyKey: req.IdempotencyKey})
-	if errors.Is(err, ErrIdempotencyKeyExhausted) {
-		return orchcron.NewScheduledRunAlreadyConsumedError(err)
-	}
-	return err
-}
-
 func (s *service) StartDAG(ctx context.Context, req StartDAGRequest) (StartDAGResponse, error) {
 	dagKey, dag, err := s.validateStartDAGPrereq(ctx, req)
 	if err != nil {
@@ -49,6 +40,13 @@ func (s *service) StartDAG(ctx context.Context, req StartDAGRequest) (StartDAGRe
 	triggerSource := strings.TrimSpace(req.TriggerSource)
 	input := taskdag.CreateRunInput{RunKey: runKey, DagKey: dagKey, DagVersionSnapshot: dag.Version, TriggerSource: triggerSource}
 	return s.runStartDAGWithFallback(ctx, dagKey, runKey, input)
+}
+
+func (s *service) StartScheduledDAG(ctx context.Context, req orchcron.ScheduledDAGStartRequest) error {
+	if s == nil || s.runStore == nil {
+		return ErrRunStoreUnset
+	}
+	return scheduledstart.Start(ctx, s.runStore, req)
 }
 
 func (s *service) validateStartDAGPrereq(ctx context.Context, req StartDAGRequest) (string, *taskdag.DAG, error) {
