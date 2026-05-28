@@ -49,22 +49,14 @@ func buildRPCPrepareInput(p turnStartParams, session contract.Session, threadRun
 	}, session)
 }
 
-func resolveTurnRPCCWD(requestCWD string, session prepareInputSession, threadRuntimeConfig map[string]any) (string, error) {
+func resolveTurnRPCCWD(requestCWD string, threadRuntimeConfig map[string]any) (string, error) {
 	requestCWD = strings.TrimSpace(requestCWD)
 	authoritativeCWD, err := strictRuntimeCWD(threadRuntimeConfig, "thread runtime config")
 	if err != nil {
 		return "", err
 	}
 	if authoritativeCWD == "" {
-		if reader, ok := session.(runtimeConfigSnapshotReader); ok {
-			authoritativeCWD, err = strictRuntimeCWD(reader.RuntimeConfigSnapshot(), "session runtime config")
-			if err != nil {
-				return "", err
-			}
-		}
-	}
-	if authoritativeCWD == "" {
-		return "", platformrpc.ErrInvalidParams("turn cwd missing: thread runtime config and session runtime config do not define cwd")
+		return "", platformrpc.ErrInvalidParams("turn cwd missing: thread runtime config does not define cwd")
 	}
 	if requestCWD != "" && !sameTurnRPCCWD(requestCWD, authoritativeCWD) {
 		return "", platformrpc.ErrInvalidParams(fmt.Sprintf("turn/start cwd mismatch: request cwd %q does not match thread cwd %q", requestCWD, authoritativeCWD))
@@ -257,7 +249,7 @@ func turnStartHandler(svc Service, resolver contract.SessionResolver, spawner co
 			if err != nil {
 				return nil, err
 			}
-			resolvedCWD, err := resolveTurnRPCCWD(p.CWD, session, threadRuntimeConfig)
+			resolvedCWD, err := resolveTurnRPCCWD(p.CWD, threadRuntimeConfig)
 			if err != nil {
 				return nil, err
 			}
@@ -312,7 +304,7 @@ func turnSteerHandler(svc Service, resolver contract.SessionResolver, capResolve
 			if err != nil {
 				return nil, err
 			}
-			resolvedCWD, err := resolveTurnRPCCWD(p.CWD, session, threadRuntimeConfig)
+			resolvedCWD, err := resolveTurnRPCCWD(p.CWD, threadRuntimeConfig)
 			if err != nil {
 				return nil, err
 			}

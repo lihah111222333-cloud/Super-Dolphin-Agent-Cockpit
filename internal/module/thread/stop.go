@@ -272,6 +272,8 @@ func (s *service) stopThreadRuntime(
 			"agent_id", stopState.agentID,
 			"error", err,
 		)
+	} else {
+		s.unblockResumeForAgent(stopState.agentID)
 	}
 	return err
 }

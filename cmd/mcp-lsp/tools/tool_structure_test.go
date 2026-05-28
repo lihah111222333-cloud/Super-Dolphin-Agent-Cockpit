@@ -76,6 +76,8 @@ func (*structureTestRegistry) Close() error {
 
 type structureTestManager struct {
 	workspaceSymbols  []protocol.WorkspaceSymbolResult
+	completionItems   []protocol.CompletionItem
+	references        []protocol.LocationResult
 	gotWorkspaceQuery string
 	gotWorkspaceLang  string
 	didOpenContext    context.Context
@@ -106,8 +108,8 @@ func (*structureTestManager) SignatureHelp(context.Context, string, protocol.Pos
 	return nil, nil
 }
 
-func (*structureTestManager) References(context.Context, string, protocol.Position, bool) ([]protocol.LocationResult, error) {
-	return nil, nil
+func (m *structureTestManager) References(context.Context, string, protocol.Position, bool) ([]protocol.LocationResult, error) {
+	return m.references, nil
 }
 
 func (*structureTestManager) CallHierarchy(context.Context, string, protocol.Position, string) ([]protocol.CallHierarchyResult, error) {
@@ -137,8 +139,8 @@ func (*structureTestManager) SemanticTokens(context.Context, string) (*protocol.
 	return nil, nil
 }
 
-func (*structureTestManager) Completion(context.Context, string, protocol.Position) (*protocol.CompletionList, error) {
-	return nil, nil
+func (m *structureTestManager) Completion(context.Context, string, protocol.Position) (*protocol.CompletionList, error) {
+	return &protocol.CompletionList{Items: m.completionItems}, nil
 }
 
 func (*structureTestManager) Rename(context.Context, string, protocol.Position, string) (*protocol.WorkspaceEdit, error) {

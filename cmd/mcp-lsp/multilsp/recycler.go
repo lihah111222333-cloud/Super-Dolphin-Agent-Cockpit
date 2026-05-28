@@ -20,7 +20,9 @@ import (
 const (
 	defaultRecyclerInterval = 30 * time.Second
 	defaultRSSLimitBytes    = 768 * 1024 * 1024
+	defaultGoRSSLimitBytes  = 384 * 1024 * 1024
 	lspRSSLimitEnv          = "AGENT_LSP_RSS_LIMIT_MB"
+	lspGoRSSLimitEnv        = "AGENT_LSP_GO_RSS_LIMIT_MB"
 )
 
 // poolRecycler is the background loop that periodically scans managed
@@ -102,18 +104,55 @@ func (r *poolRecycler) checkManager(index int, mgr *manager, scope ResolvedLSPTo
 
 func (r *poolRecycler) recycleIfNeeded(mgr *manager, scope ResolvedLSPToolScope, workspace workspaceClient) {
 	rssBytes, pid, err := clientRSSBytes(workspace.client)
-	if err != nil || pid <= 0 || rssBytes <= rssLimitBytes() {
+	if err != nil || pid <= 0 {
 		return
 	}
-	if r.pool.activeLeases(workspace.client) > 0 {
+	limit := rssLimitBytesForLanguage(workspace.languageID)
+	if rssBytes <= limit {
+		return
+	}
+	activeLeases := r.pool.activeLeases(workspace.client)
+	if activeLeases > 0 {
+		if mgr.logger != nil {
+			mgr.logger.Info("LSP recycle skipped: active leases",
+				"manager_key", scope.ManagerKey,
+				"scope_key", scope.ScopeKey,
+				"workspace", workspace.key,
+				"language", normalizeLanguageID(workspace.languageID),
+				"pid", pid,
+				"rss_bytes", rssBytes,
+				"rss_limit_bytes", limit,
+				"active_leases", activeLeases,
+				"reason", "rss_limit",
+			)
+		}
 		return
 	}
 	recycled, err := recycleWorkspaceClient(mgr, scope, workspace)
 	if err != nil && mgr.logger != nil {
-		mgr.logger.Warn("LSP recycle failed", "workspace", workspace.key, "pid", pid, "err", err)
+		mgr.logger.Warn("LSP recycle failed",
+			"manager_key", scope.ManagerKey,
+			"scope_key", scope.ScopeKey,
+			"workspace", workspace.key,
+			"language", normalizeLanguageID(workspace.languageID),
+			"pid", pid,
+			"rss_bytes", rssBytes,
+			"rss_limit_bytes", limit,
+			"reason", "rss_limit",
+			"err", err,
+		)
 	}
 	if recycled && mgr.logger != nil {
-		mgr.logger.Warn("recycled LSP process", "workspace", workspace.key, "pid", pid, "rss_bytes", rssBytes)
+		mgr.logger.Warn("recycled LSP process",
+			"manager_key", scope.ManagerKey,
+			"scope_key", scope.ScopeKey,
+			"workspace", workspace.key,
+			"language", normalizeLanguageID(workspace.languageID),
+			"pid", pid,
+			"rss_bytes", rssBytes,
+			"rss_limit_bytes", limit,
+			"reason", "rss_limit",
+		)
 	}
 }
 
@@ -303,10 +342,28 @@ func psRSSBytes(pid int) (uint64, error) {
 	return kilobytes * 1024, nil
 }
 
-func rssLimitBytes() uint64 {
-	value, err := strconv.ParseUint(strings.TrimSpace(os.Getenv(lspRSSLimitEnv)), 10, 64)
-	if err != nil || value == 0 {
-		return defaultRSSLimitBytes
+func rssLimitBytesForLanguage(languageID string) uint64 {
+	lang := normalizeLanguageID(languageID)
+	if lang == "go" || lang == "gomod" || lang == "gosum" || lang == "gowork" {
+		if value, ok := rssLimitBytesFromEnv(lspGoRSSLimitEnv); ok {
+			return value
+		}
+		return defaultGoRSSLimitBytes
 	}
-	return value * 1024 * 1024
+	if value, ok := rssLimitBytesFromEnv(lspRSSLimitEnv); ok {
+		return value
+	}
+	return defaultRSSLimitBytes
+}
+
+func rssLimitBytes() uint64 {
+	return rssLimitBytesForLanguage("")
+}
+
+func rssLimitBytesFromEnv(envKey string) (uint64, bool) {
+	value, err := strconv.ParseUint(strings.TrimSpace(os.Getenv(envKey)), 10, 64)
+	if err != nil || value == 0 {
+		return 0, false
+	}
+	return value * 1024 * 1024, true
 }

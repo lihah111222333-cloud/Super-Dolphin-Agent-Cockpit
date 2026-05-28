@@ -76,8 +76,8 @@ func assertGoAdapterPolicies(t *testing.T, ctx context.Context, registry *Langua
 	if got, want := goAdapter.EnvPolicy(goScope), []string{"GOWORK=" + goWorkPath}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("go EnvPolicy = %#v, want %#v", got, want)
 	}
-	if policy := goAdapter.BootstrapPolicy(goScope); !policy.OpenSiblingDocuments || len(policy.SiblingExtensions) == 0 {
-		t.Fatalf("go BootstrapPolicy = %#v, want adapter-owned sibling bootstrap", policy)
+	if policy := goAdapter.BootstrapPolicy(goScope); policy.OpenSiblingDocuments || len(policy.SiblingExtensions) != 0 {
+		t.Fatalf("go BootstrapPolicy = %#v, want no sibling bootstrap", policy)
 	}
 }
 
@@ -359,6 +359,32 @@ func TestNonLSPDocumentLanguagesUseCapabilityFallback(t *testing.T) {
 	}
 	if got := factory.callCount(); got != 0 {
 		t.Fatalf("fallback document languages started %d LSP clients", got)
+	}
+}
+
+func TestGoBootstrapDocumentDoesNotOpenSiblingFiles(t *testing.T) {
+	root := canonicalScopePath(t.TempDir(), "")
+	writeGenericTestFile(t, filepath.Join(root, "go.mod"), "module example.test/go-no-siblings\n\ngo 1.25.0\n")
+	target := filepath.Join(root, "main.go")
+	sibling := filepath.Join(root, "helper.go")
+	writeGenericTestFile(t, target, "package main\nfunc main() {}\n")
+	writeGenericTestFile(t, sibling, "package main\nfunc helper() {}\n")
+	factory := &genericMatrixClientFactory{}
+	mgr := NewManager(Config{WorkspaceRoot: root, ClientFactory: factory}).(*manager)
+	defer func() { _ = mgr.Close() }()
+	ctx := common.WithToolScope(common.WithToolScope(context.Background(), common.ToolScope{CWD: root}), common.ToolScope{AgentID: "agent-go", ThreadID: "thread-go", Family: "lsp", CWD: root})
+
+	if err := mgr.BootstrapDocument(ctx, target); err != nil {
+		t.Fatalf("BootstrapDocument(go): %v", err)
+	}
+	client := factory.clientAt(t, 0)
+	targetURI := fileURIFromPath(target)
+	siblingURI := fileURIFromPath(sibling)
+	if !client.opened(targetURI, "go") {
+		t.Fatalf("go target was not opened; opens=%#v", client.openEvents())
+	}
+	if client.opened(siblingURI, "go") {
+		t.Fatalf("go sibling should not be opened during bootstrap; opens=%#v", client.openEvents())
 	}
 }
 

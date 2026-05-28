@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	platformshared "github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 )
 
@@ -297,250 +298,48 @@ func shouldUseJSTSWorkspace(languageID string) bool {
 	}
 }
 
-// findJSTSProjectRoot walks up from path looking for package.json,
-// tsconfig.json, or jsconfig.json — the project markers that tsserver
-// needs to anchor a workspace.
 func findJSTSProjectRoot(path string) (string, error) {
-	absPath, err := platformshared.NormalizeAbsolutePath(path)
-	if err != nil {
-		return "", err
-	}
-	startDir, err := resolveStartDir(absPath)
-	if err != nil {
-		return "", err
-	}
-	for dir := startDir; dir != "" && dir != "."; dir = filepath.Dir(dir) {
-		for _, marker := range jstsProjectMarkers {
-			if fileExists(filepath.Join(dir, marker)) {
-				return dir, nil
-			}
-		}
-		if filepath.Dir(dir) == dir {
-			break
-		}
-	}
-	return "", nil
+	return findProjectRoot(path, lspProjectAdapterConfig(contract.LSPServiceJSTS).RootMarkers)
 }
 
-var (
-	jstsProjectMarkers   = []string{"tsconfig.json", "jsconfig.json", "package.json"}
-	jstsProjectMarkerSet = map[string]struct{}{
-		"jsconfig.json": {},
-		"package.json":  {},
-		"tsconfig.json": {},
-	}
-	jstsIgnoredDirNames = map[string]struct{}{
-		".build-cache": {},
-		".git":         {},
-		".workspace":   {},
-		"dist":         {},
-		"node_modules": {},
-		"vendor":       {},
-	}
-	jstsBootstrapExtensions = map[string]struct{}{
-		".js":  {},
-		".jsx": {},
-		".ts":  {},
-		".tsx": {},
-	}
-)
-
-type jstsProjectRootWithinFinder struct {
-	result string
-}
-
-// findJSTSProjectRootWithin walks down from root looking for the first
-// directory that contains a JS/TS project marker. Used when no source
-// file path is available (e.g. workspace_symbol with only a language).
 func findJSTSProjectRootWithin(root string) (string, error) {
-	finder := &jstsProjectRootWithinFinder{}
-	if err := filepath.WalkDir(root, finder.walk); err != nil {
-		return "", err
-	}
-	return finder.result, nil
-}
-
-func (f *jstsProjectRootWithinFinder) walk(path string, d os.DirEntry, walkErr error) error {
-	if walkErr != nil {
-		return walkErr
-	}
-	if d == nil {
-		return nil
-	}
-	if d.IsDir() {
-		return jstsWalkDirDecision(d.Name())
-	}
-	if !isJSTSProjectMarker(d.Name()) {
-		return nil
-	}
-	f.result = filepath.Dir(path)
-	return filepath.SkipAll
-}
-
-func jstsWalkDirDecision(name string) error {
-	if strings.HasPrefix(name, ".") {
-		return filepath.SkipDir
-	}
-	if _, ok := jstsIgnoredDirNames[name]; ok {
-		return filepath.SkipDir
-	}
-	return nil
-}
-
-func isJSTSProjectMarker(name string) bool {
-	_, ok := jstsProjectMarkerSet[name]
-	return ok
-}
-
-type jstsBootstrapFileFinder struct {
-	result string
+	cfg := lspProjectAdapterConfig(contract.LSPServiceJSTS)
+	return findProjectRootWithin(root, cfg.RootMarkers, lspProjectIgnoredDirSet(contract.LSPServiceJSTS))
 }
 
 func findJSTSBootstrapFileWithin(root string) (string, error) {
-	finder := &jstsBootstrapFileFinder{}
-	if err := filepath.WalkDir(root, finder.walk); err != nil {
-		return "", err
-	}
-	return finder.result, nil
-}
-
-func (f *jstsBootstrapFileFinder) walk(path string, d os.DirEntry, walkErr error) error {
-	if walkErr != nil {
-		return walkErr
-	}
-	if d == nil {
-		return nil
-	}
-	if d.IsDir() {
-		return jstsWalkDirDecision(d.Name())
-	}
-	if !isJSTSBootstrapFile(path) {
-		return nil
-	}
-	f.result = path
-	return filepath.SkipAll
-}
-
-func isJSTSBootstrapFile(path string) bool {
-	_, ok := jstsBootstrapExtensions[strings.ToLower(filepath.Ext(path))]
-	return ok
+	cfg := lspProjectAdapterConfig(contract.LSPServiceJSTS)
+	return findBootstrapFileWithin(root, cfg.FirstSourceExtensions, lspProjectIgnoredDirSet(contract.LSPServiceJSTS))
 }
 
 func shouldUseJavaWorkspace(languageID string) bool {
 	return normalizeLanguageID(languageID) == "java"
 }
 
-var (
-	javaProjectMarkers   = []string{"pom.xml", "build.gradle", "build.gradle.kts"}
-	javaProjectMarkerSet = map[string]struct{}{
-		"build.gradle":     {},
-		"build.gradle.kts": {},
-		"pom.xml":          {},
-	}
-	javaIgnoredDirNames = map[string]struct{}{
-		".build-cache": {},
-		".git":         {},
-		".gradle":      {},
-		".idea":        {},
-		".workspace":   {},
-		"build":        {},
-		"node_modules": {},
-		"target":       {},
-		"vendor":       {},
-	}
-	javaBootstrapExtensions = map[string]struct{}{
-		".java": {},
-	}
-)
-
 func findJavaProjectRoot(path string) (string, error) {
-	absPath, err := platformshared.NormalizeAbsolutePath(path)
-	if err != nil {
-		return "", err
-	}
-	startDir, err := resolveStartDir(absPath)
-	if err != nil {
-		return "", err
-	}
-	for dir := startDir; dir != "" && dir != "."; dir = filepath.Dir(dir) {
-		for _, marker := range javaProjectMarkers {
-			if fileExists(filepath.Join(dir, marker)) {
-				return dir, nil
-			}
-		}
-		if filepath.Dir(dir) == dir {
-			break
-		}
-	}
-	return "", nil
-}
-
-type javaProjectRootWithinFinder struct {
-	result string
+	return findProjectRoot(path, lspProjectAdapterConfig(contract.LSPServiceJava).RootMarkers)
 }
 
 func findJavaProjectRootWithin(root string) (string, error) {
-	finder := &javaProjectRootWithinFinder{}
-	if err := filepath.WalkDir(root, finder.walk); err != nil {
-		return "", err
-	}
-	return finder.result, nil
-}
-
-func (f *javaProjectRootWithinFinder) walk(path string, d os.DirEntry, walkErr error) error {
-	if walkErr != nil {
-		return walkErr
-	}
-	if d == nil {
-		return nil
-	}
-	if d.IsDir() {
-		return javaWalkDirDecision(d.Name())
-	}
-	if _, ok := javaProjectMarkerSet[d.Name()]; !ok {
-		return nil
-	}
-	f.result = filepath.Dir(path)
-	return filepath.SkipAll
-}
-
-func javaWalkDirDecision(name string) error {
-	if strings.HasPrefix(name, ".") {
-		return filepath.SkipDir
-	}
-	if _, ok := javaIgnoredDirNames[name]; ok {
-		return filepath.SkipDir
-	}
-	return nil
-}
-
-type javaBootstrapFileFinder struct {
-	result string
+	cfg := lspProjectAdapterConfig(contract.LSPServiceJava)
+	return findProjectRootWithin(root, cfg.RootMarkers, lspProjectIgnoredDirSet(contract.LSPServiceJava))
 }
 
 func findJavaBootstrapFileWithin(root string) (string, error) {
-	finder := &javaBootstrapFileFinder{}
-	if err := filepath.WalkDir(root, finder.walk); err != nil {
-		return "", err
-	}
-	return finder.result, nil
+	cfg := lspProjectAdapterConfig(contract.LSPServiceJava)
+	return findBootstrapFileWithin(root, cfg.FirstSourceExtensions, lspProjectIgnoredDirSet(contract.LSPServiceJava))
 }
 
-func (f *javaBootstrapFileFinder) walk(path string, d os.DirEntry, walkErr error) error {
-	if walkErr != nil {
-		return walkErr
-	}
-	if d == nil {
-		return nil
-	}
-	if d.IsDir() {
-		return javaWalkDirDecision(d.Name())
-	}
-	if _, ok := javaBootstrapExtensions[strings.ToLower(filepath.Ext(path))]; !ok {
-		return nil
-	}
-	f.result = path
-	return filepath.SkipAll
+func lspProjectAdapterConfig(service string) contract.LSPProjectAdapterConfig {
+	return lspConfigWithDefaults(contract.LSPConfig{}).ProjectAdapters[service]
+}
+
+func lspProjectIgnoredDirSet(service string) map[string]struct{} {
+	cfg := lspConfigWithDefaults(contract.LSPConfig{})
+	project := cfg.ProjectAdapters[service]
+	names := append([]string(nil), project.IgnoredDirNames...)
+	names = append(names, cfg.NoiseDirNames...)
+	return stringSetFromList(names)
 }
 
 func normalizeLanguageID(languageID string) string {

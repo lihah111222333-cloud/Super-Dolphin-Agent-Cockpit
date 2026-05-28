@@ -16,6 +16,7 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/protocol"
 	mcpdto "github.com/anthropic-ai/super-agent-v3/internal/dto/mcp"
 	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/common"
+	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
 	platformrunner "github.com/anthropic-ai/super-agent-v3/internal/platform/runner"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
@@ -39,14 +40,17 @@ func (m *Manager) BackgroundRunners() []platformrunner.Runner {
 	return m.backgroundRunners
 }
 
-func newManager() (*Manager, error) {
+func newManager(cfg *platformconfig.Config) (*Manager, error) {
+	if cfg == nil {
+		return nil, errors.New("platform config is required")
+	}
 	root, err := runtimeRoot()
 	if err != nil {
 		return nil, err
 	}
 	log := pkglogger.Get()
 	inst := setupInstaller()
-	adapters := multilsp.NewDefaultLanguageAdapterRegistry()
+	adapters := multilsp.NewLanguageAdapterRegistryFromConfig(cfg.LSP)
 
 	registry := manager.NewRegistry(inst)
 	backgroundRunners := make([]platformrunner.Runner, 0, len(runtimePrimaryLanguageIDs()))
@@ -215,7 +219,7 @@ func registerAdapterLanguages(
 	adapter multilsp.LanguageAdapter,
 	mgr multilsp.Manager,
 ) {
-	scopedResolver := multilsp.NewRegistryScopedResolver(mgr)
+	scopedResolver := runtimeScopedResolver(mgr)
 	for _, langID := range adapter.LanguageIDs() {
 		registry.Register(langID, mgr, scopedResolver)
 	}
@@ -228,10 +232,23 @@ func registerAdapterLanguagesNoInstall(
 	adapter multilsp.LanguageAdapter,
 	mgr multilsp.Manager,
 ) {
-	scopedResolver := multilsp.NewRegistryScopedResolver(mgr)
+	scopedResolver := runtimeScopedResolver(mgr)
 	for _, langID := range adapter.LanguageIDs() {
 		registry.RegisterNoInstall(langID, mgr, scopedResolver)
 	}
+}
+
+type runtimeScopedResolverProvider interface {
+	RegistryScopedResolver() manager.ScopedManagerResolver
+}
+
+func runtimeScopedResolver(mgr multilsp.Manager) manager.ScopedManagerResolver {
+	if provider, ok := mgr.(runtimeScopedResolverProvider); ok {
+		if resolver := provider.RegistryScopedResolver(); resolver != nil {
+			return resolver
+		}
+	}
+	return multilsp.NewRegistryScopedResolver(mgr)
 }
 
 func setupInstaller() *installer.Provider {
@@ -295,9 +312,10 @@ func setupInstaller() *installer.Provider {
 
 func createFallbackManager(adapters *multilsp.LanguageAdapterRegistry, root string, log *slog.Logger) multilsp.Manager {
 	return multilsp.NewManager(multilsp.Config{
-		WorkspaceRoot:    root,
-		LanguageAdapters: adapters,
-		Logger:           log,
+		WorkspaceRoot:                    root,
+		LanguageAdapters:                 adapters,
+		Logger:                           log,
+		DisableInitialWorkspaceBootstrap: true,
 	})
 }
 
@@ -316,8 +334,9 @@ func createGenericManagerWithBinary(adapter multilsp.LanguageAdapter, adapters *
 	}
 	binary := &runtimeBinaryOverride{value: initialBinary}
 	mgr := multilsp.NewManager(multilsp.Config{
-		WorkspaceRoot:    root,
-		LanguageAdapters: adapters,
+		WorkspaceRoot:                    root,
+		LanguageAdapters:                 adapters,
+		DisableInitialWorkspaceBootstrap: true,
 		ClientFactory: multilsp.ClientFactoryWithEnvFunc(func(rootDir string, env []string, h protocol.NotificationHandler) (multilsp.Client, error) {
 			// rootDir is supplied per-call from cfg.rootPath so the
 			// language server subprocess Dir tracks the workspace being
@@ -373,6 +392,24 @@ func (b *runtimeBinaryOverride) Get() string {
 type runtimeBinaryManager struct {
 	multilsp.Manager
 	binary *runtimeBinaryOverride
+}
+
+func (m *runtimeBinaryManager) RegistryScopedResolver() manager.ScopedManagerResolver {
+	if m == nil {
+		return nil
+	}
+	return multilsp.NewRegistryScopedResolver(m.Manager)
+}
+
+func (m *runtimeBinaryManager) ReleaseScope(req multilsp.ReleaseScopeRequest) (multilsp.ReleaseScopeResult, error) {
+	if m == nil {
+		return multilsp.ReleaseScopeResult{}, nil
+	}
+	releaser, ok := m.Manager.(multilsp.ScopeReleaser)
+	if !ok {
+		return multilsp.ReleaseScopeResult{}, nil
+	}
+	return releaser.ReleaseScope(req)
 }
 
 func (m *runtimeBinaryManager) SetBinaryPath(path string) {

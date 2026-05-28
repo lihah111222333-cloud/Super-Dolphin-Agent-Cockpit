@@ -18,6 +18,7 @@ type (
 	SkillConfig  = contract.SkillConfig
 	AgentConfig  = contract.AgentConfig
 	NotifyConfig = contract.NotifyConfig
+	LSPConfig    = contract.LSPConfig
 )
 
 func New() *Config {
@@ -43,6 +44,7 @@ func New() *Config {
 			QueueCapacity:    envPositiveIntOr("NOTIFY_QUEUE_CAPACITY", 512),
 			DrainSeconds:     envPositiveIntOr("NOTIFY_DRAIN_SECONDS", 5),
 		},
+		LSP: lspConfigFromEnv(),
 	}
 	exportRPCAddrIfMissing(cfg.RPCAddr)
 	exportDatabaseURLIfMissing(cfg.DatabaseURL)

@@ -95,7 +95,7 @@ func (s *service) buildOfflineConfig(
 				Approvals: strings.TrimSpace(stored.Approvals),
 			},
 		},
-		Runtime: buildOfflineRuntimeConfig(stored, thread),
+		Runtime: buildOfflineRuntimeConfig(stored, thread, binding),
 	}, nil
 }
 
@@ -117,7 +117,7 @@ func (s *service) loadOfflineThread(
 	}
 }
 
-func buildOfflineRuntimeConfig(stored storedThreadConfig, thread *threadstore.Thread) map[string]any {
+func buildOfflineRuntimeConfig(stored storedThreadConfig, thread *threadstore.Thread, binding *bindingstore.Binding) map[string]any {
 	cfg := map[string]any{
 		"approvalPolicy": offlineApprovalPolicy,
 		"toolRouting": map[string]any{
@@ -131,6 +131,11 @@ func buildOfflineRuntimeConfig(stored storedThreadConfig, thread *threadstore.Th
 		},
 	}
 	cfg = mergeRuntimeConfig(cfg, clone.RuntimeConfigMap(stored.Runtime))
+	if thread != nil && strings.TrimSpace(thread.Cwd) != "" {
+		cfg["cwd"] = strings.TrimSpace(thread.Cwd)
+	} else if binding != nil && strings.TrimSpace(binding.Cwd) != "" {
+		cfg["cwd"] = strings.TrimSpace(binding.Cwd)
+	}
 	if value := strings.TrimSpace(stored.Approvals); value != "" {
 		cfg["approvalPolicy"] = value
 	}
