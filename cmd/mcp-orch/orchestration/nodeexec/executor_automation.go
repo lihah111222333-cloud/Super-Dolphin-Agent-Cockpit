@@ -52,6 +52,11 @@ type AutomationCommandResult struct {
 	Args     json.RawMessage `json:"args,omitempty"`
 }
 
+const (
+	automationCommandStdoutLimitBytes = 1024 * 1024
+	automationCommandStderrLimitBytes = 256 * 1024
+)
+
 type ShellCommandRunner struct{}
 
 func NewShellCommandRunner() *ShellCommandRunner { return &ShellCommandRunner{} }
@@ -62,10 +67,10 @@ func (ShellCommandRunner) RunCommandCard(ctx context.Context, card AutomationCom
 		return AutomationCommandResult{}, err
 	}
 	cmd := exec.CommandContext(ctx, "sh", "-c", command)
-	var stdout bytes.Buffer
-	var stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
+	stdout := newCommandOutputBuffer("stdout", automationCommandStdoutLimitBytes)
+	stderr := newCommandOutputBuffer("stderr", automationCommandStderrLimitBytes)
+	cmd.Stdout = stdout
+	cmd.Stderr = stderr
 	err = cmd.Run()
 	exitCode := 0
 	if cmd.ProcessState != nil {
@@ -86,6 +91,52 @@ func (ShellCommandRunner) RunCommandCard(ctx context.Context, card AutomationCom
 		return result, CommandExitError{ExitCode: result.ExitCode, Err: err}
 	}
 	return result, nil
+}
+
+type commandOutputBuffer struct {
+	label     string
+	limit     int
+	buf       bytes.Buffer
+	total     int
+	truncated bool
+}
+
+func newCommandOutputBuffer(label string, limit int) *commandOutputBuffer {
+	return &commandOutputBuffer{label: label, limit: limit}
+}
+
+func (b *commandOutputBuffer) Write(p []byte) (int, error) {
+	b.total += len(p)
+	remaining := b.limit - b.buf.Len()
+	if remaining <= 0 {
+		b.truncated = b.truncated || len(p) > 0
+		return len(p), nil
+	}
+	if len(p) > remaining {
+		if _, err := b.buf.Write(p[:remaining]); err != nil {
+			return 0, err
+		}
+		b.truncated = true
+		return len(p), nil
+	}
+	return b.buf.Write(p)
+}
+
+func (b *commandOutputBuffer) String() string {
+	out := b.buf.String()
+	if !b.truncated {
+		return out
+	}
+	dropped := b.total - b.buf.Len()
+	if dropped < 0 {
+		dropped = 0
+	}
+	return out + fmt.Sprintf(
+		"\n[super-dolphin: %s truncated after %d bytes; dropped %d bytes]\n",
+		b.label,
+		b.limit,
+		dropped,
+	)
 }
 
 type CommandExitError struct {

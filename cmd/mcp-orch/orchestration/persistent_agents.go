@@ -13,6 +13,55 @@ import (
 	platformshared "github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 )
 
+type PersistedThread struct {
+	ThreadID      string
+	AgentID       string
+	ParentAgentID string
+	Name          string
+	Prompt        string
+	Cwd           string
+	Status        string
+	Port          int32
+	PID           int32
+	CreatedAt     int64
+	UpdatedAt     int64
+	PendingLaunch bool
+}
+
+type PersistedBinding struct {
+	AgentID          string
+	Provider         string
+	ProviderThreadID string
+	CodexThreadID    string
+	Cwd              string
+	Archived         bool
+	CreatedAt        int64
+	UpdatedAt        int64
+}
+
+type PersistedThreadStatusUpdate struct {
+	ThreadID  string
+	Status    string
+	UpdatedAt int64
+}
+
+type PersistedBindingArchiveUpdate struct {
+	AgentID   string
+	Archived  bool
+	UpdatedAt int64
+}
+
+type AgentThreadStore interface {
+	ListAll(ctx context.Context) ([]PersistedThread, error)
+	GetByThreadID(ctx context.Context, threadID string) (*PersistedThread, error)
+	UpdateStatus(ctx context.Context, params PersistedThreadStatusUpdate) error
+}
+
+type AgentBindingStore interface {
+	GetByAgentID(ctx context.Context, agentID string) (*PersistedBinding, error)
+	SetArchived(ctx context.Context, params PersistedBindingArchiveUpdate) error
+}
+
 func (s *service) listPersistedAgentSnapshots(ctx context.Context) ([]AgentSnapshot, error) {
 	if s == nil || s.agentThreads == nil {
 		return nil, nil
@@ -95,19 +144,7 @@ func snapshotFromPersistedThread(thread PersistedThread) (AgentSnapshot, bool) {
 		return AgentSnapshot{}, false
 	}
 	name := strings.TrimSpace(platformshared.FirstNonEmpty(thread.Name, thread.Prompt, agentID))
-	return AgentSnapshot{
-		ID:        agentID,
-		AgentID:   agentID,
-		Name:      name,
-		ParentID:  strings.TrimSpace(thread.ParentAgentID),
-		Port:      int(thread.Port),
-		PID:       int(thread.PID),
-		ThreadID:  strings.TrimSpace(thread.ThreadID),
-		Cwd:       strings.TrimSpace(thread.Cwd),
-		State:     persistedThreadAgentState(thread),
-		CreatedAt: contract.NormalizeUnixTime(thread.CreatedAt),
-		UpdatedAt: contract.NormalizeUnixTime(thread.UpdatedAt, thread.CreatedAt),
-	}, true
+	return AgentSnapshot{ID: agentID, AgentID: agentID, Name: name, ParentID: strings.TrimSpace(thread.ParentAgentID), Port: int(thread.Port), PID: int(thread.PID), ThreadID: strings.TrimSpace(thread.ThreadID), Cwd: strings.TrimSpace(thread.Cwd), State: persistedThreadAgentState(thread), CreatedAt: contract.NormalizeUnixTime(thread.CreatedAt), UpdatedAt: contract.NormalizeUnixTime(thread.UpdatedAt, thread.CreatedAt)}, true
 }
 
 func persistedThreadAgentID(thread PersistedThread) string {
@@ -150,8 +187,7 @@ func mergeAgentSnapshots(persisted, runtime []AgentSnapshot) []AgentSnapshot {
 			continue
 		}
 		if pos, ok := index[key]; ok {
-			snapshot = overlayRuntimeSnapshot(merged[pos], snapshot)
-			merged[pos] = snapshot
+			merged[pos] = overlayRuntimeSnapshot(merged[pos], snapshot)
 			continue
 		}
 		index[key] = len(merged)
@@ -211,8 +247,7 @@ func attachPersistedAgentReport(snapshot *AgentSnapshot) {
 		return
 	}
 	report, err := readPersistedAgentReportFile(agentReportFileRecordFromSnapshot(*snapshot))
-	if err != nil {
-		return
+	if err == nil {
+		snapshot.LastReport = normalizeDisplayReportText(report)
 	}
-	snapshot.LastReport = normalizeDisplayReportText(report)
 }

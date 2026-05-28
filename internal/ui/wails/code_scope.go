@@ -217,7 +217,7 @@ func collectRootMatches(
 
 func shouldSkipCodeSearchDir(name string) bool {
 	switch strings.ToLower(strings.TrimSpace(name)) {
-	case ".git", ".cache", "__pycache__", "node_modules", "vendor", "dist", "build", "coverage":
+	case ".agent", ".agents", ".build-cache", ".cache", ".claude", ".git", ".workspace", ".worktrees", "__pycache__", "build", "coverage", "dist", "node_modules", "vendor":
 		return true
 	default:
 		return false

@@ -322,6 +322,7 @@ func (c *hookConsumer) handleThreadStopped(ctx context.Context, ev threaddto.Sto
 	}
 }
 
+<<<<<<< HEAD
 // runThreadStoppedDAGFallback advances the DAG fallback outside the agent lock.
 func (c *hookConsumer) runThreadStoppedDAGFallback(ctx context.Context, threadID string) {
 	threadID = strings.TrimSpace(threadID)
@@ -415,6 +416,8 @@ func isDAGFallbackFailEligibleStatus(status string) bool {
 	}
 }
 
+=======
+>>>>>>> my-v3-work-20260528
 func (c *hookConsumer) handleTurnCompleted(ctx context.Context, ev turndto.TurnCompleted) {
 	if c == nil || c.svc == nil {
 		return

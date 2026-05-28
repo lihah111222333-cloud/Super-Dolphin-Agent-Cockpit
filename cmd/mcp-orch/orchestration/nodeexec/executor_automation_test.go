@@ -179,6 +179,27 @@ func TestAutomationExecutor_ImplementsNodeExecutor(t *testing.T) {
 	var _ NodeExecutor = (*AutomationExecutor)(nil)
 }
 
+func TestCommandOutputBufferTruncatesAndReportsDroppedBytes(t *testing.T) {
+	t.Parallel()
+	buf := newCommandOutputBuffer("stdout", 5)
+
+	n, err := buf.Write([]byte("hello world"))
+	if err != nil {
+		t.Fatalf("Write() error = %v", err)
+	}
+	if n != len("hello world") {
+		t.Fatalf("Write() n = %d, want %d", n, len("hello world"))
+	}
+
+	got := buf.String()
+	if !strings.HasPrefix(got, "hello\n[super-dolphin: stdout truncated after 5 bytes; dropped 6 bytes]") {
+		t.Fatalf("buffer output = %q, want retained prefix and truncation marker", got)
+	}
+	if strings.Contains(got, "world") {
+		t.Fatalf("buffer output = %q, want overflow bytes dropped", got)
+	}
+}
+
 // ---------------------------------------------------------------------------
 // F2.2 下的 inputs/outputs 测例
 // ---------------------------------------------------------------------------

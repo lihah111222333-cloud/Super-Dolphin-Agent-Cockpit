@@ -101,6 +101,10 @@ export function getPreferenceCached(key, scope = '') {
   return cache.has(ck) ? cache.get(ck) : undefined;
 }
 
+export function getScopedPreferenceCached(key, scope = '') {
+  return getPreferenceCached(key, (scope || '').toString().trim()) ?? getPreferenceCached(key);
+}
+
 export function onPreferenceChange(key, callback, scope = '') {
   if (typeof callback !== 'function') return () => {};
   attachBridge();

@@ -1,11 +1,13 @@
 package orchestration
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"io"
 	"log/slog"
 	"os/exec"
+	"strings"
 	"testing"
 	"time"
 
@@ -206,6 +208,46 @@ func TestStartTurnExecutionReturnsSessionWaitErrorAfterSubmitWait(t *testing.T) 
 	}
 	if agent.lastError != want.Error() {
 		t.Fatalf("lastError = %q, want %q", agent.lastError, want.Error())
+	}
+}
+
+func TestWaitForSubmitSessionReadyLogsCompletion(t *testing.T) {
+	t.Parallel()
+
+	var buf bytes.Buffer
+	logger := slog.New(slog.NewTextHandler(&buf, nil))
+	starter := &stubTurnStarter{}
+	svc := NewService(logger, event.NewDispatcher(), nil, nil, starter, nil)
+
+	if err := svc.waitForSubmitSessionReady(context.Background(), "agent-1"); err != nil {
+		t.Fatalf("waitForSubmitSessionReady() error = %v", err)
+	}
+	output := buf.String()
+	if !strings.Contains(output, "waiting for submit session ready") {
+		t.Fatalf("log output = %q, want wait start log", output)
+	}
+	if !strings.Contains(output, "submit session ready wait completed") {
+		t.Fatalf("log output = %q, want wait completion log", output)
+	}
+}
+
+func TestWaitRetryBackoffLogsCompletion(t *testing.T) {
+	t.Parallel()
+
+	var buf bytes.Buffer
+	logger := slog.New(slog.NewTextHandler(&buf, nil))
+	pkglogger.SetForTest(logger)
+	t.Cleanup(func() { pkglogger.SetForTest(silentLogger()) })
+
+	if err := waitRetryBackoff(context.Background(), 0, "agent-1", errors.New("transient")); err != nil {
+		t.Fatalf("waitRetryBackoff() error = %v", err)
+	}
+	output := buf.String()
+	if !strings.Contains(output, "retrying launch") {
+		t.Fatalf("log output = %q, want retry start log", output)
+	}
+	if !strings.Contains(output, "launch retry backoff completed") && !strings.Contains(output, "launch retry backoff slow") {
+		t.Fatalf("log output = %q, want retry completion log", output)
 	}
 }
 

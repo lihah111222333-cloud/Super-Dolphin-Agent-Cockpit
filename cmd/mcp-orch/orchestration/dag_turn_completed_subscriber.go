@@ -20,19 +20,8 @@ import (
 	"go.uber.org/fx"
 )
 
-// completeNodeResultCap is the 4KB upper bound ADR-006 places on
-// task_dag_nodes.result. A2 enforces it for agent node.result materialization;
-// legacy non-agent rows still only emit the ADR-017 soft metric before store
-// handling.
 const completeNodeResultCap = 4 * 1024
 
-// isTerminalNodeStatus is the application-side idempotency short-circuit
-// for ADR-017 v1.2 §2.6 race C. The subscriber checks this BEFORE invoking
-// CompleteNode/FailNode so it can skip SQL when another path (fallback /
-// duplicate TurnCompleted / retry) already landed a terminal state.
-//
-// SQL fences (CompleteTaskDagNode / FailTaskDagNodeIfNonTerminal) still guard
-// from below — this is a defense-in-depth check, not the only barrier.
 func isTerminalNodeStatus(status string) bool {
 	switch strings.TrimSpace(strings.ToLower(status)) {
 	case "done", "failed", "cancelled", "skipped":
@@ -45,13 +34,11 @@ func isTerminalNodeStatus(status string) bool {
 type DAGSubscriberDeps struct {
 	fx.In
 
-	LookupStore  taskdag.NodeSpawningThreadLookup
-	FlowStore    taskdag.NodeFlowStore
-	EventBus     *event.Dispatcher `optional:"true"`
-	AgentThreads AgentThreadLookup
-	SvcStopper   StopAgentService
-	// SharedFileReader/Writer are only used by A2 agent output materialization
-	// after TurnCompleted carries the real child response.
+	LookupStore      taskdag.NodeSpawningThreadLookup
+	FlowStore        taskdag.NodeFlowStore
+	EventBus         *event.Dispatcher `optional:"true"`
+	AgentThreads     AgentThreadLookup
+	SvcStopper       StopAgentService
 	SharedFileReader nodeexec.SharedFileReader `optional:"true"`
 	SharedFileWriter nodeexec.SharedFileWriter `optional:"true"`
 	NodeRouter       *NodeExecutorRouter       `optional:"true"`
@@ -72,19 +59,15 @@ func RegisterDAGTurnCompletedSubscriber(
 		deps.EventBus = dispatcher
 	}
 	var cancelSub = func() {}
-	var (
-		lifecycleCtx    context.Context
-		lifecycleCancel context.CancelFunc
-	)
+	var lifecycleCtx context.Context
+	var lifecycleCancel context.CancelFunc
 	lc.Append(fx.Hook{
 		OnStart: func(context.Context) error {
-			// v1.1 修正：独立 lifecycleCtx，不复用 OnStart ctx（后者 return 即取消）。
 			lifecycleCtx, lifecycleCancel = context.WithCancel(context.Background())
 			cancelSub = bus.ResilientSubscribe(dispatcher, func(ev turndto.TurnCompleted) {
-				if lifecycleCtx.Err() != nil {
-					return // OnStop 后丢事件
+				if lifecycleCtx.Err() == nil {
+					handleDAGTurnCompleted(lifecycleCtx, deps, logger, ev)
 				}
-				handleDAGTurnCompleted(lifecycleCtx, deps, logger, ev)
 			}, logger)
 			return nil
 		},
@@ -111,8 +94,6 @@ func handleDAGTurnCompleted(
 ) {
 	threadID := strings.TrimSpace(ev.ThreadID)
 	if threadID == "" {
-		// No thread id — nothing to reverse-lookup. Counts as LookupNoNode for
-		// observability symmetry with the empty-result branch.
 		dagSubscriberMetrics.IncLookupNoNode()
 		return
 	}
@@ -121,41 +102,31 @@ func handleDAGTurnCompleted(
 		dagSubscriberMetrics.IncLookupFailed()
 		return
 	}
-
 	nodes, err := deps.LookupStore.LookupNodesBySpawningThread(ctx, threadID)
 	if err != nil {
 		dagSubscriberMetrics.IncLookupFailed()
-		logger.Warn("dag subscriber: lookup nodes by spawning thread failed",
-			"thread_id", threadID, "error", err)
+		logger.Warn("dag subscriber: lookup nodes by spawning thread failed", "thread_id", threadID, "error", err)
 		return
 	}
 	if len(nodes) == 0 {
 		dagSubscriberMetrics.IncLookupNoNode()
-		logger.Debug("dag subscriber: no node carries this thread id",
-			"thread_id", threadID)
+		logger.Debug("dag subscriber: no node carries this thread id", "thread_id", threadID)
+		stopSpawnedAgentForSubscriber(ctx, deps, logger, threadID)
 		return
 	}
 	if len(nodes) > 1 {
 		dagSubscriberMetrics.IncLookupDirtyData()
-		logger.Warn("dag subscriber: N>1 nodes carry the same spawning thread id",
-			"thread_id", threadID, "node_count", len(nodes))
+		logger.Warn("dag subscriber: N>1 nodes carry the same spawning thread id", "thread_id", threadID, "node_count", len(nodes))
 	}
-
 	for i := range nodes {
 		if ctx.Err() != nil {
 			return
 		}
 		advanceNodeForTurnCompleted(ctx, deps, logger, &nodes[i], ev)
 	}
-	// stop_helper after DB advance (DB is source of truth — stop failure
-	// does not affect DAG state). Called once per event regardless of
-	// node count: each node's spawning_thread_id is the same threadID.
 	stopSpawnedAgentForSubscriber(ctx, deps, logger, threadID)
 }
 
-// advanceNodeForTurnCompleted is the per-node branch of handleDAGTurnCompleted.
-// Kept separate so the loop in handleDAGTurnCompleted stays short — and
-// unit tests can target the branch independently.
 func advanceNodeForTurnCompleted(
 	ctx context.Context,
 	deps DAGSubscriberDeps,
@@ -165,8 +136,7 @@ func advanceNodeForTurnCompleted(
 ) {
 	if isTerminalNodeStatus(node.Status) {
 		dagSubscriberMetrics.IncIdempotentSkipped()
-		logger.Debug("dag subscriber: node already terminal, skip",
-			"dag_key", node.DagKey, "node_key", node.NodeKey, "status", node.Status)
+		logger.Debug("dag subscriber: node already terminal, skip", "dag_key", node.DagKey, "node_key", node.NodeKey, "status", node.Status)
 		return
 	}
 	result := ev.Result
@@ -176,7 +146,6 @@ func advanceNodeForTurnCompleted(
 	if strings.TrimSpace(result) == "" {
 		dagSubscriberMetrics.IncCompleteResultEmpty()
 	}
-
 	if ev.Success {
 		advanceNodeDoneForSuccess(ctx, deps, logger, node, result)
 		return
@@ -247,57 +216,8 @@ func recordLegacyResultCapMetric(logger *slog.Logger, node *taskdag.Node, result
 	dagSubscriberMetrics.IncCompleteSizeCapExceeded()
 	logger.Warn("dag subscriber: complete result exceeds ADR-006 4KB cap",
 		"dag_key", node.DagKey, "node_key", node.NodeKey, "size", len(result))
-	// Legacy non-agent path keeps the A1 behavior: surface the metric and let
-	// the store layer reject if needed. Agent outputs are enforced by
-	// prepareTurnCompletedResult before any CompleteNode call.
 }
 
-func materializeSharedfileAfterClaim(
-	ctx context.Context,
-	deps DAGSubscriberDeps,
-	logger *slog.Logger,
-	node *taskdag.Node,
-	materialized turnOutputMaterialization,
-) (json.RawMessage, bool) {
-	result := materialized.Result
-	if materialized.SharedfilePath == "" {
-		return result, true
-	}
-	exists, failure := configuredSharedfileAlreadyExists(ctx, deps.SharedFileReader, materialized.SharedfilePath)
-	if failure != nil {
-		failNodeForMaterializationFailure(ctx, deps, logger, node, failure)
-		return nil, false
-	}
-	if exists {
-		if !claimNodeOutputMaterialization(ctx, deps.FlowStore, deps.EventBus, logger, node, result) {
-			return nil, false
-		}
-		logger.Debug("dag subscriber: configured sharedfile already exists, preserve existing content",
-			"dag_key", node.DagKey, "node_key", node.NodeKey, "path", materialized.SharedfilePath)
-		return result, true
-	}
-	if strings.TrimSpace(materialized.RawResult) == "" {
-		failNodeForMaterializationFailure(ctx, deps, logger, node,
-			validationMaterializationFailure("empty agent output and configured sharedfile is missing"))
-		return nil, false
-	}
-	if failure := validateAgentSharedfileWriter(deps.SharedFileWriter); failure != nil {
-		failNodeForMaterializationFailure(ctx, deps, logger, node, failure)
-		return nil, false
-	}
-	if !claimNodeOutputMaterialization(ctx, deps.FlowStore, deps.EventBus, logger, node, result) {
-		return nil, false
-	}
-	if failure := writeAgentTurnSharedfile(ctx, deps.SharedFileWriter, materialized.SharedfilePath, materialized.RawResult); failure != nil {
-		failNodeForMaterializationFailure(ctx, deps, logger, node, failure)
-		return nil, false
-	}
-	return result, true
-}
-
-// advanceNodeDone calls CompleteNodeAndScheduleDownstream and records the
-// CompleteDone metric. DB errors are Warn-logged but not propagated (the
-// subscriber's contract is fire-and-forget per ADR-017 §2.8).
 func advanceNodeDone(
 	ctx context.Context,
 	flow taskdag.NodeFlowStore,
@@ -319,24 +239,14 @@ func advanceNodeDone(
 		dagSubscriberMetrics.IncCompleteDone()
 		return true
 	case errors.Is(err, pgx.ErrNoRows) || platformdb.IsNotFound(err):
-		// SQL fence rejection — another path (fallback / duplicate event)
-		// already pushed terminal status. Count as idempotent skip.
 		dagSubscriberMetrics.IncIdempotentSkipped()
-		logger.Debug("dag subscriber: complete fence rejected, node already terminal",
-			"dag_key", node.DagKey, "node_key", node.NodeKey)
+		logger.Debug("dag subscriber: complete fence rejected, node already terminal", "dag_key", node.DagKey, "node_key", node.NodeKey)
 	default:
-		logger.Warn("dag subscriber: complete node failed",
-			"dag_key", node.DagKey, "node_key", node.NodeKey, "error", err)
+		logger.Warn("dag subscriber: complete node failed", "dag_key", node.DagKey, "node_key", node.NodeKey, "error", err)
 	}
 	return false
 }
 
-// advanceNodeFailed calls FailNodeAndCancelDownstream with a synthesized
-// reason carrying the turn error so the cascade downstream can identify
-// the root cause.
-//
-// FailFast=false: the subscriber only marks the primary node failed; cascade
-// decisions stay with the dispatcher path.
 func advanceNodeFailed(
 	ctx context.Context,
 	flow taskdag.NodeFlowStore,
@@ -384,12 +294,9 @@ func advanceNodeFailedWithReason(
 		return true
 	case errors.Is(err, pgx.ErrNoRows) || platformdb.IsNotFound(err):
 		dagSubscriberMetrics.IncIdempotentSkipped()
-		logger.Debug("dag subscriber: fail fence rejected, node already terminal",
-			"dag_key", node.DagKey, "node_key", node.NodeKey)
-	default:
-		logger.Warn("dag subscriber: fail node failed",
-			"dag_key", node.DagKey, "node_key", node.NodeKey, "error", err)
+		logger.Debug("dag subscriber: fail fence rejected, node already terminal", "dag_key", node.DagKey, "node_key", node.NodeKey)
 	}
+	logger.Warn("dag subscriber: fail node failed", "dag_key", node.DagKey, "node_key", node.NodeKey, "error", err)
 	return false
 }
 
@@ -407,8 +314,7 @@ func claimNodeOutputMaterialization(
 ) bool {
 	claimer, ok := flow.(nodeOutputMaterializationClaimer)
 	if !ok {
-		logger.Warn("dag subscriber: output materialization claim not wired",
-			"dag_key", node.DagKey, "node_key", node.NodeKey)
+		logger.Warn("dag subscriber: output materialization claim not wired", "dag_key", node.DagKey, "node_key", node.NodeKey)
 		advanceNodeFailedWithReason(ctx, flow, eventBus, logger, node, "infrastructure: output materialization claim not wired", true)
 		return false
 	}
@@ -424,27 +330,19 @@ func claimNodeOutputMaterialization(
 		return true
 	case errors.Is(err, pgx.ErrNoRows) || platformdb.IsNotFound(err):
 		dagSubscriberMetrics.IncIdempotentSkipped()
-		logger.Debug("dag subscriber: output materialization claim rejected, node already claimed or terminal",
-			"dag_key", node.DagKey, "node_key", node.NodeKey)
-		return false
-	default:
-		logger.Warn("dag subscriber: output materialization claim failed",
-			"dag_key", node.DagKey, "node_key", node.NodeKey, "error", err)
+		logger.Debug("dag subscriber: output materialization claim rejected, node already claimed or terminal", "dag_key", node.DagKey, "node_key", node.NodeKey)
 		return false
 	}
+	logger.Warn("dag subscriber: output materialization claim failed", "dag_key", node.DagKey, "node_key", node.NodeKey, "error", err)
+	return false
 }
 
-// encodeTurnResultForNodeUpdate prepares ev.Result for storage in
-// task_dag_nodes.result (jsonb). It normalizes empty into `{}` so the store's
-// NOT NULL constraint stays happy and wraps non-JSON text in a compact envelope.
+// encodeTurnResultForNodeUpdate prepares ev.Result for storage in task_dag_nodes.result.
 func encodeTurnResultForNodeUpdate(raw string) json.RawMessage {
 	trimmed := strings.TrimSpace(raw)
 	if trimmed == "" {
 		return json.RawMessage(`{}`)
 	}
-	// If raw is already valid JSON, pass through. Otherwise wrap as a
-	// {"text": "..."} envelope so the column remains valid jsonb while
-	// preserving the raw model text.
 	if json.Valid([]byte(trimmed)) {
 		return json.RawMessage(trimmed)
 	}
@@ -466,9 +364,6 @@ type turnOutputMaterialization struct {
 	RawResult      string
 }
 
-// prepareTurnCompletedResult is the ADR-018/A2 boundary: agent nodes use
-// the real TurnCompleted.Result, not launch metadata, as their persisted
-// output. Non-agent rows keep the ADR-017 normalization path for compatibility.
 func prepareTurnCompletedResult(node *taskdag.Node, rawResult string) (turnOutputMaterialization, *turnOutputMaterializationFailure) {
 	if node == nil || strings.TrimSpace(node.NodeType) != "agent" {
 		return turnOutputMaterialization{Result: encodeTurnResultForNodeUpdate(rawResult)}, nil
@@ -495,7 +390,7 @@ func prepareTurnCompletedResult(node *taskdag.Node, rawResult string) (turnOutpu
 func parseAgentOutputConfig(raw json.RawMessage) (*nodeexec.AgentNodeConfig, *turnOutputMaterializationFailure) {
 	cfg, err := nodeexec.ParseAgentConfig(raw)
 	if err != nil {
-		return nil, validationMaterializationFailure("decode agent config: " + err.Error())
+		return nil, validationMaterializationFailure("decode agent config: "+err.Error())
 	}
 	if cfg == nil {
 		return nil, validationMaterializationFailure("decode agent config: nil parsed config")
@@ -511,10 +406,48 @@ func buildAgentNodeResult(rawResult string, emit bool) (json.RawMessage, *turnOu
 	if len(nodeResult) <= completeNodeResultCap {
 		return nodeResult, nil
 	}
-	return nil, &turnOutputMaterializationFailure{Reason: fmt.Sprintf(
-		"result exceeds 4KB size cap (%d > %d bytes), configure outputs.to_sharedfile (ADR-006)",
-		len(nodeResult), completeNodeResultCap,
-	), SizeCapExceeded: true}
+	return nil, &turnOutputMaterializationFailure{Reason: fmt.Sprintf("result exceeds 4KB size cap (%d > %d bytes), configure outputs.to_sharedfile (ADR-006)", len(nodeResult), completeNodeResultCap), SizeCapExceeded: true}
+}
+
+func materializeSharedfileAfterClaim(
+	ctx context.Context,
+	deps DAGSubscriberDeps,
+	logger *slog.Logger,
+	node *taskdag.Node,
+	materialized turnOutputMaterialization,
+) (json.RawMessage, bool) {
+	result := materialized.Result
+	if materialized.SharedfilePath == "" {
+		return result, true
+	}
+	exists, failure := configuredSharedfileAlreadyExists(ctx, deps.SharedFileReader, materialized.SharedfilePath)
+	if failure != nil {
+		failNodeForMaterializationFailure(ctx, deps, logger, node, failure)
+		return nil, false
+	}
+	if exists {
+		if !claimNodeOutputMaterialization(ctx, deps.FlowStore, deps.EventBus, logger, node, result) {
+			return nil, false
+		}
+		logger.Debug("dag subscriber: configured sharedfile already exists, preserve existing content", "dag_key", node.DagKey, "node_key", node.NodeKey, "path", materialized.SharedfilePath)
+		return result, true
+	}
+	if strings.TrimSpace(materialized.RawResult) == "" {
+		failNodeForMaterializationFailure(ctx, deps, logger, node, validationMaterializationFailure("empty agent output and configured sharedfile is missing"))
+		return nil, false
+	}
+	if failure := validateAgentSharedfileWriter(deps.SharedFileWriter); failure != nil {
+		failNodeForMaterializationFailure(ctx, deps, logger, node, failure)
+		return nil, false
+	}
+	if !claimNodeOutputMaterialization(ctx, deps.FlowStore, deps.EventBus, logger, node, result) {
+		return nil, false
+	}
+	if failure := writeAgentTurnSharedfile(ctx, deps.SharedFileWriter, materialized.SharedfilePath, materialized.RawResult); failure != nil {
+		failNodeForMaterializationFailure(ctx, deps, logger, node, failure)
+		return nil, false
+	}
+	return result, true
 }
 
 func writeAgentTurnSharedfile(ctx context.Context, writer nodeexec.SharedFileWriter, path, rawResult string) *turnOutputMaterializationFailure {
@@ -539,8 +472,7 @@ func configuredSharedfileAlreadyExists(ctx context.Context, reader nodeexec.Shar
 	}
 	_, exists, err := reader.ReadSharedFile(ctx, path)
 	if err != nil {
-		return false, infrastructureMaterializationFailure(
-			fmt.Sprintf("outputs.to_sharedfile[%q] preflight read: %v", path, err))
+		return false, infrastructureMaterializationFailure(fmt.Sprintf("outputs.to_sharedfile[%q] preflight read: %v", path, err))
 	}
 	return exists, nil
 }
@@ -549,16 +481,14 @@ func validateAgentSharedfileReader(reader nodeexec.SharedFileReader) *turnOutput
 	if reader != nil {
 		return nil
 	}
-	return infrastructureMaterializationFailure(
-		"outputs.to_sharedfile configured but SharedFileReader not wired in DAG subscriber")
+	return infrastructureMaterializationFailure("outputs.to_sharedfile configured but SharedFileReader not wired in DAG subscriber")
 }
 
 func validateAgentSharedfileWriter(writer nodeexec.SharedFileWriter) *turnOutputMaterializationFailure {
 	if writer != nil {
 		return nil
 	}
-	return infrastructureMaterializationFailure(
-		"outputs.to_sharedfile configured but SharedFileWriter not wired in DAG subscriber")
+	return infrastructureMaterializationFailure("outputs.to_sharedfile configured but SharedFileWriter not wired in DAG subscriber")
 }
 
 func finalAgentMaterializedResult(rawResult string, nodeResult json.RawMessage, path string, emit bool) json.RawMessage {
@@ -599,11 +529,7 @@ func infrastructureMaterializationFailure(reason string) *turnOutputMaterializat
 	return &turnOutputMaterializationFailure{Reason: "infrastructure: " + reason}
 }
 
-// stopSpawnedAgentForSubscriber is the §2.8 helper hook. ADR-016 v1.2 §3.2
-// hard-constraint: the subscriber MUST call StopSpawnedAgent rather than
-// inline the 5 semantic contracts. Failure is logged at Warn but does NOT
-// propagate to the caller — the DAG advance is the source of truth, the
-// child agent's resource release is a side-effect.
+// stopSpawnedAgentForSubscriber stops the runtime after DAG state is authoritative.
 func stopSpawnedAgentForSubscriber(
 	ctx context.Context,
 	deps DAGSubscriberDeps,
@@ -611,22 +537,12 @@ func stopSpawnedAgentForSubscriber(
 	threadID string,
 ) {
 	if deps.AgentThreads == nil || deps.SvcStopper == nil {
-		logger.Debug("dag subscriber: stop helper deps not wired, skip",
-			"thread_id", threadID)
+		logger.Debug("dag subscriber: stop helper deps not wired, skip", "thread_id", threadID)
 		return
 	}
-	_, err := StopSpawnedAgent(ctx, deps.AgentThreads, deps.SvcStopper, threadID)
-	if err != nil {
-		logger.Warn("dag subscriber: stop spawned agent failed",
-			"thread_id", threadID, "error", err)
+	if _, err := StopSpawnedAgent(ctx, deps.AgentThreads, deps.SvcStopper, threadID); err != nil {
+		logger.Warn("dag subscriber: stop spawned agent failed", "thread_id", threadID, "error", err)
 	}
 }
 
-// Compile-time guard ensuring DAGSubscriberDeps remains an fx.In-tagged
-// struct. Adding new fields without fx.In would silently drop them from
-// the fx graph at run-time.
-// 顶层编译期断言：保证 DAGSubscriberDeps 需含 fx.In 嵌入（Reviewer B 揭出
-// 原写法 var _ = func() any { ... } 函数从不被调，编译器不检函数体内
-// 类型断言是否仍成立，断言实际失效）。顶层 var 断言才能真正守住
-// “人工删 fx.In 后编译即报错”该不变式。
 var _ fx.In = DAGSubscriberDeps{}.In

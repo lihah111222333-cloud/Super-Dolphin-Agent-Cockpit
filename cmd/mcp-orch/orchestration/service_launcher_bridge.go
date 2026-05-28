@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	agentdto "github.com/anthropic-ai/super-agent-v3/internal/dto/agent"
 	shareddto "github.com/anthropic-ai/super-agent-v3/internal/dto/shared"
@@ -92,20 +93,37 @@ func (s *service) launchAgentUntilStarted(ctx context.Context, req LaunchRequest
 }
 func (s *service) launchWithRetry(ctx context.Context, attempt launcherLaunchAttempt, req LaunchRequest) (launchedAgent, error) {
 	var lastErr error
+	launchStartedAt := time.Now()
+	pkglogger.Info("orchestration: launch attempt sequence start",
+		pkglogger.String(pkglogger.FieldAgentID, attempt.agentID),
+		pkglogger.Int64("max_retries", int64(maxLaunchRetries)))
 	for i := 0; i < maxLaunchRetries; i++ {
 		if i > 0 {
 			if err := waitRetryBackoff(ctx, i, attempt.agentID, lastErr); err != nil {
 				return launchedAgent{}, s.finishLauncherLaunch(ctx, attempt, LaunchResult{}, err)
 			}
 		}
+		attemptStartedAt := time.Now()
 		result, launchErr := s.launcher.Launch(ctx, &attempt.launching, req)
 		if launchErr == nil {
+			pkglogger.Info("orchestration: launch attempt succeeded",
+				pkglogger.String(pkglogger.FieldAgentID, attempt.agentID),
+				pkglogger.Int64("attempt", int64(i+1)),
+				pkglogger.Int64(pkglogger.FieldDurationMS, time.Since(attemptStartedAt).Milliseconds()),
+				pkglogger.Int64("total_duration_ms", time.Since(launchStartedAt).Milliseconds()))
 			if err := s.finishLauncherLaunch(ctx, attempt, result, nil); err != nil {
 				return launchedAgent{}, err
 			}
 			return launchedAgent{agentID: shared.FirstTrimmed(result.RemoteAgentID, attempt.agentID), result: result}, nil
 		}
 		lastErr = launchErr
+		pkglogger.Warn("orchestration: launch attempt failed",
+			pkglogger.String(pkglogger.FieldAgentID, attempt.agentID),
+			pkglogger.Int64("attempt", int64(i+1)),
+			pkglogger.String(pkglogger.FieldError, launchErr.Error()),
+			pkglogger.String("error_class", string(classifyLaunchError(launchErr))),
+			pkglogger.Int64(pkglogger.FieldDurationMS, time.Since(attemptStartedAt).Milliseconds()),
+			pkglogger.Int64("total_duration_ms", time.Since(launchStartedAt).Milliseconds()))
 		if classifyLaunchError(launchErr) == launchClassPermanent {
 			break
 		}
