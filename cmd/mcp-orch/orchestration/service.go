@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/orchestration/processctl"
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	tooldto "github.com/anthropic-ai/super-agent-v3/internal/dto/tool"
 	turndto "github.com/anthropic-ai/super-agent-v3/internal/dto/turn"
@@ -124,6 +125,7 @@ type agentRuntime struct {
 	stopRequested                                                                             bool
 	stopReason                                                                                string
 	cmd                                                                                       *exec.Cmd
+	processGuard                                                                              *processctl.Guard
 	queue                                                                                     *SubmissionQueue
 	sm                                                                                        *stateless.StateMachine
 }

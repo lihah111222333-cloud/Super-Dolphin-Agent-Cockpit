@@ -263,6 +263,7 @@ func (s *service) completeLauncherLaunchLocked(ctx context.Context, agent, launc
 		return commitErr
 	}
 	if err := s.commitLaunchSuccessLocked(ctx, agent); err != nil {
+		closeAgentProcessGuard(agent)
 		agent.cmd = nil
 		agent.threadID = ""
 		resetRuntimeStateLocked(agent)
@@ -545,6 +546,7 @@ func adoptLaunchStateLocked(dst, src *agentRuntime) {
 	}
 	resetLaunchState(dst)
 	dst.cmd = src.cmd
+	dst.processGuard = src.processGuard
 	dst.threadID = src.threadID
 	dst.remoteThreadID = src.remoteThreadID
 	dst.remoteAgentID = src.remoteAgentID

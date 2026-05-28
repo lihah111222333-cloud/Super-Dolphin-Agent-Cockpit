@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/orchestration/processctl"
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	agentdto "github.com/anthropic-ai/super-agent-v3/internal/dto/agent"
 	turndto "github.com/anthropic-ai/super-agent-v3/internal/dto/turn"
@@ -218,8 +219,13 @@ func validateLaunchRequestForLauncher(req LaunchRequest, launcher AgentLauncher)
 }
 
 func stopProcess(cmd *exec.Cmd) error {
-	if cmd == nil || cmd.Process == nil {
-		return nil
+	return processctl.ForceStop(cmd, nil)
+}
+
+func closeAgentProcessGuard(agent *agentRuntime) {
+	if agent == nil || agent.processGuard == nil {
+		return
 	}
-	return cmd.Process.Kill()
+	agent.processGuard.Close()
+	agent.processGuard = nil
 }

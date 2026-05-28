@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/orchestration/nodeexec"
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/taskdag"
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 )
@@ -34,26 +35,8 @@ var ErrDispatchNodeIneligible = errors.New("orchestration: node is not in pendin
 // metric consumers can distinguish manual-dispatch from auto-enqueue.
 const dispatchNodeWakeupKind = "manual_dispatch"
 
-// DispatchNode 实现 contract.OrchestrationService.DispatchNode：
-//  1. trim + 必填校验入参；
-//  2. 用 DispatchNodeStore.ListRunNodes 拿当前 run 的节点状态；
-//  3. status 必须 ∈ {pending, ready}；否则返 ErrDispatchNodeIneligible；
-//  4. AssignNode 写入 runtime node assigned_to（其它列原样保留）；
-//  5. EnqueueWakeup 入队带 run_id 的 manual_dispatch wakeup；ON CONFLICT 时 Enqueued=false 也算成功
-//     （幂等重放）。
-//
-// 设计取舍：
-//   - 不在事务里跑 list + assign + enqueue：production *store 默认走单语句路径，
-//     ApplyOps / Complete 等真正需要 OCC 的写入才用 WithTx。本工具语义是
-//     「外部决策 + 单节点显式推进」，并发冲突由 EnqueueWakeup 的 idempotency_key
-//     ON CONFLICT 兜底。
-//   - 不允许覆盖已存在的 assigned_to：若节点已有 assignee 且与本次入参不一致，
-//     当前实现仍允许覆盖（用户场景：「换 agent 重试」）；要禁用得在上层
-//     业务层加策略。
-//
-// DispatchNode is the ADR-004 explicit-resume entrypoint. Single SQL-call
-// granularity is intentional; idempotency on the EnqueueWakeup ON CONFLICT
-// covers concurrent dispatch races.
+// DispatchNode assigns a runtime pending/ready node and enqueues manual_dispatch.
+// Agent nodes must include node.config.exec.cwd before enqueue.
 func (s *service) DispatchNode(ctx context.Context, req contract.DispatchNodeRequest) (contract.DispatchNodeResponse, error) {
 	dagKey, nodeKey, assignedTo, runID, err := normalizeDispatchInputs(s, req)
 	if err != nil {
@@ -65,6 +48,11 @@ func (s *service) DispatchNode(ctx context.Context, req contract.DispatchNodeReq
 	}
 	if err := ensureDispatchEligible(target); err != nil {
 		return contract.DispatchNodeResponse{}, err
+	}
+	if resolveNodeType(target.NodeType) == "agent" {
+		if _, err := nodeexec.ValidateLaunchCWDForNodeConfig("agent", target.Config); err != nil {
+			return contract.DispatchNodeResponse{}, fmt.Errorf("orchestration: DispatchNode: agent node %s/%s requires node.config.exec.cwd before task_dispatch_node enqueue: %w", target.DagKey, target.NodeKey, err)
+		}
 	}
 	assigned, err := s.assignAndPersist(ctx, target, assignedTo, runID)
 	if err != nil {
@@ -90,9 +78,7 @@ func normalizeDispatchInputs(s *service, req contract.DispatchNodeRequest) (stri
 	if s == nil || s.dispatchStore == nil {
 		return "", "", "", 0, ErrDispatchStoreUnset
 	}
-	dagKey := strings.TrimSpace(req.DagKey)
-	nodeKey := strings.TrimSpace(req.NodeKey)
-	assignedTo := strings.TrimSpace(req.AssignedTo)
+	dagKey, nodeKey, assignedTo := strings.TrimSpace(req.DagKey), strings.TrimSpace(req.NodeKey), strings.TrimSpace(req.AssignedTo)
 	if dagKey == "" || nodeKey == "" || assignedTo == "" {
 		return "", "", "", 0, fmt.Errorf("orchestration: DispatchNode: dag_key/node_key/assigned_to required (got %q/%q/%q)", dagKey, nodeKey, assignedTo)
 	}

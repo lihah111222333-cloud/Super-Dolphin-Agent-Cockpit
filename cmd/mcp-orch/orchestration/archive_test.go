@@ -3,7 +3,6 @@ package orchestration
 import (
 	"context"
 	"errors"
-	"os/exec"
 	"testing"
 	"time"
 
@@ -96,7 +95,7 @@ func TestArchiveAgentStopsLocalRuntimeBeforePersistedArchive(t *testing.T) {
 	svc.agentThreads = threads
 	svc.agentBindings = bindings
 
-	cmd := exec.Command("sh", "-c", "sleep 30")
+	cmd := newLongRunningTestCommand()
 	if err := cmd.Start(); err != nil {
 		t.Fatalf("cmd.Start() error = %v", err)
 	}

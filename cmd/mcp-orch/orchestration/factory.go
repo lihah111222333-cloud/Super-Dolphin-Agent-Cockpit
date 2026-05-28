@@ -19,6 +19,7 @@ func resetLaunchState(agent *agentState) {
 	if agent == nil {
 		return
 	}
+	closeAgentProcessGuard(agent)
 	agent.cmd = nil
 	agent.monitoredSeq = 0
 	agent.stopRequested = false
@@ -377,6 +378,7 @@ func (s *service) commitLauncherRecoverySuccess(ctx context.Context, attempt lau
 		return commitErr
 	}
 	if err := s.commitLaunchSuccessLocked(ctx, agent); err != nil {
+		closeAgentProcessGuard(agent)
 		agent.cmd = nil
 		agent.threadID = ""
 		resetRuntimeStateLocked(agent)

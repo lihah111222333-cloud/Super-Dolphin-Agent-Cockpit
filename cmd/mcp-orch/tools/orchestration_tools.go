@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -579,17 +580,30 @@ func listAgentsCWDFilter(ctx context.Context, inputCWD string) (string, error) {
 		return "", fmt.Errorf("list_agents cwd must not contain surrounding whitespace")
 	}
 	if !filepath.IsAbs(cwd) {
+		if looksLikePosixAbsolutePath(cwd) {
+			return path.Clean(cwd), nil
+		}
 		return "", fmt.Errorf("list_agents cwd must be an absolute path")
 	}
 	return filepath.Clean(cwd), nil
 }
 
+func looksLikePosixAbsolutePath(cwd string) bool {
+	return strings.HasPrefix(cwd, "/")
+}
+
 func normalizeListAgentCWD(cwd string) string {
 	cwd = strings.TrimSpace(cwd)
-	if cwd == "" || !filepath.IsAbs(cwd) {
+	if cwd == "" {
 		return cwd
 	}
-	return filepath.Clean(cwd)
+	if filepath.IsAbs(cwd) {
+		return filepath.Clean(cwd)
+	}
+	if looksLikePosixAbsolutePath(cwd) {
+		return path.Clean(cwd)
+	}
+	return cwd
 }
 
 func parseAgentStateFilter(raw string) map[string]struct{} {

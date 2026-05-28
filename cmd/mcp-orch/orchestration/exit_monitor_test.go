@@ -33,7 +33,7 @@ func newP3TestService(t *testing.T) (*service, *event.Dispatcher, *stopTestSessi
 // the full 30s fallback.
 func spawnP3TestCmd(t *testing.T, svc *service, agentID string, launchSeq uint64) *exec.Cmd {
 	t.Helper()
-	cmd := exec.Command("sh", "-c", "sleep 30")
+	cmd := newLongRunningTestCommand()
 	if err := cmd.Start(); err != nil {
 		t.Fatalf("cmd.Start(): %v", err)
 	}
@@ -312,7 +312,7 @@ func TestExitMonitorDrainClosesGate(t *testing.T) {
 	t.Parallel()
 	m := newProcessExitMonitor(silentLogger())
 
-	cmd := exec.Command("sh", "-c", "sleep 30")
+	cmd := newLongRunningTestCommand()
 	if err := cmd.Start(); err != nil {
 		t.Fatalf("cmd.Start(): %v", err)
 	}
@@ -336,7 +336,7 @@ func TestExitMonitorDrainClosesGate(t *testing.T) {
 	}
 
 	// After Drain, Arm must refuse new targets.
-	other := exec.Command("sh", "-c", "sleep 30")
+	other := newLongRunningTestCommand()
 	if err := other.Start(); err != nil {
 		t.Fatalf("cmd.Start(): %v", err)
 	}
