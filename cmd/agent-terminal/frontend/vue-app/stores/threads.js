@@ -41,7 +41,6 @@ const runtimeRootState = reactive({
   timelinesByThread: {}, diffTextByThread: {}, diffRevisionByThread: {},
   tokenUsageByThread: {}, agentMetaById: {}, agentRuntimeById: {}, mainAgentId: '', mainAgentState: '', partial: false,
   activityStatsByThread: {}, alertsByThread: {}, skillRevision: 0,
-  lastBackendEventAtByThread: {}, // Phase 1.7a watchdog 戳点
   kickoffByThread: {}, // fork 继承对话 kickoff message text，timeline selector 据此隐藏该条 user 消息
 });
 for (const key of THREAD_STORE_RUNTIME_STATE_KEYS) {

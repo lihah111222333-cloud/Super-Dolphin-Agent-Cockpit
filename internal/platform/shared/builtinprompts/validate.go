@@ -2,6 +2,7 @@ package builtinprompts
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 )
 
@@ -88,6 +89,8 @@ func validateTemplateConfig(path string, cfg templateConfig) error {
 
 func validateTemplateRequired(path string, cfg templateConfig) error {
 	switch {
+	case cfg.ID != nil && *cfg.ID >= 0:
+		return fmt.Errorf("builtin prompts: %s id must be negative", path)
 	case cfg.PromptKey == "":
 		return fmt.Errorf("builtin prompts: %s prompt_key is required", path)
 	case cfg.Kind == "":
@@ -185,15 +188,25 @@ func validateSectionRequired(path string, section sectionConfig) error {
 }
 
 func validateLoadedTemplates(templates []loadedTemplate) error {
-	seen := map[string]struct{}{}
+	seenKeys := map[string]struct{}{}
 	for _, template := range templates {
-		if _, ok := seen[template.Config.PromptKey]; ok {
+		if _, ok := seenKeys[template.Config.PromptKey]; ok {
 			return fmt.Errorf("builtin prompts: duplicate prompt_key %q", template.Config.PromptKey)
 		}
-		seen[template.Config.PromptKey] = struct{}{}
+		seenKeys[template.Config.PromptKey] = struct{}{}
 		if err := validateLoadedSections(template); err != nil {
 			return err
 		}
+	}
+	ordered := append([]loadedTemplate(nil), templates...)
+	sort.SliceStable(ordered, loadedTemplateLess(ordered))
+	seenIDs := map[int64]string{}
+	for i, template := range ordered {
+		id := builtinTemplateID(template.Config, i)
+		if existing, ok := seenIDs[id]; ok {
+			return fmt.Errorf("builtin prompts: duplicate resolved template id %d for %q and %q", id, existing, template.Config.PromptKey)
+		}
+		seenIDs[id] = template.Config.PromptKey
 	}
 	return nil
 }

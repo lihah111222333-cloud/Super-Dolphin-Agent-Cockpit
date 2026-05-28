@@ -95,7 +95,7 @@ func TestOrchestrationTurnStarterFallsBackToThreadRuntimeConfig(t *testing.T) {
 	require.True(t, assembly.lastTurnInput.SessionFlags["verification_required"])
 }
 
-func TestTurnModuleInjectsThreadStateRuntimeConfigReader(t *testing.T) {
+func TestTurnModuleInjectsThreadStateConfigReader(t *testing.T) {
 	t.Parallel()
 
 	assembly := &stubPromptAssemblyService{}
@@ -134,7 +134,7 @@ func TestTurnModuleInjectsThreadStateRuntimeConfigReader(t *testing.T) {
 	require.Equal(t, "codex-thread", assembly.lastTurnInput.Provider)
 }
 
-func TestTurnModuleRequiresThreadStateRuntimeConfigReader(t *testing.T) {
+func TestTurnModuleRequiresThreadStateConfigReader(t *testing.T) {
 	t.Parallel()
 
 	var starter contract.OrchestrationTurnStarter

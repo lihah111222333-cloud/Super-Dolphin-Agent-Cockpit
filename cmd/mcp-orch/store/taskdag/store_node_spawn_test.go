@@ -3,11 +3,13 @@ package taskdag
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/sqlc"
+	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
 )
 
 // F1.5 / ADR-009 — RecordNodeSpawn 写入回路单测。
@@ -141,6 +143,23 @@ func TestRecordNodeSpawn_RetryWithoutRunningRunFailsFast(t *testing.T) {
 	})
 	if err == nil || !strings.Contains(err.Error(), "running run not found") {
 		t.Fatalf("retry spawn (no running run) error = %v, want running run failure", err)
+	}
+}
+
+func TestRecordNodeSpawn_RejectsCancelledRuntimeNode(t *testing.T) {
+	store, db, now := newSpawnRecorderTestStore()
+	runID := seedRunID(db, "dag-1", "run-A")
+	seedRuntimeNode(t, db, now, runID, "n1", nil, "cancelled", "agent-a")
+
+	_, err := store.RecordNodeSpawn(context.Background(), RecordNodeSpawnInput{
+		DagKey: "dag-1", NodeKey: "n1", RunID: runID, ThreadID: "thread-late",
+	})
+	if err == nil || !errors.Is(err, platformdb.ErrNotFound) {
+		t.Fatalf("RecordNodeSpawn cancelled node error = %v, want not found fence miss", err)
+	}
+	row := db.nodes[dagRunNodeKey("dag-1", "n1", runID)]
+	if got := sqlc.TextPtr(row.SpawningThreadID); got != nil {
+		t.Fatalf("cancelled node spawning_thread_id = %q, want nil", *got)
 	}
 }
 

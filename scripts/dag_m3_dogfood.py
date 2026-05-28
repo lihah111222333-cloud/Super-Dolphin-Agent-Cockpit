@@ -20,22 +20,22 @@ import urllib.request
 
 REQUIRED_AGENT_KEYS = (
     "source_monitor",
-    "topic_curator",
-    "paper_summarizer",
     "data_inspector",
+    "pr_summarizer",
     "note_organizer",
     "todo_prioritizer",
     "morning_briefer",
     "email_drafter",
     "weekly_reviewer",
-    "trip_briefer",
+    "health_reporter",
+    "docs-writer",
 )
 
 CHECKLIST = (
-    "F7.3 prompt_template seed enabled: all 10 dogfood agent_keys visible via prompt_list.",
+    "Prompt templates enabled: all current dogfood agent_keys visible via prompt_list.",
     "DAG shape: 10 agent nodes, prompt_template-first, no command_card/hybrid/webhook/shell expansion.",
     "Inputs: downstream nodes use inputs.from_nodes for real upstream content and sharedfile for large output.",
-    "Large output positive path: paper_summarizer asks for >4KB and writes sharedfile with to_node_result=false.",
+    "Large output positive path: pr_summarizer asks for >4KB and writes sharedfile with to_node_result=false.",
     "Large output negative path: optional one-node probe asks for >4KB with to_node_result=true and should fail validation.",
     "Dispatch: script manually dispatches ready unassigned nodes via task_dispatch_node as they become ready.",
     "Metrics: /metrics contains dispatch_failed_total and retry_count_per_node; strict sample mode requires --retry-metrics-dag-key from a dispatcher retry probe.",
@@ -58,19 +58,19 @@ def default_shared_prefix(dag_key):
     return "reports/%s" % slug
 
 
-def build_main_ops(assignee, shared_prefix, provider="codex", model="gpt-5"):
+def build_main_ops(assignee, shared_prefix, provider="codex", model="gpt-5", cwd=""):
     del assignee  # assigned_to is set later through task_dispatch_node.
     nodes = [
         ("source_monitor", "Source monitor", "source_monitor", [], ["source.md"], True),
-        ("topic_curator", "Topic curator", "topic_curator", ["source_monitor"], [], True),
-        ("paper_summarizer", "Paper summarizer", "paper_summarizer", ["topic_curator"], [], False),
         ("data_inspector", "Data inspector", "data_inspector", ["source_monitor"], [], True),
-        ("note_organizer", "Note organizer", "note_organizer", ["paper_summarizer", "data_inspector"], ["paper_summarizer.md"], True),
+        ("pr_summarizer", "PR summarizer", "pr_summarizer", ["source_monitor", "data_inspector"], [], False),
+        ("note_organizer", "Note organizer", "note_organizer", ["pr_summarizer", "data_inspector"], ["pr_summarizer.md"], True),
         ("todo_prioritizer", "Todo prioritizer", "todo_prioritizer", ["note_organizer"], [], True),
-        ("morning_briefer", "Morning briefer", "morning_briefer", ["topic_curator", "todo_prioritizer"], [], True),
+        ("morning_briefer", "Morning briefer", "morning_briefer", ["note_organizer", "todo_prioritizer"], [], True),
         ("email_drafter", "Email drafter", "email_drafter", ["morning_briefer"], [], True),
-        ("weekly_reviewer", "Weekly reviewer", "weekly_reviewer", ["paper_summarizer", "email_drafter"], ["paper_summarizer.md"], True),
-        ("trip_briefer", "Trip briefer", "trip_briefer", ["weekly_reviewer"], [], True),
+        ("weekly_reviewer", "Weekly reviewer", "weekly_reviewer", ["pr_summarizer", "email_drafter"], ["pr_summarizer.md"], True),
+        ("health_reporter", "Health reporter", "health_reporter", ["source_monitor", "weekly_reviewer"], [], True),
+        ("delivery_writer", "Delivery writer", "docs-writer", ["weekly_reviewer", "health_reporter"], ["pr_summarizer.md"], True),
     ]
     add_ops = []
     for node_key, title, agent_key, deps, shared_inputs, to_node_result in nodes:
@@ -85,9 +85,10 @@ def build_main_ops(assignee, shared_prefix, provider="codex", model="gpt-5"):
                     agent_key=agent_key,
                     provider=provider,
                     model=model,
+                    cwd=cwd,
                     deps=deps,
                     shared_inputs=[_join_shared(shared_prefix, p) for p in shared_inputs],
-                    shared_output=_join_shared(shared_prefix, "%s.md" % node_key) if node_key == "paper_summarizer" else "",
+                    shared_output=_join_shared(shared_prefix, "%s.md" % node_key) if node_key == "pr_summarizer" else "",
                     to_node_result=to_node_result,
                 ),
             },
@@ -95,7 +96,7 @@ def build_main_ops(assignee, shared_prefix, provider="codex", model="gpt-5"):
     return add_ops
 
 
-def build_negative_ops(assignee, shared_prefix, provider="codex", model="gpt-5"):
+def build_negative_ops(assignee, shared_prefix, provider="codex", model="gpt-5", cwd=""):
     del assignee  # assigned_to is set later through task_dispatch_node.
     node_key = "long_node_result_rejected"
     return [
@@ -106,9 +107,10 @@ def build_negative_ops(assignee, shared_prefix, provider="codex", model="gpt-5")
                 "title": "Long node.result rejection probe",
                 "node_type": "agent",
                 "config": _agent_config(
-                    agent_key="paper_summarizer",
+                    agent_key="pr_summarizer",
                     provider=provider,
                     model=model,
+                    cwd=cwd,
                     deps=[],
                     shared_inputs=[_join_shared(shared_prefix, "source.md")],
                     shared_output="",
@@ -120,7 +122,7 @@ def build_negative_ops(assignee, shared_prefix, provider="codex", model="gpt-5")
     ]
 
 
-def _agent_config(agent_key, provider, model, deps, shared_inputs, shared_output, to_node_result, force_long=False):
+def _agent_config(agent_key, provider, model, cwd, deps, shared_inputs, shared_output, to_node_result, force_long=False):
     outputs = {"to_node_result": to_node_result}
     if shared_output:
         outputs["to_sharedfile"] = {"path": shared_output, "lock_mode": "exclusive"}
@@ -130,7 +132,7 @@ def _agent_config(agent_key, provider, model, deps, shared_inputs, shared_output
         "from_sharedfiles": shared_inputs,
     }
     return {
-        "exec": {"provider": provider, "model": model, "agent_key": agent_key, "language": "zh"},
+        "exec": {"provider": provider, "model": model, "agent_key": agent_key, "cwd": cwd, "language": "zh"},
         "inputs": inputs,
         "outputs": outputs,
         "first_turn": first_turn,
@@ -142,10 +144,10 @@ def _first_turn(agent_key, deps, shared_output, force_long):
         "M3 DAG dogfood node. Use the injected upstream inputs, cite the source node keys, "
         "and return concrete markdown output. Do not call external webhooks or shell commands."
     )
-    if agent_key == "paper_summarizer" or force_long:
+    if agent_key == "pr_summarizer" or force_long:
         target = shared_output or "node.result"
         return (
-            "%s Produce a structured research brief longer than >4KB, minimum 6000 characters, "
+            "%s Produce a structured review brief longer than >4KB, minimum 6000 characters, "
             "with sections: context, findings, risks, action items, and verification notes. "
             "Write meaningful content for %s, not filler. Upstream deps: %s."
         ) % (base, target, ", ".join(deps) or "none")
@@ -304,20 +306,41 @@ def _decode_rpc_response(resp):
 
 
 def call_tool(client, name, arguments):
-    result = client.request("tools/call", {"name": name, "arguments": arguments})
+    params = {"name": name, "arguments": arguments}
+    params.update(getattr(client, "tool_scope", {}) or {})
+    result = client.request("tools/call", params)
     if "structuredContent" in result:
-        return result["structuredContent"]
+        return unwrap_tool_result(name, result["structuredContent"])
     content = result.get("content") or []
     if content:
-        return json.loads(content[0]["text"])
+        return unwrap_tool_result(name, json.loads(content[0]["text"]))
     return None
 
 
+def unwrap_tool_result(name, payload):
+    if isinstance(payload, dict) and payload.get("success") is False:
+        code = payload.get("code") or "tool_error"
+        error = payload.get("error") or payload.get("message") or payload
+        raise MCPError("%s failed (%s): %s" % (name, code, error))
+    return payload
+
+
 def validate_prompts(rows):
+    rows = normalize_prompt_rows(rows)
     enabled = {row.get("agent_key") for row in rows if row.get("enabled")}
     missing = sorted(set(REQUIRED_AGENT_KEYS) - enabled)
     if missing:
         raise MCPError("missing enabled prompt_template agent_keys: %s" % ", ".join(missing))
+
+
+def normalize_prompt_rows(payload):
+    if isinstance(payload, dict):
+        payload = payload.get("items")
+    if not isinstance(payload, list):
+        raise MCPError("prompt_list returned unexpected payload shape")
+    if not all(isinstance(row, dict) for row in payload):
+        raise MCPError("prompt_list returned non-object rows")
+    return payload
 
 
 def validate_tools(client):
@@ -369,7 +392,7 @@ def run(args):
             "content": source_content(),
         })
         call_tool(client, "task_create_dag", create_payload(args, args.dag_key))
-        ops = build_main_ops(args.assignee, args.shared_prefix, args.provider, args.model)
+        ops = build_main_ops(args.assignee, args.shared_prefix, args.provider, args.model, args.cwd)
         call_tool(client, "task_dag_apply_ops", {"dag_key": args.dag_key, "base_version": 0, "ops": ops})
         started = call_tool(client, "task_start_dag", {
             "dag_key": args.dag_key,
@@ -377,9 +400,11 @@ def run(args):
             "idempotency_key": "m3-main-%s" % int(time.time()),
         })
         print("started main run:", json.dumps(started, ensure_ascii=False))
+        run_key = started_run_key(started)
         wait_for_dag(
             client,
             args.dag_key,
+            run_key,
             args.timeout_sec,
             args.poll_sec,
             args.assignee,
@@ -396,7 +421,7 @@ def run(args):
 def run_negative_probe(client, args):
     neg_key = "%s-negative" % args.dag_key
     call_tool(client, "task_create_dag", create_payload(args, neg_key))
-    ops = build_negative_ops(args.assignee, args.shared_prefix, args.provider, args.model)
+    ops = build_negative_ops(args.assignee, args.shared_prefix, args.provider, args.model, args.cwd)
     call_tool(client, "task_dag_apply_ops", {"dag_key": neg_key, "base_version": 0, "ops": ops})
     started = call_tool(client, "task_start_dag", {
         "dag_key": neg_key,
@@ -404,9 +429,11 @@ def run_negative_probe(client, args):
         "idempotency_key": "m3-negative-%s" % int(time.time()),
     })
     print("started negative run:", json.dumps(started, ensure_ascii=False))
+    run_key = started_run_key(started)
     wait_for_dag(
         client,
         neg_key,
+        run_key,
         args.timeout_sec,
         args.poll_sec,
         args.assignee,
@@ -423,15 +450,36 @@ def node_keys_from_ops(ops):
     ]
 
 
-def wait_for_dag(client, dag_key, timeout_sec, poll_sec, assignee, expect_failed, expected_node_keys=None):
+def started_run_key(started):
+    if not isinstance(started, dict):
+        raise MCPError("task_start_dag returned unexpected payload shape")
+    for key in ("run_key", "RunKey", "runKey"):
+        run_key = (started.get(key) or "").strip()
+        if run_key:
+            return run_key
+    raise MCPError("task_start_dag response missing run_key")
+
+
+def run_id_from_detail(detail):
+    run = detail.get("run") if isinstance(detail, dict) else None
+    if not isinstance(run, dict):
+        raise MCPError("task_get_run returned unexpected payload shape")
+    run_id = run.get("id") or run.get("ID")
+    if not isinstance(run_id, int) or run_id <= 0:
+        raise MCPError("task_get_run response missing run.id")
+    return run_id
+
+
+def wait_for_dag(client, dag_key, run_key, timeout_sec, poll_sec, assignee, expect_failed, expected_node_keys=None):
     deadline = time.time() + timeout_sec
     last_counts = {}
     while time.time() < deadline:
-        detail = call_tool(client, "task_get_dag", {"dag_key": dag_key})
+        detail = call_tool(client, "task_get_run", {"run_key": run_key})
+        run_id = run_id_from_detail(detail)
         nodes = detail.get("nodes", [])
-        dispatch_ready_nodes(client, dag_key, nodes, assignee)
+        dispatch_ready_nodes(client, dag_key, run_id, nodes, assignee)
         last_counts = count_statuses(nodes)
-        print("poll %s: %s" % (dag_key, last_counts))
+        print("poll %s/%s: %s" % (dag_key, run_key, last_counts))
         missing_nodes = missing_expected_node_keys(nodes, expected_node_keys)
         if nodes and all(n.get("status") in ("done", "failed") for n in nodes):
             if missing_nodes:
@@ -464,7 +512,7 @@ def count_statuses(nodes):
     return counts
 
 
-def dispatch_ready_nodes(client, dag_key, nodes, assignee, verbose=True):
+def dispatch_ready_nodes(client, dag_key, run_id, nodes, assignee, verbose=True):
     dispatched = []
     for node in nodes:
         if node.get("status") != "ready":
@@ -477,6 +525,7 @@ def dispatch_ready_nodes(client, dag_key, nodes, assignee, verbose=True):
         call_tool(client, "task_dispatch_node", {
             "dag_key": dag_key,
             "node_key": node_key,
+            "run_id": run_id,
             "assigned_to": assignee,
         })
         dispatched.append(node_key)
@@ -618,10 +667,24 @@ def parse_metric_labels(raw):
 
 def make_client(args):
     if args.mcp_url:
-        return HTTPMCPClient(args.mcp_url, args.rpc_timeout_sec)
-    env = os.environ.copy()
-    env.setdefault("PROJECT_ROOT", str(repo_root()))
-    return StdioMCPClient(shlex.split(args.mcp_cmd), str(repo_root()), env, args.rpc_timeout_sec)
+        client = HTTPMCPClient(args.mcp_url, args.rpc_timeout_sec)
+    else:
+        env = os.environ.copy()
+        env.setdefault("PROJECT_ROOT", str(repo_root()))
+        client = StdioMCPClient(shlex.split(args.mcp_cmd), str(repo_root()), env, args.rpc_timeout_sec)
+    client.tool_scope = tool_scope(args)
+    return client
+
+
+def tool_scope(args):
+    cwd = pathlib.Path(args.cwd).resolve()
+    return {
+        "_agentId": args.creator,
+        "_threadId": args.creator,
+        "_callId": "dag-m3-dogfood",
+        "_cwd": str(cwd),
+        "_workspaceRoots": [str(cwd)],
+    }
 
 
 def default_mcp_cmd():
@@ -642,7 +705,7 @@ def source_content():
         "- Goal: validate prompt-template-first DAG lifecycle.",
         "- Constraints: no command_card, no webhook/http/shell expansion.",
         "- Required checks: 10 nodes, downstream inputs.from_nodes, >4KB sharedfile output, metrics.",
-        "- Scenario: synthesize daily research, planning, review, and communication outputs.",
+        "- Scenario: synthesize source monitoring, data inspection, PR review, health reporting, and delivery writing outputs.",
     ])
 
 
@@ -657,12 +720,12 @@ def print_dry_run(args):
         "apply_ops": {
             "dag_key": args.dag_key,
             "base_version": 0,
-            "ops": build_main_ops(args.assignee, args.shared_prefix, args.provider, args.model),
+            "ops": build_main_ops(args.assignee, args.shared_prefix, args.provider, args.model, args.cwd),
         },
         "negative_apply_ops": {
             "dag_key": "%s-negative" % args.dag_key,
             "base_version": 0,
-            "ops": build_negative_ops(args.assignee, args.shared_prefix, args.provider, args.model),
+            "ops": build_negative_ops(args.assignee, args.shared_prefix, args.provider, args.model, args.cwd),
         },
         "metrics": required_metric_names(),
         "retry_metrics_dag_key": args.retry_metrics_dag_key,
@@ -681,6 +744,7 @@ def parse_args(argv):
     parser.add_argument("--shared-prefix", default=os.getenv("M3_DOGFOOD_SHARED_PREFIX", ""))
     parser.add_argument("--provider", default=os.getenv("M3_DOGFOOD_PROVIDER", "codex"))
     parser.add_argument("--model", default=os.getenv("M3_DOGFOOD_MODEL", "gpt-5"))
+    parser.add_argument("--cwd", default=os.getenv("M3_DOGFOOD_CWD", str(repo_root())))
     parser.add_argument("--mcp-url", default=os.getenv("M3_DOGFOOD_MCP_URL", os.getenv("MCP_ORCH_HTTP_URL", "")))
     parser.add_argument("--mcp-cmd", default=os.getenv("MCP_ORCH_CMD", default_mcp_cmd()))
     parser.add_argument("--metrics-url", default=os.getenv("M3_DOGFOOD_METRICS_URL", ""))
@@ -693,6 +757,7 @@ def parse_args(argv):
     parser.add_argument("--metrics-family-only", action="store_true")
     parser.add_argument("--require-metric-samples", action="store_true", default=None, help=argparse.SUPPRESS)
     args = parser.parse_args(argv)
+    args.cwd = str(pathlib.Path(args.cwd).resolve())
     args.shared_prefix = (args.shared_prefix or "").strip()
     if not args.shared_prefix:
         args.shared_prefix = default_shared_prefix(args.dag_key)

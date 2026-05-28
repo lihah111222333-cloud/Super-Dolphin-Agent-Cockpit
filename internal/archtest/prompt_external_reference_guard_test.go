@@ -233,7 +233,8 @@ func builtinRegistryPromptSurfaces(t *testing.T, reg contract.BuiltinPromptRegis
 				continue
 			}
 			runtimeGated := hasEnableWhen(section.EnableWhen)
-			allowedInternalTools := runtimeGated && strings.Contains(section.SectionKey, "orchestrator")
+			allowedInternalTools := runtimeGated && (strings.Contains(section.SectionKey, "orchestrator") ||
+				strings.Contains(section.SectionKey, "dag_designer"))
 			source := fmt.Sprintf("builtin:%s.section.%s", tmpl.PromptKey, section.SectionKey)
 			surfaces = appendPromptSurface(surfaces, promptSurface{
 				Source:         source + ".body",
@@ -326,7 +327,10 @@ func dbPromptRuntimeUpdateSurfaces(t *testing.T) []promptSurface {
 	t.Helper()
 
 	var surfaces []promptSurface
-	for _, name := range []string{"0090_refresh_dag_designer_prompt_run_id_signature.sql"} {
+	for _, name := range []string{
+		"0090_refresh_dag_designer_prompt_run_id_signature.sql",
+		"0108_refresh_dag_designer_prompt_final_node_key.sql",
+	} {
 		sql := readPromptMigration(t, name)
 		for i, literal := range sqlStringLiterals(sql) {
 			surfaces = appendPromptSurface(surfaces, promptSurface{

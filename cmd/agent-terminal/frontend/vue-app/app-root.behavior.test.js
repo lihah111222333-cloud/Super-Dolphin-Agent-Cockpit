@@ -411,6 +411,169 @@ describe('AppRoot behavior', () => {
     expect(vm.dashboard.finalOutputRefs).toEqual([{ path: 'reports/final.pptx', runKey: 'run-1' }]);
   });
 
+  it('wires the DAG page to dashboard DAGs without exposing the legacy detail modal', () => {
+    const vm = AppRoot.setup();
+
+    expect(AppRoot.template).toContain('<DagsPage');
+    expect(AppRoot.template).toContain(':items="dashboard.dags"');
+    expect(AppRoot.template).toContain(':loading="dashboardRequest.dags.loading"');
+    expect(AppRoot.template).toContain(':error="dashboardRequest.dags.error"');
+    expect(AppRoot.template).toContain(':status-events="dagNodeStatusEvents"');
+    expect(AppRoot.template).toContain('@open-chat="openDagChildThread"');
+    expect(AppRoot.template).toContain("@refresh-dags=\"refreshDashboardByPage('dags')\"");
+    expect(AppRoot.template).not.toContain('@select="dagDetail.open"');
+    expect(AppRoot.template).not.toContain('<DagDetailModal');
+    expect(vm.NAV_ITEMS.find((item) => item.key === 'dags')?.label).toBe('任务流程');
+  });
+
+  it('opens a DAG child thread from the DAG page', async () => {
+    const vm = AppRoot.setup();
+
+    await vm.openDagChildThread('child-thread-1');
+
+    expect(stores.threadStore.saveActiveThread).toHaveBeenCalledWith('child-thread-1');
+    expect(vm.page.value).toBe('chat');
+  });
+
+  it('opens an AI DAG designer intake thread without sending a fabricated requirement', async () => {
+    const vm = AppRoot.setup();
+
+    await vm.startDagDesignerThread({ dagKey: 'dag-1', title: 'Daily Brief' });
+
+    expect(stores.threadStore.startThread).toHaveBeenCalledWith('/repo', expect.objectContaining({
+      focusMode: 'chat',
+      name: 'AI 设计流程',
+      agentKey: 'dag_designer',
+      promptKey: 'main/dag_designer_zh',
+      deferSpawn: true,
+      config: expect.objectContaining({
+        enabledTools: [
+          'list_models',
+          'prompt_list',
+          'command_list',
+          'shared_file_list',
+          'task_create_dag',
+          'task_get_dag',
+          'task_dag_apply_ops',
+          'task_start_dag',
+        ],
+        providerNativeSkills: false,
+      }),
+    }));
+    const startOptions = stores.threadStore.startThread.mock.calls[0]?.[1] || {};
+    expect(startOptions.config?.additionalDisallowedTools).toBeUndefined();
+    expect(startOptions.config?.disallowedTools).toBeUndefined();
+    expect(startOptions).not.toHaveProperty('prompt');
+    expect(JSON.stringify(startOptions)).not.toContain('Daily Brief');
+    expect(JSON.stringify(startOptions)).not.toContain('dag-1');
+    expect(stores.threadStore.saveActiveThread).toHaveBeenCalledWith('thread-new');
+    expect(stores.threadStore.sendMessage).not.toHaveBeenCalled();
+    expect(vm.page.value).toBe('chat');
+    expect(AppRoot.template).toContain('@design-flow="startDagDesignerThread"');
+  });
+
+  it('ignores duplicate AI DAG designer starts while one is in flight', async () => {
+    let resolveStart;
+    stores.threadStore.startThread.mockImplementationOnce(() => new Promise((resolve) => {
+      resolveStart = () => resolve('thread-new');
+    }));
+    const vm = AppRoot.setup();
+
+    const first = vm.startDagDesignerThread({ dagKey: 'dag-1', title: 'Daily Brief' });
+    const second = vm.startDagDesignerThread({ dagKey: 'dag-1', title: 'Daily Brief' });
+    await flush();
+
+    expect(stores.threadStore.startThread).toHaveBeenCalledTimes(1);
+    resolveStart();
+    await first;
+    await second;
+
+    expect(stores.threadStore.sendMessage).not.toHaveBeenCalled();
+  });
+
+  it('keeps the AI DAG designer intake thread visible without a kickoff turn', async () => {
+    const vm = AppRoot.setup();
+
+    await expect(vm.startDagDesignerThread({ dagKey: 'dag-1', title: 'Daily Brief' })).resolves.toBeUndefined();
+
+    expect(stores.threadStore.saveActiveThread).toHaveBeenCalledWith('thread-new');
+    expect(stores.threadStore.sendMessage).not.toHaveBeenCalled();
+    expect(vm.page.value).toBe('chat');
+  });
+
+  it('refreshes the DAG dashboard when entering the DAG page', async () => {
+    apiMock.callAPI.mockImplementation(async (method, payload) => {
+      if (method === 'ui/dashboard/get' && payload?.page === 'dags') {
+        return dashboardPayload({ dags: [{ dag_key: 'dag-1' }] });
+      }
+      return defaultAppAPI(method);
+    });
+
+    const vm = AppRoot.setup();
+    vm.page.value = 'dags';
+    await flush();
+
+    expect(apiMock.callAPI).toHaveBeenCalledWith('ui/dashboard/get', { page: 'dags', cwd: '/repo' });
+    expect(vm.dashboard.dags).toEqual([{ dag_key: 'dag-1' }]);
+  });
+
+  it('exposes DAG dashboard refresh failures instead of rendering them as empty lists', async () => {
+    apiMock.callAPI.mockImplementation(async (method, payload) => {
+      if (method === 'ui/dashboard/get' && payload?.page === 'dags') {
+        throw new Error('dag backend offline for dag_key=dag-a run_key=run-1');
+      }
+      return defaultAppAPI(method);
+    });
+
+    const vm = AppRoot.setup();
+    vm.page.value = 'dags';
+    await flush();
+
+    expect(vm.dashboardRequest.dags.loading).toBe(false);
+    expect(vm.dashboardRequest.dags.error).toBe('加载任务流程失败，请稍后重试。');
+    expect(vm.dashboardRequest.dags.error).not.toContain('dag_key');
+    expect(vm.dashboardRequest.dags.error).not.toContain('run_key');
+  });
+
+  it('refreshes the DAG dashboard from node status bridge events while viewing DAGs', async () => {
+    apiMock.callAPI.mockImplementation(async (method, payload) => {
+      if (method === 'ui/dashboard/get' && payload?.page === 'dags') {
+        return dashboardPayload({ dags: [{ dag_key: 'dag-2', status: 'running' }] });
+      }
+      return defaultAppAPI(method);
+    });
+
+    const vm = AppRoot.setup();
+    hooks.mounted.forEach((fn) => fn());
+    await flush();
+
+    vm.page.value = 'dags';
+    await flush();
+    apiMock.callAPI.mockClear();
+
+    apiMock.bridgeCb?.({ method: 'task/node/statusChanged', payload: { dag_key: 'dag-2', run_key: 'run-1', node_key: 'draft', new_status: 'running' } });
+    await flush();
+
+    expect(apiMock.callAPI).toHaveBeenCalledWith('ui/dashboard/get', { page: 'dags', cwd: '/repo' });
+    expect(vm.dashboard.dags).toEqual([{ dag_key: 'dag-2', status: 'running' }]);
+    expect(vm.dagNodeStatusEvents.value.map((event) => event.payload)).toEqual([
+      { dag_key: 'dag-2', run_key: 'run-1', node_key: 'draft', new_status: 'running' },
+    ]);
+  });
+
+  it('records every same-tick DAG node status bridge event for the DAG page', async () => {
+    const vm = AppRoot.setup();
+    hooks.mounted.forEach((fn) => fn());
+    await flush();
+
+    const first = { dag_key: 'dag-2', run_key: 'run-1', node_key: 'draft', new_status: 'running' };
+    const second = { dag_key: 'dag-2', run_key: 'run-1', node_key: 'report', new_status: 'done' };
+    apiMock.bridgeCb?.({ method: 'task/node/statusChanged', payload: first });
+    apiMock.bridgeCb?.({ method: 'task/node/statusChanged', payload: second });
+
+    expect(vm.dagNodeStatusEvents.value.map((event) => event.payload)).toEqual([first, second]);
+  });
+
   it('rejects malformed dashboard responses instead of replacing missing fields with empty lists', async () => {
     apiMock.callAPI.mockImplementation(async (method, payload) => {
       if (method === 'ui/dashboard/get' && payload?.page === 'memory') {
@@ -430,76 +593,6 @@ describe('AppRoot behavior', () => {
 
     await expect(vm.refreshDashboardByPage('memory')).rejects.toThrow('dashboard memory cwd is required');
     expect(apiMock.callAPI).not.toHaveBeenCalledWith('ui/dashboard/get', expect.anything());
-  });
-
-  it('consumes window bootstrap snapshot and starts the continued task in a new window', async () => {
-    apiMock.getBuildInfo.mockResolvedValueOnce({ version: '1.0.0' });
-    apiMock.callAPI.mockImplementation(async (method) => {
-      if (method === 'config/read') return { cwd: '/window' };
-      if (method === 'ui/windowBootstrap/get') {
-        return {
-          snapshot: {
-            page: 'chat',
-            cwd: '/task-repo',
-            taskStart: {
-              focusMode: 'chat',
-              config: {
-                taskId: 'task-demo',
-                taskTitle: 'Memory Center Refactor',
-                handoffFile: 'handoff/tasks/task-demo.md',
-                continueTask: true,
-                autoTaskHandoff: true,
-              },
-            },
-          },
-        };
-      }
-      return defaultAppAPI(method);
-    });
-
-    const vm = AppRoot.setup();
-    hooks.mounted.forEach((fn) => fn());
-    await flush();
-
-    expect(stores.projectStore.addProject).toHaveBeenCalledWith('/task-repo');
-    expect(stores.projectStore.setActive).toHaveBeenCalledWith('/task-repo');
-    expect(stores.threadStore.startThread).toHaveBeenCalledWith('/task-repo', {
-      focusMode: 'chat',
-      config: {
-        taskId: 'task-demo',
-        taskTitle: 'Memory Center Refactor',
-        handoffFile: 'handoff/tasks/task-demo.md',
-        continueTask: true,
-        autoTaskHandoff: true,
-      },
-    });
-    expect(vm.page.value).toBe('chat');
-  });
-
-  it('uses window cwd for bootstrap task starts when snapshot cwd is empty', async () => {
-    globalThis.window.location.search = '?ao_window_cwd=%2Fworktrees%2Fbootstrap';
-    stores.projectStore.state.active = '.';
-    apiMock.callAPI.mockImplementation(async (method) => {
-      if (method === 'config/read') return { cwd: '/old-process-cwd' };
-      if (method === 'ui/windowBootstrap/get') {
-        return {
-          snapshot: {
-            page: 'chat',
-            taskStart: { focusMode: 'cmd', config: { taskId: 'task-window' } },
-          },
-        };
-      }
-      return defaultAppAPI(method);
-    });
-
-    AppRoot.setup();
-    hooks.mounted.forEach((fn) => fn());
-    await flush();
-
-    expect(stores.threadStore.startThread).toHaveBeenCalledWith('/worktrees/bootstrap', {
-      focusMode: 'cmd',
-      config: { taskId: 'task-window' },
-    });
   });
 
   it('marks the memory center nav when similar memories need merging', async () => {

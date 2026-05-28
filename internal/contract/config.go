@@ -30,10 +30,10 @@ const (
 
 // LSPConfig holds language-service startup and indexing configuration.
 type LSPConfig struct {
-	NoiseDirNames               []string
-	GoDirectoryFilters          []string
-	ProjectAdapters             map[string]LSPProjectAdapterConfig
-	DocumentFallbackLanguageIDs []string
+	NoiseDirNames                    []string
+	GoDirectoryFilters               []string
+	ProjectAdapters                  map[string]LSPProjectAdapterConfig
+	DocumentFallbackLanguageIDs      []string
 	DisableInitialWorkspaceBootstrap bool
 }
 

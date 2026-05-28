@@ -322,6 +322,9 @@ func migrationAddsBuiltinPromptBodyForFile(name, sql string) bool {
 		sql = stripAllowedRosterRepairCardInserts(sql)
 		sql = strip0106DAGDesignerPromptTextReplacementLiterals(sql)
 	}
+	if name == "0108_refresh_dag_designer_prompt_final_node_key.sql" {
+		sql = strip0108DAGDesignerPromptTextReplacementLiterals(sql)
+	}
 	normalized := strings.ToLower(sql)
 	if !assignsPromptTextBody(sql) && !insertsSectionBody(sql) {
 		return false

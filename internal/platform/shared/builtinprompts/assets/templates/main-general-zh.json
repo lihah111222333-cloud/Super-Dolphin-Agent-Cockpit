@@ -1,5 +1,6 @@
 {
   "prompt_key": "main/general-zh",
+  "id": -100001,
   "kind": "base",
   "title": "Super-Dolphin 默认助手（中文）",
   "agent_key": "main",

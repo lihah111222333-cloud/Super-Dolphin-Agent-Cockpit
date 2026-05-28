@@ -27,7 +27,10 @@ WHERE id IN (
     LIMIT $3
     FOR UPDATE SKIP LOCKED
 )
-RETURNING id, dag_key, node_key, run_id, wakeup_kind, target_agent_id, prompt_payload, idempotency_key, status, attempt_count, next_retry_at, claimed_at, claimed_by, lease_expires_at, sent_at, bound_turn_id, turn_bound_at, last_error, created_at, updated_at;
+RETURNING id, dag_key, node_key, wakeup_kind, target_agent_id, prompt_payload,
+          idempotency_key, status, attempt_count, next_retry_at, claimed_at,
+          claimed_by, lease_expires_at, sent_at, bound_turn_id, turn_bound_at,
+          last_error, created_at, updated_at, run_id;
 
 -- name: MarkTaskDagWakeupSent :execrows
 UPDATE task_dag_wakeups

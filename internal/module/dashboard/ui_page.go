@@ -16,15 +16,16 @@ import (
 )
 
 const (
-	dashboardPageDefaultLimit          = 100
-	dashboardMemoryLimit               = 500
-	dashboardFinalOutputDAGLimit       = 20
-	dashboardFinalOutputRunLimit int32 = 3
+	dashboardPageDefaultLimit              = 100
+	dashboardMemoryLimit                   = 500
+	dashboardFinalOutputDAGLimit           = 20
+	dashboardFinalOutputRunLimit     int32 = 3
+	dashboardDAGLatestRunLookupLimit       = 4
 )
 
 type DashboardPage struct {
 	Agents              []AgentOverview                `json:"agents"`
-	DAGs                []contract.DAGSummary          `json:"dags"`
+	DAGs                []DashboardDAG                 `json:"dags"`
 	TaskAcks            []DashboardTaskAck             `json:"taskAcks"`
 	TaskTraces          []tasktracestore.TaskTrace     `json:"taskTraces"`
 	Skills              []contract.SkillInfo           `json:"skills"`
@@ -69,7 +70,7 @@ func (s *service) GetDashboardPage(ctx context.Context, page string) (*Dashboard
 func newDashboardPage() *DashboardPage {
 	return &DashboardPage{
 		Agents:              []AgentOverview{},
-		DAGs:                []contract.DAGSummary{},
+		DAGs:                []DashboardDAG{},
 		TaskAcks:            []DashboardTaskAck{},
 		TaskTraces:          []tasktracestore.TaskTrace{},
 		Skills:              []contract.SkillInfo{},
@@ -145,7 +146,7 @@ func (s *service) populateDashboardTaskTraces(ctx context.Context, out *Dashboar
 }
 
 func (s *service) populateDashboardDAGs(ctx context.Context, out *DashboardPage) error {
-	if s.orchestration == nil {
+	if s.effectiveDAGRuntime() == nil {
 		return nil
 	}
 	items, err := s.ListDAGs(ctx, contract.ListDAGsFilter{Limit: dashboardPageDefaultLimit})
@@ -155,8 +156,46 @@ func (s *service) populateDashboardDAGs(ctx context.Context, out *DashboardPage)
 	if items == nil {
 		items = []contract.DAGSummary{}
 	}
-	out.DAGs = items
+	dags, err := s.buildDashboardDAGs(ctx, items)
+	if err != nil {
+		return err
+	}
+	out.DAGs = dags
 	return nil
+}
+
+func (s *service) buildDashboardDAGs(ctx context.Context, items []contract.DAGSummary) ([]DashboardDAG, error) {
+	out := make([]DashboardDAG, len(items))
+	group, groupCtx := errgroup.WithContext(ctx)
+	group.SetLimit(dashboardDAGLatestRunLookupLimit)
+	for index, item := range items {
+		index, item := index, item
+		out[index] = DashboardDAG{DAGSummary: item}
+		group.Go(func() error {
+			runs, err := s.ListDAGRuns(groupCtx, item.DagKey, "", 1)
+			if err != nil {
+				return err
+			}
+			if len(runs) > 0 {
+				run := runs[0]
+				out[index].LatestRun = &run
+				out[index].HasFinalOutput = runMetadataHasFinalOutput(run.Metadata)
+			}
+			return nil
+		})
+	}
+	return out, group.Wait()
+}
+
+func runMetadataHasFinalOutput(raw json.RawMessage) bool {
+	var envelope struct {
+		FinalOutput json.RawMessage `json:"final_output"`
+	}
+	if len(raw) == 0 || json.Unmarshal(raw, &envelope) != nil {
+		return false
+	}
+	trimmed := strings.TrimSpace(string(envelope.FinalOutput))
+	return trimmed != "" && trimmed != "null" && trimmed != `""` && trimmed != "{}" && trimmed != "[]"
 }
 
 func (s *service) populateDashboardSkills(ctx context.Context, out *DashboardPage) error {
@@ -307,7 +346,7 @@ func (s *service) listDashboardMemory(ctx context.Context) ([]sharedfilestore.Sh
 }
 
 func (s *service) listDashboardFinalOutputRefs(ctx context.Context) ([]FinalOutputRef, error) {
-	if s.orchestration == nil {
+	if s.effectiveDAGRuntime() == nil {
 		return []FinalOutputRef{}, nil
 	}
 	dags, err := s.ListDAGs(ctx, contract.ListDAGsFilter{Limit: dashboardFinalOutputDAGLimit})
@@ -322,7 +361,7 @@ func (s *service) listDashboardFinalOutputRefs(ctx context.Context) ([]FinalOutp
 	for _, dag := range dags {
 		dag := dag
 		group.Go(func() error {
-			runs, runErr := s.ListDAGRuns(groupCtx, dag.DagKey, dashboardFinalOutputRunLimit)
+			runs, runErr := s.ListDAGRuns(groupCtx, dag.DagKey, "", dashboardFinalOutputRunLimit)
 			if runErr != nil {
 				return runErr
 			}

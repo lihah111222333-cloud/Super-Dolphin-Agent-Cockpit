@@ -487,24 +487,23 @@ func TestHandleSharedFileWriteRejectsOversizeContent(t *testing.T) {
 	}
 }
 
-func TestHandleSharedFileWriteRejectsSystemHandoffPrefix(t *testing.T) {
+func TestHandleSharedFileWriteAllowsNestedUserPrefix(t *testing.T) {
 	called := false
 	handler := HandleSharedFileWrite(stubSharedFileStore{
 		upsert: func(context.Context, sharedfilestore.UpsertParams) (*sharedfilestore.SharedFile, error) {
 			called = true
-			return nil, nil
+			return &sharedfilestore.SharedFile{Path: "reports/task-1.md", Content: "agent note"}, nil
 		},
 	})
 
-	_, err := handler(context.Background(), mustRawInput(t, sharedFileWriteInput{
-		Path:    "handoff/tasks/task-1.md",
-		Content: "do not overwrite",
-	}))
-	if err == nil || !strings.Contains(err.Error(), "reserved for system writes") {
+	if _, err := handler(context.Background(), mustRawInput(t, sharedFileWriteInput{
+		Path:    "reports/task-1.md",
+		Content: "agent note",
+	})); err != nil {
 		t.Fatalf("HandleSharedFileWrite() error = %v", err)
 	}
-	if called {
-		t.Fatal("HandleSharedFileWrite() unexpectedly called Upsert for reserved prefix")
+	if !called {
+		t.Fatal("HandleSharedFileWrite() did not call Upsert")
 	}
 }
 

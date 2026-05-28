@@ -246,6 +246,19 @@ function makeAutoScrollThreadStore() {
 }
 
 describe('UnifiedChatPage.setup chat rail integration', () => {
+  it('shows a DAG designer intake prompt for an empty AI design thread', () => {
+    const counters = { display: [], status: [], header: [], interrupt: [] };
+    const threadStore = makeThreadStore(counters);
+    threadStore.getCurrentThreadId = () => 'thread-design';
+    threadStore.getThreadsByMode = () => [{ id: 'thread-design', name: 'AI 设计流程' }];
+    threadStore.getThreadTimeline = () => [];
+    const projectStore = makeProjectStore();
+
+    const vm = UnifiedChatPage.setup({ threadStore, projectStore, mode: 'chat' });
+
+    expect(vm.chatEmptyText.value).toBe('我们应该设计点什么？');
+  });
+
   it('does not eagerly build hidden archived cards when archived rail is closed', () => {
     const counters = { display: [], status: [], header: [], interrupt: [] };
     const threadStore = makeThreadStore(counters);
@@ -471,6 +484,24 @@ describe('UnifiedChatPage.setup chat rail integration', () => {
 
   });
 
+  it('does not show elapsed status meta for archived selected thread', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-03-09T00:00:00Z'));
+    try {
+      const { threadStore, statuses, statusHeaders } = makeAutoScrollThreadStore();
+      statuses['thread-active'] = 'archived';
+      statusHeaders['thread-active'] = '已归档';
+      const projectStore = { ...makeProjectStore(), state: reactive({ active: '.', showModal: false, projects: ['.'] }) };
+      const vm = UnifiedChatPage.setup({ threadStore, projectStore, mode: 'chat' });
+
+      expect(vm.displayStatusText.value).toBe('已归档');
+      expect(vm.activeStatusMeta.value).toBe('');
+      expect(globalThis.window.setInterval).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('submits inline rename on Enter and keeps edit mode for save-button blur', async () => {
     const { threadStore } = makeAutoScrollThreadStore();
     threadStore.renameThread = vi.fn(async () => ({}));
@@ -632,8 +663,7 @@ describe('UnifiedChatPage.setup chat rail integration', () => {
 
     expect(vm.activeDiffFocusFile.value).toBe('src/existing.js');
     expect(vm.activeDiffText.value).toContain('+keep');
-    // path-choice 验证：仅 cancel 后不应再调 ui/code/locate。其它非 locate
-    // 调用（如 Phase 1.7f/1.8a 的 ui/auto-continue/state/get lazy load）允许。
+    // path-choice 验证：仅 cancel 后不应再调 ui/code/locate；其它非 locate 调用允许。
     const locateCalls = vi.mocked(callAPI).mock.calls.filter(([m]) => m === 'ui/code/locate');
     expect(locateCalls).toHaveLength(1);
   });

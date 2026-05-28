@@ -2,6 +2,7 @@ package dashboard
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"strings"
 
@@ -92,7 +93,34 @@ type dagDetailParams struct {
 
 type dagRunsParams struct {
 	DAGKey string `json:"dagKey,omitempty"`
+	Status string `json:"status,omitempty"`
 	Limit  int32  `json:"limit,omitempty"`
+}
+
+type dagRunParams struct {
+	RunKey string `json:"runKey,omitempty"`
+}
+
+type dagStartParams struct {
+	DAGKey         string `json:"dagKey,omitempty"`
+	TriggerSource  string `json:"triggerSource,omitempty"`
+	IdempotencyKey string `json:"idempotencyKey,omitempty"`
+}
+
+type dagTerminateParams struct {
+	DAGKey string `json:"dagKey,omitempty"`
+	RunKey string `json:"runKey,omitempty"`
+	Reason string `json:"reason,omitempty"`
+}
+
+type dagDeleteParams struct {
+	DAGKey string `json:"dagKey,omitempty"`
+}
+
+type dagApplyOpsParams struct {
+	DAGKey      string          `json:"dagKey,omitempty"`
+	BaseVersion *int64          `json:"baseVersion"`
+	Ops         json.RawMessage `json:"ops"`
 }
 
 // --- typed RPC response structs (replace map[string]any wrappers) ---
@@ -148,6 +176,22 @@ type dagDetailResponse struct {
 
 type dagRunsResponse struct {
 	Runs []contract.Run `json:"runs"`
+}
+
+type dagRunResponse = contract.GetRunResponse
+
+type dagStartResponse struct {
+	RunID            int64  `json:"runId,omitempty"`
+	RunKey           string `json:"runKey"`
+	Version          int64  `json:"version"`
+	ReadyRootNodes   int64  `json:"readyRootNodes"`
+	ScheduledWakeups int64  `json:"scheduledWakeups"`
+	ExecutionState   string `json:"executionState,omitempty"`
+	Warning          string `json:"warning,omitempty"`
+}
+
+type dagApplyOpsResponse struct {
+	NewVersion int64 `json:"newVersion"`
 }
 
 type aiLogStatsResponse struct {
@@ -249,27 +293,7 @@ func registerDashboardDataHandlers(m handler.Map, svc Service) {
 		}
 		return busLogsResponse{Logs: logs}, nil
 	})
-	m["dashboard/dags"] = platformrpc.StrictHandler(func(ctx context.Context, p dagsParams) (any, error) {
-		dags, err := svc.ListDAGs(ctx, p.ToFilter())
-		if err != nil {
-			return nil, err
-		}
-		return dagsResponse{DAGs: dags}, nil
-	})
-	m["dashboard/dagDetail"] = platformrpc.StrictHandler(func(ctx context.Context, p dagDetailParams) (any, error) {
-		detail, err := svc.GetDAGDetail(ctx, p.DAGKey)
-		if err != nil {
-			return nil, err
-		}
-		return dagDetailResponse{DAG: detail.DAG, Nodes: detail.Nodes}, nil
-	})
-	m["dashboard/dagRuns"] = platformrpc.StrictHandler(func(ctx context.Context, p dagRunsParams) (any, error) {
-		runs, err := svc.ListDAGRuns(ctx, p.DAGKey, p.Limit)
-		if err != nil {
-			return nil, err
-		}
-		return dagRunsResponse{Runs: runs}, nil
-	})
+	registerDashboardDAGHandlers(m, svc)
 	m["dashboard/aiLogs/recent"] = platformrpc.StrictHandler(func(ctx context.Context, p limitParams) (any, error) {
 		logs, err := svc.GetRecentAILogs(ctx, p.Limit)
 		if err != nil {
@@ -290,6 +314,78 @@ func registerDashboardDataHandlers(m handler.Map, svc Service) {
 			return nil, err
 		}
 		return logsResponse{Logs: logs}, nil
+	})
+}
+
+func registerDashboardDAGHandlers(m handler.Map, svc Service) {
+	m["dashboard/dags"] = platformrpc.StrictHandler(func(ctx context.Context, p dagsParams) (any, error) {
+		dags, err := svc.ListDAGs(ctx, p.ToFilter())
+		if err != nil {
+			return nil, err
+		}
+		return dagsResponse{DAGs: dags}, nil
+	})
+	m["dashboard/dagDetail"] = platformrpc.StrictHandler(func(ctx context.Context, p dagDetailParams) (any, error) {
+		detail, err := svc.GetDAGDetail(ctx, p.DAGKey)
+		if err != nil {
+			return nil, err
+		}
+		return dagDetailResponse{DAG: detail.DAG, Nodes: detail.Nodes}, nil
+	})
+	m["dashboard/dagRuns"] = platformrpc.StrictHandler(func(ctx context.Context, p dagRunsParams) (any, error) {
+		runs, err := svc.ListDAGRuns(ctx, p.DAGKey, p.Status, p.Limit)
+		if err != nil {
+			return nil, err
+		}
+		return dagRunsResponse{Runs: runs}, nil
+	})
+	m["dashboard/dagRun"] = platformrpc.StrictHandler(func(ctx context.Context, p dagRunParams) (any, error) {
+		resp, err := svc.GetDAGRun(ctx, p.RunKey)
+		if err != nil {
+			return nil, err
+		}
+		return dagRunResponse(resp), nil
+	})
+	m["dashboard/dagStart"] = platformrpc.StrictHandler(func(ctx context.Context, p dagStartParams) (any, error) {
+		resp, err := svc.StartDAG(ctx, p.DAGKey, p.TriggerSource, p.IdempotencyKey)
+		if err != nil {
+			return nil, err
+		}
+		return dagStartResponse{
+			RunID:            resp.RunID,
+			RunKey:           resp.RunKey,
+			Version:          resp.Version,
+			ReadyRootNodes:   resp.ReadyRootNodes,
+			ScheduledWakeups: resp.ScheduledWakeups,
+			ExecutionState:   resp.ExecutionState,
+			Warning:          resp.Warning,
+		}, nil
+	})
+	m["dashboard/dagTerminate"] = platformrpc.StrictHandler(func(ctx context.Context, p dagTerminateParams) (any, error) {
+		if err := svc.TerminateDAG(ctx, p.DAGKey, p.RunKey, p.Reason); err != nil {
+			return nil, err
+		}
+		return struct{}{}, nil
+	})
+	m["dashboard/dagDelete"] = platformrpc.StrictHandler(func(ctx context.Context, p dagDeleteParams) (any, error) {
+		if err := svc.DeleteDAG(ctx, p.DAGKey); err != nil {
+			return nil, err
+		}
+		return struct{}{}, nil
+	})
+	m["dashboard/dagApplyOps"] = platformrpc.StrictHandler(func(ctx context.Context, p dagApplyOpsParams) (any, error) {
+		if p.BaseVersion == nil {
+			return nil, errors.New("baseVersion is required")
+		}
+		resp, err := svc.ApplyDAGOps(ctx, contract.ApplyOpsRequest{
+			DagKey:      p.DAGKey,
+			BaseVersion: *p.BaseVersion,
+			Ops:         append(json.RawMessage(nil), p.Ops...),
+		})
+		if err != nil {
+			return nil, err
+		}
+		return dagApplyOpsResponse{NewVersion: resp.NewVersion}, nil
 	})
 }
 

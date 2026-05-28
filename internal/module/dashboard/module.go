@@ -20,6 +20,7 @@ type serviceParams struct {
 	fx.In
 
 	Orchestration contract.OrchestrationService `optional:"true"`
+	DAGRuntime    contract.DAGRuntime           `optional:"true"`
 	AgentStatuses agentstatusstore.Store
 	SystemLogs    systemlogstore.Store
 	AuditLogs     auditlogstore.Store
@@ -48,8 +49,9 @@ func NewDashboardHandlersWithInsights(p dashboardHandlersParams) platformrpc.Han
 
 var Module = fx.Module("dashboard",
 	fx.Provide(func(p serviceParams) Service {
-		return NewService(
+		return newServiceWithDAGRuntime(
 			p.Orchestration,
+			p.DAGRuntime,
 			p.AgentStatuses,
 			p.SystemLogs,
 			p.AuditLogs,

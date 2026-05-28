@@ -30,6 +30,7 @@ func (a *sessionThreadAdapter) GetByThreadID(ctx context.Context, threadID strin
 	return &contract.SessionThreadRef{
 		ThreadID:      thread.ThreadID,
 		AgentID:       thread.AgentID,
+		Status:        thread.Status,
 		RuntimeConfig: decodeSessionThreadRuntimeConfig(thread.ConfigOverride),
 	}, nil
 }

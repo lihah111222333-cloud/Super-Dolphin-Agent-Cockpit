@@ -40,9 +40,30 @@ func ValidateLaunchCWD(cwd, parentID string) error {
 	return nil
 }
 
+// DAGRuntime is the narrow DAG read/start boundary used by the desktop app.
+// The app process does not embed mcp-orch; production adapters may satisfy this
+// by proxying to an active mcp-orch peer.
+type DAGRuntime interface {
+	GetDAG(ctx context.Context, dagKey string) (DAGDetail, error)
+	ListDAGs(ctx context.Context, filter ListDAGsFilter) ([]DAGSummary, error)
+	StartDAG(ctx context.Context, req StartDAGRequest) (StartDAGResponse, error)
+	TerminateDAG(ctx context.Context, req TerminateDAGRequest) error
+	ListRuns(ctx context.Context, req ListRunsRequest) (ListRunsResponse, error)
+	GetRun(ctx context.Context, req GetRunRequest) (GetRunResponse, error)
+	// ApplyOps 对 DAG 执行一组 typed ops (add/update/remove/update_dag) + base_version OCC。
+	// Ops 字段是 raw JSON（wire 格式），service 内部解码为 nodeexec.Ops。
+	ApplyOps(ctx context.Context, req ApplyOpsRequest) (ApplyOpsResponse, error)
+}
+
+type DAGDeleteRuntime interface {
+	DeleteDAG(ctx context.Context, req DeleteDAGRequest) error
+}
+
 // OrchestrationService defines the shared orchestration boundary used by
 // internal modules and the MCP orchestration runtime.
 type OrchestrationService interface {
+	DAGRuntime
+	DAGDeleteRuntime
 	LaunchAgent(ctx context.Context, req LaunchRequest) error
 	ListAgents(ctx context.Context) ([]AgentSnapshot, error)
 	StopAgent(ctx context.Context, agentID string) error
@@ -57,23 +78,13 @@ type OrchestrationService interface {
 	RememberReportRequest(ctx context.Context, req RememberReportRequest) (RememberReportRequestResult, error)
 	HandleReportEvent(ctx context.Context, event ReportEvent) (ReportEventResult, error)
 	CreateDAG(ctx context.Context, req CreateDAGRequest) (DAGDetail, error)
-	GetDAG(ctx context.Context, dagKey string) (DAGDetail, error)
-	ListDAGs(ctx context.Context, filter ListDAGsFilter) ([]DAGSummary, error)
 	UpdateNodeStatus(ctx context.Context, req UpdateNodeStatusRequest) (DAGNode, error)
-	// StartDAG 触发 DAG 一次新执行（骨架阶段 stub，返回 ErrLifecycleNotImplemented）。
-	StartDAG(ctx context.Context, req StartDAGRequest) (StartDAGResponse, error)
 	// GetRun 按 run_key 查询单条 run（task_get_run MCP 工具承载点）。
 	// F6.5 后返回该 run 的 runtime nodes；task_get_dag 只读 DAG 模板节点。
 	// GetRun fetches a single run by run_key (backs the task_get_run MCP tool).
 	// After F6.5 it returns the run's runtime nodes; task_get_dag reads only
 	// DAG template nodes.
 	GetRun(ctx context.Context, req GetRunRequest) (GetRunResponse, error)
-	// ApplyOps 对 DAG 执行一组 typed ops (add/update/remove/update_dag) + base_version OCC。
-	// Ops 字段是 raw JSON（wire 格式），service 内部解码为 nodeexec.Ops。
-	ApplyOps(ctx context.Context, req ApplyOpsRequest) (ApplyOpsResponse, error)
-	// ListRuns 列出指定 DAG 的最近 run（dag_key 必填，可选 status / limit）。
-	// ListRuns lists recent runs for a DAG (dag_key required, optional status / limit).
-	ListRuns(ctx context.Context, req ListRunsRequest) (ListRunsResponse, error)
 	// DispatchNode 是 ADR-004 「无 assignee 就绪节点」的显式推进入口：
 	// 给粘在 ready / pending 无 assignee 状态的节点指派一个 assigned_to
 	// 后立即 enqueue 一条 wakeup，让 dispatcher 能指取跳 launch。
@@ -104,6 +115,19 @@ type DispatchNodeResponse struct {
 	Node     DAGNode `json:"node"`
 	WakeupID int64   `json:"wakeup_id,omitempty"`
 	Enqueued bool    `json:"enqueued"`
+}
+
+// TerminateDAGRequest asks the runtime to cancel a running DAG execution.
+// RunKey is required so callers cancel one execution instance, not the DAG
+// template. DagKey is kept as a fence against cross-DAG run_key mistakes.
+type TerminateDAGRequest struct {
+	DagKey string `json:"dag_key"`
+	RunKey string `json:"run_key"`
+	Reason string `json:"reason,omitempty"`
+}
+
+type DeleteDAGRequest struct {
+	DagKey string `json:"dag_key"`
 }
 
 // ListRunsRequest 是 OrchestrationService.ListRuns 的入参（T3.2）。
@@ -312,9 +336,57 @@ type StartDAGRequest struct {
 	IdempotencyKey string // 可选，防重复 run
 }
 
+const (
+	StartDAGExecutionQueued             = "queued"
+	StartDAGExecutionWaitingForAssignee = "waiting_for_assignee"
+	StartDAGExecutionRunning            = "running"
+	StartDAGExecutionNoReadyRoots       = "no_ready_roots"
+	StartDAGExecutionSucceeded          = "succeeded"
+)
+
 type StartDAGResponse struct {
-	RunKey  string // 新 run 的唯一键（例 dag_xxx#run_2026-05-10T08:00）
-	Version int64  // 该 run snapshot 的 dag.version
+	RunID            int64  `json:"run_id,omitempty"`  // task_dag_runs.id；dispatch runtime node 时需要
+	RunKey           string `json:"run_key"`           // 新 run 的唯一键（例 dag_xxx#run_2026-05-10T08:00）
+	Version          int64  `json:"version"`           // 该 run snapshot 的 dag.version
+	ReadyRootNodes   int64  `json:"ready_root_nodes"`  // 本次 start 置为 ready 的根节点数
+	ScheduledWakeups int64  `json:"scheduled_wakeups"` // 已 enqueue 的根节点 wakeup 数
+	ExecutionState   string `json:"execution_state,omitempty"`
+	Warning          string `json:"warning,omitempty"`
+}
+
+func NewStartDAGResponse(runID int64, runKey string, version, readyRootNodes, scheduledWakeups int64) StartDAGResponse {
+	state, warning := StartDAGExecutionDiagnostics(readyRootNodes, scheduledWakeups)
+	return StartDAGResponse{
+		RunID:            runID,
+		RunKey:           runKey,
+		Version:          version,
+		ReadyRootNodes:   readyRootNodes,
+		ScheduledWakeups: scheduledWakeups,
+		ExecutionState:   state,
+		Warning:          warning,
+	}
+}
+
+func NewExistingStartDAGResponse(runID int64, runKey string, version int64, status string, scheduledWakeups int64) StartDAGResponse {
+	state := StartDAGExecutionRunning
+	if scheduledWakeups > 0 {
+		state = StartDAGExecutionQueued
+	}
+	if status == "succeeded" {
+		state = StartDAGExecutionSucceeded
+	}
+	return StartDAGResponse{RunID: runID, RunKey: runKey, Version: version, ScheduledWakeups: scheduledWakeups, ExecutionState: state}
+}
+
+func StartDAGExecutionDiagnostics(readyRootNodes, scheduledWakeups int64) (string, string) {
+	if scheduledWakeups > 0 {
+		return StartDAGExecutionQueued, ""
+	}
+	if readyRootNodes > 0 {
+		return StartDAGExecutionWaitingForAssignee,
+			"run 已启动，但 ready 根节点没有 assigned_to，未 enqueue wakeup；请调用 task_dispatch_node 指派节点后继续执行。"
+	}
+	return StartDAGExecutionNoReadyRoots, "run 已启动，但没有可调度的根节点；请检查 DAG 节点依赖。"
 }
 
 // DAG v2 骨架阶段 T2.1+T2.2: ApplyOps 入参出参。
@@ -329,7 +401,7 @@ type ApplyOpsRequest struct {
 }
 
 type ApplyOpsResponse struct {
-	NewVersion int64
+	NewVersion int64 `json:"new_version"`
 }
 
 // GetRunRequest 是 task_get_run / OrchestrationService.GetRun 的入参。
@@ -431,11 +503,15 @@ func isEmptyJSON(raw json.RawMessage) bool {
 type DAGSummary struct {
 	ID          int64           `json:"id"`
 	DagKey      string          `json:"dag_key"`
+	Version     int64           `json:"version"`
 	Title       string          `json:"title"`
 	Description string          `json:"description,omitempty"`
 	Status      string          `json:"status"`
 	CreatedBy   string          `json:"created_by,omitempty"`
 	Metadata    json.RawMessage `json:"metadata,omitempty"`
+	Trigger     string          `json:"trigger,omitempty"`
+	CronExpr    string          `json:"cron_expr,omitempty"`
+	NextRunAt   *time.Time      `json:"next_run_at,omitempty"`
 	StartedAt   *time.Time      `json:"started_at,omitempty"`
 	FinishedAt  *time.Time      `json:"finished_at,omitempty"`
 	CreatedAt   time.Time       `json:"created_at"`

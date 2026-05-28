@@ -245,6 +245,7 @@ function browserInstaller({
 
   const source = clone(sourceConfig) || {};
   const dashboardSource = asObject(source.dashboard);
+  const retentionSource = asObject(dashboardSource.sharedFileRetention);
   const sourcePrompts = asArray(source.prompts).length > 0
     ? asArray(source.prompts)
     : asArray(dashboardSource.prompts);
@@ -273,7 +274,15 @@ function browserInstaller({
       commandCards: clone(asArray(dashboardSource.commandCards)) || [],
       prompts: clone(asArray(dashboardSource.prompts)) || [],
       memory: clone(asArray(dashboardSource.memory)) || [],
+      finalOutputRefs: clone(asArray(dashboardSource.finalOutputRefs)) || [],
+      sharedFileRetention: Array.isArray(retentionSource.items)
+        ? clone(retentionSource)
+        : { items: [], protectedCount: 0, cleanupCandidateCount: 0 },
     },
+    dagDetails: clone(asObject(source.dagDetails)) || {},
+    dagRuns: clone(asObject(source.dagRuns)) || {},
+    dagRunDetails: clone(asObject(source.dagRunDetails)) || {},
+    dagStart: clone(asObject(source.dagStart)) || {},
     prompts: clone(sourcePrompts.length > 0 ? sourcePrompts : defaultPromptRows()) || [],
     memoryCenter: clone(asObject(source.memoryCenter)) || {
       overview: {},
@@ -651,6 +660,51 @@ function browserInstaller({
     state.callLog.push({ method, params: clone(params ?? {}) });
   }
 
+  function requireDagKey(params) {
+    const dagKey = (params.dagKey || params.dag_key || '').toString().trim();
+    if (!dagKey) throw new Error('dagKey is required');
+    return dagKey;
+  }
+
+  function requireConfiguredDag(map, dagKey, label) {
+    if (!Object.prototype.hasOwnProperty.call(map, dagKey)) {
+      throw new Error(`${label} not found: ${dagKey}`);
+    }
+    return map[dagKey];
+  }
+
+  function dagRunsForKey(dagKey) {
+    const configured = requireConfiguredDag(state.dagRuns, dagKey, 'dag runs');
+    if (Array.isArray(configured)) return configured;
+    return asArray(asObject(configured).runs);
+  }
+
+  function dagRunDetailForKey(runKey) {
+    const key = (runKey || '').toString().trim();
+    if (!key) throw new Error('runKey is required');
+    const configured = requireConfiguredDag(state.dagRunDetails, key, 'dag run');
+    const detail = asObject(configured);
+    return {
+      run: clone(asObject(detail.run)),
+      nodes: clone(asArray(detail.nodes)),
+    };
+  }
+
+  function applyLimit(items, limit) {
+    const max = Number(limit);
+    if (!Number.isFinite(max) || max <= 0) return items;
+    return items.slice(0, max);
+  }
+
+  function filterRunsByStatus(items, status) {
+    const target = (status || '').toString().trim();
+    if (!target) return items;
+    return items.filter((item) => {
+      const run = asObject(item);
+      return (run.status || run.state || '').toString().trim() === target;
+    });
+  }
+
   function buildTurnItem(input) {
     const parts = [];
     const attachments = [];
@@ -750,6 +804,8 @@ function browserInstaller({
         }
         case 'config/read':
           return clone(state.runtimeConfig);
+        case 'ui/windowBootstrap/get':
+          return { snapshot: null };
         case 'thread/list':
           return { threads: buildUiState().threads };
         case 'ui/sidebar/get':
@@ -758,6 +814,42 @@ function browserInstaller({
           return buildUiState();
         case 'ui/dashboard/get':
           return clone(state.dashboard);
+        case 'dashboard/dagDetail': {
+          const dagKey = requireDagKey(params);
+          const detail = requireConfiguredDag(state.dagDetails, dagKey, 'dag detail');
+          return clone({
+            dag: asObject(detail).dag,
+            nodes: asArray(asObject(detail).nodes),
+          });
+        }
+        case 'dashboard/dagRuns': {
+          const dagKey = requireDagKey(params);
+          const filtered = filterRunsByStatus(dagRunsForKey(dagKey), params.status);
+          return { runs: clone(applyLimit(filtered, params.limit)) };
+        }
+        case 'dashboard/dagRun': {
+          return dagRunDetailForKey(params.runKey || params.run_key);
+        }
+        case 'dashboard/dagStart': {
+          const dagKey = requireDagKey(params);
+          if (!(params.idempotencyKey || '').toString().trim()) {
+            throw new Error('idempotencyKey is required');
+          }
+          const configured = asObject(requireConfiguredDag(state.dagStart, dagKey, 'dag start'));
+          const run = asObject(configured.run);
+          if (run.run_key || run.runKey || run.key || run.id) {
+            const current = dagRunsForKey(dagKey);
+            state.dagRuns[dagKey] = [clone(run), ...current];
+            const runKey = (run.run_key || run.runKey || run.key || run.id).toString();
+            if (!state.dagRunDetails[runKey]) {
+              state.dagRunDetails[runKey] = {
+                run: clone(run),
+                nodes: clone(asArray(configured.nodes)),
+              };
+            }
+          }
+          return clone(asObject(configured.response));
+        }
         case 'dashboard/prompts':
         case 'prompt-assets/list':
         case 'prompts/list':
@@ -880,14 +972,6 @@ function browserInstaller({
             content: file.content || '',
             updatedBy: file.updated_by || file.updatedBy || '',
             updatedAt: file.updated_at || file.updatedAt || '',
-          });
-        }
-        case 'ui/memory/shared-file/promote': {
-          const file = findSharedFile(params.sharedPath);
-          if (!file) throw new Error(`shared file not found: ${params.sharedPath || ''}`);
-          return upsertMemoryEntry({
-            ...params,
-            content: (params.content || file.content || '').toString(),
           });
         }
         case 'ui/memory/shared-file/delete': {

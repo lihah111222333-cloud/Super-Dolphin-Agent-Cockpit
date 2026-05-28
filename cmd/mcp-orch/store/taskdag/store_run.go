@@ -3,11 +3,17 @@ package taskdag
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
+	"sort"
+	"strings"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/sqlc"
+	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/sqlctx"
 )
 
 // CreateRun 是 RunStore.CreateRun 的实现：StartDAG 阶段插入新 run 记录。
@@ -64,7 +70,7 @@ func (s *store) CloneNodesForRun(ctx context.Context, dagKey string, runID int64
 	return queryValue(func() (int64, error) {
 		return s.q.CloneTaskDagNodesForRun(ctx, sqlc.CloneTaskDagNodesForRunParams{
 			DagKey: dagKey,
-			RunID:  runID,
+			RunID:  int64Ptr(runID),
 		})
 	}, "clone_nodes_for_run", "task_dag_node")
 }
@@ -72,10 +78,113 @@ func (s *store) CloneNodesForRun(ctx context.Context, dagKey string, runID int64
 func (s *store) PromoteRootNodesToReady(ctx context.Context, dagKey string, runID int64) (int64, error) {
 	return queryValue(func() (int64, error) {
 		return s.q.PromoteRootNodesToReady(ctx, sqlc.PromoteRootNodesToReadyParams{
-			DagKey: dagKey,
-			RunID:  runID,
+			DagKey:  dagKey,
+			Column2: runID,
 		})
 	}, "promote_root_nodes_to_ready", "task_dag_node")
+}
+
+func (s *store) TerminateRun(ctx context.Context, input TerminateRunInput) (TerminateRunResult, error) {
+	if err := requireRuntimeRunID("terminate_run", input.RunID); err != nil {
+		return TerminateRunResult{}, err
+	}
+	reason := strings.TrimSpace(input.Reason)
+	if reason == "" {
+		reason = "user_requested"
+	}
+	event, err := json.Marshal(map[string]any{
+		"kind":   "run_cancelled",
+		"reason": reason,
+	})
+	if err != nil {
+		return TerminateRunResult{}, fmt.Errorf("marshal run cancel event: %w", err)
+	}
+	var result TerminateRunResult
+	err = sqlctx.WithTxOrReuse(ctx, s.db, s.q, func(txq *sqlc.Queries, _ sqlc.DBTX) error {
+		threadIDs, err := terminateRunTx(ctx, txq, input, reason, event)
+		if err != nil {
+			return err
+		}
+		result.SpawnedThreadIDs = threadIDs
+		return nil
+	})
+	if err != nil {
+		return TerminateRunResult{}, wrapTaskDAGError(err, "terminate_run", "task_dag_run")
+	}
+	return result, nil
+}
+
+func terminateRunTx(ctx context.Context, txq *sqlc.Queries, input TerminateRunInput, reason string, event []byte) ([]string, error) {
+	if _, err := txq.CancelTaskDagRunNodes(ctx, sqlc.CancelTaskDagRunNodesParams{
+		DagKey:  input.DagKey,
+		Column2: input.RunID,
+		Column3: reason,
+	}); err != nil {
+		return nil, fmt.Errorf("cancel run nodes: %w", err)
+	}
+	if _, err := txq.CancelTaskDagRunWakeups(ctx, sqlc.CancelTaskDagRunWakeupsParams{
+		DagKey:    input.DagKey,
+		RunID:     int64Ptr(input.RunID),
+		LastError: "run_cancelled: " + reason,
+	}); err != nil {
+		return nil, fmt.Errorf("cancel run wakeups: %w", err)
+	}
+	if _, err := txq.CancelTaskDagRun(ctx, sqlc.CancelTaskDagRunParams{
+		DagKey:  input.DagKey,
+		ID:      input.RunID,
+		RunKey:  input.RunKey,
+		Column4: event,
+	}); err != nil {
+		return terminateRunAlreadyCancelled(ctx, txq, input, err)
+	}
+	return runSpawnedThreadIDs(ctx, txq, input.DagKey, input.RunID)
+}
+
+func terminateRunAlreadyCancelled(ctx context.Context, txq *sqlc.Queries, input TerminateRunInput, cancelErr error) ([]string, error) {
+	if errors.Is(cancelErr, pgx.ErrNoRows) {
+		threadIDs, loadErr := cancelledRunSpawnedThreadIDs(ctx, txq, input)
+		if loadErr == nil {
+			return threadIDs, nil
+		}
+	}
+	return nil, fmt.Errorf("cancel run: %w", cancelErr)
+}
+
+func cancelledRunSpawnedThreadIDs(ctx context.Context, q *sqlc.Queries, input TerminateRunInput) ([]string, error) {
+	run, err := q.GetTaskDagRun(ctx, input.RunKey)
+	if err != nil {
+		return nil, err
+	}
+	if run.ID != input.RunID || run.DagKey != input.DagKey || run.Status != "cancelled" {
+		return nil, pgx.ErrNoRows
+	}
+	return runSpawnedThreadIDs(ctx, q, input.DagKey, input.RunID)
+}
+
+func runSpawnedThreadIDs(ctx context.Context, q *sqlc.Queries, dagKey string, runID int64) ([]string, error) {
+	nodes, err := q.ListTaskDagRunNodes(ctx, sqlc.ListTaskDagRunNodesParams{DagKey: dagKey, RunID: int64Ptr(runID)})
+	if err != nil {
+		return nil, err
+	}
+	values := make([]pgtype.Text, 0, len(nodes))
+	for _, node := range nodes {
+		values = append(values, node.SpawningThreadID)
+	}
+	return nonEmptyTextValues(values), nil
+}
+
+func nonEmptyTextValues(values []pgtype.Text) []string {
+	out := make([]string, 0, len(values))
+	for _, value := range values {
+		if !value.Valid {
+			continue
+		}
+		if text := strings.TrimSpace(value.String); text != "" {
+			out = append(out, text)
+		}
+	}
+	sort.Strings(out)
+	return out
 }
 
 // fromTaskDagRun 把 sqlc 生成的行结构体转成 contract 层 Run。
@@ -124,7 +233,7 @@ func nullableInt64(v pgtype.Int8) *int64 {
 	return &n
 }
 
-// WithRunTx 走 sqlc.WithTx 起单一 PG 事务，fn 拿到的 tx RunStore 是
+// WithRunTx 起单一 PG 事务，fn 拿到的 tx RunStore 是
 // 事务绑定的 *store 运行时实例，所有 RunStore 方法调用都在同事务内。
 //
 // 主要调用点：service.StartDAG 使用 WithRunTx 原子化 CreateRun +
@@ -132,7 +241,21 @@ func nullableInt64(v pgtype.Int8) *int64 {
 // 根节点未 ready”脱状态。 PG 事务跨 task_dag_runs / task_dag_nodes 两
 // 表不是问题。
 func (s *store) WithRunTx(ctx context.Context, fn func(tx RunStore) error) error {
-	return wrapTaskDAGError(sqlc.WithTx(ctx, s.q, func(txq *sqlc.Queries) error {
-		return fn(&store{q: txq})
+	return wrapTaskDAGError(sqlctx.WithTx(ctx, s.db, s.q, func(txq *sqlc.Queries, tx sqlc.DBTX) error {
+		return fn(&store{db: tx, q: txq})
 	}), "with_run_tx", "task_dag_run")
+}
+
+func (s *store) WithScheduledStartTx(ctx context.Context, fn func(tx ScheduledStartTxStore) error) error {
+	return wrapTaskDAGError(sqlctx.WithTx(ctx, s.db, s.q, func(txq *sqlc.Queries, tx sqlc.DBTX) error {
+		return fn(&store{db: tx, q: txq})
+	}), "with_scheduled_start_tx", "task_dag_run")
+}
+
+func (s *store) UpdateScheduledDAGNextRun(ctx context.Context, dagKey string, dueAt, nextRunAt time.Time) (int64, error) {
+	return s.q.UpdateTaskDagNextRun(ctx, sqlc.UpdateTaskDagNextRunParams{
+		NextRunAt: pgtype.Timestamptz{Time: nextRunAt, Valid: true},
+		DagKey:    dagKey,
+		DueAt:     pgtype.Timestamptz{Time: dueAt, Valid: true},
+	})
 }

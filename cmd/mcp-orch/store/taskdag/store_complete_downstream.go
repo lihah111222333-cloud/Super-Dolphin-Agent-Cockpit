@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/sqlc"
+	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/sqlctx"
 )
 
 // Phase 3.4 / 3B · CompleteNode 自动 enqueue 下游：节点完成后查 DAG 拓扑找
@@ -31,8 +32,11 @@ func (s *store) CompleteNodeAndScheduleDownstream(ctx context.Context, input Com
 		return nil, err
 	}
 	var result CompleteNodeWithDownstreamResult
-	err := sqlc.WithTxOrReuse(ctx, s.q, func(txq *sqlc.Queries) error {
-		txStore := &store{q: txq}
+	err := sqlctx.WithTxOrReuse(ctx, s.db, s.q, func(txq *sqlc.Queries, txdb sqlc.DBTX) error {
+		txStore := &store{db: txdb, q: txq}
+		if err := lockRunForCompletionTx(ctx, txStore, input.DagKey, input.RunID); err != nil {
+			return err
+		}
 		node, completeErr := txStore.CompleteNode(ctx, input)
 		if completeErr != nil {
 			return completeErr
@@ -69,6 +73,19 @@ func (s *store) CompleteNodeAndScheduleDownstream(ctx context.Context, input Com
 	return &result, nil
 }
 
+func lockRunForCompletionTx(ctx context.Context, txStore *store, dagKey string, runID int64) error {
+	if err := requireRuntimeRunID("lock_run_for_completion", runID); err != nil {
+		return err
+	}
+	if _, err := txStore.q.LockTaskDagRunForCompletionForUpdate(ctx, sqlc.LockTaskDagRunForCompletionForUpdateParams{
+		DagKey: dagKey,
+		ID:     runID,
+	}); err != nil {
+		return fmt.Errorf("lock run %s/%d for completion: %w", dagKey, runID, err)
+	}
+	return nil
+}
+
 // maybeFinalizeRunTx 调 sqlc 生代的 FinalizeTaskDagRunIfAllNodesTerminal，把
 // “节点全终态时按优先级推进 run.status” 一句 SQL 完成。最多返 1 行
 // (run_key, status)；返 0 行表示节点未全部终态、或 dag_key 下无 running run。
@@ -82,7 +99,7 @@ func maybeFinalizeRunTx(ctx context.Context, txStore *store, dagKey string, runI
 	}
 	rows, err := txStore.q.FinalizeTaskDagRunIfAllNodesTerminal(ctx, sqlc.FinalizeTaskDagRunIfAllNodesTerminalParams{
 		DagKey: dagKey,
-		RunID:  runID,
+		ID:     runID,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("finalize run for dag %s: %w", dagKey, err)
@@ -134,34 +151,12 @@ func scheduleDownstreamWakeupsTx(ctx context.Context, txStore *store, completed 
 	promoted := make([]PromotedDownstreamNode, 0)
 	for i := range nodes {
 		cand := &nodes[i]
-		if !dependsSatisfiedForUpstream(cand, completed.NodeKey, statusByKey) {
-			continue
-		}
-		// F6.3: 先 promote pending→ready；返回 0 行说明并发已被别的事务/
-		// 重入路径推进过（status != 'pending'），跳过当前节点的 enqueue 也
-		// 不再当作新 promote 上报。
-		rowsAffected, promoteErr := txStore.q.PromoteSingleNodePendingToReady(ctx, sqlc.PromoteSingleNodePendingToReadyParams{
-			DagKey:  cand.DagKey,
-			NodeKey: cand.NodeKey,
-			RunID:   completedRunID,
-		})
-		if promoteErr != nil {
-			return nil, nil, fmt.Errorf("promote %s/%s pending→ready: %w", cand.DagKey, cand.NodeKey, promoteErr)
-		}
-		if rowsAffected == 0 {
-			// pending → ready 已被他事务并发推进；本 tx 不再认领 promote / enqueue。
-			continue
-		}
-		promoted = append(promoted, PromotedDownstreamNode{
-			DagKey:  cand.DagKey,
-			NodeKey: cand.NodeKey,
-			RunID:   completedRunID,
-		})
-		// F6.4: assigned_to 为空 → 跳过 wakeup enqueue（promote 已发生，
-		// 节点停在 ready 等外部 dispatcher / 人工接管）。
-		inserted, err := tryEnqueueDownstream(ctx, txStore, cand, upstreamRef)
+		inserted, promotedNode, err := scheduleDownstreamCandidateTx(ctx, txStore, cand, completed, statusByKey, upstreamRef)
 		if err != nil {
 			return nil, nil, err
+		}
+		if promotedNode != nil {
+			promoted = append(promoted, *promotedNode)
 		}
 		if inserted != nil {
 			scheduled = append(scheduled, *inserted)
@@ -170,24 +165,57 @@ func scheduleDownstreamWakeupsTx(ctx context.Context, txStore *store, completed 
 	return scheduled, promoted, nil
 }
 
+func scheduleDownstreamCandidateTx(
+	ctx context.Context,
+	txStore *store,
+	cand *Node,
+	completed *Node,
+	statusByKey map[string]string,
+	upstreamRef DownstreamUpstreamRef,
+) (*ScheduledDownstreamWakeup, *PromotedDownstreamNode, error) {
+	satisfied, err := dependsSatisfiedForUpstream(cand, completed.NodeKey, statusByKey)
+	if err != nil || !satisfied {
+		return nil, nil, err
+	}
+	promoted, err := promoteDownstreamCandidateTx(ctx, txStore, cand, runIDValue(completed.RunID))
+	if err != nil || promoted == nil {
+		return nil, promoted, err
+	}
+	inserted, err := tryEnqueueDownstream(ctx, txStore, cand, upstreamRef)
+	return inserted, promoted, err
+}
+
+func promoteDownstreamCandidateTx(ctx context.Context, txStore *store, cand *Node, completedRunID int64) (*PromotedDownstreamNode, error) {
+	rowsAffected, err := txStore.q.PromoteSingleNodePendingToReady(ctx, sqlc.PromoteSingleNodePendingToReadyParams{
+		DagKey:  cand.DagKey,
+		NodeKey: cand.NodeKey,
+		RunID:   int64Ptr(completedRunID),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("promote %s/%s pending→ready: %w", cand.DagKey, cand.NodeKey, err)
+	}
+	if rowsAffected == 0 {
+		return nil, nil
+	}
+	return &PromotedDownstreamNode{DagKey: cand.DagKey, NodeKey: cand.NodeKey, RunID: completedRunID}, nil
+}
+
 // dependsSatisfiedForUpstream 判定 cand 是否：
 //   - 当前还在 pending（未被并发推进）
 //   - depends_on 包含 completedKey（即真的是该上游的下游）
 //   - 所有 depends_on 都已 done
-func dependsSatisfiedForUpstream(cand *Node, completedKey string, statusByKey map[string]string) bool {
+func dependsSatisfiedForUpstream(cand *Node, completedKey string, statusByKey map[string]string) (bool, error) {
 	if cand.Status != "pending" {
-		return false
+		return false, nil
 	}
 	deps, depErr := decodeDependsOn(cand.DependsOn)
 	if depErr != nil {
-		// 解码失败回退到「不满足」；上层调用扫到 enqueue 时会自己再 decode
-		// 一次并把错误冒上去（保留单一错误源）。
-		return false
+		return false, fmt.Errorf("decode depends_on for %s/%s: %w", cand.DagKey, cand.NodeKey, depErr)
 	}
 	if !dependsOnIncludes(deps, completedKey) {
-		return false
+		return false, nil
 	}
-	return allDependenciesSatisfied(deps, statusByKey)
+	return allDependenciesSatisfied(deps, statusByKey), nil
 }
 
 // tryEnqueueDownstream enqueues a downstream wakeup for a candidate node
@@ -207,13 +235,13 @@ func tryEnqueueDownstream(
 	// F6.4：assigned_to 为空 → 跳过 wakeup enqueue。否则 dispatcher 走
 	// LaunchAgent 会因 "agent id is required" 失败，retry 耗尽后把节点判
 	// 死成 permanent failed（详见 docs/plans/dag改造实施计划.md follow-up
-	// F6.4）。节点状态保持 pending（依赖已满足 == ready 语义），等外部
-	// agent / 人工接管再 promote 到 running，避免误杀未指派节点。
+	// F6.4）。节点已在调用方 promote 到 ready，等待外部 agent / 人工接管
+	// 后再进入 running，避免误杀未指派节点。
 	//
 	// EN: When the candidate has no assigned_to we deliberately skip the
 	// wakeup enqueue: otherwise the dispatcher's LaunchAgent rejects the
 	// empty agent id, exhausts retries, and the node ends up permanently
-	// failed. The node stays in pending (= ready semantics) so an
+	// failed. The caller has already promoted the node to ready, so an
 	// external/manual flow can later move it to running.
 	if agentID == "" {
 		return nil, nil

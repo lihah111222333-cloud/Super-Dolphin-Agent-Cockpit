@@ -37,11 +37,16 @@ func startKeepaliveRelay(dispatcher *event.Dispatcher, manager *Manager, logger 
 		logger.Debug("cachekeepalive: agent stopped, clearing timer", "agent_id", ev.AgentID)
 		manager.StopTimerByAgent(ev.AgentID)
 	}, logger)
+	agentStopCancel := platformbus.ResilientSubscribe(dispatcher, func(ev agentdto.AgentStopped) {
+		logger.Debug("cachekeepalive: agent stopped, clearing timer", "agent_id", ev.AgentID)
+		manager.StopTimerByAgent(ev.AgentID)
+	}, logger)
 
 	return func() {
 		launchCancel()
 		stateCancel()
 		turnCancel()
 		stopCancel()
+		agentStopCancel()
 	}
 }

@@ -111,7 +111,7 @@ func (s *service) reportEventFallbackResult(ctx context.Context, agentID, eventT
 	if !errors.Is(runtimeErr, errAgentNotFound) {
 		return ReportEventResult{}, false
 	}
-	if !s.persistReportWithoutRuntime(ctx, agentID, report) {
+	if !s.applyReportEventWithoutRuntime(ctx, agentID, eventType, report) {
 		return ReportEventResult{}, false
 	}
 	return ReportEventResult{
@@ -122,17 +122,28 @@ func (s *service) reportEventFallbackResult(ctx context.Context, agentID, eventT
 	}, true
 }
 
-func (s *service) persistReportWithoutRuntime(ctx context.Context, agentID, report string) bool {
-	if strings.TrimSpace(report) == "" {
-		return false
-	}
+func (s *service) applyReportEventWithoutRuntime(ctx context.Context, agentID, eventType, report string) bool {
 	snapshot, err := s.persistedAgentSnapshot(ctx, agentID)
-	if err != nil || strings.TrimSpace(snapshot.Cwd) == "" {
+	if err != nil {
 		return false
 	}
-	record := agentReportFileRecordFromSnapshot(snapshot)
-	record.Report = report
-	return persistAgentReportFile(record) == nil
+	wroteReport := strings.TrimSpace(report) != ""
+	if wroteReport {
+		if strings.TrimSpace(snapshot.Cwd) == "" {
+			return false
+		}
+		record := agentReportFileRecordFromSnapshot(snapshot)
+		record.Report = report
+		if persistAgentReportFile(record) != nil {
+			return false
+		}
+	}
+	if s.agentThreads == nil || !isRuntimeLossStopEventType(eventType) {
+		return wroteReport
+	}
+	threadID := strings.TrimSpace(platformshared.FirstNonEmpty(snapshot.ThreadID, agentID))
+	err = s.agentThreads.UpdateStatus(ctx, PersistedThreadStatusUpdate{ThreadID: threadID, Status: "stopped", UpdatedAt: resolveEventTime(ctx).Unix()})
+	return err == nil
 }
 
 func setReportLocked(ctx context.Context, agent *agentRuntime, report string) {
@@ -291,6 +302,15 @@ func isTerminalReportEvent(eventType string, raw json.RawMessage) bool {
 	}
 	_, ok := terminalReportEventTypes[eventType]
 	return ok
+}
+
+func isRuntimeLossStopEventType(eventType string) bool {
+	switch strings.ToLower(strings.TrimSpace(eventType)) {
+	case "connection.dead", "connection_dead", "error", "shutdown.complete", "shutdown_complete", "stream.error", "stream_error", "turn.aborted", "turn/aborted", "turn_aborted":
+		return true
+	default:
+		return false
+	}
 }
 
 func isTerminalThreadStatus(raw json.RawMessage) bool {

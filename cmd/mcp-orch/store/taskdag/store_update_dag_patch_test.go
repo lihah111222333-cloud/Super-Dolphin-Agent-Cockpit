@@ -8,16 +8,16 @@ import (
 	"testing"
 	"time"
 
-	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/sqlc"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
 func TestUpdateDAGPatch_ExecutesNarrowMetadataUpdate(t *testing.T) {
 	t.Parallel()
 
 	db := &captureUpdateDAGPatchDB{rows: 1}
-	store := NewStore(sqlc.New(db))
+	store := NewStore(db)
 	updater := store.(interface {
 		UpdateDAGPatch(context.Context, UpdateDAGPatchInput) (int64, error)
 	})
@@ -27,15 +27,17 @@ func TestUpdateDAGPatch_ExecutesNarrowMetadataUpdate(t *testing.T) {
 	cronExpr := "0 8 * * *"
 	ownerID := "owner-1"
 	nextRunAt := time.Unix(1700003600, 0).UTC()
+	scheduleEnabled := true
 
 	rows, err := updater.UpdateDAGPatch(context.Background(), UpdateDAGPatchInput{
-		DagKey:      "dag-1",
-		Title:       &title,
-		Description: &description,
-		Trigger:     &trigger,
-		CronExpr:    &cronExpr,
-		OwnerID:     &ownerID,
-		NextRunAt:   &nextRunAt,
+		DagKey:          "dag-1",
+		Title:           &title,
+		Description:     &description,
+		Trigger:         &trigger,
+		CronExpr:        &cronExpr,
+		OwnerID:         &ownerID,
+		NextRunAt:       &nextRunAt,
+		ScheduleEnabled: &scheduleEnabled,
 	})
 	if err != nil {
 		t.Fatalf("UpdateDAGPatch() error = %v", err)
@@ -58,7 +60,11 @@ func assertUpdateDAGPatchSQL(t *testing.T, sql string) {
 		"cron_expr = COALESCE",
 		"owner_id = COALESCE",
 		"next_run_at = CASE",
+		"$6::boolean IS NOT NULL",
+		"$6::boolean = FALSE THEN NULL",
+		"$6::boolean = TRUE THEN COALESCE($7, next_run_at)",
 		"COALESCE($7, next_run_at)",
+		"WHERE dag_key = $8",
 	})
 	if strings.Contains(sql, "THEN NOW()") {
 		t.Fatalf("UpdateDAGPatch SQL must not initialize next_run_at to NOW():\n%s", sql)
@@ -78,7 +84,16 @@ func assertSQLContainsAll(t *testing.T, sql string, wants []string) {
 func assertUpdateDAGPatchArgs(t *testing.T, args []any, nextRunAt time.Time) {
 	t.Helper()
 
-	want := []any{"dag-1", "Daily", "Morning", "scheduled", "0 8 * * *", "owner-1", nextRunAt}
+	want := []any{
+		pgtype.Text{String: "Daily", Valid: true},
+		pgtype.Text{String: "Morning", Valid: true},
+		pgtype.Text{String: "scheduled", Valid: true},
+		pgtype.Text{String: "0 8 * * *", Valid: true},
+		pgtype.Text{String: "owner-1", Valid: true},
+		pgtype.Bool{Bool: true, Valid: true},
+		pgtype.Timestamptz{Time: nextRunAt, Valid: true},
+		"dag-1",
+	}
 	if !reflect.DeepEqual(args, want) {
 		t.Fatalf("args = %#v, want %#v", args, want)
 	}
@@ -88,7 +103,7 @@ func TestUpdateDAGPatch_NilFieldsBecomeSQLNullArgs(t *testing.T) {
 	t.Parallel()
 
 	db := &captureUpdateDAGPatchDB{rows: 1}
-	store := NewStore(sqlc.New(db))
+	store := NewStore(db)
 	updater := store.(interface {
 		UpdateDAGPatch(context.Context, UpdateDAGPatchInput) (int64, error)
 	})
@@ -100,10 +115,49 @@ func TestUpdateDAGPatch_NilFieldsBecomeSQLNullArgs(t *testing.T) {
 	if rows != 1 {
 		t.Fatalf("UpdateDAGPatch() rows = %d, want 1", rows)
 	}
-	for i, arg := range db.args[1:] {
-		if arg != nil {
-			t.Fatalf("args[%d] = %#v, want nil SQL arg", i+1, arg)
-		}
+	assertUpdateDAGPatchNullArgs(t, db.args)
+}
+
+func assertUpdateDAGPatchNullArgs(t *testing.T, args []any) {
+	t.Helper()
+
+	if got, want := len(args), 8; got != want {
+		t.Fatalf("args len = %d, want %d", got, want)
+	}
+	for i := 0; i < 5; i++ {
+		assertInvalidTextArg(t, args, i)
+	}
+	assertInvalidBoolArg(t, args, 5)
+	assertInvalidTimestamptzArg(t, args, 6)
+	if args[7] != "dag-1" {
+		t.Fatalf("args[7] = %#v, want dag key", args[7])
+	}
+}
+
+func assertInvalidTextArg(t *testing.T, args []any, index int) {
+	t.Helper()
+
+	arg, ok := args[index].(pgtype.Text)
+	if !ok || arg.Valid {
+		t.Fatalf("args[%d] = %#v, want invalid pgtype.Text", index, args[index])
+	}
+}
+
+func assertInvalidBoolArg(t *testing.T, args []any, index int) {
+	t.Helper()
+
+	arg, ok := args[index].(pgtype.Bool)
+	if !ok || arg.Valid {
+		t.Fatalf("args[%d] = %#v, want invalid pgtype.Bool", index, args[index])
+	}
+}
+
+func assertInvalidTimestamptzArg(t *testing.T, args []any, index int) {
+	t.Helper()
+
+	arg, ok := args[index].(pgtype.Timestamptz)
+	if !ok || arg.Valid {
+		t.Fatalf("args[%d] = %#v, want invalid pgtype.Timestamptz", index, args[index])
 	}
 }
 
@@ -113,7 +167,7 @@ func TestGetDAGSchedule_ReadsRawScheduleColumns(t *testing.T) {
 	db := &captureUpdateDAGPatchDB{
 		schedule: DAGSchedule{Trigger: "scheduled", CronExpr: "0 8 * * *"},
 	}
-	store := NewStore(sqlc.New(db))
+	store := NewStore(db)
 	reader := store.(interface {
 		GetDAGSchedule(context.Context, string) (DAGSchedule, error)
 	})
@@ -125,7 +179,7 @@ func TestGetDAGSchedule_ReadsRawScheduleColumns(t *testing.T) {
 	if got.Trigger != "scheduled" || got.CronExpr != "0 8 * * *" {
 		t.Fatalf("GetDAGSchedule() = %+v, want scheduled cron", got)
 	}
-	if !strings.Contains(db.query, "SELECT trigger, cron_expr FROM task_dags") {
+	if !strings.Contains(db.query, "SELECT trigger, cron_expr") || !strings.Contains(db.query, "FROM task_dags") {
 		t.Fatalf("GetDAGSchedule SQL must read trigger/cron_expr:\n%s", db.query)
 	}
 	if got, want := len(db.queryArgs), 1; got != want {

@@ -1,13 +1,14 @@
 // @ts-nocheck
 import { describe, expect, it } from 'vitest';
 
-import { isThreadErrorStatus, normalizeStatus } from './services/status.js';
+import { isThreadActiveStatus, isThreadErrorStatus, normalizeStatus } from './services/status.js';
 
 describe('status service', () => {
   it('normalizes known backend statuses', () => {
     expect(normalizeStatus(' RUNNING ')).toBe('running');
     expect(normalizeStatus('responding')).toBe('responding');
     expect(normalizeStatus('editing')).toBe('editing');
+    expect(normalizeStatus('archived')).toBe('archived');
     expect(normalizeStatus('failed')).toBe('error');
     expect(normalizeStatus('rejected')).toBe('error');
   });
@@ -24,5 +25,13 @@ describe('status service', () => {
     expect(isThreadErrorStatus('rejected')).toBe(true);
     expect(isThreadErrorStatus('running')).toBe(false);
     expect(isThreadErrorStatus('')).toBe(false);
+  });
+
+  it('classifies archived as terminal rather than active', () => {
+    expect(isThreadActiveStatus('running')).toBe(true);
+    expect(isThreadActiveStatus('thinking')).toBe(true);
+    expect(isThreadActiveStatus('archived')).toBe(false);
+    expect(isThreadActiveStatus('idle')).toBe(false);
+    expect(isThreadActiveStatus('error')).toBe(false);
   });
 });

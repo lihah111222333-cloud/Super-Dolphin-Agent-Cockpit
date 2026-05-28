@@ -143,16 +143,20 @@ func (d *driver) StartSession(ctx context.Context, req dto.StartSessionRequest) 
 
 func (d *driver) ResumeSession(ctx context.Context, req dto.ResumeSessionRequest) (contract.Session, error) {
 	snapshot := req.PromptSnapshot
+	rawConfig := resumeSessionRuntimeConfig(req)
+	launchConfig := configFromMap(rawConfig)
+	launchConfig.Effort = strings.TrimSpace(req.Effort)
+	launchConfig.PromptSnapshot = snapshot
 	manifest := manifestbuilder.BuildManifest(dto.ManifestContext{
 		AgentID:  strings.TrimSpace(req.AgentID),
 		ThreadID: strings.TrimSpace(req.ThreadID),
 		CWD:      strings.TrimSpace(req.CWD),
-		AdditionalWorkingDirectories: providershared.ConfigStringSlice(req.Config,
+		AdditionalWorkingDirectories: providershared.ConfigStringSlice(rawConfig,
 			"additionalWorkingDirectories", "additional_working_directories"),
 		ThreadCaps:    copyCapabilities(claudeCapabilities),
-		BinaryDir:     providershared.ResolveBinaryDir(req.CWD, req.Config),
-		Env:           providershared.StringMap(req.Config["env"]),
-		AutoApprove:   providershared.ConfigStringSlice(req.Config, "auto_approve", "autoApprove"),
+		BinaryDir:     providershared.ResolveBinaryDir(req.CWD, rawConfig),
+		Env:           providershared.StringMap(rawConfig["env"]),
+		AutoApprove:   providershared.ConfigStringSlice(rawConfig, "auto_approve", "autoApprove"),
 		ProxyHTTPAddr: d.proxyHTTPAddr(),
 		TransportMode: dto.ManifestTransportStdioOnly,
 	})
@@ -168,14 +172,24 @@ func (d *driver) ResumeSession(ctx context.Context, req dto.ResumeSessionRequest
 			DeveloperInstructions: strings.TrimSpace(snapshot.DeveloperInstructions),
 			Snapshot:              snapshot,
 		},
-		manifest: manifest,
-		config: cliLaunchConfig{
-			Effort:         strings.TrimSpace(req.Effort),
-			PromptSnapshot: snapshot,
-		},
+		manifest:       manifest,
+		config:         launchConfig,
 		historyDir:     req.ClaudeHome,
 		configOverride: req.ConfigOverride,
+		rawConfig:      rawConfig,
 	})
+}
+
+func resumeSessionRuntimeConfig(req dto.ResumeSessionRequest) map[string]any {
+	cfg := cloneConfigMap(req.Config)
+	if cfg == nil {
+		cfg = map[string]any{}
+	}
+	putRuntimeConfigStringIfMissing(cfg, "cwd", req.CWD)
+	if len(cfg) == 0 {
+		return nil
+	}
+	return cfg
 }
 
 func (d *driver) start(ctx context.Context, spec startSpec) (contract.Session, error) {

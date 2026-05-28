@@ -1,5 +1,5 @@
 // @ts-nocheck
-import { normalizeStatus } from '../services/status.js';
+import { isThreadActiveStatus, normalizeStatus } from '../services/status.js';
 import { normalizeThreadID } from './bridge-event-parser.js';
 
 // Backend timeline projector lifecycle kinds that are not renderable chat content.
@@ -94,7 +94,7 @@ export function shouldReloadThreadHistory(ctx, threadId) {
     }
     return true;
   }
-  if (status !== 'idle') {
+  if (isThreadActiveStatus(status)) {
     const elapsed = Date.now() - loadedAt;
     const streamingTtl = 1000; // Poll history every 1s during streaming
     const shouldReload = elapsed > streamingTtl;

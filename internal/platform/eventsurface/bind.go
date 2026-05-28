@@ -61,17 +61,17 @@ const (
 	MethodThreadMessages           = "thread/messages/page"
 	MethodThreadCompacted          = "thread/compacted"
 	// Deprecated: token usage now rides on ui/thread/patch; kept for reference only
-	MethodThreadTokenUsage      = "thread/tokenusage/updated"
-	MethodSkillsChanged         = "skills/changed"
-	MethodUIPreferencesChanged  = "ui/preferences/changed"
-	MethodUIThreadPatch         = "ui/thread/patch"
-	MethodAgentLaunched         = "agent/launched"
-	MethodAgentStopped          = "agent/stopped"
-	MethodAgentRecovering       = "agent/recovering"
-	MethodAgentFailed           = "agent/failed"
-	MethodAgentRuntimeReported  = "agent/runtime/reported"
-	MethodTaskNodeStatusChanged    = "task/node/statusChanged"
-	MethodCronJobRunStateChanged   = "cron/job/runStateChanged"
+	MethodThreadTokenUsage       = "thread/tokenusage/updated"
+	MethodSkillsChanged          = "skills/changed"
+	MethodUIPreferencesChanged   = "ui/preferences/changed"
+	MethodUIThreadPatch          = "ui/thread/patch"
+	MethodAgentLaunched          = "agent/launched"
+	MethodAgentStopped           = "agent/stopped"
+	MethodAgentRecovering        = "agent/recovering"
+	MethodAgentFailed            = "agent/failed"
+	MethodAgentRuntimeReported   = "agent/runtime/reported"
+	MethodTaskNodeStatusChanged  = "task/node/statusChanged"
+	MethodCronJobRunStateChanged = "cron/job/runStateChanged"
 )
 
 type PublishFunc func(method string, payload any)
@@ -110,6 +110,10 @@ func taskNodeStatusChangedPayload(ev taskdto.TaskNodeStatusChanged) map[string]a
 		"node_key":   strings.TrimSpace(ev.NodeKey),
 		"new_status": strings.TrimSpace(ev.NewStatus),
 	}
+	if ev.RunID != 0 {
+		payload["run_id"] = ev.RunID
+	}
+	setString(payload, "run_key", ev.RunKey)
 	setString(payload, "old_status", ev.OldStatus)
 	setString(payload, "assigned_to", ev.AssignedTo)
 	setString(payload, "active_turn_id", ev.ActiveTurnID)
@@ -448,7 +452,6 @@ func projectionUpdatedPayload(ev uidto.UIProjectionUpdated) map[string]any {
 	}
 	return payload
 }
-
 
 func bindCron(dispatcher *event.Dispatcher, logger *pkglogger.Logger, publish PublishFunc) []context.CancelFunc {
 	return []context.CancelFunc{

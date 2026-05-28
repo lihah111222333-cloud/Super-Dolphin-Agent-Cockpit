@@ -272,12 +272,17 @@ func ensureCodexModelPresent(models []string, target string) []string {
 	return append([]string{target}, models...)
 }
 
-func configString(cfg map[string]any, key string) string {
+func configString(cfg map[string]any, keys ...string) string {
 	if cfg == nil {
 		return ""
 	}
-	value, _ := cfg[key].(string)
-	return sanitizeConfigStringArtifact(value)
+	for _, key := range keys {
+		value, _ := cfg[key].(string)
+		if value = sanitizeConfigStringArtifact(value); value != "" {
+			return value
+		}
+	}
+	return ""
 }
 
 func sanitizeConfigStringArtifact(value string) string {
@@ -306,7 +311,7 @@ func (d *driver) buildThreadStartParams(req dto.StartSessionRequest) threadStart
 	params := threadStartParams{
 		Cwd:                   strings.TrimSpace(req.CWD),
 		Model:                 strings.TrimSpace(req.Model),
-		ModelProvider:         configString(req.Config, "modelProvider"),
+		ModelProvider:         configString(req.Config, "codexModelProvider", "modelProvider"),
 		BaseInstructions:      baseInstructions,
 		DeveloperInstructions: developerInstructions,
 		ApprovalPolicy:        resolveApprovalPolicy(req.Config),

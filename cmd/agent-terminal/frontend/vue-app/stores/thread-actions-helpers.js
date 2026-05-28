@@ -561,7 +561,7 @@ export async function startThread(ctx, cwd = '.', options = {}) {
   // thread entirely.
   const pendingLaunch = Boolean(res?.pending_launch ?? res?.pendingLaunch);
   setThreadPendingLaunch(id, pendingLaunch);
-  if (!ctx.state.threads.some((t) => t.id === id)) ctx.state.threads = [...ctx.state.threads, { id, name: id, state: 'idle' }];
+  if (!ctx.state.threads.some((t) => t.id === id)) ctx.state.threads = [...ctx.state.threads, { id, name: startName || id, state: 'idle' }];
   const optimisticUserMessage = options?.optimisticUserMessage;
   if (optimisticUserMessage && typeof optimisticUserMessage === 'object') {
     const optimisticText = (optimisticUserMessage.text || '').toString().trim();

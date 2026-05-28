@@ -30,9 +30,11 @@ import (
 //	                            → BuildCtx.EnabledTools contains this short tool name
 //	{"enabled_tools_has":["grep","xref"]}
 //	                            → OR across the array; any match passes
+//	{"enabled_tools_all":["task_create_dag","task_start_dag"]}
+//	                            → AND across the array; every listed tool must be present
 //
-// Step 3b kept the DSL deliberately tiny; tags_has and enabled_tools_has are
-// the intentional extensions (still no $not / $in / regex) added to enable
+// Step 3b kept the DSL deliberately tiny; tags_has and enabled_tools_* are the
+// intentional extensions (still no $not / $in / regex) added to enable
 // userPrompt-driven and tool-availability section gating without growing the
 // schema. All other mismatches or lookup misses still drop the section
 // (fail-closed). Unknown keys (not listed above and not under sessionFlags.)
@@ -69,6 +71,8 @@ func sectionEnableKeyMatches(key string, want any, buildCtx contract.BuildCtx, u
 		return matchSectionTagsHas(want, userPrompt)
 	case "enabled_tools_has":
 		return matchEnabledToolsHas(want, buildCtx.EnabledTools)
+	case "enabled_tools_all":
+		return matchEnabledToolsAll(want, buildCtx.EnabledTools)
 	}
 	got, ok := resolveEnableWhenField(key, buildCtx)
 	if !ok {
@@ -103,6 +107,23 @@ func matchEnabledToolsHas(want any, enabled []string) bool {
 	default:
 		return false
 	}
+}
+
+func matchEnabledToolsAll(want any, enabled []string) bool {
+	if len(enabled) == 0 {
+		return false
+	}
+	items, ok := want.([]any)
+	if !ok || len(items) == 0 {
+		return false
+	}
+	for _, item := range items {
+		s, ok := item.(string)
+		if !ok || !containsExact(enabled, s) {
+			return false
+		}
+	}
+	return true
 }
 
 func containsExact(values []string, want string) bool {

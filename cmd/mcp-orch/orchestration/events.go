@@ -9,22 +9,6 @@ func (s *service) publishStateChanged(agent *agentRuntime, before, trigger strin
 	emitEvent(s.eventBus, eventTypeStateChanged, eventAgentID(agent), agent, before, trigger)
 }
 
-func (s *service) publishAgentLaunched(agent *agentRuntime) {
-	emitEvent(s.eventBus, eventTypeAgentLaunched, eventAgentID(agent), agent, agent.cwd)
-}
-
-func (s *service) publishAgentStopped(agent *agentRuntime, reason string) {
-	emitEvent(s.eventBus, eventTypeAgentStopped, eventAgentID(agent), agent, reason)
-}
-
-func (s *service) publishAgentRecovering(agent *agentRuntime, reason string) {
-	emitEvent(s.eventBus, eventTypeAgentRecovering, eventAgentID(agent), agent, reason)
-}
-
-func (s *service) publishAgentFailed(agent *agentRuntime, err string, recoverable bool) {
-	emitEvent(s.eventBus, eventTypeAgentFailed, eventAgentID(agent), agent, err, recoverable)
-}
-
 func (s *service) publishAgentRuntimeReported(agent *agentRuntime) {
 	port, _ := snapshotPort(agent)
 	provider, _ := snapshotProvider(agent)

@@ -8,7 +8,6 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
 	bindingstore "github.com/anthropic-ai/super-agent-v3/internal/store/binding"
-	sharedfilestore "github.com/anthropic-ai/super-agent-v3/internal/store/sharedfile"
 	threadstore "github.com/anthropic-ai/super-agent-v3/internal/store/thread"
 )
 
@@ -196,13 +195,6 @@ func TestHandoff_UsesSourceBindingProvider(t *testing.T) {
 		Cwd:      wantStartCWD(t),
 		Model:    "gpt-5.5",
 		Prompt:   "Source task",
-		ConfigOverride: mustStoredThreadConfigRaw(t, storedThreadConfig{
-			Runtime: map[string]any{
-				taskConfigKeyID:          "task-src",
-				taskConfigKeyTitle:       "Source task",
-				taskConfigKeyHandoffFile: defaultTaskHandoffPath("task-src"),
-			},
-		}),
 	}
 	svc := NewService(
 		silentLogger(),
@@ -219,12 +211,6 @@ func TestHandoff_UsesSourceBindingProvider(t *testing.T) {
 		nil,
 		nil,
 	).(*service)
-	svc.sharedFiles = &stubSharedFileStore{files: map[string]sharedfilestore.SharedFile{
-		defaultTaskHandoffPath("task-src"): {
-			Path:    defaultTaskHandoffPath("task-src"),
-			Content: "# Task Handoff\n\n## Latest Outcome\nready",
-		},
-	}}
 
 	result, err := svc.Handoff(context.Background(), HandoffRequest{
 		SourceThreadID: "thread-src",

@@ -6,8 +6,8 @@ import (
 )
 
 // frontendDist embeds the Vite build output living next to the Vue source.
-// The all: prefix ensures dot-files like .gitkeep are included so the
-// embed pattern always matches — even before `npm run build` has been run.
+// Makefile build/test/run targets create dist before Go compiles this package.
+// The all: prefix preserves nested assets and dot-files in the built output.
 //
 //go:embed all:frontend/dist
 var frontendDist embed.FS

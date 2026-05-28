@@ -65,6 +65,13 @@ type saveClipboardImageParams struct {
 	clientMetaParams
 }
 
+type saveTextFileParams struct {
+	DefaultPath     string `json:"defaultPath,omitempty"`
+	DefaultFilename string `json:"defaultFilename"`
+	Content         string `json:"content"`
+	clientMetaParams
+}
+
 type openNewWindowParams struct {
 	Group       string         `json:"group,omitempty"`
 	N           int            `json:"n,omitempty"`
@@ -101,6 +108,13 @@ func NewRPCHandlers(app *App, cfg *config.Config, uiState contract.UIProjectStat
 		}),
 		"ui/saveClipboardImage": rpc.StrictHandler(func(ctx context.Context, p saveClipboardImageParams) (any, error) {
 			path, err := app.SaveClipboardImage(p.Base64Payload)
+			if err != nil {
+				return nil, err
+			}
+			return map[string]string{"path": path}, nil
+		}),
+		"ui/saveTextFile": rpc.StrictHandler(func(ctx context.Context, p saveTextFileParams) (any, error) {
+			path, err := app.saveTextFile(p.DefaultPath, p.DefaultFilename, p.Content)
 			if err != nil {
 				return nil, err
 			}

@@ -3,7 +3,7 @@ import {
   computed,
   watch,
 } from '../../lib/vue.esm-browser.prod.js';
-import { normalizeStatus } from '../services/status.js';
+import { isThreadActiveStatus, normalizeStatus } from '../services/status.js';
 import { logInfo } from '../services/log.js';
 import {
   formatTokenInline,
@@ -138,7 +138,7 @@ export function useThreadStatus(props, selectedThreadId, activeStatus, showPathC
     const threadId = selectedThreadId.value;
     if (!threadId) return '';
     const state = normalizeStatus(activeStatus.value);
-    if (state === 'idle') return '';
+    if (!isThreadActiveStatus(state)) return '';
     const since = Number(statusSinceByThread.value[threadId]) || Date.now();
     const elapsedSeconds = Math.max(0, Math.floor((statusTick.value - since) / 1000));
     const elapsed = formatElapsedCompact(elapsedSeconds);
@@ -181,7 +181,7 @@ export function useThreadStatus(props, selectedThreadId, activeStatus, showPathC
         return;
       }
       const state = normalizeStatus(status);
-      if (state === 'idle') {
+      if (!isThreadActiveStatus(state)) {
         statusSinceByThread.value[threadId] = 0;
         statusPausedAtByThread.value[threadId] = 0;
         stopStatusTickTimer();

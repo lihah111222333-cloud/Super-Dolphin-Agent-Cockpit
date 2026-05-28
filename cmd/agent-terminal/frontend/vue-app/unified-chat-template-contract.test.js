@@ -33,6 +33,15 @@ describe('UnifiedChatPage template contract', () => {
       ':disabled="!selectedThreadId && !providerPreferenceReady"',
       ':send-disabled="activeThreadSendBlocked"',
     ]);
+    const removedManualTaskEvent = '@' + ['promote', 'task'].join('-');
+    const removedManualTaskErrorProp = ':' + ['promote', 'task', 'error'].join('-');
+    expect(template).not.toContain(removedManualTaskEvent);
+    expect(template).not.toContain(':promoting-task');
+    expect(template).not.toContain(removedManualTaskErrorProp);
+    expect(template).not.toContain('task-handoff-strip');
+    expect(template).not.toContain('taskHandoffVisible');
+    expect(template).not.toContain('任务模式');
+    expect(template).not.toContain('任务接力摘要');
   });
 
   it('keeps the main layout spine ordering stable', () => {
@@ -173,6 +182,7 @@ describe('UnifiedChatPage template contract', () => {
       'id="chat-panel"',
       'data-testid="chat-empty-state"',
       '<ChatTimeline',
+      ':empty-text="emptyText"',
     ]);
 
   });

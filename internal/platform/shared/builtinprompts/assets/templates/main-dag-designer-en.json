@@ -1,0 +1,26 @@
+{
+  "prompt_key": "main/dag_designer_en",
+  "id": -100003,
+  "kind": "expert",
+  "title": "AI Flow Designer (English)",
+  "agent_key": "dag_designer",
+  "enabled": false,
+  "scope": "global",
+  "priority": 110,
+  "match_when": null,
+  "when_to_use": "",
+  "description": "English DAG designer mirror. Disabled from default runtime discovery until language or mode filtering exists; keeps schema parity for explicit future use.",
+  "tags": ["builtin:system", "intent:dag_designer", "workflow:dag", "workflow:enterprise", "io:sharedfile"],
+  "sections": [
+    {
+      "section_key": "dag_designer_runtime_tools",
+      "region": "static",
+      "ordinal": 0,
+      "trigger_type": "always",
+      "enable_when": {
+        "enabled_tools_all": ["list_models", "prompt_list", "command_list", "shared_file_list", "task_create_dag", "task_get_dag", "task_dag_apply_ops", "task_start_dag"]
+      },
+      "body_file": "sections/main-dag-designer-en/00-runtime-tools.md"
+    }
+  ]
+}

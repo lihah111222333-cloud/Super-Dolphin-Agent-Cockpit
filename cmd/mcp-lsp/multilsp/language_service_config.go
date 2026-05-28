@@ -111,10 +111,10 @@ func cssAdapterDefaults() projectLanguageAdapter {
 
 func cloneLSPConfig(cfg contract.LSPConfig) contract.LSPConfig {
 	return contract.LSPConfig{
-		NoiseDirNames:               slices.Clone(cfg.NoiseDirNames),
-		GoDirectoryFilters:          slices.Clone(cfg.GoDirectoryFilters),
-		ProjectAdapters:             cloneLSPProjectAdapters(cfg.ProjectAdapters),
-		DocumentFallbackLanguageIDs: slices.Clone(cfg.DocumentFallbackLanguageIDs),
+		NoiseDirNames:                    slices.Clone(cfg.NoiseDirNames),
+		GoDirectoryFilters:               slices.Clone(cfg.GoDirectoryFilters),
+		ProjectAdapters:                  cloneLSPProjectAdapters(cfg.ProjectAdapters),
+		DocumentFallbackLanguageIDs:      slices.Clone(cfg.DocumentFallbackLanguageIDs),
 		DisableInitialWorkspaceBootstrap: cfg.DisableInitialWorkspaceBootstrap,
 	}
 }

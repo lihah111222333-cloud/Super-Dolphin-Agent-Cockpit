@@ -110,7 +110,7 @@ func TestUpsertPromptTemplatePersistsRoutingMetadata(t *testing.T) {
 		pgtype.Timestamptz{Time: time.Unix(1, 0).UTC(), Valid: true},
 		pgtype.Timestamptz{Time: time.Unix(2, 0).UTC(), Valid: true},
 	}}
-	store := NewStore(sqlc.New(db))
+	store := NewStore(db)
 
 	got, err := store.Upsert(context.Background(), PromptTemplate{
 		PromptKey:      "main/sql",
@@ -154,7 +154,7 @@ func TestGetSectionByRecallTopicUsesGeneratedRecallQuery(t *testing.T) {
 	t.Parallel()
 
 	db := &captureRecallSectionDB{body: "Recall package body"}
-	store := NewStore(sqlc.New(db))
+	store := NewStore(db)
 
 	got, err := store.GetSectionByRecallTopic(context.Background(), "/repo/a", "context_budget")
 	if err != nil {
@@ -173,7 +173,7 @@ func TestGetSectionByRecallTopicRequiresCWD(t *testing.T) {
 	t.Parallel()
 
 	db := &captureRecallSectionDB{body: "unused"}
-	store := NewStore(sqlc.New(db))
+	store := NewStore(db)
 
 	_, err := store.GetSectionByRecallTopic(context.Background(), " ", "context_budget")
 	if err == nil {
@@ -191,7 +191,7 @@ func TestGetSectionByRecallTopicWrapsNoRowsAsNotFound(t *testing.T) {
 	t.Parallel()
 
 	db := &captureRecallSectionDB{err: pgx.ErrNoRows}
-	store := NewStore(sqlc.New(db))
+	store := NewStore(db)
 
 	_, err := store.GetSectionByRecallTopic(context.Background(), "/repo/a", "missing")
 	if err == nil {
@@ -207,7 +207,7 @@ func TestGetSectionByRecallTopicFallsBackToBuiltinRegistry(t *testing.T) {
 	t.Parallel()
 
 	db := &captureRecallSectionDB{err: pgx.ErrNoRows}
-	store := NewStore(sqlc.New(db))
+	store := NewStore(db)
 
 	got, err := store.GetSectionByRecallTopic(context.Background(), "/repo/a", "lsp-basics")
 	if err != nil {
@@ -226,7 +226,7 @@ func TestListSectionsByTemplateIDUsesGeneratedInjectableQuery(t *testing.T) {
 		{int64(1), int64(42), "identity", "static", int32(0), "Identity body", "always", "", true},
 		{int64(2), int64(42), "workflow", "dynamic", int32(10), "Workflow body", "keyword", "", true},
 	}}}
-	store := NewStore(sqlc.New(db))
+	store := NewStore(db)
 
 	got, err := store.ListSectionsByTemplateID(context.Background(), 42)
 	if err != nil {
@@ -261,7 +261,7 @@ func TestListSectionsByTemplateIDWrapsQueryError(t *testing.T) {
 	t.Parallel()
 
 	db := &captureListSectionsDB{err: errors.New("query failed")}
-	store := NewStore(sqlc.New(db))
+	store := NewStore(db)
 
 	_, err := store.ListSectionsByTemplateID(context.Background(), 42)
 	if err == nil {
@@ -349,7 +349,7 @@ func TestGetSectionByRecallTopicPGIntegration(t *testing.T) {
 	insertRecallSection(t, ctx, tx, disabledTemplateID, "disabled_parent_recall", "Disabled parent body", true, "recall", disabledParentTopic)
 	insertRecallSection(t, ctx, tx, templateID, "always_topic", "Always body", true, "always", alwaysTopic)
 
-	store := NewStore(sqlc.New(tx))
+	store := NewStore(tx)
 	got, err := store.GetSectionByRecallTopic(ctx, cwd, topic)
 	if err != nil {
 		t.Fatalf("GetSectionByRecallTopic(enabled recall) error = %v", err)

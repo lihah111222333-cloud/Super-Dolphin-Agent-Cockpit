@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import {
   refreshChatPageData,
+  routeDagBridgeEvent,
   shouldRefreshChatPageOnEnter,
 } from './app.js';
 
@@ -10,6 +11,41 @@ describe('shouldRefreshChatPageOnEnter', () => {
     expect(shouldRefreshChatPageOnEnter('chat', 'chat')).toBe(false);
     expect(shouldRefreshChatPageOnEnter('agents', 'chat')).toBe(false);
     expect(shouldRefreshChatPageOnEnter('chat', '')).toBe(false);
+  });
+});
+
+describe('routeDagBridgeEvent', () => {
+  it('fails fast on malformed DAG node status events', () => {
+    expect(() => routeDagBridgeEvent('task/node/statusChanged', '', null, {
+      page: { value: 'dags' },
+      recordDagNodeStatusEvent: vi.fn(),
+      refreshDashboardByPage: vi.fn(async () => {}),
+    })).toThrow('dag node status event payload is required');
+  });
+
+  it('fails fast when DAG node status events miss required fields', () => {
+    expect(() => routeDagBridgeEvent('task/node/statusChanged', '', { dag_key: 'dag-a', run_key: 'run-1', new_status: 'running' }, {
+      page: { value: 'dags' },
+      recordDagNodeStatusEvent: vi.fn(),
+      refreshDashboardByPage: vi.fn(async () => {}),
+    })).toThrow('dag status event node key is required');
+    expect(() => routeDagBridgeEvent('task/node/statusChanged', '', { dag_key: 'dag-a', run_key: 'run-1', node_key: 'draft' }, {
+      page: { value: 'dags' },
+      recordDagNodeStatusEvent: vi.fn(),
+      refreshDashboardByPage: vi.fn(async () => {}),
+    })).toThrow('dag status event status is required');
+    expect(() => routeDagBridgeEvent('task/node/statusChanged', '', { dag_key: 'dag-a', node_key: 'draft', new_status: 'running' }, {
+      page: { value: 'dags' },
+      recordDagNodeStatusEvent: vi.fn(),
+      refreshDashboardByPage: vi.fn(async () => {}),
+    })).toThrow('dag status event run identity is required');
+  });
+
+  it('fails fast when the status event recorder is missing', () => {
+    expect(() => routeDagBridgeEvent('task/node/statusChanged', '', { dag_key: 'dag-a', run_key: 'run-1', node_key: 'draft', new_status: 'running' }, {
+      page: { value: 'dags' },
+      refreshDashboardByPage: vi.fn(async () => {}),
+    })).toThrow('dag node status event recorder is required');
   });
 });
 

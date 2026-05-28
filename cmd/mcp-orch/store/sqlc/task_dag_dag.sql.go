@@ -7,10 +7,86 @@ package sqlc
 
 import (
 	"context"
+
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const bumpTaskDagVersion = `-- name: BumpTaskDagVersion :one
+UPDATE task_dags
+SET version = version + 1,
+    updated_at = NOW()
+WHERE dag_key = $1 AND version = $2
+RETURNING version
+`
+
+type BumpTaskDagVersionParams struct {
+	DagKey          string `json:"dag_key"`
+	ExpectedVersion int64  `json:"expected_version"`
+}
+
+func (q *Queries) BumpTaskDagVersion(ctx context.Context, arg BumpTaskDagVersionParams) (int64, error) {
+	row := q.db.QueryRow(ctx, bumpTaskDagVersion, arg.DagKey, arg.ExpectedVersion)
+	var version int64
+	err := row.Scan(&version)
+	return version, err
+}
+
+const deleteTaskDagNodesByDAG = `-- name: DeleteTaskDagNodesByDAG :execrows
+DELETE FROM task_dag_nodes
+WHERE dag_key = $1
+`
+
+func (q *Queries) DeleteTaskDagNodesByDAG(ctx context.Context, dagKey string) (int64, error) {
+	result, err := q.db.Exec(ctx, deleteTaskDagNodesByDAG, dagKey)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const deleteTaskDagRow = `-- name: DeleteTaskDagRow :execrows
+DELETE FROM task_dags
+WHERE dag_key = $1
+`
+
+func (q *Queries) DeleteTaskDagRow(ctx context.Context, dagKey string) (int64, error) {
+	result, err := q.db.Exec(ctx, deleteTaskDagRow, dagKey)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const deleteTaskDagRunsByDAG = `-- name: DeleteTaskDagRunsByDAG :execrows
+DELETE FROM task_dag_runs
+WHERE dag_key = $1
+`
+
+func (q *Queries) DeleteTaskDagRunsByDAG(ctx context.Context, dagKey string) (int64, error) {
+	result, err := q.db.Exec(ctx, deleteTaskDagRunsByDAG, dagKey)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const deleteTaskDagWakeupsByDAG = `-- name: DeleteTaskDagWakeupsByDAG :execrows
+DELETE FROM task_dag_wakeups
+WHERE dag_key = $1
+`
+
+func (q *Queries) DeleteTaskDagWakeupsByDAG(ctx context.Context, dagKey string) (int64, error) {
+	result, err := q.db.Exec(ctx, deleteTaskDagWakeupsByDAG, dagKey)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const getTaskDag = `-- name: GetTaskDag :one
-SELECT id, dag_key, title, description, status, created_by, metadata, started_at, finished_at, created_at, updated_at
+SELECT id, dag_key, title, description, status, created_by, metadata,
+       started_at, finished_at, created_at, updated_at,
+       trigger, owner_id, cron_expr, next_run_at, version
 FROM task_dags
 WHERE dag_key = $1
 `
@@ -30,12 +106,19 @@ func (q *Queries) GetTaskDag(ctx context.Context, dagKey string) (TaskDag, error
 		&i.FinishedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.Trigger,
+		&i.OwnerID,
+		&i.CronExpr,
+		&i.NextRunAt,
+		&i.Version,
 	)
 	return i, err
 }
 
 const getTaskDagForUpdate = `-- name: GetTaskDagForUpdate :one
-SELECT id, dag_key, title, description, status, created_by, metadata, started_at, finished_at, created_at, updated_at
+SELECT id, dag_key, title, description, status, created_by, metadata,
+       started_at, finished_at, created_at, updated_at,
+       trigger, owner_id, cron_expr, next_run_at, version
 FROM task_dags
 WHERE dag_key = $1
 FOR UPDATE
@@ -56,12 +139,100 @@ func (q *Queries) GetTaskDagForUpdate(ctx context.Context, dagKey string) (TaskD
 		&i.FinishedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.Trigger,
+		&i.OwnerID,
+		&i.CronExpr,
+		&i.NextRunAt,
+		&i.Version,
 	)
 	return i, err
 }
 
+const getTaskDagSchedule = `-- name: GetTaskDagSchedule :one
+SELECT trigger, cron_expr
+FROM task_dags
+WHERE dag_key = $1
+`
+
+type GetTaskDagScheduleRow struct {
+	Trigger  string `json:"trigger"`
+	CronExpr string `json:"cron_expr"`
+}
+
+func (q *Queries) GetTaskDagSchedule(ctx context.Context, dagKey string) (GetTaskDagScheduleRow, error) {
+	row := q.db.QueryRow(ctx, getTaskDagSchedule, dagKey)
+	var i GetTaskDagScheduleRow
+	err := row.Scan(&i.Trigger, &i.CronExpr)
+	return i, err
+}
+
+const getTaskDagVersion = `-- name: GetTaskDagVersion :one
+SELECT version
+FROM task_dags
+WHERE dag_key = $1
+`
+
+func (q *Queries) GetTaskDagVersion(ctx context.Context, dagKey string) (int64, error) {
+	row := q.db.QueryRow(ctx, getTaskDagVersion, dagKey)
+	var version int64
+	err := row.Scan(&version)
+	return version, err
+}
+
+const getTaskDagVersionForUpdate = `-- name: GetTaskDagVersionForUpdate :one
+SELECT version
+FROM task_dags
+WHERE dag_key = $1
+FOR UPDATE
+`
+
+func (q *Queries) GetTaskDagVersionForUpdate(ctx context.Context, dagKey string) (int64, error) {
+	row := q.db.QueryRow(ctx, getTaskDagVersionForUpdate, dagKey)
+	var version int64
+	err := row.Scan(&version)
+	return version, err
+}
+
+const listDueScheduledTaskDags = `-- name: ListDueScheduledTaskDags :many
+SELECT dag_key, cron_expr, next_run_at
+FROM task_dags
+WHERE trigger = 'scheduled'
+  AND cron_expr <> ''
+  AND next_run_at IS NOT NULL
+  AND next_run_at <= $1
+ORDER BY next_run_at ASC, id ASC
+`
+
+type ListDueScheduledTaskDagsRow struct {
+	DagKey    string             `json:"dag_key"`
+	CronExpr  string             `json:"cron_expr"`
+	NextRunAt pgtype.Timestamptz `json:"next_run_at"`
+}
+
+func (q *Queries) ListDueScheduledTaskDags(ctx context.Context, nextRunAt pgtype.Timestamptz) ([]ListDueScheduledTaskDagsRow, error) {
+	rows, err := q.db.Query(ctx, listDueScheduledTaskDags, nextRunAt)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListDueScheduledTaskDagsRow{}
+	for rows.Next() {
+		var i ListDueScheduledTaskDagsRow
+		if err := rows.Scan(&i.DagKey, &i.CronExpr, &i.NextRunAt); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listTaskDags = `-- name: ListTaskDags :many
-SELECT id, dag_key, title, description, status, created_by, metadata, started_at, finished_at, created_at, updated_at
+SELECT id, dag_key, title, description, status, created_by, metadata,
+       started_at, finished_at, created_at, updated_at,
+       trigger, owner_id, cron_expr, next_run_at, version
 FROM task_dags
 WHERE ($1::text = '' OR status = $1)
   AND ($2::text = ''
@@ -99,6 +270,11 @@ func (q *Queries) ListTaskDags(ctx context.Context, arg ListTaskDagsParams) ([]T
 			&i.FinishedAt,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.Trigger,
+			&i.OwnerID,
+			&i.CronExpr,
+			&i.NextRunAt,
+			&i.Version,
 		); err != nil {
 			return nil, err
 		}
@@ -108,6 +284,120 @@ func (q *Queries) ListTaskDags(ctx context.Context, arg ListTaskDagsParams) ([]T
 		return nil, err
 	}
 	return items, nil
+}
+
+const lockTaskDagForDelete = `-- name: LockTaskDagForDelete :one
+SELECT id
+FROM task_dags
+WHERE dag_key = $1
+FOR UPDATE
+`
+
+func (q *Queries) LockTaskDagForDelete(ctx context.Context, dagKey string) (int64, error) {
+	row := q.db.QueryRow(ctx, lockTaskDagForDelete, dagKey)
+	var id int64
+	err := row.Scan(&id)
+	return id, err
+}
+
+const tryTaskDagAdvisoryLock = `-- name: TryTaskDagAdvisoryLock :one
+SELECT pg_try_advisory_lock($1)
+`
+
+func (q *Queries) TryTaskDagAdvisoryLock(ctx context.Context, pgTryAdvisoryLock int64) (bool, error) {
+	row := q.db.QueryRow(ctx, tryTaskDagAdvisoryLock, pgTryAdvisoryLock)
+	var pg_try_advisory_lock bool
+	err := row.Scan(&pg_try_advisory_lock)
+	return pg_try_advisory_lock, err
+}
+
+const unlockTaskDagAdvisoryLock = `-- name: UnlockTaskDagAdvisoryLock :one
+SELECT pg_advisory_unlock($1)
+`
+
+func (q *Queries) UnlockTaskDagAdvisoryLock(ctx context.Context, pgAdvisoryUnlock int64) (bool, error) {
+	row := q.db.QueryRow(ctx, unlockTaskDagAdvisoryLock, pgAdvisoryUnlock)
+	var pg_advisory_unlock bool
+	err := row.Scan(&pg_advisory_unlock)
+	return pg_advisory_unlock, err
+}
+
+const updateTaskDagNextRun = `-- name: UpdateTaskDagNextRun :execrows
+UPDATE task_dags
+SET next_run_at = $1,
+    updated_at = NOW()
+WHERE dag_key = $2
+  AND trigger = 'scheduled'
+  AND cron_expr <> ''
+  AND next_run_at = $3
+`
+
+type UpdateTaskDagNextRunParams struct {
+	NextRunAt pgtype.Timestamptz `json:"next_run_at"`
+	DagKey    string             `json:"dag_key"`
+	DueAt     pgtype.Timestamptz `json:"due_at"`
+}
+
+func (q *Queries) UpdateTaskDagNextRun(ctx context.Context, arg UpdateTaskDagNextRunParams) (int64, error) {
+	result, err := q.db.Exec(ctx, updateTaskDagNextRun, arg.NextRunAt, arg.DagKey, arg.DueAt)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const updateTaskDagPatch = `-- name: UpdateTaskDagPatch :execrows
+UPDATE task_dags
+SET title = COALESCE($1, title),
+    description = COALESCE($2, description),
+    trigger = COALESCE($3, trigger),
+    cron_expr = COALESCE($4, cron_expr),
+    owner_id = COALESCE($5, owner_id),
+    next_run_at = CASE
+      WHEN $6::boolean IS NOT NULL
+        AND $6::boolean = FALSE THEN NULL
+      WHEN COALESCE($3, trigger) = 'scheduled'
+        AND COALESCE($4, cron_expr) <> ''
+      THEN CASE
+        WHEN $6::boolean IS NOT NULL
+          AND $6::boolean = TRUE THEN COALESCE($7, next_run_at)
+        WHEN $3 IS NOT NULL
+          OR $4 IS NOT NULL
+          OR next_run_at IS NULL THEN COALESCE($7, next_run_at)
+        ELSE next_run_at
+      END
+      ELSE NULL
+    END,
+    updated_at = NOW()
+WHERE dag_key = $8
+`
+
+type UpdateTaskDagPatchParams struct {
+	Title           pgtype.Text        `json:"title"`
+	Description     pgtype.Text        `json:"description"`
+	Trigger         pgtype.Text        `json:"trigger"`
+	CronExpr        pgtype.Text        `json:"cron_expr"`
+	OwnerID         pgtype.Text        `json:"owner_id"`
+	ScheduleEnabled pgtype.Bool        `json:"schedule_enabled"`
+	NextRunAt       pgtype.Timestamptz `json:"next_run_at"`
+	DagKey          string             `json:"dag_key"`
+}
+
+func (q *Queries) UpdateTaskDagPatch(ctx context.Context, arg UpdateTaskDagPatchParams) (int64, error) {
+	result, err := q.db.Exec(ctx, updateTaskDagPatch,
+		arg.Title,
+		arg.Description,
+		arg.Trigger,
+		arg.CronExpr,
+		arg.OwnerID,
+		arg.ScheduleEnabled,
+		arg.NextRunAt,
+		arg.DagKey,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }
 
 const upsertTaskDag = `-- name: UpsertTaskDag :one
@@ -120,7 +410,9 @@ SET title = EXCLUDED.title,
     created_by = EXCLUDED.created_by,
     metadata = EXCLUDED.metadata,
     updated_at = NOW()
-RETURNING id, dag_key, title, description, status, created_by, metadata, started_at, finished_at, created_at, updated_at
+RETURNING id, dag_key, title, description, status, created_by, metadata,
+          started_at, finished_at, created_at, updated_at,
+          trigger, owner_id, cron_expr, next_run_at, version
 `
 
 type UpsertTaskDagParams struct {
@@ -154,6 +446,11 @@ func (q *Queries) UpsertTaskDag(ctx context.Context, arg UpsertTaskDagParams) (T
 		&i.FinishedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.Trigger,
+		&i.OwnerID,
+		&i.CronExpr,
+		&i.NextRunAt,
+		&i.Version,
 	)
 	return i, err
 }

@@ -31,6 +31,114 @@ func (db *fakeTaskDAGDB) deleteTaskDagNode(args ...any) (int64, error) {
 	return 1, nil
 }
 
+func (db *fakeTaskDAGDB) lockTaskDAGForDelete(args ...any) ([]any, error) {
+	if len(args) != 1 {
+		return nil, fmt.Errorf("lock dag args len = %d, want 1", len(args))
+	}
+	dagKey, ok := args[0].(string)
+	if !ok {
+		return nil, fmt.Errorf("dag key arg = %T", args[0])
+	}
+	row, ok := db.dags[dagKey]
+	if !ok {
+		return nil, pgx.ErrNoRows
+	}
+	return []any{row.ID}, nil
+}
+
+func (db *fakeTaskDAGDB) lockTaskDagRunNodeForUpdate(args ...any) ([]any, error) {
+	if len(args) != 3 {
+		return nil, fmt.Errorf("lock run node args len = %d, want 3", len(args))
+	}
+	dagKey, ok := args[0].(string)
+	if !ok {
+		return nil, fmt.Errorf("dag key arg = %T", args[0])
+	}
+	nodeKey, ok := args[1].(string)
+	if !ok {
+		return nil, fmt.Errorf("node key arg = %T", args[1])
+	}
+	runID, err := fakeInt8Arg(args, 2, "run id")
+	if err != nil {
+		return nil, err
+	}
+	key := dagRunNodeKey(dagKey, nodeKey, runID)
+	row, ok := db.nodes[key]
+	if !ok {
+		return nil, pgx.ErrNoRows
+	}
+	db.locks[key] = true
+	return taskDagNodeValues(row), nil
+}
+
+func (db *fakeTaskDAGDB) deleteTaskDagWakeupsByDAG(args ...any) (int64, error) {
+	dagKey, err := deleteDAGKeyArg(args)
+	if err != nil {
+		return 0, err
+	}
+	var rows int64
+	for key, row := range db.wakeups {
+		if row.DagKey == dagKey {
+			delete(db.wakeups, key)
+			rows++
+		}
+	}
+	return rows, nil
+}
+
+func (db *fakeTaskDAGDB) deleteTaskDagNodesByDAG(args ...any) (int64, error) {
+	dagKey, err := deleteDAGKeyArg(args)
+	if err != nil {
+		return 0, err
+	}
+	var rows int64
+	for key, row := range db.nodes {
+		if row.DagKey == dagKey {
+			delete(db.nodes, key)
+			rows++
+		}
+	}
+	return rows, nil
+}
+
+func (db *fakeTaskDAGDB) deleteTaskDagRunsByDAG(args ...any) (int64, error) {
+	dagKey, err := deleteDAGKeyArg(args)
+	if err != nil {
+		return 0, err
+	}
+	var rows int64
+	for key, row := range db.runs {
+		if row.DagKey == dagKey {
+			delete(db.runs, key)
+			rows++
+		}
+	}
+	return rows, nil
+}
+
+func (db *fakeTaskDAGDB) deleteTaskDAGRow(args ...any) (int64, error) {
+	dagKey, err := deleteDAGKeyArg(args)
+	if err != nil {
+		return 0, err
+	}
+	if _, ok := db.dags[dagKey]; !ok {
+		return 0, nil
+	}
+	delete(db.dags, dagKey)
+	return 1, nil
+}
+
+func deleteDAGKeyArg(args []any) (string, error) {
+	if len(args) != 1 {
+		return "", fmt.Errorf("delete dag args len = %d, want 1", len(args))
+	}
+	dagKey, ok := args[0].(string)
+	if !ok {
+		return "", fmt.Errorf("dag key arg = %T", args[0])
+	}
+	return dagKey, nil
+}
+
 func (db *fakeTaskDAGDB) assignNode(args ...any) ([]any, error) {
 	if len(args) != 4 {
 		return nil, fmt.Errorf("assign node args len = %d, want 4", len(args))
@@ -47,9 +155,9 @@ func (db *fakeTaskDAGDB) assignNode(args ...any) ([]any, error) {
 	if !ok {
 		return nil, fmt.Errorf("node key arg = %T", args[2])
 	}
-	runID, ok := args[3].(int64)
-	if !ok {
-		return nil, fmt.Errorf("run id arg = %T", args[3])
+	runID, err := fakeInt8Arg(args, 3, "run id")
+	if err != nil {
+		return nil, err
 	}
 	row, ok := db.nodes[dagRunNodeKey(dagKey, nodeKey, runID)]
 	if !ok || (row.Status != "pending" && row.Status != "ready") {
@@ -86,9 +194,9 @@ func (db *fakeTaskDAGDB) cloneTaskDagNodesForRun(args ...any) (int64, error) {
 	if !ok {
 		return 0, fmt.Errorf("dag key arg = %T", args[0])
 	}
-	runID, ok := args[1].(int64)
-	if !ok {
-		return 0, fmt.Errorf("run id arg = %T", args[1])
+	runID, err := fakeInt8Arg(args, 1, "run id")
+	if err != nil {
+		return 0, err
 	}
 	var cloned int64
 	for _, row := range db.nodes {
@@ -126,9 +234,9 @@ func (db *fakeTaskDAGDB) promoteRootNodesToReady(args ...any) (int64, error) {
 	if !ok {
 		return 0, fmt.Errorf("dag key arg = %T", args[0])
 	}
-	runID, ok := args[1].(int64)
-	if !ok {
-		return 0, fmt.Errorf("run id arg = %T", args[1])
+	runID, err := fakeInt8Arg(args, 1, "run id")
+	if err != nil {
+		return 0, err
 	}
 	var promoted int64
 	for key, row := range db.nodes {
@@ -162,9 +270,9 @@ func (db *fakeTaskDAGDB) promoteSingleNodePendingToReady(args ...any) (int64, er
 	if !ok {
 		return 0, fmt.Errorf("node key arg = %T", args[1])
 	}
-	runID, ok := args[2].(int64)
-	if !ok {
-		return 0, fmt.Errorf("run id arg = %T", args[2])
+	runID, err := fakeInt8Arg(args, 2, "run id")
+	if err != nil {
+		return 0, err
 	}
 	key := dagNodeLookupKey(dagKey, nodeKey, runID)
 	row, ok := db.nodes[key]
@@ -193,9 +301,9 @@ func (db *fakeTaskDAGDB) cascadeFailPendingNode(args ...any) (int64, error) {
 	if !ok {
 		return 0, fmt.Errorf("node key arg = %T", args[2])
 	}
-	runID, ok := args[3].(int64)
-	if !ok {
-		return 0, fmt.Errorf("run id arg = %T", args[3])
+	runID, err := fakeInt8Arg(args, 3, "run id")
+	if err != nil {
+		return 0, err
 	}
 	key := dagNodeLookupKey(dagKey, nodeKey, runID)
 	if db.beforeFailNonTerminal != nil {

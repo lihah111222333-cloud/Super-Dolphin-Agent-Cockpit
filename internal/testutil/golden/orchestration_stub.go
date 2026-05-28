@@ -8,6 +8,8 @@ import (
 
 type OrchestrationStub struct {
 	StartDAGFunc              func(context.Context, contract.StartDAGRequest) (contract.StartDAGResponse, error)
+	TerminateDAGFunc          func(context.Context, contract.TerminateDAGRequest) error
+	DeleteDAGFunc             func(context.Context, contract.DeleteDAGRequest) error
 	GetRunFunc                func(context.Context, contract.GetRunRequest) (contract.GetRunResponse, error)
 	ApplyOpsFunc              func(context.Context, contract.ApplyOpsRequest) (contract.ApplyOpsResponse, error)
 	ListRunsFunc              func(context.Context, contract.ListRunsRequest) (contract.ListRunsResponse, error)
@@ -170,6 +172,20 @@ func (s *OrchestrationStub) StartDAG(ctx context.Context, req contract.StartDAGR
 		return s.StartDAGFunc(ctx, req)
 	}
 	return contract.StartDAGResponse{}, nil
+}
+
+func (s *OrchestrationStub) TerminateDAG(ctx context.Context, req contract.TerminateDAGRequest) error {
+	if s.TerminateDAGFunc != nil {
+		return s.TerminateDAGFunc(ctx, req)
+	}
+	return nil
+}
+
+func (s *OrchestrationStub) DeleteDAG(ctx context.Context, req contract.DeleteDAGRequest) error {
+	if s.DeleteDAGFunc != nil {
+		return s.DeleteDAGFunc(ctx, req)
+	}
+	return nil
 }
 
 // ApplyOps 是 T2.1+T2.2 加的接口方法；骨架阶段 stub 返回零值。

@@ -62,6 +62,8 @@ func TestDAGDesignerPromptSeed_ZHCoversCoreSurface(t *testing.T) {
 		"4KB",          // size_cap / sharedfile 决策
 		"scheduled",    // trigger 三态之一 (cron)
 		"cron",         // cron 表达式语境
+		"final_node_key",
+		"final_output",
 	}, "migration 0084 must keep blueprint rule keyword %q")
 
 	// 关键字段五：tags 含中文路由命中词 (router 选这条模板就靠它)。

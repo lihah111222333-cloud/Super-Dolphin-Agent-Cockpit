@@ -163,7 +163,9 @@ func TestResumeNonConflictPersistFailureFailsFast(t *testing.T) {
 // a provider_thread_id is claimed by a dead agent (no active session),
 // the stale binding is evicted and resume succeeds.
 func TestResumeEvictsStaleBindingWhenBlockingAgentIsDead(t *testing.T) {
-	t.Parallel()
+	// This scenario starts from the persisted binding shape; legacy default-home
+	// injection would create a different identity mismatch before stale eviction.
+	t.Setenv(legacyDefaultCodexHomeEnvVar, "")
 
 	const conflictUUID = "11111111-2222-3333-4444-555555555573"
 	rolloutPath := writeExistingProviderHistoryFile(t)

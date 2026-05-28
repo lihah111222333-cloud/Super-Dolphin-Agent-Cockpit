@@ -119,12 +119,12 @@ func (s *MemoryService) GetUserContext(ctx context.Context, userID string) (*Use
 		// 保留原始 Root Cause，添加业务上下文后向上层链路显式阻断
 		return nil, fmt.Errorf("failed to fetch user context for user %s: %w", userID, err)
 	}
-	
+
 	if contextData == nil {
 		// 区分“存储故障”与“业务上不存在此用户”，如果该处空指针属于非预期，同样需要快速失败
 		return nil, fmt.Errorf("user context not found for user %s", userID)
 	}
-	
+
 	return contextData, nil
 }
 ```
@@ -140,7 +140,7 @@ func (e *Engine) RunTools(ctx context.Context, toolNames []string) {
 		tool, err := e.registry.Get(name)
 		if err != nil {
 			// 隐式兜底：找不到这个 tool 就直接忽略跳过，可能导致核心推理链残缺而输出无效回答
-			continue 
+			continue
 		}
 		_ = tool.Execute(ctx) // 吞掉执行错误
 	}

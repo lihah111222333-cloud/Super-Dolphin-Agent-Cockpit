@@ -90,10 +90,6 @@ function createComposerBar(overrides = {}, emit = vi.fn()) {
     threadConfigNotice: overrides.threadConfigNotice ?? '',
     threadConfigNoticeLevel: overrides.threadConfigNoticeLevel ?? 'info',
     threadConfigMeta: overrides.threadConfigMeta ?? { override: {}, effective: {} },
-    threadIsTask: overrides.threadIsTask ?? false,
-    promotingTask: overrides.promotingTask ?? false,
-    threadTaskId: overrides.threadTaskId ?? '',
-    promoteTaskError: overrides.promoteTaskError ?? '',
   };
   const vm = ComposerBar.setup(props, { emit });
   return { props, emit, vm };
@@ -718,81 +714,21 @@ describe('ComposerBar behavior', () => {
     expect(ComposerBar.template).toContain(':ref="setComposerInputRef"');
   });
 
-  // Phase 2.2a · 配置面板加「升级为自动化任务」单向按钮
-  it('declares promote-task in emits + threadIsTask / promotingTask / threadTaskId props', () => {
-    expect(ComposerBar.emits).toContain('promote-task');
-    expect(ComposerBar.props.threadIsTask.default).toBe(false);
-    expect(ComposerBar.props.promotingTask.default).toBe(false);
-    expect(ComposerBar.props.threadTaskId.default).toBe('');
-  });
-
-  it('template renders dropdown already-task row but no longer the duplicate promote button', () => {
-    // Phase 2.4 去重：dropdown 内「升级为自动化任务」按钮跟主条 chip 完全重复，
-    // 已删除；dropdown 只保留「状态查看」（已是任务 / 升级失败）这些不重复的信息。
+  it('does not expose legacy manual task UI or event contract', () => {
+    const removedManualTaskEvent = ['promote', 'task'].join('-');
+    const removedManualTaskErrorProp = ['promote', 'Task', 'Error'].join('');
+    const removedManualTaskHandler = ['on', 'Promote', 'Task'].join('');
+    expect(ComposerBar.emits).not.toContain(removedManualTaskEvent);
+    expect(ComposerBar.props.threadIsTask).toBeUndefined();
+    expect(ComposerBar.props.threadTaskId).toBeUndefined();
+    expect(ComposerBar.props.promotingTask).toBeUndefined();
+    expect(ComposerBar.props[removedManualTaskErrorProp]).toBeUndefined();
     expect(ComposerBar.template).not.toContain('thread-config-promote-btn');
-    expect(ComposerBar.template).toContain('thread-config-promote-already');
-    expect(ComposerBar.template).toContain('v-if="threadIsTask"');
-    // 主条 chip 仍然是 onPromoteTask 唯一调用点
-    expect(ComposerBar.template).toContain('@click="onPromoteTask"');
-  });
-
-  it('onPromoteTask emits when not already a task and not in flight', () => {
-    const emit = vi.fn();
-    const { vm } = createComposerBar({ threadIsTask: false, promotingTask: false }, emit);
-    vm.onPromoteTask();
-    expect(emit).toHaveBeenCalledWith('promote-task');
-  });
-
-  it('onPromoteTask does NOT emit when threadIsTask=true', () => {
-    const emit = vi.fn();
-    const { vm } = createComposerBar({ threadIsTask: true }, emit);
-    vm.onPromoteTask();
-    const calls = emit.mock.calls.filter(([name]) => name === 'promote-task');
-    expect(calls).toHaveLength(0);
-  });
-
-  it('onPromoteTask does NOT emit when promotingTask=true (in-flight)', () => {
-    const emit = vi.fn();
-    const { vm } = createComposerBar({ promotingTask: true }, emit);
-    vm.onPromoteTask();
-    const calls = emit.mock.calls.filter(([name]) => name === 'promote-task');
-    expect(calls).toHaveLength(0);
-  });
-
-  it('declares promoteTaskError prop with empty default', () => {
-    expect(ComposerBar.props.promoteTaskError.default).toBe('');
-  });
-
-  it('template renders promote error row with proper testid', () => {
-    // Phase 2.4 去重后：error span 跟「已是任务」在同一 section 里互斥（v-else-if），
-    // 主要为了 dropdown 空状态时整个 section 隐藏。
-    expect(ComposerBar.template).toContain('thread-config-promote-error');
-    expect(ComposerBar.template).toContain('v-else-if="promoteTaskError"');
-  });
-
-  // ComposerBar 主条独立 chip 入口（解决 Phase 2.2a dropdown 内入口
-  // discoverability 差的问题）：跟时钟图标按钮同级，普通对话直接可见。
-  it('template renders main-bar composer-promote-chip alongside thread-config-btn', () => {
-    expect(ComposerBar.template).toContain('composer-promote-chip');
-    // Phase 2.4 文案从「作为任务运行」（被动陈述）改为「转为自动任务」（主动动作），
-    // 同时 chip 加上蓝色 outlined-primary 视觉跟 token chip / 模型 chip 区开。
-    expect(ComposerBar.template).toContain('转为自动任务');
-    // 必须共用 onPromoteTask，避免双入口逻辑分叉。
-    const chipBlock = ComposerBar.template.split('data-testid="composer-promote-chip"')[1] || '';
-    expect(chipBlock.split('</button>')[0]).toContain('@click="onPromoteTask"');
-  });
-
-  it('main-bar promote chip is gated by !isCmd && threadId && !threadIsTask', () => {
-    // 普通对话（非命令模式 + 有 threadId + 还没升级）才显示；其他三种状态隐藏，
-    // 避免在不该出现的场景把 UI 撑乱（命令模式 / 空 thread / 已是任务）。
-    expect(ComposerBar.template).toContain('v-if="!isCmd && threadId && !threadIsTask"');
-  });
-
-  it('main-bar promote chip disabled bound to promotingTask', () => {
-    // 跟 dropdown 内按钮同样靠 promotingTask 防双击，busy 时按钮 disable + 文案改「升级中…」。
-    const chipBlock = ComposerBar.template.split('data-testid="composer-promote-chip"')[1] || '';
-    const upTo = chipBlock.split('</button>')[0];
-    expect(upTo).toContain(':disabled="promotingTask"');
-    expect(upTo).toContain("promotingTask ? '升级中…'");
+    expect(ComposerBar.template).not.toContain('thread-config-promote-error');
+    expect(ComposerBar.template).not.toContain('composer-promote-chip');
+    expect(ComposerBar.template).not.toContain('转为自动任务');
+    expect(ComposerBar.template).not.toContain('自动化任务');
+    expect(ComposerBar.template).not.toContain('任务接力摘要');
+    expect(ComposerBar.template).not.toContain(removedManualTaskHandler);
   });
 });

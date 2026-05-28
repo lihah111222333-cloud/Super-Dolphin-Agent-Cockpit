@@ -76,6 +76,80 @@ func TestService_LaunchAgentSnapshotFailsWhenInitialPromptSubmitFails(t *testing
 	}
 }
 
+func TestService_LaunchAgentSnapshotRunsBeforeInitialPromptHook(t *testing.T) {
+	events := make([]string, 0, 3)
+	svc := NewService(silentLogger(), event.NewDispatcher(), remoteLocalLauncher(t, handler.Map{
+		"thread/start": handler.New(func(_ context.Context, _ map[string]any) (map[string]any, error) {
+			events = append(events, "thread/start")
+			return map[string]any{"thread": map[string]any{"id": "thread-1"}, "agentId": "remote-1"}, nil
+		}),
+		"turn/start": handler.New(func(_ context.Context, req map[string]any) (map[string]any, error) {
+			events = append(events, "turn/start:"+req["thread_id"].(string))
+			return map[string]any{"turn_id": "turn-initial"}, nil
+		}),
+	}), nil, nil, nil)
+
+	_, err := svc.launchAgentSnapshot(context.Background(), LaunchRequest{
+		AgentID: "agent-1",
+		Name:    "worker-agent",
+		Prompt:  "please inspect the launch path",
+		Cwd:     t.TempDir(),
+		Command: []string{"ignored"},
+	}, func(_ string, result LaunchResult) error {
+		events = append(events, "record:"+strings.TrimSpace(result.ThreadID))
+		return nil
+	})
+
+	if err != nil {
+		t.Fatalf("launchAgentSnapshot() error = %v", err)
+	}
+	want := []string{"thread/start", "record:thread-1", "turn/start:thread-1"}
+	if strings.Join(events, "|") != strings.Join(want, "|") {
+		t.Fatalf("events = %#v, want %#v", events, want)
+	}
+}
+
+func TestService_LaunchAgentSnapshotStopsWhenBeforeInitialPromptHookFails(t *testing.T) {
+	stopCalls := 0
+	turnCalls := 0
+	svc := NewService(silentLogger(), event.NewDispatcher(), remoteLocalLauncher(t, handler.Map{
+		"thread/start": handler.New(func(_ context.Context, _ map[string]any) (map[string]any, error) {
+			return map[string]any{"thread": map[string]any{"id": "thread-1"}, "agentId": "remote-1"}, nil
+		}),
+		"turn/start": handler.New(func(_ context.Context, _ map[string]any) (map[string]any, error) {
+			turnCalls++
+			return map[string]any{"turn_id": "turn-initial"}, nil
+		}),
+		"thread/stop": handler.New(func(_ context.Context, _ map[string]any) (map[string]any, error) {
+			stopCalls++
+			return map[string]any{}, nil
+		}),
+	}), nil, nil, nil)
+
+	_, err := svc.launchAgentSnapshot(context.Background(), LaunchRequest{
+		AgentID: "agent-1",
+		Name:    "worker-agent",
+		Prompt:  "please inspect the launch path",
+		Cwd:     t.TempDir(),
+		Command: []string{"ignored"},
+	}, func(_ string, result LaunchResult) error {
+		if result.ThreadID != "thread-1" {
+			t.Fatalf("before prompt hook thread = %q, want thread-1", result.ThreadID)
+		}
+		return errors.New("spawn record failed")
+	})
+
+	if err == nil || !strings.Contains(err.Error(), "spawn record failed") {
+		t.Fatalf("launchAgentSnapshot() error = %v, want spawn record failure", err)
+	}
+	if turnCalls != 0 {
+		t.Fatalf("turn/start calls = %d, want 0 when before-prompt hook fails", turnCalls)
+	}
+	if stopCalls != 1 {
+		t.Fatalf("thread/stop calls = %d, want 1 after before-prompt hook failure", stopCalls)
+	}
+}
+
 func TestService_LaunchAgentSnapshotStopsAfterCanceledInitialPrompt(t *testing.T) {
 	stopCalls := 0
 	ctx, cancel := context.WithCancel(context.Background())

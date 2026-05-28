@@ -91,6 +91,10 @@ func (s *dagSubscriberThreadSpy) GetByThreadID(_ context.Context, _ string) (*Pe
 	return s.thread, s.err
 }
 
+func (s *dagSubscriberThreadSpy) UpdateStatus(context.Context, PersistedThreadStatusUpdate) error {
+	return nil
+}
+
 type dagSubscriberStopSpy struct {
 	stopErr error
 	stopped []string
@@ -212,6 +216,98 @@ func TestDAGSubscriber_HappyPath_Done(t *testing.T) {
 	d := metricDelta(before, DAGSubscriberCounters())
 	if d.CompleteDone != 1 {
 		t.Fatalf("CompleteDone delta = %d, want 1", d.CompleteDone)
+	}
+}
+
+func TestDAGSubscriber_AgentResultFallsBackToSummary(t *testing.T) {
+	lookup := &dagSubscriberLookupSpy{nodes: []taskdag.Node{{
+		DagKey:   "dag-1",
+		NodeKey:  "final",
+		NodeType: "agent",
+		Status:   "running",
+		Config: testRawConfig(t, `{
+			"exec":{"agent_key":"alpha","cwd":"/tmp/node-cwd"},
+			"outputs":{"to_node_result":true}
+		}`),
+	}}}
+	flow := &dagSubscriberFlowSpy{}
+	threads := &dagSubscriberThreadSpy{thread: &PersistedThread{ThreadID: "thr-summary", AgentID: "agent-summary"}}
+	stop := &dagSubscriberStopSpy{}
+	deps := setupDAGSubscriberDeps(lookup, flow, threads, stop)
+
+	ev := newTurnCompletedEvent("thr-summary", true, "")
+	ev.Summary = "DAG_E2E_OK_20260524"
+	handleDAGTurnCompleted(context.Background(), deps, discardLogger(), ev)
+
+	if len(flow.completeCalls) != 1 {
+		t.Fatalf("completeCalls = %d, want 1", len(flow.completeCalls))
+	}
+	if got, want := string(flow.completeCalls[0].Result), `{"text":"DAG_E2E_OK_20260524"}`; got != want {
+		t.Fatalf("complete result = %s, want %s", got, want)
+	}
+	if len(flow.failCalls) != 0 {
+		t.Fatalf("failCalls = %d, want 0", len(flow.failCalls))
+	}
+}
+
+func TestDAGSubscriber_AgentSuccessWithEmptyOutputFailsNode(t *testing.T) {
+	lookup := &dagSubscriberLookupSpy{nodes: []taskdag.Node{{
+		DagKey:   "dag-1",
+		NodeKey:  "final",
+		NodeType: "agent",
+		Status:   "running",
+		Config: testRawConfig(t, `{
+			"exec":{"agent_key":"alpha","cwd":"/tmp/node-cwd"},
+			"outputs":{"to_node_result":true}
+		}`),
+	}}}
+	flow := &dagSubscriberFlowSpy{}
+	threads := &dagSubscriberThreadSpy{thread: &PersistedThread{ThreadID: "thr-empty-agent", AgentID: "agent-empty"}}
+	stop := &dagSubscriberStopSpy{}
+	deps := setupDAGSubscriberDeps(lookup, flow, threads, stop)
+
+	handleDAGTurnCompleted(context.Background(), deps, discardLogger(), newTurnCompletedEvent("thr-empty-agent", true, ""))
+
+	if len(flow.completeCalls) != 0 {
+		t.Fatalf("completeCalls = %d, want 0 for empty agent output", len(flow.completeCalls))
+	}
+	if len(flow.failCalls) != 1 {
+		t.Fatalf("failCalls = %d, want 1", len(flow.failCalls))
+	}
+	if got := flow.failCalls[0].Reason; !strings.Contains(got, "empty agent output") {
+		t.Fatalf("failure reason = %q, want empty agent output", got)
+	}
+	if !flow.failCalls[0].FailFast {
+		t.Fatal("FailFast = false, want true so pending downstream is canceled")
+	}
+}
+
+func TestDAGSubscriber_NonAgentSuccessKeepsLegacyEmptyResult(t *testing.T) {
+	before := DAGSubscriberCounters()
+	lookup := &dagSubscriberLookupSpy{nodes: []taskdag.Node{{
+		DagKey:   "dag-1",
+		NodeKey:  "n1",
+		NodeType: "automation",
+		Status:   "running",
+	}}}
+	flow := &dagSubscriberFlowSpy{}
+	threads := &dagSubscriberThreadSpy{thread: &PersistedThread{ThreadID: "thr-non-agent", AgentID: "agent-non-agent"}}
+	stop := &dagSubscriberStopSpy{}
+	deps := setupDAGSubscriberDeps(lookup, flow, threads, stop)
+
+	ev := newTurnCompletedEvent("thr-non-agent", true, "")
+	ev.Summary = "summary must not become non-agent result"
+	handleDAGTurnCompleted(context.Background(), deps, discardLogger(), ev)
+
+	if len(flow.completeCalls) != 1 {
+		t.Fatalf("completeCalls = %d, want 1", len(flow.completeCalls))
+	}
+	if got, want := string(flow.completeCalls[0].Result), `{}`; got != want {
+		t.Fatalf("complete result = %s, want %s", got, want)
+	}
+	d := metricDelta(before, DAGSubscriberCounters())
+	if d.CompleteResultEmpty != 1 {
+		t.Fatalf("CompleteResultEmpty delta = %d, want 1", d.CompleteResultEmpty)
 	}
 }
 
@@ -373,9 +469,9 @@ func TestDAGSubscriber_RaceC_NodeAlreadyFailed_IdempotentSkip(t *testing.T) {
 	}
 }
 
-// 5. lookup empty �?反查无节点：metric LookupNoNode +1，仍�?stop_helper
-// （ev.ThreadID 可能存在但未来得及落 spawning_thread_id）�?
-func TestDAGSubscriber_LookupEmpty_NoNode(t *testing.T) {
+// 5. lookup empty: metric LookupNoNode +1 and do not stop the thread.
+// A TurnCompleted event from a normal chat thread is not a DAG-spawned agent.
+func TestDAGSubscriber_LookupEmpty_NoNodeDoesNotStopThread(t *testing.T) {
 	before := DAGSubscriberCounters()
 	lookup := &dagSubscriberLookupSpy{nodes: nil}
 	flow := &dagSubscriberFlowSpy{}
@@ -388,8 +484,8 @@ func TestDAGSubscriber_LookupEmpty_NoNode(t *testing.T) {
 	if len(flow.completeCalls) != 0 {
 		t.Fatalf("completeCalls = %d, want 0 (no node to advance)", len(flow.completeCalls))
 	}
-	if len(stop.stopped) != 1 {
-		t.Fatalf("stopped = %d, want 1 (stop_helper still called)", len(stop.stopped))
+	if len(stop.stopped) != 0 {
+		t.Fatalf("stopped = %d, want 0 (no DAG node owns this thread)", len(stop.stopped))
 	}
 	d := metricDelta(before, DAGSubscriberCounters())
 	if d.LookupNoNode != 1 {

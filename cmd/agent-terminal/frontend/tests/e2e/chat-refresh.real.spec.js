@@ -36,7 +36,7 @@ test.describe('real environment chat refresh regressions', () => {
             const tracker = captureRPCRequests(page);
             try {
                 await page.getByTestId('nav-dags').click();
-                await expect(page.getByTestId('data-page-dags')).toBeVisible();
+                await expect(page.getByTestId('dag-console')).toBeVisible();
 
                 const startedAt = Date.now();
                 await page.getByTestId('nav-chat').click();

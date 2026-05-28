@@ -10,6 +10,7 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	agentdto "github.com/anthropic-ai/super-agent-v3/internal/dto/agent"
 	shareddto "github.com/anthropic-ai/super-agent-v3/internal/dto/shared"
+	"github.com/kelindar/event"
 )
 
 func TestIsRateLimited(t *testing.T) {
@@ -121,10 +122,6 @@ func TestClassifyLaunchError(t *testing.T) {
 		// permanent · launch contract
 		{"missing launch cwd -> permanent", contract.ErrLaunchCWDRequired, launchClassPermanent},
 		{"invalid launch cwd -> permanent", contract.ErrLaunchCWDInvalid, launchClassPermanent},
-		{"root task missing -> permanent", errors.New(`root task id missing on thread "agent-parent"`), launchClassPermanent},
-		{"task handoff title -> permanent", errors.New(`task handoff title is required for task "task-demo"`), launchClassPermanent},
-		{"task handoff file -> permanent", errors.New(`task handoff file is required for task "task-demo"`), launchClassPermanent},
-		{"task handoff config -> permanent", errors.New(`task handoff config "taskId" must be a string`), launchClassPermanent},
 		// permanent 优先级高于 transient（同时含两类关键字时归 permanent）
 		{"401 + timeout -> permanent", errors.New("401 unauthorized after i/o timeout"), launchClassPermanent},
 		// unknown · 不在任何已知关键字列表里
@@ -250,9 +247,17 @@ func TestRemoteLauncherDeclaresStopSettled(t *testing.T) {
 	}
 }
 
-func TestStopAgentViaLauncherLeavesNonSettledLauncherStoppingWithoutExitSignal(t *testing.T) {
+func TestStopAgentViaLauncherSettlesNonSettledLauncherAfterStopReturns(t *testing.T) {
+	dispatcher := event.NewDispatcher()
+	t.Cleanup(func() { _ = dispatcher.Close() })
+	stopped := make(chan agentdto.AgentStopped, 1)
+	cancel := event.Subscribe(dispatcher, func(ev agentdto.AgentStopped) {
+		stopped <- ev
+	})
+	defer cancel()
+
 	launcher := &recordingStallLauncher{}
-	svc := NewService(silentLogger(), nil, launcher, nil, nil, nil)
+	svc := NewService(silentLogger(), dispatcher, launcher, nil, nil, nil)
 	agent := svc.newAgentLocked("agent-remote")
 	agent.state = agentdto.StateIdle
 	agent.threadID = "thread-remote"
@@ -267,9 +272,10 @@ func TestStopAgentViaLauncherLeavesNonSettledLauncherStoppingWithoutExitSignal(t
 	if err != nil {
 		t.Fatalf("GetReport() error = %v", err)
 	}
-	if report.State != string(agentdto.StateStopping) {
-		t.Fatalf("GetReport().State = %q, want %q until launcher provides an exit signal", report.State, agentdto.StateStopping)
+	if report.State != string(agentdto.StateStopped) {
+		t.Fatalf("GetReport().State = %q, want %q", report.State, agentdto.StateStopped)
 	}
+	requireStopTestEvent(t, stopped, "test_stop", "agent-remote")
 }
 
 type recordingSettledStopLauncher struct {

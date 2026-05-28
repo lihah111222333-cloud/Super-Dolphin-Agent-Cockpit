@@ -1,10 +1,13 @@
 package taskdag
 
-import "go.uber.org/fx"
+import (
+	"github.com/jackc/pgx/v5/pgxpool"
+	"go.uber.org/fx"
+)
 
 var Module = fx.Module("store.taskdag",
 	fx.Provide(
-		NewStore,
+		NewStoreFromPool,
 		ProvideOrchestrationStore,
 		// ProvideRunStore 把同一 *store 实例并行登记为 RunStore binding，
 		// 修复 RunStore wiring bug：消费方 (orchestration.serviceParams) 可命中此 provider。
@@ -14,6 +17,7 @@ var Module = fx.Module("store.taskdag",
 		// could not resolve the RunStore dependency. The type assertion is statically
 		// guarded by store_compile_assertions_test.go's var _ RunStore = (*store)(nil).
 		ProvideRunStore,
+		ProvideScheduledStartStore,
 		// ProvideDispatchNodeStore 报同一 *store 作为 DispatchNodeStore (task_dispatch_node)。
 		// 编译期同样由 store_compile_assertions_test.go 守住。
 		ProvideDispatchNodeStore,
@@ -29,13 +33,19 @@ var Module = fx.Module("store.taskdag",
 	),
 )
 
+func NewStoreFromPool(pool *pgxpool.Pool) Store {
+	return NewStore(pool)
+}
+
 // ProvideNodeSpawnRecorderStore 从聚合 Store type-assert 出 F1.5 / ADR-009
 // nodeexec.AgentExecutor 写回 spawning_thread_id 所需的窄端口 NodeSpawnRecorderStore。
 //
 // ProvideNodeSpawnRecorderStore narrows the aggregate Store to NodeSpawnRecorderStore
-// (F1.5 / ADR-009, consumed by orchestration.NewStoreNodeSpawnRecorder). Safety is
+// (F1.5 / ADR-009, consumed by fxadapter.NewStoreNodeSpawnRecorder). Safety is
 // statically guarded by store_compile_assertions_test.go.
-func ProvideNodeSpawnRecorderStore(store Store) NodeSpawnRecorderStore { return store.(NodeSpawnRecorderStore) }
+func ProvideNodeSpawnRecorderStore(store Store) NodeSpawnRecorderStore {
+	return store.(NodeSpawnRecorderStore)
+}
 
 // ProvideNodeSpawningThreadLookup narrows the aggregate Store to
 // NodeSpawningThreadLookup (consumed by the DAG turn.completed subscriber /
@@ -54,6 +64,10 @@ func ProvideOrchestrationStore(store Store) OrchestrationStore { return store }
 // assertion. Safety is statically guaranteed by store_compile_assertions_test.go
 // (var _ RunStore = (*store)(nil)); the assertion will not panic at runtime.
 func ProvideRunStore(store Store) RunStore { return store.(RunStore) }
+
+func ProvideScheduledStartStore(store Store) ScheduledStartStore {
+	return store.(ScheduledStartStore)
+}
 
 // ProvideDispatchNodeStore 从聚合 Store 中 type-assert 出 task_dispatch_node
 // MCP 工具需要的窄接口 DispatchNodeStore。断言安全性同样由

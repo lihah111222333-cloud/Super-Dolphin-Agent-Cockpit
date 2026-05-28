@@ -21,17 +21,17 @@ import (
 //
 // F1.5 新增：launch 成功 + 拿到 child thread_id 后，调注入的
 // NodeSpawnRecorder 把 thread_id 写回 task_dag_nodes.spawning_thread_id
-// （重试时旧值进 task_dag_runs.events 形成历史链）。recorder 为 nil 时降级
-// 为「仅 launch、不写回」的 F1.1 行为，便于既有测试与早期 wiring 渐进迁移。
+// （重试时旧值进 task_dag_runs.events 形成历史链）。生产 provider 要求 recorder
+// 非 nil；直接构造器保留 nil 只用于旧单测和纯 launch 语义。
 //
 // AgentExecutor wires the agent execution pathway: decode node.config.exec
 // into a typed AgentExecConfig, ask an AgentLauncher to start a sub-agent,
 // translate launch errors into classified NodeOutcomes so the smart-retry
 // dispatcher (F1.4) can dispatch by_class strategies, and — new in F1.5 —
 // once a child thread_id is returned, hand it to a NodeSpawnRecorder so
-// task_dag_nodes.spawning_thread_id is written back (ADR-009). Passing a nil
-// recorder downgrades to the F1.1 behaviour (launch-only, no write-back) so
-// pre-F1.5 tests and wiring keep compiling without changes elsewhere.
+// task_dag_nodes.spawning_thread_id is written back (ADR-009). Production
+// providers fail fast when the recorder is absent; the direct constructor only
+// permits nil for legacy unit tests and launch-only semantics.
 //
 // 与 wakeup_dispatcher 的边界：本 task 落地 NodeExecutor 抽象，dispatcher 当前
 // 仍可直接调 service.LaunchAgent（向后兼容）。F2/F3 才统一切到 NodeExecutor，
@@ -63,6 +63,16 @@ type AgentExecutor struct {
 // carries ThreadID.
 type AgentLauncher interface {
 	LaunchAgent(ctx context.Context, req contract.LaunchRequest) (threadID string, err error)
+}
+
+var ErrSpawnWritebackFailed = errors.New("agent spawn write-back failed")
+
+type AgentLauncherWithSpawnRecord interface {
+	LaunchAgentWithSpawnRecord(ctx context.Context, req contract.LaunchRequest, record func(threadID string) error) (threadID string, err error)
+}
+
+type LaunchedThreadStopper interface {
+	StopLaunchedThread(ctx context.Context, threadID string) error
 }
 
 // NodeSpawnRecorder 是 F1.5 / ADR-009 引入的 thread_id 写回端口。
@@ -101,12 +111,10 @@ type NodeSpawnRecorder interface {
 type Option func(*AgentExecutor)
 
 // WithRecorder 注入 NodeSpawnRecorder（F1.5 / ADR-009 spawning_thread_id 写回端口）。
-// 不传该 option → recorder 为 nil → Execute 跳过 F1.5 写回（仅 launch），保留 F1.1 旧行为；
-// 这种「静默降级」是有意的渐进 wiring，与 inputs 端口（nil 即视为未履行）的 fail-loud 不同。
+// 生产 wiring 必须注入 recorder；不传该 option 时仅直接构造器保留 launch-only 旧单测语义。
 //
-// WithRecorder injects the F1.5 NodeSpawnRecorder. Omitting it leaves recorder
-// nil, which preserves the F1.1 launch-only behaviour by design — write-back
-// is auxiliary, not part of agent semantics.
+// WithRecorder injects the F1.5 NodeSpawnRecorder. Production wiring must pass
+// it; omitting it is reserved for direct legacy tests and launch-only callers.
 func WithRecorder(recorder NodeSpawnRecorder) Option {
 	return func(e *AgentExecutor) { e.recorder = recorder }
 }
@@ -207,26 +215,47 @@ func (e *AgentExecutor) Execute(ctx context.Context, node Node, runCtx RunContex
 	// 5. 构造 LaunchRequest 并调 launcher；F1.2 inputsPrefix 拼在 first_turn 之前。
 	req := buildLaunchRequestFromAgentConfig(cfg, node, runCtx)
 	req.Prompt = composePrompt(inputsPrefix, cfg.FirstTurn)
-	threadID, launchErr := e.launcher.LaunchAgent(ctx, req)
+	threadID, launchErr := e.launchAgent(ctx, req, node, runCtx)
+	return e.agentLaunchOutcome(ctx, node, runCtx, threadID, launchErr), nil
+}
+
+func (e *AgentExecutor) agentLaunchOutcome(
+	ctx context.Context,
+	node Node,
+	runCtx RunContext,
+	threadID string,
+	launchErr error,
+) NodeOutcome {
 	if launchErr == nil {
-		// F1.5 写回逻辑外刷到 spawnWriteback，避免 Execute 本体圈复杂度 CC 超阈。
-		return finalizeAgentLaunchOutcome(e.spawnWriteback(ctx, node, runCtx, threadID)), nil
+		return e.successfulAgentLaunchOutcome(ctx, node, runCtx, threadID)
 	}
-
+	if errors.Is(launchErr, ErrSpawnWritebackFailed) {
+		return NodeOutcome{
+			Status:       NodeStatusFailed,
+			FailureClass: FailureClassHard,
+			ErrorSummary: truncateErrSummary(launchErr.Error()),
+		}
+	}
 	if failure := agentLaunchCWDValidationFailure(launchErr); failure != nil {
-		return *failure, nil
+		return *failure
 	}
+	return classifiedAgentLaunchFailure(launchErr)
+}
 
-	// 7. 失败 → 分类。F1.4 智能重试 dispatcher 据此查 cfg.Exec.OnFailure.ByClass。
+func (e *AgentExecutor) successfulAgentLaunchOutcome(ctx context.Context, node Node, runCtx RunContext, threadID string) NodeOutcome {
+	if e.usesPrePromptSpawnRecord() {
+		return finalizeAgentLaunchOutcome("")
+	}
+	return finalizeAgentLaunchOutcome(e.spawnWriteback(ctx, node, runCtx, threadID))
+}
+
+func classifiedAgentLaunchFailure(launchErr error) NodeOutcome {
 	class := classifyAgentLaunchError(launchErr)
 	return NodeOutcome{
 		Status:       NodeStatusFailed,
 		FailureClass: class,
 		ErrorSummary: truncateErrSummary(fmt.Sprintf("launch agent: %v", launchErr)),
-		// F1.4 留位：RetryHint 可在分类基础上给 SuggestedDelay / SuggestedModel；
-		// 本 task 仅枚举 FailureClass，不给 hint。
-		// F1.4 placeholder: future smart-retry can populate RetryHint here.
-	}, nil
+	}
 }
 
 // Hooks 返回 lifecycle hooks。未配置时返回 nil，保持骨架阶段兼容。
@@ -304,6 +333,33 @@ func finalizeAgentLaunchOutcome(errorSummary string) NodeOutcome {
 	return NodeOutcome{Status: NodeStatusFailed, FailureClass: FailureClassHard, ErrorSummary: errorSummary}
 }
 
+func (e *AgentExecutor) launchAgent(
+	ctx context.Context,
+	req contract.LaunchRequest,
+	node Node,
+	runCtx RunContext,
+) (string, error) {
+	if e.usesPrePromptSpawnRecord() {
+		launcher := e.launcher.(AgentLauncherWithSpawnRecord)
+		return launcher.LaunchAgentWithSpawnRecord(ctx, req, func(threadID string) error {
+			summary, _ := e.recordSpawn(ctx, node, runCtx, threadID)
+			if summary == "" {
+				return nil
+			}
+			return fmt.Errorf("%w: %s", ErrSpawnWritebackFailed, summary)
+		})
+	}
+	return e.launcher.LaunchAgent(ctx, req)
+}
+
+func (e *AgentExecutor) usesPrePromptSpawnRecord() bool {
+	if e == nil || e.recorder == nil {
+		return false
+	}
+	_, ok := e.launcher.(AgentLauncherWithSpawnRecord)
+	return ok
+}
+
 // spawnWriteback 是 F1.5 写回路径的独立 helper：launch 成功 → 调 recorder 记录
 // spawning_thread_id。返回值是 NodeOutcome.ErrorSummary 的候选填值：
 //   - 空串：recorder 跳过或写入成功，调用方保持原 outcome；
@@ -311,27 +367,46 @@ func finalizeAgentLaunchOutcome(errorSummary string) NodeOutcome {
 //
 // 拆出独立函数主要为了把 Execute 的 CC 压住代码守卫上限（§10）。
 //
-// spawnWriteback is the F1.5 writeback helper. It returns the value to assign
-// to NodeOutcome.ErrorSummary: empty when the recorder was either skipped or
-// successful, non-empty when the recorder failed (callers preserve the
-// successful launch status and only annotate ErrorSummary). Pulled out so
-// Execute stays under the cyclomatic-complexity guard (10).
+// spawnWriteback is the F1.5 writeback helper. It returns an error summary:
+// empty when the recorder was either skipped or successful, non-empty when the
+// recorder failed or required writeback data is missing. Callers downgrade
+// launch success to a hard failure for non-empty summaries.
 func (e *AgentExecutor) spawnWriteback(ctx context.Context, node Node, runCtx RunContext, threadID string) string {
+	summary, cause := e.recordSpawn(ctx, node, runCtx, threadID)
+	if cause != nil {
+		return e.stopLaunchedThreadAfterWritebackFailure(ctx, strings.TrimSpace(threadID), cause)
+	}
+	return summary
+}
+
+func (e *AgentExecutor) recordSpawn(ctx context.Context, node Node, runCtx RunContext, threadID string) (string, error) {
 	if e.recorder == nil {
-		return ""
+		return "", nil
 	}
 	threadID = strings.TrimSpace(threadID)
 	if threadID == "" {
-		return "spawning_thread_id write-back skipped: launcher returned empty thread_id"
+		return "spawning_thread_id write-back skipped: launcher returned empty thread_id", nil
 	}
 	dagKey, nodeKey := resolveSpawnKeys(node, runCtx)
 	if dagKey == "" || nodeKey == "" {
-		return "spawning_thread_id write-back skipped: missing dag_key or node_key"
+		return "spawning_thread_id write-back skipped: missing dag_key or node_key", nil
 	}
 	if err := e.recorder.RecordNodeSpawn(ctx, dagKey, nodeKey, runCtx.RunID, threadID); err != nil {
-		return truncateErrSummary(fmt.Sprintf("spawning_thread_id write-back failed: %v", err))
+		return fmt.Sprintf("spawning_thread_id write-back failed: %v", err), err
 	}
-	return ""
+	return "", nil
+}
+
+func (e *AgentExecutor) stopLaunchedThreadAfterWritebackFailure(ctx context.Context, threadID string, cause error) string {
+	summary := fmt.Sprintf("spawning_thread_id write-back failed: %v", cause)
+	stopper, ok := e.launcher.(LaunchedThreadStopper)
+	if !ok {
+		return truncateErrSummary(summary)
+	}
+	if err := stopper.StopLaunchedThread(ctx, threadID); err != nil {
+		return truncateErrSummary(summary + "; stop launched thread failed: " + err.Error())
+	}
+	return truncateErrSummary(summary + "; launched thread stopped")
 }
 
 // resolveSpawnKeys 从 RunContext / node 中提取 dagKey + nodeKey，优先 RunContext
@@ -514,7 +589,6 @@ func launchValidationKeywords() []string {
 		"selected model", "may not exist or you may not have access",
 		"not have access to it", "pick a different model",
 		"model unavailable", "model_not_found", "model not found",
-		"root task id missing", "task handoff title is required", "task handoff file is required", "task handoff config",
 	}
 }
 

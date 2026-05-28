@@ -54,7 +54,10 @@ WHERE id IN (
     LIMIT $3
     FOR UPDATE SKIP LOCKED
 )
-RETURNING id, dag_key, node_key, run_id, wakeup_kind, target_agent_id, prompt_payload, idempotency_key, status, attempt_count, next_retry_at, claimed_at, claimed_by, lease_expires_at, sent_at, bound_turn_id, turn_bound_at, last_error, created_at, updated_at
+RETURNING id, dag_key, node_key, wakeup_kind, target_agent_id, prompt_payload,
+          idempotency_key, status, attempt_count, next_retry_at, claimed_at,
+          claimed_by, lease_expires_at, sent_at, bound_turn_id, turn_bound_at,
+          last_error, created_at, updated_at, run_id
 `
 
 type ClaimDueTaskDagWakeupsParams struct {
@@ -76,7 +79,6 @@ func (q *Queries) ClaimDueTaskDagWakeups(ctx context.Context, arg ClaimDueTaskDa
 			&i.ID,
 			&i.DagKey,
 			&i.NodeKey,
-			&i.RunID,
 			&i.WakeupKind,
 			&i.TargetAgentID,
 			&i.PromptPayload,
@@ -93,6 +95,7 @@ func (q *Queries) ClaimDueTaskDagWakeups(ctx context.Context, arg ClaimDueTaskDa
 			&i.LastError,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.RunID,
 		); err != nil {
 			return nil, err
 		}
@@ -113,10 +116,10 @@ ON CONFLICT (idempotency_key) DO NOTHING
 type EnqueueTaskDagWakeupParams struct {
 	DagKey         string `json:"dag_key"`
 	NodeKey        string `json:"node_key"`
-	RunID          int64  `json:"run_id"`
+	Column3        int64  `json:"column_3"`
 	WakeupKind     string `json:"wakeup_kind"`
 	TargetAgentID  string `json:"target_agent_id"`
-	Column5        []byte `json:"column_5"`
+	Column6        []byte `json:"column_6"`
 	IdempotencyKey string `json:"idempotency_key"`
 }
 
@@ -124,10 +127,10 @@ func (q *Queries) EnqueueTaskDagWakeup(ctx context.Context, arg EnqueueTaskDagWa
 	result, err := q.db.Exec(ctx, enqueueTaskDagWakeup,
 		arg.DagKey,
 		arg.NodeKey,
-		arg.RunID,
+		arg.Column3,
 		arg.WakeupKind,
 		arg.TargetAgentID,
-		arg.Column5,
+		arg.Column6,
 		arg.IdempotencyKey,
 	)
 	if err != nil {

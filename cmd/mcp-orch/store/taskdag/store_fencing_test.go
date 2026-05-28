@@ -158,7 +158,7 @@ func TestWakeupTransitionSQLUsesFullClaimFence(t *testing.T) {
 		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			db := &captureExecTaskDAGDB{}
-			store := NewStore(sqlc.New(db))
+			store := NewStore(db)
 
 			count, err := tt.run(store)
 			if err != nil {
@@ -364,7 +364,7 @@ func newTaskDAGTestStore() (Store, *fakeTaskDAGDB, time.Time) {
 	now := time.Date(2026, 3, 25, 12, 0, 0, 0, time.UTC)
 	db := newFakeTaskDAGDB(now)
 	seedRun(db, "dag-1", "run-1")
-	return NewStore(sqlc.New(db)), db, now
+	return NewStore(db), db, now
 }
 
 func newPendingWakeup(now time.Time, id int64) sqlc.TaskDagWakeup {
