@@ -94,6 +94,7 @@ Each node's `config` is JSON, with three schemas by `node_type`:
     "provider": "claude",
     "model": "opus",
     "agent_key": "code-debug",
+    "cwd": "/absolute/path/to/project",
     "effort": "medium",
     "language": "en",
     "isolation": "shared",
@@ -109,6 +110,7 @@ Each node's `config` is JSON, with three schemas by `node_type`:
 
 Key points:
 - `agent_key` must come from prompt_list results.
+- `cwd` is required and must be the absolute path of the project to run in; if the user did not provide it and the current project path is not available from context, ask instead of omitting it or using a relative path.
 - `model` must come from list_models results.
 - `to_node_result: true` is only suitable for summaries under 4KB; large output must go through `to_sharedfile`.
 - `on_failure.by_class` dispatches by FailureClass: `capability / validation / infrastructure / timeout / cancelled / unknown / not_implemented`. Intelligent retry policy belongs here.
@@ -138,7 +140,7 @@ Key points:
 {
   "exec": {
     "automation": { "kind": "command_card", "command_ref": "run_tests", "args": {} },
-    "verifier":   { "provider": "claude", "model": "sonnet", "agent_key": "code-review" }
+    "verifier":   { "provider": "claude", "model": "sonnet", "agent_key": "code-review", "cwd": "/absolute/path/to/project" }
   },
   "inputs": {...}, "outputs": {...}
 }

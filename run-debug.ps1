@@ -132,6 +132,28 @@ function Stop-ByProcessName {
     }
 }
 
+function Stop-BuildBinaryProcesses {
+    param(
+        [Parameter(Mandatory)][string]$BuildDir,
+        [Parameter(Mandatory)][string[]]$Names
+    )
+    $targets = @{}
+    foreach ($name in $Names) {
+        $leaf = if ([IO.Path]::GetExtension($name)) { $name } else { "$name.exe" }
+        $targets[(Join-Path $BuildDir $leaf).ToLowerInvariant()] = $true
+    }
+    foreach ($name in $Names) {
+        $leaf = if ([IO.Path]::GetExtension($name)) { $name } else { "$name.exe" }
+        Get-CimInstance Win32_Process -Filter "Name='$leaf'" -ErrorAction SilentlyContinue |
+            Where-Object {
+                $_.ExecutablePath -and $targets.ContainsKey($_.ExecutablePath.ToLowerInvariant())
+            } |
+            ForEach-Object {
+                Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue
+            }
+    }
+}
+
 function Stop-ByPort {
     param([int[]]$Ports)
     foreach ($port in $Ports) {
@@ -241,6 +263,22 @@ function Import-DotEnvFile {
     if ($loaded -gt 0) {
         Write-Host "  -> 已从 .env 加载 $loaded 项本地配置"
     }
+}
+
+function Ensure-DevControlSessionToken {
+    $canonical = if ($null -ne $env:GO_AGENT_CTL_SESSION_TOKEN) { $env:GO_AGENT_CTL_SESSION_TOKEN.Trim() } else { '' }
+    if ($canonical) { return }
+
+    $legacy = if ($null -ne $env:GO_AGENT_MCP_SESSION_TOKEN) { $env:GO_AGENT_MCP_SESSION_TOKEN.Trim() } else { '' }
+    if ($legacy) {
+        $env:GO_AGENT_CTL_SESSION_TOKEN = $legacy
+        Write-Host '  -> GO_AGENT_MCP_SESSION_TOKEN 已兼容提升为 GO_AGENT_CTL_SESSION_TOKEN'
+        return
+    }
+
+    $env:GO_AGENT_CTL_SESSION_TOKEN = 'dev-local-{0}-{1}-{2}' -f `
+        ([DateTimeOffset]::UtcNow.ToUnixTimeSeconds()), $PID, ([Guid]::NewGuid().ToString('N'))
+    Write-Host '  -> GO_AGENT_CTL_SESSION_TOKEN 已为本地调试生成'
 }
 
 function Get-EffectiveDatabaseUrl {
@@ -573,6 +611,7 @@ function Open-BrowserDelayed {
 # 菜单
 # ============================================================
 Import-DotEnvFile -Path (Join-Path $ProjectDir '.env')
+Ensure-DevControlSessionToken
 
 Write-Host '+----------------------------------+'
 Write-Host '|    agent-terminal 编译工具       |'
@@ -706,6 +745,7 @@ try {
         }
         Write-Host '[1/3] 停止旧进程...'
         Stop-ByProcessName -Names @('super-agent-debug', 'esbuild')
+        Stop-BuildBinaryProcesses -BuildDir $BuildDir -Names @('mcp-orch', 'mcp-lsp')
         Stop-ByPort -Ports @(4510, 4511, 5173)
         Start-Sleep -Milliseconds 500
 
@@ -943,6 +983,7 @@ try {
     # ========================================================
     Write-Host '[4/4] 停止旧进程...'
     Stop-ByProcessName -Names @('super-agent-debug', 'esbuild')
+    Stop-BuildBinaryProcesses -BuildDir $BuildDir -Names @('mcp-orch', 'mcp-lsp')
     Stop-ByPort -Ports @(4510, 4511)
     Start-Sleep -Milliseconds 500
 
