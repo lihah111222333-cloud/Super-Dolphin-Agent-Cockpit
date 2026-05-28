@@ -26,18 +26,81 @@ const (
 
 type ctxKey struct{}
 
+type traceIDKey struct{}
+type spanIDKey struct{}
+type parentSpanIDKey struct{}
+
 func WithContext(ctx context.Context, l *slog.Logger) context.Context {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	return context.WithValue(ctx, ctxKey{}, l)
 }
 
-func FromContext(ctx context.Context) *slog.Logger {
+func WithTraceID(ctx context.Context, traceID string) context.Context {
 	if ctx == nil {
-		return getLogger()
+		ctx = context.Background()
 	}
-	if l, ok := ctx.Value(ctxKey{}).(*slog.Logger); ok {
-		return l
+	return context.WithValue(ctx, traceIDKey{}, traceID)
+}
+
+func WithSpanID(ctx context.Context, spanID string) context.Context {
+	if ctx == nil {
+		ctx = context.Background()
 	}
-	return getLogger()
+	return context.WithValue(ctx, spanIDKey{}, spanID)
+}
+
+func WithParentSpanID(ctx context.Context, parentSpanID string) context.Context {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	return context.WithValue(ctx, parentSpanIDKey{}, parentSpanID)
+}
+
+func WithTraceIDs(ctx context.Context, traceID, spanID string) context.Context {
+	ctx = WithTraceID(ctx, traceID)
+	return WithSpanID(ctx, spanID)
+}
+
+func WithTraceContext(ctx context.Context, traceID, spanID, parentSpanID string) context.Context {
+	ctx = WithTraceIDs(ctx, traceID, spanID)
+	return WithParentSpanID(ctx, parentSpanID)
+}
+
+func TraceIDFromContext(ctx context.Context) string {
+	if ctx == nil {
+		return ""
+	}
+	traceID, _ := ctx.Value(traceIDKey{}).(string)
+	return traceID
+}
+
+func SpanIDFromContext(ctx context.Context) string {
+	if ctx == nil {
+		return ""
+	}
+	spanID, _ := ctx.Value(spanIDKey{}).(string)
+	return spanID
+}
+
+func ParentSpanIDFromContext(ctx context.Context) string {
+	if ctx == nil {
+		return ""
+	}
+	parentSpanID, _ := ctx.Value(parentSpanIDKey{}).(string)
+	return parentSpanID
+}
+
+func FromContext(ctx context.Context) *slog.Logger {
+	base := getLogger()
+	if ctx == nil {
+		return base
+	}
+	if l, ok := ctx.Value(ctxKey{}).(*slog.Logger); ok && l != nil {
+		base = l
+	}
+	return withTraceAttrs(ctx, base)
 }
 
 func Get() *slog.Logger { return getLogger() }
@@ -102,61 +165,65 @@ func ResolveProjectLogDir(homeDir, cwd string) (string, string) {
 }
 
 const (
-	FieldTraceID    = "trace_id"
-	FieldAgentID    = "agent_id"
-	FieldGatewayID  = "gateway_id"
-	FieldThreadID   = "thread_id"
-	FieldAction     = "action"
-	FieldComponent  = "component"
-	FieldModule     = "module"
-	FieldError      = "error"
-	FieldStatus     = "status"
-	FieldLatencyMS  = "latency_ms"
-	FieldCount      = "count"
-	FieldPath       = "path"
-	FieldMethod     = "method"
-	FieldUserID     = "user_id"
-	FieldSource     = "source"
-	FieldEventType  = "event_type"
-	FieldToolName   = "tool_name"
-	FieldDurationMS = "duration_ms"
-	FieldAddr       = "addr"
-	FieldConn       = "conn"
-	FieldRemote     = "remote"
-	FieldKey        = "key"
-	FieldSkill      = "skill"
-	FieldOrigin     = "origin"
-	FieldMax        = "max"
-	FieldDataLen    = "data_len"
-	FieldParamsLen  = "params_len"
-	FieldID         = "id"
-	FieldName       = "name"
-	FieldCwd        = "cwd"
-	FieldRunKey     = "run_key"
-	FieldRoot       = "root"
-	FieldBytes      = "bytes"
-	FieldLen        = "len"
-	FieldListen     = "listen"
-	FieldPort       = "port"
-	FieldVersion    = "version"
-	FieldTopic      = "topic"
-	FieldSeq        = "seq"
-	FieldDAG        = "dag"
-	FieldNode       = "node"
-	FieldURL        = "url"
-	FieldVarsSet    = "vars_set"
-	FieldReqID      = "req_id"
-	FieldCallID     = "call_id"
-	FieldRaw        = "raw"
-	FieldTurnID     = "turn_id"
-	FieldCommand    = "command"
-	FieldRunID      = "run_id"
-	FieldExitCode   = "exit_code"
-	FieldCardKey    = "card_key"
-	FieldLanguage   = "language"
-	FieldSubscriber = "subscriber"
-	FieldFilter     = "filter"
-	FieldDecision   = "decision"
-	FieldPID        = "pid"
-	FieldState      = "state"
+	FieldTraceID      = "trace_id"
+	FieldSpanID       = "span_id"
+	FieldParentSpanID = "parent_span_id"
+	FieldFunction     = "function"
+	FieldStacktrace   = "stacktrace"
+	FieldAgentID      = "agent_id"
+	FieldGatewayID    = "gateway_id"
+	FieldThreadID     = "thread_id"
+	FieldAction       = "action"
+	FieldComponent    = "component"
+	FieldModule       = "module"
+	FieldError        = "error"
+	FieldStatus       = "status"
+	FieldLatencyMS    = "latency_ms"
+	FieldCount        = "count"
+	FieldPath         = "path"
+	FieldMethod       = "method"
+	FieldUserID       = "user_id"
+	FieldSource       = "source"
+	FieldEventType    = "event_type"
+	FieldToolName     = "tool_name"
+	FieldDurationMS   = "duration_ms"
+	FieldAddr         = "addr"
+	FieldConn         = "conn"
+	FieldRemote       = "remote"
+	FieldKey          = "key"
+	FieldSkill        = "skill"
+	FieldOrigin       = "origin"
+	FieldMax          = "max"
+	FieldDataLen      = "data_len"
+	FieldParamsLen    = "params_len"
+	FieldID           = "id"
+	FieldName         = "name"
+	FieldCwd          = "cwd"
+	FieldRunKey       = "run_key"
+	FieldRoot         = "root"
+	FieldBytes        = "bytes"
+	FieldLen          = "len"
+	FieldListen       = "listen"
+	FieldPort         = "port"
+	FieldVersion      = "version"
+	FieldTopic        = "topic"
+	FieldSeq          = "seq"
+	FieldDAG          = "dag"
+	FieldNode         = "node"
+	FieldURL          = "url"
+	FieldVarsSet      = "vars_set"
+	FieldReqID        = "req_id"
+	FieldCallID       = "call_id"
+	FieldRaw          = "raw"
+	FieldTurnID       = "turn_id"
+	FieldCommand      = "command"
+	FieldRunID        = "run_id"
+	FieldExitCode     = "exit_code"
+	FieldCardKey      = "card_key"
+	FieldLanguage     = "language"
+	FieldSubscriber   = "subscriber"
+	FieldFilter       = "filter"
+	FieldDecision     = "decision"
+	FieldPID          = "pid"
+	FieldState        = "state"
 )

@@ -3,12 +3,52 @@ package app
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
+	mcpdto "github.com/anthropic-ai/super-agent-v3/internal/dto/mcp"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/mcpcontrol"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/toolbridge"
 )
+
+func TestMCPOrchDAGRuntimeListDAGsUsesActiveSharedOrchPeer(t *testing.T) {
+	t.Parallel()
+
+	peer := &recordingSharedOrchPeer{
+		result: `{"dags":[{"dag_key":"dag-1","title":"Daily","status":"running"}]}`,
+	}
+	registry := &recordingSharedOrchRegistry{
+		peer: &mcpcontrol.ToolInstance{
+			ClientKind: mcpdto.ClientKindOrch,
+			PeerKind:   mcpdto.PeerKindSharedService,
+			Shared:     true,
+			Status:     mcpdto.StatusActive,
+			Peer:       peer,
+		},
+	}
+	runtime := newMCPOrchDAGRuntime(toolbridge.NewHandlerForTesting(registry, nil))
+
+	dags, err := runtime.ListDAGs(context.Background(), contract.ListDAGsFilter{Limit: 3})
+	if err != nil {
+		t.Fatalf("ListDAGs() error = %v", err)
+	}
+	if len(dags) != 1 || dags[0].DagKey != "dag-1" {
+		t.Fatalf("ListDAGs() = %#v", dags)
+	}
+	if len(registry.scopes) != 1 || registry.scopes[0].Family != mcpdto.ClientKindOrch {
+		t.Fatalf("FindActiveForScope() scopes = %#v, want one orch scope", registry.scopes)
+	}
+	if peer.method != toolbridge.ProxyMethodToolsCall || peer.name != "task_list_dags" {
+		t.Fatalf("peer callback = %s/%s, want tools/call task_list_dags", peer.method, peer.name)
+	}
+	if peer.arguments["limit"] != float64(3) {
+		t.Fatalf("peer arguments = %#v, want limit 3", peer.arguments)
+	}
+}
 
 func TestMCPOrchDAGRuntimeListDAGsCallsPeerTool(t *testing.T) {
 	t.Parallel()
@@ -174,6 +214,104 @@ func TestMCPOrchDAGRuntimePropagatesPeerFailure(t *testing.T) {
 	}
 }
 
+func TestMCPOrchDAGRuntimeWaitsForPeerReady(t *testing.T) {
+	withDAGRuntimePeerWaitForTest(t, 200*time.Millisecond, time.Millisecond)
+
+	caller := &recordingDAGToolCaller{
+		result:     `{"dags":[{"dag_key":"dag-1","title":"Daily","status":"running"}]}`,
+		callErrors: []error{toolbridge.ErrNoPeerAvailable, toolbridge.ErrNoPeerAvailable},
+	}
+	runtime := &mcpOrchDAGRuntime{tools: caller}
+
+	dags, err := runtime.ListDAGs(context.Background(), contract.ListDAGsFilter{Limit: 7})
+	if err != nil {
+		t.Fatalf("ListDAGs() error = %v", err)
+	}
+	if len(dags) != 1 || dags[0].DagKey != "dag-1" {
+		t.Fatalf("ListDAGs() = %#v", dags)
+	}
+	if caller.calls != 3 {
+		t.Fatalf("HandleToolCall calls = %d, want 3", caller.calls)
+	}
+	assertDAGToolCall(t, caller, "task_list_dags", map[string]any{"limit": float64(7)})
+}
+
+func TestMCPOrchDAGRuntimePeerUnavailableErrorIsActionable(t *testing.T) {
+	withDAGRuntimePeerWaitForTest(t, 3*time.Millisecond, time.Millisecond)
+
+	caller := &recordingDAGToolCaller{err: toolbridge.ErrNoPeerAvailable}
+	runtime := &mcpOrchDAGRuntime{tools: caller}
+
+	_, err := runtime.ListDAGs(context.Background(), contract.ListDAGsFilter{Limit: 7})
+	if !errors.Is(err, toolbridge.ErrNoPeerAvailable) {
+		t.Fatalf("ListDAGs() error = %v, want ErrNoPeerAvailable", err)
+	}
+	for _, want := range []string{"mcp-orch peer not ready", "task_list_dags"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("ListDAGs() error = %q, want substring %q", err.Error(), want)
+		}
+	}
+}
+
+type recordingSharedOrchRegistry struct {
+	peer   *mcpcontrol.ToolInstance
+	scopes []mcpcontrol.ToolScope
+}
+
+func (r *recordingSharedOrchRegistry) FindActiveByKind(clientKind string) []*mcpcontrol.ToolInstance {
+	if r.peer != nil && r.peer.ClientKind == clientKind && r.peer.Status == mcpdto.StatusActive {
+		return []*mcpcontrol.ToolInstance{r.peer}
+	}
+	return nil
+}
+
+func (r *recordingSharedOrchRegistry) FindActiveForScope(scope mcpcontrol.ToolScope) []*mcpcontrol.ToolInstance {
+	r.scopes = append(r.scopes, scope)
+	if r.peer == nil ||
+		r.peer.ClientKind != scope.Family ||
+		r.peer.Status != mcpdto.StatusActive ||
+		!r.peer.Shared ||
+		r.peer.PeerKind != mcpdto.PeerKindSharedService {
+		return nil
+	}
+	return []*mcpcontrol.ToolInstance{r.peer}
+}
+
+type recordingSharedOrchPeer struct {
+	method    string
+	name      string
+	arguments map[string]any
+	result    string
+}
+
+func (p *recordingSharedOrchPeer) Notify(context.Context, string, any) error { return nil }
+
+func (p *recordingSharedOrchPeer) Callback(_ context.Context, method string, params any, result any) error {
+	p.method = method
+	payload, ok := params.(map[string]any)
+	if !ok {
+		return fmt.Errorf("params type = %T, want map[string]any", params)
+	}
+	p.name, _ = payload["name"].(string)
+	rawArgs, ok := payload["arguments"].(json.RawMessage)
+	if !ok {
+		return fmt.Errorf("arguments type = %T, want json.RawMessage", payload["arguments"])
+	}
+	if err := json.Unmarshal(rawArgs, &p.arguments); err != nil {
+		return err
+	}
+	raw, err := json.Marshal(map[string]any{
+		"content":           []map[string]string{{"type": "text", "text": p.result}},
+		"structuredContent": json.RawMessage(p.result),
+	})
+	if err != nil {
+		return err
+	}
+	return json.Unmarshal(raw, result)
+}
+
+func (p *recordingSharedOrchPeer) Close() error { return nil }
+
 type recordingDAGToolCaller struct {
 	name       string
 	argument   map[string]any
@@ -181,6 +319,9 @@ type recordingDAGToolCaller struct {
 	text       string
 	success    bool
 	successSet bool
+	err        error
+	callErrors []error
+	calls      int
 }
 
 func (c *recordingDAGToolCaller) HandleToolCall(_ context.Context, msg contract.ToolCallRawMessage) (any, error) {
@@ -194,6 +335,17 @@ func (c *recordingDAGToolCaller) HandleToolCall(_ context.Context, msg contract.
 	c.name = params.Name
 	if err := json.Unmarshal(params.Arguments, &c.argument); err != nil {
 		return nil, err
+	}
+	c.calls++
+	if len(c.callErrors) > 0 {
+		err := c.callErrors[0]
+		c.callErrors = c.callErrors[1:]
+		if err != nil {
+			return nil, err
+		}
+	}
+	if c.err != nil {
+		return nil, c.err
 	}
 	success := true
 	if c.successSet {
@@ -220,4 +372,16 @@ func assertDAGToolCall(t *testing.T, caller *recordingDAGToolCaller, wantName st
 			t.Fatalf("argument[%s] = %#v, want %#v; all args=%#v", key, caller.argument[key], want, caller.argument)
 		}
 	}
+}
+
+func withDAGRuntimePeerWaitForTest(t *testing.T, timeout, interval time.Duration) {
+	t.Helper()
+	oldTimeout := dagRuntimePeerReadyTimeout
+	oldInterval := dagRuntimePeerReadyPollInterval
+	dagRuntimePeerReadyTimeout = timeout
+	dagRuntimePeerReadyPollInterval = interval
+	t.Cleanup(func() {
+		dagRuntimePeerReadyTimeout = oldTimeout
+		dagRuntimePeerReadyPollInterval = oldInterval
+	})
 }

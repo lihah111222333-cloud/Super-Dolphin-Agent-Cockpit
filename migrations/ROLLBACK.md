@@ -944,3 +944,66 @@ COMMIT;
 不再提示 `final_node_key`，新建 DAG 可能缺少 run-level `metadata.final_output`
 索引。fresh migration chain 的 0084/0085 新 seed 仍保留新文案；只在需要回退
 0108 对已部署 DB 的刷新时执行。
+
+## 0109_refresh_dag_designer_prompt_agent_cwd.sql
+
+**0109 data restore（手工执行）：**
+
+将 0109 对 DAG designer prompt 增加的 agent `exec.cwd` 指引移除。
+仅恢复 `updated_by='migration:0109'` 且未人工编辑的行。
+
+```sql
+BEGIN;
+
+UPDATE public.prompt_templates
+SET prompt_text = REPLACE(
+      prompt_text,
+      '    "agent_key": "code-debug",
+    "cwd": "/absolute/path/to/project",
+    "effort": "medium",',
+      '    "agent_key": "code-debug",
+    "effort": "medium",'
+    )
+WHERE prompt_key IN ('main/dag_designer_zh', 'main/dag_designer_en')
+  AND updated_by = 'migration:0109'
+  AND manually_edited = FALSE;
+
+UPDATE public.prompt_templates
+SET prompt_text = REPLACE(
+      prompt_text,
+      '- `cwd` 必填，必须是待执行项目的绝对路径；若用户未提供且上下文没有当前项目路径，先询问，不要省略或填相对路径。
+',
+      ''
+    )
+WHERE prompt_key = 'main/dag_designer_zh'
+  AND updated_by = 'migration:0109'
+  AND manually_edited = FALSE;
+
+UPDATE public.prompt_templates
+SET prompt_text = REPLACE(
+      prompt_text,
+      '- `cwd` is required and must be the absolute path of the project to run in; if the user did not provide it and the current project path is not available from context, ask instead of omitting it or using a relative path.
+',
+      ''
+    )
+WHERE prompt_key = 'main/dag_designer_en'
+  AND updated_by = 'migration:0109'
+  AND manually_edited = FALSE;
+
+UPDATE public.prompt_templates
+SET prompt_text = REPLACE(
+      prompt_text,
+      '"agent_key": "code-review", "cwd": "/absolute/path/to/project"',
+      '"agent_key": "code-review"'
+    ),
+    updated_by = 'migration:0108',
+    updated_at = NOW()
+WHERE prompt_key IN ('main/dag_designer_zh', 'main/dag_designer_en')
+  AND updated_by = 'migration:0109'
+  AND manually_edited = FALSE;
+
+COMMIT;
+```
+
+**影响：** 回滚后，已部署 DB 的 DAG designer prompt 不再明确要求
+agent 节点填写 `exec.cwd`，设计出的 agent 节点可能在 dispatch/launch 阶段失败。

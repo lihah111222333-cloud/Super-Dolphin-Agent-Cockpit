@@ -13,7 +13,7 @@ import { resolve } from 'node:path';
 const FRONTEND_ROOT = resolve(import.meta.dirname, '.');
 
 function readCSS(relativePath) {
-  return readFileSync(resolve(FRONTEND_ROOT, relativePath), 'utf-8');
+  return readFileSync(resolve(FRONTEND_ROOT, relativePath), 'utf-8').replace(/\r\n/g, '\n');
 }
 
 function cssBlock(css, selector) {

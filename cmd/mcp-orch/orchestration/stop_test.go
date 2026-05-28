@@ -38,7 +38,7 @@ func TestStopAgentPublishesStoppedAfterObservedExit(t *testing.T) {
 
 	cleaner := &stopTestSessionCleaner{}
 	svc := NewService(silentLogger(), dispatcher, nil, cleaner, nil, nil)
-	cmd := exec.Command("sh", "-c", "sleep 30")
+	cmd := newLongRunningTestCommand()
 	if err := cmd.Start(); err != nil {
 		t.Fatalf("cmd.Start() error = %v", err)
 	}
@@ -93,7 +93,7 @@ func TestStopAllAgentsPublishesShutdownAfterObservedExit(t *testing.T) {
 
 	cleaner := &stopTestSessionCleaner{}
 	svc := NewService(silentLogger(), dispatcher, nil, cleaner, nil, nil)
-	cmd := exec.Command("sh", "-c", "sleep 30")
+	cmd := newLongRunningTestCommand()
 	if err := cmd.Start(); err != nil {
 		t.Fatalf("cmd.Start() error = %v", err)
 	}
@@ -130,7 +130,7 @@ func TestStopAllAgentsReturnsAfterWaitTimeout(t *testing.T) {
 
 	svc := NewService(silentLogger(), nil, nil, nil, nil, nil)
 	svc.processExitWaitTimeout = 25 * time.Millisecond
-	cmd := exec.Command("sh", "-c", "sleep 30")
+	cmd := newLongRunningTestCommand()
 	if err := cmd.Start(); err != nil {
 		t.Fatalf("cmd.Start() error = %v", err)
 	}
@@ -184,7 +184,7 @@ func TestRunnerActorShutdownObservesProcessExitAfterContextCancel(t *testing.T) 
 
 	cleaner := &stopTestSessionCleaner{}
 	svc := NewService(silentLogger(), dispatcher, nil, cleaner, nil, nil)
-	cmd := exec.Command("sh", "-c", "sleep 30")
+	cmd := newLongRunningTestCommand()
 	if err := cmd.Start(); err != nil {
 		t.Fatalf("cmd.Start() error = %v", err)
 	}

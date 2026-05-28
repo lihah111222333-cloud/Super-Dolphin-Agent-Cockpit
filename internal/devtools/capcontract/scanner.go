@@ -1,0 +1,472 @@
+package capcontract
+
+import (
+	"fmt"
+	"go/ast"
+	"go/parser"
+	"go/token"
+	"os"
+	"path/filepath"
+	"sort"
+	"strings"
+	"unicode"
+)
+
+type ScanOptions struct {
+	RepoRoot    string
+	Roots       []string
+	GeneratedAt string
+}
+
+func Scan(opts ScanOptions) (*Manifest, error) {
+	repoRoot := opts.RepoRoot
+	if repoRoot == "" {
+		repoRoot = "."
+	}
+	if len(opts.Roots) == 0 {
+		return nil, fmt.Errorf("capability contract scan roots are required")
+	}
+	manifest := &Manifest{
+		Version:     "1.0",
+		GeneratedAt: opts.GeneratedAt,
+		Roots:       normalizeRoots(opts.Roots),
+	}
+	for _, root := range manifest.Roots {
+		packages, err := scanRoot(repoRoot, root)
+		if err != nil {
+			return nil, err
+		}
+		manifest.Packages = append(manifest.Packages, packages...)
+	}
+	sort.Slice(manifest.Packages, func(i, j int) bool { return manifest.Packages[i].Path < manifest.Packages[j].Path })
+	manifest.Summary = computeSummary(manifest.Packages)
+	return manifest, nil
+}
+
+func normalizeRoots(roots []string) []string {
+	normalized := make([]string, 0, len(roots))
+	seen := map[string]struct{}{}
+	for _, root := range roots {
+		root = filepath.ToSlash(strings.TrimSpace(root))
+		root = strings.Trim(root, "/")
+		if root == "" {
+			continue
+		}
+		if _, ok := seen[root]; ok {
+			continue
+		}
+		seen[root] = struct{}{}
+		normalized = append(normalized, root)
+	}
+	sort.Strings(normalized)
+	return normalized
+}
+
+func scanRoot(repoRoot, root string) ([]PackageManifest, error) {
+	absRoot := filepath.Join(repoRoot, filepath.FromSlash(root))
+	packageDirs, err := findGoPackages(absRoot)
+	if err != nil {
+		return nil, fmt.Errorf("scan capability root %s: %w", root, err)
+	}
+	packages := make([]PackageManifest, 0, len(packageDirs))
+	for _, dir := range packageDirs {
+		pkg, err := scanPackage(repoRoot, dir)
+		if err != nil {
+			return nil, fmt.Errorf("scan capability package %s: %w", dir, err)
+		}
+		if pkg != nil {
+			packages = append(packages, *pkg)
+		}
+	}
+	return packages, nil
+}
+
+func findGoPackages(root string) ([]string, error) {
+	var dirs []string
+	seen := map[string]bool{}
+	err := filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		if info.IsDir() {
+			if shouldSkipDir(info.Name()) {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if strings.HasSuffix(info.Name(), ".go") && !strings.HasSuffix(info.Name(), "_test.go") {
+			dir := filepath.Dir(path)
+			if !seen[dir] {
+				seen[dir] = true
+				dirs = append(dirs, dir)
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	sort.Strings(dirs)
+	return dirs, nil
+}
+
+func shouldSkipDir(name string) bool {
+	return map[string]bool{
+		".git":         true,
+		".build-cache": true,
+		"node_modules": true,
+		"testdata":     true,
+		"vendor":       true,
+	}[name]
+}
+
+func scanPackage(repoRoot, dir string) (*PackageManifest, error) {
+	fset := token.NewFileSet()
+	pkgs, err := parser.ParseDir(fset, dir, func(fi os.FileInfo) bool {
+		return !strings.HasSuffix(fi.Name(), "_test.go")
+	}, parser.ParseComments)
+	if err != nil {
+		return nil, err
+	}
+	pkgNames := make([]string, 0, len(pkgs))
+	for name := range pkgs {
+		if !strings.HasSuffix(name, "_test") {
+			pkgNames = append(pkgNames, name)
+		}
+	}
+	sort.Strings(pkgNames)
+	if len(pkgNames) == 0 {
+		return nil, nil
+	}
+	pkg := pkgs[pkgNames[0]]
+	relPath, err := filepath.Rel(repoRoot, dir)
+	if err != nil {
+		return nil, err
+	}
+	manifest := &PackageManifest{
+		Path: filepath.ToSlash(relPath),
+		Name: pkgNames[0],
+	}
+	manifest.Description = extractPackageDoc(pkg, fset)
+	for _, file := range sortedPackageFiles(pkg, fset) {
+		extractFile(file, manifest)
+	}
+	sortFunctions(manifest.Functions)
+	sortMethods(manifest.Methods)
+	sortInterfaces(manifest.Interfaces)
+	sortStructs(manifest.Structs)
+	return manifest, nil
+}
+
+func extractFile(file *ast.File, manifest *PackageManifest) {
+	for _, decl := range file.Decls {
+		switch d := decl.(type) {
+		case *ast.FuncDecl:
+			if d.Recv == nil {
+				manifest.Functions = append(manifest.Functions, extractFunction(d))
+			} else {
+				manifest.Methods = append(manifest.Methods, extractMethod(d))
+			}
+		case *ast.GenDecl:
+			if d.Tok == token.TYPE {
+				extractTypes(d, manifest)
+			}
+		}
+	}
+}
+
+func extractTypes(decl *ast.GenDecl, manifest *PackageManifest) {
+	for _, spec := range decl.Specs {
+		ts, ok := spec.(*ast.TypeSpec)
+		if !ok {
+			continue
+		}
+		switch t := ts.Type.(type) {
+		case *ast.InterfaceType:
+			manifest.Interfaces = append(manifest.Interfaces, extractInterface(ts, t))
+		case *ast.StructType:
+			manifest.Structs = append(manifest.Structs, StructManifest{Name: ts.Name.Name, Exported: isExported(ts.Name.Name)})
+		}
+	}
+}
+
+func extractFunction(fn *ast.FuncDecl) FunctionManifest {
+	params, returns := functionSignature(fn.Type)
+	return FunctionManifest{Name: fn.Name.Name, Exported: isExported(fn.Name.Name), Params: params, Returns: returns}
+}
+
+func extractMethod(fn *ast.FuncDecl) MethodManifest {
+	params, returns := functionSignature(fn.Type)
+	return MethodManifest{Name: fn.Name.Name, Exported: isExported(fn.Name.Name), Receiver: typeToString(fn.Recv.List[0].Type), Params: params, Returns: returns}
+}
+
+func extractInterface(ts *ast.TypeSpec, iface *ast.InterfaceType) InterfaceManifest {
+	out := InterfaceManifest{Name: ts.Name.Name, Exported: isExported(ts.Name.Name)}
+	if iface.Methods == nil {
+		return out
+	}
+	for _, field := range iface.Methods.List {
+		if len(field.Names) == 0 {
+			out.Embeds = append(out.Embeds, typeToString(field.Type))
+			continue
+		}
+		for _, name := range field.Names {
+			entry := InterfaceMethodEntry{Name: name.Name}
+			if ft, ok := field.Type.(*ast.FuncType); ok {
+				entry.Params, entry.Returns = functionSignature(ft)
+			}
+			out.Methods = append(out.Methods, entry)
+		}
+	}
+	sort.Strings(out.Embeds)
+	sort.Slice(out.Methods, func(i, j int) bool { return interfaceMethodKey(out.Methods[i]) < interfaceMethodKey(out.Methods[j]) })
+	return out
+}
+
+func functionSignature(fnType *ast.FuncType) ([]ParamManifest, []string) {
+	var params []ParamManifest
+	if fnType.Params != nil {
+		params = extractParams(fnType.Params)
+	}
+	var returns []string
+	if fnType.Results != nil {
+		returns = extractReturnTypes(fnType.Results)
+	}
+	return params, returns
+}
+
+func extractParams(fields *ast.FieldList) []ParamManifest {
+	var params []ParamManifest
+	for _, field := range fields.List {
+		typeStr := typeToString(field.Type)
+		if len(field.Names) == 0 {
+			params = append(params, ParamManifest{Type: typeStr})
+			continue
+		}
+		for _, name := range field.Names {
+			params = append(params, ParamManifest{Name: name.Name, Type: typeStr})
+		}
+	}
+	return params
+}
+
+func extractReturnTypes(fields *ast.FieldList) []string {
+	var returns []string
+	for _, field := range fields.List {
+		typeStr := typeToString(field.Type)
+		if len(field.Names) == 0 {
+			returns = append(returns, typeStr)
+			continue
+		}
+		for range field.Names {
+			returns = append(returns, typeStr)
+		}
+	}
+	return returns
+}
+
+func typeToString(expr ast.Expr) string {
+	switch t := expr.(type) {
+	case *ast.Ident:
+		return t.Name
+	case *ast.StarExpr:
+		return "*" + typeToString(t.X)
+	case *ast.SelectorExpr:
+		return typeToString(t.X) + "." + t.Sel.Name
+	case *ast.ArrayType:
+		return "[]" + typeToString(t.Elt)
+	case *ast.MapType:
+		return "map[" + typeToString(t.Key) + "]" + typeToString(t.Value)
+	default:
+		return compositeTypeToString(expr)
+	}
+}
+
+func compositeTypeToString(expr ast.Expr) string {
+	switch t := expr.(type) {
+	case *ast.StructType:
+		return "struct{" + fieldListToString(t.Fields, "; ") + "}"
+	case *ast.ChanType:
+		return channelTypeToString(t)
+	case *ast.IndexExpr:
+		return typeToString(t.X) + "[" + typeToString(t.Index) + "]"
+	case *ast.IndexListExpr:
+		parts := make([]string, 0, len(t.Indices))
+		for _, index := range t.Indices {
+			parts = append(parts, typeToString(index))
+		}
+		return typeToString(t.X) + "[" + strings.Join(parts, ", ") + "]"
+	case *ast.InterfaceType:
+		return interfaceTypeToString(t)
+	case *ast.FuncType:
+		return "func" + funcSignatureSuffix(t)
+	case *ast.Ellipsis:
+		return "..." + typeToString(t.Elt)
+	default:
+		return "unknown"
+	}
+}
+
+func channelTypeToString(t *ast.ChanType) string {
+	switch t.Dir {
+	case ast.RECV:
+		return "<-chan " + typeToString(t.Value)
+	case ast.SEND:
+		return "chan<- " + typeToString(t.Value)
+	default:
+		return "chan " + typeToString(t.Value)
+	}
+}
+
+func interfaceTypeToString(iface *ast.InterfaceType) string {
+	if iface.Methods == nil || len(iface.Methods.List) == 0 {
+		return "interface{}"
+	}
+	parts := make([]string, 0, len(iface.Methods.List))
+	for _, field := range iface.Methods.List {
+		if len(field.Names) == 0 {
+			parts = append(parts, typeToString(field.Type))
+			continue
+		}
+		for _, name := range field.Names {
+			if fn, ok := field.Type.(*ast.FuncType); ok {
+				parts = append(parts, name.Name+funcSignatureSuffix(fn))
+			} else {
+				parts = append(parts, name.Name+" "+typeToString(field.Type))
+			}
+		}
+	}
+	return "interface{" + strings.Join(parts, "; ") + "}"
+}
+
+func funcSignatureSuffix(fn *ast.FuncType) string {
+	params := fieldListToString(fn.Params, ", ")
+	returns := returnFieldListToString(fn.Results)
+	if returns == "" {
+		return "(" + params + ")"
+	}
+	if fn.Results != nil && (len(fn.Results.List) > 1 || len(fn.Results.List[0].Names) > 0) {
+		return "(" + params + ") (" + returns + ")"
+	}
+	return "(" + params + ") " + returns
+}
+
+func fieldListToString(fields *ast.FieldList, separator string) string {
+	if fields == nil || len(fields.List) == 0 {
+		return ""
+	}
+	parts := make([]string, 0, len(fields.List))
+	for _, field := range fields.List {
+		fieldType := typeToString(field.Type)
+		if len(field.Names) == 0 {
+			parts = append(parts, fieldType)
+			continue
+		}
+		names := make([]string, 0, len(field.Names))
+		for _, name := range field.Names {
+			names = append(names, name.Name)
+		}
+		parts = append(parts, strings.Join(names, ", ")+" "+fieldType)
+	}
+	return strings.Join(parts, separator)
+}
+
+func returnFieldListToString(fields *ast.FieldList) string {
+	return fieldListToString(fields, ", ")
+}
+
+func sortedPackageFiles(pkg *ast.Package, fset *token.FileSet) []*ast.File {
+	files := make([]*ast.File, 0, len(pkg.Files))
+	for _, file := range pkg.Files {
+		files = append(files, file)
+	}
+	sort.Slice(files, func(i, j int) bool {
+		return fset.Position(files[i].Package).Filename < fset.Position(files[j].Package).Filename
+	})
+	return files
+}
+
+func extractPackageDoc(pkg *ast.Package, fset *token.FileSet) string {
+	for _, file := range sortedPackageFiles(pkg, fset) {
+		if file.Doc == nil {
+			continue
+		}
+		line := strings.SplitN(file.Doc.Text(), "\n", 2)[0]
+		line = strings.TrimPrefix(line, "Package "+pkg.Name+" ")
+		line = strings.TrimPrefix(line, "Package "+pkg.Name)
+		return strings.TrimSpace(line)
+	}
+	return ""
+}
+
+func isExported(name string) bool {
+	return name != "" && unicode.IsUpper(rune(name[0]))
+}
+
+func computeSummary(packages []PackageManifest) ManifestSummary {
+	summary := ManifestSummary{TotalPackages: len(packages)}
+	for _, pkg := range packages {
+		summary.TotalFunctions += len(pkg.Functions)
+		summary.TotalMethods += len(pkg.Methods)
+		summary.TotalInterfaces += len(pkg.Interfaces)
+		summary.TotalStructs += len(pkg.Structs)
+		for _, fn := range pkg.Functions {
+			addExportCount(&summary, fn.Exported)
+		}
+		for _, method := range pkg.Methods {
+			addExportCount(&summary, method.Exported)
+		}
+		for _, iface := range pkg.Interfaces {
+			addExportCount(&summary, iface.Exported)
+			summary.TotalInterfaceMethods += len(iface.Methods)
+		}
+		for _, st := range pkg.Structs {
+			addExportCount(&summary, st.Exported)
+		}
+	}
+	return summary
+}
+
+func addExportCount(summary *ManifestSummary, exported bool) {
+	if exported {
+		summary.TotalExported++
+	} else {
+		summary.TotalUnexported++
+	}
+}
+
+func sortFunctions(items []FunctionManifest) {
+	sort.Slice(items, func(i, j int) bool { return functionKey(items[i]) < functionKey(items[j]) })
+}
+
+func sortMethods(items []MethodManifest) {
+	sort.Slice(items, func(i, j int) bool { return methodKey(items[i]) < methodKey(items[j]) })
+}
+
+func sortInterfaces(items []InterfaceManifest) {
+	sort.Slice(items, func(i, j int) bool { return interfaceKey(items[i]) < interfaceKey(items[j]) })
+}
+
+func sortStructs(items []StructManifest) {
+	sort.Slice(items, func(i, j int) bool { return items[i].Name < items[j].Name })
+}
+
+func functionKey(fn FunctionManifest) string {
+	return strings.Join([]string{fn.Name, paramsKey(fn.Params), strings.Join(fn.Returns, ",")}, "|")
+}
+
+func methodKey(method MethodManifest) string {
+	return strings.Join([]string{method.Receiver, method.Name, paramsKey(method.Params), strings.Join(method.Returns, ",")}, "|")
+}
+
+func interfaceKey(iface InterfaceManifest) string {
+	parts := make([]string, 0, len(iface.Methods))
+	for _, method := range iface.Methods {
+		parts = append(parts, interfaceMethodKey(method))
+	}
+	return strings.Join([]string{iface.Name, strings.Join(iface.Embeds, ","), strings.Join(parts, ",")}, "|")
+}
+
+func interfaceMethodKey(method InterfaceMethodEntry) string {
+	return strings.Join([]string{method.Name, paramsKey(method.Params), strings.Join(method.Returns, ",")}, ":")
+}

@@ -12,6 +12,53 @@ import (
 	platformshared "github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 )
 
+const (
+	ReportMethodReportEvent            = "agent/reportEvent"
+	ReportMethodRememberReportRequest  = "agent/rememberReportRequest"
+	ReportEventTypeThreadStatusChanged = "thread/status/changed"
+)
+
+var terminalReportEventTypesList = []string{
+	"agent/event/task_complete",
+	"completed",
+	"completion",
+	"connection.dead",
+	"connection_dead",
+	"error",
+	"idle",
+	"shutdown.complete",
+	"shutdown_complete",
+	"stream.error",
+	"stream_error",
+	"turn.completed",
+	"turn/completed",
+	"turn.aborted",
+	"turn_aborted",
+	"turn_complete",
+}
+
+var terminalThreadStatusesList = []string{
+	"error",
+	"idle",
+	"not_loaded",
+	"notloaded",
+	"system_error",
+	"systemerror",
+}
+
+var reportTextPayloadKeys = []string{"report", "summary", "uiText", "text", "message", "output", "result"}
+var reportTextNestedKeys = []string{"item", "payload"}
+var terminalReportEventTypes = buildStringSet(terminalReportEventTypesList)
+var terminalThreadStatuses = buildStringSet(terminalThreadStatusesList)
+
+func buildStringSet(values []string) map[string]struct{} {
+	out := make(map[string]struct{}, len(values))
+	for _, v := range values {
+		out[v] = struct{}{}
+	}
+	return out
+}
+
 func (s *service) GetState(ctx context.Context, agentID string) (AgentStateResult, error) {
 	var result AgentStateResult
 	err := s.withAgentReadLockedByAgentID(ctx, agentID, func(agent *agentRuntime) error {
@@ -52,11 +99,7 @@ func (s *service) persistedAgentReport(ctx context.Context, agentID string) (Age
 		}
 		return AgentReportResult{}, err
 	}
-	return AgentReportResult{
-		AgentID: snapshot.AgentID,
-		Report:  normalizeDisplayReportText(report),
-		State:   snapshot.State,
-	}, nil
+	return AgentReportResult{AgentID: snapshot.AgentID, Report: normalizeDisplayReportText(report), State: snapshot.State}, nil
 }
 
 func (s *service) RememberReportRequest(ctx context.Context, req RememberReportRequest) (RememberReportRequestResult, error) {
@@ -71,7 +114,6 @@ func (s *service) RememberReportRequest(ctx context.Context, req RememberReportR
 	if strings.EqualFold(agentID, requesterID) {
 		return RememberReportRequestResult{}, errors.New("agent id and requester id must differ")
 	}
-
 	result := RememberReportRequestResult{}
 	err := s.withAgentLocked(agentID, func(agent *agentRuntime) error {
 		rememberReportRequesterLocked(ctx, agent, requesterID)
@@ -94,7 +136,6 @@ func (s *service) HandleReportEvent(ctx context.Context, event ReportEvent) (Rep
 	if report == "" {
 		report = extractReportFromEventData(event.EventData)
 	}
-
 	result := ReportEventResult{}
 	err := s.withAgentLocked(agentID, func(agent *agentRuntime) error {
 		var applyErr error
@@ -109,6 +150,9 @@ func (s *service) HandleReportEvent(ctx context.Context, event ReportEvent) (Rep
 
 func (s *service) reportEventFallbackResult(ctx context.Context, agentID, eventType, report string, runtimeErr error) (ReportEventResult, bool) {
 	if !errors.Is(runtimeErr, errAgentNotFound) {
+		return ReportEventResult{}, false
+	}
+	if strings.TrimSpace(report) == "" && !isRuntimeLossStopEventType(eventType) {
 		return ReportEventResult{}, false
 	}
 	if !s.applyReportEventWithoutRuntime(ctx, agentID, eventType, report) {
@@ -156,10 +200,7 @@ func normalizeDisplayReportText(raw string) string {
 	if text == "" {
 		return ""
 	}
-	lines := strings.Split(text, "\n")
-	trimmed := make([]string, 0, len(lines))
-	nonEmpty := make([]string, 0, len(lines))
-	prevBlank := false
+	lines, trimmed, nonEmpty, prevBlank := strings.Split(text, "\n"), make([]string, 0), make([]string, 0), false
 	for _, line := range lines {
 		line = strings.TrimSpace(line)
 		if line == "" {
@@ -203,9 +244,7 @@ func isSimpleDisplayReportToken(line string) bool {
 	for _, r := range runes {
 		switch {
 		case unicode.IsLetter(r), unicode.IsDigit(r):
-			continue
 		case strings.ContainsRune("._-+/=", r):
-			continue
 		default:
 			return false
 		}
@@ -219,12 +258,7 @@ func agentReportLocked(agent *agentRuntime) AgentReportResult {
 	if len(requesters) > 0 {
 		metadata = &AgentReportMetadata{RequesterIDs: requesters}
 	}
-	return AgentReportResult{
-		AgentID:  agent.id,
-		Report:   normalizeDisplayReportText(agent.lastReport),
-		State:    string(agent.state),
-		Metadata: metadata,
-	}
+	return AgentReportResult{AgentID: agent.id, Report: normalizeDisplayReportText(agent.lastReport), State: string(agent.state), Metadata: metadata}
 }
 
 func rememberReportRequesterLocked(ctx context.Context, agent *agentRuntime, requesterID string) {
@@ -285,11 +319,10 @@ func reportTextFromPayload(payload map[string]any) string {
 	}
 	for _, key := range reportTextNestedKeys {
 		nested, ok := payload[key].(map[string]any)
-		if !ok {
-			continue
-		}
-		if report := reportTextFromPayload(nested); report != "" {
-			return report
+		if ok {
+			if report := reportTextFromPayload(nested); report != "" {
+				return report
+			}
 		}
 	}
 	return ""

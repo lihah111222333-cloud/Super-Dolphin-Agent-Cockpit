@@ -16,6 +16,7 @@ import { assertThreadCanSendInState, callTurnStartWithSendBlock, clearThreadSend
 import { touchThreadUpdatedAt } from './thread-actions-timestamps.js';
 import { CODEX_IDENTITY_DEFAULTS, normalizeProviderConfigValue } from '../provider-config-options.js';
 import { dropSkillNamesCoveredByRefs } from '../utils/skill-ref-utils.js';
+import { getScopedPreferenceCached } from './preferences.js';
 
 export { tokenUsageSignature } from './thread-compact-helpers.js';
 
@@ -286,11 +287,6 @@ export async function setThreadConfig(ctx, threadId, config = {}) {
 }
 
 // Per-thread routing metadata captured from thread/start responses.
-// Consumers (sidebar badge, live preview, diagnostics) read via
-// getThreadRouting(threadId). Kept as a module-scoped Map rather than in
-// the whitelisted runtime store because the value is pure UI observation
-// and adding it to the store would force THREAD_STORE_RUNTIME_STATE_KEYS
-// + syncRuntimeState to grow unnecessarily.
 const _routingByThread = new Map();
 
 export function getThreadRouting(threadId) {
@@ -302,14 +298,6 @@ export function clearThreadRouting(threadId) {
   if (threadId) _routingByThread.delete(threadId);
 }
 
-// applyTurnStartRouting merges routing fields surfaced by a turn/start
-// response into _routingByThread. Only non-empty fields overwrite; this is
-// the path pending_launch threads take, since thread/start returned an empty
-// StartResult for them (routing had not happened yet). Eager-path threads
-// already have routing from thread/start and the turn/start response is
-// expected to omit the fields — we leave their entry untouched.
-// Returns true when the stored entry changed so the caller can decide whether
-// to poke the runtime state and force a UI rerender.
 function applyTurnStartRouting(threadId, res) {
   if (!threadId || !res || typeof res !== 'object') return false;
   const agentKey = (res.agent_key || res.agentKey || '').toString().trim();
@@ -331,11 +319,6 @@ function applyTurnStartRouting(threadId, res) {
   return true;
 }
 
-// Per-thread pending_launch flag. Set from thread/start response when the
-// backend took the C1 pending_launch path (no CLI fork yet); cleared once the
-// first turn/start succeeds (CLI has been forked) or when the thread is
-// stopped/deleted. Kept outside the runtime store because the state is purely
-// a UI hint and flipping it does not require the store whitelist to grow.
 const _pendingLaunchByThread = new Set();
 
 export function getThreadPendingLaunch(threadId) {
@@ -350,9 +333,7 @@ export function setThreadPendingLaunch(threadId, pending) {
 }
 
 function getStartResponseProvider(res) {
-  const provider = (res?.provider || '').toString().trim();
-  if (provider) return provider;
-  return (res?.modelProvider || res?.model_provider || '').toString().trim();
+  return (res?.provider || res?.modelProvider || res?.model_provider || '').toString().trim();
 }
 
 function normalizeSelectedSkillRefs(rawSelectedSkillRefs) {
@@ -384,6 +365,8 @@ export async function startThread(ctx, cwd = '.', options = {}) {
   const { callAPI, logInfo, logWarn } = ctx;
   const start = perfNow();
 
+  const cachedProvider = normalizeProviderConfigValue(getScopedPreferenceCached('settings.provider.active', cwd));
+
   // Resolve sync overrides first so we can decide which cwd-scoped
   // preference reads are actually needed (no point fetching activePromptKey
   // when the caller already pinned promptKey or chose an agent explicitly).
@@ -396,10 +379,9 @@ export async function startThread(ctx, cwd = '.', options = {}) {
   // fall back to another scope.
   const getPref = (req) => callAPI('ui/preferences/get', req).catch(() => undefined);
   const getProviderPref = (req) => callAPI('ui/preferences/get', req);
-  const [providerPref, activePromptKey] = await Promise.all([
-    resolveLaunchProviderPreference(getProviderPref, cwd),
-    needsActivePromptKey ? getPref({ key: 'settings.activePromptKey', cwd }) : Promise.resolve(undefined),
-  ]);
+  const activePromptKeyPromise = needsActivePromptKey ? getPref({ key: 'settings.activePromptKey', cwd }) : Promise.resolve(undefined);
+  const providerPrefPromise = cachedProvider ? Promise.resolve(cachedProvider) : resolveLaunchProviderPreference(getProviderPref, cwd);
+  const [providerPref, activePromptKey] = await Promise.all([providerPrefPromise, activePromptKeyPromise]);
 
   const modelProvider = normalizeProviderConfigValue(providerPref);
   if (!modelProvider) {
@@ -422,9 +404,6 @@ export async function startThread(ctx, cwd = '.', options = {}) {
   ]) : [undefined, undefined, undefined, undefined, undefined];
   const providerModel = normalizeProviderConfigValue(providerModelPref);
   const providerEffort = normalizeProviderConfigValue(providerEffortPref);
-  // p20.3 §4.3：launch payload 可携带 UI 已知的 skill 选择。空数组 / false 不下发，
-  // 完全对旧 payload 做 additive 兼容；名称与 send path 对齐（selectedSkills /
-  // manualSkillSelection）。backend 的 rpc_types.go 同时兼容 snake_case 别名。
   const payload = { cwd, modelProvider };
   if (isCodexProvider) {
     // Codex pool routing is strict by default; always make the identity
@@ -432,10 +411,6 @@ export async function startThread(ctx, cwd = '.', options = {}) {
     payload.config = buildCodexIdentityConfig(codexHomePref, codexInstanceKeyPref, codexModelProviderPref);
   }
   // Provider model/effort forwarding: caller override > settings preference.
-  // Without this the backend startParams.Model / Effort stay empty and codex
-  // provider falls back to its own defaults — which forces every new thread
-  // to hit the P1a identity check 'codexHome is required' instead of using
-  // the model/effort the user picked in Settings (e.g. gpt-5.5 / xhigh).
   const optionsModelTrimmed = normalizeProviderConfigValue(options?.model);
   const optionsEffortTrimmed = normalizeProviderConfigValue(options?.effort);
   const effectiveModel = optionsModelTrimmed || providerModel || '';

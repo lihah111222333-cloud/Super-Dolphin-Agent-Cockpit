@@ -9,14 +9,18 @@ import (
 	"strings"
 	"time"
 
+	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 	"github.com/qmuntal/stateless"
 
+	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/orchestration/processctl"
 	agentdto "github.com/anthropic-ai/super-agent-v3/internal/dto/agent"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 	platformstatemachine "github.com/anthropic-ai/super-agent-v3/internal/platform/statemachine"
 )
 
 const submitSessionReadyTimeout = 5 * time.Second
+
+const longWaitLogThreshold = 2 * time.Second
 
 // P22 P4 S4a: the local `sessionReadyWaiter` interface was deleted.
 // WaitForSessionReady is now part of the owner contract
@@ -89,6 +93,16 @@ func (s *service) reconcileReadyStateLocked(ctx context.Context, agent *agentRun
 }
 
 func (s *service) startTurnExecution(ctx context.Context, work turnWork) {
+	startedAt := time.Now()
+	logger := pkglogger.FromContext(ctx)
+	if s != nil && s.logger != nil {
+		logger = s.logger
+	}
+	logger.Info("orchestration: turn execution start",
+		pkglogger.String(pkglogger.FieldAgentID, work.agentID),
+		pkglogger.String(pkglogger.FieldThreadID, work.threadID),
+		pkglogger.String(pkglogger.FieldTurnID, work.turnID),
+		pkglogger.String(pkglogger.FieldComponent, "submit_turn"))
 	if err := s.waitForSubmitSessionReady(ctx, work.agentID); err != nil {
 		s.finishTurnStartFailure(ctx, work, err)
 		return
@@ -99,9 +113,22 @@ func (s *service) startTurnExecution(ctx context.Context, work turnWork) {
 	}
 	startedTurnID, err := s.turnStarter.StartTurn(ctx, work.submission)
 	if err != nil {
+		logger.Warn("orchestration: turn execution start failed",
+			pkglogger.String(pkglogger.FieldAgentID, work.agentID),
+			pkglogger.String(pkglogger.FieldThreadID, work.threadID),
+			pkglogger.String(pkglogger.FieldTurnID, work.turnID),
+			pkglogger.String(pkglogger.FieldError, err.Error()),
+			pkglogger.Int64(pkglogger.FieldDurationMS, time.Since(startedAt).Milliseconds()))
 		s.finishTurnStartFailure(ctx, work, err)
 		return
 	}
+	logger.Info("orchestration: turn execution accepted",
+		pkglogger.String(pkglogger.FieldAgentID, work.agentID),
+		pkglogger.String(pkglogger.FieldThreadID, work.threadID),
+		pkglogger.String(pkglogger.FieldTurnID, work.turnID),
+		pkglogger.String(pkglogger.FieldComponent, "submit_turn"),
+		pkglogger.String("started_turn_id", strings.TrimSpace(startedTurnID)),
+		pkglogger.Int64(pkglogger.FieldDurationMS, time.Since(startedAt).Milliseconds()))
 	s.finishTurnStartSuccess(ctx, work, startedTurnID)
 }
 
@@ -158,7 +185,7 @@ func (s *service) stopAgentLocked(ctx context.Context, agent *agentRuntime, reas
 	if !changed {
 		return nil
 	}
-	return stopProcess(agent.cmd)
+	return processctl.RequestStop(agent.cmd, agent.processGuard)
 }
 
 func (s *service) stopAgentWithReason(ctx context.Context, agentID, reason string) error {
@@ -208,31 +235,61 @@ func (s *service) waitForSubmitSessionReady(ctx context.Context, agentID string)
 	if s == nil || s.turnStarter == nil {
 		return nil
 	}
-	// P22 P4 S4a: no more type-assertion side-channel — WaitForSessionReady
-	// is part of the TurnStarter owner contract. noop implementations
-	// simply return nil to preserve the pre-S4a "no wait needed" behavior.
-	return s.turnStarter.WaitForSessionReady(ctx, agentID, submitSessionReadyTimeout)
+	startedAt := time.Now()
+	logger := pkglogger.FromContext(ctx)
+	if s.logger != nil {
+		logger = s.logger
+	}
+	logger.Info("orchestration: waiting for submit session ready",
+		pkglogger.String(pkglogger.FieldAgentID, agentID),
+		pkglogger.String(pkglogger.FieldComponent, "submit_turn"),
+		pkglogger.Int64(pkglogger.FieldDurationMS, submitSessionReadyTimeout.Milliseconds()))
+	err := s.turnStarter.WaitForSessionReady(ctx, agentID, submitSessionReadyTimeout)
+	elapsed := time.Since(startedAt)
+	attrs := []any{
+		pkglogger.String(pkglogger.FieldAgentID, agentID),
+		pkglogger.String(pkglogger.FieldComponent, "submit_turn"),
+		pkglogger.Int64(pkglogger.FieldDurationMS, elapsed.Milliseconds()),
+	}
+	if err != nil {
+		attrs = append(attrs, pkglogger.String(pkglogger.FieldError, err.Error()))
+		logger.Warn("orchestration: submit session ready wait failed", attrs...)
+		return err
+	}
+	if elapsed >= longWaitLogThreshold {
+		logger.Warn("orchestration: submit session ready wait slow", attrs...)
+	} else {
+		logger.Info("orchestration: submit session ready wait completed", attrs...)
+	}
+	return nil
 }
 
 func (s *service) startProcessLocked(ctx context.Context, agent *agentRuntime) error {
 	cmd := exec.Command(agent.command[0], agent.command[1:]...)
 	cmd.Dir = agent.cwd
 	cmd.Env = append(os.Environ(), agent.env...)
+	processctl.Configure(cmd)
 	if err := cmd.Start(); err != nil {
 		return s.commitLaunchFailureLocked(ctx, agent, err)
 	}
+	guard := processctl.Attach(cmd, s.logger)
 	now := resolveEventTime(ctx, agent.updatedAt)
 	resetLaunchState(agent)
 	agent.cmd = cmd
+	agent.processGuard = guard
 	agent.launchSeq++
 	agent.startedAt = now
 	agent.updatedAt = now
 	if err := s.commitLaunchSuccessLocked(ctx, agent); err != nil {
-		if stopErr := stopProcess(cmd); stopErr != nil {
+		if stopErr := processctl.ForceStop(cmd, guard); stopErr != nil {
 			s.logger.Warn("orchestration: rollback stop process failed",
 				"agent_id", agent.id, "error", stopErr)
 		}
+		if guard != nil {
+			guard.Close()
+		}
 		agent.cmd = nil
+		agent.processGuard = nil
 		return err
 	}
 	// P22 P3: arm the exit monitor immediately after a successful Start. The

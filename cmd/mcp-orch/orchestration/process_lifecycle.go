@@ -6,9 +6,11 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"os/exec"
 	"strings"
 	"time"
 
+	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/orchestration/processctl"
 	agentdto "github.com/anthropic-ai/super-agent-v3/internal/dto/agent"
 	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
 	platformrunner "github.com/anthropic-ai/super-agent-v3/internal/platform/runner"
@@ -97,6 +99,7 @@ func (s *service) handleProcessExit(ctx context.Context, agentID string, launchS
 	recoverViaLauncher := shouldRecover && shouldRecoverViaLauncher(ctx, s, agent)
 	recoverAgentID := agent.id
 	now := resolveEventTime(ctx, agent.updatedAt, agent.startedAt)
+	closeAgentProcessGuard(agent)
 	agent.cmd = nil
 	agent.exitedAt = &now
 	agent.lastExitedSeq = launchSeq
@@ -171,17 +174,21 @@ func (s *service) waitForProcessExit(ctx context.Context, agentID string, launch
 }
 
 func (s *service) forceKillProcess(agentID string, launchSeq uint64) error {
-	var proc *os.Process
+	var (
+		cmd   *exec.Cmd
+		guard *processctl.Guard
+	)
 	s.mu.RLock()
 	if agent, err := lookupAgentBySeqLocked(s.agents, agentID, launchSeq); err == nil &&
 		agent.lastExitedSeq < launchSeq && agent.cmd != nil {
-		proc = agent.cmd.Process
+		cmd = agent.cmd
+		guard = agent.processGuard
 	}
 	s.mu.RUnlock()
-	if proc == nil || proc.Pid <= 0 {
+	if cmd == nil || cmd.Process == nil || cmd.Process.Pid <= 0 {
 		return fmt.Errorf("orchestration: timed out waiting for process exit for agent %q; no live process handle", agentID)
 	}
-	if err := proc.Kill(); err != nil && !errors.Is(err, os.ErrProcessDone) {
+	if err := processctl.ForceStop(cmd, guard); err != nil && !errors.Is(err, os.ErrProcessDone) {
 		s.logger.Warn("orchestration: failed to force-kill timed out agent process", "agent_id", agentID, "launch_seq", launchSeq, "error", err)
 		return fmt.Errorf("orchestration: failed to force-kill timed out agent process %q: %w", agentID, err)
 	}

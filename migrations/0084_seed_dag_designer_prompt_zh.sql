@@ -88,6 +88,7 @@ INSERT INTO public.prompt_templates (
     "provider": "claude",
     "model": "opus",
     "agent_key": "code-debug",
+    "cwd": "/absolute/path/to/project",
     "effort": "medium",
     "language": "zh",
     "isolation": "shared",
@@ -103,6 +104,7 @@ INSERT INTO public.prompt_templates (
 
 要点：
 - `agent_key` 必须来自 prompt_list 的返回。
+- `cwd` 必填，必须是待执行项目的绝对路径；若用户未提供且上下文没有当前项目路径，先询问，不要省略或填相对路径。
 - `model` 必须来自 list_models 的返回。
 - `to_node_result: true` 仅适合 < 4KB 摘要；大输出必须走 `to_sharedfile`。
 - `on_failure.by_class` 按 FailureClass 分发：`capability / validation / infrastructure / timeout / cancelled / unknown / not_implemented`。智能重试就在这里。
@@ -132,7 +134,7 @@ INSERT INTO public.prompt_templates (
 {
   "exec": {
     "automation": { "kind": "command_card", "command_ref": "run_tests", "args": {} },
-    "verifier":   { "provider": "claude", "model": "sonnet", "agent_key": "code-review" }
+    "verifier":   { "provider": "claude", "model": "sonnet", "agent_key": "code-review", "cwd": "/absolute/path/to/project" }
   },
   "inputs": {...}, "outputs": {...}
 }
