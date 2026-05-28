@@ -2,7 +2,13 @@ package orchestration
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
+	"log/slog"
+	"strings"
+	"sync/atomic"
 
+	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/orchestration/nodeexec"
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/taskdag"
 )
 
@@ -63,4 +69,235 @@ type agentThreadLookupAdapter struct {
 
 func (a agentThreadLookupAdapter) GetByThreadID(ctx context.Context, threadID string) (*PersistedThread, error) {
 	return a.store.GetByThreadID(ctx, threadID)
+}
+
+type DAGSubscriberMetrics struct {
+	CompleteDone, CompleteFailed, IdempotentSkipped int64
+	LookupNoNode, LookupDirtyData, LookupFailed     int64
+	CompleteSizeCapExceeded, CompleteResultEmpty    int64
+}
+
+type dagSubscriberCounter struct {
+	completeDone, completeFailed, idempotentSkipped atomic.Int64
+	lookupNoNode, lookupDirtyData, lookupFailed     atomic.Int64
+	completeSizeCapExceeded, completeResultEmpty    atomic.Int64
+}
+
+var dagSubscriberMetrics = &dagSubscriberCounter{}
+
+func DAGSubscriberCounters() DAGSubscriberMetrics { return dagSubscriberMetrics.Snapshot() }
+func (c *dagSubscriberCounter) IncCompleteDone()  { if c != nil { c.completeDone.Add(1) } }
+func (c *dagSubscriberCounter) IncCompleteFailed() {
+	if c != nil {
+		c.completeFailed.Add(1)
+	}
+}
+func (c *dagSubscriberCounter) IncIdempotentSkipped() {
+	if c != nil {
+		c.idempotentSkipped.Add(1)
+	}
+}
+func (c *dagSubscriberCounter) IncLookupNoNode() { if c != nil { c.lookupNoNode.Add(1) } }
+func (c *dagSubscriberCounter) IncLookupDirtyData() {
+	if c != nil {
+		c.lookupDirtyData.Add(1)
+	}
+}
+func (c *dagSubscriberCounter) IncLookupFailed() { if c != nil { c.lookupFailed.Add(1) } }
+func (c *dagSubscriberCounter) IncCompleteSizeCapExceeded() {
+	if c != nil {
+		c.completeSizeCapExceeded.Add(1)
+	}
+}
+func (c *dagSubscriberCounter) IncCompleteResultEmpty() {
+	if c != nil {
+		c.completeResultEmpty.Add(1)
+	}
+}
+func (c *dagSubscriberCounter) Snapshot() DAGSubscriberMetrics {
+	if c == nil {
+		return DAGSubscriberMetrics{}
+	}
+	return DAGSubscriberMetrics{
+		CompleteDone: c.completeDone.Load(), CompleteFailed: c.completeFailed.Load(), IdempotentSkipped: c.idempotentSkipped.Load(),
+		LookupNoNode: c.lookupNoNode.Load(), LookupDirtyData: c.lookupDirtyData.Load(), LookupFailed: c.lookupFailed.Load(),
+		CompleteSizeCapExceeded: c.completeSizeCapExceeded.Load(), CompleteResultEmpty: c.completeResultEmpty.Load(),
+	}
+}
+
+type turnOutputMaterializationFailure struct {
+	Reason          string
+	SizeCapExceeded bool
+}
+
+type turnOutputMaterialization struct {
+	Result         json.RawMessage
+	SharedfilePath string
+	RawResult      string
+}
+
+func classifyMaterializationFailure(failure *turnOutputMaterializationFailure) nodeexec.FailureClass {
+	if failure == nil {
+		return nodeexec.FailureClassValidation
+	}
+	if strings.HasPrefix(failure.Reason, "infrastructure:") {
+		return nodeexec.FailureClassInfrastructure
+	}
+	return nodeexec.FailureClassValidation
+}
+
+func encodeTurnResultForNodeUpdate(raw string) json.RawMessage {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return json.RawMessage(`{}`)
+	}
+	if json.Valid([]byte(trimmed)) {
+		return json.RawMessage(trimmed)
+	}
+	wrapped, err := json.Marshal(struct{ Text string `json:"text"` }{Text: raw})
+	if err != nil {
+		return json.RawMessage(`{}`)
+	}
+	return json.RawMessage(wrapped)
+}
+
+func prepareTurnCompletedResult(nodeConfig json.RawMessage, nodeType, rawResult string) (turnOutputMaterialization, *turnOutputMaterializationFailure) {
+	if strings.TrimSpace(nodeType) != "agent" {
+		return turnOutputMaterialization{Result: encodeTurnResultForNodeUpdate(rawResult)}, nil
+	}
+	cfg, failure := parseAgentOutputConfig(nodeConfig)
+	if failure != nil {
+		return turnOutputMaterialization{}, failure
+	}
+	path := configuredSharedfilePath(cfg.Outputs)
+	emitNodeResult := shouldMaterializeAgentNodeResult(cfg.Outputs)
+	nodeResult, failure := buildAgentNodeResult(rawResult, emitNodeResult)
+	if failure != nil {
+		return turnOutputMaterialization{}, failure
+	}
+	return turnOutputMaterialization{Result: finalAgentMaterializedResult(rawResult, nodeResult, path, emitNodeResult), SharedfilePath: path, RawResult: rawResult}, nil
+}
+
+func parseAgentOutputConfig(raw json.RawMessage) (*nodeexec.AgentNodeConfig, *turnOutputMaterializationFailure) {
+	cfg, err := nodeexec.ParseAgentConfig(raw)
+	if err != nil {
+		return nil, validationMaterializationFailure("decode agent config: " + err.Error())
+	}
+	if cfg == nil {
+		return nil, validationMaterializationFailure("decode agent config: nil parsed config")
+	}
+	return cfg, nil
+}
+
+func buildAgentNodeResult(rawResult string, emit bool) (json.RawMessage, *turnOutputMaterializationFailure) {
+	if !emit {
+		return nil, nil
+	}
+	nodeResult := encodeTurnResultForNodeUpdate(rawResult)
+	if len(nodeResult) <= completeNodeResultCap {
+		return nodeResult, nil
+	}
+	return nil, &turnOutputMaterializationFailure{Reason: fmt.Sprintf("result exceeds 4KB size cap (%d > %d bytes), configure outputs.to_sharedfile (ADR-006)", len(nodeResult), completeNodeResultCap), SizeCapExceeded: true}
+}
+
+func finalAgentMaterializedResult(rawResult string, nodeResult json.RawMessage, path string, emit bool) json.RawMessage {
+	switch {
+	case emit:
+		return nodeResult
+	case path != "":
+		return encodeSharedfileResultRef(path)
+	default:
+		return encodeTurnResultForNodeUpdate(rawResult)
+	}
+}
+
+func shouldMaterializeAgentNodeResult(out nodeexec.OutputsConfig) bool {
+	return out.ToNodeResult || configuredSharedfilePath(out) == ""
+}
+
+func configuredSharedfilePath(out nodeexec.OutputsConfig) string {
+	if out.ToSharedfile == nil {
+		return ""
+	}
+	return strings.TrimSpace(out.ToSharedfile.Path)
+}
+
+func encodeSharedfileResultRef(path string) json.RawMessage {
+	payload, err := json.Marshal(struct {
+		Sharedfile struct{ Path string `json:"path"` } `json:"sharedfile"`
+	}{Sharedfile: struct{ Path string `json:"path"` }{Path: path}})
+	if err != nil {
+		return json.RawMessage(`{}`)
+	}
+	return payload
+}
+
+func validationMaterializationFailure(reason string) *turnOutputMaterializationFailure {
+	return &turnOutputMaterializationFailure{Reason: "validation: " + reason}
+}
+
+func infrastructureMaterializationFailure(reason string) *turnOutputMaterializationFailure {
+	return &turnOutputMaterializationFailure{Reason: "infrastructure: " + reason}
+}
+
+func handleMaterializationFailure(ctx context.Context, deps DAGSubscriberDeps, logger *slog.Logger, node *taskdag.Node, failure *turnOutputMaterializationFailure) {
+	if failure == nil {
+		return
+	}
+	if failure.SizeCapExceeded {
+		dagSubscriberMetrics.IncCompleteSizeCapExceeded()
+	}
+	logger.Warn("dag subscriber: materialize agent output failed", "dag_key", node.DagKey, "node_key", node.NodeKey, "reason", failure.Reason)
+	if advanceNodeFailedWithReason(ctx, deps.FlowStore, logger, node, failure.Reason) && deps.NodeRouter != nil {
+		deps.NodeRouter.invokeTerminalFailureHooksForTaskNode(ctx, node, nodeexec.NodeOutcome{Status: nodeexec.NodeStatusFailed, ErrorSummary: failure.Reason, FailureClass: classifyMaterializationFailure(failure)})
+	}
+}
+
+func recordLegacyResultCapMetric(logger *slog.Logger, node *taskdag.Node, result json.RawMessage) {
+	if len(result) <= completeNodeResultCap {
+		return
+	}
+	dagSubscriberMetrics.IncCompleteSizeCapExceeded()
+	logger.Warn("dag subscriber: complete result exceeds ADR-006 4KB cap", "dag_key", node.DagKey, "node_key", node.NodeKey, "size", len(result))
+}
+
+func configuredSharedfileAlreadyExists(ctx context.Context, reader nodeexec.SharedFileReader, path string) (bool, *turnOutputMaterializationFailure) {
+	if path == "" {
+		return false, nil
+	}
+	if failure := validateAgentSharedfileReader(reader); failure != nil {
+		return false, failure
+	}
+	_, exists, err := reader.ReadSharedFile(ctx, path)
+	if err != nil {
+		return false, infrastructureMaterializationFailure("outputs.to_sharedfile[" + path + "] preflight read: " + err.Error())
+	}
+	return exists, nil
+}
+
+func validateAgentSharedfileReader(reader nodeexec.SharedFileReader) *turnOutputMaterializationFailure {
+	if reader != nil {
+		return nil
+	}
+	return infrastructureMaterializationFailure("outputs.to_sharedfile configured but SharedFileReader not wired in DAG subscriber")
+}
+
+func validateAgentSharedfileWriter(writer nodeexec.SharedFileWriter) *turnOutputMaterializationFailure {
+	if writer != nil {
+		return nil
+	}
+	return infrastructureMaterializationFailure("outputs.to_sharedfile configured but SharedFileWriter not wired in DAG subscriber")
+}
+
+func writeAgentTurnSharedfile(ctx context.Context, writer nodeexec.SharedFileWriter, path, rawResult string) *turnOutputMaterializationFailure {
+	if path == "" {
+		return nil
+	}
+	if failure := validateAgentSharedfileWriter(writer); failure != nil {
+		return failure
+	}
+	if err := writer.WriteSharedFile(ctx, path, rawResult); err != nil {
+		return infrastructureMaterializationFailure("outputs.to_sharedfile[" + path + "]: " + err.Error())
+	}
+	return nil
 }
