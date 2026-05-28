@@ -24,14 +24,33 @@ func computeRetryBackoff(attempt int, prevErr error) time.Duration {
 
 func waitRetryBackoff(ctx context.Context, attempt int, agentID string, prevErr error) error {
 	delay := computeRetryBackoff(attempt, prevErr)
+	startedAt := time.Now()
 	pkglogger.Info("orchestration: retrying launch",
-		"agent_id", agentID, "attempt", attempt+1,
-		"prev_error", prevErr, "backoff", delay,
-		"rate_limited", isRateLimited(prevErr))
+		pkglogger.String(pkglogger.FieldAgentID, agentID),
+		pkglogger.Int("attempt", attempt+1),
+		pkglogger.Any("prev_error", prevErr),
+		pkglogger.Int64("backoff_ms", delay.Milliseconds()),
+		pkglogger.Any("rate_limited", isRateLimited(prevErr)))
 	select {
 	case <-time.After(delay):
+		elapsed := time.Since(startedAt)
+		attrs := []any{
+			pkglogger.String(pkglogger.FieldAgentID, agentID),
+			pkglogger.Int("attempt", attempt+1),
+			pkglogger.Int64(pkglogger.FieldDurationMS, elapsed.Milliseconds()),
+		}
+		if elapsed >= longWaitLogThreshold {
+			pkglogger.Warn("orchestration: launch retry backoff slow", attrs...)
+		} else {
+			pkglogger.Info("orchestration: launch retry backoff completed", attrs...)
+		}
 		return nil
 	case <-ctx.Done():
+		pkglogger.Warn("orchestration: launch retry backoff cancelled",
+			pkglogger.String(pkglogger.FieldAgentID, agentID),
+			pkglogger.Int("attempt", attempt+1),
+			pkglogger.String(pkglogger.FieldError, ctx.Err().Error()),
+			pkglogger.Int64(pkglogger.FieldDurationMS, time.Since(startedAt).Milliseconds()))
 		return ctx.Err()
 	}
 }

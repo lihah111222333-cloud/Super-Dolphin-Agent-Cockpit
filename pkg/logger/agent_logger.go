@@ -1,6 +1,7 @@
 package logger
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"log/slog"
@@ -37,7 +38,7 @@ func NewAgentLogger(agentID string) *slog.Logger {
 	logFileMu.Unlock()
 
 	if mainFile == nil || mainPath == "" {
-		return getLogger().With("agent_id", agentID)
+		return withTraceAttrs(context.Background(), getLogger().With("agent_id", agentID))
 	}
 
 	dir := filepath.Dir(mainPath)
