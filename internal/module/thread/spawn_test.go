@@ -107,31 +107,36 @@ func TestSpawnIfNeeded_SkipsArchivedThread(t *testing.T) {
 	}
 }
 
-func TestStartPendingLaunchPreflightsPromptAssemblyBeforePersist(t *testing.T) {
+func TestStartPendingLaunchSkipsPromptAssemblyPreflight(t *testing.T) {
 	t.Parallel()
 
 	store := &stubThreadStore{}
+	startCalled := false
 	svc := &service{
 		threadStore: store,
 		promptAssembly: errorPromptAssembly{
 			err: errors.New("ClaudeMd candidate containment: safe read: path escapes root"),
 		},
+		starter: &startOnlySessionStarter{onStart: func(context.Context, dto.StartSessionRequest) (contract.Session, error) {
+			startCalled = true
+			return nil, errors.New("provider must not start for pending launch")
+		}},
 	}
 
-	_, err := svc.Start(context.Background(), StartRequest{
+	result, err := svc.Start(context.Background(), StartRequest{
 		AgentID:    "agent-pending-preflight",
 		Provider:   "claude",
 		CWD:        "/tmp/project",
 		DeferSpawn: true,
 	})
-	if err == nil {
-		t.Fatal("Start() error = nil, want prompt assembly preflight error")
+	if err != nil {
+		t.Fatalf("Start() error = %v, want pending_launch success", err)
 	}
-	if !containsAll(err.Error(), "ClaudeMd", "safe read") {
-		t.Fatalf("Start() error = %v, want ClaudeMd safe read context", err)
-	}
-	if store.thread != nil || store.upsert.ThreadID != "" {
-		t.Fatalf("pending thread persisted despite preflight failure: thread=%#v upsert=%#v", store.thread, store.upsert)
+	assertFalse(t, startCalled, "provider StartSession was called for pending_launch intake thread")
+	assertTrue(t, result.PendingLaunch, "StartResult.PendingLaunch")
+	assertTrue(t, store.upsert.PendingLaunch, "Upsert.PendingLaunch")
+	if store.upsert.ThreadID == "" {
+		t.Fatal("Start() did not persist pending_launch thread")
 	}
 }
 

@@ -149,6 +149,45 @@ func TestCodexToolSurfaceAcceptsLegacyAliasWithoutAdvertisingIt(t *testing.T) {
 	}
 }
 
+func TestPrepareCodexToolSurfaceListsMCPBinariesInParallel(t *testing.T) {
+	started := make(chan string, 2)
+	release := make(chan struct{})
+	lsp := &fakeMCPClient{
+		tools:           []mcpdto.MCPTool{{Name: "grep", InputSchema: json.RawMessage(`{"type":"object"}`)}},
+		listStarted:     started,
+		listStartedName: "lsp",
+		listRelease:     release,
+	}
+	orch := &fakeMCPClient{
+		tools:           []mcpdto.MCPTool{{Name: "orchestration_launch_agent", InputSchema: json.RawMessage(`{"type":"object"}`)}},
+		listStarted:     started,
+		listStartedName: "orch",
+		listRelease:     release,
+	}
+	h := &Handler{stdioClientFactory: fakeClientFactory(map[string]mcpClient{"lsp": lsp, "orch": orch})}
+
+	var tools []contract.DynamicToolSchema
+	done := make(chan error, 1)
+	go func() {
+		var err error
+		tools, err = h.PrepareCodexToolSurface(context.Background(), contract.CodexToolSurfaceScope{
+			AgentID:          "agent-1",
+			ProviderThreadID: "provider-thread-1",
+			CWD:              "/repo",
+			Manifest: providerdto.MCPManifest{Binaries: []providerdto.MCPBinary{
+				{Name: "lsp", Command: []string{"mcp-lsp"}},
+				{Name: "orch", Command: []string{"mcp-orch"}},
+			}},
+		})
+		done <- err
+	}()
+
+	waitStartedToolLists(t, started, "lsp", "orch")
+	close(release)
+	require.NoError(t, <-done)
+	assertDynamicToolNames(t, tools, []string{"grep", "launch_agent"})
+}
+
 func TestCodexToolSurfacePublishesLifecycleEvents(t *testing.T) {
 	dispatcher := event.NewDispatcher()
 	t.Cleanup(func() { _ = dispatcher.Close() })
@@ -461,13 +500,26 @@ func legacyScopedToolCallParams(name string) json.RawMessage {
 }
 
 type fakeMCPClient struct {
-	tools     []mcpdto.MCPTool
-	calls     []string
-	arguments []json.RawMessage
-	closed    int
+	tools           []mcpdto.MCPTool
+	calls           []string
+	arguments       []json.RawMessage
+	closed          int
+	listStarted     chan<- string
+	listStartedName string
+	listRelease     <-chan struct{}
 }
 
-func (c *fakeMCPClient) ListTools(context.Context) ([]mcpdto.MCPTool, error) {
+func (c *fakeMCPClient) ListTools(ctx context.Context) ([]mcpdto.MCPTool, error) {
+	if c.listStarted != nil {
+		c.listStarted <- c.listStartedName
+	}
+	if c.listRelease != nil {
+		select {
+		case <-c.listRelease:
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
+	}
 	return append([]mcpdto.MCPTool(nil), c.tools...), nil
 }
 
@@ -494,6 +546,24 @@ func (c *fakeMCPClient) calledWith(name string) bool {
 func fakeClientFactory(clients map[string]mcpClient) func(context.Context, providerdto.MCPBinary) (mcpClient, error) {
 	return func(_ context.Context, binary providerdto.MCPBinary) (mcpClient, error) {
 		return clients[binary.Name], nil
+	}
+}
+
+func waitStartedToolLists(t *testing.T, started <-chan string, want ...string) {
+	t.Helper()
+	pending := make(map[string]struct{}, len(want))
+	for _, name := range want {
+		pending[name] = struct{}{}
+	}
+	timer := time.NewTimer(time.Second)
+	defer timer.Stop()
+	for len(pending) > 0 {
+		select {
+		case name := <-started:
+			delete(pending, name)
+		case <-timer.C:
+			t.Fatalf("timed out waiting for parallel tools/list starts; pending=%#v", pending)
+		}
 	}
 }
 
