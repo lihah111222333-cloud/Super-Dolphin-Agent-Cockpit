@@ -32,7 +32,7 @@ type SessionProvider interface {
 	GetSession(agentID string) (contract.Session, error)
 }
 
-type ThreadStateConfigReader = contract.ThreadStateRuntimeConfigReader
+type ThreadStateConfigReader = contract.ThreadStateConfigReader
 
 type InputItem = shareddto.InputItem
 

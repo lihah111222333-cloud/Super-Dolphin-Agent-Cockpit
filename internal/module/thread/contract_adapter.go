@@ -62,15 +62,6 @@ func NewThreadRuntimeConfigReader(svc Service) contract.ThreadRuntimeConfigReade
 	return &serviceConfigReaderAdapter{svc: svc}
 }
 
-// NewThreadStateRuntimeConfigReader returns a reader for persisted thread-state
-// runtime config that does not require an active provider session.
-func NewThreadStateRuntimeConfigReader(svc Service) contract.ThreadStateRuntimeConfigReader {
-	if svc == nil {
-		return nil
-	}
-	return &serviceConfigReaderAdapter{svc: svc}
-}
-
 func (a *serviceConfigReaderAdapter) GetConfig(ctx context.Context, threadID string) (dto.ThreadConfig, error) {
 	return a.svc.GetConfig(ctx, threadID)
 }

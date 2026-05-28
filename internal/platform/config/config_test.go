@@ -5,9 +5,11 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
+	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
@@ -136,6 +138,59 @@ func TestNew_AllowsEnablingPersistentSubagentDefault(t *testing.T) {
 	}
 }
 
+func TestNew_DefaultsLSPConfig(t *testing.T) {
+	isolateConfigTestEnv(t)
+	cfg := New()
+
+	jsts := cfg.LSP.ProjectAdapters[contract.LSPServiceJSTS]
+	if !slices.Contains(jsts.RootMarkers, "package.json") {
+		t.Fatalf("LSP jsts root markers = %#v, missing package.json", jsts.RootMarkers)
+	}
+	if !slices.Contains(cfg.LSP.NoiseDirNames, "docs") {
+		t.Fatalf("LSP noise dirs = %#v, missing docs", cfg.LSP.NoiseDirNames)
+	}
+	if !slices.Contains(cfg.LSP.GoDirectoryFilters, "-**/docs") {
+		t.Fatalf("LSP gopls directory filters = %#v, missing -**/docs", cfg.LSP.GoDirectoryFilters)
+	}
+	if !slices.Contains(cfg.LSP.GoDirectoryFilters, "-docs") {
+		t.Fatalf("LSP gopls directory filters = %#v, missing -docs", cfg.LSP.GoDirectoryFilters)
+	}
+	if !cfg.LSP.DisableInitialWorkspaceBootstrap {
+		t.Fatal("LSP disable initial workspace bootstrap default = false, want true")
+	}
+}
+
+func TestNew_LoadsLSPConfigFromDotEnv(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("PROJECT_ROOT", root)
+	t.Setenv("GO_AGENT_CTL_RPC_ADDR", "")
+	t.Setenv("DATABASE_URL", "")
+	t.Setenv("POSTGRES_CONNECTION_STRING", "")
+	t.Setenv("LOG_LEVEL", "")
+	clearLSPConfigEnv(t)
+
+	body := strings.Join([]string{
+		"LSP_NOISE_DIRS=docs,.agent",
+		"LSP_GO_DIRECTORY_FILTERS=-**/docs,-**/.agent",
+		"LSP_JSTS_ROOT_MARKERS=custom.workspace,package.json",
+		"LSP_PYTHON_ROOT_MARKERS=pyproject.toml,requirements.txt",
+	}, "\n")
+	if err := os.WriteFile(filepath.Join(root, ".env"), []byte(body+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := New()
+	if got := cfg.LSP.NoiseDirNames; !slices.Equal(got, []string{"docs", ".agent"}) {
+		t.Fatalf("LSP noise dirs = %#v", got)
+	}
+	if got := cfg.LSP.ProjectAdapters[contract.LSPServiceJSTS].RootMarkers; !slices.Equal(got, []string{"custom.workspace", "package.json"}) {
+		t.Fatalf("LSP jsts root markers = %#v", got)
+	}
+	if got := cfg.LSP.ProjectAdapters[contract.LSPServicePython].RootMarkers; !slices.Equal(got, []string{"pyproject.toml", "requirements.txt"}) {
+		t.Fatalf("LSP python root markers = %#v", got)
+	}
+}
+
 func isolateConfigTestEnv(t *testing.T) {
 	t.Helper()
 	t.Setenv("PROJECT_ROOT", t.TempDir())
@@ -144,6 +199,28 @@ func isolateConfigTestEnv(t *testing.T) {
 	t.Setenv("LOG_LEVEL", "")
 	t.Setenv("GO_AGENT_CTL_RPC_ADDR", "")
 	t.Setenv("RPC_ADDR", "")
+	clearLSPConfigEnv(t)
+}
+
+func clearLSPConfigEnv(t *testing.T) {
+	t.Helper()
+	for _, key := range []string{
+		"LSP_NOISE_DIRS",
+		"LSP_GO_DIRECTORY_FILTERS",
+		"LSP_JSTS_ROOT_MARKERS",
+		"LSP_PYTHON_ROOT_MARKERS",
+		"LSP_RUST_ROOT_MARKERS",
+		"LSP_JAVA_ROOT_MARKERS",
+		"LSP_CSS_ROOT_MARKERS",
+		"LSP_JSTS_IGNORED_DIRS",
+		"LSP_PYTHON_IGNORED_DIRS",
+		"LSP_RUST_IGNORED_DIRS",
+		"LSP_JAVA_IGNORED_DIRS",
+		"LSP_CSS_IGNORED_DIRS",
+		"LSP_DISABLE_INITIAL_WORKSPACE_BOOTSTRAP",
+	} {
+		t.Setenv(key, "")
+	}
 }
 
 func restoreConfigLogger(t *testing.T, dst *bytes.Buffer) {

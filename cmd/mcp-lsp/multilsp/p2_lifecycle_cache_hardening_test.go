@@ -134,6 +134,18 @@ func TestInitializeFailureDoesNotLeaveStaleWorkspaceClient(t *testing.T) {
 	}
 }
 
+func TestGoRSSLimitUsesLanguageSpecificDefault(t *testing.T) {
+	if got := rssLimitBytesForLanguage("go"); got != defaultGoRSSLimitBytes {
+		t.Fatalf("rssLimitBytesForLanguage(go) = %d, want %d", got, defaultGoRSSLimitBytes)
+	}
+}
+
+func TestGenericRSSLimitUsesDefaultLimit(t *testing.T) {
+	if got := rssLimitBytesForLanguage("typescript"); got != defaultRSSLimitBytes {
+		t.Fatalf("rssLimitBytesForLanguage(typescript) = %d, want %d", got, defaultRSSLimitBytes)
+	}
+}
+
 func TestReleaseScopeClosesOnlyMatchingAgentThreadClone(t *testing.T) {
 	root := canonicalScopePath(t.TempDir(), "")
 	mgr := newManagerPoolTestManager(t, root)
@@ -176,7 +188,7 @@ func TestReleaseScopeRespectsActiveLeaseBusyOrDrain(t *testing.T) {
 	}
 	mgr.pool.acquire(client)
 
-	busy, err := mgr.pool.ReleaseScope(ReleaseScopeRequest{ScopeKind: ReleaseScopeAgentThread, AgentID: "agent-busy", ThreadID: "thread-1"})
+	busy, err := mgr.pool.ReleaseScope(ReleaseScopeRequest{ScopeKind: ReleaseScopeAgentThread, AgentID: "agent-busy", ThreadID: "thread-1", Reason: "busy_check"})
 	if err != nil {
 		t.Fatalf("ReleaseScope(busy): %v", err)
 	}

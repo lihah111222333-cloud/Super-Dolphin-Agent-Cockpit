@@ -42,3 +42,9 @@ func TestGenericBudgetOverflowSetsSuccessFalse(t *testing.T) {
 		t.Fatalf("original_success = %#v, want true", payload["original_success"])
 	}
 }
+
+func TestGrepToolBudgetIsSixteenKiB(t *testing.T) {
+	if got := ToolBudget("grep"); got != 16*1024 {
+		t.Fatalf("ToolBudget(grep) = %d, want %d", got, 16*1024)
+	}
+}

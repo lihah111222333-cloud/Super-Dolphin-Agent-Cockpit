@@ -7,6 +7,14 @@ import (
 	"strings"
 )
 
+var claudeLatestLongModelAliases = map[string]string{
+	"claude-opus-4-7":       "opus",
+	"claude-opus-4-7[1m]":   "opus[1m]",
+	"claude-sonnet-4-7":     "sonnet",
+	"claude-sonnet-4-7[1m]": "sonnet[1m]",
+	"claude-haiku-4-5":      "haiku",
+}
+
 func claudeContextWindow(runtimeWindow int, model string, history *historyBackend) int {
 	if runtimeWindow > 0 {
 		return runtimeWindow
@@ -27,6 +35,9 @@ func sanitizeClaudeModel(model string) string {
 	case "", "[object object]", "undefined", "null":
 		return ""
 	default:
+		if alias := claudeLatestLongModelAliases[strings.ToLower(model)]; alias != "" {
+			return alias
+		}
 		return model
 	}
 }

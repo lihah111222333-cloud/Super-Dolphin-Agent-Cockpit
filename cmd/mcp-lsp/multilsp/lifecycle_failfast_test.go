@@ -36,6 +36,52 @@ func TestEnsureClientForLanguageReturnsBootstrapDidOpenError(t *testing.T) {
 	}
 }
 
+func TestEnsureClientSkipsInitialWorkspaceBootstrapWhenDisabled(t *testing.T) {
+	root := t.TempDir()
+	writeGenericTestFile(t, filepath.Join(root, "package.json"), `{"name":"lazy-bootstrap"}`)
+	writeGenericTestFile(t, filepath.Join(root, "app.js"), "const value = 1\n")
+	factory := &recordingClientFactory{}
+	mgr := NewManager(Config{
+		WorkspaceRoot:                    root,
+		ClientFactory:                    factory,
+		LanguageAdapters:                 NewDefaultLanguageAdapterRegistry(),
+		DisableInitialWorkspaceBootstrap: true,
+	}).(*manager)
+	t.Cleanup(func() { _ = mgr.Close() })
+
+	_, err := mgr.EnsureClient(common.WithToolScope(context.Background(), common.ToolScope{CWD: root}), "", "javascript")
+	if err != nil {
+		t.Fatalf("EnsureClient() error = %v", err)
+	}
+	client := requireRecordingClient(t, factory)
+	if got := client.openCount(); got != 0 {
+		t.Fatalf("EnsureClient() opened %d documents during initial bootstrap, want 0", got)
+	}
+}
+
+func TestEnsureClientBootstrapCanBeReEnabled(t *testing.T) {
+	root := t.TempDir()
+	writeGenericTestFile(t, filepath.Join(root, "package.json"), `{"name":"eager-bootstrap"}`)
+	writeGenericTestFile(t, filepath.Join(root, "app.js"), "const value = 1\n")
+	factory := &recordingClientFactory{}
+	mgr := NewManager(Config{
+		WorkspaceRoot:                    root,
+		ClientFactory:                    factory,
+		LanguageAdapters:                 NewDefaultLanguageAdapterRegistry(),
+		DisableInitialWorkspaceBootstrap: false,
+	}).(*manager)
+	t.Cleanup(func() { _ = mgr.Close() })
+
+	_, err := mgr.EnsureClient(common.WithToolScope(context.Background(), common.ToolScope{CWD: root}), "", "javascript")
+	if err != nil {
+		t.Fatalf("EnsureClient() error = %v", err)
+	}
+	client := requireRecordingClient(t, factory)
+	if got := client.openCount(); got != 1 {
+		t.Fatalf("EnsureClient() opened %d documents during enabled bootstrap, want 1", got)
+	}
+}
+
 type legacyClientFactory struct{}
 
 func (legacyClientFactory) NewClient(string, protocol.NotificationHandler) (Client, error) {

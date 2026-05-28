@@ -14,13 +14,21 @@ import (
 	"time"
 )
 
-const discoveryDir = "/tmp"
+const fallbackDiscoveryDir = "/tmp"
 const peerHealthProbeTimeout = 250 * time.Millisecond
 
+func discoveryRootDir() string {
+	dir := strings.TrimSpace(os.TempDir())
+	if dir == "" {
+		return filepath.Clean(fallbackDiscoveryDir)
+	}
+	return filepath.Clean(dir)
+}
+
 // discoveryPath returns the conventional path for the peer discovery file.
-// Format: /tmp/super-agent-mcp-{binary}-{parentPID}.port
+// Format: <temp>/super-agent-mcp-{binary}-{parentPID}.port
 func discoveryPath(binaryName string, parentPID int) string {
-	return filepath.Join(discoveryDir,
+	return filepath.Join(discoveryRootDir(),
 		fmt.Sprintf("super-agent-mcp-%s-%d.port", binaryName, parentPID))
 }
 

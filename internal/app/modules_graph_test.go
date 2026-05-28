@@ -9,6 +9,7 @@ import (
 	"github.com/kelindar/event"
 	"go.uber.org/fx"
 
+	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	"github.com/anthropic-ai/super-agent-v3/internal/module/turn"
 	uiwails "github.com/anthropic-ai/super-agent-v3/internal/ui/wails"
 )
@@ -55,11 +56,13 @@ func appGraphValidationOptions() []fx.Option {
 
 	// Silent logger so the dry-run doesn't spam stderr.
 	_ = slog.New(slog.NewTextHandler(io.Discard, nil))
+	var stateReader contract.ThreadStateConfigReader
 
 	return []fx.Option{
 		Module,
 		uiwails.Module,
 		frontend,
+		fx.Populate(&stateReader),
 		fx.Invoke(BindRuntime),
 	}
 }

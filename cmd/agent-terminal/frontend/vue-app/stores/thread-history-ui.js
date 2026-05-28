@@ -390,13 +390,15 @@ export function applyImmediateTimelineFromMessages({ threadId, response, state, 
         const incomingItem = timeline[lastIncomingAssistantIndex];
         const streamingText = (localStreamingItem.text || '').trim();
         const incomingText = (incomingItem.text || '').trim();
-        const matchLen = Math.min(10, Math.min(streamingText.length, incomingText.length));
-        if (matchLen > 0 && (streamingText.startsWith(incomingText.slice(0, matchLen)) || incomingText.startsWith(streamingText.slice(0, matchLen)))) {
+        const shortPrefixMatchLen = Math.min(10, Math.min(streamingText.length, incomingText.length));
+        const overlapMatch = streamingText && incomingText
+          && (streamingText.includes(incomingText) || incomingText.includes(streamingText));
+        const prefixMatch = shortPrefixMatchLen > 0
+          && (streamingText.startsWith(incomingText.slice(0, shortPrefixMatchLen)) || incomingText.startsWith(streamingText.slice(0, shortPrefixMatchLen)));
+        if (overlapMatch || prefixMatch) {
           if (incomingText.length > streamingText.length) {
-            // DB is ahead (rare but possible). Mark incoming as streaming and drop local.
             incomingItem.done = false;
           } else {
-            // Local is ahead or equal. Drop incoming and keep local buffer.
             timeline.splice(lastIncomingAssistantIndex, 1);
             localStreamingItemToPreserve = localStreamingItem;
           }

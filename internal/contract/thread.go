@@ -69,8 +69,8 @@ type ThreadRuntimeConfigReader interface {
 	ReadRuntimeConfigs(ctx context.Context, threadIDs []string) (map[string]map[string]any, error)
 }
 
-// ThreadStateRuntimeConfigReader reads persisted thread-state runtime config
-// without requiring an active provider session.
-type ThreadStateRuntimeConfigReader interface {
+// ThreadStateConfigReader reads the persisted thread runtime config
+// without requiring a live provider session runtime snapshot.
+type ThreadStateConfigReader interface {
 	ReadThreadStateRuntimeConfig(ctx context.Context, threadID string) (map[string]any, error)
 }

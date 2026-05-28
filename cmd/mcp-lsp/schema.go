@@ -49,7 +49,7 @@ var lspFileSchema = objectSchema(map[string]schema{
 	"file_paths":  arrayOfStringsProp("Multiple file paths for batch read or diagnostics filtering"),
 	"language_id": stringProp("Optional trusted language adapter override for open_file/diagnostics routing"),
 	"offset":      integerProp("Start line (1-based, default 1)"),
-	"limit":       integerProp("Max lines, default 300"),
+	"limit":       integerProp("Max lines, default 250"),
 }, "action")
 
 var lspInspectSchema = objectSchema(map[string]schema{
@@ -80,7 +80,7 @@ var lspGrepSchema = objectSchema(map[string]schema{
 	"language":       stringProp("Language for AST"),
 	"regex":          booleanProp("Regex mode (default: literal)"),
 	"case_sensitive": booleanProp("Case sensitive (text_search only)"),
-	"max_results":    integerProp("Max matches"),
+	"max_results":    integerProp("Max matches (default 50, cap 50)"),
 }, "action")
 
 var lspGrepOutputSchema = schema{

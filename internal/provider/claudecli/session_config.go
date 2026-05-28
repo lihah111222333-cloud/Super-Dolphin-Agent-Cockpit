@@ -122,9 +122,7 @@ var claudeAllowedModels = []string{
 	"haiku",
 	"opus",
 	"opus[1m]",
-	// Explicit version slugs — let users pin a specific version.
-	"claude-opus-4-7",
-	"claude-opus-4-7[1m]",
+	// Explicit version slugs let users pin older versions; latest families use aliases.
 	"claude-opus-4-6",
 	"claude-opus-4-6[1m]",
 	"claude-sonnet-4-6",
@@ -135,7 +133,7 @@ func (s *session) AllowedModels(context.Context) ([]string, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	models := append([]string(nil), claudeAllowedModels...)
-	current := s.effectiveModelLocked()
+	current := claudeLaunchDisplayModel(s.effectiveModelLocked(), s.history)
 	if current == "" || modelAllowed(current, models) {
 		return models, nil
 	}

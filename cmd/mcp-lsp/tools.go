@@ -30,7 +30,7 @@ var lspToolManifests = []ToolManifest{
 	toolManifestWithSchema("file", "File: read_file (offset/limit paging), open_file, diagnostics. Batch: file_paths. For locating code, prefer grep first.", lspFileSchema),
 	toolManifestWithSchema("inspect", "Hover/definition/implementation/type_definition/signature_help at file:line:column (1-based). Use before editing to verify types and signatures.", lspInspectSchema),
 	toolManifestWithSchema("xref", "References/call_hierarchy/type_hierarchy. verbosity=compact(default)|full, max_results cap 50. Use before renaming or refactoring to find all references.", lspXrefSchema),
-	toolManifestWithOutputSchema("grep", "Search codebase: text_search (literal default, regex=true) or ast_search. Returns 1-based file:line:col.", lspGrepSchema, lspGrepOutputSchema),
+	toolManifestWithOutputSchema("grep", "Search codebase: text_search (literal default, regex=true) or ast_search. Default/cap max_results=50; snippets cap at 150 chars; payload target is 16KB and drops rows when needed. Returns 1-based file:line:col.", lspGrepSchema, lspGrepOutputSchema),
 	toolManifestWithSchema("structure", "Document/workspace symbols, folding ranges, semantic tokens. Use to understand file structure before targeted edits.", lspStructureSchema),
 	toolManifestWithSchema("edit", "Edit: applies a patch to disk, then re-reads the file to sync the LSP document cache. Before editing, use grep to locate and inspect or xref to verify context.", lspEditSchema),
 	toolManifestWithSchema("completion", "Request code completions via LSP. Use to discover available APIs and method signatures.", lspCompletionSchema),
