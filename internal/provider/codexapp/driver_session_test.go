@@ -233,6 +233,25 @@ func TestBuildThreadStartParamsUsesStartAssemblyInstructions(t *testing.T) {
 	}
 }
 
+func TestBuildThreadStartParamsUsesCodexModelProviderForCLI(t *testing.T) {
+	t.Parallel()
+
+	params := (&driver{}).buildThreadStartParams(dto.StartSessionRequest{
+		Provider: "codex",
+		CWD:      "/repo",
+		Model:    "gpt-5.5",
+		Config: map[string]any{
+			"provider":           "codex",
+			"modelProvider":      "codex",
+			"codexModelProvider": "openai",
+		},
+	})
+
+	if params.ModelProvider != "openai" {
+		t.Fatalf("ModelProvider = %q, want codexModelProvider value openai", params.ModelProvider)
+	}
+}
+
 func TestBuildThreadStartParamsIncludesStartRuntimeContext(t *testing.T) {
 	t.Parallel()
 
