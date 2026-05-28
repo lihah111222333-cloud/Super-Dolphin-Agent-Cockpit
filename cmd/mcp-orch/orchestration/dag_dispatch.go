@@ -143,7 +143,6 @@ func (s *service) assignAndPersist(ctx context.Context, target *taskdag.Node, as
 // enqueueManualDispatchWakeup 构建 idempotency_key 并入队 manual_dispatch wakeup。
 // 同 assignee 多次 dispatch 被 ON CONFLICT 去重；换 assignee 重试得到新 row。
 func (s *service) enqueueManualDispatchWakeup(ctx context.Context, dagKey, nodeKey string, runID int64, assignedTo string) (int64, error) {
-	idempotencyKey := fmt.Sprintf("%s:%s:%d:%s:%s", dispatchNodeWakeupKind, dagKey, runID, nodeKey, assignedTo)
 	payload, err := json.Marshal(taskdag.DownstreamWakeupPayload{AgentID: assignedTo})
 	if err != nil {
 		return 0, fmt.Errorf("orchestration: DispatchNode marshal payload: %w", err)
@@ -155,7 +154,7 @@ func (s *service) enqueueManualDispatchWakeup(ctx context.Context, dagKey, nodeK
 		WakeupKind:     dispatchNodeWakeupKind,
 		TargetAgentID:  assignedTo,
 		PromptPayload:  payload,
-		IdempotencyKey: idempotencyKey,
+		IdempotencyKey: taskdag.ManualDispatchIdempotencyKey(dagKey, nodeKey, runID, assignedTo),
 	})
 	if err != nil {
 		return 0, fmt.Errorf("orchestration: DispatchNode enqueue %s/%s: %w", dagKey, nodeKey, err)

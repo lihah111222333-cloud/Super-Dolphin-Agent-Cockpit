@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"strings"
 	"testing"
 	"time"
 
@@ -199,6 +200,54 @@ func TestDriverResumeSessionPublishesPublicThreadID(t *testing.T) {
 	}
 	assertResumedSessionIDs(t, resumed, "provider-thread-1", "thread-public")
 	assertAgentLaunchedEvents(t, got, 2, "thread-public", "provider-thread-1")
+}
+
+func TestDriverResumeSessionAppliesRuntimeToolSafetyConfig(t *testing.T) {
+	next := newBufferedTransport(t, "provider-thread-tools")
+	var launchedConfig cliLaunchConfig
+	overrideLaunchCLI(t, func(_, _, _ string, _ string, cfg cliLaunchConfig, _ dto.MCPManifest, _ string) (*transport, func(), error) {
+		launchedConfig = cfg
+		return next.tr, nil, nil
+	})
+
+	d := &driver{mirror: &recordingMirrorReconciler{}}
+	_, err := d.ResumeSession(context.Background(), dto.ResumeSessionRequest{
+		Provider:         "claude",
+		AgentID:          "agent-1",
+		ThreadID:         "thread-public",
+		ProviderThreadID: "provider-thread-tools",
+		CWD:              t.TempDir(),
+		Config: map[string]any{
+			"builtinTools":                []any{"Read", "Skill", "Task"},
+			"disallowedTools":             []any{"Bash"},
+			"additionalDisallowedTools":   []any{"WebFetch"},
+			"disableProviderNativeSkills": true,
+			"developerInstructions":       "runtime dev",
+			"providerNativeSkillsIgnored": "keeps unrelated keys harmless",
+		},
+	})
+	if err != nil {
+		t.Fatalf("ResumeSession() error = %v", err)
+	}
+	if !launchedConfig.DisableProviderNativeSkills {
+		t.Fatal("DisableProviderNativeSkills = false, want true")
+	}
+	args := buildCLIArgs("claude-sonnet", "system", "", launchedConfig)
+	if values := flagValues(args, "--tools"); len(values) != 1 || values[0] != "Read,Task" {
+		t.Fatalf("--tools = %#v from resumed config, want [Read,Task]", values)
+	}
+	if values := flagValues(args, "--disallowedTools"); len(values) != 0 {
+		t.Fatalf("--disallowedTools = %#v, want --tools allowlist path", values)
+	}
+	if strings.Join(launchedConfig.DisallowedTools, ",") != "Bash" {
+		t.Fatalf("DisallowedTools = %#v, want [Bash]", launchedConfig.DisallowedTools)
+	}
+	if strings.Join(launchedConfig.AdditionalDisallowedTools, ",") != "WebFetch" {
+		t.Fatalf("AdditionalDisallowedTools = %#v, want [WebFetch]", launchedConfig.AdditionalDisallowedTools)
+	}
+	if launchedConfig.DeveloperInstructions != "runtime dev" {
+		t.Fatalf("DeveloperInstructions = %q, want runtime dev", launchedConfig.DeveloperInstructions)
+	}
 }
 
 func TestDriverResumeSessionRehydratesClaudeOverrideState(t *testing.T) {

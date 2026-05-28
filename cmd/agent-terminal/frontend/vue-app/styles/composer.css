@@ -1015,38 +1015,3 @@ button.composer-token-chip:hover:not(:disabled):not(.is-success):not(.is-error) 
   background: rgba(255, 103, 100, 0.20);
   font-weight: 700;
 }
-
-/* Phase 2.4 「转为自动任务」按钮视觉差异化：跟相邻的 token chip / 模型 chip
-   不再是三胞胎，蓝色 outlined-primary 视觉让用户一眼分得出这是「主动按钮」
-   而非纯展示型 chip。继承 .composer-token-chip 的尺寸/形状（22px pill）
-   保证布局对齐。 */
-.composer-promote-chip {
-  cursor: pointer;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  height: 22px;
-  box-sizing: border-box;
-  border: 1px solid rgba(96, 165, 250, 0.55) !important;
-  background: rgba(96, 165, 250, 0.12) !important;
-  color: rgb(147, 197, 253) !important;
-  font-weight: 600;
-  transition: background 0.2s ease, border-color 0.2s ease, color 0.2s ease;
-}
-.composer-promote-chip:hover:not(:disabled) {
-  background: rgba(96, 165, 250, 0.22) !important;
-  border-color: rgba(96, 165, 250, 0.85) !important;
-  color: rgb(191, 219, 254) !important;
-}
-.composer-promote-chip:disabled {
-  opacity: 0.55;
-  cursor: not-allowed;
-}
-.composer-promote-chip-icon {
-  width: 13px;
-  height: 13px;
-  opacity: 0.95;
-  margin-right: 4px;
-  margin-top: -1px;
-  flex: 0 0 auto;
-}

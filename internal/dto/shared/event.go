@@ -122,6 +122,8 @@ type TaskDAGHeader struct {
 type TaskNodeHeader struct {
 	TaskDAGHeader
 	NodeKey string `json:"node_key"`
+	RunID   int64  `json:"run_id,omitempty"`
+	RunKey  string `json:"run_key,omitempty"`
 }
 
 // TaskWakeupHeader identifies a DAG wakeup-scoped task event.

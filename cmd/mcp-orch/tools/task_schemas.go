@@ -1,0 +1,279 @@
+package tools
+
+import (
+	"encoding/json"
+	"fmt"
+	"strings"
+
+	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/orchestration/nodeexec"
+	"github.com/anthropic-ai/super-agent-v3/internal/contract"
+)
+
+var applyOpsOpEnum = []string{
+	string(nodeexec.OpKindUpdateDAG),
+	string(nodeexec.OpKindAddNode),
+	string(nodeexec.OpKindUpdateNode),
+	string(nodeexec.OpKindRemoveNode),
+}
+
+func applyOpsOpSchema() Schema {
+	return ObjectSchema(map[string]Schema{
+		"op": EnumStringSchema("Operation discriminator.", applyOpsOpEnum...),
+		"node": ObjectSchema(map[string]Schema{
+			"node_key":   StringSchema("Node key for add_node."),
+			"title":      StringSchema("Node title for add_node."),
+			"node_type":  EnumStringSchema("Node type for add_node.", "agent", "automation", "hybrid"),
+			"depends_on": ArraySchema(StringSchema("Dependency node key."), "Dependency node keys."),
+			"config":     RawObjectSchema("Optional node config for add_node."),
+		}, "node_key", "title", "node_type"),
+		"node_key": StringSchema("Target node key for update_node/remove_node."),
+		"patch":    RawObjectSchema("Patch object for update_dag or update_node."),
+	}, "op")
+}
+
+func createDAGSchema() Schema {
+	return ObjectSchema(map[string]Schema{
+		"agent_id":    StringSchema("Creator orchestration agent ID."),
+		"dag_key":     StringSchema("Unique DAG key."),
+		"title":       StringSchema("DAG title."),
+		"description": StringSchema("Optional DAG description."),
+		"schedule": ObjectSchema(map[string]Schema{
+			"trigger":             StringSchema("Start trigger."),
+			"default_retry":       IntegerSchema("Default retry count for nodes."),
+			"default_timeout_sec": IntegerSchema("Default node timeout in seconds."),
+			"fail_fast":           BooleanSchema("Stop scheduling new nodes on first failure."),
+			"max_concurrency":     IntegerSchema("Maximum parallel runnable nodes."),
+			"queue_policy":        StringSchema("Ready-queue policy."),
+		}),
+		"final_node_key": StringSchema("Optional node_key that produces the run-level final_output."),
+		"nodes": ArraySchema(ObjectSchema(map[string]Schema{
+			"node_key":    StringSchema("Unique node key within the DAG."),
+			"title":       StringSchema("Node title."),
+			"node_type":   StringSchema("Optional node type."),
+			"assigned_to": StringSchema("Optional assignee."),
+			"depends_on":  ArraySchema(StringSchema("Dependency node key."), "Node dependency keys."),
+			"command_ref": StringSchema("Optional command card key."),
+			"config":      RawObjectSchema("Optional full node config; for automation nodes use config.exec.command_ref to make the node executable."),
+			"execution": ObjectSchema(map[string]Schema{
+				"on_failure":  StringSchema("Failure policy override."),
+				"pool":        StringSchema("Execution pool name."),
+				"priority":    IntegerSchema("Queue priority."),
+				"retry":       IntegerSchema("Retry override."),
+				"timeout_sec": IntegerSchema("Timeout override in seconds."),
+			}),
+		}, "node_key", "title"), "Optional DAG nodes."),
+	}, "agent_id", "dag_key", "title", "schedule")
+}
+
+func createDAGRequestFromInput(in CreateDAGInput) (contract.CreateDAGRequest, error) {
+	// Preserve schedule in DAG metadata until the service contract grows a
+	// first-class schedule field.
+	agentID, err := requireTrimmed(in.AgentID, "agent_id")
+	if err != nil {
+		return contract.CreateDAGRequest{}, err
+	}
+	dagKey, err := requireTrimmed(in.DagKey, "dag_key")
+	if err != nil {
+		return contract.CreateDAGRequest{}, err
+	}
+	title, err := requireTrimmed(in.Title, "title")
+	if err != nil {
+		return contract.CreateDAGRequest{}, err
+	}
+	nodes, err := createDAGNodesFromInput(in.Nodes)
+	if err != nil {
+		return contract.CreateDAGRequest{}, err
+	}
+	finalNodeKey, err := normalizeFinalNodeKey(in.FinalNodeKey, nodes)
+	if err != nil {
+		return contract.CreateDAGRequest{}, err
+	}
+	metadata, err := encodeJSONRaw(createDAGMetadata(in.Schedule, finalNodeKey))
+	if err != nil {
+		return contract.CreateDAGRequest{}, err
+	}
+	return contract.CreateDAGRequest{
+		DagKey:      dagKey,
+		Title:       title,
+		Description: strings.TrimSpace(in.Description),
+		CreatedBy:   agentID,
+		Metadata:    metadata,
+		Nodes:       nodes,
+	}, nil
+}
+
+func createDAGNodesFromInput(nodes []CreateDAGNodeInput) ([]contract.CreateDAGNodeRequest, error) {
+	mapped := make([]contract.CreateDAGNodeRequest, 0, len(nodes))
+	for i, node := range nodes {
+		nodeKey, err := requireTrimmed(node.NodeKey, fmt.Sprintf("nodes[%d].node_key", i))
+		if err != nil {
+			return nil, err
+		}
+		title, err := requireTrimmed(node.Title, fmt.Sprintf("nodes[%d].title", i))
+		if err != nil {
+			return nil, err
+		}
+		config, err := createDAGNodeConfig(node)
+		if err != nil {
+			return nil, err
+		}
+		mapped = append(mapped, contract.CreateDAGNodeRequest{
+			NodeKey:    nodeKey,
+			Title:      title,
+			NodeType:   strings.TrimSpace(node.NodeType),
+			AssignedTo: strings.TrimSpace(node.AssignedTo),
+			DependsOn:  append([]string(nil), node.DependsOn...),
+			CommandRef: strings.TrimSpace(node.CommandRef),
+			Config:     config,
+		})
+	}
+	return mapped, nil
+}
+
+// createDAGMetadata 把 schedule 字段编码为 DAG metadata JSON 子树。
+// 旧版 metadata 字段 (S15.1 删除 / migrations/0075_dag_v2_compat.sql 迁移) 不再处理：
+// 数据库老行已一次性映射到 trigger 一等字段，tools 入参 schema 不再接受，
+// 调用方如果传入会被忽略（向后兼容）。
+func createDAGMetadata(schedule DAGScheduleInput, finalNodeKey string) map[string]any {
+	metadata := map[string]any{"schedule": scheduleMap(schedule)}
+	if finalNodeKey != "" {
+		metadata["final_node_key"] = finalNodeKey
+	}
+	return metadata
+}
+
+func normalizeFinalNodeKey(raw string, nodes []contract.CreateDAGNodeRequest) (string, error) {
+	finalNodeKey := strings.TrimSpace(raw)
+	if finalNodeKey == "" {
+		return "", nil
+	}
+	for _, node := range nodes {
+		if node.NodeKey == finalNodeKey {
+			return finalNodeKey, nil
+		}
+	}
+	return "", fmt.Errorf("final_node_key %s does not match any node_key", finalNodeKey)
+}
+
+func createDAGNodeConfig(node CreateDAGNodeInput) (json.RawMessage, error) {
+	commandRef := strings.TrimSpace(node.CommandRef)
+	isAutomation := strings.TrimSpace(node.NodeType) == "automation"
+	if hasExplicitRawJSON(node.Config) {
+		if isAutomation && commandRef != "" {
+			return mergeAutomationCommandRef(node.Config, commandRef)
+		}
+		return append(json.RawMessage(nil), node.Config...), nil
+	}
+	config := nodeConfig(node.Execution)
+	if isAutomation && commandRef != "" {
+		var err error
+		config, err = upsertAutomationCommandRef(config, commandRef)
+		if err != nil {
+			return nil, err
+		}
+	}
+	return encodeJSONRaw(config)
+}
+
+func mergeAutomationCommandRef(raw json.RawMessage, commandRef string) (json.RawMessage, error) {
+	var config map[string]any
+	if err := json.Unmarshal(raw, &config); err != nil {
+		return nil, fmt.Errorf("decode node config for command_ref merge: %w", err)
+	}
+	var err error
+	config, err = upsertAutomationCommandRef(config, commandRef)
+	if err != nil {
+		return nil, err
+	}
+	return encodeJSONRaw(config)
+}
+
+func upsertAutomationCommandRef(config map[string]any, commandRef string) (map[string]any, error) {
+	if config == nil {
+		config = make(map[string]any)
+	}
+	execRaw, hasExec := config["exec"]
+	exec, _ := execRaw.(map[string]any)
+	if hasExec && exec == nil {
+		return nil, fmt.Errorf("node config exec must be an object when command_ref is set")
+	}
+	if exec == nil {
+		exec = make(map[string]any)
+		config["exec"] = exec
+	}
+	kind := strings.TrimSpace(stringValue(exec["kind"]))
+	if kind == "" {
+		exec["kind"] = "command_card"
+	} else if kind != "command_card" {
+		return nil, fmt.Errorf("node config exec.kind %q conflicts with command_ref shortcut", kind)
+	}
+	existingCommandRef := strings.TrimSpace(stringValue(exec["command_ref"]))
+	if existingCommandRef == "" {
+		exec["command_ref"] = commandRef
+	} else if existingCommandRef != commandRef {
+		return nil, fmt.Errorf("node config exec.command_ref %q conflicts with command_ref %q", existingCommandRef, commandRef)
+	}
+	return config, nil
+}
+
+func stringValue(value any) string {
+	if text, ok := value.(string); ok {
+		return text
+	}
+	return ""
+}
+
+func hasExplicitRawJSON(raw json.RawMessage) bool {
+	trimmed := strings.TrimSpace(string(raw))
+	return trimmed != "" && trimmed != "null"
+}
+
+func nodeConfig(execution *DAGExecutionInput) map[string]any {
+	if execution == nil {
+		return nil
+	}
+	return map[string]any{"execution": executionMap(*execution)}
+}
+
+func scheduleMap(in DAGScheduleInput) map[string]any {
+	payload := make(map[string]any)
+	if in.Trigger != "" {
+		payload["trigger"] = strings.TrimSpace(in.Trigger)
+	}
+	if in.DefaultRetry != 0 {
+		payload["default_retry"] = in.DefaultRetry
+	}
+	if in.DefaultTimeoutSec != 0 {
+		payload["default_timeout_sec"] = in.DefaultTimeoutSec
+	}
+	if in.FailFast {
+		payload["fail_fast"] = true
+	}
+	if in.MaxConcurrency != 0 {
+		payload["max_concurrency"] = in.MaxConcurrency
+	}
+	if in.QueuePolicy != "" {
+		payload["queue_policy"] = strings.TrimSpace(in.QueuePolicy)
+	}
+	return payload
+}
+
+func executionMap(in DAGExecutionInput) map[string]any {
+	payload := make(map[string]any)
+	if in.OnFailure != "" {
+		payload["on_failure"] = strings.TrimSpace(in.OnFailure)
+	}
+	if in.Pool != "" {
+		payload["pool"] = strings.TrimSpace(in.Pool)
+	}
+	if in.Priority != 0 {
+		payload["priority"] = in.Priority
+	}
+	if in.Retry != 0 {
+		payload["retry"] = in.Retry
+	}
+	if in.TimeoutSec != 0 {
+		payload["timeout_sec"] = in.TimeoutSec
+	}
+	return payload
+}

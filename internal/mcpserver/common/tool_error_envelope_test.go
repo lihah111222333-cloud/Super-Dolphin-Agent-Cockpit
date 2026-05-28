@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
+	"github.com/jackc/pgx/v5/pgconn"
 )
 
 func TestClassifyToolErrorLaunchCWDRequired(t *testing.T) {
@@ -42,21 +43,6 @@ func TestClassifyToolErrorLaunchProviderInvalid(t *testing.T) {
 	}
 }
 
-func TestClassifyToolErrorLaunchTaskHandoffInvalid(t *testing.T) {
-	for _, message := range []string{
-		`root task id missing on thread "agent-parent"`,
-		`task handoff title is required for task "task-demo"`,
-		`task handoff file is required for task "task-demo"`,
-		`task handoff config "taskId" must be a string`,
-		`task handoff config "continueTask" must be a bool`,
-	} {
-		t.Run(message, func(t *testing.T) {
-			env := NewToolErrorEnvelope("launch_agent", errors.New(message))
-			assertLaunchToolError(t, env, "task_handoff_invalid")
-		})
-	}
-}
-
 func TestClassifyToolErrorLaunchRequestInvalid(t *testing.T) {
 	for _, message := range []string{
 		"name is required",
@@ -66,6 +52,86 @@ func TestClassifyToolErrorLaunchRequestInvalid(t *testing.T) {
 			env := NewToolErrorEnvelope("launch_agent", errors.New(message))
 			assertLaunchToolError(t, env, "launch_request_invalid")
 		})
+	}
+}
+
+func TestClassifyToolErrorDAGApplyOpsInvalidInput(t *testing.T) {
+	env := NewToolErrorEnvelope(
+		"task_dag_apply_ops",
+		errors.New("orchestration: apply_ops invalid request: ops[0]: missing 'op' discriminator"),
+	)
+	if env.Code != "invalid_input" {
+		t.Fatalf("Code = %q, want invalid_input", env.Code)
+	}
+	if env.Retryable {
+		t.Fatal("Retryable = true, want false")
+	}
+	if strings.Contains(strings.ToLower(env.Hint), "lsp") {
+		t.Fatalf("Hint = %q, must not mention lsp", env.Hint)
+	}
+}
+
+func TestClassifyToolErrorDAGNoRowsDoesNotUseLSP(t *testing.T) {
+	env := NewToolErrorEnvelope(
+		"task_get_dag",
+		errors.New("get dag version for detail: get_version task_dag: no rows in result set"),
+	)
+	if env.Code != "file_not_found" {
+		t.Fatalf("Code = %q, want file_not_found", env.Code)
+	}
+	if env.Retryable {
+		t.Fatal("Retryable = true, want false")
+	}
+	if strings.Contains(strings.ToLower(env.Hint), "lsp") {
+		t.Fatalf("Hint = %q, must not mention lsp", env.Hint)
+	}
+}
+
+func TestClassifyToolErrorPostgresUndefinedTableDoesNotUseLSP(t *testing.T) {
+	env := NewToolErrorEnvelope(
+		"task_list_dags",
+		&pgconn.PgError{Code: "42P01", Message: `relation "task_dags" does not exist`},
+	)
+	if env.Code != "database_schema_missing" {
+		t.Fatalf("Code = %q, want database_schema_missing", env.Code)
+	}
+	if env.Retryable {
+		t.Fatal("Retryable = true, want false")
+	}
+	hint := strings.ToLower(env.Hint)
+	for _, forbidden := range []string{"lsp", "language server"} {
+		if strings.Contains(hint, forbidden) {
+			t.Fatalf("Hint = %q, must not mention %s", env.Hint, forbidden)
+		}
+	}
+}
+
+func TestClassifyToolErrorTaskUpdateNodeTransitionInvalidInput(t *testing.T) {
+	env := NewToolErrorEnvelope(
+		"task_update_node",
+		errors.New(`transition: "ready" → "done" 非法 (见 nodeexec/status.go legalTransitions)`),
+	)
+	if env.Code != "invalid_input" {
+		t.Fatalf("Code = %q, want invalid_input", env.Code)
+	}
+	if env.Retryable {
+		t.Fatal("Retryable = true, want false")
+	}
+	hint := strings.ToLower(env.Hint)
+	for _, forbidden := range []string{"lsp", "language server"} {
+		if strings.Contains(hint, forbidden) {
+			t.Fatalf("Hint = %q, must not mention %s", env.Hint, forbidden)
+		}
+	}
+}
+
+func TestClassifyToolErrorNonUpdateNodeTransitionDoesNotBecomeInvalidInput(t *testing.T) {
+	env := NewToolErrorEnvelope(
+		"task_start_dag",
+		errors.New(`transition: "ready" → "done" 非法 (见 nodeexec/status.go legalTransitions)`),
+	)
+	if env.Code == "invalid_input" {
+		t.Fatalf("Code = %q, want non-invalid_input for non task_update_node transition errors", env.Code)
 	}
 }
 

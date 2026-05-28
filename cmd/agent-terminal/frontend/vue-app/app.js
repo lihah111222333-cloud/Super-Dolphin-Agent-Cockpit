@@ -2,12 +2,9 @@ import { ref, reactive, computed, onMounted, onBeforeUnmount, watch } from '../l
 import { callAPI, getBuildInfo, onBridgeEvent, onAppWillQuit } from './services/api.js';
 import { SidebarNav } from './components/SidebarNav.js';
 import { ProjectModal } from './components/ProjectModal.js';
-import { DagDetailModal } from './components/DagDetailModal.js';
 import { DagsPage } from './pages/DagsPage.js';
-import { useDagDetail } from './composables/useDagDetail.js';
 import { UnifiedChatPage } from './pages/UnifiedChatPage.js';
 import { ensureThreadSelectionFresh, isStaleThreadSelectionError, requestHistoryLoad } from './utils/thread-page-utils.js';
-import { DataPage } from './pages/DataPage.js';
 import { SkillsPage } from './pages/SkillsPage.js';
 import { TasksPage } from './pages/TasksPage.js';
 import { CommandsPage } from './pages/CommandsPage.js';
@@ -18,6 +15,7 @@ import { SharedFilesPage } from './pages/SharedFilesPage.js';
 import { useProjectStore } from './stores/projects.js';
 import { useThreadStore } from './stores/threads.js';
 import { resolveProjectActionCwd } from './composables/useThreadActions.js';
+import { requireDagNodeStatusPayload } from './composables/useDagStatusEventBridge.js';
 
 /**
  * @typedef {'chat' | 'agents' | 'dags' | 'tasks' | 'skills' | 'commands' | 'memory-center' | 'memory' | 'settings'} AppPage
@@ -27,11 +25,21 @@ import { resolveProjectActionCwd } from './composables/useThreadActions.js';
  * @typedef {{ type?: string, method?: string, params?: { type?: string, method?: string }, payload?: { type?: string, method?: string }, data?: { type?: string, method?: string } }} BridgeEventEnvelope
  */
 const REFRESH_INTERVAL_MS = 10000;
+const DAG_DESIGNER_ENABLED_TOOLS = Object.freeze([
+  'list_models',
+  'prompt_list',
+  'command_list',
+  'shared_file_list',
+  'task_create_dag',
+  'task_get_dag',
+  'task_dag_apply_ops',
+  'task_start_dag',
+]);
 
 const NAV_ITEMS = Object.freeze([
   { key: 'chat', icon: '💬', label: 'Chat' },
   { key: 'prompts', icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><path d="M12 18v-6"/><path d="M9 15l3-3 3 3"/></svg>', label: '提示词' },
-  { key: 'dags', icon: 'D', label: 'DAG' },
+  { key: 'dags', icon: 'D', label: '任务流程' },
   { key: 'tasks', icon: 'T', label: '任务' },
   { key: 'skills', icon: 'S', label: '技能' },
   { key: 'commands', icon: 'C', label: '命令' },
@@ -42,12 +50,6 @@ const NAV_ITEMS = Object.freeze([
 
 const AGENTS_FIELDS = Object.freeze([
   { key: 'agent_id', label: 'Agent' },
-  { key: 'status', label: '状态' },
-  { key: 'updated_at', label: '更新时间' },
-]);
-
-const DAGS_FIELDS = Object.freeze([
-  { key: 'dag_key', label: 'DAG' },
   { key: 'status', label: '状态' },
   { key: 'updated_at', label: '更新时间' },
 ]);
@@ -168,21 +170,26 @@ function applyMemoryCenterSnapshot(state, snapshot) {
 export function routeDagBridgeEvent(method, eventType, payload, deps) {
   const key = (method || eventType || '').toString().trim().toLowerCase();
   if (key !== 'task/node/statuschanged') return;
-  deps?.dagDetail?.handleStatusEvent?.(payload || {});
+  const statusPayload = requireDagNodeStatusPayload(payload, 'dag node status event payload is required');
+  if (typeof deps?.recordDagNodeStatusEvent !== 'function') throw new Error('dag node status event recorder is required');
+  deps.recordDagNodeStatusEvent(statusPayload);
   if (deps?.page?.value === 'dags') {
-    deps.refreshDashboardByPage?.('dags').catch((err) => {
+    if (typeof deps.refreshDashboardByPage !== 'function') throw new Error('dag dashboard refresh handler is required');
+    deps.refreshDashboardByPage('dags').catch((err) => {
       console.warn('refresh dag list after node event failed', err);
     });
   }
 }
 
-export function openChatFromDagNode({ turnId, assignedTo }, deps) {
-  const trimmed = (turnId || '').toString().trim();
-  if (trimmed && typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
-    navigator.clipboard.writeText(trimmed).catch(() => {});
-  }
-  if (deps?.page) deps.page.value = 'chat';
-  return { turnId: trimmed, assignedTo: (assignedTo || '').toString().trim() };
+function createDagNodeStatusEventRecorder(target) {
+  let seq = 0;
+  return (payload) => {
+    const next = {
+      seq: ++seq,
+      payload: payload && typeof payload === 'object' ? { ...payload } : payload,
+    };
+    target.value = [...target.value, next];
+  };
 }
 
 async function refreshRuntimeConfigState(runtimeConfig) {
@@ -253,22 +260,6 @@ async function applyWindowBootstrapSnapshot(snapshot, projectStore, threadStore,
   if (nextPage) {
     pageRef.value = nextPage;
   }
-  if (payload.taskStart != null && (typeof payload.taskStart !== 'object' || Array.isArray(payload.taskStart))) {
-    throw new Error('window bootstrap taskStart must be an object');
-  }
-  const taskStart = payload.taskStart || null;
-  if (taskStart) {
-    const startOptions = {
-      focusMode: taskStart.focusMode === 'cmd' ? 'cmd' : 'chat',
-      config: taskStart.config && typeof taskStart.config === 'object' ? taskStart.config : {},
-    };
-    const startName = typeof taskStart.name === 'string' ? taskStart.name.trim() : '';
-    const baseInstructions = typeof taskStart.baseInstructions === 'string' ? taskStart.baseInstructions.trim() : '';
-    if (startName) startOptions.name = startName;
-    if (baseInstructions) startOptions.baseInstructions = baseInstructions;
-    await threadStore.startThread(cwd || resolveProjectActionCwd(projectStore, windowCwd), startOptions);
-  }
-
 }
 
 async function ensureAppActiveThread(threadStore, projectStore, windowCwd = '') {
@@ -318,6 +309,59 @@ async function runCommandCardForApp(card, threadStore, projectStore, pageRef, wi
   pageRef.value = 'chat';
 }
 
+function dashboardPageErrorText(targetPage) {
+  if (targetPage === 'dags') return '加载任务流程失败，请稍后重试。';
+  return '加载页面失败，请稍后重试。';
+}
+
+async function startDagDesignerThreadForApp(_context, deps) {
+  const cwd = resolveProjectActionCwd(deps.projectStore, deps.windowCwd);
+  const threadId = await deps.threadStore.startThread(cwd, {
+    focusMode: 'chat',
+    name: 'AI 设计流程',
+    agentKey: 'dag_designer',
+    promptKey: 'main/dag_designer_zh',
+    deferSpawn: true,
+    config: {
+      enabledTools: [...DAG_DESIGNER_ENABLED_TOOLS],
+      providerNativeSkills: false,
+    },
+  });
+  if (!threadId) return;
+  await deps.threadStore.saveActiveThread(threadId);
+  deps.page.value = 'chat';
+}
+
+async function startDagDesignerThreadOnceForApp(context, page, projectStore, threadStore, windowCwdRef, inFlight) {
+  if (inFlight.value) return;
+  inFlight.value = true;
+  try {
+    await startDagDesignerThreadForApp(context, {
+      page,
+      projectStore,
+      threadStore,
+      windowCwd: windowCwdRef.value,
+    });
+  } finally {
+    inFlight.value = false;
+  }
+}
+
+function startInheritedChatFromSharedFileForApp(payload, inheritedChatPayload, pageRef) {
+  if (!payload || typeof payload !== 'object') return;
+  const path = (payload.sharedFilePath || '').toString().trim();
+  if (!path) return;
+  inheritedChatPayload.value = { sharedFilePath: path, ts: Date.now() };
+  pageRef.value = 'chat';
+}
+
+async function openDagChildThreadForApp(threadId, threadStore, pageRef) {
+  const id = (threadId || '').toString().trim();
+  if (!id) return;
+  await threadStore.saveActiveThread(id);
+  pageRef.value = 'chat';
+}
+
 export function shouldRefreshChatPageOnEnter(/** @type {string} */ nextPage, /** @type {string | null | undefined} */ prevPage) {
   return nextPage === 'chat' && Boolean(prevPage) && prevPage !== nextPage;
 }
@@ -359,7 +403,6 @@ export const AppRoot = {
     SidebarNav,
     ProjectModal,
     UnifiedChatPage,
-    DataPage,
     DagsPage,
     SkillsPage,
     TasksPage,
@@ -378,18 +421,22 @@ export const AppRoot = {
     const bootstrapError = ref('');
     // Phase 2: 跨页面「用此文件新建对话」传递通道
     const inheritedChatPayload = ref(/** @type {{ sharedFilePath?: string } | null} */ (null));
+    const dagDesignerStarting = ref(false);
     function startInheritedChatFromSharedFile(payload) {
-      if (!payload || typeof payload !== 'object') return;
-      const path = (payload.sharedFilePath || '').toString().trim();
-      if (!path) return;
-      // 每次创建新引用，watch 必触发
-      inheritedChatPayload.value = { sharedFilePath: path, ts: Date.now() };
-      page.value = 'chat';
+      startInheritedChatFromSharedFileForApp(payload, inheritedChatPayload, page);
+    }
+    async function openDagChildThread(threadId) {
+      await openDagChildThreadForApp(threadId, threadStore, page);
+    }
+    async function startDagDesignerThread(context = {}) {
+      await startDagDesignerThreadOnceForApp(context, page, projectStore, threadStore, windowCwd, dagDesignerStarting);
     }
     const tasksSubTab = ref('acks');
     const buildInfo = reactive({});
     const runtimeConfig = reactive({ cwd: '' });
     const queryWindowCwd = ref(readWindowCwdFromLocation());
+    const dagNodeStatusEvents = ref([]);
+    const recordDagNodeStatusEvent = createDagNodeStatusEventRecorder(dagNodeStatusEvents);
 
     const dashboard = reactive({
       agents: [],
@@ -401,6 +448,9 @@ export const AppRoot = {
       memory: [],
       finalOutputRefs: [],
       sharedFileRetention: { items: [], protectedCount: 0, cleanupCandidateCount: 0 },
+    });
+    const dashboardRequest = reactive({
+      dags: { loading: false, error: '' },
     });
     const memoryCenter = reactive({
       loading: false,
@@ -451,12 +501,24 @@ export const AppRoot = {
 
     async function refreshDashboardByPage(/** @type {AppPage} */ targetPage) {
       if (targetPage === 'chat' || targetPage === 'settings' || targetPage === 'memory-center') return;
-      const cwd = (threadScopeCwd.value || '').toString().trim();
-      if (dashboardPageRequiresCwd(targetPage) && !cwd) {
-        throw new Error(`dashboard ${targetPage} cwd is required`);
+      const request = targetPage === 'dags' ? dashboardRequest.dags : null;
+      if (request) {
+        request.loading = true;
+        request.error = '';
       }
-      const res = await callAPI('ui/dashboard/get', cwd ? { page: targetPage, cwd } : { page: targetPage });
-      applyDashboardPagePayload(dashboard, res);
+      const cwd = (threadScopeCwd.value || '').toString().trim();
+      try {
+        if (dashboardPageRequiresCwd(targetPage) && !cwd) {
+          throw new Error(`dashboard ${targetPage} cwd is required`);
+        }
+        const res = await callAPI('ui/dashboard/get', cwd ? { page: targetPage, cwd } : { page: targetPage });
+        applyDashboardPagePayload(dashboard, res);
+      } catch (error) {
+        if (request) request.error = dashboardPageErrorText(targetPage);
+        throw error;
+      } finally {
+        if (request) request.loading = false;
+      }
     }
 
     async function refreshMemoryCenter() {
@@ -489,7 +551,7 @@ export const AppRoot = {
             refreshDashboardByPage('skills').catch((error) => { console.warn('refresh page failed: skills', error); });
           }
         }
-        routeDagBridgeEvent(method, eventType, payload, { page, refreshDashboardByPage, dagDetail });
+        routeDagBridgeEvent(method, eventType, payload, { page, refreshDashboardByPage, recordDagNodeStatusEvent });
       });
       unsubscribeAppWillQuit = onAppWillQuit(() => {
         isExiting.value = true;
@@ -593,8 +655,6 @@ export const AppRoot = {
       if (refreshTimer) clearInterval(refreshTimer);
     });
 
-    const dagDetail = useDagDetail();
-    const openDagChat = (/** @type {any} */ ev) => openChatFromDagNode(ev, { page });
     return {
       NAV_ITEMS,
       SHARED_FILES_TIPS,
@@ -606,15 +666,18 @@ export const AppRoot = {
       threadStore,
       buildInfo,
       dashboard,
+      dashboardRequest,
+      dagNodeStatusEvents,
       memoryCenter,
       agentsFields: AGENTS_FIELDS,
-      dagsFields: DAGS_FIELDS,
       taskAckFields: TASK_ACK_FIELDS,
       taskTraceFields: TASK_TRACE_FIELDS,
       commandFields: COMMAND_FIELDS,
       memoryFields: MEMORY_FIELDS,
       inheritedChatPayload,
       startInheritedChatFromSharedFile,
+      openDagChildThread,
+      startDagDesignerThread,
       clearInheritedChatPayload: () => { inheritedChatPayload.value = null; },
       tasksItems,
       tasksFields,
@@ -627,8 +690,6 @@ export const AppRoot = {
       refreshDashboardByPage,
       refreshMemoryCenter,
       runCommandCard,
-      dagDetail,
-      openDagChat,
     };
   },
   template: `
@@ -661,8 +722,12 @@ export const AppRoot = {
         <DagsPage
           v-else-if="page === 'dags'"
           :items="dashboard.dags"
-          :fields="dagsFields"
-          @select="dagDetail.open"
+          :loading="dashboardRequest.dags.loading"
+          :error="dashboardRequest.dags.error"
+          :status-events="dagNodeStatusEvents"
+          @open-chat="openDagChildThread"
+          @design-flow="startDagDesignerThread"
+          @refresh-dags="refreshDashboardByPage('dags')"
         />
 
         <TasksPage
@@ -719,21 +784,6 @@ export const AppRoot = {
       </main>
 
       <ProjectModal :store="projectStore" />
-      <DagDetailModal
-        :show="dagDetail.state.show"
-        :loading="dagDetail.state.loading"
-        :error="dagDetail.state.error"
-        :dag="dagDetail.state.dag"
-        :nodes="dagDetail.state.nodes"
-        :runs="dagDetail.state.runs"
-        :run="dagDetail.state.run"
-        :final-output="dagDetail.state.finalOutput"
-        :saving-node-key="dagDetail.state.savingNodeKey"
-        :save-error="dagDetail.state.saveError"
-        @close="dagDetail.close"
-        @update-node-status="(ev) => dagDetail.updateNodeStatus(ev.nodeKey, ev.status)"
-        @open-chat="openDagChat"
-      />
       <div class="app-exit-overlay" :class="{ active: isExiting }" aria-hidden="true">
         <div class="app-exit-overlay-inner">
           <img src="/vue-app/assets/exit-splash.png" alt="" class="app-exit-overlay-icon" />

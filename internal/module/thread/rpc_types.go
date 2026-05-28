@@ -74,36 +74,6 @@ type handoffParams struct {
 	InitialMessage string `json:"initial_message,omitempty"`
 }
 
-// flushAndVerifyParams is the RPC payload for ui/task/flush_and_verify
-// （Phase 1.8d fork 前预检）。
-type flushAndVerifyParams struct {
-	ThreadID string `json:"threadId"`
-	TaskID   string `json:"taskId"`
-}
-
-// promoteTaskParams is the RPC payload for ui/thread/promote-task (Phase
-// 2.1). Accepts both threadId (camelCase, the canonical UI field) and
-// thread_id (snake_case, the platform-wide RPC convention) so callers do
-// not have to remember which side of the protocol fence they sit on.
-type promoteTaskParams struct {
-	ThreadID string `json:"threadId"`
-}
-
-func (p *promoteTaskParams) UnmarshalJSON(data []byte) error {
-	var both struct {
-		ThreadIDCamel string `json:"threadId"`
-		ThreadIDSnake string `json:"thread_id"`
-	}
-	if err := json.Unmarshal(data, &both); err != nil {
-		return err
-	}
-	p.ThreadID = strings.TrimSpace(both.ThreadIDCamel)
-	if p.ThreadID == "" {
-		p.ThreadID = strings.TrimSpace(both.ThreadIDSnake)
-	}
-	return nil
-}
-
 func (p *startParams) UnmarshalJSON(data []byte) error {
 	type raw startParams
 	var current raw
@@ -515,14 +485,10 @@ type startResponse struct {
 	// resolve to an enabled prompt_template row. The UI listens for either
 	// the snake_case or camelCase variant and clears its activePromptKey
 	// pref + notifies the user when it sees true.
-	PromptKeyStale      *bool   `json:"prompt_key_stale,omitempty"`
-	PromptKeyStaleCamel *bool   `json:"promptKeyStale,omitempty"`
-	PendingLaunch       *bool   `json:"pending_launch,omitempty"`
-	PendingLaunchC      *bool   `json:"pendingLaunch,omitempty"`
-	TaskID              *string `json:"task_id,omitempty"`
-	TaskIDCamel         *string `json:"taskId,omitempty"`
-	HandoffFile         *string `json:"handoff_file,omitempty"`
-	HandoffFileCamel    *string `json:"handoffFile,omitempty"`
+	PromptKeyStale      *bool `json:"prompt_key_stale,omitempty"`
+	PromptKeyStaleCamel *bool `json:"promptKeyStale,omitempty"`
+	PendingLaunch       *bool `json:"pending_launch,omitempty"`
+	PendingLaunchC      *bool `json:"pendingLaunch,omitempty"`
 }
 
 // attachPromptKeyStale stamps the dual-key prompt_key_stale pointers on a
@@ -537,23 +503,6 @@ func attachPromptKeyStale(resp *startResponse, stale bool) {
 	}
 	resp.PromptKeyStale = &stale
 	resp.PromptKeyStaleCamel = &stale
-}
-
-// promoteTaskResponse is the wire response for ui/thread/promote-task.
-type promoteTaskResponse struct {
-	ThreadIDSnake string `json:"thread_id"`
-	ThreadIDCamel string `json:"threadId"`
-	TaskIDSnake   string `json:"task_id"`
-	TaskIDCamel   string `json:"taskId"`
-	AlreadyTask   bool   `json:"already_task"`
-	AlreadyTaskC  bool   `json:"alreadyTask"`
-
-	TaskTitle         *string `json:"task_title,omitempty"`
-	TaskTitleCamel    *string `json:"taskTitle,omitempty"`
-	HandoffFile       *string `json:"handoff_file,omitempty"`
-	HandoffFileC      *string `json:"handoffFile,omitempty"`
-	HandoffShellWarn  *string `json:"handoff_shell_warning,omitempty"`
-	HandoffShellWarnC *string `json:"handoffShellWarning,omitempty"`
 }
 
 // forkResponse is the wire response for thread/fork.
@@ -597,9 +546,4 @@ type resumeResponse struct {
 	Status         string     `json:"status"`
 	Model          string     `json:"model"`
 	CWD            string     `json:"cwd"`
-}
-
-// flushAndVerifyResponse is the wire response for ui/task/flush_and_verify.
-type flushAndVerifyResponse struct {
-	OK bool `json:"ok"`
 }

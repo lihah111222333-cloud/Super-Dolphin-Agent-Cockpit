@@ -2,7 +2,6 @@ package sharedfilepath
 
 import (
 	"errors"
-	"strings"
 	"testing"
 )
 
@@ -15,11 +14,11 @@ func TestValidateWritePath_AcceptsAllFiveWhitelistPrefixes(t *testing.T) {
 		want string
 	}{
 		{"handoff non-tasks", "handoff/task-1/notes.md", "handoff/task-1/notes.md"},
-		{"handoff tasks (system path; whitelist still passes)", "handoff/tasks/task-1.md", "handoff/tasks/task-1.md"},
+		{"handoff nested path", "handoff/runs/task-1.md", "handoff/runs/task-1.md"},
 		{"dag node output", "dag/dag-1/node-a/output.json", "dag/dag-1/node-a/output.json"},
 		{"inbox", "inbox/task-1/user-1.md", "inbox/task-1/user-1.md"},
 		{"reports", "reports/task-1/result.md", "reports/task-1/result.md"},
-		{"internal auto continue", "_internal/auto-continue/state/thr-1.json", "_internal/auto-continue/state/thr-1.json"},
+		{"internal runtime state", "_internal/runtime/state/thr-1.json", "_internal/runtime/state/thr-1.json"},
 		{"normalises backslash", "handoff\\task-1\\notes.md", "handoff/task-1/notes.md"},
 		{"strips redundant ./", "./handoff/task-1/notes.md", "handoff/task-1/notes.md"},
 		{"resolves intra-segment ..", "handoff/foo/../task-1/notes.md", "handoff/task-1/notes.md"},
@@ -74,27 +73,15 @@ func TestValidateWritePath_RejectsTraversalAndAbsoluteAndUnknown(t *testing.T) {
 	}
 }
 
-func TestValidateAgentWritePath_RejectsSystemHandoff(t *testing.T) {
+func TestValidateAgentWritePath_AllowsWhitelistedHandoff(t *testing.T) {
 	t.Parallel()
 
-	got, err := ValidateAgentWritePath("handoff/tasks/task-1.md")
-	if err == nil {
-		t.Fatalf("ValidateAgentWritePath(system handoff) = %q, want ErrPathSystemReserved", got)
-	}
-	if !errors.Is(err, ErrPathSystemReserved) {
-		t.Fatalf("err = %v, want errors.Is(ErrPathSystemReserved)", err)
-	}
-}
-
-func TestValidateAgentWritePath_AllowsNonSystemHandoff(t *testing.T) {
-	t.Parallel()
-
-	got, err := ValidateAgentWritePath("handoff/task-1/agent-notes.md")
+	got, err := ValidateAgentWritePath("handoff/agent-notes.md")
 	if err != nil {
 		t.Fatalf("ValidateAgentWritePath(agent handoff) error = %v, want ok", err)
 	}
-	if got != "handoff/task-1/agent-notes.md" {
-		t.Fatalf("got = %q, want handoff/task-1/agent-notes.md", got)
+	if got != "handoff/agent-notes.md" {
+		t.Fatalf("got = %q, want handoff/agent-notes.md", got)
 	}
 }
 
@@ -117,30 +104,5 @@ func TestValidateReadPath_SkipsPrefixWhitelistButKeepsTraversalChecks(t *testing
 	}
 	if _, err := ValidateReadPath("/etc/passwd"); !errors.Is(err, ErrPathAbsolute) {
 		t.Fatalf("absolute on read err = %v, want ErrPathAbsolute", err)
-	}
-}
-
-func TestIsSystemHandoffPath(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		path string
-		want bool
-	}{
-		{"handoff/tasks/task-1.md", true},
-		{"handoff/tasks/sub/dir/file.md", true},
-		{"handoff/task-1/agent.md", false},
-		{"dag/dag-1/node/output.json", false},
-		{"../escape", false},
-		{"", false},
-	}
-	for _, tt := range tests {
-		tt := tt
-		t.Run(strings.ReplaceAll(tt.path, "/", "_"), func(t *testing.T) {
-			t.Parallel()
-			if got := IsSystemHandoffPath(tt.path); got != tt.want {
-				t.Fatalf("IsSystemHandoffPath(%q) = %v, want %v", tt.path, got, tt.want)
-			}
-		})
 	}
 }

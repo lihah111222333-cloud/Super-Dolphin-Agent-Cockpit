@@ -16,8 +16,7 @@ import (
 // agentLaunchedDrainGrace bounds the shutdown wait for
 // agentLaunchedWorker so registerSubscriptions.OnStop can't hang if the
 // binding store write or prompt-assembly invalidate stalls on I/O during
-// drain. Matches taskHandoffDrainGrace / nestedIngestDrainGrace — all
-// three are owned by the subscription OnStop pair.
+// drain. Matches nestedIngestDrainGrace so subscription shutdown stays bounded.
 const agentLaunchedDrainGrace = 10 * time.Second
 
 // agentLaunchedProcessor is the narrow contract over *service the worker

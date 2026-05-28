@@ -39,14 +39,8 @@ func (s *stubTicker) Tick(ctx context.Context, now time.Time) (int, error) {
 func (s *stubTicker) calls() int32 { return atomic.LoadInt32(&s.count) }
 
 type fakeScheduleStore struct {
-	due     []DueDAG
-	err     error
-	updates []scheduledUpdate
-}
-
-type scheduledUpdate struct {
-	dagKey    string
-	nextRunAt time.Time
+	due []DueDAG
+	err error
 }
 
 func (s *fakeScheduleStore) DueDAGs(ctx context.Context, now time.Time) ([]DueDAG, error) {
@@ -54,11 +48,6 @@ func (s *fakeScheduleStore) DueDAGs(ctx context.Context, now time.Time) ([]DueDA
 		return nil, s.err
 	}
 	return append([]DueDAG(nil), s.due...), nil
-}
-
-func (s *fakeScheduleStore) UpdateNextRun(ctx context.Context, dagKey string, nextRunAt time.Time) error {
-	s.updates = append(s.updates, scheduledUpdate{dagKey: dagKey, nextRunAt: nextRunAt})
-	return nil
 }
 
 type fakeStarter struct {
@@ -141,39 +130,6 @@ func (h *contextCheckingLockHandle) Unlock(ctx context.Context) error {
 	if h.errOnCanceled && ctx.Err() != nil {
 		return ctx.Err()
 	}
-	return nil
-}
-
-type fakeAdvisoryLockConn struct {
-	row              fakeAdvisoryLockRow
-	releaseCalls     int
-	hijackCloseCalls int
-}
-
-func (c *fakeAdvisoryLockConn) queryRow(context.Context, string, ...any) pgxRow {
-	return c.row
-}
-
-func (c *fakeAdvisoryLockConn) release() {
-	c.releaseCalls++
-}
-
-func (c *fakeAdvisoryLockConn) hijackAndClose(context.Context) error {
-	c.hijackCloseCalls++
-	return nil
-}
-
-type fakeAdvisoryLockRow struct {
-	unlocked bool
-	err      error
-}
-
-func (r fakeAdvisoryLockRow) Scan(dest ...any) error {
-	if r.err != nil {
-		return r.err
-	}
-	target := dest[0].(*bool)
-	*target = r.unlocked
 	return nil
 }
 
@@ -283,7 +239,7 @@ func TestScheduledDAGTicker_Tick_ScansAndStarts(t *testing.T) {
 	}
 }
 
-func TestScheduledDAGTicker_NextRunAtUpdated(t *testing.T) {
+func TestScheduledDAGTicker_NextRunAtDelegatedToStarter(t *testing.T) {
 	store := &fakeScheduleStore{due: []DueDAG{{DagKey: "hourly-sync", CronExpr: "@hourly", DueAt: time.Date(2026, 5, 11, 9, 0, 0, 0, time.UTC)}}}
 	starter := &fakeStarter{}
 	ticker, err := NewScheduledDAGTicker(ScheduledDAGTickerConfig{Store: store, Starter: starter, Locker: &fakeLocker{}})
@@ -294,15 +250,15 @@ func TestScheduledDAGTicker_NextRunAtUpdated(t *testing.T) {
 	if _, err := ticker.Tick(context.Background(), now); err != nil {
 		t.Fatalf("Tick: %v", err)
 	}
-	if len(store.updates) != 1 {
-		t.Fatalf("updates = %d, want 1", len(store.updates))
-	}
 	want := time.Date(2026, 5, 11, 10, 0, 0, 0, time.UTC)
-	if !store.updates[0].nextRunAt.Equal(want) {
-		t.Fatalf("next_run_at = %s, want %s", store.updates[0].nextRunAt, want)
-	}
 	if len(starter.starts) != 1 || starter.starts[0].DagKey != "hourly-sync" {
 		t.Fatalf("starts = %+v, want hourly-sync", starter.starts)
+	}
+	if !starter.starts[0].DueAt.Equal(store.due[0].DueAt) {
+		t.Fatalf("delegated due_at = %s, want scanned due_at %s", starter.starts[0].DueAt, store.due[0].DueAt)
+	}
+	if !starter.starts[0].NextRunAt.Equal(want) {
+		t.Fatalf("delegated next_run_at = %s, want %s", starter.starts[0].NextRunAt, want)
 	}
 }
 
@@ -366,9 +322,6 @@ func TestScheduledDAGTicker_DoesNotAdvanceNextRunWhenStartFails(t *testing.T) {
 	_, err = ticker.Tick(context.Background(), time.Date(2026, 5, 11, 7, 0, 0, 0, time.UTC))
 	if !errors.Is(err, startErr) {
 		t.Fatalf("Tick err = %v, want startErr", err)
-	}
-	if len(store.updates) != 0 {
-		t.Fatalf("next_run_at updates = %+v, want none when StartDAG fails", store.updates)
 	}
 }
 
@@ -442,23 +395,6 @@ func TestScheduledDAGTicker_UnlockUsesFreshCleanupContext(t *testing.T) {
 	}
 	if handle.unlockCalls != 1 {
 		t.Fatalf("unlockCalls = %d, want 1", handle.unlockCalls)
-	}
-}
-
-func TestPGAdvisoryLockHandle_UnlockFailureClosesHijackedConnection(t *testing.T) {
-	unlockErr := errors.New("unlock failed")
-	conn := &fakeAdvisoryLockConn{row: fakeAdvisoryLockRow{err: unlockErr}}
-	handle := &pgAdvisoryLockHandle{conn: conn, lockID: 42}
-
-	err := handle.Unlock(context.Background())
-	if !errors.Is(err, unlockErr) {
-		t.Fatalf("Unlock() error = %v, want unlockErr", err)
-	}
-	if conn.releaseCalls != 0 {
-		t.Fatalf("releaseCalls = %d, want 0 after failed unlock", conn.releaseCalls)
-	}
-	if conn.hijackCloseCalls != 1 {
-		t.Fatalf("hijackCloseCalls = %d, want 1", conn.hijackCloseCalls)
 	}
 }
 

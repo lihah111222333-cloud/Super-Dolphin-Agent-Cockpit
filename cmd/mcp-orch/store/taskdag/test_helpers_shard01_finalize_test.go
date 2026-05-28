@@ -204,11 +204,14 @@ func isMatchingRunningRun(run sqlc.TaskDagRun, dagKey string, runID int64) bool 
 func (db *fakeTaskDAGDB) finalizeRunIfAllNodesTerminal(args ...any) ([][]any, error) {
 	if err := requireFakeTaskDAGArgs(args, 2, "finalize",
 		fakeTaskDAGTypedArg[string](0, "finalize dag_key"),
-		fakeTaskDAGTypedArg[int64](1, "finalize run_id")); err != nil {
+		fakeTaskDAGInt8Arg(1, "finalize run_id")); err != nil {
 		return nil, err
 	}
 	dagKey := args[0].(string)
-	runID := args[1].(int64)
+	runID, err := fakeInt8Arg(args, 1, "finalize run_id")
+	if err != nil {
+		return nil, err
+	}
 	totals := db.finalizeRunNodeTotals(dagKey, runID)
 	if !totals.ready() {
 		return nil, nil

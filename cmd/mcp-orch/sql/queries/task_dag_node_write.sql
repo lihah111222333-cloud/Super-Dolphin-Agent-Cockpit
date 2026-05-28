@@ -9,7 +9,10 @@ SET title = EXCLUDED.title,
     command_ref = EXCLUDED.command_ref,
     config = EXCLUDED.config,
     updated_at = NOW()
-RETURNING id, dag_key, node_key, run_id, title, node_type, assigned_to, depends_on, status, command_ref, config, result, started_at, finished_at, created_at, updated_at, active_turn_id, active_wakeup_id, last_event_at, spawning_thread_id;
+RETURNING id, dag_key, node_key, title, node_type, assigned_to, depends_on,
+          status, command_ref, config, result, started_at, finished_at,
+          created_at, updated_at, active_turn_id, active_wakeup_id,
+          last_event_at, run_id, reads, writes, spawning_thread_id;
 
 -- name: PatchTaskDagNodeConfigIfUnchanged :one
 -- Smart retry mutates only node.config after RetryWakeup's wakeup fence has
@@ -17,14 +20,17 @@ RETURNING id, dag_key, node_key, run_id, title, node_type, assigned_to, depends_
 -- dispatcher attempts cannot overwrite apply_ops changes to assignment,
 -- dependencies, or config.
 UPDATE task_dag_nodes
-SET config = $3::jsonb, updated_at = NOW()
-WHERE dag_key = $1
-  AND node_key = $2
-  AND run_id = $5
-  AND $5::bigint > 0
-  AND config = $4::jsonb
+SET config = sqlc.arg('config')::jsonb, updated_at = NOW()
+WHERE dag_key = sqlc.arg('dag_key')
+  AND node_key = sqlc.arg('node_key')
+  AND run_id = sqlc.arg('run_id')
+  AND sqlc.arg('run_id')::bigint > 0
+  AND config = sqlc.arg('previous_config')::jsonb
   AND status NOT IN ('done', 'failed', 'cancelled', 'skipped')
-RETURNING id, dag_key, node_key, run_id, title, node_type, assigned_to, depends_on, status, command_ref, config, result, started_at, finished_at, created_at, updated_at, active_turn_id, active_wakeup_id, last_event_at, spawning_thread_id;
+RETURNING id, dag_key, node_key, title, node_type, assigned_to, depends_on,
+          status, command_ref, config, result, started_at, finished_at,
+          created_at, updated_at, active_turn_id, active_wakeup_id,
+          last_event_at, run_id, reads, writes, spawning_thread_id;
 
 -- name: DeleteTaskDagNode :execrows
 DELETE FROM task_dag_nodes
@@ -43,7 +49,10 @@ WHERE dag_key = $2
   AND node_key = $3
   AND run_id = $4
   AND status IN ('pending', 'ready')
-RETURNING id, dag_key, node_key, run_id, title, node_type, assigned_to, depends_on, status, command_ref, config, result, started_at, finished_at, created_at, updated_at, active_turn_id, active_wakeup_id, last_event_at, spawning_thread_id;
+RETURNING id, dag_key, node_key, title, node_type, assigned_to, depends_on,
+          status, command_ref, config, result, started_at, finished_at,
+          created_at, updated_at, active_turn_id, active_wakeup_id,
+          last_event_at, run_id, reads, writes, spawning_thread_id;
 
 -- name: UpdateTaskDagNodeStatusFlexible :one
 -- 名字 "Flexible" 表示不附带 status 前置约束——调用方负责检查状态机合法转移。
@@ -51,11 +60,14 @@ RETURNING id, dag_key, node_key, run_id, title, node_type, assigned_to, depends_
 -- 与本查询逻辑上完全重复的 dead code。R1 dead code 清理：仅保留 Flexible
 -- 一项权威版本，store.UpdateNodeStatus 同样外调本 query。
 UPDATE task_dag_nodes
-SET status = $1, result = $2::jsonb, updated_at = NOW()
-WHERE dag_key = $3 AND node_key = $4
-  AND run_id = $5
-  AND $5::bigint > 0
-RETURNING id, dag_key, node_key, run_id, title, node_type, assigned_to, depends_on, status, command_ref, config, result, started_at, finished_at, created_at, updated_at, active_turn_id, active_wakeup_id, last_event_at, spawning_thread_id;
+SET status = sqlc.arg('status'), result = sqlc.arg('result')::jsonb, updated_at = NOW()
+WHERE dag_key = sqlc.arg('dag_key') AND node_key = sqlc.arg('node_key')
+  AND run_id = sqlc.arg('run_id')
+  AND sqlc.arg('run_id')::bigint > 0
+RETURNING id, dag_key, node_key, title, node_type, assigned_to, depends_on,
+          status, command_ref, config, result, started_at, finished_at,
+          created_at, updated_at, active_turn_id, active_wakeup_id,
+          last_event_at, run_id, reads, writes, spawning_thread_id;
 
 -- name: ClaimTaskDagNodeOutputMaterialization :one
 -- A2 turn.completed sharedfile writes have an external side effect. Claim the
@@ -64,36 +76,42 @@ RETURNING id, dag_key, node_key, run_id, title, node_type, assigned_to, depends_
 -- awaiting_verify is accepted so a redelivered turn.completed can recover if
 -- the prior attempt wrote sharedfile but hit a transient CompleteNode failure.
 UPDATE task_dag_nodes
-SET status = 'awaiting_verify', result = $1::jsonb, updated_at = NOW()
-WHERE dag_key = $2
-  AND node_key = $3
-  AND run_id = $4
-  AND $4::bigint > 0
+SET status = 'awaiting_verify', result = sqlc.arg('result')::jsonb, updated_at = NOW()
+WHERE dag_key = sqlc.arg('dag_key')
+  AND node_key = sqlc.arg('node_key')
+  AND run_id = sqlc.arg('run_id')
+  AND sqlc.arg('run_id')::bigint > 0
   AND status IN ('ready', 'running', 'awaiting_verify')
-RETURNING id, dag_key, node_key, run_id, title, node_type, assigned_to, depends_on, status, command_ref, config, result, started_at, finished_at, created_at, updated_at, active_turn_id, active_wakeup_id, last_event_at, spawning_thread_id;
+RETURNING id, dag_key, node_key, title, node_type, assigned_to, depends_on,
+          status, command_ref, config, result, started_at, finished_at,
+          created_at, updated_at, active_turn_id, active_wakeup_id,
+          last_event_at, run_id, reads, writes, spawning_thread_id;
 
 -- name: FailTaskDagNodeIfNonTerminal :one
 -- FailNodeAndCancelDownstream 的 primary-node fence：只允许非终态节点被改成 failed。
 -- subscriber / dispatcher 都可能在 lookup 或 retry 决策后遇到并发终态推进；此处用
 -- status 谓词作为最后一道原子护栏，避免 done/failed/cancelled/skipped 被迟到失败覆盖。
 UPDATE task_dag_nodes
-SET status = $1, result = $2::jsonb, updated_at = NOW()
-WHERE dag_key = $3
-  AND node_key = $4
-  AND run_id = $5
-  AND $5::bigint > 0
+SET status = sqlc.arg('status'), result = sqlc.arg('result')::jsonb, updated_at = NOW()
+WHERE dag_key = sqlc.arg('dag_key')
+  AND node_key = sqlc.arg('node_key')
+  AND run_id = sqlc.arg('run_id')
+  AND sqlc.arg('run_id')::bigint > 0
   AND status NOT IN ('done', 'failed', 'cancelled', 'skipped')
-RETURNING id, dag_key, node_key, run_id, title, node_type, assigned_to, depends_on, status, command_ref, config, result, started_at, finished_at, created_at, updated_at, active_turn_id, active_wakeup_id, last_event_at, spawning_thread_id;
+RETURNING id, dag_key, node_key, title, node_type, assigned_to, depends_on,
+          status, command_ref, config, result, started_at, finished_at,
+          created_at, updated_at, active_turn_id, active_wakeup_id,
+          last_event_at, run_id, reads, writes, spawning_thread_id;
 
 -- name: CascadeFailPendingTaskDagNode :execrows
 -- fail_fast cascade 只认领仍处 pending 的下游。若并发路径已把下游推进到
 -- done/failed/cancelled/skipped/running，本语句返回 0 rows，由调用方当作幂等 skip。
 UPDATE task_dag_nodes
-SET status = 'failed', result = $1::jsonb, updated_at = NOW()
-WHERE dag_key = $2
-  AND node_key = $3
-  AND run_id = $4
-  AND $4::bigint > 0
+SET status = 'failed', result = sqlc.arg('result')::jsonb, updated_at = NOW()
+WHERE dag_key = sqlc.arg('dag_key')
+  AND node_key = sqlc.arg('node_key')
+  AND run_id = sqlc.arg('run_id')
+  AND sqlc.arg('run_id')::bigint > 0
   AND status = 'pending';
 
 -- name: PromoteSingleNodePendingToReady :execrows

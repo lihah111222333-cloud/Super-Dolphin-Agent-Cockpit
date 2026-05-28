@@ -325,7 +325,7 @@ C-A 策略：**先把基础设施（provider 层 + spawned agent 资源管理）
 1. **F2.2 automation outputs 是否同步改造**：当前 automation 是 Execute 同步写 outputs；ADR-018 明确 A2 不改 automation，后续如需统一另立任务
 2. **多 turn 场景的 result 形状**：second TurnCompleted 到达时 ev.Result 是覆盖还是 append 到 first turn？
 3. **dogfood v4 旧卡死节点 backfill**：本计划默认不 backfill（由用户手动重跑或 task_update_node）
-4. **final output retention / notification**：H14 UI 已让 DAG detail 与 Shared Files 页面基于 final_output 筛选/高亮最终产物；sharedfile TTL/保留策略仍待 H15 单独实现，通知入口是否也突出 final_output 仍待产品化时确认。
+4. **final output retention / notification**：H14 UI 已让 DAG detail 与 Shared Files 页面基于 final_output 筛选/高亮最终产物；H15 首切已补 final_output 删除保护与 retention 元数据。TTL / 批量清理 / pinned / running run 保护和通知入口仍待后续产品化时确认。
 
 ---
 

@@ -201,8 +201,8 @@ func TestPrepareTurnStripsLegacyPromptForManualAndAutoMatchedSkills(t *testing.T
 	svc := NewService(silentLogger())
 	session := &stubSession{threadID: "thread-strip-prompt"}
 	req, err := svc.PrepareTurn(context.Background(), session, PrepareInput{
-		Prompt: "please use @debug on this issue",
-		Skills: []dto.SkillRef{{Name: "explicit", Prompt: "legacy explicit body", Summary: "explicit summary"}},
+		Prompt:          "please use @debug on this issue",
+		Skills:          []dto.SkillRef{{Name: "explicit", Prompt: "legacy explicit body", Summary: "explicit summary"}},
 		CandidateSkills: []dto.SkillRef{{Name: "debug", Prompt: "legacy auto body", Summary: "debug summary"}},
 	})
 	if err != nil {

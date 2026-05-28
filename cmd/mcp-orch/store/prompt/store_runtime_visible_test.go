@@ -7,7 +7,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/sqlc"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
@@ -17,7 +16,7 @@ func TestListRuntimeVisibleRequiresCWD(t *testing.T) {
 	t.Parallel()
 
 	db := &capturePromptListDB{}
-	store := NewStore(sqlc.New(db))
+	store := NewStore(db)
 
 	_, err := store.List(context.Background(), ListFilter{RuntimeVisible: true, Limit: 10})
 	if err == nil || !strings.Contains(err.Error(), "cwd is required") {
@@ -38,7 +37,7 @@ func TestListRuntimeVisibleUsesScopedEnabledQuery(t *testing.T) {
 		"desc", "Use in repo A", true, true, []byte(`{}`), int32(10),
 		"tester", "tester", ts, ts,
 	}}}}
-	store := NewStore(sqlc.New(db))
+	store := NewStore(db)
 
 	got, err := store.List(context.Background(), ListFilter{
 		Keyword:        " repo ",

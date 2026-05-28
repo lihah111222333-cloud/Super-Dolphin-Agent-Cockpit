@@ -33,6 +33,7 @@ const (
 
 type service struct {
 	orchestration  contract.OrchestrationService
+	dagRuntime     contract.DAGRuntime
 	agentStatuses  agentstatusstore.Store
 	systemLogs     systemlogstore.Store
 	auditLogs      auditlogstore.Store
@@ -68,6 +69,7 @@ func NewService(
 ) Service {
 	return &service{
 		orchestration:  orchestrationSvc,
+		dagRuntime:     orchestrationSvc,
 		agentStatuses:  agentStatuses,
 		systemLogs:     systemLogs,
 		auditLogs:      auditLogs,
@@ -82,6 +84,41 @@ func NewService(
 		skillInventory: skillInventoryFromLister(skills),
 		startedAt:      time.Now(),
 	}
+}
+
+func newServiceWithDAGRuntime(
+	orchestrationSvc contract.OrchestrationService,
+	dagRuntime contract.DAGRuntime,
+	agentStatuses agentstatusstore.Store,
+	systemLogs systemlogstore.Store,
+	auditLogs auditlogstore.Store,
+	busLogs buslogstore.Store,
+	aiLogs ailogstore.Store,
+	dbQueries dbquerystore.Store,
+	taskTraces tasktracestore.Store,
+	commandCards commandcardstore.Reader,
+	prompts promptstore.Reader,
+	sharedFiles sharedfilestore.Reader,
+	skills contract.SkillLister,
+) Service {
+	svc := NewService(
+		orchestrationSvc,
+		agentStatuses,
+		systemLogs,
+		auditLogs,
+		busLogs,
+		aiLogs,
+		dbQueries,
+		taskTraces,
+		commandCards,
+		prompts,
+		sharedFiles,
+		skills,
+	)
+	if impl, ok := svc.(*service); ok && dagRuntime != nil {
+		impl.dagRuntime = dagRuntime
+	}
+	return svc
 }
 
 func skillInventoryFromLister(skills contract.SkillLister) contract.SkillInventoryLister {

@@ -444,10 +444,6 @@ func (s *service) resolveResumeRequest(ctx context.Context, req ResumeRequest) (
 	state.CodexHome = util.FirstNonEmpty(state.CodexHome, req.CodexHome)
 	state.CodexInstanceKey = util.FirstNonEmpty(state.CodexInstanceKey, req.CodexInstanceKey)
 	state.CodexModelProvider = util.FirstNonEmpty(state.CodexModelProvider, req.CodexModelProvider)
-	state.ConfigOverrideRaw, err = s.backfillResumeRootTaskId(ctx, state.OwnerThreadID, state.ConfigOverrideRaw)
-	if err != nil {
-		return ResumeRequest{}, resumeState{}, err
-	}
 	return req, state, nil
 }
 

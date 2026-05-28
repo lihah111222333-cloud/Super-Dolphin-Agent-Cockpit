@@ -6,8 +6,11 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	taskdag "github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/taskdag"
+	taskdto "github.com/anthropic-ai/super-agent-v3/internal/dto/task"
+	"github.com/kelindar/event"
 )
 
 // stubNodeFlowStore 实现 NodeFlowStore + OrchestrationStore 必需方法，
@@ -111,6 +114,45 @@ func TestUpdateNodeStatusDone_RoutesToCompleteNodeAndScheduleDownstream(t *testi
 	}
 	if len(stub.listRunCalls) != 1 || stub.listRunCalls[0] != 42 {
 		t.Fatalf("ListRunNodes calls = %v, want [42]", stub.listRunCalls)
+	}
+}
+
+func TestUpdateNodeStatusDonePublishesTaskNodeStatusChanged(t *testing.T) {
+	dispatcher := event.NewDispatcher()
+	events := make(chan taskdto.TaskNodeStatusChanged, 1)
+	cancel := event.Subscribe(dispatcher, func(ev taskdto.TaskNodeStatusChanged) {
+		events <- ev
+	})
+	defer cancel()
+
+	runID := int64(42)
+	stub := &stubNodeFlowStore{
+		completeReply: &taskdag.CompleteNodeWithDownstreamResult{
+			Node: &taskdag.Node{DagKey: "dag-1", NodeKey: "A", RunID: &runID, Status: "done"},
+		},
+	}
+	s := &service{dagStore: stub, eventBus: dispatcher}
+	_, err := s.UpdateNodeStatus(context.Background(), UpdateNodeStatusRequest{
+		DagKey:  "dag-1",
+		NodeKey: "A",
+		RunID:   runID,
+		Status:  "done",
+		Result:  json.RawMessage(`{}`),
+	})
+	if err != nil {
+		t.Fatalf("UpdateNodeStatus done err = %v", err)
+	}
+
+	select {
+	case got := <-events:
+		if got.DagKey != "dag-1" || got.NodeKey != "A" || got.RunID != runID {
+			t.Fatalf("event identity = %s/%s/%d, want dag-1/A/%d", got.DagKey, got.NodeKey, got.RunID, runID)
+		}
+		if got.OldStatus != "running" || got.NewStatus != "done" {
+			t.Fatalf("event status = %q -> %q, want running -> done", got.OldStatus, got.NewStatus)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for TaskNodeStatusChanged")
 	}
 }
 

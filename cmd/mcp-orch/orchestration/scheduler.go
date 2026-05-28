@@ -8,33 +8,28 @@ import (
 	"time"
 
 	orchcron "github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/orchestration/cron"
+	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/orchestration/scheduledstart"
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/taskdag"
+	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
 )
 
 type Scheduler interface {
-	Tick(ctx context.Context, now time.Time) (int, error)
-	Schedule(ctx context.Context, dagKey string) error
+	Tick(context.Context, time.Time) (int, error)
+	Schedule(context.Context, string) error
 }
 
 var ErrSchedulerNotImplemented = errors.New("scheduler: not implemented in skeleton stage (F5.x)")
 
 type noopScheduler struct{}
 
-func (noopScheduler) Tick(_ context.Context, _ time.Time) (int, error) {
+func (noopScheduler) Tick(context.Context, time.Time) (int, error) {
 	return 0, ErrSchedulerNotImplemented
 }
 
 func (noopScheduler) Schedule(_ context.Context, _ string) error { return ErrSchedulerNotImplemented }
 
 func NewNoopScheduler() Scheduler { return noopScheduler{} }
-
-type scheduledDAGStarter struct{ svc *service }
-
-func (s scheduledDAGStarter) StartDAG(ctx context.Context, req orchcron.ScheduledDAGStartRequest) error {
-	_, err := s.svc.StartDAG(ctx, StartDAGRequest{DagKey: req.DagKey, TriggerSource: req.TriggerSource, IdempotencyKey: req.IdempotencyKey})
-	return err
-}
 
 func (s *service) StartDAG(ctx context.Context, req StartDAGRequest) (StartDAGResponse, error) {
 	dagKey, dag, err := s.validateStartDAGPrereq(ctx, req)
@@ -43,15 +38,22 @@ func (s *service) StartDAG(ctx context.Context, req StartDAGRequest) (StartDAGRe
 	}
 	runKey := generateRunKey(dagKey, req.IdempotencyKey)
 	triggerSource := strings.TrimSpace(req.TriggerSource)
-	dagVersion := dagVersionFor(dag)
-	input := taskdag.CreateRunInput{
-		RunKey:             runKey,
-		DagKey:             dagKey,
-		DagVersionSnapshot: dagVersion,
-		TriggerSource:      triggerSource,
-	}
+	input := taskdag.CreateRunInput{RunKey: runKey, DagKey: dagKey, DagVersionSnapshot: dag.Version, TriggerSource: triggerSource}
 	return s.runStartDAGWithFallback(ctx, dagKey, runKey, input)
 }
+
+func (s *service) StartScheduledDAG(ctx context.Context, req orchcron.ScheduledDAGStartRequest) error {
+	if s == nil || s.scheduledStartStore == nil {
+		return ErrRunStoreUnset
+	}
+	return scheduledstart.Start(ctx, s.scheduledStartStore, req)
+}
+
+type ScheduledDAGStartService interface {
+	StartScheduledDAG(context.Context, orchcron.ScheduledDAGStartRequest) error
+}
+
+func ProvideScheduledDAGStartService(s *service) ScheduledDAGStartService { return s }
 
 func (s *service) validateStartDAGPrereq(ctx context.Context, req StartDAGRequest) (string, *taskdag.DAG, error) {
 	if s == nil || s.dagStore == nil {
@@ -81,7 +83,7 @@ func (s *service) runStartDAGWithFallback(ctx context.Context, dagKey, runKey st
 		if err != nil {
 			return err
 		}
-		input.DagVersionSnapshot = dagVersionFor(lockedDAG)
+		input.DagVersionSnapshot = lockedDAG.Version
 		run, err := tx.CreateRun(ctx, input)
 		if err != nil {
 			return fmt.Errorf("CreateRun: %w", err)
@@ -89,10 +91,11 @@ func (s *service) runStartDAGWithFallback(ctx context.Context, dagKey, runKey st
 		if _, err := tx.CloneNodesForRun(ctx, dagKey, run.ID); err != nil {
 			return fmt.Errorf("CloneNodesForRun: %w", err)
 		}
-		if _, err := tx.PromoteRootNodesToReady(ctx, dagKey, run.ID); err != nil {
-			return fmt.Errorf("PromoteRootNodesToReady: %w", err)
+		readyRootNodes, scheduledWakeups, err := taskdag.PromoteAndScheduleRunRoots(ctx, tx, dagKey, run.ID)
+		if err != nil {
+			return err
 		}
-		resp = StartDAGResponse{RunKey: run.RunKey, Version: run.DagVersionSnapshot}
+		resp = contract.NewStartDAGResponse(run.ID, run.RunKey, run.DagVersionSnapshot, readyRootNodes, scheduledWakeups)
 		return nil
 	})
 	if txErr == nil {
@@ -104,12 +107,10 @@ func (s *service) runStartDAGWithFallback(ctx context.Context, dagKey, runKey st
 	return s.resolveStartDAGUniqueViolation(ctx, dagKey, runKey, txErr)
 }
 
-type runStartDAGDAGLocker interface {
-	GetDAGForUpdate(ctx context.Context, dagKey string) (*taskdag.DAG, error)
-}
-
 func lockDAGForRunStart(ctx context.Context, tx taskdag.RunStore, dagKey string) (*taskdag.DAG, error) {
-	locker, ok := tx.(runStartDAGDAGLocker)
+	locker, ok := tx.(interface {
+		GetDAGForUpdate(context.Context, string) (*taskdag.DAG, error)
+	})
 	if !ok {
 		return nil, fmt.Errorf("%w: run tx store does not support DAG row lock", ErrRunStoreUnset)
 	}
@@ -130,8 +131,14 @@ func (s *service) resolveStartDAGUniqueViolation(ctx context.Context, dagKey, ru
 	existing, getErr := s.runStore.GetRun(ctx, runKey)
 	if getErr == nil && existing != nil {
 		switch existing.Status {
-		case "running", "succeeded":
-			return StartDAGResponse{RunKey: existing.RunKey, Version: existing.DagVersionSnapshot}, nil
+		case "running":
+			scheduledWakeups, err := s.runStore.ScheduleRootWakeups(ctx, dagKey, existing.ID)
+			if err != nil {
+				return StartDAGResponse{}, fmt.Errorf("orchestration: StartDAG(%q): ScheduleRootWakeups existing run %s: %w", dagKey, existing.RunKey, err)
+			}
+			return contract.NewExistingStartDAGResponse(existing.ID, existing.RunKey, existing.DagVersionSnapshot, existing.Status, scheduledWakeups), nil
+		case "succeeded":
+			return contract.NewExistingStartDAGResponse(existing.ID, existing.RunKey, existing.DagVersionSnapshot, existing.Status, 0), nil
 		case "failed", "cancelled":
 			return StartDAGResponse{}, &IdempotencyKeyExhaustedError{RunKey: existing.RunKey, Status: existing.Status}
 		default:
@@ -151,5 +158,3 @@ func generateRunKey(dagKey, idempotencyKey string) string {
 	}
 	return fmt.Sprintf("%s#run-%d", dagKey, time.Now().UnixNano())
 }
-
-func dagVersionFor(_ *taskdag.DAG) int64 { return 0 }

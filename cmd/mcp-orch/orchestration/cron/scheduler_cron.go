@@ -30,9 +30,6 @@ import (
 	"time"
 
 	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
-	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgconn"
-	"github.com/jackc/pgx/v5/pgxpool"
 	robcron "github.com/robfig/cron/v3"
 )
 
@@ -306,11 +303,9 @@ type DueDAG struct {
 	DueAt    time.Time
 }
 
-// DAGScheduleStore 是 Tick 需要的最小存储接口。
-// DAGScheduleStore is the minimal storage port needed by Tick.
+// DAGScheduleStore scans due DAGs; schedule advancement is owned by StartDAG.
 type DAGScheduleStore interface {
 	DueDAGs(ctx context.Context, now time.Time) ([]DueDAG, error)
-	UpdateNextRun(ctx context.Context, dagKey string, nextRunAt time.Time) error
 }
 
 // DAGStarter 是 StartDAG 的反向依赖适配口，避免 cron 子包 import 父包。
@@ -343,9 +338,10 @@ type ScheduledDAGTickerConfig struct {
 }
 
 var (
-	ErrNilScheduleStore = errors.New("cron: nil schedule store")
-	ErrNilDAGStarter    = errors.New("cron: nil dag starter")
-	ErrNilLockPool      = errors.New("cron: nil advisory lock pool")
+	ErrNilScheduleStore     = errors.New("cron: nil schedule store")
+	ErrNilDAGStarter        = errors.New("cron: nil dag starter")
+	ErrNilLockPool          = errors.New("cron: nil advisory lock pool")
+	ErrScheduleStateChanged = errors.New("cron: scheduled dag state changed before next_run_at update")
 )
 
 func NewScheduledDAGTicker(cfg ScheduledDAGTickerConfig) (*ScheduledDAGTicker, error) {
@@ -424,13 +420,7 @@ func (t *ScheduledDAGTicker) triggerDueDAG(ctx context.Context, dag DueDAG, now 
 		DueAt:          dag.DueAt,
 		NextRunAt:      nextRunAt,
 	}
-	if err := t.starter.StartDAG(ctx, req); err != nil {
-		return err
-	}
-	if err := t.store.UpdateNextRun(ctx, dag.DagKey, nextRunAt); err != nil {
-		return classifyTickError(TickErrorClassInfrastructure, "update_next_run_at", err)
-	}
-	return nil
+	return t.starter.StartDAG(ctx, req)
 }
 
 func (t *ScheduledDAGTicker) nextRunAt(dag DueDAG, now time.Time) (time.Time, error) {
@@ -444,140 +434,4 @@ func (t *ScheduledDAGTicker) nextRunAt(dag DueDAG, now time.Time) (time.Time, er
 func scheduledIdempotencyKey(dag DueDAG) string {
 	dueAt := dag.DueAt.UTC().Format(time.RFC3339Nano)
 	return "scheduled:" + strings.TrimSpace(dag.DagKey) + ":" + dueAt
-}
-
-type scheduleDB interface {
-	Query(context.Context, string, ...any) (pgx.Rows, error)
-	Exec(context.Context, string, ...any) (pgconn.CommandTag, error)
-}
-
-type SQLDAGScheduleStore struct {
-	db scheduleDB
-}
-
-func NewSQLDAGScheduleStore(db scheduleDB) (*SQLDAGScheduleStore, error) {
-	if db == nil {
-		return nil, ErrNilScheduleStore
-	}
-	return &SQLDAGScheduleStore{db: db}, nil
-}
-
-func (s *SQLDAGScheduleStore) DueDAGs(ctx context.Context, now time.Time) ([]DueDAG, error) {
-	rows, err := s.db.Query(ctx, `
-SELECT dag_key, cron_expr, next_run_at
-FROM task_dags
-WHERE trigger = 'scheduled'
-  AND cron_expr <> ''
-  AND next_run_at IS NOT NULL
-  AND next_run_at <= $1
-ORDER BY next_run_at ASC, id ASC
-`, now)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var dags []DueDAG
-	for rows.Next() {
-		var dag DueDAG
-		if err := rows.Scan(&dag.DagKey, &dag.CronExpr, &dag.DueAt); err != nil {
-			return nil, err
-		}
-		dags = append(dags, dag)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return dags, nil
-}
-
-func (s *SQLDAGScheduleStore) UpdateNextRun(ctx context.Context, dagKey string, nextRunAt time.Time) error {
-	_, err := s.db.Exec(ctx, `
-UPDATE task_dags
-SET next_run_at = $1,
-    updated_at = NOW()
-WHERE dag_key = $2
-`, nextRunAt, dagKey)
-	return err
-}
-
-type PGAdvisoryLocker struct {
-	pool   *pgxpool.Pool
-	lockID int64
-}
-
-func NewPGAdvisoryLocker(pool *pgxpool.Pool, lockID int64) (*PGAdvisoryLocker, error) {
-	if pool == nil {
-		return nil, ErrNilLockPool
-	}
-	return &PGAdvisoryLocker{pool: pool, lockID: lockID}, nil
-}
-
-func (l *PGAdvisoryLocker) TryLock(ctx context.Context) (AdvisoryLockHandle, bool, error) {
-	conn, err := l.pool.Acquire(ctx)
-	if err != nil {
-		return nil, false, err
-	}
-	var acquired bool
-	if err := conn.QueryRow(ctx, `SELECT pg_try_advisory_lock($1)`, l.lockID).Scan(&acquired); err != nil {
-		conn.Release()
-		return nil, false, err
-	}
-	if !acquired {
-		conn.Release()
-		return nil, false, nil
-	}
-	return &pgAdvisoryLockHandle{conn: pgxpoolAdvisoryLockConn{conn: conn}, lockID: l.lockID}, true, nil
-}
-
-type pgAdvisoryLockHandle struct {
-	conn   advisoryLockConn
-	lockID int64
-}
-
-type pgxRow interface {
-	Scan(dest ...any) error
-}
-
-type advisoryLockConn interface {
-	queryRow(ctx context.Context, sql string, args ...any) pgxRow
-	release()
-	hijackAndClose(ctx context.Context) error
-}
-
-type pgxpoolAdvisoryLockConn struct {
-	conn *pgxpool.Conn
-}
-
-func (c pgxpoolAdvisoryLockConn) queryRow(ctx context.Context, sql string, args ...any) pgxRow {
-	return c.conn.QueryRow(ctx, sql, args...)
-}
-
-func (c pgxpoolAdvisoryLockConn) release() {
-	c.conn.Release()
-}
-
-func (c pgxpoolAdvisoryLockConn) hijackAndClose(ctx context.Context) error {
-	raw := c.conn.Hijack()
-	return raw.Close(ctx)
-}
-
-func (h *pgAdvisoryLockHandle) Unlock(ctx context.Context) error {
-	release := true
-	defer func() {
-		if release {
-			h.conn.release()
-		}
-	}()
-	var unlocked bool
-	if err := h.conn.queryRow(ctx, `SELECT pg_advisory_unlock($1)`, h.lockID).Scan(&unlocked); err != nil {
-		release = false
-		closeCtx, cancel := platformconfig.WithTimeout(context.Background(), advisoryUnlockTimeout)
-		defer cancel()
-		_ = h.conn.hijackAndClose(closeCtx)
-		return err
-	}
-	if !unlocked {
-		return errors.New("cron: advisory lock was not held")
-	}
-	return nil
 }

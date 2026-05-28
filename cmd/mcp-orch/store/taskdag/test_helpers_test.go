@@ -18,6 +18,8 @@ type fakeTaskDAGDB struct {
 	dags    map[string]sqlc.TaskDag
 	wakeups map[int64]sqlc.TaskDagWakeup
 	nodes   map[string]sqlc.TaskDagNode
+	ops     []string
+	locks   map[string]bool
 	// F6.2: runs 用于模拟 task_dag_runs 一行，键是 run_key；finalize SQL 拦截会读写它。
 	// F6.2: runs simulates task_dag_runs rows keyed by run_key so the finalize
 	// SQL interceptor can mutate run.status when all nodes reach terminal.
@@ -34,6 +36,7 @@ func newFakeTaskDAGDB(now time.Time) *fakeTaskDAGDB {
 		wakeups: make(map[int64]sqlc.TaskDagWakeup),
 		nodes:   make(map[string]sqlc.TaskDagNode),
 		runs:    make(map[string]sqlc.TaskDagRun),
+		locks:   make(map[string]bool),
 	}
 }
 
@@ -98,6 +101,7 @@ func (db *fakeTaskDAGDB) cloneLocked() *fakeTaskDAGDB {
 		row.Metadata = cloneBytes(row.Metadata)
 		cloned.runs[key] = row
 	}
+	cloned.ops = append([]string(nil), db.ops...)
 	return cloned
 }
 
@@ -107,6 +111,7 @@ func (db *fakeTaskDAGDB) replaceLocked(snapshot *fakeTaskDAGDB) {
 	db.wakeups = snapshot.wakeups
 	db.nodes = snapshot.nodes
 	db.runs = snapshot.runs
+	db.ops = snapshot.ops
 	db.wakeupSeq = snapshot.wakeupSeq
 	db.runSeq = snapshot.runSeq
 }
@@ -273,8 +278,8 @@ func nilIfZero(value int64) *int64 {
 }
 
 // updateNodeSpawningThread mirrors the F1.5 CTE SQL: capture previous value
-// then UPDATE. The CTE row has 20 columns (18 node columns +
-// spawning_thread_id + previous_spawning_thread_id); the order must match
+// then UPDATE. The CTE row shape is intentionally narrower than TaskDagNode;
+// the order must match
 // task_dag_node_spawning_thread.sql.go's Scan call so stubTaskDAGRow can
 // assign cleanly.
 func (db *fakeTaskDAGDB) updateNodeSpawningThread(args ...any) ([]any, error) {
@@ -293,22 +298,31 @@ func (db *fakeTaskDAGDB) updateNodeSpawningThread(args ...any) ([]any, error) {
 	if !ok {
 		return nil, fmt.Errorf("node key arg = %T", args[2])
 	}
-	runID, ok := args[3].(int64)
-	if !ok {
-		return nil, fmt.Errorf("run id arg = %T", args[3])
+	runID, err := fakeInt8Arg(args, 3, "run id")
+	if err != nil {
+		return nil, err
 	}
 	key := dagNodeLookupKey(dagKey, nodeKey, runID)
 	row, ok := db.nodes[key]
 	if !ok {
 		return nil, pgx.ErrNoRows
 	}
+	switch row.Status {
+	case "done", "failed", "cancelled", "skipped":
+		return nil, pgx.ErrNoRows
+	}
 	prev := row.SpawningThreadID
 	row.SpawningThreadID = spawningThread
 	row.UpdatedAt = timestamptzValue(db.now)
 	db.nodes[key] = row
-	values := taskDagNodeValues(row)
-	values = append(values, prev)
-	return values, nil
+	return []any{
+		row.ID, row.DagKey, row.NodeKey, row.RunID, row.Title, row.NodeType,
+		row.AssignedTo, append([]byte(nil), row.DependsOn...), row.Status,
+		row.CommandRef, append([]byte(nil), row.Config...), append([]byte(nil), row.Result...),
+		row.StartedAt, row.FinishedAt, row.CreatedAt, row.UpdatedAt,
+		row.ActiveTurnID, row.ActiveWakeupID, row.LastEventAt,
+		row.SpawningThreadID, prev,
+	}, nil
 }
 
 // appendRunEvent mirrors the F1.5 AppendTaskDagRunEvent SQL: find the running
@@ -323,12 +337,15 @@ func (db *fakeTaskDAGDB) appendRunEvent(args ...any) ([]any, error) {
 	if err := requireFakeTaskDAGArgs(args, 3, "append event",
 		fakeTaskDAGTypedArg[string](0, "dag key"),
 		fakeTaskDAGTypedArg[[]byte](1, "payload"),
-		fakeTaskDAGTypedArg[int64](2, "run id")); err != nil {
+		fakeTaskDAGInt8Arg(2, "run id")); err != nil {
 		return nil, err
 	}
 	dagKey := args[0].(string)
 	payload := args[1].([]byte)
-	runID := args[2].(int64)
+	runID, err := fakeInt8Arg(args, 2, "run id")
+	if err != nil {
+		return nil, err
+	}
 	newEvent, err := decodeRunEventPayload(payload)
 	if err != nil {
 		return nil, err

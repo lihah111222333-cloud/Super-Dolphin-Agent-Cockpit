@@ -80,10 +80,6 @@ func (s *service) prepareStartRequest(ctx context.Context, req StartRequest) (St
 		return req, "", nil, errors.New("thread: reserve agent_id failed")
 	}
 	req.AgentID = agentID
-	if err := s.prepareTaskHandoffStart(ctx, &req); err != nil {
-		releaseAgentID()
-		return req, "", nil, err
-	}
 	return req, agentID, releaseAgentID, nil
 }
 
@@ -292,10 +288,6 @@ func (s *service) persistStartedSession(
 		}
 		return StartResult{}, err
 	}
-	s.logIgnoredTaskHandoffError("refresh task handoff on start", publicThreadID, s.refreshTaskHandoffFromThread(ctx, publicThreadID, taskHandoffRenderSeed{
-		SourceThreadID: publicThreadID,
-		Status:         "running",
-	}))
 	return newStartResult(req, publicThreadID, agentID, providerUUID, providerThreadID, effectiveModel, effectiveCWD), nil
 }
 

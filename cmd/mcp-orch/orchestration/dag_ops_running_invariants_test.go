@@ -14,9 +14,9 @@ import (
 // F4.5 dag.status='running' 不变量单测。覆盖矩阵：
 //   - draft DAG（默认 stub.dagStatus 空字符串 = "draft"）：update_node + add_node 仍 happy
 //   - running DAG + update_node → 拒为 ErrApplyOpsInvalid
-//   - running DAG + add_node depends_on 指向 pending 节点 → 拒
-//   - running DAG + add_node depends_on 指向 done 节点 → 通过
-//   - running DAG + add_node 无 depends_on → 通过（depends_on 为空集天然满足条件）
+//   - running DAG + add_node depends_on 指向 pending 节点 → 当前先 fail-fast 拒绝
+//   - running DAG + add_node depends_on 指向 done 节点 → 当前先 fail-fast 拒绝
+//   - running DAG + add_node 无 depends_on → 当前先 fail-fast 拒绝
 
 // draft DAG 下 update_node 仍 happy —— 验证不变量只对 running 触发，不动 happy path。
 func TestApplyOpsF45DraftUpdateNodeHappy(t *testing.T) {
@@ -72,7 +72,7 @@ func TestApplyOpsF45RunningUpdateNodeRejected(t *testing.T) {
 	}
 }
 
-// running DAG + add_node depends_on 指向 pending 节点 → 拒。
+// running DAG + add_node depends_on 指向 pending 节点同样不能只写模板节点。
 func TestApplyOpsF45RunningAddNodeDependsOnPendingRejected(t *testing.T) {
 	stub := &stubDAGOpsStore{
 		currentVersion: 1,
@@ -96,16 +96,17 @@ func TestApplyOpsF45RunningAddNodeDependsOnPendingRejected(t *testing.T) {
 	if !errors.Is(err, ErrApplyOpsInvalid) {
 		t.Fatalf("err = %v, want errors.Is ErrApplyOpsInvalid", err)
 	}
-	if !strings.Contains(err.Error(), "done node") {
-		t.Errorf("err should mention 'done node', got %v", err)
+	if !strings.Contains(err.Error(), "runtime append") {
+		t.Errorf("err should mention runtime append, got %v", err)
 	}
 	if len(stub.upsertCalls) != 0 {
 		t.Errorf("should not upsert when validation fails, got %d calls", len(stub.upsertCalls))
 	}
 }
 
-// running DAG + add_node depends_on 指向 done 节点 → 通过。
-func TestApplyOpsF45RunningAddNodeDependsOnDoneHappy(t *testing.T) {
+// running DAG + add_node 曾在 F4.5 放行，但 F6.5 runtime nodes 后它只写模板节点，
+// 当前 run 不会出现/调度新节点；因此在 runtime append 真闭环前必须 fail-fast。
+func TestApplyOpsF45RunningAddNodeDependsOnDoneRejectedUntilRuntimeAppendExists(t *testing.T) {
 	stub := &stubDAGOpsStore{
 		currentVersion: 1,
 		dagStatus:      "running",
@@ -121,20 +122,23 @@ func TestApplyOpsF45RunningAddNodeDependsOnDoneHappy(t *testing.T) {
 			{"op":"add_node","node":{"node_key":"n1","title":"N1","node_type":"agent","depends_on":["n0"]}}
 		]`),
 	}
-	resp, err := s.ApplyOps(context.Background(), req)
-	if err != nil {
-		t.Fatalf("running DAG + add_node deps on done: err = %v, want nil", err)
+	_, err := s.ApplyOps(context.Background(), req)
+	if err == nil {
+		t.Fatal("running DAG + add_node deps on done: want error, got nil")
 	}
-	if resp.NewVersion != 2 {
-		t.Errorf("NewVersion = %d, want 2", resp.NewVersion)
+	if !errors.Is(err, ErrApplyOpsInvalid) {
+		t.Fatalf("err = %v, want errors.Is ErrApplyOpsInvalid", err)
 	}
-	if len(stub.upsertCalls) != 1 || stub.upsertCalls[0].NodeKey != "n1" {
-		t.Errorf("upsertCalls = %v, want one node 'n1'", stub.upsertCalls)
+	if !strings.Contains(err.Error(), "runtime append") {
+		t.Fatalf("err = %v, want mention runtime append", err)
+	}
+	if len(stub.upsertCalls) != 0 {
+		t.Errorf("upsertCalls = %v, want no template upsert for running add_node", stub.upsertCalls)
 	}
 }
 
-// running DAG + add_node 无 depends_on → 通过（空集天然满足「全部指向 done」条件）。
-func TestApplyOpsF45RunningAddNodeNoDepsHappy(t *testing.T) {
+// running DAG + add_node 无 depends_on 同样不能只写模板节点。
+func TestApplyOpsF45RunningAddNodeNoDepsRejectedUntilRuntimeAppendExists(t *testing.T) {
 	stub := &stubDAGOpsStore{
 		currentVersion: 0,
 		dagStatus:      "running",
@@ -147,11 +151,77 @@ func TestApplyOpsF45RunningAddNodeNoDepsHappy(t *testing.T) {
 			{"op":"add_node","node":{"node_key":"new","title":"NEW","node_type":"agent"}}
 		]`),
 	}
-	if _, err := s.ApplyOps(context.Background(), req); err != nil {
-		t.Fatalf("running DAG + add_node no deps: err = %v, want nil", err)
+	_, err := s.ApplyOps(context.Background(), req)
+	if err == nil {
+		t.Fatal("running DAG + add_node no deps: want error, got nil")
 	}
-	if len(stub.upsertCalls) != 1 {
-		t.Errorf("upsertCalls = %d, want 1", len(stub.upsertCalls))
+	if !errors.Is(err, ErrApplyOpsInvalid) {
+		t.Fatalf("err = %v, want errors.Is ErrApplyOpsInvalid", err)
+	}
+	if len(stub.upsertCalls) != 0 {
+		t.Errorf("upsertCalls = %d, want 0", len(stub.upsertCalls))
+	}
+}
+
+func TestApplyOpsF45ActiveRunAddNodeRejectedUntilRuntimeAppendExists(t *testing.T) {
+	stub := &stubDAGOpsStore{
+		currentVersion: 1,
+		dagStatus:      "ready",
+		activeRuns:     1,
+		nodes: []taskdag.Node{
+			{NodeKey: "n0", Title: "n0", NodeType: "agent", Status: "done", DependsOn: json.RawMessage(`[]`)},
+		},
+	}
+	s := makeApplyOpsService(stub)
+	req := contract.ApplyOpsRequest{
+		DagKey:      "dag-a",
+		BaseVersion: 1,
+		Ops: json.RawMessage(`[
+			{"op":"add_node","node":{"node_key":"n1","title":"N1","node_type":"agent","depends_on":["n0"]}}
+		]`),
+	}
+	_, err := s.ApplyOps(context.Background(), req)
+	if err == nil {
+		t.Fatal("active run + add_node: want error, got nil")
+	}
+	if !errors.Is(err, ErrApplyOpsInvalid) {
+		t.Fatalf("err = %v, want errors.Is ErrApplyOpsInvalid", err)
+	}
+	if !strings.Contains(err.Error(), "active running run") || !strings.Contains(err.Error(), "runtime append") {
+		t.Fatalf("err = %v, want active running run and runtime append", err)
+	}
+	if len(stub.upsertCalls) != 0 {
+		t.Errorf("upsertCalls = %v, want no template upsert for active run add_node", stub.upsertCalls)
+	}
+}
+
+func TestApplyOpsF45RunningAddNodeRejectsBeforeListNodes(t *testing.T) {
+	stub := &stubDAGOpsStore{
+		currentVersion: 1,
+		dagStatus:      "running",
+		listErr:        errors.New("list nodes unavailable"),
+	}
+	s := makeApplyOpsService(stub)
+	req := contract.ApplyOpsRequest{
+		DagKey:      "dag-a",
+		BaseVersion: 1,
+		Ops: json.RawMessage(`[
+			{"op":"add_node","node":{"node_key":"n1","title":"N1","node_type":"agent"}}
+		]`),
+	}
+
+	_, err := s.ApplyOps(context.Background(), req)
+	if err == nil {
+		t.Fatal("running DAG + add_node: want fail-fast error, got nil")
+	}
+	if !errors.Is(err, ErrApplyOpsInvalid) {
+		t.Fatalf("err = %v, want errors.Is ErrApplyOpsInvalid", err)
+	}
+	if !strings.Contains(err.Error(), "runtime append") {
+		t.Fatalf("err = %v, want mention runtime append", err)
+	}
+	if stub.listCalls != 0 {
+		t.Fatalf("ListNodes calls = %d, want 0 for running add_node fail-fast", stub.listCalls)
 	}
 }
 

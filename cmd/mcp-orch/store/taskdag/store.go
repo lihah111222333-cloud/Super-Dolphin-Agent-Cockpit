@@ -2,18 +2,24 @@ package taskdag
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/sqlc"
+	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/sqlctx"
 	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
 )
 
+var ErrDAGDeleteActiveRun = errors.New("task_dag: delete blocked by active running run")
+
 type store struct {
-	q *sqlc.Queries
+	db sqlc.DBTX
+	q  *sqlc.Queries
 }
 
-func NewStore(q *sqlc.Queries) Store { return &store{q: q} }
+func NewStore(db sqlc.DBTX) Store { return &store{db: db, q: sqlc.New(db)} }
 
 func requireRuntimeRunID(op string, runID int64) error {
 	if runID <= 0 {
@@ -27,8 +33,8 @@ func requireRuntimeRunID(op string, runID int64) error {
 // or node rows with FOR UPDATE; callers must explicitly use the *_ForUpdate
 // accessors inside the transaction when they need serialized DAG mutation.
 func (s *store) WithTx(ctx context.Context, fn func(txStore DAGMutationStore) error) error {
-	return wrapTaskDAGError(sqlc.WithTx(ctx, s.q, func(txq *sqlc.Queries) error {
-		return fn(&store{q: txq})
+	return wrapTaskDAGError(sqlctx.WithTx(ctx, s.db, s.q, func(txq *sqlc.Queries, tx sqlc.DBTX) error {
+		return fn(&store{db: tx, q: txq})
 	}), "with_tx", "task_dag")
 }
 
@@ -61,6 +67,37 @@ func (s *store) GetDAG(ctx context.Context, dagKey string) (*DAG, error) {
 	}, "get", "task_dag", fromDAG)
 }
 
+func (s *store) DeleteDAG(ctx context.Context, dagKey string) (int64, error) {
+	key := strings.TrimSpace(dagKey)
+	if key == "" {
+		return 0, errors.New("delete task_dag: dag_key is required")
+	}
+	var rows int64
+	err := sqlctx.WithTxOrReuse(ctx, s.db, s.q, func(txq *sqlc.Queries, txdb sqlc.DBTX) error {
+		txStore := &store{db: txdb, q: txq}
+		if _, err := txStore.lockDAGForDelete(ctx, key); err != nil {
+			return err
+		}
+		active, err := txStore.CountRunningRunsByDagKey(ctx, key)
+		if err != nil {
+			return err
+		}
+		if active > 0 {
+			return ErrDAGDeleteActiveRun
+		}
+		if err := txStore.deleteDAGDependents(ctx, key); err != nil {
+			return err
+		}
+		deleted, err := txStore.deleteDAGRow(ctx, key)
+		if err != nil {
+			return err
+		}
+		rows = deleted
+		return nil
+	})
+	return rows, wrapTaskDAGError(err, "delete", "task_dag")
+}
+
 func (s *store) UpsertNode(ctx context.Context, node Node) (*Node, error) {
 	return queryOne(func() (sqlc.TaskDagNode, error) {
 		return s.q.UpsertTaskDagNode(ctx, sqlc.UpsertTaskDagNodeParams{
@@ -86,7 +123,7 @@ func (s *store) PatchNodeConfigIfUnchanged(ctx context.Context, input NodeConfig
 			NodeKey:        input.NodeKey,
 			Config:         input.Config,
 			PreviousConfig: input.PreviousConfig,
-			RunID:          input.RunID,
+			RunID:          int64Ptr(input.RunID),
 		})
 	}, "patch_config", "task_dag_node", fromNode)
 }
@@ -109,10 +146,10 @@ func (s *store) UpdateNodeStatus(ctx context.Context, input NodeStatusUpdate) (*
 	return updateNodeStatus(func() (sqlc.TaskDagNode, error) {
 		return s.q.UpdateTaskDagNodeStatusFlexible(ctx, sqlc.UpdateTaskDagNodeStatusFlexibleParams{
 			Status:  input.Status,
-			Column2: input.Result,
+			Result:  input.Result,
 			DagKey:  input.DagKey,
 			NodeKey: input.NodeKey,
-			RunID:   input.RunID,
+			RunID:   int64Ptr(input.RunID),
 		})
 	}, "update_status")
 }
@@ -132,7 +169,7 @@ func (s *store) AssignNode(ctx context.Context, input AssignNodeInput) (*Node, e
 			AssignedTo: input.AssignedTo,
 			DagKey:     input.DagKey,
 			NodeKey:    input.NodeKey,
-			RunID:      input.RunID,
+			RunID:      int64Ptr(input.RunID),
 		})
 	}, "assign", "task_dag_node", fromNode)
 }
@@ -141,7 +178,7 @@ func (s *store) ListRunNodes(ctx context.Context, dagKey string, runID int64) ([
 	return queryMany(func() ([]sqlc.TaskDagNode, error) {
 		return s.q.ListTaskDagRunNodes(ctx, sqlc.ListTaskDagRunNodesParams{
 			DagKey: dagKey,
-			RunID:  runID,
+			RunID:  int64Ptr(runID),
 		})
 	}, "list_run", "task_dag_node", fromNode)
 }
@@ -156,7 +193,7 @@ func (s *store) ListRunNodes(ctx context.Context, dagKey string, runID int64) ([
 // advancement on every row.
 func (s *store) LookupNodesBySpawningThread(ctx context.Context, threadID string) ([]Node, error) {
 	return queryMany(func() ([]sqlc.TaskDagNode, error) {
-		return s.q.LookupNodesBySpawningThread(ctx, threadID)
+		return s.q.LookupNodesBySpawningThread(ctx, sqlc.TextValuePtr(&threadID))
 	}, "lookup_by_spawning_thread", "task_dag_node", fromNode)
 }
 
@@ -183,7 +220,7 @@ func (s *store) BindRunningNodeTurn(ctx context.Context, input BindRunningNodeTu
 		return nil, err
 	}
 	var mapped Node
-	err := sqlc.WithTxOrReuse(ctx, s.q, func(txq *sqlc.Queries) error {
+	err := sqlctx.WithTxOrReuse(ctx, s.db, s.q, func(txq *sqlc.Queries, _ sqlc.DBTX) error {
 		_, err := bindWakeupTurnTx(ctx, txq, BindWakeupTurnInput{
 			TurnID: input.TurnID,
 			ID:     input.WakeupID,
@@ -196,7 +233,7 @@ func (s *store) BindRunningNodeTurn(ctx context.Context, input BindRunningNodeTu
 			DagKey:         input.DagKey,
 			NodeKey:        input.NodeKey,
 			ActiveWakeupID: int64Ptr(input.WakeupID),
-			RunID:          input.RunID,
+			RunID:          int64Ptr(input.RunID),
 		})
 		if err != nil {
 			return wrapTaskDAGError(err, "bind_running_turn", "task_dag_node")
@@ -220,7 +257,7 @@ func (s *store) TouchRunningNodeEvent(ctx context.Context, input TouchRunningNod
 			DagKey:       input.DagKey,
 			NodeKey:      input.NodeKey,
 			ActiveTurnID: stringPtr(input.TurnID),
-			RunID:        input.RunID,
+			RunID:        int64Ptr(input.RunID),
 		})
 	}, "touch_running_event", "task_dag_node", fromNode)
 }
@@ -232,11 +269,11 @@ func (s *store) UpdateRunningNodeStatus(ctx context.Context, input RunningNodeSt
 	return updateNodeStatus(func() (sqlc.TaskDagNode, error) {
 		return s.q.UpdateRunningTaskDagNodeStatus(ctx, sqlc.UpdateRunningTaskDagNodeStatusParams{
 			Status:         input.Status,
-			Column2:        input.Result,
+			Result:         input.Result,
 			ActiveWakeupID: int64Ptr(input.WakeupID),
 			DagKey:         input.DagKey,
 			NodeKey:        input.NodeKey,
-			RunID:          input.RunID,
+			RunID:          int64Ptr(input.RunID),
 		})
 	}, "update_running_status")
 }
@@ -248,10 +285,10 @@ func (s *store) UpdateAwaitingVerifyNodeStatus(ctx context.Context, input Awaiti
 	return updateNodeStatus(func() (sqlc.TaskDagNode, error) {
 		return s.q.UpdateAwaitingVerifyTaskDagNodeStatus(ctx, sqlc.UpdateAwaitingVerifyTaskDagNodeStatusParams{
 			Status:  input.Status,
-			Column2: input.Result,
+			Result:  input.Result,
 			DagKey:  input.DagKey,
 			NodeKey: input.NodeKey,
-			RunID:   input.RunID,
+			RunID:   int64Ptr(input.RunID),
 		})
 	}, "update_awaiting_verify_status")
 }
@@ -263,10 +300,10 @@ func (s *store) CompleteNode(ctx context.Context, input CompleteNodeInput) (*Nod
 	return updateNodeStatus(func() (sqlc.TaskDagNode, error) {
 		return s.q.CompleteTaskDagNode(ctx, sqlc.CompleteTaskDagNodeParams{
 			Status:  input.Status,
-			Column2: input.Result,
+			Result:  input.Result,
 			DagKey:  input.DagKey,
 			NodeKey: input.NodeKey,
-			RunID:   input.RunID,
+			RunID:   int64Ptr(input.RunID),
 		})
 	}, "complete")
 }
@@ -278,10 +315,10 @@ func (s *store) UpdateNodeStatusFlexible(ctx context.Context, input FlexibleNode
 	return updateNodeStatus(func() (sqlc.TaskDagNode, error) {
 		return s.q.UpdateTaskDagNodeStatusFlexible(ctx, sqlc.UpdateTaskDagNodeStatusFlexibleParams{
 			Status:  input.Status,
-			Column2: input.Result,
+			Result:  input.Result,
 			DagKey:  input.DagKey,
 			NodeKey: input.NodeKey,
-			RunID:   input.RunID,
+			RunID:   int64Ptr(input.RunID),
 		})
 	}, "update_status_flexible")
 }
@@ -295,7 +332,7 @@ func (s *store) ClaimNodeOutputMaterialization(ctx context.Context, input Output
 			Result:  input.Result,
 			DagKey:  input.DagKey,
 			NodeKey: input.NodeKey,
-			RunID:   input.RunID,
+			RunID:   int64Ptr(input.RunID),
 		})
 	}, "claim_output_materialization")
 }
@@ -312,11 +349,15 @@ func fromDAG(row sqlc.TaskDag) DAG {
 	return DAG{
 		ID:          row.ID,
 		DagKey:      row.DagKey,
+		Version:     row.Version,
 		Title:       row.Title,
 		Description: row.Description,
 		Status:      row.Status,
 		CreatedBy:   row.CreatedBy,
 		Metadata:    row.Metadata,
+		Trigger:     row.Trigger,
+		CronExpr:    row.CronExpr,
+		NextRunAt:   timestampPtr(row.NextRunAt),
 		StartedAt:   timestampPtr(row.StartedAt),
 		FinishedAt:  timestampPtr(row.FinishedAt),
 		CreatedAt:   timeValue(row.CreatedAt),

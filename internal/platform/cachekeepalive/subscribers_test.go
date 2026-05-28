@@ -66,6 +66,24 @@ func TestCacheKeepaliveSubscribersRegisterCancelAndDeliver(t *testing.T) {
 	waitForCacheKeepaliveTimer(t, manager, "session-after-cancel", false)
 }
 
+func TestCacheKeepaliveRelayClearsTimerOnAgentStopped(t *testing.T) {
+	t.Parallel()
+
+	dispatcher := platformbus.NewDispatcher()
+	t.Cleanup(func() { _ = dispatcher.Close() })
+	manager := newTestManager(nil, &bindingStoreStub{byAgent: map[string]*bindingstore.Binding{"agent-1": {AgentID: "agent-1"}}}, nil)
+	t.Cleanup(manager.shutdownForTest)
+	spec := NewCacheKeepaliveSubscribers(manager, nil).Spec
+	cancel := spec.Register(dispatcher)
+	t.Cleanup(cancel)
+
+	event.Publish(dispatcher, agentdto.AgentLaunched{AgentSessionHeader: cacheKeepaliveAgentHeader("thread-1", "agent-1", "session-1")})
+	waitForCacheKeepaliveTimer(t, manager, "session-1", true)
+
+	event.Publish(dispatcher, agentdto.AgentStopped{AgentSessionHeader: cacheKeepaliveAgentHeader("thread-1", "agent-1", "session-1")})
+	waitForCacheKeepaliveTimer(t, manager, "session-1", false)
+}
+
 func cacheKeepaliveAgentHeader(threadID, agentID, sessionID string) shareddto.AgentSessionHeader {
 	return shareddto.AgentSessionHeader{
 		AgentHeader: shareddto.AgentHeader{

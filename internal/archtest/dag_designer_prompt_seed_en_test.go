@@ -103,6 +103,8 @@ func assertDAGDesignerPromptBlueprintRules(t *testing.T, content string) {
 		"scheduled", // trigger mode
 		"cron",      // cron expression context
 		"inputs.summarization",
+		"final_node_key",
+		"final_output",
 	})
 }
 

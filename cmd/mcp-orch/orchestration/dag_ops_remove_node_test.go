@@ -14,7 +14,7 @@ import (
 // F4.3 remove_node 真实业务实现单测。覆盖矩阵：
 //   - happy: 删除没有下游依赖的 leaf node，推进 DAG version
 //   - reject: 被其它节点 depends_on 的节点不能删除
-//   - reject: running DAG 只允许 add_node，remove_node 必须拒绝
+//   - reject: running DAG 当前禁用模板改写，remove_node 必须拒绝
 //   - reject: 目标节点不存在时不删除、不 bump version
 
 func TestApplyOps_RemoveNode_LeafHappy(t *testing.T) {

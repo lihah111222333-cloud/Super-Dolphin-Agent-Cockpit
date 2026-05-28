@@ -66,9 +66,6 @@ func registerUIMemoryMutationHandlers(p memoryHandlerDeps) handler.Map {
 		"ui/memory/shared-file/get": platformrpc.StrictHandler(func(ctx context.Context, req uiSharedFileGetParams) (UISharedFileDetail, error) {
 			return getUISharedFile(ctx, p, req)
 		}),
-		"ui/memory/shared-file/promote": platformrpc.StrictHandler(func(ctx context.Context, req uiSharedFilePromoteParams) (UIMemoryEntryDetail, error) {
-			return promoteSharedFileToMemory(ctx, p, req)
-		}),
 		"ui/memory/shared-file/delete": platformrpc.StrictHandler(func(ctx context.Context, req uiSharedFileDeleteParams) (map[string]any, error) {
 			deleted, err := deleteUISharedFile(ctx, p, req)
 			if err != nil {
@@ -88,9 +85,6 @@ func registerUIMemoryMutationHandlers(p memoryHandlerDeps) handler.Map {
 		"ui/memory/similarity/consolidate-all": platformrpc.StrictHandler(func(ctx context.Context, req uiSimilarityConsolidateAllParams) (uiSimilarityConsolidateAllResult, error) {
 			return consolidateAllHandler(ctx, p, req)
 		}),
-	}
-	for name, item := range registerAutoContinueStateHandlers(p) {
-		out[name] = item
 	}
 	return out
 }

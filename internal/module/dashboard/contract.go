@@ -21,7 +21,12 @@ type Service interface {
 	GetBusLogs(ctx context.Context, filter buslogstore.ListFilter) ([]buslogstore.BusExceptionLog, error)
 	ListDAGs(ctx context.Context, filter contract.ListDAGsFilter) ([]contract.DAGSummary, error)
 	GetDAGDetail(ctx context.Context, dagKey string) (*contract.DAGDetail, error)
-	ListDAGRuns(ctx context.Context, dagKey string, limit int32) ([]contract.Run, error)
+	ListDAGRuns(ctx context.Context, dagKey, status string, limit int32) ([]contract.Run, error)
+	GetDAGRun(ctx context.Context, runKey string) (contract.GetRunResponse, error)
+	StartDAG(ctx context.Context, dagKey, triggerSource, idempotencyKey string) (contract.StartDAGResponse, error)
+	TerminateDAG(ctx context.Context, dagKey, runKey, reason string) error
+	DeleteDAG(ctx context.Context, dagKey string) error
+	ApplyDAGOps(ctx context.Context, req contract.ApplyOpsRequest) (contract.ApplyOpsResponse, error)
 	Query(ctx context.Context, query string, args ...any) ([]map[string]any, error)
 	GetAILogsByCategory(ctx context.Context, category, keyword string, limit int) ([]ailogstore.AILog, error)
 	GetAILogStats(ctx context.Context) ([]ailogstore.StatusCount, error)

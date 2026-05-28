@@ -19,18 +19,20 @@ import (
 // builder (EnumStringSchema) and the handler-layer requireEnum fallback.
 // Any change to one must update the other; tests cover the wiring.
 var (
+	listDAGsStatusEnum   = []string{"draft", "active", "ready", "running", "archived"}
 	listRunsStatusEnum   = []string{"running", "succeeded", "failed", "cancelled"}
 	startDAGTriggerEnum  = []string{"manual", "auto", "scheduled", "external"}
 	updateNodeStatusEnum = []string{"pending", "running", "done", "failed"}
 )
 
 type CreateDAGInput struct {
-	AgentID     string               `json:"agent_id"`
-	DagKey      string               `json:"dag_key"`
-	Title       string               `json:"title"`
-	Description string               `json:"description,omitempty"`
-	Schedule    DAGScheduleInput     `json:"schedule"`
-	Nodes       []CreateDAGNodeInput `json:"nodes,omitempty"`
+	AgentID      string               `json:"agent_id"`
+	DagKey       string               `json:"dag_key"`
+	Title        string               `json:"title"`
+	Description  string               `json:"description,omitempty"`
+	Schedule     DAGScheduleInput     `json:"schedule"`
+	FinalNodeKey string               `json:"final_node_key,omitempty"`
+	Nodes        []CreateDAGNodeInput `json:"nodes,omitempty"`
 }
 
 type DAGScheduleInput struct {
@@ -49,6 +51,7 @@ type CreateDAGNodeInput struct {
 	AssignedTo string             `json:"assigned_to,omitempty"`
 	DependsOn  []string           `json:"depends_on,omitempty"`
 	CommandRef string             `json:"command_ref,omitempty"`
+	Config     json.RawMessage    `json:"config,omitempty"`
 	Execution  *DAGExecutionInput `json:"execution,omitempty"`
 }
 
@@ -62,6 +65,16 @@ type DAGExecutionInput struct {
 
 type DAGKeyInput struct {
 	DagKey string `json:"dag_key"`
+}
+
+type ListDAGsInput struct {
+	Status  string `json:"status,omitempty"`
+	Keyword string `json:"keyword,omitempty"`
+	Limit   int    `json:"limit,omitempty"`
+}
+
+type ListDAGsOutput struct {
+	DAGs []contract.DAGSummary `json:"dags"`
 }
 
 type UpdateNodeInput struct {
@@ -101,6 +114,20 @@ func HandleGetDAG(svc contract.OrchestrationService) ToolHandler {
 			return nil, err
 		}
 		return svc.GetDAG(ctx, dagKey)
+	})
+}
+
+func HandleListDAGs(svc contract.OrchestrationService) ToolHandler {
+	return makeHandler(svc, "orchestration service", func(ctx context.Context, in ListDAGsInput) (any, error) {
+		filter, err := listDAGsFilterFromInput(in)
+		if err != nil {
+			return nil, err
+		}
+		dags, err := svc.ListDAGs(ctx, filter)
+		if err != nil {
+			return nil, err
+		}
+		return ListDAGsOutput{DAGs: dags}, nil
 	})
 }
 
@@ -157,6 +184,17 @@ type StartDAGInput struct {
 	DagKey         string `json:"dag_key"`
 	TriggerSource  string `json:"trigger_source,omitempty"`
 	IdempotencyKey string `json:"idempotency_key,omitempty"`
+}
+
+// TerminateDAGInput 是 task_terminate_dag MCP 工具的 typed 入参。
+type TerminateDAGInput struct {
+	DagKey string `json:"dag_key"`
+	RunKey string `json:"run_key"`
+	Reason string `json:"reason,omitempty"`
+}
+
+type DeleteDAGInput struct {
+	DagKey string `json:"dag_key"`
 }
 
 // GetRunInput 是 task_get_run MCP 工具的 typed 入参（T3.1）。
@@ -225,6 +263,22 @@ func HandleListRuns(svc contract.OrchestrationService) ToolHandler {
 	})
 }
 
+func listDAGsFilterFromInput(in ListDAGsInput) (contract.ListDAGsFilter, error) {
+	status := strings.TrimSpace(in.Status)
+	if status != "" {
+		validated, err := requireEnum(status, "status", listDAGsStatusEnum)
+		if err != nil {
+			return contract.ListDAGsFilter{}, err
+		}
+		status = validated
+	}
+	return contract.ListDAGsFilter{
+		Status:  status,
+		Keyword: strings.TrimSpace(in.Keyword),
+		Limit:   in.Limit,
+	}, nil
+}
+
 // listRunsRequestFromInput 把 ListRunsInput 校验为 contract.ListRunsRequest。
 // status 可选：空串视为「不过滤」放行；非空必须命中 listRunsStatusEnum
 // （与 schema 单源 + DB CHECK 三层互锁）。
@@ -254,7 +308,7 @@ func listRunsRequestFromInput(in ListRunsInput) (contract.ListRunsRequest, error
 
 // HandleStartDAG 是 task_start_dag MCP 工具的 handler（T1.1）。
 // 骨架阶段：service.StartDAG 返回 ErrLifecycleNotImplemented，
-// MCP 客户端会收到结构化错误；T1.2 接通真实路径后返回 RunKey + Version。
+// MCP 客户端会收到结构化错误；T1.2 接通真实路径后返回 run_key + version。
 //
 // 错误转译（路线 N）：
 //   - ErrIdempotencyKeyExhausted → 中英双语提示 + 携带旧 RunKey + status，
@@ -278,6 +332,32 @@ func HandleStartDAG(svc contract.OrchestrationService) ToolHandler {
 			return nil, translateStartDAGError(req.DagKey, err)
 		}
 		return resp, nil
+	})
+}
+
+func HandleTerminateDAG(svc contract.OrchestrationService) ToolHandler {
+	return makeHandler(svc, "orchestration service", func(ctx context.Context, in TerminateDAGInput) (any, error) {
+		req, err := terminateDAGRequestFromInput(in)
+		if err != nil {
+			return nil, err
+		}
+		if err := svc.TerminateDAG(ctx, req); err != nil {
+			return nil, translateTerminateDAGError(req, err)
+		}
+		return struct{}{}, nil
+	})
+}
+
+func HandleDeleteDAG(svc contract.OrchestrationService) ToolHandler {
+	return makeHandler(svc, "orchestration service", func(ctx context.Context, in DeleteDAGInput) (any, error) {
+		dagKey, err := requireTrimmed(in.DagKey, "dag_key")
+		if err != nil {
+			return nil, err
+		}
+		if err := svc.DeleteDAG(ctx, contract.DeleteDAGRequest{DagKey: dagKey}); err != nil {
+			return nil, translateDeleteDAGError(dagKey, err)
+		}
+		return struct{}{}, nil
 	})
 }
 
@@ -305,6 +385,22 @@ func startDAGRequestFromInput(in StartDAGInput) (contract.StartDAGRequest, error
 		DagKey:         dagKey,
 		TriggerSource:  trigger,
 		IdempotencyKey: strings.TrimSpace(in.IdempotencyKey),
+	}, nil
+}
+
+func terminateDAGRequestFromInput(in TerminateDAGInput) (contract.TerminateDAGRequest, error) {
+	dagKey, err := requireTrimmed(in.DagKey, "dag_key")
+	if err != nil {
+		return contract.TerminateDAGRequest{}, err
+	}
+	runKey, err := requireTrimmed(in.RunKey, "run_key")
+	if err != nil {
+		return contract.TerminateDAGRequest{}, err
+	}
+	return contract.TerminateDAGRequest{
+		DagKey: dagKey,
+		RunKey: runKey,
+		Reason: strings.TrimSpace(in.Reason),
 	}, nil
 }
 
@@ -348,6 +444,32 @@ func translateGetRunError(runKey string, err error) error {
 	return err
 }
 
+func translateTerminateDAGError(req contract.TerminateDAGRequest, err error) error {
+	if errors.Is(err, orchestration.ErrRunNotFound) {
+		return fmt.Errorf(
+			"无法停止：run 不存在或已不可访问 (dag_key=%s, run_key=%s); cannot stop missing run (dag_key=%s, run_key=%s): %w",
+			req.DagKey, req.RunKey, req.DagKey, req.RunKey, err,
+		)
+	}
+	return err
+}
+
+func translateDeleteDAGError(dagKey string, err error) error {
+	if errors.Is(err, orchestration.ErrDAGAlreadyRunning) {
+		return fmt.Errorf(
+			"无法删除：任务流程仍有运行中的 run，请先停止或等待完成 (dag_key=%s); cannot delete DAG with an active run (dag_key=%s): %w",
+			dagKey, dagKey, err,
+		)
+	}
+	if errors.Is(err, orchestration.ErrDAGNotFound) {
+		return fmt.Errorf(
+			"无法删除：DAG 不存在 (dag_key=%s); cannot delete missing DAG (dag_key=%s): %w",
+			dagKey, dagKey, err,
+		)
+	}
+	return err
+}
+
 // translateStartDAGError 把 service 层的 sentinel 包装成中英双语 MCP 错误。
 // 保留 errors.Is 可命中原 sentinel（依赖 fmt.Errorf %w）。
 //
@@ -385,7 +507,7 @@ func translateStartDAGError(dagKey string, err error) error {
 // taskToolDefinitions 按 CRUD + lifecycle 分组排序，让读者一眼看出 DAG
 // 写入 / 生命周期 / 读取 三类工具的边界：
 //   - 写入类（状态变更）：task_create_dag / task_dag_apply_ops / task_update_node
-//   - 生命周期（起停）：task_start_dag
+//   - 生命周期（起停）：task_start_dag / task_terminate_dag
 //   - 读取类：task_get_dag / task_get_run / task_list_runs
 //
 // taskToolDefinitions groups tools as writes → lifecycle → reads so readers
@@ -393,11 +515,11 @@ func translateStartDAGError(dagKey string, err error) error {
 func taskToolDefinitions(svc contract.OrchestrationService) []ToolDefinition {
 	return buildToolDefinitions(
 		// ---- writes ----
-		defineTool("task_create_dag", "Create or upsert a DAG and its nodes in the orchestration store.", createDAGSchema(), HandleCreateDAG(svc)),
+		defineTool("task_create_dag", "Create or upsert a DAG template and its nodes in the orchestration store. This does not start execution; if the user asked to run/execute now, call task_start_dag after create succeeds.", createDAGSchema(), HandleCreateDAG(svc)),
 		defineTool("task_dag_apply_ops", "Apply a typed ops batch (add_node / update_node / remove_node / update_dag) with base_version OCC. Ops shape: see nodeexec.Ops. Skeleton stage returns ErrLifecycleNotImplemented.", ObjectSchema(map[string]Schema{
 			"dag_key":      StringSchema("Target DAG key."),
 			"base_version": IntegerSchema("Expected current dag.version (OCC; mismatch returns conflict)."),
-			"ops":          ArraySchema(ObjectSchema(map[string]Schema{}, "op"), "Typed ops array; each item must include 'op' discriminator."),
+			"ops":          ArraySchema(applyOpsOpSchema(), "Typed ops array; each item must include 'op' discriminator."),
 		}, "dag_key", "base_version", "ops"), HandleApplyOps(svc)),
 		defineTool("task_update_node", "Update the runtime status for a DAG node.", ObjectSchema(map[string]Schema{
 			"dag_key":  StringSchema("DAG key."),
@@ -413,12 +535,25 @@ func taskToolDefinitions(svc contract.OrchestrationService) []ToolDefinition {
 			"assigned_to": StringSchema("Agent id to dispatch the node to."),
 		}, "dag_key", "node_key", "run_id", "assigned_to"), HandleDispatchNode(svc)),
 		// ---- lifecycle ----
-		defineTool("task_start_dag", "Trigger a new DAG execution (creates a run, snapshots dag.version). Skeleton stage returns ErrLifecycleNotImplemented; T1.2 wires the real path.", ObjectSchema(map[string]Schema{
+		defineTool("task_start_dag", "Trigger a DAG execution (creates a run and snapshots dag.version). The response includes run_id, scheduled_wakeups, and execution_state; if scheduled_wakeups=0 with waiting_for_assignee, call task_dispatch_node.", ObjectSchema(map[string]Schema{
 			"dag_key":         StringSchema("DAG to start."),
 			"trigger_source":  EnumStringSchema("Trigger source.", startDAGTriggerEnum...),
 			"idempotency_key": StringSchema("Optional, prevents duplicate run on retry."),
 		}, "dag_key"), HandleStartDAG(svc)),
+		defineTool("task_terminate_dag", "Cancel one running DAG execution by run_key. This marks non-terminal runtime nodes cancelled and stops pending/dispatching/sent wakeups.", ObjectSchema(map[string]Schema{
+			"dag_key": StringSchema("DAG key used as a fence for the run."),
+			"run_key": StringSchema("Run key to cancel."),
+			"reason":  StringSchema("Optional cancellation reason."),
+		}, "dag_key", "run_key"), HandleTerminateDAG(svc)),
+		defineTool("task_delete_dag", "Delete a DAG template and its completed run history. Refuses deletion while any run is active.", ObjectSchema(map[string]Schema{
+			"dag_key": StringSchema("DAG key to delete."),
+		}, "dag_key"), HandleDeleteDAG(svc)),
 		// ---- reads ----
+		defineTool("task_list_dags", "List DAGs for console views and final_output retention checks.", ObjectSchema(map[string]Schema{
+			"status":  EnumStringSchema("Optional status filter.", listDAGsStatusEnum...),
+			"keyword": StringSchema("Optional keyword filter."),
+			"limit":   IntegerSchema("Optional max rows; defaults to service limit when 0/omitted."),
+		}), HandleListDAGs(svc)),
 		defineTool("task_get_dag", "Fetch a DAG and all of its nodes.", ObjectSchema(map[string]Schema{
 			"dag_key": StringSchema("Unique DAG key."),
 		}, "dag_key"), HandleGetDAG(svc)),
@@ -431,100 +566,6 @@ func taskToolDefinitions(svc contract.OrchestrationService) []ToolDefinition {
 			"limit":   IntegerSchema("Optional max rows; defaults to 50 when 0/omitted."),
 		}, "dag_key"), HandleListRuns(svc)),
 	)
-}
-
-func createDAGSchema() Schema {
-	return ObjectSchema(map[string]Schema{
-		"agent_id":    StringSchema("Creator orchestration agent ID."),
-		"dag_key":     StringSchema("Unique DAG key."),
-		"title":       StringSchema("DAG title."),
-		"description": StringSchema("Optional DAG description."),
-		"schedule": ObjectSchema(map[string]Schema{
-			"trigger":             StringSchema("Start trigger."),
-			"default_retry":       IntegerSchema("Default retry count for nodes."),
-			"default_timeout_sec": IntegerSchema("Default node timeout in seconds."),
-			"fail_fast":           BooleanSchema("Stop scheduling new nodes on first failure."),
-			"max_concurrency":     IntegerSchema("Maximum parallel runnable nodes."),
-			"queue_policy":        StringSchema("Ready-queue policy."),
-		}),
-		"nodes": ArraySchema(ObjectSchema(map[string]Schema{
-			"node_key":    StringSchema("Unique node key within the DAG."),
-			"title":       StringSchema("Node title."),
-			"node_type":   StringSchema("Optional node type."),
-			"assigned_to": StringSchema("Optional assignee."),
-			"depends_on":  ArraySchema(StringSchema("Dependency node key."), "Node dependency keys."),
-			"command_ref": StringSchema("Optional command card key."),
-			"execution": ObjectSchema(map[string]Schema{
-				"on_failure":  StringSchema("Failure policy override."),
-				"pool":        StringSchema("Execution pool name."),
-				"priority":    IntegerSchema("Queue priority."),
-				"retry":       IntegerSchema("Retry override."),
-				"timeout_sec": IntegerSchema("Timeout override in seconds."),
-			}),
-		}, "node_key", "title"), "Optional DAG nodes."),
-	}, "agent_id", "dag_key", "title", "schedule")
-}
-
-func createDAGRequestFromInput(in CreateDAGInput) (contract.CreateDAGRequest, error) {
-	// Preserve schedule in DAG metadata until the service contract grows a
-	// first-class schedule field.
-	agentID, err := requireTrimmed(in.AgentID, "agent_id")
-	if err != nil {
-		return contract.CreateDAGRequest{}, err
-	}
-	dagKey, err := requireTrimmed(in.DagKey, "dag_key")
-	if err != nil {
-		return contract.CreateDAGRequest{}, err
-	}
-	title, err := requireTrimmed(in.Title, "title")
-	if err != nil {
-		return contract.CreateDAGRequest{}, err
-	}
-	metadata, err := encodeJSONRaw(createDAGMetadata(in.Schedule))
-	if err != nil {
-		return contract.CreateDAGRequest{}, err
-	}
-	nodes, err := createDAGNodesFromInput(in.Nodes)
-	if err != nil {
-		return contract.CreateDAGRequest{}, err
-	}
-	return contract.CreateDAGRequest{
-		DagKey:      dagKey,
-		Title:       title,
-		Description: strings.TrimSpace(in.Description),
-		CreatedBy:   agentID,
-		Metadata:    metadata,
-		Nodes:       nodes,
-	}, nil
-}
-
-func createDAGNodesFromInput(nodes []CreateDAGNodeInput) ([]contract.CreateDAGNodeRequest, error) {
-	mapped := make([]contract.CreateDAGNodeRequest, 0, len(nodes))
-	for i, node := range nodes {
-		nodeKey, err := requireTrimmed(node.NodeKey, fmt.Sprintf("nodes[%d].node_key", i))
-		if err != nil {
-			return nil, err
-		}
-		title, err := requireTrimmed(node.Title, fmt.Sprintf("nodes[%d].title", i))
-		if err != nil {
-			return nil, err
-		}
-		// Preserve node-level execution overrides in Config for the same reason.
-		config, err := encodeJSONRaw(nodeConfig(node.Execution))
-		if err != nil {
-			return nil, err
-		}
-		mapped = append(mapped, contract.CreateDAGNodeRequest{
-			NodeKey:    nodeKey,
-			Title:      title,
-			NodeType:   strings.TrimSpace(node.NodeType),
-			AssignedTo: strings.TrimSpace(node.AssignedTo),
-			DependsOn:  append([]string(nil), node.DependsOn...),
-			CommandRef: strings.TrimSpace(node.CommandRef),
-			Config:     config,
-		})
-	}
-	return mapped, nil
 }
 
 func updateNodeRequestFromInput(in UpdateNodeInput) (contract.UpdateNodeStatusRequest, error) {
@@ -558,64 +599,6 @@ func updateNodeRequestFromInput(in UpdateNodeInput) (contract.UpdateNodeStatusRe
 		Status:  status,
 		Result:  result,
 	}, nil
-}
-
-// createDAGMetadata 把 schedule 字段编码为 DAG metadata JSON 子树。
-// 旧版 metadata 字段 (S15.1 删除 / migrations/0075_dag_v2_compat.sql 迁移) 不再处理：
-// 数据库老行已一次性映射到 trigger 一等字段，tools 入参 schema 不再接受，
-// 调用方如果传入会被忽略（向后兼容）。
-func createDAGMetadata(schedule DAGScheduleInput) map[string]any {
-	return map[string]any{"schedule": scheduleMap(schedule)}
-}
-
-func nodeConfig(execution *DAGExecutionInput) map[string]any {
-	if execution == nil {
-		return nil
-	}
-	return map[string]any{"execution": executionMap(*execution)}
-}
-
-func scheduleMap(in DAGScheduleInput) map[string]any {
-	payload := make(map[string]any)
-	if in.Trigger != "" {
-		payload["trigger"] = strings.TrimSpace(in.Trigger)
-	}
-	if in.DefaultRetry != 0 {
-		payload["default_retry"] = in.DefaultRetry
-	}
-	if in.DefaultTimeoutSec != 0 {
-		payload["default_timeout_sec"] = in.DefaultTimeoutSec
-	}
-	if in.FailFast {
-		payload["fail_fast"] = true
-	}
-	if in.MaxConcurrency != 0 {
-		payload["max_concurrency"] = in.MaxConcurrency
-	}
-	if in.QueuePolicy != "" {
-		payload["queue_policy"] = strings.TrimSpace(in.QueuePolicy)
-	}
-	return payload
-}
-
-func executionMap(in DAGExecutionInput) map[string]any {
-	payload := make(map[string]any)
-	if in.OnFailure != "" {
-		payload["on_failure"] = strings.TrimSpace(in.OnFailure)
-	}
-	if in.Pool != "" {
-		payload["pool"] = strings.TrimSpace(in.Pool)
-	}
-	if in.Priority != 0 {
-		payload["priority"] = in.Priority
-	}
-	if in.Retry != 0 {
-		payload["retry"] = in.Retry
-	}
-	if in.TimeoutSec != 0 {
-		payload["timeout_sec"] = in.TimeoutSec
-	}
-	return payload
 }
 
 func encodeJSONRaw(value any) (json.RawMessage, error) {

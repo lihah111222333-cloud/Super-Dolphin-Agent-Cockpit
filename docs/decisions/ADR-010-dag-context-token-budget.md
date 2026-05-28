@@ -1,6 +1,6 @@
 # ADR-010：DAG 上下文与 token budget 兜底阈值
 
-> 状态：📝 Proposed | 日期：2026-05-11 | 决策者：待定 | 相关：H7（inputs.summarization）/ H8（token budget）原"按需触发不预排"、ADR-006（to_node_result.size_cap）、F15.1（dispatch/retry metric 前置）、M3 端到端验收
+> 状态：✅ Accepted | 日期：2026-05-11；2026-05-23 状态回写 | 决策者：主线 | 相关：H7（inputs.summarization）/ H8（token budget）原"按需触发不预排"、ADR-006（to_node_result.size_cap）、F15.1（dispatch/retry metric 前置）、M3 端到端验收
 
 ## 1. 背景
 
@@ -27,7 +27,7 @@ ADR-006 已规定 `outputs.to_node_result.size_cap` 默认 4KB，但只解决了
 | DAG 节点数 | ≥ 10（占位） | 启用 input window 裁剪（上游范围待 Q2 拍板） | H7（实装） |
 | 单 run 累计 token | > 100K（占位） | 告警 + 告警阈值 ×2 强制降级到 sonnet；sonnet 还不够 → fail-fast quota 错（Q3） | H8（实装） |
 
-**依赖顺序警告**：本 ADR §2 第 1 行（单节点 result）**不得先于 ADR-006 拍板**。ADR-006 §5 决策状态 `⛔ 待定`，本ADR Accepted 后 M3 验收需同步等 ADR-006 拍板；ADR-006 结论出来后本表「触发动作」列才能填实。避免决策倒置。
+**依赖顺序记录**：本 ADR §2 第 1 行（单节点 result）不得先于 ADR-006 拍板。ADR-006 已在 2026-05-12 升 Accepted，当前单节点 result 超 cap 的动作固定为 validation failure + 建议 `outputs.to_sharedfile`。
 
 M3 验收增加（项目本身：数字以 ADR-006 拍板后为准）：
 - 用例必须覆盖 DAG ≥ 10 节点
@@ -56,6 +56,8 @@ M3 验收增加（项目本身：数字以 ADR-006 拍板后为准）：
 本 ADR 必须在 **M3 端到端验收用例设计前**拍板（M3 验收要引用本 ADR 的硬阈值数字）。
 
 H7/H8 实装无前置 —— 仍按需触发，但触发时不需要再做阈值决策（直接按本 ADR 数字落实）。
+
+2026-05-13 backend dogfood 已按本 ADR 的 M3 硬阈值完成后端验收；H7/H8 的真实 summarization / token budget enforcement 仍留 H 阶段按需触发。
 
 ## 5. Open Questions
 

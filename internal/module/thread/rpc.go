@@ -75,29 +75,6 @@ func NewThreadHandlers(svc Service, capResolver contract.CapabilityResolver) pla
 		// TODO(P9): 补真实参数校验和结构化返回。当前仍走通用 SendCommand 壳。
 		"thread/skills/list": newThreadCommandHandler(svc, "/skills"),
 
-		// Phase 1.8d：fork 前预检（flush worker + stat handoff 文件存在）。
-		// 失败时 error message 含 handoff_flush_failed / handoff_missing
-		// 关键字，前端 classifyError 识别为 permanent 不重试。
-		"ui/task/flush_and_verify": platformrpc.StrictHandler(func(ctx context.Context, p flushAndVerifyParams) (any, error) {
-			if err := svc.FlushAndVerifyTaskHandoff(ctx, p.ThreadID, p.TaskID); err != nil {
-				return nil, err
-			}
-			return flushAndVerifyResponse{OK: true}, nil
-		}),
-
-		// Phase 2.1: promote a normal thread to a task thread. Frontend
-		// surfaces this from the thread config panel ("作为自动化任务运行")
-		// and from the watchdog stuck-banner upgrade button. Idempotent on
-		// the backend so repeated clicks return the existing taskId rather
-		// than overwrite handoff state.
-		"ui/thread/promote-task": platformrpc.StrictHandler(func(ctx context.Context, p promoteTaskParams) (any, error) {
-			result, err := svc.PromoteTaskFromThread(ctx, p.ThreadID)
-			if err != nil {
-				return nil, err
-			}
-			return buildPromoteTaskResponse(result), nil
-		}),
-
 		// thread/debugMemory 当前返回 Go runtime.MemStats。
 		// TODO(P7): V2 返回的是 agent 进程内存快照（通过 provider），不是宿主进程 stats。
 		// P7 补齐 provider-level memory stats 后替换此实现。
@@ -297,31 +274,6 @@ func buildStartResponse(result StartResult) startResponse {
 	if result.PendingLaunch {
 		resp.PendingLaunch = &result.PendingLaunch
 		resp.PendingLaunchC = &result.PendingLaunch
-	}
-	if result.TaskID != "" {
-		resp.TaskID = &result.TaskID
-		resp.TaskIDCamel = &result.TaskID
-	}
-	if result.HandoffFile != "" {
-		resp.HandoffFile = &result.HandoffFile
-		resp.HandoffFileCamel = &result.HandoffFile
-	}
-	return resp
-}
-
-func buildPromoteTaskResponse(result PromoteTaskResult) promoteTaskResponse {
-	resp := promoteTaskResponse{ThreadIDSnake: result.ThreadID, ThreadIDCamel: result.ThreadID, TaskIDSnake: result.TaskID, TaskIDCamel: result.TaskID, AlreadyTask: result.AlreadyTask, AlreadyTaskC: result.AlreadyTask}
-	if result.TaskTitle != "" {
-		resp.TaskTitle = &result.TaskTitle
-		resp.TaskTitleCamel = &result.TaskTitle
-	}
-	if result.HandoffFile != "" {
-		resp.HandoffFile = &result.HandoffFile
-		resp.HandoffFileC = &result.HandoffFile
-	}
-	if result.HandoffShellWarning != "" {
-		resp.HandoffShellWarn = &result.HandoffShellWarning
-		resp.HandoffShellWarnC = &result.HandoffShellWarning
 	}
 	return resp
 }

@@ -1,6 +1,5 @@
 @import './styles/tokens.css';
 @import './styles/shell-layout.css';
-@import './styles/task-handoff.css';
 @import './styles/workspace-runs.css';
 @import './styles/diff-chat.css';
 @import './styles/composer.css';
@@ -10,3 +9,4 @@
 @import './styles/system-prompt.css';
 @import './styles/memory-center.css';
 @import './styles/cron.css';
+@import './styles/dag-console.css';

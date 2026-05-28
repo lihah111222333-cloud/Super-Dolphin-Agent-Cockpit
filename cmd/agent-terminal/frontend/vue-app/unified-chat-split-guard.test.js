@@ -146,7 +146,7 @@ afterEach(() => { for (const fn of hooks.unmounted.splice(0)) fn(); hooks.mounte
 describe('UnifiedChatPage split guard coverage', () => {
   it('locks setup return contract', async () => {
     const { vm } = await createVm();
-    const expected = 'composer,isCmd,threads,selectedThreadId,activeThread,chatThreadOptions,showArchivedThreadList,chatActiveThreadCards,chatArchivedThreadCards,visibleChatThreadCards,activeChatThreadCount,archivedChatThreadCount,activeTimeline,activeDiffText,activeMediaPreview,activeMarkdownPreview,activeDiffFocusFile,activeDiffFocusLine,activeStatus,activeThreadSendBlocked,activeStatusHeader,activeStatusDetails,activeStatusMeta,activeTokenInline,activeTokenTooltip,activeTokenLevel,activeTokenUsage,compacting,canCompact,compactResultText,compactResultTone,compactSuccessCount,canInterrupt,recoveringSelected,sendFailureNotice,displayStatusText,noActiveThread,copyButtonLabel,layoutMode,cmdCardCols,splitRatio,threadRailStyle,showOverview,showWorkspace,chatComposerShellStyle,activityPanelRowStyle,activePinnedPlan,activeTask,taskHandoffVisible,taskHandoffLoading,taskHandoffError,taskHandoffPreview,taskHandoffUpdatedAt,taskHandoffUpdatedBy,taskStripExpanded,continueTaskBusy,stats,recentThreads,cmdCards,dragging,threadRailDragging,activityPanelDragging,composerBarRef,presenceAnchorRef,workspaceRef,activeActivityStats,activeAlerts,activeProcessActivity,selectThread,launchOne,send,refreshTaskHandoff,continueCurrentTask,startNewTaskFromHandoff,taskHandoffKickoffError,continueCurrentTaskInNewWindow,toggleTaskStrip,scheduleScrollToBottom,scrollToTop,resetScrollState,isAtBottom,useClaudeProvider,providerPreferenceReady,providerPreferenceError,toggleProviderMode,interruptCurrent,compactCurrent,recoverSelected,setCmdLayout,setCmdCardCols,copySelectedThreadId,timelinePreview,diffPreview,showPathChoiceModal,pathChoiceOptions,pathChoiceTitle,pathChoiceTruncated,confirmPathChoice,cancelPathChoice,onThreadRailResizeStart,onResizeStart,onActivityResizeStart,stopSelected,renameSelected,loadCardHistory,renameCard,stopCard,toggleThreadPin,toggleThreadArchive,toggleArchivedThreadList,openNewWindow,editingThreadId,editingAlias,renamingThreadId,setRenameInputRef,beginInlineRename,submitInlineRename,handleInlineRenameEnter,cancelInlineRename,handleInlineRenameBlur,getDisplayName,resolveThreadDisplayName,dismissPinnedPlan,deleteStaleThreads,pinnedPlanCardSpec,onTimelineFileRefClick,threadConfigUi,updateThreadConfigModel,updateThreadConfigEffort,saveThreadConfigDraft,restoreThreadConfigInherit'.split(',').sort();
+    const expected = 'composer,isCmd,threads,selectedThreadId,activeThread,chatThreadOptions,showArchivedThreadList,chatActiveThreadCards,chatArchivedThreadCards,visibleChatThreadCards,activeChatThreadCount,archivedChatThreadCount,activeTimeline,chatEmptyText,activeDiffText,activeMediaPreview,activeMarkdownPreview,activeDiffFocusFile,activeDiffFocusLine,activeStatus,activeThreadSendBlocked,activeStatusHeader,activeStatusDetails,activeStatusMeta,activeTokenInline,activeTokenTooltip,activeTokenLevel,activeTokenUsage,compacting,canCompact,compactResultText,compactResultTone,compactSuccessCount,canInterrupt,recoveringSelected,sendFailureNotice,displayStatusText,noActiveThread,copyButtonLabel,layoutMode,cmdCardCols,splitRatio,threadRailStyle,showOverview,showWorkspace,chatComposerShellStyle,activityPanelRowStyle,activePinnedPlan,stats,recentThreads,cmdCards,dragging,threadRailDragging,activityPanelDragging,composerBarRef,presenceAnchorRef,workspaceRef,activeActivityStats,activeAlerts,activeProcessActivity,selectThread,launchOne,send,scheduleScrollToBottom,scrollToTop,resetScrollState,isAtBottom,useClaudeProvider,providerPreferenceReady,providerPreferenceError,toggleProviderMode,interruptCurrent,compactCurrent,recoverSelected,setCmdLayout,setCmdCardCols,copySelectedThreadId,timelinePreview,diffPreview,showPathChoiceModal,pathChoiceOptions,pathChoiceTitle,pathChoiceTruncated,confirmPathChoice,cancelPathChoice,onThreadRailResizeStart,onResizeStart,onActivityResizeStart,stopSelected,renameSelected,loadCardHistory,renameCard,stopCard,toggleThreadPin,toggleThreadArchive,toggleArchivedThreadList,openNewWindow,editingThreadId,editingAlias,renamingThreadId,setRenameInputRef,beginInlineRename,submitInlineRename,handleInlineRenameEnter,cancelInlineRename,handleInlineRenameBlur,getDisplayName,resolveThreadDisplayName,dismissPinnedPlan,deleteStaleThreads,pinnedPlanCardSpec,onTimelineFileRefClick,threadConfigUi,updateThreadConfigModel,updateThreadConfigEffort,saveThreadConfigDraft,restoreThreadConfigInherit'.split(',').sort();
     expect(Object.keys(vm).sort()).toEqual(expected);
     expect(vm).not.toHaveProperty('resolvePathChoice');
   });
@@ -255,134 +255,6 @@ describe('UnifiedChatPage split guard coverage', () => {
     expect(store.compactThread).toHaveBeenCalledWith('thread-active'); expect(store.recoverThread).toHaveBeenCalledWith('thread-active'); expect(store.stopThread).toHaveBeenCalledWith('thread-active', { source: 'ui_stop' });
     vm.loadCardHistory('thread-active'); vm.toggleThreadPin('thread-active'); await vm.toggleThreadArchive('thread-active'); vm.toggleArchivedThreadList(); vm.setCmdLayout('mix'); vm.setCmdCardCols(2); vi.mocked(callAPI).mockImplementation(async (method) => method === 'ui/selectProjectDir' ? { path: '/tmp/child' } : {}); await vm.openNewWindow();
     expect(store.loadMessages).toHaveBeenLastCalledWith('thread-active', 300, { syncRuntime: false }); expect(store.toggleThreadPin).toHaveBeenCalledWith('thread-active'); expect(store.toggleThreadArchive).toHaveBeenCalledWith('thread-active'); expect(vm.showArchivedThreadList.value).toBe(true); expect(store.setLayout).toHaveBeenCalledWith('chat', 'mix'); expect(store.setCmdCardCols).toHaveBeenCalledWith(2); expect(callAPI).toHaveBeenCalledWith('ui/openNewWindow', { cwd: '/tmp/child' }); expect(vm.getDisplayName({ id: 'x', name: 'X' })).toBe('X'); expect(vm.resolveThreadDisplayName('system')).toBe('系统');
-  });
-
-  it('continues a task using runtime handoff metadata', async () => {
-    vi.mocked(callAPI).mockImplementation(async (method, payload) => {
-      if (method === 'ui/memory/shared-file/get') {
-        return {
-          path: payload.path,
-          content: '# Task Handoff\n\n## Latest Outcome\nready',
-          updatedAt: '2026-03-09T00:00:00Z',
-          updatedBy: 'system_handoff',
-        };
-      }
-      return {};
-    });
-    const { vm, store } = await createVm({
-      selectedId: 'thread-active',
-      active: '/repo',
-      startThreadId: 'thread-continued',
-      runtime: {
-        'thread-active': {
-          taskId: 'task-demo',
-          taskTitle: 'Memory Center Refactor',
-          handoffFile: 'handoff/tasks/task-demo.md',
-        },
-      },
-    });
-    await flush();
-
-    expect(vm.taskHandoffVisible.value).toBe(true);
-    expect(vm.taskHandoffPreview.value).toContain('Latest Outcome');
-    await vm.continueCurrentTask();
-    expect(store.startThread).toHaveBeenCalledWith('/repo', {
-      focusMode: 'chat',
-      name: 'Memory Center Refactor',
-      config: {
-        taskId: 'task-demo',
-        taskTitle: 'Memory Center Refactor',
-        handoffFile: 'handoff/tasks/task-demo.md',
-        continueTask: true,
-        autoTaskHandoff: true,
-      },
-      skipSaveActive: false,
-    });
-  });
-
-  it('starts a new task from the current handoff summary', async () => {
-    vi.mocked(callAPI).mockImplementation(async (method, payload) => {
-      if (method === 'ui/memory/shared-file/get') {
-        return {
-          path: payload.path,
-          content: '# Task Handoff\n\n## Latest Outcome\nready',
-          updatedAt: '2026-03-09T00:00:00Z',
-          updatedBy: 'system_handoff',
-        };
-      }
-      return {};
-    });
-    const { vm, store } = await createVm({
-      selectedId: 'thread-active',
-      active: '/repo',
-      startThreadId: 'thread-new-task',
-      runtime: {
-        'thread-active': {
-          taskId: 'task-demo',
-          taskTitle: 'Memory Center Refactor',
-          handoffFile: 'handoff/tasks/task-demo.md',
-        },
-      },
-    });
-    await flush();
-
-    await vm.startNewTaskFromHandoff();
-    expect(store.startThread).toHaveBeenCalledWith('/repo', {
-      focusMode: 'chat',
-      name: 'Memory Center Refactor · 新任务',
-      baseInstructions: expect.stringContaining('来源任务：Memory Center Refactor'),
-      config: {
-        taskTitle: 'Memory Center Refactor · 新任务',
-        autoTaskHandoff: true,
-      },
-    });
-    expect(store.startThread.mock.calls.at(-1)?.[1]?.baseInstructions).toContain('Latest Outcome');
-  });
-
-  it('continues a task in a new window using bootstrap snapshot', async () => {
-    vi.mocked(callAPI).mockImplementation(async (method, payload) => {
-      if (method === 'ui/memory/shared-file/get') {
-        return {
-          path: payload.path,
-          content: '# Task Handoff\n\n## Latest Outcome\nready',
-          updatedAt: '2026-03-09T00:00:00Z',
-          updatedBy: 'system_handoff',
-        };
-      }
-      return {};
-    });
-    const { vm } = await createVm({
-      selectedId: 'thread-active',
-      active: '/repo',
-      runtime: {
-        'thread-active': {
-          taskId: 'task-demo',
-          taskTitle: 'Memory Center Refactor',
-          handoffFile: 'handoff/tasks/task-demo.md',
-        },
-      },
-    });
-    await flush();
-
-    await vm.continueCurrentTaskInNewWindow();
-    expect(callAPI).toHaveBeenCalledWith('ui/openNewWindow', {
-      cwd: '/repo',
-      snapshot: {
-        page: 'chat',
-        cwd: '/repo',
-        taskStart: {
-          focusMode: 'chat',
-          name: 'Memory Center Refactor',
-          config: {
-            taskId: 'task-demo',
-            taskTitle: 'Memory Center Refactor',
-            handoffFile: 'handoff/tasks/task-demo.md',
-            continueTask: true,
-            autoTaskHandoff: true,
-          },
-        },
-      },
-    });
   });
 
   it('covers inline rename, file ref, keyboard and copy states', async () => {

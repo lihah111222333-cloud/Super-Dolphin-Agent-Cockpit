@@ -24,6 +24,37 @@ func (q *Queries) DeletePromptTemplate(ctx context.Context, promptKey string) (i
 	return result.RowsAffected(), nil
 }
 
+const getPromptRecallSectionBody = `-- name: GetPromptRecallSectionBody :one
+SELECT s.body
+FROM prompt_template_sections s
+JOIN prompt_templates t ON t.id = s.template_id
+WHERE s.recall_topic = $1
+  AND s.trigger_type = 'recall'
+  AND s.enabled = TRUE
+  AND t.enabled = TRUE
+  AND (t.tags ? ('scope.cwd:' || $2::text) OR t.tags ? 'scope.global')
+ORDER BY CASE
+    WHEN t.tags ? ('scope.cwd:' || $2::text) THEN 0
+    WHEN t.tags ? 'scope.global' THEN 1
+    ELSE 2
+  END,
+  s.ordinal,
+  s.id
+LIMIT 1
+`
+
+type GetPromptRecallSectionBodyParams struct {
+	RecallTopic string `json:"recall_topic"`
+	Cwd         string `json:"cwd"`
+}
+
+func (q *Queries) GetPromptRecallSectionBody(ctx context.Context, arg GetPromptRecallSectionBodyParams) (string, error) {
+	row := q.db.QueryRow(ctx, getPromptRecallSectionBody, arg.RecallTopic, arg.Cwd)
+	var body string
+	err := row.Scan(&body)
+	return body, err
+}
+
 const getPromptTemplate = `-- name: GetPromptTemplate :one
 SELECT id, prompt_key, title, agent_key, tool_name, prompt_text, variables, tags, description, when_to_use, enabled, manually_edited, match_when, priority, created_by, updated_by, created_at, updated_at
 FROM prompt_templates
@@ -77,37 +108,6 @@ func (q *Queries) GetPromptTemplate(ctx context.Context, promptKey string) (GetP
 	return i, err
 }
 
-const getPromptRecallSectionBody = `-- name: GetPromptRecallSectionBody :one
-SELECT s.body
-FROM prompt_template_sections s
-JOIN prompt_templates t ON t.id = s.template_id
-WHERE s.recall_topic = $1
-  AND s.trigger_type = 'recall'
-  AND s.enabled = TRUE
-  AND t.enabled = TRUE
-  AND (t.tags ? ('scope.cwd:' || $2::text) OR t.tags ? 'scope.global')
-ORDER BY CASE
-    WHEN t.tags ? ('scope.cwd:' || $2::text) THEN 0
-    WHEN t.tags ? 'scope.global' THEN 1
-    ELSE 2
-  END,
-  s.ordinal,
-  s.id
-LIMIT 1
-`
-
-type GetPromptRecallSectionBodyParams struct {
-	RecallTopic string `json:"recall_topic"`
-	Cwd         string `json:"cwd"`
-}
-
-func (q *Queries) GetPromptRecallSectionBody(ctx context.Context, arg GetPromptRecallSectionBodyParams) (string, error) {
-	row := q.db.QueryRow(ctx, getPromptRecallSectionBody, arg.RecallTopic, arg.Cwd)
-	var body string
-	err := row.Scan(&body)
-	return body, err
-}
-
 const insertPromptVersion = `-- name: InsertPromptVersion :one
 INSERT INTO prompt_versions (
     prompt_key, title, agent_key, tool_name, prompt_text,
@@ -149,6 +149,58 @@ func (q *Queries) InsertPromptVersion(ctx context.Context, arg InsertPromptVersi
 	var id int64
 	err := row.Scan(&id)
 	return id, err
+}
+
+const listPromptTemplateSectionsByTemplate = `-- name: ListPromptTemplateSectionsByTemplate :many
+SELECT s.id, s.template_id, s.section_key, s.region, s.ordinal, s.body,
+       s.trigger_type, s.recall_topic, s.enabled
+FROM prompt_template_sections s
+WHERE s.template_id = $1
+  AND s.enabled = TRUE
+  AND s.trigger_type <> 'recall'
+ORDER BY CASE s.region WHEN 'static' THEN 0 ELSE 1 END, s.ordinal, s.id
+`
+
+type ListPromptTemplateSectionsByTemplateRow struct {
+	ID          int64  `json:"id"`
+	TemplateID  int64  `json:"template_id"`
+	SectionKey  string `json:"section_key"`
+	Region      string `json:"region"`
+	Ordinal     int32  `json:"ordinal"`
+	Body        string `json:"body"`
+	TriggerType string `json:"trigger_type"`
+	RecallTopic string `json:"recall_topic"`
+	Enabled     bool   `json:"enabled"`
+}
+
+func (q *Queries) ListPromptTemplateSectionsByTemplate(ctx context.Context, templateID int64) ([]ListPromptTemplateSectionsByTemplateRow, error) {
+	rows, err := q.db.Query(ctx, listPromptTemplateSectionsByTemplate, templateID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListPromptTemplateSectionsByTemplateRow{}
+	for rows.Next() {
+		var i ListPromptTemplateSectionsByTemplateRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.TemplateID,
+			&i.SectionKey,
+			&i.Region,
+			&i.Ordinal,
+			&i.Body,
+			&i.TriggerType,
+			&i.RecallTopic,
+			&i.Enabled,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const listPromptTemplates = `-- name: ListPromptTemplates :many
@@ -198,7 +250,13 @@ type ListPromptTemplatesRow struct {
 }
 
 func (q *Queries) ListPromptTemplates(ctx context.Context, arg ListPromptTemplatesParams) ([]ListPromptTemplatesRow, error) {
-	rows, err := q.db.Query(ctx, listPromptTemplates, arg.Column1, arg.Column2, arg.RuntimeVisible, arg.Cwd, arg.LimitCount)
+	rows, err := q.db.Query(ctx, listPromptTemplates,
+		arg.Column1,
+		arg.Column2,
+		arg.RuntimeVisible,
+		arg.Cwd,
+		arg.LimitCount,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -225,58 +283,6 @@ func (q *Queries) ListPromptTemplates(ctx context.Context, arg ListPromptTemplat
 			&i.UpdatedBy,
 			&i.CreatedAt,
 			&i.UpdatedAt,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
-const listPromptTemplateSectionsByTemplate = `-- name: ListPromptTemplateSectionsByTemplate :many
-SELECT s.id, s.template_id, s.section_key, s.region, s.ordinal, s.body,
-       s.trigger_type, s.recall_topic, s.enabled
-FROM prompt_template_sections s
-WHERE s.template_id = $1
-  AND s.enabled = TRUE
-  AND s.trigger_type <> 'recall'
-ORDER BY CASE s.region WHEN 'static' THEN 0 ELSE 1 END, s.ordinal, s.id
-`
-
-type ListPromptTemplateSectionsByTemplateRow struct {
-	ID          int64  `json:"id"`
-	TemplateID  int64  `json:"template_id"`
-	SectionKey  string `json:"section_key"`
-	Region      string `json:"region"`
-	Ordinal     int32  `json:"ordinal"`
-	Body        string `json:"body"`
-	TriggerType string `json:"trigger_type"`
-	RecallTopic string `json:"recall_topic"`
-	Enabled     bool   `json:"enabled"`
-}
-
-func (q *Queries) ListPromptTemplateSectionsByTemplate(ctx context.Context, templateID int64) ([]ListPromptTemplateSectionsByTemplateRow, error) {
-	rows, err := q.db.Query(ctx, listPromptTemplateSectionsByTemplate, templateID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	items := []ListPromptTemplateSectionsByTemplateRow{}
-	for rows.Next() {
-		var i ListPromptTemplateSectionsByTemplateRow
-		if err := rows.Scan(
-			&i.ID,
-			&i.TemplateID,
-			&i.SectionKey,
-			&i.Region,
-			&i.Ordinal,
-			&i.Body,
-			&i.TriggerType,
-			&i.RecallTopic,
-			&i.Enabled,
 		); err != nil {
 			return nil, err
 		}
