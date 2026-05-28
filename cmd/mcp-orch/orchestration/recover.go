@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/orchestration/processctl"
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/taskdag"
 	agentdto "github.com/anthropic-ai/super-agent-v3/internal/dto/agent"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
@@ -74,9 +75,10 @@ func recoverAgent(ctx context.Context, s *service, agent *agentRuntime) (bool, e
 	if err != nil {
 		return false, err
 	}
-	if err := stopProcess(agent.cmd); err != nil {
+	if err := processctl.ForceStop(agent.cmd, agent.processGuard); err != nil {
 		return false, err
 	}
+	closeAgentProcessGuard(agent)
 	agent.stopRequested = false
 	agent.activeTurnID = ""
 	agent.monitoredSeq = 0

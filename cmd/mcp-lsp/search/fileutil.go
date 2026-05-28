@@ -360,22 +360,35 @@ func countNormalizedLines(content string) int {
 }
 
 func shouldSkipDir(name string) bool {
-	switch strings.ToLower(strings.TrimSpace(name)) {
-	case ".cache", ".git", "__pycache__", "build", "coverage", "dist", "node_modules", "vendor":
-		return true
-	default:
-		return false
-	}
+	_, ok := skippedDirNames[strings.ToLower(strings.TrimSpace(name))]
+	return ok
 }
 
 func shouldExcludePath(path string) bool {
 	cleaned := filepath.ToSlash(filepath.Clean(path))
-	for _, segment := range []string{".cache", ".git", "__pycache__", "build", "coverage", "dist", "node_modules", "vendor"} {
+	for segment := range skippedDirNames {
 		if strings.Contains(cleaned, "/"+segment+"/") || strings.HasSuffix(cleaned, "/"+segment) {
 			return true
 		}
 	}
 	return false
+}
+
+var skippedDirNames = map[string]struct{}{
+	".agent":       {},
+	".agents":      {},
+	".build-cache": {},
+	".cache":       {},
+	".claude":      {},
+	".git":         {},
+	".workspace":   {},
+	".worktrees":   {},
+	"__pycache__":  {},
+	"build":        {},
+	"coverage":     {},
+	"dist":         {},
+	"node_modules": {},
+	"vendor":       {},
 }
 
 func inferLanguage(value string) string {

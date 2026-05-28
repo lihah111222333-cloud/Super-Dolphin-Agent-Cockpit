@@ -1,0 +1,353 @@
+path	module	domain	type	size_bytes	purpose	search_keys
+.env	(root)	other	file	86	仓库根级配置、入口或说明文件	仓库根级配置,入口或说明文件
+.env.example	(root)	other	example	1483	仓库根级配置、入口或说明文件	env,仓库根级配置,入口或说明文件
+.gitattributes	(root)	other	file	759	仓库根级配置、入口或说明文件	仓库根级配置,入口或说明文件
+.githooks/commit-msg	.githooks	other	file	335	仓库 git hooks	仓库,git,hooks
+.githooks/pre-commit	.githooks	other	file	9989	仓库 git hooks	仓库,git,hooks
+.githooks/pre-push	.githooks	other	file	8798	仓库 git hooks	仓库,git,hooks
+.githooks/README.md	.githooks	other	doc	8770	仓库 git hooks	githooks,README,仓库,git,hooks
+.github/workflows/ci.yml	.github	other	yaml	1427	GitHub 配置	github,workflows,ci,GitHub,配置
+.gitignore	(root)	other	file	1850	仓库根级配置、入口或说明文件	仓库根级配置,入口或说明文件
+.golangci.yml	(root)	other	yaml	925	仓库根级配置、入口或说明文件	golangci,仓库根级配置,入口或说明文件
+go.mod	(root)	other	mod	3563	仓库根级配置、入口或说明文件	go,仓库根级配置,入口或说明文件
+internal/app/app_test.go	internal	other	go-test	3039	root Fx/app 装配、runner 与 toolbridge adapters	internal,app,test,root,Fx,装配,runner,与,toolbridge,adapters
+internal/app/app.go	internal	other	go-source	6116	root Fx/app 装配、runner 与 toolbridge adapters	internal,app,root,Fx,装配,runner,与,toolbridge,adapters
+internal/app/modules_e2efixture_test.go	internal	other	go-test	2954	root Fx/app 装配、runner 与 toolbridge adapters	internal,app,modules,e2efixture,test,root,Fx,装配,runner,与,toolbridge,adapters
+internal/app/modules_graph_test.go	internal	other	go-test	2404	root Fx/app 装配、runner 与 toolbridge adapters	internal,app,modules,graph,test,root,Fx,装配,runner,与,toolbridge,adapters
+internal/app/modules.go	internal	other	go-source	5965	root Fx/app 装配、runner 与 toolbridge adapters	internal,app,modules,root,Fx,装配,runner,与,toolbridge,adapters
+internal/app/orchestration_dag_runtime_adapter_test.go	internal	other	go-test	11798	root Fx/app 装配、runner 与 toolbridge adapters	internal,app,orchestration,dag,runtime,adapter,test,root,Fx,装配,runner,与,toolbridge,adapters
+internal/app/orchestration_dag_runtime_adapter.go	internal	other	go-source	7077	root Fx/app 装配、runner 与 toolbridge adapters	internal,app,orchestration,dag,runtime,adapter,root,Fx,装配,runner,与,toolbridge,adapters
+internal/app/runner_test.go	internal	other	go-test	4447	root Fx/app 装配、runner 与 toolbridge adapters	internal,app,runner,test,root,Fx,装配,与,toolbridge,adapters
+internal/app/runner.go	internal	other	go-source	5957	root Fx/app 装配、runner 与 toolbridge adapters	internal,app,runner,root,Fx,装配,与,toolbridge,adapters
+internal/app/runtime_reporter_adapter.go	internal	other	go-source	1356	root Fx/app 装配、runner 与 toolbridge adapters	internal,app,runtime,reporter,adapter,root,Fx,装配,runner,与,toolbridge,adapters
+internal/app/thread_orchestration_adapter.go	internal	other	go-source	1949	root Fx/app 装配、runner 与 toolbridge adapters	internal,app,thread,orchestration,adapter,root,Fx,装配,runner,与,toolbridge,adapters
+internal/app/toolbridge_adapters.go	internal	other	go-source	8124	root Fx/app 装配、runner 与 toolbridge adapters	internal,app,toolbridge,adapters,root,Fx,装配,runner,与
+internal/archtest/agent_field_writes_guard_test.go	internal	other	go-test	2605	架构守卫、baseline ratchet 与冻结规则	internal,archtest,agent,field,writes,guard,test,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/baseline_shrink_test.go	internal	other	go-test	4611	架构守卫、baseline ratchet 与冻结规则	internal,archtest,baseline,shrink,test,架构守卫,ratchet,与冻结规则
+internal/archtest/baseline_shrink.go	internal	other	go-source	2538	架构守卫、baseline ratchet 与冻结规则	internal,archtest,baseline,shrink,架构守卫,ratchet,与冻结规则
+internal/archtest/baseline_test.go	internal	other	go-test	3332	架构守卫、baseline ratchet 与冻结规则	internal,archtest,baseline,test,架构守卫,ratchet,与冻结规则
+internal/archtest/baseline_test.json	internal	other	json	10822	架构守卫、baseline ratchet 与冻结规则	internal,archtest,baseline,test,架构守卫,ratchet,与冻结规则
+internal/archtest/baseline.go	internal	other	go-source	4224	架构守卫、baseline ratchet 与冻结规则	internal,archtest,baseline,架构守卫,ratchet,与冻结规则
+internal/archtest/baseline.json	internal	other	json	27606	架构守卫、baseline ratchet 与冻结规则	internal,archtest,baseline,架构守卫,ratchet,与冻结规则
+internal/archtest/bootstrap_callback_drain_guard_test.go	internal	other	go-test	2138	架构守卫、baseline ratchet 与冻结规则	internal,archtest,bootstrap,callback,drain,guard,test,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/bootstrap_fail_closed_guard_test.go	internal	other	go-test	2367	架构守卫、baseline ratchet 与冻结规则	internal,archtest,bootstrap,fail,closed,guard,test,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/bootstrap_subscribe_desired_state_guard_test.go	internal	other	go-test	1694	架构守卫、baseline ratchet 与冻结规则	internal,archtest,bootstrap,subscribe,desired,state,guard,test,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/bus_callback_guard_test.go	internal	other	go-test	13499	架构守卫、baseline ratchet 与冻结规则	internal,archtest,bus,callback,guard,test,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/code_size_guard_test.go	internal	other	go-test	6509	架构守卫、baseline ratchet 与冻结规则	internal,archtest,code,size,guard,test,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/cross_domain_guard_test.go	internal	other	go-test	4527	架构守卫、baseline ratchet 与冻结规则	internal,archtest,cross,domain,guard,test,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/dag_designer_prompt_refresh_test.go	internal	other	go-test	1951	架构守卫、baseline ratchet 与冻结规则	internal,archtest,dag,designer,prompt,refresh,test,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/dag_designer_prompt_runtime_metadata_test.go	internal	other	go-test	11962	架构守卫、baseline ratchet 与冻结规则	internal,archtest,dag,designer,prompt,runtime,metadata,test,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/dag_designer_prompt_seed_en_test.go	internal	other	go-test	4981	架构守卫、baseline ratchet 与冻结规则	internal,archtest,dag,designer,prompt,seed,en,test,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/dag_designer_prompt_seed_test.go	internal	other	go-test	3680	架构守卫、baseline ratchet 与冻结规则	internal,archtest,dag,designer,prompt,seed,test,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/dag_skill_seeds_test.go	internal	other	go-test	3466	架构守卫、baseline ratchet 与冻结规则	internal,archtest,dag,skill,seeds,test,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/dead_key_guard_test.go	internal	other	go-test	709	架构守卫、baseline ratchet 与冻结规则	internal,archtest,dead,key,guard,test,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/deep_map_probe_guard_test.go	internal	other	go-test	3010	架构守卫、baseline ratchet 与冻结规则	internal,archtest,deep,map,probe,guard,test,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/dependency_direction_mcp_orch_test.go	internal	other	go-test	4832	架构守卫、baseline ratchet 与冻结规则	internal,archtest,dependency,direction,mcp,orch,test,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/dependency_direction_test.go	internal	other	go-test	18113	架构守卫、baseline ratchet 与冻结规则	internal,archtest,dependency,direction,test,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/dependency_direction_wave3_test.go	internal	other	go-test	2535	架构守卫、baseline ratchet 与冻结规则	internal,archtest,dependency,direction,wave3,test,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/deterministic_time_guard_test.go	internal	other	go-test	5673	架构守卫、baseline ratchet 与冻结规则	internal,archtest,deterministic,time,guard,test,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/dispatcher_wiring_guard_test.go	internal	other	go-test	8309	架构守卫、baseline ratchet 与冻结规则	internal,archtest,dispatcher,wiring,guard,test,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/duplicate_switch_guard_test.go	internal	other	go-test	3461	架构守卫、baseline ratchet 与冻结规则	internal,archtest,duplicate,switch,guard,test,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/effective_lines.go	internal	other	go-source	1073	架构守卫、baseline ratchet 与冻结规则	internal,archtest,effective,lines,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/error_prone_pattern_guard.go	internal	other	go-source	20213	架构守卫、baseline ratchet 与冻结规则	internal,archtest,error,prone,pattern,guard,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/error_string_match_guard_test.go	internal	other	go-test	3247	架构守卫、baseline ratchet 与冻结规则	internal,archtest,error,string,match,guard,test,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/eventbus_payload_guard_test.go	internal	other	go-test	2525	架构守卫、baseline ratchet 与冻结规则	internal,archtest,eventbus,payload,guard,test,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/freeze_registry_autofix_test.go	internal	other	go-test	3245	架构守卫、baseline ratchet 与冻结规则	internal,archtest,freeze,registry,autofix,test,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/freeze_registry_autofix.go	internal	other	go-source	6015	架构守卫、baseline ratchet 与冻结规则	internal,archtest,freeze,registry,autofix,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/freeze_registry.go	internal	other	go-source	7062	架构守卫、baseline ratchet 与冻结规则	internal,archtest,freeze,registry,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/fx_graph_test.go	internal	other	go-test	282	架构守卫、baseline ratchet 与冻结规则	internal,archtest,fx,graph,test,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/fx_invoke_guard_test.go	internal	other	go-test	3822	架构守卫、baseline ratchet 与冻结规则	internal,archtest,fx,invoke,guard,test,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/fx_lifecycle_guard_test.go	internal	other	go-test	2602	架构守卫、baseline ratchet 与冻结规则	internal,archtest,fx,lifecycle,guard,test,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/guardlib.go	internal	other	go-source	12526	架构守卫、baseline ratchet 与冻结规则	internal,archtest,guardlib,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/id_parse_guard_test.go	internal	other	go-test	2431	架构守卫、baseline ratchet 与冻结规则	internal,archtest,id,parse,guard,test,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/identifier_guard_test.go	internal	other	go-test	1602	架构守卫、baseline ratchet 与冻结规则	internal,archtest,identifier,guard,test,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/ignored_return_guard_test.go	internal	other	go-test	4032	架构守卫、baseline ratchet 与冻结规则	internal,archtest,ignored,return,guard,test,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/interface_isolation_guard_test.go	internal	other	go-test	8361	架构守卫、baseline ratchet 与冻结规则	internal,archtest,interface,isolation,guard,test,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/jrpc2_error_guard_test.go	internal	other	go-test	1051	架构守卫、baseline ratchet 与冻结规则	internal,archtest,jrpc2,error,guard,test,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/lifecycle_onstart_guard_test.go	internal	other	go-test	8974	架构守卫、baseline ratchet 与冻结规则	internal,archtest,lifecycle,onstart,guard,test,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/mcp_family_isolation_test.go	internal	other	go-test	1145	架构守卫、baseline ratchet 与冻结规则	internal,archtest,mcp,family,isolation,test,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/memory_disk_store_lock_guard_test.go	internal	other	go-test	7557	架构守卫、baseline ratchet 与冻结规则	internal,archtest,memory,disk,store,lock,guard,test,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/memory_lifecycle_hooks_construct_guard_test.go	internal	other	go-test	4260	架构守卫、baseline ratchet 与冻结规则	internal,archtest,memory,lifecycle,hooks,construct,guard,test,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/metric_registry_test.go	internal	other	go-test	3865	架构守卫、baseline ratchet 与冻结规则	internal,archtest,metric,registry,test,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/metric_registry.go	internal	other	go-source	6833	架构守卫、baseline ratchet 与冻结规则	internal,archtest,metric,registry,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/metrics_test.go	internal	other	go-test	2458	架构守卫、baseline ratchet 与冻结规则	internal,archtest,metrics,test,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/metrics.go	internal	other	go-source	8892	架构守卫、baseline ratchet 与冻结规则	internal,archtest,metrics,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/migration_sqlc_guard_test.go	internal	other	go-test	5050	架构守卫、baseline ratchet 与冻结规则	internal,archtest,migration,sqlc,guard,test,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/multilsp_cache_no_loop_guard_test.go	internal	other	go-test	1446	架构守卫、baseline ratchet 与冻结规则	internal,archtest,multilsp,cache,no,loop,guard,test,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/multilsp_recycler_runner_guard_test.go	internal	other	go-test	1770	架构守卫、baseline ratchet 与冻结规则	internal,archtest,multilsp,recycler,runner,guard,test,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/multilsp_transport_compat_guard_test.go	internal	other	go-test	2649	架构守卫、baseline ratchet 与冻结规则	internal,archtest,multilsp,transport,compat,guard,test,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/multilsp_transport_responder_guard_test.go	internal	other	go-test	2426	架构守卫、baseline ratchet 与冻结规则	internal,archtest,multilsp,transport,responder,guard,test,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/naked_goroutine_guard_test.go	internal	other	go-test	4894	架构守卫、baseline ratchet 与冻结规则	internal,archtest,naked,goroutine,guard,test,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/observability_log_event_guard_test.go	internal	other	go-test	2345	架构守卫、baseline ratchet 与冻结规则	internal,archtest,observability,log,event,guard,test,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/observability_metric_emit_guard_test.go	internal	other	go-test	2656	架构守卫、baseline ratchet 与冻结规则	internal,archtest,observability,metric,emit,guard,test,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/onion_architecture_guard_test.go	internal	other	go-test	3896	架构守卫、baseline ratchet 与冻结规则	internal,archtest,onion,architecture,guard,test,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/orchestration_agent_identity_reverse_lookup_guard_test.go	internal	other	go-test	2675	架构守卫、baseline ratchet 与冻结规则	internal,archtest,orchestration,agent,identity,reverse,lookup,guard,test,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/orchestration_launcher_protocol_guard_test.go	internal	other	go-test	3465	架构守卫、baseline ratchet 与冻结规则	internal,archtest,orchestration,launcher,protocol,guard,test,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/orchestration_no_hookconsumer_export_guard_test.go	internal	other	go-test	1647	架构守卫、baseline ratchet 与冻结规则	internal,archtest,orchestration,no,hookconsumer,export,guard,test,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/orchestration_no_module_export_guard_test.go	internal	other	go-test	2610	架构守卫、baseline ratchet 与冻结规则	internal,archtest,orchestration,no,module,export,guard,test,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/orchestration_no_rpc_shell_export_guard_test.go	internal	other	go-test	1692	架构守卫、baseline ratchet 与冻结规则	internal,archtest,orchestration,no,rpc,shell,export,guard,test,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/orchestration_report_protocol_guard_test.go	internal	other	go-test	2541	架构守卫、baseline ratchet 与冻结规则	internal,archtest,orchestration,report,protocol,guard,test,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/orchestration_rpc_golden_test.go	internal	other	go-test	3113	架构守卫、baseline ratchet 与冻结规则	internal,archtest,orchestration,rpc,golden,test,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/orchestration_session_cleaner_guard_test.go	internal	other	go-test	3006	架构守卫、baseline ratchet 与冻结规则	internal,archtest,orchestration,session,cleaner,guard,test,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/orchestration_session_ready_guard_test.go	internal	other	go-test	2742	架构守卫、baseline ratchet 与冻结规则	internal,archtest,orchestration,session,ready,guard,test,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/pattern_guard_helpers_test.go	internal	other	go-test	1218	架构守卫、baseline ratchet 与冻结规则	internal,archtest,pattern,guard,helpers,test,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/prompt_builtin_config_test.go	internal	other	go-test	18022	架构守卫、baseline ratchet 与冻结规则	internal,archtest,prompt,builtin,config,test,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/prompt_external_reference_guard_helpers_test.go	internal	other	go-test	20363	架构守卫、baseline ratchet 与冻结规则	internal,archtest,prompt,external,reference,guard,helpers,test,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/prompt_external_reference_guard_test.go	internal	other	go-test	13274	架构守卫、baseline ratchet 与冻结规则	internal,archtest,prompt,external,reference,guard,test,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/prompt_recall_seed_test.go	internal	other	go-test	4924	架构守卫、baseline ratchet 与冻结规则	internal,archtest,prompt,recall,seed,test,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/prompt_template_skill_cards_runtime_metadata_test.go	internal	other	go-test	3796	架构守卫、baseline ratchet 与冻结规则	internal,archtest,prompt,template,skill,cards,runtime,metadata,test,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/ratchet_test.go	internal	other	go-test	4218	架构守卫、baseline ratchet 与冻结规则	internal,archtest,ratchet,test,架构守卫,baseline,与冻结规则
+internal/archtest/ratchet.go	internal	other	go-source	5927	架构守卫、baseline ratchet 与冻结规则	internal,archtest,ratchet,架构守卫,baseline,与冻结规则
+internal/archtest/root_bridge_allowlist_test.go	internal	other	go-test	1001	架构守卫、baseline ratchet 与冻结规则	internal,archtest,root,bridge,allowlist,test,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/root_bridge_allowlist.go	internal	other	go-source	9191	架构守卫、baseline ratchet 与冻结规则	internal,archtest,root,bridge,allowlist,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/runner_actor_guard_test.go	internal	other	go-test	7641	架构守卫、baseline ratchet 与冻结规则	internal,archtest,runner,actor,guard,test,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/safego_guard_test.go	internal	other	go-test	3853	架构守卫、baseline ratchet 与冻结规则	internal,archtest,safego,guard,test,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/scattered_decimal_guard_test.go	internal	other	go-test	3631	架构守卫、baseline ratchet 与冻结规则	internal,archtest,scattered,decimal,guard,test,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/session_private_allowlist_test.go	internal	other	go-test	10510	架构守卫、baseline ratchet 与冻结规则	internal,archtest,session,private,allowlist,test,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/session_private_allowlist.go	internal	other	go-source	4576	架构守卫、baseline ratchet 与冻结规则	internal,archtest,session,private,allowlist,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/shared_budget_test.go	internal	other	go-test	1335	架构守卫、baseline ratchet 与冻结规则	internal,archtest,shared,budget,test,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/sharedfilegitignore_no_pkg_error_var_test.go	internal	other	go-test	5205	架构守卫、baseline ratchet 与冻结规则	internal,archtest,sharedfilegitignore,no,pkg,error,var,test,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/silent_fallback_guard_test.go	internal	other	go-test	5290	架构守卫、baseline ratchet 与冻结规则	internal,archtest,silent,fallback,guard,test,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/silent_fallback_guard.go	internal	other	go-source	10603	架构守卫、baseline ratchet 与冻结规则	internal,archtest,silent,fallback,guard,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/skill_fbsd_boundary_guard_test.go	internal	other	go-test	5622	架构守卫、baseline ratchet 与冻结规则	internal,archtest,skill,fbsd,boundary,guard,test,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/sqlc_boundary_test.go	internal	other	go-test	725	架构守卫、baseline ratchet 与冻结规则	internal,archtest,sqlc,boundary,test,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/sqlc_bypass_guard_test.go	internal	other	go-test	5753	架构守卫、baseline ratchet 与冻结规则	internal,archtest,sqlc,bypass,guard,test,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/sqlc_convention_guard_test.go	internal	other	go-test	1080	架构守卫、baseline ratchet 与冻结规则	internal,archtest,sqlc,convention,guard,test,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/stateless_guard_test.go	internal	other	go-test	2987	架构守卫、baseline ratchet 与冻结规则	internal,archtest,stateless,guard,test,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/structured_log_guard_test.go	internal	other	go-test	4456	架构守卫、baseline ratchet 与冻结规则	internal,archtest,structured,log,guard,test,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/testdata/doc.go	internal	other	go-source	18	架构守卫、baseline ratchet 与冻结规则	internal,archtest,testdata,doc,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/testdata/golden/integration/agent_list_dispatch.golden.json	internal	other	json	1513	架构守卫、baseline ratchet 与冻结规则	internal,archtest,testdata,golden,integration,agent,list,dispatch,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/testdata/metrics_sample.go	internal	other	go-source	1267	架构守卫、baseline ratchet 与冻结规则	internal,archtest,testdata,metrics,sample,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/thread_turn_side_channel_guard_test.go	internal	other	go-test	3783	架构守卫、baseline ratchet 与冻结规则	internal,archtest,thread,turn,side,channel,guard,test,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/timeout_locality_test.go	internal	other	go-test	2151	架构守卫、baseline ratchet 与冻结规则	internal,archtest,timeout,locality,test,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/toolbridge_protocol_guard_test.go	internal	other	go-test	4334	架构守卫、baseline ratchet 与冻结规则	internal,archtest,toolbridge,protocol,guard,test,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/toolbridge_store_port_guard_test.go	internal	other	go-test	2288	架构守卫、baseline ratchet 与冻结规则	internal,archtest,toolbridge,store,port,guard,test,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/trajectory_readonly_test.go	internal	other	go-test	1209	架构守卫、baseline ratchet 与冻结规则	internal,archtest,trajectory,readonly,test,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/ui_wails_guard_test.go	internal	other	go-test	3255	架构守卫、baseline ratchet 与冻结规则	internal,archtest,ui,wails,guard,test,架构守卫,baseline,ratchet,与冻结规则
+internal/contract/agent_state.go	internal	other	go-source	1140	跨模块稳定接口、事件和 DTO 边界	internal,contract,agent,state,跨模块稳定接口,事件和,DTO,边界
+internal/contract/approval.go	internal	other	go-source	1741	跨模块稳定接口、事件和 DTO 边界	internal,contract,approval,跨模块稳定接口,事件和,DTO,边界
+internal/contract/bootstrap_hook.go	internal	other	go-source	698	跨模块稳定接口、事件和 DTO 边界	internal,contract,bootstrap,hook,跨模块稳定接口,事件和,DTO,边界
+internal/contract/bus.go	internal	other	go-source	2073	跨模块稳定接口、事件和 DTO 边界	internal,contract,bus,跨模块稳定接口,事件和,DTO,边界
+internal/contract/codex_identity.go	internal	other	go-source	5047	跨模块稳定接口、事件和 DTO 边界	internal,contract,codex,identity,跨模块稳定接口,事件和,DTO,边界
+internal/contract/config.go	internal	other	go-source	1725	跨模块稳定接口、事件和 DTO 边界	internal,contract,config,跨模块稳定接口,事件和,DTO,边界
+internal/contract/contracttest/section_invalidator.go	internal	other	go-source	2278	跨模块稳定接口、事件和 DTO 边界	internal,contract,contracttest,section,invalidator,跨模块稳定接口,事件和,DTO,边界
+internal/contract/cron.go	internal	other	go-source	3202	跨模块稳定接口、事件和 DTO 边界	internal,contract,cron,跨模块稳定接口,事件和,DTO,边界
+internal/contract/dag_events_test.go	internal	other	go-test	3709	跨模块稳定接口、事件和 DTO 边界	internal,contract,dag,events,test,跨模块稳定接口,事件和,DTO,边界
+internal/contract/dag_final_output_test.go	internal	other	go-test	1571	跨模块稳定接口、事件和 DTO 边界	internal,contract,dag,final,output,test,跨模块稳定接口,事件和,DTO,边界
+internal/contract/dag_start_response_test.go	internal	other	go-test	1275	跨模块稳定接口、事件和 DTO 边界	internal,contract,dag,start,response,test,跨模块稳定接口,事件和,DTO,边界
+internal/contract/dream.go	internal	other	go-source	331	跨模块稳定接口、事件和 DTO 边界	internal,contract,dream,跨模块稳定接口,事件和,DTO,边界
+internal/contract/errors.go	internal	other	go-source	3380	跨模块稳定接口、事件和 DTO 边界	internal,contract,errors,跨模块稳定接口,事件和,DTO,边界
+internal/contract/frc.go	internal	other	go-source	1680	跨模块稳定接口、事件和 DTO 边界	internal,contract,frc,跨模块稳定接口,事件和,DTO,边界
+internal/contract/hooks.go	internal	other	go-source	2574	跨模块稳定接口、事件和 DTO 边界	internal,contract,hooks,跨模块稳定接口,事件和,DTO,边界
+internal/contract/insight.go	internal	other	go-source	3015	跨模块稳定接口、事件和 DTO 边界	internal,contract,insight,跨模块稳定接口,事件和,DTO,边界
+internal/contract/manifest.go	internal	other	go-source	7503	跨模块稳定接口、事件和 DTO 边界	internal,contract,manifest,跨模块稳定接口,事件和,DTO,边界
+internal/contract/mcp_control.go	internal	other	go-source	2523	跨模块稳定接口、事件和 DTO 边界	internal,contract,mcp,control,跨模块稳定接口,事件和,DTO,边界
+internal/contract/memory.go	internal	other	go-source	5020	跨模块稳定接口、事件和 DTO 边界	internal,contract,memory,跨模块稳定接口,事件和,DTO,边界
+internal/contract/message_notifier.go	internal	other	go-source	3240	跨模块稳定接口、事件和 DTO 边界	internal,contract,message,notifier,跨模块稳定接口,事件和,DTO,边界
+internal/contract/orchestration.go	internal	other	go-source	26156	跨模块稳定接口、事件和 DTO 边界	internal,contract,orchestration,跨模块稳定接口,事件和,DTO,边界
+internal/contract/pending_launch_spawner.go	internal	other	go-source	2308	跨模块稳定接口、事件和 DTO 边界	internal,contract,pending,launch,spawner,跨模块稳定接口,事件和,DTO,边界
+internal/contract/prompt_attachment.go	internal	other	go-source	2987	跨模块稳定接口、事件和 DTO 边界	internal,contract,prompt,attachment,跨模块稳定接口,事件和,DTO,边界
+internal/contract/prompt.go	internal	other	go-source	20806	跨模块稳定接口、事件和 DTO 边界	internal,contract,prompt,跨模块稳定接口,事件和,DTO,边界
+internal/contract/provider.go	internal	other	go-source	12927	跨模块稳定接口、事件和 DTO 边界	internal,contract,provider,跨模块稳定接口,事件和,DTO,边界
+internal/contract/rpc_dispatch.go	internal	other	go-source	387	跨模块稳定接口、事件和 DTO 边界	internal,contract,rpc,dispatch,跨模块稳定接口,事件和,DTO,边界
+internal/contract/rpc_handler.go	internal	other	go-source	1864	跨模块稳定接口、事件和 DTO 边界	internal,contract,rpc,handler,跨模块稳定接口,事件和,DTO,边界
+internal/contract/runner.go	internal	other	go-source	1630	跨模块稳定接口、事件和 DTO 边界	internal,contract,runner,跨模块稳定接口,事件和,DTO,边界
+internal/contract/runtime_reporter.go	internal	other	go-source	433	跨模块稳定接口、事件和 DTO 边界	internal,contract,runtime,reporter,跨模块稳定接口,事件和,DTO,边界
+internal/contract/session.go	internal	other	go-source	3765	跨模块稳定接口、事件和 DTO 边界	internal,contract,session,跨模块稳定接口,事件和,DTO,边界
+internal/contract/skill.go	internal	other	go-source	8571	跨模块稳定接口、事件和 DTO 边界	internal,contract,skill,跨模块稳定接口,事件和,DTO,边界
+internal/contract/thread.go	internal	other	go-source	2899	跨模块稳定接口、事件和 DTO 边界	internal,contract,thread,跨模块稳定接口,事件和,DTO,边界
+internal/contract/toolbridge.go	internal	other	go-source	2647	跨模块稳定接口、事件和 DTO 边界	internal,contract,toolbridge,跨模块稳定接口,事件和,DTO,边界
+internal/contract/ui_project_state.go	internal	other	go-source	1346	跨模块稳定接口、事件和 DTO 边界	internal,contract,ui,project,state,跨模块稳定接口,事件和,DTO,边界
+internal/devtools/capcontract/manifest_test.go	internal	other	go-test	3134	开发工具与生成器辅助包	internal,devtools,capcontract,manifest,test,开发工具与生成器辅助包
+internal/devtools/capcontract/manifest.go	internal	other	go-source	6362	开发工具与生成器辅助包	internal,devtools,capcontract,manifest,开发工具与生成器辅助包
+internal/devtools/capcontract/scanner_test.go	internal	other	go-test	5159	开发工具与生成器辅助包	internal,devtools,capcontract,scanner,test,开发工具与生成器辅助包
+internal/devtools/capcontract/scanner.go	internal	other	go-source	12987	开发工具与生成器辅助包	internal,devtools,capcontract,scanner,开发工具与生成器辅助包
+internal/devtools/codemapindex/anchor_test.go	internal	other	go-test	2866	开发工具与生成器辅助包	internal,devtools,codemapindex,anchor,test,开发工具与生成器辅助包
+internal/devtools/codemapindex/anchor.go	internal	other	go-source	456	开发工具与生成器辅助包	internal,devtools,codemapindex,anchor,开发工具与生成器辅助包
+internal/devtools/codemapindex/readme_sync.go	internal	other	go-source	2821	开发工具与生成器辅助包	internal,devtools,codemapindex,readme,sync,开发工具与生成器辅助包
+internal/devtools/codemapindex/source_scan.go	internal	other	go-source	2486	开发工具与生成器辅助包	internal,devtools,codemapindex,source,scan,开发工具与生成器辅助包
+internal/dto/agent/diagnostic.go	internal	other	go-source	1034	provider/shared DTO 与事件协议	internal,dto,agent,diagnostic,provider,shared,DTO,与事件协议
+internal/dto/agent/event.go	internal	other	go-source	1604	provider/shared DTO 与事件协议	internal,dto,agent,event,provider,shared,DTO,与事件协议
+internal/dto/agent/runtime.go	internal	other	go-source	494	provider/shared DTO 与事件协议	internal,dto,agent,runtime,provider,shared,DTO,与事件协议
+internal/dto/agent/state.go	internal	other	go-source	6874	provider/shared DTO 与事件协议	internal,dto,agent,state,provider,shared,DTO,与事件协议
+internal/dto/cron/event.go	internal	other	go-source	1376	provider/shared DTO 与事件协议	internal,dto,cron,event,provider,shared,DTO,与事件协议
+internal/dto/mcp/approval_response.go	internal	other	go-source	386	provider/shared DTO 与事件协议	internal,dto,mcp,approval,response,provider,shared,DTO,与事件协议
+internal/dto/mcp/constants.go	internal	other	go-source	2241	provider/shared DTO 与事件协议	internal,dto,mcp,constants,provider,shared,DTO,与事件协议
+internal/dto/mcp/errors.go	internal	other	go-source	676	provider/shared DTO 与事件协议	internal,dto,mcp,errors,provider,shared,DTO,与事件协议
+internal/dto/mcp/hook.go	internal	other	go-source	4291	provider/shared DTO 与事件协议	internal,dto,mcp,hook,provider,shared,DTO,与事件协议
+internal/dto/mcp/protocol.go	internal	other	go-source	9351	provider/shared DTO 与事件协议	internal,dto,mcp,protocol,provider,shared,DTO,与事件协议
+internal/dto/mcp/tool.go	internal	other	go-source	484	provider/shared DTO 与事件协议	internal,dto,mcp,tool,provider,shared,DTO,与事件协议
+internal/dto/observation/types.go	internal	other	go-source	4628	provider/shared DTO 与事件协议	internal,dto,observation,types,provider,shared,DTO,与事件协议
+internal/dto/provider/attachment.go	internal	other	go-source	504	provider/shared DTO 与事件协议	internal,dto,provider,attachment,shared,DTO,与事件协议
+internal/dto/provider/capability.go	internal	other	go-source	662	provider/shared DTO 与事件协议	internal,dto,provider,capability,shared,DTO,与事件协议
+internal/dto/provider/event.go	internal	other	go-source	537	provider/shared DTO 与事件协议	internal,dto,provider,event,shared,DTO,与事件协议
+internal/dto/provider/manifest.go	internal	other	go-source	1533	provider/shared DTO 与事件协议	internal,dto,provider,manifest,shared,DTO,与事件协议
+internal/dto/provider/message_test.go	internal	other	go-test	960	provider/shared DTO 与事件协议	internal,dto,provider,message,test,shared,DTO,与事件协议
+internal/dto/provider/message.go	internal	other	go-source	537	provider/shared DTO 与事件协议	internal,dto,provider,message,shared,DTO,与事件协议
+internal/dto/provider/session.go	internal	other	go-source	5922	provider/shared DTO 与事件协议	internal,dto,provider,session,shared,DTO,与事件协议
+internal/dto/provider/thread_config.go	internal	other	go-source	1097	provider/shared DTO 与事件协议	internal,dto,provider,thread,config,shared,DTO,与事件协议
+internal/dto/provider/thread.go	internal	other	go-source	166	provider/shared DTO 与事件协议	internal,dto,provider,thread,shared,DTO,与事件协议
+internal/dto/provider/turn_test.go	internal	other	go-test	6986	provider/shared DTO 与事件协议	internal,dto,provider,turn,test,shared,DTO,与事件协议
+internal/dto/provider/turn.go	internal	other	go-source	5744	provider/shared DTO 与事件协议	internal,dto,provider,turn,shared,DTO,与事件协议
+internal/dto/shared/errors.go	internal	other	go-source	260	provider/shared DTO 与事件协议	internal,dto,shared,errors,provider,DTO,与事件协议
+internal/dto/shared/event.go	internal	other	go-source	4299	provider/shared DTO 与事件协议	internal,dto,shared,event,provider,DTO,与事件协议
+internal/dto/shared/input.go	internal	other	go-source	243	provider/shared DTO 与事件协议	internal,dto,shared,input,provider,DTO,与事件协议
+internal/dto/task/event.go	internal	other	go-source	1625	provider/shared DTO 与事件协议	internal,dto,task,event,provider,shared,DTO,与事件协议
+internal/dto/thread/event.go	internal	other	go-source	4312	provider/shared DTO 与事件协议	internal,dto,thread,event,provider,shared,DTO,与事件协议
+internal/dto/tool/event.go	internal	other	go-source	2306	provider/shared DTO 与事件协议	internal,dto,tool,event,provider,shared,DTO,与事件协议
+internal/dto/turn/event.go	internal	other	go-source	2264	provider/shared DTO 与事件协议	internal,dto,turn,event,provider,shared,DTO,与事件协议
+internal/dto/turn/model.go	internal	other	go-source	670	provider/shared DTO 与事件协议	internal,dto,turn,model,provider,shared,DTO,与事件协议
+internal/dto/turn/progress.go	internal	other	go-source	2067	provider/shared DTO 与事件协议	internal,dto,turn,progress,provider,shared,DTO,与事件协议
+internal/dto/ui/event.go	internal	other	go-source	5369	provider/shared DTO 与事件协议	internal,dto,ui,event,provider,shared,DTO,与事件协议
+internal/dto/ui/patch_types.go	internal	other	go-source	1459	provider/shared DTO 与事件协议	internal,dto,ui,patch,types,provider,shared,DTO,与事件协议
+internal/guards/code_size_guard_test.go	internal	other	go-test	2016	未细分职责：请结合路径、文件名和相邻代码判断	internal,guards,code,size,guard,test,未细分职责：请结合路径,文件名和相邻代码判断
+internal/guards/guard_manifest.json	internal	other	json	355	未细分职责：请结合路径、文件名和相邻代码判断	internal,guards,guard,manifest,未细分职责：请结合路径,文件名和相邻代码判断
+internal/guards/refactor_baseline.json	internal	other	json	2188	未细分职责：请结合路径、文件名和相邻代码判断	internal,guards,refactor,baseline,未细分职责：请结合路径,文件名和相邻代码判断
+internal/testutil/golden/golden.go	internal	other	go-source	3186	未细分职责：请结合路径、文件名和相邻代码判断	internal,testutil,golden,未细分职责：请结合路径,文件名和相邻代码判断
+internal/testutil/golden/orchestration_stub.go	internal	other	go-source	9258	未细分职责：请结合路径、文件名和相邻代码判断	internal,testutil,golden,orchestration,stub,未细分职责：请结合路径,文件名和相邻代码判断
+internal/ui/wails/assets.go	internal	other	go-source	2125	Wails binding 与 UI RPC 桥接	internal,ui,wails,assets,Wails,binding,与,UI,RPC,桥接
+internal/ui/wails/binding_id_test.go	internal	other	go-test	4739	Wails binding 与 UI RPC 桥接	internal,ui,wails,binding,id,test,Wails,与,UI,RPC,桥接
+internal/ui/wails/binding_native_test.go	internal	other	go-test	2990	Wails binding 与 UI RPC 桥接	internal,ui,wails,binding,native,test,Wails,与,UI,RPC,桥接
+internal/ui/wails/binding_native.go	internal	other	go-source	8034	Wails binding 与 UI RPC 桥接	internal,ui,wails,binding,native,Wails,与,UI,RPC,桥接
+internal/ui/wails/binding_test.go	internal	other	go-test	4769	Wails binding 与 UI RPC 桥接	internal,ui,wails,binding,test,Wails,与,UI,RPC,桥接
+internal/ui/wails/binding.go	internal	other	go-source	6374	Wails binding 与 UI RPC 桥接	internal,ui,wails,binding,Wails,与,UI,RPC,桥接
+internal/ui/wails/bridge_test.go	internal	other	go-test	2733	Wails binding 与 UI RPC 桥接	internal,ui,wails,bridge,test,Wails,binding,与,UI,RPC,桥接
+internal/ui/wails/bridge.go	internal	other	go-source	2974	Wails binding 与 UI RPC 桥接	internal,ui,wails,bridge,Wails,binding,与,UI,RPC,桥接
+internal/ui/wails/clipboard_assets_test.go	internal	other	go-test	3417	Wails binding 与 UI RPC 桥接	internal,ui,wails,clipboard,assets,test,Wails,binding,与,UI,RPC,桥接
+internal/ui/wails/clipboard_assets.go	internal	other	go-source	2760	Wails binding 与 UI RPC 桥接	internal,ui,wails,clipboard,assets,Wails,binding,与,UI,RPC,桥接
+internal/ui/wails/clipboard_cleanup_test.go	internal	other	go-test	3422	Wails binding 与 UI RPC 桥接	internal,ui,wails,clipboard,cleanup,test,Wails,binding,与,UI,RPC,桥接
+internal/ui/wails/clipboard_cleanup.go	internal	other	go-source	2988	Wails binding 与 UI RPC 桥接	internal,ui,wails,clipboard,cleanup,Wails,binding,与,UI,RPC,桥接
+internal/ui/wails/code_preview_test.go	internal	other	go-test	6987	Wails binding 与 UI RPC 桥接	internal,ui,wails,code,preview,test,Wails,binding,与,UI,RPC,桥接
+internal/ui/wails/code_preview.go	internal	other	go-source	13763	Wails binding 与 UI RPC 桥接	internal,ui,wails,code,preview,Wails,binding,与,UI,RPC,桥接
+internal/ui/wails/code_scope_test.go	internal	other	go-test	1893	Wails binding 与 UI RPC 桥接	internal,ui,wails,code,scope,test,Wails,binding,与,UI,RPC,桥接
+internal/ui/wails/code_scope_windows_test.go	internal	other	go-test	519	Wails binding 与 UI RPC 桥接	internal,ui,wails,code,scope,windows,test,Wails,binding,与,UI,RPC,桥接
+internal/ui/wails/code_scope.go	internal	other	go-source	9135	Wails binding 与 UI RPC 桥接	internal,ui,wails,code,scope,Wails,binding,与,UI,RPC,桥接
+internal/ui/wails/dropped_text.go	internal	other	go-source	15162	Wails binding 与 UI RPC 桥接	internal,ui,wails,dropped,text,Wails,binding,与,UI,RPC,桥接
+internal/ui/wails/frontend/index.html	internal	other	html	1329	Wails binding 与 UI RPC 桥接	internal,ui,wails,frontend,index,Wails,binding,与,UI,RPC,桥接
+internal/ui/wails/http_server_test.go	internal	other	go-test	1076	Wails binding 与 UI RPC 桥接	internal,ui,wails,http,server,test,Wails,binding,与,UI,RPC,桥接
+internal/ui/wails/http_server.go	internal	other	go-source	2256	Wails binding 与 UI RPC 桥接	internal,ui,wails,http,server,Wails,binding,与,UI,RPC,桥接
+internal/ui/wails/lifecycle_test.go	internal	other	go-test	2858	Wails binding 与 UI RPC 桥接	internal,ui,wails,lifecycle,test,Wails,binding,与,UI,RPC,桥接
+internal/ui/wails/lifecycle.go	internal	other	go-source	5629	Wails binding 与 UI RPC 桥接	internal,ui,wails,lifecycle,Wails,binding,与,UI,RPC,桥接
+internal/ui/wails/module.go	internal	other	go-source	4557	Wails binding 与 UI RPC 桥接	internal,ui,wails,module,Wails,binding,与,UI,RPC,桥接
+internal/ui/wails/rpc_frontend_log_level_test.go	internal	other	go-test	2367	Wails binding 与 UI RPC 桥接	internal,ui,wails,rpc,frontend,log,level,test,Wails,binding,与,UI,RPC,桥接
+internal/ui/wails/rpc_save_text_file_test.go	internal	other	go-test	4043	Wails binding 与 UI RPC 桥接	internal,ui,wails,rpc,save,text,file,test,Wails,binding,与,UI,RPC,桥接
+internal/ui/wails/rpc_test.go	internal	other	go-test	18842	Wails binding 与 UI RPC 桥接	internal,ui,wails,rpc,test,Wails,binding,与,UI,RPC,桥接
+internal/ui/wails/rpc.go	internal	other	go-source	12009	Wails binding 与 UI RPC 桥接	internal,ui,wails,rpc,Wails,binding,与,UI,RPC,桥接
+internal/ui/wails/runner.go	internal	other	go-source	1130	Wails binding 与 UI RPC 桥接	internal,ui,wails,runner,Wails,binding,与,UI,RPC,桥接
+internal/ui/wails/scope_catalog.go	internal	other	go-source	3456	Wails binding 与 UI RPC 桥接	internal,ui,wails,scope,catalog,Wails,binding,与,UI,RPC,桥接
+internal/ui/wails/window_state.go	internal	other	go-source	3713	Wails binding 与 UI RPC 桥接	internal,ui,wails,window,state,Wails,binding,与,UI,RPC,桥接
+internal/ui/wails/window_test.go	internal	other	go-test	1841	Wails binding 与 UI RPC 桥接	internal,ui,wails,window,test,Wails,binding,与,UI,RPC,桥接
+internal/ui/wails/window.go	internal	other	go-source	3896	Wails binding 与 UI RPC 桥接	internal,ui,wails,window,Wails,binding,与,UI,RPC,桥接
+internal/util/clone/clone.go	internal	other	go-source	2178	未细分职责：请结合路径、文件名和相邻代码判断	internal,util,clone,未细分职责：请结合路径,文件名和相邻代码判断
+internal/util/configutil/configutil.go	internal	other	go-source	4727	未细分职责：请结合路径、文件名和相邻代码判断	internal,util,configutil,未细分职责：请结合路径,文件名和相邻代码判断
+internal/util/ctxutil/ctxutil.go	internal	other	go-source	2253	未细分职责：请结合路径、文件名和相邻代码判断	internal,util,ctxutil,未细分职责：请结合路径,文件名和相邻代码判断
+internal/util/discovery/discovery.go	internal	other	go-source	2968	未细分职责：请结合路径、文件名和相邻代码判断	internal,util,discovery,未细分职责：请结合路径,文件名和相邻代码判断
+internal/util/historyjsonl/history_test.go	internal	other	go-test	3010	未细分职责：请结合路径、文件名和相邻代码判断	internal,util,historyjsonl,history,test,未细分职责：请结合路径,文件名和相邻代码判断
+internal/util/historyjsonl/history.go	internal	other	go-source	7173	未细分职责：请结合路径、文件名和相邻代码判断	internal,util,historyjsonl,history,未细分职责：请结合路径,文件名和相邻代码判断
+internal/util/idempotency/registry_test.go	internal	other	go-test	3181	未细分职责：请结合路径、文件名和相邻代码判断	internal,util,idempotency,registry,test,未细分职责：请结合路径,文件名和相邻代码判断
+internal/util/idempotency/registry.go	internal	other	go-source	5167	未细分职责：请结合路径、文件名和相邻代码判断	internal,util,idempotency,registry,未细分职责：请结合路径,文件名和相邻代码判断
+internal/util/identifier/uuid_test.go	internal	other	go-test	2107	未细分职责：请结合路径、文件名和相邻代码判断	internal,util,identifier,uuid,test,未细分职责：请结合路径,文件名和相邻代码判断
+internal/util/identifier/uuid.go	internal	other	go-source	1960	未细分职责：请结合路径、文件名和相邻代码判断	internal,util,identifier,uuid,未细分职责：请结合路径,文件名和相邻代码判断
+internal/util/idgen/idgen.go	internal	other	go-source	1437	未细分职责：请结合路径、文件名和相邻代码判断	internal,util,idgen,未细分职责：请结合路径,文件名和相邻代码判断
+internal/util/pathutil/pathutil_test.go	internal	other	go-test	1755	未细分职责：请结合路径、文件名和相邻代码判断	internal,util,pathutil,test,未细分职责：请结合路径,文件名和相邻代码判断
+internal/util/pathutil/pathutil.go	internal	other	go-source	9979	未细分职责：请结合路径、文件名和相邻代码判断	internal,util,pathutil,未细分职责：请结合路径,文件名和相邻代码判断
+internal/util/repofingerprint/fingerprint.go	internal	other	go-source	789	未细分职责：请结合路径、文件名和相邻代码判断	internal,util,repofingerprint,fingerprint,未细分职责：请结合路径,文件名和相邻代码判断
+internal/util/safego/safego.go	internal	other	go-source	1605	未细分职责：请结合路径、文件名和相邻代码判断	internal,util,safego,未细分职责：请结合路径,文件名和相邻代码判断
+internal/util/toolresults/path.go	internal	other	go-source	1280	未细分职责：请结合路径、文件名和相邻代码判断	internal,util,toolresults,path,未细分职责：请结合路径,文件名和相邻代码判断
+internal/util/util.go	internal	other	go-source	1615	未细分职责：请结合路径、文件名和相邻代码判断	internal,util,未细分职责：请结合路径,文件名和相邻代码判断
+LICENSE	(root)	other	file	1235	仓库根级配置、入口或说明文件	LICENSE,仓库根级配置,入口或说明文件
+logs/Super-Dolphin/peer-fallback/mcp-lsp-2026-05-27.log	logs	other	log	6533	未细分职责：请结合路径、文件名和相邻代码判断	logs,Super,Dolphin,peer,fallback,mcp,lsp,2026,05,27,未细分职责：请结合路径,文件名和相邻代码判断
+logs/Super-Dolphin/peer-fallback/mcp-lsp-2026-05-28.log	logs	other	log	13083	未细分职责：请结合路径、文件名和相邻代码判断	logs,Super,Dolphin,peer,fallback,mcp,lsp,2026,05,28,未细分职责：请结合路径,文件名和相邻代码判断
+logs/Super-Dolphin/peer-fallback/mcp-lsp.exe-2026-05-28.log	logs	other	log	756	未细分职责：请结合路径、文件名和相邻代码判断	logs,Super,Dolphin,peer,fallback,mcp,lsp,exe,2026,05,28,未细分职责：请结合路径,文件名和相邻代码判断
+Makefile	(root)	other	file	12606	仓库根级配置、入口或说明文件	Makefile,仓库根级配置,入口或说明文件
+mcp-lsp.exe	(root)	other	exe	19869696	仓库根级配置、入口或说明文件	mcp,lsp,仓库根级配置,入口或说明文件
+mcp-orch.exe	(root)	other	exe	30973952	仓库根级配置、入口或说明文件	mcp,orch,仓库根级配置,入口或说明文件
+pkg/dagmetrics/dagmetrics_test.go	pkg	other	go-test	1028	DAG 指标公共库	pkg,dagmetrics,test,DAG,指标公共库
+pkg/dagmetrics/dagmetrics.go	pkg	other	go-source	3218	DAG 指标公共库	pkg,dagmetrics,DAG,指标公共库
+pkg/dreammetrics/dreammetrics_test.go	pkg	other	go-test	3219	dream pipeline 指标公共库	pkg,dreammetrics,test,dream,pipeline,指标公共库
+pkg/dreammetrics/dreammetrics.go	pkg	other	go-source	4841	dream pipeline 指标公共库	pkg,dreammetrics,dream,pipeline,指标公共库
+pkg/logger/agent_logger.go	pkg	other	go-source	2929	统一日志、采样、relay、watchdog 与 trace context	pkg,logger,agent,统一日志,采样,relay,watchdog,与,trace,context
+pkg/logger/error_enricher.go	pkg	other	go-source	1860	统一日志、采样、relay、watchdog 与 trace context	pkg,logger,error,enricher,统一日志,采样,relay,watchdog,与,trace,context
+pkg/logger/fields.go	pkg	other	go-source	6735	统一日志、采样、relay、watchdog 与 trace context	pkg,logger,fields,统一日志,采样,relay,watchdog,与,trace,context
+pkg/logger/logger.go	pkg	other	go-source	7266	统一日志、采样、relay、watchdog 与 trace context	pkg,logger,统一日志,采样,relay,watchdog,与,trace,context
+pkg/logger/relay_test.go	pkg	other	go-test	1123	统一日志、采样、relay、watchdog 与 trace context	pkg,logger,relay,test,统一日志,采样,watchdog,与,trace,context
+pkg/logger/relay_throttle.go	pkg	other	go-source	474	统一日志、采样、relay、watchdog 与 trace context	pkg,logger,relay,throttle,统一日志,采样,watchdog,与,trace,context
+pkg/logger/relay.go	pkg	other	go-source	4734	统一日志、采样、relay、watchdog 与 trace context	pkg,logger,relay,统一日志,采样,watchdog,与,trace,context
+pkg/logger/safego.go	pkg	other	go-source	756	统一日志、采样、relay、watchdog 与 trace context	pkg,logger,safego,统一日志,采样,relay,watchdog,与,trace,context
+pkg/logger/sampler_test.go	pkg	other	go-test	422	统一日志、采样、relay、watchdog 与 trace context	pkg,logger,sampler,test,统一日志,采样,relay,watchdog,与,trace,context
+pkg/logger/sampler.go	pkg	other	go-source	1195	统一日志、采样、relay、watchdog 与 trace context	pkg,logger,sampler,统一日志,采样,relay,watchdog,与,trace,context
+pkg/logger/stderr_collector.go	pkg	other	go-source	1036	统一日志、采样、relay、watchdog 与 trace context	pkg,logger,stderr,collector,统一日志,采样,relay,watchdog,与,trace,context
+pkg/logger/trace_context_test.go	pkg	other	go-test	2406	统一日志、采样、relay、watchdog 与 trace context	pkg,logger,trace,context,test,统一日志,采样,relay,watchdog,与
+pkg/logger/trace_context.go	pkg	other	go-source	666	统一日志、采样、relay、watchdog 与 trace context	pkg,logger,trace,context,统一日志,采样,relay,watchdog,与
+pkg/logger/truncate.go	pkg	other	go-source	551	统一日志、采样、relay、watchdog 与 trace context	pkg,logger,truncate,统一日志,采样,relay,watchdog,与,trace,context
+pkg/logger/watchdog.go	pkg	other	go-source	1289	统一日志、采样、relay、watchdog 与 trace context	pkg,logger,watchdog,统一日志,采样,relay,与,trace,context
+pkg/skillmetrics/skillmetrics_test.go	pkg	other	go-test	1938	skill 指标公共库	pkg,skillmetrics,test,skill,指标公共库
+pkg/skillmetrics/skillmetrics.go	pkg	other	go-source	4804	skill 指标公共库	pkg,skillmetrics,skill,指标公共库
+README.md	(root)	other	doc	6325	仓库根级配置、入口或说明文件	README,仓库根级配置,入口或说明文件
+run-debug.ps1	(root)	other	script	41576	仓库根级配置、入口或说明文件	run,debug,仓库根级配置,入口或说明文件
+run-debug.sh	(root)	other	script	24286	仓库根级配置、入口或说明文件	run,debug,仓库根级配置,入口或说明文件
+scripts/activate_guard_env.sh	scripts	other	script	1148	工程自动化、测试守卫、代码地图与开发脚本	scripts,activate,guard,env,工程自动化,测试守卫,代码地图与开发脚本
+scripts/capcontract_test.go	scripts	other	go-test	2025	工程自动化、测试守卫、代码地图与开发脚本	scripts,capcontract,test,工程自动化,测试守卫,代码地图与开发脚本
+scripts/capcontract.go	scripts	other	go-source	3923	工程自动化、测试守卫、代码地图与开发脚本	scripts,capcontract,工程自动化,测试守卫,代码地图与开发脚本
+scripts/check_p1_turn_wrappers_guard_test.go	scripts	other	go-test	9650	工程自动化、测试守卫、代码地图与开发脚本	scripts,check,p1,turn,wrappers,guard,test,工程自动化,测试守卫,代码地图与开发脚本
+scripts/check_p1_turn_wrappers.go	scripts	other	go-source	4201	工程自动化、测试守卫、代码地图与开发脚本	scripts,check,p1,turn,wrappers,工程自动化,测试守卫,代码地图与开发脚本
+scripts/check-dag-doc-sync.sh	scripts	other	script	4698	工程自动化、测试守卫、代码地图与开发脚本	scripts,check,dag,doc,sync,工程自动化,测试守卫,代码地图与开发脚本
+scripts/code_size_guard_test.go	scripts	other	go-test	2911	工程自动化、测试守卫、代码地图与开发脚本	scripts,code,size,guard,test,工程自动化,测试守卫,代码地图与开发脚本
+scripts/code_size_guard.go	scripts	other	go-source	7194	工程自动化、测试守卫、代码地图与开发脚本	scripts,code,size,guard,工程自动化,测试守卫,代码地图与开发脚本
+scripts/codemap_index_test.go	scripts	other	go-test	733	工程自动化、测试守卫、代码地图与开发脚本	scripts,codemap,index,test,工程自动化,测试守卫,代码地图与开发脚本
+scripts/codemap_index.go	scripts	other	go-source	14024	工程自动化、测试守卫、代码地图与开发脚本	scripts,codemap,index,工程自动化,测试守卫,代码地图与开发脚本
+scripts/dag_m3_dogfood_test.py	scripts	other	py	19196	工程自动化、测试守卫、代码地图与开发脚本	scripts,dag,m3,dogfood,test,工程自动化,测试守卫,代码地图与开发脚本
+scripts/dag_m3_dogfood.py	scripts	other	py	30138	工程自动化、测试守卫、代码地图与开发脚本	scripts,dag,m3,dogfood,工程自动化,测试守卫,代码地图与开发脚本
+scripts/dev_control_token_guard_test.go	scripts	other	go-test	2826	工程自动化、测试守卫、代码地图与开发脚本	scripts,dev,control,token,guard,test,工程自动化,测试守卫,代码地图与开发脚本
+scripts/extract_jsonrpc_methods_guard_test.go	scripts	other	go-test	578	工程自动化、测试守卫、代码地图与开发脚本	scripts,extract,jsonrpc,methods,guard,test,工程自动化,测试守卫,代码地图与开发脚本
+scripts/extract_jsonrpc_methods_main_guardrail_test.go	scripts	other	go-test	9221	工程自动化、测试守卫、代码地图与开发脚本	scripts,extract,jsonrpc,methods,main,guardrail,test,工程自动化,测试守卫,代码地图与开发脚本
+scripts/extract_jsonrpc_methods.go	scripts	other	go-source	5608	工程自动化、测试守卫、代码地图与开发脚本	scripts,extract,jsonrpc,methods,工程自动化,测试守卫,代码地图与开发脚本
+scripts/fixtures/prompt_intent_dream_fixture.json	scripts	other	json	3091	工程自动化、测试守卫、代码地图与开发脚本	scripts,fixtures,prompt,intent,dream,fixture,工程自动化,测试守卫,代码地图与开发脚本
+scripts/forbid_raw_go_test.sh	scripts	other	script	2325	工程自动化、测试守卫、代码地图与开发脚本	scripts,forbid,raw,go,test,工程自动化,测试守卫,代码地图与开发脚本
+scripts/generate_ai_project_map.js	scripts	other	js-source	21994	工程自动化、测试守卫、代码地图与开发脚本	scripts,generate,ai,project,map,工程自动化,测试守卫,代码地图与开发脚本
+scripts/go	scripts	other	file	1094	工程自动化、测试守卫、代码地图与开发脚本	scripts,go,工程自动化,测试守卫,代码地图与开发脚本
+scripts/go_guard_shell.sh	scripts	other	script	603	工程自动化、测试守卫、代码地图与开发脚本	scripts,go,guard,shell,工程自动化,测试守卫,代码地图与开发脚本
+scripts/go_with_guard.sh	scripts	other	script	969	工程自动化、测试守卫、代码地图与开发脚本	scripts,go,with,guard,工程自动化,测试守卫,代码地图与开发脚本
+scripts/guard_env_test.sh	scripts	other	script	5510	工程自动化、测试守卫、代码地图与开发脚本	scripts,guard,env,test,工程自动化,测试守卫,代码地图与开发脚本
+scripts/guard_fix_commits_have_tests_guard_test.go	scripts	other	go-test	15648	工程自动化、测试守卫、代码地图与开发脚本	scripts,guard,fix,commits,have,tests,test,工程自动化,测试守卫,代码地图与开发脚本
+scripts/guard_fix_commits_have_tests.sh	scripts	other	script	4702	工程自动化、测试守卫、代码地图与开发脚本	scripts,guard,fix,commits,have,tests,工程自动化,测试守卫,代码地图与开发脚本
+scripts/install-hooks.sh	scripts	other	script	797	工程自动化、测试守卫、代码地图与开发脚本	scripts,install,hooks,工程自动化,测试守卫,代码地图与开发脚本
+scripts/install-postgres.ps1	scripts	other	script	6244	工程自动化、测试守卫、代码地图与开发脚本	scripts,install,postgres,工程自动化,测试守卫,代码地图与开发脚本
+scripts/lsp_router_eval.py	scripts	other	py	37740	工程自动化、测试守卫、代码地图与开发脚本	scripts,lsp,router,eval,工程自动化,测试守卫,代码地图与开发脚本
+scripts/prompt_intent_e2e_test.py	scripts	other	py	9094	工程自动化、测试守卫、代码地图与开发脚本	scripts,prompt,intent,e2e,test,工程自动化,测试守卫,代码地图与开发脚本
+scripts/prompt_intent_e2e.py	scripts	other	py	24691	工程自动化、测试守卫、代码地图与开发脚本	scripts,prompt,intent,e2e,工程自动化,测试守卫,代码地图与开发脚本
+scripts/real_go_resolver.sh	scripts	other	script	3493	工程自动化、测试守卫、代码地图与开发脚本	scripts,real,go,resolver,工程自动化,测试守卫,代码地图与开发脚本
+scripts/refactor/rename_codexsdk_to_agentsdk_error_path_guard_test.go	scripts	other	go-test	7576	工程自动化、测试守卫、代码地图与开发脚本	scripts,refactor,rename,codexsdk,to,agentsdk,error,path,guard,test,工程自动化,测试守卫,代码地图与开发脚本
+scripts/refactor/rename_codexsdk_to_agentsdk_guard_strength_test.go	scripts	other	go-test	4664	工程自动化、测试守卫、代码地图与开发脚本	scripts,refactor,rename,codexsdk,to,agentsdk,guard,strength,test,工程自动化,测试守卫,代码地图与开发脚本
+scripts/refactor/rename_codexsdk_to_agentsdk_guard_test.go	scripts	other	go-test	8020	工程自动化、测试守卫、代码地图与开发脚本	scripts,refactor,rename,codexsdk,to,agentsdk,guard,test,工程自动化,测试守卫,代码地图与开发脚本
+scripts/refactor/rename_codexsdk_to_agentsdk_guardrail_extra_test.go	scripts	other	go-test	13588	工程自动化、测试守卫、代码地图与开发脚本	scripts,refactor,rename,codexsdk,to,agentsdk,guardrail,extra,test,工程自动化,测试守卫,代码地图与开发脚本
+scripts/refactor/rename_codexsdk_to_agentsdk_main_guardrail_test.go	scripts	other	go-test	7875	工程自动化、测试守卫、代码地图与开发脚本	scripts,refactor,rename,codexsdk,to,agentsdk,main,guardrail,test,工程自动化,测试守卫,代码地图与开发脚本
+scripts/refactor/rename_codexsdk_to_agentsdk_side_effect_guard_test.go	scripts	other	go-test	9816	工程自动化、测试守卫、代码地图与开发脚本	scripts,refactor,rename,codexsdk,to,agentsdk,side,effect,guard,test,工程自动化,测试守卫,代码地图与开发脚本
+scripts/refactor/rename_codexsdk_to_agentsdk.go	scripts	other	go-source	7164	工程自动化、测试守卫、代码地图与开发脚本	scripts,refactor,rename,codexsdk,to,agentsdk,工程自动化,测试守卫,代码地图与开发脚本
+scripts/test_with_guard.sh	scripts	other	script	1520	工程自动化、测试守卫、代码地图与开发脚本	scripts,test,with,guard,工程自动化,测试守卫,代码地图与开发脚本
+scripts/uat-p21.sh	scripts	other	script	9414	工程自动化、测试守卫、代码地图与开发脚本	scripts,uat,p21,工程自动化,测试守卫,代码地图与开发脚本
+scripts/ui-coverage.sh	scripts	other	script	8745	工程自动化、测试守卫、代码地图与开发脚本	scripts,ui,coverage,工程自动化,测试守卫,代码地图与开发脚本
+scripts/update_apiserver_guard_snapshots.js	scripts	other	js-source	1979	工程自动化、测试守卫、代码地图与开发脚本	scripts,update,apiserver,guard,snapshots,工程自动化,测试守卫,代码地图与开发脚本
+sqlc.yaml	(root)	other	yaml	3714	仓库根级配置、入口或说明文件	sqlc,仓库根级配置,入口或说明文件
+super-agent-debug.exe	(root)	other	exe	53955584	仓库根级配置、入口或说明文件	super,agent,debug,仓库根级配置,入口或说明文件
+test_guard.js	(root)	other	js-source	2100	仓库根级配置、入口或说明文件	test,guard,仓库根级配置,入口或说明文件
+test_guard2.js	(root)	other	js-source	2134	仓库根级配置、入口或说明文件	test,guard2,仓库根级配置,入口或说明文件
+test/fixtures/p21/cron/README.md	test	other	doc	808	未细分职责：请结合路径、文件名和相邻代码判断	test,fixtures,p21,cron,README,未细分职责：请结合路径,文件名和相邻代码判断
+test/fixtures/p21/prompt-injection/samples.txt	test	other	txt	813	未细分职责：请结合路径、文件名和相邻代码判断	test,fixtures,p21,prompt,injection,samples,未细分职责：请结合路径,文件名和相邻代码判断
+test/fixtures/p21/README.md	test	other	doc	1797	未细分职责：请结合路径、文件名和相邻代码判断	test,fixtures,p21,README,未细分职责：请结合路径,文件名和相邻代码判断
+test/fixtures/p21/repos/.gitkeep	test	other	file	99	未细分职责：请结合路径、文件名和相邻代码判断	test,fixtures,p21,repos,未细分职责：请结合路径,文件名和相邻代码判断
+test/fixtures/p21/repos/bootstrap.sh	test	other	script	709	未细分职责：请结合路径、文件名和相邻代码判断	test,fixtures,p21,repos,bootstrap,未细分职责：请结合路径,文件名和相邻代码判断
+test/fixtures/p21/secrets/check_redaction.go	test	other	go-source	1479	未细分职责：请结合路径、文件名和相邻代码判断	test,fixtures,p21,secrets,check,redaction,未细分职责：请结合路径,文件名和相邻代码判断
+test/fixtures/p21/secrets/sample.txt	test	other	txt	1540	未细分职责：请结合路径、文件名和相邻代码判断	test,fixtures,p21,secrets,sample,未细分职责：请结合路径,文件名和相邻代码判断
+test/fixtures/p21/webhooks/README.md	test	other	doc	1163	未细分职责：请结合路径、文件名和相邻代码判断	test,fixtures,p21,webhooks,README,未细分职责：请结合路径,文件名和相邻代码判断
+test/fixtures/p21/webhooks/replay.py	test	other	py	762	未细分职责：请结合路径、文件名和相邻代码判断	test,fixtures,p21,webhooks,replay,未细分职责：请结合路径,文件名和相邻代码判断
+tests/scripts/guard_env_test.sh	tests	other	script	138	未细分职责：请结合路径、文件名和相邻代码判断	tests,scripts,guard,env,test,未细分职责：请结合路径,文件名和相邻代码判断
+third_party/kelindar-event/default_test.go	third_party	other	go-test	3616	未细分职责：请结合路径、文件名和相邻代码判断	third,party,kelindar,event,default,test,未细分职责：请结合路径,文件名和相邻代码判断
+third_party/kelindar-event/default.go	third_party	other	go-source	1090	未细分职责：请结合路径、文件名和相邻代码判断	third,party,kelindar,event,default,未细分职责：请结合路径,文件名和相邻代码判断
+third_party/kelindar-event/event_test.go	third_party	other	go-test	8300	未细分职责：请结合路径、文件名和相邻代码判断	third,party,kelindar,event,test,未细分职责：请结合路径,文件名和相邻代码判断
+third_party/kelindar-event/event.go	third_party	other	go-source	8118	未细分职责：请结合路径、文件名和相邻代码判断	third,party,kelindar,event,未细分职责：请结合路径,文件名和相邻代码判断
+third_party/kelindar-event/example/main.go	third_party	other	go-source	1135	未细分职责：请结合路径、文件名和相邻代码判断	third,party,kelindar,event,example,main,未细分职责：请结合路径,文件名和相邻代码判断
+third_party/kelindar-event/go.mod	third_party	other	mod	244	未细分职责：请结合路径、文件名和相邻代码判断	third,party,kelindar,event,go,未细分职责：请结合路径,文件名和相邻代码判断
+third_party/kelindar-event/go.sum	third_party	other	sum	891	未细分职责：请结合路径、文件名和相邻代码判断	third,party,kelindar,event,go,未细分职责：请结合路径,文件名和相邻代码判断
+third_party/kelindar-event/LICENSE	third_party	other	file	1094	未细分职责：请结合路径、文件名和相邻代码判断	third,party,kelindar,event,LICENSE,未细分职责：请结合路径,文件名和相邻代码判断
+third_party/kelindar-event/README.md	third_party	other	doc	4735	未细分职责：请结合路径、文件名和相邻代码判断	third,party,kelindar,event,README,未细分职责：请结合路径,文件名和相邻代码判断

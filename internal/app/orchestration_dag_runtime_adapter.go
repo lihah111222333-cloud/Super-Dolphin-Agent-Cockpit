@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	mcpdto "github.com/anthropic-ai/super-agent-v3/internal/dto/mcp"
@@ -22,6 +23,11 @@ type mcpOrchDAGRuntime struct {
 }
 
 var _ contract.DAGRuntime = (*mcpOrchDAGRuntime)(nil)
+
+var (
+	dagRuntimePeerReadyTimeout      = 10 * time.Second
+	dagRuntimePeerReadyPollInterval = 300 * time.Millisecond
+)
 
 func newMCPOrchDAGRuntime(handler *toolbridge.Handler) *mcpOrchDAGRuntime {
 	return &mcpOrchDAGRuntime{tools: handler}
@@ -147,6 +153,31 @@ func encodeDAGToolCall(toolName string, args any) (contract.ToolCallRawMessage, 
 }
 
 func (r *mcpOrchDAGRuntime) runDAGToolCall(ctx context.Context, toolName string, msg contract.ToolCallRawMessage) (*toolbridge.ToolCallResult, error) {
+	deadline := time.Now().Add(dagRuntimePeerReadyTimeout)
+	for {
+		result, err := r.runDAGToolCallOnce(ctx, toolName, msg)
+		if err == nil || !errors.Is(err, toolbridge.ErrNoPeerAvailable) {
+			return result, err
+		}
+		if time.Now().After(deadline) {
+			return nil, fmt.Errorf("app: mcp-orch peer not ready for %s after %s: %w", toolName, dagRuntimePeerReadyTimeout, err)
+		}
+		wait := dagRuntimePeerReadyPollInterval
+		if remaining := time.Until(deadline); remaining < wait {
+			wait = remaining
+		}
+		if wait <= 0 {
+			continue
+		}
+		select {
+		case <-ctx.Done():
+			return nil, fmt.Errorf("app: wait for mcp-orch %s peer: %w", toolName, ctx.Err())
+		case <-time.After(wait):
+		}
+	}
+}
+
+func (r *mcpOrchDAGRuntime) runDAGToolCallOnce(ctx context.Context, toolName string, msg contract.ToolCallRawMessage) (*toolbridge.ToolCallResult, error) {
 	value, err := r.tools.HandleToolCall(ctx, contract.ToolCallRawMessage{
 		ID:     msg.ID,
 		Method: msg.Method,

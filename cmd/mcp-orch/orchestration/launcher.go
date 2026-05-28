@@ -14,6 +14,7 @@ import (
 	"github.com/creachadair/jrpc2"
 	"github.com/creachadair/jrpc2/channel"
 
+	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/orchestration/processctl"
 	turndto "github.com/anthropic-ai/super-agent-v3/internal/dto/turn"
 	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/eventsurface"
@@ -53,13 +54,16 @@ func (l *localLauncher) Launch(ctx context.Context, agent *agentRuntime, _ Launc
 	cmd := exec.Command(agent.command[0], agent.command[1:]...)
 	cmd.Dir = agent.cwd
 	cmd.Env = append(os.Environ(), agent.env...)
+	processctl.Configure(cmd)
 	if err := cmd.Start(); err != nil {
 		agent.lastError = err.Error()
 		return LaunchResult{}, err
 	}
+	guard := processctl.Attach(cmd, l.logger)
 	now := resolveEventTime(ctx, agent.updatedAt)
 	resetLaunchState(agent)
 	agent.cmd = cmd
+	agent.processGuard = guard
 	agent.launchSeq++
 	agent.startedAt = now
 	agent.updatedAt = now
@@ -73,7 +77,7 @@ func (l *localLauncher) Stop(_ context.Context, agent *agentRuntime) error {
 	if agent == nil {
 		return nil
 	}
-	return stopProcess(agent.cmd)
+	return processctl.RequestStop(agent.cmd, agent.processGuard)
 }
 
 func (l *localLauncher) Archive(ctx context.Context, agent *agentRuntime) error {

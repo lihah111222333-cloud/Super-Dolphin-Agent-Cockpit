@@ -102,7 +102,7 @@ func dispatchTestRunID(id int64) *int64 {
 func TestDispatchNode_HappyPath_ReadyNode_AssignsAndEnqueues(t *testing.T) {
 	t.Parallel()
 	stub := &stubDispatchStore{
-		nodes: []taskdag.Node{{DagKey: "dag-1", NodeKey: "n1", RunID: dispatchTestRunID(7), Title: "n1", Status: "ready"}},
+		nodes: []taskdag.Node{{DagKey: "dag-1", NodeKey: "n1", RunID: dispatchTestRunID(7), Title: "n1", NodeType: "agent", Status: "ready", Config: testRawConfig(t, `{"exec":{"agent_key":"alpha","cwd":"/tmp/node-cwd"}}`)}},
 	}
 	svc := newServiceForDispatch(stub)
 	resp, err := svc.DispatchNode(context.Background(), contract.DispatchNodeRequest{
@@ -160,7 +160,7 @@ func assertDispatchWakeup(t *testing.T, enqueued []taskdag.EnqueueWakeupInput) {
 func TestDispatchNode_PendingAccepted(t *testing.T) {
 	t.Parallel()
 	stub := &stubDispatchStore{
-		nodes: []taskdag.Node{{DagKey: "dag-1", NodeKey: "n1", RunID: dispatchTestRunID(7), Status: "pending"}},
+		nodes: []taskdag.Node{{DagKey: "dag-1", NodeKey: "n1", RunID: dispatchTestRunID(7), NodeType: "agent", Status: "pending", Config: testRawConfig(t, `{"exec":{"agent_key":"alpha","cwd":"/tmp/node-cwd"}}`)}},
 	}
 	svc := newServiceForDispatch(stub)
 	_, err := svc.DispatchNode(context.Background(), contract.DispatchNodeRequest{
@@ -171,6 +171,39 @@ func TestDispatchNode_PendingAccepted(t *testing.T) {
 	})
 	if err != nil {
 		t.Fatalf("DispatchNode pending err = %v", err)
+	}
+}
+
+func TestDispatchNode_RejectsAgentNodeMissingCwdBeforeAssignAndEnqueue(t *testing.T) {
+	t.Parallel()
+	stub := &stubDispatchStore{
+		nodes: []taskdag.Node{{
+			DagKey:   "dag-1",
+			NodeKey:  "n1",
+			RunID:    dispatchTestRunID(7),
+			NodeType: "agent",
+			Status:   "ready",
+			Config:   testRawConfig(t, `{"exec":{"agent_key":"alpha"}}`),
+		}},
+	}
+	svc := newServiceForDispatch(stub)
+	_, err := svc.DispatchNode(context.Background(), contract.DispatchNodeRequest{
+		DagKey:     "dag-1",
+		NodeKey:    "n1",
+		RunID:      7,
+		AssignedTo: "agent-a",
+	})
+	if !errors.Is(err, contract.ErrLaunchCWDRequired) {
+		t.Fatalf("DispatchNode missing cwd err = %v, want ErrLaunchCWDRequired", err)
+	}
+	if !strings.Contains(err.Error(), "exec.cwd") {
+		t.Fatalf("DispatchNode missing cwd err = %v, want exec.cwd guidance", err)
+	}
+	if stub.assigned != nil {
+		t.Fatalf("AssignNode called on missing cwd: %+v", stub.assigned)
+	}
+	if len(stub.enqueued) != 0 {
+		t.Fatalf("EnqueueWakeup called on missing cwd: %+v", stub.enqueued)
 	}
 }
 
@@ -200,7 +233,6 @@ func TestDispatchNode_RejectsRunning(t *testing.T) {
 func TestDispatchNode_RejectsTerminalDone(t *testing.T) {
 	t.Parallel()
 	for _, status := range []string{"done", "failed", "cancelled", "skipped"} {
-		status := status
 		t.Run(status, func(t *testing.T) {
 			t.Parallel()
 			stub := &stubDispatchStore{

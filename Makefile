@@ -1,4 +1,4 @@
-.PHONY: build build-plain build-agent-terminal build-agent-terminal-plain frontend-deps frontend-build run run-plain run-agent-terminal-debug run-agent-terminal-debug-plain build-peer-binaries test test-deferred vet clean guard guard-shell protocol-sync-check rpc-regression-check codemap-check codemap-refresh setup-cgo ui-cover-build ui-cover-run ui-cover-report app-cover-build app-cover-run app-cover-report log-audit p2-audit ida-test-all ida-test-heavy sqlc-generate sqlc-verify
+.PHONY: build build-plain build-agent-terminal build-agent-terminal-plain frontend-deps frontend-build run run-plain run-agent-terminal-debug run-agent-terminal-debug-plain build-peer-binaries test test-deferred vet clean guard guard-shell protocol-sync-check rpc-regression-check codemap-check codemap-refresh project-map-check project-map-refresh capcontract-check capcontract-refresh setup-cgo ui-cover-build ui-cover-run ui-cover-report app-cover-build app-cover-run app-cover-report log-audit p2-audit ida-test-all ida-test-heavy sqlc-generate sqlc-verify
 
 # Auto-detect macOS version to avoid ld warnings about version mismatch.
 # Override with: make MIN_MACOS_VERSION=15.0 build
@@ -140,6 +140,22 @@ codemap-check:
 codemap-refresh:
 	go run scripts/codemap_index.go
 	@echo "✅ codemap ai-index.json refreshed"
+
+project-map-check:
+	node scripts/generate_ai_project_map.js --check --strict-drift
+	@echo "✅ project map generated files are up to date"
+
+project-map-refresh:
+	node scripts/generate_ai_project_map.js
+	@echo "✅ project map refreshed"
+
+capcontract-check:
+	go run scripts/capcontract.go --check
+	@echo "✅ capability contract manifest is up to date"
+
+capcontract-refresh:
+	go run scripts/capcontract.go
+	@echo "✅ capability contract manifest refreshed"
 
 vet: guard
 	go vet ./...

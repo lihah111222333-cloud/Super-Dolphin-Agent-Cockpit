@@ -14,8 +14,11 @@ vi.mock('./utils/thread-page-utils.js', async () => {
 });
 
 vi.mock('./services/log.js', () => ({
+  logDebug: vi.fn(),
+  logError: vi.fn(),
   logInfo: vi.fn(),
   logWarn: vi.fn(),
+  registerLogBridgeSink: vi.fn(),
 }));
 
 import { nextTick, ref } from '../lib/vue.esm-browser.prod.js';

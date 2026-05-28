@@ -36,6 +36,21 @@ beforeEach(() => {
 });
 
 describe('useProviderMode cross-page reactivity', () => {
+  it('seeds from cached active provider without waiting for load', async () => {
+    apiMock.callAPI.mockResolvedValueOnce({ ok: true });
+    await savePreference('settings.provider.active', 'claude', '/repo');
+
+    const scope = effectScope();
+    let vm;
+    scope.run(() => {
+      vm = useProviderMode(ref('/repo'));
+    });
+
+    expect(vm.providerPreferenceReady.value).toBe(true);
+    expect(vm.useClaudeProvider.value).toBe(true);
+    scope.stop();
+  });
+
   it('reacts when another consumer calls savePreference for active provider', async () => {
     apiMock.callAPI.mockResolvedValueOnce({ ok: true });
 
