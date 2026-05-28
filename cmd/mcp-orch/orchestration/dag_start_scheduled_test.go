@@ -3,6 +3,7 @@ package orchestration
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -47,6 +48,22 @@ func TestStartScheduledDAGRejectsStaleScheduleBeforeCreateRun(t *testing.T) {
 	}
 	if len(runStore.updateNextRunCalls) != 0 {
 		t.Fatalf("UpdateScheduledDAGNextRun calls = %d, want none after stale scheduled due slot", len(runStore.updateNextRunCalls))
+	}
+}
+
+func TestStartScheduledDAGRejectsMissingScheduledTriggerSource(t *testing.T) {
+	dueAt := time.Date(2026, 5, 11, 7, 0, 0, 0, time.UTC)
+	runStore := scheduledStartRunStore(dueAt)
+	svc := makeStartDAGService(&stubStartDAGStore{dag: &taskdag.DAG{DagKey: "dag-1"}}, runStore)
+	req := scheduledStartRequest(dueAt, dueAt.Add(time.Hour))
+	req.TriggerSource = ""
+
+	err := svc.StartScheduledDAG(context.Background(), req)
+	if err == nil || !strings.Contains(err.Error(), "trigger_source must be scheduled") {
+		t.Fatalf("StartScheduledDAG() error = %v, want trigger_source fail-fast", err)
+	}
+	if len(runStore.createCalls) != 0 {
+		t.Fatalf("CreateRun calls = %d, want none after invalid trigger_source", len(runStore.createCalls))
 	}
 }
 

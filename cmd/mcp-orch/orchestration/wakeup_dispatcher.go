@@ -11,7 +11,9 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/orchestration/retrypolicy"
 	taskdag "github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/taskdag"
+	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/runtimesafe"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
@@ -272,7 +274,7 @@ func (d *WakeupDispatcher) handleClaimedViaLegacyLauncher(ctx context.Context, w
 	if classifyLaunchError(launchErr) == launchClassPermanent {
 		return d.markPermanentFail(ctx, w, fence, lastErr, launchErr)
 	}
-	return d.markTransientRetry(ctx, w, fence, dispatchFailureFrom(lastErr, launchErr, failedWakeupOutcome(lastErr)))
+	return d.markTransientRetry(ctx, w, fence, dispatchFailure{lastErr: lastErr, launchErr: launchErr, outcome: failedWakeupOutcome(lastErr)})
 }
 
 func (d *WakeupDispatcher) markLaunched(ctx context.Context, w *taskdag.Wakeup, fence wakeupFence) bool {
@@ -328,10 +330,10 @@ func (d *WakeupDispatcher) markPermanentFail(ctx context.Context, w *taskdag.Wak
 }
 
 func (d *WakeupDispatcher) markTransientRetry(ctx context.Context, w *taskdag.Wakeup, fence wakeupFence, failure dispatchFailure) bool {
-	// Phase 3.5w: DAG-driven wakeup 走 metadata 决策（ResolveRetryPolicy）。
+	// DAG-driven wakeup 走 metadata/node config 决策。
 	// 当前 attempt_count >= MaxAttempts 直接 fail + cascade 下游（按
 	// FailFast）；attempt_count 还没到上限走旧的 RetryWakeup 路径。
-	// 非 DAG wakeup（DagKey/NodeKey 空）走兼容路径，保留 SQL 8 paranoid。
+	// 非 DAG wakeup（DagKey/NodeKey 空）走兼容路径，保留 SQL 8 hard cap.
 	if w.DagKey != "" && w.NodeKey != "" {
 		if handled, decided := d.tryDAGFailWithCascade(ctx, w, fence, failure); decided {
 			return handled
@@ -373,7 +375,7 @@ func (d *WakeupDispatcher) emitDispatchRetryAlert(ctx context.Context, alert Dis
 		baseCtx = context.WithoutCancel(ctx)
 	}
 	runtimesafe.SafeGo(baseCtx, logger, "wakeupDispatcher.retryAlert", func(runCtx context.Context) {
-		alertCtx, cancel := withDispatchRetryAlertTimeout(runCtx)
+		alertCtx, cancel := platformconfig.WithTimeout(runCtx, 5*time.Second)
 		defer cancel()
 		if err := sink.AlertDispatchRetry(alertCtx, alert); err != nil {
 			logger.Warn("wakeup dispatcher: retry alert enqueue failed",
@@ -501,15 +503,16 @@ func (d *WakeupDispatcher) Tick(ctx context.Context) (int, error) {
 	return len(claimed), nil
 }
 
-// tryDAGFailWithCascade 是 Phase 3.5w 接通点之 (b)：DAG-driven wakeup launch
-// 失败时按 ResolveRetryPolicy 决定要不要直接 fail（达 MaxAttempts）+ 级联取消
-// 下游（按 FailFast）。返 (handled, decided)：decided=false 表示还可 retry，
-// decided=true 表示已进入 max-attempt fail 路径，handled 反映底层写入是否成功。
+// tryDAGFailWithCascade decides whether a DAG wakeup has exhausted retries.
+// It returns decided=false when the normal retry path may still run.
 //
-// 退化策略：DAG metadata / node config 拿不到时返 false，让旧路径接管 —
-// 软策略不触发不影响生产路径，硬上限（SQL attempt_count<8）仍然兜底。
+// DAG metadata / runtime node config 读取失败时显式失败，保留
+// node-level retry/on_failure 契约可见性。
 func (d *WakeupDispatcher) tryDAGFailWithCascade(ctx context.Context, w *taskdag.Wakeup, fence wakeupFence, failure dispatchFailure) (bool, bool) {
-	policy, ok := d.resolveDAGRetryPolicy(ctx, w.DagKey, w.NodeKey, routeRunID(w))
+	policy, ok, err := d.resolveDAGRetryPolicy(ctx, w.DagKey, w.NodeKey, routeRunID(w))
+	if err != nil {
+		return d.failSmartRetryPrepare(ctx, w, fence, failure, err, false), true
+	}
 	if !ok {
 		return false, false
 	}
@@ -526,13 +529,13 @@ func (d *WakeupDispatcher) tryDAGFailWithCascade(ctx context.Context, w *taskdag
 	return true, true
 }
 
-// resolveDAGRetryPolicy 拉取 DAG metadata + node config 派生 RetryPolicy。
-// metadata/listNodes 任一报错返 (zero, false) 让调用方退化；node 不存在
-// 时仅基于 DAG 默认派生（仍返 true，policy 含 fail_fast）。
-func (d *WakeupDispatcher) resolveDAGRetryPolicy(ctx context.Context, dagKey, nodeKey string, runID int64) (RetryPolicy, bool) {
-	retryCtx, ok := d.resolveDAGRetryContext(ctx, dagKey, nodeKey, runID)
-	if !ok {
-		return RetryPolicy{}, false
+// resolveDAGRetryPolicy 拉取 DAG metadata + node config 派生 retry policy。
+// metadata/listNodes 任一报错返 error，让调用方显式失败而不是忽略
+// node-level retry/on_failure 契约；node 不存在时仍仅基于 DAG 默认派生。
+func (d *WakeupDispatcher) resolveDAGRetryPolicy(ctx context.Context, dagKey, nodeKey string, runID int64) (retrypolicy.RetryPolicy, bool, error) {
+	retryCtx, ok, err := d.resolveDAGRetryContext(ctx, dagKey, nodeKey, runID)
+	if err != nil || !ok {
+		return retrypolicy.RetryPolicy{}, false, err
 	}
-	return retryCtx.policy, true
+	return retryCtx.policy, true, nil
 }

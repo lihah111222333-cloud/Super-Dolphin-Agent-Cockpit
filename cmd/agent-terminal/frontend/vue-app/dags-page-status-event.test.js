@@ -128,6 +128,13 @@ describe('DagsPage node status bridge events', () => {
     expect(() => requireDagStatusEventPayload({ seq: 3, payload: { dag_key: 'dag-a', node_key: 'draft', new_status: 'running' } })).toThrow('dag status event run identity is required');
   });
 
+  it('rejects non-contract status event field aliases', () => {
+    expect(() => requireDagStatusEventPayload({ seq: 1, payload: { dagKey: 'dag-a', run_key: 'run-1', node_key: 'draft', new_status: 'running' } })).toThrow('dag status event dag key is required');
+    expect(() => requireDagStatusEventPayload({ seq: 2, payload: { dag_key: 'dag-a', runKey: 'run-1', node_key: 'draft', new_status: 'running' } })).toThrow('dag status event run identity is required');
+    expect(() => requireDagStatusEventPayload({ seq: 3, payload: { dag_key: 'dag-a', run_key: 'run-1', nodeKey: 'draft', new_status: 'running' } })).toThrow('dag status event node key is required');
+    expect(() => requireDagStatusEventPayload({ seq: 4, payload: { dag_key: 'dag-a', run_key: 'run-1', node_key: 'draft', status: 'running' } })).toThrow('dag status event status is required');
+  });
+
   it('fails fast when the DAG detail status handler is missing', () => {
     expect(() => {
       useDagStatusEventBridge(reactive({ statusEvents: [] }), {});

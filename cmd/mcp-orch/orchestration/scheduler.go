@@ -43,11 +43,17 @@ func (s *service) StartDAG(ctx context.Context, req StartDAGRequest) (StartDAGRe
 }
 
 func (s *service) StartScheduledDAG(ctx context.Context, req orchcron.ScheduledDAGStartRequest) error {
-	if s == nil || s.runStore == nil {
+	if s == nil || s.scheduledStartStore == nil {
 		return ErrRunStoreUnset
 	}
-	return scheduledstart.Start(ctx, s.runStore, req)
+	return scheduledstart.Start(ctx, s.scheduledStartStore, req)
 }
+
+type ScheduledDAGStartService interface {
+	StartScheduledDAG(context.Context, orchcron.ScheduledDAGStartRequest) error
+}
+
+func ProvideScheduledDAGStartService(s *service) ScheduledDAGStartService { return s }
 
 func (s *service) validateStartDAGPrereq(ctx context.Context, req StartDAGRequest) (string, *taskdag.DAG, error) {
 	if s == nil || s.dagStore == nil {

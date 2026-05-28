@@ -1,17 +1,26 @@
 import { watch } from '../../lib/vue.esm-browser.prod.js';
 
+function requiredPayloadString(payload, field, message) {
+  if (!Object.prototype.hasOwnProperty.call(payload, field)) throw new Error(message);
+  const raw = payload[field];
+  if (raw === null || raw === undefined) throw new Error(message);
+  const value = raw.toString().trim();
+  if (!value) throw new Error(message);
+  return value;
+}
+
 export function requireDagNodeStatusPayload(payload, payloadMessage = 'dag status event payload is required') {
   if (!payload || typeof payload !== 'object' || Array.isArray(payload)) throw new Error(payloadMessage);
-  const dagKey = (payload.dag_key || payload.dagKey || '').toString().trim();
-  if (!dagKey) throw new Error('dag status event dag key is required');
-  const nodeKey = (payload.node_key || payload.nodeKey || '').toString().trim();
-  if (!nodeKey) throw new Error('dag status event node key is required');
-  const runKey = (payload.run_key || payload.runKey || '').toString().trim();
-  const runID = Number(payload.run_id ?? payload.runId ?? 0);
+  const dagKey = requiredPayloadString(payload, 'dag_key', 'dag status event dag key is required');
+  const nodeKey = requiredPayloadString(payload, 'node_key', 'dag status event node key is required');
+  const status = requiredPayloadString(payload, 'new_status', 'dag status event status is required');
+  const runKey = Object.prototype.hasOwnProperty.call(payload, 'run_key') && payload.run_key !== null && payload.run_key !== undefined ? payload.run_key.toString().trim() : '';
+  const runID = Object.prototype.hasOwnProperty.call(payload, 'run_id') ? Number(payload.run_id) : 0;
   if (!runKey && (!Number.isFinite(runID) || runID <= 0)) throw new Error('dag status event run identity is required');
-  const status = (payload.new_status || payload.newStatus || payload.status || '').toString().trim();
-  if (!status) throw new Error('dag status event status is required');
-  return payload;
+  const normalized = { ...payload, dag_key: dagKey, node_key: nodeKey, new_status: status };
+  if (runKey) normalized.run_key = runKey;
+  if (Number.isFinite(runID) && runID > 0) normalized.run_id = runID;
+  return normalized;
 }
 
 export function requireDagStatusEventPayload(event) {

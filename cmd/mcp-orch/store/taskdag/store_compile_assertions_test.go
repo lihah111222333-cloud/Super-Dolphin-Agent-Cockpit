@@ -29,6 +29,8 @@ var (
 	_ SmartRetryConfigStore    = (*store)(nil)
 	_ DAGLockStore             = (*store)(nil)
 	_ RunStore                 = (*store)(nil)
+	_ ScheduledStartTxStore    = (*store)(nil)
+	_ ScheduledStartStore      = (*store)(nil)
 	_ RunTerminationStore      = (*store)(nil)
 	_ RunNodeReadStore         = (*store)(nil)
 	_ RecoveryStore            = (*store)(nil)

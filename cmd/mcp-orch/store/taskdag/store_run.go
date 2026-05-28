@@ -246,6 +246,12 @@ func (s *store) WithRunTx(ctx context.Context, fn func(tx RunStore) error) error
 	}), "with_run_tx", "task_dag_run")
 }
 
+func (s *store) WithScheduledStartTx(ctx context.Context, fn func(tx ScheduledStartTxStore) error) error {
+	return wrapTaskDAGError(sqlctx.WithTx(ctx, s.db, s.q, func(txq *sqlc.Queries, tx sqlc.DBTX) error {
+		return fn(&store{db: tx, q: txq})
+	}), "with_scheduled_start_tx", "task_dag_run")
+}
+
 func (s *store) UpdateScheduledDAGNextRun(ctx context.Context, dagKey string, dueAt, nextRunAt time.Time) (int64, error) {
 	return s.q.UpdateTaskDagNextRun(ctx, sqlc.UpdateTaskDagNextRunParams{
 		NextRunAt: pgtype.Timestamptz{Time: nextRunAt, Valid: true},

@@ -67,6 +67,7 @@ type service struct {
 	turnStarter              TurnStarter
 	dagStore                 taskdag.OrchestrationStore
 	runStore                 taskdag.RunStore
+	scheduledStartStore      taskdag.ScheduledStartStore
 	dispatchStore            taskdag.DispatchNodeStore
 	recoveryStore            recoveryTurnStore
 	agentThreads             AgentThreadStore
@@ -94,6 +95,7 @@ type serviceParams struct {
 	TurnStarter    TurnStarter
 	DAGStore       taskdag.OrchestrationStore `optional:"true"`
 	RunStore       taskdag.RunStore
+	ScheduledStart taskdag.ScheduledStartStore
 	AgentThreads   AgentThreadStore          `optional:"true"`
 	AgentBindings  AgentBindingStore         `optional:"true"`
 	DispatchStore  taskdag.DispatchNodeStore `optional:"true"`
@@ -180,6 +182,7 @@ func NewService(
 func ProvideService(p serviceParams) *service {
 	svc := NewService(p.Logger, p.EventBus, p.Launcher, p.SessionCleaner, p.TurnStarter, p.DAGStore)
 	svc.runStore = p.RunStore
+	svc.scheduledStartStore = p.ScheduledStart
 	svc.agentThreads = p.AgentThreads
 	svc.agentBindings = p.AgentBindings
 	svc.dispatchStore = p.DispatchStore
@@ -320,11 +323,14 @@ func ProvideWakeupDispatcherRunner(dispatcher *WakeupDispatcher) platformrunner.
 // WireWakeupDispatcherRouter is the fx.Invoke entry: with both *WakeupDispatcher
 // and *NodeExecutorRouter resolved (either may be nil), call WithNodeRouter so
 // dispatcher gains DAG-aware node_type routing in production wiring.
-func WireWakeupDispatcherRouter(dispatcher *WakeupDispatcher, router *NodeExecutorRouter) {
-	if dispatcher == nil {
+func WireWakeupDispatcherRouter(dispatcher *WakeupDispatcher, router *NodeExecutorRouter, bus *event.Dispatcher) {
+	if router == nil {
 		return
 	}
-	dispatcher.WithNodeRouter(router)
+	router.WithEventBus(bus)
+	if dispatcher != nil {
+		dispatcher.WithNodeRouter(router)
+	}
 }
 
 type WireWakeupDispatcherRetryAlertSinkIn struct {

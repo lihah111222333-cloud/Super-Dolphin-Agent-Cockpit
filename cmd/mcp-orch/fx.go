@@ -178,6 +178,7 @@ func buildOrchestrationOptions(remoteAddr string) []fx.Option {
 			fx.Provide(
 				orchestration.ProvideService,
 				orchestration.ProvideServiceInterface,
+				orchestration.ProvideScheduledDAGStartService,
 				orchestration.ProvideHookAfterHandler,
 				orchestration.ProvideRPCFacade,
 				provideSQLDAGScheduleStore,

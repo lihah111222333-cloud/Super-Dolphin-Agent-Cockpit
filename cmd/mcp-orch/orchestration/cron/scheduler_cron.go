@@ -303,13 +303,9 @@ type DueDAG struct {
 	DueAt    time.Time
 }
 
-// DAGScheduleStore 是 Tick 扫描 due DAG 所需的存储接口；UpdateNextRun 由
-// SQL adapter 暴露给服务层事务内 scheduled start 复用。
-// DAGScheduleStore scans due DAGs; UpdateNextRun remains on the SQL adapter so
-// the service layer can reuse the same fenced statement inside scheduled start.
+// DAGScheduleStore scans due DAGs; schedule advancement is owned by StartDAG.
 type DAGScheduleStore interface {
 	DueDAGs(ctx context.Context, now time.Time) ([]DueDAG, error)
-	UpdateNextRun(ctx context.Context, dagKey string, dueAt time.Time, nextRunAt time.Time) error
 }
 
 // DAGStarter 是 StartDAG 的反向依赖适配口，避免 cron 子包 import 父包。

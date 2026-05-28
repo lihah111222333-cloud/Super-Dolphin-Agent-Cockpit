@@ -12,7 +12,7 @@ import (
 // Phase 3.5 / 3B · 节点失败重试策略
 //
 // dispatcher 判定 wakeup 已 retry 上限后，调本方法把节点置 failed；如 caller
-// 决定 fail_fast=true（来自 RetryPolicy / DAG metadata），同事务内对所有
+// 决定 fail_fast=true（来自 DAG retry metadata），同事务内对所有
 // 直接或间接依赖该节点且仍处 pending 的下游节点级联标记 failed，避免它们
 // 永远卡在 pending（依赖永远不会变 done）。
 //
@@ -33,6 +33,10 @@ func (s *store) FailNodeAndCancelDownstream(ctx context.Context, input FailNodeI
 	var result FailNodeResult
 	err := sqlctx.WithTxOrReuse(ctx, s.db, s.q, func(txq *sqlc.Queries, txdb sqlc.DBTX) error {
 		txStore := &store{db: txdb, q: txq}
+		oldStatus, oldErr := lockedNodeStatusBeforeFailTx(ctx, txStore, input.DagKey, input.NodeKey, input.RunID)
+		if oldErr != nil {
+			return oldErr
+		}
 		node, failErr := failNodeTx(ctx, txStore, input.DagKey, input.NodeKey, input.RunID, failNodeReason{
 			Kind:   failNodeKindExhaustedRetries,
 			Reason: input.Reason,
@@ -41,6 +45,7 @@ func (s *store) FailNodeAndCancelDownstream(ctx context.Context, input FailNodeI
 			return failErr
 		}
 		result.Node = node
+		result.OldStatus = oldStatus
 		if input.FailFast {
 			canceled, cascadeErr := cancelDownstreamTx(ctx, txStore, input.DagKey, input.NodeKey, input.RunID, input.Reason)
 			if cascadeErr != nil {
@@ -59,6 +64,18 @@ func (s *store) FailNodeAndCancelDownstream(ctx context.Context, input FailNodeI
 		return nil, wrapTaskDAGError(err, "fail_and_cancel_downstream", "task_dag_node")
 	}
 	return &result, nil
+}
+
+func lockedNodeStatusBeforeFailTx(ctx context.Context, txStore *store, dagKey, nodeKey string, runID int64) (string, error) {
+	row, err := txStore.q.GetTaskDagRunNodeForUpdate(ctx, sqlc.GetTaskDagRunNodeForUpdateParams{
+		DagKey:  dagKey,
+		NodeKey: nodeKey,
+		RunID:   int64Ptr(runID),
+	})
+	if err != nil {
+		return "", err
+	}
+	return row.Status, nil
 }
 
 // failNodeTx writes a failed-status update for a single node row inside the

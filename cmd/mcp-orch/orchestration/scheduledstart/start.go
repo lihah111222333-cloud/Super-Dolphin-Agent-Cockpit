@@ -14,7 +14,7 @@ import (
 
 var ErrRunStoreUnset = errors.New("scheduled start: run store unset")
 
-func Start(ctx context.Context, runStore taskdag.RunStore, req orchcron.ScheduledDAGStartRequest) error {
+func Start(ctx context.Context, runStore taskdag.ScheduledStartStore, req orchcron.ScheduledDAGStartRequest) error {
 	dagKey, dueAt, nextRunAt, idempotencyKey, err := normalizeRequest(req)
 	if err != nil {
 		return err
@@ -23,8 +23,8 @@ func Start(ctx context.Context, runStore taskdag.RunStore, req orchcron.Schedule
 		return ErrRunStoreUnset
 	}
 	runKey := generateRunKey(dagKey, idempotencyKey)
-	input := taskdag.CreateRunInput{RunKey: runKey, DagKey: dagKey, TriggerSource: triggerSource(req)}
-	txErr := runStore.WithRunTx(ctx, func(tx taskdag.RunStore) error {
+	input := taskdag.CreateRunInput{RunKey: runKey, DagKey: dagKey, TriggerSource: "scheduled"}
+	txErr := runStore.WithScheduledStartTx(ctx, func(tx taskdag.ScheduledStartTxStore) error {
 		lockedDAG, err := lockDAGForRunStart(ctx, tx, dagKey, dueAt)
 		if err != nil {
 			return err
@@ -66,25 +66,14 @@ func normalizeRequest(req orchcron.ScheduledDAGStartRequest) (string, time.Time,
 	if idempotencyKey == "" {
 		return "", time.Time{}, time.Time{}, "", fmt.Errorf("scheduled start %q: idempotency_key required", dagKey)
 	}
+	if strings.TrimSpace(req.TriggerSource) != "scheduled" {
+		return "", time.Time{}, time.Time{}, "", fmt.Errorf("scheduled start %q: trigger_source must be scheduled", dagKey)
+	}
 	return dagKey, req.DueAt, req.NextRunAt, idempotencyKey, nil
 }
 
-func triggerSource(req orchcron.ScheduledDAGStartRequest) string {
-	trigger := strings.TrimSpace(req.TriggerSource)
-	if trigger != "" {
-		return trigger
-	}
-	return "scheduled"
-}
-
-func lockDAGForRunStart(ctx context.Context, tx taskdag.RunStore, dagKey string, dueAt time.Time) (*taskdag.DAG, error) {
-	locker, ok := tx.(interface {
-		GetDAGForUpdate(context.Context, string) (*taskdag.DAG, error)
-	})
-	if !ok {
-		return nil, ErrRunStoreUnset
-	}
-	dag, err := locker.GetDAGForUpdate(ctx, dagKey)
+func lockDAGForRunStart(ctx context.Context, tx taskdag.ScheduledStartTxStore, dagKey string, dueAt time.Time) (*taskdag.DAG, error) {
+	dag, err := tx.GetDAGForUpdate(ctx, dagKey)
 	if err != nil {
 		if platformdb.IsNotFound(err) {
 			return nil, fmt.Errorf("scheduled start: dag not found: %s", dagKey)
@@ -103,14 +92,8 @@ func lockDAGForRunStart(ctx context.Context, tx taskdag.RunStore, dagKey string,
 	return dag, nil
 }
 
-func advanceNextRunTx(ctx context.Context, tx taskdag.RunStore, dagKey string, dueAt, nextRunAt time.Time) error {
-	updater, ok := tx.(interface {
-		UpdateScheduledDAGNextRun(context.Context, string, time.Time, time.Time) (int64, error)
-	})
-	if !ok {
-		return ErrRunStoreUnset
-	}
-	rows, err := updater.UpdateScheduledDAGNextRun(ctx, dagKey, dueAt, nextRunAt)
+func advanceNextRunTx(ctx context.Context, tx taskdag.ScheduledStartTxStore, dagKey string, dueAt, nextRunAt time.Time) error {
+	rows, err := tx.UpdateScheduledDAGNextRun(ctx, dagKey, dueAt, nextRunAt)
 	if err != nil {
 		return fmt.Errorf("UpdateScheduledDAGNextRun: %w", err)
 	}
@@ -120,7 +103,7 @@ func advanceNextRunTx(ctx context.Context, tx taskdag.RunStore, dagKey string, d
 	return nil
 }
 
-func advanceConsumedRun(ctx context.Context, runStore taskdag.RunStore, dagKey, runKey string, dueAt, nextRunAt time.Time, txErr error) error {
+func advanceConsumedRun(ctx context.Context, runStore taskdag.ScheduledStartStore, dagKey, runKey string, dueAt, nextRunAt time.Time, txErr error) error {
 	existing, getErr := runStore.GetRun(ctx, runKey)
 	if getErr != nil {
 		return fmt.Errorf("scheduled start %q: GetRun fallback: %w (original tx error: %v)", dagKey, getErr, txErr)
@@ -133,7 +116,7 @@ func advanceConsumedRun(ctx context.Context, runStore taskdag.RunStore, dagKey, 
 	default:
 		return fmt.Errorf("scheduled start %q: unexpected run status %q for run_key=%s", dagKey, existing.Status, runKey)
 	}
-	err := runStore.WithRunTx(ctx, func(tx taskdag.RunStore) error {
+	err := runStore.WithScheduledStartTx(ctx, func(tx taskdag.ScheduledStartTxStore) error {
 		if _, err := lockDAGForRunStart(ctx, tx, dagKey, dueAt); err != nil {
 			return err
 		}

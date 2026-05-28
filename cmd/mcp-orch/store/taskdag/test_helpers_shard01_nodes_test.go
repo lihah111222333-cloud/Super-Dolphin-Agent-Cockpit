@@ -46,6 +46,31 @@ func (db *fakeTaskDAGDB) lockTaskDAGForDelete(args ...any) ([]any, error) {
 	return []any{row.ID}, nil
 }
 
+func (db *fakeTaskDAGDB) lockTaskDagRunNodeForUpdate(args ...any) ([]any, error) {
+	if len(args) != 3 {
+		return nil, fmt.Errorf("lock run node args len = %d, want 3", len(args))
+	}
+	dagKey, ok := args[0].(string)
+	if !ok {
+		return nil, fmt.Errorf("dag key arg = %T", args[0])
+	}
+	nodeKey, ok := args[1].(string)
+	if !ok {
+		return nil, fmt.Errorf("node key arg = %T", args[1])
+	}
+	runID, err := fakeInt8Arg(args, 2, "run id")
+	if err != nil {
+		return nil, err
+	}
+	key := dagRunNodeKey(dagKey, nodeKey, runID)
+	row, ok := db.nodes[key]
+	if !ok {
+		return nil, pgx.ErrNoRows
+	}
+	db.locks[key] = true
+	return taskDagNodeValues(row), nil
+}
+
 func (db *fakeTaskDAGDB) deleteTaskDagWakeupsByDAG(args ...any) (int64, error) {
 	dagKey, err := deleteDAGKeyArg(args)
 	if err != nil {

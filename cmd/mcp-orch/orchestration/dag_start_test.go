@@ -142,6 +142,13 @@ func (s *stubRunStore) WithRunTx(ctx context.Context, fn func(taskdag.RunStore) 
 	return fn(s) // mock: 同一实例当作 tx-bound 实例
 }
 
+func (s *stubRunStore) WithScheduledStartTx(ctx context.Context, fn func(taskdag.ScheduledStartTxStore) error) error {
+	if s.withTxErr != nil {
+		return s.withTxErr
+	}
+	return fn(s)
+}
+
 func (s *stubRunStore) GetRun(_ context.Context, runKey string) (*taskdag.Run, error) {
 	s.getRunCalls = append(s.getRunCalls, runKey)
 	if s.getRunErr != nil {
@@ -199,7 +206,11 @@ func uniqueViolationErr(constraintName string) error {
 
 // makeStartDAGService 构造测试用 service：仅注入 dagStore + runStore。
 func makeStartDAGService(dagStore taskdag.OrchestrationStore, runStore taskdag.RunStore) *service {
-	return &service{dagStore: dagStore, runStore: runStore}
+	svc := &service{dagStore: dagStore, runStore: runStore}
+	if scheduled, ok := runStore.(taskdag.ScheduledStartStore); ok {
+		svc.scheduledStartStore = scheduled
+	}
+	return svc
 }
 
 // ---- happy path ----

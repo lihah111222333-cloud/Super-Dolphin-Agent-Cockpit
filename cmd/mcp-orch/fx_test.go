@@ -28,6 +28,9 @@ import (
 // are nil-embedding stubs used to satisfy fx wiring assertions only; they
 // are never actually invoked. 余下 method 仅由 fx 装配需要，不被调用。
 type stubRunStore struct{ taskdagstore.RunStore }
+type stubScheduledStartStore struct {
+	taskdagstore.ScheduledStartStore
+}
 type stubDAGStore struct {
 	taskdagstore.OrchestrationStore
 }
@@ -41,10 +44,6 @@ type stubAdvisoryLockHandle struct{}
 
 func (stubDAGScheduleStore) DueDAGs(context.Context, time.Time) ([]orchcron.DueDAG, error) {
 	return nil, nil
-}
-
-func (stubDAGScheduleStore) UpdateNextRun(context.Context, string, time.Time, time.Time) error {
-	return nil
 }
 
 func (stubAdvisoryLocker) TryLock(context.Context) (orchcron.AdvisoryLockHandle, bool, error) {
@@ -62,6 +61,7 @@ func TestParentFxStartup(t *testing.T) {
 		fx.Provide(
 			orchestration.ProvideService,
 			orchestration.ProvideServiceInterface,
+			orchestration.ProvideScheduledDAGStartService,
 			orchestration.ProvideHookAfterHandler,
 			orchestration.ProvideRPCFacade,
 		),
@@ -92,6 +92,7 @@ func TestParentFxStartup(t *testing.T) {
 			// service 强依赖 RunStore（T1.2）后，TestParentFxStartup 也需补齐 stub provider。
 			// service requires RunStore (T1.2), so TestParentFxStartup must also provide a stub.
 			func() taskdagstore.RunStore { return &stubRunStore{} },
+			func() taskdagstore.ScheduledStartStore { return &stubScheduledStartStore{} },
 			func() orchcron.DAGScheduleStore { return stubDAGScheduleStore{} },
 			func() orchcron.AdvisoryLocker { return stubAdvisoryLocker{} },
 		),

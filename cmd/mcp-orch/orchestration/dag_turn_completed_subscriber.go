@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"strings"
 
+	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/orchestration/nodeevents"
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/orchestration/nodeexec"
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/taskdag"
 	turndto "github.com/anthropic-ai/super-agent-v3/internal/dto/turn"
@@ -40,17 +41,13 @@ func isTerminalNodeStatus(status string) bool {
 	return false
 }
 
-// DAGSubscriberDeps is the fx.In bundle injected into
-// RegisterDAGTurnCompletedSubscriber. Every dependency is a narrow port —
-// the subscriber never sees the aggregate taskdag.Store or *service.
-//
-// The HookConsumer thread.stopped DAG fallback (commit 6) reuses
-// LookupStore + FlowStore; AgentThreads / SvcStopper are subscriber-only.
+// DAGSubscriberDeps keeps the TurnCompleted subscriber on narrow ports.
 type DAGSubscriberDeps struct {
 	fx.In
 
 	LookupStore  taskdag.NodeSpawningThreadLookup
 	FlowStore    taskdag.NodeFlowStore
+	EventBus     *event.Dispatcher `optional:"true"`
 	AgentThreads AgentThreadLookup
 	SvcStopper   StopAgentService
 	// SharedFileReader/Writer are only used by A2 agent output materialization
@@ -60,30 +57,8 @@ type DAGSubscriberDeps struct {
 	NodeRouter       *NodeExecutorRouter       `optional:"true"`
 }
 
-// RegisterDAGTurnCompletedSubscriber wires the third TurnCompleted
-// subscriber (ADR-017 v1.2 §2.1). It is independent of
-// service.go RegisterTurnLifecycle (which advances agent runtime state) and
-// hook_consumer.go handleTurnCompleted (which also advances agent runtime).
-//
-// The three paths split responsibilities:
-//   - service.go:RegisterTurnLifecycle → agent runtime + svc.CompleteTurn
-//   - hook_consumer.go:handleTurnCompleted → agent runtime
-//   - A1 (this file) → DAG store status machine (advance node done/failed,
-//     fire stop_helper, schedule/cancel downstream)
-//
-// No overlap with the other two: turn_lifecycle.go's
-// handleTurnCompletedEventWithCtx does NOT touch the DAG store (verified
-// at ADR-017 v1.2 §2.1 review).
-//
-// fx lifecycle:
-//   - OnStart: build an independent lifecycleCtx via
-//     context.WithCancel(context.Background()) — do NOT use the OnStart
-//     ctx, which is cancelled when OnStart returns (project A-P0-3
-//     mistake the original draft made). Subscribe with bus.ResilientSubscribe
-//     so panics in the handler are recovered and the dispatcher keeps
-//     delivering events to the other two subscribers.
-//   - OnStop: cancel the lifecycleCtx and the subscriber returned by
-//     bus.ResilientSubscribe so OnStop blocks return cleanly.
+// RegisterDAGTurnCompletedSubscriber advances DAG node state independently
+// from the agent-runtime TurnCompleted subscribers.
 func RegisterDAGTurnCompletedSubscriber(
 	lc fx.Lifecycle,
 	dispatcher *event.Dispatcher,
@@ -92,6 +67,9 @@ func RegisterDAGTurnCompletedSubscriber(
 ) {
 	if logger == nil {
 		logger = pkglogger.Get()
+	}
+	if deps.EventBus == nil {
+		deps.EventBus = dispatcher
 	}
 	var cancelSub = func() {}
 	var (
@@ -203,7 +181,7 @@ func advanceNodeForTurnCompleted(
 		advanceNodeDoneForSuccess(ctx, deps, logger, node, result)
 		return
 	}
-	advanceNodeFailed(ctx, deps.FlowStore, deps.NodeRouter, logger, node, ev)
+	advanceNodeFailed(ctx, deps.FlowStore, deps.EventBus, deps.NodeRouter, logger, node, ev)
 }
 
 func advanceNodeDoneForSuccess(
@@ -223,7 +201,7 @@ func advanceNodeDoneForSuccess(
 		return
 	}
 	recordLegacyResultCapMetric(logger, node, result)
-	if advanceNodeDone(ctx, deps.FlowStore, logger, node, result) && deps.NodeRouter != nil {
+	if advanceNodeDone(ctx, deps.FlowStore, deps.EventBus, logger, node, result) && deps.NodeRouter != nil {
 		deps.NodeRouter.invokeStateChangeHooksForTaskNode(ctx, node, nodeexec.NodeOutcome{
 			Status: nodeexec.NodeStatusDone,
 			Result: result,
@@ -243,7 +221,7 @@ func failNodeForMaterializationFailure(
 	}
 	logger.Warn("dag subscriber: materialize agent output failed",
 		"dag_key", node.DagKey, "node_key", node.NodeKey, "reason", failure.Reason)
-	if advanceNodeFailedWithReason(ctx, deps.FlowStore, logger, node, failure.Reason, true) && deps.NodeRouter != nil {
+	if advanceNodeFailedWithReason(ctx, deps.FlowStore, deps.EventBus, logger, node, failure.Reason, true) && deps.NodeRouter != nil {
 		deps.NodeRouter.invokeTerminalFailureHooksForTaskNode(ctx, node, nodeexec.NodeOutcome{
 			Status:       nodeexec.NodeStatusFailed,
 			FailureClass: classifyMaterializationFailure(failure),
@@ -291,7 +269,7 @@ func materializeSharedfileAfterClaim(
 		return nil, false
 	}
 	if exists {
-		if !claimNodeOutputMaterialization(ctx, deps.FlowStore, logger, node, result) {
+		if !claimNodeOutputMaterialization(ctx, deps.FlowStore, deps.EventBus, logger, node, result) {
 			return nil, false
 		}
 		logger.Debug("dag subscriber: configured sharedfile already exists, preserve existing content",
@@ -307,7 +285,7 @@ func materializeSharedfileAfterClaim(
 		failNodeForMaterializationFailure(ctx, deps, logger, node, failure)
 		return nil, false
 	}
-	if !claimNodeOutputMaterialization(ctx, deps.FlowStore, logger, node, result) {
+	if !claimNodeOutputMaterialization(ctx, deps.FlowStore, deps.EventBus, logger, node, result) {
 		return nil, false
 	}
 	if failure := writeAgentTurnSharedfile(ctx, deps.SharedFileWriter, materialized.SharedfilePath, materialized.RawResult); failure != nil {
@@ -323,11 +301,12 @@ func materializeSharedfileAfterClaim(
 func advanceNodeDone(
 	ctx context.Context,
 	flow taskdag.NodeFlowStore,
+	eventBus *event.Dispatcher,
 	logger *slog.Logger,
 	node *taskdag.Node,
 	result json.RawMessage,
 ) bool {
-	_, err := flow.CompleteNodeAndScheduleDownstream(ctx, taskdag.CompleteNodeInput{
+	res, err := flow.CompleteNodeAndScheduleDownstream(ctx, taskdag.CompleteNodeInput{
 		Status:  "done",
 		Result:  result,
 		DagKey:  node.DagKey,
@@ -336,6 +315,7 @@ func advanceNodeDone(
 	})
 	switch {
 	case err == nil:
+		nodeevents.PublishComplete(eventBus, node.Status, res)
 		dagSubscriberMetrics.IncCompleteDone()
 		return true
 	case errors.Is(err, pgx.ErrNoRows) || platformdb.IsNotFound(err):
@@ -355,13 +335,12 @@ func advanceNodeDone(
 // reason carrying the turn error so the cascade downstream can identify
 // the root cause.
 //
-// FailFast=false: A1 does not aggressively cancel sibling subgraphs — that
-// policy belongs to dispatcher.RetryPolicy. The subscriber only marks the
-// primary node failed; cascade decision is left to the store's FailNode SQL
-// (which respects FailFast).
+// FailFast=false: the subscriber only marks the primary node failed; cascade
+// decisions stay with the dispatcher path.
 func advanceNodeFailed(
 	ctx context.Context,
 	flow taskdag.NodeFlowStore,
+	eventBus *event.Dispatcher,
 	router *NodeExecutorRouter,
 	logger *slog.Logger,
 	node *taskdag.Node,
@@ -374,7 +353,7 @@ func advanceNodeFailed(
 	if reason == "" {
 		reason = "turn_completed_failure"
 	}
-	if advanceNodeFailedWithReason(ctx, flow, logger, node, reason, false) && router != nil {
+	if advanceNodeFailedWithReason(ctx, flow, eventBus, logger, node, reason, false) && router != nil {
 		router.invokeTerminalFailureHooksForTaskNode(ctx, node, nodeexec.NodeOutcome{
 			Status:       nodeexec.NodeStatusFailed,
 			ErrorSummary: reason,
@@ -385,12 +364,13 @@ func advanceNodeFailed(
 func advanceNodeFailedWithReason(
 	ctx context.Context,
 	flow taskdag.NodeFlowStore,
+	eventBus *event.Dispatcher,
 	logger *slog.Logger,
 	node *taskdag.Node,
 	reason string,
 	failFast bool,
 ) bool {
-	_, err := flow.FailNodeAndCancelDownstream(ctx, taskdag.FailNodeInput{
+	res, err := flow.FailNodeAndCancelDownstream(ctx, taskdag.FailNodeInput{
 		DagKey:   node.DagKey,
 		NodeKey:  node.NodeKey,
 		RunID:    taskNodeRunID(node),
@@ -399,6 +379,7 @@ func advanceNodeFailedWithReason(
 	})
 	switch {
 	case err == nil:
+		nodeevents.PublishFail(eventBus, node.Status, res)
 		dagSubscriberMetrics.IncCompleteFailed()
 		return true
 	case errors.Is(err, pgx.ErrNoRows) || platformdb.IsNotFound(err):
@@ -419,6 +400,7 @@ type nodeOutputMaterializationClaimer interface {
 func claimNodeOutputMaterialization(
 	ctx context.Context,
 	flow taskdag.NodeFlowStore,
+	eventBus *event.Dispatcher,
 	logger *slog.Logger,
 	node *taskdag.Node,
 	result json.RawMessage,
@@ -427,10 +409,10 @@ func claimNodeOutputMaterialization(
 	if !ok {
 		logger.Warn("dag subscriber: output materialization claim not wired",
 			"dag_key", node.DagKey, "node_key", node.NodeKey)
-		advanceNodeFailedWithReason(ctx, flow, logger, node, "infrastructure: output materialization claim not wired", true)
+		advanceNodeFailedWithReason(ctx, flow, eventBus, logger, node, "infrastructure: output materialization claim not wired", true)
 		return false
 	}
-	_, err := claimer.ClaimNodeOutputMaterialization(ctx, taskdag.OutputMaterializationClaimInput{
+	updated, err := claimer.ClaimNodeOutputMaterialization(ctx, taskdag.OutputMaterializationClaimInput{
 		DagKey:  node.DagKey,
 		NodeKey: node.NodeKey,
 		RunID:   taskNodeRunID(node),
@@ -438,6 +420,7 @@ func claimNodeOutputMaterialization(
 	})
 	switch {
 	case err == nil:
+		nodeevents.Publish(eventBus, node.Status, updated)
 		return true
 	case errors.Is(err, pgx.ErrNoRows) || platformdb.IsNotFound(err):
 		dagSubscriberMetrics.IncIdempotentSkipped()
