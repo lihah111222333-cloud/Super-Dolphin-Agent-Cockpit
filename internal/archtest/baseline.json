@@ -170,20 +170,6 @@
     "todo_count": 1,
     "max_struct_fields": 5
   },
-  "cmd/mcp-orch/orchestration/report_protocol.go": {
-    "lines": 54,
-    "max_func_len": 7,
-    "max_nesting": 1,
-    "max_complexity": 2,
-    "max_params": 1,
-    "max_returns": 1,
-    "max_underscore": 0,
-    "global_vars": 2,
-    "panic_count": 0,
-    "naked_returns": 0,
-    "empty_funcs": 0,
-    "todo_count": 0
-  },
   "cmd/mcp-orch/orchestration/runtime.go": {
     "lines": 184,
     "max_func_len": 37,

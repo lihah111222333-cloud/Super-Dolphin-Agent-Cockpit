@@ -32,25 +32,61 @@ func (l *stubLifecycle) Append(hook fx.Hook) {
 	l.hooks = append(l.hooks, hook)
 }
 
-func TestHandleTurnCompletedEventForcesIdleWhenActiveTurnMissing(t *testing.T) {
+func TestHandleTurnCompletedEventLogsSettlement(t *testing.T) {
 	t.Parallel()
 
-	svc := NewService(silentLogger(), event.NewDispatcher(), nil, nil, nil, nil)
+	var buf bytes.Buffer
+	logger := slog.New(slog.NewTextHandler(&buf, nil))
+	svc := NewService(logger, event.NewDispatcher(), nil, nil, nil, nil)
 	agent := svc.newAgentLocked("agent-1")
 	agent.state = agentdto.StateTurnRunning
 	agent.threadID = "thread-1"
+	agent.activeTurnID = "turn-1"
 	svc.agents[agent.id] = agent
 
-	handleTurnCompletedEvent(svc, silentLogger(), completedEvent("agent-1", "thread-1", "turn-1", false, "boom"))
+	handleTurnCompletedEvent(svc, logger, completedEvent("agent-1", "thread-1", "turn-1", true, ""))
 
+	output := buf.String()
+	if !strings.Contains(output, "turn completed event received") {
+		t.Fatalf("log output = %q, want completion receipt log", output)
+	}
+	if !strings.Contains(output, "turn completed event settled") {
+		t.Fatalf("log output = %q, want completion settlement log", output)
+	}
 	if agent.state != agentdto.StateIdle {
 		t.Fatalf("agent.state = %q, want %q", agent.state, agentdto.StateIdle)
 	}
 	if agent.activeTurnID != "" {
 		t.Fatalf("activeTurnID = %q, want empty", agent.activeTurnID)
 	}
-	if agent.lastError != "boom" {
-		t.Fatalf("lastError = %q, want boom", agent.lastError)
+}
+
+func TestHandleTurnInterruptedEventLogsSettlement(t *testing.T) {
+	t.Parallel()
+
+	var buf bytes.Buffer
+	logger := slog.New(slog.NewTextHandler(&buf, nil))
+	svc := NewService(logger, event.NewDispatcher(), nil, nil, nil, nil)
+	agent := svc.newAgentLocked("agent-1")
+	agent.state = agentdto.StateTurnRunning
+	agent.threadID = "thread-1"
+	agent.activeTurnID = "turn-1"
+	svc.agents[agent.id] = agent
+
+	handleTurnInterruptedEvent(svc, logger, interruptedEventAt("agent-1", "thread-1", "turn-1", "cancelled", time.Unix(1710000000, 0).UTC()))
+
+	output := buf.String()
+	if !strings.Contains(output, "turn interrupted event received") {
+		t.Fatalf("log output = %q, want interruption receipt log", output)
+	}
+	if !strings.Contains(output, "turn interrupted event settled") {
+		t.Fatalf("log output = %q, want interruption settlement log", output)
+	}
+	if agent.state != agentdto.StateIdle {
+		t.Fatalf("agent.state = %q, want %q", agent.state, agentdto.StateIdle)
+	}
+	if agent.activeTurnID != "" {
+		t.Fatalf("activeTurnID = %q, want empty", agent.activeTurnID)
 	}
 }
 
