@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"strings"
 
+	orchmetrics "github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/orchestration/metrics"
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/orchestration/nodeevents"
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/orchestration/nodeexec"
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/taskdag"
@@ -469,16 +470,16 @@ func (r *NodeExecutorRouter) advanceAgentNodeToRunning(ctx context.Context, dagK
 	switch {
 	case updateErr == nil:
 		nodeevents.Publish(r.eventBus, oldStatus, node)
-		dispatchAgentRunningMetrics.IncWritten()
+		orchmetrics.IncDispatchAgentRunningWritten()
 		return true, nil
 	case errors.Is(updateErr, pgx.ErrNoRows) || platformdb.IsNotFound(updateErr):
 		// race window D：subscriber 已推终态，不在白名单 IN ('pending','ready')。
-		dispatchAgentRunningMetrics.IncSkippedAlreadyTerminal()
+		orchmetrics.IncDispatchAgentRunningSkippedAlreadyTerminal()
 		r.logger.Debug("node router: ready->running skipped, node already terminal",
 			"dag_key", dagKey, "node_key", nodeKey)
 		return false, nil
 	default:
-		dispatchAgentRunningMetrics.IncWriteFailed()
+		orchmetrics.IncDispatchAgentRunningWriteFailed()
 		r.logger.Warn("node router: ready->running write failed",
 			"dag_key", dagKey, "node_key", nodeKey, "error", updateErr)
 		return false, fmt.Errorf("%w: %w", errAgentReadyRunningWriteFailed, updateErr)

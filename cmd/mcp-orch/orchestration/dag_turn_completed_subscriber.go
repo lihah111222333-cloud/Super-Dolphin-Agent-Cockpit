@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"log/slog"
 	"strings"
 
@@ -81,11 +80,6 @@ func RegisterDAGTurnCompletedSubscriber(
 	})
 }
 
-// handleDAGTurnCompleted is the per-event subscriber entry point. It reverse
-// looks up nodes for the completed thread, advances every non-terminal match,
-// then stops the spawned agent after the DB state is authoritative.
-// It never invokes dispatcher; A2 only reuses nodeexec config parsing and
-// sharedfile ports for output materialization.
 func handleDAGTurnCompleted(
 	ctx context.Context,
 	deps DAGSubscriberDeps,
@@ -111,7 +105,6 @@ func handleDAGTurnCompleted(
 	if len(nodes) == 0 {
 		dagSubscriberMetrics.IncLookupNoNode()
 		logger.Debug("dag subscriber: no node carries this thread id", "thread_id", threadID)
-		stopSpawnedAgentForSubscriber(ctx, deps, logger, threadID)
 		return
 	}
 	if len(nodes) > 1 {
@@ -160,9 +153,9 @@ func advanceNodeDoneForSuccess(
 	node *taskdag.Node,
 	rawResult string,
 ) {
-	materialized, failure := prepareTurnCompletedResult(node, rawResult)
+	materialized, failure := prepareTurnCompletedResult(node.Config, node.NodeType, rawResult)
 	if failure != nil {
-		failNodeForMaterializationFailure(ctx, deps, logger, node, failure)
+		handleMaterializationFailure(ctx, deps, logger, node, failure)
 		return
 	}
 	result, ok := materializeSharedfileAfterClaim(ctx, deps, logger, node, materialized)
@@ -176,46 +169,6 @@ func advanceNodeDoneForSuccess(
 			Result: result,
 		})
 	}
-}
-
-func failNodeForMaterializationFailure(
-	ctx context.Context,
-	deps DAGSubscriberDeps,
-	logger *slog.Logger,
-	node *taskdag.Node,
-	failure *turnOutputMaterializationFailure,
-) {
-	if failure.SizeCapExceeded {
-		dagSubscriberMetrics.IncCompleteSizeCapExceeded()
-	}
-	logger.Warn("dag subscriber: materialize agent output failed",
-		"dag_key", node.DagKey, "node_key", node.NodeKey, "reason", failure.Reason)
-	if advanceNodeFailedWithReason(ctx, deps.FlowStore, deps.EventBus, logger, node, failure.Reason, true) && deps.NodeRouter != nil {
-		deps.NodeRouter.invokeTerminalFailureHooksForTaskNode(ctx, node, nodeexec.NodeOutcome{
-			Status:       nodeexec.NodeStatusFailed,
-			FailureClass: classifyMaterializationFailure(failure),
-			ErrorSummary: failure.Reason,
-		})
-	}
-}
-
-func classifyMaterializationFailure(failure *turnOutputMaterializationFailure) nodeexec.FailureClass {
-	if failure == nil {
-		return nodeexec.FailureClassValidation
-	}
-	if strings.HasPrefix(failure.Reason, "infrastructure:") {
-		return nodeexec.FailureClassInfrastructure
-	}
-	return nodeexec.FailureClassValidation
-}
-
-func recordLegacyResultCapMetric(logger *slog.Logger, node *taskdag.Node, result json.RawMessage) {
-	if len(result) <= completeNodeResultCap {
-		return
-	}
-	dagSubscriberMetrics.IncCompleteSizeCapExceeded()
-	logger.Warn("dag subscriber: complete result exceeds ADR-006 4KB cap",
-		"dag_key", node.DagKey, "node_key", node.NodeKey, "size", len(result))
 }
 
 func advanceNodeDone(
@@ -300,6 +253,47 @@ func advanceNodeFailedWithReason(
 	return false
 }
 
+func materializeSharedfileAfterClaim(
+	ctx context.Context,
+	deps DAGSubscriberDeps,
+	logger *slog.Logger,
+	node *taskdag.Node,
+	materialized turnOutputMaterialization,
+) (json.RawMessage, bool) {
+	result := materialized.Result
+	if materialized.SharedfilePath == "" {
+		return result, true
+	}
+	exists, failure := configuredSharedfileAlreadyExists(ctx, deps.SharedFileReader, materialized.SharedfilePath)
+	if failure != nil {
+		handleMaterializationFailure(ctx, deps, logger, node, failure)
+		return nil, false
+	}
+	if exists {
+		if !claimNodeOutputMaterialization(ctx, deps.FlowStore, deps.EventBus, logger, node, result) {
+			return nil, false
+		}
+		logger.Debug("dag subscriber: configured sharedfile already exists, preserve existing content", "dag_key", node.DagKey, "node_key", node.NodeKey, "path", materialized.SharedfilePath)
+		return result, true
+	}
+	if strings.TrimSpace(materialized.RawResult) == "" {
+		handleMaterializationFailure(ctx, deps, logger, node, validationMaterializationFailure("empty agent output and configured sharedfile is missing"))
+		return nil, false
+	}
+	if failure := validateAgentSharedfileWriter(deps.SharedFileWriter); failure != nil {
+		handleMaterializationFailure(ctx, deps, logger, node, failure)
+		return nil, false
+	}
+	if !claimNodeOutputMaterialization(ctx, deps.FlowStore, deps.EventBus, logger, node, result) {
+		return nil, false
+	}
+	if failure := writeAgentTurnSharedfile(ctx, deps.SharedFileWriter, materialized.SharedfilePath, materialized.RawResult); failure != nil {
+		handleMaterializationFailure(ctx, deps, logger, node, failure)
+		return nil, false
+	}
+	return result, true
+}
+
 type nodeOutputMaterializationClaimer interface {
 	ClaimNodeOutputMaterialization(context.Context, taskdag.OutputMaterializationClaimInput) (*taskdag.Node, error)
 }
@@ -337,199 +331,6 @@ func claimNodeOutputMaterialization(
 	return false
 }
 
-// encodeTurnResultForNodeUpdate prepares ev.Result for storage in task_dag_nodes.result.
-func encodeTurnResultForNodeUpdate(raw string) json.RawMessage {
-	trimmed := strings.TrimSpace(raw)
-	if trimmed == "" {
-		return json.RawMessage(`{}`)
-	}
-	if json.Valid([]byte(trimmed)) {
-		return json.RawMessage(trimmed)
-	}
-	wrapped, err := json.Marshal(map[string]string{"text": raw})
-	if err != nil {
-		return json.RawMessage(`{}`)
-	}
-	return json.RawMessage(wrapped)
-}
-
-type turnOutputMaterializationFailure struct {
-	Reason          string
-	SizeCapExceeded bool
-}
-
-type turnOutputMaterialization struct {
-	Result         json.RawMessage
-	SharedfilePath string
-	RawResult      string
-}
-
-func prepareTurnCompletedResult(node *taskdag.Node, rawResult string) (turnOutputMaterialization, *turnOutputMaterializationFailure) {
-	if node == nil || strings.TrimSpace(node.NodeType) != "agent" {
-		return turnOutputMaterialization{Result: encodeTurnResultForNodeUpdate(rawResult)}, nil
-	}
-	cfg, failure := parseAgentOutputConfig(node.Config)
-	if failure != nil {
-		return turnOutputMaterialization{}, failure
-	}
-	path := configuredSharedfilePath(cfg.Outputs)
-	emitNodeResult := shouldMaterializeAgentNodeResult(cfg.Outputs)
-	if strings.TrimSpace(rawResult) == "" {
-		if !emitNodeResult && path != "" {
-			return turnOutputMaterialization{Result: encodeSharedfileResultRef(path), SharedfilePath: path}, nil
-		}
-		return turnOutputMaterialization{}, validationMaterializationFailure("empty agent output")
-	}
-	nodeResult, failure := buildAgentNodeResult(rawResult, emitNodeResult)
-	if failure != nil {
-		return turnOutputMaterialization{}, failure
-	}
-	return turnOutputMaterialization{Result: finalAgentMaterializedResult(rawResult, nodeResult, path, emitNodeResult), SharedfilePath: path, RawResult: rawResult}, nil
-}
-
-func parseAgentOutputConfig(raw json.RawMessage) (*nodeexec.AgentNodeConfig, *turnOutputMaterializationFailure) {
-	cfg, err := nodeexec.ParseAgentConfig(raw)
-	if err != nil {
-		return nil, validationMaterializationFailure("decode agent config: "+err.Error())
-	}
-	if cfg == nil {
-		return nil, validationMaterializationFailure("decode agent config: nil parsed config")
-	}
-	return cfg, nil
-}
-
-func buildAgentNodeResult(rawResult string, emit bool) (json.RawMessage, *turnOutputMaterializationFailure) {
-	if !emit {
-		return nil, nil
-	}
-	nodeResult := encodeTurnResultForNodeUpdate(rawResult)
-	if len(nodeResult) <= completeNodeResultCap {
-		return nodeResult, nil
-	}
-	return nil, &turnOutputMaterializationFailure{Reason: fmt.Sprintf("result exceeds 4KB size cap (%d > %d bytes), configure outputs.to_sharedfile (ADR-006)", len(nodeResult), completeNodeResultCap), SizeCapExceeded: true}
-}
-
-func materializeSharedfileAfterClaim(
-	ctx context.Context,
-	deps DAGSubscriberDeps,
-	logger *slog.Logger,
-	node *taskdag.Node,
-	materialized turnOutputMaterialization,
-) (json.RawMessage, bool) {
-	result := materialized.Result
-	if materialized.SharedfilePath == "" {
-		return result, true
-	}
-	exists, failure := configuredSharedfileAlreadyExists(ctx, deps.SharedFileReader, materialized.SharedfilePath)
-	if failure != nil {
-		failNodeForMaterializationFailure(ctx, deps, logger, node, failure)
-		return nil, false
-	}
-	if exists {
-		if !claimNodeOutputMaterialization(ctx, deps.FlowStore, deps.EventBus, logger, node, result) {
-			return nil, false
-		}
-		logger.Debug("dag subscriber: configured sharedfile already exists, preserve existing content", "dag_key", node.DagKey, "node_key", node.NodeKey, "path", materialized.SharedfilePath)
-		return result, true
-	}
-	if strings.TrimSpace(materialized.RawResult) == "" {
-		failNodeForMaterializationFailure(ctx, deps, logger, node, validationMaterializationFailure("empty agent output and configured sharedfile is missing"))
-		return nil, false
-	}
-	if failure := validateAgentSharedfileWriter(deps.SharedFileWriter); failure != nil {
-		failNodeForMaterializationFailure(ctx, deps, logger, node, failure)
-		return nil, false
-	}
-	if !claimNodeOutputMaterialization(ctx, deps.FlowStore, deps.EventBus, logger, node, result) {
-		return nil, false
-	}
-	if failure := writeAgentTurnSharedfile(ctx, deps.SharedFileWriter, materialized.SharedfilePath, materialized.RawResult); failure != nil {
-		failNodeForMaterializationFailure(ctx, deps, logger, node, failure)
-		return nil, false
-	}
-	return result, true
-}
-
-func writeAgentTurnSharedfile(ctx context.Context, writer nodeexec.SharedFileWriter, path, rawResult string) *turnOutputMaterializationFailure {
-	if path == "" {
-		return nil
-	}
-	if failure := validateAgentSharedfileWriter(writer); failure != nil {
-		return failure
-	}
-	if err := writer.WriteSharedFile(ctx, path, rawResult); err != nil {
-		return infrastructureMaterializationFailure(fmt.Sprintf("outputs.to_sharedfile[%q]: %v", path, err))
-	}
-	return nil
-}
-
-func configuredSharedfileAlreadyExists(ctx context.Context, reader nodeexec.SharedFileReader, path string) (bool, *turnOutputMaterializationFailure) {
-	if path == "" {
-		return false, nil
-	}
-	if failure := validateAgentSharedfileReader(reader); failure != nil {
-		return false, failure
-	}
-	_, exists, err := reader.ReadSharedFile(ctx, path)
-	if err != nil {
-		return false, infrastructureMaterializationFailure(fmt.Sprintf("outputs.to_sharedfile[%q] preflight read: %v", path, err))
-	}
-	return exists, nil
-}
-
-func validateAgentSharedfileReader(reader nodeexec.SharedFileReader) *turnOutputMaterializationFailure {
-	if reader != nil {
-		return nil
-	}
-	return infrastructureMaterializationFailure("outputs.to_sharedfile configured but SharedFileReader not wired in DAG subscriber")
-}
-
-func validateAgentSharedfileWriter(writer nodeexec.SharedFileWriter) *turnOutputMaterializationFailure {
-	if writer != nil {
-		return nil
-	}
-	return infrastructureMaterializationFailure("outputs.to_sharedfile configured but SharedFileWriter not wired in DAG subscriber")
-}
-
-func finalAgentMaterializedResult(rawResult string, nodeResult json.RawMessage, path string, emit bool) json.RawMessage {
-	switch {
-	case emit:
-		return nodeResult
-	case path != "":
-		return encodeSharedfileResultRef(path)
-	default:
-		return encodeTurnResultForNodeUpdate(rawResult)
-	}
-}
-
-func shouldMaterializeAgentNodeResult(out nodeexec.OutputsConfig) bool {
-	return out.ToNodeResult || configuredSharedfilePath(out) == ""
-}
-
-func configuredSharedfilePath(out nodeexec.OutputsConfig) string {
-	if out.ToSharedfile == nil {
-		return ""
-	}
-	return strings.TrimSpace(out.ToSharedfile.Path)
-}
-
-func encodeSharedfileResultRef(path string) json.RawMessage {
-	payload, err := json.Marshal(map[string]map[string]string{"sharedfile": {"path": path}})
-	if err != nil {
-		return json.RawMessage(`{}`)
-	}
-	return payload
-}
-
-func validationMaterializationFailure(reason string) *turnOutputMaterializationFailure {
-	return &turnOutputMaterializationFailure{Reason: "validation: " + reason}
-}
-
-func infrastructureMaterializationFailure(reason string) *turnOutputMaterializationFailure {
-	return &turnOutputMaterializationFailure{Reason: "infrastructure: " + reason}
-}
-
-// stopSpawnedAgentForSubscriber stops the runtime after DAG state is authoritative.
 func stopSpawnedAgentForSubscriber(
 	ctx context.Context,
 	deps DAGSubscriberDeps,

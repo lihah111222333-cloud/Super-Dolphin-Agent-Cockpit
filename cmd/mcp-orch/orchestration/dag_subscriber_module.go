@@ -1,16 +1,9 @@
 package orchestration
 
 import (
-      "context"
-      "encoding/json"
-      "fmt"
-      "log/slog"
-      "strings"
-      "sync/atomic"
-
-      "github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/orchestration/nodeexec"
-      "github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/taskdag"
-  )
+	"context"
+	"encoding/json"
+	"fmt"
 	"log/slog"
 	"strings"
 	"sync/atomic"
@@ -18,7 +11,6 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/orchestration/nodeexec"
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/taskdag"
 )
->>>>>>> my-v3-work-20260528
 
 // ProvideDAGSubscriberNodeFlowStore narrows the aggregate taskdag.Store down
 // to the NodeFlowStore needed by the DAG turn.completed subscriber
@@ -164,8 +156,17 @@ func prepareTurnCompletedResult(nodeConfig json.RawMessage, nodeType, rawResult 
 	if failure != nil {
 		return turnOutputMaterialization{}, failure
 	}
+	trimmed := strings.TrimSpace(rawResult)
 	path := configuredSharedfilePath(cfg.Outputs)
 	emitNodeResult := shouldMaterializeAgentNodeResult(cfg.Outputs)
+	if trimmed == "" {
+		if path != "" {
+			return turnOutputMaterialization{Result: finalAgentMaterializedResult(rawResult, nil, path, emitNodeResult), SharedfilePath: path, RawResult: rawResult}, nil
+		}
+		if emitNodeResult {
+			return turnOutputMaterialization{}, validationMaterializationFailure("empty agent output")
+		}
+	}
 	nodeResult, failure := buildAgentNodeResult(rawResult, emitNodeResult)
 	if failure != nil {
 		return turnOutputMaterialization{}, failure
@@ -243,7 +244,7 @@ func handleMaterializationFailure(ctx context.Context, deps DAGSubscriberDeps, l
 		dagSubscriberMetrics.IncCompleteSizeCapExceeded()
 	}
 	logger.Warn("dag subscriber: materialize agent output failed", "dag_key", node.DagKey, "node_key", node.NodeKey, "reason", failure.Reason)
-	if advanceNodeFailedWithReason(ctx, deps.FlowStore, logger, node, failure.Reason) && deps.NodeRouter != nil {
+	if advanceNodeFailedWithReason(ctx, deps.FlowStore, deps.EventBus, logger, node, failure.Reason, true) && deps.NodeRouter != nil {
 		deps.NodeRouter.invokeTerminalFailureHooksForTaskNode(ctx, node, nodeexec.NodeOutcome{Status: nodeexec.NodeStatusFailed, ErrorSummary: failure.Reason, FailureClass: classifyMaterializationFailure(failure)})
 	}
 }

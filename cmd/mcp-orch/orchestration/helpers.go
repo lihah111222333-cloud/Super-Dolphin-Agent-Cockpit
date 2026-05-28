@@ -12,6 +12,7 @@ import (
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 	"github.com/qmuntal/stateless"
 
+	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/orchestration/processctl"
 	agentdto "github.com/anthropic-ai/super-agent-v3/internal/dto/agent"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 	platformstatemachine "github.com/anthropic-ai/super-agent-v3/internal/platform/statemachine"
@@ -184,7 +185,7 @@ func (s *service) stopAgentLocked(ctx context.Context, agent *agentRuntime, reas
 	if !changed {
 		return nil
 	}
-	return stopProcess(agent.cmd)
+	return processctl.RequestStop(agent.cmd, agent.processGuard)
 }
 
 func (s *service) stopAgentWithReason(ctx context.Context, agentID, reason string) error {
@@ -267,21 +268,28 @@ func (s *service) startProcessLocked(ctx context.Context, agent *agentRuntime) e
 	cmd := exec.Command(agent.command[0], agent.command[1:]...)
 	cmd.Dir = agent.cwd
 	cmd.Env = append(os.Environ(), agent.env...)
+	processctl.Configure(cmd)
 	if err := cmd.Start(); err != nil {
 		return s.commitLaunchFailureLocked(ctx, agent, err)
 	}
+	guard := processctl.Attach(cmd, s.logger)
 	now := resolveEventTime(ctx, agent.updatedAt)
 	resetLaunchState(agent)
 	agent.cmd = cmd
+	agent.processGuard = guard
 	agent.launchSeq++
 	agent.startedAt = now
 	agent.updatedAt = now
 	if err := s.commitLaunchSuccessLocked(ctx, agent); err != nil {
-		if stopErr := stopProcess(cmd); stopErr != nil {
+		if stopErr := processctl.ForceStop(cmd, guard); stopErr != nil {
 			s.logger.Warn("orchestration: rollback stop process failed",
 				"agent_id", agent.id, "error", stopErr)
 		}
+		if guard != nil {
+			guard.Close()
+		}
 		agent.cmd = nil
+		agent.processGuard = nil
 		return err
 	}
 	// P22 P3: arm the exit monitor immediately after a successful Start. The

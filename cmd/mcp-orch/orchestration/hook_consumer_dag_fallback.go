@@ -4,6 +4,7 @@ import (
 	"context"
 	"strings"
 
+	orchmetrics "github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/orchestration/metrics"
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/orchestration/nodeexec"
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/taskdag"
 )
@@ -21,13 +22,13 @@ func (c *hookConsumer) runThreadStoppedDAGFallback(ctx context.Context, threadID
 	}
 	nodes, err := lookup.LookupNodesBySpawningThread(ctx, threadID)
 	if err != nil {
-		dagFallbackMetrics.IncLookupFailed()
+		orchmetrics.IncDAGFallbackLookupFailed()
 		c.logger.Warn("thread stopped fallback: lookup nodes failed",
 			"thread_id", threadID, "error", err)
 		return
 	}
 	if len(nodes) == 0 {
-		dagFallbackMetrics.IncNoNode()
+		orchmetrics.IncDAGFallbackNoNode()
 		return
 	}
 	for i := range nodes {
@@ -40,7 +41,7 @@ func (c *hookConsumer) runThreadStoppedDAGFallback(ctx context.Context, threadID
 
 func (c *hookConsumer) failThreadStoppedFallbackNode(ctx context.Context, flow taskdag.NodeFlowStore, n taskdag.Node) {
 	if !isDAGFallbackFailEligibleStatus(n.Status) {
-		dagFallbackMetrics.IncIdempotentSkipped()
+		orchmetrics.IncDAGFallbackIdempotentSkipped()
 		return
 	}
 	res, failErr := flow.FailNodeAndCancelDownstream(ctx, taskdag.FailNodeInput{
@@ -51,12 +52,12 @@ func (c *hookConsumer) failThreadStoppedFallbackNode(ctx context.Context, flow t
 		FailFast: false,
 	})
 	if failErr != nil {
-		dagFallbackMetrics.IncFailNodeErr()
+		orchmetrics.IncDAGFallbackFailNodeErr()
 		c.logger.Warn("thread stopped fallback: fail node failed",
 			"dag_key", n.DagKey, "node_key", n.NodeKey, "error", failErr)
 		return
 	}
-	dagFallbackMetrics.IncFailed()
+	orchmetrics.IncDAGFallbackFailed()
 	c.invokeThreadStoppedFallbackLifecycleHook(ctx, n, res)
 }
 

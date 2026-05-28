@@ -149,7 +149,10 @@ func (s *service) HandleReportEvent(ctx context.Context, event ReportEvent) (Rep
 }
 
 func (s *service) reportEventFallbackResult(ctx context.Context, agentID, eventType, report string, runtimeErr error) (ReportEventResult, bool) {
-	if !errors.Is(runtimeErr, errAgentNotFound) || !s.persistReportWithoutRuntime(ctx, agentID, report) {
+	if !errors.Is(runtimeErr, errAgentNotFound) {
+		return ReportEventResult{}, false
+	}
+	if strings.TrimSpace(report) == "" && !isRuntimeLossStopEventType(eventType) {
 		return ReportEventResult{}, false
 	}
 	if !s.applyReportEventWithoutRuntime(ctx, agentID, eventType, report) {
