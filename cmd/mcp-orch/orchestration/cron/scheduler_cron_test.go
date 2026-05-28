@@ -39,15 +39,8 @@ func (s *stubTicker) Tick(ctx context.Context, now time.Time) (int, error) {
 func (s *stubTicker) calls() int32 { return atomic.LoadInt32(&s.count) }
 
 type fakeScheduleStore struct {
-	due     []DueDAG
-	err     error
-	updates []scheduledUpdate
-}
-
-type scheduledUpdate struct {
-	dagKey    string
-	dueAt     time.Time
-	nextRunAt time.Time
+	due []DueDAG
+	err error
 }
 
 func (s *fakeScheduleStore) DueDAGs(ctx context.Context, now time.Time) ([]DueDAG, error) {
@@ -55,11 +48,6 @@ func (s *fakeScheduleStore) DueDAGs(ctx context.Context, now time.Time) ([]DueDA
 		return nil, s.err
 	}
 	return append([]DueDAG(nil), s.due...), nil
-}
-
-func (s *fakeScheduleStore) UpdateNextRun(ctx context.Context, dagKey string, dueAt time.Time, nextRunAt time.Time) error {
-	s.updates = append(s.updates, scheduledUpdate{dagKey: dagKey, dueAt: dueAt, nextRunAt: nextRunAt})
-	return nil
 }
 
 type fakeStarter struct {
@@ -272,9 +260,6 @@ func TestScheduledDAGTicker_NextRunAtDelegatedToStarter(t *testing.T) {
 	if !starter.starts[0].NextRunAt.Equal(want) {
 		t.Fatalf("delegated next_run_at = %s, want %s", starter.starts[0].NextRunAt, want)
 	}
-	if len(store.updates) != 0 {
-		t.Fatalf("ticker next_run_at updates = %+v, want StartDAG to own schedule advancement", store.updates)
-	}
 }
 
 func TestScheduledDAGTicker_CronParseValidationError(t *testing.T) {
@@ -337,9 +322,6 @@ func TestScheduledDAGTicker_DoesNotAdvanceNextRunWhenStartFails(t *testing.T) {
 	_, err = ticker.Tick(context.Background(), time.Date(2026, 5, 11, 7, 0, 0, 0, time.UTC))
 	if !errors.Is(err, startErr) {
 		t.Fatalf("Tick err = %v, want startErr", err)
-	}
-	if len(store.updates) != 0 {
-		t.Fatalf("next_run_at updates = %+v, want none when StartDAG fails", store.updates)
 	}
 }
 

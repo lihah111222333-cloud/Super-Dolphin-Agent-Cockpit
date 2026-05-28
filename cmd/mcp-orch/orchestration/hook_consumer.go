@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"strings"
 
+	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/orchestration/nodeevents"
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/orchestration/nodeexec"
 	"github.com/qmuntal/stateless"
 	"go.uber.org/fx"
@@ -19,6 +20,7 @@ import (
 	threaddto "github.com/anthropic-ai/super-agent-v3/internal/dto/thread"
 	turndto "github.com/anthropic-ai/super-agent-v3/internal/dto/turn"
 	platformshared "github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
+	"github.com/kelindar/event"
 )
 
 const (
@@ -39,7 +41,6 @@ const (
 	hookRelayKindTurnItemCompleted = "turn.item_completed"
 )
 
-// NotifyTap observes terminal hook events; implementations must be non-blocking.
 type NotifyTap interface {
 	OnTurnCompleted(ctx context.Context, ev turndto.TurnCompleted)
 	OnTurnInterrupted(ctx context.Context, ev turndto.TurnInterrupted)
@@ -58,15 +59,14 @@ type hookConsumer struct {
 }
 
 type hookContextEnvelope struct {
-	Kind  string          `json:"kind"`
-	Event json.RawMessage `json:"event"`
+	Kind  string
+	Event json.RawMessage
 }
 
 func newHookConsumer(svc *service, logger *slog.Logger) *hookConsumer {
 	return newHookConsumerInternal(svc, logger, nil, nil, nil)
 }
 
-// HookAfterHandlerParams is the fx.In bundle for ProvideHookAfterHandler.
 type HookAfterHandlerParams struct {
 	fx.In
 
@@ -80,6 +80,7 @@ type HookAfterHandlerParams struct {
 	SharedFileReader  nodeexec.SharedFileReader        `optional:"true"`
 	SharedFileWriter  nodeexec.SharedFileWriter        `optional:"true"`
 	NodeRouter        *NodeExecutorRouter              `optional:"true"`
+	EventBus          *event.Dispatcher                `optional:"true"`
 }
 
 func ProvideHookAfterHandler(p HookAfterHandlerParams) contract.BootstrapHookAfterHandler {
@@ -97,6 +98,7 @@ func ProvideHookAfterHandler(p HookAfterHandlerParams) contract.BootstrapHookAft
 			SharedFileReader: p.SharedFileReader,
 			SharedFileWriter: p.SharedFileWriter,
 			NodeRouter:       p.NodeRouter,
+			EventBus:         p.EventBus,
 		}),
 	).After
 }
@@ -371,6 +373,7 @@ func (c *hookConsumer) failThreadStoppedFallbackNode(ctx context.Context, flow t
 		return
 	}
 	dagFallbackMetrics.IncFailed()
+	nodeevents.PublishFail(c.dagTurnCompletedDeps.EventBus, n.Status, res)
 	c.invokeThreadStoppedFallbackLifecycleHook(ctx, n, res)
 }
 
@@ -432,14 +435,10 @@ func (c *hookConsumer) handleTurnCompleted(ctx context.Context, ev turndto.TurnC
 }
 
 func (c *hookConsumer) handleDAGTurnCompletedFromHook(ctx context.Context, ev turndto.TurnCompleted) {
-	if c == nil {
+	if c == nil || c.dagTurnCompletedDeps.LookupStore == nil || c.dagTurnCompletedDeps.FlowStore == nil {
 		return
 	}
-	deps := c.dagTurnCompletedDeps
-	if deps.LookupStore == nil || deps.FlowStore == nil {
-		return
-	}
-	handleDAGTurnCompleted(ctx, deps, c.logger, ev)
+	handleDAGTurnCompleted(ctx, c.dagTurnCompletedDeps, c.logger, ev)
 }
 
 func (c *hookConsumer) handleTurnInterrupted(ctx context.Context, ev turndto.TurnInterrupted) {
@@ -451,18 +450,14 @@ func (c *hookConsumer) handleTurnInterrupted(ctx context.Context, ev turndto.Tur
 }
 
 func (c *hookConsumer) handleDAGTurnInterruptedFromHook(ctx context.Context, ev turndto.TurnInterrupted) {
-	if c == nil {
-		return
-	}
-	deps := c.dagTurnCompletedDeps
-	if deps.LookupStore == nil || deps.FlowStore == nil {
+	if c == nil || c.dagTurnCompletedDeps.LookupStore == nil || c.dagTurnCompletedDeps.FlowStore == nil {
 		return
 	}
 	reason := strings.TrimSpace(ev.Reason)
 	if reason == "" {
 		reason = "turn_interrupted"
 	}
-	handleDAGTurnCompleted(ctx, deps, c.logger, turndto.TurnCompleted{
+	handleDAGTurnCompleted(ctx, c.dagTurnCompletedDeps, c.logger, turndto.TurnCompleted{
 		TurnHeader: ev.TurnHeader,
 		Success:    false,
 		Reason:     reason,

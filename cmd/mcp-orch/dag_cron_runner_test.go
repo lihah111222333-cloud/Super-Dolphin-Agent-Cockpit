@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/orchestration"
 	orchcron "github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/orchestration/cron"
-	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 )
 
 type fakeCronDaemon struct {
@@ -92,7 +92,7 @@ func TestProvideScheduledDAGCronRunnerFailsFastOnNilDependencies(t *testing.T) {
 		name   string
 		store  orchcron.DAGScheduleStore
 		locker orchcron.AdvisoryLocker
-		svc    contract.OrchestrationService
+		svc    orchestration.ScheduledDAGStartService
 		logger *slog.Logger
 	}{
 		{name: "store", store: nil, locker: stubAdvisoryLocker{}, svc: stubCronOrchestrationService{}, logger: logger},
@@ -128,11 +128,6 @@ func (s failingScheduledStartService) StartScheduledDAG(context.Context, orchcro
 }
 
 type stubCronOrchestrationService struct {
-	contract.OrchestrationService
-}
-
-func (stubCronOrchestrationService) StartDAG(context.Context, contract.StartDAGRequest) (contract.StartDAGResponse, error) {
-	return contract.StartDAGResponse{}, nil
 }
 
 func (stubCronOrchestrationService) StartScheduledDAG(context.Context, orchcron.ScheduledDAGStartRequest) error {

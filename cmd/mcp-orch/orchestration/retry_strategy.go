@@ -5,125 +5,23 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
-	"time"
 
+	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/orchestration/nodeevents"
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/orchestration/nodeexec"
+	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/orchestration/retrypolicy"
 	taskdag "github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/taskdag"
-	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
 )
 
-// 导航注（DAG v2 骨架阶段后）：
-// 本文件 (`RetryPolicy / DAGSchedulePolicy / NodeExecutionPolicy`) 是 Phase 3.5
-// 生产 dispatcher 路径的重试策略 (拿 DAG metadata 里的 default_retry / fail_fast)。
-// DAG v2 骨架阶段加了 typed `nodeexec.OnFailureConfig` 提供智能重试。
-// F12.1 后，两者收敛为 node-level override 与 fallback 的关系：dispatcher
-// 支持 by_class + retry/escalate_model/append_error/replan/fail_fast；skip /
-// ask_human 仅保留 enum，业务语义未落地前 fail-closed。详 ADR §2.7。
-//
-// Phase 3.5 / 3B · 节点失败重试策略
-//
-// dispatcher 在 launch 失败后判断「再 retry 还是直接 fail」时，必须能从 DAG
-// metadata 拿到 default_retry / fail_fast，以及 node 级 execution.retry 覆盖。
-// 把解析逻辑独立出来：
-//   - 结构化字段（DAGSchedulePolicy / NodeExecutionPolicy）就地用 omitempty
-//     反序列化，缺字段就走默认值，不抛错；
-//   - 公开 ResolveRetryPolicy(dagMetadata, nodeConfig) → RetryPolicy 给调用
-//     方使用；store 层 FailNodeAndCancelDownstream 不依赖此函数（它只接受
-//     最终的 fail_fast 布尔），但 dispatcher / RPC 层接通时会经它派生。
-//
-// SQL 层 RetryTaskDagWakeup 仍保留 attempt_count<8 硬上限作为 paranoid 保护，
-// 即使 default_retry 配得比 8 还大，也只能跑到 8。该上限和本策略并不冲突：
-// 本策略给的是「软上限」，SQL 给的是「不可越过的物理上限」。
-
-// RetryPolicy 是 dispatcher 派生出的最终决策参数。
-type RetryPolicy struct {
-	// MaxAttempts 是包含首发的总尝试次数。default_retry=0 → MaxAttempts=1
-	// (只跑一次即终态)；default_retry=2 → MaxAttempts=3。MaxAttempts<1 视
-	// 同 1，避免 0 导致永远 fail 走不通。
-	MaxAttempts int
-	// FailFast 决定节点 failed 后是否级联取消下游 pending 节点。来自
-	// metadata.schedule.fail_fast；node 层暂无覆盖（execution.on_failure
-	// 是节点级 retry/skip 策略，不是图级中断；后续 gate 再处理）。
-	FailFast bool
+type dispatchFailure struct {
+	lastErr   string
+	launchErr error
+	outcome   nodeexec.NodeOutcome
 }
 
-// DAGSchedulePolicy 对应 DAG metadata 内 `schedule` 子对象的策略字段子集。
-// 与 cmd/mcp-orch/tools/task_tools.go::DAGScheduleInput 对齐，但只取本步用
-// 得到的两项；新增字段不影响反序列化。
-type DAGSchedulePolicy struct {
-	DefaultRetry int  `json:"default_retry,omitempty"`
-	FailFast     bool `json:"fail_fast,omitempty"`
+func failedWakeupOutcome(summary string) nodeexec.NodeOutcome {
+	return nodeexec.NodeOutcome{Status: nodeexec.NodeStatusFailed, ErrorSummary: summary}
 }
 
-// dagMetadataPolicy 是 DAG metadata 的最外层（仅取 schedule 子树）。
-type dagMetadataPolicy struct {
-	Schedule DAGSchedulePolicy `json:"schedule"`
-}
-
-// NodeExecutionPolicy 对应 node config 内 `execution` 子对象的策略字段子集。
-// HasRetry 显式区分「未设置」和「设置为 0」，以便覆盖 DAG 默认值。
-type NodeExecutionPolicy struct {
-	Retry    int
-	HasRetry bool
-}
-
-// nodeExecutionEnvelope 是 task_dag_node.config 的 schema：execution 在
-// 一个嵌套 key 下；执行时的 retry 字段允许显式 0（表示「不重试」），所以
-// 用 *int 而非 int 解码，再翻成 NodeExecutionPolicy.HasRetry。
-type nodeExecutionEnvelope struct {
-	Execution struct {
-		Retry *int `json:"retry,omitempty"`
-	} `json:"execution"`
-}
-
-// ResolveRetryPolicy 综合 DAG metadata + node config 解出最终 RetryPolicy。
-// 解析失败的字段安静走默认值（DefaultRetry=0 / FailFast=false / 无 node 覆
-// 盖），不返回 error：dispatcher 不应因为元数据 JSON 异常就把任务卡死，
-// 应当退化到「不再重试」让节点尽快终态。
-func ResolveRetryPolicy(dagMetadata, nodeConfig json.RawMessage) RetryPolicy {
-	dagPolicy := decodeDAGSchedulePolicy(dagMetadata)
-	nodePolicy := decodeNodeExecutionPolicy(nodeConfig)
-	retryCount := dagPolicy.DefaultRetry
-	if nodePolicy.HasRetry {
-		retryCount = nodePolicy.Retry
-	}
-	maxAttempts := retryCount + 1
-	if maxAttempts < 1 {
-		maxAttempts = 1
-	}
-	return RetryPolicy{MaxAttempts: maxAttempts, FailFast: dagPolicy.FailFast}
-}
-
-func decodeDAGSchedulePolicy(raw json.RawMessage) DAGSchedulePolicy {
-	if len(raw) == 0 {
-		return DAGSchedulePolicy{}
-	}
-	var envelope dagMetadataPolicy
-	if err := json.Unmarshal(raw, &envelope); err != nil {
-		return DAGSchedulePolicy{}
-	}
-	return envelope.Schedule
-}
-
-func decodeNodeExecutionPolicy(raw json.RawMessage) NodeExecutionPolicy {
-	if len(raw) == 0 {
-		return NodeExecutionPolicy{}
-	}
-	var envelope nodeExecutionEnvelope
-	if err := json.Unmarshal(raw, &envelope); err != nil {
-		return NodeExecutionPolicy{}
-	}
-	if envelope.Execution.Retry == nil {
-		return NodeExecutionPolicy{}
-	}
-	return NodeExecutionPolicy{Retry: *envelope.Execution.Retry, HasRetry: true}
-}
-
-// failureClassPermanent reports whether a failed NodeOutcome should bypass the
-// basic bounded retry path. F1.4 keeps this intentionally small: AgentExecutor
-// transient/quota/validation failures all use the existing RetryPolicy attempt
-// budget. F12.1 owns smarter by_class actions such as append_error,
-// escalate_model, and replan.
 func failureClassPermanent(class nodeexec.FailureClass) bool {
 	switch class {
 	case nodeexec.FailureClassHard,
@@ -138,35 +36,13 @@ func failureOutcomePermanent(outcome nodeexec.NodeOutcome) bool {
 		return true
 	}
 	if outcome.FailureClass == nodeexec.FailureClassValidation {
-		return !retryableValidationOutcome(outcome)
+		return !strings.HasPrefix(outcome.ErrorSummary, "launch agent:")
 	}
 	return false
 }
 
-func retryableValidationOutcome(outcome nodeexec.NodeOutcome) bool {
-	return strings.HasPrefix(outcome.ErrorSummary, "launch agent:")
-}
-
 func nonRetryableValidationFailure(outcome nodeexec.NodeOutcome) bool {
-	return outcome.FailureClass == nodeexec.FailureClassValidation && !retryableValidationOutcome(outcome)
-}
-
-type dispatchFailure struct {
-	lastErr   string
-	launchErr error
-	outcome   nodeexec.NodeOutcome
-}
-
-func dispatchFailureFrom(lastErr string, launchErr error, outcome nodeexec.NodeOutcome) dispatchFailure {
-	return dispatchFailure{lastErr: lastErr, launchErr: launchErr, outcome: outcome}
-}
-
-func failedWakeupOutcome(summary string) nodeexec.NodeOutcome {
-	return nodeexec.NodeOutcome{Status: nodeexec.NodeStatusFailed, ErrorSummary: summary}
-}
-
-func withDispatchRetryAlertTimeout(ctx context.Context) (context.Context, context.CancelFunc) {
-	return platformconfig.WithTimeout(ctx, 5*time.Second)
+	return outcome.FailureClass == nodeexec.FailureClassValidation && !strings.HasPrefix(outcome.ErrorSummary, "launch agent:")
 }
 
 func (d *WakeupDispatcher) failDAGNodeAndCancelDownstream(ctx context.Context, w *taskdag.Wakeup, lastErr string, failFast bool, outcome nodeexec.NodeOutcome) {
@@ -205,6 +81,7 @@ func (d *WakeupDispatcher) failDAGNodeAndCancelDownstream(ctx context.Context, w
 		"fail_fast", failFast,
 		"canceled_downstream", len(res.CanceledDownstream))
 	if d.nodeRouter != nil {
+		nodeevents.PublishFail(d.nodeRouter.statusEventBus(), "", res)
 		if outcome.Status == "" {
 			outcome.Status = nodeexec.NodeStatusFailed
 		}
@@ -231,17 +108,14 @@ func (d *WakeupDispatcher) handleRetryHardCap(ctx context.Context, w *taskdag.Wa
 }
 
 func (d *WakeupDispatcher) failDAGNodeForRetryHardCap(ctx context.Context, w *taskdag.Wakeup, lastErr string, failure dispatchFailure) {
-	failFast := false
-	if policy, ok := d.resolveDAGRetryPolicy(ctx, w.DagKey, w.NodeKey, routeRunID(w)); ok {
-		failFast = policy.FailFast
-	}
+	failFast, lastErr := d.retryPolicyFailFast(ctx, w, lastErr, "hard-cap failure")
 	d.failDAGNodeAndCancelDownstream(ctx, w, lastErr, failFast, failure.outcome)
 }
 
 func (d *WakeupDispatcher) handleFailedRouterOutcome(ctx context.Context, w *taskdag.Wakeup, fence wakeupFence, outcome nodeexec.NodeOutcome) bool {
 	synthErr := fmt.Errorf("%s: %s", outcome.FailureClass, outcome.ErrorSummary)
 	lastErr := truncateWakeupError(synthErr.Error())
-	failure := dispatchFailureFrom(lastErr, synthErr, outcome)
+	failure := dispatchFailure{lastErr: lastErr, launchErr: synthErr, outcome: outcome}
 	if nonRetryableValidationFailure(outcome) {
 		if !d.markPermanentFail(ctx, w, fence, lastErr, synthErr) {
 			return false
@@ -268,26 +142,36 @@ func (d *WakeupDispatcher) recordPermanentRouterFailure(ctx context.Context, w *
 			d.emitDispatchRetryAlert(ctx, alert)
 		}
 	}
-	failFast := false
-	if policy, ok := d.resolveDAGRetryPolicy(ctx, w.DagKey, w.NodeKey, routeRunID(w)); ok {
-		failFast = policy.FailFast
-	}
+	failFast, lastErr := d.retryPolicyFailFast(ctx, w, lastErr, "permanent router failure")
 	d.failDAGNodeAndCancelDownstream(ctx, w, lastErr, failFast, outcome)
 }
 
 const replanPlannerAgentKey = "dag_designer"
 
 type dagRetryContext struct {
-	policy    RetryPolicy
+	policy    retrypolicy.RetryPolicy
 	node      *taskdag.Node
 	onFailure *nodeexec.OnFailureConfig
+}
+
+func (d *WakeupDispatcher) retryPolicyFailFast(ctx context.Context, w *taskdag.Wakeup, lastErr, action string) (bool, string) {
+	policy, ok, err := d.resolveDAGRetryPolicy(ctx, w.DagKey, w.NodeKey, routeRunID(w))
+	if err == nil {
+		return ok && policy.FailFast, lastErr
+	}
+	d.logger.Warn("wakeup dispatcher: retry policy invalid during "+action,
+		"wakeup_id", w.ID, "dag_key", w.DagKey, "node_key", w.NodeKey, "error", err)
+	return false, truncateWakeupError("retry policy invalid: " + err.Error() + ": " + lastErr)
 }
 
 func (d *WakeupDispatcher) trySmartDAGRetry(ctx context.Context, w *taskdag.Wakeup, fence wakeupFence, failure dispatchFailure) (bool, bool) {
 	if !canSmartRetry(d, w) {
 		return false, false
 	}
-	retryCtx, ok := d.resolveDAGRetryContext(ctx, w.DagKey, w.NodeKey, routeRunID(w))
+	retryCtx, ok, err := d.resolveDAGRetryContext(ctx, w.DagKey, w.NodeKey, routeRunID(w))
+	if err != nil {
+		return true, d.failSmartRetryPrepare(ctx, w, fence, failure, err, false)
+	}
 	if !ok || retryCtx.node == nil || retryCtx.onFailure == nil {
 		return false, false
 	}
@@ -420,24 +304,31 @@ func (d *WakeupDispatcher) dispatchSmartRetryAction(
 	}
 }
 
-func (d *WakeupDispatcher) resolveDAGRetryContext(ctx context.Context, dagKey, nodeKey string, runID int64) (dagRetryContext, bool) {
+func (d *WakeupDispatcher) resolveDAGRetryContext(ctx context.Context, dagKey, nodeKey string, runID int64) (dagRetryContext, bool, error) {
 	if runID <= 0 {
-		return dagRetryContext{}, false
+		return dagRetryContext{}, false, nil
 	}
 	dag, err := d.store.GetDAG(ctx, dagKey)
-	if err != nil || dag == nil {
-		return dagRetryContext{}, false
+	if err != nil {
+		return dagRetryContext{}, false, fmt.Errorf("resolve retry policy dag %s: %w", dagKey, err)
+	}
+	if dag == nil {
+		return dagRetryContext{}, false, fmt.Errorf("resolve retry policy dag %s: not found", dagKey)
 	}
 	nodes, err := listDispatcherNodesForRun(ctx, d.store, dagKey, runID)
 	if err != nil {
-		return dagRetryContext{policy: ResolveRetryPolicy(dag.Metadata, nil)}, true
+		return dagRetryContext{}, false, fmt.Errorf("list run nodes for retry policy dag %s run_id=%d: %w", dagKey, runID, err)
 	}
 	target, nodeConfig := findRetryNode(nodes, nodeKey)
+	policy, policyErr := retrypolicy.ResolveRetryPolicy(dag.Metadata, nodeConfig)
+	if policyErr != nil {
+		return dagRetryContext{}, false, policyErr
+	}
 	return dagRetryContext{
-		policy:    ResolveRetryPolicy(dag.Metadata, nodeConfig),
+		policy:    policy,
 		node:      target,
 		onFailure: nodeOnFailureConfig(target),
-	}, true
+	}, true, nil
 }
 
 func listDispatcherNodesForRun(ctx context.Context, store taskdag.Store, dagKey string, runID int64) ([]taskdag.Node, error) {

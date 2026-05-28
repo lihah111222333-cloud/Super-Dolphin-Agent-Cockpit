@@ -19,6 +19,7 @@ type fakeTaskDAGDB struct {
 	wakeups map[int64]sqlc.TaskDagWakeup
 	nodes   map[string]sqlc.TaskDagNode
 	ops     []string
+	locks   map[string]bool
 	// F6.2: runs 用于模拟 task_dag_runs 一行，键是 run_key；finalize SQL 拦截会读写它。
 	// F6.2: runs simulates task_dag_runs rows keyed by run_key so the finalize
 	// SQL interceptor can mutate run.status when all nodes reach terminal.
@@ -35,6 +36,7 @@ func newFakeTaskDAGDB(now time.Time) *fakeTaskDAGDB {
 		wakeups: make(map[int64]sqlc.TaskDagWakeup),
 		nodes:   make(map[string]sqlc.TaskDagNode),
 		runs:    make(map[string]sqlc.TaskDagRun),
+		locks:   make(map[string]bool),
 	}
 }
 

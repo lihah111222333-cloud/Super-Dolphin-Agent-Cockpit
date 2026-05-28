@@ -460,6 +460,7 @@ type FailNodeInput struct {
 // transaction (empty when FailFast=false or no pending downstream existed).
 type FailNodeResult struct {
 	Node               *Node
+	OldStatus          string
 	CanceledDownstream []CanceledDownstreamNode
 	FinalizedRun       *FinalizedRunInfo
 }
@@ -737,4 +738,15 @@ type RunStore interface {
 	ScheduleRootWakeups(ctx context.Context, dagKey string, runID int64) (int64, error)
 	TerminateRun(ctx context.Context, input TerminateRunInput) (TerminateRunResult, error)
 	WithRunTx(ctx context.Context, fn func(tx RunStore) error) error
+}
+
+type ScheduledStartTxStore interface {
+	RunStore
+	GetDAGForUpdate(ctx context.Context, dagKey string) (*DAG, error)
+	UpdateScheduledDAGNextRun(ctx context.Context, dagKey string, dueAt, nextRunAt time.Time) (int64, error)
+}
+
+type ScheduledStartStore interface {
+	GetRun(ctx context.Context, runKey string) (*Run, error)
+	WithScheduledStartTx(ctx context.Context, fn func(tx ScheduledStartTxStore) error) error
 }

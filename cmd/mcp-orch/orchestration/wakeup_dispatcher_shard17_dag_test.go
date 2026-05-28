@@ -12,7 +12,9 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/orchestration/nodeexec"
 	taskdag "github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/taskdag"
+	taskdto "github.com/anthropic-ai/super-agent-v3/internal/dto/task"
 	platformmetrics "github.com/anthropic-ai/super-agent-v3/internal/platform/metrics"
+	"github.com/kelindar/event"
 )
 
 func TestDispatcherF151FiveNodeDAGMetricsEndpointAndAlert(t *testing.T) {
@@ -115,6 +117,54 @@ func TestDispatcherDAGRetryFailsAtMaxAttemptsWithFailFastCascade(t *testing.T) {
 	}
 }
 
+func TestDispatcherPermanentFailurePublishesFailedEventWithOldStatus(t *testing.T) {
+	dispatcher := event.NewDispatcher()
+	events := make(chan taskdto.TaskNodeStatusChanged, 1)
+	cancel := event.Subscribe(dispatcher, func(ev taskdto.TaskNodeStatusChanged) { events <- ev })
+	defer cancel()
+
+	now := time.Date(2026, 5, 14, 16, 0, 0, 0, time.UTC)
+	runID := int64(9001)
+	store := &dispatcherStubStore{
+		claimReply: []taskdag.Wakeup{makeDAGWakeup(31, "dag-y", "node-B", "agent-B", 1, now)},
+		dagReply:   &taskdag.DAG{DagKey: "dag-y", Metadata: dagDefaultRetryMetadata(t, 0, false)},
+		nodesReply: []taskdag.Node{{
+			DagKey:   "dag-y",
+			NodeKey:  "node-B",
+			RunID:    &runID,
+			NodeType: "agent",
+			Status:   string(nodeexec.NodeStatusReady),
+			Config:   testRawConfig(t, `{"exec":{"agent_key":"alpha","cwd":"/tmp/node-cwd"},"first_turn":"hi"}`),
+		}},
+		failNodeReply: &taskdag.FailNodeResult{
+			OldStatus: string(nodeexec.NodeStatusReady),
+			Node: &taskdag.Node{
+				DagKey:  "dag-y",
+				NodeKey: "node-B",
+				RunID:   &runID,
+				Status:  string(nodeexec.NodeStatusFailed),
+			},
+		},
+	}
+	d, _ := NewWakeupDispatcher(store, &dispatcherStubLauncher{}, nil, WakeupDispatcherConfig{})
+	d.WithNodeRouter(NewNodeExecutorRouter(store, nil, nil, nil, nil, nil).WithEventBus(dispatcher))
+	if _, err := d.ProcessBatch(context.Background()); err != nil {
+		t.Fatalf("ProcessBatch err = %v", err)
+	}
+
+	select {
+	case got := <-events:
+		if got.DagKey != "dag-y" || got.NodeKey != "node-B" || got.RunID != runID {
+			t.Fatalf("event identity = %s/%s/%d, want dag-y/node-B/%d", got.DagKey, got.NodeKey, got.RunID, runID)
+		}
+		if got.OldStatus != string(nodeexec.NodeStatusReady) || got.NewStatus != string(nodeexec.NodeStatusFailed) {
+			t.Fatalf("event status = %q -> %q, want ready -> failed", got.OldStatus, got.NewStatus)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for TaskNodeStatusChanged")
+	}
+}
+
 func TestDispatcherDAGPermanentFailureSkipsCascadeWhenFailWakeupFenceMisses(t *testing.T) {
 	now := time.Date(2026, 5, 13, 10, 0, 0, 0, time.UTC)
 	store := newAgentFailureClassStore(t, "permanent-fence-miss", 1, now)
@@ -182,6 +232,34 @@ func TestDispatcherDAGRetryFailsAtMaxAttemptsNoFailFast(t *testing.T) {
 	}
 	if store.failNodeCalls[0].FailFast {
 		t.Fatalf("FailNodeInput.FailFast = true, want false")
+	}
+}
+
+func TestDispatcherDAGRetryPolicyFailsFastWhenRunNodesUnavailable(t *testing.T) {
+	now := time.Date(2026, 5, 14, 16, 30, 0, 0, time.UTC)
+	store := &dispatcherStubStore{
+		claimReply: []taskdag.Wakeup{makeDAGWakeup(32, "dag-policy", "node-A", "agent-A", 1, now)},
+		dagReply: &taskdag.DAG{
+			DagKey:   "dag-policy",
+			Metadata: dagDefaultRetryMetadata(t, 5, false),
+		},
+		nodesErr: errors.New("run nodes unavailable"),
+	}
+	d, _ := NewWakeupDispatcher(store, &dispatcherStubLauncher{}, nil, WakeupDispatcherConfig{})
+	if _, err := d.ProcessBatch(context.Background()); err != nil {
+		t.Fatalf("ProcessBatch err = %v", err)
+	}
+	if len(store.retryCalls) != 0 {
+		t.Fatalf("retryCalls = %d, want 0 when retry policy node lookup fails", len(store.retryCalls))
+	}
+	if len(store.failCalls) != 1 {
+		t.Fatalf("failCalls = %d, want 1 fail-fast write", len(store.failCalls))
+	}
+	if !strings.Contains(store.failCalls[0].LastError, "list run nodes for retry policy") {
+		t.Fatalf("FailWakeup LastError = %q, want list run nodes error", store.failCalls[0].LastError)
+	}
+	if len(store.failNodeCalls) != 1 {
+		t.Fatalf("failNodeCalls = %d, want 1 DAG node failure", len(store.failNodeCalls))
 	}
 }
 

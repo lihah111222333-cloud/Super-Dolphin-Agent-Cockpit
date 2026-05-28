@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/orchestration/nodeevents"
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/orchestration/nodeexec"
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/taskdag"
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
@@ -191,18 +192,20 @@ func (s *service) UpdateNodeStatus(ctx context.Context, req UpdateNodeStatusRequ
 	}
 	var result DAGNode
 	err = s.withDAGStore(func(store taskdag.OrchestrationStore) error {
-		if vErr := s.validateNodeTransition(ctx, store, input); vErr != nil {
+		oldStatus, vErr := s.validateNodeTransition(ctx, store, input)
+		if vErr != nil {
 			return vErr
 		}
 		if input.Status == "done" {
 			if flow, ok := store.(taskdag.NodeFlowStore); ok {
-				return s.completeNodeWithDownstream(ctx, flow, input, &result)
+				return s.completeNodeWithDownstream(ctx, flow, input, oldStatus, &result)
 			}
 		}
 		node, updateErr := store.UpdateNodeStatus(ctx, input)
 		if updateErr != nil {
 			return updateErr
 		}
+		nodeevents.Publish(s.eventBus, oldStatus, node)
 		result = dagNodeDTO(*node)
 		return nil
 	})
@@ -214,14 +217,14 @@ func (s *service) UpdateNodeStatus(ctx context.Context, req UpdateNodeStatusRequ
 
 // validateNodeTransition checks the run-scoped current status before public
 // task_update_node writes; dispatcher fast paths use SQL fences instead.
-func (s *service) validateNodeTransition(ctx context.Context, store taskdag.OrchestrationStore, input taskdag.NodeStatusUpdate) error {
+func (s *service) validateNodeTransition(ctx context.Context, store taskdag.OrchestrationStore, input taskdag.NodeStatusUpdate) (string, error) {
 	runReader, ok := any(store).(taskdag.RunNodeReadStore)
 	if !ok {
-		return fmt.Errorf("validate transition: store does not implement RunNodeReadStore for run_id=%d", input.RunID)
+		return "", fmt.Errorf("validate transition: store does not implement RunNodeReadStore for run_id=%d", input.RunID)
 	}
 	nodes, err := runReader.ListRunNodes(ctx, input.DagKey, input.RunID)
 	if err != nil {
-		return fmt.Errorf("validate transition: list run nodes %s run_id=%d: %w", input.DagKey, input.RunID, err)
+		return "", fmt.Errorf("validate transition: list run nodes %s run_id=%d: %w", input.DagKey, input.RunID, err)
 	}
 	var fromStatus string
 	found := false
@@ -233,17 +236,21 @@ func (s *service) validateNodeTransition(ctx context.Context, store taskdag.Orch
 		}
 	}
 	if !found {
-		return fmt.Errorf("validate transition: node %s/%s not found", input.DagKey, input.NodeKey)
+		return "", fmt.Errorf("validate transition: node %s/%s not found", input.DagKey, input.NodeKey)
 	}
-	return nodeexec.ValidateTransition(nodeexec.NodeStatus(fromStatus), nodeexec.NodeStatus(input.Status))
+	if err := nodeexec.ValidateTransition(nodeexec.NodeStatus(fromStatus), nodeexec.NodeStatus(input.Status)); err != nil {
+		return "", err
+	}
+	return fromStatus, nil
 }
 
 // completeNodeWithDownstream 走 store NodeFlowStore，3.5w 接通点。
-func (s *service) completeNodeWithDownstream(ctx context.Context, flow taskdag.NodeFlowStore, input taskdag.NodeStatusUpdate, result *DAGNode) error {
+func (s *service) completeNodeWithDownstream(ctx context.Context, flow taskdag.NodeFlowStore, input taskdag.NodeStatusUpdate, oldStatus string, result *DAGNode) error {
 	res, err := flow.CompleteNodeAndScheduleDownstream(ctx, taskdag.CompleteNodeInput(input))
 	if err != nil {
 		return err
 	}
+	nodeevents.PublishComplete(s.eventBus, oldStatus, res)
 	if res.Node != nil {
 		*result = dagNodeDTO(*res.Node)
 	}

@@ -18,6 +18,18 @@ WHERE dag_key = $1
   AND run_id = $2
 ORDER BY created_at;
 
+-- name: GetTaskDagRunNodeForUpdate :one
+SELECT id, dag_key, node_key, title, node_type, assigned_to, depends_on,
+       status, command_ref, config, result, started_at, finished_at,
+       created_at, updated_at, active_turn_id, active_wakeup_id,
+       last_event_at, run_id, reads, writes, spawning_thread_id
+FROM task_dag_nodes
+WHERE dag_key = sqlc.arg('dag_key')
+  AND node_key = sqlc.arg('node_key')
+  AND run_id = sqlc.arg('run_id')
+  AND sqlc.arg('run_id')::bigint > 0
+FOR UPDATE;
+
 -- name: ListRunningTaskDagNodesByAssignee :many
 SELECT id, dag_key, node_key, title, node_type, assigned_to, depends_on,
        status, command_ref, config, result, started_at, finished_at,

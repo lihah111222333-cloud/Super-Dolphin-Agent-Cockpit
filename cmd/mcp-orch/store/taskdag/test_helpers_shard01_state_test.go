@@ -392,7 +392,7 @@ func (db *fakeTaskDAGDB) failNodeIfNonTerminal(args ...any) ([]any, error) {
 		return nil, err
 	}
 	key := dagNodeLookupKey(dagKey, nodeKey, runID)
-	if db.beforeFailNonTerminal != nil {
+	if db.shouldRunBeforeFailHook(key) {
 		db.beforeFailNonTerminal(dagKey, nodeKey)
 	}
 	row, ok := db.nodes[key]
@@ -404,6 +404,10 @@ func (db *fakeTaskDAGDB) failNodeIfNonTerminal(args ...any) ([]any, error) {
 	row.UpdatedAt = timestamptzValue(db.now)
 	db.nodes[key] = row
 	return taskDagNodeValues(row), nil
+}
+
+func (db *fakeTaskDAGDB) shouldRunBeforeFailHook(key string) bool {
+	return db.beforeFailNonTerminal != nil && !db.locks[key]
 }
 
 func isFakeTerminalStatus(status string) bool {

@@ -66,6 +66,55 @@ func (q *Queries) GetTaskDagNodesForUpdate(ctx context.Context, dagKey string) (
 	return items, nil
 }
 
+const getTaskDagRunNodeForUpdate = `-- name: GetTaskDagRunNodeForUpdate :one
+SELECT id, dag_key, node_key, title, node_type, assigned_to, depends_on,
+       status, command_ref, config, result, started_at, finished_at,
+       created_at, updated_at, active_turn_id, active_wakeup_id,
+       last_event_at, run_id, reads, writes, spawning_thread_id
+FROM task_dag_nodes
+WHERE dag_key = $1
+  AND node_key = $2
+  AND run_id = $3
+  AND $3::bigint > 0
+FOR UPDATE
+`
+
+type GetTaskDagRunNodeForUpdateParams struct {
+	DagKey  string      `json:"dag_key"`
+	NodeKey string      `json:"node_key"`
+	RunID   pgtype.Int8 `json:"run_id"`
+}
+
+func (q *Queries) GetTaskDagRunNodeForUpdate(ctx context.Context, arg GetTaskDagRunNodeForUpdateParams) (TaskDagNode, error) {
+	row := q.db.QueryRow(ctx, getTaskDagRunNodeForUpdate, arg.DagKey, arg.NodeKey, arg.RunID)
+	var i TaskDagNode
+	err := row.Scan(
+		&i.ID,
+		&i.DagKey,
+		&i.NodeKey,
+		&i.Title,
+		&i.NodeType,
+		&i.AssignedTo,
+		&i.DependsOn,
+		&i.Status,
+		&i.CommandRef,
+		&i.Config,
+		&i.Result,
+		&i.StartedAt,
+		&i.FinishedAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.ActiveTurnID,
+		&i.ActiveWakeupID,
+		&i.LastEventAt,
+		&i.RunID,
+		&i.Reads,
+		&i.Writes,
+		&i.SpawningThreadID,
+	)
+	return i, err
+}
+
 const listRunningTaskDagNodesByAssignee = `-- name: ListRunningTaskDagNodesByAssignee :many
 SELECT id, dag_key, node_key, title, node_type, assigned_to, depends_on,
        status, command_ref, config, result, started_at, finished_at,

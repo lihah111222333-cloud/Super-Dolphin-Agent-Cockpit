@@ -319,7 +319,7 @@ func (d *WakeupDispatcher) handleClaimedViaRouter(ctx context.Context, w *taskda
 		err := errors.New(lastErr)
 		d.logger.Warn("wakeup dispatcher: dag wakeup missing node router → retry",
 			"wakeup_id", w.ID, "dag_key", w.DagKey, "node_key", w.NodeKey)
-		return d.markTransientRetry(ctx, w, fence, dispatchFailureFrom(lastErr, err, failedWakeupOutcome(lastErr)))
+		return d.markTransientRetry(ctx, w, fence, dispatchFailure{lastErr: lastErr, launchErr: err, outcome: failedWakeupOutcome(lastErr)})
 	}
 	outcome, err := d.nodeRouter.RouteByWakeup(ctx, w)
 	if err != nil {
@@ -327,7 +327,7 @@ func (d *WakeupDispatcher) handleClaimedViaRouter(ctx context.Context, w *taskda
 		d.logger.Warn("wakeup dispatcher: router framework error → retry",
 			"wakeup_id", w.ID, "dag_key", w.DagKey, "node_key", w.NodeKey,
 			"error", err)
-		failure := dispatchFailureFrom(lastErr, err, failedWakeupOutcome(lastErr))
+		failure := dispatchFailure{lastErr: lastErr, launchErr: err, outcome: failedWakeupOutcome(lastErr)}
 		if errors.Is(err, errAgentReadyRunningWriteFailed) {
 			return d.retryWakeup(ctx, w, fence, failure)
 		}

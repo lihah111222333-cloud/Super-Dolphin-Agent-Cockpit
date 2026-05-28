@@ -45,21 +45,6 @@ func (s *sqlDAGScheduleStore) DueDAGs(ctx context.Context, now time.Time) ([]orc
 	return dags, nil
 }
 
-func (s *sqlDAGScheduleStore) UpdateNextRun(ctx context.Context, dagKey string, dueAt time.Time, nextRunAt time.Time) error {
-	rows, err := s.q.UpdateTaskDagNextRun(ctx, sqlc.UpdateTaskDagNextRunParams{
-		NextRunAt: pgtype.Timestamptz{Time: nextRunAt, Valid: true},
-		DagKey:    dagKey,
-		DueAt:     pgtype.Timestamptz{Time: dueAt, Valid: true},
-	})
-	if err != nil {
-		return err
-	}
-	if rows != 1 {
-		return fmt.Errorf("%w: dag_key=%s rows=%d", orchcron.ErrScheduleStateChanged, dagKey, rows)
-	}
-	return nil
-}
-
 type pgAdvisoryLocker struct {
 	pool   *pgxpool.Pool
 	lockID int64
