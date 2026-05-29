@@ -67,10 +67,12 @@ func (p AvailableExpertsProvider) Resolve(ctx context.Context, input contract.Se
 		return nil, nil
 	}
 	text := renderAvailableExpertsShort(experts)
+	renderMode := "short"
 	if availableExpertsNeedsFull(userText) {
 		text = text + "\n\n" + renderAvailableExpertsFull(experts)
+		renderMode = "full"
 	}
-	logDynamicSectionResolved(contract.DynamicSectionAvailableExperts, start, true, "candidate_count", len(experts), "body_len", len(text))
+	logDynamicSectionResolved(contract.DynamicSectionAvailableExperts, start, true, "template_count", len(templates), "candidate_count", len(experts), "render_mode", renderMode, "body_len", len(text))
 	return &text, nil
 }
 
@@ -181,10 +183,44 @@ func availableExpertsNeedsFull(userText string) bool {
 			return true
 		}
 	}
+	return containsAny(text, availableExpertsSplitKeywords) && containsAny(text, availableExpertsDelegationTargetKeywords)
+}
+
+func containsAny(text string, keywords []string) bool {
+	for _, keyword := range keywords {
+		if strings.Contains(text, keyword) {
+			return true
+		}
+	}
 	return false
 }
 
-var availableExpertsFullKeywords = []string{"实现", "做一套", "做一个完整", "全栈", "重构", "多个", "多文件", "多领域", "以及", "还有", "另外", "顺便", "changelog"}
+var availableExpertsFullKeywords = []string{
+	"launch_agent",
+	"delegate",
+	"delegation",
+	"orchestrate",
+	"orchestration",
+	"subagent",
+	"sub-agent",
+	"multiple agents",
+	"parallel agents",
+	"agent team",
+	"子agent",
+	"子 agent",
+	"多agent",
+	"多 agent",
+	"多个agent",
+	"多个 agent",
+	"多个专家",
+	"多位专家",
+	"专家一起",
+	"专家协作",
+}
+
+var availableExpertsSplitKeywords = []string{"拆分", "拆解", "分配", "分派", "派给", "交给"}
+
+var availableExpertsDelegationTargetKeywords = []string{"专家", "agent", "子agent", "子 agent", "并行"}
 
 func renderAvailableExpertsShort(experts []availableExpert) string {
 	lines := []string{"可用专家（通过 launch_agent 调用）："}

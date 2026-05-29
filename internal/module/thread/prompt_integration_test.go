@@ -81,11 +81,12 @@ func TestStartSessionUsesPromptAssembly(t *testing.T) {
 func TestNonForcedStartCarriesAvailableExpertsToProviderAssembly(t *testing.T) {
 	t.Setenv("PROMPT_START_CURRENT_DATE", "2026-05-22")
 
-	general := sqlTemplate("main/general-zh", "main", "assembled default base", []string{"scope.cwd:/repo/a"})
+	cwd := resolvePromptCWD("/repo/a")
+	general := sqlTemplate("main/general-zh", "main", "assembled default base", []string{"scope.cwd:" + cwd})
 	general.ID = 1
 	general.Priority = 160
 	general.MatchWhen = json.RawMessage(`{}`)
-	expert := sqlTemplate("main/expert/prompt", "main", "", []string{"scope.cwd:/repo/a", "intent:expert"})
+	expert := sqlTemplate("main/expert/prompt", "main", "", []string{"scope.cwd:" + cwd, "intent:expert"})
 	expert.ID = 2
 	expert.Priority = 120
 	expert.Title = "协作编程任务处理助手"
@@ -144,7 +145,7 @@ func TestNonForcedStartCarriesAvailableExpertsToProviderAssembly(t *testing.T) {
 	if _, err := svc.Start(context.Background(), StartRequest{
 		AgentID:  "agent-non-forced",
 		Provider: "claude",
-		CWD:      "/repo/a",
+		CWD:      cwd,
 		Prompt:   "请分析这个 Go 项目的测试失败，并规划需要改哪些后端和前端文件。",
 	}); err != nil {
 		t.Fatalf("Start() error = %v", err)

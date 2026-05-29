@@ -527,7 +527,7 @@ func TestPromptsRPCWriteFeedsLLMDiscoverySections(t *testing.T) {
 	require.Equal(t, "SQLC workflow reference.", recallSections[0].TemplateDescription)
 
 	providers := registeredThreadPromptProviders(t, store)
-	input := contract.SectionContext{BuildCtx: contract.BuildCtx{CWD: "/repo/a"}, Turn: &contract.TurnInput{UserText: "帮我做一个完整代码审查以及 SQLC 工作流"}}
+	input := contract.SectionContext{BuildCtx: contract.BuildCtx{CWD: "/repo/a"}, Turn: &contract.TurnInput{UserText: "Please delegate code review and SQLC workflow to multiple agents in parallel."}}
 	experts, err := providers[contract.DynamicSectionAvailableExperts].Resolve(context.Background(), input)
 	require.NoError(t, err)
 	require.Contains(t, *experts, "Use when code review needs blocking findings.")
