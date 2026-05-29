@@ -39,7 +39,7 @@ export function normalizeCodexSandboxPreference(value) {
       return codexSandboxPayload(normalized);
     }
   }
-  return null;
+  throw new Error(`invalid codex sandbox preference: ${String(value)}`);
 }
 
 function defaultCodexLaunchSandbox(cwd) {

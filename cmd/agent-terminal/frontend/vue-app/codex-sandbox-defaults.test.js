@@ -46,6 +46,9 @@ describe('normalizeCodexSandboxPreference', () => {
     expect(() => normalizeCodexSandboxPreference({ writableRoots: ['/repo'] })).toThrow('invalid codex sandbox preference');
     expect(() => normalizeCodexSandboxPreference({ type: '', writableRoots: ['/repo'] })).toThrow('invalid codex sandbox preference');
     expect(() => normalizeCodexSandboxPreference('["readOnly"]')).toThrow('invalid codex sandbox preference');
+    expect(() => normalizeCodexSandboxPreference(['readOnly'])).toThrow('invalid codex sandbox preference');
+    expect(() => normalizeCodexSandboxPreference(123)).toThrow('invalid codex sandbox preference');
+    expect(() => normalizeCodexSandboxPreference(true)).toThrow('invalid codex sandbox preference');
   });
 
   it('uses workspace-write as the Codex launch default when no sandbox preference is persisted', () => {
