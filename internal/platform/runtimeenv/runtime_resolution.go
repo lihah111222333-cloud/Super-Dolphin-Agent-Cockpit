@@ -143,6 +143,9 @@ func resolveOwnerRuntime(input RuntimeResolveInput, env map[string]string) (Reso
 		} else if !os.IsNotExist(err) {
 			return ResolvedRuntime{}, fmt.Errorf("stat runtime manifest %s: %w", manifestPath, err)
 		}
+		if hasBundledSidecarSentinel(resources) {
+			return resolvePackagedOwner(resources, input.UserHome, goos, goarch)
+		}
 	}
 	return devOwnerRuntime(), nil
 }
@@ -156,6 +159,10 @@ func ownerPackageResources(input RuntimeResolveInput, env map[string]string, goo
 		return resources, resources != ""
 	}
 	return "", false
+}
+
+func hasBundledSidecarSentinel(resources string) bool {
+	return requireBundledSidecars(filepath.Join(resources, "bin")) == nil
 }
 
 func ownerHasExplicitPackagedIntent(env map[string]string) bool {

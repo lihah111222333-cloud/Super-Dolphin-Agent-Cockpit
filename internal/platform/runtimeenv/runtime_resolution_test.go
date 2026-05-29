@@ -29,6 +29,26 @@ func TestResolveRuntimeMacOSDebugAppWithoutManifestResolvesOwnerDev(t *testing.T
 	}
 }
 
+func TestResolveRuntimeMacOSAppWithBundledSidecarsMissingManifestFailsFast(t *testing.T) {
+	app := filepath.Join(t.TempDir(), "Super Dolphin.app")
+	resources := filepath.Join(app, "Contents", "Resources")
+	writeOnlyBundledSidecars(t, filepath.Join(resources, "bin"))
+
+	_, err := ResolveRuntime(RuntimeResolveInput{
+		GOOS:           "darwin",
+		GOARCH:         "arm64",
+		Env:            map[string]string{processRoleEnv: string(ProcessRoleOwner)},
+		ExecutablePath: filepath.Join(app, "Contents", "MacOS", "agent-terminal"),
+		UserHome:       "/Users/alice",
+	})
+	if err == nil {
+		t.Fatal("ResolveRuntime() error = nil, want bundled app missing manifest failure")
+	}
+	if !strings.Contains(err.Error(), "runtime manifest") {
+		t.Fatalf("ResolveRuntime() error = %v, want runtime manifest failure", err)
+	}
+}
+
 func TestResolveRuntimeExplicitMacOSPackageRootMissingManifestFailsFast(t *testing.T) {
 	app := filepath.Join(t.TempDir(), "Super Dolphin.app")
 	exe := filepath.Join(app, "Contents", "MacOS", "agent-terminal")
