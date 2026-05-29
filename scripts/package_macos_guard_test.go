@@ -507,3 +507,38 @@ func TestVerifyPackagedAppMacOSRejectsRuntimeManifestMismatch(t *testing.T) {
 		t.Fatalf("expected bundled_codex_path mismatch error, got:\n%s", output)
 	}
 }
+
+func TestPackageScriptsGovernanceForbidPrivatePathsURLsAndInteractiveSecrets(t *testing.T) {
+	for _, scriptPath := range []string{"package_macos.sh", "package_linux.sh", "package_macos_local.sh", "package_linux_local.sh"} {
+		t.Run(scriptPath, func(t *testing.T) {
+			script := readScript(t, scriptPath)
+			assertScriptDoesNotContain(t, script, "/Users/ai")
+			assertScriptDoesNotContain(t, script, "ai.wlll.shop")
+			assertScriptDoesNotContain(t, script, "api.opusclaw.me")
+			assertScriptDoesNotContain(t, script, "OPUSCLAW_API_KEY")
+			assertScriptDoesNotContain(t, script, "read -rs")
+			assertScriptDoesNotContain(t, script, "read -s")
+			assertScriptDoesNotContain(t, script, "read -p")
+			assertScriptDoesNotContain(t, script, "SUPER_DOLPHIN_CODEX_RELAY_API_KEY=")
+		})
+	}
+}
+
+func TestPackageEnvExampleDocumentsExistingReleaseInputsWithoutSecrets(t *testing.T) {
+	example := readScript(t, "../.env.packaging.example")
+	for _, want := range []string{
+		"SUPER_DOLPHIN_POSTGRES_DIST=",
+		"SUPER_DOLPHIN_LSP_BUNDLE_DIR=",
+		"SUPER_DOLPHIN_CODEX_ARTIFACT=",
+		"SUPER_DOLPHIN_CODEX_SHA256=",
+		"SUPER_DOLPHIN_CODEX_VERSION=",
+		"SUPER_DOLPHIN_CODEX_RELAY_BASE_URL=",
+		"SUPER_DOLPHIN_CODEX_RELAY_BOOTSTRAP_TOKEN=",
+		"SUPER_DOLPHIN_CODEX_RELAY_BOOTSTRAP_PROOF=",
+	} {
+		assertScriptContains(t, example, want)
+	}
+	for _, unwanted := range []string{"/Users/ai", "ai.wlll.shop", "api.opusclaw.me", "OPUSCLAW_API_KEY", "SUPER_DOLPHIN_CODEX_RELAY_API_KEY", "sk-"} {
+		assertScriptDoesNotContain(t, example, unwanted)
+	}
+}
