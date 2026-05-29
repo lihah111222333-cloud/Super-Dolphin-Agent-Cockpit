@@ -199,3 +199,61 @@ copy_model_registry "$3"
 		t.Fatalf("staged models.yaml stat error = %v, want not exist", err)
 	}
 }
+
+func TestPackageLinuxVerifierScriptContracts(t *testing.T) {
+	script := readScript(t, "verify_packaged_app_linux.sh")
+	for _, want := range []string{
+		"runtime-manifest.json",
+		"codex-manifest.json",
+		"lsp/lsp-manifest.json",
+		"verify_runtime_manifest",
+		"verify_codex_manifest",
+		"verify_lsp_manifest",
+		"broken symlinks",
+		"package root contains escaped symlink",
+		"postgres.bki",
+		"sha256_file",
+		"tar -xzf",
+	} {
+		assertScriptContains(t, script, want)
+	}
+}
+
+func TestVerifyPackagedAppLinuxRequiresRuntimeManifest(t *testing.T) {
+	stage := writeMinimalPackagedLinuxStage(t)
+	if err := os.Remove(filepath.Join(stage, "runtime-manifest.json")); err != nil && !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("remove runtime manifest: %v", err)
+	}
+	output, err := runVerifyPackagedAppLinux(t, stage)
+	if err == nil {
+		t.Fatalf("expected Linux verifier to reject missing runtime manifest, got success:\n%s", output)
+	}
+	if !strings.Contains(output, "missing runtime manifest") {
+		t.Fatalf("expected missing runtime manifest error, got:\n%s", output)
+	}
+}
+
+func TestVerifyPackagedAppLinuxAcceptsStageAndRejectsLSPDigestMismatch(t *testing.T) {
+	stage := writeMinimalPackagedLinuxStage(t)
+	writeRuntimeManifest(t, stage, map[string]string{
+		"bundled_codex_path":              "bin/codex",
+		"bundled_gopls_path":              "bin/gopls",
+		"lsp_bundle_path":                 "lsp",
+		"lsp_manifest_path":               "lsp/lsp-manifest.json",
+		"model_registry_path":             "models.yaml",
+		"embedded_postgres_resource_path": "postgres/linux-amd64",
+	})
+	output, err := runVerifyPackagedAppLinux(t, stage)
+	if err != nil {
+		t.Fatalf("expected Linux verifier to accept complete stage, got %v:\n%s", err, output)
+	}
+
+	writeFile(t, filepath.Join(stage, "lsp", "bin", "rust-analyzer"), "#!/bin/sh\nexit 9\n", 0o755)
+	output, err = runVerifyPackagedAppLinux(t, stage)
+	if err == nil {
+		t.Fatalf("expected Linux verifier to reject LSP digest mismatch, got success:\n%s", output)
+	}
+	if !strings.Contains(output, "LSP packaged digest mismatch") {
+		t.Fatalf("expected LSP digest mismatch, got:\n%s", output)
+	}
+}

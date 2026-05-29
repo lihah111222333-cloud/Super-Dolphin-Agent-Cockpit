@@ -534,3 +534,58 @@ func readScript(t *testing.T, path string) string {
 func shellSingleQuoted(value string) string {
 	return "'" + strings.ReplaceAll(value, "'", "'\\''") + "'"
 }
+
+func writeMinimalPackagedLinuxStage(t *testing.T) string {
+	t.Helper()
+
+	stage := filepath.Join(t.TempDir(), "super-dolphin-0.1.0-linux-amd64")
+	platform := "linux-amd64"
+	pg := filepath.Join(stage, "postgres", platform)
+	for _, path := range []string{
+		filepath.Join(stage, "bin", "agent-terminal"),
+		filepath.Join(stage, "bin", "mcp-orch"),
+		filepath.Join(stage, "bin", "mcp-lsp"),
+		filepath.Join(stage, "bin", "mcp-ida"),
+		filepath.Join(stage, "bin", "codex"),
+		filepath.Join(stage, "bin", "gopls"),
+		filepath.Join(stage, "bin", "typescript-language-server"),
+		filepath.Join(stage, "bin", "vscode-css-language-server"),
+		filepath.Join(stage, "bin", "pyright-langserver"),
+		filepath.Join(stage, "bin", "rust-analyzer"),
+		filepath.Join(stage, "bin", "sg"),
+		filepath.Join(stage, "bin", "jdtls"),
+		filepath.Join(stage, "lsp", "bin", "gopls"),
+		filepath.Join(stage, "lsp", "bin", "typescript-language-server"),
+		filepath.Join(stage, "lsp", "bin", "vscode-css-language-server"),
+		filepath.Join(stage, "lsp", "bin", "pyright-langserver"),
+		filepath.Join(stage, "lsp", "bin", "rust-analyzer"),
+		filepath.Join(stage, "lsp", "bin", "sg"),
+		filepath.Join(stage, "lsp", "bin", "jdtls"),
+		filepath.Join(stage, "lsp", "bin", "python"),
+		filepath.Join(stage, "lsp", "bin", "python3"),
+		filepath.Join(stage, "lsp", "bin", "go"),
+		filepath.Join(pg, "bin", "postgres"),
+		filepath.Join(pg, "bin", "initdb"),
+		filepath.Join(pg, "bin", "pg_ctl"),
+		filepath.Join(pg, "bin", "pg_config"),
+	} {
+		writeExecutable(t, path)
+	}
+	pythonShadow := "#!/bin/sh\necho Packaged Super Dolphin does not bundle a Python interpreter >&2\nexit 1\n"
+	writeFile(t, filepath.Join(stage, "lsp", "bin", "python"), pythonShadow, 0o755)
+	writeFile(t, filepath.Join(stage, "lsp", "bin", "python3"), pythonShadow, 0o755)
+	writeFile(t, filepath.Join(stage, "migrations", "0001.sql"), "select 1;\n", 0o644)
+	writeFile(t, filepath.Join(stage, "models.yaml"), "models: []\n", 0o644)
+	writeFile(t, filepath.Join(pg, "share", "postgres.bki"), "postgres bki\n", 0o644)
+	writeCodexManifest(t, stage)
+	writeLSPManifest(t, stage)
+	return stage
+}
+
+func runVerifyPackagedAppLinux(t *testing.T, target string) (string, error) {
+	t.Helper()
+	cmd := exec.Command("bash", "verify_packaged_app_linux.sh", target)
+	cmd.Dir = "."
+	output, err := cmd.CombinedOutput()
+	return string(output), err
+}

@@ -14,9 +14,9 @@ case "$target" in
     ;;
 esac
 
-relay_url="${SUPER_DOLPHIN_CODEX_RELAY_BASE_URL:-https://ai.wlll.shop}"
+relay_url="${SUPER_DOLPHIN_CODEX_RELAY_BASE_URL:-}"
 postgres_dist="${SUPER_DOLPHIN_POSTGRES_DIST:-$root/.build-cache/postgres/16.14/$(go env GOOS)-$(go env GOARCH)}"
-codex_bin="${SUPER_DOLPHIN_CODEX_ARTIFACT:-/Users/ai/.local/bin/codex}"
+codex_bin="${SUPER_DOLPHIN_CODEX_ARTIFACT:-$(command -v codex || true)}"
 
 real_file_path() {
   local path="$1"
@@ -88,19 +88,17 @@ phase_end() {
   echo "==> [$phase_label] done in ${elapsed}s $(date '+%H:%M:%S')" >&2
 }
 
-if [[ -z "${OPUSCLAW_API_KEY:-}" && -z "${SUPER_DOLPHIN_CODEX_RELAY_BOOTSTRAP_TOKEN:-}" ]]; then
-  if [[ -t 0 ]]; then
-    printf 'OpusClaw API key: ' >&2
-    IFS= read -rs OPUSCLAW_API_KEY
-    printf '\n' >&2
-  else
-    echo "OPUSCLAW_API_KEY or SUPER_DOLPHIN_CODEX_RELAY_BOOTSTRAP_TOKEN is required" >&2
-    exit 1
-  fi
+if [[ -z "${SUPER_DOLPHIN_CODEX_RELAY_BOOTSTRAP_TOKEN:-}" ]]; then
+  echo "SUPER_DOLPHIN_CODEX_RELAY_BOOTSTRAP_TOKEN is required; packaging helpers do not prompt for or accept privileged API keys" >&2
+  exit 1
 fi
-bootstrap_token="${SUPER_DOLPHIN_CODEX_RELAY_BOOTSTRAP_TOKEN:-$OPUSCLAW_API_KEY}"
+bootstrap_token="$SUPER_DOLPHIN_CODEX_RELAY_BOOTSTRAP_TOKEN"
 if [[ -z "${bootstrap_token//[[:space:]]/}" ]]; then
   echo "bootstrap token must not be empty" >&2
+  exit 1
+fi
+if [[ -z "${relay_url//[[:space:]]/}" ]]; then
+  echo "SUPER_DOLPHIN_CODEX_RELAY_BASE_URL is required" >&2
   exit 1
 fi
 if [[ -n "${SUPER_DOLPHIN_CODEX_RELAY_API_KEY:-}" ]]; then
