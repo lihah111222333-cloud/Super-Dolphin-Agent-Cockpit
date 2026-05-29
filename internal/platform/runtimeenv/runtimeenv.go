@@ -25,6 +25,7 @@ const (
 	packagedCodexEnv    = "SUPER_DOLPHIN_PACKAGED_CODEX_IDENTITY"
 	lspBundleDirEnv     = "SUPER_DOLPHIN_LSP_BUNDLE_DIR"
 	lspManifestEnv      = "SUPER_DOLPHIN_LSP_MANIFEST"
+	runtimeResourcesEnv = "SUPER_DOLPHIN_RUNTIME_RESOURCES_DIR"
 	lspBundleName       = "lsp"
 	lspManifestName     = "lsp-manifest.json"
 )
@@ -45,6 +46,16 @@ type PackagedRuntime struct {
 	MigrationsDir string
 	PostgresRoot  string
 	AppDataDir    string
+}
+
+type SidecarRuntimeInput struct {
+	ExecutablePath string
+	Env            map[string]string
+}
+
+type SidecarRuntimeContract struct {
+	Mode         string
+	ResourcesDir string
 }
 
 type LSPBundle struct {
@@ -100,6 +111,34 @@ func ConfigurePackagedApp() error {
 	return nil
 }
 
+func ConfigureSidecarRuntime() error {
+	contract, err := ResolveSidecarRuntimeContract(SidecarRuntimeInput{
+		Env: environmentMap(os.Environ()),
+	})
+	if err != nil {
+		return err
+	}
+	return applySidecarRuntimeContract(contract)
+}
+
+func ResolveSidecarRuntimeContract(input SidecarRuntimeInput) (SidecarRuntimeContract, error) {
+	mode := strings.TrimSpace(input.Env[runtimeModeEnv])
+	resources := strings.TrimSpace(input.Env[runtimeResourcesEnv])
+	if mode == "" || resources == "" {
+		return SidecarRuntimeContract{}, fmt.Errorf(
+			"parent launch contract missing: sidecar requires %s and %s",
+			runtimeModeEnv,
+			runtimeResourcesEnv,
+		)
+	}
+	switch mode {
+	case string(RuntimeModeDev), string(RuntimeModePackaged):
+	default:
+		return SidecarRuntimeContract{}, fmt.Errorf("parent launch contract invalid: %s must be dev or packaged", runtimeModeEnv)
+	}
+	return SidecarRuntimeContract{Mode: mode, ResourcesDir: filepath.Clean(resources)}, nil
+}
+
 // PackagedRuntimeFromExecutable resolves the packaged runtime for callers that
 // still need the legacy PackagedRuntime shape. It delegates packaged/dev
 // classification to ResolveRuntime so path shape alone cannot select packaged.
@@ -146,28 +185,13 @@ func packagedResourcesDir(executablePath string) string {
 	}
 	exeDir := filepath.Dir(executablePath)
 	if filepath.Base(exeDir) != "MacOS" {
-		return resourcesDirFromPeerBin(exeDir)
+		return ""
 	}
 	contentsDir := filepath.Dir(exeDir)
 	if filepath.Base(contentsDir) != "Contents" {
 		return ""
 	}
 	return filepath.Join(contentsDir, "Resources")
-}
-
-func resourcesDirFromPeerBin(exeDir string) string {
-	if filepath.Base(exeDir) != "bin" {
-		return ""
-	}
-	resources := filepath.Dir(exeDir)
-	if filepath.Base(resources) != "Resources" {
-		return ""
-	}
-	contentsDir := filepath.Dir(resources)
-	if filepath.Base(contentsDir) != "Contents" {
-		return ""
-	}
-	return resources
 }
 
 func applyPackagedEnv(resources, userHome string) error {
@@ -338,6 +362,8 @@ func applyPackagedRuntimeEnv(runtime PackagedRuntime) error {
 		func() error { return setEnvIfEmpty(httpAddrEnv, "127.0.0.1:0") },
 		func() error { return setEnvIfEmpty(sessionTokenEnv, newSessionToken()) },
 		func() error { return setEnv(projectRootEnv, runtime.ResourcesDir) },
+		func() error { return setEnv(runtimeModeEnv, "packaged") },
+		func() error { return setEnv(runtimeResourcesEnv, runtime.ResourcesDir) },
 		func() error { return setEnv(requireCodexEnv, "1") },
 		func() error { return setEnvIfEmpty(superDolphinHomeEnv, runtime.AppDataDir) },
 		func() error {
@@ -354,6 +380,24 @@ func applyPackagedRuntimeEnv(runtime PackagedRuntime) error {
 			return setIfFile(modelRegistryEnv, filepath.Join(runtime.ResourcesDir, modelRegistryBundle))
 		},
 	)
+}
+
+func applySidecarRuntimeContract(contract SidecarRuntimeContract) error {
+	setters := []func() error{
+		func() error { return setEnvIfEmpty(projectRootEnv, contract.ResourcesDir) },
+	}
+	if contract.Mode == "packaged" {
+		setters = append(setters,
+			func() error { return setEnv(peerBinDirEnv, filepath.Join(contract.ResourcesDir, "bin")) },
+			func() error {
+				return setEnvIfEmpty(lspBundleDirEnv, filepath.Join(contract.ResourcesDir, lspBundleName))
+			},
+			func() error {
+				return setEnvIfEmpty(lspManifestEnv, filepath.Join(contract.ResourcesDir, lspBundleName, lspManifestName))
+			},
+		)
+	}
+	return runEnvSetters(setters...)
 }
 
 func runEnvSetters(setters ...func() error) error {

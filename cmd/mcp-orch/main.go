@@ -19,8 +19,8 @@ func main() {
 		_, _ = os.Stderr.WriteString("mcp-orch startup env failed: " + err.Error() + "\n")
 		os.Exit(1)
 	}
-	if err := runtimeenv.ConfigurePackagedApp(); err != nil {
-		_, _ = os.Stderr.WriteString("mcp-orch packaged runtime env failed: " + err.Error() + "\n")
+	if err := runtimeenv.ConfigureSidecarRuntime(); err != nil {
+		_, _ = os.Stderr.WriteString("mcp-orch sidecar runtime env failed: " + err.Error() + "\n")
 		os.Exit(1)
 	}
 	// Cap GOMAXPROCS for this lightweight sidecar. The default (NumCPU)
