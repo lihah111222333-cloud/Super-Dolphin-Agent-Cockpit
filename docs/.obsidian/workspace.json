@@ -1,0 +1,214 @@
+{
+  "main": {
+    "id": "cd7d296270e62b85",
+    "type": "split",
+    "children": [
+      {
+        "id": "286d1055b991e975",
+        "type": "tabs",
+        "children": [
+          {
+            "id": "c80ae926391f41a6",
+            "type": "leaf",
+            "state": {
+              "type": "markdown",
+              "state": {
+                "file": "superpowers/plans/dag计划/README.md",
+                "mode": "source",
+                "source": false
+              },
+              "icon": "lucide-file",
+              "title": "README"
+            }
+          }
+        ]
+      }
+    ],
+    "direction": "vertical"
+  },
+  "left": {
+    "id": "a42aa51dbbf371ea",
+    "type": "split",
+    "children": [
+      {
+        "id": "4b9b5970a9442e47",
+        "type": "tabs",
+        "children": [
+          {
+            "id": "1ca88ef5407d4d0f",
+            "type": "leaf",
+            "state": {
+              "type": "file-explorer",
+              "state": {
+                "sortOrder": "alphabetical",
+                "autoReveal": false
+              },
+              "icon": "lucide-folder-closed",
+              "title": "文件列表"
+            }
+          },
+          {
+            "id": "4fa8ad432b25161d",
+            "type": "leaf",
+            "state": {
+              "type": "search",
+              "state": {
+                "query": "",
+                "matchingCase": false,
+                "explainSearch": false,
+                "collapseAll": false,
+                "extraContext": false,
+                "sortOrder": "alphabetical"
+              },
+              "icon": "lucide-search",
+              "title": "搜索"
+            }
+          },
+          {
+            "id": "629f36e6c1bf1741",
+            "type": "leaf",
+            "state": {
+              "type": "bookmarks",
+              "state": {},
+              "icon": "lucide-bookmark",
+              "title": "书签"
+            }
+          }
+        ]
+      }
+    ],
+    "direction": "horizontal",
+    "width": 443.5
+  },
+  "right": {
+    "id": "59608216d6cc056e",
+    "type": "split",
+    "children": [
+      {
+        "id": "74339452125bb04c",
+        "type": "tabs",
+        "children": [
+          {
+            "id": "f6480c501d0ab7ef",
+            "type": "leaf",
+            "state": {
+              "type": "backlink",
+              "state": {
+                "file": "superpowers/plans/dag计划/README.md",
+                "collapseAll": false,
+                "extraContext": false,
+                "sortOrder": "alphabetical",
+                "showSearch": false,
+                "searchQuery": "",
+                "backlinkCollapsed": false,
+                "unlinkedCollapsed": true
+              },
+              "icon": "links-coming-in",
+              "title": "README 的反向链接列表"
+            }
+          },
+          {
+            "id": "a40ee2612b8e2fd1",
+            "type": "leaf",
+            "state": {
+              "type": "outgoing-link",
+              "state": {
+                "file": "ai01-docs/plan/2026-05-22-full-test-remediation-plan.md",
+                "linksCollapsed": false,
+                "unlinkedCollapsed": true
+              },
+              "icon": "links-going-out",
+              "title": "2026-05-22-full-test-remediation-plan 的出链列表"
+            }
+          },
+          {
+            "id": "0d365539366accab",
+            "type": "leaf",
+            "state": {
+              "type": "tag",
+              "state": {
+                "sortOrder": "frequency",
+                "useHierarchy": true,
+                "showSearch": false,
+                "searchQuery": ""
+              },
+              "icon": "lucide-tags",
+              "title": "标签"
+            }
+          },
+          {
+            "id": "9ca2d3380b032bf2",
+            "type": "leaf",
+            "state": {
+              "type": "all-properties",
+              "state": {
+                "sortOrder": "frequency",
+                "showSearch": false,
+                "searchQuery": ""
+              },
+              "icon": "lucide-archive",
+              "title": "添加笔记属性"
+            }
+          },
+          {
+            "id": "388d55808f8569f2",
+            "type": "leaf",
+            "state": {
+              "type": "outline",
+              "state": {
+                "file": "ai01-docs/plan/2026-05-22-full-test-remediation-plan.md",
+                "followCursor": false,
+                "showSearch": false,
+                "searchQuery": ""
+              },
+              "icon": "lucide-list",
+              "title": "2026-05-22-full-test-remediation-plan 的大纲"
+            }
+          }
+        ]
+      }
+    ],
+    "direction": "horizontal",
+    "width": 550.5
+  },
+  "left-ribbon": {
+    "hiddenItems": {
+      "switcher:打开快速切换": false,
+      "graph:查看关系图谱": false,
+      "canvas:新建白板": false,
+      "daily-notes:打开/创建今天的日记": false,
+      "templates:插入模板": false,
+      "command-palette:打开命令面板": false,
+      "bases:新建数据库": false
+    }
+  },
+  "active": "c80ae926391f41a6",
+  "lastOpenFiles": [
+    "design/F1-lifecycle-audit-2026-05-12.md",
+    "ai01-docs/test/frontend-react-review/A5-unified-chat-ui.md",
+    "ai01-docs/test/frontend-react-review/A4-send-message-flow.md",
+    "ai01-docs/test/frontend-react-review/A6-warning-log-trace.md",
+    "ai01-docs/test/frontend-react-review/A7-architecture-style-accessibility.md",
+    "ai01-docs/test/frontend-react-review/A8-migration-build-guard.md",
+    "ai01-docs/test/frontend-react-review/A9-summary.md",
+    "ai01-docs/test/frontend-react-review/A3-state-store.md",
+    "ai01-docs/test/frontend-react-review/A2-shared-api-wire.md",
+    "ai01-docs/test/frontend-react-review/A1-contract-review.md",
+    "ai01-docs/test/frontend-react-review/A0-baseline.md",
+    "ai01-docs/plan/2026-05-22-full-test-remediation-plan.md",
+    "ai01-docs/plan/每人任务.md",
+    "ai01-docs/plan/frontend-react-zustand-tailwind-refactor.md",
+    "ai01-docs/plan/frontend-react-zustand-tailwind-test-review-plan.md",
+    "ai01-docs/plan/frontend-architecture-decoupling.md",
+    "ai01-docs/plan/implementation_plan.md",
+    "契约/onion-architecture-convention.md",
+    "契约/recall-topic-naming.md",
+    "契约/rungroup-convention.md",
+    "契约/sqlc-convention.md",
+    "契约/statemachine-event-convention.md",
+    "decisions/ADR-006-to-node-result-size-cap.md",
+    "架构/skeleton-jrpc2.md",
+    "架构/fx-rungroup-skeleton.md",
+    "调研/context-window/raw-openai-codex.md"
+  ]
+}
