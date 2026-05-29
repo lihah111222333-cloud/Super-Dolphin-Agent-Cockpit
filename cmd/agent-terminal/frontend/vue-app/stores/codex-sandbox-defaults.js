@@ -20,13 +20,15 @@ export function normalizeCodexSandboxPreference(value) {
   if (value && typeof value === 'object' && !Array.isArray(value)) {
     return codexSandboxPayload(value.type || value.mode, value);
   }
-  if (typeof value === 'string' && value.trim()) {
+  if (typeof value === 'string') {
+    const normalized = normalizeProviderConfigValue(value);
+    if (!normalized) return null;
     try {
-      const parsed = JSON.parse(value);
+      const parsed = JSON.parse(normalized);
       if (isProviderPreferenceTombstone(parsed) || isProviderPreferenceAbsent(parsed)) return null;
       if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) return codexSandboxPayload(parsed.type || parsed.mode, parsed);
     } catch {
-      return codexSandboxPayload(value);
+      return codexSandboxPayload(normalized);
     }
   }
   return null;

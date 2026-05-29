@@ -6,6 +6,7 @@ describe('normalizeCodexSandboxPreference', () => {
     expect(normalizeCodexSandboxPreference(undefined)).toBeNull();
     expect(normalizeCodexSandboxPreference(null)).toBeNull();
     expect(normalizeCodexSandboxPreference('')).toBeNull();
+    expect(normalizeCodexSandboxPreference('undefined')).toBeNull();
   });
 
   it('converts persisted workspace-write JSON to the canonical snake_case payload', () => {

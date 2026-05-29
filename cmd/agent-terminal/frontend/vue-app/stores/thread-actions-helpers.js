@@ -363,7 +363,7 @@ function normalizeSelectedSkillRefs(rawSelectedSkillRefs) {
 }
 
 async function resolveLaunchProviderPreference(getPref, cwd) {
-  return resolveActiveProviderPreference(getPref, cwd);
+  return resolveActiveProviderPreference(getPref, cwd, 'codex');
 }
 
 export async function startThread(ctx, cwd = '.', options = {}) {
