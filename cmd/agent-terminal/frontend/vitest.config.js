@@ -1,9 +1,14 @@
-import { defineConfig } from 'vite';
+import { defineConfig, mergeConfig } from 'vitest/config';
+import viteConfig from './vite.config.js';
 
-export default defineConfig({
-    test: {
-        include: ['vue-app/**/*.test.js'],
-        environment: 'node',
-        globalSetup: ['./scripts/vitest-global-setup.js'],
-    },
-});
+export default mergeConfig(
+    viteConfig,
+    defineConfig({
+        test: {
+            include: ['src/**/*.test.{js,jsx,ts,tsx}'],
+            environment: 'jsdom',
+            globalSetup: ['./scripts/vitest-global-setup.js'],
+            testTimeout: 60000,
+        },
+    })
+);

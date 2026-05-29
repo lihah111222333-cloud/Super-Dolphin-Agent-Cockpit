@@ -60,6 +60,8 @@ Thumbs.db
 # Keep agent workflows tracked for team collaboration
 !/.agent/workflows/
 !/.agent/workflows/**
+/.agent/workflows/.DS_Store
+/.agent/workflows/**/.DS_Store
 # Keep agent skills tracked for team collaboration
 !/.agent/skills/
 !/.agent/skills/**

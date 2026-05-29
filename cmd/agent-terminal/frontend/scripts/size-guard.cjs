@@ -27,7 +27,7 @@ const FUNC_LINE_LIMIT = 250;
 const NESTING_DEPTH_LIMIT = 5;
 
 // ─── 扫描范围 ────────────────────────────────────────────────────────
-const SCAN_DIR = path.resolve(__dirname, '..', 'vue-app');
+const SCAN_DIR = path.resolve(__dirname, '..', 'src');
 const BASELINE_PATH = path.resolve(__dirname, 'size-guard-baseline.json');
 const TEST_BASELINE_PATH = path.resolve(__dirname, 'size-guard-baseline-test.json');
 const IGNORE_PATTERNS = [
@@ -37,7 +37,7 @@ const IGNORE_PATTERNS = [
 ];
 
 function isTestFile(rel) {
-    return /\.test\.js$/.test(rel) || /\.spec\.js$/.test(rel);
+    return /\.test\.[jt]sx?$/.test(rel) || /\.spec\.[jt]sx?$/.test(rel);
 }
 
 // ─── 工具函数 ────────────────────────────────────────────────────────
@@ -47,7 +47,7 @@ function collectJsFiles(dir, result = []) {
         const full = path.join(dir, entry.name);
         if (entry.isDirectory()) {
             collectJsFiles(full, result);
-        } else if (entry.isFile() && /\.js$/.test(entry.name)) {
+        } else if (entry.isFile() && /\.[jt]sx?$/.test(entry.name)) {
             const rel = path.relative(SCAN_DIR, full);
             if (!IGNORE_PATTERNS.some((re) => re.test(rel))) {
                 result.push({ abs: full, rel });

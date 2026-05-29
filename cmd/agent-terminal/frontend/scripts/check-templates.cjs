@@ -23,6 +23,10 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 const VUE_APP_ROOT = path.resolve(__dirname, '..', 'vue-app');
+if (!fs.existsSync(VUE_APP_ROOT)) {
+  console.log('[check-templates] 💡 vue-app directory not found (migrated to React). Skipping Vue template check.');
+  process.exit(0);
+}
 const VUE_BUNDLE = path.resolve(__dirname, '..', 'lib', 'vue.esm-browser.prod.js');
 
 function walk(dir, out = []) {

@@ -1,0 +1,465 @@
+import { reactive, computed, watch } from '../../lib/vue.esm-browser.prod.js';
+import { createStore } from 'zustand/vanilla';
+import { useStore } from 'zustand';
+import * as React from 'react';
+import { saveClipboardImage, selectFiles } from '../services/api.js';
+import { logDebug, logInfo, logWarn } from '../services/log.js';
+import { createComposerDraftController } from './composer-drafts.js';
+
+const state = reactive({
+  text: '',
+  attachments: [],
+  attaching: false,
+});
+
+export const composerStoreVanilla = createStore((set) => ({
+  text: '',
+  attachments: [],
+  attaching: false,
+  forkActive: false,
+  forkSharedFilePaths: [],
+  forkOrigin: '',
+}));
+
+const forkDraft = reactive({
+  active: false,
+  sharedFilePaths: [],
+  origin: '',
+});
+
+// Sync from Vue reactive states to Zustand store
+watch(
+  () => [state, forkDraft],
+  () => {
+    composerStoreVanilla.setState({
+      text: state.text,
+      attachments: state.attachments,
+      attaching: state.attaching,
+      forkActive: forkDraft.active,
+      forkSharedFilePaths: forkDraft.sharedFilePaths,
+      forkOrigin: forkDraft.origin,
+    });
+  },
+  { deep: true, flush: 'sync' }
+);
+
+// Sync from Zustand store to Vue reactive states
+composerStoreVanilla.subscribe((newState) => {
+  if (state.text !== newState.text) state.text = newState.text;
+  if (state.attachments !== newState.attachments) state.attachments = newState.attachments;
+  if (state.attaching !== newState.attaching) state.attaching = newState.attaching;
+
+  if (forkDraft.active !== newState.forkActive) forkDraft.active = newState.forkActive;
+  if (forkDraft.sharedFilePaths !== newState.forkSharedFilePaths) forkDraft.sharedFilePaths = newState.forkSharedFilePaths;
+  if (forkDraft.origin !== newState.forkOrigin) forkDraft.origin = newState.forkOrigin;
+});
+
+// A Proxy wrapper for state that intercepts direct mutations (like in draftController)
+// and updates both Vue state and Zustand store.
+const stateProxy = new Proxy(state, {
+  set(target, prop, value) {
+    target[prop] = value;
+    composerStoreVanilla.setState({ [prop]: value });
+    return true;
+  },
+  get(target, prop) {
+    return target[prop];
+  }
+});
+
+const draftController = createComposerDraftController(stateProxy, logDebug);
+
+export function openForkDraft(options = {}) {
+  forkDraft.active = true;
+  forkDraft.origin = (options?.origin || '').toString().trim();
+  const seedPath = (options?.sharedFilePath || '').toString().trim();
+  if (seedPath && !forkDraft.sharedFilePaths.includes(seedPath)) {
+    forkDraft.sharedFilePaths.push(seedPath);
+  }
+  logInfo('composer', 'forkDraft.opened', { origin: forkDraft.origin, seed_path: seedPath, total: forkDraft.sharedFilePaths.length });
+}
+
+export function closeForkDraft() {
+  forkDraft.active = false;
+  forkDraft.sharedFilePaths = [];
+  forkDraft.origin = '';
+  logDebug('composer', 'forkDraft.closed', {});
+}
+
+export function addForkSharedFile(path) {
+  const value = (path || '').toString().trim();
+  if (!value) return false;
+  if (forkDraft.sharedFilePaths.includes(value)) return false;
+  forkDraft.sharedFilePaths.push(value);
+  logInfo('composer', 'forkDraft.shared_file.added', { path: value, total: forkDraft.sharedFilePaths.length });
+  return true;
+}
+
+export function removeForkSharedFile(path) {
+  const value = (path || '').toString().trim();
+  if (!value) return false;
+  const idx = forkDraft.sharedFilePaths.indexOf(value);
+  if (idx < 0) return false;
+  forkDraft.sharedFilePaths.splice(idx, 1);
+  logInfo('composer', 'forkDraft.shared_file.removed', { path: value, total: forkDraft.sharedFilePaths.length });
+  return true;
+}
+
+export function clearComposer() {
+  const attachmentCount = state.attachments.length;
+  draftController.clearCurrentDraft();
+  logDebug('composer', 'cleared', { attachment_count: attachmentCount });
+}
+
+export function removeAttachment(index) {
+  const target = state.attachments[index];
+  state.attachments.splice(index, 1);
+  logDebug('composer', 'attachment.removed', {
+    index,
+    name: target?.name || '',
+    count: state.attachments.length,
+  });
+}
+
+export function pushAttachment(attachment) {
+  const path = (attachment?.path || '').trim();
+  const previewUrl = (attachment?.previewUrl || '').trim();
+  const key = path || previewUrl;
+  if (!key) return;
+  if (state.attachments.some((item) => ((item.path || '').trim() || (item.previewUrl || '').trim()) === key)) return;
+  state.attachments.push({
+    ...attachment,
+    path,
+    previewUrl,
+  });
+  logInfo('composer', 'attachment.added', {
+    kind: attachment.kind,
+    name: attachment.name,
+    count: state.attachments.length,
+    has_path: Boolean(path),
+  });
+}
+
+function normalizeFileAttachment(path) {
+  const value = (path || '').trim();
+  if (!value) return null;
+  const parts = value.split(/[\\/]/);
+  const name = parts[parts.length - 1] || value;
+  const lower = name.toLowerCase();
+  const image = /\.(png|jpg|jpeg|gif|webp|bmp|svg)$/.test(lower);
+  return {
+    kind: image ? 'image' : 'file',
+    name,
+    path: value,
+    previewUrl: image ? `file://${value}` : '',
+  };
+}
+
+function collectDroppedFiles(event) {
+  const files = event?.dataTransfer?.files;
+  if (files && files.length > 0) return Array.from(files).filter(Boolean);
+
+  const items = event?.dataTransfer?.items;
+  if (!items || items.length === 0) return [];
+  const normalized = [];
+  for (const item of items) {
+    if (item?.kind !== 'file') continue;
+    const file = item.getAsFile?.();
+    if (file) normalized.push(file);
+  }
+  return normalized;
+}
+
+async function normalizeDroppedFileAttachment(file, index) {
+  const path = (file?.path || '').toString().trim();
+  if (path) return normalizeFileAttachment(path);
+
+  const type = (file?.type || '').toString().toLowerCase();
+  if (!type.startsWith('image/')) {
+    logWarn('composer', 'drop.file.ignored.noPath', {
+      name: (file?.name || '').toString(),
+      type,
+    });
+    return null;
+  }
+
+  const dataUrl = await blobToDataURL(file);
+  const base64 = dataUrl.split(',')[1] || '';
+  const tempPath = await saveClipboardImage(base64);
+  return {
+    kind: 'image',
+    name: (file?.name || `dropped-image-${Date.now()}-${index}.png`).toString(),
+    path: (tempPath || '').toString(),
+    previewUrl: dataUrl,
+  };
+}
+
+export async function attachByPicker() {
+  state.attaching = true;
+  const start = Date.now();
+  logInfo('composer', 'picker.start', {});
+  try {
+    const paths = await selectFiles();
+    const added = attachByPaths(paths, 'picker');
+    logInfo('composer', 'picker.done', {
+      selected: paths.length,
+      added,
+      duration_ms: Date.now() - start,
+    });
+  } catch (error) {
+    logWarn('composer', 'picker.failed', {
+      error,
+      duration_ms: Date.now() - start,
+    });
+  } finally {
+    state.attaching = false;
+  }
+}
+
+export function attachByPaths(paths, source = 'external') {
+  const list = Array.isArray(paths)
+    ? paths.map((item) => (item || '').toString().trim()).filter(Boolean)
+    : [];
+  if (list.length === 0) {
+    logDebug('composer', 'paths.ignored.empty', { source });
+    return 0;
+  }
+
+  let added = 0;
+  list.forEach((path) => {
+    const before = state.attachments.length;
+    const attachment = normalizeFileAttachment(path);
+    if (!attachment) return;
+    pushAttachment(attachment);
+    if (state.attachments.length > before) added += 1;
+  });
+
+  logInfo('composer', 'paths.done', {
+    source,
+    files: list.length,
+    added,
+    dropped: Math.max(list.length - added, 0),
+  });
+  return added;
+}
+
+const IMAGE_EXT_RE = /\.(png|jpe?g|gif|webp|bmp|svg)$/i;
+const IMAGE_REF_PLACEHOLDER_RE = /<image\s+name\s*=\s*\[?[^>\]]*\]?\s*>.*?<\/image>/i;
+
+function extractClipboardImages(event) {
+  const out = [];
+  const seen = new Set();
+  const push = (blob) => {
+    if (!blob || seen.has(blob)) return;
+    seen.add(blob);
+    out.push(blob);
+  };
+  const clipboard = event?.clipboardData;
+  if (!clipboard) return out;
+
+  const files = clipboard.files;
+  if (files && files.length > 0) {
+    for (const file of Array.from(files)) {
+      const type = (file?.type || '').toLowerCase();
+      const name = (file?.name || '').toLowerCase();
+      if (type.startsWith('image/') || IMAGE_EXT_RE.test(name)) push(file);
+    }
+  }
+
+  const items = clipboard.items;
+  if (items && items.length > 0) {
+    for (const item of Array.from(items)) {
+      if (!item) continue;
+      const type = (item.type || '').toLowerCase();
+      if (type.startsWith('image/')) {
+        const blob = item.getAsFile?.();
+        if (blob) push(blob);
+        continue;
+      }
+      if (item.kind === 'file' && typeof item.getAsFile === 'function') {
+        const blob = item.getAsFile();
+        if (!blob) continue;
+        const blobType = (blob.type || '').toLowerCase();
+        const blobName = (blob.name || '').toLowerCase();
+        if (blobType.startsWith('image/') || IMAGE_EXT_RE.test(blobName)) push(blob);
+      }
+    }
+  }
+  return out;
+}
+
+function describeClipboardShape(clipboard) {
+  const items = clipboard?.items;
+  const files = clipboard?.files;
+  const text = typeof clipboard?.getData === 'function' ? (clipboard.getData('text/plain') || '') : '';
+  return {
+    item_count: items?.length || 0,
+    file_count: files?.length || 0,
+    item_types: items ? Array.from(items).map((it) => `${it?.kind || '?'}:${it?.type || ''}`) : [],
+    text_preview: text.slice(0, 120),
+    has_image_ref_placeholder: IMAGE_REF_PLACEHOLDER_RE.test(text),
+  };
+}
+
+async function saveOnePastedImage(blob, index) {
+  const dataUrl = await blobToDataURL(blob);
+  const base64 = dataUrl.split(',')[1] || '';
+  const tempPath = await saveClipboardImage(base64);
+  pushAttachment({
+    kind: 'image',
+    name: (blob?.name || `screenshot-${Date.now()}-${index}.png`).toString(),
+    path: tempPath || '',
+    previewUrl: dataUrl,
+  });
+  logInfo('composer', 'paste.image.added', { has_path: Boolean(tempPath), index });
+}
+
+export async function handlePaste(event) {
+  const blobs = extractClipboardImages(event);
+  if (blobs.length === 0) {
+    const shape = describeClipboardShape(event?.clipboardData);
+    if (shape.has_image_ref_placeholder) {
+      logWarn('composer', 'paste.ignored.imageRefPlaceholder', shape);
+    } else {
+      logDebug('composer', 'paste.ignored', shape);
+    }
+    return false;
+  }
+
+  event.preventDefault();
+  let added = 0;
+  for (let index = 0; index < blobs.length; index += 1) {
+    try {
+      await saveOnePastedImage(blobs[index], index);
+      added += 1;
+    } catch (error) {
+      logWarn('composer', 'paste.image.failed', { error, index });
+    }
+  }
+  return added > 0;
+}
+
+export async function handleDrop(event) {
+  const files = collectDroppedFiles(event);
+  if (files.length === 0) {
+    logDebug('composer', 'drop.ignored.noFiles', {});
+    return false;
+  }
+
+  event.preventDefault();
+
+  let added = 0;
+  for (let index = 0; index < files.length; index += 1) {
+    const file = files[index];
+    try {
+      const attachment = await normalizeDroppedFileAttachment(file, index);
+      if (!attachment) continue;
+      pushAttachment(attachment);
+      added += 1;
+    } catch (error) {
+      logWarn('composer', 'drop.file.failed', {
+        name: (file?.name || '').toString(),
+        error,
+      });
+    }
+  }
+
+  logInfo('composer', 'drop.done', {
+    files: files.length,
+    added,
+    dropped: Math.max(files.length - added, 0),
+  });
+  return added > 0;
+}
+
+async function blobToDataURL(blob) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result || '');
+    reader.onerror = () => reject(reader.error || new Error('read blob failed'));
+    reader.readAsDataURL(blob);
+  });
+}
+
+function isVueContext() {
+  if (typeof window !== 'undefined' && window.__VUE_SETUP_ACTIVE__) return true;
+  if (typeof window !== 'undefined' && window.__REACT_APP_ACTIVE__) return false;
+  try {
+    const dispatcher =
+      React.__SECRET_INTERNALS_DO_NOT_USE_OR_YOU_WILL_BE_FIRED?.ReactCurrentDispatcher?.current ||
+      React.__CLIENT_INTERNALS_DO_NOT_USE_OR_WARN_USERS_THEY_CANNOT_UPGRADE?.H;
+    return !dispatcher;
+  } catch (e) {
+    return true;
+  }
+}
+
+export function useComposerStore() {
+  let stateSnapshot;
+  let isReact = true;
+  if (isVueContext()) {
+    stateSnapshot = state;
+    isReact = false;
+  } else {
+    try {
+      stateSnapshot = useStore(composerStoreVanilla);
+    } catch (e) {
+      stateSnapshot = state;
+      isReact = false;
+    }
+  }
+
+  const canSend = {
+    get value() {
+      let text, attachments;
+      if (isVueContext() || !isReact) {
+        text = state.text;
+        attachments = state.attachments;
+      } else {
+        text = stateSnapshot.text;
+        attachments = stateSnapshot.attachments;
+      }
+      return Boolean((text || '').trim()) || (attachments || []).length > 0;
+    }
+  };
+
+  const localForkDraft = {
+    get active() {
+      if (isVueContext() || !isReact) return forkDraft.active;
+      return stateSnapshot.forkActive;
+    },
+    get origin() {
+      if (isVueContext() || !isReact) return forkDraft.origin;
+      return stateSnapshot.forkOrigin;
+    },
+    get sharedFilePaths() {
+      if (isVueContext() || !isReact) return forkDraft.sharedFilePaths;
+      return stateSnapshot.forkSharedFilePaths;
+    }
+  };
+
+  return {
+    get state() {
+      if (isVueContext() || !isReact) {
+        return state;
+      }
+      return stateSnapshot;
+    },
+    canSend,
+    clearComposer,
+    removeAttachment,
+    attachByPicker,
+    attachByPaths,
+    handlePaste,
+    handleDrop,
+    activateDraft: draftController.activateDraft,
+    clearDraft: draftController.clearDraft,
+    restoreDraft: draftController.restoreDraft,
+    resetComposerDrafts: draftController.resetDrafts,
+    forkDraft: localForkDraft,
+    openForkDraft,
+    closeForkDraft,
+    addForkSharedFile,
+    removeForkSharedFile,
+  };
+}

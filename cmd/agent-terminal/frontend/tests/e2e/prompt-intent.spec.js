@@ -144,7 +144,7 @@ test('prompt intent global scope is visible across projects and project assets o
 
   await expect(page.getByTestId('sp-intent-wizard')).toHaveCount(0);
   await expect(page.getByTestId('sp-card-grid')).toContainText('SQLC 迁移审查专家');
-  await expect(page.locator('.sp-card').filter({ hasText: 'SQLC 迁移审查专家' }).first()).toContainText('所有项目');
+  await expect(page.locator('.sp-card').filter({ hasText: 'SQLC 迁移审查专家' }).first()).toContainText('全局可用');
 
   const commitCalls = await readMethodCalls(page, 'prompt-intents/commit');
   expect(commitCalls.at(-1)?.params).toMatchObject({
@@ -200,7 +200,7 @@ test('prompt intent blocked and default-rule conflict fixtures expose markers, a
   await page.getByTestId('sp-intent-dry-run-question').fill('这个规则会如何影响回答？');
   await page.getByTestId('sp-intent-dry-run-submit').click();
   await expect(page.getByTestId('sp-intent-dry-run-result')).toContainText('仅用于保存前验证');
-  await expect(page.getByTestId('sp-intent-dry-run-result')).toContainText('default_rule');
+  await expect(page.getByTestId('sp-intent-dry-run-result')).toContainText('默认规则');
   await expect(page.getByTestId('sp-intent-dry-run-result')).toContainText('这份草稿会建议先确认风险');
   const dryRunCalls = await readMethodCalls(page, 'prompt-intents/dry-run');
   expect(dryRunCalls).toHaveLength(1);
