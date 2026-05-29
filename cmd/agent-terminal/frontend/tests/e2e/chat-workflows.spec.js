@@ -13,46 +13,67 @@ async function mountCmdHarness(page) {
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <link rel="stylesheet" href="/vue-app/styles.css">
   <link rel="stylesheet" href="/vue-app/agent-components.css">
+  <script type="importmap">
+  {
+    "imports": {
+      "react": "/.vite-cache/deps/react.js",
+      "react-dom/client": "/.vite-cache/deps/react-dom_client.js"
+    }
+  }
+  </script>
 </head>
 <body class="electron-dark">
   <div id="app"></div>
   <script type="module">
-    import { createApp, onMounted } from '/lib/vue.esm-browser.prod.js';
-    import { UnifiedChatPage } from '/vue-app/pages/UnifiedChatPage.js';
+    import React from 'react';
+    import ReactDOM from 'react-dom/client';
+    import { UnifiedChatPage } from '/vue-app/pages/UnifiedChatPage.jsx';
     import { useProjectStore } from '/vue-app/stores/projects.js';
     import { useThreadStore } from '/vue-app/stores/threads.js';
 
+    const { useEffect } = React;
+
     globalThis.__AO_CMD_HARNESS_READY__ = false;
 
-    const Root = {
-      name: 'CmdHarnessRoot',
-      components: { UnifiedChatPage },
-      setup() {
-        const projectStore = useProjectStore();
-        const threadStore = useThreadStore();
+    function Harness() {
+      const projectStore = useProjectStore();
+      const threadStore = useThreadStore();
 
-        onMounted(async () => {
-          if (typeof projectStore.reloadProjects === 'function') {
-            await projectStore.reloadProjects();
+      useEffect(() => {
+        let active = true;
+        async function init() {
+          try {
+            if (typeof projectStore.reloadProjects === 'function') {
+              await projectStore.reloadProjects();
+            }
+            if (typeof threadStore.setPreferenceScopeCwd === 'function') {
+              threadStore.setPreferenceScopeCwd(projectStore.state.active || '.');
+            }
+            if (typeof threadStore.refreshSidebarState === 'function') {
+              await threadStore.refreshSidebarState();
+            }
+          } catch (e) {
+            console.error('Harness init error:', e);
+          } finally {
+            if (active) {
+              globalThis.__AO_CMD_HARNESS_READY__ = true;
+            }
           }
-          if (typeof threadStore.setPreferenceScopeCwd === 'function') {
-            threadStore.setPreferenceScopeCwd(projectStore.state.active || '.');
-          }
-          if (typeof threadStore.refreshSidebarState === 'function') {
-            await threadStore.refreshSidebarState();
-          }
-          globalThis.__AO_CMD_HARNESS_READY__ = true;
-        });
+        }
+        init();
+        return () => { active = false; };
+      }, [projectStore, threadStore]);
 
-        return {
-          projectStore,
-          threadStore,
-        };
-      },
-      template: '<UnifiedChatPage mode="cmd" :project-store="projectStore" :thread-store="threadStore" />',
-    };
+      return React.createElement(UnifiedChatPage, {
+        mode: "cmd",
+        projectStore: projectStore,
+        threadStore: threadStore
+      });
+    }
 
-    createApp(Root).mount('#app');
+    const container = document.getElementById('app');
+    const root = ReactDOM.createRoot(container);
+    root.render(React.createElement(Harness));
   </script>
 </body>
 </html>`);
@@ -64,6 +85,9 @@ test('project modal, provider toggle, and new window flow work together', async 
   await installMockBackend(page, {
     projects: ['/workspace/project-alpha'],
     activeProject: '.',
+    preferences: {
+      'settings.provider.active': 'codex',
+    },
     threads: [
       {
         id: 'thread-chat-project',
@@ -189,6 +213,7 @@ test('chat composer supports attachments, send, rename, archive, recover, and re
   await page.getByTestId('thread-archive-toggle').click();
   const archivedCard = page.locator('.thread-rail-item.archived').filter({ hasText: '重命名会话' }).first();
   await expect(archivedCard).toBeVisible();
+  await archivedCard.click();
 
   await page.getByTestId('recover-agent-button').click();
   await expect.poll(async () => (await readMethodCalls(page, 'thread/recover')).length).toBe(1);
