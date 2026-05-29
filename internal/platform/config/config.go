@@ -64,10 +64,36 @@ func New() (*Config, error) {
 
 func PrimeProcessEnvironment() (string, error) {
 	projectRoot := resolveProjectRoot()
+	if err := validateTrustedDevRuntimeMode(projectRoot); err != nil {
+		return "", err
+	}
 	if err := loadDotEnv(projectRoot); err != nil {
 		return "", err
 	}
 	return projectRoot, nil
+}
+
+func validateTrustedDevRuntimeMode(projectRoot string) error {
+	if !strings.EqualFold(strings.TrimSpace(os.Getenv("SUPER_DOLPHIN_RUNTIME_MODE")), "dev") {
+		return nil
+	}
+	packaged, err := hasPackagedRuntimeManifest(projectRoot)
+	if err != nil {
+		return err
+	}
+	if !packaged || trustedDevEntrypoint(os.Getenv("SUPER_DOLPHIN_DEV_ENTRYPOINT")) {
+		return nil
+	}
+	return fmt.Errorf("SUPER_DOLPHIN_RUNTIME_MODE=dev requires a trusted dev entrypoint and cannot downgrade packaged root %q", projectRoot)
+}
+
+func trustedDevEntrypoint(value string) bool {
+	switch strings.TrimSpace(value) {
+	case "run-debug.sh", "run-debug.ps1", "make run-agent-terminal-debug", "make run-agent-terminal-debug-plain":
+		return true
+	default:
+		return false
+	}
 }
 
 func loadDotEnv(projectRoot string) error {

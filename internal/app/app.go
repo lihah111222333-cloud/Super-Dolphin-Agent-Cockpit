@@ -167,19 +167,19 @@ func runDesktopPreflight(ctx context.Context) error {
 }
 
 func ensurePackagedCodexBootstrap(ctx context.Context, projectRoot string) error {
+	required, err := packagedCodexRelayRequired(projectRoot)
+	if err != nil {
+		return err
+	}
+	if !required {
+		return nil
+	}
 	baseURL, bootstrapToken, configured, err := codexRelayBootstrapEnv()
 	if err != nil {
 		return err
 	}
 	if !configured {
-		required, err := packagedCodexRelayRequired(projectRoot)
-		if err != nil {
-			return err
-		}
-		if required {
-			return fmt.Errorf("packaged Codex relay config missing: set %s and %s in %s or the process environment", codexRelayBaseURLEnv, codexRelayBootstrapTokenEnv, filepath.Join(projectRoot, ".env"))
-		}
-		return nil
+		return fmt.Errorf("packaged Codex relay config missing: set %s and %s in %s or the process environment", codexRelayBaseURLEnv, codexRelayBootstrapTokenEnv, filepath.Join(projectRoot, ".env"))
 	}
 	home, err := codexAppManagedHomeForDesktop()
 	if err != nil {

@@ -240,6 +240,7 @@ func TestPrimeProcessEnvironmentFailsFastForPackagedDotEnvErrors(t *testing.T) {
 func TestPrimeProcessEnvironmentReturnsDotEnvSetenvError(t *testing.T) {
 	root := t.TempDir()
 	t.Setenv("PROJECT_ROOT", root)
+	t.Setenv("LOG_LEVEL", "")
 	if err := os.WriteFile(filepath.Join(root, "runtime-manifest.json"), []byte("{}\n"), 0o600); err != nil {
 		t.Fatalf("write runtime manifest marker: %v", err)
 	}

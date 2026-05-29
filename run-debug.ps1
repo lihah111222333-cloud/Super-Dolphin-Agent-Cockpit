@@ -385,6 +385,13 @@ Write-Host "> 模式: $Label"
 Write-Host "> 目录: $BuildDir"
 Write-Host '------------------------------------'
 
+$DevDatabaseUrl = 'postgres://postgres:123@127.0.0.1:5432/go_agent_v2?sslmode=disable'
+if (-not $env:DATABASE_URL) { $env:DATABASE_URL = $DevDatabaseUrl }
+$DbUrl = $env:DATABASE_URL
+$env:SUPER_DOLPHIN_RUNTIME_MODE = 'dev'
+$env:SUPER_DOLPHIN_DEV_ENTRYPOINT = 'run-debug.ps1'
+Write-Host "> Dev DB DSN: $DbUrl"
+
 # memory 子系统默认开关（与 sh 一致，避免内存中心 UI 显示 "system off" 横幅）
 if (-not $env:ENABLE_MEMORY_SYSTEM)               { $env:ENABLE_MEMORY_SYSTEM = '1' }
 if (-not $env:ENABLE_MEMORY_TOOLS)                { $env:ENABLE_MEMORY_TOOLS  = '1' }

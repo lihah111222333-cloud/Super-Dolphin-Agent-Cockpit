@@ -38,6 +38,11 @@ func (d *driver) prepareStartSessionRequest(ctx context.Context, req dto.StartSe
 	if err != nil {
 		return req, err
 	}
+	if providerHome.explicitAppManagedHome {
+		if err := validateAppManagedRelayLaunchEnv(); err != nil {
+			return req, err
+		}
+	}
 	home, mirrorHome, err := ensureResolvedCodexProviderHome(providerHome)
 	if err != nil {
 		return req, err
@@ -72,6 +77,11 @@ func (d *driver) prepareResumeSessionRequest(ctx context.Context, req dto.Resume
 	providerHome, err := selectCodexProviderHome(requestedHome)
 	if err != nil {
 		return req, err
+	}
+	if providerHome.explicitAppManagedHome {
+		if err := validateAppManagedRelayLaunchEnv(); err != nil {
+			return req, err
+		}
 	}
 	home, mirrorHome, err := ensureResolvedCodexProviderHome(providerHome)
 	if err != nil {
@@ -110,9 +120,10 @@ func normalizedExplicitProviderHome(rawHome, normalizedHome string) string {
 }
 
 type codexProviderHomeSelection struct {
-	homeRequest       string
-	mirrorHomeRequest string
-	useAppManagedHome bool
+	homeRequest            string
+	mirrorHomeRequest      string
+	useAppManagedHome      bool
+	explicitAppManagedHome bool
 }
 
 func ensureResolvedCodexProviderHome(selection codexProviderHomeSelection) (home, mirrorHome string, err error) {
@@ -130,6 +141,25 @@ func ensureResolvedCodexProviderHome(selection codexProviderHomeSelection) (home
 	return home, normalizedExplicitProviderHome(selection.mirrorHomeRequest, home), nil
 }
 
+func validateAppManagedRelayLaunchEnv() error {
+	if strings.TrimSpace(os.Getenv("SUPER_DOLPHIN_CODEX_RELAY_API_KEY")) != "" {
+		return errors.New("app-managed Codex relay config: SUPER_DOLPHIN_CODEX_RELAY_API_KEY is privileged and must not be inherited by app-managed launches")
+	}
+	baseURL := strings.TrimSpace(os.Getenv("SUPER_DOLPHIN_CODEX_RELAY_BASE_URL"))
+	bootstrapToken := strings.TrimSpace(os.Getenv(codexRelayBootstrapTokenEnv))
+	if baseURL == "" && bootstrapToken == "" {
+		return nil
+	}
+	var problems []error
+	if baseURL == "" {
+		problems = append(problems, errors.New("app-managed Codex relay config: SUPER_DOLPHIN_CODEX_RELAY_BASE_URL is required when SUPER_DOLPHIN_CODEX_RELAY_BOOTSTRAP_TOKEN is set"))
+	}
+	if bootstrapToken == "" {
+		problems = append(problems, errors.New("app-managed Codex relay config: SUPER_DOLPHIN_CODEX_RELAY_BOOTSTRAP_TOKEN is required when SUPER_DOLPHIN_CODEX_RELAY_BASE_URL is set"))
+	}
+	return errors.Join(problems...)
+}
+
 func selectCodexProviderHome(rawHome string) (codexProviderHomeSelection, error) {
 	if strings.TrimSpace(rawHome) == "" {
 		return codexProviderHomeSelection{useAppManagedHome: true}, nil
@@ -139,14 +169,14 @@ func selectCodexProviderHome(rawHome string) (codexProviderHomeSelection, error)
 		return codexProviderHomeSelection{}, err
 	}
 	if matchesAppManagedCodexHome(requested) {
-		return codexProviderHomeSelection{useAppManagedHome: true}, nil
+		return codexProviderHomeSelection{useAppManagedHome: true, explicitAppManagedHome: true}, nil
 	}
 	legacy, err := legacyAppManagedCodexHome()
 	if err != nil {
 		return codexProviderHomeSelection{}, err
 	}
 	if filepath.Clean(requested) == filepath.Clean(legacy) {
-		return codexProviderHomeSelection{useAppManagedHome: true}, nil
+		return codexProviderHomeSelection{useAppManagedHome: true, explicitAppManagedHome: true}, nil
 	}
 	if matchesDefaultCodexCLIHome(requested) {
 		return codexProviderHomeSelection{}, nil
