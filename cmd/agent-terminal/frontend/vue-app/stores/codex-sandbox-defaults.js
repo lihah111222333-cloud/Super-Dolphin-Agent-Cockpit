@@ -37,6 +37,22 @@ export function normalizeCodexSandboxPreference(value) {
   return null;
 }
 
+function defaultCodexLaunchSandbox(cwd) {
+  const root = normalizeProviderConfigValue(cwd);
+  const writableRoots = root && root !== '.' ? [root] : [];
+  return {
+    mode: 'workspace-write',
+    writable_roots: writableRoots,
+    network_access: false,
+  };
+}
+
+export function buildCodexLaunchSandboxPreference(value, cwd) {
+  const explicit = normalizeCodexSandboxPreference(value);
+  if (explicit) return explicit;
+  return defaultCodexLaunchSandbox(cwd);
+}
+
 function codexSandboxPayload(value, payload = {}) {
   const mode = (value || '').toString().trim();
   if (mode === 'readOnly' || mode === 'read-only') {

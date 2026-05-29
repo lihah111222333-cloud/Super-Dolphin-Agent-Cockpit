@@ -86,10 +86,11 @@ function codexIdentityConfig(overrides = {}) {
   return { ...overrides };
 }
 
-function codexStartConfig(overrides = {}) {
-  return {
-    ...withCodexLspToolDefaults(codexIdentityConfig(overrides)),
-  };
+function codexStartConfig(overrides = {}, cwd = '/repo') {
+  const config = { ...withCodexLspToolDefaults(codexIdentityConfig(overrides)) };
+  const writableRoots = cwd && cwd !== '.' ? [cwd] : [];
+  if (!Object.prototype.hasOwnProperty.call(config, 'sandbox')) config.sandbox = { mode: 'workspace-write', writable_roots: writableRoots, network_access: false };
+  return config;
 }
 
 function resetThreadStore(store) {
@@ -449,7 +450,7 @@ describe('thread store actions', () => {
     expect(apiMock.callAPI).toHaveBeenCalledWith('thread/start', {
       cwd: '/repo-x',
       modelProvider: 'codex',
-      config: codexStartConfig(),
+      config: codexStartConfig({}, '/repo-x'),
       prompt_key: 'main/launch-fav',
     });
   });

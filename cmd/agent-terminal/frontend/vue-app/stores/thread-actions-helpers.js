@@ -11,7 +11,7 @@ import {
 import { _optimisticThreadIds, OPTIMISTIC_LEAK_GUARD_MS } from './thread-optimistic.js';
 import { resolveBuiltinToolLaunchPolicy } from './builtin-tool-policy.js';
 import { withCodexLspToolDefaults } from './codex-lsp-defaults.js';
-import { buildCodexIdentityConfig, normalizeCodexSandboxPreference } from './codex-sandbox-defaults.js';
+import { buildCodexIdentityConfig, buildCodexLaunchSandboxPreference } from './codex-sandbox-defaults.js';
 import { resolveActiveProviderPreference, resolveProviderConfigPreference, resolveScopedProviderPreference } from './provider-preferences.js';
 import { compactFailureResult, dialogTimelineSignature, tokenUsageSignature, waitForCompactResponse } from './thread-compact-helpers.js';
 import { maybeHandleStalePromptKey } from './thread-stale-prompt.js';
@@ -419,8 +419,7 @@ export async function startThread(ctx, cwd = '.', options = {}) {
     // Codex pool routing is strict by default; always make the identity
     // explicit in thread/start instead of relying on process-level env fallback.
     payload.config = withCodexLspToolDefaults(buildCodexIdentityConfig(codexHomeResolved.value, codexInstanceKeyResolved.value, codexModelProviderResolved.value));
-    const sandbox = normalizeCodexSandboxPreference(sandboxResolved.value);
-    if (sandbox) payload.config.sandbox = sandbox;
+    payload.config.sandbox = buildCodexLaunchSandboxPreference(sandboxResolved.value, cwd);
   }
   // Provider model/effort forwarding: caller override > explicit settings
   // preference > omit. Omitted values are filled by the backend/provider

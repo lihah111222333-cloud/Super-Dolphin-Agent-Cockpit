@@ -88,19 +88,31 @@ describe('thread store Codex sandbox payload', () => {
     resetThreadStore(useThreadStore());
   });
 
-  it('omits config.sandbox when the Codex sandbox preference is undefined', async () => {
+  it('uses workspace-write launch sandbox when the Codex sandbox preference is undefined', async () => {
     const startPayload = await startWithSandbox(undefined);
-    expect(startPayload?.config).not.toHaveProperty('sandbox');
+    expect(startPayload?.config?.sandbox).toEqual({
+      mode: 'workspace-write',
+      writable_roots: ['/repo'],
+      network_access: false,
+    });
   });
 
-  it('omits config.sandbox when the Codex sandbox preference is a stringified undefined sentinel', async () => {
+  it('uses workspace-write launch sandbox when the Codex sandbox preference is a stringified undefined sentinel', async () => {
     const startPayload = await startWithSandbox('undefined');
-    expect(startPayload?.config).not.toHaveProperty('sandbox');
+    expect(startPayload?.config?.sandbox).toEqual({
+      mode: 'workspace-write',
+      writable_roots: ['/repo'],
+      network_access: false,
+    });
   });
 
-  it('omits config.sandbox when the Codex sandbox preference is an empty object', async () => {
+  it('uses workspace-write launch sandbox when the Codex sandbox preference is an empty object', async () => {
     const startPayload = await startWithSandbox({});
-    expect(startPayload?.config).not.toHaveProperty('sandbox');
+    expect(startPayload?.config?.sandbox).toEqual({
+      mode: 'workspace-write',
+      writable_roots: ['/repo'],
+      network_access: false,
+    });
   });
 
   it('forwards canonical snake_case workspace-write sandbox fields', async () => {
