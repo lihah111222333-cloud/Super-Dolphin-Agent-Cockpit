@@ -24,7 +24,8 @@ func TestDevLocalCodexLaunchIgnoresResidualRelayEnv(t *testing.T) {
 	}
 }
 
-func TestExplicitAppManagedCodexLaunchFailsFastWithPartialRelayEnv(t *testing.T) {
+func TestPackagedAppManagedCodexLaunchFailsFastWithPartialRelayEnv(t *testing.T) {
+	t.Setenv(contract.RuntimeModeEnv, contract.RuntimeModePackaged)
 	t.Setenv("SUPER_DOLPHIN_CODEX_RELAY_BASE_URL", "https://relay.example.test/v1")
 	t.Setenv("SUPER_DOLPHIN_CODEX_RELAY_BOOTSTRAP_TOKEN", "")
 	d := &driver{mirror: &recordingSkillMirrorReconciler{}}
@@ -41,7 +42,8 @@ func TestExplicitAppManagedCodexLaunchFailsFastWithPartialRelayEnv(t *testing.T)
 	}
 }
 
-func TestExplicitAppManagedCodexLaunchRejectsPrivilegedRelayAPIKey(t *testing.T) {
+func TestPackagedAppManagedCodexLaunchRejectsPrivilegedRelayAPIKey(t *testing.T) {
+	t.Setenv(contract.RuntimeModeEnv, contract.RuntimeModePackaged)
 	t.Setenv("SUPER_DOLPHIN_CODEX_RELAY_API_KEY", "privileged")
 	d := &driver{mirror: &recordingSkillMirrorReconciler{}}
 	_, err := d.prepareStartSessionRequest(context.Background(), dto.StartSessionRequest{

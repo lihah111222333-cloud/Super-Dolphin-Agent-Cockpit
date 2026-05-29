@@ -8,12 +8,15 @@ import (
 	"net"
 	"net/url"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
+	providershared "github.com/anthropic-ai/super-agent-v3/internal/provider/shared"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 	"github.com/gorilla/websocket"
 )
@@ -484,4 +487,91 @@ func validateTrustedCodexMirrorURL(parsed *url.URL, label string) error {
 func isLoopbackHost(host string) bool {
 	host = strings.Trim(strings.ToLower(host), "[]")
 	return host == "localhost" || strings.HasPrefix(host, "127.") || host == "::1"
+}
+
+type codexProviderHomeSelection struct {
+	homeRequest            string
+	mirrorHomeRequest      string
+	useAppManagedHome      bool
+	explicitAppManagedHome bool
+}
+
+func ensureResolvedCodexProviderHome(selection codexProviderHomeSelection) (home, mirrorHome string, err error) {
+	if selection.useAppManagedHome {
+		home, err = providershared.EnsureAppManagedProviderHome(providershared.ProviderCodex)
+		if err != nil {
+			return "", "", err
+		}
+		return home, home, nil
+	}
+	home, err = providershared.EnsureProviderHome(providershared.ProviderCodex, selection.homeRequest)
+	if err != nil {
+		return "", "", err
+	}
+	return home, normalizedExplicitProviderHome(selection.mirrorHomeRequest, home), nil
+}
+
+func validateAppManagedRelayLaunchEnv() error {
+	if strings.TrimSpace(os.Getenv("SUPER_DOLPHIN_CODEX_RELAY_API_KEY")) != "" {
+		return errors.New("app-managed Codex relay config: SUPER_DOLPHIN_CODEX_RELAY_API_KEY is privileged and must not be inherited by app-managed launches")
+	}
+	baseURL := strings.TrimSpace(os.Getenv("SUPER_DOLPHIN_CODEX_RELAY_BASE_URL"))
+	bootstrapToken := strings.TrimSpace(os.Getenv(codexRelayBootstrapTokenEnv))
+	if baseURL == "" && bootstrapToken == "" {
+		return nil
+	}
+	var problems []error
+	if baseURL == "" {
+		problems = append(problems, errors.New("app-managed Codex relay config: SUPER_DOLPHIN_CODEX_RELAY_BASE_URL is required when SUPER_DOLPHIN_CODEX_RELAY_BOOTSTRAP_TOKEN is set"))
+	}
+	if bootstrapToken == "" {
+		problems = append(problems, errors.New("app-managed Codex relay config: SUPER_DOLPHIN_CODEX_RELAY_BOOTSTRAP_TOKEN is required when SUPER_DOLPHIN_CODEX_RELAY_BASE_URL is set"))
+	}
+	return errors.Join(problems...)
+}
+
+func selectCodexProviderHome(rawHome string) (codexProviderHomeSelection, error) {
+	packaged, err := contract.PackagedRuntimeFromEnv()
+	if err != nil {
+		return codexProviderHomeSelection{}, err
+	}
+	if strings.TrimSpace(rawHome) == "" {
+		return selectEmptyCodexProviderHome(packaged), nil
+	}
+	requested, err := comparableCodexHomePath(rawHome)
+	if err != nil {
+		return codexProviderHomeSelection{}, err
+	}
+	useAppManaged, err := requestedCodexHomeIsAppManaged(packaged, requested)
+	if err != nil {
+		return codexProviderHomeSelection{}, err
+	}
+	if useAppManaged {
+		return codexProviderHomeSelection{useAppManagedHome: true, explicitAppManagedHome: true}, nil
+	}
+	if matchesDefaultCodexCLIHome(requested) {
+		return codexProviderHomeSelection{}, nil
+	}
+	return codexProviderHomeSelection{homeRequest: rawHome, mirrorHomeRequest: rawHome}, nil
+}
+
+func selectEmptyCodexProviderHome(packaged bool) codexProviderHomeSelection {
+	if packaged {
+		return codexProviderHomeSelection{useAppManagedHome: true, explicitAppManagedHome: true}
+	}
+	return codexProviderHomeSelection{}
+}
+
+func requestedCodexHomeIsAppManaged(packaged bool, requested string) (bool, error) {
+	if !packaged {
+		return false, nil
+	}
+	if matchesAppManagedCodexHome(requested) {
+		return true, nil
+	}
+	legacy, err := legacyAppManagedCodexHome()
+	if err != nil {
+		return false, err
+	}
+	return filepath.Clean(requested) == filepath.Clean(legacy), nil
 }

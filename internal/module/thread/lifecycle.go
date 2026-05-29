@@ -71,7 +71,10 @@ func (s *service) prepareStartRequest(ctx context.Context, req StartRequest) (St
 		return req, "", nil, err
 	}
 	req = s.injectParentCodexIdentityForStart(ctx, req)
-	req = s.injectDefaultCodexIdentityForStart(req)
+	req, err = s.injectDefaultCodexIdentityForStart(req)
+	if err != nil {
+		return req, "", nil, err
+	}
 	agentID, releaseAgentID, err := s.reserveUniqueStartAgentID(ctx, req, agentID, callerProvidedID)
 	if err != nil {
 		return req, "", nil, err

@@ -209,7 +209,8 @@ func providerProjectMirrorRoot(provider, projectRoot string) string {
 }
 
 func packagedProjectMirrorEnabled(projectRoot string) bool {
-	if strings.TrimSpace(os.Getenv(PackagedCodexEnv)) != "1" {
+	packaged, err := contract.PackagedRuntimeFromEnv()
+	if err != nil || !packaged {
 		return false
 	}
 	home := strings.TrimSpace(os.Getenv(SuperDolphinHomeEnv))
@@ -237,14 +238,11 @@ func sameProviderPath(left, right string) bool {
 }
 
 func appManagedSuperDolphinHome() (string, error) {
-	if override := strings.TrimSpace(os.Getenv(SuperDolphinHomeEnv)); override != "" {
-		return absCleanPath(override)
+	override := strings.TrimSpace(os.Getenv(SuperDolphinHomeEnv))
+	if override == "" {
+		return "", fmt.Errorf("%s is required for app-managed provider home", SuperDolphinHomeEnv)
 	}
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return "", fmt.Errorf("resolve user home: %w", err)
-	}
-	return absCleanPath(filepath.Join(home, ".super-dolphin"))
+	return absCleanPath(override)
 }
 
 func providerProjectRoot(cwd string) (string, error) {
