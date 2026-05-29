@@ -238,14 +238,11 @@ func sameProviderPath(left, right string) bool {
 }
 
 func appManagedSuperDolphinHome() (string, error) {
-	if override := strings.TrimSpace(os.Getenv(SuperDolphinHomeEnv)); override != "" {
-		return absCleanPath(override)
+	override := strings.TrimSpace(os.Getenv(SuperDolphinHomeEnv))
+	if override == "" {
+		return "", fmt.Errorf("%s is required for app-managed provider home", SuperDolphinHomeEnv)
 	}
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return "", fmt.Errorf("resolve user home: %w", err)
-	}
-	return absCleanPath(filepath.Join(home, ".super-dolphin"))
+	return absCleanPath(override)
 }
 
 func providerProjectRoot(cwd string) (string, error) {

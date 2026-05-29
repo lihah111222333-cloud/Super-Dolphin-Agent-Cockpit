@@ -137,7 +137,10 @@ func (s *service) hydrateResumeSessionRequest(ctx context.Context, req ResumeReq
 	req.CodexModelProvider = util.FirstNonEmpty(req.CodexModelProvider, state.CodexModelProvider)
 	req.CodexDisabledNativeTools = resolveResumeCodexDisabledNativeTools(req.CodexDisabledNativeTools, state.ConfigOverride.Runtime)
 	req.Config = mergeRuntimeConfig(clone.RuntimeConfigMap(state.ConfigOverride.Runtime), req.Config)
-	req = s.injectDefaultCodexIdentityForResume(req)
+	req, err = s.injectDefaultCodexIdentityForResume(req)
+	if err != nil {
+		return ResumeRequest{}, err
+	}
 	req.PromptSnapshot, err = s.resolveResumePromptSnapshot(ctx, req, state)
 	if err != nil {
 		return ResumeRequest{}, err

@@ -387,3 +387,12 @@ func TestProviderHomeDevEmptyIgnoresPackagedLeftovers(t *testing.T) {
 		t.Fatalf("codex personal mirror = %#v, want user provider mirror, not app-managed", targets[0])
 	}
 }
+
+func TestAppManagedProviderHomeRequiresSuperDolphinHome(t *testing.T) {
+	t.Setenv(SuperDolphinHomeEnv, "")
+
+	got, err := AppManagedProviderHome(ProviderCodex)
+	if err == nil || !strings.Contains(err.Error(), SuperDolphinHomeEnv) {
+		t.Fatalf("AppManagedProviderHome() = %q, %v; want missing runtime home error", got, err)
+	}
+}

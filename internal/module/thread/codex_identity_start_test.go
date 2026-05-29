@@ -8,12 +8,36 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 )
 
+const (
+	legacyDefaultCodexHomeEnvVar  = "CODEXAPP_ALLOW_LEGACY_DEFAULT_HOME"
+	legacyDefaultCodexHomeEnabled = "1"
+	packagedCodexIdentityEnvVar   = "SUPER_DOLPHIN_PACKAGED_CODEX_IDENTITY"
+)
+
+func mustInjectDefaultCodexIdentityForStart(t *testing.T, req StartRequest) StartRequest {
+	t.Helper()
+	got, err := (&service{}).injectDefaultCodexIdentityForStart(req)
+	if err != nil {
+		t.Fatalf("injectDefaultCodexIdentityForStart() error = %v", err)
+	}
+	return got
+}
+
+func mustInjectDefaultCodexIdentityForResume(t *testing.T, req ResumeRequest) ResumeRequest {
+	t.Helper()
+	got, err := (&service{}).injectDefaultCodexIdentityForResume(req)
+	if err != nil {
+		t.Fatalf("injectDefaultCodexIdentityForResume() error = %v", err)
+	}
+	return got
+}
+
 func TestInjectDefaultCodexIdentityForStartIgnoresLegacyCodexHomeOptIn(t *testing.T) {
 	t.Setenv("CODEX_HOME", t.TempDir())
 	t.Setenv(legacyDefaultCodexHomeEnvVar, legacyDefaultCodexHomeEnabled)
 	t.Setenv("SUPER_DOLPHIN_RUNTIME_MODE", "dev")
 
-	got := (&service{}).injectDefaultCodexIdentityForStart(StartRequest{Provider: "codex"})
+	got := mustInjectDefaultCodexIdentityForStart(t, StartRequest{Provider: "codex"})
 	if got.Config != nil {
 		t.Fatalf("legacy default identity = %#v, want nil without packaged runtime capability", got.Config)
 	}
@@ -29,7 +53,7 @@ func TestInjectDefaultCodexIdentityForStartUsesPackagedCodexHome(t *testing.T) {
 	t.Setenv(legacyDefaultCodexHomeEnvVar, "")
 	t.Setenv(packagedCodexIdentityEnvVar, legacyDefaultCodexHomeEnabled)
 
-	got := (&service{}).injectDefaultCodexIdentityForStart(StartRequest{Provider: "codex"})
+	got := mustInjectDefaultCodexIdentityForStart(t, StartRequest{Provider: "codex"})
 	wantHome, err := contract.CanonicalizeCodexHome(filepath.Join(superHome, "providers", "codex"))
 	if err != nil {
 		t.Fatalf("CanonicalizeCodexHome() error = %v", err)
@@ -55,7 +79,7 @@ func TestInjectDefaultCodexIdentityForStartCompletesPackagedPartialIdentity(t *t
 		"codexModelProvider": defaultCodexModelProvider,
 	}
 
-	got := (&service{}).injectDefaultCodexIdentityForStart(StartRequest{Provider: "codex", Config: cfg})
+	got := mustInjectDefaultCodexIdentityForStart(t, StartRequest{Provider: "codex", Config: cfg})
 	wantHome, err := contract.CanonicalizeCodexHome(filepath.Join(superHome, "providers", "codex"))
 	if err != nil {
 		t.Fatalf("CanonicalizeCodexHome() error = %v", err)
@@ -76,7 +100,7 @@ func TestInjectDefaultCodexIdentityForStartPreservesExplicitIdentity(t *testing.
 		"codexModelProvider": "glm-compat",
 	}
 
-	got := (&service{}).injectDefaultCodexIdentityForStart(StartRequest{Provider: "codex", Config: cfg})
+	got := mustInjectDefaultCodexIdentityForStart(t, StartRequest{Provider: "codex", Config: cfg})
 	if got.Config["codexInstanceKey"] != "glm" || got.Config["codexModelProvider"] != "glm-compat" {
 		t.Fatalf("explicit identity overwritten: %#v", got.Config)
 	}
@@ -87,7 +111,7 @@ func TestInjectDefaultCodexIdentityForStartRequiresLegacyOptIn(t *testing.T) {
 	t.Setenv(legacyDefaultCodexHomeEnvVar, "")
 	t.Setenv(packagedCodexIdentityEnvVar, "")
 
-	got := (&service{}).injectDefaultCodexIdentityForStart(StartRequest{Provider: "codex"})
+	got := mustInjectDefaultCodexIdentityForStart(t, StartRequest{Provider: "codex"})
 	if got.Config != nil {
 		t.Fatalf("default identity without opt-in = %#v, want nil", got.Config)
 	}
@@ -98,7 +122,7 @@ func TestInjectDefaultCodexIdentityForResumeRequiresLegacyOptIn(t *testing.T) {
 	t.Setenv(legacyDefaultCodexHomeEnvVar, "")
 	t.Setenv(packagedCodexIdentityEnvVar, "")
 
-	got := (&service{}).injectDefaultCodexIdentityForResume(ResumeRequest{Provider: "codex"})
+	got := mustInjectDefaultCodexIdentityForResume(t, ResumeRequest{Provider: "codex"})
 	if got.CodexHome != "" || got.CodexInstanceKey != "" || got.CodexModelProvider != "" {
 		t.Fatalf("resume identity without opt-in = %#v, want empty identity", got)
 	}
@@ -107,7 +131,7 @@ func TestInjectDefaultCodexIdentityForResumeRequiresLegacyOptIn(t *testing.T) {
 func TestInjectDefaultCodexIdentityForStartSkipsNonCodex(t *testing.T) {
 	t.Setenv("CODEX_HOME", t.TempDir())
 
-	got := (&service{}).injectDefaultCodexIdentityForStart(StartRequest{Provider: "claude"})
+	got := mustInjectDefaultCodexIdentityForStart(t, StartRequest{Provider: "claude"})
 	if got.Config != nil {
 		t.Fatalf("non-codex config = %#v, want nil", got.Config)
 	}
@@ -120,7 +144,7 @@ func TestInjectDefaultCodexIdentityForStartDevRuntimeIgnoresPackagedLeftovers(t 
 	t.Setenv(packagedCodexIdentityEnvVar, legacyDefaultCodexHomeEnabled)
 	t.Setenv(legacyDefaultCodexHomeEnvVar, legacyDefaultCodexHomeEnabled)
 
-	got := (&service{}).injectDefaultCodexIdentityForStart(StartRequest{Provider: "codex"})
+	got := mustInjectDefaultCodexIdentityForStart(t, StartRequest{Provider: "codex"})
 	if got.Config != nil {
 		t.Fatalf("dev empty codex identity = %#v, want no injected codexHome/instance/modelProvider", got.Config)
 	}
@@ -137,7 +161,7 @@ func TestInjectDefaultCodexIdentityForStartPackagedRuntimeCompletesAppManagedIde
 	t.Setenv(packagedCodexIdentityEnvVar, "")
 	t.Setenv(legacyDefaultCodexHomeEnvVar, "")
 
-	got := (&service{}).injectDefaultCodexIdentityForStart(StartRequest{Provider: "codex"})
+	got := mustInjectDefaultCodexIdentityForStart(t, StartRequest{Provider: "codex"})
 	wantHome, err := contract.CanonicalizeCodexHome(filepath.Join(superHome, "providers", "codex"))
 	if err != nil {
 		t.Fatalf("CanonicalizeCodexHome() error = %v", err)
@@ -159,7 +183,7 @@ func TestInjectDefaultCodexIdentityForStartPackagedRuntimePreservesExplicitIdent
 		"codexModelProvider": "custom-provider",
 	}
 
-	got := (&service{}).injectDefaultCodexIdentityForStart(StartRequest{Provider: "codex", Config: cfg})
+	got := mustInjectDefaultCodexIdentityForStart(t, StartRequest{Provider: "codex", Config: cfg})
 	if got.Config["codexHome"] != explicitHome || got.Config["codexInstanceKey"] != "custom-instance" || got.Config["codexModelProvider"] != "custom-provider" {
 		t.Fatalf("explicit identity overwritten: %#v", got.Config)
 	}

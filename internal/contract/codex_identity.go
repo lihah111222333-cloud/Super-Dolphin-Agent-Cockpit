@@ -174,14 +174,18 @@ func PackagedRuntimeFromEnv() (bool, error) {
 	return mode == RuntimeModePackaged, nil
 }
 
+func CanonicalAppManagedCodexHome() (string, error) {
+	raw, err := AppManagedCodexHome()
+	if err != nil {
+		return "", err
+	}
+	return CanonicalizeCodexHome(raw)
+}
+
 func AppManagedCodexHome() (string, error) {
 	base := strings.TrimSpace(os.Getenv(SuperDolphinHomeEnv))
 	if base == "" {
-		home, err := UserHomeDir()
-		if err != nil {
-			return "", fmt.Errorf("resolve user home: %w", err)
-		}
-		base = filepath.Join(home, ".super-dolphin")
+		return "", fmt.Errorf("%s is required for app-managed codex home", SuperDolphinHomeEnv)
 	}
 	base = filepath.Clean(os.ExpandEnv(base))
 	if !filepath.IsAbs(base) {
