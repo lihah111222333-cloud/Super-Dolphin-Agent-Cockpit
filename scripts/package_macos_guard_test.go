@@ -507,3 +507,34 @@ func TestVerifyPackagedAppMacOSRejectsRuntimeManifestMismatch(t *testing.T) {
 		t.Fatalf("expected bundled_codex_path mismatch error, got:\n%s", output)
 	}
 }
+
+func TestVerifyPackagedAppMacOSRejectsRuntimeManifestSymlinkEscape(t *testing.T) {
+	app := writeMinimalPackagedMacOSApp(t)
+	resources := filepath.Join(app, "Contents", "Resources")
+	writeRuntimeManifest(t, resources, map[string]string{
+		"bundled_codex_path":              "bin/codex",
+		"bundled_gopls_path":              "bin/gopls",
+		"lsp_bundle_path":                 "lsp",
+		"lsp_manifest_path":               "lsp/lsp-manifest.json",
+		"model_registry_path":             "models.yaml",
+		"embedded_postgres_resource_path": "postgres/" + runtime.GOOS + "-" + runtime.GOARCH,
+	})
+	outside := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(outside, runtime.GOOS+"-"+runtime.GOARCH), 0o755); err != nil {
+		t.Fatalf("mkdir escaped postgres: %v", err)
+	}
+	if err := os.RemoveAll(filepath.Join(resources, "postgres")); err != nil {
+		t.Fatalf("remove bundled postgres: %v", err)
+	}
+	if err := os.Symlink(outside, filepath.Join(resources, "postgres")); err != nil {
+		t.Fatalf("symlink escaped postgres: %v", err)
+	}
+
+	output, err := runVerifyPackagedAppMacOS(t, app)
+	if err == nil {
+		t.Fatalf("expected packaged app verifier to reject symlink escape, got success:\n%s", output)
+	}
+	if !strings.Contains(output, "escapes Contents/Resources") {
+		t.Fatalf("expected runtime manifest symlink escape error, got:\n%s", output)
+	}
+}

@@ -110,6 +110,36 @@ require_manifest_relative_path() {
   esac
 }
 
+canonical_existing_path() {
+  local target="$1"
+  if [[ -d "$target" ]]; then
+    (cd -P "$target" && pwd)
+    return
+  fi
+  local dir base physical_dir
+  dir="$(dirname "$target")"
+  base="$(basename "$target")"
+  physical_dir="$(cd -P "$dir" && pwd)"
+  printf '%s/%s\n' "$physical_dir" "$base"
+}
+
+require_resource_path_inside() {
+  local label="$1"
+  local actual="$2"
+  local resolved="$3"
+  local physical_resources physical_resolved
+  physical_resources="$(cd -P "$resources" && pwd)"
+  physical_resolved="$(canonical_existing_path "$resolved")"
+  case "$physical_resolved" in
+    "$physical_resources"|"$physical_resources"/*)
+      ;;
+    *)
+      echo "runtime manifest $label escapes Contents/Resources: $actual -> $physical_resolved" >&2
+      exit 1
+      ;;
+  esac
+}
+
 require_runtime_manifest_path() {
   local label="$1"
   local actual="$2"
@@ -145,6 +175,7 @@ require_runtime_manifest_path() {
       exit 1
       ;;
   esac
+  require_resource_path_inside "$label" "$actual" "$resolved"
 }
 
 json_value_at_path() {
