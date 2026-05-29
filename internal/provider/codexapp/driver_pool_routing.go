@@ -162,7 +162,7 @@ func validateAppManagedRelayLaunchEnv() error {
 
 func selectCodexProviderHome(rawHome string) (codexProviderHomeSelection, error) {
 	if strings.TrimSpace(rawHome) == "" {
-		return codexProviderHomeSelection{useAppManagedHome: true}, nil
+		return codexProviderHomeSelection{useAppManagedHome: true, explicitAppManagedHome: true}, nil
 	}
 	requested, err := comparableCodexHomePath(rawHome)
 	if err != nil {

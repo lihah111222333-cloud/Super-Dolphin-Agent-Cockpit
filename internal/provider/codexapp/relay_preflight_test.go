@@ -31,7 +31,7 @@ func TestExplicitAppManagedCodexLaunchFailsFastWithPartialRelayEnv(t *testing.T)
 	_, err := d.prepareStartSessionRequest(context.Background(), dto.StartSessionRequest{
 		AgentID: "agent-managed",
 		CWD:     t.TempDir(),
-		Config:  map[string]any{contract.CodexHomeKey: mustAppManagedCodexHomeForTest(t)},
+		Config:  map[string]any{contract.CodexHomeKey: ""},
 	})
 	if err == nil {
 		t.Fatal("prepareStartSessionRequest() error = nil, want app-managed relay validation failure")
@@ -47,7 +47,7 @@ func TestExplicitAppManagedCodexLaunchRejectsPrivilegedRelayAPIKey(t *testing.T)
 	_, err := d.prepareStartSessionRequest(context.Background(), dto.StartSessionRequest{
 		AgentID: "agent-managed",
 		CWD:     t.TempDir(),
-		Config:  map[string]any{contract.CodexHomeKey: mustAppManagedCodexHomeForTest(t)},
+		Config:  map[string]any{contract.CodexHomeKey: ""},
 	})
 	if err == nil {
 		t.Fatal("prepareStartSessionRequest() error = nil, want privileged relay API key rejection")

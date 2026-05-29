@@ -34,6 +34,8 @@ func TestMakeDebugExportsSameDevDSNAndDevMode(t *testing.T) {
 	assertScriptContains(t, makefile, "run-agent-terminal-debug run-agent-terminal-debug-plain: export DATABASE_URL ?= $(DEV_DATABASE_URL)")
 	assertScriptContains(t, makefile, "run-agent-terminal-debug run-agent-terminal-debug-plain: export SUPER_DOLPHIN_RUNTIME_MODE := dev")
 	assertScriptContains(t, makefile, "run-agent-terminal-debug run-agent-terminal-debug-plain: export SUPER_DOLPHIN_DEV_ENTRYPOINT := make run-agent-terminal-debug")
+	assertScriptDoesNotContain(t, makefile, "\nexport SUPER_DOLPHIN_RUNTIME_MODE := dev")
+	assertScriptDoesNotContain(t, makefile, "\nexport SUPER_DOLPHIN_DEV_ENTRYPOINT := make run-agent-terminal-debug")
 	assertScriptContains(t, makefile, "run-agent-terminal-debug-plain")
 }
 
