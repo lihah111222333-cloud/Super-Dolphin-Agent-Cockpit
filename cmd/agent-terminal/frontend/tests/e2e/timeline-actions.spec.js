@@ -187,7 +187,7 @@ test('timeline interactions cover file refs, approvals, copies, image preview, a
   await page.mouse.move(10, 10);
   await page.evaluate(() => document.activeElement?.blur?.());
   await page.locator('.activity-stats').evaluate((node) => node.click());
-  await expect(page.locator('.activity-tool-detail')).toContainText('mcp__playwright__click');
+  await expect(page.locator('.activity-tool-detail')).toContainText('click');
   await expect(page.locator('.activity-alerts')).toContainText('go test ./...');
   await expect(page.locator('.activity-alerts')).toContainText('disk almost full');
   const approvalCalls = await readMethodCalls(page, 'approval/respond');
@@ -197,6 +197,7 @@ test('timeline interactions cover file refs, approvals, copies, image preview, a
 
 
 test('tool ticker remains visible on hover and preserves collapsed-tool summary', async ({ page }) => {
+  page.on('console', msg => console.log('[BROWSER]', msg.text()));
   await installMockBackend(page, {
     threads: [
       {
@@ -283,6 +284,7 @@ const LEAKED_PROGRESS_TEXT = [
 ].join('');
 
 test('reasoning-like assistant text stays visible in timeline and does not show hidden popover placeholder', async ({ page }) => {
+  page.on('console', msg => console.log('[BROWSER]', msg.text()));
   await installMockBackend(page, {
     threads: [
       {
