@@ -7,14 +7,15 @@ import (
 
 // codexSpawnEnvAllowlist is the set of parent-process environment
 // variables that are propagated into a spawned codex app-server child.
-// Everything else (including rogue CODEX_* / OPENAI_* pollutants left
-// over from another instance) is dropped so a per-instance CODEX_HOME
-// — injected explicitly by the ServerPool — is the sole authority on
-// which identity the child operates as.
+// Everything else (including rogue CODEX_* pollutants left over from
+// another instance) is dropped so a per-instance CODEX_HOME — injected
+// explicitly by the ServerPool — is the sole authority on which identity
+// the child operates as.
 //
 // The list is deliberately minimal: we pull enough for shell script
-// correctness (PATH / HOME / USER / locale / TZ / TMPDIR) and TLS
-// cert discovery (SSL_CERT_FILE / SSL_CERT_DIR) and nothing else.
+// correctness (PATH / HOME / USER / locale / TZ / TMPDIR), TLS cert
+// discovery (SSL_CERT_FILE / SSL_CERT_DIR), and Codex API-key auth
+// (OPENAI_API_KEY).
 var codexSpawnEnvAllowlist = []string{
 	"PATH",
 	"HOME",
@@ -31,6 +32,7 @@ var codexSpawnEnvAllowlist = []string{
 	"SHELL",
 	"SSL_CERT_FILE",
 	"SSL_CERT_DIR",
+	"OPENAI_API_KEY",
 }
 
 // buildAllowlistedSpawnEnv builds a cmd.Env slice containing only the

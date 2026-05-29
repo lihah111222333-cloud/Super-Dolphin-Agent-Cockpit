@@ -275,6 +275,9 @@ func normalizePoolSpawnWorkspaceRoot(base, root string) string {
 
 func buildPoolSpawnEnv(parent []string, home, workDir string) []string {
 	overrides := map[string]string{"CODEX_HOME": strings.TrimSpace(home)}
+	if key := strings.TrimSpace(os.Getenv("OPENAI_API_KEY")); key != "" {
+		overrides["OPENAI_API_KEY"] = key
+	}
 	if workDir = strings.TrimSpace(workDir); workDir != "" {
 		overrides["PWD"] = workDir
 	}
