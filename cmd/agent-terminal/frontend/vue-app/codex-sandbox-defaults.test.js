@@ -7,6 +7,8 @@ describe('normalizeCodexSandboxPreference', () => {
     expect(normalizeCodexSandboxPreference(null)).toBeNull();
     expect(normalizeCodexSandboxPreference('')).toBeNull();
     expect(normalizeCodexSandboxPreference('undefined')).toBeNull();
+    expect(normalizeCodexSandboxPreference({})).toBeNull();
+    expect(normalizeCodexSandboxPreference(JSON.stringify({}))).toBeNull();
   });
 
   it('converts persisted workspace-write JSON to the canonical snake_case payload', () => {
@@ -35,5 +37,9 @@ describe('normalizeCodexSandboxPreference', () => {
   it('preserves full read-only and danger-full-access modes as canonical mode payloads', () => {
     expect(normalizeCodexSandboxPreference({ type: 'readOnly' })).toEqual({ mode: 'read-only' });
     expect(normalizeCodexSandboxPreference('dangerFullAccess')).toEqual({ mode: 'danger-full-access' });
+  });
+
+  it('fails fast when non-empty sandbox fields are missing a mode', () => {
+    expect(() => normalizeCodexSandboxPreference({ writableRoots: ['/repo'] })).toThrow('invalid codex sandbox preference');
   });
 });

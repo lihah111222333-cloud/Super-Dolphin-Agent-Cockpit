@@ -98,6 +98,11 @@ describe('thread store Codex sandbox payload', () => {
     expect(startPayload?.config).not.toHaveProperty('sandbox');
   });
 
+  it('omits config.sandbox when the Codex sandbox preference is an empty object', async () => {
+    const startPayload = await startWithSandbox({});
+    expect(startPayload?.config).not.toHaveProperty('sandbox');
+  });
+
   it('forwards canonical snake_case workspace-write sandbox fields', async () => {
     const startPayload = await startWithSandbox({
       type: 'workspaceWrite',

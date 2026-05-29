@@ -18,7 +18,10 @@ export function buildCodexIdentityConfig(home, instanceKey, modelProvider) {
 export function normalizeCodexSandboxPreference(value) {
   if (isProviderPreferenceAbsent(value) || isProviderPreferenceTombstone(value)) return null;
   if (value && typeof value === 'object' && !Array.isArray(value)) {
-    return codexSandboxPayload(value.type || value.mode, value);
+    const mode = normalizeProviderConfigValue(value.type || value.mode);
+    const hasModeKey = Object.prototype.hasOwnProperty.call(value, 'type') || Object.prototype.hasOwnProperty.call(value, 'mode');
+    if (!mode && (Object.keys(value).length === 0 || hasModeKey)) return null;
+    return codexSandboxPayload(mode, value);
   }
   if (typeof value === 'string') {
     const normalized = normalizeProviderConfigValue(value);
@@ -26,7 +29,7 @@ export function normalizeCodexSandboxPreference(value) {
     try {
       const parsed = JSON.parse(normalized);
       if (isProviderPreferenceTombstone(parsed) || isProviderPreferenceAbsent(parsed)) return null;
-      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) return codexSandboxPayload(parsed.type || parsed.mode, parsed);
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) return normalizeCodexSandboxPreference(parsed);
     } catch {
       return codexSandboxPayload(normalized);
     }
