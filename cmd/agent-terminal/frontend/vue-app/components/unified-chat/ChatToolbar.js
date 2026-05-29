@@ -131,7 +131,6 @@ export const ChatToolbar = {
         <input
           type="checkbox"
           :checked="useClaudeProvider"
-          :disabled="!providerPreferenceReady"
           @change="emit('toggle-provider-mode')"
           class="provider-toggle-input"
         />

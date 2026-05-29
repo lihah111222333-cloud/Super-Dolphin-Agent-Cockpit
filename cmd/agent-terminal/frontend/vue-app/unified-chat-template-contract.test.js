@@ -103,11 +103,11 @@ describe('UnifiedChatPage template contract', () => {
       'data-testid="chat-toolbar"',
       'data-testid="provider-toggle"',
       'data-testid="launch-agent-button"',
-      ':disabled="!providerPreferenceReady"',
       'class="provider-toggle-input"',
       'data-testid="recover-agent-button"',
       '<ProjectSelect',
     ]);
+    expect(template).not.toContain(':disabled="!providerPreferenceReady"');
   });
 
   it('keeps ThreadRailSidePanel anchors and rename emit contract stable', () => {
