@@ -44,6 +44,8 @@ describe('normalizeCodexSandboxPreference', () => {
 
   it('fails fast when non-empty sandbox fields are missing a mode', () => {
     expect(() => normalizeCodexSandboxPreference({ writableRoots: ['/repo'] })).toThrow('invalid codex sandbox preference');
+    expect(() => normalizeCodexSandboxPreference({ type: '', writableRoots: ['/repo'] })).toThrow('invalid codex sandbox preference');
+    expect(() => normalizeCodexSandboxPreference('["readOnly"]')).toThrow('invalid codex sandbox preference');
   });
 
   it('uses workspace-write as the Codex launch default when no sandbox preference is persisted', () => {
@@ -76,6 +78,11 @@ describe('normalizeCodexSandboxPreference', () => {
 
   it('does not invent a relative writable root for dot cwd launch defaults', () => {
     expect(buildCodexLaunchSandboxPreference(undefined, '.')).toEqual({
+      mode: 'workspace-write',
+      writable_roots: [],
+      network_access: false,
+    });
+    expect(buildCodexLaunchSandboxPreference(undefined, '')).toEqual({
       mode: 'workspace-write',
       writable_roots: [],
       network_access: false,

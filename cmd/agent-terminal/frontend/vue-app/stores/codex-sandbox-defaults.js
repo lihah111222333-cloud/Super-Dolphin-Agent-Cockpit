@@ -20,7 +20,8 @@ export function normalizeCodexSandboxPreference(value) {
   if (value && typeof value === 'object' && !Array.isArray(value)) {
     const mode = normalizeProviderConfigValue(value.type || value.mode);
     const hasModeKey = Object.prototype.hasOwnProperty.call(value, 'type') || Object.prototype.hasOwnProperty.call(value, 'mode');
-    if (!mode && (Object.keys(value).length === 0 || hasModeKey)) return null;
+    if (Object.keys(value).length === 0) return null;
+    if (!mode && hasModeKey) throw new Error(`invalid codex sandbox preference: ${String(value.type || value.mode)}`);
     return codexSandboxPayload(mode, value);
   }
   if (typeof value === 'string') {
@@ -29,8 +30,12 @@ export function normalizeCodexSandboxPreference(value) {
     try {
       const parsed = JSON.parse(normalized);
       if (isProviderPreferenceTombstone(parsed) || isProviderPreferenceAbsent(parsed)) return null;
-      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) return normalizeCodexSandboxPreference(parsed);
-    } catch {
+      if ((parsed && typeof parsed === 'object' && !Array.isArray(parsed)) || typeof parsed === 'string') {
+        return normalizeCodexSandboxPreference(parsed);
+      }
+      throw new Error(`invalid codex sandbox preference: ${normalized}`);
+    } catch (error) {
+      if (!(error instanceof SyntaxError)) throw error;
       return codexSandboxPayload(normalized);
     }
   }

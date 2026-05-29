@@ -142,4 +142,21 @@ describe('thread store Codex sandbox payload', () => {
       },
     });
   });
+
+  it('fails fast instead of widening access when the Codex sandbox preference read fails', async () => {
+    const store = useThreadStore();
+    apiMock.callAPI.mockImplementation(async (method, payload) => {
+      if (method === 'ui/preferences/get') {
+        if (payload?.key === 'settings.provider.active') return 'codex';
+        if (payload?.key === 'settings.provider.codex.sandbox') throw new Error('sandbox read failed');
+        return undefined;
+      }
+      if (method === 'config/builtinTools/read') return { tools: [] };
+      if (method === 'thread/start') return { thread: { id: 'thread-should-not-start' } };
+      return {};
+    });
+
+    await expect(store.startThread('/repo', {})).rejects.toThrow('sandbox read failed');
+    expect(apiMock.callAPI).not.toHaveBeenCalledWith('thread/start', expect.anything());
+  });
 });

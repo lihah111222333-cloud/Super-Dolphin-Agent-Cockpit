@@ -382,6 +382,7 @@ export async function startThread(ctx, cwd = '.', options = {}) {
   // fall back to another scope.
   const getPref = (req) => callAPI('ui/preferences/get', req).catch(() => undefined);
   const getProviderPref = (req) => callAPI('ui/preferences/get', req);
+  const getCodexSandboxPref = (req) => callAPI('ui/preferences/get', req);
   const optionsProviderTrimmed = normalizeProviderConfigValue(options?.modelProvider || options?.model_provider || options?.provider);
   const [providerPref, activePromptKey] = await Promise.all([
     optionsProviderTrimmed ? Promise.resolve(optionsProviderTrimmed) : resolveLaunchProviderPreference(getProviderPref, cwd),
@@ -404,7 +405,7 @@ export async function startThread(ctx, cwd = '.', options = {}) {
   ] = providerScope ? await Promise.all([
     resolveProviderConfigPreference(getPref, `settings.provider.${providerScope}.model`, cwd),
     resolveProviderConfigPreference(getPref, `settings.provider.${providerScope}.effort`, cwd),
-    resolveScopedProviderPreference(getPref, `settings.provider.${providerScope}.sandbox`, cwd),
+    isCodexProvider ? resolveScopedProviderPreference(getCodexSandboxPref, 'settings.provider.codex.sandbox', cwd) : Promise.resolve({ value: '' }),
     isCodexProvider ? resolveProviderConfigPreference(getPref, 'settings.provider.codex.codexHome', cwd) : Promise.resolve({ value: '' }),
     isCodexProvider ? resolveProviderConfigPreference(getPref, 'settings.provider.codex.codexInstanceKey', cwd) : Promise.resolve({ value: '' }),
     isCodexProvider ? resolveProviderConfigPreference(getPref, 'settings.provider.codex.codexModelProvider', cwd) : Promise.resolve({ value: '' }),
