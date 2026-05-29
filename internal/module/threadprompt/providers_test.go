@@ -112,7 +112,7 @@ func TestAvailableExpertsProviderPrefersProjectTemplateOverGlobalTemplate(t *tes
 	}
 }
 
-func TestAvailableExpertsProviderRendersFullForMultiTaskPrompt(t *testing.T) {
+func TestAvailableExpertsProviderDoesNotRenderFullForOrdinaryMultiTaskPrompt(t *testing.T) {
 	t.Parallel()
 
 	provider := AvailableExpertsProvider{catalog: NewRuntimeCatalog(&fakePromptStore{
@@ -124,6 +124,34 @@ func TestAvailableExpertsProviderRendersFullForMultiTaskPrompt(t *testing.T) {
 
 	text, err := provider.Resolve(context.Background(), contract.SectionContext{
 		Turn:     &contract.TurnInput{UserText: "加 SQL 查询以及 Vue 组件"},
+		BuildCtx: contract.BuildCtx{CWD: "/repo-a"},
+	})
+	if err != nil {
+		t.Fatalf("Resolve() error = %v", err)
+	}
+	if text == nil {
+		t.Fatal("Resolve() = nil, want short expert list")
+	}
+	if !strings.Contains(*text, "可用专家（通过 launch_agent 调用）：") {
+		t.Fatalf("Resolve() = %q, want short expert list", *text)
+	}
+	if strings.Contains(*text, "可用专家详细说明：") {
+		t.Fatalf("Resolve() = %q, want short list only for ordinary multitask prompt", *text)
+	}
+}
+
+func TestAvailableExpertsProviderRendersFullForExplicitDelegationPrompt(t *testing.T) {
+	t.Parallel()
+
+	provider := AvailableExpertsProvider{catalog: NewRuntimeCatalog(&fakePromptStore{
+		templates: []promptstore.PromptTemplate{
+			expertTemplate("coder/prompt", 20, "代码任务、bug 修复、测试编写"),
+			expertTemplate("main/sql", 10, "数据库 schema 设计、migration、复杂 SQL 查询"),
+		},
+	}, nil)}
+
+	text, err := provider.Resolve(context.Background(), contract.SectionContext{
+		Turn:     &contract.TurnInput{UserText: "请拆分给多个专家并行处理 SQL 查询和 Vue 组件"},
 		BuildCtx: contract.BuildCtx{CWD: "/repo-a"},
 	})
 	if err != nil {
@@ -445,7 +473,9 @@ func TestPromptDynamicProvidersLogResolveMetrics(t *testing.T) {
 		`"msg":"thread: dynamic section resolved"`,
 		`"section":"available_experts"`,
 		`"rendered":true`,
+		`"template_count":2`,
 		`"candidate_count":2`,
+		`"render_mode":"short"`,
 		`"body_len":`,
 		`"latency_ms":`,
 	} {

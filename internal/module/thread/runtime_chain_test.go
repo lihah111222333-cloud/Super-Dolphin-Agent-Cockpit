@@ -32,7 +32,7 @@ func TestStartAssemblyMergesBuiltinBaseAndUserRuntimeAssets(t *testing.T) {
 	if _, err := svc.Start(context.Background(), StartRequest{
 		AgentID:  "agent-runtime-chain",
 		Provider: "claude",
-		CWD:      "/repo/a",
+		CWD:      resolvePromptCWD("/repo/a"),
 		Prompt:   "帮我实现 SQLC 改动，并规划相关测试。",
 	}); err != nil {
 		t.Fatalf("Start() error = %v", err)
@@ -62,23 +62,25 @@ func runtimeChainBuiltinRegistry() *threadBuiltinPromptRegistry {
 }
 
 func newRuntimeChainPromptStore() *runtimeChainPromptStore {
+	cwd := resolvePromptCWD("/repo/a")
+	otherCWD := resolvePromptCWD("/repo/b")
 	return &runtimeChainPromptStore{
 		templates: []promptstore.PromptTemplate{
-			{ID: 10, PromptKey: "user/expert/sql", Title: "SQL Expert", AgentKey: "main", WhenToUse: "Use for SQL work.", Tags: runtimeChainJSONTags("scope.cwd:/repo/a", "intent:expert"), Enabled: true, Priority: 160},
-			{ID: 11, PromptKey: "user/knowledge/sqlc", Title: "SQLC Knowledge", AgentKey: "main", WhenToUse: "Recall SQLC workflow.", Tags: runtimeChainJSONTags("scope.cwd:/repo/a", "intent:recall"), Enabled: true},
-			{ID: 12, PromptKey: "user/default/rule", Title: "Project Rule", AgentKey: "default_rule", WhenToUse: "Project default.", Tags: runtimeChainJSONTags("scope.cwd:/repo/a", "intent:default_rule"), Enabled: true},
-			{ID: 13, PromptKey: "user/expert/disabled", Title: "Disabled Expert", AgentKey: "main", WhenToUse: "Must stay hidden.", Tags: runtimeChainJSONTags("scope.cwd:/repo/a", "intent:expert"), Enabled: false},
+			{ID: 10, PromptKey: "user/expert/sql", Title: "SQL Expert", AgentKey: "main", WhenToUse: "Use for SQL work.", Tags: runtimeChainJSONTags("scope.cwd:"+cwd, "intent:expert"), Enabled: true, Priority: 160},
+			{ID: 11, PromptKey: "user/knowledge/sqlc", Title: "SQLC Knowledge", AgentKey: "main", WhenToUse: "Recall SQLC workflow.", Tags: runtimeChainJSONTags("scope.cwd:"+cwd, "intent:recall"), Enabled: true},
+			{ID: 12, PromptKey: "user/default/rule", Title: "Project Rule", AgentKey: "default_rule", WhenToUse: "Project default.", Tags: runtimeChainJSONTags("scope.cwd:"+cwd, "intent:default_rule"), Enabled: true},
+			{ID: 13, PromptKey: "user/expert/disabled", Title: "Disabled Expert", AgentKey: "main", WhenToUse: "Must stay hidden.", Tags: runtimeChainJSONTags("scope.cwd:"+cwd, "intent:expert"), Enabled: false},
 		},
 		recallSections: []promptstore.PromptTemplateSection{
-			{TemplateID: 11, SectionKey: "recall_sqlc", TriggerType: "recall", RecallTopic: "sqlc-workflow", TemplateDescription: "Read source SQL first.", TemplateTags: runtimeChainJSONTags("scope.cwd:/repo/a"), Enabled: true},
-			{TemplateID: 11, SectionKey: "recall_other", TriggerType: "recall", RecallTopic: "other-repo-topic", TemplateDescription: "Other repo only.", TemplateTags: runtimeChainJSONTags("scope.cwd:/repo/b"), Enabled: true},
-			{TemplateID: 11, SectionKey: "recall_disabled", TriggerType: "recall", RecallTopic: "disabled-topic", TemplateDescription: "Disabled topic.", TemplateTags: runtimeChainJSONTags("scope.cwd:/repo/a"), Enabled: false},
+			{TemplateID: 11, SectionKey: "recall_sqlc", TriggerType: "recall", RecallTopic: "sqlc-workflow", TemplateDescription: "Read source SQL first.", TemplateTags: runtimeChainJSONTags("scope.cwd:" + cwd), Enabled: true},
+			{TemplateID: 11, SectionKey: "recall_other", TriggerType: "recall", RecallTopic: "other-repo-topic", TemplateDescription: "Other repo only.", TemplateTags: runtimeChainJSONTags("scope.cwd:" + otherCWD), Enabled: true},
+			{TemplateID: 11, SectionKey: "recall_disabled", TriggerType: "recall", RecallTopic: "disabled-topic", TemplateDescription: "Disabled topic.", TemplateTags: runtimeChainJSONTags("scope.cwd:" + cwd), Enabled: false},
 		},
 		defaultRuleSections: []promptstore.PromptTemplateSection{
-			{TemplateID: 12, SectionKey: "focused_tests", Body: "Always run focused tests before reporting done.", TemplateTags: runtimeChainJSONTags("scope.cwd:/repo/a"), Enabled: true},
+			{TemplateID: 12, SectionKey: "focused_tests", Body: "Always run focused tests before reporting done.", TemplateTags: runtimeChainJSONTags("scope.cwd:" + cwd), Enabled: true},
 			{TemplateID: 12, SectionKey: "global_rule", Body: "Global runtime rule.", TemplateTags: runtimeChainJSONTags("scope.global"), Enabled: true},
-			{TemplateID: 12, SectionKey: "other_repo_rule", Body: "Other repo rule.", TemplateTags: runtimeChainJSONTags("scope.cwd:/repo/b"), Enabled: true},
-			{TemplateID: 12, SectionKey: "disabled_rule", Body: "Disabled rule.", TemplateTags: runtimeChainJSONTags("scope.cwd:/repo/a"), Enabled: false},
+			{TemplateID: 12, SectionKey: "other_repo_rule", Body: "Other repo rule.", TemplateTags: runtimeChainJSONTags("scope.cwd:" + otherCWD), Enabled: true},
+			{TemplateID: 12, SectionKey: "disabled_rule", Body: "Disabled rule.", TemplateTags: runtimeChainJSONTags("scope.cwd:" + cwd), Enabled: false},
 		},
 	}
 }

@@ -18,6 +18,7 @@ const (
 	runtimeScopeGlobalTag       = "scope.global"
 	runtimeScopeCWDTagPrefix    = "scope.cwd:"
 	maxRuntimeCatalogStoreLimit = int32(1<<31 - 1)
+	runtimeCatalogStoreLimitPad = int32(64)
 )
 
 type RuntimeListFilter = promptstore.RuntimeListFilter
@@ -193,9 +194,24 @@ func (c *runtimePromptCatalog) storeListLimit(filter RuntimeListFilter) int32 {
 		return maxRuntimeCatalogStoreLimit
 	}
 	if c.builtin != nil && filter.Limit > 0 {
-		return maxRuntimeCatalogStoreLimit
+		return runtimeCatalogStoreLimitWithBuiltin(filter.Limit, len(c.builtin.ListTemplates()))
 	}
 	return filter.Limit
+}
+
+func runtimeCatalogStoreLimitWithBuiltin(limit int32, builtinCount int) int32 {
+	if limit <= 0 {
+		return maxRuntimeCatalogStoreLimit
+	}
+	extra := int64(builtinCount) + int64(runtimeCatalogStoreLimitPad)
+	if extra < 0 {
+		extra = int64(runtimeCatalogStoreLimitPad)
+	}
+	storeLimit := int64(limit) + extra
+	if storeLimit > int64(maxRuntimeCatalogStoreLimit) {
+		return maxRuntimeCatalogStoreLimit
+	}
+	return int32(storeLimit)
 }
 
 func (c *runtimePromptCatalog) builtinTemplateForKey(promptKey, cwd string) *promptstore.PromptTemplate {
