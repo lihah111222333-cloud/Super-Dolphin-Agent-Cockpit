@@ -3,8 +3,15 @@ package toolbridge
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"reflect"
 	"testing"
+	"time"
+
+	providerdto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
 )
 
 func TestStdioMCPClientRequestSkipsNotificationsUntilMatchingResponse(t *testing.T) {
@@ -78,9 +85,45 @@ func TestStdioMCPClientCallToolPreservesMCPIsError(t *testing.T) {
 	}
 }
 
+func TestStdioMCPClientCloseTerminatesChildProcesses(t *testing.T) {
+	if os.Getenv("TOOLBRIDGE_STDIO_CHILD_HELPER") == "1" {
+		runStdioChildTestHelper()
+		return
+	}
+	if os.Getenv("TOOLBRIDGE_STDIO_MCP_HELPER") == "1" {
+		runStdioMCPTestHelper()
+		return
+	}
+
+	marker := filepath.Join(t.TempDir(), "child.pid")
+	client, err := newStdioMCPClient(context.Background(), providerdto.MCPBinary{
+		Name: "helper",
+		Command: []string{
+			os.Args[0],
+			"-test.run=TestStdioMCPClientCloseTerminatesChildProcesses",
+		},
+		Env: map[string]string{
+			"TOOLBRIDGE_STDIO_MCP_HELPER": "1",
+			"TOOLBRIDGE_STDIO_PID_FILE":   marker,
+		},
+	})
+	if err != nil {
+		t.Fatalf("newStdioMCPClient() error = %v", err)
+	}
+	childPID := waitForPIDFile(t, marker)
+	if childPID <= 0 {
+		t.Fatalf("child pid = %d, want > 0", childPID)
+	}
+	if err := client.Close(); err != nil {
+		t.Fatalf("Close() error = %v", err)
+	}
+	assertProcessExited(t, childPID)
+}
+
 type fakeStdioTransport struct {
 	reads  []json.RawMessage
 	writes []any
+	closed bool
 }
 
 func (t *fakeStdioTransport) ReadMessage() (json.RawMessage, error) {
@@ -92,4 +135,98 @@ func (t *fakeStdioTransport) ReadMessage() (json.RawMessage, error) {
 func (t *fakeStdioTransport) WriteMessage(payload any) error {
 	t.writes = append(t.writes, payload)
 	return nil
+}
+
+func (t *fakeStdioTransport) Close() error {
+	t.closed = true
+	return nil
+}
+
+func runStdioMCPTestHelper() {
+	marker := os.Getenv("TOOLBRIDGE_STDIO_PID_FILE")
+	if marker == "" {
+		fmt.Fprintln(os.Stderr, "missing TOOLBRIDGE_STDIO_PID_FILE")
+		os.Exit(2)
+	}
+	child := exec.Command(os.Args[0], "-test.run=TestStdioMCPClientCloseTerminatesChildProcesses")
+	child.Env = append(withoutEnvKey(os.Environ(), "TOOLBRIDGE_STDIO_MCP_HELPER"), "TOOLBRIDGE_STDIO_CHILD_HELPER=1")
+	if err := child.Start(); err != nil {
+		fmt.Fprintf(os.Stderr, "start child: %v\n", err)
+		os.Exit(2)
+	}
+	if err := os.WriteFile(marker, []byte(fmt.Sprintf("%d", child.Process.Pid)), 0o644); err != nil {
+		fmt.Fprintf(os.Stderr, "write marker: %v\n", err)
+		os.Exit(2)
+	}
+	serveMinimalStdioMCP()
+	_ = child.Wait()
+}
+
+func serveMinimalStdioMCP() {
+	decoder := json.NewDecoder(os.Stdin)
+	encoder := json.NewEncoder(os.Stdout)
+	for {
+		var req struct {
+			ID     int64  `json:"id"`
+			Method string `json:"method"`
+		}
+		if err := decoder.Decode(&req); err != nil {
+			return
+		}
+		switch req.Method {
+		case "initialize":
+			_ = encoder.Encode(map[string]any{"jsonrpc": "2.0", "id": req.ID, "result": map[string]any{}})
+		case "tools/list":
+			_ = encoder.Encode(map[string]any{"jsonrpc": "2.0", "id": req.ID, "result": map[string]any{"tools": []any{}}})
+		case "tools/call":
+			_ = encoder.Encode(map[string]any{"jsonrpc": "2.0", "id": req.ID, "result": map[string]any{"content": []any{}}})
+		default:
+			_ = encoder.Encode(map[string]any{"jsonrpc": "2.0", "id": req.ID, "result": map[string]any{}})
+		}
+	}
+}
+
+func runStdioChildTestHelper() {
+	select {}
+}
+
+func waitForPIDFile(t *testing.T, path string) int {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		raw, err := os.ReadFile(path)
+		if err == nil {
+			var pid int
+			if _, scanErr := fmt.Sscanf(string(raw), "%d", &pid); scanErr == nil {
+				return pid
+			}
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	t.Fatalf("timed out waiting for pid file %s", path)
+	return 0
+}
+
+func assertProcessExited(t *testing.T, pid int) {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		if !stdioTestProcessAlive(pid) {
+			return
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	t.Fatalf("process %d still alive after stdio MCP client close", pid)
+}
+
+func withoutEnvKey(env []string, key string) []string {
+	prefix := key + "="
+	out := env[:0]
+	for _, item := range env {
+		if len(item) >= len(prefix) && item[:len(prefix)] == prefix {
+			continue
+		}
+		out = append(out, item)
+	}
+	return out
 }
