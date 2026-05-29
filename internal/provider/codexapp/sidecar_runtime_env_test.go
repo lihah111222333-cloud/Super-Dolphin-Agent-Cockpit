@@ -12,6 +12,30 @@ func TestPeerProcessEnvRequiresParentSidecarRuntimeContract(t *testing.T) {
 	}
 }
 
+func TestPeerProcessEnvRejectsProjectRootFallbackWhenRuntimeModeMissing(t *testing.T) {
+	_, err := peerProcessEnv("mcp-orch", []string{
+		"PATH=/bin",
+		"GO_AGENT_CTL_SESSION_TOKEN=test-peer-token",
+		"PROJECT_ROOT=/work/repo",
+		"SUPER_DOLPHIN_RUNTIME_RESOURCES_DIR=/work/repo",
+	}, nil)
+	if err == nil || !strings.Contains(err.Error(), "missing SUPER_DOLPHIN_RUNTIME_MODE") {
+		t.Fatalf("peerProcessEnv() error = %v, want missing runtime mode failure", err)
+	}
+}
+
+func TestPeerProcessEnvRejectsProjectRootFallbackWhenResourcesMissing(t *testing.T) {
+	_, err := peerProcessEnv("mcp-orch", []string{
+		"PATH=/bin",
+		"GO_AGENT_CTL_SESSION_TOKEN=test-peer-token",
+		"PROJECT_ROOT=/work/repo",
+		"SUPER_DOLPHIN_RUNTIME_MODE=dev",
+	}, nil)
+	if err == nil || !strings.Contains(err.Error(), "missing SUPER_DOLPHIN_RUNTIME_RESOURCES_DIR") {
+		t.Fatalf("peerProcessEnv() error = %v, want missing runtime resources failure", err)
+	}
+}
+
 func TestPeerProcessEnvConsumesDevSidecarRuntimeContract(t *testing.T) {
 	env, err := peerProcessEnv("mcp-orch", testPeerParentEnv(), nil)
 	if err != nil {
