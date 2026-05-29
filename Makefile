@@ -23,11 +23,11 @@ endif
 
 build: guard
 	go run ./cmd/frida-bootstrap --frida-version "$(FRIDA_DEVKIT_VERSION)" -- \
-		go build -tags frida -ldflags "$(FRIDA_LDFLAGS)" ./...
+		go build -tags frida -ldflags "$(FRIDA_LDFLAGS)" $(GO_PACKAGE_PATTERNS)
 	@$(MAKE) --no-print-directory _hook_check
 
 build-plain: guard
-	go build ./...
+	go build $(GO_PACKAGE_PATTERNS)
 
 build-agent-terminal:
 	go run ./cmd/frida-bootstrap --frida-version "$(FRIDA_DEVKIT_VERSION)" -- \
@@ -92,9 +92,11 @@ mcp:
 # 先并行跑其余包，再用 -p 1 串行跑这 2 个，避免全仓并行时的 flaky failure。
 DEFERRED_TEST_PKGS := ./internal/provider/claudecli ./internal/provider/codexapp
 TEST_WITH_GUARD := ./scripts/test_with_guard.sh
+# Explicit source-package roots keep generated package artifacts under dist/package out of Go package discovery.
+GO_PACKAGE_PATTERNS := ./cmd/... ./internal/... ./pkg/... ./scripts/...
 
 test:
-	$(TEST_WITH_GUARD) $$(go list ./... | grep -v -E '/(provider/claudecli|provider/codexapp)$$') -race -count=1
+	$(TEST_WITH_GUARD) $$(go list $(GO_PACKAGE_PATTERNS) | grep -v -E '/(provider/claudecli|provider/codexapp)$$') -race -count=1
 	@echo "\n=== deferred E2E packages (sequential, -p 1) ==="
 	$(TEST_WITH_GUARD) $(DEFERRED_TEST_PKGS) -race -count=1 -p 1 -timeout 120s
 
@@ -138,7 +140,7 @@ codemap-refresh:
 	@echo "✅ codemap ai-index.json refreshed"
 
 vet: guard
-	go vet ./...
+	go vet $(GO_PACKAGE_PATTERNS)
 
 clean:
 	rm -rf bin/
@@ -208,7 +210,7 @@ ci-l0:
 
 ci-l1:
 	@echo "[ci-l1] extended unit regression"
-	$(TEST_WITH_GUARD) $$(go list ./... | grep -v -E '/(provider/claudecli|provider/codexapp)$$') -count=1
+	$(TEST_WITH_GUARD) $$(go list $(GO_PACKAGE_PATTERNS) | grep -v -E '/(provider/claudecli|provider/codexapp)$$') -count=1
 	@echo "[ci-l1] deferred E2E packages (sequential)"
 	$(TEST_WITH_GUARD) $(DEFERRED_TEST_PKGS) -count=1 -p 1 -timeout 120s
 

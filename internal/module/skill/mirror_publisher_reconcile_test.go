@@ -83,6 +83,7 @@ func TestReconcileProviderMirrorsPublishesPackagedProjectMirrorToWritableHome(t 
 	writeSkillWithSupportFiles(t, filepath.Join(resources, ".agent", "skills", "packaged"), "packaged")
 	t.Setenv("SUPER_DOLPHIN_HOME", superHome)
 	t.Setenv("PROJECT_ROOT", resources)
+	t.Setenv("SUPER_DOLPHIN_RUNTIME_MODE", "packaged")
 	t.Setenv("SUPER_DOLPHIN_PACKAGED_CODEX_IDENTITY", "1")
 	svc := &service{projectRoot: resources, projectSkillsRoot: defaultProjectSkillsRoot(resources), superDolphinHome: superHome}
 	targets, err := providershared.ProviderMirrorTargets(providershared.ProviderCodex, resources, filepath.Join(superHome, "providers", "codex"))

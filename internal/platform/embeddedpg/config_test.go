@@ -28,11 +28,14 @@ func TestResolveConfigUsesExternalDatabaseURL(t *testing.T) {
 }
 
 func TestResolveConfigDefaultsToDarwinApplicationSupport(t *testing.T) {
+	app := filepath.Join(t.TempDir(), "Super Dolphin.app")
+	resources := filepath.Join(app, "Contents", "Resources")
+	writePackagedRuntimeFixture(t, resources, "darwin-arm64")
 	input := ResolveInput{
 		GOOS:           "darwin",
 		GOARCH:         "arm64",
 		Env:            map[string]string{"SUPER_DOLPHIN_PROCESS_ROLE": "desktop"},
-		ExecutablePath: "/Applications/Super Dolphin.app/Contents/MacOS/agent-terminal",
+		ExecutablePath: filepath.Join(app, "Contents", "MacOS", "agent-terminal"),
 		UserHome:       "/Users/tester",
 	}
 
@@ -48,10 +51,10 @@ func TestResolveConfigDefaultsToDarwinApplicationSupport(t *testing.T) {
 	if cfg.RuntimeDir != wantRuntime {
 		t.Fatalf("RuntimeDir = %q", cfg.RuntimeDir)
 	}
-	if cfg.BinDir != filepath.Join("/Applications/Super Dolphin.app", "Contents", "Resources", "postgres", "darwin-arm64", "bin") {
+	if cfg.BinDir != filepath.Join(resources, "postgres", "darwin-arm64", "bin") {
 		t.Fatalf("BinDir = %q", cfg.BinDir)
 	}
-	if cfg.ShareDir != filepath.Join("/Applications/Super Dolphin.app", "Contents", "Resources", "postgres", "darwin-arm64", "share", "postgresql@16") {
+	if cfg.ShareDir != filepath.Join(resources, "postgres", "darwin-arm64", "share", "postgresql@16") {
 		t.Fatalf("ShareDir = %q", cfg.ShareDir)
 	}
 	parsed, err := url.Parse(databaseURL)
@@ -67,12 +70,15 @@ func TestResolveConfigDefaultsToDarwinApplicationSupport(t *testing.T) {
 }
 
 func TestResolveConfigMarksDesktopAsEmbeddedPostgresOwner(t *testing.T) {
+	app := filepath.Join(t.TempDir(), "Super Dolphin.app")
+	resources := filepath.Join(app, "Contents", "Resources")
+	writePackagedRuntimeFixture(t, resources, "darwin-arm64")
 	cfg, dsn := ResolveConfig(ResolveInput{
 		GOOS:           "darwin",
 		GOARCH:         "arm64",
 		Env:            map[string]string{"SUPER_DOLPHIN_PROCESS_ROLE": "desktop"},
-		ExecutablePath: "/Applications/Super Dolphin.app/Contents/MacOS/agent-terminal",
-		ProjectRoot:    "/Applications/Super Dolphin.app/Contents/Resources",
+		ExecutablePath: filepath.Join(app, "Contents", "MacOS", "agent-terminal"),
+		ProjectRoot:    resources,
 		UserHome:       "/Users/alice",
 	})
 	if !cfg.Enabled {
@@ -189,5 +195,42 @@ func TestResolveConfigHonorsExplicitPostgresShareDir(t *testing.T) {
 	cfg, _ := ResolveConfig(input)
 	if cfg.ShareDir != "/opt/super-dolphin/postgres/share/postgresql" {
 		t.Fatalf("ShareDir = %q", cfg.ShareDir)
+	}
+}
+
+func writePackagedRuntimeFixture(t *testing.T, resources, platform string) {
+	t.Helper()
+	for _, path := range []string{
+		filepath.Join(resources, "bin"),
+		filepath.Join(resources, "lsp"),
+		filepath.Join(resources, "postgres", platform, "bin"),
+		filepath.Join(resources, "postgres", platform, "share", "postgresql@16"),
+	} {
+		if err := os.MkdirAll(path, 0o755); err != nil {
+			t.Fatalf("mkdir packaged runtime fixture %s: %v", path, err)
+		}
+	}
+	for _, name := range []string{"codex", "gopls"} {
+		path := filepath.Join(resources, "bin", name)
+		if err := os.WriteFile(path, []byte("#!/bin/sh\n"), 0o755); err != nil {
+			t.Fatalf("write packaged runtime executable %s: %v", path, err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(resources, "models.yaml"), []byte("models: []\n"), 0o644); err != nil {
+		t.Fatalf("write model registry: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(resources, "lsp", "lsp-manifest.json"), []byte(`{"servers":{"gopls":{"path":"../bin/gopls","languages":["go"]}}}`), 0o644); err != nil {
+		t.Fatalf("write lsp manifest: %v", err)
+	}
+	manifest := `{
+  "bundled_codex_path": "bin/codex",
+  "bundled_gopls_path": "bin/gopls",
+  "lsp_bundle_path": "lsp",
+  "lsp_manifest_path": "lsp/lsp-manifest.json",
+  "model_registry_path": "models.yaml",
+  "embedded_postgres_resource_path": "postgres/` + platform + `"
+}`
+	if err := os.WriteFile(filepath.Join(resources, "runtime-manifest.json"), []byte(manifest), 0o644); err != nil {
+		t.Fatalf("write runtime manifest: %v", err)
 	}
 }

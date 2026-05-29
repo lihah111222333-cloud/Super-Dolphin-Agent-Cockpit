@@ -215,10 +215,17 @@ func withDefaultCodexIdentity(config map[string]any, home string) (map[string]an
 	if err := putDefaultCodexString(out, contract.CodexInstanceKeyKey, defaultCodexInstanceKey); err != nil {
 		return config, err
 	}
-	if err := putDefaultCodexString(out, contract.CodexModelProviderKey, defaultCodexModelProvider); err != nil {
+	if err := putDefaultCodexString(out, contract.CodexModelProviderKey, defaultCodexModelProviderForConfig(out)); err != nil {
 		return config, err
 	}
 	return out, nil
+}
+
+func defaultCodexModelProviderForConfig(config map[string]any) string {
+	if provider := firstConfigString(config, "modelProvider", "model_provider"); provider != "" {
+		return provider
+	}
+	return defaultCodexModelProvider
 }
 
 func putDefaultCodexString(config map[string]any, key, value string) error {
