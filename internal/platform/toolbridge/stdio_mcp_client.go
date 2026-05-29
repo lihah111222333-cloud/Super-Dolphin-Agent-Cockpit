@@ -3,6 +3,7 @@ package toolbridge
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -21,14 +22,19 @@ import (
 type stdioTransport interface {
 	ReadMessage() (json.RawMessage, error)
 	WriteMessage(any) error
+	Close() error
 }
 
 type stdioMCPClient struct {
 	cmd       *exec.Cmd
+	guard     *stdioProcessGuard
 	transport stdioTransport
 	stdin     io.Closer
 	mu        sync.Mutex
 	nextID    int64
+	closeOnce sync.Once
+	closed    chan struct{}
+	closeErr  error
 }
 
 type stdioRPCResponse struct {
@@ -52,6 +58,7 @@ func (h *Handler) defaultStdioClientFactory(ctx context.Context, binary provider
 func newStdioMCPClient(ctx context.Context, binary providerdto.MCPBinary) (*stdioMCPClient, error) {
 	cmd := exec.Command(strings.TrimSpace(binary.Command[0]), binary.Command[1:]...)
 	cmd.Env = append(os.Environ(), manifestEnv(binary.Env)...)
+	stdioConfigureCommand(cmd)
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
 		return nil, err
@@ -64,7 +71,13 @@ func newStdioMCPClient(ctx context.Context, binary providerdto.MCPBinary) (*stdi
 	if err := cmd.Start(); err != nil {
 		return nil, err
 	}
-	client := &stdioMCPClient{cmd: cmd, transport: common.NewStdioTransport(stdout, stdin), stdin: stdin}
+	client := &stdioMCPClient{
+		cmd:       cmd,
+		guard:     stdioAttachProcessGuard(cmd),
+		transport: common.NewStdioTransport(stdout, stdin),
+		stdin:     stdin,
+		closed:    make(chan struct{}),
+	}
 	if _, err := client.request(ctx, "initialize", map[string]any{"protocolVersion": "2024-11-05", "capabilities": map[string]any{}, "clientInfo": map[string]any{"name": "super-agent-codex", "version": "dev"}}); err != nil {
 		_ = client.Close()
 		return nil, err
@@ -124,10 +137,11 @@ func (c *stdioMCPClient) request(ctx context.Context, method string, params any)
 	for {
 		select {
 		case <-ctx.Done():
+			_ = c.Close()
 			return nil, ctx.Err()
 		default:
 		}
-		raw, err := c.transport.ReadMessage()
+		raw, err := c.readMessage(ctx)
 		if err != nil {
 			return nil, err
 		}
@@ -148,12 +162,50 @@ func (c *stdioMCPClient) request(ctx context.Context, method string, params any)
 	}
 }
 
+type stdioReadResult struct {
+	raw json.RawMessage
+	err error
+}
+
+func (c *stdioMCPClient) readMessage(ctx context.Context) (json.RawMessage, error) {
+	readDone := make(chan stdioReadResult, 1)
+	go func() {
+		raw, err := c.transport.ReadMessage()
+		readDone <- stdioReadResult{raw: raw, err: err}
+	}()
+	select {
+	case result := <-readDone:
+		return result.raw, result.err
+	case <-ctx.Done():
+		_ = c.Close()
+		return nil, ctx.Err()
+	}
+}
+
 func (c *stdioMCPClient) Close() error {
 	if c == nil {
 		return nil
 	}
+	if c.closed == nil {
+		return c.close()
+	}
+	c.closeOnce.Do(func() {
+		c.closeErr = c.close()
+		close(c.closed)
+	})
+	<-c.closed
+	return c.closeErr
+}
+
+func (c *stdioMCPClient) close() error {
 	if c.stdin != nil {
 		_ = c.stdin.Close()
+	}
+	if c.transport != nil {
+		_ = c.transport.Close()
+	}
+	if c.cmd == nil || c.cmd.Process == nil {
+		return stdioCleanupProcessTree(c.cmd, c.guard)
 	}
 	done := make(chan error, 1)
 	safego.Go(context.Background(), pkglogger.Get(), "toolbridge.stdioMCPClient.wait", func(context.Context) {
@@ -161,11 +213,10 @@ func (c *stdioMCPClient) Close() error {
 	})
 	select {
 	case err := <-done:
-		return err
+		return errors.Join(err, stdioCleanupProcessTree(c.cmd, c.guard))
 	case <-time.After(2 * time.Second):
-		if c.cmd.Process != nil {
-			_ = c.cmd.Process.Kill()
-		}
-		return <-done
+		stopErr := stdioTerminateProcessTree(c.cmd, c.guard)
+		<-done
+		return errors.Join(stopErr, stdioCleanupProcessTree(c.cmd, c.guard))
 	}
 }

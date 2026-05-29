@@ -80,6 +80,58 @@ func TestAttemptRecoveryExhaustsAtTwo(t *testing.T) {
 	}
 }
 
+func TestConnectionDeadInvalidAPIKeyFailsWithoutRecovery(t *testing.T) {
+	t.Parallel()
+
+	bus := event.NewDispatcher()
+	defer func() { _ = bus.Close() }()
+
+	failedEvents := make(chan agentdto.AgentFailed, 1)
+	cancelSub := event.Subscribe(bus, func(ev agentdto.AgentFailed) {
+		failedEvents <- ev
+	})
+	defer cancelSub()
+
+	handle := newTurnHandle("local-1", "provider-1")
+	dispatcher := unified.NewEventDispatcher(bus, pkglogger.Get())
+	RegisterTranslators(dispatcher)
+	s := &session{
+		agentID:    "agent-1",
+		dispatcher: dispatcher,
+		turns:      map[string]*turnHandle{"provider-1": handle},
+		suppressed: map[string]struct{}{},
+	}
+	s.setThreadID("thread-1")
+	s.activeTurnID = "provider-1"
+
+	reason := "unexpected status 401 Unauthorized: Incorrect API key provided: sk-test, auth error code: invalid_api_key"
+	payload := mustJSON(map[string]any{"error": reason})
+	s.handleConnectionDead(payload)
+
+	select {
+	case <-handle.Done():
+	case <-time.After(time.Second):
+		t.Fatal("handle.Done() not closed after non-recoverable auth failure")
+	}
+	if err := handle.Err(); err == nil || !strings.Contains(err.Error(), "invalid_api_key") {
+		t.Fatalf("turn error = %v, want invalid_api_key detail", err)
+	}
+	if got := s.recoveryCount.Load(); got != 0 {
+		t.Fatalf("recoveryCount = %d, want 0 for non-recoverable auth failure", got)
+	}
+	select {
+	case ev := <-failedEvents:
+		if ev.Recoverable {
+			t.Fatal("AgentFailed.Recoverable = true, want false")
+		}
+		if !strings.Contains(ev.Error, "invalid_api_key") {
+			t.Fatalf("AgentFailed.Error = %q, want invalid_api_key detail", ev.Error)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for AgentFailed event")
+	}
+}
+
 // -----------------------------------------------------------------------------
 // Regression: completeRecoveryReplay failure MUST dispatch connection.dead
 //
