@@ -4,6 +4,11 @@ This is the MVP packaging path for macOS first, then Linux. The app keeps the
 existing `sqlc + PostgreSQL + pgx` store layer and starts a bundled PostgreSQL
 runtime when `DATABASE_URL` is not supplied.
 
+For the step-by-step macOS DMG operator runbook, including first-time packaging,
+new packaging machines, dependency bundle preparation, and common errors, see
+`docs/packaging/macos-dmg-packaging-guide.md`. For the Linux tarball runbook,
+see `docs/packaging/linux-packaging-guide.md`.
+
 ## Runtime Behavior
 
 1. If `DATABASE_URL` or `POSTGRES_CONNECTION_STRING` exists, the app uses that
