@@ -121,6 +121,7 @@ func TestStartSessionReconcilesMirrorsBeforePoolAcquireAndDefaultsIdentity(t *te
 	superHome := filepath.Join(t.TempDir(), "sd-home")
 	userHome := filepath.Join(t.TempDir(), "user-home")
 	t.Setenv(providershared.SuperDolphinHomeEnv, superHome)
+	t.Setenv("SUPER_DOLPHIN_RUNTIME_MODE", "packaged")
 	t.Setenv("HOME", userHome)
 	t.Setenv("USERPROFILE", userHome)
 	workDir := t.TempDir()
@@ -162,6 +163,7 @@ func TestStartSessionReconcilesProjectMirrorsFromGitRootBeforePoolAcquire(t *tes
 	superHome := filepath.Join(t.TempDir(), "sd-home")
 	userHome := filepath.Join(t.TempDir(), "user-home")
 	t.Setenv(providershared.SuperDolphinHomeEnv, superHome)
+	t.Setenv("SUPER_DOLPHIN_RUNTIME_MODE", "packaged")
 	t.Setenv("HOME", userHome)
 	t.Setenv("USERPROFILE", userHome)
 	repoRoot := t.TempDir()
@@ -203,6 +205,7 @@ func TestStartSessionFailsClosedWhenPreparedIdentityHasNoPool(t *testing.T) {
 	superHome := filepath.Join(t.TempDir(), "sd-home")
 	userHome := filepath.Join(t.TempDir(), "user-home")
 	t.Setenv(providershared.SuperDolphinHomeEnv, superHome)
+	t.Setenv("SUPER_DOLPHIN_RUNTIME_MODE", "packaged")
 	t.Setenv("HOME", userHome)
 	t.Setenv("USERPROFILE", userHome)
 	workDir := t.TempDir()
@@ -233,6 +236,7 @@ func TestStartSessionMirrorContentConflictAllowsPoolAcquire(t *testing.T) {
 	t.Setenv(poolRoutingEnvVar, "1")
 	superHome := filepath.Join(t.TempDir(), "sd-home")
 	t.Setenv(providershared.SuperDolphinHomeEnv, superHome)
+	t.Setenv("SUPER_DOLPHIN_RUNTIME_MODE", "packaged")
 	workDir := t.TempDir()
 	acquires := atomic.Int32{}
 	pool := NewServerPool(slog.Default(), func(context.Context, string) (SpawnedServer, error) {
@@ -263,6 +267,7 @@ func TestStartSessionMirrorSafetyConflictBlocksPoolAcquire(t *testing.T) {
 	t.Setenv(poolRoutingEnvVar, "1")
 	superHome := filepath.Join(t.TempDir(), "sd-home")
 	t.Setenv(providershared.SuperDolphinHomeEnv, superHome)
+	t.Setenv("SUPER_DOLPHIN_RUNTIME_MODE", "packaged")
 	workDir := t.TempDir()
 	acquires := atomic.Int32{}
 	pool := NewServerPool(slog.Default(), func(context.Context, string) (SpawnedServer, error) {
@@ -313,6 +318,7 @@ func TestStartSessionMirrorReconcileFailureBlocksPoolAcquire(t *testing.T) {
 	t.Setenv(poolRoutingEnvVar, "1")
 	superHome := filepath.Join(t.TempDir(), "sd-home")
 	t.Setenv(providershared.SuperDolphinHomeEnv, superHome)
+	t.Setenv("SUPER_DOLPHIN_RUNTIME_MODE", "packaged")
 	workDir := t.TempDir()
 	acquires := atomic.Int32{}
 	pool := NewServerPool(slog.Default(), func(context.Context, string) (SpawnedServer, error) {
@@ -340,6 +346,7 @@ func TestStartSessionReconcilesMirrorsToExplicitCodexHome(t *testing.T) {
 	superHome := filepath.Join(t.TempDir(), "sd-home")
 	explicitHome := filepath.Join(t.TempDir(), "explicit-codex")
 	t.Setenv(providershared.SuperDolphinHomeEnv, superHome)
+	t.Setenv("SUPER_DOLPHIN_RUNTIME_MODE", "packaged")
 	workDir := t.TempDir()
 	var gotHome string
 	pool := NewServerPool(slog.Default(), func(_ context.Context, home string) (SpawnedServer, error) {
@@ -400,6 +407,7 @@ func TestStartSessionRejectsMalformedCodexIdentityBeforeHomeOrMirror(t *testing.
 	t.Setenv(poolRoutingEnvVar, "1")
 	superHome := filepath.Join(t.TempDir(), "sd-home")
 	t.Setenv(providershared.SuperDolphinHomeEnv, superHome)
+	t.Setenv("SUPER_DOLPHIN_RUNTIME_MODE", "packaged")
 	workDir := t.TempDir()
 	pool := NewServerPool(slog.Default(), func(context.Context, string) (SpawnedServer, error) {
 		t.Fatal("pool acquire called for malformed codex identity")
@@ -433,6 +441,7 @@ func TestStartSessionNormalizesExplicitCodexHomeBeforeMirrorAndPool(t *testing.T
 	t.Setenv(poolRoutingEnvVar, "1")
 	superHome := filepath.Join(t.TempDir(), "sd-home")
 	t.Setenv(providershared.SuperDolphinHomeEnv, superHome)
+	t.Setenv("SUPER_DOLPHIN_RUNTIME_MODE", "packaged")
 	workDir := t.TempDir()
 	realHome := filepath.Join(t.TempDir(), "real-codex")
 	if err := os.MkdirAll(realHome, 0o700); err != nil {

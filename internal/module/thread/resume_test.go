@@ -313,9 +313,9 @@ func TestServiceResumeDropsDefaultPlaceholderName(t *testing.T) {
 	}
 }
 
-func TestServiceResumeBackfillsDefaultCodexIdentityWhenOptedIn(t *testing.T) {
+func TestServiceResumeBackfillsDefaultCodexIdentityWhenPackagedRuntime(t *testing.T) {
 	codexHome := t.TempDir()
-	t.Setenv(legacyDefaultCodexHomeEnvVar, legacyDefaultCodexHomeEnabled)
+	t.Setenv("SUPER_DOLPHIN_RUNTIME_MODE", "packaged")
 	const providerThreadID = "11111111-2222-3333-4444-555555555552"
 	rolloutPath := writeExistingProviderHistoryFile(t)
 	threads := &stubThreadStore{thread: &threadstore.Thread{

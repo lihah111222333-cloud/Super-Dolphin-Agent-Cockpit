@@ -202,6 +202,7 @@ func TestProviderMirrorTargetsRedirectsPackagedProjectMirrorToWritableHome(t *te
 	t.Setenv(SuperDolphinHomeEnv, superHome)
 	t.Setenv(ProjectRootEnv, resources)
 	t.Setenv(PackagedCodexEnv, "1")
+	t.Setenv("SUPER_DOLPHIN_RUNTIME_MODE", "packaged")
 
 	targets, err := ProviderMirrorTargets(ProviderCodex, resources)
 	if err != nil {
@@ -353,5 +354,36 @@ func skipProviderHomeSymlinkPrivilegeNotHeld(t *testing.T, err error) {
 	t.Helper()
 	if runtime.GOOS == "windows" && strings.Contains(err.Error(), "privilege") {
 		t.Skipf("symlink privilege unavailable: %v", err)
+	}
+}
+
+func TestProviderHomeDevEmptyIgnoresPackagedLeftovers(t *testing.T) {
+	userHome := filepath.Join(t.TempDir(), "user-home")
+	superHome := filepath.Join(t.TempDir(), "sd-home")
+	project := t.TempDir()
+	t.Setenv("HOME", userHome)
+	t.Setenv("USERPROFILE", userHome)
+	t.Setenv(SuperDolphinHomeEnv, superHome)
+	t.Setenv(PackagedCodexEnv, "1")
+	t.Setenv(ProjectRootEnv, project)
+	t.Setenv("SUPER_DOLPHIN_RUNTIME_MODE", "dev")
+
+	home, err := EnsureProviderHome(ProviderCodex, "")
+	if err != nil {
+		t.Fatalf("EnsureProviderHome(codex) error = %v", err)
+	}
+	wantHome, err := filepath.EvalSymlinks(filepath.Join(userHome, ".codex"))
+	if err != nil {
+		t.Fatalf("EvalSymlinks local codex home: %v", err)
+	}
+	if home != wantHome {
+		t.Fatalf("codex home = %q, want local CLI home %q", home, wantHome)
+	}
+	targets, err := ProviderMirrorTargets(ProviderCodex, project)
+	if err != nil {
+		t.Fatalf("ProviderMirrorTargets() error = %v", err)
+	}
+	if targets[0].HomeRoot != filepath.Join(userHome, ".agents") {
+		t.Fatalf("codex personal mirror = %#v, want user provider mirror, not app-managed", targets[0])
 	}
 }

@@ -373,6 +373,7 @@ func TestSessionRuntimeConfigSnapshotIncludesPromptInstructions(t *testing.T) {
 
 func TestDriverStartSessionUsesAppManagedCodexHomeWhenConfigMissing(t *testing.T) {
 	userHome := t.TempDir()
+	t.Setenv("SUPER_DOLPHIN_RUNTIME_MODE", "packaged")
 	t.Setenv("HOME", userHome)
 	t.Setenv("USERPROFILE", userHome)
 	wantHome := mustCanonicalAppManagedCodexHome(t, userHome)

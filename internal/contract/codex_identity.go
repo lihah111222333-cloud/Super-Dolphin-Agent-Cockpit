@@ -35,6 +35,14 @@ const (
 	CodexModelProviderKey = "codexModelProvider"
 )
 
+const (
+	RuntimeModeEnv       = "SUPER_DOLPHIN_RUNTIME_MODE"
+	RuntimeModeDev       = "dev"
+	RuntimeModePackaged  = "packaged"
+	SuperDolphinHomeEnv  = "SUPER_DOLPHIN_HOME"
+	CodexProviderHomeDir = "codex"
+)
+
 // Sentinel errors for codex identity resolution. Callers must check with
 // errors.Is; RPC layers map these to jrpc2.InvalidParams.
 var (
@@ -142,4 +150,42 @@ func expandCodexHome(raw string) (string, error) {
 		}
 	}
 	return os.ExpandEnv(s), nil
+}
+
+// RuntimeModeFromEnv consumes the runtime-mode contract produced by the runtime
+// resolver. Empty means no packaged capability has been advertised.
+func RuntimeModeFromEnv() (string, error) {
+	mode := strings.TrimSpace(os.Getenv(RuntimeModeEnv))
+	switch mode {
+	case "":
+		return "", nil
+	case RuntimeModeDev, RuntimeModePackaged:
+		return mode, nil
+	default:
+		return "", fmt.Errorf("invalid %s %q", RuntimeModeEnv, mode)
+	}
+}
+
+func PackagedRuntimeFromEnv() (bool, error) {
+	mode, err := RuntimeModeFromEnv()
+	if err != nil {
+		return false, err
+	}
+	return mode == RuntimeModePackaged, nil
+}
+
+func AppManagedCodexHome() (string, error) {
+	base := strings.TrimSpace(os.Getenv(SuperDolphinHomeEnv))
+	if base == "" {
+		home, err := UserHomeDir()
+		if err != nil {
+			return "", fmt.Errorf("resolve user home: %w", err)
+		}
+		base = filepath.Join(home, ".super-dolphin")
+	}
+	base = filepath.Clean(os.ExpandEnv(base))
+	if !filepath.IsAbs(base) {
+		return "", fmt.Errorf("%s must be absolute: %s", SuperDolphinHomeEnv, base)
+	}
+	return filepath.Clean(filepath.Join(base, "providers", CodexProviderHomeDir)), nil
 }

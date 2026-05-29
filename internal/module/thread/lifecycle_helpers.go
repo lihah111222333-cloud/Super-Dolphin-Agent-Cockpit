@@ -3,7 +3,6 @@ package thread
 import (
 	"context"
 	"errors"
-	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -156,18 +155,14 @@ func (s *service) injectDefaultCodexIdentityForResume(req ResumeRequest) ResumeR
 }
 
 func defaultCodexIdentityAllowed() bool {
-	return strings.TrimSpace(os.Getenv(legacyDefaultCodexHomeEnvVar)) == legacyDefaultCodexHomeEnabled ||
-		strings.TrimSpace(os.Getenv(packagedCodexIdentityEnvVar)) == legacyDefaultCodexHomeEnabled
+	packaged, err := contract.PackagedRuntimeFromEnv()
+	return err == nil && packaged
 }
 
 func defaultCodexHome() (string, error) {
-	raw := strings.TrimSpace(os.Getenv("CODEX_HOME"))
-	if raw == "" {
-		home, err := os.UserHomeDir()
-		if err != nil {
-			return "", fmt.Errorf("resolve user home: %w", err)
-		}
-		raw = filepath.Join(home, ".codex")
+	raw, err := contract.AppManagedCodexHome()
+	if err != nil {
+		return "", err
 	}
 	return contract.CanonicalizeCodexHome(raw)
 }

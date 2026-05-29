@@ -209,7 +209,8 @@ func providerProjectMirrorRoot(provider, projectRoot string) string {
 }
 
 func packagedProjectMirrorEnabled(projectRoot string) bool {
-	if strings.TrimSpace(os.Getenv(PackagedCodexEnv)) != "1" {
+	packaged, err := contract.PackagedRuntimeFromEnv()
+	if err != nil || !packaged {
 		return false
 	}
 	home := strings.TrimSpace(os.Getenv(SuperDolphinHomeEnv))

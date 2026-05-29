@@ -3,6 +3,8 @@ package thread
 import (
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -224,8 +226,13 @@ func TestSpawnIfNeededPropagatesPromptKeyStale(t *testing.T) {
 func TestSpawnIfNeededInjectsPackagedCodexIdentity(t *testing.T) {
 	threadID := "thread-pending-packaged-codex"
 	const providerUUID = "019d5f6b-fb3c-7760-9d6f-54005553f6c1"
-	codexHome := t.TempDir()
-	t.Setenv("CODEX_HOME", codexHome)
+	superHome := t.TempDir()
+	codexHome := filepath.Join(superHome, "providers", "codex")
+	if err := os.MkdirAll(codexHome, 0o700); err != nil {
+		t.Fatalf("MkdirAll app-managed codex home: %v", err)
+	}
+	t.Setenv("SUPER_DOLPHIN_RUNTIME_MODE", "packaged")
+	t.Setenv("SUPER_DOLPHIN_HOME", superHome)
 	t.Setenv(legacyDefaultCodexHomeEnvVar, "")
 	t.Setenv(packagedCodexIdentityEnvVar, legacyDefaultCodexHomeEnabled)
 	store := &stubThreadStore{thread: &threadstore.Thread{

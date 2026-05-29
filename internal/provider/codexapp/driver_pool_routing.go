@@ -131,21 +131,25 @@ func ensureResolvedCodexProviderHome(selection codexProviderHomeSelection) (home
 }
 
 func selectCodexProviderHome(rawHome string) (codexProviderHomeSelection, error) {
+	packaged, err := contract.PackagedRuntimeFromEnv()
+	if err != nil {
+		return codexProviderHomeSelection{}, err
+	}
 	if strings.TrimSpace(rawHome) == "" {
-		return codexProviderHomeSelection{useAppManagedHome: true}, nil
+		return codexProviderHomeSelection{useAppManagedHome: packaged}, nil
 	}
 	requested, err := comparableCodexHomePath(rawHome)
 	if err != nil {
 		return codexProviderHomeSelection{}, err
 	}
-	if matchesAppManagedCodexHome(requested) {
+	if packaged && matchesAppManagedCodexHome(requested) {
 		return codexProviderHomeSelection{useAppManagedHome: true}, nil
 	}
 	legacy, err := legacyAppManagedCodexHome()
 	if err != nil {
 		return codexProviderHomeSelection{}, err
 	}
-	if filepath.Clean(requested) == filepath.Clean(legacy) {
+	if packaged && filepath.Clean(requested) == filepath.Clean(legacy) {
 		return codexProviderHomeSelection{useAppManagedHome: true}, nil
 	}
 	if matchesDefaultCodexCLIHome(requested) {

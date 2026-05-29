@@ -18,6 +18,7 @@ func TestStartSessionMapsLegacyPackagedDefaultHomeToAppManagedRelayHome(t *testi
 	superHome := filepath.Join(t.TempDir(), "Library", "Application Support", "Super Dolphin")
 	userHome := filepath.Join(t.TempDir(), "user-home")
 	t.Setenv(providershared.SuperDolphinHomeEnv, superHome)
+	t.Setenv("SUPER_DOLPHIN_RUNTIME_MODE", "packaged")
 	t.Setenv("HOME", userHome)
 	t.Setenv("USERPROFILE", userHome)
 	workDir := t.TempDir()
