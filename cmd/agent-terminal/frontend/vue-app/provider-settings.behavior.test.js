@@ -9,7 +9,7 @@ vi.mock('./services/api.js', () => ({
   callAPI: apiMock.callAPI,
 }));
 
-import { CODEX_IDENTITY_DEFAULTS, EFFORT_MODES_BY_PROVIDER, MODEL_OPTIONS_BY_PROVIDER } from './provider-config-options.js';
+import { EFFORT_MODES_BY_PROVIDER, MODEL_OPTIONS_BY_PROVIDER } from './provider-config-options.js';
 import { ProviderSettings } from './pages/settings/ProviderSettings.ts';
 
 function deferred() {
@@ -127,12 +127,12 @@ describe('ProviderSettings behavior', () => {
 
     expect(apiMock.callAPI).toHaveBeenCalledWith('ui/preferences/set', {
       key: 'settings.provider.codex.codexHome',
-      value: CODEX_IDENTITY_DEFAULTS.codexHome,
+      value: { cleared: true },
       cwd: '/repo',
     });
     expect(apiMock.callAPI).toHaveBeenCalledWith('ui/preferences/set', {
       key: 'settings.provider.codex.codexInstanceKey',
-      value: CODEX_IDENTITY_DEFAULTS.codexInstanceKey,
+      value: { cleared: true },
       cwd: '/repo',
     });
     expect(apiMock.callAPI).not.toHaveBeenCalledWith('ui/preferences/set', expect.objectContaining({
@@ -158,6 +158,68 @@ describe('ProviderSettings behavior', () => {
       cwd: '/repo',
     });
     expect(vm.activeProvider.value).toBe('codex');
+  });
+
+  it('displays effective project-over-global provider preferences without erasing global partials', async () => {
+    apiMock.callAPI.mockImplementation(async (method, payload) => {
+      if (method !== 'ui/preferences/get') return null;
+      switch (payload.key) {
+        case 'settings.provider.active':
+          return payload.cwd === '/repo' ? null : 'codex';
+        case 'settings.provider.codex.model':
+          return payload.cwd === '/repo' ? 'gpt-5.4' : 'gpt-5.5';
+        case 'settings.provider.codex.effort':
+          return payload.cwd === '/repo' ? null : 'high';
+        case 'settings.provider.codex.codexHome':
+          return payload.cwd === '/repo' ? '' : '/Users/global/.codex';
+        case 'settings.provider.codex.codexInstanceKey':
+          return payload.cwd === '/repo' ? 'project-instance' : 'global-instance';
+        default:
+          return null;
+      }
+    });
+
+    const { vm } = createProviderSettings();
+    await vm.loadProviderSettings();
+
+    expect(vm.activeProvider.value).toBe('codex');
+    expect(vm.providerModel.value).toBe('gpt-5.4');
+    expect(vm.effortMode.value).toBe('high');
+    expect(vm.codexHome.value).toBe('/Users/global/.codex');
+    expect(vm.codexInstanceKey.value).toBe('project-instance');
+  });
+
+  it('writes tombstones when clearing Codex identity fields instead of packaged defaults', async () => {
+    apiMock.callAPI.mockImplementation(async (method, payload) => {
+      if (method !== 'ui/preferences/get') return { ok: true };
+      switch (payload.key) {
+        case 'settings.provider.active': return 'codex';
+        case 'settings.provider.codex.codexHome': return '/Users/mac/.codex';
+        case 'settings.provider.codex.codexInstanceKey': return 'primary';
+        default: return null;
+      }
+    });
+
+    const { vm } = createProviderSettings();
+    await vm.loadProviderSettings();
+    vm.codexHome.value = '';
+    vm.codexInstanceKey.value = '';
+    vm.sandboxMode.value = 'readOnly';
+    apiMock.callAPI.mockClear();
+    apiMock.callAPI.mockResolvedValue({ ok: true });
+
+    await vm.saveProviderSettings();
+
+    expect(apiMock.callAPI).toHaveBeenCalledWith('ui/preferences/set', {
+      key: 'settings.provider.codex.codexHome',
+      value: { cleared: true },
+      cwd: '/repo',
+    });
+    expect(apiMock.callAPI).toHaveBeenCalledWith('ui/preferences/set', {
+      key: 'settings.provider.codex.codexInstanceKey',
+      value: { cleared: true },
+      cwd: '/repo',
+    });
   });
 
   it('does not persist packaged Codex model or effort defaults when saving unrelated settings without explicit preferences', async () => {

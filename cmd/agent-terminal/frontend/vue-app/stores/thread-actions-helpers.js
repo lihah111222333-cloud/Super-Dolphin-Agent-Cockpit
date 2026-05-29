@@ -12,6 +12,7 @@ import { _optimisticThreadIds, OPTIMISTIC_LEAK_GUARD_MS } from './thread-optimis
 import { resolveBuiltinToolLaunchPolicy } from './builtin-tool-policy.js';
 import { withCodexLspToolDefaults } from './codex-lsp-defaults.js';
 import { buildCodexIdentityConfig, normalizeCodexSandboxPreference } from './codex-sandbox-defaults.js';
+import { resolveActiveProviderPreference, resolveProviderConfigPreference, resolveScopedProviderPreference } from './provider-preferences.js';
 import { compactFailureResult, dialogTimelineSignature, tokenUsageSignature, waitForCompactResponse } from './thread-compact-helpers.js';
 import { maybeHandleStalePromptKey } from './thread-stale-prompt.js';
 import { touchThreadUpdatedAt } from './thread-actions-timestamps.js';
@@ -362,10 +363,7 @@ function normalizeSelectedSkillRefs(rawSelectedSkillRefs) {
 }
 
 async function resolveLaunchProviderPreference(getPref, cwd) {
-  const scopedPref = await getPref({ key: 'settings.provider.active', cwd });
-  const scopedProvider = normalizeProviderConfigValue(scopedPref);
-  if (scopedProvider) return scopedProvider;
-  return normalizeProviderConfigValue(await getPref({ key: 'settings.provider.active' }));
+  return resolveActiveProviderPreference(getPref, cwd);
 }
 
 export async function startThread(ctx, cwd = '.', options = {}) {
@@ -384,8 +382,9 @@ export async function startThread(ctx, cwd = '.', options = {}) {
   // fall back to another scope.
   const getPref = (req) => callAPI('ui/preferences/get', req).catch(() => undefined);
   const getProviderPref = (req) => callAPI('ui/preferences/get', req);
+  const optionsProviderTrimmed = normalizeProviderConfigValue(options?.modelProvider || options?.model_provider || options?.provider);
   const [providerPref, activePromptKey] = await Promise.all([
-    resolveLaunchProviderPreference(getProviderPref, cwd),
+    optionsProviderTrimmed ? Promise.resolve(optionsProviderTrimmed) : resolveLaunchProviderPreference(getProviderPref, cwd),
     needsActivePromptKey ? getPref({ key: 'settings.activePromptKey', cwd }) : Promise.resolve(undefined),
   ]);
 
@@ -396,22 +395,22 @@ export async function startThread(ctx, cwd = '.', options = {}) {
   const providerScope = providerPreferenceScope(modelProvider);
   const isCodexProvider = providerScope === 'codex';
   const [
-    providerModelPref,
-    providerEffortPref,
-    sandboxPref,
-    codexHomePref,
-    codexInstanceKeyPref,
-    codexModelProviderPref,
+    providerModelResolved,
+    providerEffortResolved,
+    sandboxResolved,
+    codexHomeResolved,
+    codexInstanceKeyResolved,
+    codexModelProviderResolved,
   ] = providerScope ? await Promise.all([
-    getPref({ key: `settings.provider.${providerScope}.model`, cwd }),
-    getPref({ key: `settings.provider.${providerScope}.effort`, cwd }),
-    getPref({ key: `settings.provider.${providerScope}.sandbox`, cwd }),
-    isCodexProvider ? getPref({ key: 'settings.provider.codex.codexHome', cwd }) : Promise.resolve(undefined),
-    isCodexProvider ? getPref({ key: 'settings.provider.codex.codexInstanceKey', cwd }) : Promise.resolve(undefined),
-    isCodexProvider ? getPref({ key: 'settings.provider.codex.codexModelProvider', cwd }) : Promise.resolve(undefined),
-  ]) : [undefined, undefined, undefined, undefined, undefined, undefined];
-  const providerModel = normalizeProviderConfigValue(providerModelPref);
-  const providerEffort = normalizeProviderConfigValue(providerEffortPref);
+    resolveProviderConfigPreference(getPref, `settings.provider.${providerScope}.model`, cwd),
+    resolveProviderConfigPreference(getPref, `settings.provider.${providerScope}.effort`, cwd),
+    resolveScopedProviderPreference(getPref, `settings.provider.${providerScope}.sandbox`, cwd),
+    isCodexProvider ? resolveProviderConfigPreference(getPref, 'settings.provider.codex.codexHome', cwd) : Promise.resolve({ value: '' }),
+    isCodexProvider ? resolveProviderConfigPreference(getPref, 'settings.provider.codex.codexInstanceKey', cwd) : Promise.resolve({ value: '' }),
+    isCodexProvider ? resolveProviderConfigPreference(getPref, 'settings.provider.codex.codexModelProvider', cwd) : Promise.resolve({ value: '' }),
+  ]) : [{ value: '' }, { value: '' }, { value: '' }, { value: '' }, { value: '' }, { value: '' }];
+  const providerModel = normalizeProviderConfigValue(providerModelResolved.value);
+  const providerEffort = normalizeProviderConfigValue(providerEffortResolved.value);
   // p20.3 §4.3：launch payload 可携带 UI 已知的 skill 选择。空数组 / false 不下发，
   // 完全对旧 payload 做 additive 兼容；名称与 send path 对齐（selectedSkills /
   // manualSkillSelection）。backend 的 rpc_types.go 同时兼容 snake_case 别名。
@@ -419,8 +418,8 @@ export async function startThread(ctx, cwd = '.', options = {}) {
   if (isCodexProvider) {
     // Codex pool routing is strict by default; always make the identity
     // explicit in thread/start instead of relying on process-level env fallback.
-    payload.config = withCodexLspToolDefaults(buildCodexIdentityConfig(codexHomePref, codexInstanceKeyPref, codexModelProviderPref));
-    const sandbox = normalizeCodexSandboxPreference(sandboxPref);
+    payload.config = withCodexLspToolDefaults(buildCodexIdentityConfig(codexHomeResolved.value, codexInstanceKeyResolved.value, codexModelProviderResolved.value));
+    const sandbox = normalizeCodexSandboxPreference(sandboxResolved.value);
     if (sandbox) payload.config.sandbox = sandbox;
   }
   // Provider model/effort forwarding: caller override > explicit settings
@@ -438,7 +437,7 @@ export async function startThread(ctx, cwd = '.', options = {}) {
     provider_scope: providerScope,
     provider_pref_model: providerModel, provider_pref_effort: providerEffort,
     contract_default_model: '', contract_default_effort: '', model_default_source: 'backend_provider_contract', effort_default_source: 'backend_provider_contract',
-    codex_model_provider_pref: normalizeProviderConfigValue(codexModelProviderPref),
+    codex_model_provider_pref: normalizeProviderConfigValue(codexModelProviderResolved.value),
     options_model: optionsModelTrimmed,
     options_effort: optionsEffortTrimmed,
     payload_model_provider: (payload.modelProvider || '').toString(),

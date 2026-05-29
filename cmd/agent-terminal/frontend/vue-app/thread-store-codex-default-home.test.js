@@ -69,11 +69,10 @@ describe('thread store Codex default home', () => {
 
     await store.startThread('/repo', {});
 
-    expect(startPayload?.config).toEqual(expect.objectContaining({
-      codexInstanceKey: 'default',
-      codexModelProvider: 'super-dolphin-relay',
-    }));
+    expect(startPayload?.config).not.toHaveProperty('codexInstanceKey');
+    expect(startPayload?.config).not.toHaveProperty('codexModelProvider');
     expect(startPayload?.config).not.toHaveProperty('codexHome');
+    expect(JSON.stringify(startPayload)).not.toContain('super-dolphin-relay');
     expect(JSON.stringify(startPayload)).not.toContain('Library/Application Support/Super Dolphin/providers/codex');
   });
 });

@@ -1,5 +1,6 @@
 // @ts-nocheck
 import { CODEX_IDENTITY_DEFAULTS, normalizeProviderConfigValue } from '../provider-config-options.js';
+import { isProviderPreferenceAbsent, isProviderPreferenceTombstone } from './provider-preferences.js';
 
 function normalizeCodexIdentityValue(value, fallback) {
   if (typeof value === 'boolean') return fallback;
@@ -7,32 +8,59 @@ function normalizeCodexIdentityValue(value, fallback) {
 }
 
 export function buildCodexIdentityConfig(home, instanceKey, modelProvider) {
-  const config = {
-    codexInstanceKey: normalizeCodexIdentityValue(instanceKey, CODEX_IDENTITY_DEFAULTS.codexInstanceKey),
-    codexModelProvider: normalizeCodexIdentityValue(modelProvider, CODEX_IDENTITY_DEFAULTS.codexModelProvider),
-  };
+  const config = {};
   if (normalizeProviderConfigValue(home)) config.codexHome = normalizeProviderConfigValue(home);
+  if (normalizeProviderConfigValue(instanceKey)) config.codexInstanceKey = normalizeCodexIdentityValue(instanceKey, CODEX_IDENTITY_DEFAULTS.codexInstanceKey);
+  if (normalizeProviderConfigValue(modelProvider)) config.codexModelProvider = normalizeCodexIdentityValue(modelProvider, CODEX_IDENTITY_DEFAULTS.codexModelProvider);
   return config;
 }
 
 export function normalizeCodexSandboxPreference(value) {
+  if (isProviderPreferenceAbsent(value) || isProviderPreferenceTombstone(value)) return null;
   if (value && typeof value === 'object' && !Array.isArray(value)) {
-    return codexSandboxPayload(value.type, value);
+    return codexSandboxPayload(value.type || value.mode, value);
   }
   if (typeof value === 'string' && value.trim()) {
     try {
       const parsed = JSON.parse(value);
-      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) return codexSandboxPayload(parsed.type, parsed);
+      if (isProviderPreferenceTombstone(parsed) || isProviderPreferenceAbsent(parsed)) return null;
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) return codexSandboxPayload(parsed.type || parsed.mode, parsed);
     } catch {
       return codexSandboxPayload(value);
     }
   }
-  return codexSandboxPayload('workspaceWrite');
+  return null;
 }
 
 function codexSandboxPayload(value, payload = {}) {
   const mode = (value || '').toString().trim();
-  if (mode === 'readOnly' || mode === 'read-only') return { 'read-only': null };
-  if (mode === 'dangerFullAccess' || mode === 'danger-full-access') return { 'danger-full-access': null };
-  return { 'workspace-write': null };
+  if (mode === 'readOnly' || mode === 'read-only') {
+    const access = payload.access;
+    if (access && access.type === 'restricted') {
+      let readableRoots = [];
+      if (Array.isArray(access.readable_roots)) readableRoots = access.readable_roots;
+      else if (Array.isArray(access.readableRoots)) readableRoots = access.readableRoots;
+      return {
+        mode: 'read-only',
+        access: {
+          type: 'restricted',
+          readable_roots: readableRoots,
+          include_platform_defaults: Boolean(access.include_platform_defaults ?? access.includePlatformDefaults),
+        },
+      };
+    }
+    return { mode: 'read-only' };
+  }
+  if (mode === 'dangerFullAccess' || mode === 'danger-full-access') return { mode: 'danger-full-access' };
+  if (mode === 'workspaceWrite' || mode === 'workspace-write') {
+    let writableRoots = [];
+    if (Array.isArray(payload.writable_roots)) writableRoots = payload.writable_roots;
+    else if (Array.isArray(payload.writableRoots)) writableRoots = payload.writableRoots;
+    return {
+      mode: 'workspace-write',
+      writable_roots: writableRoots,
+      network_access: Boolean(payload.network_access ?? payload.networkAccess),
+    };
+  }
+  throw new Error(`invalid codex sandbox preference: ${String(value)}`);
 }

@@ -11,6 +11,13 @@ import {
   normalizeProviderConfigValue,
 } from '../../provider-config-options.js';
 import { callAPI } from '../../services/api.js';
+import {
+  isProviderPreferenceAbsent,
+  isProviderPreferenceTombstone,
+  normalizeProviderIDStrict,
+  providerPreferenceSetValue,
+  resolveScopedProviderPreference,
+} from '../../stores/provider-preferences.js';
 import { useSettingsScope } from './useSettingsScope.ts';
 
 type ProviderSettingsProjectStore = { state?: { active?: string } } | null;
@@ -130,16 +137,13 @@ function setupProviderSettings(props: ProviderSettingsProps) {
   });
 
   function normalizeProviderID(value: unknown): string {
-    const providerID = normalizeProviderConfigValue(value);
+    const providerID = normalizeProviderConfigValue(value).toLowerCase();
+    if (providerID.startsWith('claude-')) return 'claude';
     return providerID || DEFAULT_PROVIDER_ID;
   }
 
   function isMissingProviderPreference(value: unknown): boolean {
-    return value === null || value === undefined || (typeof value === 'string' && value.trim() === '');
-  }
-
-  function isSupportedProviderID(providerID: string): boolean {
-    return providerID === 'codex' || providerID === 'claude';
+    return isProviderPreferenceAbsent(value) || isProviderPreferenceTombstone(value);
   }
 
   function providerDefaults(providerID: string) {
@@ -184,19 +188,12 @@ function setupProviderSettings(props: ProviderSettingsProps) {
 
   async function loadActiveProviderPreference(requestSeq: number): Promise<string> {
     try {
-      const value = await callAPI('ui/preferences/get', withProjectCwd({ key: PROVIDER_ACTIVE_PREF_KEY }));
-      const missingProviderPreference = isMissingProviderPreference(value);
-      let providerValue = value;
-      if (missingProviderPreference) {
-        providerValue = await callAPI('ui/preferences/get', { key: PROVIDER_ACTIVE_PREF_KEY });
-      }
-      const persistedProviderID = normalizeProviderConfigValue(typeof providerValue === 'string' ? providerValue : '');
-      if (!missingProviderPreference && (!persistedProviderID || !isSupportedProviderID(persistedProviderID))) {
-        throw new Error(`invalid provider preference: ${String(value)}`);
-      }
-      if (missingProviderPreference && persistedProviderID && !isSupportedProviderID(persistedProviderID)) {
-        throw new Error(`invalid provider preference: ${String(providerValue)}`);
-      }
+      const resolved = await resolveScopedProviderPreference(
+        (payload: any) => callAPI('ui/preferences/get', payload),
+        PROVIDER_ACTIVE_PREF_KEY,
+        activeProjectCwd.value,
+      );
+      const persistedProviderID = resolved.value ? normalizeProviderIDStrict(resolved.value) : '';
       const normalizedProviderID = normalizeProviderID(persistedProviderID || DEFAULT_PROVIDER_ID);
       if (!isCurrentProviderSettingsRequest(requestSeq)) {
         return normalizeProviderID(activeProvider.value);
@@ -225,18 +222,22 @@ function setupProviderSettings(props: ProviderSettingsProps) {
 
   async function readProviderPreference(suffix: string, providerID = activeProvider.value): Promise<any> {
     const primaryKey = providerPreferenceKey(suffix, providerID);
-    try {
-      const value = await callAPI('ui/preferences/get', withProjectCwd({ key: primaryKey }));
-      if (value !== null && value !== undefined && value !== '') {
-        return value;
-      }
-    } catch {
-      // ignore
-    }
-    return null;
+    const resolved = await resolveScopedProviderPreference(
+      (payload: any) => callAPI('ui/preferences/get', payload),
+      primaryKey,
+      activeProjectCwd.value,
+    );
+    return resolved.value || null;
   }
 
   function buildProviderPreferenceSetCalls(suffix: string, value: string, providerID = activeProvider.value): Promise<any>[] {
+    const normalizedProviderID = normalizeProviderID(providerID);
+    return [
+      callAPI('ui/preferences/set', withProjectCwd({ key: providerPreferenceKey(suffix, normalizedProviderID), value })),
+    ];
+  }
+
+  function buildProviderPreferenceSetCallsRaw(suffix: string, value: any, providerID = activeProvider.value): Promise<any>[] {
     const normalizedProviderID = normalizeProviderID(providerID);
     return [
       callAPI('ui/preferences/set', withProjectCwd({ key: providerPreferenceKey(suffix, normalizedProviderID), value })),
@@ -319,14 +320,19 @@ function setupProviderSettings(props: ProviderSettingsProps) {
 
   function applySandboxPayload(payload: SandboxPayload): void {
     if (!payload || typeof payload !== 'object') return;
-    sandboxMode.value = payload.type || 'workspaceWrite';
-    if (payload.type === 'workspaceWrite') {
-      writablePaths.value = (payload.writableRoots || []).join('\n');
-      networkAccess.value = Boolean(payload.networkAccess);
-    } else if (payload.type === 'readOnly') {
+    const rawMode = (payload.type || (payload as any).mode || 'workspaceWrite').toString();
+    let mode = rawMode;
+    if (rawMode === 'workspace-write') mode = 'workspaceWrite';
+    else if (rawMode === 'read-only') mode = 'readOnly';
+    else if (rawMode === 'danger-full-access') mode = 'dangerFullAccess';
+    sandboxMode.value = mode || 'workspaceWrite';
+    if (mode === 'workspaceWrite') {
+      writablePaths.value = ((payload.writableRoots || (payload as any).writable_roots || []) as string[]).join('\n');
+      networkAccess.value = Boolean(payload.networkAccess ?? (payload as any).network_access);
+    } else if (mode === 'readOnly') {
       const acc = payload.access;
       readOnlyMode.value = acc?.type === 'restricted' ? 'restricted' : 'fullAccess';
-      readablePaths.value = (acc?.readableRoots || []).join('\n');
+      readablePaths.value = ((acc?.readableRoots || (acc as any)?.readable_roots || []) as string[]).join('\n');
     }
   }
 
@@ -435,11 +441,9 @@ function setupProviderSettings(props: ProviderSettingsProps) {
         saveCalls.push(...buildProviderPreferenceSetCalls('model', providerModel.value, providerID));
       }
       if (providerID === 'codex') {
-        codexHome.value = normalizeCodexIdentityValue(codexHome.value, CODEX_IDENTITY_DEFAULTS.codexHome);
-        codexInstanceKey.value = normalizeCodexIdentityValue(codexInstanceKey.value, CODEX_IDENTITY_DEFAULTS.codexInstanceKey);
         saveCalls.push(
-          ...buildProviderPreferenceSetCalls('codexHome', codexHome.value, providerID),
-          ...buildProviderPreferenceSetCalls('codexInstanceKey', codexInstanceKey.value, providerID),
+          ...buildProviderPreferenceSetCallsRaw('codexHome', providerPreferenceSetValue(codexHome.value), providerID),
+          ...buildProviderPreferenceSetCallsRaw('codexInstanceKey', providerPreferenceSetValue(codexInstanceKey.value), providerID),
         );
       }
       await Promise.all(saveCalls);

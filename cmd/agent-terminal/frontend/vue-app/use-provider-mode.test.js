@@ -27,10 +27,8 @@ describe('useProviderMode', () => {
     expect(vm.providerPreferenceReady.value).toBe(true);
   });
 
-  it('persists the codex default before reporting provider preference ready', async () => {
-    apiMock.callAPI
-      .mockResolvedValueOnce(null)
-      .mockResolvedValueOnce({ ok: true });
+  it('uses the codex display default without materializing a global preference', async () => {
+    apiMock.callAPI.mockResolvedValueOnce(null);
     const vm = useProviderMode();
 
     expect(vm.providerPreferenceReady.value).toBe(false);
@@ -38,15 +36,15 @@ describe('useProviderMode', () => {
     await vm.loadProviderPreference();
 
     expect(apiMock.callAPI).toHaveBeenNthCalledWith(1, 'ui/preferences/get', { key: 'settings.provider.active' });
-    expect(apiMock.callAPI).toHaveBeenNthCalledWith(2, 'ui/preferences/set', { key: 'settings.provider.active', value: 'codex' });
+    expect(apiMock.callAPI).not.toHaveBeenCalledWith('ui/preferences/set', expect.anything());
     expect(vm.useClaudeProvider.value).toBe(false);
     expect(vm.providerPreferenceReady.value).toBe(true);
   });
 
-  it('loads and materializes the active provider in the selected project scope', async () => {
+  it('falls back to global active provider for a selected project scope without materializing the project default', async () => {
     apiMock.callAPI
       .mockResolvedValueOnce(null)
-      .mockResolvedValueOnce({ ok: true });
+      .mockResolvedValueOnce('claude');
     const vm = useProviderMode('/repo');
 
     await vm.loadProviderPreference();
@@ -55,11 +53,11 @@ describe('useProviderMode', () => {
       key: 'settings.provider.active',
       cwd: '/repo',
     });
-    expect(apiMock.callAPI).toHaveBeenNthCalledWith(2, 'ui/preferences/set', {
+    expect(apiMock.callAPI).toHaveBeenNthCalledWith(2, 'ui/preferences/get', {
       key: 'settings.provider.active',
-      value: 'codex',
-      cwd: '/repo',
     });
+    expect(apiMock.callAPI).not.toHaveBeenCalledWith('ui/preferences/set', expect.anything());
+    expect(vm.useClaudeProvider.value).toBe(true);
     expect(vm.providerPreferenceReady.value).toBe(true);
   });
 
