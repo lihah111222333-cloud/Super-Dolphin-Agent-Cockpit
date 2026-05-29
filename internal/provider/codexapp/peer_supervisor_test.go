@@ -229,7 +229,7 @@ func newTestSupervisor(t *testing.T, opts ...PeerSupervisorOption) (*PeerSupervi
 }
 
 func testPeerParentEnv() []string {
-	return []string{"PATH=/bin", "GO_AGENT_CTL_SESSION_TOKEN=test-peer-token"}
+	return []string{"PATH=/bin", "GO_AGENT_CTL_SESSION_TOKEN=test-peer-token", "SUPER_DOLPHIN_RUNTIME_MODE=dev", "SUPER_DOLPHIN_RUNTIME_RESOURCES_DIR=/work/repo"}
 }
 
 // runSupervisor starts Run in a goroutine and returns a done channel that
@@ -297,7 +297,7 @@ func TestPeerProcessEnvRequiresSessionToken(t *testing.T) {
 }
 
 func TestPeerProcessEnvCarriesLegacySessionTokenAsCanonical(t *testing.T) {
-	env, err := peerProcessEnv("mcp-orch", []string{"PATH=/bin", "GO_AGENT_MCP_SESSION_TOKEN=legacy-token"}, nil)
+	env, err := peerProcessEnv("mcp-orch", []string{"PATH=/bin", "GO_AGENT_MCP_SESSION_TOKEN=legacy-token", "SUPER_DOLPHIN_RUNTIME_MODE=dev", "SUPER_DOLPHIN_RUNTIME_RESOURCES_DIR=/work/repo"}, nil)
 	if err != nil {
 		t.Fatalf("peerProcessEnv() error = %v", err)
 	}

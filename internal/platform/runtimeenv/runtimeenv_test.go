@@ -38,19 +38,10 @@ func TestPackagedRuntimeFromExecutableDetectsMacOSAppMainBinary(t *testing.T) {
 	}
 }
 
-func TestPackagedRuntimeFromExecutableDetectsMacOSResourcePeerBinary(t *testing.T) {
-	got, ok := PackagedRuntimeFromExecutable("/Applications/Super Dolphin.app/Contents/Resources/bin/mcp-orch", "/Users/alice")
-	if !ok {
-		t.Fatal("PackagedRuntimeFromExecutable ok = false, want true")
-	}
-	if got.ResourcesDir != "/Applications/Super Dolphin.app/Contents/Resources" {
-		t.Fatalf("ResourcesDir = %q", got.ResourcesDir)
-	}
-	if got.BinDir != "/Applications/Super Dolphin.app/Contents/Resources/bin" {
-		t.Fatalf("BinDir = %q", got.BinDir)
-	}
-	if got.AppDataDir != "/Users/alice/Library/Application Support/Super Dolphin" {
-		t.Fatalf("AppDataDir = %q", got.AppDataDir)
+func TestPackagedRuntimeFromExecutableRejectsMacOSResourcePeerBinary(t *testing.T) {
+	_, ok := PackagedRuntimeFromExecutable("/Applications/Super Dolphin.app/Contents/Resources/bin/mcp-orch", "/Users/alice")
+	if ok {
+		t.Fatal("PackagedRuntimeFromExecutable ok = true, want false for sidecar peer binary")
 	}
 }
 
@@ -61,11 +52,10 @@ func TestPackagedRuntimeFromExecutableRejectsDevBinary(t *testing.T) {
 	}
 }
 
-func TestPackagedResourcesDirFromResourcesBinPeer(t *testing.T) {
+func TestPackagedResourcesDirRejectsResourcesBinPeer(t *testing.T) {
 	got := packagedResourcesDir("/Applications/Super Dolphin.app/Contents/Resources/bin/mcp-orch")
-	want := "/Applications/Super Dolphin.app/Contents/Resources"
-	if got != want {
-		t.Fatalf("packagedResourcesDir() = %q, want %q", got, want)
+	if got != "" {
+		t.Fatalf("packagedResourcesDir() = %q, want empty for sidecar peer binary", got)
 	}
 }
 

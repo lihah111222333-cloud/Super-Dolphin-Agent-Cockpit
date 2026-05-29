@@ -25,8 +25,8 @@ func main() {
 		_, _ = os.Stderr.WriteString("mcp-ida startup env failed: " + err.Error() + "\n")
 		os.Exit(1)
 	}
-	if err := runtimeenv.ConfigurePackagedApp(); err != nil {
-		_, _ = os.Stderr.WriteString("mcp-ida packaged runtime env failed: " + err.Error() + "\n")
+	if err := runtimeenv.ConfigureSidecarRuntime(); err != nil {
+		_, _ = os.Stderr.WriteString("mcp-ida sidecar runtime env failed: " + err.Error() + "\n")
 		os.Exit(1)
 	}
 	// Cap GOMAXPROCS for this lightweight sidecar (see cmd/mcp-orch/main.go).

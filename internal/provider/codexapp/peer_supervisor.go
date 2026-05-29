@@ -607,6 +607,10 @@ func peerProcessEnv(name string, parent []string, configuredRoots []string) ([]s
 	if err != nil {
 		return nil, err
 	}
+	env, err = ensureSidecarRuntimeContract(env)
+	if err != nil {
+		return nil, err
+	}
 	if strings.TrimSpace(name) != "mcp-lsp" {
 		return env, nil
 	}
@@ -689,22 +693,6 @@ func normalizePeerWorkspaceRoots(roots []string) ([]string, error) {
 		return nil, errors.New("mcp-lsp peer requires configured workspace root")
 	}
 	return out, nil
-}
-
-func lookupEnvValue(env []string, key string) (string, bool) {
-	prefix := key + "="
-	for i := len(env) - 1; i >= 0; i-- {
-		if value, ok := strings.CutPrefix(env[i], prefix); ok {
-			return value, true
-		}
-	}
-	return "", false
-}
-
-func lookupTrimmedEnvValue(env []string, key string) (string, bool) {
-	value, ok := lookupEnvValue(env, key)
-	value = strings.TrimSpace(value)
-	return value, ok && value != ""
 }
 
 // resolvePeerBinDirs returns the ordered list of directories to probe for peer

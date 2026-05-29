@@ -16,6 +16,7 @@ type scopedToolCallResult struct {
 }
 
 func TestHandleScopedToolsCallTimesOutBlockedToolHandler(t *testing.T) {
+	t.Setenv("GO_AGENT_LSP_ROOT", t.TempDir())
 	release := make(chan struct{})
 	started := make(chan struct{})
 	t.Cleanup(func() { close(release) })
