@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -17,20 +18,24 @@ func TestPackagedResourcesDir(t *testing.T) {
 }
 
 func TestPackagedRuntimeFromExecutableDetectsMacOSAppMainBinary(t *testing.T) {
-	got, ok := PackagedRuntimeFromExecutable("/Applications/Super Dolphin.app/Contents/MacOS/agent-terminal", "/Users/alice")
+	app := filepath.Join(t.TempDir(), "Super Dolphin.app")
+	resources := filepath.Join(app, "Contents", "Resources")
+	writePackagedRuntimeFixture(t, resources, runtimeGOOS()+"-"+runtimeGOARCH())
+
+	got, ok := PackagedRuntimeFromExecutable(filepath.Join(app, "Contents", "MacOS", "agent-terminal"), "/Users/alice")
 	if !ok {
 		t.Fatal("PackagedRuntimeFromExecutable ok = false, want true")
 	}
-	if got.ResourcesDir != "/Applications/Super Dolphin.app/Contents/Resources" {
+	if got.ResourcesDir != resources {
 		t.Fatalf("ResourcesDir = %q", got.ResourcesDir)
 	}
-	if got.BinDir != "/Applications/Super Dolphin.app/Contents/Resources/bin" {
+	if got.BinDir != filepath.Join(resources, "bin") {
 		t.Fatalf("BinDir = %q", got.BinDir)
 	}
-	if got.MigrationsDir != "/Applications/Super Dolphin.app/Contents/Resources/migrations" {
+	if got.MigrationsDir != filepath.Join(resources, "migrations") {
 		t.Fatalf("MigrationsDir = %q", got.MigrationsDir)
 	}
-	if got.PostgresRoot != "/Applications/Super Dolphin.app/Contents/Resources/postgres" {
+	if got.PostgresRoot != filepath.Join(resources, "postgres") {
 		t.Fatalf("PostgresRoot = %q", got.PostgresRoot)
 	}
 	if got.AppDataDir != "/Users/alice/Library/Application Support/Super Dolphin" {
@@ -39,14 +44,18 @@ func TestPackagedRuntimeFromExecutableDetectsMacOSAppMainBinary(t *testing.T) {
 }
 
 func TestPackagedRuntimeFromExecutableDetectsMacOSResourcePeerBinary(t *testing.T) {
-	got, ok := PackagedRuntimeFromExecutable("/Applications/Super Dolphin.app/Contents/Resources/bin/mcp-orch", "/Users/alice")
+	app := filepath.Join(t.TempDir(), "Super Dolphin.app")
+	resources := filepath.Join(app, "Contents", "Resources")
+	writePackagedRuntimeFixture(t, resources, runtimeGOOS()+"-"+runtimeGOARCH())
+
+	got, ok := PackagedRuntimeFromExecutable(filepath.Join(resources, "bin", "mcp-orch"), "/Users/alice")
 	if !ok {
 		t.Fatal("PackagedRuntimeFromExecutable ok = false, want true")
 	}
-	if got.ResourcesDir != "/Applications/Super Dolphin.app/Contents/Resources" {
+	if got.ResourcesDir != resources {
 		t.Fatalf("ResourcesDir = %q", got.ResourcesDir)
 	}
-	if got.BinDir != "/Applications/Super Dolphin.app/Contents/Resources/bin" {
+	if got.BinDir != filepath.Join(resources, "bin") {
 		t.Fatalf("BinDir = %q", got.BinDir)
 	}
 	if got.AppDataDir != "/Users/alice/Library/Application Support/Super Dolphin" {
@@ -309,12 +318,7 @@ func writeBundledLSPManifest(t *testing.T, resources string) {
 }
 
 func pathListContains(pathList, want string) bool {
-	for _, entry := range filepath.SplitList(pathList) {
-		if entry == want {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(filepath.SplitList(pathList), want)
 }
 
 func makeDirs(t *testing.T, dirs ...string) {
@@ -371,7 +375,7 @@ func TestConfigurePackagedAppReturnsSetenvError(t *testing.T) {
 	})
 
 	app := filepath.Join(t.TempDir(), "Super Dolphin.app")
-	writeBundledSidecars(t, filepath.Join(app, "Contents", "Resources", "bin"))
+	writePackagedRuntimeFixture(t, filepath.Join(app, "Contents", "Resources"), runtimeGOOS()+"-"+runtimeGOARCH())
 	executablePathForRuntime = func() (string, error) {
 		return filepath.Join(app, "Contents", "MacOS", "agent-terminal"), nil
 	}

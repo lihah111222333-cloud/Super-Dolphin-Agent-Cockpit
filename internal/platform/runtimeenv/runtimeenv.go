@@ -76,34 +76,49 @@ func ConfigurePackagedApp() error {
 	if err != nil {
 		return fmt.Errorf("resolve executable for packaged runtime: %w", err)
 	}
-	resources := packagedResourcesDir(exe)
-	if resources == "" {
+	resolved, err := ResolveRuntime(RuntimeResolveInput{
+		GOOS:           runtimeGOOS(),
+		GOARCH:         runtimeGOARCH(),
+		Env:            environmentMap(os.Environ()),
+		ExecutablePath: exe,
+	})
+	if err != nil {
+		return err
+	}
+	if resolved.RuntimeMode != RuntimeModePackaged || resolved.PackagedRuntime == nil {
 		return nil
 	}
 	home, err := userHomeDirForRuntime()
 	if err != nil {
 		return fmt.Errorf("resolve packaged runtime home: %w", err)
 	}
-	runtime := packagedRuntimeFromResources(resources, home)
-	if err := applyPackagedRuntimeEnv(runtime, home); err != nil {
+	runtime := *resolved.PackagedRuntime
+	runtime.AppDataDir = packagedAppDataDir(home)
+	if err := applyPackagedRuntimeEnv(runtime); err != nil {
 		return fmt.Errorf("configure packaged runtime env: %w", err)
 	}
 	return nil
 }
 
-// PackagedRuntimeFromExecutable resolves the packaged runtime for a macOS app
-// main binary or a bundled Resources/bin peer binary.
+// PackagedRuntimeFromExecutable resolves the packaged runtime for callers that
+// still need the legacy PackagedRuntime shape. It delegates packaged/dev
+// classification to ResolveRuntime so path shape alone cannot select packaged.
 func PackagedRuntimeFromExecutable(executablePath, userHome string) (PackagedRuntime, bool) {
 	executablePath = strings.TrimSpace(executablePath)
 	userHome = strings.TrimSpace(userHome)
 	if executablePath == "" || userHome == "" {
 		return PackagedRuntime{}, false
 	}
-	resources := packagedResourcesDir(executablePath)
-	if resources == "" {
+	resolved, err := ResolveRuntime(RuntimeResolveInput{
+		GOOS:           runtimeGOOS(),
+		GOARCH:         runtimeGOARCH(),
+		ExecutablePath: executablePath,
+		UserHome:       userHome,
+	})
+	if err != nil || resolved.RuntimeMode != RuntimeModePackaged || resolved.PackagedRuntime == nil {
 		return PackagedRuntime{}, false
 	}
-	return packagedRuntimeFromResources(resources, userHome), true
+	return *resolved.PackagedRuntime, true
 }
 
 func packagedRuntimeFromResources(resources, userHome string) PackagedRuntime {
@@ -156,7 +171,7 @@ func resourcesDirFromPeerBin(exeDir string) string {
 }
 
 func applyPackagedEnv(resources, userHome string) error {
-	return applyPackagedRuntimeEnv(packagedRuntimeFromResources(resources, userHome), userHome)
+	return applyPackagedRuntimeEnv(packagedRuntimeFromResources(resources, userHome))
 }
 
 func LoadLSPBundleFromEnv() (LSPBundle, bool, error) {
@@ -306,7 +321,7 @@ func (b LSPBundle) SemanticLanguages() []string {
 	return languages
 }
 
-func applyPackagedRuntimeEnv(runtime PackagedRuntime, userHome string) error {
+func applyPackagedRuntimeEnv(runtime PackagedRuntime) error {
 	if err := requireBundledSidecars(runtime.BinDir); err != nil {
 		return err
 	}
