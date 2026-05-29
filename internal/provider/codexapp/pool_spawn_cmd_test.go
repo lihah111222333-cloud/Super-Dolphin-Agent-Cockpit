@@ -33,14 +33,13 @@ func TestBuildPoolSpawnCmdRequiresHome(t *testing.T) {
 }
 
 func TestBuildPoolSpawnCmdInjectsCODEXHOME(t *testing.T) {
-	t.Parallel()
+	t.Setenv("OPENAI_API_KEY", "secret")
 	cmd, err := BuildPoolSpawnCmd(context.Background(), PoolSpawnArgs{
 		Home: "/canonical/home",
 		ParentEnv: []string{
 			"PATH=/usr/bin",
 			"HOME=/home/user",
 			"CODEX_HOME=/stale/leak", // must be shadowed by the override
-			"OPENAI_API_KEY=secret",  // must be dropped
 		},
 	})
 	if err != nil {
@@ -53,8 +52,8 @@ func TestBuildPoolSpawnCmdInjectsCODEXHOME(t *testing.T) {
 	if strings.Contains(env, "CODEX_HOME=/stale/leak") {
 		t.Fatalf("stale CODEX_HOME should be shadowed:\n%s", env)
 	}
-	if strings.Contains(env, "OPENAI_API_KEY=") {
-		t.Fatalf("non-allowlisted env leaked:\n%s", env)
+	if !strings.Contains(env, "OPENAI_API_KEY=secret") {
+		t.Fatalf("OPENAI_API_KEY missing:\n%s", env)
 	}
 	for _, must := range []string{"PATH=/usr/bin", "HOME=/home/user"} {
 		if !strings.Contains(env, must) {
@@ -66,7 +65,7 @@ func TestBuildPoolSpawnCmdInjectsCODEXHOME(t *testing.T) {
 func TestBuildPoolSpawnCmdDefaultsParentEnvToOSEnviron(t *testing.T) {
 	// Not Parallel: t.Setenv mutates process env and the stdlib
 	// testing framework forbids combining it with t.Parallel.
-	t.Setenv("OPENAI_API_KEY", "should-be-dropped")
+	t.Setenv("OPENAI_API_KEY", "from-os-env")
 	t.Setenv("TZ", "UTC") // on the allowlist
 	cmd, err := BuildPoolSpawnCmd(context.Background(), PoolSpawnArgs{
 		Home: "/realpath/home",
@@ -76,8 +75,8 @@ func TestBuildPoolSpawnCmdDefaultsParentEnvToOSEnviron(t *testing.T) {
 		t.Fatalf("BuildPoolSpawnCmd error = %v", err)
 	}
 	env := strings.Join(cmd.Env, "\n")
-	if strings.Contains(env, "OPENAI_API_KEY=") {
-		t.Fatalf("OS-Environ default should still filter rogue keys:\n%s", env)
+	if !strings.Contains(env, "OPENAI_API_KEY=from-os-env") {
+		t.Fatalf("OS-Environ OPENAI_API_KEY missing:\n%s", env)
 	}
 	if !strings.Contains(env, "TZ=UTC") {
 		t.Fatalf("allowlisted OS-Environ value missing:\n%s", env)
