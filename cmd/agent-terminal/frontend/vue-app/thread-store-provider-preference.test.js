@@ -202,6 +202,113 @@ describe('thread store provider preference scope', () => {
     }));
   });
 
+  it('resolves launch overrides before project and global provider preferences', async () => {
+    const store = useThreadStore();
+    let startPayload = null;
+    apiMock.callAPI.mockImplementation(async (method, payload) => {
+      if (method === 'ui/preferences/get') {
+        if (payload?.key === 'settings.provider.active' && payload?.cwd === '/repo') return 'codex';
+        if (payload?.key === 'settings.provider.active') return 'claude';
+        if (payload?.key === 'settings.provider.codex.model' && payload?.cwd === '/repo') return 'project-model';
+        if (payload?.key === 'settings.provider.codex.effort' && payload?.cwd === '/repo') return 'project-effort';
+        if (payload?.key === 'settings.provider.codex.model') return 'global-model';
+        if (payload?.key === 'settings.provider.codex.effort') return 'global-effort';
+        return undefined;
+      }
+      if (method === 'config/builtinTools/read') return { tools: [] };
+      if (method === 'thread/start') {
+        startPayload = payload;
+        return { thread: { id: 'thread-explicit-provider-overrides' } };
+      }
+      if (method === 'ui/state/get') return buildSnapshot('thread-explicit-provider-overrides');
+      if (method === 'ui/preferences/set') return {};
+      return {};
+    });
+
+    await store.startThread('/repo', { modelProvider: 'codex', model: 'override-model', effort: 'override-effort' });
+
+    expect(startPayload).toEqual(expect.objectContaining({
+      modelProvider: 'codex',
+      model: 'override-model',
+      effort: 'override-effort',
+    }));
+  });
+
+  it('uses global provider details when project details are absent and preserves project partials', async () => {
+    const store = useThreadStore();
+    let startPayload = null;
+    apiMock.callAPI.mockImplementation(async (method, payload) => {
+      if (method === 'ui/preferences/get') {
+        if (payload?.key === 'settings.provider.active' && payload?.cwd === '/repo') return null;
+        if (payload?.key === 'settings.provider.active') return 'codex';
+        if (payload?.key === 'settings.provider.codex.model' && payload?.cwd === '/repo') return 'project-model';
+        if (payload?.key === 'settings.provider.codex.effort' && payload?.cwd === '/repo') return '';
+        if (payload?.key === 'settings.provider.codex.codexHome' && payload?.cwd === '/repo') return null;
+        if (payload?.key === 'settings.provider.codex.codexInstanceKey' && payload?.cwd === '/repo') return 'project-instance';
+        if (payload?.key === 'settings.provider.codex.codexModelProvider' && payload?.cwd === '/repo') return undefined;
+        if (payload?.key === 'settings.provider.codex.model') return 'global-model';
+        if (payload?.key === 'settings.provider.codex.effort') return 'global-effort';
+        if (payload?.key === 'settings.provider.codex.codexHome') return '/Users/global/.codex';
+        if (payload?.key === 'settings.provider.codex.codexInstanceKey') return 'global-instance';
+        if (payload?.key === 'settings.provider.codex.codexModelProvider') return 'openai-compatible';
+        return undefined;
+      }
+      if (method === 'config/builtinTools/read') return { tools: [] };
+      if (method === 'thread/start') {
+        startPayload = payload;
+        return { thread: { id: 'thread-global-detail-fallback' } };
+      }
+      if (method === 'ui/state/get') return buildSnapshot('thread-global-detail-fallback');
+      if (method === 'ui/preferences/set') return {};
+      return {};
+    });
+
+    await store.startThread('/repo', {});
+
+    expect(startPayload).toEqual(expect.objectContaining({
+      modelProvider: 'codex',
+      model: 'project-model',
+      effort: 'global-effort',
+    }));
+    expect(startPayload?.config).toEqual(expect.objectContaining({
+      codexHome: '/Users/global/.codex',
+      codexInstanceKey: 'project-instance',
+      codexModelProvider: 'openai-compatible',
+    }));
+  });
+
+  it('project tombstones stop global fallback and omit the cleared launch fields', async () => {
+    const store = useThreadStore();
+    let startPayload = null;
+    apiMock.callAPI.mockImplementation(async (method, payload) => {
+      if (method === 'ui/preferences/get') {
+        if (payload?.key === 'settings.provider.active' && payload?.cwd === '/repo') return null;
+        if (payload?.key === 'settings.provider.active') return 'codex';
+        if (payload?.key === 'settings.provider.codex.model' && payload?.cwd === '/repo') return { cleared: true };
+        if (payload?.key === 'settings.provider.codex.effort' && payload?.cwd === '/repo') return { cleared: true };
+        if (payload?.key === 'settings.provider.codex.codexHome' && payload?.cwd === '/repo') return { cleared: true };
+        if (payload?.key === 'settings.provider.codex.model') return 'global-model';
+        if (payload?.key === 'settings.provider.codex.effort') return 'global-effort';
+        if (payload?.key === 'settings.provider.codex.codexHome') return '/Users/global/.codex';
+        return undefined;
+      }
+      if (method === 'config/builtinTools/read') return { tools: [] };
+      if (method === 'thread/start') {
+        startPayload = payload;
+        return { thread: { id: 'thread-tombstone-cleared' } };
+      }
+      if (method === 'ui/state/get') return buildSnapshot('thread-tombstone-cleared');
+      if (method === 'ui/preferences/set') return {};
+      return {};
+    });
+
+    await store.startThread('/repo', {});
+
+    expect(startPayload?.model).toBeUndefined();
+    expect(startPayload?.effort).toBeUndefined();
+    expect(startPayload?.config).not.toHaveProperty('codexHome');
+  });
+
   it('does not add Codex identity defaults for non-Codex providers', async () => {
     const store = useThreadStore();
     let startPayload = null;

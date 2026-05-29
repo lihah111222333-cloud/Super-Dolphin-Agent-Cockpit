@@ -21,7 +21,6 @@ vi.mock('./services/log.js', () => ({
   logWarn: logMock.logWarn,
 }));
 
-import { CODEX_IDENTITY_DEFAULTS } from './provider-config-options.js';
 import { withCodexLspToolDefaults } from './stores/codex-lsp-defaults.js';
 import { useThreadStore } from './stores/threads.js';
 import {
@@ -84,15 +83,12 @@ function mockStartPreference(payload, {
 }
 
 function codexIdentityConfig(overrides = {}) {
-  const out = { ...CODEX_IDENTITY_DEFAULTS, ...overrides };
-  if (!out.codexHome) delete out.codexHome;
-  return out;
+  return { ...overrides };
 }
 
 function codexStartConfig(overrides = {}) {
   return {
     ...withCodexLspToolDefaults(codexIdentityConfig(overrides)),
-    sandbox: { 'workspace-write': null },
   };
 }
 
