@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"go.uber.org/fx"
 
@@ -184,29 +185,112 @@ func ensureSchemaMigrationsTable(ctx context.Context, pool *pgxpool.Pool) error 
 	return err
 }
 
+type baselineTx interface {
+	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
+	Exec(ctx context.Context, sql string, args ...any) (pgconn.CommandTag, error)
+	Commit(ctx context.Context) error
+	Rollback(ctx context.Context) error
+}
+
+type baselineBeginFunc func(context.Context) (baselineTx, error)
+type baselineReadFileFunc func(string) ([]byte, error)
+
+var requiredBaselineTables = []string{
+	"agent_codex_binding",
+	"agent_interactions",
+	"agent_provider_binding",
+	"agent_status",
+	"agent_threads",
+	"audit_events",
+	"bus_exception_logs",
+	"command_card_runs",
+	"command_card_versions",
+	"command_cards",
+	"cwd_instance_locks",
+	"prompt_template_versions",
+	"prompt_versions",
+	"prompt_templates",
+	"prompts",
+	"shared_files",
+	"system_logs",
+	"task_acks",
+	"task_dag_nodes",
+	"task_dags",
+	"task_traces",
+	"topology_approval_archives",
+	"topology_approvals",
+	"ui_preferences",
+	"workspace_run_files",
+	"workspace_runs",
+}
+
 func applyBaselineIfMissing(ctx context.Context, pool *pgxpool.Pool, dir string) error {
-	var hasBaseline bool
-	err := pool.QueryRow(ctx, "SELECT EXISTS(SELECT 1 FROM schema_migrations WHERE filename = '001_baseline.sql')").Scan(&hasBaseline)
+	return applyBaselineIfMissingWithBegin(ctx, func(ctx context.Context) (baselineTx, error) {
+		return pool.Begin(ctx)
+	}, dir, os.ReadFile)
+}
+
+func applyBaselineIfMissingWithBegin(ctx context.Context, begin baselineBeginFunc, dir string, readFile baselineReadFileFunc) error {
+	tx, err := begin(ctx)
 	if err != nil {
+		return fmt.Errorf("begin baseline transaction: %w", err)
+	}
+	if err := applyBaselineInTx(ctx, tx, dir, readFile); err != nil {
+		if rollbackErr := tx.Rollback(context.Background()); rollbackErr != nil {
+			return fmt.Errorf("%w; rollback baseline transaction: %v", err, rollbackErr)
+		}
 		return err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("commit baseline transaction: %w", err)
+	}
+	return nil
+}
+
+func applyBaselineInTx(ctx context.Context, tx baselineTx, dir string, readFile baselineReadFileFunc) error {
+	var hasBaseline bool
+	err := tx.QueryRow(ctx, "SELECT EXISTS(SELECT 1 FROM schema_migrations WHERE filename = '001_baseline.sql')").Scan(&hasBaseline)
+	if err != nil {
+		return fmt.Errorf("detect baseline marker: %w", err)
 	}
 	if hasBaseline {
 		return nil
 	}
 
-	var threadsExist bool
-	_ = pool.QueryRow(ctx, "SELECT EXISTS(SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'agent_threads')").Scan(&threadsExist)
-
-	if !threadsExist {
-		c, err := os.ReadFile(filepath.Join(dir, "001_baseline.sql"))
-		if err == nil {
-			if _, err := pool.Exec(ctx, string(c)); err != nil {
-				return err
-			}
+	existingTables, err := countExistingBaselineTables(ctx, tx)
+	if err != nil {
+		return err
+	}
+	if existingTables > 0 && existingTables != len(requiredBaselineTables) {
+		return fmt.Errorf("partial existing baseline schema: found %d of %d required tables; refusing to mark 001_baseline.sql applied", existingTables, len(requiredBaselineTables))
+	}
+	if existingTables == 0 {
+		c, err := readFile(filepath.Join(dir, "001_baseline.sql"))
+		if err != nil {
+			return fmt.Errorf("read baseline migration 001_baseline.sql: %w", err)
+		}
+		if _, err := tx.Exec(ctx, string(c)); err != nil {
+			return fmt.Errorf("execute baseline migration 001_baseline.sql: %w", err)
 		}
 	}
-	_, err = pool.Exec(ctx, "INSERT INTO schema_migrations (version, name, filename) VALUES (1, 'baseline', '001_baseline.sql')")
-	return err
+	if _, err := tx.Exec(ctx, "INSERT INTO schema_migrations (version, name, filename) VALUES (1, 'baseline', '001_baseline.sql')"); err != nil {
+		return fmt.Errorf("insert baseline marker: %w", err)
+	}
+	return nil
+}
+
+func countExistingBaselineTables(ctx context.Context, tx baselineTx) (int, error) {
+	var existingTables int
+	err := tx.QueryRow(ctx, `
+		SELECT COUNT(*)
+		FROM information_schema.tables
+		WHERE table_schema = 'public'
+		  AND table_name = ANY($1)
+	`, requiredBaselineTables).Scan(&existingTables)
+	if err != nil {
+		return 0, fmt.Errorf("probe existing baseline schema: %w", err)
+	}
+	return existingTables, nil
 }
 
 func getAppliedMigrations(ctx context.Context, pool *pgxpool.Pool) (map[string]bool, error) {
