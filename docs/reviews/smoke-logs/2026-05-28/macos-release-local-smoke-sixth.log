@@ -1,0 +1,13 @@
+command: docs/scripts/macos_release_smoke.sh local
+started_at: 2026-05-28T13:15:17Z
+app_path: /Users/ai/Desktop/Super-Dolphin/.worktrees/package-embedded-pg/dist/package/macos/Super Dolphin.app
+dmg_path: /Users/ai/Desktop/Super-Dolphin/.worktrees/package-embedded-pg/dist/package/macos/Super Dolphin.dmg
+go_platform: darwin-arm64
+packaged app verification passed: /Users/ai/Desktop/Super-Dolphin/.worktrees/package-embedded-pg/dist/package/macos/Super Dolphin.app
+packaged relay .env keys present with values redacted: /Users/ai/Desktop/Super-Dolphin/.worktrees/package-embedded-pg/dist/package/macos/Super Dolphin.app/Contents/Resources/.env
+runtime manifest contract present: /Users/ai/Desktop/Super-Dolphin/.worktrees/package-embedded-pg/dist/package/macos/Super Dolphin.app/Contents/Resources/runtime-manifest.json
+bundled Codex app-server --help passed with /opt/homebrew/bin and /usr/local/bin hidden from PATH
+packaged app verification passed: /var/folders/xl/33p_9r195yd4glcqfpbc0cv40000gn/T/tmp.stqSL1kq0s/Super Dolphin.app
+DMG mounted and packaged app verified: /Users/ai/Desktop/Super-Dolphin/.worktrees/package-embedded-pg/dist/package/macos/Super Dolphin.dmg
+exit_code: 0
+finished_at: 2026-05-28T13:16:27Z

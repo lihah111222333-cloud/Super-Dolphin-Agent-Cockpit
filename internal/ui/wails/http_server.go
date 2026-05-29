@@ -7,6 +7,8 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"os"
+	"strings"
 	"time"
 
 	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
@@ -15,6 +17,7 @@ import (
 )
 
 const defaultHTTPAddr = "127.0.0.1:4511"
+const httpAddrEnv = "SUPER_DOLPHIN_HTTP_ADDR"
 
 type httpAssetServer struct {
 	logger  *slog.Logger
@@ -37,14 +40,25 @@ func NewHTTPAssetServer(p httpAssetServerParams) httpAssetRunnerResult {
 	return httpAssetRunnerResult{
 		Runner: &httpAssetServer{
 			logger:  p.Logger,
-			addr:    defaultHTTPAddr,
+			addr:    resolveHTTPAssetAddr(),
 			handler: handler,
 			server:  p.Server,
 		},
 	}
 }
 
+func resolveHTTPAssetAddr() string {
+	if value := strings.TrimSpace(os.Getenv(httpAddrEnv)); value != "" {
+		return value
+	}
+	return defaultHTTPAddr
+}
+
 func (s *httpAssetServer) Run(ctx context.Context) error {
+	if err := validateHTTPAssetAddr(s.addr); err != nil {
+		return err
+	}
+
 	mux := http.NewServeMux()
 	registerHTTPAssetRoutes(mux, s.server, s.handler)
 
@@ -84,5 +98,19 @@ func (s *httpAssetServer) Run(ctx context.Context) error {
 		shutCtx, cancel := platformconfig.WithTimeout(context.Background(), platformconfig.ShutdownTimeout)
 		defer cancel()
 		return srv.Shutdown(shutCtx)
+	}
+}
+
+func validateHTTPAssetAddr(addr string) error {
+	addr = strings.TrimSpace(addr)
+	host, _, err := net.SplitHostPort(addr)
+	if err != nil {
+		return fmt.Errorf("http asset server addr must be loopback: %w", err)
+	}
+	switch strings.ToLower(strings.TrimSpace(host)) {
+	case "localhost", "127.0.0.1", "::1":
+		return nil
+	default:
+		return fmt.Errorf("http asset server addr must be loopback, got %q", addr)
 	}
 }

@@ -2,6 +2,7 @@ package config
 
 import (
 	"bytes"
+	"errors"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -19,7 +20,7 @@ func TestNew_PrefersCanonicalRPCAddr(t *testing.T) {
 	var buf bytes.Buffer
 	restoreConfigLogger(t, &buf)
 
-	cfg := New()
+	cfg := mustNewConfig(t)
 	if cfg.RPCAddr != "127.0.0.1:9200" {
 		t.Fatalf("RPCAddr = %q", cfg.RPCAddr)
 	}
@@ -35,7 +36,7 @@ func TestNew_UsesLegacyRPCAddrWithDeprecationWarning(t *testing.T) {
 	var buf bytes.Buffer
 	restoreConfigLogger(t, &buf)
 
-	cfg := New()
+	cfg := mustNewConfig(t)
 	if cfg.RPCAddr != "127.0.0.1:9100" {
 		t.Fatalf("RPCAddr = %q", cfg.RPCAddr)
 	}
@@ -47,15 +48,18 @@ func TestNew_UsesLegacyRPCAddrWithDeprecationWarning(t *testing.T) {
 	}
 }
 
-func TestNew_ExportsResolvedDatabaseURLWhenEnvMissing(t *testing.T) {
+func TestNew_DoesNotSynthesizeDatabaseURLInDevWhenEnvMissing(t *testing.T) {
 	isolateConfigTestEnv(t)
 
-	cfg := New()
-	if got := strings.TrimSpace(cfg.DatabaseURL); got == "" {
-		t.Fatal("DatabaseURL is empty")
+	cfg := mustNewConfig(t)
+	if got := strings.TrimSpace(cfg.DatabaseURL); got != "" {
+		t.Fatalf("DatabaseURL = %q, want empty without packaged runtime or explicit opt-in", got)
 	}
-	if got := os.Getenv("DATABASE_URL"); got != cfg.DatabaseURL {
-		t.Fatalf("DATABASE_URL = %q, want %q", got, cfg.DatabaseURL)
+	if cfg.EmbeddedPostgres.Enabled {
+		t.Fatal("EmbeddedPostgres.Enabled = true, want false without packaged runtime or explicit opt-in")
+	}
+	if got := os.Getenv("DATABASE_URL"); got != "" {
+		t.Fatalf("DATABASE_URL = %q, want empty", got)
 	}
 }
 
@@ -63,9 +67,12 @@ func TestNew_PreservesDatabaseURLFromEnv(t *testing.T) {
 	isolateConfigTestEnv(t)
 	t.Setenv("DATABASE_URL", "postgres://tester@127.0.0.1:54320/custom_db?sslmode=disable")
 
-	cfg := New()
+	cfg := mustNewConfig(t)
 	if cfg.DatabaseURL != "postgres://tester@127.0.0.1:54320/custom_db?sslmode=disable" {
 		t.Fatalf("DatabaseURL = %q", cfg.DatabaseURL)
+	}
+	if cfg.EmbeddedPostgres.Enabled {
+		t.Fatal("EmbeddedPostgres.Enabled = true, want false when DATABASE_URL is set")
 	}
 	if got := os.Getenv("DATABASE_URL"); got != cfg.DatabaseURL {
 		t.Fatalf("DATABASE_URL = %q, want %q", got, cfg.DatabaseURL)
@@ -79,7 +86,7 @@ func TestNew_UsesPostgresConnectionStringCompat(t *testing.T) {
 	var buf bytes.Buffer
 	restoreConfigLogger(t, &buf)
 
-	cfg := New()
+	cfg := mustNewConfig(t)
 	if cfg.DatabaseURL != "postgres://compat@127.0.0.1:54320/compat_db?sslmode=disable" {
 		t.Fatalf("DatabaseURL = %q", cfg.DatabaseURL)
 	}
@@ -103,7 +110,7 @@ func TestNew_LoadsDotEnvFromProjectRoot(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	cfg := New()
+	cfg := mustNewConfig(t)
 	if cfg.ProjectRoot != root {
 		t.Fatalf("ProjectRoot = %q, want %q", cfg.ProjectRoot, root)
 	}
@@ -118,10 +125,18 @@ func TestNew_LoadsDotEnvFromProjectRoot(t *testing.T) {
 	}
 }
 
+func TestResolvePackagedProjectRootUsesMacOSResources(t *testing.T) {
+	got := resolvePackagedProjectRoot("/Applications/Super Dolphin.app/Contents/MacOS/agent-terminal")
+	want := "/Applications/Super Dolphin.app/Contents/Resources"
+	if got != want {
+		t.Fatalf("resolvePackagedProjectRoot() = %q, want %q", got, want)
+	}
+}
+
 func TestNew_DefaultsPersistentSubagentDefaultOff(t *testing.T) {
 	isolateConfigTestEnv(t)
 	t.Setenv("PERSISTENT_SUBAGENT_DEFAULT", "")
-	cfg := New()
+	cfg := mustNewConfig(t)
 	if cfg.Agent.PersistentSubagentDefault {
 		t.Fatalf("Agent.PersistentSubagentDefault = true, want false")
 	}
@@ -130,7 +145,7 @@ func TestNew_DefaultsPersistentSubagentDefaultOff(t *testing.T) {
 func TestNew_AllowsEnablingPersistentSubagentDefault(t *testing.T) {
 	isolateConfigTestEnv(t)
 	t.Setenv("PERSISTENT_SUBAGENT_DEFAULT", "true")
-	cfg := New()
+	cfg := mustNewConfig(t)
 	if !cfg.Agent.PersistentSubagentDefault {
 		t.Fatalf("Agent.PersistentSubagentDefault = false, want true")
 	}
@@ -151,4 +166,112 @@ func restoreConfigLogger(t *testing.T, dst *bytes.Buffer) {
 	original := pkglogger.Get()
 	pkglogger.SetForTest(slog.New(slog.NewTextHandler(dst, &slog.HandlerOptions{Level: slog.LevelDebug})))
 	t.Cleanup(func() { pkglogger.SetForTest(original) })
+}
+
+func TestPrimeProcessEnvironmentAllowsMissingDotEnvOutsidePackagedRuntime(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("PROJECT_ROOT", root)
+
+	got, err := PrimeProcessEnvironment()
+	if err != nil {
+		t.Fatalf("PrimeProcessEnvironment() error = %v, want nil for dev runtime without .env", err)
+	}
+	if got != root {
+		t.Fatalf("PrimeProcessEnvironment() = %q, want %q", got, root)
+	}
+}
+
+func TestPrimeProcessEnvironmentFailsFastForPackagedDotEnvErrors(t *testing.T) {
+	tests := []struct {
+		name    string
+		prepare func(t *testing.T, root string)
+		want    []string
+	}{
+		{
+			name: "missing",
+			want: []string{"load packaged .env", ".env"},
+		},
+		{
+			name: "unreadable",
+			prepare: func(t *testing.T, root string) {
+				t.Helper()
+				if err := os.Mkdir(filepath.Join(root, ".env"), 0o755); err != nil {
+					t.Fatalf("mkdir .env: %v", err)
+				}
+			},
+			want: []string{"load packaged .env", ".env"},
+		},
+		{
+			name: "malformed",
+			prepare: func(t *testing.T, root string) {
+				t.Helper()
+				if err := os.WriteFile(filepath.Join(root, ".env"), []byte("SUPER_DOLPHIN_CODEX_RELAY_BASE_URL\n"), 0o600); err != nil {
+					t.Fatalf("write .env: %v", err)
+				}
+			},
+			want: []string{"parse packaged .env", "line 1"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			root := t.TempDir()
+			t.Setenv("PROJECT_ROOT", root)
+			if err := os.WriteFile(filepath.Join(root, "runtime-manifest.json"), []byte("{}\n"), 0o600); err != nil {
+				t.Fatalf("write runtime manifest marker: %v", err)
+			}
+			if tt.prepare != nil {
+				tt.prepare(t, root)
+			}
+
+			_, err := PrimeProcessEnvironment()
+			if err == nil {
+				t.Fatal("PrimeProcessEnvironment() error = nil, want packaged .env failure")
+			}
+			for _, want := range tt.want {
+				if !strings.Contains(err.Error(), want) {
+					t.Fatalf("PrimeProcessEnvironment() error = %v, want substring %q", err, want)
+				}
+			}
+		})
+	}
+}
+
+func TestPrimeProcessEnvironmentReturnsDotEnvSetenvError(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("PROJECT_ROOT", root)
+	if err := os.WriteFile(filepath.Join(root, "runtime-manifest.json"), []byte("{}\n"), 0o600); err != nil {
+		t.Fatalf("write runtime manifest marker: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, ".env"), []byte("LOG_LEVEL=debug\n"), 0o600); err != nil {
+		t.Fatalf("write .env: %v", err)
+	}
+
+	previous := setenvForConfig
+	setenvForConfig = func(key, value string) error {
+		if key == "LOG_LEVEL" {
+			return errors.New("injected config setenv failure")
+		}
+		return os.Setenv(key, value)
+	}
+	t.Cleanup(func() { setenvForConfig = previous })
+
+	_, err := PrimeProcessEnvironment()
+	if err == nil {
+		t.Fatal("PrimeProcessEnvironment() error = nil, want setenv failure")
+	}
+	for _, want := range []string{"set environment from .env", "LOG_LEVEL", "injected config setenv failure"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("PrimeProcessEnvironment() error = %v, want substring %q", err, want)
+		}
+	}
+}
+
+func mustNewConfig(t *testing.T) *Config {
+	t.Helper()
+	cfg, err := New()
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	return cfg
 }

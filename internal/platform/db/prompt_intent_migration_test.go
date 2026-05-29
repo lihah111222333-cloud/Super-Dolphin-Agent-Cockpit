@@ -139,10 +139,16 @@ func setupPromptIntentMigrationTest(t *testing.T) (context.Context, *pgx.Conn, s
 	}
 	t.Cleanup(func() { _ = conn.Close(context.Background()) })
 
-	schema := fmt.Sprintf("prompt_intent_0101_test_%d", time.Now().UnixNano())
-	schemaIdent := pgx.Identifier{schema}.Sanitize()
-	if _, err := conn.Exec(ctx, "CREATE SCHEMA "+schemaIdent); err != nil {
-		t.Fatalf("create test schema: %v", err)
+	var schema string
+	var schemaIdent string
+	for attempt := 0; attempt < 10; attempt++ {
+		schema = fmt.Sprintf("prompt_intent_0101_test_%d_%d_%d", os.Getpid(), time.Now().UnixNano(), attempt)
+		schemaIdent = pgx.Identifier{schema}.Sanitize()
+		if _, err := conn.Exec(ctx, "CREATE SCHEMA "+schemaIdent); err == nil {
+			break
+		} else if !strings.Contains(err.Error(), "duplicate key value") || attempt == 9 {
+			t.Fatalf("create test schema: %v", err)
+		}
 	}
 	t.Cleanup(func() { _, _ = conn.Exec(context.Background(), "DROP SCHEMA IF EXISTS "+schemaIdent+" CASCADE") })
 	if _, err := conn.Exec(ctx, "SET search_path TO "+schemaIdent); err != nil {

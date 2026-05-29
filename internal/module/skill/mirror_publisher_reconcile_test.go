@@ -74,6 +74,31 @@ func TestReconcileProviderMirrorsUsesRequestCWDWhenServiceProjectRootDiffers(t *
 	assertMissing(t, filepath.Join(providerProjectMirrorRoot(SkillProviderCodex, serviceProject), "build", skillMainFile))
 }
 
+func TestReconcileProviderMirrorsPublishesPackagedProjectMirrorToWritableHome(t *testing.T) {
+	resources := filepath.Join(t.TempDir(), "Super Dolphin.app", "Contents", "Resources")
+	superHome := filepath.Join(t.TempDir(), ".super-dolphin")
+	if err := os.MkdirAll(resources, 0o755); err != nil {
+		t.Fatalf("MkdirAll resources: %v", err)
+	}
+	writeSkillWithSupportFiles(t, filepath.Join(resources, ".agent", "skills", "packaged"), "packaged")
+	t.Setenv("SUPER_DOLPHIN_HOME", superHome)
+	t.Setenv("PROJECT_ROOT", resources)
+	t.Setenv("SUPER_DOLPHIN_PACKAGED_CODEX_IDENTITY", "1")
+	svc := &service{projectRoot: resources, projectSkillsRoot: defaultProjectSkillsRoot(resources), superDolphinHome: superHome}
+	targets, err := providershared.ProviderMirrorTargets(providershared.ProviderCodex, resources, filepath.Join(superHome, "providers", "codex"))
+	if err != nil {
+		t.Fatalf("ProviderMirrorTargets: %v", err)
+	}
+
+	if _, err := svc.ReconcileProviderMirrors(context.Background(), resources, targets); err != nil {
+		t.Fatalf("ReconcileProviderMirrors packaged: %v", err)
+	}
+
+	writableProjectRoot := filepath.Join(superHome, "provider-mirrors", "project", "codex", "skills")
+	assertMirrorFile(t, filepath.Join(writableProjectRoot, "packaged", skillMainFile), false)
+	assertMissing(t, filepath.Join(resources, ".agents", "skills", "packaged", skillMainFile))
+}
+
 func TestSkillMirrorPublisherReportsPersonalManagedDriftAsNonBlockingSkipped(t *testing.T) {
 	project := t.TempDir()
 	superHome := filepath.Join(t.TempDir(), ".super-dolphin")

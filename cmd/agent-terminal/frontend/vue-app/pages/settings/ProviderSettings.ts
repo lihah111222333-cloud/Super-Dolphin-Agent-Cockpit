@@ -70,12 +70,29 @@ function setupProviderSettings(props: ProviderSettingsProps) {
   const writablePathsError = ref('') as { value: string };
   const summaryMode = ref(DEFAULT_SUMMARY_MODE) as { value: string };
   const approvalMode = ref(DEFAULT_APPROVAL_MODE) as { value: string };
-  const effortMode = ref('xhigh') as { value: string };
-  const providerModel = ref('gpt-5.5') as { value: string };
+  const effortModeValue = ref('xhigh') as { value: string };
+  const providerModelValue = ref('gpt-5.5') as { value: string };
+  const effortPreferenceExplicit = ref(false) as { value: boolean };
+  const providerModelPreferenceExplicit = ref(false) as { value: boolean };
+  const effortPreferenceTouched = ref(false) as { value: boolean };
+  const providerModelPreferenceTouched = ref(false) as { value: boolean };
+  const effortMode = computed({
+    get: () => effortModeValue.value,
+    set: (value: string) => {
+      effortModeValue.value = value;
+      effortPreferenceTouched.value = true;
+    },
+  }) as { value: string };
+  const providerModel = computed({
+    get: () => providerModelValue.value,
+    set: (value: string) => {
+      providerModelValue.value = value;
+      providerModelPreferenceTouched.value = true;
+    },
+  }) as { value: string };
   const personality = ref(DEFAULT_PERSONALITY) as { value: string };
   const codexHome = ref(CODEX_IDENTITY_DEFAULTS.codexHome) as { value: string };
   const codexInstanceKey = ref(CODEX_IDENTITY_DEFAULTS.codexInstanceKey) as { value: string };
-  const codexModelProvider = ref(CODEX_IDENTITY_DEFAULTS.codexModelProvider) as { value: string };
   const { activeProjectCwd, withProjectCwd } = useSettingsScope(props.projectStore);
   let providerSettingsLoadSeq = 0;
 
@@ -131,6 +148,36 @@ function setupProviderSettings(props: ProviderSettingsProps) {
       : { model: 'gpt-5.5', effort: 'xhigh' };
   }
 
+  function setProviderModelDisplay(value: string): void {
+    providerModelValue.value = value;
+  }
+
+  function setEffortModeDisplay(value: string): void {
+    effortModeValue.value = value;
+  }
+
+  function resetProviderModelEffortPersistenceState(): void {
+    providerModelPreferenceExplicit.value = false;
+    effortPreferenceExplicit.value = false;
+    providerModelPreferenceTouched.value = false;
+    effortPreferenceTouched.value = false;
+  }
+
+  function markLoadedModelEffortPreferences(modelValue: unknown, effortValue: unknown): void {
+    providerModelPreferenceExplicit.value = !isMissingProviderPreference(modelValue);
+    effortPreferenceExplicit.value = !isMissingProviderPreference(effortValue);
+    providerModelPreferenceTouched.value = false;
+    effortPreferenceTouched.value = false;
+  }
+
+  function shouldPersistProviderModelPreference(): boolean {
+    return providerModelPreferenceExplicit.value || providerModelPreferenceTouched.value;
+  }
+
+  function shouldPersistProviderEffortPreference(): boolean {
+    return effortPreferenceExplicit.value || effortPreferenceTouched.value;
+  }
+
   function providerPreferenceKey(suffix: string, providerID = activeProvider.value): string {
     return `settings.provider.${normalizeProviderID(providerID)}.${suffix}`;
   }
@@ -139,19 +186,20 @@ function setupProviderSettings(props: ProviderSettingsProps) {
     try {
       const value = await callAPI('ui/preferences/get', withProjectCwd({ key: PROVIDER_ACTIVE_PREF_KEY }));
       const missingProviderPreference = isMissingProviderPreference(value);
-      const persistedProviderID = normalizeProviderConfigValue(typeof value === 'string' ? value : '');
+      let providerValue = value;
+      if (missingProviderPreference) {
+        providerValue = await callAPI('ui/preferences/get', { key: PROVIDER_ACTIVE_PREF_KEY });
+      }
+      const persistedProviderID = normalizeProviderConfigValue(typeof providerValue === 'string' ? providerValue : '');
       if (!missingProviderPreference && (!persistedProviderID || !isSupportedProviderID(persistedProviderID))) {
         throw new Error(`invalid provider preference: ${String(value)}`);
+      }
+      if (missingProviderPreference && persistedProviderID && !isSupportedProviderID(persistedProviderID)) {
+        throw new Error(`invalid provider preference: ${String(providerValue)}`);
       }
       const normalizedProviderID = normalizeProviderID(persistedProviderID || DEFAULT_PROVIDER_ID);
       if (!isCurrentProviderSettingsRequest(requestSeq)) {
         return normalizeProviderID(activeProvider.value);
-      }
-      if (missingProviderPreference) {
-        await callAPI('ui/preferences/set', withProjectCwd({ key: PROVIDER_ACTIVE_PREF_KEY, value: normalizedProviderID }));
-        if (!isCurrentProviderSettingsRequest(requestSeq)) {
-          return normalizeProviderID(activeProvider.value);
-        }
       }
       activeProvider.value = normalizedProviderID;
     } catch (error: any) {
@@ -247,12 +295,12 @@ function setupProviderSettings(props: ProviderSettingsProps) {
     writablePathsError.value = '';
     summaryMode.value = DEFAULT_SUMMARY_MODE;
     approvalMode.value = DEFAULT_APPROVAL_MODE;
-    effortMode.value = defaults.effort;
-    providerModel.value = defaults.model;
+    setEffortModeDisplay(defaults.effort);
+    setProviderModelDisplay(defaults.model);
+    resetProviderModelEffortPersistenceState();
     personality.value = DEFAULT_PERSONALITY;
     codexHome.value = isCodex ? CODEX_IDENTITY_DEFAULTS.codexHome : '';
     codexInstanceKey.value = isCodex ? CODEX_IDENTITY_DEFAULTS.codexInstanceKey : '';
-    codexModelProvider.value = isCodex ? CODEX_IDENTITY_DEFAULTS.codexModelProvider : '';
   }
 
   function buildSandboxPayload(): Exclude<SandboxPayload, null> {
@@ -309,7 +357,6 @@ function setupProviderSettings(props: ProviderSettingsProps) {
       personalityValue,
       codexHomeValue,
       codexInstanceKeyValue,
-      codexModelProviderValue,
     ] = await Promise.all([
       readProviderPreference('summary', normalizedProviderID),
       readProviderPreference('approvalPolicy', normalizedProviderID),
@@ -318,20 +365,21 @@ function setupProviderSettings(props: ProviderSettingsProps) {
       readProviderPreference('personality', normalizedProviderID),
       isCodex ? readProviderPreference('codexHome', normalizedProviderID) : Promise.resolve(null),
       isCodex ? readProviderPreference('codexInstanceKey', normalizedProviderID) : Promise.resolve(null),
-      isCodex ? readProviderPreference('codexModelProvider', normalizedProviderID) : Promise.resolve(null),
     ]);
     if (!isCurrentProviderSettingsRequest(requestSeq) || normalizeProviderID(activeProvider.value) !== normalizedProviderID) return;
 
     summaryMode.value = normalizeProviderConfigValue(summaryValue) || DEFAULT_SUMMARY_MODE;
     approvalMode.value = normalizeProviderConfigValue(approvalValue) || DEFAULT_APPROVAL_MODE;
-    const nextModel = normalizeProviderModelValue(normalizedProviderID, modelValue || defaults.model);
-    providerModel.value = nextModel;
-    effortMode.value = normalizeProviderEffortValue(normalizedProviderID, nextModel, effortValue || defaults.effort);
+    const modelPreferenceValue = isMissingProviderPreference(modelValue) ? defaults.model : modelValue;
+    const effortPreferenceValue = isMissingProviderPreference(effortValue) ? defaults.effort : effortValue;
+    const nextModel = normalizeProviderModelValue(normalizedProviderID, modelPreferenceValue);
+    setProviderModelDisplay(nextModel);
+    setEffortModeDisplay(normalizeProviderEffortValue(normalizedProviderID, nextModel, effortPreferenceValue));
+    markLoadedModelEffortPreferences(modelValue, effortValue);
     personality.value = normalizeProviderConfigValue(personalityValue) || DEFAULT_PERSONALITY;
     if (isCodex) {
       codexHome.value = normalizeCodexIdentityValue(codexHomeValue, CODEX_IDENTITY_DEFAULTS.codexHome);
       codexInstanceKey.value = normalizeCodexIdentityValue(codexInstanceKeyValue, CODEX_IDENTITY_DEFAULTS.codexInstanceKey);
-      codexModelProvider.value = normalizeCodexIdentityValue(codexModelProviderValue, CODEX_IDENTITY_DEFAULTS.codexModelProvider);
     }
   }
 
@@ -367,30 +415,42 @@ function setupProviderSettings(props: ProviderSettingsProps) {
     sandboxSaving.value = true;
     try {
       const providerID = normalizedActiveProvider.value;
+      const persistModelPreference = shouldPersistProviderModelPreference();
+      const persistEffortPreference = shouldPersistProviderEffortPreference();
       const normalizedModel = normalizeProviderModelValue(providerID, providerModel.value);
       const normalizedEffort = normalizeProviderEffortValue(providerID, normalizedModel, effortMode.value);
-      providerModel.value = normalizedModel;
-      effortMode.value = normalizedEffort;
+      setProviderModelDisplay(normalizedModel);
+      setEffortModeDisplay(normalizedEffort);
       const payload = buildSandboxPayload();
       const saveCalls = [
         ...buildProviderPreferenceSetCalls('sandbox', JSON.stringify(payload), providerID),
         ...buildProviderPreferenceSetCalls('summary', summaryMode.value, providerID),
         ...buildProviderPreferenceSetCalls('approvalPolicy', approvalMode.value, providerID),
-        ...buildProviderPreferenceSetCalls('effort', effortMode.value, providerID),
-        ...buildProviderPreferenceSetCalls('model', providerModel.value, providerID),
         ...buildProviderPreferenceSetCalls('personality', personality.value, providerID),
       ];
+      if (persistEffortPreference) {
+        saveCalls.push(...buildProviderPreferenceSetCalls('effort', effortMode.value, providerID));
+      }
+      if (persistModelPreference) {
+        saveCalls.push(...buildProviderPreferenceSetCalls('model', providerModel.value, providerID));
+      }
       if (providerID === 'codex') {
         codexHome.value = normalizeCodexIdentityValue(codexHome.value, CODEX_IDENTITY_DEFAULTS.codexHome);
         codexInstanceKey.value = normalizeCodexIdentityValue(codexInstanceKey.value, CODEX_IDENTITY_DEFAULTS.codexInstanceKey);
-        codexModelProvider.value = normalizeCodexIdentityValue(codexModelProvider.value, CODEX_IDENTITY_DEFAULTS.codexModelProvider);
         saveCalls.push(
           ...buildProviderPreferenceSetCalls('codexHome', codexHome.value, providerID),
           ...buildProviderPreferenceSetCalls('codexInstanceKey', codexInstanceKey.value, providerID),
-          ...buildProviderPreferenceSetCalls('codexModelProvider', codexModelProvider.value, providerID),
         );
       }
       await Promise.all(saveCalls);
+      if (persistModelPreference) {
+        providerModelPreferenceExplicit.value = true;
+        providerModelPreferenceTouched.value = false;
+      }
+      if (persistEffortPreference) {
+        effortPreferenceExplicit.value = true;
+        effortPreferenceTouched.value = false;
+      }
       sandboxNotice.level = 'info';
       sandboxNotice.message = `已保存：${providerModel.value} / ${effortMode.value} / ${personality.value}`;
     } catch (error: any) {
@@ -418,11 +478,11 @@ function setupProviderSettings(props: ProviderSettingsProps) {
     ([providerID, model]: [string, string]) => {
       const normalizedModel = normalizeProviderModelValue(providerID, model);
       if (providerModel.value !== normalizedModel) {
-        providerModel.value = normalizedModel;
+        setProviderModelDisplay(normalizedModel);
       }
       const normalizedEffort = normalizeProviderEffortValue(providerID, normalizedModel, effortMode.value);
       if (effortMode.value !== normalizedEffort) {
-        effortMode.value = normalizedEffort;
+        setEffortModeDisplay(normalizedEffort);
       }
     },
     { immediate: true },
@@ -455,7 +515,6 @@ function setupProviderSettings(props: ProviderSettingsProps) {
     personality,
     codexHome,
     codexInstanceKey,
-    codexModelProvider,
     onActiveProviderChange,
     saveProviderSettings,
     loadProviderSettings,
@@ -490,15 +549,11 @@ export const ProviderSettings = {
         </div>
         <div class="settings-stall-row" style="margin-top:8px">
           <label class="settings-stall-label">Codex Home</label>
-          <input v-model="codexHome" class="settings-stall-input" data-testid="provider-codex-home-input" style="width:360px" placeholder="~/.codex" />
+          <input v-model="codexHome" class="settings-stall-input" data-testid="provider-codex-home-input" style="width:360px" placeholder="~/Library/Application Support/Super Dolphin/providers/codex" />
         </div>
         <div class="settings-stall-row" style="margin-top:8px">
           <label class="settings-stall-label">Instance Key</label>
           <input v-model="codexInstanceKey" class="settings-stall-input" data-testid="provider-codex-instance-key-input" style="width:220px" placeholder="default" />
-        </div>
-        <div class="settings-stall-row" style="margin-top:8px; margin-bottom:12px">
-          <label class="settings-stall-label">Model Provider</label>
-          <input v-model="codexModelProvider" class="settings-stall-input" data-testid="provider-codex-model-provider-input" style="width:220px" placeholder="openai" />
         </div>
       </template>
 

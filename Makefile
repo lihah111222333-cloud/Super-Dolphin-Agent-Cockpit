@@ -1,4 +1,4 @@
-.PHONY: build build-plain build-agent-terminal build-agent-terminal-plain run run-plain run-agent-terminal-debug run-agent-terminal-debug-plain build-peer-binaries test test-deferred vet clean guard guard-shell protocol-sync-check rpc-regression-check codemap-check codemap-refresh setup-cgo ui-cover-build ui-cover-run ui-cover-report app-cover-build app-cover-run app-cover-report log-audit p2-audit ida-test-all ida-test-heavy sqlc-generate sqlc-verify
+.PHONY: build build-plain build-agent-terminal build-agent-terminal-plain run run-plain run-agent-terminal-debug run-agent-terminal-debug-plain build-peer-binaries package-macos package-linux test test-deferred vet clean guard guard-shell protocol-sync-check rpc-regression-check codemap-check codemap-refresh setup-cgo ui-cover-build ui-cover-run ui-cover-report app-cover-build app-cover-run app-cover-report log-audit p2-audit ida-test-all ida-test-heavy sqlc-generate sqlc-verify
 
 # Auto-detect macOS version to avoid ld warnings about version mismatch.
 # Override with: make MIN_MACOS_VERSION=15.0 build
@@ -63,6 +63,12 @@ build-peer-binaries:
 	@mkdir -p bin
 	go build -o bin/mcp-orch ./cmd/mcp-orch
 	go build -o bin/mcp-lsp ./cmd/mcp-lsp
+
+package-macos:
+	./scripts/package_macos.sh
+
+package-linux:
+	./scripts/package_linux.sh
 
 run-agent-terminal-debug: build-peer-binaries
 	GO_AGENT_PEER_BIN_DIR=$(CURDIR)/bin \

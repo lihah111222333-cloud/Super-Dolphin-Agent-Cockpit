@@ -172,6 +172,8 @@ func (s *service) SpawnIfNeeded(ctx context.Context, threadID, userInputForRoute
 	if err != nil {
 		return false, SpawnRouting{}, s.cleanupFailedPendingLaunch(ctx, threadID, agentID, err)
 	}
+	req = s.injectParentCodexIdentityForStart(ctx, req)
+	req = s.injectDefaultCodexIdentityForStart(req)
 	if err := s.prepareTaskHandoffStart(ctx, &req); err != nil {
 		return false, SpawnRouting{}, s.cleanupFailedPendingLaunch(ctx, threadID, agentID, err)
 	}
@@ -240,7 +242,7 @@ func buildPendingSpawnRequest(row *threadstore.Thread, agentID, userInputForRout
 	return normalized, nil
 }
 
-func (s *service) cleanupFailedPendingLaunch(ctx context.Context, threadID, agentID string, cause error) error {
+func (s *service) cleanupFailedPendingLaunch(ctx context.Context, threadID, _ string, cause error) error {
 	if cause == nil || s == nil || s.threadStore == nil {
 		return cause
 	}
@@ -249,17 +251,11 @@ func (s *service) cleanupFailedPendingLaunch(ctx context.Context, threadID, agen
 		return cause
 	}
 	retained := idempotency.RetainMappedError(&s.launchIntentByThread, &s.launchIntentRegistry, threadID, cause)
-	if err := s.threadStore.DeleteByThreadID(ctx, threadID); err != nil {
-		cause = idempotency.Retain(errors.Join(cause, fmt.Errorf("thread: delete failed pending_launch row %q: %w", threadID, err)))
-		idempotency.RetainMappedError(&s.launchIntentByThread, &s.launchIntentRegistry, threadID, cause)
-		return cause
-	}
 	if retained {
 		s.pendingLaunchMu.Delete(threadID)
 	} else {
 		s.CompleteLaunchIntent(ctx, threadID)
 	}
-	s.publishThreadStopped(threadID, agentID, "deleted", "pending_launch_failed")
 	return cause
 }
 

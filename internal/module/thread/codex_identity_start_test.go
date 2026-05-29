@@ -23,6 +23,46 @@ func TestInjectDefaultCodexIdentityForStartUsesCodexHomeWhenOptedIn(t *testing.T
 	}
 }
 
+func TestInjectDefaultCodexIdentityForStartUsesPackagedCodexHome(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("CODEX_HOME", dir)
+	t.Setenv(legacyDefaultCodexHomeEnvVar, "")
+	t.Setenv(packagedCodexIdentityEnvVar, legacyDefaultCodexHomeEnabled)
+
+	got := (&service{}).injectDefaultCodexIdentityForStart(StartRequest{Provider: "codex"})
+	wantHome, err := contract.CanonicalizeCodexHome(dir)
+	if err != nil {
+		t.Fatalf("CanonicalizeCodexHome() error = %v", err)
+	}
+	if got.Config["codexHome"] != wantHome ||
+		got.Config["codexInstanceKey"] != defaultCodexInstanceKey ||
+		got.Config["codexModelProvider"] != defaultCodexModelProvider {
+		t.Fatalf("packaged default identity = %#v, want home/key/provider", got.Config)
+	}
+}
+
+func TestInjectDefaultCodexIdentityForStartCompletesPackagedPartialIdentity(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("CODEX_HOME", dir)
+	t.Setenv(legacyDefaultCodexHomeEnvVar, "")
+	t.Setenv(packagedCodexIdentityEnvVar, legacyDefaultCodexHomeEnabled)
+	cfg := map[string]any{
+		"codexInstanceKey":   defaultCodexInstanceKey,
+		"codexModelProvider": defaultCodexModelProvider,
+	}
+
+	got := (&service{}).injectDefaultCodexIdentityForStart(StartRequest{Provider: "codex", Config: cfg})
+	wantHome, err := contract.CanonicalizeCodexHome(dir)
+	if err != nil {
+		t.Fatalf("CanonicalizeCodexHome() error = %v", err)
+	}
+	if got.Config["codexHome"] != wantHome ||
+		got.Config["codexInstanceKey"] != defaultCodexInstanceKey ||
+		got.Config["codexModelProvider"] != defaultCodexModelProvider {
+		t.Fatalf("packaged partial identity = %#v, want completed identity", got.Config)
+	}
+}
+
 func TestInjectDefaultCodexIdentityForStartPreservesExplicitIdentity(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("CODEX_HOME", dir)
@@ -41,6 +81,7 @@ func TestInjectDefaultCodexIdentityForStartPreservesExplicitIdentity(t *testing.
 func TestInjectDefaultCodexIdentityForStartRequiresLegacyOptIn(t *testing.T) {
 	t.Setenv("CODEX_HOME", t.TempDir())
 	t.Setenv(legacyDefaultCodexHomeEnvVar, "")
+	t.Setenv(packagedCodexIdentityEnvVar, "")
 
 	got := (&service{}).injectDefaultCodexIdentityForStart(StartRequest{Provider: "codex"})
 	if got.Config != nil {
@@ -51,6 +92,7 @@ func TestInjectDefaultCodexIdentityForStartRequiresLegacyOptIn(t *testing.T) {
 func TestInjectDefaultCodexIdentityForResumeRequiresLegacyOptIn(t *testing.T) {
 	t.Setenv("CODEX_HOME", t.TempDir())
 	t.Setenv(legacyDefaultCodexHomeEnvVar, "")
+	t.Setenv(packagedCodexIdentityEnvVar, "")
 
 	got := (&service{}).injectDefaultCodexIdentityForResume(ResumeRequest{Provider: "codex"})
 	if got.CodexHome != "" || got.CodexInstanceKey != "" || got.CodexModelProvider != "" {

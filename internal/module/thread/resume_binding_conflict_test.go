@@ -163,9 +163,12 @@ func TestResumeNonConflictPersistFailureFailsFast(t *testing.T) {
 // a provider_thread_id is claimed by a dead agent (no active session),
 // the stale binding is evicted and resume succeeds.
 func TestResumeEvictsStaleBindingWhenBlockingAgentIsDead(t *testing.T) {
-	t.Parallel()
-
 	const conflictUUID = "11111111-2222-3333-4444-555555555573"
+	codexHome, err := contract.CanonicalizeCodexHome(t.TempDir())
+	if err != nil {
+		t.Fatalf("CanonicalizeCodexHome() error = %v", err)
+	}
+	t.Setenv("CODEX_HOME", codexHome)
 	rolloutPath := writeExistingProviderHistoryFile(t)
 	threads := &stubThreadStore{thread: &threadstore.Thread{
 		ThreadID:  "thread-A",
@@ -256,6 +259,25 @@ func (s *conflictBindingStore) GetByProviderThread(_ context.Context, provider, 
 		return &b, nil
 	}
 	return s.stubBindingStore.GetByProviderThread(context.Background(), provider, providerThreadID)
+}
+
+func (s *conflictBindingStore) Upsert(ctx context.Context, params bindingstore.UpsertParams) error {
+	if err := s.stubBindingStore.Upsert(ctx, params); err != nil {
+		return err
+	}
+	if s.agentBinding != nil && s.agentBinding.AgentID == params.AgentID {
+		s.agentBinding.Provider = params.Provider
+		s.agentBinding.ProviderThreadID = params.ProviderThreadID
+		s.agentBinding.CodexThreadID = params.CodexThreadID
+		s.agentBinding.RolloutPath = params.RolloutPath
+		s.agentBinding.Cwd = params.Cwd
+		s.agentBinding.SessionUUID = params.SessionUUID
+		s.agentBinding.CodexHome = params.CodexHome
+		s.agentBinding.CodexInstanceKey = params.CodexInstanceKey
+		s.agentBinding.CodexModelProvider = params.CodexModelProvider
+		s.agentBinding.UpdatedAt = params.UpdatedAt
+	}
+	return nil
 }
 
 func (s *conflictBindingStore) UpdateProviderThreadID(_ context.Context, params bindingstore.UpdateProviderThreadIDParams) error {

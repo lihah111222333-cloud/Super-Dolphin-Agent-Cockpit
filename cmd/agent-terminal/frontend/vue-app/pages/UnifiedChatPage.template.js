@@ -234,7 +234,6 @@ export const template = `
                   :token-inline="activeTokenInline"
                   :token-tooltip="activeTokenTooltip"
                   :token-level="activeTokenLevel"
-                  :disabled="!selectedThreadId && !providerPreferenceReady"
                   :thread-config-provider="threadConfigUi.meta.provider"
                   :thread-config-supports-override="threadConfigUi.meta.supportsThreadOverride"
                   :thread-config-draft-model="threadConfigUi.draft.model"

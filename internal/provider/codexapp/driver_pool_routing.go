@@ -26,7 +26,7 @@ const poolRoutingEnvVar = "CODEXAPP_USE_POOL"
 
 const (
 	defaultCodexInstanceKey   = "default"
-	defaultCodexModelProvider = "openai"
+	defaultCodexModelProvider = defaultBootstrapModelProvider
 )
 
 func (d *driver) prepareStartSessionRequest(ctx context.Context, req dto.StartSessionRequest) (dto.StartSessionRequest, error) {
@@ -34,15 +34,14 @@ func (d *driver) prepareStartSessionRequest(ctx context.Context, req dto.StartSe
 		return req, err
 	}
 	requestedHome := providershared.ConfigString(req.Config, contract.CodexHomeKey)
-	providerHomeRequest, err := codexProviderHomeRequest(requestedHome)
+	providerHome, err := selectCodexProviderHome(requestedHome)
 	if err != nil {
 		return req, err
 	}
-	home, err := providershared.EnsureProviderHome(providershared.ProviderCodex, providerHomeRequest)
+	home, mirrorHome, err := ensureResolvedCodexProviderHome(providerHome)
 	if err != nil {
 		return req, err
 	}
-	mirrorHome := normalizedExplicitProviderHome(providerHomeRequest, home)
 	if err := d.reconcileProviderMirrors(ctx, req.CWD, mirrorHome); err != nil {
 		return req, err
 	}
@@ -70,15 +69,14 @@ func (d *driver) prepareResumeSessionRequest(ctx context.Context, req dto.Resume
 	if _, ok := resumeIdentity(req); !ok {
 		return req, errors.New("codex identity required for resume")
 	}
-	providerHomeRequest, err := codexProviderHomeRequest(requestedHome)
+	providerHome, err := selectCodexProviderHome(requestedHome)
 	if err != nil {
 		return req, err
 	}
-	home, err := providershared.EnsureProviderHome(providershared.ProviderCodex, providerHomeRequest)
+	home, mirrorHome, err := ensureResolvedCodexProviderHome(providerHome)
 	if err != nil {
 		return req, err
 	}
-	mirrorHome := normalizedExplicitProviderHome(providerHomeRequest, home)
 	if err := d.reconcileProviderMirrors(ctx, req.CWD, mirrorHome); err != nil {
 		return req, err
 	}
@@ -111,22 +109,77 @@ func normalizedExplicitProviderHome(rawHome, normalizedHome string) string {
 	return normalizedHome
 }
 
-func codexProviderHomeRequest(rawHome string) (string, error) {
+type codexProviderHomeSelection struct {
+	homeRequest       string
+	mirrorHomeRequest string
+	useAppManagedHome bool
+}
+
+func ensureResolvedCodexProviderHome(selection codexProviderHomeSelection) (home, mirrorHome string, err error) {
+	if selection.useAppManagedHome {
+		home, err = providershared.EnsureAppManagedProviderHome(providershared.ProviderCodex)
+		if err != nil {
+			return "", "", err
+		}
+		return home, home, nil
+	}
+	home, err = providershared.EnsureProviderHome(providershared.ProviderCodex, selection.homeRequest)
+	if err != nil {
+		return "", "", err
+	}
+	return home, normalizedExplicitProviderHome(selection.mirrorHomeRequest, home), nil
+}
+
+func selectCodexProviderHome(rawHome string) (codexProviderHomeSelection, error) {
 	if strings.TrimSpace(rawHome) == "" {
-		return "", nil
+		return codexProviderHomeSelection{useAppManagedHome: true}, nil
 	}
 	requested, err := comparableCodexHomePath(rawHome)
 	if err != nil {
-		return "", err
+		return codexProviderHomeSelection{}, err
 	}
-	defaultHome, err := defaultCodexCLIHome()
+	if matchesAppManagedCodexHome(requested) {
+		return codexProviderHomeSelection{useAppManagedHome: true}, nil
+	}
+	legacy, err := legacyAppManagedCodexHome()
 	if err != nil {
-		return "", err
+		return codexProviderHomeSelection{}, err
 	}
-	if filepath.Clean(requested) == filepath.Clean(defaultHome) {
-		return "", nil
+	if filepath.Clean(requested) == filepath.Clean(legacy) {
+		return codexProviderHomeSelection{useAppManagedHome: true}, nil
 	}
-	return rawHome, nil
+	if matchesDefaultCodexCLIHome(requested) {
+		return codexProviderHomeSelection{}, nil
+	}
+	return codexProviderHomeSelection{homeRequest: rawHome, mirrorHomeRequest: rawHome}, nil
+}
+
+func matchesAppManagedCodexHome(requested string) bool {
+	home, err := providershared.AppManagedProviderHome(providershared.ProviderCodex)
+	if err != nil {
+		return false
+	}
+	comparable, err := comparableCodexHomePath(home)
+	if err != nil {
+		return false
+	}
+	return filepath.Clean(requested) == filepath.Clean(comparable)
+}
+
+func legacyAppManagedCodexHome() (string, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", fmt.Errorf("resolve user home: %w", err)
+	}
+	return filepath.Clean(filepath.Join(home, ".super-dolphin", "providers", "codex")), nil
+}
+
+func matchesDefaultCodexCLIHome(requested string) bool {
+	home, err := defaultCodexCLIHome()
+	if err != nil {
+		return false
+	}
+	return filepath.Clean(requested) == filepath.Clean(home)
 }
 
 func defaultCodexCLIHome() (string, error) {
@@ -564,7 +617,7 @@ func codexReadOnlySandbox(raw json.RawMessage) json.RawMessage {
 	if codexSandboxIsReadOnly(raw) {
 		return append(json.RawMessage(nil), raw...)
 	}
-	return json.RawMessage(`{"mode":"read-only"}`)
+	return json.RawMessage(`{"read-only":null}`)
 }
 
 func codexSandboxIsReadOnly(raw json.RawMessage) bool {
@@ -574,11 +627,18 @@ func codexSandboxIsReadOnly(raw json.RawMessage) bool {
 	}
 	var text string
 	if err := json.Unmarshal(raw, &text); err == nil {
-		return strings.EqualFold(strings.TrimSpace(text), "read-only")
+		return strings.EqualFold(strings.TrimSpace(text), "read-only") ||
+			strings.EqualFold(strings.TrimSpace(text), "readOnly")
 	}
 	var obj map[string]any
 	if err := json.Unmarshal(raw, &obj); err != nil {
 		return false
+	}
+	if _, ok := obj["read-only"]; ok {
+		return true
+	}
+	if _, ok := obj["readOnly"]; ok {
+		return true
 	}
 	mode, _ := obj["mode"].(string)
 	return strings.EqualFold(strings.TrimSpace(mode), "read-only")

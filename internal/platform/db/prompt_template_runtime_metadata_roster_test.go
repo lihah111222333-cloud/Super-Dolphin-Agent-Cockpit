@@ -8,7 +8,7 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-func TestPromptTemplateRuntimeMetadataMigrationRepairsDefaultDeveloperRoster(t *testing.T) {
+func TestPromptTemplateRuntimeMetadataMigrationLeavesAssetBackedDeveloperRosterOutOfDB(t *testing.T) {
 	ctx, conn, schema := setupPromptTemplateCleanupMigrationTest(t)
 	createPromptTemplateRecallTopicIndex(t, ctx, conn)
 
@@ -26,9 +26,9 @@ func TestPromptTemplateRuntimeMetadataMigrationRepairsDefaultDeveloperRoster(t *
 	applyPromptTemplateCleanupMigration0105(t, ctx, conn, schema)
 	applyPromptTemplateRuntimeMetadataMigration0106(t, ctx, conn, schema)
 
-	for _, promptKey := range []string{"main/git-ops", "main/docs", "main/orchestrator"} {
-		requireRosterRepairRuntimeVisibleExpert(t, ctx, conn, promptKey)
-	}
+	requirePromptCleanupTemplateMissing(t, ctx, conn, "main/git-ops")
+	requirePromptCleanupTemplateMissing(t, ctx, conn, "main/docs")
+	requireRosterRepairRuntimeVisibleExpert(t, ctx, conn, "main/orchestrator")
 	requireRosterRepairPromptFieldExcludes(t, ctx, conn, "main/orchestrator", "when_to_use", []string{
 		"DAG", "cron", "节点依赖", "sharedfile", "流程编排",
 	})

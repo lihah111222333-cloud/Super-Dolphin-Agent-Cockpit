@@ -92,6 +92,37 @@ describe('thread store provider preference scope', () => {
     }));
   });
 
+  it('falls back to the global active provider when the launch cwd has no scoped provider preference', async () => {
+    const store = useThreadStore();
+    let startPayload = null;
+    apiMock.callAPI.mockImplementation(async (method, payload) => {
+      if (method === 'ui/preferences/get') {
+        if (payload?.key === 'settings.provider.active' && payload?.cwd === '/repo') return null;
+        if (payload?.key === 'settings.provider.active') return 'claude';
+        if (payload?.key === 'settings.provider.claude.model') return 'sonnet';
+        if (payload?.key === 'settings.provider.claude.effort') return 'high';
+        return undefined;
+      }
+      if (method === 'config/builtinTools/read') return { tools: [] };
+      if (method === 'thread/start') {
+        startPayload = payload;
+        return { thread: { id: 'thread-global-provider-fallback' } };
+      }
+      if (method === 'ui/state/get') return buildSnapshot('thread-global-provider-fallback');
+      if (method === 'ui/preferences/set') return {};
+      return {};
+    });
+
+    await store.startThread('/repo', {});
+
+    expect(startPayload).toEqual(expect.objectContaining({
+      cwd: '/repo',
+      modelProvider: 'claude',
+      model: 'sonnet',
+      effort: 'high',
+    }));
+  });
+
   it('does not fall back to global provider when the launch cwd provider read fails', async () => {
     const store = useThreadStore();
     apiMock.callAPI.mockImplementation(async (method, payload) => {
@@ -108,5 +139,174 @@ describe('thread store provider preference scope', () => {
 
     await expect(store.startThread('/repo', {})).rejects.toThrow('scoped read failed');
     expect(apiMock.callAPI).not.toHaveBeenCalledWith('thread/start', expect.anything());
+  });
+
+  it('leaves Codex model and effort to the backend contract when no user preference is set', async () => {
+    const store = useThreadStore();
+    let startPayload = null;
+    apiMock.callAPI.mockImplementation(async (method, payload) => {
+      if (method === 'ui/preferences/get') {
+        if (payload?.key === 'settings.provider.active') return 'codex';
+        return undefined;
+      }
+      if (method === 'config/builtinTools/read') return { tools: [] };
+      if (method === 'thread/start') {
+        startPayload = payload;
+        return { thread: { id: 'thread-codex-contract-defaults' } };
+      }
+      if (method === 'ui/state/get') return buildSnapshot('thread-codex-contract-defaults');
+      if (method === 'ui/preferences/set') return {};
+      return {};
+    });
+
+    await store.startThread('/repo-codex', {});
+
+    expect(startPayload?.model).toBeUndefined();
+    expect(startPayload?.effort).toBeUndefined();
+    expect(startPayload?.config).not.toHaveProperty('codexHome');
+    expect(logMock.logWarn).toHaveBeenCalledWith('thread', 'start.config.trace', expect.objectContaining({
+      provider_pref_model: '',
+      provider_pref_effort: '',
+      model_default_source: 'backend_provider_contract',
+      payload_model: '',
+      payload_effort: '',
+    }));
+  });
+
+  it('forwards user-selected Codex model and effort instead of contract defaults', async () => {
+    const store = useThreadStore();
+    let startPayload = null;
+    apiMock.callAPI.mockImplementation(async (method, payload) => {
+      if (method === 'ui/preferences/get') {
+        if (payload?.key === 'settings.provider.active') return 'codex';
+        if (payload?.key === 'settings.provider.codex.model') return 'gpt-5.4';
+        if (payload?.key === 'settings.provider.codex.effort') return 'high';
+        return undefined;
+      }
+      if (method === 'config/builtinTools/read') return { tools: [] };
+      if (method === 'thread/start') {
+        startPayload = payload;
+        return { thread: { id: 'thread-codex-user-defaults' } };
+      }
+      if (method === 'ui/state/get') return buildSnapshot('thread-codex-user-defaults');
+      if (method === 'ui/preferences/set') return {};
+      return {};
+    });
+
+    await store.startThread('/repo-codex', {});
+
+    expect(startPayload).toEqual(expect.objectContaining({
+      modelProvider: 'codex',
+      model: 'gpt-5.4',
+      effort: 'high',
+    }));
+  });
+
+  it('does not add Codex identity defaults for non-Codex providers', async () => {
+    const store = useThreadStore();
+    let startPayload = null;
+    apiMock.callAPI.mockImplementation(async (method, payload) => {
+      if (method === 'ui/preferences/get') {
+        if (payload?.key === 'settings.provider.active') return 'claude';
+        if (payload?.key === 'settings.provider.codex.codexHome') return '/should/not/read';
+        return undefined;
+      }
+      if (method === 'config/builtinTools/read') return { tools: [] };
+      if (method === 'thread/start') {
+        startPayload = payload;
+        return { thread: { id: 'thread-claude-no-codex-defaults' } };
+      }
+      if (method === 'ui/state/get') return buildSnapshot('thread-claude-no-codex-defaults');
+      if (method === 'ui/preferences/set') return {};
+      return {};
+    });
+
+    await store.startThread('/repo-claude', {});
+
+    expect(startPayload).toEqual(expect.objectContaining({ cwd: '/repo-claude', modelProvider: 'claude' }));
+    expect(startPayload?.config || {}).not.toHaveProperty('codexHome');
+    expect(startPayload?.config || {}).not.toHaveProperty('codexInstanceKey');
+    expect(startPayload?.config || {}).not.toHaveProperty('codexModelProvider');
+    expect(apiMock.callAPI).not.toHaveBeenCalledWith('ui/preferences/get', expect.objectContaining({
+      key: 'settings.provider.codex.codexHome',
+    }));
+  });
+
+  it('does not read or forward sentinel Codex model and effort preferences for non-Codex launches', async () => {
+    const store = useThreadStore();
+    let startPayload = null;
+    const readKeys = [];
+    const codexSentinels = {
+      'settings.provider.codex.model': 'codex-sentinel-model',
+      'settings.provider.codex.effort': 'codex-sentinel-effort',
+      'settings.provider.codex.codexModelProvider': 'codex-sentinel-provider',
+    };
+    apiMock.callAPI.mockImplementation(async (method, payload) => {
+      if (method === 'ui/preferences/get') {
+        readKeys.push(payload?.key);
+        if (payload?.key === 'settings.provider.active') return 'claude';
+        if (payload?.key === 'settings.provider.claude.model') return 'sonnet';
+        if (payload?.key === 'settings.provider.claude.effort') return 'high';
+        if (Object.prototype.hasOwnProperty.call(codexSentinels, payload?.key)) {
+          return codexSentinels[payload.key];
+        }
+        return undefined;
+      }
+      if (method === 'config/builtinTools/read') return { tools: [] };
+      if (method === 'thread/start') {
+        startPayload = payload;
+        return { thread: { id: 'thread-claude-ignore-codex-sentinels' } };
+      }
+      if (method === 'ui/state/get') return buildSnapshot('thread-claude-ignore-codex-sentinels');
+      if (method === 'ui/preferences/set') return {};
+      return {};
+    });
+
+    await store.startThread('/repo-claude', {});
+
+    expect(readKeys).not.toContain('settings.provider.codex.model');
+    expect(readKeys).not.toContain('settings.provider.codex.effort');
+    expect(readKeys).not.toContain('settings.provider.codex.codexModelProvider');
+    expect(startPayload).toEqual(expect.objectContaining({
+      cwd: '/repo-claude',
+      modelProvider: 'claude',
+      model: 'sonnet',
+      effort: 'high',
+    }));
+    expect(startPayload?.model).not.toBe(codexSentinels['settings.provider.codex.model']);
+    expect(startPayload?.effort).not.toBe(codexSentinels['settings.provider.codex.effort']);
+    expect(startPayload?.config || {}).not.toHaveProperty('codexModelProvider');
+  });
+
+  it('does not advertise semantic Codex LSP tools in thread/start defaults without backend availability', async () => {
+    const store = useThreadStore();
+    let startPayload = null;
+    apiMock.callAPI.mockImplementation(async (method, payload) => {
+      if (method === 'ui/preferences/get') {
+        if (payload?.key === 'settings.provider.active') return 'codex';
+        return undefined;
+      }
+      if (method === 'config/builtinTools/read') return { tools: [] };
+      if (method === 'thread/start') {
+        startPayload = payload;
+        return { thread: { id: 'thread-codex-lsp-defaults' } };
+      }
+      if (method === 'ui/state/get') return buildSnapshot('thread-codex-lsp-defaults');
+      if (method === 'ui/preferences/set') return {};
+      return {};
+    });
+
+    await store.startThread('/repo-codex', {});
+
+    expect(startPayload?.config?.enabledTools).toEqual(
+      expect.arrayContaining(['file', 'grep', 'code_run', 'code_run_test']),
+    );
+    expect(startPayload?.config?.enabledTools || []).not.toEqual(
+      expect.arrayContaining(['inspect', 'xref', 'structure', 'edit', 'completion']),
+    );
+    expect(startPayload?.config?.mcpTools).toEqual(expect.arrayContaining(['mcp__lsp__file', 'mcp__lsp__grep']));
+    expect(startPayload?.config?.mcpTools || []).not.toEqual(
+      expect.arrayContaining(['mcp__lsp__inspect', 'mcp__lsp__xref', 'mcp__lsp__structure', 'mcp__lsp__edit', 'mcp__lsp__completion']),
+    );
   });
 });

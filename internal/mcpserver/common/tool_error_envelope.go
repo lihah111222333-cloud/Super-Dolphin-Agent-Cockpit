@@ -132,7 +132,7 @@ func ClassifyToolError(toolName string, err error) (code string, retryable bool,
 			return classifier.code, classifier.retryable, classifier.hint(normalizedTool, message), nil
 		}
 	}
-	return "lsp_unavailable", true, "Retry if the language server is starting; otherwise inspect manager diagnostics.", nil
+	return "tool_error", false, "Inspect the tool error message and logs; retry only after fixing the reported issue.", nil
 }
 
 type toolErrorClassifier struct {
@@ -225,6 +225,36 @@ var toolErrorClassifiers = []toolErrorClassifier{
 		},
 	},
 	{
+		code: "db_schema_missing",
+		hint: staticToolHint("Run database migrations or verify the embedded database schema before retrying."),
+		match: func(_ error, message string, _ string) bool {
+			return (strings.Contains(message, "relation ") && strings.Contains(message, " does not exist")) ||
+				strings.Contains(message, "no such table") ||
+				strings.Contains(message, "missing database schema")
+		},
+	},
+	{
+		code: "task_invalid_input",
+		hint: staticToolHint("Fix the task DAG request, node status, or transition inputs before retrying."),
+		match: func(_ error, message string, toolName string) bool {
+			return isTaskTool(toolName) && (strings.Contains(message, "apply_ops invalid request") ||
+				strings.Contains(message, "invalid task") ||
+				strings.Contains(message, "invalid request") ||
+				strings.Contains(message, "validate transition") ||
+				strings.HasPrefix(message, "transition:"))
+		},
+	},
+	{
+		code:      "lsp_unavailable",
+		retryable: true,
+		hint:      staticToolHint("Retry if the language server is starting; otherwise inspect manager diagnostics."),
+		match: func(_ error, message string, _ string) bool {
+			return strings.Contains(message, "language server is starting") ||
+				(strings.Contains(message, "language server") && (strings.Contains(message, "not ready") || strings.Contains(message, "unavailable"))) ||
+				(strings.Contains(message, "lsp") && (strings.Contains(message, "not ready") || strings.Contains(message, "unavailable")))
+		},
+	},
+	{
 		code: "dependency_missing",
 		hint: staticToolHint("Install ast-grep or ensure sg is available in PATH."),
 		match: func(_ error, message string, _ string) bool {
@@ -238,6 +268,15 @@ var toolErrorClassifiers = []toolErrorClassifier{
 			return errors.Is(err, os.ErrNotExist) ||
 				strings.Contains(message, "not found") ||
 				strings.Contains(message, "no such file")
+		},
+	},
+	{
+		code: "path_invalid",
+		hint: staticToolHint("Pass a regular file path for file actions that require one; directories are not valid file_path values."),
+		match: func(_ error, message string, _ string) bool {
+			return strings.Contains(message, "must reference a regular file") ||
+				strings.Contains(message, "is not a regular file") ||
+				strings.Contains(message, "must be a regular file")
 		},
 	},
 	{
@@ -314,6 +353,10 @@ func isLaunchRequestInvalidMessage(message string) bool {
 
 func staticToolHint(value string) func(string, string) string {
 	return func(string, string) string { return value }
+}
+
+func isTaskTool(toolName string) bool {
+	return strings.HasPrefix(strings.ToLower(strings.TrimSpace(toolName)), "task_")
 }
 
 func isLaunchAgentTool(toolName string) bool {

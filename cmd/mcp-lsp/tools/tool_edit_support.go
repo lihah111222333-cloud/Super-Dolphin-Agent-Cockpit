@@ -93,7 +93,15 @@ func resolveWorkspacePathInRoots(root string, roots []string, uri string) (strin
 	if err != nil {
 		return "", err
 	}
-	if !pathWithinAnyRoot(allowedRoots, resolved) {
+	if pathWithinAnyRoot(allowedRoots, resolved) {
+		return resolved, nil
+	}
+	appRoots, err := platformshared.AppManagedDataRoots()
+	if err != nil {
+		return "", err
+	}
+	allowedRoots = append(allowedRoots, appRoots...)
+	if !pathWithinAnyRoot(appRoots, resolved) {
 		return "", fmt.Errorf("path %q is outside workspace roots [%s]", resolved, strings.Join(allowedRoots, ", "))
 	}
 	return resolved, nil

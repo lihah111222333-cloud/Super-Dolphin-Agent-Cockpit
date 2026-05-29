@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -29,6 +30,57 @@ func TestBuildPoolSpawnCmdRequiresHome(t *testing.T) {
 	_, err = BuildPoolSpawnCmd(context.Background(), PoolSpawnArgs{Home: "   "})
 	if err == nil {
 		t.Fatal("whitespace-only home should error")
+	}
+}
+
+func TestBuildPoolSpawnCmdUsesAbsoluteSystemShellForFDLimit(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Unix fd-limit wrapper is not used on Windows")
+	}
+	userDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(userDir, "sh"), []byte("#!/bin/sh\nexit 99\n"), 0o755); err != nil {
+		t.Fatalf("write malicious sh: %v", err)
+	}
+
+	cmd, err := BuildPoolSpawnCmd(context.Background(), PoolSpawnArgs{
+		Home: "/realpath/home",
+		ParentEnv: []string{
+			"PATH=" + userDir,
+		},
+	})
+	if err != nil {
+		t.Fatalf("BuildPoolSpawnCmd error = %v", err)
+	}
+	if cmd.Path != "/bin/sh" {
+		t.Fatalf("cmd.Path = %q, want /bin/sh", cmd.Path)
+	}
+	if len(cmd.Args) == 0 || cmd.Args[0] != "/bin/sh" {
+		t.Fatalf("cmd.Args = %#v, want /bin/sh argv0", cmd.Args)
+	}
+}
+
+func TestEnsureCodexCLIAvailableReportsAutoInstallFailureWhenReleaseHasNoAsset(t *testing.T) {
+	t.Setenv("PATH", t.TempDir())
+	server := newCodexReleaseTestServer(t, codexReleaseTestOptions{})
+	t.Setenv(codexTrustedReleaseMirrorEnvForTest, "1")
+	t.Setenv(codexReleaseAPIURLEnv, server.URL+"/latest")
+	t.Setenv(codexReleaseSHA256EnvForTest, strings.Repeat("a", 64))
+	t.Setenv(codexInstallRootEnv, t.TempDir())
+
+	err := ensureCodexCLIAvailable(context.Background())
+	if err == nil {
+		t.Fatal("ensureCodexCLIAvailable() error = nil, want auto-install failure")
+	}
+	msg := err.Error()
+	for _, want := range []string{
+		"codex CLI not found in PATH",
+		"automatic install from official OpenAI GitHub",
+		"https://github.com/openai/codex",
+		"no compatible OpenAI Codex release asset",
+	} {
+		if !strings.Contains(msg, want) {
+			t.Fatalf("ensureCodexCLIAvailable() error missing %q:\n%s", want, msg)
+		}
 	}
 }
 

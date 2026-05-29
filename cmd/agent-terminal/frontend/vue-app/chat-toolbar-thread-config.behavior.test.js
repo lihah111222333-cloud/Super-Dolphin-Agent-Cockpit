@@ -44,6 +44,7 @@ vi.mock('./services/log.js', () => ({
 
 import { EFFORT_MODES_BY_PROVIDER, MODEL_OPTIONS_BY_PROVIDER } from './provider-config-options.js';
 import { ComposerBar } from './components/ComposerBar.js';
+import { ChatToolbar } from './components/unified-chat/ChatToolbar.js';
 import { reactive, ref } from '../lib/vue.esm-browser.prod.js';
 
 function makeComposer() {
@@ -85,6 +86,16 @@ function createComposerVm(overrides = {}) {
       override: { model: '', effort: '' },
       effective: { model: 'gpt-5.5', effort: 'xhigh' },
     },
+    ...overrides,
+  }, { emit });
+  return { vm, emit };
+}
+
+function createToolbarVm(overrides = {}) {
+  const emit = vi.fn();
+  const vm = ChatToolbar.setup({
+    useClaudeProvider: false,
+    providerPreferenceReady: true,
     ...overrides,
   }, { emit });
   return { vm, emit };
@@ -140,5 +151,21 @@ describe('ComposerBar thread config behavior', () => {
     expect(emit).toHaveBeenCalledWith('update-thread-config-model', 'sonnet');
     expect(emit).toHaveBeenCalledWith('update-thread-config-effort', 'high');
     expect(emit).toHaveBeenCalledWith('save-thread-config');
+  });
+});
+
+describe('ChatToolbar provider label behavior', () => {
+  it('keeps the effective provider name while provider preferences are loading', () => {
+    const { vm: codexVm } = createToolbarVm({
+      useClaudeProvider: false,
+      providerPreferenceReady: false,
+    });
+    const { vm: claudeVm } = createToolbarVm({
+      useClaudeProvider: true,
+      providerPreferenceReady: false,
+    });
+
+    expect(codexVm.providerToggleLabel.value).toBe('Codex');
+    expect(claudeVm.providerToggleLabel.value).toBe('Claude');
   });
 });

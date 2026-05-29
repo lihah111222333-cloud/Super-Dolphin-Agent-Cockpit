@@ -21,6 +21,15 @@ func withTimeout(ctx context.Context, d time.Duration) (context.Context, context
 	return platformconfig.WithTimeout(ctx, d)
 }
 
+func (s *PeerSupervisor) waitForPeerAfterCancel(name string, h peerHandle, waitCh <-chan error) {
+	timeout := 5 * (s.stopGrace + 2*s.killGrace)
+	select {
+	case <-waitCh:
+	case <-time.After(timeout):
+		s.logger.Warn("peer_supervisor: peer wait did not return after ctx cancel", "peer", name, "pid", h.PID(), "timeout", timeout)
+	}
+}
+
 func mustJSON(v any) json.RawMessage {
 	raw, _ := json.Marshal(v)
 	return raw
@@ -280,6 +289,15 @@ func configString(cfg map[string]any, key string) string {
 	return sanitizeConfigStringArtifact(value)
 }
 
+func firstConfigString(cfg map[string]any, keys ...string) string {
+	for _, key := range keys {
+		if value := configString(cfg, key); value != "" {
+			return value
+		}
+	}
+	return ""
+}
+
 func sanitizeConfigStringArtifact(value string) string {
 	value = strings.TrimSpace(value)
 	switch strings.ToLower(value) {
@@ -306,7 +324,7 @@ func (d *driver) buildThreadStartParams(req dto.StartSessionRequest) threadStart
 	params := threadStartParams{
 		Cwd:                   strings.TrimSpace(req.CWD),
 		Model:                 strings.TrimSpace(req.Model),
-		ModelProvider:         configString(req.Config, "modelProvider"),
+		ModelProvider:         firstConfigString(req.Config, contract.CodexModelProviderKey, "modelProvider", "model_provider"),
 		BaseInstructions:      baseInstructions,
 		DeveloperInstructions: developerInstructions,
 		ApprovalPolicy:        resolveApprovalPolicy(req.Config),

@@ -1,6 +1,6 @@
 import { computed, ref } from '../../lib/vue.esm-browser.prod.js';
 
-// 8 个聚合 LSP 工具，对应 mcp-lsp server 当前实际暴露的方法集。
+// 聚合 LSP 工具名用于活动计数；实际可用工具由 mcp-lsp tools/list 预检过滤。
 // 早期按 LSP 协议方法逐个导出（lsp_hover / lsp_definition / ...）已合并成
 // 这些聚合工具；前端按 normalizeToolName 后的短名匹配。
 const LSP_TOOL_NAMES = [
@@ -153,7 +153,7 @@ export const ActivityPanel = {
     const hasAlerts = computed(() => recentAlerts.value.length > 0);
     const hasProcessEvents = computed(() => recentProcessEvents.value.length > 0);
     const statItems = computed(() => ([
-      { key: 'lsp', label: 'LSP (8 tools)', className: 'stat-lsp', value: lspCount.value },
+      { key: 'lsp', label: 'LSP tools', className: 'stat-lsp', value: lspCount.value },
       { key: 'jsonRender', label: 'JSON-Render', className: 'stat-json-render', value: jsonRenderCount.value },
       { key: 'playwright', label: 'Playwright', className: 'stat-playwright', value: playwrightCount.value },
       { key: 'goRun', label: 'go-run', className: 'stat-go-run', value: goRunCount.value },

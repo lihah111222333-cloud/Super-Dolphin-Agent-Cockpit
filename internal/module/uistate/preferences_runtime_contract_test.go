@@ -91,6 +91,81 @@ func TestGetPreferencesStructuresV2RuntimePreferenceKeys(t *testing.T) {
 	}
 }
 
+func TestGetPreferencesDefaultsGlobalActiveProviderToCodex(t *testing.T) {
+	t.Parallel()
+
+	const providerPreferenceKey = "settings.provider.active"
+	const providerPreferenceDefault = "codex"
+
+	svc, _, err := NewService(nil, nil, nil, nil, nil, nil)
+	if err != nil {
+		t.Fatalf("NewService() error = %v", err)
+	}
+
+	prefs, err := svc.GetPreferences(context.Background())
+	if err != nil {
+		t.Fatalf("GetPreferences() error = %v", err)
+	}
+	if prefs.CWD != "" {
+		t.Fatalf("prefs.CWD = %q, want global scope", prefs.CWD)
+	}
+	if got := prefs.Values[providerPreferenceKey]; got != providerPreferenceDefault {
+		t.Fatalf("prefs.Values[%q] = %#v, want %q", providerPreferenceKey, got, providerPreferenceDefault)
+	}
+	if got := preferenceValue(*prefs, providerPreferenceKey); got != providerPreferenceDefault {
+		t.Fatalf("preferenceValue(%q) = %#v, want %q", providerPreferenceKey, got, providerPreferenceDefault)
+	}
+}
+
+func TestGetPreferencesDoesNotSynthesizeScopedProviderDefault(t *testing.T) {
+	t.Parallel()
+
+	const projectCWD = "/tmp/preferences-provider-default"
+	const providerPreferenceKey = "settings.provider.active"
+
+	svc, _, err := NewService(nil, nil, nil, nil, nil, nil)
+	if err != nil {
+		t.Fatalf("NewService() error = %v", err)
+	}
+
+	prefs, err := svc.GetPreferences(withPreferenceScope(context.Background(), projectCWD))
+	if err != nil {
+		t.Fatalf("GetPreferences() error = %v", err)
+	}
+	if prefs.CWD != projectCWD {
+		t.Fatalf("prefs.CWD = %q, want %q", prefs.CWD, projectCWD)
+	}
+	if got := prefs.Values[providerPreferenceKey]; got != nil {
+		t.Fatalf("prefs.Values[%q] = %#v, want nil so frontend can fall back to global provider", providerPreferenceKey, got)
+	}
+	if got := preferenceValue(*prefs, providerPreferenceKey); got != nil {
+		t.Fatalf("preferenceValue(%q) = %#v, want nil so frontend can fall back to global provider", providerPreferenceKey, got)
+	}
+}
+
+func TestGetPreferencesScopedProviderInheritsGlobalPreference(t *testing.T) {
+	t.Parallel()
+
+	const projectCWD = "/tmp/preferences-provider-global"
+	const providerPreferenceKey = "settings.provider.active"
+
+	svc, _, err := NewService(nil, nil, nil, nil, nil, nil)
+	if err != nil {
+		t.Fatalf("NewService() error = %v", err)
+	}
+	if err := svc.SetPreference(context.Background(), providerPreferenceKey, "claude"); err != nil {
+		t.Fatalf("SetPreference(%s) error = %v", providerPreferenceKey, err)
+	}
+
+	prefs, err := svc.GetPreferences(withPreferenceScope(context.Background(), projectCWD))
+	if err != nil {
+		t.Fatalf("GetPreferences() error = %v", err)
+	}
+	if got := preferenceValue(*prefs, providerPreferenceKey); got != "claude" {
+		t.Fatalf("preferenceValue(%q) = %#v, want global fallback claude", providerPreferenceKey, got)
+	}
+}
+
 func TestGetStateProjectsInjectedPromptVisibilityPreference(t *testing.T) {
 	t.Parallel()
 

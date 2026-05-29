@@ -193,6 +193,26 @@ func TestProviderMirrorTargetsUsesGitRootForSubdirCWD(t *testing.T) {
 	}
 }
 
+func TestProviderMirrorTargetsRedirectsPackagedProjectMirrorToWritableHome(t *testing.T) {
+	superHome := filepath.Join(t.TempDir(), "sd-home")
+	resources := filepath.Join(t.TempDir(), "Super Dolphin.app", "Contents", "Resources")
+	if err := os.MkdirAll(resources, 0o755); err != nil {
+		t.Fatalf("MkdirAll resources: %v", err)
+	}
+	t.Setenv(SuperDolphinHomeEnv, superHome)
+	t.Setenv(ProjectRootEnv, resources)
+	t.Setenv(PackagedCodexEnv, "1")
+
+	targets, err := ProviderMirrorTargets(ProviderCodex, resources)
+	if err != nil {
+		t.Fatalf("ProviderMirrorTargets() error = %v", err)
+	}
+	want := filepath.Join(superHome, "provider-mirrors", "project", "codex", "skills")
+	if targets[1].SkillsRoot != want {
+		t.Fatalf("packaged project skills = %q, want writable mirror %q", targets[1].SkillsRoot, want)
+	}
+}
+
 func TestEnsureNoSkillMirrorConflictsAllowsOrdinarySkillContentConflicts(t *testing.T) {
 	kinds := []string{
 		"same_name",

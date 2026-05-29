@@ -30,8 +30,8 @@ describe('UnifiedChatPage template contract', () => {
       'data-testid="chat-send-failure-notice"',
       'class="thread-rail-resizer"',
       'class="workspace-bottom-row"',
-      ':disabled="!selectedThreadId && !providerPreferenceReady"',
     ]);
+    expect(template).not.toContain(':disabled="!selectedThreadId && !providerPreferenceReady"');
   });
 
   it('keeps the main layout spine ordering stable', () => {

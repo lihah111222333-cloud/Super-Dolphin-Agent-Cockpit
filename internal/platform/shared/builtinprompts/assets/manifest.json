@@ -2,6 +2,8 @@
   "version": 1,
   "templates": [
     "templates/main-default.json",
-    "templates/main-general-zh.json"
+    "templates/main-docs.json",
+    "templates/main-general-zh.json",
+    "templates/main-git-ops.json"
   ]
 }

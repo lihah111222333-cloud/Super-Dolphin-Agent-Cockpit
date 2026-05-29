@@ -22,7 +22,7 @@ describe('ActivityPanel LSP tool counts', () => {
       { name: 'grep', count: 1 },
     ]);
     expect(vm.statItems.value.find((item) => item.key === 'lsp')).toEqual(
-      expect.objectContaining({ label: 'LSP (8 tools)', value: 3 }),
+      expect.objectContaining({ label: 'LSP tools', value: 3 }),
     );
   });
 });

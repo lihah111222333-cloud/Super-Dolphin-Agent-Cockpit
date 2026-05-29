@@ -1,16 +1,16 @@
 package config
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/embeddedpg"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
-
-const defaultDatabaseURL = "postgres://ai:123@127.0.0.1:5432/agent_test2?sslmode=disable"
 
 // Type aliases – canonical definitions live in contract.
 type (
@@ -20,15 +20,24 @@ type (
 	NotifyConfig = contract.NotifyConfig
 )
 
-func New() *Config {
-	projectRoot := resolveProjectRoot()
-	loadDotEnv(projectRoot)
+var setenvForConfig = os.Setenv
+
+func New() (*Config, error) {
+	projectRoot, err := PrimeProcessEnvironment()
+	if err != nil {
+		return nil, err
+	}
+	embeddedPostgres, databaseURL := embeddedpg.ResolveFromEnvironment(projectRoot)
+	if strings.TrimSpace(os.Getenv("DATABASE_URL")) == "" && strings.TrimSpace(os.Getenv("POSTGRES_CONNECTION_STRING")) != "" {
+		pkglogger.Get().Warn("config env POSTGRES_CONNECTION_STRING is deprecated; use DATABASE_URL instead")
+	}
 
 	cfg := &Config{
-		DatabaseURL: databaseURLFromEnv(defaultDatabaseURL),
-		RPCAddr:     envOrCompat("GO_AGENT_CTL_RPC_ADDR", "RPC_ADDR", "127.0.0.1:8090"),
-		LogLevel:    envOr("LOG_LEVEL", "info"),
-		ProjectRoot: projectRoot,
+		DatabaseURL:      databaseURL,
+		RPCAddr:          envOrCompat("GO_AGENT_CTL_RPC_ADDR", "RPC_ADDR", "127.0.0.1:8090"),
+		LogLevel:         envOr("LOG_LEVEL", "info"),
+		ProjectRoot:      projectRoot,
+		EmbeddedPostgres: embeddedPostgres,
 		Skill: SkillConfig{
 			ProgressiveDisclosure: envBoolOr("SKILL_PROGRESSIVE_DISCLOSURE", false),
 			TokenBudget:           envPositiveIntOr("SKILL_TOKEN_BUDGET", 3000),
@@ -44,60 +53,106 @@ func New() *Config {
 			DrainSeconds:     envPositiveIntOr("NOTIFY_DRAIN_SECONDS", 5),
 		},
 	}
-	exportRPCAddrIfMissing(cfg.RPCAddr)
-	exportDatabaseURLIfMissing(cfg.DatabaseURL)
-	return cfg
+	if err := exportRPCAddrIfMissing(cfg.RPCAddr); err != nil {
+		return nil, err
+	}
+	if err := exportDatabaseURLIfMissing(cfg.DatabaseURL); err != nil {
+		return nil, err
+	}
+	return cfg, nil
 }
 
-func loadDotEnv(projectRoot string) {
-	path := filepath.Join(strings.TrimSpace(projectRoot), ".env")
-	if strings.TrimSpace(projectRoot) == "" {
-		return
+func PrimeProcessEnvironment() (string, error) {
+	projectRoot := resolveProjectRoot()
+	if err := loadDotEnv(projectRoot); err != nil {
+		return "", err
 	}
-	content, err := os.ReadFile(path)
+	return projectRoot, nil
+}
+
+func loadDotEnv(projectRoot string) error {
+	projectRoot = strings.TrimSpace(projectRoot)
+	if projectRoot == "" {
+		return nil
+	}
+	packaged, err := hasPackagedRuntimeManifest(projectRoot)
 	if err != nil {
-		return
+		return err
 	}
-	for _, line := range strings.Split(string(content), "\n") {
-		key, value, ok := parseDotEnvLine(line)
-		if !ok {
+	path := filepath.Join(projectRoot, ".env")
+	content, readFailure := os.ReadFile(path)
+	if readFailure != nil {
+		if packaged {
+			return fmt.Errorf("load packaged .env %s: %w", path, readFailure)
+		}
+		return nil
+	}
+	return applyDotEnv(path, string(content), packaged)
+}
+
+func applyDotEnv(path, content string, strict bool) error {
+	for i, line := range strings.Split(content, "\n") {
+		key, value, ok, err := parseDotEnvLineStrict(line, i+1)
+		if err != nil {
+			if strict {
+				return fmt.Errorf("parse packaged .env %s: %w", path, err)
+			}
 			continue
 		}
-		if strings.TrimSpace(os.Getenv(key)) != "" {
+		if !ok || strings.TrimSpace(os.Getenv(key)) != "" {
 			continue
 		}
-		_ = os.Setenv(key, value)
+		if err := setenvForConfig(key, value); err != nil {
+			return fmt.Errorf("set environment from .env %s for %s: %w", path, key, err)
+		}
 	}
+	return nil
 }
 
 func parseDotEnvLine(line string) (string, string, bool) {
+	key, value, ok, err := parseDotEnvLineStrict(line, 0)
+	if err != nil {
+		return "", "", false
+	}
+	return key, value, ok
+}
+
+func parseDotEnvLineStrict(line string, lineNumber int) (string, string, bool, error) {
 	line = strings.TrimSpace(line)
 	if line == "" || strings.HasPrefix(line, "#") {
-		return "", "", false
+		return "", "", false, nil
 	}
 	line = strings.TrimPrefix(line, "export ")
 	key, value, ok := strings.Cut(line, "=")
 	if !ok {
-		return "", "", false
+		return "", "", false, dotEnvLineError(lineNumber, "missing key=value separator")
 	}
 	key = strings.TrimSpace(key)
 	if key == "" || strings.ContainsAny(key, " \t") {
-		return "", "", false
+		return "", "", false, dotEnvLineError(lineNumber, "invalid key")
 	}
 	value = strings.TrimSpace(value)
 	value = strings.Trim(value, `"'`)
-	return key, value, true
+	return key, value, true, nil
 }
 
-func databaseURLFromEnv(fallback string) string {
-	if value := strings.TrimSpace(os.Getenv("DATABASE_URL")); value != "" {
-		return value
+func dotEnvLineError(lineNumber int, reason string) error {
+	if lineNumber > 0 {
+		return fmt.Errorf("line %d: %s", lineNumber, reason)
 	}
-	if value := strings.TrimSpace(os.Getenv("POSTGRES_CONNECTION_STRING")); value != "" {
-		pkglogger.Get().Warn("config env POSTGRES_CONNECTION_STRING is deprecated; use DATABASE_URL instead")
-		return value
+	return fmt.Errorf("%s", reason)
+}
+
+func hasPackagedRuntimeManifest(projectRoot string) (bool, error) {
+	path := filepath.Join(strings.TrimSpace(projectRoot), "runtime-manifest.json")
+	info, err := os.Stat(path)
+	if err == nil {
+		return !info.IsDir(), nil
 	}
-	return fallback
+	if os.IsNotExist(err) {
+		return false, nil
+	}
+	return false, fmt.Errorf("inspect packaged runtime manifest %s: %w", path, err)
 }
 
 // exportRPCAddrIfMissing sets GO_AGENT_CTL_RPC_ADDR in the process environment
@@ -106,35 +161,64 @@ func databaseURLFromEnv(fallback string) string {
 // RPC address to MCP child processes (mcp-orch, mcp-lsp) automatically.
 // Without this, mcp-orch falls back to localLauncher and spawns the desktop
 // binary as a subprocess, which crashes immediately.
-func exportRPCAddrIfMissing(addr string) {
+func exportRPCAddrIfMissing(addr string) error {
 	if strings.TrimSpace(os.Getenv("GO_AGENT_CTL_RPC_ADDR")) != "" {
-		return
+		return nil
 	}
 	if strings.TrimSpace(os.Getenv("RPC_ADDR")) != "" {
-		return
+		return nil
 	}
-	os.Setenv("GO_AGENT_CTL_RPC_ADDR", addr)
+	if err := setenvForConfig("GO_AGENT_CTL_RPC_ADDR", addr); err != nil {
+		return fmt.Errorf("set GO_AGENT_CTL_RPC_ADDR: %w", err)
+	}
+	return nil
 }
 
-func exportDatabaseURLIfMissing(databaseURL string) {
+func exportDatabaseURLIfMissing(databaseURL string) error {
 	if strings.TrimSpace(os.Getenv("DATABASE_URL")) != "" {
-		return
+		return nil
 	}
 	if strings.TrimSpace(databaseURL) == "" {
-		return
+		return nil
 	}
-	os.Setenv("DATABASE_URL", databaseURL)
+	if err := setenvForConfig("DATABASE_URL", databaseURL); err != nil {
+		return fmt.Errorf("set DATABASE_URL: %w", err)
+	}
+	return nil
 }
 
 func resolveProjectRoot() string {
 	if root := strings.TrimSpace(os.Getenv("PROJECT_ROOT")); root != "" {
 		return root
 	}
+	if exe, err := os.Executable(); err == nil {
+		if root := resolvePackagedProjectRoot(exe); root != "" {
+			if info, err := os.Stat(filepath.Join(root, "migrations")); err == nil && info.IsDir() {
+				return root
+			}
+		}
+	}
 	dir, err := os.Getwd()
 	if err != nil {
 		return ""
 	}
 	return dir
+}
+
+func resolvePackagedProjectRoot(executablePath string) string {
+	executablePath = strings.TrimSpace(executablePath)
+	if executablePath == "" {
+		return ""
+	}
+	exeDir := filepath.Dir(executablePath)
+	if filepath.Base(exeDir) != "MacOS" {
+		return ""
+	}
+	contentsDir := filepath.Dir(exeDir)
+	if filepath.Base(contentsDir) != "Contents" {
+		return ""
+	}
+	return filepath.Join(contentsDir, "Resources")
 }
 
 func envOr(key, fallback string) string {

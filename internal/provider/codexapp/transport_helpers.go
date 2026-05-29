@@ -6,6 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"net/url"
+	"os"
 	"strconv"
 	"strings"
 	"sync"
@@ -436,4 +438,50 @@ func (t *transport) closeSocket() {
 		_ = t.ws.Close()
 	}
 	t.ws = nil
+}
+
+func codexReleaseAPIRequestURL() (string, error) {
+	rawURL := strings.TrimSpace(os.Getenv(codexReleaseAPIURLEnv))
+	if rawURL == "" {
+		rawURL = codexReleaseAPIURL
+	}
+	parsed, err := url.Parse(rawURL)
+	if err != nil || parsed.Scheme == "" || parsed.Host == "" {
+		return "", fmt.Errorf("invalid Codex release API URL %q", rawURL)
+	}
+	if isOfficialCodexReleaseAPIURL(parsed) {
+		return rawURL, nil
+	}
+	if !trustedCodexReleaseMirror() {
+		return "", fmt.Errorf("untrusted Codex release API URL %q; use %s only for explicitly trusted mirrors", rawURL, codexTrustedReleaseMirrorEnv)
+	}
+	if err := validateTrustedCodexMirrorURL(parsed, "Codex release API URL"); err != nil {
+		return "", err
+	}
+	return rawURL, nil
+}
+
+func isOfficialCodexReleaseAPIURL(parsed *url.URL) bool {
+	return parsed.Scheme == "https" &&
+		strings.EqualFold(parsed.Hostname(), "api.github.com") &&
+		strings.HasPrefix(parsed.EscapedPath(), "/repos/openai/codex/releases/")
+}
+
+func trustedCodexReleaseMirror() bool {
+	return strings.TrimSpace(os.Getenv(codexTrustedReleaseMirrorEnv)) == "1"
+}
+
+func validateTrustedCodexMirrorURL(parsed *url.URL, label string) error {
+	if parsed.Scheme == "https" {
+		return nil
+	}
+	if parsed.Scheme == "http" && isLoopbackHost(parsed.Hostname()) {
+		return nil
+	}
+	return fmt.Errorf("%s %q must use HTTPS unless it is an explicit loopback test mirror", label, parsed.String())
+}
+
+func isLoopbackHost(host string) bool {
+	host = strings.Trim(strings.ToLower(host), "[]")
+	return host == "localhost" || strings.HasPrefix(host, "127.") || host == "::1"
 }

@@ -114,7 +114,7 @@ func TestCodexNativeToolPolicyUsesReadOnlySandboxForPartialWriteDisable(t *testi
 	if params.ApprovalPolicy != "never" {
 		t.Fatalf("ApprovalPolicy = %q, want never", params.ApprovalPolicy)
 	}
-	if string(params.Sandbox) != `{"mode":"read-only"}` {
+	if string(params.Sandbox) != `{"read-only":null}` {
 		t.Fatalf("Sandbox = %s, want read-only object", string(params.Sandbox))
 	}
 }
@@ -233,6 +233,43 @@ func TestBuildThreadStartParamsUsesStartAssemblyInstructions(t *testing.T) {
 	}
 }
 
+func TestBuildThreadStartParamsPrefersCanonicalCodexModelProvider(t *testing.T) {
+	t.Parallel()
+
+	params := (&driver{}).buildThreadStartParams(dto.StartSessionRequest{
+		Config: map[string]any{
+			contract.CodexModelProviderKey: " canonical-relay ",
+			"modelProvider":                "legacy-camel",
+			"model_provider":               "legacy-snake",
+		},
+	})
+	if params.ModelProvider != "canonical-relay" {
+		t.Fatalf("ModelProvider = %q, want canonical-relay", params.ModelProvider)
+	}
+}
+
+func TestBuildThreadStartParamsKeepsLegacyModelProviderKeys(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		config map[string]any
+		want   string
+	}{
+		{name: "camel", config: map[string]any{"modelProvider": " legacy-camel "}, want: "legacy-camel"},
+		{name: "snake", config: map[string]any{"model_provider": " legacy-snake "}, want: "legacy-snake"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			params := (&driver{}).buildThreadStartParams(dto.StartSessionRequest{Config: tt.config})
+			if params.ModelProvider != tt.want {
+				t.Fatalf("ModelProvider = %q, want %q", params.ModelProvider, tt.want)
+			}
+		})
+	}
+}
+
 func TestBuildThreadStartParamsIncludesStartRuntimeContext(t *testing.T) {
 	t.Parallel()
 
@@ -334,11 +371,11 @@ func TestSessionRuntimeConfigSnapshotIncludesPromptInstructions(t *testing.T) {
 	}
 }
 
-func TestDriverStartSessionUsesUserCodexHomeWhenConfigMissing(t *testing.T) {
+func TestDriverStartSessionUsesAppManagedCodexHomeWhenConfigMissing(t *testing.T) {
 	userHome := t.TempDir()
 	t.Setenv("HOME", userHome)
 	t.Setenv("USERPROFILE", userHome)
-	wantHome := mustCanonicalCodexHome(t, userHome)
+	wantHome := mustCanonicalAppManagedCodexHome(t, userHome)
 	serverURL := startCodexRPCServer(t, func(method string) json.RawMessage {
 		return startSessionInjectResult(method, wantHome)
 	})
@@ -418,6 +455,19 @@ func mustCanonicalCodexHome(t *testing.T, home string) string {
 	wantHome, err := filepath.EvalSymlinks(codexHome)
 	if err != nil {
 		t.Fatalf("canonicalize test codex home: %v", err)
+	}
+	return wantHome
+}
+
+func mustCanonicalAppManagedCodexHome(t *testing.T, home string) string {
+	t.Helper()
+	codexHome := filepath.Join(home, ".super-dolphin", "providers", "codex")
+	if err := os.MkdirAll(codexHome, 0o755); err != nil {
+		t.Fatalf("mkdir app-managed codex home: %v", err)
+	}
+	wantHome, err := filepath.EvalSymlinks(codexHome)
+	if err != nil {
+		t.Fatalf("canonicalize app-managed codex home: %v", err)
 	}
 	return wantHome
 }

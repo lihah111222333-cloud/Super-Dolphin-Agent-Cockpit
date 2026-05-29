@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"log/slog"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -162,6 +163,37 @@ func TestRPCRequestTrackerLogsPendingRequestsOnConnectionExit(t *testing.T) {
 	} {
 		if !strings.Contains(output, want) {
 			t.Fatalf("log output missing %q: %s", want, output)
+		}
+	}
+}
+
+func TestServerRunPublishesActualControlRPCAddr(t *testing.T) {
+	t.Setenv(controlRPCAddrEnv, "127.0.0.1:0")
+	server := newTestServer()
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- server.Run(ctx) }()
+
+	deadline := time.After(time.Second)
+	for {
+		got := os.Getenv(controlRPCAddrEnv)
+		if got != "" && got != "127.0.0.1:0" {
+			cancel()
+			if err := <-done; err != nil && !errors.Is(err, context.Canceled) {
+				t.Fatalf("Run() error = %v", err)
+			}
+			if strings.HasSuffix(got, ":0") {
+				t.Fatalf("%s = %q, want concrete listener port", controlRPCAddrEnv, got)
+			}
+			return
+		}
+		select {
+		case err := <-done:
+			t.Fatalf("Run() returned before publishing addr: %v", err)
+		case <-deadline:
+			cancel()
+			t.Fatalf("timed out waiting for %s to be published; current=%q", controlRPCAddrEnv, got)
+		case <-time.After(10 * time.Millisecond):
 		}
 	}
 }

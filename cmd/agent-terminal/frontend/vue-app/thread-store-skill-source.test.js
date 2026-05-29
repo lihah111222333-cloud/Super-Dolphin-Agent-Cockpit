@@ -11,7 +11,6 @@ vi.mock('./services/log.js', () => ({
   logWarn: logMock.logWarn,
 }));
 
-import { CODEX_IDENTITY_DEFAULTS } from './provider-config-options.js';
 import { useThreadStore } from './stores/threads.js';
 
 function buildSnapshot(threadId = 'thread-skill-source') {
@@ -89,10 +88,15 @@ describe('thread store skill source payload', () => {
     expect(apiMock.callAPI).toHaveBeenCalledWith('thread/start', expect.objectContaining({
       cwd: '/repo',
       modelProvider: 'codex',
-      config: CODEX_IDENTITY_DEFAULTS,
+      config: expect.objectContaining({
+        codexInstanceKey: 'default',
+        codexModelProvider: 'super-dolphin-relay',
+      }),
       selectedSkillRefs: [
         { key: 'project::planner:/repo/.agent/skills/planner', name: 'planner', scope: 'project', personalType: '', path: '/repo/.agent/skills/planner', source: 'manual' },
       ],
     }));
+    const [, startPayload] = apiMock.callAPI.mock.calls.find(([method]) => method === 'thread/start');
+    expect(startPayload.config).not.toHaveProperty('codexHome');
   });
 });

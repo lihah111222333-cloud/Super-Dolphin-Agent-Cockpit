@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 
@@ -286,8 +287,17 @@ func configCWD(cfg *contract.Config) string {
 	if value == "" {
 		return ""
 	}
+	clean := filepath.Clean(value)
+	if isPackagedResourceRoot(clean) {
+		return ""
+	}
 	// Intentional: frontend needs cwd for project context and scope-aware UI state.
-	return filepath.Clean(value)
+	return clean
+}
+
+func isPackagedResourceRoot(root string) bool {
+	info, err := os.Stat(filepath.Join(root, "runtime-manifest.json"))
+	return err == nil && !info.IsDir()
 }
 
 func readLSPPromptHint(

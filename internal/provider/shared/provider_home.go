@@ -11,6 +11,8 @@ import (
 
 const (
 	SuperDolphinHomeEnv = "SUPER_DOLPHIN_HOME"
+	ProjectRootEnv      = "PROJECT_ROOT"
+	PackagedCodexEnv    = "SUPER_DOLPHIN_PACKAGED_CODEX_IDENTITY"
 
 	ProviderClaude = "claude"
 	ProviderCodex  = "codex"
@@ -120,7 +122,7 @@ func ProviderMirrorTargets(provider, cwd string, homeRoot ...string) ([]contract
 		{
 			Provider:   provider,
 			HomeRoot:   home,
-			SkillsRoot: providerProjectSkillsRoot(provider, projectRoot),
+			SkillsRoot: providerProjectMirrorRoot(provider, projectRoot),
 		},
 	}, nil
 }
@@ -197,6 +199,41 @@ func providerProjectSkillsRoot(provider, projectRoot string) string {
 	default:
 		return filepath.Join(projectRoot, "."+provider, "skills")
 	}
+}
+
+func providerProjectMirrorRoot(provider, projectRoot string) string {
+	if packagedProjectMirrorEnabled(projectRoot) {
+		return filepath.Join(os.Getenv(SuperDolphinHomeEnv), "provider-mirrors", "project", provider, "skills")
+	}
+	return providerProjectSkillsRoot(provider, projectRoot)
+}
+
+func packagedProjectMirrorEnabled(projectRoot string) bool {
+	if strings.TrimSpace(os.Getenv(PackagedCodexEnv)) != "1" {
+		return false
+	}
+	home := strings.TrimSpace(os.Getenv(SuperDolphinHomeEnv))
+	resources := strings.TrimSpace(os.Getenv(ProjectRootEnv))
+	return home != "" && resources != "" && sameProviderPath(projectRoot, resources)
+}
+
+func sameProviderPath(left, right string) bool {
+	leftAbs, errLeft := filepath.Abs(strings.TrimSpace(left))
+	rightAbs, errRight := filepath.Abs(strings.TrimSpace(right))
+	if errLeft != nil || errRight != nil {
+		return false
+	}
+	leftClean := filepath.Clean(leftAbs)
+	rightClean := filepath.Clean(rightAbs)
+	leftReal, errLeft := filepath.EvalSymlinks(leftClean)
+	rightReal, errRight := filepath.EvalSymlinks(rightClean)
+	if errLeft == nil {
+		leftClean = filepath.Clean(leftReal)
+	}
+	if errRight == nil {
+		rightClean = filepath.Clean(rightReal)
+	}
+	return leftClean == rightClean
 }
 
 func appManagedSuperDolphinHome() (string, error) {

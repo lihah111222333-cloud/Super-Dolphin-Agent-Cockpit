@@ -23,15 +23,12 @@ import (
 
 const (
 	defaultCodexInstanceKey       = "default"
-	defaultCodexModelProvider     = "openai"
+	defaultCodexModelProvider     = "super-dolphin-relay"
 	legacyDefaultCodexHomeEnvVar  = "CODEXAPP_ALLOW_LEGACY_DEFAULT_HOME"
 	legacyDefaultCodexHomeEnabled = "1"
+	packagedCodexIdentityEnvVar   = "SUPER_DOLPHIN_PACKAGED_CODEX_IDENTITY"
 )
 
-// runScratchpadCleanup is the shared `defer` target used by Start / SpawnIfNeeded
-// to release the scratchpad snapshot when the spawn pipeline fails. active is a
-// pointer so the caller can flip it to false after persistStartedSession to
-// skip cleanup on success.
 func runScratchpadCleanup(active *bool, cleanup func()) {
 	if active == nil || !*active {
 		return
@@ -41,9 +38,6 @@ func runScratchpadCleanup(active *bool, cleanup func()) {
 	}
 }
 
-// enrichFromSessionConfig extracts model/cwd from the session's runtime config
-// when the original request values are empty. codex app-server assigns model
-// server-side; the resolved value is captured in runtimeConfig during StartSession.
 func enrichFromSessionConfig(session contract.Session, reqModel, reqCWD string) (model, cwd string, port int) {
 	model, cwd = reqModel, reqCWD
 	rc, ok := session.(interface{ RuntimeConfigSnapshot() map[string]any })
@@ -111,42 +105,43 @@ func (s *service) injectParentCodexIdentityForStart(ctx context.Context, req Sta
 }
 
 func (s *service) injectDefaultCodexIdentityForStart(req StartRequest) StartRequest {
-	if strings.TrimSpace(req.Provider) != "codex" || startConfigHasCodexIdentity(req.Config) {
-		return req
-	}
-	if !legacyDefaultCodexHomeAllowed() {
-		return req
-	}
-	home, err := defaultCodexHome()
-	if err != nil {
-		if s != nil && s.logger != nil {
-			s.logger.Warn("thread: default codex identity skipped",
-				"agent_id", req.AgentID,
-				"error", err)
-		}
+	if strings.TrimSpace(req.Provider) != "codex" || !defaultCodexIdentityAllowed() {
 		return req
 	}
 	if req.Config == nil {
 		req.Config = make(map[string]any)
 	}
-	req.Config["codexHome"] = home
-	req.Config["codexInstanceKey"] = defaultCodexInstanceKey
-	req.Config["codexModelProvider"] = defaultCodexModelProvider
+	if configutil.ConfigString(req.Config, "codexHome") == "" {
+		home, err := defaultCodexHome()
+		if err != nil {
+			s.warnDefaultCodexIdentitySkipped(req.AgentID, err)
+			return req
+		}
+		req.Config["codexHome"] = home
+	}
+	if configutil.ConfigString(req.Config, "codexInstanceKey") == "" {
+		req.Config["codexInstanceKey"] = defaultCodexInstanceKey
+	}
+	if configutil.ConfigString(req.Config, "codexModelProvider") == "" {
+		req.Config["codexModelProvider"] = defaultCodexModelProvider
+	}
 	return req
 }
 
+func (s *service) warnDefaultCodexIdentitySkipped(agentID string, err error) {
+	if s != nil && s.logger != nil {
+		s.logger.Warn("thread: default codex identity skipped", "agent_id", agentID, "error", err)
+	}
+}
+
 func (s *service) injectDefaultCodexIdentityForResume(req ResumeRequest) ResumeRequest {
-	if strings.TrimSpace(req.Provider) != "codex" || !legacyDefaultCodexHomeAllowed() {
+	if strings.TrimSpace(req.Provider) != "codex" || !defaultCodexIdentityAllowed() {
 		return req
 	}
 	if strings.TrimSpace(req.CodexHome) == "" {
 		home, err := defaultCodexHome()
 		if err != nil {
-			if s != nil && s.logger != nil {
-				s.logger.Warn("thread: default codex resume identity skipped",
-					"agent_id", req.AgentID,
-					"error", err)
-			}
+			s.warnDefaultCodexIdentitySkipped(req.AgentID, err)
 			return req
 		}
 		req.CodexHome = home
@@ -160,8 +155,9 @@ func (s *service) injectDefaultCodexIdentityForResume(req ResumeRequest) ResumeR
 	return req
 }
 
-func legacyDefaultCodexHomeAllowed() bool {
-	return strings.TrimSpace(os.Getenv(legacyDefaultCodexHomeEnvVar)) == legacyDefaultCodexHomeEnabled
+func defaultCodexIdentityAllowed() bool {
+	return strings.TrimSpace(os.Getenv(legacyDefaultCodexHomeEnvVar)) == legacyDefaultCodexHomeEnabled ||
+		strings.TrimSpace(os.Getenv(packagedCodexIdentityEnvVar)) == legacyDefaultCodexHomeEnabled
 }
 
 func defaultCodexHome() (string, error) {

@@ -188,7 +188,6 @@ export function openChatFromDagNode({ turnId, assignedTo }, deps) {
 async function refreshRuntimeConfigState(runtimeConfig) {
   const info = await callAPI('config/read', {});
   const cwd = (info?.cwd || '').toString().trim();
-  if (!cwd) throw new Error('runtime cwd is required');
   runtimeConfig.cwd = cwd;
 }
 
@@ -430,6 +429,8 @@ export const AppRoot = {
       return active;
     });
     const currentCwdDisplay = computed(() => {
+      if (!windowCwd.value && !activeProjectCwd.value) return '未选择项目目录';
+      if (!windowCwd.value && activeProjectCwd.value) return `活动项目：${activeProjectCwd.value}`;
       if (activeProjectCwd.value && activeProjectCwd.value !== windowCwd.value) {
         return `当前窗口 CWD：${windowCwd.value}（活动项目：${activeProjectCwd.value}）`;
       }
@@ -498,7 +499,9 @@ export const AppRoot = {
       // Initialization — runs after event subscriptions are active
       await Promise.all([refreshBuildInfo(), refreshRuntimeConfig()]);
       projectStore.setScopeCwd?.(windowCwd.value);
-      await projectStore.reloadProjects();
+      if (windowCwd.value) {
+        await projectStore.reloadProjects();
+      }
       await applyWindowBootstrapSnapshot(await loadWindowBootstrapSnapshot(), projectStore, threadStore, page, windowCwd.value);
 
       if (typeof threadStore.setPreferenceScopeCwd === 'function') {

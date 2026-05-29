@@ -147,14 +147,14 @@ func TestStartSessionReconcilesMirrorsBeforePoolAcquireAndDefaultsIdentity(t *te
 	if strings.Join(events, ",") != "reconcile,acquire" {
 		t.Fatalf("events = %v, want reconcile before acquire", events)
 	}
-	wantHome, err := filepath.EvalSymlinks(filepath.Join(userHome, ".codex"))
+	wantHome, err := filepath.EvalSymlinks(filepath.Join(superHome, "providers", "codex"))
 	if err != nil {
-		t.Fatalf("EvalSymlinks user codex home: %v", err)
+		t.Fatalf("EvalSymlinks app-managed codex home: %v", err)
 	}
 	if gotHome != wantHome {
 		t.Fatalf("pool codex home = %q, want %q", gotHome, wantHome)
 	}
-	assertCodexMirrorTargets(t, mirror.targets, workDir, userHome)
+	assertExplicitCodexMirrorTargets(t, mirror.targets, workDir, wantHome)
 }
 
 func TestStartSessionReconcilesProjectMirrorsFromGitRootBeforePoolAcquire(t *testing.T) {
@@ -191,7 +191,11 @@ func TestStartSessionReconcilesProjectMirrorsFromGitRootBeforePoolAcquire(t *tes
 	if strings.Join(events, ",") != "reconcile,acquire" {
 		t.Fatalf("events = %v, want reconcile before acquire", events)
 	}
-	assertCodexMirrorTargets(t, mirror.targets, repoRoot, userHome)
+	wantHome, err := filepath.EvalSymlinks(filepath.Join(superHome, "providers", "codex"))
+	if err != nil {
+		t.Fatalf("EvalSymlinks app-managed codex home: %v", err)
+	}
+	assertExplicitCodexMirrorTargets(t, mirror.targets, repoRoot, wantHome)
 }
 
 func TestStartSessionFailsClosedWhenPreparedIdentityHasNoPool(t *testing.T) {
@@ -218,7 +222,11 @@ func TestStartSessionFailsClosedWhenPreparedIdentityHasNoPool(t *testing.T) {
 	if mirror.calls != 1 {
 		t.Fatalf("mirror reconcile calls = %d, want 1 before routing guard", mirror.calls)
 	}
-	assertCodexMirrorTargets(t, mirror.targets, workDir, userHome)
+	wantHome, err := filepath.EvalSymlinks(filepath.Join(superHome, "providers", "codex"))
+	if err != nil {
+		t.Fatalf("EvalSymlinks app-managed codex home: %v", err)
+	}
+	assertExplicitCodexMirrorTargets(t, mirror.targets, workDir, wantHome)
 }
 
 func TestStartSessionMirrorContentConflictAllowsPoolAcquire(t *testing.T) {

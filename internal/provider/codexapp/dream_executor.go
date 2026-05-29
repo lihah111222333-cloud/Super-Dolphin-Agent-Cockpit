@@ -68,7 +68,7 @@ func (e dreamExecutor) ExecuteDream(ctx context.Context, prompt string) (string,
 	// codex exec 是 non-interactive 子命令（见 `codex --help` "Commands: exec"）
 	// --json 输出 JSONL stream（含 agent_message + turn.completed.usage），供
 	// dreamexec.Run 自动探测后走 ExtractCodexJSONL；usage 由 OnUsage 路由到 dreammetrics。
-	args := []string{"exec", "--json"}
+	args := []string{"exec", "--json", "--skip-git-repo-check"}
 	if e.model != "" {
 		args = append(args, "--model", e.model)
 	}

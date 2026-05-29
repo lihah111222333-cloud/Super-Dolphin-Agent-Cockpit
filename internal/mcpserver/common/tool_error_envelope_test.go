@@ -96,3 +96,59 @@ func TestClassifyToolErrorGenericCWDRequiredStringDoesNotUseLaunchHint(t *testin
 		}
 	}
 }
+
+func TestClassifyToolErrorRegularFileRequired(t *testing.T) {
+	env := NewToolErrorEnvelope("file", errors.New(`file_path "/Applications/Super Dolphin.app/Contents/Resources" must reference a regular file`))
+	if env.Code != "path_invalid" {
+		t.Fatalf("Code = %q, want path_invalid", env.Code)
+	}
+	if env.Retryable {
+		t.Fatal("Retryable = true, want false")
+	}
+	if strings.Contains(strings.ToLower(env.Hint), "language server") {
+		t.Fatalf("Hint = %q, must not describe this as language-server availability", env.Hint)
+	}
+}
+
+func TestClassifyToolErrorDatabaseSchemaMissing(t *testing.T) {
+	env := NewToolErrorEnvelope("task_get_dag", errors.New(`pq: relation "task_dags" does not exist`))
+	if env.Code != "db_schema_missing" {
+		t.Fatalf("Code = %q, want db_schema_missing", env.Code)
+	}
+	if env.Retryable {
+		t.Fatal("Retryable = true, want false")
+	}
+	if strings.Contains(strings.ToLower(env.Hint), "language server") {
+		t.Fatalf("Hint = %q, must not describe DB schema errors as LSP availability", env.Hint)
+	}
+}
+
+func TestClassifyToolErrorTaskInvalidInput(t *testing.T) {
+	for _, message := range []string{
+		`orchestration: apply_ops invalid request: base_version mismatch`,
+		`transition: same state "done" (上层应去重；不允许 idempotent update)`,
+	} {
+		t.Run(message, func(t *testing.T) {
+			env := NewToolErrorEnvelope("task_update_node", errors.New(message))
+			if env.Code != "task_invalid_input" {
+				t.Fatalf("Code = %q, want task_invalid_input", env.Code)
+			}
+			if env.Retryable {
+				t.Fatal("Retryable = true, want false")
+			}
+			if strings.Contains(strings.ToLower(env.Hint), "language server") {
+				t.Fatalf("Hint = %q, must not describe invalid task input as LSP availability", env.Hint)
+			}
+		})
+	}
+}
+
+func TestClassifyToolErrorLSPStartingRemainsUnavailable(t *testing.T) {
+	env := NewToolErrorEnvelope("grep", errors.New("language server is starting"))
+	if env.Code != "lsp_unavailable" {
+		t.Fatalf("Code = %q, want lsp_unavailable", env.Code)
+	}
+	if !env.Retryable {
+		t.Fatal("Retryable = false, want true")
+	}
+}

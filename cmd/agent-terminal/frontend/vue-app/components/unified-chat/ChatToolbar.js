@@ -58,7 +58,6 @@ export const ChatToolbar = {
   ],
   setup(props, { emit }) {
     const providerToggleLabel = computed(() => {
-      if (!props.providerPreferenceReady) return 'Provider';
       return props.useClaudeProvider ? 'Claude' : 'Codex';
     });
     const launchAgentLabel = computed(() => {

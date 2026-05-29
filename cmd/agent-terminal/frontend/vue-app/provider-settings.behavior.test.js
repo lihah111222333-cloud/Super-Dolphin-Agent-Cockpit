@@ -99,7 +99,7 @@ describe('ProviderSettings behavior', () => {
     });
   });
 
-  it('loads and saves codex identity preferences with explicit defaults', async () => {
+  it('loads and saves editable codex identity preferences without exposing the internal model provider', async () => {
     apiMock.callAPI.mockImplementation(async (method, payload) => {
       if (method !== 'ui/preferences/get') return { ok: true };
       switch (payload.key) {
@@ -116,11 +116,10 @@ describe('ProviderSettings behavior', () => {
 
     expect(vm.codexHome.value).toBe('/Users/mac/.codex');
     expect(vm.codexInstanceKey.value).toBe('primary');
-    expect(vm.codexModelProvider.value).toBe('openai-compatible');
+    expect('codexModelProvider' in vm).toBe(false);
 
     vm.codexHome.value = '';
     vm.codexInstanceKey.value = '';
-    vm.codexModelProvider.value = '';
     vm.sandboxMode.value = 'readOnly';
     apiMock.callAPI.mockClear();
     apiMock.callAPI.mockResolvedValue({ ok: true });
@@ -136,14 +135,14 @@ describe('ProviderSettings behavior', () => {
       value: CODEX_IDENTITY_DEFAULTS.codexInstanceKey,
       cwd: '/repo',
     });
-    expect(apiMock.callAPI).toHaveBeenCalledWith('ui/preferences/set', {
+    expect(apiMock.callAPI).not.toHaveBeenCalledWith('ui/preferences/set', expect.objectContaining({
       key: 'settings.provider.codex.codexModelProvider',
-      value: CODEX_IDENTITY_DEFAULTS.codexModelProvider,
-      cwd: '/repo',
-    });
+    }));
+    expect(ProviderSettings.template).not.toContain('provider-codex-model-provider-input');
+    expect(ProviderSettings.template).not.toContain('super-dolphin-relay');
   });
 
-  it('materializes the default codex active provider when no preference exists', async () => {
+  it('uses the default codex active provider without materializing a scoped preference', async () => {
     apiMock.callAPI.mockImplementation(async (method, payload) => {
       if (method === 'ui/preferences/set') return { ok: true };
       if (method !== 'ui/preferences/get') return null;
@@ -153,12 +152,48 @@ describe('ProviderSettings behavior', () => {
     const { vm } = createProviderSettings();
     await vm.loadProviderSettings();
 
-    expect(apiMock.callAPI).toHaveBeenCalledWith('ui/preferences/set', {
+    expect(apiMock.callAPI).not.toHaveBeenCalledWith('ui/preferences/set', {
       key: 'settings.provider.active',
       value: 'codex',
       cwd: '/repo',
     });
     expect(vm.activeProvider.value).toBe('codex');
+  });
+
+  it('does not persist packaged Codex model or effort defaults when saving unrelated settings without explicit preferences', async () => {
+    apiMock.callAPI.mockImplementation(async (method, payload) => {
+      if (method === 'ui/preferences/set') return { ok: true };
+      if (method !== 'ui/preferences/get') return null;
+      switch (payload.key) {
+        case 'settings.provider.active': return 'codex';
+        case 'settings.provider.codex.model': return null;
+        case 'settings.provider.codex.effort': return null;
+        default: return null;
+      }
+    });
+
+    const { vm } = createProviderSettings();
+    await vm.loadProviderSettings();
+
+    expect(vm.providerModel.value).toBe('gpt-5.5');
+    expect(vm.effortMode.value).toBe('xhigh');
+
+    vm.sandboxMode.value = 'readOnly';
+    vm.summaryMode.value = 'concise';
+    apiMock.callAPI.mockClear();
+    await vm.saveProviderSettings();
+
+    expect(apiMock.callAPI).toHaveBeenCalledWith('ui/preferences/set', {
+      key: 'settings.provider.codex.summary',
+      value: 'concise',
+      cwd: '/repo',
+    });
+    expect(apiMock.callAPI).not.toHaveBeenCalledWith('ui/preferences/set', expect.objectContaining({
+      key: 'settings.provider.codex.model',
+    }));
+    expect(apiMock.callAPI).not.toHaveBeenCalledWith('ui/preferences/set', expect.objectContaining({
+      key: 'settings.provider.codex.effort',
+    }));
   });
 
   it('fails fast instead of materializing codex when active provider is invalid', async () => {

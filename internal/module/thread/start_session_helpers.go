@@ -13,7 +13,6 @@ import (
 	bindingstore "github.com/anthropic-ai/super-agent-v3/internal/store/binding"
 	"github.com/anthropic-ai/super-agent-v3/internal/util"
 	"github.com/anthropic-ai/super-agent-v3/internal/util/clone"
-	"github.com/anthropic-ai/super-agent-v3/internal/util/configutil"
 )
 
 const startDisplayNameMaxRunes = 160
@@ -422,7 +421,7 @@ func mergeStartSessionRuntimeIdentity(runtime map[string]any, session contract.S
 	}
 	for _, key := range []string{"codexHome", "codexInstanceKey", "codexModelProvider"} {
 		value := sessionRuntimeConfigString(session, key)
-		if value == "" || configutil.ConfigString(runtime, key) != "" {
+		if value == "" {
 			continue
 		}
 		if runtime == nil {

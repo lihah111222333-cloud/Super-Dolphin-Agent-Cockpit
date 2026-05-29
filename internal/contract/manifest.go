@@ -147,7 +147,7 @@ var mcpRequiredEnvKeys = []string{
 	"GO_AGENT_CTL_BOOTSTRAP_JSON",
 }
 
-var mcpPassthroughEnvKeys = []string{"DATABASE_URL"}
+var mcpPassthroughEnvKeys = []string{"DATABASE_URL", "SUPER_DOLPHIN_MODEL_REGISTRY"}
 
 var mcpLegacyEnvAliases = map[string][]string{
 	"GO_AGENT_CTL_RPC_ADDR":       {"RPC_ADDR"},

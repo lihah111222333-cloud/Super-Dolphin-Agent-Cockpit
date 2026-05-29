@@ -122,7 +122,15 @@ func ResolvePathInRoots(primaryRoot string, additionalRoots []string, target str
 	}
 	root, resolved, err := resolveCandidateInRoots(roots, target)
 	if err != nil {
-		return PathInfo{}, err
+		appRoot, appResolved, matched, appErr := resolveAppManagedCandidate(target)
+		if appErr != nil {
+			return PathInfo{}, appErr
+		}
+		if !matched {
+			return PathInfo{}, err
+		}
+		root = appRoot
+		resolved = appResolved
 	}
 	return PathInfo{
 		Root:        root,
@@ -195,6 +203,32 @@ func resolveAbsoluteCandidateInRoots(roots []string, target string) (string, str
 		return "", "", outsideWorkspaceRootsError(resolved, roots)
 	}
 	return root, resolved, nil
+}
+
+func resolveAppManagedCandidate(target string) (string, string, bool, error) {
+	trimmed := strings.TrimSpace(target)
+	if trimmed == "" || !filepath.IsAbs(trimmed) {
+		return "", "", false, nil
+	}
+	roots, err := platformshared.AppManagedDataRoots()
+	if err != nil {
+		return "", "", false, err
+	}
+	if len(roots) == 0 {
+		return "", "", false, nil
+	}
+	candidate, err := filepath.Abs(filepath.Clean(trimmed))
+	if err != nil {
+		return "", "", false, fmt.Errorf("resolve path: %w", err)
+	}
+	if longestContainingRoot(roots, candidate) == "" {
+		return "", "", false, nil
+	}
+	root, resolved, err := resolveAbsoluteCandidateInRoots(roots, trimmed)
+	if err != nil {
+		return "", "", true, err
+	}
+	return root, resolved, true, nil
 }
 
 func longestContainingRoot(roots []string, candidate string) string {

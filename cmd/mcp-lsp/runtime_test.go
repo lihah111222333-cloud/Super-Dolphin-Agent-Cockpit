@@ -3,11 +3,13 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
 
 	lspmanager "github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/manager"
+	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/multilsp"
 	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/common"
 )
 
@@ -191,6 +193,67 @@ func TestRuntimeServerBinaryPrefersInstalledBinaryOverride(t *testing.T) {
 	}
 }
 
+func TestRuntimeAdapterInitOptionsPackagedPythonDisablesSystemInterpreterProbe(t *testing.T) {
+	registry := multilsp.NewDefaultLanguageAdapterRegistry()
+	adapter, ok := registry.AdapterForLanguage("python")
+	if !ok {
+		t.Fatal("missing python adapter")
+	}
+
+	initOptions := runtimeAdapterInitOptions(adapter, true)
+	settings, ok := initOptions["settings"].(map[string]any)
+	if !ok {
+		t.Fatalf("runtimeAdapterInitOptions(python, packaged) = %#v, want settings", initOptions)
+	}
+	python, ok := settings["python"].(map[string]any)
+	if !ok {
+		t.Fatalf("python settings = %#v, want map", settings["python"])
+	}
+	if got := python["pythonPath"]; got != "/__super_dolphin_no_system_python__/python" {
+		t.Fatalf("python.pythonPath = %#v, want packaged no-system interpreter sentinel", got)
+	}
+}
+
+func TestNewManagerPackagedRegistersOnlyBundledLanguageServers(t *testing.T) {
+	root := t.TempDir()
+	bundle := t.TempDir()
+	writeMcpLSPBundleManifest(t, bundle, `{
+  "servers": {
+    "go": {"path": "bin/gopls", "languages": ["go", "gomod", "gosum", "gowork"]},
+    "typescript": {"path": "node_modules/.bin/typescript-language-server", "languages": ["javascript", "javascriptreact", "typescript", "typescriptreact"]}
+  }
+}
+`)
+	writeMcpLSPExecutable(t, filepath.Join(bundle, "bin"), "gopls")
+	writeMcpLSPExecutable(t, filepath.Join(bundle, "node_modules", ".bin"), "typescript-language-server")
+	t.Setenv("GO_AGENT_LSP_ROOT", root)
+	t.Setenv("SUPER_DOLPHIN_LSP_BUNDLE_DIR", bundle)
+	t.Setenv("SUPER_DOLPHIN_LSP_MANIFEST", filepath.Join(bundle, "manifest.json"))
+	t.Setenv("PATH", t.TempDir())
+
+	mgr, err := newManager()
+	if err != nil {
+		t.Fatalf("newManager() error = %v", err)
+	}
+	defer func() {
+		if err := mgr.Close(); err != nil {
+			t.Fatalf("close manager: %v", err)
+		}
+	}()
+
+	ctx := common.WithToolScope(context.Background(), common.ToolScope{CWD: root, Family: "lsp"})
+	if _, err := mgr.registry.GetManagerForLanguage(ctx, "go"); err != nil {
+		t.Fatalf("bundled go manager error = %v", err)
+	}
+	if _, err := mgr.registry.GetManagerForLanguage(ctx, "javascript"); err != nil {
+		t.Fatalf("bundled javascript manager error = %v", err)
+	}
+	_, err = mgr.registry.GetManagerForLanguage(ctx, "python")
+	if !errors.Is(err, lspmanager.ErrUnsupportedLanguage) {
+		t.Fatalf("python manager error = %v, want unsupported because python is not in bundled LSP manifest", err)
+	}
+}
+
 func assertDocumentFallbackSymbol(
 	t *testing.T,
 	ctx context.Context,
@@ -222,4 +285,26 @@ func unsetEnvForTest(t *testing.T, key string) {
 		}
 		_ = os.Unsetenv(key)
 	})
+}
+
+func writeMcpLSPBundleManifest(t *testing.T, bundle, body string) {
+	t.Helper()
+	path := filepath.Join(bundle, "manifest.json")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatalf("MkdirAll(%q) error = %v", filepath.Dir(path), err)
+	}
+	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+		t.Fatalf("WriteFile(%q) error = %v", path, err)
+	}
+}
+
+func writeMcpLSPExecutable(t *testing.T, dir, name string) {
+	t.Helper()
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatalf("MkdirAll(%q) error = %v", dir, err)
+	}
+	path := filepath.Join(dir, name)
+	if err := os.WriteFile(path, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
+		t.Fatalf("WriteFile(%q) error = %v", path, err)
+	}
 }
