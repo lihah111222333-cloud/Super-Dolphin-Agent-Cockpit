@@ -152,6 +152,34 @@ describe('plan split barrier via UnifiedChatPage public outputs', () => {
     expect(vm.activePinnedPlan.value.statusText).toBe('完成');
   });
 
+  it('does not pin a completed plan after a newer user task starts', () => {
+    const vm = UnifiedChatPage.setup({
+      threadStore: makeThreadStore([
+        { kind: 'plan', id: 'plan-old', text: '旧任务计划', done: true },
+        { kind: 'assistant', id: 'assistant-1', text: '旧任务已完成', done: true },
+        { kind: 'user', id: 'user-2', text: '开始一个新任务' },
+      ]),
+      projectStore: makeProjectStore(),
+      mode: 'chat',
+    });
+
+    expect(vm.activePinnedPlan.value).toBeNull();
+  });
+
+  it('does not pin stale plans after a newer user instruction when the old plan stays in progress', () => {
+    const vm = UnifiedChatPage.setup({
+      threadStore: makeThreadStore([
+        { kind: 'plan', id: 'plan-old', text: '旧任务计划', done: false },
+        { kind: 'assistant', id: 'assistant-1', text: '旧任务已完成', done: true },
+        { kind: 'user', id: 'user-2', text: '回收子agent' },
+      ]),
+      projectStore: makeProjectStore(),
+      mode: 'chat',
+    });
+
+    expect(vm.activePinnedPlan.value).toBeNull();
+  });
+
   it('splits json-render spec blocks inside pinnedPlanCardSpec', () => {
     const vm = UnifiedChatPage.setup({ threadStore: makeThreadStore([]), projectStore: makeProjectStore(), mode: 'chat' });
     const spec = vm.pinnedPlanCardSpec({

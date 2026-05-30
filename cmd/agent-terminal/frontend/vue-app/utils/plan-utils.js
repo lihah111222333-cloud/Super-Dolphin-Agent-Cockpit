@@ -1,16 +1,31 @@
 import { hasJsonRenderSpec, extractSpecBlocks } from '../services/json-render-engine.js';
 
+function planText(item) {
+  return (item?.text || '').toString().trim();
+}
+
 export function resolvePlanItemKey(item) {
   if (!item || typeof item !== 'object') return '';
   const id = (item.id || '').toString().trim();
   if (id) return `id:${id}`;
   const timestamp = (item.ts || '').toString().trim();
-  const text = (item.text || '').toString().trim();
+  const text = planText(item);
   if (!text) return '';
   // NOTE: `done` is intentionally excluded from the key so that dismiss state
   // survives plan status transitions (in-progress → complete).
   if (timestamp) return `ts:${timestamp}`;
   return text.length > 32 ? text.substring(0, 32) : text;
+}
+
+export function isPlanSuperseded(item, index, source) {
+  if (item?.kind !== 'plan' || !Array.isArray(source)) return false;
+  for (let cursor = index + 1; cursor < source.length; cursor += 1) {
+    const next = source[cursor];
+    const kind = (next?.kind || '').toString().trim();
+    if (kind === 'plan' && planText(next)) return true;
+    if (kind === 'user' && !next?.internal && planText(next)) return true;
+  }
+  return false;
 }
 
 export function pinnedPlanHasSpec(text) {

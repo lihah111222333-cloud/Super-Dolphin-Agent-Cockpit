@@ -217,6 +217,45 @@ describe('ChatTimeline behavior', () => {
     expect(vm.visibleItems.value.map((item) => item.id)).toEqual(['plan-1', 'assistant-1']);
   });
 
+  it('hides completed plans once a newer plan supersedes them', () => {
+    const vm = setupTimeline({
+      items: [
+        { id: 'plan-old', kind: 'plan', text: '旧计划', done: true },
+        { id: 'assistant-1', kind: 'assistant', text: '旧计划已完成', done: true },
+        { id: 'plan-new', kind: 'plan', text: '新计划', done: false },
+      ],
+    });
+
+    expect(vm.timelineItems.value.map((item) => item.id)).toEqual(['assistant-1', 'plan-new']);
+    expect(vm.visibleItems.value.map((item) => item.id)).toEqual(['assistant-1', 'plan-new']);
+  });
+
+  it('hides completed plans once a newer user task starts before the next plan exists', () => {
+    const vm = setupTimeline({
+      items: [
+        { id: 'plan-old', kind: 'plan', text: '旧任务计划', done: true },
+        { id: 'assistant-1', kind: 'assistant', text: '旧任务已完成', done: true },
+        { id: 'user-2', kind: 'user', text: '开始一个新任务' },
+      ],
+    });
+
+    expect(vm.timelineItems.value.map((item) => item.id)).toEqual(['assistant-1', 'user-2']);
+    expect(vm.visibleItems.value.map((item) => item.id)).toEqual(['assistant-1', 'user-2']);
+  });
+
+  it('hides stale plans after a newer user instruction even when the old plan never flips done', () => {
+    const vm = setupTimeline({
+      items: [
+        { id: 'plan-old', kind: 'plan', text: '旧任务计划', done: false },
+        { id: 'assistant-1', kind: 'assistant', text: '旧任务已完成', done: true },
+        { id: 'user-2', kind: 'user', text: '回收子agent' },
+      ],
+    });
+
+    expect(vm.timelineItems.value.map((item) => item.id)).toEqual(['assistant-1', 'user-2']);
+    expect(vm.visibleItems.value.map((item) => item.id)).toEqual(['assistant-1', 'user-2']);
+  });
+
   it('locks the active-status loading contract in the template', () => {
     expect(ChatTimeline.template).toContain("activeStatus === 'thinking' || activeStatus === 'starting' || activeStatus === 'running' || activeStatus === 'responding'");
     expect(ChatTimeline.template).toContain('loading-shimmer');

@@ -220,6 +220,10 @@ func (w *pushNotificationWorker) drainPending() {
 		reqs := w.queue
 		w.queue = nil
 		w.mu.Unlock()
+		// Best-effort compatibility enrich for the frontend transition:
+		// preserve standalone ui/thread/patch while adding a copy to the
+		// matching source notification when both are still in this drain snapshot.
+		reqs = embedThreadPatchRequests(reqs)
 		for _, req := range reqs {
 			w.dispatch(req)
 			w.processedTotal.Add(1)

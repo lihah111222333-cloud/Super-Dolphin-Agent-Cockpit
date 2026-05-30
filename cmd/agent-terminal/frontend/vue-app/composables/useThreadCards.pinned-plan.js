@@ -2,7 +2,7 @@ import {
   ref,
   computed,
 } from '../../lib/vue.esm-browser.prod.js';
-import { resolvePlanItemKey } from '../utils/plan-utils.js';
+import { isPlanSuperseded, resolvePlanItemKey } from '../utils/plan-utils.js';
 
 const DISMISS_STORAGE_KEY = '__plan_dismissed_v2__';
 
@@ -24,6 +24,7 @@ export function createPinnedPlanState(isCmd, selectedThreadId, activeTimeline) {
     for (let index = list.length - 1; index >= 0; index -= 1) {
       const item = list[index];
       if (item?.kind !== 'plan') continue;
+      if (isPlanSuperseded(item, index, list)) continue;
       const text = (item.text || '').toString().trim();
       if (!text) continue;
       return item;

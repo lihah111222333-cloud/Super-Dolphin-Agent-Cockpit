@@ -42,20 +42,26 @@ func planDeltaHandler(svc Service, onUpdated func(string)) func(turndto.PlanDelt
 
 func planUpdatedHandler(svc Service, onUpdated func(string)) func(turndto.PlanUpdated) {
 	return func(ev turndto.PlanUpdated) {
-		threadID, text := strings.TrimSpace(ev.ThreadID), planText("", ev.Payload)
+		content := planContent("", ev.Payload)
+		threadID, text := strings.TrimSpace(ev.ThreadID), content.Text
 		if threadID == "" || text == "" {
 			return
 		}
 		agentID, turnID := strings.TrimSpace(ev.AgentID), strings.TrimSpace(ev.TurnID)
 		id := timelineID("plan", turnID)
 
-		if svc.UpdateByCallID(threadID, agentID, id, func(it *Item) { it.Text = text }) {
+		if svc.UpdateByCallID(threadID, agentID, id, func(it *Item) {
+			it.Text = text
+			if content.DoneKnown {
+				it.Done = content.Done
+			}
+		}) {
 			if onUpdated != nil {
 				onUpdated(threadID)
 			}
 			return
 		}
-		svc.Append(threadID, agentID, Item{ID: id, Kind: "plan", Text: text, Ts: ev.Timestamp.Format("2006-01-02T15:04:05Z07:00"), AgentID: agentID, TurnID: turnID, lookupKey: id})
+		svc.Append(threadID, agentID, Item{ID: id, Kind: "plan", Text: text, Done: content.DoneKnown && content.Done, Ts: ev.Timestamp.Format("2006-01-02T15:04:05Z07:00"), AgentID: agentID, TurnID: turnID, lookupKey: id})
 		emitTimelineUpdated(onUpdated, threadID)
 	}
 }
@@ -268,44 +274,59 @@ func toolCallStatus(success bool, errText string) string {
 	return "completed"
 }
 
+type parsedPlanContent struct {
+	Text      string
+	Done      bool
+	DoneKnown bool
+}
+
 func planText(delta string, payload []byte) string {
+	return planContent(delta, payload).Text
+}
+
+func planContent(delta string, payload []byte) parsedPlanContent {
 	if text := strings.TrimSpace(delta); text != "" {
 		// If delta looks like serialized JSON, try structured extraction first.
 		if len(text) > 1 && (text[0] == '{' || text[0] == '[') {
-			if parsed := parseStructuredPlan([]byte(text)); parsed != "" {
+			if parsed := parseStructuredPlanContent([]byte(text)); parsed.Text != "" {
 				return parsed
 			}
 		}
-		return text
+		return parsedPlanContent{Text: text}
 	}
-	if parsed := parseStructuredPlan(payload); parsed != "" {
+	if parsed := parseStructuredPlanContent(payload); parsed.Text != "" {
 		return parsed
 	}
-	return strings.TrimSpace(string(payload))
+	return parsedPlanContent{Text: strings.TrimSpace(string(payload))}
 }
 
 // parseStructuredPlan extracts human-readable text from a Codex structured
 // plan payload that contains an "explanation" string and/or a "plan" array
 // of {"status": ..., "step": ...} objects.
 func parseStructuredPlan(data []byte) string {
+	return parseStructuredPlanContent(data).Text
+}
+
+func parseStructuredPlanContent(data []byte) parsedPlanContent {
 	trimmed := strings.TrimSpace(string(data))
 	if len(trimmed) < 2 {
-		return ""
+		return parsedPlanContent{}
 	}
 	switch trimmed[0] {
 	case '{':
 		return parseStructuredPlanObject(data)
 	case '[':
-		return parsePlanSteps(data)
+		text, done, doneKnown := parsePlanSteps(data)
+		return parsedPlanContent{Text: text, Done: done, DoneKnown: doneKnown}
 	default:
-		return ""
+		return parsedPlanContent{}
 	}
 }
 
-func parseStructuredPlanObject(data []byte) string {
+func parseStructuredPlanObject(data []byte) parsedPlanContent {
 	var obj map[string]json.RawMessage
 	if json.Unmarshal(data, &obj) != nil {
-		return ""
+		return parsedPlanContent{}
 	}
 	var parts []string
 	if raw, ok := obj["explanation"]; ok {
@@ -314,23 +335,26 @@ func parseStructuredPlanObject(data []byte) string {
 			parts = append(parts, strings.TrimSpace(explanation))
 		}
 	}
+	done, doneKnown := false, false
 	if raw, ok := obj["plan"]; ok {
-		if steps := parsePlanSteps(raw); steps != "" {
+		if steps, stepsDone, stepsDoneKnown := parsePlanSteps(raw); steps != "" {
 			parts = append(parts, steps)
+			done, doneKnown = stepsDone, stepsDoneKnown
 		}
 	}
 	if len(parts) > 0 {
-		return strings.Join(parts, "\n")
+		return parsedPlanContent{Text: strings.Join(parts, "\n"), Done: done, DoneKnown: doneKnown}
 	}
-	return ""
+	return parsedPlanContent{}
 }
 
-func parsePlanSteps(data []byte) string {
+func parsePlanSteps(data []byte) (string, bool, bool) {
 	var steps []map[string]any
 	if json.Unmarshal(data, &steps) != nil || len(steps) == 0 {
-		return ""
+		return "", false, false
 	}
 	var lines []string
+	done, doneKnown := true, false
 	for i, step := range steps {
 		text, _ := step["step"].(string)
 		text = strings.TrimSpace(text)
@@ -338,21 +362,35 @@ func parsePlanSteps(data []byte) string {
 			continue
 		}
 		status, _ := step["status"].(string)
+		doneKnown = true
+		if !planStepDone(status) {
+			done = false
+		}
 		lines = append(lines, fmt.Sprintf("%s %d. %s", planStepIcon(status), i+1, text))
 	}
-	return strings.Join(lines, "\n")
+	return strings.Join(lines, "\n"), done && doneKnown, doneKnown
 }
 
 func planStepIcon(status string) string {
-	switch strings.ToLower(strings.TrimSpace(status)) {
-	case "done", "completed", "complete":
+	if planStepDone(status) {
 		return "✅"
+	}
+	switch strings.ToLower(strings.TrimSpace(status)) {
 	case "inprogress", "in_progress", "running":
 		return "🔄"
 	case "failed", "error":
 		return "❌"
 	default:
 		return "⏳"
+	}
+}
+
+func planStepDone(status string) bool {
+	switch strings.ToLower(strings.TrimSpace(status)) {
+	case "done", "completed", "complete", "success", "succeeded":
+		return true
+	default:
+		return false
 	}
 }
 
