@@ -77,7 +77,7 @@ wait_for_http() {
 fail_if_port_busy() {
   local addr="$1"
   local port="${addr##*:}"
-  if lsof -ti ":$port" >/dev/null 2>&1; then
+  if lsof -tiTCP:"$port" -sTCP:LISTEN >/dev/null 2>&1; then
     echo "❌ port $port is already in use:"
     lsof -nP -iTCP:"$port" -sTCP:LISTEN || true
     exit 1
