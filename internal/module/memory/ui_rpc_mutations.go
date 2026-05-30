@@ -10,6 +10,7 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	"github.com/anthropic-ai/super-agent-v3/internal/module/memory/dedup"
+	sharedfilecleanup "github.com/anthropic-ai/super-agent-v3/internal/module/memory/sharedfilecleanup"
 	"github.com/anthropic-ai/super-agent-v3/internal/module/memory/similarity"
 	platformrpc "github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
 	"github.com/creachadair/jrpc2/handler"
@@ -73,6 +74,12 @@ func registerUIMemoryMutationHandlers(p memoryHandlerDeps) handler.Map {
 			}
 			return map[string]any{"deleted": deleted}, nil
 		}),
+		"ui/memory/shared-file/cleanup-preview": platformrpc.StrictHandler(func(ctx context.Context, req sharedfilecleanup.Params) (sharedfilecleanup.Result, error) {
+			return sharedfilecleanup.Preview(ctx, sharedFileCleanupDeps(p), req)
+		}),
+		"ui/memory/shared-file/cleanup-apply": platformrpc.StrictHandler(func(ctx context.Context, req sharedfilecleanup.Params) (sharedfilecleanup.Result, error) {
+			return sharedfilecleanup.Apply(ctx, sharedFileCleanupDeps(p), req)
+		}),
 		"ui/memory/auto-dream/set-intent": platformrpc.StrictHandler(func(ctx context.Context, req uiAutoDreamIntentParams) (map[string]any, error) {
 			return setAutoDreamIntent(ctx, p, req)
 		}),
@@ -87,6 +94,14 @@ func registerUIMemoryMutationHandlers(p memoryHandlerDeps) handler.Map {
 		}),
 	}
 	return out
+}
+
+func sharedFileCleanupDeps(p memoryHandlerDeps) sharedfilecleanup.Deps {
+	return sharedfilecleanup.Deps{
+		Reader:     p.SharedFiles,
+		Deleter:    p.SharedFilesDeleter,
+		DAGRuntime: sharedFileDeleteGuardRuntime(p),
+	}
 }
 
 type uiAutoDreamIntentParams struct {
