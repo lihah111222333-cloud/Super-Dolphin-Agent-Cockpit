@@ -111,6 +111,56 @@ describe('useClientStore backend contract', () => {
     expect(useClientStore.getState().draft).toBe('');
   });
 
+  it('accepts the real backend nested thread/start response shape', async () => {
+    resetClientStoreForTests({
+      cwd: '/repo/app',
+      activeProject: '/repo/app',
+      activeThreadId: '',
+      draft: 'Hello nested backend',
+      attachments: [],
+    });
+    backend.startThread.mockResolvedValue({ thread: { id: 'thread-nested' }, pending_launch: true });
+    backend.startTurn.mockResolvedValue({ ok: true });
+
+    await useClientStore.getState().sendDraft();
+
+    expect(backend.startTurn).toHaveBeenCalledWith({
+      cwd: '/repo/app',
+      threadId: 'thread-nested',
+      input: [{ type: 'text', text: 'Hello nested backend' }],
+      manualSkillSelection: false,
+    });
+    expect(useClientStore.getState().activeThreadId).toBe('thread-nested');
+  });
+
+  it('preserves the optimistic user message when a backend patch only contains assistant output', async () => {
+    resetClientStoreForTests({
+      cwd: '/repo/app',
+      activeProject: '/repo/app',
+      activeThreadId: '',
+      draft: 'Keep my message visible',
+      attachments: [],
+    });
+    backend.startThread.mockResolvedValue({ threadId: 'thread-new' });
+    backend.startTurn.mockResolvedValue({ ok: true });
+
+    await useClientStore.getState().sendDraft();
+    useClientStore.getState().initializeEvents();
+    bridgeCallback({
+      type: 'ui/thread/patch',
+      payload: {
+        threadId: 'thread-new',
+        sequence: '1',
+        timelineItems: [{ id: 'assistant-1', kind: 'assistant', text: 'AI reply' }],
+      },
+    });
+
+    expect(useClientStore.getState().timelinesByThread['thread-new']).toEqual([
+      expect.objectContaining({ role: 'user', text: 'Keep my message visible' }),
+      expect.objectContaining({ role: 'assistant', text: 'AI reply' }),
+    ]);
+  });
+
   it('restores draft and attachments when backend send fails', async () => {
     resetClientStoreForTests({
       cwd: '/repo/app',

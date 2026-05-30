@@ -72,3 +72,18 @@
   box-shadow: 0 0 16px rgba(52, 211, 153, 0.25);
   border-color: var(--sd-accent) !important;
 }
+
+.settings-input {
+  min-height: 2.25rem;
+  border: 1px solid color-mix(in srgb, var(--sd-border) 70%, transparent);
+  border-radius: 0.5rem;
+  background: color-mix(in srgb, var(--sd-bg) 62%, transparent);
+  color: var(--sd-text-primary);
+  padding: 0.45rem 0.65rem;
+  outline: none;
+}
+
+.settings-input:focus {
+  border-color: var(--sd-accent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--sd-accent) 18%, transparent);
+}
