@@ -6,6 +6,7 @@ import {
   getThreadMessages,
   getThreadState,
   getWindowBootstrap,
+  getPreference,
   interruptTurn,
   onBridgeEvent,
   readConfig,
@@ -20,9 +21,41 @@ import {
 
 const DEFAULT_PROVIDER = 'codex';
 const MAX_WARNING_ENTRIES = 300;
+const PROVIDER_ACTIVE_PREF_KEY = 'settings.provider.active';
+const ACTIVE_PROMPT_PREF_KEY = 'settings.activePromptKey';
+const CODEX_IDENTITY_DEFAULTS = Object.freeze({
+  codexHome: '~/.codex',
+  codexInstanceKey: 'default',
+  codexModelProvider: 'openai',
+});
+const BOOTSTRAP_PAGE_ALIASES = Object.freeze({
+  dags: 'workflows',
+  tasks: 'workflows',
+  commands: 'workflows',
+  'memory-center': 'memory',
+  memory: 'files',
+});
+const APP_PAGE_IDS = new Set(['chat', 'prompts', 'workflows', 'skills', 'memory', 'files', 'settings']);
 
 function normalizeString(value) {
   return (value || '').toString().trim();
+}
+
+function normalizeProviderConfigValue(value) {
+  if (value && typeof value === 'object' && !Array.isArray(value)) {
+    for (const key of ['value', 'id', 'key', 'name', 'model', 'provider']) {
+      const normalized = normalizeString(value[key]);
+      if (normalized) return normalized;
+    }
+    return '';
+  }
+  return normalizeString(value);
+}
+
+function cleanObject(payload) {
+  return Object.fromEntries(
+    Object.entries(payload).filter(([, value]) => value !== undefined && value !== ''),
+  );
 }
 
 function normalizePath(value) {
@@ -32,6 +65,87 @@ function normalizePath(value) {
     return path.replace(/[\\/]+$/, '');
   }
   return path;
+}
+
+function normalizeProviderName(value) {
+  const provider = normalizeProviderConfigValue(value).toLowerCase();
+  if (!provider) return '';
+  if (provider === 'codex' || provider === 'claude') return provider;
+  throw new Error(`invalid provider preference: ${normalizeProviderConfigValue(value)}`);
+}
+
+function providerPreferenceScope(provider) {
+  return provider === 'codex' ? 'codex' : 'claude';
+}
+
+function providerPreferenceKey(provider, suffix) {
+  return `settings.provider.${provider}.${suffix}`;
+}
+
+function normalizeCodexIdentityValue(value, fallback) {
+  if (typeof value === 'boolean') return fallback;
+  return normalizeProviderConfigValue(value) || fallback;
+}
+
+function normalizeBootstrapSnapshot(raw) {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+    throw new Error('window bootstrap response must be an object');
+  }
+  if (!Object.prototype.hasOwnProperty.call(raw, 'snapshot')) {
+    throw new Error('window bootstrap response snapshot is required');
+  }
+  if (raw.snapshot == null) return {};
+  if (typeof raw.snapshot !== 'object' || Array.isArray(raw.snapshot)) {
+    throw new Error('window bootstrap snapshot must be an object');
+  }
+  return raw.snapshot;
+}
+
+function normalizeBootstrapPage(value) {
+  const raw = normalizeString(value);
+  if (!raw) return '';
+  const page = BOOTSTRAP_PAGE_ALIASES[raw] || raw;
+  return APP_PAGE_IDS.has(page) ? page : '';
+}
+
+async function resolveLaunchPreferences(cwd) {
+  const activeProviderValue = await getPreference({ cwd, key: PROVIDER_ACTIVE_PREF_KEY });
+  const provider = normalizeProviderName(activeProviderValue);
+  if (!provider) {
+    throw new Error('startThread: settings.provider.active preference is empty — cannot determine provider. Please select a provider in Settings.');
+  }
+
+  const providerScope = providerPreferenceScope(provider);
+  const [
+    model,
+    effort,
+    activePromptKey,
+    codexHome,
+    codexInstanceKey,
+    codexModelProvider,
+  ] = await Promise.all([
+    getPreference({ cwd, key: providerPreferenceKey(providerScope, 'model') }),
+    getPreference({ cwd, key: providerPreferenceKey(providerScope, 'effort') }),
+    getPreference({ cwd, key: ACTIVE_PROMPT_PREF_KEY }),
+    providerScope === 'codex' ? getPreference({ cwd, key: providerPreferenceKey('codex', 'codexHome') }) : Promise.resolve(null),
+    providerScope === 'codex' ? getPreference({ cwd, key: providerPreferenceKey('codex', 'codexInstanceKey') }) : Promise.resolve(null),
+    providerScope === 'codex' ? getPreference({ cwd, key: providerPreferenceKey('codex', 'codexModelProvider') }) : Promise.resolve(null),
+  ]);
+
+  const launch = cleanObject({
+    modelProvider: provider,
+    model: normalizeProviderConfigValue(model),
+    effort: normalizeProviderConfigValue(effort),
+    prompt_key: normalizeProviderConfigValue(activePromptKey),
+  });
+  if (providerScope === 'codex') {
+    launch.config = {
+      codexHome: normalizeCodexIdentityValue(codexHome, CODEX_IDENTITY_DEFAULTS.codexHome),
+      codexInstanceKey: normalizeCodexIdentityValue(codexInstanceKey, CODEX_IDENTITY_DEFAULTS.codexInstanceKey),
+      codexModelProvider: normalizeCodexIdentityValue(codexModelProvider, CODEX_IDENTITY_DEFAULTS.codexModelProvider),
+    };
+  }
+  return launch;
 }
 
 function basename(path) {
@@ -184,6 +298,21 @@ function buildTurnInput(text, attachments) {
   return items;
 }
 
+function isRecoverableTurnStartError(error) {
+  const message = normalizeString(error?.message || error).toLowerCase();
+  return message.includes('session is not available') || message.includes('session not found');
+}
+
+async function startTurnWithRecover(payload) {
+  try {
+    return await startTurn(payload);
+  } catch (error) {
+    if (!isRecoverableTurnStartError(error)) throw error;
+    await recoverThread({ cwd: payload.cwd, threadId: payload.threadId });
+    return startTurn(payload);
+  }
+}
+
 function createLaunchIntentId() {
   const id = globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(16).slice(2)}`;
   return `launch_${id}`;
@@ -217,6 +346,7 @@ const baseState = {
   provider: DEFAULT_PROVIDER,
   permission: '完全访问权限',
   activePage: 'chat',
+  skillRevision: 0,
   threads: [],
   statuses: {},
   activeThreadId: '',
@@ -406,14 +536,19 @@ export const useClientStore = create((set, get) => {
 
   const handleBridgeEvent = (evt) => {
     const method = normalizeString(evt?.method || evt?.type);
+    const eventName = method.toLowerCase();
     const payload = evt?.payload || evt?.params || evt?.data || {};
     if (!method) return;
 
+    if (eventName === 'skills/changed') {
+      set((state) => ({ skillRevision: state.skillRevision + 1 }));
+      return;
+    }
     if (method === 'ui/thread/patch') {
       applyBridgePatch(method, payload);
       return;
     }
-    if (method === 'thread/tokenUsage/updated' || method === 'thread/tokenusage/updated') {
+    if (eventName === 'thread/tokenusage/updated') {
       const threadId = normalizeThreadId(payload.threadId || payload.thread_id);
       const usage = normalizeTokenUsage(payload);
       if (threadId && usage) {
@@ -426,7 +561,7 @@ export const useClientStore = create((set, get) => {
       }
       return;
     }
-    if (method === 'rpc.failed' || method.endsWith('/failed')) {
+    if (eventName === 'rpc.failed' || eventName.endsWith('/failed')) {
       addWarning('error', method, payload);
     }
   };
@@ -469,11 +604,18 @@ export const useClientStore = create((set, get) => {
         if (!cwd || cwd === '.') {
           throw new Error('frontend-app bootstrap cwd is required');
         }
-        await getWindowBootstrap();
-        set({ cwd, activeProject: cwd });
-        const projects = await getProjects({ cwd });
-        applyProjects(projects, cwd);
-        const sidebar = await getSidebarState({ cwd });
+        const windowSnapshot = normalizeBootstrapSnapshot(await getWindowBootstrap());
+        const windowCwd = normalizePath(windowSnapshot.cwd);
+        const scopedCwd = windowCwd || cwd;
+        const bootstrapPage = normalizeBootstrapPage(windowSnapshot.page);
+        set({
+          cwd,
+          activeProject: scopedCwd,
+          ...(bootstrapPage ? { activePage: bootstrapPage } : {}),
+        });
+        const projects = await getProjects({ cwd: scopedCwd });
+        applyProjects(projects, scopedCwd);
+        const sidebar = await getSidebarState({ cwd: scopedCwd });
         applySnapshot(sidebar);
         const activeThreadId = normalizeThreadId(useClientStore.getState().activeThreadId);
         if (activeThreadId) {
@@ -509,6 +651,21 @@ export const useClientStore = create((set, get) => {
 
     newThread: () => {
       set({ activeThreadId: '', draft: '', attachments: [] });
+    },
+
+    continueWithSharedFile: (path) => {
+      const target = normalizeString(path);
+      if (!target) return false;
+      const attachment = { path: target, name: basename(target) };
+      set((state) => ({
+        activePage: 'chat',
+        activeThreadId: '',
+        draft: `请基于共享文件 ${target} 继续对话。`,
+        attachments: state.attachments.some((item) => item.path === target)
+          ? state.attachments
+          : [attachment],
+      }));
+      return true;
     },
 
     selectFilesForComposer: async () => {
@@ -574,15 +731,13 @@ export const useClientStore = create((set, get) => {
       try {
         let threadId = previousThreadId;
         if (!threadId) {
+          const launchPreferences = await resolveLaunchPreferences(cwd);
           const thread = await startThread({
             cwd,
             name: text.slice(0, 40),
-            prompt: text,
-            provider: get().provider || DEFAULT_PROVIDER,
+            ...launchPreferences,
             deferSpawn: true,
             launchIntentId,
-            optimisticUserMessage: text,
-            skipInitialRuntimeSync: true,
           });
           threadId = normalizeThreadStartId(thread);
           if (!threadId) throw new Error('thread/start response missing threadId');
@@ -593,16 +748,17 @@ export const useClientStore = create((set, get) => {
             timelinesByThread[threadId] = provisionalTimeline;
             return {
               activeThreadId: threadId,
+              provider: launchPreferences.modelProvider || launchPreferences.provider || DEFAULT_PROVIDER,
               timelinesByThread,
               threads: [
-                { id: threadId, name: text.slice(0, 40) || '新对话', provider: get().provider || DEFAULT_PROVIDER, status: '工作中' },
+                { id: threadId, name: text.slice(0, 40) || '新对话', provider: launchPreferences.modelProvider || launchPreferences.provider || DEFAULT_PROVIDER, status: '工作中' },
                 ...state.threads.filter((item) => item.id !== threadId),
               ],
             };
           });
         }
 
-        await startTurn({
+        await startTurnWithRecover({
           cwd,
           threadId,
           input,

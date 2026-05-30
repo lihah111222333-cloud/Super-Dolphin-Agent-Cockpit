@@ -9,6 +9,7 @@ const backend = vi.hoisted(() => ({
   getSidebarState: vi.fn(),
   getThreadState: vi.fn(),
   getThreadMessages: vi.fn(),
+  getPreference: vi.fn(),
   startThread: vi.fn(),
   startTurn: vi.fn(),
   interruptTurn: vi.fn(),
@@ -39,7 +40,7 @@ describe('useClientStore backend contract', () => {
     bridgeCallback = null;
     resetClientStoreForTests();
     backend.readConfig.mockResolvedValue({ cwd: '/repo/app' });
-    backend.getWindowBootstrap.mockResolvedValue({ ok: true });
+    backend.getWindowBootstrap.mockResolvedValue({ snapshot: null });
     backend.getProjects.mockResolvedValue({ projects: ['/repo/app'], active: '/repo/app' });
     backend.getSidebarState.mockResolvedValue({
       activeThreadId: 'thread-1',
@@ -50,6 +51,12 @@ describe('useClientStore backend contract', () => {
     });
     backend.getThreadState.mockResolvedValue({ timelinesByThread: {} });
     backend.getThreadMessages.mockResolvedValue({ messages: [] });
+    backend.getPreference.mockImplementation(({ key }) => Promise.resolve({
+      'settings.provider.active': 'codex',
+      'settings.provider.codex.codexHome': '~/.codex',
+      'settings.provider.codex.codexInstanceKey': 'default',
+      'settings.provider.codex.codexModelProvider': 'openai',
+    }[key] ?? null));
   });
 
   it('bootstraps through config, window, projects, sidebar, then thread snapshot', async () => {
@@ -88,11 +95,13 @@ describe('useClientStore backend contract', () => {
     expect(backend.startThread).toHaveBeenCalledWith(expect.objectContaining({
       cwd: '/repo/app',
       name: 'Hello backend',
-      provider: 'codex',
+      modelProvider: 'codex',
       deferSpawn: true,
-      optimisticUserMessage: 'Hello backend',
-      skipInitialRuntimeSync: true,
     }));
+    const startPayload = backend.startThread.mock.calls[0][0];
+    expect(startPayload).not.toHaveProperty('prompt');
+    expect(startPayload).not.toHaveProperty('optimisticUserMessage');
+    expect(startPayload).not.toHaveProperty('skipInitialRuntimeSync');
     expect(backend.startThread).toHaveBeenCalledBefore(backend.startTurn);
     expect(backend.startTurn).toHaveBeenCalledWith({
       cwd: '/repo/app',
@@ -109,6 +118,111 @@ describe('useClientStore backend contract', () => {
       expect.objectContaining({ role: 'user', text: 'Hello backend' }),
     ]);
     expect(useClientStore.getState().draft).toBe('');
+  });
+
+  it('builds thread/start launch payload from provider preferences', async () => {
+    resetClientStoreForTests({
+      cwd: '/repo/app',
+      activeProject: '/repo/app',
+      activeThreadId: '',
+      draft: 'Use configured launch',
+      attachments: [],
+    });
+    backend.getPreference.mockImplementation(({ key }) => Promise.resolve({
+      'settings.provider.active': 'codex',
+      'settings.provider.codex.model': 'gpt-5.5',
+      'settings.provider.codex.effort': 'xhigh',
+      'settings.provider.codex.codexHome': '/Users/test/.codex-alt',
+      'settings.provider.codex.codexInstanceKey': 'desktop-main',
+      'settings.provider.codex.codexModelProvider': 'openrouter',
+      'settings.activePromptKey': 'main/dag_designer_zh',
+    }[key] ?? null));
+    backend.startThread.mockResolvedValue({ threadId: 'thread-configured' });
+    backend.startTurn.mockResolvedValue({ ok: true });
+
+    await useClientStore.getState().sendDraft();
+
+    expect(backend.getPreference).toHaveBeenCalledWith({ cwd: '/repo/app', key: 'settings.provider.active' });
+    expect(backend.getPreference).toHaveBeenCalledWith({ cwd: '/repo/app', key: 'settings.activePromptKey' });
+    expect(backend.startThread).toHaveBeenCalledWith(expect.objectContaining({
+      cwd: '/repo/app',
+      modelProvider: 'codex',
+      model: 'gpt-5.5',
+      effort: 'xhigh',
+      prompt_key: 'main/dag_designer_zh',
+      config: {
+        codexHome: '/Users/test/.codex-alt',
+        codexInstanceKey: 'desktop-main',
+        codexModelProvider: 'openrouter',
+      },
+    }));
+  });
+
+  it('canonicalizes object-shaped provider preferences before thread/start', async () => {
+    resetClientStoreForTests({
+      cwd: '/repo/app',
+      activeProject: '/repo/app',
+      activeThreadId: '',
+      draft: 'Use object prefs',
+      attachments: [],
+    });
+    backend.getPreference.mockImplementation(({ key }) => Promise.resolve({
+      'settings.provider.active': { value: 'codex', label: 'Codex' },
+      'settings.provider.codex.model': { value: 'gpt-5.5', label: 'GPT' },
+      'settings.provider.codex.effort': { id: 'medium', label: 'Medium' },
+      'settings.provider.codex.codexHome': '/Users/test/.codex-alt',
+      'settings.provider.codex.codexInstanceKey': 'desktop-main',
+      'settings.provider.codex.codexModelProvider': 'openrouter',
+    }[key] ?? null));
+    backend.startThread.mockResolvedValue({ threadId: 'thread-object-prefs' });
+    backend.startTurn.mockResolvedValue({ ok: true });
+
+    await useClientStore.getState().sendDraft();
+
+    expect(backend.startThread).toHaveBeenCalledWith(expect.objectContaining({
+      modelProvider: 'codex',
+      model: 'gpt-5.5',
+      effort: 'medium',
+    }));
+  });
+
+  it('recovers and retries turn/start when the backend session is missing', async () => {
+    resetClientStoreForTests({
+      cwd: '/repo/app',
+      activeProject: '/repo/app',
+      activeThreadId: 'thread-1',
+      draft: 'Retry on missing session',
+      attachments: [],
+    });
+    backend.startTurn
+      .mockRejectedValueOnce(new Error('session not found for agent "agent_123"'))
+      .mockResolvedValueOnce({ ok: true });
+    backend.recoverThread.mockResolvedValue({ recovered: true });
+
+    await useClientStore.getState().sendDraft();
+
+    expect(backend.recoverThread).toHaveBeenCalledWith({ cwd: '/repo/app', threadId: 'thread-1' });
+    expect(backend.startTurn).toHaveBeenCalledTimes(2);
+    expect(backend.startTurn.mock.invocationCallOrder[0]).toBeLessThan(backend.recoverThread.mock.invocationCallOrder[0]);
+    expect(backend.recoverThread.mock.invocationCallOrder[0]).toBeLessThan(backend.startTurn.mock.invocationCallOrder[1]);
+  });
+
+  it('applies window bootstrap snapshot before scoped RPCs', async () => {
+    backend.getWindowBootstrap.mockResolvedValue({
+      snapshot: { cwd: '/repo/other', page: 'skills' },
+    });
+    backend.getProjects.mockResolvedValue({ projects: ['/repo/app', '/repo/other'], active: '/repo/other' });
+    backend.getSidebarState.mockResolvedValue({ threads: [] });
+
+    await useClientStore.getState().bootstrap();
+
+    expect(backend.getProjects).toHaveBeenCalledWith({ cwd: '/repo/other' });
+    expect(backend.getSidebarState).toHaveBeenCalledWith({ cwd: '/repo/other' });
+    expect(useClientStore.getState()).toEqual(expect.objectContaining({
+      cwd: '/repo/app',
+      activeProject: '/repo/other',
+      activePage: 'skills',
+    }));
   });
 
   it('accepts the real backend nested thread/start response shape', async () => {
@@ -180,6 +294,25 @@ describe('useClientStore backend contract', () => {
       level: 'error',
       event: 'thread.send.failed',
     }));
+  });
+
+  it('starts a new composer draft from a shared file continuation action', () => {
+    resetClientStoreForTests({
+      cwd: '/repo/app',
+      activeProject: '/repo/app',
+      activeThreadId: 'thread-1',
+      activePage: 'files',
+      draft: 'old draft',
+      attachments: [{ path: 'reports/final.md', name: 'final.md' }],
+    });
+
+    expect(useClientStore.getState().continueWithSharedFile('reports/final.md')).toBe(true);
+
+    const state = useClientStore.getState();
+    expect(state.activePage).toBe('chat');
+    expect(state.activeThreadId).toBe('');
+    expect(state.draft).toContain('reports/final.md');
+    expect(state.attachments).toEqual([{ path: 'reports/final.md', name: 'final.md' }]);
   });
 
   it('applies bridge patches for timeline, token usage, diff and warnings', async () => {

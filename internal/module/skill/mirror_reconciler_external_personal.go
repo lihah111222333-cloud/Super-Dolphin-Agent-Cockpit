@@ -6,6 +6,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/anthropic-ai/super-agent-v3/internal/module/skill/mirrorpath"
 )
 
 func ResolveExternalPersonalProjectSameName(ctx context.Context, svc *service, req SkillMirrorResolutionRequest) (SkillMirrorResolutionReport, error) {
@@ -36,10 +38,9 @@ func useProjectSharedForExternalPersonal(ctx context.Context, svc *service, req 
 	if err := validateExternalPersonalUseProjectPreview(preview, record.Dir, sourceDir); err != nil {
 		return report, err
 	}
-	if _, err := backupSkillDir(sourceDir); err != nil {
-		return report, err
-	}
-	if err := os.RemoveAll(sourceDir); err != nil {
+	if err := mirrorpath.ForExistingSkillDirs([]string{providerPersonalMirrorRoot(SkillProviderClaude), providerPersonalMirrorRoot(SkillProviderCodex)}, record.Name, sourceDir, func(dir string) error {
+		return removeSameNameDuplicateSource(skillResolutionSource{Scope: skillScopePersonal, Path: filepath.ToSlash(dir)})
+	}); err != nil {
 		return report, err
 	}
 	report.ResultingHash = preview.SourceHash

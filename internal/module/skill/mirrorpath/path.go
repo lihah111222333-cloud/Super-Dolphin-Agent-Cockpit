@@ -11,8 +11,7 @@ import (
 )
 
 func ResolveValidRootSymlink(root string) string {
-	resolved := resolveSymlinkPath(root)
-	if filepath.Base(resolved) == "skills" {
+	if resolved := resolveSymlinkPath(root); filepath.Base(resolved) == "skills" {
 		return resolved
 	}
 	return root
@@ -90,6 +89,27 @@ func SafeRelative(root, path string) (string, error) {
 		return "", fmt.Errorf("unsafe mirror path %s escapes root", path)
 	}
 	return rel, nil
+}
+
+func ForExistingSkillDirs(roots []string, name, selected string, fn func(string) error) error {
+	if err := fn(selected); err != nil {
+		return err
+	}
+	for _, root := range roots {
+		dir := filepath.Join(root, name)
+		if filepath.Clean(dir) == filepath.Clean(selected) {
+			continue
+		}
+		if _, err := os.Stat(dir); errors.Is(err, os.ErrNotExist) {
+			continue
+		} else if err != nil {
+			return err
+		}
+		if err := fn(dir); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func UnsafeRelative(rel string) bool {
