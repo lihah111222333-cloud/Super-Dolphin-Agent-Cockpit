@@ -40,6 +40,22 @@ func stdioTerminateProcessTree(cmd *exec.Cmd, _ *stdioProcessGuard) error {
 	return err
 }
 
+func stdioExpectedCloseWaitError(err error) error {
+	if err == nil {
+		return nil
+	}
+	var exitErr *exec.ExitError
+	if errors.As(err, &exitErr) {
+		if status, ok := exitErr.Sys().(syscall.WaitStatus); ok && status.Signaled() {
+			switch status.Signal() {
+			case syscall.SIGPIPE, syscall.SIGKILL, syscall.SIGTERM:
+				return nil
+			}
+		}
+	}
+	return err
+}
+
 func stdioCleanupProcessTree(cmd *exec.Cmd, _ *stdioProcessGuard) error {
 	if cmd == nil || cmd.Process == nil {
 		return nil

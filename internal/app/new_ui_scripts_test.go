@@ -12,7 +12,7 @@ func TestNewUIDesktopScriptContract(t *testing.T) {
 	required := []string{
 		`PROJECT_DIR="$(cd "$(dirname "$0")" && pwd)"`,
 		`FRONTEND_APP_DIR="$PROJECT_DIR/frontend-app"`,
-		`GO_AGENT_HTTP_ASSET_ADDR="${GO_AGENT_HTTP_ASSET_ADDR:-127.0.0.1:4512}"`,
+		`SUPER_DOLPHIN_HTTP_ADDR="${SUPER_DOLPHIN_HTTP_ADDR:-127.0.0.1:4512}"`,
 		`GO_AGENT_CTL_RPC_ADDR="${GO_AGENT_CTL_RPC_ADDR:-127.0.0.1:8092}"`,
 		`VITE_DEV_URL="${VITE_DEV_URL:-http://127.0.0.1:5175}"`,
 		`FRONTEND_DEVSERVER_URL="${FRONTEND_DEVSERVER_URL:-$VITE_DEV_URL}"`,
@@ -38,7 +38,7 @@ func TestNewUIWebScriptContract(t *testing.T) {
 		`PROJECT_DIR="$(cd "$(dirname "$0")" && pwd)"`,
 		`FRONTEND_DIR="$PROJECT_DIR/frontend"`,
 		`WEB_PORT="${WEB_PORT:-5178}"`,
-		`GO_AGENT_HTTP_ASSET_ADDR="${GO_AGENT_HTTP_ASSET_ADDR:-127.0.0.1:4511}"`,
+		`SUPER_DOLPHIN_HTTP_ADDR="${SUPER_DOLPHIN_HTTP_ADDR:-127.0.0.1:4511}"`,
 		`npm run dev -- --host "$WEB_HOST" --port "$WEB_PORT" --strictPort`,
 		`http://$WEB_HOST:$WEB_PORT/`,
 	}

@@ -9,9 +9,9 @@ import (
 
 func TestDevLaunchersProvideControlSessionToken(t *testing.T) {
 	root := filepath.Clean("..")
-	assertRunDebugShellProvidesControlSessionToken(t, readRepoFile(t, root, "run-debug.sh"))
-	assertRunDebugPowerShellProvidesControlSessionToken(t, readRepoFile(t, root, "run-debug.ps1"))
-	assertMakefileProvidesControlSessionToken(t, readRepoFile(t, root, "Makefile"))
+	assertRunDebugShellProvidesControlSessionToken(t, readRepoFileFromRoot(t, root, "run-debug.sh"))
+	assertRunDebugPowerShellProvidesControlSessionToken(t, readRepoFileFromRoot(t, root, "run-debug.ps1"))
+	assertMakefileProvidesControlSessionToken(t, readRepoFileFromRoot(t, root, "Makefile"))
 }
 
 func assertRunDebugShellProvidesControlSessionToken(t *testing.T, runDebug string) {
@@ -36,6 +36,7 @@ func assertRunDebugShellProvidesControlSessionToken(t *testing.T, runDebug strin
 
 func assertRunDebugPowerShellProvidesControlSessionToken(t *testing.T, runDebugPS1 string) {
 	t.Helper()
+	runDebugPS1 = strings.ReplaceAll(runDebugPS1, "\r\n", "\n")
 	for _, want := range []string{
 		"function Ensure-DevControlSessionToken",
 		"GO_AGENT_CTL_SESSION_TOKEN",
@@ -72,7 +73,7 @@ func assertMakefileProvidesControlSessionToken(t *testing.T, makefile string) {
 	}
 }
 
-func readRepoFile(t *testing.T, root, rel string) string {
+func readRepoFileFromRoot(t *testing.T, root, rel string) string {
 	t.Helper()
 	body, err := os.ReadFile(filepath.Join(root, rel))
 	if err != nil {

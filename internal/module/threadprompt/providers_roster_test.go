@@ -6,10 +6,11 @@ import (
 	"testing"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared/builtinprompts"
 	promptstore "github.com/anthropic-ai/super-agent-v3/internal/store/prompt"
 )
 
-func TestAvailableExpertsProviderRendersRosterRepairExperts(t *testing.T) {
+func TestAvailableExpertsProviderRendersStoreDeveloperExperts(t *testing.T) {
 	t.Parallel()
 
 	provider := AvailableExpertsProvider{catalog: NewRuntimeCatalog(&fakePromptStore{
@@ -31,6 +32,32 @@ func TestAvailableExpertsProviderRendersRosterRepairExperts(t *testing.T) {
 		t.Fatal("Resolve() = nil, want roster repair experts")
 	}
 	for _, want := range []string{"main/git-ops", "main/docs", "main/orchestrator"} {
+		if !strings.Contains(*text, "prompt_key='"+want+"'") {
+			t.Fatalf("Resolve() = %q, want %s", *text, want)
+		}
+	}
+}
+
+func TestAvailableExpertsProviderRendersBuiltinDeveloperExperts(t *testing.T) {
+	t.Parallel()
+
+	registry, err := builtinprompts.NewDefaultRegistry()
+	if err != nil {
+		t.Fatalf("NewDefaultRegistry() error = %v", err)
+	}
+	provider := AvailableExpertsProvider{catalog: NewRuntimeCatalog(nil, registry)}
+
+	text, err := provider.Resolve(context.Background(), contract.SectionContext{
+		Turn:     &contract.TurnInput{UserText: "更新文档和 git commit", CWD: "/repo/a"},
+		BuildCtx: contract.BuildCtx{CWD: "/repo/a"},
+	})
+	if err != nil {
+		t.Fatalf("Resolve() error = %v", err)
+	}
+	if text == nil {
+		t.Fatal("Resolve() = nil, want builtin developer experts")
+	}
+	for _, want := range []string{"main/git-ops", "main/docs"} {
 		if !strings.Contains(*text, "prompt_key='"+want+"'") {
 			t.Fatalf("Resolve() = %q, want %s", *text, want)
 		}

@@ -2,7 +2,7 @@ import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import process from 'node:process';
 
-const backendAddr = process.env.GO_AGENT_HTTP_ASSET_ADDR || '127.0.0.1:4512';
+const backendAddr = process.env.SUPER_DOLPHIN_HTTP_ADDR || '127.0.0.1:4512';
 
 export default defineConfig({
   plugins: [react()],

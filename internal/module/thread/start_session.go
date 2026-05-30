@@ -426,7 +426,10 @@ func (s *service) resolveResumeRequest(ctx context.Context, req ResumeRequest) (
 	req.CodexModelProvider = util.FirstNonEmpty(req.CodexModelProvider, state.CodexModelProvider)
 	req.CodexDisabledNativeTools = resolveResumeCodexDisabledNativeTools(req.CodexDisabledNativeTools, state.ConfigOverride.Runtime)
 	req.Config = mergeRuntimeConfig(clone.RuntimeConfigMap(state.ConfigOverride.Runtime), req.Config)
-	req = s.injectDefaultCodexIdentityForResume(req)
+	req, err = s.injectDefaultCodexIdentityForResume(req)
+	if err != nil {
+		return ResumeRequest{}, resumeState{}, err
+	}
 	req.ConfigOverride = resolveResumeConfigOverride(req, state)
 	req.Model = resolveResumeModel(req, state)
 	req.Effort = resolveResumeEffort(req, state)

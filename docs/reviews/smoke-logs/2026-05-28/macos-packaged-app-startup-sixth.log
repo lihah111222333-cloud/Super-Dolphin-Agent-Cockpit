@@ -1,0 +1,867 @@
+command: docs/scripts/macos_release_smoke.sh startup
+started_at: 2026-05-28T13:16:27Z
+startup command: env -i HOME=<temp> PATH=/usr/bin:/bin:/usr/sbin:/sbin TMPDIR=<temp> SUPER_DOLPHIN_CODEX_INSTALL_ROOT=<temp> SUPER_DOLPHIN_CODEX_RELEASE_API_URL=http://127.0.0.1:9/latest LOG_LEVEL=debug /Users/ai/Desktop/Super-Dolphin/.worktrees/package-embedded-pg/dist/package/macos/Super Dolphin.app/Contents/MacOS/agent-terminal
+external_codex_path_hidden: /opt/homebrew/bin and /usr/local/bin omitted from initial PATH
+rlimit: NOFILE already at 1048576 (max 1048576), no change needed
+[Fx] PROVIDE	fx.Lifecycle <= go.uber.org/fx.New.func1()
+[Fx] PROVIDE	fx.Shutdowner <= go.uber.org/fx.(*App).shutdowner-fm()
+[Fx] PROVIDE	fx.DotGraph <= go.uber.org/fx.(*App).dotGraph-fm()
+[Fx] PROVIDE	*slog.Logger <= github.com/anthropic-ai/super-agent-v3/internal/app.NewLogger()
+[Fx] PROVIDE	*pidregistry.Registry <= github.com/anthropic-ai/super-agent-v3/internal/platform/pidregistry.New()
+[Fx] PROVIDE	toolbridge.AgentThreadLookup <= github.com/anthropic-ai/super-agent-v3/internal/app.provideToolbridgeAgentThreadLookup()
+[Fx] PROVIDE	toolbridge.ThreadConfigOverrideStore <= github.com/anthropic-ai/super-agent-v3/internal/app.provideToolbridgeThreadConfigOverrideStore()
+[Fx] PROVIDE	toolbridge.UIPreferenceReader <= github.com/anthropic-ai/super-agent-v3/internal/app.provideToolbridgeUIPreferenceReader()
+[Fx] PROVIDE	difftracker.WorkDirResolver <= github.com/anthropic-ai/super-agent-v3/internal/app.provideToolbridgeWorkDirResolver()
+[Fx] PROVIDE	runner.Runner[group = "runners"] <= github.com/anthropic-ai/super-agent-v3/internal/app.AsRPCRunner()
+[Fx] PROVIDE	thread.OrchestrationFacade <= github.com/anthropic-ai/super-agent-v3/internal/app.newThreadOrchestrationFacade()
+[Fx] PROVIDE	contract.RuntimeReporter <= github.com/anthropic-ai/super-agent-v3/internal/app.newRuntimeReporter()
+[Fx] PROVIDE	[]contract.NativeToolDescriptor <= github.com/anthropic-ai/super-agent-v3/internal/app.provideNativeToolDescriptors()
+[Fx] PROVIDE	prompt.DisabledBuiltinToolsFn <= github.com/anthropic-ai/super-agent-v3/internal/app.provideDisabledBuiltinToolsFn()
+[Fx] SUPPLY	*app.appOwnerContext
+[Fx] SUPPLY	wails.FrontendFS
+[Fx] PROVIDE	*contract.Config <= github.com/anthropic-ai/super-agent-v3/internal/platform/config.New() from module "config"
+[Fx] PROVIDE	*pgxpool.Pool <= github.com/anthropic-ai/super-agent-v3/internal/platform/db.NewPool() from module "db"
+[Fx] PROVIDE	*event.Dispatcher <= github.com/anthropic-ai/super-agent-v3/internal/platform/bus.NewDispatcher() from module "bus"
+[Fx] PROVIDE	*bus.ThreadEmitters <= github.com/anthropic-ai/super-agent-v3/internal/platform/bus.NewThreadEmitters() from module "bus"
+[Fx] PROVIDE	*bus.LogSink <= github.com/anthropic-ai/super-agent-v3/internal/platform/bus.NewLogSink() from module "bus"
+[Fx] PROVIDE	*bus.SubscriberGroup <= github.com/anthropic-ai/super-agent-v3/internal/platform/bus.NewSubscriberGroup() from module "bus"
+[Fx] PROVIDE	*rpc.Server <= github.com/anthropic-ai/super-agent-v3/internal/platform/rpc.NewServer() from module "rpc"
+[Fx] PROVIDE	*rpc.PushBridge <= github.com/anthropic-ai/super-agent-v3/internal/platform/rpc.NewPushBridge() from module "rpc"
+[Fx] PROVIDE	*rpc.ApprovalManager <= github.com/anthropic-ai/super-agent-v3/internal/platform/rpc.NewApprovalManager() from module "rpc"
+[Fx] PROVIDE	contract.CapabilityResolver <= github.com/anthropic-ai/super-agent-v3/internal/platform/rpc.NewCapabilityResolver() from module "rpc"
+[Fx] PROVIDE	rpc.HTTPRoute[group = "rpc_http_routes"] <= github.com/anthropic-ai/super-agent-v3/internal/platform/rpc.provideWSRoute() from module "rpc"
+[Fx] PROVIDE	contract.SubscriberSpec[group = "bus.subscribers"] <= github.com/anthropic-ai/super-agent-v3/internal/platform/rpc.NewRPCPushSubscribers() from module "rpc"
+[Fx] PROVIDE	*rpc.pushNotificationWorker <= github.com/anthropic-ai/super-agent-v3/internal/platform/rpc.newPushNotificationWorkerProvider() from module "rpc"
+[Fx] PROVIDE	contract.RPCDispatcher <= github.com/anthropic-ai/super-agent-v3/internal/platform/rpc.init.func1() from module "rpc"
+[Fx] PROVIDE	contract.ApprovalResponder <= github.com/anthropic-ai/super-agent-v3/internal/platform/rpc.init.func2() from module "rpc"
+[Fx] PROVIDE	contract.ApprovalRequester <= github.com/anthropic-ai/super-agent-v3/internal/platform/rpc.init.func3() from module "rpc"
+[Fx] PROVIDE	runner.Runner[group = "runners"] <= fx.Annotate(github.com/anthropic-ai/super-agent-v3/internal/platform/rpc.NewApprovalCleanupRunner(), fx.ResultTags(["group:\"runners\""]) from module "rpc"
+[Fx] PROVIDE	runner.Runner[group = "runners"] <= fx.Annotate(github.com/anthropic-ai/super-agent-v3/internal/platform/rpc.pushWorkerAsRunner(), fx.ResultTags(["group:\"runners\""]) from module "rpc"
+[Fx] PROVIDE	*hooks.HookRegistry <= github.com/anthropic-ai/super-agent-v3/internal/platform/hooks.NewHookRegistry() from module "platform.hooks"
+[Fx] PROVIDE	*hooks.HookDispatcher <= github.com/anthropic-ai/super-agent-v3/internal/platform/hooks.NewHookDispatcher() from module "platform.hooks"
+[Fx] PROVIDE	*hooks.HookResolver <= github.com/anthropic-ai/super-agent-v3/internal/platform/hooks.NewHookResolver() from module "platform.hooks"
+[Fx] PROVIDE	*hooks.Manager <= github.com/anthropic-ai/super-agent-v3/internal/platform/hooks.provideManager() from module "platform.hooks"
+[Fx] PROVIDE	contract.HookManager <= github.com/anthropic-ai/super-agent-v3/internal/platform/hooks.init.func1() from module "platform.hooks"
+[Fx] PROVIDE	contract.HookLifecycle <= github.com/anthropic-ai/super-agent-v3/internal/platform/hooks.init.func2() from module "platform.hooks"
+[Fx] PROVIDE	contract.SubscriberSpec[group = "bus.subscribers"] <= github.com/anthropic-ai/super-agent-v3/internal/platform/hooks.NewHooksRelaySubscribers() from module "platform.hooks"
+[Fx] PROVIDE	*hooks.hookDispatchWorker <= github.com/anthropic-ai/super-agent-v3/internal/platform/hooks.newHookDispatchWorkerProvider() from module "platform.hooks"
+[Fx] PROVIDE	runner.Runner[group = "runners"] <= fx.Annotate(github.com/anthropic-ai/super-agent-v3/internal/platform/hooks.hookWorkerAsRunner(), fx.ResultTags(["group:\"runners\""]) from module "platform.hooks"
+[Fx] PROVIDE	*cachekeepalive.Manager <= github.com/anthropic-ai/super-agent-v3/internal/platform/cachekeepalive.NewManager() from module "platform.cachekeepalive"
+[Fx] PROVIDE	contract.SubscriberSpec[group = "bus.subscribers"] <= github.com/anthropic-ai/super-agent-v3/internal/platform/cachekeepalive.NewCacheKeepaliveSubscribers() from module "platform.cachekeepalive"
+[Fx] PROVIDE	*mcpcontrol.ToolRegistry <= github.com/anthropic-ai/super-agent-v3/internal/platform/mcpcontrol.provideRegistry() from module "mcpcontrol"
+[Fx] PROVIDE	mcpcontrol.configVersionSource <= github.com/anthropic-ai/super-agent-v3/internal/platform/mcpcontrol.provideConfigVersionSource() from module "mcpcontrol"
+[Fx] PROVIDE	contract.ToolRegistry <= github.com/anthropic-ai/super-agent-v3/internal/platform/mcpcontrol.provideToolRegistry() from module "mcpcontrol"
+[Fx] PROVIDE	contract.ToolNotifier <= github.com/anthropic-ai/super-agent-v3/internal/platform/mcpcontrol.provideToolNotifier() from module "mcpcontrol"
+[Fx] PROVIDE	contract.ToolHookCallback <= github.com/anthropic-ai/super-agent-v3/internal/platform/mcpcontrol.provideToolHookCallback() from module "mcpcontrol"
+[Fx] PROVIDE	contract.PeerCallback <= github.com/anthropic-ai/super-agent-v3/internal/platform/mcpcontrol.providePeerCallback() from module "mcpcontrol"
+[Fx] PROVIDE	contract.ToolControlPlane <= github.com/anthropic-ai/super-agent-v3/internal/platform/mcpcontrol.provideToolControlPlane() from module "mcpcontrol"
+[Fx] PROVIDE	*mcpcontrol.Sweeper <= github.com/anthropic-ai/super-agent-v3/internal/platform/mcpcontrol.NewSweeper() from module "mcpcontrol"
+[Fx] PROVIDE	handler.Map[group = "rpc_handlers"] <= github.com/anthropic-ai/super-agent-v3/internal/platform/mcpcontrol.provideHandlers() from module "mcpcontrol"
+[Fx] PROVIDE	*mcpcontrol.configFanoutWorker <= github.com/anthropic-ai/super-agent-v3/internal/platform/mcpcontrol.newConfigFanoutWorkerProvider() from module "mcpcontrol"
+[Fx] PROVIDE	contract.SubscriberSpec[group = "bus.subscribers"] <= github.com/anthropic-ai/super-agent-v3/internal/platform/mcpcontrol.NewMCPConfigChangeSubscribers() from module "mcpcontrol"
+[Fx] PROVIDE	runner.Runner[group = "runners"] <= fx.Annotate(github.com/anthropic-ai/super-agent-v3/internal/platform/mcpcontrol.NewSweeperRunner(), fx.ResultTags(["group:\"runners\""]) from module "mcpcontrol"
+[Fx] PROVIDE	runner.Runner[group = "runners"] <= fx.Annotate(github.com/anthropic-ai/super-agent-v3/internal/platform/mcpcontrol.configFanoutWorkerAsRunner(), fx.ResultTags(["group:\"runners\""]) from module "mcpcontrol"
+[Fx] PROVIDE	runner.Contract <= github.com/anthropic-ai/super-agent-v3/internal/platform/runner.NewContract() from module "runner"
+[Fx] PROVIDE	*sqlc.Queries <= github.com/anthropic-ai/super-agent-v3/internal/store.init.func1() from module "store"
+[Fx] PROVIDE	sqlc.Querier <= github.com/anthropic-ai/super-agent-v3/internal/store.init.func2() from module "store"
+[Fx] PROVIDE	agentstatus.Store <= github.com/anthropic-ai/super-agent-v3/internal/store/agentstatus.NewStore() from module "store.agentstatus"
+[Fx] PROVIDE	ailog.Store <= github.com/anthropic-ai/super-agent-v3/internal/store/ailog.NewStore() from module "store.ailog"
+[Fx] PROVIDE	auditlog.Store <= github.com/anthropic-ai/super-agent-v3/internal/store/auditlog.NewStore() from module "store.auditlog"
+[Fx] PROVIDE	binding.Store <= github.com/anthropic-ai/super-agent-v3/internal/store/binding.NewStore() from module "store.binding"
+[Fx] PROVIDE	contract.SessionBindingLookup <= github.com/anthropic-ai/super-agent-v3/internal/store/binding.NewSessionBindingLookup() from module "store.binding"
+[Fx] PROVIDE	buslog.Store <= github.com/anthropic-ai/super-agent-v3/internal/store/buslog.NewStore() from module "store.buslog"
+[Fx] PROVIDE	commandcard.Reader <= github.com/anthropic-ai/super-agent-v3/internal/store/commandcard.NewStore() from module "store.commandcard"
+[Fx] PROVIDE	cron.Store <= github.com/anthropic-ai/super-agent-v3/internal/store/cron.NewStore() from module "store.cron"
+[Fx] PROVIDE	cwdlock.Store <= github.com/anthropic-ai/super-agent-v3/internal/store/cwdlock.NewStore() from module "store.cwdlock"
+[Fx] PROVIDE	dbquery.Store <= github.com/anthropic-ai/super-agent-v3/internal/store/dbquery.newDefaultStore() from module "store.dbquery"
+[Fx] PROVIDE	feedback.Store <= github.com/anthropic-ai/super-agent-v3/internal/store/feedback.NewStore() from module "store.feedback"
+[Fx] PROVIDE	contract.HookReviewStore <= github.com/anthropic-ai/super-agent-v3/internal/store/hookstore.init.func1() from module "store.hookstore"
+[Fx] PROVIDE	insight.Store <= github.com/anthropic-ai/super-agent-v3/internal/store/insight.NewStore() from module "store.insight"
+[Fx] PROVIDE	interaction.Store <= github.com/anthropic-ai/super-agent-v3/internal/store/interaction.NewStore() from module "store.interaction"
+[Fx] PROVIDE	prompt.Store <= github.com/anthropic-ai/super-agent-v3/internal/store/prompt.newStoreWithPool() from module "store.prompt"
+[Fx] PROVIDE	prompt.Reader <= github.com/anthropic-ai/super-agent-v3/internal/store/prompt.AsReader() from module "store.prompt"
+[Fx] PROVIDE	routingtest.Reader <= fx.Annotate(github.com/anthropic-ai/super-agent-v3/internal/store/routingtest.newReader(), fx.ParamTags(["optional:\"true\""]) from module "store.routingtest"
+[Fx] PROVIDE	sharedfile.Store <= github.com/anthropic-ai/super-agent-v3/internal/store/sharedfile.provideStore() from module "store.sharedfile"
+[Fx] PROVIDE	sharedfile.Reader <= github.com/anthropic-ai/super-agent-v3/internal/store/sharedfile.init.func1() from module "store.sharedfile"
+[Fx] PROVIDE	sharedfile.Deleter <= github.com/anthropic-ai/super-agent-v3/internal/store/sharedfile.init.func2() from module "store.sharedfile"
+[Fx] PROVIDE	sharedfile.Upserter <= github.com/anthropic-ai/super-agent-v3/internal/store/sharedfile.init.func3() from module "store.sharedfile"
+[Fx] PROVIDE	systemlog.Store <= github.com/anthropic-ai/super-agent-v3/internal/store/systemlog.NewStore() from module "store.systemlog"
+[Fx] PROVIDE	tasktrace.Store <= github.com/anthropic-ai/super-agent-v3/internal/store/tasktrace.NewStore() from module "store.tasktrace"
+[Fx] PROVIDE	thread.Store <= github.com/anthropic-ai/super-agent-v3/internal/store/thread.NewStore() from module "store.thread"
+[Fx] PROVIDE	contract.ThreadMetadataStore <= github.com/anthropic-ai/super-agent-v3/internal/store/thread.NewMetadataStore() from module "store.thread"
+[Fx] PROVIDE	contract.SessionThreadLookup <= github.com/anthropic-ai/super-agent-v3/internal/store/thread.NewSessionThreadLookup() from module "store.thread"
+[Fx] PROVIDE	topologyapproval.Store <= github.com/anthropic-ai/super-agent-v3/internal/store/topologyapproval.NewStore() from module "store.topologyapproval"
+[Fx] PROVIDE	turndedupe.Store <= github.com/anthropic-ai/super-agent-v3/internal/store/turndedupe.NewStore() from module "store.turndedupe"
+[Fx] PROVIDE	uipreference.Store <= github.com/anthropic-ai/super-agent-v3/internal/store/uipreference.NewStore() from module "store.uipreference"
+[Fx] PROVIDE	dashboard.Service <= github.com/anthropic-ai/super-agent-v3/internal/module/dashboard.init.func1() from module "dashboard"
+[Fx] PROVIDE	handler.Map[group = "rpc_handlers"] <= github.com/anthropic-ai/super-agent-v3/internal/module/dashboard.NewDashboardHandlersWithInsights() from module "dashboard"
+[Fx] PROVIDE	feedback.Service <= github.com/anthropic-ai/super-agent-v3/internal/module/feedback.NewService() from module "feedback"
+[Fx] PROVIDE	handler.Map[group = "rpc_handlers"] <= github.com/anthropic-ai/super-agent-v3/internal/module/feedback.NewHandlers() from module "feedback"
+[Fx] PROVIDE	*memory.Config <= github.com/anthropic-ai/super-agent-v3/internal/module/memory.NewConfig() from module "memory"
+[Fx] PROVIDE	nested.Dependencies <= github.com/anthropic-ai/super-agent-v3/internal/module/memory.provideNestedDependencies() from module "memory"
+[Fx] PROVIDE	team.Config <= github.com/anthropic-ai/super-agent-v3/internal/module/memory.provideTeamConfig() from module "memory"
+[Fx] PROVIDE	contract.TeamMemoryManager <= github.com/anthropic-ai/super-agent-v3/internal/module/memory.provideTeamMemoryManagerContract() from module "memory"
+[Fx] PROVIDE	team.Lifecycle <= github.com/anthropic-ai/super-agent-v3/internal/module/memory.asTeamSyncLifecycle() from module "memory"
+[Fx] PROVIDE	memory.Service <= github.com/anthropic-ai/super-agent-v3/internal/module/memory.provideMemoryService() from module "memory"
+[Fx] PROVIDE	handler.Map[group = "rpc_handlers"] <= github.com/anthropic-ai/super-agent-v3/internal/module/memory.NewMemoryHandlers() from module "memory"
+[Fx] PROVIDE	*memory.MemoryRuleEngine <= github.com/anthropic-ai/super-agent-v3/internal/module/memory.NewMemoryRuleEngine() from module "memory"
+[Fx] PROVIDE	*memory.MemoryRulesProvider <= github.com/anthropic-ai/super-agent-v3/internal/module/memory.NewRulesProvider() from module "memory"
+[Fx] PROVIDE	*memory.MemoryEntrypointProvider <= github.com/anthropic-ai/super-agent-v3/internal/module/memory.NewEntrypointProvider() from module "memory"
+[Fx] PROVIDE	*memory.MemoryContextProvider <= github.com/anthropic-ai/super-agent-v3/internal/module/memory.NewContextProvider() from module "memory"
+[Fx] PROVIDE	contract.TurnContextProvider <= github.com/anthropic-ai/super-agent-v3/internal/module/memory.AsTurnContextProvider() from module "memory"
+[Fx] PROVIDE	memory.ExtractFunc <= github.com/anthropic-ai/super-agent-v3/internal/module/memory.provideDreamExtractFunc() from module "memory"
+[Fx] PROVIDE	*memory.AutoDreamConsolidator <= github.com/anthropic-ai/super-agent-v3/internal/module/memory.provideAutoDreamConsolidator() from module "memory"
+[Fx] PROVIDE	*memory.MemoryLifecycleHooks <= github.com/anthropic-ai/super-agent-v3/internal/module/memory.NewMemoryLifecycleHooks() from module "memory"
+[Fx] PROVIDE	contract.AgentMemoryReader <= github.com/anthropic-ai/super-agent-v3/internal/module/memory.provideAgentMemoryReader() from module "memory"
+[Fx] PROVIDE	contract.AgentMemoryWriter <= github.com/anthropic-ai/super-agent-v3/internal/module/memory.provideAgentMemoryWriter() from module "memory"
+[Fx] PROVIDE	*memory.MemoryExtractor <= github.com/anthropic-ai/super-agent-v3/internal/module/memory.NewMemoryExtractor() from module "memory"
+[Fx] PROVIDE	*memory.autoDreamScheduler <= github.com/anthropic-ai/super-agent-v3/internal/module/memory.newAutoDreamSchedulerProvider() from module "memory"
+[Fx] PROVIDE	*memory.nestedIngestWorker <= github.com/anthropic-ai/super-agent-v3/internal/module/memory.newNestedIngestWorkerProvider() from module "memory"
+[Fx] PROVIDE	*memory.teamSyncCoordinator <= github.com/anthropic-ai/super-agent-v3/internal/module/memory.newTeamSyncCoordinatorProvider() from module "memory"
+[Fx] PROVIDE	contract.SubscriberSpec[group = "bus.subscribers"] <= github.com/anthropic-ai/super-agent-v3/internal/module/memory.NewMemorySubscribers() from module "memory"
+[Fx] PROVIDE	contract.Runner[group = "runners"] <= fx.Annotate(github.com/anthropic-ai/super-agent-v3/internal/module/memory.autoDreamSchedulerAsRunner(), fx.ResultTags(["group:\"runners\""]) from module "memory"
+[Fx] PROVIDE	contract.Runner[group = "runners"] <= fx.Annotate(github.com/anthropic-ai/super-agent-v3/internal/module/memory.nestedIngestWorkerAsRunner(), fx.ResultTags(["group:\"runners\""]) from module "memory"
+[Fx] PROVIDE	contract.Runner[group = "runners"] <= fx.Annotate(github.com/anthropic-ai/super-agent-v3/internal/module/memory.teamSyncCoordinatorAsRunner(), fx.ResultTags(["group:\"runners\""]) from module "memory"
+[Fx] PROVIDE	*nested.NestedRuntime <= github.com/anthropic-ai/super-agent-v3/internal/module/memory/nested.NewNestedRuntime() from module "memory.nested"
+[Fx] PROVIDE	contract.ClaudeMdSourceProvider <= fx.Annotate(github.com/anthropic-ai/super-agent-v3/internal/module/memory/nested.NewClaudeMdSourcesProvider(), fx.As([[contract.ClaudeMdSourceProvider]]) from module "memory.nested"
+[Fx] PROVIDE	*retrieval.ManifestBuilder <= github.com/anthropic-ai/super-agent-v3/internal/module/memory/retrieval.NewManifestBuilder() from module "memory.retrieval"
+[Fx] PROVIDE	*team.TeamMemoryManager <= github.com/anthropic-ai/super-agent-v3/internal/module/memory/team.NewTeamMemoryManager() from module "memory.team"
+[Fx] PROVIDE	*team.TeamMemoryGuard <= github.com/anthropic-ai/super-agent-v3/internal/module/memory/team.NewTeamMemoryGuard() from module "memory.team"
+[Fx] PROVIDE	*team.TeamSyncService <= github.com/anthropic-ai/super-agent-v3/internal/module/memory/team.NewTeamSyncService() from module "memory.team"
+[Fx] PROVIDE	*prompt.Config <= github.com/anthropic-ai/super-agent-v3/internal/module/prompt.NewConfig() from module "prompt"
+[Fx] PROVIDE	prompt.Service <= github.com/anthropic-ai/super-agent-v3/internal/module/prompt.NewServiceFx() from module "prompt"
+[Fx] PROVIDE	contract.BuiltinPromptRegistry <= github.com/anthropic-ai/super-agent-v3/internal/platform/shared/builtinprompts.NewDefaultRegistry() from module "prompt"
+[Fx] PROVIDE	prompt.PromptRegistry <= github.com/anthropic-ai/super-agent-v3/internal/module/prompt.AsPromptRegistry() from module "prompt"
+[Fx] PROVIDE	contract.PromptAssemblyService <= github.com/anthropic-ai/super-agent-v3/internal/module/prompt.AsPromptAssemblyService() from module "prompt"
+[Fx] PROVIDE	contract.DynamicSectionRegistrar <= github.com/anthropic-ai/super-agent-v3/internal/module/prompt.AsDynamicSectionRegistrar() from module "prompt"
+[Fx] PROVIDE	contract.SectionInvalidator <= github.com/anthropic-ai/super-agent-v3/internal/module/prompt.AsSectionInvalidator() from module "prompt"
+[Fx] PROVIDE	handler.Map[group = "rpc_handlers"] <= github.com/anthropic-ai/super-agent-v3/internal/module/prompt.registerPromptHandlers() from module "prompt"
+[Fx] PROVIDE	contract.MatchWhenEvaluator <= github.com/anthropic-ai/super-agent-v3/internal/module/prompt.newMatchWhenEvaluator() from module "prompt"
+[Fx] PROVIDE	contract.EnableWhenEvaluator <= github.com/anthropic-ai/super-agent-v3/internal/module/prompt.newEnableWhenEvaluator() from module "prompt"
+[Fx] PROVIDE	skill.Service <= fx.Annotate(github.com/anthropic-ai/super-agent-v3/internal/module/skill.newService(), fx.As([[skill.Service] [contract.SkillMirrorReconciler]]) from module "skill"
+[Fx] PROVIDE	contract.SkillMirrorReconciler <= fx.Annotate(github.com/anthropic-ai/super-agent-v3/internal/module/skill.newService(), fx.As([[skill.Service] [contract.SkillMirrorReconciler]]) from module "skill"
+[Fx] PROVIDE	contract.SkillLister <= github.com/anthropic-ai/super-agent-v3/internal/module/skill.ProvideSkillLister() from module "skill"
+[Fx] PROVIDE	contract.SkillInventoryLister <= github.com/anthropic-ai/super-agent-v3/internal/module/skill.ProvideSkillInventoryLister() from module "skill"
+[Fx] PROVIDE	skill.SkillCatalogSource <= github.com/anthropic-ai/super-agent-v3/internal/module/skill.ProvideSkillCatalogSource() from module "skill"
+[Fx] PROVIDE	contract.SkillHydrationSource <= github.com/anthropic-ai/super-agent-v3/internal/module/skill.ProvideSkillHydrationSource() from module "skill"
+[Fx] PROVIDE	handler.Map[group = "rpc_handlers"] <= github.com/anthropic-ai/super-agent-v3/internal/module/skill.NewSkillHandlers() from module "skill"
+[Fx] PROVIDE	thread.Service <= fx.Annotate(github.com/anthropic-ai/super-agent-v3/internal/module/thread.NewServiceWithPromptAssemblyAndSharedFiles(), fx.ParamTags(["" "optional:\"true\"" "optional:\"true\"" "optional:\"true\"" "optional:\"true\"" "optional:\"true\"" "optional:\"true\"" "optional:\"true\"" "optional:\"true\"" "optional:\"true\"" "optional:\"true\"" "optional:\"true\"" "optional:\"true\"" "optional:\"true\"" "optional:\"true\"" "optional:\"true\""]), fx.As([[thread.Service] [contract.PendingLaunchSpawner]]) from module "thread"
+[Fx] PROVIDE	contract.PendingLaunchSpawner <= fx.Annotate(github.com/anthropic-ai/super-agent-v3/internal/module/thread.NewServiceWithPromptAssemblyAndSharedFiles(), fx.ParamTags(["" "optional:\"true\"" "optional:\"true\"" "optional:\"true\"" "optional:\"true\"" "optional:\"true\"" "optional:\"true\"" "optional:\"true\"" "optional:\"true\"" "optional:\"true\"" "optional:\"true\"" "optional:\"true\"" "optional:\"true\"" "optional:\"true\"" "optional:\"true\"" "optional:\"true\""]), fx.As([[thread.Service] [contract.PendingLaunchSpawner]]) from module "thread"
+[Fx] PROVIDE	handler.Map[group = "rpc_handlers"] <= fx.Annotate(github.com/anthropic-ai/super-agent-v3/internal/module/thread.NewThreadHandlers(), fx.ParamTags(["" "optional:\"true\""]) from module "thread"
+[Fx] PROVIDE	*thread.service <= github.com/anthropic-ai/super-agent-v3/internal/module/thread.provideThreadConcreteService() from module "thread"
+[Fx] PROVIDE	prompt.RuntimePromptCatalog <= github.com/anthropic-ai/super-agent-v3/internal/module/thread.provideRuntimePromptCatalog() from module "thread"
+[Fx] PROVIDE	contract.SubscriberSpec[group = "bus.subscribers"] <= github.com/anthropic-ai/super-agent-v3/internal/module/thread.NewThreadSubscribers() from module "thread"
+[Fx] PROVIDE	contract.CronThreadStarter <= github.com/anthropic-ai/super-agent-v3/internal/module/thread.provideCronThreadStarter() from module "thread"
+[Fx] PROVIDE	contract.Runner[group = "runners"] <= fx.Annotate(github.com/anthropic-ai/super-agent-v3/internal/module/thread.threadBusWorkersAsRunner(), fx.ResultTags(["group:\"runners\""]) from module "thread"
+[Fx] PROVIDE	contract.SessionRecoveryReporter <= github.com/anthropic-ai/super-agent-v3/internal/module/thread.NewBindingRecoveryReporter() from module "thread"
+[Fx] PROVIDE	contract.ThreadLister <= github.com/anthropic-ai/super-agent-v3/internal/module/thread.NewThreadLister() from module "thread"
+[Fx] PROVIDE	contract.ThreadConfigReader <= github.com/anthropic-ai/super-agent-v3/internal/module/thread.NewThreadConfigReader() from module "thread"
+[Fx] PROVIDE	contract.ThreadRuntimeConfigReader <= github.com/anthropic-ai/super-agent-v3/internal/module/thread.NewThreadRuntimeConfigReader() from module "thread"
+[Fx] PROVIDE	turn.Service <= fx.Annotate(github.com/anthropic-ai/super-agent-v3/internal/module/turn.NewServiceWithPromptAssemblyAndTurnContext(), fx.ParamTags(["" "optional:\"true\"" "optional:\"true\"" "optional:\"true\"" "optional:\"true\"" "optional:\"true\"" "optional:\"true\""]), fx.As([[turn.Service] [contract.TurnThreadCleaner]]) from module "turn"
+[Fx] PROVIDE	contract.TurnThreadCleaner <= fx.Annotate(github.com/anthropic-ai/super-agent-v3/internal/module/turn.NewServiceWithPromptAssemblyAndTurnContext(), fx.ParamTags(["" "optional:\"true\"" "optional:\"true\"" "optional:\"true\"" "optional:\"true\"" "optional:\"true\"" "optional:\"true\""]), fx.As([[turn.Service] [contract.TurnThreadCleaner]]) from module "turn"
+[Fx] PROVIDE	contract.CronTurnExecutor <= github.com/anthropic-ai/super-agent-v3/internal/module/turn.provideCronTurnExecutor() from module "turn"
+[Fx] PROVIDE	contract.OrchestrationTurnStarter <= fx.Annotate(github.com/anthropic-ai/super-agent-v3/internal/module/turn.NewOrchestrationTurnStarter(), fx.ParamTags(["" "" "optional:\"true\""]) from module "turn"
+[Fx] PROVIDE	handler.Map[group = "rpc_handlers"] <= fx.Annotate(github.com/anthropic-ai/super-agent-v3/internal/module/turn.NewTurnHandlers(), fx.ParamTags(["" "optional:\"true\"" "" "optional:\"true\"" "optional:\"true\"" "optional:\"true\""]) from module "turn"
+[Fx] PROVIDE	*turn.Collector <= fx.Annotate(github.com/anthropic-ai/super-agent-v3/internal/module/turn.NewTrajectoryCollector(), fx.ParamTags(["optional:\"true\"" "optional:\"true\""]) from module "turn"
+[Fx] PROVIDE	contract.SubscriberSpec[group = "bus.subscribers"] <= fx.Annotate(github.com/anthropic-ai/super-agent-v3/internal/module/turn.NewTrajectorySubscribers(), fx.ParamTags(["" "optional:\"true\"" "optional:\"true\""]) from module "turn"
+[Fx] PROVIDE	*turn.DefaultEvaluator <= github.com/anthropic-ai/super-agent-v3/internal/module/turn.NewDefaultEvaluator() from module "turn"
+[Fx] PROVIDE	turn.Evaluator <= github.com/anthropic-ai/super-agent-v3/internal/module/turn.init.func1() from module "turn"
+[Fx] PROVIDE	turn.Redactor <= github.com/anthropic-ai/super-agent-v3/internal/module/turn.init.func2() from module "turn"
+[Fx] PROVIDE	*observation.Memory <= github.com/anthropic-ai/super-agent-v3/internal/module/turn/observation.NewMemory() from module "module.turn.observation"
+[Fx] PROVIDE	observation.Contract <= github.com/anthropic-ai/super-agent-v3/internal/module/turn/observation.init.func1() from module "module.turn.observation"
+[Fx] PROVIDE	contract.SubscriberSpec[group = "bus.subscribers"] <= github.com/anthropic-ai/super-agent-v3/internal/module/turn/observation.NewObservationSubscribers() from module "module.turn.observation"
+[Fx] PROVIDE	cron.Store <= github.com/anthropic-ai/super-agent-v3/internal/module/cron.provideStore() from module "cron"
+[Fx] PROVIDE	cron.Service <= github.com/anthropic-ai/super-agent-v3/internal/module/cron.NewService() from module "cron"
+[Fx] PROVIDE	handler.Map[group = "rpc_handlers"] <= github.com/anthropic-ai/super-agent-v3/internal/module/cron.NewHandlers() from module "cron"
+[Fx] PROVIDE	cron.SchedulerConfig <= github.com/anthropic-ai/super-agent-v3/internal/module/cron.provideSchedulerConfig() from module "cron"
+[Fx] PROVIDE	cron.TurnSubmitter <= github.com/anthropic-ai/super-agent-v3/internal/module/cron.provideTurnSubmitter() from module "cron"
+[Fx] PROVIDE	*cron.Scheduler <= github.com/anthropic-ai/super-agent-v3/internal/module/cron.provideScheduler() from module "cron"
+[Fx] PROVIDE	contract.Runner[group = "runners"] <= fx.Annotate(github.com/anthropic-ai/super-agent-v3/internal/module/cron.provideTickActor(), fx.ResultTags(["group:\"runners\""]) from module "cron"
+[Fx] PROVIDE	contract.Runner[group = "runners"] <= fx.Annotate(github.com/anthropic-ai/super-agent-v3/internal/module/cron.provideLeaseActor(), fx.ResultTags(["group:\"runners\""]) from module "cron"
+[Fx] PROVIDE	contract.SubscriberSpec[group = "bus.subscribers"] <= github.com/anthropic-ai/super-agent-v3/internal/module/cron.NewCronProgressSubscribers() from module "cron"
+[Fx] PROVIDE	notify.Resolver <= github.com/anthropic-ai/super-agent-v3/internal/module/notify.provideResolver() from module "notify"
+[Fx] PROVIDE	*notify.WebhookClient <= github.com/anthropic-ai/super-agent-v3/internal/module/notify.provideWebhookClient() from module "notify"
+[Fx] PROVIDE	*notify.Notifier <= github.com/anthropic-ai/super-agent-v3/internal/module/notify.provideNotifier() from module "notify"
+[Fx] PROVIDE	contract.MessageNotifier <= github.com/anthropic-ai/super-agent-v3/internal/module/notify.provideMessageNotifierContract() from module "notify"
+[Fx] PROVIDE	*notify.Flusher <= github.com/anthropic-ai/super-agent-v3/internal/module/notify.provideFlusher() from module "notify"
+[Fx] PROVIDE	contract.Runner[group = "runners"] <= fx.Annotate(github.com/anthropic-ai/super-agent-v3/internal/module/notify.flusherAsRunner(), fx.ResultTags(["group:\"runners\""]) from module "notify"
+[Fx] PROVIDE	*insight.collector <= github.com/anthropic-ai/super-agent-v3/internal/module/insight.provideCollector() from module "insight"
+[Fx] PROVIDE	*insight.Flusher <= github.com/anthropic-ai/super-agent-v3/internal/module/insight.NewFlusher() from module "insight"
+[Fx] PROVIDE	contract.InsightService <= github.com/anthropic-ai/super-agent-v3/internal/module/insight.NewService() from module "insight"
+[Fx] PROVIDE	contract.SubscriberSpec[group = "bus.subscribers"] <= github.com/anthropic-ai/super-agent-v3/internal/module/insight.NewInsightSubscribers() from module "insight"
+[Fx] PROVIDE	contract.Runner[group = "runners"] <= fx.Annotate(github.com/anthropic-ai/super-agent-v3/internal/module/insight.flusherAsRunner(), fx.ResultTags(["group:\"runners\""]) from module "insight"
+[Fx] PROVIDE	*uistate.service <= github.com/anthropic-ai/super-agent-v3/internal/module/uistate.init.func1() from module "uistate"
+[Fx] PROVIDE	uistate.Service <= github.com/anthropic-ai/super-agent-v3/internal/module/uistate.init.func1() from module "uistate"
+[Fx] PROVIDE	contract.UIProjectStateFacade <= github.com/anthropic-ai/super-agent-v3/internal/module/uistate.NewProjectStateFacade() from module "uistate"
+[Fx] PROVIDE	handler.Map[group = "rpc_handlers"] <= github.com/anthropic-ai/super-agent-v3/internal/module/uistate.NewUIStateHandlers() from module "uistate"
+[Fx] PROVIDE	handler.Map[group = "rpc_handlers"] <= fx.Annotate(github.com/anthropic-ai/super-agent-v3/internal/module/uistate.NewConfigHandlers(), fx.ParamTags(["" "" "" "" "optional:\"true\"" ""]) from module "uistate"
+[Fx] PROVIDE	contract.SubscriberSpec[group = "bus.subscribers"] <= github.com/anthropic-ai/super-agent-v3/internal/module/uistate.NewUIStateSubscribers() from module "uistate"
+[Fx] PROVIDE	*unified.EventDispatcher <= github.com/anthropic-ai/super-agent-v3/internal/provider/unified.NewEventDispatcher() from module "provider.unified"
+[Fx] PROVIDE	*unified.Registry <= github.com/anthropic-ai/super-agent-v3/internal/provider/unified.NewRegistry() from module "provider.unified"
+[Fx] PROVIDE	contract.SessionStarter <= fx.Annotate(github.com/anthropic-ai/super-agent-v3/internal/provider/unified.NewClient(), fx.As([[contract.SessionStarter]]) from module "provider.unified"
+[Fx] PROVIDE	*unified.SessionManager <= github.com/anthropic-ai/super-agent-v3/internal/provider/unified.NewSessionManager() from module "provider.unified"
+[Fx] PROVIDE	contract.SessionProvider <= fx.Annotate(github.com/anthropic-ai/super-agent-v3/internal/provider/unified.NewSessionProvider(), fx.As([[contract.SessionProvider]]) from module "provider.unified"
+[Fx] PROVIDE	*unified.sessionProviderAdapter <= github.com/anthropic-ai/super-agent-v3/internal/provider/unified.NewTurnSessionProvider() from module "provider.unified"
+[Fx] PROVIDE	contract.OrchestrationSessionCleaner <= fx.Annotate(github.com/anthropic-ai/super-agent-v3/internal/provider/unified.NewSessionCleaner(), fx.As([[contract.OrchestrationSessionCleaner]]) from module "provider.unified"
+[Fx] PROVIDE	contract.SessionResolver <= github.com/anthropic-ai/super-agent-v3/internal/provider/unified.NewSessionResolver() from module "provider.unified"
+[Fx] PROVIDE	contract.DreamExecutor <= github.com/anthropic-ai/super-agent-v3/internal/provider/unified.provideDreamExecutor() from module "provider.unified"
+[Fx] PROVIDE	contract.DriverFactory[group = "drivers"] <= fx.Annotate(github.com/anthropic-ai/super-agent-v3/internal/provider/claudecli.NewDriverFactory(), fx.ResultTags(["group:\"drivers\""]) from module "provider.claudecli"
+[Fx] PROVIDE	contract.DreamExecutorProvider[group = "dream_executors"] <= fx.Annotate(github.com/anthropic-ai/super-agent-v3/internal/provider/claudecli.provideDreamExecutorProvider(), fx.ResultTags(["group:\"dream_executors\""]) from module "provider.claudecli"
+[Fx] PROVIDE	*codexapp.ServerManager <= github.com/anthropic-ai/super-agent-v3/internal/provider/codexapp.NewServerManager() from module "provider.codexapp"
+[Fx] PROVIDE	*codexapp.DriverFactory <= github.com/anthropic-ai/super-agent-v3/internal/provider/codexapp.provideDriverFactory() from module "provider.codexapp"
+[Fx] PROVIDE	contract.DriverFactory[group = "drivers"] <= fx.Annotate(github.com/anthropic-ai/super-agent-v3/internal/provider/codexapp.provideContractDriverFactory(), fx.ResultTags(["group:\"drivers\""]) from module "provider.codexapp"
+[Fx] PROVIDE	contract.DreamExecutorProvider[group = "dream_executors"] <= fx.Annotate(github.com/anthropic-ai/super-agent-v3/internal/provider/codexapp.provideDreamExecutorProvider(), fx.ResultTags(["group:\"dream_executors\""]) from module "provider.codexapp"
+[Fx] PROVIDE	*codexapp.ServerPool <= github.com/anthropic-ai/super-agent-v3/internal/provider/codexapp.provideServerPool() from module "provider.codexapp"
+[Fx] PROVIDE	*codexapp.poolEvictRunner <= github.com/anthropic-ai/super-agent-v3/internal/provider/codexapp.newPoolEvictRunner() from module "provider.codexapp"
+[Fx] PROVIDE	runner.Runner[group = "runners"] <= fx.Annotate(github.com/anthropic-ai/super-agent-v3/internal/provider/codexapp.poolEvictRunnerAsRunner(), fx.ResultTags(["group:\"runners\""]) from module "provider.codexapp"
+[Fx] PROVIDE	runner.Runner[group = "runners"] <= fx.Annotate(github.com/anthropic-ai/super-agent-v3/internal/provider/codexapp.provideDefaultPeerSupervisor(), fx.ResultTags(["group:\"runners\""]) from module "provider.codexapp"
+[Fx] PROVIDE	*toolbridge.Handler <= github.com/anthropic-ai/super-agent-v3/internal/platform/toolbridge.NewHandler() from module "toolbridge"
+[Fx] PROVIDE	toolbridge.HostToolRegistry <= github.com/anthropic-ai/super-agent-v3/internal/platform/toolbridge.provideHostToolRegistry() from module "toolbridge"
+[Fx] PROVIDE	difftracker.DiffEmitter <= github.com/anthropic-ai/super-agent-v3/internal/platform/toolbridge.provideDiffEmitter() from module "toolbridge"
+[Fx] PROVIDE	*toolbridge.diffFallbackTracker <= github.com/anthropic-ai/super-agent-v3/internal/platform/toolbridge.newDiffFallbackTracker() from module "toolbridge"
+[Fx] PROVIDE	contract.SubscriberSpec[group = "bus.subscribers"] <= github.com/anthropic-ai/super-agent-v3/internal/platform/toolbridge.NewToolbridgeDiffFallbackSubscribers() from module "toolbridge"
+[Fx] PROVIDE	func() string <= github.com/anthropic-ai/super-agent-v3/internal/platform/toolbridge.provideProxyAddrFn() from module "toolbridge"
+[Fx] PROVIDE	*toolbridge.ProxyRunner <= github.com/anthropic-ai/super-agent-v3/internal/platform/toolbridge.NewProxyRunner() from module "toolbridge"
+[Fx] PROVIDE	runner.Runner[group = "runners"] <= fx.Annotate(github.com/anthropic-ai/super-agent-v3/internal/platform/toolbridge.asRunnerGroup(), fx.ResultTags(["group:\"runners\""]) from module "toolbridge"
+[Fx] PROVIDE	*wails.App <= github.com/anthropic-ai/super-agent-v3/internal/ui/wails.NewApp() from module "ui.wails"
+[Fx] PROVIDE	handler.Map[group = "rpc_handlers"] <= github.com/anthropic-ai/super-agent-v3/internal/ui/wails.NewRPCHandlers() from module "ui.wails"
+[Fx] PROVIDE	application.Service <= github.com/anthropic-ai/super-agent-v3/internal/ui/wails.NewService() from module "ui.wails"
+[Fx] PROVIDE	wails.ActiveAgentCounter <= github.com/anthropic-ai/super-agent-v3/internal/ui/wails.NewActiveAgentCounter() from module "ui.wails"
+[Fx] PROVIDE	*wails.WailsLifecycle <= github.com/anthropic-ai/super-agent-v3/internal/ui/wails.NewWailsLifecycle() from module "ui.wails"
+[Fx] PROVIDE	*wails.EventBridge <= github.com/anthropic-ai/super-agent-v3/internal/ui/wails.NewEventBridge() from module "ui.wails"
+[Fx] PROVIDE	*application.App <= github.com/anthropic-ai/super-agent-v3/internal/ui/wails.NewWailsApplication() from module "ui.wails"
+[Fx] PROVIDE	runner.Runner[group = "runners"] <= github.com/anthropic-ai/super-agent-v3/internal/ui/wails.NewHTTPAssetServer() from module "ui.wails"
+[Fx] INVOKE		github.com/anthropic-ai/super-agent-v3/internal/platform/db.registerLifecycle() from module "db"
+[Fx] BEFORE RUN	provide: go.uber.org/fx.New.func1()
+[Fx] RUN	provide: go.uber.org/fx.New.func1() in 5.25µs
+[Fx] BEFORE RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/app.NewLogger()
+time="2026-05-28 21:16:28" level=INFO source=/Users/ai/Desktop/Super-Dolphin/.worktrees/package-embedded-pg/pkg/logger/fields.go:47 msg="build info" version=v0.0.0-20260528060118-9288881661ab+dirty commit=9288881 build_time=2026-05-28T06:01:18Z runtime=darwin/arm64
+time="2026-05-28 21:16:28" level=INFO source=/Users/ai/Desktop/Super-Dolphin/.worktrees/package-embedded-pg/pkg/logger/fields.go:47 msg="log file opened" path=/var/folders/xl/33p_9r195yd4glcqfpbc0cv40000gn/T/tmp.OZlmF6wim8/.multi-agent/log/package-embedded-pg/agent-terminal-2026-05-28-1.log run=1
+[Fx] RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/app.NewLogger() in 748.5µs
+[Fx] BEFORE RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/platform/config.New() from module "config"
+[Fx] RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/platform/config.New() in 97.792µs from module "config"
+[Fx] BEFORE RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/platform/db.NewPool() from module "db"
+[Fx] RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/platform/db.NewPool() in 147.625µs from module "db"
+[Fx] INVOKE		github.com/anthropic-ai/super-agent-v3/internal/platform/bus.registerLifecycle() from module "bus"
+[Fx] BEFORE RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/platform/bus.NewDispatcher() from module "bus"
+[Fx] RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/platform/bus.NewDispatcher() in 2.625µs from module "bus"
+[Fx] BEFORE RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/platform/bus.NewLogSink() from module "bus"
+[Fx] RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/platform/bus.NewLogSink() in 660.834µs from module "bus"
+[Fx] BEFORE RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/platform/rpc.NewPushBridge() from module "rpc"
+[Fx] RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/platform/rpc.NewPushBridge() in 7.792µs from module "rpc"
+[Fx] BEFORE RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/platform/rpc.NewServer() from module "rpc"
+[Fx] RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/platform/rpc.NewServer() in 23.542µs from module "rpc"
+[Fx] BEFORE RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/platform/rpc.newPushNotificationWorkerProvider() from module "rpc"
+[Fx] RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/platform/rpc.newPushNotificationWorkerProvider() in 17.916µs from module "rpc"
+[Fx] BEFORE RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/platform/rpc.NewRPCPushSubscribers() from module "rpc"
+[Fx] RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/platform/rpc.NewRPCPushSubscribers() in 6.417µs from module "rpc"
+[Fx] BEFORE RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/platform/hooks.NewHookRegistry() from module "platform.hooks"
+[Fx] RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/platform/hooks.NewHookRegistry() in 16.833µs from module "platform.hooks"
+[Fx] BEFORE RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/platform/mcpcontrol.provideRegistry() from module "mcpcontrol"
+[Fx] RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/platform/mcpcontrol.provideRegistry() in 15.458µs from module "mcpcontrol"
+[Fx] BEFORE RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/platform/mcpcontrol.providePeerCallback() from module "mcpcontrol"
+[Fx] RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/platform/mcpcontrol.providePeerCallback() in 4.125µs from module "mcpcontrol"
+[Fx] BEFORE RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/platform/hooks.NewHookDispatcher() from module "platform.hooks"
+[Fx] RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/platform/hooks.NewHookDispatcher() in 4.75µs from module "platform.hooks"
+[Fx] BEFORE RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/store.init.func1() from module "store"
+[Fx] RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/store.init.func1() in 2.125µs from module "store"
+[Fx] BEFORE RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/store/hookstore.init.func1() from module "store.hookstore"
+[Fx] RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/store/hookstore.init.func1() in 3.166µs from module "store.hookstore"
+[Fx] BEFORE RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/platform/hooks.NewHookResolver() from module "platform.hooks"
+[Fx] RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/platform/hooks.NewHookResolver() in 2.209µs from module "platform.hooks"
+[Fx] BEFORE RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/platform/hooks.provideManager() from module "platform.hooks"
+[Fx] RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/platform/hooks.provideManager() in 15.292µs from module "platform.hooks"
+[Fx] BEFORE RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/platform/hooks.newHookDispatchWorkerProvider() from module "platform.hooks"
+[Fx] RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/platform/hooks.newHookDispatchWorkerProvider() in 2.916µs from module "platform.hooks"
+[Fx] BEFORE RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/platform/hooks.NewHooksRelaySubscribers() from module "platform.hooks"
+[Fx] RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/platform/hooks.NewHooksRelaySubscribers() in 24.708µs from module "platform.hooks"
+[Fx] BEFORE RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/store/thread.NewStore() from module "store.thread"
+[Fx] RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/store/thread.NewStore() in 3.208µs from module "store.thread"
+[Fx] BEFORE RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/store/thread.NewSessionThreadLookup() from module "store.thread"
+[Fx] RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/store/thread.NewSessionThreadLookup() in 1.792µs from module "store.thread"
+[Fx] BEFORE RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/store/binding.NewStore() from module "store.binding"
+[Fx] RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/store/binding.NewStore() in 1.416µs from module "store.binding"
+[Fx] BEFORE RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/store/binding.NewSessionBindingLookup() from module "store.binding"
+[Fx] RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/store/binding.NewSessionBindingLookup() in 1.542µs from module "store.binding"
+[Fx] BEFORE RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/provider/unified.NewEventDispatcher() from module "provider.unified"
+[Fx] RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/provider/unified.NewEventDispatcher() in 15.459µs from module "provider.unified"
+[Fx] BEFORE RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/app.newRuntimeReporter()
+[Fx] RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/app.newRuntimeReporter() in 2.5µs
+[Fx] BEFORE RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/platform/pidregistry.New()
+[Fx] RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/platform/pidregistry.New() in 16.166µs
+[Fx] BEFORE RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/platform/toolbridge.provideProxyAddrFn() from module "toolbridge"
+[Fx] RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/platform/toolbridge.provideProxyAddrFn() in 14.167µs from module "toolbridge"
+[Fx] BEFORE RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/store/auditlog.NewStore() from module "store.auditlog"
+[Fx] RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/store/auditlog.NewStore() in 1.958µs from module "store.auditlog"
+[Fx] BEFORE RUN	provide: fx.Annotate(github.com/anthropic-ai/super-agent-v3/internal/module/skill.newService(), fx.As([[skill.Service] [contract.SkillMirrorReconciler]]) from module "skill"
+[Fx] RUN	provide: fx.Annotate(github.com/anthropic-ai/super-agent-v3/internal/module/skill.newService(), fx.As([[skill.Service] [contract.SkillMirrorReconciler]]) in 74.333µs from module "skill"
+[Fx] BEFORE RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/module/thread.NewBindingRecoveryReporter() from module "thread"
+[Fx] RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/module/thread.NewBindingRecoveryReporter() in 14.667µs from module "thread"
+[Fx] BEFORE RUN	provide: fx.Annotate(github.com/anthropic-ai/super-agent-v3/internal/provider/claudecli.NewDriverFactory(), fx.ResultTags(["group:\"drivers\""]) from module "provider.claudecli"
+[Fx] RUN	provide: fx.Annotate(github.com/anthropic-ai/super-agent-v3/internal/provider/claudecli.NewDriverFactory(), fx.ResultTags(["group:\"drivers\""]) in 18.333µs from module "provider.claudecli"
+[Fx] BEFORE RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/platform/rpc.NewApprovalManager() from module "rpc"
+[Fx] RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/platform/rpc.NewApprovalManager() in 2.417µs from module "rpc"
+[Fx] BEFORE RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/provider/codexapp.NewServerManager() from module "provider.codexapp"
+[Fx] RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/provider/codexapp.NewServerManager() in 34.209µs from module "provider.codexapp"
+[Fx] BEFORE RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/provider/codexapp.provideServerPool() from module "provider.codexapp"
+[Fx] RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/provider/codexapp.provideServerPool() in 16.917µs from module "provider.codexapp"
+[Fx] BEFORE RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/provider/codexapp.provideDriverFactory() from module "provider.codexapp"
+[Fx] RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/provider/codexapp.provideDriverFactory() in 16.333µs from module "provider.codexapp"
+[Fx] BEFORE RUN	provide: fx.Annotate(github.com/anthropic-ai/super-agent-v3/internal/provider/codexapp.provideContractDriverFactory(), fx.ResultTags(["group:\"drivers\""]) from module "provider.codexapp"
+[Fx] RUN	provide: fx.Annotate(github.com/anthropic-ai/super-agent-v3/internal/provider/codexapp.provideContractDriverFactory(), fx.ResultTags(["group:\"drivers\""]) in 2.667µs from module "provider.codexapp"
+[Fx] BEFORE RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/provider/unified.NewRegistry() from module "provider.unified"
+[Fx] RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/provider/unified.NewRegistry() in 17.167µs from module "provider.unified"
+[Fx] BEFORE RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/provider/unified.NewSessionManager() from module "provider.unified"
+[Fx] RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/provider/unified.NewSessionManager() in 1.833µs from module "provider.unified"
+[Fx] BEFORE RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/provider/unified.NewSessionResolver() from module "provider.unified"
+[Fx] RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/provider/unified.NewSessionResolver() in 2.5µs from module "provider.unified"
+[Fx] BEFORE RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/platform/cachekeepalive.NewManager() from module "platform.cachekeepalive"
+[Fx] RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/platform/cachekeepalive.NewManager() in 2.292µs from module "platform.cachekeepalive"
+[Fx] BEFORE RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/platform/cachekeepalive.NewCacheKeepaliveSubscribers() from module "platform.cachekeepalive"
+[Fx] RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/platform/cachekeepalive.NewCacheKeepaliveSubscribers() in 2.416µs from module "platform.cachekeepalive"
+[Fx] BEFORE RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/platform/mcpcontrol.provideToolNotifier() from module "mcpcontrol"
+[Fx] RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/platform/mcpcontrol.provideToolNotifier() in 1.834µs from module "mcpcontrol"
+[Fx] BEFORE RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/platform/mcpcontrol.provideConfigVersionSource() from module "mcpcontrol"
+[Fx] RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/platform/mcpcontrol.provideConfigVersionSource() in 2.042µs from module "mcpcontrol"
+[Fx] BEFORE RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/platform/mcpcontrol.newConfigFanoutWorkerProvider() from module "mcpcontrol"
+[Fx] RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/platform/mcpcontrol.newConfigFanoutWorkerProvider() in 3.083µs from module "mcpcontrol"
+[Fx] BEFORE RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/platform/mcpcontrol.NewMCPConfigChangeSubscribers() from module "mcpcontrol"
+[Fx] RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/platform/mcpcontrol.NewMCPConfigChangeSubscribers() in 14.625µs from module "mcpcontrol"
+[Fx] BEFORE RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/module/memory.NewConfig() from module "memory"
+[Fx] RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/module/memory.NewConfig() in 53µs from module "memory"
+[Fx] BEFORE RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/module/memory.provideTeamConfig() from module "memory"
+[Fx] RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/module/memory.provideTeamConfig() in 1.5µs from module "memory"
+[Fx] BEFORE RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/module/memory/team.NewTeamMemoryManager() from module "memory.team"
+[Fx] RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/module/memory/team.NewTeamMemoryManager() in 14.375µs from module "memory.team"
+[Fx] BEFORE RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/module/memory.NewMemoryExtractor() from module "memory"
+[Fx] RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/module/memory.NewMemoryExtractor() in 13.375µs from module "memory"
+[Fx] BEFORE RUN	provide: fx.Annotate(github.com/anthropic-ai/super-agent-v3/internal/provider/claudecli.provideDreamExecutorProvider(), fx.ResultTags(["group:\"dream_executors\""]) from module "provider.claudecli"
+[Fx] RUN	provide: fx.Annotate(github.com/anthropic-ai/super-agent-v3/internal/provider/claudecli.provideDreamExecutorProvider(), fx.ResultTags(["group:\"dream_executors\""]) in 3.791µs from module "provider.claudecli"
+[Fx] BEFORE RUN	provide: fx.Annotate(github.com/anthropic-ai/super-agent-v3/internal/provider/codexapp.provideDreamExecutorProvider(), fx.ResultTags(["group:\"dream_executors\""]) from module "provider.codexapp"
+[Fx] RUN	provide: fx.Annotate(github.com/anthropic-ai/super-agent-v3/internal/provider/codexapp.provideDreamExecutorProvider(), fx.ResultTags(["group:\"dream_executors\""]) in 1.75µs from module "provider.codexapp"
+[Fx] BEFORE RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/provider/unified.provideDreamExecutor() from module "provider.unified"
+time="2026-05-28 21:16:28" level=DEBUG source=/Users/ai/Desktop/Super-Dolphin/.worktrees/package-embedded-pg/internal/provider/unified/dream_executor.go:67 msg="dream executor registered" project=package-embedded-pg providers="[claude codex]"
+[Fx] RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/provider/unified.provideDreamExecutor() in 27.416µs from module "provider.unified"
+[Fx] BEFORE RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/module/memory.provideDreamExtractFunc() from module "memory"
+[Fx] RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/module/memory.provideDreamExtractFunc() in 15µs from module "memory"
+[Fx] BEFORE RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/module/memory.provideAutoDreamConsolidator() from module "memory"
+[Fx] RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/module/memory.provideAutoDreamConsolidator() in 2.25µs from module "memory"
+[Fx] BEFORE RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/store/thread.NewMetadataStore() from module "store.thread"
+[Fx] RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/store/thread.NewMetadataStore() in 1.459µs from module "store.thread"
+[Fx] BEFORE RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/module/prompt.NewConfig() from module "prompt"
+[Fx] RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/module/prompt.NewConfig() in 14.916µs from module "prompt"
+[Fx] BEFORE RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/store/uipreference.NewStore() from module "store.uipreference"
+[Fx] RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/store/uipreference.NewStore() in 1.458µs from module "store.uipreference"
+[Fx] BEFORE RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/store/sharedfile.provideStore() from module "store.sharedfile"
+[Fx] RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/store/sharedfile.provideStore() in 1.625µs from module "store.sharedfile"
+[Fx] BEFORE RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/store/sharedfile.init.func1() from module "store.sharedfile"
+[Fx] RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/store/sharedfile.init.func1() in 2.333µs from module "store.sharedfile"
+[Fx] BEFORE RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/app.provideNativeToolDescriptors()
+[Fx] RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/app.provideNativeToolDescriptors() in 4.458µs
+[Fx] BEFORE RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/app.provideDisabledBuiltinToolsFn()
+[Fx] RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/app.provideDisabledBuiltinToolsFn() in 5.333µs
+[Fx] BEFORE RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/module/prompt.NewServiceFx() from module "prompt"
+[Fx] RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/module/prompt.NewServiceFx() in 62.334µs from module "prompt"
+[Fx] BEFORE RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/module/prompt.AsSectionInvalidator() from module "prompt"
+[Fx] RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/module/prompt.AsSectionInvalidator() in 6.667µs from module "prompt"
+[Fx] BEFORE RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/module/memory/retrieval.NewManifestBuilder() from module "memory.retrieval"
+[Fx] RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/module/memory/retrieval.NewManifestBuilder() in 1.5µs from module "memory.retrieval"
+[Fx] BEFORE RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/module/memory.NewMemoryLifecycleHooks() from module "memory"
+[Fx] RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/module/memory.NewMemoryLifecycleHooks() in 18.792µs from module "memory"
+[Fx] BEFORE RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/module/memory.newAutoDreamSchedulerProvider() from module "memory"
+[Fx] RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/module/memory.newAutoDreamSchedulerProvider() in 2.417µs from module "memory"
+[Fx] BEFORE RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/module/memory.provideNestedDependencies() from module "memory"
+[Fx] RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/module/memory.provideNestedDependencies() in 1.792µs from module "memory"
+[Fx] BEFORE RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/module/memory/nested.NewNestedRuntime() from module "memory.nested"
+[Fx] RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/module/memory/nested.NewNestedRuntime() in 15.208µs from module "memory.nested"
+[Fx] BEFORE RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/module/memory.newNestedIngestWorkerProvider() from module "memory"
+[Fx] RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/module/memory.newNestedIngestWorkerProvider() in 2.5µs from module "memory"
+[Fx] BEFORE RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/module/memory/team.NewTeamMemoryGuard() from module "memory.team"
+[Fx] RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/module/memory/team.NewTeamMemoryGuard() in 1.542µs from module "memory.team"
+[Fx] BEFORE RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/module/prompt.AsPromptAssemblyService() from module "prompt"
+[Fx] RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/module/prompt.AsPromptAssemblyService() in 14.833µs from module "prompt"
+[Fx] BEFORE RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/module/memory/team.NewTeamSyncService() from module "memory.team"
+[Fx] RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/module/memory/team.NewTeamSyncService() in 16.25µs from module "memory.team"
+[Fx] BEFORE RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/module/memory.asTeamSyncLifecycle() from module "memory"
+[Fx] RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/module/memory.asTeamSyncLifecycle() in 1.75µs from module "memory"
+[Fx] BEFORE RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/module/memory.newTeamSyncCoordinatorProvider() from module "memory"
+[Fx] RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/module/memory.newTeamSyncCoordinatorProvider() in 1.583µs from module "memory"
+[Fx] BEFORE RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/module/memory.NewContextProvider() from module "memory"
+[Fx] RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/module/memory.NewContextProvider() in 8.828583ms from module "memory"
+[Fx] BEFORE RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/module/memory.NewMemorySubscribers() from module "memory"
+[Fx] RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/module/memory.NewMemorySubscribers() in 84.458µs from module "memory"
+[Fx] BEFORE RUN	provide: fx.Annotate(github.com/anthropic-ai/super-agent-v3/internal/provider/unified.NewSessionProvider(), fx.As([[contract.SessionProvider]]) from module "provider.unified"
+[Fx] RUN	provide: fx.Annotate(github.com/anthropic-ai/super-agent-v3/internal/provider/unified.NewSessionProvider(), fx.As([[contract.SessionProvider]]) in 36.333µs from module "provider.unified"
+[Fx] BEFORE RUN	provide: fx.Annotate(github.com/anthropic-ai/super-agent-v3/internal/provider/unified.NewClient(), fx.As([[contract.SessionStarter]]) from module "provider.unified"
+[Fx] RUN	provide: fx.Annotate(github.com/anthropic-ai/super-agent-v3/internal/provider/unified.NewClient(), fx.As([[contract.SessionStarter]]) in 10.375µs from module "provider.unified"
+[Fx] BEFORE RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/module/memory.AsTurnContextProvider() from module "memory"
+[Fx] RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/module/memory.AsTurnContextProvider() in 4.75µs from module "memory"
+[Fx] BEFORE RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/module/skill.ProvideSkillHydrationSource() from module "skill"
+[Fx] RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/module/skill.ProvideSkillHydrationSource() in 12.584µs from module "skill"
+[Fx] BEFORE RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/module/turn/observation.NewMemory() from module "module.turn.observation"
+[Fx] RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/module/turn/observation.NewMemory() in 5.25µs from module "module.turn.observation"
+[Fx] BEFORE RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/module/turn/observation.init.func1() from module "module.turn.observation"
+[Fx] RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/module/turn/observation.init.func1() in 2.291µs from module "module.turn.observation"
+[Fx] BEFORE RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/store/turndedupe.NewStore() from module "store.turndedupe"
+[Fx] RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/store/turndedupe.NewStore() in 2.416µs from module "store.turndedupe"
+[Fx] BEFORE RUN	provide: fx.Annotate(github.com/anthropic-ai/super-agent-v3/internal/module/turn.NewServiceWithPromptAssemblyAndTurnContext(), fx.ParamTags(["" "optional:\"true\"" "optional:\"true\"" "optional:\"true\"" "optional:\"true\"" "optional:\"true\"" "optional:\"true\""]), fx.As([[turn.Service] [contract.TurnThreadCleaner]]) from module "turn"
+[Fx] RUN	provide: fx.Annotate(github.com/anthropic-ai/super-agent-v3/internal/module/turn.NewServiceWithPromptAssemblyAndTurnContext(), fx.ParamTags(["" "optional:\"true\"" "optional:\"true\"" "optional:\"true\"" "optional:\"true\"" "optional:\"true\"" "optional:\"true\""]), fx.As([[turn.Service] [contract.TurnThreadCleaner]]) in 56.5µs from module "turn"
+[Fx] BEFORE RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/app.newThreadOrchestrationFacade()
+[Fx] RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/app.newThreadOrchestrationFacade() in 22µs
+[Fx] BEFORE RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/platform/bus.NewThreadEmitters() from module "bus"
+[Fx] RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/platform/bus.NewThreadEmitters() in 9.792µs from module "bus"
+[Fx] BEFORE RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/platform/mcpcontrol.provideToolRegistry() from module "mcpcontrol"
+[Fx] RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/platform/mcpcontrol.provideToolRegistry() in 3.583µs from module "mcpcontrol"
+[Fx] BEFORE RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/store/prompt.newStoreWithPool() from module "store.prompt"
+[Fx] RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/store/prompt.newStoreWithPool() in 2.5µs from module "store.prompt"
+[Fx] BEFORE RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/platform/shared/builtinprompts.NewDefaultRegistry() from module "prompt"
+[Fx] RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/platform/shared/builtinprompts.NewDefaultRegistry() in 1.104083ms from module "prompt"
+[Fx] BEFORE RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/module/thread.provideRuntimePromptCatalog() from module "thread"
+[Fx] RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/module/thread.provideRuntimePromptCatalog() in 19.125µs from module "thread"
+[Fx] BEFORE RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/module/prompt.newMatchWhenEvaluator() from module "prompt"
+[Fx] RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/module/prompt.newMatchWhenEvaluator() in 2.25µs from module "prompt"
+[Fx] BEFORE RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/module/prompt.newEnableWhenEvaluator() from module "prompt"
+[Fx] RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/module/prompt.newEnableWhenEvaluator() in 5.334µs from module "prompt"
+[Fx] BEFORE RUN	provide: fx.Annotate(github.com/anthropic-ai/super-agent-v3/internal/module/thread.NewServiceWithPromptAssemblyAndSharedFiles(), fx.ParamTags(["" "optional:\"true\"" "optional:\"true\"" "optional:\"true\"" "optional:\"true\"" "optional:\"true\"" "optional:\"true\"" "optional:\"true\"" "optional:\"true\"" "optional:\"true\"" "optional:\"true\"" "optional:\"true\"" "optional:\"true\"" "optional:\"true\"" "optional:\"true\"" "optional:\"true\""]), fx.As([[thread.Service] [contract.PendingLaunchSpawner]]) from module "thread"
+[Fx] RUN	provide: fx.Annotate(github.com/anthropic-ai/super-agent-v3/internal/module/thread.NewServiceWithPromptAssemblyAndSharedFiles(), fx.ParamTags(["" "optional:\"true\"" "optional:\"true\"" "optional:\"true\"" "optional:\"true\"" "optional:\"true\"" "optional:\"true\"" "optional:\"true\"" "optional:\"true\"" "optional:\"true\"" "optional:\"true\"" "optional:\"true\"" "optional:\"true\"" "optional:\"true\"" "optional:\"true\"" "optional:\"true\""]), fx.As([[thread.Service] [contract.PendingLaunchSpawner]]) in 38.833µs from module "thread"
+[Fx] BEFORE RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/module/thread.provideThreadConcreteService() from module "thread"
+[Fx] RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/module/thread.provideThreadConcreteService() in 2.125µs from module "thread"
+[Fx] BEFORE RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/module/thread.NewThreadSubscribers() from module "thread"
+[Fx] RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/module/thread.NewThreadSubscribers() in 14.917µs from module "thread"
+[Fx] BEFORE RUN	provide: fx.Annotate(github.com/anthropic-ai/super-agent-v3/internal/module/turn.NewTrajectoryCollector(), fx.ParamTags(["optional:\"true\"" "optional:\"true\""]) from module "turn"
+[Fx] RUN	provide: fx.Annotate(github.com/anthropic-ai/super-agent-v3/internal/module/turn.NewTrajectoryCollector(), fx.ParamTags(["optional:\"true\"" "optional:\"true\""]) in 14.5µs from module "turn"
+[Fx] BEFORE RUN	provide: fx.Annotate(github.com/anthropic-ai/super-agent-v3/internal/module/turn.NewTrajectorySubscribers(), fx.ParamTags(["" "optional:\"true\"" "optional:\"true\""]) from module "turn"
+[Fx] RUN	provide: fx.Annotate(github.com/anthropic-ai/super-agent-v3/internal/module/turn.NewTrajectorySubscribers(), fx.ParamTags(["" "optional:\"true\"" "optional:\"true\""]) in 4.459µs from module "turn"
+[Fx] BEFORE RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/module/turn/observation.NewObservationSubscribers() from module "module.turn.observation"
+[Fx] RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/module/turn/observation.NewObservationSubscribers() in 3µs from module "module.turn.observation"
+[Fx] BEFORE RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/store/cron.NewStore() from module "store.cron"
+[Fx] RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/store/cron.NewStore() in 2.292µs from module "store.cron"
+[Fx] BEFORE RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/module/turn.provideCronTurnExecutor() from module "turn"
+[Fx] RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/module/turn.provideCronTurnExecutor() in 16.833µs from module "turn"
+[Fx] BEFORE RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/module/thread.provideCronThreadStarter() from module "thread"
+[Fx] RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/module/thread.provideCronThreadStarter() in 1.625µs from module "thread"
+[Fx] BEFORE RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/module/cron.provideTurnSubmitter() from module "cron"
+[Fx] RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/module/cron.provideTurnSubmitter() in 2.5µs from module "cron"
+[Fx] BEFORE RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/module/cron.provideSchedulerConfig() from module "cron"
+[Fx] RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/module/cron.provideSchedulerConfig() in 2.25µs from module "cron"
+[Fx] BEFORE RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/module/cron.provideScheduler() from module "cron"
+[Fx] RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/module/cron.provideScheduler() in 15.292µs from module "cron"
+[Fx] BEFORE RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/module/cron.NewCronProgressSubscribers() from module "cron"
+[Fx] RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/module/cron.NewCronProgressSubscribers() in 15.541µs from module "cron"
+[Fx] BEFORE RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/module/insight.provideCollector() from module "insight"
+[Fx] RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/module/insight.provideCollector() in 8.292µs from module "insight"
+[Fx] BEFORE RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/module/insight.NewInsightSubscribers() from module "insight"
+[Fx] RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/module/insight.NewInsightSubscribers() in 2.583µs from module "insight"
+[Fx] BEFORE RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/module/thread.NewThreadLister() from module "thread"
+[Fx] RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/module/thread.NewThreadLister() in 13.916µs from module "thread"
+[Fx] BEFORE RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/module/thread.NewThreadRuntimeConfigReader() from module "thread"
+[Fx] RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/module/thread.NewThreadRuntimeConfigReader() in 1.667µs from module "thread"
+[Fx] BEFORE RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/module/uistate.init.func1() from module "uistate"
+[Fx] RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/module/uistate.init.func1() in 28.709µs from module "uistate"
+[Fx] BEFORE RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/module/uistate.NewUIStateSubscribers() from module "uistate"
+[Fx] RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/module/uistate.NewUIStateSubscribers() in 14.083µs from module "uistate"
+[Fx] BEFORE RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/platform/toolbridge.provideDiffEmitter() from module "toolbridge"
+[Fx] RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/platform/toolbridge.provideDiffEmitter() in 4.792µs from module "toolbridge"
+[Fx] BEFORE RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/app.provideToolbridgeWorkDirResolver()
+[Fx] RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/app.provideToolbridgeWorkDirResolver() in 2µs
+[Fx] BEFORE RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/platform/toolbridge.newDiffFallbackTracker() from module "toolbridge"
+[Fx] RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/platform/toolbridge.newDiffFallbackTracker() in 1.833µs from module "toolbridge"
+[Fx] BEFORE RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/platform/toolbridge.NewToolbridgeDiffFallbackSubscribers() from module "toolbridge"
+[Fx] RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/platform/toolbridge.NewToolbridgeDiffFallbackSubscribers() in 2.291µs from module "toolbridge"
+[Fx] BEFORE RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/platform/bus.NewSubscriberGroup() from module "bus"
+[Fx] RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/platform/bus.NewSubscriberGroup() in 2.5µs from module "bus"
+[Fx] INVOKE		github.com/anthropic-ai/super-agent-v3/internal/platform/rpc.registerAllHandlers() from module "rpc"
+[Fx] BEFORE RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/platform/hooks.init.func1() from module "platform.hooks"
+[Fx] RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/platform/hooks.init.func1() in 5.375µs from module "platform.hooks"
+[Fx] BEFORE RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/platform/mcpcontrol.provideHandlers() from module "mcpcontrol"
+[Fx] RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/platform/mcpcontrol.provideHandlers() in 64.875µs from module "mcpcontrol"
+[Fx] BEFORE RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/store/agentstatus.NewStore() from module "store.agentstatus"
+[Fx] RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/store/agentstatus.NewStore() in 2.083µs from module "store.agentstatus"
+[Fx] BEFORE RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/store/systemlog.NewStore() from module "store.systemlog"
+[Fx] RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/store/systemlog.NewStore() in 4.833µs from module "store.systemlog"
+[Fx] BEFORE RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/store/buslog.NewStore() from module "store.buslog"
+[Fx] RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/store/buslog.NewStore() in 1.916µs from module "store.buslog"
+[Fx] BEFORE RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/store/ailog.NewStore() from module "store.ailog"
+[Fx] RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/store/ailog.NewStore() in 1.458µs from module "store.ailog"
+[Fx] BEFORE RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/store/dbquery.newDefaultStore() from module "store.dbquery"
+[Fx] RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/store/dbquery.newDefaultStore() in 1.625µs from module "store.dbquery"
+[Fx] BEFORE RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/store/tasktrace.NewStore() from module "store.tasktrace"
+[Fx] RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/store/tasktrace.NewStore() in 1.5µs from module "store.tasktrace"
+[Fx] BEFORE RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/store/commandcard.NewStore() from module "store.commandcard"
+[Fx] RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/store/commandcard.NewStore() in 13.959µs from module "store.commandcard"
+[Fx] BEFORE RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/store/prompt.AsReader() from module "store.prompt"
+[Fx] RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/store/prompt.AsReader() in 2.167µs from module "store.prompt"
+[Fx] BEFORE RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/module/skill.ProvideSkillLister() from module "skill"
+[Fx] RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/module/skill.ProvideSkillLister() in 2.042µs from module "skill"
+[Fx] BEFORE RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/module/dashboard.init.func1() from module "dashboard"
+[Fx] RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/module/dashboard.init.func1() in 14.667µs from module "dashboard"
+[Fx] BEFORE RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/store/insight.NewStore() from module "store.insight"
+[Fx] RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/store/insight.NewStore() in 4.833µs from module "store.insight"
+[Fx] BEFORE RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/module/insight.NewService() from module "insight"
+[Fx] RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/module/insight.NewService() in 1.833µs from module "insight"
+[Fx] BEFORE RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/module/dashboard.NewDashboardHandlersWithInsights() from module "dashboard"
+[Fx] RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/module/dashboard.NewDashboardHandlersWithInsights() in 36.375µs from module "dashboard"
+[Fx] BEFORE RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/store/feedback.NewStore() from module "store.feedback"
+[Fx] RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/store/feedback.NewStore() in 3.292µs from module "store.feedback"
+[Fx] BEFORE RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/module/feedback.NewService() from module "feedback"
+[Fx] RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/module/feedback.NewService() in 4.333µs from module "feedback"
+[Fx] BEFORE RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/module/feedback.NewHandlers() from module "feedback"
+[Fx] RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/module/feedback.NewHandlers() in 6.084µs from module "feedback"
+[Fx] BEFORE RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/module/memory.provideMemoryService() from module "memory"
+[Fx] RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/module/memory.provideMemoryService() in 6.667µs from module "memory"
+[Fx] BEFORE RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/store/sharedfile.init.func2() from module "store.sharedfile"
+[Fx] RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/store/sharedfile.init.func2() in 1.958µs from module "store.sharedfile"
+[Fx] BEFORE RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/store/sharedfile.init.func3() from module "store.sharedfile"
+[Fx] RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/store/sharedfile.init.func3() in 1.709µs from module "store.sharedfile"
+[Fx] BEFORE RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/module/memory.NewMemoryHandlers() from module "memory"
+[Fx] RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/module/memory.NewMemoryHandlers() in 46.625µs from module "memory"
+[Fx] BEFORE RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/module/prompt.registerPromptHandlers() from module "prompt"
+[Fx] RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/module/prompt.registerPromptHandlers() in 20.208µs from module "prompt"
+[Fx] BEFORE RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/module/skill.NewSkillHandlers() from module "skill"
+[Fx] RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/module/skill.NewSkillHandlers() in 64.166µs from module "skill"
+[Fx] BEFORE RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/platform/rpc.NewCapabilityResolver() from module "rpc"
+[Fx] RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/platform/rpc.NewCapabilityResolver() in 1.75µs from module "rpc"
+[Fx] BEFORE RUN	provide: fx.Annotate(github.com/anthropic-ai/super-agent-v3/internal/module/thread.NewThreadHandlers(), fx.ParamTags(["" "optional:\"true\""]) from module "thread"
+[Fx] RUN	provide: fx.Annotate(github.com/anthropic-ai/super-agent-v3/internal/module/thread.NewThreadHandlers(), fx.ParamTags(["" "optional:\"true\""]) in 100.125µs from module "thread"
+[Fx] BEFORE RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/platform/rpc.init.func2() from module "rpc"
+[Fx] RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/platform/rpc.init.func2() in 1.834µs from module "rpc"
+[Fx] BEFORE RUN	provide: fx.Annotate(github.com/anthropic-ai/super-agent-v3/internal/module/turn.NewTurnHandlers(), fx.ParamTags(["" "optional:\"true\"" "" "optional:\"true\"" "optional:\"true\"" "optional:\"true\""]) from module "turn"
+[Fx] RUN	provide: fx.Annotate(github.com/anthropic-ai/super-agent-v3/internal/module/turn.NewTurnHandlers(), fx.ParamTags(["" "optional:\"true\"" "" "optional:\"true\"" "optional:\"true\"" "optional:\"true\""]) in 30.208µs from module "turn"
+[Fx] BEFORE RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/module/cron.provideStore() from module "cron"
+[Fx] RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/module/cron.provideStore() in 3.292µs from module "cron"
+[Fx] BEFORE RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/module/cron.NewService() from module "cron"
+[Fx] RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/module/cron.NewService() in 13.291µs from module "cron"
+[Fx] BEFORE RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/module/cron.NewHandlers() from module "cron"
+[Fx] RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/module/cron.NewHandlers() in 7.667µs from module "cron"
+[Fx] BEFORE RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/module/uistate.NewUIStateHandlers() from module "uistate"
+[Fx] RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/module/uistate.NewUIStateHandlers() in 6.958µs from module "uistate"
+[Fx] BEFORE RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/module/thread.NewThreadConfigReader() from module "thread"
+[Fx] RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/module/thread.NewThreadConfigReader() in 3.667µs from module "thread"
+[Fx] BEFORE RUN	provide: fx.Annotate(github.com/anthropic-ai/super-agent-v3/internal/module/uistate.NewConfigHandlers(), fx.ParamTags(["" "" "" "" "optional:\"true\"" ""]) from module "uistate"
+[Fx] RUN	provide: fx.Annotate(github.com/anthropic-ai/super-agent-v3/internal/module/uistate.NewConfigHandlers(), fx.ParamTags(["" "" "" "" "optional:\"true\"" ""]) in 19.5µs from module "uistate"
+[Fx] BEFORE RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/platform/rpc.init.func1() from module "rpc"
+[Fx] RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/platform/rpc.init.func1() in 1.542µs from module "rpc"
+[Fx] BEFORE RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/ui/wails.NewApp() from module "ui.wails"
+[Fx] RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/ui/wails.NewApp() in 16.25µs from module "ui.wails"
+[Fx] BEFORE RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/module/uistate.NewProjectStateFacade() from module "uistate"
+[Fx] RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/module/uistate.NewProjectStateFacade() in 20.875µs from module "uistate"
+[Fx] BEFORE RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/ui/wails.NewRPCHandlers() from module "ui.wails"
+[Fx] RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/ui/wails.NewRPCHandlers() in 27µs from module "ui.wails"
+[Fx] INVOKE		github.com/anthropic-ai/super-agent-v3/internal/platform/rpc.bindApprovalLifecycle() from module "rpc"
+[Fx] INVOKE		github.com/anthropic-ai/super-agent-v3/internal/platform/hooks.registerRecoveryLifecycle() from module "platform.hooks"
+[Fx] INVOKE		github.com/anthropic-ai/super-agent-v3/internal/platform/cachekeepalive.bindManagerShutdown() from module "platform.cachekeepalive"
+[Fx] INVOKE		github.com/anthropic-ai/super-agent-v3/internal/platform/mcpcontrol.registerRegistryLifecycle() from module "mcpcontrol"
+[Fx] BEFORE RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/platform/hooks.init.func2() from module "platform.hooks"
+[Fx] RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/platform/hooks.init.func2() in 1.625µs from module "platform.hooks"
+[Fx] INVOKE		github.com/anthropic-ai/super-agent-v3/internal/module/memory/team.registerTeamSyncLifecycle() from module "memory.team"
+[Fx] INVOKE		github.com/anthropic-ai/super-agent-v3/internal/module/memory.registerTeamMemoryRuntime() from module "memory"
+[Fx] INVOKE		github.com/anthropic-ai/super-agent-v3/internal/module/memory.registerLifecycle() from module "memory"
+[Fx] INVOKE		github.com/anthropic-ai/super-agent-v3/internal/module/memory.registerPromptProviders() from module "memory"
+[Fx] BEFORE RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/module/prompt.AsDynamicSectionRegistrar() from module "prompt"
+[Fx] RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/module/prompt.AsDynamicSectionRegistrar() in 2.542µs from module "prompt"
+[Fx] BEFORE RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/module/memory.provideTeamMemoryManagerContract() from module "memory"
+[Fx] RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/module/memory.provideTeamMemoryManagerContract() in 5.542µs from module "memory"
+[Fx] BEFORE RUN	provide: fx.Annotate(github.com/anthropic-ai/super-agent-v3/internal/module/memory/nested.NewClaudeMdSourcesProvider(), fx.As([[contract.ClaudeMdSourceProvider]]) from module "memory.nested"
+[Fx] RUN	provide: fx.Annotate(github.com/anthropic-ai/super-agent-v3/internal/module/memory/nested.NewClaudeMdSourcesProvider(), fx.As([[contract.ClaudeMdSourceProvider]]) in 17.583µs from module "memory.nested"
+[Fx] BEFORE RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/module/memory.NewMemoryRuleEngine() from module "memory"
+[Fx] RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/module/memory.NewMemoryRuleEngine() in 2.834µs from module "memory"
+[Fx] BEFORE RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/module/memory.NewRulesProvider() from module "memory"
+[Fx] RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/module/memory.NewRulesProvider() in 1.833µs from module "memory"
+[Fx] BEFORE RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/module/memory.NewEntrypointProvider() from module "memory"
+[Fx] RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/module/memory.NewEntrypointProvider() in 1.75µs from module "memory"
+[Fx] INVOKE		github.com/anthropic-ai/super-agent-v3/internal/module/memory.bindMemoryDrainShutdown() from module "memory"
+[Fx] INVOKE		github.com/anthropic-ai/super-agent-v3/internal/module/skill.runBuiltinSkillSeed() from module "skill"
+[Fx] INVOKE		github.com/anthropic-ai/super-agent-v3/internal/module/thread.registerThreadPromptProviders() from module "thread"
+[Fx] INVOKE		github.com/anthropic-ai/super-agent-v3/internal/module/turn.registerTurnServiceLifecycle() from module "turn"
+[Fx] INVOKE		github.com/anthropic-ai/super-agent-v3/internal/module/uistate.registerInitialStateLifecycle() from module "uistate"
+[Fx] INVOKE		github.com/anthropic-ai/super-agent-v3/internal/provider/unified.registerSessionShutdown() from module "provider.unified"
+[Fx] INVOKE		github.com/anthropic-ai/super-agent-v3/internal/provider/claudecli.RegisterTranslators() from module "provider.claudecli"
+[Fx] INVOKE		github.com/anthropic-ai/super-agent-v3/internal/provider/codexapp.RegisterTranslators() from module "provider.codexapp"
+[Fx] INVOKE		github.com/anthropic-ai/super-agent-v3/internal/platform/toolbridge.registerProxyLifecycle() from module "toolbridge"
+[Fx] BEFORE RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/app.provideToolbridgeAgentThreadLookup()
+[Fx] RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/app.provideToolbridgeAgentThreadLookup() in 2.667µs
+[Fx] BEFORE RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/app.provideToolbridgeThreadConfigOverrideStore()
+[Fx] RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/app.provideToolbridgeThreadConfigOverrideStore() in 4.334µs
+[Fx] BEFORE RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/app.provideToolbridgeUIPreferenceReader()
+[Fx] RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/app.provideToolbridgeUIPreferenceReader() in 1.375µs
+[Fx] BEFORE RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/module/memory.provideAgentMemoryReader() from module "memory"
+[Fx] RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/module/memory.provideAgentMemoryReader() in 1.542µs from module "memory"
+[Fx] BEFORE RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/module/memory.provideAgentMemoryWriter() from module "memory"
+[Fx] RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/module/memory.provideAgentMemoryWriter() in 1.083µs from module "memory"
+[Fx] BEFORE RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/platform/toolbridge.provideHostToolRegistry() from module "toolbridge"
+[Fx] RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/platform/toolbridge.provideHostToolRegistry() in 14.041µs from module "toolbridge"
+[Fx] BEFORE RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/platform/toolbridge.NewHandler() from module "toolbridge"
+[Fx] RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/platform/toolbridge.NewHandler() in 14.458µs from module "toolbridge"
+[Fx] BEFORE RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/platform/toolbridge.NewProxyRunner() from module "toolbridge"
+[Fx] RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/platform/toolbridge.NewProxyRunner() in 1.333µs from module "toolbridge"
+[Fx] INVOKE		github.com/anthropic-ai/super-agent-v3/internal/ui/wails.bindWailsLifecycle() from module "ui.wails"
+[Fx] BEFORE RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/ui/wails.NewActiveAgentCounter() from module "ui.wails"
+[Fx] RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/ui/wails.NewActiveAgentCounter() in 1.583µs from module "ui.wails"
+[Fx] BEFORE RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/ui/wails.NewWailsLifecycle() from module "ui.wails"
+[Fx] RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/ui/wails.NewWailsLifecycle() in 1.5µs from module "ui.wails"
+[Fx] BEFORE RUN	provide: go.uber.org/fx.(*App).shutdowner-fm()
+[Fx] RUN	provide: go.uber.org/fx.(*App).shutdowner-fm() in 1.542µs
+[Fx] INVOKE		github.com/anthropic-ai/super-agent-v3/internal/ui/wails.bindEventBridge() from module "ui.wails"
+[Fx] BEFORE RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/ui/wails.NewEventBridge() from module "ui.wails"
+[Fx] RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/ui/wails.NewEventBridge() in 13.459µs from module "ui.wails"
+[Fx] INVOKE		github.com/anthropic-ai/super-agent-v3/internal/app.initProviderHooks()
+[Fx] INVOKE		github.com/anthropic-ai/super-agent-v3/internal/app.bindToolbridgeCodexHandlers()
+[Fx] INVOKE		github.com/anthropic-ai/super-agent-v3/internal/app.BindRuntime()
+[Fx] BEFORE RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/app.AsRPCRunner()
+[Fx] RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/app.AsRPCRunner() in 15.417µs
+[Fx] BEFORE RUN	provide: fx.Annotate(github.com/anthropic-ai/super-agent-v3/internal/platform/rpc.NewApprovalCleanupRunner(), fx.ResultTags(["group:\"runners\""]) from module "rpc"
+[Fx] RUN	provide: fx.Annotate(github.com/anthropic-ai/super-agent-v3/internal/platform/rpc.NewApprovalCleanupRunner(), fx.ResultTags(["group:\"runners\""]) in 19.458µs from module "rpc"
+[Fx] BEFORE RUN	provide: fx.Annotate(github.com/anthropic-ai/super-agent-v3/internal/platform/rpc.pushWorkerAsRunner(), fx.ResultTags(["group:\"runners\""]) from module "rpc"
+[Fx] RUN	provide: fx.Annotate(github.com/anthropic-ai/super-agent-v3/internal/platform/rpc.pushWorkerAsRunner(), fx.ResultTags(["group:\"runners\""]) in 30.833µs from module "rpc"
+[Fx] BEFORE RUN	provide: fx.Annotate(github.com/anthropic-ai/super-agent-v3/internal/platform/hooks.hookWorkerAsRunner(), fx.ResultTags(["group:\"runners\""]) from module "platform.hooks"
+[Fx] RUN	provide: fx.Annotate(github.com/anthropic-ai/super-agent-v3/internal/platform/hooks.hookWorkerAsRunner(), fx.ResultTags(["group:\"runners\""]) in 3.25µs from module "platform.hooks"
+[Fx] BEFORE RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/platform/mcpcontrol.NewSweeper() from module "mcpcontrol"
+[Fx] RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/platform/mcpcontrol.NewSweeper() in 3µs from module "mcpcontrol"
+[Fx] BEFORE RUN	provide: fx.Annotate(github.com/anthropic-ai/super-agent-v3/internal/platform/mcpcontrol.NewSweeperRunner(), fx.ResultTags(["group:\"runners\""]) from module "mcpcontrol"
+[Fx] RUN	provide: fx.Annotate(github.com/anthropic-ai/super-agent-v3/internal/platform/mcpcontrol.NewSweeperRunner(), fx.ResultTags(["group:\"runners\""]) in 7.042µs from module "mcpcontrol"
+[Fx] BEFORE RUN	provide: fx.Annotate(github.com/anthropic-ai/super-agent-v3/internal/platform/mcpcontrol.configFanoutWorkerAsRunner(), fx.ResultTags(["group:\"runners\""]) from module "mcpcontrol"
+[Fx] RUN	provide: fx.Annotate(github.com/anthropic-ai/super-agent-v3/internal/platform/mcpcontrol.configFanoutWorkerAsRunner(), fx.ResultTags(["group:\"runners\""]) in 3.125µs from module "mcpcontrol"
+[Fx] BEFORE RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/provider/codexapp.newPoolEvictRunner() from module "provider.codexapp"
+[Fx] RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/provider/codexapp.newPoolEvictRunner() in 16.292µs from module "provider.codexapp"
+[Fx] BEFORE RUN	provide: fx.Annotate(github.com/anthropic-ai/super-agent-v3/internal/provider/codexapp.poolEvictRunnerAsRunner(), fx.ResultTags(["group:\"runners\""]) from module "provider.codexapp"
+[Fx] RUN	provide: fx.Annotate(github.com/anthropic-ai/super-agent-v3/internal/provider/codexapp.poolEvictRunnerAsRunner(), fx.ResultTags(["group:\"runners\""]) in 6.459µs from module "provider.codexapp"
+[Fx] BEFORE RUN	provide: fx.Annotate(github.com/anthropic-ai/super-agent-v3/internal/provider/codexapp.provideDefaultPeerSupervisor(), fx.ResultTags(["group:\"runners\""]) from module "provider.codexapp"
+[Fx] RUN	provide: fx.Annotate(github.com/anthropic-ai/super-agent-v3/internal/provider/codexapp.provideDefaultPeerSupervisor(), fx.ResultTags(["group:\"runners\""]) in 23.5µs from module "provider.codexapp"
+[Fx] BEFORE RUN	provide: fx.Annotate(github.com/anthropic-ai/super-agent-v3/internal/platform/toolbridge.asRunnerGroup(), fx.ResultTags(["group:\"runners\""]) from module "toolbridge"
+[Fx] RUN	provide: fx.Annotate(github.com/anthropic-ai/super-agent-v3/internal/platform/toolbridge.asRunnerGroup(), fx.ResultTags(["group:\"runners\""]) in 4.167µs from module "toolbridge"
+[Fx] BEFORE RUN	supply: stub(wails.FrontendFS)
+[Fx] RUN	supply: stub(wails.FrontendFS) in 1.333µs
+[Fx] BEFORE RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/ui/wails.NewHTTPAssetServer() from module "ui.wails"
+[Fx] RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/ui/wails.NewHTTPAssetServer() in 25.875µs from module "ui.wails"
+[Fx] BEFORE RUN	supply: stub(*app.appOwnerContext)
+[Fx] RUN	supply: stub(*app.appOwnerContext) in 7.166µs
+[Fx] INVOKE		reflect.makeFuncStub()
+[Fx] BEFORE RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/ui/wails.NewService() from module "ui.wails"
+[Fx] RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/ui/wails.NewService() in 9.417µs from module "ui.wails"
+[Fx] BEFORE RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/ui/wails.NewWailsApplication() from module "ui.wails"
+time="2026-05-28 21:16:28" level=INFO source=/Users/ai/go/pkg/mod/github.com/wailsapp/wails/v3@v3.0.0-alpha.74/pkg/application/application.go:512 msg="Build Info:" project=package-embedded-pg Wails=v3.0.0-alpha.74 Compiler=go1.26.3 vcs.modified=true -buildmode=exe CGO_ENABLED=1 CGO_CFLAGS="" vcs.time=2026-05-28T06:01:18Z CGO_CPPFLAGS="" CGO_CXXFLAGS="" CGO_LDFLAGS="" GOARCH=arm64 DefaultGODEBUG="cryptocustomrand=1,tlssecpmlkem=0,urlstrictcolons=0" GOOS=darwin GOARM64=v8.0 vcs=git vcs.revision=9288881661ab7de84646f14807c962bfe4adbb89 -compiler=gc
+time="2026-05-28 21:16:28" level=INFO source=/Users/ai/go/pkg/mod/github.com/wailsapp/wails/v3@v3.0.0-alpha.74/pkg/application/application.go:512 msg="Platform Info:" project=package-embedded-pg ID=25C56 Name=MacOS Version=26.2 Branding="MacOS 26.2"
+time="2026-05-28 21:16:28" level=INFO source=/Users/ai/go/pkg/mod/github.com/wailsapp/wails/v3@v3.0.0-alpha.74/internal/assetserver/assetserver_dev.go:49 msg="AssetServer Info:" project=package-embedded-pg middleware=true handler=true
+[Fx] RUN	provide: github.com/anthropic-ai/super-agent-v3/internal/ui/wails.NewWailsApplication() in 5.533ms from module "ui.wails"
+[Fx] HOOK OnStart		github.com/anthropic-ai/super-agent-v3/internal/platform/db.registerLifecycle.func1() executing (caller: github.com/anthropic-ai/super-agent-v3/internal/platform/db.registerLifecycle)
+time="2026-05-28 21:16:29" level=INFO source=/Users/ai/Desktop/Super-Dolphin/.worktrees/package-embedded-pg/internal/platform/db/module.go:359 msg="db pool ready" project=package-embedded-pg
+[Fx] HOOK OnStart		github.com/anthropic-ai/super-agent-v3/internal/platform/db.registerLifecycle.func1() called by github.com/anthropic-ai/super-agent-v3/internal/platform/db.registerLifecycle ran successfully in 765.377125ms
+[Fx] HOOK OnStart		github.com/anthropic-ai/super-agent-v3/internal/provider/codexapp.NewServerManager.func1() executing (caller: github.com/anthropic-ai/super-agent-v3/internal/provider/codexapp.NewServerManager)
+[Fx] HOOK OnStart		github.com/anthropic-ai/super-agent-v3/internal/provider/codexapp.NewServerManager.func1() called by github.com/anthropic-ai/super-agent-v3/internal/provider/codexapp.NewServerManager ran successfully in 93.456417ms
+[Fx] HOOK OnStart		github.com/anthropic-ai/super-agent-v3/internal/platform/bus.registerLifecycle.func1() executing (caller: github.com/anthropic-ai/super-agent-v3/internal/platform/bus.registerLifecycle)
+time="2026-05-28 21:16:29" level=WARN source=/Users/ai/Desktop/Super-Dolphin/.worktrees/package-embedded-pg/internal/platform/eventsurface/bind.go:84 msg="eventsurface: Bind() called" project=package-embedded-pg dispatcher=0x33f7b7e16300 stack="github.com/anthropic-ai/super-agent-v3/internal/platform/rpc.subscribeCoreEventPushes:67 github.com/anthropic-ai/super-agent-v3/internal/platform/rpc.NewRPCPushSubscribers.func1:26 github.com/anthropic-ai/super-agent-v3/internal/platform/bus.(*SubscriberGroup).Start:49 github.com/anthropic-ai/super-agent-v3/internal/platform/bus.registerLifecycle.func1:46 go.uber.org/fx/internal/lifecycle.(*Lifecycle).runStartHook:256"
+[Fx] HOOK OnStart		github.com/anthropic-ai/super-agent-v3/internal/platform/bus.registerLifecycle.func1() called by github.com/anthropic-ai/super-agent-v3/internal/platform/bus.registerLifecycle ran successfully in 1.499875ms
+[Fx] HOOK OnStart		github.com/anthropic-ai/super-agent-v3/internal/platform/rpc.bindApprovalLifecycle.func1() executing (caller: github.com/anthropic-ai/super-agent-v3/internal/platform/rpc.bindApprovalLifecycle)
+[Fx] HOOK OnStart		github.com/anthropic-ai/super-agent-v3/internal/platform/rpc.bindApprovalLifecycle.func1() called by github.com/anthropic-ai/super-agent-v3/internal/platform/rpc.bindApprovalLifecycle ran successfully in 625ns
+[Fx] HOOK OnStart		github.com/anthropic-ai/super-agent-v3/internal/platform/hooks.registerRecoveryLifecycle.func1() executing (caller: github.com/anthropic-ai/super-agent-v3/internal/platform/hooks.registerRecoveryLifecycle)
+[Fx] HOOK OnStart		github.com/anthropic-ai/super-agent-v3/internal/platform/hooks.registerRecoveryLifecycle.func1() called by github.com/anthropic-ai/super-agent-v3/internal/platform/hooks.registerRecoveryLifecycle ran successfully in 529.75µs
+[Fx] HOOK OnStart		github.com/anthropic-ai/super-agent-v3/internal/platform/mcpcontrol.registerRegistryLifecycle.func1() executing (caller: github.com/anthropic-ai/super-agent-v3/internal/platform/mcpcontrol.registerRegistryLifecycle)
+[Fx] HOOK OnStart		github.com/anthropic-ai/super-agent-v3/internal/platform/mcpcontrol.registerRegistryLifecycle.func1() called by github.com/anthropic-ai/super-agent-v3/internal/platform/mcpcontrol.registerRegistryLifecycle ran successfully in 42ns
+[Fx] HOOK OnStart		github.com/anthropic-ai/super-agent-v3/internal/module/memory.registerTeamMemoryRuntime.func1() executing (caller: github.com/anthropic-ai/super-agent-v3/internal/module/memory.registerTeamMemoryRuntime)
+[Fx] HOOK OnStart		github.com/anthropic-ai/super-agent-v3/internal/module/memory.registerTeamMemoryRuntime.func1() called by github.com/anthropic-ai/super-agent-v3/internal/module/memory.registerTeamMemoryRuntime ran successfully in 41ns
+[Fx] HOOK OnStart		github.com/anthropic-ai/super-agent-v3/internal/module/memory.registerLifecycle.func1() executing (caller: github.com/anthropic-ai/super-agent-v3/internal/module/memory.registerLifecycle)
+time="2026-05-28 21:16:29" level=DEBUG source=/Users/ai/Desktop/Super-Dolphin/.worktrees/package-embedded-pg/internal/module/memory/service.go:181 msg="memory root ready" project=package-embedded-pg root_dir=/var/folders/xl/33p_9r195yd4glcqfpbc0cv40000gn/T/tmp.OZlmF6wim8/.multi-agent/memory/projects/users-ai-desktop-super-dolphin/memory
+[Fx] HOOK OnStart		github.com/anthropic-ai/super-agent-v3/internal/module/memory.registerLifecycle.func1() called by github.com/anthropic-ai/super-agent-v3/internal/module/memory.registerLifecycle ran successfully in 8.182ms
+[Fx] HOOK OnStart		github.com/anthropic-ai/super-agent-v3/internal/module/memory.bindMemoryDrainShutdown.func1() executing (caller: github.com/anthropic-ai/super-agent-v3/internal/module/memory.bindMemoryDrainShutdown)
+[Fx] HOOK OnStart		github.com/anthropic-ai/super-agent-v3/internal/module/memory.bindMemoryDrainShutdown.func1() called by github.com/anthropic-ai/super-agent-v3/internal/module/memory.bindMemoryDrainShutdown ran successfully in 62.875µs
+[Fx] HOOK OnStart		github.com/anthropic-ai/super-agent-v3/internal/module/skill.runBuiltinSkillSeed.func1() executing (caller: github.com/anthropic-ai/super-agent-v3/internal/module/skill.runBuiltinSkillSeed)
+[Fx] HOOK OnStart		github.com/anthropic-ai/super-agent-v3/internal/module/skill.runBuiltinSkillSeed.func1() called by github.com/anthropic-ai/super-agent-v3/internal/module/skill.runBuiltinSkillSeed ran successfully in 625ns
+[Fx] HOOK OnStart		github.com/anthropic-ai/super-agent-v3/internal/module/uistate.registerInitialStateLifecycle.func1() executing (caller: github.com/anthropic-ai/super-agent-v3/internal/module/uistate.registerInitialStateLifecycle)
+[Fx] HOOK OnStart		github.com/anthropic-ai/super-agent-v3/internal/module/uistate.registerInitialStateLifecycle.func1() called by github.com/anthropic-ai/super-agent-v3/internal/module/uistate.registerInitialStateLifecycle ran successfully in 510.542µs
+[Fx] HOOK OnStart		github.com/anthropic-ai/super-agent-v3/internal/platform/toolbridge.registerProxyLifecycle.func1() executing (caller: github.com/anthropic-ai/super-agent-v3/internal/platform/toolbridge.registerProxyLifecycle)
+time="2026-05-28 21:16:29" level=WARN source=/Users/ai/Desktop/Super-Dolphin/.worktrees/package-embedded-pg/internal/platform/toolbridge/module.go:166 msg="toolbridge: proxy started" project=package-embedded-pg addr=127.0.0.1:58941
+[Fx] HOOK OnStart		github.com/anthropic-ai/super-agent-v3/internal/platform/toolbridge.registerProxyLifecycle.func1() called by github.com/anthropic-ai/super-agent-v3/internal/platform/toolbridge.registerProxyLifecycle ran successfully in 119.25µs
+[Fx] HOOK OnStart		github.com/anthropic-ai/super-agent-v3/internal/ui/wails.bindEventBridge.func1() executing (caller: github.com/anthropic-ai/super-agent-v3/internal/ui/wails.bindEventBridge)
+time="2026-05-28 21:16:29" level=WARN source=/Users/ai/Desktop/Super-Dolphin/.worktrees/package-embedded-pg/internal/platform/eventsurface/bind.go:84 msg="eventsurface: Bind() called" project=package-embedded-pg dispatcher=0x33f7b7e16300 stack="github.com/anthropic-ai/super-agent-v3/internal/ui/wails.(*EventBridge).Start:50 github.com/anthropic-ai/super-agent-v3/internal/ui/wails.bindEventBridge.func1:165 go.uber.org/fx/internal/lifecycle.(*Lifecycle).runStartHook:256 go.uber.org/fx/internal/lifecycle.(*Lifecycle).Start:216 go.uber.org/fx.(*App).start-fm.(*App).start.func1:702 go.uber.org/fx.(*App).withRollback:684 go.uber.org/fx.(*App).start:701"
+time="2026-05-28 21:16:29" level=INFO source=/Users/ai/Desktop/Super-Dolphin/.worktrees/package-embedded-pg/internal/ui/wails/bridge.go:51 msg="bridge: started" project=package-embedded-pg subscriptions=27
+[Fx] HOOK OnStart		github.com/anthropic-ai/super-agent-v3/internal/ui/wails.bindEventBridge.func1() called by github.com/anthropic-ai/super-agent-v3/internal/ui/wails.bindEventBridge ran successfully in 499.167µs
+[Fx] HOOK OnStart		github.com/anthropic-ai/super-agent-v3/internal/app.BindRuntime.func2() executing (caller: github.com/anthropic-ai/super-agent-v3/internal/app.BindRuntime)
+[Fx] HOOK OnStart		github.com/anthropic-ai/super-agent-v3/internal/app.BindRuntime.func2() called by github.com/anthropic-ai/super-agent-v3/internal/app.BindRuntime ran successfully in 148.417µs
+time="2026-05-28 21:16:29" level=INFO source=/Users/ai/Desktop/Super-Dolphin/.worktrees/package-embedded-pg/internal/platform/rpc/server.go:311 msg="rpc server listening" project=package-embedded-pg addr=127.0.0.1:58942
+[Fx] RUNNING
+time="2026-05-28 21:16:29" level=INFO source=/Users/ai/Desktop/Super-Dolphin/.worktrees/package-embedded-pg/internal/ui/wails/http_server.go:79 msg="http asset server listening" project=package-embedded-pg addr=127.0.0.1:58944
+time="2026-05-28 21:16:29" level=INFO source=/Users/ai/Desktop/Super-Dolphin/.worktrees/package-embedded-pg/internal/provider/codexapp/peer_supervisor.go:540 msg="peer_supervisor: started" project=package-embedded-pg peer=mcp-orch pid=2234 mode=peer
+time="2026-05-28 21:16:29" level=INFO source=/Users/ai/Desktop/Super-Dolphin/.worktrees/package-embedded-pg/internal/provider/codexapp/peer_supervisor.go:540 msg="peer_supervisor: started" project=package-embedded-pg peer=mcp-lsp pid=2235 mode=peer
+rlimit: NOFILE already at 1048576 (max 1048576), no change needed
+rlimit: NOFILE already at 1048576 (max 1048576), no change needed
+{"time":"2026-05-28 21:16:29","level":"INFO","msg":"mcp: server run started","server":"mcp-lsp"}
+{"time":"2026-05-28 21:16:29","level":"INFO","msg":"mcp-lsp bootstrap starting (peer mode)","binary_name":"","rpc_addr":"127.0.0.1:58942","capabilities":["tools/lsp"]}
+{"time":"2026-05-28 21:16:29","level":"INFO","msg":"mcp http: started","server":"mcp-lsp","addr":"127.0.0.1:58945"}
+{"time":"2026-05-28 21:16:29","level":"INFO","msg":"mcp-lsp http: listening","addr":"127.0.0.1:58945","binary":"mcp-lsp"}
+{"time":"2026-05-28 21:16:29","level":"INFO","msg":"bootstrap registered","binary_name":"mcp-lsp","instance_id":"mcp-lsp-2235-1779974189383979000","rpc_addr":"127.0.0.1:58942","thread_id":"","lease_generation":1,"capabilities_negotiated":["tools/lsp"],"subscriptions":null,"config_version":1}
+time="2026-05-28 21:16:29" level=INFO source=/Users/ai/Desktop/Super-Dolphin/.worktrees/package-embedded-pg/internal/platform/mcpcontrol/handlers.go:261 msg="bootstrap registered" project=package-embedded-pg source=mcp-control mcp_instance_id=mcp-lsp-2235-1779974189383979000 mcp_generation=1 mcp_binary_name=mcp-lsp mcp_client_kind=lsp mcp_pid=2235 mcp_log_seq=4 mcp_log_ts=1779974189386 binary_name=mcp-lsp capabilities_negotiated=[tools/lsp] client_kind=lsp config_version=1 instance_id=mcp-lsp-2235-1779974189383979000 lease_generation=1 origin_time=2026-05-28T21:16:29.38656+08:00 rpc_addr=127.0.0.1:58942 source_process=mcp-lsp subscriptions=<nil> thread_id=""
+time="2026-05-28 21:16:29" level=INFO source=/Users/ai/Desktop/Super-Dolphin/.worktrees/package-embedded-pg/internal/platform/mcpcontrol/handlers.go:261 msg="bootstrap registered" project=package-embedded-pg source=mcp-control mcp_instance_id=mcp-orch-2234-1779974189385908000 mcp_generation=1 mcp_binary_name=mcp-orch mcp_client_kind=orch mcp_pid=2234 mcp_log_seq=7 mcp_log_ts=1779974189391 binary_name=mcp-orch capabilities_negotiated="[tools/orchestration tools/task tools/workspace tools/prompt tools/command tools/shared_file]" client_kind=orch config_version=1 instance_id=mcp-orch-2234-1779974189385908000 lease_generation=1 origin_time=2026-05-28T21:16:29.391332+08:00 rpc_addr=127.0.0.1:58942 source_process=mcp-orch subscriptions="[config/agent config/thread]" thread_id=""
+time="2026-05-28 21:16:29" level=DEBUG source=/Users/ai/go/pkg/mod/github.com/wailsapp/wails/v3@v3.0.0-alpha.74/pkg/application/application.go:521 msg="Registering bound method:" project=package-embedded-pg fqn=github.com/anthropic-ai/super-agent-v3/internal/ui/wails.App.ListAgents id=3092555662
+time="2026-05-28 21:16:29" level=DEBUG source=/Users/ai/go/pkg/mod/github.com/wailsapp/wails/v3@v3.0.0-alpha.74/pkg/application/application.go:521 msg="Registering bound method:" project=package-embedded-pg fqn=github.com/anthropic-ai/super-agent-v3/internal/ui/wails.App.GetGroup id=4162709455
+time="2026-05-28 21:16:29" level=DEBUG source=/Users/ai/go/pkg/mod/github.com/wailsapp/wails/v3@v3.0.0-alpha.74/pkg/application/application.go:521 msg="Registering bound method:" project=package-embedded-pg fqn=github.com/anthropic-ai/super-agent-v3/internal/ui/wails.App.SelectFiles id=4126105303
+time="2026-05-28 21:16:29" level=DEBUG source=/Users/ai/go/pkg/mod/github.com/wailsapp/wails/v3@v3.0.0-alpha.74/pkg/application/application.go:521 msg="Registering bound method:" project=package-embedded-pg fqn=github.com/anthropic-ai/super-agent-v3/internal/ui/wails.App.CopyText id=556919974
+time="2026-05-28 21:16:29" level=DEBUG source=/Users/ai/go/pkg/mod/github.com/wailsapp/wails/v3@v3.0.0-alpha.74/pkg/application/application.go:521 msg="Registering bound method:" project=package-embedded-pg fqn=github.com/anthropic-ai/super-agent-v3/internal/ui/wails.App.CallAPI id=2963398832
+time="2026-05-28 21:16:29" level=DEBUG source=/Users/ai/go/pkg/mod/github.com/wailsapp/wails/v3@v3.0.0-alpha.74/pkg/application/application.go:521 msg="Registering bound method:" project=package-embedded-pg fqn=github.com/anthropic-ai/super-agent-v3/internal/ui/wails.App.SaveClipboardImage id=3733550318
+time="2026-05-28 21:16:29" level=DEBUG source=/Users/ai/go/pkg/mod/github.com/wailsapp/wails/v3@v3.0.0-alpha.74/pkg/application/application.go:521 msg="Registering bound method:" project=package-embedded-pg fqn=github.com/anthropic-ai/super-agent-v3/internal/ui/wails.App.OpenNewWindow id=2834112154
+time="2026-05-28 21:16:29" level=DEBUG source=/Users/ai/go/pkg/mod/github.com/wailsapp/wails/v3@v3.0.0-alpha.74/pkg/application/application.go:521 msg="Registering bound method:" project=package-embedded-pg fqn=github.com/anthropic-ai/super-agent-v3/internal/ui/wails.App.SelectProjectDir id=3694631468
+time="2026-05-28 21:16:29" level=DEBUG source=/Users/ai/go/pkg/mod/github.com/wailsapp/wails/v3@v3.0.0-alpha.74/pkg/application/application.go:521 msg="Registering bound method:" project=package-embedded-pg fqn=github.com/anthropic-ai/super-agent-v3/internal/ui/wails.App.SelectProjectDirs id=176685965
+time="2026-05-28 21:16:29" level=DEBUG source=/Users/ai/go/pkg/mod/github.com/wailsapp/wails/v3@v3.0.0-alpha.74/pkg/application/application.go:521 msg="Registering bound method:" project=package-embedded-pg fqn=github.com/anthropic-ai/super-agent-v3/internal/ui/wails.App.LaunchAgent id=3915173408
+time="2026-05-28 21:16:29" level=DEBUG source=/Users/ai/go/pkg/mod/github.com/wailsapp/wails/v3@v3.0.0-alpha.74/pkg/application/application.go:521 msg="Registering bound method:" project=package-embedded-pg fqn=github.com/anthropic-ai/super-agent-v3/internal/ui/wails.App.StopAgent id=385734233
+time="2026-05-28 21:16:29" level=DEBUG source=/Users/ai/go/pkg/mod/github.com/wailsapp/wails/v3@v3.0.0-alpha.74/pkg/application/application.go:521 msg="Registering bound method:" project=package-embedded-pg fqn=github.com/anthropic-ai/super-agent-v3/internal/ui/wails.App.GetBuildInfo id=2341363104
+time="2026-05-28 21:16:29" level=DEBUG source=/Users/ai/go/pkg/mod/github.com/wailsapp/wails/v3@v3.0.0-alpha.74/pkg/application/application.go:521 msg="handleWebViewRequest: Processing request" project=package-embedded-pg url=wails://localhost/
+time="2026-05-28 21:16:29" level=DEBUG source=/Users/ai/go/pkg/mod/github.com/wailsapp/wails/v3@v3.0.0-alpha.74/pkg/application/application.go:521 msg="handleWebViewRequest: Request processing complete" project=package-embedded-pg url=wails://localhost/
+time="2026-05-28 21:16:29" level=INFO source=/Users/ai/go/pkg/mod/github.com/wailsapp/wails/v3@v3.0.0-alpha.74/internal/assetserver/common.go:58 msg="[AssetFileServerFS] Handling request" project=package-embedded-pg url=/ file=.
+time="2026-05-28 21:16:29" level=DEBUG source=/Users/ai/go/pkg/mod/github.com/wailsapp/wails/v3@v3.0.0-alpha.74/internal/assetserver/assetserver.go:72 msg="Asset Request:" project=package-embedded-pg windowName=main windowID=1 code=200 method=GET path=/ duration=196.709µs
+time="2026-05-28 21:16:29" level=DEBUG source=/Users/ai/go/pkg/mod/github.com/wailsapp/wails/v3@v3.0.0-alpha.74/pkg/application/application.go:521 msg="handleWebViewRequest: Request processing complete" project=package-embedded-pg url=wails://localhost/assets/index-67EQyATF.js
+time="2026-05-28 21:16:29" level=DEBUG source=/Users/ai/go/pkg/mod/github.com/wailsapp/wails/v3@v3.0.0-alpha.74/pkg/application/application.go:521 msg="handleWebViewRequest: Processing request" project=package-embedded-pg url=wails://localhost/assets/index-67EQyATF.js
+time="2026-05-28 21:16:29" level=DEBUG source=/Users/ai/go/pkg/mod/github.com/wailsapp/wails/v3@v3.0.0-alpha.74/pkg/application/application.go:521 msg="handleWebViewRequest: Request processing complete" project=package-embedded-pg url=wails://localhost/assets/vendor-hljs-BaPdoxjT.js
+time="2026-05-28 21:16:29" level=DEBUG source=/Users/ai/go/pkg/mod/github.com/wailsapp/wails/v3@v3.0.0-alpha.74/pkg/application/application.go:521 msg="handleWebViewRequest: Processing request" project=package-embedded-pg url=wails://localhost/assets/vendor-hljs-BaPdoxjT.js
+time="2026-05-28 21:16:29" level=DEBUG source=/Users/ai/go/pkg/mod/github.com/wailsapp/wails/v3@v3.0.0-alpha.74/pkg/application/application.go:521 msg="handleWebViewRequest: Request processing complete" project=package-embedded-pg url=wails://localhost/assets/vendor-mermaid-Bp0A199F.js
+time="2026-05-28 21:16:29" level=DEBUG source=/Users/ai/go/pkg/mod/github.com/wailsapp/wails/v3@v3.0.0-alpha.74/pkg/application/application.go:521 msg="handleWebViewRequest: Processing request" project=package-embedded-pg url=wails://localhost/assets/vendor-mermaid-Bp0A199F.js
+time="2026-05-28 21:16:29" level=INFO source=/Users/ai/go/pkg/mod/github.com/wailsapp/wails/v3@v3.0.0-alpha.74/internal/assetserver/common.go:58 msg="[AssetFileServerFS] Handling request" project=package-embedded-pg url=/assets/vendor-mermaid-Bp0A199F.js file=assets/vendor-mermaid-Bp0A199F.js
+time="2026-05-28 21:16:29" level=INFO source=/Users/ai/go/pkg/mod/github.com/wailsapp/wails/v3@v3.0.0-alpha.74/internal/assetserver/common.go:58 msg="[AssetFileServerFS] Handling request" project=package-embedded-pg url=/assets/index-67EQyATF.js file=assets/index-67EQyATF.js
+time="2026-05-28 21:16:29" level=INFO source=/Users/ai/go/pkg/mod/github.com/wailsapp/wails/v3@v3.0.0-alpha.74/internal/assetserver/common.go:58 msg="[AssetFileServerFS] Handling request" project=package-embedded-pg url=/assets/vendor-hljs-BaPdoxjT.js file=assets/vendor-hljs-BaPdoxjT.js
+time="2026-05-28 21:16:29" level=INFO source=/Users/ai/go/pkg/mod/github.com/wailsapp/wails/v3@v3.0.0-alpha.74/internal/assetserver/common.go:58 msg="[AssetFileServerFS] Handling request" project=package-embedded-pg url=/assets/vendor-md-DlFgzwTR.js file=assets/vendor-md-DlFgzwTR.js
+time="2026-05-28 21:16:29" level=DEBUG source=/Users/ai/go/pkg/mod/github.com/wailsapp/wails/v3@v3.0.0-alpha.74/pkg/application/application.go:521 msg="handleWebViewRequest: Request processing complete" project=package-embedded-pg url=wails://localhost/assets/index-DkyspJrA.css
+time="2026-05-28 21:16:29" level=INFO source=/Users/ai/go/pkg/mod/github.com/wailsapp/wails/v3@v3.0.0-alpha.74/internal/assetserver/common.go:58 msg="[AssetFileServerFS] Handling request" project=package-embedded-pg url=/assets/vendor-echarts-D8CvS2Rb.js file=assets/vendor-echarts-D8CvS2Rb.js
+time="2026-05-28 21:16:29" level=DEBUG source=/Users/ai/go/pkg/mod/github.com/wailsapp/wails/v3@v3.0.0-alpha.74/pkg/application/application.go:521 msg="handleWebViewRequest: Processing request" project=package-embedded-pg url=wails://localhost/assets/vendor-echarts-D8CvS2Rb.js
+time="2026-05-28 21:16:29" level=DEBUG source=/Users/ai/go/pkg/mod/github.com/wailsapp/wails/v3@v3.0.0-alpha.74/pkg/application/application.go:521 msg="handleWebViewRequest: Request processing complete" project=package-embedded-pg url=wails://localhost/assets/vendor-echarts-D8CvS2Rb.js
+time="2026-05-28 21:16:29" level=DEBUG source=/Users/ai/go/pkg/mod/github.com/wailsapp/wails/v3@v3.0.0-alpha.74/pkg/application/application.go:521 msg="handleWebViewRequest: Request processing complete" project=package-embedded-pg url=wails://localhost/assets/vendor-md-DlFgzwTR.js
+time="2026-05-28 21:16:29" level=INFO source=/Users/ai/go/pkg/mod/github.com/wailsapp/wails/v3@v3.0.0-alpha.74/internal/assetserver/common.go:58 msg="[AssetFileServerFS] Handling request" project=package-embedded-pg url=/assets/index-DkyspJrA.css file=assets/index-DkyspJrA.css
+time="2026-05-28 21:16:29" level=DEBUG source=/Users/ai/go/pkg/mod/github.com/wailsapp/wails/v3@v3.0.0-alpha.74/pkg/application/application.go:521 msg="handleWebViewRequest: Processing request" project=package-embedded-pg url=wails://localhost/assets/index-DkyspJrA.css
+time="2026-05-28 21:16:29" level=DEBUG source=/Users/ai/go/pkg/mod/github.com/wailsapp/wails/v3@v3.0.0-alpha.74/pkg/application/application.go:521 msg="handleWebViewRequest: Processing request" project=package-embedded-pg url=wails://localhost/assets/vendor-md-DlFgzwTR.js
+time="2026-05-28 21:16:29" level=DEBUG source=/Users/ai/go/pkg/mod/github.com/wailsapp/wails/v3@v3.0.0-alpha.74/internal/assetserver/assetserver.go:72 msg="Asset Request:" project=package-embedded-pg windowName=main windowID=1 code=200 method=GET path=/assets/vendor-hljs-BaPdoxjT.js duration=447.833µs
+time="2026-05-28 21:16:29" level=DEBUG source=/Users/ai/go/pkg/mod/github.com/wailsapp/wails/v3@v3.0.0-alpha.74/internal/assetserver/assetserver.go:72 msg="Asset Request:" project=package-embedded-pg windowName=main windowID=1 code=200 method=GET path=/assets/index-DkyspJrA.css duration=1.543292ms
+time="2026-05-28 21:16:29" level=DEBUG source=/Users/ai/go/pkg/mod/github.com/wailsapp/wails/v3@v3.0.0-alpha.74/internal/assetserver/assetserver.go:72 msg="Asset Request:" project=package-embedded-pg windowName=main windowID=1 code=200 method=GET path=/assets/vendor-mermaid-Bp0A199F.js duration=2.973208ms
+time="2026-05-28 21:16:29" level=DEBUG source=/Users/ai/go/pkg/mod/github.com/wailsapp/wails/v3@v3.0.0-alpha.74/internal/assetserver/assetserver.go:72 msg="Asset Request:" project=package-embedded-pg windowName=main windowID=1 code=200 method=GET path=/assets/vendor-echarts-D8CvS2Rb.js duration=3.204792ms
+time="2026-05-28 21:16:29" level=DEBUG source=/Users/ai/go/pkg/mod/github.com/wailsapp/wails/v3@v3.0.0-alpha.74/internal/assetserver/assetserver.go:72 msg="Asset Request:" project=package-embedded-pg windowName=main windowID=1 code=200 method=GET path=/assets/vendor-md-DlFgzwTR.js duration=3.406959ms
+time="2026-05-28 21:16:29" level=DEBUG source=/Users/ai/go/pkg/mod/github.com/wailsapp/wails/v3@v3.0.0-alpha.74/internal/assetserver/assetserver.go:72 msg="Asset Request:" project=package-embedded-pg windowName=main windowID=1 code=200 method=GET path=/assets/index-67EQyATF.js duration=4.464125ms
+time="2026-05-28 21:16:29" level=DEBUG source=/Users/ai/go/pkg/mod/github.com/wailsapp/wails/v3@v3.0.0-alpha.74/pkg/application/application.go:521 msg="handleWebViewRequest: Processing request" project=package-embedded-pg url=wails://localhost/data/en-zh-dict.json
+time="2026-05-28 21:16:29" level=DEBUG source=/Users/ai/go/pkg/mod/github.com/wailsapp/wails/v3@v3.0.0-alpha.74/pkg/application/application.go:521 msg="handleWebViewRequest: Request processing complete" project=package-embedded-pg url=wails://localhost/data/en-zh-dict.json
+time="2026-05-28 21:16:29" level=INFO source=/Users/ai/go/pkg/mod/github.com/wailsapp/wails/v3@v3.0.0-alpha.74/internal/assetserver/common.go:58 msg="[AssetFileServerFS] Handling request" project=package-embedded-pg url=/data/en-zh-dict.json file=data/en-zh-dict.json
+time="2026-05-28 21:16:29" level=DEBUG source=/Users/ai/go/pkg/mod/github.com/wailsapp/wails/v3@v3.0.0-alpha.74/internal/assetserver/assetserver.go:72 msg="Asset Request:" project=package-embedded-pg windowName=main windowID=1 code=200 method=GET path=/data/en-zh-dict.json duration=333.125µs
+time="2026-05-28 21:16:29" level=DEBUG source=/Users/ai/go/pkg/mod/github.com/wailsapp/wails/v3@v3.0.0-alpha.74/pkg/application/application.go:521 msg="handleWebViewRequest: Request processing complete" project=package-embedded-pg url=wails://localhost/vue-app/assets/exit-splash.png
+time="2026-05-28 21:16:29" level=DEBUG source=/Users/ai/go/pkg/mod/github.com/wailsapp/wails/v3@v3.0.0-alpha.74/pkg/application/application.go:521 msg="handleWebViewRequest: Processing request" project=package-embedded-pg url=wails://localhost/vue-app/assets/exit-splash.png
+time="2026-05-28 21:16:29" level=INFO source=/Users/ai/go/pkg/mod/github.com/wailsapp/wails/v3@v3.0.0-alpha.74/internal/assetserver/common.go:58 msg="[AssetFileServerFS] Handling request" project=package-embedded-pg url=/vue-app/assets/exit-splash.png file=vue-app/assets/exit-splash.png
+time="2026-05-28 21:16:29" level=DEBUG source=/Users/ai/go/pkg/mod/github.com/wailsapp/wails/v3@v3.0.0-alpha.74/internal/assetserver/assetserver.go:72 msg="Asset Request:" project=package-embedded-pg windowName=main windowID=1 code=404 method=GET path=/vue-app/assets/exit-splash.png duration=33.25µs
+time="2026-05-28 21:16:29" level=DEBUG source=/Users/ai/go/pkg/mod/github.com/wailsapp/wails/v3@v3.0.0-alpha.74/pkg/application/application.go:521 msg="handleWebViewRequest: Request processing complete" project=package-embedded-pg url=wails://localhost/wails/runtime.js
+time="2026-05-28 21:16:29" level=DEBUG source=/Users/ai/go/pkg/mod/github.com/wailsapp/wails/v3@v3.0.0-alpha.74/pkg/application/application.go:521 msg="handleWebViewRequest: Processing request" project=package-embedded-pg url=wails://localhost/wails/runtime.js
+time="2026-05-28 21:16:29" level=DEBUG source=/Users/ai/go/pkg/mod/github.com/wailsapp/wails/v3@v3.0.0-alpha.74/internal/assetserver/assetserver.go:72 msg="Asset Request:" project=package-embedded-pg windowName=main windowID=1 code=200 method=GET path=/wails/runtime.js duration=476.584µs
+time="2026-05-28 21:16:29" level=DEBUG source=/Users/ai/go/pkg/mod/github.com/wailsapp/wails/v3@v3.0.0-alpha.74/pkg/application/application.go:521 msg="handleWindowMessage: Processing wails message" project=package-embedded-pg message=wails:runtime:ready
+time="2026-05-28 21:16:29" level=DEBUG source=/Users/ai/go/pkg/mod/github.com/wailsapp/wails/v3@v3.0.0-alpha.74/pkg/application/application.go:521 msg="handleWindowMessage: Looking for window" project=package-embedded-pg windowId=1 availableIDs=[1]
+time="2026-05-28 21:16:29" level=DEBUG source=/Users/ai/go/pkg/mod/github.com/wailsapp/wails/v3@v3.0.0-alpha.74/pkg/application/application.go:521 msg="handleWebViewRequest: Request processing complete" project=package-embedded-pg url=wails://localhost/wails/custom.js
+time="2026-05-28 21:16:29" level=DEBUG source=/Users/ai/go/pkg/mod/github.com/wailsapp/wails/v3@v3.0.0-alpha.74/pkg/application/application.go:521 msg="handleWebViewRequest: Processing request" project=package-embedded-pg url=wails://localhost/wails/custom.js
+time="2026-05-28 21:16:29" level=DEBUG source=/Users/ai/go/pkg/mod/github.com/wailsapp/wails/v3@v3.0.0-alpha.74/internal/assetserver/assetserver.go:72 msg="Asset Request:" project=package-embedded-pg windowName=main windowID=1 code=0 method=HEAD path=/custom.js duration=1.166µs
+time="2026-05-28 21:16:29" level=DEBUG source=/Users/ai/go/pkg/mod/github.com/wailsapp/wails/v3@v3.0.0-alpha.74/pkg/application/application.go:521 msg="handleWebViewRequest: Request processing complete" project=package-embedded-pg url=wails://localhost/wails/runtime
+time="2026-05-28 21:16:29" level=DEBUG source=/Users/ai/go/pkg/mod/github.com/wailsapp/wails/v3@v3.0.0-alpha.74/pkg/application/application.go:521 msg="handleWebViewRequest: Processing request" project=package-embedded-pg url=wails://localhost/wails/runtime
+time="2026-05-28 21:16:29" level=DEBUG source=/Users/ai/go/pkg/mod/github.com/wailsapp/wails/v3@v3.0.0-alpha.74/pkg/application/application.go:521 msg="handleWebViewRequest: Request processing complete" project=package-embedded-pg url=wails://localhost/wails/runtime
+time="2026-05-28 21:16:29" level=DEBUG source=/Users/ai/go/pkg/mod/github.com/wailsapp/wails/v3@v3.0.0-alpha.74/pkg/application/application.go:521 msg="handleWebViewRequest: Processing request" project=package-embedded-pg url=wails://localhost/wails/runtime
+time="2026-05-28 21:16:29" level=DEBUG source=/Users/ai/go/pkg/mod/github.com/wailsapp/wails/v3@v3.0.0-alpha.74/pkg/application/application.go:521 msg="handleWebViewRequest: Request processing complete" project=package-embedded-pg url=wails://localhost/wails/runtime
+time="2026-05-28 21:16:29" level=DEBUG source=/Users/ai/go/pkg/mod/github.com/wailsapp/wails/v3@v3.0.0-alpha.74/pkg/application/application.go:521 msg="handleWebViewRequest: Processing request" project=package-embedded-pg url=wails://localhost/wails/runtime
+time="2026-05-28 21:16:29" level=DEBUG source=/Users/ai/go/pkg/mod/github.com/wailsapp/wails/v3@v3.0.0-alpha.74/pkg/application/messageprocessor.go:168 msg="Binding call started:" project=package-embedded-pg id=f5HxK77Vazntxm6vSG4Qu method=2963398832
+time="2026-05-28 21:16:29" level=DEBUG source=/Users/ai/go/pkg/mod/github.com/wailsapp/wails/v3@v3.0.0-alpha.74/pkg/application/messageprocessor.go:168 msg="Binding call started:" project=package-embedded-pg id=Z6HEV2OAMptEi1j9E-lX1 method=2963398832
+time="2026-05-28 21:16:29" level=DEBUG source=/Users/ai/go/pkg/mod/github.com/wailsapp/wails/v3@v3.0.0-alpha.74/pkg/application/application.go:521 msg="handleWebViewRequest: Request processing complete" project=package-embedded-pg url=wails://localhost/wails/runtime
+time="2026-05-28 21:16:29" level=DEBUG source=/Users/ai/go/pkg/mod/github.com/wailsapp/wails/v3@v3.0.0-alpha.74/pkg/application/application.go:521 msg="handleWebViewRequest: Processing request" project=package-embedded-pg url=wails://localhost/wails/runtime
+time="2026-05-28 21:16:29" level=DEBUG source=/Users/ai/go/pkg/mod/github.com/wailsapp/wails/v3@v3.0.0-alpha.74/pkg/application/messageprocessor.go:168 msg="Binding call started:" project=package-embedded-pg id=_tBITRbG7miFT_T3HRTKW method=2963398832
+time="2026-05-28 21:16:29" level=DEBUG source=/Users/ai/go/pkg/mod/github.com/wailsapp/wails/v3@v3.0.0-alpha.74/pkg/application/messageprocessor.go:168 msg="Binding call started:" project=package-embedded-pg id=D7M0DvwKEtIjy5u5Jzjnw method=2963398832
+time="2026-05-28 21:16:29" level=DEBUG source=/Users/ai/go/pkg/mod/github.com/wailsapp/wails/v3@v3.0.0-alpha.74/pkg/application/application.go:521 msg="handleWebViewRequest: Request processing complete" project=package-embedded-pg url=wails://localhost/wails/runtime
+time="2026-05-28 21:16:29" level=DEBUG source=/Users/ai/go/pkg/mod/github.com/wailsapp/wails/v3@v3.0.0-alpha.74/pkg/application/application.go:521 msg="handleWebViewRequest: Processing request" project=package-embedded-pg url=wails://localhost/wails/runtime
+time="2026-05-28 21:16:29" level=DEBUG source=/Users/ai/go/pkg/mod/github.com/wailsapp/wails/v3@v3.0.0-alpha.74/pkg/application/application.go:521 msg="handleWebViewRequest: Request processing complete" project=package-embedded-pg url=wails://localhost/wails/runtime
+time="2026-05-28 21:16:29" level=DEBUG source=/Users/ai/go/pkg/mod/github.com/wailsapp/wails/v3@v3.0.0-alpha.74/pkg/application/messageprocessor.go:168 msg="Binding call started:" project=package-embedded-pg id=iIk8PiVrbsSva8w2JS51X method=2963398832
+time="2026-05-28 21:16:29" level=DEBUG source=/Users/ai/go/pkg/mod/github.com/wailsapp/wails/v3@v3.0.0-alpha.74/pkg/application/application.go:521 msg="handleWebViewRequest: Processing request" project=package-embedded-pg url=wails://localhost/wails/runtime
+time="2026-05-28 21:16:29" level=DEBUG source=/Users/ai/go/pkg/mod/github.com/wailsapp/wails/v3@v3.0.0-alpha.74/pkg/application/messageprocessor.go:168 msg="Binding call started:" project=package-embedded-pg id=AUZiteOSwMHglJBkznzhP method=2341363104
+time="2026-05-28 21:16:29" level=DEBUG source=/Users/ai/go/pkg/mod/github.com/wailsapp/wails/v3@v3.0.0-alpha.74/pkg/application/messageprocessor.go:168 msg="Binding call complete:" project=package-embedded-pg id=AUZiteOSwMHglJBkznzhP method=github.com/anthropic-ai/super-agent-v3/internal/ui/wails.App.GetBuildInfo args=[] result="{\"buildTime\":\"2026-05-28T06:01:18Z\",\"commit\":\"9288881661ab\",\"dirty\":\"true\",\"runtime\":\"darwin/arm64\",\"version\":\"v0.0.0-20260528060118-9288881661ab+dirty\"}"
+time="2026-05-28 21:16:29" level=DEBUG source=/Users/ai/go/pkg/mod/github.com/wailsapp/wails/v3@v3.0.0-alpha.74/internal/assetserver/assetserver.go:72 msg="Asset Request:" project=package-embedded-pg windowName=main windowID=1 code=200 method=POST path=/wails/runtime duration=256.917µs
+time="2026-05-28 21:16:29" level=INFO source=/Users/ai/Desktop/Super-Dolphin/.worktrees/package-embedded-pg/pkg/logger/fields.go:47 msg="ui/preferences/get: trace" project=package-embedded-pg cwd="" key=settings.provider.active has_value=true value_kind=string value=codex
+time="2026-05-28 21:16:29" level=DEBUG source=/Users/ai/go/pkg/mod/github.com/wailsapp/wails/v3@v3.0.0-alpha.74/pkg/application/messageprocessor.go:168 msg="Binding call complete:" project=package-embedded-pg id=D7M0DvwKEtIjy5u5Jzjnw method=github.com/anthropic-ai/super-agent-v3/internal/ui/wails.App.CallAPI args="[\"ui/preferences/get\",{\"key\":\"settings.provider.active\",\"_aoClientKind\":\"desktop-wails\",\"_aoClientRoute\":\"/\"}]" result="\"codex\""
+time="2026-05-28 21:16:29" level=DEBUG source=/Users/ai/go/pkg/mod/github.com/wailsapp/wails/v3@v3.0.0-alpha.74/internal/assetserver/assetserver.go:72 msg="Asset Request:" project=package-embedded-pg windowName=main windowID=1 code=200 method=POST path=/wails/runtime duration=630.916µs
+time="2026-05-28 21:16:29" level=DEBUG source=/Users/ai/go/pkg/mod/github.com/wailsapp/wails/v3@v3.0.0-alpha.74/pkg/application/messageprocessor.go:168 msg="Binding call complete:" project=package-embedded-pg id=Z6HEV2OAMptEi1j9E-lX1 method=github.com/anthropic-ai/super-agent-v3/internal/ui/wails.App.CallAPI args="[\"ui/preferences/get\",{\"key\":\"taskHandoff.autoContinueOnAlert\",\"_aoClientKind\":\"desktop-wails\",\"_aoClientRoute\":\"/\"}]" result=null
+time="2026-05-28 21:16:29" level=DEBUG source=/Users/ai/go/pkg/mod/github.com/wailsapp/wails/v3@v3.0.0-alpha.74/pkg/application/messageprocessor.go:168 msg="Binding call complete:" project=package-embedded-pg id=f5HxK77Vazntxm6vSG4Qu method=github.com/anthropic-ai/super-agent-v3/internal/ui/wails.App.CallAPI args="[\"ui/preferences/get\",{\"key\":\"contextUsageAlerts.thresholds\",\"_aoClientKind\":\"desktop-wails\",\"_aoClientRoute\":\"/\"}]" result=null
+time="2026-05-28 21:16:29" level=DEBUG source=/Users/ai/go/pkg/mod/github.com/wailsapp/wails/v3@v3.0.0-alpha.74/pkg/application/messageprocessor.go:168 msg="Binding call complete:" project=package-embedded-pg id=_tBITRbG7miFT_T3HRTKW method=github.com/anthropic-ai/super-agent-v3/internal/ui/wails.App.CallAPI args="[\"ui/preferences/get\",{\"key\":\"taskHandoff.threadWatchdog\",\"_aoClientKind\":\"desktop-wails\",\"_aoClientRoute\":\"/\"}]" result=null
+time="2026-05-28 21:16:29" level=DEBUG source=/Users/ai/go/pkg/mod/github.com/wailsapp/wails/v3@v3.0.0-alpha.74/internal/assetserver/assetserver.go:72 msg="Asset Request:" project=package-embedded-pg windowName=main windowID=1 code=200 method=POST path=/wails/runtime duration=3.520542ms
+time="2026-05-28 21:16:29" level=DEBUG source=/Users/ai/go/pkg/mod/github.com/wailsapp/wails/v3@v3.0.0-alpha.74/internal/assetserver/assetserver.go:72 msg="Asset Request:" project=package-embedded-pg windowName=main windowID=1 code=200 method=POST path=/wails/runtime duration=3.535083ms
+time="2026-05-28 21:16:29" level=DEBUG source=/Users/ai/go/pkg/mod/github.com/wailsapp/wails/v3@v3.0.0-alpha.74/internal/assetserver/assetserver.go:72 msg="Asset Request:" project=package-embedded-pg windowName=main windowID=1 code=200 method=POST path=/wails/runtime duration=3.639167ms
+time="2026-05-28 21:16:29" level=DEBUG source=/Users/ai/go/pkg/mod/github.com/wailsapp/wails/v3@v3.0.0-alpha.74/pkg/application/messageprocessor.go:168 msg="Binding call complete:" project=package-embedded-pg id=iIk8PiVrbsSva8w2JS51X method=github.com/anthropic-ai/super-agent-v3/internal/ui/wails.App.CallAPI args="[\"config/read\",{\"_aoClientKind\":\"desktop-wails\",\"_aoClientRoute\":\"/\"}]" result="{\"approvalPolicy\":\"on-failure\",\"baseInstructions\":null,\"config\":null,\"cwd\":\"/Users/ai/Desktop/Super-Dolphin/.worktrees/package-embedded-pg/dist/package/macos/Super Dolphin.app/Contents/Resources\",\"developerInstructions\":null,\"model\":\"o4-mini\",\"modelProvider\":null,\"personality\":null,\"sandbox\":null,\"toolRouting\":{\"confidenceThreshold\":0.65,\"mode\":\"legacy\",\"routerBaseURL\":\"\",\"routerHasAPIKey\":false,\"routerModel\":\"\",\"routerProvider\":\"openai_compatible\",\"timeoutSec\":8}}"
+time="2026-05-28 21:16:29" level=DEBUG source=/Users/ai/go/pkg/mod/github.com/wailsapp/wails/v3@v3.0.0-alpha.74/internal/assetserver/assetserver.go:72 msg="Asset Request:" project=package-embedded-pg windowName=main windowID=1 code=200 method=POST path=/wails/runtime duration=3.572875ms
+time="2026-05-28 21:16:29" level=DEBUG source=/Users/ai/go/pkg/mod/github.com/wailsapp/wails/v3@v3.0.0-alpha.74/pkg/application/application.go:521 msg="handleWebViewRequest: Request processing complete" project=package-embedded-pg url=wails://localhost/wails/runtime
+time="2026-05-28 21:16:29" level=DEBUG source=/Users/ai/go/pkg/mod/github.com/wailsapp/wails/v3@v3.0.0-alpha.74/pkg/application/application.go:521 msg="handleWebViewRequest: Processing request" project=package-embedded-pg url=wails://localhost/wails/runtime
+time="2026-05-28 21:16:29" level=DEBUG source=/Users/ai/go/pkg/mod/github.com/wailsapp/wails/v3@v3.0.0-alpha.74/pkg/application/application.go:521 msg="handleWebViewRequest: Processing request" project=package-embedded-pg url=wails://localhost/wails/runtime
+time="2026-05-28 21:16:29" level=DEBUG source=/Users/ai/go/pkg/mod/github.com/wailsapp/wails/v3@v3.0.0-alpha.74/pkg/application/application.go:521 msg="handleWebViewRequest: Request processing complete" project=package-embedded-pg url=wails://localhost/wails/runtime
+time="2026-05-28 21:16:29" level=DEBUG source=/Users/ai/go/pkg/mod/github.com/wailsapp/wails/v3@v3.0.0-alpha.74/pkg/application/messageprocessor.go:168 msg="Binding call started:" project=package-embedded-pg id=pCkMa00qm--m4CI8c2bp6 method=2963398832
+time="2026-05-28 21:16:29" level=DEBUG source=/Users/ai/go/pkg/mod/github.com/wailsapp/wails/v3@v3.0.0-alpha.74/pkg/application/application.go:521 msg="handleWebViewRequest: Request processing complete" project=package-embedded-pg url=wails://localhost/wails/runtime
+time="2026-05-28 21:16:29" level=DEBUG source=/Users/ai/go/pkg/mod/github.com/wailsapp/wails/v3@v3.0.0-alpha.74/pkg/application/application.go:521 msg="handleWebViewRequest: Processing request" project=package-embedded-pg url=wails://localhost/wails/runtime
+time="2026-05-28 21:16:29" level=DEBUG source=/Users/ai/go/pkg/mod/github.com/wailsapp/wails/v3@v3.0.0-alpha.74/pkg/application/messageprocessor.go:168 msg="Binding call started:" project=package-embedded-pg id=3oBBXJCQQcPLTvTW5CyGG method=2963398832
+time="2026-05-28 21:16:29" level=DEBUG source=/Users/ai/go/pkg/mod/github.com/wailsapp/wails/v3@v3.0.0-alpha.74/pkg/application/messageprocessor.go:168 msg="Binding call started:" project=package-embedded-pg id=9gM4mYYSpjERdDoYu23sF method=2963398832
+time="2026-05-28 21:16:29" level=WARN source=/Users/ai/Desktop/Super-Dolphin/.worktrees/package-embedded-pg/internal/ui/wails/rpc.go:307 msg="frontend: ui.autoContinuePref.invalid" project=package-embedded-pg source=ui component=frontend_log frontend_scope=ui frontend_event=autoContinuePref.invalid frontend_level=warn frontend_seq=12 frontend_ts=2026-05-28T13:16:29.898Z frontend_fields=map[value:map[]] client_kind=desktop-wails client_route=/
+time="2026-05-28 21:16:29" level=WARN source=/Users/ai/Desktop/Super-Dolphin/.worktrees/package-embedded-pg/internal/ui/wails/rpc.go:307 msg="frontend: ui.threadWatchdogPref.invalid" project=package-embedded-pg source=ui component=frontend_log frontend_scope=ui frontend_event=threadWatchdogPref.invalid frontend_level=warn frontend_seq=14 frontend_ts=2026-05-28T13:16:29.898Z frontend_fields=map[value:map[]] client_kind=desktop-wails client_route=/
+time="2026-05-28 21:16:29" level=WARN source=/Users/ai/Desktop/Super-Dolphin/.worktrees/package-embedded-pg/internal/ui/wails/rpc.go:307 msg="frontend: ui.contextUsageThresholds.invalid" project=package-embedded-pg source=ui component=frontend_log frontend_scope=ui frontend_event=contextUsageThresholds.invalid frontend_level=warn frontend_seq=13 frontend_ts=2026-05-28T13:16:29.898Z frontend_fields=map[value:map[]] client_kind=desktop-wails client_route=/
+time="2026-05-28 21:16:29" level=DEBUG source=/Users/ai/go/pkg/mod/github.com/wailsapp/wails/v3@v3.0.0-alpha.74/pkg/application/messageprocessor.go:168 msg="Binding call complete:" project=package-embedded-pg id=pCkMa00qm--m4CI8c2bp6 method=github.com/anthropic-ai/super-agent-v3/internal/ui/wails.App.CallAPI args="[\"ui/log\",{\"entries\":[{\"seq\":12,\"ts\":\"2026-05-28T13:16:29.898Z\",\"level\":\"warn\",\"scope\":\"ui\",\"event\":\"autoContinuePref.invalid\",\"fields\":{\"value\":{}}}],\"_aoClientKind\":\"desktop-wails\",\"_aoClientRoute\":\"/\"}]" result="{\"ingested\":1,\"ok\":true}"
+time="2026-05-28 21:16:29" level=DEBUG source=/Users/ai/go/pkg/mod/github.com/wailsapp/wails/v3@v3.0.0-alpha.74/pkg/application/messageprocessor.go:168 msg="Binding call complete:" project=package-embedded-pg id=9gM4mYYSpjERdDoYu23sF method=github.com/anthropic-ai/super-agent-v3/internal/ui/wails.App.CallAPI args="[\"ui/log\",{\"entries\":[{\"seq\":14,\"ts\":\"2026-05-28T13:16:29.898Z\",\"level\":\"warn\",\"scope\":\"ui\",\"event\":\"threadWatchdogPref.invalid\",\"fields\":{\"value\":{}}}],\"_aoClientKind\":\"desktop-wails\",\"_aoClientRoute\":\"/\"}]" result="{\"ingested\":1,\"ok\":true}"
+time="2026-05-28 21:16:29" level=DEBUG source=/Users/ai/go/pkg/mod/github.com/wailsapp/wails/v3@v3.0.0-alpha.74/pkg/application/messageprocessor.go:168 msg="Binding call complete:" project=package-embedded-pg id=3oBBXJCQQcPLTvTW5CyGG method=github.com/anthropic-ai/super-agent-v3/internal/ui/wails.App.CallAPI args="[\"ui/log\",{\"entries\":[{\"seq\":13,\"ts\":\"2026-05-28T13:16:29.898Z\",\"level\":\"warn\",\"scope\":\"ui\",\"event\":\"contextUsageThresholds.invalid\",\"fields\":{\"value\":{}}}],\"_aoClientKind\":\"desktop-wails\",\"_aoClientRoute\":\"/\"}]" result="{\"ingested\":1,\"ok\":true}"
+time="2026-05-28 21:16:29" level=DEBUG source=/Users/ai/go/pkg/mod/github.com/wailsapp/wails/v3@v3.0.0-alpha.74/internal/assetserver/assetserver.go:72 msg="Asset Request:" project=package-embedded-pg windowName=main windowID=1 code=200 method=POST path=/wails/runtime duration=416.667µs
+time="2026-05-28 21:16:29" level=DEBUG source=/Users/ai/go/pkg/mod/github.com/wailsapp/wails/v3@v3.0.0-alpha.74/internal/assetserver/assetserver.go:72 msg="Asset Request:" project=package-embedded-pg windowName=main windowID=1 code=200 method=POST path=/wails/runtime duration=463.791µs
+time="2026-05-28 21:16:29" level=DEBUG source=/Users/ai/go/pkg/mod/github.com/wailsapp/wails/v3@v3.0.0-alpha.74/internal/assetserver/assetserver.go:72 msg="Asset Request:" project=package-embedded-pg windowName=main windowID=1 code=200 method=POST path=/wails/runtime duration=364.834µs
+time="2026-05-28 21:16:29" level=DEBUG source=/Users/ai/go/pkg/mod/github.com/wailsapp/wails/v3@v3.0.0-alpha.74/pkg/application/application.go:521 msg="handleWebViewRequest: Processing request" project=package-embedded-pg url=wails://localhost/wails/runtime
+time="2026-05-28 21:16:29" level=DEBUG source=/Users/ai/go/pkg/mod/github.com/wailsapp/wails/v3@v3.0.0-alpha.74/pkg/application/application.go:521 msg="handleWebViewRequest: Request processing complete" project=package-embedded-pg url=wails://localhost/wails/runtime
+time="2026-05-28 21:16:29" level=DEBUG source=/Users/ai/go/pkg/mod/github.com/wailsapp/wails/v3@v3.0.0-alpha.74/pkg/application/application.go:521 msg="handleWebViewRequest: Processing request" project=package-embedded-pg url=wails://localhost/wails/runtime
+time="2026-05-28 21:16:29" level=DEBUG source=/Users/ai/go/pkg/mod/github.com/wailsapp/wails/v3@v3.0.0-alpha.74/pkg/application/application.go:521 msg="handleWebViewRequest: Request processing complete" project=package-embedded-pg url=wails://localhost/wails/runtime
+time="2026-05-28 21:16:29" level=DEBUG source=/Users/ai/go/pkg/mod/github.com/wailsapp/wails/v3@v3.0.0-alpha.74/pkg/application/messageprocessor.go:168 msg="Binding call started:" project=package-embedded-pg id=Ju3o18jtFq8wdWqpTOiLV method=2963398832
+time="2026-05-28 21:16:29" level=DEBUG source=/Users/ai/go/pkg/mod/github.com/wailsapp/wails/v3@v3.0.0-alpha.74/pkg/application/messageprocessor.go:168 msg="Binding call started:" project=package-embedded-pg id=ZJGiiNo3yUJxKcqAPh6gw method=2963398832
+time="2026-05-28 21:16:29" level=DEBUG source=/Users/ai/go/pkg/mod/github.com/wailsapp/wails/v3@v3.0.0-alpha.74/pkg/application/application.go:521 msg="handleWebViewRequest: Request processing complete" project=package-embedded-pg url=wails://localhost/wails/runtime
+time="2026-05-28 21:16:29" level=DEBUG source=/Users/ai/go/pkg/mod/github.com/wailsapp/wails/v3@v3.0.0-alpha.74/pkg/application/application.go:521 msg="handleWebViewRequest: Processing request" project=package-embedded-pg url=wails://localhost/wails/runtime
+time="2026-05-28 21:16:29" level=DEBUG source=/Users/ai/go/pkg/mod/github.com/wailsapp/wails/v3@v3.0.0-alpha.74/pkg/application/messageprocessor.go:168 msg="Binding call started:" project=package-embedded-pg id=Aws1alzfwD9MbdqayDcUJ method=2963398832
+time="2026-05-28 21:16:29" level=WARN source=/Users/ai/Desktop/Super-Dolphin/.worktrees/package-embedded-pg/internal/ui/wails/rpc.go:307 msg="frontend: thread.sidebar.refresh.start" project=package-embedded-pg source=ui component=frontend_log frontend_scope=thread frontend_event=sidebar.refresh.start frontend_level=warn frontend_seq=15 frontend_ts=2026-05-28T13:16:29.899Z frontend_fields=map[ts:1.779974189899e+12] client_kind=desktop-wails client_route=/
+time="2026-05-28 21:16:29" level=WARN source=/Users/ai/Desktop/Super-Dolphin/.worktrees/package-embedded-pg/internal/ui/wails/rpc.go:307 msg="frontend: thread.sidebar.refresh.api_call_start" project=package-embedded-pg source=ui component=frontend_log frontend_scope=thread frontend_event=sidebar.refresh.api_call_start frontend_level=warn frontend_seq=16 frontend_ts=2026-05-28T13:16:29.899Z frontend_fields=map[ts:1.779974189899e+12] client_kind=desktop-wails client_route=/
+time="2026-05-28 21:16:29" level=DEBUG source=/Users/ai/go/pkg/mod/github.com/wailsapp/wails/v3@v3.0.0-alpha.74/pkg/application/messageprocessor.go:168 msg="Binding call complete:" project=package-embedded-pg id=ZJGiiNo3yUJxKcqAPh6gw method=github.com/anthropic-ai/super-agent-v3/internal/ui/wails.App.CallAPI args="[\"ui/log\",{\"entries\":[{\"seq\":15,\"ts\":\"2026-05-28T13:16:29.899Z\",\"level\":\"warn\",\"scope\":\"thread\",\"event\":\"sidebar.refresh.start\",\"fields\":{\"ts\":1779974189899}},{\"seq\":16,\"ts\":\"2026-05-28T13:16:29.899Z\",\"level\":\"warn\",\"scope\":\"thread\",\"event\":\"sidebar.refresh.api_call_start\",\"fields\":{\"ts\":1779974189899}}],\"_aoClientKind\":\"desktop-wails\",\"_aoClientRoute\":\"/\"}]" result="{\"ingested\":2,\"ok\":true}"
+time="2026-05-28 21:16:29" level=DEBUG source=/Users/ai/go/pkg/mod/github.com/wailsapp/wails/v3@v3.0.0-alpha.74/internal/assetserver/assetserver.go:72 msg="Asset Request:" project=package-embedded-pg windowName=main windowID=1 code=200 method=POST path=/wails/runtime duration=420.416µs
+time="2026-05-28 21:16:29" level=DEBUG source=/Users/ai/go/pkg/mod/github.com/wailsapp/wails/v3@v3.0.0-alpha.74/pkg/application/messageprocessor.go:168 msg="Binding call complete:" project=package-embedded-pg id=Aws1alzfwD9MbdqayDcUJ method=github.com/anthropic-ai/super-agent-v3/internal/ui/wails.App.CallAPI args="[\"ui/projects/get\",{\"cwd\":\"/Users/ai/Desktop/Super-Dolphin/.worktrees/package-embedded-pg/dist/package/macos/Super Dolphin.app/Contents/Resources\",\"_aoClientKind\":\"desktop-wails\",\"_aoClientRoute\":\"/\"}]" result="{\"active\":\".\",\"projects\":[]}"
+time="2026-05-28 21:16:29" level=DEBUG source=/Users/ai/go/pkg/mod/github.com/wailsapp/wails/v3@v3.0.0-alpha.74/internal/assetserver/assetserver.go:72 msg="Asset Request:" project=package-embedded-pg windowName=main windowID=1 code=200 method=POST path=/wails/runtime duration=576µs
+time="2026-05-28 21:16:29" level=INFO source=/Users/ai/Desktop/Super-Dolphin/.worktrees/package-embedded-pg/internal/module/uistate/service.go:212 msg=ui.sidebar.get.duration project=package-embedded-pg total_ms=1 get_prefs_ms=0 snapshot_ms=0 enrich_db_ms=0
+time="2026-05-28 21:16:29" level=DEBUG source=/Users/ai/go/pkg/mod/github.com/wailsapp/wails/v3@v3.0.0-alpha.74/pkg/application/messageprocessor.go:168 msg="Binding call complete:" project=package-embedded-pg id=Ju3o18jtFq8wdWqpTOiLV method=github.com/anthropic-ai/super-agent-v3/internal/ui/wails.App.CallAPI args="[\"ui/sidebar/get\",{\"cwd\":\"/Users/ai/Desktop/Super-Dolphin/.worktrees/package-embedded-pg/dist/package/macos/Super Dolphin.app/Contents/Resources\",\"_aoClientKind\":\"desktop-wails\",\"_aoClientRoute\":\"/\"}]" result="{\"agents\":null,\"threads\":null,\"token_usage\":{\"inputTokens\":0,\"outputTokens\":0,\"totalTokens\":0,\"usedTokens\":0},\"workspace\":{\"runs\":[]}}"
+time="2026-05-28 21:16:29" level=DEBUG source=/Users/ai/go/pkg/mod/github.com/wailsapp/wails/v3@v3.0.0-alpha.74/internal/assetserver/assetserver.go:72 msg="Asset Request:" project=package-embedded-pg windowName=main windowID=1 code=200 method=POST path=/wails/runtime duration=1.622541ms
+time="2026-05-28 21:16:29" level=DEBUG source=/Users/ai/go/pkg/mod/github.com/wailsapp/wails/v3@v3.0.0-alpha.74/pkg/application/application.go:521 msg="handleWebViewRequest: Request processing complete" project=package-embedded-pg url=wails://localhost/wails/runtime
+time="2026-05-28 21:16:29" level=DEBUG source=/Users/ai/go/pkg/mod/github.com/wailsapp/wails/v3@v3.0.0-alpha.74/pkg/application/application.go:521 msg="handleWebViewRequest: Processing request" project=package-embedded-pg url=wails://localhost/wails/runtime
+time="2026-05-28 21:16:29" level=DEBUG source=/Users/ai/go/pkg/mod/github.com/wailsapp/wails/v3@v3.0.0-alpha.74/pkg/application/application.go:521 msg="handleWebViewRequest: Request processing complete" project=package-embedded-pg url=wails://localhost/wails/runtime
+time="2026-05-28 21:16:29" level=DEBUG source=/Users/ai/go/pkg/mod/github.com/wailsapp/wails/v3@v3.0.0-alpha.74/pkg/application/application.go:521 msg="handleWebViewRequest: Processing request" project=package-embedded-pg url=wails://localhost/wails/runtime
+time="2026-05-28 21:16:29" level=DEBUG source=/Users/ai/go/pkg/mod/github.com/wailsapp/wails/v3@v3.0.0-alpha.74/pkg/application/messageprocessor.go:168 msg="Binding call started:" project=package-embedded-pg id=QFtg3gUT--Zw4UZ_8508Z method=2963398832
+time="2026-05-28 21:16:29" level=DEBUG source=/Users/ai/go/pkg/mod/github.com/wailsapp/wails/v3@v3.0.0-alpha.74/pkg/application/messageprocessor.go:168 msg="Binding call started:" project=package-embedded-pg id=tPPrwAzjH_rXsstrWYaV3 method=2963398832
+time="2026-05-28 21:16:29" level=WARN source=/Users/ai/Desktop/Super-Dolphin/.worktrees/package-embedded-pg/internal/ui/wails/rpc.go:307 msg="frontend: thread.sidebar.refresh.api_call_done" project=package-embedded-pg source=ui component=frontend_log frontend_scope=thread frontend_event=sidebar.refresh.api_call_done frontend_level=warn frontend_seq=17 frontend_ts=2026-05-28T13:16:29.911Z frontend_fields="map[duration_ms:12 ts:1.779974189911e+12]" client_kind=desktop-wails client_route=/
+time="2026-05-28 21:16:29" level=DEBUG source=/Users/ai/Desktop/Super-Dolphin/.worktrees/package-embedded-pg/internal/ui/wails/rpc.go:305 msg="frontend: scroll.scroll.restore.collapsed" project=package-embedded-pg source=ui component=frontend_log frontend_scope=scroll frontend_event=scroll.restore.collapsed frontend_level=debug frontend_seq=18 frontend_ts=2026-05-28T13:16:29.913Z frontend_fields="map[clientHeight:725 savedScrollTop:0 scrollHeight:725 snapshotGuardActive:true stack:L@wails://localhost/assets/index-67EQyATF.js:1794:15565\n@wails://localhost/assets/index-67EQyATF.js:4747:40828]" client_kind=desktop-wails client_route=/
+time="2026-05-28 21:16:29" level=DEBUG source=/Users/ai/go/pkg/mod/github.com/wailsapp/wails/v3@v3.0.0-alpha.74/pkg/application/messageprocessor.go:168 msg="Binding call complete:" project=package-embedded-pg id=QFtg3gUT--Zw4UZ_8508Z method=github.com/anthropic-ai/super-agent-v3/internal/ui/wails.App.CallAPI args="[\"ui/log\",{\"entries\":[{\"seq\":17,\"ts\":\"2026-05-28T13:16:29.911Z\",\"level\":\"warn\",\"scope\":\"thread\",\"event\":\"sidebar.refresh.api_call_done\",\"fields\":{\"duration_ms\":12,\"ts\":1779974189911}},{\"seq\":18,\"ts\":\"2026-05-28T13:16:29.913Z\",\"level\":\"warn\",\"scope\":\"scroll\",\"event\":\"scroll.restore.collapsed\",\"fields\":{\"scrollHeight\":725,\"clientHeight\":725,\"savedScrollTop\":0,\"snapshotGuardActive\":true,\"stack\":\"L@wails://localhost/assets/index-67EQyATF.js:1794:15565\\n@wails://localhost/assets/index-67EQyATF.js:4747:40828\"}}],\"_aoClientKind\":\"desktop-wails\",\"_aoClientRoute\":\"/\"}]" result="{\"ingested\":2,\"ok\":true}"
+time="2026-05-28 21:16:29" level=DEBUG source=/Users/ai/go/pkg/mod/github.com/wailsapp/wails/v3@v3.0.0-alpha.74/internal/assetserver/assetserver.go:72 msg="Asset Request:" project=package-embedded-pg windowName=main windowID=1 code=200 method=POST path=/wails/runtime duration=2.318209ms
+time="2026-05-28 21:16:29" level=DEBUG source=/Users/ai/go/pkg/mod/github.com/wailsapp/wails/v3@v3.0.0-alpha.74/pkg/application/messageprocessor.go:168 msg="Binding call complete:" project=package-embedded-pg id=tPPrwAzjH_rXsstrWYaV3 method=github.com/anthropic-ai/super-agent-v3/internal/ui/wails.App.CallAPI args="[\"ui/windowBootstrap/get\",{\"_aoClientKind\":\"desktop-wails\",\"_aoClientRoute\":\"/\"}]" result="{\"snapshot\":null}"
+time="2026-05-28 21:16:29" level=DEBUG source=/Users/ai/go/pkg/mod/github.com/wailsapp/wails/v3@v3.0.0-alpha.74/internal/assetserver/assetserver.go:72 msg="Asset Request:" project=package-embedded-pg windowName=main windowID=1 code=200 method=POST path=/wails/runtime duration=2.721625ms
+time="2026-05-28 21:16:29" level=DEBUG source=/Users/ai/go/pkg/mod/github.com/wailsapp/wails/v3@v3.0.0-alpha.74/pkg/application/application.go:521 msg="handleWebViewRequest: Request processing complete" project=package-embedded-pg url=wails://localhost/wails/runtime
+time="2026-05-28 21:16:29" level=DEBUG source=/Users/ai/go/pkg/mod/github.com/wailsapp/wails/v3@v3.0.0-alpha.74/pkg/application/application.go:521 msg="handleWebViewRequest: Processing request" project=package-embedded-pg url=wails://localhost/wails/runtime
+time="2026-05-28 21:16:29" level=DEBUG source=/Users/ai/go/pkg/mod/github.com/wailsapp/wails/v3@v3.0.0-alpha.74/pkg/application/application.go:521 msg="handleWebViewRequest: Request processing complete" project=package-embedded-pg url=wails://localhost/wails/runtime
+time="2026-05-28 21:16:29" level=DEBUG source=/Users/ai/go/pkg/mod/github.com/wailsapp/wails/v3@v3.0.0-alpha.74/pkg/application/application.go:521 msg="handleWebViewRequest: Processing request" project=package-embedded-pg url=wails://localhost/wails/runtime
+time="2026-05-28 21:16:29" level=DEBUG source=/Users/ai/go/pkg/mod/github.com/wailsapp/wails/v3@v3.0.0-alpha.74/pkg/application/messageprocessor.go:168 msg="Binding call started:" project=package-embedded-pg id=zWduUrlWmvCXh8CPivTPh method=2963398832
+time="2026-05-28 21:16:29" level=DEBUG source=/Users/ai/go/pkg/mod/github.com/wailsapp/wails/v3@v3.0.0-alpha.74/pkg/application/messageprocessor.go:168 msg="Binding call started:" project=package-embedded-pg id=z6WNm2hGju_hikvbQ8V1e method=2963398832
+time="2026-05-28 21:16:29" level=WARN source=/Users/ai/Desktop/Super-Dolphin/.worktrees/package-embedded-pg/internal/ui/wails/rpc.go:307 msg="frontend: thread.sidebar.refresh.start" project=package-embedded-pg source=ui component=frontend_log frontend_scope=thread frontend_event=sidebar.refresh.start frontend_level=warn frontend_seq=19 frontend_ts=2026-05-28T13:16:29.932Z frontend_fields=map[ts:1.779974189932e+12] client_kind=desktop-wails client_route=/
+time="2026-05-28 21:16:29" level=WARN source=/Users/ai/Desktop/Super-Dolphin/.worktrees/package-embedded-pg/internal/ui/wails/rpc.go:307 msg="frontend: thread.sidebar.refresh.api_call_start" project=package-embedded-pg source=ui component=frontend_log frontend_scope=thread frontend_event=sidebar.refresh.api_call_start frontend_level=warn frontend_seq=20 frontend_ts=2026-05-28T13:16:29.932Z frontend_fields=map[ts:1.779974189932e+12] client_kind=desktop-wails client_route=/
+time="2026-05-28 21:16:29" level=DEBUG source=/Users/ai/go/pkg/mod/github.com/wailsapp/wails/v3@v3.0.0-alpha.74/pkg/application/messageprocessor.go:168 msg="Binding call complete:" project=package-embedded-pg id=zWduUrlWmvCXh8CPivTPh method=github.com/anthropic-ai/super-agent-v3/internal/ui/wails.App.CallAPI args="[\"ui/log\",{\"entries\":[{\"seq\":19,\"ts\":\"2026-05-28T13:16:29.932Z\",\"level\":\"warn\",\"scope\":\"thread\",\"event\":\"sidebar.refresh.start\",\"fields\":{\"ts\":1779974189932}},{\"seq\":20,\"ts\":\"2026-05-28T13:16:29.932Z\",\"level\":\"warn\",\"scope\":\"thread\",\"event\":\"sidebar.refresh.api_call_start\",\"fields\":{\"ts\":1779974189932}}],\"_aoClientKind\":\"desktop-wails\",\"_aoClientRoute\":\"/\"}]" result="{\"ingested\":2,\"ok\":true}"
+time="2026-05-28 21:16:29" level=DEBUG source=/Users/ai/go/pkg/mod/github.com/wailsapp/wails/v3@v3.0.0-alpha.74/internal/assetserver/assetserver.go:72 msg="Asset Request:" project=package-embedded-pg windowName=main windowID=1 code=200 method=POST path=/wails/runtime duration=472.875µs
+time="2026-05-28 21:16:29" level=INFO source=/Users/ai/Desktop/Super-Dolphin/.worktrees/package-embedded-pg/internal/module/uistate/service.go:212 msg=ui.sidebar.get.duration project=package-embedded-pg total_ms=0 get_prefs_ms=0 snapshot_ms=0 enrich_db_ms=0
+time="2026-05-28 21:16:29" level=DEBUG source=/Users/ai/go/pkg/mod/github.com/wailsapp/wails/v3@v3.0.0-alpha.74/pkg/application/messageprocessor.go:168 msg="Binding call complete:" project=package-embedded-pg id=z6WNm2hGju_hikvbQ8V1e method=github.com/anthropic-ai/super-agent-v3/internal/ui/wails.App.CallAPI args="[\"ui/sidebar/get\",{\"cwd\":\"/Users/ai/Desktop/Super-Dolphin/.worktrees/package-embedded-pg/dist/package/macos/Super Dolphin.app/Contents/Resources\",\"_aoClientKind\":\"desktop-wails\",\"_aoClientRoute\":\"/\"}]" result="{\"agents\":null,\"threads\":null,\"token_usage\":{\"inputTokens\":0,\"outputTokens\":0,\"totalTokens\":0,\"usedTokens\":0},\"workspace\":{\"runs\":[]}}"
+time="2026-05-28 21:16:29" level=DEBUG source=/Users/ai/go/pkg/mod/github.com/wailsapp/wails/v3@v3.0.0-alpha.74/internal/assetserver/assetserver.go:72 msg="Asset Request:" project=package-embedded-pg windowName=main windowID=1 code=200 method=POST path=/wails/runtime duration=703.542µs
+time="2026-05-28 21:16:29" level=DEBUG source=/Users/ai/go/pkg/mod/github.com/wailsapp/wails/v3@v3.0.0-alpha.74/pkg/application/application.go:521 msg="handleWebViewRequest: Request processing complete" project=package-embedded-pg url=wails://localhost/wails/runtime
+time="2026-05-28 21:16:29" level=DEBUG source=/Users/ai/go/pkg/mod/github.com/wailsapp/wails/v3@v3.0.0-alpha.74/pkg/application/application.go:521 msg="handleWebViewRequest: Processing request" project=package-embedded-pg url=wails://localhost/wails/runtime
+time="2026-05-28 21:16:29" level=DEBUG source=/Users/ai/go/pkg/mod/github.com/wailsapp/wails/v3@v3.0.0-alpha.74/pkg/application/application.go:521 msg="handleWebViewRequest: Processing request" project=package-embedded-pg url=wails://localhost/wails/runtime
+time="2026-05-28 21:16:29" level=DEBUG source=/Users/ai/go/pkg/mod/github.com/wailsapp/wails/v3@v3.0.0-alpha.74/pkg/application/application.go:521 msg="handleWebViewRequest: Request processing complete" project=package-embedded-pg url=wails://localhost/wails/runtime
+time="2026-05-28 21:16:29" level=DEBUG source=/Users/ai/go/pkg/mod/github.com/wailsapp/wails/v3@v3.0.0-alpha.74/pkg/application/messageprocessor.go:168 msg="Binding call started:" project=package-embedded-pg id=W08zGccGXZd6FlOudAGl9 method=2963398832
+time="2026-05-28 21:16:29" level=DEBUG source=/Users/ai/go/pkg/mod/github.com/wailsapp/wails/v3@v3.0.0-alpha.74/pkg/application/messageprocessor.go:168 msg="Binding call started:" project=package-embedded-pg id=5hG5FRVkJrWKRGwxmJeDv method=2963398832
+time="2026-05-28 21:16:29" level=WARN source=/Users/ai/Desktop/Super-Dolphin/.worktrees/package-embedded-pg/internal/ui/wails/rpc.go:307 msg="frontend: thread.sidebar.refresh.api_call_done" project=package-embedded-pg source=ui component=frontend_log frontend_scope=thread frontend_event=sidebar.refresh.api_call_done frontend_level=warn frontend_seq=21 frontend_ts=2026-05-28T13:16:29.933Z frontend_fields="map[duration_ms:2 ts:1.779974189933e+12]" client_kind=desktop-wails client_route=/
+time="2026-05-28 21:16:29" level=DEBUG source=/Users/ai/Desktop/Super-Dolphin/.worktrees/package-embedded-pg/internal/ui/wails/rpc.go:305 msg="frontend: scroll.scroll.restore.collapsed" project=package-embedded-pg source=ui component=frontend_log frontend_scope=scroll frontend_event=scroll.restore.collapsed frontend_level=debug frontend_seq=22 frontend_ts=2026-05-28T13:16:29.934Z frontend_fields="map[clientHeight:725 savedScrollTop:0 scrollHeight:725 snapshotGuardActive:true stack:L@wails://localhost/assets/index-67EQyATF.js:1794:15565\n@wails://localhost/assets/index-67EQyATF.js:4747:40828]" client_kind=desktop-wails client_route=/
+time="2026-05-28 21:16:29" level=DEBUG source=/Users/ai/go/pkg/mod/github.com/wailsapp/wails/v3@v3.0.0-alpha.74/pkg/application/messageprocessor.go:168 msg="Binding call complete:" project=package-embedded-pg id=W08zGccGXZd6FlOudAGl9 method=github.com/anthropic-ai/super-agent-v3/internal/ui/wails.App.CallAPI args="[\"ui/log\",{\"entries\":[{\"seq\":21,\"ts\":\"2026-05-28T13:16:29.933Z\",\"level\":\"warn\",\"scope\":\"thread\",\"event\":\"sidebar.refresh.api_call_done\",\"fields\":{\"duration_ms\":2,\"ts\":1779974189933}},{\"seq\":22,\"ts\":\"2026-05-28T13:16:29.934Z\",\"level\":\"warn\",\"scope\":\"scroll\",\"event\":\"scroll.restore.collapsed\",\"fields\":{\"scrollHeight\":725,\"clientHeight\":725,\"savedScrollTop\":0,\"snapshotGuardActive\":true,\"stack\":\"L@wails://localhost/assets/index-67EQyATF.js:1794:15565\\n@wails://localhost/assets/index-67EQyATF.js:4747:40828\"}}],\"_aoClientKind\":\"desktop-wails\",\"_aoClientRoute\":\"/\"}]" result="{\"ingested\":2,\"ok\":true}"
+time="2026-05-28 21:16:29" level=DEBUG source=/Users/ai/go/pkg/mod/github.com/wailsapp/wails/v3@v3.0.0-alpha.74/internal/assetserver/assetserver.go:72 msg="Asset Request:" project=package-embedded-pg windowName=main windowID=1 code=200 method=POST path=/wails/runtime duration=11.310458ms
+time="2026-05-28 21:16:29" level=DEBUG source=/Users/ai/go/pkg/mod/github.com/wailsapp/wails/v3@v3.0.0-alpha.74/pkg/application/messageprocessor.go:168 msg="Binding call complete:" project=package-embedded-pg id=5hG5FRVkJrWKRGwxmJeDv method=github.com/anthropic-ai/super-agent-v3/internal/ui/wails.App.CallAPI args="[\"ui/memory/get\",{\"cwd\":\"/Users/ai/Desktop/Super-Dolphin/.worktrees/package-embedded-pg/dist/package/macos/Super Dolphin.app/Contents/Resources\",\"_aoClientKind\":\"desktop-wails\",\"_aoClientRoute\":\"/\"}]" result="{\"overview\":{\"autoDreamEnabled\":false,\"enabled\":false,\"health\":{\"maxPerCategory\":15,\"preferenceCount\":0,\"projectCount\":0},\"privateRoot\":\"/var/folders/xl/33p_9r195yd4glcqfpbc0cv40000gn/T/tmp.OZlmF6wim8/.multi-agent/memory/projects/users-ai-desktop-super-dolphin/memory\",\"projectRoot\":\"/Users/ai/Desktop/Super-Dolphin/.worktrees/package-embedded-pg/dist/package/macos/Super Dolphin.app/Contents/Resources\",\"rootDir\":\"/var/folders/xl/33p_9r195yd4glcqfpbc0cv40000gn/T/tmp.OZlmF6wim8/.multi-agent/memory\",\"teamFeatureEnabled\":false,\"toolsEnabled\":false},\"private\":{\"entries\":[],\"indexPath\":\"/var/folders/xl/33p_9r195yd4glcqfpbc0cv40000gn/T/tmp.OZlmF6wim8/.multi-agent/memory/projects/users-ai-desktop-super-dolphin/memory/MEMORY.md\",\"label\":\"Private durable memory\",\"notice\":\"当前目录下还没有可读的记忆条目。\",\"rootPath\":\"/var/folders/xl/33p_9r195yd4glcqfpbc0cv40000gn/T/tmp.OZlmF6wim8/.multi-agent/memory/projects/users-ai-desktop-super-dolphin/memory\"},\"team\":{\"entries\":[],\"label\":\"Team durable memory\",\"notice\":\"当前未启用 Team memory。\"}}"
+time="2026-05-28 21:16:29" level=DEBUG source=/Users/ai/go/pkg/mod/github.com/wailsapp/wails/v3@v3.0.0-alpha.74/internal/assetserver/assetserver.go:72 msg="Asset Request:" project=package-embedded-pg windowName=main windowID=1 code=200 method=POST path=/wails/runtime duration=22.858458ms
+startup_window_observed_seconds: 5
+time="2026-05-28 21:16:32" level=WARN source=/Users/ai/go/pkg/mod/github.com/wailsapp/wails/v3@v3.0.0-alpha.74/pkg/application/application.go:435 msg="Window #1 not found" project=package-embedded-pg
+time="2026-05-28 21:16:32" level=WARN source=/Users/ai/go/pkg/mod/github.com/wailsapp/wails/v3@v3.0.0-alpha.74/pkg/application/application.go:435 msg="Window #1 not found" project=package-embedded-pg
+time="2026-05-28 21:16:32" level=WARN source=/Users/ai/go/pkg/mod/github.com/wailsapp/wails/v3@v3.0.0-alpha.74/pkg/application/application.go:435 msg="Window #1 not found" project=package-embedded-pg
+time="2026-05-28 21:16:32" level=WARN source=/Users/ai/go/pkg/mod/github.com/wailsapp/wails/v3@v3.0.0-alpha.74/pkg/application/application.go:435 msg="Window #1 not found" project=package-embedded-pg
+time="2026-05-28 21:16:32" level=WARN source=/Users/ai/go/pkg/mod/github.com/wailsapp/wails/v3@v3.0.0-alpha.74/pkg/application/application.go:435 msg="Window #1 not found" project=package-embedded-pg
+time="2026-05-28 21:16:32" level=WARN source=/Users/ai/go/pkg/mod/github.com/wailsapp/wails/v3@v3.0.0-alpha.74/pkg/application/application.go:435 msg="Window #1 not found" project=package-embedded-pg
+{"time":"2026-05-28 21:16:32","level":"WARN","msg":"mcp stdio: read mode detection failed","error":"EOF"}
+{"time":"2026-05-28 21:16:32","level":"WARN","msg":"mcp: server run stopping (EOF/pipe closed)","server":"mcp-lsp","error":"EOF"}
+{"time":"2026-05-28 21:16:32","level":"INFO","msg":"mcp http: stopping","server":"mcp-lsp"}
+{"time":"2026-05-28 21:16:32","level":"WARN","msg":"bootstrap disconnected","instance_id":"mcp-lsp-2235-1779974189383979000","lease_key":{"instance_id":"","generation":0},"error":"EOF"}
+app_exit_after_termination: 0
+exit_code: 0
+finished_at: 2026-05-28T13:16:37Z

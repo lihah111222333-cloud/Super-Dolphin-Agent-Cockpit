@@ -277,6 +277,9 @@ func installLocalCodexHelper(t *testing.T, mode string) localCodexHelper {
 
 func runCodexHelperProcess() error {
 	args := helperCommandArgs()
+	if helperIsAppServerHelp(args) {
+		return nil
+	}
 	mode := strings.TrimSpace(os.Getenv("CODEX_HELPER_MODE"))
 	switch mode {
 	case "serve":
@@ -295,6 +298,10 @@ func runCodexHelperProcess() error {
 	default:
 		return fmt.Errorf("unknown helper mode %q", mode)
 	}
+}
+
+func helperIsAppServerHelp(args []string) bool {
+	return len(args) >= 2 && args[0] == codexAppServerCommand && args[1] == "--help"
 }
 
 func helperStartDelay() time.Duration {

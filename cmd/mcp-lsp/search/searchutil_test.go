@@ -80,7 +80,10 @@ func TestSearchTextInvalidGlobReturnsError(t *testing.T) {
 }
 
 func TestSearchTextSkipsWorkspaceNoiseDirectories(t *testing.T) {
-	root := t.TempDir()
+	root, err := NormalizeRoot(t.TempDir())
+	if err != nil {
+		t.Fatalf("NormalizeRoot() error = %v", err)
+	}
 	keep := filepath.Join(root, "src", "keep.go")
 	writeSearchTestFile(t, keep, "package main\nconst needle = true\n")
 	for _, dir := range []string{

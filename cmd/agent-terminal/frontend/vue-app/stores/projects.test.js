@@ -31,15 +31,28 @@ describe('projectOptions label disambiguation', () => {
     });
 
     it('keeps short label (slice -2) when no collision', () => {
+        store.setScopeCwd('/Users/mima0000/Desktop/wj/go-agent-v2');
         store.state.projects = ['/Users/mima0000/Desktop/wj/go-agent-v2'];
         const options = store.projectOptions.value;
-        // first option is always '当前目录 (.)'
         expect(options[0].label).toBe('当前目录 (.)');
+        expect(options[0].full).toBe('/Users/mima0000/Desktop/wj/go-agent-v2');
         expect(options[1].label).toBe('wj/go-agent-v2');
         expect(options[1].value).toBe('/Users/mima0000/Desktop/wj/go-agent-v2');
     });
 
+    it('exposes current directory placeholder when runtime cwd is missing', () => {
+        store.state.projects = ['/Users/mima0000/Desktop/wj/go-agent-v2'];
+
+        const options = store.projectOptions.value;
+
+        expect(options[0].label).toBe('当前目录 (.)');
+        expect(options[0].full).toBe('.');
+        expect(options[1].label).toBe('wj/go-agent-v2');
+        expect(options.some((option) => option.value === '.')).toBe(true);
+    });
+
     it('disambiguates two paths with same last 2 segments', () => {
+        store.setScopeCwd('/scope');
         store.state.projects = [
             '/Users/mima0000/Desktop/wj/go-agent-v2',
             '/Users/mima0000/.worktrees/tag-v1.03/wj/go-agent-v2',
@@ -56,6 +69,7 @@ describe('projectOptions label disambiguation', () => {
     });
 
     it('disambiguates three colliding paths', () => {
+        store.setScopeCwd('/scope');
         store.state.projects = [
             '/a/b/wj/go-agent-v2',
             '/c/d/wj/go-agent-v2',
@@ -67,6 +81,7 @@ describe('projectOptions label disambiguation', () => {
     });
 
     it('does not modify labels when all are already unique', () => {
+        store.setScopeCwd('/scope');
         store.state.projects = [
             '/Users/mima0000/Desktop/wj/go-agent-v2',
             '/Users/mima0000/Desktop/wj/wjboot-v2',
@@ -77,6 +92,7 @@ describe('projectOptions label disambiguation', () => {
     });
 
     it('values remain full paths regardless of disambiguation', () => {
+        store.setScopeCwd('/scope');
         store.state.projects = [
             '/Users/mima0000/Desktop/wj/go-agent-v2',
             '/Users/mima0000/.worktrees/tag-v1.03/wj/go-agent-v2',
@@ -108,6 +124,7 @@ describe('projectOptions label disambiguation', () => {
     });
 
     it('does not leak _segments into the final option objects', () => {
+        store.setScopeCwd('/scope');
         store.state.projects = ['/a/b/c/d'];
         const options = store.projectOptions.value;
         for (const opt of options) {
@@ -128,6 +145,42 @@ describe('projectOptions label disambiguation', () => {
         expect(callAPI).toHaveBeenCalledWith('ui/projects/setActive', { path: '/worktree', cwd: '/worktree' });
         expect(callAPI).toHaveBeenCalledWith('ui/projects/add', { path: '/another-worktree', cwd: '/worktree' });
         expect(callAPI).toHaveBeenCalledWith('ui/projects/remove', { path: '/another-worktree', cwd: '/worktree' });
+    });
+
+    it('uses the first selected project as scope and active project when runtime cwd is missing', async () => {
+        vi.mocked(callAPI).mockImplementation(async (method, params) => {
+            if (method === 'ui/projects/add') {
+                expect(params).toEqual({ path: '/Users/ai/Desktop/sd', cwd: '/Users/ai/Desktop/sd' });
+                return { projects: ['/Users/ai/Desktop/sd'], active: '.' };
+            }
+            if (method === 'ui/projects/setActive') {
+                expect(params).toEqual({ path: '/Users/ai/Desktop/sd', cwd: '/Users/ai/Desktop/sd' });
+                return { projects: ['/Users/ai/Desktop/sd'], active: '/Users/ai/Desktop/sd' };
+            }
+            throw new Error(`unexpected method ${method}`);
+        });
+
+        const ok = await store.addProject('/Users/ai/Desktop/sd');
+
+        expect(ok).toBe(true);
+        expect(store.state.scopeCwd).toBe('/Users/ai/Desktop/sd');
+        expect(store.state.active).toBe('/Users/ai/Desktop/sd');
+    });
+
+    it('uses the selected explicit project as scope when runtime cwd is missing', async () => {
+        store.state.projects = ['/Users/ai/Desktop/sd'];
+        vi.mocked(callAPI).mockImplementation(async (method, params) => {
+            if (method === 'ui/projects/setActive') {
+                expect(params).toEqual({ path: '/Users/ai/Desktop/sd', cwd: '/Users/ai/Desktop/sd' });
+                return { projects: ['/Users/ai/Desktop/sd'], active: '/Users/ai/Desktop/sd' };
+            }
+            throw new Error(`unexpected method ${method}`);
+        });
+
+        await store.setActive('/Users/ai/Desktop/sd');
+
+        expect(store.state.scopeCwd).toBe('/Users/ai/Desktop/sd');
+        expect(store.state.active).toBe('/Users/ai/Desktop/sd');
     });
 
     it('fails fast when project RPC scope cwd is missing', async () => {

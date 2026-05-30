@@ -2,6 +2,7 @@ package shared
 
 import (
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -53,4 +54,57 @@ func TestContainsPath(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestAppManagedDataRootsRejectsArbitraryConfiguredHomeSubtree(t *testing.T) {
+	fakeHome := filepath.Join(t.TempDir(), "home")
+	t.Setenv("HOME", fakeHome)
+	t.Setenv(SuperDolphinHomeEnv, filepath.Join(fakeHome, "Documents", "not-app-data"))
+
+	_, err := AppManagedDataRoots()
+	if err == nil {
+		t.Fatal("AppManagedDataRoots returned nil error, want arbitrary configured home rejected")
+	}
+	if !strings.Contains(err.Error(), "not an allowed app-managed data root") {
+		t.Fatalf("AppManagedDataRoots error = %q, want allowed-root rejection", err.Error())
+	}
+}
+
+func TestAppManagedDataRootsAllowsApplicationSupportHome(t *testing.T) {
+	fakeHome := filepath.Join(t.TempDir(), "home")
+	appHome := filepath.Join(fakeHome, "Library", "Application Support", "Super Dolphin")
+	t.Setenv("HOME", fakeHome)
+	t.Setenv(SuperDolphinHomeEnv, appHome)
+
+	roots, err := AppManagedDataRoots()
+	if err != nil {
+		t.Fatalf("AppManagedDataRoots returned error: %v", err)
+	}
+	assertContainsRoot(t, roots, appHome)
+}
+
+func TestAppManagedDataRootsIncludesExplicitMultiAgentLogRoot(t *testing.T) {
+	fakeHome := filepath.Join(t.TempDir(), "home")
+	t.Setenv("HOME", fakeHome)
+	t.Setenv(SuperDolphinHomeEnv, "")
+
+	roots, err := AppManagedDataRoots()
+	if err != nil {
+		t.Fatalf("AppManagedDataRoots returned error: %v", err)
+	}
+	assertContainsRoot(t, roots, filepath.Join(fakeHome, ".multi-agent", "log"))
+}
+
+func assertContainsRoot(t *testing.T, roots []string, want string) {
+	t.Helper()
+	cleanWant, err := cleanAppManagedDataRoot(want, filepath.Dir(want))
+	if err != nil {
+		t.Fatalf("normalize wanted root: %v", err)
+	}
+	for _, root := range roots {
+		if root == cleanWant {
+			return
+		}
+	}
+	t.Fatalf("roots %#v do not contain %q", roots, cleanWant)
 }

@@ -7,6 +7,7 @@ import (
 	"sync/atomic"
 	"testing"
 
+	orchmetrics "github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/orchestration/metrics"
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/orchestration/nodeexec"
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/taskdag"
 	agentdto "github.com/anthropic-ai/super-agent-v3/internal/dto/agent"
@@ -63,12 +64,12 @@ func hookConsumerWithFallback(t *testing.T, lookup taskdag.NodeSpawningThreadLoo
 
 // fallbackMetricDelta snapshots dagFallbackMetrics, runs fn, returns post delta.
 // 不用 metricDelta 名字避与 dag_turn_completed_subscriber_test.go 冲突�?
-func fallbackMetricDelta(t *testing.T, fn func()) DAGFallbackMetrics {
+func fallbackMetricDelta(t *testing.T, fn func()) orchmetrics.DAGFallbackMetrics {
 	t.Helper()
-	before := DAGFallbackCounters()
+	before := orchmetrics.DAGFallbackCounters()
 	fn()
-	after := DAGFallbackCounters()
-	return DAGFallbackMetrics{
+	after := orchmetrics.DAGFallbackCounters()
+	return orchmetrics.DAGFallbackMetrics{
 		LookupFailed:      after.LookupFailed - before.LookupFailed,
 		NoNode:            after.NoNode - before.NoNode,
 		IdempotentSkipped: after.IdempotentSkipped - before.IdempotentSkipped,
@@ -289,7 +290,7 @@ func TestThreadStoppedDAGFallback_NilPortsShortCircuit(t *testing.T) {
 		hc.runThreadStoppedDAGFallback(context.Background(), "thread-1")
 	})
 
-	if delta != (DAGFallbackMetrics{}) {
+	if delta != (orchmetrics.DAGFallbackMetrics{}) {
 		t.Fatalf("expected zero metric delta on nil ports, got %+v", delta)
 	}
 }
@@ -307,7 +308,7 @@ func TestThreadStoppedDAGFallback_EmptyThreadIDShortCircuit(t *testing.T) {
 	if lookup.calls.Load() != 0 {
 		t.Fatalf("expected 0 lookup calls on empty threadID, got %d", lookup.calls.Load())
 	}
-	if delta != (DAGFallbackMetrics{}) {
+	if delta != (orchmetrics.DAGFallbackMetrics{}) {
 		t.Fatalf("expected zero metric delta, got %+v", delta)
 	}
 }

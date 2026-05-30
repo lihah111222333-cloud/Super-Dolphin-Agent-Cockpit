@@ -193,6 +193,15 @@ function formatSendFailureNotice(error) {
   return formatActionFailureNotice(error, '发送');
 }
 
+function formatLaunchSendFailureNotice(error, provider) {
+  const detail = formatErrorDetail(error);
+  const providerLabel = formatProviderLabel(provider);
+  const launchLabel = providerLabel ? `${providerLabel} 启动失败` : 'Provider 启动失败';
+  return formatMissingWorkDirNotice(error, '发送')
+    || formatSkillConflictNotice(error, '发送')
+    || `发送失败：${launchLabel}：${detail || '后端未返回错误详情'}`;
+}
+
 function formatThreadErrorSendBlockedNotice() {
   return '当前会话已报错，不能继续发送。请先恢复会话，或新建/继承一个会话后继续。';
 }
@@ -490,15 +499,30 @@ async function performSend({
         error: err?.message || String(err),
       });
     }
-    const notice = formatSendFailureNotice(err);
+    const notice = startedNewThread
+      ? formatLaunchSendFailureNotice(err, getThreadRuntimeFromStore(threadStore, threadId).provider)
+      : formatSendFailureNotice(err);
     const localBlocked = getStoreThreadSendBlockedNotice(threadStore, threadId) || isStoreThreadSendBlocked(threadStore, threadId);
     if (localBlocked) setThreadSendBlockedNotice(sendBlockedNoticesByThread, threadId, notice);
     else setThreadSendHoldNotice(sendHoldNoticesByThread, threadId, notice);
     if (typeof composer.restoreDraft === 'function') {
       composer.restoreDraft(threadId, modeKey.value, { text: savedText, attachments: savedAttachments });
     }
+    let clearedLaunchFailureSelection = false;
+    if (startedNewThread && (selectedThreadId.value || '').toString().trim() === threadId) {
+      selectedThreadId.value = '';
+      launchIntent?.resetIfThread?.(threadId);
+      clearedLaunchFailureSelection = true;
+      if (typeof composer.restoreDraft === 'function') {
+        composer.restoreDraft('', modeKey.value, { text: savedText, attachments: savedAttachments });
+      }
+      logWarn('ui', 'chat.send.launch_thread_cleared', {
+        thread_id: threadId,
+        error: err?.message || String(err),
+      });
+    }
     const applyFailureToCurrentSelection = shouldApplySendFailureToCurrentSelection(selectedThreadId, threadId, {
-      allowEmptySelection: clearedStaleSelection,
+      allowEmptySelection: clearedStaleSelection || clearedLaunchFailureSelection,
     });
     if (applyFailureToCurrentSelection) {
       // Restore composer content so the user doesn't lose their message.

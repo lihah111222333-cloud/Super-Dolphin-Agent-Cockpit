@@ -11,6 +11,11 @@ import (
 
 const (
 	SuperDolphinHomeEnv = "SUPER_DOLPHIN_HOME"
+	ProjectRootEnv      = "PROJECT_ROOT"
+	PackagedCodexEnv    = "SUPER_DOLPHIN_PACKAGED_CODEX_IDENTITY"
+	RuntimeModeEnv      = "SUPER_DOLPHIN_RUNTIME_MODE"
+	RuntimeModeDev      = "dev"
+	RuntimeModePackaged = "packaged"
 
 	ProviderClaude = "claude"
 	ProviderCodex  = "codex"
@@ -105,6 +110,10 @@ func ProviderMirrorTargets(provider, cwd string, homeRoot ...string) ([]contract
 	if err != nil {
 		return nil, err
 	}
+	projectSkillsRoot, err := providerProjectMirrorRoot(provider, projectRoot)
+	if err != nil {
+		return nil, err
+	}
 	allowExplicitHome := strings.TrimSpace(rawHome) != ""
 	home, skillsRoot, err := providerPersonalMirrorRoot(provider, rawHome)
 	if err != nil {
@@ -120,7 +129,7 @@ func ProviderMirrorTargets(provider, cwd string, homeRoot ...string) ([]contract
 		{
 			Provider:   provider,
 			HomeRoot:   home,
-			SkillsRoot: providerProjectSkillsRoot(provider, projectRoot),
+			SkillsRoot: projectSkillsRoot,
 		},
 	}, nil
 }
@@ -199,15 +208,104 @@ func providerProjectSkillsRoot(provider, projectRoot string) string {
 	}
 }
 
-func appManagedSuperDolphinHome() (string, error) {
-	if override := strings.TrimSpace(os.Getenv(SuperDolphinHomeEnv)); override != "" {
-		return absCleanPath(override)
-	}
-	home, err := os.UserHomeDir()
+func providerProjectMirrorRoot(provider, projectRoot string) (string, error) {
+	enabled, err := packagedProjectMirrorEnabled(projectRoot)
 	if err != nil {
-		return "", fmt.Errorf("resolve user home: %w", err)
+		return "", err
 	}
-	return absCleanPath(filepath.Join(home, ".super-dolphin"))
+	if enabled {
+		home, err := appManagedSuperDolphinHome()
+		if err != nil {
+			return "", fmt.Errorf("packaged provider project mirror: %w", err)
+		}
+		return filepath.Join(home, "provider-mirrors", "project", provider, "skills"), nil
+	}
+	return providerProjectSkillsRoot(provider, projectRoot), nil
+}
+
+func packagedProjectMirrorEnabled(projectRoot string) (bool, error) {
+	packaged, err := PackagedRuntimeFromEnv()
+	if err != nil {
+		return false, err
+	}
+	if !packaged {
+		return false, nil
+	}
+	// Packaged runtime owns full write permission only under the app-managed
+	// Super Dolphin home. A Wails/macOS launch may surface the app bundle or
+	// root /Library as the selected cwd; those are not user-private writable
+	// project roots for provider-native mirror creation.
+	resources := strings.TrimSpace(os.Getenv(ProjectRootEnv))
+	if resources != "" && sameProviderPath(projectRoot, resources) {
+		return true, nil
+	}
+	return isPackagedAppBundlePath(projectRoot) || isRootLibraryPath(projectRoot), nil
+}
+
+// PackagedRuntimeFromEnv consumes the runtime-mode contract produced by the
+// runtime resolver. Empty means no packaged capability has been advertised.
+func PackagedRuntimeFromEnv() (bool, error) {
+	mode := strings.TrimSpace(os.Getenv(RuntimeModeEnv))
+	switch mode {
+	case "":
+		return false, nil
+	case RuntimeModeDev:
+		return false, nil
+	case RuntimeModePackaged:
+		return true, nil
+	default:
+		return false, fmt.Errorf("invalid %s %q", RuntimeModeEnv, mode)
+	}
+}
+
+func isPackagedAppBundlePath(path string) bool {
+	cleaned := filepath.Clean(strings.TrimSpace(path))
+	if cleaned == "." || cleaned == string(filepath.Separator) {
+		return false
+	}
+	for {
+		if strings.HasSuffix(strings.ToLower(filepath.Base(cleaned)), ".app") {
+			return true
+		}
+		parent := filepath.Dir(cleaned)
+		if parent == cleaned {
+			return false
+		}
+		cleaned = parent
+	}
+}
+
+func isRootLibraryPath(path string) bool {
+	cleaned := filepath.Clean(strings.TrimSpace(path))
+	rootLibrary := string(filepath.Separator) + "Library"
+	return cleaned == rootLibrary || strings.HasPrefix(cleaned, rootLibrary+string(filepath.Separator))
+}
+
+func sameProviderPath(left, right string) bool {
+	leftAbs, errLeft := filepath.Abs(strings.TrimSpace(left))
+	rightAbs, errRight := filepath.Abs(strings.TrimSpace(right))
+	if errLeft != nil || errRight != nil {
+		return false
+	}
+	leftClean := filepath.Clean(leftAbs)
+	rightClean := filepath.Clean(rightAbs)
+	leftReal, errLeft := filepath.EvalSymlinks(leftClean)
+	rightReal, errRight := filepath.EvalSymlinks(rightClean)
+	if errLeft == nil {
+		leftClean = filepath.Clean(leftReal)
+	}
+	if errRight == nil {
+		rightClean = filepath.Clean(rightReal)
+	}
+	return leftClean == rightClean
+}
+
+func appManagedSuperDolphinHome() (string, error) {
+	override := strings.TrimSpace(os.Getenv(SuperDolphinHomeEnv))
+	if override == "" {
+		return "", fmt.Errorf("%s is required for app-managed provider home", SuperDolphinHomeEnv)
+	}
+	return absCleanPath(override)
 }
 
 func providerProjectRoot(cwd string) (string, error) {

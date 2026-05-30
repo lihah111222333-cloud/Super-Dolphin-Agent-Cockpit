@@ -12,21 +12,23 @@ func TestBuildAllowlistedSpawnEnvKeepsOnlyListed(t *testing.T) {
 		"PATH=/usr/bin",
 		"HOME=/home/a",
 		"USER=a",
+		"SUPER_DOLPHIN_CODEX_RELAY_BOOTSTRAP_TOKEN=bootstrap-token",
+		"SUPER_DOLPHIN_CODEX_RELAY_API_KEY=privileged-key",
 		"CODEX_HOME=/stale/home",       // rogue — must be dropped
-		"OPENAI_API_KEY=secret",        // Codex API-key auth must be kept
+		"OPENAI_API_KEY=secret",        // rogue — must be dropped
 		"AWS_SESSION_TOKEN=secret",     // rogue — must be dropped
 		"HTTP_PROXY=http://proxy:8080", // not on allowlist
 	}
 	got := buildAllowlistedSpawnEnv(parent, nil)
 	text := strings.Join(got, "\n")
 	// Must keep.
-	for _, want := range []string{"PATH=/usr/bin", "HOME=/home/a", "USER=a", "OPENAI_API_KEY=secret"} {
+	for _, want := range []string{"PATH=/usr/bin", "HOME=/home/a", "USER=a", "SUPER_DOLPHIN_CODEX_RELAY_BOOTSTRAP_TOKEN=bootstrap-token"} {
 		if !strings.Contains(text, want) {
 			t.Errorf("expected %q retained, got %v", want, got)
 		}
 	}
 	// Must drop.
-	for _, rogue := range []string{"CODEX_HOME=", "AWS_SESSION_TOKEN=", "HTTP_PROXY="} {
+	for _, rogue := range []string{"CODEX_HOME=", "SUPER_DOLPHIN_CODEX_RELAY_API_KEY=", "OPENAI_API_KEY=", "AWS_SESSION_TOKEN=", "HTTP_PROXY="} {
 		if strings.Contains(text, rogue) {
 			t.Errorf("expected %q dropped, got %v", rogue, got)
 		}

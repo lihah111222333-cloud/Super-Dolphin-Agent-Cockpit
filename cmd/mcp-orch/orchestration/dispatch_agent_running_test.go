@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	orchmetrics "github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/orchestration/metrics"
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/orchestration/nodeexec"
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/taskdag"
 	"github.com/jackc/pgx/v5"
@@ -15,7 +16,7 @@ import (
 // happy path: agent.Execute returns done, dispatchAgent must call
 // UpdateRunningNodeStatus(running) and the metric counter advances by 1.
 func TestDispatchAgent_WritesRunningOnSuccess(t *testing.T) {
-	before := DispatchAgentRunningCounters()
+	before := orchmetrics.DispatchAgentRunningCounters()
 
 	launcher := &stubAgentLauncher{threadID: "thr-1"}
 	agentExec := newTestAgentExecutor(launcher, nil)
@@ -48,7 +49,7 @@ func TestDispatchAgent_WritesRunningOnSuccess(t *testing.T) {
 	if got.DagKey != "dag-1" || got.NodeKey != "n1" || got.RunID != 7 || got.Status != "running" || got.WakeupID != 42 {
 		t.Fatalf("got = %+v, want dag-1/n1/running/wakeup=42", got)
 	}
-	after := DispatchAgentRunningCounters()
+	after := orchmetrics.DispatchAgentRunningCounters()
 	if after.Written-before.Written != 1 {
 		t.Fatalf("Written delta = %d, want 1", after.Written-before.Written)
 	}
@@ -60,7 +61,7 @@ func TestDispatchAgent_WritesRunningOnSuccess(t *testing.T) {
 // silently �?dispatchAgent still returns the executor outcome, the metric
 // counter records SkippedAlreadyTerminal +1 (not WriteFailed).
 func TestDispatchAgent_RaceWindowD_NoRowsIsSilent(t *testing.T) {
-	before := DispatchAgentRunningCounters()
+	before := orchmetrics.DispatchAgentRunningCounters()
 
 	launcher := &stubAgentLauncher{threadID: "thr-2"}
 	agentExec := newTestAgentExecutor(launcher, nil)
@@ -90,7 +91,7 @@ func TestDispatchAgent_RaceWindowD_NoRowsIsSilent(t *testing.T) {
 	if len(store.runningStatusCalls) != 1 {
 		t.Fatalf("runningStatusCalls = %d, want 1", len(store.runningStatusCalls))
 	}
-	after := DispatchAgentRunningCounters()
+	after := orchmetrics.DispatchAgentRunningCounters()
 	if after.SkippedAlreadyTerminal-before.SkippedAlreadyTerminal != 1 {
 		t.Fatalf("SkippedAlreadyTerminal delta = %d, want 1", after.SkippedAlreadyTerminal-before.SkippedAlreadyTerminal)
 	}
@@ -103,7 +104,7 @@ func TestDispatchAgent_RaceWindowD_NoRowsIsSilent(t *testing.T) {
 // UpdateRunningNodeStatus is not hidden after the child launch succeeds.
 // The framework error must propagate so dispatcher can retry/fail visibly.
 func TestDispatchAgent_DBErrorIsPropagated(t *testing.T) {
-	before := DispatchAgentRunningCounters()
+	before := orchmetrics.DispatchAgentRunningCounters()
 
 	launcher := &stubAgentLauncher{threadID: "thr-3"}
 	agentExec := newTestAgentExecutor(launcher, nil)
@@ -130,7 +131,7 @@ func TestDispatchAgent_DBErrorIsPropagated(t *testing.T) {
 	if outcome.Status != nodeexec.NodeStatusDone {
 		t.Fatalf("outcome.Status = %v, want done (executor outcome preserved)", outcome.Status)
 	}
-	after := DispatchAgentRunningCounters()
+	after := orchmetrics.DispatchAgentRunningCounters()
 	if after.WriteFailed-before.WriteFailed != 1 {
 		t.Fatalf("WriteFailed delta = %d, want 1", after.WriteFailed-before.WriteFailed)
 	}
