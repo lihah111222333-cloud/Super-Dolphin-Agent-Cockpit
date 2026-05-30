@@ -214,7 +214,11 @@ func providerProjectMirrorRoot(provider, projectRoot string) (string, error) {
 		return "", err
 	}
 	if enabled {
-		return filepath.Join(os.Getenv(SuperDolphinHomeEnv), "provider-mirrors", "project", provider, "skills"), nil
+		home, err := appManagedSuperDolphinHome()
+		if err != nil {
+			return "", fmt.Errorf("packaged provider project mirror: %w", err)
+		}
+		return filepath.Join(home, "provider-mirrors", "project", provider, "skills"), nil
 	}
 	return providerProjectSkillsRoot(provider, projectRoot), nil
 }
@@ -227,9 +231,15 @@ func packagedProjectMirrorEnabled(projectRoot string) (bool, error) {
 	if !packaged {
 		return false, nil
 	}
-	home := strings.TrimSpace(os.Getenv(SuperDolphinHomeEnv))
+	// Packaged runtime owns full write permission only under the app-managed
+	// Super Dolphin home. A Wails/macOS launch may surface the app bundle or
+	// root /Library as the selected cwd; those are not user-private writable
+	// project roots for provider-native mirror creation.
 	resources := strings.TrimSpace(os.Getenv(ProjectRootEnv))
-	return home != "" && resources != "" && sameProviderPath(projectRoot, resources), nil
+	if resources != "" && sameProviderPath(projectRoot, resources) {
+		return true, nil
+	}
+	return isPackagedAppBundlePath(projectRoot) || isRootLibraryPath(projectRoot), nil
 }
 
 // PackagedRuntimeFromEnv consumes the runtime-mode contract produced by the
@@ -246,6 +256,29 @@ func PackagedRuntimeFromEnv() (bool, error) {
 	default:
 		return false, fmt.Errorf("invalid %s %q", RuntimeModeEnv, mode)
 	}
+}
+
+func isPackagedAppBundlePath(path string) bool {
+	cleaned := filepath.Clean(strings.TrimSpace(path))
+	if cleaned == "." || cleaned == string(filepath.Separator) {
+		return false
+	}
+	for {
+		if strings.HasSuffix(strings.ToLower(filepath.Base(cleaned)), ".app") {
+			return true
+		}
+		parent := filepath.Dir(cleaned)
+		if parent == cleaned {
+			return false
+		}
+		cleaned = parent
+	}
+}
+
+func isRootLibraryPath(path string) bool {
+	cleaned := filepath.Clean(strings.TrimSpace(path))
+	rootLibrary := string(filepath.Separator) + "Library"
+	return cleaned == rootLibrary || strings.HasPrefix(cleaned, rootLibrary+string(filepath.Separator))
 }
 
 func sameProviderPath(left, right string) bool {
