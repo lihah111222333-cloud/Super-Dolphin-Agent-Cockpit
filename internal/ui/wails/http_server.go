@@ -7,6 +7,8 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"os"
+	"strings"
 	"time"
 
 	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
@@ -15,6 +17,7 @@ import (
 )
 
 const defaultHTTPAddr = "127.0.0.1:4511"
+const httpAddrEnv = "GO_AGENT_HTTP_ASSET_ADDR"
 
 type httpAssetServer struct {
 	logger  *slog.Logger
@@ -37,11 +40,18 @@ func NewHTTPAssetServer(p httpAssetServerParams) httpAssetRunnerResult {
 	return httpAssetRunnerResult{
 		Runner: &httpAssetServer{
 			logger:  p.Logger,
-			addr:    defaultHTTPAddr,
+			addr:    configuredHTTPAddr(),
 			handler: handler,
 			server:  p.Server,
 		},
 	}
+}
+
+func configuredHTTPAddr() string {
+	if addr := strings.TrimSpace(os.Getenv(httpAddrEnv)); addr != "" {
+		return addr
+	}
+	return defaultHTTPAddr
 }
 
 func (s *httpAssetServer) Run(ctx context.Context) error {
