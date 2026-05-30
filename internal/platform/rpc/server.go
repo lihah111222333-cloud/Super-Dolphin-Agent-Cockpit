@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"maps"
 	"net"
+	"os"
 	"sort"
 	"strings"
 	"sync"
@@ -19,6 +20,8 @@ import (
 	"github.com/creachadair/jrpc2/handler"
 	jrpcserver "github.com/creachadair/jrpc2/server"
 )
+
+const controlRPCAddrEnv = "GO_AGENT_CTL_RPC_ADDR"
 
 type Server struct {
 	logger  *pkglogger.Logger
@@ -238,8 +241,12 @@ func isRPCCanceledMessage(raw string) bool {
 }
 
 func NewServer(p Params) *Server {
+	logger := p.Logger
+	if logger == nil {
+		logger = pkglogger.Get()
+	}
 	return &Server{
-		logger:  p.Logger,
+		logger:  logger,
 		addr:    p.Config.RPCAddr,
 		methods: handler.Map{},
 		active:  make(map[*jrpc2.Server]string),
@@ -299,7 +306,9 @@ func (s *Server) Run(ctx context.Context) error {
 	}
 	defer listener.Close()
 
-	s.logger.Info("rpc server listening", "addr", listener.Addr().String())
+	activeAddr := listener.Addr().String()
+	_ = os.Setenv(controlRPCAddrEnv, activeAddr)
+	s.logger.Info("rpc server listening", "addr", activeAddr)
 	err = s.acceptLoop(ctx, jrpcserver.NetAccepter(listener, channel.Line))
 	if err != nil && !isExpectedCloseErr(err) {
 		return err

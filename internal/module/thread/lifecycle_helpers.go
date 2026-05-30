@@ -3,7 +3,6 @@ package thread
 import (
 	"context"
 	"errors"
-	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -22,16 +21,10 @@ import (
 )
 
 const (
-	defaultCodexInstanceKey       = "default"
-	defaultCodexModelProvider     = "openai"
-	legacyDefaultCodexHomeEnvVar  = "CODEXAPP_ALLOW_LEGACY_DEFAULT_HOME"
-	legacyDefaultCodexHomeEnabled = "1"
+	defaultCodexInstanceKey   = "default"
+	defaultCodexModelProvider = "super-dolphin-relay"
 )
 
-// runScratchpadCleanup is the shared `defer` target used by Start / SpawnIfNeeded
-// to release the scratchpad snapshot when the spawn pipeline fails. active is a
-// pointer so the caller can flip it to false after persistStartedSession to
-// skip cleanup on success.
 func runScratchpadCleanup(active *bool, cleanup func()) {
 	if active == nil || !*active {
 		return
@@ -41,9 +34,6 @@ func runScratchpadCleanup(active *bool, cleanup func()) {
 	}
 }
 
-// enrichFromSessionConfig extracts model/cwd from the session's runtime config
-// when the original request values are empty. codex app-server assigns model
-// server-side; the resolved value is captured in runtimeConfig during StartSession.
 func enrichFromSessionConfig(session contract.Session, reqModel, reqCWD string) (model, cwd string, port int) {
 	model, cwd = reqModel, reqCWD
 	rc, ok := session.(interface{ RuntimeConfigSnapshot() map[string]any })
@@ -110,44 +100,51 @@ func (s *service) injectParentCodexIdentityForStart(ctx context.Context, req Sta
 	return req
 }
 
-func (s *service) injectDefaultCodexIdentityForStart(req StartRequest) StartRequest {
-	if strings.TrimSpace(req.Provider) != "codex" || startConfigHasCodexIdentity(req.Config) {
-		return req
+func (s *service) injectDefaultCodexIdentityForStart(req StartRequest) (StartRequest, error) {
+	if strings.TrimSpace(req.Provider) != "codex" {
+		return req, nil
 	}
-	if !legacyDefaultCodexHomeAllowed() {
-		return req
-	}
-	home, err := defaultCodexHome()
+	allowed, err := contract.PackagedRuntimeFromEnv()
 	if err != nil {
-		if s != nil && s.logger != nil {
-			s.logger.Warn("thread: default codex identity skipped",
-				"agent_id", req.AgentID,
-				"error", err)
-		}
-		return req
+		return req, err
+	}
+	if !allowed {
+		return req, nil
 	}
 	if req.Config == nil {
 		req.Config = make(map[string]any)
 	}
-	req.Config["codexHome"] = home
-	req.Config["codexInstanceKey"] = defaultCodexInstanceKey
-	req.Config["codexModelProvider"] = defaultCodexModelProvider
-	return req
+	if configutil.ConfigString(req.Config, "codexHome") == "" {
+		home, err := contract.CanonicalAppManagedCodexHome()
+		if err != nil {
+			return req, err
+		}
+		req.Config["codexHome"] = home
+	}
+	if configutil.ConfigString(req.Config, "codexInstanceKey") == "" {
+		req.Config["codexInstanceKey"] = defaultCodexInstanceKey
+	}
+	if configutil.ConfigString(req.Config, "codexModelProvider") == "" {
+		req.Config["codexModelProvider"] = defaultCodexModelProvider
+	}
+	return req, nil
 }
 
-func (s *service) injectDefaultCodexIdentityForResume(req ResumeRequest) ResumeRequest {
-	if strings.TrimSpace(req.Provider) != "codex" || !legacyDefaultCodexHomeAllowed() {
-		return req
+func (s *service) injectDefaultCodexIdentityForResume(req ResumeRequest) (ResumeRequest, error) {
+	if strings.TrimSpace(req.Provider) != "codex" {
+		return req, nil
+	}
+	allowed, err := contract.PackagedRuntimeFromEnv()
+	if err != nil {
+		return req, err
+	}
+	if !allowed {
+		return req, nil
 	}
 	if strings.TrimSpace(req.CodexHome) == "" {
-		home, err := defaultCodexHome()
+		home, err := contract.CanonicalAppManagedCodexHome()
 		if err != nil {
-			if s != nil && s.logger != nil {
-				s.logger.Warn("thread: default codex resume identity skipped",
-					"agent_id", req.AgentID,
-					"error", err)
-			}
-			return req
+			return req, err
 		}
 		req.CodexHome = home
 	}
@@ -157,23 +154,7 @@ func (s *service) injectDefaultCodexIdentityForResume(req ResumeRequest) ResumeR
 	if strings.TrimSpace(req.CodexModelProvider) == "" {
 		req.CodexModelProvider = defaultCodexModelProvider
 	}
-	return req
-}
-
-func legacyDefaultCodexHomeAllowed() bool {
-	return strings.TrimSpace(os.Getenv(legacyDefaultCodexHomeEnvVar)) == legacyDefaultCodexHomeEnabled
-}
-
-func defaultCodexHome() (string, error) {
-	raw := strings.TrimSpace(os.Getenv("CODEX_HOME"))
-	if raw == "" {
-		home, err := os.UserHomeDir()
-		if err != nil {
-			return "", fmt.Errorf("resolve user home: %w", err)
-		}
-		raw = filepath.Join(home, ".codex")
-	}
-	return contract.CanonicalizeCodexHome(raw)
+	return req, nil
 }
 
 func injectParentCodexIdentity(cfg map[string]any, parent *bindingstore.Binding) (map[string]any, bool) {

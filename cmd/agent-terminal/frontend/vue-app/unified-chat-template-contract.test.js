@@ -30,9 +30,9 @@ describe('UnifiedChatPage template contract', () => {
       'data-testid="chat-send-failure-notice"',
       'class="thread-rail-resizer"',
       'class="workspace-bottom-row"',
-      ':disabled="!selectedThreadId && !providerPreferenceReady"',
       ':send-disabled="activeThreadSendBlocked"',
     ]);
+    expect(template).not.toContain(':disabled="!selectedThreadId && !providerPreferenceReady"');
     const removedManualTaskEvent = '@' + ['promote', 'task'].join('-');
     const removedManualTaskErrorProp = ':' + ['promote', 'task', 'error'].join('-');
     expect(template).not.toContain(removedManualTaskEvent);
@@ -113,11 +113,11 @@ describe('UnifiedChatPage template contract', () => {
       'data-testid="chat-toolbar"',
       'data-testid="provider-toggle"',
       'data-testid="launch-agent-button"',
-      ':disabled="!providerPreferenceReady"',
       'class="provider-toggle-input"',
       'data-testid="recover-agent-button"',
       '<ProjectSelect',
     ]);
+    expect(template).not.toContain(':disabled="!providerPreferenceReady"');
   });
 
   it('keeps ThreadRailSidePanel anchors and rename emit contract stable', () => {

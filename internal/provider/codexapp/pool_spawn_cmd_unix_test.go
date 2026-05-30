@@ -20,8 +20,8 @@ func TestBuildPoolSpawnCmdWrapsWithShellUlimit(t *testing.T) {
 	if err != nil {
 		t.Fatalf("BuildPoolSpawnCmd error = %v", err)
 	}
-	if len(cmd.Args) < 3 || cmd.Args[0] != "sh" || cmd.Args[1] != "-c" {
-		t.Fatalf("cmd.Args must start with [sh -c ...], got %v", cmd.Args)
+	if len(cmd.Args) < 3 || cmd.Args[0] != "/bin/sh" || cmd.Args[1] != "-c" {
+		t.Fatalf("cmd.Args must start with [/bin/sh -c ...], got %v", cmd.Args)
 	}
 	shellCmd := cmd.Args[2]
 	for _, want := range []string{

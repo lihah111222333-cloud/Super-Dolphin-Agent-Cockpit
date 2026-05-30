@@ -15,8 +15,8 @@ fi
 
 WEB_HOST="${WEB_HOST:-127.0.0.1}"
 WEB_PORT="${WEB_PORT:-5178}"
-GO_AGENT_HTTP_ASSET_ADDR="${GO_AGENT_HTTP_ASSET_ADDR:-127.0.0.1:4511}"
-export GO_AGENT_HTTP_ASSET_ADDR
+SUPER_DOLPHIN_HTTP_ADDR="${SUPER_DOLPHIN_HTTP_ADDR:-127.0.0.1:4511}"
+export SUPER_DOLPHIN_HTTP_ADDR
 
 ensure_node_deps() {
   local dir="$1"
@@ -40,11 +40,11 @@ ensure_node_deps() {
 }
 
 require_backend_bridge() {
-  local host="${GO_AGENT_HTTP_ASSET_ADDR%:*}"
-  local port="${GO_AGENT_HTTP_ASSET_ADDR##*:}"
+  local host="${SUPER_DOLPHIN_HTTP_ADDR%:*}"
+  local port="${SUPER_DOLPHIN_HTTP_ADDR##*:}"
   if ! lsof -ti ":$port" >/dev/null 2>&1; then
-    echo "❌ backend bridge is not listening at $GO_AGENT_HTTP_ASSET_ADDR"
-    echo "   Start the original client with ./run-debug.sh, or override GO_AGENT_HTTP_ASSET_ADDR."
+    echo "❌ backend bridge is not listening at $SUPER_DOLPHIN_HTTP_ADDR"
+    echo "   Start the original client with ./run-debug.sh, or override SUPER_DOLPHIN_HTTP_ADDR."
     exit 1
   fi
   if ! curl -fsS "http://$host:$port" >/dev/null 2>&1; then
@@ -77,7 +77,7 @@ echo "┌───────────────────────�
 echo "│  Super Agent new UI web                 │"
 echo "└─────────────────────────────────────────┘"
 echo "  web:     http://$WEB_HOST:$WEB_PORT/"
-echo "  bridge:  $GO_AGENT_HTTP_ASSET_ADDR"
+echo "  bridge:  $SUPER_DOLPHIN_HTTP_ADDR"
 
 (cd "$FRONTEND_DIR" && npm run dev -- --host "$WEB_HOST" --port "$WEB_PORT" --strictPort) &
 VITE_PID=$!

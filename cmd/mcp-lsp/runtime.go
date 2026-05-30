@@ -18,6 +18,7 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/common"
 	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
 	platformrunner "github.com/anthropic-ai/super-agent-v3/internal/platform/runner"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/runtimeenv"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
@@ -49,18 +50,29 @@ func newManager(cfg *platformconfig.Config) (*Manager, error) {
 		return nil, err
 	}
 	log := pkglogger.Get()
-	inst := setupInstaller()
 	adapters := multilsp.NewLanguageAdapterRegistryFromConfig(cfg.LSP)
+	lspBundle, packagedLSP, err := runtimeenv.LoadLSPBundleFromEnv()
+	if err != nil {
+		return nil, err
+	}
+	var inst *installer.Provider
+	if !packagedLSP {
+		inst = setupInstaller()
+	}
+	languageIDs, err := runtimePrimaryLanguageIDsForBundle(adapters, lspBundle, packagedLSP)
+	if err != nil {
+		return nil, err
+	}
 
 	registry := manager.NewRegistry(inst)
-	backgroundRunners := make([]platformrunner.Runner, 0, len(runtimePrimaryLanguageIDs()))
-	releaseScopes := make([]multilsp.ScopeReleaser, 0, len(runtimePrimaryLanguageIDs()))
-	for _, primaryLanguageID := range runtimePrimaryLanguageIDs() {
+	backgroundRunners := make([]platformrunner.Runner, 0, len(languageIDs))
+	releaseScopes := make([]multilsp.ScopeReleaser, 0, len(languageIDs))
+	for _, primaryLanguageID := range languageIDs {
 		adapter, ok := adapters.AdapterForLanguage(primaryLanguageID)
 		if !ok {
 			return nil, errors.New("missing LSP language adapter: " + primaryLanguageID)
 		}
-		runner, releaser, err := registerRuntimeAdapter(registry, adapter, adapters, root, log)
+		runner, releaser, err := registerRuntimeAdapter(registry, adapter, adapters, root, log, lspBundle, packagedLSP)
 		if err != nil {
 			return nil, err
 		}
@@ -170,6 +182,36 @@ func runtimePrimaryLanguageIDs() []string {
 	return []string{"go", "javascript", "python", "css", "rust", "java", "markdown"}
 }
 
+func runtimePrimaryLanguageIDsForBundle(adapters *multilsp.LanguageAdapterRegistry, bundle runtimeenv.LSPBundle, packaged bool) ([]string, error) {
+	if !packaged {
+		return runtimePrimaryLanguageIDs(), nil
+	}
+	ids := make([]string, 0, len(runtimePrimaryLanguageIDs()))
+	for _, primaryLanguageID := range runtimePrimaryLanguageIDs() {
+		adapter, ok := adapters.AdapterForLanguage(primaryLanguageID)
+		if !ok {
+			return nil, errors.New("missing LSP language adapter: " + primaryLanguageID)
+		}
+		if !adapter.CapabilityPolicy().RequiresLSPClient || bundledAdapterLanguageIDs(adapter, bundle) != nil {
+			ids = append(ids, primaryLanguageID)
+		}
+	}
+	return ids, nil
+}
+
+func bundledAdapterLanguageIDs(adapter multilsp.LanguageAdapter, bundle runtimeenv.LSPBundle) []string {
+	if adapter == nil {
+		return nil
+	}
+	var ids []string
+	for _, languageID := range adapter.LanguageIDs() {
+		if _, ok := bundle.ServerForLanguage(languageID); ok {
+			ids = append(ids, strings.ToLower(strings.TrimSpace(languageID)))
+		}
+	}
+	return ids
+}
+
 func appendBackgroundRunner(runners []platformrunner.Runner, runner platformrunner.Runner) []platformrunner.Runner {
 	if runner == nil {
 		return runners
@@ -186,18 +228,54 @@ func registerRuntimeAdapter(
 	adapters *multilsp.LanguageAdapterRegistry,
 	root string,
 	log *slog.Logger,
+	lspBundle runtimeenv.LSPBundle,
+	packagedLSP bool,
 ) (platformrunner.Runner, multilsp.ScopeReleaser, error) {
 	if !adapter.CapabilityPolicy().RequiresLSPClient {
 		mgr := createFallbackManager(adapters, root, log)
 		registerAdapterLanguagesNoInstall(registry, adapter, mgr)
 		return nil, scopeReleaserFromManager(mgr), nil
 	}
-	mgr, err := createGenericManager(adapter, adapters, root, log)
+	languageIDs := bundledAdapterLanguageIDs(adapter, lspBundle)
+	binaryOverride := ""
+	if packagedLSP {
+		server, err := bundledAdapterServer(adapter, lspBundle)
+		if err != nil {
+			return nil, nil, err
+		}
+		binaryOverride = server.Path
+	}
+	mgr, err := createGenericManagerWithBinary(adapter, adapters, root, log, binaryOverride, packagedLSP)
 	if err != nil {
 		return nil, nil, err
 	}
+	if packagedLSP {
+		registerAdapterLanguagesNoInstall(registry, adapter, mgr, languageIDs...)
+		return mgr.BackgroundRunner(), scopeReleaserFromManager(mgr), nil
+	}
 	registerAdapterLanguages(registry, adapter, mgr)
 	return mgr.BackgroundRunner(), scopeReleaserFromManager(mgr), nil
+}
+
+func bundledAdapterServer(adapter multilsp.LanguageAdapter, bundle runtimeenv.LSPBundle) (runtimeenv.LSPServer, error) {
+	var selected runtimeenv.LSPServer
+	for _, languageID := range adapter.LanguageIDs() {
+		server, ok := bundle.ServerForLanguage(languageID)
+		if !ok {
+			continue
+		}
+		if selected.Path == "" {
+			selected = server
+			continue
+		}
+		if selected.Path != server.Path {
+			return runtimeenv.LSPServer{}, errors.New("bundled LSP adapter maps to multiple server binaries")
+		}
+	}
+	if selected.Path == "" {
+		return runtimeenv.LSPServer{}, errors.New("missing bundled LSP server for adapter")
+	}
+	return selected, nil
 }
 
 func appendReleaseScopeReleaser(releasers []multilsp.ScopeReleaser, releaser multilsp.ScopeReleaser) []multilsp.ScopeReleaser {
@@ -218,9 +296,14 @@ func registerAdapterLanguages(
 	},
 	adapter multilsp.LanguageAdapter,
 	mgr multilsp.Manager,
+	allowed ...string,
 ) {
 	scopedResolver := runtimeScopedResolver(mgr)
+	allowedSet := runtimeAllowedLanguageSet(allowed)
 	for _, langID := range adapter.LanguageIDs() {
+		if len(allowedSet) > 0 && !allowedSet[strings.ToLower(strings.TrimSpace(langID))] {
+			continue
+		}
 		registry.Register(langID, mgr, scopedResolver)
 	}
 }
@@ -231,11 +314,30 @@ func registerAdapterLanguagesNoInstall(
 	},
 	adapter multilsp.LanguageAdapter,
 	mgr multilsp.Manager,
+	allowed ...string,
 ) {
 	scopedResolver := runtimeScopedResolver(mgr)
+	allowedSet := runtimeAllowedLanguageSet(allowed)
 	for _, langID := range adapter.LanguageIDs() {
+		if len(allowedSet) > 0 && !allowedSet[strings.ToLower(strings.TrimSpace(langID))] {
+			continue
+		}
 		registry.RegisterNoInstall(langID, mgr, scopedResolver)
 	}
+}
+
+func runtimeAllowedLanguageSet(allowed []string) map[string]bool {
+	if len(allowed) == 0 {
+		return nil
+	}
+	set := make(map[string]bool, len(allowed))
+	for _, langID := range allowed {
+		langID = strings.ToLower(strings.TrimSpace(langID))
+		if langID != "" {
+			set[langID] = true
+		}
+	}
+	return set
 }
 
 type runtimeScopedResolverProvider interface {
@@ -320,10 +422,10 @@ func createFallbackManager(adapters *multilsp.LanguageAdapterRegistry, root stri
 }
 
 func createGenericManager(adapter multilsp.LanguageAdapter, adapters *multilsp.LanguageAdapterRegistry, root string, log *slog.Logger) (multilsp.Manager, error) {
-	return createGenericManagerWithBinary(adapter, adapters, root, log, "")
+	return createGenericManagerWithBinary(adapter, adapters, root, log, "", false)
 }
 
-func createGenericManagerWithBinary(adapter multilsp.LanguageAdapter, adapters *multilsp.LanguageAdapterRegistry, root string, log *slog.Logger, binaryOverride string) (multilsp.Manager, error) {
+func createGenericManagerWithBinary(adapter multilsp.LanguageAdapter, adapters *multilsp.LanguageAdapterRegistry, root string, log *slog.Logger, binaryOverride string, packagedLSP bool) (multilsp.Manager, error) {
 	command, err := adapter.ServerCommand(context.Background(), multilsp.ResolvedLanguageScope{})
 	if err != nil {
 		return nil, err
@@ -354,13 +456,46 @@ func createGenericManagerWithBinary(adapter multilsp.LanguageAdapter, adapters *
 				Args:                command.Args,
 				Dir:                 dir,
 				Env:                 env,
-				InitOptions:         adapter.InitOptions(multilsp.ResolvedLanguageScope{}),
+				InitOptions:         runtimeAdapterInitOptions(adapter, packagedLSP),
 				NotificationHandler: h,
 			})
 		}),
 		Logger: log,
 	})
 	return &runtimeBinaryManager{Manager: mgr, binary: binary}, nil
+}
+
+const packagedPyrightNoSystemPythonPath = "/__super_dolphin_no_system_python__/python"
+
+func runtimeAdapterInitOptions(adapter multilsp.LanguageAdapter, packagedLSP bool) map[string]any {
+	initOptions := adapter.InitOptions(multilsp.ResolvedLanguageScope{})
+	if !packagedLSP || !adapterSupportsLanguage(adapter, "python") {
+		return initOptions
+	}
+	if initOptions == nil {
+		initOptions = map[string]any{}
+	}
+	settings, ok := initOptions["settings"].(map[string]any)
+	if !ok {
+		settings = map[string]any{}
+		initOptions["settings"] = settings
+	}
+	python, ok := settings["python"].(map[string]any)
+	if !ok {
+		python = map[string]any{}
+		settings["python"] = python
+	}
+	python["pythonPath"] = packagedPyrightNoSystemPythonPath
+	return initOptions
+}
+
+func adapterSupportsLanguage(adapter multilsp.LanguageAdapter, languageID string) bool {
+	for _, adapterLanguageID := range adapter.LanguageIDs() {
+		if adapterLanguageID == languageID {
+			return true
+		}
+	}
+	return false
 }
 
 func runtimeServerBinary(commandExecutable, binaryOverride string) string {

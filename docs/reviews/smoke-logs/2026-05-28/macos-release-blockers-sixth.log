@@ -1,0 +1,18 @@
+command: docs/scripts/macos_release_smoke.sh blockers
+started_at: 2026-05-28T11:39:50Z
+clean_vm_marker: SUPER_DOLPHIN_CLEAN_VM_SMOKE=<unset>
+production_relay_marker: SUPER_DOLPHIN_PRODUCTION_RELAY_SMOKE=<unset>
+gui_turn_marker: SUPER_DOLPHIN_GUI_CODEX_TURN_SMOKE=<unset>
+relay_base_url: SUPER_DOLPHIN_CODEX_RELAY_BASE_URL=<unset>
+relay_api_key: SUPER_DOLPHIN_CODEX_RELAY_API_KEY=<unset>
+BLOCKER: clean VM acceptance not executed: set SUPER_DOLPHIN_CLEAN_VM_SMOKE=1 only inside the target clean macOS VM after installing the app
+BLOCKER: clean VM acceptance requires a macOS VM; sysctl kern.hv_vmm_present is not 1
+BLOCKER: offline acceptance requires no default network route; route -n get default succeeded
+BLOCKER: clean VM acceptance requires no preexisting ~/.codex directory
+BLOCKER: clean VM acceptance requires /Applications/Super Dolphin.app installed from the DMG
+BLOCKER: production relay turn not executed: set SUPER_DOLPHIN_PRODUCTION_RELAY_SMOKE=1 only for a real production relay run
+BLOCKER: SUPER_DOLPHIN_CODEX_RELAY_BASE_URL is required for production relay smoke
+BLOCKER: SUPER_DOLPHIN_CODEX_RELAY_API_KEY is required for production relay smoke
+BLOCKER: complete GUI Codex turn was not executed: set SUPER_DOLPHIN_GUI_CODEX_TURN_SMOKE=1 only after recording GUI send/response evidence
+exit_code: 1
+finished_at: 2026-05-28T11:39:50Z

@@ -169,10 +169,10 @@ type stdioReadResult struct {
 
 func (c *stdioMCPClient) readMessage(ctx context.Context) (json.RawMessage, error) {
 	readDone := make(chan stdioReadResult, 1)
-	go func() {
+	safego.Go(ctx, pkglogger.Get(), "toolbridge.stdioMCPClient.readMessage", func(context.Context) {
 		raw, err := c.transport.ReadMessage()
 		readDone <- stdioReadResult{raw: raw, err: err}
-	}()
+	})
 	select {
 	case result := <-readDone:
 		return result.raw, result.err
@@ -213,10 +213,10 @@ func (c *stdioMCPClient) close() error {
 	})
 	select {
 	case err := <-done:
-		return errors.Join(err, stdioCleanupProcessTree(c.cmd, c.guard))
+		return errors.Join(stdioExpectedCloseWaitError(err), stdioCleanupProcessTree(c.cmd, c.guard))
 	case <-time.After(2 * time.Second):
 		stopErr := stdioTerminateProcessTree(c.cmd, c.guard)
-		<-done
-		return errors.Join(stopErr, stdioCleanupProcessTree(c.cmd, c.guard))
+		waitErr := <-done
+		return errors.Join(stopErr, stdioExpectedCloseWaitError(waitErr), stdioCleanupProcessTree(c.cmd, c.guard))
 	}
 }

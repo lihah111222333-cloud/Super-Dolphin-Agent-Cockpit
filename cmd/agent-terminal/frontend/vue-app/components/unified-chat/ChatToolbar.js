@@ -1,8 +1,11 @@
 // @ts-nocheck
 
 import { computed } from '../../../lib/vue.esm-browser.prod.js';
-import { EFFORT_MODES, MODEL_OPTIONS } from '../../provider-config-options.js';
 import { ProjectSelect } from '../ProjectSelect.js';
+
+export function resolveProviderToggleLabel(useClaudeProvider = false) {
+  return useClaudeProvider ? 'Claude' : 'Codex';
+}
 
 export const ChatToolbar = {
   name: 'ChatToolbar',
@@ -57,10 +60,7 @@ export const ChatToolbar = {
     'restore-thread-config-inherit',
   ],
   setup(props, { emit }) {
-    const providerToggleLabel = computed(() => {
-      if (!props.providerPreferenceReady) return 'Provider';
-      return props.useClaudeProvider ? 'Claude' : 'Codex';
-    });
+    const providerToggleLabel = computed(() => resolveProviderToggleLabel(props.useClaudeProvider));
     const launchAgentLabel = computed(() => {
       return '新对话';
     });
@@ -132,7 +132,6 @@ export const ChatToolbar = {
         <input
           type="checkbox"
           :checked="useClaudeProvider"
-          :disabled="!providerPreferenceReady"
           @change="emit('toggle-provider-mode')"
           class="provider-toggle-input"
         />

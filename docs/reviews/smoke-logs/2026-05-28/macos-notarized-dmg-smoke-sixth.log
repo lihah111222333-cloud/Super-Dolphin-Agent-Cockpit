@@ -1,0 +1,7 @@
+command: docs/scripts/macos_release_smoke.sh notarized-dmg
+started_at: 2026-05-28T11:36:18Z
+notary_profile: NOTARY_PROFILE=<unset>
+Processing: /Users/ai/Desktop/Super-Dolphin/.worktrees/t1-runtime-validation/dist/package/macos/Super Dolphin.dmg
+Super Dolphin.dmg does not have a ticket stapled to it.
+exit_code: 65
+finished_at: 2026-05-28T11:36:19Z

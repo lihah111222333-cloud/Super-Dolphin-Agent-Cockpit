@@ -8,6 +8,8 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+
+	orchmetrics "github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/orchestration/metrics"
 	"time"
 
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/orchestration/nodeexec"
@@ -18,7 +20,7 @@ import (
 )
 
 func TestDispatcherF151FiveNodeDAGMetricsEndpointAndAlert(t *testing.T) {
-	resetDispatchRetryMetricsForTesting()
+	orchmetrics.ResetDispatchRetryForTesting()
 	now := time.Date(2026, 5, 13, 14, 30, 0, 0, time.UTC)
 	nodes := make([]taskdag.Node, 0, 5)
 	for i := 1; i <= 5; i++ {

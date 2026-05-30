@@ -11,9 +11,20 @@ import {
   normalizeProviderConfigValue,
 } from '../../provider-config-options.js';
 import { callAPI } from '../../services/api.js';
+import {
+  isProviderPreferenceAbsent,
+  isProviderPreferenceTombstone,
+  normalizeProviderIDStrict,
+  providerPreferenceSetValue,
+  resolveScopedProviderPreference,
+} from '../../stores/provider-preferences.js';
 import { useSettingsScope } from './useSettingsScope.ts';
 
-type ProviderSettingsProjectStore = { state?: { active?: string } } | null;
+type ProviderSettingsProjectStore = {
+  state?: {
+    active?: string;
+  };
+} | null;
 type ProviderSettingsProps = { projectStore?: ProviderSettingsProjectStore };
 type ProviderNoticeState = { level: string; message: string };
 type SandboxPayload = {
@@ -27,39 +38,98 @@ type SandboxPayload = {
   };
 } | null;
 
+const PROVIDER_ACTIVE_PREF_KEY = 'settings.provider.active';
+const DEFAULT_PROVIDER_ID = 'codex';
+const DEFAULT_SUMMARY_MODE = 'detailed';
+const DEFAULT_APPROVAL_MODE = 'on-request';
+const DEFAULT_PERSONALITY = 'pragmatic';
+const PROVIDER_OPTIONS = [
+  { value: 'codex', label: 'Codex (默认)' },
+  { value: 'claude', label: 'Claude 命令行 (原生)' },
+];
+const SUMMARY_MODES = [
+  { value: 'detailed', label: 'detailed（详细摘要，推荐）' },
+  { value: 'auto', label: 'auto（自动）' },
+  { value: 'concise', label: 'concise（简洁）' },
+  { value: 'none', label: 'none（关闭）' },
+];
+const APPROVAL_MODES = [
+  { value: 'on-request', label: 'on-request（按需，默认）' },
+  { value: 'untrusted', label: 'untrusted（始终询问）' },
+  { value: 'on-failure', label: 'on-failure（失败后询问）' },
+  { value: 'never', label: 'never（全部放行）' },
+];
+const PERSONALITY_OPTIONS = [
+  { value: 'pragmatic', label: 'pragmatic（务实高效，默认）' },
+  { value: 'friendly', label: 'friendly（友好气氛）' },
+  { value: 'none', label: 'none（默认风格）' },
+];
+const SANDBOX_MODES = [
+  { value: 'workspaceWrite', label: 'workspaceWrite（推荐）' },
+  { value: 'readOnly', label: 'readOnly（只读）' },
+  { value: 'dangerFullAccess', label: 'dangerFullAccess（无限制 ⚠️）' },
+];
+
+function normalizeProviderID(value: unknown): string {
+  const providerID = normalizeProviderConfigValue(value).toLowerCase();
+  if (providerID.startsWith('claude-')) return 'claude';
+  return providerID || DEFAULT_PROVIDER_ID;
+}
+
+function isMissingProviderPreference(value: unknown): boolean {
+  return isProviderPreferenceAbsent(value) || isProviderPreferenceTombstone(value);
+}
+
+function providerDefaults(providerID: string) {
+  if (normalizeProviderID(providerID) === 'claude') {
+    return { model: 'sonnet', effort: 'high' };
+  }
+  return { model: 'gpt-5.5', effort: 'xhigh' };
+}
+
+function validateAbsPaths(raw: string): string {
+  if (!raw.trim()) return '请至少填写一个绝对路径';
+  const bad = raw.trim().split('\n').map((s) => s.trim()).filter((s) => s && !s.startsWith('/'));
+  return bad.length ? `路径必须以 / 开头：${bad.join(', ')}` : '';
+}
+
+function normalizeProviderModelValue(providerID: string, value: unknown): string {
+  const normalizedValue = normalizeProviderConfigValue(value);
+  return normalizedValue || providerDefaults(providerID).model;
+}
+
+function normalizeProviderEffortValue(providerID: string, model: string, value: unknown): string {
+  const normalizedProviderID = normalizeProviderID(providerID);
+  const normalizedValue = normalizeProviderConfigValue(value).toLowerCase();
+  const defaults = providerDefaults(normalizedProviderID);
+  if (normalizedProviderID !== 'claude') {
+    return EFFORT_MODES_BY_PROVIDER.codex.some((item) => item.value === normalizedValue)
+      ? normalizedValue
+      : defaults.effort;
+  }
+  switch (normalizedValue) {
+    case 'max':
+      return isClaudeOpusFamilyModel(model) ? 'max' : 'high';
+    case 'high':
+    case 'xhigh':
+      return 'high';
+    case 'medium':
+      return 'medium';
+    case 'low':
+    case 'minimal':
+      return 'low';
+    default:
+      return defaults.effort;
+  }
+}
+
+function normalizeCodexIdentityValue(value: unknown, fallback: string): string {
+  if (typeof value === 'boolean') return fallback;
+  return normalizeProviderConfigValue(value) || fallback;
+}
+
 function setupProviderSettings(props: ProviderSettingsProps) {
-  const PROVIDER_ACTIVE_PREF_KEY = 'settings.provider.active';
-  const DEFAULT_PROVIDER_ID = 'codex';
-  const DEFAULT_SUMMARY_MODE = 'detailed';
-  const DEFAULT_APPROVAL_MODE = 'on-request';
-  const DEFAULT_PERSONALITY = 'pragmatic';
   const activeProvider = ref(DEFAULT_PROVIDER_ID) as { value: string };
-  const PROVIDER_OPTIONS = [
-    { value: 'codex', label: 'Codex (默认)' },
-    { value: 'claude', label: 'Claude 命令行 (原生)' },
-  ];
-  const SUMMARY_MODES = [
-    { value: 'detailed', label: 'detailed（详细摘要，推荐）' },
-    { value: 'auto', label: 'auto（自动）' },
-    { value: 'concise', label: 'concise（简洁）' },
-    { value: 'none', label: 'none（关闭）' },
-  ];
-  const APPROVAL_MODES = [
-    { value: 'on-request', label: 'on-request（按需，默认）' },
-    { value: 'untrusted', label: 'untrusted（始终询问）' },
-    { value: 'on-failure', label: 'on-failure（失败后询问）' },
-    { value: 'never', label: 'never（全部放行）' },
-  ];
-  const PERSONALITY_OPTIONS = [
-    { value: 'pragmatic', label: 'pragmatic（务实高效，默认）' },
-    { value: 'friendly', label: 'friendly（友好气氛）' },
-    { value: 'none', label: 'none（默认风格）' },
-  ];
-  const SANDBOX_MODES = [
-    { value: 'workspaceWrite', label: 'workspaceWrite（推荐）' },
-    { value: 'readOnly', label: 'readOnly（只读）' },
-    { value: 'dangerFullAccess', label: 'dangerFullAccess（无限制 ⚠️）' },
-  ];
   const sandboxMode = ref('workspaceWrite') as { value: string };
   const writablePaths = ref('') as { value: string };
   const networkAccess = ref(false) as { value: boolean };
@@ -70,12 +140,29 @@ function setupProviderSettings(props: ProviderSettingsProps) {
   const writablePathsError = ref('') as { value: string };
   const summaryMode = ref(DEFAULT_SUMMARY_MODE) as { value: string };
   const approvalMode = ref(DEFAULT_APPROVAL_MODE) as { value: string };
-  const effortMode = ref('xhigh') as { value: string };
-  const providerModel = ref('gpt-5.5') as { value: string };
+  const effortModeValue = ref('xhigh') as { value: string };
+  const providerModelValue = ref('gpt-5.5') as { value: string };
+  const effortPreferenceExplicit = ref(false) as { value: boolean };
+  const providerModelPreferenceExplicit = ref(false) as { value: boolean };
+  const effortPreferenceTouched = ref(false) as { value: boolean };
+  const providerModelPreferenceTouched = ref(false) as { value: boolean };
+  const effortMode = computed({
+    get: () => effortModeValue.value,
+    set: (value: string) => {
+      effortModeValue.value = value;
+      effortPreferenceTouched.value = true;
+    },
+  }) as { value: string };
+  const providerModel = computed({
+    get: () => providerModelValue.value,
+    set: (value: string) => {
+      providerModelValue.value = value;
+      providerModelPreferenceTouched.value = true;
+    },
+  }) as { value: string };
   const personality = ref(DEFAULT_PERSONALITY) as { value: string };
   const codexHome = ref(CODEX_IDENTITY_DEFAULTS.codexHome) as { value: string };
   const codexInstanceKey = ref(CODEX_IDENTITY_DEFAULTS.codexInstanceKey) as { value: string };
-  const codexModelProvider = ref(CODEX_IDENTITY_DEFAULTS.codexModelProvider) as { value: string };
   const { activeProjectCwd, withProjectCwd } = useSettingsScope(props.projectStore);
   let providerSettingsLoadSeq = 0;
 
@@ -103,32 +190,44 @@ function setupProviderSettings(props: ProviderSettingsProps) {
   const providerEffortOptions = computed(() => {
     const providerKey = normalizedActiveProvider.value === 'claude' ? 'claude' : 'codex';
     const baseOptions = EFFORT_MODES_BY_PROVIDER[providerKey] || EFFORT_MODES;
-    const filteredOptions = providerKey === 'claude' && !isClaudeOpusFamilyModel(providerModel.value)
-      ? baseOptions.filter((item: { value: string }) => item.value !== 'max')
-      : baseOptions;
+    let filteredOptions = baseOptions;
+    if (providerKey === 'claude' && !isClaudeOpusFamilyModel(providerModel.value)) {
+      filteredOptions = baseOptions.filter((item: { value: string }) => item.value !== 'max');
+    }
     return appendCurrentOption(
       filteredOptions,
       normalizeProviderEffortValue(normalizedActiveProvider.value, providerModel.value, effortMode.value),
     );
   });
 
-  function normalizeProviderID(value: unknown): string {
-    const providerID = normalizeProviderConfigValue(value);
-    return providerID || DEFAULT_PROVIDER_ID;
+  function setProviderModelDisplay(value: string): void {
+    providerModelValue.value = value;
   }
 
-  function isMissingProviderPreference(value: unknown): boolean {
-    return value === null || value === undefined || (typeof value === 'string' && value.trim() === '');
+  function setEffortModeDisplay(value: string): void {
+    effortModeValue.value = value;
   }
 
-  function isSupportedProviderID(providerID: string): boolean {
-    return providerID === 'codex' || providerID === 'claude';
+  function resetProviderModelEffortPersistenceState(): void {
+    providerModelPreferenceExplicit.value = false;
+    effortPreferenceExplicit.value = false;
+    providerModelPreferenceTouched.value = false;
+    effortPreferenceTouched.value = false;
   }
 
-  function providerDefaults(providerID: string) {
-    return normalizeProviderID(providerID) === 'claude'
-      ? { model: 'sonnet', effort: 'high' }
-      : { model: 'gpt-5.5', effort: 'xhigh' };
+  function markLoadedModelEffortPreferences(modelValue: unknown, effortValue: unknown): void {
+    providerModelPreferenceExplicit.value = !isMissingProviderPreference(modelValue);
+    effortPreferenceExplicit.value = !isMissingProviderPreference(effortValue);
+    providerModelPreferenceTouched.value = false;
+    effortPreferenceTouched.value = false;
+  }
+
+  function shouldPersistProviderModelPreference(): boolean {
+    return providerModelPreferenceExplicit.value || providerModelPreferenceTouched.value;
+  }
+
+  function shouldPersistProviderEffortPreference(): boolean {
+    return effortPreferenceExplicit.value || effortPreferenceTouched.value;
   }
 
   function providerPreferenceKey(suffix: string, providerID = activeProvider.value): string {
@@ -137,21 +236,15 @@ function setupProviderSettings(props: ProviderSettingsProps) {
 
   async function loadActiveProviderPreference(requestSeq: number): Promise<string> {
     try {
-      const value = await callAPI('ui/preferences/get', withProjectCwd({ key: PROVIDER_ACTIVE_PREF_KEY }));
-      const missingProviderPreference = isMissingProviderPreference(value);
-      const persistedProviderID = normalizeProviderConfigValue(typeof value === 'string' ? value : '');
-      if (!missingProviderPreference && (!persistedProviderID || !isSupportedProviderID(persistedProviderID))) {
-        throw new Error(`invalid provider preference: ${String(value)}`);
-      }
+      const resolved = await resolveScopedProviderPreference(
+        (payload: any) => callAPI('ui/preferences/get', payload),
+        PROVIDER_ACTIVE_PREF_KEY,
+        activeProjectCwd.value,
+      );
+      const persistedProviderID = resolved.value ? normalizeProviderIDStrict(resolved.value) : '';
       const normalizedProviderID = normalizeProviderID(persistedProviderID || DEFAULT_PROVIDER_ID);
       if (!isCurrentProviderSettingsRequest(requestSeq)) {
         return normalizeProviderID(activeProvider.value);
-      }
-      if (missingProviderPreference) {
-        await callAPI('ui/preferences/set', withProjectCwd({ key: PROVIDER_ACTIVE_PREF_KEY, value: normalizedProviderID }));
-        if (!isCurrentProviderSettingsRequest(requestSeq)) {
-          return normalizeProviderID(activeProvider.value);
-        }
       }
       activeProvider.value = normalizedProviderID;
     } catch (error: any) {
@@ -177,15 +270,12 @@ function setupProviderSettings(props: ProviderSettingsProps) {
 
   async function readProviderPreference(suffix: string, providerID = activeProvider.value): Promise<any> {
     const primaryKey = providerPreferenceKey(suffix, providerID);
-    try {
-      const value = await callAPI('ui/preferences/get', withProjectCwd({ key: primaryKey }));
-      if (value !== null && value !== undefined && value !== '') {
-        return value;
-      }
-    } catch {
-      // ignore
-    }
-    return null;
+    const resolved = await resolveScopedProviderPreference(
+      (payload: any) => callAPI('ui/preferences/get', payload),
+      primaryKey,
+      activeProjectCwd.value,
+    );
+    return resolved.value || null;
   }
 
   function buildProviderPreferenceSetCalls(suffix: string, value: string, providerID = activeProvider.value): Promise<any>[] {
@@ -195,45 +285,11 @@ function setupProviderSettings(props: ProviderSettingsProps) {
     ];
   }
 
-  function validateAbsPaths(raw: string): string {
-    if (!raw.trim()) return '请至少填写一个绝对路径';
-    const bad = raw.trim().split('\n').map((s) => s.trim()).filter((s) => s && !s.startsWith('/'));
-    return bad.length ? `路径必须以 / 开头：${bad.join(', ')}` : '';
-  }
-
-  function normalizeProviderModelValue(providerID: string, value: unknown): string {
-    const normalizedValue = normalizeProviderConfigValue(value);
-    return normalizedValue || providerDefaults(providerID).model;
-  }
-
-  function normalizeProviderEffortValue(providerID: string, model: string, value: unknown): string {
+  function buildProviderPreferenceSetCallsRaw(suffix: string, value: any, providerID = activeProvider.value): Promise<any>[] {
     const normalizedProviderID = normalizeProviderID(providerID);
-    const normalizedValue = normalizeProviderConfigValue(value).toLowerCase();
-    const defaults = providerDefaults(normalizedProviderID);
-    if (normalizedProviderID !== 'claude') {
-      return EFFORT_MODES_BY_PROVIDER.codex.some((item) => item.value === normalizedValue)
-        ? normalizedValue
-        : defaults.effort;
-    }
-    switch (normalizedValue) {
-      case 'max':
-        return isClaudeOpusFamilyModel(model) ? 'max' : 'high';
-      case 'high':
-      case 'xhigh':
-        return 'high';
-      case 'medium':
-        return 'medium';
-      case 'low':
-      case 'minimal':
-        return 'low';
-      default:
-        return defaults.effort;
-    }
-  }
-
-  function normalizeCodexIdentityValue(value: unknown, fallback: string): string {
-    if (typeof value === 'boolean') return fallback;
-    return normalizeProviderConfigValue(value) || fallback;
+    return [
+      callAPI('ui/preferences/set', withProjectCwd({ key: providerPreferenceKey(suffix, normalizedProviderID), value })),
+    ];
   }
 
   function resetProviderSettingsState(providerID: string): void {
@@ -247,12 +303,12 @@ function setupProviderSettings(props: ProviderSettingsProps) {
     writablePathsError.value = '';
     summaryMode.value = DEFAULT_SUMMARY_MODE;
     approvalMode.value = DEFAULT_APPROVAL_MODE;
-    effortMode.value = defaults.effort;
-    providerModel.value = defaults.model;
+    setEffortModeDisplay(defaults.effort);
+    setProviderModelDisplay(defaults.model);
+    resetProviderModelEffortPersistenceState();
     personality.value = DEFAULT_PERSONALITY;
     codexHome.value = isCodex ? CODEX_IDENTITY_DEFAULTS.codexHome : '';
     codexInstanceKey.value = isCodex ? CODEX_IDENTITY_DEFAULTS.codexInstanceKey : '';
-    codexModelProvider.value = isCodex ? CODEX_IDENTITY_DEFAULTS.codexModelProvider : '';
   }
 
   function buildSandboxPayload(): Exclude<SandboxPayload, null> {
@@ -271,14 +327,19 @@ function setupProviderSettings(props: ProviderSettingsProps) {
 
   function applySandboxPayload(payload: SandboxPayload): void {
     if (!payload || typeof payload !== 'object') return;
-    sandboxMode.value = payload.type || 'workspaceWrite';
-    if (payload.type === 'workspaceWrite') {
-      writablePaths.value = (payload.writableRoots || []).join('\n');
-      networkAccess.value = Boolean(payload.networkAccess);
-    } else if (payload.type === 'readOnly') {
+    const rawMode = (payload.type || (payload as any).mode || 'workspaceWrite').toString();
+    let mode = rawMode;
+    if (rawMode === 'workspace-write') mode = 'workspaceWrite';
+    else if (rawMode === 'read-only') mode = 'readOnly';
+    else if (rawMode === 'danger-full-access') mode = 'dangerFullAccess';
+    sandboxMode.value = mode || 'workspaceWrite';
+    if (mode === 'workspaceWrite') {
+      writablePaths.value = ((payload.writableRoots || (payload as any).writable_roots || []) as string[]).join('\n');
+      networkAccess.value = Boolean(payload.networkAccess ?? (payload as any).network_access);
+    } else if (mode === 'readOnly') {
       const acc = payload.access;
       readOnlyMode.value = acc?.type === 'restricted' ? 'restricted' : 'fullAccess';
-      readablePaths.value = (acc?.readableRoots || []).join('\n');
+      readablePaths.value = ((acc?.readableRoots || (acc as any)?.readable_roots || []) as string[]).join('\n');
     }
   }
 
@@ -295,8 +356,11 @@ function setupProviderSettings(props: ProviderSettingsProps) {
       if (!isCurrentProviderSettingsRequest(requestSeq) || normalizeProviderID(activeProvider.value) !== normalizedProviderID) return;
       if (raw && typeof raw === 'string') applySandboxPayload(JSON.parse(raw));
       else if (raw && typeof raw === 'object') applySandboxPayload(raw);
-    } catch {
-      // ignore
+    } catch (error: any) {
+      if (!isCurrentProviderSettingsRequest(requestSeq) || normalizeProviderID(activeProvider.value) !== normalizedProviderID) return;
+      sandboxNotice.level = 'error';
+      sandboxNotice.message = `加载 Sandbox 失败：${error?.message || error}`;
+      return;
     }
 
     const defaults = providerDefaults(normalizedProviderID);
@@ -309,7 +373,6 @@ function setupProviderSettings(props: ProviderSettingsProps) {
       personalityValue,
       codexHomeValue,
       codexInstanceKeyValue,
-      codexModelProviderValue,
     ] = await Promise.all([
       readProviderPreference('summary', normalizedProviderID),
       readProviderPreference('approvalPolicy', normalizedProviderID),
@@ -318,20 +381,21 @@ function setupProviderSettings(props: ProviderSettingsProps) {
       readProviderPreference('personality', normalizedProviderID),
       isCodex ? readProviderPreference('codexHome', normalizedProviderID) : Promise.resolve(null),
       isCodex ? readProviderPreference('codexInstanceKey', normalizedProviderID) : Promise.resolve(null),
-      isCodex ? readProviderPreference('codexModelProvider', normalizedProviderID) : Promise.resolve(null),
     ]);
     if (!isCurrentProviderSettingsRequest(requestSeq) || normalizeProviderID(activeProvider.value) !== normalizedProviderID) return;
 
     summaryMode.value = normalizeProviderConfigValue(summaryValue) || DEFAULT_SUMMARY_MODE;
     approvalMode.value = normalizeProviderConfigValue(approvalValue) || DEFAULT_APPROVAL_MODE;
-    const nextModel = normalizeProviderModelValue(normalizedProviderID, modelValue || defaults.model);
-    providerModel.value = nextModel;
-    effortMode.value = normalizeProviderEffortValue(normalizedProviderID, nextModel, effortValue || defaults.effort);
+    const modelPreferenceValue = isMissingProviderPreference(modelValue) ? defaults.model : modelValue;
+    const effortPreferenceValue = isMissingProviderPreference(effortValue) ? defaults.effort : effortValue;
+    const nextModel = normalizeProviderModelValue(normalizedProviderID, modelPreferenceValue);
+    setProviderModelDisplay(nextModel);
+    setEffortModeDisplay(normalizeProviderEffortValue(normalizedProviderID, nextModel, effortPreferenceValue));
+    markLoadedModelEffortPreferences(modelValue, effortValue);
     personality.value = normalizeProviderConfigValue(personalityValue) || DEFAULT_PERSONALITY;
     if (isCodex) {
       codexHome.value = normalizeCodexIdentityValue(codexHomeValue, CODEX_IDENTITY_DEFAULTS.codexHome);
       codexInstanceKey.value = normalizeCodexIdentityValue(codexInstanceKeyValue, CODEX_IDENTITY_DEFAULTS.codexInstanceKey);
-      codexModelProvider.value = normalizeCodexIdentityValue(codexModelProviderValue, CODEX_IDENTITY_DEFAULTS.codexModelProvider);
     }
   }
 
@@ -367,30 +431,40 @@ function setupProviderSettings(props: ProviderSettingsProps) {
     sandboxSaving.value = true;
     try {
       const providerID = normalizedActiveProvider.value;
+      const persistModelPreference = shouldPersistProviderModelPreference();
+      const persistEffortPreference = shouldPersistProviderEffortPreference();
       const normalizedModel = normalizeProviderModelValue(providerID, providerModel.value);
       const normalizedEffort = normalizeProviderEffortValue(providerID, normalizedModel, effortMode.value);
-      providerModel.value = normalizedModel;
-      effortMode.value = normalizedEffort;
+      setProviderModelDisplay(normalizedModel);
+      setEffortModeDisplay(normalizedEffort);
       const payload = buildSandboxPayload();
       const saveCalls = [
         ...buildProviderPreferenceSetCalls('sandbox', JSON.stringify(payload), providerID),
         ...buildProviderPreferenceSetCalls('summary', summaryMode.value, providerID),
         ...buildProviderPreferenceSetCalls('approvalPolicy', approvalMode.value, providerID),
-        ...buildProviderPreferenceSetCalls('effort', effortMode.value, providerID),
-        ...buildProviderPreferenceSetCalls('model', providerModel.value, providerID),
         ...buildProviderPreferenceSetCalls('personality', personality.value, providerID),
       ];
+      if (persistEffortPreference) {
+        saveCalls.push(...buildProviderPreferenceSetCalls('effort', effortMode.value, providerID));
+      }
+      if (persistModelPreference) {
+        saveCalls.push(...buildProviderPreferenceSetCalls('model', providerModel.value, providerID));
+      }
       if (providerID === 'codex') {
-        codexHome.value = normalizeCodexIdentityValue(codexHome.value, CODEX_IDENTITY_DEFAULTS.codexHome);
-        codexInstanceKey.value = normalizeCodexIdentityValue(codexInstanceKey.value, CODEX_IDENTITY_DEFAULTS.codexInstanceKey);
-        codexModelProvider.value = normalizeCodexIdentityValue(codexModelProvider.value, CODEX_IDENTITY_DEFAULTS.codexModelProvider);
         saveCalls.push(
-          ...buildProviderPreferenceSetCalls('codexHome', codexHome.value, providerID),
-          ...buildProviderPreferenceSetCalls('codexInstanceKey', codexInstanceKey.value, providerID),
-          ...buildProviderPreferenceSetCalls('codexModelProvider', codexModelProvider.value, providerID),
+          ...buildProviderPreferenceSetCallsRaw('codexHome', providerPreferenceSetValue(codexHome.value), providerID),
+          ...buildProviderPreferenceSetCallsRaw('codexInstanceKey', providerPreferenceSetValue(codexInstanceKey.value), providerID),
         );
       }
       await Promise.all(saveCalls);
+      if (persistModelPreference) {
+        providerModelPreferenceExplicit.value = true;
+        providerModelPreferenceTouched.value = false;
+      }
+      if (persistEffortPreference) {
+        effortPreferenceExplicit.value = true;
+        effortPreferenceTouched.value = false;
+      }
       sandboxNotice.level = 'info';
       sandboxNotice.message = `已保存：${providerModel.value} / ${effortMode.value} / ${personality.value}`;
     } catch (error: any) {
@@ -418,11 +492,11 @@ function setupProviderSettings(props: ProviderSettingsProps) {
     ([providerID, model]: [string, string]) => {
       const normalizedModel = normalizeProviderModelValue(providerID, model);
       if (providerModel.value !== normalizedModel) {
-        providerModel.value = normalizedModel;
+        setProviderModelDisplay(normalizedModel);
       }
       const normalizedEffort = normalizeProviderEffortValue(providerID, normalizedModel, effortMode.value);
       if (effortMode.value !== normalizedEffort) {
-        effortMode.value = normalizedEffort;
+        setEffortModeDisplay(normalizedEffort);
       }
     },
     { immediate: true },
@@ -455,7 +529,6 @@ function setupProviderSettings(props: ProviderSettingsProps) {
     personality,
     codexHome,
     codexInstanceKey,
-    codexModelProvider,
     onActiveProviderChange,
     saveProviderSettings,
     loadProviderSettings,
@@ -490,15 +563,11 @@ export const ProviderSettings = {
         </div>
         <div class="settings-stall-row" style="margin-top:8px">
           <label class="settings-stall-label">Codex Home</label>
-          <input v-model="codexHome" class="settings-stall-input" data-testid="provider-codex-home-input" style="width:360px" placeholder="~/.codex" />
+          <input v-model="codexHome" class="settings-stall-input" data-testid="provider-codex-home-input" style="width:360px" placeholder="~/Library/Application Support/Super Dolphin/providers/codex" />
         </div>
         <div class="settings-stall-row" style="margin-top:8px">
           <label class="settings-stall-label">Instance Key</label>
           <input v-model="codexInstanceKey" class="settings-stall-input" data-testid="provider-codex-instance-key-input" style="width:220px" placeholder="default" />
-        </div>
-        <div class="settings-stall-row" style="margin-top:8px; margin-bottom:12px">
-          <label class="settings-stall-label">Model Provider</label>
-          <input v-model="codexModelProvider" class="settings-stall-input" data-testid="provider-codex-model-provider-input" style="width:220px" placeholder="openai" />
         </div>
       </template>
 

@@ -73,7 +73,11 @@ type dagSubscriberCounter struct {
 var dagSubscriberMetrics = &dagSubscriberCounter{}
 
 func DAGSubscriberCounters() DAGSubscriberMetrics { return dagSubscriberMetrics.Snapshot() }
-func (c *dagSubscriberCounter) IncCompleteDone()  { if c != nil { c.completeDone.Add(1) } }
+func (c *dagSubscriberCounter) IncCompleteDone() {
+	if c != nil {
+		c.completeDone.Add(1)
+	}
+}
 func (c *dagSubscriberCounter) IncCompleteFailed() {
 	if c != nil {
 		c.completeFailed.Add(1)
@@ -84,13 +88,21 @@ func (c *dagSubscriberCounter) IncIdempotentSkipped() {
 		c.idempotentSkipped.Add(1)
 	}
 }
-func (c *dagSubscriberCounter) IncLookupNoNode() { if c != nil { c.lookupNoNode.Add(1) } }
+func (c *dagSubscriberCounter) IncLookupNoNode() {
+	if c != nil {
+		c.lookupNoNode.Add(1)
+	}
+}
 func (c *dagSubscriberCounter) IncLookupDirtyData() {
 	if c != nil {
 		c.lookupDirtyData.Add(1)
 	}
 }
-func (c *dagSubscriberCounter) IncLookupFailed() { if c != nil { c.lookupFailed.Add(1) } }
+func (c *dagSubscriberCounter) IncLookupFailed() {
+	if c != nil {
+		c.lookupFailed.Add(1)
+	}
+}
 func (c *dagSubscriberCounter) IncCompleteSizeCapExceeded() {
 	if c != nil {
 		c.completeSizeCapExceeded.Add(1)
@@ -141,7 +153,9 @@ func encodeTurnResultForNodeUpdate(raw string) json.RawMessage {
 	if json.Valid([]byte(trimmed)) {
 		return json.RawMessage(trimmed)
 	}
-	wrapped, err := json.Marshal(struct{ Text string `json:"text"` }{Text: raw})
+	wrapped, err := json.Marshal(struct {
+		Text string `json:"text"`
+	}{Text: raw})
 	if err != nil {
 		return json.RawMessage(`{}`)
 	}
@@ -220,8 +234,12 @@ func configuredSharedfilePath(out nodeexec.OutputsConfig) string {
 
 func encodeSharedfileResultRef(path string) json.RawMessage {
 	payload, err := json.Marshal(struct {
-		Sharedfile struct{ Path string `json:"path"` } `json:"sharedfile"`
-	}{Sharedfile: struct{ Path string `json:"path"` }{Path: path}})
+		Sharedfile struct {
+			Path string `json:"path"`
+		} `json:"sharedfile"`
+	}{Sharedfile: struct {
+		Path string `json:"path"`
+	}{Path: path}})
 	if err != nil {
 		return json.RawMessage(`{}`)
 	}

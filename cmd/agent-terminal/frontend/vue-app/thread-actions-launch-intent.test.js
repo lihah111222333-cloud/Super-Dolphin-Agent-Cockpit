@@ -42,6 +42,7 @@ describe('thread action launch intent', () => {
     expect(id).toBe('thread-intent');
     expect(ctx.callAPI).toHaveBeenCalledWith('thread/start', {
       cwd: '/repo',
+      provider: 'claude',
       modelProvider: 'claude-3.7-sonnet',
       launchIntentId: 'launch_018f00e0-39fc-72ac-a47a-2a858c75d111',
     });
@@ -69,7 +70,7 @@ describe('thread action launch intent', () => {
       },
       skipSaveActive: true,
     });
-    for (let i = 0; i < 10 && ctx.syncRuntimeState.mock.calls.length === 0; i += 1) await Promise.resolve();
+    for (let i = 0; i < 30 && ctx.syncRuntimeState.mock.calls.length === 0; i += 1) await Promise.resolve();
 
     const timelineBeforeSync = ctx.state.timelinesByThread['thread-intent'] || [];
 

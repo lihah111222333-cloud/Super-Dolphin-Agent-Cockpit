@@ -2,17 +2,6 @@ package orchestration
 
 import "sync/atomic"
 
-// StopSpawnedAgentMetrics is a read-only snapshot of the
-// dag_node_stop_spawned_agent_total counter, broken down by
-// {result} label. The struct mirrors notify/subscribers.go's
-// Metrics range — that file is the project's reference pattern
-// for subscriber-side counters (atomic.Int64 + Metrics() accessor),
-// since cmd/mcp-orch has no Prometheus collector / dispatcher metric
-// store (ADR-016 v1.2 §2.5 揭出 — F15.1 不是通用框架).
-//
-// Field names use Go CamelCase; the wire labels for
-// dag_node_stop_spawned_agent_total are the StopResult string values
-// (snake_case) — kept in sync via stopSpawnedAgentCounter.Snapshot.
 type StopSpawnedAgentMetrics struct {
 	Success                int64
 	SkippedAlreadyStopped  int64
@@ -23,13 +12,6 @@ type StopSpawnedAgentMetrics struct {
 	Failed                 int64
 }
 
-// stopSpawnedAgentCounter implements stopSpawnedAgentSink with
-// atomic.Int64 per result label. Lock-free Inc + lock-free Snapshot
-// so it is safe to read from /metrics-style endpoints concurrently
-// with subscriber stop calls.
-//
-// No {provider} / {reason} labels per ADR-016 §2.5 (those would be
-// constant for C3 — recorded as dimension drift in the ADR).
 type stopSpawnedAgentCounter struct {
 	success                atomic.Int64
 	skippedAlreadyStopped  atomic.Int64
@@ -40,9 +22,6 @@ type stopSpawnedAgentCounter struct {
 	failed                 atomic.Int64
 }
 
-// Inc satisfies stopSpawnedAgentSink. Unknown StopResult values
-// (defensive: should be unreachable) are dropped silently so future
-// label additions in a separate commit cannot panic the subscriber.
 func (c *stopSpawnedAgentCounter) Inc(result StopResult) {
 	if c == nil {
 		return
@@ -65,8 +44,6 @@ func (c *stopSpawnedAgentCounter) Inc(result StopResult) {
 	}
 }
 
-// Snapshot returns a copy of every counter value. Safe to call
-// concurrently with Inc.
 func (c *stopSpawnedAgentCounter) Snapshot() StopSpawnedAgentMetrics {
 	if c == nil {
 		return StopSpawnedAgentMetrics{}
@@ -82,24 +59,12 @@ func (c *stopSpawnedAgentCounter) Snapshot() StopSpawnedAgentMetrics {
 	}
 }
 
-// defaultStopSpawnedAgentCounter is the package-wide singleton bound
-// to stopSpawnedAgentMetrics by init(). Kept unexported so the only
-// way to read it is StopSpawnedAgentCounters() — gives us a stable
-// API surface (the singleton may grow finer labels later).
 var defaultStopSpawnedAgentCounter = &stopSpawnedAgentCounter{}
 
 func init() {
 	stopSpawnedAgentMetrics = defaultStopSpawnedAgentCounter
 }
 
-// StopSpawnedAgentCounters returns a snapshot of the
-// dag_node_stop_spawned_agent_total counter for observability /
-// debug dashboards. Mirrors notify.DAGNotifier.Metrics() naming.
-//
-// No fx Provide wiring needed — counter is a package singleton with
-// atomic.Int64 fields, identical to notify/subscribers.go pattern.
-// Callers that need a per-instance counter can construct a private
-// *stopSpawnedAgentCounter via test-only helpers.
 func StopSpawnedAgentCounters() StopSpawnedAgentMetrics {
 	return defaultStopSpawnedAgentCounter.Snapshot()
 }

@@ -28,8 +28,13 @@ func TestLSPToolManifestsExposeShortNames(t *testing.T) {
 	}
 }
 
-func TestToolsListExposesShortLSPNames(t *testing.T) {
-	provider := registryToolProvider{defs: toolDefinitions(ToolHandlers{})}
+func TestToolsListExposesShortLSPNamesWhenSemanticLSPIsAvailable(t *testing.T) {
+	provider := registryToolProvider{
+		defs: toolDefinitions(ToolHandlers{}),
+		semanticToolsAvailable: func(context.Context) bool {
+			return true
+		},
+	}
 	list, err := provider.ListTools(context.Background())
 	if err != nil {
 		t.Fatalf("ListTools() error = %v", err)
@@ -46,6 +51,53 @@ func TestToolsListExposesShortLSPNames(t *testing.T) {
 	for _, legacy := range []string{"lsp_file", "lsp_inspect", "lsp_xref", "lsp_grep", "lsp_structure", "lsp_edit", "lsp_completion"} {
 		if got[legacy] {
 			t.Fatalf("tools/list exposed legacy alias %q; got %#v", legacy, got)
+		}
+	}
+}
+
+func TestToolsListHidesSemanticLSPToolsWhenLanguageServersUnavailable(t *testing.T) {
+	t.Setenv("PATH", t.TempDir())
+	provider := registryToolProvider{defs: toolDefinitions(ToolHandlers{})}
+	list, err := provider.ListTools(context.Background())
+	if err != nil {
+		t.Fatalf("ListTools() error = %v", err)
+	}
+
+	got := make(map[string]bool, len(list))
+	for _, tool := range list {
+		got[tool.Name] = true
+	}
+	for _, hidden := range []string{"inspect", "xref", "structure", "edit", "completion"} {
+		if got[hidden] {
+			t.Fatalf("tools/list exposed semantic LSP tool %q without a language server; got %#v", hidden, got)
+		}
+	}
+	for _, want := range []string{"file", "grep", "code_run", "code_run_test"} {
+		if !got[want] {
+			t.Fatalf("tools/list missing non-semantic helper %q; got %#v", want, got)
+		}
+	}
+}
+
+func TestToolsListPackagedAvailabilityIgnoresSystemOnlyLanguageServers(t *testing.T) {
+	systemBin := t.TempDir()
+	writeMcpLSPExecutable(t, systemBin, "gopls")
+	t.Setenv("PATH", systemBin)
+	t.Setenv("SUPER_DOLPHIN_LSP_BUNDLE_DIR", t.TempDir())
+	t.Setenv("SUPER_DOLPHIN_LSP_MANIFEST", filepath.Join(t.TempDir(), "manifest.json"))
+	provider := registryToolProvider{defs: toolDefinitions(ToolHandlers{})}
+	list, err := provider.ListTools(context.Background())
+	if err != nil {
+		t.Fatalf("ListTools() error = %v", err)
+	}
+
+	got := make(map[string]bool, len(list))
+	for _, tool := range list {
+		got[tool.Name] = true
+	}
+	for _, hidden := range []string{"inspect", "xref", "structure", "edit", "completion"} {
+		if got[hidden] {
+			t.Fatalf("tools/list exposed semantic LSP tool %q from system PATH in packaged mode; got %#v", hidden, got)
 		}
 	}
 }

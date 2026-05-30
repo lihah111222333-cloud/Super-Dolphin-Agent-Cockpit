@@ -1,18 +1,17 @@
 import { onScopeDispose, ref, watch } from '../../lib/vue.esm-browser.prod.js';
 import { callAPI } from '../services/api.js';
 import { getPreferenceCached, onPreferenceChange } from '../stores/preferences.js';
+import { isProviderPreferenceAbsent, normalizeProviderIDStrict } from '../stores/provider-preferences.js';
 
 const PROVIDER_ACTIVE_PREF_KEY = 'settings.provider.active';
 const DEFAULT_PROVIDER_ID = 'codex';
 
 function normalizeProviderPreference(value) {
-  if (typeof value !== 'string') return '';
-  const normalized = value.trim().toLowerCase();
-  return normalized === 'claude' || normalized === DEFAULT_PROVIDER_ID ? normalized : '';
-}
-
-function isMissingProviderPreference(value) {
-  return value === null || value === undefined || (typeof value === 'string' && value.trim() === '');
+  try {
+    return normalizeProviderIDStrict(value);
+  } catch {
+    return '';
+  }
 }
 
 function providerPreferenceErrorMessage(error) {
@@ -58,7 +57,7 @@ export function useProviderMode(providerPreferenceScope = '') {
   function applyProviderPreference(provider) {
     const normalized = normalizeProviderPreference(provider);
     if (!normalized) return false;
-    useClaudeProvider.value = normalized === 'claude';
+    useClaudeProvider.value = normalized === 'claude' || normalized.startsWith('claude-');
     providerPreferenceReady.value = true;
     providerPreferenceError.value = '';
     return true;
@@ -110,10 +109,17 @@ export function useProviderMode(providerPreferenceScope = '') {
       const value = await callAPI('ui/preferences/get', providerPreferencePayload(scope));
       if (!isCurrentProviderPreferenceRequest(requestSeq)) return;
       if (applyProviderPreference(value)) return;
-      if (!isMissingProviderPreference(value)) {
+      if (!isProviderPreferenceAbsent(value)) {
         throw new Error(`invalid provider preference: ${String(value)}`);
       }
-      await callAPI('ui/preferences/set', providerPreferencePayload(scope, { value: DEFAULT_PROVIDER_ID }));
+      if (scope) {
+        const globalValue = await callAPI('ui/preferences/get', providerPreferencePayload(''));
+        if (!isCurrentProviderPreferenceRequest(requestSeq)) return;
+        if (applyProviderPreference(globalValue)) return;
+        if (!isProviderPreferenceAbsent(globalValue)) {
+          throw new Error(`invalid provider preference: ${String(globalValue)}`);
+        }
+      }
       if (!isCurrentProviderPreferenceRequest(requestSeq)) return;
       applyProviderPreference(DEFAULT_PROVIDER_ID);
     } catch (error) {

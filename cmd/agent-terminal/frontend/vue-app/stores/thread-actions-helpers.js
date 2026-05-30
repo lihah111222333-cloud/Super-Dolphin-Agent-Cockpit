@@ -10,11 +10,14 @@ import {
 } from './thread-preference.model.js';
 import { _optimisticThreadIds, OPTIMISTIC_LEAK_GUARD_MS } from './thread-optimistic.js';
 import { resolveBuiltinToolLaunchPolicy } from './builtin-tool-policy.js';
+import { withCodexLspToolDefaults } from './codex-lsp-defaults.js';
+import { buildCodexIdentityConfig, buildCodexLaunchSandboxPreference } from './codex-sandbox-defaults.js';
+import { resolveActiveProviderPreference, resolveProviderConfigPreference, resolveScopedProviderPreference } from './provider-preferences.js';
 import { compactFailureResult, dialogTimelineSignature, tokenUsageSignature, waitForCompactResponse } from './thread-compact-helpers.js';
 import { maybeHandleStalePromptKey } from './thread-stale-prompt.js';
 import { assertThreadCanSendInState, callTurnStartWithSendBlock, clearThreadSendNoticesInState, getThreadSendBlockedNoticeFromState, setThreadSendBlockedNoticeFromError, setThreadSendHoldNoticeFromError } from './thread-send-block.js';
 import { touchThreadUpdatedAt } from './thread-actions-timestamps.js';
-import { CODEX_IDENTITY_DEFAULTS, normalizeProviderConfigValue } from '../provider-config-options.js';
+import { normalizeProviderConfigValue } from '../provider-config-options.js';
 import { dropSkillNamesCoveredByRefs } from '../utils/skill-ref-utils.js';
 import { getScopedPreferenceCached } from './preferences.js';
 
@@ -41,19 +44,6 @@ function providerPreferenceScope(provider) {
   if (value === 'codex') return 'codex';
   if (value === 'claude' || value.startsWith('claude-')) return 'claude';
   return value;
-}
-
-function normalizeCodexIdentityValue(value, fallback) {
-  if (typeof value === 'boolean') return fallback;
-  return normalizeProviderConfigValue(value) || fallback;
-}
-
-function buildCodexIdentityConfig(home, instanceKey, modelProvider) {
-  return {
-    codexHome: normalizeCodexIdentityValue(home, CODEX_IDENTITY_DEFAULTS.codexHome),
-    codexInstanceKey: normalizeCodexIdentityValue(instanceKey, CODEX_IDENTITY_DEFAULTS.codexInstanceKey),
-    codexModelProvider: normalizeCodexIdentityValue(modelProvider, CODEX_IDENTITY_DEFAULTS.codexModelProvider),
-  };
 }
 
 function normalizeOptimisticAttachment(attachment) {
@@ -355,10 +345,7 @@ function normalizeSelectedSkillRefs(rawSelectedSkillRefs) {
 }
 
 async function resolveLaunchProviderPreference(getPref, cwd) {
-  const scopedPref = await getPref({ key: 'settings.provider.active', cwd });
-  const scopedProvider = normalizeProviderConfigValue(scopedPref);
-  if (scopedProvider) return scopedProvider;
-  return normalizeProviderConfigValue(await getPref({ key: 'settings.provider.active' }));
+  return resolveActiveProviderPreference(getPref, cwd, 'codex');
 }
 
 export async function startThread(ctx, cwd = '.', options = {}) {
@@ -379,8 +366,12 @@ export async function startThread(ctx, cwd = '.', options = {}) {
   // fall back to another scope.
   const getPref = (req) => callAPI('ui/preferences/get', req).catch(() => undefined);
   const getProviderPref = (req) => callAPI('ui/preferences/get', req);
+  const getCodexSandboxPref = (req) => callAPI('ui/preferences/get', req);
+  const optionsProviderTrimmed = normalizeProviderConfigValue(options?.modelProvider || options?.model_provider || options?.provider);
   const activePromptKeyPromise = needsActivePromptKey ? getPref({ key: 'settings.activePromptKey', cwd }) : Promise.resolve(undefined);
-  const providerPrefPromise = cachedProvider ? Promise.resolve(cachedProvider) : resolveLaunchProviderPreference(getProviderPref, cwd);
+  const providerPrefPromise = optionsProviderTrimmed
+    ? Promise.resolve(optionsProviderTrimmed)
+    : cachedProvider ? Promise.resolve(cachedProvider) : resolveLaunchProviderPreference(getProviderPref, cwd);
   const [providerPref, activePromptKey] = await Promise.all([providerPrefPromise, activePromptKeyPromise]);
 
   const modelProvider = normalizeProviderConfigValue(providerPref);
@@ -390,27 +381,35 @@ export async function startThread(ctx, cwd = '.', options = {}) {
   const providerScope = providerPreferenceScope(modelProvider);
   const isCodexProvider = providerScope === 'codex';
   const [
-    providerModelPref,
-    providerEffortPref,
-    codexHomePref,
-    codexInstanceKeyPref,
-    codexModelProviderPref,
+    providerModelResolved,
+    providerEffortResolved,
+    sandboxResolved,
+    codexHomeResolved,
+    codexInstanceKeyResolved,
+    codexModelProviderResolved,
   ] = providerScope ? await Promise.all([
-    getPref({ key: `settings.provider.${providerScope}.model`, cwd }),
-    getPref({ key: `settings.provider.${providerScope}.effort`, cwd }),
-    isCodexProvider ? getPref({ key: 'settings.provider.codex.codexHome', cwd }) : Promise.resolve(undefined),
-    isCodexProvider ? getPref({ key: 'settings.provider.codex.codexInstanceKey', cwd }) : Promise.resolve(undefined),
-    isCodexProvider ? getPref({ key: 'settings.provider.codex.codexModelProvider', cwd }) : Promise.resolve(undefined),
-  ]) : [undefined, undefined, undefined, undefined, undefined];
-  const providerModel = normalizeProviderConfigValue(providerModelPref);
-  const providerEffort = normalizeProviderConfigValue(providerEffortPref);
-  const payload = { cwd, modelProvider };
+    resolveProviderConfigPreference(getPref, `settings.provider.${providerScope}.model`, cwd),
+    resolveProviderConfigPreference(getPref, `settings.provider.${providerScope}.effort`, cwd),
+    isCodexProvider ? resolveScopedProviderPreference(getCodexSandboxPref, 'settings.provider.codex.sandbox', cwd) : Promise.resolve({ value: '' }),
+    isCodexProvider ? resolveProviderConfigPreference(getPref, 'settings.provider.codex.codexHome', cwd) : Promise.resolve({ value: '' }),
+    isCodexProvider ? resolveProviderConfigPreference(getPref, 'settings.provider.codex.codexInstanceKey', cwd) : Promise.resolve({ value: '' }),
+    isCodexProvider ? resolveProviderConfigPreference(getPref, 'settings.provider.codex.codexModelProvider', cwd) : Promise.resolve({ value: '' }),
+  ]) : [{ value: '' }, { value: '' }, { value: '' }, { value: '' }, { value: '' }, { value: '' }];
+  const providerModel = normalizeProviderConfigValue(providerModelResolved.value);
+  const providerEffort = normalizeProviderConfigValue(providerEffortResolved.value);
+  // p20.3 §4.3：launch payload 可携带 UI 已知的 skill 选择。空数组 / false 不下发，
+  // 完全对旧 payload 做 additive 兼容；名称与 send path 对齐（selectedSkills /
+  // manualSkillSelection）。backend 的 rpc_types.go 同时兼容 snake_case 别名。
+  const payload = { cwd, provider: providerScope, modelProvider };
   if (isCodexProvider) {
     // Codex pool routing is strict by default; always make the identity
     // explicit in thread/start instead of relying on process-level env fallback.
-    payload.config = buildCodexIdentityConfig(codexHomePref, codexInstanceKeyPref, codexModelProviderPref);
+    payload.config = withCodexLspToolDefaults(buildCodexIdentityConfig(codexHomeResolved.value, codexInstanceKeyResolved.value, codexModelProviderResolved.value));
+    payload.config.sandbox = buildCodexLaunchSandboxPreference(sandboxResolved.value, cwd);
   }
-  // Provider model/effort forwarding: caller override > settings preference.
+  // Provider model/effort forwarding: caller override > explicit settings
+  // preference > omit. Omitted values are filled by the backend/provider
+  // contract; the UI must not mirror packaged model/effort defaults.
   const optionsModelTrimmed = normalizeProviderConfigValue(options?.model);
   const optionsEffortTrimmed = normalizeProviderConfigValue(options?.effort);
   const effectiveModel = optionsModelTrimmed || providerModel || '';
@@ -421,9 +420,9 @@ export async function startThread(ctx, cwd = '.', options = {}) {
     cwd,
     model_provider: modelProvider,
     provider_scope: providerScope,
-    provider_pref_model: providerModel,
-    provider_pref_effort: providerEffort,
-    codex_model_provider_pref: normalizeProviderConfigValue(codexModelProviderPref),
+    provider_pref_model: providerModel, provider_pref_effort: providerEffort,
+    contract_default_model: '', contract_default_effort: '', model_default_source: 'backend_provider_contract', effort_default_source: 'backend_provider_contract',
+    codex_model_provider_pref: normalizeProviderConfigValue(codexModelProviderResolved.value),
     options_model: optionsModelTrimmed,
     options_effort: optionsEffortTrimmed,
     payload_model_provider: (payload.modelProvider || '').toString(),
