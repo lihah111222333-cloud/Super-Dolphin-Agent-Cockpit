@@ -400,7 +400,7 @@ export async function startThread(ctx, cwd = '.', options = {}) {
   // p20.3 §4.3：launch payload 可携带 UI 已知的 skill 选择。空数组 / false 不下发，
   // 完全对旧 payload 做 additive 兼容；名称与 send path 对齐（selectedSkills /
   // manualSkillSelection）。backend 的 rpc_types.go 同时兼容 snake_case 别名。
-  const payload = { cwd, modelProvider };
+  const payload = { cwd, provider: providerScope, modelProvider };
   if (isCodexProvider) {
     // Codex pool routing is strict by default; always make the identity
     // explicit in thread/start instead of relying on process-level env fallback.

@@ -173,7 +173,7 @@ describe('thread store actions', () => {
     expect(id).toBe('thread-new');
     expect(store.state.activeThreadId).toBe('thread-new');
     expect(store.state.threads.some((item) => item.id === 'thread-new')).toBe(true);
-    expect(apiMock.callAPI).toHaveBeenCalledWith('thread/start', { cwd: '/repo', modelProvider: 'claude-3.7-sonnet' });
+    expect(apiMock.callAPI).toHaveBeenCalledWith('thread/start', { cwd: '/repo', provider: 'claude', modelProvider: 'claude-3.7-sonnet' });
   });
 
   it('scopes an optimistic started thread to its launch cwd before runtime sync returns', async () => {
@@ -231,7 +231,7 @@ describe('thread store actions', () => {
 
     expect(apiMock.callAPI).toHaveBeenCalledWith('thread/start', {
       cwd: '/repo',
-      modelProvider: 'codex',
+      provider: 'codex', modelProvider: 'codex',
       config: codexStartConfig({
         sessionFlags: { persistentSubagentDefault: true },
       }),
@@ -261,7 +261,7 @@ describe('thread store actions', () => {
 
     expect(apiMock.callAPI).toHaveBeenCalledWith('thread/start', {
       cwd: '/repo',
-      modelProvider: 'codex',
+      provider: 'codex', modelProvider: 'codex',
       name: 'Memory Center Refactor · 新对话',
       baseInstructions: '来源对话：Memory Center Refactor',
       config: codexStartConfig({
@@ -457,7 +457,7 @@ describe('thread store actions', () => {
     expect(prefCalls).toContainEqual({ key: 'settings.activePromptKey', cwd: '/repo-x' });
     expect(apiMock.callAPI).toHaveBeenCalledWith('thread/start', {
       cwd: '/repo-x',
-      modelProvider: 'codex',
+      provider: 'codex', modelProvider: 'codex',
       config: codexStartConfig({}, '/repo-x'),
       prompt_key: 'main/launch-fav',
     });
@@ -480,7 +480,7 @@ describe('thread store actions', () => {
 
     expect(apiMock.callAPI).toHaveBeenCalledWith('thread/start', {
       cwd: '/repo',
-      modelProvider: 'codex',
+      provider: 'codex', modelProvider: 'codex',
       config: codexStartConfig(),
       prompt_key: 'main/explicit-pin',
     });
@@ -508,7 +508,7 @@ describe('thread store actions', () => {
     expect(activePromptLookups).toBe(0);
     expect(apiMock.callAPI).toHaveBeenCalledWith('thread/start', {
       cwd: '/repo',
-      modelProvider: 'codex',
+      provider: 'codex', modelProvider: 'codex',
       config: codexStartConfig(),
       agent_key: 'sql_expert',
     });

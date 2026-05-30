@@ -42,6 +42,7 @@ describe('thread action launch intent', () => {
     expect(id).toBe('thread-intent');
     expect(ctx.callAPI).toHaveBeenCalledWith('thread/start', {
       cwd: '/repo',
+      provider: 'claude',
       modelProvider: 'claude-3.7-sonnet',
       launchIntentId: 'launch_018f00e0-39fc-72ac-a47a-2a858c75d111',
     });

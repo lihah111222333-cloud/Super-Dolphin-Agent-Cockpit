@@ -120,6 +120,33 @@ describe('thread store provider preference scope', () => {
     }));
   });
 
+  it('sends an explicit Codex provider for a clean first launch without active preferences', async () => {
+    const store = useThreadStore();
+    let startPayload = null;
+    apiMock.callAPI.mockImplementation(async (method, payload) => {
+      if (method === 'ui/preferences/get') {
+        if (payload?.key === 'settings.provider.active') return null;
+        return undefined;
+      }
+      if (method === 'config/builtinTools/read') return { tools: [] };
+      if (method === 'thread/start') {
+        startPayload = payload;
+        return { thread: { id: 'thread-clean-db-codex-default' } };
+      }
+      if (method === 'ui/state/get') return buildSnapshot('thread-clean-db-codex-default');
+      if (method === 'ui/preferences/set') return {};
+      return {};
+    });
+
+    await expect(store.startThread('/repo-clean', {})).resolves.toBe('thread-clean-db-codex-default');
+
+    expect(startPayload).toEqual(expect.objectContaining({
+      cwd: '/repo-clean',
+      provider: 'codex',
+      modelProvider: 'codex',
+    }));
+  });
+
   it('falls back to the global active provider when the launch cwd has no scoped provider preference', async () => {
     const store = useThreadStore();
     let startPayload = null;
