@@ -3,9 +3,11 @@ package middleware
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"time"
 
-	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
+	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/common"
 )
 
 const (
@@ -21,10 +23,60 @@ func Timeout(limit time.Duration) Middleware {
 	}
 	return func(next Handler) Handler {
 		return func(ctx context.Context, params json.RawMessage) (any, error) {
-			timeoutCtx, cancel := platformconfig.WithTimeoutIfNone(ctx, limit)
+			timeoutCtx, cancel := withToolTimeout(ctx, limit)
 			defer cancel()
-			return next(timeoutCtx, params)
+			if err := timeoutCtx.Err(); err != nil {
+				return nil, err
+			}
+			resultC := make(chan timeoutResult, 1)
+			go func() {
+				result, err := callWithRecover(next, timeoutCtx, params)
+				resultC <- timeoutResult{value: result, err: err}
+			}()
+			select {
+			case result := <-resultC:
+				return result.value, result.err
+			case <-timeoutCtx.Done():
+				return nil, newToolTimeoutError(limit, timeoutCtx.Err())
+			}
 		}
+	}
+}
+
+func withToolTimeout(ctx context.Context, limit time.Duration) (context.Context, context.CancelFunc) {
+	deadline := time.Now().Add(limit)
+	if parentDeadline, ok := ctx.Deadline(); ok && parentDeadline.Before(deadline) {
+		return context.WithDeadline(ctx, parentDeadline)
+	}
+	return context.WithDeadline(ctx, deadline)
+}
+
+type timeoutResult struct {
+	value any
+	err   error
+}
+
+func callWithRecover(next Handler, ctx context.Context, params json.RawMessage) (value any, err error) {
+	defer func() {
+		if recovered := recover(); recovered != nil {
+			err = common.NewPanicToolError(recovered)
+		}
+	}()
+	return next(ctx, params)
+}
+
+func newToolTimeoutError(limit time.Duration, err error) error {
+	if errors.Is(err, context.Canceled) {
+		return err
+	}
+	return &common.CodedToolError{
+		Err:       fmt.Errorf("tool handler timed out after %s: %w", limit, context.DeadlineExceeded),
+		Code:      "lsp_timeout",
+		Retryable: true,
+		Hint:      "Retry with a narrower query, smaller max_results, or after the language server finishes indexing.",
+		Meta: map[string]any{
+			"timeout_ms": limit.Milliseconds(),
+		},
 	}
 }
 
