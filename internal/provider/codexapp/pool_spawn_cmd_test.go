@@ -114,6 +114,29 @@ func TestBuildPoolSpawnCmdInjectsCODEXHOME(t *testing.T) {
 	}
 }
 
+func TestBuildPoolSpawnCmdPropagatesSidecarRuntimeContract(t *testing.T) {
+	cmd, err := BuildPoolSpawnCmd(context.Background(), PoolSpawnArgs{
+		Home: "/canonical/home",
+		ParentEnv: []string{
+			"PATH=/usr/bin",
+			"SUPER_DOLPHIN_RUNTIME_MODE=dev",
+			"SUPER_DOLPHIN_RUNTIME_RESOURCES_DIR=/work/repo",
+		},
+	})
+	if err != nil {
+		t.Fatalf("BuildPoolSpawnCmd error = %v", err)
+	}
+	env := strings.Join(cmd.Env, "\n")
+	for _, want := range []string{
+		"SUPER_DOLPHIN_RUNTIME_MODE=dev",
+		"SUPER_DOLPHIN_RUNTIME_RESOURCES_DIR=/work/repo",
+	} {
+		if !strings.Contains(env, want) {
+			t.Fatalf("sidecar runtime contract env %q missing:\n%s", want, env)
+		}
+	}
+}
+
 func TestBuildPoolSpawnCmdDefaultsParentEnvToOSEnviron(t *testing.T) {
 	// Not Parallel: t.Setenv mutates process env and the stdlib
 	// testing framework forbids combining it with t.Parallel.

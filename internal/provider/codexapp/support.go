@@ -336,7 +336,7 @@ func (d *driver) buildThreadStartParams(req dto.StartSessionRequest) threadStart
 		Personality:           configString(req.Config, "personality"),
 		Summary:               configString(req.Config, "summary"),
 		Effort:                configString(req.Config, "effort"),
-		Sandbox:               configJSON(req.Config, "sandbox"),
+		Sandbox:               codexSandboxWireJSON(configJSON(req.Config, "sandbox")),
 	}
 	codexNativeToolPolicyFromConfig(req.Config).ApplyThreadStartParams(&params)
 	return params

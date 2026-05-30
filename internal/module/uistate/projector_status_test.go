@@ -253,6 +253,47 @@ func TestAgentStoppedClearsActiveTurnBeforeSidebarProjection(t *testing.T) {
 	}
 }
 
+func TestFailedThreadStoppedKeepsThreadAndReason(t *testing.T) {
+	t.Parallel()
+
+	svc := newProjectionTestService(t)
+	svc.state.Threads = []ThreadSummary{{
+		ID:           "thread-failed-start",
+		AgentID:      "agent-failed-start",
+		Name:         "Codex launch",
+		State:        "starting",
+		ThreadStatus: "starting",
+	}}
+
+	svc.applyThreadStopped(threaddto.Stopped{
+		ThreadID: "thread-failed-start",
+		AgentID:  "agent-failed-start",
+		Status:   "failed",
+		Reason:   "codex provider start failed",
+	})
+
+	sidebar, err := svc.GetSidebar(context.Background())
+	if err != nil {
+		t.Fatalf("GetSidebar() error = %v", err)
+	}
+	if len(sidebar.Threads) != 1 || sidebar.Threads[0].ID != "thread-failed-start" {
+		t.Fatalf("sidebar threads = %#v, want failed thread preserved", sidebar.Threads)
+	}
+	if got := sidebar.Statuses["thread-failed-start"]; got != "error" {
+		t.Fatalf("sidebar status = %q, want error", got)
+	}
+	if got := sidebar.StatusDetailsByThread["thread-failed-start"]; got != "codex provider start failed" {
+		t.Fatalf("sidebar status details = %q, want provider failure reason", got)
+	}
+
+	svc.mu.Lock()
+	patch := svc.threadPatchLocked("thread-failed-start", "thread/stopped")
+	svc.mu.Unlock()
+	if patch.Status != "error" || patch.StatusDetails != "codex provider start failed" {
+		t.Fatalf("failed stopped patch = %+v, want error status with provider failure details", patch)
+	}
+}
+
 func TestArchivedThreadStatusWinsOverStaleActiveTurn(t *testing.T) {
 	t.Parallel()
 

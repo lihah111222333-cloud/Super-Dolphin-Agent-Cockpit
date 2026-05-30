@@ -27,6 +27,7 @@ const poolRoutingEnvVar = "CODEXAPP_USE_POOL"
 const (
 	defaultCodexInstanceKey   = "default"
 	defaultCodexModelProvider = defaultBootstrapModelProvider
+	localCodexModelProvider   = "codex"
 )
 
 func (d *driver) prepareStartSessionRequest(ctx context.Context, req dto.StartSessionRequest) (dto.StartSessionRequest, error) {
@@ -50,7 +51,7 @@ func (d *driver) prepareStartSessionRequest(ctx context.Context, req dto.StartSe
 	if err := d.reconcileProviderMirrors(ctx, req.CWD, mirrorHome); err != nil {
 		return req, err
 	}
-	config, err := withDefaultCodexIdentity(req.Config, home)
+	config, err := withDefaultCodexIdentity(req.Config, home, defaultCodexModelProviderForHome(providerHome))
 	if err != nil {
 		return req, err
 	}
@@ -200,7 +201,7 @@ func comparableCodexHomePath(raw string) (string, error) {
 	return "", fmt.Errorf("codexHome canonicalize: %w", err)
 }
 
-func withDefaultCodexIdentity(config map[string]any, home string) (map[string]any, error) {
+func withDefaultCodexIdentity(config map[string]any, home, fallbackModelProvider string) (map[string]any, error) {
 	home = strings.TrimSpace(home)
 	if home == "" {
 		return config, providershared.ErrCodexHomeRequired
@@ -215,17 +216,27 @@ func withDefaultCodexIdentity(config map[string]any, home string) (map[string]an
 	if err := putDefaultCodexString(out, contract.CodexInstanceKeyKey, defaultCodexInstanceKey); err != nil {
 		return config, err
 	}
-	if err := putDefaultCodexString(out, contract.CodexModelProviderKey, defaultCodexModelProviderForConfig(out)); err != nil {
+	if err := putDefaultCodexString(out, contract.CodexModelProviderKey, defaultCodexModelProviderForConfig(out, fallbackModelProvider)); err != nil {
 		return config, err
 	}
 	return out, nil
 }
 
-func defaultCodexModelProviderForConfig(config map[string]any) string {
+func defaultCodexModelProviderForHome(providerHome codexProviderHomeSelection) string {
+	if providerHome.useAppManagedHome {
+		return defaultCodexModelProvider
+	}
+	return localCodexModelProvider
+}
+
+func defaultCodexModelProviderForConfig(config map[string]any, fallback string) string {
 	if provider := firstConfigString(config, "modelProvider", "model_provider"); provider != "" {
 		return provider
 	}
-	return defaultCodexModelProvider
+	if fallback = strings.TrimSpace(fallback); fallback != "" {
+		return fallback
+	}
+	return localCodexModelProvider
 }
 
 func putDefaultCodexString(config map[string]any, key, value string) error {

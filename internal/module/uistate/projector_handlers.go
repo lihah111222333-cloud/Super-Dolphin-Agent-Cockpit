@@ -276,22 +276,25 @@ func (s *service) applyThreadStopped(ev threaddto.Stopped) {
 	}
 	deleted := strings.EqualFold(status, "deleted")
 	applyMutation(s, threadID, func() {
+		reason := threadStoppedLastMessage(status, ev.Reason)
 		s.clearThreadActivityLocked(threadID)
 		s.clearActiveTurnLocked(threadID)
 		s.state.Threads = markThreadStopped(s.state.Threads, threadID, status)
 		if !deleted {
 			s.state.Threads = upsertThreadSummary(s.state.Threads, ThreadSummary{
-				ID:         threadID,
-				AgentID:    agentID,
-				AgentState: normalizeAgentLifecycleState(status),
+				ID:          threadID,
+				AgentID:     agentID,
+				AgentState:  normalizeAgentLifecycleState(status),
+				LastMessage: reason,
 			})
 		}
 		if agentID != "" && !deleted {
 			s.state.Agents = upsertAgentSummary(s.state.Agents, AgentSummary{
-				ID:         agentID,
-				ThreadID:   threadID,
-				State:      status,
-				AgentState: normalizeAgentLifecycleState(status),
+				ID:          agentID,
+				ThreadID:    threadID,
+				State:       status,
+				AgentState:  normalizeAgentLifecycleState(status),
+				LastMessage: reason,
 			})
 		}
 		if deleted {
@@ -311,6 +314,15 @@ func (s *service) applyThreadStopped(ev threaddto.Stopped) {
 		delete(s.patchSeq, threadID)
 		return patch
 	})
+}
+
+func threadStoppedLastMessage(status, reason string) string {
+	switch strings.ToLower(strings.TrimSpace(status)) {
+	case "failed", "error":
+		return strings.TrimSpace(reason)
+	default:
+		return ""
+	}
 }
 
 func (s *service) applyTurnStarted(ev turndto.TurnStarted) {

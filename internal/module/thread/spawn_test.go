@@ -229,6 +229,40 @@ func TestSpawnIfNeededKeepsPendingThreadRetryableOnSpawnFailure(t *testing.T) {
 	}
 }
 
+func TestSpawnIfNeededLaunchIntentFailureKeepsThreadVisible(t *testing.T) {
+	t.Parallel()
+
+	deletedIDs := []string{}
+	store := &deleteCaptureThreadStore{
+		stubThreadStore: &stubThreadStore{},
+		deletedIDs:      &deletedIDs,
+	}
+	cause := errors.New("codex provider start failed")
+	var stopped []threaddto.Stopped
+	svc := &service{
+		threadStore: store,
+		promptAssembly: errorPromptAssembly{
+			err: cause,
+		},
+		emitStopped: func(evt threaddto.Stopped) {
+			stopped = append(stopped, evt)
+		},
+	}
+	started, err := svc.Start(context.Background(), StartRequest{
+		LaunchIntentID: "launch_018f00e0-39fc-72ac-a47a-2a858c75d111",
+		Provider:       "codex",
+		CWD:            "/tmp/project",
+		DeferSpawn:     true,
+	})
+	if err != nil {
+		t.Fatalf("Start() error = %v, want pending_launch success", err)
+	}
+	store.thread.PendingLaunch = true
+
+	launched, _, err := svc.SpawnIfNeeded(context.Background(), started.ThreadID, "hello", "/tmp/project")
+	assertFailedPendingLaunchOutcome(t, launched, err, deletedIDs, store.status, stopped, started.ThreadID)
+}
+
 func TestSpawnIfNeededPropagatesPromptKeyStale(t *testing.T) {
 	t.Parallel()
 
@@ -385,6 +419,35 @@ func TestBuildPendingSpawnRequestRejectsRequestCWDMismatch(t *testing.T) {
 	}
 	if !containsAll(err.Error(), "cwd mismatch", "/repo/stored-worktree", "/repo/active-window") {
 		t.Fatalf("buildPendingSpawnRequest() error = %v, want mismatch with both cwd values", err)
+	}
+}
+
+func assertFailedPendingLaunchOutcome(
+	t *testing.T,
+	launched bool,
+	err error,
+	deletedIDs []string,
+	status threadstore.UpdateStatusParams,
+	stopped []threaddto.Stopped,
+	threadID string,
+) {
+	t.Helper()
+	assertFalse(t, err == nil, "SpawnIfNeeded() error = nil, want provider start failure")
+	assertFalse(t, launched, "SpawnIfNeeded() launched = true, want false on spawn failure")
+	if len(deletedIDs) != 0 {
+		t.Fatalf("deletedIDs = %v, want failed pending launch to remain visible", deletedIDs)
+	}
+	if status.ThreadID != threadID || status.Status != "failed" {
+		t.Fatalf("UpdateStatus = %+v, want failed status for started thread %q", status, threadID)
+	}
+	if len(stopped) != 1 {
+		t.Fatalf("stopped events = %#v, want one failed stopped event", stopped)
+	}
+	if stopped[0].ThreadID != threadID || stopped[0].Status != "failed" {
+		t.Fatalf("stopped event = %+v, want failed status for thread %q", stopped[0], threadID)
+	}
+	if !strings.Contains(stopped[0].Reason, "codex provider start failed") {
+		t.Fatalf("stopped reason = %q, want provider failure detail", stopped[0].Reason)
 	}
 }
 
