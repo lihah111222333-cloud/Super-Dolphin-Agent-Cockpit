@@ -19,6 +19,14 @@ func sqlTemplateWithMatchWhen(promptKey, agentKey, text string, matchWhen []byte
 	return tpl
 }
 
+func matchWhenCWDPrefix(cwd string) []byte {
+	raw, err := json.Marshal(map[string]string{"cwd_prefix": resolvePromptCWD(cwd)})
+	if err != nil {
+		panic(err)
+	}
+	return raw
+}
+
 // TestResolveRoutedPrompt_MatchWhenAutoRoutePicksHighestPriority: no caller
 // pin, two auto-route candidates with match_when={} — the
 // higher-priority row wins and its body is injected.
@@ -52,7 +60,7 @@ func TestResolveRoutedPrompt_MatchWhenCWDPrefixMatches(t *testing.T) {
 		templates: []promptstore.PromptTemplate{
 			sqlTemplateWithMatchWhen("main/work",
 				"work", "work body",
-				[]byte(`{"cwd_prefix":"/Users/mac/work"}`), 5),
+				matchWhenCWDPrefix("/Users/mac/work"), 5),
 			sqlTemplate(defaultPromptKey, "main", "default body", nil),
 		},
 	}
@@ -73,7 +81,7 @@ func TestResolveRoutedPrompt_MatchWhenCWDPrefixMissFallsBackToDefault(t *testing
 		templates: []promptstore.PromptTemplate{
 			sqlTemplateWithMatchWhen("main/work",
 				"work", "work body",
-				[]byte(`{"cwd_prefix":"/Users/mac/work"}`), 5),
+				matchWhenCWDPrefix("/Users/mac/work"), 5),
 			sqlTemplate(defaultPromptKey, "main", "default body", nil),
 		},
 	}
@@ -180,7 +188,7 @@ func TestResolveRoutedPrompt_MatchWhenSpecificBeatsFallback(t *testing.T) {
 			sqlTemplateWithMatchWhen("main/general-zh", "main",
 				"fallback body", []byte(`{}`), 150),
 			sqlTemplateWithMatchWhen("user/sql", "sql_expert",
-				"specific body", []byte(`{"cwd_prefix":"/repo/sql"}`), 0),
+				"specific body", matchWhenCWDPrefix("/repo/sql"), 0),
 			sqlTemplate(defaultPromptKey, "main", "default body", nil),
 		},
 	}
@@ -233,9 +241,9 @@ func TestResolveRoutedPrompt_MatchWhenSpecificPoolPriorityOrder(t *testing.T) {
 	store := &fakePromptStore{
 		templates: []promptstore.PromptTemplate{
 			sqlTemplateWithMatchWhen("user/sql-low", "sql_low",
-				"low body", []byte(`{"cwd_prefix":"/repo/sql"}`), 1),
+				"low body", matchWhenCWDPrefix("/repo/sql"), 1),
 			sqlTemplateWithMatchWhen("user/sql-hi", "sql_hi",
-				"hi body", []byte(`{"cwd_prefix":"/repo/sql"}`), 10),
+				"hi body", matchWhenCWDPrefix("/repo/sql"), 10),
 			sqlTemplateWithMatchWhen("main/general-zh", "main",
 				"fallback body", []byte(`{}`), 150),
 			sqlTemplate(defaultPromptKey, "main", "default body", nil),
