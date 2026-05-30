@@ -64,6 +64,150 @@ func (f *fakePushBroadcaster) observed() []fakePushCall {
 	return out
 }
 
+func waitForNotifySent(t *testing.T, worker *pushNotificationWorker, want int64) {
+	t.Helper()
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		if worker.NotifySentTotal() >= want {
+			break
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	if got := worker.NotifySentTotal(); got != want {
+		t.Fatalf("NotifySentTotal = %d, want %d", got, want)
+	}
+}
+
+func callPayloadMap(t *testing.T, call fakePushCall) map[string]any {
+	t.Helper()
+	payload, ok := call.payload.(map[string]any)
+	if !ok {
+		t.Fatalf("payload type = %T, want map", call.payload)
+	}
+	return payload
+}
+
+func embeddedThreadPatch(t *testing.T, payload map[string]any) map[string]any {
+	t.Helper()
+	embedded, ok := payload["_threadPatch"].(map[string]any)
+	if !ok {
+		t.Fatalf("embedded patch = %#v, want map", payload["_threadPatch"])
+	}
+	return embedded
+}
+
+func assertNoEmbeddedThreadPatch(t *testing.T, call fakePushCall) {
+	t.Helper()
+	payload := callPayloadMap(t, call)
+	if payload["_threadPatch"] != nil {
+		t.Fatalf("unexpected embedded patch on %s: %#v", call.method, payload["_threadPatch"])
+	}
+}
+
+func TestRPCPushWorkerEmbedsMatchingThreadPatchWithoutDroppingStandalone(t *testing.T) {
+	broadcaster := &fakePushBroadcaster{}
+	bridge := &PushBridge{logger: pkglogger.Get()}
+	worker := newPushNotificationWorker(broadcaster, bridge, pkglogger.Get())
+	sourcePayload := map[string]any{"threadId": "thread-1", "delta": "OK"}
+	patchPayload := map[string]any{"threadId": "thread-1", "source": "turn/outputDelta", "sequence": 7}
+	worker.Enqueue([]eventsurface.Notification{
+		{Method: eventsurface.MethodAgentMessageDelta, Payload: sourcePayload},
+	})
+	worker.Enqueue([]eventsurface.Notification{
+		{Method: eventsurface.MethodUIThreadPatch, Payload: patchPayload},
+	})
+
+	worker.Start()
+	defer func() {
+		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+		defer cancel()
+		_ = worker.Stop(ctx)
+	}()
+
+	waitForNotifySent(t, worker, 2)
+	calls := broadcaster.observed()
+	if len(calls) != 2 {
+		t.Fatalf("NotifyAll call count = %d, want source plus standalone patch", len(calls))
+	}
+	if calls[0].method != eventsurface.MethodAgentMessageDelta {
+		t.Fatalf("method = %q, want source method", calls[0].method)
+	}
+	embedded := embeddedThreadPatch(t, callPayloadMap(t, calls[0]))
+	if embedded["sequence"] != 7 {
+		t.Fatalf("embedded sequence = %#v, want 7", embedded["sequence"])
+	}
+	if calls[1].method != eventsurface.MethodUIThreadPatch {
+		t.Fatalf("second method = %q, want standalone patch for compatibility", calls[1].method)
+	}
+	if _, mutated := sourcePayload["_threadPatch"]; mutated {
+		t.Fatal("source payload was mutated with _threadPatch")
+	}
+}
+
+func TestRPCPushWorkerEmbedsThreadPatchFromSameBatchWithoutDroppingStandalone(t *testing.T) {
+	broadcaster := &fakePushBroadcaster{}
+	bridge := &PushBridge{logger: pkglogger.Get()}
+	worker := newPushNotificationWorker(broadcaster, bridge, pkglogger.Get())
+	worker.Enqueue([]eventsurface.Notification{
+		{Method: eventsurface.MethodAgentMessageDelta, Payload: map[string]any{"threadId": "thread-1", "delta": "OK"}},
+		{Method: eventsurface.MethodUIThreadPatch, Payload: map[string]any{"threadId": "thread-1", "source": "turn/outputDelta", "sequence": 8}},
+	})
+
+	worker.Start()
+	defer func() {
+		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+		defer cancel()
+		_ = worker.Stop(ctx)
+	}()
+
+	waitForNotifySent(t, worker, 2)
+	calls := broadcaster.observed()
+	if len(calls) != 2 {
+		t.Fatalf("NotifyAll call count = %d, want source plus standalone patch", len(calls))
+	}
+	embedded := embeddedThreadPatch(t, callPayloadMap(t, calls[0]))
+	if embedded["sequence"] != 8 {
+		t.Fatalf("embedded sequence = %#v, want 8", embedded["sequence"])
+	}
+	if calls[1].method != eventsurface.MethodUIThreadPatch {
+		t.Fatalf("second method = %q, want standalone patch", calls[1].method)
+	}
+}
+
+func TestRPCPushWorkerDoesNotEmbedThreadPatchIntoDifferentSourceMethod(t *testing.T) {
+	broadcaster := &fakePushBroadcaster{}
+	bridge := &PushBridge{logger: pkglogger.Get()}
+	worker := newPushNotificationWorker(broadcaster, bridge, pkglogger.Get())
+	worker.Enqueue([]eventsurface.Notification{
+		{Method: eventsurface.MethodAgentStopped, Payload: map[string]any{"threadId": "thread-1", "status": "stopped"}},
+	})
+	worker.Enqueue([]eventsurface.Notification{
+		{Method: eventsurface.MethodUIThreadPatch, Payload: map[string]any{"threadId": "thread-1", "source": "turn/outputDelta", "sequence": 10}},
+	})
+
+	worker.Start()
+	defer func() {
+		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+		defer cancel()
+		_ = worker.Stop(ctx)
+	}()
+
+	waitForNotifySent(t, worker, 2)
+	calls := broadcaster.observed()
+	if len(calls) != 2 {
+		t.Fatalf("NotifyAll call count = %d, want source and standalone patch", len(calls))
+	}
+	if calls[0].method != eventsurface.MethodAgentStopped {
+		t.Fatalf("first method = %q, want source method", calls[0].method)
+	}
+	if payload, ok := calls[0].payload.(map[string]any); ok && payload["_threadPatch"] != nil {
+		t.Fatalf("unrelated source carried embedded patch: %#v", payload["_threadPatch"])
+	}
+	if calls[1].method != eventsurface.MethodUIThreadPatch {
+		t.Fatalf("second method = %q, want standalone patch", calls[1].method)
+	}
+}
+
 // TestRPCPushQueuePreservesLegacyExpansion is the P22 P2 §TDD test named
 // in docs/plans/迁移/p22/P2_BusRuntimeDecoupling.md:415.
 //
