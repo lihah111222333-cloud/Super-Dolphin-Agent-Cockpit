@@ -32,26 +32,6 @@ test('sidebar pages load dashboard data and tasks tabs switch correctly', async 
         { path: '/workspace/project-alpha/memory.md', updated_by: 'bob', updated_at: '2026-03-06 10:09:00' },
       ],
     },
-    dagDetails: {
-      'build-release': {
-        dag: {
-          dag_key: 'build-release',
-          title: 'Build Release',
-          status: 'idle',
-        },
-        nodes: [
-          {
-            node_key: 'build',
-            title: 'Build',
-            status: 'done',
-            node_type: 'agent',
-          },
-        ],
-      },
-    },
-    dagRuns: {
-      'build-release': [],
-    },
     memoryCenter: {
       overview: {
         enabled: true,
@@ -87,8 +67,6 @@ test('sidebar pages load dashboard data and tasks tabs switch correctly', async 
     },
   });
 
-  page.on('console', msg => console.log('BROWSER LOG:', msg.text()));
-  page.on('pageerror', err => console.error('BROWSER ERROR:', err.stack || err.message));
   await page.goto('/');
   await expect(page.getByTestId('app-shell')).toBeVisible();
 

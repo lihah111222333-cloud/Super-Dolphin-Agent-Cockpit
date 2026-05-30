@@ -1,27 +1,23 @@
 import { defineConfig } from "vite";
-import react from "@vitejs/plugin-react";
 import { fileURLToPath } from "node:url";
 
-const VUE_SHIM = fileURLToPath(new URL("./lib/vue-react-shim.js", import.meta.url));
+// 把 vendored 的 lib/ 目录映射成短别名，免去 ../../../ 数路径的痛点。
+// - '@vue'  → frontend/lib/vue.esm-browser.prod.js（Vue 3 浏览器构建）
+// - '@lib'  → frontend/lib/                          （所有 vendored 库的根）
+// 编辑器跳转/补全请同时见 ./jsconfig.json 的 paths 配置。
+const VUE_LIB = fileURLToPath(new URL("./lib/vue.esm-browser.prod.js", import.meta.url));
 const LIB_DIR = fileURLToPath(new URL("./lib", import.meta.url));
-const SRC_DIR = fileURLToPath(new URL("./src", import.meta.url));
 
 // https://vitejs.dev/config/
 export default defineConfig({
+    // Vite 持久化 transform 缓存：避免每次 build 重新处理 2600+ 模块
     cacheDir: ".vite-cache",
-    plugins: [react()],
+
     resolve: {
-        alias: [
-            { find: /^\/vue-app\/(.*)/, replacement: `${SRC_DIR}/$1` },
-            {
-                find: /^(.*)\/(UnifiedChatPage|ActivityPanel|ChatTimeline|ComposerBar|ComposerForkDraftCard|ContextUsageBanner|DiffPanel|JsonRenderWidgets|JsonRenderer|McBadge|McButton|McCard|PathChoiceModal|ProjectModal|ProjectSelect|SidebarNav|json-render-markdown-action-key|ChatToolbar|CmdCardGrid|CmdOverviewPanel|ThreadRailSidePanel|WorkspaceChatPanel|AttachmentPreview|ToolTickerBar)\.(js|ts)$/,
-                replacement: "$1/$2.jsx"
-            },
-            { find: /.*vue\.esm-browser\.prod\.js$/, replacement: VUE_SHIM },
-            { find: "@vue", replacement: VUE_SHIM },
-            { find: "@lib", replacement: LIB_DIR },
-            { find: "@", replacement: SRC_DIR },
-        ],
+        alias: {
+            "@vue": VUE_LIB,
+            "@lib": LIB_DIR,
+        },
     },
 
     // Wails 前端: 输出到 dist/, Go embed 打包
@@ -53,3 +49,4 @@ export default defineConfig({
         },
     },
 });
+

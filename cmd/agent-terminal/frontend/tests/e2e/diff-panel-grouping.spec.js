@@ -41,13 +41,6 @@ test('diff panel groups multi-file changes and re-expands the focused file', asy
 
   });
 
-  page.on('pageerror', exception => {
-    console.log(`[Browser Page Error] ${exception.stack || exception.message}`);
-  });
-  page.on('console', message => {
-    console.log(`[Browser Console] ${message.type()}: ${message.text()}`);
-  });
-
   await page.goto('/');
   await expect(page.getByTestId('app-shell')).toBeVisible();
   await expect(page.getByTestId('chat-page')).toBeVisible();
