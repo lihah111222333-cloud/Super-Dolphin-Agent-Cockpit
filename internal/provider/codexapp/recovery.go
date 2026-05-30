@@ -115,6 +115,10 @@ func (s *session) handleConnectionDead(params json.RawMessage) {
 		"thread_id", s.ThreadID(),
 		"reason", reason,
 	)
+	if isNonRecoverableAuthErrorText(reason) {
+		s.failNonRecoverableConnection(reason)
+		return
+	}
 	if strings.TrimSpace(s.ThreadID()) == "" {
 		err := errors.New("codexapp: startup failed: " + strings.TrimSpace(reason))
 		if s.transport != nil {
@@ -140,6 +144,49 @@ func (s *session) handleConnectionDead(params json.RawMessage) {
 		return
 	}
 	s.runtime.NotifyRecovery("connection-dead", reason)
+}
+
+func isNonRecoverableAuthErrorText(reason string) bool {
+	text := strings.ToLower(strings.TrimSpace(reason))
+	if text == "" {
+		return false
+	}
+	if strings.Contains(text, "invalid_api_key") || strings.Contains(text, "incorrect api key") {
+		return true
+	}
+	if strings.Contains(text, "api key") && (strings.Contains(text, "invalid") || strings.Contains(text, "incorrect") || strings.Contains(text, "unauthorized")) {
+		return true
+	}
+	return strings.Contains(text, "401") && strings.Contains(text, "unauthorized")
+}
+
+func (s *session) failNonRecoverableConnection(reason string) {
+	reason = strings.TrimSpace(reason)
+	if reason == "" {
+		reason = "connection lost"
+	}
+	pkglogger.Warn("codexapp: non-recoverable connection failure",
+		"agent_id", s.agentID,
+		"thread_id", s.ThreadID(),
+		"reason", reason,
+	)
+	err := errors.New("codexapp: " + reason)
+	if strings.TrimSpace(s.ThreadID()) == "" {
+		if s.transport != nil {
+			s.transport.failPending(err)
+		}
+		return
+	}
+	s.failTurns(err)
+	s.dispatch(dto.RawProviderEvent{
+		EventType: "connection.dead",
+		Data: map[string]any{
+			"agentId":     strings.TrimSpace(s.agentID),
+			"threadId":    s.ThreadID(),
+			"error":       reason,
+			"recoverable": false,
+		},
+	})
 }
 
 func (s *session) attemptRecovery(reason string) error {

@@ -31,3 +31,11 @@ func TestParseRolloutLineDropsPureSystemNoise(t *testing.T) {
 		t.Fatal("parseRolloutLine() ok = true, want false for pure system noise")
 	}
 }
+
+func TestParseRolloutLineDropsTurnAbortedControlBlock(t *testing.T) {
+	raw := []byte(`{"timestamp":"2026-05-30T07:30:00Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"<turn_aborted>\nThe user interrupted the previous turn on purpose. Any running unified exec processes may still be running in the background. If any tools/commands were aborted, they may have partially executed.\n</turn_aborted>"}]}}`)
+
+	if _, ok := parseRolloutLine(raw); ok {
+		t.Fatal("parseRolloutLine() ok = true, want false for turn-aborted control block")
+	}
+}
