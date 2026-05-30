@@ -259,7 +259,8 @@ function browserInstaller({
       ...(asObject(source.buildInfo)),
     },
     runtimeConfig: {
-      cwd: (asArray(source.threads)[0]?.cwd || asObject(source.runtimeConfig).cwd || '/tmp/go-agent-v2-e2e').toString().trim(),
+      cwd: '/tmp/go-agent-v2-e2e',
+      ...(asObject(source.runtimeConfig)),
     },
     projects: asArray(source.projects).map((item) => normalizePath(item)).filter(Boolean),
     activeProject: normalizePath(source.activeProject || '.') || '.',
@@ -1015,10 +1016,9 @@ function browserInstaller({
         case 'thread/messages': {
           const threadId = (params.threadId || '').toString();
           const timeline = asArray(state.timelinesByThread[threadId]);
-          const dialogItems = timeline.filter((item) => !item?.kind || item.kind === 'user' || item.kind === 'assistant');
           return {
-            total: dialogItems.length,
-            messages: dialogItems.map((item, index) => ({
+            total: timeline.length,
+            messages: timeline.map((item, index) => ({
               id: index + 1,
               agentId: threadId,
               role: (item?.kind || 'assistant') === 'user' ? 'user' : 'assistant',
@@ -1175,31 +1175,10 @@ function browserInstaller({
         case 'skills/local/write': {
           const path = normalizePath(params.path || '');
           const current = asObject(state.skillFileContents[path]);
-          const content = (params.content || '').toString();
           state.skillFileContents[path] = {
             ...current,
-            content,
+            content: (params.content || '').toString(),
           };
-          const name = basename(path);
-          if (name.toLowerCase() === 'skill.md' || !path.includes('/') || !path.includes('.')) {
-            const skillName = name.toLowerCase() === 'skill.md' ? basename(dirname(path)) : path;
-            if (skillName) {
-              const parsed = parseSkillContent(content);
-              const dir = name.toLowerCase() === 'skill.md' ? dirname(path) : normalizePath(`/mock-skills/${skillName}`);
-              ensureSkillFile(`${dir}/SKILL.md`, content, {
-                summary: parsed.summary,
-                summary_source: parsed.summary ? 'frontmatter' : '',
-              });
-              upsertSkillCard({
-                name: parsed.name || skillName,
-                dir,
-                description: parsed.description,
-                summary: parsed.summary,
-                triggerWords: parsed.triggerWords,
-                forceWords: parsed.forceWords,
-              });
-            }
-          }
           return { ok: true };
         }
         case 'skills/config/write': {

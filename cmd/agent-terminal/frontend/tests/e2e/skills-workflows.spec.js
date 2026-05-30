@@ -76,38 +76,34 @@ test('skills page supports search, edit subfiles, create, import, and delete', a
   expect(subfileWriteCalls[0]?.params?.path).toBe('/mock-skills/backend/notes.md');
   expect(subfileWriteCalls[0]?.params?.content).toContain('更新后的子文件正文');
 
-  await page.getByTestId('skills-edit-button-0').click();
   await page.getByTestId('skills-subfile-item-0').click();
   await page.getByTestId('skills-editor-name-input').fill('backend-pro');
   await page.getByTestId('skills-editor-summary-input').fill('新的后端摘要');
   await page.getByTestId('skills-editor-trigger-input').fill('api, rpc');
   await page.getByTestId('skills-save-button').click();
 
-  const skillSaveCalls = await readMethodCalls(page, 'skills/local/write');
-  const mainSkillSaveCall = skillSaveCalls.find((item) => item?.params?.path?.endsWith('SKILL.md'));
-  expect(mainSkillSaveCall?.params?.path).toContain('SKILL.md');
-  expect(mainSkillSaveCall?.params?.content).toContain('name: "backend-pro"');
-  expect(mainSkillSaveCall?.params?.content).toContain('新的后端摘要');
+  const skillSaveCalls = await readMethodCalls(page, 'skills/config/write');
+  expect(skillSaveCalls[0]?.params?.name).toBe('backend-pro');
+  expect(skillSaveCalls[0]?.params?.content).toContain('新的后端摘要');
 
-  await expect(page.getByTestId('skills-editor-panel')).toBeHidden();
+  await page.getByTestId('skills-editor-close-button').click();
   await page.getByTestId('skills-create-button').click();
   await page.getByTestId('skills-editor-name-input').fill('new-skill');
+  await page.getByTestId('skills-editor-description-input').fill('全新技能描述');
   await page.getByTestId('skills-editor-summary-input').fill('全新技能摘要');
   await page.getByTestId('skills-editor-body-input').fill('## 新建技能\n\n这是一个全新的技能正文。');
   await page.getByTestId('skills-save-button').click();
   await page.getByTestId('skills-search-input').fill('');
   await expect(page.getByTestId('skills-list')).toContainText('new-skill');
 
-  await expect(page.getByTestId('skills-editor-panel')).toBeHidden();
+  await page.getByTestId('skills-editor-close-button').click();
   await page.getByTestId('skills-import-button').click();
-  await page.getByTestId('skills-import-scope-project').click();
   await expect(page.getByTestId('skills-notice')).toContainText('导入完成：成功 1，失败 1');
   await expect(page.getByTestId('skills-failure-list')).toContainText('/imports/broken');
   await expect(page.getByTestId('skills-list')).toContainText('ops');
 
   const newSkillCard = page.locator('.skill-card').filter({ hasText: 'new-skill' }).first();
   await newSkillCard.getByRole('button', { name: '删除' }).click();
-  await page.getByTestId('skills-delete-confirm').click();
   await expect(page.locator('.skill-card').filter({ hasText: 'new-skill' })).toHaveCount(0);
 
   const deleteCalls = await readMethodCalls(page, 'skills/local/delete');
