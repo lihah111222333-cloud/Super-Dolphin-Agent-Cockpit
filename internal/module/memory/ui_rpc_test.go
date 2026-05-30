@@ -57,6 +57,12 @@ func TestRegisterUIMemoryMutationHandlersDoesNotExposeSharedFilePromote(t *testi
 	if _, ok := handlers["ui/memory/shared-file/delete"]; !ok {
 		t.Fatal("ui/memory/shared-file/delete should remain registered")
 	}
+	if _, ok := handlers["ui/memory/shared-file/cleanup-preview"]; !ok {
+		t.Fatal("ui/memory/shared-file/cleanup-preview should be registered")
+	}
+	if _, ok := handlers["ui/memory/shared-file/cleanup-apply"]; !ok {
+		t.Fatal("ui/memory/shared-file/cleanup-apply should be registered")
+	}
 }
 
 func newUIMemorySnapshotConfig(t *testing.T, projectRoot, privateRoot string) *Config {
