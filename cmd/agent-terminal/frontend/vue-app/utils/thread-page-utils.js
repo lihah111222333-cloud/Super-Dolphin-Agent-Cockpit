@@ -284,6 +284,44 @@ function markCardPerf(perf, stage, startedAt, fields = {}) {
  * @param {BuildVisibleChatThreadCardsOptions | null | undefined} opts
  * @returns {VisibleChatThreadCardState}
  */
+function multiAgentOrderKey(name) {
+  const match = (name || '').toString().trim().match(/^agent\s*(\d+)\b/i);
+  if (!match) return 0;
+  const value = Number.parseInt(match[1], 10);
+  return Number.isFinite(value) && value > 0 ? value : 0;
+}
+
+function decorateMultiAgentCards(cards) {
+  let group = 0;
+  let seenInGroup = new Set();
+  return cards.map((card, index) => {
+    const order = multiAgentOrderKey(card?.name);
+    if (order <= 0) return { card, index, order: 0, group: Number.MAX_SAFE_INTEGER };
+    if (seenInGroup.has(order)) {
+      group += 1;
+      seenInGroup = new Set();
+    }
+    seenInGroup.add(order);
+    return { card, index, order, group };
+  });
+}
+
+function sortMultiAgentCardsInPlace(cards) {
+  if (!Array.isArray(cards) || cards.length <= 1) return cards;
+  const decorated = decorateMultiAgentCards(cards);
+  const hasMultiAgent = decorated.some((entry) => entry.order > 0);
+  if (!hasMultiAgent) return cards;
+  decorated.sort((left, right) => {
+    if (left.group !== right.group) return left.group - right.group;
+    const leftOrder = left.order || Number.MAX_SAFE_INTEGER;
+    const rightOrder = right.order || Number.MAX_SAFE_INTEGER;
+    if (leftOrder !== rightOrder) return leftOrder - rightOrder;
+    return left.index - right.index;
+  });
+  for (let index = 0; index < decorated.length; index += 1) cards[index] = decorated[index].card;
+  return cards;
+}
+
 export function buildVisibleChatThreadCards(opts) {
   const totalStart = nowMs();
   const {
@@ -450,6 +488,8 @@ export function buildVisibleChatThreadCards(opts) {
   });
   if (showArchived && cards.length > 1) {
     cards.sort((a, b) => (b.archivedAt || 0) - (a.archivedAt || 0));
+  } else {
+    sortMultiAgentCardsInPlace(cards);
   }
   markCardPerf(perf, 'build_cards', cardStart, {
     visible_count: visibleThreads.length,

@@ -34,6 +34,7 @@ import { useFileRefPreview } from '../composables/useFileRefPreview.js';
 import { useCopyThreadInfo } from '../composables/useCopyThreadInfo.js';
 import { useFileDrop } from '../composables/useFileDrop.js';
 import { useForkThread } from '../composables/useForkThread.js';
+import { useMultiAgentLaunch } from '../composables/useMultiAgentLaunch.js';
 import { getTokenLevel } from '../utils/format-utils.js';
 import { useContextUsageThresholds } from '../composables/useContextUsageThresholds.js';
 import { usePageLifecycle } from '../composables/usePageLifecycle.js';
@@ -51,6 +52,11 @@ import {
   createPathChoiceController,
 } from './UnifiedChatPage.helpers.js';
 import { template } from './UnifiedChatPage.template.js';
+
+function formatMultiAgentLaunchFailure(error) {
+  const detail = (error?.message || String(error || '') || '未知错误').toString().trim();
+  return `创建子 Agent 失败：${detail}`;
+}
 
 function selectThreadInPage(selectedThreadId, threadStore, threadId) {
   const nextThreadId = (threadId || '').toString().trim();
@@ -535,6 +541,24 @@ export const UnifiedChatPage = {
       beginInlineRename: inlineRename.beginInlineRename, scheduleScrollToBottom,
       showArchivedThreadList, providerPreferenceReady, providerPreferenceError, sendBlockedNoticesByThread, sendHoldNoticesByThread,
     });
+    const multiAgentLaunch = useMultiAgentLaunch({
+      threadStore: props.threadStore,
+      projectStore: props.projectStore,
+      selectedThreadId,
+      composer,
+      resolveCwd: (projectStore) => resolveProjectActionCwd(projectStore, props.windowCwd),
+      scheduleScrollToBottom,
+    });
+    const originalSend = threadActions.send;
+    threadActions.send = async () => {
+      try {
+        if (!isCmd.value && await multiAgentLaunch.maybeLaunchFromComposer()) return;
+      } catch (error) {
+        threadActions.sendFailureNotice.value = formatMultiAgentLaunchFailure(error);
+        throw error;
+      }
+      return originalSend();
+    };
 
     const threadConfigController = createThreadConfigController({ threadStore: props.threadStore, threadActions, selectedThreadId, isCmd });
 
