@@ -19,6 +19,7 @@ beforeEach(() => {
   };
 });
 
+
 vi.mock('../lib/vue.esm-browser.prod.js', async () => {
   const actual = await vi.importActual('../lib/vue.esm-browser.prod.js');
   return {
@@ -44,6 +45,7 @@ vi.mock('./services/log.js', () => ({
 
 import { EFFORT_MODES_BY_PROVIDER, MODEL_OPTIONS_BY_PROVIDER } from './provider-config-options.js';
 import { ComposerBar } from './components/ComposerBar.js';
+import { ChatToolbar, resolveProviderToggleLabel } from './components/unified-chat/ChatToolbar.js';
 import { reactive, ref } from '../lib/vue.esm-browser.prod.js';
 
 function makeComposer() {
@@ -140,5 +142,17 @@ describe('ComposerBar thread config behavior', () => {
     expect(emit).toHaveBeenCalledWith('update-thread-config-model', 'sonnet');
     expect(emit).toHaveBeenCalledWith('update-thread-config-effort', 'high');
     expect(emit).toHaveBeenCalledWith('save-thread-config');
+  });
+});
+
+describe('ChatToolbar provider label behavior', () => {
+  it('keeps the effective provider name while provider preferences are loading', () => {
+    expect(resolveProviderToggleLabel(false)).toBe('Codex');
+    expect(resolveProviderToggleLabel(true)).toBe('Claude');
+  });
+
+  it('keeps the provider toggle usable while preference loading is pending', () => {
+    expect(ChatToolbar.template).toContain('class="provider-toggle-input"');
+    expect(ChatToolbar.template).not.toContain(':disabled="!providerPreferenceReady"');
   });
 });

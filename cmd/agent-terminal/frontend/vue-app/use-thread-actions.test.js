@@ -403,6 +403,39 @@ describe('useThreadActions', () => {
     expect(vm.sendFailureNotice.value).toContain('safe read');
   });
 
+  it('send: can retry after missing cwd failure once an explicit project is selected', async () => {
+    const projectStore = { state: { active: '.' } };
+    const vm = createThreadActions({
+      selectedThreadId: '',
+      text: 'retry after project selection',
+      props: {
+        windowCwd: '',
+        projectStore,
+      },
+    });
+
+    await expect(vm.send()).rejects.toThrow('project action cwd is required');
+    expect(vm.deps.composer.state.text).toBe('retry after project selection');
+    expect(vm.threadStore.startThread).not.toHaveBeenCalled();
+
+    projectStore.state.active = '/Users/ai/Desktop/sd';
+    await vm.send();
+
+    expect(vm.threadStore.startThread).toHaveBeenCalledWith('/Users/ai/Desktop/sd', {
+      focusMode: 'chat',
+      deferSpawn: true,
+      launchIntentId: 'launch_018f00e0-39fc-72ac-a47a-2a858c75d111',
+      optimisticUserMessage: { text: 'retry after project selection', attachments: [] },
+      skipInitialRuntimeSync: true,
+    });
+    expect(vm.threadStore.sendMessage).toHaveBeenCalledWith(
+      'thread-started',
+      'retry after project selection',
+      [],
+      { manualSkillSelection: false, cwd: '/Users/ai/Desktop/sd' },
+    );
+  });
+
   it('send: preserves launch intent after start failure so retained backend failures stay keyed', async () => {
     const backendError = new Error('provider failed');
     const vm = createThreadActions({

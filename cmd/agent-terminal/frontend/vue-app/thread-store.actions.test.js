@@ -21,15 +21,9 @@ vi.mock('./services/log.js', () => ({
   logWarn: logMock.logWarn,
 }));
 
-import { CODEX_IDENTITY_DEFAULTS } from './provider-config-options.js';
+import { withCodexLspToolDefaults } from './stores/codex-lsp-defaults.js';
 import { useThreadStore } from './stores/threads.js';
-import {
-  cancelCompactWaiter,
-  compactPendingByThread,
-  compactResultByThread,
-  compactSuccessCountByThread,
-  compactWaitersByThread,
-} from './stores/thread-compact.js';
+import { cancelCompactWaiter, compactPendingByThread, compactResultByThread, compactSuccessCountByThread, compactWaitersByThread } from './stores/thread-compact.js';
 
 
 function buildSnapshot({
@@ -65,6 +59,7 @@ function mockStartPreference(payload, {
   activePromptKey = '',
   model = '',
   effort = '',
+  sandbox = undefined,
   codexHome = undefined,
   codexInstanceKey = undefined,
   codexModelProvider = undefined,
@@ -75,13 +70,21 @@ function mockStartPreference(payload, {
   if (key === 'settings.provider.codex.codexHome') return codexHome;
   if (key === 'settings.provider.codex.codexInstanceKey') return codexInstanceKey;
   if (key === 'settings.provider.codex.codexModelProvider') return codexModelProvider;
+  if (typeof key === 'string' && key.startsWith('settings.provider.') && key.endsWith('.sandbox')) return sandbox;
   if (typeof key === 'string' && key.startsWith('settings.provider.') && key.endsWith('.model')) return model;
   if (typeof key === 'string' && key.startsWith('settings.provider.') && key.endsWith('.effort')) return effort;
   return undefined;
 }
 
 function codexIdentityConfig(overrides = {}) {
-  return { ...CODEX_IDENTITY_DEFAULTS, ...overrides };
+  return { ...overrides };
+}
+
+function codexStartConfig(overrides = {}, cwd = '/repo') {
+  const config = { ...withCodexLspToolDefaults(codexIdentityConfig(overrides)) };
+  const writableRoots = cwd && cwd !== '.' ? [cwd] : [];
+  if (!Object.prototype.hasOwnProperty.call(config, 'sandbox')) config.sandbox = { mode: 'workspace-write', writable_roots: writableRoots, network_access: false };
+  return config;
 }
 
 function resetThreadStore(store) {
@@ -229,7 +232,7 @@ describe('thread store actions', () => {
     expect(apiMock.callAPI).toHaveBeenCalledWith('thread/start', {
       cwd: '/repo',
       modelProvider: 'codex',
-      config: codexIdentityConfig({
+      config: codexStartConfig({
         sessionFlags: { persistentSubagentDefault: true },
       }),
     });
@@ -261,7 +264,7 @@ describe('thread store actions', () => {
       modelProvider: 'codex',
       name: 'Memory Center Refactor · 新对话',
       baseInstructions: '来源对话：Memory Center Refactor',
-      config: codexIdentityConfig({
+      config: codexStartConfig({
         sessionFlags: { seededConversation: true },
       }),
     });
@@ -339,11 +342,11 @@ describe('thread store actions', () => {
       modelProvider: 'codex',
       model: 'gpt-5.5',
       effort: 'xhigh',
-      config: {
+      config: codexStartConfig({
         codexHome: '/Users/mac/.codex',
         codexInstanceKey: 'primary',
         codexModelProvider: 'openai-compatible',
-      },
+      }),
     }));
   });
 
@@ -455,7 +458,7 @@ describe('thread store actions', () => {
     expect(apiMock.callAPI).toHaveBeenCalledWith('thread/start', {
       cwd: '/repo-x',
       modelProvider: 'codex',
-      config: codexIdentityConfig(),
+      config: codexStartConfig({}, '/repo-x'),
       prompt_key: 'main/launch-fav',
     });
   });
@@ -478,7 +481,7 @@ describe('thread store actions', () => {
     expect(apiMock.callAPI).toHaveBeenCalledWith('thread/start', {
       cwd: '/repo',
       modelProvider: 'codex',
-      config: codexIdentityConfig(),
+      config: codexStartConfig(),
       prompt_key: 'main/explicit-pin',
     });
   });
@@ -506,7 +509,7 @@ describe('thread store actions', () => {
     expect(apiMock.callAPI).toHaveBeenCalledWith('thread/start', {
       cwd: '/repo',
       modelProvider: 'codex',
-      config: codexIdentityConfig(),
+      config: codexStartConfig(),
       agent_key: 'sql_expert',
     });
   });

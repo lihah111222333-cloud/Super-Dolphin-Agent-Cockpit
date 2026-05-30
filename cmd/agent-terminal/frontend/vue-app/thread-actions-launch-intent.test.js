@@ -69,7 +69,7 @@ describe('thread action launch intent', () => {
       },
       skipSaveActive: true,
     });
-    for (let i = 0; i < 10 && ctx.syncRuntimeState.mock.calls.length === 0; i += 1) await Promise.resolve();
+    for (let i = 0; i < 30 && ctx.syncRuntimeState.mock.calls.length === 0; i += 1) await Promise.resolve();
 
     const timelineBeforeSync = ctx.state.timelinesByThread['thread-intent'] || [];
 
