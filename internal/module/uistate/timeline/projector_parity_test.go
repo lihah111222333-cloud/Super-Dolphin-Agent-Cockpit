@@ -129,6 +129,39 @@ func TestPlanUpdated_StructuredCodexPayload(t *testing.T) {
 	}, "expected structured Codex plan payload to be parsed into readable text")
 }
 
+func TestPlanUpdated_MarksStructuredPlanDoneWhenAllStepsComplete(t *testing.T) {
+	svc := timeline.New(nil, nil, 50)
+	dispatcher := event.NewDispatcher()
+	cancels := timeline.RegisterSubscriptions(dispatcher, svc, nil, nil)
+	defer func() {
+		for _, cancel := range cancels {
+			cancel()
+		}
+		_ = dispatcher.Close()
+	}()
+
+	event.Publish(dispatcher, turndto.PlanUpdated{
+		TurnHeader: shared.TurnHeader{
+			AgentHeader: shared.AgentHeader{
+				ThreadHeader: shared.ThreadHeader{ThreadID: "t-done-plan"},
+				AgentID:      "agent_123",
+			},
+			TurnIDHeader: shared.TurnIDHeader{TurnID: "turn-done-plan"},
+		},
+		Payload: json.RawMessage(`{
+			"plan": [
+				{"status": "completed", "step": "完成根因定位"},
+				{"status": "done", "step": "补充回归测试"}
+			]
+		}`),
+	})
+
+	waitForCondition(t, func() bool {
+		items := svc.GetByThread("t-done-plan")
+		return len(items) == 1 && items[0].Kind == "plan" && items[0].Done
+	}, "expected structured completed plan to be marked done")
+}
+
 func TestPlanDelta_StructuredStepsArray(t *testing.T) {
 	svc := timeline.New(nil, nil, 50)
 	dispatcher := event.NewDispatcher()
