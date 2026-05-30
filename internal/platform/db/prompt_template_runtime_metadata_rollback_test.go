@@ -59,9 +59,13 @@ func requireDAGDesignerForwardRuntimeMetadata(t *testing.T, ctx context.Context,
 			"timeout / cancelled / unknown / not_implemented",
 			"`timeout` / `cancelled` / `unknown` / `not_implemented`",
 			`"provider": "claude"`,
+			`"provider":"claude"`,
 			`"model": "opus"`,
+			`"model":"opus"`,
 			`"model": "sonnet"`,
+			`"model":"sonnet"`,
 			`"escalation_chain": ["sonnet","opus"]`,
+			`"escalation_chain":["sonnet","opus"]`,
 			`list_models(provider="claude")`,
 			`model=sonnet`,
 			`provider_from_list_models`,
@@ -81,9 +85,13 @@ func requireDAGDesignerForwardRuntimeMetadata(t *testing.T, ctx context.Context,
 			"timeout / cancelled / unknown / not_implemented",
 			"`timeout` / `cancelled` / `unknown` / `not_implemented`",
 			`"provider": "claude"`,
+			`"provider":"claude"`,
 			`"model": "opus"`,
+			`"model":"opus"`,
 			`"model": "sonnet"`,
+			`"model":"sonnet"`,
 			`"escalation_chain": ["sonnet","opus"]`,
+			`"escalation_chain":["sonnet","opus"]`,
 			`list_models(provider="claude")`,
 			`model=sonnet`,
 			`provider_from_list_models`,
@@ -372,6 +380,8 @@ func dagDesignerFixedProviderExample() string {
     "verifier":   { "provider": "claude", "model": "sonnet", "agent_key": "code-review" }
   }
 }
+Compact config example:
+{"exec":{"provider":"claude","model":"opus","agent_key":"code-debug","on_failure":{"escalation_chain":["sonnet","opus"]}},"exec_hybrid":{"verifier":{"provider":"claude","model":"sonnet","agent_key":"code-review"}}}
 Call list_models(provider="claude") and use model=sonnet in the topology.
 `
 }

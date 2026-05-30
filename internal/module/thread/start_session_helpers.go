@@ -13,7 +13,6 @@ import (
 	bindingstore "github.com/anthropic-ai/super-agent-v3/internal/store/binding"
 	"github.com/anthropic-ai/super-agent-v3/internal/util"
 	"github.com/anthropic-ai/super-agent-v3/internal/util/clone"
-	"github.com/anthropic-ai/super-agent-v3/internal/util/configutil"
 )
 
 const startDisplayNameMaxRunes = 160
@@ -138,7 +137,10 @@ func (s *service) hydrateResumeSessionRequest(ctx context.Context, req ResumeReq
 	req.CodexModelProvider = util.FirstNonEmpty(req.CodexModelProvider, state.CodexModelProvider)
 	req.CodexDisabledNativeTools = resolveResumeCodexDisabledNativeTools(req.CodexDisabledNativeTools, state.ConfigOverride.Runtime)
 	req.Config = mergeRuntimeConfig(clone.RuntimeConfigMap(state.ConfigOverride.Runtime), req.Config)
-	req = s.injectDefaultCodexIdentityForResume(req)
+	req, err = s.injectDefaultCodexIdentityForResume(req)
+	if err != nil {
+		return ResumeRequest{}, err
+	}
 	req.PromptSnapshot, err = s.resolveResumePromptSnapshot(ctx, req, state)
 	if err != nil {
 		return ResumeRequest{}, err
@@ -422,7 +424,7 @@ func mergeStartSessionRuntimeIdentity(runtime map[string]any, session contract.S
 	}
 	for _, key := range []string{"codexHome", "codexInstanceKey", "codexModelProvider"} {
 		value := sessionRuntimeConfigString(session, key)
-		if value == "" || configutil.ConfigString(runtime, key) != "" {
+		if value == "" {
 			continue
 		}
 		if runtime == nil {
