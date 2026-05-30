@@ -12,8 +12,8 @@ Default scanned roots:
 Refresh and check:
 
 ```bash
-go run scripts/capcontract.go
-go run scripts/capcontract.go --check
+go run ./scripts/capcontract
+go run ./scripts/capcontract --check
 ```
 
 The manifest records packages, functions, methods, interfaces, interface methods, structs, parameters, return types, and export status. It complements the file-level AI project map with symbol-level contract visibility.

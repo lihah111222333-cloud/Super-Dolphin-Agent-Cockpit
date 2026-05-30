@@ -14,6 +14,7 @@ import (
 	providerdto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
 	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/common"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/mcpcontrol"
+	"github.com/anthropic-ai/super-agent-v3/internal/util/safego"
 )
 
 const peerReadyTimeout = 10 * time.Second
@@ -142,10 +143,10 @@ func prepareMCPSurfaceBinaries(
 	for i, binary := range binaries {
 		i, binary := i, binary
 		wg.Add(1)
-		go func() {
+		safego.Go(ctx, nil, "toolbridge.prepareMCPSurfaceBinary", func(workerCtx context.Context) {
 			defer wg.Done()
 			result := mcpSurfaceBinaryResult{binary: binary}
-			client, err := factory(ctx, binary)
+			client, err := factory(workerCtx, binary)
 			if err != nil {
 				recordErr(err)
 				return
@@ -156,14 +157,14 @@ func prepareMCPSurfaceBinaries(
 			}
 			result.client = client
 			results[i] = result
-			tools, err := client.ListTools(ctx)
+			tools, err := client.ListTools(workerCtx)
 			if err != nil {
 				recordErr(err)
 				return
 			}
 			result.tools = tools
 			results[i] = result
-		}()
+		})
 	}
 	wg.Wait()
 	if firstErr != nil {

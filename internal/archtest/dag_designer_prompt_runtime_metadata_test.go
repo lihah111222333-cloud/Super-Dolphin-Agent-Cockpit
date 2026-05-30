@@ -271,10 +271,11 @@ func dagDesigner0106ProviderModelReplacements() map[string]string {
     "agent_key": "code-debug",`: `    "agent_key": "code-debug",`,
 		`    "provider": "claude",
     "model": "opus",`: `    "model": "<selected model from list_models()>",`,
-		`"escalation_chain": ["sonnet","opus"]`:                                                 `"escalation_chain": []`,
-		`"verifier":   { "provider": "claude", "model": "sonnet", "agent_key": "code-review" }`: `"verifier":   { "agent_key": "code-review" }`,
-		`list_models(provider="claude")`:                                                        `list_models()`,
-		`model=sonnet`:                                                                          `model=<selected model from list_models()>`,
+		`"escalation_chain": ["sonnet","opus"]`: `"escalation_chain": []`,
+		`"verifier":   { "provider": "claude", "model": "sonnet", "agent_key": "code-review", "cwd": "/absolute/path/to/project" }`: `"verifier":   { "agent_key": "code-review", "cwd": "/absolute/path/to/project" }`,
+		`"verifier":   { "provider": "claude", "model": "sonnet", "agent_key": "code-review" }`:                                     `"verifier":   { "agent_key": "code-review" }`,
+		`list_models(provider="claude")`: `list_models()`,
+		`model=sonnet`:                   `model=<selected model from list_models()>`,
 	}
 }
 
@@ -325,7 +326,7 @@ func providerNeutralModelDiscoveryLiterals() []string {
 	return []string{
 		`    "agent_key": "code-debug",`,
 		`"escalation_chain": []`,
-		`"verifier":   { "agent_key": "code-review" }`,
+		`"verifier":   { "agent_key": "code-review", "cwd": "/absolute/path/to/project" }`,
 		`list_models()`,
 		`model=<selected model from list_models()>`,
 	}
