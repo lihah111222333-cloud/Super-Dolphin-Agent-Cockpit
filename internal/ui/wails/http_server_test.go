@@ -1,6 +1,8 @@
 package wails
 
 import (
+	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -28,5 +30,21 @@ func TestHTTPAssetRoutesExposePrometheusMetricsEndpoint(t *testing.T) {
 	}
 	if body := rec.Body.String(); !strings.Contains(body, `host_tool_calls_total{outcome="ok"} 1`) {
 		t.Fatalf("metrics endpoint did not expose host tool counters:\n%s", body)
+	}
+}
+
+func TestNewHTTPAssetServerUsesConfiguredAddr(t *testing.T) {
+	t.Setenv("GO_AGENT_HTTP_ASSET_ADDR", "127.0.0.1:4512")
+
+	result := NewHTTPAssetServer(httpAssetServerParams{
+		Logger: slog.New(slog.NewTextHandler(io.Discard, nil)),
+	})
+
+	server, ok := result.Runner.(*httpAssetServer)
+	if !ok {
+		t.Fatalf("Runner = %T, want *httpAssetServer", result.Runner)
+	}
+	if server.addr != "127.0.0.1:4512" {
+		t.Fatalf("server addr = %q, want %q", server.addr, "127.0.0.1:4512")
 	}
 }
