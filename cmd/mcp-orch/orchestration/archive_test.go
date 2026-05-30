@@ -3,11 +3,11 @@ package orchestration
 import (
 	"context"
 	"errors"
-	"os/exec"
 	"testing"
 	"time"
 
 	agentdto "github.com/anthropic-ai/super-agent-v3/internal/dto/agent"
+	"github.com/kelindar/event"
 )
 
 func TestArchiveAgentMarksPersistedThreadAndBindingArchivedWhenRuntimeMissing(t *testing.T) {
@@ -54,6 +54,35 @@ func TestArchiveAgentAcceptsProviderThreadIDAndArchivesOwningAgent(t *testing.T)
 	}
 }
 
+func TestArchiveAgentArchivesPersistedThreadViaSettledLauncherWhenRuntimeMissing(t *testing.T) {
+	threads := &archiveAgentThreadStore{threads: []PersistedThread{
+		{ThreadID: "thread-1", AgentID: "agent-1", Status: "created"},
+	}}
+	bindings := &archiveAgentBindingStore{bindings: map[string]PersistedBinding{
+		"agent-1": {AgentID: "agent-1", Provider: "claude", CodexThreadID: "thread-1"},
+	}}
+	launcher := &archiveAgentSettledLauncher{}
+	svc := NewService(silentLogger(), nil, launcher, nil, nil, nil)
+	svc.agentThreads = threads
+	svc.agentBindings = bindings
+
+	if err := svc.ArchiveAgent(context.Background(), "agent-1"); err != nil {
+		t.Fatalf("ArchiveAgent() error = %v", err)
+	}
+	if launcher.archivedAgentID != "agent-1" {
+		t.Fatalf("launcher archived agent = %q, want agent-1", launcher.archivedAgentID)
+	}
+	if launcher.archivedThreadID != "thread-1" {
+		t.Fatalf("launcher archived thread = %q, want thread-1", launcher.archivedThreadID)
+	}
+	if threads.updated.ThreadID != "" {
+		t.Fatalf("thread status updated locally = %#v, want remote archive to own persisted update", threads.updated)
+	}
+	if bindings.archived.AgentID != "" {
+		t.Fatalf("binding archived locally = %#v, want remote archive to own persisted update", bindings.archived)
+	}
+}
+
 func TestArchiveAgentStopsLocalRuntimeBeforePersistedArchive(t *testing.T) {
 	threads := &archiveAgentThreadStore{threads: []PersistedThread{
 		{ThreadID: "provider-thread-1", AgentID: "agent-1", Status: "created"},
@@ -66,7 +95,7 @@ func TestArchiveAgentStopsLocalRuntimeBeforePersistedArchive(t *testing.T) {
 	svc.agentThreads = threads
 	svc.agentBindings = bindings
 
-	cmd := exec.Command("sh", "-c", "sleep 30")
+	cmd := newLongRunningTestCommand()
 	if err := cmd.Start(); err != nil {
 		t.Fatalf("cmd.Start() error = %v", err)
 	}
@@ -206,7 +235,7 @@ func TestArchiveAgentInvokesLauncherArchiveNotStop(t *testing.T) {
 	}
 }
 
-func TestArchiveAgentViaLauncherDoesNotEmitExitForNonSettledLauncher(t *testing.T) {
+func TestArchiveAgentViaLauncherSettlesNonSettledLauncherWithoutExitMonitorEvent(t *testing.T) {
 	launcher := &archiveAgentLauncher{}
 	svc := NewService(silentLogger(), nil, launcher, nil, nil, nil)
 	agent := svc.newAgentLocked("agent-1")
@@ -224,8 +253,64 @@ func TestArchiveAgentViaLauncherDoesNotEmitExitForNonSettledLauncher(t *testing.
 		t.Fatalf("unexpected synthetic exit event for non-settled archive launcher: %#v", ev)
 	default:
 	}
-	if agent.state != agentdto.StateStopping {
-		t.Fatalf("agent.state = %q, want %q", agent.state, agentdto.StateStopping)
+	if agent.state != agentdto.StateStopped {
+		t.Fatalf("agent.state = %q, want %q", agent.state, agentdto.StateStopped)
+	}
+}
+
+func TestArchiveAgentViaLauncherPublishesStoppedAfterArchiveReturns(t *testing.T) {
+	dispatcher := event.NewDispatcher()
+	t.Cleanup(func() { _ = dispatcher.Close() })
+	stopped := make(chan agentdto.AgentStopped, 1)
+	cancel := event.Subscribe(dispatcher, func(ev agentdto.AgentStopped) {
+		stopped <- ev
+	})
+	defer cancel()
+
+	launcher := &archiveAgentLauncher{}
+	svc := NewService(silentLogger(), dispatcher, launcher, nil, nil, nil)
+	agent := svc.newAgentLocked("agent-1")
+	agent.state = agentdto.StateIdle
+	agent.remoteThreadID = "provider-thread-1"
+	agent.launchSeq = 1
+	svc.agents[agent.id] = agent
+
+	archived, err := svc.archiveAgentViaLauncher(context.Background(), "agent-1", "archived")
+	if err != nil || !archived {
+		t.Fatalf("archiveAgentViaLauncher() = (%v, %v), want archived nil", archived, err)
+	}
+	requireStopTestEvent(t, stopped, "archived", "agent-1")
+	if agent.state != agentdto.StateStopped {
+		t.Fatalf("agent.state = %q, want %q", agent.state, agentdto.StateStopped)
+	}
+}
+
+func TestArchiveAgentViaLauncherSettledArchivePublishesStoppedOnce(t *testing.T) {
+	dispatcher := event.NewDispatcher()
+	t.Cleanup(func() { _ = dispatcher.Close() })
+	stopped := make(chan agentdto.AgentStopped, 2)
+	cancel := event.Subscribe(dispatcher, func(ev agentdto.AgentStopped) {
+		stopped <- ev
+	})
+	defer cancel()
+
+	launcher := &archiveAgentSettledLauncher{}
+	svc := NewService(silentLogger(), dispatcher, launcher, nil, nil, nil)
+	agent := svc.newAgentLocked("agent-1")
+	agent.state = agentdto.StateIdle
+	agent.remoteThreadID = "provider-thread-1"
+	agent.launchSeq = 1
+	svc.agents[agent.id] = agent
+
+	archived, err := svc.archiveAgentViaLauncher(context.Background(), "agent-1", "archived")
+	if err != nil || !archived {
+		t.Fatalf("archiveAgentViaLauncher() = (%v, %v), want archived nil", archived, err)
+	}
+	requireStopTestEvent(t, stopped, "archived", "agent-1")
+	select {
+	case ev := <-stopped:
+		t.Fatalf("unexpected duplicate AgentStopped event: %#v", ev)
+	case <-time.After(20 * time.Millisecond):
 	}
 }
 
@@ -276,8 +361,17 @@ func (s *archiveAgentBindingStore) SetArchived(_ context.Context, params Persist
 }
 
 type archiveAgentLauncher struct {
-	stoppedAgentID  string
-	archivedAgentID string
+	stoppedAgentID   string
+	archivedAgentID  string
+	archivedThreadID string
+}
+
+type archiveAgentSettledLauncher struct {
+	archiveAgentLauncher
+}
+
+func (*archiveAgentSettledLauncher) StopSettlesAgent() bool {
+	return true
 }
 
 func (l *archiveAgentLauncher) Launch(context.Context, *agentRuntime, LaunchRequest) (LaunchResult, error) {
@@ -294,6 +388,7 @@ func (l *archiveAgentLauncher) Stop(_ context.Context, agent *agentRuntime) erro
 func (l *archiveAgentLauncher) Archive(_ context.Context, agent *agentRuntime) error {
 	if agent != nil {
 		l.archivedAgentID = agent.id
+		l.archivedThreadID = agent.remoteThreadID
 	}
 	return nil
 }

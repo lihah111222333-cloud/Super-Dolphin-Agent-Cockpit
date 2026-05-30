@@ -31,6 +31,7 @@ func TestFailNodeAndCancelDownstream_FailFastFalse_OnlyMarksCurrent(t *testing.T
 	if res.Node == nil || res.Node.Status != "failed" {
 		t.Fatalf("res.Node = %+v, want status=failed", res.Node)
 	}
+	requireFailNodeOldStatus(t, res, "running")
 	if len(res.CanceledDownstream) != 0 {
 		t.Fatalf("canceled = %v, want []", res.CanceledDownstream)
 	}
@@ -47,6 +48,40 @@ func TestFailNodeAndCancelDownstream_FailFastFalse_OnlyMarksCurrent(t *testing.T
 	}
 	if reason.Kind != "exhausted_retries" || reason.Reason != "launch transient exhausted" {
 		t.Fatalf("primary reason = %+v, want kind=exhausted_retries", reason)
+	}
+}
+
+func TestFailNodeAndCancelDownstream_LocksPrimaryBeforeReadingOldStatus(t *testing.T) {
+	t.Parallel()
+
+	store, db, now := newTaskDAGTestStore()
+	runID := seedFailDownstreamRuntimeDAG(t, db, now, []seedNode{
+		{key: "A", deps: nil, status: "running", agent: "agent-a"},
+	})
+	db.beforeFailNonTerminal = func(dagKey, nodeKey string) {
+		if dagKey != "dag-1" || nodeKey != "A" {
+			return
+		}
+		key := dagRunNodeKey(dagKey, nodeKey, runID)
+		row := db.nodes[key]
+		row.Status = "done"
+		db.nodes[key] = row
+	}
+
+	res, err := store.FailNodeAndCancelDownstream(context.Background(), FailNodeInput{
+		DagKey:  "dag-1",
+		NodeKey: "A",
+		RunID:   runID,
+		Reason:  "retry exhausted",
+	})
+	if err != nil {
+		t.Fatalf("FailNodeAndCancelDownstream error = %v, want locked primary update", err)
+	}
+	if res.OldStatus != "running" {
+		t.Fatalf("OldStatus = %q, want locked running status", res.OldStatus)
+	}
+	if res.Node == nil || res.Node.Status != "failed" {
+		t.Fatalf("res.Node = %+v, want failed", res.Node)
 	}
 }
 
@@ -153,6 +188,13 @@ func requireFailNodeStatus(t *testing.T, res *FailNodeResult, want string) {
 	t.Helper()
 	if res.Node == nil || res.Node.Status != want {
 		t.Fatalf("res.Node = %+v, want status=%s", res.Node, want)
+	}
+}
+
+func requireFailNodeOldStatus(t *testing.T, res *FailNodeResult, want string) {
+	t.Helper()
+	if res.OldStatus != want {
+		t.Fatalf("OldStatus = %q, want %s", res.OldStatus, want)
 	}
 }
 

@@ -18,6 +18,7 @@ type (
 	SkillConfig  = contract.SkillConfig
 	AgentConfig  = contract.AgentConfig
 	NotifyConfig = contract.NotifyConfig
+	LSPConfig    = contract.LSPConfig
 )
 
 var setenvForConfig = os.Setenv
@@ -52,6 +53,7 @@ func New() (*Config, error) {
 			QueueCapacity:    envPositiveIntOr("NOTIFY_QUEUE_CAPACITY", 512),
 			DrainSeconds:     envPositiveIntOr("NOTIFY_DRAIN_SECONDS", 5),
 		},
+		LSP: lspConfigFromEnv(),
 	}
 	if err := exportRPCAddrIfMissing(cfg.RPCAddr); err != nil {
 		return nil, err

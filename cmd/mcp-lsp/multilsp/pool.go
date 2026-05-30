@@ -343,7 +343,7 @@ func (p *ManagerPool) managerForResolvedScope(shard *managerShard, resolved Reso
 	shard.clones[resolved.ManagerKey] = pooled
 	toClose := p.evictIdleClonesLocked(shard, resolved.ManagerKey)
 	shard.mu.Unlock()
-	_, _ = closeReleaseScopeManagers(toClose)
+	_, _ = closeReleaseScopeManagers(ReleaseScopeRequest{ScopeKind: ReleaseScopeManagerKey, ManagerKey: resolved.ManagerKey, Drain: true, Reason: "shard_cap_evict"}, toClose)
 	return pooled, nil
 }
 

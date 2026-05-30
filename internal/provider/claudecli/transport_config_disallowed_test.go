@@ -2,6 +2,7 @@ package claudecli
 
 import (
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -42,6 +43,44 @@ func TestBuildCLIArgsUsesConfiguredBuiltinToolsAllowlist(t *testing.T) {
 	}
 }
 
+func TestBuildCLIArgsRemovesSkillWhenProviderNativeSkillsDisabled(t *testing.T) {
+	t.Parallel()
+
+	args := buildCLIArgs("claude-sonnet", "system", "/tmp/mcp.json", cliLaunchConfig{
+		BuiltinTools:                []string{"WebFetch", "Skill", "Task"},
+		DisableProviderNativeSkills: true,
+	})
+	got := flagValues(args, "--tools")
+	want := []string{"WebFetch,Task"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("--tools = %#v, want %#v", got, want)
+	}
+	if got := flagValues(args, "--disallowedTools"); len(got) != 0 {
+		t.Fatalf("--disallowedTools with --tools allowlist = %#v, want none", got)
+	}
+}
+
+func TestBuildCLIArgsDisallowsSkillWhenProviderNativeSkillsDisabledWithoutAllowlist(t *testing.T) {
+	t.Parallel()
+
+	args := buildCLIArgs("claude-sonnet", "system", "/tmp/mcp.json", cliLaunchConfig{
+		DisableProviderNativeSkills: true,
+	})
+	got := flagValues(args, "--disallowedTools")
+	if len(got) != 1 {
+		t.Fatalf("--disallowedTools count = %#v, want one merged flag", got)
+	}
+	ids := strings.Split(got[0], ",")
+	if !containsDisallowedToolID(ids, "Skill") {
+		t.Fatalf("--disallowedTools = %#v, missing Skill", ids)
+	}
+	for _, id := range ids {
+		if strings.HasPrefix(id, "Skill(") {
+			t.Fatalf("--disallowedTools = %#v, must not use skill-name blacklist", ids)
+		}
+	}
+}
+
 func TestBuildCLIArgsUsesEmptyBuiltinToolsAllowlist(t *testing.T) {
 	t.Parallel()
 
@@ -65,6 +104,27 @@ func TestBuildCLIArgsHonorsConfiguredDisallowedOverride(t *testing.T) {
 	want := []string{"Read,Bash,WebFetch"}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("--disallowedTools override = %#v, want %#v", got, want)
+	}
+}
+
+func TestBuildCLIArgsMergesAdditionalDisallowedToolsWithDefaults(t *testing.T) {
+	t.Parallel()
+
+	args := buildCLIArgs("claude-sonnet", "system", "/tmp/mcp.json", cliLaunchConfig{
+		AdditionalDisallowedTools: []string{"Skill(头脑风暴)", "Read", " Skill(编写计划) "},
+	})
+	got := flagValues(args, "--disallowedTools")
+	if len(got) != 1 {
+		t.Fatalf("--disallowedTools count = %#v, want one merged flag", got)
+	}
+	ids := strings.Split(got[0], ",")
+	for _, want := range []string{"Read", "Bash", "Task", "Skill(头脑风暴)", "Skill(编写计划)"} {
+		if !containsDisallowedToolID(ids, want) {
+			t.Fatalf("--disallowedTools = %#v, missing %q", ids, want)
+		}
+	}
+	if countDisallowedToolID(ids, "Read") != 1 {
+		t.Fatalf("--disallowedTools = %#v, want Read deduped once", ids)
 	}
 }
 
@@ -178,4 +238,110 @@ func TestConfigFromMapParsesDisallowedToolsKeys(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestConfigFromMapParsesAdditionalDisallowedToolsKeys(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name  string
+		input map[string]any
+		want  []string
+	}{
+		{
+			name:  "nil when key absent",
+			input: map[string]any{"effort": "high"},
+			want:  nil,
+		},
+		{
+			name:  "snake_case array",
+			input: map[string]any{"additional_disallowed_tools": []any{"Skill(头脑风暴)", "Skill(编写计划)"}},
+			want:  []string{"Skill(头脑风暴)", "Skill(编写计划)"},
+		},
+		{
+			name:  "camelCase string list",
+			input: map[string]any{"additionalDisallowedTools": "Skill(执行计划), Skill(子代理驱动开发)"},
+			want:  []string{"Skill(执行计划)", "Skill(子代理驱动开发)"},
+		},
+		{
+			name:  "explicit empty array returns non-nil empty slice",
+			input: map[string]any{"additional_disallowed_tools": []any{}},
+			want:  []string{},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got := configFromMap(tc.input).AdditionalDisallowedTools
+			if tc.want == nil {
+				if got != nil {
+					t.Fatalf("AdditionalDisallowedTools = %#v, want nil", got)
+				}
+				return
+			}
+			if !reflect.DeepEqual(got, tc.want) {
+				t.Fatalf("AdditionalDisallowedTools = %#v, want %#v", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestConfigFromMapParsesProviderNativeSkillsIsolation(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name  string
+		input map[string]any
+		want  bool
+	}{
+		{
+			name:  "default keeps provider native skills",
+			input: map[string]any{"effort": "high"},
+			want:  false,
+		},
+		{
+			name:  "positive flag false disables provider native skills",
+			input: map[string]any{"providerNativeSkills": false},
+			want:  true,
+		},
+		{
+			name:  "snake flag false disables provider native skills",
+			input: map[string]any{"provider_native_skills": false},
+			want:  true,
+		},
+		{
+			name:  "explicit disable flag true disables provider native skills",
+			input: map[string]any{"disableProviderNativeSkills": true},
+			want:  true,
+		},
+		{
+			name:  "positive flag true keeps provider native skills",
+			input: map[string]any{"providerNativeSkills": true},
+			want:  false,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got := configFromMap(tc.input).DisableProviderNativeSkills
+			if got != tc.want {
+				t.Fatalf("DisableProviderNativeSkills = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+func containsDisallowedToolID(values []string, want string) bool {
+	for _, value := range values {
+		if value == want {
+			return true
+		}
+	}
+	return false
+}
+
+func countDisallowedToolID(values []string, want string) int {
+	count := 0
+	for _, value := range values {
+		if value == want {
+			count++
+		}
+	}
+	return count
 }

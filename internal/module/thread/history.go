@@ -25,7 +25,7 @@ const eventTypeAgentMessage = "agent_message"
 
 // keepaliveSentinelPrefix marks cache-keepalive maintenance turns. These silent
 // turns are filtered out of history before display so they (and any model
-// misbehaviour on them) never reach the UI timeline or the task handoff doc.
+// misbehaviour on them) never reach the UI timeline.
 const keepaliveSentinelPrefix = "[CACHE-KEEPALIVE]"
 
 func (s *service) ReadHistory(ctx context.Context, threadID string, limit int) ([]dto.Message, error) {
@@ -241,7 +241,7 @@ func (s *service) resolveBatchRuntime(
 		return nil, err
 	}
 
-	baseRuntime := buildOfflineRuntimeConfig(offlineCfg, thread)
+	baseRuntime := buildOfflineRuntimeConfig(offlineCfg, thread, binding)
 	sessionCfg, err := s.resolveBatchSessionCfg(binding)
 	if err != nil {
 		return nil, err

@@ -7,10 +7,15 @@ package sqlc
 
 import (
 	"context"
+
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
 const getTaskDagNodesForUpdate = `-- name: GetTaskDagNodesForUpdate :many
-SELECT id, dag_key, node_key, run_id, title, node_type, assigned_to, depends_on, status, command_ref, config, result, started_at, finished_at, created_at, updated_at, active_turn_id, active_wakeup_id, last_event_at, spawning_thread_id
+SELECT id, dag_key, node_key, title, node_type, assigned_to, depends_on,
+       status, command_ref, config, result, started_at, finished_at,
+       created_at, updated_at, active_turn_id, active_wakeup_id,
+       last_event_at, run_id, reads, writes, spawning_thread_id
 FROM task_dag_nodes
 WHERE dag_key = $1
   AND run_id IS NULL
@@ -31,7 +36,6 @@ func (q *Queries) GetTaskDagNodesForUpdate(ctx context.Context, dagKey string) (
 			&i.ID,
 			&i.DagKey,
 			&i.NodeKey,
-			&i.RunID,
 			&i.Title,
 			&i.NodeType,
 			&i.AssignedTo,
@@ -47,6 +51,9 @@ func (q *Queries) GetTaskDagNodesForUpdate(ctx context.Context, dagKey string) (
 			&i.ActiveTurnID,
 			&i.ActiveWakeupID,
 			&i.LastEventAt,
+			&i.RunID,
+			&i.Reads,
+			&i.Writes,
 			&i.SpawningThreadID,
 		); err != nil {
 			return nil, err
@@ -59,8 +66,60 @@ func (q *Queries) GetTaskDagNodesForUpdate(ctx context.Context, dagKey string) (
 	return items, nil
 }
 
+const getTaskDagRunNodeForUpdate = `-- name: GetTaskDagRunNodeForUpdate :one
+SELECT id, dag_key, node_key, title, node_type, assigned_to, depends_on,
+       status, command_ref, config, result, started_at, finished_at,
+       created_at, updated_at, active_turn_id, active_wakeup_id,
+       last_event_at, run_id, reads, writes, spawning_thread_id
+FROM task_dag_nodes
+WHERE dag_key = $1
+  AND node_key = $2
+  AND run_id = $3
+  AND $3::bigint > 0
+FOR UPDATE
+`
+
+type GetTaskDagRunNodeForUpdateParams struct {
+	DagKey  string      `json:"dag_key"`
+	NodeKey string      `json:"node_key"`
+	RunID   pgtype.Int8 `json:"run_id"`
+}
+
+func (q *Queries) GetTaskDagRunNodeForUpdate(ctx context.Context, arg GetTaskDagRunNodeForUpdateParams) (TaskDagNode, error) {
+	row := q.db.QueryRow(ctx, getTaskDagRunNodeForUpdate, arg.DagKey, arg.NodeKey, arg.RunID)
+	var i TaskDagNode
+	err := row.Scan(
+		&i.ID,
+		&i.DagKey,
+		&i.NodeKey,
+		&i.Title,
+		&i.NodeType,
+		&i.AssignedTo,
+		&i.DependsOn,
+		&i.Status,
+		&i.CommandRef,
+		&i.Config,
+		&i.Result,
+		&i.StartedAt,
+		&i.FinishedAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.ActiveTurnID,
+		&i.ActiveWakeupID,
+		&i.LastEventAt,
+		&i.RunID,
+		&i.Reads,
+		&i.Writes,
+		&i.SpawningThreadID,
+	)
+	return i, err
+}
+
 const listRunningTaskDagNodesByAssignee = `-- name: ListRunningTaskDagNodesByAssignee :many
-SELECT id, dag_key, node_key, run_id, title, node_type, assigned_to, depends_on, status, command_ref, config, result, started_at, finished_at, created_at, updated_at, active_turn_id, active_wakeup_id, last_event_at, spawning_thread_id
+SELECT id, dag_key, node_key, title, node_type, assigned_to, depends_on,
+       status, command_ref, config, result, started_at, finished_at,
+       created_at, updated_at, active_turn_id, active_wakeup_id,
+       last_event_at, run_id, reads, writes, spawning_thread_id
 FROM task_dag_nodes
 WHERE assigned_to = $1 AND status = 'running'
 ORDER BY created_at
@@ -79,7 +138,6 @@ func (q *Queries) ListRunningTaskDagNodesByAssignee(ctx context.Context, assigne
 			&i.ID,
 			&i.DagKey,
 			&i.NodeKey,
-			&i.RunID,
 			&i.Title,
 			&i.NodeType,
 			&i.AssignedTo,
@@ -95,6 +153,9 @@ func (q *Queries) ListRunningTaskDagNodesByAssignee(ctx context.Context, assigne
 			&i.ActiveTurnID,
 			&i.ActiveWakeupID,
 			&i.LastEventAt,
+			&i.RunID,
+			&i.Reads,
+			&i.Writes,
 			&i.SpawningThreadID,
 		); err != nil {
 			return nil, err
@@ -108,7 +169,10 @@ func (q *Queries) ListRunningTaskDagNodesByAssignee(ctx context.Context, assigne
 }
 
 const listTaskDagNodes = `-- name: ListTaskDagNodes :many
-SELECT id, dag_key, node_key, run_id, title, node_type, assigned_to, depends_on, status, command_ref, config, result, started_at, finished_at, created_at, updated_at, active_turn_id, active_wakeup_id, last_event_at, spawning_thread_id
+SELECT id, dag_key, node_key, title, node_type, assigned_to, depends_on,
+       status, command_ref, config, result, started_at, finished_at,
+       created_at, updated_at, active_turn_id, active_wakeup_id,
+       last_event_at, run_id, reads, writes, spawning_thread_id
 FROM task_dag_nodes
 WHERE dag_key = $1
   AND run_id IS NULL
@@ -128,7 +192,6 @@ func (q *Queries) ListTaskDagNodes(ctx context.Context, dagKey string) ([]TaskDa
 			&i.ID,
 			&i.DagKey,
 			&i.NodeKey,
-			&i.RunID,
 			&i.Title,
 			&i.NodeType,
 			&i.AssignedTo,
@@ -144,6 +207,9 @@ func (q *Queries) ListTaskDagNodes(ctx context.Context, dagKey string) ([]TaskDa
 			&i.ActiveTurnID,
 			&i.ActiveWakeupID,
 			&i.LastEventAt,
+			&i.RunID,
+			&i.Reads,
+			&i.Writes,
 			&i.SpawningThreadID,
 		); err != nil {
 			return nil, err
@@ -157,7 +223,10 @@ func (q *Queries) ListTaskDagNodes(ctx context.Context, dagKey string) ([]TaskDa
 }
 
 const listTaskDagRunNodes = `-- name: ListTaskDagRunNodes :many
-SELECT id, dag_key, node_key, run_id, title, node_type, assigned_to, depends_on, status, command_ref, config, result, started_at, finished_at, created_at, updated_at, active_turn_id, active_wakeup_id, last_event_at, spawning_thread_id
+SELECT id, dag_key, node_key, title, node_type, assigned_to, depends_on,
+       status, command_ref, config, result, started_at, finished_at,
+       created_at, updated_at, active_turn_id, active_wakeup_id,
+       last_event_at, run_id, reads, writes, spawning_thread_id
 FROM task_dag_nodes
 WHERE dag_key = $1
   AND run_id = $2
@@ -165,8 +234,8 @@ ORDER BY created_at
 `
 
 type ListTaskDagRunNodesParams struct {
-	DagKey string `json:"dag_key"`
-	RunID  int64  `json:"run_id"`
+	DagKey string      `json:"dag_key"`
+	RunID  pgtype.Int8 `json:"run_id"`
 }
 
 func (q *Queries) ListTaskDagRunNodes(ctx context.Context, arg ListTaskDagRunNodesParams) ([]TaskDagNode, error) {
@@ -182,7 +251,6 @@ func (q *Queries) ListTaskDagRunNodes(ctx context.Context, arg ListTaskDagRunNod
 			&i.ID,
 			&i.DagKey,
 			&i.NodeKey,
-			&i.RunID,
 			&i.Title,
 			&i.NodeType,
 			&i.AssignedTo,
@@ -198,6 +266,71 @@ func (q *Queries) ListTaskDagRunNodes(ctx context.Context, arg ListTaskDagRunNod
 			&i.ActiveTurnID,
 			&i.ActiveWakeupID,
 			&i.LastEventAt,
+			&i.RunID,
+			&i.Reads,
+			&i.Writes,
+			&i.SpawningThreadID,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const lookupNodesBySpawningThread = `-- name: LookupNodesBySpawningThread :many
+SELECT id, dag_key, node_key, title, node_type, assigned_to, depends_on,
+       status, command_ref, config, result, started_at, finished_at,
+       created_at, updated_at, active_turn_id, active_wakeup_id,
+       last_event_at, run_id, reads, writes, spawning_thread_id
+FROM task_dag_nodes
+WHERE spawning_thread_id = $1
+  AND spawning_thread_id IS NOT NULL
+  AND run_id IS NOT NULL
+ORDER BY updated_at DESC, id DESC
+`
+
+// ADR-017 v1.2 §2.2 反查端口：DAG turn.completed subscriber 用 ev.ThreadID 反查
+// task_dag_nodes.spawning_thread_id；migration 0083 partial index
+// idx_task_dag_nodes_spawning_thread_id (WHERE spawning_thread_id IS NOT NULL)
+// 命中。
+//
+// 返回 []TaskDagNode（不是 *TaskDagNode）— N>1 在重试/recovery 链下是常态
+// （partial index 无 UNIQUE + F1.5 写入端口非 single-writer），调用方逐条尝试推进。
+func (q *Queries) LookupNodesBySpawningThread(ctx context.Context, spawningThreadID pgtype.Text) ([]TaskDagNode, error) {
+	rows, err := q.db.Query(ctx, lookupNodesBySpawningThread, spawningThreadID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []TaskDagNode{}
+	for rows.Next() {
+		var i TaskDagNode
+		if err := rows.Scan(
+			&i.ID,
+			&i.DagKey,
+			&i.NodeKey,
+			&i.Title,
+			&i.NodeType,
+			&i.AssignedTo,
+			&i.DependsOn,
+			&i.Status,
+			&i.CommandRef,
+			&i.Config,
+			&i.Result,
+			&i.StartedAt,
+			&i.FinishedAt,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.ActiveTurnID,
+			&i.ActiveWakeupID,
+			&i.LastEventAt,
+			&i.RunID,
+			&i.Reads,
+			&i.Writes,
 			&i.SpawningThreadID,
 		); err != nil {
 			return nil, err

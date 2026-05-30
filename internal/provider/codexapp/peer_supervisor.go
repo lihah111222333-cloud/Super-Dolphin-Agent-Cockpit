@@ -59,6 +59,9 @@ const (
 	peerControlAddrDefault     = "127.0.0.1:8090"
 	peerBinDirEnv              = "GO_AGENT_PEER_BIN_DIR"
 	peerModeEnv                = "GO_AGENT_PEER_MODE"
+	peerBootstrapJSONEnv       = "GO_AGENT_CTL_BOOTSTRAP_JSON"
+	peerBinaryNameEnv          = "GO_AGENT_CTL_BINARY_NAME"
+	peerClientKindEnv          = "GO_AGENT_CTL_CLIENT_KIND"
 )
 
 // managedPeerNames is the single source of truth for singleton peer binaries

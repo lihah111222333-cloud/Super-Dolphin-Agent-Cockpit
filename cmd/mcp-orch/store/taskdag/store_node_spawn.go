@@ -12,6 +12,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/sqlc"
+	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/sqlctx"
 )
 
 // DAG v2 F1.5 / ADR-009: RecordNodeSpawn 是 nodeexec.AgentExecutor 在 child
@@ -58,7 +59,7 @@ func (s *store) RecordNodeSpawn(ctx context.Context, input RecordNodeSpawnInput)
 	}
 
 	var result RecordNodeSpawnResult
-	err := sqlc.WithTxOrReuse(ctx, s.q, func(txq *sqlc.Queries) error {
+	err := sqlctx.WithTxOrReuse(ctx, s.db, s.q, func(txq *sqlc.Queries, _ sqlc.DBTX) error {
 		return recordNodeSpawnTx(ctx, txq, dagKey, nodeKey, input.RunID, threadID, &result)
 	})
 	if err != nil {
@@ -79,7 +80,7 @@ func recordNodeSpawnTx(ctx context.Context, txq *sqlc.Queries, dagKey, nodeKey s
 		SpawningThreadID: pgtype.Text{String: threadID, Valid: true},
 		DagKey:           dagKey,
 		NodeKey:          nodeKey,
-		RunID:            runID,
+		RunID:            int64Ptr(runID),
 	})
 	if err != nil {
 		return err
@@ -114,7 +115,7 @@ func appendNodeSpawnEvent(ctx context.Context, txq *sqlc.Queries, dagKey, nodeKe
 	runKey, err := txq.AppendTaskDagRunEvent(ctx, sqlc.AppendTaskDagRunEventParams{
 		DagKey:  dagKey,
 		Column2: payload,
-		RunID:   runID,
+		ID:      runID,
 	})
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {

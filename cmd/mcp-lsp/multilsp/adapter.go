@@ -11,6 +11,7 @@ import (
 	"sync"
 
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/protocol"
+	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
 )
 
 // LanguageAdapter owns every language-specific policy that the generic
@@ -69,51 +70,7 @@ func NewLanguageAdapterRegistry(adapters ...LanguageAdapter) *LanguageAdapterReg
 }
 
 func NewDefaultLanguageAdapterRegistry() *LanguageAdapterRegistry {
-	return NewLanguageAdapterRegistry(
-		goLanguageAdapter{},
-		projectLanguageAdapter{
-			languageIDs:           []string{"javascript", "typescript", "javascriptreact", "typescriptreact"},
-			command:               ServerCommand{Executable: "typescript-language-server", Args: []string{"--stdio"}},
-			rootMarkers:           []string{"tsconfig.json", "jsconfig.json", "package.json"},
-			rootKind:              "jsts_project",
-			firstSourceExtensions: []string{".js", ".jsx", ".ts", ".tsx"},
-			ignoredDirNames:       jstsIgnoredDirNames,
-		},
-		projectLanguageAdapter{
-			languageIDs:           []string{"python"},
-			command:               ServerCommand{Executable: "pyright-langserver", Args: []string{"--stdio"}},
-			rootMarkers:           []string{"pyproject.toml", "setup.py", "setup.cfg", "requirements.txt", "Pipfile"},
-			rootKind:              "python_project",
-			firstSourceExtensions: []string{".py", ".pyi"},
-			ignoredDirNames:       pythonIgnoredDirNames,
-		},
-		projectLanguageAdapter{
-			languageIDs:           []string{"rust"},
-			command:               ServerCommand{Executable: "rust-analyzer"},
-			rootMarkers:           []string{"Cargo.toml"},
-			rootKind:              "rust_project",
-			firstSourceExtensions: []string{".rs"},
-			ignoredDirNames:       rustIgnoredDirNames,
-		},
-		projectLanguageAdapter{
-			languageIDs:           []string{"java"},
-			command:               ServerCommand{Executable: "jdtls"},
-			rootMarkers:           javaProjectMarkers,
-			rootKind:              "java_project",
-			firstSourceExtensions: []string{".java"},
-			ignoredDirNames:       javaIgnoredDirNames,
-			initOptions:           defaultJDTLSInitOptions(),
-		},
-		projectLanguageAdapter{
-			languageIDs:           []string{"css"},
-			command:               ServerCommand{Executable: "vscode-css-language-server", Args: []string{"--stdio"}},
-			rootMarkers:           []string{"package.json"},
-			rootKind:              "css_project",
-			firstSourceExtensions: []string{".css"},
-			ignoredDirNames:       cssIgnoredDirNames,
-		},
-		documentFallbackAdapter{languageIDs: []string{"markdown", "json", "yaml"}},
-	)
+	return NewLanguageAdapterRegistryFromConfig(platformconfig.DefaultLSPConfig())
 }
 
 func (r *LanguageAdapterRegistry) Register(adapter LanguageAdapter) {
@@ -156,19 +113,23 @@ func (r *LanguageAdapterRegistry) LanguageIDs() []string {
 	return ids
 }
 
-type goLanguageAdapter struct{}
+type goLanguageAdapter struct {
+	directoryFilters []string
+	noiseDirNames    []string
+}
 
 func (goLanguageAdapter) LanguageIDs() []string { return []string{"go", "gomod", "gosum", "gowork"} }
 
-func (goLanguageAdapter) ResolveRoot(_ context.Context, scope LSPToolScope, target string) (ResolvedLanguageScope, error) {
+func (a goLanguageAdapter) ResolveRoot(_ context.Context, scope LSPToolScope, target string) (ResolvedLanguageScope, error) {
 	languageID := normalizeLanguageID(scope.LanguageID)
 	if languageID == "" {
 		return ResolvedLanguageScope{}, fmt.Errorf("go adapter requires a resolved language ID")
 	}
 	info, err := ResolveGoRoot(GoRootRequest{
-		CWD:      scope.CWD,
-		FilePath: firstNonEmpty(target, scope.TargetPath, scope.CWD),
-		Env:      os.Environ(),
+		CWD:           scope.CWD,
+		FilePath:      firstNonEmpty(target, scope.TargetPath, scope.CWD),
+		Env:           os.Environ(),
+		NoiseDirNames: a.noiseDirNames,
 	})
 	if err != nil {
 		return ResolvedLanguageScope{}, err
@@ -189,7 +150,20 @@ func (goLanguageAdapter) ServerCommand(context.Context, ResolvedLanguageScope) (
 	return ServerCommand{Executable: "gopls"}, nil
 }
 
-func (goLanguageAdapter) InitOptions(ResolvedLanguageScope) map[string]any { return nil }
+func (a goLanguageAdapter) InitOptions(ResolvedLanguageScope) map[string]any {
+	return map[string]any{
+		"semanticTokens":   true,
+		"directoryFilters": a.resolvedDirectoryFilters(),
+	}
+}
+
+func (a goLanguageAdapter) resolvedDirectoryFilters() []string {
+	filters := a.directoryFilters
+	if len(filters) == 0 {
+		filters = platformconfig.DefaultLSPConfig().GoDirectoryFilters
+	}
+	return slices.Clone(filters)
+}
 
 func (goLanguageAdapter) EnvPolicy(scope ResolvedLanguageScope) []string {
 	mode := scope.LanguageSpecific["goworkMode"]
@@ -206,9 +180,7 @@ func (goLanguageAdapter) EnvPolicy(scope ResolvedLanguageScope) []string {
 
 func (goLanguageAdapter) BootstrapPolicy(ResolvedLanguageScope) BootstrapPolicy {
 	return BootstrapPolicy{
-		OpenTarget:           true,
-		OpenSiblingDocuments: true,
-		SiblingExtensions:    []string{".go"},
+		OpenTarget: true,
 	}
 }
 
@@ -335,19 +307,6 @@ func (documentFallbackAdapter) CapabilityPolicy() ToolCapabilityPolicy {
 	return ToolCapabilityPolicy{DocumentSymbolFallback: true}
 }
 
-var (
-	pythonIgnoredDirNames = map[string]struct{}{
-		".build-cache": {}, ".git": {}, ".mypy_cache": {}, ".pytest_cache": {},
-		".ruff_cache": {}, ".venv": {}, ".workspace": {}, "__pycache__": {}, "node_modules": {}, "vendor": {},
-	}
-	rustIgnoredDirNames = map[string]struct{}{
-		".build-cache": {}, ".git": {}, ".workspace": {}, "node_modules": {}, "target": {}, "vendor": {},
-	}
-	cssIgnoredDirNames = map[string]struct{}{
-		".build-cache": {}, ".git": {}, ".workspace": {}, "dist": {}, "node_modules": {}, "vendor": {},
-	}
-)
-
 func findProjectRoot(path string, markers []string) (string, error) {
 	absPath, err := platformNormalize(path)
 	if err != nil {
@@ -400,13 +359,17 @@ func (f *projectRootWithinFinder) walk(path string, d os.DirEntry, walkErr error
 }
 
 func projectWalkDirDecision(name string, ignored map[string]struct{}) error {
-	if strings.HasPrefix(name, ".") {
+	if shouldSkipDotOrUnderscoreDir(name) {
 		return filepath.SkipDir
 	}
 	if _, ok := ignored[name]; ok {
 		return filepath.SkipDir
 	}
 	return nil
+}
+
+func shouldSkipDotOrUnderscoreDir(name string) bool {
+	return strings.HasPrefix(name, ".") || strings.HasPrefix(name, "_")
 }
 
 func findBootstrapFileWithin(root string, extensions []string, ignored map[string]struct{}) (string, error) {

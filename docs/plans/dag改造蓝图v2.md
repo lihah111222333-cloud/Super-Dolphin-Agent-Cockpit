@@ -17,12 +17,14 @@
 | AI Agent Book Part 5/7 | 编排有 DAG/Swarm/Handoff/Supervisor 多种模式；Shannon 用复杂度路由分派 | p23/P12 SwarmArbiter 应砍，坚持 DAG 单模式 |
 | Harness MCP 工具图 | 工具不全量塞，分层 + 动态最小集；ToolSearch 单入口 | DAG 工具集要保持极简 |
 | "只保留 DAG" PDF | DAG 必须**动态可重写**，不是静态预设；"错误恢复逻辑从 prompt 移到基础设施" | p23/P11 DynamicNodeGrowth 优先级提到第二位 |
-| LangGraph Command(goto) | 节点内决定下一跳 = 等价"运行时改图"，但实现简单得多 | P11 降维：先做"已完成节点后追加" |
+| LangGraph Command(goto) | 节点内决定下一跳 = 等价"运行时改图"，但实现简单得多 | P11 降维：当前先 fail-fast 禁止 running add_node；runtime append 闭环后再恢复"已完成节点后追加" |
 | CC Agent Teams | 共享任务清单 + 文件锁是被官方采纳的同侪协作方式 | sharedfile 应显式挂到 DAG 节点 |
 | AWS CAO | handoff/assign/send_message 三原语 | DAG 节点之间需要补 send_message 原语 |
 | Temporal | event-sourced replay 让失败 workflow 能本地复现 | task_dag_runs 留 events 字段位 |
 
-## 3. 当前现状（盘点结论，证据见会话记录与 p23/README.md）
+## 3. 历史基线（2026-05-09 盘点结论，已被后续 U1/U2/F 阶段改造覆盖）
+
+> 本节保留最初立项时的差距基线，便于理解为什么要做 DAG 改造；不要把它当成 2026-05-23 的当前实现状态。当前进度以 `docs/plans/dag改造实施计划.md` 和 `docs/plans/dag-ui-decision-ledger.md` 为准：StartDAG、DAG Console v1、U2 AI 设计 + 用户微调、`DAGSummary.version`、只读 Mermaid source、running add_node fail-fast 均已落地或收敛。
 
 后端能力金字塔：
 
@@ -85,11 +87,11 @@ MCP 工具层      ✅ 完整 (task_create_dag / get_dag / update_node)
 ### 6.1 留下（p23 已规划且高 ROI）
 - P3 Explicit Start + Ownership：`trigger=manual/auto/scheduled` 一等字段；删 `auto_handoff_phase1`；补 `owner_id`。
 - P10 真实 DAG UI（精简版）：节点列表 + 状态色 + Start 按钮 + 子 agent 链接。
-- P11 Dynamic Node Growth（降维）：只做"已完成节点后追加"。
+- P11 Dynamic Node Growth（降维）：当前先禁用 running add_node，等 runtime append 闭环后再恢复"已完成节点后追加"。
 
 ### 6.2 重新定义
 - 节点类型统一接口：`agent / automation / hybrid` 三种共享同一调度路径。
-- task_grow_subgraph 取消独立工具：合并到 `task_dag_apply_ops`，service 层校验"running 状态下只允许 add_node + depends_on 指向 done 节点"。
+- task_grow_subgraph 取消独立工具：合并到 `task_dag_apply_ops`；当前 running 状态下 fail-fast 禁止模板改写，后续如实现 runtime append，再放开 add_node + depends_on 指向 done 节点。
 
 ### 6.3 砍掉
 - P9 Scale Scheduling (N>50)：节点数 < 20。
@@ -232,7 +234,7 @@ ops 在不同 status 下允许的子集：
 |---|---|
 | draft | 全部 |
 | ready | 全部（用户审核期还能改） |
-| running | 仅 add_node 且 depends_on 指向 done 节点（动态可重写） |
+| running | 当前无（fail-fast，避免模板节点与当前 run runtime nodes 漂移）；未来 runtime append 闭环后再允许 add_node 且 depends_on 指向 done 节点 |
 | done/failed/cancelled | 无（要改先 fork 或 reset） |
 
 ## 10. 14 处骨架补丁
@@ -287,7 +289,7 @@ ops 在不同 status 下允许的子集：
 - F6 Run 真实落地：StartDAG 创建 run + snapshot dag.version + node.run_id
 - F7 **AI 设计师 prompt**：prompt_template 表新增条目（中英两版本）
 - F8 UI 节点编辑表单（typed schema 自动渲染）
-- F9 UI mermaid 拓扑图
+- F9 UI mermaid source 只读拓扑图（点击联动后置）
 - F10 UI run 历史时间轴
 - F11 UI sharedfile 锁可视化（节点 reads/writes 联动；final_output 高亮已由 H14 完成，默认折叠中间产物/清理策略留 H15）
 - F12 智能重试 strategy dispatcher（by_class + escalation_chain + `replan` 策略：spawn planner agent 改图）

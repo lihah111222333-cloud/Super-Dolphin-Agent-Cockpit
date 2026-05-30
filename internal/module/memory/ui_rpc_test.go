@@ -46,6 +46,19 @@ func TestBuildUIMemorySnapshotIncludesDurableAndAgentMemories(t *testing.T) {
 	assertDurableAndAgentMemorySnapshot(t, snapshot)
 }
 
+func TestRegisterUIMemoryMutationHandlersDoesNotExposeSharedFilePromote(t *testing.T) {
+	handlers := registerUIMemoryMutationHandlers(memoryHandlerDeps{})
+	if _, ok := handlers["ui/memory/shared-file/promote"]; ok {
+		t.Fatal("ui/memory/shared-file/promote should not be registered")
+	}
+	if _, ok := handlers["ui/memory/shared-file/get"]; !ok {
+		t.Fatal("ui/memory/shared-file/get should remain registered")
+	}
+	if _, ok := handlers["ui/memory/shared-file/delete"]; !ok {
+		t.Fatal("ui/memory/shared-file/delete should remain registered")
+	}
+}
+
 func newUIMemorySnapshotConfig(t *testing.T, projectRoot, privateRoot string) *Config {
 	t.Helper()
 	return &Config{

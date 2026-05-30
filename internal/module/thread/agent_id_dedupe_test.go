@@ -73,7 +73,7 @@ func TestPrepareStartRequestRejectsAgentIDWhenCollisionCheckFails(t *testing.T) 
 
 func TestPrepareStartRequestConcurrentChildReservationsAreUnique(t *testing.T) {
 	cwd := wantStartCWD(t)
-	svc := &service{threadStore: &stubThreadStore{}, sharedFiles: &stubSharedFileStore{}}
+	svc := &service{threadStore: &stubThreadStore{}}
 	const n = 2
 	start := make(chan struct{})
 	ids := make(chan string, n)

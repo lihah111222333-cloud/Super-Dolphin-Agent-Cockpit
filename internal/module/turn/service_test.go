@@ -25,10 +25,10 @@ func TestPrepareTurnKeepsSkillRefsMetadataOnlyAndNormalizesInputs(t *testing.T) 
 		Prompt: "Please use @debug and [skill:deploy-tool] on this issue.",
 		Images: []string{"https://example.com/screen.png", "https://example.com/screen.png"},
 		Files:  []string{"./README.md", "./README.md", "./malware.exe"},
-		Skills: []dto.SkillRef{{Name: "explicit", Prompt: "explicit guidance"}},
+		Skills: []dto.SkillRef{{Name: "explicit", Prompt: "explicit guidance", Summary: "explicit summary"}},
 		CandidateSkills: []dto.SkillRef{
-			{Name: "debug", Prompt: "debug guidance"},
-			{Name: "deploy-tool", Prompt: "deploy guidance"},
+			{Name: "debug", Prompt: "debug guidance", Summary: "debug summary"},
+			{Name: "deploy-tool", Prompt: "deploy guidance", Summary: "deploy summary"},
 		},
 	})
 	if err != nil {
@@ -48,6 +48,9 @@ func TestPrepareTurnKeepsSkillRefsMetadataOnlyAndNormalizesInputs(t *testing.T) 
 	for _, ref := range req.Skills {
 		require.Equal(t, "", ref.Prompt)
 	}
+	require.Equal(t, "explicit summary", req.Skills[0].Summary)
+	require.Equal(t, "debug summary", req.Skills[1].Summary)
+	require.Equal(t, "deploy summary", req.Skills[2].Summary)
 }
 
 func TestPrepareTurnManualSkillSelectionDisablesAutoMatch(t *testing.T) {
@@ -68,6 +71,29 @@ func TestPrepareTurnManualSkillSelectionDisablesAutoMatch(t *testing.T) {
 	}
 	if len(req.Skills) != 0 {
 		t.Fatalf("Skills = %#v, want no auto-matched skills in manual mode", req.Skills)
+	}
+}
+
+func TestPrepareTurnProviderNativeSkillsDisabledForcesManualSkillMode(t *testing.T) {
+	t.Parallel()
+
+	svc := NewService(silentLogger())
+	session := &stubSession{threadID: "thread-1"}
+	req, err := svc.PrepareTurn(context.Background(), session, PrepareInput{
+		Prompt:          "Please use @debug on this issue.",
+		CandidateSkills: []dto.SkillRef{{Name: "debug", Prompt: "debug guidance"}},
+		ThreadRuntimeConfig: map[string]any{
+			"providerNativeSkills": false,
+		},
+	})
+	if err != nil {
+		t.Fatalf("PrepareTurn() error = %v", err)
+	}
+	if req.ManualSkillSelection != true {
+		t.Fatal("ManualSkillSelection = false, want provider-native skill isolation to force manual mode")
+	}
+	if len(req.Skills) != 0 {
+		t.Fatalf("Skills = %#v, want no auto-matched skills when provider-native skills are disabled", req.Skills)
 	}
 }
 

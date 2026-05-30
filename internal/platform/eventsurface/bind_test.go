@@ -281,6 +281,8 @@ func TestBindPublishesTaskNodeStatusChanged(t *testing.T) {
 				},
 			},
 			NodeKey: "node-1",
+			RunID:   77,
+			RunKey:  "dag-1#run-77",
 		},
 		AssignedTo:     "agent-x",
 		NewStatus:      "done",
@@ -300,6 +302,8 @@ func TestBindPublishesTaskNodeStatusChanged(t *testing.T) {
 	want := map[string]any{
 		"dag_key":          "dag-1",
 		"node_key":         "node-1",
+		"run_id":           int64(77),
+		"run_key":          "dag-1#run-77",
 		"new_status":       "done",
 		"old_status":       "running",
 		"assigned_to":      "agent-x",

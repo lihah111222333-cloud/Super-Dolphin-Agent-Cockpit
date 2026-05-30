@@ -4,6 +4,8 @@
     "templates/main-default.json",
     "templates/main-docs.json",
     "templates/main-general-zh.json",
-    "templates/main-git-ops.json"
+    "templates/main-git-ops.json",
+    "templates/main-dag-designer-en.json",
+    "templates/main-dag-designer-zh.json"
   ]
 }

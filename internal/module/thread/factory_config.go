@@ -47,6 +47,10 @@ type storedThreadConfig struct {
 	// loses the explicit prompt_key pin and the router silently degrades to
 	// the default persona on the first turn.
 	PromptKey string `json:"prompt_key,omitempty"`
+	// AgentKey is also stashed for pending-launch intake threads. The thread
+	// can have a visible name and a pinned agent persona before the user sends
+	// the first real requirement; SpawnIfNeeded restores the pin for routing.
+	AgentKey string `json:"agent_key,omitempty"`
 }
 
 type offlineConfigSnapshot struct {
@@ -91,7 +95,7 @@ func (s *service) buildOfflineConfig(
 				Approvals: strings.TrimSpace(stored.Approvals),
 			},
 		},
-		Runtime: buildOfflineRuntimeConfig(stored, thread),
+		Runtime: buildOfflineRuntimeConfig(stored, thread, binding),
 	}, nil
 }
 
@@ -113,7 +117,7 @@ func (s *service) loadOfflineThread(
 	}
 }
 
-func buildOfflineRuntimeConfig(stored storedThreadConfig, thread *threadstore.Thread) map[string]any {
+func buildOfflineRuntimeConfig(stored storedThreadConfig, thread *threadstore.Thread, binding *bindingstore.Binding) map[string]any {
 	cfg := map[string]any{
 		"approvalPolicy": offlineApprovalPolicy,
 		"toolRouting": map[string]any{
@@ -127,6 +131,11 @@ func buildOfflineRuntimeConfig(stored storedThreadConfig, thread *threadstore.Th
 		},
 	}
 	cfg = mergeRuntimeConfig(cfg, clone.RuntimeConfigMap(stored.Runtime))
+	if thread != nil && strings.TrimSpace(thread.Cwd) != "" {
+		cfg["cwd"] = strings.TrimSpace(thread.Cwd)
+	} else if binding != nil && strings.TrimSpace(binding.Cwd) != "" {
+		cfg["cwd"] = strings.TrimSpace(binding.Cwd)
+	}
 	if value := strings.TrimSpace(stored.Approvals); value != "" {
 		cfg["approvalPolicy"] = value
 	}
@@ -340,25 +349,6 @@ func (s *service) emitThreadModelUpdated(threadID string, model *string) {
 		return
 	}
 	s.emitUpdated(threaddto.Updated{EventHeader: shareddto.EventHeader{Timestamp: time.Now()}, ThreadID: strings.TrimSpace(threadID), Model: model})
-}
-
-// emitThreadPromotedTask publishes a thread/updated event with no model /
-// name payload purely to make the uistate projector rerun
-// refreshThreadPatchLocked for this thread. The refresh re-evaluates
-// applyTaskRuntimeToThreadRuntime, which now finds taskId / handoffFile /
-// taskTitle in the persisted runtime config and pushes them into
-// agentRuntimeById on the frontend. Phase 2.1: without this nudge the
-// frontend would not see the new task fields until the next natural
-// thread/updated or sidebar refresh.
-func (s *service) emitThreadPromotedTask(threadID string) {
-	if s == nil || s.emitUpdated == nil {
-		return
-	}
-	tid := strings.TrimSpace(threadID)
-	if tid == "" {
-		return
-	}
-	s.emitUpdated(threaddto.Updated{EventHeader: shareddto.EventHeader{Timestamp: time.Now()}, ThreadID: tid})
 }
 
 func (s *service) normalizeThreadConfig(

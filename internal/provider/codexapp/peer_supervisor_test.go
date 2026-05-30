@@ -273,7 +273,6 @@ func TestPeerSupervisorStartsPeers(t *testing.T) {
 		t.Errorf("mcp-lsp launch count = %d, want 1", got)
 	}
 }
-
 func TestPeerProcessEnvInjectsConfiguredMcpLSPWorkspaceRoots(t *testing.T) {
 	root := t.TempDir()
 	rawRoots, err := json.Marshal([]string{root})
@@ -288,22 +287,19 @@ func TestPeerProcessEnvInjectsConfiguredMcpLSPWorkspaceRoots(t *testing.T) {
 	requireEnvValue(t, env, "GO_AGENT_LSP_ROOT", root)
 	requireEnvValue(t, env, "GO_AGENT_LSP_ROOTS", string(rawRoots))
 }
-
 func TestPeerProcessEnvRequiresSessionToken(t *testing.T) {
 	_, err := peerProcessEnv("mcp-orch", []string{"PATH=/bin"}, nil)
 	if err == nil || !strings.Contains(err.Error(), "GO_AGENT_CTL_SESSION_TOKEN") {
 		t.Fatalf("peerProcessEnv() error = %v, want visible missing session token failure", err)
 	}
 }
-
 func TestPeerProcessEnvCarriesLegacySessionTokenAsCanonical(t *testing.T) {
-	env, err := peerProcessEnv("mcp-orch", []string{"PATH=/bin", "GO_AGENT_MCP_SESSION_TOKEN=legacy-token", "SUPER_DOLPHIN_RUNTIME_MODE=dev", "SUPER_DOLPHIN_RUNTIME_RESOURCES_DIR=/work/repo"}, nil)
+	env, err := peerProcessEnv("mcp-orch", []string{"PATH=/bin", "GO_AGENT_MCP_SESSION_TOKEN=legacy-token", "SUPER_DOLPHIN_RUNTIME_MODE=dev", "SUPER_DOLPHIN_RUNTIME_RESOURCES_DIR=/work/repo", "GO_AGENT_CTL_BINARY_NAME=super-agent-debug.exe", "GO_AGENT_CTL_CLIENT_KIND=custom"}, nil)
 	if err != nil {
 		t.Fatalf("peerProcessEnv() error = %v", err)
 	}
 	requireEnvValue(t, env, "GO_AGENT_CTL_SESSION_TOKEN", "legacy-token")
 }
-
 func TestPeerProcessEnvRejectsExplicitInvalidMcpLSPRoots(t *testing.T) {
 	_, err := peerProcessEnv("mcp-lsp", append(testPeerParentEnv(), "GO_AGENT_LSP_ROOTS=not-json"), nil)
 	if err == nil || !strings.Contains(err.Error(), "GO_AGENT_LSP_ROOTS") {

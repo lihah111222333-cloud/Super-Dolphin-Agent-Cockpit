@@ -6,12 +6,13 @@ import (
 	"fmt"
 
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/sqlc"
+	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/sqlctx"
 )
 
 // Phase 3.5 / 3B · 节点失败重试策略
 //
 // dispatcher 判定 wakeup 已 retry 上限后，调本方法把节点置 failed；如 caller
-// 决定 fail_fast=true（来自 RetryPolicy / DAG metadata），同事务内对所有
+// 决定 fail_fast=true（来自 DAG retry metadata），同事务内对所有
 // 直接或间接依赖该节点且仍处 pending 的下游节点级联标记 failed，避免它们
 // 永远卡在 pending（依赖永远不会变 done）。
 //
@@ -30,8 +31,12 @@ func (s *store) FailNodeAndCancelDownstream(ctx context.Context, input FailNodeI
 		return nil, err
 	}
 	var result FailNodeResult
-	err := sqlc.WithTxOrReuse(ctx, s.q, func(txq *sqlc.Queries) error {
-		txStore := &store{q: txq}
+	err := sqlctx.WithTxOrReuse(ctx, s.db, s.q, func(txq *sqlc.Queries, txdb sqlc.DBTX) error {
+		txStore := &store{db: txdb, q: txq}
+		oldStatus, oldErr := lockedNodeStatusBeforeFailTx(ctx, txStore, input.DagKey, input.NodeKey, input.RunID)
+		if oldErr != nil {
+			return oldErr
+		}
 		node, failErr := failNodeTx(ctx, txStore, input.DagKey, input.NodeKey, input.RunID, failNodeReason{
 			Kind:   failNodeKindExhaustedRetries,
 			Reason: input.Reason,
@@ -40,6 +45,7 @@ func (s *store) FailNodeAndCancelDownstream(ctx context.Context, input FailNodeI
 			return failErr
 		}
 		result.Node = node
+		result.OldStatus = oldStatus
 		if input.FailFast {
 			canceled, cascadeErr := cancelDownstreamTx(ctx, txStore, input.DagKey, input.NodeKey, input.RunID, input.Reason)
 			if cascadeErr != nil {
@@ -60,6 +66,18 @@ func (s *store) FailNodeAndCancelDownstream(ctx context.Context, input FailNodeI
 	return &result, nil
 }
 
+func lockedNodeStatusBeforeFailTx(ctx context.Context, txStore *store, dagKey, nodeKey string, runID int64) (string, error) {
+	row, err := txStore.q.GetTaskDagRunNodeForUpdate(ctx, sqlc.GetTaskDagRunNodeForUpdateParams{
+		DagKey:  dagKey,
+		NodeKey: nodeKey,
+		RunID:   int64Ptr(runID),
+	})
+	if err != nil {
+		return "", err
+	}
+	return row.Status, nil
+}
+
 // failNodeTx writes a failed-status update for a single node row inside the
 // given transaction. The reason struct is JSON-encoded into the node's
 // `result` column so operators can distinguish primary vs cascade failures
@@ -72,10 +90,10 @@ func failNodeTx(ctx context.Context, txStore *store, dagKey, nodeKey string, run
 	return updateNodeStatus(func() (sqlc.TaskDagNode, error) {
 		return txStore.q.FailTaskDagNodeIfNonTerminal(ctx, sqlc.FailTaskDagNodeIfNonTerminalParams{
 			Status:  "failed",
-			Column2: encoded,
+			Result:  encoded,
 			DagKey:  dagKey,
 			NodeKey: nodeKey,
-			RunID:   runID,
+			RunID:   int64Ptr(runID),
 		})
 	}, "fail_non_terminal")
 }
@@ -142,7 +160,7 @@ func cascadeFailPendingNodeTx(ctx context.Context, txStore *store, dagKey, nodeK
 		Result:  encoded,
 		DagKey:  dagKey,
 		NodeKey: nodeKey,
-		RunID:   runID,
+		RunID:   int64Ptr(runID),
 	})
 	if err != nil {
 		return false, err

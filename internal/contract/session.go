@@ -40,6 +40,7 @@ type SessionRecoveryReporter interface {
 type SessionThreadRef struct {
 	ThreadID      string
 	AgentID       string
+	Status        string
 	RuntimeConfig map[string]any
 }
 

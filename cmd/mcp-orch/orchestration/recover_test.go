@@ -82,7 +82,7 @@ func newRecoverReplayService(t *testing.T) (*service, *agentRuntime) {
 	}
 
 	agent := svc.newAgentLocked("agent-1")
-	agent.command = []string{"sh", "-c", "sleep 60"}
+	agent.command = longRunningTestCommandLine()
 	agent.state = agentdto.StateTurnRunning
 	agent.threadID = "thread-1"
 	agent.activeTurnID = "turn-active"
@@ -155,7 +155,7 @@ func TestRecoverPublishesTurnResumedForRecoveredTurn(t *testing.T) {
 	})
 	t.Cleanup(cancel)
 	agent := svc.newAgentLocked("agent-1")
-	agent.command = []string{"sh", "-c", "sleep 60"}
+	agent.command = longRunningTestCommandLine()
 	agent.state = agentdto.StateTurnRunning
 	agent.threadID = "thread-1"
 	agent.activeTurnID = "turn-active"
@@ -194,7 +194,7 @@ func TestRecoverWithoutActiveTurnDoesNotPublishTurnResumed(t *testing.T) {
 	cancel := event.Subscribe(dispatcher, func(ev turndto.TurnResumed) { resumedEvents <- ev })
 	t.Cleanup(cancel)
 	agent := svc.newAgentLocked("agent-1")
-	agent.command = []string{"sh", "-c", "sleep 60"}
+	agent.command = longRunningTestCommandLine()
 	agent.state = agentdto.StateTurnRunning
 	agent.threadID = "thread-1"
 	svc.agents[agent.id] = agent
@@ -219,7 +219,7 @@ func TestRecoverWithoutReplayWritesFallbackReport(t *testing.T) {
 
 	svc := NewService(silentLogger(), nil, nil, nil, nil, nil)
 	agent := svc.newAgentLocked("agent-1")
-	agent.command = []string{"sh", "-c", "sleep 60"}
+	agent.command = longRunningTestCommandLine()
 	agent.state = agentdto.StateTurnRunning
 	agent.threadID = "thread-1"
 	agent.activeTurnID = "turn-active"
@@ -259,7 +259,7 @@ func TestRecoverStalledAgentsPublishesTurnStalledAndResumed(t *testing.T) {
 	t.Cleanup(resumedCancel)
 
 	agent := svc.newAgentLocked("agent-1")
-	agent.command = []string{"sh", "-c", "sleep 60"}
+	agent.command = longRunningTestCommandLine()
 	agent.state = agentdto.StateTurnRunning
 	agent.threadID = "thread-1"
 	agent.activeTurnID = "turn-active"
@@ -339,7 +339,7 @@ func TestHandleProcessExitErrorAutoRecoversLocalAgent(t *testing.T) {
 
 	svc := NewService(silentLogger(), nil, nil, nil, nil, nil)
 	agent := svc.newAgentLocked("agent-local")
-	agent.command = []string{"sh", "-c", "sleep 60"}
+	agent.command = longRunningTestCommandLine()
 	agent.state = agentdto.StateIdle
 	agent.launchSeq = 1
 	svc.agents[agent.id] = agent
@@ -357,7 +357,7 @@ func TestProcessExitAutoRecoveryStopsAtRetryLimit(t *testing.T) {
 
 	svc := NewService(silentLogger(), nil, nil, nil, nil, nil)
 	agent := svc.newAgentLocked("agent-local")
-	agent.command = []string{"sh", "-c", "sleep 60"}
+	agent.command = longRunningTestCommandLine()
 
 	for i := 0; i < maxProcessExitAutoRecoveries; i++ {
 		if !shouldAutoRecoverProcessExitLocked(svc, agent, errors.New("process crashed")) {

@@ -2,6 +2,7 @@ package thread
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -108,32 +109,77 @@ func TestSpawnIfNeeded_SkipsArchivedThread(t *testing.T) {
 	}
 }
 
-func TestStartPendingLaunchPreflightsPromptAssemblyBeforePersist(t *testing.T) {
+func TestStartPendingLaunchSkipsPromptAssemblyPreflight(t *testing.T) {
 	t.Parallel()
 
 	store := &stubThreadStore{}
+	startCalled := false
 	svc := &service{
 		threadStore: store,
 		promptAssembly: errorPromptAssembly{
 			err: errors.New("ClaudeMd candidate containment: safe read: path escapes root"),
 		},
+		starter: &startOnlySessionStarter{onStart: func(context.Context, dto.StartSessionRequest) (contract.Session, error) {
+			startCalled = true
+			return nil, errors.New("provider must not start for pending launch")
+		}},
 	}
 
-	_, err := svc.Start(context.Background(), StartRequest{
+	result, err := svc.Start(context.Background(), StartRequest{
 		AgentID:    "agent-pending-preflight",
 		Provider:   "claude",
 		CWD:        "/tmp/project",
 		DeferSpawn: true,
 	})
-	if err == nil {
-		t.Fatal("Start() error = nil, want prompt assembly preflight error")
+	if err != nil {
+		t.Fatalf("Start() error = %v, want pending_launch success", err)
 	}
-	if !containsAll(err.Error(), "ClaudeMd", "safe read") {
-		t.Fatalf("Start() error = %v, want ClaudeMd safe read context", err)
+	assertFalse(t, startCalled, "provider StartSession was called for pending_launch intake thread")
+	assertTrue(t, result.PendingLaunch, "StartResult.PendingLaunch")
+	assertTrue(t, store.upsert.PendingLaunch, "Upsert.PendingLaunch")
+	if store.upsert.ThreadID == "" {
+		t.Fatal("Start() did not persist pending_launch thread")
 	}
-	if store.thread != nil || store.upsert.ThreadID != "" {
-		t.Fatalf("pending thread persisted despite preflight failure: thread=%#v upsert=%#v", store.thread, store.upsert)
+}
+
+func TestStartPendingLaunchAllowsIntakeMetadataWithoutStartingProvider(t *testing.T) {
+	t.Parallel()
+
+	store := &stubThreadStore{}
+	startCalled := false
+	svc := &service{
+		threadStore:    store,
+		promptAssembly: promptAssemblyStub{},
+		starter: &startOnlySessionStarter{onStart: func(context.Context, dto.StartSessionRequest) (contract.Session, error) {
+			startCalled = true
+			return nil, errors.New("provider must not start for pending launch")
+		}},
 	}
+
+	result, err := svc.Start(context.Background(), StartRequest{
+		AgentID:    "thread-dag-designer",
+		Provider:   "claude",
+		CWD:        "/tmp/project",
+		DeferSpawn: true,
+		Name:       "AI 设计流程",
+		AgentKey:   "dag_designer",
+		PromptKey:  "main/dag_designer_zh",
+	})
+	if err != nil {
+		t.Fatalf("Start() error = %v, want pending_launch success", err)
+	}
+	assertFalse(t, startCalled, "provider StartSession was called for pending_launch intake thread")
+	assertTrue(t, result.PendingLaunch, "StartResult.PendingLaunch")
+	assertTrue(t, store.upsert.PendingLaunch, "Upsert.PendingLaunch")
+	assertString(t, store.upsert.Name, "AI 设计流程", "Upsert.Name")
+	assertString(t, store.upsert.Prompt, "AI 设计流程", "Upsert.Prompt")
+	assertString(t, store.upsert.AgentKey, "dag_designer", "Upsert.AgentKey")
+	var stored map[string]any
+	if err := json.Unmarshal(store.upsert.ConfigOverride, &stored); err != nil {
+		t.Fatalf("decode ConfigOverride: %v", err)
+	}
+	assertString(t, stringValue(stored["agent_key"]), "dag_designer", "stored.agent_key")
+	assertString(t, stringValue(stored["prompt_key"]), "main/dag_designer_zh", "stored.prompt_key")
 }
 
 func TestSpawnIfNeededKeepsPendingThreadRetryableOnSpawnFailure(t *testing.T) {
@@ -445,6 +491,32 @@ func containsAll(haystack string, needles ...string) bool {
 		}
 	}
 	return true
+}
+
+func assertTrue(t *testing.T, got bool, label string) {
+	t.Helper()
+	if !got {
+		t.Fatalf("%s = false, want true", label)
+	}
+}
+
+func assertFalse(t *testing.T, got bool, message string) {
+	t.Helper()
+	if got {
+		t.Fatal(message)
+	}
+}
+
+func assertString(t *testing.T, got, want, label string) {
+	t.Helper()
+	if got != want {
+		t.Fatalf("%s = %q, want %q", label, got, want)
+	}
+}
+
+func stringValue(value any) string {
+	text, _ := value.(string)
+	return text
 }
 
 type errorPromptAssembly struct {

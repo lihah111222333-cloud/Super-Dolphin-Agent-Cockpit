@@ -83,10 +83,6 @@ func (s *service) prepareStartRequest(ctx context.Context, req StartRequest) (St
 		return req, "", nil, errors.New("thread: reserve agent_id failed")
 	}
 	req.AgentID = agentID
-	if err := s.prepareTaskHandoffStart(ctx, &req); err != nil {
-		releaseAgentID()
-		return req, "", nil, err
-	}
 	return req, agentID, releaseAgentID, nil
 }
 
@@ -163,27 +159,9 @@ func (s *service) startOnce(ctx context.Context, req StartRequest) (StartResult,
 	}
 	defer releaseAgentID()
 	if isPendingLaunchIntent(req) {
-		if err := s.preflightPendingLaunch(ctx, req, agentID); err != nil {
-			return StartResult{}, err
-		}
 		return s.startPendingThread(ctx, req, agentID)
 	}
 	return s.completeStart(ctx, req, agentID)
-}
-
-func (s *service) preflightPendingLaunch(ctx context.Context, req StartRequest, agentID string) error {
-	if req.PromptAssemblyRef == nil {
-		req.PromptAssemblyRef = s.promptAssembly
-	}
-	assemblyInput, cleanupScratchpad, err := s.buildStartAssemblyInput(req, agentID)
-	if err != nil {
-		return err
-	}
-	defer cleanupScratchpad()
-	if _, err := resolveStartPromptAssembly(ctx, req, assemblyInput); err != nil {
-		return err
-	}
-	return nil
 }
 
 func (s *service) Resume(ctx context.Context, req ResumeRequest) (ResumeResult, error) {
@@ -295,10 +273,6 @@ func (s *service) persistStartedSession(
 		}
 		return StartResult{}, err
 	}
-	s.logIgnoredTaskHandoffError("refresh task handoff on start", publicThreadID, s.refreshTaskHandoffFromThread(ctx, publicThreadID, taskHandoffRenderSeed{
-		SourceThreadID: publicThreadID,
-		Status:         "running",
-	}))
 	return newStartResult(req, publicThreadID, agentID, providerUUID, providerThreadID, effectiveModel, effectiveCWD), nil
 }
 

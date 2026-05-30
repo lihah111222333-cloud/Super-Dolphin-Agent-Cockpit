@@ -22,8 +22,13 @@ var fakeTaskDAGExecRoutes = []fakeTaskDAGExecRoute{
 	{token: "EnqueueTaskDagWakeup", run: (*fakeTaskDAGDB).enqueueWakeup},
 	{token: "CloneTaskDagNodesForRun", run: (*fakeTaskDAGDB).cloneTaskDagNodesForRun},
 	{token: "PromoteRootNodesToReady", run: (*fakeTaskDAGDB).promoteRootNodesToReady},
+	{token: "CancelTaskDagRunWakeups", run: (*fakeTaskDAGDB).cancelTaskDagRunWakeups},
 	{token: "CascadeFailPendingTaskDagNode", run: (*fakeTaskDAGDB).cascadeFailPendingNode},
 	{token: "PromoteSingleNodePendingToReady", run: (*fakeTaskDAGDB).promoteSingleNodePendingToReady},
+	{token: "DeleteTaskDagWakeupsByDAG", run: (*fakeTaskDAGDB).deleteTaskDagWakeupsByDAG},
+	{token: "DeleteTaskDagNodesByDAG", run: (*fakeTaskDAGDB).deleteTaskDagNodesByDAG},
+	{token: "DeleteTaskDagRunsByDAG", run: (*fakeTaskDAGDB).deleteTaskDagRunsByDAG},
+	{token: "DeleteTaskDagRow", run: (*fakeTaskDAGDB).deleteTaskDAGRow},
 	{token: "DeleteTaskDagNode", run: (*fakeTaskDAGDB).deleteTaskDagNode},
 }
 
@@ -47,6 +52,7 @@ var fakeTaskDAGQueryRoutes = []fakeTaskDAGQueryRoute{
 	{token: "ListTaskDagNodes", run: (*fakeTaskDAGDB).listTaskDagNodes},
 	{token: "LookupNodesBySpawningThread", run: (*fakeTaskDAGDB).lookupNodesBySpawningThread},
 	{token: "FinalizeTaskDagRunIfAllNodesTerminal", run: (*fakeTaskDAGDB).finalizeRunIfAllNodesTerminal},
+	{token: "CancelTaskDagRunNodes", run: (*fakeTaskDAGDB).cancelTaskDagRunNodesReturningThreads},
 }
 
 func (db *fakeTaskDAGDB) queryRowsLocked(sql string, args ...any) ([][]any, error) {
@@ -65,6 +71,9 @@ type fakeTaskDAGQueryRowRoute struct {
 
 var fakeTaskDAGQueryRowRoutes = []fakeTaskDAGQueryRowRoute{
 	{tokens: []string{"CountActiveTaskDagRunsByKey"}, run: (*fakeTaskDAGDB).countActiveTaskDagRunsByKey},
+	{tokens: []string{"LockTaskDagForDelete"}, run: (*fakeTaskDAGDB).lockTaskDAGForDelete},
+	{tokens: []string{"LockTaskDagRunForCompletionForUpdate"}, run: (*fakeTaskDAGDB).lockTaskDAGRunForCompletion},
+	{tokens: []string{"GetTaskDagRunNodeForUpdate"}, run: (*fakeTaskDAGDB).lockTaskDagRunNodeForUpdate},
 	{tokens: []string{"AssignTaskDagNode"}, run: (*fakeTaskDAGDB).assignNode},
 	{tokens: []string{"BindRunningTaskDagNodeTurn"}, run: (*fakeTaskDAGDB).bindRunningNodeTurn},
 	{tokens: []string{"CompleteTaskDagNode"}, run: (*fakeTaskDAGDB).completeNode},
@@ -74,6 +83,8 @@ var fakeTaskDAGQueryRowRoutes = []fakeTaskDAGQueryRowRoute{
 	{tokens: []string{"UpdateTaskDagNodeStatusFlexible"}, run: (*fakeTaskDAGDB).updateNodeStatusFlexible},
 	{tokens: []string{"UpdateRunningTaskDagNodeStatus"}, run: (*fakeTaskDAGDB).updateRunningNodeStatus},
 	{tokens: []string{"UpdateTaskDagNodeSpawningThread"}, run: (*fakeTaskDAGDB).updateNodeSpawningThread},
+	{tokens: []string{"GetTaskDagRun"}, run: (*fakeTaskDAGDB).getTaskDagRun},
+	{tokens: []string{"CancelTaskDagRun"}, run: (*fakeTaskDAGDB).cancelTaskDagRun},
 	{tokens: []string{"AppendTaskDagRunEvent"}, run: (*fakeTaskDAGDB).appendRunEvent},
 	{tokens: []string{"jsonb_build_array($2::jsonb)"}, run: (*fakeTaskDAGDB).appendRunEvent},
 	{tokens: []string{"task_dag_runs", "jsonb_array_length(events ||"}, run: (*fakeTaskDAGDB).appendRunEvent},

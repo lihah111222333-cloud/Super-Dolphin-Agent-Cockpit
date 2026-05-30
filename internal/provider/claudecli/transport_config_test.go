@@ -144,6 +144,31 @@ func TestBuildCLIArgsSplitsBoundaryBlocksIntoRepeatedSystemPrompts(t *testing.T)
 	}
 }
 
+func TestBuildCLIArgsCanonicalizesLatestClaudeLongSlugs(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name  string
+		model string
+		want  string
+	}{
+		{name: "opus latest", model: " claude-opus-4-7 ", want: "opus"},
+		{name: "opus latest 1m", model: "claude-opus-4-7[1m]", want: "opus[1m]"},
+		{name: "sonnet latest", model: "claude-sonnet-4-7", want: "sonnet"},
+		{name: "sonnet latest 1m", model: "claude-sonnet-4-7[1m]", want: "sonnet[1m]"},
+		{name: "haiku latest", model: "claude-haiku-4-5", want: "haiku"},
+		{name: "pinned version unchanged", model: "claude-opus-4-6[1m]", want: "claude-opus-4-6[1m]"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			args := buildCLIArgs(tc.model, "system", "", cliLaunchConfig{})
+			values := flagValues(args, "--model")
+			if len(values) != 1 || values[0] != tc.want {
+				t.Fatalf("--model values = %#v, want [%q]", values, tc.want)
+			}
+		})
+	}
+}
+
 func TestWriteManifestConfigAcceptsShortFamilyName(t *testing.T) {
 	t.Parallel()
 

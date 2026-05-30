@@ -1,6 +1,10 @@
 package taskdag
 
-import "fmt"
+import (
+	"fmt"
+
+	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/sqlc"
+)
 
 type fakeTaskDAGArgSpec struct {
 	index int
@@ -28,5 +32,55 @@ func fakeTaskDAGTypedArg[T any](index int, name string) fakeTaskDAGArgSpec {
 			_, ok := value.(T)
 			return ok
 		},
+	}
+}
+
+func fakeTaskDAGInt8Arg(index int, name string) fakeTaskDAGArgSpec {
+	return fakeTaskDAGArgSpec{
+		index: index,
+		name:  name,
+		valid: func(value any) bool {
+			_, err := fakeInt8Arg([]any{value}, 0, name)
+			return err == nil
+		},
+	}
+}
+
+func fakeTaskDAGTextArg(index int, name string) fakeTaskDAGArgSpec {
+	return fakeTaskDAGArgSpec{
+		index: index,
+		name:  name,
+		valid: func(value any) bool {
+			_, err := fakeTextArg([]any{value}, 0, name)
+			return err == nil
+		},
+	}
+}
+
+func fakeInt8Arg(args []any, index int, name string) (int64, error) {
+	switch value := args[index].(type) {
+	case int64:
+		return value, nil
+	case sqlc.Int8:
+		if !value.Valid {
+			return 0, fmt.Errorf("%s arg invalid", name)
+		}
+		return value.Int64, nil
+	default:
+		return 0, fmt.Errorf("%s arg = %T", name, args[index])
+	}
+}
+
+func fakeTextArg(args []any, index int, name string) (string, error) {
+	switch value := args[index].(type) {
+	case string:
+		return value, nil
+	case sqlc.Text:
+		if !value.Valid {
+			return "", fmt.Errorf("%s arg invalid", name)
+		}
+		return value.String, nil
+	default:
+		return "", fmt.Errorf("%s arg = %T", name, args[index])
 	}
 }

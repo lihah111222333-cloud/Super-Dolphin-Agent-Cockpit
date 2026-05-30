@@ -133,6 +133,7 @@ func newHandler(mode Mode, level slog.Level, out io.Writer) slog.Handler {
 	} else {
 		handler = slog.NewTextHandler(out, opts)
 	}
+	handler = wrapErrorEnricherHandler(handler, mode)
 	return wrapRelayHandler(handler)
 }
 

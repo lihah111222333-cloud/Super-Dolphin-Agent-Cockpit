@@ -2,6 +2,7 @@ package unified_test
 
 import (
 	"encoding/json"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -225,6 +226,42 @@ func TestBuildManifest_PreservesDatabaseURLFromEnvironment(t *testing.T) {
 		if gotURL := bin.Env["DATABASE_URL"]; gotURL != "postgres://tester@127.0.0.1:54320/custom_db?sslmode=disable" {
 			t.Fatalf("binary %q DATABASE_URL = %q", bin.Name, gotURL)
 		}
+	}
+}
+
+func TestBuildManifest_InferProjectRootFromBinaryDirForMCPEnv(t *testing.T) {
+	t.Setenv("PROJECT_ROOT", "")
+
+	productRoot := t.TempDir()
+	binaryDir := filepath.Join(productRoot, "bin")
+	require.NoError(t, os.MkdirAll(binaryDir, 0o755))
+	require.NoError(t, os.MkdirAll(filepath.Join(productRoot, "migrations"), 0o755))
+	workspaceRoot := t.TempDir()
+
+	got := manifestbuilder.BuildManifest(dto.ManifestContext{
+		BinaryDir: binaryDir,
+		CWD:       workspaceRoot,
+	})
+
+	require.NotEmpty(t, got.Binaries)
+	for _, bin := range got.Binaries {
+		require.Equal(t, productRoot, bin.Env["PROJECT_ROOT"], "binary %q env = %#v", bin.Name, bin.Env)
+		require.NotEqual(t, workspaceRoot, bin.Env["PROJECT_ROOT"], "binary %q should not use workspace cwd as project root", bin.Name)
+	}
+}
+
+func TestBuildManifest_PreservesExplicitProjectRootEnv(t *testing.T) {
+	explicitRoot := t.TempDir()
+
+	got := manifestbuilder.BuildManifest(dto.ManifestContext{
+		BinaryDir: filepath.Join(t.TempDir(), "bin"),
+		CWD:       t.TempDir(),
+		Env:       map[string]string{"PROJECT_ROOT": explicitRoot},
+	})
+
+	require.NotEmpty(t, got.Binaries)
+	for _, bin := range got.Binaries {
+		require.Equal(t, explicitRoot, bin.Env["PROJECT_ROOT"], "binary %q env = %#v", bin.Name, bin.Env)
 	}
 }
 

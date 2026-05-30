@@ -9,6 +9,8 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/fx"
+	"go.uber.org/fx/fxtest"
 )
 
 func TestOrchestrationTurnStarterStartsQueuedTurn(t *testing.T) {
@@ -19,6 +21,7 @@ func TestOrchestrationTurnStarterStartsQueuedTurn(t *testing.T) {
 		startTurn: func(_ context.Context, req dto.TurnRequest) (contract.TurnHandle, error) {
 			require.Equal(t, "turn-1", req.LocalID)
 			require.Equal(t, "thread-1", req.ThreadID)
+			require.Equal(t, "/thread/worktree", req.CWD)
 			require.Len(t, req.Inputs, 1)
 			require.Equal(t, "hello", req.Inputs[0].Content)
 			require.Len(t, req.Skills, 1)
@@ -33,7 +36,7 @@ func TestOrchestrationTurnStarterStartsQueuedTurn(t *testing.T) {
 	starter := NewOrchestrationTurnStarter(
 		NewService(silentLogger()),
 		stubSessionProvider{session: session},
-		nil,
+		stubTurnRuntimeReader{cfg: map[string]any{"cwd": "/thread/worktree"}},
 	)
 
 	turnID, err := starter.StartTurn(context.Background(), contract.TurnSubmission{
@@ -66,6 +69,7 @@ func TestOrchestrationTurnStarterFallsBackToThreadRuntimeConfig(t *testing.T) {
 		NewServiceWithPromptAssembly(silentLogger(), assembly),
 		stubSessionProvider{session: session},
 		stubTurnRuntimeReader{cfg: map[string]any{
+			"cwd":                          "/thread/worktree",
 			"provider":                     "codex-thread",
 			"gitRoot":                      "/thread-repo",
 			"isWorktree":                   true,
@@ -81,6 +85,7 @@ func TestOrchestrationTurnStarterFallsBackToThreadRuntimeConfig(t *testing.T) {
 	_, err := starter.StartTurn(context.Background(), contract.TurnSubmission{AgentID: "agent-1", ThreadID: "thread-1", Inputs: []InputItem{{Type: "text", Content: "hello"}}})
 	require.NoError(t, err)
 	require.Equal(t, "codex-thread", assembly.lastTurnInput.Provider)
+	require.Equal(t, "/thread/worktree", assembly.lastTurnInput.CWD)
 	require.Equal(t, "/thread-repo", assembly.lastTurnInput.GitRoot)
 	require.True(t, assembly.lastTurnInput.IsWorktree)
 	require.Equal(t, "Japanese", assembly.lastTurnInput.Language)
@@ -90,10 +95,72 @@ func TestOrchestrationTurnStarterFallsBackToThreadRuntimeConfig(t *testing.T) {
 	require.True(t, assembly.lastTurnInput.SessionFlags["verification_required"])
 }
 
+func TestTurnModuleInjectsThreadStateConfigReader(t *testing.T) {
+	t.Parallel()
+
+	assembly := &stubPromptAssemblyService{}
+	session := &stubSession{
+		threadID: "thread-1",
+		startTurn: func(_ context.Context, req dto.TurnRequest) (contract.TurnHandle, error) {
+			handle := newStubTurnHandle(req.LocalID, "provider-1")
+			handle.complete(nil)
+			return handle, nil
+		},
+	}
+	var starter contract.OrchestrationTurnStarter
+	app := fxtest.New(t,
+		Module,
+		fx.Supply(silentLogger()),
+		fx.Provide(func() contract.PromptAssemblyService { return assembly }),
+		fx.Provide(func() SessionProvider { return stubSessionProvider{session: session} }),
+		fx.Provide(func() contract.ThreadStateConfigReader {
+			return stubTurnRuntimeReader{cfg: map[string]any{
+				"cwd":      "/thread/worktree",
+				"provider": "codex-thread",
+			}}
+		}),
+		fx.Populate(&starter),
+	)
+	app.RequireStart()
+	t.Cleanup(func() { app.RequireStop() })
+
+	_, err := starter.StartTurn(context.Background(), contract.TurnSubmission{
+		AgentID:  "agent-1",
+		ThreadID: "thread-1",
+		Inputs:   []InputItem{{Type: "text", Content: "hello"}},
+	})
+	require.NoError(t, err)
+	require.Equal(t, "/thread/worktree", assembly.lastTurnInput.CWD)
+	require.Equal(t, "codex-thread", assembly.lastTurnInput.Provider)
+}
+
+func TestTurnModuleRequiresThreadStateConfigReader(t *testing.T) {
+	t.Parallel()
+
+	var starter contract.OrchestrationTurnStarter
+	app := fx.New(
+		Module,
+		fx.Supply(silentLogger()),
+		fx.Provide(func() contract.PromptAssemblyService { return &stubPromptAssemblyService{} }),
+		fx.Provide(func() SessionProvider { return stubSessionProvider{session: &stubSession{threadID: "thread-1"}} }),
+		fx.Provide(func() contract.ApprovalResponder { return noopApprovalResponder{} }),
+		fx.Populate(&starter),
+	)
+	err := app.Err()
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "contract.ThreadStateConfigReader")
+}
+
 type stubSessionProvider struct {
 	session contract.Session
 	err     error
 	get     func(string) (contract.Session, error)
+}
+
+type noopApprovalResponder struct{}
+
+func (noopApprovalResponder) Respond(string, *int64, contract.ApprovalDecision) error {
+	return nil
 }
 
 type stubTurnRuntimeReader struct {
@@ -129,6 +196,34 @@ func TestOrchestrationTurnStarterFailsFastOnRuntimeConfigError(t *testing.T) {
 	if !errors.Is(err, runtimeErr) {
 		t.Fatalf("StartTurn() error = %v, want %v", err, runtimeErr)
 	}
+}
+
+func TestOrchestrationTurnStarterRejectsSessionOnlyCWD(t *testing.T) {
+	t.Parallel()
+
+	called := false
+	session := &stubSession{
+		threadID:      "thread-1",
+		runtimeConfig: map[string]any{"cwd": "/session/worktree"},
+		startTurn: func(context.Context, dto.TurnRequest) (contract.TurnHandle, error) {
+			called = true
+			return nil, nil
+		},
+	}
+	starter := NewOrchestrationTurnStarter(
+		NewService(silentLogger()),
+		stubSessionProvider{session: session},
+		stubTurnRuntimeReader{cfg: map[string]any{"provider": "codex-thread"}},
+	)
+
+	_, err := starter.StartTurn(context.Background(), contract.TurnSubmission{
+		AgentID:  "agent-1",
+		ThreadID: "thread-1",
+		Inputs:   []InputItem{{Type: "text", Content: "hello"}},
+	})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "thread runtime config does not define cwd")
+	require.False(t, called)
 }
 
 func (p stubSessionProvider) GetSession(agentID string) (contract.Session, error) {

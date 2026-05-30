@@ -29,8 +29,6 @@ func ResolveOnFailureStrategy(cfg *OnFailureConfig, class FailureClass) OnFailur
 
 // MaxAttemptsFor 返回节点的总尝试次数上限（含首发）。
 // nil 或 cfg.MaxAttempts<=0 → 1（只跑一次即终态）。
-// 与 cmd/mcp-orch/orchestration/retry_strategy.go::RetryPolicy.MaxAttempts 同语义；
-// F12.1 会决定 OnFailureConfig 是否替代 retry_strategy.RetryPolicy（见 ADR S16.1）。
 func MaxAttemptsFor(cfg *OnFailureConfig) int {
 	if cfg == nil || cfg.MaxAttempts <= 0 {
 		return 1

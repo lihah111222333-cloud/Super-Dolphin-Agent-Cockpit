@@ -10,30 +10,16 @@
 BEGIN;
 
 UPDATE public.prompt_templates t
-SET prompt_text = REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(
-        regexp_replace(
-            regexp_replace(
-                regexp_replace(
-                    t.prompt_text,
-                    '"provider"[[:space:]]*:[[:space:]]*"claude"[[:space:]]*,' ||
-                        '[[:space:]]*"model"[[:space:]]*:[[:space:]]*"opus"[[:space:]]*,' ||
-                        '[[:space:]]*',
-                    '',
-                    'g'
-                ),
-                '"escalation_chain"[[:space:]]*:[[:space:]]*\[[[:space:]]*"sonnet"[[:space:]]*,[[:space:]]*"opus"[[:space:]]*\]',
-                '"escalation_chain": []',
-                'g'
-            ),
-            '"verifier"[[:space:]]*:[[:space:]]*\{' ||
-                '[[:space:]]*"provider"[[:space:]]*:[[:space:]]*"claude"[[:space:]]*,' ||
-                '[[:space:]]*"model"[[:space:]]*:[[:space:]]*"sonnet"[[:space:]]*,' ||
-                '[[:space:]]*"agent_key"[[:space:]]*:[[:space:]]*"code-review"[[:space:]]*\}',
-            '"verifier":   { "agent_key": "code-review" }',
-            'g'
-        ),
+SET prompt_text = REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(
+        t.prompt_text,
+        '"verifier":   { "provider": "claude", "model": "sonnet", "agent_key": "code-review", "cwd": "/absolute/path/to/project" }',
+        '"verifier":   { "agent_key": "code-review", "cwd": "/absolute/path/to/project" }'
+    ),
         E'    "provider": "claude",\n    "model": "opus",\n    "agent_key": "code-debug",',
         E'    "agent_key": "code-debug",'
+    ),
+        E'    "provider": "claude",\n    "model": "opus",',
+        E'    "model": "<selected model from list_models()>",'
     ),
         '"escalation_chain": ["sonnet","opus"]',
         '"escalation_chain": []'
@@ -86,30 +72,16 @@ WHERE t.prompt_key = 'main/dag_designer_zh'
   AND t.manually_edited = FALSE;
 
 UPDATE public.prompt_templates t
-SET prompt_text = REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(
-        regexp_replace(
-            regexp_replace(
-                regexp_replace(
-                    t.prompt_text,
-                    '"provider"[[:space:]]*:[[:space:]]*"claude"[[:space:]]*,' ||
-                        '[[:space:]]*"model"[[:space:]]*:[[:space:]]*"opus"[[:space:]]*,' ||
-                        '[[:space:]]*',
-                    '',
-                    'g'
-                ),
-                '"escalation_chain"[[:space:]]*:[[:space:]]*\[[[:space:]]*"sonnet"[[:space:]]*,[[:space:]]*"opus"[[:space:]]*\]',
-                '"escalation_chain": []',
-                'g'
-            ),
-            '"verifier"[[:space:]]*:[[:space:]]*\{' ||
-                '[[:space:]]*"provider"[[:space:]]*:[[:space:]]*"claude"[[:space:]]*,' ||
-                '[[:space:]]*"model"[[:space:]]*:[[:space:]]*"sonnet"[[:space:]]*,' ||
-                '[[:space:]]*"agent_key"[[:space:]]*:[[:space:]]*"code-review"[[:space:]]*\}',
-            '"verifier":   { "agent_key": "code-review" }',
-            'g'
-        ),
+SET prompt_text = REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(
+        t.prompt_text,
+        '"verifier":   { "provider": "claude", "model": "sonnet", "agent_key": "code-review", "cwd": "/absolute/path/to/project" }',
+        '"verifier":   { "agent_key": "code-review", "cwd": "/absolute/path/to/project" }'
+    ),
         E'    "provider": "claude",\n    "model": "opus",\n    "agent_key": "code-debug",',
         E'    "agent_key": "code-debug",'
+    ),
+        E'    "provider": "claude",\n    "model": "opus",',
+        E'    "model": "<selected model from list_models()>",'
     ),
         '"escalation_chain": ["sonnet","opus"]',
         '"escalation_chain": []'
@@ -355,9 +327,55 @@ WHERE t.prompt_key = methodology_metadata.prompt_key
   )
   AND t.manually_edited = FALSE;
 
--- Default developer expert roster repair is asset-backed under
--- internal/platform/shared/builtinprompts/assets; this DB migration keeps no
--- prompt_template INSERT for those cards.
+-- Default developer expert roster repair. main/git-ops and main/docs were
+-- present in 0039 but absent after 0040; keep the inserted prompt_text as a
+-- short provider-neutral expert card until canonical prompt-template assets
+-- can carry longer bodies.
+INSERT INTO public.prompt_templates (
+    prompt_key,
+    agent_key,
+    title,
+    tool_name,
+    prompt_text,
+    tags,
+    enabled,
+    description,
+    when_to_use,
+    manually_edited,
+    created_by,
+    updated_by
+)
+VALUES
+(
+    'main/git-ops',
+    'git-ops',
+    'Git 操作专家',
+    '',
+    'Git 操作专家：基于 diff、log、冲突或提交上下文，产出可验证的 git 操作建议；危险历史改写必须要求用户确认。',
+    jsonb_build_array('scope.global','intent:expert','domain:developer','workflow:git'),
+    TRUE,
+    'Git 操作：diff、log、blame、commit message、冲突、revert 和 cherry-pick。',
+    '当需要解释 git diff/log/blame、写 commit message、处理冲突、revert 或 cherry-pick 时使用。',
+    FALSE,
+    'system.seed',
+    'migration:0106'
+),
+(
+    'main/docs',
+    'docs-writer',
+    '文档专家',
+    '',
+    '技术文档专家：基于代码、接口、变更和目标读者，产出结构清楚、可维护的 README、API 文档、注释或 changelog 草稿。',
+    jsonb_build_array('scope.global','intent:expert','domain:developer','workflow:documentation'),
+    TRUE,
+    '技术文档：README、API 文档、注释、changelog 和面向开发者的结构化说明。',
+    '当需要撰写或整理 README、API 文档、注释、changelog 或技术说明时使用。',
+    FALSE,
+    'system.seed',
+    'migration:0106'
+)
+ON CONFLICT (prompt_key) DO NOTHING;
+
 UPDATE public.prompt_templates t
 SET description = '编排协调者：拆分复杂任务、分配子 agent、跟踪依赖和汇总结果，' ||
         '适合开发工程和企业工作中的多角色协作；DAG/cron/节点依赖设计交给 DAG designer。',

@@ -135,9 +135,8 @@ make codemap-check
 If a command is intentionally skipped because the task is docs-only or the surface is not affected, say so explicitly in the final report.
 
 ## 禁止兜底代码
-
 遇到异常、配置为空或数据缺失时，必须立即报错并阻断（Fail-Fast）。
-严禁使用静默降级、系统时间、默认配置或捕获错误等隐式兜底逻辑。
+严禁使用包括但不限于静默降级、默认配置、吞错捕获等隐式兜底逻辑。
 
 ## Guard and Baseline Rules
 

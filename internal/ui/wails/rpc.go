@@ -65,6 +65,13 @@ type saveClipboardImageParams struct {
 	clientMetaParams
 }
 
+type saveTextFileParams struct {
+	DefaultPath     string `json:"defaultPath,omitempty"`
+	DefaultFilename string `json:"defaultFilename"`
+	Content         string `json:"content"`
+	clientMetaParams
+}
+
 type openNewWindowParams struct {
 	Group       string         `json:"group,omitempty"`
 	N           int            `json:"n,omitempty"`
@@ -101,6 +108,13 @@ func NewRPCHandlers(app *App, cfg *config.Config, uiState contract.UIProjectStat
 		}),
 		"ui/saveClipboardImage": rpc.StrictHandler(func(ctx context.Context, p saveClipboardImageParams) (any, error) {
 			path, err := app.SaveClipboardImage(p.Base64Payload)
+			if err != nil {
+				return nil, err
+			}
+			return map[string]string{"path": path}, nil
+		}),
+		"ui/saveTextFile": rpc.StrictHandler(func(ctx context.Context, p saveTextFileParams) (any, error) {
+			path, err := app.saveTextFile(p.DefaultPath, p.DefaultFilename, p.Content)
 			if err != nil {
 				return nil, err
 			}
@@ -205,10 +219,7 @@ func handleUILog(ctx context.Context, params map[string]any) map[string]any {
 			continue
 		}
 		level, scope, event, timestamp := frontendLogMetadata(entry)
-		// high-frequency frontend scopes → force debug to reduce noise
-		if scope == "scroll" {
-			level = "debug"
-		}
+		level = normalizeFrontendLogLevel(level, scope, event)
 		threadID, agentID := frontendLogIDs(entry)
 		msg := fmt.Sprintf("frontend: %s.%s", scope, event)
 		args := buildFrontendLogArgs(entry, clientKind, clientRoute, level, scope, event, timestamp, threadID, agentID)
@@ -217,6 +228,24 @@ func handleUILog(ctx context.Context, params map[string]any) map[string]any {
 	}
 
 	return map[string]any{"ok": true, "ingested": ingested}
+}
+
+func normalizeFrontendLogLevel(level, scope, event string) string {
+	// High-frequency successful lifecycle probes are diagnostics, even when an
+	// already-loaded frontend bundle reports them as warn.
+	if scope == "scroll" {
+		return "debug"
+	}
+	if scope == "thread" {
+		switch event {
+		case "sidebar.refresh.pending_join",
+			"sidebar.refresh.start",
+			"sidebar.refresh.api_call_start",
+			"sidebar.refresh.api_call_done":
+			return "debug"
+		}
+	}
+	return level
 }
 
 func frontendLogEntries(params map[string]any) []map[string]any {

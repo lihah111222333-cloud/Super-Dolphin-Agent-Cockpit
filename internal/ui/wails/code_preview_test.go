@@ -135,7 +135,24 @@ func TestBuildCodeOpenResultReturnsFullMarkdownPreview(t *testing.T) {
 func TestLocateScopedFileSkipsIgnoredDirectories(t *testing.T) {
 	root := t.TempDir()
 	writeTestFile(t, filepath.Join(root, "src", "keep.js"), "const keep = true;\n")
-	writeTestFile(t, filepath.Join(root, "node_modules", "src", "keep.js"), "const skip = true;\n")
+	for _, dir := range []string{
+		".agent",
+		".agents",
+		".build-cache",
+		".cache",
+		".claude",
+		".git",
+		".workspace",
+		".worktrees",
+		"__pycache__",
+		"build",
+		"coverage",
+		"dist",
+		"node_modules",
+		"vendor",
+	} {
+		writeTestFile(t, filepath.Join(root, dir, "src", "keep.js"), "const skip = true;\n")
+	}
 
 	result, err := locateScopedFile(context.Background(), "keep.js", []string{root}, 10)
 	if err != nil {

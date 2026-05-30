@@ -281,12 +281,17 @@ func ensureCodexModelPresent(models []string, target string) []string {
 	return append([]string{target}, models...)
 }
 
-func configString(cfg map[string]any, key string) string {
+func configString(cfg map[string]any, keys ...string) string {
 	if cfg == nil {
 		return ""
 	}
-	value, _ := cfg[key].(string)
-	return sanitizeConfigStringArtifact(value)
+	for _, key := range keys {
+		value, _ := cfg[key].(string)
+		if value = sanitizeConfigStringArtifact(value); value != "" {
+			return value
+		}
+	}
+	return ""
 }
 
 func firstConfigString(cfg map[string]any, keys ...string) string {

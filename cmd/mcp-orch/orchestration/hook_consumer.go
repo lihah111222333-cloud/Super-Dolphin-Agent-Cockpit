@@ -19,6 +19,7 @@ import (
 	threaddto "github.com/anthropic-ai/super-agent-v3/internal/dto/thread"
 	turndto "github.com/anthropic-ai/super-agent-v3/internal/dto/turn"
 	platformshared "github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
+	"github.com/kelindar/event"
 )
 
 const (
@@ -39,7 +40,6 @@ const (
 	hookRelayKindTurnItemCompleted = "turn.item_completed"
 )
 
-// NotifyTap observes terminal hook events; implementations must be non-blocking.
 type NotifyTap interface {
 	OnTurnCompleted(ctx context.Context, ev turndto.TurnCompleted)
 	OnTurnInterrupted(ctx context.Context, ev turndto.TurnInterrupted)
@@ -58,15 +58,14 @@ type hookConsumer struct {
 }
 
 type hookContextEnvelope struct {
-	Kind  string          `json:"kind"`
-	Event json.RawMessage `json:"event"`
+	Kind  string
+	Event json.RawMessage
 }
 
 func newHookConsumer(svc *service, logger *slog.Logger) *hookConsumer {
 	return newHookConsumerInternal(svc, logger, nil, nil, nil)
 }
 
-// HookAfterHandlerParams is the fx.In bundle for ProvideHookAfterHandler.
 type HookAfterHandlerParams struct {
 	fx.In
 
@@ -80,6 +79,7 @@ type HookAfterHandlerParams struct {
 	SharedFileReader  nodeexec.SharedFileReader        `optional:"true"`
 	SharedFileWriter  nodeexec.SharedFileWriter        `optional:"true"`
 	NodeRouter        *NodeExecutorRouter              `optional:"true"`
+	EventBus          *event.Dispatcher                `optional:"true"`
 }
 
 func ProvideHookAfterHandler(p HookAfterHandlerParams) contract.BootstrapHookAfterHandler {
@@ -97,6 +97,7 @@ func ProvideHookAfterHandler(p HookAfterHandlerParams) contract.BootstrapHookAft
 			SharedFileReader: p.SharedFileReader,
 			SharedFileWriter: p.SharedFileWriter,
 			NodeRouter:       p.NodeRouter,
+			EventBus:         p.EventBus,
 		}),
 	).After
 }
@@ -300,7 +301,7 @@ func (c *hookConsumer) handleThreadStopped(ctx context.Context, ev threaddto.Sto
 		}
 		agent.updatedAt = resolveEventTime(ctx, agent.updatedAt)
 		c.svc.setStoppedFallbackReportLocked(ctx, agent)
-		c.svc.publishAgentStopped(agent, ev.Reason)
+		emitEvent(c.svc.eventBus, eventTypeAgentStopped, eventAgentID(agent), agent, ev.Reason)
 		return nil
 	})
 	if errors.Is(err, errAgentNotFound) && c.svc.stoppedHookThreadSuppressed(ev.ThreadID, ev.Timestamp) {
@@ -317,98 +318,6 @@ func (c *hookConsumer) handleThreadStopped(ctx context.Context, ev threaddto.Sto
 
 	if c.notifyTap != nil {
 		c.notifyTap.OnThreadStopped(ctx, ev)
-	}
-}
-
-// runThreadStoppedDAGFallback advances the DAG fallback outside the agent lock.
-func (c *hookConsumer) runThreadStoppedDAGFallback(ctx context.Context, threadID string) {
-	threadID = strings.TrimSpace(threadID)
-	if threadID == "" {
-		return
-	}
-	lookup := c.dagFallbackLookup
-	flow := c.dagFallbackFlow
-	if lookup == nil || flow == nil {
-		return // 未装配 DAG store 的部署跳过
-	}
-	nodes, err := lookup.LookupNodesBySpawningThread(ctx, threadID)
-	if err != nil {
-		dagFallbackMetrics.IncLookupFailed()
-		c.logger.Warn("thread stopped fallback: lookup nodes failed",
-			"thread_id", threadID, "error", err)
-		return
-	}
-	if len(nodes) == 0 {
-		dagFallbackMetrics.IncNoNode()
-		return
-	}
-	for i := range nodes {
-		if ctx.Err() != nil {
-			return
-		}
-		c.failThreadStoppedFallbackNode(ctx, flow, nodes[i])
-	}
-}
-
-func (c *hookConsumer) failThreadStoppedFallbackNode(ctx context.Context, flow taskdag.NodeFlowStore, n taskdag.Node) {
-	// 应用层幂等：终态和 awaiting_verify 都不再抢占。awaiting_verify
-	// 表示 TurnCompleted 已 claim，sharedfile 物化可能仍在收尾。
-	if !isDAGFallbackFailEligibleStatus(n.Status) {
-		dagFallbackMetrics.IncIdempotentSkipped()
-		return
-	}
-	res, failErr := flow.FailNodeAndCancelDownstream(ctx, taskdag.FailNodeInput{
-		DagKey:   n.DagKey,
-		NodeKey:  n.NodeKey,
-		RunID:    taskNodeRunID(&n),
-		Reason:   "thread_stopped_fallback",
-		FailFast: false,
-	})
-	if failErr != nil {
-		dagFallbackMetrics.IncFailNodeErr()
-		c.logger.Warn("thread stopped fallback: fail node failed",
-			"dag_key", n.DagKey, "node_key", n.NodeKey, "error", failErr)
-		return
-	}
-	dagFallbackMetrics.IncFailed()
-	c.invokeThreadStoppedFallbackLifecycleHook(ctx, n, res)
-}
-
-func (c *hookConsumer) invokeThreadStoppedFallbackLifecycleHook(ctx context.Context, n taskdag.Node, res *taskdag.FailNodeResult) {
-	if router := c.dagTurnCompletedDeps.NodeRouter; router != nil {
-		router.invokeTerminalFailureHooksForTaskNode(ctx, failedNodeForLifecycle(n, res), nodeexec.NodeOutcome{
-			Status:       nodeexec.NodeStatusFailed,
-			ErrorSummary: "thread_stopped_fallback",
-		})
-	}
-}
-
-func failedNodeForLifecycle(original taskdag.Node, result *taskdag.FailNodeResult) *taskdag.Node {
-	node := original
-	if result != nil && result.Node != nil {
-		node = *result.Node
-		if node.NodeType == "" {
-			node.NodeType = original.NodeType
-		}
-		if node.Title == "" {
-			node.Title = original.Title
-		}
-		if len(node.Config) == 0 {
-			node.Config = append(node.Config[:0], original.Config...)
-		}
-	}
-	if node.Status == "" {
-		node.Status = string(nodeexec.NodeStatusFailed)
-	}
-	return &node
-}
-
-func isDAGFallbackFailEligibleStatus(status string) bool {
-	switch strings.TrimSpace(status) {
-	case "done", "failed", "cancelled", "skipped", "awaiting_verify":
-		return false
-	default:
-		return true
 	}
 }
 
@@ -432,14 +341,10 @@ func (c *hookConsumer) handleTurnCompleted(ctx context.Context, ev turndto.TurnC
 }
 
 func (c *hookConsumer) handleDAGTurnCompletedFromHook(ctx context.Context, ev turndto.TurnCompleted) {
-	if c == nil {
+	if c == nil || c.dagTurnCompletedDeps.LookupStore == nil || c.dagTurnCompletedDeps.FlowStore == nil {
 		return
 	}
-	deps := c.dagTurnCompletedDeps
-	if deps.LookupStore == nil || deps.FlowStore == nil {
-		return
-	}
-	handleDAGTurnCompleted(ctx, deps, c.logger, ev)
+	handleDAGTurnCompleted(ctx, c.dagTurnCompletedDeps, c.logger, ev)
 }
 
 func (c *hookConsumer) handleTurnInterrupted(ctx context.Context, ev turndto.TurnInterrupted) {
@@ -451,18 +356,14 @@ func (c *hookConsumer) handleTurnInterrupted(ctx context.Context, ev turndto.Tur
 }
 
 func (c *hookConsumer) handleDAGTurnInterruptedFromHook(ctx context.Context, ev turndto.TurnInterrupted) {
-	if c == nil {
-		return
-	}
-	deps := c.dagTurnCompletedDeps
-	if deps.LookupStore == nil || deps.FlowStore == nil {
+	if c == nil || c.dagTurnCompletedDeps.LookupStore == nil || c.dagTurnCompletedDeps.FlowStore == nil {
 		return
 	}
 	reason := strings.TrimSpace(ev.Reason)
 	if reason == "" {
 		reason = "turn_interrupted"
 	}
-	handleDAGTurnCompleted(ctx, deps, c.logger, turndto.TurnCompleted{
+	handleDAGTurnCompleted(ctx, c.dagTurnCompletedDeps, c.logger, turndto.TurnCompleted{
 		TurnHeader: ev.TurnHeader,
 		Success:    false,
 		Reason:     reason,

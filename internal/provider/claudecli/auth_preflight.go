@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
+	"github.com/anthropic-ai/super-agent-v3/internal/util/ctxutil"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
@@ -25,7 +25,7 @@ type claudeAuthStatus struct {
 var readClaudeAuthStatus = runClaudeAuthStatus
 
 func preflightClaudeAuth(ctx context.Context, binary, cwd string, cfg cliLaunchConfig) error {
-	checkCtx, cancel := platformconfig.WithTimeout(ctx, claudeAuthPreflightTimeout)
+	checkCtx, cancel := ctxutil.WithTimeout(ctx, claudeAuthPreflightTimeout)
 	defer cancel()
 	status, raw, statusErr := readClaudeAuthStatus(checkCtx, binary, cwd, cfg)
 	inconclusive := statusErr != nil

@@ -132,6 +132,28 @@ function Stop-ByProcessName {
     }
 }
 
+function Stop-BuildBinaryProcesses {
+    param(
+        [Parameter(Mandatory)][string]$BuildDir,
+        [Parameter(Mandatory)][string[]]$Names
+    )
+    $targets = @{}
+    foreach ($name in $Names) {
+        $leaf = if ([IO.Path]::GetExtension($name)) { $name } else { "$name.exe" }
+        $targets[(Join-Path $BuildDir $leaf).ToLowerInvariant()] = $true
+    }
+    foreach ($name in $Names) {
+        $leaf = if ([IO.Path]::GetExtension($name)) { $name } else { "$name.exe" }
+        Get-CimInstance Win32_Process -Filter "Name='$leaf'" -ErrorAction SilentlyContinue |
+            Where-Object {
+                $_.ExecutablePath -and $targets.ContainsKey($_.ExecutablePath.ToLowerInvariant())
+            } |
+            ForEach-Object {
+                Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue
+            }
+    }
+}
+
 function Stop-ByPort {
     param([int[]]$Ports)
     foreach ($port in $Ports) {
@@ -205,6 +227,310 @@ function Add-CodexCliToPath {
     }
 
     Write-Host '  !! 未找到可执行的 Codex CLI；Codex provider 对话可能无法启动'
+}
+
+function ConvertFrom-DotEnvLine {
+    param([Parameter(Mandatory)][AllowEmptyString()][string]$Line)
+    $line = $Line.Trim().TrimStart([char]0xFEFF)
+    if (-not $line -or $line.StartsWith('#')) { return $null }
+    if ($line.StartsWith('export ')) {
+        $line = $line.Substring(7).TrimStart()
+    }
+    $eq = $line.IndexOf('=')
+    if ($eq -le 0) { return $null }
+    $key = $line.Substring(0, $eq).Trim()
+    if (-not $key -or $key -match '\s') { return $null }
+    $value = $line.Substring($eq + 1).Trim()
+    if (($value.StartsWith('"') -and $value.EndsWith('"')) -or
+        ($value.StartsWith("'") -and $value.EndsWith("'"))) {
+        $value = $value.Substring(1, $value.Length - 2)
+    }
+    [pscustomobject]@{ Key = $key; Value = $value }
+}
+
+function Import-DotEnvFile {
+    param([Parameter(Mandatory)][string]$Path)
+    if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) { return }
+    $loaded = 0
+    foreach ($line in Get-Content -LiteralPath $Path) {
+        $entry = ConvertFrom-DotEnvLine -Line $line
+        if ($null -eq $entry) { continue }
+        $existing = [Environment]::GetEnvironmentVariable($entry.Key, 'Process')
+        if ($null -ne $existing -and $existing.Trim() -ne '') { continue }
+        Set-Item -Path "Env:$($entry.Key)" -Value $entry.Value
+        $loaded++
+    }
+    if ($loaded -gt 0) {
+        Write-Host "  -> 已从 .env 加载 $loaded 项本地配置"
+    }
+}
+
+function Ensure-DevControlSessionToken {
+    $canonical = if ($null -ne $env:GO_AGENT_CTL_SESSION_TOKEN) { $env:GO_AGENT_CTL_SESSION_TOKEN.Trim() } else { '' }
+    if ($canonical) { return }
+
+    $legacy = if ($null -ne $env:GO_AGENT_MCP_SESSION_TOKEN) { $env:GO_AGENT_MCP_SESSION_TOKEN.Trim() } else { '' }
+    if ($legacy) {
+        $env:GO_AGENT_CTL_SESSION_TOKEN = $legacy
+        Write-Host '  -> GO_AGENT_MCP_SESSION_TOKEN 已兼容提升为 GO_AGENT_CTL_SESSION_TOKEN'
+        return
+    }
+
+    $env:GO_AGENT_CTL_SESSION_TOKEN = 'dev-local-{0}-{1}-{2}' -f `
+        ([DateTimeOffset]::UtcNow.ToUnixTimeSeconds()), $PID, ([Guid]::NewGuid().ToString('N'))
+    Write-Host '  -> GO_AGENT_CTL_SESSION_TOKEN 已为本地调试生成'
+}
+
+function Get-EffectiveDatabaseUrl {
+    $databaseUrl = if ($null -ne $env:DATABASE_URL) { $env:DATABASE_URL.Trim() } else { '' }
+    if ($databaseUrl) { return $databaseUrl }
+
+    $legacy = if ($null -ne $env:POSTGRES_CONNECTION_STRING) { $env:POSTGRES_CONNECTION_STRING.Trim() } else { '' }
+    if ($legacy) {
+        $env:DATABASE_URL = $legacy
+        Write-Host '  -> POSTGRES_CONNECTION_STRING 已兼容提升为 DATABASE_URL'
+        return $legacy
+    }
+    return ''
+}
+
+function Format-DatabaseUrlForLog {
+    param([Parameter(Mandatory)][string]$DatabaseUrl)
+    try {
+        $uri = [Uri]$DatabaseUrl
+        $builder = [UriBuilder]::new($uri)
+        if ($builder.UserName) { $builder.UserName = '***' }
+        if ($builder.Password) { $builder.Password = '***' }
+        return $builder.Uri.AbsoluteUri
+    } catch {
+        return '<DATABASE_URL 已设置，但无法解析为 URL>'
+    }
+}
+
+function Get-DatabaseEndpoint {
+    param([Parameter(Mandatory)][string]$DatabaseUrl)
+    try {
+        $uri = [Uri]$DatabaseUrl
+        if ($uri.Scheme -notin @('postgres', 'postgresql')) { return $null }
+        $port = if ($uri.IsDefaultPort -or $uri.Port -le 0) { 5432 } else { $uri.Port }
+        [pscustomobject]@{
+            Host = $uri.Host
+            Port = $port
+        }
+    } catch {
+        return $null
+    }
+}
+
+function Test-TcpPort {
+    param(
+        [Parameter(Mandatory)][string]$HostName,
+        [Parameter(Mandatory)][int]$Port,
+        [int]$TimeoutMs = 1500
+    )
+    $client = [Net.Sockets.TcpClient]::new()
+    try {
+        $async = $client.BeginConnect($HostName, $Port, $null, $null)
+        if (-not $async.AsyncWaitHandle.WaitOne($TimeoutMs, $false)) {
+            return $false
+        }
+        $client.EndConnect($async)
+        return $true
+    } catch {
+        return $false
+    } finally {
+        $client.Close()
+    }
+}
+
+function Find-PsqlCommand {
+    $cmd = Get-Command psql -ErrorAction SilentlyContinue
+    if ($cmd) { return $cmd.Source }
+
+    $roots = @()
+    $programFiles = [Environment]::GetFolderPath('ProgramFiles')
+    if ($programFiles) { $roots += (Join-Path $programFiles 'PostgreSQL') }
+    if (${env:ProgramFiles}) { $roots += (Join-Path ${env:ProgramFiles} 'PostgreSQL') }
+    if (${env:ProgramFiles(x86)}) { $roots += (Join-Path ${env:ProgramFiles(x86)} 'PostgreSQL') }
+
+    foreach ($root in ($roots | Sort-Object -Unique)) {
+        if (-not (Test-Path -LiteralPath $root -PathType Container)) { continue }
+        $candidate = Get-ChildItem -LiteralPath $root -Directory -ErrorAction SilentlyContinue |
+            Sort-Object Name -Descending |
+            ForEach-Object { Join-Path $_.FullName 'bin\psql.exe' } |
+            Where-Object { Test-Path -LiteralPath $_ -PathType Leaf } |
+            Select-Object -First 1
+        if ($candidate) { return $candidate }
+    }
+    return $null
+}
+
+function Get-PostgresPortHint {
+    param(
+        [Parameter(Mandatory)][string]$HostName,
+        [Parameter(Mandatory)][int]$FailedPort
+    )
+    foreach ($port in @(5432, 54320)) {
+        if ($port -eq $FailedPort) { continue }
+        if (Test-TcpPort -HostName $HostName -Port $port -TimeoutMs 500) {
+            return "检测到 $HostName`:$port 可达；请确认 DATABASE_URL 端口是否应改为 $port。"
+        }
+    }
+    $services = @(Get-Service '*postgres*' -ErrorAction SilentlyContinue |
+        Where-Object { $_.Status -eq 'Running' } |
+        Select-Object -ExpandProperty Name)
+    if ($services.Count -gt 0) {
+        return "检测到 PostgreSQL 服务正在运行：$($services -join ', ')；但未监听 DATABASE_URL 指定端口。"
+    }
+    return ''
+}
+
+function Get-CurrentUserSid {
+    $rows = whoami /user /fo csv | ConvertFrom-Csv
+    if ($rows -and $rows[0].SID) { return $rows[0].SID }
+    throw '无法读取当前 Windows 用户 SID'
+}
+
+function Get-SuperDolphinHome {
+    if ($env:SUPER_DOLPHIN_HOME -and $env:SUPER_DOLPHIN_HOME.Trim()) {
+        return $env:SUPER_DOLPHIN_HOME.Trim()
+    }
+    return (Join-Path $env:USERPROFILE '.super-dolphin')
+}
+
+function Protect-OwnerIdentitySalt {
+    $sdHome = Get-SuperDolphinHome
+    $salt = Join-Path $sdHome 'owner_identity.salt'
+    if (-not (Test-Path -LiteralPath $salt)) { return }
+    if (-not (Test-Path -LiteralPath $salt -PathType Leaf)) {
+        throw "owner identity salt 不是普通文件: $salt"
+    }
+
+    $sid = Get-CurrentUserSid
+    & icacls $salt /inheritance:r *> $null
+    if ($LASTEXITCODE -ne 0) {
+        throw "修复 owner identity salt ACL 失败: icacls /inheritance:r $salt"
+    }
+    & icacls $salt /grant:r "*$sid`:(R,W)" "*S-1-5-18:(F)" "*S-1-5-32-544:(F)" *> $null
+    if ($LASTEXITCODE -ne 0) {
+        throw "修复 owner identity salt ACL 失败: icacls /grant:r $salt"
+    }
+    Write-Host "  -> owner identity salt ACL 已加固: $salt"
+}
+
+function Get-MaintenanceDatabaseUrl {
+    param([Parameter(Mandatory)][string]$DatabaseUrl)
+    $uri = [Uri]$DatabaseUrl
+    $builder = [UriBuilder]::new($uri)
+    $builder.Path = 'postgres'
+    return $builder.Uri.AbsoluteUri
+}
+
+function Test-PsqlDatabaseConnect {
+    param(
+        [Parameter(Mandatory)][string]$Psql,
+        [Parameter(Mandatory)][string]$DatabaseUrl
+    )
+    $previousErrorAction = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    try {
+        $output = & $Psql $DatabaseUrl -tAc 'SELECT 1' 2>&1
+        [pscustomobject]@{
+            Success = ($LASTEXITCODE -eq 0)
+            Output  = (($output | Out-String).Trim())
+        }
+    } finally {
+        $ErrorActionPreference = $previousErrorAction
+    }
+}
+
+function Test-PsqlCanCreateDatabase {
+    param(
+        [Parameter(Mandatory)][string]$Psql,
+        [Parameter(Mandatory)][string]$DatabaseUrl
+    )
+    $previousErrorAction = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    try {
+        $output = & $Psql $DatabaseUrl -tAc "SELECT COALESCE((SELECT rolsuper OR rolcreatedb FROM pg_roles WHERE rolname = current_user), false)" 2>&1
+        if ($LASTEXITCODE -ne 0) {
+            return [pscustomobject]@{
+                Success   = $false
+                CanCreate = $false
+                Output    = (($output | Out-String).Trim())
+            }
+        }
+        $value = (($output | Out-String).Trim()).ToLowerInvariant()
+        [pscustomobject]@{
+            Success   = $true
+            CanCreate = ($value -eq 't' -or $value -eq 'true' -or $value -eq '1')
+            Output    = $value
+        }
+    } finally {
+        $ErrorActionPreference = $previousErrorAction
+    }
+}
+
+function Assert-DatabaseConfigured {
+    $databaseUrl = Get-EffectiveDatabaseUrl
+    if (-not $databaseUrl) {
+        Write-Host '  XX DATABASE_URL 未配置，run-debug 无法确定要连接哪个 PostgreSQL 数据库。'
+        Write-Host '     在 PowerShell 当前窗口临时设置：'
+        Write-Host '       $env:DATABASE_URL = "postgres://USER:PASS@127.0.0.1:5432/super_agent_v3?sslmode=disable"'
+        Write-Host '     或写入项目根目录 .env：'
+        Write-Host '       DATABASE_URL=postgres://USER:PASS@127.0.0.1:5432/super_agent_v3?sslmode=disable'
+        Write-Host '     若本机还没装库，可先运行：'
+        Write-Host '       .\scripts\install-postgres.ps1'
+        throw 'DATABASE_URL missing'
+    }
+
+    Write-Host ("  -> DATABASE_URL: {0}" -f (Format-DatabaseUrlForLog -DatabaseUrl $databaseUrl))
+
+    $endpoint = Get-DatabaseEndpoint -DatabaseUrl $databaseUrl
+    if ($null -eq $endpoint) {
+        throw 'DATABASE_URL 不是可解析的 postgres/postgresql URL；请检查 .env 或 $env:DATABASE_URL'
+    }
+    if (-not (Test-TcpPort -HostName $endpoint.Host -Port $endpoint.Port)) {
+        $hint = Get-PostgresPortHint -HostName $endpoint.Host -FailedPort $endpoint.Port
+        if ($hint) {
+            throw "PostgreSQL TCP 连接失败: $($endpoint.Host):$($endpoint.Port)。$hint"
+        }
+        throw "PostgreSQL TCP 连接失败: $($endpoint.Host):$($endpoint.Port)"
+    }
+
+    $psql = Find-PsqlCommand
+    if ($psql) {
+        $oldTimeout = [Environment]::GetEnvironmentVariable('PGCONNECT_TIMEOUT', 'Process')
+        $env:PGCONNECT_TIMEOUT = '2'
+        try {
+            $targetCheck = Test-PsqlDatabaseConnect -Psql $psql -DatabaseUrl $databaseUrl
+            if ($targetCheck.Success) {
+                Write-Host '  -> DB 连接预检通过 (psql SELECT 1)'
+                return
+            }
+
+            $maintenanceUrl = Get-MaintenanceDatabaseUrl -DatabaseUrl $databaseUrl
+            $maintenanceCheck = Test-PsqlDatabaseConnect -Psql $psql -DatabaseUrl $maintenanceUrl
+            if ($maintenanceCheck.Success) {
+                $createCheck = Test-PsqlCanCreateDatabase -Psql $psql -DatabaseUrl $maintenanceUrl
+                if ($createCheck.Success -and $createCheck.CanCreate) {
+                    Write-Host '  -> PostgreSQL 可登录；目标数据库不存在时后端会自动创建'
+                    return
+                }
+                throw "目标数据库暂不可连接，且当前账号没有 CREATEDB 权限: $($targetCheck.Output)"
+            }
+
+            throw "psql 连接检查失败: $($targetCheck.Output)"
+        } finally {
+            if ($null -eq $oldTimeout) {
+                Remove-Item Env:PGCONNECT_TIMEOUT -ErrorAction SilentlyContinue
+            } else {
+                $env:PGCONNECT_TIMEOUT = $oldTimeout
+            }
+        }
+    }
+
+    Write-Host "  -> DB 端口可达 ($($endpoint.Host):$($endpoint.Port)); 未安装 psql，认证和库名将在后端启动时校验"
 }
 
 function Start-ViteDev {
@@ -284,6 +610,9 @@ function Open-BrowserDelayed {
 # ============================================================
 # 菜单
 # ============================================================
+Import-DotEnvFile -Path (Join-Path $ProjectDir '.env')
+Ensure-DevControlSessionToken
+
 Write-Host '+----------------------------------+'
 Write-Host '|    agent-terminal 编译工具       |'
 Write-Host '+----------------------------------+'
@@ -391,6 +720,9 @@ $DbUrl = $env:DATABASE_URL
 $env:SUPER_DOLPHIN_RUNTIME_MODE = 'dev'
 $env:SUPER_DOLPHIN_DEV_ENTRYPOINT = 'run-debug.ps1'
 Write-Host "> Dev DB DSN: $DbUrl"
+Write-Host '[0/4] Pre-flight 守卫...'
+Assert-DatabaseConfigured
+Protect-OwnerIdentitySalt
 
 # memory 子系统默认开关（与 sh 一致，避免内存中心 UI 显示 "system off" 横幅）
 if (-not $env:ENABLE_MEMORY_SYSTEM)               { $env:ENABLE_MEMORY_SYSTEM = '1' }
@@ -419,6 +751,7 @@ try {
         }
         Write-Host '[1/3] 停止旧进程...'
         Stop-ByProcessName -Names @('super-agent-debug', 'esbuild')
+        Stop-BuildBinaryProcesses -BuildDir $BuildDir -Names @('mcp-orch', 'mcp-lsp')
         Stop-ByPort -Ports @(4510, 4511, 5173)
         Start-Sleep -Milliseconds 500
 
@@ -656,6 +989,7 @@ try {
     # ========================================================
     Write-Host '[4/4] 停止旧进程...'
     Stop-ByProcessName -Names @('super-agent-debug', 'esbuild')
+    Stop-BuildBinaryProcesses -BuildDir $BuildDir -Names @('mcp-orch', 'mcp-lsp')
     Stop-ByPort -Ports @(4510, 4511)
     Start-Sleep -Milliseconds 500
 

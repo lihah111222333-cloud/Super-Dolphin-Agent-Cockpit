@@ -6,12 +6,15 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	mcpdto "github.com/anthropic-ai/super-agent-v3/internal/dto/mcp"
+	providerdto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
 	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/common"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/mcpcontrol"
+	"github.com/anthropic-ai/super-agent-v3/internal/util/safego"
 )
 
 const peerReadyTimeout = 10 * time.Second
@@ -91,24 +94,92 @@ func (h *Handler) addMCPSurfaceTools(ctx context.Context, scope contract.CodexTo
 	if factory == nil {
 		factory = h.defaultStdioClientFactory
 	}
-	for _, binary := range scope.Manifest.Binaries {
-		client, err := factory(ctx, binary)
-		if err != nil {
-			return err
-		}
-		if client == nil {
-			return fmt.Errorf("toolbridge: stdio client not configured for %q", binary.Name)
-		}
-		surface.clients = append(surface.clients, client)
-		tools, err := client.ListTools(ctx)
-		if err != nil {
-			return err
-		}
-		if err := addMCPToolsToSurface(surface, out, binary.Name, client, tools); err != nil {
+	results, err := prepareMCPSurfaceBinaries(ctx, factory, scope.Manifest.Binaries)
+	if err != nil {
+		return err
+	}
+	for _, result := range results {
+		surface.clients = append(surface.clients, result.client)
+		if err := addMCPToolsToSurface(surface, out, result.binary.Name, result.client, result.tools); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+type mcpSurfaceBinaryResult struct {
+	binary providerdto.MCPBinary
+	client mcpClient
+	tools  []mcpdto.MCPTool
+}
+
+func prepareMCPSurfaceBinaries(
+	ctx context.Context,
+	factory func(context.Context, providerdto.MCPBinary) (mcpClient, error),
+	binaries []providerdto.MCPBinary,
+) ([]mcpSurfaceBinaryResult, error) {
+	if len(binaries) == 0 {
+		return nil, nil
+	}
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	results := make([]mcpSurfaceBinaryResult, len(binaries))
+	var wg sync.WaitGroup
+	var errMu sync.Mutex
+	var firstErr error
+	recordErr := func(err error) {
+		if err == nil {
+			return
+		}
+		errMu.Lock()
+		if firstErr == nil {
+			firstErr = err
+			cancel()
+		}
+		errMu.Unlock()
+	}
+
+	for i, binary := range binaries {
+		i, binary := i, binary
+		wg.Add(1)
+		safego.Go(ctx, nil, "toolbridge.prepareMCPSurfaceBinary", func(workerCtx context.Context) {
+			defer wg.Done()
+			result := mcpSurfaceBinaryResult{binary: binary}
+			client, err := factory(workerCtx, binary)
+			if err != nil {
+				recordErr(err)
+				return
+			}
+			if client == nil {
+				recordErr(fmt.Errorf("toolbridge: stdio client not configured for %q", binary.Name))
+				return
+			}
+			result.client = client
+			results[i] = result
+			tools, err := client.ListTools(workerCtx)
+			if err != nil {
+				recordErr(err)
+				return
+			}
+			result.tools = tools
+			results[i] = result
+		})
+	}
+	wg.Wait()
+	if firstErr != nil {
+		closeMCPClients(results)
+		return nil, firstErr
+	}
+	return results, nil
+}
+
+func closeMCPClients(results []mcpSurfaceBinaryResult) {
+	for _, result := range results {
+		if result.client != nil {
+			_ = result.client.Close()
+		}
+	}
 }
 
 func addMCPToolsToSurface(surface *codexToolSurface, out *[]contract.DynamicToolSchema, family string, client mcpClient, tools []mcpdto.MCPTool) error {

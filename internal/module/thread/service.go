@@ -100,13 +100,6 @@ type service struct {
 	// enableWhenEval keeps router prompt_versions snapshots aligned with assembler gates.
 	enableWhenEval contract.EnableWhenEvaluator
 
-	// taskHandoffWorker is the P22 P2 (thread S3) single owner of the
-	// onTurnCompleted -> refreshTaskHandoffFromThread slow-path. Nil when
-	// the service is constructed without sharedFiles / threadStore — in
-	// that case onTurnCompleted is a no-op anyway because the refresher
-	// short-circuits on missing stores.
-	taskHandoffWorker *taskHandoffWorker
-
 	// agentLaunchedWorker is the P22 P2 (thread S4) single owner of the
 	// onAgentLaunched -> binding store write + prompt-assembly
 	// invalidation slow-path. Always constructed; processAgentLaunched

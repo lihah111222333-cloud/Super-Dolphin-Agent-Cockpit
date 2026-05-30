@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/sqlc"
+	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/sqlctx"
 )
 
 func (s *store) EnqueueWakeup(ctx context.Context, input EnqueueWakeupInput) (int64, error) {
@@ -15,10 +16,10 @@ func (s *store) EnqueueWakeup(ctx context.Context, input EnqueueWakeupInput) (in
 		return s.q.EnqueueTaskDagWakeup(ctx, sqlc.EnqueueTaskDagWakeupParams{
 			DagKey:         input.DagKey,
 			NodeKey:        input.NodeKey,
-			RunID:          input.RunID,
+			Column3:        input.RunID,
 			WakeupKind:     input.WakeupKind,
 			TargetAgentID:  input.TargetAgentID,
-			Column5:        input.PromptPayload,
+			Column6:        input.PromptPayload,
 			IdempotencyKey: input.IdempotencyKey,
 		})
 	}, "enqueue", "task_dag_wakeup")
@@ -79,7 +80,7 @@ func (s *store) RetryWakeupWithNodeConfigPatch(ctx context.Context, input RetryW
 	}
 	fence := wakeupFenceFromRetry(input.RetryWakeup)
 	var rows int64
-	err = sqlc.WithTxOrReuse(ctx, s.q, func(txq *sqlc.Queries) error {
+	err = sqlctx.WithTxOrReuse(ctx, s.db, s.q, func(txq *sqlc.Queries, _ sqlc.DBTX) error {
 		retryRows, retryErr := txq.RetryTaskDagWakeup(ctx, sqlc.RetryTaskDagWakeupParams{
 			Column1:        retryInterval,
 			LastError:      input.RetryWakeup.LastError,
@@ -100,7 +101,7 @@ func (s *store) RetryWakeupWithNodeConfigPatch(ctx context.Context, input RetryW
 			NodeKey:        input.NodeConfig.NodeKey,
 			Config:         input.NodeConfig.Config,
 			PreviousConfig: input.NodeConfig.PreviousConfig,
-			RunID:          input.NodeConfig.RunID,
+			RunID:          int64Ptr(input.NodeConfig.RunID),
 		})
 		if patchErr != nil {
 			return wrapTaskDAGError(patchErr, "patch_config", "task_dag_node")

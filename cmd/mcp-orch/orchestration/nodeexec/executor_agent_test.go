@@ -14,16 +14,60 @@ import (
 // 记录最近一次 LaunchAgent 调用入参 + 注入返回错误 + 返回 threadID，
 // 便于断言。F1.5 后 LaunchAgent 返回值是 (threadID, error)。
 type stubAgentLauncher struct {
-	called   int
-	lastReq  contract.LaunchRequest
-	threadID string
-	err      error
+	called         int
+	lastReq        contract.LaunchRequest
+	threadID       string
+	err            error
+	stoppedThreads []string
+	stopErr        error
 }
 
 func (s *stubAgentLauncher) LaunchAgent(_ context.Context, req contract.LaunchRequest) (string, error) {
 	s.called++
 	s.lastReq = req
 	return s.threadID, s.err
+}
+
+func (s *stubAgentLauncher) StopLaunchedThread(_ context.Context, threadID string) error {
+	s.stoppedThreads = append(s.stoppedThreads, strings.TrimSpace(threadID))
+	return s.stopErr
+}
+
+type stubPrePromptAgentLauncher struct {
+	events         []string
+	threadID       string
+	err            error
+	legacyCalled   bool
+	stoppedThreads []string
+}
+
+func (s *stubPrePromptAgentLauncher) LaunchAgent(context.Context, contract.LaunchRequest) (string, error) {
+	s.legacyCalled = true
+	return "", errors.New("legacy LaunchAgent should not be called")
+}
+
+func (s *stubPrePromptAgentLauncher) LaunchAgentWithSpawnRecord(
+	_ context.Context,
+	_ contract.LaunchRequest,
+	record func(threadID string) error,
+) (string, error) {
+	s.events = append(s.events, "launch")
+	if s.err != nil {
+		return "", s.err
+	}
+	if record != nil {
+		if err := record(s.threadID); err != nil {
+			return "", err
+		}
+		s.events = append(s.events, "record")
+	}
+	s.events = append(s.events, "submit")
+	return s.threadID, nil
+}
+
+func (s *stubPrePromptAgentLauncher) StopLaunchedThread(_ context.Context, threadID string) error {
+	s.stoppedThreads = append(s.stoppedThreads, strings.TrimSpace(threadID))
+	return nil
 }
 
 // stubNodeSpawnRecorder 是 NodeSpawnRecorder 接口的测试假实现。
@@ -340,10 +384,6 @@ func TestClassifyAgentLaunchError(t *testing.T) {
 		{"capability", errors.New("model lacks capability for this task"), FailureClassCapability},
 		{"unauthorized_validation", errors.New("401 unauthorized"), FailureClassValidation},
 		{"forbidden_validation", errors.New("403 forbidden"), FailureClassValidation},
-		{"root_task_missing_validation", errors.New(`root task id missing on thread "agent-parent"`), FailureClassValidation},
-		{"task_handoff_title_validation", errors.New(`task handoff title is required for task "task-demo"`), FailureClassValidation},
-		{"task_handoff_file_validation", errors.New(`task handoff file is required for task "task-demo"`), FailureClassValidation},
-		{"task_handoff_config_validation", errors.New(`task handoff config "taskId" must be a string`), FailureClassValidation},
 		{"claude_model_unavailable_validation", errors.New("There's an issue with the selected model (gpt-5.5). It may not exist or you may not have access to it. Run --model to pick a different model."), FailureClassValidation},
 		{"unknown_default_transient", errors.New("strange new failure"), FailureClassTransient},
 	}
@@ -396,6 +436,35 @@ func TestAgentExecutor_Execute_Spawn_WritesBackThreadID(t *testing.T) {
 	}
 	if recorder.lastThreadID != "thread-success" {
 		t.Fatalf("RecordNodeSpawn threadID = %q, want thread-success", recorder.lastThreadID)
+	}
+}
+
+func TestAgentExecutor_Execute_Spawn_RecordsBeforeInitialPromptWhenLauncherSupportsIt(t *testing.T) {
+	t.Parallel()
+	launcher := &stubPrePromptAgentLauncher{threadID: "thread-pre-prompt"}
+	recorder := &stubNodeSpawnRecorder{}
+	exec := NewAgentExecutor(launcher, WithRecorder(recorder))
+
+	cfg := AgentNodeConfig{Exec: AgentExecConfig{AgentKey: "implementer"}}
+	node := makeAgentNode(t, cfg)
+
+	out, err := exec.Execute(context.Background(), node, RunContext{
+		DagKey: "dag-x", NodeKey: "node-a", RunID: 1001,
+	})
+	if err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	if out.Status != NodeStatusDone {
+		t.Fatalf("Status = %q, want %q", out.Status, NodeStatusDone)
+	}
+	if launcher.legacyCalled {
+		t.Fatal("legacy LaunchAgent was called; want pre-prompt recording path")
+	}
+	if strings.Join(launcher.events, ",") != "launch,record,submit" {
+		t.Fatalf("events = %v, want launch,record,submit", launcher.events)
+	}
+	if recorder.called != 1 || recorder.lastThreadID != "thread-pre-prompt" {
+		t.Fatalf("RecordNodeSpawn = (%d,%q), want once with thread-pre-prompt", recorder.called, recorder.lastThreadID)
 	}
 }
 
@@ -535,6 +604,29 @@ func TestAgentExecutor_Execute_Spawn_RecorderErrorIsHardFailure(t *testing.T) {
 	}
 	if out.ErrorSummary == "" {
 		t.Fatalf("ErrorSummary empty, want substring 'spawning_thread_id write-back failed'")
+	}
+}
+
+func TestAgentExecutor_Execute_Spawn_RecorderErrorStopsLaunchedThread(t *testing.T) {
+	t.Parallel()
+	launcher := &stubAgentLauncher{threadID: "thread-late"}
+	recorder := &stubNodeSpawnRecorder{err: errors.New("node already cancelled")}
+	exec := NewAgentExecutor(launcher, WithRecorder(recorder))
+
+	cfg := AgentNodeConfig{Exec: AgentExecConfig{AgentKey: "implementer"}}
+	node := makeAgentNode(t, cfg)
+
+	out, err := exec.Execute(context.Background(), node, RunContext{
+		DagKey: "dag-x", NodeKey: "node-a", RunID: 1001,
+	})
+	if err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	if out.Status != NodeStatusFailed {
+		t.Fatalf("Status = %q, want %q", out.Status, NodeStatusFailed)
+	}
+	if got := launcher.stoppedThreads; len(got) != 1 || got[0] != "thread-late" {
+		t.Fatalf("stoppedThreads = %v, want [thread-late]", got)
 	}
 }
 

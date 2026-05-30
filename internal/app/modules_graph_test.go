@@ -9,6 +9,8 @@ import (
 	"github.com/kelindar/event"
 	"go.uber.org/fx"
 
+	"github.com/anthropic-ai/super-agent-v3/internal/contract"
+	"github.com/anthropic-ai/super-agent-v3/internal/module/turn"
 	uiwails "github.com/anthropic-ai/super-agent-v3/internal/ui/wails"
 )
 
@@ -25,6 +27,22 @@ import (
 func TestAppModuleGraphIsClosed(t *testing.T) {
 	t.Parallel()
 
+	if err := fx.ValidateApp(appGraphValidationOptions()...); err != nil {
+		t.Fatalf("fx.ValidateApp failed: %v", err)
+	}
+}
+
+func TestAppModuleGraphProvidesTurnThreadStateConfigReader(t *testing.T) {
+	t.Parallel()
+
+	var reader turn.ThreadStateConfigReader
+	opts := append(appGraphValidationOptions(), fx.Populate(&reader))
+	if err := fx.ValidateApp(opts...); err != nil {
+		t.Fatalf("fx.ValidateApp missing turn thread runtime reader: %v", err)
+	}
+}
+
+func appGraphValidationOptions() []fx.Option {
 	// Supply the frontend filesystem because RunDesktop normally
 	// injects it. Empty io/fs satisfies uiwails.Module's declared
 	// dependency without booting wails.
@@ -38,14 +56,14 @@ func TestAppModuleGraphIsClosed(t *testing.T) {
 
 	// Silent logger so the dry-run doesn't spam stderr.
 	_ = slog.New(slog.NewTextHandler(io.Discard, nil))
+	var stateReader contract.ThreadStateConfigReader
 
-	if err := fx.ValidateApp(
+	return []fx.Option{
 		Module,
 		uiwails.Module,
 		frontend,
+		fx.Populate(&stateReader),
 		fx.Invoke(BindRuntime),
-	); err != nil {
-		t.Fatalf("fx.ValidateApp failed: %v", err)
 	}
 }
 

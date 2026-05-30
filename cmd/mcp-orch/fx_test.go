@@ -4,13 +4,18 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"io"
 	"log/slog"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/orchestration"
+	orchcron "github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/orchestration/cron"
 	taskdagstore "github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/taskdag"
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/common"
@@ -23,6 +28,9 @@ import (
 // are nil-embedding stubs used to satisfy fx wiring assertions only; they
 // are never actually invoked. 余下 method 仅由 fx 装配需要，不被调用。
 type stubRunStore struct{ taskdagstore.RunStore }
+type stubScheduledStartStore struct {
+	taskdagstore.ScheduledStartStore
+}
 type stubDAGStore struct {
 	taskdagstore.OrchestrationStore
 }
@@ -30,6 +38,19 @@ type stubAgentThreadStore struct{ orchestration.AgentThreadStore }
 type stubAgentBindingStore struct {
 	orchestration.AgentBindingStore
 }
+type stubDAGScheduleStore struct{}
+type stubAdvisoryLocker struct{}
+type stubAdvisoryLockHandle struct{}
+
+func (stubDAGScheduleStore) DueDAGs(context.Context, time.Time) ([]orchcron.DueDAG, error) {
+	return nil, nil
+}
+
+func (stubAdvisoryLocker) TryLock(context.Context) (orchcron.AdvisoryLockHandle, bool, error) {
+	return stubAdvisoryLockHandle{}, true, nil
+}
+
+func (stubAdvisoryLockHandle) Unlock(context.Context) error { return nil }
 
 func TestParentFxStartup(t *testing.T) {
 	// P22 P4 S4c1: orchestration package no longer exports `Module`;
@@ -40,6 +61,7 @@ func TestParentFxStartup(t *testing.T) {
 		fx.Provide(
 			orchestration.ProvideService,
 			orchestration.ProvideServiceInterface,
+			orchestration.ProvideScheduledDAGStartService,
 			orchestration.ProvideHookAfterHandler,
 			orchestration.ProvideRPCFacade,
 		),
@@ -50,6 +72,7 @@ func TestParentFxStartup(t *testing.T) {
 		fx.Provide(orchestration.ProvideWakeupDispatcher),
 		fx.Provide(fx.Annotate(orchestration.ProvideWakeupDispatcherRunner, fx.ResultTags(`group:"runners"`))),
 		fx.Provide(fx.Annotate(orchestration.ProvideWakeupReclaimerRunner, fx.ResultTags(`group:"runners"`))),
+		fx.Provide(fx.Annotate(provideScheduledDAGCronRunner, fx.ResultTags(`group:"runners"`))),
 	)
 	type consumeRunners struct {
 		fx.In
@@ -69,8 +92,16 @@ func TestParentFxStartup(t *testing.T) {
 			// service 强依赖 RunStore（T1.2）后，TestParentFxStartup 也需补齐 stub provider。
 			// service requires RunStore (T1.2), so TestParentFxStartup must also provide a stub.
 			func() taskdagstore.RunStore { return &stubRunStore{} },
+			func() taskdagstore.ScheduledStartStore { return &stubScheduledStartStore{} },
+			func() orchcron.DAGScheduleStore { return stubDAGScheduleStore{} },
+			func() orchcron.AdvisoryLocker { return stubAdvisoryLocker{} },
 		),
-		fx.Invoke(func(consumeRunners) {}),
+		fx.Invoke(func(in consumeRunners) error {
+			if len(in.Runners) < 3 {
+				return errors.New("scheduled DAG cron runner is not wired")
+			}
+			return nil
+		}),
 	)
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
@@ -78,6 +109,126 @@ func TestParentFxStartup(t *testing.T) {
 		t.Fatalf("app.Start() error = %v", err)
 	}
 	t.Cleanup(func() { _ = app.Stop(context.Background()) })
+}
+
+func TestBuildOrchestrationOptionsIncludesScheduledDAGCronRunner(t *testing.T) {
+	file, err := parser.ParseFile(token.NewFileSet(), "fx.go", nil, 0)
+	if err != nil {
+		t.Fatalf("parse fx.go: %v", err)
+	}
+	fn := findFuncDecl(file, "buildOrchestrationOptions")
+	if fn == nil {
+		t.Fatal("buildOrchestrationOptions not found")
+	}
+	if !funcBodyContainsIdent(fn, "provideSQLDAGScheduleStore") {
+		t.Fatal("buildOrchestrationOptions must provide scheduled DAG SQL schedule store")
+	}
+	if !funcBodyContainsIdent(fn, "providePGAdvisoryLocker") {
+		t.Fatal("buildOrchestrationOptions must provide scheduled DAG advisory locker")
+	}
+	if !funcBodyAnnotatesRunner(fn, "provideScheduledDAGCronRunner") {
+		t.Fatal("buildOrchestrationOptions must annotate provideScheduledDAGCronRunner into group:\"runners\"")
+	}
+}
+
+func TestRunIncludesDBMigrationLifecycleModule(t *testing.T) {
+	file, err := parser.ParseFile(token.NewFileSet(), "fx.go", nil, 0)
+	if err != nil {
+		t.Fatalf("parse fx.go: %v", err)
+	}
+	fn := findFuncDecl(file, "run")
+	if fn == nil {
+		t.Fatal("run not found")
+	}
+	if !funcBodyContainsSelector(fn, "platformdb", "Module") {
+		t.Fatal("run must include platformdb.Module so standalone mcp-orch creates and migrates a fresh database")
+	}
+	if funcBodyContainsIdent(fn, "registerPoolLifecycle") {
+		t.Fatal("run must not use the close-only pool lifecycle instead of platformdb.Module")
+	}
+}
+
+func findFuncDecl(file *ast.File, name string) *ast.FuncDecl {
+	for _, decl := range file.Decls {
+		fn, ok := decl.(*ast.FuncDecl)
+		if ok && fn.Name.Name == name {
+			return fn
+		}
+	}
+	return nil
+}
+
+func funcBodyContainsSelector(fn *ast.FuncDecl, xName, selName string) bool {
+	found := false
+	ast.Inspect(fn.Body, func(n ast.Node) bool {
+		sel, ok := n.(*ast.SelectorExpr)
+		if !ok || sel.Sel.Name != selName {
+			return true
+		}
+		x, ok := sel.X.(*ast.Ident)
+		if ok && x.Name == xName {
+			found = true
+			return false
+		}
+		return true
+	})
+	return found
+}
+
+func funcBodyContainsIdent(fn *ast.FuncDecl, name string) bool {
+	found := false
+	ast.Inspect(fn.Body, func(n ast.Node) bool {
+		ident, ok := n.(*ast.Ident)
+		if ok && ident.Name == name {
+			found = true
+			return false
+		}
+		return true
+	})
+	return found
+}
+
+func funcBodyAnnotatesRunner(fn *ast.FuncDecl, provider string) bool {
+	found := false
+	ast.Inspect(fn.Body, func(n ast.Node) bool {
+		call, ok := n.(*ast.CallExpr)
+		if !ok || !isSelector(call.Fun, "Annotate") || len(call.Args) == 0 {
+			return true
+		}
+		ident, ok := call.Args[0].(*ast.Ident)
+		if !ok || ident.Name != provider {
+			return true
+		}
+		if callHasRunnerGroupTag(call.Args[1:]) {
+			found = true
+			return false
+		}
+		return true
+	})
+	return found
+}
+
+func callHasRunnerGroupTag(args []ast.Expr) bool {
+	for _, arg := range args {
+		call, ok := arg.(*ast.CallExpr)
+		if !ok || !isSelector(call.Fun, "ResultTags") || len(call.Args) == 0 {
+			continue
+		}
+		lit, ok := call.Args[0].(*ast.BasicLit)
+		if !ok {
+			continue
+		}
+		value, err := strconv.Unquote(lit.Value)
+		if err == nil && value == `group:"runners"` {
+			return true
+		}
+	}
+	return false
+}
+
+func isSelector(expr ast.Expr, name string) bool {
+	sel, ok := expr.(*ast.SelectorExpr)
+	return ok && sel.Sel.Name == name
 }
 
 // TestFxStoresAllProvided 是干式装配断言：service 依赖的四个 Store 字段

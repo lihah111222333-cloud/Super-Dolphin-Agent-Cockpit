@@ -2,7 +2,10 @@ package dashboard
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"strings"
+	"sync"
 	"testing"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
@@ -150,12 +153,12 @@ func TestListDAGRunsUsesOrchestration(t *testing.T) {
 		},
 	}
 
-	got, err := svc.ListDAGRuns(context.Background(), " dag-1 ", 5)
+	got, err := svc.ListDAGRuns(context.Background(), " dag-1 ", " running ", 5)
 	if err != nil {
 		t.Fatalf("ListDAGRuns() error = %v", err)
 	}
 	stub := svc.orchestration.(*stubDashboardOrchestration)
-	if stub.listRunsRequest.DagKey != "dag-1" || stub.listRunsRequest.Limit != 5 {
+	if stub.listRunsRequest.DagKey != "dag-1" || stub.listRunsRequest.Status != "running" || stub.listRunsRequest.Limit != 5 {
 		t.Fatalf("ListRuns() request = %#v", stub.listRunsRequest)
 	}
 	if len(got) != 1 || got[0].RunKey != "run-1" {
@@ -172,7 +175,7 @@ func TestListDAGRunsDefaultLimitMatchesOrchestration(t *testing.T) {
 		},
 	}
 
-	if _, err := svc.ListDAGRuns(context.Background(), "dag-1", 0); err != nil {
+	if _, err := svc.ListDAGRuns(context.Background(), "dag-1", "", 0); err != nil {
 		t.Fatalf("ListDAGRuns() error = %v", err)
 	}
 	stub := svc.orchestration.(*stubDashboardOrchestration)
@@ -185,23 +188,194 @@ func TestListDAGRunsRequiresDAGKey(t *testing.T) {
 	t.Parallel()
 
 	svc := &service{orchestration: &stubDashboardOrchestration{}}
-	_, err := svc.ListDAGRuns(context.Background(), " ", 5)
+	_, err := svc.ListDAGRuns(context.Background(), " ", "", 5)
 	if err == nil {
 		t.Fatal("ListDAGRuns() error = nil, want dag key required")
 	}
 }
 
+func TestGetDAGRunUsesRuntimeNodes(t *testing.T) {
+	t.Parallel()
+
+	threadID := "thread-child"
+	svc := &service{
+		dagRuntime: &stubDashboardOrchestration{
+			getRunResult: contract.GetRunResponse{
+				Run: contract.Run{RunKey: "dag-1#run-1", DagKey: "dag-1", Status: "running"},
+				Nodes: []contract.DAGNode{{
+					NodeKey:          "node-1",
+					Status:           "running",
+					SpawningThreadID: &threadID,
+				}},
+			},
+		},
+	}
+
+	got, err := svc.GetDAGRun(context.Background(), " dag-1#run-1 ")
+	if err != nil {
+		t.Fatalf("GetDAGRun() error = %v", err)
+	}
+	stub := svc.dagRuntime.(*stubDashboardOrchestration)
+	if stub.getRunRequest.RunKey != "dag-1#run-1" {
+		t.Fatalf("GetRun() request = %#v", stub.getRunRequest)
+	}
+	if got.Run.RunKey != "dag-1#run-1" {
+		t.Fatalf("GetDAGRun().Run = %#v", got.Run)
+	}
+	if len(got.Nodes) != 1 || got.Nodes[0].SpawningThreadID == nil || *got.Nodes[0].SpawningThreadID != "thread-child" {
+		t.Fatalf("GetDAGRun().Nodes = %#v", got.Nodes)
+	}
+}
+
+func TestStartDAGUsesOrchestration(t *testing.T) {
+	t.Parallel()
+
+	svc := &service{
+		orchestration: &stubDashboardOrchestration{
+			startDAGResult: contract.StartDAGResponse{RunKey: "dag-1#run-ui", Version: 7},
+		},
+	}
+
+	got, err := svc.StartDAG(context.Background(), " dag-1 ", " manual ", " ui-click-1 ")
+	if err != nil {
+		t.Fatalf("StartDAG() error = %v", err)
+	}
+	if got.RunKey != "dag-1#run-ui" || got.Version != 7 {
+		t.Fatalf("StartDAG() = %#v", got)
+	}
+	stub := svc.orchestration.(*stubDashboardOrchestration)
+	if stub.startDAGRequest != (contract.StartDAGRequest{DagKey: "dag-1", TriggerSource: "manual", IdempotencyKey: "ui-click-1"}) {
+		t.Fatalf("StartDAG request = %#v", stub.startDAGRequest)
+	}
+}
+
+func TestStartDAGDefaultsManualTrigger(t *testing.T) {
+	t.Parallel()
+
+	svc := &service{
+		orchestration: &stubDashboardOrchestration{
+			startDAGResult: contract.StartDAGResponse{RunKey: "run-1", Version: 1},
+		},
+	}
+
+	if _, err := svc.StartDAG(context.Background(), "dag-1", "", ""); err != nil {
+		t.Fatalf("StartDAG() error = %v", err)
+	}
+	stub := svc.orchestration.(*stubDashboardOrchestration)
+	if stub.startDAGRequest.TriggerSource != "manual" {
+		t.Fatalf("trigger source = %q, want manual", stub.startDAGRequest.TriggerSource)
+	}
+}
+
+func TestTerminateDAGUsesRuntimeAndDefaultsReason(t *testing.T) {
+	t.Parallel()
+
+	svc := &service{
+		orchestration: &stubDashboardOrchestration{},
+	}
+
+	err := svc.TerminateDAG(context.Background(), " dag-1 ", " run-1 ", " ")
+	if err != nil {
+		t.Fatalf("TerminateDAG() error = %v", err)
+	}
+	stub := svc.orchestration.(*stubDashboardOrchestration)
+	if stub.terminateDAGRequest != (contract.TerminateDAGRequest{DagKey: "dag-1", RunKey: "run-1", Reason: "user_requested"}) {
+		t.Fatalf("TerminateDAG request = %#v", stub.terminateDAGRequest)
+	}
+}
+
+func TestTerminateDAGRejectsMissingRunKey(t *testing.T) {
+	t.Parallel()
+
+	svc := &service{orchestration: &stubDashboardOrchestration{}}
+
+	err := svc.TerminateDAG(context.Background(), "dag-1", " ", "")
+	if err == nil || !strings.Contains(err.Error(), "run key") {
+		t.Fatalf("TerminateDAG() error = %v, want run key required", err)
+	}
+}
+
+func TestStartDAGRejectsNonManualTrigger(t *testing.T) {
+	t.Parallel()
+
+	svc := &service{orchestration: &stubDashboardOrchestration{}}
+	_, err := svc.StartDAG(context.Background(), "dag-1", "scheduled", "")
+	if err == nil || !strings.Contains(err.Error(), "manual") {
+		t.Fatalf("StartDAG() error = %v, want manual trigger rejection", err)
+	}
+}
+
+func TestStartDAGRequiresDAGKey(t *testing.T) {
+	t.Parallel()
+
+	svc := &service{orchestration: &stubDashboardOrchestration{}}
+	_, err := svc.StartDAG(context.Background(), " ", "manual", "")
+	if err == nil {
+		t.Fatal("StartDAG() error = nil, want dag key required")
+	}
+}
+
+func TestApplyDAGOpsRejectsMissingOps(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name string
+		ops  json.RawMessage
+	}{
+		{"missing", nil},
+		{"null", json.RawMessage(`null`)},
+		{"empty_array", json.RawMessage(`[]`)},
+		{"blank", json.RawMessage(`   `)},
+	}
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			stub := &stubDashboardOrchestration{}
+			svc := &service{orchestration: stub}
+
+			_, err := svc.ApplyDAGOps(context.Background(), contract.ApplyOpsRequest{
+				DagKey:      "dag-1",
+				BaseVersion: 0,
+				Ops:         tc.ops,
+			})
+			if err == nil || !strings.Contains(err.Error(), "ops") {
+				t.Fatalf("ApplyDAGOps() error = %v, want ops required", err)
+			}
+			if len(stub.applyOpsRequest.Ops) != 0 {
+				t.Fatalf("ApplyOps should not be called, got request %#v", stub.applyOpsRequest)
+			}
+		})
+	}
+}
+
 type stubDashboardOrchestration struct {
-	snapshot        contract.AgentSnapshot
-	report          contract.AgentReportResult
-	listDAGsResult  []contract.DAGSummary
-	listDAGsErr     error
-	listDAGsFilter  contract.ListDAGsFilter
-	dagDetail       contract.DAGDetail
-	getDAGKey       string
-	listRunsResult  contract.ListRunsResponse
-	listRunsErr     error
-	listRunsRequest contract.ListRunsRequest
+	mu                  sync.Mutex
+	snapshot            contract.AgentSnapshot
+	report              contract.AgentReportResult
+	listDAGsResult      []contract.DAGSummary
+	listDAGsErr         error
+	listDAGsFilter      contract.ListDAGsFilter
+	dagDetail           contract.DAGDetail
+	getDAGKey           string
+	listRunsResult      contract.ListRunsResponse
+	listRunsByDAG       map[string]contract.ListRunsResponse
+	listRunsErr         error
+	listRunsRequest     contract.ListRunsRequest
+	listRunsRequests    []contract.ListRunsRequest
+	getRunResult        contract.GetRunResponse
+	getRunRequest       contract.GetRunRequest
+	startDAGRequest     contract.StartDAGRequest
+	startDAGResult      contract.StartDAGResponse
+	startDAGErr         error
+	terminateDAGRequest contract.TerminateDAGRequest
+	terminateDAGErr     error
+	deleteDAGRequest    contract.DeleteDAGRequest
+	deleteDAGErr        error
+	applyOpsRequest     contract.ApplyOpsRequest
+	applyOpsResult      contract.ApplyOpsResponse
+	applyOpsErr         error
+	applyOpsCalled      bool
 }
 
 // 中文：编译期断言 — stubDashboardOrchestration 必须实现
@@ -281,22 +455,48 @@ func (s *stubDashboardOrchestration) UpdateNodeStatus(context.Context, contract.
 	return contract.DAGNode{}, nil
 }
 
-func (s *stubDashboardOrchestration) StartDAG(context.Context, contract.StartDAGRequest) (contract.StartDAGResponse, error) {
-	return contract.StartDAGResponse{}, nil
+func (s *stubDashboardOrchestration) StartDAG(_ context.Context, req contract.StartDAGRequest) (contract.StartDAGResponse, error) {
+	s.startDAGRequest = req
+	if s.startDAGErr != nil {
+		return contract.StartDAGResponse{}, s.startDAGErr
+	}
+	return s.startDAGResult, nil
 }
 
-func (s *stubDashboardOrchestration) GetRun(context.Context, contract.GetRunRequest) (contract.GetRunResponse, error) {
-	return contract.GetRunResponse{}, nil
+func (s *stubDashboardOrchestration) TerminateDAG(_ context.Context, req contract.TerminateDAGRequest) error {
+	s.terminateDAGRequest = req
+	return s.terminateDAGErr
 }
 
-func (s *stubDashboardOrchestration) ApplyOps(context.Context, contract.ApplyOpsRequest) (contract.ApplyOpsResponse, error) {
-	return contract.ApplyOpsResponse{}, nil
+func (s *stubDashboardOrchestration) DeleteDAG(_ context.Context, req contract.DeleteDAGRequest) error {
+	s.deleteDAGRequest = req
+	return s.deleteDAGErr
+}
+
+func (s *stubDashboardOrchestration) GetRun(_ context.Context, req contract.GetRunRequest) (contract.GetRunResponse, error) {
+	s.getRunRequest = req
+	return s.getRunResult, nil
+}
+
+func (s *stubDashboardOrchestration) ApplyOps(_ context.Context, req contract.ApplyOpsRequest) (contract.ApplyOpsResponse, error) {
+	s.applyOpsCalled = true
+	s.applyOpsRequest = req
+	if s.applyOpsErr != nil {
+		return contract.ApplyOpsResponse{}, s.applyOpsErr
+	}
+	return s.applyOpsResult, nil
 }
 
 func (s *stubDashboardOrchestration) ListRuns(_ context.Context, req contract.ListRunsRequest) (contract.ListRunsResponse, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	s.listRunsRequest = req
+	s.listRunsRequests = append(s.listRunsRequests, req)
 	if s.listRunsErr != nil {
 		return contract.ListRunsResponse{}, s.listRunsErr
+	}
+	if s.listRunsByDAG != nil {
+		return s.listRunsByDAG[req.DagKey], nil
 	}
 	return s.listRunsResult, nil
 }

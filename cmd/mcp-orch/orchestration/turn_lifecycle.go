@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
+	"time"
 
 	agentdto "github.com/anthropic-ai/super-agent-v3/internal/dto/agent"
 	tooldto "github.com/anthropic-ai/super-agent-v3/internal/dto/tool"
@@ -29,9 +30,14 @@ func handleTurnCompletedEventWithCtx(svc *service, logger *slog.Logger, ev turnd
 	if parent.Err() != nil {
 		return
 	}
+	startedAt := time.Now()
 	ctx := withEventTime(parent, ev.Timestamp)
+	logger = userInputLogger(logger)
+	logTurnCompletedEventReceived(logger, ev)
 	err := svc.CompleteTurn(ctx, ev.AgentID, ev.TurnID, ev.Success, ev.Error)
 	if shouldIgnoreTurnLifecycleErr(svc, ev.AgentID, ev.TurnID, err) {
+		logTurnTerminalProgress(logger, "orchestration: turn completed event settled",
+			ev.AgentID, ev.ThreadID, ev.TurnID, startedAt, nil)
 		if detail := turnCompletedReportText(ev); !errors.Is(err, errAgentNotFound) && !ev.Success && detail != "" && classifyLaunchError(errors.New(detail)) == launchClassPermanent {
 			svc.stopAgentAfterPermanentTurnFailure(ev.AgentID, ev.ThreadID, "turn_completed_permanent")
 		}
@@ -41,6 +47,8 @@ func handleTurnCompletedEventWithCtx(svc *service, logger *slog.Logger, ev turnd
 		return
 	}
 	recovered, recoverErr := svc.forceIdleAfterCompletionError(ctx, ev.AgentID, ev.TurnID, ev.Success, ev.Error)
+	logTurnTerminalProgress(logger, "orchestration: turn completed event recovery attempted",
+		ev.AgentID, ev.ThreadID, ev.TurnID, startedAt, recoverErr)
 	logTurnCompletionFailure(logger, ev, err, recovered, recoverErr)
 }
 
@@ -58,9 +66,14 @@ func handleTurnInterruptedEventWithCtx(svc *service, logger *slog.Logger, ev tur
 	if parent.Err() != nil {
 		return
 	}
+	startedAt := time.Now()
 	ctx := withEventTime(parent, ev.Timestamp)
+	logger = userInputLogger(logger)
+	logTurnInterruptedEventReceived(logger, ev)
 	err := svc.interruptTurn(ctx, ev.AgentID, ev.TurnID, ev.Reason)
 	if shouldIgnoreTurnLifecycleErr(svc, ev.AgentID, ev.TurnID, err) {
+		logTurnTerminalProgress(logger, "orchestration: turn interrupted event settled",
+			ev.AgentID, ev.ThreadID, ev.TurnID, startedAt, nil)
 		if reason := strings.TrimSpace(ev.Reason); !errors.Is(err, errAgentNotFound) && reason != "" && classifyLaunchError(errors.New(reason)) == launchClassPermanent {
 			svc.stopAgentAfterPermanentTurnFailure(ev.AgentID, ev.ThreadID, "turn_interrupted_permanent")
 		}
@@ -70,6 +83,8 @@ func handleTurnInterruptedEventWithCtx(svc *service, logger *slog.Logger, ev tur
 		return
 	}
 	recovered, recoverErr := svc.forceIdleAfterInterruptionError(ctx, ev.AgentID, ev.TurnID, ev.Reason)
+	logTurnTerminalProgress(logger, "orchestration: turn interrupted event recovery attempted",
+		ev.AgentID, ev.ThreadID, ev.TurnID, startedAt, recoverErr)
 	logTurnInterruptedFailure(logger, ev, err, recovered, recoverErr)
 }
 
@@ -341,56 +356,4 @@ func turnTerminalConvergedLocked(agent *agentRuntime, turnID string) bool {
 		return false
 	}
 	return strings.TrimSpace(turnID) != "" || strings.TrimSpace(agent.threadID) != ""
-}
-
-func logTurnCompletionFailure(
-	logger *slog.Logger,
-	ev turndto.TurnCompleted,
-	completeErr error,
-	recovered bool,
-	recoverErr error,
-) {
-	if logger == nil {
-		logger = pkglogger.Get()
-	}
-	attrs := []any{
-		"agent_id", ev.AgentID,
-		"turn_id", ev.TurnID,
-		"error", completeErr,
-		"recovered", recovered,
-	}
-	if recoverErr != nil && !errors.Is(recoverErr, errTurnNotActive) && !errors.Is(recoverErr, errAgentNotFound) {
-		attrs = append(attrs, "recovery_error", recoverErr)
-	}
-	if errors.Is(completeErr, errAgentNotFound) || errors.Is(completeErr, errTurnNotActive) {
-		logger.Debug("orchestration: failed to handle turn completion", attrs...)
-		return
-	}
-	logger.Warn("orchestration: failed to handle turn completion", attrs...)
-}
-
-func logTurnInterruptedFailure(
-	logger *slog.Logger,
-	ev turndto.TurnInterrupted,
-	interruptErr error,
-	recovered bool,
-	recoverErr error,
-) {
-	if logger == nil {
-		logger = pkglogger.Get()
-	}
-	attrs := []any{
-		"agent_id", ev.AgentID,
-		"turn_id", ev.TurnID,
-		"error", interruptErr,
-		"recovered", recovered,
-	}
-	if recoverErr != nil && !errors.Is(recoverErr, errTurnNotActive) && !errors.Is(recoverErr, errAgentNotFound) {
-		attrs = append(attrs, "recovery_error", recoverErr)
-	}
-	if errors.Is(interruptErr, errAgentNotFound) || errors.Is(interruptErr, errTurnNotActive) {
-		logger.Debug("orchestration: failed to handle turn interruption", attrs...)
-		return
-	}
-	logger.Warn("orchestration: failed to handle turn interruption", attrs...)
 }

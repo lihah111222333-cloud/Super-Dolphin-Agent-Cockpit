@@ -79,6 +79,69 @@ func TestSearchTextInvalidGlobReturnsError(t *testing.T) {
 	}
 }
 
+func TestSearchTextSkipsWorkspaceNoiseDirectories(t *testing.T) {
+	root, err := NormalizeRoot(t.TempDir())
+	if err != nil {
+		t.Fatalf("NormalizeRoot() error = %v", err)
+	}
+	keep := filepath.Join(root, "src", "keep.go")
+	writeSearchTestFile(t, keep, "package main\nconst needle = true\n")
+	for _, dir := range []string{
+		".agent",
+		".agents",
+		".build-cache",
+		".cache",
+		".claude",
+		".git",
+		".workspace",
+		".worktrees",
+		"__pycache__",
+		"build",
+		"coverage",
+		"dist",
+		"node_modules",
+		"vendor",
+	} {
+		writeSearchTestFile(t, filepath.Join(root, dir, "skip.go"), "package main\nconst needle = false\n")
+	}
+
+	matches, err := SearchText(context.Background(), TextSearchOptions{
+		Root:  root,
+		Query: "needle",
+	})
+	if err != nil {
+		t.Fatalf("SearchText() error = %v", err)
+	}
+	if len(matches) != 1 {
+		t.Fatalf("SearchText() matches = %#v, want one match outside skipped dirs", matches)
+	}
+	if matches[0].AbsPath != keep {
+		t.Fatalf("SearchText() match path = %q, want %q", matches[0].AbsPath, keep)
+	}
+}
+
+func TestFilterAndCapSearchMatchesExcludesWorkspaceNoisePaths(t *testing.T) {
+	root := t.TempDir()
+	keep := filepath.Join(root, "src", "keep.go")
+	matches := []SearchMatch{
+		{AbsPath: filepath.Join(root, ".build-cache", "skip.go"), File: ".build-cache/skip.go", Line: 1, Col: 1, Text: "needle"},
+		{AbsPath: filepath.Join(root, ".workspace", "skip.go"), File: ".workspace/skip.go", Line: 1, Col: 1, Text: "needle"},
+		{AbsPath: filepath.Join(root, "node_modules", "skip.go"), File: "node_modules/skip.go", Line: 1, Col: 1, Text: "needle"},
+		{AbsPath: keep, File: "src/keep.go", Line: 1, Col: 1, Text: "needle"},
+	}
+
+	filtered, total, truncated := FilterAndCapSearchMatches(matches, 0)
+	if truncated {
+		t.Fatal("FilterAndCapSearchMatches() truncated = true, want false")
+	}
+	if total != 1 || len(filtered) != 1 {
+		t.Fatalf("FilterAndCapSearchMatches() total=%d filtered=%#v, want one kept match", total, filtered)
+	}
+	if filtered[0].AbsPath != keep {
+		t.Fatalf("FilterAndCapSearchMatches() kept path = %q, want %q", filtered[0].AbsPath, keep)
+	}
+}
+
 func TestDecodeSGMatchesRejectsInvalidJSON(t *testing.T) {
 	_, err := decodeSGMatches([]byte("{bad-json}\n"), "/repo")
 	if err == nil || !strings.Contains(err.Error(), "sg json") {
@@ -328,4 +391,14 @@ func makeUnreadableForTest(t *testing.T, path string) {
 		_ = exec.Command("icacls", path, "/remove:d", principal).Run()
 		_ = os.Chmod(path, 0o600)
 	})
+}
+
+func writeSearchTestFile(t *testing.T, path, content string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatalf("mkdir %s: %v", filepath.Dir(path), err)
+	}
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatalf("write %s: %v", path, err)
+	}
 }

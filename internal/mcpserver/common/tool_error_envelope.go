@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
+	"github.com/jackc/pgx/v5/pgconn"
 )
 
 // ToolErrorEnvelope is the machine-readable tool error payload returned from
@@ -144,6 +145,18 @@ type toolErrorClassifier struct {
 
 var toolErrorClassifiers = []toolErrorClassifier{
 	{
+		code: "database_schema_missing",
+		hint: staticToolHint("The database schema is missing or behind; start the service with migration lifecycle enabled or apply migrations before retrying."),
+		match: func(err error, message string, _ string) bool {
+			var pgErr *pgconn.PgError
+			if errors.As(err, &pgErr) {
+				return pgErr.Code == "42P01" || pgErr.Code == "42703"
+			}
+			return strings.Contains(message, "relation ") && strings.Contains(message, "does not exist") ||
+				strings.Contains(message, "column ") && strings.Contains(message, "does not exist")
+		},
+	},
+	{
 		code: "internal_panic",
 		hint: staticToolHint("The tool handler panicked; inspect logs and retry only after the bug is fixed."),
 		match: func(_ error, message string, _ string) bool {
@@ -211,13 +224,6 @@ var toolErrorClassifiers = []toolErrorClassifier{
 		},
 	},
 	{
-		code: "task_handoff_invalid",
-		hint: staticToolHint("Use task handoff only with a parent thread that has task metadata, or launch a plain child without task handoff metadata."),
-		match: func(_ error, message string, toolName string) bool {
-			return isLaunchAgentTool(toolName) && isTaskHandoffInvalidMessage(message)
-		},
-	},
-	{
 		code: "launch_request_invalid",
 		hint: staticToolHint("Fix the launch_agent arguments and retry; required fields must be non-empty and enum values must be supported."),
 		match: func(_ error, message string, toolName string) bool {
@@ -225,7 +231,7 @@ var toolErrorClassifiers = []toolErrorClassifier{
 		},
 	},
 	{
-		code: "db_schema_missing",
+		code: "database_schema_missing",
 		hint: staticToolHint("Run database migrations or verify the embedded database schema before retrying."),
 		match: func(_ error, message string, _ string) bool {
 			return (strings.Contains(message, "relation ") && strings.Contains(message, " does not exist")) ||
@@ -234,14 +240,14 @@ var toolErrorClassifiers = []toolErrorClassifier{
 		},
 	},
 	{
-		code: "task_invalid_input",
+		code: "invalid_input",
 		hint: staticToolHint("Fix the task DAG request, node status, or transition inputs before retrying."),
 		match: func(_ error, message string, toolName string) bool {
 			return isTaskTool(toolName) && (strings.Contains(message, "apply_ops invalid request") ||
 				strings.Contains(message, "invalid task") ||
 				strings.Contains(message, "invalid request") ||
 				strings.Contains(message, "validate transition") ||
-				strings.HasPrefix(message, "transition:"))
+				(isTaskUpdateNodeTool(toolName) && strings.HasPrefix(strings.TrimSpace(message), "transition:")))
 		},
 	},
 	{
@@ -267,7 +273,8 @@ var toolErrorClassifiers = []toolErrorClassifier{
 		match: func(err error, message string, _ string) bool {
 			return errors.Is(err, os.ErrNotExist) ||
 				strings.Contains(message, "not found") ||
-				strings.Contains(message, "no such file")
+				strings.Contains(message, "no such file") ||
+				strings.Contains(message, "no rows in result set")
 		},
 	},
 	{
@@ -334,16 +341,6 @@ var toolErrorClassifiers = []toolErrorClassifier{
 	},
 }
 
-func isTaskHandoffInvalidMessage(message string) bool {
-	if strings.Contains(message, "root task id missing") ||
-		strings.Contains(message, "task handoff title is required") ||
-		strings.Contains(message, "task handoff file is required") {
-		return true
-	}
-	return strings.Contains(message, "task handoff config") &&
-		(strings.Contains(message, "must be a string") || strings.Contains(message, "must be a bool"))
-}
-
 func isLaunchRequestInvalidMessage(message string) bool {
 	return strings.Contains(message, " is required") ||
 		strings.Contains(message, "invalid memory_scope") ||
@@ -366,6 +363,10 @@ func isLaunchAgentTool(toolName string) bool {
 	default:
 		return false
 	}
+}
+
+func isTaskUpdateNodeTool(toolName string) bool {
+	return strings.ToLower(strings.TrimSpace(toolName)) == "task_update_node"
 }
 
 func firstNonEmptyString(values ...string) string {

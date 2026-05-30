@@ -87,6 +87,11 @@ func TestDashboardExtraHandlersRegistered(t *testing.T) {
 		"dashboard/dags",
 		"dashboard/dagDetail",
 		"dashboard/dagRuns",
+		"dashboard/dagRun",
+		"dashboard/dagStart",
+		"dashboard/dagTerminate",
+		"dashboard/dagDelete",
+		"dashboard/dagApplyOps",
 	} {
 		if _, ok := handlers[method]; !ok {
 			t.Fatalf("%s handler missing from %#v", method, handlers)
@@ -236,12 +241,30 @@ func TestDashboardDAGHandlersReturnData(t *testing.T) {
 		listRunsResult: contract.ListRunsResponse{
 			Runs: []contract.Run{{RunKey: "run-1", DagKey: "dag-1", Status: "succeeded"}},
 		},
+		getRunResult: contract.GetRunResponse{
+			Run:   contract.Run{RunKey: "run-1", DagKey: "dag-1", Status: "succeeded"},
+			Nodes: []contract.DAGNode{{NodeKey: "node-1", Title: "Runtime Node", Status: "done"}},
+		},
+		startDAGResult: contract.StartDAGResponse{
+			RunID:            88,
+			RunKey:           "dag-1#run-ui",
+			Version:          9,
+			ReadyRootNodes:   1,
+			ScheduledWakeups: 0,
+			ExecutionState:   "waiting_for_assignee",
+			Warning:          "dispatch required",
+		},
 	}
 	server := newDashboardTestServer(t, &service{orchestration: orchestration})
 
 	assertDashboardDAGList(t, server, orchestration)
 	assertDashboardDAGDetail(t, server, orchestration)
 	assertDashboardDAGRuns(t, server, orchestration)
+	assertDashboardDAGRun(t, server, orchestration)
+	assertDashboardDAGStart(t, server, orchestration)
+	assertDashboardDAGTerminate(t, server, orchestration)
+	assertDashboardDAGDelete(t, server, orchestration)
+	assertDashboardDAGApplyOps(t, server, orchestration)
 }
 
 func assertDashboardDAGList(t *testing.T, server *platformrpc.Server, orchestration *stubDashboardOrchestration) {
@@ -300,13 +323,13 @@ func assertDashboardDAGRuns(t *testing.T, server *platformrpc.Server, orchestrat
 	var runsResp struct {
 		Runs []contract.Run `json:"runs"`
 	}
-	if err := dispatchDashboardInto(server, "dashboard/dagRuns", `{"dagKey":"dag-1","limit":5}`, &runsResp); err != nil {
+	if err := dispatchDashboardInto(server, "dashboard/dagRuns", `{"dagKey":"dag-1","status":"running","limit":5}`, &runsResp); err != nil {
 		t.Fatalf("dispatch dag runs error = %v", err)
 	}
 	if orchestration.listRunsRequest.DagKey != "dag-1" {
 		t.Fatalf("ListRuns() dag key request = %#v", orchestration.listRunsRequest)
 	}
-	if orchestration.listRunsRequest.Limit != 5 {
+	if orchestration.listRunsRequest.Status != "running" || orchestration.listRunsRequest.Limit != 5 {
 		t.Fatalf("ListRuns() request = %#v", orchestration.listRunsRequest)
 	}
 	if len(runsResp.Runs) != 1 {
@@ -317,17 +340,165 @@ func assertDashboardDAGRuns(t *testing.T, server *platformrpc.Server, orchestrat
 	}
 }
 
+func assertDashboardDAGRun(t *testing.T, server *platformrpc.Server, orchestration *stubDashboardOrchestration) {
+	t.Helper()
+
+	var runResp contract.GetRunResponse
+	if err := dispatchDashboardInto(server, "dashboard/dagRun", `{"runKey":"run-1"}`, &runResp); err != nil {
+		t.Fatalf("dispatch dag run error = %v", err)
+	}
+	if orchestration.getRunRequest.RunKey != "run-1" {
+		t.Fatalf("GetRun() request = %#v", orchestration.getRunRequest)
+	}
+	if runResp.Run.RunKey != "run-1" {
+		t.Fatalf("dag run response = %#v", runResp)
+	}
+	if len(runResp.Nodes) != 1 || runResp.Nodes[0].Status != "done" {
+		t.Fatalf("dag run response nodes = %#v", runResp.Nodes)
+	}
+}
+
+func assertDashboardDAGStart(t *testing.T, server *platformrpc.Server, orchestration *stubDashboardOrchestration) {
+	t.Helper()
+
+	var startResp struct {
+		RunID            int64  `json:"runId"`
+		RunKey           string `json:"runKey"`
+		Version          int64  `json:"version"`
+		ReadyRootNodes   int64  `json:"readyRootNodes"`
+		ScheduledWakeups int64  `json:"scheduledWakeups"`
+		ExecutionState   string `json:"executionState"`
+		Warning          string `json:"warning"`
+	}
+	if err := dispatchDashboardInto(server, "dashboard/dagStart", `{"dagKey":"dag-1","triggerSource":"manual","idempotencyKey":"ui-123"}`, &startResp); err != nil {
+		t.Fatalf("dispatch dag start error = %v", err)
+	}
+	if startResp.RunKey != "dag-1#run-ui" || startResp.Version != 9 {
+		t.Fatalf("dag start response = %#v", startResp)
+	}
+	if startResp.RunID != 88 {
+		t.Fatalf("dag start runId = %d, want 88", startResp.RunID)
+	}
+	if startResp.ReadyRootNodes != 1 {
+		t.Fatalf("dag start readyRootNodes = %d, want 1", startResp.ReadyRootNodes)
+	}
+	if startResp.ScheduledWakeups != 0 {
+		t.Fatalf("dag start scheduledWakeups = %d, want 0", startResp.ScheduledWakeups)
+	}
+	if startResp.ExecutionState != "waiting_for_assignee" {
+		t.Fatalf("dag start executionState = %q, want waiting_for_assignee", startResp.ExecutionState)
+	}
+	if startResp.Warning != "dispatch required" {
+		t.Fatalf("dag start warning = %q, want dispatch required", startResp.Warning)
+	}
+	if orchestration.startDAGRequest != (contract.StartDAGRequest{DagKey: "dag-1", TriggerSource: "manual", IdempotencyKey: "ui-123"}) {
+		t.Fatalf("StartDAG() request = %#v", orchestration.startDAGRequest)
+	}
+}
+
+func assertDashboardDAGTerminate(t *testing.T, server *platformrpc.Server, orchestration *stubDashboardOrchestration) {
+	t.Helper()
+
+	if err := dispatchDashboardInto(server, "dashboard/dagTerminate", `{"dagKey":"dag-1","runKey":"run-1","reason":"user_requested"}`, &struct{}{}); err != nil {
+		t.Fatalf("dispatch dag terminate error = %v", err)
+	}
+	if orchestration.terminateDAGRequest != (contract.TerminateDAGRequest{DagKey: "dag-1", RunKey: "run-1", Reason: "user_requested"}) {
+		t.Fatalf("TerminateDAG() request = %#v", orchestration.terminateDAGRequest)
+	}
+}
+
+func assertDashboardDAGDelete(t *testing.T, server *platformrpc.Server, orchestration *stubDashboardOrchestration) {
+	t.Helper()
+
+	if err := dispatchDashboardInto(server, "dashboard/dagDelete", `{"dagKey":"dag-1"}`, &struct{}{}); err != nil {
+		t.Fatalf("dispatch dag delete error = %v", err)
+	}
+	if orchestration.deleteDAGRequest != (contract.DeleteDAGRequest{DagKey: "dag-1"}) {
+		t.Fatalf("DeleteDAG() request = %#v", orchestration.deleteDAGRequest)
+	}
+}
+
+func assertDashboardDAGApplyOps(t *testing.T, server *platformrpc.Server, orchestration *stubDashboardOrchestration) {
+	t.Helper()
+
+	orchestration.applyOpsResult = contract.ApplyOpsResponse{NewVersion: 12}
+	var resp struct {
+		NewVersion int64 `json:"newVersion"`
+	}
+	if err := dispatchDashboardInto(server, "dashboard/dagApplyOps", `{"dagKey":"dag-1","baseVersion":11,"ops":[{"op":"update_node","node_key":"draft","patch":{"title":"Draft v2"}}]}`, &resp); err != nil {
+		t.Fatalf("dispatch dag apply ops error = %v", err)
+	}
+	assertDashboardDAGApplyOpsResponse(t, resp.NewVersion)
+	assertDashboardDAGApplyOpsRequest(t, orchestration.applyOpsRequest)
+}
+
+func assertDashboardDAGApplyOpsResponse(t *testing.T, newVersion int64) {
+	t.Helper()
+
+	if newVersion != 12 {
+		t.Fatalf("dag apply ops newVersion = %d, want 12", newVersion)
+	}
+}
+
+func assertDashboardDAGApplyOpsRequest(t *testing.T, req contract.ApplyOpsRequest) {
+	t.Helper()
+
+	if req.DagKey != "dag-1" {
+		t.Fatalf("ApplyOps() request = %#v", req)
+	}
+	if req.BaseVersion != 11 {
+		t.Fatalf("ApplyOps() request = %#v", req)
+	}
+	if string(req.Ops) != `[{"op":"update_node","node_key":"draft","patch":{"title":"Draft v2"}}]` {
+		t.Fatalf("ApplyOps() ops = %s", req.Ops)
+	}
+}
+
+func TestDashboardDAGApplyOpsRequiresBaseVersion(t *testing.T) {
+	t.Parallel()
+
+	orchestration := &stubDashboardOrchestration{
+		applyOpsResult: contract.ApplyOpsResponse{NewVersion: 1},
+	}
+	server := newDashboardTestServer(t, &service{orchestration: orchestration})
+
+	if err := dispatchDashboardInto(server, "dashboard/dagApplyOps", `{"dagKey":"dag-1","ops":[{"op":"update_node","node_key":"draft","patch":{"title":"Draft"}}]}`, &struct{}{}); err == nil || !strings.Contains(err.Error(), "baseVersion") {
+		t.Fatalf("dispatch missing baseVersion error = %v, want baseVersion required", err)
+	}
+	if orchestration.applyOpsCalled {
+		t.Fatalf("ApplyOps called for request missing baseVersion")
+	}
+
+	var resp struct {
+		NewVersion int64 `json:"newVersion"`
+	}
+	if err := dispatchDashboardInto(server, "dashboard/dagApplyOps", `{"dagKey":"dag-1","baseVersion":0,"ops":[{"op":"update_node","node_key":"draft","patch":{"title":"Draft"}}]}`, &resp); err != nil {
+		t.Fatalf("dispatch explicit zero baseVersion error = %v", err)
+	}
+	if orchestration.applyOpsRequest.BaseVersion != 0 {
+		t.Fatalf("ApplyOps() baseVersion = %d, want 0", orchestration.applyOpsRequest.BaseVersion)
+	}
+}
+
 func TestDashboardDAGHandlersReturnServiceNotAvailableWithoutOrchestration(t *testing.T) {
 	t.Parallel()
 
 	server := newDashboardTestServer(t, &service{})
 
-	if err := dispatchDashboardInto(server, "dashboard/dags", `{"keyword":"build"}`, &struct{}{}); err == nil || !strings.Contains(err.Error(), "service not available") {
-		t.Fatalf("dispatch dags error = %v, want service not available", err)
-	}
+	assertDashboardMethodServiceUnavailable(t, server, "dashboard/dags", `{"keyword":"build"}`)
+	assertDashboardMethodServiceUnavailable(t, server, "dashboard/dagDetail", `{"dagKey":"dag-1"}`)
+	assertDashboardMethodServiceUnavailable(t, server, "dashboard/dagRun", `{"runKey":"run-1"}`)
+	assertDashboardMethodServiceUnavailable(t, server, "dashboard/dagStart", `{"dagKey":"dag-1"}`)
+	assertDashboardMethodServiceUnavailable(t, server, "dashboard/dagTerminate", `{"dagKey":"dag-1","runKey":"run-1"}`)
+	assertDashboardMethodServiceUnavailable(t, server, "dashboard/dagDelete", `{"dagKey":"dag-1"}`)
+	assertDashboardMethodServiceUnavailable(t, server, "dashboard/dagApplyOps", `{"dagKey":"dag-1","baseVersion":1,"ops":[]}`)
+}
 
-	if err := dispatchDashboardInto(server, "dashboard/dagDetail", `{"dagKey":"dag-1"}`, &struct{}{}); err == nil || !strings.Contains(err.Error(), "service not available") {
-		t.Fatalf("dispatch dag detail error = %v, want service not available", err)
+func assertDashboardMethodServiceUnavailable(t *testing.T, server *platformrpc.Server, method, payload string) {
+	t.Helper()
+
+	if err := dispatchDashboardInto(server, method, payload, &struct{}{}); err == nil || !strings.Contains(err.Error(), "service not available") {
+		t.Fatalf("dispatch %s error = %v, want service not available", method, err)
 	}
 }
 

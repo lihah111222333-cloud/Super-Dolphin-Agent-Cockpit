@@ -170,20 +170,6 @@
     "todo_count": 1,
     "max_struct_fields": 5
   },
-  "cmd/mcp-orch/orchestration/report_protocol.go": {
-    "lines": 54,
-    "max_func_len": 7,
-    "max_nesting": 1,
-    "max_complexity": 2,
-    "max_params": 1,
-    "max_returns": 1,
-    "max_underscore": 0,
-    "global_vars": 2,
-    "panic_count": 0,
-    "naked_returns": 0,
-    "empty_funcs": 0,
-    "todo_count": 0
-  },
   "cmd/mcp-orch/orchestration/runtime.go": {
     "lines": 184,
     "max_func_len": 37,
@@ -272,20 +258,6 @@
     "empty_funcs": 2,
     "todo_count": 0,
     "max_struct_fields": 7
-  },
-  "cmd/mcp-orch/store/sqlc/db_ext.go": {
-    "lines": 56,
-    "max_func_len": 17,
-    "max_nesting": 1,
-    "max_complexity": 8,
-    "max_params": 3,
-    "max_returns": 1,
-    "max_underscore": 0,
-    "global_vars": 0,
-    "panic_count": 1,
-    "naked_returns": 0,
-    "empty_funcs": 0,
-    "todo_count": 0
   },
   "cmd/mcp-orch/tools/orchestration_tools.go": {
     "lines": 429,

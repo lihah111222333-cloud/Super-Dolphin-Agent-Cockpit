@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -176,6 +177,62 @@ func TestGetRun_IncludesRuntimeNodesForRun(t *testing.T) {
 	}
 	if got := resp.Nodes[0]; got.NodeKey != "n1" || got.Status != "ready" {
 		t.Fatalf("resp.Nodes[0] = %+v, want n1 ready", got)
+	}
+}
+
+func TestGetDAG_IncludesCurrentVersionForApplyOps(t *testing.T) {
+	stub := &stubDAGOpsStore{
+		currentVersion: 7,
+		nodes: []taskdag.Node{{
+			DagKey:    "dag-1",
+			NodeKey:   "draft",
+			Title:     "Draft",
+			NodeType:  "agent",
+			Status:    "pending",
+			DependsOn: testRawConfig(t, `[]`),
+			Config:    testRawConfig(t, `{"exec":{"agent_key":"writer"}}`),
+		}},
+	}
+	stub.dagStatus = "ready"
+	svc := &service{dagStore: stub}
+
+	resp, err := svc.GetDAG(context.Background(), "dag-1")
+	if err != nil {
+		t.Fatalf("GetDAG() error = %v", err)
+	}
+	if resp.DAG.Version != 7 {
+		t.Fatalf("GetDAG().DAG.Version = %d, want 7", resp.DAG.Version)
+	}
+	if stub.getVersionReadCalls != 2 {
+		t.Fatalf("GetDAGVersion calls = %d, want 2", stub.getVersionReadCalls)
+	}
+}
+
+func TestGetDAG_RejectsVersionChangedDuringDetailLoad(t *testing.T) {
+	stub := &stubDAGOpsStore{
+		versionReads: []int64{7, 8},
+		nodes: []taskdag.Node{{
+			DagKey:    "dag-1",
+			NodeKey:   "draft",
+			Title:     "Draft",
+			NodeType:  "agent",
+			Status:    "pending",
+			DependsOn: testRawConfig(t, `[]`),
+			Config:    testRawConfig(t, `{"exec":{"agent_key":"writer"}}`),
+		}},
+	}
+	stub.dagStatus = "ready"
+	svc := &service{dagStore: stub}
+
+	_, err := svc.GetDAG(context.Background(), "dag-1")
+	if err == nil {
+		t.Fatalf("GetDAG() error = nil, want version change error")
+	}
+	if !strings.Contains(err.Error(), "dag detail version changed") {
+		t.Fatalf("GetDAG() error = %v, want detail version changed", err)
+	}
+	if stub.getVersionReadCalls != 2 {
+		t.Fatalf("GetDAGVersion calls = %d, want 2", stub.getVersionReadCalls)
 	}
 }
 

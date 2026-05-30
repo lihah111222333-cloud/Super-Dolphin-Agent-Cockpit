@@ -64,6 +64,10 @@ func peerProcessEnv(name string, parent []string, configuredRoots []string) ([]s
 	if err != nil {
 		return nil, err
 	}
+	env, err = injectPeerBootstrapIdentity(env, name)
+	if err != nil {
+		return nil, err
+	}
 	if strings.TrimSpace(name) != "mcp-lsp" {
 		return env, nil
 	}
@@ -83,6 +87,66 @@ func peerProcessEnv(name string, parent []string, configuredRoots []string) ([]s
 	}
 	env = append(env, "GO_AGENT_LSP_ROOT="+roots[0], "GO_AGENT_LSP_ROOTS="+string(raw))
 	return env, nil
+}
+
+func injectPeerBootstrapIdentity(env []string, name string) ([]string, error) {
+	name = strings.TrimSpace(name)
+	clientKind, err := managedPeerClientKind(name)
+	if err != nil {
+		return nil, err
+	}
+	env = removeEnvKeys(env,
+		"GO_AGENT_CTL_INSTANCE_ID", "GO_AGENT_MCP_INSTANCE_ID",
+		"GO_AGENT_CTL_BOOT_ID", "GO_AGENT_MCP_BOOT_ID",
+		peerBinaryNameEnv, "GO_AGENT_MCP_BINARY_NAME",
+		peerClientKindEnv, "GO_AGENT_MCP_CLIENT_KIND",
+		"GO_AGENT_CTL_AGENT_ID", "GO_AGENT_MCP_AGENT_ID",
+		"GO_AGENT_CTL_THREAD_ID", "GO_AGENT_MCP_THREAD_ID",
+		peerBootstrapJSONEnv, "GO_AGENT_MCP_BOOT_CONTEXT",
+	)
+	boot, err := json.Marshal(map[string]string{
+		"binary_name": name,
+		"client_kind": clientKind,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return append(env,
+		peerBinaryNameEnv+"="+name,
+		peerClientKindEnv+"="+clientKind,
+		peerBootstrapJSONEnv+"="+string(boot),
+	), nil
+}
+
+func managedPeerClientKind(name string) (string, error) {
+	switch strings.TrimSpace(name) {
+	case "mcp-orch":
+		return "orch", nil
+	case "mcp-lsp":
+		return "lsp", nil
+	default:
+		return "", errors.New("peer process client kind is not configured for " + name)
+	}
+}
+
+func removeEnvKeys(env []string, keys ...string) []string {
+	drop := make(map[string]struct{}, len(keys))
+	for _, key := range keys {
+		drop[strings.ToUpper(key)] = struct{}{}
+	}
+	out := env[:0]
+	for _, item := range env {
+		key, _, ok := strings.Cut(item, "=")
+		if !ok {
+			out = append(out, item)
+			continue
+		}
+		if _, ok := drop[strings.ToUpper(key)]; ok {
+			continue
+		}
+		out = append(out, item)
+	}
+	return out
 }
 
 func ensurePeerSessionToken(env []string) ([]string, error) {

@@ -32,6 +32,26 @@ test('sidebar pages load dashboard data and tasks tabs switch correctly', async 
         { path: '/workspace/project-alpha/memory.md', updated_by: 'bob', updated_at: '2026-03-06 10:09:00' },
       ],
     },
+    dagDetails: {
+      'build-release': {
+        dag: {
+          dag_key: 'build-release',
+          title: 'Build Release',
+          status: 'idle',
+        },
+        nodes: [
+          {
+            node_key: 'build',
+            title: 'Build',
+            status: 'done',
+            node_type: 'agent',
+          },
+        ],
+      },
+    },
+    dagRuns: {
+      'build-release': [],
+    },
     memoryCenter: {
       overview: {
         enabled: true,
@@ -67,12 +87,14 @@ test('sidebar pages load dashboard data and tasks tabs switch correctly', async 
     },
   });
 
+  page.on('console', msg => console.log('BROWSER LOG:', msg.text()));
+  page.on('pageerror', err => console.error('BROWSER ERROR:', err.stack || err.message));
   await page.goto('/');
   await expect(page.getByTestId('app-shell')).toBeVisible();
 
   await page.getByTestId('nav-dags').click();
-  await expect(page.getByTestId('data-page-dags')).toBeVisible();
-  await expect(page.getByTestId('data-page-list-dags')).toContainText('build-release');
+  await expect(page.getByTestId('dag-console')).toBeVisible();
+  await expect(page.getByTestId('dag-console-list')).toContainText('build-release');
 
   await page.getByTestId('nav-tasks').click();
   await expect(page.getByTestId('tasks-page')).toBeVisible();
@@ -85,7 +107,7 @@ test('sidebar pages load dashboard data and tasks tabs switch correctly', async 
 
   await page.getByTestId('nav-memory-center').click();
   await expect(page.getByTestId('memory-center-page')).toBeVisible();
-  await expect(page.getByTestId('memory-center-preference-list')).toContainText('Keep responses short');
+  await expect(page.getByTestId('memory-center-body')).toContainText('Keep responses short');
 
   await page.getByTestId('nav-memory').click();
   await expect(page.getByTestId('shared-files-page')).toBeVisible();

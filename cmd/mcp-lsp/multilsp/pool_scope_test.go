@@ -438,6 +438,9 @@ func assertAgentReleaseResult(t *testing.T, result ReleaseScopeResult) {
 	if result.MatchedManagers != 2 || result.ClosedManagers != 2 || result.BusyLeases != 0 || !result.Drained {
 		t.Fatalf("ReleaseScope result = %#v, want matched=2 closed=2 busy=0 drained=true", result)
 	}
+	if got := result.ManagerKeys; len(got) != 2 {
+		t.Fatalf("ReleaseScope manager keys = %#v, want 2 entries", got)
+	}
 }
 
 func assertManagerClosed(t *testing.T, mgr *manager, message string) {

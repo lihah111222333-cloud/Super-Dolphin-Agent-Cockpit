@@ -12,6 +12,47 @@ import (
 	platformshared "github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 )
 
+var terminalReportEventTypesList = []string{
+	"agent/event/task_complete",
+	"completed",
+	"completion",
+	"connection.dead",
+	"connection_dead",
+	"error",
+	"idle",
+	"shutdown.complete",
+	"shutdown_complete",
+	"stream.error",
+	"stream_error",
+	"turn.completed",
+	"turn/completed",
+	"turn.aborted",
+	"turn_aborted",
+	"turn_complete",
+}
+
+var terminalThreadStatusesList = []string{
+	"error",
+	"idle",
+	"not_loaded",
+	"notloaded",
+	"system_error",
+	"systemerror",
+}
+
+var reportTextPayloadKeys = []string{"report", "summary", "uiText", "text", "message", "output", "result"}
+var reportTextNestedKeys = []string{"item", "payload"}
+var terminalReportEventTypes = buildStringSet(terminalReportEventTypesList)
+var terminalThreadStatuses = buildStringSet(terminalThreadStatusesList)
+
+func buildStringSet(values []string) map[string]struct{} {
+	out := make(map[string]struct{}, len(values))
+	for _, v := range values {
+		out[v] = struct{}{}
+	}
+	return out
+}
+
 func (s *service) GetState(ctx context.Context, agentID string) (AgentStateResult, error) {
 	var result AgentStateResult
 	err := s.withAgentReadLockedByAgentID(ctx, agentID, func(agent *agentRuntime) error {
@@ -52,11 +93,7 @@ func (s *service) persistedAgentReport(ctx context.Context, agentID string) (Age
 		}
 		return AgentReportResult{}, err
 	}
-	return AgentReportResult{
-		AgentID: snapshot.AgentID,
-		Report:  normalizeDisplayReportText(report),
-		State:   snapshot.State,
-	}, nil
+	return AgentReportResult{AgentID: snapshot.AgentID, Report: normalizeDisplayReportText(report), State: snapshot.State}, nil
 }
 
 func (s *service) RememberReportRequest(ctx context.Context, req RememberReportRequest) (RememberReportRequestResult, error) {
@@ -71,7 +108,6 @@ func (s *service) RememberReportRequest(ctx context.Context, req RememberReportR
 	if strings.EqualFold(agentID, requesterID) {
 		return RememberReportRequestResult{}, errors.New("agent id and requester id must differ")
 	}
-
 	result := RememberReportRequestResult{}
 	err := s.withAgentLocked(agentID, func(agent *agentRuntime) error {
 		rememberReportRequesterLocked(ctx, agent, requesterID)
@@ -94,7 +130,6 @@ func (s *service) HandleReportEvent(ctx context.Context, event ReportEvent) (Rep
 	if report == "" {
 		report = extractReportFromEventData(event.EventData)
 	}
-
 	result := ReportEventResult{}
 	err := s.withAgentLocked(agentID, func(agent *agentRuntime) error {
 		var applyErr error
@@ -111,7 +146,10 @@ func (s *service) reportEventFallbackResult(ctx context.Context, agentID, eventT
 	if !errors.Is(runtimeErr, errAgentNotFound) {
 		return ReportEventResult{}, false
 	}
-	if !s.persistReportWithoutRuntime(ctx, agentID, report) {
+	if strings.TrimSpace(report) == "" && !isRuntimeLossStopEventType(eventType) {
+		return ReportEventResult{}, false
+	}
+	if !s.applyReportEventWithoutRuntime(ctx, agentID, eventType, report) {
 		return ReportEventResult{}, false
 	}
 	return ReportEventResult{
@@ -122,17 +160,28 @@ func (s *service) reportEventFallbackResult(ctx context.Context, agentID, eventT
 	}, true
 }
 
-func (s *service) persistReportWithoutRuntime(ctx context.Context, agentID, report string) bool {
-	if strings.TrimSpace(report) == "" {
-		return false
-	}
+func (s *service) applyReportEventWithoutRuntime(ctx context.Context, agentID, eventType, report string) bool {
 	snapshot, err := s.persistedAgentSnapshot(ctx, agentID)
-	if err != nil || strings.TrimSpace(snapshot.Cwd) == "" {
+	if err != nil {
 		return false
 	}
-	record := agentReportFileRecordFromSnapshot(snapshot)
-	record.Report = report
-	return persistAgentReportFile(record) == nil
+	wroteReport := strings.TrimSpace(report) != ""
+	if wroteReport {
+		if strings.TrimSpace(snapshot.Cwd) == "" {
+			return false
+		}
+		record := agentReportFileRecordFromSnapshot(snapshot)
+		record.Report = report
+		if persistAgentReportFile(record) != nil {
+			return false
+		}
+	}
+	if s.agentThreads == nil || !isRuntimeLossStopEventType(eventType) {
+		return wroteReport
+	}
+	threadID := strings.TrimSpace(platformshared.FirstNonEmpty(snapshot.ThreadID, agentID))
+	err = s.agentThreads.UpdateStatus(ctx, PersistedThreadStatusUpdate{ThreadID: threadID, Status: "stopped", UpdatedAt: resolveEventTime(ctx).Unix()})
+	return err == nil
 }
 
 func setReportLocked(ctx context.Context, agent *agentRuntime, report string) {
@@ -145,10 +194,7 @@ func normalizeDisplayReportText(raw string) string {
 	if text == "" {
 		return ""
 	}
-	lines := strings.Split(text, "\n")
-	trimmed := make([]string, 0, len(lines))
-	nonEmpty := make([]string, 0, len(lines))
-	prevBlank := false
+	lines, trimmed, nonEmpty, prevBlank := strings.Split(text, "\n"), make([]string, 0), make([]string, 0), false
 	for _, line := range lines {
 		line = strings.TrimSpace(line)
 		if line == "" {
@@ -192,9 +238,7 @@ func isSimpleDisplayReportToken(line string) bool {
 	for _, r := range runes {
 		switch {
 		case unicode.IsLetter(r), unicode.IsDigit(r):
-			continue
 		case strings.ContainsRune("._-+/=", r):
-			continue
 		default:
 			return false
 		}
@@ -208,12 +252,7 @@ func agentReportLocked(agent *agentRuntime) AgentReportResult {
 	if len(requesters) > 0 {
 		metadata = &AgentReportMetadata{RequesterIDs: requesters}
 	}
-	return AgentReportResult{
-		AgentID:  agent.id,
-		Report:   normalizeDisplayReportText(agent.lastReport),
-		State:    string(agent.state),
-		Metadata: metadata,
-	}
+	return AgentReportResult{AgentID: agent.id, Report: normalizeDisplayReportText(agent.lastReport), State: string(agent.state), Metadata: metadata}
 }
 
 func rememberReportRequesterLocked(ctx context.Context, agent *agentRuntime, requesterID string) {
@@ -274,11 +313,10 @@ func reportTextFromPayload(payload map[string]any) string {
 	}
 	for _, key := range reportTextNestedKeys {
 		nested, ok := payload[key].(map[string]any)
-		if !ok {
-			continue
-		}
-		if report := reportTextFromPayload(nested); report != "" {
-			return report
+		if ok {
+			if report := reportTextFromPayload(nested); report != "" {
+				return report
+			}
 		}
 	}
 	return ""
@@ -291,6 +329,15 @@ func isTerminalReportEvent(eventType string, raw json.RawMessage) bool {
 	}
 	_, ok := terminalReportEventTypes[eventType]
 	return ok
+}
+
+func isRuntimeLossStopEventType(eventType string) bool {
+	switch strings.ToLower(strings.TrimSpace(eventType)) {
+	case "connection.dead", "connection_dead", "error", "shutdown.complete", "shutdown_complete", "stream.error", "stream_error", "turn.aborted", "turn/aborted", "turn_aborted":
+		return true
+	default:
+		return false
+	}
 }
 
 func isTerminalThreadStatus(raw json.RawMessage) bool {

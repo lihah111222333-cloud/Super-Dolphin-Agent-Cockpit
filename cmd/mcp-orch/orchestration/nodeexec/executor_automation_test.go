@@ -52,6 +52,15 @@ func makeAutomationNode(t *testing.T, cfg AutomationNodeConfig) Node {
 	}
 }
 
+func executeAutomationNode(t *testing.T, exec NodeExecutor, node Node, runCtx RunContext) NodeOutcome {
+	t.Helper()
+	out, err := exec.Execute(context.Background(), node, runCtx)
+	if err != nil {
+		t.Fatalf("Execute() framework error = %v", err)
+	}
+	return out
+}
+
 func TestAutomationExecutor_Happy(t *testing.T) {
 	t.Parallel()
 	getter := &stubAutomationGetter{card: AutomationCommandCard{
@@ -66,10 +75,7 @@ func TestAutomationExecutor_Happy(t *testing.T) {
 		Args:       json.RawMessage(`{"name":"dolphin"}`),
 	}})
 
-	out, err := exec.Execute(context.Background(), node, RunContext{DagKey: "dag-x", NodeKey: "node-auto", RunID: 7})
-	if err != nil {
-		t.Fatalf("Execute() framework error = %v, want nil", err)
-	}
+	out := executeAutomationNode(t, exec, node, RunContext{DagKey: "dag-x", NodeKey: "node-auto", RunID: 7})
 	if out.Status != NodeStatusDone {
 		t.Fatalf("Status = %q, want %q", out.Status, NodeStatusDone)
 	}
@@ -95,10 +101,7 @@ func TestAutomationExecutor_UnsupportedKind(t *testing.T) {
 	exec := NewAutomationExecutor(getter, runner)
 	node := Node{NodeType: "automation", Config: json.RawMessage(`{"exec":{"kind":"webhook","command_ref":"x"}}`)}
 
-	out, err := exec.Execute(context.Background(), node, RunContext{})
-	if err != nil {
-		t.Fatalf("Execute() framework error = %v, want nil", err)
-	}
+	out := executeAutomationNode(t, exec, node, RunContext{})
 	if out.Status != NodeStatusFailed {
 		t.Fatalf("Status = %q, want %q", out.Status, NodeStatusFailed)
 	}
@@ -120,10 +123,7 @@ func TestAutomationExecutor_CommandNotFound(t *testing.T) {
 	exec := NewAutomationExecutor(getter, runner)
 	node := makeAutomationNode(t, AutomationNodeConfig{Exec: AutomationExecConfig{CommandRef: "missing"}})
 
-	out, err := exec.Execute(context.Background(), node, RunContext{})
-	if err != nil {
-		t.Fatalf("Execute() framework error = %v, want nil", err)
-	}
+	out := executeAutomationNode(t, exec, node, RunContext{})
 	if out.Status != NodeStatusFailed {
 		t.Fatalf("Status = %q, want %q", out.Status, NodeStatusFailed)
 	}
@@ -142,10 +142,7 @@ func TestAutomationExecutor_Timeout(t *testing.T) {
 	exec := NewAutomationExecutor(getter, runner)
 	node := makeAutomationNode(t, AutomationNodeConfig{Exec: AutomationExecConfig{CommandRef: "slow"}})
 
-	out, err := exec.Execute(context.Background(), node, RunContext{})
-	if err != nil {
-		t.Fatalf("Execute() framework error = %v, want classified command timeout outcome", err)
-	}
+	out := executeAutomationNode(t, exec, node, RunContext{})
 	if out.Status != NodeStatusFailed {
 		t.Fatalf("Status = %q, want %q", out.Status, NodeStatusFailed)
 	}
@@ -159,10 +156,7 @@ func TestAutomationExecutor_NilLauncher(t *testing.T) {
 	exec := NewAutomationExecutor(nil, &stubAutomationRunner{})
 	node := makeAutomationNode(t, AutomationNodeConfig{Exec: AutomationExecConfig{CommandRef: "build_app"}})
 
-	out, err := exec.Execute(context.Background(), node, RunContext{})
-	if err != nil {
-		t.Fatalf("Execute() framework error = %v, want nil", err)
-	}
+	out := executeAutomationNode(t, exec, node, RunContext{})
 	if out.Status != NodeStatusFailed {
 		t.Fatalf("Status = %q, want %q on nil command_get client", out.Status, NodeStatusFailed)
 	}
@@ -177,6 +171,27 @@ func TestAutomationExecutor_NilLauncher(t *testing.T) {
 func TestAutomationExecutor_ImplementsNodeExecutor(t *testing.T) {
 	t.Parallel()
 	var _ NodeExecutor = (*AutomationExecutor)(nil)
+}
+
+func TestCommandOutputBufferTruncatesAndReportsDroppedBytes(t *testing.T) {
+	t.Parallel()
+	buf := newCommandOutputBuffer("stdout", 5)
+
+	n, err := buf.Write([]byte("hello world"))
+	if err != nil {
+		t.Fatalf("Write() error = %v", err)
+	}
+	if n != len("hello world") {
+		t.Fatalf("Write() n = %d, want %d", n, len("hello world"))
+	}
+
+	got := buf.String()
+	if !strings.HasPrefix(got, "hello\n[super-dolphin: stdout truncated after 5 bytes; dropped 6 bytes]") {
+		t.Fatalf("buffer output = %q, want retained prefix and truncation marker", got)
+	}
+	if strings.Contains(got, "world") {
+		t.Fatalf("buffer output = %q, want overflow bytes dropped", got)
+	}
 }
 
 // ---------------------------------------------------------------------------
@@ -242,10 +257,7 @@ func TestAutomationExecutor_Inputs_InjectsFromNodes(t *testing.T) {
 		"plan": json.RawMessage(`{"summary":"build prod"}`),
 	}
 
-	out, err := exec.Execute(context.Background(), node, RunContext{PrevResults: prev})
-	if err != nil {
-		t.Fatalf("Execute() framework error = %v", err)
-	}
+	out := executeAutomationNode(t, exec, node, RunContext{PrevResults: prev})
 	if out.Status != NodeStatusDone {
 		t.Fatalf("Status = %q, want %q", out.Status, NodeStatusDone)
 	}
@@ -286,10 +298,7 @@ func TestAutomationExecutor_Inputs_MissingPrevResult_Validation(t *testing.T) {
 		Inputs: InputsConfig{FromNodes: []string{"missing"}},
 	})
 
-	out, err := exec.Execute(context.Background(), node, RunContext{PrevResults: map[string]json.RawMessage{}})
-	if err != nil {
-		t.Fatalf("Execute() framework error = %v", err)
-	}
+	out := executeAutomationNode(t, exec, node, RunContext{PrevResults: map[string]json.RawMessage{}})
 	if out.Status != NodeStatusFailed || out.FailureClass != FailureClassValidation {
 		t.Fatalf("got status=%q class=%q, want failed/validation", out.Status, out.FailureClass)
 	}
@@ -314,10 +323,7 @@ func TestAutomationExecutor_Inputs_ReservedKeyConflict_Validation(t *testing.T) 
 		Inputs: InputsConfig{FromNodes: []string{"a"}},
 	})
 
-	out, err := exec.Execute(context.Background(), node, RunContext{PrevResults: map[string]json.RawMessage{"a": json.RawMessage(`{}`)}})
-	if err != nil {
-		t.Fatalf("Execute() framework error = %v", err)
-	}
+	out := executeAutomationNode(t, exec, node, RunContext{PrevResults: map[string]json.RawMessage{"a": json.RawMessage(`{}`)}})
 	if out.Status != NodeStatusFailed || out.FailureClass != FailureClassValidation {
 		t.Fatalf("got status=%q class=%q, want failed/validation", out.Status, out.FailureClass)
 	}
@@ -336,10 +342,7 @@ func TestAutomationExecutor_Inputs_SharedfileNoReader_Validation(t *testing.T) {
 		Inputs: InputsConfig{FromSharedfiles: []string{"plan.md"}},
 	})
 
-	out, err := exec.Execute(context.Background(), node, RunContext{})
-	if err != nil {
-		t.Fatalf("Execute() framework error = %v", err)
-	}
+	out := executeAutomationNode(t, exec, node, RunContext{})
 	if out.Status != NodeStatusFailed || out.FailureClass != FailureClassValidation {
 		t.Fatalf("got status=%q class=%q, want failed/validation", out.Status, out.FailureClass)
 	}
@@ -359,10 +362,7 @@ func TestAutomationExecutor_Inputs_SharedfileReadError_Classified(t *testing.T) 
 		Inputs: InputsConfig{FromSharedfiles: []string{"plan.md"}},
 	})
 
-	out, err := exec.Execute(context.Background(), node, RunContext{SharedFileReader: reader})
-	if err != nil {
-		t.Fatalf("Execute() framework error = %v", err)
-	}
+	out := executeAutomationNode(t, exec, node, RunContext{SharedFileReader: reader})
 	if out.Status != NodeStatusFailed {
 		t.Fatalf("Status = %q, want failed", out.Status)
 	}
@@ -382,10 +382,7 @@ func TestAutomationExecutor_Outputs_WritesSharedfile(t *testing.T) {
 		Outputs: OutputsConfig{ToSharedfile: &SharedfileTarget{Path: "reports/build.log", LockMode: "exclusive"}},
 	})
 
-	out, err := exec.Execute(context.Background(), node, RunContext{SharedFileWriter: writer})
-	if err != nil {
-		t.Fatalf("Execute() framework error = %v", err)
-	}
+	out := executeAutomationNode(t, exec, node, RunContext{SharedFileWriter: writer})
 	if out.Status != NodeStatusDone {
 		t.Fatalf("Status = %q, want done; summary=%q", out.Status, out.ErrorSummary)
 	}
@@ -415,10 +412,7 @@ func TestAutomationExecutor_Outputs_BothChannels(t *testing.T) {
 		},
 	})
 
-	out, err := exec.Execute(context.Background(), node, RunContext{SharedFileWriter: writer})
-	if err != nil {
-		t.Fatalf("Execute() framework error = %v", err)
-	}
+	out := executeAutomationNode(t, exec, node, RunContext{SharedFileWriter: writer})
 	if out.Status != NodeStatusDone {
 		t.Fatalf("Status = %q, want done", out.Status)
 	}
@@ -440,10 +434,7 @@ func TestAutomationExecutor_Outputs_SharedfileNoWriter_Validation(t *testing.T) 
 		Outputs: OutputsConfig{ToSharedfile: &SharedfileTarget{Path: "reports/build.log"}},
 	})
 
-	out, err := exec.Execute(context.Background(), node, RunContext{})
-	if err != nil {
-		t.Fatalf("Execute() framework error = %v", err)
-	}
+	out := executeAutomationNode(t, exec, node, RunContext{})
 	if out.Status != NodeStatusFailed || out.FailureClass != FailureClassValidation {
 		t.Fatalf("got status=%q class=%q, want failed/validation", out.Status, out.FailureClass)
 	}
@@ -463,10 +454,7 @@ func TestAutomationExecutor_Outputs_SharedfileWriteFails_Validation(t *testing.T
 		Outputs: OutputsConfig{ToSharedfile: &SharedfileTarget{Path: "x.log"}},
 	})
 
-	out, err := exec.Execute(context.Background(), node, RunContext{SharedFileWriter: writer})
-	if err != nil {
-		t.Fatalf("Execute() framework error = %v", err)
-	}
+	out := executeAutomationNode(t, exec, node, RunContext{SharedFileWriter: writer})
 	if out.Status != NodeStatusFailed || out.FailureClass != FailureClassValidation {
 		t.Fatalf("got status=%q class=%q, want failed/validation", out.Status, out.FailureClass)
 	}
@@ -503,10 +491,7 @@ func TestAutomationExecutor_Outputs_RejectsAllBannedKeys(t *testing.T) {
 			}`, key)
 			node := Node{NodeType: "automation", Config: json.RawMessage(cfg)}
 
-			out, err := exec.Execute(context.Background(), node, RunContext{})
-			if err != nil {
-				t.Fatalf("Execute() framework error = %v", err)
-			}
+			out := executeAutomationNode(t, exec, node, RunContext{})
 			if out.Status != NodeStatusFailed || out.FailureClass != FailureClassValidation {
 				t.Fatalf("banned key %q not rejected; got status=%q class=%q", key, out.Status, out.FailureClass)
 			}
@@ -529,10 +514,7 @@ func TestAutomationExecutor_EmptyInputsOutputs_KeepsF21Behaviour(t *testing.T) {
 		Exec: AutomationExecConfig{CommandRef: "k", Args: json.RawMessage(`{"x":1}`)},
 	})
 
-	out, err := exec.Execute(context.Background(), node, RunContext{})
-	if err != nil {
-		t.Fatalf("Execute() framework error = %v", err)
-	}
+	out := executeAutomationNode(t, exec, node, RunContext{})
 	if out.Status != NodeStatusDone {
 		t.Fatalf("Status = %q, want done", out.Status)
 	}
@@ -622,10 +604,7 @@ func TestAutomationExecutor_Outputs_OversizeResultRejected(t *testing.T) {
 		Outputs: OutputsConfig{ToNodeResult: true},
 	})
 
-	out, err := exec.Execute(context.Background(), node, RunContext{})
-	if err != nil {
-		t.Fatalf("Execute() framework error = %v", err)
-	}
+	out := executeAutomationNode(t, exec, node, RunContext{})
 	if out.Status != NodeStatusFailed || out.FailureClass != FailureClassValidation {
 		t.Fatalf("got status=%q class=%q, want failed/validation", out.Status, out.FailureClass)
 	}
@@ -651,10 +630,7 @@ func TestAutomationExecutor_Outputs_OversizeViaSharedfile_OK(t *testing.T) {
 		Outputs: OutputsConfig{ToSharedfile: &SharedfileTarget{Path: "reports/big.log"}},
 	})
 
-	out, err := exec.Execute(context.Background(), node, RunContext{SharedFileWriter: writer})
-	if err != nil {
-		t.Fatalf("Execute() framework error = %v", err)
-	}
+	out := executeAutomationNode(t, exec, node, RunContext{SharedFileWriter: writer})
 	if out.Status != NodeStatusDone {
 		t.Fatalf("Status = %q, want done; ErrorSummary=%q", out.Status, out.ErrorSummary)
 	}

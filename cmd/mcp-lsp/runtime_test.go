@@ -11,13 +11,18 @@ import (
 	lspmanager "github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/manager"
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/multilsp"
 	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/common"
+	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
 )
 
 func TestNewManagerRegistersDocumentFallbackAdapters(t *testing.T) {
-	root := t.TempDir()
+	root := runtimeCanonicalTempDir(t)
 	t.Setenv("GO_AGENT_LSP_ROOT", root)
 
-	mgr, err := newManager()
+	cfg, err := platformconfig.New()
+	if err != nil {
+		t.Fatalf("platform config: %v", err)
+	}
+	mgr, err := newManager(cfg)
 	if err != nil {
 		t.Fatalf("newManager: %v", err)
 	}
@@ -53,6 +58,45 @@ func TestNewManagerRegistersDocumentFallbackAdapters(t *testing.T) {
 
 	for _, tc := range cases {
 		assertDocumentFallbackCase(t, root, ctx, resolver, tc)
+	}
+}
+
+func TestNewManagerUsesPlatformLSPConfig(t *testing.T) {
+	root := runtimeCanonicalTempDir(t)
+	t.Setenv("PROJECT_ROOT", root)
+	t.Setenv("GO_AGENT_LSP_ROOT", root)
+	t.Setenv("LSP_JSTS_ROOT_MARKERS", "custom.workspace")
+	writeRuntimeTestFile(t, filepath.Join(root, "custom.workspace"), "marker\n")
+	target := filepath.Join(root, "src", "app.ts")
+	writeRuntimeTestFile(t, target, "export const value = 1\n")
+
+	cfg, err := platformconfig.New()
+	if err != nil {
+		t.Fatalf("platform config: %v", err)
+	}
+	mgr, err := newManager(cfg)
+	if err != nil {
+		t.Fatalf("newManager: %v", err)
+	}
+	defer func() {
+		if err := mgr.Close(); err != nil {
+			t.Fatalf("close manager: %v", err)
+		}
+	}()
+
+	resolver, ok := mgr.registry.(interface {
+		ResolveManagerForFile(context.Context, string) (lspmanager.ScopedManager, error)
+	})
+	if !ok {
+		t.Fatalf("runtime registry does not expose scoped file resolver")
+	}
+	ctx := common.WithToolScope(context.Background(), common.ToolScope{AgentID: "agent-config", ThreadID: "thread-config", CWD: root, Family: "lsp"})
+	scoped, err := resolver.ResolveManagerForFile(ctx, target)
+	if err != nil {
+		t.Fatalf("ResolveManagerForFile: %v", err)
+	}
+	if got := scoped.ResolvedScope.WorkspaceRoot; got != root {
+		t.Fatalf("resolved workspace root = %q, want %q", got, root)
 	}
 }
 
@@ -186,6 +230,25 @@ func setRuntimeWorkspaceRootsEnv(t *testing.T, roots ...string) {
 	t.Setenv("GO_AGENT_LSP_ROOTS", string(raw))
 }
 
+func writeRuntimeTestFile(t *testing.T, path, body string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatalf("mkdir %s: %v", filepath.Dir(path), err)
+	}
+	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+		t.Fatalf("write %s: %v", path, err)
+	}
+}
+
+func runtimeCanonicalTempDir(t *testing.T) string {
+	t.Helper()
+	root, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatalf("EvalSymlinks(temp dir): %v", err)
+	}
+	return root
+}
+
 func TestRuntimeServerBinaryPrefersInstalledBinaryOverride(t *testing.T) {
 	installed := filepath.Join(t.TempDir(), "gopls")
 	if got := runtimeServerBinary("gopls", installed); got != installed {
@@ -231,7 +294,11 @@ func TestNewManagerPackagedRegistersOnlyBundledLanguageServers(t *testing.T) {
 	t.Setenv("SUPER_DOLPHIN_LSP_MANIFEST", filepath.Join(bundle, "manifest.json"))
 	t.Setenv("PATH", t.TempDir())
 
-	mgr, err := newManager()
+	cfg, err := platformconfig.New()
+	if err != nil {
+		t.Fatalf("platform config: %v", err)
+	}
+	mgr, err := newManager(cfg)
 	if err != nil {
 		t.Fatalf("newManager() error = %v", err)
 	}

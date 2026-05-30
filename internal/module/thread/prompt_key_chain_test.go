@@ -205,6 +205,7 @@ func TestPromptKeyChain_DeferSpawnRoundTrip(t *testing.T) {
 		Personality: "friendly",
 		Provider:    "claude",
 		PromptKey:   "main/launch-fav",
+		AgentKey:    "dag_designer",
 	}
 
 	encoded, err := encodeStoredThreadConfig(stored)
@@ -215,6 +216,9 @@ func TestPromptKeyChain_DeferSpawnRoundTrip(t *testing.T) {
 	decoded := mustDecodeStoredThreadConfig(t, encoded)
 	if decoded.PromptKey != "main/launch-fav" {
 		t.Fatalf("PromptKey lost in round-trip: got %q, want main/launch-fav", decoded.PromptKey)
+	}
+	if decoded.AgentKey != "dag_designer" {
+		t.Fatalf("AgentKey lost in round-trip: got %q, want dag_designer", decoded.AgentKey)
 	}
 	if decoded.Provider != "claude" {
 		t.Fatalf("Provider lost in round-trip: got %q", decoded.Provider)

@@ -12,6 +12,9 @@
 
 ## 目录
 
+- [AI_PROJECT_MAP.md](project-map/AI_PROJECT_MAP.md)：全仓文件级 AI 项目地图，按领域输出 TSV 索引和漂移报告。
+- [capability_manifest.json](capability-contract/capability_manifest.json)：核心 Go 领域的符号级能力契约清单。
+
 | # | 文件 | 覆盖区域 |
 |---|---|---|
 | 01 | [01-terminal-ui-go.md](01-terminal-ui-go.md) | super-agent-v3 代码地图：终端入口与 UI 层（Go / Wails） |
@@ -35,4 +38,4 @@
 
 ## 生成时间
 
-2026-05-28
+2026-05-29

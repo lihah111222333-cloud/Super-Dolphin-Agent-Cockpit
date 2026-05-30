@@ -36,6 +36,7 @@ type ManifestContext struct {
 	AdditionalWorkingDirectories []string
 	ThreadCaps                   CapabilitySet
 	BinaryDir                    string
+	ProjectRoot                  string
 	Env                          map[string]string
 	AutoApprove                  []string
 	ProxyHTTPAddr                string

@@ -13,6 +13,19 @@ if [ -f "$PROJECT_DIR/.env" ]; then
   set +a
 fi
 
+ensure_dev_control_session_token() {
+  if [ -n "${GO_AGENT_CTL_SESSION_TOKEN:-}" ]; then
+    return 0
+  fi
+  if [ -n "${GO_AGENT_MCP_SESSION_TOKEN:-}" ]; then
+    export GO_AGENT_CTL_SESSION_TOKEN="$GO_AGENT_MCP_SESSION_TOKEN"
+    return 0
+  fi
+  export GO_AGENT_CTL_SESSION_TOKEN="dev-local-$(date +%s)-$$"
+}
+
+ensure_dev_control_session_token
+
 WORKTREE_DIR="$PROJECT_DIR/.worktrees/test"
 FRONTEND_DIR="$PROJECT_DIR/cmd/agent-terminal/frontend"
 export GO_GUARD_ALLOW_RAW="run-debug.sh"
@@ -546,7 +559,11 @@ if [ "$MODE" = "debug" ]; then
     echo "▶ 启动 debug 模式..."
   fi
   (sleep 1.0; open "http://localhost:4511" >/dev/null 2>&1 || true) &
-  exec "$BUILD_DIR/super-agent-debug" --debug "$@"
+  "$BUILD_DIR/super-agent-debug" --debug "$@"
+  AGENT_EXIT=$?
+  cleanup_vite
+  trap - EXIT INT TERM
+  exit $AGENT_EXIT
 else
   echo "▶ 启动正常模式..."
   exec "$BUILD_DIR/super-agent-debug" "$@"
