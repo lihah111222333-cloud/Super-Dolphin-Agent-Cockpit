@@ -86,7 +86,7 @@ func TestNewActiveAgentCounterFailsFastWithoutOrchestrationService(t *testing.T)
 	}
 }
 
-func TestShouldQuitStartsShutdownWhenActiveAgentCountFails(t *testing.T) {
+func TestShouldQuitBlocksWhenActiveAgentCountFails(t *testing.T) {
 	t.Parallel()
 
 	counterErr := errors.New("count failed")
@@ -95,9 +95,9 @@ func TestShouldQuitStartsShutdownWhenActiveAgentCountFails(t *testing.T) {
 	}), nil)
 	lifecycle.MarkFrontendReady()
 
-	shutdownCalled := make(chan struct{}, 1)
+	shutdownCalled := false
 	lifecycle.SetShutdownerFunc(func() {
-		shutdownCalled <- struct{}{}
+		shutdownCalled = true
 	})
 
 	var emittedName string
@@ -110,10 +110,8 @@ func TestShouldQuitStartsShutdownWhenActiveAgentCountFails(t *testing.T) {
 	if lifecycle.ShouldQuit() {
 		t.Fatal("ShouldQuit() = true, want quit blocked on counter error")
 	}
-	select {
-	case <-shutdownCalled:
-	case <-time.After(time.Second):
-		t.Fatal("shutdown was not requested after active-agent counter error")
+	if shutdownCalled {
+		t.Fatal("shutdown was requested despite active-agent counter error")
 	}
 	if emittedName != "app-quit-error" {
 		t.Fatalf("emitted event = %q/%#v, want app-quit-error", emittedName, emittedPayload)

@@ -555,11 +555,7 @@ if [ "$MODE" = "debug" ]; then
     echo "▶ 启动 debug 模式..."
   fi
   (sleep 1.0; open "http://localhost:4511" >/dev/null 2>&1 || true) &
-  "$BUILD_DIR/super-agent-debug" --debug "$@"
-  AGENT_EXIT=$?
-  cleanup_vite
-  trap - EXIT INT TERM
-  exit $AGENT_EXIT
+  exec "$BUILD_DIR/super-agent-debug" --debug "$@"
 else
   echo "▶ 启动正常模式..."
   exec "$BUILD_DIR/super-agent-debug" "$@"
