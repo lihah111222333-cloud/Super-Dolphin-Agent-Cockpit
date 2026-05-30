@@ -138,11 +138,8 @@ func (s *service) acquirePendingLaunchLock(threadID string) *sync.Mutex {
 func (s *service) SpawnIfNeeded(ctx context.Context, threadID, userInputForRouter, requestCWD string) (bool, SpawnRouting, error) {
 	ctx = util.NonNilContext(ctx)
 	threadID = strings.TrimSpace(threadID)
-	if threadID == "" {
-		return false, SpawnRouting{}, errors.New("thread: SpawnIfNeeded requires thread_id")
-	}
-	if s == nil || s.threadStore == nil {
-		return false, SpawnRouting{}, errors.New("thread store is not configured")
+	if err := validateSpawnIfNeededInputs(s, threadID); err != nil {
+		return false, SpawnRouting{}, err
 	}
 
 	mu := s.acquirePendingLaunchLock(threadID)
@@ -161,6 +158,11 @@ func (s *service) SpawnIfNeeded(ctx context.Context, threadID, userInputForRoute
 	if err != nil {
 		return false, SpawnRouting{}, s.cleanupFailedPendingLaunch(ctx, threadID, agentID, err)
 	}
+	req = s.injectParentCodexIdentityForStart(ctx, req)
+	req, err = s.injectDefaultCodexIdentityForStart(req)
+	if err != nil {
+		return false, SpawnRouting{}, s.cleanupFailedPendingLaunch(ctx, threadID, agentID, err)
+	}
 	if err := s.runPendingSpawn(ctx, &req, row, agentID, threadID); err != nil {
 		return false, SpawnRouting{}, s.cleanupFailedPendingLaunch(ctx, threadID, agentID, err)
 	}
@@ -171,6 +173,16 @@ func (s *service) SpawnIfNeeded(ctx context.Context, threadID, userInputForRoute
 		PromptVersionID: req.PromptVersionID,
 		PromptKeyStale:  req.PromptKeyStale,
 	}, nil
+}
+
+func validateSpawnIfNeededInputs(s *service, threadID string) error {
+	if threadID == "" {
+		return errors.New("thread: SpawnIfNeeded requires thread_id")
+	}
+	if s == nil || s.threadStore == nil {
+		return errors.New("thread store is not configured")
+	}
+	return nil
 }
 
 func (s *service) loadPendingLaunchRow(ctx context.Context, threadID string) (*threadstore.Thread, bool, error) {
@@ -235,7 +247,12 @@ func (s *service) cleanupFailedPendingLaunch(ctx context.Context, threadID, agen
 	if threadID == "" {
 		return cause
 	}
+	_, hasLaunchIntent := s.launchIntentByThread.Load(threadID)
 	retained := idempotency.RetainMappedError(&s.launchIntentByThread, &s.launchIntentRegistry, threadID, cause)
+	if !hasLaunchIntent {
+		s.pendingLaunchMu.Delete(threadID)
+		return cause
+	}
 	if err := s.threadStore.DeleteByThreadID(ctx, threadID); err != nil {
 		cause = idempotency.Retain(errors.Join(cause, fmt.Errorf("thread: delete failed pending_launch row %q: %w", threadID, err)))
 		idempotency.RetainMappedError(&s.launchIntentByThread, &s.launchIntentRegistry, threadID, cause)

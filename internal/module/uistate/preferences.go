@@ -21,8 +21,10 @@ const (
 	preferenceThreadPinsChat           = "threadPins.chat"
 	preferenceThreadArchivesChat       = "threadArchives.chat"
 	preferenceShowInjectedPromptInChat = "settings.showInjectedPromptInChat"
+	preferenceProviderActive           = "settings.provider.active"
 
-	recentTurnLimit = 20
+	defaultProviderActive = "codex"
+	recentTurnLimit       = 20
 )
 
 var errInvalidStallThresholdSec = errors.New("stallThresholdSec must be >= 30 seconds")
@@ -75,23 +77,46 @@ func normalizePreferenceKey(key string) string {
 }
 
 func buildPreferences(scope string, values map[string]any) Preferences {
+	prefValues := clone.JSONMap(values)
+	applyPreferenceDefaults(scope, prefValues)
 	prefs := Preferences{
 		CWD:            scope,
-		Values:         clone.JSONMap(values),
+		Values:         prefValues,
 		ViewPrefs:      ViewPrefs{Chat: map[string]any{}, Cmd: map[string]any{}},
 		ThreadPins:     ThreadCollections{Chat: map[string]int64{}, Cmd: map[string]int64{}},
 		ThreadArchives: ThreadCollections{Chat: map[string]int64{}, Cmd: map[string]int64{}},
 	}
-	prefs.ActiveThreadID = stringPreferenceValue(values, preferenceActiveThreadID, "active_thread_id")
-	prefs.ActiveCmdThreadID = stringPreferenceValue(values, preferenceActiveCmdThreadID, "active_cmd_thread_id")
-	prefs.MainAgentID = stringPreferenceValue(values, preferenceMainAgentID, "main_agent_id")
-	prefs.StallThresholdSec = positiveIntPreferenceValue(values, 30, preferenceStallThresholdSec, "stall_threshold_sec")
-	prefs.ShowInjectedPromptInChat = boolPreferenceValue(values, preferenceShowInjectedPromptInChat, "show_injected_prompt_in_chat")
-	prefs.ViewPrefs.Chat = normalizeJSONObject(preferenceRawValue(values, preferenceViewPrefsChat, "view_prefs.chat"))
-	prefs.ViewPrefs.Cmd = normalizeJSONObject(preferenceRawValue(values, preferenceViewPrefsCmd, "view_prefs.cmd"))
-	prefs.ThreadPins.Chat = normalizeTimestampMap(preferenceRawValue(values, preferenceThreadPinsChat, "thread_pins.chat"))
-	prefs.ThreadArchives.Chat = normalizeTimestampMap(preferenceRawValue(values, preferenceThreadArchivesChat, "thread_archives.chat"))
+	prefs.ActiveThreadID = stringPreferenceValue(prefValues, preferenceActiveThreadID, "active_thread_id")
+	prefs.ActiveCmdThreadID = stringPreferenceValue(prefValues, preferenceActiveCmdThreadID, "active_cmd_thread_id")
+	prefs.MainAgentID = stringPreferenceValue(prefValues, preferenceMainAgentID, "main_agent_id")
+	prefs.StallThresholdSec = positiveIntPreferenceValue(prefValues, 30, preferenceStallThresholdSec, "stall_threshold_sec")
+	prefs.ShowInjectedPromptInChat = boolPreferenceValue(prefValues, preferenceShowInjectedPromptInChat, "show_injected_prompt_in_chat")
+	prefs.ViewPrefs.Chat = normalizeJSONObject(preferenceRawValue(prefValues, preferenceViewPrefsChat, "view_prefs.chat"))
+	prefs.ViewPrefs.Cmd = normalizeJSONObject(preferenceRawValue(prefValues, preferenceViewPrefsCmd, "view_prefs.cmd"))
+	prefs.ThreadPins.Chat = normalizeTimestampMap(preferenceRawValue(prefValues, preferenceThreadPinsChat, "thread_pins.chat"))
+	prefs.ThreadArchives.Chat = normalizeTimestampMap(preferenceRawValue(prefValues, preferenceThreadArchivesChat, "thread_archives.chat"))
 	return prefs
+}
+
+func applyPreferenceDefaults(scope string, values map[string]any) {
+	if values == nil {
+		return
+	}
+	if strings.TrimSpace(scope) != "" {
+		return
+	}
+	value, ok := values[preferenceProviderActive]
+	if !ok || isEmptyProviderPreference(value) {
+		values[preferenceProviderActive] = defaultProviderActive
+	}
+}
+
+func isEmptyProviderPreference(value any) bool {
+	if value == nil {
+		return true
+	}
+	text, ok := value.(string)
+	return ok && strings.TrimSpace(text) == ""
 }
 
 func preferenceValue(prefs Preferences, key string) any {

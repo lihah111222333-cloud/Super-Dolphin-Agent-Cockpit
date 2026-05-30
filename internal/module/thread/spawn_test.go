@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -180,7 +182,7 @@ func TestStartPendingLaunchAllowsIntakeMetadataWithoutStartingProvider(t *testin
 	assertString(t, stringValue(stored["prompt_key"]), "main/dag_designer_zh", "stored.prompt_key")
 }
 
-func TestSpawnIfNeededDeletesPendingThreadOnSpawnFailure(t *testing.T) {
+func TestSpawnIfNeededKeepsPendingThreadRetryableOnSpawnFailure(t *testing.T) {
 	t.Parallel()
 
 	deletedIDs := []string{}
@@ -213,17 +215,17 @@ func TestSpawnIfNeededDeletesPendingThreadOnSpawnFailure(t *testing.T) {
 	if launched {
 		t.Fatal("SpawnIfNeeded() launched = true, want false on spawn failure")
 	}
-	if len(deletedIDs) != 1 || deletedIDs[0] != "thread-pending-fail" {
-		t.Fatalf("deletedIDs = %v, want [thread-pending-fail]", deletedIDs)
+	if len(deletedIDs) != 0 {
+		t.Fatalf("deletedIDs = %v, want no delete so failed thread remains visible", deletedIDs)
+	}
+	if store.status.ThreadID != "" || store.status.Status != "" {
+		t.Fatalf("UpdateStatus = %+v, want no status change so pending launch remains retryable", store.status)
 	}
 	if _, loaded := svc.pendingLaunchMu.Load("thread-pending-fail"); loaded {
 		t.Fatal("pendingLaunchMu still contains failed pending thread")
 	}
-	if len(stopped) != 1 ||
-		stopped[0].ThreadID != "thread-pending-fail" ||
-		stopped[0].Status != "deleted" ||
-		stopped[0].Reason != "pending_launch_failed" {
-		t.Fatalf("stopped events = %#v, want deleted pending_launch_failed event", stopped)
+	if len(stopped) != 0 {
+		t.Fatalf("stopped events = %#v, want no stopped event for retryable pending launch", stopped)
 	}
 }
 
@@ -264,6 +266,58 @@ func TestSpawnIfNeededPropagatesPromptKeyStale(t *testing.T) {
 	}
 	if routing.PromptKey != "main/missing" {
 		t.Fatalf("SpawnRouting.PromptKey = %q, want stale prompt key preserved", routing.PromptKey)
+	}
+}
+
+func TestSpawnIfNeededInjectsPackagedCodexIdentity(t *testing.T) {
+	threadID := "thread-pending-packaged-codex"
+	const providerUUID = "019d5f6b-fb3c-7760-9d6f-54005553f6c1"
+	superHome := t.TempDir()
+	codexHome := filepath.Join(superHome, "providers", "codex")
+	if err := os.MkdirAll(codexHome, 0o700); err != nil {
+		t.Fatalf("MkdirAll app-managed codex home: %v", err)
+	}
+	t.Setenv("SUPER_DOLPHIN_RUNTIME_MODE", "packaged")
+	t.Setenv("SUPER_DOLPHIN_HOME", superHome)
+	t.Setenv(legacyDefaultCodexHomeEnvVar, "")
+	t.Setenv(packagedCodexIdentityEnvVar, legacyDefaultCodexHomeEnabled)
+	store := &stubThreadStore{thread: &threadstore.Thread{
+		ThreadID:       threadID,
+		Status:         statusCreated,
+		PendingLaunch:  true,
+		Cwd:            "/tmp/project",
+		ConfigOverride: mustStoredThreadConfigRaw(t, storedThreadConfig{Provider: "codex"}),
+	}}
+	sessions := &stubSessionProvider{}
+	bindings := &stubBindingStore{}
+	svc := &service{
+		threadStore:    store,
+		bindingStore:   bindings,
+		sessions:       sessions,
+		promptAssembly: promptAssemblyStub{},
+		starter: &startOnlySessionStarter{onStart: func(_ context.Context, _ dto.StartSessionRequest) (contract.Session, error) {
+			session := &stubSession{threadID: providerUUID}
+			sessions.session = session
+			return session, nil
+		}},
+	}
+
+	launched, _, err := svc.SpawnIfNeeded(context.Background(), threadID, "hello", "/tmp/project")
+	if err != nil {
+		t.Fatalf("SpawnIfNeeded() error = %v, want nil", err)
+	}
+	if !launched {
+		t.Fatal("SpawnIfNeeded() launched = false, want true")
+	}
+	wantHome, err := contract.CanonicalizeCodexHome(codexHome)
+	if err != nil {
+		t.Fatalf("CanonicalizeCodexHome() error = %v", err)
+	}
+	if bindings.upsert.CodexHome != wantHome ||
+		bindings.upsert.CodexInstanceKey != defaultCodexInstanceKey ||
+		bindings.upsert.CodexModelProvider != defaultCodexModelProvider {
+		t.Fatalf("binding codex identity = %q/%q/%q, want packaged default identity",
+			bindings.upsert.CodexHome, bindings.upsert.CodexInstanceKey, bindings.upsert.CodexModelProvider)
 	}
 }
 

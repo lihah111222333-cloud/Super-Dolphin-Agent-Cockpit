@@ -48,6 +48,15 @@ func TestMinRequiredSchemaVersion(t *testing.T) {
 
 // TestVerifyMinSchemaVersion_AcceptsAtOrAboveMinimum exercises the happy path
 // where schema_migrations has caught up with MinRequiredSchemaVersion.
+func TestVerifyMinSchemaVersionExportedForSidecars(t *testing.T) {
+	t.Parallel()
+
+	q := fakeVersionQueryRow{row: fakeVersionRow{version: MinRequiredSchemaVersion}}
+	if err := VerifyMinSchemaVersion(context.Background(), q); err != nil {
+		t.Fatalf("VerifyMinSchemaVersion() error = %v, want nil", err)
+	}
+}
+
 func TestVerifyMinSchemaVersion_AcceptsAtOrAboveMinimum(t *testing.T) {
 	t.Parallel()
 

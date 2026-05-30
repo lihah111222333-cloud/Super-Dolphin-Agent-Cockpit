@@ -38,26 +38,17 @@ type service struct {
 	skillsChangedQueue []uidto.SkillsChanged
 	skillsChangedSeq   uint64
 	skillsChangedDelay func()
-	// approval stores artifact-level skill trust decisions for read-only
-	// approval probes used by prompt/catalog compatibility paths.
-	approval *ApprovalCache
-	// auditStore is required in Fx wiring for mutation audit. Direct tests that
-	// construct service manually may leave it nil; mutation paths then fail closed.
-	auditStore    auditstore.Store
-	mirrorTargets []SkillMirrorTarget
+	approval           *ApprovalCache
+	auditStore         auditstore.Store
+	mirrorTargets      []SkillMirrorTarget
 
 	resolutionPreviewMu sync.Mutex
 	resolutionPreviews  map[string]skillResolutionStoredPreview
 }
 
 var _ Service = (*service)(nil)
-var _ contract.ApprovalSource = (*service)(nil)
-var _ contract.SkillInventoryLister = (*service)(nil)
 var _ contract.SkillMirrorReconciler = (*service)(nil)
 
-// SkillApprovalRequiredError is an alias for the contract-level type so that
-// both skill and toolbridge consumers can errors.As the same concrete type
-// without toolbridge importing the module layer.
 type SkillApprovalRequiredError = contract.SkillApprovalRequiredError
 
 func resolutionPreviewHash(item skillResolutionItem, preview skillResolutionPreviewItem, p skillResolutionPreviewParams) string {

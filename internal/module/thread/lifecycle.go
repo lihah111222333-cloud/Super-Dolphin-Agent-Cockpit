@@ -71,7 +71,10 @@ func (s *service) prepareStartRequest(ctx context.Context, req StartRequest) (St
 		return req, "", nil, err
 	}
 	req = s.injectParentCodexIdentityForStart(ctx, req)
-	req = s.injectDefaultCodexIdentityForStart(req)
+	req, err = s.injectDefaultCodexIdentityForStart(req)
+	if err != nil {
+		return req, "", nil, err
+	}
 	agentID, releaseAgentID, err := s.reserveUniqueStartAgentID(ctx, req, agentID, callerProvidedID)
 	if err != nil {
 		return req, "", nil, err
@@ -218,9 +221,9 @@ func (s *service) persistStartedSession(
 	if err != nil {
 		return StartResult{}, idempotency.RetainOnError(err, s.stopAgent(ctx, agentID))
 	}
-	codexHome := util.FirstNonEmpty(identity.Home, sessionRuntimeConfigString(session, "codexHome"))
-	codexInstanceKey := util.FirstNonEmpty(identity.InstanceKey, sessionRuntimeConfigString(session, "codexInstanceKey"))
-	codexModelProvider := util.FirstNonEmpty(identity.ModelProvider, sessionRuntimeConfigString(session, "codexModelProvider"))
+	codexHome := util.FirstNonEmpty(sessionRuntimeConfigString(session, "codexHome"), identity.Home)
+	codexInstanceKey := util.FirstNonEmpty(sessionRuntimeConfigString(session, "codexInstanceKey"), identity.InstanceKey)
+	codexModelProvider := util.FirstNonEmpty(sessionRuntimeConfigString(session, "codexModelProvider"), identity.ModelProvider)
 	configOverride, err := encodeStoredThreadConfig(buildStartStoredThreadConfig(req, input, assembly, session))
 	if err != nil {
 		return StartResult{}, idempotency.RetainOnError(err, s.stopAgent(ctx, agentID))
@@ -281,9 +284,6 @@ func resolveStartCodexIdentity(config map[string]any) (contract.CodexIdentity, e
 }
 
 func startConfigHasCodexIdentity(config map[string]any) bool {
-	if len(config) == 0 {
-		return false
-	}
 	for _, key := range []string{"codexHome", "codexInstanceKey", "codexModelProvider"} {
 		if _, ok := config[key]; ok {
 			return true
