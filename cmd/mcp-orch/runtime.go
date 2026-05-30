@@ -30,6 +30,7 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/runtimesafe"
 	platformshared "github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"go.uber.org/fx"
 )
@@ -82,11 +83,35 @@ func newAgentBindingStore(pool *pgxpool.Pool) orchestration.AgentBindingStore {
 	return agentstore.NewBindingStore(pool)
 }
 
-func registerPoolLifecycle(lc fx.Lifecycle, logger *slog.Logger, pool *pgxpool.Pool) {
+type mcpOrchDBReadyProbe interface {
+	Ping(context.Context) error
+	QueryRow(context.Context, string, ...any) pgx.Row
+}
+
+func verifyMCPOrchDatabaseReady(ctx context.Context, probe mcpOrchDBReadyProbe) error {
+	if err := probe.Ping(ctx); err != nil {
+		return fmt.Errorf("mcp-orch database ping failed: %w", err)
+	}
+	if err := platformdb.VerifyMinSchemaVersion(ctx, probe); err != nil {
+		return fmt.Errorf("mcp-orch database schema check failed: %w", err)
+	}
+	return nil
+}
+
+func registerPoolLifecycle(lc fx.Lifecycle, logger *slog.Logger, pool *pgxpool.Pool, cfg *platformconfig.Config) {
 	if pool == nil {
 		return
 	}
 	lc.Append(fx.Hook{
+		OnStart: func(ctx context.Context) error {
+			if err := verifyMCPOrchDatabaseReady(ctx, pool); err != nil {
+				return err
+			}
+			if logger != nil {
+				logger.Info("mcp-orch db pool ready")
+			}
+			return nil
+		},
 		OnStop: func(context.Context) error {
 			pool.Close()
 			if logger != nil {
