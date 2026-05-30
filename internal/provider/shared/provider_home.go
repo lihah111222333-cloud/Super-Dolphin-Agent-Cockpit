@@ -11,6 +11,11 @@ import (
 
 const (
 	SuperDolphinHomeEnv = "SUPER_DOLPHIN_HOME"
+	ProjectRootEnv      = "PROJECT_ROOT"
+	PackagedCodexEnv    = "SUPER_DOLPHIN_PACKAGED_CODEX_IDENTITY"
+	RuntimeModeEnv      = "SUPER_DOLPHIN_RUNTIME_MODE"
+	RuntimeModeDev      = "dev"
+	RuntimeModePackaged = "packaged"
 
 	ProviderClaude = "claude"
 	ProviderCodex  = "codex"
@@ -105,6 +110,10 @@ func ProviderMirrorTargets(provider, cwd string, homeRoot ...string) ([]contract
 	if err != nil {
 		return nil, err
 	}
+	projectSkillsRoot, err := providerProjectMirrorRoot(provider, projectRoot)
+	if err != nil {
+		return nil, err
+	}
 	allowExplicitHome := strings.TrimSpace(rawHome) != ""
 	home, skillsRoot, err := providerPersonalMirrorRoot(provider, rawHome)
 	if err != nil {
@@ -120,7 +129,7 @@ func ProviderMirrorTargets(provider, cwd string, homeRoot ...string) ([]contract
 		{
 			Provider:   provider,
 			HomeRoot:   home,
-			SkillsRoot: providerProjectSkillsRoot(provider, projectRoot),
+			SkillsRoot: projectSkillsRoot,
 		},
 	}, nil
 }
@@ -199,15 +208,71 @@ func providerProjectSkillsRoot(provider, projectRoot string) string {
 	}
 }
 
-func appManagedSuperDolphinHome() (string, error) {
-	if override := strings.TrimSpace(os.Getenv(SuperDolphinHomeEnv)); override != "" {
-		return absCleanPath(override)
-	}
-	home, err := os.UserHomeDir()
+func providerProjectMirrorRoot(provider, projectRoot string) (string, error) {
+	enabled, err := packagedProjectMirrorEnabled(projectRoot)
 	if err != nil {
-		return "", fmt.Errorf("resolve user home: %w", err)
+		return "", err
 	}
-	return absCleanPath(filepath.Join(home, ".super-dolphin"))
+	if enabled {
+		return filepath.Join(os.Getenv(SuperDolphinHomeEnv), "provider-mirrors", "project", provider, "skills"), nil
+	}
+	return providerProjectSkillsRoot(provider, projectRoot), nil
+}
+
+func packagedProjectMirrorEnabled(projectRoot string) (bool, error) {
+	packaged, err := PackagedRuntimeFromEnv()
+	if err != nil {
+		return false, err
+	}
+	if !packaged {
+		return false, nil
+	}
+	home := strings.TrimSpace(os.Getenv(SuperDolphinHomeEnv))
+	resources := strings.TrimSpace(os.Getenv(ProjectRootEnv))
+	return home != "" && resources != "" && sameProviderPath(projectRoot, resources), nil
+}
+
+// PackagedRuntimeFromEnv consumes the runtime-mode contract produced by the
+// runtime resolver. Empty means no packaged capability has been advertised.
+func PackagedRuntimeFromEnv() (bool, error) {
+	mode := strings.TrimSpace(os.Getenv(RuntimeModeEnv))
+	switch mode {
+	case "":
+		return false, nil
+	case RuntimeModeDev:
+		return false, nil
+	case RuntimeModePackaged:
+		return true, nil
+	default:
+		return false, fmt.Errorf("invalid %s %q", RuntimeModeEnv, mode)
+	}
+}
+
+func sameProviderPath(left, right string) bool {
+	leftAbs, errLeft := filepath.Abs(strings.TrimSpace(left))
+	rightAbs, errRight := filepath.Abs(strings.TrimSpace(right))
+	if errLeft != nil || errRight != nil {
+		return false
+	}
+	leftClean := filepath.Clean(leftAbs)
+	rightClean := filepath.Clean(rightAbs)
+	leftReal, errLeft := filepath.EvalSymlinks(leftClean)
+	rightReal, errRight := filepath.EvalSymlinks(rightClean)
+	if errLeft == nil {
+		leftClean = filepath.Clean(leftReal)
+	}
+	if errRight == nil {
+		rightClean = filepath.Clean(rightReal)
+	}
+	return leftClean == rightClean
+}
+
+func appManagedSuperDolphinHome() (string, error) {
+	override := strings.TrimSpace(os.Getenv(SuperDolphinHomeEnv))
+	if override == "" {
+		return "", fmt.Errorf("%s is required for app-managed provider home", SuperDolphinHomeEnv)
+	}
+	return absCleanPath(override)
 }
 
 func providerProjectRoot(cwd string) (string, error) {

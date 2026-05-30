@@ -91,6 +91,7 @@ func TestResumeSessionFailsClosedBeforePreparingDefaultIdentity(t *testing.T) {
 	t.Setenv(poolRoutingEnvVar, "")
 	superHome := filepath.Join(t.TempDir(), "sd-home")
 	t.Setenv(providershared.SuperDolphinHomeEnv, superHome)
+	t.Setenv("SUPER_DOLPHIN_RUNTIME_MODE", "packaged")
 	workDir := t.TempDir()
 	spawnCalls := atomic.Int32{}
 	pool := NewServerPool(slog.Default(), func(context.Context, string) (SpawnedServer, error) {

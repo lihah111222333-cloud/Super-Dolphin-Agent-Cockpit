@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 )
@@ -32,6 +33,54 @@ func TestResolveBinaryDirPrefersPeerBinDirEnv(t *testing.T) {
 
 	if got := ResolveBinaryDir(cwd, nil); got != peerDir {
 		t.Fatalf("ResolveBinaryDir() = %q, want peer bin dir %q", got, peerDir)
+	}
+}
+
+func TestResolveBinaryDirPackagedRuntimeUsesOnlyBundleBin(t *testing.T) {
+	projectRoot := t.TempDir()
+	bundleDir := filepath.Join(projectRoot, "bin")
+	inheritedDir := t.TempDir()
+	if err := os.MkdirAll(bundleDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll(%q) error = %v", bundleDir, err)
+	}
+	writeRuntimeManifest(t, projectRoot)
+	writeDummyBinary(t, inheritedDir, "mcp-lsp")
+	t.Setenv("PROJECT_ROOT", projectRoot)
+	t.Setenv("GO_AGENT_PEER_BIN_DIR", strings.Join([]string{bundleDir, inheritedDir}, string(os.PathListSeparator)))
+	stubBinaryResolvers(t,
+		func() (string, error) { return filepath.Join(t.TempDir(), "super-agent-debug"), nil },
+		func(name string) (string, error) { return filepath.Join(inheritedDir, name), nil },
+	)
+
+	got := ResolveBinaryDir(t.TempDir(), map[string]any{"binary_dir": inheritedDir})
+	if got != bundleDir {
+		t.Fatalf("ResolveBinaryDir() = %q, want packaged bundle bin %q", got, bundleDir)
+	}
+}
+
+func TestResolveBinaryDirPackagedRuntimeDoesNotFallbackWhenBundleSidecarMissing(t *testing.T) {
+	projectRoot := t.TempDir()
+	bundleDir := filepath.Join(projectRoot, "bin")
+	exeDir := t.TempDir()
+	cwd := t.TempDir()
+	lookPathDir := t.TempDir()
+	if err := os.MkdirAll(bundleDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll(%q) error = %v", bundleDir, err)
+	}
+	writeRuntimeManifest(t, projectRoot)
+	writeDummyBinary(t, exeDir, "mcp-lsp")
+	writeDummyBinary(t, cwd, "mcp-orch")
+	writeDummyBinary(t, lookPathDir, "mcp-lsp")
+	t.Setenv("PROJECT_ROOT", projectRoot)
+	t.Setenv("GO_AGENT_PEER_BIN_DIR", strings.Join([]string{bundleDir, lookPathDir}, string(os.PathListSeparator)))
+	stubBinaryResolvers(t,
+		func() (string, error) { return filepath.Join(exeDir, "super-agent-debug"), nil },
+		func(name string) (string, error) { return filepath.Join(lookPathDir, name), nil },
+	)
+
+	got := ResolveBinaryDir(cwd, nil)
+	if got != bundleDir {
+		t.Fatalf("ResolveBinaryDir() = %q, want missing packaged sidecar to stay on bundle bin %q", got, bundleDir)
 	}
 }
 
@@ -118,5 +167,12 @@ func writeDummyBinary(t *testing.T, dir, name string) {
 	path := filepath.Join(dir, name)
 	if err := os.WriteFile(path, []byte("#!/bin/sh\n"), 0o755); err != nil {
 		t.Fatalf("WriteFile(%q) error = %v", path, err)
+	}
+}
+
+func writeRuntimeManifest(t *testing.T, projectRoot string) {
+	t.Helper()
+	if err := os.WriteFile(filepath.Join(projectRoot, "runtime-manifest.json"), []byte("{}\n"), 0o600); err != nil {
+		t.Fatalf("WriteFile(runtime-manifest.json) error = %v", err)
 	}
 }

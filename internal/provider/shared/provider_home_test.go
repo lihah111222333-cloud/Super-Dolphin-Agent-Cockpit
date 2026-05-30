@@ -193,6 +193,27 @@ func TestProviderMirrorTargetsUsesGitRootForSubdirCWD(t *testing.T) {
 	}
 }
 
+func TestProviderMirrorTargetsRedirectsPackagedProjectMirrorToWritableHome(t *testing.T) {
+	superHome := filepath.Join(t.TempDir(), "sd-home")
+	resources := filepath.Join(t.TempDir(), "Super Dolphin.app", "Contents", "Resources")
+	if err := os.MkdirAll(resources, 0o755); err != nil {
+		t.Fatalf("MkdirAll resources: %v", err)
+	}
+	t.Setenv(SuperDolphinHomeEnv, superHome)
+	t.Setenv(ProjectRootEnv, resources)
+	t.Setenv(PackagedCodexEnv, "1")
+	t.Setenv("SUPER_DOLPHIN_RUNTIME_MODE", "packaged")
+
+	targets, err := ProviderMirrorTargets(ProviderCodex, resources)
+	if err != nil {
+		t.Fatalf("ProviderMirrorTargets() error = %v", err)
+	}
+	want := filepath.Join(superHome, "provider-mirrors", "project", "codex", "skills")
+	if targets[1].SkillsRoot != want {
+		t.Fatalf("packaged project skills = %q, want writable mirror %q", targets[1].SkillsRoot, want)
+	}
+}
+
 func TestEnsureNoSkillMirrorConflictsAllowsOrdinarySkillContentConflicts(t *testing.T) {
 	kinds := []string{
 		"same_name",
@@ -333,5 +354,58 @@ func skipProviderHomeSymlinkPrivilegeNotHeld(t *testing.T, err error) {
 	t.Helper()
 	if runtime.GOOS == "windows" && strings.Contains(err.Error(), "privilege") {
 		t.Skipf("symlink privilege unavailable: %v", err)
+	}
+}
+
+func TestProviderHomeDevEmptyIgnoresPackagedLeftovers(t *testing.T) {
+	userHome := filepath.Join(t.TempDir(), "user-home")
+	superHome := filepath.Join(t.TempDir(), "sd-home")
+	project := t.TempDir()
+	t.Setenv("HOME", userHome)
+	t.Setenv("USERPROFILE", userHome)
+	t.Setenv(SuperDolphinHomeEnv, superHome)
+	t.Setenv(PackagedCodexEnv, "1")
+	t.Setenv(ProjectRootEnv, project)
+	t.Setenv("SUPER_DOLPHIN_RUNTIME_MODE", "dev")
+
+	home, err := EnsureProviderHome(ProviderCodex, "")
+	if err != nil {
+		t.Fatalf("EnsureProviderHome(codex) error = %v", err)
+	}
+	wantHome, err := filepath.EvalSymlinks(filepath.Join(userHome, ".codex"))
+	if err != nil {
+		t.Fatalf("EvalSymlinks local codex home: %v", err)
+	}
+	if home != wantHome {
+		t.Fatalf("codex home = %q, want local CLI home %q", home, wantHome)
+	}
+	targets, err := ProviderMirrorTargets(ProviderCodex, project)
+	if err != nil {
+		t.Fatalf("ProviderMirrorTargets() error = %v", err)
+	}
+	if targets[0].HomeRoot != filepath.Join(userHome, ".agents") {
+		t.Fatalf("codex personal mirror = %#v, want user provider mirror, not app-managed", targets[0])
+	}
+}
+
+func TestProviderMirrorTargetsRejectsInvalidRuntimeMode(t *testing.T) {
+	userHome := filepath.Join(t.TempDir(), "user-home")
+	project := t.TempDir()
+	t.Setenv("HOME", userHome)
+	t.Setenv("USERPROFILE", userHome)
+	t.Setenv(RuntimeModeEnv, "bogus")
+
+	_, err := ProviderMirrorTargets(ProviderCodex, project)
+	if err == nil || !strings.Contains(err.Error(), RuntimeModeEnv) {
+		t.Fatalf("ProviderMirrorTargets() error = %v, want invalid runtime mode", err)
+	}
+}
+
+func TestAppManagedProviderHomeRequiresSuperDolphinHome(t *testing.T) {
+	t.Setenv(SuperDolphinHomeEnv, "")
+
+	got, err := AppManagedProviderHome(ProviderCodex)
+	if err == nil || !strings.Contains(err.Error(), SuperDolphinHomeEnv) {
+		t.Fatalf("AppManagedProviderHome() = %q, %v; want missing runtime home error", got, err)
 	}
 }

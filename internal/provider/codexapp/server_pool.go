@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/discovery"
+	platformrunner "github.com/anthropic-ai/super-agent-v3/internal/platform/runner"
 	providershared "github.com/anthropic-ai/super-agent-v3/internal/provider/shared"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
@@ -411,6 +412,46 @@ func closeWithTimeout(server SpawnedServer, timeout time.Duration, logger *slog.
 		)
 	}
 }
+
+const defaultPoolEvictInterval = time.Minute
+
+type poolEvictRunner struct {
+	logger   *slog.Logger
+	pool     *ServerPool
+	interval time.Duration
+}
+
+func newPoolEvictRunner(logger *slog.Logger, pool *ServerPool) *poolEvictRunner {
+	if logger == nil {
+		logger = pkglogger.Get()
+	}
+	return &poolEvictRunner{logger: logger, pool: pool, interval: defaultPoolEvictInterval}
+}
+
+var _ platformrunner.Runner = (*poolEvictRunner)(nil)
+
+func (r *poolEvictRunner) Run(ctx context.Context) error {
+	if r.pool == nil {
+		<-ctx.Done()
+		return ctx.Err()
+	}
+	ticker := time.NewTicker(r.interval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-ticker.C:
+			if removed := r.pool.EvictIdle(); removed > 0 {
+				r.logger.Info("codexapp: pool evicted idle entries",
+					slog.Int("count", removed),
+				)
+			}
+		}
+	}
+}
+
+func poolEvictRunnerAsRunner(r *poolEvictRunner) platformrunner.Runner { return r }
 
 // ---------------------------------------------------------------------------
 // Peer discovery cleanup (was peer_discovery_cleanup.go)

@@ -1,0 +1,605 @@
+package codexapp
+
+import (
+	"context"
+	"crypto/sha256"
+	"encoding/json"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"runtime"
+	"strings"
+	"sync/atomic"
+	"testing"
+
+	"go.uber.org/fx/fxtest"
+)
+
+const (
+	codexReleaseSHA256EnvForTest        = "SUPER_DOLPHIN_CODEX_RELEASE_SHA256"
+	codexTrustedReleaseMirrorEnvForTest = "SUPER_DOLPHIN_CODEX_TRUSTED_RELEASE_MIRROR"
+)
+
+type codexReleaseTestOptions struct {
+	AssetName string
+	Body      []byte
+}
+
+func TestEnsureCodexCLIAvailableAutoInstallsOfficialReleaseWhenMissing(t *testing.T) {
+	t.Setenv("PATH", t.TempDir())
+	installRoot := t.TempDir()
+	body := codexWheelForTest(t)
+	server := newCodexReleaseTestServer(t, codexReleaseTestOptions{
+		AssetName: codexReleaseAssetNameForTest(t),
+		Body:      body,
+	})
+	setTrustedCodexReleaseMirrorForTest(t, server.URL+"/latest", body)
+	t.Setenv(codexInstallRootEnv, installRoot)
+
+	if err := ensureCodexCLIAvailable(context.Background()); err != nil {
+		t.Fatalf("ensureCodexCLIAvailable() error = %v", err)
+	}
+
+	codexPath, err := exec.LookPath(codexBinaryName)
+	if err != nil {
+		t.Fatalf("managed codex was not added to PATH: %v", err)
+	}
+	if !strings.HasPrefix(codexPath, installRoot) {
+		t.Fatalf("codex path = %q, want under %q", codexPath, installRoot)
+	}
+	assertExecutableFile(t, codexPath)
+	assertExecutableFile(t, filepath.Join(filepath.Dir(codexPath), "..", "codex-path", "rg"))
+}
+
+func TestEnsureCodexCLIAvailableUsesManagedInstallBeforeNetwork(t *testing.T) {
+	t.Setenv("PATH", t.TempDir())
+	installRoot := t.TempDir()
+	target := filepath.Join(installRoot, "rust-v9.9.9")
+	binDir := filepath.Join(target, "codex_cli_bin", "bin")
+	codexPath := filepath.Join(binDir, codexExecutableFileName())
+	if err := os.MkdirAll(binDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	writeFakeCodex(t, codexPath, true)
+	sourceSHA256 := strings.Repeat("b", 64)
+	writeManagedCodexManifestForTest(t, target, "rust-v9.9.9", sourceSHA256)
+	t.Setenv(codexReleaseSHA256EnvForTest, sourceSHA256)
+	t.Setenv(codexInstallRootEnv, installRoot)
+	var requests atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		requests.Add(1)
+	}))
+	t.Cleanup(server.Close)
+	t.Setenv(codexReleaseAPIURLEnv, server.URL+"/latest")
+
+	if err := ensureCodexCLIAvailable(context.Background()); err != nil {
+		t.Fatalf("ensureCodexCLIAvailable() error = %v", err)
+	}
+	got, err := exec.LookPath(codexBinaryName)
+	if err != nil {
+		t.Fatalf("LookPath(codex) error = %v", err)
+	}
+	if got != codexPath {
+		t.Fatalf("LookPath(codex) = %q, want %q", got, codexPath)
+	}
+	if requests.Load() != 0 {
+		t.Fatalf("release server received %d requests, want 0", requests.Load())
+	}
+}
+
+func TestEnsureCodexCLIAvailableRejectsManagedCacheWithoutPinnedChecksum(t *testing.T) {
+	t.Setenv("PATH", t.TempDir())
+	installRoot := t.TempDir()
+	binDir := filepath.Join(installRoot, "rust-v9.9.9", "codex_cli_bin", "bin")
+	codexPath := filepath.Join(binDir, codexExecutableFileName())
+	if err := os.MkdirAll(binDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	writeFakeCodex(t, codexPath, true)
+	t.Setenv(codexInstallRootEnv, installRoot)
+
+	err := ensureCodexCLIAvailable(context.Background())
+	if err == nil {
+		t.Fatal("ensureCodexCLIAvailable() error = nil, want pinned checksum failure")
+	}
+	if !strings.Contains(err.Error(), codexReleaseSHA256EnvForTest) {
+		t.Fatalf("ensureCodexCLIAvailable() error missing checksum env name:\n%s", err)
+	}
+}
+
+func TestEnsureCodexCLIAvailableRejectsManagedCacheWithoutTrustedManifest(t *testing.T) {
+	t.Setenv("PATH", t.TempDir())
+	installRoot := t.TempDir()
+	binDir := filepath.Join(installRoot, "rust-v9.9.9", "codex_cli_bin", "bin")
+	codexPath := filepath.Join(binDir, codexExecutableFileName())
+	if err := os.MkdirAll(binDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	writeFakeCodex(t, codexPath, true)
+	t.Setenv(codexInstallRootEnv, installRoot)
+	t.Setenv(codexReleaseSHA256EnvForTest, strings.Repeat("a", 64))
+	var requests atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		requests.Add(1)
+	}))
+	t.Cleanup(server.Close)
+	t.Setenv(codexTrustedReleaseMirrorEnvForTest, "1")
+	t.Setenv(codexReleaseAPIURLEnv, server.URL+"/latest")
+
+	err := ensureCodexCLIAvailable(context.Background())
+	if err == nil {
+		t.Fatal("ensureCodexCLIAvailable() error = nil, want managed manifest failure")
+	}
+	if !strings.Contains(err.Error(), "managed Codex manifest") {
+		t.Fatalf("ensureCodexCLIAvailable() error = %v, want managed manifest failure", err)
+	}
+	if requests.Load() != 0 {
+		t.Fatalf("release server received %d requests, want 0", requests.Load())
+	}
+}
+
+func TestFindManagedCodexBinaryReturnsReadDirErrors(t *testing.T) {
+	rootFile := filepath.Join(t.TempDir(), "not-a-directory")
+	if err := os.WriteFile(rootFile, []byte("not a directory"), 0o600); err != nil {
+		t.Fatalf("write read dir fixture: %v", err)
+	}
+
+	_, err := findManagedCodexBinary(context.Background(), rootFile, strings.Repeat("a", 64))
+	if err == nil {
+		t.Fatal("findManagedCodexBinary() error = nil, want os.ReadDir failure")
+	}
+	for _, want := range []string{"read managed Codex install root", rootFile} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("findManagedCodexBinary() error missing %q:\n%s", want, err)
+		}
+	}
+}
+
+func TestEnsureCodexCLIAvailableUsesBundledPeerBinBeforeNetwork(t *testing.T) {
+	t.Setenv("PATH", t.TempDir())
+	resourcesRoot := t.TempDir()
+	peerDir := filepath.Join(resourcesRoot, "bin")
+	if err := os.MkdirAll(peerDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll(%q) error = %v", peerDir, err)
+	}
+	codexPath := filepath.Join(peerDir, codexExecutableFileName())
+	writeFakeCodex(t, codexPath, true)
+	writeBundledCodexManifestForTest(t, resourcesRoot, "")
+	t.Setenv("GO_AGENT_PEER_BIN_DIR", peerDir)
+	t.Setenv(codexInstallRootEnv, t.TempDir())
+	var requests atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		requests.Add(1)
+		http.Error(w, "network fallback must not run when bundled codex exists", http.StatusInternalServerError)
+	}))
+	t.Cleanup(server.Close)
+	t.Setenv(codexReleaseAPIURLEnv, server.URL+"/latest")
+
+	if err := ensureCodexCLIAvailable(context.Background()); err != nil {
+		t.Fatalf("ensureCodexCLIAvailable() error = %v", err)
+	}
+	got, err := exec.LookPath(codexBinaryName)
+	if err != nil {
+		t.Fatalf("LookPath(codex) error = %v", err)
+	}
+	if got != codexPath {
+		t.Fatalf("LookPath(codex) = %q, want bundled %q", got, codexPath)
+	}
+	if requests.Load() != 0 {
+		t.Fatalf("release server received %d requests, want 0", requests.Load())
+	}
+}
+
+func TestEnsureCodexCLIAvailableFailsFastWhenBundledCodexIsNotExecutable(t *testing.T) {
+	peerDir := t.TempDir()
+	brokenBundledCodex := filepath.Join(peerDir, codexExecutableFileName())
+	if err := os.WriteFile(brokenBundledCodex, []byte("#!/bin/sh\n"), 0o644); err != nil {
+		t.Fatalf("write bundled codex: %v", err)
+	}
+	userDir := t.TempDir()
+	writeFakeCodex(t, filepath.Join(userDir, codexExecutableFileName()), true)
+	t.Setenv("PATH", userDir)
+	t.Setenv("GO_AGENT_PEER_BIN_DIR", peerDir)
+	t.Setenv(codexInstallRootEnv, t.TempDir())
+	var requests atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		requests.Add(1)
+	}))
+	t.Cleanup(server.Close)
+	t.Setenv(codexReleaseAPIURLEnv, server.URL+"/latest")
+
+	err := ensureCodexCLIAvailable(context.Background())
+	if err == nil {
+		t.Fatal("ensureCodexCLIAvailable() error = nil, want bundled asset failure")
+	}
+	for _, want := range []string{"bundled Codex CLI", "not executable", brokenBundledCodex} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("ensureCodexCLIAvailable() error missing %q:\n%s", want, err)
+		}
+	}
+	if requests.Load() != 0 {
+		t.Fatalf("release server received %d requests, want 0", requests.Load())
+	}
+}
+
+func TestEnsureCodexCLIAvailablePackagedRuntimeMissingBundledCodexDoesNotFallbackToUserPath(t *testing.T) {
+	peerDir := t.TempDir()
+	userDir := t.TempDir()
+	writeFakeCodex(t, filepath.Join(userDir, codexExecutableFileName()), true)
+	t.Setenv("PATH", userDir)
+	t.Setenv("GO_AGENT_PEER_BIN_DIR", peerDir)
+	t.Setenv("SUPER_DOLPHIN_REQUIRE_BUNDLED_CODEX", "1")
+	t.Setenv(codexInstallRootEnv, t.TempDir())
+	var requests atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		requests.Add(1)
+	}))
+	t.Cleanup(server.Close)
+	t.Setenv(codexReleaseAPIURLEnv, server.URL+"/latest")
+
+	err := ensureCodexCLIAvailable(context.Background())
+	if err == nil {
+		t.Fatal("ensureCodexCLIAvailable() error = nil, want packaged bundled Codex failure")
+	}
+	for _, want := range []string{"bundled Codex CLI", "required"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("ensureCodexCLIAvailable() error missing %q:\n%s", want, err)
+		}
+	}
+	if requests.Load() != 0 {
+		t.Fatalf("release server received %d requests, want 0", requests.Load())
+	}
+}
+
+func TestEnsureCodexCLIAvailablePackagedRuntimeMissingBundledCodexIgnoresInheritedPeerBinDir(t *testing.T) {
+	packagedPeerDir := t.TempDir()
+	inheritedPeerDir := t.TempDir()
+	marker := filepath.Join(t.TempDir(), "fake-codex-ran")
+	writeFakeCodexWithMarker(t, filepath.Join(inheritedPeerDir, codexExecutableFileName()))
+	t.Setenv("CODEX_FAKE_MARKER", marker)
+	t.Setenv("PATH", t.TempDir())
+	t.Setenv("GO_AGENT_PEER_BIN_DIR", strings.Join([]string{packagedPeerDir, inheritedPeerDir}, string(os.PathListSeparator)))
+	t.Setenv("SUPER_DOLPHIN_REQUIRE_BUNDLED_CODEX", "1")
+	t.Setenv(codexInstallRootEnv, t.TempDir())
+
+	err := ensureCodexCLIAvailable(context.Background())
+	if err == nil {
+		t.Fatal("ensureCodexCLIAvailable() error = nil, want packaged bundled Codex failure")
+	}
+	for _, want := range []string{"bundled Codex CLI", "required", packagedPeerDir} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("ensureCodexCLIAvailable() error missing %q:\n%s", want, err)
+		}
+	}
+	if _, statErr := os.Stat(marker); statErr == nil || !os.IsNotExist(statErr) {
+		t.Fatalf("inherited peer codex executed; marker stat error = %v", statErr)
+	}
+}
+
+func TestServerManagerStartupDoesNotEnsureCodexCLIAvailable(t *testing.T) {
+	t.Setenv("PATH", t.TempDir())
+	installRoot := t.TempDir()
+	var requests atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		requests.Add(1)
+		http.Error(w, "unexpected release lookup during server manager startup", http.StatusInternalServerError)
+	}))
+	t.Cleanup(server.Close)
+	t.Setenv(codexReleaseAPIURLEnv, server.URL+"/latest")
+	t.Setenv(codexInstallRootEnv, installRoot)
+
+	lc := fxtest.NewLifecycle(t)
+	NewServerManager(ServerManagerParams{Lifecycle: lc})
+
+	if err := lc.Start(context.Background()); err != nil {
+		t.Fatalf("lifecycle Start() error = %v", err)
+	}
+
+	if requests.Load() != 0 {
+		t.Fatalf("release server received %d requests, want 0", requests.Load())
+	}
+	if codexPath, err := exec.LookPath(codexBinaryName); err == nil {
+		t.Fatalf("server manager startup installed managed codex at %q; CLI checks belong to Codex start paths", codexPath)
+	}
+}
+
+func TestEnsureCodexCLIAvailableAutoInstallsOfficialTarGzReleaseWhenMissing(t *testing.T) {
+	t.Setenv("PATH", t.TempDir())
+	installRoot := t.TempDir()
+	body := codexTarGzForTest(t)
+	server := newCodexReleaseTestServer(t, codexReleaseTestOptions{
+		AssetName: codexTarGzReleaseAssetNameForTest(t),
+		Body:      body,
+	})
+	setTrustedCodexReleaseMirrorForTest(t, server.URL+"/latest", body)
+	t.Setenv(codexInstallRootEnv, installRoot)
+
+	if err := ensureCodexCLIAvailable(context.Background()); err != nil {
+		t.Fatalf("ensureCodexCLIAvailable() error = %v", err)
+	}
+	codexPath, err := exec.LookPath(codexBinaryName)
+	if err != nil {
+		t.Fatalf("managed codex was not added to PATH: %v", err)
+	}
+	if !strings.HasPrefix(codexPath, installRoot) {
+		t.Fatalf("codex path = %q, want under %q", codexPath, installRoot)
+	}
+	assertExecutableFile(t, codexPath)
+}
+
+func TestEnsureCodexCLIAvailableReplacesIncompleteInstallTarget(t *testing.T) {
+	t.Setenv("PATH", t.TempDir())
+	installRoot := t.TempDir()
+	incompleteTarget := filepath.Join(installRoot, "rust-v0.1.0")
+	if err := os.MkdirAll(incompleteTarget, 0o755); err != nil {
+		t.Fatalf("MkdirAll incomplete target: %v", err)
+	}
+	body := codexWheelForTest(t)
+	server := newCodexReleaseTestServer(t, codexReleaseTestOptions{
+		AssetName: codexReleaseAssetNameForTest(t),
+		Body:      body,
+	})
+	setTrustedCodexReleaseMirrorForTest(t, server.URL+"/latest", body)
+	t.Setenv(codexInstallRootEnv, installRoot)
+
+	if err := ensureCodexCLIAvailable(context.Background()); err != nil {
+		t.Fatalf("ensureCodexCLIAvailable() error = %v", err)
+	}
+	assertExecutableFile(t, filepath.Join(incompleteTarget, "codex_cli_bin", "bin", codexExecutableFileName()))
+}
+
+func TestFindManagedCodexBinaryUsesSemanticVersionOrder(t *testing.T) {
+	installRoot := t.TempDir()
+	sourceSHA256 := strings.Repeat("c", 64)
+	for _, name := range []string{"rust-v0.99.0", "rust-v0.134.0"} {
+		target := filepath.Join(installRoot, name)
+		binDir := filepath.Join(target, "codex_cli_bin", "bin")
+		if err := os.MkdirAll(binDir, 0o755); err != nil {
+			t.Fatalf("MkdirAll(%q) error = %v", binDir, err)
+		}
+		writeFakeCodex(t, filepath.Join(binDir, codexExecutableFileName()), true)
+		writeManagedCodexManifestForTest(t, target, name, sourceSHA256)
+	}
+
+	got, err := findManagedCodexBinary(context.Background(), installRoot, sourceSHA256)
+	if err != nil {
+		t.Fatalf("findManagedCodexBinary() error = %v", err)
+	}
+	want := filepath.Join(installRoot, "rust-v0.134.0", "codex_cli_bin", "bin", codexExecutableFileName())
+	if got != want {
+		t.Fatalf("findManagedCodexBinary() = %q, want %q", got, want)
+	}
+}
+
+func TestCodexPathAvailableRequiresAppServerSupport(t *testing.T) {
+	binDir := t.TempDir()
+	writeFakeCodex(t, filepath.Join(binDir, codexExecutableFileName()), false)
+	t.Setenv("PATH", binDir)
+
+	if codexPathAvailable(context.Background()) {
+		t.Fatal("codexPathAvailable() = true, want false for codex without app-server support")
+	}
+}
+
+func TestExtractCodexWheelRejectsOversizedEntry(t *testing.T) {
+	previousFileLimit := maxCodexExtractedFileBytes
+	previousTotalLimit := maxCodexExtractedTotalBytes
+	maxCodexExtractedFileBytes = 8
+	maxCodexExtractedTotalBytes = 16
+	t.Cleanup(func() {
+		maxCodexExtractedFileBytes = previousFileLimit
+		maxCodexExtractedTotalBytes = previousTotalLimit
+	})
+	wheel := codexWheelWithLargeEntryForTest(t)
+
+	err := extractCodexWheel(wheel, filepath.Join(t.TempDir(), "extract"))
+	if err == nil || !strings.Contains(err.Error(), "exceeds") {
+		t.Fatalf("extractCodexWheel() error = %v, want size limit error", err)
+	}
+}
+
+func TestEnsureCodexCLIAvailableRejectsFallbackWithoutPinnedChecksum(t *testing.T) {
+	t.Setenv("PATH", t.TempDir())
+	body := codexWheelForTest(t)
+	server := newCodexReleaseTestServer(t, codexReleaseTestOptions{
+		AssetName: codexReleaseAssetNameForTest(t),
+		Body:      body,
+	})
+	t.Setenv(codexTrustedReleaseMirrorEnvForTest, "1")
+	t.Setenv(codexReleaseAPIURLEnv, server.URL+"/latest")
+	t.Setenv(codexInstallRootEnv, t.TempDir())
+
+	err := ensureCodexCLIAvailable(context.Background())
+	if err == nil {
+		t.Fatal("ensureCodexCLIAvailable() error = nil, want checksum requirement failure")
+	}
+	if !strings.Contains(err.Error(), codexReleaseSHA256EnvForTest) {
+		t.Fatalf("ensureCodexCLIAvailable() error missing checksum env name:\n%s", err)
+	}
+}
+
+func TestEnsureCodexCLIAvailableRejectsUntrustedReleaseOverride(t *testing.T) {
+	t.Setenv("PATH", t.TempDir())
+	body := codexWheelForTest(t)
+	var requests atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests.Add(1)
+		newCodexReleaseTestHandler(t, codexReleaseTestOptions{
+			AssetName: codexReleaseAssetNameForTest(t),
+			Body:      body,
+		}).ServeHTTP(w, r)
+	}))
+	t.Cleanup(server.Close)
+	t.Setenv(codexReleaseAPIURLEnv, server.URL+"/latest")
+	t.Setenv(codexReleaseSHA256EnvForTest, codexTestSHA256(body))
+	t.Setenv(codexInstallRootEnv, t.TempDir())
+
+	err := ensureCodexCLIAvailable(context.Background())
+	if err == nil {
+		t.Fatal("ensureCodexCLIAvailable() error = nil, want untrusted source failure")
+	}
+	if !strings.Contains(err.Error(), "untrusted Codex release API URL") {
+		t.Fatalf("ensureCodexCLIAvailable() error = %v, want untrusted source failure", err)
+	}
+	if requests.Load() != 0 {
+		t.Fatalf("release server received %d requests, want 0", requests.Load())
+	}
+}
+
+func TestEnsureCodexCLIAvailableRejectsChecksumMismatchWithoutInstalling(t *testing.T) {
+	t.Setenv("PATH", t.TempDir())
+	installRoot := t.TempDir()
+	body := codexWheelForTest(t)
+	server := newCodexReleaseTestServer(t, codexReleaseTestOptions{
+		AssetName: codexReleaseAssetNameForTest(t),
+		Body:      body,
+	})
+	t.Setenv(codexTrustedReleaseMirrorEnvForTest, "1")
+	t.Setenv(codexReleaseAPIURLEnv, server.URL+"/latest")
+	t.Setenv(codexReleaseSHA256EnvForTest, strings.Repeat("0", 64))
+	t.Setenv(codexInstallRootEnv, installRoot)
+
+	err := ensureCodexCLIAvailable(context.Background())
+	if err == nil {
+		t.Fatal("ensureCodexCLIAvailable() error = nil, want checksum mismatch")
+	}
+	if !strings.Contains(err.Error(), "checksum mismatch") {
+		t.Fatalf("ensureCodexCLIAvailable() error = %v, want checksum mismatch", err)
+	}
+	if codexPath := filepath.Join(installRoot, "rust-v0.1.0", "codex_cli_bin", "bin", codexExecutableFileName()); isExecutable(codexPath) {
+		t.Fatalf("checksum mismatch installed executable codex at %q", codexPath)
+	}
+}
+
+func newCodexReleaseTestServer(t *testing.T, opts codexReleaseTestOptions) *httptest.Server {
+	t.Helper()
+	server := httptest.NewServer(newCodexReleaseTestHandler(t, opts))
+	t.Cleanup(server.Close)
+	return server
+}
+
+func newCodexReleaseTestHandler(t *testing.T, opts codexReleaseTestOptions) http.Handler {
+	t.Helper()
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/latest":
+			w.Header().Set("Content-Type", "application/json")
+			assets := []map[string]string{}
+			if opts.AssetName != "" {
+				assets = append(assets, map[string]string{
+					"name":                 opts.AssetName,
+					"browser_download_url": "http://" + r.Host + "/assets/" + opts.AssetName,
+				})
+			}
+			if err := json.NewEncoder(w).Encode(map[string]any{
+				"tag_name": "rust-v0.1.0",
+				"assets":   assets,
+			}); err != nil {
+				t.Fatalf("encode release: %v", err)
+			}
+		case "/assets/" + opts.AssetName:
+			w.Header().Set("Content-Type", "application/octet-stream")
+			_, _ = w.Write(opts.Body)
+		default:
+			http.NotFound(w, r)
+		}
+	})
+}
+
+func setTrustedCodexReleaseMirrorForTest(t *testing.T, releaseAPIURL string, body []byte) {
+	t.Helper()
+	t.Setenv(codexTrustedReleaseMirrorEnvForTest, "1")
+	t.Setenv(codexReleaseAPIURLEnv, releaseAPIURL)
+	t.Setenv(codexReleaseSHA256EnvForTest, codexTestSHA256(body))
+}
+
+func codexTestSHA256(body []byte) string {
+	return fmt.Sprintf("%x", sha256.Sum256(body))
+}
+
+func codexTestFileSHA256(t *testing.T, path string) string {
+	t.Helper()
+	body, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read %s: %v", path, err)
+	}
+	return codexTestSHA256(body)
+}
+
+func writeManagedCodexManifestForTest(t *testing.T, target, version, sourceSHA256 string) {
+	t.Helper()
+	manifest := map[string]any{"codex": map[string]string{
+		"path":           filepath.ToSlash(filepath.Join("codex_cli_bin", "bin", codexExecutableFileName())),
+		"version":        version,
+		"source_sha256":  strings.ToLower(sourceSHA256),
+		"package_sha256": codexTestFileSHA256(t, filepath.Join(target, "codex_cli_bin", "bin", codexExecutableFileName())),
+	}}
+	raw, err := json.MarshalIndent(manifest, "", "  ")
+	if err != nil {
+		t.Fatalf("marshal managed codex manifest: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(target, "codex-manifest.json"), append(raw, '\n'), 0o600); err != nil {
+		t.Fatalf("write managed codex manifest: %v", err)
+	}
+}
+
+func writeBundledCodexManifestForTest(t *testing.T, resourcesRoot, packageSHA256 string) {
+	t.Helper()
+	if packageSHA256 == "" {
+		packageSHA256 = codexTestFileSHA256(t, filepath.Join(resourcesRoot, "bin", codexExecutableFileName()))
+	}
+	manifest := map[string]any{"codex": map[string]string{
+		"path":           filepath.ToSlash(filepath.Join("bin", codexExecutableFileName())),
+		"version":        "rust-v9.9.9",
+		"source_sha256":  strings.Repeat("d", 64),
+		"package_sha256": strings.ToLower(packageSHA256),
+	}}
+	raw, err := json.MarshalIndent(manifest, "", "  ")
+	if err != nil {
+		t.Fatalf("marshal bundled codex manifest: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(resourcesRoot, codexManagedManifestName), append(raw, '\n'), 0o600); err != nil {
+		t.Fatalf("write bundled codex manifest: %v", err)
+	}
+}
+
+func writeFakeCodex(t *testing.T, path string, supportsAppServer bool) {
+	t.Helper()
+	body := "#!/bin/sh\n"
+	if supportsAppServer {
+		body += "if [ \"$1\" = \"app-server\" ] && [ \"$2\" = \"--help\" ]; then exit 0; fi\nexit 0\n"
+	} else {
+		body += "if [ \"$1\" = \"app-server\" ]; then exit 42; fi\nexit 0\n"
+	}
+	if err := os.WriteFile(path, []byte(body), 0o755); err != nil {
+		t.Fatalf("write fake codex: %v", err)
+	}
+}
+
+func writeFakeCodexWithMarker(t *testing.T, path string) {
+	t.Helper()
+	body := "#!/bin/sh\n" +
+		"if [ -n \"$CODEX_FAKE_MARKER\" ]; then printf ran > \"$CODEX_FAKE_MARKER\"; fi\n" +
+		"if [ \"$1\" = \"app-server\" ] && [ \"$2\" = \"--help\" ]; then exit 0; fi\n" +
+		"exit 0\n"
+	if err := os.WriteFile(path, []byte(body), 0o755); err != nil {
+		t.Fatalf("write fake codex: %v", err)
+	}
+}
+
+func assertExecutableFile(t *testing.T, path string) {
+	t.Helper()
+	info, err := os.Stat(filepath.Clean(path))
+	if err != nil {
+		t.Fatalf("stat %q: %v", path, err)
+	}
+	if info.IsDir() {
+		t.Fatalf("%q is a directory, want file", path)
+	}
+	if runtime.GOOS != "windows" && info.Mode().Perm()&0o111 == 0 {
+		t.Fatalf("%q is not executable: mode %s", path, info.Mode())
+	}
+}
