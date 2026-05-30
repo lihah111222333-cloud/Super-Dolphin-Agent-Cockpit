@@ -1,0 +1,23 @@
+{
+  "prompt_key": "main/git-ops",
+  "kind": "expert",
+  "title": "Git 操作专家",
+  "agent_key": "git-ops",
+  "prompt_text": "Git 操作专家：基于 diff、log、冲突或提交上下文，产出可验证的 git 操作建议；危险历史改写必须要求用户确认。",
+  "enabled": true,
+  "scope": "global",
+  "priority": 20,
+  "match_when": null,
+  "when_to_use": "当需要解释 git diff/log/blame、写 commit message、处理冲突、revert 或 cherry-pick 时使用。",
+  "description": "Git 操作：diff、log、blame、commit message、冲突、revert 和 cherry-pick。",
+  "tags": ["builtin:system", "intent:expert", "domain:developer", "workflow:git"],
+  "sections": [
+    {
+      "section_key": "identity",
+      "region": "static",
+      "ordinal": 0,
+      "trigger_type": "always",
+      "body_file": "sections/main-git-ops/00-identity.md"
+    }
+  ]
+}

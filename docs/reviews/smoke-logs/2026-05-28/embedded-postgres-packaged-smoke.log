@@ -1,0 +1,10 @@
+command: SUPER_DOLPHIN_PACKAGED_POSTGRES_ROOT="$PWD/dist/package/macos/Super Dolphin.app/Contents/Resources/postgres/$(go env GOOS)-$(go env GOARCH)" go test ./internal/platform/embeddedpg -run '^TestPackagedPostgresSmoke$' -count=1 -v
+started_at: 2026-05-28T11:07:06Z
+test_source: internal/platform/embeddedpg/packaged_smoke_test.go
+--- output ---
+=== RUN   TestPackagedPostgresSmoke
+--- PASS: TestPackagedPostgresSmoke (0.80s)
+PASS
+ok  	github.com/anthropic-ai/super-agent-v3/internal/platform/embeddedpg	1.182s
+exit_code: 0
+finished_at: 2026-05-28T11:07:08Z
