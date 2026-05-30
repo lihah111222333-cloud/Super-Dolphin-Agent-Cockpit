@@ -105,7 +105,7 @@ func (l *WailsLifecycle) ShouldQuit() bool {
 	activeCount, err := l.activeAgentCount()
 	if err != nil {
 		l.emitQuitError(err)
-		l.quitIntercepted.Store(false)
+		l.requestBackendShutdown()
 		return false
 	}
 	if activeCount > 0 {
