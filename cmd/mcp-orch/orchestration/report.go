@@ -6,8 +6,10 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 	"unicode"
 
+	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/orchestration/reportgc"
 	turndto "github.com/anthropic-ai/super-agent-v3/internal/dto/turn"
 	platformshared "github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 )
@@ -178,7 +180,7 @@ func (s *service) applyReportEventWithoutRuntime(ctx context.Context, agentID, e
 		}
 		record := agentReportFileRecordFromSnapshot(snapshot)
 		record.Report = report
-		if persistAgentReportFile(record) != nil {
+		if s.persistAgentReportFileAndGC(ctx, record) != nil {
 			return false
 		}
 	}
@@ -193,6 +195,19 @@ func (s *service) applyReportEventWithoutRuntime(ctx context.Context, agentID, e
 func setReportLocked(ctx context.Context, agent *agentRuntime, report string) {
 	agent.lastReport = strings.TrimSpace(report)
 	agent.updatedAt = resolveEventTime(ctx, agent.updatedAt)
+}
+
+func (s *service) persistAgentReportFileAndGC(ctx context.Context, record agentReportFileRecord) error {
+	if err := persistAgentReportFile(record); err != nil || strings.TrimSpace(record.Report) == "" || strings.TrimSpace(record.Cwd) == "" || s == nil || s.agentThreads == nil {
+		return err
+	}
+	threads, err := s.agentThreads.ListAll(ctx)
+	if err != nil {
+		return fmt.Errorf("agent report gc list threads: %w", err)
+	}
+	return reportgc.Collect(record.Cwd, threads, func(thread PersistedThread) (string, string, string) {
+		return persistedThreadAgentID(thread), thread.Cwd, thread.Status
+	}, time.Now(), s.logger)
 }
 
 func normalizeDisplayReportText(raw string) string {
@@ -290,13 +305,6 @@ func turnCompletedReportText(ev turndto.TurnCompleted) string {
 		return "turn failed: " + detail
 	}
 	return "turn failed without detail"
-}
-
-func resolveReportText(event ReportEvent) string {
-	if report := strings.TrimSpace(event.Report); report != "" {
-		return report
-	}
-	return extractReportFromEventData(event.EventData)
 }
 
 func extractReportFromEventData(raw json.RawMessage) string {
