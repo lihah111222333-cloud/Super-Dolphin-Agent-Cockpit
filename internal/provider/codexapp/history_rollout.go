@@ -164,6 +164,7 @@ var rolloutSystemNoiseTagPairs = []struct {
 	{open: "<environment_context>", close: "</environment_context>"},
 	{open: "<instructions>", close: "</instructions>"},
 	{open: "<permissions instructions>", close: "</permissions instructions>"},
+	{open: "<turn_aborted>", close: "</turn_aborted>"},
 }
 
 func isSystemNoiseText(text string) bool {
