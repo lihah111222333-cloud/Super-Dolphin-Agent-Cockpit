@@ -1,4 +1,5 @@
 import { computed, ref } from '../../../lib/vue.esm-browser.prod.js';
+import { isPlanSuperseded } from '../../utils/plan-utils.js';
 
 const VISIBLE_WINDOW = 100;
 const BLOCK_MD_RE = new RegExp([
@@ -101,7 +102,7 @@ export function useTimelineItems(props) {
   const visibleCount = ref(VISIBLE_WINDOW);
   const timelineItems = computed(() => {
     const all = Array.isArray(props.items) ? props.items : [];
-    const filtered = all.filter((item) => !isBottomOnlyStatusItem(item));
+    const filtered = all.filter((item, index) => !isBottomOnlyStatusItem(item) && !isPlanSuperseded(item, index, all));
     const pinnedId = props.pinnedPlanItemId;
     if (!props.pinnedPlanVisible || pinnedId === null || pinnedId === undefined || pinnedId === '') {
       return filtered;
