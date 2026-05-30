@@ -6,7 +6,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"unicode"
+
+	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/orchestration/reportgc"
 )
 
 var errAgentReportNotFound = errors.New("agent report not found")
@@ -199,7 +200,7 @@ func agentReportFilePath(record agentReportFileRecord) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	filename := filenamePrefix + sanitizeAgentReportFilenamePart(record.Name)
+	filename := filenamePrefix + reportgc.Sanitize(record.Name)
 	return filepath.Join(dir, filename), nil
 }
 
@@ -209,30 +210,9 @@ func agentReportFileDirAndPrefix(record agentReportFileRecord) (string, string, 
 	if cwd == "" {
 		return "", "", fmt.Errorf("%w: %s", errAgentReportNotFound, agentID)
 	}
-	idPart := sanitizeAgentReportFilenamePart(agentID)
+	idPart := reportgc.Sanitize(agentID)
 	if idPart == "" {
 		return "", "", errors.New("agent id is required")
 	}
 	return filepath.Join(cwd, ".agnet", "report"), idPart + "+", nil
-}
-
-func sanitizeAgentReportFilenamePart(value string) string {
-	value = strings.TrimSpace(value)
-	if value == "" {
-		return ""
-	}
-	var builder strings.Builder
-	lastUnderscore := false
-	for _, r := range value {
-		if r == '/' || r == '\\' || unicode.IsControl(r) {
-			if !lastUnderscore {
-				builder.WriteByte('_')
-				lastUnderscore = true
-			}
-			continue
-		}
-		builder.WriteRune(r)
-		lastUnderscore = false
-	}
-	return strings.TrimSpace(builder.String())
 }

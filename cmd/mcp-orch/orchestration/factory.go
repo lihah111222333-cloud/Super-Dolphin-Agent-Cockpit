@@ -427,7 +427,7 @@ func (s *service) setNoReportFallbackLocked(ctx context.Context, agent *agentRun
 		return nil
 	}
 	setReportLocked(ctx, agent, noReportFallbackText(string(agent.state), agent.lastError))
-	if err := persistAgentReportFile(agentReportFileRecordFromRuntime(agent)); err != nil {
+	if err := s.persistAgentReportFileAndGC(ctx, agentReportFileRecordFromRuntime(agent)); err != nil {
 		return err
 	}
 	drainReportRequestersLocked(ctx, agent)
@@ -441,7 +441,7 @@ func (s *service) applyReportEventLocked(ctx context.Context, agent *agentRuntim
 	}
 	if report != "" {
 		setReportLocked(ctx, agent, report)
-		if err := persistAgentReportFile(agentReportFileRecordFromRuntime(agent)); err != nil {
+		if err := s.persistAgentReportFileAndGC(ctx, agentReportFileRecordFromRuntime(agent)); err != nil {
 			return ReportEventResult{}, err
 		}
 	}
