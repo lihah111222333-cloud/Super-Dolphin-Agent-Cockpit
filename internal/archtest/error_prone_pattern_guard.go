@@ -52,7 +52,7 @@ func isSuperAgentV3Repo(repoRoot string) bool {
 }
 
 func (g *errorPronePatternGuard) guardHighPrecisionTimestampParsing() {
-	const rel = "cmd/agent-terminal/frontend/src/stores/thread-time-utils.js"
+	const rel = "cmd/agent-terminal/frontend/vue-app/stores/thread-time-utils.js"
 	body, ok := g.functionBody(rel, "parseThreadCreatedAtFromID")
 	if !ok {
 		return
@@ -70,7 +70,7 @@ func (g *errorPronePatternGuard) guardHighPrecisionTimestampParsing() {
 }
 
 func (g *errorPronePatternGuard) guardStreamingStateMachinePattern() {
-	const syncRel = "cmd/agent-terminal/frontend/src/stores/thread-sync-helpers.js"
+	const syncRel = "cmd/agent-terminal/frontend/vue-app/stores/thread-sync-helpers.js"
 	g.requireContains(syncRel, "append-only streaming state machines must mark terminal placeholder state",
 		"turnCompletedSignal && activeThreadTarget",
 		"streamingFinalized: true",
@@ -86,7 +86,7 @@ func (g *errorPronePatternGuard) guardStreamingStateMachinePattern() {
 		"state.sync.streaming_trailing.failed",
 	)
 
-	const markdownRel = "cmd/agent-terminal/frontend/src/utils/assistant-markdown-streaming.js"
+	const markdownRel = "cmd/agent-terminal/frontend/vue-app/utils/assistant-markdown-streaming.js"
 	g.requireContains(markdownRel, "append-only streaming state machines must report shrink/vanish regressions",
 		"chat.streaming.text_vanished",
 		"chat.streaming.text_shrunk",
@@ -309,7 +309,7 @@ func (g *errorPronePatternGuard) guardEmptyCWDPropagationPattern() {
 // The signal set must include: turn/completed, turn/interrupted,
 // agent/stopped, thread/stopped, agent/failed.
 func (g *errorPronePatternGuard) guardTerminalSignalCompletenessPattern() {
-	const rel = "cmd/agent-terminal/frontend/src/stores/thread-sync-helpers.js"
+	const rel = "cmd/agent-terminal/frontend/vue-app/stores/thread-sync-helpers.js"
 	g.requireContains(rel, "streaming finalization must cover all terminal signals, not just turn/completed",
 		"turnTerminalSignal",
 		"turn/interrupted",
