@@ -72,17 +72,21 @@ func subscribeCoreEventPushes(worker *pushNotificationWorker, dispatcher *event.
 }
 
 var typedPushMethods = map[string]struct{}{
-	strings.ToLower(eventsurface.MethodUIStateChanged):  {},
-	strings.ToLower(eventsurface.MethodTurnStarted):     {},
-	strings.ToLower(eventsurface.MethodTurnCompleted):   {},
-	strings.ToLower(eventsurface.MethodThreadStarted):   {},
-	strings.ToLower(eventsurface.MethodThreadStopped):   {},
-	strings.ToLower(eventsurface.MethodThreadMessages):  {},
-	strings.ToLower(eventsurface.MethodThreadCompacted): {},
-	strings.ToLower(eventsurface.MethodSkillsChanged):   {},
-	strings.ToLower(eventsurface.MethodUIThreadPatch):   {},
-	strings.ToLower(eventsurface.MethodAgentLaunched):   {},
-	strings.ToLower(eventsurface.MethodAgentStopped):    {},
+	strings.ToLower(eventsurface.MethodUIStateChanged):     {},
+	strings.ToLower(eventsurface.MethodTurnStarted):        {},
+	strings.ToLower(eventsurface.MethodTurnCompleted):      {},
+	strings.ToLower(eventsurface.MethodAgentMessageDelta):  {},
+	strings.ToLower(eventsurface.MethodReasoningTextDelta): {},
+	strings.ToLower(eventsurface.MethodCommandOutputDelta): {},
+	strings.ToLower(eventsurface.MethodToolCall):           {},
+	strings.ToLower(eventsurface.MethodThreadStarted):      {},
+	strings.ToLower(eventsurface.MethodThreadStopped):      {},
+	strings.ToLower(eventsurface.MethodThreadMessages):     {},
+	strings.ToLower(eventsurface.MethodThreadCompacted):    {},
+	strings.ToLower(eventsurface.MethodSkillsChanged):      {},
+	strings.ToLower(eventsurface.MethodUIThreadPatch):      {},
+	strings.ToLower(eventsurface.MethodAgentLaunched):      {},
+	strings.ToLower(eventsurface.MethodAgentStopped):       {},
 }
 
 func subscribeRawProviderEventPushes(worker *pushNotificationWorker, dispatcher *event.Dispatcher, logger *pkglogger.Logger) context.CancelFunc {
@@ -96,10 +100,133 @@ func subscribeRawProviderEventPushes(worker *pushNotificationWorker, dispatcher 
 
 func providerPushNotifications(raw providerdto.RawProviderEvent) []eventsurface.Notification {
 	method := normalizeRawProviderPushMethod(raw.EventType)
+	if shouldSuppressTypedRawProviderPush(method, raw.Data) {
+		return nil
+	}
 	if !shouldPushRawProviderMethod(method) {
 		return nil
 	}
 	return eventsurface.ExpandNotifications(method, raw.Data)
+}
+
+func shouldSuppressTypedRawProviderPush(method string, data any) bool {
+	key := normalizedRawProviderMethodKey(method)
+	if _, ok := typedPushMethods[key]; ok {
+		return true
+	}
+	if _, ok := typedRawProviderAliasMethods[key]; ok {
+		return true
+	}
+	return isTypedToolLifecycleRawProviderEvent(method, data)
+}
+
+var typedRawProviderAliasMethods = map[string]struct{}{
+	normalizedRawProviderMethodKey("item/reasoning/summaryTextDelta"): {},
+	normalizedRawProviderMethodKey("message.delta"):                   {},
+	normalizedRawProviderMethodKey("agent_message_delta"):             {},
+	normalizedRawProviderMethodKey("reasoning.delta"):                 {},
+	normalizedRawProviderMethodKey("exec_output_delta"):               {},
+}
+
+func isTypedToolLifecycleRawProviderEvent(method string, data any) bool {
+	payload, ok := clonePayloadMap(data)
+	if !ok {
+		return false
+	}
+	return isTypedToolStartRawProviderEvent(method, payload) ||
+		isTypedToolCompletionRawProviderEvent(method, payload)
+}
+
+func isTypedToolStartRawProviderEvent(method string, payload map[string]any) bool {
+	if _, ok := toolStartRawProviderMethods[normalizedRawProviderMethodKey(method)]; !ok {
+		return false
+	}
+	item := toolLifecycleItemPayload(payload)
+	switch payloadString(item, "type") {
+	case "function_call", "tool_call":
+		return toolLifecycleCallID(payload, item) != "" && toolLifecycleToolName(payload, item) != ""
+	default:
+		return false
+	}
+}
+
+func isTypedToolCompletionRawProviderEvent(method string, payload map[string]any) bool {
+	if _, ok := toolCompletionRawProviderMethods[normalizedRawProviderMethodKey(method)]; !ok {
+		return false
+	}
+	item := toolLifecycleItemPayload(payload)
+	switch payloadString(item, "type") {
+	case "mcp_tool_call_end", "tool_result", "function_call_output":
+		return toolLifecycleCallID(payload, item) != "" && toolLifecycleToolName(payload, item) != ""
+	default:
+		return toolLifecycleCallID(payload, item) != "" && toolLifecycleToolName(payload, item) != ""
+	}
+}
+
+var toolStartRawProviderMethods = map[string]struct{}{
+	normalizedRawProviderMethodKey("item/started"):             {},
+	normalizedRawProviderMethodKey("item_started"):             {},
+	normalizedRawProviderMethodKey("agent/event/item_started"): {},
+	normalizedRawProviderMethodKey("response_item"):            {},
+}
+
+var toolCompletionRawProviderMethods = map[string]struct{}{
+	normalizedRawProviderMethodKey("item/completed"):             {},
+	normalizedRawProviderMethodKey("item_completed"):             {},
+	normalizedRawProviderMethodKey("agent/event/item_completed"): {},
+	normalizedRawProviderMethodKey("rawResponseItem/completed"):  {},
+	normalizedRawProviderMethodKey("event_msg"):                  {},
+	normalizedRawProviderMethodKey("tool.call.end"):              {},
+	normalizedRawProviderMethodKey("response_item"):              {},
+}
+
+func normalizedRawProviderMethodKey(method string) string {
+	return strings.ToLower(strings.TrimSpace(method))
+}
+
+func toolLifecycleItemPayload(payload map[string]any) map[string]any {
+	if item := nestedPayloadMap(payload, "item"); len(item) > 0 {
+		return item
+	}
+	if nested := nestedPayloadMap(payload, "payload"); len(nested) > 0 {
+		return nested
+	}
+	return payload
+}
+
+func toolLifecycleCallID(payload, item map[string]any) string {
+	if callID := firstPayloadString(payload, "callId", "call_id"); callID != "" {
+		return callID
+	}
+	return firstPayloadString(item, "callId", "call_id")
+}
+
+func toolLifecycleToolName(payload, item map[string]any) string {
+	if toolName := firstPayloadString(payload, "name", "toolName", "tool_name", "tool"); toolName != "" {
+		return toolName
+	}
+	if toolName := firstPayloadString(item, "name", "toolName", "tool_name", "tool"); toolName != "" {
+		return toolName
+	}
+	invocation := nestedPayloadMap(item, "invocation")
+	return firstPayloadString(invocation, "tool", "name", "toolName", "tool_name")
+}
+
+func nestedPayloadMap(payload map[string]any, key string) map[string]any {
+	if payload == nil {
+		return nil
+	}
+	child, _ := payload[key].(map[string]any)
+	return child
+}
+
+func firstPayloadString(payload map[string]any, keys ...string) string {
+	for _, key := range keys {
+		if text := payloadString(payload, key); text != "" {
+			return text
+		}
+	}
+	return ""
 }
 
 func normalizeRawProviderPushMethod(method string) string {
