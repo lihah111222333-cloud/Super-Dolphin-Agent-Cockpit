@@ -45,6 +45,32 @@ function buildStartOptions(agent, groupId, parentThreadId, providerOptions = {})
   };
 }
 
+function buildParentStartOptions(plan, intent, attachments, groupId) {
+  return {
+    name: plan.groupTitle,
+    deferSpawn: true,
+    focusMode: 'chat',
+    skipInitialRuntimeSync: true,
+    optimisticUserMessage: {
+      text: (intent?.task || '').toString(),
+      attachments: normalizeAttachments(attachments),
+    },
+    config: {
+      multiAgentGroupId: groupId,
+      agentType: 'multi-agent-parent',
+    },
+  };
+}
+
+async function ensureParentThread({ threadStore, cwd, selectedThreadId, plan, intent, attachments, groupId }) {
+  const existing = selectedThreadValue(selectedThreadId);
+  if (existing) return existing;
+  const threadId = await threadStore.startThread(cwd, buildParentStartOptions(plan, intent, attachments, groupId));
+  if (!threadId) throw new Error('主对话创建失败：无法拉起子 Agent。');
+  setSelectedThreadValue(selectedThreadId, threadId);
+  return threadId;
+}
+
 async function launchChildAgent({ threadStore, cwd, agent, groupId, parentThreadId, attachments }) {
   const threadId = await threadStore.startThread(cwd, buildStartOptions(agent, groupId, parentThreadId));
   if (!threadId) throw new Error(`子 Agent 创建失败：${agent.name}`);
@@ -78,12 +104,9 @@ export function useMultiAgentLaunch({ threadStore, projectStore, selectedThreadI
     const intent = parseMultiAgentIntent(text);
     if (!intent.enabled) return false;
     const cwd = resolveCwd(projectStore);
-    const parentThreadId = selectedThreadValue(selectedThreadId);
-    if (!parentThreadId) {
-      throw new Error('请先在当前项目里创建或选择一个主对话，再拉子 Agent。');
-    }
     const plan = buildMultiAgentPlan(intent);
     const groupId = randomGroupId();
+    const parentThreadId = await ensureParentThread({ threadStore, cwd, selectedThreadId, plan, intent, attachments, groupId });
     logInfo('multi-agent', 'launch.start', {
       group_id: groupId,
       parent_thread_id: parentThreadId,
