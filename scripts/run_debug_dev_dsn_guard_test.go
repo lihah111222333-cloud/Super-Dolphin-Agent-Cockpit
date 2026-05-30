@@ -14,6 +14,7 @@ func TestRunDebugShellExportsDevDSNAndDevMode(t *testing.T) {
 	assertScriptContains(t, script, "export DATABASE_URL=\"${DATABASE_URL:-$DEV_DATABASE_URL}\"")
 	assertScriptContains(t, script, "DB_URL=\"$DATABASE_URL\"")
 	assertScriptContains(t, script, "export SUPER_DOLPHIN_RUNTIME_MODE=dev")
+	assertScriptContains(t, script, "export SUPER_DOLPHIN_RUNTIME_RESOURCES_DIR=\"$BUILD_DIR\"")
 	assertScriptContains(t, script, "export SUPER_DOLPHIN_DEV_ENTRYPOINT=run-debug.sh")
 	assertScriptOrder(t, script, "export DATABASE_URL=\"${DATABASE_URL:-$DEV_DATABASE_URL}\"", "DB_URL=\"$DATABASE_URL\"")
 }
@@ -24,6 +25,7 @@ func TestPowerShellRunDebugPreservesUserDSNAndExportsDevMode(t *testing.T) {
 	assertScriptContains(t, script, "if (-not $env:DATABASE_URL) { $env:DATABASE_URL = $DevDatabaseUrl }")
 	assertScriptContains(t, script, "$DbUrl = $env:DATABASE_URL")
 	assertScriptContains(t, script, "$env:SUPER_DOLPHIN_RUNTIME_MODE = 'dev'")
+	assertScriptContains(t, script, "$env:SUPER_DOLPHIN_RUNTIME_RESOURCES_DIR = $BuildDir")
 	assertScriptContains(t, script, "$env:SUPER_DOLPHIN_DEV_ENTRYPOINT = 'run-debug.ps1'")
 	assertScriptOrder(t, script, "if (-not $env:DATABASE_URL) { $env:DATABASE_URL = $DevDatabaseUrl }", "$DbUrl = $env:DATABASE_URL")
 }
@@ -33,8 +35,10 @@ func TestMakeDebugExportsSameDevDSNAndDevMode(t *testing.T) {
 	assertScriptContains(t, makefile, "DEV_DATABASE_URL ?= "+wantDevDatabaseURL)
 	assertScriptContains(t, makefile, "run-agent-terminal-debug run-agent-terminal-debug-plain: export DATABASE_URL ?= $(DEV_DATABASE_URL)")
 	assertScriptContains(t, makefile, "run-agent-terminal-debug run-agent-terminal-debug-plain: export SUPER_DOLPHIN_RUNTIME_MODE := dev")
+	assertScriptContains(t, makefile, "run-agent-terminal-debug run-agent-terminal-debug-plain: export SUPER_DOLPHIN_RUNTIME_RESOURCES_DIR := $(CURDIR)")
 	assertScriptContains(t, makefile, "run-agent-terminal-debug run-agent-terminal-debug-plain: export SUPER_DOLPHIN_DEV_ENTRYPOINT := make run-agent-terminal-debug")
 	assertScriptDoesNotContain(t, makefile, "\nexport SUPER_DOLPHIN_RUNTIME_MODE := dev")
+	assertScriptDoesNotContain(t, makefile, "\nexport SUPER_DOLPHIN_RUNTIME_RESOURCES_DIR := $(CURDIR)")
 	assertScriptDoesNotContain(t, makefile, "\nexport SUPER_DOLPHIN_DEV_ENTRYPOINT := make run-agent-terminal-debug")
 	assertScriptContains(t, makefile, "run-agent-terminal-debug-plain")
 }

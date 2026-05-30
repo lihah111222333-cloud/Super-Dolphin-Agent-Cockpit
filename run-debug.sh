@@ -240,6 +240,7 @@ fi
 DEV_DATABASE_URL="postgres://postgres:123@127.0.0.1:5432/go_agent_v2?sslmode=disable"
 export DATABASE_URL="${DATABASE_URL:-$DEV_DATABASE_URL}"
 export SUPER_DOLPHIN_RUNTIME_MODE=dev
+export SUPER_DOLPHIN_RUNTIME_RESOURCES_DIR="$BUILD_DIR"
 export SUPER_DOLPHIN_DEV_ENTRYPOINT=run-debug.sh
 DB_URL="$DATABASE_URL"
 if command -v psql >/dev/null 2>&1 && PGCONNECT_TIMEOUT=1 psql "$DB_URL" -tAc "SELECT 1" >/dev/null 2>&1; then

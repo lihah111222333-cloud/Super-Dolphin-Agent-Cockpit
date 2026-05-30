@@ -308,6 +308,8 @@ var codexSpawnEnvAllowlist = []string{
 	"SHELL",
 	"SSL_CERT_FILE",
 	"SSL_CERT_DIR",
+	sidecarRuntimeModeEnv,
+	sidecarRuntimeResourcesEnv,
 	codexRelayBootstrapTokenEnv,
 }
 
