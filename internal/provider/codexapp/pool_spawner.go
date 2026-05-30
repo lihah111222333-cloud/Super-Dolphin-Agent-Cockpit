@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -32,6 +33,9 @@ import (
 func runPoolSpawn(ctx context.Context, home string, registry *pidregistry.Registry, logger *slog.Logger) (*transport, error) {
 	if logger == nil {
 		logger = pkglogger.Get()
+	}
+	if err := ensureCodexCLIAvailable(ctx); err != nil {
+		return nil, err
 	}
 	startupCtx, cancel := withTimeout(ctx, transportReadyTimeout)
 	defer cancel()
@@ -282,6 +286,68 @@ func buildPoolSpawnEnv(parent []string, home, workDir string) []string {
 		overrides["PWD"] = workDir
 	}
 	return buildAllowlistedSpawnEnv(parent, overrides)
+}
+
+// codexSpawnEnvAllowlist is the set of parent-process environment variables
+// that are propagated into a spawned codex app-server child. Everything else
+// (including rogue CODEX_* / OPENAI_* pollutants left over from another
+// instance) is dropped so CODEX_HOME is the sole identity authority.
+var codexSpawnEnvAllowlist = []string{
+	"PATH",
+	"HOME",
+	"USER",
+	"LOGNAME",
+	"LANG",
+	"LC_ALL",
+	"LC_CTYPE",
+	"LC_MESSAGES",
+	"TZ",
+	"TMPDIR",
+	"TEMP",
+	"TMP",
+	"SHELL",
+	"SSL_CERT_FILE",
+	"SSL_CERT_DIR",
+	codexRelayBootstrapTokenEnv,
+}
+
+func buildAllowlistedSpawnEnv(parent []string, overrides map[string]string) []string {
+	allowed := make(map[string]struct{}, len(codexSpawnEnvAllowlist))
+	for _, key := range codexSpawnEnvAllowlist {
+		allowed[strings.ToUpper(key)] = struct{}{}
+	}
+	merged := make(map[string]string, len(allowed)+len(overrides))
+	for _, kv := range parent {
+		key, val, ok := splitEnv(kv)
+		if !ok {
+			continue
+		}
+		if _, permitted := allowed[strings.ToUpper(key)]; !permitted {
+			continue
+		}
+		merged[key] = val
+	}
+	for key, val := range overrides {
+		key = strings.TrimSpace(key)
+		if key == "" {
+			continue
+		}
+		merged[key] = val
+	}
+	out := make([]string, 0, len(merged))
+	for key, val := range merged {
+		out = append(out, key+"="+val)
+	}
+	sort.Strings(out)
+	return out
+}
+
+func splitEnv(kv string) (string, string, bool) {
+	idx := strings.IndexByte(kv, '=')
+	if idx <= 0 {
+		return "", "", false
+	}
+	return strings.TrimSpace(kv[:idx]), kv[idx+1:], true
 }
 
 // NewTransportSpawner returns a Spawner suitable for ServerPool. Each

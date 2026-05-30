@@ -198,3 +198,62 @@ func resolvedInputPath(item dto.InputItem) string {
 	}
 	return strings.TrimSpace(item.Content)
 }
+
+const turnOutputAccumulatorMaxBytes = 1 << 20
+
+type turnOutputBuffer struct {
+	parts     []string
+	size      int
+	truncated bool
+}
+
+func (s *session) appendTurnOutputDelta(turnID, delta string) {
+	if s == nil || turnID == "" || delta == "" {
+		return
+	}
+	s.accumulatorMu.Lock()
+	defer s.accumulatorMu.Unlock()
+	if s.turnOutputAccumulator == nil {
+		s.turnOutputAccumulator = map[string]*turnOutputBuffer{}
+	}
+	buf, ok := s.turnOutputAccumulator[turnID]
+	if !ok {
+		buf = &turnOutputBuffer{}
+		s.turnOutputAccumulator[turnID] = buf
+	}
+	if buf.truncated {
+		return
+	}
+	if buf.size+len(delta) > turnOutputAccumulatorMaxBytes {
+		buf.truncated = true
+		return
+	}
+	buf.parts = append(buf.parts, delta)
+	buf.size += len(delta)
+}
+
+func (s *session) consumeTurnOutputAccumulator(turnID string) (string, bool) {
+	if s == nil || turnID == "" {
+		return "", false
+	}
+	s.accumulatorMu.Lock()
+	defer s.accumulatorMu.Unlock()
+	buf, ok := s.turnOutputAccumulator[turnID]
+	if !ok {
+		return "", false
+	}
+	delete(s.turnOutputAccumulator, turnID)
+	if buf == nil {
+		return "", false
+	}
+	return strings.Join(buf.parts, ""), buf.truncated
+}
+
+func (s *session) dropTurnOutputAccumulator(turnID string) {
+	if s == nil || turnID == "" {
+		return
+	}
+	s.accumulatorMu.Lock()
+	defer s.accumulatorMu.Unlock()
+	delete(s.turnOutputAccumulator, turnID)
+}

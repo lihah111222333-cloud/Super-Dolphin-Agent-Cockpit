@@ -52,7 +52,7 @@ func wrapWithFDLimit(argv []string) *exec.Cmd {
 		"ulimit -n 1048576 2>/dev/null || ulimit -n 65535 2>/dev/null || true; exec %s %s",
 		shellQuoteArg(argv[0]), shellQuoteArgs(argv[1:]),
 	)
-	return exec.Command("sh", "-c", shellCmd)
+	return exec.Command("/bin/sh", "-c", shellCmd)
 }
 
 func shellQuoteArgs(args []string) string {

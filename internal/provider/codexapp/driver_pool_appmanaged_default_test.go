@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"log/slog"
-	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -14,9 +13,9 @@ import (
 	providershared "github.com/anthropic-ai/super-agent-v3/internal/provider/shared"
 )
 
-func TestStartSessionDefaultCodexHomeDoesNotRedirectPersonalMirror(t *testing.T) {
+func TestStartSessionMapsLegacyPackagedDefaultHomeToAppManagedRelayHome(t *testing.T) {
 	t.Setenv(poolRoutingEnvVar, "1")
-	superHome := filepath.Join(t.TempDir(), "sd-home")
+	superHome := filepath.Join(t.TempDir(), "Library", "Application Support", "Super Dolphin")
 	userHome := filepath.Join(t.TempDir(), "user-home")
 	t.Setenv(providershared.SuperDolphinHomeEnv, superHome)
 	t.Setenv("SUPER_DOLPHIN_RUNTIME_MODE", "packaged")
@@ -33,26 +32,23 @@ func TestStartSessionDefaultCodexHomeDoesNotRedirectPersonalMirror(t *testing.T)
 	d := &driver{logger: slog.Default(), pool: pool, mirror: mirror}
 
 	_, err := d.StartSession(context.Background(), dto.StartSessionRequest{
-		AgentID: "agent-default-codex-home",
+		AgentID: "agent-legacy-default",
 		CWD:     workDir,
 		Config: map[string]any{
-			contract.CodexHomeKey:          "~/.codex",
+			contract.CodexHomeKey:          "~/.super-dolphin/providers/codex",
 			contract.CodexInstanceKeyKey:   "default",
-			contract.CodexModelProviderKey: "openai",
+			contract.CodexModelProviderKey: defaultBootstrapModelProvider,
 		},
 	})
 	if err == nil || !strings.Contains(err.Error(), "stop after acquire") {
 		t.Fatalf("StartSession() error = %v, want acquire error after reconcile", err)
 	}
-	wantHome, err := filepath.EvalSymlinks(filepath.Join(userHome, ".codex"))
+	wantHome, err := filepath.EvalSymlinks(filepath.Join(superHome, "providers", "codex"))
 	if err != nil {
-		t.Fatalf("EvalSymlinks default codex home: %v", err)
+		t.Fatalf("EvalSymlinks app-managed codex home: %v", err)
 	}
 	if gotHome != wantHome {
-		t.Fatalf("pool codex home = %q, want %q", gotHome, wantHome)
+		t.Fatalf("pool codex home = %q, want app-managed relay home %q", gotHome, wantHome)
 	}
-	assertCodexMirrorTargets(t, mirror.targets, workDir, userHome)
-	if _, err := os.Stat(filepath.Join(userHome, ".codex", "skills")); !os.IsNotExist(err) {
-		t.Fatalf("default codex skills root stat = %v, want not created", err)
-	}
+	assertExplicitCodexMirrorTargets(t, mirror.targets, workDir, wantHome)
 }

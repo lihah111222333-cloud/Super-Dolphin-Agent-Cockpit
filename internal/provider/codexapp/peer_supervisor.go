@@ -3,6 +3,7 @@ package codexapp
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net"
 	"os"
@@ -92,7 +93,7 @@ func defaultPeerNames() []string { return append([]string(nil), managedPeerNames
 //     goroutine that waits on Wait() and re-launches after a cancellable backoff.
 //  3. on ctx.Done(): close stdin pipes (EOF), bounded-wait for supervise
 //     goroutines to finish, then SIGTERM and finally SIGKILL any survivor.
-//  4. unregister PIDs, remove discovery files, return ctx.Err().
+//  4. after confirmed peer exit, unregister PIDs, remove discovery files, return ctx.Err().
 //
 // Run never surfaces per-peer launch/restart failures as run.Group-fatal — P1a
 // explicitly forbids turning a missing binary or a flapping peer into
@@ -229,9 +230,8 @@ func NewPeerSupervisorWithOptions(mgr *ServerManager, logger *slog.Logger, opts 
 
 var _ platformrunner.Runner = (*PeerSupervisor)(nil)
 
-// Run implements platformrunner.Runner. It blocks until ctx is cancelled.
-// Errors are only surfaced for owner-internal invariant violations (currently
-// none); single-peer degraded paths never propagate as run.Group fatal.
+// Run implements platformrunner.Runner. It blocks until ctx is cancelled and
+// returns any bounded shutdown failure so Fx can surface an unclean peer exit.
 func (s *PeerSupervisor) Run(ctx context.Context) error {
 	s.probeControlPlane(ctx)
 
@@ -260,7 +260,9 @@ func (s *PeerSupervisor) Run(ctx context.Context) error {
 	}
 
 	<-ctx.Done()
-	s.shutdown(&wg)
+	if err := s.shutdown(&wg); err != nil {
+		return err
+	}
 	return ctx.Err()
 }
 
@@ -276,8 +278,12 @@ func (s *PeerSupervisor) probeControlPlane(ctx context.Context) {
 		if ctx.Err() != nil {
 			return
 		}
+		controlAddr := s.currentControlAddr()
+		if strings.TrimSpace(controlAddr) == "" {
+			continue
+		}
 		dialer := net.Dialer{Timeout: s.controlProbeEvery}
-		conn, err := dialer.DialContext(ctx, "tcp", s.controlAddr)
+		conn, err := dialer.DialContext(ctx, "tcp", controlAddr)
 		if err == nil {
 			_ = conn.Close()
 			return
@@ -290,16 +296,17 @@ func (s *PeerSupervisor) probeControlPlane(ctx context.Context) {
 	}
 }
 
-// superviseOne owns the Wait() lifecycle for a single peer. Restart backoff is
-// cancellable via ctx; per P1a §需冻结的兼容语义 the supervisor must NOT wake
-// from backoff and respawn after ctx has cancelled.
+func (s *PeerSupervisor) currentControlAddr() string {
+	if env := strings.TrimSpace(os.Getenv(peerControlAddrEnv)); env != "" {
+		s.controlAddr = env
+	}
+	return strings.TrimSpace(s.controlAddr)
+}
+
 func (s *PeerSupervisor) superviseOne(ctx context.Context, name string, initial peerHandle, wg *sync.WaitGroup) {
 	defer wg.Done()
 	current := initial
 	for {
-		// Transient waiter goroutine: exec.Cmd.Wait has no ctx-aware variant,
-		// so we bridge via a buffered channel. The goroutine exits once Wait
-		// returns (guaranteed once shutdown closes the pipe / signals the peer).
 		waitCh := make(chan error, 1)
 		go func(h peerHandle) {
 			defer func() { _ = recover() }()
@@ -308,11 +315,8 @@ func (s *PeerSupervisor) superviseOne(ctx context.Context, name string, initial 
 
 		select {
 		case <-ctx.Done():
-			// Close the current handle here as well as in shutdown. A cancel can
-			// race between Launch returning and replacePeer updating the
-			// supervisor snapshot, so shutdown may not yet know about current.
 			s.closePeerPipe(current)
-			<-waitCh
+			s.waitForPeerAfterCancel(name, current, waitCh)
 			return
 		case waitErr := <-waitCh:
 			s.logger.Warn("peer_supervisor: peer exited, scheduling restart",
@@ -353,12 +357,7 @@ func (s *PeerSupervisor) clearPeerDiscovery(name string) {
 	}
 }
 
-// trackPeer appends a newly-launched handle and syncs the pid registry so the
-// registry always reflects the current set of peer PIDs. Registration lives
-// in the supervisor (not the launcher) so the fake launcher used in tests
-// does not need to know about pidregistry at all — the supervisor is the
-// single atom that owns "process handle + stdin pipe + pid registry" per
-// P1a §Step 2.
+// trackPeer appends a newly-launched handle and syncs the pid registry.
 func (s *PeerSupervisor) trackPeer(h peerHandle) {
 	s.mu.Lock()
 	s.peers = append(s.peers, h)
@@ -368,9 +367,7 @@ func (s *PeerSupervisor) trackPeer(h peerHandle) {
 	}
 }
 
-// replacePeer atomically swaps the current handle and updates the pid registry
-// so stop paths cannot signal a stale PID. This is the single atom P1a
-// §Step 2 requires: process handle + stdin pipe + pid registry update together.
+// replacePeer atomically swaps the current handle and updates the pid registry.
 func (s *PeerSupervisor) replacePeer(old, next peerHandle) {
 	s.mu.Lock()
 	for i, h := range s.peers {
@@ -393,14 +390,17 @@ func (s *PeerSupervisor) replacePeer(old, next peerHandle) {
 // shutdown runs the stop/drain escalation: EOF -> SIGTERM -> SIGKILL. It
 // joins the superviseOne goroutines via wg and never retries re-launches.
 // Split into phase helpers so each function stays under the CC guard limit.
-func (s *PeerSupervisor) shutdown(wg *sync.WaitGroup) {
+func (s *PeerSupervisor) shutdown(wg *sync.WaitGroup) error {
 	peers := s.snapshotPeers()
 	s.closePeerPipes(peers)
-	s.drainOrEscalate(peers, wg)
-	s.unregisterPeerPIDs(peers)
-	if s.cleanupHook != nil {
-		s.cleanupHook()
+	err := s.drainOrEscalate(peers, wg)
+	if err == nil {
+		s.unregisterPeerPIDs(peers)
+		if s.cleanupHook != nil {
+			s.cleanupHook()
+		}
 	}
+	return err
 }
 
 // closePeerPipes sends EOF to every peer by closing its stdin pipe. ErrClosed
@@ -421,10 +421,8 @@ func (s *PeerSupervisor) closePeerPipe(h peerHandle) {
 	}
 }
 
-// drainOrEscalate waits up to stopGrace for all superviseOne goroutines to
-// finish; if they don't, it sends SIGTERM, waits killGrace more, and finally
-// sends SIGKILL as the last-resort escalation.
-func (s *PeerSupervisor) drainOrEscalate(peers []peerHandle, wg *sync.WaitGroup) {
+// drainOrEscalate sends EOF, SIGTERM, then SIGKILL, returning a timeout if peers still do not drain.
+func (s *PeerSupervisor) drainOrEscalate(peers []peerHandle, wg *sync.WaitGroup) error {
 	done := make(chan struct{})
 	go func() {
 		defer func() { _ = recover() }()
@@ -433,17 +431,22 @@ func (s *PeerSupervisor) drainOrEscalate(peers []peerHandle, wg *sync.WaitGroup)
 	}()
 	select {
 	case <-done:
-		return
+		return nil
 	case <-time.After(s.stopGrace):
 	}
 	s.signalAllPeers(peers, sigTerminate)
 	select {
 	case <-done:
-		return
+		return nil
 	case <-time.After(s.killGrace):
 	}
 	s.signalAllPeers(peers, sigForceKill)
-	<-done
+	select {
+	case <-done:
+		return nil
+	case <-time.After(s.killGrace):
+		return fmt.Errorf("peer_supervisor shutdown timeout: %d peer(s) did not exit after EOF, SIGTERM, and SIGKILL", len(peers))
+	}
 }
 
 func (s *PeerSupervisor) signalAllPeers(peers []peerHandle, sig processSig) {
