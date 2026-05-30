@@ -74,6 +74,10 @@ func stdioTerminateProcessTree(cmd *exec.Cmd, guard *stdioProcessGuard) error {
 	return errors.Join(jobErr, err)
 }
 
+func stdioExpectedCloseWaitError(err error) error {
+	return err
+}
+
 func stdioCleanupProcessTree(_ *exec.Cmd, guard *stdioProcessGuard) error {
 	if guard == nil || guard.handle == 0 {
 		return nil
