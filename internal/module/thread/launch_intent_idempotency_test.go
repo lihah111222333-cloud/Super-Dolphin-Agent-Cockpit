@@ -9,6 +9,7 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
+	threadstore "github.com/anthropic-ai/super-agent-v3/internal/store/thread"
 	"github.com/anthropic-ai/super-agent-v3/internal/util/idempotency"
 )
 
@@ -143,7 +144,7 @@ func TestStartLaunchIntentRejectsParameterMismatch(t *testing.T) {
 	}
 }
 
-func TestStartLaunchIntentRetryAfterPendingCleanupCreatesFreshThread(t *testing.T) {
+func TestStartLaunchIntentPendingFailureKeepsRowAndRetainsKey(t *testing.T) {
 	cwd := wantStartCWD(t)
 	threads := &cleanupCountingThreadStore{}
 	svc := &service{threadStore: threads}
@@ -160,16 +161,15 @@ func TestStartLaunchIntentRetryAfterPendingCleanupCreatesFreshThread(t *testing.
 	if err := svc.cleanupFailedPendingLaunch(context.Background(), first.ThreadID, first.AgentID, errors.New("bind failed")); err == nil {
 		t.Fatal("cleanupFailedPendingLaunch() error = nil, want original failure")
 	}
-	second, err := svc.Start(context.Background(), req)
-	if err != nil {
-		t.Fatalf("second Start() error = %v", err)
+	if _, err := svc.Start(context.Background(), req); err == nil || !strings.Contains(err.Error(), "bind failed") {
+		t.Fatalf("second Start() error = %v, want retained launch failure", err)
 	}
 
-	if second.ThreadID == first.ThreadID || second.AgentID == first.AgentID {
-		t.Fatalf("second Start() = %+v, want fresh ids after cleanup of %+v", second, first)
+	if threads.upsertCount != 1 || threads.deleteCount != 0 {
+		t.Fatalf("upserts/deletes = %d/%d, want 1/0 so failed row remains visible", threads.upsertCount, threads.deleteCount)
 	}
-	if threads.upsertCount != 2 || threads.deleteCount != 1 {
-		t.Fatalf("upserts/deletes = %d/%d, want 2/1", threads.upsertCount, threads.deleteCount)
+	if threads.status.ThreadID != first.ThreadID || threads.status.Status != statusFailed {
+		t.Fatalf("UpdateStatus = %+v, want failed status for %q", threads.status, first.ThreadID)
 	}
 }
 
@@ -194,13 +194,17 @@ func TestStartLaunchIntentRetainsKeyAfterPendingCleanupRetainedError(t *testing.
 	if _, err := svc.Start(context.Background(), req); !errors.Is(err, cause) {
 		t.Fatalf("second Start() error = %v, want retained cause", err)
 	}
-	if threads.upsertCount != 1 || threads.deleteCount != 1 {
-		t.Fatalf("upserts/deletes = %d/%d, want retained error without relaunch", threads.upsertCount, threads.deleteCount)
+	if threads.upsertCount != 1 || threads.deleteCount != 0 {
+		t.Fatalf("upserts/deletes = %d/%d, want retained error without relaunch or deletion", threads.upsertCount, threads.deleteCount)
+	}
+	if threads.status.ThreadID != first.ThreadID || threads.status.Status != statusFailed {
+		t.Fatalf("UpdateStatus = %+v, want failed status for %q", threads.status, first.ThreadID)
 	}
 }
 
-func TestStartLaunchIntentRetainsKeyWhenPendingCleanupDeleteFails(t *testing.T) {
-	threads := &cleanupCountingThreadStore{deleteErr: errors.New("delete failed")}
+func TestStartLaunchIntentRetainsKeyWhenPendingFailureStatusUpdateFails(t *testing.T) {
+	statusErr := errors.New("status update failed")
+	threads := &cleanupCountingThreadStore{statusErr: statusErr}
 	svc := &service{threadStore: threads}
 	req := StartRequest{
 		LaunchIntentID: "launch_018f00e0-39fc-72ac-a47a-2a858c75d111",
@@ -213,19 +217,19 @@ func TestStartLaunchIntentRetainsKeyWhenPendingCleanupDeleteFails(t *testing.T) 
 		t.Fatalf("first Start() error = %v", err)
 	}
 	cause := errors.New("post-launch cleanup uncertain")
-	if err := svc.cleanupFailedPendingLaunch(context.Background(), first.ThreadID, first.AgentID, idempotency.Retain(cause)); !errors.Is(err, threads.deleteErr) {
-		t.Fatalf("cleanupFailedPendingLaunch() error = %v, want delete failure", err)
+	if err := svc.cleanupFailedPendingLaunch(context.Background(), first.ThreadID, first.AgentID, idempotency.Retain(cause)); !errors.Is(err, statusErr) {
+		t.Fatalf("cleanupFailedPendingLaunch() error = %v, want status failure", err)
 	}
-	threads.deleteErr = nil
-	if _, err := svc.Start(context.Background(), req); !errors.Is(err, cause) {
-		t.Fatalf("second Start() error = %v, want retained cause", err)
+	threads.statusErr = nil
+	if _, err := svc.Start(context.Background(), req); !errors.Is(err, statusErr) {
+		t.Fatalf("second Start() error = %v, want retained status failure", err)
 	}
 	if threads.upsertCount != 1 {
 		t.Fatalf("thread upserts = %d, want retained error without relaunch", threads.upsertCount)
 	}
 }
 
-func TestStartLaunchIntentRetainedPendingCleanupDeleteFailureBlocksDirectSpawnRetry(t *testing.T) {
+func TestStartLaunchIntentRetainedPendingStatusFailureBlocksDirectSpawnRetry(t *testing.T) {
 	threads, _, orch, svc := eagerSnapshotFailureFixture(t)
 	req := StartRequest{
 		LaunchIntentID: "launch_018f00e0-39fc-72ac-a47a-2a858c75d111",
@@ -239,13 +243,13 @@ func TestStartLaunchIntentRetainedPendingCleanupDeleteFailureBlocksDirectSpawnRe
 	}
 	threads.thread.PendingLaunch = true
 
-	deleteErr := errors.New("delete failed")
+	statusErr := errors.New("status update failed")
 	cause := errors.New("post-launch cleanup uncertain")
-	threads.deleteErr = deleteErr
-	if err := svc.cleanupFailedPendingLaunch(context.Background(), first.ThreadID, first.AgentID, idempotency.Retain(cause)); !errors.Is(err, deleteErr) {
-		t.Fatalf("cleanupFailedPendingLaunch() error = %v, want delete failure", err)
+	threads.statusErr = statusErr
+	if err := svc.cleanupFailedPendingLaunch(context.Background(), first.ThreadID, first.AgentID, idempotency.Retain(cause)); !errors.Is(err, statusErr) {
+		t.Fatalf("cleanupFailedPendingLaunch() error = %v, want status failure", err)
 	}
-	threads.deleteErr = nil
+	threads.statusErr = nil
 	launchesBefore := len(orch.launches)
 	upsertsBefore := threads.upsertCount
 
@@ -454,11 +458,17 @@ type cleanupCountingThreadStore struct {
 	stubThreadStore
 	deleteCount int
 	deleteErr   error
+	statusErr   error
 }
 
 func (s *cleanupCountingThreadStore) DeleteByThreadID(context.Context, string) error {
 	s.deleteCount++
 	return s.deleteErr
+}
+
+func (s *cleanupCountingThreadStore) UpdateStatus(_ context.Context, params threadstore.UpdateStatusParams) error {
+	s.status = params
+	return s.statusErr
 }
 
 type snapshotPromptAssembly struct{}

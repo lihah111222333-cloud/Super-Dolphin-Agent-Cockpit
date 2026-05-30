@@ -248,23 +248,28 @@ func (s *service) cleanupFailedPendingLaunch(ctx context.Context, threadID, agen
 		return cause
 	}
 	_, hasLaunchIntent := s.launchIntentByThread.Load(threadID)
-	retained := idempotency.RetainMappedError(&s.launchIntentByThread, &s.launchIntentRegistry, threadID, cause)
 	if !hasLaunchIntent {
 		s.pendingLaunchMu.Delete(threadID)
 		return cause
 	}
-	if err := s.threadStore.DeleteByThreadID(ctx, threadID); err != nil {
-		cause = idempotency.Retain(errors.Join(cause, fmt.Errorf("thread: delete failed pending_launch row %q: %w", threadID, err)))
-		idempotency.RetainMappedError(&s.launchIntentByThread, &s.launchIntentRegistry, threadID, cause)
+	s.retainLaunchIntentFailure(threadID, cause)
+	if err := s.updateThreadStatus(ctx, threadID, statusFailed); err != nil {
+		cause = idempotency.Retain(errors.Join(cause, fmt.Errorf("thread: mark failed pending_launch row %q: %w", threadID, err)))
+		s.retainLaunchIntentFailure(threadID, cause)
 		return cause
 	}
-	if retained {
-		s.pendingLaunchMu.Delete(threadID)
-	} else {
-		s.CompleteLaunchIntent(ctx, threadID)
-	}
-	s.publishThreadStopped(threadID, agentID, "deleted", "pending_launch_failed")
+	s.pendingLaunchMu.Delete(threadID)
+	s.publishThreadStopped(threadID, agentID, statusFailed, cause.Error())
 	return cause
+}
+
+func (s *service) retainLaunchIntentFailure(threadID string, cause error) {
+	if s == nil || cause == nil {
+		return
+	}
+	if intentID, ok := s.launchIntentByThread.Load(strings.TrimSpace(threadID)); ok {
+		s.launchIntentRegistry.RetainError(intentID.(string), idempotency.Retain(cause))
+	}
 }
 
 func resolvePendingLaunchCWD(storedCWD, requestCWD string) (string, error) {
