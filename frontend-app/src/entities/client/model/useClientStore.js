@@ -43,6 +43,21 @@ function normalizeThreadId(value) {
   return normalizeString(value);
 }
 
+function normalizeThreadStartId(value) {
+  return normalizeThreadId(
+    value?.threadId ||
+    value?.thread_id ||
+    value?.id ||
+    value?.agentId ||
+    value?.agent_id ||
+    value?.thread?.id ||
+    value?.thread?.threadId ||
+    value?.thread?.thread_id ||
+    value?.thread?.agentId ||
+    value?.thread?.agent_id,
+  );
+}
+
 function normalizeThread(raw) {
   const id = normalizeThreadId(raw?.id || raw?.threadId || raw?.thread_id || raw?.agent_id);
   return {
@@ -65,16 +80,68 @@ function normalizeTokenUsage(value) {
   return { usedTokens, contextWindowTokens, usedPercent };
 }
 
+function extractText(value) {
+  if (value === null || value === undefined) return '';
+  if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
+    return normalizeString(value);
+  }
+  if (Array.isArray(value)) {
+    return value.map((item) => extractText(item)).filter(Boolean).join('\n');
+  }
+  if (typeof value === 'object') {
+    return extractText(value.text || value.content || value.message || value.delta);
+  }
+  return '';
+}
+
 function normalizeTimelineItem(item) {
   const role = normalizeString(item?.role || item?.kind || item?.type).toLowerCase();
   const normalizedRole = role.includes('user') ? 'user' : 'assistant';
   return {
     id: normalizeString(item?.id || item?.messageId || item?.message_id) || `${normalizedRole}-${Date.now()}`,
     role: normalizedRole,
-    text: normalizeString(item?.text || item?.content || item?.message || item?.delta),
+    text: extractText(item?.text || item?.content || item?.message || item?.delta),
     time: normalizeString(item?.time || item?.ts || item?.createdAt || item?.created_at) || new Date().toISOString(),
     done: item?.done !== false,
+    optimistic: Boolean(item?.optimistic),
   };
+}
+
+function sameTimelineContent(left, right) {
+  return left?.role === right?.role && normalizeString(left?.text) === normalizeString(right?.text);
+}
+
+function mergeTimelineItems(existingItems = [], incomingItems = []) {
+  const incomingById = new Map(incomingItems.map((item) => [item.id, item]));
+  const incomingIds = new Set(incomingById.keys());
+  const consumedIncomingIds = new Set();
+  const merged = [];
+
+  for (const existingItem of existingItems) {
+    const replacement = incomingById.get(existingItem.id);
+    if (replacement) {
+      merged.push(replacement);
+      consumedIncomingIds.add(replacement.id);
+      continue;
+    }
+
+    const shouldPreserveUserMessage = (
+      (existingItem.role === 'user' || existingItem.optimistic) &&
+      !incomingIds.has(existingItem.id) &&
+      !incomingItems.some((incomingItem) => sameTimelineContent(existingItem, incomingItem))
+    );
+    if (shouldPreserveUserMessage) {
+      merged.push(existingItem);
+    }
+  }
+
+  for (const incomingItem of incomingItems) {
+    if (!consumedIncomingIds.has(incomingItem.id)) {
+      merged.push(incomingItem);
+    }
+  }
+
+  return merged;
 }
 
 function normalizeAttachment(value) {
@@ -311,7 +378,10 @@ export const useClientStore = create((set, get) => {
     set((state) => {
       const timelinesByThread = { ...state.timelinesByThread };
       if (Array.isArray(timelineItems)) {
-        timelinesByThread[threadId] = timelineItems.map(normalizeTimelineItem);
+        timelinesByThread[threadId] = mergeTimelineItems(
+          timelinesByThread[threadId] || [],
+          timelineItems.map(normalizeTimelineItem),
+        );
       }
 
       const tokenUsageByThread = { ...state.tokenUsageByThread };
@@ -483,6 +553,7 @@ export const useClientStore = create((set, get) => {
         attachments,
         time: new Date().toISOString(),
         done: true,
+        optimistic: true,
       };
 
       set((state) => ({
@@ -506,13 +577,14 @@ export const useClientStore = create((set, get) => {
           const thread = await startThread({
             cwd,
             name: text.slice(0, 40),
+            prompt: text,
             provider: get().provider || DEFAULT_PROVIDER,
             deferSpawn: true,
             launchIntentId,
             optimisticUserMessage: text,
             skipInitialRuntimeSync: true,
           });
-          threadId = normalizeThreadId(thread?.threadId || thread?.id);
+          threadId = normalizeThreadStartId(thread);
           if (!threadId) throw new Error('thread/start response missing threadId');
           set((state) => {
             const provisionalTimeline = state.timelinesByThread[provisionalThreadId] || [];

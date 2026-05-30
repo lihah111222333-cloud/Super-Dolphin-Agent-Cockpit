@@ -404,7 +404,7 @@ select {
 .timeline {
   min-height: 0;
   overflow: auto;
-  padding: 0 28px 20px 28px;
+  padding: 0 28px 32px 28px;
 }
 
 .empty-chat {
@@ -532,33 +532,129 @@ select {
 }
 
 .composer {
-  display: grid;
-  grid-template-columns: 100px minmax(0, 1fr) 62px;
-  align-items: center;
-  gap: 14px;
+  display: block;
   padding: 18px 24px 16px;
   border-top: 1px solid var(--line);
-  background: #0f0f0f;
+  background: linear-gradient(180deg, rgba(10, 10, 10, 0.84), #0f0f0f);
 }
 
-.composer button {
-  min-height: 52px;
+.composer--docked {
+  position: sticky;
+  bottom: 0;
+  z-index: 6;
+  flex: 0 0 auto;
+}
+
+.composer-card {
+  width: min(860px, 100%);
+  margin: 0 auto;
   border: 1px solid var(--line-strong);
-  border-radius: 12px;
-  background: #202020;
+  border-radius: 18px;
+  background: #1f1f20;
+  box-shadow: 0 -20px 42px rgba(0, 0, 0, 0.26);
+  overflow: hidden;
+}
+
+.composer textarea {
+  display: block;
+  width: 100%;
+  height: 72px;
+  resize: none;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  border-radius: 0;
+  background: transparent;
+  color: var(--ink);
+  padding: 14px 16px 8px;
+  outline: none;
+  font-size: 16px;
+}
+
+.composer textarea:focus {
+  border-color: #c5c8cc;
+}
+
+.composer-meta {
+  min-width: 0;
+  min-height: 46px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 10px 10px;
+}
+
+.composer button,
+.permission-chip select {
+  min-height: 34px;
+  border: 1px solid var(--line-strong);
+  border-radius: 999px;
+  background: #242526;
   color: var(--ink);
 }
 
-.composer-main {
+.composer-attach {
+  flex: 0 0 34px;
+  width: 34px;
+  padding: 0;
+  display: inline-grid;
+  place-items: center;
+}
+
+.permission-chip {
+  flex: 0 0 auto;
+}
+
+.permission-chip select {
+  padding: 0 12px;
+  color: #ffb47f;
+}
+
+.composer-project,
+.composer-model {
   min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 13px;
+  white-space: nowrap;
+}
+
+.composer-project {
+  max-width: 36%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.composer-project svg {
+  flex: 0 0 auto;
+}
+
+.composer-model {
+  margin-left: auto;
+  padding: 0 8px;
+  border-radius: 999px;
+  background: #242526;
+}
+
+.composer .send {
+  flex: 0 0 38px;
+  width: 38px;
+  height: 38px;
+  min-height: 38px;
   display: grid;
-  gap: 8px;
+  place-items: center;
+  border-radius: 999px;
+  background: #f4f4f4;
+  color: #030303;
+  padding: 0;
 }
 
 .attachments {
   display: flex;
   gap: 8px;
   overflow: auto;
+  padding: 10px 10px 0;
 }
 
 .attachments button {
@@ -567,32 +663,6 @@ select {
   padding: 0 10px;
   color: var(--blue);
   white-space: nowrap;
-}
-
-.composer textarea {
-  height: 66px;
-  resize: none;
-  border: 1px solid var(--line-strong);
-  border-radius: 12px;
-  background: #1f1f20;
-  color: var(--ink);
-  padding: 14px 16px;
-  outline: none;
-  font-size: 17px;
-}
-
-.composer textarea:focus {
-  border-color: #c5c8cc;
-}
-
-.composer .send {
-  width: 58px;
-  height: 58px;
-  display: grid;
-  place-items: center;
-  border-radius: 999px;
-  background: #f4f4f4;
-  color: #030303;
 }
 
 .runtime-panel {
@@ -1253,15 +1323,56 @@ dd {
   grid-template-columns: repeat(2, minmax(240px, 1fr));
 }
 
+.form-line label,
+.form-grid label {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: #a8abb1;
+}
+
+.form-grid label {
+  align-items: stretch;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.form-grid label.wide {
+  grid-column: 1 / -1;
+}
+
+.form-grid label.checkbox-line {
+  align-items: center;
+  flex-direction: row;
+  justify-content: flex-start;
+}
+
 .form-line input,
 .form-grid input,
-.form-grid select {
+.form-grid select,
+.form-grid textarea {
   min-height: 32px;
   border: 1px solid var(--line);
   border-radius: 5px;
   background: #202020;
   color: var(--ink);
   padding: 0 10px;
+}
+
+.form-grid textarea {
+  min-height: 74px;
+  padding: 10px;
+  resize: vertical;
+}
+
+.settings-actions {
+  display: flex;
+  justify-content: flex-start;
+  margin-top: 14px;
+}
+
+.settings-status {
+  color: var(--green);
 }
 
 .danger-text {
@@ -1319,11 +1430,19 @@ dd {
   }
 
   .composer {
-    grid-template-columns: 1fr 54px;
+    padding: 12px;
   }
 
-  .composer > button:first-child {
-    display: none;
+  .composer-meta {
+    flex-wrap: wrap;
+  }
+
+  .composer-project {
+    max-width: calc(100% - 86px);
+  }
+
+  .composer-model {
+    margin-left: 0;
   }
 
   .skill-grid,

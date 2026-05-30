@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   AlertTriangle,
   Archive,
@@ -28,6 +28,7 @@ import {
   Workflow,
 } from 'lucide-react';
 import { useClientStore } from './entities/client/model/useClientStore.js';
+import { getBuildInfo, getPreference, setPreference } from './shared/api/backendApi.js';
 
 const navItems = [
   { id: 'chat', label: 'Chat', icon: MessageCircle },
@@ -60,6 +61,114 @@ const memories = [
   ['遵守 TDD', '用户要求后续开发严格遵守 TDD：先写红测并运行确认...', '偏好', '私有'],
   ['同步脚本', '打包/验证脚本修复必须同步 macOS 和 Linux 对应路...', '偏好', '私有'],
 ];
+
+function projectDisplayName(path) {
+  const value = (path || '').toString().trim();
+  if (!value || value === '未选择项目') return '未选择项目';
+  return value.split(/[\\/]/).filter(Boolean).pop() || value;
+}
+
+const SETTINGS_KEYS = Object.freeze({
+  stallThreshold: 'stallThresholdSec',
+  contextThresholds: 'contextUsageAlerts.thresholds',
+  activeProvider: 'settings.provider.active',
+});
+
+const SETTINGS_DEFAULTS = Object.freeze({
+  stallThresholdSec: 30,
+  contextThresholds: [70, 85, 95],
+  activeProvider: 'codex',
+  codexHome: '~/.codex',
+  codexInstanceKey: 'default',
+  codexModelProvider: 'openai',
+  providerModel: 'gpt-5',
+  providerEffort: 'high',
+  sandboxPolicy: 'workspaceWrite',
+  writableRoots: '',
+  networkAccess: false,
+});
+
+function providerSettingKey(provider, key) {
+  return `settings.provider.${provider}.${key}`;
+}
+
+function normalizeSettingsCwd(value) {
+  const cwd = (value || '').toString().trim();
+  if (!cwd || cwd === '.' || cwd === '未选择项目') {
+    throw new Error('settings: cwd is required');
+  }
+  return cwd;
+}
+
+function stringSetting(value, fallback) {
+  if (typeof value === 'string' && value.trim()) return value.trim();
+  return fallback;
+}
+
+function numberSetting(value, fallback) {
+  const number = Number(value);
+  return Number.isFinite(number) ? number : fallback;
+}
+
+function normalizeProviderName(value) {
+  const provider = stringSetting(value, SETTINGS_DEFAULTS.activeProvider).toLowerCase();
+  return provider === 'claude' ? 'claude' : 'codex';
+}
+
+function normalizeContextThresholds(value) {
+  if (!Array.isArray(value) || value.length < 3) return SETTINGS_DEFAULTS.contextThresholds;
+  return [
+    numberSetting(value[0], SETTINGS_DEFAULTS.contextThresholds[0]),
+    numberSetting(value[1], SETTINGS_DEFAULTS.contextThresholds[1]),
+    numberSetting(value[2], SETTINGS_DEFAULTS.contextThresholds[2]),
+  ];
+}
+
+function sandboxPolicyFromPreference(value) {
+  if (typeof value === 'string') return value;
+  if (value && typeof value === 'object') {
+    return value.type || value.mode || SETTINGS_DEFAULTS.sandboxPolicy;
+  }
+  return SETTINGS_DEFAULTS.sandboxPolicy;
+}
+
+function writableRootsFromPreference(value) {
+  if (!value || typeof value !== 'object' || !Array.isArray(value.writableRoots)) return '';
+  return value.writableRoots.join('\n');
+}
+
+function sandboxPreferenceValue(policy, writableRootsText, networkAccess) {
+  if (policy === 'readOnly') return { type: 'readOnly' };
+  if (policy === 'dangerFullAccess') return { type: 'dangerFullAccess' };
+  const writableRoots = writableRootsText
+    .split(/\r?\n/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+  return {
+    type: 'workspaceWrite',
+    writableRoots,
+    networkAccess: Boolean(networkAccess),
+  };
+}
+
+function parsePositiveInteger(label, value) {
+  const parsed = Number.parseInt(value, 10);
+  if (!Number.isInteger(parsed)) throw new Error(`${label} 必须是整数`);
+  return parsed;
+}
+
+function validateRuntimeThresholds(form) {
+  const stallThresholdSec = parsePositiveInteger('统一超时阈值', form.stallThresholdSec);
+  if (stallThresholdSec < 30) throw new Error('统一超时阈值必须大于或等于 30 秒');
+
+  const warn = parsePositiveInteger('Warn 阈值', form.contextWarn);
+  const danger = parsePositiveInteger('Danger 阈值', form.contextDanger);
+  const critical = parsePositiveInteger('Critical 阈值', form.contextCritical);
+  if (!(warn > 0 && warn < danger && danger < critical && critical <= 100)) {
+    throw new Error('上下文阈值必须满足 0 < warn < danger < critical <= 100');
+  }
+  return { stallThresholdSec, contextThresholds: [warn, danger, critical] };
+}
 
 function App({ skipBootstrap = false }) {
   const store = useClientStore();
@@ -96,7 +205,7 @@ function App({ skipBootstrap = false }) {
           {store.activePage === 'skills' ? <SkillsPage projectPath={projectPath} /> : null}
           {store.activePage === 'memory' ? <MemoryPage /> : null}
           {store.activePage === 'files' ? <FilesPage /> : null}
-          {store.activePage === 'settings' ? <SettingsPage /> : null}
+          {store.activePage === 'settings' ? <SettingsPage projectPath={projectPath} /> : null}
           <span className="sr-only">当前页面：{activeLabel}</span>
         </main>
       </div>
@@ -182,6 +291,8 @@ function ChatPage({ store, projectPath }) {
           removeAttachment={store.removeAttachment}
           sending={store.sending}
           projectPath={projectPath}
+          permission={store.permission}
+          setPermission={store.setPermission}
           tokenUsage={tokenUsage}
           activeThreadId={activeThreadId}
         />
@@ -222,7 +333,7 @@ function TopCommandBar({ store, projectPath }) {
         <option>工作区写入</option>
         <option>只读模式</option>
       </select>
-      <button type="button" className="project-pill"><Folder size={14} /> Super-Dolphin</button>
+      <button type="button" className="project-pill"><Folder size={14} /> {projectDisplayName(projectPath)}</button>
     </div>
   );
 }
@@ -268,13 +379,27 @@ function ThreadRail({ store }) {
   );
 }
 
-function Conversation({ messages, draft, setDraft, sendMessage, attachments, selectFiles, removeAttachment, sending, projectPath, tokenUsage, activeThreadId }) {
+function Conversation({
+  messages,
+  draft,
+  setDraft,
+  sendMessage,
+  attachments,
+  selectFiles,
+  removeAttachment,
+  sending,
+  projectPath,
+  permission,
+  setPermission,
+  tokenUsage,
+  activeThreadId,
+}) {
   return (
     <section className="conversation">
       <div className="timeline" data-testid="chat-timeline">
         {messages.length === 0 ? (
           <div className="empty-chat">
-            <h2>我们应该在 app 中构建什么？</h2>
+            <h2>我们应该在 {projectDisplayName(projectPath)} 中构建什么？</h2>
             <p>{projectPath}</p>
           </div>
         ) : null}
@@ -289,9 +414,8 @@ function Conversation({ messages, draft, setDraft, sendMessage, attachments, sel
         ))}
       </div>
       <WorkStatus sending={sending} activeThreadId={activeThreadId} tokenUsage={tokenUsage} />
-      <footer className="composer" data-testid="composer-dock">
-        <button type="button" aria-label="添加文件" onClick={() => void selectFiles()}>附件</button>
-        <div className="composer-main">
+      <footer className="composer composer--docked" data-testid="composer-dock">
+        <div className="composer-card">
           {attachments.length > 0 ? (
             <div className="attachments">
               {attachments.map((item) => (
@@ -313,10 +437,28 @@ function Conversation({ messages, draft, setDraft, sendMessage, attachments, sel
             }}
             placeholder="输入给 Agent 的内容，Enter 发送，Shift+Enter 换行"
           />
+          <div className="composer-meta">
+            <button type="button" className="composer-attach" aria-label="添加文件" onClick={() => void selectFiles()}>
+              <Plus size={18} />
+            </button>
+            <label className="permission-chip">
+              <span className="sr-only">发送权限</span>
+              <select aria-label="发送权限" value={permission} onChange={(event) => setPermission(event.target.value)}>
+                <option>完全访问权限</option>
+                <option>工作区写入</option>
+                <option>只读模式</option>
+              </select>
+            </label>
+            <span className="composer-project" data-testid="composer-project" title={projectPath}>
+              <Folder size={14} />
+              {projectDisplayName(projectPath)}
+            </span>
+            <span className="composer-model">openai · 5.4 中</span>
+            <button type="button" className="send" aria-label="发送消息" disabled={sending} onClick={() => void sendMessage()}>
+              <Send size={18} />
+            </button>
+          </div>
         </div>
-        <button type="button" className="send" aria-label="发送消息" disabled={sending} onClick={() => void sendMessage()}>
-          <Send size={18} />
-        </button>
       </footer>
     </section>
   );
@@ -514,23 +656,177 @@ function MemoryCard({ title, text, tag, scope }) {
   );
 }
 
-function SettingsPage() {
+function SettingsPage({ projectPath }) {
+  const [buildInfo, setBuildInfo] = useState(null);
+  const [form, setForm] = useState({
+    stallThresholdSec: String(SETTINGS_DEFAULTS.stallThresholdSec),
+    contextWarn: String(SETTINGS_DEFAULTS.contextThresholds[0]),
+    contextDanger: String(SETTINGS_DEFAULTS.contextThresholds[1]),
+    contextCritical: String(SETTINGS_DEFAULTS.contextThresholds[2]),
+    activeProvider: SETTINGS_DEFAULTS.activeProvider,
+    codexHome: SETTINGS_DEFAULTS.codexHome,
+    codexInstanceKey: SETTINGS_DEFAULTS.codexInstanceKey,
+    codexModelProvider: SETTINGS_DEFAULTS.codexModelProvider,
+    providerModel: SETTINGS_DEFAULTS.providerModel,
+    providerEffort: SETTINGS_DEFAULTS.providerEffort,
+    sandboxPolicy: SETTINGS_DEFAULTS.sandboxPolicy,
+    writableRoots: SETTINGS_DEFAULTS.writableRoots,
+    networkAccess: SETTINGS_DEFAULTS.networkAccess,
+  });
+  const [status, setStatus] = useState('');
+  const [error, setError] = useState('');
+
+  const settingsCwd = projectPath;
+
+  const refreshBuildInfo = useCallback(async () => {
+    setError('');
+    try {
+      const info = await getBuildInfo();
+      if (!info || typeof info !== 'object') throw new Error('build info response must be an object');
+      setBuildInfo(info);
+      setStatus('构建信息已刷新');
+    } catch (err) {
+      setError(err.message || String(err));
+    }
+  }, []);
+
+  const loadPreferences = useCallback(async () => {
+    setError('');
+    const cwd = normalizeSettingsCwd(settingsCwd);
+    const [stallValue, contextValue, activeProviderValue] = await Promise.all([
+      getPreference({ cwd, key: SETTINGS_KEYS.stallThreshold }),
+      getPreference({ cwd, key: SETTINGS_KEYS.contextThresholds }),
+      getPreference({ cwd, key: SETTINGS_KEYS.activeProvider }),
+    ]);
+    const activeProvider = normalizeProviderName(activeProviderValue);
+    const providerPrefix = `settings.provider.${activeProvider}`;
+    const [
+      codexHome,
+      codexInstanceKey,
+      codexModelProvider,
+      providerModel,
+      providerEffort,
+      sandbox,
+    ] = await Promise.all([
+      getPreference({ cwd, key: providerSettingKey('codex', 'codexHome') }),
+      getPreference({ cwd, key: providerSettingKey('codex', 'codexInstanceKey') }),
+      getPreference({ cwd, key: providerSettingKey('codex', 'codexModelProvider') }),
+      getPreference({ cwd, key: `${providerPrefix}.model` }),
+      getPreference({ cwd, key: `${providerPrefix}.effort` }),
+      getPreference({ cwd, key: `${providerPrefix}.sandbox` }),
+    ]);
+    const contextThresholds = normalizeContextThresholds(contextValue);
+    setForm({
+      stallThresholdSec: String(numberSetting(stallValue, SETTINGS_DEFAULTS.stallThresholdSec)),
+      contextWarn: String(contextThresholds[0]),
+      contextDanger: String(contextThresholds[1]),
+      contextCritical: String(contextThresholds[2]),
+      activeProvider,
+      codexHome: stringSetting(codexHome, SETTINGS_DEFAULTS.codexHome),
+      codexInstanceKey: stringSetting(codexInstanceKey, SETTINGS_DEFAULTS.codexInstanceKey),
+      codexModelProvider: stringSetting(codexModelProvider, SETTINGS_DEFAULTS.codexModelProvider),
+      providerModel: stringSetting(providerModel, SETTINGS_DEFAULTS.providerModel),
+      providerEffort: stringSetting(providerEffort, SETTINGS_DEFAULTS.providerEffort),
+      sandboxPolicy: sandboxPolicyFromPreference(sandbox),
+      writableRoots: writableRootsFromPreference(sandbox),
+      networkAccess: Boolean(sandbox && typeof sandbox === 'object' && sandbox.networkAccess),
+    });
+  }, [settingsCwd]);
+
+  useEffect(() => {
+    refreshBuildInfo().catch(() => {});
+  }, [refreshBuildInfo]);
+
+  useEffect(() => {
+    loadPreferences().catch((err) => {
+      setError(err.message || String(err));
+    });
+  }, [loadPreferences]);
+
+  const updateForm = (key) => (event) => {
+    const value = event.target.type === 'checkbox' ? event.target.checked : event.target.value;
+    setForm((current) => ({ ...current, [key]: value }));
+  };
+
+  const saveRuntimeSettings = async () => {
+    setError('');
+    setStatus('');
+    try {
+      const cwd = normalizeSettingsCwd(settingsCwd);
+      const { stallThresholdSec, contextThresholds } = validateRuntimeThresholds(form);
+      await setPreference({ cwd, key: SETTINGS_KEYS.stallThreshold, value: stallThresholdSec });
+      await setPreference({ cwd, key: SETTINGS_KEYS.contextThresholds, value: contextThresholds });
+      setStatus('运行阈值已保存');
+    } catch (err) {
+      setError(err.message || String(err));
+    }
+  };
+
+  const saveProviderSettings = async () => {
+    setError('');
+    setStatus('');
+    try {
+      const cwd = normalizeSettingsCwd(settingsCwd);
+      const provider = normalizeProviderName(form.activeProvider);
+      await setPreference({ cwd, key: SETTINGS_KEYS.activeProvider, value: provider });
+      await setPreference({ cwd, key: providerSettingKey(provider, 'model'), value: form.providerModel.trim() });
+      await setPreference({ cwd, key: providerSettingKey(provider, 'effort'), value: form.providerEffort.trim() });
+      await setPreference({
+        cwd,
+        key: providerSettingKey(provider, 'sandbox'),
+        value: sandboxPreferenceValue(form.sandboxPolicy, form.writableRoots, form.networkAccess),
+      });
+      await setPreference({ cwd, key: providerSettingKey('codex', 'codexHome'), value: form.codexHome.trim() });
+      await setPreference({ cwd, key: providerSettingKey('codex', 'codexInstanceKey'), value: form.codexInstanceKey.trim() });
+      await setPreference({ cwd, key: providerSettingKey('codex', 'codexModelProvider'), value: form.codexModelProvider.trim() });
+      setStatus('Provider 设置已保存');
+    } catch (err) {
+      setError(err.message || String(err));
+    }
+  };
+
   return (
     <section className="settings-page">
-      <PageHeader icon={Settings} title="设置" />
+      <PageHeader icon={Settings} title="设置" actions={<button type="button" onClick={() => void refreshBuildInfo()}>刷新构建信息</button>} />
       <Panel title="ABOUT">
-        <dl><dt>版本</dt><dd>Agent Orchestrator v0.0.0-20260529133452</dd><dt>前端</dt><dd>Wails WebKit · Go Backend · window/main</dd></dl>
+        <dl>
+          <dt>版本</dt><dd>Agent Orchestrator {buildInfo?.version || 'unknown'}</dd>
+          <dt>运行时</dt><dd>{buildInfo?.runtime || 'unknown'}</dd>
+          <dt>构建时间</dt><dd>{buildInfo?.buildTime || 'unknown'}</dd>
+          <dt>Commit</dt><dd>{buildInfo?.commit || 'unknown'}</dd>
+          <dt>当前项目</dt><dd>{settingsCwd}</dd>
+        </dl>
       </Panel>
       <Panel title="TURN TRACKER">
-        <div className="form-line"><label>每一轮阈值 <input value="30" readOnly /> 秒</label><button>保存</button></div>
-        <p className="danger-text">当前设置偏严格，已自动限制为 30s</p>
+        <div className="form-line">
+          <label>统一超时阈值<input aria-label="统一超时阈值" type="number" min="30" value={form.stallThresholdSec} onChange={updateForm('stallThresholdSec')} /> 秒</label>
+          <button type="button" onClick={() => void saveRuntimeSettings()}>保存超时阈值</button>
+        </div>
       </Panel>
       <Panel title="CONTEXT USAGE ALERT">
-        <div className="form-line"><label>% warn <input value="70" readOnly /></label><label>% danger <input value="85" readOnly /></label><label>% critical <input value="95" readOnly /></label><button>保存</button></div>
+        <div className="form-line">
+          <label>Warn 阈值<input type="number" min="1" max="100" value={form.contextWarn} onChange={updateForm('contextWarn')} /></label>
+          <label>Danger 阈值<input type="number" min="1" max="100" value={form.contextDanger} onChange={updateForm('contextDanger')} /></label>
+          <label>Critical 阈值<input type="number" min="1" max="100" value={form.contextCritical} onChange={updateForm('contextCritical')} /></label>
+          <button type="button" onClick={() => void saveRuntimeSettings()}>保存运行阈值</button>
+        </div>
       </Panel>
       <Panel title="PROVIDER">
-        <div className="form-grid"><label>Active Provider<select defaultValue="codex"><option value="codex">Codex (默认)</option></select></label><label>Codex Home<input value="~/codex" readOnly /></label><label>Instance Key<input value="default" readOnly /></label><label>Model Provider<input value="openai" readOnly /></label></div>
+        <div className="form-grid">
+          <label>Active Provider<select value={form.activeProvider} onChange={updateForm('activeProvider')}><option value="codex">Codex</option><option value="claude">Claude</option></select></label>
+          <label>Provider Model<input value={form.providerModel} onChange={updateForm('providerModel')} /></label>
+          <label>Provider Effort<input value={form.providerEffort} onChange={updateForm('providerEffort')} /></label>
+          <label>Codex Home<input value={form.codexHome} onChange={updateForm('codexHome')} /></label>
+          <label>Instance Key<input value={form.codexInstanceKey} onChange={updateForm('codexInstanceKey')} /></label>
+          <label>Model Provider<input value={form.codexModelProvider} onChange={updateForm('codexModelProvider')} /></label>
+          <label>Sandbox Policy<select value={form.sandboxPolicy} onChange={updateForm('sandboxPolicy')}><option value="workspaceWrite">workspaceWrite</option><option value="readOnly">readOnly</option><option value="dangerFullAccess">dangerFullAccess</option></select></label>
+          <label className="checkbox-line"><input type="checkbox" checked={form.networkAccess} onChange={updateForm('networkAccess')} /> Network Access</label>
+          <label className="wide">Writable Roots<textarea value={form.writableRoots} onChange={updateForm('writableRoots')} placeholder="每行一个绝对路径" /></label>
+        </div>
+        <div className="settings-actions"><button type="button" onClick={() => void saveProviderSettings()}>保存 Provider 设置</button></div>
       </Panel>
+      {status ? <p className="settings-status">{status}</p> : null}
+      {error ? <p className="danger-text" role="alert">{error}</p> : null}
     </section>
   );
 }
