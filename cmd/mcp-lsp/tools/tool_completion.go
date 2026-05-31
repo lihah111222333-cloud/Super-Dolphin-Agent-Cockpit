@@ -61,19 +61,18 @@ func completionWithIdentifierEndRetry(ctx context.Context, manager lspmanager.Ma
 	if completionHasItems(result) {
 		return result, nil
 	}
-	retryPosition, ok, err := identifierEndCompletionRetryPosition(filePath, position)
+	retryPositions, err := identifierCompletionRetryPositions(filePath, position)
 	if err != nil {
 		return nil, err
 	}
-	if !ok {
-		return result, nil
-	}
-	retryResult, err := manager.Completion(ctx, filePath, retryPosition)
-	if err != nil {
-		return nil, err
-	}
-	if completionHasItems(retryResult) {
-		return retryResult, nil
+	for _, retryPosition := range retryPositions {
+		retryResult, err := manager.Completion(ctx, filePath, retryPosition)
+		if err != nil {
+			return nil, err
+		}
+		if completionHasItems(retryResult) {
+			return retryResult, nil
+		}
 	}
 	return result, nil
 }
@@ -82,32 +81,29 @@ func completionHasItems(result *protocol.CompletionList) bool {
 	return result != nil && len(result.Items) > 0
 }
 
-func identifierEndCompletionRetryPosition(filePath string, position protocol.Position) (protocol.Position, bool, error) {
+func identifierCompletionRetryPositions(filePath string, position protocol.Position) ([]protocol.Position, error) {
 	if position.Line < 0 || position.Character < 0 {
-		return protocol.Position{}, false, nil
+		return nil, nil
 	}
 	content, err := os.ReadFile(filePath)
 	if err != nil {
-		return protocol.Position{}, false, err
+		return nil, err
 	}
 	lines := splitNormalizedLines(string(content))
 	if position.Line >= len(lines) {
-		return protocol.Position{}, false, fmt.Errorf("completion retry line %d is outside file with %d lines", position.Line+1, len(lines))
+		return nil, fmt.Errorf("completion retry line %d is outside file with %d lines", position.Line+1, len(lines))
 	}
 	runes := []rune(lines[position.Line])
 	if position.Character > len(runes) {
-		return protocol.Position{}, false, fmt.Errorf("completion retry character %d is outside line length %d", position.Character+1, len(runes)+1)
+		return nil, fmt.Errorf("completion retry character %d is outside line length %d", position.Character+1, len(runes)+1)
 	}
 	anchor, ok := completionIdentifierAnchor(runes, position.Character)
 	if !ok {
-		return protocol.Position{}, false, nil
+		return nil, nil
 	}
+	start := completionIdentifierStart(runes, anchor)
 	end := completionIdentifierEnd(runes, anchor)
-	retryCharacter := end + 1
-	if retryCharacter == position.Character {
-		return protocol.Position{}, false, nil
-	}
-	return protocol.Position{Line: position.Line, Character: retryCharacter}, true, nil
+	return completionRetryPositions(position.Line, position.Character, runes, start, end), nil
 }
 
 func completionIdentifierAnchor(runes []rune, character int) (int, bool) {
@@ -127,6 +123,45 @@ func completionIdentifierEnd(runes []rune, anchor int) int {
 		end++
 	}
 	return end
+}
+
+func completionIdentifierStart(runes []rune, anchor int) int {
+	start := anchor
+	for start > 0 && isCompletionIdentifierRune(runes[start-1]) {
+		start--
+	}
+	return start
+}
+
+func completionRetryPositions(line int, original int, runes []rune, start int, end int) []protocol.Position {
+	characters := []int{
+		end + 1,
+		end,
+		completionIdentifierSuffixStart(runes, start, end),
+		start,
+	}
+	positions := make([]protocol.Position, 0, len(characters))
+	seen := make(map[int]struct{}, len(characters))
+	for _, character := range characters {
+		if character == original {
+			continue
+		}
+		if _, ok := seen[character]; ok {
+			continue
+		}
+		seen[character] = struct{}{}
+		positions = append(positions, protocol.Position{Line: line, Character: character})
+	}
+	return positions
+}
+
+func completionIdentifierSuffixStart(runes []rune, start int, end int) int {
+	for index := end; index >= start; index-- {
+		if runes[index] == '_' && index < end {
+			return index + 1
+		}
+	}
+	return start
 }
 
 func isCompletionIdentifierRune(r rune) bool {
