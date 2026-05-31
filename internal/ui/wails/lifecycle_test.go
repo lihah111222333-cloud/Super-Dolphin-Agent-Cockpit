@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 )
 
 type stubLifecycleTimer struct {
@@ -73,16 +75,38 @@ func TestRequestBackendShutdownArmsHardDeadline(t *testing.T) {
 	}
 }
 
-func TestNewActiveAgentCounterFailsFastWithoutOrchestrationService(t *testing.T) {
+func TestNewActiveAgentCounterFailsFastWithoutActiveAgentSource(t *testing.T) {
 	t.Parallel()
 
 	counter := NewActiveAgentCounter(activeAgentCounterParams{})
 	count, err := counter.ActiveAgentCount(context.Background())
-	if err == nil || !strings.Contains(err.Error(), "orchestration service is not configured") {
-		t.Fatalf("ActiveAgentCount() error = %v, want missing orchestration service", err)
+	if err == nil || !strings.Contains(err.Error(), "active agent source is not configured") {
+		t.Fatalf("ActiveAgentCount() error = %v, want missing active agent source", err)
 	}
 	if count != 0 {
 		t.Fatalf("ActiveAgentCount() count = %d, want 0 with error", count)
+	}
+}
+
+func TestNewActiveAgentCounterUsesThreadListerWithoutOrchestrationService(t *testing.T) {
+	t.Parallel()
+
+	counter := NewActiveAgentCounter(activeAgentCounterParams{
+		Threads: stubThreadLister{refs: []contract.ThreadRef{
+			{ID: "created", Status: "created"},
+			{ID: "stopped", Status: "stopped"},
+			{ID: "archived", Status: "archived"},
+			{ID: "failed", Status: "failed"},
+			{ID: "empty"},
+		}},
+	})
+
+	count, err := counter.ActiveAgentCount(context.Background())
+	if err != nil {
+		t.Fatalf("ActiveAgentCount() error = %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("ActiveAgentCount() count = %d, want 1", count)
 	}
 }
 
@@ -118,4 +142,13 @@ func TestShouldQuitStartsShutdownWhenActiveAgentCountFails(t *testing.T) {
 	if emittedName != "app-quit-error" {
 		t.Fatalf("emitted event = %q/%#v, want app-quit-error", emittedName, emittedPayload)
 	}
+}
+
+type stubThreadLister struct {
+	refs []contract.ThreadRef
+	err  error
+}
+
+func (s stubThreadLister) List(context.Context) ([]contract.ThreadRef, error) {
+	return s.refs, s.err
 }

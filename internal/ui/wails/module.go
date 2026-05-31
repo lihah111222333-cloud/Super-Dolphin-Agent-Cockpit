@@ -48,31 +48,37 @@ func NewService(app *App) application.Service {
 type activeAgentCounterParams struct {
 	fx.In
 
-	Service contract.OrchestrationService `optional:"true"`
+	Threads contract.ThreadLister
 }
 
 func NewActiveAgentCounter(p activeAgentCounterParams) ActiveAgentCounter {
-	if p.Service == nil {
-		return ActiveAgentCounterFunc(func(context.Context) (int, error) {
-			return 0, errors.New("orchestration service is not configured")
+	if p.Threads != nil {
+		return ActiveAgentCounterFunc(func(ctx context.Context) (int, error) {
+			threads, err := p.Threads.List(ctx)
+			if err != nil {
+				return 0, err
+			}
+			active := 0
+			for _, thread := range threads {
+				if isActiveThreadStatus(thread.Status) {
+					active++
+				}
+			}
+			return active, nil
 		})
 	}
-	return ActiveAgentCounterFunc(func(ctx context.Context) (int, error) {
-		snapshots, err := p.Service.ListAgents(ctx)
-		if err != nil {
-			return 0, err
-		}
-		active := 0
-		for _, snapshot := range snapshots {
-			// P22 P4 S1b: the "active" predicate is now a public
-			// contract helper so the UI and any other consumer share
-			// a single authoritative definition.
-			if contract.IsActiveAgentState(snapshot.State) {
-				active++
-			}
-		}
-		return active, nil
+	return ActiveAgentCounterFunc(func(context.Context) (int, error) {
+		return 0, errors.New("active agent source is not configured")
 	})
+}
+
+func isActiveThreadStatus(status string) bool {
+	switch strings.TrimSpace(status) {
+	case "", "stopped", "failed", "archived":
+		return false
+	default:
+		return true
+	}
 }
 
 type applicationParams struct {

@@ -43,6 +43,17 @@ func TestMakeDebugExportsSameDevDSNAndDevMode(t *testing.T) {
 	assertScriptContains(t, makefile, "run-agent-terminal-debug-plain")
 }
 
+func TestRunDebugShellRebuildsKilledCodeSizeGuardCache(t *testing.T) {
+	script := readScript(t, "../run-debug.sh")
+	assertScriptContains(t, script, "rebuild_code_size_guard()")
+	assertScriptContains(t, script, "code_size_guard 缓存执行失败")
+	assertScriptContains(t, script, `rm -f "$_GUARD_BIN" "$_GUARD_HASH_FILE"`)
+	assertScriptContains(t, script, `[ "$_GUARD_STATUS" -eq 126 ] || [ "$_GUARD_STATUS" -eq 137 ]`)
+	assertScriptOrder(t, script, "rebuild_code_size_guard()", "if [ ! -f \"$_GUARD_BIN\" ]")
+	assertScriptOrder(t, script, "code_size_guard 缓存执行失败", "rm -f \"$_GUARD_BIN\" \"$_GUARD_HASH_FILE\"")
+	assertScriptOrder(t, script, "rm -f \"$_GUARD_BIN\" \"$_GUARD_HASH_FILE\"", "  rebuild_code_size_guard\n  if \"$_GUARD_BIN\"; then")
+}
+
 func readRepoFile(t *testing.T, path string) string {
 	t.Helper()
 	raw, err := os.ReadFile(path)

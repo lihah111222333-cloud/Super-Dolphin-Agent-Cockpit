@@ -13,11 +13,15 @@ import {
   getPreference,
   interruptTurn,
   onBridgeEvent,
+  openNewWindow as openNewWindowRPC,
   readConfig,
   recoverThread,
   registerBridgeLogStore,
   renameThread as renameThreadRPC,
   resolveThreadIdentity,
+  saveClipboardImage,
+  beginTextClipboardWrite,
+  copyTextToClipboard,
   selectFiles,
   selectProjectDir,
   setActiveProject as setActiveProjectRPC,
@@ -31,8 +35,12 @@ import {
 
 const DEFAULT_PROVIDER = 'codex';
 const MAX_WARNING_ENTRIES = 300;
+const MAX_RUNTIME_RESULT_ENTRIES = 120;
+const RUNTIME_RESULT_DETAIL_LIMIT = 1600;
 const PROVIDER_ACTIVE_PREF_KEY = 'settings.provider.active';
 const ACTIVE_PROMPT_PREF_KEY = 'settings.activePromptKey';
+const THREAD_PINS_CHAT_PREF_KEY = 'threadPins.chat';
+const objectPrototype = Object.prototype;
 const CODEX_IDENTITY_DEFAULTS = Object.freeze({
   codexHome: '~/.codex',
   codexInstanceKey: 'default',
@@ -50,6 +58,7 @@ const BOOTSTRAP_PAGE_ALIASES = Object.freeze({
   memory: 'files',
 });
 const APP_PAGE_IDS = new Set(['chat', 'prompts', 'workflows', 'skills', 'memory', 'files', 'settings']);
+const IMAGE_ATTACHMENT_RE = /\.(png|jpe?g|gif|webp|bmp|svg)$/i;
 
 function normalizeString(value) {
   return (value || '').toString().trim();
@@ -90,6 +99,15 @@ function normalizeTimestamp(value) {
   if (Number.isFinite(asNumber) && asNumber > 0) return asNumber;
   const parsed = Date.parse(text);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
+}
+
+function normalizeTimestampMap(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
+  return Object.fromEntries(
+    Object.entries(value)
+      .map(([key, timestamp]) => [normalizeThreadId(key), normalizeTimestamp(timestamp)])
+      .filter(([key, timestamp]) => key && timestamp > 0),
+  );
 }
 
 function normalizeProviderName(value) {
@@ -212,6 +230,23 @@ function basename(path) {
   return value.split(/[\\/]/).filter(Boolean).pop() || value;
 }
 
+function isImagePath(path) {
+  return IMAGE_ATTACHMENT_RE.test(normalizeString(path));
+}
+
+function normalizeFileAttachment(path) {
+  const value = normalizeString(path);
+  if (!value) return null;
+  const name = basename(value);
+  const image = isImagePath(name);
+  return {
+    path: value,
+    name,
+    kind: image ? 'image' : 'file',
+    previewUrl: image ? `file://${value}` : '',
+  };
+}
+
 function projectShortLabel(path) {
   const value = normalizeString(path);
   if (!value || value === '.') return '当前目录 (.)';
@@ -221,6 +256,10 @@ function projectShortLabel(path) {
 
 function normalizeThreadId(value) {
   return normalizeString(value);
+}
+
+function hasOwn(value, key) {
+  return Boolean(value && typeof value === 'object' && objectPrototype.hasOwnProperty.call(value, key));
 }
 
 function isAgentRuntimeId(value) {
@@ -287,6 +326,109 @@ function normalizeThreadIdentity(raw) {
     sessionId: normalizeThreadId(raw?.sessionId || raw?.session_id || thread?.sessionId || thread?.session_id),
   };
 }
+
+function firstThreadCopyText(...values) {
+  for (const value of values) {
+    if (value === null || value === undefined || typeof value === 'boolean') continue;
+    if (typeof value === 'number' && Number.isFinite(value)) return String(value);
+    if (typeof value !== 'string') continue;
+    const text = value.trim();
+    if (text && text !== '.' && text !== '[object Object]') return text;
+  }
+  return '';
+}
+
+function positiveThreadCopyPort(...values) {
+  for (const value of values) {
+    const number = Number(value);
+    if (Number.isFinite(number) && number > 0) return number;
+  }
+  return null;
+}
+
+function normalizeLogScopeCwd(value) {
+  const raw = normalizePath(value);
+  if (!raw || raw === '.') return '';
+  return raw;
+}
+
+function buildCwdLogPath(cwd) {
+  const normalized = normalizeLogScopeCwd(cwd);
+  if (!normalized || /^[A-Za-z]:$/.test(normalized) || /^[\\/]+$/.test(normalized)) return null;
+  const projectName = normalized.split(/[\\/]/).filter(Boolean).pop() || '';
+  if (!projectName || projectName === '.' || projectName === '/') return null;
+  return `~/.multi-agent/log/${projectName}/`;
+}
+
+function formatUTC8HumanReadable(value = new Date()) {
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) return '';
+  const utc8 = new Date(date.getTime() + (8 * 60 * 60 * 1000));
+  const year = utc8.getUTCFullYear();
+  const month = String(utc8.getUTCMonth() + 1).padStart(2, '0');
+  const day = String(utc8.getUTCDate()).padStart(2, '0');
+  const hours = String(utc8.getUTCHours()).padStart(2, '0');
+  const minutes = String(utc8.getUTCMinutes()).padStart(2, '0');
+  const seconds = String(utc8.getUTCSeconds()).padStart(2, '0');
+  return `${year}-${month}-${day} ${hours}:${minutes}:${seconds} UTC+8`;
+}
+
+function buildThreadCopyPayload({ state, threadId, thread = {}, identity = {}, threadConfig = null }) {
+  const providerThreadId = firstThreadCopyText(
+    identity.providerThreadId,
+    identity.provider_thread_id,
+    thread.providerThreadId,
+    thread.provider_thread_id,
+  );
+  const agentId = firstThreadCopyText(
+    identity.agentId,
+    identity.agent_id,
+    thread.agentId,
+    thread.agent_id,
+    threadId,
+  );
+  const provider = firstThreadCopyText(identity.provider, thread.provider, state.provider) || DEFAULT_PROVIDER;
+  const cwd = firstThreadCopyText(identity.cwd, identity.CWD, thread.cwd, state.activeProject, state.cwd);
+  const model = firstThreadCopyText(
+    identity.model,
+    identity.effective?.model,
+    thread.model,
+    thread.effective?.model,
+    threadConfig?.effective?.model,
+    state.providerConfig?.model,
+  );
+  const effort = firstThreadCopyText(
+    identity.effort,
+    identity.reasoningEffort,
+    identity.reasoning_effort,
+    identity.effective?.effort,
+    thread.effort,
+    thread.effective?.effort,
+    threadConfig?.effective?.effort,
+    state.providerConfig?.effort,
+  );
+
+  return {
+    agentId,
+    providerThreadId,
+    uuid: firstThreadCopyText(identity.uuid, identity.sessionId, identity.session_id, providerThreadId),
+    name: firstThreadCopyText(identity.name, thread.name),
+    status: firstThreadCopyText(identity.status, thread.status, state.statuses?.[threadId]),
+    provider,
+    model: model || null,
+    effort: effort || null,
+    port: positiveThreadCopyPort(identity.port, thread.port),
+    cwd: cwd || null,
+    'log-path': firstThreadCopyText(
+      identity['log-path'],
+      identity.logPath,
+      identity.log_path,
+      thread.logPath,
+      thread.log_path,
+    ) || buildCwdLogPath(cwd),
+    copiedAt: formatUTC8HumanReadable(),
+  };
+}
 function isArchivedStatus(value) {
   const status = normalizeString(value).toLowerCase();
   return status === 'archived' || status === '归档' || status === '已归档';
@@ -295,13 +437,83 @@ function isArchivedStatus(value) {
 function archiveMapFromPayload(payload = {}) {
   const direct = payload['threadArchives.chat'] || payload.threadArchivesChat || payload.archivedThreadAtById;
   const nested = payload.threadArchives?.chat || payload.thread_archives?.chat;
-  const value = direct || nested || {};
-  return value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+  return normalizeTimestampMap(direct || nested || {});
+}
+
+function archiveMapFromThreads(threads = []) {
+  const entries = [];
+  for (const thread of threads || []) {
+    const id = normalizeThreadId(thread?.id);
+    if (!id) continue;
+    const archivedAt = normalizeTimestamp(thread?.archivedAt);
+    if (archivedAt > 0) {
+      entries.push([id, archivedAt]);
+    } else if (thread?.archived) {
+      entries.push([id, 1]);
+    }
+  }
+  return Object.fromEntries(entries);
+}
+
+function hasArchiveMapPayload(payload = {}) {
+  return Boolean(payload && typeof payload === 'object' && (
+    Object.prototype.hasOwnProperty.call(payload, 'threadArchives.chat') ||
+    Object.prototype.hasOwnProperty.call(payload, 'threadArchivesChat') ||
+    Object.prototype.hasOwnProperty.call(payload, 'archivedThreadAtById') ||
+    Object.prototype.hasOwnProperty.call(payload.threadArchives || {}, 'chat') ||
+    Object.prototype.hasOwnProperty.call(payload.thread_archives || {}, 'chat')
+  ));
+}
+
+function pinMapFromPayload(payload = {}) {
+  const direct = payload['threadPins.chat'] || payload.threadPinsChat || payload.pinnedThreadAtById;
+  const nested = payload.threadPins?.chat || payload.thread_pins?.chat;
+  return normalizeTimestampMap(direct || nested || {});
+}
+
+function hasPinMapPayload(payload = {}) {
+  return Boolean(payload && typeof payload === 'object' && (
+    Object.prototype.hasOwnProperty.call(payload, 'threadPins.chat') ||
+    Object.prototype.hasOwnProperty.call(payload, 'threadPinsChat') ||
+    Object.prototype.hasOwnProperty.call(payload, 'pinnedThreadAtById') ||
+    Object.prototype.hasOwnProperty.call(payload.threadPins || {}, 'chat') ||
+    Object.prototype.hasOwnProperty.call(payload.thread_pins || {}, 'chat')
+  ));
 }
 
 function normalizeThread(raw, options = {}) {
   const identity = normalizeThreadIdentity(raw);
   const status = normalizeString(raw?.status || raw?.state || raw?.lifecycleStatus || raw?.lifecycle_status || raw?.threadStatus || raw?.thread_status) || '等待指示';
+  const sourceThread = raw?.thread && typeof raw.thread === 'object' ? raw.thread : {};
+  const cwd = normalizePath(
+    raw?.cwd ||
+    raw?.CWD ||
+    raw?.workdir ||
+    raw?.workDir ||
+    raw?.work_dir ||
+    sourceThread?.cwd ||
+    sourceThread?.CWD ||
+    sourceThread?.workdir ||
+    sourceThread?.workDir ||
+    sourceThread?.work_dir ||
+    options.fallbackCwd,
+  );
+  const provider = normalizeString(
+    raw?.provider ||
+    raw?.modelProvider ||
+    raw?.model_provider ||
+    raw?.agentKey ||
+    raw?.agent_key ||
+    options.fallbackProvider,
+  );
+  const pinnedAt = normalizeTimestamp(
+    raw?.pinnedAt ||
+    raw?.pinned_at ||
+    raw?.pinnedAtMs ||
+    raw?.pinned_at_ms ||
+    (typeof raw?.pinned === 'boolean' ? 0 : raw?.pinned) ||
+    options.pinnedAtById?.[identity.threadId],
+  );
   const archivedAt = normalizeTimestamp(
     raw?.archivedAt ||
     raw?.archived_at ||
@@ -316,15 +528,91 @@ function normalizeThread(raw, options = {}) {
     agentId: identity.agentId,
     providerThreadId: identity.providerThreadId,
     sessionId: identity.sessionId,
+    cwd,
     name: normalizeString(raw?.name || raw?.title || raw?.displayName || raw?.summary) || '新对话',
-    provider: normalizeString(raw?.provider || raw?.agentKey || raw?.agent_key) || DEFAULT_PROVIDER,
+    provider,
     status,
     lastMessage: normalizeString(raw?.lastMessage || raw?.last_message || raw?.preview),
     updatedAt: normalizeString(raw?.updatedAt || raw?.updated_at || raw?.createdAt || raw?.created_at),
-    pinned: Boolean(raw?.pinned || raw?.isPinned),
+    pinned: Boolean(raw?.pinned || raw?.isPinned || pinnedAt > 0),
+    pinnedAt,
     archived: Boolean(raw?.archived || raw?.isArchived || archivedAt > 0 || isArchivedStatus(status) || isArchivedStatus(lifecycleStatus)),
     archivedAt,
   };
+}
+
+function runtimeMapFromPayload(payload = {}) {
+  const value = payload.agentRuntimeById || payload.agent_runtime_by_id || {};
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
+  return value;
+}
+
+function runtimeProviderForThread(rawThread, runtimeById = {}) {
+  const identity = normalizeThreadIdentity(rawThread);
+  const candidates = [
+    identity.threadId,
+    identity.agentId,
+    identity.providerThreadId,
+    identity.sessionId,
+    rawThread?.id,
+    rawThread?.threadId,
+    rawThread?.thread_id,
+    rawThread?.agentId,
+    rawThread?.agent_id,
+  ].map(normalizeThreadId).filter(Boolean);
+  for (const candidate of candidates) {
+    const runtime = runtimeById[candidate];
+    if (!runtime || typeof runtime !== 'object' || Array.isArray(runtime)) continue;
+    const provider = normalizeString(runtime.provider || runtime.modelProvider || runtime.model_provider);
+    if (provider) return provider;
+  }
+  return '';
+}
+
+function runtimeCwdForThread(rawThread, runtimeById = {}) {
+  const identity = normalizeThreadIdentity(rawThread);
+  const candidates = [
+    identity.threadId,
+    identity.agentId,
+    identity.providerThreadId,
+    identity.sessionId,
+    rawThread?.id,
+    rawThread?.threadId,
+    rawThread?.thread_id,
+    rawThread?.agentId,
+    rawThread?.agent_id,
+  ].map(normalizeThreadId).filter(Boolean);
+  for (const candidate of candidates) {
+    const runtime = runtimeById[candidate];
+    if (!runtime || typeof runtime !== 'object' || Array.isArray(runtime)) continue;
+    const cwd = normalizePath(runtime.cwd || runtime.CWD || runtime.workdir || runtime.workDir || runtime.work_dir);
+    if (cwd) return cwd;
+  }
+  return '';
+}
+
+function snapshotThreadCwd(rawThread, runtimeById = {}) {
+  const sourceThread = rawThread?.thread && typeof rawThread.thread === 'object' ? rawThread.thread : {};
+  return normalizePath(
+    rawThread?.cwd ||
+    rawThread?.CWD ||
+    rawThread?.workdir ||
+    rawThread?.workDir ||
+    rawThread?.work_dir ||
+    sourceThread?.cwd ||
+    sourceThread?.CWD ||
+    sourceThread?.workdir ||
+    sourceThread?.workDir ||
+    sourceThread?.work_dir ||
+    runtimeCwdForThread(rawThread, runtimeById),
+  );
+}
+
+function threadMatchesCwdScope(rawThread, scopeCwd, runtimeById = {}) {
+  const scope = normalizePath(scopeCwd);
+  if (!scope || scope === '.') return true;
+  const threadCwd = snapshotThreadCwd(rawThread, runtimeById);
+  return !threadCwd || threadCwd === scope;
 }
 
 function threadMatchesIdentifier(thread, value) {
@@ -350,13 +638,59 @@ function backendThreadIdFromThreads(value, threads = [], options = {}) {
   return normalizeBackendThreadId(match?.id);
 }
 
-function backendThreadIdForState(state, value) {
+function backendThreadIdForState(state, value, options = {}) {
   const id = normalizeThreadId(value);
   if (!id) return '';
   const matchedThread = state.threads.find((thread) => threadMatchesIdentifier(thread, id));
-  if (matchedThread) return matchedThread.archived ? '' : normalizeBackendThreadId(matchedThread.id);
+  if (matchedThread) return matchedThread.archived && !options.includeArchived ? '' : normalizeBackendThreadId(matchedThread.id);
   if (isAgentRuntimeId(id)) return '';
   return normalizeBackendThreadId(id);
+}
+
+function providerForStateThread(state, value) {
+  const id = normalizeThreadId(value);
+  const matchedThread = id ? state.threads.find((thread) => threadMatchesIdentifier(thread, id)) : null;
+  return normalizeProviderName(matchedThread?.provider || state?.provider);
+}
+
+function shouldAutoLoadThreadConfig(state, value) {
+  const id = normalizeThreadId(value);
+  if (!id) return false;
+  if (state.threadConfigByThread?.[id]) return false;
+  if (state.threadConfigLoadingByThread?.[id]) return false;
+  if (state.threadConfigFailedByThread?.[id]) return false;
+  const provider = providerForStateThread(state, id);
+  return !(provider === 'codex' && isAgentRuntimeId(id));
+}
+
+function threadConfigTargetIdForState(state, value) {
+  const id = backendThreadIdForState(state, value);
+  if (!id || isAgentRuntimeId(id)) return '';
+  return id;
+}
+
+function isFailedThreadStatus(value) {
+  const status = normalizeString(value).toLowerCase();
+  return status === 'failed' || status === 'error' || status.includes('错误') || status.includes('失败');
+}
+
+function reusableThreadIdForSend(state, value) {
+  const id = normalizeThreadId(value);
+  if (!id) return '';
+  const matchedThread = state.threads.find((thread) => threadMatchesIdentifier(thread, id));
+  if (matchedThread) {
+    if (matchedThread.archived || isFailedThreadStatus(matchedThread.status)) return '';
+    return normalizeBackendThreadId(matchedThread.id);
+  }
+  if (isAgentRuntimeId(id)) return '';
+  return normalizeBackendThreadId(id);
+}
+
+function activeProviderLockedThreadId(state) {
+  const id = normalizeThreadId(state?.activeThreadId);
+  if (!id) return '';
+  const matchedThread = (state?.threads || []).find((thread) => threadMatchesIdentifier(thread, id));
+  return normalizeBackendThreadId(matchedThread?.id || id);
 }
 
 function backendThreadIdForArchiveState(state, value) {
@@ -372,12 +706,71 @@ function canonicalizeThreadKey(key, threads = []) {
   return backendThreadIdFromThreads(key, threads, { includeArchived: true }) || normalizeBackendThreadId(key) || normalizeThreadId(key);
 }
 
+function normalizeTurnSummary(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const id = normalizeString(value.id || value.turnId || value.turn_id);
+  if (!id) return null;
+  return {
+    id,
+    threadId: normalizeBackendThreadId(value.threadId || value.thread_id),
+    agentId: normalizeThreadId(value.agentId || value.agent_id),
+    status: normalizeString(value.status),
+  };
+}
+
+function canonicalizeActiveTurnByThread(activeTurnByThread = {}, threads = []) {
+  const next = {};
+  for (const [threadId, turn] of Object.entries(activeTurnByThread || {})) {
+    const normalized = normalizeTurnSummary(turn);
+    if (!normalized) continue;
+    const canonicalThreadId = canonicalizeThreadKey(normalized.threadId || threadId, threads);
+    if (canonicalThreadId) next[canonicalThreadId] = { ...normalized, threadId: canonicalThreadId };
+  }
+  return next;
+}
+
+function activeTurnPayload(payload = {}) {
+  if (hasOwn(payload, 'active_turn')) return payload.active_turn;
+  if (hasOwn(payload, 'activeTurn')) return payload.activeTurn;
+  return undefined;
+}
+
+function shouldFloatThreadPatch(payload = {}) {
+  if (normalizeString(payload.source || payload.event || payload.type) !== 'turn/completed') return false;
+  const thread = payload.thread && typeof payload.thread === 'object' ? payload.thread : {};
+  const status = normalizeString(payload.status || thread.state || thread.status).toLowerCase();
+  return !status || ['idle', 'completed', 'success', 'succeeded'].includes(status);
+}
+
+function threadActivityTimestamp() {
+  return Date.now();
+}
+
 function normalizeTokenUsage(value) {
   if (!value || typeof value !== 'object') return null;
   const usedTokens = Number(value.usedTokens ?? value.used_tokens ?? value.totalTokens ?? value.total_tokens ?? 0) || 0;
   const contextWindowTokens = Number(value.contextWindowTokens ?? value.context_window_tokens ?? value.contextWindow ?? value.context_window ?? 0) || 0;
   const usedPercent = Number(value.usedPercent ?? value.used_percent ?? (contextWindowTokens > 0 ? (usedTokens / contextWindowTokens) * 100 : 0)) || 0;
   return { usedTokens, contextWindowTokens, usedPercent };
+}
+
+function normalizeActivityStats(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const rawToolCalls = value.toolCalls || value.tool_calls || {};
+  const toolCalls = {};
+  if (rawToolCalls && typeof rawToolCalls === 'object' && !Array.isArray(rawToolCalls)) {
+    for (const [name, count] of Object.entries(rawToolCalls)) {
+      const key = normalizeString(name);
+      const numeric = Number(count);
+      if (key && Number.isFinite(numeric) && numeric > 0) toolCalls[key] = numeric;
+    }
+  }
+  return {
+    lspCalls: Math.max(0, Number(value.lspCalls ?? value.lsp_calls ?? 0) || 0),
+    commands: Math.max(0, Number(value.commands ?? 0) || 0),
+    fileEdits: Math.max(0, Number(value.fileEdits ?? value.file_edits ?? 0) || 0),
+    toolCalls,
+  };
 }
 
 function extractText(value) {
@@ -407,8 +800,181 @@ function normalizeTimelineItem(item) {
   };
 }
 
+function compactRuntimeResultText(value) {
+  if (value === null || value === undefined) return '';
+  const text = typeof value === 'string' ? value : JSON.stringify(value);
+  const normalized = normalizeString(text);
+  if (!normalized) return '';
+  if (normalized.length <= RUNTIME_RESULT_DETAIL_LIMIT) return normalized;
+  return `${normalized.slice(0, RUNTIME_RESULT_DETAIL_LIMIT)}...`;
+}
+
+function normalizeRuntimeToolName(name) {
+  const raw = normalizeString(name);
+  if (!raw) return '';
+  const lower = raw.toLowerCase();
+  const mcpParts = lower.startsWith('mcp__') ? lower.split('__') : [];
+  const withoutMCPServer = mcpParts.length >= 3 ? mcpParts.slice(2).join('__') : raw;
+  return withoutMCPServer
+    .replace(/[./:-]+/g, '_')
+    .replace(/^functions_+/, '')
+    .replace(/^function_+/, '')
+    .replace(/^tools_+/, '')
+    .replace(/^tool_+/, '')
+    .replace(/^lsp_+/, '')
+    .replace(/_+/g, '_')
+    .replace(/^_+|_+$/g, '');
+}
+
+function runtimeToolResultDetail(item = {}) {
+  for (const key of ['output', 'preview', 'result', 'error', 'message', 'text']) {
+    const detail = compactRuntimeResultText(item[key]);
+    if (detail) return detail;
+  }
+  return '';
+}
+
+function runtimeToolResultEntry(item, threadId, index = 0) {
+  const kind = normalizeString(item?.kind || item?.type).toLowerCase();
+  if (kind !== 'tool') return null;
+  const toolName = normalizeRuntimeToolName(item.tool || item.toolName || item.name) || 'tool';
+  const status = normalizeString(item.status).toLowerCase();
+  const failed = status === 'failed' || status === 'error' || item.success === false || Boolean(normalizeString(item.error));
+  const detail = runtimeToolResultDetail(item);
+  const terminal = ['completed', 'complete', 'done', 'ok', 'success', 'succeeded', 'failed', 'error'].includes(status);
+  if (!detail && !terminal) return null;
+  const summary = detail ? detail.replace(/\s+/g, ' ').slice(0, 180) : '';
+  return {
+    id: normalizeString(item.id) || `tool-result-${threadId}-${index}-${Date.now()}`,
+    timestamp: normalizeString(item.ts || item.time || item.createdAt || item.created_at) || new Date().toISOString(),
+    level: failed ? 'error' : 'info',
+    event: 'tool.result',
+    threadId,
+    message: `${toolName} ${failed ? '失败' : '返回'}${summary ? ` · ${summary}` : ''}`,
+    detail,
+    fields: item,
+    signature: `tool.result|${threadId}|${normalizeString(item.id) || toolName}|${detail}`,
+  };
+}
+
+function runtimeResultEntriesFromTimelineItems(items, threadId) {
+  if (!Array.isArray(items) || !threadId) return [];
+  return items
+    .map((item, index) => runtimeToolResultEntry(item, threadId, index))
+    .filter(Boolean);
+}
+
+function runtimeResultEntryFromRPCDone(event, fields = {}) {
+  if (event !== 'api.rpc.done') return null;
+  const method = normalizeString(fields.method || fields.rpcMethod || fields.rpc_method);
+  const detail = compactRuntimeResultText(fields.result_preview || fields.result);
+  if (!method || !detail) return null;
+  const threadId = normalizeThreadId(runtimeThreadIdentifier(fields));
+  const summary = detail.replace(/\s+/g, ' ').slice(0, 180);
+  return {
+    id: `${event}-${fields.req_id || Date.now()}-${Math.random().toString(16).slice(2)}`,
+    timestamp: new Date().toISOString(),
+    level: 'info',
+    event,
+    threadId,
+    message: `${method} 返回 · ${summary}`,
+    detail,
+    fields,
+    signature: `${event}|${threadId}|${method}|${detail}`,
+  };
+}
+
+function mergeRuntimeResultEntries(existingEntries = [], incomingEntries = []) {
+  const nextById = new Map();
+  for (const entry of [...incomingEntries, ...existingEntries]) {
+    const key = entry?.signature || entry?.id;
+    if (!key) continue;
+    const existing = nextById.get(key);
+    if (existing) {
+      nextById.set(key, {
+        ...existing,
+        occurrenceCount: (Number(existing.occurrenceCount) || 1) + (Number(entry.occurrenceCount) || 1),
+      });
+      continue;
+    }
+    nextById.set(key, entry);
+  }
+  return [...nextById.values()]
+    .sort((left, right) => {
+      const leftTime = Date.parse(left.timestamp) || 0;
+      const rightTime = Date.parse(right.timestamp) || 0;
+      return rightTime - leftTime;
+    })
+    .slice(0, MAX_RUNTIME_RESULT_ENTRIES);
+}
+
+function sortTimelineChronologically(items = []) {
+  return [...items]
+    .map((item, index) => ({ item, index, timestamp: normalizeTimestamp(item?.time) }))
+    .sort((left, right) => {
+      if (left.timestamp !== right.timestamp) return left.timestamp - right.timestamp;
+      return left.index - right.index;
+    })
+    .map(({ item }) => item);
+}
+
 function sameTimelineContent(left, right) {
   return left?.role === right?.role && normalizeString(left?.text) === normalizeString(right?.text);
+}
+
+function compactTimelineText(value) {
+  return normalizeString(value).replace(/\s+/g, '');
+}
+
+function sameTimelineContentCompact(left, right) {
+  return left?.role === right?.role &&
+    compactTimelineText(left?.text) &&
+    compactTimelineText(left?.text) === compactTimelineText(right?.text);
+}
+
+function preferredAssistantTimelineItem(existingItem, incomingItem) {
+  if (existingItem?.runtime !== incomingItem?.runtime) {
+    return incomingItem?.runtime ? existingItem : incomingItem;
+  }
+  return normalizeString(incomingItem?.text).length > normalizeString(existingItem?.text).length
+    ? incomingItem
+    : existingItem;
+}
+
+function dedupeAssistantTimelineItems(items = []) {
+  const output = [];
+  let lastUserIndex = -1;
+
+  for (const item of items) {
+    if (item?.role === 'user') {
+      output.push(item);
+      lastUserIndex = output.length - 1;
+      continue;
+    }
+
+    if (item?.role !== 'assistant' || item.done === false || !compactTimelineText(item.text)) {
+      output.push(item);
+      continue;
+    }
+
+    let duplicateIndex = -1;
+    for (let index = output.length - 1; index > lastUserIndex; index -= 1) {
+      const candidate = output[index];
+      if (candidate?.role === 'assistant' && candidate.done !== false && sameTimelineContentCompact(candidate, item)) {
+        duplicateIndex = index;
+        break;
+      }
+    }
+
+    if (duplicateIndex >= 0) {
+      output[duplicateIndex] = preferredAssistantTimelineItem(output[duplicateIndex], item);
+      continue;
+    }
+
+    output.push(item);
+  }
+
+  return output;
 }
 
 function mergeTimelineItems(existingItems = [], incomingItems = []) {
@@ -428,7 +994,10 @@ function mergeTimelineItems(existingItems = [], incomingItems = []) {
     const shouldPreserveExistingMessage = (
       (existingItem.role === 'user' || existingItem.optimistic || existingItem.runtime) &&
       !incomingIds.has(existingItem.id) &&
-      !incomingItems.some((incomingItem) => sameTimelineContent(existingItem, incomingItem))
+      !incomingItems.some((incomingItem) => (
+        sameTimelineContent(existingItem, incomingItem) ||
+        sameTimelineContentCompact(existingItem, incomingItem)
+      ))
     );
     if (shouldPreserveExistingMessage) {
       merged.push(existingItem);
@@ -441,18 +1010,62 @@ function mergeTimelineItems(existingItems = [], incomingItems = []) {
     }
   }
 
-  return merged;
+  return dedupeAssistantTimelineItems(sortTimelineChronologically(merged));
 }
 
 function runtimeThreadIdentifier(payload = {}) {
+  const patch = payload._threadPatch || payload._thread_patch || {};
+  const thread = payload.thread && typeof payload.thread === 'object' ? payload.thread : {};
+  const patchThread = patch.thread && typeof patch.thread === 'object' ? patch.thread : {};
+  const runtime = payload.agentRuntime || payload.agent_runtime || {};
+  const patchRuntime = patch.agentRuntime || patch.agent_runtime || {};
   return payload.threadId ||
     payload.thread_id ||
+    payload.codexThreadId ||
+    payload.codex_thread_id ||
+    thread.threadId ||
+    thread.thread_id ||
+    thread.codexThreadId ||
+    thread.codex_thread_id ||
+    thread.id ||
+    runtime.threadId ||
+    runtime.thread_id ||
+    patch.threadId ||
+    patch.thread_id ||
+    patch.codexThreadId ||
+    patch.codex_thread_id ||
+    patchThread.threadId ||
+    patchThread.thread_id ||
+    patchThread.codexThreadId ||
+    patchThread.codex_thread_id ||
+    patchThread.id ||
+    patchRuntime.threadId ||
+    patchRuntime.thread_id ||
     payload.agentId ||
     payload.agent_id ||
-    payload._threadPatch?.threadId ||
-    payload._threadPatch?.thread_id ||
-    payload._threadPatch?.agentId ||
-    payload._threadPatch?.agent_id;
+    thread.agentId ||
+    thread.agent_id ||
+    runtime.agentId ||
+    runtime.agent_id ||
+    patch.agentId ||
+    patch.agent_id ||
+    patchThread.agentId ||
+    patchThread.agent_id ||
+    patchRuntime.agentId ||
+    patchRuntime.agent_id;
+}
+
+function runtimePayloadCwd(payload = {}) {
+  return normalizePath(
+    payload.cwd ||
+    payload.CWD ||
+    payload.agentRuntime?.cwd ||
+    payload.agent_runtime?.cwd ||
+    payload.thread?.cwd ||
+    payload._threadPatch?.cwd ||
+    payload._threadPatch?.agentRuntime?.cwd ||
+    payload._threadPatch?.agent_runtime?.cwd,
+  );
 }
 
 function runtimeTurnId(payload = {}) {
@@ -501,20 +1114,38 @@ function runtimeAssistantCompletion(payload = {}) {
   };
 }
 
+function isAssistantMessageDeltaEvent(eventName, payload = {}) {
+  if (eventName === 'item/agentmessage/delta' || eventName === 'item/agent_message/delta') return true;
+  if (eventName === 'message.delta' || eventName === 'agent_message_delta' || eventName === 'assistant:message_delta') return true;
+  if (eventName !== 'turn/output/delta' && eventName !== 'turn/outputdelta') return false;
+  const stream = normalizeString(payload.stream).toLowerCase();
+  return !stream || stream === 'message' || stream === 'assistant' || stream === 'agentmessage' || stream === 'agent_message';
+}
+
 function mergeRuntimeAssistantCompletion(existingItems = [], completion) {
   if (!completion?.item) return existingItems;
   const finalItem = completion.item;
   const dropIds = new Set([finalItem.id, completion.streamId].filter(Boolean));
   const withoutReplaced = existingItems.filter((item) => !dropIds.has(item.id));
-  if (!completion.explicitId) {
-    const duplicate = withoutReplaced.find((item) => (
-      item.role === 'assistant' &&
-      item.done !== false &&
-      sameTimelineContent(item, finalItem)
-    ));
-    if (duplicate) return withoutReplaced;
+  let lastUserIndex = -1;
+  for (let index = withoutReplaced.length - 1; index >= 0; index -= 1) {
+    if (withoutReplaced[index]?.role === 'user') {
+      lastUserIndex = index;
+      break;
+    }
   }
-  return [...withoutReplaced, finalItem];
+  const duplicate = withoutReplaced.find((item, index) => (
+    item.role === 'assistant' &&
+    item.done !== false &&
+    (
+      sameTimelineContent(item, finalItem) ||
+      (index > lastUserIndex && sameTimelineContentCompact(item, finalItem))
+    )
+  ));
+  if (duplicate && (!completion.explicitId || duplicate.runtime || withoutReplaced.indexOf(duplicate) > lastUserIndex)) {
+    return dedupeAssistantTimelineItems(withoutReplaced);
+  }
+  return dedupeAssistantTimelineItems([...withoutReplaced, finalItem]);
 }
 
 function actionNotice(message, tone = 'info') {
@@ -529,17 +1160,101 @@ function actionNotice(message, tone = 'info') {
 
 function normalizeAttachment(value) {
   if (typeof value === 'string') {
-    const path = normalizeString(value);
-    return path ? { path, name: basename(path) } : null;
+    return normalizeFileAttachment(value);
   }
   if (!value || typeof value !== 'object') return null;
   const path = normalizeString(value.path || value.url);
   if (!path) return null;
+  const kind = normalizeString(value.kind) || (isImagePath(path) ? 'image' : 'file');
+  const previewUrl = normalizeString(value.previewUrl || value.url) || (kind === 'image' && isImagePath(path) ? `file://${path}` : '');
   return {
     path,
     name: normalizeString(value.name) || basename(path),
-    kind: normalizeString(value.kind),
-    previewUrl: normalizeString(value.previewUrl || value.url),
+    kind,
+    previewUrl,
+  };
+}
+
+function cloneComposerAttachments(attachments) {
+  return Array.isArray(attachments)
+    ? attachments.map((item) => ({ ...item })).map(normalizeAttachment).filter(Boolean)
+    : [];
+}
+
+function normalizeComposerDraftSnapshot(value = {}) {
+  return {
+    draft: (value.draft || '').toString(),
+    attachments: cloneComposerAttachments(value.attachments),
+  };
+}
+
+function isEmptyComposerDraftSnapshot(value = {}) {
+  const draft = normalizeComposerDraftSnapshot(value);
+  return !draft.draft && draft.attachments.length === 0;
+}
+
+function composerScopeCwd(state = {}) {
+  const activeProject = normalizePath(state.activeProject);
+  if (activeProject && activeProject !== '.') return activeProject;
+  return normalizePath(state.cwd);
+}
+
+function composerDraftKey(state = {}, threadId = state.activeThreadId) {
+  const cwd = composerScopeCwd(state);
+  const id = normalizeThreadId(threadId);
+  return `${cwd || '__missing_cwd__'}::${id ? `thread:${id}` : 'new:chat'}`;
+}
+
+function attachmentKey(value) {
+  const attachment = normalizeAttachment(value);
+  return attachment ? (attachment.path || attachment.previewUrl) : '';
+}
+
+function appendUniqueAttachments(current, incoming) {
+  const next = [...current];
+  const seen = new Set(next.map(attachmentKey).filter(Boolean));
+  for (const item of incoming || []) {
+    const attachment = normalizeAttachment(item);
+    const key = attachmentKey(attachment);
+    if (!attachment || !key || seen.has(key)) continue;
+    seen.add(key);
+    next.push(attachment);
+  }
+  return next;
+}
+
+function fileListOf(value) {
+  return Array.from(value || []).filter(Boolean);
+}
+
+function droppedFilePath(file) {
+  return normalizeString(file?.path);
+}
+
+function fileLooksImage(file) {
+  return normalizeString(file?.type).toLowerCase().startsWith('image/') || isImagePath(file?.name);
+}
+
+function blobToDataURL(blob) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(normalizeString(reader.result));
+    reader.onerror = () => reject(reader.error || new Error('read image blob failed'));
+    reader.readAsDataURL(blob);
+  });
+}
+
+async function imageFileAttachment(file, index, fallbackPrefix) {
+  const dataUrl = await blobToDataURL(file);
+  const base64 = dataUrl.split(',')[1] || '';
+  if (!base64) throw new Error('image attachment data is empty');
+  const path = normalizeString(await saveClipboardImage(base64));
+  if (!path) throw new Error('clipboard image save returned empty path');
+  return {
+    path,
+    name: normalizeString(file?.name) || `${fallbackPrefix}-${Date.now()}-${index}.png`,
+    kind: 'image',
+    previewUrl: dataUrl,
   };
 }
 
@@ -598,14 +1313,6 @@ function compareSequence(left, right) {
   }
 }
 
-function isNextSequence(previous, next) {
-  try {
-    return BigInt(normalizeString(next)) === BigInt(normalizeString(previous)) + 1n;
-  } catch {
-    return true;
-  }
-}
-
 function resolveInitialLevel() {
   try {
     if (typeof localStorage !== 'undefined') {
@@ -639,20 +1346,28 @@ const baseState = {
   memoryRevision: 0,
   memoryPageCacheByCwd: {},
   threads: [],
+  pinnedThreadAtById: {},
+  activityThreadAtById: {},
   statuses: {},
+  activeTurnByThread: {},
   activeThreadId: '',
+  pendingActiveThreadId: '',
   threadConfigByThread: {},
   threadConfigLoadingByThread: {},
+  threadConfigFailedByThread: {},
+  threadStateLoadingByThread: {},
   threadConfigSaving: false,
   timelinesByThread: {},
   tokenUsageByThread: {},
+  activityStatsByThread: {},
   diffTextByThread: {},
   activityEntries: [],
+  runtimeResultEntries: [],
   warningEntries: [],
   draft: '',
   attachments: [],
   sending: false,
-  rightPanelWidth: 520,
+  rightPanelWidth: 380,
   logLevel: resolveInitialLevel(),
   logEntries: [],
   actionNotice: null,
@@ -668,18 +1383,76 @@ function stateWithPatch(patch = {}) {
 export const useClientStore = create((set, get) => {
   let bridgeUnsubscribe = null;
   const sequencesByThread = new Map();
+  const composerDrafts = new Map();
+
+  const saveActiveComposerDraft = (state = get()) => {
+    const key = composerDraftKey(state);
+    const snapshot = normalizeComposerDraftSnapshot(state);
+    if (isEmptyComposerDraftSnapshot(snapshot)) {
+      composerDrafts.delete(key);
+      return;
+    }
+    composerDrafts.set(key, snapshot);
+  };
+
+  const restoreComposerDraft = (state, threadId) => {
+    const key = composerDraftKey(state, threadId);
+    return normalizeComposerDraftSnapshot(composerDrafts.get(key));
+  };
+
+  const clearComposerDraft = (state, threadId) => {
+    composerDrafts.delete(composerDraftKey(state, threadId));
+  };
+
+  const warningErrorKey = (fields = {}) => {
+    const error = fields?.error;
+    if (typeof error === 'string') return error;
+    if (error && typeof error === 'object') {
+      return normalizeString(error.message || error.code || error.data || JSON.stringify(error));
+    }
+    return '';
+  };
+
+  const warningSignature = (level, event, threadId, fields = {}) => [
+    level,
+    event,
+    threadId,
+    normalizeString(fields.method || fields.action || fields.rpcMethod || fields.rpc_method),
+    warningErrorKey(fields),
+  ].join('|');
 
   const addWarning = (level, event, fields = {}) => {
     if (level !== 'warn' && level !== 'error') return;
+    const threadId = normalizeThreadId(runtimeThreadIdentifier(fields));
+    const signature = warningSignature(level, event, threadId, fields);
     const entry = {
       id: `${event}-${Date.now()}-${Math.random().toString(16).slice(2)}`,
       timestamp: new Date().toISOString(),
       level,
       event,
+      threadId,
       fields,
+      occurrenceCount: 1,
+      signature,
     };
     set((state) => ({
-      warningEntries: [entry, ...state.warningEntries].slice(0, MAX_WARNING_ENTRIES),
+      warningEntries: (() => {
+        const existingIndex = state.warningEntries.findIndex((item) => item.signature === signature);
+        if (existingIndex < 0) return [entry, ...state.warningEntries].slice(0, MAX_WARNING_ENTRIES);
+        const existing = state.warningEntries[existingIndex];
+        const updated = {
+          ...existing,
+          id: entry.id,
+          timestamp: entry.timestamp,
+          fields,
+          occurrenceCount: (Number(existing.occurrenceCount) || 1) + 1,
+        };
+        return [
+          updated,
+          ...state.warningEntries.slice(0, existingIndex),
+          ...state.warningEntries.slice(existingIndex + 1),
+        ].slice(0, MAX_WARNING_ENTRIES);
+      })(),
     }));
   };
 
@@ -698,6 +1471,10 @@ export const useClientStore = create((set, get) => {
     };
     set((state) => ({
       logEntries: [entry, ...state.logEntries].slice(0, 600),
+      runtimeResultEntries: mergeRuntimeResultEntries(
+        state.runtimeResultEntries,
+        [runtimeResultEntryFromRPCDone(event, fields)].filter(Boolean),
+      ),
     }));
 
     if (level === 'warn' || level === 'error') {
@@ -717,7 +1494,8 @@ export const useClientStore = create((set, get) => {
   };
 
   const requireCwd = (reason) => {
-    const cwd = normalizePath(get().activeProject) || normalizePath(get().cwd);
+    const activeProject = normalizePath(get().activeProject);
+    const cwd = activeProject && activeProject !== '.' ? activeProject : normalizePath(get().cwd);
     if (!cwd || cwd === '.') {
       const error = new Error(`frontend-app: cwd is required for ${reason}`);
       addWarning('error', 'missing.cwd', { reason });
@@ -734,6 +1512,34 @@ export const useClientStore = create((set, get) => {
       throw error;
     }
     return cwd;
+  };
+
+  const currentChatCwd = () => {
+    const activeProject = normalizePath(get().activeProject);
+    return activeProject && activeProject !== '.' ? activeProject : normalizePath(get().cwd);
+  };
+
+  const clearChatSurfaceForCwdSwitch = () => {
+    sequencesByThread.clear();
+    set({
+      activeThreadId: '',
+      threads: [],
+      pinnedThreadAtById: {},
+      statuses: {},
+      activeTurnByThread: {},
+      threadConfigByThread: {},
+      threadConfigLoadingByThread: {},
+      threadConfigFailedByThread: {},
+      threadStateLoadingByThread: {},
+      pendingActiveThreadId: '',
+      timelinesByThread: {},
+      tokenUsageByThread: {},
+      activityStatsByThread: {},
+      diffTextByThread: {},
+      runtimeResultEntries: [],
+      draft: '',
+      attachments: [],
+    });
   };
 
   const applyProjects = (payload, fallbackCwd) => {
@@ -766,9 +1572,17 @@ export const useClientStore = create((set, get) => {
   const applySnapshot = (payload = {}, options = {}) => {
     const preferredActiveThreadId = normalizeThreadId(options.preferredActiveThreadId);
     set((state) => {
-      const archivedAtById = archiveMapFromPayload(payload);
+      const archivedAtById = hasArchiveMapPayload(payload) ? archiveMapFromPayload(payload) : archiveMapFromThreads(state.threads);
+      const pinnedAtById = hasPinMapPayload(payload) ? pinMapFromPayload(payload) : state.pinnedThreadAtById;
+      const runtimeById = runtimeMapFromPayload(payload);
+      const scopeCwd = normalizePath(options.scopeCwd) || composerScopeCwd(state);
       const incomingThreads = Array.isArray(payload.threads)
-        ? payload.threads.map((thread) => normalizeThread(thread, { archivedAtById })).filter((thread) => thread.id)
+        ? payload.threads.filter((thread) => threadMatchesCwdScope(thread, scopeCwd, runtimeById)).map((thread) => normalizeThread(thread, {
+          archivedAtById,
+          pinnedAtById,
+          fallbackProvider: runtimeProviderForThread(thread, runtimeById),
+          fallbackCwd: snapshotThreadCwd(thread, runtimeById),
+        })).filter((thread) => thread.id)
         : state.threads;
       const nextThreads = [...incomingThreads];
       if (options.preserveActiveThreadId) {
@@ -784,14 +1598,12 @@ export const useClientStore = create((set, get) => {
         backendThreadIdFromThreads(state.activeThreadId, nextThreads) ||
         (!nextThreads.some((thread) => threadMatchesIdentifier(thread, state.activeThreadId)) ? normalizeBackendThreadId(state.activeThreadId) : '')
       ) : '';
+      const activeLookupOptions = options.includeArchivedActiveThread ? { includeArchived: true } : {};
       const activeThreadId = (
         preservedActiveThreadId ||
-        backendThreadIdFromThreads(preferredActiveThreadId, nextThreads) ||
-        backendThreadIdFromThreads(snapshotActive, nextThreads) ||
-        backendThreadIdFromThreads(state.activeThreadId, nextThreads) ||
-        (!nextThreads.some((thread) => threadMatchesIdentifier(thread, preferredActiveThreadId)) ? normalizeBackendThreadId(preferredActiveThreadId) : '') ||
-        (!nextThreads.some((thread) => threadMatchesIdentifier(thread, snapshotActive)) ? normalizeBackendThreadId(snapshotActive) : '') ||
-        (!nextThreads.some((thread) => threadMatchesIdentifier(thread, state.activeThreadId)) ? normalizeBackendThreadId(state.activeThreadId) : '') ||
+        backendThreadIdFromThreads(preferredActiveThreadId, nextThreads, activeLookupOptions) ||
+        backendThreadIdFromThreads(snapshotActive, nextThreads, activeLookupOptions) ||
+        backendThreadIdFromThreads(state.activeThreadId, nextThreads, activeLookupOptions) ||
         selectableThreads[0]?.id ||
         ''
       );
@@ -801,12 +1613,17 @@ export const useClientStore = create((set, get) => {
         const canonicalId = canonicalizeThreadKey(threadId, nextThreads);
         timelinesByThread[canonicalId] = items;
       }
+      const runtimeResultEntries = [];
       const incomingTimelines = payload.timelinesByThread || payload.timelines_by_thread;
       if (incomingTimelines && typeof incomingTimelines === 'object') {
         for (const [threadId, items] of Object.entries(incomingTimelines)) {
           if (Array.isArray(items)) {
             const canonicalId = canonicalizeThreadKey(threadId, nextThreads);
-            timelinesByThread[canonicalId] = items.map(normalizeTimelineItem);
+            runtimeResultEntries.push(...runtimeResultEntriesFromTimelineItems(items, canonicalId));
+            timelinesByThread[canonicalId] = mergeTimelineItems(
+              timelinesByThread[canonicalId] || [],
+              items.map(normalizeTimelineItem),
+            );
           }
         }
       }
@@ -831,6 +1648,26 @@ export const useClientStore = create((set, get) => {
         tokenUsageByThread[activeThreadId] = activeTokenUsage;
       }
 
+      const activityStatsByThread = {};
+      for (const [threadId, stats] of Object.entries(state.activityStatsByThread)) {
+        const canonicalId = canonicalizeThreadKey(threadId, nextThreads);
+        activityStatsByThread[canonicalId] = stats;
+      }
+      const incomingActivityStats = payload.activityStatsByThread || payload.activity_stats_by_thread;
+      if (incomingActivityStats && typeof incomingActivityStats === 'object') {
+        for (const [threadId, stats] of Object.entries(incomingActivityStats)) {
+          const normalized = normalizeActivityStats(stats);
+          if (normalized) {
+            const canonicalId = canonicalizeThreadKey(threadId, nextThreads);
+            activityStatsByThread[canonicalId] = normalized;
+          }
+        }
+      }
+      const activeActivityStats = normalizeActivityStats(payload.activityStats || payload.activity_stats);
+      if (activeActivityStats && activeThreadId) {
+        activityStatsByThread[activeThreadId] = activeActivityStats;
+      }
+
       const diffTextByThread = {};
       for (const [threadId, text] of Object.entries(state.diffTextByThread)) {
         const canonicalId = canonicalizeThreadKey(threadId, nextThreads);
@@ -847,12 +1684,27 @@ export const useClientStore = create((set, get) => {
         diffTextByThread[activeThreadId] = payload.diffText;
       }
 
+      let activeTurnByThread = canonicalizeActiveTurnByThread(state.activeTurnByThread, nextThreads);
+      const activeTurn = activeTurnPayload(payload);
+      if (activeTurn !== undefined) {
+        activeTurnByThread = {};
+        const normalizedActiveTurn = normalizeTurnSummary(activeTurn);
+        if (normalizedActiveTurn?.threadId) {
+          const canonicalThreadId = canonicalizeThreadKey(normalizedActiveTurn.threadId, nextThreads);
+          activeTurnByThread[canonicalThreadId] = { ...normalizedActiveTurn, threadId: canonicalThreadId };
+        }
+      }
+
       return {
         activeThreadId,
         threads: nextThreads,
+        pinnedThreadAtById: pinnedAtById,
         timelinesByThread,
         tokenUsageByThread,
+        activityStatsByThread,
         diffTextByThread,
+        runtimeResultEntries: mergeRuntimeResultEntries(state.runtimeResultEntries, runtimeResultEntries),
+        activeTurnByThread,
         statuses: {
           ...state.statuses,
           ...(payload.statuses || {}),
@@ -861,8 +1713,23 @@ export const useClientStore = create((set, get) => {
     });
   };
 
-  const loadThreadMessages = async (threadId) => {
-    const id = backendThreadIdForState(get(), threadId);
+  const refreshChatSurfaceForCwd = async (cwdValue) => {
+    const cwd = normalizePath(cwdValue);
+    if (!cwd || cwd === '.') {
+      throw new Error('frontend-app: cwd is required for project chat refresh');
+    }
+    clearChatSurfaceForCwdSwitch();
+    const sidebar = await getSidebarState({ cwd });
+    applySnapshot(sidebar);
+    const activeThreadId = backendThreadIdForState(get(), get().activeThreadId);
+    if (activeThreadId) {
+      await get().syncThreadState(activeThreadId);
+    }
+  };
+
+  const loadThreadMessages = async (threadId, options = {}) => {
+    const loadOptions = options && typeof options === 'object' ? options : {};
+    const id = backendThreadIdForState(get(), threadId, { includeArchived: loadOptions.includeArchived === true });
     if (!id) return;
     try {
       const res = await getThreadMessages({ threadId: id, limit: 300 });
@@ -870,12 +1737,12 @@ export const useClientStore = create((set, get) => {
       set((state) => ({
         timelinesByThread: {
           ...state.timelinesByThread,
-          [id]: res.messages.map((message) => normalizeTimelineItem({
+          [id]: sortTimelineChronologically(res.messages.map((message) => normalizeTimelineItem({
             id: message.id,
             role: message.role,
             text: message.content,
             createdAt: message.createdAt || message.created_at,
-          })),
+          }))),
         },
       }));
     } catch (error) {
@@ -900,7 +1767,27 @@ export const useClientStore = create((set, get) => {
 
   const bridgeThreadIdForPayload = (payload) => {
     const identifier = runtimeThreadIdentifier(payload);
-    return backendThreadIdForState(get(), identifier) || normalizeBackendThreadId(identifier);
+    const id = normalizeThreadId(identifier);
+    if (!id) return '';
+    const payloadCwd = runtimePayloadCwd(payload);
+    const activeCwd = currentChatCwd();
+    if (payloadCwd && activeCwd && payloadCwd !== activeCwd) {
+      addWarning('warn', 'thread.patch.cwd_mismatch', { threadId: id, payloadCwd, activeCwd });
+      return '';
+    }
+
+    const state = get();
+    const matchedThread = state.threads.find((thread) => threadMatchesIdentifier(thread, id));
+    if (matchedThread) return matchedThread.archived ? '' : normalizeBackendThreadId(matchedThread.id);
+    if (isAgentRuntimeId(id)) return '';
+
+    const fallback = normalizeBackendThreadId(id);
+    if (!fallback) return '';
+    if (fallback === normalizeBackendThreadId(state.activeThreadId)) return fallback;
+    if (payloadCwd && (!activeCwd || payloadCwd === activeCwd)) return fallback;
+
+    addWarning('warn', 'thread.patch.unknown_thread', { threadId: fallback, activeCwd });
+    return '';
   };
 
   const applyAssistantDelta = (method, payload) => {
@@ -977,27 +1864,33 @@ export const useClientStore = create((set, get) => {
     const previousSequence = sequencesByThread.get(threadId) || '';
     if (sequence) {
       if (previousSequence && compareSequence(sequence, previousSequence) <= 0) {
-        addWarning('warn', 'thread.patch.stale', { threadId, sequence, previousSequence });
         return;
-      }
-      if (previousSequence && !isNextSequence(previousSequence, sequence)) {
-        addWarning('warn', 'thread.patch.gap', { threadId, sequence, previousSequence });
       }
       sequencesByThread.set(threadId, sequence);
     }
 
     const timelineItems = payload.timelineItems || payload.timeline_items;
+    const runtimeResultEntries = runtimeResultEntriesFromTimelineItems(timelineItems, threadId);
     const tokenUsage = normalizeTokenUsage(payload.tokenUsage || payload.token_usage);
+    const activityStats = normalizeActivityStats(payload.activityStats || payload.activity_stats);
     const diffText = typeof payload.diffText === 'string' ? payload.diffText : payload.diff_text;
     const rawRuntime = payload.agentRuntime || payload.agent_runtime || {};
     const rawThread = payload.thread && typeof payload.thread === 'object' ? payload.thread : {};
+    const patchProvider = normalizeString(
+      rawRuntime.provider ||
+      rawRuntime.modelProvider ||
+      rawRuntime.model_provider ||
+      rawThread.provider ||
+      rawThread.modelProvider ||
+      rawThread.model_provider,
+    );
     const statusText = normalizeString(payload.statusHeader || payload.status || rawThread.state || rawThread.status);
     const patchedThread = normalizeThread({
       ...rawThread,
       threadId,
       agentId: rawRuntime.agentId || rawRuntime.agent_id || rawThread.agentId || rawThread.agent_id,
       providerThreadId: rawRuntime.providerThreadId || rawRuntime.provider_thread_id || rawThread.providerThreadId || rawThread.provider_thread_id,
-      provider: rawRuntime.provider || rawThread.provider,
+      provider: patchProvider,
       lastMessage: rawRuntime.lastMessage || rawRuntime.last_message || payload.statusDetails || payload.status_details || rawThread.lastMessage,
       status: statusText || rawThread.status,
     });
@@ -1016,26 +1909,55 @@ export const useClientStore = create((set, get) => {
       const tokenUsageByThread = { ...state.tokenUsageByThread };
       if (tokenUsage) tokenUsageByThread[threadId] = tokenUsage;
 
+      const activityStatsByThread = { ...state.activityStatsByThread };
+      if (activityStats) activityStatsByThread[threadId] = activityStats;
+
       const diffTextByThread = { ...state.diffTextByThread };
       if (typeof diffText === 'string') diffTextByThread[threadId] = diffText;
+      const activeTurnByThread = { ...state.activeTurnByThread };
+      const patchActiveTurn = activeTurnPayload(payload);
+      if (patchActiveTurn !== undefined) {
+        delete activeTurnByThread[threadId];
+        const normalizedActiveTurn = normalizeTurnSummary(patchActiveTurn);
+        if (normalizedActiveTurn?.id) activeTurnByThread[threadId] = { ...normalizedActiveTurn, threadId };
+      } else if (payload.interruptible === false || statusText === 'idle' || statusText === 'interrupted' || statusText === 'completed') {
+        delete activeTurnByThread[threadId];
+      }
 
       const existingThread = state.threads.find((thread) => threadMatchesIdentifier(thread, threadId));
-      const threads = patchedThread.id ? [
-        {
+      const promoteForActivity = shouldFloatThreadPatch(payload);
+      let threads = state.threads;
+      if (patchedThread.id) {
+        const mergedThread = {
           ...(existingThread || {}),
           ...patchedThread,
           name: patchedThread.name === '新对话' ? (existingThread?.name || patchedThread.name) : patchedThread.name,
+          provider: patchProvider || existingThread?.provider || patchedThread.provider,
           status: statusText || patchedThread.status || existingThread?.status || '等待指示',
           archived: Boolean(existingThread?.archived || patchedThread.archived),
-        },
-        ...state.threads.filter((thread) => !threadMatchesIdentifier(thread, threadId)),
-      ] : state.threads;
+        };
+        if (!existingThread || shouldFloatThreadPatch(payload)) {
+          threads = [
+            mergedThread,
+            ...state.threads.filter((thread) => !threadMatchesIdentifier(thread, threadId)),
+          ];
+        } else {
+          threads = state.threads.map((thread) => (threadMatchesIdentifier(thread, threadId) ? mergedThread : thread));
+        }
+      }
 
       return {
         threads,
+        activityThreadAtById: promoteForActivity ? {
+          ...state.activityThreadAtById,
+          [threadId]: threadActivityTimestamp(),
+        } : state.activityThreadAtById,
         timelinesByThread,
         tokenUsageByThread,
+        activityStatsByThread,
         diffTextByThread,
+        runtimeResultEntries: mergeRuntimeResultEntries(state.runtimeResultEntries, runtimeResultEntries),
+        activeTurnByThread,
         statuses: {
           ...state.statuses,
           [threadId]: cleanObject({
@@ -1043,7 +1965,7 @@ export const useClientStore = create((set, get) => {
             statusHeader: payload.statusHeader,
             statusDetails: payload.statusDetails || payload.status_details,
             interruptible: payload.interruptible,
-            activityStats: payload.activityStats || payload.activity_stats,
+            activityStats,
             agentRuntime: rawRuntime,
           }),
         },
@@ -1101,7 +2023,7 @@ export const useClientStore = create((set, get) => {
       applyBridgePatch(method, payload);
       return;
     }
-    if (eventName === 'item/agentmessage/delta' || eventName === 'item/agent_message/delta') {
+    if (isAssistantMessageDeltaEvent(eventName, payload)) {
       applyAssistantDelta(method, payload);
       return;
     }
@@ -1127,7 +2049,7 @@ export const useClientStore = create((set, get) => {
       }
       return;
     }
-    if (eventName === 'rpc.failed' || eventName.endsWith('/failed')) {
+    if (eventName === 'rpc.failed' || eventName.endsWith('/failed') || eventName.endsWith('.failed')) {
       addWarning('error', method, payload);
     }
   };
@@ -1139,8 +2061,11 @@ export const useClientStore = create((set, get) => {
       return false;
     }
     const cwd = requireCwd(action);
+    const payload = action === 'thread.interrupt'
+      ? { cwd, threadId, source: 'ui_stop' }
+      : { cwd, threadId };
     try {
-      await rpc({ cwd, threadId });
+      await rpc(cleanObject(payload));
       notifyAction({
         'thread.interrupt': '已发送中断请求',
         'thread.compact': '已发送压缩请求',
@@ -1168,6 +2093,7 @@ export const useClientStore = create((set, get) => {
         bridgeUnsubscribe = null;
       }
       sequencesByThread.clear();
+      composerDrafts.clear();
     },
 
     bootstrap: async () => {
@@ -1208,17 +2134,37 @@ export const useClientStore = create((set, get) => {
       }
     },
 
-    syncThreadState: async (threadId) => {
-      const id = backendThreadIdForState(get(), threadId);
+    syncThreadState: async (threadId, options = {}) => {
+      const syncOptions = options && typeof options === 'object' ? options : {};
+      const id = backendThreadIdForState(get(), threadId, { includeArchived: syncOptions.includeArchived === true });
       if (!id) return false;
       const cwd = requireCwd('thread.sync');
       const activeAtRequest = get().activeThreadId;
-      const snapshot = await getThreadState({ cwd, threadId: id, includeDiff: true });
-      const activeChanged = normalizeThreadId(get().activeThreadId) !== normalizeThreadId(activeAtRequest);
-      applySnapshot(snapshot, { preferredActiveThreadId: id, preserveActiveThreadId: activeChanged });
-      await loadThreadMessages(id);
-      if (!activeChanged) await get().loadThreadConfig(id);
-      return true;
+      set((state) => ({
+        threadStateLoadingByThread: {
+          ...state.threadStateLoadingByThread,
+          [id]: true,
+        },
+      }));
+      try {
+        const snapshot = await getThreadState({ cwd, threadId: id, includeDiff: true });
+        const activeChanged = normalizeThreadId(get().activeThreadId) !== normalizeThreadId(activeAtRequest);
+        applySnapshot(snapshot, {
+          preferredActiveThreadId: id,
+          preserveActiveThreadId: activeChanged || syncOptions.preserveActiveThreadId === true,
+          includeArchivedActiveThread: syncOptions.includeArchived === true,
+        });
+        await loadThreadMessages(id, { includeArchived: syncOptions.includeArchived === true });
+        if (!activeChanged && shouldAutoLoadThreadConfig(get(), id)) await get().loadThreadConfig(id);
+        return true;
+      } finally {
+        set((state) => ({
+          threadStateLoadingByThread: {
+            ...state.threadStateLoadingByThread,
+            [id]: false,
+          },
+        }));
+      }
     },
 
     setActivePage: (activePage) => set({ activePage }),
@@ -1315,7 +2261,7 @@ export const useClientStore = create((set, get) => {
     },
 
     loadThreadConfig: async (threadId) => {
-      const id = backendThreadIdForState(get(), threadId);
+      const id = threadConfigTargetIdForState(get(), threadId);
       if (!id) return null;
       set((state) => ({
         threadConfigLoadingByThread: {
@@ -1335,6 +2281,10 @@ export const useClientStore = create((set, get) => {
             ...state.threadConfigLoadingByThread,
             [id]: false,
           },
+          threadConfigFailedByThread: {
+            ...state.threadConfigFailedByThread,
+            [id]: false,
+          },
         }));
         return config;
       } catch (error) {
@@ -1342,6 +2292,10 @@ export const useClientStore = create((set, get) => {
           threadConfigLoadingByThread: {
             ...state.threadConfigLoadingByThread,
             [id]: false,
+          },
+          threadConfigFailedByThread: {
+            ...state.threadConfigFailedByThread,
+            [id]: true,
           },
         }));
         addWarning('error', 'thread.config.get.failed', { threadId: id, error: error.message });
@@ -1352,9 +2306,12 @@ export const useClientStore = create((set, get) => {
     saveComposerModelConfig: async (config = {}) => {
       const hasModel = Object.prototype.hasOwnProperty.call(config, 'model');
       const hasEffort = Object.prototype.hasOwnProperty.call(config, 'effort');
+      const hasThreadTarget = Object.prototype.hasOwnProperty.call(config, 'threadId') ||
+        Object.prototype.hasOwnProperty.call(config, 'thread_id');
       const cwd = requireCwd('composer.model.save');
       const state = get();
-      const threadId = backendThreadIdForState(state, state.activeThreadId);
+      const requestedThreadId = hasThreadTarget ? (config.threadId || config.thread_id) : state.activeThreadId;
+      const threadId = threadConfigTargetIdForState(state, requestedThreadId);
       const existingConfig = threadId ? state.threadConfigByThread[threadId] : null;
       const threadConfig = existingConfig || (threadId ? await get().loadThreadConfig(threadId) : null);
       const nextModel = hasModel ? normalizeProviderConfigValue(config.model) : '';
@@ -1408,9 +2365,13 @@ export const useClientStore = create((set, get) => {
       return true;
     },
 
-    restoreComposerModelInheritance: async () => {
+    restoreComposerModelInheritance: async (config = {}) => {
       const state = get();
-      const threadId = backendThreadIdForState(state, state.activeThreadId);
+      const requestedThreadId = Object.prototype.hasOwnProperty.call(config, 'threadId') ||
+        Object.prototype.hasOwnProperty.call(config, 'thread_id')
+        ? (config.threadId || config.thread_id)
+        : state.activeThreadId;
+      const threadId = threadConfigTargetIdForState(state, requestedThreadId);
       if (!threadId) return false;
       const existingConfig = state.threadConfigByThread[threadId] || await get().loadThreadConfig(threadId);
       if (!existingConfig?.supportsThreadOverride) return false;
@@ -1445,8 +2406,18 @@ export const useClientStore = create((set, get) => {
       if (!target) return false;
       const cwd = requireProjectScopeCwd('project.setActive');
       try {
+        saveActiveComposerDraft();
+        const activeProject = normalizePath(get().activeProject);
+        const visibleProjects = Array.isArray(get().projects) ? get().projects.map(normalizePath).filter(Boolean) : [];
+        if (target !== '.' && (activeProject === '.' || !visibleProjects.includes(target))) {
+          const addedProjects = await addProjectRPC({ cwd, path: target });
+          applyProjects(addedProjects, cwd);
+        }
         const projects = await setActiveProjectRPC({ cwd, path: target });
         applyProjects(projects, cwd);
+        const selectedProject = normalizePath(get().activeProject);
+        const selectedCwd = selectedProject && selectedProject !== '.' ? selectedProject : cwd;
+        await refreshChatSurfaceForCwd(selectedCwd);
         notifyAction(`已切换项目：${projectShortLabel(target)}`, 'success');
         return true;
       } catch (error) {
@@ -1478,6 +2449,27 @@ export const useClientStore = create((set, get) => {
       }
     },
 
+    openNewWindow: async () => {
+      const scopeCwd = requireProjectScopeCwd('ui.open_new_window');
+      const activeProject = normalizePath(get().activeProject);
+      const seed = activeProject && activeProject !== '.' ? activeProject : scopeCwd;
+      let selected = '';
+      try {
+        selected = normalizePath(await selectProjectDir(seed));
+        if (!selected) {
+          notifyAction('未选择新窗口目录', 'info');
+          return false;
+        }
+        await openNewWindowRPC({ cwd: selected });
+        notifyAction(`已打开新窗口：${projectShortLabel(selected)}`, 'success');
+        return true;
+      } catch (error) {
+        notifyAction(`打开新窗口失败：${error.message}`, 'error');
+        addWarning('error', 'ui.open_new_window.failed', { path: selected, error: error.message });
+        throw error;
+      }
+    },
+
     removeProjectPath: async (path) => {
       const target = normalizePath(path);
       if (!target) return false;
@@ -1495,6 +2487,11 @@ export const useClientStore = create((set, get) => {
     },
 
     toggleProviderMode: async () => {
+      const lockedThreadId = activeProviderLockedThreadId(get());
+      if (lockedThreadId) {
+        notifyAction('已开启的聊天不能更改 provider，请新建对话后切换', 'warning', { threadId: lockedThreadId });
+        return false;
+      }
       const current = normalizeProviderName(get().provider) || DEFAULT_PROVIDER;
       const next = current === 'claude' ? 'codex' : 'claude';
       const cwd = requireCwd('provider.toggle');
@@ -1508,19 +2505,64 @@ export const useClientStore = create((set, get) => {
     },
 
     setActiveThread: async (threadId) => {
-      const id = backendThreadIdForState(get(), threadId);
-      set({ activeThreadId: id });
-      if (id) await get().syncThreadState(id);
+      const id = backendThreadIdForState(get(), threadId, { includeArchived: true });
+      const current = get();
+      saveActiveComposerDraft(current);
+      const restored = restoreComposerDraft(current, id);
+      if (!id) {
+        set({
+          activeThreadId: '',
+          pendingActiveThreadId: '',
+          draft: restored.draft,
+          attachments: restored.attachments,
+        });
+        return;
+      }
+      const currentThreadId = backendThreadIdForState(current, current.activeThreadId);
+      if (currentThreadId === id) {
+        set({
+          pendingActiveThreadId: '',
+          draft: restored.draft,
+          attachments: restored.attachments,
+        });
+        await get().syncThreadState(id, { includeArchived: true });
+        return;
+      }
+      set((state) => ({
+        activeThreadId: id,
+        pendingActiveThreadId: '',
+        draft: restored.draft,
+        attachments: restored.attachments,
+        threadStateLoadingByThread: {
+          ...state.threadStateLoadingByThread,
+          [id]: true,
+        },
+      }));
+      try {
+        await get().syncThreadState(id, { includeArchived: true });
+      } catch (error) {
+        set((state) => ({
+          threadStateLoadingByThread: {
+            ...state.threadStateLoadingByThread,
+            [id]: false,
+          },
+        }));
+        throw error;
+      }
     },
 
     newThread: () => {
-      set({ activeThreadId: '', draft: '', attachments: [], actionNotice: actionNotice('已创建新对话草稿', 'info') });
+      const current = get();
+      saveActiveComposerDraft(current);
+      const restored = restoreComposerDraft(current, '');
+      set({ activeThreadId: '', draft: restored.draft, attachments: restored.attachments, actionNotice: actionNotice('已创建新对话草稿', 'info') });
     },
 
     continueWithSharedFile: (path) => {
       const target = normalizeString(path);
       if (!target) return false;
       const attachment = { path: target, name: basename(target) };
+      saveActiveComposerDraft();
       set((state) => ({
         activePage: 'chat',
         activeThreadId: '',
@@ -1539,7 +2581,7 @@ export const useClientStore = create((set, get) => {
           .map(normalizeAttachment)
           .filter(Boolean);
         set((state) => ({
-          attachments: [...state.attachments, ...attachments],
+          attachments: appendUniqueAttachments(state.attachments, attachments),
           actionNotice: actionNotice(attachments.length > 0 ? `已添加 ${attachments.length} 个附件` : '未选择附件', attachments.length > 0 ? 'success' : 'info'),
         }));
         return attachments;
@@ -1549,10 +2591,71 @@ export const useClientStore = create((set, get) => {
       }
     },
 
+    attachPathsForComposer: (paths) => {
+      const attachments = (Array.isArray(paths) ? paths : [])
+        .map(normalizeAttachment)
+        .filter(Boolean);
+      set((state) => ({
+        attachments: appendUniqueAttachments(state.attachments, attachments),
+        actionNotice: actionNotice(
+          attachments.length > 0 ? `已添加 ${attachments.length} 个附件` : '未找到可添加的附件路径',
+          attachments.length > 0 ? 'success' : 'info',
+        ),
+      }));
+      return attachments.length;
+    },
+
+    attachDroppedFilesForComposer: async (files) => {
+      const list = fileListOf(files);
+      if (list.length === 0) return 0;
+      const attachments = [];
+      const rejected = [];
+      for (let index = 0; index < list.length; index += 1) {
+        const file = list[index];
+        const path = droppedFilePath(file);
+        if (path) {
+          attachments.push(normalizeFileAttachment(path));
+          continue;
+        }
+        if (fileLooksImage(file)) {
+          attachments.push(await imageFileAttachment(file, index, 'dropped-image'));
+          continue;
+        }
+        rejected.push(normalizeString(file?.name) || `file-${index + 1}`);
+      }
+      set((state) => ({
+        attachments: appendUniqueAttachments(state.attachments, attachments),
+        actionNotice: actionNotice(
+          attachments.length > 0
+            ? `已添加 ${attachments.length} 个附件`
+            : '无法添加无路径的非图片文件',
+          attachments.length > 0 ? 'success' : 'error',
+        ),
+      }));
+      if (rejected.length > 0) {
+        addWarning('warn', 'attachments.drop.rejected_no_path', { files: rejected });
+      }
+      return attachments.length;
+    },
+
+    attachPastedImagesForComposer: async (files) => {
+      const images = fileListOf(files).filter(fileLooksImage);
+      if (images.length === 0) return 0;
+      const attachments = [];
+      for (let index = 0; index < images.length; index += 1) {
+        attachments.push(await imageFileAttachment(images[index], index, 'pasted-image'));
+      }
+      set((state) => ({
+        attachments: appendUniqueAttachments(state.attachments, attachments),
+        actionNotice: actionNotice(`已添加 ${attachments.length} 张图片`, 'success'),
+      }));
+      return attachments.length;
+    },
+
     removeAttachment: (path) => {
       const target = normalizeString(path);
       set((state) => ({
-        attachments: state.attachments.filter((item) => item.path !== target),
+        attachments: state.attachments.filter((item) => attachmentKey(item) !== target && item.path !== target),
       }));
     },
 
@@ -1565,7 +2668,8 @@ export const useClientStore = create((set, get) => {
 
       const previousDraft = get().draft;
       const previousAttachments = get().attachments;
-      const previousThreadId = backendThreadIdForState(get(), get().activeThreadId);
+      const previousActiveThreadId = get().activeThreadId;
+      const previousThreadId = reusableThreadIdForSend(get(), previousActiveThreadId);
       const launchIntentId = createLaunchIntentId();
       const provisionalThreadId = previousThreadId || launchIntentId;
       const optimisticItem = {
@@ -1585,6 +2689,16 @@ export const useClientStore = create((set, get) => {
         attachments: [],
         actionNotice: actionNotice('消息已发送，等待回复', 'info'),
         activeThreadId: provisionalThreadId,
+        activityThreadAtById: {
+          ...state.activityThreadAtById,
+          [provisionalThreadId]: threadActivityTimestamp(),
+        },
+        threads: previousThreadId && state.threads.some((thread) => threadMatchesIdentifier(thread, previousThreadId))
+          ? [
+            state.threads.find((thread) => threadMatchesIdentifier(thread, previousThreadId)),
+            ...state.threads.filter((thread) => !threadMatchesIdentifier(thread, previousThreadId)),
+          ]
+          : state.threads,
         timelinesByThread: {
           ...state.timelinesByThread,
           [provisionalThreadId]: [
@@ -1613,9 +2727,15 @@ export const useClientStore = create((set, get) => {
             const timelinesByThread = { ...state.timelinesByThread };
             delete timelinesByThread[provisionalThreadId];
             timelinesByThread[threadId] = provisionalTimeline;
+            const activityThreadAtById = { ...state.activityThreadAtById };
+            if (activityThreadAtById[provisionalThreadId]) {
+              activityThreadAtById[threadId] = activityThreadAtById[provisionalThreadId];
+              delete activityThreadAtById[provisionalThreadId];
+            }
             return {
               activeThreadId: threadId,
               provider: launchPreferences.modelProvider || launchPreferences.provider || DEFAULT_PROVIDER,
+              activityThreadAtById,
               timelinesByThread,
               threads: [
                 { id: threadId, agentId: identity.agentId, providerThreadId: identity.providerThreadId, sessionId: identity.sessionId, name: text.slice(0, 40) || '新对话', provider: launchPreferences.modelProvider || launchPreferences.provider || DEFAULT_PROVIDER, status: '工作中' },
@@ -1631,6 +2751,9 @@ export const useClientStore = create((set, get) => {
           input,
           manualSkillSelection: false,
         });
+        clearComposerDraft({ ...get(), activeThreadId: previousActiveThreadId }, previousActiveThreadId);
+        clearComposerDraft(get(), provisionalThreadId);
+        clearComposerDraft(get(), threadId);
         set({ sending: false });
         return true;
       } catch (error) {
@@ -1645,7 +2768,7 @@ export const useClientStore = create((set, get) => {
             sending: false,
             draft: previousDraft,
             attachments: previousAttachments,
-            activeThreadId: previousThreadId,
+            activeThreadId: previousActiveThreadId,
             timelinesByThread,
             error: error.message,
             actionNotice: actionNotice(`发送失败：${error.message}`, 'error'),
@@ -1677,27 +2800,47 @@ export const useClientStore = create((set, get) => {
         notifyAction('当前没有可复制的后端线程', 'warning');
         return false;
       }
+      const preparedClipboardWrite = beginTextClipboardWrite();
       const thread = state.threads.find((item) => item.id === threadId) || {};
-      let identity = {};
+      const cwd = requireCwd('thread.copy');
+      let identity;
       try {
-        identity = await resolveThreadIdentity({ cwd: requireCwd('thread.copy'), threadId });
+        identity = await resolveThreadIdentity({ cwd, threadId });
       } catch (error) {
-        addWarning('warn', 'thread.identity.resolve.failed', { threadId, error: error.message });
-      }
-      const lines = [
-        `threadId: ${threadId}`,
-        thread.agentId || identity.agentId || identity.agent_id ? `agentId: ${thread.agentId || identity.agentId || identity.agent_id}` : '',
-        thread.providerThreadId || identity.providerThreadId || identity.provider_thread_id ? `providerThreadId: ${thread.providerThreadId || identity.providerThreadId || identity.provider_thread_id}` : '',
-        thread.name ? `name: ${thread.name}` : '',
-        thread.status ? `status: ${thread.status}` : '',
-      ].filter(Boolean);
-      if (!globalThis.navigator?.clipboard?.writeText) {
-        notifyAction('复制失败：剪贴板不可用', 'warning', { threadId });
-        addWarning('warn', 'thread.copy.clipboard.unavailable', { threadId });
+        preparedClipboardWrite?.cancel?.(error);
+        notifyAction(`复制失败：线程信息接口调用失败：${error.message || String(error)}`, 'warning', { threadId });
+        addWarning('warn', 'thread.identity.resolve.failed', { threadId, error: error.message || String(error) });
         return false;
       }
+      if (!identity || typeof identity !== 'object' || Array.isArray(identity)) {
+        preparedClipboardWrite?.cancel?.();
+        notifyAction('复制失败：线程信息接口返回值不是 JSON 对象', 'warning', { threadId });
+        addWarning('warn', 'thread.identity.resolve.invalid', { threadId });
+        return false;
+      }
+      const threadConfig = state.threadConfigByThread[threadId] || await get().loadThreadConfig(threadId);
+      const payload = buildThreadCopyPayload({ state: get(), threadId, thread, identity, threadConfig });
       try {
-        await globalThis.navigator.clipboard.writeText(lines.join('\n'));
+        const text = JSON.stringify(payload, null, 2);
+        const copyFailures = [];
+        if (preparedClipboardWrite?.commit) {
+          try {
+            await preparedClipboardWrite.commit(text);
+            notifyAction('线程信息已复制', 'success', { threadId });
+            return true;
+          } catch (error) {
+            copyFailures.push(`prepared clipboard write failed: ${error.message || String(error)}`);
+            addWarning('warn', 'thread.copy.prepared_clipboard.failed', { threadId, error: error.message || String(error) });
+          }
+        }
+        try {
+          await copyTextToClipboard(text);
+        } catch (error) {
+          if (copyFailures.length > 0) {
+            throw new Error(`${copyFailures.join('; ')}; fallback copy failed: ${error.message || String(error)}`, { cause: error });
+          }
+          throw error;
+        }
         notifyAction('线程信息已复制', 'success', { threadId });
         return true;
       } catch (error) {
@@ -1711,11 +2854,39 @@ export const useClientStore = create((set, get) => {
       const id = backendThreadIdForState(get(), threadId);
       const nextName = normalizeString(name);
       if (!id || !nextName) return false;
-      const cwd = requireCwd('thread.rename');
-      await renameThreadRPC({ cwd, threadId: id, name: nextName });
+      await renameThreadRPC({ threadId: id, name: nextName });
       set((state) => ({
         threads: state.threads.map((thread) => (thread.id === id ? { ...thread, name: nextName } : thread)),
         actionNotice: actionNotice('线程已重命名', 'success'),
+      }));
+      return true;
+    },
+
+    toggleThreadPin: async (threadId) => {
+      const id = backendThreadIdForArchiveState(get(), threadId);
+      if (!id) return false;
+      const cwd = requireCwd('thread.pin');
+      const currentMap = normalizeTimestampMap(get().pinnedThreadAtById);
+      const pinned = currentMap[id] > 0;
+      const nextMap = { ...currentMap };
+      if (pinned) {
+        delete nextMap[id];
+      } else {
+        nextMap[id] = Date.now();
+      }
+      await setPreference({
+        cwd,
+        key: THREAD_PINS_CHAT_PREF_KEY,
+        value: nextMap,
+      });
+      set((state) => ({
+        pinnedThreadAtById: nextMap,
+        threads: state.threads.map((thread) => (thread.id === id ? {
+          ...thread,
+          pinned: !pinned,
+          pinnedAt: nextMap[id] || 0,
+        } : thread)),
+        actionNotice: actionNotice(pinned ? '会话已取消置顶' : '会话已置顶', 'success'),
       }));
       return true;
     },
