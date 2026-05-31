@@ -43,8 +43,12 @@ jobs:
         run: go vet ./...
       - name: Build
         run: go build ./...
-      - name: Test
-        run: ./scripts/test_with_guard.sh $(go list ./... | grep -v /internal/provider/dreamexec) -count=1 -timeout 180s
+      - name: Changed tests
+        env:
+          GITHUB_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          GITHUB_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          GITHUB_EVENT_BEFORE: ${{ github.event.before }}
+        run: ./scripts/ci_changed_tests.sh
 
   lint:
     needs: commit-guard

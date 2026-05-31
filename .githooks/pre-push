@@ -40,6 +40,7 @@ GO_LIST_ERR=$(mktemp -t pre-push-golist.XXXXXX)
 LOG=
 GO_PKG_CANDIDATES=()
 HAS_FRONTEND_CODE_CHANGES=0
+GO_PACKAGE_PATTERNS=(./cmd/... ./internal/... ./pkg/... ./scripts/...)
 cleanup() {
   rm -f "$PUSH_RANGES" "$GO_LIST_ERR"
   if [ -n "${LOG:-}" ]; then
@@ -210,6 +211,33 @@ resolve_go_pkgs() {
   done
 }
 
+reverse_dependency_packages() {
+  if [ ${#GO_PKGS[@]} -eq 0 ]; then
+    return 0
+  fi
+
+  local changed_imports module_path
+  changed_imports="$(run_without_git_env go list -e -f '{{.ImportPath}}' "${GO_PKGS[@]}" 2>/dev/null | sed '/^$/d')"
+  if [ -z "$changed_imports" ]; then
+    return 0
+  fi
+  module_path="$(run_without_git_env go list -m -f '{{.Path}}')"
+
+  run_without_git_env go list -e \
+    -f '{{$p := .ImportPath}}{{range .Imports}}{{$p}}{{"\t"}}{{.}}{{"\n"}}{{end}}{{range .TestImports}}{{$p}}{{"\t"}}{{.}}{{"\n"}}{{end}}{{range .XTestImports}}{{$p}}{{"\t"}}{{.}}{{"\n"}}{{end}}' \
+    "${GO_PACKAGE_PATTERNS[@]}" 2>/dev/null \
+    | awk -F'\t' '
+        BEGIN {
+          while ((getline line < ARGV[1]) > 0) if (line != "") target[line] = 1
+          close(ARGV[1])
+          ARGV[1] = ""
+        }
+        $2 in target { print $1 }
+      ' <(printf '%s\n' "$changed_imports") \
+    | sort -u \
+    | sed "s|^${module_path}/|./|"
+}
+
 run_go_package_tests() {
   resolve_go_pkgs
   if [ ${#GO_PKGS[@]} -eq 0 ]; then
@@ -219,9 +247,17 @@ run_go_package_tests() {
     return 0
   fi
 
-  echo "[pre-push] go package tests: ${GO_PKGS[*]}"
+  local all_pkg_lines dep
+  all_pkg_lines="$({ printf '%s\n' "${GO_PKGS[@]}"; reverse_dependency_packages; } | sed '/^$/d' | sort -u)"
+  ALL_GO_PKGS=()
+  while IFS= read -r dep; do
+    [ -n "$dep" ] || continue
+    ALL_GO_PKGS+=("$dep")
+  done <<< "$all_pkg_lines"
+
+  echo "[pre-push] go affected package tests: ${ALL_GO_PKGS[*]}"
   LOG=$(mktemp -t pre-push-go.XXXXXX)
-  if run_without_git_env ./scripts/test_with_guard.sh "${GO_PKGS[@]}" -count=1 >"$LOG" 2>&1; then
+  if run_without_git_env ./scripts/test_with_guard.sh "${ALL_GO_PKGS[@]}" -count=1 >"$LOG" 2>&1; then
     grep -v '^ld: warning:' "$LOG" || true
     rm -f "$LOG"
     LOG=

@@ -383,7 +383,7 @@ func assertPrePushGoOnlyScope(t *testing.T) {
 	fixture := newPrePushScopeFixture(t)
 	head := commitPrePushGoOnlyChange(t, fixture.root)
 	out := fixture.run(t, head)
-	assertOutputContainsAll(t, out, "[pre-push] go package tests: ./internal/app", "fake go package test ./internal/app -count=1", "pre-push OK")
+	assertOutputContainsAll(t, out, "[pre-push] go affected package tests: ./internal/app", "fake go package test ./internal/app -count=1", "pre-push OK")
 	assertOutputOmitsAll(t, out, "frontend package tests")
 	log := fixture.log(t)
 	assertOutputContainsAll(t, log, "go-test ./internal/app -count=1")
