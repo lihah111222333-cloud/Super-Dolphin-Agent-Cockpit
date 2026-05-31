@@ -51,9 +51,12 @@ func TestLSPToolManifestDescriptionsSeparateDiagnosticsFromPackageScripts(t *tes
 	for _, manifest := range lspToolManifests {
 		descriptions[manifest.Name] = manifest.Description
 	}
-	for _, must := range []string{"LSP/type diagnostics", "exec_command", "npm run lint"} {
-		if !strings.Contains(descriptions["file"], must) {
-			t.Fatalf("file description = %q, want %q", descriptions["file"], must)
+	if !strings.Contains(descriptions["file"], "fetch diagnostics") {
+		t.Fatalf("file description = %q, want diagnostics access", descriptions["file"])
+	}
+	for _, forbidden := range []string{"exec_command", "npm run lint"} {
+		if strings.Contains(descriptions["file"], forbidden) {
+			t.Fatalf("file description = %q, want no package-script guidance %q", descriptions["file"], forbidden)
 		}
 	}
 }
