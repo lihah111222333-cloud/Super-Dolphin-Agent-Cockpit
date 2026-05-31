@@ -174,7 +174,7 @@ type readFileRequest struct {
 }
 
 func (r readFileRequest) wantsLineWindow() bool {
-	return r.scope == "lines" || r.line <= 0 || r.limit > 0
+	return r.scope == "lines" || r.line <= 0
 }
 
 // normalizeFileInputFromPos lets the file tool accept the same pos

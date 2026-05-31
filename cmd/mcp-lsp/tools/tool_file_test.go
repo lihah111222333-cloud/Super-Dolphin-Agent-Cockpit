@@ -100,3 +100,33 @@ func largeLineFileContent(lines int, width int) string {
 	}
 	return body.String()
 }
+
+func TestReadFileWithLimitDoesNotForceLineWindow(t *testing.T) {
+	// limit should cap function-mode output, not switch to line-window.
+	// Without a registry (no LSP), function mode falls back to line-window
+	// with a reason tag. The key assertion: the reason must NOT be
+	// "explicit" (which means wantsLineWindow returned true), it should be
+	// a fallback reason like "no symbol provider available".
+	root := t.TempDir()
+	target := filepath.Join(root, "main.go")
+	content := "package main\n\nfunc hello() {\n\treturn\n}\n"
+	if err := os.WriteFile(target, []byte(content), 0o600); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
+
+	// pos=main.go:3 (has line), limit=10 — should attempt function mode
+	got, err := callFileTool(t, root, fileToolInput{
+		Action: "read_file",
+		Pos:    "main.go:3",
+		Limit:  10,
+	})
+	if err != nil {
+		t.Fatalf("read_file error: %v", err)
+	}
+	result := got.(string)
+	// With no registry, function mode falls back with reason "no symbol
+	// provider available", NOT the explicit line-window path.
+	if strings.Contains(result, "scope=lines") && !strings.Contains(result, "no symbol provider") {
+		t.Fatalf("limit forced line-window without fallback reason: %q", result)
+	}
+}
