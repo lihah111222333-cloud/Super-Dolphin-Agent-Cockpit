@@ -464,7 +464,6 @@ func (r batchReadResponse) ToPlainText() string {
 }
 
 var singleLineCommentPrefixes = []string{"//", "#", "--"}
-var blockCommentPrefixSuffix = []string{"/*", "*/"}
 
 func isCommentLine(line string) bool {
 	trimmed := strings.TrimSpace(line)
@@ -476,12 +475,25 @@ func isCommentLine(line string) bool {
 			return true
 		}
 	}
-	for _, p := range blockCommentPrefixSuffix {
-		if strings.HasPrefix(trimmed, p) || strings.HasSuffix(trimmed, p) {
+	for _, item := range blockCommentSuffixes {
+		if isBlockCommentMarkerMatch(trimmed, item.Prefix, item.Suffix) {
 			return true
 		}
 	}
 	return false
+}
+
+func isBlockCommentMarkerMatch(trimmed, prefix, suffix string) bool {
+	firstIdx := strings.Index(trimmed, prefix)
+	lastIdx := strings.LastIndex(trimmed, suffix)
+	if firstIdx != -1 && firstIdx < lastIdx {
+		isSingle := strings.HasPrefix(trimmed, prefix)
+		if len(suffix) == 3 {
+			return isSingle && len(trimmed) > 3
+		}
+		return isSingle
+	}
+	return strings.HasPrefix(trimmed, prefix) || strings.HasSuffix(trimmed, suffix)
 }
 
 func isLicenseLine(line string) bool {
@@ -510,11 +522,22 @@ func checkBlockCommentMarker(line string) (isBlock bool, marker string, singleLi
 	trimmed := strings.TrimSpace(line)
 	for _, item := range blockCommentSuffixes {
 		if strings.HasSuffix(trimmed, item.Suffix) {
-			isSingle := strings.HasPrefix(trimmed, item.Prefix)
-			if item.Suffix == `"""` || item.Suffix == "'''" {
-				isSingle = isSingle && len(trimmed) > 3
+			firstIdx := strings.Index(trimmed, item.Prefix)
+			lastIdx := strings.LastIndex(trimmed, item.Suffix)
+			containsPrefixBeforeSuffix := firstIdx != -1 && firstIdx < lastIdx
+
+			if containsPrefixBeforeSuffix {
+				isSingle := strings.HasPrefix(trimmed, item.Prefix)
+				if item.Suffix == `"""` || item.Suffix == "'''" {
+					isSingle = isSingle && len(trimmed) > 3
+				}
+				if isSingle {
+					return true, item.Prefix, true
+				}
+				return false, "", false
 			}
-			return true, item.Prefix, isSingle
+
+			return true, item.Prefix, false
 		}
 	}
 	return false, "", false
@@ -549,10 +572,13 @@ func expandStartToIncludeComments(lines []string, startLine int) int {
 		}
 
 		if inMultiLineBlock {
-			current--
 			if strings.Contains(trimmedPrev, blockStartMarker) {
 				inMultiLineBlock = false
+				if !strings.HasPrefix(trimmedPrev, blockStartMarker) {
+					break
+				}
 			}
+			current--
 			continue
 		}
 

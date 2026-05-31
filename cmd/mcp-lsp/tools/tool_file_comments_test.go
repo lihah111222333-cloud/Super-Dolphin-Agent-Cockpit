@@ -112,6 +112,26 @@ func anotherFunc() {
 			startLine: 7,
 			wantStart: 3,
 		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			lines := strings.Split(strings.ReplaceAll(tt.content, "\r\n", "\n"), "\n")
+			got := expandStartToIncludeComments(lines, tt.startLine)
+			if got != tt.wantStart {
+				t.Errorf("expandStartToIncludeComments() = %d, want %d", got, tt.wantStart)
+			}
+		})
+	}
+}
+
+func TestCommentDetectionAndUpwardExpansion_BlockInline(t *testing.T) {
+	tests := []struct {
+		name      string
+		content   string
+		startLine int
+		wantStart int
+	}{
 		{
 			name: "Inline block comment /* ... */",
 			content: `
@@ -127,6 +147,24 @@ func helper() {}`,
 def helper():
     pass`,
 			startLine: 3,
+			wantStart: 2,
+		},
+		{
+			name: "Trailing inline block comment on code line (no leakage)",
+			content: `func unrelated() {}
+func target() {} /* trailing comment */
+func main() {
+}`,
+			startLine: 3,
+			wantStart: 3,
+		},
+		{
+			name: "Block comment starting on code line (no boundary leakage)",
+			content: `func foo() {} /* comment start
+comment body
+*/
+func bar() {}`,
+			startLine: 4,
 			wantStart: 2,
 		},
 	}
