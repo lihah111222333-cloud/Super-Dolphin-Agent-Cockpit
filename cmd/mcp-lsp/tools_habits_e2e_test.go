@@ -86,14 +86,49 @@ func TestToolsHabitsE2E_Inspect(t *testing.T) {
 	require.Contains(t, textOutput, "sample.go:L3:C6")
 	require.NotContains(t, textOutput, `[{"uri":`)
 
-	// 2. Verify GUI-facing structured JSON is perfectly preserved (unmarshaled to generic map due to LocationResult custom marshaller)
+	// 2. Verify GUI-facing structured JSON follows the shared MCP object contract.
 	structuredContent, ok := wrapped["structuredContent"].(json.RawMessage)
 	require.True(t, ok)
-	var structuredLocations []map[string]any
+	var structuredLocations struct {
+		Items []map[string]any `json:"items"`
+		Total int              `json:"total"`
+	}
 	err = json.Unmarshal(structuredContent, &structuredLocations)
 	require.NoError(t, err)
-	require.Len(t, structuredLocations, 1)
-	require.Equal(t, "file://"+filePath, structuredLocations[0]["file"])
+	require.Equal(t, 1, structuredLocations.Total)
+	require.Len(t, structuredLocations.Items, 1)
+	require.Equal(t, "file://"+filePath, structuredLocations.Items[0]["file"])
+}
+
+func TestWrapScopedToolResultWrapsStringStructuredContent(t *testing.T) {
+	const fileText = " 1: package main\n"
+	root := canonicalToolTestRoot(t, t.TempDir())
+	defs := []toolDefinition{{
+		Manifest: ToolManifest{Name: "file"},
+		Handler: func(context.Context, json.RawMessage) (any, error) {
+			return fileText, nil
+		},
+	}}
+
+	params, err := json.Marshal(map[string]any{
+		"name":            "file",
+		"arguments":       map[string]any{},
+		"_cwd":            root,
+		"_workspaceRoots": []string{root},
+	})
+	require.NoError(t, err)
+	res, err := handleScopedToolsCall(context.Background(), registryToolProvider{defs: defs}, "lsp", params)
+	require.NoError(t, err)
+
+	wrapped, ok := res.(map[string]any)
+	require.True(t, ok)
+	structuredContent, ok := wrapped["structuredContent"].(json.RawMessage)
+	require.True(t, ok)
+	var payload struct {
+		Value string `json:"value"`
+	}
+	require.NoError(t, json.Unmarshal(structuredContent, &payload))
+	require.Equal(t, fileText, payload.Value)
 }
 
 // TestToolsHabitsE2E_FailFast verifies the fail-fast error behavior

@@ -299,17 +299,16 @@ func wrapScopedToolResult(result any) (any, error) {
 		plainText = string(raw)
 	}
 
-	// 2. Preserve structured JSON for the frontend
-	var structuredJSON []byte
-	if str, ok := result.(string); ok {
-		structuredJSON, _ = json.Marshal(str)
-	} else {
-		structuredJSON, _ = json.Marshal(result)
+	// 2. Preserve structured JSON for the frontend using the shared MCP
+	// structuredContent object contract.
+	structuredContent, err := common.StructuredContentForToolResult(result)
+	if err != nil {
+		return nil, err
 	}
 
 	return map[string]any{
 		"content":           []map[string]string{{"type": "text", "text": plainText}},
-		"structuredContent": json.RawMessage(structuredJSON),
+		"structuredContent": structuredContent,
 		"isError":           common.ToolResultIsError(result),
 	}, nil
 }

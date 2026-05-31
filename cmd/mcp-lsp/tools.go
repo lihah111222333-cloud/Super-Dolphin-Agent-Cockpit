@@ -27,15 +27,15 @@ type toolDefinition struct {
 }
 
 var lspToolManifests = []ToolManifest{
-	toolManifestWithSchema("file", "File: read_file (offset/limit paging), open_file, diagnostics. Batch: file_paths. For locating code, prefer grep first.", lspFileSchema),
-	toolManifestWithSchema("inspect", "Hover/definition/implementation/type_definition/signature_help at file:line:column (1-based). Use before editing to verify types and signatures.", lspInspectSchema),
-	toolManifestWithSchema("xref", "References/call_hierarchy/type_hierarchy. verbosity=compact(default)|full, max_results cap 50. Use before renaming or refactoring to find all references.", lspXrefSchema),
-	toolManifestWithOutputSchema("grep", "Search codebase: text_search (literal default, regex=true) or ast_search. Default/cap max_results=50; snippets cap at 150 chars; payload target is 16KB and drops rows when needed. Returns 1-based file:line:col.", lspGrepSchema, lspGrepOutputSchema),
-	toolManifestWithSchema("structure", "Document/workspace symbols, folding ranges, semantic tokens. Use to understand file structure before targeted edits.", lspStructureSchema),
-	toolManifestWithSchema("edit", "Edit: applies a patch to disk, then re-reads the file to sync the LSP document cache. Before editing, use grep to locate and inspect or xref to verify context.", lspEditSchema),
-	toolManifestWithSchema("completion", "Request code completions via LSP. Use to discover available APIs and method signatures.", lspCompletionSchema),
-	toolManifestWithSchema("code_run", "Execute code snippet or project shell command. mode=project_cmd for shell. For code search prefer grep; for file reading prefer file.", codeRunSchema),
-	toolManifestWithSchema("code_run_test", "Run a Go test function inside the trusted workspace roots. Defaults test_pkg to ./... and executes go test -run without shell expansion.", codeRunTestSchema),
+	toolManifestWithSchema("file", "File: read_file/open_file/diagnostics. Example read_file: action=read_file file_path=internal/foo.go offset=42 limit=40.", lspFileSchema),
+	toolManifestWithSchema("inspect", "Hover/definition/implementation/type_definition/signature_help. Example definition: action=definition pos=internal/foo.go:42:9.", lspInspectSchema),
+	toolManifestWithSchema("xref", "References/call_hierarchy/type_hierarchy. Example references: action=references pos=internal/foo.go:42:9.", lspXrefSchema),
+	toolManifestWithOutputSchema("grep", "Search codebase: text_search or ast_search. Example text search: action=text_search query=targetName path=internal glob=*.go.", lspGrepSchema, lspGrepOutputSchema),
+	toolManifestWithSchema("structure", "Document/workspace symbols, folding ranges, semantic tokens. Example document_symbol: action=document_symbol file_path=internal/foo.go.", lspStructureSchema),
+	toolManifestWithSchema("edit", "Edit by patching disk and syncing LSP. Example: file_path=internal/foo.go patch=\"*** Begin Patch...\".", lspEditSchema),
+	toolManifestWithSchema("completion", "Request code completions. Example: pos=internal/foo.go:42:9.", lspCompletionSchema),
+	toolManifestWithSchema("code_run", "Execute code snippet or project command. Example project_cmd: mode=project_cmd command=\"go test ./cmd/mcp-lsp\".", codeRunSchema),
+	toolManifestWithSchema("code_run_test", "Run one Go test. Example: test_func=TestName test_pkg=./cmd/mcp-lsp.", codeRunTestSchema),
 }
 
 var legacyToolAliases = map[string]string{

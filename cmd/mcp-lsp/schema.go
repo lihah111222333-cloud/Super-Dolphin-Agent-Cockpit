@@ -55,13 +55,13 @@ var lspFileSchema = objectSchema(map[string]schema{
 
 var lspInspectSchema = objectSchema(map[string]schema{
 	"action":      enumProp("Action", "hover", "definition", "implementation", "type_definition", "signature_help"),
-	"pos":         stringProp("Position in format 'file_path:line:column'"),
+	"pos":         stringProp("Position as 'file_path:line:column' (example internal/foo.go:42:9)"),
 	"language_id": stringProp("Language override (optional)"),
 }, "action", "pos")
 
 var lspXrefSchema = objectSchema(map[string]schema{
 	"action":              enumProp("Action", "references", "call_hierarchy", "type_hierarchy"),
-	"pos":                 stringProp("Position in format 'file_path:line:column'"),
+	"pos":                 stringProp("Position as 'file_path:line:column' (example internal/foo.go:42:9)"),
 	"language_id":         stringProp("Language override (optional)"),
 	"direction":           enumProp("Direction (hierarchy)", "incoming", "outgoing", "both", "supertypes", "subtypes"),
 	"include_declaration": booleanProp("Include declaration"),
@@ -98,6 +98,7 @@ var lspGrepOutputSchema = schema{
 var lspStructureSchema = objectSchema(map[string]schema{
 	"action":      enumProp("Action", "document_symbol", "workspace_symbol", "folding_range", "semantic_tokens"),
 	"file_path":   stringProp("File path"),
+	"path":        stringProp("Legacy alias for file_path"),
 	"language_id": stringProp("Language override (optional)"),
 	"query":       stringProp("Symbol query"),
 	"language":    stringProp("Language filter"),
@@ -113,7 +114,7 @@ var lspEditSchema = objectSchema(map[string]schema{
 }, "file_path", "patch")
 
 var lspCompletionSchema = objectSchema(map[string]schema{
-	"pos":         stringProp("Position in format 'file_path:line:column'"),
+	"pos":         stringProp("Position as 'file_path:line:column' (example internal/foo.go:42:9)"),
 	"language_id": stringProp("Language override (optional)"),
 	"verbosity":   enumProp("Verbosity", "compact", "full"),
 	"max_results": integerProp("Max candidates"),
