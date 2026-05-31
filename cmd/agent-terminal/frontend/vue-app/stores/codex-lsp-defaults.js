@@ -2,8 +2,11 @@
 const CODEX_LSP_ENABLED_TOOLS = Object.freeze([
   'file',
   'grep',
-  'code_run',
-  'code_run_test',
+  'inspect',
+  'xref',
+  'structure',
+  'edit',
+  'completion',
 ]);
 
 const CODEX_LSP_MCP_TOOLS = Object.freeze(CODEX_LSP_ENABLED_TOOLS.map((name) => `mcp__lsp__${name}`));

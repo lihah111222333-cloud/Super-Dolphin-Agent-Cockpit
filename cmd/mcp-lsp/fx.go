@@ -240,7 +240,7 @@ func withRuntimeWorkspaceScopeFallback(ctx context.Context) (context.Context, er
 func shouldWarnLSPCWDTrace(toolName string) bool {
 	toolName = canonicalToolName(toolName)
 	switch toolName {
-	case "file", "inspect", "xref", "grep", "structure", "edit", "completion", "code_run", "code_run_test":
+	case "file", "inspect", "xref", "grep", "structure", "edit", "completion":
 		return true
 	default:
 		return false

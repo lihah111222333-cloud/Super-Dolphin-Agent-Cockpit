@@ -1,6 +1,6 @@
 # LSP 工具链使用规范 · 所有 Agent 必读
 
-你有 9 个仓库感知工具，覆盖四类动作：搜索、理解、修改、验证。工具名使用当前短名：`file`、`grep`、`inspect`、`xref`、`structure`、`edit`、`completion`、`code_run`、`code_run_test`。普通 shell、git、目录 / 文件检查、包脚本和宽范围测试默认走 `exec_command`；代码理解、符号跳转、引用 / 调用链、诊断、编辑和定点代码测试优先 LSP。**禁止**只用 `grep + file` 两件套，也不要用 `code_run` 去拼普通 shell 或替代已有的专用工具。
+你有 7 个仓库感知 LSP 工具，覆盖搜索、理解、修改和诊断。工具名使用当前短名：`file`、`grep`、`inspect`、`xref`、`structure`、`edit`、`completion`。普通 shell、git、目录 / 文件检查、包脚本和测试默认走 `exec_command`；代码理解、符号跳转、引用 / 调用链、诊断和编辑优先 LSP。**禁止**只用 `grep + file` 两件套，也不要用普通 shell 替代已有的专用工具。
 
 ## 基础使用
 
@@ -16,14 +16,13 @@
 - `file(diagnostics, file_paths=[…])` —— 批量取编译 / 类型诊断
 - `edit(file_path=…, patch="*** Begin Patch…")` —— 用 apply-patch 风格补丁精确改动磁盘文件并同步 LSP
 - `completion(pos=…)` —— 代码补全
-- `exec_command` —— 普通 shell / git / 包脚本 / 宽范围测试
-- `code_run / code_run_test` —— provider 无 `exec_command` 时的构建 / 脚本兜底，或定点 Go 测试
+- `exec_command` —— 普通 shell / git / 包脚本 / 测试
 
 ### 强制工作流
 
 ```
 审查类：grep 定位 → inspect 理解 → xref 影响面 → file(read_file) 精读 → 输出判定
-修复类：grep 定位 → xref 影响面 → file(read_file) 读上下文 → edit 修改 → file(diagnostics) 检查 → code_run_test / exec_command 验证
+修复类：grep 定位 → xref 影响面 → file(read_file) 读上下文 → edit 修改 → file(diagnostics) 检查 → exec_command 验证
 ```
 
 ### 5 个组合技
@@ -46,7 +45,7 @@
 ### 禁止
 
 1. 只用 `grep + file` 两件套
-2. 用 `code_run` 执行普通 shell，或执行 `grep / rg / cat / head / tail / sed / awk / find / ls` 等可被专用工具替代的命令
+2. 用普通 shell 执行 `grep / rg / cat / head / tail / sed / awk / find / ls` 等可被专用工具替代的命令
 3. 不做 `xref` 影响面分析就改代码
 4. 不跑 `file(diagnostics)` 就说验证通过 —— diagnostics 只查编译 / 类型，运行时行为必须跑对应测试
 5. 复杂跨文件改动应组合使用多种 LSP 工具；简单问题不强制凑工具
@@ -93,9 +92,7 @@
 
 ### 执行与测试
 
-- `exec_command` —— 普通 shell / git / 包脚本 / 宽范围测试
-- `code_run(project_cmd)` —— provider 无 `exec_command` 时的构建 / 脚本兜底
-- `code_run_test(test_func, test_pkg)` —— 精准跑单个 Go 测试函数，比整包 `go test` 快
+- `exec_command` —— 普通 shell / git / 包脚本 / 测试
 
 ### 高级组合（对基础 A–E 之外的补充）
 
@@ -108,4 +105,4 @@
 - 只有关键字或模式 → grep（扫描定位）
 - 要跨文件结构感 → structure（大纲）
 - 要改动 → edit（结构化改）
-- 要验证 → `file(diagnostics)` + `code_run_test`
+- 要验证 → `file(diagnostics)` + `exec_command`

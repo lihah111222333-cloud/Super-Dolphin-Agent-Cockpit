@@ -301,8 +301,8 @@ func TestMainGeneralZhResidentLSPSectionsStayThinAndRecallBacked(t *testing.T) {
 		recallLSPAdvanced,
 	}, "\n")
 	for _, want := range []string{
-		"9 个仓库感知工具",
-		"`file`、`grep`、`inspect`、`xref`、`structure`、`edit`、`completion`、`code_run`、`code_run_test`",
+		"7 个仓库感知 LSP 工具",
+		"`file`、`grep`、`inspect`、`xref`、`structure`、`edit`、`completion`",
 		"`grep(text_search",
 		"`file(read_file",
 		"`edit(file_path",

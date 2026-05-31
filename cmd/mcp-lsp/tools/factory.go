@@ -15,7 +15,6 @@ import (
 	"strings"
 	"time"
 
-	lspexec "github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/exec"
 	lspmanager "github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/manager"
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/middleware"
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/protocol"
@@ -77,19 +76,6 @@ func newManagerTool[T any](
 			return nil, err
 		}
 		return dispatch(ctx, registry, req)
-	})
-}
-
-func newSandboxTool(
-	name string,
-	sandbox SandboxRunner,
-	handler func(context.Context, SandboxRunner, json.RawMessage) (any, error),
-) middleware.Handler {
-	return wrapToolHandler(name, middleware.TierExec, func(ctx context.Context, params json.RawMessage) (any, error) {
-		if sandbox == nil {
-			return nil, fmt.Errorf("%s sandbox is nil", name)
-		}
-		return handler(ctx, sandbox, params)
 	})
 }
 
@@ -504,33 +490,6 @@ func renderListResult[T any](items []T, limit int, emptyMessage string, render f
 	return render(items, total), nil
 }
 
-func executeSandbox(
-	ctx context.Context,
-	sandbox SandboxRunner,
-	request lspexec.Request,
-	language string,
-	mode string,
-) (any, error) {
-	result, err := sandbox.Run(ctx, request)
-	if err != nil {
-		return nil, common.NewCodedToolError("sandbox_exec_failed", err, true, "Inspect sandbox command setup and retry after fixing the environment.")
-	}
-	hint := ""
-	if result.Truncated {
-		hint = "output truncated; rerun with narrower scope or check logs"
-	}
-	return CodeRunResult{
-		Success:   result.ExitCode == 0,
-		Output:    result.Output,
-		ExitCode:  result.ExitCode,
-		Duration:  result.Duration,
-		Language:  language,
-		Mode:      mode,
-		Truncated: result.Truncated,
-		Hint:      hint,
-	}, nil
-}
-
 func wrapToolHandler(toolName string, tier time.Duration, handler middleware.Handler) middleware.Handler {
 	log := pkglogger.Get()
 	scopedHandler := func(ctx context.Context, params json.RawMessage) (any, error) {
@@ -572,6 +531,46 @@ func contextWithExplicitToolWorkDir(ctx context.Context, params json.RawMessage)
 		return ctx, err
 	}
 	return scopedCtx, nil
+}
+
+func contextWithExplicitAbsoluteWorkDir(ctx context.Context, workDir string) (context.Context, string, error) {
+	normalized, err := normalizeExplicitAbsoluteWorkDir(workDir)
+	if err != nil {
+		return ctx, "", err
+	}
+	scope, _ := common.ToolScopeFromContext(ctx)
+	scope.CWD = normalized
+	scope.WorkspaceRoots = append(scope.WorkspaceRoots, normalized)
+	if strings.TrimSpace(scope.Family) == "" {
+		scope.Family = "lsp"
+	}
+	return common.WithToolScope(ctx, scope), normalized, nil
+}
+
+func normalizeExplicitAbsoluteWorkDir(workDir string) (string, error) {
+	trimmed := strings.TrimSpace(workDir)
+	if trimmed == "" {
+		return "", errors.New("work_dir is required")
+	}
+	if !filepath.IsAbs(trimmed) {
+		return "", fmt.Errorf("work_dir must be absolute: %q", workDir)
+	}
+	absolute, err := filepath.Abs(trimmed)
+	if err != nil {
+		return "", fmt.Errorf("resolve work_dir: %w", err)
+	}
+	resolved, err := filepath.EvalSymlinks(filepath.Clean(absolute))
+	if err != nil {
+		return "", fmt.Errorf("resolve work_dir: %w", err)
+	}
+	info, err := os.Stat(resolved)
+	if err != nil {
+		return "", fmt.Errorf("stat work_dir: %w", err)
+	}
+	if !info.IsDir() {
+		return "", fmt.Errorf("work_dir is not a directory: %s", resolved)
+	}
+	return filepath.Clean(resolved), nil
 }
 
 // funcRangeEnricher fetches DocumentSymbols on demand so location-emitting

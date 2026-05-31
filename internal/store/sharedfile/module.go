@@ -3,7 +3,7 @@ package sharedfile
 import (
 	"go.uber.org/fx"
 
-	uidto "github.com/anthropic-ai/super-agent-v3/internal/dto/ui"
+	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
 	sharedfilefs "github.com/anthropic-ai/super-agent-v3/internal/platform/sharedfilefs"
 	"github.com/anthropic-ai/super-agent-v3/internal/store/sqlc"
@@ -19,13 +19,13 @@ var Module = fx.Module("store.sharedfile",
 type storeParams struct {
 	fx.In
 
-	Queries *sqlc.Queries
-	Config  *platformconfig.Config
-	Emit    func(uidto.UISharedFilesChanged) `optional:"true"`
+	Queries                *sqlc.Queries
+	Config                 *platformconfig.Config
+	EmitSharedFilesChanged contract.UISharedFilesChangedEmitter `optional:"true"`
 }
 
 func provideStore(p storeParams) Store {
-	return NewStoreWithConfigAndEmitter(p.Queries, sharedfileFSConfigFrom(p.Config), p.Emit)
+	return NewStoreWithConfigAndEmitter(p.Queries, sharedfileFSConfigFrom(p.Config), p.EmitSharedFilesChanged)
 }
 
 func sharedfileFSConfigFrom(cfg *platformconfig.Config) sharedfilefs.Config {

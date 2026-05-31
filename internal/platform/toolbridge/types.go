@@ -165,8 +165,6 @@ func classifyTool(name string) string {
 	switch canonicalToolName(trimmed) {
 	case "file", "grep", "inspect", "xref", "structure", "edit", "format_preview", "completion":
 		return dto.ClientKindLSP
-	case "code_run", "code_run_test":
-		return dto.ClientKindLSP
 	default:
 		if strings.HasPrefix(trimmed, "lsp_") {
 			return dto.ClientKindLSP

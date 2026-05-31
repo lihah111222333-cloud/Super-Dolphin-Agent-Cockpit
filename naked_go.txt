@@ -41,7 +41,6 @@ cmd/mcp-lsp/tools/tool_file.go:171:	go func() {
 cmd/mcp-lsp/multilsp/transport.go:150:	go func() {
 cmd/mcp-lsp/multilsp/bootstrap_doc.go:289:		go func(i int) {
 cmd/mcp-lsp/multilsp/transport_conn.go:72:	go func() {
-cmd/mcp-lsp/exec/sandbox.go:102:	go func() {
 cmd/mcp-orch/notify/subscribers.go:77:		go func() {
 cmd/mcp-orch/tools/orchestration_tools.go:109:		go func() {
 cmd/mcp-orch/orchestration/process_lifecycle.go:266:	go func() {

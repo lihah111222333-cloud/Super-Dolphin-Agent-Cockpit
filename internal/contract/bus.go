@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"reflect"
 
+	uidto "github.com/anthropic-ai/super-agent-v3/internal/dto/ui"
 	"github.com/kelindar/event"
 )
 
@@ -22,6 +23,10 @@ type SubscriberSpec struct {
 	TestFixtureID string
 	Register      func(*event.Dispatcher) context.CancelFunc
 }
+
+// UISharedFilesChangedEmitter is the narrow event output contract used by
+// shared-file persistence without coupling store packages to the event bus.
+type UISharedFilesChangedEmitter func(uidto.UISharedFilesChanged)
 
 // ---------------------------------------------------------------------------
 // ResilientSubscribe subscribes to events with panic recovery.

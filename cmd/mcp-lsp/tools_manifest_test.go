@@ -7,15 +7,13 @@ import (
 
 func TestLSPToolManifestDescriptionsExposeShortExamples(t *testing.T) {
 	want := map[string]string{
-		"file":          "action=read_file pos=",
-		"inspect":       "pos=internal/foo.go:42:9",
-		"xref":          "pos=internal/foo.go:42:9",
-		"grep":          "action=text_search",
-		"structure":     "action=document_symbol",
-		"edit":          "action=replace_range",
-		"completion":    "pos=internal/foo.go:42:9",
-		"code_run":      "mode=project_cmd",
-		"code_run_test": "test_func=TestName",
+		"file":       "action=read_file pos=",
+		"inspect":    "pos=internal/foo.go:42:9",
+		"xref":       "pos=internal/foo.go:42:9",
+		"grep":       "action=text_search",
+		"structure":  "action=document_symbol",
+		"edit":       "action=replace_range",
+		"completion": "pos=internal/foo.go:42:9",
 	}
 	for _, manifest := range lspToolManifests {
 		must, ok := want[manifest.Name]
@@ -58,58 +56,17 @@ func TestLSPToolManifestDescriptionsSeparateDiagnosticsFromPackageScripts(t *tes
 			t.Fatalf("file description = %q, want %q", descriptions["file"], must)
 		}
 	}
-	for _, must := range []string{"only when no host exec_command is available", "npm run lint", "exec_command exists"} {
-		if !strings.Contains(descriptions["code_run"], must) {
-			t.Fatalf("code_run description = %q, want %q", descriptions["code_run"], must)
-		}
-	}
-}
-
-func TestCodeRunSchemaMarksProjectCommandAsExecCommandFallback(t *testing.T) {
-	props, ok := codeRunSchema["properties"].(map[string]any)
-	if !ok {
-		t.Fatalf("code_run schema properties type = %T", codeRunSchema["properties"])
-	}
-	command, ok := props["command"].(map[string]any)
-	if !ok {
-		t.Fatalf("code_run command schema type = %T", props["command"])
-	}
-	desc, _ := command["description"].(string)
-	for _, must := range []string{"exec_command", "package scripts", "npm run lint"} {
-		if !strings.Contains(desc, must) {
-			t.Fatalf("code_run command description = %q, want %q", desc, must)
-		}
-	}
-}
-
-func TestCodeRunSchemaDocumentsExplicitAbsoluteWorkDir(t *testing.T) {
-	props, ok := codeRunSchema["properties"].(map[string]any)
-	if !ok {
-		t.Fatalf("code_run schema properties type = %T", codeRunSchema["properties"])
-	}
-	workDir, ok := props["work_dir"].(map[string]any)
-	if !ok {
-		t.Fatalf("code_run work_dir schema type = %T", props["work_dir"])
-	}
-	desc, _ := workDir["description"].(string)
-	for _, must := range []string{"Absolute paths", "explicit execution root", "relative paths"} {
-		if !strings.Contains(desc, must) {
-			t.Fatalf("code_run work_dir description = %q, want %q", desc, must)
-		}
-	}
 }
 
 func TestLSPToolSchemasExposeExplicitWorkDir(t *testing.T) {
 	schemas := map[string]schema{
-		"file":          lspFileSchema,
-		"inspect":       lspInspectSchema,
-		"xref":          lspXrefSchema,
-		"grep":          lspGrepSchema,
-		"structure":     lspStructureSchema,
-		"edit":          lspEditSchema,
-		"completion":    lspCompletionSchema,
-		"code_run":      codeRunSchema,
-		"code_run_test": codeRunTestSchema,
+		"file":       lspFileSchema,
+		"inspect":    lspInspectSchema,
+		"xref":       lspXrefSchema,
+		"grep":       lspGrepSchema,
+		"structure":  lspStructureSchema,
+		"edit":       lspEditSchema,
+		"completion": lspCompletionSchema,
 	}
 	for name, toolSchema := range schemas {
 		props, ok := toolSchema["properties"].(map[string]any)

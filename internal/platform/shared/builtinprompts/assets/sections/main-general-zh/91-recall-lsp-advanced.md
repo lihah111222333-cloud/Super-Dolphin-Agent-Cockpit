@@ -39,9 +39,7 @@ LSP 工具链 · 高级调试（中文）：
 
 ### 执行与测试
 
-- `exec_command` —— 普通 shell / git / 包脚本（如 `npm run lint`）/ 宽范围测试
-- `code_run(project_cmd)` —— provider 无 `exec_command` 时的构建 / 脚本兜底
-- `code_run_test(test_func, test_pkg)` —— 精准跑单个 Go 测试函数，比整包 `go test` 快
+- `exec_command` —— 普通 shell / git / 包脚本（如 `npm run lint`）/ 测试
 
 ### 高级组合（对基础 A–E 之外的补充）
 
@@ -54,4 +52,4 @@ LSP 工具链 · 高级调试（中文）：
 - 只有关键字或模式 → grep（扫描定位）
 - 要跨文件结构感 → structure（大纲）
 - 要改动 → edit（结构化改）
-- 要验证 → `file(diagnostics)` + `code_run_test`
+- 要验证 → `file(diagnostics)` + `exec_command`

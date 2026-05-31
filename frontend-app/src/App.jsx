@@ -159,7 +159,7 @@ const LSP_TOOL_NAMES = Object.freeze([
   'format_preview',
 ]);
 const JSON_RENDER_TOOL_NAMES = Object.freeze(['json_render']);
-const GO_RUN_TOOL_NAMES = Object.freeze(['go_run', 'code_run', 'code_run_test']);
+const GO_RUN_TOOL_NAMES = Object.freeze(['go_run']);
 const PLAYWRIGHT_TOOL_PREFIXES = Object.freeze(['mcp__playwright__', 'playwright_', 'browser_']);
 
 function clampWidth(value, min, max) {
@@ -7377,7 +7377,7 @@ function SettingsPage({ projectPath }) {
         <div className="section-header">PROMPT</div>
         <div className="data-card-vue settings-prompt-card" data-testid="settings-lsp-prompt-card">
           <div className="data-row-vue">
-            <strong>自动注入提示词 (LSP / Playwright / json-render / code_run)</strong>
+            <strong>自动注入提示词 (LSP / Playwright / json-render)</strong>
             <span>{lspPromptLoading ? '加载中...' : (lspPromptUsingDefault ? '默认注入' : '自定义覆盖')}</span>
           </div>
           <div className="settings-prompt-desc">下方“生效内容”是后端每轮实际注入文本：“覆盖编辑”用于调试，留空保存可恢复默认。</div>

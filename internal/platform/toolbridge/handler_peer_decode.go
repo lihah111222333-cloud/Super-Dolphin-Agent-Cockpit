@@ -623,8 +623,6 @@ var canonicalCodexSurfaceTools = map[string]struct{}{
 	"edit":              {},
 	"format_preview":    {},
 	"completion":        {},
-	"code_run":          {},
-	"code_run_test":     {},
 	"launch_agent":      {},
 	"send_message":      {},
 	"stop_agent":        {},

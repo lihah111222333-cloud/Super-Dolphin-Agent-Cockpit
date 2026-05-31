@@ -122,23 +122,6 @@ var lspCompletionSchema = objectSchema(map[string]schema{
 	"work_dir":    lspWorkDirProp(),
 }, "pos")
 
-var codeRunSchema = objectSchema(map[string]schema{
-	"mode":      enumProp("Execution mode", "run", "project_cmd"),
-	"language":  stringProp("Language: go, javascript, typescript (required for run mode)"),
-	"code":      stringProp("Code snippet (run mode)"),
-	"command":   stringProp("Project command (project_cmd mode). Prefer host exec_command for shell/git/package scripts such as npm run lint when available."),
-	"auto_wrap": booleanProp("Auto-wrap Go code with package main and imports (default true for Go)"),
-	"work_dir":  stringProp("Working directory. Absolute paths are accepted as the explicit execution root; relative paths resolve under the trusted workspace root."),
-	"timeout":   integerProp("Timeout in seconds (default 30)"),
-}, "mode")
-
-var codeRunTestSchema = objectSchema(map[string]schema{
-	"test_func": stringProp("Test function name (e.g. TestMyFunction)"),
-	"test_pkg":  stringProp("Package path (e.g. ./internal/engine/executor/, default ./...)"),
-	"timeout":   integerProp("Timeout in seconds (default 30)"),
-	"work_dir":  lspWorkDirProp(),
-}, "test_func")
-
 func lspWorkDirProp() schema {
 	return stringProp("Explicit working directory for this tool call. Absolute paths are accepted as the call's trusted workspace root; relative tool paths resolve under it.")
 }
