@@ -118,7 +118,7 @@ func runTypeHierarchy(
 		return unsupportedCapabilityEmptyResult("type hierarchy"), nil
 	}
 	if err != nil {
-		return nil, err
+		return nil, typeHierarchyTargetError(err)
 	}
 	return renderListResult(results, shared.ClampLimit(req.MaxResults, 1, protocol.XRefResultLimit, protocol.XRefResultLimit), "no type hierarchy found", func(items []protocol.TypeHierarchyResult, _ int) any {
 		return format.NormalizeForDisplay(items)
