@@ -428,33 +428,58 @@ func shouldSkipDir(name string) bool {
 }
 
 func shouldExcludePath(path string) bool {
-	cleaned := filepath.ToSlash(filepath.Clean(path))
-	for segment := range skippedDirNames {
-		if strings.Contains(cleaned, "/"+segment+"/") || strings.HasSuffix(cleaned, "/"+segment) {
+	cleaned := strings.ToLower(filepath.ToSlash(filepath.Clean(path)))
+	for index, segment := range strings.Split(cleaned, "/") {
+		if isLinuxTopLevelTmpSegment(index, segment, cleaned) {
+			continue
+		}
+		if _, ok := skippedDirNames[segment]; ok {
 			return true
 		}
 	}
 	return false
 }
 
+func isLinuxTopLevelTmpSegment(index int, segment, cleanedPath string) bool {
+	return segment == "tmp" && index == 1 && strings.HasPrefix(cleanedPath, "/tmp/")
+}
+
 var skippedDirNames = map[string]struct{}{
-	".agent":       {},
-	".agents":      {},
-	".build-cache": {},
-	".cache":       {},
-	".claude":      {},
-	".git":         {},
-	".gomodcache":  {},
-	".workspace":   {},
-	".worktrees":   {},
-	"__pycache__":  {},
-	"build":        {},
-	"cache":        {},
-	"coverage":     {},
-	"dist":         {},
-	"gomodcache":   {},
-	"node_modules": {},
-	"vendor":       {},
+	".agent":        {},
+	".agents":       {},
+	".build-cache":  {},
+	".cache":        {},
+	".cargo":        {},
+	".claude":       {},
+	".dart_tool":    {},
+	".eslintcache":  {},
+	".git":          {},
+	".gomodcache":   {},
+	".gradle":       {},
+	".mvn":          {},
+	".mypy_cache":   {},
+	".next":         {},
+	".nuxt":         {},
+	".parcel-cache": {},
+	".pytest_cache": {},
+	".ruff_cache":   {},
+	".svelte-kit":   {},
+	".tox":          {},
+	".turbo":        {},
+	".venv":         {},
+	".workspace":    {},
+	".worktrees":    {},
+	"__pycache__":   {},
+	"build":         {},
+	"cache":         {},
+	"coverage":      {},
+	"dist":          {},
+	"gomodcache":    {},
+	"node_modules":  {},
+	"target":        {},
+	"tmp":           {},
+	"vendor":        {},
+	"venv":          {},
 }
 
 func inferLanguage(value string) string {
