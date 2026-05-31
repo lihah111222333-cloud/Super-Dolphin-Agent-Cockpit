@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { CheckCircle2, Copy, File, FileText, Plus, RefreshCw, X } from 'lucide-react';
+import { CheckCircle2, File, FileText, Plus, RefreshCw, X } from 'lucide-react';
 import {
   commitPromptIntent,
   deletePrompt,
@@ -7,7 +7,6 @@ import {
   draftPromptIntent,
   getDashboardPrompts,
   getPreference,
-  getPrompt,
   listPromptAssets,
   setPreference,
   writePrompt,
@@ -382,29 +381,6 @@ export function PromptPageView({ projectPath }) {
     setNotice('');
   };
 
-  const copyPrompt = async (item) => {
-    if (item.isPendingDraft) {
-      setNotice('这条草稿还在待确认，确认保存后才能复制内容');
-      return;
-    }
-    try {
-      const response = await getPrompt({ cwd, id: item.id });
-      const text = firstText(response?.prompt?.content, response?.prompt?.prompt_text, item.content).trim();
-      if (!text) {
-        setNotice('暂无可复制内容');
-        return;
-      }
-      if (!navigator?.clipboard?.writeText) {
-        setNotice('复制失败：当前环境不支持剪贴板');
-        return;
-      }
-      await navigator.clipboard.writeText(text);
-      setNotice('已复制提示词内容');
-    } catch (err) {
-      setNotice(noticeText(err, '复制失败'));
-    }
-  };
-
   const savePrompt = async () => {
     const name = textValue(form.name);
     if (!name) {
@@ -546,7 +522,6 @@ export function PromptPageView({ projectPath }) {
               actioning={actioning}
               fallbackMode={fallbackMode}
               onEdit={openEdit}
-              onCopy={copyPrompt}
               onDelete={removePrompt}
               onSetLaunch={setLaunchPrompt}
               onClearLaunch={clearLaunchPrompt}
@@ -640,7 +615,7 @@ function PromptSegment({ title, items, value, disabled, onChange }) {
 
 function PromptCard(props) {
   const {
-    item, active, actioning, fallbackMode, onEdit, onCopy, onDelete, onSetLaunch, onClearLaunch, onContinueDraft, onDiscardDraft,
+    item, active, actioning, fallbackMode, onEdit, onDelete, onSetLaunch, onClearLaunch, onContinueDraft, onDiscardDraft,
   } = props;
   const bucket = promptBucket(item);
   return (
@@ -673,7 +648,6 @@ function PromptCard(props) {
         ) : (
           <>
             <button type="button" onClick={() => onEdit(item)}>{fallbackMode ? '查看' : '编辑'}</button>
-            <button type="button" className="ghost" onClick={() => onCopy(item)}><Copy size={14} /> 复制</button>
             {active ? (
               <button type="button" className="ghost" disabled={actioning === 'launch:clear'} onClick={onClearLaunch}>取消强制</button>
             ) : canForceLaunchPrompt(item) ? (
