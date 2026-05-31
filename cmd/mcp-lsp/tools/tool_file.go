@@ -54,10 +54,10 @@ type fileToolInput struct {
 	FilePath   string   `json:"file_path,omitempty"`
 	FilePaths  []string `json:"file_paths,omitempty"`
 	LanguageID string   `json:"language_id,omitempty"`
-	// Line is the resolved line number from pos="file:line". Internal only;
-	// not exposed in the schema. Callers must use pos.
-	line  int
-	Limit int `json:"limit,omitempty"`
+	// Offset is a removed field. Kept in struct to detect and reject
+	// callers still passing it (lenient decode would silently ignore).
+	Offset int `json:"offset,omitempty"`
+	Limit  int `json:"limit,omitempty"`
 	// ExpandComments is retained as a no-op accept so legacy callers
 	// passing expand_comments=true/false do not get a strict-decode
 	// error. Comment expansion is now always on.
@@ -144,7 +144,7 @@ func (h handlerBase) handleFile(ctx context.Context, params json.RawMessage) (an
 			req := readFileRequest{
 				rawPath:    input.FilePath,
 				rawPaths:   input.FilePaths,
-				line:       input.line,
+				line:       input.Offset,
 				limit:      input.Limit,
 				scope:      strings.ToLower(strings.TrimSpace(input.Scope)),
 				languageID: input.LanguageID,
@@ -177,10 +177,11 @@ func (r readFileRequest) wantsLineWindow() bool {
 }
 
 // normalizeFileInputFromPos parses pos="file_path:line" (line optional)
-// and populates FilePath and the internal line field. The optional
-// ":col" segment is ignored because none of the file tool actions are
-// column-scoped. FilePath wins when both pos and file_path are present.
+// and populates FilePath and Offset. Rejects the deprecated offset field.
 func normalizeFileInputFromPos(input *fileToolInput) error {
+	if input.Offset > 0 {
+		return fmt.Errorf("offset is removed; use pos=\"file_path:%d\" instead", input.Offset)
+	}
 	pos := strings.TrimSpace(input.Pos)
 	if pos == "" {
 		return nil
@@ -195,8 +196,8 @@ func normalizeFileInputFromPos(input *fileToolInput) error {
 	if strings.TrimSpace(input.FilePath) == "" {
 		input.FilePath = filePath
 	}
-	if input.line <= 0 {
-		input.line = line
+	if input.Offset <= 0 {
+		input.Offset = line
 	}
 	return nil
 }
