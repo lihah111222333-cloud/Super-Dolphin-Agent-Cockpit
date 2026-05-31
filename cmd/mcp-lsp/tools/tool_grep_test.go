@@ -105,6 +105,43 @@ func TestGrepDefaultMaxResultsIsFifty(t *testing.T) {
 	}
 }
 
+func TestGrepTextSearchExcludesWorkspaceCacheDirectoriesFromRootSearch(t *testing.T) {
+	root := t.TempDir()
+	keep := filepath.Join(root, "admin-ui-v2", "eslint.config.js")
+	writeGrepFixtureFile(t, keep, "export default defineConfig([])\n")
+	for _, rel := range []string{
+		".gomodcache/github.com/arl/statsviz@v0.8.0/internal/static/vite.config.js",
+		".tools/gomodcache/github.com/arl/statsviz@v0.8.0/internal/static/vite.config.js",
+		"cache/vite.config.js",
+		"dist/vite.config.js",
+		"node_modules/vite/config.js",
+	} {
+		writeGrepFixtureFile(t, filepath.Join(root, rel), "export default defineConfig({})\n")
+	}
+
+	got, err := callGrepTool(t, root, grepToolInput{
+		Action:     "text_search",
+		Query:      "defineConfig",
+		Path:       root,
+		Glob:       "*.js",
+		MaxResults: 5,
+	})
+	if err != nil {
+		t.Fatalf("grep returned error: %v", err)
+	}
+	resp, ok := got.(grepResponse)
+	if !ok {
+		t.Fatalf("grep result type = %T, want grepResponse", got)
+	}
+	if resp.Total != 1 || resp.Showing != 1 || resp.Truncated {
+		t.Fatalf("grep totals = total:%d showing:%d truncated:%t, want only source match", resp.Total, resp.Showing, resp.Truncated)
+	}
+	wantKeep := canonicalGrepPath(t, keep)
+	if _, ok := resp.Files[wantKeep]; !ok {
+		t.Fatalf("grep files = %#v, want only %q", resp.Files, wantKeep)
+	}
+}
+
 func TestGrepHandlerAppliesSixteenKiBPayloadBudget(t *testing.T) {
 	root := t.TempDir()
 	writeLargeGrepFixture(t, root)
@@ -260,10 +297,27 @@ func writeLargeGrepFixture(t *testing.T, root string) {
 	for i := range 50 {
 		name := fmt.Sprintf("file-%02d-%s.txt", i, strings.Repeat("x", 120))
 		body := "needle " + strings.Repeat("payload", 30) + "\n"
-		if err := os.WriteFile(filepath.Join(root, name), []byte(body), 0o600); err != nil {
-			t.Fatalf("write grep fixture: %v", err)
-		}
+		writeGrepFixtureFile(t, filepath.Join(root, name), body)
 	}
+}
+
+func writeGrepFixtureFile(t *testing.T, path string, body string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatalf("mkdir grep fixture: %v", err)
+	}
+	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+		t.Fatalf("write grep fixture: %v", err)
+	}
+}
+
+func canonicalGrepPath(t *testing.T, path string) string {
+	t.Helper()
+	resolved, err := filepath.EvalSymlinks(path)
+	if err != nil {
+		t.Fatalf("canonicalize grep path %s: %v", path, err)
+	}
+	return resolved
 }
 
 func callGrepTool(t *testing.T, root string, input grepToolInput) (any, error) {

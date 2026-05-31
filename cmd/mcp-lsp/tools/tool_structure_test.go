@@ -3,7 +3,6 @@ package tools
 import (
 	"context"
 	"encoding/json"
-	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/common"
 	"os"
 	"path/filepath"
 	"strings"
@@ -11,6 +10,7 @@ import (
 
 	lspmanager "github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/manager"
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/protocol"
+	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/common"
 )
 
 type structureTestRegistry struct {
@@ -76,6 +76,7 @@ func (*structureTestRegistry) Close() error {
 
 type structureTestManager struct {
 	workspaceSymbols  []protocol.WorkspaceSymbolResult
+	documentSymbols   []protocol.DocumentSymbol
 	completionItems   []protocol.CompletionItem
 	references        []protocol.LocationResult
 	gotWorkspaceQuery string
@@ -120,8 +121,8 @@ func (*structureTestManager) TypeHierarchy(context.Context, string, protocol.Pos
 	return nil, nil
 }
 
-func (*structureTestManager) DocumentSymbol(context.Context, string) ([]protocol.DocumentSymbol, error) {
-	return nil, nil
+func (m *structureTestManager) DocumentSymbol(context.Context, string) ([]protocol.DocumentSymbol, error) {
+	return m.documentSymbols, nil
 }
 
 func (m *structureTestManager) WorkspaceSymbol(_ context.Context, query string, languageID string) ([]protocol.WorkspaceSymbolResult, error) {
@@ -254,6 +255,56 @@ func TestStructureDocumentSymbolAcceptsLegacyPathAlias(t *testing.T) {
 	}
 	if registry.gotFilePath != "/tmp/sample.go" {
 		t.Fatalf("GetManagerForFile path = %q, want legacy path alias", registry.gotFilePath)
+	}
+}
+
+func TestStructureDocumentSymbolReportsTotalShowingAndTruncation(t *testing.T) {
+	root := t.TempDir()
+	target := writeStructureTestFile(t, root, "sample.go", "package sample\n")
+	manager := &structureTestManager{
+		documentSymbols: []protocol.DocumentSymbol{
+			reproDocumentSymbol("Alpha"),
+			reproDocumentSymbol("Beta"),
+			reproDocumentSymbol("Gamma"),
+		},
+	}
+	registry := &structureTestRegistry{fileManager: manager}
+	handler := NewStructureHandler(registry)
+
+	got, err := handler(testToolContext(root), marshalStructureParams(t, structureParams{
+		Action:     "document_symbol",
+		FilePath:   target,
+		MaxResults: 2,
+	}))
+	if err != nil {
+		t.Fatalf("document_symbol returned error: %v", err)
+	}
+	payload := mustMarshalObject(t, got)
+	data, ok := payload["data"].([]any)
+	if !ok {
+		t.Fatalf("data = %#v, want array", payload["data"])
+	}
+	if len(data) != 2 {
+		t.Fatalf("data length = %d, want 2", len(data))
+	}
+	requireNumberField(t, payload, "total", 3)
+	requireNumberField(t, payload, "showing", 2)
+	requireBoolField(t, payload, "truncated", true)
+	requireStringFieldContains(t, payload, "hint", "max_results")
+}
+
+func reproDocumentSymbol(name string) protocol.DocumentSymbol {
+	return protocol.DocumentSymbol{
+		Name: name,
+		Kind: protocol.SymbolKindFunction,
+		Range: protocol.Range{
+			Start: protocol.Position{Line: 0, Character: 0},
+			End:   protocol.Position{Line: 0, Character: 1},
+		},
+		SelectionRange: protocol.Range{
+			Start: protocol.Position{Line: 0, Character: 0},
+			End:   protocol.Position{Line: 0, Character: 1},
+		},
 	}
 }
 

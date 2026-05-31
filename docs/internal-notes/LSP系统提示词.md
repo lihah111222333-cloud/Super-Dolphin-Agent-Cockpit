@@ -12,7 +12,7 @@
 - `inspect(definition | implementation)` —— 从 `file:line:col` 跳定义 / 所有实现
 - `xref(references, verbosity="compact")` —— 引用扫描，返回里带 `func_start / func_end`
 - `xref(call_hierarchy, direction="incoming")` —— 谁调了这个函数
-- `file(read_file, offset=, limit=)` —— 按 1-based 行号分页精读
+- `file(read_file, pos=<file>:<line>, limit=)` —— 按 1-based 行号分页精读
 - `file(diagnostics, file_paths=[…])` —— 批量取编译 / 类型诊断
 - `edit(file_path=…, patch="*** Begin Patch…")` —— 用 apply-patch 风格补丁精确改动磁盘文件并同步 LSP
 - `completion(pos=…)` —— 代码补全
@@ -27,7 +27,7 @@
 
 ### 5 个组合技
 
-- **A**：`ast_search` → 用返回的 `func_start / func_end` 直接 `file(read_file, offset, limit)` 精准读取
+- **A**：`ast_search` → 用返回的 `func_start / func_end` 直接 `file(read_file, pos=<file>:<func_start>, limit)` 精准读取
 - **B**：`workspace_symbol` → `definition` → `file(read_file)` 三步定位
 - **C**：`references` + `call_hierarchy(incoming + outgoing)` 影响面全景
 - **D**：`definition` → `implementation` → `references` 接口三级跳
@@ -35,7 +35,7 @@
 
 ### func_start / func_end 快捷读取
 
-`grep(ast_search)`、`inspect(definition|implementation)`、`xref(references, verbosity="compact")` 返回里都带 `func_start / func_end`，直接 `file(read_file, offset=func_start, limit=func_end-func_start+1)` 精准读函数，不必再调 `document_symbol`。
+`grep(ast_search)`、`inspect(definition|implementation)`、`xref(references, verbosity="compact")` 返回里都带 `func_start / func_end`，直接 `file(read_file, pos=<file>:<func_start>, limit=func_end-func_start+1)` 精准读函数，不必再调 `document_symbol`。
 
 ### 并行与批量
 
