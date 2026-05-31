@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/format"
@@ -32,6 +33,10 @@ func TestReferencesCompactBudget(t *testing.T) {
 	if grouped.Total != 60 || grouped.Showing != 30 {
 		t.Fatalf("compact references total/showing = %d/%d, want 60/30", grouped.Total, grouped.Showing)
 	}
+	payload := mustMarshalObject(t, grouped)
+	if payload["truncated"] != true {
+		t.Fatalf("compact references truncated = %#v, want true", payload["truncated"])
+	}
 }
 
 // TestCompletionCompactBudget mirrors the references coverage but for
@@ -50,6 +55,13 @@ func TestCompletionCompactBudget(t *testing.T) {
 	if list.Total != 60 || list.Showing != 20 {
 		t.Fatalf("compact completion total/showing = %d/%d, want 60/20", list.Total, list.Showing)
 	}
+	payload := mustMarshalObject(t, list)
+	if payload["truncated"] != true {
+		t.Fatalf("compact completion truncated = %#v, want true", payload["truncated"])
+	}
+	if hint, _ := payload["hint"].(string); !strings.Contains(hint, "max_results") || !strings.Contains(hint, "cursor") {
+		t.Fatalf("compact completion hint = %q, want max_results/cursor guidance", hint)
+	}
 }
 
 // TestWorkspaceSymbolCompactBudget mirrors the references coverage for
@@ -66,6 +78,13 @@ func TestWorkspaceSymbolCompactBudget(t *testing.T) {
 	}
 	if list.Total != 60 || list.Showing != 20 {
 		t.Fatalf("compact workspace_symbol total/showing = %d/%d, want 60/20", list.Total, list.Showing)
+	}
+	payload := mustMarshalObject(t, list)
+	if payload["truncated"] != true {
+		t.Fatalf("compact workspace_symbol truncated = %#v, want true", payload["truncated"])
+	}
+	if hint, _ := payload["hint"].(string); !strings.Contains(hint, "max_results") || !strings.Contains(hint, "query") {
+		t.Fatalf("compact workspace_symbol hint = %q, want max_results/query guidance", hint)
 	}
 }
 

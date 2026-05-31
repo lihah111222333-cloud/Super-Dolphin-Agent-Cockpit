@@ -50,6 +50,20 @@ func (s *recordingCodeRunTestSandbox) ShellRequest(command string, workDir strin
 	return lspexec.Request{Args: []string{"sh", "-c", command}, WorkDir: workDir, Timeout: timeout}
 }
 
+type truncatedCodeRunSandbox struct {
+	root string
+}
+
+func (s truncatedCodeRunSandbox) RootDir() string { return s.root }
+
+func (s truncatedCodeRunSandbox) Run(context.Context, lspexec.Request) (lspexec.Result, error) {
+	return lspexec.Result{ExitCode: 0, Output: "partial output", Truncated: true}, nil
+}
+
+func (s truncatedCodeRunSandbox) ShellRequest(command string, workDir string, timeout time.Duration) lspexec.Request {
+	return lspexec.Request{Args: []string{"sh", "-c", command}, WorkDir: workDir, Timeout: timeout}
+}
+
 func TestCodeRunUnsupportedLanguageReturnsCapabilityError(t *testing.T) {
 	root := t.TempDir()
 	handler := NewCodeRunHandlerWithSandbox(codeRunTestSandbox{root: root})
@@ -355,5 +369,29 @@ func TestCodeRunSandboxErrorReturnsToolError(t *testing.T) {
 	}
 	if got != nil {
 		t.Fatalf("code_run result = %#v, want nil on tool error", got)
+	}
+}
+
+func TestCodeRunResultIncludesHintWhenOutputTruncated(t *testing.T) {
+	root := t.TempDir()
+	handler := NewCodeRunHandlerWithSandbox(truncatedCodeRunSandbox{root: root})
+	payload, err := json.Marshal(CodeRunRequest{
+		Mode:    "project_cmd",
+		Command: printWorkingDirectoryCommand(),
+	})
+	if err != nil {
+		t.Fatalf("marshal request: %v", err)
+	}
+
+	got, err := handler(testToolContext(root), payload)
+	if err != nil {
+		t.Fatalf("code_run returned error: %v", err)
+	}
+	result := mustMarshalObject(t, got)
+	if result["truncated"] != true {
+		t.Fatalf("truncated = %#v, want true", result["truncated"])
+	}
+	if hint, _ := result["hint"].(string); !strings.Contains(hint, "output truncated") {
+		t.Fatalf("hint = %q, want truncation guidance", hint)
 	}
 }

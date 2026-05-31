@@ -16,9 +16,11 @@ const (
 )
 
 type CompactList[T any] struct {
-	Data    []T `json:"data"`
-	Total   int `json:"total"`
-	Showing int `json:"showing"`
+	Data      []T    `json:"data"`
+	Total     int    `json:"total"`
+	Showing   int    `json:"showing"`
+	Truncated bool   `json:"truncated,omitempty"`
+	Hint      string `json:"hint,omitempty"`
 }
 
 type CompactCompletionItem struct {
@@ -70,14 +72,27 @@ func WorkspaceSymbolLimit(requested int, verbosity string) int {
 	return ResolveResultLimit(requested, verbosity, lspWorkspaceSymbolCompactLimit)
 }
 
-func NewCompactList[T any](items []T, total int) CompactList[T] {
+func NewCompactList[T any](items []T, total int, hints ...string) CompactList[T] {
 	if total < len(items) {
 		total = len(items)
 	}
+	truncated := total > len(items)
+	hint := ""
+	if truncated {
+		hint = "results truncated; increase max_results or narrow the request"
+		for _, candidate := range hints {
+			if value := strings.TrimSpace(candidate); value != "" {
+				hint = value
+				break
+			}
+		}
+	}
 	return CompactList[T]{
-		Data:    items,
-		Total:   total,
-		Showing: len(items),
+		Data:      items,
+		Total:     total,
+		Showing:   len(items),
+		Truncated: truncated,
+		Hint:      hint,
 	}
 }
 
@@ -191,9 +206,10 @@ func GroupLocationsByFile(items []protocol.LocationResult, total int) protocol.G
 		total = len(items)
 	}
 	grouped := protocol.GroupedLocationResult{
-		Files:   make(map[string][]protocol.CompactLocation),
-		Total:   total,
-		Showing: len(items),
+		Files:     make(map[string][]protocol.CompactLocation),
+		Total:     total,
+		Showing:   len(items),
+		Truncated: total > len(items),
 	}
 	lastRange := make(map[string][2]int)
 	for i := range items {
@@ -216,6 +232,9 @@ func GroupLocationsByFile(items []protocol.LocationResult, total int) protocol.G
 			}
 		}
 		grouped.Files[file] = append(grouped.Files[file], row)
+	}
+	if grouped.Truncated && grouped.Hint == "" {
+		grouped.Hint = "results truncated; increase max_results or narrow the target position"
 	}
 	return grouped
 }

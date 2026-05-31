@@ -22,10 +22,19 @@ type diagnosticsTable struct {
 	Rows [][]any  `json:"rows"`
 }
 
+type diagnosticsMeta struct {
+	Message string `json:"message,omitempty"`
+	Source  string `json:"source,omitempty"`
+}
+
 type diagnosticsResponse struct {
-	Success bool               `json:"success"`
-	Data    []diagnosticsTable `json:"data"`
-	Meta    resultMeta         `json:"meta"`
+	Success   bool               `json:"success"`
+	Data      []diagnosticsTable `json:"data"`
+	Total     int                `json:"total"`
+	Showing   int                `json:"showing"`
+	Truncated bool               `json:"truncated,omitempty"`
+	Hint      string             `json:"hint,omitempty"`
+	Meta      diagnosticsMeta    `json:"meta"`
 }
 
 type diagnosticsWaitResult struct {
@@ -155,21 +164,27 @@ func (h handlerBase) handleDiagnostics(ctx context.Context, input fileToolInput)
 	}
 
 	tables := buildDiagnosticsTables(items)
+	total := countDiagnosticRows(tables)
 	if len(tables) == 0 {
 		baseMessage := "no diagnostics"
 		if strings.TrimSpace(input.FilePath) == "" && len(input.FilePaths) == 0 {
 			baseMessage = "no diagnostics for currently open documents (pass file_path or file_paths to scope to specific files)"
 		}
-		return emptyListEnvelope{
+		return diagnosticsResponse{
 			Success: true,
-			Data:    []any{},
-			Meta:    resultMeta{Count: 0, Source: source, Message: appendMessage(baseMessage, message)},
+			Data:    []diagnosticsTable{},
+			Total:   0,
+			Showing: 0,
+			Meta:    diagnosticsMeta{Source: source, Message: appendMessage(baseMessage, message)},
 		}, nil
 	}
 	return diagnosticsResponse{
 		Success: true,
 		Data:    tables,
-		Meta:    resultMeta{Count: len(tables), Source: source, Message: message},
+		Total:   total,
+		Showing: total,
+		Hint:    "Next step: edit action=replace_range to fix, or file action=read_file pos=<file>:<line> for context",
+		Meta:    diagnosticsMeta{Source: source, Message: message},
 	}, nil
 }
 
@@ -373,6 +388,14 @@ func buildDiagnosticsTables(items []protocol.PublishDiagnosticsParams) []diagnos
 		})
 	}
 	return tables
+}
+
+func countDiagnosticRows(tables []diagnosticsTable) int {
+	total := 0
+	for _, table := range tables {
+		total += len(table.Rows)
+	}
+	return total
 }
 
 func diagnosticCode(code any) string {
