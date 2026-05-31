@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { QueryClient, QueryClientProvider, useQuery, useQueryClient } from '@tanstack/react-query';
 import { AlertTriangle, Archive, ArrowLeft, Bot, Boxes, Brain, ChevronDown, CircleStop, Code2, Copy, Download, Eye, File, FileText, Folder, FolderOpen, GitBranch, Image, Link2, MemoryStick, MessageCircle, Moon, MoreHorizontal, Pencil, Plus, RefreshCw, Search, Send, Settings, Sparkles, Sun, Trash2, Workflow, X } from 'lucide-react';
 import { useClientStore } from './entities/client/model/useClientStore.js';
 import { PromptPageView } from './features/prompts/PromptPageView.jsx';
@@ -86,8 +87,9 @@ const SHARED_FILE_SORTS = Object.freeze([
 ]);
 const SHARED_FILES_AUTO_REFRESH_MS = 4000;
 const MEMORY_AUTO_REFRESH_MS = 4000;
-const SKILLS_AUTO_REFRESH_MS = 4000;
 const SKILLS_REQUEST_TIMEOUT_MS = 8000;
+const DASHBOARD_QUERY_STALE_MS = 30_000;
+const DASHBOARD_QUERY_GC_MS = 10 * 60_000;
 const MEMORY_CATEGORIES = Object.freeze([
   { key: 'preference', label: '偏好' },
   { key: 'project', label: '项目' },
@@ -355,6 +357,47 @@ function normalizeSettingsCwd(value) {
     throw new Error('settings: cwd is required');
   }
   return cwd;
+}
+
+function optionalSettingsCwd(value) {
+  const cwd = (value || '').toString().trim();
+  return cwd && cwd !== '.' && cwd !== '未选择项目' ? cwd : '';
+}
+
+function dashboardQueryKey(cwd, page) {
+  return ['dashboard', 'project', cwd, page];
+}
+
+async function fetchSkillsDashboard(cwd) {
+  const response = await withTimeout(
+    getDashboardPage({ cwd, page: 'skills' }),
+    SKILLS_REQUEST_TIMEOUT_MS,
+    '技能列表加载超时，请检查技能目录或后端状态。',
+  );
+  return normalizeSkillsResponse(response);
+}
+
+async function fetchSkillResolutionsDashboard(cwd) {
+  const response = await withTimeout(
+    listSkillResolutions({ cwd }),
+    SKILLS_REQUEST_TIMEOUT_MS,
+    '技能冲突检查超时，请检查技能目录或后端状态。',
+  );
+  return normalizeResolutionResponse(response);
+}
+
+function createDashboardQueryClient() {
+  return new QueryClient({
+    defaultOptions: {
+      queries: {
+        gcTime: DASHBOARD_QUERY_GC_MS,
+        retry: false,
+        staleTime: DASHBOARD_QUERY_STALE_MS,
+        refetchOnMount: 'always',
+        refetchOnWindowFocus: 'always',
+      },
+    },
+  });
 }
 
 function stringSetting(value, fallback) {
@@ -1791,7 +1834,7 @@ function validateRuntimeThresholds(form) {
   return { stallThresholdSec, contextThresholds: [warn, danger, critical] };
 }
 
-function App({ skipBootstrap = false }) {
+function AppShell({ skipBootstrap = false }) {
   const store = useClientStore();
   const bootstrap = store.bootstrap;
   const addWarning = store.addWarning;
@@ -1861,6 +1904,15 @@ function App({ skipBootstrap = false }) {
         </main>
       </div>
     </div>
+  );
+}
+
+function App(props) {
+  const [queryClient] = useState(createDashboardQueryClient);
+  return (
+    <QueryClientProvider client={queryClient}>
+      <AppShell {...props} />
+    </QueryClientProvider>
   );
 }
 
@@ -3322,15 +3374,10 @@ function ConfirmDagDeleteModal({ dag, deleting, onClose, onConfirm }) {
 }
 
 function SkillsPage({ projectPath, refreshKey = 0 }) {
-  const skillCacheKey = normalizeSettingsCwd(projectPath);
-  const cachedSkillPage = useClientStore((state) => state.skillPageCacheByCwd?.[skillCacheKey]);
-  const setSkillPageCache = useClientStore((state) => state.setSkillPageCache);
-  const [items, setItems] = useState(() => (
-    Array.isArray(cachedSkillPage?.items) ? cachedSkillPage.items : []
-  ));
+  const projectCwd = optionalSettingsCwd(projectPath);
+  const queryClient = useQueryClient();
   const [query, setQuery] = useState('');
   const [scopeFilter, setScopeFilter] = useState('all');
-  const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [editorOpen, setEditorOpen] = useState(false);
@@ -3344,90 +3391,56 @@ function SkillsPage({ projectPath, refreshKey = 0 }) {
   const [deleting, setDeleting] = useState(false);
   const [importScopeOpen, setImportScopeOpen] = useState(false);
   const [importing, setImporting] = useState(false);
-  const [resolutionConflicts, setResolutionConflicts] = useState(() => (
-    Array.isArray(cachedSkillPage?.resolutionConflicts)
-      ? cachedSkillPage.resolutionConflicts
-      : []
-  ));
   const [resolutionPreview, setResolutionPreview] = useState(null);
   const [resolutionNamePrompt, setResolutionNamePrompt] = useState(null);
   const [resolutionNameInput, setResolutionNameInput] = useState('');
   const [resolutionActioning, setResolutionActioning] = useState('');
-  const hasLoadedSkillsRef = useRef(Boolean(cachedSkillPage?.hasLoadedSkills));
-  const refreshInFlightRef = useRef(false);
   const skillRefreshKey = Number(refreshKey || 0);
 
-  const refreshSkills = useCallback(async (options = {}) => {
-    const isCancelled = typeof options.isCancelled === 'function' ? options.isCancelled : () => false;
-    const silent = options.silent === true;
-    const cwd = normalizeSettingsCwd(projectPath);
-    const cached = useClientStore.getState().skillPageCacheByCwd?.[cwd];
-    const hasUsableSnapshot = hasLoadedSkillsRef.current || Boolean(cached?.hasLoadedSkills);
-    const showBlockingLoading = !silent && !hasUsableSnapshot;
-    if (showBlockingLoading) {
-      setLoading(true);
-      setError('');
-      setNotice('');
-    } else if (!silent) {
-      setError('');
-    }
-    try {
-      const response = await withTimeout(
-        getDashboardPage({ cwd, page: 'skills' }),
-        SKILLS_REQUEST_TIMEOUT_MS,
-        '技能列表加载超时，请检查技能目录或后端状态。',
-      );
-      if (isCancelled()) return;
-      const nextItems = normalizeSkillsResponse(response);
-      hasLoadedSkillsRef.current = true;
-      setItems(nextItems);
-      setSkillPageCache(cwd, { items: nextItems, hasLoadedSkills: true });
-      setError('');
-    } catch (err) {
-      if (isCancelled()) return;
-      if (showBlockingLoading) setItems([]);
-      if (!silent || !hasUsableSnapshot) setError(err.message || String(err));
-    } finally {
-      if (!isCancelled() && showBlockingLoading) setLoading(false);
-    }
-  }, [projectPath, setSkillPageCache]);
+  const skillsQuery = useQuery({
+    queryKey: dashboardQueryKey(projectCwd, 'skills'),
+    queryFn: () => fetchSkillsDashboard(projectCwd),
+    enabled: Boolean(projectCwd),
+  });
+  const skillResolutionsQuery = useQuery({
+    queryKey: dashboardQueryKey(projectCwd, 'skill-resolutions'),
+    queryFn: () => fetchSkillResolutionsDashboard(projectCwd),
+    enabled: Boolean(projectCwd),
+  });
+  const skillsData = skillsQuery.data;
+  const resolutionConflictsData = skillResolutionsQuery.data;
+  const refetchSkills = skillsQuery.refetch;
+  const refetchSkillResolutions = skillResolutionsQuery.refetch;
+  const items = useMemo(() => (Array.isArray(skillsData) ? skillsData : []), [skillsData]);
+  const resolutionConflicts = useMemo(() => (
+    Array.isArray(resolutionConflictsData) ? resolutionConflictsData : []
+  ), [resolutionConflictsData]);
+  const hasSkillsSnapshot = Array.isArray(skillsData);
+  const isProjectPending = !projectCwd;
+  const isInitialSkillsLoading = Boolean(projectCwd) && skillsQuery.isPending && !hasSkillsSnapshot;
+  const syncErrorText = skillsQuery.error
+    ? errorMessage(skillsQuery.error)
+    : (skillResolutionsQuery.error ? `读取技能冲突失败：${errorMessage(skillResolutionsQuery.error)}` : '');
+  const showCachedSyncError = Boolean(syncErrorText && hasSkillsSnapshot);
+  const showBlockingSyncError = Boolean(syncErrorText && !hasSkillsSnapshot);
 
-  const refreshResolutions = useCallback(async (options = {}) => {
-    const isCancelled = typeof options.isCancelled === 'function' ? options.isCancelled : () => false;
-    try {
-      const cwd = normalizeSettingsCwd(projectPath);
-      const response = await withTimeout(
-        listSkillResolutions({ cwd }),
-        SKILLS_REQUEST_TIMEOUT_MS,
-        '技能冲突检查超时，请检查技能目录或后端状态。',
-      );
-      if (!isCancelled()) {
-        const conflicts = normalizeResolutionResponse(response);
-        setResolutionConflicts(conflicts);
-        setSkillPageCache(cwd, { resolutionConflicts: conflicts });
-        if (conflicts.length === 0) {
-          setResolutionPreview(null);
-          setResolutionNamePrompt(null);
-          setResolutionNameInput('');
-        }
-      }
-    } catch (err) {
-      if (!isCancelled() && options.silent !== true) setError(`读取技能冲突失败：${err.message || String(err)}`);
-    }
-  }, [projectPath, setSkillPageCache]);
+  const refreshSkillSurface = useCallback(async () => {
+    if (!projectCwd) return;
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: dashboardQueryKey(projectCwd, 'skills') }),
+      queryClient.invalidateQueries({ queryKey: dashboardQueryKey(projectCwd, 'skill-resolutions') }),
+    ]);
+  }, [projectCwd, queryClient]);
 
-  const refreshSkillSurface = useCallback(async (options = {}) => {
-    if (refreshInFlightRef.current) return;
-    refreshInFlightRef.current = true;
-    try {
-      await refreshSkills(options);
-      await refreshResolutions(options);
-    } finally {
-      refreshInFlightRef.current = false;
-    }
-  }, [refreshResolutions, refreshSkills]);
+  const retrySkillSurface = useCallback(async () => {
+    if (!projectCwd) return;
+    await Promise.all([
+      refetchSkills(),
+      refetchSkillResolutions(),
+    ]);
+  }, [projectCwd, refetchSkillResolutions, refetchSkills]);
 
-  const openCreateEditor = useCallback(() => {
+  const openCreateEditor = () => {
     setEditorForm(emptySkillForm());
     setActiveSkillPath('');
     setSkillFiles([]);
@@ -3435,9 +3448,9 @@ function SkillsPage({ projectPath, refreshKey = 0 }) {
     setError('');
     setNotice('');
     setEditorOpen(true);
-  }, []);
+  };
 
-  const openEditSkill = useCallback(async (skill) => {
+  const openEditSkill = async (skill) => {
     if (!skill?.dir) {
       setError('skills/local/read: path is required');
       return;
@@ -3445,7 +3458,6 @@ function SkillsPage({ projectPath, refreshKey = 0 }) {
     setError('');
     setNotice('');
     setSummarySuggestion('');
-    setLoading(true);
     const path = `${skill.dir.replace(/[\\/]+$/g, '')}/SKILL.md`;
     try {
       const cwd = normalizeSettingsCwd(projectPath);
@@ -3469,12 +3481,10 @@ function SkillsPage({ projectPath, refreshKey = 0 }) {
       setEditorOpen(true);
     } catch (err) {
       setError(`读取技能失败：${err.message || String(err)}`);
-    } finally {
-      setLoading(false);
     }
-  }, [projectPath]);
+  };
 
-  const openSkillFile = useCallback(async (file) => {
+  const openSkillFile = async (file) => {
     const path = (file?.path || '').toString().trim();
     if (!path) return;
     setError('');
@@ -3499,9 +3509,9 @@ function SkillsPage({ projectPath, refreshKey = 0 }) {
     } catch (err) {
       setError(`读取子文件失败：${err.message || String(err)}`);
     }
-  }, [editorForm.name, projectPath]);
+  };
 
-  const suggestSummary = useCallback(async () => {
+  const suggestSummary = async () => {
     setSummarySuggesting(true);
     setError('');
     setSummarySuggestion('');
@@ -3521,9 +3531,9 @@ function SkillsPage({ projectPath, refreshKey = 0 }) {
     } finally {
       setSummarySuggesting(false);
     }
-  }, [editorForm, projectPath]);
+  };
 
-  const saveEditor = useCallback(async () => {
+  const saveEditor = async () => {
     setSaving(true);
     setError('');
     setNotice('');
@@ -3551,13 +3561,13 @@ function SkillsPage({ projectPath, refreshKey = 0 }) {
     } finally {
       setSaving(false);
     }
-  }, [activeSkillPath, editorForm, projectPath, refreshSkillSurface]);
+  };
 
-  const onDeleteSkill = useCallback((skill) => {
+  const onDeleteSkill = (skill) => {
     setDeleteTarget(skill);
-  }, []);
+  };
 
-  const confirmDeleteSkill = useCallback(async () => {
+  const confirmDeleteSkill = async () => {
     const skill = deleteTarget;
     const skillName = (skill?.name || '').toString().trim();
     if (!skillName) {
@@ -3584,9 +3594,9 @@ function SkillsPage({ projectPath, refreshKey = 0 }) {
     } finally {
       setDeleting(false);
     }
-  }, [deleteTarget, projectPath, refreshSkillSurface]);
+  };
 
-  const confirmImportScope = useCallback(async (scope) => {
+  const confirmImportScope = async (scope) => {
     setImporting(true);
     setError('');
     setNotice('');
@@ -3611,9 +3621,9 @@ function SkillsPage({ projectPath, refreshKey = 0 }) {
     } finally {
       setImporting(false);
     }
-  }, [projectPath, refreshSkillSurface]);
+  };
 
-  const runResolutionAction = useCallback(async (conflict, actionOrEntry, entry = null, newName = '') => {
+  const runResolutionAction = async (conflict, actionOrEntry, entry = null, newName = '') => {
     const conflictID = (conflict?.conflict_id || conflict?.conflictId || '').toString().trim();
     const actionEntry = typeof actionOrEntry === 'string' ? { action: actionOrEntry } : actionOrEntry || {};
     const action = (actionEntry.action || '').toString().trim();
@@ -3689,9 +3699,9 @@ function SkillsPage({ projectPath, refreshKey = 0 }) {
     } finally {
       setResolutionActioning('');
     }
-  }, [projectPath, refreshSkillSurface]);
+  };
 
-  const confirmResolutionNewName = useCallback(async () => {
+  const confirmResolutionNewName = async () => {
     const prompt = resolutionNamePrompt;
     if (!prompt) return;
     const newName = resolutionNameInput.trim();
@@ -3704,9 +3714,9 @@ function SkillsPage({ projectPath, refreshKey = 0 }) {
       setResolutionNamePrompt(null);
       setResolutionNameInput('');
     }
-  }, [resolutionNameInput, resolutionNamePrompt, runResolutionAction]);
+  };
 
-  const confirmResolutionPreview = useCallback(async () => {
+  const confirmResolutionPreview = async () => {
     const preview = resolutionPreview;
     const proof = Array.isArray(preview?.items) ? preview.items[0] : null;
     if (!preview?.requiresApply || !proof?.preview_id || !proof?.preview_hash) return;
@@ -3730,62 +3740,46 @@ function SkillsPage({ projectPath, refreshKey = 0 }) {
     } finally {
       setResolutionActioning('');
     }
-  }, [refreshSkillSurface, resolutionPreview]);
+  };
 
   useEffect(() => {
-    const cached = useClientStore.getState().skillPageCacheByCwd?.[skillCacheKey];
-    hasLoadedSkillsRef.current = Boolean(cached?.hasLoadedSkills);
-    setItems(Array.isArray(cached?.items) ? cached.items : []);
-    setResolutionConflicts(Array.isArray(cached?.resolutionConflicts) ? cached.resolutionConflicts : []);
-    setLoading(false);
     setError('');
     setNotice('');
-  }, [skillCacheKey]);
+    setResolutionPreview(null);
+    setResolutionNamePrompt(null);
+    setResolutionNameInput('');
+  }, [projectCwd]);
 
   useEffect(() => {
-    if (!cachedSkillPage) return;
-    if (Array.isArray(cachedSkillPage.items)) setItems(cachedSkillPage.items);
-    if (Array.isArray(cachedSkillPage.resolutionConflicts)) setResolutionConflicts(cachedSkillPage.resolutionConflicts);
-    if (cachedSkillPage.hasLoadedSkills) hasLoadedSkillsRef.current = true;
-  }, [cachedSkillPage]);
+    if (skillRefreshKey <= 0 || !projectCwd) return;
+    void refreshSkillSurface();
+  }, [projectCwd, refreshSkillSurface, skillRefreshKey]);
 
   useEffect(() => {
-    let cancelled = false;
-    const cached = useClientStore.getState().skillPageCacheByCwd?.[skillCacheKey];
-    refreshSkillSurface({ isCancelled: () => cancelled, silent: Boolean(cached?.hasLoadedSkills) });
-    return () => {
-      cancelled = true;
-    };
-  }, [refreshSkillSurface, skillCacheKey]);
-
-  useEffect(() => {
-    if (skillRefreshKey <= 0) return undefined;
-    let cancelled = false;
-    refreshSkillSurface({ isCancelled: () => cancelled, silent: true });
-    return () => {
-      cancelled = true;
-    };
-  }, [refreshSkillSurface, skillRefreshKey]);
-
-  useEffect(() => {
-    const runAutoRefresh = () => {
+    if (!projectCwd) return undefined;
+    const refreshWhenVisible = () => {
       if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
-      void refreshSkillSurface({ silent: true });
+      void refreshSkillSurface();
     };
     const handleVisibilityChange = () => {
       if (typeof document === 'undefined' || document.visibilityState === 'visible') {
-        runAutoRefresh();
+        refreshWhenVisible();
       }
     };
-    const intervalID = window.setInterval(runAutoRefresh, SKILLS_AUTO_REFRESH_MS);
-    window.addEventListener('focus', runAutoRefresh);
+    window.addEventListener('focus', refreshWhenVisible);
     document.addEventListener('visibilitychange', handleVisibilityChange);
     return () => {
-      window.clearInterval(intervalID);
-      window.removeEventListener('focus', runAutoRefresh);
+      window.removeEventListener('focus', refreshWhenVisible);
       document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
-  }, [refreshSkillSurface]);
+  }, [projectCwd, refreshSkillSurface]);
+
+  useEffect(() => {
+    if (resolutionConflicts.length > 0) return;
+    setResolutionPreview(null);
+    setResolutionNamePrompt(null);
+    setResolutionNameInput('');
+  }, [resolutionConflicts.length]);
 
   const counts = useMemo(() => items.reduce((acc, item) => {
     acc.all += 1;
@@ -3840,8 +3834,16 @@ function SkillsPage({ projectPath, refreshKey = 0 }) {
           </button>
         ))}
       </div>
-      {loading ? <p className="console-message">加载技能中...</p> : null}
+      {isProjectPending ? <p className="console-message">正在连接本地项目...</p> : null}
+      {isInitialSkillsLoading ? <p className="console-message">加载技能中...</p> : null}
       {notice ? <p className="settings-status">{notice}</p> : null}
+      {showCachedSyncError ? (
+        <div className="danger-text skills-sync-alert" role="alert">
+          <span>同步失败，显示的是上次成功的数据：{syncErrorText}</span>
+          <button type="button" className="ghost" onClick={() => { void retrySkillSurface(); }}>重试同步</button>
+        </div>
+      ) : null}
+      {showBlockingSyncError ? <p className="danger-text" role="alert">{syncErrorText}</p> : null}
       {error ? <p className="danger-text" role="alert">{error}</p> : null}
       {resolutionConflicts.length > 0 ? (
         <section className="skills-resolution-panel">
@@ -3937,8 +3939,8 @@ function SkillsPage({ projectPath, refreshKey = 0 }) {
           ) : null}
         </section>
       ) : null}
-      {!loading && !error && filteredItems.length === 0 ? <p className="console-message">暂无技能</p> : null}
-      {!error && filteredItems.length > 0 ? (
+      {!isProjectPending && !isInitialSkillsLoading && !showBlockingSyncError && filteredItems.length === 0 ? <p className="console-message">暂无技能</p> : null}
+      {filteredItems.length > 0 ? (
         <div className="skill-grid">
           {filteredItems.map((skill) => <SkillCard key={skill.id} skill={skill} onEdit={openEditSkill} onDelete={onDeleteSkill} />)}
         </div>

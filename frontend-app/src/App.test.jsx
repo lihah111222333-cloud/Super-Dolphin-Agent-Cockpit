@@ -6,6 +6,16 @@ import { resetClientStoreForTests } from './entities/client/model/useClientStore
 
 let bridgeCallback;
 
+function deferred() {
+  let resolve;
+  let reject;
+  const promise = new Promise((promiseResolve, promiseReject) => {
+    resolve = promiseResolve;
+    reject = promiseReject;
+  });
+  return { promise, resolve, reject };
+}
+
 const backend = vi.hoisted(() => ({
   readConfig: vi.fn(),
   getWindowBootstrap: vi.fn(),
@@ -2060,6 +2070,57 @@ describe('frontend-app connected client shell', () => {
     expect(backend.getDashboardPage).toHaveBeenCalledTimes(3);
   });
 
+  it('keeps the skills route visible while project context resolves', async () => {
+    const config = deferred();
+    backend.readConfig.mockReturnValueOnce(config.promise);
+
+    render(<App />);
+    fireEvent.click(screen.getByLabelText('技能'));
+
+    expect(screen.getByRole('heading', { name: '技能管理' })).toBeInTheDocument();
+    expect(screen.getByText('正在连接本地项目...')).toBeInTheDocument();
+    expect(backend.getDashboardPage).not.toHaveBeenCalledWith({ cwd: '未选择项目', page: 'skills' });
+
+    await act(async () => {
+      config.resolve({ cwd: '/repo/app' });
+      await Promise.resolve();
+    });
+
+    expect(await screen.findByText('后端')).toBeInTheDocument();
+    expect(backend.getDashboardPage).toHaveBeenCalledWith({ cwd: '/repo/app', page: 'skills' });
+  });
+
+  it('keeps skills visible and exposes retry when a background sync fails', async () => {
+    render(<App />);
+    await screen.findByText('后端线程');
+    fireEvent.click(screen.getByLabelText('技能'));
+    expect(await screen.findByText('后端')).toBeInTheDocument();
+
+    backend.getDashboardPage.mockRejectedValueOnce(new Error('backend offline'));
+    await act(async () => {
+      bridgeCallback({ type: 'skills/changed', payload: { cwd: '/repo/app' } });
+      await Promise.resolve();
+    });
+
+    expect(screen.getByText('后端')).toBeInTheDocument();
+    expect(await screen.findByRole('alert')).toHaveTextContent('同步失败，显示的是上次成功的数据：backend offline');
+
+    backend.getDashboardPage.mockResolvedValueOnce({
+      skills: [{
+        name: 'security',
+        display_name: '安全工程师',
+        dir: '/repo/app/.agent/skills/security',
+        description: '安全审计',
+        trigger_words: ['security'],
+        scope: 'project',
+      }],
+    });
+    fireEvent.click(screen.getByRole('button', { name: '重试同步' }));
+
+    expect(await screen.findByText('安全工程师')).toBeInTheDocument();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
   it('keeps cached skills visible when navigating back and refreshes silently', async () => {
     render(<App />);
     await screen.findByText('后端线程');
@@ -2105,7 +2166,8 @@ describe('frontend-app connected client shell', () => {
       expect(screen.getByText('加载技能中...')).toBeInTheDocument();
 
       await act(async () => {
-        vi.advanceTimersByTime(8000);
+        await vi.advanceTimersByTimeAsync(8000);
+        await Promise.resolve();
         await Promise.resolve();
       });
 
