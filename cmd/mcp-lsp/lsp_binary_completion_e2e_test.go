@@ -114,46 +114,7 @@ func buildMcpLSPBinaryForTest(t *testing.T) string {
 }
 
 func startMcpLSPBinaryForTest(t *testing.T, ctx context.Context, binary, root, fakePyrightBinDir string) *mcpLSPBinaryClient {
-	t.Helper()
-	repoRoot := repoRootForMcpLSPBinaryTest(t)
-	rawRoots, err := json.Marshal([]string{root})
-	if err != nil {
-		t.Fatalf("marshal roots: %v", err)
-	}
-	cmd := exec.CommandContext(ctx, binary)
-	cmd.Dir = root
-	cmd.Env = append(os.Environ(),
-		"GO_AGENT_LSP_ROOT="+root,
-		"GO_AGENT_LSP_ROOTS="+string(rawRoots),
-		"GO_AGENT_PEER_MODE=0",
-		"PATH="+fakePyrightBinDir+string(os.PathListSeparator)+os.Getenv("PATH"),
-		"SUPER_DOLPHIN_RUNTIME_MODE=dev",
-		"SUPER_DOLPHIN_RUNTIME_RESOURCES_DIR="+repoRoot,
-	)
-	stdin, err := cmd.StdinPipe()
-	if err != nil {
-		t.Fatalf("stdin pipe: %v", err)
-	}
-	stdoutPipe, err := cmd.StdoutPipe()
-	if err != nil {
-		t.Fatalf("stdout pipe: %v", err)
-	}
-	stderrPipe, err := cmd.StderrPipe()
-	if err != nil {
-		t.Fatalf("stderr pipe: %v", err)
-	}
-	client := &mcpLSPBinaryClient{
-		cmd:    cmd,
-		stdin:  stdin,
-		stdout: bufio.NewReader(stdoutPipe),
-	}
-	if err := cmd.Start(); err != nil {
-		t.Fatalf("start mcp-lsp binary: %v", err)
-	}
-	go func() {
-		_, _ = io.Copy(&client.stderr, stderrPipe)
-	}()
-	return client
+	return startMcpLSPBinaryForTestWithEnv(t, ctx, binary, root, fakePyrightBinDir, nil)
 }
 
 func writeFakePyrightLangserver(t *testing.T) string {
@@ -371,6 +332,12 @@ type fakeLSPRequest struct {
 	Params  json.RawMessage `json:"params,omitempty"`
 }
 
+type fakeLSPDidOpenParams struct {
+	TextDocument struct {
+		URI string `json:"uri"`
+	} `json:"textDocument"`
+}
+
 type fakeLSPPositionParams struct {
 	Position struct {
 		Line      int `json:"line"`
@@ -378,8 +345,14 @@ type fakeLSPPositionParams struct {
 	} `json:"position"`
 }
 
+type fakeLSPWriter struct {
+	mu sync.Mutex
+	w  io.Writer
+}
+
 func runFakePyrightLangserver() {
 	reader := bufio.NewReader(os.Stdin)
+	writer := &fakeLSPWriter{w: os.Stdout}
 	for {
 		raw, err := readFakeLSPFramedMessage(reader)
 		if err != nil {
@@ -392,10 +365,13 @@ func runFakePyrightLangserver() {
 		if req.Method == "exit" {
 			return
 		}
+		if writer.handleNotification(req) {
+			continue
+		}
 		if len(bytes.TrimSpace(req.ID)) == 0 {
 			continue
 		}
-		_ = writeFakeLSPResponse(os.Stdout, req.ID, fakeLSPResult(req))
+		_ = writer.writeResponse(req.ID, fakeLSPResult(req))
 	}
 }
 
@@ -432,25 +408,67 @@ func readFakeLSPFramedMessage(reader *bufio.Reader) (json.RawMessage, error) {
 	return json.RawMessage(body), nil
 }
 
-func writeFakeLSPResponse(writer io.Writer, id json.RawMessage, result any) error {
-	raw, err := json.Marshal(map[string]any{
+func (w *fakeLSPWriter) writeResponse(id json.RawMessage, result any) error {
+	return w.write(map[string]any{
 		"jsonrpc": "2.0",
 		"id":      id,
 		"result":  result,
 	})
+}
+
+func (w *fakeLSPWriter) writeNotification(method string, params any) error {
+	return w.write(map[string]any{
+		"jsonrpc": "2.0",
+		"method":  method,
+		"params":  params,
+	})
+}
+
+func (w *fakeLSPWriter) write(payload map[string]any) error {
+	raw, err := json.Marshal(payload)
 	if err != nil {
 		return err
 	}
-	if _, err := fmt.Fprintf(writer, "Content-Length: %d\r\n\r\n", len(raw)); err != nil {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if _, err := fmt.Fprintf(w.w, "Content-Length: %d\r\n\r\n", len(raw)); err != nil {
 		return err
 	}
-	_, err = writer.Write(raw)
+	_, err = w.w.Write(raw)
 	return err
+}
+
+func (w *fakeLSPWriter) handleNotification(req fakeLSPRequest) bool {
+	if len(bytes.TrimSpace(req.ID)) != 0 {
+		return false
+	}
+	if req.Method != "textDocument/didOpen" || os.Getenv("MCP_LSP_FAKE_PYRIGHT_DIAGNOSTICS") == "" {
+		return false
+	}
+	var params fakeLSPDidOpenParams
+	if err := json.Unmarshal(req.Params, &params); err != nil {
+		return true
+	}
+	uri := strings.TrimSpace(params.TextDocument.URI)
+	if uri == "" {
+		return true
+	}
+	delay := fakePyrightDiagnosticDelay(uri)
+	go func() {
+		if delay > 0 {
+			time.Sleep(delay)
+		}
+		_ = w.writeNotification("textDocument/publishDiagnostics", fakePyrightDiagnostics(uri))
+	}()
+	return true
 }
 
 func fakeLSPResult(req fakeLSPRequest) any {
 	switch req.Method {
 	case "initialize":
+		if delay := fakePyrightDurationFromEnv("MCP_LSP_FAKE_PYRIGHT_INIT_DELAY"); delay > 0 {
+			time.Sleep(delay)
+		}
 		return map[string]any{
 			"capabilities": map[string]any{
 				"textDocumentSync": 1,
@@ -493,5 +511,46 @@ func fakeLSPResult(req fakeLSPRequest) any {
 		}
 	default:
 		return nil
+	}
+}
+
+func fakePyrightDiagnosticDelay(uri string) time.Duration {
+	if os.Getenv("MCP_LSP_FAKE_PYRIGHT_DIAGNOSTICS") != "delayed_second" {
+		return 0
+	}
+	if strings.HasSuffix(uri, "/slow.py") {
+		return fakePyrightDurationFromEnv("MCP_LSP_FAKE_PYRIGHT_DIAGNOSTIC_SLOW_DELAY")
+	}
+	return 0
+}
+
+func fakePyrightDurationFromEnv(name string) time.Duration {
+	raw := strings.TrimSpace(os.Getenv(name))
+	if raw == "" {
+		return 0
+	}
+	if duration, err := time.ParseDuration(raw); err == nil {
+		return duration
+	}
+	milliseconds, err := strconv.Atoi(raw)
+	if err != nil {
+		return 0
+	}
+	return time.Duration(milliseconds) * time.Millisecond
+}
+
+func fakePyrightDiagnostics(uri string) map[string]any {
+	return map[string]any{
+		"uri": uri,
+		"diagnostics": []map[string]any{{
+			"range": map[string]any{
+				"start": map[string]any{"line": 0, "character": 0},
+				"end":   map[string]any{"line": 0, "character": 5},
+			},
+			"severity": 1,
+			"source":   "fake-pyright",
+			"message":  "fake diagnostic for " + filepath.Base(uri),
+			"code":     "fake-type",
+		}},
 	}
 }
