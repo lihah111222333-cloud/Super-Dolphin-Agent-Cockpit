@@ -18,7 +18,7 @@ func TestInspectImplementationWrongTargetReturnsInvalidTargetError(t *testing.T)
 		"func NewFileAuditLogger() {}",
 		"",
 	}, "\n"))
-	manager := &targetReproManager{implementationErr: errors.New("NewFileAuditLogger is not an implementation query target")}
+	manager := &targetReproManager{implementationErr: errors.New("NewFileAuditLogger is a function, not a method (query at 'func' token to find matching signatures)")}
 	handler := NewInspectHandler(&structureTestRegistry{fileManager: manager})
 	input := marshalReproParams(t, inspectParams{
 		Action:             "implementation",
@@ -26,7 +26,7 @@ func TestInspectImplementationWrongTargetReturnsInvalidTargetError(t *testing.T)
 	})
 
 	got, err := handler(testToolContext(root), input)
-	if err == nil || !strings.Contains(err.Error(), "not an implementation query target") {
+	if err == nil || !strings.Contains(err.Error(), "function, not a method") {
 		t.Fatalf("implementation error = %v, result=%#v, want wrong-target reason", err, got)
 	}
 	requireInvalidTargetError(t, err, "Use inspect action=implementation on an interface")
