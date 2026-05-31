@@ -29,8 +29,31 @@ func TestRenderReadContentDefaultLimitIsTwoHundredFifty(t *testing.T) {
 	if strings.Contains(got, "251: line-251") {
 		t.Fatalf("read_file default output includes line 251: %q", got)
 	}
-	if !strings.Contains(got, "...[showing lines 1-250 of 260 total, use offset=251 to continue]") {
+	if !strings.Contains(got, `[scope=lines L1-L250 of 260 total; use pos="file:251" to continue]`) {
 		t.Fatalf("read_file continuation hint = %q, want 250-line default", got)
+	}
+}
+
+func TestFileReadPosWithoutLineReadsFullFile(t *testing.T) {
+	root := t.TempDir()
+	target := filepath.Join(root, "sample.txt")
+	if err := os.WriteFile(target, []byte("alpha\nbeta\n"), 0o600); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
+
+	got, err := callFileTool(t, root, fileToolInput{Action: "read_file", Pos: "sample.txt"})
+	if err != nil {
+		t.Fatalf("read_file returned error: %v", err)
+	}
+	content, ok := got.(string)
+	if !ok {
+		t.Fatalf("read_file result type = %T, want string", got)
+	}
+	if !strings.Contains(content, "1: alpha") || !strings.Contains(content, "2: beta") {
+		t.Fatalf("read_file content = %q, want full file", content)
+	}
+	if !strings.Contains(content, "[scope=file 3 lines]") {
+		t.Fatalf("read_file footer = %q, want file scope", content)
 	}
 }
 

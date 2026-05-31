@@ -319,8 +319,15 @@ func TestEditFailureAfterDeadClientReturnsRetryableWithoutAutoReplay(t *testing.
 	if err == nil || !strings.Contains(err.Error(), "LSP client closed") {
 		t.Fatalf("edit error = %v, want dead-client edit sync failure", err)
 	}
-	if got != nil {
-		t.Fatalf("result = %#v, want nil wrapped result on error", got)
+	if got == nil {
+		t.Fatalf("result = nil, want replaceRangeFailure envelope")
+	}
+	failure, ok := got.(replaceRangeFailure)
+	if !ok {
+		t.Fatalf("result type = %T, want replaceRangeFailure", got)
+	}
+	if failure.Success {
+		t.Fatalf("failure.Success = true, want false")
 	}
 	assertDeadClientRollbackState(t, path, original, manager)
 	envelope := newToolErrorEnvelope("edit", "go", errors.Join(multilsp.ErrTransportClosed, manager.didChangeErr))
@@ -381,8 +388,15 @@ func TestReplaceRangeSyncFailureReportsRollbackFailure(t *testing.T) {
 
 	got, err := handler(testToolContext(root), input)
 	requireSyncRollbackFailure(t, err)
-	if got != nil {
-		t.Fatalf("result = %#v, want nil wrapped result on error", got)
+	if got == nil {
+		t.Fatalf("result = nil, want replaceRangeFailure envelope")
+	}
+	failure, ok := got.(replaceRangeFailure)
+	if !ok {
+		t.Fatalf("result type = %T, want replaceRangeFailure", got)
+	}
+	if failure.Success {
+		t.Fatalf("failure.Success = true, want false")
 	}
 }
 

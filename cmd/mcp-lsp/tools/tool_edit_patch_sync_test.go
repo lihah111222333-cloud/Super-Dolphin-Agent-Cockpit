@@ -30,8 +30,15 @@ func TestEditRequiresPatch(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "edit requires patch") {
 		t.Fatalf("edit error = %v, want requires patch", err)
 	}
-	if got != nil {
-		t.Fatalf("result = %#v, want nil wrapped result on error", got)
+	if got == nil {
+		t.Fatalf("result = nil, want replaceRangeFailure envelope")
+	}
+	failure, ok := got.(replaceRangeFailure)
+	if !ok {
+		t.Fatalf("result type = %T, want replaceRangeFailure", got)
+	}
+	if failure.Success {
+		t.Fatalf("failure.Success = true, want false")
 	}
 	assertFileContent(t, path, original)
 }
