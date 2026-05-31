@@ -7,7 +7,7 @@ type toolOverflowHint struct {
 
 var toolOverflowHints = map[string]toolOverflowHint{
 	"grep": {
-		Hint: "Narrow search: add path/glob filter, or reduce max_results",
+		Hint: "next: grep action=text_search query=<query> path=<path> glob=<glob> max_results=10",
 		NextAction: map[string]any{
 			"tool":         "grep",
 			"suggest_args": map[string]any{"max_results": 10},
@@ -15,7 +15,7 @@ var toolOverflowHints = map[string]toolOverflowHint{
 		},
 	},
 	"file": {
-		Hint: "Use offset/limit pagination to read file in chunks",
+		Hint: "next: file action=read_file pos=<file>:<line> limit=100",
 		NextAction: map[string]any{
 			"tool":         "file",
 			"suggest_args": map[string]any{"limit": 100},
@@ -23,23 +23,23 @@ var toolOverflowHints = map[string]toolOverflowHint{
 		},
 	},
 	"inspect": {
-		Hint: "Hover result is large; try a more specific location",
+		Hint: "next: inspect pos=<file>:<line>:<col>",
 	},
 	"xref": {
-		Hint: "Use compact verbosity or reduce max_results",
+		Hint: "next: xref verbosity=compact max_results=10",
 		NextAction: map[string]any{
 			"tool":         "xref",
 			"suggest_args": map[string]any{"verbosity": "compact", "max_results": 10},
 		},
 	},
 	"structure": {
-		Hint: "Use compact verbosity or limit to document_symbol action",
+		Hint: "next: structure action=document_symbol file_path=<file> max_results=10",
 	},
 	"edit": {
-		Hint: "Edit result truncated; check success/applied fields for status",
+		Hint: "next: check success/applied fields for status",
 	},
 	"completion": {
-		Hint: "Too many completions; use a more specific prefix",
+		Hint: "next: completion pos=<file>:<line>:<col> max_results=10",
 		NextAction: map[string]any{
 			"tool":         "completion",
 			"suggest_args": map[string]any{"max_results": 10},
@@ -51,7 +51,7 @@ func lookupHint(toolName string) toolOverflowHint {
 	if h, ok := toolOverflowHints[toolName]; ok {
 		return h
 	}
-	return toolOverflowHint{Hint: "Result too large; try narrowing the query"}
+	return toolOverflowHint{Hint: "next: narrow the query"}
 }
 
 func extractSummary(toolName string, payload map[string]any) map[string]any {
@@ -64,9 +64,9 @@ func extractSummary(toolName string, payload map[string]any) map[string]any {
 			"total":   numericField(payload, "total"),
 			"showing": numericField(payload, "showing"),
 		}
-		if files, ok := payload["files"].(map[string]any); ok {
+		if data, ok := payload["data"].(map[string]any); ok {
 			names := make([]string, 0, 5)
-			for k := range files {
+			for k := range data {
 				names = append(names, k)
 				if len(names) >= 5 {
 					break

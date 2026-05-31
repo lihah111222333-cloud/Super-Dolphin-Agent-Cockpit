@@ -141,7 +141,7 @@ func runDocumentSymbols(
 		Truncated: showing < total,
 	}
 	if resp.Truncated {
-		resp.Hint = "results truncated; increase max_results or narrow the file/symbol scope"
+		resp.Hint = "next: increase max_results or narrow the file/symbol scope"
 	}
 	return resp, nil
 }
@@ -176,7 +176,7 @@ func runWorkspaceSymbols(
 	return format.NewCompactList(
 		format.CompactWorkspaceSymbols(results),
 		total,
-		"results truncated; increase max_results or narrow query/language",
+		"next: increase max_results or narrow query/language",
 	), nil
 }
 

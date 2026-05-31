@@ -48,7 +48,7 @@ func NewCompletionHandler(registry lspmanager.Registry) ToolHandler {
 		return format.NewCompactList(
 			format.CompactCompletionItems(items),
 			total,
-			"results truncated; increase max_results or move to a more precise cursor",
+			"next: increase max_results or move to a more precise cursor",
 		), nil
 	})
 }

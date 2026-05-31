@@ -133,7 +133,7 @@ func unmarshalToolParams[T any](raw []byte, value *T) error {
 }
 
 func formatDecodeParamsError(err error) error {
-	hint := "hint: pass numeric fields as JSON numbers, string fields as JSON strings, and remove unknown fields"
+	hint := "next: pass numeric fields as JSON numbers, string fields as JSON strings, and remove unknown fields"
 	if migration := legacyPositionMigrationHint(err); migration != "" {
 		hint = hint + "; " + migration
 	}
@@ -425,7 +425,7 @@ func newLineOutOfRangeError(line int, lineCount int) error {
 		"line_out_of_range",
 		fmt.Errorf("line %d is beyond end of file with %d lines", line, lineCount),
 		false,
-		"Retry by correcting the line in the 'pos' parameter (format 'file_path:line:column'). Read the target file with file.read_file to choose an existing 1-based line before retrying.",
+		"next: file action=read_file pos=<file>:1 limit=200, then retry with an existing 1-based line in pos=<file>:<line>:<col>",
 	)
 	var coded *common.CodedToolError
 	if errors.As(err, &coded) {
@@ -444,7 +444,7 @@ func newPositionOutOfRangeError(line int, column int, lineText string, lineLengt
 		"position_out_of_range",
 		fmt.Errorf("column %d is beyond end of line %d, max column is %d", column, line, maxColumn),
 		false,
-		"Retry with a column inside the target identifier or at the end of the line by correcting the 'pos' parameter (format 'file_path:line:column'); inspect meta.line_text and meta.suggested_columns for valid 1-based columns.",
+		"next: retry with pos=<file>:<line>:<col> using a column inside the target identifier or at end of line; inspect meta.line_text and meta.suggested_columns",
 	)
 	var coded *common.CodedToolError
 	if errors.As(err, &coded) {

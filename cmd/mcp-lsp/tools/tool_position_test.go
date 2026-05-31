@@ -49,7 +49,7 @@ func TestResolveFilePositionRequestRejectsColumnBeyondLineWithLLMHint(t *testing
 	if coded.Retryable {
 		t.Fatalf("retryable = true, want false")
 	}
-	if !strings.Contains(coded.Hint, "Retry with a column inside the target identifier") {
+	if !strings.Contains(coded.Hint, "next: retry with pos=") {
 		t.Fatalf("hint = %q, want retry guidance", coded.Hint)
 	}
 	if got := coded.Meta["line_text"]; got != "\tvalue := compute(input)" {
@@ -87,7 +87,7 @@ func TestResolveFilePositionRequestRejectsLineBeyondFileWithLLMHint(t *testing.T
 	if got := coded.Meta["line_count"]; got != 2 {
 		t.Fatalf("line_count = %#v, want 2", got)
 	}
-	if !strings.Contains(coded.Hint, "Read the target file") {
+	if !strings.Contains(coded.Hint, "next: file action=read_file") {
 		t.Fatalf("hint = %q, want read_file guidance", coded.Hint)
 	}
 }

@@ -83,7 +83,7 @@ var lspGrepSchema = objectSchema(map[string]schema{
 var lspGrepOutputSchema = schema{
 	"type": "object",
 	"properties": map[string]any{
-		"files":               map[string]any{"type": "object", "description": "matched files keyed by path; each value has cols and rows"},
+		"data":                map[string]any{"type": "object", "description": "matched files keyed by path; each value has cols and rows"},
 		"total":               map[string]any{"type": "integer"},
 		"showing":             map[string]any{"type": "integer"},
 		"truncated":           map[string]any{"type": "boolean"},

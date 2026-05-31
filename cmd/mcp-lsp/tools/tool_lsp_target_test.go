@@ -29,7 +29,7 @@ func TestInspectImplementationWrongTargetReturnsInvalidTargetError(t *testing.T)
 	if err == nil || !strings.Contains(err.Error(), "function, not a method") {
 		t.Fatalf("implementation error = %v, result=%#v, want wrong-target reason", err, got)
 	}
-	requireInvalidTargetError(t, err, "Use inspect action=implementation on an interface")
+	requireInvalidTargetError(t, err, "next: inspect action=implementation")
 }
 
 func TestInspectImplementationCorrectInterfaceTargetReturnsImplementations(t *testing.T) {
@@ -84,7 +84,7 @@ func TestXRefTypeHierarchyWrongTargetReturnsInvalidTargetError(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "not a type name") {
 		t.Fatalf("type_hierarchy error = %v, result=%#v, want wrong-target reason", err, got)
 	}
-	requireInvalidTargetError(t, err, "Use xref action=type_hierarchy on a type name")
+	requireInvalidTargetError(t, err, "next: xref action=type_hierarchy")
 }
 
 func TestXRefTypeHierarchyCorrectTypeTargetsReturnHierarchy(t *testing.T) {

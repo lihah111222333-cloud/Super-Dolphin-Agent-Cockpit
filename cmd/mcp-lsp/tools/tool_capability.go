@@ -32,7 +32,7 @@ func implementationTargetError(err error) error {
 		"invalid_target",
 		err,
 		false,
-		"Use inspect action=implementation on an interface or method/field with implementation relationships; ordinary functions do not have implementations.",
+		"next: inspect action=implementation pos=<interface-or-method-field>",
 	)
 }
 
@@ -44,7 +44,7 @@ func typeHierarchyTargetError(err error) error {
 		"invalid_target",
 		err,
 		false,
-		"Use xref action=type_hierarchy on a type name; use direction=supertypes for parents or direction=subtypes for children.",
+		"next: xref action=type_hierarchy pos=<type-name> direction=supertypes|subtypes",
 	)
 }
 
