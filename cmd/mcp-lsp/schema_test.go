@@ -10,12 +10,12 @@ func TestEditSchemaExposesPatchDiskFieldsOnly(t *testing.T) {
 	if !ok {
 		t.Fatalf("edit schema properties type = %T", lspEditSchema["properties"])
 	}
-	for _, field := range []string{"action", "file_path", "patch", "version", "pos", "new_name", "only"} {
+	for _, field := range []string{"action", "file_path", "patch", "pos", "new_name", "only"} {
 		if _, ok := props[field]; !ok {
 			t.Fatalf("edit schema missing expected field %q", field)
 		}
 	}
-	for _, field := range []string{"line", "column", "end_line", "end_column", "edits", "new_text", "persist_to_disk", "force"} {
+	for _, field := range []string{"line", "column", "end_line", "end_column", "edits", "new_text", "persist_to_disk", "force", "version"} {
 		if _, ok := props[field]; ok {
 			t.Fatalf("edit schema exposes removed legacy field %q", field)
 		}
@@ -29,12 +29,26 @@ func TestEditSchemaExposesPatchDiskFieldsOnly(t *testing.T) {
 	}
 }
 
-func TestStructureSchemaExposesLegacyPathAlias(t *testing.T) {
+func TestStructureSchemaHidesLegacyPathAlias(t *testing.T) {
 	props, ok := lspStructureSchema["properties"].(map[string]any)
 	if !ok {
 		t.Fatalf("structure schema properties type = %T", lspStructureSchema["properties"])
 	}
-	if _, ok := props["path"]; !ok {
-		t.Fatalf("structure schema missing legacy path alias")
+	if _, ok := props["path"]; ok {
+		t.Fatalf("structure schema exposes legacy path alias")
+	}
+}
+
+func TestGrepSchemaDocumentsSmartCaseOverride(t *testing.T) {
+	props, ok := lspGrepSchema["properties"].(map[string]any)
+	if !ok {
+		t.Fatalf("grep schema properties type = %T", lspGrepSchema["properties"])
+	}
+	caseSensitive, ok := props["case_sensitive"].(map[string]any)
+	if !ok {
+		t.Fatalf("grep case_sensitive schema type = %T", props["case_sensitive"])
+	}
+	if got := caseSensitive["description"]; got != "Override smart-case (default: sensitive when query has uppercase, insensitive otherwise)" {
+		t.Fatalf("grep case_sensitive description = %q", got)
 	}
 }
