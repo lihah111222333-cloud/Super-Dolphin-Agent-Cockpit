@@ -60,7 +60,7 @@ func NewActiveAgentCounter(p activeAgentCounterParams) ActiveAgentCounter {
 			}
 			active := 0
 			for _, thread := range threads {
-				if isActiveThreadStatus(thread.Status) {
+				if contract.IsActiveAgentState(thread.Status) {
 					active++
 				}
 			}
@@ -70,15 +70,6 @@ func NewActiveAgentCounter(p activeAgentCounterParams) ActiveAgentCounter {
 	return ActiveAgentCounterFunc(func(context.Context) (int, error) {
 		return 0, errors.New("active agent source is not configured")
 	})
-}
-
-func isActiveThreadStatus(status string) bool {
-	switch strings.TrimSpace(status) {
-	case "", "stopped", "failed", "archived":
-		return false
-	default:
-		return true
-	}
 }
 
 type applicationParams struct {
