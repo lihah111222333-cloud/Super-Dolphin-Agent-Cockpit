@@ -95,7 +95,7 @@ if ! git rev-list --reverse "$RANGE" >/dev/null; then
   fail "invalid commit range: $RANGE"
 fi
 
-echo "[ci-commit-guard] Chinese commit title guard: $RANGE"
+echo "[ci-commit-guard] Chinese commit message guard: $RANGE"
 ./scripts/guard_commit_titles.sh --range "$RANGE"
 
 echo "[ci-commit-guard] fix-test guard: $RANGE"
