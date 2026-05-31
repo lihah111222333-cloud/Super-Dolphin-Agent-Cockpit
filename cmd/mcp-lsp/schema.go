@@ -44,12 +44,13 @@ func objectSchema(props map[string]schema, required ...string) schema {
 // ---------------------------------------------------------------------------
 
 var lspFileSchema = objectSchema(map[string]schema{
-	"action":      enumProp("Action", "open_file", "read_file", "diagnostics"),
-	"file_path":   stringProp("File path"),
-	"file_paths":  arrayOfStringsProp("Multiple file paths"),
-	"language_id": stringProp("Language override (optional)"),
-	"offset":      integerProp("Start line (1-based, default 1)"),
-	"limit":       integerProp("Max lines (default 250)"),
+	"action":          enumProp("Action", "open_file", "read_file", "diagnostics"),
+	"file_path":       stringProp("File path"),
+	"file_paths":      arrayOfStringsProp("Multiple file paths"),
+	"language_id":     stringProp("Language override (optional)"),
+	"offset":          integerProp("Start line (1-based, default 1)"),
+	"limit":           integerProp("Max lines (default 250)"),
+	"expand_comments": booleanProp("Automatically expand starting line upwards to include adjacent comments (default true)"),
 }, "action")
 
 var lspInspectSchema = objectSchema(map[string]schema{
