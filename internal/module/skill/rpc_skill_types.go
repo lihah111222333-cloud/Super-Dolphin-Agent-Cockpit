@@ -164,9 +164,9 @@ func resolutionCanonicalSnapshot(store *canonicalStore, cwd string) ([]canonical
 	if err != nil {
 		return nil, nil, nil, err
 	}
-	return records, canonicalSameNameConflicts(records), effectiveRecords, nil
+	conflicts := canonicalSameNameConflicts(records)
+	return records, conflicts, canonicalRecordsWithoutConflicts(effectiveRecords, conflicts), nil
 }
-
 func (s *service) resolutionMirrorTargets(cwd string) []SkillMirrorTarget {
 	projectRoot := s.projectRootForCWD(cwd)
 	fingerprint := RepoFingerprint(projectRoot)
@@ -182,7 +182,6 @@ func (s *service) resolutionMirrorTargets(cwd string) []SkillMirrorTarget {
 		{TargetID: "codex:user-global:" + ownerKey, Provider: SkillProviderCodex, Scope: skillScopePersonal, Root: providerPersonalMirrorRoot(SkillProviderCodex), CanonicalRootID: ownerKey},
 	}
 }
-
 func canonicalRecordsByID(records []canonicalSkillRecord) map[string]canonicalSkillRecord {
 	out := make(map[string]canonicalSkillRecord, len(records))
 	for _, record := range records {
@@ -268,6 +267,9 @@ func mirrorResolutionItems(conflicts []SkillMirrorConflict, records map[string]c
 	items := make([]skillResolutionItem, 0, len(conflicts))
 	seen := map[string]int{}
 	for _, conflict := range conflicts {
+		if _, ok := records[conflict.CanonicalID]; ok && conflict.Kind == skillConflictCanonicalDeletedWithDrift {
+			continue
+		}
 		item := mirrorResolutionItem(conflict, records, superHome)
 		key := mirrorResolutionItemKey(conflict)
 		if idx, ok := seen[key]; ok {
@@ -300,19 +302,6 @@ func resolutionTargetHash(conflict SkillMirrorConflict, record canonicalSkillRec
 
 func sameNameResolutionActions(sources []skillResolutionSource) []string {
 	actions := []string{ResolutionViewDiff}
-	hasProject := false
-	personalCount := 0
-	for _, source := range sources {
-		switch source.Scope {
-		case skillScopeProject:
-			hasProject = true
-		case skillScopePersonal:
-			personalCount++
-		}
-	}
-	if hasProject && personalCount > 0 {
-		return append(actions, ResolutionKeepSelected, ResolutionRenamePersonal)
-	}
 	if len(sources) > 1 {
 		return append(actions, ResolutionKeepSelected, ResolutionRenamePersonal)
 	}
