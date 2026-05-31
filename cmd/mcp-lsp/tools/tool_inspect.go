@@ -65,7 +65,11 @@ func runHover(
 	}
 	content := hoverText(result)
 	if content == "" {
-		return "no hover info available", nil
+		return emptyListEnvelope{
+			Success: true,
+			Data:    []any{},
+			Meta:    resultMeta{Count: 0, Message: rustDetachedWorkspaceMessage(filePath, "hover", "no hover info available")},
+		}, nil
 	}
 	return content, nil
 }
