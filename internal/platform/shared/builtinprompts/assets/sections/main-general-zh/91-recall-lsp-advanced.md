@@ -39,7 +39,7 @@ LSP 工具链 · 高级调试（中文）：
 
 ### 执行与测试
 
-- `exec_command` —— 普通 shell / git / 包脚本 / 宽范围测试
+- `exec_command` —— 普通 shell / git / 包脚本（如 `npm run lint`）/ 宽范围测试
 - `code_run(project_cmd)` —— provider 无 `exec_command` 时的构建 / 脚本兜底
 - `code_run_test(test_func, test_pkg)` —— 精准跑单个 Go 测试函数，比整包 `go test` 快
 

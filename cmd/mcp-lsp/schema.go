@@ -45,28 +45,25 @@ func objectSchema(props map[string]schema, required ...string) schema {
 
 var lspFileSchema = objectSchema(map[string]schema{
 	"action":          enumProp("Action", "open_file", "read_file", "diagnostics"),
-	"file_path":       stringProp("File path (absolute or relative, auto-resolved)"),
-	"file_paths":      arrayOfStringsProp("Multiple file paths for batch read or diagnostics filtering"),
-	"language_id":     stringProp("Optional trusted language adapter override for open_file/diagnostics routing"),
+	"pos":             stringProp("Position as 'file_path:line' (line maps to offset; example internal/foo.go:42). Use this OR file_path+offset, not both."),
+	"file_path":       stringProp("File path (absolute or relative, auto-resolved). Alternative to pos for actions that do not need a line."),
+	"file_paths":      arrayOfStringsProp("Multiple file paths for batch read or LSP diagnostics filtering"),
 	"offset":          integerProp("Start line (1-based, default 1)"),
 	"limit":           integerProp("Max lines (default 250, cap 2000)"),
 	"expand_comments": booleanProp("Auto-expand starting line upward to include adjacent doc comments (read_file only, default true)"),
 }, "action")
 
 var lspInspectSchema = objectSchema(map[string]schema{
-	"action":      enumProp("Action", "hover", "definition", "implementation", "type_definition", "signature_help"),
-	"pos":         stringProp("Position as 'file_path:line:column' (example internal/foo.go:42:9)"),
-	"language_id": stringProp("Optional trusted language adapter override"),
+	"action": enumProp("Action", "hover", "definition", "implementation", "type_definition", "signature_help"),
+	"pos":    stringProp("Position as 'file_path:line:column' (example internal/foo.go:42:9)"),
 }, "action", "pos")
 
 var lspXrefSchema = objectSchema(map[string]schema{
 	"action":              enumProp("Action", "references", "call_hierarchy", "type_hierarchy"),
 	"pos":                 stringProp("Position as 'file_path:line:column' (example internal/foo.go:42:9)"),
-	"language_id":         stringProp("Optional trusted language adapter override"),
 	"direction":           enumProp("call_hierarchy: incoming/outgoing/both; type_hierarchy: supertypes/subtypes", "incoming", "outgoing", "both", "supertypes", "subtypes"),
 	"include_declaration": booleanProp("Include declaration (references only, default true)"),
-	"verbosity":           enumProp("Output verbosity", "compact", "full"),
-	"max_results":         integerProp("Max results (default compact=30, full=50, cap 50)"),
+	"max_results":         integerProp("Max results (default 30, cap 50)"),
 }, "action", "pos")
 
 var lspGrepSchema = objectSchema(map[string]schema{
@@ -96,35 +93,30 @@ var lspGrepOutputSchema = schema{
 }
 
 var lspStructureSchema = objectSchema(map[string]schema{
-	"action":      enumProp("Action", "document_symbol", "workspace_symbol", "folding_range", "semantic_tokens"),
-	"file_path":   stringProp("File path (absolute or relative, auto-resolved)"),
+	"action":      enumProp("Action", "document_symbol", "workspace_symbol"),
+	"file_path":   stringProp("File path (absolute or relative, auto-resolved). Path-only; no :line:column suffix."),
 	"path":        stringProp("Legacy alias for file_path"),
-	"language_id": stringProp("Optional trusted language adapter override for file_path routing"),
 	"query":       stringProp("Symbol query (workspace_symbol only)"),
 	"language":    stringProp("Language filter (workspace_symbol only)"),
-	"verbosity":   enumProp("Output verbosity", "compact", "full"),
-	"max_results": integerProp("Max results (default compact=20, full=50, cap 50)"),
+	"max_results": integerProp("Max results (default 20, cap 50)"),
 }, "action")
 
 var lspEditSchema = objectSchema(map[string]schema{
-	"file_path":   stringProp("File path (absolute or relative, auto-resolved)"),
-	"language_id": stringProp("Optional trusted language adapter override"),
-	"patch":       stringProp("Patch text to apply to disk"),
-	"version":     integerProp("Document version for applied edit flow (default 2)"),
+	"file_path": stringProp("File path (absolute or relative, auto-resolved). Path-only; no :line:column suffix."),
+	"patch":     stringProp("Patch text to apply to disk"),
+	"version":   integerProp("Document version for applied edit flow (default 2)"),
 }, "file_path", "patch")
 
 var lspCompletionSchema = objectSchema(map[string]schema{
 	"pos":         stringProp("Position as 'file_path:line:column' (example internal/foo.go:42:9)"),
-	"language_id": stringProp("Optional trusted language adapter override"),
-	"verbosity":   enumProp("Output verbosity", "compact", "full"),
-	"max_results": integerProp("Max candidates (default compact=20, full=50, cap 50)"),
+	"max_results": integerProp("Max candidates (default 20, cap 50)"),
 }, "pos")
 
 var codeRunSchema = objectSchema(map[string]schema{
 	"mode":      enumProp("Execution mode", "run", "project_cmd"),
 	"language":  stringProp("Language: go, javascript, typescript (required for run mode)"),
 	"code":      stringProp("Code snippet (run mode)"),
-	"command":   stringProp("Shell command (project_cmd mode)"),
+	"command":   stringProp("Project command (project_cmd mode). Prefer host exec_command for shell/git/package scripts such as npm run lint when available."),
 	"auto_wrap": booleanProp("Auto-wrap Go code with package main and imports (default true for Go)"),
 	"work_dir":  stringProp("Working directory (must be within workspace root)"),
 	"timeout":   integerProp("Timeout in seconds (default 30)"),

@@ -306,6 +306,7 @@ func TestMainGeneralZhResidentLSPSectionsStayThinAndRecallBacked(t *testing.T) {
 		"`grep(text_search",
 		"`file(read_file",
 		"`edit(file_path",
+		"npm run lint",
 	} {
 		require.Contains(t, body, want)
 	}

@@ -20,12 +20,11 @@ type structureParams struct {
 	LanguageID string `json:"language_id,omitempty"`
 	Query      string `json:"query"`
 	Language   string `json:"language"`
-	Verbosity  string `json:"verbosity"`
 	MaxResults int    `json:"max_results"`
 }
 
 func NewStructureHandler(registry lspmanager.Registry) ToolHandler {
-	return newManagerTool("structure", middleware.TierNormal, registry, decodeStrict, func(ctx context.Context, registry lspmanager.Registry, req structureParams) (any, error) {
+	return newManagerTool("structure", middleware.TierNormal, registry, decodeLenient, func(ctx context.Context, registry lspmanager.Registry, req structureParams) (any, error) {
 		req.FilePath = firstNonEmpty(req.FilePath, req.Path)
 		// Resolve the manager lazily per action: workspace_symbol can use
 		// the "language" parameter instead of "file_path", so we must not
@@ -132,8 +131,7 @@ func runWorkspaceSymbols(
 	if query == "" {
 		return nil, errors.New("query is required")
 	}
-	verbosity := format.NormalizeVerbosity(req.Verbosity)
-	limit := format.WorkspaceSymbolLimit(req.MaxResults, verbosity)
+	limit := format.WorkspaceSymbolLimit(req.MaxResults, format.VerbosityCompact)
 	if err := bootstrapWorkspaceSymbolTarget(ctx, manager, req.FilePath); err != nil {
 		return nil, err
 	}
@@ -150,12 +148,7 @@ func runWorkspaceSymbols(
 			Meta:    resultMeta{Count: 0, Message: "no symbols found"},
 		}, nil
 	}
-	return renderByVerbosity(results, total, verbosity,
-		func(items []protocol.WorkspaceSymbolResult) any { return format.NormalizeForDisplay(items) },
-		func(items []protocol.WorkspaceSymbolResult, total int) any {
-			return format.NewCompactList(format.CompactWorkspaceSymbols(items), total)
-		},
-	), nil
+	return format.NewCompactList(format.CompactWorkspaceSymbols(results), total), nil
 }
 
 func bootstrapWorkspaceSymbolTarget(ctx context.Context, manager lspmanager.Manager, filePath string) error {

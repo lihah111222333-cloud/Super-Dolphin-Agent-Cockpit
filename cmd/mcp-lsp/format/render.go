@@ -55,18 +55,18 @@ func RenderGroupedLocations(result protocol.GroupedLocationResult) string {
 	var builder strings.Builder
 	for i := range files {
 		file := files[i]
-		builder.WriteString(file)
-		builder.WriteByte('\n')
 		for _, row := range result.Files[file] {
-			builder.WriteString("  ")
+			builder.WriteString(file)
+			builder.WriteByte(':')
 			builder.WriteString(strconv.Itoa(row.Line))
 			builder.WriteByte(':')
 			builder.WriteString(strconv.Itoa(row.Column))
 			if row.FuncStart > 0 && row.FuncEnd >= row.FuncStart {
-				builder.WriteString("  func ")
+				builder.WriteString(" [func L")
 				builder.WriteString(strconv.Itoa(row.FuncStart))
-				builder.WriteByte('-')
+				builder.WriteString("-L")
 				builder.WriteString(strconv.Itoa(row.FuncEnd))
+				builder.WriteByte(']')
 			}
 			builder.WriteByte('\n')
 		}

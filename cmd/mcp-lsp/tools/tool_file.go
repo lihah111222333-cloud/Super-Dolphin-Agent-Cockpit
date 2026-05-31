@@ -50,6 +50,7 @@ type emptyListEnvelope struct {
 }
 type fileToolInput struct {
 	Action         string   `json:"action"`
+	Pos            string   `json:"pos,omitempty"`
 	FilePath       string   `json:"file_path,omitempty"`
 	FilePaths      []string `json:"file_paths,omitempty"`
 	LanguageID     string   `json:"language_id,omitempty"`
@@ -125,6 +126,9 @@ func (h handlerBase) handleFile(ctx context.Context, params json.RawMessage) (an
 	if err != nil {
 		return nil, err
 	}
+	if err := normalizeFileInputFromPos(&input); err != nil {
+		return nil, err
+	}
 	h.warnFileCWDTrace(ctx, input)
 
 	expand := true
@@ -146,6 +150,30 @@ func (h handlerBase) handleFile(ctx context.Context, params json.RawMessage) (an
 			return h.handleDiagnostics(ctx, input)
 		},
 	})
+}
+
+// normalizeFileInputFromPos lets the file tool accept the same pos
+// syntax used by inspect/xref/completion. "file:line" feeds offset; the
+// optional ":col" segment is ignored for the file tool because none of
+// its actions are column-scoped. file_path / offset still win when both
+// pos and the legacy fields are present, so callers can migrate
+// incrementally without breakage.
+func normalizeFileInputFromPos(input *fileToolInput) error {
+	pos := strings.TrimSpace(input.Pos)
+	if pos == "" {
+		return nil
+	}
+	filePath, line, _, _, err := parseFilePos(pos, false)
+	if err != nil {
+		return err
+	}
+	if strings.TrimSpace(input.FilePath) == "" {
+		input.FilePath = filePath
+	}
+	if input.Offset <= 0 {
+		input.Offset = line
+	}
+	return nil
 }
 
 func (h handlerBase) openFile(ctx context.Context, rawPath string, languageID string) (openFileResult, error) {
@@ -456,13 +484,13 @@ func (r batchReadResponse) ToPlainText() string {
 	sb.WriteString("\n")
 
 	for _, item := range r.Data {
-		sb.WriteString(fmt.Sprintf("--- File: %s ---\n", item.FilePath))
+		fmt.Fprintf(&sb, "===== %s =====\n", item.FilePath)
 		if item.Success {
 			sb.WriteString(item.Content)
 		} else {
-			sb.WriteString(fmt.Sprintf("Error: %s\n", item.Error))
+			fmt.Fprintf(&sb, "Error: %s\n", item.Error)
 		}
-		sb.WriteString("\n")
+		fmt.Fprintf(&sb, "\n===== END %s =====\n\n", item.FilePath)
 	}
 
 	if r.Meta.Truncated || r.Meta.Dropped > 0 {
