@@ -147,3 +147,39 @@ func TestFileRejectsDeprecatedOffset(t *testing.T) {
 		t.Fatalf("expected 'offset is removed' error, got: %v", err)
 	}
 }
+
+func TestFileReadAllowsExplicitAbsoluteWorkDirOutsideWorkspaceRoots(t *testing.T) {
+	staleRoot := t.TempDir()
+	explicitRoot := t.TempDir()
+	target := filepath.Join(explicitRoot, "sample.txt")
+	if err := os.WriteFile(target, []byte("needle\n"), 0o600); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
+	handler := NewFileHandler(Config{WorkspaceRoot: staleRoot})
+	payload, err := json.Marshal(map[string]any{
+		"action":    "read_file",
+		"file_path": "sample.txt",
+		"work_dir":  explicitRoot,
+		"scope":     "lines",
+	})
+	if err != nil {
+		t.Fatalf("marshal payload: %v", err)
+	}
+	ctx := common.WithToolScope(context.Background(), common.ToolScope{
+		CWD:            staleRoot,
+		WorkspaceRoots: []string{staleRoot},
+		Family:         "lsp",
+	})
+
+	got, err := handler(ctx, payload)
+	if err != nil {
+		t.Fatalf("file read returned error: %v", err)
+	}
+	text, ok := got.(string)
+	if !ok {
+		t.Fatalf("file read result = %T, want string", got)
+	}
+	if !strings.Contains(text, "needle") {
+		t.Fatalf("file read result = %q, want explicit work_dir file contents", text)
+	}
+}

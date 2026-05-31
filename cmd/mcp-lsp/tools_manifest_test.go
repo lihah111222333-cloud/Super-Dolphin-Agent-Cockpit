@@ -99,6 +99,36 @@ func TestCodeRunSchemaDocumentsExplicitAbsoluteWorkDir(t *testing.T) {
 	}
 }
 
+func TestLSPToolSchemasExposeExplicitWorkDir(t *testing.T) {
+	schemas := map[string]schema{
+		"file":          lspFileSchema,
+		"inspect":       lspInspectSchema,
+		"xref":          lspXrefSchema,
+		"grep":          lspGrepSchema,
+		"structure":     lspStructureSchema,
+		"edit":          lspEditSchema,
+		"completion":    lspCompletionSchema,
+		"code_run":      codeRunSchema,
+		"code_run_test": codeRunTestSchema,
+	}
+	for name, toolSchema := range schemas {
+		props, ok := toolSchema["properties"].(map[string]any)
+		if !ok {
+			t.Fatalf("%s schema properties type = %T", name, toolSchema["properties"])
+		}
+		workDir, ok := props["work_dir"].(map[string]any)
+		if !ok {
+			t.Fatalf("%s work_dir schema missing or wrong type: %T", name, props["work_dir"])
+		}
+		desc, _ := workDir["description"].(string)
+		for _, must := range []string{"Absolute paths", "trusted workspace root"} {
+			if !strings.Contains(desc, must) {
+				t.Fatalf("%s work_dir description = %q, want %q", name, desc, must)
+			}
+		}
+	}
+}
+
 func TestPositionSchemasExposeCopyablePosExample(t *testing.T) {
 	for name, schema := range map[string]schema{
 		"inspect":    lspInspectSchema,

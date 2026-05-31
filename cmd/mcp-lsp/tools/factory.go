@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"regexp"
 	"sort"
 	"strconv"
@@ -527,13 +528,45 @@ func executeSandbox(
 
 func wrapToolHandler(toolName string, tier time.Duration, handler middleware.Handler) middleware.Handler {
 	log := pkglogger.Get()
+	scopedHandler := func(ctx context.Context, params json.RawMessage) (any, error) {
+		var err error
+		ctx, err = contextWithExplicitToolWorkDir(ctx, params)
+		if err != nil {
+			return nil, err
+		}
+		return handler(ctx, params)
+	}
 	chained := middleware.Chain(
-		handler,
+		scopedHandler,
 		middleware.Recovery(log, toolName),
 		middleware.Logging(log, toolName),
 		middleware.Timeout(tier),
 	)
 	return middleware.WithOutputBudget(toolName, chained, middleware.Budget{})
+}
+
+type explicitToolWorkDirParams struct {
+	WorkDir string `json:"work_dir,omitempty"`
+}
+
+func contextWithExplicitToolWorkDir(ctx context.Context, params json.RawMessage) (context.Context, error) {
+	trimmed := bytes.TrimSpace(params)
+	if len(trimmed) == 0 || bytes.Equal(trimmed, []byte("null")) {
+		return ctx, nil
+	}
+	var input explicitToolWorkDirParams
+	if err := json.Unmarshal(trimmed, &input); err != nil {
+		return ctx, fmt.Errorf("parse explicit tool work_dir params: %w", err)
+	}
+	workDir := strings.TrimSpace(input.WorkDir)
+	if workDir == "" || !filepath.IsAbs(workDir) {
+		return ctx, nil
+	}
+	scopedCtx, _, err := contextWithExplicitAbsoluteWorkDir(ctx, workDir)
+	if err != nil {
+		return ctx, err
+	}
+	return scopedCtx, nil
 }
 
 // funcRangeEnricher fetches DocumentSymbols on demand so location-emitting
