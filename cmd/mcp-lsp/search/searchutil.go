@@ -187,6 +187,9 @@ func walkSearchEntry(
 		if shouldSkipDir(entry.Name()) {
 			return filepath.SkipDir
 		}
+		if isInsideGoModCache(candidate) {
+			return filepath.SkipDir
+		}
 		return nil
 	}
 	selected, err := shouldSearchPath(root, candidate, glob, maxFileBytes, entry)
