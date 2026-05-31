@@ -12,6 +12,7 @@ let bridgeRequestSeq = 0;
 let rpcRequestSeq = 0;
 let runtimePromise = null;
 const WAILS_RUNTIME_MODULE = '/wails/runtime.js';
+const RPC_RESULT_PREVIEW_LIMIT = 1200;
 
 // Track active log store to pipe warnings and errors
 let logStoreInstance = null;
@@ -19,12 +20,40 @@ export function registerBridgeLogStore(store) {
   logStoreInstance = store;
 }
 
-function writeBridgeLog(level, event, fields) {
-  if (logStoreInstance && typeof logStoreInstance[level] === 'function') {
-    logStoreInstance[level](event, fields);
-  } else {
-    console[level === 'error' ? 'error' : 'log'](`[Bridge ${level}] ${event}`, fields);
+function serializableBridgeValue(value, seen = new WeakSet()) {
+  if (value instanceof Error) {
+    const out = {
+      name: value.name || 'Error',
+      message: value.message || '',
+    };
+    if ('code' in value && value.code !== undefined) out.code = value.code;
+    if ('data' in value && value.data !== undefined) out.data = serializableBridgeValue(value.data, seen);
+    return out;
   }
+  if (!value || typeof value !== 'object') return value;
+  if (seen.has(value)) return '[Circular]';
+  seen.add(value);
+  if (Array.isArray(value)) return value.map((item) => serializableBridgeValue(item, seen));
+  return Object.fromEntries(
+    Object.entries(value).map(([key, item]) => [key, serializableBridgeValue(item, seen)]),
+  );
+}
+
+function writeBridgeLog(level, event, fields) {
+  const serializableFields = serializableBridgeValue(fields || {});
+  if (logStoreInstance && typeof logStoreInstance[level] === 'function') {
+    logStoreInstance[level](event, serializableFields);
+  } else {
+    console[level === 'error' ? 'error' : 'log'](`[Bridge ${level}] ${event}`, serializableFields);
+  }
+}
+
+function compactBridgeValuePreview(value) {
+  const serializable = serializableBridgeValue(value);
+  const text = typeof serializable === 'string' ? serializable : JSON.stringify(serializable);
+  if (!text) return '';
+  if (text.length <= RPC_RESULT_PREVIEW_LIMIT) return text;
+  return `${text.slice(0, RPC_RESULT_PREVIEW_LIMIT)}...`;
 }
 
 function resolveRuntimeModuleSpecifier() {
@@ -152,7 +181,7 @@ function resolveClientMeta() {
   return { clientKind, clientRoute };
 }
 
-async function callByID(methodID, ...args) {
+async function invokeRuntimeByID(methodID, args = [], options = {}) {
   const reqId = ++bridgeRequestSeq;
   const start = Date.now();
   writeBridgeLog('debug', 'bridge.call.start', {
@@ -163,10 +192,12 @@ async function callByID(methodID, ...args) {
 
   const runtime = await waitRuntime();
   if (!runtime?.Call?.ByID) {
-    writeBridgeLog('warn', 'bridge.call.runtime.unavailable', {
-      req_id: reqId,
-      method_id: methodID,
-    });
+    if (options.logRuntimeUnavailable !== false) {
+      writeBridgeLog('warn', 'bridge.call.runtime.unavailable', {
+        req_id: reqId,
+        method_id: methodID,
+      });
+    }
     throw new Error('Wails runtime bridge not ready');
   }
 
@@ -179,14 +210,20 @@ async function callByID(methodID, ...args) {
     });
     return result;
   } catch (error) {
-    writeBridgeLog('error', 'bridge.call.failed', {
-      req_id: reqId,
-      method_id: methodID,
-      duration_ms: Date.now() - start,
-      error,
-    });
+    if (options.logFailure !== false) {
+      writeBridgeLog('error', 'bridge.call.failed', {
+        req_id: reqId,
+        method_id: methodID,
+        duration_ms: Date.now() - start,
+        error,
+      });
+    }
     throw error;
   }
+}
+
+async function callByID(methodID, ...args) {
+  return invokeRuntimeByID(methodID, args);
 }
 
 export async function callAPI(method, params = {}) {
@@ -231,13 +268,17 @@ export async function callAPI(method, params = {}) {
   });
 
   try {
-    const result = await callByID(METHOD_IDS.CALL_API, method, payload);
+    const result = await invokeRuntimeByID(METHOD_IDS.CALL_API, [method, payload], {
+      logFailure: false,
+      logRuntimeUnavailable: false,
+    });
     writeBridgeLog('debug', 'api.rpc.done', {
       req_id: reqId,
       method,
       client_kind: clientKind,
       client_route: clientRoute,
       duration_ms: Date.now() - start,
+      result_preview: compactBridgeValuePreview(result),
     });
     return result;
   } catch (error) {
@@ -397,41 +438,121 @@ export async function saveTextFile({ defaultPath = '', defaultFilename = '', con
 
 export async function copyTextToClipboard(text) {
   const value = (text || '').toString().trim();
-  if (!value) return false;
+  if (!value) throw new Error('clipboard text is empty');
 
+  const failures = [];
   const isDebugShim = typeof window !== 'undefined' && window.__WAILS_SHIM_DEBUG__ === true;
   if (!isDebugShim) {
     try {
       const res = await callAPI('ui/copyText', { text: value });
       if (res?.ok) return true;
-    } catch {
-      // fallback
+      failures.push(`native ui/copyText returned ok=false${res?.error ? `: ${res.error}` : ''}`);
+    } catch (error) {
+      failures.push(`native ui/copyText failed: ${error.message || String(error)}`);
     }
   }
 
-  try {
-    if (navigator?.clipboard?.writeText) {
+  if (navigator?.clipboard?.writeText) {
+    try {
       await navigator.clipboard.writeText(value);
       return true;
+    } catch (error) {
+      failures.push(`browser clipboard.writeText failed: ${error.message || String(error)}`);
+      writeBridgeLog('warn', 'ui.copyText.clipboard_api_failed', { error: error.message || String(error) });
     }
-  } catch {
-    writeBridgeLog('debug', 'ui.copyText.clipboard_api_failed', {});
+  } else {
+    failures.push('browser clipboard.writeText is unavailable');
   }
 
   try {
+    if (!document?.body || typeof document.execCommand !== 'function') {
+      throw new Error('document.execCommand is unavailable');
+    }
     const textarea = document.createElement('textarea');
     textarea.value = value;
     textarea.style.position = 'fixed';
+    textarea.style.top = '0';
+    textarea.style.left = '-9999px';
     textarea.style.opacity = '0';
+    textarea.setAttribute('readonly', '');
     document.body.appendChild(textarea);
-    textarea.select();
-    const ok = document.execCommand('copy');
-    document.body.removeChild(textarea);
-    return ok;
-  } catch {
-    writeBridgeLog('debug', 'ui.copyText.exec_command_failed', {});
-    return false;
+    const selection = document.getSelection?.();
+    const ranges = selection
+      ? Array.from({ length: selection.rangeCount }, (_, index) => selection.getRangeAt(index))
+      : [];
+    try {
+      textarea.focus();
+      textarea.select();
+      textarea.setSelectionRange?.(0, value.length);
+      const ok = document.execCommand('copy');
+      if (!ok) throw new Error("document.execCommand('copy') returned false");
+      return true;
+    } finally {
+      document.body.removeChild(textarea);
+      if (selection) {
+        selection.removeAllRanges();
+        ranges.forEach((range) => selection.addRange(range));
+      }
+    }
+  } catch (error) {
+    failures.push(`document.execCommand fallback failed: ${error.message || String(error)}`);
+    writeBridgeLog('warn', 'ui.copyText.exec_command_failed', { error: error.message || String(error) });
   }
+
+  throw new Error(`clipboard copy failed: ${failures.join('; ')}`);
+}
+
+export function beginTextClipboardWrite() {
+  if (
+    typeof navigator === 'undefined' ||
+    typeof navigator.clipboard?.write !== 'function' ||
+    typeof ClipboardItem === 'undefined' ||
+    typeof Blob === 'undefined'
+  ) {
+    return null;
+  }
+
+  let settled = false;
+  let resolveBlob;
+  let rejectBlob;
+  const blobPromise = new Promise((resolve, reject) => {
+    resolveBlob = resolve;
+    rejectBlob = reject;
+  });
+
+  let writePromise;
+  try {
+    writePromise = navigator.clipboard.write([
+      new ClipboardItem({
+        'text/plain': blobPromise,
+      }),
+    ]);
+  } catch {
+    return null;
+  }
+
+  writePromise.catch(() => {});
+
+  return {
+    async commit(text) {
+      if (settled) throw new Error('prepared clipboard write is already settled');
+      const value = (text || '').toString().trim();
+      if (!value) {
+        settled = true;
+        rejectBlob(new Error('clipboard text is empty'));
+        throw new Error('clipboard text is empty');
+      }
+      settled = true;
+      resolveBlob(new Blob([value], { type: 'text/plain' }));
+      await writePromise;
+      return true;
+    },
+    cancel(reason) {
+      if (settled) return;
+      settled = true;
+      rejectBlob(reason instanceof Error ? reason : new Error('clipboard write cancelled'));
+    },
+  };
 }
 
 export async function resolveThreadIdentity(threadId) {
