@@ -25,6 +25,11 @@ export default defineConfig({
   },
   test: {
     environment: 'jsdom',
+    environmentOptions: {
+      jsdom: {
+        url: 'http://127.0.0.1:5175/',
+      },
+    },
     exclude: ['**/node_modules/**', '**/dist/**', '**/.agents/**'],
     globals: true,
     setupFiles: './src/test-setup.js',

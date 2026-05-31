@@ -80,6 +80,32 @@ describe('frontend-app backend API facade', () => {
     expect(callAPI).toHaveBeenCalledWith(RPC_METHODS.THREAD_DELETE, { threadId: 'thread-3' });
   });
 
+  it('exposes text copy through the native bridge helper without adding a backend RPC payload', async () => {
+    const callAPI = vi.fn();
+    const beginTextClipboardWrite = vi.fn().mockReturnValue(null);
+    const copyTextToClipboard = vi.fn().mockResolvedValue(true);
+    const api = createBackendApi({ callAPI, beginTextClipboardWrite, copyTextToClipboard });
+
+    expect(api.beginTextClipboardWrite()).toBeNull();
+    await expect(api.copyTextToClipboard('thread info')).resolves.toBe(true);
+
+    expect(beginTextClipboardWrite).toHaveBeenCalledTimes(1);
+    expect(copyTextToClipboard).toHaveBeenCalledWith('thread info');
+    expect(callAPI).not.toHaveBeenCalled();
+  });
+
+  it('maps thread rename to the legacy name RPC without cwd', async () => {
+    const callAPI = vi.fn().mockResolvedValue({ ok: true });
+    const api = createBackendApi({ callAPI });
+
+    await api.renameThread({ cwd: '/repo/app', threadId: 'thread-1', name: 'Renamed' });
+
+    expect(callAPI).toHaveBeenCalledWith(RPC_METHODS.THREAD_NAME_SET, {
+      threadId: 'thread-1',
+      name: 'Renamed',
+    });
+  });
+
   it('maps thread config get and set to legacy thread config RPCs', async () => {
     const callAPI = vi.fn().mockResolvedValue({ ok: true });
     const api = createBackendApi({ callAPI });
@@ -438,6 +464,16 @@ describe('frontend-app backend API facade', () => {
     expect(() => api.upsertMemoryEntry({ cwd: '/repo/app', name: 'x', description: 'd', type: 'feedback', content: '' })).toThrow('content is required');
     expect(() => api.setMemoryAutoDreamIntent({})).toThrow('enabled is required');
     expect(() => api.mergeMemoryEntries({ cwd: '/repo/app', targetA: 'private', pathA: 'a.md', targetB: 'team' })).toThrow('pathB is required');
+  });
+
+  it('wraps the independent new-window RPC with cwd validation', async () => {
+    const callAPI = vi.fn().mockResolvedValue({ ok: true });
+    const api = createBackendApi({ callAPI });
+
+    await api.openNewWindow({ cwd: '/repo/window' });
+
+    expect(callAPI).toHaveBeenCalledWith(RPC_METHODS.UI_OPEN_NEW_WINDOW, { cwd: '/repo/window' });
+    expect(() => api.openNewWindow({ cwd: '' })).toThrow('cwd is required');
   });
 
   it('wraps shared file read and delete RPCs with the legacy payload shapes', async () => {
