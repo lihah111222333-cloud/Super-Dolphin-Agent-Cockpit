@@ -28,6 +28,30 @@ func TestResolveFilePositionRequestAllowsEndOfLineColumn(t *testing.T) {
 	}
 }
 
+func TestIdentifierCompletionRetryPositionsIncludeUnderscoreSuffixStart(t *testing.T) {
+	dir := t.TempDir()
+	target := filepath.Join(dir, "constant.py")
+	writePositionFixture(t, dir, "constant.py", "REG_CRYPTO = \"crypto\"\n")
+
+	positions, err := identifierCompletionRetryPositions(target, protocol.Position{Line: 0, Character: 6})
+	if err != nil {
+		t.Fatalf("identifierCompletionRetryPositions returned error: %v", err)
+	}
+	got := make([]int, 0, len(positions))
+	for _, position := range positions {
+		got = append(got, position.Character)
+	}
+	want := []int{10, 9, 4, 0}
+	if len(got) != len(want) {
+		t.Fatalf("retry characters = %#v, want %#v", got, want)
+	}
+	for index := range want {
+		if got[index] != want[index] {
+			t.Fatalf("retry characters = %#v, want %#v", got, want)
+		}
+	}
+}
+
 func TestResolveFilePositionRequestRejectsColumnBeyondLineWithLLMHint(t *testing.T) {
 	dir := t.TempDir()
 	writePositionFixture(t, dir, "sample.go", "package sample\n\nfunc demo() {\n\tvalue := compute(input)\n}\n")
