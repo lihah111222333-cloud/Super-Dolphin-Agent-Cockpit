@@ -179,7 +179,7 @@ func (h CodeRunHandler) handleProjectCommand(ctx context.Context, req CodeRunReq
 		req.WorkDir = root
 	} else if filepath.IsAbs(req.WorkDir) {
 		var err error
-		ctx, req.WorkDir, err = contextWithExplicitProjectWorkDir(ctx, req.WorkDir)
+		ctx, req.WorkDir, err = contextWithExplicitAbsoluteWorkDir(ctx, req.WorkDir)
 		if err != nil {
 			return nil, err
 		}
@@ -197,15 +197,13 @@ func (h CodeRunHandler) handleProjectCommand(ctx context.Context, req CodeRunReq
 	return h.execute(ctx, request, "", "project_cmd")
 }
 
-func contextWithExplicitProjectWorkDir(ctx context.Context, workDir string) (context.Context, string, error) {
-	normalized, err := normalizeExplicitProjectWorkDir(workDir)
+func contextWithExplicitAbsoluteWorkDir(ctx context.Context, workDir string) (context.Context, string, error) {
+	normalized, err := normalizeExplicitAbsoluteWorkDir(workDir)
 	if err != nil {
 		return ctx, "", err
 	}
 	scope, _ := common.ToolScopeFromContext(ctx)
-	if strings.TrimSpace(scope.CWD) == "" {
-		scope.CWD = normalized
-	}
+	scope.CWD = normalized
 	scope.WorkspaceRoots = append(scope.WorkspaceRoots, normalized)
 	if strings.TrimSpace(scope.Family) == "" {
 		scope.Family = "lsp"
@@ -213,7 +211,7 @@ func contextWithExplicitProjectWorkDir(ctx context.Context, workDir string) (con
 	return common.WithToolScope(ctx, scope), normalized, nil
 }
 
-func normalizeExplicitProjectWorkDir(workDir string) (string, error) {
+func normalizeExplicitAbsoluteWorkDir(workDir string) (string, error) {
 	trimmed := strings.TrimSpace(workDir)
 	if trimmed == "" {
 		return "", errors.New("work_dir is required")

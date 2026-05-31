@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { AlertTriangle, Archive, ArrowLeft, Bot, Boxes, Brain, ChevronDown, CircleStop, Code2, Copy, Download, Eye, File, FileText, Folder, FolderOpen, GitBranch, Image, Link2, MemoryStick, MessageCircle, Moon, MoreHorizontal, Pencil, Plus, RefreshCw, Search, Send, Settings, Sparkles, Sun, Trash2, Workflow, X } from 'lucide-react';
+import { AlertTriangle, Archive, ArrowLeft, Bot, Boxes, Brain, ChevronDown, CircleStop, Code2, Copy, Download, Eye, File, FileText, Folder, FolderOpen, GitBranch, Link2, MemoryStick, MessageCircle, Moon, MoreHorizontal, PanelTopOpen, Pencil, Pin, Plus, RefreshCw, Search, Send, Settings, Sparkles, Sun, Trash2, Workflow, X } from 'lucide-react';
 import { useClientStore } from './entities/client/model/useClientStore.js';
 import { PromptPageView } from './features/prompts/PromptPageView.jsx';
 import {
@@ -24,6 +24,7 @@ import {
   listSkillResolutions,
   ignoreMemorySimilarity,
   mergeMemoryEntries,
+  onFilesDropped,
   previewSkillResolution,
   readSharedFile,
   readSkill,
@@ -103,6 +104,7 @@ const MEMORY_EDITOR_TYPES = Object.freeze([
   { key: 'feedback', label: '偏好' },
   { key: 'project', label: '项目' },
 ]);
+const COMPOSER_DROP_TARGET_IDS = new Set(['chat-input-bar', 'composer-input', 'chatInput']);
 
 const THEME_STORAGE_KEY = 'super-dolphin-theme';
 const COLOR_THEMES = Object.freeze({
@@ -128,6 +130,501 @@ function useColorTheme() {
   return { theme, toggleTheme };
 }
 
+const THREAD_RAIL_MIN_WIDTH = 240;
+const THREAD_RAIL_RATIO = 0.2;
+const RIGHT_PANEL_CLOSE_THRESHOLD = 0;
+const RIGHT_PANEL_DEFAULT_RATIO = 0.2;
+const RIGHT_PANEL_MAX_RATIO = 0.4;
+const CONVERSATION_MIN_RATIO = 0.4;
+const NAV_RAIL_WIDTH = 76;
+const SPLITTER_WIDTH = 6;
+const RUNTIME_TOOLBAR_HEIGHT = 67;
+const ACTIVITY_ICON_ROW_HEIGHT = 64;
+const ACTIVITY_LOG_ROW_HEIGHT = 32;
+const ACTIVITY_PANEL_MIN_HEIGHT = ACTIVITY_ICON_ROW_HEIGHT + ACTIVITY_LOG_ROW_HEIGHT;
+const ACTIVITY_PANEL_DEFAULT_HEIGHT = ACTIVITY_ICON_ROW_HEIGHT + (ACTIVITY_LOG_ROW_HEIGHT * 3);
+const FLOATING_POPOVER_MARGIN = 12;
+const RUNTIME_STAT_TOOLTIP_WIDTH = 360;
+const RUNTIME_STAT_TOOLTIP_MIN_HEIGHT = 96;
+const WARNING_POPOVER_MIN_WIDTH = 280;
+
+const LSP_TOOL_NAMES = Object.freeze([
+  'grep',
+  'file',
+  'inspect',
+  'xref',
+  'structure',
+  'edit',
+  'completion',
+  'format_preview',
+]);
+const JSON_RENDER_TOOL_NAMES = Object.freeze(['json_render']);
+const GO_RUN_TOOL_NAMES = Object.freeze(['go_run', 'code_run', 'code_run_test']);
+const PLAYWRIGHT_TOOL_PREFIXES = Object.freeze(['mcp__playwright__', 'playwright_', 'browser_']);
+
+function clampWidth(value, min, max) {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) return min;
+  return Math.max(min, Math.min(max, numeric));
+}
+
+function currentViewportWidth() {
+  if (typeof window === 'undefined') return 0;
+  const width = Number(window.innerWidth);
+  return Number.isFinite(width) ? width : 0;
+}
+
+function currentViewportHeight() {
+  if (typeof window === 'undefined') return 0;
+  const height = Number(window.innerHeight);
+  return Number.isFinite(height) ? height : 0;
+}
+
+function chatLayoutWidthBudget(viewportWidth = currentViewportWidth()) {
+  return Math.max(0, viewportWidth - NAV_RAIL_WIDTH);
+}
+
+function ratioWidth(ratio, viewportWidth = currentViewportWidth()) {
+  return Math.floor(chatLayoutWidthBudget(viewportWidth) * ratio);
+}
+
+function threadRailTargetWidth(viewportWidth = currentViewportWidth()) {
+  return Math.max(THREAD_RAIL_MIN_WIDTH, ratioWidth(THREAD_RAIL_RATIO, viewportWidth));
+}
+
+function rightPanelDefaultWidth(viewportWidth = currentViewportWidth()) {
+  return Math.max(0, ratioWidth(RIGHT_PANEL_DEFAULT_RATIO, viewportWidth));
+}
+
+function rightPanelMaxWidth(viewportWidth, threadRailWidth) {
+  const layoutWidth = chatLayoutWidthBudget(viewportWidth);
+  const ratioMax = ratioWidth(RIGHT_PANEL_MAX_RATIO, viewportWidth);
+  const conversationMin = ratioWidth(CONVERSATION_MIN_RATIO, viewportWidth);
+  const remainingAfterConversation = layoutWidth - threadRailWidth - (SPLITTER_WIDTH * 2) - conversationMin;
+  return Math.max(0, Math.min(ratioMax, remainingAfterConversation));
+}
+
+function runtimePanelContentHeight(viewportHeight = currentViewportHeight()) {
+  return Math.max(0, Math.floor(viewportHeight) - RUNTIME_TOOLBAR_HEIGHT);
+}
+
+function activityPanelMaxHeight(viewportHeight = currentViewportHeight()) {
+  return Math.max(ACTIVITY_PANEL_MIN_HEIGHT, Math.floor(runtimePanelContentHeight(viewportHeight) / 2));
+}
+
+function clampActivityPanelHeight(value, viewportHeight = currentViewportHeight()) {
+  const numeric = Number(value);
+  const height = Number.isFinite(numeric) ? numeric : ACTIVITY_PANEL_DEFAULT_HEIGHT;
+  return Math.max(ACTIVITY_PANEL_MIN_HEIGHT, Math.min(activityPanelMaxHeight(viewportHeight), Math.round(height)));
+}
+
+function runtimePanelHeightVars(activityPanelHeight, viewportHeight = currentViewportHeight()) {
+  const contentHeight = runtimePanelContentHeight(viewportHeight);
+  const activityMaxHeight = activityPanelMaxHeight(viewportHeight);
+  const diffMinHeight = Math.max(0, Math.floor(contentHeight / 2));
+  const diffMaxHeight = Math.max(diffMinHeight, contentHeight - ACTIVITY_PANEL_MIN_HEIGHT);
+  return {
+    '--runtime-toolbar-height': `${RUNTIME_TOOLBAR_HEIGHT}px`,
+    '--activity-panel-height': `${clampActivityPanelHeight(activityPanelHeight, viewportHeight)}px`,
+    '--activity-panel-min-height': `${ACTIVITY_PANEL_MIN_HEIGHT}px`,
+    '--activity-panel-max-height': `${activityMaxHeight}px`,
+    '--diff-panel-min-height': `${diffMinHeight}px`,
+    '--diff-panel-max-height': `${diffMaxHeight}px`,
+  };
+}
+
+function elementViewportRect(element) {
+  if (!element?.getBoundingClientRect) return null;
+  const rect = element.getBoundingClientRect();
+  return {
+    left: rect.left,
+    right: rect.right,
+    top: rect.top,
+    bottom: rect.bottom,
+    width: rect.width,
+    height: rect.height,
+  };
+}
+
+function runtimeStatTooltipStyle(anchorRect) {
+  if (!anchorRect) return {};
+  const viewportWidth = currentViewportWidth();
+  const viewportHeight = currentViewportHeight();
+  const maxLeft = Math.max(FLOATING_POPOVER_MARGIN, viewportWidth - RUNTIME_STAT_TOOLTIP_WIDTH - FLOATING_POPOVER_MARGIN);
+  const left = Math.max(FLOATING_POPOVER_MARGIN, Math.min(maxLeft, Math.round(anchorRect.left)));
+  const preferredBottom = Math.max(FLOATING_POPOVER_MARGIN, Math.round(viewportHeight - anchorRect.top + 10));
+  const maxBottom = Math.max(FLOATING_POPOVER_MARGIN, viewportHeight - FLOATING_POPOVER_MARGIN - RUNTIME_STAT_TOOLTIP_MIN_HEIGHT);
+  const bottom = Math.min(preferredBottom, maxBottom);
+  const maxHeight = Math.max(
+    RUNTIME_STAT_TOOLTIP_MIN_HEIGHT,
+    Math.round(viewportHeight - bottom - FLOATING_POPOVER_MARGIN),
+  );
+  return {
+    '--runtime-stat-tooltip-left': `${left}px`,
+    '--runtime-stat-tooltip-bottom': `${bottom}px`,
+    '--runtime-stat-tooltip-max-height': `${maxHeight}px`,
+  };
+}
+
+function warningLogPopoverStyle(anchorRect, panelRect) {
+  if (!anchorRect || !panelRect) return {};
+  const viewportWidth = currentViewportWidth();
+  const viewportHeight = currentViewportHeight();
+  const preferredLeft = Math.round(panelRect.left + 18);
+  const preferredRight = Math.round(viewportWidth - panelRect.right + 18);
+  const leftLimit = Math.max(FLOATING_POPOVER_MARGIN, viewportWidth - WARNING_POPOVER_MIN_WIDTH - FLOATING_POPOVER_MARGIN);
+  const left = Math.max(FLOATING_POPOVER_MARGIN, Math.min(leftLimit, preferredLeft));
+  const right = Math.max(FLOATING_POPOVER_MARGIN, preferredRight);
+  const bottom = Math.max(FLOATING_POPOVER_MARGIN, Math.round(viewportHeight - anchorRect.top + 10));
+  return {
+    '--warning-log-popover-left': `${left}px`,
+    '--warning-log-popover-right': `${right}px`,
+    '--warning-log-popover-bottom': `${bottom}px`,
+  };
+}
+
+function canonicalLspToolName(name) {
+  return ({
+    lsp_file: 'file',
+    lsp_grep: 'grep',
+    lsp_inspect: 'inspect',
+    lsp_xref: 'xref',
+    lsp_structure: 'structure',
+    lsp_edit: 'edit',
+    lsp_completion: 'completion',
+    lsp_format_preview: 'format_preview',
+  })[name] || name;
+}
+
+function normalizeActivityToolName(name) {
+  const raw = (name || '').toString().trim().toLowerCase();
+  const mcpParts = raw.startsWith('mcp__') ? raw.split('__') : [];
+  const withoutMCPServer = mcpParts.length >= 3 ? mcpParts.slice(2).join('__') : raw;
+  const normalized = withoutMCPServer
+    .replace(/[./:-]+/g, '_')
+    .replace(/^functions_+/, '')
+    .replace(/^function_+/, '')
+    .replace(/^tools_+/, '')
+    .replace(/^tool_+/, '')
+    .replace(/_+/g, '_')
+    .replace(/^_+|_+$/g, '');
+  return canonicalLspToolName(normalized);
+}
+
+function sumToolCallsByMatcher(toolMap, matcher) {
+  let sum = 0;
+  for (const [rawName, value] of Object.entries(toolMap || {})) {
+    const name = normalizeActivityToolName(rawName);
+    if (!name || !matcher(name, (rawName || '').toString().trim().toLowerCase())) continue;
+    sum += Number(value) || 0;
+  }
+  return sum;
+}
+
+function sumToolCallsByNames(toolMap, names) {
+  const expected = new Set((names || []).map((name) => normalizeActivityToolName(name)).filter(Boolean));
+  if (expected.size === 0) return 0;
+  return sumToolCallsByMatcher(toolMap, (name) => expected.has(name));
+}
+
+function activityStatItems(stats = {}) {
+  const toolCalls = stats?.toolCalls || {};
+  const lspFromTools = sumToolCallsByNames(toolCalls, LSP_TOOL_NAMES);
+  const totalTools = Object.values(toolCalls).reduce((sum, value) => sum + (Number(value) || 0), 0);
+  return [
+    { key: 'lsp', label: 'LSP (8 tools)', icon: Code2, className: 'stat-lsp', value: lspFromTools || Number(stats?.lspCalls) || 0 },
+    { key: 'jsonRender', label: 'JSON-Render', icon: Boxes, className: 'stat-json-render', value: sumToolCallsByNames(toolCalls, JSON_RENDER_TOOL_NAMES) },
+    {
+      key: 'playwright',
+      label: 'Playwright',
+      icon: Workflow,
+      className: 'stat-playwright',
+      value: sumToolCallsByMatcher(toolCalls, (name, rawName) => PLAYWRIGHT_TOOL_PREFIXES.some((prefix) => name.startsWith(prefix) || rawName.startsWith(prefix))),
+    },
+    { key: 'goRun', label: 'go-run', icon: Link2, className: 'stat-go-run', value: sumToolCallsByNames(toolCalls, GO_RUN_TOOL_NAMES) },
+    { key: 'command', label: '命令', icon: GitBranch, className: 'stat-cmd', value: Number(stats?.commands) || 0 },
+    { key: 'file', label: '文件', icon: FileText, className: 'stat-file', value: Number(stats?.fileEdits) || 0 },
+    { key: 'tool', label: '工具', icon: Settings, className: 'stat-tool', value: totalTools },
+  ];
+}
+
+function activityToolEntries(stats = {}) {
+  return filteredActivityToolEntries(stats, () => true);
+}
+
+function filteredActivityToolEntries(stats = {}, matcher) {
+  const merged = {};
+  for (const [rawName, value] of Object.entries(stats?.toolCalls || {})) {
+    const raw = (rawName || '').toString().trim().toLowerCase();
+    const name = normalizeActivityToolName(rawName) || rawName;
+    if (!matcher(name, raw)) continue;
+    merged[name] = (merged[name] || 0) + (Number(value) || 0);
+  }
+  return Object.entries(merged)
+    .map(([name, count]) => ({ name, count }))
+    .filter((entry) => entry.count > 0)
+    .sort((left, right) => right.count - left.count || left.name.localeCompare(right.name));
+}
+
+function activityStatDetailEntries(stats = {}, statKey = '') {
+  if (statKey === 'lsp') {
+    const lspNames = new Set(LSP_TOOL_NAMES.map((name) => normalizeActivityToolName(name)));
+    return filteredActivityToolEntries(stats, (name) => lspNames.has(name));
+  }
+  if (statKey === 'jsonRender') {
+    const names = new Set(JSON_RENDER_TOOL_NAMES.map((name) => normalizeActivityToolName(name)));
+    return filteredActivityToolEntries(stats, (name) => names.has(name));
+  }
+  if (statKey === 'playwright') {
+    return filteredActivityToolEntries(stats, (name, rawName) => (
+      PLAYWRIGHT_TOOL_PREFIXES.some((prefix) => name.startsWith(prefix) || rawName.startsWith(prefix))
+    ));
+  }
+  if (statKey === 'goRun') {
+    const names = new Set(GO_RUN_TOOL_NAMES.map((name) => normalizeActivityToolName(name)));
+    return filteredActivityToolEntries(stats, (name) => names.has(name));
+  }
+  if (statKey === 'command') {
+    return Number(stats?.commands) > 0 ? [{ name: '命令调用', count: Number(stats.commands) }] : [];
+  }
+  if (statKey === 'file') {
+    return Number(stats?.fileEdits) > 0 ? [{ name: '文件变更', count: Number(stats.fileEdits) }] : [];
+  }
+  return activityToolEntries(stats);
+}
+
+function parseDiffFilename(line, prefix) {
+  const raw = line.slice(prefix.length).trim();
+  if (!raw || raw === '/dev/null') return '';
+  return raw.startsWith('a/') || raw.startsWith('b/') ? raw.slice(2) : raw;
+}
+
+function summarizeUnifiedDiff(diffText) {
+  if (!diffText || typeof diffText !== 'string') {
+    return { fileCount: 0, additions: 0, deletions: 0, changedLines: 0, files: [] };
+  }
+
+  const files = [];
+  let current = null;
+  let pendingFileHeader = null;
+
+  const startFile = (filename) => {
+    current = { filename: filename || `file-${files.length + 1}`, additions: 0, deletions: 0, lines: [] };
+    files.push(current);
+  };
+
+  const ensureCurrent = () => {
+    if (!current) startFile();
+  };
+
+  const appendLine = (line) => {
+    ensureCurrent();
+    current.lines.push(line);
+  };
+
+  for (const line of diffText.split('\n')) {
+    if (line.startsWith('diff --git')) {
+      const match = line.match(/^diff --git a\/(.+?) b\/(.+)$/);
+      pendingFileHeader = null;
+      startFile(match?.[2] || match?.[1] || `file-${files.length + 1}`);
+      current.lines.push(line);
+      continue;
+    }
+
+    if (line.startsWith('*** Begin Patch') || line.startsWith('*** End Patch') || line.startsWith('*** End of File')) {
+      pendingFileHeader = null;
+      continue;
+    }
+
+    if (line.startsWith('*** Update File:') || line.startsWith('*** Add File:') || line.startsWith('*** Delete File:')) {
+      const prefix = line.startsWith('*** Update File:')
+        ? '*** Update File:'
+          : line.startsWith('*** Add File:')
+            ? '*** Add File:'
+            : '*** Delete File:';
+      pendingFileHeader = null;
+      startFile(parseDiffFilename(line, prefix) || current?.filename || `file-${files.length + 1}`);
+      current.lines.push(line);
+      continue;
+    }
+
+    if (line.startsWith('*** Move to:')) {
+      const filename = parseDiffFilename(line, '*** Move to:');
+      if (current && filename) current.filename = filename;
+      appendLine(line);
+      continue;
+    }
+
+    if (line.startsWith('--- ')) {
+      pendingFileHeader = {
+        oldFilename: parseDiffFilename(line, '---'),
+        beginsNewFile: Boolean(current && (current.additions > 0 || current.deletions > 0)),
+        line,
+      };
+      if (current && !pendingFileHeader.beginsNewFile) current.lines.push(line);
+      continue;
+    }
+
+    if (line.startsWith('+++ ')) {
+      const filename = parseDiffFilename(line, '+++');
+      const headerFilename = filename || pendingFileHeader?.oldFilename || current?.filename || `file-${files.length + 1}`;
+      if (!current || pendingFileHeader?.beginsNewFile) startFile(headerFilename);
+      else current.filename = headerFilename || current.filename;
+      if (pendingFileHeader?.line && !current.lines.includes(pendingFileHeader.line)) {
+        current.lines.push(pendingFileHeader.line);
+      }
+      current.lines.push(line);
+      pendingFileHeader = null;
+      continue;
+    }
+
+    if (line.startsWith('index ') || line.startsWith('new file') || line.startsWith('deleted file') || line.startsWith('@@')) {
+      appendLine(line);
+      continue;
+    }
+
+    if (line.startsWith('+') && !line.startsWith('+++')) {
+      ensureCurrent();
+      current.additions += 1;
+      current.lines.push(line);
+      continue;
+    }
+
+    if (line.startsWith('-') && !line.startsWith('---')) {
+      ensureCurrent();
+      current.deletions += 1;
+      current.lines.push(line);
+      continue;
+    }
+
+    if (current) current.lines.push(line);
+  }
+
+  const changedFiles = files.filter((file) => file.additions > 0 || file.deletions > 0 || file.filename);
+  const additions = changedFiles.reduce((sum, file) => sum + file.additions, 0);
+  const deletions = changedFiles.reduce((sum, file) => sum + file.deletions, 0);
+  return {
+    fileCount: changedFiles.length,
+    additions,
+    deletions,
+    changedLines: additions + deletions,
+    files: changedFiles.map((file) => ({
+      filename: file.filename,
+      additions: file.additions,
+      deletions: file.deletions,
+      text: file.lines.join('\n'),
+    })),
+  };
+}
+
+function parseUnifiedDiffLineEntries(fileText) {
+  let oldLine = null;
+  let newLine = null;
+
+  return String(fileText || '').split('\n').flatMap((line, index) => {
+    if (
+      line.startsWith('diff --git')
+      || line.startsWith('index ')
+      || line.startsWith('--- ')
+      || line.startsWith('+++ ')
+      || line.startsWith('*** Begin Patch')
+      || line.startsWith('*** Update File:')
+      || line.startsWith('*** Add File:')
+      || line.startsWith('*** Delete File:')
+      || line.startsWith('*** Move to:')
+      || line.startsWith('*** End Patch')
+      || line.startsWith('*** End of File')
+    ) {
+      return [];
+    }
+
+    if (line.startsWith('@@')) {
+      const match = line.match(/^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/);
+      oldLine = match ? Number(match[1]) : null;
+      newLine = match ? Number(match[2]) : null;
+      return {
+        key: `${index}:hunk`,
+        type: 'hunk',
+        oldNo: '',
+        newNo: '',
+        prefix: '',
+        content: line,
+      };
+    }
+
+    if (line.startsWith('+') && !line.startsWith('+++')) {
+      const entry = {
+        key: `${index}:add`,
+        type: 'add',
+        oldNo: '',
+        newNo: newLine ?? '',
+        prefix: '+',
+        content: line.slice(1),
+      };
+      if (newLine !== null) newLine += 1;
+      return entry;
+    }
+
+    if (line.startsWith('-') && !line.startsWith('---')) {
+      const entry = {
+        key: `${index}:del`,
+        type: 'del',
+        oldNo: oldLine ?? '',
+        newNo: '',
+        prefix: '-',
+        content: line.slice(1),
+      };
+      if (oldLine !== null) oldLine += 1;
+      return entry;
+    }
+
+    if (line.startsWith(' ')) {
+      const entry = {
+        key: `${index}:context`,
+        type: 'context',
+        oldNo: oldLine ?? '',
+        newNo: newLine ?? '',
+        prefix: '',
+        content: line.slice(1),
+      };
+      if (oldLine !== null) oldLine += 1;
+      if (newLine !== null) newLine += 1;
+      return entry;
+    }
+
+    return {
+      key: `${index}:meta`,
+      type: 'meta',
+      oldNo: '',
+      newNo: '',
+      prefix: '',
+      content: line,
+    };
+  });
+}
+
+function warningDetailText(entry) {
+  return entry?.detail || JSON.stringify(entry?.fields ?? {});
+}
+
+function runtimeLogTimestamp(entry) {
+  return entry?.timestamp || entry?.time || entry?.ts || '';
+}
+
+function runtimeLogLabel(entry) {
+  return entry?.message || entry?.event || entry?.method || '';
+}
+
+function runtimeLogEntries(warnings = [], results = []) {
+  return [
+    ...(warnings || []).map((entry) => ({ ...entry, runtimeKind: 'warning' })),
+    ...(results || []).map((entry) => ({ ...entry, runtimeKind: 'result' })),
+  ].sort((left, right) => {
+    const leftTime = Date.parse(runtimeLogTimestamp(left)) || 0;
+    const rightTime = Date.parse(runtimeLogTimestamp(right)) || 0;
+    return rightTime - leftTime;
+  });
+}
 
 function projectDisplayName(path) {
   const value = (path || '').toString().trim();
@@ -251,9 +748,192 @@ const CLAUDE_LONG_TO_SHORT = Object.freeze({
   'claude-opus-4-7[1m]': 'opus[1m]',
   'claude-haiku-4-5': 'haiku',
 });
+const TURN_STATE_INFO = Object.freeze({
+  preparing: Object.freeze({ label: '准备中', tone: 'active', busy: true }),
+  running: Object.freeze({ label: '运行中', tone: 'active', busy: true }),
+  force_completing: Object.freeze({ label: '强制完成中', tone: 'active', busy: true }),
+  interrupting: Object.freeze({ label: '中断中', tone: 'warning', busy: true }),
+  interrupted: Object.freeze({ label: '已中断', tone: 'warning', busy: false }),
+  completed: Object.freeze({ label: '已完成', tone: 'done', busy: false }),
+  failed: Object.freeze({ label: '失败', tone: 'error', busy: false }),
+  stalled: Object.freeze({ label: '停滞', tone: 'error', busy: false }),
+});
+const LEGACY_TURN_STATE_ALIASES = Object.freeze({
+  工作中: 'running',
+  发送中: 'preparing',
+  error: 'failed',
+  错误: 'failed',
+  失败: 'failed',
+});
 
 function normalizeProviderKey(value) {
   return (value || '').toString().trim().toLowerCase() === 'claude' ? 'claude' : 'codex';
+}
+
+function knownProviderKey(value) {
+  const normalized = (value || '').toString().trim().toLowerCase();
+  return normalized === 'claude' || normalized === 'codex' ? normalized : '';
+}
+
+function threadProviderLabel(provider) {
+  return knownProviderKey(provider) || 'unknown';
+}
+
+function normalizedThreadIdentity(value) {
+  return (value || '').toString().trim();
+}
+
+function threadSortTimestamp(value) {
+  if (typeof value === 'number') return Number.isFinite(value) && value > 0 ? value : 0;
+  const text = (value || '').toString().trim();
+  if (!text) return 0;
+  const asNumber = Number(text);
+  if (Number.isFinite(asNumber) && asNumber > 0) return asNumber;
+  const parsed = Date.parse(text);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
+}
+
+function threadMatchesActiveId(thread, activeThreadId) {
+  const id = normalizedThreadIdentity(activeThreadId);
+  if (!id || !thread) return false;
+  return [
+    thread.id,
+    thread.threadId,
+    thread.thread_id,
+    thread.agentId,
+    thread.agent_id,
+    thread.providerThreadId,
+    thread.provider_thread_id,
+  ].some((value) => normalizedThreadIdentity(value) === id);
+}
+
+function activeThreadIdentifiers(activeThreadId, activeThread) {
+  return new Set([
+    activeThreadId,
+    activeThread?.id,
+    activeThread?.threadId,
+    activeThread?.thread_id,
+    activeThread?.agentId,
+    activeThread?.agent_id,
+    activeThread?.providerThreadId,
+    activeThread?.provider_thread_id,
+    activeThread?.sessionId,
+    activeThread?.session_id,
+  ].map(normalizedThreadIdentity).filter(Boolean));
+}
+
+function threadScopedMapValue(map = {}, activeThreadId, activeThread, fallback = null) {
+  const ids = activeThreadIdentifiers(activeThreadId, activeThread);
+  for (const id of ids) {
+    if (Object.prototype.hasOwnProperty.call(map || {}, id)) return map[id];
+  }
+  return fallback;
+}
+
+function activityEntryThreadIdentifier(entry = {}) {
+  const fields = entry.fields || {};
+  const patch = fields._threadPatch || fields._thread_patch || {};
+  return normalizedThreadIdentity(
+    entry.threadId ||
+    entry.thread_id ||
+    entry.agentId ||
+    entry.agent_id ||
+    fields.threadId ||
+    fields.thread_id ||
+    fields.agentId ||
+    fields.agent_id ||
+    patch.threadId ||
+    patch.thread_id ||
+    patch.agentId ||
+    patch.agent_id,
+  );
+}
+
+function scopedActivityEntries(entries = [], activeThreadId, activeThread, options = {}) {
+  const ids = activeThreadIdentifiers(activeThreadId, activeThread);
+  if (ids.size === 0) return [];
+  return (entries || []).filter((entry) => {
+    const entryThreadId = activityEntryThreadIdentifier(entry);
+    if (!entryThreadId) return Boolean(options.includeUnscoped);
+    return ids.has(entryThreadId);
+  });
+}
+
+function activeThreadForStore(store) {
+  const activeThreadId = normalizedThreadIdentity(store?.activeThreadId);
+  if (!activeThreadId) return null;
+  return (store?.threads || []).find((thread) => threadMatchesActiveId(thread, activeThreadId)) || null;
+}
+
+function normalizeTurnState(value) {
+  const raw = normalizedThreadIdentity(value);
+  if (!raw) return '';
+  const alias = LEGACY_TURN_STATE_ALIASES[raw] || raw;
+  return alias.toLowerCase().replace(/-/g, '_');
+}
+
+function firstStatusText(...values) {
+  for (const value of values) {
+    const text = normalizedThreadIdentity(value);
+    if (text) return text;
+  }
+  return '';
+}
+
+function cleanWorkStatusDetails(value) {
+  return normalizedThreadIdentity(value)
+    .replace(/\uFFFD+/g, '')
+    .replace(/\|+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function workStatusForThread({ sending, activeThreadId, activeThread, statusEntry }) {
+  if (!activeThreadId) {
+    return { label: '待启动', details: '发送首条消息后创建线程', tone: 'idle', busy: false };
+  }
+  const rawState = firstStatusText(
+    statusEntry?.state,
+    statusEntry?.status,
+    activeThread?.state,
+    activeThread?.status,
+    sending ? 'preparing' : '',
+  );
+  const normalizedState = normalizeTurnState(rawState);
+  const mapped = TURN_STATE_INFO[normalizedState];
+  const label = mapped?.label || firstStatusText(statusEntry?.statusHeader, rawState) || '已连接';
+  return {
+    label,
+    details: cleanWorkStatusDetails(firstStatusText(statusEntry?.statusDetails, activeThread?.lastMessage, `线程 ${activeThreadId}`)),
+    tone: mapped?.tone || 'connected',
+    busy: mapped?.busy ?? Boolean(sending),
+  };
+}
+
+function hasAssistantReply(messages = []) {
+  return (messages || []).some((message) => (
+    (message?.role || '').toString().trim().toLowerCase() === 'assistant'
+    && Boolean((message?.text || '').toString().trim())
+  ));
+}
+
+function providerToggleState(store) {
+  const activeThreadId = normalizedThreadIdentity(store?.activeThreadId);
+  const activeThread = activeThreadForStore(store);
+  const threadConfig = threadScopedMapValue(store?.threadConfigByThread, activeThreadId, activeThread, null);
+  const provider = knownProviderKey(activeThread?.provider) || knownProviderKey(threadConfig?.provider) || knownProviderKey(store?.provider) || 'codex';
+  return {
+    locked: Boolean(activeThreadId),
+    provider,
+  };
+}
+
+function composerConfigThreadId(store, activeThreadId) {
+  if (!activeThreadId) return '';
+  const thread = activeThreadForStore({ ...store, activeThreadId });
+  if (!thread) return activeThreadId;
+  if (thread.archived) return '';
+  return activeThreadId;
 }
 
 function normalizeConfigText(value) {
@@ -1917,17 +2597,75 @@ function NavRail({ activePage, setActivePage, memorySimilarCount = 0 }) {
 
 function ChatPage({ store, projectPath }) {
   const activeThreadId = store.activeThreadId;
-  const messages = store.timelinesByThread[activeThreadId] || [];
-  const tokenUsage = store.tokenUsageByThread[activeThreadId] || null;
-  const diffText = store.diffTextByThread[activeThreadId] || '';
+  const modelThreadId = composerConfigThreadId(store, activeThreadId);
+  const activeThread = activeThreadForStore(store);
+  const timelineBlocked = Boolean(activeThreadId && store.threadStateLoadingByThread?.[activeThreadId]);
+  const messages = timelineBlocked ? [] : (threadScopedMapValue(store.timelinesByThread, activeThreadId, activeThread, []) || []);
+  const tokenUsage = threadScopedMapValue(store.tokenUsageByThread, activeThreadId, activeThread, null);
+  const activityStats = threadScopedMapValue(store.activityStatsByThread, activeThreadId, activeThread, null);
+  const diffText = threadScopedMapValue(store.diffTextByThread, activeThreadId, activeThread, '') || '';
+  const warningEntries = scopedActivityEntries(store.warningEntries, activeThreadId, activeThread, { includeUnscoped: true });
+  const runtimeResultEntriesForThread = scopedActivityEntries(store.runtimeResultEntries, activeThreadId, activeThread, { includeUnscoped: true });
+  const statusEntry = activeThreadId ? store.statuses?.[activeThreadId] : null;
+  const [viewportWidth, setViewportWidth] = useState(currentViewportWidth);
+  const [threadRailWidth, setThreadRailWidth] = useState(() => threadRailTargetWidth());
+  const threadRailResizedRef = useRef(false);
+  const [rightPanelOpen, setRightPanelOpen] = useState(false);
+  const rightPanelResizedRef = useRef(false);
+  const chatLayoutRef = useRef(null);
+  const threadRailMaxWidth = threadRailTargetWidth(viewportWidth);
+  const effectiveThreadRailWidth = clampWidth(threadRailWidth, THREAD_RAIL_MIN_WIDTH, threadRailMaxWidth);
+  const maxRightPanelWidth = rightPanelMaxWidth(viewportWidth, effectiveThreadRailWidth);
+  const rightPanelWidth = clampWidth(store.rightPanelWidth, 0, maxRightPanelWidth);
 
-  const beginResize = (event) => {
+  useEffect(() => {
+    const onResize = () => setViewportWidth(currentViewportWidth());
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  }, []);
+
+  useEffect(() => {
+    setThreadRailWidth((width) => {
+      const targetWidth = threadRailTargetWidth(viewportWidth);
+      if (!threadRailResizedRef.current) return targetWidth;
+      return clampWidth(width, THREAD_RAIL_MIN_WIDTH, targetWidth);
+    });
+  }, [viewportWidth]);
+
+  useEffect(() => {
+    if (!rightPanelOpen) return;
+    const targetWidth = rightPanelResizedRef.current
+      ? clampWidth(store.rightPanelWidth, 0, maxRightPanelWidth)
+      : clampWidth(rightPanelDefaultWidth(viewportWidth), 0, maxRightPanelWidth);
+    if (targetWidth <= 0) {
+      store.setRightPanelWidth?.(0);
+      setRightPanelOpen(false);
+      return;
+    }
+    if (targetWidth !== store.rightPanelWidth) {
+      store.setRightPanelWidth?.(targetWidth);
+    }
+  }, [maxRightPanelWidth, rightPanelOpen, store, viewportWidth]);
+
+  useEffect(() => {
+    const onKeyDown = (event) => {
+      if (event.defaultPrevented || event.key !== 'Escape' || event.metaKey || event.ctrlKey || event.altKey || event.shiftKey) return;
+      if (!store.hasActiveThreadActions?.()) return;
+      event.preventDefault();
+      void store.interruptActiveThread?.();
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [store, activeThreadId]);
+
+  const beginThreadRailResize = (event) => {
     event.preventDefault();
+    threadRailResizedRef.current = true;
     const startX = event.clientX;
-    const startWidth = store.rightPanelWidth;
+    const startWidth = effectiveThreadRailWidth;
     const move = (moveEvent) => {
-      const next = Math.max(360, Math.min(780, startWidth - (moveEvent.clientX - startX)));
-      store.setRightPanelWidth(next);
+      const next = clampWidth(startWidth + (moveEvent.clientX - startX), THREAD_RAIL_MIN_WIDTH, threadRailMaxWidth);
+      setThreadRailWidth(next);
     };
     const stop = () => {
       window.removeEventListener('pointermove', move);
@@ -1937,14 +2675,91 @@ function ChatPage({ store, projectPath }) {
     window.addEventListener('pointerup', stop);
   };
 
+  const beginRightPanelResize = (event) => {
+    event.preventDefault();
+    event.currentTarget?.setPointerCapture?.(event.pointerId);
+    rightPanelResizedRef.current = true;
+    const startX = event.clientX;
+    const startWidth = rightPanelWidth;
+    let latestWidth = startWidth;
+    let stopped = false;
+    const layoutColumnsForWidth = (width) => `${effectiveThreadRailWidth}px ${SPLITTER_WIDTH}px minmax(0, 1fr) ${SPLITTER_WIDTH}px ${width}px`;
+    const applyDragWidth = (width) => {
+      if (chatLayoutRef.current) {
+        chatLayoutRef.current.style.gridTemplateColumns = layoutColumnsForWidth(width);
+      }
+    };
+    const finish = () => {
+      if (stopped) return;
+      stopped = true;
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', finish);
+      window.removeEventListener('pointercancel', finish);
+      window.removeEventListener('blur', finish);
+      event.currentTarget?.releasePointerCapture?.(event.pointerId);
+      if (latestWidth <= RIGHT_PANEL_CLOSE_THRESHOLD) {
+        store.setRightPanelWidth?.(0);
+        setRightPanelOpen(false);
+        return;
+      }
+      store.setRightPanelWidth?.(latestWidth);
+    };
+    const move = (moveEvent) => {
+      if (Number(moveEvent.buttons) === 0) {
+        finish();
+        return;
+      }
+      const rawNext = startWidth - (moveEvent.clientX - startX);
+      if (rawNext <= RIGHT_PANEL_CLOSE_THRESHOLD) {
+        latestWidth = 0;
+        applyDragWidth(0);
+        finish();
+        return;
+      }
+      latestWidth = clampWidth(rawNext, 0, maxRightPanelWidth);
+      applyDragWidth(latestWidth);
+    };
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', finish);
+    window.addEventListener('pointercancel', finish);
+    window.addEventListener('blur', finish);
+  };
+
+  const layoutColumns = rightPanelOpen
+    ? `${effectiveThreadRailWidth}px ${SPLITTER_WIDTH}px minmax(0, 1fr) ${SPLITTER_WIDTH}px ${rightPanelWidth}px`
+    : `${effectiveThreadRailWidth}px ${SPLITTER_WIDTH}px minmax(0, 1fr)`;
+
+  const toggleRightPanel = () => {
+    const next = !rightPanelOpen;
+    if (next) {
+      rightPanelResizedRef.current = false;
+      store.setRightPanelWidth?.(clampWidth(rightPanelDefaultWidth(viewportWidth), 0, maxRightPanelWidth));
+    }
+    setRightPanelOpen(next);
+  };
+
   return (
     <section className="chat-page" data-testid="chat-page">
-      <TopCommandBar store={store} projectPath={projectPath} />
+      <TopCommandBar
+        store={store}
+        projectPath={projectPath}
+        rightPanelOpen={rightPanelOpen}
+        toggleRightPanel={toggleRightPanel}
+      />
       <div
+        ref={chatLayoutRef}
         className="chat-layout"
-        style={{ gridTemplateColumns: `320px minmax(0, 1fr) 8px ${store.rightPanelWidth}px` }}
+        data-testid="chat-layout"
+        style={{ gridTemplateColumns: layoutColumns }}
       >
         <ThreadRail store={store} />
+        <button
+          type="button"
+          className="splitter splitter--left"
+          aria-label="调整会话栏宽度"
+          data-testid="thread-rail-resizer"
+          onPointerDown={beginThreadRailResize}
+        />
         <Conversation
           messages={messages}
           draft={store.draft}
@@ -1952,6 +2767,9 @@ function ChatPage({ store, projectPath }) {
           sendMessage={store.sendDraft}
           attachments={store.attachments}
           selectFiles={store.selectFilesForComposer}
+          attachPaths={store.attachPathsForComposer}
+          attachDroppedFiles={store.attachDroppedFilesForComposer}
+          attachPastedImages={store.attachPastedImagesForComposer}
           removeAttachment={store.removeAttachment}
           sending={store.sending}
           store={store}
@@ -1960,19 +2778,29 @@ function ChatPage({ store, projectPath }) {
           setPermission={store.setPermission}
           tokenUsage={tokenUsage}
           activeThreadId={activeThreadId}
+          activeThread={activeThread}
+          statusEntry={statusEntry}
+          modelThreadId={modelThreadId}
+          timelineBlocked={timelineBlocked}
         />
-        <button
-          type="button"
-          className="splitter"
-          aria-label="调整工作台宽度"
-          onPointerDown={beginResize}
-        />
-        <RuntimePanel
-          diffText={diffText}
-          tokenUsage={tokenUsage}
-          warnings={store.warningEntries}
-          activity={store.activityEntries}
-        />
+        {rightPanelOpen ? (
+          <button
+            type="button"
+            className="splitter splitter--right"
+            aria-label="调整侧边栏宽度"
+            data-testid="right-panel-resizer"
+            onPointerDown={beginRightPanelResize}
+          />
+        ) : null}
+        {rightPanelOpen ? (
+          <RuntimePanel
+            diffText={diffText}
+            tokenUsage={tokenUsage}
+            activityStats={activityStats}
+            warnings={warningEntries}
+            runtimeResults={runtimeResultEntriesForThread}
+          />
+        ) : null}
       </div>
     </section>
   );
@@ -1990,6 +2818,9 @@ function ProjectSelector({ store, projectPath }) {
   const selected = options.find((item) => item.value === selectedValue)
     || options.find((item) => item.value === '.')
     || { value: '.', label: '当前目录 (.)', full: '.' };
+  const selectedButtonLabel = selected.value === '.'
+    ? projectDisplayName(projectPath)
+    : projectDisplayName(selected.full || selected.value);
 
   useEffect(() => {
     if (!open) return undefined;
@@ -2029,7 +2860,7 @@ function ProjectSelector({ store, projectPath }) {
         onClick={() => setOpen((value) => !value)}
       >
         <Folder size={15} />
-        <span>{selected.label}</span>
+        <span>{selectedButtonLabel}</span>
         <ChevronDown size={14} />
       </button>
       {open ? (
@@ -2074,29 +2905,55 @@ function ProjectSelector({ store, projectPath }) {
   );
 }
 
-function TopCommandBar({ store, projectPath }) {
+function ProviderToggle({ store }) {
+  const { locked, provider } = providerToggleState(store);
+  const isClaude = provider === 'claude';
+  const providerLabel = isClaude ? 'Claude' : 'Codex';
+  const title = locked
+    ? '已开启的聊天不能更改 provider，请新建对话后切换'
+    : '切换 Claude / Codex provider';
+  return (
+    <button
+      type="button"
+      className={`provider ${isClaude ? 'active' : ''} ${locked ? 'locked' : ''}`}
+      aria-label="切换 Claude / Codex provider"
+      aria-pressed={isClaude}
+      aria-disabled={locked}
+      disabled={locked}
+      title={title}
+      onClick={() => {
+        if (locked) return;
+        void store.toggleProviderMode();
+      }}
+    >
+      <span className="provider-track" aria-hidden="true">
+        <span className="provider-thumb" />
+      </span>
+      <span className="provider-label">{providerLabel}</span>
+    </button>
+  );
+}
+
+function TopCommandBar({ store, projectPath, rightPanelOpen = false, toggleRightPanel = () => {} }) {
   const canUseThreadActions = Boolean(store.hasActiveThreadActions?.());
-  const providerLabel = store.provider === 'claude' ? 'Claude' : 'Codex';
   return (
     <div className="top-command" data-testid="chat-toolbar">
       <ProjectSelector store={store} projectPath={projectPath} />
+      <button
+        type="button"
+        className="icon-btn"
+        aria-label="新窗口（独立进程）"
+        title="新窗口（独立进程）"
+        onClick={() => void store.openNewWindow?.()}
+      >
+        <PanelTopOpen size={15} />
+      </button>
       {canUseThreadActions ? (
         <button type="button" className="icon-btn" aria-label="复制当前线程" title="复制当前线程" onClick={() => void store.copyActiveThreadInfo()}><Copy size={15} /></button>
       ) : null}
       {canUseThreadActions ? (
         <button type="button" className="icon-btn" aria-label="停止" title="中断当前执行" onClick={() => void store.interruptActiveThread()}><CircleStop size={15} /></button>
       ) : null}
-      <button
-        type="button"
-        className={`provider ${store.provider === 'claude' ? 'active' : ''}`}
-        aria-label="切换 Claude / Codex provider"
-        title="切换 Claude / Codex provider"
-        onClick={() => void store.toggleProviderMode()}
-      >
-        <span />
-        {providerLabel}
-      </button>
-      <button type="button" className="icon-btn launch-agent" aria-label="新对话" title="新对话：发送第一条消息时才会创建会话" onClick={store.newThread}><Pencil size={15} /></button>
       <button
         type="button"
         className="icon-btn"
@@ -2117,6 +2974,16 @@ function TopCommandBar({ store, projectPath }) {
         </span>
       ) : null}
       <span className="project-pill" aria-label="当前工作目录" title={`当前窗口 CWD：${projectPath}`}><Folder size={14} /> {projectDisplayName(projectPath)}</span>
+      <button
+        type="button"
+        className={`icon-btn sidebar-toggle ${rightPanelOpen ? 'active' : ''}`}
+        aria-label={rightPanelOpen ? '隐藏侧边栏' : '显示侧边栏'}
+        title={rightPanelOpen ? '隐藏侧边栏' : '显示侧边栏'}
+        aria-pressed={rightPanelOpen}
+        onClick={toggleRightPanel}
+      >
+        {rightPanelOpen ? <X size={15} /> : <Eye size={15} />}
+      </button>
     </div>
   );
 }
@@ -2124,14 +2991,32 @@ function TopCommandBar({ store, projectPath }) {
 function ThreadRail({ store }) {
   const [showArchivedThreads, setShowArchivedThreads] = useState(false);
   const [confirmCleanMode, setConfirmCleanMode] = useState(false);
+  const [hoveredPinThreadId, setHoveredPinThreadId] = useState('');
+  const [editingThreadId, setEditingThreadId] = useState('');
+  const [editingName, setEditingName] = useState('');
+  const [renamingThreadId, setRenamingThreadId] = useState('');
   const activeThreads = store.threads.filter((thread) => !thread.archived);
   const archivedThreads = store.threads.filter((thread) => thread.archived);
   const threads = showArchivedThreads ? archivedThreads : activeThreads;
-  const visibleThreads = threads.map((thread) => ({ ...thread, staleReason: archivedStaleReason(thread) }));
+  const visibleThreads = threads
+    .map((thread, index) => ({
+      ...thread,
+      staleReason: archivedStaleReason(thread),
+      listIndex: index,
+      pinnedAt: Number(store.pinnedThreadAtById?.[thread.id] || thread.pinnedAt || 0),
+      activityAt: threadSortTimestamp(store.activityThreadAtById?.[thread.id] || thread.updatedAt),
+    }))
+    .sort((left, right) => {
+      const leftPinned = left.pinnedAt > 0;
+      const rightPinned = right.pinnedAt > 0;
+      if (leftPinned !== rightPinned) return leftPinned ? -1 : 1;
+      if (leftPinned && rightPinned && left.pinnedAt !== right.pinnedAt) return right.pinnedAt - left.pinnedAt;
+      if (!leftPinned && !rightPinned && left.activityAt !== right.activityAt) return right.activityAt - left.activityAt;
+      return left.listIndex - right.listIndex;
+    });
   const staleThreadIds = showArchivedThreads
     ? visibleThreads.filter((thread) => thread.staleReason).map((thread) => thread.id)
     : [];
-  const railLabel = showArchivedThreads ? '归档列表' : '会话列表';
   const toggleArchiveLabel = showArchivedThreads ? '返回会话列表' : '打开归档列表';
   const toggleArchiveList = () => {
     setShowArchivedThreads((value) => {
@@ -2140,17 +3025,46 @@ function ThreadRail({ store }) {
       return next;
     });
   };
+  const beginRename = (thread) => {
+    setEditingThreadId(thread.id);
+    setEditingName((thread.name || '').toString());
+  };
+  const cancelRename = () => {
+    if (renamingThreadId) return;
+    setEditingThreadId('');
+    setEditingName('');
+  };
+  const submitRename = async (thread) => {
+    const nextName = editingName.trim();
+    if (!nextName || renamingThreadId) return;
+    if (nextName === (thread.name || '').toString().trim()) {
+      cancelRename();
+      return;
+    }
+    setRenamingThreadId(thread.id);
+    try {
+      await store.renameThread(thread.id, nextName);
+      setEditingThreadId('');
+      setEditingName('');
+    } finally {
+      setRenamingThreadId('');
+    }
+  };
+  const handleRenameBlur = (event, thread) => {
+    const saveFor = event.relatedTarget?.dataset?.renameSaveButtonFor || '';
+    if (saveFor === thread.id) return;
+    cancelRename();
+  };
   return (
-    <aside className="thread-rail" data-testid="thread-rail">
+    <aside className="thread-rail" data-testid="thread-rail" aria-label={showArchivedThreads ? '归档列表' : '会话列表'}>
       <div className="thread-tools">
-        <span className="round thread-kind" role="img" aria-label={railLabel} title={railLabel}>
-          <Bot size={17} />
-        </span>
+        <button type="button" className="round thread-new-primary" aria-label="新建对话" title="新对话：发送第一条消息时才会创建会话" onClick={store.newThread}>
+          <Pencil size={17} />
+        </button>
         <span className="count thread-count" role="img" aria-label={`${visibleThreads.length} 个 Agent`} title={`${visibleThreads.length} 个 Agent`}>
           <Bot size={14} />
           <strong>{visibleThreads.length}</strong>
         </span>
-        <button type="button" className="round add" aria-label="新建对话" onClick={store.newThread}><Plus size={18} /></button>
         {showArchivedThreads && staleThreadIds.length > 0 && !confirmCleanMode ? (
           <button
             type="button"
@@ -2190,35 +3104,111 @@ function ThreadRail({ store }) {
       <div className="thread-list">
         {visibleThreads.length === 0 ? (
           <p className="thread-empty">
-            {showArchivedThreads ? '暂无归档会话' : '暂无会话，点击顶部「新对话」开始草稿'}
+            {showArchivedThreads ? '暂无归档会话' : '暂无会话，点击「新建对话」开始草稿'}
           </p>
         ) : null}
         {visibleThreads.map((thread) => {
-          const active = store.activeThreadId === thread.id;
+          const selectedThreadId = store.pendingActiveThreadId || store.activeThreadId;
+          const active = selectedThreadId === thread.id;
           const running = ['running', '工作中', 'pending', 'recovering'].includes((thread.status || '').toLowerCase()) || thread.status === '工作中';
           const archiveLabel = thread.archived ? '恢复会话' : '归档会话';
+          const pinned = thread.pinnedAt > 0 || thread.pinned;
+          const pinLabel = pinned ? '取消置顶对话' : '置顶对话';
+          const editing = editingThreadId === thread.id;
           return (
             <div
               key={thread.id}
               className={`thread-card ${active ? 'active' : ''}`}
             >
-              <button
-                type="button"
-                className="thread-main"
-                onClick={() => void store.setActiveThread(thread.id)}
-              >
-                <span className="thread-pin"><GitBranch size={15} /></span>
-                <span className="thread-name">{thread.name}</span>
-                <b>{thread.provider || 'Codex'}</b>
-                <em className={running ? 'running' : ''}>
-                  {running ? '工作中' : thread.status || '等待指示'}
-                  {thread.staleReason ? (
-                    <span className="thread-stale-badge" data-stale-reason={thread.staleReason}>
-                      {thread.staleReason === 'expired' ? '超7天' : '空对话'}
+              {editing ? (
+                <>
+                  <span className="thread-pin thread-pin--placeholder" aria-hidden="true">
+                    <Pin size={20} strokeWidth={2.2} />
+                  </span>
+                  <div className="thread-main thread-main--editing">
+                    <input
+                      className="thread-name-input"
+                      aria-label="会话别名"
+                      value={editingName}
+                      maxLength={64}
+                      disabled={renamingThreadId === thread.id}
+                      autoFocus
+                      onFocus={(event) => event.currentTarget.select()}
+                      onChange={(event) => setEditingName(event.target.value)}
+                      onClick={(event) => event.stopPropagation()}
+                      onBlur={(event) => handleRenameBlur(event, thread)}
+                      onKeyDown={(event) => {
+                        if (event.key === 'Enter') {
+                          event.preventDefault();
+                          void submitRename(thread);
+                        }
+                        if (event.key === 'Escape') {
+                          event.preventDefault();
+                          cancelRename();
+                        }
+                      }}
+                    />
+                    <button
+                      type="button"
+                      className="thread-rename-save"
+                      aria-label="保存别名"
+                      data-rename-save-button-for={thread.id}
+                      disabled={renamingThreadId === thread.id}
+                      onMouseDown={(event) => event.preventDefault()}
+                      onClick={() => void submitRename(thread)}
+                    >
+                      保存
+                    </button>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <button
+                    type="button"
+                    className={`thread-pin ${pinned ? 'active' : ''}`}
+                    aria-label={pinLabel}
+                    title={pinLabel}
+                    aria-pressed={pinned}
+                    onClick={() => void store.toggleThreadPin(thread.id)}
+                    onMouseEnter={() => setHoveredPinThreadId(thread.id)}
+                    onMouseLeave={() => setHoveredPinThreadId((current) => (current === thread.id ? '' : current))}
+                    onFocus={() => setHoveredPinThreadId(thread.id)}
+                    onBlur={() => setHoveredPinThreadId((current) => (current === thread.id ? '' : current))}
+                  >
+                    <Pin size={20} strokeWidth={2.2} />
+                    {hoveredPinThreadId === thread.id ? (
+                      <span className="thread-pin-tooltip" data-testid="thread-pin-tooltip" role="tooltip">
+                        {pinLabel}
+                      </span>
+                    ) : null}
+                  </button>
+                  <button
+                    type="button"
+                    className="thread-main"
+                    onClick={() => void store.setActiveThread(thread.id)}
+                  >
+                    <span
+                      className="thread-name"
+                      title="点击重命名"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        beginRename(thread);
+                      }}
+                    >
+                      {thread.name}
                     </span>
-                  ) : null}
-                </em>
-              </button>
+                    <b>{threadProviderLabel(thread.provider)}</b>
+                    <em className={running ? 'running' : ''}>
+                      {running ? '工作中' : thread.status || '等待指示'}
+                      {thread.staleReason ? (
+                        <span className="thread-stale-badge" data-stale-reason={thread.staleReason}>
+                          {thread.staleReason === 'expired' ? '超7天' : '空对话'}
+                        </span>
+                      ) : null}
+                    </em>
+                  </button>
+                </>
+              )}
               <button
                 type="button"
                 className={`thread-archive ${thread.archived ? 'active' : ''}`}
@@ -2292,11 +3282,11 @@ function ModelSelector({ store, activeThreadId }) {
       next = { ...next, effort: 'high' };
     }
     setDraft(next);
-    await store.saveComposerModelConfig?.({ model: next.model, effort: next.effort });
+    await store.saveComposerModelConfig?.({ threadId: activeThreadId, model: next.model, effort: next.effort });
   };
 
   const restoreInheritance = async () => {
-    await store.restoreComposerModelInheritance?.();
+    await store.restoreComposerModelInheritance?.({ threadId: activeThreadId });
     setOpen(false);
   };
 
@@ -2356,6 +3346,576 @@ function ModelSelector({ store, activeThreadId }) {
   );
 }
 
+function attachmentKey(item) {
+  return textValue(item?.path || item?.previewUrl || item?.url);
+}
+
+function hasFilesTransfer(event) {
+  const transfer = event?.dataTransfer;
+  if (!transfer) return false;
+  if (transfer.files && transfer.files.length > 0) return true;
+  return Array.from(transfer.types || []).includes('Files');
+}
+
+function collectTransferFiles(event) {
+  const transfer = event?.dataTransfer;
+  if (!transfer) return [];
+  const files = Array.from(transfer.files || []).filter(Boolean);
+  if (files.length > 0) return files;
+  return Array.from(transfer.items || [])
+    .filter((item) => item?.kind === 'file')
+    .map((item) => item.getAsFile?.())
+    .filter(Boolean);
+}
+
+function extractClipboardImageFiles(event) {
+  const clipboard = event?.clipboardData;
+  if (!clipboard) return [];
+  const images = [];
+  const seen = new Set();
+  const add = (file) => {
+    if (!file || seen.has(file)) return;
+    const type = textValue(file.type).toLowerCase();
+    const name = textValue(file.name).toLowerCase();
+    if (!type.startsWith('image/') && !/\.(png|jpe?g|gif|webp|bmp|svg)$/i.test(name)) return;
+    seen.add(file);
+    images.push(file);
+  };
+  Array.from(clipboard.files || []).forEach(add);
+  Array.from(clipboard.items || []).forEach((item) => {
+    if (!item) return;
+    const type = textValue(item.type).toLowerCase();
+    if (type.startsWith('image/') || item.kind === 'file') {
+      add(item.getAsFile?.());
+    }
+  });
+  return images;
+}
+
+function AttachmentPreviewModal({ attachment, onClose, onRemove }) {
+  const isImage = attachment.kind === 'image' && attachment.previewUrl;
+  return (
+    <div className="modal-overlay" role="presentation">
+      <section className="modal-box attachment-preview-modal" role="dialog" aria-modal="true" aria-label="附件预览">
+        <header>
+          <div>
+            <strong>{attachment.name || attachment.path}</strong>
+            <p>{attachment.path}</p>
+          </div>
+          <button type="button" aria-label="关闭附件预览" onClick={onClose}><X size={16} /></button>
+        </header>
+        {isImage ? (
+          <img className="attachment-preview-image" src={attachment.previewUrl} alt={attachment.name || '附件图片预览'} />
+        ) : (
+          <div className="attachment-preview-file">
+            <File size={28} />
+            <code>{attachment.path}</code>
+          </div>
+        )}
+        <footer>
+          <button type="button" onClick={onRemove}><Trash2 size={14} /> 移除附件</button>
+          <button type="button" onClick={onClose}>关闭</button>
+        </footer>
+      </section>
+    </div>
+  );
+}
+
+function markdownTableCells(line) {
+  return line
+    .trim()
+    .replace(/^\|/, '')
+    .replace(/\|$/, '')
+    .split('|')
+    .map((cell) => cell.trim());
+}
+
+function isMarkdownTableDivider(line) {
+  const cells = markdownTableCells(line);
+  return cells.length > 0 && cells.every((cell) => /^:?-{3,}:?$/.test(cell));
+}
+
+function safeMarkdownUrl(rawUrl, options = {}) {
+  const value = (rawUrl || '').toString().trim();
+  if (!value) return '';
+  try {
+    const parsed = new URL(value, window.location?.origin || 'http://localhost');
+    const protocol = parsed.protocol.toLowerCase();
+    if (options.image) {
+      if (protocol === 'http:' || protocol === 'https:' || protocol === 'data:' || protocol === 'file:') return value;
+      return '';
+    }
+    if (protocol === 'http:' || protocol === 'https:' || protocol === 'mailto:' || protocol === 'file:') return parsed.href;
+  } catch {
+    return '';
+  }
+  return '';
+}
+
+function renderInlineMarkdown(text, keyPrefix) {
+  const source = (text || '').toString();
+  const parts = [];
+  const pattern = /(!\[[^\]]*]\([^)]+\)|\[[^\]]+]\([^)]+\)|`[^`]+`|\*\*[^*]+\*\*|__[^_]+__|~~[^~]+~~|\*[^*]+\*|_[^_]+_)/g;
+  let lastIndex = 0;
+  let matchIndex = 0;
+  for (const match of source.matchAll(pattern)) {
+    if (match.index > lastIndex) parts.push(source.slice(lastIndex, match.index));
+    const token = match[0];
+    const key = `${keyPrefix}-inline-${matchIndex}`;
+    if (token.startsWith('![')) {
+      const parsed = token.match(/^!\[([^\]]*)]\(([^)]+)\)$/);
+      const src = safeMarkdownUrl(parsed?.[2], { image: true });
+      parts.push(src ? <img key={key} src={src} alt={parsed?.[1] || ''} /> : token);
+    } else if (token.startsWith('[')) {
+      const parsed = token.match(/^\[([^\]]+)]\(([^)]+)\)$/);
+      const href = safeMarkdownUrl(parsed?.[2]);
+      parts.push(href ? <a key={key} href={href} target="_blank" rel="noreferrer">{parsed?.[1]}</a> : parsed?.[1] || token);
+    } else if (token.startsWith('`')) {
+      parts.push(<code key={key}>{token.slice(1, -1)}</code>);
+    } else if (token.startsWith('~~')) {
+      parts.push(<del key={key}>{token.slice(2, -2)}</del>);
+    } else if (token.startsWith('*') && !token.startsWith('**')) {
+      parts.push(<em key={key}>{token.slice(1, -1)}</em>);
+    } else if (token.startsWith('_') && !token.startsWith('__')) {
+      parts.push(<em key={key}>{token.slice(1, -1)}</em>);
+    } else {
+      parts.push(<strong key={key}>{token.slice(2, -2)}</strong>);
+    }
+    lastIndex = match.index + token.length;
+    matchIndex += 1;
+  }
+  if (lastIndex < source.length) parts.push(source.slice(lastIndex));
+  return parts.length > 0 ? parts : source;
+}
+
+function renderMarkdownParagraph(lines, key) {
+  return (
+    <p key={key}>
+      {lines.flatMap((line, index) => [
+        ...(index > 0 ? [<br key={`${key}-br-${index}`} />] : []),
+        ...renderInlineMarkdown(line, `${key}-${index}`),
+      ])}
+    </p>
+  );
+}
+
+function normalizeMessageText(text) {
+  return (text || '').toString().replace(/\r\n/g, '\n');
+}
+
+function standaloneCodeFence(text) {
+  const trimmed = normalizeMessageText(text).trim();
+  const match = trimmed.match(/^```([^\n`]*)\n([\s\S]*?)\n```$/);
+  if (!match) return null;
+  return {
+    language: (match[1] || '').trim().toLowerCase(),
+    body: match[2],
+  };
+}
+
+function candidatePayload(text) {
+  const fenced = standaloneCodeFence(text);
+  if (!fenced) return { language: '', body: normalizeMessageText(text) };
+  return fenced;
+}
+
+function parseJsonOutput(text) {
+  const payload = candidatePayload(text);
+  if (payload.language && !['json', 'jsonc'].includes(payload.language)) return null;
+  const trimmed = payload.body.trim();
+  if (!trimmed.startsWith('{') && !trimmed.startsWith('[')) return null;
+  try {
+    return JSON.stringify(JSON.parse(trimmed), null, 2);
+  } catch {
+    return null;
+  }
+}
+
+function isDiffOutput(text) {
+  const payload = candidatePayload(text);
+  const body = payload.body.trim();
+  if (['diff', 'patch'].includes(payload.language)) return body.length > 0;
+  const lines = body.split('\n');
+  if (body.startsWith('diff --git ') || body.startsWith('*** Begin Patch')) return true;
+  const hasOldHeader = lines.some((line) => line.startsWith('--- '));
+  const hasNewHeader = lines.some((line) => line.startsWith('+++ '));
+  const hasHunk = lines.some((line) => line.startsWith('@@ '));
+  return hasOldHeader && hasNewHeader && hasHunk;
+}
+
+function isLogOutput(text) {
+  const payload = candidatePayload(text);
+  const lines = payload.body.split('\n').map((line) => line.trimEnd()).filter(Boolean);
+  if (lines.length === 0) return false;
+  if (['log', 'logs', 'console', 'terminal'].includes(payload.language)) return true;
+
+  const levelLines = lines.filter((line) => /^(\[[A-Z]+]|\d{4}-\d{2}-\d{2}[T\s]\d{2}:\d{2}:\d{2}|(?:TRACE|DEBUG|INFO|WARN|WARNING|ERROR|FATAL)\b)/.test(line));
+  const stackTrace = lines.some((line) => /^(?:\w+\s*)?Error:/.test(line))
+    && lines.some((line) => /^\s*at\s+.+:\d+:\d+\)?$/.test(line));
+  const terminalPrompt = lines.some((line) => /^[$#]\s+[A-Za-z0-9_./-]+/.test(line));
+  return stackTrace || levelLines.length > 0 || terminalPrompt;
+}
+
+function isConfigOutput(text) {
+  const payload = candidatePayload(text);
+  const lines = payload.body.split('\n').map((line) => line.trim()).filter(Boolean);
+  if (lines.length < 2) return false;
+  if (['yaml', 'yml', 'toml', 'ini', 'env', 'dotenv', 'properties'].includes(payload.language)) return true;
+  const keyValueLines = lines.filter((line) => /^[-\w."']+(\s*[:=]\s*|\s+=\s+).+/.test(line));
+  return keyValueLines.length >= 2 && keyValueLines.length / lines.length >= 0.6;
+}
+
+function detectMessageOutput(text) {
+  const json = parseJsonOutput(text);
+  if (json) return { kind: 'json', text: json };
+  const payload = candidatePayload(text);
+  const body = payload.body.trimEnd();
+  if (isDiffOutput(text)) return { kind: 'diff', text: body };
+  if (isLogOutput(text)) return { kind: 'log', text: body };
+  if (isConfigOutput(text)) return { kind: 'config', text: body };
+  return { kind: 'markdown', text: normalizeMessageText(text) };
+}
+
+function diffLineClass(line) {
+  if (line.startsWith('@@')) return 'diff-line diff-line--hunk';
+  if (line.startsWith('+++') || line.startsWith('---') || line.startsWith('diff --git') || line.startsWith('index ')) return 'diff-line diff-line--meta';
+  if (line.startsWith('+')) return 'diff-line diff-line--added';
+  if (line.startsWith('-')) return 'diff-line diff-line--deleted';
+  return 'diff-line';
+}
+
+function StructuredMessage({ kind, text }) {
+  const outputText = normalizeMessageText(text);
+  if (kind === 'diff') {
+    return (
+      <div className={`message-output message-output--${kind}`} data-output-kind={kind}>
+        <pre>
+          <code>
+            {outputText.split('\n').map((line, index) => (
+              <span key={`${kind}-${index}`} className={diffLineClass(line)}>{line || ' '}</span>
+            ))}
+          </code>
+        </pre>
+      </div>
+    );
+  }
+  return (
+    <div className={`message-output message-output--${kind}`} data-output-kind={kind}>
+      <pre><code>{outputText}</code></pre>
+    </div>
+  );
+}
+
+function MarkdownMessage({ text }) {
+  const lines = normalizeMessageText(text).split('\n');
+  const nodes = [];
+  let index = 0;
+  const nextKey = (kind) => `${kind}-${nodes.length}`;
+
+  while (index < lines.length) {
+    const line = lines[index];
+    const trimmed = line.trim();
+    if (!trimmed) {
+      index += 1;
+      continue;
+    }
+
+    if (/^(-{3,}|\*{3,}|_{3,})$/.test(trimmed)) {
+      nodes.push(<hr key={nextKey('separator')} />);
+      index += 1;
+      continue;
+    }
+
+    if (trimmed.startsWith('```')) {
+      const key = nextKey('code');
+      const codeLines = [];
+      index += 1;
+      while (index < lines.length && !lines[index].trim().startsWith('```')) {
+        codeLines.push(lines[index]);
+        index += 1;
+      }
+      if (index < lines.length) index += 1;
+      nodes.push(<pre key={key}><code>{codeLines.join('\n')}</code></pre>);
+      continue;
+    }
+
+    const heading = trimmed.match(/^(#{1,6})\s+(.+)$/);
+    if (heading) {
+      const level = Math.min(6, heading[1].length);
+      const HeadingTag = `h${level}`;
+      nodes.push(<HeadingTag key={nextKey('heading')}>{renderInlineMarkdown(heading[2], `heading-${nodes.length}`)}</HeadingTag>);
+      index += 1;
+      continue;
+    }
+
+    if (index + 1 < lines.length && trimmed.includes('|') && isMarkdownTableDivider(lines[index + 1])) {
+      const key = nextKey('table');
+      const headers = markdownTableCells(line);
+      index += 2;
+      const rows = [];
+      while (index < lines.length && lines[index].trim().includes('|')) {
+        rows.push(markdownTableCells(lines[index]));
+        index += 1;
+      }
+      nodes.push(
+        <table key={key}>
+          <thead>
+            <tr>{headers.map((cell, cellIndex) => <th key={`${key}-h-${cellIndex}`}>{renderInlineMarkdown(cell, `${key}-h-${cellIndex}`)}</th>)}</tr>
+          </thead>
+          <tbody>
+            {rows.map((row, rowIndex) => (
+              <tr key={`${key}-r-${rowIndex}`}>
+                {headers.map((_, cellIndex) => <td key={`${key}-r-${rowIndex}-${cellIndex}`}>{renderInlineMarkdown(row[cellIndex] || '', `${key}-r-${rowIndex}-${cellIndex}`)}</td>)}
+              </tr>
+            ))}
+          </tbody>
+        </table>,
+      );
+      continue;
+    }
+
+    if (trimmed.startsWith('>')) {
+      const key = nextKey('quote');
+      const quoteLines = [];
+      while (index < lines.length && lines[index].trim().startsWith('>')) {
+        quoteLines.push(lines[index].trim().replace(/^>\s?/, ''));
+        index += 1;
+      }
+      nodes.push(<blockquote key={key}>{renderMarkdownParagraph(quoteLines, `${key}-p`)}</blockquote>);
+      continue;
+    }
+
+    const unordered = trimmed.match(/^[-*]\s+(.+)$/);
+    const ordered = trimmed.match(/^\d+\.\s+(.+)$/);
+    const task = trimmed.match(/^[-*]\s+\[([ xX])]\s+(.+)$/);
+    if (task) {
+      const key = nextKey('task-list');
+      const items = [];
+      while (index < lines.length) {
+        const itemMatch = lines[index].trim().match(/^[-*]\s+\[([ xX])]\s+(.+)$/);
+        if (!itemMatch) break;
+        items.push({ checked: itemMatch[1].toLowerCase() === 'x', text: itemMatch[2] });
+        index += 1;
+      }
+      nodes.push(
+        <ul key={key} className="task-list">
+          {items.map((item, itemIndex) => (
+            <li key={`${key}-${itemIndex}`}>
+              <input type="checkbox" checked={item.checked} disabled readOnly />
+              <span>{renderInlineMarkdown(item.text, `${key}-${itemIndex}`)}</span>
+            </li>
+          ))}
+        </ul>,
+      );
+      continue;
+    }
+    if (unordered || ordered) {
+      const key = nextKey('list');
+      const ListTag = ordered ? 'ol' : 'ul';
+      const items = [];
+      while (index < lines.length) {
+        const itemMatch = lines[index].trim().match(ordered ? /^\d+\.\s+(.+)$/ : /^[-*]\s+(.+)$/);
+        if (!itemMatch) break;
+        items.push(itemMatch[1]);
+        index += 1;
+      }
+      nodes.push(
+        <ListTag key={key}>
+          {items.map((item, itemIndex) => <li key={`${key}-${itemIndex}`}>{renderInlineMarkdown(item, `${key}-${itemIndex}`)}</li>)}
+        </ListTag>,
+      );
+      continue;
+    }
+
+    const paragraph = [line];
+    index += 1;
+    while (index < lines.length) {
+      const next = lines[index];
+      const nextTrimmed = next.trim();
+      if (!nextTrimmed) break;
+      if (
+        nextTrimmed.startsWith('```') ||
+        nextTrimmed.startsWith('>') ||
+        nextTrimmed.match(/^(-{3,}|\*{3,}|_{3,})$/) ||
+        nextTrimmed.match(/^(#{1,6})\s+(.+)$/) ||
+        nextTrimmed.match(/^[-*]\s+(.+)$/) ||
+        nextTrimmed.match(/^\d+\.\s+(.+)$/) ||
+        (index + 1 < lines.length && nextTrimmed.includes('|') && isMarkdownTableDivider(lines[index + 1]))
+      ) break;
+      paragraph.push(next);
+      index += 1;
+    }
+    nodes.push(renderMarkdownParagraph(paragraph, nextKey('paragraph')));
+  }
+
+  return <div className="message-markdown">{nodes.length > 0 ? nodes : <p />}</div>;
+}
+
+function MessageContent({ text }) {
+  const output = detectMessageOutput(text);
+  if (output.kind === 'markdown') return <MarkdownMessage text={output.text} />;
+  return <StructuredMessage kind={output.kind} text={output.text} />;
+}
+
+function ComposerDock({
+  floating = false,
+  draft,
+  setDraft,
+  sendMessage,
+  attachments,
+  selectFiles,
+  attachPaths,
+  attachDroppedFiles,
+  attachPastedImages,
+  removeAttachment,
+  sending,
+  store,
+  permission,
+  setPermission,
+  modelThreadId,
+  showProviderToggle = true,
+}) {
+  const composerClass = `composer ${floating ? 'composer--floating' : 'composer--docked'}`;
+  const [previewAttachment, setPreviewAttachment] = useState(null);
+  const [dropActive, setDropActive] = useState(false);
+  const isComposingRef = useRef(false);
+  const activePreview = previewAttachment && attachments.some((item) => attachmentKey(item) === attachmentKey(previewAttachment))
+    ? previewAttachment
+    : null;
+
+  useEffect(() => {
+    if (typeof attachPaths !== 'function') return undefined;
+    return onFilesDropped((event) => {
+      const payload = event && typeof event === 'object' ? event : {};
+      const files = Array.isArray(payload.files) ? payload.files : [];
+      if (files.length === 0) return;
+      const details = payload.details && typeof payload.details === 'object' ? payload.details : {};
+      const targetId = textValue(details.id);
+      if (targetId && !COMPOSER_DROP_TARGET_IDS.has(targetId)) return;
+      attachPaths(files);
+      setDropActive(false);
+    });
+  }, [attachPaths]);
+
+  const preview = (item) => {
+    setPreviewAttachment(item);
+  };
+  const remove = (item) => {
+    removeAttachment(attachmentKey(item));
+    if (activePreview && attachmentKey(activePreview) === attachmentKey(item)) {
+      setPreviewAttachment(null);
+    }
+  };
+  const handlePaste = async (event) => {
+    const images = extractClipboardImageFiles(event);
+    if (images.length === 0) return;
+    event.preventDefault();
+    await attachPastedImages(images);
+  };
+  const handleDragEnter = (event) => {
+    if (!hasFilesTransfer(event)) return;
+    event.preventDefault();
+    setDropActive(true);
+  };
+  const handleDragOver = (event) => {
+    if (!hasFilesTransfer(event)) return;
+    event.preventDefault();
+    if (event.dataTransfer) event.dataTransfer.dropEffect = 'copy';
+    setDropActive(true);
+  };
+  const handleDragLeave = (event) => {
+    if (!hasFilesTransfer(event)) return;
+    event.preventDefault();
+    setDropActive(false);
+  };
+  const handleDrop = async (event) => {
+    if (!hasFilesTransfer(event)) return;
+    event.preventDefault();
+    setDropActive(false);
+    const files = collectTransferFiles(event);
+    if (files.length > 0) await attachDroppedFiles(files);
+  };
+  const handleKeyDown = (event) => {
+    if (event.key !== 'Enter' || event.shiftKey || event.metaKey || event.ctrlKey || event.altKey) return;
+    const keyCode = Number(event.keyCode || event.which || 0);
+    const imeLikely = event.isComposing || isComposingRef.current || keyCode === 229 || event.key === 'Process' || event.key === 'Unidentified';
+    if (imeLikely) return;
+    event.preventDefault();
+    void sendMessage();
+  };
+
+  return (
+    <footer
+      id="chat-input-bar"
+      className={`${composerClass}${dropActive ? ' drop-active' : ''}`}
+      data-testid="composer-dock"
+      data-file-drop-target=""
+      onDragEnter={handleDragEnter}
+      onDragOver={handleDragOver}
+      onDragLeave={handleDragLeave}
+      onDrop={handleDrop}
+    >
+      <div className="composer-card">
+        {dropActive ? <div className="composer-drop-hint" aria-live="polite">松开即可添加附件</div> : null}
+        {attachments.length > 0 ? (
+          <div className="attachments">
+            {attachments.map((item) => (
+              <span key={attachmentKey(item)} className={`attachment-pill${item.kind === 'image' ? ' attachment-pill--image' : ''}`}>
+                <button type="button" className="attachment-preview" aria-label={`预览附件 ${item.name || item.path}`} onClick={() => preview(item)}>
+                  {item.kind === 'image' && item.previewUrl ? <img src={item.previewUrl} alt="" /> : <File size={14} />}
+                  <span>{item.name || item.path}</span>
+                </button>
+                <button type="button" className="attachment-remove" aria-label={`移除附件 ${item.name || item.path}`} onClick={() => remove(item)}>
+                  <X size={12} />
+                </button>
+              </span>
+            ))}
+          </div>
+        ) : null}
+        <textarea
+          id="composer-input"
+          data-testid="composer-input"
+          data-file-drop-target=""
+          value={draft}
+          onChange={(event) => setDraft(event.target.value)}
+          onPaste={(event) => { void handlePaste(event); }}
+          onCompositionStart={() => { isComposingRef.current = true; }}
+          onCompositionEnd={() => { isComposingRef.current = false; }}
+          onKeyDown={handleKeyDown}
+          placeholder="输入给 Agent 的内容，Enter 发送，Shift+Enter 换行"
+        />
+        <div className="composer-meta">
+          <button type="button" className="composer-attach" aria-label="添加文件" onClick={() => void selectFiles()}>
+            <Plus size={18} />
+          </button>
+          <label className="permission-chip">
+            <span className="sr-only">发送权限</span>
+            <select aria-label="发送权限" value={permission} onChange={(event) => setPermission(event.target.value)}>
+              <option>完全访问权限</option>
+              <option>工作区写入</option>
+              <option>只读模式</option>
+            </select>
+          </label>
+          <div className="composer-actions">
+            {showProviderToggle ? <ProviderToggle store={store} /> : null}
+            <ModelSelector store={store} activeThreadId={modelThreadId} />
+            <button type="button" className="send" aria-label="发送消息" disabled={sending} onClick={() => void sendMessage()}>
+              <Send size={18} />
+            </button>
+          </div>
+        </div>
+      </div>
+      {activePreview ? (
+        <AttachmentPreviewModal
+          attachment={activePreview}
+          onClose={() => setPreviewAttachment(null)}
+          onRemove={() => remove(activePreview)}
+        />
+      ) : null}
+    </footer>
+  );
+}
+
 function Conversation({
   messages,
   draft,
@@ -2363,6 +3923,9 @@ function Conversation({
   sendMessage,
   attachments,
   selectFiles,
+  attachPaths,
+  attachDroppedFiles,
+  attachPastedImages,
   removeAttachment,
   sending,
   store,
@@ -2371,110 +3934,314 @@ function Conversation({
   setPermission,
   tokenUsage,
   activeThreadId,
+  activeThread,
+  statusEntry,
+  modelThreadId,
+  timelineBlocked,
 }) {
+  const introMode = !activeThreadId && !timelineBlocked && messages.length === 0;
+  const showProviderToggle = !hasAssistantReply(messages);
+  const composer = (
+    <ComposerDock
+      floating={introMode}
+      draft={draft}
+      setDraft={setDraft}
+      sendMessage={sendMessage}
+      attachments={attachments}
+      selectFiles={selectFiles}
+      attachPaths={attachPaths}
+      attachDroppedFiles={attachDroppedFiles}
+      attachPastedImages={attachPastedImages}
+      removeAttachment={removeAttachment}
+      sending={sending}
+      store={store}
+      permission={permission}
+      setPermission={setPermission}
+      modelThreadId={modelThreadId}
+      showProviderToggle={showProviderToggle}
+    />
+  );
   return (
-    <section className="conversation">
+    <section className={`conversation${introMode ? ' conversation--intro' : ''}`}>
       <div className="timeline" data-testid="chat-timeline">
-        {messages.length === 0 ? (
-          <div className="empty-chat">
-            <h2>我们应该在 {projectDisplayName(projectPath)} 中构建什么？</h2>
-            <p>{projectPath}</p>
+        {introMode ? (
+          <div className="intro-chat-stage">
+            <div className="empty-chat">
+              <h2>我们应该在 {projectDisplayName(projectPath)} 中构建什么？</h2>
+              <p>{projectPath}</p>
+            </div>
+            {composer}
           </div>
         ) : null}
-        {messages.map((message) => (
+        {!introMode && !timelineBlocked ? messages.map((message) => (
           <article key={message.id} className={`message ${message.role}`}>
             <div className="avatar">{message.role === 'user' ? 'U' : 'AI'}</div>
             <div className="bubble">
               <header><span>{message.role === 'user' ? '你' : 'AI'}</span><time>{formatTime(message.time)}</time></header>
-              <pre>{message.text}</pre>
+              <MessageContent text={message.text} />
             </div>
           </article>
-        ))}
+        )) : null}
       </div>
-      <WorkStatus sending={sending} activeThreadId={activeThreadId} tokenUsage={tokenUsage} />
-      <footer className="composer composer--docked" data-testid="composer-dock">
-        <div className="composer-card">
-          {attachments.length > 0 ? (
-            <div className="attachments">
-              {attachments.map((item) => (
-                <button key={item.path} type="button" onClick={() => removeAttachment(item.path)}>
-                  {item.name || item.path}
-                </button>
-              ))}
-            </div>
-          ) : null}
-          <textarea
-            data-testid="composer-input"
-            value={draft}
-            onChange={(event) => setDraft(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key === 'Enter' && !event.shiftKey) {
-                event.preventDefault();
-                void sendMessage();
-              }
-            }}
-            placeholder="输入给 Agent 的内容，Enter 发送，Shift+Enter 换行"
-          />
-          <div className="composer-meta">
-            <button type="button" className="composer-attach" aria-label="添加文件" onClick={() => void selectFiles()}>
-              <Plus size={18} />
-            </button>
-            <label className="permission-chip">
-              <span className="sr-only">发送权限</span>
-              <select aria-label="发送权限" value={permission} onChange={(event) => setPermission(event.target.value)}>
-                <option>完全访问权限</option>
-                <option>工作区写入</option>
-                <option>只读模式</option>
-              </select>
-            </label>
-            <span className="composer-project" data-testid="composer-project" title={projectPath}>
-              <Folder size={14} />
-              {projectDisplayName(projectPath)}
-            </span>
-            <ModelSelector store={store} activeThreadId={activeThreadId} />
-            <button type="button" className="send" aria-label="发送消息" disabled={sending} onClick={() => void sendMessage()}>
-              <Send size={18} />
-            </button>
-          </div>
-        </div>
-      </footer>
+      {!introMode ? (
+        <WorkStatus
+          sending={sending}
+          activeThreadId={activeThreadId}
+          activeThread={activeThread}
+          statusEntry={statusEntry}
+          tokenUsage={tokenUsage}
+        />
+      ) : null}
+      {!introMode ? composer : null}
     </section>
   );
 }
 
-function WorkStatus({ sending, activeThreadId, tokenUsage }) {
+function WorkStatus({ sending, activeThreadId, activeThread, statusEntry, tokenUsage }) {
+  const status = workStatusForThread({ sending, activeThreadId, activeThread, statusEntry });
+  const className = `work-status work-status--${status.tone}${status.busy ? ' is-busy' : ''}`;
+  const tokenText = tokenUsage ? `${tokenUsage.usedTokens} / ${tokenUsage.contextWindowTokens} tokens` : 'token usage 等待后端同步';
   return (
-    <div className="work-status">
-      <span className="spinner" /> {sending ? '发送中' : activeThreadId ? '已连接' : '待启动'}
-      <em>{activeThreadId ? `线程 ${activeThreadId}` : '发送首条消息后创建线程'}</em>
-      <code>{tokenUsage ? `${tokenUsage.usedTokens} / ${tokenUsage.contextWindowTokens} tokens` : 'token usage 等待后端同步'}</code>
+    <div className={className}>
+      <span className="spinner" />
+      <span className="work-status-label">{status.label}</span>
+      <em>{status.details}</em>
+      <code title={tokenText}>{tokenText}</code>
     </div>
   );
 }
 
-function RuntimePanel({ diffText, tokenUsage, warnings, activity }) {
+function RuntimePanel({ diffText, tokenUsage, activityStats, warnings, runtimeResults }) {
+  const [viewportHeight, setViewportHeight] = useState(currentViewportHeight);
+  const [activityPanelHeight, setActivityPanelHeight] = useState(() => clampActivityPanelHeight(ACTIVITY_PANEL_DEFAULT_HEIGHT));
+  const [collapsedDiffFiles, setCollapsedDiffFiles] = useState(() => new Set());
+  const diffSummary = useMemo(() => summarizeUnifiedDiff(diffText), [diffText]);
+
+  useEffect(() => {
+    const onResize = () => {
+      const nextHeight = currentViewportHeight();
+      setViewportHeight(nextHeight);
+      setActivityPanelHeight((height) => clampActivityPanelHeight(height, nextHeight));
+    };
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  }, []);
+
+  const beginActivityPanelResize = (event, inputType = 'pointer') => {
+    event.preventDefault();
+    const startY = event.clientY;
+    const startHeight = activityPanelHeight;
+    const moveEventName = inputType === 'mouse' ? 'mousemove' : 'pointermove';
+    const stopEventName = inputType === 'mouse' ? 'mouseup' : 'pointerup';
+    const move = (moveEvent) => {
+      setActivityPanelHeight(clampActivityPanelHeight(startHeight + (startY - moveEvent.clientY), viewportHeight));
+    };
+    const stop = () => {
+      window.removeEventListener(moveEventName, move);
+      window.removeEventListener(stopEventName, stop);
+    };
+    window.addEventListener(moveEventName, move);
+    window.addEventListener(stopEventName, stop);
+  };
+
+  const toggleDiffFile = (filename) => {
+    setCollapsedDiffFiles((current) => {
+      const next = new Set(current);
+      if (next.has(filename)) next.delete(filename);
+      else next.add(filename);
+      return next;
+    });
+  };
+
   return (
-    <aside className="runtime-panel">
+    <aside
+      className="runtime-panel"
+      data-testid="runtime-panel"
+      style={runtimePanelHeightVars(activityPanelHeight, viewportHeight)}
+    >
       <div className="runtime-toolbar">
-        <button type="button"><Image size={14} /> {diffText ? 1 : 0}</button>
-        <button type="button"><FileText size={14} /> {activity.length}</button>
-        <span className="score good">+{warnings.filter((item) => item.level === 'warn').length}</span>
-        <span className="score bad">-{warnings.filter((item) => item.level === 'error').length}</span>
+        <button type="button" aria-label="代码变更文件数" title={`代码变更文件数: ${diffSummary.fileCount}`}>
+          <FileText size={14} /> {diffSummary.fileCount}
+        </button>
+        <button type="button" aria-label="代码变更行数" title={`代码变更行数: ${diffSummary.changedLines}`}>
+          <Code2 size={14} /> {diffSummary.changedLines}
+        </button>
+        <span className="score good" aria-label="代码新增行数" title={`代码新增行数: ${diffSummary.additions}`}>+{diffSummary.additions}</span>
+        <span className="score bad" aria-label="代码删除行数" title={`代码删除行数: ${diffSummary.deletions}`}>-{diffSummary.deletions}</span>
       </div>
-      <div className="diff-empty">{diffText ? <pre>{diffText}</pre> : '暂无代码变更'}</div>
-      <div className="runtime-icons">
-        {[Code2, Boxes, FileText, Link2, GitBranch, AlertTriangle].map((Icon, index) => <Icon key={index} size={16} />)}
-        <span>{tokenUsage ? `${tokenUsage.usedPercent.toFixed(1)}% context` : 'context --'}</span>
+      <div className="diff-empty">
+        {diffText ? (
+          <div className="diff-view" data-testid="diff-view">
+            {diffSummary.files.map((file, index) => {
+              const groupKey = `${file.filename}:${index}`;
+              const collapsed = collapsedDiffFiles.has(groupKey);
+              return (
+                <section className={`diff-file-group${collapsed ? ' is-collapsed' : ''}`} key={groupKey}>
+                  <div className="diff-file-header">
+                    <button
+                      type="button"
+                      className="diff-file-toggle"
+                      aria-expanded={!collapsed}
+                      aria-controls={`runtime-diff-file-${index}`}
+                      onClick={() => toggleDiffFile(groupKey)}
+                    >
+                      <span className="diff-file-title">
+                        <ChevronDown className="diff-file-caret" size={14} aria-hidden="true" />
+                        <span className="diff-file-name">{file.filename}</span>
+                      </span>
+                      <span className="diff-file-stats" aria-hidden="true">
+                        <b className="good">+{file.additions}</b>
+                        <b className="bad">-{file.deletions}</b>
+                      </span>
+                    </button>
+                  </div>
+                  {!collapsed ? (
+                    <div className="diff-file-lines" id={`runtime-diff-file-${index}`}>
+                      {parseUnifiedDiffLineEntries(file.text).map((line) => (
+                        <div className={`diff-line ${line.type}`} key={line.key}>
+                          <span className="diff-line-num diff-line-old">{line.oldNo}</span>
+                          <span className="diff-line-num diff-line-new">{line.newNo}</span>
+                          <span className="diff-line-prefix">{line.prefix}</span>
+                          <span className="diff-line-content">{line.content}</span>
+                        </div>
+                      ))}
+                    </div>
+                  ) : null}
+                </section>
+              );
+            })}
+          </div>
+        ) : '暂无代码变更'}
+      </div>
+      <RuntimeActivityPanel
+        activityStats={activityStats}
+        tokenUsage={tokenUsage}
+        warnings={warnings}
+        runtimeResults={runtimeResults}
+        onResizeStart={beginActivityPanelResize}
+      />
+    </aside>
+  );
+}
+
+function RuntimeActivityPanel({ activityStats, tokenUsage, warnings, runtimeResults, onResizeStart }) {
+  const [hoveredStat, setHoveredStat] = useState(null);
+  const [hoveredWarning, setHoveredWarning] = useState(null);
+  const panelRef = useRef(null);
+  const stats = useMemo(() => activityStats || {}, [activityStats]);
+  const statItems = useMemo(() => activityStatItems(stats), [stats]);
+  const detailEntriesByStat = useMemo(() => Object.fromEntries(
+    statItems.map((item) => [item.key, activityStatDetailEntries(stats, item.key)]),
+  ), [statItems, stats]);
+  const logEntries = useMemo(() => runtimeLogEntries(warnings, runtimeResults), [warnings, runtimeResults]);
+  const hoveredWarningEntry = useMemo(
+    () => logEntries.find((entry) => entry.id === hoveredWarning?.id) || null,
+    [hoveredWarning, logEntries],
+  );
+  const showStatTooltip = (key, element) => setHoveredStat({ key, anchorRect: elementViewportRect(element) });
+  const hideStatTooltip = (key) => setHoveredStat((current) => (current?.key === key ? null : current));
+  const showWarningPopover = (id, element) => setHoveredWarning({
+    id,
+    anchorRect: elementViewportRect(element),
+    panelRect: elementViewportRect(panelRef.current),
+  });
+  const hideWarningPopover = (id) => setHoveredWarning((current) => (current?.id === id ? null : current));
+
+  return (
+    <section className="runtime-activity-panel" aria-label="工具使用面板" ref={panelRef}>
+      <button
+        type="button"
+        className="activity-panel-resizer"
+        aria-label="调整工具使用面板高度"
+        title="拖动调整工具使用面板高度，最大为应用高度的 1/2"
+        data-testid="activity-panel-resizer"
+        onPointerDown={(event) => onResizeStart(event, 'pointer')}
+        onMouseDown={(event) => {
+          if (!window.PointerEvent) onResizeStart(event, 'mouse');
+        }}
+      />
+      <div className="runtime-icons" role="list" aria-label="工具调用统计">
+        {statItems.map(({ key, label, icon: Icon, className, value }) => {
+          const detailEntries = detailEntriesByStat[key] || [];
+          return (
+            <span
+              key={key}
+              className={`runtime-stat ${className}`}
+              role="listitem"
+              tabIndex={0}
+              aria-label={key === 'tool' ? '工具调用总数' : `${label} 调用次数`}
+              title={`${label}: ${value}`}
+              onMouseEnter={(event) => showStatTooltip(key, event.currentTarget)}
+              onMouseLeave={() => hideStatTooltip(key)}
+              onFocus={(event) => showStatTooltip(key, event.currentTarget)}
+              onBlur={() => hideStatTooltip(key)}
+            >
+              <Icon size={16} aria-hidden="true" />
+              <strong>{value}</strong>
+              {hoveredStat?.key === key ? (
+                <span
+                  className="runtime-stat-tooltip"
+                  data-testid="runtime-stat-tooltip"
+                  role="tooltip"
+                  style={runtimeStatTooltipStyle(hoveredStat.anchorRect)}
+                >
+                  <span className="runtime-stat-tooltip-title">
+                    <b>{label}</b>
+                    <strong>{value}</strong>
+                  </span>
+                  {detailEntries.length > 0 ? (
+                    <span className="runtime-stat-tooltip-list">
+                      {detailEntries.map((entry) => (
+                        <span key={entry.name}>
+                          <span>{entry.name}</span>
+                          <strong>{entry.count}</strong>
+                        </span>
+                      ))}
+                    </span>
+                  ) : (
+                    <span className="runtime-stat-tooltip-empty">后端暂无明细</span>
+                  )}
+                </span>
+              ) : null}
+            </span>
+          );
+        })}
+        <span className="runtime-context" title={tokenUsage ? `上下文使用率 ${tokenUsage.usedPercent.toFixed(1)}%` : '等待后端同步上下文使用率'}>
+          {tokenUsage ? `${tokenUsage.usedPercent.toFixed(1)}% context` : 'context --'}
+        </span>
       </div>
       <div className="log-lines" data-testid="warning-log-panel">
-        {warnings.length === 0 ? <p><time>--:--</time> warning log 等待事件</p> : null}
-        {warnings.map((entry) => (
-          <p key={entry.id}>
-            <time>{formatTime(entry.timestamp)}</time> <b>{entry.event}</b> · {JSON.stringify(entry.fields)}
+        {logEntries.length === 0 ? <p><time>--:--</time> runtime log 等待事件</p> : null}
+        {logEntries.map((entry) => (
+          <p
+            key={entry.id}
+            className={`warning-log-line runtime-log-line--${entry.runtimeKind || 'warning'}`}
+            tabIndex={0}
+            onMouseEnter={(event) => showWarningPopover(entry.id, event.currentTarget)}
+            onMouseLeave={() => hideWarningPopover(entry.id)}
+            onFocus={(event) => showWarningPopover(entry.id, event.currentTarget)}
+            onBlur={() => hideWarningPopover(entry.id)}
+          >
+            <time>{formatTime(runtimeLogTimestamp(entry))}</time> <b>{runtimeLogLabel(entry)}</b>
+            {Number(entry.occurrenceCount) > 1 ? <span> ×{Number(entry.occurrenceCount)}</span> : null}
           </p>
         ))}
       </div>
-    </aside>
+      {hoveredWarningEntry ? (
+        <div
+          className="warning-log-popover"
+          data-testid="warning-log-popover"
+          role="tooltip"
+          style={warningLogPopoverStyle(hoveredWarning.anchorRect, hoveredWarning.panelRect)}
+        >
+          <span className="warning-log-popover-title">
+            <time>{formatTime(runtimeLogTimestamp(hoveredWarningEntry))}</time>
+            <b>{runtimeLogLabel(hoveredWarningEntry)}</b>
+          </span>
+          <code>{warningDetailText(hoveredWarningEntry)}</code>
+        </div>
+      ) : null}
+    </section>
   );
 }
 
@@ -5650,7 +7417,7 @@ function SettingsPage({ projectPath }) {
       <PageHeader icon={Settings} title="设置" actions={<button className="btn btn-secondary" type="button" data-testid="settings-refresh-build-button" onClick={() => void refreshBuildInfo()}>刷新构建信息</button>} />
       {status ? <p className="settings-page-notice settings-status" role="status">{status}</p> : null}
       {error ? <p className="settings-page-notice danger-text" role="alert">{error}</p> : null}
-      
+
       <div className="panel-body" data-testid="settings-panel-body">
         <Panel title="ABOUT">
           <dl>
