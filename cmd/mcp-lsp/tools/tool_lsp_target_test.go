@@ -53,12 +53,13 @@ func TestInspectImplementationCorrectInterfaceTargetReturnsImplementations(t *te
 	if err != nil {
 		t.Fatalf("implementation returned error = %v, want implementation locations", err)
 	}
-	results := requireLocationResults(t, got)
-	if len(results) != 1 || results[0].Location == nil {
-		t.Fatalf("implementation results = %#v, want one location", results)
+	results := requireGroupedLocationResults(t, got)
+	locations := results.Data["auditlog.go"]
+	if len(locations) != 1 {
+		t.Fatalf("implementation grouped locations = %#v, want one location", results.Data)
 	}
-	if want := canonicalReproPath(t, target); results[0].Location.URI != want {
-		t.Fatalf("implementation URI = %q, want %q", results[0].Location.URI, want)
+	if locations[0].Line != 5 || locations[0].Col != 6 {
+		t.Fatalf("implementation location = %#v, want line 5 col 6", locations[0])
 	}
 }
 
@@ -139,11 +140,11 @@ func (m *targetReproManager) TypeHierarchy(context.Context, string, protocol.Pos
 	return append([]protocol.TypeHierarchyResult(nil), m.typeHierarchyResults...), nil
 }
 
-func requireLocationResults(t *testing.T, got any) []protocol.LocationResult {
+func requireGroupedLocationResults(t *testing.T, got any) protocol.GroupedLocationResult {
 	t.Helper()
-	results, ok := got.([]protocol.LocationResult)
+	results, ok := got.(protocol.GroupedLocationResult)
 	if !ok {
-		t.Fatalf("result type = %T, want []protocol.LocationResult", got)
+		t.Fatalf("result type = %T, want protocol.GroupedLocationResult", got)
 	}
 	return results
 }
