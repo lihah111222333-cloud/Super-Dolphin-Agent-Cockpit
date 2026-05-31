@@ -6,6 +6,7 @@ import (
 	"errors"
 	lspexec "github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/exec"
 	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/common"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -107,5 +108,48 @@ func TestExecuteSandboxInfrastructureErrorReturnsToolError(t *testing.T) {
 	_, err := executeSandbox(context.Background(), failingSandbox{err: context.DeadlineExceeded}, lspexec.Request{}, "go", "test")
 	if err == nil || !strings.Contains(err.Error(), context.DeadlineExceeded.Error()) {
 		t.Fatalf("executeSandbox() error = %v, want infrastructure error", err)
+	}
+}
+
+func TestWrapToolHandlerAllowsExplicitAbsoluteWorkDirOutsideWorkspaceRoots(t *testing.T) {
+	staleRoot := t.TempDir()
+	explicitRoot := t.TempDir()
+	var gotScope common.ToolScope
+	handler := wrapToolHandler("file", time.Second, func(ctx context.Context, _ json.RawMessage) (any, error) {
+		var ok bool
+		gotScope, ok = common.ToolScopeFromContext(ctx)
+		if !ok {
+			t.Fatal("ToolScopeFromContext() missing scope")
+		}
+		return "ok", nil
+	})
+	payload, err := json.Marshal(map[string]any{
+		"work_dir": explicitRoot,
+	})
+	if err != nil {
+		t.Fatalf("marshal payload: %v", err)
+	}
+	ctx := common.WithToolScope(context.Background(), common.ToolScope{
+		CWD:            staleRoot,
+		WorkspaceRoots: []string{staleRoot},
+		Family:         "lsp",
+	})
+
+	if _, err := handler(ctx, payload); err != nil {
+		t.Fatalf("handler returned error: %v", err)
+	}
+	want, err := filepath.EvalSymlinks(explicitRoot)
+	if err != nil {
+		t.Fatalf("eval explicit root: %v", err)
+	}
+	found := false
+	for _, root := range gotScope.WorkspaceRoots {
+		if root == filepath.Clean(want) {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("workspace roots = %#v, want explicit root %q", gotScope.WorkspaceRoots, want)
 	}
 }
