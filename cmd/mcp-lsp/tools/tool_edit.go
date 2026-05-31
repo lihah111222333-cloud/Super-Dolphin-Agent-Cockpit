@@ -178,16 +178,6 @@ func appendEditWarnings(sb *strings.Builder, e editEnvelope) {
 	}
 }
 
-func (h EditHandler) handleRename(_ context.Context, req EditRequest) (any, error) {
-	if req.Pos == "" {
-		return nil, fmt.Errorf("rename requires pos")
-	}
-	if req.NewName == "" {
-		return nil, fmt.Errorf("rename requires new_name")
-	}
-	return nil, fmt.Errorf("rename not yet implemented")
-}
-
 func (h EditHandler) handleCodeAction(_ context.Context, req EditRequest) (any, error) {
 	return nil, fmt.Errorf("code_action not yet implemented")
 }
