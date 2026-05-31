@@ -10,7 +10,7 @@ You have 7 repository-aware LSP tools covering search, understand, edit, and dia
 - `inspect(definition | implementation)` — from `file:line:col`, jump to definition / all implementations
 - `xref(references, verbosity="compact")` — reference scan; each hit carries `func_start / func_end`
 - `xref(call_hierarchy, direction="incoming")` — who calls this function
-- `file(read_file, offset=, limit=)` — paged read with 1-based line numbers
+- `file(read_file, pos=<file>:<line>, limit=)` — paged read with 1-based line numbers
 - `file(diagnostics, file_paths=[...])` — batch compile / type diagnostics
 - `edit(file_path=..., patch="*** Begin Patch...")` — apply-patch style disk edits with LSP sync
 - `completion(pos=...)` — code completion
@@ -25,7 +25,7 @@ Fix:    grep locate  → xref impact    → file(read_file) context → edit app
 
 ### Five combos
 
-- **A**: `ast_search` → use the returned `func_start / func_end` with `file(read_file, offset, limit)` for precise reads
+- **A**: `ast_search` → use the returned `func_start / func_end` with `file(read_file, pos=<file>:<func_start>, limit)` for precise reads
 - **B**: `workspace_symbol` → `definition` → `file(read_file)` — three-step locate
 - **C**: `references` + `call_hierarchy(incoming + outgoing)` — full impact view
 - **D**: `definition` → `implementation` → `references` — interface three-step
@@ -33,7 +33,7 @@ Fix:    grep locate  → xref impact    → file(read_file) context → edit app
 
 ### func_start / func_end shortcut
 
-`grep(ast_search)`, `inspect(definition|implementation)`, and `xref(references, verbosity="compact")` all return `func_start / func_end`. Call `file(read_file, offset=func_start, limit=func_end-func_start+1)` directly to read the full function; no need to run `document_symbol` first.
+`grep(ast_search)`, `inspect(definition|implementation)`, and `xref(references, verbosity="compact")` all return `func_start / func_end`. Call `file(read_file, pos=<file>:<func_start>, limit=func_end-func_start+1)` directly to read the full function; no need to run `document_symbol` first.
 
 ### Parallel and batch
 
