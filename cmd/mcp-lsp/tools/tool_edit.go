@@ -76,25 +76,44 @@ func normalizeEditVersion(version int) int {
 
 func (e editEnvelope) ToPlainText() string {
 	var sb strings.Builder
-	status := "FAILED"
-	if e.Success {
-		status = "SUCCESS"
-	}
-	sb.WriteString(fmt.Sprintf("Edit Status: %s\n", status))
+	sb.WriteString(fmt.Sprintf("Edit Status: %s\n", editStatusText(e.Success)))
 	if e.Message != "" {
 		sb.WriteString(fmt.Sprintf("Message: %s\n", e.Message))
 	}
+	appendEditApplyStatus(&sb, e)
+	appendEditWarnings(&sb, e)
+	return strings.TrimSpace(sb.String())
+}
+
+func editStatusText(success bool) string {
+	if success {
+		return "SUCCESS"
+	}
+	return "FAILED"
+}
+
+func appendEditApplyStatus(sb *strings.Builder, e editEnvelope) {
 	if e.Applied {
-		sb.WriteString(fmt.Sprintf("Applied: true (%d replacements applied", e.AppliedCount))
+		sb.WriteString(fmt.Sprintf("Applied: true (%d replacements", e.AppliedCount))
 		if e.Persisted {
 			sb.WriteString(", persisted to disk")
 		}
+		if e.LSPSync {
+			sb.WriteString(", LSP synced")
+		}
 		sb.WriteString(")\n")
-	} else if e.RequiresApply {
+		return
+	}
+	if e.RequiresApply {
 		sb.WriteString("Applied: false (requires manual apply)\n")
 	}
+}
+
+func appendEditWarnings(sb *strings.Builder, e editEnvelope) {
 	if e.Warning != "" {
 		sb.WriteString(fmt.Sprintf("Warning: %s\n", e.Warning))
 	}
-	return strings.TrimSpace(sb.String())
+	if e.Success && e.Applied && e.DiagnosticGeneration > 0 {
+		sb.WriteString(fmt.Sprintf("Diagnostic generation: %d (next step: file action=diagnostics file_path=... to verify the new state)\n", e.DiagnosticGeneration))
+	}
 }
