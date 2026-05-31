@@ -12,7 +12,7 @@ func TestLSPToolManifestDescriptionsExposeShortExamples(t *testing.T) {
 		"xref":          "pos=internal/foo.go:42:9",
 		"grep":          "action=text_search",
 		"structure":     "action=document_symbol",
-		"edit":          "Example:",
+		"edit":          "Example minimal patch:",
 		"completion":    "pos=internal/foo.go:42:9",
 		"code_run":      "mode=project_cmd",
 		"code_run_test": "test_func=TestName",

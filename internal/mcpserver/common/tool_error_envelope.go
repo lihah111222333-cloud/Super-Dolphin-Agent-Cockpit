@@ -247,6 +247,25 @@ type toolErrorClassifier struct {
 
 var toolErrorClassifiers = []toolErrorClassifier{
 	{
+		code: "patch_no_match",
+		hint: staticToolHint("The patch's '-' / context lines did not match the file. Read the target lines (file action=read_file) and copy the literal text into the next patch's context, including indentation."),
+		match: func(_ error, message string, toolName string) bool {
+			return isEditTool(toolName) && (strings.Contains(message, "sequence not found") ||
+				strings.Contains(message, "no candidate matched the patch context"))
+		},
+	},
+	{
+		code: "patch_ambiguous",
+		hint: staticToolHint("The patch matched multiple locations. Add 1-2 ' ' (space-prefixed) context lines before/after the change so only one site qualifies; meta.candidate_locations lists where it matched."),
+		match: func(_ error, message string, toolName string) bool {
+			if !isEditTool(toolName) {
+				return false
+			}
+			return strings.Contains(message, "ambiguous match") ||
+				strings.Contains(message, "multiple candidates matched the patch context")
+		},
+	},
+	{
 		code: "database_schema_missing",
 		hint: staticToolHint("The database schema is missing or behind; start the service with migration lifecycle enabled or apply migrations before retrying."),
 		match: func(err error, message string, _ string) bool {
@@ -461,6 +480,15 @@ func isTaskTool(toolName string) bool {
 func isLaunchAgentTool(toolName string) bool {
 	switch strings.ToLower(strings.TrimSpace(toolName)) {
 	case "launch_agent", "orchestration_launch_agent":
+		return true
+	default:
+		return false
+	}
+}
+
+func isEditTool(toolName string) bool {
+	switch strings.ToLower(strings.TrimSpace(toolName)) {
+	case "edit", "lsp_edit":
 		return true
 	default:
 		return false
