@@ -55,10 +55,7 @@ type fileToolInput struct {
 	FilePath   string   `json:"file_path,omitempty"`
 	FilePaths  []string `json:"file_paths,omitempty"`
 	LanguageID string   `json:"language_id,omitempty"`
-	// Offset is a removed field. Kept in struct to detect and reject
-	// callers still passing it (lenient decode would silently ignore).
-	Offset int `json:"offset,omitempty"`
-	Limit  int `json:"limit,omitempty"`
+	Limit      int      `json:"limit,omitempty"`
 	// ExpandComments is retained as a no-op accept so legacy callers
 	// passing expand_comments=true/false do not get a strict-decode
 	// error. Comment expansion is now always on.
@@ -133,7 +130,8 @@ func (h handlerBase) handleFile(ctx context.Context, params json.RawMessage) (an
 	if err != nil {
 		return nil, err
 	}
-	if err := normalizeFileInputFromPos(&input); err != nil {
+	line, err := normalizeFileInputFromPos(&input)
+	if err != nil {
 		return nil, err
 	}
 	h.warnFileCWDTrace(ctx, input)
@@ -146,7 +144,7 @@ func (h handlerBase) handleFile(ctx context.Context, params json.RawMessage) (an
 			req := readFileRequest{
 				rawPath:    input.FilePath,
 				rawPaths:   input.FilePaths,
-				line:       input.Offset,
+				line:       line,
 				limit:      input.Limit,
 				scope:      strings.ToLower(strings.TrimSpace(input.Scope)),
 				languageID: input.LanguageID,
@@ -179,29 +177,23 @@ func (r readFileRequest) wantsLineWindow() bool {
 }
 
 // normalizeFileInputFromPos parses pos="file_path:line" (line optional)
-// and populates FilePath and Offset. Rejects the deprecated offset field.
-func normalizeFileInputFromPos(input *fileToolInput) error {
-	if input.Offset > 0 {
-		return fmt.Errorf("offset is removed; use pos=\"file_path:%d\" instead", input.Offset)
-	}
+// and populates FilePath and returns the parsed line number.
+func normalizeFileInputFromPos(input *fileToolInput) (int, error) {
 	pos := strings.TrimSpace(input.Pos)
 	if pos == "" {
-		return nil
+		return 0, nil
 	}
 	filePath, line, _, _, err := parseFilePos(pos, false)
 	if err != nil {
 		if strings.Contains(pos, ":") {
-			return err
+			return 0, err
 		}
 		filePath = pos
 	}
 	if strings.TrimSpace(input.FilePath) == "" {
 		input.FilePath = filePath
 	}
-	if input.Offset <= 0 {
-		input.Offset = line
-	}
-	return nil
+	return line, nil
 }
 
 func (h handlerBase) openFile(ctx context.Context, rawPath string, languageID string) (openFileResult, error) {

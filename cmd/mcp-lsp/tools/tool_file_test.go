@@ -168,23 +168,6 @@ func TestReadFileWithLimitDoesNotForceLineWindow(t *testing.T) {
 	}
 }
 
-func TestFileRejectsDeprecatedOffset(t *testing.T) {
-	root := t.TempDir()
-	target := filepath.Join(root, "main.go")
-	if err := os.WriteFile(target, []byte("package main\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	// Passing offset should return an explicit error
-	_, err := callFileTool(t, root, fileToolInput{
-		Action:   "read_file",
-		FilePath: "main.go",
-		Offset:   5,
-	})
-	if err == nil || !strings.Contains(err.Error(), "offset is removed") {
-		t.Fatalf("expected 'offset is removed' error, got: %v", err)
-	}
-}
-
 func TestFileReadAllowsExplicitAbsoluteWorkDirOutsideWorkspaceRoots(t *testing.T) {
 	staleRoot := t.TempDir()
 	explicitRoot := t.TempDir()
