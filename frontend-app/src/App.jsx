@@ -3,6 +3,7 @@ import { AlertTriangle, Archive, Bot, Boxes, Brain, ChevronDown, CircleDot, Code
 import { useClientStore } from './entities/client/model/useClientStore.js';
 import { PromptPageView } from './features/prompts/PromptPageView.jsx';
 import {
+  callBackend,
   applyDagOps,
   applySkillResolution,
   consolidateMemorySimilarities,
@@ -3820,6 +3821,10 @@ function MemoryMergeModal({ group, merging, onClose, onConfirm }) {
 }
 
 function SettingsPage({ projectPath }) {
+  const store = useClientStore();
+  const cwd = projectPath || store.activeProject || store.cwd;
+
+  // Build Info & Original Form states
   const [buildInfo, setBuildInfo] = useState(null);
   const [form, setForm] = useState({
     stallThresholdSec: String(SETTINGS_DEFAULTS.stallThresholdSec),
@@ -3839,7 +3844,42 @@ function SettingsPage({ projectPath }) {
   const [status, setStatus] = useState('');
   const [error, setError] = useState('');
 
-  const settingsCwd = projectPath;
+  // Provider Settings State (for summary & approval)
+  const [summaryMode, setSummaryMode] = useState('detailed');
+  const [approvalMode, setApprovalMode] = useState('on-request');
+  const [providerNotice, setProviderNotice] = useState({ level: 'info', message: '' });
+  const [providerSaving, setProviderSaving] = useState(false);
+
+  // Prompt Settings State
+  const [lspPromptHint, setLspPromptHint] = useState('');
+  const [lspPromptEffectiveHint, setLspPromptEffectiveHint] = useState('');
+  const [lspPromptDefaultHint, setLspPromptDefaultHint] = useState('');
+  const [lspPromptUsingDefault, setLspPromptUsingDefault] = useState(true);
+  const [lspPromptLoading, setLspPromptLoading] = useState(false);
+  const [lspPromptSaving, setLspPromptSaving] = useState(false);
+  const [lspPromptNotice, setLspPromptNotice] = useState({ level: 'info', message: '' });
+  const [showInjectedPromptInChat, setShowInjectedPromptInChat] = useState(false);
+  const [showInjectedPromptSaving, setShowInjectedPromptSaving] = useState(false);
+  const [currentScopeCwd, setCurrentScopeCwd] = useState('');
+
+  // Model Built-in capabilities State
+  const [builtinTools, setBuiltinTools] = useState([]);
+  const [builtinToolsLoading, setBuiltinToolsLoading] = useState(false);
+  const [builtinSavingIds, setBuiltinSavingIds] = useState({});
+  const [builtinExpandedGroups, setBuiltinExpandedGroups] = useState({});
+  const [builtinToolsNotice, setBuiltinToolsNotice] = useState({ level: 'info', message: '' });
+
+  // Boolean helper
+  const parseBoolPreference = useCallback((value) => {
+    if (typeof value === 'boolean') return value;
+    if (typeof value === 'number') return value !== 0;
+    if (typeof value === 'string') {
+      const normalized = value.trim().toLowerCase();
+      if (['1', 'true', 'yes', 'on'].includes(normalized)) return true;
+      if (['0', 'false', 'no', 'off'].includes(normalized)) return false;
+    }
+    return false;
+  }, []);
 
   const refreshBuildInfo = useCallback(async () => {
     setError('');
@@ -3855,56 +3895,57 @@ function SettingsPage({ projectPath }) {
 
   const loadPreferences = useCallback(async () => {
     setError('');
-    const cwd = normalizeSettingsCwd(settingsCwd);
-    const [stallValue, contextValue, activeProviderValue] = await Promise.all([
-      getPreference({ cwd, key: SETTINGS_KEYS.stallThreshold }),
-      getPreference({ cwd, key: SETTINGS_KEYS.contextThresholds }),
-      getPreference({ cwd, key: SETTINGS_KEYS.activeProvider }),
-    ]);
-    const activeProvider = normalizeProviderName(activeProviderValue);
-    const providerPrefix = `settings.provider.${activeProvider}`;
-    const [
-      codexHome,
-      codexInstanceKey,
-      codexModelProvider,
-      providerModel,
-      providerEffort,
-      sandbox,
-    ] = await Promise.all([
-      getPreference({ cwd, key: providerSettingKey('codex', 'codexHome') }),
-      getPreference({ cwd, key: providerSettingKey('codex', 'codexInstanceKey') }),
-      getPreference({ cwd, key: providerSettingKey('codex', 'codexModelProvider') }),
-      getPreference({ cwd, key: `${providerPrefix}.model` }),
-      getPreference({ cwd, key: `${providerPrefix}.effort` }),
-      getPreference({ cwd, key: `${providerPrefix}.sandbox` }),
-    ]);
-    const contextThresholds = normalizeContextThresholds(contextValue);
-    setForm({
-      stallThresholdSec: String(numberSetting(stallValue, SETTINGS_DEFAULTS.stallThresholdSec)),
-      contextWarn: String(contextThresholds[0]),
-      contextDanger: String(contextThresholds[1]),
-      contextCritical: String(contextThresholds[2]),
-      activeProvider,
-      codexHome: stringSetting(codexHome, SETTINGS_DEFAULTS.codexHome),
-      codexInstanceKey: stringSetting(codexInstanceKey, SETTINGS_DEFAULTS.codexInstanceKey),
-      codexModelProvider: stringSetting(codexModelProvider, SETTINGS_DEFAULTS.codexModelProvider),
-      providerModel: stringSetting(providerModel, SETTINGS_DEFAULTS.providerModel),
-      providerEffort: stringSetting(providerEffort, SETTINGS_DEFAULTS.providerEffort),
-      sandboxPolicy: sandboxPolicyFromPreference(sandbox),
-      writableRoots: writableRootsFromPreference(sandbox),
-      networkAccess: Boolean(sandbox && typeof sandbox === 'object' && sandbox.networkAccess),
-    });
-  }, [settingsCwd]);
-
-  useEffect(() => {
-    refreshBuildInfo().catch(() => { });
-  }, [refreshBuildInfo]);
-
-  useEffect(() => {
-    loadPreferences().catch((err) => {
+    if (!cwd) return;
+    try {
+      const [stallValue, contextValue, activeProviderValue] = await Promise.all([
+        getPreference({ cwd, key: SETTINGS_KEYS.stallThreshold }),
+        getPreference({ cwd, key: SETTINGS_KEYS.contextThresholds }),
+        getPreference({ cwd, key: SETTINGS_KEYS.activeProvider }),
+      ]);
+      const activeProvider = normalizeProviderName(activeProviderValue);
+      const providerPrefix = `settings.provider.${activeProvider}`;
+      const [
+        codexHome,
+        codexInstanceKey,
+        codexModelProvider,
+        providerModel,
+        providerEffort,
+        sandbox,
+        summaryValue,
+        approvalValue,
+      ] = await Promise.all([
+        getPreference({ cwd, key: providerSettingKey('codex', 'codexHome') }),
+        getPreference({ cwd, key: providerSettingKey('codex', 'codexInstanceKey') }),
+        getPreference({ cwd, key: providerSettingKey('codex', 'codexModelProvider') }),
+        getPreference({ cwd, key: `${providerPrefix}.model` }),
+        getPreference({ cwd, key: `${providerPrefix}.effort` }),
+        getPreference({ cwd, key: `${providerPrefix}.sandbox` }),
+        getPreference({ cwd, key: 'settings.provider.codex.summary' }),
+        getPreference({ cwd, key: 'settings.provider.codex.approvalPolicy' }),
+      ]);
+      const contextThresholds = normalizeContextThresholds(contextValue);
+      setForm({
+        stallThresholdSec: String(numberSetting(stallValue, SETTINGS_DEFAULTS.stallThresholdSec)),
+        contextWarn: String(contextThresholds[0]),
+        contextDanger: String(contextThresholds[1]),
+        contextCritical: String(contextThresholds[2]),
+        activeProvider,
+        codexHome: stringSetting(codexHome, SETTINGS_DEFAULTS.codexHome),
+        codexInstanceKey: stringSetting(codexInstanceKey, SETTINGS_DEFAULTS.codexInstanceKey),
+        codexModelProvider: stringSetting(codexModelProvider, SETTINGS_DEFAULTS.codexModelProvider),
+        providerModel: stringSetting(providerModel, SETTINGS_DEFAULTS.providerModel),
+        providerEffort: stringSetting(providerEffort, SETTINGS_DEFAULTS.providerEffort),
+        sandboxPolicy: sandboxPolicyFromPreference(sandbox),
+        writableRoots: writableRootsFromPreference(sandbox),
+        networkAccess: Boolean(sandbox && typeof sandbox === 'object' && sandbox.networkAccess),
+      });
+      setSummaryMode(summaryValue || 'detailed');
+      setApprovalMode(approvalValue || 'on-request');
+      setProviderNotice({ level: 'info', message: '' });
+    } catch (err) {
       setError(err.message || String(err));
-    });
-  }, [loadPreferences]);
+    }
+  }, [cwd]);
 
   const updateForm = (key) => (event) => {
     const value = event.target.type === 'checkbox' ? event.target.checked : event.target.value;
@@ -3915,11 +3956,10 @@ function SettingsPage({ projectPath }) {
     setError('');
     setStatus('');
     try {
-      const cwd = normalizeSettingsCwd(settingsCwd);
       const { stallThresholdSec, contextThresholds } = validateRuntimeThresholds(form);
       await setPreference({ cwd, key: SETTINGS_KEYS.stallThreshold, value: stallThresholdSec });
       await setPreference({ cwd, key: SETTINGS_KEYS.contextThresholds, value: contextThresholds });
-      setStatus('运行阈值已保存');
+      setStatus('已保存超时与上下文使用率设置');
     } catch (err) {
       setError(err.message || String(err));
     }
@@ -3929,7 +3969,6 @@ function SettingsPage({ projectPath }) {
     setError('');
     setStatus('');
     try {
-      const cwd = normalizeSettingsCwd(settingsCwd);
       const provider = normalizeProviderName(form.activeProvider);
       await setPreference({ cwd, key: SETTINGS_KEYS.activeProvider, value: provider });
       await setPreference({ cwd, key: providerSettingKey(provider, 'model'), value: form.providerModel.trim() });
@@ -3948,52 +3987,588 @@ function SettingsPage({ projectPath }) {
     }
   };
 
+  // Provider preferences loaders/savers (summary & approvalPolicy)
+  const loadProviderPreferences = useCallback(async () => {
+    if (!cwd) return;
+    try {
+      const summaryValue = await getPreference({ cwd, key: 'settings.provider.codex.summary' });
+      const approvalValue = await getPreference({ cwd, key: 'settings.provider.codex.approvalPolicy' });
+      setSummaryMode(summaryValue || 'detailed');
+      setApprovalMode(approvalValue || 'on-request');
+      setProviderNotice({ level: 'info', message: '' });
+    } catch (error) {
+      setProviderNotice({ level: 'error', message: `加载 Preferences 失败: ${error.message}` });
+    }
+  }, [cwd]);
+
+  const saveProviderPreferences = useCallback(async () => {
+    if (!cwd || providerSaving) return;
+    setProviderSaving(true);
+    try {
+      await setPreference({ cwd, key: 'settings.provider.codex.summary', value: summaryMode });
+      await setPreference({ cwd, key: 'settings.provider.codex.approvalPolicy', value: approvalMode });
+      setProviderNotice({ level: 'info', message: `已保存：${summaryMode} / ${approvalMode}` });
+    } catch (error) {
+      setProviderNotice({ level: 'error', message: `保存失败: ${error.message}` });
+    } finally {
+      setProviderSaving(false);
+    }
+  }, [cwd, summaryMode, approvalMode, providerSaving]);
+
+  // Prompt hints loaders/savers
+  const loadLspPromptHint = useCallback(async () => {
+    if (!cwd) return;
+    setLspPromptLoading(true);
+    try {
+      const res = await callBackend('config/lspPromptHint/read', { cwd });
+      const hint = (res?.hint || '').toString();
+      const defaultHint = (res?.defaultHint || '').toString();
+      const overrideHint = (res?.overrideHint || '').toString();
+      const usingDefault = Boolean(res?.usingDefault);
+      setLspPromptHint(overrideHint);
+      setLspPromptEffectiveHint(hint);
+      setLspPromptDefaultHint(defaultHint);
+      setLspPromptUsingDefault(usingDefault || overrideHint.trim() === '');
+      setLspPromptNotice({ level: 'info', message: '' });
+    } catch (error) {
+      setLspPromptNotice({ level: 'error', message: `加载失败：${error?.message || error}` });
+    } finally {
+      setLspPromptLoading(false);
+    }
+  }, [cwd]);
+
+  const loadCurrentScopeCwd = useCallback(async () => {
+    try {
+      const cfg = await callBackend('config/read', {});
+      setCurrentScopeCwd((cfg?.cwd || '').toString().trim());
+    } catch {
+      setCurrentScopeCwd('');
+    }
+  }, []);
+
+  const loadInjectedPromptVisibility = useCallback(async () => {
+    if (!cwd) return;
+    try {
+      const value = await getPreference({ cwd, key: 'settings.showInjectedPromptInChat' });
+      setShowInjectedPromptInChat(parseBoolPreference(value));
+    } catch (error) {
+      setLspPromptNotice({ level: 'error', message: `加载聊天注入显示开关失败：${error?.message || error}` });
+    }
+  }, [cwd, parseBoolPreference]);
+
+  const saveLspPromptHint = useCallback(async () => {
+    if (!cwd || lspPromptSaving) return;
+    setLspPromptSaving(true);
+    try {
+      const res = await callBackend('config/lspPromptHint/write', { cwd, hint: lspPromptHint });
+      setLspPromptEffectiveHint((res?.hint || '').toString());
+      setLspPromptDefaultHint((res?.defaultHint || lspPromptDefaultHint || '').toString());
+      setLspPromptHint((res?.overrideHint || '').toString());
+      const usingDefault = Boolean(res?.usingDefault);
+      setLspPromptUsingDefault(usingDefault);
+      if (usingDefault) {
+        setLspPromptNotice({ level: 'info', message: '已恢复默认提示词' });
+      } else {
+        setLspPromptNotice({ level: 'info', message: '提示词已保存' });
+      }
+    } catch (error) {
+      setLspPromptNotice({ level: 'error', message: `保存失败：${error?.message || error}` });
+    } finally {
+      setLspPromptSaving(false);
+    }
+  }, [cwd, lspPromptHint, lspPromptDefaultHint, lspPromptSaving]);
+
+  const resetLspPromptHint = useCallback(async () => {
+    if (!cwd || lspPromptSaving) return;
+    setLspPromptSaving(true);
+    try {
+      const res = await callBackend('config/lspPromptHint/write', { cwd, hint: '' });
+      setLspPromptEffectiveHint((res?.hint || '').toString());
+      setLspPromptDefaultHint((res?.defaultHint || lspPromptDefaultHint || '').toString());
+      setLspPromptHint('');
+      setLspPromptUsingDefault(true);
+      setLspPromptNotice({ level: 'info', message: '已恢复默认提示词' });
+    } catch (error) {
+      setLspPromptNotice({ level: 'error', message: `恢复失败：${error?.message || error}` });
+    } finally {
+      setLspPromptSaving(false);
+    }
+  }, [cwd, lspPromptDefaultHint, lspPromptSaving]);
+
+  const handleInjectedPromptVisibilityChange = useCallback(async (event) => {
+    if (!cwd || showInjectedPromptSaving) return;
+    const next = event.target.checked;
+    setShowInjectedPromptInChat(next);
+    setShowInjectedPromptSaving(true);
+    try {
+      await setPreference({ cwd, key: 'settings.showInjectedPromptInChat', value: next });
+      setLspPromptNotice({
+        level: 'info',
+        message: next ? '聊天区已改为显示自动注入内容' : '聊天区已改为隐藏自动注入内容',
+      });
+    } catch (error) {
+      setLspPromptNotice({ level: 'error', message: `保存聊天注入显示开关失败：${error?.message || error}` });
+      await loadInjectedPromptVisibility();
+    } finally {
+      setShowInjectedPromptSaving(false);
+    }
+  }, [cwd, showInjectedPromptSaving, loadInjectedPromptVisibility]);
+
+  const copyEffectivePromptHint = useCallback(async () => {
+    const text = (lspPromptEffectiveHint || lspPromptDefaultHint || '').trim() || '暂无可用提示词';
+    if (!text || text === '暂无可用提示词') {
+      setLspPromptNotice({ level: 'error', message: '暂无可复制内容' });
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(text);
+      setLspPromptNotice({ level: 'info', message: '已复制生效提示词' });
+    } catch (error) {
+      setLspPromptNotice({ level: 'error', message: `复制失败：${error?.message || error}` });
+    }
+  }, [lspPromptEffectiveHint, lspPromptDefaultHint]);
+
+  // Model Built-in capabilities loaders/savers
+  const applyToolsPayload = useCallback((payload) => {
+    const list = Array.isArray(payload?.tools) ? payload.tools : [];
+    setBuiltinTools(list.map((item) => ({
+      id: (item.id || '').toString(),
+      label: (item.label || item.id || '').toString(),
+      description: (item.description || '').toString(),
+      enabled: Boolean(item.enabled),
+      provider: (item.provider || 'claude').toString(),
+      replacedBy: item.replacedBy ? (item.replacedBy || '').toString() : undefined,
+      filterMode: (item.filterMode || '').toString() || undefined,
+      enforcement: (item.enforcement || '').toString() || undefined,
+    })));
+  }, []);
+
+  const loadBuiltinTools = useCallback(async () => {
+    if (!cwd) return;
+    setBuiltinToolsLoading(true);
+    try {
+      const res = await callBackend('config/builtinTools/read', { cwd });
+      applyToolsPayload(res);
+      setBuiltinToolsNotice({ level: 'info', message: '' });
+    } catch (error) {
+      setBuiltinToolsNotice({ level: 'error', message: `加载失败：${error?.message || error}` });
+    } finally {
+      setBuiltinToolsLoading(false);
+    }
+  }, [cwd, applyToolsPayload]);
+
+  const toggleBuiltinTool = useCallback(async (tool) => {
+    if (!cwd || tool.replacedBy) return;
+    const id = tool.id;
+    if (!id) return;
+    if (builtinSavingIds[id]) return;
+    setBuiltinSavingIds((prev) => ({ ...prev, [id]: true }));
+    const nextEnabled = !tool.enabled;
+
+    setBuiltinTools((prev) =>
+      prev.map((item) => (item.id === id ? { ...item, enabled: nextEnabled } : item))
+    );
+
+    try {
+      const res = await callBackend('config/builtinTools/write', { cwd, id, enabled: nextEnabled });
+      applyToolsPayload(res);
+      setBuiltinToolsNotice({ level: 'info', message: `${tool.label || id} 已${nextEnabled ? '启用' : '禁用'}` });
+    } catch (error) {
+      setBuiltinTools((prev) =>
+        prev.map((item) => (item.id === id ? { ...item, enabled: !nextEnabled } : item))
+      );
+      setBuiltinToolsNotice({ level: 'error', message: `保存失败：${error?.message || error}` });
+    } finally {
+      setBuiltinSavingIds((prev) => ({ ...prev, [id]: false }));
+    }
+  }, [cwd, builtinSavingIds, applyToolsPayload]);
+
+  // Collapsible accordion group controls
+  const toggleGroupExpanded = useCallback((key) => {
+    setBuiltinExpandedGroups((prev) => ({
+      ...prev,
+      [key]: !prev[key],
+    }));
+  }, []);
+
+  // Sync state
+  useEffect(() => {
+    refreshBuildInfo().catch(() => { });
+  }, [refreshBuildInfo]);
+
+  useEffect(() => {
+    loadPreferences().catch(() => { });
+    loadLspPromptHint();
+    loadCurrentScopeCwd();
+    loadInjectedPromptVisibility();
+    loadBuiltinTools();
+  }, [cwd, loadPreferences, loadLspPromptHint, loadCurrentScopeCwd, loadInjectedPromptVisibility, loadBuiltinTools]);
+
+  // Derived Prompt variables
+  const lspPromptDisplayHint = (lspPromptEffectiveHint || lspPromptDefaultHint || '').trim() || '暂无可用提示词';
+  const lspPromptLineCount = lspPromptDisplayHint === '暂无可用提示词' ? 0 : lspPromptDisplayHint.split('\n').length;
+  const lspPromptCharCount = lspPromptDisplayHint === '暂无可用提示词' ? 0 : lspPromptDisplayHint.length;
+
+  // Derived Built-in capabilities groups
+  const enforcementBucket = useCallback((tool) => {
+    const enforcement = (tool.enforcement || '').toString().trim();
+    if (enforcement) return enforcement;
+    if (tool.filterMode === 'hard') return 'native-hard';
+    return 'soft-audit';
+  }, []);
+
+  const groups = useMemo(() => {
+    const disabled = builtinTools.filter((t) => !t.enabled || t.replacedBy);
+    const nativeHard = disabled.filter((t) => enforcementBucket(t) === 'native-hard');
+    const effectHard = disabled.filter((t) => enforcementBucket(t) === 'effect-hard');
+    const softAudit = disabled.filter((t) => enforcementBucket(t) === 'soft-audit');
+    const notFiltered = builtinTools.filter((t) => t.enabled && !t.replacedBy);
+
+    const result = [];
+    const pushGroup = (key, label, items, note) => {
+      if (items.length === 0) return;
+      result.push({
+        key,
+        label: `${label}（${items.length}）`,
+        tools: items,
+        note,
+        disabledCount: items.length,
+        canToggle: true,
+      });
+    };
+
+    pushGroup('native-hard', '启动前已关闭', nativeHard, '模型启动前就看不到这些能力。');
+    pushGroup('effect-hard', '已限制为只读', effectHard, 'Codex 暂不支持单独关闭这类能力，已限制为只读，避免它直接改文件或执行命令。');
+    pushGroup('soft-audit', '仅提醒使用项目工具', softAudit, 'Codex 暂不支持可靠关闭这类能力，只能提示模型优先使用本项目工具；这不是强制拦截。');
+
+    if (notFiltered.length > 0) {
+      result.push({
+        key: 'unfiltered',
+        label: `保持可用（${notFiltered.length}）`,
+        tools: notFiltered,
+        disabledCount: 0,
+        canToggle: true,
+      });
+    }
+    return result;
+  }, [builtinTools, enforcementBucket]);
+
+  const filteredCount = useMemo(() => builtinTools.filter((t) => t.replacedBy || !t.enabled).length, [builtinTools]);
+  const totalToolCount = builtinTools.length;
+
+  const providerLabels = {
+    claude: 'Claude',
+    codex: 'Codex',
+  };
+
+  const toolStatusLabel = useCallback((tool) => {
+    if (tool.replacedBy) return '已由项目工具接管';
+    if (tool.enabled) return '保持可用';
+    const enforcement = enforcementBucket(tool);
+    if (enforcement === 'native-hard') return '启动前已关闭';
+    if (enforcement === 'effect-hard') return '已限制为只读';
+    if (enforcement === 'soft-audit') return '仅提醒使用项目工具';
+    return '已管控';
+  }, [enforcementBucket]);
+
+  const toolMetaText = useCallback((tool) => {
+    const parts = [];
+    const description = (tool.description || '').trim();
+    if (description) parts.push(description);
+    const provider = providerLabels[tool.provider] || tool.provider || '';
+    if (provider) parts.push(provider);
+    parts.push(toolStatusLabel(tool));
+    return parts.join(' · ');
+  }, [toolStatusLabel]);
+
+  const groupSummary = useCallback((group) => {
+    if (group.key === 'unfiltered') return `可用 ${group.tools.length} 项`;
+    return `已管控 ${group.disabledCount} 项`;
+  }, []);
+
+  const formatLogTime = (value) => {
+    if (!value) return '--:--:--';
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return '--:--:--';
+    return date.toLocaleTimeString('zh-CN', { hour12: false });
+  };
+
+  const logList = store.logEntries ? store.logEntries.slice(0, 14) : [];
+
   return (
-    <section className="settings-page">
-      <PageHeader icon={Settings} title="设置" actions={<button type="button" onClick={() => void refreshBuildInfo()}>刷新构建信息</button>} />
-      <Panel title="ABOUT">
-        <dl>
-          <dt>版本</dt><dd>Agent Orchestrator {buildInfo?.version || 'unknown'}</dd>
-          <dt>运行时</dt><dd>{buildInfo?.runtime || 'unknown'}</dd>
-          <dt>构建时间</dt><dd>{buildInfo?.buildTime || 'unknown'}</dd>
-          <dt>Commit</dt><dd>{buildInfo?.commit || 'unknown'}</dd>
-          <dt>当前项目</dt><dd>{settingsCwd}</dd>
-        </dl>
-      </Panel>
-      <Panel title="TURN TRACKER">
-        <div className="form-line">
-          <label>统一超时阈值<input aria-label="统一超时阈值" type="number" min="30" value={form.stallThresholdSec} onChange={updateForm('stallThresholdSec')} /> 秒</label>
-          <button type="button" onClick={() => void saveRuntimeSettings()}>保存超时阈值</button>
+    <section className="settings-page" data-testid="settings-page">
+      <PageHeader icon={Settings} title="设置" actions={<button className="btn btn-secondary" type="button" data-testid="settings-refresh-build-button" onClick={() => void refreshBuildInfo()}>刷新构建信息</button>} />
+      
+      <div className="panel-body" data-testid="settings-panel-body">
+        <Panel title="ABOUT">
+          <dl>
+            <dt>版本</dt><dd>Agent Orchestrator {buildInfo?.version || 'unknown'}</dd>
+            <dt>运行时</dt><dd>{buildInfo?.runtime || 'unknown'}</dd>
+            <dt>构建时间</dt><dd>{buildInfo?.buildTime || 'unknown'}</dd>
+            <dt>Commit</dt><dd>{buildInfo?.commit || 'unknown'}</dd>
+            <dt>当前项目</dt><dd>{cwd}</dd>
+          </dl>
+        </Panel>
+
+        <Panel title="TURN TRACKER">
+          <div className="form-line">
+            <label>统一超时阈值<input aria-label="统一超时阈值" data-testid="settings-stall-threshold-input" type="number" min="30" value={form.stallThresholdSec} onChange={updateForm('stallThresholdSec')} /> 秒</label>
+            <button className="btn btn-primary" type="button" data-testid="settings-stall-threshold-save-button" onClick={() => void saveRuntimeSettings()}>保存超时阈值</button>
+          </div>
+        </Panel>
+
+        <Panel title="CONTEXT USAGE ALERT" data-testid="settings-ctx-thresholds-card">
+          <div className="form-line">
+            <label>Warn 阈值<input aria-label="Warn 阈值" type="number" min="1" max="100" value={form.contextWarn} onChange={updateForm('contextWarn')} /></label>
+            <label>Danger 阈值<input aria-label="Danger 阈值" type="number" min="1" max="100" value={form.contextDanger} onChange={updateForm('contextDanger')} /></label>
+            <label>Critical 阈值<input aria-label="Critical 阈值" type="number" min="1" max="100" value={form.contextCritical} onChange={updateForm('contextCritical')} /></label>
+            <button className="btn btn-primary" type="button" data-testid="settings-ctx-thresholds-save-button" onClick={() => void saveRuntimeSettings()}>保存运行阈值</button>
+          </div>
+        </Panel>
+
+        <Panel title="PROVIDER">
+          <div className="form-grid">
+            <label>Active Provider<select value={form.activeProvider} onChange={updateForm('activeProvider')}><option value="codex">Codex</option><option value="claude">Claude</option></select></label>
+            <label>Provider Model<input value={form.providerModel} onChange={updateForm('providerModel')} /></label>
+            <label>Provider Effort<input value={form.providerEffort} onChange={updateForm('providerEffort')} /></label>
+            <label>Codex Home<input aria-label="Codex Home" value={form.codexHome} onChange={updateForm('codexHome')} /></label>
+            <label>Instance Key<input aria-label="Instance Key" value={form.codexInstanceKey} onChange={updateForm('codexInstanceKey')} /></label>
+            <label>Model Provider<input aria-label="Model Provider" value={form.codexModelProvider} onChange={updateForm('codexModelProvider')} /></label>
+            <label>Sandbox Policy<select aria-label="Sandbox Policy" value={form.sandboxPolicy} onChange={updateForm('sandboxPolicy')}><option value="workspaceWrite">workspaceWrite</option><option value="readOnly">readOnly</option><option value="dangerFullAccess">dangerFullAccess</option></select></label>
+            <label className="checkbox-line"><input type="checkbox" checked={form.networkAccess} onChange={updateForm('networkAccess')} /> Network Access</label>
+            <label className="wide">Writable Roots<textarea value={form.writableRoots} onChange={updateForm('writableRoots')} placeholder="每行一个绝对路径" /></label>
+          </div>
+          <div className="settings-actions"><button className="btn btn-primary" type="button" onClick={() => void saveProviderSettings()}>保存 Provider 设置</button></div>
+        </Panel>
+
+        {/* Inference Summary & Approval Policy Card */}
+        <div className="section-header">PROPERTIES</div>
+        <div className="data-card-vue" data-testid="settings-provider-sandbox-card">
+          <div className="settings-stall-row" style={{ marginTop: '8px' }}>
+            <label className="settings-stall-label" style={{ marginRight: '10px', fontSize: '12px', fontWeight: '600', color: 'var(--text-muted)' }}>推理摘要 (Summary)</label>
+            <select
+              className="settings-stall-input"
+              data-testid="provider-summary-mode-select"
+              style={{ width: '260px', textAlign: 'left' }}
+              value={summaryMode}
+              onChange={(e) => setSummaryMode(e.target.value)}
+            >
+              <option value="detailed">detailed（详细摘要，推荐）</option>
+              <option value="auto">auto（自动）</option>
+              <option value="concise">concise（简洁）</option>
+              <option value="none">none（关闭）</option>
+            </select>
+          </div>
+          <div className="settings-stall-row" style={{ marginTop: '8px', marginBottom: '8px' }}>
+            <label className="settings-stall-label" style={{ marginRight: '10px', fontSize: '12px', fontWeight: '600', color: 'var(--text-muted)' }}>审批策略 (ApprovalPolicy)</label>
+            <select
+              className="settings-stall-input"
+              data-testid="provider-approval-mode-select"
+              style={{ width: '260px', textAlign: 'left' }}
+              value={approvalMode}
+              onChange={(e) => setApprovalMode(e.target.value)}
+            >
+              <option value="on-request">on-request（按需，默认）</option>
+              <option value="untrusted">untrusted（始终询问）</option>
+              <option value="on-failure">on-failure（失败后询问）</option>
+              <option value="never">never（全部放行）</option>
+            </select>
+          </div>
+          {providerNotice.message && (
+            <div className={`settings-prompt-notice is-${providerNotice.level}`} style={{ marginTop: '4px' }}>
+              {providerNotice.message}
+            </div>
+          )}
+          <div className="settings-action-row settings-action-inline" style={{ marginTop: '10px' }}>
+            <button className="btn btn-secondary btn-toolbar-sm" onClick={loadProviderPreferences} disabled={providerSaving}>刷新</button>
+            <button className="btn btn-primary btn-toolbar-sm" data-testid="provider-sandbox-save-button" onClick={saveProviderPreferences} disabled={providerSaving}>
+              {providerSaving ? '保存中...' : '保存'}
+            </button>
+          </div>
         </div>
-      </Panel>
-      <Panel title="CONTEXT USAGE ALERT">
-        <div className="form-line">
-          <label>Warn 阈值<input type="number" min="1" max="100" value={form.contextWarn} onChange={updateForm('contextWarn')} /></label>
-          <label>Danger 阈值<input type="number" min="1" max="100" value={form.contextDanger} onChange={updateForm('contextDanger')} /></label>
-          <label>Critical 阈值<input type="number" min="1" max="100" value={form.contextCritical} onChange={updateForm('contextCritical')} /></label>
-          <button type="button" onClick={() => void saveRuntimeSettings()}>保存运行阈值</button>
+
+        {/* PROMPT Section */}
+        <div className="section-header">PROMPT</div>
+        <div className="data-card-vue settings-prompt-card" data-testid="settings-lsp-prompt-card">
+          <div className="data-row-vue">
+            <strong>自动注入提示词 (LSP / Playwright / json-render / code_run)</strong>
+            <span>{lspPromptLoading ? '加载中...' : (lspPromptUsingDefault ? '默认注入' : '自定义覆盖')}</span>
+          </div>
+          <div className="settings-prompt-desc">下方“生效内容”是后端每轮实际注入文本：“覆盖编辑”用于调试，留空保存可恢复默认。</div>
+          <div className="settings-prompt-meta" data-testid="settings-lsp-effective-cwd">
+            当前作用 CWD: {currentScopeCwd || '未知'}
+          </div>
+          <label className="settings-prompt-toggle" data-testid="settings-show-injected-toggle">
+            <div className="settings-prompt-toggle-copy">
+              <span className="settings-prompt-toggle-title">聊天区显示自动注入内容（调试）</span>
+              <span className="settings-prompt-toggle-desc">开启后将保留首发消息里的“已注入 ...”段。</span>
+            </div>
+            <input
+              type="checkbox"
+              className="settings-prompt-toggle-input"
+              data-testid="settings-show-injected-toggle-input"
+              checked={showInjectedPromptInChat}
+              onChange={handleInjectedPromptVisibilityChange}
+              disabled={lspPromptLoading || showInjectedPromptSaving}
+            />
+          </label>
+          <div className="settings-prompt-meta">生效行数 {lspPromptLineCount} · 字符 {lspPromptCharCount}</div>
+          <div className="settings-prompt-label">当前生效内容（只读）</div>
+          <textarea
+            className="settings-prompt-textarea settings-prompt-textarea-readonly"
+            data-testid="settings-lsp-effective-output"
+            rows={12}
+            value={lspPromptDisplayHint}
+            readOnly
+          />
+          <div className="settings-prompt-label">自定义覆盖（可编辑，空=默认）</div>
+          <textarea
+            className="settings-prompt-textarea"
+            data-testid="settings-lsp-prompt-input"
+            rows={8}
+            value={lspPromptHint}
+            onChange={(e) => setLspPromptHint(e.target.value)}
+            placeholder={lspPromptDefaultHint || '请输入提示词'}
+            disabled={lspPromptLoading || lspPromptSaving}
+          />
+          {lspPromptNotice.message && (
+            <div className={`settings-prompt-notice is-${lspPromptNotice.level}`} data-testid="settings-lsp-prompt-notice">
+              {lspPromptNotice.message}
+            </div>
+          )}
+          <div className="settings-action-row settings-action-inline">
+            <button className="btn btn-secondary btn-toolbar-sm" data-testid="settings-lsp-refresh-button" onClick={loadLspPromptHint} disabled={lspPromptSaving}>刷新</button>
+            <button className="btn btn-secondary btn-toolbar-sm" data-testid="settings-lsp-copy-button" onClick={copyEffectivePromptHint} disabled={lspPromptLoading || lspPromptSaving}>复制生效提示词</button>
+            <button className="btn btn-secondary btn-toolbar-sm" data-testid="settings-lsp-reset-button" onClick={resetLspPromptHint} disabled={lspPromptLoading || lspPromptSaving}>恢复默认</button>
+            <button className="btn btn-primary btn-toolbar-sm" data-testid="settings-lsp-save-button" onClick={saveLspPromptHint} disabled={lspPromptLoading || lspPromptSaving}>
+              {lspPromptSaving ? '保存中...' : '保存提示词'}
+            </button>
+          </div>
         </div>
-      </Panel>
-      <Panel title="PROVIDER">
-        <div className="form-grid">
-          <label>Active Provider<select value={form.activeProvider} onChange={updateForm('activeProvider')}><option value="codex">Codex</option><option value="claude">Claude</option></select></label>
-          <label>Provider Model<input value={form.providerModel} onChange={updateForm('providerModel')} /></label>
-          <label>Provider Effort<input value={form.providerEffort} onChange={updateForm('providerEffort')} /></label>
-          <label>Codex Home<input value={form.codexHome} onChange={updateForm('codexHome')} /></label>
-          <label>Instance Key<input value={form.codexInstanceKey} onChange={updateForm('codexInstanceKey')} /></label>
-          <label>Model Provider<input value={form.codexModelProvider} onChange={updateForm('codexModelProvider')} /></label>
-          <label>Sandbox Policy<select value={form.sandboxPolicy} onChange={updateForm('sandboxPolicy')}><option value="workspaceWrite">workspaceWrite</option><option value="readOnly">readOnly</option><option value="dangerFullAccess">dangerFullAccess</option></select></label>
-          <label className="checkbox-line"><input type="checkbox" checked={form.networkAccess} onChange={updateForm('networkAccess')} /> Network Access</label>
-          <label className="wide">Writable Roots<textarea value={form.writableRoots} onChange={updateForm('writableRoots')} placeholder="每行一个绝对路径" /></label>
+
+        {/* Model Built-in capabilities Section */}
+        <div className="section-header">模型内置能力</div>
+        <div className="data-card-vue" data-testid="settings-builtin-tools-card">
+          <div className="data-row-vue">
+            <strong>内置能力开关</strong>
+            <span data-testid="settings-builtin-tools-summary">
+              {builtinToolsLoading ? '加载中...' : `已管控 ${filteredCount} / ${totalToolCount}`}
+            </span>
+          </div>
+          <div className="settings-prompt-desc">
+            默认管控与本项目文件、命令、编排、计划、权限、插件管理重复，或会绕过项目治理的能力。
+          </div>
+          {builtinTools.length === 0 && !builtinToolsLoading ? (
+            <div className="settings-log-empty" data-testid="settings-builtin-tools-empty">暂无可配置的内置工具</div>
+          ) : (
+            <div className="settings-builtin-tool-groups" data-testid="settings-builtin-tools-groups">
+              {groups.map((group) => {
+                const isOpen = isOpenGroup(group.key);
+                return (
+                  <section
+                    key={group.key}
+                    className="settings-builtin-tool-group"
+                    data-testid={`settings-builtin-tool-group-${group.key}`}
+                  >
+                    <button
+                      type="button"
+                      className="settings-builtin-tool-group-head"
+                      data-testid={`settings-builtin-tool-group-head-${group.key}`}
+                      aria-expanded={isOpen ? 'true' : 'false'}
+                      onClick={() => toggleGroupExpanded(group.key)}
+                    >
+                      <span className={`settings-builtin-tool-group-chevron ${isOpen ? 'is-open' : ''}`}>▸</span>
+                      <span className="settings-builtin-tool-group-name">{group.label}</span>
+                      <span className="settings-builtin-tool-group-summary">{groupSummary(group)}</span>
+                    </button>
+                    {isOpen && (
+                      <div className="settings-builtin-tool-group-body">
+                        {group.note && (
+                          <p className="settings-builtin-tool-group-note" data-testid={`settings-builtin-tool-group-note-${group.key}`}>
+                            {group.note}
+                          </p>
+                        )}
+                        {group.tools.map((tool) => (
+                          <label
+                            key={tool.id}
+                            className={`settings-prompt-toggle ${(!tool.enabled || tool.replacedBy) ? 'is-disabled-tool' : ''}`}
+                            data-testid={`settings-builtin-tool-${tool.id}`}
+                          >
+                            <div className="settings-prompt-toggle-copy">
+                              <span className="settings-prompt-toggle-title">{tool.label}</span>
+                              <span className="settings-prompt-toggle-desc">{toolMetaText(tool)}</span>
+                            </div>
+                            <input
+                              type="checkbox"
+                              className="settings-prompt-toggle-input"
+                              data-testid={`settings-builtin-tool-input-${tool.id}`}
+                              checked={!tool.enabled || !!tool.replacedBy}
+                              disabled={!!tool.replacedBy || Boolean(builtinSavingIds[tool.id])}
+                              onChange={() => toggleBuiltinTool(tool)}
+                            />
+                          </label>
+                        ))}
+                      </div>
+                    )}
+                  </section>
+                );
+              })}
+            </div>
+          )}
+          {builtinToolsNotice.message && (
+            <div className={`settings-prompt-notice is-${builtinToolsNotice.level}`} data-testid="settings-builtin-tools-notice">
+              {builtinToolsNotice.message}
+            </div>
+          )}
         </div>
-        <div className="settings-actions"><button type="button" onClick={() => void saveProviderSettings()}>保存 Provider 设置</button></div>
-      </Panel>
-      {status ? <p className="settings-status">{status}</p> : null}
-      {error ? <p className="danger-text" role="alert">{error}</p> : null}
+
+        {/* UI LOG Section */}
+        <div className="section-header">UI LOG</div>
+        <div className="data-card-vue settings-log-card" data-testid="settings-log-card">
+          <div className="data-row-vue">
+            <strong>日志级别</strong>
+            <span>{store.logLevel}</span>
+          </div>
+          <div className="settings-stall-row" style={{ marginTop: '8px', marginBottom: '12px' }}>
+            <select
+              className="settings-stall-input"
+              data-testid="settings-log-level-select"
+              style={{ width: '220px', textAlign: 'left' }}
+              value={store.logLevel}
+              onChange={(e) => store.setLogLevel(e.target.value)}
+            >
+              <option value="debug">debug（最详细）</option>
+              <option value="info">info（默认）</option>
+              <option value="warn">warn</option>
+              <option value="error">error（仅错误）</option>
+            </select>
+            <span className="settings-stall-unit">立即生效（跨 tab 同步）</span>
+          </div>
+          <div className="settings-action-row" style={{ marginTop: '0px', marginBottom: '8px' }}>
+            <button className="btn btn-secondary btn-toolbar-sm" data-testid="settings-log-refresh-button">刷新日志</button>
+          </div>
+          {logList.length === 0 ? (
+            <div className="settings-log-empty" data-testid="settings-log-empty">暂无日志</div>
+          ) : (
+            <div className="settings-log-list" data-testid="settings-log-list">
+              {logList.map((entry) => (
+                <div key={entry.seq || entry.id} className="settings-log-item">
+                  <span className="settings-log-time">{formatLogTime(entry.ts)}</span>
+                  <span className={`settings-log-level is-${entry.level}`}>{entry.level}</span>
+                  <span className="settings-log-event">{entry.scope}.{entry.event}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
     </section>
   );
-}
 
+  function isOpenGroup(key) {
+    return Boolean(builtinExpandedGroups[key]);
+  }
+}
 function Panel({ title, children }) {
   return (
     <section className="panel">
