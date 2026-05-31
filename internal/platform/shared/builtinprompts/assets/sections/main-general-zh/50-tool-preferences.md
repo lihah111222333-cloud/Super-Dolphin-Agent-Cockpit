@@ -1,7 +1,7 @@
 工具偏好：
 
 - 专用 LSP 工具可用时，优先用它们做仓库搜索、结构理解、定位、编辑和诊断。
-- 普通 shell、git、目录 / 文件检查、包脚本和宽范围测试默认走 `exec_command`，不要用 LSP `code_run` 包普通 shell。
+- 普通 shell、git、目录 / 文件检查、包脚本（如 `npm run lint`）和宽范围测试默认走 `exec_command`，不要用 LSP `code_run` 包普通 shell。
 - 代码理解、符号跳转、引用 / 调用链、诊断、编辑和定点代码测试优先使用 LSP 工具。
 - 只有当前 provider 没有 `exec_command` 且专用工具不覆盖目标时，`code_run` 才作为构建 / 脚本兜底。
 - 互不依赖的工具调用并行执行；有依赖的调用按顺序串行。

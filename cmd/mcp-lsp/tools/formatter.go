@@ -163,11 +163,12 @@ func formatLocations(val []protocol.LocationResult) string {
 		if loc == nil {
 			continue
 		}
+		path := format.URIToPath(loc.URI)
 		funcInfo := ""
 		if item.HasFuncRange() {
-			funcInfo = fmt.Sprintf(" [enclosing function: L%d-L%d]", item.FuncStart, item.FuncEnd)
+			funcInfo = fmt.Sprintf(" [func L%d-L%d]", item.FuncStart, item.FuncEnd)
 		}
-		fmt.Fprintf(&sb, "  [%d] %s:L%d:C%d%s\n", i+1, loc.URI, loc.Range.Start.Line, loc.Range.Start.Character, funcInfo)
+		fmt.Fprintf(&sb, "  [%d] %s:%d:%d%s\n", i+1, path, loc.Range.Start.Line, loc.Range.Start.Character, funcInfo)
 	}
 	return strings.TrimSpace(sb.String())
 }
@@ -179,7 +180,10 @@ func formatCallHierarchy(val []protocol.CallHierarchyResult) string {
 	var sb strings.Builder
 	sb.WriteString("Call Hierarchy:\n")
 	for _, item := range val {
-		sb.WriteString(fmt.Sprintf("- Function: `%s` [Kind %d] at %s:L%d\n", item.Item.Name, item.Item.Kind, item.Item.URI, item.Item.Range.Start.Line))
+		fmt.Fprintf(&sb, "- %s `%s` at %s:%d:%d\n",
+			symbolKindName(protocol.SymbolKind(item.Item.Kind)), item.Item.Name,
+			format.URIToPath(item.Item.URI),
+			item.Item.Range.Start.Line, item.Item.Range.Start.Character)
 		formatIncomingCalls(&sb, item.Incoming)
 		formatOutgoingCalls(&sb, item.Outgoing)
 	}
@@ -192,11 +196,12 @@ func formatIncomingCalls(sb *strings.Builder, incoming []protocol.CallHierarchyI
 	}
 	sb.WriteString("  Incoming Calls:\n")
 	for i, call := range incoming {
-		var ranges []string
-		for _, r := range call.FromRanges {
-			ranges = append(ranges, fmt.Sprintf("L%d", r.Start.Line))
-		}
-		sb.WriteString(fmt.Sprintf("    [%d] `%s` in %s:L%d (called from %s)\n", i+1, call.From.Name, call.From.URI, call.From.Range.Start.Line, strings.Join(ranges, ", ")))
+		path := format.URIToPath(call.From.URI)
+		ranges := callSiteRanges(path, call.FromRanges)
+		fmt.Fprintf(sb, "    [%d] %s `%s` at %s:%d:%d (call sites: %s)\n",
+			i+1, symbolKindName(protocol.SymbolKind(call.From.Kind)), call.From.Name,
+			path, call.From.Range.Start.Line, call.From.Range.Start.Character,
+			ranges)
 	}
 }
 
@@ -206,12 +211,26 @@ func formatOutgoingCalls(sb *strings.Builder, outgoing []protocol.CallHierarchyO
 	}
 	sb.WriteString("  Outgoing Calls:\n")
 	for i, call := range outgoing {
-		var ranges []string
-		for _, r := range call.FromRanges {
-			ranges = append(ranges, fmt.Sprintf("L%d", r.Start.Line))
-		}
-		sb.WriteString(fmt.Sprintf("    [%d] `%s` in %s:L%d (call site: %s)\n", i+1, call.To.Name, call.To.URI, call.To.Range.Start.Line, strings.Join(ranges, ", ")))
+		path := format.URIToPath(call.To.URI)
+		ranges := callSiteRanges(path, call.FromRanges)
+		fmt.Fprintf(sb, "    [%d] %s `%s` at %s:%d:%d (call sites: %s)\n",
+			i+1, symbolKindName(protocol.SymbolKind(call.To.Kind)), call.To.Name,
+			path, call.To.Range.Start.Line, call.To.Range.Start.Character,
+			ranges)
 	}
+}
+
+// callSiteRanges renders call ranges in path:line form so the LLM can
+// copy them directly into a follow-up file.read_file or inspect call.
+func callSiteRanges(path string, ranges []protocol.Range) string {
+	if len(ranges) == 0 {
+		return "(none)"
+	}
+	parts := make([]string, 0, len(ranges))
+	for _, r := range ranges {
+		parts = append(parts, fmt.Sprintf("%s:%d:%d", path, r.Start.Line, r.Start.Character))
+	}
+	return strings.Join(parts, ", ")
 }
 
 func formatTypeHierarchy(val []protocol.TypeHierarchyResult) string {
@@ -221,7 +240,10 @@ func formatTypeHierarchy(val []protocol.TypeHierarchyResult) string {
 	var sb strings.Builder
 	sb.WriteString("Type Hierarchy:\n")
 	for _, item := range val {
-		sb.WriteString(fmt.Sprintf("- Type: `%s` [Kind %d] at %s:L%d\n", item.Item.Name, item.Item.Kind, item.Item.URI, item.Item.Range.Start.Line))
+		fmt.Fprintf(&sb, "- %s `%s` at %s:%d:%d\n",
+			symbolKindName(protocol.SymbolKind(item.Item.Kind)), item.Item.Name,
+			format.URIToPath(item.Item.URI),
+			item.Item.Range.Start.Line, item.Item.Range.Start.Character)
 		formatSupertypes(&sb, item.Supertypes)
 		formatSubtypes(&sb, item.Subtypes)
 	}
@@ -234,7 +256,10 @@ func formatSupertypes(sb *strings.Builder, supertypes []protocol.TypeHierarchyIt
 	}
 	sb.WriteString("  Supertypes:\n")
 	for i, super := range supertypes {
-		sb.WriteString(fmt.Sprintf("    [%d] `%s` in %s:L%d\n", i+1, super.Name, super.URI, super.Range.Start.Line))
+		fmt.Fprintf(sb, "    [%d] %s `%s` at %s:%d:%d\n",
+			i+1, symbolKindName(protocol.SymbolKind(super.Kind)), super.Name,
+			format.URIToPath(super.URI),
+			super.Range.Start.Line, super.Range.Start.Character)
 	}
 }
 
@@ -244,7 +269,10 @@ func formatSubtypes(sb *strings.Builder, subtypes []protocol.TypeHierarchyItem) 
 	}
 	sb.WriteString("  Subtypes:\n")
 	for i, sub := range subtypes {
-		sb.WriteString(fmt.Sprintf("    [%d] `%s` in %s:L%d\n", i+1, sub.Name, sub.URI, sub.Range.Start.Line))
+		fmt.Fprintf(sb, "    [%d] %s `%s` at %s:%d:%d\n",
+			i+1, symbolKindName(protocol.SymbolKind(sub.Kind)), sub.Name,
+			format.URIToPath(sub.URI),
+			sub.Range.Start.Line, sub.Range.Start.Character)
 	}
 }
 
@@ -257,7 +285,7 @@ func formatDocumentOutline(val []protocol.DocumentSymbol) string {
 	var formatSymbol func(protocol.DocumentSymbol, int)
 	formatSymbol = func(s protocol.DocumentSymbol, depth int) {
 		indent := strings.Repeat("  ", depth)
-		sb.WriteString(fmt.Sprintf("%s- %s: `%s` (Range L%d-L%d)\n", indent, symbolKindName(s.Kind), s.Name, s.Range.Start.Line, s.Range.End.Line))
+		fmt.Fprintf(&sb, "%s- %s `%s` (L%d-L%d)\n", indent, symbolKindName(s.Kind), s.Name, s.Range.Start.Line, s.Range.End.Line)
 		for _, child := range s.Children {
 			formatSymbol(child, depth+1)
 		}
@@ -276,14 +304,21 @@ func formatWorkspaceSymbols(val []protocol.WorkspaceSymbolResult) string {
 	sb.WriteString("Workspace Symbol Search Results:\n")
 	for i, item := range val {
 		if si := item.SymbolInformation; si != nil {
-			sb.WriteString(fmt.Sprintf("  [%d] %s: `%s` in %s:L%d\n", i+1, symbolKindName(si.Kind), si.Name, format.URIToPath(si.Location.URI), si.Location.Range.Start.Line))
+			fmt.Fprintf(&sb, "  [%d] %s `%s` at %s:%d:%d\n",
+				i+1, symbolKindName(si.Kind), si.Name,
+				format.URIToPath(si.Location.URI),
+				si.Location.Range.Start.Line, si.Location.Range.Start.Character)
 		} else if ws := item.WorkspaceSymbol; ws != nil {
-			file, line, _, ok := format.LocationFromAny(ws.Location)
+			file, line, col, ok := format.LocationFromAny(ws.Location)
 			locStr := ""
 			if ok {
-				locStr = fmt.Sprintf(" in %s:L%d", file, line)
+				locStr = fmt.Sprintf(" at %s:%d:%d", file, line, col)
 			}
-			sb.WriteString(fmt.Sprintf("  [%d] Kind %d: `%s` (container: %s)%s\n", i+1, ws.Kind, ws.Name, ws.ContainerName, locStr))
+			containerStr := ""
+			if ws.ContainerName != "" {
+				containerStr = fmt.Sprintf(" (container: %s)", ws.ContainerName)
+			}
+			fmt.Fprintf(&sb, "  [%d] %s `%s`%s%s\n", i+1, symbolKindName(protocol.SymbolKind(ws.Kind)), ws.Name, containerStr, locStr)
 		}
 	}
 	return strings.TrimSpace(sb.String())

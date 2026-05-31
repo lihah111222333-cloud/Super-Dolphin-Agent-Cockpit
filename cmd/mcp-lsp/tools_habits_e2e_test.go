@@ -83,7 +83,7 @@ func TestToolsHabitsE2E_Inspect(t *testing.T) {
 	require.True(t, ok)
 	textOutput := contentList[0]["text"]
 	require.Contains(t, textOutput, "Locations Found:")
-	require.Contains(t, textOutput, "sample.go:L3:C6")
+	require.Contains(t, textOutput, filePath+":3:6")
 	require.NotContains(t, textOutput, `[{"uri":`)
 
 	// 2. Verify GUI-facing structured JSON follows the shared MCP object contract.
