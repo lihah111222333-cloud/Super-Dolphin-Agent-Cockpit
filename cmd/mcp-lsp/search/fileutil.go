@@ -393,6 +393,35 @@ func countNormalizedLines(content string) int {
 	return len(strings.Split(strings.ReplaceAll(content, "\r\n", "\n"), "\n"))
 }
 
+// resolveGoModCache returns the current GOMODCACHE path from environment.
+// Called per-walk (not cached) to support test isolation via t.Setenv.
+func resolveGoModCache() string {
+	if dir := os.Getenv("GOMODCACHE"); dir != "" {
+		return filepath.Clean(dir)
+	}
+	if gopath := os.Getenv("GOPATH"); gopath != "" {
+		return filepath.Join(gopath, "pkg", "mod")
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return ""
+	}
+	return filepath.Join(home, "go", "pkg", "mod")
+}
+
+// isInsideGoModCache checks if absPath is inside the Go module cache.
+func isInsideGoModCache(absPath string) bool {
+	cache := resolveGoModCache()
+	if cache != "" {
+		cleaned := filepath.Clean(absPath)
+		if strings.HasPrefix(cleaned, cache+string(filepath.Separator)) || cleaned == cache {
+			return true
+		}
+	}
+	slashed := filepath.ToSlash(absPath)
+	return strings.Contains(slashed, "/go/pkg/mod/")
+}
+
 func shouldSkipDir(name string) bool {
 	_, ok := skippedDirNames[strings.ToLower(strings.TrimSpace(name))]
 	return ok
