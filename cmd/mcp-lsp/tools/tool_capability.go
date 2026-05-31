@@ -53,6 +53,9 @@ func isImplementationInvalidTarget(err error) bool {
 	if strings.Contains(message, "not an implementation query target") {
 		return true
 	}
+	if strings.Contains(message, "function, not a method") {
+		return true
+	}
 	return strings.Contains(message, "implementation") &&
 		(strings.Contains(message, "not an interface") || strings.Contains(message, "not interface"))
 }
