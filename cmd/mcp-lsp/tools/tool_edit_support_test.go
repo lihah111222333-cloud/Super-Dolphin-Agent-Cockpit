@@ -190,7 +190,7 @@ func requireReplaceRangeResult(t *testing.T, got any) replaceRangeResult {
 	if !ok {
 		t.Fatalf("result type = %T, want replaceRangeResult", got)
 	}
-	if !result.Success || !result.Applied || result.Status != "applied" {
+	if result.Status != "applied" || !result.Persisted {
 		t.Fatalf("unexpected result: %#v", result)
 	}
 	if result.LSPSync {
@@ -432,7 +432,7 @@ func TestEditPureInsertionHunk(t *testing.T) {
 		t.Fatalf("pure insertion edit error: %v", err)
 	}
 	result := requireReplaceRangeResult(t, got)
-	if !result.Applied {
+	if result.Status != "applied" {
 		t.Fatalf("pure insertion not applied: %+v", result)
 	}
 	want := "package main\n\nimport (\n\t\"fmt\"\n)\n\nfunc main() {\n}\n"
@@ -461,7 +461,7 @@ func TestEditPureInsertionEOF(t *testing.T) {
 		t.Fatalf("pure insertion EOF edit error: %v", err)
 	}
 	result := requireReplaceRangeResult(t, got)
-	if !result.Applied {
+	if result.Status != "applied" {
 		t.Fatalf("pure insertion EOF not applied: %+v", result)
 	}
 	want := "package main\n\nfunc main() {\n}\n\nfunc helper() {}\n"

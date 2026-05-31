@@ -72,14 +72,22 @@ type functionContext struct {
 // diff-aware UI but no longer bloat the LLM-facing channel.
 func (r replaceRangeResult) ToPlainText() string {
 	base := r.editEnvelope.ToPlainText()
-	if !r.Success || !r.Applied {
+	if !strings.EqualFold(strings.TrimSpace(r.Status), "applied") {
 		return base
 	}
+	var sb strings.Builder
+	sb.WriteString(base)
+	if r.AffectedStartLine > 0 && r.FilePath != "" {
+		fmt.Fprintf(&sb, "\nApplied at: %s:%d-L%d\n", r.FilePath, r.AffectedStartLine, r.AffectedEndLine)
+	} else {
+		sb.WriteByte('\n')
+	}
+	appendMatchedByNotice(&sb, r.MatchedBy)
 	context := strings.TrimSpace(r.EditContext)
 	if context == "" {
-		return base
+		return strings.TrimSpace(sb.String())
 	}
-	return base + "\n\nEdit context:\n" + context
+	return strings.TrimSpace(sb.String()) + "\n\nEdit context:\n" + context
 }
 
 func (r replaceRangeFailure) ToPlainText() string {
@@ -172,12 +180,9 @@ func (h EditHandler) handleReplaceRange(ctx context.Context, req EditRequest) (a
 func (h EditHandler) buildNoChangeResult(manager lspmanager.Manager, path string, warning string) replaceRangeResult {
 	return replaceRangeResult{
 		editEnvelope: editEnvelope{
-			Success:              true,
 			Status:               "no_change",
 			Message:              "replacement did not change file content",
-			Applied:              false,
 			Persisted:            false,
-			RequiresApply:        false,
 			FilePath:             path,
 			Warning:              warning,
 			DiagnosticGeneration: managerDiagnosticGeneration(manager),
@@ -188,18 +193,12 @@ func (h EditHandler) buildNoChangeResult(manager lspmanager.Manager, path string
 func (h EditHandler) buildAppliedResult(path string, plan replacePlan, lspSync bool, warning string, functionCtx functionContext) replaceRangeResult {
 	return replaceRangeResult{
 		editEnvelope: editEnvelope{
-			Success:              true,
 			Status:               "applied",
 			Message:              "replacement applied",
-			Applied:              true,
 			AppliedCount:         1,
 			Persisted:            true,
-			RequiresApply:        false,
 			LSPSync:              lspSync,
-			MatchedBy:            plan.matchedBy,
 			FilePath:             path,
-			AffectedStartLine:    plan.affectedStartLine,
-			AffectedEndLine:      plan.affectedEndLine,
 			Warning:              warning,
 			DiagnosticGeneration: h.registry.CurrentDiagnosticGeneration(),
 		},

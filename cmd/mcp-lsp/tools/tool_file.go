@@ -28,7 +28,7 @@ const (
 	batchReadTruncatedHint     = "batch truncated; reduce file_paths or split into smaller read_file batches"
 )
 
-var errManagerUnavailable = errors.New("lsp manager is not configured")
+var errManagerUnavailable = errors.New("lsp manager is not configured; use read_file for content access or text_search for symbol lookup")
 
 type Config struct {
 	WorkspaceRoot string
@@ -78,21 +78,21 @@ type batchReadItem struct {
 	Error    string `json:"error,omitempty"`
 }
 type batchReadMeta struct {
-	Total          int    `json:"total"`
-	Showing        int    `json:"showing"`
 	ErrorCount     int    `json:"error_count"`
-	Truncated      bool   `json:"truncated,omitempty"`
 	RequestedCount int    `json:"requested_count,omitempty"`
 	MaxBatch       int    `json:"max_batch,omitempty"`
 	Dropped        int    `json:"dropped,omitempty"`
-	Hint           string `json:"hint,omitempty"`
 	Message        string `json:"message,omitempty"`
 }
 
 type batchReadResponse struct {
-	Success bool            `json:"success"`
-	Data    []batchReadItem `json:"data"`
-	Meta    batchReadMeta   `json:"meta"`
+	Success   bool            `json:"success"`
+	Data      []batchReadItem `json:"data"`
+	Total     int             `json:"total"`
+	Showing   int             `json:"showing"`
+	Truncated bool            `json:"truncated,omitempty"`
+	Hint      string          `json:"hint,omitempty"`
+	Meta      batchReadMeta   `json:"meta"`
 }
 type indexedBatchItem struct {
 	Index int
@@ -348,7 +348,13 @@ func (h handlerBase) readBatch(ctx context.Context, req readFileRequest) (batchR
 }
 
 func buildBatchReadPayload(items []indexedBatchItem, meta batchReadMeta) (batchReadResponse, error) {
-	resp := batchReadResponse{Success: true, Data: make([]batchReadItem, 0, len(items)), Meta: meta}
+	resp := batchReadResponse{
+		Success:   true,
+		Data:      make([]batchReadItem, 0, len(items)),
+		Total:     meta.RequestedCount,
+		Truncated: meta.Dropped > 0,
+		Meta:      meta,
+	}
 	var errs []error
 	for _, indexed := range items {
 		resp.Data = append(resp.Data, indexed.Item)
@@ -371,14 +377,12 @@ func trimBatchPaths(rawPaths []string) ([]string, batchReadMeta) {
 			trimmed = append(trimmed, value)
 		}
 	}
-	meta := batchReadMeta{Total: len(trimmed), RequestedCount: len(trimmed)}
+	meta := batchReadMeta{RequestedCount: len(trimmed)}
 	if len(trimmed) <= lspReadFileBatchMax {
 		return trimmed, meta
 	}
 	meta.MaxBatch = lspReadFileBatchMax
 	meta.Dropped = len(trimmed) - lspReadFileBatchMax
-	meta.Truncated = true
-	meta.Hint = batchReadTruncatedHint
 	meta.Message = fmt.Sprintf("read_file batch capped at %d files", lspReadFileBatchMax)
 	return trimmed[:lspReadFileBatchMax], meta
 }
@@ -389,7 +393,7 @@ func encodeBatchReadPayload(resp batchReadResponse) batchReadResponse {
 		return resp
 	}
 
-	resp.Meta.Truncated = true
+	resp.Truncated = true
 	for _, budget := range []int{2048, 1024, 512, 256} {
 		candidate := cloneBatchResponse(resp)
 		applyBatchContentLimit(&candidate, budget)
@@ -414,9 +418,9 @@ func encodeBatchReadPayload(resp batchReadResponse) batchReadResponse {
 }
 
 func finalizeBatchMeta(resp *batchReadResponse) {
-	resp.Meta.Showing = len(resp.Data)
-	if resp.Meta.Total < len(resp.Data) {
-		resp.Meta.Total = len(resp.Data)
+	resp.Showing = len(resp.Data)
+	if resp.Total < len(resp.Data) {
+		resp.Total = len(resp.Data)
 	}
 	resp.Meta.ErrorCount = 0
 	for _, item := range resp.Data {
@@ -425,8 +429,8 @@ func finalizeBatchMeta(resp *batchReadResponse) {
 		}
 		resp.Meta.ErrorCount++
 	}
-	if resp.Meta.Truncated && resp.Meta.Hint == "" {
-		resp.Meta.Hint = batchReadTruncatedHint
+	if resp.Truncated && resp.Hint == "" {
+		resp.Hint = batchReadTruncatedHint
 	}
 }
 
@@ -520,11 +524,11 @@ func (r openFileResult) ToPlainText() string {
 
 func (r batchReadResponse) ToPlainText() string {
 	var sb strings.Builder
-	successCount := r.Meta.Showing - r.Meta.ErrorCount
+	successCount := r.Showing - r.Meta.ErrorCount
 	if successCount < 0 {
 		successCount = 0
 	}
-	sb.WriteString(fmt.Sprintf("Batch Read Results: success=%t (showing %d of %d requested; %d succeeded)\n", r.Success, r.Meta.Showing, r.Meta.Total, successCount))
+	sb.WriteString(fmt.Sprintf("Batch Read Results: success=%t (showing %d of %d requested; %d succeeded)\n", r.Success, r.Showing, r.Total, successCount))
 	if r.Meta.Message != "" {
 		sb.WriteString(fmt.Sprintf("Message: %s\n", r.Meta.Message))
 	}
@@ -540,7 +544,7 @@ func (r batchReadResponse) ToPlainText() string {
 		fmt.Fprintf(&sb, "\n===== END %s =====\n\n", item.FilePath)
 	}
 
-	if r.Meta.Truncated || r.Meta.Dropped > 0 {
+	if r.Truncated || r.Meta.Dropped > 0 {
 		sb.WriteString("Warning: batch payload was truncated due to batch limits.\n")
 	}
 

@@ -75,7 +75,7 @@ var lspGrepSchema = objectSchema(map[string]schema{
 	"glob":           stringProp("Glob filter (text_search only)"),
 	"language":       stringProp("Language for AST"),
 	"regex":          booleanProp("Regex mode (default literal)"),
-	"case_sensitive": booleanProp("Case sensitive (text_search only)"),
+	"case_sensitive": booleanProp("Override smart-case (default: sensitive when query has uppercase, insensitive otherwise)"),
 	"max_results":    integerProp("Max matches (default 50, cap 50)"),
 	"work_dir":       lspWorkDirProp(),
 }, "action")
@@ -98,7 +98,6 @@ var lspGrepOutputSchema = schema{
 var lspStructureSchema = objectSchema(map[string]schema{
 	"action":      enumProp("Action", "document_symbol", "workspace_symbol"),
 	"file_path":   stringProp("File path (absolute or relative, auto-resolved). Path-only; no :line:column suffix."),
-	"path":        stringProp("Legacy alias for file_path"),
 	"query":       stringProp("Symbol query (workspace_symbol only)"),
 	"language":    stringProp("Language filter (workspace_symbol only)"),
 	"max_results": integerProp("Max results (default 20, cap 50)"),
@@ -109,7 +108,6 @@ var lspEditSchema = objectSchema(map[string]schema{
 	"action":    enumProp("Action (default: replace_range)", "replace_range", "rename", "code_action", "format"),
 	"file_path": stringProp("File path (absolute or relative, auto-resolved). Required for replace_range and format."),
 	"patch":     stringProp("Patch body for replace_range. Each non-header line starts with one prefix: ' '=context (use ' ' for blank context lines, never empty), '-'=remove, '+'=add. Pure-insertion: use ' ' context lines to anchor, then '+' lines only (no '-' needed). Example: \" import (\\n+\\t\\\"fmt\\\"\\n )\". Three accepted forms: (a) implicit single hunk = body only; (b) one explicit '@@ ...' header + body; (c) multiple '@@ ...' hunks."),
-	"version":   integerProp("LSP didChange version counter; let the server default (2) unless you are stitching a specific edit chain."),
 	"pos":       stringProp("Position as 'file_path:line:column' for rename/code_action (example internal/foo.go:42:9)."),
 	"new_name":  stringProp("New symbol name (rename only)."),
 	"only":      arrayOfStringsProp("Code action kinds filter (code_action only, e.g. [\"quickfix\", \"refactor\"])."),

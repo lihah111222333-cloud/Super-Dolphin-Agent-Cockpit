@@ -25,7 +25,7 @@ type grepToolInput struct {
 	Glob          string `json:"glob,omitempty"`
 	Language      string `json:"language,omitempty"`
 	Regex         bool   `json:"regex,omitempty"`
-	CaseSensitive bool   `json:"case_sensitive,omitempty"`
+	CaseSensitive *bool  `json:"case_sensitive,omitempty"`
 	MaxResults    int    `json:"max_results,omitempty"`
 }
 

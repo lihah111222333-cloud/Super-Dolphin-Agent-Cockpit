@@ -44,6 +44,78 @@ func TestSearchTextCapsLineSnippet(t *testing.T) {
 	}
 }
 
+func TestSearchTextSmartCaseDefault(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "sample.txt")
+	if err := os.WriteFile(path, []byte("needle\nNeedle\n"), 0o600); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
+
+	lowerMatches, err := SearchText(context.Background(), TextSearchOptions{
+		Root:         root,
+		Path:         path,
+		Query:        "needle",
+		MaxFileBytes: 1024,
+	})
+	if err != nil {
+		t.Fatalf("SearchText lowercase error: %v", err)
+	}
+	if len(lowerMatches) != 2 {
+		t.Fatalf("lowercase smart-case matches = %d, want 2", len(lowerMatches))
+	}
+
+	upperMatches, err := SearchText(context.Background(), TextSearchOptions{
+		Root:         root,
+		Path:         path,
+		Query:        "Needle",
+		MaxFileBytes: 1024,
+	})
+	if err != nil {
+		t.Fatalf("SearchText uppercase error: %v", err)
+	}
+	if len(upperMatches) != 1 || upperMatches[0].Text != "Needle" {
+		t.Fatalf("uppercase smart-case matches = %#v, want exact-case Needle only", upperMatches)
+	}
+}
+
+func TestSearchTextCaseSensitiveOverride(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "sample.txt")
+	if err := os.WriteFile(path, []byte("needle\nNeedle\n"), 0o600); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
+
+	insensitive := false
+	insensitiveMatches, err := SearchText(context.Background(), TextSearchOptions{
+		Root:          root,
+		Path:          path,
+		Query:         "Needle",
+		CaseSensitive: &insensitive,
+		MaxFileBytes:  1024,
+	})
+	if err != nil {
+		t.Fatalf("SearchText explicit insensitive error: %v", err)
+	}
+	if len(insensitiveMatches) != 2 {
+		t.Fatalf("explicit insensitive matches = %d, want 2", len(insensitiveMatches))
+	}
+
+	sensitive := true
+	sensitiveMatches, err := SearchText(context.Background(), TextSearchOptions{
+		Root:          root,
+		Path:          path,
+		Query:         "needle",
+		CaseSensitive: &sensitive,
+		MaxFileBytes:  1024,
+	})
+	if err != nil {
+		t.Fatalf("SearchText explicit sensitive error: %v", err)
+	}
+	if len(sensitiveMatches) != 1 || sensitiveMatches[0].Text != "needle" {
+		t.Fatalf("explicit sensitive matches = %#v, want exact-case needle only", sensitiveMatches)
+	}
+}
+
 func TestWalkSearchEntryPropagatesWalkErr(t *testing.T) {
 	var results []SearchMatch
 	err := walkSearchEntry(context.Background(), "/repo", "/repo/a.go", "", 1024, literalMatcher("x"), &results, nil, errors.New("walk boom"))
