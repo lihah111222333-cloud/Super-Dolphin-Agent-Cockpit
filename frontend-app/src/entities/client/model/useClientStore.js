@@ -617,7 +617,16 @@ const baseState = {
   providerConfig: normalizeProviderRuntimeConfig({}, DEFAULT_PROVIDER),
   permission: '完全访问权限',
   activePage: 'chat',
+  promptRevision: 0,
+  promptPageCacheByCwd: {},
+  workflowRevision: 0,
+  workflowPageCacheByCwd: {},
   skillRevision: 0,
+  skillPageCacheByCwd: {},
+  sharedFilesRevision: 0,
+  sharedFilesPageCacheByCwd: {},
+  memoryRevision: 0,
+  memoryPageCacheByCwd: {},
   threads: [],
   statuses: {},
   activeThreadId: '',
@@ -1012,6 +1021,36 @@ export const useClientStore = create((set, get) => {
       set((state) => ({ skillRevision: state.skillRevision + 1 }));
       return;
     }
+    if (
+      eventName === 'ui/shared-files/changed'
+      || eventName === 'shared-files/changed'
+      || eventName === 'shared_file/changed'
+    ) {
+      set((state) => ({ sharedFilesRevision: state.sharedFilesRevision + 1 }));
+      return;
+    }
+    if (eventName === 'ui/memory/changed' || eventName === 'memory/changed') {
+      set((state) => ({ memoryRevision: state.memoryRevision + 1 }));
+      return;
+    }
+    if (
+      eventName === 'prompts/changed'
+      || eventName === 'prompt-assets/changed'
+      || eventName === 'ui/prompts/changed'
+      || (eventName === 'ui/preferences/changed' && normalizeString(payload.key) === ACTIVE_PROMPT_PREF_KEY)
+    ) {
+      set((state) => ({ promptRevision: state.promptRevision + 1 }));
+      return;
+    }
+    if (
+      eventName === 'task/node/statuschanged'
+      || eventName === 'cron/job/runstatechanged'
+      || eventName === 'task/dag/changed'
+      || eventName === 'dags/changed'
+    ) {
+      set((state) => ({ workflowRevision: state.workflowRevision + 1 }));
+      return;
+    }
     if (method === 'ui/thread/patch') {
       applyBridgePatch(method, payload);
       return;
@@ -1137,6 +1176,88 @@ export const useClientStore = create((set, get) => {
     },
 
     setActivePage: (activePage) => set({ activePage }),
+    setPromptPageCache: (cwd, patch = {}) => {
+      const key = normalizeString(cwd);
+      if (!key) return;
+      set((state) => ({
+        promptPageCacheByCwd: {
+          ...state.promptPageCacheByCwd,
+          [key]: {
+            items: [],
+            activePromptId: '',
+            fallbackMode: false,
+            hasLoadedPrompts: false,
+            ...(state.promptPageCacheByCwd?.[key] || {}),
+            ...patch,
+          },
+        },
+      }));
+    },
+    setWorkflowPageCache: (cwd, patch = {}) => {
+      const key = normalizeString(cwd);
+      if (!key) return;
+      set((state) => ({
+        workflowPageCacheByCwd: {
+          ...state.workflowPageCacheByCwd,
+          [key]: {
+            items: [],
+            selectedDagKey: '',
+            detailsByDagKey: {},
+            hasLoadedDags: false,
+            ...(state.workflowPageCacheByCwd?.[key] || {}),
+            ...patch,
+          },
+        },
+      }));
+    },
+    setSkillPageCache: (cwd, patch = {}) => {
+      const key = normalizeString(cwd);
+      if (!key) return;
+      set((state) => ({
+        skillPageCacheByCwd: {
+          ...state.skillPageCacheByCwd,
+          [key]: {
+            items: [],
+            resolutionConflicts: [],
+            hasLoadedSkills: false,
+            ...(state.skillPageCacheByCwd?.[key] || {}),
+            ...patch,
+          },
+        },
+      }));
+    },
+    setSharedFilesPageCache: (cwd, patch = {}) => {
+      const key = normalizeString(cwd);
+      if (!key) return;
+      set((state) => ({
+        sharedFilesPageCacheByCwd: {
+          ...state.sharedFilesPageCacheByCwd,
+          [key]: {
+            files: [],
+            finalOutputRefs: [],
+            retention: { items: [], protectedCount: 0, cleanupCandidateCount: 0 },
+            hasLoadedFiles: false,
+            ...(state.sharedFilesPageCacheByCwd?.[key] || {}),
+            ...patch,
+          },
+        },
+      }));
+    },
+    setMemoryPageCache: (cwd, patch = {}) => {
+      const key = normalizeString(cwd);
+      if (!key) return;
+      set((state) => ({
+        memoryPageCacheByCwd: {
+          ...state.memoryPageCacheByCwd,
+          [key]: {
+            snapshot: { overview: {}, entries: [] },
+            hasLoadedMemory: false,
+            ...(state.memoryPageCacheByCwd?.[key] || {}),
+            ...patch,
+          },
+        },
+      }));
+    },
     setDraft: (draft) => set({ draft }),
     setPermission: (permission) => set({ permission }),
     setRightPanelWidth: (rightPanelWidth) => set({ rightPanelWidth }),

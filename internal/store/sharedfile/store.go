@@ -4,7 +4,11 @@ import (
 	"context"
 	"errors"
 	"io/fs"
+	"strings"
+	"time"
 
+	shareddto "github.com/anthropic-ai/super-agent-v3/internal/dto/shared"
+	uidto "github.com/anthropic-ai/super-agent-v3/internal/dto/ui"
 	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
 	sharedfilefs "github.com/anthropic-ai/super-agent-v3/internal/platform/sharedfilefs"
 	sharedfilegitignore "github.com/anthropic-ai/super-agent-v3/internal/platform/sharedfilegitignore"
@@ -24,14 +28,19 @@ type querier interface {
 }
 
 type store struct {
-	q   querier
-	cfg sharedfilefs.Config
+	q                      querier
+	cfg                    sharedfilefs.Config
+	emitSharedFilesChanged func(uidto.UISharedFilesChanged)
 }
 
 func NewStore(q *sqlc.Queries) Store { return &store{q: q} }
 
 func NewStoreWithConfig(q *sqlc.Queries, cfg sharedfilefs.Config) Store {
 	return &store{q: q, cfg: cfg}
+}
+
+func NewStoreWithConfigAndEmitter(q *sqlc.Queries, cfg sharedfilefs.Config, emit func(uidto.UISharedFilesChanged)) Store {
+	return &store{q: q, cfg: cfg, emitSharedFilesChanged: emit}
 }
 
 func (s *store) Get(ctx context.Context, path string) (*SharedFile, error) {
@@ -93,6 +102,7 @@ func (s *store) Upsert(ctx context.Context, params UpsertParams) (*SharedFile, e
 	if mapped.Content == "" && len(params.Content) > 0 {
 		mapped.Content = params.Content
 	}
+	s.publishSharedFilesChanged("write", mapped.Path)
 	return &mapped, nil
 }
 
@@ -113,6 +123,9 @@ func (s *store) Delete(ctx context.Context, path string) (int64, error) {
 		if removeErr := sharedfilefs.RemoveDisk(abs); removeErr != nil {
 			return count, platformdb.WrapStoreError(removeErr, "delete", "shared_file")
 		}
+	}
+	if count > 0 {
+		s.publishSharedFilesChanged("delete", cleaned)
 	}
 	return count, nil
 }
@@ -173,4 +186,19 @@ func fromSQLCListRow(row sqlc.SharedFile) SharedFile {
 		CreatedAt: row.CreatedAt,
 		UpdatedAt: row.UpdatedAt,
 	}
+}
+
+func (s *store) publishSharedFilesChanged(action, path string) {
+	if s == nil || s.emitSharedFilesChanged == nil {
+		return
+	}
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return
+	}
+	s.emitSharedFilesChanged(uidto.UISharedFilesChanged{
+		EventHeader: shareddto.EventHeader{Timestamp: time.Now()},
+		Path:        path,
+		Action:      strings.TrimSpace(action),
+	})
 }

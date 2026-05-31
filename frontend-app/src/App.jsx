@@ -67,6 +67,7 @@ const DAG_CATEGORIES = Object.freeze([
 const STARTABLE_DAG_STATUSES = new Set(['draft', 'ready']);
 const STARTABLE_DAG_TRIGGERS = new Set(['manual', 'scheduled', 'schedule', 'cron', '']);
 const RUNNING_RUN_STATUSES = new Set(['running', 'pending', 'dispatching', 'waiting_for_assignee']);
+const WORKFLOW_AUTO_REFRESH_MS = 4000;
 const SHARED_FILE_CATEGORIES = Object.freeze([
   { key: 'all', label: '全部' },
   { key: 'final', label: '最终产物' },
@@ -77,6 +78,10 @@ const SHARED_FILE_SORTS = Object.freeze([
   { key: 'updated-asc', label: '最早更新' },
   { key: 'path-asc', label: '按文件名' },
 ]);
+const SHARED_FILES_AUTO_REFRESH_MS = 4000;
+const MEMORY_AUTO_REFRESH_MS = 4000;
+const SKILLS_AUTO_REFRESH_MS = 4000;
+const SKILLS_REQUEST_TIMEOUT_MS = 8000;
 const MEMORY_CATEGORIES = Object.freeze([
   { key: 'preference', label: '偏好' },
   { key: 'project', label: '项目' },
@@ -88,17 +93,9 @@ const MEMORY_TYPE_INFO = Object.freeze({
   project: { category: 'project', label: '项目' },
   reference: { category: 'project', label: '项目' },
 });
-const MEMORY_SCOPE_LABELS = Object.freeze({
-  private: '私有',
-  team: '团队',
-});
 const MEMORY_EDITOR_TYPES = Object.freeze([
   { key: 'feedback', label: '偏好' },
   { key: 'project', label: '项目' },
-]);
-const MEMORY_EDITOR_TARGETS = Object.freeze([
-  { key: 'private', label: '私有' },
-  { key: 'team', label: '团队' },
 ]);
 
 
@@ -106,6 +103,16 @@ function projectDisplayName(path) {
   const value = (path || '').toString().trim();
   if (!value || value === '未选择项目') return '未选择项目';
   return value.split(/[\\/]/).filter(Boolean).pop() || value;
+}
+
+function withTimeout(promise, timeoutMs, message) {
+  let timeoutID;
+  const timeout = new Promise((_, reject) => {
+    timeoutID = globalThis.setTimeout(() => reject(new Error(message)), timeoutMs);
+  });
+  return Promise.race([promise, timeout]).finally(() => {
+    if (timeoutID) globalThis.clearTimeout(timeoutID);
+  });
 }
 
 function normalizeProjectPath(path) {
@@ -661,7 +668,38 @@ function memoryTemplateForType(type) {
   }
 }
 
-function defaultMemoryForm(type = 'project', target = 'private') {
+function memoryTargetForType(type) {
+  return textValue(type) === 'project' ? 'team' : 'private';
+}
+
+function memorySlugText(value) {
+  return textValue(value)
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 48);
+}
+
+function memoryNameHash(value) {
+  let hash = 5381;
+  const text = textValue(value);
+  for (let index = 0; index < text.length; index += 1) {
+    hash = ((hash << 5) + hash + text.charCodeAt(index)) >>> 0;
+  }
+  return hash.toString(36);
+}
+
+function memoryAutoName(form) {
+  const existing = textValue(form?.name);
+  if (existing) return existing;
+  const type = textValue(form?.type) || 'project';
+  const base = firstText(form?.title, form?.description, form?.content, type);
+  const slug = memorySlugText(base);
+  if (slug) return slug;
+  return `${type}-${memoryNameHash(base)}`;
+}
+
+function defaultMemoryForm(type = 'project', target = memoryTargetForType(type)) {
   return {
     target,
     existingPath: '',
@@ -708,7 +746,6 @@ function normalizeMemoryEntry(raw, index, target) {
   return {
     id: `${target}:${path}:${index}`,
     target,
-    scope: MEMORY_SCOPE_LABELS[target] || target,
     path,
     type,
     category: typeInfo.category,
@@ -1729,6 +1766,7 @@ function App({ skipBootstrap = false }) {
   const bootstrap = store.bootstrap;
   const addWarning = store.addWarning;
   const [memorySimilarCount, setMemorySimilarCount] = useState(0);
+  const memoryRevision = Number(store.memoryRevision || 0);
 
   useEffect(() => {
     if (skipBootstrap) return undefined;
@@ -1764,7 +1802,7 @@ function App({ skipBootstrap = false }) {
     return () => {
       cancelled = true;
     };
-  }, [addWarning, projectPath]);
+  }, [addWarning, memoryRevision, projectPath]);
 
   const updateMemorySimilarCount = useCallback((count) => {
     setMemorySimilarCount(Math.max(0, Number(count) || 0));
@@ -1780,10 +1818,10 @@ function App({ skipBootstrap = false }) {
         <NavRail activePage={store.activePage} setActivePage={store.setActivePage} memorySimilarCount={memorySimilarCount} />
         <main className="sa-main">
           {store.activePage === 'chat' ? <ChatPage store={store} projectPath={projectPath} /> : null}
-          {store.activePage === 'prompts' ? <PromptPage projectPath={projectPath} /> : null}
-          {store.activePage === 'workflows' ? <WorkflowPage projectPath={projectPath} store={store} /> : null}
+          {store.activePage === 'prompts' ? <PromptPage projectPath={projectPath} refreshKey={store.promptRevision} /> : null}
+          {store.activePage === 'workflows' ? <WorkflowPage projectPath={projectPath} store={store} refreshKey={store.workflowRevision} /> : null}
           {store.activePage === 'skills' ? <SkillsPage projectPath={projectPath} refreshKey={store.skillRevision} /> : null}
-          {store.activePage === 'memory' ? <MemoryPage projectPath={projectPath} onSimilarCountChange={updateMemorySimilarCount} /> : null}
+          {store.activePage === 'memory' ? <MemoryPage projectPath={projectPath} onSimilarCountChange={updateMemorySimilarCount} refreshKey={memoryRevision} /> : null}
           {store.activePage === 'files' ? <FilesPage projectPath={projectPath} store={store} /> : null}
           {store.activePage === 'settings' ? <SettingsPage projectPath={projectPath} /> : null}
           <span className="sr-only">当前页面：{activeLabel}</span>
@@ -2399,22 +2437,27 @@ function PageHeader({ icon: Icon, title, subtitle, actions }) {
   );
 }
 
-function PromptPage({ projectPath }) {
-  return <PromptPageView projectPath={projectPath} />;
+function PromptPage({ projectPath, refreshKey = 0 }) {
+  return <PromptPageView projectPath={projectPath} refreshKey={refreshKey} />;
 }
 
 
-function WorkflowPage({ projectPath, store }) {
-  const [items, setItems] = useState([]);
+function WorkflowPage({ projectPath, store, refreshKey = 0 }) {
+  const workflowCacheKey = normalizeSettingsCwd(projectPath);
+  const cachedWorkflowPage = useClientStore((state) => state.workflowPageCacheByCwd?.[workflowCacheKey]);
+  const setWorkflowPageCache = useClientStore((state) => state.setWorkflowPageCache);
+  const cachedSelectedDagKey = textValue(cachedWorkflowPage?.selectedDagKey);
+  const cachedSelectedDetail = cachedSelectedDagKey ? cachedWorkflowPage?.detailsByDagKey?.[cachedSelectedDagKey] : null;
+  const [items, setItems] = useState(() => (Array.isArray(cachedWorkflowPage?.items) ? cachedWorkflowPage.items : []));
   const [activeCategory, setActiveCategory] = useState(DAG_CATEGORIES[0].key);
   const [categoryManuallySelected, setCategoryManuallySelected] = useState(false);
-  const [selectedDagKey, setSelectedDagKey] = useState('');
-  const [detailDag, setDetailDag] = useState(null);
-  const [nodes, setNodes] = useState([]);
-  const [runs, setRuns] = useState([]);
-  const [activeRun, setActiveRun] = useState(null);
-  const [selectedRunKey, setSelectedRunKey] = useState('');
-  const [selectedRun, setSelectedRun] = useState(null);
+  const [selectedDagKey, setSelectedDagKey] = useState(() => cachedSelectedDagKey);
+  const [detailDag, setDetailDag] = useState(() => cachedSelectedDetail?.detailDag || null);
+  const [nodes, setNodes] = useState(() => (Array.isArray(cachedSelectedDetail?.nodes) ? cachedSelectedDetail.nodes : []));
+  const [runs, setRuns] = useState(() => (Array.isArray(cachedSelectedDetail?.runs) ? cachedSelectedDetail.runs : []));
+  const [activeRun, setActiveRun] = useState(() => cachedSelectedDetail?.activeRun || null);
+  const [selectedRunKey, setSelectedRunKey] = useState(() => textValue(cachedSelectedDetail?.selectedRunKey));
+  const [selectedRun, setSelectedRun] = useState(() => cachedSelectedDetail?.selectedRun || null);
   const [loading, setLoading] = useState(false);
   const [detailLoading, setDetailLoading] = useState(false);
   const [actioning, setActioning] = useState('');
@@ -2424,36 +2467,53 @@ function WorkflowPage({ projectPath, store }) {
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [scheduleOpen, setScheduleOpen] = useState(false);
   const [scheduleCron, setScheduleCron] = useState('0 8 * * *');
+  const hasLoadedDagsRef = useRef(Boolean(cachedWorkflowPage?.hasLoadedDags));
   const selectedDagKeyRef = useRef(selectedDagKey);
+  const selectedRunKeyRef = useRef(selectedRunKey);
+  const autoRefreshInFlightRef = useRef(false);
+  const workflowRefreshKey = Number(refreshKey || 0);
 
   const refreshDags = useCallback(async (options = {}) => {
     const isCancelled = typeof options.isCancelled === 'function' ? options.isCancelled : () => false;
-    setLoading(true);
-    setError('');
+    const silent = options.silent === true;
+    const cached = useClientStore.getState().workflowPageCacheByCwd?.[workflowCacheKey];
+    const hasUsableSnapshot = hasLoadedDagsRef.current || Boolean(cached?.hasLoadedDags);
+    const showBlockingLoading = !silent && !hasUsableSnapshot;
+    if (showBlockingLoading) {
+      setLoading(true);
+      setError('');
+    } else if (!silent) {
+      setError('');
+    }
     try {
       const cwd = normalizeSettingsCwd(projectPath);
       const response = await getDashboardPage({ cwd, page: 'dags' });
       const nextItems = normalizeDagsResponse(response);
-      if (!isCancelled()) setItems(nextItems);
+      if (!isCancelled()) {
+        hasLoadedDagsRef.current = true;
+        setItems(nextItems);
+        setWorkflowPageCache(cwd, { items: nextItems, hasLoadedDags: true });
+      }
       return nextItems;
     } catch (err) {
       if (!isCancelled()) {
-        setItems([]);
-        setError(`加载任务流程失败：${err.message || String(err)}`);
+        if (showBlockingLoading) setItems([]);
+        if (!silent || !hasUsableSnapshot) setError(`加载任务流程失败：${err.message || String(err)}`);
       }
       return [];
     } finally {
-      if (!isCancelled()) setLoading(false);
+      if (!isCancelled() && showBlockingLoading) setLoading(false);
     }
-  }, [projectPath]);
+  }, [projectPath, setWorkflowPageCache, workflowCacheKey]);
 
   useEffect(() => {
     let cancelled = false;
-    refreshDags({ isCancelled: () => cancelled });
+    const cached = useClientStore.getState().workflowPageCacheByCwd?.[workflowCacheKey];
+    refreshDags({ isCancelled: () => cancelled, silent: Boolean(cached?.hasLoadedDags) });
     return () => {
       cancelled = true;
     };
-  }, [refreshDags]);
+  }, [refreshDags, workflowCacheKey]);
 
   const counts = useMemo(() => categoryCounts(items), [items]);
   const preferredCategory = useMemo(() => firstAvailableCategory(items), [items]);
@@ -2468,8 +2528,38 @@ function WorkflowPage({ projectPath, store }) {
 
   useEffect(() => {
     selectedDagKeyRef.current = selectedDagKey;
+    if (selectedDagKey) setWorkflowPageCache(workflowCacheKey, { selectedDagKey });
     setNotice(null);
-  }, [selectedDagKey]);
+  }, [selectedDagKey, setWorkflowPageCache, workflowCacheKey]);
+
+  useEffect(() => {
+    selectedRunKeyRef.current = selectedRunKey;
+  }, [selectedRunKey]);
+
+  useEffect(() => {
+    const cached = useClientStore.getState().workflowPageCacheByCwd?.[workflowCacheKey];
+    const cachedKey = textValue(cached?.selectedDagKey);
+    const cachedDetail = cachedKey ? cached?.detailsByDagKey?.[cachedKey] : null;
+    hasLoadedDagsRef.current = Boolean(cached?.hasLoadedDags);
+    setItems(Array.isArray(cached?.items) ? cached.items : []);
+    setSelectedDagKey(cachedKey);
+    setDetailDag(cachedDetail?.detailDag || null);
+    setNodes(Array.isArray(cachedDetail?.nodes) ? cachedDetail.nodes : []);
+    setRuns(Array.isArray(cachedDetail?.runs) ? cachedDetail.runs : []);
+    setActiveRun(cachedDetail?.activeRun || null);
+    setSelectedRunKey(textValue(cachedDetail?.selectedRunKey));
+    setSelectedRun(cachedDetail?.selectedRun || null);
+    setLoading(false);
+    setDetailLoading(false);
+    setError('');
+    setNotice(null);
+  }, [workflowCacheKey]);
+
+  useEffect(() => {
+    if (!cachedWorkflowPage) return;
+    if (Array.isArray(cachedWorkflowPage.items)) setItems(cachedWorkflowPage.items);
+    if (cachedWorkflowPage.hasLoadedDags) hasLoadedDagsRef.current = true;
+  }, [cachedWorkflowPage]);
 
   const clearNotice = useCallback(() => {
     setNotice(null);
@@ -2518,8 +2608,15 @@ function WorkflowPage({ projectPath, store }) {
     const key = textValue(dagKey);
     if (!key) return;
     const isCancelled = typeof options.isCancelled === 'function' ? options.isCancelled : () => false;
-    setDetailLoading(true);
-    setError('');
+    const silent = options.silent === true;
+    const cachedDetail = useClientStore.getState().workflowPageCacheByCwd?.[workflowCacheKey]?.detailsByDagKey?.[key];
+    const showDetailLoading = !silent && !cachedDetail;
+    if (showDetailLoading) {
+      setDetailLoading(true);
+      setError('');
+    } else if (!silent) {
+      setError('');
+    }
     try {
       const [detailResponse, runsResponse, activeResponse] = await Promise.all([
         getDagDetail({ dagKey: key }),
@@ -2543,34 +2640,108 @@ function WorkflowPage({ projectPath, store }) {
         || runningRun?.runKey
         || nextRuns[0]?.runKey
         || '';
+      let loadedRun = null;
 
       setDetailDag(dag);
       setNodes(normalizedNodes);
       setRuns(nextRuns);
       setActiveRun(runningRun);
-      if (nextRunKey) await loadRunDetail(nextRunKey, { isCancelled });
+      if (nextRunKey) loadedRun = await loadRunDetail(nextRunKey, { isCancelled });
       else {
         setSelectedRunKey('');
         setSelectedRun(null);
       }
+      if (isCancelled()) return;
+      const currentDetails = useClientStore.getState().workflowPageCacheByCwd?.[workflowCacheKey]?.detailsByDagKey || {};
+      setWorkflowPageCache(workflowCacheKey, {
+        selectedDagKey: key,
+        detailsByDagKey: {
+          ...currentDetails,
+          [key]: {
+            detailDag: dag,
+            nodes: normalizedNodes,
+            runs: nextRuns,
+            activeRun: runningRun,
+            selectedRunKey: nextRunKey,
+            selectedRun: loadedRun,
+          },
+        },
+      });
     } catch (err) {
       if (!isCancelled()) {
-        setDetailDag(null);
-        setNodes([]);
-        setRuns([]);
-        setActiveRun(null);
-        setSelectedRun(null);
+        if (showDetailLoading) {
+          setDetailDag(null);
+          setNodes([]);
+          setRuns([]);
+          setActiveRun(null);
+          setSelectedRun(null);
+        }
         setError(`加载任务流程详情失败：${err.message || String(err)}`);
       }
     } finally {
-      if (!isCancelled()) setDetailLoading(false);
+      if (!isCancelled() && showDetailLoading) setDetailLoading(false);
     }
-  }, [items, loadRunDetail]);
+  }, [items, loadRunDetail, setWorkflowPageCache, workflowCacheKey]);
+
+  const refreshWorkflowSurface = useCallback(async (options = {}) => {
+    if (autoRefreshInFlightRef.current) return;
+    autoRefreshInFlightRef.current = true;
+    try {
+      await refreshDags(options);
+      const activeKey = selectedDagKeyRef.current;
+      if (activeKey) {
+        await refreshDetail(activeKey, selectedRunKeyRef.current, options);
+      }
+    } finally {
+      autoRefreshInFlightRef.current = false;
+    }
+  }, [refreshDags, refreshDetail]);
+
+  useEffect(() => {
+    if (workflowRefreshKey <= 0) return undefined;
+    let cancelled = false;
+    void refreshWorkflowSurface({ isCancelled: () => cancelled, silent: true });
+    return () => {
+      cancelled = true;
+    };
+  }, [refreshWorkflowSurface, workflowRefreshKey]);
+
+  useEffect(() => {
+    const runAutoRefresh = () => {
+      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
+      void refreshWorkflowSurface({ silent: true });
+    };
+    const handleVisibilityChange = () => {
+      if (typeof document === 'undefined' || document.visibilityState === 'visible') {
+        runAutoRefresh();
+      }
+    };
+    const intervalID = window.setInterval(runAutoRefresh, WORKFLOW_AUTO_REFRESH_MS);
+    window.addEventListener('focus', runAutoRefresh);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => {
+      window.clearInterval(intervalID);
+      window.removeEventListener('focus', runAutoRefresh);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [refreshWorkflowSurface]);
 
   useEffect(() => {
     let cancelled = false;
     if (selectedDagKey) {
-      refreshDetail(selectedDagKey, '', { isCancelled: () => cancelled });
+      const cachedDetail = useClientStore.getState().workflowPageCacheByCwd?.[workflowCacheKey]?.detailsByDagKey?.[selectedDagKey];
+      if (cachedDetail) {
+        setDetailDag(cachedDetail.detailDag || null);
+        setNodes(Array.isArray(cachedDetail.nodes) ? cachedDetail.nodes : []);
+        setRuns(Array.isArray(cachedDetail.runs) ? cachedDetail.runs : []);
+        setActiveRun(cachedDetail.activeRun || null);
+        setSelectedRunKey(textValue(cachedDetail.selectedRunKey));
+        setSelectedRun(cachedDetail.selectedRun || null);
+      }
+      refreshDetail(selectedDagKey, textValue(cachedDetail?.selectedRunKey), {
+        isCancelled: () => cancelled,
+        silent: Boolean(cachedDetail) || hasLoadedDagsRef.current,
+      });
     } else {
       setDetailDag(null);
       setNodes([]);
@@ -2582,7 +2753,7 @@ function WorkflowPage({ projectPath, store }) {
     return () => {
       cancelled = true;
     };
-  }, [refreshDetail, selectedDagKey]);
+  }, [refreshDetail, selectedDagKey, workflowCacheKey]);
 
   const activeDetailDag = detailDag || selectedDag;
   const dagKey = activeDetailDag?.dagKey || selectedDag?.dagKey || '';
@@ -2791,12 +2962,9 @@ function WorkflowPage({ projectPath, store }) {
         title="任务流程"
         subtitle={`当前项目：${projectPath}`}
         actions={(
-          <>
-            <button type="button" onClick={() => { void refreshDags(); }} disabled={loading}>刷新</button>
-            <button type="button" onClick={() => { void startDesignFlow(); }} disabled={actioning === 'design'}>
-              {actioning === 'design' ? '启动中...' : 'AI 设计流程'}
-            </button>
-          </>
+          <button type="button" onClick={() => { void startDesignFlow(); }} disabled={actioning === 'design'}>
+            {actioning === 'design' ? '启动中...' : 'AI 设计流程'}
+          </button>
         )}
       />
       <div className="workflow-grid">
@@ -3097,7 +3265,12 @@ function ConfirmDagDeleteModal({ dag, deleting, onClose, onConfirm }) {
 }
 
 function SkillsPage({ projectPath, refreshKey = 0 }) {
-  const [items, setItems] = useState([]);
+  const skillCacheKey = normalizeSettingsCwd(projectPath);
+  const cachedSkillPage = useClientStore((state) => state.skillPageCacheByCwd?.[skillCacheKey]);
+  const setSkillPageCache = useClientStore((state) => state.setSkillPageCache);
+  const [items, setItems] = useState(() => (
+    Array.isArray(cachedSkillPage?.items) ? cachedSkillPage.items : []
+  ));
   const [query, setQuery] = useState('');
   const [scopeFilter, setScopeFilter] = useState('all');
   const [loading, setLoading] = useState(false);
@@ -3114,41 +3287,67 @@ function SkillsPage({ projectPath, refreshKey = 0 }) {
   const [deleting, setDeleting] = useState(false);
   const [importScopeOpen, setImportScopeOpen] = useState(false);
   const [importing, setImporting] = useState(false);
-  const [resolutionConflicts, setResolutionConflicts] = useState([]);
-  const [resolutionLoading, setResolutionLoading] = useState(false);
+  const [resolutionConflicts, setResolutionConflicts] = useState(() => (
+    Array.isArray(cachedSkillPage?.resolutionConflicts)
+      ? cachedSkillPage.resolutionConflicts
+      : []
+  ));
   const [resolutionPreview, setResolutionPreview] = useState(null);
   const [resolutionNamePrompt, setResolutionNamePrompt] = useState(null);
   const [resolutionNameInput, setResolutionNameInput] = useState('');
   const [resolutionActioning, setResolutionActioning] = useState('');
+  const hasLoadedSkillsRef = useRef(Boolean(cachedSkillPage?.hasLoadedSkills));
+  const refreshInFlightRef = useRef(false);
+  const skillRefreshKey = Number(refreshKey || 0);
 
   const refreshSkills = useCallback(async (options = {}) => {
     const isCancelled = typeof options.isCancelled === 'function' ? options.isCancelled : () => false;
-    setLoading(true);
-    setError('');
-    setNotice('');
+    const silent = options.silent === true;
+    const cwd = normalizeSettingsCwd(projectPath);
+    const cached = useClientStore.getState().skillPageCacheByCwd?.[cwd];
+    const hasUsableSnapshot = hasLoadedSkillsRef.current || Boolean(cached?.hasLoadedSkills);
+    const showBlockingLoading = !silent && !hasUsableSnapshot;
+    if (showBlockingLoading) {
+      setLoading(true);
+      setError('');
+      setNotice('');
+    } else if (!silent) {
+      setError('');
+    }
     try {
-      const cwd = normalizeSettingsCwd(projectPath);
-      const response = await getDashboardPage({ cwd, page: 'skills' });
+      const response = await withTimeout(
+        getDashboardPage({ cwd, page: 'skills' }),
+        SKILLS_REQUEST_TIMEOUT_MS,
+        '技能列表加载超时，请检查技能目录或后端状态。',
+      );
       if (isCancelled()) return;
-      setItems(normalizeSkillsResponse(response));
+      const nextItems = normalizeSkillsResponse(response);
+      hasLoadedSkillsRef.current = true;
+      setItems(nextItems);
+      setSkillPageCache(cwd, { items: nextItems, hasLoadedSkills: true });
+      setError('');
     } catch (err) {
       if (isCancelled()) return;
-      setItems([]);
-      setError(err.message || String(err));
+      if (showBlockingLoading) setItems([]);
+      if (!silent || !hasUsableSnapshot) setError(err.message || String(err));
     } finally {
-      if (!isCancelled()) setLoading(false);
+      if (!isCancelled() && showBlockingLoading) setLoading(false);
     }
-  }, [projectPath]);
+  }, [projectPath, setSkillPageCache]);
 
   const refreshResolutions = useCallback(async (options = {}) => {
     const isCancelled = typeof options.isCancelled === 'function' ? options.isCancelled : () => false;
-    setResolutionLoading(true);
     try {
       const cwd = normalizeSettingsCwd(projectPath);
-      const response = await listSkillResolutions({ cwd });
+      const response = await withTimeout(
+        listSkillResolutions({ cwd }),
+        SKILLS_REQUEST_TIMEOUT_MS,
+        '技能冲突检查超时，请检查技能目录或后端状态。',
+      );
       if (!isCancelled()) {
         const conflicts = normalizeResolutionResponse(response);
         setResolutionConflicts(conflicts);
+        setSkillPageCache(cwd, { resolutionConflicts: conflicts });
         if (conflicts.length === 0) {
           setResolutionPreview(null);
           setResolutionNamePrompt(null);
@@ -3156,15 +3355,19 @@ function SkillsPage({ projectPath, refreshKey = 0 }) {
         }
       }
     } catch (err) {
-      if (!isCancelled()) setError(`读取技能冲突失败：${err.message || String(err)}`);
-    } finally {
-      if (!isCancelled()) setResolutionLoading(false);
+      if (!isCancelled() && options.silent !== true) setError(`读取技能冲突失败：${err.message || String(err)}`);
     }
-  }, [projectPath]);
+  }, [projectPath, setSkillPageCache]);
 
-  const refreshSkillSurface = useCallback(async () => {
-    await refreshSkills();
-    await refreshResolutions();
+  const refreshSkillSurface = useCallback(async (options = {}) => {
+    if (refreshInFlightRef.current) return;
+    refreshInFlightRef.current = true;
+    try {
+      await refreshSkills(options);
+      await refreshResolutions(options);
+    } finally {
+      refreshInFlightRef.current = false;
+    }
   }, [refreshResolutions, refreshSkills]);
 
   const openCreateEditor = useCallback(() => {
@@ -3473,13 +3676,59 @@ function SkillsPage({ projectPath, refreshKey = 0 }) {
   }, [refreshSkillSurface, resolutionPreview]);
 
   useEffect(() => {
+    const cached = useClientStore.getState().skillPageCacheByCwd?.[skillCacheKey];
+    hasLoadedSkillsRef.current = Boolean(cached?.hasLoadedSkills);
+    setItems(Array.isArray(cached?.items) ? cached.items : []);
+    setResolutionConflicts(Array.isArray(cached?.resolutionConflicts) ? cached.resolutionConflicts : []);
+    setLoading(false);
+    setError('');
+    setNotice('');
+  }, [skillCacheKey]);
+
+  useEffect(() => {
+    if (!cachedSkillPage) return;
+    if (Array.isArray(cachedSkillPage.items)) setItems(cachedSkillPage.items);
+    if (Array.isArray(cachedSkillPage.resolutionConflicts)) setResolutionConflicts(cachedSkillPage.resolutionConflicts);
+    if (cachedSkillPage.hasLoadedSkills) hasLoadedSkillsRef.current = true;
+  }, [cachedSkillPage]);
+
+  useEffect(() => {
     let cancelled = false;
-    refreshSkills({ isCancelled: () => cancelled });
-    refreshResolutions({ isCancelled: () => cancelled });
+    const cached = useClientStore.getState().skillPageCacheByCwd?.[skillCacheKey];
+    refreshSkillSurface({ isCancelled: () => cancelled, silent: Boolean(cached?.hasLoadedSkills) });
     return () => {
       cancelled = true;
     };
-  }, [refreshKey, refreshResolutions, refreshSkills]);
+  }, [refreshSkillSurface, skillCacheKey]);
+
+  useEffect(() => {
+    if (skillRefreshKey <= 0) return undefined;
+    let cancelled = false;
+    refreshSkillSurface({ isCancelled: () => cancelled, silent: true });
+    return () => {
+      cancelled = true;
+    };
+  }, [refreshSkillSurface, skillRefreshKey]);
+
+  useEffect(() => {
+    const runAutoRefresh = () => {
+      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
+      void refreshSkillSurface({ silent: true });
+    };
+    const handleVisibilityChange = () => {
+      if (typeof document === 'undefined' || document.visibilityState === 'visible') {
+        runAutoRefresh();
+      }
+    };
+    const intervalID = window.setInterval(runAutoRefresh, SKILLS_AUTO_REFRESH_MS);
+    window.addEventListener('focus', runAutoRefresh);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => {
+      window.clearInterval(intervalID);
+      window.removeEventListener('focus', runAutoRefresh);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [refreshSkillSurface]);
 
   const counts = useMemo(() => items.reduce((acc, item) => {
     acc.all += 1;
@@ -3515,7 +3764,6 @@ function SkillsPage({ projectPath, refreshKey = 0 }) {
       <PageHeader
         icon={Sparkles}
         title="技能管理"
-        actions={<button type="button" onClick={() => { void refreshSkillSurface(); }} disabled={loading || resolutionLoading}>刷新</button>}
       />
       <div className="subhead">技能列表</div>
       <div className="skills-toolbar">
@@ -3845,9 +4093,16 @@ function ImportScopeModal({ importing, onClose, onConfirm }) {
 }
 
 function FilesPage({ projectPath, store }) {
-  const [files, setFiles] = useState([]);
-  const [finalOutputRefs, setFinalOutputRefs] = useState([]);
-  const [retention, setRetention] = useState({ items: [], protectedCount: 0, cleanupCandidateCount: 0 });
+  const sharedFilesCacheKey = normalizeSettingsCwd(projectPath);
+  const cachedSharedFilesPage = useClientStore((state) => state.sharedFilesPageCacheByCwd?.[sharedFilesCacheKey]);
+  const setSharedFilesPageCache = useClientStore((state) => state.setSharedFilesPageCache);
+  const [files, setFiles] = useState(() => (Array.isArray(cachedSharedFilesPage?.files) ? cachedSharedFilesPage.files : []));
+  const [finalOutputRefs, setFinalOutputRefs] = useState(() => (
+    Array.isArray(cachedSharedFilesPage?.finalOutputRefs) ? cachedSharedFilesPage.finalOutputRefs : []
+  ));
+  const [retention, setRetention] = useState(() => (
+    cachedSharedFilesPage?.retention || { items: [], protectedCount: 0, cleanupCandidateCount: 0 }
+  ));
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState(null);
@@ -3860,6 +4115,9 @@ function FilesPage({ projectPath, store }) {
   const [exportingPath, setExportingPath] = useState('');
   const [deletingPath, setDeletingPath] = useState('');
   const [copied, setCopied] = useState(false);
+  const hasLoadedFilesRef = useRef(Boolean(cachedSharedFilesPage?.hasLoadedFiles));
+  const refreshInFlightRef = useRef(false);
+  const sharedFilesRevision = Number(store?.sharedFilesRevision || 0);
 
   const finalOutputByPath = useMemo(() => (
     new Map(finalOutputRefs.filter((ref) => files.some((file) => file.path === ref.path)).map((ref) => [ref.path, ref]))
@@ -3876,28 +4134,93 @@ function FilesPage({ projectPath, store }) {
     work: workCount,
   }), [files.length, finalCount, workCount]);
 
-  const refreshFiles = useCallback(async () => {
-    setLoading(true);
-    setError('');
+  const refreshFiles = useCallback(async ({ silent = false } = {}) => {
+    if (refreshInFlightRef.current) return;
+    refreshInFlightRef.current = true;
+    const cached = useClientStore.getState().sharedFilesPageCacheByCwd?.[sharedFilesCacheKey];
+    const hasUsableSnapshot = hasLoadedFilesRef.current || Boolean(cached?.hasLoadedFiles);
+    const showBlockingLoading = !silent && !hasUsableSnapshot;
+    if (showBlockingLoading) {
+      setLoading(true);
+      setError('');
+    } else if (!silent) {
+      setError('');
+    }
     try {
       const cwd = normalizeSettingsCwd(projectPath);
       const response = await getDashboardPage({ cwd, page: 'memory' });
       const normalized = normalizeSharedFilesResponse(response);
+      hasLoadedFilesRef.current = true;
       setFiles(normalized.files);
       setFinalOutputRefs(normalized.finalOutputRefs);
       setRetention(normalized.retention);
+      setSharedFilesPageCache(cwd, {
+        files: normalized.files,
+        finalOutputRefs: normalized.finalOutputRefs,
+        retention: normalized.retention,
+        hasLoadedFiles: true,
+      });
+      setError('');
     } catch (err) {
-      setFiles([]);
-      setFinalOutputRefs([]);
-      setRetention({ items: [], protectedCount: 0, cleanupCandidateCount: 0 });
-      setError(`加载共享文件失败：${err.message || String(err)}`);
+      if (showBlockingLoading) {
+        setFiles([]);
+        setFinalOutputRefs([]);
+        setRetention({ items: [], protectedCount: 0, cleanupCandidateCount: 0 });
+      }
+      if (!silent || !hasUsableSnapshot) setError(`加载共享文件失败：${err.message || String(err)}`);
     } finally {
-      setLoading(false);
+      refreshInFlightRef.current = false;
+      if (showBlockingLoading) setLoading(false);
     }
-  }, [projectPath]);
+  }, [projectPath, setSharedFilesPageCache, sharedFilesCacheKey]);
 
   useEffect(() => {
-    void refreshFiles();
+    const cached = useClientStore.getState().sharedFilesPageCacheByCwd?.[sharedFilesCacheKey];
+    hasLoadedFilesRef.current = Boolean(cached?.hasLoadedFiles);
+    setFiles(Array.isArray(cached?.files) ? cached.files : []);
+    setFinalOutputRefs(Array.isArray(cached?.finalOutputRefs) ? cached.finalOutputRefs : []);
+    setRetention(cached?.retention || { items: [], protectedCount: 0, cleanupCandidateCount: 0 });
+    setLoading(false);
+    setError('');
+    setNotice(null);
+  }, [sharedFilesCacheKey]);
+
+  useEffect(() => {
+    if (!cachedSharedFilesPage) return;
+    if (Array.isArray(cachedSharedFilesPage.files)) setFiles(cachedSharedFilesPage.files);
+    if (Array.isArray(cachedSharedFilesPage.finalOutputRefs)) setFinalOutputRefs(cachedSharedFilesPage.finalOutputRefs);
+    if (cachedSharedFilesPage.retention) setRetention(cachedSharedFilesPage.retention);
+    if (cachedSharedFilesPage.hasLoadedFiles) hasLoadedFilesRef.current = true;
+  }, [cachedSharedFilesPage]);
+
+  useEffect(() => {
+    const cached = useClientStore.getState().sharedFilesPageCacheByCwd?.[sharedFilesCacheKey];
+    void refreshFiles({ silent: Boolean(cached?.hasLoadedFiles) });
+  }, [refreshFiles, sharedFilesCacheKey]);
+
+  useEffect(() => {
+    if (sharedFilesRevision <= 0) return;
+    void refreshFiles({ silent: true });
+  }, [refreshFiles, sharedFilesRevision]);
+
+  useEffect(() => {
+    const runAutoRefresh = () => {
+      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
+      void refreshFiles({ silent: true });
+    };
+    const handleVisibilityChange = () => {
+      if (typeof document === 'undefined' || document.visibilityState === 'visible') {
+        runAutoRefresh();
+      }
+    };
+    const intervalID = window.setInterval(runAutoRefresh, SHARED_FILES_AUTO_REFRESH_MS);
+    window.addEventListener('focus', runAutoRefresh);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => {
+      window.clearInterval(intervalID);
+      window.removeEventListener('focus', runAutoRefresh);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
   }, [refreshFiles]);
 
   const visibleFiles = useMemo(() => {
@@ -4026,9 +4349,6 @@ function FilesPage({ projectPath, store }) {
             <select aria-label="共享文件排序" value={sortMode} onChange={(event) => setSortMode(event.target.value)}>
               {SHARED_FILE_SORTS.map((item) => <option key={item.key} value={item.key}>{item.label}</option>)}
             </select>
-            <button type="button" onClick={() => { void refreshFiles(); }} disabled={loading}>
-              <RefreshCw size={15} /> {loading ? '刷新中' : '刷新'}
-            </button>
           </>
         )}
       />
@@ -4208,9 +4528,14 @@ function ConfirmSharedFileDeleteModal({ file, deleting, onClose, onConfirm }) {
   );
 }
 
-function MemoryPage({ projectPath, onSimilarCountChange }) {
-  const [snapshot, setSnapshot] = useState({ overview: {}, entries: [] });
-  const [loading, setLoading] = useState(true);
+function MemoryPage({ projectPath, onSimilarCountChange, refreshKey = 0 }) {
+  const memoryCacheKey = normalizeSettingsCwd(projectPath);
+  const cachedMemoryPage = useClientStore((state) => state.memoryPageCacheByCwd?.[memoryCacheKey]);
+  const setMemoryPageCache = useClientStore((state) => state.setMemoryPageCache);
+  const [snapshot, setSnapshot] = useState(() => (
+    cachedMemoryPage?.snapshot || { overview: {}, entries: [] }
+  ));
+  const [loading, setLoading] = useState(() => !cachedMemoryPage?.hasLoadedMemory);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState({ level: 'info', message: '' });
   const [searchText, setSearchText] = useState('');
@@ -4227,23 +4552,84 @@ function MemoryPage({ projectPath, onSimilarCountChange }) {
   const [mergingAll, setMergingAll] = useState(false);
   const [ignoringKey, setIgnoringKey] = useState('');
   const [mergingKey, setMergingKey] = useState('');
+  const hasLoadedMemoryRef = useRef(Boolean(cachedMemoryPage?.hasLoadedMemory));
+  const refreshInFlightRef = useRef(false);
+  const memoryRefreshKey = Number(refreshKey || 0);
 
-  const refreshMemory = useCallback(async () => {
-    setLoading(true);
-    setError('');
+  const refreshMemory = useCallback(async ({ silent = false } = {}) => {
+    if (refreshInFlightRef.current) return;
+    refreshInFlightRef.current = true;
+    const cached = useClientStore.getState().memoryPageCacheByCwd?.[memoryCacheKey];
+    const hasUsableSnapshot = hasLoadedMemoryRef.current || Boolean(cached?.hasLoadedMemory);
+    const showBlockingLoading = !silent && !hasUsableSnapshot;
+    if (showBlockingLoading) {
+      setLoading(true);
+      setError('');
+    } else if (!silent) {
+      setError('');
+    }
     try {
       const cwd = normalizeSettingsCwd(projectPath);
       const response = await getMemorySnapshot({ cwd });
-      setSnapshot(normalizeMemorySnapshot(response));
+      const nextSnapshot = normalizeMemorySnapshot(response);
+      hasLoadedMemoryRef.current = true;
+      setSnapshot(nextSnapshot);
+      setMemoryPageCache(cwd, { snapshot: nextSnapshot, hasLoadedMemory: true });
+      setError('');
     } catch (err) {
-      setError(errorMessage(err));
+      if (!silent || !hasUsableSnapshot) setError(errorMessage(err));
     } finally {
-      setLoading(false);
+      refreshInFlightRef.current = false;
+      if (showBlockingLoading) setLoading(false);
     }
-  }, [projectPath]);
+  }, [memoryCacheKey, projectPath, setMemoryPageCache]);
 
   useEffect(() => {
-    refreshMemory().catch(() => { });
+    const cached = useClientStore.getState().memoryPageCacheByCwd?.[memoryCacheKey];
+    hasLoadedMemoryRef.current = Boolean(cached?.hasLoadedMemory);
+    setSnapshot(cached?.snapshot || { overview: {}, entries: [] });
+    setLoading(!cached?.hasLoadedMemory);
+    setError('');
+    setNotice({ level: 'info', message: '' });
+  }, [memoryCacheKey]);
+
+  useEffect(() => {
+    if (!cachedMemoryPage) return;
+    if (cachedMemoryPage.snapshot) setSnapshot(cachedMemoryPage.snapshot);
+    if (cachedMemoryPage.hasLoadedMemory) {
+      hasLoadedMemoryRef.current = true;
+      setLoading(false);
+    }
+  }, [cachedMemoryPage]);
+
+  useEffect(() => {
+    const cached = useClientStore.getState().memoryPageCacheByCwd?.[memoryCacheKey];
+    refreshMemory({ silent: Boolean(cached?.hasLoadedMemory) }).catch(() => { });
+  }, [memoryCacheKey, refreshMemory]);
+
+  useEffect(() => {
+    if (memoryRefreshKey <= 0) return;
+    void refreshMemory({ silent: true });
+  }, [memoryRefreshKey, refreshMemory]);
+
+  useEffect(() => {
+    const runAutoRefresh = () => {
+      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
+      void refreshMemory({ silent: true });
+    };
+    const handleVisibilityChange = () => {
+      if (typeof document === 'undefined' || document.visibilityState === 'visible') {
+        runAutoRefresh();
+      }
+    };
+    const intervalID = window.setInterval(runAutoRefresh, MEMORY_AUTO_REFRESH_MS);
+    window.addEventListener('focus', runAutoRefresh);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => {
+      window.clearInterval(intervalID);
+      window.removeEventListener('focus', runAutoRefresh);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
   }, [refreshMemory]);
 
   const showNotice = useCallback((level, message) => {
@@ -4291,7 +4677,7 @@ function MemoryPage({ projectPath, onSimilarCountChange }) {
   }, []);
 
   const openCreate = useCallback((type) => {
-    const form = defaultMemoryForm(type, 'private');
+    const form = defaultMemoryForm(type, memoryTargetForType(type));
     setEditor({ open: true, mode: 'create', form });
     setCreateMenuOpen(false);
   }, []);
@@ -4330,23 +4716,22 @@ function MemoryPage({ projectPath, onSimilarCountChange }) {
   const saveEditor = useCallback(async () => {
     if (saving) return;
     const form = editor.form;
-    const name = textValue(form.name);
     const description = textValue(form.description);
     const content = textValue(form.content);
-    if (!name) { showNotice('error', '请先填写名称'); return; }
     if (!description) { showNotice('error', '请先填写描述'); return; }
     if (!content) { showNotice('error', '内容不能为空'); return; }
     setSaving(true);
     try {
       const cwd = normalizeSettingsCwd(projectPath);
+      const type = textValue(form.type) || 'project';
       await upsertMemoryEntry({
         cwd,
-        target: form.target,
+        target: form.existingPath ? form.target : memoryTargetForType(type),
         existingPath: form.existingPath,
-        name,
+        name: memoryAutoName({ ...form, type }),
         description,
         title: textValue(form.title),
-        type: form.type,
+        type,
         content,
       });
       setEditor((current) => ({ ...current, open: false }));
@@ -4477,9 +4862,6 @@ function MemoryPage({ projectPath, onSimilarCountChange }) {
                 onChange={(event) => setSearchText(event.target.value)}
               />
             </label>
-            <button type="button" onClick={() => { void refreshMemory(); }} disabled={loading}>
-              <RefreshCw size={15} /> {loading ? '刷新中' : '刷新'}
-            </button>
             <div className="memory-create">
               <button type="button" className="light" aria-label="+ 新建 ▾" onClick={() => setCreateMenuOpen((open) => !open)}>
                 <Plus size={15} /> 新建 ▾
@@ -4632,7 +5014,6 @@ function MemoryCard({ entry, busy, deleting, onEdit, onDelete }) {
       <header>
         <h3>{memoryEntryTitle(entry)}</h3>
         <span>{entry.tag}</span>
-        <em>{entry.scope}</em>
         {entry.source === 'dream' ? <em>梦境</em> : null}
       </header>
       {entry.description ? <p>{entry.description}</p> : null}
@@ -4656,23 +5037,22 @@ function MemoryEditorModal({ editor, saving, onClose, onChange, onSave, onDelete
         <header>
           <div>
             <h2>{editor.mode === 'edit' ? '编辑记忆' : '新建记忆'}</h2>
-            <p>{form.target === 'team' ? '团队记忆' : '私有记忆'}</p>
+            <p>{form.type === 'project' ? '项目记忆' : '偏好记忆'}</p>
           </div>
-          <button type="button" className="ghost" onClick={onClose} disabled={saving}><X size={14} /> 关闭</button>
         </header>
         <div className="memory-form-grid">
-          <label>目标
-            <select value={form.target} onChange={(event) => onChange({ target: event.target.value })} disabled={identityLocked}>
-              {MEMORY_EDITOR_TARGETS.map((target) => <option key={target.key} value={target.key}>{target.label}</option>)}
-            </select>
-          </label>
-          <label>类型
-            <select value={form.type} onChange={(event) => onChange({ type: event.target.value, content: memoryTemplateForType(event.target.value) })} disabled={identityLocked}>
+          <label>分类
+            <select
+              value={form.type}
+              onChange={(event) => onChange({
+                type: event.target.value,
+                target: memoryTargetForType(event.target.value),
+                content: memoryTemplateForType(event.target.value),
+              })}
+              disabled={identityLocked}
+            >
               {MEMORY_EDITOR_TYPES.map((type) => <option key={type.key} value={type.key}>{type.label}</option>)}
             </select>
-          </label>
-          <label>标识名
-            <input value={form.name} onChange={(event) => onChange({ name: event.target.value })} disabled={identityLocked} placeholder="内部标识，如 reply-in-chinese" />
           </label>
           <label>描述
             <input value={form.description} onChange={(event) => onChange({ description: event.target.value })} placeholder="一句话描述为什么值得长期保留" />
@@ -4681,7 +5061,6 @@ function MemoryEditorModal({ editor, saving, onClose, onChange, onSave, onDelete
             <input value={form.title} onChange={(event) => onChange({ title: event.target.value })} placeholder="卡片上显示的短标题" />
           </label>
         </div>
-        {identityLocked ? <p className="memory-form-helper">现有记忆的标识名和类型暂时锁定；如需修改，请删除后重建。</p> : null}
         <label className="memory-content-label">内容
           <textarea rows={12} value={form.content} onChange={(event) => onChange({ content: event.target.value })} />
         </label>
@@ -4689,7 +5068,7 @@ function MemoryEditorModal({ editor, saving, onClose, onChange, onSave, onDelete
           <button type="button" className="ghost" onClick={onClose} disabled={saving}>取消</button>
           {form.existingPath ? <button type="button" className="danger" onClick={onDelete} disabled={saving}>删除</button> : null}
           <button type="button" onClick={() => onChange({ content: memoryTemplateForType(form.type) })} disabled={saving}>套用当前类型模板</button>
-          <button type="button" className="light" onClick={() => { void onSave(); }} disabled={saving || !textValue(form.name) || !textValue(form.description) || !textValue(form.content)}>
+          <button type="button" className="light" onClick={() => { void onSave(); }} disabled={saving || !textValue(form.description) || !textValue(form.content)}>
             {saving ? '保存中...' : '保存'}
           </button>
         </div>

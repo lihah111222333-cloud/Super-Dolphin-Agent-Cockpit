@@ -49,6 +49,7 @@ type memoryHandlerDeps struct {
 	Sections            contract.SectionInvalidator   `optional:"true"`
 	Logger              *slog.Logger                  `optional:"true"`
 	DreamExecutor       contract.DreamExecutor        `optional:"true"`
+	Dispatcher          *event.Dispatcher             `optional:"true"`
 }
 
 type historySource interface {

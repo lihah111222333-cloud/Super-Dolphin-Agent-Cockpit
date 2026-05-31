@@ -53,6 +53,19 @@ type UIPreferencesChanged struct {
 	Value any    `json:"value,omitempty"`
 }
 
+// UISharedFilesChanged reports shared file inventory mutations.
+type UISharedFilesChanged struct {
+	shared.EventHeader
+	Path   string `json:"path,omitempty"`
+	Action string `json:"action,omitempty"`
+}
+
+// UIMemoryChanged reports durable memory inventory or status mutations.
+type UIMemoryChanged struct {
+	shared.EventHeader
+	Action string `json:"action,omitempty"`
+}
+
 type ThreadPatchThread struct {
 	ID        string     `json:"id"`
 	Name      string     `json:"name,omitempty"`
@@ -106,3 +119,5 @@ func (UITokensUpdated) Type() uint32      { return shared.EventTypeUITokensUpdat
 func (SkillsChanged) Type() uint32        { return shared.EventTypeUISkillsChanged }
 func (UIThreadPatch) Type() uint32        { return shared.EventTypeUIThreadPatch }
 func (UIPreferencesChanged) Type() uint32 { return shared.EventTypeUIPreferencesChanged }
+func (UISharedFilesChanged) Type() uint32 { return shared.EventTypeUISharedFilesChanged }
+func (UIMemoryChanged) Type() uint32      { return shared.EventTypeUIMemoryChanged }

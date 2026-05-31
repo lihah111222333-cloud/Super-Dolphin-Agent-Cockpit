@@ -658,6 +658,7 @@ describe('frontend-app connected client shell', () => {
     expect(screen.getByText('私人使用 1')).toBeInTheDocument();
     expect(screen.getByText('项目共享 1')).toBeInTheDocument();
     expect(screen.getByText('全部 2')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /刷新/ })).not.toBeInTheDocument();
     expect(backend.getDashboardPage).toHaveBeenCalledWith({ cwd: '/repo/app', page: 'skills' });
 
     fireEvent.click(screen.getByLabelText('共享文件'));
@@ -758,6 +759,7 @@ describe('frontend-app connected client shell', () => {
     expect(screen.getByRole('tab', { name: '待确认 1' })).toBeInTheDocument();
     expect(screen.getByText('强制中')).toBeInTheDocument();
     expect(screen.getAllByText('全局可用').length).toBeGreaterThanOrEqual(1);
+    expect(screen.queryByRole('button', { name: /刷新/ })).not.toBeInTheDocument();
     expect(backend.listPromptAssets).toHaveBeenCalledWith({ cwd: '/repo/app' });
     expect(backend.getPreference).toHaveBeenCalledWith({ cwd: '/repo/app', key: 'settings.activePromptKey' });
 
@@ -774,6 +776,95 @@ describe('frontend-app connected client shell', () => {
         value: '',
       });
     });
+  });
+
+  it('auto-updates prompt assets without a manual refresh button', async () => {
+    let prompts = [{
+      id: 'main/reviewer',
+      name: '代码审查专家',
+      content: '先检查阻塞问题',
+      description: '审查代码质量',
+      tags: ['intent:expert', 'review'],
+      scope: 'project',
+      enabled: true,
+    }];
+    backend.listPromptAssets.mockImplementation(() => Promise.resolve({ prompts }));
+    backend.getPreference.mockResolvedValue('');
+
+    render(<App />);
+    await screen.findByText('后端线程');
+    fireEvent.click(screen.getByLabelText('提示词'));
+
+    expect(await screen.findByText('代码审查专家')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /刷新/ })).not.toBeInTheDocument();
+
+    prompts = [{
+      id: 'main/deploy',
+      name: '部署助手',
+      content: '先检查环境',
+      description: '部署前检查',
+      tags: ['intent:expert', 'deploy'],
+      scope: 'project',
+      enabled: true,
+    }];
+    await act(async () => {
+      bridgeCallback?.({ type: 'prompts/changed', payload: { cwd: '/repo/app' } });
+    });
+
+    expect(await screen.findByText('部署助手')).toBeInTheDocument();
+    expect(screen.queryByText('代码审查专家')).not.toBeInTheDocument();
+
+    prompts = [{
+      id: 'main/release-note',
+      name: '发布说明',
+      content: '整理发布变更',
+      description: '发布前整理说明',
+      tags: ['intent:expert', 'release'],
+      scope: 'project',
+      enabled: true,
+    }];
+    await act(async () => {
+      window.dispatchEvent(new Event('focus'));
+    });
+
+    expect(await screen.findByText('发布说明')).toBeInTheDocument();
+    expect(screen.queryByText('部署助手')).not.toBeInTheDocument();
+  });
+
+  it('keeps cached prompt assets visible when navigating back and refreshes silently', async () => {
+    let prompts = [{
+      id: 'main/reviewer',
+      name: '代码审查专家',
+      content: '先检查阻塞问题',
+      description: '审查代码质量',
+      tags: ['intent:expert', 'review'],
+      scope: 'project',
+      enabled: true,
+    }];
+    backend.listPromptAssets.mockImplementation(() => Promise.resolve({ prompts }));
+    backend.getPreference.mockResolvedValue('');
+
+    render(<App />);
+    await screen.findByText('后端线程');
+    fireEvent.click(screen.getByLabelText('提示词'));
+    expect(await screen.findByText('代码审查专家')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByLabelText('Chat'));
+    prompts = [{
+      id: 'main/deploy',
+      name: '部署助手',
+      content: '先检查环境',
+      description: '部署前检查',
+      tags: ['intent:expert', 'deploy'],
+      scope: 'project',
+      enabled: true,
+    }];
+    fireEvent.click(screen.getByLabelText('提示词'));
+
+    expect(screen.queryByText('加载中...')).not.toBeInTheDocument();
+    expect(screen.getByText('代码审查专家')).toBeInTheDocument();
+    expect(await screen.findByText('部署助手')).toBeInTheDocument();
+    expect(screen.queryByText('代码审查专家')).not.toBeInTheDocument();
   });
 
   it('wires prompt edit, delete, pending draft, and intent wizard actions without card copy action', async () => {
@@ -977,9 +1068,14 @@ describe('frontend-app connected client shell', () => {
     fireEvent.click(screen.getByLabelText('记忆中心'));
 
     expect(await screen.findByText('遵守 TDD')).toBeInTheDocument();
+    const memoryCard = screen.getByText('遵守 TDD').closest('article');
+    expect(within(memoryCard).getByText('偏好')).toBeInTheDocument();
+    expect(within(memoryCard).queryByText('私有')).not.toBeInTheDocument();
+    expect(within(memoryCard).queryByText('团队')).not.toBeInTheDocument();
     expect(screen.getByRole('tab', { name: '偏好 1' })).toBeInTheDocument();
     expect(screen.getByRole('tab', { name: '项目 1' })).toBeInTheDocument();
     expect(screen.getByRole('tab', { name: '全部 2' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /刷新/ })).not.toBeInTheDocument();
     expect(screen.getByText('1 组条目内容相似')).toBeInTheDocument();
     expect(backend.getMemorySnapshot).toHaveBeenCalledWith({ cwd: '/repo/app' });
 
@@ -990,6 +1086,117 @@ describe('frontend-app connected client shell', () => {
     fireEvent.change(screen.getByLabelText('搜索记忆'), { target: { value: 'tdd' } });
     expect(screen.queryByText('DAG 规范')).not.toBeInTheDocument();
     expect(screen.getByText('没有匹配的条目')).toBeInTheDocument();
+  });
+
+  it('auto-updates memory center without a manual refresh button', async () => {
+    let entries = [{
+      name: 'tdd-rule',
+      title: '遵守 TDD',
+      description: '先写红测',
+      type: 'feedback',
+      path: 'feedback/tdd.md',
+      updatedAt: '2026-05-30T08:00:00Z',
+      preview: '规则\n先写红测',
+    }];
+    backend.getMemorySnapshot.mockImplementation(() => Promise.resolve({
+      overview: {
+        enabled: true,
+        autoDreamEnabled: true,
+        autoDreamIntent: null,
+        projectRoot: '/repo/app',
+        health: { preferenceCount: entries.length, projectCount: 0, maxPerCategory: 15, similarGroups: [] },
+      },
+      private: { entries },
+      team: { entries: [] },
+    }));
+
+    render(<App />);
+    await screen.findByText('后端线程');
+    fireEvent.click(screen.getByLabelText('记忆中心'));
+
+    expect(await screen.findByText('遵守 TDD')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /刷新/ })).not.toBeInTheDocument();
+
+    entries = [
+      ...entries,
+      {
+        name: 'reply-language',
+        title: '默认中文',
+        description: '回答时使用中文',
+        type: 'feedback',
+        path: 'feedback/reply-language.md',
+        updatedAt: '2026-05-30T09:00:00Z',
+        preview: '默认中文回复',
+      },
+    ];
+    await act(async () => {
+      bridgeCallback?.({ type: 'ui/memory/changed', payload: { action: 'upsert' } });
+    });
+    expect(await screen.findByText('默认中文')).toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: '偏好 2' })).toBeInTheDocument();
+
+    entries = [
+      ...entries,
+      {
+        name: 'review-style',
+        title: '审查风格',
+        description: '先列风险',
+        type: 'feedback',
+        path: 'feedback/review-style.md',
+        updatedAt: '2026-05-30T09:01:00Z',
+        preview: '先列风险',
+      },
+    ];
+    await act(async () => {
+      window.dispatchEvent(new Event('focus'));
+    });
+    expect(await screen.findByText('审查风格')).toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: '偏好 3' })).toBeInTheDocument();
+  });
+
+  it('keeps cached memory entries visible when navigating back and refreshes silently', async () => {
+    let entries = [{
+      name: 'tdd-rule',
+      title: '遵守 TDD',
+      description: '先写红测',
+      type: 'feedback',
+      path: 'feedback/tdd.md',
+      updatedAt: '2026-05-30T08:00:00Z',
+      preview: '规则\n先写红测',
+    }];
+    backend.getMemorySnapshot.mockImplementation(() => Promise.resolve({
+      overview: {
+        enabled: true,
+        autoDreamEnabled: true,
+        autoDreamIntent: null,
+        projectRoot: '/repo/app',
+        health: { preferenceCount: entries.length, projectCount: 0, maxPerCategory: 15, similarGroups: [] },
+      },
+      private: { entries },
+      team: { entries: [] },
+    }));
+
+    render(<App />);
+    await screen.findByText('后端线程');
+    fireEvent.click(screen.getByLabelText('记忆中心'));
+    expect(await screen.findByText('遵守 TDD')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByLabelText('Chat'));
+    entries = [{
+      name: 'reply-language',
+      title: '默认中文',
+      description: '回答时使用中文',
+      type: 'feedback',
+      path: 'feedback/reply-language.md',
+      updatedAt: '2026-05-30T09:00:00Z',
+      preview: '默认中文回复',
+    }];
+    fireEvent.click(screen.getByLabelText('记忆中心'));
+
+    expect(screen.queryByText('正在加载记忆中心...')).not.toBeInTheDocument();
+    expect(screen.getByText('遵守 TDD')).toBeInTheDocument();
+    expect(await screen.findByText('默认中文')).toBeInTheDocument();
+    expect(screen.queryByText('遵守 TDD')).not.toBeInTheDocument();
   });
 
   it('wires memory center mutation actions to backend RPCs', async () => {
@@ -1027,7 +1234,10 @@ describe('frontend-app connected client shell', () => {
 
     fireEvent.click(screen.getByRole('button', { name: '+ 新建 ▾' }));
     fireEvent.click(screen.getByRole('button', { name: '新建偏好' }));
-    fireEvent.change(screen.getByLabelText('标识名'), { target: { value: 'reply-in-chinese' } });
+    const createEditor = await screen.findByRole('dialog', { name: '新建记忆' });
+    expect(within(createEditor).getByLabelText('分类')).toHaveValue('feedback');
+    expect(within(createEditor).queryByLabelText('目标')).not.toBeInTheDocument();
+    expect(within(createEditor).queryByLabelText('标识名')).not.toBeInTheDocument();
     fireEvent.change(screen.getByLabelText('描述'), { target: { value: '回复时使用中文' } });
     fireEvent.change(screen.getByLabelText('内容'), { target: { value: '规则\n默认中文回复' } });
     fireEvent.click(screen.getByRole('button', { name: '保存' }));
@@ -1035,7 +1245,7 @@ describe('frontend-app connected client shell', () => {
       expect(backend.upsertMemoryEntry).toHaveBeenCalledWith(expect.objectContaining({
         cwd: '/repo/app',
         target: 'private',
-        name: 'reply-in-chinese',
+        name: expect.stringMatching(/^feedback-/),
         description: '回复时使用中文',
         type: 'feedback',
         content: '规则\n默认中文回复',
@@ -1047,8 +1257,13 @@ describe('frontend-app connected client shell', () => {
     await waitFor(() => {
       expect(backend.getMemoryEntry).toHaveBeenCalledWith({ cwd: '/repo/app', target: 'private', path: 'feedback/tdd.md' });
     });
+    const editor = await screen.findByRole('dialog', { name: '编辑记忆' });
+    expect(within(editor).queryByRole('button', { name: '关闭' })).not.toBeInTheDocument();
+    expect(within(editor).getByLabelText('分类')).toHaveValue('feedback');
+    expect(within(editor).queryByLabelText('目标')).not.toBeInTheDocument();
+    expect(within(editor).queryByLabelText('标识名')).not.toBeInTheDocument();
     expect(await screen.findByDisplayValue('先写红测')).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: '取消' }));
+    fireEvent.click(within(editor).getByRole('button', { name: '取消' }));
 
     fireEvent.click(within(card).getByRole('button', { name: '删除' }));
     expect(await screen.findByRole('dialog', { name: '删除记忆' })).toBeInTheDocument();
@@ -1097,6 +1312,9 @@ describe('frontend-app connected client shell', () => {
     fireEvent.click(screen.getByRole('button', { name: '一键整合全部' }));
     await waitFor(() => {
       expect(backend.consolidateMemorySimilarities).toHaveBeenCalledWith({ cwd: '/repo/app' });
+    });
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: '忽略' })).not.toBeDisabled();
     });
 
     fireEvent.click(screen.getByRole('button', { name: '忽略' }));
@@ -1222,12 +1440,45 @@ describe('frontend-app connected client shell', () => {
 
     expect(await screen.findByText('final.md')).toBeInTheDocument();
     expect(screen.getByText('work.json')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /刷新/ })).not.toBeInTheDocument();
     expect(screen.getByRole('tab', { name: '全部 2' })).toBeInTheDocument();
     expect(screen.getByRole('tab', { name: '最终产物 1' })).toBeInTheDocument();
     expect(screen.getByRole('tab', { name: '工作文件 1' })).toBeInTheDocument();
     await waitFor(() => {
       expect(backend.getDashboardPage).toHaveBeenCalledWith({ cwd: '/repo/app', page: 'memory' });
     });
+
+    memoryFiles = [
+      ...memoryFiles,
+      {
+        path: 'scratch/notes.md',
+        content: 'fresh notes',
+        updated_by: 'agent',
+        updated_at: '2026-05-30T09:00:00Z',
+      },
+    ];
+    await act(async () => {
+      bridgeCallback?.({ type: 'ui/shared-files/changed', payload: { path: 'scratch/notes.md', action: 'write' } });
+    });
+    expect(await screen.findByText('notes.md')).toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: '全部 3' })).toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: '工作文件 2' })).toBeInTheDocument();
+
+    memoryFiles = [
+      ...memoryFiles,
+      {
+        path: 'scratch/focus-refresh.md',
+        content: 'focus refresh',
+        updated_by: 'agent',
+        updated_at: '2026-05-30T09:01:00Z',
+      },
+    ];
+    await act(async () => {
+      window.dispatchEvent(new Event('focus'));
+    });
+    expect(await screen.findByText('focus-refresh.md')).toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: '全部 4' })).toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: '工作文件 3' })).toBeInTheDocument();
 
     const finalCard = screen.getByText('final.md').closest('article');
     expect(within(finalCard).getByText('最终产物')).toBeInTheDocument();
@@ -1262,6 +1513,46 @@ describe('frontend-app connected client shell', () => {
     fireEvent.click(within(remainingFinalCard).getByRole('button', { name: '用此文件继续对话' }));
     expect(screen.getByTestId('composer-input').value).toContain('reports/final.md');
     expect(screen.getByText('final.md')).toBeInTheDocument();
+  });
+
+  it('keeps cached shared files visible when navigating back and refreshes silently', async () => {
+    let memoryFiles = [{
+      path: 'reports/final.md',
+      content: 'final summary',
+      updated_by: 'dag-runner',
+      updated_at: '2026-05-30T08:00:00Z',
+    }];
+    const memoryPayload = () => ({
+      memory: memoryFiles,
+      finalOutputRefs: [{ path: 'reports/final.md', runKey: 'run-1', dagKey: 'daily-brief', sourceNodeKey: 'report' }],
+      sharedFileRetention: {
+        items: [{ path: 'reports/final.md', protected: true, cleanupCandidate: false, reason: 'final_output' }],
+        protectedCount: 1,
+        cleanupCandidateCount: 0,
+      },
+    });
+    backend.getDashboardPage.mockImplementation(({ page }) => Promise.resolve(
+      page === 'memory' ? memoryPayload() : { skills: [] },
+    ));
+
+    render(<App />);
+    await screen.findByText('后端线程');
+    fireEvent.click(screen.getByLabelText('共享文件'));
+    expect(await screen.findByText('final.md')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByLabelText('Chat'));
+    memoryFiles = [{
+      path: 'scratch/notes.md',
+      content: 'fresh notes',
+      updated_by: 'agent',
+      updated_at: '2026-05-30T09:00:00Z',
+    }];
+    fireEvent.click(screen.getByLabelText('共享文件'));
+
+    expect(screen.queryByText('正在加载共享文件...')).not.toBeInTheDocument();
+    expect(screen.getByText('final.md')).toBeInTheDocument();
+    expect(await screen.findByText('notes.md')).toBeInTheDocument();
+    expect(screen.queryByText('final.md')).not.toBeInTheDocument();
   });
 
   it('loads DAG list, detail, runs and selected run through legacy dashboard RPCs', async () => {
@@ -1313,6 +1604,7 @@ describe('frontend-app connected client shell', () => {
     expect(screen.getByRole('tab', { name: '定时任务 1' })).toBeInTheDocument();
     expect(screen.getByRole('tab', { name: '历史记录 1' })).toBeInTheDocument();
     expect(await screen.findByText('最终简报完成')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /刷新/ })).not.toBeInTheDocument();
 
     await waitFor(() => {
       expect(backend.getDashboardPage).toHaveBeenCalledWith({ cwd: '/repo/app', page: 'dags' });
@@ -1321,6 +1613,126 @@ describe('frontend-app connected client shell', () => {
       expect(backend.getDagRuns).toHaveBeenCalledWith({ dagKey: 'daily-brief', status: 'running', limit: 1 });
       expect(backend.getDagRun).toHaveBeenCalledWith({ runKey: 'run-1' });
     });
+  });
+
+  it('auto-updates workflow page without a manual refresh button', async () => {
+    let dags = [{
+      dag_key: 'flow-a',
+      title: '流程 A',
+      status: 'running',
+      trigger: 'manual',
+      version: 1,
+      latest_run: { run_key: 'run-a', status: 'running' },
+    }];
+    backend.getDashboardPage.mockImplementation(({ page }) => Promise.resolve(
+      page === 'dags' ? { dags } : { skills: [] },
+    ));
+    backend.getDagDetail.mockImplementation(({ dagKey }) => {
+      const dag = dags.find((item) => item.dag_key === dagKey) || dags[0];
+      const suffix = (dag?.title || '').split(' ').pop() || '';
+      return Promise.resolve({
+        dag,
+        nodes: [{ node_key: 'step', title: `步骤 ${suffix}`, node_type: 'agent', status: 'running', depends_on: [], config: {} }],
+      });
+    });
+    backend.getDagRuns.mockImplementation(({ dagKey, status }) => {
+      const dag = dags.find((item) => item.dag_key === dagKey) || dags[0];
+      if (status === 'running') return Promise.resolve({ runs: dag?.latest_run ? [dag.latest_run] : [] });
+      return Promise.resolve({ runs: dag?.latest_run ? [dag.latest_run] : [] });
+    });
+    backend.getDagRun.mockImplementation(({ runKey }) => Promise.resolve({
+      run: { run_key: runKey, status: 'running' },
+      nodes: [],
+    }));
+
+    render(<App />);
+    await screen.findByText('后端线程');
+    fireEvent.click(screen.getByLabelText('自动化'));
+
+    expect((await screen.findAllByText('流程 A')).length).toBeGreaterThanOrEqual(1);
+    expect(screen.queryByRole('button', { name: /刷新/ })).not.toBeInTheDocument();
+
+    dags = [{
+      dag_key: 'flow-b',
+      title: '流程 B',
+      status: 'running',
+      trigger: 'manual',
+      version: 2,
+      latest_run: { run_key: 'run-b', status: 'running' },
+    }];
+    await act(async () => {
+      bridgeCallback?.({ type: 'task/node/statusChanged', payload: { dag_key: 'flow-b', node_key: 'step', new_status: 'running' } });
+    });
+
+    expect((await screen.findAllByText('流程 B')).length).toBeGreaterThanOrEqual(1);
+    expect(screen.queryByText('流程 A')).not.toBeInTheDocument();
+
+    dags = [{
+      dag_key: 'flow-c',
+      title: '流程 C',
+      status: 'running',
+      trigger: 'manual',
+      version: 3,
+      latest_run: { run_key: 'run-c', status: 'running' },
+    }];
+    await act(async () => {
+      window.dispatchEvent(new Event('focus'));
+    });
+
+    expect((await screen.findAllByText('流程 C')).length).toBeGreaterThanOrEqual(1);
+    expect(screen.queryByText('流程 B')).not.toBeInTheDocument();
+  });
+
+  it('keeps cached workflow data visible when navigating back and refreshes silently', async () => {
+    let dags = [{
+      dag_key: 'flow-a',
+      title: '流程 A',
+      status: 'running',
+      trigger: 'manual',
+      version: 1,
+      latest_run: { run_key: 'run-a', status: 'running' },
+    }];
+    backend.getDashboardPage.mockImplementation(({ page }) => Promise.resolve(
+      page === 'dags' ? { dags } : { skills: [] },
+    ));
+    backend.getDagDetail.mockImplementation(({ dagKey }) => {
+      const dag = dags.find((item) => item.dag_key === dagKey) || dags[0];
+      const suffix = (dag?.title || '').split(' ').pop() || '';
+      return Promise.resolve({
+        dag,
+        nodes: [{ node_key: 'step', title: `步骤 ${suffix}`, node_type: 'agent', status: 'running', depends_on: [], config: {} }],
+      });
+    });
+    backend.getDagRuns.mockImplementation(({ dagKey }) => {
+      const dag = dags.find((item) => item.dag_key === dagKey) || dags[0];
+      return Promise.resolve({ runs: dag?.latest_run ? [dag.latest_run] : [] });
+    });
+    backend.getDagRun.mockImplementation(({ runKey }) => Promise.resolve({
+      run: { run_key: runKey, status: 'running' },
+      nodes: [],
+    }));
+
+    render(<App />);
+    await screen.findByText('后端线程');
+    fireEvent.click(screen.getByLabelText('自动化'));
+    expect((await screen.findAllByText('流程 A')).length).toBeGreaterThanOrEqual(1);
+
+    fireEvent.click(screen.getByLabelText('Chat'));
+    dags = [{
+      dag_key: 'flow-b',
+      title: '流程 B',
+      status: 'running',
+      trigger: 'manual',
+      version: 2,
+      latest_run: { run_key: 'run-b', status: 'running' },
+    }];
+    fireEvent.click(screen.getByLabelText('自动化'));
+
+    expect(screen.queryByText('正在加载任务流程...')).not.toBeInTheDocument();
+    expect(screen.queryByText('正在加载详情...')).not.toBeInTheDocument();
+    expect(screen.getAllByText('流程 A').length).toBeGreaterThanOrEqual(1);
+    expect((await screen.findAllByText('流程 B')).length).toBeGreaterThanOrEqual(1);
+    expect(screen.queryByText('流程 A')).not.toBeInTheDocument();
   });
 
   it('allows selecting an empty DAG category and shows an empty state', async () => {
@@ -1579,6 +1991,7 @@ describe('frontend-app connected client shell', () => {
     await screen.findByText('后端线程');
     fireEvent.click(screen.getByLabelText('技能'));
     expect(await screen.findByText('后端')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /刷新/ })).not.toBeInTheDocument();
 
     backend.getDashboardPage.mockResolvedValueOnce({
       skills: [{
@@ -1598,6 +2011,108 @@ describe('frontend-app connected client shell', () => {
     expect(await screen.findByText('安全工程师')).toBeInTheDocument();
     expect(screen.queryByText('后端')).not.toBeInTheDocument();
     expect(backend.getDashboardPage).toHaveBeenCalledTimes(2);
+
+    backend.getDashboardPage.mockResolvedValueOnce({
+      skills: [{
+        name: 'review-style',
+        display_name: '审查风格',
+        dir: '/repo/app/.agent/skills/review-style',
+        description: '先列风险',
+        trigger_words: ['review'],
+        scope: 'project',
+      }],
+    });
+
+    await act(async () => {
+      window.dispatchEvent(new Event('focus'));
+    });
+
+    expect(await screen.findByText('审查风格')).toBeInTheDocument();
+    expect(screen.queryByText('安全工程师')).not.toBeInTheDocument();
+    expect(backend.getDashboardPage).toHaveBeenCalledTimes(3);
+  });
+
+  it('keeps cached skills visible when navigating back and refreshes silently', async () => {
+    render(<App />);
+    await screen.findByText('后端线程');
+    fireEvent.click(screen.getByLabelText('技能'));
+    expect(await screen.findByText('后端')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByLabelText('Chat'));
+    backend.getDashboardPage.mockResolvedValueOnce({
+      skills: [{
+        name: 'security',
+        display_name: '安全工程师',
+        dir: '/repo/app/.agent/skills/security',
+        description: '安全审计',
+        trigger_words: ['security'],
+        scope: 'project',
+      }],
+    });
+    fireEvent.click(screen.getByLabelText('技能'));
+
+    expect(screen.queryByText('加载技能中...')).not.toBeInTheDocument();
+    expect(screen.getByText('后端')).toBeInTheDocument();
+    expect(await screen.findByText('安全工程师')).toBeInTheDocument();
+    expect(screen.queryByText('后端')).not.toBeInTheDocument();
+  });
+
+  it('releases the skills loading state when the dashboard request hangs', async () => {
+    render(<App />);
+    await screen.findByText('后端线程');
+
+    backend.getDashboardPage.mockImplementation(({ page }) => (
+      page === 'skills'
+        ? new Promise(() => {})
+        : Promise.resolve({
+          memory: [],
+          finalOutputRefs: [],
+          sharedFileRetention: { items: [], protectedCount: 0, cleanupCandidateCount: 0 },
+        })
+    ));
+
+    vi.useFakeTimers();
+    try {
+      fireEvent.click(screen.getByLabelText('技能'));
+      expect(screen.getByText('加载技能中...')).toBeInTheDocument();
+
+      await act(async () => {
+        vi.advanceTimersByTime(8000);
+        await Promise.resolve();
+      });
+
+      expect(screen.queryByText('加载技能中...')).not.toBeInTheDocument();
+      expect(screen.getByRole('alert')).toHaveTextContent('技能列表加载超时');
+    } finally {
+      vi.useRealTimers();
+    }
+
+    backend.getDashboardPage.mockImplementation(({ page }) => Promise.resolve(
+      page === 'skills'
+        ? {
+          skills: [{
+            name: 'security',
+            display_name: '安全工程师',
+            dir: '/repo/app/.agent/skills/security',
+            description: '安全审计',
+            trigger_words: ['security'],
+            scope: 'project',
+          }],
+        }
+        : {
+          memory: [],
+          finalOutputRefs: [],
+          sharedFileRetention: { items: [], protectedCount: 0, cleanupCandidateCount: 0 },
+        },
+    ));
+
+    await act(async () => {
+      window.dispatchEvent(new Event('focus'));
+      await Promise.resolve();
+    });
+
+    expect(await screen.findByText('安全工程师')).toBeInTheDocument();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
   });
 
   it('deletes a skill through the legacy scoped API and refreshes the list', async () => {

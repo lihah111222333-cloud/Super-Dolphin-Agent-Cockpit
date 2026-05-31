@@ -608,6 +608,46 @@ describe('useClientStore backend contract', () => {
     ]);
   });
 
+  it('increments workflow revision from task and cron bridge events', () => {
+    useClientStore.getState().initializeEvents();
+
+    expect(useClientStore.getState().workflowRevision).toBe(0);
+    bridgeCallback({
+      type: 'task/node/statusChanged',
+      payload: { dag_key: 'flow-a', node_key: 'step', new_status: 'running' },
+    });
+    expect(useClientStore.getState().workflowRevision).toBe(1);
+
+    bridgeCallback({
+      method: 'cron/job/runStateChanged',
+      payload: { job_id: 'job-1', run_id: 'run-1', status: 'running' },
+    });
+    expect(useClientStore.getState().workflowRevision).toBe(2);
+  });
+
+  it('increments prompt revision from prompt and active-prompt preference bridge events', () => {
+    useClientStore.getState().initializeEvents();
+
+    expect(useClientStore.getState().promptRevision).toBe(0);
+    bridgeCallback({
+      type: 'ui/preferences/changed',
+      payload: { key: 'settings.activePromptKey', value: 'main/reviewer' },
+    });
+    expect(useClientStore.getState().promptRevision).toBe(1);
+
+    bridgeCallback({
+      type: 'ui/preferences/changed',
+      payload: { key: 'settings.provider.active', value: 'codex' },
+    });
+    expect(useClientStore.getState().promptRevision).toBe(1);
+
+    bridgeCallback({
+      type: 'prompts/changed',
+      payload: { cwd: '/repo/app' },
+    });
+    expect(useClientStore.getState().promptRevision).toBe(2);
+  });
+
   it('restores draft and attachments when backend send fails', async () => {
     resetClientStoreForTests({
       cwd: '/repo/app',
