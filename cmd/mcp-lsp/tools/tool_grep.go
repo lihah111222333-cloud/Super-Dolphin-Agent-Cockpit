@@ -35,7 +35,7 @@ type grepFileRows struct {
 }
 
 type grepResponse struct {
-	Files             map[string]grepFileRows `json:"files"`
+	Data              map[string]grepFileRows `json:"data"`
 	Total             int                     `json:"total"`
 	Showing           int                     `json:"showing"`
 	Truncated         bool                    `json:"truncated,omitempty"`
@@ -109,7 +109,7 @@ func (h handlerBase) handleGrep(ctx context.Context, params json.RawMessage) (an
 	h.attachFuncRanges(ctx, filtered)
 	if len(filtered) == 0 {
 		return grepResponse{
-			Files:   map[string]grepFileRows{},
+			Data:    map[string]grepFileRows{},
 			Total:   0,
 			Showing: 0,
 			Message: emptyGrepMessage(false),
@@ -181,7 +181,7 @@ func capGrepResponseBytes(resp *grepResponse, maxBytes int) {
 func dropLastGrepRow(resp *grepResponse) bool {
 	var maxFile string
 	var maxRows int
-	for file, fr := range resp.Files {
+	for file, fr := range resp.Data {
 		if len(fr.Rows) > maxRows {
 			maxRows = len(fr.Rows)
 			maxFile = file
@@ -190,12 +190,12 @@ func dropLastGrepRow(resp *grepResponse) bool {
 	if maxFile == "" {
 		return false
 	}
-	fr := resp.Files[maxFile]
+	fr := resp.Data[maxFile]
 	if len(fr.Rows) <= 1 {
-		delete(resp.Files, maxFile)
+		delete(resp.Data, maxFile)
 	} else {
 		fr.Rows = fr.Rows[:len(fr.Rows)-1]
-		resp.Files[maxFile] = fr
+		resp.Data[maxFile] = fr
 	}
 	resp.Showing--
 	if resp.Showing < 0 {
@@ -205,7 +205,7 @@ func dropLastGrepRow(resp *grepResponse) bool {
 }
 
 func buildGrepResponse(matches []search.SearchMatch, total int, truncated bool) grepResponse {
-	files := make(map[string]grepFileRows, len(matches))
+	data := make(map[string]grepFileRows, len(matches))
 	hint := ""
 	hasFuncRanges := false
 	for _, match := range matches {
@@ -215,25 +215,25 @@ func buildGrepResponse(matches []search.SearchMatch, total int, truncated bool) 
 			hasFuncRanges = true
 			hint = "step 2: use the returned func_start/func_end to read that function range, e.g. file action=read_file pos=<file>:<func_start> limit=<func_end-func_start+1>"
 		}
-		block := files[match.File]
+		block := data[match.File]
 		if len(block.Cols) == 0 {
 			block.Cols = grepRowCols(hasFuncRanges)
 		}
 		block.Rows = append(block.Rows, row)
-		files[match.File] = block
+		data[match.File] = block
 	}
 	// Backfill cols on every file once we know whether func ranges
 	// appeared anywhere in the result set, so the schema-declared
 	// column layout matches actual row widths file-by-file.
-	for path, block := range files {
+	for path, block := range data {
 		block.Cols = grepRowCols(hasFuncRanges)
 		if hasFuncRanges {
 			block.Rows = padGrepRows(block.Rows, len(block.Cols))
 		}
-		files[path] = block
+		data[path] = block
 	}
 	return grepResponse{
-		Files:     files,
+		Data:      data,
 		Total:     total,
 		Showing:   len(matches),
 		Truncated: truncated,
@@ -276,13 +276,13 @@ func (r grepResponse) ToPlainText() string {
 
 	// Sort file paths to have deterministic output order
 	var files []string
-	for f := range r.Files {
+	for f := range r.Data {
 		files = append(files, f)
 	}
 	sort.Strings(files)
 
 	for _, file := range files {
-		fr := r.Files[file]
+		fr := r.Data[file]
 		for _, row := range fr.Rows {
 			r.formatGrepRow(&sb, file, row)
 		}

@@ -137,8 +137,8 @@ func TestGrepTextSearchExcludesWorkspaceCacheDirectoriesFromRootSearch(t *testin
 		t.Fatalf("grep totals = total:%d showing:%d truncated:%t, want only source match", resp.Total, resp.Showing, resp.Truncated)
 	}
 	wantKeep := canonicalGrepPath(t, keep)
-	if _, ok := resp.Files[wantKeep]; !ok {
-		t.Fatalf("grep files = %#v, want only %q", resp.Files, wantKeep)
+	if _, ok := resp.Data[wantKeep]; !ok {
+		t.Fatalf("grep data = %#v, want only %q", resp.Data, wantKeep)
 	}
 }
 
@@ -176,7 +176,7 @@ func TestBuildGrepResponseOmitsFuncCellsWhenAbsent(t *testing.T) {
 		Col:  3,
 		Text: "match",
 	}}, 1, false)
-	rows := resp.Files["/tmp/sample.go"].Rows
+	rows := resp.Data["/tmp/sample.go"].Rows
 	if len(rows) != 1 {
 		t.Fatalf("rows = %d, want 1", len(rows))
 	}
@@ -194,7 +194,7 @@ func TestBuildGrepResponseIncludesFuncCellsWhenPresent(t *testing.T) {
 		FuncStart: 8,
 		FuncEnd:   12,
 	}}, 1, false)
-	row := resp.Files["/tmp/sample.go"].Rows[0]
+	row := resp.Data["/tmp/sample.go"].Rows[0]
 	if len(row) != 5 {
 		t.Fatalf("row = %#v, want func_start/func_end cells", row)
 	}
@@ -220,7 +220,7 @@ func TestBuildGrepResponsePadsMixedFuncRows(t *testing.T) {
 			FuncEnd:   14,
 		},
 	}, 2, false)
-	block := resp.Files["/tmp/sample.go"]
+	block := resp.Data["/tmp/sample.go"]
 	if len(block.Cols) != 5 {
 		t.Fatalf("cols = %#v, want func range columns", block.Cols)
 	}
@@ -257,7 +257,7 @@ func TestCapGrepResponseBytesCountsTruncationMessage(t *testing.T) {
 func grepResponseCrossingBudgetByMessage(t *testing.T, budget int) grepResponse {
 	t.Helper()
 	resp := grepResponse{
-		Files: map[string]grepFileRows{
+		Data: map[string]grepFileRows{
 			"/tmp/sample.go": {
 				Cols: []string{"line", "col", "text"},
 			},
@@ -269,9 +269,9 @@ func grepResponseCrossingBudgetByMessage(t *testing.T, budget int) grepResponse 
 	}
 	for size := 1; size < 512; size++ {
 		candidate := resp
-		fileRows := candidate.Files["/tmp/sample.go"]
+		fileRows := candidate.Data["/tmp/sample.go"]
 		fileRows.Rows = [][]any{{1, 1, strings.Repeat("x", size)}}
-		candidate.Files = map[string]grepFileRows{"/tmp/sample.go": fileRows}
+		candidate.Data = map[string]grepFileRows{"/tmp/sample.go": fileRows}
 		rawWithoutMessage := mustMarshalGrepResponse(t, candidate)
 		candidate.Message = grepMessage(candidate.RegexFallback, candidate.DroppedForPayload)
 		rawWithMessage := mustMarshalGrepResponse(t, candidate)
