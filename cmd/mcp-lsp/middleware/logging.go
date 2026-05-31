@@ -48,7 +48,7 @@ func Logging(logger *slog.Logger, toolName ...string) Middleware {
 					pkglogger.Int64("duration_ms", time.Since(start).Milliseconds()),
 					pkglogger.String("error", err.Error()),
 				)
-				return nil, err
+				return result, err
 			}
 			logger.DebugContext(ctx, "mcp-lsp response",
 				pkglogger.String("tool", name),

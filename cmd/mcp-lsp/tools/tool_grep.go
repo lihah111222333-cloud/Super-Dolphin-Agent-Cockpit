@@ -227,6 +227,9 @@ func buildGrepResponse(matches []search.SearchMatch, total int, truncated bool) 
 	// column layout matches actual row widths file-by-file.
 	for path, block := range files {
 		block.Cols = grepRowCols(hasFuncRanges)
+		if hasFuncRanges {
+			block.Rows = padGrepRows(block.Rows, len(block.Cols))
+		}
 		files[path] = block
 	}
 	return grepResponse{
@@ -248,6 +251,15 @@ func grepRowCols(includeFuncRange bool) []string {
 		return append(base, "func_start", "func_end")
 	}
 	return base
+}
+
+func padGrepRows(rows [][]any, width int) [][]any {
+	for idx := range rows {
+		for len(rows[idx]) < width {
+			rows[idx] = append(rows[idx], nil)
+		}
+	}
+	return rows
 }
 
 func (r grepResponse) ToPlainText() string {

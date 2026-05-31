@@ -166,6 +166,40 @@ func TestBuildGrepResponseIncludesFuncCellsWhenPresent(t *testing.T) {
 	}
 }
 
+func TestBuildGrepResponsePadsMixedFuncRows(t *testing.T) {
+	resp := buildGrepResponse([]search.SearchMatch{
+		{
+			File: "/tmp/sample.go",
+			Line: 10,
+			Col:  3,
+			Text: "plain match",
+		},
+		{
+			File:      "/tmp/sample.go",
+			Line:      12,
+			Col:       5,
+			Text:      "function match",
+			FuncStart: 8,
+			FuncEnd:   14,
+		},
+	}, 2, false)
+	block := resp.Files["/tmp/sample.go"]
+	if len(block.Cols) != 5 {
+		t.Fatalf("cols = %#v, want func range columns", block.Cols)
+	}
+	for idx, row := range block.Rows {
+		if len(row) != len(block.Cols) {
+			t.Fatalf("row %d = %#v, want %d cells for cols %#v", idx, row, len(block.Cols), block.Cols)
+		}
+	}
+	if block.Rows[0][3] != nil || block.Rows[0][4] != nil {
+		t.Fatalf("plain row func cells = %#v, want nil placeholders", block.Rows[0][3:])
+	}
+	if block.Rows[1][3] != 8 || block.Rows[1][4] != 14 {
+		t.Fatalf("function row func cells = %#v, want 8/14", block.Rows[1][3:])
+	}
+}
+
 func TestCapGrepResponseBytesCountsTruncationMessage(t *testing.T) {
 	const budget = 256
 	resp := grepResponseCrossingBudgetByMessage(t, budget)

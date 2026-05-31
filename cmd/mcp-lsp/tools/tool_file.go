@@ -16,7 +16,6 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/middleware"
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/search"
 	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/common"
-	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
@@ -49,14 +48,21 @@ type emptyListEnvelope struct {
 	Meta    resultMeta `json:"meta"`
 }
 type fileToolInput struct {
-	Action         string   `json:"action"`
-	Pos            string   `json:"pos,omitempty"`
-	FilePath       string   `json:"file_path,omitempty"`
-	FilePaths      []string `json:"file_paths,omitempty"`
-	LanguageID     string   `json:"language_id,omitempty"`
-	Offset         int      `json:"offset,omitempty"`
-	Limit          int      `json:"limit,omitempty"`
-	ExpandComments *bool    `json:"expand_comments,omitempty"`
+	Action     string   `json:"action"`
+	Pos        string   `json:"pos,omitempty"`
+	Scope      string   `json:"scope,omitempty"`
+	FilePath   string   `json:"file_path,omitempty"`
+	FilePaths  []string `json:"file_paths,omitempty"`
+	LanguageID string   `json:"language_id,omitempty"`
+	// Offset is a deprecated alias for the line in pos. Kept so old
+	// system prompts that still teach `offset=N` keep working; new
+	// callers should pass pos="file:line" instead.
+	Offset int `json:"offset,omitempty"`
+	Limit  int `json:"limit,omitempty"`
+	// ExpandComments is retained as a no-op accept so legacy callers
+	// passing expand_comments=true/false do not get a strict-decode
+	// error. Comment expansion is now always on.
+	ExpandComments *bool `json:"expand_comments,omitempty"`
 }
 type openFileResult struct {
 	Success  bool   `json:"success"`
@@ -131,25 +137,44 @@ func (h handlerBase) handleFile(ctx context.Context, params json.RawMessage) (an
 	}
 	h.warnFileCWDTrace(ctx, input)
 
-	expand := true
-	if input.ExpandComments != nil {
-		expand = *input.ExpandComments
-	}
-
 	return dispatchToolAction(ctx, "file", input.Action, input, map[string]actionHandler[fileToolInput]{
 		"open_file": func(ctx context.Context, input fileToolInput) (any, error) {
 			return h.openFile(ctx, input.FilePath, input.LanguageID)
 		},
 		"read_file": func(ctx context.Context, input fileToolInput) (any, error) {
-			if len(input.FilePaths) > 0 {
-				return h.readBatch(ctx, input.FilePaths, input.Offset, input.Limit, expand)
+			req := readFileRequest{
+				rawPath:    input.FilePath,
+				rawPaths:   input.FilePaths,
+				line:       input.Offset,
+				limit:      input.Limit,
+				scope:      strings.ToLower(strings.TrimSpace(input.Scope)),
+				languageID: input.LanguageID,
 			}
-			return h.readSingle(ctx, input.FilePath, input.Offset, input.Limit, expand)
+			if len(req.rawPaths) > 0 {
+				return h.readBatch(ctx, req)
+			}
+			return h.readSingle(ctx, req)
 		},
 		"diagnostics": func(ctx context.Context, input fileToolInput) (any, error) {
 			return h.handleDiagnostics(ctx, input)
 		},
 	})
+}
+
+// readFileRequest packages the read_file inputs after pos parsing so the
+// readSingle / readBatch / function-mode helpers share one shape and we
+// can keep the public input struct small.
+type readFileRequest struct {
+	rawPath    string
+	rawPaths   []string
+	line       int
+	limit      int
+	scope      string
+	languageID string
+}
+
+func (r readFileRequest) wantsLineWindow() bool {
+	return r.scope == "lines" || r.line <= 0 || r.limit > 0
 }
 
 // normalizeFileInputFromPos lets the file tool accept the same pos
@@ -165,7 +190,10 @@ func normalizeFileInputFromPos(input *fileToolInput) error {
 	}
 	filePath, line, _, _, err := parseFilePos(pos, false)
 	if err != nil {
-		return err
+		if strings.Contains(pos, ":") {
+			return err
+		}
+		filePath = pos
 	}
 	if strings.TrimSpace(input.FilePath) == "" {
 		input.FilePath = filePath
@@ -210,21 +238,62 @@ func (h handlerBase) openFile(ctx context.Context, rawPath string, languageID st
 	}, nil
 }
 
-func (h handlerBase) readSingle(ctx context.Context, rawPath string, offset, limit int, expand bool) (string, error) {
+func (h handlerBase) readSingle(ctx context.Context, req readFileRequest) (string, error) {
 	root, roots, err := toolWorkspaceRoots(ctx)
 	if err != nil {
 		return "", err
 	}
-	file, err := search.ReadToolFileContentInRoots(root, roots, rawPath, maxReadFileBytes)
+	file, err := search.ReadToolFileContentInRoots(root, roots, req.rawPath, maxReadFileBytes)
 	if err != nil {
-		warnFileReadFailure("read_file", root, rawPath, err)
+		warnFileReadFailure("read_file", root, req.rawPath, err)
 		return "", err
 	}
-	return renderReadContent(file.Content, offset, limit, expand), nil
+	if req.wantsLineWindow() {
+		return renderLineWindow(file.Path.DisplayPath, file.Content, req, lineWindowReasonExplicit), nil
+	}
+	return h.renderFunctionOrFallback(ctx, file.Path, file.Content, req), nil
 }
 
-func (h handlerBase) readBatch(ctx context.Context, rawPaths []string, offset, limit int, expand bool) (batchReadResponse, error) {
-	paths, meta := trimBatchPaths(rawPaths)
+// renderFunctionOrFallback tries to extract the enclosing function for
+// req.line via DocumentSymbol. On any failure (no LSP, no symbol
+// provider, line outside any function) we fall back to a default
+// line window and explain the reason in the footer so the model knows
+// whether retrying with a different line could help.
+func (h handlerBase) renderFunctionOrFallback(ctx context.Context, path search.PathInfo, content string, req readFileRequest) string {
+	reason, ok := h.tryFunctionWindow(ctx, path, content, req)
+	if ok {
+		return reason
+	}
+	return renderLineWindow(path.DisplayPath, content, req, reason)
+}
+
+// tryFunctionWindow returns (rendered, true) on a successful function
+// extraction, or (fallbackReason, false) when the caller should render a
+// line window instead. The fallbackReason is a tag from
+// lineWindowReason* so renderLineWindow can produce a footer that
+// distinguishes "no symbol provider" from "outside any function".
+func (h handlerBase) tryFunctionWindow(ctx context.Context, path search.PathInfo, content string, req readFileRequest) (string, bool) {
+	if h.registry == nil {
+		return lineWindowReasonNoLSP, false
+	}
+	manager, err := managerForFile(ctx, h.registry, path.AbsPath, req.languageID)
+	if err != nil {
+		return lineWindowReasonNoLSP, false
+	}
+	symbols, err := manager.DocumentSymbol(ctx, path.AbsPath)
+	if err != nil || len(symbols) == 0 {
+		return lineWindowReasonNoSymbols, false
+	}
+	start, end, ok := format.FindEnclosingFunction(symbols, req.line-1)
+	if !ok {
+		return lineWindowReasonOutsideFunction, false
+	}
+	name := enclosingFunctionName(symbols, req.line-1)
+	return renderFunctionWindow(content, name, start, end, req.limit), true
+}
+
+func (h handlerBase) readBatch(ctx context.Context, req readFileRequest) (batchReadResponse, error) {
+	paths, meta := trimBatchPaths(req.rawPaths)
 	results := make(chan indexedBatchItem, len(paths))
 	var wg sync.WaitGroup
 	for index, rawPath := range paths {
@@ -247,7 +316,12 @@ func (h handlerBase) readBatch(ctx context.Context, rawPaths []string, offset, l
 			}
 			item.FilePath = file.Path.DisplayPath
 			item.Success = true
-			item.Content = renderReadContent(file.Content, offset, limit, expand)
+			// Batch reads always render full files (line=0 → wantsLineWindow,
+			// no function lookup) so the model gets predictable content
+			// for many files at once. Per-file line targeting is reserved
+			// for the single-file pos="file:line" path.
+			batchReq := readFileRequest{rawPath: target, limit: req.limit}
+			item.Content = renderLineWindow(file.Path.DisplayPath, file.Content, batchReq, lineWindowReasonBatch)
 			results <- indexedBatchItem{Index: idx, Item: item}
 		}(index, rawPath)
 	}
@@ -371,42 +445,6 @@ func fitsBatchPayload(resp batchReadResponse) bool {
 	return err == nil && len(raw) <= lspReadFileBatchPayloadMax
 }
 
-func renderReadContent(content string, offset, limit int, expand bool) string {
-	if content == "" {
-		return "(empty file)"
-	}
-	lines := splitNormalizedLines(content)
-	start := clampOffset(offset, len(lines))
-	requestedStart := start
-
-	actualLimit := shared.ClampLimit(limit, 1, maxReadFileLimit, defaultReadFileLimit)
-
-	expandedDiff := 0
-	if expand {
-		expandedStart := expandStartToIncludeComments(lines, start)
-		if expandedStart < start {
-			expandedDiff = start - expandedStart
-			start = expandedStart
-			actualLimit = actualLimit + expandedDiff
-			if actualLimit > maxReadFileLimit {
-				actualLimit = maxReadFileLimit
-			}
-		}
-	}
-
-	end := minInt(start+actualLimit-1, len(lines))
-	segment := strings.Join(lines[start-1:end], "\n")
-	rendered := format.RenderLineNumberedText(segment, start)
-	if start == 1 && end == len(lines) {
-		return rendered
-	}
-	footer := fmt.Sprintf("...[showing lines %d-%d of %d total, use offset=%d to continue]", start, end, len(lines), end+1)
-	if expandedDiff > 0 {
-		footer += fmt.Sprintf(" [auto-expanded %d line(s) upward from offset=%d to include adjacent comments; pass expand_comments=false to disable]", expandedDiff, requestedStart)
-	}
-	return fmt.Sprintf("%s\n\n%s", rendered, footer)
-}
-
 func resolveRoot(raw string) string {
 	root, err := search.NormalizeRoot(raw)
 	if err == nil {
@@ -498,141 +536,4 @@ func (r batchReadResponse) ToPlainText() string {
 	}
 
 	return strings.TrimSpace(sb.String())
-}
-
-var singleLineCommentPrefixes = []string{"//", "#", "--"}
-
-func isCommentLine(line string) bool {
-	trimmed := strings.TrimSpace(line)
-	if trimmed == "" {
-		return false
-	}
-	for _, prefix := range singleLineCommentPrefixes {
-		if strings.HasPrefix(trimmed, prefix) {
-			return true
-		}
-	}
-	for _, item := range blockCommentSuffixes {
-		if isBlockCommentMarkerMatch(trimmed, item.Prefix, item.Suffix) {
-			return true
-		}
-	}
-	return false
-}
-
-func isBlockCommentMarkerMatch(trimmed, prefix, suffix string) bool {
-	firstIdx := strings.Index(trimmed, prefix)
-	lastIdx := strings.LastIndex(trimmed, suffix)
-	if firstIdx != -1 && firstIdx < lastIdx {
-		isSingle := strings.HasPrefix(trimmed, prefix)
-		if len(suffix) == 3 {
-			return isSingle && len(trimmed) > 3
-		}
-		return isSingle
-	}
-	return strings.HasPrefix(trimmed, prefix) || strings.HasSuffix(trimmed, suffix)
-}
-
-func isLicenseLine(line string) bool {
-	lower := strings.ToLower(line)
-	// Match actual copyright headers containing (c) or years (202x, 201x)
-	if strings.Contains(lower, "copyright") && (strings.Contains(lower, "(c)") || strings.Contains(lower, "202") || strings.Contains(lower, "201")) {
-		return true
-	}
-	// Match standard license headers
-	if strings.Contains(lower, "licensed under") || strings.Contains(lower, "spdx-license-identifier") {
-		return true
-	}
-	return false
-}
-
-var blockCommentSuffixes = []struct {
-	Suffix string
-	Prefix string
-}{
-	{"*/", "/*"},
-	{`"""`, `"""`},
-	{"'''", "'''"},
-}
-
-func checkBlockCommentMarker(line string) (isBlock bool, marker string, singleLine bool) {
-	trimmed := strings.TrimSpace(line)
-	for _, item := range blockCommentSuffixes {
-		if strings.HasSuffix(trimmed, item.Suffix) {
-			firstIdx := strings.Index(trimmed, item.Prefix)
-			lastIdx := strings.LastIndex(trimmed, item.Suffix)
-			containsPrefixBeforeSuffix := firstIdx != -1 && firstIdx < lastIdx
-
-			if containsPrefixBeforeSuffix {
-				isSingle := strings.HasPrefix(trimmed, item.Prefix)
-				if item.Suffix == `"""` || item.Suffix == "'''" {
-					isSingle = isSingle && len(trimmed) > 3
-				}
-				if isSingle {
-					return true, item.Prefix, true
-				}
-				return false, "", false
-			}
-
-			return true, item.Prefix, false
-		}
-	}
-	return false, "", false
-}
-
-func shouldStopOnBlankLine(trimmed string, inBlock bool) bool {
-	return trimmed == "" && !inBlock
-}
-
-func shouldStopOnNonComment(line string) bool {
-	return !isCommentLine(line) || isLicenseLine(line)
-}
-
-func expandStartToIncludeComments(lines []string, startLine int) int {
-	const maxCommentExpandLines = 20
-	current := startLine
-
-	inMultiLineBlock := false
-	var blockStartMarker string
-
-	for i := 0; i < maxCommentExpandLines; i++ {
-		prevIdx := current - 2
-		if prevIdx < 0 {
-			break
-		}
-
-		prevLine := lines[prevIdx]
-		trimmedPrev := strings.TrimSpace(prevLine)
-
-		if shouldStopOnBlankLine(trimmedPrev, inMultiLineBlock) {
-			break
-		}
-
-		if inMultiLineBlock {
-			if strings.Contains(trimmedPrev, blockStartMarker) {
-				inMultiLineBlock = false
-				if !strings.HasPrefix(trimmedPrev, blockStartMarker) {
-					break
-				}
-			}
-			current--
-			continue
-		}
-
-		isBlock, marker, isSingle := checkBlockCommentMarker(prevLine)
-		if isBlock {
-			current--
-			if !isSingle {
-				inMultiLineBlock = true
-				blockStartMarker = marker
-			}
-			continue
-		}
-
-		if shouldStopOnNonComment(prevLine) {
-			break
-		}
-		current--
-	}
-	return current
 }

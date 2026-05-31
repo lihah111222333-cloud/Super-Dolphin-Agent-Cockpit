@@ -45,7 +45,7 @@ func WithOutputBudget(toolName string, next Handler, budget Budget) Handler {
 	return func(ctx context.Context, params json.RawMessage) (any, error) {
 		value, err := next(ctx, params)
 		if err != nil {
-			return nil, err
+			return value, err
 		}
 		if fitsBudget(value, limit) {
 			return value, nil

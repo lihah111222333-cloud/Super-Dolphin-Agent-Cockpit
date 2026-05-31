@@ -44,13 +44,12 @@ func objectSchema(props map[string]schema, required ...string) schema {
 // ---------------------------------------------------------------------------
 
 var lspFileSchema = objectSchema(map[string]schema{
-	"action":          enumProp("Action", "open_file", "read_file", "diagnostics"),
-	"pos":             stringProp("Position as 'file_path:line' (line maps to offset; example internal/foo.go:42). Use this OR file_path+offset, not both."),
-	"file_path":       stringProp("File path (absolute or relative, auto-resolved). Alternative to pos for actions that do not need a line."),
-	"file_paths":      arrayOfStringsProp("Multiple file paths for batch read or LSP diagnostics filtering"),
-	"offset":          integerProp("Start line (1-based, default 1)"),
-	"limit":           integerProp("Max lines (default 250, cap 2000)"),
-	"expand_comments": booleanProp("Auto-expand starting line upward to include adjacent doc comments (read_file only, default true)"),
+	"action":     enumProp("Action", "open_file", "read_file", "diagnostics"),
+	"pos":        stringProp("Position: 'file_path' (full file) or 'file_path:line' (function at line). Example: internal/foo.go:42 reads the function containing line 42 with its doc comments."),
+	"scope":      enumProp("Read mode override (default: function at line). Pass scope=lines to force a line-window read instead of function extraction.", "lines"),
+	"file_path":  stringProp("File path for open_file/diagnostics when pos is not used."),
+	"file_paths": arrayOfStringsProp("Multiple file paths for batch read or diagnostics"),
+	"limit":      integerProp("Max lines to return (default 300 for function mode, 250 for line-window; cap 2000). In function mode this caps the output without switching to line-window."),
 }, "action")
 
 var lspInspectSchema = objectSchema(map[string]schema{
