@@ -65,6 +65,8 @@ const (
 	MethodSkillsChanged          = "skills/changed"
 	MethodUIPreferencesChanged   = "ui/preferences/changed"
 	MethodUIThreadPatch          = "ui/thread/patch"
+	MethodUISharedFilesChanged   = "ui/shared-files/changed"
+	MethodUIMemoryChanged        = "ui/memory/changed"
 	MethodAgentLaunched          = "agent/launched"
 	MethodAgentStopped           = "agent/stopped"
 	MethodAgentRecovering        = "agent/recovering"
@@ -206,6 +208,12 @@ func bindUI(dispatcher *event.Dispatcher, logger *pkglogger.Logger, publish Publ
 		}, logger),
 		bus.ResilientSubscribe(dispatcher, func(ev uidto.UIThreadPatch) {
 			publish(MethodUIThreadPatch, ev)
+		}, logger),
+		bus.ResilientSubscribe(dispatcher, func(ev uidto.UISharedFilesChanged) {
+			publish(MethodUISharedFilesChanged, ev)
+		}, logger),
+		bus.ResilientSubscribe(dispatcher, func(ev uidto.UIMemoryChanged) {
+			publish(MethodUIMemoryChanged, ev)
 		}, logger),
 		bus.ResilientSubscribe(dispatcher, func(ev uidto.UIProjectionUpdated) {
 			publish(projectionUpdatedMethod(ev), projectionUpdatedPayload(ev))

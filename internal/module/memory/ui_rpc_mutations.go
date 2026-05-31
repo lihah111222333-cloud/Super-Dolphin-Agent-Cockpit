@@ -9,6 +9,8 @@ import (
 	"time"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
+	shareddto "github.com/anthropic-ai/super-agent-v3/internal/dto/shared"
+	uidto "github.com/anthropic-ai/super-agent-v3/internal/dto/ui"
 	"github.com/anthropic-ai/super-agent-v3/internal/module/memory/dedup"
 	sharedfilecleanup "github.com/anthropic-ai/super-agent-v3/internal/module/memory/sharedfilecleanup"
 	"github.com/anthropic-ai/super-agent-v3/internal/module/memory/similarity"
@@ -119,6 +121,7 @@ func setAutoDreamIntent(_ context.Context, p memoryHandlerDeps, req uiAutoDreamI
 	if err := WriteAutoDreamIntent(rootDir, req.Enabled); err != nil {
 		return nil, fmt.Errorf("persist auto-dream intent: %w", err)
 	}
+	publishUIMemoryChanged(p, "auto-dream-intent")
 	return map[string]any{"ok": true, "enabled": req.Enabled}, nil
 }
 
@@ -162,6 +165,7 @@ func upsertUIMemoryEntry(ctx context.Context, deps memoryHandlerDeps, req uiMemo
 		return UIMemoryEntryDetail{}, redactIfPathBearing(deps.Logger, "durable_memory_read_back",
 			errDurableMemoryReadFailed, err, "target", target, "name", writeReq.Name)
 	}
+	publishUIMemoryChanged(deps, "upsert")
 	return toUIMemoryEntryDetail(target, root, relPath, entry), nil
 }
 
@@ -207,6 +211,7 @@ func deleteUIMemoryEntry(ctx context.Context, deps memoryHandlerDeps, req uiMemo
 	}
 
 	invalidateDurableMemorySections(deps.Sections)
+	publishUIMemoryChanged(deps, "delete")
 	return nil
 }
 
@@ -458,6 +463,7 @@ func mergeUIMemoryEntries(ctx context.Context, deps memoryHandlerDeps, req uiMem
 		return UIMemoryEntryDetail{}, redactIfPathBearing(deps.Logger, "merge_read_back",
 			errDurableMemoryReadFailed, err, "target", resolved.targetA, "path", req.PathA)
 	}
+	publishUIMemoryChanged(deps, "merge")
 	return toUIMemoryEntryDetail(resolved.targetA, resolved.rootA, mergedPath, merged), nil
 }
 
@@ -501,6 +507,7 @@ func ignoreSimilarityPairHandler(ctx context.Context, p memoryHandlerDeps, req u
 			errDurableMemorySaveFailed, err)
 	}
 	key := similarity.IgnoreKey(targetA, req.PathA, targetB, req.PathB)
+	publishUIMemoryChanged(p, "ignore-similarity")
 	return map[string]any{"ignored": true, "key": key}, nil
 }
 
@@ -527,11 +534,26 @@ func consolidateAllHandler(ctx context.Context, p memoryHandlerDeps, req uiSimil
 		return uiSimilarityConsolidateAllResult{}, redactIfPathBearing(p.Logger, "consolidate_all",
 			errDurableMemorySaveFailed, err)
 	}
+	publishUIMemoryChanged(p, "consolidate-similarities")
 	return uiSimilarityConsolidateAllResult{
 		Merged: res.Merged, Ignored: res.Ignored,
 		Failed: res.Failed, Skipped: res.Skipped,
 		Errors: res.Errors,
 	}, nil
+}
+
+func publishUIMemoryChanged(deps memoryHandlerDeps, action string) {
+	if deps.Dispatcher == nil {
+		return
+	}
+	action = strings.TrimSpace(action)
+	if action == "" {
+		return
+	}
+	contract.NewEmitter[uidto.UIMemoryChanged](deps.Dispatcher)(uidto.UIMemoryChanged{
+		EventHeader: shareddto.EventHeader{Timestamp: time.Now()},
+		Action:      action,
+	})
 }
 
 func buildUIMemoryMergeWriteRequest(entryA, entryB MemoryEntry, overrideDescription, overrideContent string) MemoryWriteRequest {

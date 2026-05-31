@@ -50,6 +50,8 @@ const (
 	EventTypeUISkillsChanged      uint32 = 1503
 	EventTypeUIThreadPatch        uint32 = 1504
 	EventTypeUIPreferencesChanged uint32 = 1505
+	EventTypeUISharedFilesChanged uint32 = 1506
+	EventTypeUIMemoryChanged      uint32 = 1507
 
 	EventTypeProviderRaw uint32 = 1600
 
