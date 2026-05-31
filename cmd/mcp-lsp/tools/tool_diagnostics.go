@@ -24,7 +24,6 @@ type diagnosticsTable struct {
 
 type diagnosticsMeta struct {
 	Message string `json:"message,omitempty"`
-	Source  string `json:"source,omitempty"`
 }
 
 type diagnosticsResponse struct {
@@ -158,7 +157,7 @@ func (h handlerBase) handleDiagnostics(ctx context.Context, input fileToolInput)
 		return nil, err
 	}
 
-	items, source, message, err := h.fetchDiagnosticsWithRetry(ctx, uris)
+	items, _, message, err := h.fetchDiagnosticsWithRetry(ctx, uris)
 	if err != nil {
 		return nil, err
 	}
@@ -175,7 +174,7 @@ func (h handlerBase) handleDiagnostics(ctx context.Context, input fileToolInput)
 			Data:    []diagnosticsTable{},
 			Total:   0,
 			Showing: 0,
-			Meta:    diagnosticsMeta{Source: source, Message: appendMessage(baseMessage, message)},
+			Meta:    diagnosticsMeta{Message: appendMessage(baseMessage, message)},
 		}, nil
 	}
 	return diagnosticsResponse{
@@ -184,7 +183,7 @@ func (h handlerBase) handleDiagnostics(ctx context.Context, input fileToolInput)
 		Total:   total,
 		Showing: total,
 		Hint:    "Next step: edit action=replace_range to fix, or file action=read_file pos=<file>:<line> for context",
-		Meta:    diagnosticsMeta{Source: source, Message: message},
+		Meta:    diagnosticsMeta{Message: message},
 	}, nil
 }
 
