@@ -222,7 +222,7 @@ func NewToolErrorEnvelopeWithMeta(toolName, languageID string, err error, extraM
 
 func ClassifyToolError(toolName string, err error) (code string, retryable bool, hint string, meta map[string]any) {
 	if err == nil {
-		return "unknown", false, "No tool error was provided.", nil
+		return "unknown", false, "next: inspect tool call arguments and retry with a concrete error", nil
 	}
 	var coded *CodedToolError
 	if errors.As(err, &coded) && coded != nil {
@@ -235,7 +235,7 @@ func ClassifyToolError(toolName string, err error) (code string, retryable bool,
 			return classifier.code, classifier.retryable, classifier.hint(normalizedTool, message), nil
 		}
 	}
-	return "tool_error", false, "Inspect the tool error message and logs; retry only after fixing the reported issue.", nil
+	return "tool_error", false, "next: inspect the tool error message and logs, then retry after fixing the reported issue", nil
 }
 
 type toolErrorClassifier struct {
@@ -248,7 +248,7 @@ type toolErrorClassifier struct {
 var toolErrorClassifiers = []toolErrorClassifier{
 	{
 		code: "patch_no_match",
-		hint: staticToolHint("The patch's '-' / context lines did not match the file. Read the target lines (file action=read_file) and copy the literal text into the next patch's context, including indentation."),
+		hint: staticToolHint("next: file action=read_file pos=<file>:<line> limit=<n>, then retry edit action=replace_range with literal patch context"),
 		match: func(_ error, message string, toolName string) bool {
 			return isEditTool(toolName) && (strings.Contains(message, "sequence not found") ||
 				strings.Contains(message, "no candidate matched the patch context"))
@@ -256,7 +256,7 @@ var toolErrorClassifiers = []toolErrorClassifier{
 	},
 	{
 		code: "patch_ambiguous",
-		hint: staticToolHint("The patch matched multiple locations. Add 1-2 ' ' (space-prefixed) context lines before/after the change so only one site qualifies; meta.candidate_locations lists where it matched."),
+		hint: staticToolHint("next: edit action=replace_range patch=\"...\" with 1-2 extra space-prefixed context lines; inspect meta.candidate_locations"),
 		match: func(_ error, message string, toolName string) bool {
 			if !isEditTool(toolName) {
 				return false
@@ -267,7 +267,7 @@ var toolErrorClassifiers = []toolErrorClassifier{
 	},
 	{
 		code: "database_schema_missing",
-		hint: staticToolHint("The database schema is missing or behind; start the service with migration lifecycle enabled or apply migrations before retrying."),
+		hint: staticToolHint("next: run database migrations or start the service with migration lifecycle enabled"),
 		match: func(err error, message string, _ string) bool {
 			var pgErr *pgconn.PgError
 			if errors.As(err, &pgErr) {
@@ -279,14 +279,14 @@ var toolErrorClassifiers = []toolErrorClassifier{
 	},
 	{
 		code: "internal_panic",
-		hint: staticToolHint("The tool handler panicked; inspect logs and retry only after the bug is fixed."),
+		hint: staticToolHint("next: inspect logs and retry only after fixing the tool handler bug"),
 		match: func(_ error, message string, _ string) bool {
 			return strings.Contains(message, "panic recovered")
 		},
 	},
 	{
 		code: "capability_unsupported",
-		hint: staticToolHint("Use a tool/action/language supported by this helper or language adapter."),
+		hint: staticToolHint("next: use a supported tool/action/language for this helper or language adapter"),
 		match: func(_ error, message string, _ string) bool {
 			return strings.Contains(message, "unsupported run language") ||
 				strings.Contains(message, "unsupported helper language") ||
@@ -295,7 +295,7 @@ var toolErrorClassifiers = []toolErrorClassifier{
 	},
 	{
 		code: "language_unsupported",
-		hint: staticToolHint("Choose a file or language_id with a registered language adapter."),
+		hint: staticToolHint("next: choose file_path or language_id with a registered language adapter"),
 		match: func(_ error, message string, _ string) bool {
 			return strings.Contains(message, "unsupported language") ||
 				strings.Contains(message, "unsupported language adapter") ||
@@ -304,7 +304,7 @@ var toolErrorClassifiers = []toolErrorClassifier{
 	},
 	{
 		code: "schema_invalid",
-		hint: staticToolHint("Check the tool schema: use documented field names and JSON value types."),
+		hint: staticToolHint("next: check the tool schema and retry with documented field names and JSON value types"),
 		match: func(_ error, message string, _ string) bool {
 			return strings.Contains(message, "decode params") ||
 				strings.Contains(message, "decode ") ||
@@ -314,7 +314,7 @@ var toolErrorClassifiers = []toolErrorClassifier{
 	},
 	{
 		code: "cwd_required",
-		hint: staticToolHint("Pass a non-empty cwd, or pass parent_id for an existing parent agent with cwd."),
+		hint: staticToolHint("next: pass a non-empty cwd or parent_id for an existing parent agent with cwd"),
 		match: func(err error, message string, toolName string) bool {
 			return isLaunchAgentTool(toolName) && (errors.Is(err, contract.ErrLaunchCWDRequired) ||
 				strings.Contains(message, "launch_agent cwd is required") ||
@@ -323,7 +323,7 @@ var toolErrorClassifiers = []toolErrorClassifier{
 	},
 	{
 		code: "cwd_invalid",
-		hint: staticToolHint("Pass an explicit absolute cwd path; dot and relative cwd are not accepted."),
+		hint: staticToolHint("next: pass an explicit absolute cwd path; dot and relative cwd are not accepted"),
 		match: func(err error, message string, toolName string) bool {
 			return isLaunchAgentTool(toolName) && (errors.Is(err, contract.ErrLaunchCWDInvalid) ||
 				strings.Contains(message, "cwd must be explicit") ||
@@ -332,28 +332,28 @@ var toolErrorClassifiers = []toolErrorClassifier{
 	},
 	{
 		code: "provider_required",
-		hint: staticToolHint("Pass provider as codex or claude, or use launch_agent without provider so the tool can default it to codex."),
+		hint: staticToolHint("next: pass provider=codex|claude or omit provider for launch_agent default"),
 		match: func(_ error, message string, toolName string) bool {
 			return isLaunchAgentTool(toolName) && strings.Contains(message, "provider is required")
 		},
 	},
 	{
 		code: "provider_invalid",
-		hint: staticToolHint("Pass provider as codex or claude."),
+		hint: staticToolHint("next: pass provider=codex|claude"),
 		match: func(_ error, message string, toolName string) bool {
 			return isLaunchAgentTool(toolName) && strings.Contains(message, "invalid provider")
 		},
 	},
 	{
 		code: "launch_request_invalid",
-		hint: staticToolHint("Fix the launch_agent arguments and retry; required fields must be non-empty and enum values must be supported."),
+		hint: staticToolHint("next: fix launch_agent arguments and retry with non-empty required fields and supported enum values"),
 		match: func(_ error, message string, toolName string) bool {
 			return isLaunchAgentTool(toolName) && isLaunchRequestInvalidMessage(message)
 		},
 	},
 	{
 		code: "database_schema_missing",
-		hint: staticToolHint("Run database migrations or verify the embedded database schema before retrying."),
+		hint: staticToolHint("next: run database migrations or verify the embedded database schema"),
 		match: func(_ error, message string, _ string) bool {
 			return (strings.Contains(message, "relation ") && strings.Contains(message, " does not exist")) ||
 				strings.Contains(message, "no such table") ||
@@ -362,7 +362,7 @@ var toolErrorClassifiers = []toolErrorClassifier{
 	},
 	{
 		code: "invalid_input",
-		hint: staticToolHint("Fix the task DAG request, node status, or transition inputs before retrying."),
+		hint: staticToolHint("next: fix the task DAG request, node status, or transition inputs"),
 		match: func(_ error, message string, toolName string) bool {
 			return isTaskTool(toolName) && (strings.Contains(message, "apply_ops invalid request") ||
 				strings.Contains(message, "invalid task") ||
@@ -374,7 +374,7 @@ var toolErrorClassifiers = []toolErrorClassifier{
 	{
 		code:      "lsp_unavailable",
 		retryable: true,
-		hint:      staticToolHint("Retry if the language server is starting; otherwise inspect manager diagnostics."),
+		hint:      staticToolHint("next: retry after language server startup or inspect manager diagnostics"),
 		match: func(_ error, message string, _ string) bool {
 			return strings.Contains(message, "language server is starting") ||
 				(strings.Contains(message, "language server") && (strings.Contains(message, "not ready") || strings.Contains(message, "unavailable"))) ||
@@ -383,14 +383,14 @@ var toolErrorClassifiers = []toolErrorClassifier{
 	},
 	{
 		code: "dependency_missing",
-		hint: staticToolHint("Install ast-grep or ensure sg is available in PATH."),
+		hint: staticToolHint("next: install ast-grep or ensure sg is available in PATH"),
 		match: func(_ error, message string, _ string) bool {
 			return strings.Contains(message, "sg not found in path")
 		},
 	},
 	{
 		code: "file_not_found",
-		hint: staticToolHint("Verify file_path is under the trusted workspace and exists on disk."),
+		hint: staticToolHint("next: verify file_path is under the trusted workspace and exists on disk"),
 		match: func(err error, message string, _ string) bool {
 			return errors.Is(err, os.ErrNotExist) ||
 				strings.Contains(message, "not found") ||
@@ -400,7 +400,7 @@ var toolErrorClassifiers = []toolErrorClassifier{
 	},
 	{
 		code: "path_invalid",
-		hint: staticToolHint("Pass a regular file path for file actions that require one; directories are not valid file_path values."),
+		hint: staticToolHint("next: pass a regular file_path for file actions; directories are not valid file_path values"),
 		match: func(_ error, message string, _ string) bool {
 			return strings.Contains(message, "must reference a regular file") ||
 				strings.Contains(message, "is not a regular file") ||
@@ -409,7 +409,7 @@ var toolErrorClassifiers = []toolErrorClassifier{
 	},
 	{
 		code: "path_outside_workspace",
-		hint: staticToolHint("Use a path under the trusted workspace roots, or add the directory to the workspace root set."),
+		hint: staticToolHint("next: use a path under trusted workspace roots or add the directory to workspace roots"),
 		match: func(_ error, message string, _ string) bool {
 			return strings.Contains(message, "outside workspace roots") ||
 				strings.Contains(message, "outside allowed workspace roots")
@@ -418,7 +418,7 @@ var toolErrorClassifiers = []toolErrorClassifier{
 	{
 		code:      "lsp_timeout",
 		retryable: true,
-		hint:      staticToolHint("Retry with a narrower query, smaller max_results, or after the language server finishes indexing."),
+		hint:      staticToolHint("next: narrow query/path/glob or reduce max_results after the language server finishes indexing"),
 		match: func(err error, message string, _ string) bool {
 			return errors.Is(err, context.DeadlineExceeded) ||
 				strings.Contains(message, "timeout") ||
@@ -429,9 +429,9 @@ var toolErrorClassifiers = []toolErrorClassifier{
 		code: "position_invalid",
 		hint: func(toolName, _ string) string {
 			if toolName == "edit" || toolName == "lsp_edit" {
-				return "Line/column inputs are 1-based; for replace_range coordinate errors, prefer patch or edits when possible."
+				return "next: use 1-based line/column inputs; for replace_range coordinate errors, prefer patch or edits"
 			}
-			return "Line and column inputs are 1-based; move the cursor onto an identifier."
+			return "next: use 1-based line and column inputs with the cursor on an identifier"
 		},
 		match: func(_ error, message string, _ string) bool {
 			return strings.Contains(message, "line must") ||
@@ -446,14 +446,14 @@ var toolErrorClassifiers = []toolErrorClassifier{
 	{
 		code:      "lsp_client_closed",
 		retryable: true,
-		hint:      staticToolHint("Retry once so the manager can recreate the language server client."),
+		hint:      staticToolHint("next: retry once so the manager can recreate the language server client"),
 		match: func(_ error, message string, _ string) bool {
 			return strings.Contains(message, "client") && strings.Contains(message, "closed")
 		},
 	},
 	{
 		code: "scope_ambiguous",
-		hint: staticToolHint("Provide exactly one unambiguous scope selector such as file_path or language."),
+		hint: staticToolHint("next: provide exactly one unambiguous scope selector such as file_path or language"),
 		match: func(_ error, message string, _ string) bool {
 			return strings.Contains(message, "ambiguous") ||
 				strings.Contains(message, "exactly one of") ||
