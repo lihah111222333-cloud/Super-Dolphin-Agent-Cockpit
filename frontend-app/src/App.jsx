@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { AlertTriangle, Archive, Bot, Boxes, Brain, ChevronDown, CircleDot, Code2, Copy, Download, Eye, File, FileText, Folder, FolderOpen, GitBranch, Image, Link2, MemoryStick, MessageCircle, MoreHorizontal, Paperclip, Plus, RefreshCw, Search, Send, Settings, Sparkles, Trash2, Workflow, X } from 'lucide-react';
+import { AlertTriangle, Archive, Bot, Boxes, Brain, ChevronDown, CircleDot, Code2, Copy, Download, Eye, File, FileText, Folder, FolderOpen, GitBranch, Image, Link2, MemoryStick, MessageCircle, Moon, MoreHorizontal, Paperclip, Plus, RefreshCw, Search, Send, Settings, Sparkles, Sun, Trash2, Workflow, X } from 'lucide-react';
 import { useClientStore } from './entities/client/model/useClientStore.js';
 import { PromptPageView } from './features/prompts/PromptPageView.jsx';
 import {
@@ -100,6 +100,30 @@ const MEMORY_EDITOR_TARGETS = Object.freeze([
   { key: 'private', label: '私有' },
   { key: 'team', label: '团队' },
 ]);
+
+const THEME_STORAGE_KEY = 'super-dolphin-theme';
+const COLOR_THEMES = Object.freeze({
+  dark: 'dark',
+  light: 'light',
+});
+
+function normalizeColorTheme(value) {
+  return value === COLOR_THEMES.light || value === COLOR_THEMES.dark ? value : COLOR_THEMES.dark;
+}
+
+function useColorTheme() {
+  const [theme, setTheme] = useState(() => normalizeColorTheme(window.localStorage.getItem(THEME_STORAGE_KEY)));
+
+  const toggleTheme = useCallback(() => {
+    setTheme((current) => {
+      const next = current === COLOR_THEMES.dark ? COLOR_THEMES.light : COLOR_THEMES.dark;
+      window.localStorage.setItem(THEME_STORAGE_KEY, next);
+      return next;
+    });
+  }, []);
+
+  return { theme, toggleTheme };
+}
 
 
 function projectDisplayName(path) {
@@ -1316,11 +1340,12 @@ function App({ skipBootstrap = false }) {
     navItems.find((item) => item.id === store.activePage)?.label || 'Chat'
   ), [store.activePage]);
 
+  const { theme, toggleTheme } = useColorTheme();
   const projectPath = store.activeProject || store.cwd || '未选择项目';
 
   return (
-    <div className="sa-window" data-testid="frontend-app">
-      <Titlebar />
+    <div className="sa-window" data-theme={theme} data-testid="frontend-app">
+      <Titlebar theme={theme} onToggleTheme={toggleTheme} />
       <div className="sa-body">
         <NavRail activePage={store.activePage} setActivePage={store.setActivePage} />
         <main className="sa-main">
@@ -1338,15 +1363,26 @@ function App({ skipBootstrap = false }) {
   );
 }
 
-function Titlebar() {
+function Titlebar({ theme, onToggleTheme }) {
+  const isDark = theme === COLOR_THEMES.dark;
+  const ThemeIcon = isDark ? Sun : Moon;
+  const label = isDark ? '白天模式' : '黑夜模式';
+
   return (
     <header className="titlebar">
-      <div className="traffic-lights" aria-hidden="true">
-        <span className="red" />
-        <span className="yellow" />
-        <span className="green" />
+      <div className="titlebar-brand">
+        <span className="brand-orb" aria-hidden="true" />
+        <strong>Super Agent</strong>
       </div>
-      <strong>Super Agent</strong>
+      <button
+        type="button"
+        className="theme-toggle"
+        onClick={onToggleTheme}
+        aria-label={`切换到${label}`}
+      >
+        <ThemeIcon size={16} aria-hidden="true" />
+        <span>{label}</span>
+      </button>
     </header>
   );
 }
