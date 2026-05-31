@@ -92,6 +92,43 @@ func TestSkillResolutionListRPCReturnsCanonicalAndMirrorConflicts(t *testing.T) 
 	assertResolutionProviderEntry(t, personalUnmanaged, string(SkillProviderClaude), "loose")
 }
 
+func TestSkillResolutionListHidesMirrorDriftForUnresolvedSameName(t *testing.T) {
+	setSkillTestUserHome(t)
+	project := t.TempDir()
+	superHome := filepath.Join(t.TempDir(), ".super-dolphin")
+	svc := &service{
+		root:              t.TempDir(),
+		projectRoot:       project,
+		projectSkillsRoot: defaultProjectSkillsRoot(project),
+		superDolphinHome:  superHome,
+		http:              &http.Client{},
+	}
+	writeSkillWithSupportFiles(t, filepath.Join(project, ".agent", "skills", "build"), "build")
+	writeSkillWithSupportFiles(t, filepath.Join(superHome, "skills", "personal", personalSkillTypeUser, "build"), "build")
+
+	records, err := newCanonicalStore(superHome).scan(project)
+	if err != nil {
+		t.Fatalf("scan canonical records: %v", err)
+	}
+	fingerprint := RepoFingerprint(project)
+	claudeTarget := SkillMirrorTarget{TargetID: "claude:project:" + fingerprint, Provider: SkillProviderClaude, Scope: skillScopeProject, Root: providerProjectMirrorRoot(SkillProviderClaude, project), CanonicalRootID: fingerprint}
+	codexTarget := SkillMirrorTarget{TargetID: "codex:project:" + fingerprint, Provider: SkillProviderCodex, Scope: skillScopeProject, Root: providerProjectMirrorRoot(SkillProviderCodex, project), CanonicalRootID: fingerprint}
+	if _, err := PublishSkillMirrors(context.Background(), records, []SkillMirrorTarget{claudeTarget, codexTarget}); err != nil {
+		t.Fatalf("PublishSkillMirrors: %v", err)
+	}
+	writeFileWithMode(t, filepath.Join(claudeTarget.Root, "build", "references", "guide.md"), "claude project drift\n", 0o644)
+	writeFileWithMode(t, filepath.Join(codexTarget.Root, "build", "references", "guide.md"), "codex project drift\n", 0o644)
+
+	got := dispatchResolutionList(t, newSkillRPCTestServer(t, svc), project)
+	same := findResolutionItem(t, got.Items, skillConflictSameName, "build", "")
+	assertResolutionActions(t, same, ResolutionViewDiff, ResolutionKeepSelected, ResolutionRenamePersonal)
+	assertResolutionSource(t, same, skillScopeProject, "", "project/build")
+	assertResolutionSource(t, same, skillScopePersonal, personalSkillTypeUser, "personal/user/build")
+	assertResolutionItemAbsent(t, got.Items, skillConflictMirrorDrift, "build", skillScopeProject)
+	assertResolutionItemAbsent(t, got.Items, skillConflictMultiMirrorDrift, "build", skillScopeProject)
+	assertResolutionItemAbsent(t, got.Items, skillConflictCanonicalDeletedWithDrift, "build", skillScopeProject)
+}
+
 func TestSkillResolutionPreviewRPCBindsMutatingPreviewAndDoesNotWrite(t *testing.T) {
 	project, server, canonicalDir, mirrorDir := setupResolutionPreviewDriftFixture(t)
 	beforeCanonical, beforeMirror := resolutionPreviewHashes(t, canonicalDir, mirrorDir)

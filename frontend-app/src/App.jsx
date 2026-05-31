@@ -42,9 +42,9 @@ import {
 const navItems = [
   { id: 'chat', label: 'Chat', icon: MessageCircle },
   { id: 'prompts', label: '提示词', icon: FileText },
-  { id: 'workflows', label: '任务流程', icon: Workflow },
+  { id: 'workflows', label: '自动化', icon: Workflow },
   { id: 'skills', label: '技能', icon: Sparkles },
-  { id: 'memory', label: '记忆中心', icon: Brain, alert: true },
+  { id: 'memory', label: '记忆中心', icon: Brain },
   { id: 'files', label: '共享文件', icon: FolderOpen },
   { id: 'settings', label: '设置', icon: MoreHorizontal },
 ];
@@ -73,6 +73,7 @@ const DAG_CATEGORIES = Object.freeze([
 const STARTABLE_DAG_STATUSES = new Set(['draft', 'ready']);
 const STARTABLE_DAG_TRIGGERS = new Set(['manual', 'scheduled', 'schedule', 'cron', '']);
 const RUNNING_RUN_STATUSES = new Set(['running', 'pending', 'dispatching', 'waiting_for_assignee']);
+const WORKFLOW_AUTO_REFRESH_MS = 4000;
 const SHARED_FILE_CATEGORIES = Object.freeze([
   { key: 'all', label: '全部' },
   { key: 'final', label: '最终产物' },
@@ -83,6 +84,10 @@ const SHARED_FILE_SORTS = Object.freeze([
   { key: 'updated-asc', label: '最早更新' },
   { key: 'path-asc', label: '按文件名' },
 ]);
+const SHARED_FILES_AUTO_REFRESH_MS = 4000;
+const MEMORY_AUTO_REFRESH_MS = 4000;
+const SKILLS_AUTO_REFRESH_MS = 4000;
+const SKILLS_REQUEST_TIMEOUT_MS = 8000;
 const MEMORY_CATEGORIES = Object.freeze([
   { key: 'preference', label: '偏好' },
   { key: 'project', label: '项目' },
@@ -94,17 +99,9 @@ const MEMORY_TYPE_INFO = Object.freeze({
   project: { category: 'project', label: '项目' },
   reference: { category: 'project', label: '项目' },
 });
-const MEMORY_SCOPE_LABELS = Object.freeze({
-  private: '私有',
-  team: '团队',
-});
 const MEMORY_EDITOR_TYPES = Object.freeze([
   { key: 'feedback', label: '偏好' },
   { key: 'project', label: '项目' },
-]);
-const MEMORY_EDITOR_TARGETS = Object.freeze([
-  { key: 'private', label: '私有' },
-  { key: 'team', label: '团队' },
 ]);
 
 const THEME_STORAGE_KEY = 'super-dolphin-theme';
@@ -136,6 +133,16 @@ function projectDisplayName(path) {
   const value = (path || '').toString().trim();
   if (!value || value === '未选择项目') return '未选择项目';
   return value.split(/[\\/]/).filter(Boolean).pop() || value;
+}
+
+function withTimeout(promise, timeoutMs, message) {
+  let timeoutID;
+  const timeout = new Promise((_, reject) => {
+    timeoutID = globalThis.setTimeout(() => reject(new Error(message)), timeoutMs);
+  });
+  return Promise.race([promise, timeout]).finally(() => {
+    if (timeoutID) globalThis.clearTimeout(timeoutID);
+  });
 }
 
 function normalizeProjectPath(path) {
@@ -691,7 +698,38 @@ function memoryTemplateForType(type) {
   }
 }
 
-function defaultMemoryForm(type = 'project', target = 'private') {
+function memoryTargetForType(type) {
+  return textValue(type) === 'project' ? 'team' : 'private';
+}
+
+function memorySlugText(value) {
+  return textValue(value)
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 48);
+}
+
+function memoryNameHash(value) {
+  let hash = 5381;
+  const text = textValue(value);
+  for (let index = 0; index < text.length; index += 1) {
+    hash = ((hash << 5) + hash + text.charCodeAt(index)) >>> 0;
+  }
+  return hash.toString(36);
+}
+
+function memoryAutoName(form) {
+  const existing = textValue(form?.name);
+  if (existing) return existing;
+  const type = textValue(form?.type) || 'project';
+  const base = firstText(form?.title, form?.description, form?.content, type);
+  const slug = memorySlugText(base);
+  if (slug) return slug;
+  return `${type}-${memoryNameHash(base)}`;
+}
+
+function defaultMemoryForm(type = 'project', target = memoryTargetForType(type)) {
   return {
     target,
     existingPath: '',
@@ -738,7 +776,6 @@ function normalizeMemoryEntry(raw, index, target) {
   return {
     id: `${target}:${path}:${index}`,
     target,
-    scope: MEMORY_SCOPE_LABELS[target] || target,
     path,
     type,
     category: typeInfo.category,
@@ -791,6 +828,17 @@ function memoryHealth(overview, counts) {
     maxPerCategory: numberOrNull(health.maxPerCategory) ?? 15,
     similarGroups: normalizeSimilarityGroups(health.similarGroups),
   };
+}
+
+function memorySimilarGroupCount(response) {
+  const snapshot = normalizeMemorySnapshot(response);
+  const counts = {
+    preference: snapshot.entries.filter((entry) => entry.category === 'preference').length,
+    project: snapshot.entries.filter((entry) => entry.category === 'project').length,
+    all: snapshot.entries.length,
+  };
+  const health = memoryHealth(snapshot.overview, counts);
+  return health?.similarGroups?.length || 0;
 }
 
 function memoryHealthPercent(count, max) {
@@ -896,22 +944,21 @@ function normalizeDagNode(raw = {}, index = 0) {
 function normalizeDashboardDag(raw = {}, index = 0) {
   const dagKey = dagKeyOf(raw);
   const latestRun = raw.latest_run || raw.latestRun || null;
+  const cronExpr = cronExprFromDagItem(raw);
   return {
     id: dagKey || `dag:${index}`,
     dagKey,
     title: firstText(raw.title, raw.name, dagKey, `任务流程 ${index + 1}`),
     description: firstText(raw.description, raw.summary),
     status: firstText(raw.status, raw.state),
-    trigger: firstText(raw.trigger, raw.trigger_type, raw.triggerType),
-    cronExpr: firstText(raw.cron_expr, raw.cronExpr),
+    trigger: dagTriggerValue(raw),
+    cronExpr,
     nextRunAt: firstText(raw.next_run_at, raw.nextRunAt),
     startedAt: firstText(raw.started_at, raw.startedAt, raw.created_at, raw.createdAt),
     finishedAt: firstText(raw.finished_at, raw.finishedAt),
     version: dagVersionOf(raw),
     latestRun: latestRun ? normalizeDagRun(latestRun) : null,
-    scheduleEnabled: typeof raw.schedule_enabled === 'boolean'
-      ? raw.schedule_enabled
-      : (typeof raw.scheduleEnabled === 'boolean' ? raw.scheduleEnabled : Boolean(raw.next_run_at || raw.nextRunAt)),
+    scheduleEnabled: scheduleEnabledFromDagItem(raw),
     raw,
   };
 }
@@ -930,15 +977,52 @@ function dagStatusLabel(value) {
   const status = textValue(value).toLowerCase();
   const labels = {
     draft: '草稿',
-    ready: '就绪',
+    ready: '可运行',
     running: '运行中',
+    succeeded: '成功',
     done: '成功',
     success: '成功',
     failed: '失败',
     cancelled: '已取消',
     canceled: '已取消',
+    pending: '待开始',
+    queued: '排队中',
+    starting: '启动中',
+    awaiting_verify: '待确认',
+    skipped: '已跳过',
+    idle: '空闲',
   };
   return labels[status] || textValue(value) || '-';
+}
+
+function dagTriggerValue(raw = {}) {
+  const trigger = raw.trigger || raw.trigger_config || raw.triggerConfig;
+  if (trigger && typeof trigger === 'object' && !Array.isArray(trigger)) {
+    return firstText(trigger.type, trigger.kind, raw.trigger_type, raw.triggerType);
+  }
+  return firstText(trigger, raw.trigger_type, raw.triggerType);
+}
+
+function cronExprFromDagItem(item = {}) {
+  const trigger = item.trigger || item.trigger_config || item.triggerConfig;
+  if (trigger && typeof trigger === 'object' && !Array.isArray(trigger)) {
+    return firstText(trigger.schedule, trigger.cron, trigger.expression, item.schedule, item.cron, item.cron_expr, item.cronExpr);
+  }
+  return firstText(item.schedule, item.cron, item.cron_expr, item.cronExpr);
+}
+
+function scheduleEnabledFromDagItem(item = {}) {
+  if (typeof item.schedule_enabled === 'boolean') return item.schedule_enabled;
+  if (typeof item.scheduleEnabled === 'boolean') return item.scheduleEnabled;
+  const trigger = item.trigger || item.trigger_config || item.triggerConfig;
+  if (trigger && typeof trigger === 'object' && !Array.isArray(trigger)) {
+    return Boolean(firstText(trigger.next_run_at, trigger.nextRunAt, item.next_run_at, item.nextRunAt));
+  }
+  return Boolean(firstText(item.next_run_at, item.nextRunAt));
+}
+
+function isScheduledTrigger(value) {
+  return ['scheduled', 'schedule', 'cron'].includes(textValue(value).toLowerCase());
 }
 
 function triggerLabel(value) {
@@ -950,6 +1034,122 @@ function triggerLabel(value) {
     cron: '定时',
   };
   return labels[trigger] || textValue(value) || '-';
+}
+
+const DEFAULT_DAG_SCHEDULE = Object.freeze({ preset: 'daily', time: '08:00', weekday: '1', monthDay: '1' });
+const DAG_WEEKDAY_OPTIONS = Object.freeze([
+  { value: '1', label: '周一' },
+  { value: '2', label: '周二' },
+  { value: '3', label: '周三' },
+  { value: '4', label: '周四' },
+  { value: '5', label: '周五' },
+  { value: '6', label: '周六' },
+  { value: '7', label: '周日' },
+]);
+const DAG_WEEKDAY_LABELS = Object.freeze(Object.fromEntries(DAG_WEEKDAY_OPTIONS.map((item) => [item.value, item.label])));
+
+function twoDigits(value) {
+  return value.toString().padStart(2, '0');
+}
+
+function parseScheduleTime(value) {
+  const text = textValue(value);
+  const match = /^(\d{1,2}):(\d{2})$/.exec(text);
+  if (!match) return null;
+  const hour = Number(match[1]);
+  const minute = Number(match[2]);
+  if (!Number.isInteger(hour) || !Number.isInteger(minute) || hour < 0 || hour > 23 || minute < 0 || minute > 59) {
+    return null;
+  }
+  return { hour, minute, label: `${twoDigits(hour)}:${twoDigits(minute)}` };
+}
+
+function scheduleStateFromCron(cronExpr) {
+  const text = textValue(cronExpr);
+  if (!text) return { ...DEFAULT_DAG_SCHEDULE, warning: '' };
+  const parts = text.split(/\s+/);
+  if (parts.length !== 5) return { ...DEFAULT_DAG_SCHEDULE, warning: '已有计划格式无法识别，请重新选择运行频率和时间。' };
+  const [minuteText, hourText, dayOfMonth, month, dayOfWeek] = parts;
+  const hour = Number(hourText);
+  const minute = Number(minuteText);
+  if (!Number.isInteger(hour) || !Number.isInteger(minute) || hour < 0 || hour > 23 || minute < 0 || minute > 59) {
+    return { ...DEFAULT_DAG_SCHEDULE, warning: '已有计划格式无法识别，请重新选择运行频率和时间。' };
+  }
+  const time = `${twoDigits(hour)}:${twoDigits(minute)}`;
+  if (dayOfMonth === '*' && month === '*' && dayOfWeek === '1-5') return { ...DEFAULT_DAG_SCHEDULE, preset: 'weekdays', time };
+  if (dayOfMonth === '*' && month === '*' && Object.prototype.hasOwnProperty.call(DAG_WEEKDAY_LABELS, dayOfWeek)) {
+    return { ...DEFAULT_DAG_SCHEDULE, preset: 'weekly', weekday: dayOfWeek, time };
+  }
+  const monthDay = Number(dayOfMonth);
+  if (Number.isInteger(monthDay) && monthDay >= 1 && monthDay <= 31 && month === '*' && dayOfWeek === '*') {
+    return { ...DEFAULT_DAG_SCHEDULE, preset: 'monthly', monthDay: monthDay.toString(), time };
+  }
+  if (dayOfMonth === '*' && month === '*' && dayOfWeek === '*') return { ...DEFAULT_DAG_SCHEDULE, preset: 'daily', time };
+  return { ...DEFAULT_DAG_SCHEDULE, warning: '已有计划超出简化设置范围，请重新选择运行频率和时间。' };
+}
+
+function scheduleLabelFromState(schedule) {
+  const parsed = parseScheduleTime(schedule?.time);
+  if (!parsed) return '';
+  if (schedule?.preset === 'daily') return `每天 ${parsed.label}`;
+  if (schedule?.preset === 'weekdays') return `工作日 ${parsed.label}`;
+  if (schedule?.preset === 'weekly') return `${DAG_WEEKDAY_LABELS[schedule.weekday] ? `每${DAG_WEEKDAY_LABELS[schedule.weekday]}` : '每周'} ${parsed.label}`;
+  if (schedule?.preset === 'monthly') return `每月 ${schedule.monthDay || DEFAULT_DAG_SCHEDULE.monthDay} 日 ${parsed.label}`;
+  return '';
+}
+
+function scheduleLabelFromCron(cronExpr) {
+  if (!textValue(cronExpr)) return '';
+  const state = scheduleStateFromCron(cronExpr);
+  if (state.warning) return '';
+  return scheduleLabelFromState(state);
+}
+
+function scheduleLabelFromDag(item) {
+  return scheduleLabelFromCron(cronExprFromDagItem(item));
+}
+
+function cronExprFromSchedule(preset, time, weekday, monthDay) {
+  const parsed = parseScheduleTime(time);
+  if (!parsed) return { cronExpr: '', error: '请选择运行时间' };
+  const minute = parsed.minute.toString();
+  const hour = parsed.hour.toString();
+  if (preset === 'daily') return { cronExpr: `${minute} ${hour} * * *`, error: '' };
+  if (preset === 'weekdays') return { cronExpr: `${minute} ${hour} * * 1-5`, error: '' };
+  if (preset === 'weekly') {
+    if (!Object.prototype.hasOwnProperty.call(DAG_WEEKDAY_LABELS, weekday)) return { cronExpr: '', error: '请选择星期几' };
+    return { cronExpr: `${minute} ${hour} * * ${weekday}`, error: '' };
+  }
+  if (preset === 'monthly') {
+    const day = Number(monthDay);
+    if (!Number.isInteger(day) || day < 1 || day > 31) return { cronExpr: '', error: '请选择每月几号' };
+    return { cronExpr: `${minute} ${hour} ${day} * *`, error: '' };
+  }
+  return { cronExpr: '', error: '请选择运行频率' };
+}
+
+function schedulePlanLabel(item) {
+  const readable = scheduleLabelFromDag(item);
+  if (readable) return readable;
+  return triggerLabel(item?.trigger);
+}
+
+function latestDagRunLabel(item) {
+  const status = firstText(item?.latestRun?.status, item?.latest_run_status, item?.latestRunStatus);
+  if (status) return dagStatusLabel(status);
+  if (item?.latestRun?.runKey) return '有运行记录';
+  if (isScheduledTrigger(item?.trigger)) return '未运行';
+  return textValue(item?.status).toLowerCase() === 'draft' || textValue(item?.status).toLowerCase() === 'ready' ? '未启动' : '-';
+}
+
+function displayDagStatusLabel(item) {
+  const trigger = textValue(item?.trigger).toLowerCase();
+  const status = textValue(item?.status).toLowerCase();
+  if (isScheduledTrigger(trigger) && cronExprFromDagItem(item)) {
+    if (status === 'running') return '运行中';
+    return scheduleEnabledFromDagItem(item) ? '已启用' : '已暂停';
+  }
+  return dagStatusLabel(item?.status);
 }
 
 function isRunningStatus(value) {
@@ -1594,6 +1794,9 @@ function validateRuntimeThresholds(form) {
 function App({ skipBootstrap = false }) {
   const store = useClientStore();
   const bootstrap = store.bootstrap;
+  const addWarning = store.addWarning;
+  const [memorySimilarCount, setMemorySimilarCount] = useState(0);
+  const memoryRevision = Number(store.memoryRevision || 0);
 
   useEffect(() => {
     if (skipBootstrap) return undefined;
@@ -1608,24 +1811,50 @@ function App({ skipBootstrap = false }) {
     };
   }, [bootstrap, skipBootstrap]);
 
+  const projectPath = store.activeProject && store.activeProject !== '.' ? store.activeProject : store.cwd || '未选择项目';
+
+  useEffect(() => {
+    const cwd = textValue(projectPath);
+    if (!cwd || cwd === '.' || cwd === '未选择项目') {
+      setMemorySimilarCount(0);
+      return undefined;
+    }
+    let cancelled = false;
+    getMemorySnapshot({ cwd }).then((response) => {
+      if (!cancelled) {
+        setMemorySimilarCount(memorySimilarGroupCount(response));
+      }
+    }).catch((error) => {
+      if (!cancelled) {
+        addWarning('warn', 'memory.badge.refresh.failed', { error: errorMessage(error) });
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [addWarning, memoryRevision, projectPath]);
+
+  const updateMemorySimilarCount = useCallback((count) => {
+    setMemorySimilarCount(Math.max(0, Number(count) || 0));
+  }, []);
+
   const activeLabel = useMemo(() => (
     navItems.find((item) => item.id === store.activePage)?.label || 'Chat'
   ), [store.activePage]);
 
   const { theme, toggleTheme } = useColorTheme();
-  const projectPath = store.activeProject && store.activeProject !== '.' ? store.activeProject : store.cwd || '未选择项目';
 
   return (
     <div className="sa-window" data-theme={theme} data-testid="frontend-app">
       <Titlebar theme={theme} onToggleTheme={toggleTheme} />
       <div className="sa-body">
-        <NavRail activePage={store.activePage} setActivePage={store.setActivePage} />
+        <NavRail activePage={store.activePage} setActivePage={store.setActivePage} memorySimilarCount={memorySimilarCount} />
         <main className="sa-main">
           {store.activePage === 'chat' ? <ChatPage store={store} projectPath={projectPath} /> : null}
-          {store.activePage === 'prompts' ? <PromptPage projectPath={projectPath} /> : null}
-          {store.activePage === 'workflows' ? <WorkflowPage projectPath={projectPath} store={store} /> : null}
+          {store.activePage === 'prompts' ? <PromptPage projectPath={projectPath} refreshKey={store.promptRevision} /> : null}
+          {store.activePage === 'workflows' ? <WorkflowPage projectPath={projectPath} store={store} refreshKey={store.workflowRevision} /> : null}
           {store.activePage === 'skills' ? <SkillsPage projectPath={projectPath} refreshKey={store.skillRevision} /> : null}
-          {store.activePage === 'memory' ? <MemoryPage projectPath={projectPath} /> : null}
+          {store.activePage === 'memory' ? <MemoryPage projectPath={projectPath} onSimilarCountChange={updateMemorySimilarCount} refreshKey={memoryRevision} /> : null}
           {store.activePage === 'files' ? <FilesPage projectPath={projectPath} store={store} /> : null}
           {store.activePage === 'settings' ? <SettingsPage projectPath={projectPath} /> : null}
           <span className="sr-only">当前页面：{activeLabel}</span>
@@ -1659,12 +1888,14 @@ function Titlebar({ theme, onToggleTheme }) {
   );
 }
 
-function NavRail({ activePage, setActivePage }) {
+function NavRail({ activePage, setActivePage, memorySimilarCount = 0 }) {
+  const memoryBadgeCount = Math.max(0, Number(memorySimilarCount) || 0);
   return (
     <aside className="nav-rail" data-testid="sidebar-nav">
       <nav>
         {navItems.map((item) => {
           const Icon = item.icon;
+          const badgeCount = item.id === 'memory' ? memoryBadgeCount : 0;
           return (
             <button
               key={item.id}
@@ -1675,7 +1906,7 @@ function NavRail({ activePage, setActivePage }) {
             >
               <Icon size={22} aria-hidden="true" />
               <span>{item.label}</span>
-              {item.alert ? <i /> : null}
+              {badgeCount > 0 ? <i aria-hidden="true" title={`${badgeCount} 条待整合相似记忆`} /> : null}
             </button>
           );
         })}
@@ -2263,59 +2494,83 @@ function PageHeader({ icon: Icon, title, subtitle, actions }) {
   );
 }
 
-function PromptPage({ projectPath }) {
-  return <PromptPageView projectPath={projectPath} />;
+function PromptPage({ projectPath, refreshKey = 0 }) {
+  return <PromptPageView projectPath={projectPath} refreshKey={refreshKey} />;
 }
 
 
-function WorkflowPage({ projectPath, store }) {
-  const [items, setItems] = useState([]);
+function WorkflowPage({ projectPath, store, refreshKey = 0 }) {
+  const workflowCacheKey = normalizeSettingsCwd(projectPath);
+  const cachedWorkflowPage = useClientStore((state) => state.workflowPageCacheByCwd?.[workflowCacheKey]);
+  const setWorkflowPageCache = useClientStore((state) => state.setWorkflowPageCache);
+  const cachedSelectedDagKey = textValue(cachedWorkflowPage?.selectedDagKey);
+  const cachedSelectedDetail = cachedSelectedDagKey ? cachedWorkflowPage?.detailsByDagKey?.[cachedSelectedDagKey] : null;
+  const [items, setItems] = useState(() => (Array.isArray(cachedWorkflowPage?.items) ? cachedWorkflowPage.items : []));
   const [activeCategory, setActiveCategory] = useState(DAG_CATEGORIES[0].key);
-  const [selectedDagKey, setSelectedDagKey] = useState('');
-  const [detailDag, setDetailDag] = useState(null);
-  const [nodes, setNodes] = useState([]);
-  const [runs, setRuns] = useState([]);
-  const [activeRun, setActiveRun] = useState(null);
-  const [selectedRunKey, setSelectedRunKey] = useState('');
-  const [selectedRun, setSelectedRun] = useState(null);
+  const [categoryManuallySelected, setCategoryManuallySelected] = useState(false);
+  const [selectedDagKey, setSelectedDagKey] = useState(() => cachedSelectedDagKey);
+  const [detailDag, setDetailDag] = useState(() => cachedSelectedDetail?.detailDag || null);
+  const [nodes, setNodes] = useState(() => (Array.isArray(cachedSelectedDetail?.nodes) ? cachedSelectedDetail.nodes : []));
+  const [runs, setRuns] = useState(() => (Array.isArray(cachedSelectedDetail?.runs) ? cachedSelectedDetail.runs : []));
+  const [activeRun, setActiveRun] = useState(() => cachedSelectedDetail?.activeRun || null);
+  const [selectedRunKey, setSelectedRunKey] = useState(() => textValue(cachedSelectedDetail?.selectedRunKey));
+  const [selectedRun, setSelectedRun] = useState(() => cachedSelectedDetail?.selectedRun || null);
   const [loading, setLoading] = useState(false);
   const [detailLoading, setDetailLoading] = useState(false);
   const [actioning, setActioning] = useState('');
   const [savingNodeKey, setSavingNodeKey] = useState('');
   const [error, setError] = useState('');
-  const [notice, setNotice] = useState('');
+  const [notice, setNotice] = useState(null);
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [scheduleOpen, setScheduleOpen] = useState(false);
   const [scheduleCron, setScheduleCron] = useState('0 8 * * *');
+  const hasLoadedDagsRef = useRef(Boolean(cachedWorkflowPage?.hasLoadedDags));
+  const selectedDagKeyRef = useRef(selectedDagKey);
+  const selectedRunKeyRef = useRef(selectedRunKey);
+  const autoRefreshInFlightRef = useRef(false);
+  const workflowRefreshKey = Number(refreshKey || 0);
 
   const refreshDags = useCallback(async (options = {}) => {
     const isCancelled = typeof options.isCancelled === 'function' ? options.isCancelled : () => false;
-    setLoading(true);
-    setError('');
+    const silent = options.silent === true;
+    const cached = useClientStore.getState().workflowPageCacheByCwd?.[workflowCacheKey];
+    const hasUsableSnapshot = hasLoadedDagsRef.current || Boolean(cached?.hasLoadedDags);
+    const showBlockingLoading = !silent && !hasUsableSnapshot;
+    if (showBlockingLoading) {
+      setLoading(true);
+      setError('');
+    } else if (!silent) {
+      setError('');
+    }
     try {
       const cwd = normalizeSettingsCwd(projectPath);
       const response = await getDashboardPage({ cwd, page: 'dags' });
       const nextItems = normalizeDagsResponse(response);
-      if (!isCancelled()) setItems(nextItems);
+      if (!isCancelled()) {
+        hasLoadedDagsRef.current = true;
+        setItems(nextItems);
+        setWorkflowPageCache(cwd, { items: nextItems, hasLoadedDags: true });
+      }
       return nextItems;
     } catch (err) {
       if (!isCancelled()) {
-        setItems([]);
-        setError(`加载任务流程失败：${err.message || String(err)}`);
+        if (showBlockingLoading) setItems([]);
+        if (!silent || !hasUsableSnapshot) setError(`加载任务流程失败：${err.message || String(err)}`);
       }
       return [];
     } finally {
-      if (!isCancelled()) setLoading(false);
+      if (!isCancelled() && showBlockingLoading) setLoading(false);
     }
-  }, [projectPath]);
+  }, [projectPath, setWorkflowPageCache, workflowCacheKey]);
 
   useEffect(() => {
     let cancelled = false;
-    refreshDags({ isCancelled: () => cancelled });
+    const cached = useClientStore.getState().workflowPageCacheByCwd?.[workflowCacheKey];
+    refreshDags({ isCancelled: () => cancelled, silent: Boolean(cached?.hasLoadedDags) });
     return () => {
       cancelled = true;
     };
-  }, [refreshDags]);
+  }, [refreshDags, workflowCacheKey]);
 
   const counts = useMemo(() => categoryCounts(items), [items]);
   const preferredCategory = useMemo(() => firstAvailableCategory(items), [items]);
@@ -2329,10 +2584,55 @@ function WorkflowPage({ projectPath, store }) {
   );
 
   useEffect(() => {
-    if (items.length > 0 && visibleItems.length === 0 && activeCategory !== preferredCategory) {
+    selectedDagKeyRef.current = selectedDagKey;
+    if (selectedDagKey) setWorkflowPageCache(workflowCacheKey, { selectedDagKey });
+    setNotice(null);
+  }, [selectedDagKey, setWorkflowPageCache, workflowCacheKey]);
+
+  useEffect(() => {
+    selectedRunKeyRef.current = selectedRunKey;
+  }, [selectedRunKey]);
+
+  useEffect(() => {
+    const cached = useClientStore.getState().workflowPageCacheByCwd?.[workflowCacheKey];
+    const cachedKey = textValue(cached?.selectedDagKey);
+    const cachedDetail = cachedKey ? cached?.detailsByDagKey?.[cachedKey] : null;
+    hasLoadedDagsRef.current = Boolean(cached?.hasLoadedDags);
+    setItems(Array.isArray(cached?.items) ? cached.items : []);
+    setSelectedDagKey(cachedKey);
+    setDetailDag(cachedDetail?.detailDag || null);
+    setNodes(Array.isArray(cachedDetail?.nodes) ? cachedDetail.nodes : []);
+    setRuns(Array.isArray(cachedDetail?.runs) ? cachedDetail.runs : []);
+    setActiveRun(cachedDetail?.activeRun || null);
+    setSelectedRunKey(textValue(cachedDetail?.selectedRunKey));
+    setSelectedRun(cachedDetail?.selectedRun || null);
+    setLoading(false);
+    setDetailLoading(false);
+    setError('');
+    setNotice(null);
+  }, [workflowCacheKey]);
+
+  useEffect(() => {
+    if (!cachedWorkflowPage) return;
+    if (Array.isArray(cachedWorkflowPage.items)) setItems(cachedWorkflowPage.items);
+    if (cachedWorkflowPage.hasLoadedDags) hasLoadedDagsRef.current = true;
+  }, [cachedWorkflowPage]);
+
+  const clearNotice = useCallback(() => {
+    setNotice(null);
+  }, []);
+
+  const showTaskNotice = useCallback((message, taskKey = selectedDagKey) => {
+    const key = textValue(taskKey);
+    if (!message || !key || selectedDagKeyRef.current !== key) return;
+    setNotice({ dagKey: key, message });
+  }, [selectedDagKey]);
+
+  useEffect(() => {
+    if (!categoryManuallySelected && items.length > 0 && visibleItems.length === 0 && activeCategory !== preferredCategory) {
       setActiveCategory(preferredCategory);
     }
-  }, [activeCategory, items.length, preferredCategory, visibleItems.length]);
+  }, [activeCategory, categoryManuallySelected, items.length, preferredCategory, visibleItems.length]);
 
   useEffect(() => {
     if (visibleItems.length === 0) {
@@ -2365,8 +2665,15 @@ function WorkflowPage({ projectPath, store }) {
     const key = textValue(dagKey);
     if (!key) return;
     const isCancelled = typeof options.isCancelled === 'function' ? options.isCancelled : () => false;
-    setDetailLoading(true);
-    setError('');
+    const silent = options.silent === true;
+    const cachedDetail = useClientStore.getState().workflowPageCacheByCwd?.[workflowCacheKey]?.detailsByDagKey?.[key];
+    const showDetailLoading = !silent && !cachedDetail;
+    if (showDetailLoading) {
+      setDetailLoading(true);
+      setError('');
+    } else if (!silent) {
+      setError('');
+    }
     try {
       const [detailResponse, runsResponse, activeResponse] = await Promise.all([
         getDagDetail({ dagKey: key }),
@@ -2390,34 +2697,108 @@ function WorkflowPage({ projectPath, store }) {
         || runningRun?.runKey
         || nextRuns[0]?.runKey
         || '';
+      let loadedRun = null;
 
       setDetailDag(dag);
       setNodes(normalizedNodes);
       setRuns(nextRuns);
       setActiveRun(runningRun);
-      if (nextRunKey) await loadRunDetail(nextRunKey, { isCancelled });
+      if (nextRunKey) loadedRun = await loadRunDetail(nextRunKey, { isCancelled });
       else {
         setSelectedRunKey('');
         setSelectedRun(null);
       }
+      if (isCancelled()) return;
+      const currentDetails = useClientStore.getState().workflowPageCacheByCwd?.[workflowCacheKey]?.detailsByDagKey || {};
+      setWorkflowPageCache(workflowCacheKey, {
+        selectedDagKey: key,
+        detailsByDagKey: {
+          ...currentDetails,
+          [key]: {
+            detailDag: dag,
+            nodes: normalizedNodes,
+            runs: nextRuns,
+            activeRun: runningRun,
+            selectedRunKey: nextRunKey,
+            selectedRun: loadedRun,
+          },
+        },
+      });
     } catch (err) {
       if (!isCancelled()) {
-        setDetailDag(null);
-        setNodes([]);
-        setRuns([]);
-        setActiveRun(null);
-        setSelectedRun(null);
+        if (showDetailLoading) {
+          setDetailDag(null);
+          setNodes([]);
+          setRuns([]);
+          setActiveRun(null);
+          setSelectedRun(null);
+        }
         setError(`加载任务流程详情失败：${err.message || String(err)}`);
       }
     } finally {
-      if (!isCancelled()) setDetailLoading(false);
+      if (!isCancelled() && showDetailLoading) setDetailLoading(false);
     }
-  }, [items, loadRunDetail]);
+  }, [items, loadRunDetail, setWorkflowPageCache, workflowCacheKey]);
+
+  const refreshWorkflowSurface = useCallback(async (options = {}) => {
+    if (autoRefreshInFlightRef.current) return;
+    autoRefreshInFlightRef.current = true;
+    try {
+      await refreshDags(options);
+      const activeKey = selectedDagKeyRef.current;
+      if (activeKey) {
+        await refreshDetail(activeKey, selectedRunKeyRef.current, options);
+      }
+    } finally {
+      autoRefreshInFlightRef.current = false;
+    }
+  }, [refreshDags, refreshDetail]);
+
+  useEffect(() => {
+    if (workflowRefreshKey <= 0) return undefined;
+    let cancelled = false;
+    void refreshWorkflowSurface({ isCancelled: () => cancelled, silent: true });
+    return () => {
+      cancelled = true;
+    };
+  }, [refreshWorkflowSurface, workflowRefreshKey]);
+
+  useEffect(() => {
+    const runAutoRefresh = () => {
+      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
+      void refreshWorkflowSurface({ silent: true });
+    };
+    const handleVisibilityChange = () => {
+      if (typeof document === 'undefined' || document.visibilityState === 'visible') {
+        runAutoRefresh();
+      }
+    };
+    const intervalID = window.setInterval(runAutoRefresh, WORKFLOW_AUTO_REFRESH_MS);
+    window.addEventListener('focus', runAutoRefresh);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => {
+      window.clearInterval(intervalID);
+      window.removeEventListener('focus', runAutoRefresh);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [refreshWorkflowSurface]);
 
   useEffect(() => {
     let cancelled = false;
     if (selectedDagKey) {
-      refreshDetail(selectedDagKey, '', { isCancelled: () => cancelled });
+      const cachedDetail = useClientStore.getState().workflowPageCacheByCwd?.[workflowCacheKey]?.detailsByDagKey?.[selectedDagKey];
+      if (cachedDetail) {
+        setDetailDag(cachedDetail.detailDag || null);
+        setNodes(Array.isArray(cachedDetail.nodes) ? cachedDetail.nodes : []);
+        setRuns(Array.isArray(cachedDetail.runs) ? cachedDetail.runs : []);
+        setActiveRun(cachedDetail.activeRun || null);
+        setSelectedRunKey(textValue(cachedDetail.selectedRunKey));
+        setSelectedRun(cachedDetail.selectedRun || null);
+      }
+      refreshDetail(selectedDagKey, textValue(cachedDetail?.selectedRunKey), {
+        isCancelled: () => cancelled,
+        silent: Boolean(cachedDetail) || hasLoadedDagsRef.current,
+      });
     } else {
       setDetailDag(null);
       setNodes([]);
@@ -2429,13 +2810,16 @@ function WorkflowPage({ projectPath, store }) {
     return () => {
       cancelled = true;
     };
-  }, [refreshDetail, selectedDagKey]);
+  }, [refreshDetail, selectedDagKey, workflowCacheKey]);
 
   const activeDetailDag = detailDag || selectedDag;
   const dagKey = activeDetailDag?.dagKey || selectedDag?.dagKey || '';
   const baseVersion = dagVersionOf(activeDetailDag);
   const activeRunKey = activeRun?.runKey || (isRunningStatus(selectedRun?.run?.status) ? selectedRun?.run?.runKey : '');
   const finalText = finalOutputText(selectedRun?.run) || finalOutputText(activeRun) || finalOutputText(selectedDag?.latestRun);
+  const recentRunPanelLabel = dagStatusLabel(activeRun?.status || runs[0]?.status || activeDetailDag?.latestRun?.status);
+  const scheduleActionLabel = isScheduledTrigger(activeDetailDag?.trigger) || activeDetailDag?.cronExpr ? '修改计划' : '创建定时任务';
+  const scheduleToggleVisible = isScheduledTrigger(activeDetailDag?.trigger) && Boolean(activeDetailDag?.cronExpr);
   const startDisabledReason = useMemo(() => {
     if (!dagKey) return '未选择任务流程';
     if (loading || detailLoading) return '任务流程详情加载中';
@@ -2447,43 +2831,45 @@ function WorkflowPage({ projectPath, store }) {
 
   const runSelectedDag = useCallback(async () => {
     if (startDisabledReason) return;
+    const targetDagKey = dagKey;
     setActioning('start');
     setError('');
-    setNotice('');
+    clearNotice();
     try {
       const result = await startDag({
-        dagKey,
+        dagKey: targetDagKey,
         triggerSource: 'manual',
         idempotencyKey: `ui-${Date.now()}-${Math.random().toString(16).slice(2)}`,
       });
       const runKey = runKeyOf(result);
       await refreshDags();
-      await refreshDetail(dagKey, runKey);
+      await refreshDetail(targetDagKey, runKey);
       const warning = textValue(result?.warning);
-      setNotice(warning ? `已启动，后端提示：${warning}` : '已启动任务流程');
+      showTaskNotice(warning ? `已启动，后端提示：${warning}` : '已启动任务流程', targetDagKey);
     } catch (err) {
       setError(`启动任务流程失败：${err.message || String(err)}`);
     } finally {
       setActioning('');
     }
-  }, [dagKey, refreshDags, refreshDetail, startDisabledReason]);
+  }, [clearNotice, dagKey, refreshDags, refreshDetail, showTaskNotice, startDisabledReason]);
 
   const stopSelectedDag = useCallback(async () => {
     if (!dagKey || !activeRunKey) return;
+    const targetDagKey = dagKey;
     setActioning('stop');
     setError('');
-    setNotice('');
+    clearNotice();
     try {
-      await terminateDagRun({ dagKey, runKey: activeRunKey, reason: 'user_requested' });
+      await terminateDagRun({ dagKey: targetDagKey, runKey: activeRunKey, reason: 'user_requested' });
       await refreshDags();
-      await refreshDetail(dagKey);
-      setNotice('已停止运行');
+      await refreshDetail(targetDagKey);
+      showTaskNotice('已停止运行', targetDagKey);
     } catch (err) {
       setError(`停止运行失败：${err.message || String(err)}`);
     } finally {
       setActioning('');
     }
-  }, [activeRunKey, dagKey, refreshDags, refreshDetail]);
+  }, [activeRunKey, clearNotice, dagKey, refreshDags, refreshDetail, showTaskNotice]);
 
   const confirmDeleteDAG = useCallback(async () => {
     const target = deleteTarget;
@@ -2491,90 +2877,93 @@ function WorkflowPage({ projectPath, store }) {
     if (!targetKey) return;
     setActioning('delete');
     setError('');
-    setNotice('');
+    clearNotice();
     try {
       await deleteDag({ dagKey: targetKey });
       setDeleteTarget(null);
       const nextItems = await refreshDags();
       setSelectedDagKey(nextItems.find((item) => dagCategoryOf(item) === activeCategory)?.dagKey || nextItems[0]?.dagKey || '');
-      setNotice(`已删除 ${target?.title || targetKey}`);
+      showTaskNotice(`已删除 ${target?.title || targetKey}`, targetKey);
     } catch (err) {
       setError(`删除任务流程失败：${err.message || String(err)}`);
     } finally {
       setActioning('');
     }
-  }, [activeCategory, dagKey, deleteTarget, refreshDags]);
+  }, [activeCategory, clearNotice, dagKey, deleteTarget, refreshDags, showTaskNotice]);
 
   const openScheduleModal = useCallback(() => {
     setScheduleCron(activeDetailDag?.cronExpr || '0 8 * * *');
     setScheduleOpen(true);
   }, [activeDetailDag]);
 
-  const saveSchedule = useCallback(async () => {
-    const cronExpr = textValue(scheduleCron);
+  const saveSchedule = useCallback(async (nextCronExpr = '') => {
+    const cronExpr = textValue(nextCronExpr) || textValue(scheduleCron);
     if (!dagKey || !cronExpr) return;
     if (baseVersion === null) {
-      setError('缺少 DAG version，无法保存定时任务');
+      setError('任务流程详情不完整，无法保存定时任务');
       return;
     }
+    const targetDagKey = dagKey;
     setActioning('schedule');
     setError('');
-    setNotice('');
+    clearNotice();
     try {
       await applyDagOps({
-        dagKey,
+        dagKey: targetDagKey,
         baseVersion,
         ops: [{ op: 'update_dag', patch: { trigger: 'scheduled', cron_expr: cronExpr } }],
       });
       setScheduleOpen(false);
       await refreshDags();
-      await refreshDetail(dagKey);
-      setNotice('已保存定时任务');
+      await refreshDetail(targetDagKey);
+      showTaskNotice('已保存定时任务', targetDagKey);
     } catch (err) {
       setError(`保存定时任务失败：${err.message || String(err)}`);
     } finally {
       setActioning('');
     }
-  }, [baseVersion, dagKey, refreshDags, refreshDetail, scheduleCron]);
+  }, [baseVersion, clearNotice, dagKey, refreshDags, refreshDetail, scheduleCron, showTaskNotice]);
 
   const toggleScheduleEnabled = useCallback(async () => {
     if (!dagKey) return;
     if (baseVersion === null) {
-      setError('缺少 DAG version，无法切换自动运行');
+      setError('任务流程详情不完整，无法切换自动运行');
       return;
     }
+    const targetDagKey = dagKey;
     const enabled = !activeDetailDag?.scheduleEnabled;
     setActioning('schedule-toggle');
     setError('');
-    setNotice('');
+    clearNotice();
     try {
       await applyDagOps({
-        dagKey,
+        dagKey: targetDagKey,
         baseVersion,
         ops: [{ op: 'update_dag', patch: { schedule_enabled: enabled } }],
       });
       await refreshDags();
-      await refreshDetail(dagKey);
-      setNotice(enabled ? '已启用自动运行' : '已暂停自动运行');
+      await refreshDetail(targetDagKey);
+      showTaskNotice(enabled ? '已启用自动运行' : '已暂停自动运行', targetDagKey);
     } catch (err) {
       setError(`切换自动运行失败：${err.message || String(err)}`);
     } finally {
       setActioning('');
     }
-  }, [activeDetailDag, baseVersion, dagKey, refreshDags, refreshDetail]);
+  }, [activeDetailDag, baseVersion, clearNotice, dagKey, refreshDags, refreshDetail, showTaskNotice]);
 
   const saveAgentNode = useCallback(async (form, node) => {
     if (!dagKey || !node?.nodeKey) return;
     if (baseVersion === null) {
-      setError('缺少 DAG version，无法保存节点');
+      setError('任务流程详情不完整，无法保存步骤');
       return;
     }
+    const targetDagKey = dagKey;
     setSavingNodeKey(node.nodeKey);
     setError('');
-    setNotice('');
+    clearNotice();
     try {
       await applyDagOps({
-        dagKey,
+        dagKey: targetDagKey,
         baseVersion,
         ops: [{
           op: 'update_node',
@@ -2582,23 +2971,24 @@ function WorkflowPage({ projectPath, store }) {
           patch: dagNodePatchFromForm(form, node),
         }],
       });
-      await refreshDetail(dagKey);
-      setNotice(`已保存节点 ${node.title}`);
+      await refreshDetail(targetDagKey);
+      showTaskNotice(`已保存步骤 ${node.title}`, targetDagKey);
     } catch (err) {
-      setError(`保存节点失败：${err.message || String(err)}`);
+      setError(`保存步骤失败：${err.message || String(err)}`);
     } finally {
       setSavingNodeKey('');
     }
-  }, [baseVersion, dagKey, refreshDetail]);
+  }, [baseVersion, clearNotice, dagKey, refreshDetail, showTaskNotice]);
 
   const startDesignFlow = useCallback(async () => {
     setActioning('design');
     setError('');
-    setNotice('');
+    clearNotice();
     try {
       const cwd = normalizeSettingsCwd(projectPath);
       const response = await startThread({
         cwd,
+        provider: store?.provider,
         name: 'AI 设计流程',
         agentKey: 'dag_designer',
         promptKey: 'main/dag_designer_zh',
@@ -2618,7 +3008,7 @@ function WorkflowPage({ projectPath, store }) {
     } finally {
       setActioning('');
     }
-  }, [projectPath, store]);
+  }, [clearNotice, projectPath, store]);
 
   const agentNodes = nodes.filter((node) => textValue(node.nodeType).toLowerCase() === 'agent');
 
@@ -2629,12 +3019,9 @@ function WorkflowPage({ projectPath, store }) {
         title="任务流程"
         subtitle={`当前项目：${projectPath}`}
         actions={(
-          <>
-            <button type="button" onClick={() => { void refreshDags(); }} disabled={loading}>刷新</button>
-            <button type="button" onClick={() => { void startDesignFlow(); }} disabled={actioning === 'design'}>
-              {actioning === 'design' ? '启动中...' : 'AI 设计流程'}
-            </button>
-          </>
+          <button type="button" onClick={() => { void startDesignFlow(); }} disabled={actioning === 'design'}>
+            {actioning === 'design' ? '启动中...' : 'AI 设计流程'}
+          </button>
         )}
       />
       <div className="workflow-grid">
@@ -2647,14 +3034,17 @@ function WorkflowPage({ projectPath, store }) {
                 role="tab"
                 aria-selected={activeCategory === category.key ? 'true' : 'false'}
                 className={activeCategory === category.key ? 'active' : ''}
-                onClick={() => setActiveCategory(category.key)}
+                onClick={() => {
+                  setCategoryManuallySelected(true);
+                  setActiveCategory(category.key);
+                }}
               >
                 {category.label} {counts[category.key] || 0}
               </button>
             ))}
           </div>
           {loading ? <p className="console-message">正在加载任务流程...</p> : null}
-          {!loading && visibleItems.length === 0 ? <p className="console-message">暂无任务流程</p> : null}
+          {!loading && visibleItems.length === 0 ? <p className="console-message">无任务</p> : null}
           {visibleItems.map((item) => (
             <button
               type="button"
@@ -2663,8 +3053,8 @@ function WorkflowPage({ projectPath, store }) {
               onClick={() => setSelectedDagKey(item.dagKey)}
             >
               <strong>{item.title}</strong>
-              <span>{item.dagKey || '-'}</span>
-              <em>{dagStatusLabel(item.status)} · {triggerLabel(item.trigger)} · {dagStatusLabel(item.latestRun?.status || '')}</em>
+              <span>{latestDagRunLabel(item) === '-' ? '暂无运行' : `最近运行：${latestDagRunLabel(item)}`}</span>
+              <em>{displayDagStatusLabel(item)} · {schedulePlanLabel(item)} · {latestDagRunLabel(item)}</em>
             </button>
           ))}
         </aside>
@@ -2677,11 +3067,13 @@ function WorkflowPage({ projectPath, store }) {
                 <h2>{activeDetailDag.title}</h2>
                 <button type="button" className="danger" onClick={() => setDeleteTarget(activeDetailDag)} disabled={actioning === 'delete'}>删除</button>
                 <button type="button" onClick={openScheduleModal} disabled={baseVersion === null || actioning === 'schedule'}>
-                  {activeDetailDag.cronExpr ? '修改计划' : '创建定时任务'}
+                  {scheduleActionLabel}
                 </button>
-                <button type="button" onClick={() => { void toggleScheduleEnabled(); }} disabled={baseVersion === null || actioning === 'schedule-toggle'}>
-                  {activeDetailDag.scheduleEnabled ? '暂停自动运行' : '启用自动运行'}
-                </button>
+                {scheduleToggleVisible ? (
+                  <button type="button" onClick={() => { void toggleScheduleEnabled(); }} disabled={baseVersion === null || actioning === 'schedule-toggle'}>
+                    {activeDetailDag.scheduleEnabled ? '暂停自动运行' : '启用自动运行'}
+                  </button>
+                ) : null}
                 {activeRunKey ? (
                   <button type="button" className="danger" onClick={() => { void stopSelectedDag(); }} disabled={actioning === 'stop'}>
                     {actioning === 'stop' ? '停止中...' : '停止运行'}
@@ -2697,53 +3089,55 @@ function WorkflowPage({ projectPath, store }) {
                 </button>
               </div>
               {detailLoading ? <p className="console-message">正在加载详情...</p> : null}
-              {notice ? <p className="settings-status">{notice}</p> : null}
+              {notice?.message && notice.dagKey === selectedDagKey ? <p className="settings-status">{notice.message}</p> : null}
               {error ? <p className="danger-text" role="alert">{error}</p> : null}
               {startDisabledReason ? <p className="console-message">{startDisabledReason}</p> : null}
               <Panel title="最终结果">{finalText || '当前运行尚未标记最终结果。'}</Panel>
               <div className="stat-grid">
-                <Panel title="任务状态">{dagStatusLabel(activeDetailDag.status)}</Panel>
-                <Panel title="运行计划">{triggerLabel(activeDetailDag.trigger)}{activeDetailDag.cronExpr ? ` · ${activeDetailDag.cronExpr}` : ''}</Panel>
-                <Panel title="最近运行">{dagStatusLabel(activeRun?.status || runs[0]?.status || activeDetailDag.latestRun?.status)}</Panel>
+                <Panel title="任务状态">{displayDagStatusLabel(activeDetailDag)}</Panel>
+                <Panel title="运行计划">{schedulePlanLabel(activeDetailDag)}</Panel>
+                <Panel title="最近运行">{recentRunPanelLabel === '-' ? latestDagRunLabel(activeDetailDag) : recentRunPanelLabel}</Panel>
                 <Panel title="最终结果">{finalText ? '已生成' : '-'}</Panel>
               </div>
               <Panel title="运行历史">
                 <div className="dag-run-list">
                   {runs.length === 0 ? <p>暂无运行记录</p> : null}
-                  {runs.map((run) => (
+                  {runs.map((run, index) => (
                     <button
                       key={run.id}
                       type="button"
                       className={`run-row ${run.runKey === selectedRunKey ? 'active' : ''}`}
                       onClick={() => { void loadRunDetail(run.runKey); }}
                     >
-                      <span>{run.runKey}</span>
+                      <span>{`第 ${index + 1} 次运行`}</span>
                       <em>{dagStatusLabel(run.status)}</em>
-                      <time>{run.startedAt || '-'}</time>
+                      <time>{run.startedAt || '时间未记录'}</time>
                     </button>
                   ))}
                 </div>
               </Panel>
               <Panel title="执行步骤">
                 <div className="dag-node-list">
-                  {nodes.length === 0 ? <p>暂无节点</p> : null}
+                  {nodes.length === 0 ? <p>暂无步骤</p> : null}
                   {nodes.map((node) => (
                     <article key={node.id} className="dag-node-row">
                       <strong>{node.title}</strong>
-                      <span>{node.nodeKey}</span>
-                      <em>{dagStatusLabel(node.status)} · {node.nodeType || '-'}</em>
+                      <em>{dagStatusLabel(node.status)}</em>
                       {node.threadId ? <button type="button" onClick={() => { void store?.setActiveThread?.(node.threadId); store?.setActivePage?.('chat'); }}>查看对话</button> : null}
                     </article>
                   ))}
                 </div>
               </Panel>
-              {agentNodes.length > 0 ? (
-                <DagNodeEditor
-                  nodes={agentNodes}
-                  savingNodeKey={savingNodeKey}
-                  onSave={saveAgentNode}
-                />
-              ) : null}
+              <details className="workflow-advanced">
+                <summary>高级设置</summary>
+                {agentNodes.length > 0 ? (
+                  <DagNodeEditor
+                    nodes={agentNodes}
+                    savingNodeKey={savingNodeKey}
+                    onSave={saveAgentNode}
+                  />
+                ) : <p className="console-message">暂无可配置步骤</p>}
+              </details>
             </>
           )}
         </section>
@@ -2751,8 +3145,8 @@ function WorkflowPage({ projectPath, store }) {
       {scheduleOpen ? (
         <DagScheduleModal
           cron={scheduleCron}
+          actionLabel={scheduleActionLabel}
           saving={actioning === 'schedule'}
-          onChange={setScheduleCron}
           onClose={() => setScheduleOpen(false)}
           onSave={saveSchedule}
         />
@@ -2792,26 +3186,40 @@ function DagNodeEditor({ nodes, savingNodeKey, onSave }) {
 
   if (!activeNode) return null;
   const update = (key) => (event) => setForm((current) => ({ ...current, [key]: event.target.value }));
+  const modelOptions = form.provider ? appendCurrentModelOption(form.provider, form.model) : [];
 
   return (
-    <Panel title="节点配置">
+    <Panel title="步骤设置">
       <div className="dag-node-editor">
         <label>
-          节点
+          步骤
           <select value={activeNode.nodeKey} onChange={(event) => setActiveNodeKey(event.target.value)}>
             {nodes.map((node) => <option key={node.nodeKey} value={node.nodeKey}>{node.title}</option>)}
           </select>
         </label>
-        <label>节点标题<input value={form.title} onChange={update('title')} aria-label="节点标题" /></label>
-        <label>Provider<input value={form.provider} onChange={update('provider')} aria-label="Provider" /></label>
-        <label>Model<input value={form.model} onChange={update('model')} aria-label="Model" /></label>
-        <label>Prompt Key<input value={form.promptKey} onChange={update('promptKey')} aria-label="Prompt Key" /></label>
-        <label>依赖节点<input value={form.dependsOn} onChange={update('dependsOn')} aria-label="依赖节点" /></label>
-        <label className="wide">首轮指令<textarea value={form.firstTurn} onChange={update('firstTurn')} aria-label="首轮指令" /></label>
+        <label>名称<input value={form.title} onChange={update('title')} aria-label="名称" /></label>
+        <label>
+          执行引擎
+          <select value={form.provider} onChange={update('provider')} aria-label="执行引擎">
+            <option value="">默认</option>
+            <option value="claude">claude</option>
+            <option value="codex">codex</option>
+          </select>
+        </label>
+        <label>
+          模型
+          <select value={form.model} onChange={update('model')} aria-label="模型">
+            <option value="">默认</option>
+            {modelOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+          </select>
+        </label>
+        <label>提示词<input value={form.promptKey} onChange={update('promptKey')} aria-label="提示词" /></label>
+        <label>依赖步骤<input value={form.dependsOn} onChange={update('dependsOn')} aria-label="依赖步骤" /></label>
+        <label className="wide">指令<textarea value={form.firstTurn} onChange={update('firstTurn')} aria-label="指令" /></label>
         <label>输出文件<input value={form.outputFile} onChange={update('outputFile')} aria-label="输出文件" /></label>
         <div className="dag-node-editor-actions">
           <button type="button" onClick={() => { void onSave(form, activeNode); }} disabled={savingNodeKey === activeNode.nodeKey}>
-            {savingNodeKey === activeNode.nodeKey ? '保存中...' : '保存节点'}
+            {savingNodeKey === activeNode.nodeKey ? '保存中...' : '保存步骤'}
           </button>
         </div>
       </div>
@@ -2819,18 +3227,78 @@ function DagNodeEditor({ nodes, savingNodeKey, onSave }) {
   );
 }
 
-function DagScheduleModal({ cron, saving, onChange, onClose, onSave }) {
+function DagScheduleModal({ cron, actionLabel, saving, onClose, onSave }) {
+  const initialSchedule = useMemo(() => scheduleStateFromCron(cron), [cron]);
+  const [preset, setPreset] = useState(initialSchedule.preset);
+  const [time, setTime] = useState(initialSchedule.time);
+  const [weekday, setWeekday] = useState(initialSchedule.weekday);
+  const [monthDay, setMonthDay] = useState(initialSchedule.monthDay);
+  const [inputError, setInputError] = useState(initialSchedule.warning || '');
+  const monthDays = useMemo(() => Array.from({ length: 31 }, (_item, index) => (index + 1).toString()), []);
+  const previewText = scheduleLabelFromState({ preset, time, weekday, monthDay });
+
+  useEffect(() => {
+    setPreset(initialSchedule.preset);
+    setTime(initialSchedule.time);
+    setWeekday(initialSchedule.weekday);
+    setMonthDay(initialSchedule.monthDay);
+    setInputError(initialSchedule.warning || '');
+  }, [initialSchedule]);
+
+  const choose = (setter) => (event) => {
+    setter(event.target.value);
+    setInputError('');
+  };
+
+  const confirm = () => {
+    const { cronExpr, error } = cronExprFromSchedule(preset, time, weekday, monthDay);
+    if (error) {
+      setInputError(error);
+      return;
+    }
+    void onSave(cronExpr);
+  };
+
   return (
     <div className="modal-overlay">
-      <section className="modal-box" role="dialog" aria-modal="true" aria-label="设置定时任务">
-        <header><h2>设置定时任务</h2><button type="button" className="ghost" onClick={onClose} disabled={saving}>关闭</button></header>
-        <label className="skills-body-field">
-          Cron 表达式
-          <input value={cron} onChange={(event) => onChange(event.target.value)} aria-label="Cron 表达式" />
-        </label>
+      <section className="modal-box" role="dialog" aria-modal="true" aria-label={actionLabel}>
+        <header><h2>{actionLabel}</h2><button type="button" className="ghost" onClick={onClose} disabled={saving}>关闭</button></header>
+        <div className="dag-node-editor">
+          <label>
+            运行频率
+            <select value={preset} onChange={choose(setPreset)} disabled={saving} aria-label="运行频率">
+              <option value="daily">每天</option>
+              <option value="weekdays">工作日</option>
+              <option value="weekly">每周</option>
+              <option value="monthly">每月</option>
+            </select>
+          </label>
+          {preset === 'weekly' ? (
+            <label>
+              星期几
+              <select value={weekday} onChange={choose(setWeekday)} disabled={saving} aria-label="星期几">
+                {DAG_WEEKDAY_OPTIONS.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
+              </select>
+            </label>
+          ) : null}
+          {preset === 'monthly' ? (
+            <label>
+              每月几号
+              <select value={monthDay} onChange={choose(setMonthDay)} disabled={saving} aria-label="每月几号">
+                {monthDays.map((day) => <option key={day} value={day}>{day} 日</option>)}
+              </select>
+            </label>
+          ) : null}
+          <label>
+            运行时间
+            <input value={time} type="time" onChange={choose(setTime)} disabled={saving} aria-label="运行时间" />
+          </label>
+        </div>
+        {previewText ? <p className="settings-status">{previewText} 自动运行</p> : null}
+        {inputError ? <p className="danger-text" role="alert">{inputError}</p> : null}
         <footer>
           <button type="button" className="ghost" onClick={onClose} disabled={saving}>取消</button>
-          <button type="button" onClick={() => { void onSave(); }} disabled={saving}>{saving ? '保存中...' : '保存定时任务'}</button>
+          <button type="button" onClick={confirm} disabled={saving}>{saving ? '保存中...' : actionLabel}</button>
         </footer>
       </section>
     </div>
@@ -2854,7 +3322,12 @@ function ConfirmDagDeleteModal({ dag, deleting, onClose, onConfirm }) {
 }
 
 function SkillsPage({ projectPath, refreshKey = 0 }) {
-  const [items, setItems] = useState([]);
+  const skillCacheKey = normalizeSettingsCwd(projectPath);
+  const cachedSkillPage = useClientStore((state) => state.skillPageCacheByCwd?.[skillCacheKey]);
+  const setSkillPageCache = useClientStore((state) => state.setSkillPageCache);
+  const [items, setItems] = useState(() => (
+    Array.isArray(cachedSkillPage?.items) ? cachedSkillPage.items : []
+  ));
   const [query, setQuery] = useState('');
   const [scopeFilter, setScopeFilter] = useState('all');
   const [loading, setLoading] = useState(false);
@@ -2871,41 +3344,67 @@ function SkillsPage({ projectPath, refreshKey = 0 }) {
   const [deleting, setDeleting] = useState(false);
   const [importScopeOpen, setImportScopeOpen] = useState(false);
   const [importing, setImporting] = useState(false);
-  const [resolutionConflicts, setResolutionConflicts] = useState([]);
-  const [resolutionLoading, setResolutionLoading] = useState(false);
+  const [resolutionConflicts, setResolutionConflicts] = useState(() => (
+    Array.isArray(cachedSkillPage?.resolutionConflicts)
+      ? cachedSkillPage.resolutionConflicts
+      : []
+  ));
   const [resolutionPreview, setResolutionPreview] = useState(null);
   const [resolutionNamePrompt, setResolutionNamePrompt] = useState(null);
   const [resolutionNameInput, setResolutionNameInput] = useState('');
   const [resolutionActioning, setResolutionActioning] = useState('');
+  const hasLoadedSkillsRef = useRef(Boolean(cachedSkillPage?.hasLoadedSkills));
+  const refreshInFlightRef = useRef(false);
+  const skillRefreshKey = Number(refreshKey || 0);
 
   const refreshSkills = useCallback(async (options = {}) => {
     const isCancelled = typeof options.isCancelled === 'function' ? options.isCancelled : () => false;
-    setLoading(true);
-    setError('');
-    setNotice('');
+    const silent = options.silent === true;
+    const cwd = normalizeSettingsCwd(projectPath);
+    const cached = useClientStore.getState().skillPageCacheByCwd?.[cwd];
+    const hasUsableSnapshot = hasLoadedSkillsRef.current || Boolean(cached?.hasLoadedSkills);
+    const showBlockingLoading = !silent && !hasUsableSnapshot;
+    if (showBlockingLoading) {
+      setLoading(true);
+      setError('');
+      setNotice('');
+    } else if (!silent) {
+      setError('');
+    }
     try {
-      const cwd = normalizeSettingsCwd(projectPath);
-      const response = await getDashboardPage({ cwd, page: 'skills' });
+      const response = await withTimeout(
+        getDashboardPage({ cwd, page: 'skills' }),
+        SKILLS_REQUEST_TIMEOUT_MS,
+        '技能列表加载超时，请检查技能目录或后端状态。',
+      );
       if (isCancelled()) return;
-      setItems(normalizeSkillsResponse(response));
+      const nextItems = normalizeSkillsResponse(response);
+      hasLoadedSkillsRef.current = true;
+      setItems(nextItems);
+      setSkillPageCache(cwd, { items: nextItems, hasLoadedSkills: true });
+      setError('');
     } catch (err) {
       if (isCancelled()) return;
-      setItems([]);
-      setError(err.message || String(err));
+      if (showBlockingLoading) setItems([]);
+      if (!silent || !hasUsableSnapshot) setError(err.message || String(err));
     } finally {
-      if (!isCancelled()) setLoading(false);
+      if (!isCancelled() && showBlockingLoading) setLoading(false);
     }
-  }, [projectPath]);
+  }, [projectPath, setSkillPageCache]);
 
   const refreshResolutions = useCallback(async (options = {}) => {
     const isCancelled = typeof options.isCancelled === 'function' ? options.isCancelled : () => false;
-    setResolutionLoading(true);
     try {
       const cwd = normalizeSettingsCwd(projectPath);
-      const response = await listSkillResolutions({ cwd });
+      const response = await withTimeout(
+        listSkillResolutions({ cwd }),
+        SKILLS_REQUEST_TIMEOUT_MS,
+        '技能冲突检查超时，请检查技能目录或后端状态。',
+      );
       if (!isCancelled()) {
         const conflicts = normalizeResolutionResponse(response);
         setResolutionConflicts(conflicts);
+        setSkillPageCache(cwd, { resolutionConflicts: conflicts });
         if (conflicts.length === 0) {
           setResolutionPreview(null);
           setResolutionNamePrompt(null);
@@ -2913,15 +3412,19 @@ function SkillsPage({ projectPath, refreshKey = 0 }) {
         }
       }
     } catch (err) {
-      if (!isCancelled()) setError(`读取技能冲突失败：${err.message || String(err)}`);
-    } finally {
-      if (!isCancelled()) setResolutionLoading(false);
+      if (!isCancelled() && options.silent !== true) setError(`读取技能冲突失败：${err.message || String(err)}`);
     }
-  }, [projectPath]);
+  }, [projectPath, setSkillPageCache]);
 
-  const refreshSkillSurface = useCallback(async () => {
-    await refreshSkills();
-    await refreshResolutions();
+  const refreshSkillSurface = useCallback(async (options = {}) => {
+    if (refreshInFlightRef.current) return;
+    refreshInFlightRef.current = true;
+    try {
+      await refreshSkills(options);
+      await refreshResolutions(options);
+    } finally {
+      refreshInFlightRef.current = false;
+    }
   }, [refreshResolutions, refreshSkills]);
 
   const openCreateEditor = useCallback(() => {
@@ -3230,13 +3733,59 @@ function SkillsPage({ projectPath, refreshKey = 0 }) {
   }, [refreshSkillSurface, resolutionPreview]);
 
   useEffect(() => {
+    const cached = useClientStore.getState().skillPageCacheByCwd?.[skillCacheKey];
+    hasLoadedSkillsRef.current = Boolean(cached?.hasLoadedSkills);
+    setItems(Array.isArray(cached?.items) ? cached.items : []);
+    setResolutionConflicts(Array.isArray(cached?.resolutionConflicts) ? cached.resolutionConflicts : []);
+    setLoading(false);
+    setError('');
+    setNotice('');
+  }, [skillCacheKey]);
+
+  useEffect(() => {
+    if (!cachedSkillPage) return;
+    if (Array.isArray(cachedSkillPage.items)) setItems(cachedSkillPage.items);
+    if (Array.isArray(cachedSkillPage.resolutionConflicts)) setResolutionConflicts(cachedSkillPage.resolutionConflicts);
+    if (cachedSkillPage.hasLoadedSkills) hasLoadedSkillsRef.current = true;
+  }, [cachedSkillPage]);
+
+  useEffect(() => {
     let cancelled = false;
-    refreshSkills({ isCancelled: () => cancelled });
-    refreshResolutions({ isCancelled: () => cancelled });
+    const cached = useClientStore.getState().skillPageCacheByCwd?.[skillCacheKey];
+    refreshSkillSurface({ isCancelled: () => cancelled, silent: Boolean(cached?.hasLoadedSkills) });
     return () => {
       cancelled = true;
     };
-  }, [refreshKey, refreshResolutions, refreshSkills]);
+  }, [refreshSkillSurface, skillCacheKey]);
+
+  useEffect(() => {
+    if (skillRefreshKey <= 0) return undefined;
+    let cancelled = false;
+    refreshSkillSurface({ isCancelled: () => cancelled, silent: true });
+    return () => {
+      cancelled = true;
+    };
+  }, [refreshSkillSurface, skillRefreshKey]);
+
+  useEffect(() => {
+    const runAutoRefresh = () => {
+      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
+      void refreshSkillSurface({ silent: true });
+    };
+    const handleVisibilityChange = () => {
+      if (typeof document === 'undefined' || document.visibilityState === 'visible') {
+        runAutoRefresh();
+      }
+    };
+    const intervalID = window.setInterval(runAutoRefresh, SKILLS_AUTO_REFRESH_MS);
+    window.addEventListener('focus', runAutoRefresh);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => {
+      window.clearInterval(intervalID);
+      window.removeEventListener('focus', runAutoRefresh);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [refreshSkillSurface]);
 
   const counts = useMemo(() => items.reduce((acc, item) => {
     acc.all += 1;
@@ -3272,7 +3821,6 @@ function SkillsPage({ projectPath, refreshKey = 0 }) {
       <PageHeader
         icon={Sparkles}
         title="技能管理"
-        actions={<button type="button" onClick={() => { void refreshSkillSurface(); }} disabled={loading || resolutionLoading}>刷新</button>}
       />
       <div className="subhead">技能列表</div>
       <div className="skills-toolbar">
@@ -3602,9 +4150,16 @@ function ImportScopeModal({ importing, onClose, onConfirm }) {
 }
 
 function FilesPage({ projectPath, store }) {
-  const [files, setFiles] = useState([]);
-  const [finalOutputRefs, setFinalOutputRefs] = useState([]);
-  const [retention, setRetention] = useState({ items: [], protectedCount: 0, cleanupCandidateCount: 0 });
+  const sharedFilesCacheKey = normalizeSettingsCwd(projectPath);
+  const cachedSharedFilesPage = useClientStore((state) => state.sharedFilesPageCacheByCwd?.[sharedFilesCacheKey]);
+  const setSharedFilesPageCache = useClientStore((state) => state.setSharedFilesPageCache);
+  const [files, setFiles] = useState(() => (Array.isArray(cachedSharedFilesPage?.files) ? cachedSharedFilesPage.files : []));
+  const [finalOutputRefs, setFinalOutputRefs] = useState(() => (
+    Array.isArray(cachedSharedFilesPage?.finalOutputRefs) ? cachedSharedFilesPage.finalOutputRefs : []
+  ));
+  const [retention, setRetention] = useState(() => (
+    cachedSharedFilesPage?.retention || { items: [], protectedCount: 0, cleanupCandidateCount: 0 }
+  ));
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState(null);
@@ -3617,6 +4172,9 @@ function FilesPage({ projectPath, store }) {
   const [exportingPath, setExportingPath] = useState('');
   const [deletingPath, setDeletingPath] = useState('');
   const [copied, setCopied] = useState(false);
+  const hasLoadedFilesRef = useRef(Boolean(cachedSharedFilesPage?.hasLoadedFiles));
+  const refreshInFlightRef = useRef(false);
+  const sharedFilesRevision = Number(store?.sharedFilesRevision || 0);
 
   const finalOutputByPath = useMemo(() => (
     new Map(finalOutputRefs.filter((ref) => files.some((file) => file.path === ref.path)).map((ref) => [ref.path, ref]))
@@ -3633,28 +4191,93 @@ function FilesPage({ projectPath, store }) {
     work: workCount,
   }), [files.length, finalCount, workCount]);
 
-  const refreshFiles = useCallback(async () => {
-    setLoading(true);
-    setError('');
+  const refreshFiles = useCallback(async ({ silent = false } = {}) => {
+    if (refreshInFlightRef.current) return;
+    refreshInFlightRef.current = true;
+    const cached = useClientStore.getState().sharedFilesPageCacheByCwd?.[sharedFilesCacheKey];
+    const hasUsableSnapshot = hasLoadedFilesRef.current || Boolean(cached?.hasLoadedFiles);
+    const showBlockingLoading = !silent && !hasUsableSnapshot;
+    if (showBlockingLoading) {
+      setLoading(true);
+      setError('');
+    } else if (!silent) {
+      setError('');
+    }
     try {
       const cwd = normalizeSettingsCwd(projectPath);
       const response = await getDashboardPage({ cwd, page: 'memory' });
       const normalized = normalizeSharedFilesResponse(response);
+      hasLoadedFilesRef.current = true;
       setFiles(normalized.files);
       setFinalOutputRefs(normalized.finalOutputRefs);
       setRetention(normalized.retention);
+      setSharedFilesPageCache(cwd, {
+        files: normalized.files,
+        finalOutputRefs: normalized.finalOutputRefs,
+        retention: normalized.retention,
+        hasLoadedFiles: true,
+      });
+      setError('');
     } catch (err) {
-      setFiles([]);
-      setFinalOutputRefs([]);
-      setRetention({ items: [], protectedCount: 0, cleanupCandidateCount: 0 });
-      setError(`加载共享文件失败：${err.message || String(err)}`);
+      if (showBlockingLoading) {
+        setFiles([]);
+        setFinalOutputRefs([]);
+        setRetention({ items: [], protectedCount: 0, cleanupCandidateCount: 0 });
+      }
+      if (!silent || !hasUsableSnapshot) setError(`加载共享文件失败：${err.message || String(err)}`);
     } finally {
-      setLoading(false);
+      refreshInFlightRef.current = false;
+      if (showBlockingLoading) setLoading(false);
     }
-  }, [projectPath]);
+  }, [projectPath, setSharedFilesPageCache, sharedFilesCacheKey]);
 
   useEffect(() => {
-    void refreshFiles();
+    const cached = useClientStore.getState().sharedFilesPageCacheByCwd?.[sharedFilesCacheKey];
+    hasLoadedFilesRef.current = Boolean(cached?.hasLoadedFiles);
+    setFiles(Array.isArray(cached?.files) ? cached.files : []);
+    setFinalOutputRefs(Array.isArray(cached?.finalOutputRefs) ? cached.finalOutputRefs : []);
+    setRetention(cached?.retention || { items: [], protectedCount: 0, cleanupCandidateCount: 0 });
+    setLoading(false);
+    setError('');
+    setNotice(null);
+  }, [sharedFilesCacheKey]);
+
+  useEffect(() => {
+    if (!cachedSharedFilesPage) return;
+    if (Array.isArray(cachedSharedFilesPage.files)) setFiles(cachedSharedFilesPage.files);
+    if (Array.isArray(cachedSharedFilesPage.finalOutputRefs)) setFinalOutputRefs(cachedSharedFilesPage.finalOutputRefs);
+    if (cachedSharedFilesPage.retention) setRetention(cachedSharedFilesPage.retention);
+    if (cachedSharedFilesPage.hasLoadedFiles) hasLoadedFilesRef.current = true;
+  }, [cachedSharedFilesPage]);
+
+  useEffect(() => {
+    const cached = useClientStore.getState().sharedFilesPageCacheByCwd?.[sharedFilesCacheKey];
+    void refreshFiles({ silent: Boolean(cached?.hasLoadedFiles) });
+  }, [refreshFiles, sharedFilesCacheKey]);
+
+  useEffect(() => {
+    if (sharedFilesRevision <= 0) return;
+    void refreshFiles({ silent: true });
+  }, [refreshFiles, sharedFilesRevision]);
+
+  useEffect(() => {
+    const runAutoRefresh = () => {
+      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
+      void refreshFiles({ silent: true });
+    };
+    const handleVisibilityChange = () => {
+      if (typeof document === 'undefined' || document.visibilityState === 'visible') {
+        runAutoRefresh();
+      }
+    };
+    const intervalID = window.setInterval(runAutoRefresh, SHARED_FILES_AUTO_REFRESH_MS);
+    window.addEventListener('focus', runAutoRefresh);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => {
+      window.clearInterval(intervalID);
+      window.removeEventListener('focus', runAutoRefresh);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
   }, [refreshFiles]);
 
   const visibleFiles = useMemo(() => {
@@ -3783,9 +4406,6 @@ function FilesPage({ projectPath, store }) {
             <select aria-label="共享文件排序" value={sortMode} onChange={(event) => setSortMode(event.target.value)}>
               {SHARED_FILE_SORTS.map((item) => <option key={item.key} value={item.key}>{item.label}</option>)}
             </select>
-            <button type="button" onClick={() => { void refreshFiles(); }} disabled={loading}>
-              <RefreshCw size={15} /> {loading ? '刷新中' : '刷新'}
-            </button>
           </>
         )}
       />
@@ -3965,9 +4585,14 @@ function ConfirmSharedFileDeleteModal({ file, deleting, onClose, onConfirm }) {
   );
 }
 
-function MemoryPage({ projectPath }) {
-  const [snapshot, setSnapshot] = useState({ overview: {}, entries: [] });
-  const [loading, setLoading] = useState(true);
+function MemoryPage({ projectPath, onSimilarCountChange, refreshKey = 0 }) {
+  const memoryCacheKey = normalizeSettingsCwd(projectPath);
+  const cachedMemoryPage = useClientStore((state) => state.memoryPageCacheByCwd?.[memoryCacheKey]);
+  const setMemoryPageCache = useClientStore((state) => state.setMemoryPageCache);
+  const [snapshot, setSnapshot] = useState(() => (
+    cachedMemoryPage?.snapshot || { overview: {}, entries: [] }
+  ));
+  const [loading, setLoading] = useState(() => !cachedMemoryPage?.hasLoadedMemory);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState({ level: 'info', message: '' });
   const [searchText, setSearchText] = useState('');
@@ -3984,23 +4609,84 @@ function MemoryPage({ projectPath }) {
   const [mergingAll, setMergingAll] = useState(false);
   const [ignoringKey, setIgnoringKey] = useState('');
   const [mergingKey, setMergingKey] = useState('');
+  const hasLoadedMemoryRef = useRef(Boolean(cachedMemoryPage?.hasLoadedMemory));
+  const refreshInFlightRef = useRef(false);
+  const memoryRefreshKey = Number(refreshKey || 0);
 
-  const refreshMemory = useCallback(async () => {
-    setLoading(true);
-    setError('');
+  const refreshMemory = useCallback(async ({ silent = false } = {}) => {
+    if (refreshInFlightRef.current) return;
+    refreshInFlightRef.current = true;
+    const cached = useClientStore.getState().memoryPageCacheByCwd?.[memoryCacheKey];
+    const hasUsableSnapshot = hasLoadedMemoryRef.current || Boolean(cached?.hasLoadedMemory);
+    const showBlockingLoading = !silent && !hasUsableSnapshot;
+    if (showBlockingLoading) {
+      setLoading(true);
+      setError('');
+    } else if (!silent) {
+      setError('');
+    }
     try {
       const cwd = normalizeSettingsCwd(projectPath);
       const response = await getMemorySnapshot({ cwd });
-      setSnapshot(normalizeMemorySnapshot(response));
+      const nextSnapshot = normalizeMemorySnapshot(response);
+      hasLoadedMemoryRef.current = true;
+      setSnapshot(nextSnapshot);
+      setMemoryPageCache(cwd, { snapshot: nextSnapshot, hasLoadedMemory: true });
+      setError('');
     } catch (err) {
-      setError(errorMessage(err));
+      if (!silent || !hasUsableSnapshot) setError(errorMessage(err));
     } finally {
-      setLoading(false);
+      refreshInFlightRef.current = false;
+      if (showBlockingLoading) setLoading(false);
     }
-  }, [projectPath]);
+  }, [memoryCacheKey, projectPath, setMemoryPageCache]);
 
   useEffect(() => {
-    refreshMemory().catch(() => { });
+    const cached = useClientStore.getState().memoryPageCacheByCwd?.[memoryCacheKey];
+    hasLoadedMemoryRef.current = Boolean(cached?.hasLoadedMemory);
+    setSnapshot(cached?.snapshot || { overview: {}, entries: [] });
+    setLoading(!cached?.hasLoadedMemory);
+    setError('');
+    setNotice({ level: 'info', message: '' });
+  }, [memoryCacheKey]);
+
+  useEffect(() => {
+    if (!cachedMemoryPage) return;
+    if (cachedMemoryPage.snapshot) setSnapshot(cachedMemoryPage.snapshot);
+    if (cachedMemoryPage.hasLoadedMemory) {
+      hasLoadedMemoryRef.current = true;
+      setLoading(false);
+    }
+  }, [cachedMemoryPage]);
+
+  useEffect(() => {
+    const cached = useClientStore.getState().memoryPageCacheByCwd?.[memoryCacheKey];
+    refreshMemory({ silent: Boolean(cached?.hasLoadedMemory) }).catch(() => { });
+  }, [memoryCacheKey, refreshMemory]);
+
+  useEffect(() => {
+    if (memoryRefreshKey <= 0) return;
+    void refreshMemory({ silent: true });
+  }, [memoryRefreshKey, refreshMemory]);
+
+  useEffect(() => {
+    const runAutoRefresh = () => {
+      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
+      void refreshMemory({ silent: true });
+    };
+    const handleVisibilityChange = () => {
+      if (typeof document === 'undefined' || document.visibilityState === 'visible') {
+        runAutoRefresh();
+      }
+    };
+    const intervalID = window.setInterval(runAutoRefresh, MEMORY_AUTO_REFRESH_MS);
+    window.addEventListener('focus', runAutoRefresh);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => {
+      window.clearInterval(intervalID);
+      window.removeEventListener('focus', runAutoRefresh);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
   }, [refreshMemory]);
 
   const showNotice = useCallback((level, message) => {
@@ -4037,12 +4723,18 @@ function MemoryPage({ projectPath }) {
   const projPercent = health ? memoryHealthPercent(health.projectCount, health.maxPerCategory) : 0;
   const similarGroups = health?.similarGroups || [];
 
+  useEffect(() => {
+    if (typeof onSimilarCountChange === 'function') {
+      onSimilarCountChange(similarGroups.length);
+    }
+  }, [onSimilarCountChange, similarGroups.length]);
+
   const updateEditorForm = useCallback((patch) => {
     setEditor((current) => ({ ...current, form: { ...current.form, ...patch } }));
   }, []);
 
   const openCreate = useCallback((type) => {
-    const form = defaultMemoryForm(type, 'private');
+    const form = defaultMemoryForm(type, memoryTargetForType(type));
     setEditor({ open: true, mode: 'create', form });
     setCreateMenuOpen(false);
   }, []);
@@ -4081,23 +4773,22 @@ function MemoryPage({ projectPath }) {
   const saveEditor = useCallback(async () => {
     if (saving) return;
     const form = editor.form;
-    const name = textValue(form.name);
     const description = textValue(form.description);
     const content = textValue(form.content);
-    if (!name) { showNotice('error', '请先填写名称'); return; }
     if (!description) { showNotice('error', '请先填写描述'); return; }
     if (!content) { showNotice('error', '内容不能为空'); return; }
     setSaving(true);
     try {
       const cwd = normalizeSettingsCwd(projectPath);
+      const type = textValue(form.type) || 'project';
       await upsertMemoryEntry({
         cwd,
-        target: form.target,
+        target: form.existingPath ? form.target : memoryTargetForType(type),
         existingPath: form.existingPath,
-        name,
+        name: memoryAutoName({ ...form, type }),
         description,
         title: textValue(form.title),
-        type: form.type,
+        type,
         content,
       });
       setEditor((current) => ({ ...current, open: false }));
@@ -4228,9 +4919,6 @@ function MemoryPage({ projectPath }) {
                 onChange={(event) => setSearchText(event.target.value)}
               />
             </label>
-            <button type="button" onClick={() => { void refreshMemory(); }} disabled={loading}>
-              <RefreshCw size={15} /> {loading ? '刷新中' : '刷新'}
-            </button>
             <div className="memory-create">
               <button type="button" className="light" aria-label="+ 新建 ▾" onClick={() => setCreateMenuOpen((open) => !open)}>
                 <Plus size={15} /> 新建 ▾
@@ -4383,7 +5071,6 @@ function MemoryCard({ entry, busy, deleting, onEdit, onDelete }) {
       <header>
         <h3>{memoryEntryTitle(entry)}</h3>
         <span>{entry.tag}</span>
-        <em>{entry.scope}</em>
         {entry.source === 'dream' ? <em>梦境</em> : null}
       </header>
       {entry.description ? <p>{entry.description}</p> : null}
@@ -4407,23 +5094,22 @@ function MemoryEditorModal({ editor, saving, onClose, onChange, onSave, onDelete
         <header>
           <div>
             <h2>{editor.mode === 'edit' ? '编辑记忆' : '新建记忆'}</h2>
-            <p>{form.target === 'team' ? '团队记忆' : '私有记忆'}</p>
+            <p>{form.type === 'project' ? '项目记忆' : '偏好记忆'}</p>
           </div>
-          <button type="button" className="ghost" onClick={onClose} disabled={saving}><X size={14} /> 关闭</button>
         </header>
         <div className="memory-form-grid">
-          <label>目标
-            <select value={form.target} onChange={(event) => onChange({ target: event.target.value })} disabled={identityLocked}>
-              {MEMORY_EDITOR_TARGETS.map((target) => <option key={target.key} value={target.key}>{target.label}</option>)}
-            </select>
-          </label>
-          <label>类型
-            <select value={form.type} onChange={(event) => onChange({ type: event.target.value, content: memoryTemplateForType(event.target.value) })} disabled={identityLocked}>
+          <label>分类
+            <select
+              value={form.type}
+              onChange={(event) => onChange({
+                type: event.target.value,
+                target: memoryTargetForType(event.target.value),
+                content: memoryTemplateForType(event.target.value),
+              })}
+              disabled={identityLocked}
+            >
               {MEMORY_EDITOR_TYPES.map((type) => <option key={type.key} value={type.key}>{type.label}</option>)}
             </select>
-          </label>
-          <label>标识名
-            <input value={form.name} onChange={(event) => onChange({ name: event.target.value })} disabled={identityLocked} placeholder="内部标识，如 reply-in-chinese" />
           </label>
           <label>描述
             <input value={form.description} onChange={(event) => onChange({ description: event.target.value })} placeholder="一句话描述为什么值得长期保留" />
@@ -4432,7 +5118,6 @@ function MemoryEditorModal({ editor, saving, onClose, onChange, onSave, onDelete
             <input value={form.title} onChange={(event) => onChange({ title: event.target.value })} placeholder="卡片上显示的短标题" />
           </label>
         </div>
-        {identityLocked ? <p className="memory-form-helper">现有记忆的标识名和类型暂时锁定；如需修改，请删除后重建。</p> : null}
         <label className="memory-content-label">内容
           <textarea rows={12} value={form.content} onChange={(event) => onChange({ content: event.target.value })} />
         </label>
@@ -4440,7 +5125,7 @@ function MemoryEditorModal({ editor, saving, onClose, onChange, onSave, onDelete
           <button type="button" className="ghost" onClick={onClose} disabled={saving}>取消</button>
           {form.existingPath ? <button type="button" className="danger" onClick={onDelete} disabled={saving}>删除</button> : null}
           <button type="button" onClick={() => onChange({ content: memoryTemplateForType(form.type) })} disabled={saving}>套用当前类型模板</button>
-          <button type="button" className="light" onClick={() => { void onSave(); }} disabled={saving || !textValue(form.name) || !textValue(form.description) || !textValue(form.content)}>
+          <button type="button" className="light" onClick={() => { void onSave(); }} disabled={saving || !textValue(form.description) || !textValue(form.content)}>
             {saving ? '保存中...' : '保存'}
           </button>
         </div>
