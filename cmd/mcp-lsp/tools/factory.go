@@ -10,6 +10,7 @@ import (
 	"os"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -299,18 +300,51 @@ func requirePosition(line, column int) (protocol.Position, error) {
 }
 
 func resolveFilePositionRequest(ctx context.Context, params filePositionParams) (string, protocol.Position, error) {
-	filePath, err := resolveFilePath(ctx, params.FilePath)
+	filePathRaw, line, col, err := parsePos(params.Pos)
 	if err != nil {
 		return "", protocol.Position{}, err
 	}
-	position, err := requirePosition(params.Line, params.Column)
+	filePath, err := resolveFilePath(ctx, filePathRaw)
 	if err != nil {
 		return "", protocol.Position{}, err
 	}
-	if err := validateResolvedFilePosition(filePath, params.Line, params.Column); err != nil {
+	position, err := requirePosition(line, col)
+	if err != nil {
+		return "", protocol.Position{}, err
+	}
+	if err := validateResolvedFilePosition(filePath, line, col); err != nil {
 		return "", protocol.Position{}, err
 	}
 	return filePath, position, nil
+}
+
+func parsePos(pos string) (string, int, int, error) {
+	pos = strings.TrimSpace(pos)
+	if pos == "" {
+		return "", 0, 0, errors.New("position parameter 'pos' is empty")
+	}
+	lastColon := strings.LastIndex(pos, ":")
+	if lastColon == -1 {
+		return "", 0, 0, fmt.Errorf("invalid pos format %q; expected 'file_path:line:column'", pos)
+	}
+	colStr := pos[lastColon+1:]
+	col, err := strconv.Atoi(colStr)
+	if err != nil || col <= 0 {
+		return "", 0, 0, fmt.Errorf("invalid column %q in pos %q; expected a positive integer", colStr, pos)
+	}
+
+	remaining := pos[:lastColon]
+	secondLastColon := strings.LastIndex(remaining, ":")
+	if secondLastColon == -1 {
+		return "", 0, 0, fmt.Errorf("invalid pos format %q; expected 'file_path:line:column'", pos)
+	}
+	lineStr := remaining[secondLastColon+1:]
+	line, err := strconv.Atoi(lineStr)
+	if err != nil || line <= 0 {
+		return "", 0, 0, fmt.Errorf("invalid line %q in pos %q; expected a positive integer", lineStr, pos)
+	}
+	filePath := remaining[:secondLastColon]
+	return filePath, line, col, nil
 }
 
 func validateResolvedFilePosition(filePath string, line int, column int) error {
@@ -443,4 +477,11 @@ func wrapToolHandler(toolName string, tier time.Duration, handler middleware.Han
 		middleware.Timeout(tier),
 	)
 	return middleware.WithOutputBudget(toolName, chained, middleware.Budget{})
+}
+
+func (e emptyListEnvelope) ToPlainText() string {
+	if e.Meta.Message != "" {
+		return e.Meta.Message
+	}
+	return "No items found."
 }

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 
 	lspmanager "github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/manager"
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/middleware"
@@ -71,4 +72,29 @@ func normalizeEditVersion(version int) int {
 		return defaultEditVersion
 	}
 	return version
+}
+
+func (e editEnvelope) ToPlainText() string {
+	var sb strings.Builder
+	status := "FAILED"
+	if e.Success {
+		status = "SUCCESS"
+	}
+	sb.WriteString(fmt.Sprintf("Edit Status: %s\n", status))
+	if e.Message != "" {
+		sb.WriteString(fmt.Sprintf("Message: %s\n", e.Message))
+	}
+	if e.Applied {
+		sb.WriteString(fmt.Sprintf("Applied: true (%d replacements applied", e.AppliedCount))
+		if e.Persisted {
+			sb.WriteString(", persisted to disk")
+		}
+		sb.WriteString(")\n")
+	} else if e.RequiresApply {
+		sb.WriteString("Applied: false (requires manual apply)\n")
+	}
+	if e.Warning != "" {
+		sb.WriteString(fmt.Sprintf("Warning: %s\n", e.Warning))
+	}
+	return strings.TrimSpace(sb.String())
 }

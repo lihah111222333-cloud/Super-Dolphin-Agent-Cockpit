@@ -13,10 +13,8 @@ import (
 )
 
 type filePositionParams struct {
-	FilePath   string `json:"file_path"`
+	Pos        string `json:"pos"`
 	LanguageID string `json:"language_id,omitempty"`
-	Line       int    `json:"line"`
-	Column     int    `json:"column"`
 }
 
 type inspectParams struct {
@@ -26,11 +24,11 @@ type inspectParams struct {
 
 func NewInspectHandler(registry lspmanager.Registry) ToolHandler {
 	return newManagerTool("inspect", middleware.TierNormal, registry, decodeStrict, func(ctx context.Context, registry lspmanager.Registry, req inspectParams) (any, error) {
-		manager, err := managerForFile(ctx, registry, req.FilePath, req.LanguageID)
+		filePath, position, err := resolveFilePositionRequest(ctx, req.filePositionParams)
 		if err != nil {
 			return nil, err
 		}
-		filePath, position, err := resolveFilePositionRequest(ctx, req.filePositionParams)
+		manager, err := managerForFile(ctx, registry, filePath, req.LanguageID)
 		if err != nil {
 			return nil, err
 		}

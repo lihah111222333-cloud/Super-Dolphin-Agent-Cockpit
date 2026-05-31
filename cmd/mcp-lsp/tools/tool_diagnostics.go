@@ -233,3 +233,48 @@ func diagnosticCode(code any) string {
 		return fmt.Sprint(value)
 	}
 }
+
+func (r diagnosticsResponse) ToPlainText() string {
+	if !r.Success {
+		return "Diagnostics retrieval failed."
+	}
+	if len(r.Data) == 0 {
+		return "No diagnostics found."
+	}
+
+	var sb strings.Builder
+	sb.WriteString("LSP Diagnostics:\n")
+	for _, table := range r.Data {
+		sb.WriteString(fmt.Sprintf("File: %s\n", table.File))
+		for _, row := range table.Rows {
+			r.formatDiagnosticRow(&sb, row)
+		}
+		sb.WriteString("\n")
+	}
+
+	return strings.TrimSpace(sb.String())
+}
+
+func (r diagnosticsResponse) formatDiagnosticRow(sb *strings.Builder, row []any) {
+	if len(row) < 4 {
+		return
+	}
+	lineVal, _ := row[0].(int)
+	colVal, _ := row[1].(int)
+	severity, _ := row[2].(string)
+	msg, _ := row[3].(string)
+
+	source := ""
+	if len(row) >= 5 {
+		if src, ok := row[4].(string); ok && src != "" {
+			source = fmt.Sprintf(" [%s]", src)
+		}
+	}
+	codeVal := ""
+	if len(row) >= 6 {
+		if c, ok := row[5].(string); ok && c != "" {
+			codeVal = fmt.Sprintf(" (%s)", c)
+		}
+	}
+	fmt.Fprintf(sb, "  L%d:%d: [%s] %s%s%s\n", lineVal, colVal, severity, msg, source, codeVal)
+}

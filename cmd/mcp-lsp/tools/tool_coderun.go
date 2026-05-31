@@ -389,3 +389,30 @@ func goTestPackageArgForAbsolute(pkg string) string {
 	}
 	return "."
 }
+
+func (r CodeRunResult) ToPlainText() string {
+	var sb strings.Builder
+	status := "SUCCESS"
+	if !r.Success {
+		status = "FAILED"
+	}
+	sb.WriteString(fmt.Sprintf("Code Run Status: %s (Exit Code: %d, Duration: %dms)\n", status, r.ExitCode, r.Duration))
+	if r.Mode != "" {
+		sb.WriteString(fmt.Sprintf("Mode: %s", r.Mode))
+		if r.Language != "" {
+			sb.WriteString(fmt.Sprintf(", Language: %s", r.Language))
+		}
+		sb.WriteString("\n")
+	}
+	sb.WriteString("\nOutput:\n")
+	sb.WriteString("```\n")
+	sb.WriteString(r.Output)
+	if !strings.HasSuffix(r.Output, "\n") {
+		sb.WriteString("\n")
+	}
+	sb.WriteString("```\n")
+	if r.Truncated {
+		sb.WriteString("Warning: output was truncated due to buffer limits.\n")
+	}
+	return strings.TrimSpace(sb.String())
+}
