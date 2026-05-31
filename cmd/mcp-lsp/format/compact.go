@@ -34,7 +34,7 @@ type CompactWorkspaceSymbol struct {
 	Kind      int    `json:"kind,omitempty"`
 	File      string `json:"file,omitempty"`
 	Line      int    `json:"line"`
-	Column    int    `json:"column"`
+	Col       int    `json:"col"`
 	Container string `json:"container,omitempty"`
 }
 
@@ -117,7 +117,7 @@ func CompactWorkspaceSymbols(items []protocol.WorkspaceSymbolResult) []CompactWo
 				Kind:      int(si.Kind),
 				File:      URIToPath(si.Location.URI),
 				Line:      FromLSP(si.Location.Range.Start.Line),
-				Column:    FromLSP(si.Location.Range.Start.Character),
+				Col:       FromLSP(si.Location.Range.Start.Character),
 				Container: si.ContainerName,
 			})
 			continue
@@ -131,7 +131,7 @@ func CompactWorkspaceSymbols(items []protocol.WorkspaceSymbolResult) []CompactWo
 			if file, line, column, ok := LocationFromAny(ws.Location); ok {
 				row.File = file
 				row.Line = line
-				row.Column = column
+				row.Col = column
 			}
 			out = append(out, row)
 		}
@@ -219,8 +219,8 @@ func GroupLocationsByFile(items []protocol.LocationResult, total int) protocol.G
 		}
 		file := URIToPath(loc.URI)
 		row := protocol.CompactLocation{
-			Line:   FromLSP(loc.Range.Start.Line),
-			Column: FromLSP(loc.Range.Start.Character),
+			Line: FromLSP(loc.Range.Start.Line),
+			Col:  FromLSP(loc.Range.Start.Character),
 		}
 		if items[i].HasFuncRange() {
 			cur := [2]int{items[i].FuncStart, items[i].FuncEnd}

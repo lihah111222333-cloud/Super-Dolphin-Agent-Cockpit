@@ -60,7 +60,7 @@ func RenderGroupedLocations(result protocol.GroupedLocationResult) string {
 			builder.WriteByte(':')
 			builder.WriteString(strconv.Itoa(row.Line))
 			builder.WriteByte(':')
-			builder.WriteString(strconv.Itoa(row.Column))
+			builder.WriteString(strconv.Itoa(row.Col))
 			if row.FuncStart > 0 && row.FuncEnd >= row.FuncStart {
 				builder.WriteString(" [func L")
 				builder.WriteString(strconv.Itoa(row.FuncStart))

@@ -131,7 +131,7 @@ type LocationResult struct {
 
 type CompactLocation struct {
 	Line      int `json:"line"`
-	Column    int `json:"column"`
+	Col       int `json:"col"`
 	FuncStart int `json:"func_start,omitempty"`
 	FuncEnd   int `json:"func_end,omitempty"`
 }
