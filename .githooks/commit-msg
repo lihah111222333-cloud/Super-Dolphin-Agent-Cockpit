@@ -7,7 +7,7 @@ MSG_FILE="${1:?commit message file is required}"
 ROOT="$(git rev-parse --show-toplevel)"
 cd "$ROOT"
 
-echo "[commit-msg] Chinese commit title guard..."
+echo "[commit-msg] Chinese commit message guard..."
 ./scripts/guard_commit_titles.sh --message "$MSG_FILE"
 echo "[commit-msg] fix-test guard..."
 ./scripts/guard_fix_commits_have_tests.sh --cached "$MSG_FILE"

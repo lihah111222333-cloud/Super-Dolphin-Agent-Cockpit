@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Guard commit titles. Commit titles must contain Chinese text.
+# Guard commit messages. Titles must contain Chinese text; non-empty bodies must too.
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -14,7 +14,7 @@ USAGE
 }
 
 fail_usage() {
-  echo "FAIL: commit title guard: $*" >&2
+  echo "FAIL: commit message guard: $*" >&2
   exit 2
 }
 
@@ -34,22 +34,48 @@ first_commit_title() {
   '
 }
 
-title_has_chinese() {
-  local title="$1"
-  [[ "$title" =~ [一-龥] ]]
+body_from_file() {
+  awk '
+    /^[[:space:]]*#/ { next }
+    !seen && /^[[:space:]]*$/ { next }
+    !seen { seen = 1; next }
+    /^[[:space:]]*$/ { next }
+    { print }
+  ' "$1"
 }
 
-check_title() {
+commit_body() {
+  git log -1 --format='%B' "$1" | awk '
+    /^[[:space:]]*#/ { next }
+    !seen && /^[[:space:]]*$/ { next }
+    !seen { seen = 1; next }
+    /^[[:space:]]*$/ { next }
+    { print }
+  '
+}
+
+has_chinese() {
+  local text="$1"
+  [[ "$text" =~ [一-龥] ]]
+}
+
+check_message_parts() {
   local label="$1"
   local title="$2"
+  local body="$3"
 
   if [ -z "$title" ]; then
     echo "FAIL: $label title must not be empty." >&2
     return 1
   fi
-  if ! title_has_chinese "$title"; then
+  if ! has_chinese "$title"; then
     echo "FAIL: $label title must contain Chinese text." >&2
     echo "  title: $title" >&2
+    return 1
+  fi
+  if [ -n "$body" ] && ! has_chinese "$body"; then
+    echo "FAIL: $label body must contain Chinese text when present." >&2
+    echo "  body: $(printf '%s\n' "$body" | sed -n '1p')" >&2
     return 1
   fi
   return 0
@@ -58,20 +84,23 @@ check_title() {
 check_message_file() {
   local msg_file="$1"
   local title
+  local body
 
   if [ ! -f "$msg_file" ]; then
     fail_usage "commit message file does not exist: $msg_file"
   fi
 
   title="$(first_title_from_file "$msg_file")"
-  check_title "commit" "$title"
-  echo "✅ Chinese commit title guard OK"
+  body="$(body_from_file "$msg_file")"
+  check_message_parts "commit" "$title" "$body"
+  echo "✅ Chinese commit message guard OK"
 }
 
 check_range() {
   local range="$1"
   local commit
   local title
+  local body
   local failures
   failures=0
 
@@ -82,7 +111,8 @@ check_range() {
   while IFS= read -r commit; do
     [ -n "$commit" ] || continue
     title="$(first_commit_title "$commit")"
-    if ! check_title "commit ${commit:0:7}" "$title"; then
+    body="$(commit_body "$commit")"
+    if ! check_message_parts "commit ${commit:0:7}" "$title" "$body"; then
       failures=1
     fi
   done < <(git rev-list --reverse "$range")
@@ -90,7 +120,7 @@ check_range() {
   if [ "$failures" -ne 0 ]; then
     exit 1
   fi
-  echo "✅ Chinese commit title guard OK"
+  echo "✅ Chinese commit message guard OK"
 }
 
 case "${1:-}" in

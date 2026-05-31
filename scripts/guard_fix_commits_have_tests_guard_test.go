@@ -137,7 +137,7 @@ func TestPrePushRunsFixTestGuardForPushedRange(t *testing.T) {
 	if err == nil {
 		t.Fatalf("pre-push succeeded, want failure\n%s", string(out))
 	}
-	for _, part := range []string{"[pre-push] Chinese commit title guard", "Chinese commit title guard OK", "[pre-push] fix-test guard", "fix commit 缺少锁定 bug 的测试", "fix: 修复 parser panic"} {
+	for _, part := range []string{"[pre-push] Chinese commit message guard", "Chinese commit message guard OK", "[pre-push] fix-test guard", "fix commit 缺少锁定 bug 的测试", "fix: 修复 parser panic"} {
 		if !strings.Contains(string(out), part) {
 			t.Fatalf("pre-push output missing %q\n%s", part, string(out))
 		}
@@ -161,7 +161,21 @@ func TestCommitMsgRunsChineseTitleGuard(t *testing.T) {
 		if err == nil {
 			t.Fatalf("commit-msg succeeded, want failure\n%s", out)
 		}
-		assertOutputContainsAll(t, out, "[commit-msg] Chinese commit title guard", "commit title must contain Chinese text", "title: docs: update guide")
+		assertOutputContainsAll(t, out, "[commit-msg] Chinese commit message guard", "commit title must contain Chinese text", "title: docs: update guide")
+		assertOutputOmitsAll(t, out, "[commit-msg] fix-test guard")
+	})
+
+	t.Run("rejects body without chinese when present", func(t *testing.T) {
+		msgFile := filepath.Join(root, "COMMIT_EDITMSG")
+		if err := os.WriteFile(msgFile, []byte("docs: 更新 guide\n\nEnglish body only\n"), 0o644); err != nil {
+			t.Fatalf("write commit message: %v", err)
+		}
+
+		out, err := runCommitMsgHook(t, root, msgFile)
+		if err == nil {
+			t.Fatalf("commit-msg succeeded, want failure\n%s", out)
+		}
+		assertOutputContainsAll(t, out, "[commit-msg] Chinese commit message guard", "commit body must contain Chinese text when present", "body: English body only")
 		assertOutputOmitsAll(t, out, "[commit-msg] fix-test guard")
 	})
 
@@ -175,7 +189,7 @@ func TestCommitMsgRunsChineseTitleGuard(t *testing.T) {
 		if err != nil {
 			t.Fatalf("commit-msg failed: %v\n%s", err, out)
 		}
-		assertOutputContainsAll(t, out, "[commit-msg] Chinese commit title guard", "Chinese commit title guard OK", "[commit-msg] fix-test guard")
+		assertOutputContainsAll(t, out, "[commit-msg] Chinese commit message guard", "Chinese commit message guard OK", "[commit-msg] fix-test guard")
 	})
 }
 
@@ -201,7 +215,7 @@ func TestPrePushRunsChineseTitleGuardForPushedRange(t *testing.T) {
 	if err == nil {
 		t.Fatalf("pre-push succeeded, want failure\n%s", string(out))
 	}
-	assertOutputContainsAll(t, string(out), "[pre-push] Chinese commit title guard", "commit "+shortHead+" title must contain Chinese text", "title: docs: update guide")
+	assertOutputContainsAll(t, string(out), "[pre-push] Chinese commit message guard", "commit "+shortHead+" title must contain Chinese text", "title: docs: update guide")
 	assertOutputOmitsAll(t, string(out), "[pre-push] fix-test guard")
 }
 
@@ -224,7 +238,7 @@ func TestCICommitGuardRunsFixTestGuardForPullRequestRange(t *testing.T) {
 	if err == nil {
 		t.Fatalf("ci commit guard succeeded, want failure\n%s", out)
 	}
-	assertOutputContainsAll(t, out, "[ci-commit-guard] Chinese commit title guard: "+base+".."+head, "Chinese commit title guard OK", "[ci-commit-guard] fix-test guard: "+base+".."+head, "fix commit 缺少锁定 bug 的测试", "fix: 修复 parser panic")
+	assertOutputContainsAll(t, out, "[ci-commit-guard] Chinese commit message guard: "+base+".."+head, "Chinese commit message guard OK", "[ci-commit-guard] fix-test guard: "+base+".."+head, "fix commit 缺少锁定 bug 的测试", "fix: 修复 parser panic")
 }
 
 func TestCICommitGuardRunsFixTestGuardForPushRange(t *testing.T) {
@@ -247,7 +261,7 @@ func TestCICommitGuardRunsFixTestGuardForPushRange(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ci commit guard failed: %v\n%s", err, out)
 	}
-	assertOutputContainsAll(t, out, "[ci-commit-guard] Chinese commit title guard: "+base+".."+head, "Chinese commit title guard OK", "[ci-commit-guard] fix-test guard: "+base+".."+head, "fix-test guard OK")
+	assertOutputContainsAll(t, out, "[ci-commit-guard] Chinese commit message guard: "+base+".."+head, "Chinese commit message guard OK", "[ci-commit-guard] fix-test guard: "+base+".."+head, "fix-test guard OK")
 }
 
 func TestCICommitGuardRejectsTitleWithoutChinese(t *testing.T) {
@@ -270,7 +284,31 @@ func TestCICommitGuardRejectsTitleWithoutChinese(t *testing.T) {
 	if err == nil {
 		t.Fatalf("ci commit guard succeeded, want failure\n%s", out)
 	}
-	assertOutputContainsAll(t, out, "[ci-commit-guard] Chinese commit title guard: "+base+".."+head, "commit "+shortHead+" title must contain Chinese text", "title: docs: update guide")
+	assertOutputContainsAll(t, out, "[ci-commit-guard] Chinese commit message guard: "+base+".."+head, "commit "+shortHead+" title must contain Chinese text", "title: docs: update guide")
+	assertOutputOmitsAll(t, out, "[ci-commit-guard] fix-test guard")
+}
+
+func TestCICommitGuardRejectsBodyWithoutChinese(t *testing.T) {
+	root := prepareFixTestGuardRepo(t)
+	copyFixTestGuardRepoFile(t, root, "scripts/ci_commit_guard.sh", 0o755)
+	copyFixTestGuardRepoFile(t, root, "scripts/guard_commit_titles.sh", 0o755)
+	base := strings.TrimSpace(runFixTestGuardGitOutput(t, root, "rev-parse", "HEAD"))
+
+	writeFixTestGuardFile(t, root, "docs/readme.md", "docs only\n")
+	runFixTestGuardGit(t, root, "add", "docs/readme.md")
+	runFixTestGuardGit(t, root, "commit", "-m", "docs: 更新 guide", "-m", "English body only")
+	head := strings.TrimSpace(runFixTestGuardGitOutput(t, root, "rev-parse", "HEAD"))
+	shortHead := strings.TrimSpace(runFixTestGuardGitOutput(t, root, "rev-parse", "--short=7", "HEAD"))
+
+	out, err := runCICommitGuard(t, root, map[string]string{
+		"GITHUB_EVENT_NAME":   "push",
+		"GITHUB_EVENT_BEFORE": base,
+		"GITHUB_SHA":          head,
+	})
+	if err == nil {
+		t.Fatalf("ci commit guard succeeded, want failure\n%s", out)
+	}
+	assertOutputContainsAll(t, out, "[ci-commit-guard] Chinese commit message guard: "+base+".."+head, "commit "+shortHead+" body must contain Chinese text when present", "body: English body only")
 	assertOutputOmitsAll(t, out, "[ci-commit-guard] fix-test guard")
 }
 
