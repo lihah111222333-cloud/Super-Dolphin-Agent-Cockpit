@@ -213,7 +213,7 @@ func buildGrepResponse(matches []search.SearchMatch, total int, truncated bool) 
 		if match.FuncStart > 0 && match.FuncEnd >= match.FuncStart {
 			row = append(row, match.FuncStart, match.FuncEnd)
 			hasFuncRanges = true
-			hint = "step 2: use the returned func_start/func_end to read that function range, e.g. file action=read_file pos=<file>:<func_start> limit=<func_end-func_start+1>"
+			hint = "next: file action=read_file pos=<file>:<func_start> limit=<func_end-func_start+1>"
 		}
 		block := data[match.File]
 		if len(block.Cols) == 0 {

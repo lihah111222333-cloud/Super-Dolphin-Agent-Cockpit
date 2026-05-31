@@ -79,7 +79,7 @@ func NewCompactList[T any](items []T, total int, hints ...string) CompactList[T]
 	truncated := total > len(items)
 	hint := ""
 	if truncated {
-		hint = "results truncated; increase max_results or narrow the request"
+		hint = "next: increase max_results or narrow the request"
 		for _, candidate := range hints {
 			if value := strings.TrimSpace(candidate); value != "" {
 				hint = value
@@ -228,13 +228,13 @@ func GroupLocationsByFile(items []protocol.LocationResult, total int) protocol.G
 				row.FuncStart = items[i].FuncStart
 				row.FuncEnd = items[i].FuncEnd
 				lastRange[file] = cur
-				grouped.Hint = "step 2: use the returned func_start/func_end to read that function range, e.g. file action=read_file pos=<file>:<func_start> limit=<func_end-func_start+1>"
+				grouped.Hint = "next: file action=read_file pos=<file>:<func_start> limit=<func_end-func_start+1>"
 			}
 		}
 		grouped.Data[file] = append(grouped.Data[file], row)
 	}
 	if grouped.Truncated && grouped.Hint == "" {
-		grouped.Hint = "results truncated; increase max_results or narrow the target position"
+		grouped.Hint = "next: increase max_results or narrow the target position"
 	}
 	return grouped
 }

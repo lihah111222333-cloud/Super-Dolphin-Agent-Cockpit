@@ -25,7 +25,7 @@ const (
 	maxReadFileBytes           = 2 << 20
 	lspReadFileBatchMax        = 10
 	lspReadFileBatchPayloadMax = 16 * 1024
-	batchReadTruncatedHint     = "batch truncated; reduce file_paths or split into smaller read_file batches"
+	batchReadTruncatedHint     = "next: reduce file_paths or split into smaller read_file batches"
 )
 
 var errManagerUnavailable = errors.New("lsp manager is not configured; use read_file for content access or text_search for symbol lookup")

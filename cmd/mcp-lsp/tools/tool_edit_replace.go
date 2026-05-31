@@ -130,11 +130,11 @@ func appendFailureNextStep(sb *strings.Builder, r replaceRangeFailure) {
 		return
 	}
 	if r.LineCount > 0 {
-		fmt.Fprintf(sb, "Next step: file action=read_file pos=%s:1 limit=%d (file has %d lines; narrow the window with a smaller limit)\n",
+		fmt.Fprintf(sb, "next: file action=read_file pos=%s:1 limit=%d (file has %d lines; narrow the window with a smaller limit)\n",
 			r.FilePath, minInt(r.LineCount, 200), r.LineCount)
 		return
 	}
-	fmt.Fprintf(sb, "Next step: file action=read_file pos=%s\n", r.FilePath)
+	fmt.Fprintf(sb, "next: file action=read_file pos=%s\n", r.FilePath)
 }
 
 func (h EditHandler) handleReplaceRange(ctx context.Context, req EditRequest) (any, error) {

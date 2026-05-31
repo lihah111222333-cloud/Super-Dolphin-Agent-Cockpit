@@ -72,7 +72,7 @@ func newToolTimeoutError(limit time.Duration, err error) error {
 		Err:       fmt.Errorf("tool handler timed out after %s: %w", limit, context.DeadlineExceeded),
 		Code:      "lsp_timeout",
 		Retryable: true,
-		Hint:      "Retry with a narrower query, smaller max_results, or after the language server finishes indexing.",
+		Hint:      "next: narrow query/path/glob or reduce max_results after the language server finishes indexing",
 		Meta: map[string]any{
 			"timeout_ms": limit.Milliseconds(),
 		},
