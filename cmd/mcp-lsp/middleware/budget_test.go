@@ -48,3 +48,9 @@ func TestGrepToolBudgetIsSixteenKiB(t *testing.T) {
 		t.Fatalf("ToolBudget(grep) = %d, want %d", got, 16*1024)
 	}
 }
+
+func TestEditToolBudgetIsThirtyTwoKiB(t *testing.T) {
+	if got := ToolBudget("edit"); got != 32*1024 {
+		t.Fatalf("ToolBudget(edit) = %d, want %d", got, 32*1024)
+	}
+}
