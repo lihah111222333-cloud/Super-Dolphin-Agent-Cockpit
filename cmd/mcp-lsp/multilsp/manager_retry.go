@@ -37,6 +37,7 @@ func (m *manager) request(ctx context.Context, client Client, method string, par
 }
 
 func (m *manager) requestOnce(ctx context.Context, client Client, method string, params any) (json.RawMessage, error) {
+	m.touchWorkspaceActivity(client)
 	var raw json.RawMessage
 	err := m.withPooledClient(client, func() error {
 		var requestErr error

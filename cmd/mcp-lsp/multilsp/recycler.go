@@ -23,6 +23,9 @@ const (
 	defaultGoRSSLimitBytes  = 384 * 1024 * 1024
 	lspRSSLimitEnv          = "AGENT_LSP_RSS_LIMIT_MB"
 	lspGoRSSLimitEnv        = "AGENT_LSP_GO_RSS_LIMIT_MB"
+
+	idleTimeout       = 10 * time.Minute
+	idleCheckInterval = 30 * time.Second
 )
 
 // poolRecycler is the background loop that periodically scans managed
@@ -86,6 +89,7 @@ func (r *poolRecycler) check() {
 	}
 	for _, snapshot := range r.pool.snapshotManagers() {
 		r.checkManager(snapshot.index, snapshot.manager, snapshot.resolvedScope)
+		r.checkIdleWorkspaces(snapshot.manager, snapshot.resolvedScope)
 	}
 }
 
@@ -162,6 +166,49 @@ func (r *poolRecycler) shouldCheck(index int) bool {
 
 	last := r.lastActive[index]
 	return last.IsZero() || time.Since(last) >= r.interval/2
+}
+
+// checkIdleWorkspaces shuts down workspace clients that have not received
+// any request within idleTimeout. The next request will trigger a lazy
+// restart via ensureClient.
+func (r *poolRecycler) checkIdleWorkspaces(mgr *manager, scope ResolvedLSPToolScope) {
+	if mgr == nil || managerIsClosed(mgr) {
+		return
+	}
+	now := time.Now()
+	for _, workspace := range snapshotWorkspaceClients(mgr) {
+		if workspace.lastActivity.IsZero() || now.Sub(workspace.lastActivity) < idleTimeout {
+			continue
+		}
+		if r.pool != nil && r.pool.activeLeases(workspace.client) > 0 {
+			continue
+		}
+		r.shutdownIdleWorkspace(mgr, scope, workspace)
+	}
+}
+
+func (r *poolRecycler) shutdownIdleWorkspace(mgr *manager, scope ResolvedLSPToolScope, workspace workspaceClient) {
+	detached := detachWorkspaceClientIfIdle(mgr, workspace.key, workspace.client)
+	if detached == nil || detached.client == nil {
+		return
+	}
+	mgr.AdvanceDiagnosticGeneration()
+
+	ctx, cancel := platformconfig.WithTimeout(context.Background(), managerShutdownTimeout)
+	_ = detached.client.Shutdown(ctx)
+	cancel()
+	_ = detached.client.Close()
+
+	if mgr.logger != nil {
+		mgr.logger.Info("LSP idle shutdown",
+			"manager_key", scope.ManagerKey,
+			"scope_key", scope.ScopeKey,
+			"workspace", workspace.key,
+			"language", normalizeLanguageID(workspace.languageID),
+			"idle_duration", time.Since(workspace.lastActivity).String(),
+			"reason", "idle_timeout",
+		)
+	}
 }
 
 func recycleWorkspaceClient(mgr *manager, scope ResolvedLSPToolScope, workspace workspaceClient) (bool, error) {

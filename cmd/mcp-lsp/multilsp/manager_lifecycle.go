@@ -314,6 +314,7 @@ func (m *manager) createAndRegisterClient(ctx context.Context, cfg workspaceConf
 		env:              append([]string(nil), cfg.env...),
 		workspaceFolders: cloneWorkspaceFolders(cfg.workspaceFolders),
 		client:           client,
+		lastActivity:     time.Now(),
 	}
 	return client, nil
 }
@@ -355,6 +356,7 @@ func (m *manager) DidChange(ctx context.Context, uri string, version int, change
 	if err != nil {
 		return err
 	}
+	m.touchWorkspaceActivity(client)
 	err = m.withPooledClient(client, func() error {
 		return client.DidChange(ctx, ref.uri, version, changes)
 	})
@@ -511,6 +513,24 @@ func clientHealthy(client Client) bool {
 		return checked.Healthy()
 	}
 	return true
+}
+
+// touchWorkspaceActivity updates the lastActivity timestamp for the
+// workspace that owns the given client. This is called on every request
+// and notification to track idle time for automatic shutdown.
+func (m *manager) touchWorkspaceActivity(client Client) {
+	if m == nil || client == nil {
+		return
+	}
+	now := time.Now()
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, workspace := range m.workspaces {
+		if workspace != nil && workspace.client == client {
+			workspace.lastActivity = now
+			return
+		}
+	}
 }
 
 func isClientDeadError(err error) bool {
