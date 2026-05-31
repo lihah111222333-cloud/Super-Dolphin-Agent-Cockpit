@@ -9,7 +9,22 @@ permissions:
   contents: read
 
 jobs:
+  commit-guard:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Commit guard
+        env:
+          GITHUB_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          GITHUB_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          GITHUB_EVENT_BEFORE: ${{ github.event.before }}
+        run: ./scripts/ci_commit_guard.sh
+
   build-and-test:
+    needs: commit-guard
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -32,6 +47,7 @@ jobs:
         run: ./scripts/test_with_guard.sh $(go list ./... | grep -v /internal/provider/dreamexec) -count=1 -timeout 180s
 
   lint:
+    needs: commit-guard
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:

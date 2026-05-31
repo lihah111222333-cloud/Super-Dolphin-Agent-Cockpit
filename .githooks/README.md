@@ -28,6 +28,8 @@ make install-hooks
 
 `pre-commit` 只跑 staged `.go` 影响到的包；前端变更只跑 `cmd/agent-terminal/frontend` 这个前端包的 guard/vitest。`commit-msg` 用提交主题识别 fix 类提交。`pre-push` 从本次 push range 计算变更路径：有 Go 代码才跑对应 Go 包测试，有前端代码才跑前端包测试，只有文档/其它非代码变更则不跑包测试。三者都**不**做格式自动修复，只拦下不通过的提交/推送。为保证检查对象就是将被提交的内容，`pre-commit` 会拒绝 staged Go 影响包内仍有未暂存/未跟踪 `.go` 改动，也会拒绝 `git add` 后又删除的 AD 状态。
 
+CI 也会在 `.github/workflows/ci.yml` 的 `commit-guard` job 中运行 `scripts/ci_commit_guard.sh`：它按 GitHub `pull_request` / `push` 事件解析提交范围，先要求范围内每个 commit 的标题包含中文，再复用 `scripts/guard_fix_commits_have_tests.sh --range` 拦截未安装 hook 或绕过 hook 后进入 PR / main 的 fix 类提交。中文要求只看标题，正文包含中文但标题全英文仍会失败。
+
 ## 跳过钩子（仅限紧急）
 
 > ⚠️ **仓库规约 `docs/1/会话习惯.md` §10.12«禁止 bypass pre-commit hook»明文禁止常态 bypass。**
