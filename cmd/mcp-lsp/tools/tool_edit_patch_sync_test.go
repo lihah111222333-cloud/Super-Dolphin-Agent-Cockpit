@@ -159,7 +159,7 @@ func requireSyncedReplaceRangeResult(t *testing.T, got any) {
 	if !ok {
 		t.Fatalf("result type = %T, want replaceRangeResult", got)
 	}
-	if !result.Success || !result.Applied || result.Status != "applied" || !result.LSPSync {
+	if result.Status != "applied" || !result.Persisted || !result.LSPSync {
 		t.Fatalf("unexpected result: %#v", result)
 	}
 }

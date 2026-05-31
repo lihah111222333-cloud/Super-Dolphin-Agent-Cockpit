@@ -17,7 +17,7 @@ const (
 	replaceRangeFuncBodyMax         = 8 * 1024
 )
 
-var errEditManagerNil = errors.New("edit manager is nil")
+var errEditManagerNil = errors.New("edit requires LSP manager; ensure language server is running for this file type")
 
 type EditRequest struct {
 	Action     string   `json:"action"`
@@ -36,18 +36,12 @@ type EditHandler struct {
 }
 
 type editEnvelope struct {
-	Success              bool   `json:"success"`
-	Status               string `json:"status,omitempty"`
+	Status               string `json:"status"`
 	Message              string `json:"message,omitempty"`
-	Applied              bool   `json:"applied"`
 	AppliedCount         int    `json:"applied_count,omitempty"`
 	Persisted            bool   `json:"persisted"`
-	RequiresApply        bool   `json:"requires_apply,omitempty"`
 	LSPSync              bool   `json:"lsp_sync,omitempty"`
-	MatchedBy            string `json:"matched_by_summary,omitempty"`
 	FilePath             string `json:"file_path,omitempty"`
-	AffectedStartLine    int    `json:"affected_start_line,omitempty"`
-	AffectedEndLine      int    `json:"affected_end_line,omitempty"`
 	Warning              string `json:"warning,omitempty"`
 	DiagnosticGeneration uint64 `json:"diagnostic_generation,omitempty"`
 }
@@ -115,22 +109,23 @@ func (e editEnvelope) ToPlainText() string {
 }
 
 // editStatusText distinguishes the three terminal states a model cares
-// about: applied (real change), no-op (patch parsed but resulted in
-// identical content; usually a sign the model copied an already-applied
-// patch), and failed. Collapsing no-op into SUCCESS used to silently
-// trick callers into thinking they had moved the world.
+// about: applied (real change), no-op, and failed.
 func editStatusText(e editEnvelope) string {
-	if !e.Success {
+	switch strings.ToLower(strings.TrimSpace(e.Status)) {
+	case "applied":
+		return "SUCCESS"
+	case "no_change":
+		return "NO_CHANGE"
+	case "failed":
+		return "FAILED"
+	default:
 		return "FAILED"
 	}
-	if !e.Applied || strings.EqualFold(strings.TrimSpace(e.Status), "no_change") {
-		return "NO_CHANGE"
-	}
-	return "SUCCESS"
 }
 
 func appendEditApplyStatus(sb *strings.Builder, e editEnvelope) {
-	if e.Applied {
+	switch strings.ToLower(strings.TrimSpace(e.Status)) {
+	case "applied":
 		sb.WriteString(fmt.Sprintf("Applied: true (%d replacements", e.AppliedCount))
 		if e.Persisted {
 			sb.WriteString(", persisted to disk")
@@ -139,21 +134,12 @@ func appendEditApplyStatus(sb *strings.Builder, e editEnvelope) {
 			sb.WriteString(", LSP synced")
 		}
 		sb.WriteString(")\n")
-		if e.AffectedStartLine > 0 && e.FilePath != "" {
-			fmt.Fprintf(sb, "Applied at: %s:%d-L%d\n", e.FilePath, e.AffectedStartLine, e.AffectedEndLine)
-		}
-		appendMatchedByNotice(sb, e.MatchedBy)
 		return
-	}
-	if e.Success {
-		// no_change branch: patch matched but normalised away to the
-		// existing content. Tell the model so they don't think the
-		// edit landed.
-		sb.WriteString("Applied: false (patch matched but normalised away — current file already equals the requested NewText; verify your intended diff)\n")
+	case "no_change":
+		sb.WriteString("Applied: false (patch matched but normalised away - current file already equals the requested NewText; verify your intended diff)\n")
 		return
-	}
-	if e.RequiresApply {
-		sb.WriteString("Applied: false (requires manual apply)\n")
+	case "failed":
+		sb.WriteString("Applied: false (edit failed)\n")
 	}
 }
 
@@ -173,7 +159,8 @@ func appendEditWarnings(sb *strings.Builder, e editEnvelope) {
 	if e.Warning != "" {
 		sb.WriteString(fmt.Sprintf("Warning: %s\n", e.Warning))
 	}
-	if e.Success && e.FilePath != "" {
+	status := strings.ToLower(strings.TrimSpace(e.Status))
+	if (status == "applied" || status == "no_change") && e.FilePath != "" {
 		fmt.Fprintf(sb, "Next step: file action=diagnostics file_path=%s\n", e.FilePath)
 	}
 }

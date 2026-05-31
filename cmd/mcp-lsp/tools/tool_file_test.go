@@ -80,7 +80,7 @@ func TestFileHandlerAppliesSixteenKiBOutputBudget(t *testing.T) {
 	}
 }
 
-func TestFileBatchMetaUsesTotalShowingAndHint(t *testing.T) {
+func TestFileBatchResponseUsesTopLevelTotalShowingAndHint(t *testing.T) {
 	root := t.TempDir()
 	paths := writeBatchReadFixturePaths(t, root, lspReadFileBatchMax+2)
 
@@ -89,13 +89,19 @@ func TestFileBatchMetaUsesTotalShowingAndHint(t *testing.T) {
 		t.Fatalf("read_file batch returned error: %v", err)
 	}
 	payload := mustMarshalObject(t, got)
+	requireNumberField(t, payload, "total", len(paths))
+	requireNumberField(t, payload, "showing", lspReadFileBatchMax)
+	requireBoolField(t, payload, "truncated", true)
+	requireStringFieldContains(t, payload, "hint", "file_paths", "batch")
 	meta := requireObjectField(t, payload, "meta")
-	requireNumberField(t, meta, "total", len(paths))
-	requireNumberField(t, meta, "showing", lspReadFileBatchMax)
-	requireBoolField(t, meta, "truncated", true)
-	requireStringFieldContains(t, meta, "hint", "file_paths", "batch")
+	requireNumberField(t, meta, "max_batch", lspReadFileBatchMax)
+	requireNumberField(t, meta, "dropped", len(paths)-lspReadFileBatchMax)
 	requireAbsentField(t, meta, "count")
 	requireAbsentField(t, meta, "success_count")
+	requireAbsentField(t, meta, "total")
+	requireAbsentField(t, meta, "showing")
+	requireAbsentField(t, meta, "truncated")
+	requireAbsentField(t, meta, "hint")
 }
 
 func callFileTool(t *testing.T, root string, input fileToolInput) (any, error) {

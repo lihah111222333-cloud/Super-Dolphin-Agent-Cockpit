@@ -340,11 +340,15 @@ func TestDiagnosticsBatchReturnsPartialAfterStartupRetryMissesOneTarget(t *testi
 	if !ok {
 		t.Fatalf("diagnostics result = %T, want diagnosticsResponse for no diagnostic rows", result)
 	}
-	if envelope.Meta.Source != "startup_recovery_partial" {
-		t.Fatalf("diagnostics source = %q, want startup_recovery_partial", envelope.Meta.Source)
-	}
 	if !strings.Contains(envelope.Meta.Message, "partial") || !strings.Contains(envelope.Meta.Message, secondURI) {
 		t.Fatalf("diagnostics message = %q, want partial warning for %s", envelope.Meta.Message, secondURI)
+	}
+	raw, err := json.Marshal(envelope)
+	if err != nil {
+		t.Fatalf("marshal diagnostics response: %v", err)
+	}
+	if strings.Contains(string(raw), "source") {
+		t.Fatalf("diagnostics response exposes source: %s", string(raw))
 	}
 	assertDiagnosticURIs(t, manager.didOpenURIs, []string{firstURI, secondURI})
 	if registry.waitCalls < 3 {
