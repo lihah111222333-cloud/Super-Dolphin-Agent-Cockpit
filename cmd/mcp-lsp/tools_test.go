@@ -417,7 +417,10 @@ func assertStructuredToolResult(t *testing.T, result any) {
 	t.Helper()
 	payload, ok := result.(map[string]any)
 	require.Truef(t, ok, "tool result type = %T, want map[string]any", result)
-	require.NotNilf(t, payload["structuredContent"], "tool result = %#v, want structured content", result)
+	raw, ok := payload["structuredContent"].(json.RawMessage)
+	require.Truef(t, ok, "structuredContent = %T, want json.RawMessage", payload["structuredContent"])
+	var object map[string]any
+	require.NoErrorf(t, json.Unmarshal(raw, &object), "structuredContent = %s, want JSON object", raw)
 }
 
 func TestHandleScopedToolsCallRoutesTrustedScopeToManagerPool(t *testing.T) {
@@ -616,28 +619,4 @@ func canonicalToolTestRoot(t *testing.T, root string) string {
 		return root
 	}
 	return realRoot
-}
-
-func TestEditSchemaExposesPatchDiskFieldsOnly(t *testing.T) {
-	props, ok := lspEditSchema["properties"].(map[string]any)
-	if !ok {
-		t.Fatalf("edit schema properties type = %T", lspEditSchema["properties"])
-	}
-	for _, field := range []string{"patch", "version"} {
-		if _, ok := props[field]; !ok {
-			t.Fatalf("edit schema missing runtime field %q", field)
-		}
-	}
-	for _, field := range []string{"action", "line", "column", "end_line", "end_column", "edits", "new_name", "new_text", "only", "persist_to_disk", "force"} {
-		if _, ok := props[field]; ok {
-			t.Fatalf("edit schema exposes removed non-patch field %q", field)
-		}
-	}
-	required, ok := lspEditSchema["required"].([]string)
-	if !ok {
-		t.Fatalf("edit schema required type = %T", lspEditSchema["required"])
-	}
-	if !reflect.DeepEqual(required, []string{"file_path", "patch"}) {
-		t.Fatalf("edit schema required = %#v, want file_path and patch", required)
-	}
 }

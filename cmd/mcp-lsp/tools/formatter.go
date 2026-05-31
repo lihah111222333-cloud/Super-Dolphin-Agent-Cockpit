@@ -335,11 +335,11 @@ func formatCompactList(result any) (string, bool) {
 
 func formatCompactListSlice(dataField reflect.Value, total, showing int) string {
 	var sb strings.Builder
-	sb.WriteString(fmt.Sprintf("Workspace Search Matches: showing %d of %d total\n\n", showing, total))
 	length := dataField.Len()
 	if length == 0 {
 		return "No matches found."
 	}
+	sb.WriteString(fmt.Sprintf("%s: showing %d of %d total\n\n", compactListTitle(dataField), showing, total))
 	for i := 0; i < length; i++ {
 		elem := dataField.Index(i).Interface()
 		sb.WriteString(fmt.Sprintf("  [%d] ", i+1))
@@ -347,6 +347,21 @@ func formatCompactListSlice(dataField reflect.Value, total, showing int) string 
 		sb.WriteString("\n")
 	}
 	return strings.TrimSpace(sb.String())
+}
+
+func compactListTitle(dataField reflect.Value) string {
+	elemType := dataField.Type().Elem()
+	for elemType.Kind() == reflect.Pointer {
+		elemType = elemType.Elem()
+	}
+	switch elemType.Name() {
+	case "CompactCompletionItem":
+		return "Code Completions"
+	case "CompactWorkspaceSymbol":
+		return "Workspace Symbol Matches"
+	default:
+		return "Compact Results"
+	}
 }
 
 func formatCompactListElem(sb *strings.Builder, elem any) {
