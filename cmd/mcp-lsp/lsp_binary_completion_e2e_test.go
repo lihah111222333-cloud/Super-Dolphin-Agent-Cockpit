@@ -495,11 +495,11 @@ func fakeLSPResult(req fakeLSPRequest) any {
 	case "textDocument/completion":
 		var params fakeLSPPositionParams
 		_ = json.Unmarshal(req.Params, &params)
-		if params.Position.Line == 9 && params.Position.Character == 5 {
+		if label := fakePyrightCompletionLabel(params.Position); label != "" {
 			return map[string]any{
 				"isIncomplete": false,
 				"items": []map[string]any{{
-					"label":  "REG_CN",
+					"label":  label,
 					"kind":   6,
 					"detail": "constant",
 				}},
@@ -511,6 +511,22 @@ func fakeLSPResult(req fakeLSPRequest) any {
 		}
 	default:
 		return nil
+	}
+}
+
+func fakePyrightCompletionLabel(position struct {
+	Line      int `json:"line"`
+	Character int `json:"character"`
+}) string {
+	switch {
+	case position.Line == 9 && position.Character == 6:
+		return "REG_CN"
+	case position.Line == 10 && position.Character == 6:
+		return "REG_US"
+	case position.Line == 12 && position.Character == 10:
+		return "REG_CRYPTO"
+	default:
+		return ""
 	}
 }
 

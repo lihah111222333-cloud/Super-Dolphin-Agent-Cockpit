@@ -103,10 +103,11 @@ func identifierEndCompletionRetryPosition(filePath string, position protocol.Pos
 		return protocol.Position{}, false, nil
 	}
 	end := completionIdentifierEnd(runes, anchor)
-	if end == position.Character {
+	retryCharacter := end + 1
+	if retryCharacter == position.Character {
 		return protocol.Position{}, false, nil
 	}
-	return protocol.Position{Line: position.Line, Character: end}, true, nil
+	return protocol.Position{Line: position.Line, Character: retryCharacter}, true, nil
 }
 
 func completionIdentifierAnchor(runes []rune, character int) (int, bool) {
