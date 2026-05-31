@@ -426,8 +426,9 @@ func validateResolvedFilePosition(filePath string, line int, column int) error {
 	}
 	lineText := lines[line-1]
 	lineLength := len([]rune(lineText))
-	if column > lineLength {
-		return newPositionOutOfRangeError(line, column, lineText, lineLength)
+	maxColumn := lineLength + 1
+	if column > maxColumn {
+		return newPositionOutOfRangeError(line, column, lineText, lineLength, maxColumn)
 	}
 	return nil
 }
@@ -451,12 +452,12 @@ func newLineOutOfRangeError(line int, lineCount int) error {
 
 var positionIdentifierRE = regexp.MustCompile(`[A-Za-z_][A-Za-z0-9_]*`)
 
-func newPositionOutOfRangeError(line int, column int, lineText string, lineLength int) error {
+func newPositionOutOfRangeError(line int, column int, lineText string, lineLength int, maxColumn int) error {
 	err := common.NewCodedToolError(
 		"position_out_of_range",
-		fmt.Errorf("column %d is beyond end of line %d, max column is %d", column, line, lineLength),
+		fmt.Errorf("column %d is beyond end of line %d, max column is %d", column, line, maxColumn),
 		false,
-		"Retry with a column inside the target identifier by correcting the 'pos' parameter (format 'file_path:line:column'); inspect meta.line_text and meta.suggested_columns for valid 1-based columns.",
+		"Retry with a column inside the target identifier or at the end of the line by correcting the 'pos' parameter (format 'file_path:line:column'); inspect meta.line_text and meta.suggested_columns for valid 1-based columns.",
 	)
 	var coded *common.CodedToolError
 	if errors.As(err, &coded) {
@@ -464,6 +465,7 @@ func newPositionOutOfRangeError(line int, column int, lineText string, lineLengt
 			"line":              line,
 			"line_text":         lineText,
 			"line_length":       lineLength,
+			"max_column":        maxColumn,
 			"requested_column":  column,
 			"suggested_columns": suggestedIdentifierColumns(lineText),
 		}

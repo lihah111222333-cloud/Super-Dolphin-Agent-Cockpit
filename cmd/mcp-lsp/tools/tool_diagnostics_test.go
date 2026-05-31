@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -23,6 +24,8 @@ type diagnosticsTestRegistry struct {
 	bootstrapErrByURI map[string]error
 	manager           lspmanager.Manager
 	waitErrs          []error
+	waitFn            func(call int, uris []string) error
+	waitURIs          [][]string
 	waitCalls         int
 }
 
@@ -52,10 +55,14 @@ func (r *diagnosticsTestRegistry) Diagnostics(ctx context.Context, uris []string
 	return items, nil
 }
 
-func (r *diagnosticsTestRegistry) WaitDiagnosticsStable(context.Context, []string) error {
+func (r *diagnosticsTestRegistry) WaitDiagnosticsStable(_ context.Context, uris []string) error {
 	r.callOrder = append(r.callOrder, "wait")
 	index := r.waitCalls
 	r.waitCalls++
+	r.waitURIs = append(r.waitURIs, append([]string(nil), uris...))
+	if r.waitFn != nil {
+		return r.waitFn(index, uris)
+	}
 	if index < len(r.waitErrs) {
 		return r.waitErrs[index]
 	}
@@ -249,6 +256,45 @@ func TestDiagnosticsRecoversStartupWaitByOpeningTarget(t *testing.T) {
 	}
 	if len(registry.callOrder) == 0 || registry.callOrder[len(registry.callOrder)-1] != "diagnostics" {
 		t.Fatalf("diagnostics call order = %#v, want diagnostics after startup recovery", registry.callOrder)
+	}
+}
+
+func TestDiagnosticsBatchReturnsPartialAfterStartupRetryMissesOneTarget(t *testing.T) {
+	root := t.TempDir()
+	first := writeDiagnosticsFixture(t, root, "ready.go")
+	second := writeDiagnosticsFixture(t, root, "slow.go")
+	firstURI := canonicalFileURI(t, first)
+	secondURI := canonicalFileURI(t, second)
+	manager := &diagnosticsStartupManager{}
+	registry := &diagnosticsTestRegistry{
+		manager: manager,
+		waitFn: func(_ int, uris []string) error {
+			if len(uris) == 1 && uris[0] == firstURI {
+				return nil
+			}
+			return fmt.Errorf("%w: diagnostics did not publish for requested targets before 1.5s: %s", lspmanager.ErrDiagnosticsNotReady, secondURI)
+		},
+	}
+	handler := NewFileHandler(Config{WorkspaceRoot: root, Registry: registry})
+	req := marshalDiagnosticsInput(t, fileToolInput{Action: "diagnostics", FilePaths: []string{"ready.go", "slow.go"}})
+
+	result, err := handler(common.WithToolScope(context.Background(), common.ToolScope{CWD: root}), req)
+	if err != nil {
+		t.Fatalf("diagnostics returned batch readiness error: %v", err)
+	}
+	envelope, ok := result.(emptyListEnvelope)
+	if !ok {
+		t.Fatalf("diagnostics result = %T, want emptyListEnvelope for no diagnostic rows", result)
+	}
+	if envelope.Meta.Source != "startup_recovery_partial" {
+		t.Fatalf("diagnostics source = %q, want startup_recovery_partial", envelope.Meta.Source)
+	}
+	if !strings.Contains(envelope.Meta.Message, "partial") || !strings.Contains(envelope.Meta.Message, secondURI) {
+		t.Fatalf("diagnostics message = %q, want partial warning for %s", envelope.Meta.Message, secondURI)
+	}
+	assertDiagnosticURIs(t, manager.didOpenURIs, []string{firstURI, secondURI})
+	if registry.waitCalls < 3 {
+		t.Fatalf("WaitDiagnosticsStable calls = %d, want batch retry plus per-target wait", registry.waitCalls)
 	}
 }
 
