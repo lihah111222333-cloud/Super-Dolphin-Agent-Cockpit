@@ -28,7 +28,7 @@ const (
 	batchReadTruncatedHint     = "batch truncated; reduce file_paths or split into smaller read_file batches"
 )
 
-var errManagerUnavailable = errors.New("lsp manager is not configured")
+var errManagerUnavailable = errors.New("lsp manager is not configured; use read_file for content access or text_search for symbol lookup")
 
 type Config struct {
 	WorkspaceRoot string

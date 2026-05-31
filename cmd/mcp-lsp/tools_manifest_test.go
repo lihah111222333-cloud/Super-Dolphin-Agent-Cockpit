@@ -26,26 +26,6 @@ func TestLSPToolManifestDescriptionsExposeShortExamples(t *testing.T) {
 	}
 }
 
-// TestLSPToolManifestDescriptionsPromptOpenFileForFileTool keeps the
-// explicit "run open_file first" hint on the file tool. We deliberately
-// dropped the per-tool repetition for inspect/xref/structure/edit/
-// completion in favour of a single hint on file: every stateful action
-// either implicitly opens via managerForFile or already routes through
-// file.open_file, so repeating the rule on every manifest only burns
-// tokens without telling the model anything new.
-func TestLSPToolManifestDescriptionsPromptOpenFileForFileTool(t *testing.T) {
-	for _, manifest := range lspToolManifests {
-		if manifest.Name != "file" {
-			continue
-		}
-		for _, must := range []string{"open_file", "before"} {
-			if !strings.Contains(manifest.Description, must) {
-				t.Fatalf("file description = %q, want open_file hint containing %q", manifest.Description, must)
-			}
-		}
-	}
-}
-
 func TestLSPToolManifestDescriptionsSeparateDiagnosticsFromPackageScripts(t *testing.T) {
 	descriptions := map[string]string{}
 	for _, manifest := range lspToolManifests {

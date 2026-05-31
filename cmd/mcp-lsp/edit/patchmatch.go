@@ -118,7 +118,7 @@ func resolveContextMatch(content string, hunk Hunk, hunkIndex int) (matchCandida
 		candidates = filterContextCandidates(index.lines, hunk, candidates)
 	}
 	if len(candidates) == 0 {
-		return matchCandidate{}, fmt.Errorf("hunk %d: %w: no candidate matched the patch context", hunkIndex+1, ErrSequenceNotFound)
+		return matchCandidate{}, fmt.Errorf("hunk %d: %w: no candidate matched — re-read the target region with file action=read_file and copy exact text into patch context", hunkIndex+1, ErrSequenceNotFound)
 	}
 	if len(candidates) > 1 {
 		return matchCandidate{}, newAmbiguousMatchError(hunkIndex, candidates)

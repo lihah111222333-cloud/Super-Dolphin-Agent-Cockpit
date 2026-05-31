@@ -17,7 +17,7 @@ const (
 	replaceRangeFuncBodyMax         = 8 * 1024
 )
 
-var errEditManagerNil = errors.New("edit manager is nil")
+var errEditManagerNil = errors.New("edit requires LSP manager; ensure language server is running for this file type")
 
 type EditRequest struct {
 	Action     string   `json:"action"`

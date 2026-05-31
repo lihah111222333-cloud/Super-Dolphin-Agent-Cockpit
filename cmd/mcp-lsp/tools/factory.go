@@ -276,7 +276,7 @@ func missingDependencyHandler(message string) ToolHandler {
 }
 
 func missingManagerHandler() ToolHandler {
-	return missingDependencyHandler("lsp manager is required")
+	return missingDependencyHandler("lsp manager is not available; use text_search or read_file as alternatives")
 }
 
 func managerForFile(ctx context.Context, registry lspmanager.Registry, filePath string, languageID string) (lspmanager.Manager, error) {
@@ -293,7 +293,7 @@ func normalizeLanguageIDOverride(languageID string) string {
 func requireFilePath(raw string) (string, error) {
 	filePath := strings.TrimSpace(raw)
 	if filePath == "" {
-		return "", errors.New("file_path is required")
+		return "", errors.New("file_path is required; pass an absolute or workspace-relative path")
 	}
 	return filePath, nil
 }
