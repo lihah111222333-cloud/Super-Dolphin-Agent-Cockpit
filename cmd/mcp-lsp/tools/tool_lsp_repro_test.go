@@ -105,7 +105,7 @@ func TestEditFormatNoEditsReturnsNoChange(t *testing.T) {
 		t.Fatalf("format returned error = %v, want no-change success", err)
 	}
 	result := requireEditEnvelope(t, got)
-	if !result.Success || result.Applied || result.Status != "no_change" || result.Persisted {
+	if result.Status != "no_change" || result.Persisted {
 		t.Fatalf("format result = %#v, want no_change without persistence", result)
 	}
 	if len(manager.didChanges) != 0 {
@@ -256,7 +256,7 @@ func TestEditCodeActionAppliesSingleWorkspaceEdit(t *testing.T) {
 		t.Fatalf("code_action returned error = %v, want applied quickfix", err)
 	}
 	result := requireCodeActionEnvelope(t, got)
-	if !result.Success || !result.Applied || result.Status != "applied" || !result.Persisted {
+	if result.Status != "applied" || !result.Persisted {
 		t.Fatalf("code_action result = %#v, want applied persisted quickfix", result)
 	}
 	assertSingleDidChange(t, manager.didChanges, defaultEditVersion, want)
@@ -399,12 +399,6 @@ func requireTextEditRangeError(t *testing.T, edits []protocol.TextEdit) {
 
 func assertAppliedFormatResult(t *testing.T, result editEnvelope) {
 	t.Helper()
-	if !result.Success {
-		t.Fatalf("format success = false, result=%#v", result)
-	}
-	if !result.Applied {
-		t.Fatalf("format applied = false, result=%#v", result)
-	}
 	if result.Status != "applied" {
 		t.Fatalf("format status = %q, want applied", result.Status)
 	}

@@ -26,7 +26,7 @@ type toolDefinition struct {
 }
 
 var lspToolManifests = []ToolManifest{
-	toolManifestWithSchema("file", "Open files into LSP, read line ranges, and fetch LSP/type diagnostics. Run package scripts such as npm run lint with host exec_command. Pass action=open_file before stateful actions on a fresh file. Example: action=read_file pos=internal/foo.go:42 limit=40.", lspFileSchema),
+	toolManifestWithSchema("file", "Read files, open them into LSP, or fetch diagnostics. Pass action=open_file before stateful actions on a fresh file. Example: action=read_file pos=internal/foo.go:42 limit=40.", lspFileSchema),
 	toolManifestWithSchema("inspect", "Resolve hover, definition, implementation, type_definition, signature_help at a position. Example: action=definition pos=internal/foo.go:42:9.", lspInspectSchema),
 	toolManifestWithSchema("xref", "References / call_hierarchy / type_hierarchy at a position. Example: action=references pos=internal/foo.go:42:9.", lspXrefSchema),
 	toolManifestWithOutputSchema("grep", "Codebase text or AST search; use before jumping to symbols. Example: action=text_search query=targetName path=internal glob=*.go.", lspGrepSchema, lspGrepOutputSchema),

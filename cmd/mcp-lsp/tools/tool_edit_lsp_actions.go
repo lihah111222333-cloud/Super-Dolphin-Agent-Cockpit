@@ -59,10 +59,8 @@ func (h EditHandler) applyCodeActions(ctx context.Context, actions []protocol.Co
 	}
 	return codeActionResult{
 		editEnvelope: editEnvelope{
-			Success:              true,
 			Status:               codeActionStatus(totalEdits),
 			Message:              codeActionApplyMessage(selected.title, totalEdits),
-			Applied:              totalEdits > 0,
 			AppliedCount:         totalEdits,
 			Persisted:            totalEdits > 0,
 			LSPSync:              totalEdits > 0 && warning == "",
@@ -108,18 +106,13 @@ func (h EditHandler) applyFormatEdits(ctx context.Context, manager lspmanager.Ma
 	if result == nil {
 		return h.formatNoChange(path, manager), nil
 	}
-	startLine, endLine := textEditLineSpan(edits)
 	return editEnvelope{
-		Success:              true,
 		Status:               "applied",
 		Message:              fmt.Sprintf("format applied %d edit(s)", len(edits)),
-		Applied:              true,
 		AppliedCount:         len(edits),
 		Persisted:            true,
 		LSPSync:              result.warning == "",
 		FilePath:             path,
-		AffectedStartLine:    startLine,
-		AffectedEndLine:      endLine,
 		Warning:              result.warning,
 		DiagnosticGeneration: managerDiagnosticGeneration(manager),
 	}, nil
@@ -135,10 +128,8 @@ func (h EditHandler) resolveEditFilePath(ctx context.Context, rawPath string) (s
 
 func (h EditHandler) formatNoChange(path string, manager lspmanager.Manager) editEnvelope {
 	return editEnvelope{
-		Success:              true,
 		Status:               "no_change",
 		Message:              "format returned no changes",
-		Applied:              false,
 		Persisted:            false,
 		FilePath:             path,
 		DiagnosticGeneration: managerDiagnosticGeneration(manager),
@@ -148,12 +139,9 @@ func (h EditHandler) formatNoChange(path string, manager lspmanager.Manager) edi
 func (h EditHandler) codeActionRequiresApply(actions []protocol.CodeActionResult, message string, manager lspmanager.Manager) codeActionResult {
 	return codeActionResult{
 		editEnvelope: editEnvelope{
-			Success:              true,
-			Status:               "requires_apply",
+			Status:               "no_change",
 			Message:              message,
-			Applied:              false,
 			Persisted:            false,
-			RequiresApply:        true,
 			DiagnosticGeneration: managerDiagnosticGeneration(manager),
 		},
 		Actions: codeActionTitles(actions),
@@ -209,21 +197,6 @@ func codeActionApplyMessage(title string, totalEdits int) string {
 		return fmt.Sprintf("code action %q returned no changes", title)
 	}
 	return fmt.Sprintf("applied code action %q", title)
-}
-
-func textEditLineSpan(edits []protocol.TextEdit) (int, int) {
-	if len(edits) == 0 {
-		return 0, 0
-	}
-	startLine := edits[0].Range.Start.Line + 1
-	endLine := edits[0].Range.End.Line + 1
-	for _, edit := range edits[1:] {
-		startLine = minInt(startLine, edit.Range.Start.Line+1)
-		if candidate := edit.Range.End.Line + 1; candidate > endLine {
-			endLine = candidate
-		}
-	}
-	return startLine, endLine
 }
 
 func (h EditHandler) applyTextEditsToPath(ctx context.Context, absPath string, edits []protocol.TextEdit, version int, manager lspmanager.Manager) (*fileEditResult, error) {
