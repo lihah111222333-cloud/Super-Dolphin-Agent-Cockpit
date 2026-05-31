@@ -14,33 +14,30 @@ import (
 
 type xrefParams struct {
 	Action             string `json:"action"`
-	FilePath           string `json:"file_path"`
+	Pos                string `json:"pos"`
 	LanguageID         string `json:"language_id,omitempty"`
-	Line               int    `json:"line"`
-	Column             int    `json:"column"`
 	Direction          string `json:"direction"`
 	IncludeDeclaration *bool  `json:"include_declaration"`
-	Verbosity          string `json:"verbosity"`
 	MaxResults         int    `json:"max_results"`
 }
 
 func NewXRefHandler(registry lspmanager.Registry) ToolHandler {
-	return newManagerTool("xref", middleware.TierNormal, registry, decodeStrict, func(ctx context.Context, registry lspmanager.Registry, req xrefParams) (any, error) {
-		manager, err := managerForFile(ctx, registry, req.FilePath, req.LanguageID)
-		if err != nil {
-			return nil, err
-		}
+	return newManagerTool("xref", middleware.TierNormal, registry, decodeLenient, func(ctx context.Context, registry lspmanager.Registry, req xrefParams) (any, error) {
 		filePath, position, err := resolveFilePositionRequest(ctx, filePositionParams{
-			FilePath: req.FilePath,
-			Line:     req.Line,
-			Column:   req.Column,
+			Pos:        req.Pos,
+			LanguageID: req.LanguageID,
 		})
 		if err != nil {
 			return nil, err
 		}
+		manager, err := managerForFile(ctx, registry, filePath, req.LanguageID)
+		if err != nil {
+			return nil, err
+		}
+		funcEnricher := newFuncRangeEnricher(ctx, registry)
 		return dispatchToolAction(ctx, "xref", req.Action, req, map[string]actionHandler[xrefParams]{
 			"references": func(ctx context.Context, req xrefParams) (any, error) {
-				return runReferences(ctx, manager, filePath, position, req)
+				return runReferences(ctx, manager, filePath, position, req, funcEnricher)
 			},
 			"call_hierarchy": func(ctx context.Context, req xrefParams) (any, error) {
 				return runCallHierarchy(ctx, manager, filePath, position, req)
@@ -58,17 +55,18 @@ func runReferences(
 	filePath string,
 	position protocol.Position,
 	req xrefParams,
+	enricher format.SymbolProvider,
 ) (any, error) {
 	includeDeclaration := true
 	if req.IncludeDeclaration != nil {
 		includeDeclaration = *req.IncludeDeclaration
 	}
-	verbosity := format.NormalizeVerbosity(req.Verbosity)
-	limit := format.ReferencesLimit(req.MaxResults, verbosity)
+	limit := format.ReferencesLimit(req.MaxResults, format.VerbosityCompact)
 	results, err := manager.References(ctx, filePath, position, includeDeclaration)
 	if err != nil {
 		return nil, err
 	}
+	format.EnrichLocationResultsWithFuncRange(results, enricher)
 	total := len(results)
 	results = limitSlice(results, limit)
 	if len(results) == 0 {
@@ -78,10 +76,7 @@ func runReferences(
 			Meta:    resultMeta{Count: 0, Message: "no references found"},
 		}, nil
 	}
-	return renderByVerbosity(results, total, verbosity,
-		func(items []protocol.LocationResult) any { return format.NormalizeForDisplay(items) },
-		func(items []protocol.LocationResult, total int) any { return format.GroupLocationsByFile(items, total) },
-	), nil
+	return format.GroupLocationsByFile(results, total), nil
 }
 
 func runCallHierarchy(

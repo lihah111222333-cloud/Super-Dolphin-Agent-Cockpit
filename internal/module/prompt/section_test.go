@@ -188,6 +188,30 @@ func TestStaticSectionsToolPreferencesUsePlannerAwareHint(t *testing.T) {
 	t.Fatal("tool_preferences section not found")
 }
 
+func TestStaticSectionsToolPreferencesRouteShellAndCodeWork(t *testing.T) {
+	for _, section := range StaticSections() {
+		if section.Name != SectionToolPreferences {
+			continue
+		}
+		content, err := section.Compute(context.Background(), SectionContext{
+			BuildCtx: BuildCtx{EnabledTools: []string{"exec_command", "file", "grep", "inspect", "xref"}},
+		})
+		if err != nil {
+			t.Fatalf("tool_preferences Compute() error = %v", err)
+		}
+		if content == nil {
+			t.Fatal("tool_preferences content = nil, want tool routing rules")
+		}
+		for _, must := range []string{"exec_command", "ordinary shell", "code understanding", "diagnostics", "LSP"} {
+			if !strings.Contains(*content, must) {
+				t.Fatalf("tool_preferences content = %q, want %q", *content, must)
+			}
+		}
+		return
+	}
+	t.Fatal("tool_preferences section not found")
+}
+
 func TestStaticSectionsToolPreferencesSuppressedTools(t *testing.T) {
 	for _, section := range StaticSections() {
 		if section.Name != SectionToolPreferences {

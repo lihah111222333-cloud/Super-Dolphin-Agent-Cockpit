@@ -27,10 +27,8 @@ func TestReferencesDefaultIncludesDeclaration(t *testing.T) {
 	manager := &xrefReferencesManager{}
 	handler := NewXRefHandler(&structureTestRegistry{fileManager: manager})
 	input, err := json.Marshal(xrefParams{
-		Action:   "references",
-		FilePath: filePath,
-		Line:     1,
-		Column:   1,
+		Action: "references",
+		Pos:    filePath + ":1:1",
 	})
 	if err != nil {
 		t.Fatalf("marshal input: %v", err)
@@ -51,9 +49,7 @@ func TestReferencesCanDisableDeclaration(t *testing.T) {
 	includeDeclaration := false
 	input, err := json.Marshal(xrefParams{
 		Action:             "references",
-		FilePath:           filePath,
-		Line:               1,
-		Column:             1,
+		Pos:                filePath + ":1:1",
 		IncludeDeclaration: &includeDeclaration,
 	})
 	if err != nil {

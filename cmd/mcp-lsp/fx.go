@@ -9,6 +9,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/tools"
 	mcp "github.com/anthropic-ai/super-agent-v3/internal/dto/mcp"
 	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/common"
 	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/common/bootstrap"
@@ -38,6 +39,10 @@ type runtimeParams struct {
 type registryToolProvider struct {
 	defs                   []toolDefinition
 	semanticToolsAvailable func(context.Context) bool
+}
+
+func init() {
+	common.RegisterToolResultPlainTextRenderer(tools.FormatToPlainText)
 }
 
 // run boots the MCP binary itself. The core process only exposes ctl/* endpoints
@@ -279,13 +284,22 @@ func handleScopedToolsCall(ctx context.Context, tp registryToolProvider, family 
 }
 
 func wrapScopedToolResult(result any) (any, error) {
-	text, err := json.Marshal(result)
+	raw, err := json.Marshal(result)
 	if err != nil {
 		return nil, err
 	}
+	plainText, err := common.ResolveToolResultText(result, raw)
+	if err != nil {
+		return nil, err
+	}
+	structuredContent, err := common.StructuredContentFromRaw(raw)
+	if err != nil {
+		return nil, err
+	}
+
 	return map[string]any{
-		"content":           []map[string]string{{"type": "text", "text": string(text)}},
-		"structuredContent": json.RawMessage(text),
+		"content":           []map[string]string{{"type": "text", "text": plainText}},
+		"structuredContent": structuredContent,
 		"isError":           common.ToolResultIsError(result),
 	}, nil
 }

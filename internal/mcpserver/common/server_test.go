@@ -52,8 +52,17 @@ func TestServerHandlesToolsCall(t *testing.T) {
 	if err := server.Run(context.Background()); err != nil {
 		t.Fatalf("Run() error = %v", err)
 	}
-	if !bytes.Contains(output.Bytes(), []byte(`"content":[{"type":"text","text":"{\"ok\":true}"`)) {
-		t.Fatalf("Run() output = %s", output.String())
+	var resp struct {
+		Result struct {
+			Content []struct {
+				Type string `json:"type"`
+				Text string `json:"text"`
+			} `json:"content"`
+		} `json:"result"`
+	}
+	decodeJSONRPCOutput(t, output.Bytes(), &resp)
+	if len(resp.Result.Content) != 1 || resp.Result.Content[0].Type != "text" || resp.Result.Content[0].Text != `{"ok":true}` {
+		t.Fatalf("Run() content = %#v, want JSON text content; raw=%s", resp.Result.Content, output.String())
 	}
 }
 

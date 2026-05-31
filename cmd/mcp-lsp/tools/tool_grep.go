@@ -3,12 +3,12 @@ package tools
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/format"
-	lspmanager "github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/manager"
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/middleware"
-	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/protocol"
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/search"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 )
@@ -43,12 +43,6 @@ type grepResponse struct {
 	RegexFallback     bool                    `json:"regex_fallback,omitempty"`
 	Message           string                  `json:"message,omitempty"`
 	Hint              string                  `json:"hint,omitempty"`
-}
-
-type documentSymbolProvider struct {
-	ctx      context.Context
-	registry lspmanager.Registry
-	cache    map[string][]protocol.DocumentSymbol
 }
 
 func NewGrepHandler(cfg Config) Handler {
@@ -154,10 +148,9 @@ func (h handlerBase) attachFuncRanges(ctx context.Context, matches []search.Sear
 	if h.registry == nil || len(matches) == 0 {
 		return
 	}
-	provider := &documentSymbolProvider{
-		ctx:      ctx,
-		registry: h.registry,
-		cache:    make(map[string][]protocol.DocumentSymbol),
+	provider := newFuncRangeEnricher(ctx, h.registry)
+	if provider == nil {
+		return
 	}
 	lastRange := make(map[string][2]int)
 	for index := range matches {
@@ -168,22 +161,6 @@ func (h handlerBase) attachFuncRanges(ctx context.Context, matches []search.Sear
 		matches[index].FuncStart = start
 		matches[index].FuncEnd = end
 	}
-}
-
-func (p *documentSymbolProvider) Symbols(absPath string) ([]protocol.DocumentSymbol, error) {
-	if cached, ok := p.cache[absPath]; ok {
-		return cached, nil
-	}
-	mgr, err := p.registry.GetManagerForFile(p.ctx, absPath)
-	if err != nil {
-		return nil, err
-	}
-	symbols, err := mgr.DocumentSymbol(p.ctx, fileURI(absPath))
-	if err != nil {
-		return nil, err
-	}
-	p.cache[absPath] = symbols
-	return symbols, nil
 }
 
 func capGrepResponseBytes(resp *grepResponse, maxBytes int) {
@@ -230,18 +207,27 @@ func dropLastGrepRow(resp *grepResponse) bool {
 func buildGrepResponse(matches []search.SearchMatch, total int, truncated bool) grepResponse {
 	files := make(map[string]grepFileRows, len(matches))
 	hint := ""
+	hasFuncRanges := false
 	for _, match := range matches {
 		row := []any{match.Line, match.Col, match.Text}
 		if match.FuncStart > 0 && match.FuncEnd >= match.FuncStart {
 			row = append(row, match.FuncStart, match.FuncEnd)
+			hasFuncRanges = true
 			hint = "step 2: use the returned func_start/func_end to read that function range, e.g. read_file(offset=func_start, limit=func_end-func_start+1)"
 		}
 		block := files[match.File]
 		if len(block.Cols) == 0 {
-			block.Cols = []string{"line", "col", "text", "func_start", "func_end"}
+			block.Cols = grepRowCols(hasFuncRanges)
 		}
 		block.Rows = append(block.Rows, row)
 		files[match.File] = block
+	}
+	// Backfill cols on every file once we know whether func ranges
+	// appeared anywhere in the result set, so the schema-declared
+	// column layout matches actual row widths file-by-file.
+	for path, block := range files {
+		block.Cols = grepRowCols(hasFuncRanges)
+		files[path] = block
 	}
 	return grepResponse{
 		Files:     files,
@@ -249,5 +235,89 @@ func buildGrepResponse(matches []search.SearchMatch, total int, truncated bool) 
 		Showing:   len(matches),
 		Truncated: truncated,
 		Hint:      hint,
+	}
+}
+
+// grepRowCols returns the column header that matches what buildGrepResponse
+// actually writes into rows. Skipping func_start/func_end columns when no
+// hit reports an enclosing function avoids advertising fields that aren't
+// present in any row.
+func grepRowCols(includeFuncRange bool) []string {
+	base := []string{"line", "col", "text"}
+	if includeFuncRange {
+		return append(base, "func_start", "func_end")
+	}
+	return base
+}
+
+func (r grepResponse) ToPlainText() string {
+	if r.Total == 0 {
+		return "No matches found."
+	}
+
+	var sb strings.Builder
+	sb.WriteString(fmt.Sprintf("Search Matches: showing %d of %d total\n", r.Showing, r.Total))
+	if r.Message != "" {
+		sb.WriteString(fmt.Sprintf("Message: %s\n", r.Message))
+	}
+	sb.WriteString("\n")
+
+	// Sort file paths to have deterministic output order
+	var files []string
+	for f := range r.Files {
+		files = append(files, f)
+	}
+	sort.Strings(files)
+
+	for _, file := range files {
+		fr := r.Files[file]
+		for _, row := range fr.Rows {
+			r.formatGrepRow(&sb, file, row)
+		}
+	}
+
+	if r.Truncated || r.DroppedForPayload > 0 {
+		sb.WriteString("\nWarning: results were truncated due to limits or budget constraints.\n")
+	}
+	if r.Hint != "" {
+		sb.WriteString(fmt.Sprintf("\nHint: %s\n", r.Hint))
+	}
+
+	return strings.TrimSpace(sb.String())
+}
+
+func (r grepResponse) formatGrepRow(sb *strings.Builder, file string, row []any) {
+	if len(row) < 3 {
+		return
+	}
+	lineVal := numericRowValue(row[0])
+	colVal := numericRowValue(row[1])
+	textVal, _ := row[2].(string)
+
+	funcInfo := ""
+	if len(row) >= 5 {
+		fs := numericRowValue(row[3])
+		fe := numericRowValue(row[4])
+		if fs > 0 && fe >= fs {
+			funcInfo = fmt.Sprintf(" [func L%d-L%d]", fs, fe)
+		}
+	}
+	fmt.Fprintf(sb, "%s:%d:%d: %s%s\n", file, lineVal, colVal, textVal, funcInfo)
+}
+
+// numericRowValue tolerates both int (typical first call) and float64
+// (post JSON round-trip) so plain-text rendering doesn't silently
+// produce L0:0 if the response was demoted to map[string]any along
+// the way (e.g. budget overflow re-marshal).
+func numericRowValue(v any) int {
+	switch x := v.(type) {
+	case int:
+		return x
+	case int64:
+		return int(x)
+	case float64:
+		return int(x)
+	default:
+		return 0
 	}
 }

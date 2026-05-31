@@ -13,7 +13,12 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/common"
 )
 
-func TestReferencesVerbosityBudgets(t *testing.T) {
+// TestReferencesCompactBudget verifies the default compact rendering for
+// xref.references caps at 30 entries and groups them by file. The
+// previous test exercised the deprecated "verbosity=full" knob; that
+// path was removed because it duplicated max_results without adding
+// signal.
+func TestReferencesCompactBudget(t *testing.T) {
 	root, filePath := writeXRefFixture(t)
 	handler := NewXRefHandler(&structureTestRegistry{
 		fileManager: &structureTestManager{references: makeLocationResults(60)},
@@ -27,18 +32,11 @@ func TestReferencesVerbosityBudgets(t *testing.T) {
 	if grouped.Total != 60 || grouped.Showing != 30 {
 		t.Fatalf("compact references total/showing = %d/%d, want 60/30", grouped.Total, grouped.Showing)
 	}
-
-	full := callXRefTool(t, handler, root, filePath, xrefParams{Action: "references", Verbosity: "full"})
-	items, ok := full.([]protocol.LocationResult)
-	if !ok {
-		t.Fatalf("full references result = %T, want []LocationResult", full)
-	}
-	if len(items) != protocol.XRefResultLimit {
-		t.Fatalf("full references len = %d, want %d", len(items), protocol.XRefResultLimit)
-	}
 }
 
-func TestCompletionVerbosityBudgets(t *testing.T) {
+// TestCompletionCompactBudget mirrors the references coverage but for
+// completion results, which now always render via CompactList.
+func TestCompletionCompactBudget(t *testing.T) {
 	root, filePath := writeXRefFixture(t)
 	handler := NewCompletionHandler(&structureTestRegistry{
 		fileManager: &structureTestManager{completionItems: makeCompletionItems(60)},
@@ -52,18 +50,11 @@ func TestCompletionVerbosityBudgets(t *testing.T) {
 	if list.Total != 60 || list.Showing != 20 {
 		t.Fatalf("compact completion total/showing = %d/%d, want 60/20", list.Total, list.Showing)
 	}
-
-	full := callCompletionTool(t, handler, root, filePath, completionParams{Verbosity: "full"})
-	items, ok := full.([]protocol.CompletionItem)
-	if !ok {
-		t.Fatalf("full completion result = %T, want []CompletionItem", full)
-	}
-	if len(items) != protocol.XRefResultLimit {
-		t.Fatalf("full completion len = %d, want %d", len(items), protocol.XRefResultLimit)
-	}
 }
 
-func TestWorkspaceSymbolVerbosityBudgets(t *testing.T) {
+// TestWorkspaceSymbolCompactBudget mirrors the references coverage for
+// workspace_symbol queries.
+func TestWorkspaceSymbolCompactBudget(t *testing.T) {
 	manager := &structureTestManager{workspaceSymbols: makeWorkspaceSymbols(60)}
 	handler := NewStructureHandler(&structureTestRegistry{languageManager: manager})
 	root := t.TempDir()
@@ -76,30 +67,17 @@ func TestWorkspaceSymbolVerbosityBudgets(t *testing.T) {
 	if list.Total != 60 || list.Showing != 20 {
 		t.Fatalf("compact workspace_symbol total/showing = %d/%d, want 60/20", list.Total, list.Showing)
 	}
-
-	full := callStructureTool(t, handler, root, structureParams{Action: "workspace_symbol", Query: "Symbol", Language: "go", Verbosity: "full"})
-	items, ok := full.([]protocol.WorkspaceSymbolResult)
-	if !ok {
-		t.Fatalf("full workspace_symbol result = %T, want []WorkspaceSymbolResult", full)
-	}
-	if len(items) != protocol.XRefResultLimit {
-		t.Fatalf("full workspace_symbol len = %d, want %d", len(items), protocol.XRefResultLimit)
-	}
 }
 
 func callXRefTool(t *testing.T, handler ToolHandler, root string, filePath string, params xrefParams) any {
 	t.Helper()
-	params.FilePath = filePath
-	params.Line = 1
-	params.Column = 1
+	params.Pos = fmt.Sprintf("%s:1:1", filePath)
 	return callToolHandler(t, handler, root, params)
 }
 
 func callCompletionTool(t *testing.T, handler ToolHandler, root string, filePath string, params completionParams) any {
 	t.Helper()
-	params.FilePath = filePath
-	params.Line = 1
-	params.Column = 1
+	params.Pos = fmt.Sprintf("%s:1:1", filePath)
 	return callToolHandler(t, handler, root, params)
 }
 

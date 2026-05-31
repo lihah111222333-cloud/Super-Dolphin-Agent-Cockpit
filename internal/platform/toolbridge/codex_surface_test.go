@@ -40,7 +40,7 @@ func TestPrepareCodexToolSurfaceAdvertisesShortNamesAndRoutesCalls(t *testing.T)
 		t.Fatalf("PrepareCodexToolSurface() error = %v", err)
 	}
 	assertDynamicToolNames(t, tools, []string{"grep", "format_preview", "launch_agent"})
-	assertDynamicToolSchema(t, tools, "grep", "grep source", lspInputSchema, lspOutputSchema)
+	assertDynamicToolSchema(t, tools, "grep", "Recommended tool: grep. Why: grep source", lspInputSchema, lspOutputSchema)
 
 	result, err := h.HandleToolCall(context.Background(), contract.ToolCallRawMessage{Params: json.RawMessage(`{"name":"format_preview","arguments":{"file_path":"smoke.go"},"_agentId":"agent-1","_threadId":"provider-thread-1","_callId":"call-1","_cwd":"/repo"}`)})
 	if err != nil {

@@ -52,7 +52,8 @@ type replaceRangeFailure struct {
 	Retryable            bool           `json:"retryable,omitempty"`
 	Hint                 string         `json:"hint,omitempty"`
 	Meta                 map[string]any `json:"meta,omitempty"`
-	CurrentContent       string         `json:"current_content,omitempty"`
+	FilePath             string         `json:"file_path,omitempty"`
+	LineCount            int            `json:"line_count,omitempty"`
 	FuncStart            int            `json:"func_start,omitempty"`
 	FuncEnd              int            `json:"func_end,omitempty"`
 	FuncBody             string         `json:"func_body,omitempty"`
@@ -63,6 +64,69 @@ type functionContext struct {
 	Start int
 	End   int
 	Body  string
+}
+
+// ToPlainText extends editEnvelope.ToPlainText with the edit-context
+// window and (only for relaxed match modes) a verification nudge. The
+// raw replaced/replacement bodies stay in structuredContent for any
+// diff-aware UI but no longer bloat the LLM-facing channel.
+func (r replaceRangeResult) ToPlainText() string {
+	base := r.editEnvelope.ToPlainText()
+	if !r.Success || !r.Applied {
+		return base
+	}
+	context := strings.TrimSpace(r.EditContext)
+	if context == "" {
+		return base
+	}
+	return base + "\n\nEdit context:\n" + context
+}
+
+func (r replaceRangeFailure) ToPlainText() string {
+	var sb strings.Builder
+	header := "Tool error in \"edit\""
+	if r.Code != "" {
+		fmt.Fprintf(&sb, "%s [%s]: %s\n", header, r.Code, strings.TrimSpace(r.Error))
+	} else {
+		fmt.Fprintf(&sb, "%s: %s\n", header, strings.TrimSpace(r.Error))
+	}
+	if hint := strings.TrimSpace(r.Hint); hint != "" {
+		fmt.Fprintf(&sb, "Hint: %s\n", hint)
+	}
+	if r.Retryable {
+		sb.WriteString("Retryable: yes\n")
+	}
+	appendCandidateLocations(&sb, r.Meta)
+	appendFailureNextStep(&sb, r)
+	return strings.TrimSpace(sb.String())
+}
+
+func appendCandidateLocations(sb *strings.Builder, meta map[string]any) {
+	cands, ok := meta["candidate_locations"].([]string)
+	if !ok || len(cands) == 0 {
+		return
+	}
+	sb.WriteString("Candidate locations:\n")
+	for _, entry := range cands {
+		fmt.Fprintf(sb, "  - %s\n", entry)
+	}
+}
+
+// appendFailureNextStep gives the model a copy-pasteable file.read_file
+// call instead of dumping the whole file. We don't try to compute the
+// correct offset here (the patch text already tells the model what line
+// it expected); we just point at the file with the known length so the
+// model can pick a window itself.
+func appendFailureNextStep(sb *strings.Builder, r replaceRangeFailure) {
+	if r.FilePath == "" {
+		return
+	}
+	if r.LineCount > 0 {
+		fmt.Fprintf(sb, "Next step: file action=read_file file_path=%s offset=1 limit=%d (file has %d lines; narrow the window with a smaller limit)\n",
+			r.FilePath, minInt(r.LineCount, 200), r.LineCount)
+		return
+	}
+	fmt.Fprintf(sb, "Next step: file action=read_file file_path=%s\n", r.FilePath)
 }
 
 func (h EditHandler) handleReplaceRange(ctx context.Context, req EditRequest) (any, error) {
@@ -90,18 +154,7 @@ func (h EditHandler) handleReplaceRange(ctx context.Context, req EditRequest) (a
 		return h.replaceFailure(ctx, manager, path, content, 0, err), err
 	}
 	if plan.updatedContent == content {
-		return replaceRangeResult{
-			editEnvelope: editEnvelope{
-				Success:              true,
-				Status:               "no_change",
-				Message:              "replacement did not change file content",
-				Applied:              false,
-				Persisted:            false,
-				RequiresApply:        false,
-				Warning:              managerWarning,
-				DiagnosticGeneration: managerDiagnosticGeneration(manager),
-			},
-		}, nil
+		return h.buildNoChangeResult(manager, path, managerWarning), nil
 	}
 	updatedContent := file.diskContent(plan.updatedContent)
 	warning := managerWarning
@@ -113,6 +166,26 @@ func (h EditHandler) handleReplaceRange(ctx context.Context, req EditRequest) (a
 		warning = syncWarning
 	}
 	functionCtx := h.lookupFunctionContext(ctx, manager, path, plan.functionLookupLine, plan.updatedContent)
+	return h.buildAppliedResult(path, plan, lspSync, warning, functionCtx), nil
+}
+
+func (h EditHandler) buildNoChangeResult(manager lspmanager.Manager, path string, warning string) replaceRangeResult {
+	return replaceRangeResult{
+		editEnvelope: editEnvelope{
+			Success:              true,
+			Status:               "no_change",
+			Message:              "replacement did not change file content",
+			Applied:              false,
+			Persisted:            false,
+			RequiresApply:        false,
+			FilePath:             path,
+			Warning:              warning,
+			DiagnosticGeneration: managerDiagnosticGeneration(manager),
+		},
+	}
+}
+
+func (h EditHandler) buildAppliedResult(path string, plan replacePlan, lspSync bool, warning string, functionCtx functionContext) replaceRangeResult {
 	return replaceRangeResult{
 		editEnvelope: editEnvelope{
 			Success:              true,
@@ -123,6 +196,10 @@ func (h EditHandler) handleReplaceRange(ctx context.Context, req EditRequest) (a
 			Persisted:            true,
 			RequiresApply:        false,
 			LSPSync:              lspSync,
+			MatchedBy:            plan.matchedBy,
+			FilePath:             path,
+			AffectedStartLine:    plan.affectedStartLine,
+			AffectedEndLine:      plan.affectedEndLine,
 			Warning:              warning,
 			DiagnosticGeneration: h.registry.CurrentDiagnosticGeneration(),
 		},
@@ -140,7 +217,7 @@ func (h EditHandler) handleReplaceRange(ctx context.Context, req EditRequest) (a
 		FuncStart:         functionCtx.Start,
 		FuncEnd:           functionCtx.End,
 		FuncBody:          functionCtx.Body,
-	}, nil
+	}
 }
 
 func (h EditHandler) applyReplaceRangeUpdate(ctx context.Context, manager lspmanager.Manager, path string, file editableFile, updatedContent string, version int) (bool, string, error) {
@@ -175,19 +252,53 @@ func (h EditHandler) replaceRangeManager(ctx context.Context, path string, langu
 func (h EditHandler) replaceFailure(ctx context.Context, manager lspmanager.Manager, path string, content string, line int, err error) replaceRangeFailure {
 	functionCtx := h.lookupFunctionContext(ctx, manager, path, line, content)
 	envelope := newToolErrorEnvelope("edit", "", err)
+	meta := envelope.Meta
+	if meta == nil {
+		meta = map[string]any{}
+	}
+	if ambig := asAmbiguousMatchError(err); ambig != nil {
+		meta["candidate_locations"] = candidateLocationStrings(path, ambig.Candidates)
+		meta["hunk_index"] = ambig.HunkIndex + 1
+	}
 	return replaceRangeFailure{
 		Success:              false,
 		Error:                err.Error(),
 		Code:                 envelope.Code,
 		Retryable:            envelope.Retryable,
 		Hint:                 envelope.Hint,
-		Meta:                 envelope.Meta,
-		CurrentContent:       content,
+		Meta:                 meta,
+		FilePath:             path,
+		LineCount:            countLines(content),
 		FuncStart:            functionCtx.Start,
 		FuncEnd:              functionCtx.End,
 		FuncBody:             functionCtx.Body,
 		DiagnosticGeneration: managerDiagnosticGeneration(manager),
 	}
+}
+
+func asAmbiguousMatchError(err error) *editpkg.AmbiguousMatchError {
+	var ambig *editpkg.AmbiguousMatchError
+	if errors.As(err, &ambig) {
+		return ambig
+	}
+	return nil
+}
+
+// candidateLocationStrings turns the typed match candidates into
+// path:line:col-friendly strings the LLM can lift into a follow-up
+// read_file or pinpoint a context line near. The format mirrors the
+// rest of the LSP suite's plain-text output ("path:line" + optional
+// match-mode tag) so the model needs no extra formatting rules.
+func candidateLocationStrings(path string, candidates []editpkg.CandidateLocation) []string {
+	out := make([]string, 0, len(candidates))
+	for _, candidate := range candidates {
+		entry := fmt.Sprintf("%s:%d-L%d", path, candidate.StartLine, candidate.EndLine)
+		if candidate.MatchedBy != "" && candidate.MatchedBy != "exact" {
+			entry += " [" + candidate.MatchedBy + "]"
+		}
+		out = append(out, entry)
+	}
+	return out
 }
 
 func (h EditHandler) syncRollbackDocument(ctx context.Context, manager lspmanager.Manager, path string, content string, version int) error {
