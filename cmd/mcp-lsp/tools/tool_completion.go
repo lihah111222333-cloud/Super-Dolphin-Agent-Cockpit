@@ -41,6 +41,10 @@ func NewCompletionHandler(registry lspmanager.Registry) ToolHandler {
 		}
 		total := len(result.Items)
 		items := limitSlice(result.Items, limit)
-		return format.NewCompactList(format.CompactCompletionItems(items), total), nil
+		return format.NewCompactList(
+			format.CompactCompletionItems(items),
+			total,
+			"results truncated; increase max_results or move to a more precise cursor",
+		), nil
 	})
 }

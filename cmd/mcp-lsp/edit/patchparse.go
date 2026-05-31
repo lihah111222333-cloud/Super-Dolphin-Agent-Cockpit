@@ -205,8 +205,8 @@ func parseHunkBody(lines []string) (Hunk, error) {
 	before := takeTexts(parsed[:firstChange])
 	after := takeTexts(parsed[lastChange+1:])
 	oldLines, newLines, changeContext := foldChangeRegion(parsed[firstChange : lastChange+1])
-	if len(oldLines) == 0 {
-		return Hunk{}, fmt.Errorf("%w: insertion-only hunks are not supported", ErrInvalidPatch)
+	if len(oldLines) == 0 && len(before) == 0 && len(after) == 0 {
+		return Hunk{}, fmt.Errorf("%w: insertion-only hunks require at least one context line for anchoring", ErrInvalidPatch)
 	}
 	return Hunk{
 		OldText:       buildPatchText(oldLines),

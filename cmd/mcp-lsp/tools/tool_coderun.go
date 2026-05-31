@@ -50,6 +50,7 @@ type CodeRunResult struct {
 	Language  string `json:"language,omitempty"`
 	Mode      string `json:"mode"`
 	Truncated bool   `json:"truncated,omitempty"`
+	Hint      string `json:"hint,omitempty"`
 }
 
 type CodeRunFailure struct {
