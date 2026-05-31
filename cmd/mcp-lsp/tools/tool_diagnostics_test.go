@@ -21,6 +21,9 @@ type diagnosticsTestRegistry struct {
 	lastScope         common.ToolScope
 	scopeOK           bool
 	bootstrapErrByURI map[string]error
+	manager           lspmanager.Manager
+	waitErrs          []error
+	waitCalls         int
 }
 
 func (r *diagnosticsTestRegistry) GetManagerForFile(context.Context, string) (lspmanager.Manager, error) {
@@ -28,6 +31,9 @@ func (r *diagnosticsTestRegistry) GetManagerForFile(context.Context, string) (ls
 }
 
 func (r *diagnosticsTestRegistry) GetManagerForFileWithLanguage(context.Context, string, string) (lspmanager.Manager, error) {
+	if r.manager != nil {
+		return r.manager, nil
+	}
 	return nil, lspmanager.ErrUnsupportedLanguage
 }
 
@@ -46,7 +52,13 @@ func (r *diagnosticsTestRegistry) Diagnostics(ctx context.Context, uris []string
 	return items, nil
 }
 
-func (*diagnosticsTestRegistry) WaitDiagnosticsStable(context.Context, []string) error {
+func (r *diagnosticsTestRegistry) WaitDiagnosticsStable(context.Context, []string) error {
+	r.callOrder = append(r.callOrder, "wait")
+	index := r.waitCalls
+	r.waitCalls++
+	if index < len(r.waitErrs) {
+		return r.waitErrs[index]
+	}
 	return nil
 }
 
@@ -213,6 +225,61 @@ func TestDiagnosticsReportsPartialBootstrapFailure(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "bootstrap boom") || !strings.Contains(err.Error(), "bad.ts") {
 		t.Fatalf("fetchDiagnosticsWithRetry() error = %v, want partial bootstrap failure", err)
 	}
+}
+
+func TestDiagnosticsRecoversStartupWaitByOpeningTarget(t *testing.T) {
+	root := t.TempDir()
+	target := writeDiagnosticsFixture(t, root, "startup.go")
+	manager := &diagnosticsStartupManager{}
+	registry := &diagnosticsTestRegistry{
+		manager:  manager,
+		waitErrs: []error{lspmanager.ErrDiagnosticsNotReady},
+	}
+	handler := NewFileHandler(Config{WorkspaceRoot: root, Registry: registry})
+	req := marshalDiagnosticsInput(t, fileToolInput{Action: "diagnostics", FilePath: "startup.go"})
+
+	if _, err := handler(common.WithToolScope(context.Background(), common.ToolScope{CWD: root}), req); err != nil {
+		t.Fatalf("diagnostics returned startup wait error: %v", err)
+	}
+	wantURI := canonicalFileURI(t, target)
+	assertDiagnosticURIs(t, registry.bootstrapURIs, []string{wantURI})
+	assertDiagnosticURIs(t, manager.didOpenURIs, []string{wantURI})
+	if registry.waitCalls != 2 {
+		t.Fatalf("WaitDiagnosticsStable calls = %d, want retry after startup open", registry.waitCalls)
+	}
+	if len(registry.callOrder) == 0 || registry.callOrder[len(registry.callOrder)-1] != "diagnostics" {
+		t.Fatalf("diagnostics call order = %#v, want diagnostics after startup recovery", registry.callOrder)
+	}
+}
+
+func TestDiagnosticsPropagatesNonStartupWaitError(t *testing.T) {
+	root := t.TempDir()
+	writeDiagnosticsFixture(t, root, "broken.go")
+	manager := &diagnosticsStartupManager{}
+	registry := &diagnosticsTestRegistry{
+		manager:  manager,
+		waitErrs: []error{errors.New("diagnostic cache corrupt")},
+	}
+	handler := NewFileHandler(Config{WorkspaceRoot: root, Registry: registry})
+	req := marshalDiagnosticsInput(t, fileToolInput{Action: "diagnostics", FilePath: "broken.go"})
+
+	_, err := handler(common.WithToolScope(context.Background(), common.ToolScope{CWD: root}), req)
+	if err == nil || !strings.Contains(err.Error(), "diagnostic cache corrupt") {
+		t.Fatalf("diagnostics error = %v, want non-startup wait failure", err)
+	}
+	if len(manager.didOpenURIs) != 0 {
+		t.Fatalf("DidOpen recovery ran for non-startup error: %#v", manager.didOpenURIs)
+	}
+}
+
+type diagnosticsStartupManager struct {
+	structureTestManager
+	didOpenURIs []string
+}
+
+func (m *diagnosticsStartupManager) DidOpen(_ context.Context, uri, _ string, _ int, _ string) error {
+	m.didOpenURIs = append(m.didOpenURIs, uri)
+	return nil
 }
 
 func writeDiagnosticsFixture(t *testing.T, root, name string) string {

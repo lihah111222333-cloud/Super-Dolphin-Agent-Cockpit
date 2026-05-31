@@ -31,7 +31,7 @@ var (
 const (
 	defaultDiagnosticsInitialDelay = 80 * time.Millisecond
 	defaultDiagnosticsPollInterval = 40 * time.Millisecond
-	defaultDiagnosticsMaxWait      = 800 * time.Millisecond
+	defaultDiagnosticsMaxWait      = 1500 * time.Millisecond
 )
 
 type Manager interface {
