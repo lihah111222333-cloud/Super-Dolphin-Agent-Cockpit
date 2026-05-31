@@ -108,7 +108,7 @@ var lspStructureSchema = objectSchema(map[string]schema{
 var lspEditSchema = objectSchema(map[string]schema{
 	"action":    enumProp("Action (default: replace_range)", "replace_range", "rename", "code_action", "format"),
 	"file_path": stringProp("File path (absolute or relative, auto-resolved). Required for replace_range and format."),
-	"patch":     stringProp("Patch body for replace_range. Each non-header line starts with one prefix: ' '=context (use ' ' for blank context lines, never empty), '-'=remove, '+'=add. Pure-insertion hunks (no '-' line) are rejected; anchor inserts with ' ' context plus '+'. Three accepted forms: (a) implicit single hunk = body only; (b) one explicit '@@ ...' header + body; (c) multiple '@@ ...' hunks."),
+	"patch":     stringProp("Patch body for replace_range. Each non-header line starts with one prefix: ' '=context (use ' ' for blank context lines, never empty), '-'=remove, '+'=add. Pure-insertion: use ' ' context lines to anchor, then '+' lines only (no '-' needed). Example: \" import (\\n+\\t\\\"fmt\\\"\\n )\". Three accepted forms: (a) implicit single hunk = body only; (b) one explicit '@@ ...' header + body; (c) multiple '@@ ...' hunks."),
 	"version":   integerProp("LSP didChange version counter; let the server default (2) unless you are stitching a specific edit chain."),
 	"pos":       stringProp("Position as 'file_path:line:column' for rename/code_action (example internal/foo.go:42:9)."),
 	"new_name":  stringProp("New symbol name (rename only)."),
