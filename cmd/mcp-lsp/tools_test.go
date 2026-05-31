@@ -147,6 +147,35 @@ func TestCodeRunTestTarget(t *testing.T) {}
 	require.Contains(t, payload.Output, "example.test/coderuntest")
 }
 
+func TestCodeRunTestAcceptsRelativePackageInsideBackendSubmodule(t *testing.T) {
+	workspaceRoot := canonicalToolTestRoot(t, t.TempDir())
+	backendRoot := filepath.Join(workspaceRoot, "backend")
+	pkgDir := filepath.Join(backendRoot, "internal", "service")
+	writeTestFile(t, filepath.Join(backendRoot, "go.mod"), "module example.test/backend\n\ngo 1.25.0\n")
+	writeTestFile(t, filepath.Join(pkgDir, "service_test.go"), `package service
+
+import "testing"
+
+func TestBackendSubmoduleTarget(t *testing.T) {}
+`)
+	rawRoots, err := json.Marshal([]string{workspaceRoot})
+	require.NoError(t, err)
+	t.Setenv("GO_AGENT_LSP_ROOTS", string(rawRoots))
+
+	handlers, err := newToolHandlers(&Manager{root: t.TempDir()})
+	require.NoError(t, err)
+	result, err := registryToolProvider{defs: toolDefinitions(handlers)}.CallTool(context.Background(), "code_run_test", mustJSON(t, map[string]any{
+		"test_func": "TestBackendSubmoduleTarget",
+		"test_pkg":  "./backend/internal/service",
+	}))
+	require.NoError(t, err)
+
+	payload, ok := result.(lsptools.CodeRunResult)
+	require.Truef(t, ok, "code_run_test result = %#v, want CodeRunResult", result)
+	require.Truef(t, payload.Success, "code_run_test failed: output=%q exit=%d", payload.Output, payload.ExitCode)
+	require.Contains(t, payload.Output, "example.test/backend/internal/service")
+}
+
 func TestCodeRunTestRejectsAbsoluteTestPkgOutsideWorkspaceRoot(t *testing.T) {
 	workspaceRoot := canonicalToolTestRoot(t, t.TempDir())
 	outsideRoot := canonicalToolTestRoot(t, t.TempDir())
