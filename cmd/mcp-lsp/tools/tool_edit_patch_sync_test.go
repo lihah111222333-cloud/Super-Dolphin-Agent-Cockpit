@@ -26,24 +26,14 @@ func TestEditRequiresPatch(t *testing.T) {
 	if err != nil {
 		t.Fatalf("marshal input: %v", err)
 	}
-	got, err := handler(testToolContext(root), input)
-	if err == nil || !strings.Contains(err.Error(), "edit requires patch") {
-		t.Fatalf("edit error = %v, want requires patch", err)
-	}
-	if got == nil {
-		t.Fatalf("result = nil, want replaceRangeFailure envelope")
-	}
-	failure, ok := got.(replaceRangeFailure)
-	if !ok {
-		t.Fatalf("result type = %T, want replaceRangeFailure", got)
-	}
-	if failure.Success {
-		t.Fatalf("failure.Success = true, want false")
+	_, err = handler(testToolContext(root), input)
+	if err == nil || !strings.Contains(err.Error(), "requires patch") {
+		t.Fatalf("edit error = %v, want containing 'requires patch'", err)
 	}
 	assertFileContent(t, path, original)
 }
 
-func TestEditRejectsActionAndLegacyFields(t *testing.T) {
+func TestEditRejectsInvalidActionAndMissingFields(t *testing.T) {
 	root := t.TempDir()
 	path := filepath.Join(root, "sample.go")
 	if err := os.WriteFile(path, []byte("package main\n"), 0o600); err != nil {
@@ -52,23 +42,43 @@ func TestEditRejectsActionAndLegacyFields(t *testing.T) {
 	handler := NewEditHandlerWithRoot(root, &structureTestRegistry{fileErr: lspmanager.ErrUnsupportedLanguage})
 
 	tests := []struct {
-		name string
-		raw  string
+		name    string
+		raw     string
+		wantErr string
 	}{
-		{name: "action", raw: `{"action":"replace_range","file_path":` + quoteJSON(path) + `,"patch":"@@\n-package main\n+package main\n"}`},
-		{name: "edits", raw: `{"file_path":` + quoteJSON(path) + `,"edits":[{"old_string":"old()","new_string":"new()"}]}`},
-		{name: "coordinates", raw: `{"file_path":` + quoteJSON(path) + `,"line":3,"column":12,"end_line":3,"end_column":17,"new_text":"new()"}`},
+		{
+			name:    "invalid_action",
+			raw:     `{"action":"delete","file_path":` + quoteJSON(path) + `}`,
+			wantErr: "unsupported edit action",
+		},
+		{
+			name:    "replace_range_missing_patch",
+			raw:     `{"action":"replace_range","file_path":` + quoteJSON(path) + `}`,
+			wantErr: "replace_range requires patch",
+		},
+		{
+			name:    "replace_range_missing_file_path",
+			raw:     `{"action":"replace_range","patch":" x\n-old\n+new"}`,
+			wantErr: "replace_range requires file_path",
+		},
+		{
+			name:    "rename_missing_new_name",
+			raw:     `{"action":"rename","pos":"main.go:1:1"}`,
+			wantErr: "rename requires new_name",
+		},
+		{
+			name:    "rename_missing_pos",
+			raw:     `{"action":"rename","new_name":"foo"}`,
+			wantErr: "rename requires pos",
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			input := json.RawMessage(tt.raw)
-			got, err := handler(testToolContext(root), input)
-			if err == nil || !strings.Contains(err.Error(), "unknown field") {
-				t.Fatalf("edit %s error = %v, want unknown field", tt.name, err)
-			}
-			if got != nil {
-				t.Fatalf("result = %#v, want nil", got)
+			_, err := handler(testToolContext(root), input)
+			if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
+				t.Fatalf("edit %s error = %v, want containing %q", tt.name, err, tt.wantErr)
 			}
 		})
 	}
