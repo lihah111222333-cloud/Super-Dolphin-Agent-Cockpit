@@ -16,6 +16,7 @@ import (
 )
 
 const maxReactiveBootstrap = 30
+const maxDiagnosticSummaryRunes = 300
 
 type diagnosticsTable struct {
 	File string   `json:"file"`
@@ -365,6 +366,17 @@ func diagnosticDisplayPath(raw string, fallback string) string {
 	return fallback
 }
 
+func diagnosticMessageSummary(message string) string {
+	normalized := strings.ReplaceAll(strings.TrimSpace(message), "\r\n", "\n")
+	firstLine, _, _ := strings.Cut(normalized, "\n")
+	firstLine = strings.TrimSpace(firstLine)
+	runes := []rune(firstLine)
+	if len(runes) <= maxDiagnosticSummaryRunes {
+		return firstLine
+	}
+	return string(runes[:maxDiagnosticSummaryRunes]) + "…"
+}
+
 func buildDiagnosticsTables(items []protocol.PublishDiagnosticsParams, displayPaths map[string]string) []diagnosticsTable {
 	if len(items) == 0 {
 		return nil
@@ -389,7 +401,7 @@ func buildDiagnosticsTables(items []protocol.PublishDiagnosticsParams, displayPa
 				format.FromLSP(diag.Range.Start.Line),
 				format.FromLSP(diag.Range.Start.Character),
 				diag.Severity.String(),
-				diag.Message,
+				diagnosticMessageSummary(diag.Message),
 				diag.Source,
 				diagnosticCode(diag.Code),
 			})

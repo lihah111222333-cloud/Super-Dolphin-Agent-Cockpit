@@ -519,11 +519,11 @@ func fakePyrightCompletionLabel(position struct {
 	Character int `json:"character"`
 }) string {
 	switch {
-	case position.Line == 9 && position.Character == 6:
+	case position.Line == 9 && position.Character == 4:
 		return "REG_CN"
-	case position.Line == 10 && position.Character == 6:
+	case position.Line == 10 && position.Character == 4:
 		return "REG_US"
-	case position.Line == 12 && position.Character == 10:
+	case position.Line == 12 && position.Character == 4:
 		return "REG_CRYPTO"
 	default:
 		return ""
@@ -556,6 +556,17 @@ func fakePyrightDurationFromEnv(name string) time.Duration {
 }
 
 func fakePyrightDiagnostics(uri string) map[string]any {
+	message := "fake diagnostic for " + filepath.Base(uri)
+	code := "fake-type"
+	if os.Getenv("MCP_LSP_FAKE_PYRIGHT_DIAGNOSTICS") == "multiline" {
+		message = strings.Join([]string{
+			`Argument of type "dict[str, object]" cannot be assigned to parameter "feature_name" of type "FeatureName" in function "train"`,
+			`  "Literal['yes']" is not assignable to "bool"`,
+			`  "Literal[42]" is not assignable to "str"`,
+			`  Type "list[str]" is not assignable to "list[float]"`,
+		}, "\n")
+		code = "reportArgumentType"
+	}
 	return map[string]any{
 		"uri": uri,
 		"diagnostics": []map[string]any{{
@@ -565,8 +576,8 @@ func fakePyrightDiagnostics(uri string) map[string]any {
 			},
 			"severity": 1,
 			"source":   "fake-pyright",
-			"message":  "fake diagnostic for " + filepath.Base(uri),
-			"code":     "fake-type",
+			"message":  message,
+			"code":     code,
 		}},
 	}
 }

@@ -180,6 +180,45 @@ func TestMcpLSPBinaryPythonDiagnosticsWaitsForDelayedTargets_E2E(t *testing.T) {
 	}
 }
 
+func TestMcpLSPBinaryPythonDiagnosticsSummarizesMultilineMessages_E2E(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping mcp-lsp binary e2e test in short mode")
+	}
+
+	root := t.TempDir()
+	targets := writePythonDiagnosticsFixture(t, root)
+	binary := buildMcpLSPBinaryForTest(t)
+	fakePyrightBinDir := writeFakePyrightLangserver(t)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 150*time.Second)
+	defer cancel()
+	client := startMcpLSPBinaryForTestWithEnv(t, ctx, binary, root, fakePyrightBinDir, []string{
+		"MCP_LSP_FAKE_PYRIGHT_DIAGNOSTICS=multiline",
+	})
+	defer client.close(t)
+
+	client.call(t, "initialize", map[string]any{"protocolVersion": "2024-11-05"})
+
+	diagnostics := client.callTool(t, "file", map[string]any{
+		"action":    "diagnostics",
+		"file_path": targets[0],
+	})
+	if diagnostics.Result.IsError {
+		t.Fatalf("diagnostics returned MCP error result; text=%q structured=%s stderr=%s",
+			diagnostics.Result.ContentText(), diagnostics.Result.StructuredContent, client.stderrString())
+	}
+	payload := decodeDiagnosticsStructuredContent(t, diagnostics.Result.StructuredContent)
+	msg := payload.FirstMessageForFile(t, targets[0])
+	want := `Argument of type "dict[str, object]" cannot be assigned to parameter "feature_name" of type "FeatureName" in function "train"`
+	if msg != want {
+		t.Fatalf("diagnostics msg = %q, want first-line summary %q; payload=%s text=%q stderr=%s",
+			msg, want, diagnostics.Result.StructuredContent, diagnostics.Result.ContentText(), client.stderrString())
+	}
+	if strings.Contains(msg, "\n") {
+		t.Fatalf("diagnostics msg still contains Pyright detail lines: %q", msg)
+	}
+}
+
 type mcpLSPPeerBinaryClient struct {
 	cmd        *exec.Cmd
 	stdin      io.WriteCloser
@@ -446,6 +485,28 @@ func (p diagnosticsPayload) HasFile(path string) bool {
 		}
 	}
 	return false
+}
+
+func (p diagnosticsPayload) FirstMessageForFile(t *testing.T, path string) string {
+	t.Helper()
+	for _, table := range p.Data {
+		if table.File != path {
+			continue
+		}
+		if len(table.Rows) == 0 {
+			t.Fatalf("diagnostics table for %s has no rows", path)
+		}
+		if len(table.Rows[0]) < 4 {
+			t.Fatalf("diagnostics row for %s has %d columns, want msg column: %#v", path, len(table.Rows[0]), table.Rows[0])
+		}
+		msg, ok := table.Rows[0][3].(string)
+		if !ok {
+			t.Fatalf("diagnostics msg column type = %T, want string; row=%#v", table.Rows[0][3], table.Rows[0])
+		}
+		return msg
+	}
+	t.Fatalf("diagnostics missing %s: %#v", path, p.Data)
+	return ""
 }
 
 func decodeDiagnosticsStructuredContent(t *testing.T, raw json.RawMessage) diagnosticsPayload {
