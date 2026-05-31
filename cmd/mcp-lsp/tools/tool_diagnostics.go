@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/format"
+	lspmanager "github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/manager"
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/protocol"
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/search"
 )
@@ -29,27 +30,60 @@ type diagnosticsResponse struct {
 
 func (h handlerBase) fetchDiagnosticsWithRetry(ctx context.Context, uris []string) ([]protocol.PublishDiagnosticsParams, string, error) {
 	existingURIs := existingDiagnosticURIs(uris)
-	source := "manager"
-	if len(existingURIs) > 0 {
-		bootstrapped, err := h.reactiveBootstrap(ctx, existingURIs)
-		if err != nil {
-			return nil, "", err
-		}
-		if bootstrapped > 0 {
-			source = "reactive_bootstrap"
-		}
-	}
-	if _, err := h.waitDiagnosticsStable(ctx, uris); err != nil {
+	source, err := h.bootstrapDiagnostics(ctx, existingURIs)
+	if err != nil {
 		return nil, "", err
+	}
+	recovered, err := h.waitDiagnosticsWithStartupRecovery(ctx, uris, existingURIs)
+	if err != nil {
+		return nil, "", err
+	}
+	if recovered {
+		source = "startup_recovery"
 	}
 	items, err := h.registry.Diagnostics(ctx, uris)
 	if err != nil {
 		return nil, "", err
 	}
-	if len(items) > 0 || len(uris) == 0 {
-		return items, source, nil
-	}
 	return items, source, nil
+}
+
+func (h handlerBase) bootstrapDiagnostics(ctx context.Context, existingURIs []string) (string, error) {
+	if len(existingURIs) == 0 {
+		return "manager", nil
+	}
+	bootstrapped, err := h.reactiveBootstrap(ctx, existingURIs)
+	if err != nil {
+		return "", err
+	}
+	if bootstrapped > 0 {
+		return "reactive_bootstrap", nil
+	}
+	return "manager", nil
+}
+
+func (h handlerBase) waitDiagnosticsWithStartupRecovery(ctx context.Context, uris, existingURIs []string) (bool, error) {
+	if _, err := h.waitDiagnosticsStable(ctx, uris); err != nil {
+		return h.recoverDiagnosticsStartupWait(ctx, uris, existingURIs, err)
+	}
+	return false, nil
+}
+
+func (h handlerBase) recoverDiagnosticsStartupWait(ctx context.Context, uris, existingURIs []string, waitErr error) (bool, error) {
+	if !errors.Is(waitErr, lspmanager.ErrDiagnosticsNotReady) || len(existingURIs) == 0 {
+		return false, waitErr
+	}
+	opened, openErr := h.openDiagnosticDocuments(ctx, existingURIs)
+	if openErr != nil {
+		return false, errors.Join(waitErr, openErr)
+	}
+	if opened == 0 {
+		return false, waitErr
+	}
+	if _, retryErr := h.waitDiagnosticsStable(ctx, uris); retryErr != nil {
+		return false, retryErr
+	}
+	return true, nil
 }
 
 func (h handlerBase) handleDiagnostics(ctx context.Context, input fileToolInput) (any, error) {
@@ -165,6 +199,57 @@ func (h handlerBase) waitDiagnosticsStable(ctx context.Context, uris []string) (
 		currentGeneration = h.registry.CurrentDiagnosticGeneration()
 	}
 	return currentGeneration, nil
+}
+
+func (h handlerBase) openDiagnosticDocuments(ctx context.Context, uris []string) (int, error) {
+	count := 0
+	seen := make(map[string]struct{}, len(uris))
+	var errs []error
+	for _, uri := range uris {
+		uri = strings.TrimSpace(uri)
+		if uri == "" {
+			continue
+		}
+		if _, ok := seen[uri]; ok {
+			continue
+		}
+		seen[uri] = struct{}{}
+		if err := h.openDiagnosticDocument(ctx, uri); err != nil {
+			errs = append(errs, fmt.Errorf("%s: %w", uri, err))
+			continue
+		}
+		count++
+	}
+	if len(errs) > 0 {
+		return count, errors.Join(errs...)
+	}
+	return count, nil
+}
+
+func (h handlerBase) openDiagnosticDocument(ctx context.Context, uri string) error {
+	path := format.URIToPath(uri)
+	info, err := os.Lstat(path)
+	if err != nil {
+		return err
+	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		return fmt.Errorf("diagnostic target %q cannot be a symlink", path)
+	}
+	if !info.Mode().IsRegular() {
+		return fmt.Errorf("diagnostic target %q must reference a regular file", path)
+	}
+	content, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+	manager, err := managerForFile(ctx, h.registry, path, "")
+	if err != nil {
+		return err
+	}
+	if manager == nil {
+		return errManagerUnavailable
+	}
+	return manager.DidOpen(ctx, uri, lspmanager.DetectLanguageID(path), 1, string(content))
 }
 
 func (h handlerBase) reactiveBootstrap(ctx context.Context, uris []string) (int, error) {

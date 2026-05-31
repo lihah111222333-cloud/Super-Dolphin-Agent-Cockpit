@@ -2,9 +2,12 @@ package manager
 
 import (
 	"context"
+	"errors"
 
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/protocol"
 )
+
+var ErrDiagnosticsNotReady = errors.New("diagnostics not ready")
 
 type Manager interface {
 	LifecycleManager
