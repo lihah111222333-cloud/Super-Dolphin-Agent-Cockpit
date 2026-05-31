@@ -148,7 +148,7 @@ func resolveContextAnchorStarts(lines []string, before []string) map[int]struct{
 func collectLineSequenceCandidates(index contentIndex, hunk Hunk, anchors map[int]struct{}) []matchCandidate {
 	oldLines := splitPatchText(hunk.OldText)
 	if len(oldLines) == 0 {
-		return nil
+		return collectPureInsertionCandidates(index, hunk, anchors)
 	}
 	positions, mode := collectSequenceMatches(index.lines, oldLines)
 	if len(positions) == 0 && len(oldLines) > 1 && oldLines[len(oldLines)-1] == "" {
@@ -177,6 +177,79 @@ func collectLineSequenceCandidates(index contentIndex, hunk Hunk, anchors map[in
 		})
 	}
 	return dedupeCandidates(candidates)
+}
+
+// collectPureInsertionCandidates handles OldText=="" hunks by using
+// before/after context to locate the insertion point. The resulting
+// candidate has startOffset == endOffset (zero-width replacement).
+func collectPureInsertionCandidates(index contentIndex, hunk Hunk, anchors map[int]struct{}) []matchCandidate {
+	if len(hunk.BeforeContext) == 0 && len(hunk.AfterContext) == 0 {
+		return nil
+	}
+	insertLines := resolveInsertionLines(index, hunk, anchors)
+	if len(insertLines) == 0 {
+		return nil
+	}
+	return buildInsertionCandidates(index, insertLines)
+}
+
+func resolveInsertionLines(index contentIndex, hunk Hunk, anchors map[int]struct{}) []int {
+	if len(hunk.BeforeContext) > 0 && anchors != nil {
+		lines := make([]int, 0, len(anchors))
+		for lineIdx := range anchors {
+			lines = append(lines, lineIdx)
+		}
+		return lines
+	}
+	return findAfterContextInsertions(index.lines, hunk.AfterContext)
+}
+
+func findAfterContextInsertions(lines []string, afterCtx []string) []int {
+	if len(afterCtx) == 0 {
+		return nil
+	}
+	var result []int
+	for _, mode := range allSeekModes() {
+		limit := len(lines) - len(afterCtx)
+		for idx := 0; idx <= limit; idx++ {
+			if sequenceMatchAt(lines, afterCtx, idx, mode) {
+				result = append(result, idx)
+			}
+		}
+		if len(result) > 0 {
+			return result
+		}
+	}
+	return nil
+}
+
+func buildInsertionCandidates(index contentIndex, insertLines []int) []matchCandidate {
+	candidates := make([]matchCandidate, 0, len(insertLines))
+	seen := make(map[int]struct{}, len(insertLines))
+	for _, lineIdx := range insertLines {
+		if _, ok := seen[lineIdx]; ok {
+			continue
+		}
+		seen[lineIdx] = struct{}{}
+		offset := insertionOffset(index, lineIdx)
+		candidates = append(candidates, matchCandidate{
+			startOffset:    offset,
+			endOffset:      offset,
+			startLine:      lineIdx + 1,
+			endLine:        lineIdx,
+			startLineIndex: lineIdx,
+			endLineIndex:   lineIdx,
+			matchedBy:      "pure_insertion",
+		})
+	}
+	return dedupeCandidates(candidates)
+}
+
+func insertionOffset(index contentIndex, lineIdx int) int {
+	if lineIdx >= len(index.lines) {
+		return len(index.raw)
+	}
+	return index.start[lineIdx]
 }
 
 func collectRawSubstringCandidates(index contentIndex, hunk Hunk) []matchCandidate {

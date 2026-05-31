@@ -148,7 +148,11 @@ func runWorkspaceSymbols(
 			Meta:    resultMeta{Count: 0, Message: "no symbols found"},
 		}, nil
 	}
-	return format.NewCompactList(format.CompactWorkspaceSymbols(results), total), nil
+	return format.NewCompactList(
+		format.CompactWorkspaceSymbols(results),
+		total,
+		"results truncated; increase max_results or narrow query/language",
+	), nil
 }
 
 func bootstrapWorkspaceSymbolTarget(ctx context.Context, manager lspmanager.Manager, filePath string) error {

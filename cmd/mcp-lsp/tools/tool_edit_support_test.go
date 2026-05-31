@@ -409,3 +409,61 @@ func requireSyncRollbackFailure(t *testing.T, err error) {
 		t.Fatalf("edit error = %v, want sync and rollback failure details", err)
 	}
 }
+
+func TestEditPureInsertionHunk(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "main.go")
+	content := "package main\n\nimport (\n)\n\nfunc main() {\n}\n"
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
+
+	handler := NewEditHandlerWithRoot(root, &structureTestRegistry{fileErr: lspmanager.ErrUnsupportedLanguage})
+	input, err := json.Marshal(EditRequest{
+		FilePath: path,
+		Patch:    " import (\n+\t\"fmt\"\n )\n",
+	})
+	if err != nil {
+		t.Fatalf("marshal input: %v", err)
+	}
+
+	got, err := handler(testToolContext(root), input)
+	if err != nil {
+		t.Fatalf("pure insertion edit error: %v", err)
+	}
+	result := requireReplaceRangeResult(t, got)
+	if !result.Applied {
+		t.Fatalf("pure insertion not applied: %+v", result)
+	}
+	want := "package main\n\nimport (\n\t\"fmt\"\n)\n\nfunc main() {\n}\n"
+	assertFileContent(t, path, want)
+}
+
+func TestEditPureInsertionEOF(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "main.go")
+	content := "package main\n\nfunc main() {\n}\n"
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
+
+	handler := NewEditHandlerWithRoot(root, &structureTestRegistry{fileErr: lspmanager.ErrUnsupportedLanguage})
+	input, err := json.Marshal(EditRequest{
+		FilePath: path,
+		Patch:    " }\n+\n+func helper() {}\n",
+	})
+	if err != nil {
+		t.Fatalf("marshal input: %v", err)
+	}
+
+	got, err := handler(testToolContext(root), input)
+	if err != nil {
+		t.Fatalf("pure insertion EOF edit error: %v", err)
+	}
+	result := requireReplaceRangeResult(t, got)
+	if !result.Applied {
+		t.Fatalf("pure insertion EOF not applied: %+v", result)
+	}
+	want := "package main\n\nfunc main() {\n}\n\nfunc helper() {}\n"
+	assertFileContent(t, path, want)
+}
