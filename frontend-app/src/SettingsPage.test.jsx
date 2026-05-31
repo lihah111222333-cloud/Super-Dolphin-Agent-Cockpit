@@ -4,8 +4,6 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import App from './App.jsx';
 import { resetClientStoreForTests, useClientStore } from './entities/client/model/useClientStore.js';
 
-let bridgeCallback;
-
 const backend = vi.hoisted(() => ({
   readConfig: vi.fn(),
   getWindowBootstrap: vi.fn(),
@@ -16,12 +14,7 @@ const backend = vi.hoisted(() => ({
   setPreference: vi.fn(),
   getPreference: vi.fn(),
   callBackend: vi.fn(),
-  onBridgeEvent: vi.fn((callback) => {
-    bridgeCallback = callback;
-    return () => {
-      bridgeCallback = null;
-    };
-  }),
+  onBridgeEvent: vi.fn(() => () => {}),
 }));
 
 vi.mock('./shared/api/backendApi.js', () => ({
@@ -42,7 +35,6 @@ Object.defineProperty(navigator, 'clipboard', {
 describe('SettingsPage connected integration tests', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    bridgeCallback = null;
     mockClipboardWriteText.mockReset();
 
     resetClientStoreForTests({
@@ -68,7 +60,7 @@ describe('SettingsPage connected integration tests', () => {
     });
 
     // Default mock prompt config responses
-    backend.callBackend.mockImplementation((method, params) => {
+    backend.callBackend.mockImplementation((method, _params) => {
       if (method === 'config/read') {
         return Promise.resolve({ cwd: '/repo/app' });
       }
@@ -117,7 +109,7 @@ describe('SettingsPage connected integration tests', () => {
         key: 'settings.provider.codex.approvalPolicy',
         value: 'never',
       });
-      expect(screen.getByText('已保存：auto / never')).toBeInTheDocument();
+      expect(screen.getByText('已保存：auto / never')).toHaveAttribute('role', 'status');
     });
   });
 
@@ -146,6 +138,7 @@ describe('SettingsPage connected integration tests', () => {
     await waitFor(() => {
       expect(mockClipboardWriteText).toHaveBeenCalledWith('effective prompt text');
       expect(screen.getByTestId('settings-lsp-prompt-notice')).toHaveTextContent('已复制生效提示词');
+      expect(screen.getByTestId('settings-lsp-prompt-notice')).toHaveAttribute('role', 'status');
     });
 
     // Save prompt hint
@@ -165,6 +158,28 @@ describe('SettingsPage connected integration tests', () => {
     fireEvent.click(screen.getByTestId('settings-lsp-save-button'));
     await waitFor(() => {
       expect(screen.getByTestId('settings-lsp-prompt-notice')).toHaveTextContent('提示词已保存');
+      expect(screen.getByTestId('settings-lsp-prompt-notice')).toHaveAttribute('role', 'status');
+    });
+  });
+
+  it('marks prompt save failures as alert notices', async () => {
+    render(<App skipBootstrap />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('settings-lsp-prompt-input')).toHaveValue('custom override text');
+    });
+
+    backend.callBackend.mockImplementation((method) => {
+      if (method === 'config/lspPromptHint/write') {
+        return Promise.reject(new Error('disk full'));
+      }
+      return Promise.resolve({});
+    });
+
+    fireEvent.click(screen.getByTestId('settings-lsp-save-button'));
+    await waitFor(() => {
+      expect(screen.getByTestId('settings-lsp-prompt-notice')).toHaveTextContent('保存失败');
+      expect(screen.getByTestId('settings-lsp-prompt-notice')).toHaveAttribute('role', 'alert');
     });
   });
 
@@ -211,6 +226,7 @@ describe('SettingsPage connected integration tests', () => {
     await waitFor(() => {
       expect(checkbox).not.toBeChecked(); // Unchecked because tool is enabled (enabled=true)
       expect(screen.getByTestId('settings-builtin-tools-notice')).toHaveTextContent('Command Exec 已启用');
+      expect(screen.getByTestId('settings-builtin-tools-notice')).toHaveAttribute('role', 'status');
     });
   });
 

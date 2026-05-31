@@ -49,6 +49,11 @@ const navItems = [
   { id: 'settings', label: '设置', icon: MoreHorizontal },
 ];
 
+const PROVIDER_LABELS = Object.freeze({
+  claude: 'Claude',
+  codex: 'Codex',
+});
+
 const DAG_RECENT_RUN_LIMIT = 5;
 const DAG_DESIGNER_ENABLED_TOOLS = Object.freeze([
   'list_models',
@@ -4921,11 +4926,6 @@ function SettingsPage({ projectPath }) {
   const filteredCount = useMemo(() => builtinTools.filter((t) => t.replacedBy || !t.enabled).length, [builtinTools]);
   const totalToolCount = builtinTools.length;
 
-  const providerLabels = {
-    claude: 'Claude',
-    codex: 'Codex',
-  };
-
   const toolStatusLabel = useCallback((tool) => {
     if (tool.replacedBy) return '已由项目工具接管';
     if (tool.enabled) return '保持可用';
@@ -4940,7 +4940,7 @@ function SettingsPage({ projectPath }) {
     const parts = [];
     const description = (tool.description || '').trim();
     if (description) parts.push(description);
-    const provider = providerLabels[tool.provider] || tool.provider || '';
+    const provider = PROVIDER_LABELS[tool.provider] || tool.provider || '';
     if (provider) parts.push(provider);
     parts.push(toolStatusLabel(tool));
     return parts.join(' · ');
@@ -4963,6 +4963,8 @@ function SettingsPage({ projectPath }) {
   return (
     <section className="settings-page" data-testid="settings-page">
       <PageHeader icon={Settings} title="设置" actions={<button className="btn btn-secondary" type="button" data-testid="settings-refresh-build-button" onClick={() => void refreshBuildInfo()}>刷新构建信息</button>} />
+      {status ? <p className="settings-page-notice settings-status" role="status">{status}</p> : null}
+      {error ? <p className="settings-page-notice danger-text" role="alert">{error}</p> : null}
       
       <div className="panel-body" data-testid="settings-panel-body">
         <Panel title="ABOUT">
@@ -5009,12 +5011,11 @@ function SettingsPage({ projectPath }) {
         {/* Inference Summary & Approval Policy Card */}
         <div className="section-header">PROPERTIES</div>
         <div className="data-card-vue" data-testid="settings-provider-sandbox-card">
-          <div className="settings-stall-row" style={{ marginTop: '8px' }}>
-            <label className="settings-stall-label" style={{ marginRight: '10px', fontSize: '12px', fontWeight: '600', color: 'var(--text-muted)' }}>推理摘要 (Summary)</label>
+          <div className="settings-stall-row settings-provider-control-row">
+            <label className="settings-stall-label">推理摘要 (Summary)</label>
             <select
-              className="settings-stall-input"
+              className="settings-stall-input settings-provider-select"
               data-testid="provider-summary-mode-select"
-              style={{ width: '260px', textAlign: 'left' }}
               value={summaryMode}
               onChange={(e) => setSummaryMode(e.target.value)}
             >
@@ -5024,12 +5025,11 @@ function SettingsPage({ projectPath }) {
               <option value="none">none（关闭）</option>
             </select>
           </div>
-          <div className="settings-stall-row" style={{ marginTop: '8px', marginBottom: '8px' }}>
-            <label className="settings-stall-label" style={{ marginRight: '10px', fontSize: '12px', fontWeight: '600', color: 'var(--text-muted)' }}>审批策略 (ApprovalPolicy)</label>
+          <div className="settings-stall-row settings-provider-control-row">
+            <label className="settings-stall-label">审批策略 (ApprovalPolicy)</label>
             <select
-              className="settings-stall-input"
+              className="settings-stall-input settings-provider-select"
               data-testid="provider-approval-mode-select"
-              style={{ width: '260px', textAlign: 'left' }}
               value={approvalMode}
               onChange={(e) => setApprovalMode(e.target.value)}
             >
@@ -5040,11 +5040,11 @@ function SettingsPage({ projectPath }) {
             </select>
           </div>
           {providerNotice.message && (
-            <div className={`settings-prompt-notice is-${providerNotice.level}`} style={{ marginTop: '4px' }}>
+            <div className={`settings-prompt-notice settings-provider-notice is-${providerNotice.level}`} role={providerNotice.level === 'error' ? 'alert' : 'status'}>
               {providerNotice.message}
             </div>
           )}
-          <div className="settings-action-row settings-action-inline" style={{ marginTop: '10px' }}>
+          <div className="settings-action-row settings-action-inline settings-provider-actions">
             <button className="btn btn-secondary btn-toolbar-sm" onClick={loadProviderPreferences} disabled={providerSaving}>刷新</button>
             <button className="btn btn-primary btn-toolbar-sm" data-testid="provider-sandbox-save-button" onClick={saveProviderPreferences} disabled={providerSaving}>
               {providerSaving ? '保存中...' : '保存'}
@@ -5097,7 +5097,7 @@ function SettingsPage({ projectPath }) {
             disabled={lspPromptLoading || lspPromptSaving}
           />
           {lspPromptNotice.message && (
-            <div className={`settings-prompt-notice is-${lspPromptNotice.level}`} data-testid="settings-lsp-prompt-notice">
+            <div className={`settings-prompt-notice is-${lspPromptNotice.level}`} data-testid="settings-lsp-prompt-notice" role={lspPromptNotice.level === 'error' ? 'alert' : 'status'}>
               {lspPromptNotice.message}
             </div>
           )}
@@ -5181,7 +5181,7 @@ function SettingsPage({ projectPath }) {
             </div>
           )}
           {builtinToolsNotice.message && (
-            <div className={`settings-prompt-notice is-${builtinToolsNotice.level}`} data-testid="settings-builtin-tools-notice">
+            <div className={`settings-prompt-notice is-${builtinToolsNotice.level}`} data-testid="settings-builtin-tools-notice" role={builtinToolsNotice.level === 'error' ? 'alert' : 'status'}>
               {builtinToolsNotice.message}
             </div>
           )}
@@ -5194,11 +5194,10 @@ function SettingsPage({ projectPath }) {
             <strong>日志级别</strong>
             <span>{store.logLevel}</span>
           </div>
-          <div className="settings-stall-row" style={{ marginTop: '8px', marginBottom: '12px' }}>
+          <div className="settings-stall-row settings-log-control-row">
             <select
-              className="settings-stall-input"
+              className="settings-stall-input settings-log-level-select"
               data-testid="settings-log-level-select"
-              style={{ width: '220px', textAlign: 'left' }}
               value={store.logLevel}
               onChange={(e) => store.setLogLevel(e.target.value)}
             >
@@ -5209,7 +5208,7 @@ function SettingsPage({ projectPath }) {
             </select>
             <span className="settings-stall-unit">立即生效（跨 tab 同步）</span>
           </div>
-          <div className="settings-action-row" style={{ marginTop: '0px', marginBottom: '8px' }}>
+          <div className="settings-action-row settings-log-action-row">
             <button className="btn btn-secondary btn-toolbar-sm" data-testid="settings-log-refresh-button">刷新日志</button>
           </div>
           {logList.length === 0 ? (
