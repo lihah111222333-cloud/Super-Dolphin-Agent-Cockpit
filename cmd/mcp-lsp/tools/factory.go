@@ -514,6 +514,10 @@ func executeSandbox(
 	if err != nil {
 		return nil, common.NewCodedToolError("sandbox_exec_failed", err, true, "Inspect sandbox command setup and retry after fixing the environment.")
 	}
+	hint := ""
+	if result.Truncated {
+		hint = "output truncated; rerun with narrower scope or check logs"
+	}
 	return CodeRunResult{
 		Success:   result.ExitCode == 0,
 		Output:    result.Output,
@@ -522,6 +526,7 @@ func executeSandbox(
 		Language:  language,
 		Mode:      mode,
 		Truncated: result.Truncated,
+		Hint:      hint,
 	}, nil
 }
 

@@ -25,6 +25,7 @@ const (
 	maxReadFileBytes           = 2 << 20
 	lspReadFileBatchMax        = 10
 	lspReadFileBatchPayloadMax = 16 * 1024
+	batchReadTruncatedHint     = "batch truncated; reduce file_paths or split into smaller read_file batches"
 )
 
 var errManagerUnavailable = errors.New("lsp manager is not configured")
@@ -77,13 +78,14 @@ type batchReadItem struct {
 	Error    string `json:"error,omitempty"`
 }
 type batchReadMeta struct {
-	Count          int    `json:"count"`
-	SuccessCount   int    `json:"success_count"`
+	Total          int    `json:"total"`
+	Showing        int    `json:"showing"`
 	ErrorCount     int    `json:"error_count"`
 	Truncated      bool   `json:"truncated,omitempty"`
 	RequestedCount int    `json:"requested_count,omitempty"`
 	MaxBatch       int    `json:"max_batch,omitempty"`
 	Dropped        int    `json:"dropped,omitempty"`
+	Hint           string `json:"hint,omitempty"`
 	Message        string `json:"message,omitempty"`
 }
 
@@ -369,13 +371,14 @@ func trimBatchPaths(rawPaths []string) ([]string, batchReadMeta) {
 			trimmed = append(trimmed, value)
 		}
 	}
-	meta := batchReadMeta{RequestedCount: len(trimmed)}
+	meta := batchReadMeta{Total: len(trimmed), RequestedCount: len(trimmed)}
 	if len(trimmed) <= lspReadFileBatchMax {
 		return trimmed, meta
 	}
 	meta.MaxBatch = lspReadFileBatchMax
 	meta.Dropped = len(trimmed) - lspReadFileBatchMax
 	meta.Truncated = true
+	meta.Hint = batchReadTruncatedHint
 	meta.Message = fmt.Sprintf("read_file batch capped at %d files", lspReadFileBatchMax)
 	return trimmed[:lspReadFileBatchMax], meta
 }
@@ -411,15 +414,19 @@ func encodeBatchReadPayload(resp batchReadResponse) batchReadResponse {
 }
 
 func finalizeBatchMeta(resp *batchReadResponse) {
-	resp.Meta.Count = len(resp.Data)
-	resp.Meta.SuccessCount = 0
+	resp.Meta.Showing = len(resp.Data)
+	if resp.Meta.Total < len(resp.Data) {
+		resp.Meta.Total = len(resp.Data)
+	}
 	resp.Meta.ErrorCount = 0
 	for _, item := range resp.Data {
 		if item.Success {
-			resp.Meta.SuccessCount++
 			continue
 		}
 		resp.Meta.ErrorCount++
+	}
+	if resp.Meta.Truncated && resp.Meta.Hint == "" {
+		resp.Meta.Hint = batchReadTruncatedHint
 	}
 }
 
@@ -513,7 +520,11 @@ func (r openFileResult) ToPlainText() string {
 
 func (r batchReadResponse) ToPlainText() string {
 	var sb strings.Builder
-	sb.WriteString(fmt.Sprintf("Batch Read Results: success=%t (processed %d of %d requested)\n", r.Success, r.Meta.SuccessCount, r.Meta.RequestedCount))
+	successCount := r.Meta.Showing - r.Meta.ErrorCount
+	if successCount < 0 {
+		successCount = 0
+	}
+	sb.WriteString(fmt.Sprintf("Batch Read Results: success=%t (showing %d of %d requested; %d succeeded)\n", r.Success, r.Meta.Showing, r.Meta.Total, successCount))
 	if r.Meta.Message != "" {
 		sb.WriteString(fmt.Sprintf("Message: %s\n", r.Meta.Message))
 	}

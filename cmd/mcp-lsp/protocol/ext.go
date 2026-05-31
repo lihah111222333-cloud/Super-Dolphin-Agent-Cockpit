@@ -137,10 +137,11 @@ type CompactLocation struct {
 }
 
 type GroupedLocationResult struct {
-	Files   map[string][]CompactLocation `json:"files"`
-	Total   int                          `json:"total"`
-	Showing int                          `json:"showing"`
-	Hint    string                       `json:"hint,omitempty"`
+	Files     map[string][]CompactLocation `json:"files"`
+	Total     int                          `json:"total"`
+	Showing   int                          `json:"showing"`
+	Truncated bool                         `json:"truncated,omitempty"`
+	Hint      string                       `json:"hint,omitempty"`
 }
 
 type WorkspaceSymbolResult struct {
