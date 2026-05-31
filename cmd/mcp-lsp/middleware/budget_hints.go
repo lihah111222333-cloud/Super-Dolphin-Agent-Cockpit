@@ -64,9 +64,9 @@ func extractSummary(toolName string, payload map[string]any) map[string]any {
 			"total":   numericField(payload, "total"),
 			"showing": numericField(payload, "showing"),
 		}
-		if files, ok := payload["files"].(map[string]any); ok {
+		if data, ok := payload["data"].(map[string]any); ok {
 			names := make([]string, 0, 5)
-			for k := range files {
+			for k := range data {
 				names = append(names, k)
 				if len(names) >= 5 {
 					break

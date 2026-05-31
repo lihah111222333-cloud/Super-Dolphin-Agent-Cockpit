@@ -206,7 +206,7 @@ func GroupLocationsByFile(items []protocol.LocationResult, total int) protocol.G
 		total = len(items)
 	}
 	grouped := protocol.GroupedLocationResult{
-		Files:     make(map[string][]protocol.CompactLocation),
+		Data:      make(map[string][]protocol.CompactLocation),
 		Total:     total,
 		Showing:   len(items),
 		Truncated: total > len(items),
@@ -231,7 +231,7 @@ func GroupLocationsByFile(items []protocol.LocationResult, total int) protocol.G
 				grouped.Hint = "step 2: use the returned func_start/func_end to read that function range, e.g. file action=read_file pos=<file>:<func_start> limit=<func_end-func_start+1>"
 			}
 		}
-		grouped.Files[file] = append(grouped.Files[file], row)
+		grouped.Data[file] = append(grouped.Data[file], row)
 	}
 	if grouped.Truncated && grouped.Hint == "" {
 		grouped.Hint = "results truncated; increase max_results or narrow the target position"
