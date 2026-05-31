@@ -159,7 +159,7 @@ func (h handlerBase) handleDiagnostics(ctx context.Context, input fileToolInput)
 
 	items, _, message, err := h.fetchDiagnosticsWithRetry(ctx, uris)
 	if err != nil {
-		return nil, err
+		return nil, rustDetachedWorkspaceError(uris, "diagnostics", err)
 	}
 
 	tables := buildDiagnosticsTables(items)
@@ -174,7 +174,7 @@ func (h handlerBase) handleDiagnostics(ctx context.Context, input fileToolInput)
 			Data:    []diagnosticsTable{},
 			Total:   0,
 			Showing: 0,
-			Meta:    diagnosticsMeta{Message: appendMessage(baseMessage, message)},
+			Meta:    diagnosticsMeta{Message: rustDetachedWorkspaceMessageForURIs(uris, "diagnostics", appendMessage(baseMessage, message))},
 		}, nil
 	}
 	return diagnosticsResponse{

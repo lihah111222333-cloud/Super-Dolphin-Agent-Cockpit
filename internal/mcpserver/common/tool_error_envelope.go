@@ -389,6 +389,14 @@ var toolErrorClassifiers = []toolErrorClassifier{
 		},
 	},
 	{
+		code: "identifier_not_found",
+		hint: staticToolHint("Move the pos column onto a function, type, variable, or other identifier before retrying."),
+		match: func(_ error, message string, _ string) bool {
+			return strings.Contains(message, "identifier not found") ||
+				strings.Contains(message, "no identifier found")
+		},
+	},
+	{
 		code: "file_not_found",
 		hint: staticToolHint("Verify file_path is under the trusted workspace and exists on disk."),
 		match: func(err error, message string, _ string) bool {

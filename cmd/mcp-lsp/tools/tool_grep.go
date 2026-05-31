@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 
@@ -16,6 +17,8 @@ import (
 const (
 	defaultSearchResults = 50
 	maxSearchResults     = 50
+	grepTruncatedHint    = "results truncated; increase max_results, narrow path/glob, or refine query"
+	grepFuncRangeHint    = "step 2: use the returned func_start/func_end to read that function range, e.g. file action=read_file pos=<file>:<func_start> limit=<func_end-func_start+1>"
 )
 
 type grepToolInput struct {
@@ -165,6 +168,7 @@ func (h handlerBase) attachFuncRanges(ctx context.Context, matches []search.Sear
 
 func capGrepResponseBytes(resp *grepResponse, maxBytes int) {
 	for {
+		ensureGrepResponseHint(resp)
 		resp.Message = grepMessage(resp.RegexFallback, resp.DroppedForPayload)
 		raw, err := json.Marshal(resp)
 		if err != nil || len(raw) <= maxBytes {
@@ -206,14 +210,12 @@ func dropLastGrepRow(resp *grepResponse) bool {
 
 func buildGrepResponse(matches []search.SearchMatch, total int, truncated bool) grepResponse {
 	files := make(map[string]grepFileRows, len(matches))
-	hint := ""
 	hasFuncRanges := false
 	for _, match := range matches {
 		row := []any{match.Line, match.Col, match.Text}
 		if match.FuncStart > 0 && match.FuncEnd >= match.FuncStart {
 			row = append(row, match.FuncStart, match.FuncEnd)
 			hasFuncRanges = true
-			hint = "step 2: use the returned func_start/func_end to read that function range, e.g. file action=read_file pos=<file>:<func_start> limit=<func_end-func_start+1>"
 		}
 		block := files[match.File]
 		if len(block.Cols) == 0 {
@@ -237,8 +239,37 @@ func buildGrepResponse(matches []search.SearchMatch, total int, truncated bool) 
 		Total:     total,
 		Showing:   len(matches),
 		Truncated: truncated,
-		Hint:      hint,
+		Hint:      grepHint(truncated, hasFuncRanges),
 	}
+}
+
+func ensureGrepResponseHint(resp *grepResponse) {
+	if resp == nil {
+		return
+	}
+	if hint := grepHint(resp.Truncated, grepResponseHasFuncRanges(*resp)); hint != "" {
+		resp.Hint = hint
+	}
+}
+
+func grepHint(truncated bool, hasFuncRanges bool) string {
+	parts := make([]string, 0, 2)
+	if truncated {
+		parts = append(parts, grepTruncatedHint)
+	}
+	if hasFuncRanges {
+		parts = append(parts, grepFuncRangeHint)
+	}
+	return strings.Join(parts, "; ")
+}
+
+func grepResponseHasFuncRanges(resp grepResponse) bool {
+	for _, block := range resp.Files {
+		if slices.Contains(block.Cols, "func_start") {
+			return true
+		}
+	}
+	return false
 }
 
 // grepRowCols returns the column header that matches what buildGrepResponse
