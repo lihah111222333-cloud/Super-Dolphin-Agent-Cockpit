@@ -337,6 +337,15 @@ function isNextSequence(previous, next) {
   }
 }
 
+function resolveInitialLevel() {
+  try {
+    if (typeof localStorage !== 'undefined') {
+      return localStorage.getItem('agent-orchestrator.log.level') || 'info';
+    }
+  } catch {}
+  return 'info';
+}
+
 const baseState = {
   bootstrapStatus: 'idle',
   error: '',
@@ -359,6 +368,8 @@ const baseState = {
   attachments: [],
   sending: false,
   rightPanelWidth: 520,
+  logLevel: resolveInitialLevel(),
+  logEntries: [],
 };
 
 function stateWithPatch(patch = {}) {
@@ -384,6 +395,37 @@ export const useClientStore = create((set, get) => {
     set((state) => ({
       warningEntries: [entry, ...state.warningEntries].slice(0, MAX_WARNING_ENTRIES),
     }));
+  };
+
+  const addLog = (level, event, fields = {}) => {
+    const parts = (event || '').split('.');
+    const scope = parts.length > 1 ? parts[0] : 'terminal';
+    const eventName = parts.length > 1 ? parts.slice(1).join('.') : event;
+
+    const entry = {
+      id: `${event}-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+      ts: new Date().toISOString(),
+      level,
+      scope,
+      event: eventName,
+      fields,
+    };
+    set((state) => ({
+      logEntries: [entry, ...state.logEntries].slice(0, 600),
+    }));
+
+    if (level === 'warn' || level === 'error') {
+      addWarning(level, event, fields);
+    }
+  };
+
+  const setLogLevel = (level) => {
+    try {
+      if (typeof localStorage !== 'undefined') {
+        localStorage.setItem('agent-orchestrator.log.level', level);
+      }
+    } catch {}
+    set({ logLevel: level });
   };
 
   const requireCwd = (reason) => {
@@ -820,6 +862,8 @@ export const useClientStore = create((set, get) => {
     },
 
     addWarning,
+    addLog,
+    setLogLevel,
   };
 });
 
@@ -829,8 +873,8 @@ export function resetClientStoreForTests(patch = {}) {
 }
 
 registerBridgeLogStore({
-  info: () => {},
-  debug: () => {},
-  warn: (event, fields) => useClientStore.getState().addWarning('warn', event, fields),
-  error: (event, fields) => useClientStore.getState().addWarning('error', event, fields),
+  info: (event, fields) => useClientStore.getState().addLog('info', event, fields),
+  debug: (event, fields) => useClientStore.getState().addLog('debug', event, fields),
+  warn: (event, fields) => useClientStore.getState().addLog('warn', event, fields),
+  error: (event, fields) => useClientStore.getState().addLog('error', event, fields),
 });
