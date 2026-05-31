@@ -91,6 +91,9 @@ func runCallHierarchy(
 		return nil, err
 	}
 	results, err := manager.CallHierarchy(ctx, filePath, position, direction)
+	if isUnsupportedCapability(err) {
+		return unsupportedCapabilityEmptyResult("call hierarchy"), nil
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -111,6 +114,9 @@ func runTypeHierarchy(
 		return nil, err
 	}
 	results, err := manager.TypeHierarchy(ctx, filePath, position, direction)
+	if isUnsupportedCapability(err) {
+		return unsupportedCapabilityEmptyResult("type hierarchy"), nil
+	}
 	if err != nil {
 		return nil, err
 	}

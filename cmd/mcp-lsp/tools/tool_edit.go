@@ -177,11 +177,3 @@ func appendEditWarnings(sb *strings.Builder, e editEnvelope) {
 		fmt.Fprintf(sb, "Next step: file action=diagnostics file_path=%s\n", e.FilePath)
 	}
 }
-
-func (h EditHandler) handleCodeAction(_ context.Context, req EditRequest) (any, error) {
-	return nil, fmt.Errorf("code_action not yet implemented")
-}
-
-func (h EditHandler) handleFormat(_ context.Context, req EditRequest) (any, error) {
-	return nil, fmt.Errorf("format not yet implemented")
-}

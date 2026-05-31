@@ -109,40 +109,20 @@ type fileEditResult struct {
 	warning  string
 }
 
+type textEditApplication struct {
+	startLine int
+	startByte int
+	endLine   int
+	endByte   int
+	newText   string
+}
+
 func (h EditHandler) applyFileEdits(ctx context.Context, uri string, edits []protocol.TextEdit, version int) (*fileEditResult, error) {
 	absPath, err := format.AbsolutePathFromURI(uri)
 	if err != nil {
 		return nil, fmt.Errorf("resolve URI %q: %w", uri, err)
 	}
-	info, err := os.Stat(absPath)
-	if err != nil {
-		return nil, fmt.Errorf("stat %s: %w", absPath, err)
-	}
-	original, err := os.ReadFile(absPath)
-	if err != nil {
-		return nil, fmt.Errorf("read %s: %w", absPath, err)
-	}
-	updated, err := applyTextEdits(string(original), edits)
-	if err != nil {
-		return nil, fmt.Errorf("apply edits to %s: %w", absPath, err)
-	}
-	if updated == string(original) {
-		return nil, nil
-	}
-	if err := os.WriteFile(absPath, []byte(updated), info.Mode()); err != nil {
-		return nil, fmt.Errorf("write %s: %w", absPath, err)
-	}
-	result := &fileEditResult{path: absPath, original: original, mode: info.Mode()}
-	mgr, mErr := managerForFile(ctx, h.registry, absPath, "")
-	if mErr == nil && mgr != nil {
-		syncErr := mgr.DidChange(ctx, absPath, version, []protocol.TextDocumentContentChangeEvent{
-			{Text: updated},
-		})
-		if syncErr != nil {
-			result.warning = fmt.Sprintf("LSP sync %s: %v", absPath, syncErr)
-		}
-	}
-	return result, nil
+	return h.applyTextEditsToPath(ctx, absPath, edits, version, nil)
 }
 func mergeWorkspaceEditChanges(edit *protocol.WorkspaceEdit) map[string][]protocol.TextEdit {
 	merged := make(map[string][]protocol.TextEdit)
@@ -161,41 +141,113 @@ func applyTextEdits(content string, edits []protocol.TextEdit) (string, error) {
 		return content, nil
 	}
 	lines := strings.Split(content, "\n")
-	sortEditsReverse(edits)
-	for _, edit := range edits {
-		startLine := edit.Range.Start.Line
-		startChar := edit.Range.Start.Character
-		endLine := edit.Range.End.Line
-		endChar := edit.Range.End.Character
-		if startLine >= len(lines) || endLine >= len(lines) {
-			return "", fmt.Errorf("edit range out of bounds: L%d-L%d (file has %d lines)", startLine, endLine, len(lines))
-		}
-		if startChar > len(lines[startLine]) {
-			startChar = len(lines[startLine])
-		}
-		if endChar > len(lines[endLine]) {
-			endChar = len(lines[endLine])
-		}
-		before := lines[startLine][:startChar]
-		after := lines[endLine][endChar:]
-		replacement := before + edit.NewText + after
+	applications, err := buildTextEditApplications(lines, edits)
+	if err != nil {
+		return "", err
+	}
+	for _, edit := range applications {
+		before := lines[edit.startLine][:edit.startByte]
+		after := lines[edit.endLine][edit.endByte:]
+		replacement := before + edit.newText + after
 		replacementLines := strings.Split(replacement, "\n")
-		newLines := make([]string, 0, startLine+len(replacementLines)+(len(lines)-endLine-1))
-		newLines = append(newLines, lines[:startLine]...)
+		newLines := make([]string, 0, edit.startLine+len(replacementLines)+(len(lines)-edit.endLine-1))
+		newLines = append(newLines, lines[:edit.startLine]...)
 		newLines = append(newLines, replacementLines...)
-		if endLine+1 < len(lines) {
-			newLines = append(newLines, lines[endLine+1:]...)
+		if edit.endLine+1 < len(lines) {
+			newLines = append(newLines, lines[edit.endLine+1:]...)
 		}
 		lines = newLines
 	}
 	return strings.Join(lines, "\n"), nil
 }
 
-func sortEditsReverse(edits []protocol.TextEdit) {
-	sort.Slice(edits, func(i, j int) bool {
-		if edits[i].Range.Start.Line != edits[j].Range.Start.Line {
-			return edits[i].Range.Start.Line > edits[j].Range.Start.Line
+func buildTextEditApplications(lines []string, edits []protocol.TextEdit) ([]textEditApplication, error) {
+	applications := make([]textEditApplication, 0, len(edits))
+	for _, edit := range edits {
+		application, err := buildTextEditApplication(lines, edit)
+		if err != nil {
+			return nil, err
 		}
-		return edits[i].Range.Start.Character > edits[j].Range.Start.Character
+		applications = append(applications, application)
+	}
+	sortTextEditApplications(applications)
+	return applications, nil
+}
+
+func buildTextEditApplication(lines []string, edit protocol.TextEdit) (textEditApplication, error) {
+	if err := validateTextEditRange(lines, edit.Range); err != nil {
+		return textEditApplication{}, err
+	}
+	startByte, err := utf16CharacterToByteOffset(lines[edit.Range.Start.Line], edit.Range.Start.Character)
+	if err != nil {
+		return textEditApplication{}, fmt.Errorf("edit start: %w", err)
+	}
+	endByte, err := utf16CharacterToByteOffset(lines[edit.Range.End.Line], edit.Range.End.Character)
+	if err != nil {
+		return textEditApplication{}, fmt.Errorf("edit end: %w", err)
+	}
+	return textEditApplication{
+		startLine: edit.Range.Start.Line,
+		startByte: startByte,
+		endLine:   edit.Range.End.Line,
+		endByte:   endByte,
+		newText:   edit.NewText,
+	}, nil
+}
+
+func validateTextEditRange(lines []string, rng protocol.Range) error {
+	if rng.Start.Line < 0 || rng.End.Line < 0 {
+		return fmt.Errorf("edit range line must be non-negative: L%d-L%d", rng.Start.Line, rng.End.Line)
+	}
+	if rng.Start.Line >= len(lines) || rng.End.Line >= len(lines) {
+		return fmt.Errorf("edit range out of bounds: L%d-L%d (file has %d lines)", rng.Start.Line, rng.End.Line, len(lines))
+	}
+	if rng.Start.Character < 0 || rng.End.Character < 0 {
+		return fmt.Errorf("edit range character must be non-negative: C%d-C%d", rng.Start.Character, rng.End.Character)
+	}
+	if textEditRangeReversed(rng) {
+		return fmt.Errorf("edit range start after end: L%d:C%d-L%d:C%d", rng.Start.Line, rng.Start.Character, rng.End.Line, rng.End.Character)
+	}
+	return nil
+}
+
+func textEditRangeReversed(rng protocol.Range) bool {
+	if rng.Start.Line != rng.End.Line {
+		return rng.Start.Line > rng.End.Line
+	}
+	return rng.Start.Character > rng.End.Character
+}
+
+func utf16CharacterToByteOffset(line string, character int) (int, error) {
+	units := 0
+	for byteOffset, r := range line {
+		if units == character {
+			return byteOffset, nil
+		}
+		width := utf16RuneWidth(r)
+		if units+width > character {
+			return 0, fmt.Errorf("character %d splits UTF-16 surrogate pair", character)
+		}
+		units += width
+	}
+	if units == character {
+		return len(line), nil
+	}
+	return 0, fmt.Errorf("character %d out of bounds (line has %d UTF-16 units)", character, units)
+}
+
+func utf16RuneWidth(r rune) int {
+	if r > 0xFFFF {
+		return 2
+	}
+	return 1
+}
+
+func sortTextEditApplications(edits []textEditApplication) {
+	sort.Slice(edits, func(i, j int) bool {
+		if edits[i].startLine != edits[j].startLine {
+			return edits[i].startLine > edits[j].startLine
+		}
+		return edits[i].startByte > edits[j].startByte
 	})
 }
