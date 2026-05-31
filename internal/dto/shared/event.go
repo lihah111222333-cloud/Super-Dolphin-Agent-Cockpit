@@ -52,6 +52,7 @@ const (
 	EventTypeUIPreferencesChanged uint32 = 1505
 	EventTypeUISharedFilesChanged uint32 = 1506
 	EventTypeUIMemoryChanged      uint32 = 1507
+	EventTypeUIPromptsChanged     uint32 = 1508
 
 	EventTypeProviderRaw uint32 = 1600
 

@@ -1,20 +1,19 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { CheckCircle2, File, FileText, Plus, X } from 'lucide-react';
 import {
   commitPromptIntent,
   deletePrompt,
   discardPromptIntent,
   draftPromptIntent,
-  getDashboardPrompts,
   getPreference,
   listPromptAssets,
   setPreference,
   writePrompt,
 } from '../../shared/api/backendApi.js';
-import { useClientStore } from '../../entities/client/model/useClientStore.js';
 
 const ACTIVE_PROMPT_PREF_KEY = 'settings.activePromptKey';
-const PROMPTS_AUTO_REFRESH_MS = 4000;
+const PROMPTS_REQUEST_TIMEOUT_MS = 8000;
 
 const PROMPT_TABS = Object.freeze([
   { key: 'all', label: '全部' },
@@ -44,6 +43,11 @@ const PROMPT_KIND_OPTIONS = Object.freeze([
 
 function textValue(value) {
   return value === null || value === undefined ? '' : value.toString().trim();
+}
+
+function optionalPromptCwd(value) {
+  const cwd = textValue(value);
+  return cwd && cwd !== '.' && cwd !== '未选择项目' ? cwd : '';
 }
 
 function firstText(...values) {
@@ -176,15 +180,6 @@ function trunc(value, max = 120) {
   return text.length > max ? `${text.slice(0, max)}...` : text;
 }
 
-function readonlyFallbackError(error) {
-  const status = Number(error?.status ?? error?.statusCode);
-  if (status === 404) return true;
-  if (error?.code === -32601 || Number(error?.code) === -32601) return true;
-  const name = textValue(error?.name).toLowerCase();
-  const code = textValue(error?.code).toLowerCase();
-  return name === 'notfounderror' || name === 'method_not_found' || code === 'method_not_found';
-}
-
 function wordListFromText(value) {
   return textValue(value)
     .split(/[，,;；\n]/)
@@ -276,156 +271,124 @@ function noticeText(error, prefix) {
   return `${prefix}：${message}`;
 }
 
-export function PromptPageView({ projectPath, refreshKey = 0 }) {
-  const cwd = textValue(projectPath);
-  const cachedPromptPage = useClientStore((state) => state.promptPageCacheByCwd?.[cwd]);
-  const setPromptPageCache = useClientStore((state) => state.setPromptPageCache);
-  const [items, setItems] = useState(() => (Array.isArray(cachedPromptPage?.items) ? cachedPromptPage.items : []));
+function errorMessage(error) {
+  if (!error) return '';
+  return error?.message || String(error);
+}
+
+function withTimeout(promise, timeoutMs, message) {
+  let timeoutID;
+  const timeout = new Promise((_, reject) => {
+    timeoutID = globalThis.setTimeout(() => reject(new Error(message)), timeoutMs);
+  });
+  return Promise.race([promise, timeout]).finally(() => {
+    if (timeoutID) globalThis.clearTimeout(timeoutID);
+  });
+}
+
+function promptAssetsQueryKey(cwd) {
+  return ['dashboard', 'project', cwd, 'prompts'];
+}
+
+function activePromptQueryKey(cwd) {
+  return ['dashboard', 'project', cwd, 'active-prompt'];
+}
+
+async function fetchPromptAssetsSurface(cwd) {
+  const response = await withTimeout(
+    listPromptAssets({ cwd }),
+    PROMPTS_REQUEST_TIMEOUT_MS,
+    '提示词列表加载超时，请检查提示词目录或后端状态。',
+  );
+  return { items: normalizePromptList(response) };
+}
+
+async function fetchActivePromptId(cwd) {
+  const value = await withTimeout(
+    getPreference({ cwd, key: ACTIVE_PROMPT_PREF_KEY }),
+    PROMPTS_REQUEST_TIMEOUT_MS,
+    '强制提示词状态加载超时，请检查后端状态。',
+  );
+  return typeof value === 'string' ? value.trim() : '';
+}
+
+export function PromptPageView({ projectPath, refreshKey = 0, resolveLaunchPreferences }) {
+  const cwd = optionalPromptCwd(projectPath);
+  const isProjectPending = !cwd;
+  const queryClient = useQueryClient();
   const [activeTab, setActiveTab] = useState('all');
   const [scopeFilter, setScopeFilter] = useState('all');
   const [statusFilter, setStatusFilter] = useState('all');
-  const [activePromptId, setActivePromptId] = useState(() => textValue(cachedPromptPage?.activePromptId));
-  const [loading, setLoading] = useState(false);
-  const [fallbackMode, setFallbackMode] = useState(() => Boolean(cachedPromptPage?.fallbackMode));
   const [notice, setNotice] = useState('');
-  const [error, setError] = useState('');
   const [actioning, setActioning] = useState('');
   const [editorOpen, setEditorOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [form, setForm] = useState(emptyPromptForm);
   const [wizardOpen, setWizardOpen] = useState(false);
   const [wizardDraft, setWizardDraft] = useState(null);
-  const hasLoadedPromptsRef = useRef(Boolean(cachedPromptPage?.hasLoadedPrompts));
-  const refreshInFlightRef = useRef(false);
   const promptRefreshKey = Number(refreshKey || 0);
 
-  const refreshPrompts = useCallback(async (options = {}) => {
-    const isCancelled = typeof options.isCancelled === 'function' ? options.isCancelled : () => false;
-    const silent = options.silent === true;
-    const cached = useClientStore.getState().promptPageCacheByCwd?.[cwd];
-    const hasUsableSnapshot = hasLoadedPromptsRef.current || Boolean(cached?.hasLoadedPrompts);
-    const showBlockingLoading = !silent && !hasUsableSnapshot;
-    if (!cwd || cwd === '.' || cwd === '未选择项目') {
-      if (!isCancelled()) {
-        setItems([]);
-        setFallbackMode(true);
-        if (!silent) setError('当前作用域未确定，无法加载提示词');
-      }
-      return [];
-    }
-    if (showBlockingLoading) {
-      setLoading(true);
-      setError('');
-    } else if (!silent) {
-      setError('');
-    }
-    try {
-      const response = await listPromptAssets({ cwd });
-      const next = normalizePromptList(response);
-      if (isCancelled()) return next;
-      hasLoadedPromptsRef.current = true;
-      setItems(next);
-      setFallbackMode(false);
-      setPromptPageCache(cwd, { items: next, fallbackMode: false, hasLoadedPrompts: true });
-      setError('');
-      return next;
-    } catch (err) {
-      if (readonlyFallbackError(err)) {
-        setFallbackMode(true);
-        const fallback = await getDashboardPrompts({ cwd });
-        const next = normalizePromptList(fallback);
-        if (!isCancelled()) {
-          hasLoadedPromptsRef.current = true;
-          setItems(next);
-          setFallbackMode(true);
-          setPromptPageCache(cwd, { items: next, fallbackMode: true, hasLoadedPrompts: true });
-          setError('');
-        }
-        return next;
-      }
-      if (!isCancelled()) {
-        if (showBlockingLoading) setItems([]);
-        if (!silent || !hasUsableSnapshot) setError(noticeText(err, '加载提示词失败'));
-      }
-      return [];
-    } finally {
-      if (!isCancelled() && showBlockingLoading) setLoading(false);
-    }
-  }, [cwd, setPromptPageCache]);
-
-  const refreshActivePrompt = useCallback(async (options = {}) => {
-    const isCancelled = typeof options.isCancelled === 'function' ? options.isCancelled : () => false;
-    if (!cwd || cwd === '.' || cwd === '未选择项目') {
-      if (!isCancelled()) setActivePromptId('');
-      return '';
-    }
-    try {
-      const value = await getPreference({ cwd, key: ACTIVE_PROMPT_PREF_KEY });
-      const next = typeof value === 'string' ? value.trim() : '';
-      if (!isCancelled()) {
-        setActivePromptId(next);
-        setPromptPageCache(cwd, { activePromptId: next });
-      }
-      return next;
-    } catch {
-      if (!isCancelled()) {
-        setActivePromptId('');
-        setPromptPageCache(cwd, { activePromptId: '' });
-      }
-      return '';
-    }
-  }, [cwd, setPromptPageCache]);
+  const promptAssetsQuery = useQuery({
+    queryKey: promptAssetsQueryKey(cwd),
+    queryFn: () => fetchPromptAssetsSurface(cwd),
+    enabled: Boolean(cwd),
+  });
+  const activePromptQuery = useQuery({
+    queryKey: activePromptQueryKey(cwd),
+    queryFn: () => fetchActivePromptId(cwd),
+    enabled: Boolean(cwd),
+  });
+  const refetchPromptAssets = promptAssetsQuery.refetch;
+  const refetchActivePrompt = activePromptQuery.refetch;
+  const items = useMemo(() => (
+    Array.isArray(promptAssetsQuery.data?.items) ? promptAssetsQuery.data.items : []
+  ), [promptAssetsQuery.data]);
+  const fallbackMode = Boolean(promptAssetsQuery.data?.fallbackMode);
+  const activePromptId = textValue(activePromptQuery.data);
+  const hasPromptSnapshot = Array.isArray(promptAssetsQuery.data?.items);
+  const loading = Boolean(cwd) && promptAssetsQuery.isPending && !hasPromptSnapshot;
+  const promptSyncError = promptAssetsQuery.error ? errorMessage(promptAssetsQuery.error) : '';
+  const activePromptSyncError = activePromptQuery.error ? errorMessage(activePromptQuery.error) : '';
+  const syncErrorMessage = [promptSyncError, activePromptSyncError].filter(Boolean).join('；');
+  const syncError = syncErrorMessage && hasPromptSnapshot
+    ? `同步失败，显示的是上次成功的数据：${syncErrorMessage}`
+    : '';
+  const error = promptSyncError && !hasPromptSnapshot
+    ? noticeText(promptAssetsQuery.error, '加载提示词失败')
+    : '';
+  const showBlockingError = Boolean(error);
 
   const refreshPromptSurface = useCallback(async (options = {}) => {
-    const force = options.force === true;
-    if (!force && refreshInFlightRef.current) return [];
-    refreshInFlightRef.current = true;
-    try {
-      const isCancelled = typeof options.isCancelled === 'function' ? options.isCancelled : () => false;
-      const nextItems = await refreshPrompts(options);
-      if (isCancelled()) return nextItems;
-      const activeId = await refreshActivePrompt(options);
-      if (isCancelled() || !activeId || nextItems.length === 0) return nextItems;
-      const valid = nextItems.some((item) => item.id === activeId && canForceLaunchPrompt(item));
-      if (!valid) setActivePromptId('');
-      return nextItems;
-    } finally {
-      refreshInFlightRef.current = false;
+    const isCancelled = typeof options.isCancelled === 'function' ? options.isCancelled : () => false;
+    if (!cwd) return [];
+    const [assetResult, activeResult] = await Promise.all([
+      refetchPromptAssets(),
+      refetchActivePrompt(),
+    ]);
+    const nextItems = Array.isArray(assetResult.data?.items) ? assetResult.data.items : [];
+    if (isCancelled()) return nextItems;
+    const nextActiveId = textValue(activeResult.data);
+    if (nextActiveId && !nextItems.some((item) => item.id === nextActiveId && canForceLaunchPrompt(item))) {
+      queryClient.setQueryData(activePromptQueryKey(cwd), '');
     }
-  }, [refreshActivePrompt, refreshPrompts]);
+    return nextItems;
+  }, [cwd, queryClient, refetchActivePrompt, refetchPromptAssets]);
 
   useEffect(() => {
-    const cached = useClientStore.getState().promptPageCacheByCwd?.[cwd];
-    hasLoadedPromptsRef.current = Boolean(cached?.hasLoadedPrompts);
-    setItems(Array.isArray(cached?.items) ? cached.items : []);
-    setActivePromptId(textValue(cached?.activePromptId));
-    setFallbackMode(Boolean(cached?.fallbackMode));
-    setLoading(false);
-    setError('');
     setNotice('');
   }, [cwd]);
 
   useEffect(() => {
-    if (!cachedPromptPage) return;
-    if (Array.isArray(cachedPromptPage.items)) setItems(cachedPromptPage.items);
-    setActivePromptId(textValue(cachedPromptPage.activePromptId));
-    setFallbackMode(Boolean(cachedPromptPage.fallbackMode));
-    if (cachedPromptPage.hasLoadedPrompts) hasLoadedPromptsRef.current = true;
-  }, [cachedPromptPage]);
-
-  useEffect(() => {
-    let cancelled = false;
-    const cached = useClientStore.getState().promptPageCacheByCwd?.[cwd];
-    void refreshPromptSurface({ isCancelled: () => cancelled, silent: Boolean(cached?.hasLoadedPrompts) });
-    return () => {
-      cancelled = true;
-    };
-  }, [cwd, refreshPromptSurface]);
+    if (!cwd || !activePromptId || items.length === 0) return;
+    if (!items.some((item) => item.id === activePromptId && canForceLaunchPrompt(item))) {
+      queryClient.setQueryData(activePromptQueryKey(cwd), '');
+    }
+  }, [activePromptId, cwd, items, queryClient]);
 
   useEffect(() => {
     if (promptRefreshKey <= 0) return undefined;
     let cancelled = false;
-    void refreshPromptSurface({ isCancelled: () => cancelled, silent: true });
+    void refreshPromptSurface({ isCancelled: () => cancelled });
     return () => {
       cancelled = true;
     };
@@ -434,18 +397,16 @@ export function PromptPageView({ projectPath, refreshKey = 0 }) {
   useEffect(() => {
     const runAutoRefresh = () => {
       if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
-      void refreshPromptSurface({ silent: true });
+      void refreshPromptSurface();
     };
     const handleVisibilityChange = () => {
       if (typeof document === 'undefined' || document.visibilityState === 'visible') {
         runAutoRefresh();
       }
     };
-    const intervalID = window.setInterval(runAutoRefresh, PROMPTS_AUTO_REFRESH_MS);
     window.addEventListener('focus', runAutoRefresh);
     document.addEventListener('visibilitychange', handleVisibilityChange);
     return () => {
-      window.clearInterval(intervalID);
       window.removeEventListener('focus', runAutoRefresh);
       document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
@@ -460,6 +421,10 @@ export function PromptPageView({ projectPath, refreshKey = 0 }) {
   const switchTab = (key) => {
     setActiveTab(key);
     setNotice('');
+  };
+
+  const retryPromptSync = () => {
+    void refreshPromptSurface({ force: true });
   };
 
   const openCreate = () => {
@@ -532,7 +497,7 @@ export function PromptPageView({ projectPath, refreshKey = 0 }) {
     setActioning(`launch:${item.id}`);
     try {
       await setPreference({ cwd, key: ACTIVE_PROMPT_PREF_KEY, value: item.id });
-      setActivePromptId(item.id);
+      queryClient.setQueryData(activePromptQueryKey(cwd), item.id);
       setNotice(`已设为强制使用：${item.name}`);
     } catch (err) {
       setNotice(noticeText(err, '设置强制使用失败'));
@@ -546,7 +511,7 @@ export function PromptPageView({ projectPath, refreshKey = 0 }) {
     setActioning('launch:clear');
     try {
       await setPreference({ cwd, key: ACTIVE_PROMPT_PREF_KEY, value: '' });
-      setActivePromptId('');
+      queryClient.setQueryData(activePromptQueryKey(cwd), '');
       setNotice('已取消强制使用，新对话将使用默认路由');
     } catch (err) {
       setNotice(noticeText(err, '取消强制使用失败'));
@@ -585,7 +550,7 @@ export function PromptPageView({ projectPath, refreshKey = 0 }) {
 
   return (
     <section className="console-page prompt-page">
-      <PageHeader title="AI 能力与资料" projectPath={cwd} />
+      <PageHeader title="AI 能力与资料" projectPath={cwd || projectPath} />
       <PromptTabs tabs={PROMPT_TABS} activeTab={activeTab} counts={counts} disabled={fallbackMode} onSwitch={switchTab} />
       <div className="prompt-filter-row">
         <PromptSegment title="范围" items={PROMPT_SCOPE_FILTERS} value={scopeFilter} disabled={fallbackMode} onChange={setScopeFilter} />
@@ -596,17 +561,29 @@ export function PromptPageView({ projectPath, refreshKey = 0 }) {
           <Plus size={15} /> + 添加给 AI 的内容
         </button>
       </div>
+      {isProjectPending ? <div className="prompt-notice">正在连接本地项目...</div> : null}
       {fallbackMode ? <div className="prompt-notice warn">prompt-assets/list 暂不可用，页面已切换为只读模式。</div> : null}
-      {error ? <div className="prompt-notice error">{error}</div> : null}
+      {syncError ? (
+        <div className="prompt-notice error" role="alert">
+          <span>{syncError}</span>
+          <button type="button" className="ghost" onClick={retryPromptSync}>重试同步</button>
+        </div>
+      ) : null}
+      {error ? (
+        <div className="prompt-notice error" role="alert">
+          <span>{error}</span>
+          <button type="button" className="ghost" onClick={retryPromptSync}>重试同步</button>
+        </div>
+      ) : null}
       {loading ? <div className="prompt-loading">加载中...</div> : null}
-      {!loading && visibleItems.length === 0 ? (
+      {!isProjectPending && !loading && !showBlockingError && visibleItems.length === 0 ? (
         <div className="empty-state prompt-empty">
           <File size={30} />
           <h3>暂无内容</h3>
           <p>{activeTab === 'pending' ? '暂无待确认内容。' : '点击“添加给 AI 的内容”开始创建。'}</p>
         </div>
       ) : null}
-      {!loading && visibleItems.length > 0 ? (
+      {!isProjectPending && !loading && visibleItems.length > 0 ? (
         <div className="prompt-card-grid">
           {visibleItems.map((item, index) => (
             <PromptCard
@@ -643,6 +620,7 @@ export function PromptPageView({ projectPath, refreshKey = 0 }) {
         <PromptIntentWizardModal
           cwd={cwd}
           initialDraft={wizardDraft}
+          resolveLaunchPreferences={resolveLaunchPreferences}
           onClose={() => {
             setWizardOpen(false);
             setWizardDraft(null);
@@ -809,7 +787,7 @@ function PromptEditorModal({ form, notice, saving, onChange, onClose, onSave }) 
   );
 }
 
-function PromptIntentWizardModal({ cwd, initialDraft, onClose, onSaved }) {
+function PromptIntentWizardModal({ cwd, initialDraft, resolveLaunchPreferences, onClose, onSaved }) {
   const [kind, setKind] = useState(initialDraft?.kind || 'expert');
   const [scope, setScope] = useState(initialDraft?.scope || 'project');
   const [rawInput, setRawInput] = useState('');
@@ -834,12 +812,18 @@ function PromptIntentWizardModal({ cwd, initialDraft, onClose, onSaved }) {
     setWorking('draft');
     setNotice('');
     try {
+      const launchPreferences = typeof resolveLaunchPreferences === 'function'
+        ? await resolveLaunchPreferences(cwd)
+        : null;
       const response = await draftPromptIntent({
         cwd,
         kind,
         rawInput: text,
         sourceType: 'user_input',
         scope,
+        provider: textValue(launchPreferences?.modelProvider || launchPreferences?.provider),
+        model: textValue(launchPreferences?.model),
+        codexModelProvider: textValue(launchPreferences?.config?.codexModelProvider),
       });
       setDraft(normalizeDraft(response, kind));
     } catch (err) {

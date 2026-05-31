@@ -2168,6 +2168,10 @@ export const useClientStore = create((set, get) => {
     },
 
     setActivePage: (activePage) => set({ activePage }),
+    resolveLaunchPreferences: async (cwdArg) => {
+      const cwd = normalizePath(cwdArg) || requireCwd('thread.launchPreferences');
+      return resolveLaunchPreferences(cwd);
+    },
     setPromptPageCache: (cwd, patch = {}) => {
       const key = normalizeString(cwd);
       if (!key) return;

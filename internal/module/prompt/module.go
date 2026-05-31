@@ -3,6 +3,7 @@ package prompt
 import (
 	"log/slog"
 
+	"github.com/kelindar/event"
 	"go.uber.org/fx"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
@@ -39,10 +40,11 @@ func newEnableWhenEvaluator() contract.EnableWhenEvaluator {
 type promptHandlersParams struct {
 	fx.In
 
-	Store    promptstore.Store
-	Builtin  contract.BuiltinPromptRegistry `optional:"true"`
-	Dream    contract.DreamExecutor         `optional:"true"`
-	Sections contract.SectionInvalidator    `optional:"true"`
+	Store      promptstore.Store
+	Builtin    contract.BuiltinPromptRegistry `optional:"true"`
+	Dream      contract.DreamExecutor         `optional:"true"`
+	Sections   contract.SectionInvalidator    `optional:"true"`
+	Dispatcher *event.Dispatcher              `optional:"true"`
 }
 
 func registerPromptHandlers(params promptHandlersParams) platformrpc.HandlerMapResult {
@@ -52,6 +54,7 @@ func registerPromptHandlers(params promptHandlersParams) platformrpc.HandlerMapR
 		params.Builtin,
 		params.Sections,
 		params.Dream,
+		params.Dispatcher,
 	)
 }
 

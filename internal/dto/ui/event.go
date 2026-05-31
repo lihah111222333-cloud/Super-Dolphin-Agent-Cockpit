@@ -66,6 +66,15 @@ type UIMemoryChanged struct {
 	Action string `json:"action,omitempty"`
 }
 
+// UIPromptsChanged reports prompt asset inventory mutations.
+type UIPromptsChanged struct {
+	shared.EventHeader
+	Cwd       string `json:"cwd,omitempty"`
+	PromptKey string `json:"promptKey,omitempty"`
+	DraftKey  string `json:"draftKey,omitempty"`
+	Action    string `json:"action,omitempty"`
+}
+
 type ThreadPatchThread struct {
 	ID        string     `json:"id"`
 	Name      string     `json:"name,omitempty"`
@@ -121,3 +130,4 @@ func (UIThreadPatch) Type() uint32        { return shared.EventTypeUIThreadPatch
 func (UIPreferencesChanged) Type() uint32 { return shared.EventTypeUIPreferencesChanged }
 func (UISharedFilesChanged) Type() uint32 { return shared.EventTypeUISharedFilesChanged }
 func (UIMemoryChanged) Type() uint32      { return shared.EventTypeUIMemoryChanged }
+func (UIPromptsChanged) Type() uint32     { return shared.EventTypeUIPromptsChanged }

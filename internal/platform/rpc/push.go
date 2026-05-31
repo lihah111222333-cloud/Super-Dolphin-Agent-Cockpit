@@ -87,6 +87,7 @@ var typedPushMethods = map[string]struct{}{
 	strings.ToLower(eventsurface.MethodUIThreadPatch):        {},
 	strings.ToLower(eventsurface.MethodUISharedFilesChanged): {},
 	strings.ToLower(eventsurface.MethodUIMemoryChanged):      {},
+	strings.ToLower(eventsurface.MethodUIPromptsChanged):     {},
 	strings.ToLower(eventsurface.MethodAgentLaunched):        {},
 	strings.ToLower(eventsurface.MethodAgentStopped):         {},
 }

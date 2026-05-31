@@ -908,6 +908,34 @@ describe('useClientStore backend contract', () => {
     }));
   });
 
+  it('exposes the same launch preferences for non-chat thread launches', async () => {
+    resetClientStoreForTests({
+      cwd: '/repo/app',
+      activeProject: '/repo/app',
+    });
+    backend.getPreference.mockImplementation(({ key }) => Promise.resolve({
+      'settings.provider.active': 'codex',
+      'settings.provider.codex.model': 'gpt-5.5',
+      'settings.provider.codex.effort': 'xhigh',
+      'settings.provider.codex.codexHome': '/Users/test/.codex-alt',
+      'settings.provider.codex.codexInstanceKey': 'desktop-main',
+      'settings.provider.codex.codexModelProvider': 'openrouter',
+      'settings.activePromptKey': 'main/reviewer',
+    }[key] ?? null));
+
+    await expect(useClientStore.getState().resolveLaunchPreferences('/repo/app')).resolves.toEqual({
+      modelProvider: 'codex',
+      model: 'gpt-5.5',
+      effort: 'xhigh',
+      prompt_key: 'main/reviewer',
+      config: {
+        codexHome: '/Users/test/.codex-alt',
+        codexInstanceKey: 'desktop-main',
+        codexModelProvider: 'openrouter',
+      },
+    });
+  });
+
   it('canonicalizes object-shaped provider preferences before thread/start', async () => {
     resetClientStoreForTests({
       cwd: '/repo/app',

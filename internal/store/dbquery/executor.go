@@ -31,17 +31,21 @@ var (
 		"prompt_versions":        {},
 		"shared_files":           {},
 		"system_logs":            {},
+		"task_dag_nodes":         {},
+		"task_dag_runs":          {},
+		"task_dags":              {},
 		"task_traces":            {},
 		"topology_approvals":     {},
 		"ui_preferences":         {},
 		"workspace_run_files":    {},
 		"workspace_runs":         {},
 	}
-	dangerousKeywordPattern  = regexp.MustCompile(`(?i)\b(insert|update|delete|drop|alter|truncate|create|grant|revoke|comment|vacuum|analyze|copy|merge|call|do)\b`)
-	dangerousFunctionPattern = regexp.MustCompile(`(?i)\b(pg_sleep|pg_terminate_backend|pg_cancel_backend|set_config|version|current_setting|current_user|inet_server_addr|inet_server_port|pg_read_file|pg_read_binary_file|pg_ls_dir|pg_stat_\w+|lo_import|lo_export)\b(?:\s*\(|\b)`)
-	placeholderPattern       = regexp.MustCompile(`\$(\d+)`)
-	tableReferencePattern    = regexp.MustCompile(`(?i)\b(?:from|join)\s+(?:only\s+|lateral\s+)?((?:"[^"]+"|\w+)(?:\.(?:"[^"]+"|\w+))?)`)
-	errInvalidCTESyntax      = errors.New("dbquery query has invalid CTE syntax")
+	dangerousKeywordPattern      = regexp.MustCompile(`(?i)\b(insert|update|delete|drop|alter|truncate|create|grant|revoke|comment|vacuum|analyze|copy|merge|call|do)\b`)
+	dangerousFunctionCallPattern = regexp.MustCompile(`(?i)\b(pg_sleep|pg_terminate_backend|pg_cancel_backend|set_config|version|current_setting|inet_server_addr|inet_server_port|pg_read_file|pg_read_binary_file|pg_ls_dir|pg_stat_\w+|lo_import|lo_export)\b\s*\(`)
+	dangerousBareFunctionPattern = regexp.MustCompile(`(?i)\bcurrent_user\b`)
+	placeholderPattern           = regexp.MustCompile(`\$(\d+)`)
+	tableReferencePattern        = regexp.MustCompile(`(?i)\b(?:from|join)\s+(?:only\s+|lateral\s+)?((?:"[^"]+"|\w+)(?:\.(?:"[^"]+"|\w+))?)`)
+	errInvalidCTESyntax          = errors.New("dbquery query has invalid CTE syntax")
 )
 
 func executeQuery(ctx context.Context, queryer platformdb.Queryable, timeout time.Duration, query string, args ...any) (_ []map[string]any, err error) {
@@ -191,11 +195,17 @@ func validateAllowedTables(query string) error {
 }
 
 func disallowedFunctionName(query string) string {
-	match := dangerousFunctionPattern.FindStringSubmatch(query)
+	match := dangerousFunctionCallPattern.FindStringSubmatch(query)
 	if len(match) < 2 {
+		match = dangerousBareFunctionPattern.FindStringSubmatch(query)
+	}
+	if len(match) < 1 {
 		return ""
 	}
-	return strings.ToLower(strings.TrimSpace(match[1]))
+	if len(match) >= 2 {
+		return strings.ToLower(strings.TrimSpace(match[1]))
+	}
+	return strings.ToLower(strings.TrimSpace(match[0]))
 }
 
 func tableReferences(query string, cteNames map[string]struct{}) (int, []string) {
