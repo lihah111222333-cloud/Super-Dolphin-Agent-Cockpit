@@ -44,19 +44,28 @@ func TestMcpLSPBinaryPythonConstantIdentifierCompletionIsColumnInsensitive_E2E(t
 	client.call(t, "initialize", map[string]any{"protocolVersion": "2024-11-05"})
 	client.waitForHoverText(t, target+":10:1", "REG_CN", 120*time.Second)
 
-	for _, pos := range []string{target + ":10:5", target + ":10:6", target + ":10:7"} {
+	for _, tc := range []struct {
+		pos  string
+		want string
+	}{
+		{pos: target + ":10:5", want: "REG_CN"},
+		{pos: target + ":10:6", want: "REG_CN"},
+		{pos: target + ":10:7", want: "REG_CN"},
+		{pos: target + ":11:6", want: "REG_US"},
+		{pos: target + ":13:7", want: "REG_CRYPTO"},
+	} {
 		completion := client.callTool(t, "completion", map[string]any{
-			"pos":         pos,
+			"pos":         tc.pos,
 			"max_results": 10,
 		})
 		if completion.Result.IsError {
 			t.Fatalf("completion at %s returned MCP error result; text=%q structured=%s stderr=%s",
-				pos, completion.Result.ContentText(), completion.Result.StructuredContent, client.stderrString())
+				tc.pos, completion.Result.ContentText(), completion.Result.StructuredContent, client.stderrString())
 		}
 		labels := completionLabelsFromStructuredContent(t, completion.Result.StructuredContent)
-		if !stringSliceContains(labels, "REG_CN") {
-			t.Fatalf("completion at %s is column-sensitive: labels=%v structured=%s text=%q stderr=%s",
-				pos, labels, completion.Result.StructuredContent, completion.Result.ContentText(), client.stderrString())
+		if !stringSliceContains(labels, tc.want) {
+			t.Fatalf("completion at %s is column-sensitive: labels=%v want=%s structured=%s text=%q stderr=%s",
+				tc.pos, labels, tc.want, completion.Result.StructuredContent, completion.Result.ContentText(), client.stderrString())
 		}
 	}
 }
