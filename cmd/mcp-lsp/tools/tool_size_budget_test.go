@@ -89,17 +89,13 @@ func TestWorkspaceSymbolVerbosityBudgets(t *testing.T) {
 
 func callXRefTool(t *testing.T, handler ToolHandler, root string, filePath string, params xrefParams) any {
 	t.Helper()
-	params.FilePath = filePath
-	params.Line = 1
-	params.Column = 1
+	params.Pos = fmt.Sprintf("%s:1:1", filePath)
 	return callToolHandler(t, handler, root, params)
 }
 
 func callCompletionTool(t *testing.T, handler ToolHandler, root string, filePath string, params completionParams) any {
 	t.Helper()
-	params.FilePath = filePath
-	params.Line = 1
-	params.Column = 1
+	params.Pos = fmt.Sprintf("%s:1:1", filePath)
 	return callToolHandler(t, handler, root, params)
 }
 

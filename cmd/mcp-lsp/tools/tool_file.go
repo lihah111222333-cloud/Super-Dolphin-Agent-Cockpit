@@ -409,3 +409,35 @@ func minInt(left, right int) int {
 	}
 	return right
 }
+
+func (r openFileResult) ToPlainText() string {
+	if r.Success {
+		return fmt.Sprintf("Successfully opened file: %s (%d bytes).", r.FilePath, r.Bytes)
+	}
+	return fmt.Sprintf("Failed to open file: %s. Message: %s", r.FilePath, r.Message)
+}
+
+func (r batchReadResponse) ToPlainText() string {
+	var sb strings.Builder
+	sb.WriteString(fmt.Sprintf("Batch Read Results: success=%t (processed %d of %d requested)\n", r.Success, r.Meta.SuccessCount, r.Meta.RequestedCount))
+	if r.Meta.Message != "" {
+		sb.WriteString(fmt.Sprintf("Message: %s\n", r.Meta.Message))
+	}
+	sb.WriteString("\n")
+
+	for _, item := range r.Data {
+		sb.WriteString(fmt.Sprintf("--- File: %s ---\n", item.FilePath))
+		if item.Success {
+			sb.WriteString(item.Content)
+		} else {
+			sb.WriteString(fmt.Sprintf("Error: %s\n", item.Error))
+		}
+		sb.WriteString("\n")
+	}
+
+	if r.Meta.Truncated || r.Meta.Dropped > 0 {
+		sb.WriteString("Warning: batch payload was truncated due to batch limits.\n")
+	}
+
+	return strings.TrimSpace(sb.String())
+}

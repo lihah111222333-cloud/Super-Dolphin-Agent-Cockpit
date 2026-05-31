@@ -9,6 +9,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/tools"
 	mcp "github.com/anthropic-ai/super-agent-v3/internal/dto/mcp"
 	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/common"
 	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/common/bootstrap"
@@ -279,13 +280,36 @@ func handleScopedToolsCall(ctx context.Context, tp registryToolProvider, family 
 }
 
 func wrapScopedToolResult(result any) (any, error) {
-	text, err := json.Marshal(result)
-	if err != nil {
-		return nil, err
+	var plainText string
+	var err error
+
+	// 1. Resolve LLM-facing plain text
+	if str, ok := result.(string); ok {
+		plainText = str
+	} else if formatter, ok := result.(interface{ ToPlainText() string }); ok {
+		plainText = formatter.ToPlainText()
+	} else if formattedText, handled := tools.FormatToPlainText(result); handled {
+		plainText = formattedText
+	} else {
+		var raw []byte
+		raw, err = json.Marshal(result)
+		if err != nil {
+			return nil, err
+		}
+		plainText = string(raw)
 	}
+
+	// 2. Preserve structured JSON for the frontend
+	var structuredJSON []byte
+	if str, ok := result.(string); ok {
+		structuredJSON, _ = json.Marshal(str)
+	} else {
+		structuredJSON, _ = json.Marshal(result)
+	}
+
 	return map[string]any{
-		"content":           []map[string]string{{"type": "text", "text": string(text)}},
-		"structuredContent": json.RawMessage(text),
+		"content":           []map[string]string{{"type": "text", "text": plainText}},
+		"structuredContent": json.RawMessage(structuredJSON),
 		"isError":           common.ToolResultIsError(result),
 	}, nil
 }

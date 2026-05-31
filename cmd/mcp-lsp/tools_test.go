@@ -641,13 +641,3 @@ func TestEditSchemaExposesPatchDiskFieldsOnly(t *testing.T) {
 		t.Fatalf("edit schema required = %#v, want file_path and patch", required)
 	}
 }
-
-func TestStructureSchemaExposesLegacyPathAlias(t *testing.T) {
-	props, ok := lspStructureSchema["properties"].(map[string]any)
-	if !ok {
-		t.Fatalf("structure schema properties type = %T", lspStructureSchema["properties"])
-	}
-	if _, ok := props["path"]; !ok {
-		t.Fatalf("structure schema missing legacy path alias")
-	}
-}

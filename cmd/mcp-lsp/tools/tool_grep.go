@@ -3,6 +3,8 @@ package tools
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/format"
@@ -250,4 +252,61 @@ func buildGrepResponse(matches []search.SearchMatch, total int, truncated bool) 
 		Truncated: truncated,
 		Hint:      hint,
 	}
+}
+
+func (r grepResponse) ToPlainText() string {
+	if r.Total == 0 {
+		return "No matches found."
+	}
+
+	var sb strings.Builder
+	sb.WriteString(fmt.Sprintf("Search Matches: showing %d of %d total\n", r.Showing, r.Total))
+	if r.Message != "" {
+		sb.WriteString(fmt.Sprintf("Message: %s\n", r.Message))
+	}
+	sb.WriteString("\n")
+
+	// Sort file paths to have deterministic output order
+	var files []string
+	for f := range r.Files {
+		files = append(files, f)
+	}
+	sort.Strings(files)
+
+	for _, file := range files {
+		sb.WriteString(fmt.Sprintf("File: %s\n", file))
+		fr := r.Files[file]
+		for _, row := range fr.Rows {
+			r.formatGrepRow(&sb, row)
+		}
+		sb.WriteString("\n")
+	}
+
+	if r.Truncated || r.DroppedForPayload > 0 {
+		sb.WriteString("Warning: results were truncated due to limits or budget constraints.\n")
+	}
+	if r.Hint != "" {
+		sb.WriteString(fmt.Sprintf("Hint: %s\n", r.Hint))
+	}
+
+	return strings.TrimSpace(sb.String())
+}
+
+func (r grepResponse) formatGrepRow(sb *strings.Builder, row []any) {
+	if len(row) < 3 {
+		return
+	}
+	lineVal, _ := row[0].(int)
+	colVal, _ := row[1].(int)
+	textVal, _ := row[2].(string)
+
+	funcInfo := ""
+	if len(row) >= 5 {
+		fs, _ := row[3].(int)
+		fe, _ := row[4].(int)
+		if fs > 0 && fe >= fs {
+			funcInfo = fmt.Sprintf(" [enclosing function: L%d-L%d]", fs, fe)
+		}
+	}
+	fmt.Fprintf(sb, "  L%d:%d: %s%s\n", lineVal, colVal, textVal, funcInfo)
 }

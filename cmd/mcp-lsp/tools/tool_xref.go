@@ -14,10 +14,8 @@ import (
 
 type xrefParams struct {
 	Action             string `json:"action"`
-	FilePath           string `json:"file_path"`
+	Pos                string `json:"pos"`
 	LanguageID         string `json:"language_id,omitempty"`
-	Line               int    `json:"line"`
-	Column             int    `json:"column"`
 	Direction          string `json:"direction"`
 	IncludeDeclaration *bool  `json:"include_declaration"`
 	Verbosity          string `json:"verbosity"`
@@ -26,15 +24,14 @@ type xrefParams struct {
 
 func NewXRefHandler(registry lspmanager.Registry) ToolHandler {
 	return newManagerTool("xref", middleware.TierNormal, registry, decodeStrict, func(ctx context.Context, registry lspmanager.Registry, req xrefParams) (any, error) {
-		manager, err := managerForFile(ctx, registry, req.FilePath, req.LanguageID)
+		filePath, position, err := resolveFilePositionRequest(ctx, filePositionParams{
+			Pos:        req.Pos,
+			LanguageID: req.LanguageID,
+		})
 		if err != nil {
 			return nil, err
 		}
-		filePath, position, err := resolveFilePositionRequest(ctx, filePositionParams{
-			FilePath: req.FilePath,
-			Line:     req.Line,
-			Column:   req.Column,
-		})
+		manager, err := managerForFile(ctx, registry, filePath, req.LanguageID)
 		if err != nil {
 			return nil, err
 		}
