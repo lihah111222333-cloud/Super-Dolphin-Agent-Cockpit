@@ -12,8 +12,10 @@ import (
 	"time"
 
 	"github.com/creachadair/jrpc2/handler"
+	"github.com/kelindar/event"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
+	uidto "github.com/anthropic-ai/super-agent-v3/internal/dto/ui"
 	promptintent "github.com/anthropic-ai/super-agent-v3/internal/module/prompt/intent"
 	platformrpc "github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
 	promptstore "github.com/anthropic-ai/super-agent-v3/internal/store/prompt"
@@ -244,6 +246,7 @@ func buildPromptHandlersWithService(promptSvc PromptService, deps ...any) platfo
 	var sectionInvalidator contract.SectionInvalidator
 	var dream contract.DreamExecutor
 	var builtin contract.BuiltinPromptRegistry
+	var emitPromptsChanged func(uidto.UIPromptsChanged)
 	for _, dep := range deps {
 		switch value := dep.(type) {
 		case promptstore.Store:
@@ -254,6 +257,8 @@ func buildPromptHandlersWithService(promptSvc PromptService, deps ...any) platfo
 			dream = value
 		case contract.BuiltinPromptRegistry:
 			builtin = value
+		case *event.Dispatcher:
+			emitPromptsChanged = contract.NewEmitter[uidto.UIPromptsChanged](value)
 		}
 	}
 	handlers := handler.Map{
@@ -264,33 +269,19 @@ func buildPromptHandlersWithService(promptSvc PromptService, deps ...any) platfo
 		"prompts/get": platformrpc.StrictHandler(func(ctx context.Context, p promptGetParams) (any, error) {
 			return handlePromptGet(ctx, promptSvc, p)
 		}),
-		"prompts/write": platformrpc.StrictHandler(func(ctx context.Context, p promptWriteParams) (any, error) {
-			return handlePromptWrite(ctx, promptSvc, p)
-		}),
-		"prompts/delete": platformrpc.StrictHandler(func(ctx context.Context, p promptDeleteParams) (any, error) {
-			return handlePromptDelete(ctx, promptSvc, p)
-		}),
+		"prompts/write":  promptWriteRPCHandler(promptSvc, emitPromptsChanged),
+		"prompts/delete": promptDeleteRPCHandler(promptSvc, emitPromptsChanged),
 		"prompt-sections/list": platformrpc.StrictHandler(func(ctx context.Context, p promptSectionListParams) (any, error) {
 			return handlePromptSectionList(ctx, promptSvc, p)
 		}),
-		"prompt-sections/write": platformrpc.StrictHandler(func(ctx context.Context, p promptSectionWriteParams) (any, error) {
-			return handlePromptSectionWrite(ctx, promptSvc, p)
-		}),
-		"prompt-sections/delete": platformrpc.StrictHandler(func(ctx context.Context, p promptSectionDeleteParams) (any, error) {
-			return handlePromptSectionDelete(ctx, promptSvc, p)
-		}),
-		"prompt-intents/draft": platformrpc.StrictHandler(func(ctx context.Context, p promptintent.DraftParams) (any, error) {
-			return promptintent.HandleDraft(ctx, promptStore, dream, builtin, p)
-		}),
+		"prompt-sections/write":  promptSectionWriteRPCHandler(promptSvc, emitPromptsChanged),
+		"prompt-sections/delete": promptSectionDeleteRPCHandler(promptSvc, emitPromptsChanged),
+		"prompt-intents/draft":   promptIntentDraftRPCHandler(promptStore, dream, builtin, emitPromptsChanged),
 		"prompt-intents/dry-run": platformrpc.StrictHandler(func(ctx context.Context, p promptintent.DryRunParams) (any, error) {
 			return promptintent.HandleDryRun(ctx, promptStore, dream, builtin, p)
 		}),
-		"prompt-intents/commit": platformrpc.StrictHandler(func(ctx context.Context, p promptintent.CommitParams) (any, error) {
-			return promptintent.HandleCommit(ctx, promptStore, sectionInvalidator, builtin, p)
-		}),
-		"prompt-intents/discard": platformrpc.StrictHandler(func(ctx context.Context, p promptintent.DiscardParams) (any, error) {
-			return promptintent.HandleDiscard(ctx, promptStore, p)
-		}),
+		"prompt-intents/commit":  promptIntentCommitRPCHandler(promptStore, sectionInvalidator, builtin, emitPromptsChanged),
+		"prompt-intents/discard": promptIntentDiscardRPCHandler(promptStore, emitPromptsChanged),
 	}
 	if strings.TrimSpace(os.Getenv("PROMPT_INTENT_E2E_DREAM_FIXTURE")) != "" {
 		handlers["prompt-intents/e2e-health"] = platformrpc.StrictHandler(func(ctx context.Context, p promptintent.E2EHealthParams) (any, error) {

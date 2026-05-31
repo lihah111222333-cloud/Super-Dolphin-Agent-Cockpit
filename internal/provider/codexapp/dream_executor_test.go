@@ -83,6 +83,40 @@ func TestCodexDreamExecutor_ModelEnvAddsArgs(t *testing.T) {
 	}
 }
 
+func TestCodexDreamExecutor_RequestModelOverridesEnvModel(t *testing.T) {
+	c := &capturingCommander{outputs: []string{`{"memories":[]}`}}
+	exec := newDreamExecutor(c, "codex", "env-model")
+	if _, err := exec.ExecuteDreamWithOptions(context.Background(), "p", contract.DreamOptions{Model: "request-model"}); err != nil {
+		t.Fatalf("expected success, got %v", err)
+	}
+	want := []string{"exec", "--json", "--skip-git-repo-check", "--model", "request-model"}
+	if len(c.lastArgs) != len(want) {
+		t.Fatalf("args: got %v, want %v", c.lastArgs, want)
+	}
+	for i, a := range want {
+		if c.lastArgs[i] != a {
+			t.Fatalf("args[%d]: got %q, want %q", i, c.lastArgs[i], a)
+		}
+	}
+}
+
+func TestCodexDreamExecutor_RequestModelProviderAddsConfigArg(t *testing.T) {
+	c := &capturingCommander{outputs: []string{`{"memories":[]}`}}
+	exec := newDreamExecutor(c, "codex", "")
+	if _, err := exec.ExecuteDreamWithOptions(context.Background(), "p", contract.DreamOptions{ModelProvider: "openrouter"}); err != nil {
+		t.Fatalf("expected success, got %v", err)
+	}
+	want := []string{"exec", "--json", "--skip-git-repo-check", "-c", `model_provider="openrouter"`}
+	if len(c.lastArgs) != len(want) {
+		t.Fatalf("args: got %v, want %v", c.lastArgs, want)
+	}
+	for i, a := range want {
+		if c.lastArgs[i] != a {
+			t.Fatalf("args[%d]: got %q, want %q", i, c.lastArgs[i], a)
+		}
+	}
+}
+
 // TestCodexDreamExecutor_JSONLUsageIncrementsDreamMetrics 验证完整流路：
 // JSONL stream -> dreamexec 探测 -> ExtractCodexJSONL -> OnUsage -> dreammetrics.AddTokens。
 // codex usage 语义：input_tokens 已含 cached（OpenAI 惯例），无 cache_creation。

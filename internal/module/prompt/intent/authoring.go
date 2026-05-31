@@ -63,13 +63,14 @@ func HandleDraft(
 	if err != nil {
 		return nil, err
 	}
-	cards, err := draftdream.Execute(ctx, dream, prompt, parsePromptIntentCards)
+	dreamOptions := promptIntentDraftDreamOptions(p)
+	cards, err := draftdream.ExecuteWithOptions(ctx, dream, prompt, dreamOptions, parsePromptIntentCards)
 	if err != nil {
 		return nil, err
 	}
 	cards = promptIntentNormalizeGeneratedCards(kind, rawInput, cards)
 	cards = promptIntentSingleTypeCards(kind, rawInput, cards)
-	cards, err = repairPromptIntentCardsIfNeeded(ctx, dream, kind, rawInput, cards)
+	cards, err = repairPromptIntentCardsIfNeeded(ctx, dream, kind, rawInput, cards, dreamOptions)
 	if err != nil {
 		return nil, err
 	}
@@ -90,6 +91,14 @@ func HandleDraft(
 		InferredKind:  results[0].InferredKind,
 		Drafts:        results,
 	}, nil
+}
+
+func promptIntentDraftDreamOptions(p DraftParams) contract.DreamOptions {
+	return contract.DreamOptions{
+		Provider:      strings.TrimSpace(p.Provider),
+		Model:         strings.TrimSpace(p.Model),
+		ModelProvider: strings.TrimSpace(p.ModelProvider),
+	}
 }
 
 func buildPromptIntentDrafts(

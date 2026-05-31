@@ -352,6 +352,9 @@ describe('frontend-app backend API facade', () => {
       rawInput: '当用户要求代码审查时使用。',
       sourceType: 'user_input',
       scope: 'project',
+      provider: 'codex',
+      model: 'gpt-5.5',
+      codexModelProvider: 'openrouter',
     });
     await api.commitPromptIntent({ cwd: '/repo/app', draftKey: 'intent/expert/review' });
     await api.draftPromptIntent({
@@ -396,6 +399,9 @@ describe('frontend-app backend API facade', () => {
       kind: 'expert',
       raw_input: '当用户要求代码审查时使用。',
       source_type: 'user_input',
+      provider: 'codex',
+      model: 'gpt-5.5',
+      model_provider: 'openrouter',
     });
     expect(callAPI).toHaveBeenCalledWith(RPC_METHODS.PROMPT_INTENTS_COMMIT, {
       cwd: '/repo/app',
@@ -476,19 +482,22 @@ describe('frontend-app backend API facade', () => {
     expect(() => api.openNewWindow({ cwd: '' })).toThrow('cwd is required');
   });
 
-  it('wraps shared file read and delete RPCs with the legacy payload shapes', async () => {
+  it('wraps shared file list, read and delete RPCs with the global payload shapes', async () => {
     const callAPI = vi.fn().mockResolvedValue({ ok: true });
     const api = createBackendApi({ callAPI });
 
+    await api.listSharedFiles();
     await api.readSharedFile({ path: 'reports/final.md' });
     await api.deleteSharedFile({ path: 'scratch/work.json' });
 
+    expect(callAPI).toHaveBeenCalledWith(RPC_METHODS.DASHBOARD_SHARED_FILES, {});
     expect(callAPI).toHaveBeenCalledWith(RPC_METHODS.UI_SHARED_FILE_GET, {
       path: 'reports/final.md',
     });
     expect(callAPI).toHaveBeenCalledWith(RPC_METHODS.UI_SHARED_FILE_DELETE, {
       path: 'scratch/work.json',
     });
+    expect(() => api.listSharedFiles([])).toThrow('params must be an object');
     expect(() => api.readSharedFile({ path: '' })).toThrow('path is required');
     expect(() => api.deleteSharedFile({ path: '' })).toThrow('path is required');
   });

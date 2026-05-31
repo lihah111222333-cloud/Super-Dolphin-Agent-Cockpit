@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { QueryClient, QueryClientProvider, useQuery, useQueryClient } from '@tanstack/react-query';
 import { AlertTriangle, Archive, ArrowLeft, Bot, Boxes, Brain, ChevronDown, CircleStop, Code2, Copy, Download, Eye, File, FileText, Folder, FolderOpen, GitBranch, Link2, MemoryStick, MessageCircle, Moon, MoreHorizontal, PanelTopOpen, Pencil, Pin, Plus, RefreshCw, Search, Send, Settings, Sparkles, Sun, Trash2, Workflow, X } from 'lucide-react';
 import { useClientStore } from './entities/client/model/useClientStore.js';
 import { PromptPageView } from './features/prompts/PromptPageView.jsx';
@@ -20,6 +21,7 @@ import {
   getDagRuns,
   getPreference,
   importSkillDirectories,
+  listSharedFiles,
   listSkillFiles,
   listSkillResolutions,
   ignoreMemorySimilarity,
@@ -74,7 +76,6 @@ const DAG_CATEGORIES = Object.freeze([
 const STARTABLE_DAG_STATUSES = new Set(['draft', 'ready']);
 const STARTABLE_DAG_TRIGGERS = new Set(['manual', 'scheduled', 'schedule', 'cron', '']);
 const RUNNING_RUN_STATUSES = new Set(['running', 'pending', 'dispatching', 'waiting_for_assignee']);
-const WORKFLOW_AUTO_REFRESH_MS = 4000;
 const SHARED_FILE_CATEGORIES = Object.freeze([
   { key: 'all', label: '全部' },
   { key: 'final', label: '最终产物' },
@@ -85,10 +86,9 @@ const SHARED_FILE_SORTS = Object.freeze([
   { key: 'updated-asc', label: '最早更新' },
   { key: 'path-asc', label: '按文件名' },
 ]);
-const SHARED_FILES_AUTO_REFRESH_MS = 4000;
-const MEMORY_AUTO_REFRESH_MS = 4000;
-const SKILLS_AUTO_REFRESH_MS = 4000;
 const SKILLS_REQUEST_TIMEOUT_MS = 8000;
+const DASHBOARD_QUERY_STALE_MS = 30_000;
+const DASHBOARD_QUERY_GC_MS = 10 * 60_000;
 const MEMORY_CATEGORIES = Object.freeze([
   { key: 'preference', label: '偏好' },
   { key: 'project', label: '项目' },
@@ -1037,6 +1037,119 @@ function normalizeSettingsCwd(value) {
   return cwd;
 }
 
+function optionalSettingsCwd(value) {
+  const cwd = (value || '').toString().trim();
+  return cwd && cwd !== '.' && cwd !== '未选择项目' ? cwd : '';
+}
+
+function dashboardQueryKey(cwd, page, ...parts) {
+  return ['dashboard', 'project', cwd, page, ...parts.map((part) => textValue(part)).filter(Boolean)];
+}
+
+function dashboardGlobalQueryKey(page, ...parts) {
+  return ['dashboard', 'global', page, ...parts.map((part) => textValue(part)).filter(Boolean)];
+}
+
+async function fetchSkillsDashboard(cwd) {
+  const response = await withTimeout(
+    getDashboardPage({ cwd, page: 'skills' }),
+    SKILLS_REQUEST_TIMEOUT_MS,
+    '技能列表加载超时，请检查技能目录或后端状态。',
+  );
+  return normalizeSkillsResponse(response);
+}
+
+async function fetchSkillResolutionsDashboard(cwd) {
+  const response = await withTimeout(
+    listSkillResolutions({ cwd }),
+    SKILLS_REQUEST_TIMEOUT_MS,
+    '技能冲突检查超时，请检查技能目录或后端状态。',
+  );
+  return normalizeResolutionResponse(response);
+}
+
+async function fetchSharedFilesDashboard() {
+  const response = await withTimeout(
+    listSharedFiles(),
+    SKILLS_REQUEST_TIMEOUT_MS,
+    '共享文件加载超时，请检查文件索引或后端状态。',
+  );
+  return normalizeSharedFilesResponse(response);
+}
+
+async function fetchMemoryDashboard(cwd) {
+  const response = await withTimeout(
+    getMemorySnapshot({ cwd }),
+    SKILLS_REQUEST_TIMEOUT_MS,
+    '记忆中心加载超时，请检查记忆数据或后端状态。',
+  );
+  return normalizeMemorySnapshot(response);
+}
+
+async function fetchDagsDashboard(cwd) {
+  const response = await withTimeout(
+    getDashboardPage({ cwd, page: 'dags' }),
+    SKILLS_REQUEST_TIMEOUT_MS,
+    '自动化加载超时，请检查任务数据或后端状态。',
+  );
+  return normalizeDagsResponse(response);
+}
+
+function queryErrorMessage(query) {
+  return query?.error ? errorMessage(query.error) : '';
+}
+
+function queryHasSnapshot(query) {
+  return query?.data !== undefined;
+}
+
+function dashboardQueryErrorState(query, hasSnapshot = queryHasSnapshot(query)) {
+  const message = queryErrorMessage(query);
+  return {
+    cachedSyncError: message && hasSnapshot ? `同步失败，显示的是上次成功的数据：${message}` : '',
+    blockingError: message && !hasSnapshot ? message : '',
+  };
+}
+
+function useDashboardQueryFocusInvalidation(queryKey) {
+  const queryClient = useQueryClient();
+  useEffect(() => {
+    if (!Array.isArray(queryKey) || queryKey.length === 0) return undefined;
+    const invalidate = () => {
+      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
+      void queryClient.invalidateQueries({ queryKey });
+    };
+    window.addEventListener('focus', invalidate);
+    document.addEventListener('visibilitychange', invalidate);
+    return () => {
+      window.removeEventListener('focus', invalidate);
+      document.removeEventListener('visibilitychange', invalidate);
+    };
+  }, [queryClient, queryKey]);
+}
+
+function useDashboardFocusInvalidation(cwd, surface) {
+  const queryKey = useMemo(
+    () => (cwd && surface ? dashboardQueryKey(cwd, surface) : null),
+    [cwd, surface],
+  );
+  useDashboardQueryFocusInvalidation(queryKey);
+}
+
+function createDashboardQueryClient() {
+  return new QueryClient({
+    defaultOptions: {
+      queries: {
+        gcTime: DASHBOARD_QUERY_GC_MS,
+        retry: false,
+        staleTime: DASHBOARD_QUERY_STALE_MS,
+        refetchOnMount: 'always',
+        refetchOnWindowFocus: 'always',
+      },
+    },
+  });
+}
+
 function stringSetting(value, fallback) {
   if (typeof value === 'string' && value.trim()) return value.trim();
   return fallback;
@@ -1273,6 +1386,7 @@ function normalizeSharedFile(raw, index) {
 }
 
 function normalizeFinalOutputRefs(value) {
+  if (value === undefined) return [];
   if (!Array.isArray(value)) throw new Error('shared files dashboard finalOutputRefs must be an array');
   return value.map((item, index) => {
     if (typeof item === 'string') {
@@ -1295,6 +1409,9 @@ function normalizeFinalOutputRefs(value) {
 }
 
 function normalizeSharedFileRetention(value) {
+  if (value === undefined) {
+    return { items: [], protectedCount: 0, cleanupCandidateCount: 0 };
+  }
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     throw new Error('shared files dashboard sharedFileRetention must be an object');
   }
@@ -1325,13 +1442,16 @@ function normalizeSharedFilesResponse(response) {
   if (!response || typeof response !== 'object' || Array.isArray(response)) {
     throw new Error('shared files dashboard response must be an object');
   }
-  if (!Array.isArray(response.memory)) {
-    throw new Error('shared files dashboard response memory must be an array');
+  const rawFiles = Array.isArray(response.files) ? response.files : response.memory;
+  if (!Array.isArray(rawFiles)) {
+    throw new Error('shared files dashboard response files must be an array');
   }
+  const rawRefs = response.finalOutputRefs;
+  const rawRetention = response.sharedFileRetention;
   return {
-    files: response.memory.map((item, index) => normalizeSharedFile(item, index)),
-    finalOutputRefs: normalizeFinalOutputRefs(response.finalOutputRefs),
-    retention: normalizeSharedFileRetention(response.sharedFileRetention),
+    files: rawFiles.map((item, index) => normalizeSharedFile(item, index)),
+    finalOutputRefs: normalizeFinalOutputRefs(rawRefs),
+    retention: normalizeSharedFileRetention(rawRetention),
   };
 }
 
@@ -1511,7 +1631,9 @@ function memoryHealth(overview, counts) {
 }
 
 function memorySimilarGroupCount(response) {
-  const snapshot = normalizeMemorySnapshot(response);
+  const snapshot = response && typeof response === 'object' && Array.isArray(response.entries)
+    ? response
+    : normalizeMemorySnapshot(response);
   const counts = {
     preference: snapshot.entries.filter((entry) => entry.category === 'preference').length,
     project: snapshot.entries.filter((entry) => entry.category === 'project').length,
@@ -1628,7 +1750,7 @@ function normalizeDashboardDag(raw = {}, index = 0) {
   return {
     id: dagKey || `dag:${index}`,
     dagKey,
-    title: firstText(raw.title, raw.name, dagKey, `任务流程 ${index + 1}`),
+    title: firstText(raw.title, raw.name, dagKey, `自动化 ${index + 1}`),
     description: firstText(raw.description, raw.summary),
     status: firstText(raw.status, raw.state),
     trigger: dagTriggerValue(raw),
@@ -2096,9 +2218,12 @@ function isMainSkillFile(path) {
 
 function normalizeResolutionResponse(response) {
   if (Array.isArray(response)) return response;
+  if (!response || typeof response !== 'object') {
+    throw new Error('skill resolutions response must be an object');
+  }
   if (Array.isArray(response?.items)) return response.items;
   if (Array.isArray(response?.conflicts)) return response.conflicts;
-  return [];
+  throw new Error('skill resolutions response items must be an array');
 }
 
 function resolutionKindLabel(kind) {
@@ -2471,11 +2596,11 @@ function validateRuntimeThresholds(form) {
   return { stallThresholdSec, contextThresholds: [warn, danger, critical] };
 }
 
-function App({ skipBootstrap = false }) {
+function AppShell({ skipBootstrap = false }) {
   const store = useClientStore();
   const bootstrap = store.bootstrap;
   const addWarning = store.addWarning;
-  const [memorySimilarCount, setMemorySimilarCount] = useState(0);
+  const queryClient = useQueryClient();
   const memoryRevision = Number(store.memoryRevision || 0);
 
   useEffect(() => {
@@ -2492,31 +2617,25 @@ function App({ skipBootstrap = false }) {
   }, [bootstrap, skipBootstrap]);
 
   const projectPath = store.activeProject && store.activeProject !== '.' ? store.activeProject : store.cwd || '未选择项目';
+  const memoryCwd = optionalSettingsCwd(projectPath);
+  useDashboardFocusInvalidation(memoryCwd, 'memory');
+  const memoryBadgeQuery = useQuery({
+    queryKey: dashboardQueryKey(memoryCwd, 'memory'),
+    queryFn: () => fetchMemoryDashboard(memoryCwd),
+    enabled: Boolean(memoryCwd),
+    select: memorySimilarGroupCount,
+  });
+  const memorySimilarCount = Math.max(0, Number(memoryBadgeQuery.data) || 0);
 
   useEffect(() => {
-    const cwd = textValue(projectPath);
-    if (!cwd || cwd === '.' || cwd === '未选择项目') {
-      setMemorySimilarCount(0);
-      return undefined;
-    }
-    let cancelled = false;
-    getMemorySnapshot({ cwd }).then((response) => {
-      if (!cancelled) {
-        setMemorySimilarCount(memorySimilarGroupCount(response));
-      }
-    }).catch((error) => {
-      if (!cancelled) {
-        addWarning('warn', 'memory.badge.refresh.failed', { error: errorMessage(error) });
-      }
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [addWarning, memoryRevision, projectPath]);
+    if (!memoryBadgeQuery.error) return;
+    addWarning('warn', 'memory.badge.refresh.failed', { error: errorMessage(memoryBadgeQuery.error) });
+  }, [addWarning, memoryBadgeQuery.error]);
 
-  const updateMemorySimilarCount = useCallback((count) => {
-    setMemorySimilarCount(Math.max(0, Number(count) || 0));
-  }, []);
+  useEffect(() => {
+    if (!memoryCwd || memoryRevision <= 0) return;
+    void queryClient.invalidateQueries({ queryKey: dashboardQueryKey(memoryCwd, 'memory') });
+  }, [memoryCwd, memoryRevision, queryClient]);
 
   const activeLabel = useMemo(() => (
     navItems.find((item) => item.id === store.activePage)?.label || 'Chat'
@@ -2531,16 +2650,25 @@ function App({ skipBootstrap = false }) {
         <NavRail activePage={store.activePage} setActivePage={store.setActivePage} memorySimilarCount={memorySimilarCount} />
         <main className="sa-main">
           {store.activePage === 'chat' ? <ChatPage store={store} projectPath={projectPath} /> : null}
-          {store.activePage === 'prompts' ? <PromptPage projectPath={projectPath} refreshKey={store.promptRevision} /> : null}
+          {store.activePage === 'prompts' ? <PromptPage projectPath={projectPath} store={store} refreshKey={store.promptRevision} /> : null}
           {store.activePage === 'workflows' ? <WorkflowPage projectPath={projectPath} store={store} refreshKey={store.workflowRevision} /> : null}
           {store.activePage === 'skills' ? <SkillsPage projectPath={projectPath} refreshKey={store.skillRevision} /> : null}
-          {store.activePage === 'memory' ? <MemoryPage projectPath={projectPath} onSimilarCountChange={updateMemorySimilarCount} refreshKey={memoryRevision} /> : null}
+          {store.activePage === 'memory' ? <MemoryPage projectPath={projectPath} refreshKey={memoryRevision} /> : null}
           {store.activePage === 'files' ? <FilesPage projectPath={projectPath} store={store} /> : null}
           {store.activePage === 'settings' ? <SettingsPage projectPath={projectPath} /> : null}
           <span className="sr-only">当前页面：{activeLabel}</span>
         </main>
       </div>
     </div>
+  );
+}
+
+function App(props) {
+  const [queryClient] = useState(createDashboardQueryClient);
+  return (
+    <QueryClientProvider client={queryClient}>
+      <AppShell {...props} />
+    </QueryClientProvider>
   );
 }
 
@@ -4261,83 +4389,63 @@ function PageHeader({ icon: Icon, title, subtitle, actions }) {
   );
 }
 
-function PromptPage({ projectPath, refreshKey = 0 }) {
-  return <PromptPageView projectPath={projectPath} refreshKey={refreshKey} />;
+function RetryableSyncError({ className = 'danger-text', message, onRetry }) {
+  if (!message) return null;
+  return (
+    <div className={className} role="alert">
+      <span>{message}</span>
+      <button type="button" className="ghost" onClick={() => { void onRetry(); }}>重试同步</button>
+    </div>
+  );
+}
+
+function PromptPage({ projectPath, store, refreshKey = 0 }) {
+  return <PromptPageView projectPath={projectPath} refreshKey={refreshKey} resolveLaunchPreferences={store?.resolveLaunchPreferences} />;
 }
 
 
 function WorkflowPage({ projectPath, store, refreshKey = 0 }) {
-  const workflowCacheKey = normalizeSettingsCwd(projectPath);
-  const cachedWorkflowPage = useClientStore((state) => state.workflowPageCacheByCwd?.[workflowCacheKey]);
-  const setWorkflowPageCache = useClientStore((state) => state.setWorkflowPageCache);
-  const cachedSelectedDagKey = textValue(cachedWorkflowPage?.selectedDagKey);
-  const cachedSelectedDetail = cachedSelectedDagKey ? cachedWorkflowPage?.detailsByDagKey?.[cachedSelectedDagKey] : null;
-  const [items, setItems] = useState(() => (Array.isArray(cachedWorkflowPage?.items) ? cachedWorkflowPage.items : []));
+  const workflowCwd = optionalSettingsCwd(projectPath);
+  const isProjectPending = !workflowCwd;
+  const queryClient = useQueryClient();
+  useDashboardFocusInvalidation(workflowCwd, 'dags');
   const [activeCategory, setActiveCategory] = useState(DAG_CATEGORIES[0].key);
   const [categoryManuallySelected, setCategoryManuallySelected] = useState(false);
-  const [selectedDagKey, setSelectedDagKey] = useState(() => cachedSelectedDagKey);
-  const [detailDag, setDetailDag] = useState(() => cachedSelectedDetail?.detailDag || null);
-  const [nodes, setNodes] = useState(() => (Array.isArray(cachedSelectedDetail?.nodes) ? cachedSelectedDetail.nodes : []));
-  const [runs, setRuns] = useState(() => (Array.isArray(cachedSelectedDetail?.runs) ? cachedSelectedDetail.runs : []));
-  const [activeRun, setActiveRun] = useState(() => cachedSelectedDetail?.activeRun || null);
-  const [selectedRunKey, setSelectedRunKey] = useState(() => textValue(cachedSelectedDetail?.selectedRunKey));
-  const [selectedRun, setSelectedRun] = useState(() => cachedSelectedDetail?.selectedRun || null);
-  const [loading, setLoading] = useState(false);
-  const [detailLoading, setDetailLoading] = useState(false);
+  const [selectedDagKey, setSelectedDagKey] = useState('');
+  const [selectedRunKey, setSelectedRunKey] = useState('');
   const [actioning, setActioning] = useState('');
   const [savingNodeKey, setSavingNodeKey] = useState('');
   const [error, setError] = useState('');
+  const [workflowSyncFailure, setWorkflowSyncFailure] = useState('');
   const [notice, setNotice] = useState(null);
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [scheduleOpen, setScheduleOpen] = useState(false);
   const [scheduleCron, setScheduleCron] = useState('0 8 * * *');
-  const hasLoadedDagsRef = useRef(Boolean(cachedWorkflowPage?.hasLoadedDags));
   const selectedDagKeyRef = useRef(selectedDagKey);
-  const selectedRunKeyRef = useRef(selectedRunKey);
-  const autoRefreshInFlightRef = useRef(false);
+  const handledWorkflowRefreshRef = useRef(0);
   const workflowRefreshKey = Number(refreshKey || 0);
 
-  const refreshDags = useCallback(async (options = {}) => {
-    const isCancelled = typeof options.isCancelled === 'function' ? options.isCancelled : () => false;
-    const silent = options.silent === true;
-    const cached = useClientStore.getState().workflowPageCacheByCwd?.[workflowCacheKey];
-    const hasUsableSnapshot = hasLoadedDagsRef.current || Boolean(cached?.hasLoadedDags);
-    const showBlockingLoading = !silent && !hasUsableSnapshot;
-    if (showBlockingLoading) {
-      setLoading(true);
-      setError('');
-    } else if (!silent) {
-      setError('');
-    }
-    try {
-      const cwd = normalizeSettingsCwd(projectPath);
-      const response = await getDashboardPage({ cwd, page: 'dags' });
-      const nextItems = normalizeDagsResponse(response);
-      if (!isCancelled()) {
-        hasLoadedDagsRef.current = true;
-        setItems(nextItems);
-        setWorkflowPageCache(cwd, { items: nextItems, hasLoadedDags: true });
-      }
-      return nextItems;
-    } catch (err) {
-      if (!isCancelled()) {
-        if (showBlockingLoading) setItems([]);
-        if (!silent || !hasUsableSnapshot) setError(`加载任务流程失败：${err.message || String(err)}`);
-      }
-      return [];
-    } finally {
-      if (!isCancelled() && showBlockingLoading) setLoading(false);
-    }
-  }, [projectPath, setWorkflowPageCache, workflowCacheKey]);
+  const dagsQuery = useQuery({
+    queryKey: dashboardQueryKey(workflowCwd, 'dags'),
+    queryFn: () => fetchDagsDashboard(workflowCwd),
+    enabled: Boolean(workflowCwd),
+  });
+  const hasDagsSnapshot = queryHasSnapshot(dagsQuery);
+  const items = useMemo(() => (Array.isArray(dagsQuery.data) ? dagsQuery.data : []), [dagsQuery.data]);
+  const loading = Boolean(workflowCwd) && dagsQuery.isPending && !hasDagsSnapshot;
+  const dagListErrorState = dashboardQueryErrorState(dagsQuery, hasDagsSnapshot);
 
-  useEffect(() => {
-    let cancelled = false;
-    const cached = useClientStore.getState().workflowPageCacheByCwd?.[workflowCacheKey];
-    refreshDags({ isCancelled: () => cancelled, silent: Boolean(cached?.hasLoadedDags) });
-    return () => {
-      cancelled = true;
-    };
-  }, [refreshDags, workflowCacheKey]);
+  const refreshDags = useCallback(async () => {
+    if (!workflowCwd) return [];
+    const key = dashboardQueryKey(workflowCwd, 'dags');
+    try {
+      await queryClient.invalidateQueries({ queryKey: key }, { throwOnError: true });
+      setWorkflowSyncFailure('');
+    } catch (err) {
+      setWorkflowSyncFailure(`同步失败，显示的是上次成功的数据：${errorMessage(err)}`);
+    }
+    return queryClient.getQueryData(key) || [];
+  }, [queryClient, workflowCwd]);
 
   const counts = useMemo(() => categoryCounts(items), [items]);
   const preferredCategory = useMemo(() => firstAvailableCategory(items), [items]);
@@ -4352,38 +4460,8 @@ function WorkflowPage({ projectPath, store, refreshKey = 0 }) {
 
   useEffect(() => {
     selectedDagKeyRef.current = selectedDagKey;
-    if (selectedDagKey) setWorkflowPageCache(workflowCacheKey, { selectedDagKey });
     setNotice(null);
-  }, [selectedDagKey, setWorkflowPageCache, workflowCacheKey]);
-
-  useEffect(() => {
-    selectedRunKeyRef.current = selectedRunKey;
-  }, [selectedRunKey]);
-
-  useEffect(() => {
-    const cached = useClientStore.getState().workflowPageCacheByCwd?.[workflowCacheKey];
-    const cachedKey = textValue(cached?.selectedDagKey);
-    const cachedDetail = cachedKey ? cached?.detailsByDagKey?.[cachedKey] : null;
-    hasLoadedDagsRef.current = Boolean(cached?.hasLoadedDags);
-    setItems(Array.isArray(cached?.items) ? cached.items : []);
-    setSelectedDagKey(cachedKey);
-    setDetailDag(cachedDetail?.detailDag || null);
-    setNodes(Array.isArray(cachedDetail?.nodes) ? cachedDetail.nodes : []);
-    setRuns(Array.isArray(cachedDetail?.runs) ? cachedDetail.runs : []);
-    setActiveRun(cachedDetail?.activeRun || null);
-    setSelectedRunKey(textValue(cachedDetail?.selectedRunKey));
-    setSelectedRun(cachedDetail?.selectedRun || null);
-    setLoading(false);
-    setDetailLoading(false);
-    setError('');
-    setNotice(null);
-  }, [workflowCacheKey]);
-
-  useEffect(() => {
-    if (!cachedWorkflowPage) return;
-    if (Array.isArray(cachedWorkflowPage.items)) setItems(cachedWorkflowPage.items);
-    if (cachedWorkflowPage.hasLoadedDags) hasLoadedDagsRef.current = true;
-  }, [cachedWorkflowPage]);
+  }, [selectedDagKey]);
 
   const clearNotice = useCallback(() => {
     setNotice(null);
@@ -4411,44 +4489,24 @@ function WorkflowPage({ projectPath, store, refreshKey = 0 }) {
     }
   }, [selectedDagKey, visibleItems]);
 
-  const loadRunDetail = useCallback(async (runKey, options = {}) => {
+  const fetchRunDetail = useCallback(async (runKey) => {
     const key = textValue(runKey);
-    if (!key) {
-      setSelectedRun(null);
-      setSelectedRunKey('');
-      return null;
-    }
-    const isCancelled = typeof options.isCancelled === 'function' ? options.isCancelled : () => false;
+    if (!key) return null;
     const response = await getDagRun({ runKey: key });
-    if (isCancelled()) return null;
     const run = response?.run ? normalizeDagRun(response.run) : null;
     const runNodes = Array.isArray(response?.nodes) ? response.nodes.map((node, index) => normalizeDagNode(node, index)) : [];
-    setSelectedRunKey(key);
-    setSelectedRun({ run, nodes: runNodes });
     return { run, nodes: runNodes };
   }, []);
 
-  const refreshDetail = useCallback(async (dagKey, preferredRunKey = '', options = {}) => {
-    const key = textValue(dagKey);
-    if (!key) return;
-    const isCancelled = typeof options.isCancelled === 'function' ? options.isCancelled : () => false;
-    const silent = options.silent === true;
-    const cachedDetail = useClientStore.getState().workflowPageCacheByCwd?.[workflowCacheKey]?.detailsByDagKey?.[key];
-    const showDetailLoading = !silent && !cachedDetail;
-    if (showDetailLoading) {
-      setDetailLoading(true);
-      setError('');
-    } else if (!silent) {
-      setError('');
-    }
-    try {
+  const dagDetailQuery = useQuery({
+    queryKey: dashboardQueryKey(workflowCwd, 'dag-detail', selectedDagKey),
+    queryFn: async () => {
+      const key = textValue(selectedDagKey);
       const [detailResponse, runsResponse, activeResponse] = await Promise.all([
         getDagDetail({ dagKey: key }),
         getDagRuns({ dagKey: key, limit: DAG_RECENT_RUN_LIMIT }),
         getDagRuns({ dagKey: key, status: 'running', limit: 1 }),
       ]);
-      if (isCancelled()) return;
-
       const listDag = items.find((item) => item.dagKey === key);
       const dag = normalizeDashboardDag({ ...objectValue(listDag?.raw), ...objectValue(detailResponse?.dag) });
       const normalizedNodes = Array.isArray(detailResponse?.nodes)
@@ -4460,124 +4518,78 @@ function WorkflowPage({ projectPath, store, refreshKey = 0 }) {
       const runningRun = Array.isArray(activeResponse?.runs) && activeResponse.runs.length > 0
         ? normalizeDagRun(activeResponse.runs[0])
         : null;
-      const nextRunKey = textValue(preferredRunKey)
-        || runningRun?.runKey
-        || nextRuns[0]?.runKey
-        || '';
-      let loadedRun = null;
-
-      setDetailDag(dag);
-      setNodes(normalizedNodes);
-      setRuns(nextRuns);
-      setActiveRun(runningRun);
-      if (nextRunKey) loadedRun = await loadRunDetail(nextRunKey, { isCancelled });
-      else {
-        setSelectedRunKey('');
-        setSelectedRun(null);
-      }
-      if (isCancelled()) return;
-      const currentDetails = useClientStore.getState().workflowPageCacheByCwd?.[workflowCacheKey]?.detailsByDagKey || {};
-      setWorkflowPageCache(workflowCacheKey, {
-        selectedDagKey: key,
-        detailsByDagKey: {
-          ...currentDetails,
-          [key]: {
-            detailDag: dag,
-            nodes: normalizedNodes,
-            runs: nextRuns,
-            activeRun: runningRun,
-            selectedRunKey: nextRunKey,
-            selectedRun: loadedRun,
-          },
-        },
-      });
-    } catch (err) {
-      if (!isCancelled()) {
-        if (showDetailLoading) {
-          setDetailDag(null);
-          setNodes([]);
-          setRuns([]);
-          setActiveRun(null);
-          setSelectedRun(null);
-        }
-        setError(`加载任务流程详情失败：${err.message || String(err)}`);
-      }
-    } finally {
-      if (!isCancelled() && showDetailLoading) setDetailLoading(false);
-    }
-  }, [items, loadRunDetail, setWorkflowPageCache, workflowCacheKey]);
-
-  const refreshWorkflowSurface = useCallback(async (options = {}) => {
-    if (autoRefreshInFlightRef.current) return;
-    autoRefreshInFlightRef.current = true;
-    try {
-      await refreshDags(options);
-      const activeKey = selectedDagKeyRef.current;
-      if (activeKey) {
-        await refreshDetail(activeKey, selectedRunKeyRef.current, options);
-      }
-    } finally {
-      autoRefreshInFlightRef.current = false;
-    }
-  }, [refreshDags, refreshDetail]);
+      return { dag, nodes: normalizedNodes, runs: nextRuns, activeRun: runningRun };
+    },
+    enabled: Boolean(workflowCwd && selectedDagKey),
+  });
+  const hasDetailSnapshot = queryHasSnapshot(dagDetailQuery);
+  const detailLoading = Boolean(selectedDagKey) && dagDetailQuery.isPending && !hasDetailSnapshot && !selectedDag;
+  const detailData = dagDetailQuery.data || {};
+  const detailDag = detailData.dag || null;
+  const nodes = useMemo(() => (Array.isArray(detailData.nodes) ? detailData.nodes : []), [detailData.nodes]);
+  const runs = useMemo(() => (Array.isArray(detailData.runs) ? detailData.runs : []), [detailData.runs]);
+  const activeRun = detailData.activeRun || null;
+  const detailErrorState = dashboardQueryErrorState(dagDetailQuery, hasDetailSnapshot);
 
   useEffect(() => {
-    if (workflowRefreshKey <= 0) return undefined;
-    let cancelled = false;
-    void refreshWorkflowSurface({ isCancelled: () => cancelled, silent: true });
-    return () => {
-      cancelled = true;
-    };
+    const nextRunKey = activeRun?.runKey || runs[0]?.runKey || '';
+    if (!nextRunKey) {
+      if (selectedRunKey) setSelectedRunKey('');
+      return;
+    }
+    if (!selectedRunKey || !runs.some((run) => run.runKey === selectedRunKey)) {
+      setSelectedRunKey(nextRunKey);
+    }
+  }, [activeRun, runs, selectedRunKey]);
+
+  const runDetailQuery = useQuery({
+    queryKey: dashboardQueryKey(workflowCwd, 'dag-run', selectedRunKey),
+    queryFn: () => fetchRunDetail(selectedRunKey),
+    enabled: Boolean(workflowCwd && selectedRunKey),
+  });
+  const selectedRun = runDetailQuery.data || null;
+
+  const loadRunDetail = useCallback(async (runKey) => {
+    const key = textValue(runKey);
+    if (!key) {
+      setSelectedRunKey('');
+      return null;
+    }
+    setSelectedRunKey(key);
+    return queryClient.fetchQuery({
+      queryKey: dashboardQueryKey(workflowCwd, 'dag-run', key),
+      queryFn: () => fetchRunDetail(key),
+    });
+  }, [fetchRunDetail, queryClient, workflowCwd]);
+
+  const refreshDetail = useCallback(async (dagKey, preferredRunKey = '') => {
+    const key = textValue(dagKey);
+    if (!key) return;
+    if (preferredRunKey) setSelectedRunKey(textValue(preferredRunKey));
+    await queryClient.invalidateQueries({ queryKey: dashboardQueryKey(workflowCwd, 'dag-detail', key) });
+    await queryClient.invalidateQueries({ queryKey: dashboardQueryKey(workflowCwd, 'dag-run') });
+  }, [queryClient, workflowCwd]);
+
+  const refreshWorkflowSurface = useCallback(async () => {
+    if (!workflowCwd) return;
+    await refreshDags();
+    const activeKey = selectedDagKeyRef.current;
+    if (activeKey) {
+      await refreshDetail(activeKey, selectedRunKey);
+    }
+  }, [refreshDags, refreshDetail, selectedRunKey, workflowCwd]);
+
+  useEffect(() => {
+    if (workflowRefreshKey <= 0) return;
+    if (handledWorkflowRefreshRef.current === workflowRefreshKey) return;
+    handledWorkflowRefreshRef.current = workflowRefreshKey;
+    void refreshWorkflowSurface();
   }, [refreshWorkflowSurface, workflowRefreshKey]);
 
-  useEffect(() => {
-    const runAutoRefresh = () => {
-      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
-      void refreshWorkflowSurface({ silent: true });
-    };
-    const handleVisibilityChange = () => {
-      if (typeof document === 'undefined' || document.visibilityState === 'visible') {
-        runAutoRefresh();
-      }
-    };
-    const intervalID = window.setInterval(runAutoRefresh, WORKFLOW_AUTO_REFRESH_MS);
-    window.addEventListener('focus', runAutoRefresh);
-    document.addEventListener('visibilitychange', handleVisibilityChange);
-    return () => {
-      window.clearInterval(intervalID);
-      window.removeEventListener('focus', runAutoRefresh);
-      document.removeEventListener('visibilitychange', handleVisibilityChange);
-    };
-  }, [refreshWorkflowSurface]);
-
-  useEffect(() => {
-    let cancelled = false;
-    if (selectedDagKey) {
-      const cachedDetail = useClientStore.getState().workflowPageCacheByCwd?.[workflowCacheKey]?.detailsByDagKey?.[selectedDagKey];
-      if (cachedDetail) {
-        setDetailDag(cachedDetail.detailDag || null);
-        setNodes(Array.isArray(cachedDetail.nodes) ? cachedDetail.nodes : []);
-        setRuns(Array.isArray(cachedDetail.runs) ? cachedDetail.runs : []);
-        setActiveRun(cachedDetail.activeRun || null);
-        setSelectedRunKey(textValue(cachedDetail.selectedRunKey));
-        setSelectedRun(cachedDetail.selectedRun || null);
-      }
-      refreshDetail(selectedDagKey, textValue(cachedDetail?.selectedRunKey), {
-        isCancelled: () => cancelled,
-        silent: Boolean(cachedDetail) || hasLoadedDagsRef.current,
-      });
-    } else {
-      setDetailDag(null);
-      setNodes([]);
-      setRuns([]);
-      setActiveRun(null);
-      setSelectedRun(null);
-      setSelectedRunKey('');
-    }
-    return () => {
-      cancelled = true;
-    };
-  }, [refreshDetail, selectedDagKey, workflowCacheKey]);
+  const syncError = workflowSyncFailure || dagListErrorState.cachedSyncError || detailErrorState.cachedSyncError;
+  const blockingLoadError = dagListErrorState.blockingError
+    ? `加载自动化失败：${dagListErrorState.blockingError}`
+    : (detailErrorState.blockingError ? `加载自动化详情失败：${detailErrorState.blockingError}` : '');
 
   const activeDetailDag = detailDag || selectedDag;
   const dagKey = activeDetailDag?.dagKey || selectedDag?.dagKey || '';
@@ -4588,8 +4600,8 @@ function WorkflowPage({ projectPath, store, refreshKey = 0 }) {
   const scheduleActionLabel = isScheduledTrigger(activeDetailDag?.trigger) || activeDetailDag?.cronExpr ? '修改计划' : '创建定时任务';
   const scheduleToggleVisible = isScheduledTrigger(activeDetailDag?.trigger) && Boolean(activeDetailDag?.cronExpr);
   const startDisabledReason = useMemo(() => {
-    if (!dagKey) return '未选择任务流程';
-    if (loading || detailLoading) return '任务流程详情加载中';
+    if (!dagKey) return '未选择自动化';
+    if (loading || detailLoading) return '自动化详情加载中';
     if (activeRunKey) return '已有运行正在进行';
     if (!STARTABLE_DAG_STATUSES.has(textValue(activeDetailDag?.status).toLowerCase())) return '当前流程状态不可运行';
     if (!STARTABLE_DAG_TRIGGERS.has(textValue(activeDetailDag?.trigger).toLowerCase())) return '当前触发方式不可运行';
@@ -4609,12 +4621,12 @@ function WorkflowPage({ projectPath, store, refreshKey = 0 }) {
         idempotencyKey: `ui-${Date.now()}-${Math.random().toString(16).slice(2)}`,
       });
       const runKey = runKeyOf(result);
-      await refreshDags();
-      await refreshDetail(targetDagKey, runKey);
+      await refreshDags().catch(() => []);
+      await refreshDetail(targetDagKey, runKey).catch(() => {});
       const warning = textValue(result?.warning);
-      showTaskNotice(warning ? `已启动，后端提示：${warning}` : '已启动任务流程', targetDagKey);
+      showTaskNotice(warning ? `已启动，后端提示：${warning}` : '已启动自动化', targetDagKey);
     } catch (err) {
-      setError(`启动任务流程失败：${err.message || String(err)}`);
+      setError(`启动自动化失败：${err.message || String(err)}`);
     } finally {
       setActioning('');
     }
@@ -4628,8 +4640,8 @@ function WorkflowPage({ projectPath, store, refreshKey = 0 }) {
     clearNotice();
     try {
       await terminateDagRun({ dagKey: targetDagKey, runKey: activeRunKey, reason: 'user_requested' });
-      await refreshDags();
-      await refreshDetail(targetDagKey);
+      await refreshDags().catch(() => []);
+      await refreshDetail(targetDagKey).catch(() => {});
       showTaskNotice('已停止运行', targetDagKey);
     } catch (err) {
       setError(`停止运行失败：${err.message || String(err)}`);
@@ -4648,15 +4660,15 @@ function WorkflowPage({ projectPath, store, refreshKey = 0 }) {
     try {
       await deleteDag({ dagKey: targetKey });
       setDeleteTarget(null);
-      const nextItems = await refreshDags();
+      const nextItems = await refreshDags().catch(() => items.filter((item) => item.dagKey !== targetKey));
       setSelectedDagKey(nextItems.find((item) => dagCategoryOf(item) === activeCategory)?.dagKey || nextItems[0]?.dagKey || '');
       showTaskNotice(`已删除 ${target?.title || targetKey}`, targetKey);
     } catch (err) {
-      setError(`删除任务流程失败：${err.message || String(err)}`);
+      setError(`删除自动化失败：${err.message || String(err)}`);
     } finally {
       setActioning('');
     }
-  }, [activeCategory, clearNotice, dagKey, deleteTarget, refreshDags, showTaskNotice]);
+  }, [activeCategory, clearNotice, dagKey, deleteTarget, items, refreshDags, showTaskNotice]);
 
   const openScheduleModal = useCallback(() => {
     setScheduleCron(activeDetailDag?.cronExpr || '0 8 * * *');
@@ -4667,7 +4679,7 @@ function WorkflowPage({ projectPath, store, refreshKey = 0 }) {
     const cronExpr = textValue(nextCronExpr) || textValue(scheduleCron);
     if (!dagKey || !cronExpr) return;
     if (baseVersion === null) {
-      setError('任务流程详情不完整，无法保存定时任务');
+      setError('自动化详情不完整，无法保存定时任务');
       return;
     }
     const targetDagKey = dagKey;
@@ -4681,8 +4693,8 @@ function WorkflowPage({ projectPath, store, refreshKey = 0 }) {
         ops: [{ op: 'update_dag', patch: { trigger: 'scheduled', cron_expr: cronExpr } }],
       });
       setScheduleOpen(false);
-      await refreshDags();
-      await refreshDetail(targetDagKey);
+      await refreshDags().catch(() => []);
+      await refreshDetail(targetDagKey).catch(() => {});
       showTaskNotice('已保存定时任务', targetDagKey);
     } catch (err) {
       setError(`保存定时任务失败：${err.message || String(err)}`);
@@ -4694,7 +4706,7 @@ function WorkflowPage({ projectPath, store, refreshKey = 0 }) {
   const toggleScheduleEnabled = useCallback(async () => {
     if (!dagKey) return;
     if (baseVersion === null) {
-      setError('任务流程详情不完整，无法切换自动运行');
+      setError('自动化详情不完整，无法切换自动运行');
       return;
     }
     const targetDagKey = dagKey;
@@ -4708,8 +4720,8 @@ function WorkflowPage({ projectPath, store, refreshKey = 0 }) {
         baseVersion,
         ops: [{ op: 'update_dag', patch: { schedule_enabled: enabled } }],
       });
-      await refreshDags();
-      await refreshDetail(targetDagKey);
+      await refreshDags().catch(() => []);
+      await refreshDetail(targetDagKey).catch(() => {});
       showTaskNotice(enabled ? '已启用自动运行' : '已暂停自动运行', targetDagKey);
     } catch (err) {
       setError(`切换自动运行失败：${err.message || String(err)}`);
@@ -4721,7 +4733,7 @@ function WorkflowPage({ projectPath, store, refreshKey = 0 }) {
   const saveAgentNode = useCallback(async (form, node) => {
     if (!dagKey || !node?.nodeKey) return;
     if (baseVersion === null) {
-      setError('任务流程详情不完整，无法保存步骤');
+      setError('自动化详情不完整，无法保存步骤');
       return;
     }
     const targetDagKey = dagKey;
@@ -4738,7 +4750,7 @@ function WorkflowPage({ projectPath, store, refreshKey = 0 }) {
           patch: dagNodePatchFromForm(form, node),
         }],
       });
-      await refreshDetail(targetDagKey);
+      await refreshDetail(targetDagKey).catch(() => {});
       showTaskNotice(`已保存步骤 ${node.title}`, targetDagKey);
     } catch (err) {
       setError(`保存步骤失败：${err.message || String(err)}`);
@@ -4748,19 +4760,25 @@ function WorkflowPage({ projectPath, store, refreshKey = 0 }) {
   }, [baseVersion, clearNotice, dagKey, refreshDetail, showTaskNotice]);
 
   const startDesignFlow = useCallback(async () => {
+    if (!workflowCwd) return;
     setActioning('design');
     setError('');
     clearNotice();
     try {
-      const cwd = normalizeSettingsCwd(projectPath);
+      if (typeof store?.resolveLaunchPreferences !== 'function') {
+        throw new Error('自动化启动配置不可用');
+      }
+      const launchPreferences = await store.resolveLaunchPreferences(workflowCwd);
+      const { config: launchConfig = {}, ...launchPayload } = launchPreferences || {};
       const response = await startThread({
-        cwd,
-        provider: store?.provider,
+        cwd: workflowCwd,
+        ...launchPayload,
         name: 'AI 设计流程',
         agentKey: 'dag_designer',
         promptKey: 'main/dag_designer_zh',
         deferSpawn: true,
         config: {
+          ...launchConfig,
           enabledTools: [...DAG_DESIGNER_ENABLED_TOOLS],
           providerNativeSkills: false,
         },
@@ -4775,7 +4793,7 @@ function WorkflowPage({ projectPath, store, refreshKey = 0 }) {
     } finally {
       setActioning('');
     }
-  }, [clearNotice, projectPath, store]);
+  }, [clearNotice, store, workflowCwd]);
 
   const agentNodes = nodes.filter((node) => textValue(node.nodeType).toLowerCase() === 'agent');
 
@@ -4783,17 +4801,29 @@ function WorkflowPage({ projectPath, store, refreshKey = 0 }) {
     <section className="workflow-page">
       <PageHeader
         icon={Workflow}
-        title="任务流程"
-        subtitle={`当前项目：${projectPath}`}
+        title="自动化"
+        subtitle={workflowCwd ? `当前项目：${workflowCwd}` : '正在连接本地项目...'}
         actions={(
-          <button type="button" onClick={() => { void startDesignFlow(); }} disabled={actioning === 'design'}>
+          <button type="button" onClick={() => { void startDesignFlow(); }} disabled={isProjectPending || actioning === 'design'}>
             {actioning === 'design' ? '启动中...' : 'AI 设计流程'}
           </button>
         )}
       />
+      {syncError ? (
+        <div className="danger-text workflow-sync-alert" role="alert">
+          <span>{syncError}</span>
+          <button type="button" className="ghost" onClick={() => { void refreshWorkflowSurface(); }}>重试同步</button>
+        </div>
+      ) : null}
+      {error ? <p className="danger-text" role="alert">{error}</p> : null}
+      <RetryableSyncError
+        className="danger-text workflow-sync-alert"
+        message={blockingLoadError}
+        onRetry={refreshWorkflowSurface}
+      />
       <div className="workflow-grid">
         <aside className="workflow-list">
-          <div className="tabs" role="tablist" aria-label="任务流程分类">
+          <div className="tabs" role="tablist" aria-label="自动化分类">
             {DAG_CATEGORIES.map((category) => (
               <button
                 key={category.key}
@@ -4810,8 +4840,8 @@ function WorkflowPage({ projectPath, store, refreshKey = 0 }) {
               </button>
             ))}
           </div>
-          {loading ? <p className="console-message">正在加载任务流程...</p> : null}
-          {!loading && visibleItems.length === 0 ? <p className="console-message">无任务</p> : null}
+          {!isProjectPending && loading ? <p className="console-message">正在加载自动化...</p> : null}
+          {!isProjectPending && !blockingLoadError && !loading && visibleItems.length === 0 ? <p className="console-message">无任务</p> : null}
           {visibleItems.map((item) => (
             <button
               type="button"
@@ -4827,7 +4857,7 @@ function WorkflowPage({ projectPath, store, refreshKey = 0 }) {
         </aside>
         <section className="workflow-detail">
           {!activeDetailDag ? (
-            <EmptyState icon={Workflow} title="暂无任务流程" text="左侧选择任务流程后查看详情。" />
+            <EmptyState icon={Workflow} title="暂无自动化" text="左侧选择自动化后查看详情。" />
           ) : (
             <>
               <div className="detail-top">
@@ -4857,7 +4887,6 @@ function WorkflowPage({ projectPath, store, refreshKey = 0 }) {
               </div>
               {detailLoading ? <p className="console-message">正在加载详情...</p> : null}
               {notice?.message && notice.dagKey === selectedDagKey ? <p className="settings-status">{notice.message}</p> : null}
-              {error ? <p className="danger-text" role="alert">{error}</p> : null}
               {startDisabledReason ? <p className="console-message">{startDisabledReason}</p> : null}
               <Panel title="最终结果">{finalText || '当前运行尚未标记最终结果。'}</Panel>
               <div className="stat-grid">
@@ -5075,9 +5104,9 @@ function DagScheduleModal({ cron, actionLabel, saving, onClose, onSave }) {
 function ConfirmDagDeleteModal({ dag, deleting, onClose, onConfirm }) {
   return (
     <div className="modal-overlay">
-      <section className="modal-box" role="dialog" aria-modal="true" aria-label="删除任务流程">
-        <header><h2>删除任务流程</h2><button type="button" className="ghost" onClick={onClose} disabled={deleting}>关闭</button></header>
-        <p>确定删除任务流程 “{dag.title}” 吗？该操作会删除流程定义和运行关联信息，无法恢复。</p>
+      <section className="modal-box" role="dialog" aria-modal="true" aria-label="删除自动化">
+        <header><h2>删除自动化</h2><button type="button" className="ghost" onClick={onClose} disabled={deleting}>关闭</button></header>
+        <p>确定删除自动化 “{dag.title}” 吗？该操作会删除配置和运行关联信息，无法恢复。</p>
         <p className="path">{dag.dagKey}</p>
         <footer>
           <button type="button" className="ghost" onClick={onClose} disabled={deleting}>取消</button>
@@ -5089,15 +5118,10 @@ function ConfirmDagDeleteModal({ dag, deleting, onClose, onConfirm }) {
 }
 
 function SkillsPage({ projectPath, refreshKey = 0 }) {
-  const skillCacheKey = normalizeSettingsCwd(projectPath);
-  const cachedSkillPage = useClientStore((state) => state.skillPageCacheByCwd?.[skillCacheKey]);
-  const setSkillPageCache = useClientStore((state) => state.setSkillPageCache);
-  const [items, setItems] = useState(() => (
-    Array.isArray(cachedSkillPage?.items) ? cachedSkillPage.items : []
-  ));
+  const projectCwd = optionalSettingsCwd(projectPath);
+  const queryClient = useQueryClient();
   const [query, setQuery] = useState('');
   const [scopeFilter, setScopeFilter] = useState('all');
-  const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [editorOpen, setEditorOpen] = useState(false);
@@ -5111,90 +5135,56 @@ function SkillsPage({ projectPath, refreshKey = 0 }) {
   const [deleting, setDeleting] = useState(false);
   const [importScopeOpen, setImportScopeOpen] = useState(false);
   const [importing, setImporting] = useState(false);
-  const [resolutionConflicts, setResolutionConflicts] = useState(() => (
-    Array.isArray(cachedSkillPage?.resolutionConflicts)
-      ? cachedSkillPage.resolutionConflicts
-      : []
-  ));
   const [resolutionPreview, setResolutionPreview] = useState(null);
   const [resolutionNamePrompt, setResolutionNamePrompt] = useState(null);
   const [resolutionNameInput, setResolutionNameInput] = useState('');
   const [resolutionActioning, setResolutionActioning] = useState('');
-  const hasLoadedSkillsRef = useRef(Boolean(cachedSkillPage?.hasLoadedSkills));
-  const refreshInFlightRef = useRef(false);
   const skillRefreshKey = Number(refreshKey || 0);
 
-  const refreshSkills = useCallback(async (options = {}) => {
-    const isCancelled = typeof options.isCancelled === 'function' ? options.isCancelled : () => false;
-    const silent = options.silent === true;
-    const cwd = normalizeSettingsCwd(projectPath);
-    const cached = useClientStore.getState().skillPageCacheByCwd?.[cwd];
-    const hasUsableSnapshot = hasLoadedSkillsRef.current || Boolean(cached?.hasLoadedSkills);
-    const showBlockingLoading = !silent && !hasUsableSnapshot;
-    if (showBlockingLoading) {
-      setLoading(true);
-      setError('');
-      setNotice('');
-    } else if (!silent) {
-      setError('');
-    }
-    try {
-      const response = await withTimeout(
-        getDashboardPage({ cwd, page: 'skills' }),
-        SKILLS_REQUEST_TIMEOUT_MS,
-        '技能列表加载超时，请检查技能目录或后端状态。',
-      );
-      if (isCancelled()) return;
-      const nextItems = normalizeSkillsResponse(response);
-      hasLoadedSkillsRef.current = true;
-      setItems(nextItems);
-      setSkillPageCache(cwd, { items: nextItems, hasLoadedSkills: true });
-      setError('');
-    } catch (err) {
-      if (isCancelled()) return;
-      if (showBlockingLoading) setItems([]);
-      if (!silent || !hasUsableSnapshot) setError(err.message || String(err));
-    } finally {
-      if (!isCancelled() && showBlockingLoading) setLoading(false);
-    }
-  }, [projectPath, setSkillPageCache]);
+  const skillsQuery = useQuery({
+    queryKey: dashboardQueryKey(projectCwd, 'skills'),
+    queryFn: () => fetchSkillsDashboard(projectCwd),
+    enabled: Boolean(projectCwd),
+  });
+  const skillResolutionsQuery = useQuery({
+    queryKey: dashboardQueryKey(projectCwd, 'skill-resolutions'),
+    queryFn: () => fetchSkillResolutionsDashboard(projectCwd),
+    enabled: Boolean(projectCwd),
+  });
+  const skillsData = skillsQuery.data;
+  const resolutionConflictsData = skillResolutionsQuery.data;
+  const refetchSkills = skillsQuery.refetch;
+  const refetchSkillResolutions = skillResolutionsQuery.refetch;
+  const items = useMemo(() => (Array.isArray(skillsData) ? skillsData : []), [skillsData]);
+  const resolutionConflicts = useMemo(() => (
+    Array.isArray(resolutionConflictsData) ? resolutionConflictsData : []
+  ), [resolutionConflictsData]);
+  const hasSkillsSnapshot = Array.isArray(skillsData);
+  const isProjectPending = !projectCwd;
+  const isInitialSkillsLoading = Boolean(projectCwd) && skillsQuery.isPending && !hasSkillsSnapshot;
+  const syncErrorText = skillsQuery.error
+    ? errorMessage(skillsQuery.error)
+    : (skillResolutionsQuery.error ? `读取技能冲突失败：${errorMessage(skillResolutionsQuery.error)}` : '');
+  const showCachedSyncError = Boolean(syncErrorText && hasSkillsSnapshot);
+  const showBlockingSyncError = Boolean(syncErrorText && !hasSkillsSnapshot);
 
-  const refreshResolutions = useCallback(async (options = {}) => {
-    const isCancelled = typeof options.isCancelled === 'function' ? options.isCancelled : () => false;
-    try {
-      const cwd = normalizeSettingsCwd(projectPath);
-      const response = await withTimeout(
-        listSkillResolutions({ cwd }),
-        SKILLS_REQUEST_TIMEOUT_MS,
-        '技能冲突检查超时，请检查技能目录或后端状态。',
-      );
-      if (!isCancelled()) {
-        const conflicts = normalizeResolutionResponse(response);
-        setResolutionConflicts(conflicts);
-        setSkillPageCache(cwd, { resolutionConflicts: conflicts });
-        if (conflicts.length === 0) {
-          setResolutionPreview(null);
-          setResolutionNamePrompt(null);
-          setResolutionNameInput('');
-        }
-      }
-    } catch (err) {
-      if (!isCancelled() && options.silent !== true) setError(`读取技能冲突失败：${err.message || String(err)}`);
-    }
-  }, [projectPath, setSkillPageCache]);
+  const refreshSkillSurface = useCallback(async () => {
+    if (!projectCwd) return;
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: dashboardQueryKey(projectCwd, 'skills') }),
+      queryClient.invalidateQueries({ queryKey: dashboardQueryKey(projectCwd, 'skill-resolutions') }),
+    ]);
+  }, [projectCwd, queryClient]);
 
-  const refreshSkillSurface = useCallback(async (options = {}) => {
-    if (refreshInFlightRef.current) return;
-    refreshInFlightRef.current = true;
-    try {
-      await refreshSkills(options);
-      await refreshResolutions(options);
-    } finally {
-      refreshInFlightRef.current = false;
-    }
-  }, [refreshResolutions, refreshSkills]);
+  const retrySkillSurface = useCallback(async () => {
+    if (!projectCwd) return;
+    await Promise.all([
+      refetchSkills(),
+      refetchSkillResolutions(),
+    ]);
+  }, [projectCwd, refetchSkillResolutions, refetchSkills]);
 
-  const openCreateEditor = useCallback(() => {
+  const openCreateEditor = () => {
     setEditorForm(emptySkillForm());
     setActiveSkillPath('');
     setSkillFiles([]);
@@ -5202,9 +5192,9 @@ function SkillsPage({ projectPath, refreshKey = 0 }) {
     setError('');
     setNotice('');
     setEditorOpen(true);
-  }, []);
+  };
 
-  const openEditSkill = useCallback(async (skill) => {
+  const openEditSkill = async (skill) => {
     if (!skill?.dir) {
       setError('skills/local/read: path is required');
       return;
@@ -5212,7 +5202,6 @@ function SkillsPage({ projectPath, refreshKey = 0 }) {
     setError('');
     setNotice('');
     setSummarySuggestion('');
-    setLoading(true);
     const path = `${skill.dir.replace(/[\\/]+$/g, '')}/SKILL.md`;
     try {
       const cwd = normalizeSettingsCwd(projectPath);
@@ -5236,12 +5225,10 @@ function SkillsPage({ projectPath, refreshKey = 0 }) {
       setEditorOpen(true);
     } catch (err) {
       setError(`读取技能失败：${err.message || String(err)}`);
-    } finally {
-      setLoading(false);
     }
-  }, [projectPath]);
+  };
 
-  const openSkillFile = useCallback(async (file) => {
+  const openSkillFile = async (file) => {
     const path = (file?.path || '').toString().trim();
     if (!path) return;
     setError('');
@@ -5266,9 +5253,9 @@ function SkillsPage({ projectPath, refreshKey = 0 }) {
     } catch (err) {
       setError(`读取子文件失败：${err.message || String(err)}`);
     }
-  }, [editorForm.name, projectPath]);
+  };
 
-  const suggestSummary = useCallback(async () => {
+  const suggestSummary = async () => {
     setSummarySuggesting(true);
     setError('');
     setSummarySuggestion('');
@@ -5288,9 +5275,9 @@ function SkillsPage({ projectPath, refreshKey = 0 }) {
     } finally {
       setSummarySuggesting(false);
     }
-  }, [editorForm, projectPath]);
+  };
 
-  const saveEditor = useCallback(async () => {
+  const saveEditor = async () => {
     setSaving(true);
     setError('');
     setNotice('');
@@ -5318,13 +5305,13 @@ function SkillsPage({ projectPath, refreshKey = 0 }) {
     } finally {
       setSaving(false);
     }
-  }, [activeSkillPath, editorForm, projectPath, refreshSkillSurface]);
+  };
 
-  const onDeleteSkill = useCallback((skill) => {
+  const onDeleteSkill = (skill) => {
     setDeleteTarget(skill);
-  }, []);
+  };
 
-  const confirmDeleteSkill = useCallback(async () => {
+  const confirmDeleteSkill = async () => {
     const skill = deleteTarget;
     const skillName = (skill?.name || '').toString().trim();
     if (!skillName) {
@@ -5351,9 +5338,9 @@ function SkillsPage({ projectPath, refreshKey = 0 }) {
     } finally {
       setDeleting(false);
     }
-  }, [deleteTarget, projectPath, refreshSkillSurface]);
+  };
 
-  const confirmImportScope = useCallback(async (scope) => {
+  const confirmImportScope = async (scope) => {
     setImporting(true);
     setError('');
     setNotice('');
@@ -5378,9 +5365,9 @@ function SkillsPage({ projectPath, refreshKey = 0 }) {
     } finally {
       setImporting(false);
     }
-  }, [projectPath, refreshSkillSurface]);
+  };
 
-  const runResolutionAction = useCallback(async (conflict, actionOrEntry, entry = null, newName = '') => {
+  const runResolutionAction = async (conflict, actionOrEntry, entry = null, newName = '') => {
     const conflictID = (conflict?.conflict_id || conflict?.conflictId || '').toString().trim();
     const actionEntry = typeof actionOrEntry === 'string' ? { action: actionOrEntry } : actionOrEntry || {};
     const action = (actionEntry.action || '').toString().trim();
@@ -5456,9 +5443,9 @@ function SkillsPage({ projectPath, refreshKey = 0 }) {
     } finally {
       setResolutionActioning('');
     }
-  }, [projectPath, refreshSkillSurface]);
+  };
 
-  const confirmResolutionNewName = useCallback(async () => {
+  const confirmResolutionNewName = async () => {
     const prompt = resolutionNamePrompt;
     if (!prompt) return;
     const newName = resolutionNameInput.trim();
@@ -5471,9 +5458,9 @@ function SkillsPage({ projectPath, refreshKey = 0 }) {
       setResolutionNamePrompt(null);
       setResolutionNameInput('');
     }
-  }, [resolutionNameInput, resolutionNamePrompt, runResolutionAction]);
+  };
 
-  const confirmResolutionPreview = useCallback(async () => {
+  const confirmResolutionPreview = async () => {
     const preview = resolutionPreview;
     const proof = Array.isArray(preview?.items) ? preview.items[0] : null;
     if (!preview?.requiresApply || !proof?.preview_id || !proof?.preview_hash) return;
@@ -5497,62 +5484,46 @@ function SkillsPage({ projectPath, refreshKey = 0 }) {
     } finally {
       setResolutionActioning('');
     }
-  }, [refreshSkillSurface, resolutionPreview]);
+  };
 
   useEffect(() => {
-    const cached = useClientStore.getState().skillPageCacheByCwd?.[skillCacheKey];
-    hasLoadedSkillsRef.current = Boolean(cached?.hasLoadedSkills);
-    setItems(Array.isArray(cached?.items) ? cached.items : []);
-    setResolutionConflicts(Array.isArray(cached?.resolutionConflicts) ? cached.resolutionConflicts : []);
-    setLoading(false);
     setError('');
     setNotice('');
-  }, [skillCacheKey]);
+    setResolutionPreview(null);
+    setResolutionNamePrompt(null);
+    setResolutionNameInput('');
+  }, [projectCwd]);
 
   useEffect(() => {
-    if (!cachedSkillPage) return;
-    if (Array.isArray(cachedSkillPage.items)) setItems(cachedSkillPage.items);
-    if (Array.isArray(cachedSkillPage.resolutionConflicts)) setResolutionConflicts(cachedSkillPage.resolutionConflicts);
-    if (cachedSkillPage.hasLoadedSkills) hasLoadedSkillsRef.current = true;
-  }, [cachedSkillPage]);
+    if (skillRefreshKey <= 0 || !projectCwd) return;
+    void refreshSkillSurface();
+  }, [projectCwd, refreshSkillSurface, skillRefreshKey]);
 
   useEffect(() => {
-    let cancelled = false;
-    const cached = useClientStore.getState().skillPageCacheByCwd?.[skillCacheKey];
-    refreshSkillSurface({ isCancelled: () => cancelled, silent: Boolean(cached?.hasLoadedSkills) });
-    return () => {
-      cancelled = true;
-    };
-  }, [refreshSkillSurface, skillCacheKey]);
-
-  useEffect(() => {
-    if (skillRefreshKey <= 0) return undefined;
-    let cancelled = false;
-    refreshSkillSurface({ isCancelled: () => cancelled, silent: true });
-    return () => {
-      cancelled = true;
-    };
-  }, [refreshSkillSurface, skillRefreshKey]);
-
-  useEffect(() => {
-    const runAutoRefresh = () => {
+    if (!projectCwd) return undefined;
+    const refreshWhenVisible = () => {
       if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
-      void refreshSkillSurface({ silent: true });
+      void refreshSkillSurface();
     };
     const handleVisibilityChange = () => {
       if (typeof document === 'undefined' || document.visibilityState === 'visible') {
-        runAutoRefresh();
+        refreshWhenVisible();
       }
     };
-    const intervalID = window.setInterval(runAutoRefresh, SKILLS_AUTO_REFRESH_MS);
-    window.addEventListener('focus', runAutoRefresh);
+    window.addEventListener('focus', refreshWhenVisible);
     document.addEventListener('visibilitychange', handleVisibilityChange);
     return () => {
-      window.clearInterval(intervalID);
-      window.removeEventListener('focus', runAutoRefresh);
+      window.removeEventListener('focus', refreshWhenVisible);
       document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
-  }, [refreshSkillSurface]);
+  }, [projectCwd, refreshSkillSurface]);
+
+  useEffect(() => {
+    if (resolutionConflicts.length > 0) return;
+    setResolutionPreview(null);
+    setResolutionNamePrompt(null);
+    setResolutionNameInput('');
+  }, [resolutionConflicts.length]);
 
   const counts = useMemo(() => items.reduce((acc, item) => {
     acc.all += 1;
@@ -5607,8 +5578,22 @@ function SkillsPage({ projectPath, refreshKey = 0 }) {
           </button>
         ))}
       </div>
-      {loading ? <p className="console-message">加载技能中...</p> : null}
+      {isProjectPending ? <p className="console-message">正在连接本地项目...</p> : null}
+      {isInitialSkillsLoading ? <p className="console-message">加载技能中...</p> : null}
       {notice ? <p className="settings-status">{notice}</p> : null}
+      {showCachedSyncError ? (
+        <div className="danger-text skills-sync-alert" role="alert">
+          <span>同步失败，显示的是上次成功的数据：{syncErrorText}</span>
+          <button type="button" className="ghost" onClick={() => { void retrySkillSurface(); }}>重试同步</button>
+        </div>
+      ) : null}
+      {showBlockingSyncError ? (
+        <RetryableSyncError
+          className="danger-text skills-sync-alert"
+          message={syncErrorText}
+          onRetry={retrySkillSurface}
+        />
+      ) : null}
       {error ? <p className="danger-text" role="alert">{error}</p> : null}
       {resolutionConflicts.length > 0 ? (
         <section className="skills-resolution-panel">
@@ -5704,8 +5689,8 @@ function SkillsPage({ projectPath, refreshKey = 0 }) {
           ) : null}
         </section>
       ) : null}
-      {!loading && !error && filteredItems.length === 0 ? <p className="console-message">暂无技能</p> : null}
-      {!error && filteredItems.length > 0 ? (
+      {!isProjectPending && !isInitialSkillsLoading && !showBlockingSyncError && filteredItems.length === 0 ? <p className="console-message">暂无技能</p> : null}
+      {filteredItems.length > 0 ? (
         <div className="skill-grid">
           {filteredItems.map((skill) => <SkillCard key={skill.id} skill={skill} onEdit={openEditSkill} onDelete={onDeleteSkill} />)}
         </div>
@@ -5751,15 +5736,17 @@ function SkillsPage({ projectPath, refreshKey = 0 }) {
 function SkillCard({ skill, onEdit, onDelete }) {
   const tags = skill.tags.slice(0, 4);
   const extraTagCount = skill.tags.length - tags.length;
-  const description = skill.description || '暂无描述';
-  const summary = skill.summary || description;
+  const descriptionText = (skill.description || '').toString().trim();
+  const summaryText = (skill.summary || '').toString().trim();
+  const description = descriptionText || summaryText || '暂无描述';
+  const shouldShowSummary = Boolean(summaryText && summaryText !== description);
 
   return (
     <article className="skill-card">
       <header><h3>{skill.title}</h3><span>{scopeLabel(skill.scope)}</span></header>
       <p className="path">{skill.dir || '未提供路径'}</p>
       <p>{description}</p>
-      <div className="quote">{summary}</div>
+      {shouldShowSummary ? <div className="quote">{summaryText}</div> : null}
       <small>关键词</small>
       <div className="tags">
         {tags.length > 0 ? tags.map((tag) => <span key={tag}>{tag}</span>) : <span>暂无关键词</span>}
@@ -5917,18 +5904,26 @@ function ImportScopeModal({ importing, onClose, onConfirm }) {
 }
 
 function FilesPage({ projectPath, store }) {
-  const sharedFilesCacheKey = normalizeSettingsCwd(projectPath);
-  const cachedSharedFilesPage = useClientStore((state) => state.sharedFilesPageCacheByCwd?.[sharedFilesCacheKey]);
-  const setSharedFilesPageCache = useClientStore((state) => state.setSharedFilesPageCache);
-  const [files, setFiles] = useState(() => (Array.isArray(cachedSharedFilesPage?.files) ? cachedSharedFilesPage.files : []));
-  const [finalOutputRefs, setFinalOutputRefs] = useState(() => (
-    Array.isArray(cachedSharedFilesPage?.finalOutputRefs) ? cachedSharedFilesPage.finalOutputRefs : []
-  ));
-  const [retention, setRetention] = useState(() => (
-    cachedSharedFilesPage?.retention || { items: [], protectedCount: 0, cleanupCandidateCount: 0 }
-  ));
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
+  const exportDefaultPath = optionalSettingsCwd(projectPath);
+  const queryClient = useQueryClient();
+  const sharedFilesQueryKey = useMemo(() => dashboardGlobalQueryKey('shared-files'), []);
+  useDashboardQueryFocusInvalidation(sharedFilesQueryKey);
+  const sharedFilesQuery = useQuery({
+    queryKey: sharedFilesQueryKey,
+    queryFn: fetchSharedFilesDashboard,
+  });
+  const hasSharedFilesSnapshot = queryHasSnapshot(sharedFilesQuery);
+  const sharedFilesData = sharedFilesQuery.data || {
+    files: [],
+    finalOutputRefs: [],
+    retention: { items: [], protectedCount: 0, cleanupCandidateCount: 0 },
+  };
+  const files = sharedFilesData.files;
+  const finalOutputRefs = sharedFilesData.finalOutputRefs;
+  const retention = sharedFilesData.retention;
+  const loading = sharedFilesQuery.isPending && !hasSharedFilesSnapshot;
+  const { cachedSyncError: syncError, blockingError } = dashboardQueryErrorState(sharedFilesQuery, hasSharedFilesSnapshot);
+  const error = blockingError ? `加载共享文件失败：${blockingError}` : '';
   const [notice, setNotice] = useState(null);
   const [searchText, setSearchText] = useState('');
   const [sortMode, setSortMode] = useState('updated-desc');
@@ -5939,8 +5934,6 @@ function FilesPage({ projectPath, store }) {
   const [exportingPath, setExportingPath] = useState('');
   const [deletingPath, setDeletingPath] = useState('');
   const [copied, setCopied] = useState(false);
-  const hasLoadedFilesRef = useRef(Boolean(cachedSharedFilesPage?.hasLoadedFiles));
-  const refreshInFlightRef = useRef(false);
   const sharedFilesRevision = Number(store?.sharedFilesRevision || 0);
 
   const finalOutputByPath = useMemo(() => (
@@ -5958,94 +5951,18 @@ function FilesPage({ projectPath, store }) {
     work: workCount,
   }), [files.length, finalCount, workCount]);
 
-  const refreshFiles = useCallback(async ({ silent = false } = {}) => {
-    if (refreshInFlightRef.current) return;
-    refreshInFlightRef.current = true;
-    const cached = useClientStore.getState().sharedFilesPageCacheByCwd?.[sharedFilesCacheKey];
-    const hasUsableSnapshot = hasLoadedFilesRef.current || Boolean(cached?.hasLoadedFiles);
-    const showBlockingLoading = !silent && !hasUsableSnapshot;
-    if (showBlockingLoading) {
-      setLoading(true);
-      setError('');
-    } else if (!silent) {
-      setError('');
-    }
-    try {
-      const cwd = normalizeSettingsCwd(projectPath);
-      const response = await getDashboardPage({ cwd, page: 'memory' });
-      const normalized = normalizeSharedFilesResponse(response);
-      hasLoadedFilesRef.current = true;
-      setFiles(normalized.files);
-      setFinalOutputRefs(normalized.finalOutputRefs);
-      setRetention(normalized.retention);
-      setSharedFilesPageCache(cwd, {
-        files: normalized.files,
-        finalOutputRefs: normalized.finalOutputRefs,
-        retention: normalized.retention,
-        hasLoadedFiles: true,
-      });
-      setError('');
-    } catch (err) {
-      if (showBlockingLoading) {
-        setFiles([]);
-        setFinalOutputRefs([]);
-        setRetention({ items: [], protectedCount: 0, cleanupCandidateCount: 0 });
-      }
-      if (!silent || !hasUsableSnapshot) setError(`加载共享文件失败：${err.message || String(err)}`);
-    } finally {
-      refreshInFlightRef.current = false;
-      if (showBlockingLoading) setLoading(false);
-    }
-  }, [projectPath, setSharedFilesPageCache, sharedFilesCacheKey]);
+  const refreshFiles = useCallback(async () => {
+    await queryClient.invalidateQueries({ queryKey: sharedFilesQueryKey });
+  }, [queryClient, sharedFilesQueryKey]);
 
   useEffect(() => {
-    const cached = useClientStore.getState().sharedFilesPageCacheByCwd?.[sharedFilesCacheKey];
-    hasLoadedFilesRef.current = Boolean(cached?.hasLoadedFiles);
-    setFiles(Array.isArray(cached?.files) ? cached.files : []);
-    setFinalOutputRefs(Array.isArray(cached?.finalOutputRefs) ? cached.finalOutputRefs : []);
-    setRetention(cached?.retention || { items: [], protectedCount: 0, cleanupCandidateCount: 0 });
-    setLoading(false);
-    setError('');
     setNotice(null);
-  }, [sharedFilesCacheKey]);
-
-  useEffect(() => {
-    if (!cachedSharedFilesPage) return;
-    if (Array.isArray(cachedSharedFilesPage.files)) setFiles(cachedSharedFilesPage.files);
-    if (Array.isArray(cachedSharedFilesPage.finalOutputRefs)) setFinalOutputRefs(cachedSharedFilesPage.finalOutputRefs);
-    if (cachedSharedFilesPage.retention) setRetention(cachedSharedFilesPage.retention);
-    if (cachedSharedFilesPage.hasLoadedFiles) hasLoadedFilesRef.current = true;
-  }, [cachedSharedFilesPage]);
-
-  useEffect(() => {
-    const cached = useClientStore.getState().sharedFilesPageCacheByCwd?.[sharedFilesCacheKey];
-    void refreshFiles({ silent: Boolean(cached?.hasLoadedFiles) });
-  }, [refreshFiles, sharedFilesCacheKey]);
+  }, []);
 
   useEffect(() => {
     if (sharedFilesRevision <= 0) return;
-    void refreshFiles({ silent: true });
+    void refreshFiles();
   }, [refreshFiles, sharedFilesRevision]);
-
-  useEffect(() => {
-    const runAutoRefresh = () => {
-      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
-      void refreshFiles({ silent: true });
-    };
-    const handleVisibilityChange = () => {
-      if (typeof document === 'undefined' || document.visibilityState === 'visible') {
-        runAutoRefresh();
-      }
-    };
-    const intervalID = window.setInterval(runAutoRefresh, SHARED_FILES_AUTO_REFRESH_MS);
-    window.addEventListener('focus', runAutoRefresh);
-    document.addEventListener('visibilitychange', handleVisibilityChange);
-    return () => {
-      window.clearInterval(intervalID);
-      window.removeEventListener('focus', runAutoRefresh);
-      document.removeEventListener('visibilitychange', handleVisibilityChange);
-    };
-  }, [refreshFiles]);
 
   const visibleFiles = useMemo(() => {
     const filtered = sortSharedFiles(files.filter((file) => sharedFileMatches(file, searchText)), sortMode);
@@ -6097,7 +6014,7 @@ function FilesPage({ projectPath, store }) {
     try {
       const detail = await loadFileDetail(file);
       const savedPath = await saveTextFile({
-        defaultPath: normalizeSettingsCwd(projectPath),
+        defaultPath: exportDefaultPath,
         defaultFilename: sharedFileExportName(detail.path),
         content: detail.content,
       });
@@ -6107,7 +6024,7 @@ function FilesPage({ projectPath, store }) {
     } finally {
       setExportingPath('');
     }
-  }, [exportingPath, loadFileDetail, projectPath]);
+  }, [exportDefaultPath, exportingPath, loadFileDetail]);
 
   const askDelete = useCallback((file) => {
     const protection = protectionFor(file);
@@ -6199,7 +6116,13 @@ function FilesPage({ projectPath, store }) {
         })}
       </div>
       {notice ? <p className={notice.level === 'error' ? 'danger-text' : 'settings-status'}>{notice.message}</p> : null}
-      {error ? <p className="danger-text">{error}</p> : null}
+      {syncError ? (
+        <div className="danger-text shared-files-sync-alert" role="alert">
+          <span>{syncError}</span>
+          <button type="button" className="ghost" onClick={() => { void refreshFiles(); }}>重试同步</button>
+        </div>
+      ) : null}
+      <RetryableSyncError className="danger-text shared-files-sync-alert" message={error} onRetry={refreshFiles} />
       {!error && loading && files.length === 0 ? <p className="console-message">正在加载共享文件...</p> : null}
       {!error && !loading && files.length === 0 ? (
         <div className="empty-state">
@@ -6352,15 +6275,19 @@ function ConfirmSharedFileDeleteModal({ file, deleting, onClose, onConfirm }) {
   );
 }
 
-function MemoryPage({ projectPath, onSimilarCountChange, refreshKey = 0 }) {
-  const memoryCacheKey = normalizeSettingsCwd(projectPath);
-  const cachedMemoryPage = useClientStore((state) => state.memoryPageCacheByCwd?.[memoryCacheKey]);
-  const setMemoryPageCache = useClientStore((state) => state.setMemoryPageCache);
-  const [snapshot, setSnapshot] = useState(() => (
-    cachedMemoryPage?.snapshot || { overview: {}, entries: [] }
-  ));
-  const [loading, setLoading] = useState(() => !cachedMemoryPage?.hasLoadedMemory);
-  const [error, setError] = useState('');
+function MemoryPage({ projectPath, onSimilarCountChange }) {
+  const memoryCwd = optionalSettingsCwd(projectPath);
+  const isProjectPending = !memoryCwd;
+  const queryClient = useQueryClient();
+  const memoryQuery = useQuery({
+    queryKey: dashboardQueryKey(memoryCwd, 'memory'),
+    queryFn: () => fetchMemoryDashboard(memoryCwd),
+    enabled: Boolean(memoryCwd),
+  });
+  const hasMemorySnapshot = queryHasSnapshot(memoryQuery);
+  const snapshot = memoryQuery.data || { overview: {}, entries: [] };
+  const loading = Boolean(memoryCwd) && memoryQuery.isPending && !hasMemorySnapshot;
+  const { cachedSyncError: syncError, blockingError: error } = dashboardQueryErrorState(memoryQuery, hasMemorySnapshot);
   const [notice, setNotice] = useState({ level: 'info', message: '' });
   const [searchText, setSearchText] = useState('');
   const [activeCategory, setActiveCategory] = useState('preference');
@@ -6376,85 +6303,15 @@ function MemoryPage({ projectPath, onSimilarCountChange, refreshKey = 0 }) {
   const [mergingAll, setMergingAll] = useState(false);
   const [ignoringKey, setIgnoringKey] = useState('');
   const [mergingKey, setMergingKey] = useState('');
-  const hasLoadedMemoryRef = useRef(Boolean(cachedMemoryPage?.hasLoadedMemory));
-  const refreshInFlightRef = useRef(false);
-  const memoryRefreshKey = Number(refreshKey || 0);
 
-  const refreshMemory = useCallback(async ({ silent = false } = {}) => {
-    if (refreshInFlightRef.current) return;
-    refreshInFlightRef.current = true;
-    const cached = useClientStore.getState().memoryPageCacheByCwd?.[memoryCacheKey];
-    const hasUsableSnapshot = hasLoadedMemoryRef.current || Boolean(cached?.hasLoadedMemory);
-    const showBlockingLoading = !silent && !hasUsableSnapshot;
-    if (showBlockingLoading) {
-      setLoading(true);
-      setError('');
-    } else if (!silent) {
-      setError('');
-    }
-    try {
-      const cwd = normalizeSettingsCwd(projectPath);
-      const response = await getMemorySnapshot({ cwd });
-      const nextSnapshot = normalizeMemorySnapshot(response);
-      hasLoadedMemoryRef.current = true;
-      setSnapshot(nextSnapshot);
-      setMemoryPageCache(cwd, { snapshot: nextSnapshot, hasLoadedMemory: true });
-      setError('');
-    } catch (err) {
-      if (!silent || !hasUsableSnapshot) setError(errorMessage(err));
-    } finally {
-      refreshInFlightRef.current = false;
-      if (showBlockingLoading) setLoading(false);
-    }
-  }, [memoryCacheKey, projectPath, setMemoryPageCache]);
+  const refreshMemory = useCallback(async () => {
+    if (!memoryCwd) return;
+    await queryClient.invalidateQueries({ queryKey: dashboardQueryKey(memoryCwd, 'memory') });
+  }, [memoryCwd, queryClient]);
 
   useEffect(() => {
-    const cached = useClientStore.getState().memoryPageCacheByCwd?.[memoryCacheKey];
-    hasLoadedMemoryRef.current = Boolean(cached?.hasLoadedMemory);
-    setSnapshot(cached?.snapshot || { overview: {}, entries: [] });
-    setLoading(!cached?.hasLoadedMemory);
-    setError('');
     setNotice({ level: 'info', message: '' });
-  }, [memoryCacheKey]);
-
-  useEffect(() => {
-    if (!cachedMemoryPage) return;
-    if (cachedMemoryPage.snapshot) setSnapshot(cachedMemoryPage.snapshot);
-    if (cachedMemoryPage.hasLoadedMemory) {
-      hasLoadedMemoryRef.current = true;
-      setLoading(false);
-    }
-  }, [cachedMemoryPage]);
-
-  useEffect(() => {
-    const cached = useClientStore.getState().memoryPageCacheByCwd?.[memoryCacheKey];
-    refreshMemory({ silent: Boolean(cached?.hasLoadedMemory) }).catch(() => { });
-  }, [memoryCacheKey, refreshMemory]);
-
-  useEffect(() => {
-    if (memoryRefreshKey <= 0) return;
-    void refreshMemory({ silent: true });
-  }, [memoryRefreshKey, refreshMemory]);
-
-  useEffect(() => {
-    const runAutoRefresh = () => {
-      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
-      void refreshMemory({ silent: true });
-    };
-    const handleVisibilityChange = () => {
-      if (typeof document === 'undefined' || document.visibilityState === 'visible') {
-        runAutoRefresh();
-      }
-    };
-    const intervalID = window.setInterval(runAutoRefresh, MEMORY_AUTO_REFRESH_MS);
-    window.addEventListener('focus', runAutoRefresh);
-    document.addEventListener('visibilitychange', handleVisibilityChange);
-    return () => {
-      window.clearInterval(intervalID);
-      window.removeEventListener('focus', runAutoRefresh);
-      document.removeEventListener('visibilitychange', handleVisibilityChange);
-    };
-  }, [refreshMemory]);
+  }, [memoryCwd]);
 
   const showNotice = useCallback((level, message) => {
     setNotice({ level: level || 'info', message: memoryNoticeText(message) });
@@ -6501,17 +6358,18 @@ function MemoryPage({ projectPath, onSimilarCountChange, refreshKey = 0 }) {
   }, []);
 
   const openCreate = useCallback((type) => {
+    if (isProjectPending) return;
     const form = defaultMemoryForm(type, memoryTargetForType(type));
     setEditor({ open: true, mode: 'create', form });
     setCreateMenuOpen(false);
-  }, []);
+  }, [isProjectPending]);
 
   const openEdit = useCallback(async (entry) => {
+    if (!memoryCwd) return;
     const key = `${entry.target}:${entry.path}`;
     setBusyKey(key);
     try {
-      const cwd = normalizeSettingsCwd(projectPath);
-      const detail = await getMemoryEntry({ cwd, target: entry.target, path: entry.path });
+      const detail = await getMemoryEntry({ cwd: memoryCwd, target: entry.target, path: entry.path });
       setEditor({
         open: true,
         mode: 'edit',
@@ -6530,7 +6388,7 @@ function MemoryPage({ projectPath, onSimilarCountChange, refreshKey = 0 }) {
     } finally {
       setBusyKey('');
     }
-  }, [projectPath, showNotice]);
+  }, [memoryCwd, showNotice]);
 
   const closeEditor = useCallback(() => {
     if (saving) return;
@@ -6539,6 +6397,7 @@ function MemoryPage({ projectPath, onSimilarCountChange, refreshKey = 0 }) {
 
   const saveEditor = useCallback(async () => {
     if (saving) return;
+    if (!memoryCwd) { showNotice('error', '正在连接本地项目...'); return; }
     const form = editor.form;
     const description = textValue(form.description);
     const content = textValue(form.content);
@@ -6546,10 +6405,9 @@ function MemoryPage({ projectPath, onSimilarCountChange, refreshKey = 0 }) {
     if (!content) { showNotice('error', '内容不能为空'); return; }
     setSaving(true);
     try {
-      const cwd = normalizeSettingsCwd(projectPath);
       const type = textValue(form.type) || 'project';
       await upsertMemoryEntry({
-        cwd,
+        cwd: memoryCwd,
         target: form.existingPath ? form.target : memoryTargetForType(type),
         existingPath: form.existingPath,
         name: memoryAutoName({ ...form, type }),
@@ -6566,15 +6424,15 @@ function MemoryPage({ projectPath, onSimilarCountChange, refreshKey = 0 }) {
     } finally {
       setSaving(false);
     }
-  }, [editor.form, projectPath, refreshMemory, saving, showNotice]);
+  }, [editor.form, memoryCwd, refreshMemory, saving, showNotice]);
 
   const confirmDelete = useCallback(async () => {
     if (!deleteTarget || deletingKey) return;
+    if (!memoryCwd) { showNotice('error', '正在连接本地项目...'); return; }
     const key = `${deleteTarget.target}:${deleteTarget.path}`;
     setDeletingKey(key);
     try {
-      const cwd = normalizeSettingsCwd(projectPath);
-      await deleteMemoryEntry({ cwd, target: deleteTarget.target, path: deleteTarget.path });
+      await deleteMemoryEntry({ cwd: memoryCwd, target: deleteTarget.target, path: deleteTarget.path });
       showNotice('info', `已删除：${memoryEntryTitle(deleteTarget)}`);
       setDeleteTarget(null);
       await refreshMemory();
@@ -6583,10 +6441,10 @@ function MemoryPage({ projectPath, onSimilarCountChange, refreshKey = 0 }) {
     } finally {
       setDeletingKey('');
     }
-  }, [deleteTarget, deletingKey, projectPath, refreshMemory, showNotice]);
+  }, [deleteTarget, deletingKey, memoryCwd, refreshMemory, showNotice]);
 
   const toggleAutoDream = useCallback(async () => {
-    if (autoToggling) return;
+    if (autoToggling || isProjectPending) return;
     const next = !autoDreamEnabled;
     setAutoToggling(true);
     try {
@@ -6598,16 +6456,16 @@ function MemoryPage({ projectPath, onSimilarCountChange, refreshKey = 0 }) {
     } finally {
       setAutoToggling(false);
     }
-  }, [autoDreamEnabled, autoToggling, refreshMemory, showNotice]);
+  }, [autoDreamEnabled, autoToggling, isProjectPending, refreshMemory, showNotice]);
 
   const confirmMerge = useCallback(async () => {
     if (!mergeTarget || mergingKey) return;
+    if (!memoryCwd) { showNotice('error', '正在连接本地项目...'); return; }
     const key = memoryPairKey(mergeTarget);
     setMergingKey(key);
     try {
-      const cwd = normalizeSettingsCwd(projectPath);
       await mergeMemoryEntries({
-        cwd,
+        cwd: memoryCwd,
         targetA: mergeTarget.targetA,
         pathA: mergeTarget.pathA,
         targetB: mergeTarget.targetB,
@@ -6621,15 +6479,15 @@ function MemoryPage({ projectPath, onSimilarCountChange, refreshKey = 0 }) {
     } finally {
       setMergingKey('');
     }
-  }, [mergeTarget, mergingKey, projectPath, refreshMemory, showNotice]);
+  }, [memoryCwd, mergeTarget, mergingKey, refreshMemory, showNotice]);
 
   const mergeAllGroups = useCallback(async () => {
     if (!similarGroups.length || mergingAll) return;
+    if (!memoryCwd) { showNotice('error', '正在连接本地项目...'); return; }
     setMergingAll(true);
     showNotice('info', '智能整合中（通常 10-20 秒），请勿离开');
     try {
-      const cwd = normalizeSettingsCwd(projectPath);
-      const result = await consolidateMemorySimilarities({ cwd });
+      const result = await consolidateMemorySimilarities({ cwd: memoryCwd });
       const merged = Number(result?.merged) || 0;
       const ignored = Number(result?.ignored) || 0;
       const failed = Number(result?.failed) || 0;
@@ -6646,16 +6504,16 @@ function MemoryPage({ projectPath, onSimilarCountChange, refreshKey = 0 }) {
     } finally {
       setMergingAll(false);
     }
-  }, [mergingAll, projectPath, refreshMemory, showNotice, similarGroups.length]);
+  }, [memoryCwd, mergingAll, refreshMemory, showNotice, similarGroups.length]);
 
   const ignoreGroup = useCallback(async (group) => {
     const key = memoryPairKey(group);
     if (ignoringKey) return;
+    if (!memoryCwd) { showNotice('error', '正在连接本地项目...'); return; }
     setIgnoringKey(key);
     try {
-      const cwd = normalizeSettingsCwd(projectPath);
       await ignoreMemorySimilarity({
-        cwd,
+        cwd: memoryCwd,
         targetA: group.targetA,
         pathA: group.pathA,
         targetB: group.targetB,
@@ -6668,7 +6526,7 @@ function MemoryPage({ projectPath, onSimilarCountChange, refreshKey = 0 }) {
     } finally {
       setIgnoringKey('');
     }
-  }, [ignoringKey, projectPath, refreshMemory, showNotice]);
+  }, [ignoringKey, memoryCwd, refreshMemory, showNotice]);
 
   return (
     <section className="memory-page">
@@ -6681,13 +6539,13 @@ function MemoryPage({ projectPath, onSimilarCountChange, refreshKey = 0 }) {
               <Search size={17} />
               <input
                 aria-label="搜索记忆"
-                placeholder="搜索 name / description / path"
+                placeholder="搜索记忆标题 / 内容"
                 value={searchText}
                 onChange={(event) => setSearchText(event.target.value)}
               />
             </label>
             <div className="memory-create">
-              <button type="button" className="light" aria-label="+ 新建 ▾" onClick={() => setCreateMenuOpen((open) => !open)}>
+              <button type="button" className="light" aria-label="+ 新建 ▾" onClick={() => setCreateMenuOpen((open) => !open)} disabled={isProjectPending}>
                 <Plus size={15} /> 新建 ▾
               </button>
               {createMenuOpen ? (
@@ -6718,7 +6576,7 @@ function MemoryPage({ projectPath, onSimilarCountChange, refreshKey = 0 }) {
         <Panel title="自动沉淀">
           <p><span className={autoDreamEnabled ? 'green-dot' : 'orange-dot'} /> {autoDreamEnabled ? '已开启' : '已关闭'}</p>
           <small>对话结束后自动整理重要内容</small>
-          <button type="button" onClick={() => { void toggleAutoDream(); }} disabled={autoToggling}>
+          <button type="button" onClick={() => { void toggleAutoDream(); }} disabled={autoToggling || isProjectPending}>
             {autoDreamEnabled ? '关闭' : '开启'}
           </button>
           {autoDreamPendingRestart ? <small className="memory-pending">已保存切换，重启 agent-terminal 后生效</small> : null}
@@ -6754,8 +6612,20 @@ function MemoryPage({ projectPath, onSimilarCountChange, refreshKey = 0 }) {
       ) : null}
 
       {notice.message ? <div className={`memory-notice is-${notice.level}`}>{notice.message}</div> : null}
-      {loading ? <div className="memory-notice is-info">正在加载记忆中心...</div> : null}
-      {error ? <div className="memory-notice is-error">{error}</div> : null}
+      {isProjectPending ? <div className="memory-notice is-info">正在连接本地项目...</div> : null}
+      {!isProjectPending && loading ? <div className="memory-notice is-info">正在加载记忆中心...</div> : null}
+      {syncError ? (
+        <div className="memory-notice is-error" role="alert">
+          <span>{syncError}</span>
+          <button type="button" onClick={() => { void refreshMemory(); }}>重试同步</button>
+        </div>
+      ) : null}
+      {error ? (
+        <div className="memory-notice is-error" role="alert">
+          <span>{error}</span>
+          <button type="button" onClick={() => { void refreshMemory(); }}>重试同步</button>
+        </div>
+      ) : null}
 
       <div className="memory-tabs" role="tablist" aria-label="记忆分类">
         {MEMORY_CATEGORIES.map((item) => (
@@ -6771,7 +6641,7 @@ function MemoryPage({ projectPath, onSimilarCountChange, refreshKey = 0 }) {
         ))}
       </div>
 
-      {!error && !loading && visibleEntries.length === 0 ? (
+      {!error && !isProjectPending && !loading && visibleEntries.length === 0 ? (
         <div className="empty-state memory-empty">
           <span><MemoryStick size={24} /></span>
           <h2>{searchText ? '没有匹配的条目' : '暂无记忆'}</h2>
@@ -6779,7 +6649,7 @@ function MemoryPage({ projectPath, onSimilarCountChange, refreshKey = 0 }) {
         </div>
       ) : null}
 
-      {!error && visibleEntries.length ? (
+      {!error && !isProjectPending && visibleEntries.length ? (
         <div className="memory-cards">
           {visibleEntries.map((entry) => (
             <MemoryCard
@@ -6842,7 +6712,6 @@ function MemoryCard({ entry, busy, deleting, onEdit, onDelete }) {
       </header>
       {entry.description ? <p>{entry.description}</p> : null}
       <code>{entry.preview || '暂无预览'}</code>
-      <small className="path">{entry.path}</small>
       <footer>
         <time>{sharedFileTimestamp(entry.updatedAt)}</time>
         <button type="button" onClick={() => { void onEdit(entry); }} disabled={busy}>{busy ? '加载中...' : '编辑'}</button>
@@ -6910,7 +6779,7 @@ function MemoryDeleteModal({ entry, deleting, onClose, onConfirm }) {
           <button type="button" className="ghost" onClick={onClose} disabled={deleting}>关闭</button>
         </header>
         <p>删除后无法恢复。如果后续可能重用，建议先编辑备份内容。</p>
-        <p className="path">{memoryEntryTitle(entry)} · {entry.target}</p>
+        <p className="path">{memoryEntryTitle(entry)}</p>
         <footer>
           <button type="button" className="ghost" onClick={onClose} disabled={deleting}>取消</button>
           <button type="button" className="danger" onClick={() => { void onConfirm(); }} disabled={deleting}>{deleting ? '删除中...' : '确认删除'}</button>
@@ -6931,8 +6800,8 @@ function MemoryMergeModal({ group, merging, onClose, onConfirm }) {
           </div>
           <button type="button" className="ghost" onClick={onClose} disabled={merging}>关闭</button>
         </header>
-        <p>合并到：{group.nameA || group.pathA} · {group.targetA}</p>
-        <p>移除：{group.nameB || group.pathB} · {group.targetB}</p>
+        <p>合并到：{group.nameA || '保留项'}</p>
+        <p>移除：{group.nameB || '重复项'}</p>
         <footer>
           <button type="button" className="ghost" onClick={onClose} disabled={merging}>取消</button>
           <button type="button" className="light" onClick={() => { void onConfirm(); }} disabled={merging}>{merging ? '整合中...' : '确认整合'}</button>

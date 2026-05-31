@@ -17,6 +17,16 @@ function dispatchPointer(target, type, clientX = 0, options = {}) {
   });
 }
 
+function deferred() {
+  let resolve;
+  let reject;
+  const promise = new Promise((promiseResolve, promiseReject) => {
+    resolve = promiseResolve;
+    reject = promiseReject;
+  });
+  return { promise, resolve, reject };
+}
+
 const backend = vi.hoisted(() => ({
   readConfig: vi.fn(),
   getWindowBootstrap: vi.fn(),
@@ -30,6 +40,7 @@ const backend = vi.hoisted(() => ({
   getThreadMessages: vi.fn(),
   getBuildInfo: vi.fn(),
   getDashboardPage: vi.fn(),
+  listSharedFiles: vi.fn(),
   listPromptAssets: vi.fn(),
   getDashboardPrompts: vi.fn(),
   getPrompt: vi.fn(),
@@ -162,11 +173,27 @@ describe('frontend-app connected client shell', () => {
         personal_type: 'user',
       },
     ];
-    backend.getDashboardPage.mockImplementation(({ page }) => Promise.resolve(
-      page === 'memory'
-        ? { memory: [], finalOutputRefs: [], sharedFileRetention: { items: [], protectedCount: 0, cleanupCandidateCount: 0 } }
-        : { skills: defaultSkills },
-    ));
+    backend.getDashboardPage.mockImplementation(({ page }) => {
+      if (page === 'memory') {
+        return Promise.resolve({
+          memory: [],
+          finalOutputRefs: [],
+          sharedFileRetention: { items: [], protectedCount: 0, cleanupCandidateCount: 0 },
+        });
+      }
+      if (page === 'dags') {
+        return Promise.resolve({ dags: [] });
+      }
+      if (page === 'skills') {
+        return Promise.resolve({ skills: defaultSkills });
+      }
+      return Promise.resolve({});
+    });
+    backend.listSharedFiles.mockResolvedValue({
+      files: [],
+      finalOutputRefs: [],
+      sharedFileRetention: { items: [], protectedCount: 0, cleanupCandidateCount: 0 },
+    });
     backend.listPromptAssets.mockResolvedValue({ prompts: [] });
     backend.getDashboardPrompts.mockResolvedValue({ prompts: [] });
     backend.getPrompt.mockResolvedValue({ prompt: { content: '' } });
@@ -2120,8 +2147,55 @@ describe('frontend-app connected client shell', () => {
     fireEvent.click(screen.getByLabelText('共享文件'));
     expect(screen.getByText('文件产物')).toBeInTheDocument();
     await waitFor(() => {
-      expect(backend.getDashboardPage).toHaveBeenCalledWith({ cwd: '/repo/app', page: 'memory' });
+      expect(backend.listSharedFiles).toHaveBeenCalledWith();
     });
+  });
+
+  it.each([
+    ['提示词', 'AI 能力与资料', '暂无内容', () => expect(backend.listPromptAssets).not.toHaveBeenCalled()],
+    ['自动化', '自动化', '无任务', () => expect(backend.getDashboardPage).not.toHaveBeenCalledWith({ cwd: '未选择项目', page: 'dags' })],
+    ['记忆中心', '记忆中心', '暂无记忆', () => expect(backend.getMemorySnapshot).not.toHaveBeenCalledWith({ cwd: '未选择项目' })],
+  ])('keeps the %s route visible while project context resolves', async (navLabel, heading, settledText, assertNoInvalidLoad) => {
+    const config = deferred();
+    backend.readConfig.mockReturnValueOnce(config.promise);
+
+    render(<App />);
+    fireEvent.click(screen.getByLabelText(navLabel));
+
+    expect(screen.getByRole('heading', { name: heading })).toBeInTheDocument();
+    expect(screen.getByText('正在连接本地项目...')).toBeInTheDocument();
+    assertNoInvalidLoad();
+
+    await act(async () => {
+      config.resolve({ cwd: '/repo/app' });
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(await screen.findByText(settledText)).toBeInTheDocument();
+    expect(screen.queryByText('正在连接本地项目...')).not.toBeInTheDocument();
+  });
+
+  it('loads global shared files while project context resolves', async () => {
+    const config = deferred();
+    backend.readConfig.mockReturnValueOnce(config.promise);
+
+    render(<App />);
+    fireEvent.click(screen.getByLabelText('共享文件'));
+
+    expect(screen.getByRole('heading', { name: '文件产物' })).toBeInTheDocument();
+    expect(screen.queryByText('正在连接本地项目...')).not.toBeInTheDocument();
+    await waitFor(() => {
+      expect(backend.listSharedFiles).toHaveBeenCalledWith();
+    });
+    expect(backend.listSharedFiles).not.toHaveBeenCalledWith({ cwd: '未选择项目' });
+
+    await act(async () => {
+      config.resolve({ cwd: '/repo/app' });
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(await screen.findByText('还没有文件产物')).toBeInTheDocument();
   });
 
   it('does not mark the memory center nav when no similar memories need merging', async () => {
@@ -2287,6 +2361,175 @@ describe('frontend-app connected client shell', () => {
     expect(screen.queryByText('部署助手')).not.toBeInTheDocument();
   });
 
+  it('does not poll prompt assets with a page interval', async () => {
+    const intervalSpy = vi.spyOn(window, 'setInterval');
+    try {
+      backend.listPromptAssets.mockResolvedValue({
+        prompts: [{
+          id: 'main/code-review',
+          name: '代码审查助手',
+          description: '检查改动风险',
+          content: '先列风险',
+          tags: ['intent:expert'],
+          scope: 'project',
+        }],
+      });
+      backend.getPreference.mockResolvedValue('');
+
+      render(<App />);
+      await screen.findByText('后端线程');
+      fireEvent.click(screen.getByLabelText('提示词'));
+
+      expect(await screen.findByText('代码审查助手')).toBeInTheDocument();
+      expect(intervalSpy.mock.calls.filter((call) => call[1] === 4000)).toHaveLength(0);
+    } finally {
+      intervalSpy.mockRestore();
+    }
+  });
+
+  it('keeps cached prompt assets visible and exposes retry when a background sync fails', async () => {
+    let prompts = [{
+      id: 'main/reviewer',
+      name: '代码审查专家',
+      content: '先检查阻塞问题',
+      description: '审查代码质量',
+      tags: ['intent:expert', 'review'],
+      scope: 'project',
+      enabled: true,
+    }];
+    backend.listPromptAssets.mockImplementation(() => Promise.resolve({ prompts }));
+    backend.getPreference.mockResolvedValue('');
+
+    render(<App />);
+    await screen.findByText('后端线程');
+    fireEvent.click(screen.getByLabelText('提示词'));
+    expect(await screen.findByText('代码审查专家')).toBeInTheDocument();
+
+    backend.listPromptAssets.mockRejectedValueOnce(new Error('prompt backend offline'));
+    await act(async () => {
+      bridgeCallback?.({ type: 'prompts/changed', payload: { cwd: '/repo/app' } });
+      await Promise.resolve();
+    });
+
+    expect(screen.getByText('代码审查专家')).toBeInTheDocument();
+    expect(await screen.findByRole('alert')).toHaveTextContent('同步失败，显示的是上次成功的数据：prompt backend offline');
+
+    prompts = [{
+      id: 'main/deploy',
+      name: '部署助手',
+      content: '先检查环境',
+      description: '部署前检查',
+      tags: ['intent:expert', 'deploy'],
+      scope: 'project',
+      enabled: true,
+    }];
+    fireEvent.click(screen.getByRole('button', { name: '重试同步' }));
+
+    expect(await screen.findByText('部署助手')).toBeInTheDocument();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
+  it('keeps prompt assets visible and exposes retry when active prompt preference sync fails', async () => {
+    backend.listPromptAssets.mockResolvedValue({
+      prompts: [{
+        id: 'main/reviewer',
+        name: '代码审查专家',
+        content: '先检查阻塞问题',
+        description: '审查代码质量',
+        tags: ['intent:expert', 'review'],
+        scope: 'project',
+        enabled: true,
+      }],
+    });
+    let activePreferenceFails = true;
+    backend.getPreference.mockImplementation(({ key }) => {
+      if (key === 'settings.activePromptKey') {
+        return activePreferenceFails
+          ? Promise.reject(new Error('active prompt preference offline'))
+          : Promise.resolve('');
+      }
+      return Promise.resolve({
+        'settings.provider.active': 'codex',
+        'settings.provider.codex.codexHome': '~/.codex',
+        'settings.provider.codex.codexInstanceKey': 'default',
+        'settings.provider.codex.codexModelProvider': 'openai',
+      }[key] ?? null);
+    });
+
+    render(<App />);
+    await screen.findByText('后端线程');
+    fireEvent.click(screen.getByLabelText('提示词'));
+
+    expect(await screen.findByText('代码审查专家')).toBeInTheDocument();
+    const alert = await screen.findByRole('alert');
+    expect(alert).toHaveTextContent('同步失败，显示的是上次成功的数据：active prompt preference offline');
+
+    activePreferenceFails = false;
+    fireEvent.click(within(alert).getByRole('button', { name: '重试同步' }));
+
+    await waitFor(() => {
+      expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    });
+    expect(screen.getByText('代码审查专家')).toBeInTheDocument();
+  });
+
+  it('shows a retryable blocking error instead of an empty prompt state on initial load failure', async () => {
+    backend.listPromptAssets.mockRejectedValueOnce(new Error('prompt backend offline'));
+    backend.getDashboardPrompts.mockRejectedValueOnce(new Error('readonly fallback offline'));
+    backend.getPreference.mockResolvedValue('');
+
+    render(<App />);
+    await screen.findByText('后端线程');
+    fireEvent.click(screen.getByLabelText('提示词'));
+
+    const alert = await screen.findByRole('alert');
+    expect(alert).toHaveTextContent('加载提示词失败');
+    expect(alert).toHaveTextContent('prompt backend offline');
+    expect(screen.queryByText('暂无内容')).not.toBeInTheDocument();
+
+    backend.listPromptAssets.mockResolvedValueOnce({
+      prompts: [{
+        id: 'main/reviewer',
+        name: '代码审查专家',
+        content: '先检查阻塞问题',
+        description: '审查代码质量',
+        tags: ['intent:expert', 'review'],
+        scope: 'project',
+        enabled: true,
+      }],
+    });
+
+    fireEvent.click(within(alert).getByRole('button', { name: '重试同步' }));
+
+    expect(await screen.findByText('代码审查专家')).toBeInTheDocument();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
+  it('does not fall back to the legacy prompt dashboard when prompt assets are unavailable', async () => {
+    const missingMethodError = new Error('method not found');
+    missingMethodError.code = -32601;
+    backend.listPromptAssets.mockRejectedValueOnce(missingMethodError);
+    backend.getDashboardPrompts.mockResolvedValueOnce({
+      prompts: [{
+        id: 'legacy/prompt',
+        name: '旧提示词',
+        content: 'legacy readonly data',
+        tags: ['intent:expert'],
+      }],
+    });
+    backend.getPreference.mockResolvedValue('');
+
+    render(<App />);
+    await screen.findByText('后端线程');
+    fireEvent.click(screen.getByLabelText('提示词'));
+
+    const alert = await screen.findByRole('alert');
+    expect(alert).toHaveTextContent('加载提示词失败');
+    expect(alert).toHaveTextContent('method not found');
+    expect(backend.getDashboardPrompts).not.toHaveBeenCalled();
+    expect(screen.queryByText('旧提示词')).not.toBeInTheDocument();
+  });
+
   it('keeps cached prompt assets visible when navigating back and refreshes silently', async () => {
     let prompts = [{
       id: 'main/reviewer',
@@ -2324,6 +2567,14 @@ describe('frontend-app connected client shell', () => {
   });
 
   it('wires prompt edit, delete, pending draft, and intent wizard actions without card copy action', async () => {
+    backend.getPreference.mockImplementation(({ key }) => Promise.resolve({
+      'settings.provider.active': 'codex',
+      'settings.provider.codex.model': 'gpt-5.5',
+      'settings.provider.codex.effort': 'xhigh',
+      'settings.provider.codex.codexHome': '~/.codex',
+      'settings.provider.codex.codexInstanceKey': 'default',
+      'settings.provider.codex.codexModelProvider': 'openrouter',
+    }[key] ?? null));
     let prompts = [{
       id: 'main/reviewer',
       name: '代码审查专家',
@@ -2434,6 +2685,9 @@ describe('frontend-app connected client shell', () => {
         rawInput: '当用户要求代码审查时，先检查阻塞问题。',
         sourceType: 'user_input',
         scope: 'project',
+        provider: 'codex',
+        model: 'gpt-5.5',
+        codexModelProvider: 'openrouter',
       });
       expect(backend.commitPromptIntent).toHaveBeenCalledWith({ cwd: '/repo/app', draftKey: 'intent/expert/review', scope: 'project' });
     });
@@ -2528,6 +2782,7 @@ describe('frontend-app connected client shell', () => {
     expect(within(memoryCard).getByText('偏好')).toBeInTheDocument();
     expect(within(memoryCard).queryByText('私有')).not.toBeInTheDocument();
     expect(within(memoryCard).queryByText('团队')).not.toBeInTheDocument();
+    expect(within(memoryCard).queryByText('feedback/tdd.md')).not.toBeInTheDocument();
     expect(screen.getByRole('tab', { name: '偏好 1' })).toBeInTheDocument();
     expect(screen.getByRole('tab', { name: '项目 1' })).toBeInTheDocument();
     expect(screen.getByRole('tab', { name: '全部 2' })).toBeInTheDocument();
@@ -2608,6 +2863,135 @@ describe('frontend-app connected client shell', () => {
     });
     expect(await screen.findByText('审查风格')).toBeInTheDocument();
     expect(screen.getByRole('tab', { name: '偏好 3' })).toBeInTheDocument();
+  });
+
+  it('does not poll memory center with a page interval', async () => {
+    const intervalSpy = vi.spyOn(window, 'setInterval');
+    try {
+      backend.getMemorySnapshot.mockResolvedValue({
+        overview: {
+          enabled: true,
+          autoDreamEnabled: true,
+          autoDreamIntent: null,
+          projectRoot: '/repo/app',
+          health: { preferenceCount: 1, projectCount: 0, maxPerCategory: 15, similarGroups: [] },
+        },
+        private: {
+          entries: [{
+            name: 'tdd-rule',
+            title: '遵守 TDD',
+            description: '先写红测',
+            type: 'feedback',
+            path: 'feedback/tdd.md',
+            updatedAt: '2026-05-30T08:00:00Z',
+            preview: '规则\n先写红测',
+          }],
+        },
+        team: { entries: [] },
+      });
+
+      render(<App />);
+      await screen.findByText('后端线程');
+      fireEvent.click(screen.getByLabelText('记忆中心'));
+
+      expect(await screen.findByText('遵守 TDD')).toBeInTheDocument();
+      expect(intervalSpy.mock.calls.filter((call) => call[1] === 4000)).toHaveLength(0);
+    } finally {
+      intervalSpy.mockRestore();
+    }
+  });
+
+  it('keeps cached memory entries visible and exposes retry when a background sync fails', async () => {
+    let entries = [{
+      name: 'tdd-rule',
+      title: '遵守 TDD',
+      description: '先写红测',
+      type: 'feedback',
+      path: 'feedback/tdd.md',
+      updatedAt: '2026-05-30T08:00:00Z',
+      preview: '规则\n先写红测',
+    }];
+    backend.getMemorySnapshot.mockImplementation(() => Promise.resolve({
+      overview: {
+        enabled: true,
+        autoDreamEnabled: true,
+        autoDreamIntent: null,
+        projectRoot: '/repo/app',
+        health: { preferenceCount: entries.length, projectCount: 0, maxPerCategory: 15, similarGroups: [] },
+      },
+      private: { entries },
+      team: { entries: [] },
+    }));
+
+    render(<App />);
+    await screen.findByText('后端线程');
+    fireEvent.click(screen.getByLabelText('记忆中心'));
+    expect(await screen.findByText('遵守 TDD')).toBeInTheDocument();
+
+    backend.getMemorySnapshot.mockRejectedValueOnce(new Error('memory backend offline'));
+    await act(async () => {
+      bridgeCallback?.({ type: 'ui/memory/changed', payload: { action: 'upsert' } });
+      await Promise.resolve();
+    });
+
+    expect(screen.getByText('遵守 TDD')).toBeInTheDocument();
+    expect(await screen.findByRole('alert')).toHaveTextContent('同步失败，显示的是上次成功的数据：memory backend offline');
+
+    entries = [{
+      name: 'review-style',
+      title: '审查风格',
+      description: '先列风险',
+      type: 'feedback',
+      path: 'feedback/review-style.md',
+      updatedAt: '2026-05-30T09:01:00Z',
+      preview: '先列风险',
+    }];
+    fireEvent.click(screen.getByRole('button', { name: '重试同步' }));
+
+    expect(await screen.findByText('审查风格')).toBeInTheDocument();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
+  it('shows a retryable blocking error instead of an empty memory state on initial load failure', async () => {
+    let failMemory = true;
+    backend.getMemorySnapshot.mockImplementation(() => {
+      if (failMemory) return Promise.reject(new Error('memory backend offline'));
+      return Promise.resolve({
+        overview: {
+          enabled: true,
+          autoDreamEnabled: true,
+          autoDreamIntent: null,
+          projectRoot: '/repo/app',
+          health: { preferenceCount: 1, projectCount: 0, maxPerCategory: 15, similarGroups: [] },
+        },
+        private: {
+          entries: [{
+            name: 'review-style',
+            title: '审查风格',
+            description: '先列风险',
+            type: 'feedback',
+            path: 'feedback/review-style.md',
+            updatedAt: '2026-05-30T09:01:00Z',
+            preview: '先列风险',
+          }],
+        },
+        team: { entries: [] },
+      });
+    });
+
+    render(<App />);
+    await screen.findByText('后端线程');
+    fireEvent.click(screen.getByLabelText('记忆中心'));
+
+    const alert = await screen.findByRole('alert');
+    expect(alert).toHaveTextContent('memory backend offline');
+    expect(screen.queryByText('暂无记忆')).not.toBeInTheDocument();
+
+    failMemory = false;
+    fireEvent.click(within(alert).getByRole('button', { name: '重试同步' }));
+
+    expect(await screen.findByText('审查风格')).toBeInTheDocument();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
   });
 
   it('keeps cached memory entries visible when navigating back and refreshes silently', async () => {
@@ -2722,7 +3106,10 @@ describe('frontend-app connected client shell', () => {
     fireEvent.click(within(editor).getByRole('button', { name: '取消' }));
 
     fireEvent.click(within(card).getByRole('button', { name: '删除' }));
-    expect(await screen.findByRole('dialog', { name: '删除记忆' })).toBeInTheDocument();
+    const deleteDialog = await screen.findByRole('dialog', { name: '删除记忆' });
+    expect(deleteDialog).toBeInTheDocument();
+    expect(within(deleteDialog).queryByText('private')).not.toBeInTheDocument();
+    expect(within(deleteDialog).queryByText('feedback/tdd.md')).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: '确认删除' }));
     await waitFor(() => {
       expect(backend.deleteMemoryEntry).toHaveBeenCalledWith({ cwd: '/repo/app', target: 'private', path: 'feedback/tdd.md' });
@@ -2757,14 +3144,25 @@ describe('frontend-app connected client shell', () => {
 
     fireEvent.click(screen.getByRole('button', { name: '展开' }));
     fireEvent.click(screen.getByRole('button', { name: '整合' }));
-    expect(await screen.findByRole('dialog', { name: '整合相似记忆' })).toBeInTheDocument();
+    const mergeDialog = await screen.findByRole('dialog', { name: '整合相似记忆' });
+    expect(mergeDialog).toBeInTheDocument();
+    expect(within(mergeDialog).queryByText('private')).not.toBeInTheDocument();
+    expect(within(mergeDialog).queryByText('team')).not.toBeInTheDocument();
+    expect(within(mergeDialog).queryByText('feedback/a.md')).not.toBeInTheDocument();
+    expect(within(mergeDialog).queryByText('feedback/b.md')).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: '确认整合' }));
     await waitFor(() => {
       expect(backend.mergeMemoryEntries).toHaveBeenCalledWith({
         cwd: '/repo/app', targetA: 'private', pathA: 'feedback/a.md', targetB: 'team', pathB: 'feedback/b.md',
       });
     });
+    await waitFor(() => {
+      expect(screen.queryByRole('dialog', { name: '整合相似记忆' })).not.toBeInTheDocument();
+    });
 
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: '一键整合全部' })).not.toBeDisabled();
+    });
     fireEvent.click(screen.getByRole('button', { name: '一键整合全部' }));
     await waitFor(() => {
       expect(backend.consolidateMemorySimilarities).toHaveBeenCalledWith({ cwd: '/repo/app' });
@@ -2848,7 +3246,7 @@ describe('frontend-app connected client shell', () => {
     expect(backend.getMemorySnapshot).toHaveBeenLastCalledWith({ cwd: '/repo/app' });
   });
 
-  it('loads shared files from the memory dashboard and wires open, export, delete, and continue actions', async () => {
+  it('loads shared files from the shared-files RPC and wires open, export, delete, and continue actions', async () => {
     let memoryFiles = [
       {
         path: 'reports/final.md',
@@ -2864,6 +3262,7 @@ describe('frontend-app connected client shell', () => {
       },
     ];
     const memoryPayload = () => ({
+      files: memoryFiles,
       memory: memoryFiles,
       finalOutputRefs: [{ path: 'reports/final.md', runKey: 'run-1', dagKey: 'daily-brief', sourceNodeKey: 'report' }],
       sharedFileRetention: {
@@ -2875,9 +3274,7 @@ describe('frontend-app connected client shell', () => {
         cleanupCandidateCount: 1,
       },
     });
-    backend.getDashboardPage.mockImplementation(({ page }) => Promise.resolve(
-      page === 'memory' ? memoryPayload() : { skills: [] },
-    ));
+    backend.listSharedFiles.mockImplementation(() => Promise.resolve(memoryPayload()));
     backend.readSharedFile.mockImplementation(({ path }) => Promise.resolve({
       path,
       content: path === 'reports/final.md' ? 'FINAL CONTENT' : '{"step":1,"detail":true}',
@@ -2901,7 +3298,7 @@ describe('frontend-app connected client shell', () => {
     expect(screen.getByRole('tab', { name: '最终产物 1' })).toBeInTheDocument();
     expect(screen.getByRole('tab', { name: '工作文件 1' })).toBeInTheDocument();
     await waitFor(() => {
-      expect(backend.getDashboardPage).toHaveBeenCalledWith({ cwd: '/repo/app', page: 'memory' });
+      expect(backend.listSharedFiles).toHaveBeenCalledWith();
     });
 
     memoryFiles = [
@@ -2971,6 +3368,26 @@ describe('frontend-app connected client shell', () => {
     expect(screen.getByText('final.md')).toBeInTheDocument();
   });
 
+  it('accepts the legacy shared-files response without final-output metadata', async () => {
+    backend.listSharedFiles.mockResolvedValue({
+      memory: [{
+        path: 'scratch/legacy.md',
+        content: 'legacy shared file',
+        updated_by: 'agent',
+        updated_at: '2026-05-30T09:00:00Z',
+      }],
+    });
+
+    render(<App />);
+    await screen.findByText('后端线程');
+    fireEvent.click(screen.getByLabelText('共享文件'));
+
+    expect(await screen.findByText('legacy.md')).toBeInTheDocument();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: '全部 1' })).toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: '工作文件 1' })).toBeInTheDocument();
+  });
+
   it('keeps cached shared files visible when navigating back and refreshes silently', async () => {
     let memoryFiles = [{
       path: 'reports/final.md',
@@ -2979,6 +3396,7 @@ describe('frontend-app connected client shell', () => {
       updated_at: '2026-05-30T08:00:00Z',
     }];
     const memoryPayload = () => ({
+      files: memoryFiles,
       memory: memoryFiles,
       finalOutputRefs: [{ path: 'reports/final.md', runKey: 'run-1', dagKey: 'daily-brief', sourceNodeKey: 'report' }],
       sharedFileRetention: {
@@ -2987,9 +3405,7 @@ describe('frontend-app connected client shell', () => {
         cleanupCandidateCount: 0,
       },
     });
-    backend.getDashboardPage.mockImplementation(({ page }) => Promise.resolve(
-      page === 'memory' ? memoryPayload() : { skills: [] },
-    ));
+    backend.listSharedFiles.mockImplementation(() => Promise.resolve(memoryPayload()));
 
     render(<App />);
     await screen.findByText('后端线程');
@@ -3009,6 +3425,107 @@ describe('frontend-app connected client shell', () => {
     expect(screen.getByText('final.md')).toBeInTheDocument();
     expect(await screen.findByText('notes.md')).toBeInTheDocument();
     expect(screen.queryByText('final.md')).not.toBeInTheDocument();
+  });
+
+  it('does not poll shared files with a page interval', async () => {
+    const intervalSpy = vi.spyOn(window, 'setInterval');
+    try {
+      backend.listSharedFiles.mockResolvedValue({
+        files: [{
+          path: 'reports/final.md',
+          content: 'final summary',
+          updated_by: 'dag-runner',
+          updated_at: '2026-05-30T08:00:00Z',
+        }],
+        finalOutputRefs: [{ path: 'reports/final.md', runKey: 'run-1', dagKey: 'daily-brief', sourceNodeKey: 'report' }],
+        sharedFileRetention: {
+          items: [{ path: 'reports/final.md', protected: true, cleanupCandidate: false, reason: 'final_output' }],
+          protectedCount: 1,
+          cleanupCandidateCount: 0,
+        },
+      });
+
+      render(<App />);
+      await screen.findByText('后端线程');
+      fireEvent.click(screen.getByLabelText('共享文件'));
+
+      expect(await screen.findByText('final.md')).toBeInTheDocument();
+      expect(intervalSpy.mock.calls.filter((call) => call[1] === 4000)).toHaveLength(0);
+    } finally {
+      intervalSpy.mockRestore();
+    }
+  });
+
+  it('keeps cached shared files visible and exposes retry when a background sync fails', async () => {
+    let memoryFiles = [{
+      path: 'reports/final.md',
+      content: 'final summary',
+      updated_by: 'dag-runner',
+      updated_at: '2026-05-30T08:00:00Z',
+    }];
+    const memoryPayload = () => ({
+      files: memoryFiles,
+      memory: memoryFiles,
+      finalOutputRefs: [{ path: 'reports/final.md', runKey: 'run-1', dagKey: 'daily-brief', sourceNodeKey: 'report' }],
+      sharedFileRetention: {
+        items: [{ path: 'reports/final.md', protected: true, cleanupCandidate: false, reason: 'final_output' }],
+        protectedCount: 1,
+        cleanupCandidateCount: 0,
+      },
+    });
+    backend.listSharedFiles.mockImplementation(() => Promise.resolve(memoryPayload()));
+
+    render(<App />);
+    await screen.findByText('后端线程');
+    fireEvent.click(screen.getByLabelText('共享文件'));
+    expect(await screen.findByText('final.md')).toBeInTheDocument();
+
+    backend.listSharedFiles.mockRejectedValueOnce(new Error('shared files backend offline'));
+    await act(async () => {
+      bridgeCallback?.({ type: 'ui/shared-files/changed', payload: { path: 'reports/final.md', action: 'write' } });
+      await Promise.resolve();
+    });
+
+    expect(screen.getByText('final.md')).toBeInTheDocument();
+    expect(await screen.findByRole('alert')).toHaveTextContent('同步失败，显示的是上次成功的数据：shared files backend offline');
+
+    memoryFiles = [{
+      path: 'scratch/notes.md',
+      content: 'fresh notes',
+      updated_by: 'agent',
+      updated_at: '2026-05-30T09:00:00Z',
+    }];
+    fireEvent.click(screen.getByRole('button', { name: '重试同步' }));
+
+    expect(await screen.findByText('notes.md')).toBeInTheDocument();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
+  it('shows a retryable blocking error instead of an empty shared-files state on initial load failure', async () => {
+    backend.listSharedFiles.mockRejectedValueOnce(new Error('shared files backend offline'));
+
+    render(<App />);
+    await screen.findByText('后端线程');
+    fireEvent.click(screen.getByLabelText('共享文件'));
+
+    const alert = await screen.findByRole('alert');
+    expect(alert).toHaveTextContent('加载共享文件失败：shared files backend offline');
+    expect(screen.queryByText('还没有文件产物')).not.toBeInTheDocument();
+
+    backend.listSharedFiles.mockResolvedValueOnce({
+      files: [{
+        path: 'scratch/notes.md',
+        content: 'fresh notes',
+        updated_by: 'agent',
+        updated_at: '2026-05-30T09:00:00Z',
+      }],
+      finalOutputRefs: [],
+      sharedFileRetention: { items: [], protectedCount: 0, cleanupCandidateCount: 0 },
+    });
+    fireEvent.click(within(alert).getByRole('button', { name: '重试同步' }));
+
+    expect(await screen.findByText('notes.md')).toBeInTheDocument();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
   });
 
   it('loads DAG list, detail, runs and selected run through legacy dashboard RPCs', async () => {
@@ -3139,6 +3656,139 @@ describe('frontend-app connected client shell', () => {
     expect(screen.queryByText('流程 B')).not.toBeInTheDocument();
   });
 
+  it('does not poll workflow data with a page interval', async () => {
+    const intervalSpy = vi.spyOn(window, 'setInterval');
+    try {
+      const runningDag = {
+        dag_key: 'flow-a',
+        title: '流程 A',
+        status: 'running',
+        trigger: 'manual',
+        version: 1,
+        latest_run: { run_key: 'run-a', status: 'running' },
+      };
+      backend.getDashboardPage.mockImplementation(({ page }) => Promise.resolve(
+        page === 'dags' ? { dags: [runningDag] } : { skills: [] },
+      ));
+      backend.getDagDetail.mockResolvedValue({
+        dag: runningDag,
+        nodes: [{ node_key: 'step', title: '步骤 A', node_type: 'agent', status: 'running', depends_on: [], config: {} }],
+      });
+      backend.getDagRuns.mockImplementation(({ status }) => Promise.resolve({
+        runs: status === 'running' ? [{ run_key: 'run-a', status: 'running' }] : [{ run_key: 'run-a', status: 'running' }],
+      }));
+      backend.getDagRun.mockResolvedValue({
+        run: { run_key: 'run-a', status: 'running' },
+        nodes: [],
+      });
+
+      render(<App />);
+      await screen.findByText('后端线程');
+      fireEvent.click(screen.getByLabelText('自动化'));
+
+      expect((await screen.findAllByText('流程 A')).length).toBeGreaterThanOrEqual(1);
+      expect(intervalSpy.mock.calls.filter((call) => call[1] === 4000)).toHaveLength(0);
+    } finally {
+      intervalSpy.mockRestore();
+    }
+  });
+
+  it('keeps cached workflow data visible and exposes retry when a background sync fails', async () => {
+    let dags = [{
+      dag_key: 'flow-a',
+      title: '流程 A',
+      status: 'running',
+      trigger: 'manual',
+      version: 1,
+      latest_run: { run_key: 'run-a', status: 'running' },
+    }];
+    backend.getDashboardPage.mockImplementation(({ page }) => Promise.resolve(
+      page === 'dags' ? { dags } : { skills: [] },
+    ));
+    backend.getDagDetail.mockImplementation(({ dagKey }) => {
+      const dag = dags.find((item) => item.dag_key === dagKey) || dags[0];
+      const suffix = (dag?.title || '').split(' ').pop() || '';
+      return Promise.resolve({
+        dag,
+        nodes: [{ node_key: 'step', title: `步骤 ${suffix}`, node_type: 'agent', status: 'running', depends_on: [], config: {} }],
+      });
+    });
+    backend.getDagRuns.mockImplementation(({ dagKey, status }) => {
+      const dag = dags.find((item) => item.dag_key === dagKey) || dags[0];
+      if (status === 'running') return Promise.resolve({ runs: dag?.latest_run ? [dag.latest_run] : [] });
+      return Promise.resolve({ runs: dag?.latest_run ? [dag.latest_run] : [] });
+    });
+    backend.getDagRun.mockImplementation(({ runKey }) => Promise.resolve({
+      run: { run_key: runKey, status: 'running' },
+      nodes: [],
+    }));
+
+    render(<App />);
+    await screen.findByText('后端线程');
+    fireEvent.click(screen.getByLabelText('自动化'));
+    expect((await screen.findAllByText('流程 A')).length).toBeGreaterThanOrEqual(1);
+
+    backend.getDashboardPage.mockRejectedValueOnce(new Error('workflow backend offline'));
+    await act(async () => {
+      bridgeCallback?.({ type: 'task/node/statusChanged', payload: { dag_key: 'flow-a', node_key: 'step', new_status: 'running' } });
+      await Promise.resolve();
+    });
+
+    expect(screen.getAllByText('流程 A').length).toBeGreaterThanOrEqual(1);
+    expect(await screen.findByRole('alert')).toHaveTextContent('同步失败，显示的是上次成功的数据：workflow backend offline');
+
+    dags = [{
+      dag_key: 'flow-b',
+      title: '流程 B',
+      status: 'running',
+      trigger: 'manual',
+      version: 2,
+      latest_run: { run_key: 'run-b', status: 'running' },
+    }];
+    fireEvent.click(screen.getByRole('button', { name: '重试同步' }));
+
+    expect((await screen.findAllByText('流程 B')).length).toBeGreaterThanOrEqual(1);
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
+  it('shows a retryable blocking error instead of an empty workflow state on initial load failure', async () => {
+    const flow = {
+      dag_key: 'flow-a',
+      title: '流程 A',
+      status: 'running',
+      trigger: 'manual',
+      version: 1,
+      latest_run: { run_key: 'run-a', status: 'running' },
+    };
+    backend.getDashboardPage.mockImplementation(({ page }) => (
+      page === 'dags'
+        ? Promise.reject(new Error('workflow backend offline'))
+        : Promise.resolve({ skills: [] })
+    ));
+
+    render(<App />);
+    await screen.findByText('后端线程');
+    fireEvent.click(screen.getByLabelText('自动化'));
+
+    const alert = await screen.findByRole('alert');
+    expect(alert).toHaveTextContent('加载自动化失败：workflow backend offline');
+    expect(screen.queryByText('无任务')).not.toBeInTheDocument();
+
+    backend.getDashboardPage.mockImplementation(({ page }) => (
+      page === 'dags' ? Promise.resolve({ dags: [flow] }) : Promise.resolve({ skills: [] })
+    ));
+    backend.getDagDetail.mockResolvedValue({
+      dag: flow,
+      nodes: [{ node_key: 'step', title: '步骤 A', node_type: 'agent', status: 'running', depends_on: [], config: {} }],
+    });
+    backend.getDagRuns.mockResolvedValue({ runs: [{ run_key: 'run-a', status: 'running' }] });
+    backend.getDagRun.mockResolvedValue({ run: { run_key: 'run-a', status: 'running' }, nodes: [] });
+    fireEvent.click(within(alert).getByRole('button', { name: '重试同步' }));
+
+    expect((await screen.findAllByText('流程 A')).length).toBeGreaterThanOrEqual(1);
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
   it('keeps cached workflow data visible when navigating back and refreshes silently', async () => {
     let dags = [{
       dag_key: 'flow-a',
@@ -3184,7 +3834,7 @@ describe('frontend-app connected client shell', () => {
     }];
     fireEvent.click(screen.getByLabelText('自动化'));
 
-    expect(screen.queryByText('正在加载任务流程...')).not.toBeInTheDocument();
+    expect(screen.queryByText('正在加载自动化...')).not.toBeInTheDocument();
     expect(screen.queryByText('正在加载详情...')).not.toBeInTheDocument();
     expect(screen.getAllByText('流程 A').length).toBeGreaterThanOrEqual(1);
     expect((await screen.findAllByText('流程 B')).length).toBeGreaterThanOrEqual(1);
@@ -3293,6 +3943,15 @@ describe('frontend-app connected client shell', () => {
       hasActiveRun = true;
       return Promise.resolve({ runKey: 'run-live' });
     });
+    backend.getPreference.mockImplementation(({ key }) => Promise.resolve({
+      'settings.provider.active': 'codex',
+      'settings.provider.codex.model': 'gpt-5.5',
+      'settings.provider.codex.effort': 'xhigh',
+      'settings.provider.codex.codexHome': '/Users/test/.codex-alt',
+      'settings.provider.codex.codexInstanceKey': 'desktop-main',
+      'settings.provider.codex.codexModelProvider': 'openrouter',
+      'settings.activePromptKey': 'main/reviewer',
+    }[key] ?? null));
     backend.startThread.mockResolvedValue({ thread: { id: 'thread-design' } });
     backend.getThreadState.mockResolvedValueOnce({ timelinesByThread: {}, activeThreadId: 'thread-design' });
 
@@ -3359,7 +4018,7 @@ describe('frontend-app connected client shell', () => {
     });
 
     fireEvent.click(screen.getByRole('button', { name: '删除' }));
-    expect(await screen.findByRole('dialog', { name: '删除任务流程' })).toBeInTheDocument();
+    expect(await screen.findByRole('dialog', { name: '删除自动化' })).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: '确认删除' }));
     await waitFor(() => {
       expect(backend.deleteDag).toHaveBeenCalledWith({ dagKey: 'daily-brief' });
@@ -3369,13 +4028,23 @@ describe('frontend-app connected client shell', () => {
     await waitFor(() => {
       expect(backend.startThread).toHaveBeenCalledWith(expect.objectContaining({
         cwd: '/repo/app',
-        provider: 'codex',
+        modelProvider: 'codex',
+        model: 'gpt-5.5',
+        effort: 'xhigh',
         name: 'AI 设计流程',
         agentKey: 'dag_designer',
         promptKey: 'main/dag_designer_zh',
         deferSpawn: true,
       }));
-      expect(backend.startThread.mock.calls.at(-1)[0].config.enabledTools).toContain('task_start_dag');
+      const designPayload = backend.startThread.mock.calls.at(-1)[0];
+      expect(designPayload.provider).toBeUndefined();
+      expect(designPayload.config).toEqual(expect.objectContaining({
+        codexHome: '/Users/test/.codex-alt',
+        codexInstanceKey: 'desktop-main',
+        codexModelProvider: 'openrouter',
+        providerNativeSkills: false,
+      }));
+      expect(designPayload.config.enabledTools).toContain('task_start_dag');
     });
   });
 
@@ -3488,6 +4157,85 @@ describe('frontend-app connected client shell', () => {
     expect(backend.getDashboardPage).toHaveBeenCalledTimes(3);
   });
 
+  it('does not repeat a skill description when summary is empty', async () => {
+    render(<App />);
+    await screen.findByText('后端线程');
+    fireEvent.click(screen.getByLabelText('技能'));
+    const personalCard = (await screen.findByRole('heading', { name: 'personal-review' })).closest('article');
+
+    expect(within(personalCard).getAllByText('当你需要私人代码审查偏好时使用。')).toHaveLength(1);
+  });
+
+  it('keeps the skills route visible while project context resolves', async () => {
+    const config = deferred();
+    backend.readConfig.mockReturnValueOnce(config.promise);
+
+    render(<App />);
+    fireEvent.click(screen.getByLabelText('技能'));
+
+    expect(screen.getByRole('heading', { name: '技能管理' })).toBeInTheDocument();
+    expect(screen.getByText('正在连接本地项目...')).toBeInTheDocument();
+    expect(backend.getDashboardPage).not.toHaveBeenCalledWith({ cwd: '未选择项目', page: 'skills' });
+
+    await act(async () => {
+      config.resolve({ cwd: '/repo/app' });
+      await Promise.resolve();
+    });
+
+    expect(await screen.findByText('后端')).toBeInTheDocument();
+    expect(backend.getDashboardPage).toHaveBeenCalledWith({ cwd: '/repo/app', page: 'skills' });
+  });
+
+  it('keeps skills visible and exposes retry when a background sync fails', async () => {
+    render(<App />);
+    await screen.findByText('后端线程');
+    fireEvent.click(screen.getByLabelText('技能'));
+    expect(await screen.findByText('后端')).toBeInTheDocument();
+
+    backend.getDashboardPage.mockRejectedValueOnce(new Error('backend offline'));
+    await act(async () => {
+      bridgeCallback({ type: 'skills/changed', payload: { cwd: '/repo/app' } });
+      await Promise.resolve();
+    });
+
+    expect(screen.getByText('后端')).toBeInTheDocument();
+    expect(await screen.findByRole('alert')).toHaveTextContent('同步失败，显示的是上次成功的数据：backend offline');
+
+    backend.getDashboardPage.mockResolvedValueOnce({
+      skills: [{
+        name: 'security',
+        display_name: '安全工程师',
+        dir: '/repo/app/.agent/skills/security',
+        description: '安全审计',
+        trigger_words: ['security'],
+        scope: 'project',
+      }],
+    });
+    fireEvent.click(screen.getByRole('button', { name: '重试同步' }));
+
+    expect(await screen.findByText('安全工程师')).toBeInTheDocument();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
+  it('keeps skills visible and exposes retry when the resolution payload is invalid', async () => {
+    backend.listSkillResolutions.mockResolvedValueOnce({});
+
+    render(<App />);
+    await screen.findByText('后端线程');
+    fireEvent.click(screen.getByLabelText('技能'));
+
+    expect(await screen.findByText('后端')).toBeInTheDocument();
+    expect(await screen.findByRole('alert')).toHaveTextContent('读取技能冲突失败：skill resolutions response items must be an array');
+
+    backend.listSkillResolutions.mockResolvedValueOnce({ items: [] });
+    fireEvent.click(screen.getByRole('button', { name: '重试同步' }));
+
+    await waitFor(() => {
+      expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    });
+    expect(screen.getByText('后端')).toBeInTheDocument();
+  });
+
   it('keeps cached skills visible when navigating back and refreshes silently', async () => {
     render(<App />);
     await screen.findByText('后端线程');
@@ -3533,7 +4281,8 @@ describe('frontend-app connected client shell', () => {
       expect(screen.getByText('加载技能中...')).toBeInTheDocument();
 
       await act(async () => {
-        vi.advanceTimersByTime(8000);
+        await vi.advanceTimersByTimeAsync(8000);
+        await Promise.resolve();
         await Promise.resolve();
       });
 
@@ -3566,6 +4315,49 @@ describe('frontend-app connected client shell', () => {
       window.dispatchEvent(new Event('focus'));
       await Promise.resolve();
     });
+
+    expect(await screen.findByText('安全工程师')).toBeInTheDocument();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
+  it('shows a retryable blocking error instead of an empty skills state on initial load failure', async () => {
+    backend.getDashboardPage.mockImplementation(({ page }) => (
+      page === 'skills'
+        ? Promise.reject(new Error('skills backend offline'))
+        : Promise.resolve({
+          memory: [],
+          finalOutputRefs: [],
+          sharedFileRetention: { items: [], protectedCount: 0, cleanupCandidateCount: 0 },
+        })
+    ));
+
+    render(<App />);
+    await screen.findByText('后端线程');
+    fireEvent.click(screen.getByLabelText('技能'));
+
+    const alert = await screen.findByRole('alert');
+    expect(alert).toHaveTextContent('skills backend offline');
+    expect(screen.queryByText('暂无技能')).not.toBeInTheDocument();
+
+    backend.getDashboardPage.mockImplementation(({ page }) => Promise.resolve(
+      page === 'skills'
+        ? {
+          skills: [{
+            name: 'security',
+            display_name: '安全工程师',
+            dir: '/repo/app/.agent/skills/security',
+            description: '安全审计',
+            trigger_words: ['security'],
+            scope: 'project',
+          }],
+        }
+        : {
+          memory: [],
+          finalOutputRefs: [],
+          sharedFileRetention: { items: [], protectedCount: 0, cleanupCandidateCount: 0 },
+        },
+    ));
+    fireEvent.click(within(alert).getByRole('button', { name: '重试同步' }));
 
     expect(await screen.findByText('安全工程师')).toBeInTheDocument();
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();

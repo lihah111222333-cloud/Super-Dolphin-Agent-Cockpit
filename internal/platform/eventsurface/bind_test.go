@@ -111,6 +111,36 @@ func TestBindPublishesRealtimeBridgeEvents(t *testing.T) {
 	}
 }
 
+func TestBindPublishesUIPromptsChanged(t *testing.T) {
+	t.Parallel()
+
+	dispatcher := event.NewDispatcher()
+	defer func() { _ = dispatcher.Close() }()
+
+	got := make(chan publishedEvent, 1)
+	cancels := Bind(dispatcher, nil, func(method string, payload any) {
+		got <- publishedEvent{method: method, payload: payload}
+	})
+	defer cancelAll(cancels)
+
+	now := time.Unix(1710000000, 0).UTC()
+	event.Publish(dispatcher, uidto.UIPromptsChanged{
+		EventHeader: shared.EventHeader{Timestamp: now},
+		Cwd:         "/repo/a",
+		PromptKey:   "main/reviewer",
+		Action:      "write",
+	})
+
+	ev := mustReceivePublished(t, got)
+	if ev.method != MethodUIPromptsChanged {
+		t.Fatalf("method = %q, want %q", ev.method, MethodUIPromptsChanged)
+	}
+	payload := payloadMap(ev.payload)
+	if payload["cwd"] != "/repo/a" || payload["promptKey"] != "main/reviewer" || payload["action"] != "write" {
+		t.Fatalf("prompts changed payload = %#v", payload)
+	}
+}
+
 func TestBindPublishesRecoveryAndToolSurface(t *testing.T) {
 	t.Parallel()
 
