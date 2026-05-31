@@ -76,6 +76,58 @@ func TestToolCallResultResponseStructuredContentIsObject(t *testing.T) {
 	}
 }
 
+func TestToolCallResultResponseUsesPlainTextProviderForContent(t *testing.T) {
+	value := plainTextToolCallResult{
+		payload: plainTextPayload{Success: true, Count: 2},
+		text:    "Plain result for the model",
+	}
+
+	resp, raw, err := toolCallResultResponse(json.RawMessage(`1`), value)
+	if err != nil {
+		t.Fatalf("toolCallResultResponse() error = %v", err)
+	}
+	if string(raw) != `{"success":true,"count":2}` {
+		t.Fatalf("raw result = %s, want marshaled payload", raw)
+	}
+	payload, ok := resp.Result.(map[string]any)
+	if !ok {
+		t.Fatalf("Result = %T, want map", resp.Result)
+	}
+	content, ok := payload["content"].([]map[string]string)
+	if !ok {
+		t.Fatalf("content = %T, want []map[string]string", payload["content"])
+	}
+	if len(content) != 1 || content[0]["text"] != "Plain result for the model" {
+		t.Fatalf("content = %#v, want plain text provider output", content)
+	}
+	structuredContent, ok := payload["structuredContent"].(json.RawMessage)
+	if !ok {
+		t.Fatalf("structuredContent = %T, want json.RawMessage", payload["structuredContent"])
+	}
+	assertJSONObject(t, structuredContent)
+	if string(structuredContent) != `{"success":true,"count":2}` {
+		t.Fatalf("structuredContent = %s, want marshaled payload object", structuredContent)
+	}
+}
+
+type plainTextPayload struct {
+	Success bool `json:"success"`
+	Count   int  `json:"count"`
+}
+
+type plainTextToolCallResult struct {
+	payload plainTextPayload
+	text    string
+}
+
+func (r plainTextToolCallResult) MarshalJSON() ([]byte, error) {
+	return json.Marshal(r.payload)
+}
+
+func (r plainTextToolCallResult) ToolResultText() string {
+	return r.text
+}
+
 func assertJSONObject(t *testing.T, raw json.RawMessage) {
 	t.Helper()
 	var payload map[string]any

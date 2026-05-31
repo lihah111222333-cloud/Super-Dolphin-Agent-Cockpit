@@ -22,7 +22,7 @@ func TestRenderReadContentDefaultLimitIsTwoHundredFifty(t *testing.T) {
 		fmt.Fprintf(&body, "line-%03d", line)
 	}
 
-	got := renderReadContent(body.String(), 1, 0)
+	got := renderReadContent(body.String(), 1, 0, false)
 	if !strings.Contains(got, "250: line-250") {
 		t.Fatalf("read_file default output missing line 250: %q", got)
 	}

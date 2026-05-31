@@ -26,6 +26,50 @@ type matchCandidate struct {
 	matchedBy      string
 }
 
+// AmbiguousMatchError carries every candidate the patch could have
+// landed on, capped to keep response payloads small. Callers (tool
+// layer) lift these into ToolErrorEnvelope.Meta.candidate_locations so
+// the LLM can disambiguate by adding a context line near one of the
+// listed line ranges instead of re-reading the whole file.
+type AmbiguousMatchError struct {
+	HunkIndex  int
+	Candidates []CandidateLocation
+}
+
+type CandidateLocation struct {
+	StartLine int
+	EndLine   int
+	MatchedBy string
+}
+
+const ambiguousCandidateCap = 5
+
+func (e *AmbiguousMatchError) Error() string {
+	return fmt.Sprintf("%s: hunk %d matched %d locations", ErrAmbiguousMatch.Error(), e.HunkIndex+1, len(e.Candidates))
+}
+
+func (e *AmbiguousMatchError) Unwrap() error { return ErrAmbiguousMatch }
+
+func newAmbiguousMatchError(hunkIndex int, candidates []matchCandidate) *AmbiguousMatchError {
+	out := make([]CandidateLocation, 0, min(len(candidates), ambiguousCandidateCap))
+	seen := make(map[int]struct{}, len(candidates))
+	for _, candidate := range candidates {
+		if _, ok := seen[candidate.startLine]; ok {
+			continue
+		}
+		seen[candidate.startLine] = struct{}{}
+		out = append(out, CandidateLocation{
+			StartLine: candidate.startLine,
+			EndLine:   candidate.endLine,
+			MatchedBy: candidate.matchedBy,
+		})
+		if len(out) >= ambiguousCandidateCap {
+			break
+		}
+	}
+	return &AmbiguousMatchError{HunkIndex: hunkIndex, Candidates: out}
+}
+
 // MatchContext resolves patch hunks against content using line-sequence matching
 // first, then a raw substring fallback. Later hunks are matched against the
 // working content produced by earlier matches.
@@ -39,9 +83,9 @@ func MatchContext(content string, hunks []Hunk) ([]Match, error) {
 		if err := GuardContentAndReplacement(working, hunk.NewText); err != nil {
 			return nil, err
 		}
-		candidate, err := resolveContextMatch(working, hunk)
+		candidate, err := resolveContextMatch(working, hunk, idx)
 		if err != nil {
-			return nil, fmt.Errorf("hunk %d: %w", idx+1, err)
+			return nil, err
 		}
 		editContext, affectedStart, affectedEnd, err := BuildEditContext(working, candidate.startOffset, candidate.endOffset, hunk.NewText)
 		if err != nil {
@@ -61,7 +105,7 @@ func MatchContext(content string, hunks []Hunk) ([]Match, error) {
 	return matches, nil
 }
 
-func resolveContextMatch(content string, hunk Hunk) (matchCandidate, error) {
+func resolveContextMatch(content string, hunk Hunk, hunkIndex int) (matchCandidate, error) {
 	index, err := indexContent(content)
 	if err != nil {
 		return matchCandidate{}, err
@@ -74,10 +118,10 @@ func resolveContextMatch(content string, hunk Hunk) (matchCandidate, error) {
 		candidates = filterContextCandidates(index.lines, hunk, candidates)
 	}
 	if len(candidates) == 0 {
-		return matchCandidate{}, fmt.Errorf("%w: no candidate matched the patch context", ErrSequenceNotFound)
+		return matchCandidate{}, fmt.Errorf("hunk %d: %w: no candidate matched the patch context", hunkIndex+1, ErrSequenceNotFound)
 	}
 	if len(candidates) > 1 {
-		return matchCandidate{}, fmt.Errorf("%w: multiple candidates matched the patch context", ErrAmbiguousMatch)
+		return matchCandidate{}, newAmbiguousMatchError(hunkIndex, candidates)
 	}
 	return candidates[0], nil
 }

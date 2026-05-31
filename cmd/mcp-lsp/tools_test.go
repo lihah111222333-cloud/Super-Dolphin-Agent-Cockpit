@@ -147,6 +147,35 @@ func TestCodeRunTestTarget(t *testing.T) {}
 	require.Contains(t, payload.Output, "example.test/coderuntest")
 }
 
+func TestCodeRunTestAcceptsRelativePackageInsideBackendSubmodule(t *testing.T) {
+	workspaceRoot := canonicalToolTestRoot(t, t.TempDir())
+	backendRoot := filepath.Join(workspaceRoot, "backend")
+	pkgDir := filepath.Join(backendRoot, "internal", "service")
+	writeTestFile(t, filepath.Join(backendRoot, "go.mod"), "module example.test/backend\n\ngo 1.25.0\n")
+	writeTestFile(t, filepath.Join(pkgDir, "service_test.go"), `package service
+
+import "testing"
+
+func TestBackendSubmoduleTarget(t *testing.T) {}
+`)
+	rawRoots, err := json.Marshal([]string{workspaceRoot})
+	require.NoError(t, err)
+	t.Setenv("GO_AGENT_LSP_ROOTS", string(rawRoots))
+
+	handlers, err := newToolHandlers(&Manager{root: t.TempDir()})
+	require.NoError(t, err)
+	result, err := registryToolProvider{defs: toolDefinitions(handlers)}.CallTool(context.Background(), "code_run_test", mustJSON(t, map[string]any{
+		"test_func": "TestBackendSubmoduleTarget",
+		"test_pkg":  "./backend/internal/service",
+	}))
+	require.NoError(t, err)
+
+	payload, ok := result.(lsptools.CodeRunResult)
+	require.Truef(t, ok, "code_run_test result = %#v, want CodeRunResult", result)
+	require.Truef(t, payload.Success, "code_run_test failed: output=%q exit=%d", payload.Output, payload.ExitCode)
+	require.Contains(t, payload.Output, "example.test/backend/internal/service")
+}
+
 func TestCodeRunTestRejectsAbsoluteTestPkgOutsideWorkspaceRoot(t *testing.T) {
 	workspaceRoot := canonicalToolTestRoot(t, t.TempDir())
 	outsideRoot := canonicalToolTestRoot(t, t.TempDir())
@@ -417,7 +446,10 @@ func assertStructuredToolResult(t *testing.T, result any) {
 	t.Helper()
 	payload, ok := result.(map[string]any)
 	require.Truef(t, ok, "tool result type = %T, want map[string]any", result)
-	require.NotNilf(t, payload["structuredContent"], "tool result = %#v, want structured content", result)
+	raw, ok := payload["structuredContent"].(json.RawMessage)
+	require.Truef(t, ok, "structuredContent = %T, want json.RawMessage", payload["structuredContent"])
+	var object map[string]any
+	require.NoErrorf(t, json.Unmarshal(raw, &object), "structuredContent = %s, want JSON object", raw)
 }
 
 func TestHandleScopedToolsCallRoutesTrustedScopeToManagerPool(t *testing.T) {
@@ -616,38 +648,4 @@ func canonicalToolTestRoot(t *testing.T, root string) string {
 		return root
 	}
 	return realRoot
-}
-
-func TestEditSchemaExposesPatchDiskFieldsOnly(t *testing.T) {
-	props, ok := lspEditSchema["properties"].(map[string]any)
-	if !ok {
-		t.Fatalf("edit schema properties type = %T", lspEditSchema["properties"])
-	}
-	for _, field := range []string{"patch", "version"} {
-		if _, ok := props[field]; !ok {
-			t.Fatalf("edit schema missing runtime field %q", field)
-		}
-	}
-	for _, field := range []string{"action", "line", "column", "end_line", "end_column", "edits", "new_name", "new_text", "only", "persist_to_disk", "force"} {
-		if _, ok := props[field]; ok {
-			t.Fatalf("edit schema exposes removed non-patch field %q", field)
-		}
-	}
-	required, ok := lspEditSchema["required"].([]string)
-	if !ok {
-		t.Fatalf("edit schema required type = %T", lspEditSchema["required"])
-	}
-	if !reflect.DeepEqual(required, []string{"file_path", "patch"}) {
-		t.Fatalf("edit schema required = %#v, want file_path and patch", required)
-	}
-}
-
-func TestStructureSchemaExposesLegacyPathAlias(t *testing.T) {
-	props, ok := lspStructureSchema["properties"].(map[string]any)
-	if !ok {
-		t.Fatalf("structure schema properties type = %T", lspStructureSchema["properties"])
-	}
-	if _, ok := props["path"]; !ok {
-		t.Fatalf("structure schema missing legacy path alias")
-	}
 }

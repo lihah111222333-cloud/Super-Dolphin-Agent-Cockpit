@@ -67,6 +67,34 @@ describe('frontend-app backend API facade', () => {
     });
   });
 
+  it('maps archive, unarchive, and delete thread actions to legacy thread RPCs', async () => {
+    const callAPI = vi.fn().mockResolvedValue({ ok: true });
+    const api = createBackendApi({ callAPI });
+
+    await api.archiveThread({ cwd: '/repo/app', threadId: 'thread-1' });
+    await api.unarchiveThread({ cwd: '/repo/app', thread_id: 'thread-2' });
+    await api.deleteThread({ cwd: '/repo/app', threadId: 'thread-3' });
+
+    expect(callAPI).toHaveBeenCalledWith(RPC_METHODS.THREAD_ARCHIVE, { threadId: 'thread-1' });
+    expect(callAPI).toHaveBeenCalledWith(RPC_METHODS.THREAD_UNARCHIVE, { threadId: 'thread-2' });
+    expect(callAPI).toHaveBeenCalledWith(RPC_METHODS.THREAD_DELETE, { threadId: 'thread-3' });
+  });
+
+  it('maps thread config get and set to legacy thread config RPCs', async () => {
+    const callAPI = vi.fn().mockResolvedValue({ ok: true });
+    const api = createBackendApi({ callAPI });
+
+    await api.getThreadConfig({ thread_id: 'thread-1' });
+    await api.setThreadConfig({ threadId: 'thread-1', model: { value: 'gpt-5.4' }, effort: { id: 'medium' } });
+
+    expect(callAPI).toHaveBeenCalledWith(RPC_METHODS.THREAD_CONFIG_GET, { threadId: 'thread-1' });
+    expect(callAPI).toHaveBeenCalledWith(RPC_METHODS.THREAD_CONFIG_SET, {
+      threadId: 'thread-1',
+      model: 'gpt-5.4',
+      effort: 'medium',
+    });
+  });
+
   it('fails fast before cwd-scoped RPCs when cwd is missing', () => {
     const callAPI = vi.fn();
     const api = createBackendApi({ callAPI });
@@ -166,6 +194,22 @@ describe('frontend-app backend API facade', () => {
       scenario_words: ['deploy'],
       scope: 'project',
     });
+  });
+
+  it('does not duplicate skill summary retry at the frontend facade', async () => {
+    const callAPI = vi.fn().mockRejectedValueOnce(new Error('parse skill summary suggestion: invalid character'));
+    const api = createBackendApi({ callAPI });
+
+    await expect(api.suggestSkillSummary({
+      cwd: '/repo/app',
+      name: '部署技能',
+      description: '',
+      content: 'body',
+      scenario_words: ['deploy'],
+      scope: 'project',
+    })).rejects.toThrow('parse skill summary suggestion');
+
+    expect(callAPI).toHaveBeenCalledTimes(1);
   });
 
   it('wraps skill resolution preview and apply payloads', async () => {

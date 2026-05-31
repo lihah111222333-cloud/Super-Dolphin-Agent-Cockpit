@@ -16,9 +16,7 @@ func TestResolveFilePositionRequestRejectsColumnBeyondLineWithLLMHint(t *testing
 	writePositionFixture(t, dir, "sample.go", "package sample\n\nfunc demo() {\n\tvalue := compute(input)\n}\n")
 
 	_, _, err := resolveFilePositionRequest(common.WithToolScope(context.Background(), common.ToolScope{CWD: dir}), filePositionParams{
-		FilePath: "sample.go",
-		Line:     4,
-		Column:   80,
+		Pos: "sample.go:4:80",
 	})
 	if err == nil {
 		t.Fatalf("resolveFilePositionRequest returned nil error, want position_out_of_range")
@@ -56,9 +54,7 @@ func TestResolveFilePositionRequestRejectsLineBeyondFileWithLLMHint(t *testing.T
 	writePositionFixture(t, dir, "sample.go", "package sample\n")
 
 	_, _, err := resolveFilePositionRequest(common.WithToolScope(context.Background(), common.ToolScope{CWD: dir}), filePositionParams{
-		FilePath: "sample.go",
-		Line:     12,
-		Column:   1,
+		Pos: "sample.go:12:1",
 	})
 	if err == nil {
 		t.Fatalf("resolveFilePositionRequest returned nil error, want line_out_of_range")

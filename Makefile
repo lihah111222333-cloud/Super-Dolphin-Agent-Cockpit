@@ -80,8 +80,14 @@ run-agent-terminal-debug run-agent-terminal-debug-plain: export SUPER_DOLPHIN_DE
 # so dev runs get the same toolbridge wiring as packaged builds.
 build-peer-binaries:
 	@mkdir -p bin
-	go build -o bin/mcp-orch ./cmd/mcp-orch
-	go build -o bin/mcp-lsp ./cmd/mcp-lsp
+	@tmp="$$(mktemp "bin/.mcp-orch.XXXXXX")"; \
+		trap 'rm -f "$$tmp"' EXIT; \
+		go build -o "$$tmp" ./cmd/mcp-orch; \
+		mv -f "$$tmp" bin/mcp-orch
+	@tmp="$$(mktemp "bin/.mcp-lsp.XXXXXX")"; \
+		trap 'rm -f "$$tmp"' EXIT; \
+		go build -o "$$tmp" ./cmd/mcp-lsp; \
+		mv -f "$$tmp" bin/mcp-lsp
 
 package-macos:
 	./scripts/package_macos.sh

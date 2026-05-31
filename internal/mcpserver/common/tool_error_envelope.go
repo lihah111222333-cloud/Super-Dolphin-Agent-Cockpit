@@ -24,6 +24,108 @@ type ToolErrorEnvelope struct {
 	Meta      map[string]any `json:"meta,omitempty"`
 }
 
+// ToPlainText renders the envelope as LLM-readable text instead of leaving
+// callers to interpret raw JSON. The format groups the most actionable
+// signals (error → hint → retry) at the top and surfaces useful meta
+// fields like suggested_columns / line_text without dumping every key.
+func (e ToolErrorEnvelope) ToPlainText() string {
+	var sb strings.Builder
+	header := "Tool error"
+	if tool, ok := e.Meta["tool"].(string); ok && strings.TrimSpace(tool) != "" {
+		header = fmt.Sprintf("Tool error in %q", strings.TrimSpace(tool))
+	}
+	if e.Code != "" {
+		fmt.Fprintf(&sb, "%s [%s]: %s\n", header, e.Code, strings.TrimSpace(e.Error))
+	} else {
+		fmt.Fprintf(&sb, "%s: %s\n", header, strings.TrimSpace(e.Error))
+	}
+	if hint := strings.TrimSpace(e.Hint); hint != "" {
+		fmt.Fprintf(&sb, "Hint: %s\n", hint)
+	}
+	if e.Retryable {
+		sb.WriteString("Retryable: yes\n")
+	}
+	appendErrorEnvelopeMeta(&sb, e.Meta)
+	return strings.TrimSpace(sb.String())
+}
+
+// appendErrorEnvelopeMeta cherry-picks meta keys that are immediately
+// useful to the LLM. Unknown meta keys stay in the structuredContent
+// JSON for callers that need them, but we don't echo every meta entry
+// into the plain-text channel.
+func appendErrorEnvelopeMeta(sb *strings.Builder, meta map[string]any) {
+	if len(meta) == 0 {
+		return
+	}
+	appendErrorEnvelopeLineMeta(sb, meta)
+	appendSuggestedColumnsMeta(sb, meta["suggested_columns"])
+}
+
+func appendErrorEnvelopeLineMeta(sb *strings.Builder, meta map[string]any) {
+	if line, ok := meta["line"].(int); ok {
+		fmt.Fprintf(sb, "Line: %d\n", line)
+	}
+	if lineText, ok := meta["line_text"].(string); ok && lineText != "" {
+		fmt.Fprintf(sb, "Line text: %s\n", lineText)
+	}
+}
+
+func appendSuggestedColumnsMeta(sb *strings.Builder, raw any) {
+	switch cols := raw.(type) {
+	case []map[string]any:
+		appendSuggestedColumnMaps(sb, cols)
+	case []any:
+		appendSuggestedColumnAnyMaps(sb, cols)
+	}
+}
+
+func appendSuggestedColumnMaps(sb *strings.Builder, cols []map[string]any) {
+	if len(cols) == 0 {
+		return
+	}
+	sb.WriteString("Suggested columns:\n")
+	for _, item := range cols {
+		ident, col := suggestedColumnValues(item)
+		fmt.Fprintf(sb, "  - %q at column %d\n", ident, col)
+	}
+}
+
+func appendSuggestedColumnAnyMaps(sb *strings.Builder, cols []any) {
+	if len(cols) == 0 {
+		return
+	}
+	wroteHeader := false
+	for _, raw := range cols {
+		item, ok := raw.(map[string]any)
+		if !ok {
+			continue
+		}
+		if !wroteHeader {
+			wroteHeader = true
+			sb.WriteString("Suggested columns:\n")
+		}
+		ident, col := suggestedColumnValues(item)
+		fmt.Fprintf(sb, "  - %q at column %d\n", ident, col)
+	}
+}
+
+func suggestedColumnValues(item map[string]any) (string, int) {
+	ident, _ := item["identifier"].(string)
+	col, _ := numericMetaInt(item["column"])
+	return ident, col
+}
+
+func numericMetaInt(value any) (int, bool) {
+	switch v := value.(type) {
+	case int:
+		return v, true
+	case float64:
+		return int(v), true
+	default:
+		return 0, false
+	}
+}
+
 func ToolResultIsError(value any) bool {
 	switch envelope := value.(type) {
 	case ToolErrorEnvelope:
@@ -144,6 +246,25 @@ type toolErrorClassifier struct {
 }
 
 var toolErrorClassifiers = []toolErrorClassifier{
+	{
+		code: "patch_no_match",
+		hint: staticToolHint("The patch's '-' / context lines did not match the file. Read the target lines (file action=read_file) and copy the literal text into the next patch's context, including indentation."),
+		match: func(_ error, message string, toolName string) bool {
+			return isEditTool(toolName) && (strings.Contains(message, "sequence not found") ||
+				strings.Contains(message, "no candidate matched the patch context"))
+		},
+	},
+	{
+		code: "patch_ambiguous",
+		hint: staticToolHint("The patch matched multiple locations. Add 1-2 ' ' (space-prefixed) context lines before/after the change so only one site qualifies; meta.candidate_locations lists where it matched."),
+		match: func(_ error, message string, toolName string) bool {
+			if !isEditTool(toolName) {
+				return false
+			}
+			return strings.Contains(message, "ambiguous match") ||
+				strings.Contains(message, "multiple candidates matched the patch context")
+		},
+	},
 	{
 		code: "database_schema_missing",
 		hint: staticToolHint("The database schema is missing or behind; start the service with migration lifecycle enabled or apply migrations before retrying."),
@@ -359,6 +480,15 @@ func isTaskTool(toolName string) bool {
 func isLaunchAgentTool(toolName string) bool {
 	switch strings.ToLower(strings.TrimSpace(toolName)) {
 	case "launch_agent", "orchestration_launch_agent":
+		return true
+	default:
+		return false
+	}
+}
+
+func isEditTool(toolName string) bool {
+	switch strings.ToLower(strings.TrimSpace(toolName)) {
+	case "edit", "lsp_edit":
 		return true
 	default:
 		return false

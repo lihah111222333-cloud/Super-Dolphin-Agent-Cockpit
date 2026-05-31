@@ -143,6 +143,10 @@ type textContent struct {
 	Text string `json:"text"`
 }
 
+type toolResultTextProvider interface {
+	ToolResultText() string
+}
+
 type readResult struct {
 	payload json.RawMessage
 	err     error
@@ -407,15 +411,11 @@ func toolCallResultResponse(id json.RawMessage, value any) (*jsonRPCResponse, []
 	if err != nil {
 		return nil, nil, err
 	}
-	structuredContent, err := StructuredContentForToolResult(value)
+	envelope, err := BuildToolCallResult(value)
 	if err != nil {
 		return nil, nil, err
 	}
-	return maybeResult(id, map[string]any{
-		"content":           []textContent{{Type: "text", Text: string(raw)}},
-		"structuredContent": structuredContent,
-		"isError":           ToolResultIsError(value),
-	}), raw, nil
+	return maybeResult(id, envelope), raw, nil
 }
 
 func hasRequestID(id json.RawMessage) bool {

@@ -293,6 +293,39 @@ func TestMainGeneralZhResidentLSPSectionsStayThinAndRecallBacked(t *testing.T) {
 	require.LessOrEqual(t, nonBlankLineCount(lspAdvanced), 12)
 	require.LessOrEqual(t, sharedNonBlankLineCount(lspAdvanced, recallLSPAdvanced), 3)
 	require.Contains(t, string(requireSection(t, sections, "lsp_advanced").EnableWhen), "tags_has")
+
+	body := strings.Join([]string{
+		lspBasics,
+		lspAdvanced,
+		recallLSPBasics,
+		recallLSPAdvanced,
+	}, "\n")
+	for _, want := range []string{
+		"9 个仓库感知工具",
+		"`file`、`grep`、`inspect`、`xref`、`structure`、`edit`、`completion`、`code_run`、`code_run_test`",
+		"`grep(text_search",
+		"`file(read_file",
+		"`edit(file_path",
+		"npm run lint",
+	} {
+		require.Contains(t, body, want)
+	}
+	for _, stale := range []string{
+		"11 个仓库感知工具",
+		"lsp_file",
+		"lsp_grep",
+		"lsp_inspect",
+		"lsp_xref",
+		"lsp_structure",
+		"lsp_edit",
+		"lsp_completion",
+		"replace_range",
+		"code_action",
+		"`edit(rename)",
+		"`edit(format)",
+	} {
+		require.NotContains(t, body, stale)
+	}
 }
 
 func TestExternalToolAndHostLeakGuardsAllowNegativeBoundaryText(t *testing.T) {
