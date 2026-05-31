@@ -8,8 +8,25 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/protocol"
 	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/common"
 )
+
+func TestResolveFilePositionRequestAllowsEndOfLineColumn(t *testing.T) {
+	dir := t.TempDir()
+	writePositionFixture(t, dir, "sample.go", "package sample\n\nfunc demo() {\n\tvalue.\n}\n")
+
+	_, position, err := resolveFilePositionRequest(common.WithToolScope(context.Background(), common.ToolScope{CWD: dir}), filePositionParams{
+		Pos: "sample.go:4:8",
+	})
+	if err != nil {
+		t.Fatalf("resolveFilePositionRequest returned error: %v", err)
+	}
+	want := protocol.Position{Line: 3, Character: 7}
+	if position != want {
+		t.Fatalf("position = %#v, want %#v", position, want)
+	}
+}
 
 func TestResolveFilePositionRequestRejectsColumnBeyondLineWithLLMHint(t *testing.T) {
 	dir := t.TempDir()

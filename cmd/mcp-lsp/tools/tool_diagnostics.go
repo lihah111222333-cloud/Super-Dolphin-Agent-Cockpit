@@ -28,24 +28,32 @@ type diagnosticsResponse struct {
 	Meta    resultMeta         `json:"meta"`
 }
 
-func (h handlerBase) fetchDiagnosticsWithRetry(ctx context.Context, uris []string) ([]protocol.PublishDiagnosticsParams, string, error) {
+type diagnosticsWaitResult struct {
+	recovered bool
+	partial   bool
+	message   string
+}
+
+func (h handlerBase) fetchDiagnosticsWithRetry(ctx context.Context, uris []string) ([]protocol.PublishDiagnosticsParams, string, string, error) {
 	existingURIs := existingDiagnosticURIs(uris)
 	source, err := h.bootstrapDiagnostics(ctx, existingURIs)
 	if err != nil {
-		return nil, "", err
+		return nil, "", "", err
 	}
-	recovered, err := h.waitDiagnosticsWithStartupRecovery(ctx, uris, existingURIs)
+	waitResult, err := h.waitDiagnosticsWithStartupRecovery(ctx, uris, existingURIs)
 	if err != nil {
-		return nil, "", err
+		return nil, "", "", err
 	}
-	if recovered {
+	if waitResult.partial {
+		source = "startup_recovery_partial"
+	} else if waitResult.recovered {
 		source = "startup_recovery"
 	}
 	items, err := h.registry.Diagnostics(ctx, uris)
 	if err != nil {
-		return nil, "", err
+		return nil, "", "", err
 	}
-	return items, source, nil
+	return items, source, waitResult.message, nil
 }
 
 func (h handlerBase) bootstrapDiagnostics(ctx context.Context, existingURIs []string) (string, error) {
@@ -62,28 +70,74 @@ func (h handlerBase) bootstrapDiagnostics(ctx context.Context, existingURIs []st
 	return "manager", nil
 }
 
-func (h handlerBase) waitDiagnosticsWithStartupRecovery(ctx context.Context, uris, existingURIs []string) (bool, error) {
+func (h handlerBase) waitDiagnosticsWithStartupRecovery(ctx context.Context, uris, existingURIs []string) (diagnosticsWaitResult, error) {
 	if _, err := h.waitDiagnosticsStable(ctx, uris); err != nil {
 		return h.recoverDiagnosticsStartupWait(ctx, uris, existingURIs, err)
 	}
-	return false, nil
+	return diagnosticsWaitResult{}, nil
 }
 
-func (h handlerBase) recoverDiagnosticsStartupWait(ctx context.Context, uris, existingURIs []string, waitErr error) (bool, error) {
+func (h handlerBase) recoverDiagnosticsStartupWait(ctx context.Context, uris, existingURIs []string, waitErr error) (diagnosticsWaitResult, error) {
 	if !errors.Is(waitErr, lspmanager.ErrDiagnosticsNotReady) || len(existingURIs) == 0 {
-		return false, waitErr
+		return diagnosticsWaitResult{}, waitErr
 	}
 	opened, openErr := h.openDiagnosticDocuments(ctx, existingURIs)
 	if openErr != nil {
-		return false, errors.Join(waitErr, openErr)
+		return diagnosticsWaitResult{}, errors.Join(waitErr, openErr)
 	}
 	if opened == 0 {
-		return false, waitErr
+		return diagnosticsWaitResult{}, waitErr
 	}
 	if _, retryErr := h.waitDiagnosticsStable(ctx, uris); retryErr != nil {
-		return false, retryErr
+		return h.recoverPartialDiagnosticsWait(ctx, uris, retryErr)
 	}
-	return true, nil
+	return diagnosticsWaitResult{recovered: true}, nil
+}
+
+func (h handlerBase) recoverPartialDiagnosticsWait(ctx context.Context, uris []string, batchErr error) (diagnosticsWaitResult, error) {
+	if !errors.Is(batchErr, lspmanager.ErrDiagnosticsNotReady) || len(uris) <= 1 {
+		return diagnosticsWaitResult{}, batchErr
+	}
+	ready, missing, err := h.waitDiagnosticsTargetsIndividually(ctx, uris)
+	if err != nil {
+		return diagnosticsWaitResult{}, err
+	}
+	if ready == 0 {
+		return diagnosticsWaitResult{}, batchErr
+	}
+	if len(missing) == 0 {
+		return diagnosticsWaitResult{recovered: true}, nil
+	}
+	return diagnosticsWaitResult{
+		recovered: true,
+		partial:   true,
+		message:   fmt.Sprintf("partial diagnostics: %d of %d targets became ready; missing: %s", ready, ready+len(missing), strings.Join(missing, ", ")),
+	}, nil
+}
+
+func (h handlerBase) waitDiagnosticsTargetsIndividually(ctx context.Context, uris []string) (int, []string, error) {
+	ready := 0
+	missing := make([]string, 0)
+	seen := make(map[string]struct{}, len(uris))
+	for _, uri := range uris {
+		uri = strings.TrimSpace(uri)
+		if uri == "" {
+			continue
+		}
+		if _, ok := seen[uri]; ok {
+			continue
+		}
+		seen[uri] = struct{}{}
+		if _, err := h.waitDiagnosticsStable(ctx, []string{uri}); err != nil {
+			if !errors.Is(err, lspmanager.ErrDiagnosticsNotReady) {
+				return 0, nil, err
+			}
+			missing = append(missing, uri)
+			continue
+		}
+		ready++
+	}
+	return ready, missing, nil
 }
 
 func (h handlerBase) handleDiagnostics(ctx context.Context, input fileToolInput) (any, error) {
@@ -95,27 +149,27 @@ func (h handlerBase) handleDiagnostics(ctx context.Context, input fileToolInput)
 		return nil, err
 	}
 
-	items, source, err := h.fetchDiagnosticsWithRetry(ctx, uris)
+	items, source, message, err := h.fetchDiagnosticsWithRetry(ctx, uris)
 	if err != nil {
 		return nil, err
 	}
 
 	tables := buildDiagnosticsTables(items)
 	if len(tables) == 0 {
-		message := "no diagnostics"
+		baseMessage := "no diagnostics"
 		if strings.TrimSpace(input.FilePath) == "" && len(input.FilePaths) == 0 {
-			message = "no diagnostics for currently open documents (pass file_path or file_paths to scope to specific files)"
+			baseMessage = "no diagnostics for currently open documents (pass file_path or file_paths to scope to specific files)"
 		}
 		return emptyListEnvelope{
 			Success: true,
 			Data:    []any{},
-			Meta:    resultMeta{Count: 0, Source: source, Message: message},
+			Meta:    resultMeta{Count: 0, Source: source, Message: appendMessage(baseMessage, message)},
 		}, nil
 	}
 	return diagnosticsResponse{
 		Success: true,
 		Data:    tables,
-		Meta:    resultMeta{Count: len(tables), Source: source},
+		Meta:    resultMeta{Count: len(tables), Source: source, Message: message},
 	}, nil
 }
 
@@ -333,6 +387,9 @@ func (r diagnosticsResponse) ToPlainText() string {
 
 	var sb strings.Builder
 	sb.WriteString("LSP Diagnostics:\n")
+	if r.Meta.Message != "" {
+		sb.WriteString(fmt.Sprintf("Message: %s\n", r.Meta.Message))
+	}
 	for _, table := range r.Data {
 		for _, row := range table.Rows {
 			r.formatDiagnosticRow(&sb, table.File, row)

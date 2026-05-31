@@ -211,12 +211,13 @@ func (a projectLanguageAdapter) ResolveRoot(_ context.Context, scope LSPToolScop
 	if languageID == "" {
 		return ResolvedLanguageScope{}, fmt.Errorf("adapter requires a resolved language ID")
 	}
-	root := firstNonEmpty(scope.CWD, filepath.Dir(firstNonEmpty(target, scope.TargetPath)))
-	if markerRoot, err := findProjectRoot(firstNonEmpty(target, scope.TargetPath, root), a.rootMarkers); err != nil {
+	targetPath := firstNonEmpty(target, scope.TargetPath)
+	root := firstNonEmpty(scope.CWD, filepath.Dir(targetPath))
+	if markerRoot, err := findProjectRoot(firstNonEmpty(targetPath, root), a.rootMarkers); err != nil {
 		return ResolvedLanguageScope{}, err
 	} else if markerRoot != "" {
 		root = markerRoot
-	} else {
+	} else if a.shouldSearchNestedProjectRoot(root, targetPath) {
 		nested, walkErr := findProjectRootWithin(root, a.rootMarkers, a.ignoredDirNames)
 		if walkErr != nil {
 			return ResolvedLanguageScope{}, walkErr
@@ -240,6 +241,39 @@ func (a projectLanguageAdapter) ResolveRoot(_ context.Context, scope LSPToolScop
 		ProjectRoot:           normalized,
 		RootKind:              rootKind,
 	}, nil
+}
+
+func (a projectLanguageAdapter) shouldSearchNestedProjectRoot(root, target string) bool {
+	target = strings.TrimSpace(target)
+	if target == "" {
+		return true
+	}
+	if root != "" {
+		if rel, err := filepath.Rel(root, target); err == nil && rel != "." && !isParentRelativePath(rel) {
+			if info, statErr := os.Stat(target); statErr == nil {
+				return info.IsDir()
+			}
+			return !a.targetUsesSourceExtension(target)
+		}
+	}
+	return true
+}
+
+func isParentRelativePath(path string) bool {
+	return path == ".." || strings.HasPrefix(path, ".."+string(filepath.Separator))
+}
+
+func (a projectLanguageAdapter) targetUsesSourceExtension(target string) bool {
+	ext := strings.ToLower(filepath.Ext(target))
+	if ext == "" {
+		return false
+	}
+	for _, sourceExt := range a.firstSourceExtensions {
+		if ext == strings.ToLower(sourceExt) {
+			return true
+		}
+	}
+	return false
 }
 
 func (a projectLanguageAdapter) ServerCommand(context.Context, ResolvedLanguageScope) (ServerCommand, error) {
