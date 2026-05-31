@@ -84,6 +84,9 @@ func runLocationInspect(
 		return unsupportedCapabilityEmptyResult(capability), nil
 	}
 	if err != nil {
+		if capability == "implementation" {
+			return nil, implementationTargetError(err)
+		}
 		return nil, err
 	}
 	format.EnrichLocationResultsWithFuncRange(results, enricher)
