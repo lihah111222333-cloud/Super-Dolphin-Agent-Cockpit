@@ -94,9 +94,12 @@ func runLocationInspect(
 		return nil, err
 	}
 	format.EnrichLocationResultsWithFuncRange(results, enricher)
-	return renderListResult(results, protocol.XRefResultLimit, emptyMessage, func(items []protocol.LocationResult, _ int) any {
-		return format.NormalizeForDisplay(items)
-	})
+	total := len(results)
+	grouped := groupLocationsByFile(ctx, limitSlice(results, protocol.XRefResultLimit), total)
+	if total == 0 {
+		grouped.Hint = emptyMessage
+	}
+	return grouped, nil
 }
 
 func runSignatureHelp(
