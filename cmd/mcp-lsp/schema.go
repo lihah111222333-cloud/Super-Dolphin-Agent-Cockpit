@@ -101,10 +101,14 @@ var lspStructureSchema = objectSchema(map[string]schema{
 }, "action")
 
 var lspEditSchema = objectSchema(map[string]schema{
-	"file_path": stringProp("File path (absolute or relative, auto-resolved). Path-only; no :line:column suffix."),
-	"patch":     stringProp("Patch body. Each non-header line starts with one prefix: ' '=context (use ' ' for blank context lines, never empty), '-'=remove, '+'=add. Pure-insertion hunks (no '-' line) are rejected; anchor inserts with ' ' context plus '+'. Three accepted forms: (a) implicit single hunk = body only; (b) one explicit '@@ ...' header + body; (c) multiple '@@ ...' hunks. Add 1-2 ' ' context lines around each change to disambiguate when the OldText repeats. Example: ' import \"fmt\"\\n-x := 1\\n+x := 2\\n y := 3'."),
+	"action":    enumProp("Action (default: replace_range)", "replace_range", "rename", "code_action", "format"),
+	"file_path": stringProp("File path (absolute or relative, auto-resolved). Required for replace_range and format."),
+	"patch":     stringProp("Patch body for replace_range. Each non-header line starts with one prefix: ' '=context (use ' ' for blank context lines, never empty), '-'=remove, '+'=add. Pure-insertion hunks (no '-' line) are rejected; anchor inserts with ' ' context plus '+'. Three accepted forms: (a) implicit single hunk = body only; (b) one explicit '@@ ...' header + body; (c) multiple '@@ ...' hunks."),
 	"version":   integerProp("LSP didChange version counter; let the server default (2) unless you are stitching a specific edit chain."),
-}, "file_path", "patch")
+	"pos":       stringProp("Position as 'file_path:line:column' for rename/code_action (example internal/foo.go:42:9)."),
+	"new_name":  stringProp("New symbol name (rename only)."),
+	"only":      arrayOfStringsProp("Code action kinds filter (code_action only, e.g. [\"quickfix\", \"refactor\"])."),
+}, "action")
 
 var lspCompletionSchema = objectSchema(map[string]schema{
 	"pos":         stringProp("Position as 'file_path:line:column' (example internal/foo.go:42:9)"),
