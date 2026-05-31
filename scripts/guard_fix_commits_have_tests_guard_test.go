@@ -143,6 +143,91 @@ func TestPrePushRunsFixTestGuardForPushedRange(t *testing.T) {
 	}
 }
 
+func TestCICommitGuardRunsFixTestGuardForPullRequestRange(t *testing.T) {
+	root := prepareFixTestGuardRepo(t)
+	copyFixTestGuardRepoFile(t, root, "scripts/ci_commit_guard.sh", 0o755)
+	base := strings.TrimSpace(runFixTestGuardGitOutput(t, root, "rev-parse", "HEAD"))
+
+	writeFixTestGuardFile(t, root, "internal/app/parser.go", "package app\n\nfunc parse() {}\n")
+	runFixTestGuardGit(t, root, "add", ".")
+	runFixTestGuardGit(t, root, "commit", "-m", "fix: 修复 parser panic")
+	head := strings.TrimSpace(runFixTestGuardGitOutput(t, root, "rev-parse", "HEAD"))
+
+	out, err := runCICommitGuard(t, root, map[string]string{
+		"GITHUB_EVENT_NAME": "pull_request",
+		"GITHUB_BASE_SHA":   base,
+		"GITHUB_HEAD_SHA":   head,
+	})
+	if err == nil {
+		t.Fatalf("ci commit guard succeeded, want failure\n%s", out)
+	}
+	assertOutputContainsAll(t, out, "[ci-commit-guard] Chinese commit title guard: "+base+".."+head, "Chinese commit title guard OK", "[ci-commit-guard] fix-test guard: "+base+".."+head, "fix commit 缺少锁定 bug 的测试", "fix: 修复 parser panic")
+}
+
+func TestCICommitGuardRunsFixTestGuardForPushRange(t *testing.T) {
+	root := prepareFixTestGuardRepo(t)
+	copyFixTestGuardRepoFile(t, root, "scripts/ci_commit_guard.sh", 0o755)
+	base := strings.TrimSpace(runFixTestGuardGitOutput(t, root, "rev-parse", "HEAD"))
+
+	writeFixTestGuardFile(t, root, "internal/app/parser.go", "package app\n\nfunc parse(input string) string {\n\tif input == \"\" {\n\t\treturn \"empty\"\n\t}\n\treturn \"ok\"\n}\n")
+	writeFixTestGuardFile(t, root, "internal/app/parser_test.go", "package app\n\nimport \"testing\"\n\nfunc TestParserPanicBug(t *testing.T) {\n\tif got := parse(\"\"); got != \"empty\" {\n\t\tt.Fatalf(\"parse(empty) = %q, want empty\", got)\n\t}\n}\n")
+	runFixTestGuardGit(t, root, "add", ".")
+	runFixTestGuardGit(t, root, "commit", "-m", "fix: 修复 parser panic")
+	head := strings.TrimSpace(runFixTestGuardGitOutput(t, root, "rev-parse", "HEAD"))
+
+	out, err := runCICommitGuard(t, root, map[string]string{
+		"GITHUB_EVENT_NAME":   "push",
+		"GITHUB_EVENT_BEFORE": base,
+		"GITHUB_SHA":          head,
+	})
+	if err != nil {
+		t.Fatalf("ci commit guard failed: %v\n%s", err, out)
+	}
+	assertOutputContainsAll(t, out, "[ci-commit-guard] Chinese commit title guard: "+base+".."+head, "Chinese commit title guard OK", "[ci-commit-guard] fix-test guard: "+base+".."+head, "fix-test guard OK")
+}
+
+func TestCICommitGuardRejectsTitleWithoutChinese(t *testing.T) {
+	root := prepareFixTestGuardRepo(t)
+	copyFixTestGuardRepoFile(t, root, "scripts/ci_commit_guard.sh", 0o755)
+	base := strings.TrimSpace(runFixTestGuardGitOutput(t, root, "rev-parse", "HEAD"))
+
+	writeFixTestGuardFile(t, root, "docs/readme.md", "docs only\n")
+	runFixTestGuardGit(t, root, "add", "docs/readme.md")
+	runFixTestGuardGit(t, root, "commit", "-m", "docs: update guide", "-m", "这里有中文正文")
+	head := strings.TrimSpace(runFixTestGuardGitOutput(t, root, "rev-parse", "HEAD"))
+	shortHead := strings.TrimSpace(runFixTestGuardGitOutput(t, root, "rev-parse", "--short=7", "HEAD"))
+
+	out, err := runCICommitGuard(t, root, map[string]string{
+		"GITHUB_EVENT_NAME":   "push",
+		"GITHUB_EVENT_BEFORE": base,
+		"GITHUB_SHA":          head,
+	})
+	if err == nil {
+		t.Fatalf("ci commit guard succeeded, want failure\n%s", out)
+	}
+	assertOutputContainsAll(t, out, "[ci-commit-guard] Chinese commit title guard: "+base+".."+head, "commit "+shortHead+" title must contain Chinese text", "title: docs: update guide")
+	assertOutputOmitsAll(t, out, "[ci-commit-guard] fix-test guard")
+}
+
+func TestCIWorkflowRunsCommitGuard(t *testing.T) {
+	workflow := locateFixTestGuardRepoFile(t, ".github/workflows/ci.yml")
+	data, err := os.ReadFile(workflow)
+	if err != nil {
+		t.Fatalf("read ci workflow: %v", err)
+	}
+
+	content := string(data)
+	assertOutputContainsAll(t, content,
+		"commit-guard:",
+		"fetch-depth: 0",
+		"GITHUB_BASE_SHA: ${{ github.event.pull_request.base.sha }}",
+		"GITHUB_HEAD_SHA: ${{ github.event.pull_request.head.sha }}",
+		"GITHUB_EVENT_BEFORE: ${{ github.event.before }}",
+		"./scripts/ci_commit_guard.sh",
+		"needs: commit-guard",
+	)
+}
+
 func TestPrePushScopesPackageTestsByChangedLanguage(t *testing.T) {
 	t.Run("go only runs go package tests", func(t *testing.T) {
 		assertPrePushGoOnlyScope(t)
@@ -345,6 +430,19 @@ func runPrePushScopeHook(t *testing.T, root, stdin, binDir, logPath string) (str
 		"PATH="+binDir+string(os.PathListSeparator)+os.Getenv("PATH"),
 		"HOOK_SCOPE_LOG="+logPath,
 	)
+	out, err := cmd.CombinedOutput()
+	return string(out), err
+}
+
+func runCICommitGuard(t *testing.T, root string, env map[string]string, args ...string) (string, error) {
+	t.Helper()
+	cmdArgs := append([]string{filepath.Join("scripts", "ci_commit_guard.sh")}, args...)
+	cmd := exec.Command("bash", cmdArgs...)
+	cmd.Dir = root
+	cmd.Env = os.Environ()
+	for key, value := range env {
+		cmd.Env = append(cmd.Env, key+"="+value)
+	}
 	out, err := cmd.CombinedOutput()
 	return string(out), err
 }
