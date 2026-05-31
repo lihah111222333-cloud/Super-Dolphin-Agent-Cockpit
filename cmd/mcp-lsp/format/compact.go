@@ -34,7 +34,7 @@ type CompactWorkspaceSymbol struct {
 	Kind      int    `json:"kind,omitempty"`
 	File      string `json:"file,omitempty"`
 	Line      int    `json:"line"`
-	Column    int    `json:"column"`
+	Col       int    `json:"col"`
 	Container string `json:"container,omitempty"`
 }
 
@@ -79,7 +79,7 @@ func NewCompactList[T any](items []T, total int, hints ...string) CompactList[T]
 	truncated := total > len(items)
 	hint := ""
 	if truncated {
-		hint = "results truncated; increase max_results or narrow the request"
+		hint = "next: increase max_results or narrow the request"
 		for _, candidate := range hints {
 			if value := strings.TrimSpace(candidate); value != "" {
 				hint = value
@@ -117,7 +117,7 @@ func CompactWorkspaceSymbols(items []protocol.WorkspaceSymbolResult) []CompactWo
 				Kind:      int(si.Kind),
 				File:      URIToPath(si.Location.URI),
 				Line:      FromLSP(si.Location.Range.Start.Line),
-				Column:    FromLSP(si.Location.Range.Start.Character),
+				Col:       FromLSP(si.Location.Range.Start.Character),
 				Container: si.ContainerName,
 			})
 			continue
@@ -131,7 +131,7 @@ func CompactWorkspaceSymbols(items []protocol.WorkspaceSymbolResult) []CompactWo
 			if file, line, column, ok := LocationFromAny(ws.Location); ok {
 				row.File = file
 				row.Line = line
-				row.Column = column
+				row.Col = column
 			}
 			out = append(out, row)
 		}
@@ -206,7 +206,7 @@ func GroupLocationsByFile(items []protocol.LocationResult, total int) protocol.G
 		total = len(items)
 	}
 	grouped := protocol.GroupedLocationResult{
-		Files:     make(map[string][]protocol.CompactLocation),
+		Data:      make(map[string][]protocol.CompactLocation),
 		Total:     total,
 		Showing:   len(items),
 		Truncated: total > len(items),
@@ -219,8 +219,8 @@ func GroupLocationsByFile(items []protocol.LocationResult, total int) protocol.G
 		}
 		file := URIToPath(loc.URI)
 		row := protocol.CompactLocation{
-			Line:   FromLSP(loc.Range.Start.Line),
-			Column: FromLSP(loc.Range.Start.Character),
+			Line: FromLSP(loc.Range.Start.Line),
+			Col:  FromLSP(loc.Range.Start.Character),
 		}
 		if items[i].HasFuncRange() {
 			cur := [2]int{items[i].FuncStart, items[i].FuncEnd}
@@ -228,13 +228,13 @@ func GroupLocationsByFile(items []protocol.LocationResult, total int) protocol.G
 				row.FuncStart = items[i].FuncStart
 				row.FuncEnd = items[i].FuncEnd
 				lastRange[file] = cur
-				grouped.Hint = "step 2: use the returned func_start/func_end to read that function range, e.g. file action=read_file pos=<file>:<func_start> limit=<func_end-func_start+1>"
+				grouped.Hint = "next: file action=read_file pos=<file>:<func_start> limit=<func_end-func_start+1>"
 			}
 		}
-		grouped.Files[file] = append(grouped.Files[file], row)
+		grouped.Data[file] = append(grouped.Data[file], row)
 	}
 	if grouped.Truncated && grouped.Hint == "" {
-		grouped.Hint = "results truncated; increase max_results or narrow the target position"
+		grouped.Hint = "next: increase max_results or narrow the target position"
 	}
 	return grouped
 }

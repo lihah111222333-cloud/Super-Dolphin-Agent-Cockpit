@@ -161,6 +161,6 @@ func appendEditWarnings(sb *strings.Builder, e editEnvelope) {
 	}
 	status := strings.ToLower(strings.TrimSpace(e.Status))
 	if (status == "applied" || status == "no_change") && e.FilePath != "" {
-		fmt.Fprintf(sb, "Next step: file action=diagnostics file_path=%s\n", e.FilePath)
+		fmt.Fprintf(sb, "next: file action=diagnostics file_path=%s\n", e.FilePath)
 	}
 }

@@ -441,7 +441,18 @@ func shouldExcludePath(path string) bool {
 }
 
 func isLinuxTopLevelTmpSegment(index int, segment, cleanedPath string) bool {
-	return segment == "tmp" && index == 1 && strings.HasPrefix(cleanedPath, "/tmp/")
+	if segment != "tmp" {
+		return false
+	}
+	// /tmp/... (Linux/macOS symlink target)
+	if index == 1 && strings.HasPrefix(cleanedPath, "/tmp/") {
+		return true
+	}
+	// /private/tmp/... (macOS resolved symlink)
+	if index == 2 && strings.HasPrefix(cleanedPath, "/private/tmp/") {
+		return true
+	}
+	return false
 }
 
 var skippedDirNames = map[string]struct{}{

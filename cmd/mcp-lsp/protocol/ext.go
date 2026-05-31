@@ -131,13 +131,13 @@ type LocationResult struct {
 
 type CompactLocation struct {
 	Line      int `json:"line"`
-	Column    int `json:"column"`
+	Col       int `json:"col"`
 	FuncStart int `json:"func_start,omitempty"`
 	FuncEnd   int `json:"func_end,omitempty"`
 }
 
 type GroupedLocationResult struct {
-	Files     map[string][]CompactLocation `json:"files"`
+	Data      map[string][]CompactLocation `json:"data"`
 	Total     int                          `json:"total"`
 	Showing   int                          `json:"showing"`
 	Truncated bool                         `json:"truncated,omitempty"`

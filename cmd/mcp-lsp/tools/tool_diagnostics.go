@@ -182,7 +182,7 @@ func (h handlerBase) handleDiagnostics(ctx context.Context, input fileToolInput)
 		Data:    tables,
 		Total:   total,
 		Showing: total,
-		Hint:    "Next step: edit action=replace_range to fix, or file action=read_file pos=<file>:<line> for context",
+		Hint:    "next: edit action=replace_range file_path=<file> patch=\"...\" or file action=read_file pos=<file>:<line>",
 		Meta:    diagnosticsMeta{Message: message},
 	}, nil
 }
