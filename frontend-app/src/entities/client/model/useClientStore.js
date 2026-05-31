@@ -611,7 +611,9 @@ function resolveInitialLevel() {
     if (typeof localStorage !== 'undefined') {
       return localStorage.getItem('agent-orchestrator.log.level') || 'info';
     }
-  } catch {}
+  } catch (error) {
+    void error;
+  }
   return 'info';
 }
 
@@ -699,7 +701,9 @@ export const useClientStore = create((set, get) => {
       if (typeof localStorage !== 'undefined') {
         localStorage.setItem('agent-orchestrator.log.level', level);
       }
-    } catch {}
+    } catch (error) {
+      void error;
+    }
     set({ logLevel: level });
   };
 
