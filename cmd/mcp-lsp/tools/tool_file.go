@@ -49,12 +49,13 @@ type emptyListEnvelope struct {
 	Meta    resultMeta `json:"meta"`
 }
 type fileToolInput struct {
-	Action     string   `json:"action"`
-	FilePath   string   `json:"file_path,omitempty"`
-	FilePaths  []string `json:"file_paths,omitempty"`
-	LanguageID string   `json:"language_id,omitempty"`
-	Offset     int      `json:"offset,omitempty"`
-	Limit      int      `json:"limit,omitempty"`
+	Action         string   `json:"action"`
+	FilePath       string   `json:"file_path,omitempty"`
+	FilePaths      []string `json:"file_paths,omitempty"`
+	LanguageID     string   `json:"language_id,omitempty"`
+	Offset         int      `json:"offset,omitempty"`
+	Limit          int      `json:"limit,omitempty"`
+	ExpandComments *bool    `json:"expand_comments,omitempty"`
 }
 type openFileResult struct {
 	Success  bool   `json:"success"`
@@ -125,15 +126,21 @@ func (h handlerBase) handleFile(ctx context.Context, params json.RawMessage) (an
 		return nil, err
 	}
 	h.warnFileCWDTrace(ctx, input)
+
+	expand := true
+	if input.ExpandComments != nil {
+		expand = *input.ExpandComments
+	}
+
 	return dispatchToolAction(ctx, "file", input.Action, input, map[string]actionHandler[fileToolInput]{
 		"open_file": func(ctx context.Context, input fileToolInput) (any, error) {
 			return h.openFile(ctx, input.FilePath, input.LanguageID)
 		},
 		"read_file": func(ctx context.Context, input fileToolInput) (any, error) {
 			if len(input.FilePaths) > 0 {
-				return h.readBatch(ctx, input.FilePaths, input.Offset, input.Limit)
+				return h.readBatch(ctx, input.FilePaths, input.Offset, input.Limit, expand)
 			}
-			return h.readSingle(ctx, input.FilePath, input.Offset, input.Limit)
+			return h.readSingle(ctx, input.FilePath, input.Offset, input.Limit, expand)
 		},
 		"diagnostics": func(ctx context.Context, input fileToolInput) (any, error) {
 			return h.handleDiagnostics(ctx, input)
@@ -175,7 +182,7 @@ func (h handlerBase) openFile(ctx context.Context, rawPath string, languageID st
 	}, nil
 }
 
-func (h handlerBase) readSingle(ctx context.Context, rawPath string, offset, limit int) (string, error) {
+func (h handlerBase) readSingle(ctx context.Context, rawPath string, offset, limit int, expand bool) (string, error) {
 	root, roots, err := toolWorkspaceRoots(ctx)
 	if err != nil {
 		return "", err
@@ -185,10 +192,10 @@ func (h handlerBase) readSingle(ctx context.Context, rawPath string, offset, lim
 		warnFileReadFailure("read_file", root, rawPath, err)
 		return "", err
 	}
-	return renderReadContent(file.Content, offset, limit), nil
+	return renderReadContent(file.Content, offset, limit, expand), nil
 }
 
-func (h handlerBase) readBatch(ctx context.Context, rawPaths []string, offset, limit int) (batchReadResponse, error) {
+func (h handlerBase) readBatch(ctx context.Context, rawPaths []string, offset, limit int, expand bool) (batchReadResponse, error) {
 	paths, meta := trimBatchPaths(rawPaths)
 	results := make(chan indexedBatchItem, len(paths))
 	var wg sync.WaitGroup
@@ -212,7 +219,7 @@ func (h handlerBase) readBatch(ctx context.Context, rawPaths []string, offset, l
 			}
 			item.FilePath = file.Path.DisplayPath
 			item.Success = true
-			item.Content = renderReadContent(file.Content, offset, limit)
+			item.Content = renderReadContent(file.Content, offset, limit, expand)
 			results <- indexedBatchItem{Index: idx, Item: item}
 		}(index, rawPath)
 	}
@@ -336,11 +343,25 @@ func fitsBatchPayload(resp batchReadResponse) bool {
 	return err == nil && len(raw) <= lspReadFileBatchPayloadMax
 }
 
-func renderReadContent(content string, offset, limit int) string {
+func renderReadContent(content string, offset, limit int, expand bool) string {
 	lines := splitNormalizedLines(content)
 	start := clampOffset(offset, len(lines))
-	limit = shared.ClampLimit(limit, 1, maxReadFileLimit, defaultReadFileLimit)
-	end := minInt(start+limit-1, len(lines))
+
+	actualLimit := shared.ClampLimit(limit, 1, maxReadFileLimit, defaultReadFileLimit)
+
+	if expand {
+		expandedStart := expandStartToIncludeComments(lines, start)
+		if expandedStart < start {
+			diff := start - expandedStart
+			start = expandedStart
+			actualLimit = actualLimit + diff
+			if actualLimit > maxReadFileLimit {
+				actualLimit = maxReadFileLimit
+			}
+		}
+	}
+
+	end := minInt(start+actualLimit-1, len(lines))
 	segment := strings.Join(lines[start-1:end], "\n")
 	rendered := format.RenderLineNumberedText(segment, start)
 	if start == 1 && end == len(lines) {
@@ -440,4 +461,115 @@ func (r batchReadResponse) ToPlainText() string {
 	}
 
 	return strings.TrimSpace(sb.String())
+}
+
+var singleLineCommentPrefixes = []string{"//", "#", "--"}
+var blockCommentPrefixSuffix = []string{"/*", "*/"}
+
+func isCommentLine(line string) bool {
+	trimmed := strings.TrimSpace(line)
+	if trimmed == "" {
+		return false
+	}
+	for _, prefix := range singleLineCommentPrefixes {
+		if strings.HasPrefix(trimmed, prefix) {
+			return true
+		}
+	}
+	for _, p := range blockCommentPrefixSuffix {
+		if strings.HasPrefix(trimmed, p) || strings.HasSuffix(trimmed, p) {
+			return true
+		}
+	}
+	return false
+}
+
+func isLicenseLine(line string) bool {
+	lower := strings.ToLower(line)
+	// Match actual copyright headers containing (c) or years (202x, 201x)
+	if strings.Contains(lower, "copyright") && (strings.Contains(lower, "(c)") || strings.Contains(lower, "202") || strings.Contains(lower, "201")) {
+		return true
+	}
+	// Match standard license headers
+	if strings.Contains(lower, "licensed under") || strings.Contains(lower, "spdx-license-identifier") {
+		return true
+	}
+	return false
+}
+
+var blockCommentSuffixes = []struct {
+	Suffix string
+	Prefix string
+}{
+	{"*/", "/*"},
+	{`"""`, `"""`},
+	{"'''", "'''"},
+}
+
+func checkBlockCommentMarker(line string) (isBlock bool, marker string, singleLine bool) {
+	trimmed := strings.TrimSpace(line)
+	for _, item := range blockCommentSuffixes {
+		if strings.HasSuffix(trimmed, item.Suffix) {
+			isSingle := strings.HasPrefix(trimmed, item.Prefix)
+			if item.Suffix == `"""` || item.Suffix == "'''" {
+				isSingle = isSingle && len(trimmed) > 3
+			}
+			return true, item.Prefix, isSingle
+		}
+	}
+	return false, "", false
+}
+
+func shouldStopOnBlankLine(trimmed string, inBlock bool) bool {
+	return trimmed == "" && !inBlock
+}
+
+func shouldStopOnNonComment(line string) bool {
+	return !isCommentLine(line) || isLicenseLine(line)
+}
+
+func expandStartToIncludeComments(lines []string, startLine int) int {
+	const maxCommentExpandLines = 20
+	current := startLine
+
+	inMultiLineBlock := false
+	var blockStartMarker string
+
+	for i := 0; i < maxCommentExpandLines; i++ {
+		prevIdx := current - 2
+		if prevIdx < 0 {
+			break
+		}
+
+		prevLine := lines[prevIdx]
+		trimmedPrev := strings.TrimSpace(prevLine)
+
+		if shouldStopOnBlankLine(trimmedPrev, inMultiLineBlock) {
+			break
+		}
+
+		if inMultiLineBlock {
+			current--
+			if strings.Contains(trimmedPrev, blockStartMarker) {
+				inMultiLineBlock = false
+			}
+			continue
+		}
+
+		isBlock, marker, isSingle := checkBlockCommentMarker(prevLine)
+		if isBlock {
+			current--
+			if !isSingle {
+				inMultiLineBlock = true
+				blockStartMarker = marker
+			}
+			continue
+		}
+
+		if shouldStopOnNonComment(prevLine) {
+			break
+		}
+		current--
+	}
+	return current
 }
