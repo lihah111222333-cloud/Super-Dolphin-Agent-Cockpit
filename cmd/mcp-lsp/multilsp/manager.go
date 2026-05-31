@@ -125,6 +125,7 @@ type workspaceClient struct {
 	env              []string
 	workspaceFolders []protocol.WorkspaceFolder
 	client           Client
+	lastActivity     time.Time
 }
 
 type diagnosticSnapshot struct {

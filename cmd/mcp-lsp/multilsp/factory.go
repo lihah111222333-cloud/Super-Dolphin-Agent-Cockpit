@@ -108,6 +108,7 @@ func (m *manager) notifyDocument(
 	if err != nil {
 		return err
 	}
+	m.touchWorkspaceActivity(client)
 	return m.withPooledClient(client, func() error {
 		return notify(ctx, client, ref)
 	})
