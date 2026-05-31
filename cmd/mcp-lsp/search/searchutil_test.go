@@ -402,3 +402,56 @@ func writeSearchTestFile(t *testing.T, path, content string) {
 		t.Fatalf("write %s: %v", path, err)
 	}
 }
+
+func TestSearchTextSkipsGoModCache(t *testing.T) {
+	root, _ := filepath.EvalSymlinks(t.TempDir())
+	keep := filepath.Join(root, "src", "keep.go")
+	writeSearchTestFile(t, keep, "package main\nconst needle = true\n")
+	modCache := filepath.Join(root, "go", "pkg", "mod", "github.com", "foo", "bar")
+	writeSearchTestFile(t, filepath.Join(modCache, "skip.go"), "package bar\nconst needle = false\n")
+	t.Setenv("GOMODCACHE", filepath.Join(root, "go", "pkg", "mod"))
+	matches, err := SearchText(context.Background(), TextSearchOptions{Root: root, Query: "needle"})
+	if err != nil {
+		t.Fatalf("SearchText() error = %v", err)
+	}
+	if len(matches) != 1 {
+		t.Fatalf("SearchText() matches = %d, want 1 (only src/keep.go)", len(matches))
+	}
+	if matches[0].AbsPath != keep {
+		t.Fatalf("SearchText() match = %q, want %q", matches[0].AbsPath, keep)
+	}
+}
+
+func TestSearchTextSkipsGoModCacheByPathSegment(t *testing.T) {
+	root, _ := filepath.EvalSymlinks(t.TempDir())
+	keep := filepath.Join(root, "src", "keep.go")
+	writeSearchTestFile(t, keep, "package main\nconst needle = true\n")
+	modDir := filepath.Join(root, "go", "pkg", "mod", "example.com", "lib")
+	writeSearchTestFile(t, filepath.Join(modDir, "skip.go"), "package lib\nconst needle = false\n")
+	t.Setenv("GOMODCACHE", "")
+	t.Setenv("GOPATH", "")
+	matches, err := SearchText(context.Background(), TextSearchOptions{Root: root, Query: "needle"})
+	if err != nil {
+		t.Fatalf("SearchText() error = %v", err)
+	}
+	if len(matches) != 1 {
+		t.Fatalf("SearchText() matches = %d, want 1", len(matches))
+	}
+	if matches[0].AbsPath != keep {
+		t.Fatalf("SearchText() match = %q, want %q", matches[0].AbsPath, keep)
+	}
+}
+
+func TestSearchTextDoesNotSkipUserDirNamedMod(t *testing.T) {
+	root, _ := filepath.EvalSymlinks(t.TempDir())
+	modFile := filepath.Join(root, "mod", "keep.go")
+	writeSearchTestFile(t, modFile, "package mod\nconst needle = true\n")
+	t.Setenv("GOMODCACHE", "/nonexistent/path")
+	matches, err := SearchText(context.Background(), TextSearchOptions{Root: root, Query: "needle"})
+	if err != nil {
+		t.Fatalf("SearchText() error = %v", err)
+	}
+	if len(matches) != 1 {
+		t.Fatalf("SearchText() matches = %d, want 1 (mod/keep.go should be included)", len(matches))
+	}
+}

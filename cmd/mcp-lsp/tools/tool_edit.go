@@ -20,10 +20,14 @@ const (
 var errEditManagerNil = errors.New("edit manager is nil")
 
 type EditRequest struct {
-	FilePath   string `json:"file_path"`
-	LanguageID string `json:"language_id,omitempty"`
-	Patch      string `json:"patch,omitempty"`
-	Version    int    `json:"version,omitempty"`
+	Action     string   `json:"action"`
+	FilePath   string   `json:"file_path,omitempty"`
+	LanguageID string   `json:"language_id,omitempty"`
+	Patch      string   `json:"patch,omitempty"`
+	Version    int      `json:"version,omitempty"`
+	Pos        string   `json:"pos,omitempty"`
+	NewName    string   `json:"new_name,omitempty"`
+	Only       []string `json:"only,omitempty"`
 }
 
 type EditHandler struct {
@@ -64,11 +68,32 @@ func (h EditHandler) Handle(ctx context.Context, params json.RawMessage) (any, e
 	if h.registry == nil {
 		return nil, errEditManagerNil
 	}
-	req, err := decodeToolParams[EditRequest](params, decodeStrict)
+	req, err := decodeToolParams[EditRequest](params, decodeLenient)
 	if err != nil {
 		return nil, fmt.Errorf("decode edit request: %w", err)
 	}
-	return h.handleReplaceRange(ctx, req)
+	action := strings.TrimSpace(req.Action)
+	if action == "" {
+		action = "replace_range"
+	}
+	switch action {
+	case "replace_range":
+		if req.FilePath == "" {
+			return nil, fmt.Errorf("replace_range requires file_path")
+		}
+		if req.Patch == "" {
+			return nil, fmt.Errorf("replace_range requires patch")
+		}
+		return h.handleReplaceRange(ctx, req)
+	case "rename":
+		return h.handleRename(ctx, req)
+	case "code_action":
+		return h.handleCodeAction(ctx, req)
+	case "format":
+		return h.handleFormat(ctx, req)
+	default:
+		return nil, fmt.Errorf("unsupported edit action %q (valid: replace_range, rename, code_action, format)", action)
+	}
 }
 
 func normalizeEditVersion(version int) int {
@@ -151,4 +176,12 @@ func appendEditWarnings(sb *strings.Builder, e editEnvelope) {
 	if e.Success && e.FilePath != "" {
 		fmt.Fprintf(sb, "Next step: file action=diagnostics file_path=%s\n", e.FilePath)
 	}
+}
+
+func (h EditHandler) handleCodeAction(_ context.Context, req EditRequest) (any, error) {
+	return nil, fmt.Errorf("code_action not yet implemented")
+}
+
+func (h EditHandler) handleFormat(_ context.Context, req EditRequest) (any, error) {
+	return nil, fmt.Errorf("format not yet implemented")
 }
