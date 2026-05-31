@@ -224,11 +224,11 @@ function emptyPromptForm() {
   };
 }
 
-function normalizeDraft(raw = {}, fallbackKind = 'expert') {
+function normalizeDraftItem(raw = {}, fallbackKind = 'expert', meta = {}) {
   const card = raw.card && typeof raw.card === 'object' ? raw.card : {};
   return {
     draftKey: firstText(raw.draft_key, raw.draftKey),
-    kind: firstText(raw.inferred_kind, raw.kind, card.kind, fallbackKind),
+    kind: firstText(raw.inferred_kind, raw.inferredKind, raw.kind, card.kind, meta.inferredKind, fallbackKind),
     scope: firstText(raw.scope, card.scope, 'project'),
     status: firstText(raw.status, 'review'),
     title: firstText(card.title, raw.title, '未命名草稿'),
@@ -239,6 +239,17 @@ function normalizeDraft(raw = {}, fallbackKind = 'expert') {
     card,
     issues: Array.isArray(raw.issues) ? raw.issues : [],
   };
+}
+
+function normalizeDraft(raw = {}, fallbackKind = 'expert') {
+  const meta = {
+    inferredKind: firstText(raw.inferred_kind, raw.inferredKind),
+  };
+  if (Array.isArray(raw.drafts) && raw.drafts.length > 0) {
+    const draftOptions = raw.drafts.map((item) => normalizeDraftItem(item, fallbackKind, meta));
+    return { ...draftOptions[0], draftOptions };
+  }
+  return normalizeDraftItem(raw, fallbackKind, meta);
 }
 
 function pendingDraftFromItem(item) {
@@ -767,7 +778,7 @@ function PromptIntentWizardModal({ cwd, initialDraft, onClose, onSaved }) {
       });
       setDraft(normalizeDraft(response, kind));
     } catch (err) {
-      setNotice(noticeText(err, '整理失败'));
+      setNotice(noticeText(err, '生成失败'));
     } finally {
       setWorking('');
     }
@@ -778,7 +789,7 @@ function PromptIntentWizardModal({ cwd, initialDraft, onClose, onSaved }) {
     setWorking('commit');
     setNotice('');
     try {
-      await commitPromptIntent({ cwd, draftKey: draft.draftKey });
+      await commitPromptIntent({ cwd, draftKey: draft.draftKey, scope: draft.scope });
       await onSaved();
     } catch (err) {
       setNotice(noticeText(err, '保存失败'));
@@ -812,7 +823,7 @@ function PromptIntentWizardModal({ cwd, initialDraft, onClose, onSaved }) {
           写下希望 AI 记住或使用的内容
           <textarea value={rawInput} onChange={(event) => setRawInput(event.target.value)} aria-label="写下希望 AI 记住或使用的内容" />
         </label>
-        <button type="button" onClick={runDraft} disabled={working === 'draft'}>{working === 'draft' ? '整理中...' : '整理草稿'}</button>
+        <button type="button" onClick={runDraft} disabled={working === 'draft'}>{working === 'draft' ? '生成中...' : '帮我生成'}</button>
         {draft ? (
           <article className="prompt-draft-review">
             <div className="prompt-draft-title"><CheckCircle2 size={16} /> {draft.title}</div>

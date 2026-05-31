@@ -12,6 +12,7 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	"github.com/anthropic-ai/super-agent-v3/internal/module/skill/mirrorpath"
+	"github.com/anthropic-ai/super-agent-v3/internal/module/skill/summarysuggest"
 	platformrpc "github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
 )
 
@@ -64,11 +65,7 @@ func suggestSkillSummary(ctx context.Context, dream contract.DreamExecutor, p sk
 	if err != nil {
 		return "", err
 	}
-	raw, err := dream.ExecuteDream(ctx, prompt)
-	if err != nil {
-		return "", err
-	}
-	return parseSkillSummarySuggestionResult(raw)
+	return summarysuggest.Execute(ctx, dream, prompt, parseSkillSummarySuggestionResult)
 }
 
 func normalizeSkillSummarySuggestParams(p skillSummarySuggestParams) skillSummarySuggestParams {

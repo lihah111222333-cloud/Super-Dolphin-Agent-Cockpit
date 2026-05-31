@@ -10,8 +10,10 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
+	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
 	platformrpc "github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
 	"github.com/creachadair/jrpc2"
 )
@@ -106,6 +108,22 @@ func (f *fakeSkillDreamExecutor) ExecuteDream(_ context.Context, prompt string) 
 	return f.result, nil
 }
 
+type sequenceSkillDreamExecutor struct {
+	results     []string
+	calls       int
+	hasDeadline bool
+	deadline    time.Time
+}
+
+func (f *sequenceSkillDreamExecutor) ExecuteDream(ctx context.Context, _ string) (string, error) {
+	f.calls++
+	f.deadline, f.hasDeadline = ctx.Deadline()
+	if f.calls <= len(f.results) {
+		return f.results[f.calls-1], nil
+	}
+	return "", errors.New("unexpected extra dream call")
+}
+
 func TestSkillSummarySuggestRPCUsesDreamExecutor(t *testing.T) {
 	t.Parallel()
 
@@ -147,6 +165,32 @@ func TestSkillSummarySuggestRPCUsesDreamExecutor(t *testing.T) {
 		if !strings.Contains(dream.prompt, want) {
 			t.Fatalf("dream prompt missing precision rule %q:\n%s", want, dream.prompt)
 		}
+	}
+}
+
+func TestSkillSummarySuggestRetriesInvalidModelShapeWithinInteractiveTimeout(t *testing.T) {
+	t.Parallel()
+
+	dream := &sequenceSkillDreamExecutor{results: []string{`not-json`, `{"description":"当你需要编写或验证技能文件时使用。"}`}}
+	got, err := suggestSkillSummary(context.Background(), dream, skillSummarySuggestParams{
+		Name:    "编写技能",
+		Content: "# 编写技能\n创建或修改 SKILL.md。",
+	})
+	if err != nil {
+		t.Fatalf("suggestSkillSummary() error = %v", err)
+	}
+	if got != "当你需要编写或验证技能文件时使用。" {
+		t.Fatalf("description = %q", got)
+	}
+	if dream.calls != 2 {
+		t.Fatalf("dream calls = %d, want 2", dream.calls)
+	}
+	if !dream.hasDeadline {
+		t.Fatal("dream executor context has no deadline")
+	}
+	remaining := time.Until(dream.deadline)
+	if remaining <= 0 || remaining > platformconfig.RPCRequestTimeout {
+		t.Fatalf("dream executor timeout = %v, want within %v", remaining, platformconfig.RPCRequestTimeout)
 	}
 }
 

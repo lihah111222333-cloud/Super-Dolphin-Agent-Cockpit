@@ -196,6 +196,22 @@ describe('frontend-app backend API facade', () => {
     });
   });
 
+  it('does not duplicate skill summary retry at the frontend facade', async () => {
+    const callAPI = vi.fn().mockRejectedValueOnce(new Error('parse skill summary suggestion: invalid character'));
+    const api = createBackendApi({ callAPI });
+
+    await expect(api.suggestSkillSummary({
+      cwd: '/repo/app',
+      name: '部署技能',
+      description: '',
+      content: 'body',
+      scenario_words: ['deploy'],
+      scope: 'project',
+    })).rejects.toThrow('parse skill summary suggestion');
+
+    expect(callAPI).toHaveBeenCalledTimes(1);
+  });
+
   it('wraps skill resolution preview and apply payloads', async () => {
     const callAPI = vi.fn().mockResolvedValue({ ok: true });
     const api = createBackendApi({ callAPI });

@@ -624,14 +624,15 @@ export function createBackendApi(deps = {}) {
     },
     suggestSkillSummary: async (params) => {
       const payload = requireCwd(RPC_METHODS.SKILLS_SUMMARY_SUGGEST, params);
-      const raw = await callBackend(RPC_METHODS.SKILLS_SUMMARY_SUGGEST, {
+      const summaryPayload = {
         cwd: payload.cwd,
         name: normalizeString(payload.name),
         description: normalizeString(payload.description),
         content: (payload.content || '').toString(),
         scenario_words: Array.isArray(payload.scenario_words) ? payload.scenario_words : [],
         scope: normalizeString(payload.scope),
-      });
+      };
+      const raw = await callBackend(RPC_METHODS.SKILLS_SUMMARY_SUGGEST, summaryPayload);
       return normalizeSkillSummarySuggestion(raw);
     },
     listSkillResolutions: (params) => callBackend(

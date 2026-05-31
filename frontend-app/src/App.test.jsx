@@ -842,7 +842,8 @@ describe('frontend-app connected client shell', () => {
     fireEvent.change(screen.getByLabelText('写下希望 AI 记住或使用的内容'), {
       target: { value: '当用户要求代码审查时，先检查阻塞问题。' },
     });
-    fireEvent.click(screen.getByRole('button', { name: '整理草稿' }));
+    expect(screen.queryByRole('button', { name: '整理草稿' })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '帮我生成' }));
     expect(await screen.findByText('代码风险审查')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: '确认保存' }));
     await waitFor(() => {
@@ -853,7 +854,45 @@ describe('frontend-app connected client shell', () => {
         sourceType: 'user_input',
         scope: 'project',
       });
-      expect(backend.commitPromptIntent).toHaveBeenCalledWith({ cwd: '/repo/app', draftKey: 'intent/expert/review' });
+      expect(backend.commitPromptIntent).toHaveBeenCalledWith({ cwd: '/repo/app', draftKey: 'intent/expert/review', scope: 'project' });
+    });
+  });
+
+  it('uses the first generated prompt draft option when the backend infers multiple choices', async () => {
+    backend.draftPromptIntent.mockResolvedValueOnce({
+      requested_kind: 'expert',
+      inferred_kind: 'recall',
+      drafts: [{
+        draft_key: 'intent/recall/generated',
+        kind: 'recall',
+        scope: 'project',
+        status: 'review',
+        card: {
+          kind: 'recall',
+          title: '酒后提醒',
+          summary: '阻止酒后继续操作',
+          recall_body: '在用户喝酒时提醒停止继续操作。',
+          hit_examples: ['我喝酒了还想继续工作'],
+          miss_examples: ['普通工作安排'],
+        },
+        issues: [],
+      }],
+    });
+    backend.commitPromptIntent.mockResolvedValueOnce({ prompt: { id: 'recall/alcohol-guard' } });
+
+    render(<App />);
+    await screen.findByText('后端线程');
+    fireEvent.click(screen.getByLabelText('提示词'));
+    fireEvent.click(await screen.findByRole('button', { name: '+ 添加给 AI 的内容' }));
+    fireEvent.change(await screen.findByLabelText('写下希望 AI 记住或使用的内容'), {
+      target: { value: '在我喝酒的时候阻止我' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: '帮我生成' }));
+
+    expect(await screen.findByText('酒后提醒')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '确认保存' }));
+    await waitFor(() => {
+      expect(backend.commitPromptIntent).toHaveBeenCalledWith({ cwd: '/repo/app', draftKey: 'intent/recall/generated', scope: 'project' });
     });
   });
 
@@ -1356,8 +1395,8 @@ describe('frontend-app connected client shell', () => {
 
     fireEvent.click(screen.getByRole('button', { name: '新建技能' }));
     expect(await screen.findByRole('dialog', { name: '新建技能' })).toBeInTheDocument();
-    fireEvent.change(screen.getByLabelText('技能名称'), { target: { value: 'DeploySkill' } });
-    fireEvent.change(screen.getByLabelText('显示名称'), { target: { value: '部署技能' } });
+    expect(screen.queryByLabelText('显示名称')).not.toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText('技能名称'), { target: { value: '部署技能' } });
     fireEvent.change(screen.getByLabelText('关键词'), { target: { value: 'deploy, ship' } });
     fireEvent.change(screen.getByLabelText('技能内容'), { target: { value: '## 部署规则\n执行部署前检查环境。' } });
     fireEvent.click(screen.getByRole('button', { name: '帮我生成' }));
@@ -1370,7 +1409,7 @@ describe('frontend-app connected client shell', () => {
     await waitFor(() => {
       expect(backend.suggestSkillSummary).toHaveBeenCalledWith({
         cwd: '/repo/app',
-        name: 'DeploySkill',
+        name: '部署技能',
         description: '',
         content: '## 部署规则\n执行部署前检查环境。',
         scenario_words: ['deploy', 'ship'],
@@ -1378,13 +1417,13 @@ describe('frontend-app connected client shell', () => {
       });
       expect(backend.writeSkill).toHaveBeenCalledWith(expect.objectContaining({
         cwd: '/repo/app',
-        path: 'DeploySkill',
+        path: '部署技能',
         scope: 'project',
         personal_type: '',
       }));
     });
     const savePayload = backend.writeSkill.mock.calls.at(-1)[0];
-    expect(savePayload.content).toContain('name: "DeploySkill"');
+    expect(savePayload.content).toContain('name: "部署技能"');
     expect(savePayload.content).toContain('display_name: "部署技能"');
     expect(savePayload.content).toContain('description: "当你需要部署服务时使用。"');
     expect(savePayload.content).toContain('trigger_words: ["deploy", "ship"]');
@@ -1400,6 +1439,8 @@ describe('frontend-app connected client shell', () => {
     fireEvent.click(within(backendCard).getByRole('button', { name: '编辑详情' }));
 
     expect(await screen.findByRole('dialog', { name: '编辑技能' })).toBeInTheDocument();
+    expect(screen.queryByLabelText('显示名称')).not.toBeInTheDocument();
+    expect(screen.getByLabelText('技能名称')).toHaveValue('后端');
     expect(backend.readSkill).toHaveBeenCalledWith({
       cwd: '/repo/app',
       path: '/repo/app/.agent/skills/backend/SKILL.md',
@@ -1414,6 +1455,7 @@ describe('frontend-app connected client shell', () => {
     expect(screen.queryByLabelText('技能内容')).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: '编辑正文' })).toBeInTheDocument();
 
+    fireEvent.change(screen.getByLabelText('技能名称'), { target: { value: 'Go 后端' } });
     fireEvent.change(screen.getByLabelText('技能简介'), { target: { value: '当你需要维护 Go 服务时使用。' } });
     fireEvent.click(screen.getByRole('button', { name: '编辑正文' }));
     expect(screen.getByLabelText('技能内容')).toBeInTheDocument();
@@ -1428,7 +1470,10 @@ describe('frontend-app connected client shell', () => {
         personal_type: '',
       }));
     });
-    expect(backend.writeSkill.mock.calls.at(-1)[0].content).toContain('description: "当你需要维护 Go 服务时使用。"');
+    const savedContent = backend.writeSkill.mock.calls.at(-1)[0].content;
+    expect(savedContent).toContain('name: "backend"');
+    expect(savedContent).toContain('display_name: "Go 后端"');
+    expect(savedContent).toContain('description: "当你需要维护 Go 服务时使用。"');
   });
 
   it('imports skill directories with selected scope through skills/local/importDir', async () => {

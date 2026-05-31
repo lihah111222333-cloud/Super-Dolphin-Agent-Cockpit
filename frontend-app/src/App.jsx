@@ -1071,6 +1071,22 @@ function quoteYAML(value) {
   return `"${(value || '').toString().replace(/"/g, '\\"')}"`;
 }
 
+function skillNameFromDisplayName(value) {
+  const text = (value || '').toString().trim();
+  let slug = '';
+  let lastDash = false;
+  for (const char of Array.from(text)) {
+    if (/[\p{L}\p{N}_-]/u.test(char)) {
+      slug += char;
+      lastDash = false;
+    } else if (!lastDash) {
+      slug += '-';
+      lastDash = true;
+    }
+  }
+  return slug.replace(/^-+|-+$/g, '');
+}
+
 function buildSkillMarkdown(form) {
   const name = (form.name || '').trim();
   const displayName = (form.displayName || '').trim();
@@ -2912,7 +2928,7 @@ function SkillsPage({ projectPath, refreshKey = 0 }) {
         setEditorForm((form) => ({
           ...form,
           name: parsed.name || form.name,
-          displayName: parsed.displayName,
+          displayName: parsed.displayName || parsed.name || form.displayName,
           description: parsed.description,
           keywords: listToText(parsed.triggerWords),
           body: parsed.body,
@@ -2934,7 +2950,7 @@ function SkillsPage({ projectPath, refreshKey = 0 }) {
       const cwd = normalizeSettingsCwd(projectPath);
       const description = await suggestSkillSummary({
         cwd,
-        name: editorForm.name,
+        name: editorForm.displayName || editorForm.name,
         description: editorForm.description,
         content: editorForm.body,
         scenario_words: wordListFromText(editorForm.keywords),
@@ -2955,12 +2971,15 @@ function SkillsPage({ projectPath, refreshKey = 0 }) {
     try {
       const cwd = normalizeSettingsCwd(projectPath);
       const isMain = !activeSkillPath || isMainSkillFile(activeSkillPath);
-      const name = editorForm.name.trim();
-      if (isMain && !name) throw new Error('请先填写技能名称');
+      const displayName = editorForm.displayName.trim();
+      const name = editorForm.name.trim() || skillNameFromDisplayName(displayName);
+      if (isMain && !displayName) throw new Error('请先填写技能名称');
+      if (isMain && !name) throw new Error('技能名称必须包含中文、英文或数字');
+      const normalizedForm = isMain ? { ...editorForm, name, displayName } : editorForm;
       const payload = {
         cwd,
         path: isMain ? (activeSkillPath || name) : activeSkillPath,
-        content: isMain ? buildSkillMarkdown(editorForm) : editorForm.body,
+        content: isMain ? buildSkillMarkdown(normalizedForm) : editorForm.body,
         scope: editorForm.scope,
         personal_type: editorForm.scope === 'personal' ? (editorForm.personalType || 'user') : '',
       };
@@ -3400,6 +3419,14 @@ function SkillEditorModal({
   const isMain = !activeSkillPath || isMainSkillFile(activeSkillPath);
   const modalTitle = activeSkillPath ? '编辑技能' : '新建技能';
   const update = (key) => (event) => setForm((current) => ({ ...current, [key]: event.target.value }));
+  const updateDisplayName = (event) => {
+    const value = event.target.value;
+    setForm((current) => ({
+      ...current,
+      displayName: value,
+      name: activeSkillPath ? current.name : skillNameFromDisplayName(value),
+    }));
+  };
   const [bodyEditing, setBodyEditing] = useState(!activeSkillPath);
   useEffect(() => {
     setBodyEditing(!activeSkillPath);
@@ -3415,8 +3442,7 @@ function SkillEditorModal({
           <button type="button" className="ghost" onClick={onClose}>关闭</button>
         </header>
         <div className="form-grid">
-          <label>技能名称<input value={form.name} onChange={update('name')} disabled={!isMain} /></label>
-          <label>显示名称<input value={form.displayName} onChange={update('displayName')} disabled={!isMain} /></label>
+          <label className="wide">技能名称<input value={form.displayName} onChange={updateDisplayName} disabled={!isMain} /></label>
           <div className="skills-field wide">
             <div className="skills-editor-label-row">
               <label htmlFor="skills-description-input">技能简介</label>
