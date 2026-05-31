@@ -1,5 +1,5 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { AlertTriangle, Archive, Bot, Boxes, Brain, ChevronDown, CircleDot, Code2, Copy, Download, Eye, File, FileText, Folder, FolderOpen, GitBranch, Image, Link2, MemoryStick, MessageCircle, MoreHorizontal, Paperclip, Plus, RefreshCw, Search, Send, Settings, Sparkles, Trash2, Workflow, X } from 'lucide-react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { AlertTriangle, Archive, ArrowLeft, Bot, Boxes, Brain, ChevronDown, CircleStop, Code2, Copy, Download, Eye, File, FileText, Folder, FolderOpen, GitBranch, Image, Link2, MemoryStick, MessageCircle, MoreHorizontal, Pencil, Plus, RefreshCw, Search, Send, Settings, Sparkles, Trash2, Workflow, X } from 'lucide-react';
 import { useClientStore } from './entities/client/model/useClientStore.js';
 import { PromptPageView } from './features/prompts/PromptPageView.jsx';
 import {
@@ -106,6 +106,186 @@ function projectDisplayName(path) {
   const value = (path || '').toString().trim();
   if (!value || value === '未选择项目') return '未选择项目';
   return value.split(/[\\/]/).filter(Boolean).pop() || value;
+}
+
+function normalizeProjectPath(path) {
+  const value = (path || '').toString().trim();
+  if (!value) return '';
+  if (value !== '/' && !/^[a-zA-Z]:[\\/]?$/.test(value)) {
+    return value.replace(/[\\/]+$/, '');
+  }
+  return value;
+}
+
+function disambiguateProjectLabels(items) {
+  let changed = true;
+  while (changed) {
+    changed = false;
+    const countByLabel = items.reduce((acc, item) => {
+      acc[item.label] = (acc[item.label] || 0) + 1;
+      return acc;
+    }, {});
+    for (const item of items) {
+      if (countByLabel[item.label] <= 1 || item.label === item.full) continue;
+      const nextDepth = Math.min(item.depth + 1, item.segments.length);
+      const nextLabel = item.segments.slice(-nextDepth).join('/') || item.full;
+      if (nextLabel === item.label) continue;
+      item.depth = nextDepth;
+      item.label = nextLabel;
+      changed = true;
+    }
+  }
+}
+
+function projectOptionsFor(projects = [], activeProject = '', fallbackProject = '') {
+  const values = [];
+  const addValue = (value) => {
+    const normalized = normalizeProjectPath(value);
+    if (!normalized || values.includes(normalized)) return;
+    values.push(normalized);
+  };
+  addValue(activeProject);
+  addValue(fallbackProject);
+  for (const project of projects || []) addValue(project);
+
+  const items = values
+    .filter((value) => value !== '.')
+    .map((value) => {
+      const segments = value.split(/[\\/]/).filter(Boolean);
+      const depth = Math.min(2, segments.length);
+      return {
+        value,
+        label: segments.slice(-depth).join('/') || value,
+        full: value,
+        segments,
+        depth,
+      };
+    });
+  disambiguateProjectLabels(items);
+  return [
+    { value: '.', label: '当前目录 (.)', full: '.' },
+    ...items.map(({ value, label, full }) => ({ value, label, full })),
+  ];
+}
+
+const MODEL_OPTIONS_BY_PROVIDER = Object.freeze({
+  codex: Object.freeze([
+    { value: 'gpt-5.5', label: 'GPT-5.5', short: '5.5' },
+    { value: 'gpt-5.4', label: 'GPT-5.4', short: '5.4' },
+    { value: 'gpt-5.3-codex', label: 'GPT-5.3 Codex', short: '5.3 Codex' },
+    { value: 'gpt-5.2', label: 'GPT-5.2', short: '5.2' },
+  ]),
+  claude: Object.freeze([
+    { value: 'opus', label: 'Opus 4.7' },
+    { value: 'opus[1m]', label: 'Opus 4.7 [1M]' },
+    { value: 'claude-opus-4-6', label: 'Opus 4.6' },
+    { value: 'claude-opus-4-6[1m]', label: 'Opus 4.6 [1M]' },
+    { value: 'sonnet', label: 'Sonnet 4.7' },
+    { value: 'sonnet[1m]', label: 'Sonnet 4.7 [1M]' },
+    { value: 'claude-sonnet-4-6', label: 'Sonnet 4.6' },
+    { value: 'claude-sonnet-4-6[1m]', label: 'Sonnet 4.6 [1M]' },
+    { value: 'haiku', label: 'Haiku 4.5' },
+  ]),
+});
+
+const EFFORT_OPTIONS_BY_PROVIDER = Object.freeze({
+  codex: Object.freeze([
+    { value: 'xhigh', label: '极高' },
+    { value: 'high', label: '高' },
+    { value: 'medium', label: '中' },
+    { value: 'low', label: '低' },
+    { value: 'minimal', label: '极低' },
+    { value: 'none', label: '关闭' },
+  ]),
+  claude: Object.freeze([
+    { value: 'max', label: 'max' },
+    { value: 'high', label: 'high' },
+    { value: 'medium', label: 'medium' },
+    { value: 'low', label: 'low' },
+  ]),
+});
+
+const MODEL_DEFAULTS_BY_PROVIDER = Object.freeze({
+  codex: Object.freeze({ model: 'gpt-5.5', effort: 'xhigh' }),
+  claude: Object.freeze({ model: 'sonnet', effort: 'high' }),
+});
+const CLAUDE_LONG_TO_SHORT = Object.freeze({
+  'claude-opus-4-7': 'opus',
+  'claude-opus-4-7[1m]': 'opus[1m]',
+  'claude-haiku-4-5': 'haiku',
+});
+
+function normalizeProviderKey(value) {
+  return (value || '').toString().trim().toLowerCase() === 'claude' ? 'claude' : 'codex';
+}
+
+function normalizeConfigText(value) {
+  return (value || '').toString().trim();
+}
+
+function canonicalizeModelValue(provider, value) {
+  const normalized = normalizeConfigText(value);
+  if (normalizeProviderKey(provider) === 'claude') return CLAUDE_LONG_TO_SHORT[normalized] || normalized;
+  return normalized;
+}
+
+function isClaudeOpusFamilyModel(model) {
+  const normalized = normalizeConfigText(model).toLowerCase();
+  return normalized === 'best' || normalized.includes('opus');
+}
+
+function modelOptionFor(provider, value) {
+  const normalized = canonicalizeModelValue(provider, value);
+  const options = MODEL_OPTIONS_BY_PROVIDER[normalizeProviderKey(provider)] || MODEL_OPTIONS_BY_PROVIDER.codex;
+  return options.find((item) => canonicalizeModelValue(provider, item.value) === normalized)
+    || (normalized ? { value: normalized, label: normalized, short: normalized } : null);
+}
+
+function effortOptionFor(provider, value) {
+  const normalized = normalizeConfigText(value);
+  const options = EFFORT_OPTIONS_BY_PROVIDER[normalizeProviderKey(provider)] || EFFORT_OPTIONS_BY_PROVIDER.codex;
+  return options.find((item) => item.value === normalized) || (normalized ? { value: normalized, label: normalized } : null);
+}
+
+function appendCurrentModelOption(provider, value) {
+  const options = MODEL_OPTIONS_BY_PROVIDER[normalizeProviderKey(provider)] || MODEL_OPTIONS_BY_PROVIDER.codex;
+  const current = modelOptionFor(provider, value);
+  if (!current || options.some((item) => canonicalizeModelValue(provider, item.value) === current.value)) return options;
+  return [...options, current];
+}
+
+function appendCurrentEffortOption(provider, value, model = '') {
+  const providerKey = normalizeProviderKey(provider);
+  const baseOptions = EFFORT_OPTIONS_BY_PROVIDER[providerKey] || EFFORT_OPTIONS_BY_PROVIDER.codex;
+  const options = providerKey === 'claude' && !isClaudeOpusFamilyModel(model)
+    ? baseOptions.filter((item) => item.value !== 'max')
+    : baseOptions;
+  const current = effortOptionFor(provider, value);
+  if (!current || options.some((item) => item.value === current.value)) return options;
+  return [...options, current];
+}
+
+function composerModelLabel(provider, model, effort) {
+  const providerKey = normalizeProviderKey(provider);
+  const modelValue = normalizeConfigText(model) || MODEL_DEFAULTS_BY_PROVIDER[providerKey].model;
+  const effortValue = normalizeConfigText(effort) || MODEL_DEFAULTS_BY_PROVIDER[providerKey].effort;
+  const modelLabel = modelOptionFor(providerKey, modelValue)?.label || modelValue;
+  const effortLabel = effortOptionFor(providerKey, effortValue)?.label || effortValue;
+  return `${modelLabel} · ${effortLabel}`.trim();
+}
+
+const STALE_ARCHIVE_MS = 7 * 24 * 60 * 60 * 1000;
+
+function archivedStaleReason(thread) {
+  if (!thread?.archived) return '';
+  const archivedAt = Number(thread.archivedAt || 0);
+  if (Number.isFinite(archivedAt) && archivedAt > STALE_ARCHIVE_MS && Date.now() - archivedAt > STALE_ARCHIVE_MS) {
+    return 'expired';
+  }
+  if ((thread.name || '').toString().trim() === (thread.id || '').toString().trim()) {
+    return 'empty';
+  }
+  return '';
 }
 
 const SETTINGS_KEYS = Object.freeze({
@@ -785,16 +965,30 @@ function finalOutputText(raw) {
   return '';
 }
 
+function validThreadIdText(value) {
+  const text = textValue(value);
+  if (!text || /^launch[_-]/i.test(text)) return '';
+  return text;
+}
+
+function firstValidThreadId(...values) {
+  for (const value of values) {
+    const text = validThreadIdText(value);
+    if (text) return text;
+  }
+  return '';
+}
+
 function threadIdFromStartResponse(value) {
-  return firstText(
+  return firstValidThreadId(
     value?.threadId,
     value?.thread_id,
-    value?.id,
-    value?.agentId,
-    value?.agent_id,
-    value?.thread?.id,
     value?.thread?.threadId,
     value?.thread?.thread_id,
+    value?.id,
+    value?.thread?.id,
+    value?.agentId,
+    value?.agent_id,
     value?.thread?.agentId,
     value?.thread?.agent_id,
   );
@@ -889,6 +1083,62 @@ function buildSkillMarkdown(form) {
   if (words.length > 0) lines.push(`trigger_words: [${words.map(quoteYAML).join(', ')}]`);
   lines.push('---', '', body || '## 说明\n\n请补充技能规则。');
   return lines.join('\n');
+}
+
+function SkillMarkdownPreview({ content }) {
+  const text = (content || '').toString().trim();
+  if (!text) return <p>暂无内容，点击“编辑正文”开始编写。</p>;
+  const blocks = [];
+  let paragraph = [];
+  let list = [];
+  const flushParagraph = () => {
+    if (paragraph.length === 0) return;
+    blocks.push({ type: 'p', text: paragraph.join(' ') });
+    paragraph = [];
+  };
+  const flushList = () => {
+    if (list.length === 0) return;
+    blocks.push({ type: 'ul', items: list });
+    list = [];
+  };
+  for (const line of text.split('\n')) {
+    const trimmed = line.trim();
+    if (!trimmed) {
+      flushParagraph();
+      flushList();
+      continue;
+    }
+    const heading = /^(#{1,6})\s+(.+)$/.exec(trimmed);
+    if (heading) {
+      flushParagraph();
+      flushList();
+      blocks.push({ type: 'heading', level: Math.min(heading[1].length, 3), text: heading[2] });
+      continue;
+    }
+    const bullet = /^[-*]\s+(.+)$/.exec(trimmed);
+    if (bullet) {
+      flushParagraph();
+      list.push(bullet[1]);
+      continue;
+    }
+    paragraph.push(trimmed);
+  }
+  flushParagraph();
+  flushList();
+  return (
+    <>
+      {blocks.map((block, index) => {
+        if (block.type === 'heading') {
+          const Tag = block.level <= 1 ? 'h3' : 'h4';
+          return <Tag key={`heading-${index}`}>{block.text}</Tag>;
+        }
+        if (block.type === 'ul') {
+          return <ul key={`list-${index}`}>{block.items.map((item, itemIndex) => <li key={`${index}-${itemIndex}`}>{item}</li>)}</ul>;
+        }
+        return <p key={`p-${index}`}>{block.text}</p>;
+      })}
+    </>
+  );
 }
 
 function emptySkillForm() {
@@ -1316,11 +1566,10 @@ function App({ skipBootstrap = false }) {
     navItems.find((item) => item.id === store.activePage)?.label || 'Chat'
   ), [store.activePage]);
 
-  const projectPath = store.activeProject || store.cwd || '未选择项目';
+  const projectPath = store.activeProject && store.activeProject !== '.' ? store.activeProject : store.cwd || '未选择项目';
 
   return (
     <div className="sa-window" data-testid="frontend-app">
-      <Titlebar />
       <div className="sa-body">
         <NavRail activePage={store.activePage} setActivePage={store.setActivePage} />
         <main className="sa-main">
@@ -1335,19 +1584,6 @@ function App({ skipBootstrap = false }) {
         </main>
       </div>
     </div>
-  );
-}
-
-function Titlebar() {
-  return (
-    <header className="titlebar">
-      <div className="traffic-lights" aria-hidden="true">
-        <span className="red" />
-        <span className="yellow" />
-        <span className="green" />
-      </div>
-      <strong>Super Agent</strong>
-    </header>
   );
 }
 
@@ -1415,6 +1651,7 @@ function ChatPage({ store, projectPath }) {
           selectFiles={store.selectFilesForComposer}
           removeAttachment={store.removeAttachment}
           sending={store.sending}
+          store={store}
           projectPath={projectPath}
           permission={store.permission}
           setPermission={store.setPermission}
@@ -1438,69 +1675,381 @@ function ChatPage({ store, projectPath }) {
   );
 }
 
-function TopCommandBar({ store, projectPath }) {
+function ProjectSelector({ store, projectPath }) {
+  const [open, setOpen] = useState(false);
+  const wrapRef = useRef(null);
+  const activeProject = store.activeProject || projectPath;
+  const options = useMemo(
+    () => projectOptionsFor(store.projects, activeProject, projectPath),
+    [store.projects, activeProject, projectPath],
+  );
+  const selectedValue = normalizeProjectPath(activeProject) || '.';
+  const selected = options.find((item) => item.value === selectedValue)
+    || options.find((item) => item.value === '.')
+    || { value: '.', label: '当前目录 (.)', full: '.' };
+
+  useEffect(() => {
+    if (!open) return undefined;
+    const onPointerDown = (event) => {
+      if (wrapRef.current && !wrapRef.current.contains(event.target)) {
+        setOpen(false);
+      }
+    };
+    document.addEventListener('pointerdown', onPointerDown, true);
+    return () => document.removeEventListener('pointerdown', onPointerDown, true);
+  }, [open]);
+
+  const selectProject = async (value) => {
+    setOpen(false);
+    await store.setActiveProjectPath?.(value);
+  };
+
+  const addProject = async () => {
+    setOpen(false);
+    await store.addProjectFromPicker?.();
+  };
+
+  const removeProject = async (event, value) => {
+    event.stopPropagation();
+    await store.removeProjectPath?.(value);
+  };
+
   return (
-    <div className="top-command" data-testid="chat-toolbar">
-      <button type="button" className="project-select" title={projectPath}>
+    <div className="project-select-wrap" ref={wrapRef}>
+      <button
+        type="button"
+        className="project-select"
+        aria-label="选择项目"
+        aria-haspopup="menu"
+        aria-expanded={open}
+        title={selected.full === '.' ? projectPath : selected.full}
+        onClick={() => setOpen((value) => !value)}
+      >
         <Folder size={15} />
-        <span>{projectPath}</span>
+        <span>{selected.label}</span>
         <ChevronDown size={14} />
       </button>
-      <button type="button" className="icon-btn" aria-label="复制当前线程"><Copy size={15} /></button>
-      <button type="button" className="icon-btn" aria-label="线程状态"><CircleDot size={15} /></button>
-      <button type="button" className="provider"><span /> {store.provider === 'codex' ? 'Codex' : store.provider}</button>
-      <button type="button" className="icon-btn" aria-label="中断当前对话" onClick={() => void store.interruptActiveThread()}><AlertTriangle size={15} /></button>
-      <button type="button" className="icon-btn" aria-label="压缩当前线程" onClick={() => void store.compactActiveThread()}><Archive size={15} /></button>
-      <button type="button" className="icon-btn" aria-label="恢复当前线程" onClick={() => void store.recoverActiveThread()}><Workflow size={15} /></button>
-      <button type="button" className="icon-btn" aria-label="选择附件" onClick={() => void store.selectFilesForComposer()}><Paperclip size={15} /></button>
-      <select aria-label="权限" value={store.permission} onChange={(event) => store.setPermission(event.target.value)}>
-        <option>完全访问权限</option>
-        <option>工作区写入</option>
-        <option>只读模式</option>
-      </select>
-      <button type="button" className="project-pill"><Folder size={14} /> {projectDisplayName(projectPath)}</button>
+      {open ? (
+        <div className="project-dropdown" role="menu" aria-label="项目列表">
+          {options.map((item) => (
+            <div key={item.value} className={`project-dropdown-row ${item.value === selected.value ? 'selected' : ''}`} role="none" title={item.full}>
+              <button
+                type="button"
+                className="project-dropdown-item"
+                role="menuitem"
+                onClick={() => void selectProject(item.value)}
+              >
+                <span className="project-option-check" aria-hidden="true">{item.value === selected.value ? '✓' : ''}</span>
+                <span className="project-dropdown-label">{item.label}</span>
+              </button>
+              {item.value !== '.' ? (
+                <button
+                  type="button"
+                  className="project-dropdown-remove"
+                  aria-label={`移除此项目 ${item.label}`}
+                  title="移除此项目"
+                  onClick={(event) => void removeProject(event, item.value)}
+                >
+                  <X size={12} />
+                </button>
+              ) : null}
+            </div>
+          ))}
+          <div className="project-dropdown-divider" />
+          <button
+            type="button"
+            className="project-dropdown-item project-dropdown-add"
+            role="menuitem"
+            onClick={() => void addProject()}
+          >
+            <Plus size={13} />
+            <span>添加项目</span>
+          </button>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function TopCommandBar({ store, projectPath }) {
+  const canUseThreadActions = Boolean(store.hasActiveThreadActions?.());
+  const providerLabel = store.provider === 'claude' ? 'Claude' : 'Codex';
+  return (
+    <div className="top-command" data-testid="chat-toolbar">
+      <ProjectSelector store={store} projectPath={projectPath} />
+      {canUseThreadActions ? (
+        <button type="button" className="icon-btn" aria-label="复制当前线程" title="复制当前线程" onClick={() => void store.copyActiveThreadInfo()}><Copy size={15} /></button>
+      ) : null}
+      {canUseThreadActions ? (
+        <button type="button" className="icon-btn" aria-label="停止" title="中断当前执行" onClick={() => void store.interruptActiveThread()}><CircleStop size={15} /></button>
+      ) : null}
+      <button
+        type="button"
+        className={`provider ${store.provider === 'claude' ? 'active' : ''}`}
+        aria-label="切换 Claude / Codex provider"
+        title="切换 Claude / Codex provider"
+        onClick={() => void store.toggleProviderMode()}
+      >
+        <span />
+        {providerLabel}
+      </button>
+      <button type="button" className="icon-btn launch-agent" aria-label="新对话" title="新对话：发送第一条消息时才会创建会话" onClick={store.newThread}><Pencil size={15} /></button>
+      <button
+        type="button"
+        className="icon-btn"
+        aria-label={canUseThreadActions ? '进程恢复' : '请先选择会话'}
+        title={canUseThreadActions ? '手动杀进程并恢复连接' : '请先选择会话'}
+        disabled={!canUseThreadActions}
+        onClick={() => void store.recoverActiveThread()}
+      >
+        <RefreshCw size={15} />
+      </button>
+      {store.actionNotice?.message ? (
+        <span
+          className={`action-feedback ${store.actionNotice.tone || 'info'}`}
+          data-testid="chat-action-feedback"
+          role="status"
+        >
+          {store.actionNotice.message}
+        </span>
+      ) : null}
+      <span className="project-pill" aria-label="当前工作目录" title={`当前窗口 CWD：${projectPath}`}><Folder size={14} /> {projectDisplayName(projectPath)}</span>
     </div>
   );
 }
 
 function ThreadRail({ store }) {
-  const threads = store.threads.filter((thread) => !thread.archived);
+  const [showArchivedThreads, setShowArchivedThreads] = useState(false);
+  const [confirmCleanMode, setConfirmCleanMode] = useState(false);
+  const activeThreads = store.threads.filter((thread) => !thread.archived);
+  const archivedThreads = store.threads.filter((thread) => thread.archived);
+  const threads = showArchivedThreads ? archivedThreads : activeThreads;
+  const visibleThreads = threads.map((thread) => ({ ...thread, staleReason: archivedStaleReason(thread) }));
+  const staleThreadIds = showArchivedThreads
+    ? visibleThreads.filter((thread) => thread.staleReason).map((thread) => thread.id)
+    : [];
+  const railLabel = showArchivedThreads ? '归档列表' : '会话列表';
+  const toggleArchiveLabel = showArchivedThreads ? '返回会话列表' : '打开归档列表';
+  const toggleArchiveList = () => {
+    setShowArchivedThreads((value) => {
+      const next = !value;
+      if (!next) setConfirmCleanMode(false);
+      return next;
+    });
+  };
   return (
     <aside className="thread-rail" data-testid="thread-rail">
       <div className="thread-tools">
-        <button type="button" className="round"><Bot size={17} /></button>
-        <button type="button" className="count"><Archive size={14} /> {store.threads.length}</button>
+        <span className="round thread-kind" role="img" aria-label={railLabel} title={railLabel}>
+          <Bot size={17} />
+        </span>
+        <span className="count thread-count" role="img" aria-label={`${visibleThreads.length} 个 Agent`} title={`${visibleThreads.length} 个 Agent`}>
+          <Bot size={14} />
+          <strong>{visibleThreads.length}</strong>
+        </span>
         <button type="button" className="round add" aria-label="新建对话" onClick={store.newThread}><Plus size={18} /></button>
+        {showArchivedThreads && staleThreadIds.length > 0 && !confirmCleanMode ? (
+          <button
+            type="button"
+            className="round thread-clean"
+            aria-label="清理无用对话"
+            title="清理无用对话"
+            onClick={() => setConfirmCleanMode(true)}
+          >
+            <Trash2 size={15} />
+          </button>
+        ) : null}
+        {showArchivedThreads && confirmCleanMode ? (
+          <>
+            <button
+              type="button"
+              className="thread-clean-confirm"
+              onClick={() => {
+                setConfirmCleanMode(false);
+                void store.deleteStaleThreads(staleThreadIds);
+              }}
+            >
+              确认
+            </button>
+            <button type="button" className="thread-clean-cancel" onClick={() => setConfirmCleanMode(false)}>取消</button>
+          </>
+        ) : null}
         <button
           type="button"
-          className="round"
-          aria-label="归档当前线程"
-          onClick={() => void store.archiveThread(store.activeThreadId, true)}
+          className={`round thread-archive-toggle ${showArchivedThreads ? 'active' : ''}`}
+          aria-label={toggleArchiveLabel}
+          title={toggleArchiveLabel}
+          onClick={toggleArchiveList}
         >
-          <Archive size={15} />
+          {showArchivedThreads ? <ArrowLeft size={15} /> : <Archive size={15} />}
         </button>
       </div>
       <div className="thread-list">
-        {threads.length === 0 ? <p className="thread-empty">暂无线程，直接在右侧输入即可开始。</p> : null}
-        {threads.map((thread) => {
+        {visibleThreads.length === 0 ? (
+          <p className="thread-empty">
+            {showArchivedThreads ? '暂无归档会话' : '暂无会话，点击顶部「新对话」开始草稿'}
+          </p>
+        ) : null}
+        {visibleThreads.map((thread) => {
           const active = store.activeThreadId === thread.id;
           const running = ['running', '工作中', 'pending', 'recovering'].includes((thread.status || '').toLowerCase()) || thread.status === '工作中';
+          const archiveLabel = thread.archived ? '恢复会话' : '归档会话';
           return (
-            <button
+            <div
               key={thread.id}
-              type="button"
               className={`thread-card ${active ? 'active' : ''}`}
-              onClick={() => void store.setActiveThread(thread.id)}
             >
-              <span className="thread-pin"><GitBranch size={15} /></span>
-              <span className="thread-name">{thread.name}</span>
-              <b>{thread.provider || 'Codex'}</b>
-              <em className={running ? 'running' : ''}>{running ? '工作中' : thread.status || '等待指示'}</em>
-            </button>
+              <button
+                type="button"
+                className="thread-main"
+                onClick={() => void store.setActiveThread(thread.id)}
+              >
+                <span className="thread-pin"><GitBranch size={15} /></span>
+                <span className="thread-name">{thread.name}</span>
+                <b>{thread.provider || 'Codex'}</b>
+                <em className={running ? 'running' : ''}>
+                  {running ? '工作中' : thread.status || '等待指示'}
+                  {thread.staleReason ? (
+                    <span className="thread-stale-badge" data-stale-reason={thread.staleReason}>
+                      {thread.staleReason === 'expired' ? '超7天' : '空对话'}
+                    </span>
+                  ) : null}
+                </em>
+              </button>
+              <button
+                type="button"
+                className={`thread-archive ${thread.archived ? 'active' : ''}`}
+                aria-label={archiveLabel}
+                title={archiveLabel}
+                onClick={() => void store.archiveThread(thread.id, !thread.archived)}
+              >
+                <Archive size={15} />
+              </button>
+            </div>
           );
         })}
       </div>
     </aside>
+  );
+}
+
+function ModelSelector({ store, activeThreadId }) {
+  const [open, setOpen] = useState(false);
+  const wrapRef = useRef(null);
+  const activeThreadConfig = activeThreadId ? store.threadConfigByThread?.[activeThreadId] : null;
+  const providerKey = normalizeProviderKey(activeThreadConfig?.provider || store.providerConfig?.provider || store.provider);
+  const providerDefaults = MODEL_DEFAULTS_BY_PROVIDER[providerKey] || MODEL_DEFAULTS_BY_PROVIDER.codex;
+  const canOverrideThread = Boolean(activeThreadId && activeThreadConfig?.supportsThreadOverride);
+  const activeModel = canOverrideThread
+    ? normalizeConfigText(activeThreadConfig?.override?.model || activeThreadConfig?.effective?.model || providerDefaults.model)
+    : normalizeConfigText(store.providerConfig?.model || providerDefaults.model);
+  const activeEffort = canOverrideThread
+    ? normalizeConfigText(activeThreadConfig?.override?.effort || activeThreadConfig?.effective?.effort || providerDefaults.effort)
+    : normalizeConfigText(store.providerConfig?.effort || providerDefaults.effort);
+  const draftModel = canOverrideThread ? normalizeConfigText(activeThreadConfig?.override?.model) : activeModel;
+  const draftEffort = canOverrideThread ? normalizeConfigText(activeThreadConfig?.override?.effort) : activeEffort;
+  const [draft, setDraft] = useState({ model: draftModel, effort: draftEffort });
+
+  useEffect(() => {
+    if (!open) {
+      setDraft({ model: draftModel, effort: draftEffort });
+    }
+  }, [draftModel, draftEffort, open]);
+
+  useEffect(() => {
+    if (!open) return undefined;
+    const onPointerDown = (event) => {
+      if (wrapRef.current && !wrapRef.current.contains(event.target)) setOpen(false);
+    };
+    document.addEventListener('pointerdown', onPointerDown, true);
+    return () => document.removeEventListener('pointerdown', onPointerDown, true);
+  }, [open]);
+
+  const openSelector = async () => {
+    const nextOpen = !open;
+    setDraft({ model: draftModel, effort: draftEffort });
+    setOpen(nextOpen);
+    if (!nextOpen || !activeThreadId) return;
+    const loaded = await store.loadThreadConfig?.(activeThreadId);
+    if (!loaded) return;
+    const loadedCanOverride = Boolean(loaded.supportsThreadOverride);
+    setDraft({
+      model: loadedCanOverride ? normalizeConfigText(loaded.override?.model) : activeModel,
+      effort: loadedCanOverride ? normalizeConfigText(loaded.override?.effort) : activeEffort,
+    });
+  };
+
+  const saveModelConfig = async (patch) => {
+    let next = { ...draft, ...patch };
+    if (
+      providerKey === 'claude'
+      && normalizeConfigText(next.effort).toLowerCase() === 'max'
+      && !isClaudeOpusFamilyModel(next.model || activeModel)
+    ) {
+      next = { ...next, effort: 'high' };
+    }
+    setDraft(next);
+    await store.saveComposerModelConfig?.({ model: next.model, effort: next.effort });
+  };
+
+  const restoreInheritance = async () => {
+    await store.restoreComposerModelInheritance?.();
+    setOpen(false);
+  };
+
+  const selectedModel = canonicalizeModelValue(providerKey, draft.model || activeModel);
+  const selectedEffort = draft.effort || activeEffort;
+  const selectModelValue = canOverrideThread
+    ? canonicalizeModelValue(providerKey, draft.model)
+    : canonicalizeModelValue(providerKey, draft.model || activeModel);
+  const selectEffortValue = canOverrideThread ? draft.effort : draft.effort || activeEffort;
+  const modelOptions = appendCurrentModelOption(providerKey, selectedModel);
+  const effortOptions = appendCurrentEffortOption(providerKey, selectedEffort, selectedModel);
+  const inherited = canOverrideThread && !activeThreadConfig?.override?.model && !activeThreadConfig?.override?.effort;
+  const label = composerModelLabel(providerKey, activeModel, activeEffort);
+  const inheritModelLabel = activeModel ? `默认（当前：${modelOptionFor(providerKey, activeModel)?.label || activeModel}）` : '默认';
+  const inheritEffortLabel = activeEffort ? `默认（当前：${effortOptionFor(providerKey, activeEffort)?.label || activeEffort}）` : '默认';
+  const selectorBusy = Boolean(store.threadConfigSaving || (activeThreadId && store.threadConfigLoadingByThread?.[activeThreadId]));
+
+  return (
+    <div className="composer-model-wrap" ref={wrapRef}>
+      <button
+        type="button"
+        className="composer-model"
+        aria-label="选择模型"
+        aria-expanded={open}
+        aria-haspopup="dialog"
+        aria-busy={selectorBusy}
+        title={canOverrideThread ? '线程执行配置' : '全局模型配置'}
+        onClick={() => void openSelector()}
+      >
+        {label}
+        <ChevronDown size={12} />
+      </button>
+      {open ? (
+        <div className="model-dropdown" role="dialog" aria-label="模型配置">
+          <label>
+            <span>模型</span>
+            <select aria-label="模型" value={selectModelValue} disabled={selectorBusy} onChange={(event) => void saveModelConfig({ model: event.target.value })}>
+              {canOverrideThread ? <option value="">{inheritModelLabel}</option> : null}
+              {modelOptions.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
+            </select>
+          </label>
+          <label>
+            <span>强度</span>
+            <select aria-label="推理强度" value={selectEffortValue} disabled={selectorBusy} onChange={(event) => void saveModelConfig({ effort: event.target.value })}>
+              {canOverrideThread ? <option value="">{inheritEffortLabel}</option> : null}
+              {effortOptions.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
+            </select>
+          </label>
+          {canOverrideThread && !inherited ? (
+            <button type="button" className="model-inherit" disabled={selectorBusy} onClick={() => void restoreInheritance()}>
+              继承全局
+            </button>
+          ) : null}
+        </div>
+      ) : null}
+    </div>
   );
 }
 
@@ -1513,6 +2062,7 @@ function Conversation({
   selectFiles,
   removeAttachment,
   sending,
+  store,
   projectPath,
   permission,
   setPermission,
@@ -1578,7 +2128,7 @@ function Conversation({
               <Folder size={14} />
               {projectDisplayName(projectPath)}
             </span>
-            <span className="composer-model">openai · 5.4 中</span>
+            <ModelSelector store={store} activeThreadId={activeThreadId} />
             <button type="button" className="send" aria-label="发送消息" disabled={sending} onClick={() => void sendMessage()}>
               <Send size={18} />
             </button>
@@ -2850,29 +3400,52 @@ function SkillEditorModal({
   const isMain = !activeSkillPath || isMainSkillFile(activeSkillPath);
   const modalTitle = activeSkillPath ? '编辑技能' : '新建技能';
   const update = (key) => (event) => setForm((current) => ({ ...current, [key]: event.target.value }));
+  const [bodyEditing, setBodyEditing] = useState(!activeSkillPath);
+  useEffect(() => {
+    setBodyEditing(!activeSkillPath);
+  }, [activeSkillPath]);
   return (
     <div className="modal-overlay">
       <section className="modal-box skills-editor-modal" role="dialog" aria-modal="true" aria-label={modalTitle}>
-        <header>
-          <h2>{modalTitle}</h2>
+        <header className="skills-editor-modal-head">
+          <div>
+            <h2>{modalTitle}</h2>
+            <p>你可以修改简介和技能内容。</p>
+          </div>
           <button type="button" className="ghost" onClick={onClose}>关闭</button>
         </header>
         <div className="form-grid">
           <label>技能名称<input value={form.name} onChange={update('name')} disabled={!isMain} /></label>
           <label>显示名称<input value={form.displayName} onChange={update('displayName')} disabled={!isMain} /></label>
-          <label className="wide">技能简介<input value={form.description} onChange={update('description')} disabled={!isMain} /></label>
-          <label>使用范围<select value={form.scope} onChange={update('scope')} disabled={!isMain}><option value="project">项目共享</option><option value="personal">私人使用</option></select></label>
-          <label>关键词<input value={form.keywords} onChange={update('keywords')} disabled={!isMain} /></label>
+          <div className="skills-field wide">
+            <div className="skills-editor-label-row">
+              <label htmlFor="skills-description-input">技能简介</label>
+              <button type="button" className="ghost" onClick={() => { void onSuggestSummary(); }} disabled={!isMain || summarySuggesting || (!form.name.trim() && !form.body.trim())}>
+                {summarySuggesting ? '生成中' : '帮我生成'}
+              </button>
+            </div>
+            <input id="skills-description-input" value={form.description} onChange={update('description')} disabled={!isMain} aria-label="技能简介" />
+            <div className="skills-inline-tip">建议写成“当你需要……时使用”。</div>
+          </div>
+          <div className="skills-field">
+            <span>使用范围</span>
+            <div className="skills-scope-segmented" role="group" aria-label="使用范围">
+              <button type="button" className={form.scope === 'project' ? 'active' : ''} disabled={!isMain} onClick={() => setForm((current) => ({ ...current, scope: 'project' }))}>项目共享</button>
+              <button type="button" className={form.scope === 'personal' ? 'active' : ''} disabled={!isMain} onClick={() => setForm((current) => ({ ...current, scope: 'personal' }))}>私人使用</button>
+            </div>
+          </div>
+          <label>关键词<input value={form.keywords} onChange={update('keywords')} disabled={!isMain} aria-label="关键词" /></label>
         </div>
-        <div className="skills-editor-actions">
-          <button type="button" onClick={() => { void onSuggestSummary(); }} disabled={!isMain || summarySuggesting || (!form.name.trim() && !form.body.trim())}>
-            {summarySuggesting ? '生成中' : '帮我生成'}
-          </button>
+        {summarySuggestion ? (
+          <div className="skills-editor-actions">
           {summarySuggestion ? <span>建议：{summarySuggestion}</span> : null}
           {summarySuggestion ? <button type="button" onClick={onApplySummary}>采用</button> : null}
-        </div>
+          </div>
+        ) : null}
         {files.some((file) => !file.isMain) ? (
-          <div className="skills-subfiles">
+          <div className="skills-subfiles-wrap">
+            <span>附加内容</span>
+            <div className="skills-subfiles">
             {files.map((file) => (
               <button
                 key={file.path}
@@ -2883,12 +3456,28 @@ function SkillEditorModal({
                 {file.name}{file.isMain ? ' · 主要文件' : ''}
               </button>
             ))}
+            </div>
+            <div className="skills-inline-tip">这里是这个技能附带的示例、模板或脚本。</div>
           </div>
         ) : null}
-        <label className="skills-body-field">
-          {isMain ? '技能内容' : '关联文件内容'}
-          <textarea value={form.body} onChange={update('body')} aria-label={isMain ? '技能内容' : '关联文件内容'} />
-        </label>
+        <div className="skills-body-field">
+          <div className="skills-body-head">
+            <span>{isMain ? '技能内容' : '关联文件内容'}</span>
+            {bodyEditing ? (
+              <button type="button" className="ghost" onClick={() => setBodyEditing(false)}>预览正文</button>
+            ) : (
+              <button type="button" onClick={() => setBodyEditing(true)}>编辑正文</button>
+            )}
+          </div>
+          {bodyEditing ? (
+            <textarea value={form.body} onChange={update('body')} aria-label={isMain ? '技能内容' : '关联文件内容'} />
+          ) : (
+            <div className="skills-body-preview" data-testid="skills-editor-body-preview">
+              <SkillMarkdownPreview content={form.body} />
+            </div>
+          )}
+          <div className="skills-inline-tip">点击“编辑正文”展开编辑；切回“预览正文”查看效果。</div>
+        </div>
         <footer>
           <button type="button" className="ghost" onClick={onClose}>取消</button>
           <button type="button" onClick={() => { void onSave(); }} disabled={saving}>{saving ? '保存中...' : '保存技能'}</button>

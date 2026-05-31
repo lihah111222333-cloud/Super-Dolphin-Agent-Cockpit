@@ -75,6 +75,16 @@ function cleanPromptTags(tags) {
   ));
 }
 
+function promptAdvancedDebugEnabled() {
+  if (typeof window === 'undefined') return false;
+  if (window.__SUPER_DOLPHIN_PROMPT_DEBUG__ === true) return true;
+  try {
+    return window.localStorage?.getItem('super-dolphin.promptDebug') === '1';
+  } catch {
+    return false;
+  }
+}
+
 function promptAssetType(raw, tags) {
   const explicit = firstText(raw?.assetType, raw?.asset_type, raw?.kind, raw?.prompt_kind);
   if (explicit === 'recall' || explicit === 'default_rule' || explicit === 'expert') return explicit;
@@ -673,30 +683,46 @@ function PromptEditorModal({ form, notice, saving, onChange, onClose, onSave }) 
     const { type, checked, value } = event.target;
     onChange({ ...form, [key]: type === 'checkbox' ? checked : value });
   };
+  const scopeLabel = form.scope === 'global' ? '全局可用' : '这个项目';
+  const scopeHint = form.scope === 'global' ? '说明：其他项目也可以使用；当前项目同名内容优先。' : '说明：只在当前项目的对话中使用。';
+  const previewText = form.content || form.whenToUse || form.description || '已保存，AI 会在相关场景中使用';
+  const advancedDebugAvailable = promptAdvancedDebugEnabled();
   return (
     <div className="modal-overlay prompt-modal-overlay" onClick={onClose}>
       <section className="modal-box prompt-editor-modal" role="dialog" aria-modal="true" aria-label="编辑提示词" onClick={(event) => event.stopPropagation()}>
         <header>
           <div>
             <h2>编辑提示词</h2>
-            <p>{form.scope === 'global' ? '全局可用' : '这个项目'}</p>
+            <p>{scopeLabel}</p>
           </div>
           <button type="button" onClick={onClose} aria-label="关闭编辑器"><X size={16} /></button>
         </header>
-        <div className="prompt-editor-grid">
-          <label>名称<input value={form.name} onChange={update('name')} aria-label="名称" /></label>
-          <label>Agent Key<input value={form.agentType} onChange={update('agentType')} aria-label="Agent Key" /></label>
-          <label className="wide">一句话描述<input value={form.description} onChange={update('description')} aria-label="一句话描述" /></label>
-          <label className="wide">AI 什么时候会使用它<textarea value={form.whenToUse} onChange={update('whenToUse')} aria-label="AI 什么时候会使用它" /></label>
-          <label className="wide">AI 使用时怎么做<textarea value={form.content} onChange={update('content')} aria-label="AI 使用时怎么做" /></label>
-          <label>场景标签<input value={form.tagsText} onChange={update('tagsText')} aria-label="场景标签" /></label>
-          <label>排序权重<input type="number" value={form.priority} onChange={update('priority')} aria-label="排序权重" /></label>
+        <div className="prompt-scope-copy">
+          <div>可用范围：{scopeLabel}</div>
           <div className="prompt-scope-choice" role="group" aria-label="可用范围">
             <button type="button" className={form.scope !== 'global' ? 'active' : ''} onClick={() => onChange({ ...form, scope: 'project' })}>这个项目</button>
             <button type="button" className={form.scope === 'global' ? 'active' : ''} onClick={() => onChange({ ...form, scope: 'global' })}>全局可用</button>
           </div>
+          <div>{scopeHint}</div>
+        </div>
+        <div className="prompt-editor-grid">
+          <label>名称<input value={form.name} onChange={update('name')} aria-label="名称" /></label>
+          <label className="wide">一句话描述<input value={form.description} onChange={update('description')} aria-label="一句话描述" /></label>
+          <label className="wide">AI 什么时候会使用它<textarea value={form.whenToUse} onChange={update('whenToUse')} aria-label="AI 什么时候会使用它" /></label>
+          <label className="wide">AI 使用时怎么做<textarea value={form.content} onChange={update('content')} aria-label="AI 使用时怎么做" /></label>
+          <label className="wide">保存后 AI 会看到什么<textarea className="prompt-preview-readonly" value={previewText} aria-label="保存后 AI 会看到什么" readOnly /></label>
           <label className="prompt-check"><input type="checkbox" checked={form.enabled} onChange={update('enabled')} /> 启用状态</label>
         </div>
+        {advancedDebugAvailable ? (
+          <details className="prompt-advanced-debug">
+            <summary>高级调试</summary>
+            <div className="prompt-editor-grid prompt-advanced-grid">
+              <label>Agent Key<input value={form.agentType} onChange={update('agentType')} aria-label="Agent Key" /></label>
+              <label>场景标签<input value={form.tagsText} onChange={update('tagsText')} aria-label="场景标签" /></label>
+              <label>排序权重<input type="number" value={form.priority} onChange={update('priority')} aria-label="排序权重" /></label>
+            </div>
+          </details>
+        ) : null}
         {notice ? <div className="prompt-notice">{notice}</div> : null}
         <footer>
           <button type="button" className="ghost" onClick={onClose}>取消</button>

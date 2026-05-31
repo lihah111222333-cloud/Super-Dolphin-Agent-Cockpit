@@ -77,6 +77,11 @@ export const RPC_METHODS = Object.freeze({
   THREAD_START: 'thread/start',
   THREAD_MESSAGES: 'thread/messages',
   THREAD_RESOLVE: 'thread/resolve',
+  THREAD_ARCHIVE: 'thread/archive',
+  THREAD_UNARCHIVE: 'thread/unarchive',
+  THREAD_DELETE: 'thread/delete',
+  THREAD_CONFIG_GET: 'thread/config/get',
+  THREAD_CONFIG_SET: 'thread/config/set',
   THREAD_COMPACT_START: 'thread/compact/start',
   THREAD_RECOVER: 'thread/recover',
   THREAD_NAME_SET: 'thread/name/set',
@@ -97,6 +102,17 @@ function assertPlainObject(method, params) {
 
 function normalizeString(value) {
   return (value || '').toString().trim();
+}
+
+function normalizeProviderConfigValue(value) {
+  if (value && typeof value === 'object' && !Array.isArray(value)) {
+    for (const key of ['value', 'id', 'key', 'name', 'model', 'provider']) {
+      const normalized = normalizeString(value[key]);
+      if (normalized) return normalized;
+    }
+    return '';
+  }
+  return normalizeString(value);
 }
 
 function normalizeProvider(params) {
@@ -667,6 +683,30 @@ export function createBackendApi(deps = {}) {
       RPC_METHODS.THREAD_RESOLVE,
       requireThreadId(RPC_METHODS.THREAD_RESOLVE, assertPlainObject(RPC_METHODS.THREAD_RESOLVE, params)),
     ),
+    archiveThread: (params) => {
+      const payload = requireThreadId(RPC_METHODS.THREAD_ARCHIVE, assertPlainObject(RPC_METHODS.THREAD_ARCHIVE, params));
+      return callBackend(RPC_METHODS.THREAD_ARCHIVE, { threadId: payload.threadId });
+    },
+    unarchiveThread: (params) => {
+      const payload = requireThreadId(RPC_METHODS.THREAD_UNARCHIVE, assertPlainObject(RPC_METHODS.THREAD_UNARCHIVE, params));
+      return callBackend(RPC_METHODS.THREAD_UNARCHIVE, { threadId: payload.threadId });
+    },
+    deleteThread: (params) => {
+      const payload = requireThreadId(RPC_METHODS.THREAD_DELETE, assertPlainObject(RPC_METHODS.THREAD_DELETE, params));
+      return callBackend(RPC_METHODS.THREAD_DELETE, { threadId: payload.threadId });
+    },
+    getThreadConfig: (params) => {
+      const payload = requireThreadId(RPC_METHODS.THREAD_CONFIG_GET, assertPlainObject(RPC_METHODS.THREAD_CONFIG_GET, params));
+      return callBackend(RPC_METHODS.THREAD_CONFIG_GET, { threadId: payload.threadId });
+    },
+    setThreadConfig: (params) => {
+      const payload = requireThreadId(RPC_METHODS.THREAD_CONFIG_SET, assertPlainObject(RPC_METHODS.THREAD_CONFIG_SET, params));
+      return callBackend(RPC_METHODS.THREAD_CONFIG_SET, {
+        threadId: payload.threadId,
+        model: normalizeProviderConfigValue(payload.model),
+        effort: normalizeProviderConfigValue(payload.effort),
+      });
+    },
     startThread: (params) => {
       const payload = requireCwd(RPC_METHODS.THREAD_START, params);
       const provider = normalizeProvider(payload);
@@ -796,6 +836,11 @@ export const deleteSkill = backendApi.deleteSkill;
 export const runDashboardCommand = backendApi.runDashboardCommand;
 export const getThreadMessages = backendApi.getThreadMessages;
 export const resolveThreadIdentity = backendApi.resolveThreadIdentity;
+export const archiveThread = backendApi.archiveThread;
+export const unarchiveThread = backendApi.unarchiveThread;
+export const deleteThread = backendApi.deleteThread;
+export const getThreadConfig = backendApi.getThreadConfig;
+export const setThreadConfig = backendApi.setThreadConfig;
 export const startThread = backendApi.startThread;
 export const startTurn = backendApi.startTurn;
 export const interruptTurn = backendApi.interruptTurn;
