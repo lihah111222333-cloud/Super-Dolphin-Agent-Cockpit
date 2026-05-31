@@ -19,7 +19,7 @@ type completionParams struct {
 }
 
 func NewCompletionHandler(registry lspmanager.Registry) ToolHandler {
-	return newManagerTool("completion", middleware.TierFast, registry, decodeLenient, func(ctx context.Context, registry lspmanager.Registry, req completionParams) (any, error) {
+	return newManagerTool("completion", middleware.TierNormal, registry, decodeLenient, func(ctx context.Context, registry lspmanager.Registry, req completionParams) (any, error) {
 		filePath, position, err := resolveFilePositionRequest(ctx, filePositionParams{
 			Pos:        req.Pos,
 			LanguageID: req.LanguageID,
@@ -83,7 +83,7 @@ func completionHasItems(result *protocol.CompletionList) bool {
 }
 
 func identifierEndCompletionRetryPosition(filePath string, position protocol.Position) (protocol.Position, bool, error) {
-	if position.Line < 0 || position.Character <= 0 {
+	if position.Line < 0 || position.Character < 0 {
 		return protocol.Position{}, false, nil
 	}
 	content, err := os.ReadFile(filePath)
@@ -98,14 +98,34 @@ func identifierEndCompletionRetryPosition(filePath string, position protocol.Pos
 	if position.Character > len(runes) {
 		return protocol.Position{}, false, fmt.Errorf("completion retry character %d is outside line length %d", position.Character+1, len(runes)+1)
 	}
-	if position.Character < len(runes) && isCompletionIdentifierRune(runes[position.Character]) {
+	anchor, ok := completionIdentifierAnchor(runes, position.Character)
+	if !ok {
 		return protocol.Position{}, false, nil
 	}
-	previous := runes[position.Character-1]
-	if !isCompletionIdentifierRune(previous) {
+	end := completionIdentifierEnd(runes, anchor)
+	if end == position.Character {
 		return protocol.Position{}, false, nil
 	}
-	return protocol.Position{Line: position.Line, Character: position.Character - 1}, true, nil
+	return protocol.Position{Line: position.Line, Character: end}, true, nil
+}
+
+func completionIdentifierAnchor(runes []rune, character int) (int, bool) {
+	anchor := character
+	if anchor == len(runes) || !isCompletionIdentifierRune(runes[anchor]) {
+		anchor--
+	}
+	if anchor < 0 || anchor >= len(runes) || !isCompletionIdentifierRune(runes[anchor]) {
+		return 0, false
+	}
+	return anchor, true
+}
+
+func completionIdentifierEnd(runes []rune, anchor int) int {
+	end := anchor
+	for end+1 < len(runes) && isCompletionIdentifierRune(runes[end+1]) {
+		end++
+	}
+	return end
 }
 
 func isCompletionIdentifierRune(r rune) bool {

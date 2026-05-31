@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 
@@ -61,7 +62,9 @@ func (h handlerBase) fetchDiagnosticsWithRetry(ctx context.Context, uris []strin
 	if err != nil {
 		return nil, "", "", err
 	}
-	return items, source, waitResult.message, nil
+	message := waitResult.message
+	message = diagnosticsMessageAfterFetch(message, uris, items)
+	return items, source, message, nil
 }
 
 func (h handlerBase) bootstrapDiagnostics(ctx context.Context, existingURIs []string) (string, error) {
@@ -152,7 +155,7 @@ func (h handlerBase) handleDiagnostics(ctx context.Context, input fileToolInput)
 	if h.registry == nil {
 		return nil, errManagerUnavailable
 	}
-	uris, err := h.collectDiagnosticURIs(ctx, input)
+	uris, displayPaths, err := h.collectDiagnosticURIs(ctx, input)
 	if err != nil {
 		return nil, err
 	}
@@ -162,7 +165,7 @@ func (h handlerBase) handleDiagnostics(ctx context.Context, input fileToolInput)
 		return nil, rustDetachedWorkspaceError(uris, "diagnostics", err)
 	}
 
-	tables := buildDiagnosticsTables(items)
+	tables := buildDiagnosticsTables(items, displayPaths)
 	total := countDiagnosticRows(tables)
 	if len(tables) == 0 {
 		baseMessage := "no diagnostics"
@@ -187,34 +190,36 @@ func (h handlerBase) handleDiagnostics(ctx context.Context, input fileToolInput)
 	}, nil
 }
 
-func (h handlerBase) collectDiagnosticURIs(ctx context.Context, input fileToolInput) ([]string, error) {
+func (h handlerBase) collectDiagnosticURIs(ctx context.Context, input fileToolInput) ([]string, map[string]string, error) {
 	targets := collectDiagnosticTargets(input)
 	if len(targets) == 0 {
-		return nil, nil
+		return nil, nil, nil
 	}
 
 	root, roots, err := toolWorkspaceRoots(ctx)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	uris := make([]string, 0, len(targets))
+	displayPaths := make(map[string]string, len(targets))
 	seen := make(map[string]struct{}, len(targets))
 	for _, target := range targets {
 		pathInfo, err := search.ResolvePathInRoots(root, roots, target)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		if err := ensureDiagnosticFile(pathInfo.AbsPath, pathInfo.DisplayPath); err != nil && !errors.Is(err, os.ErrNotExist) {
-			return nil, err
+			return nil, nil, err
 		}
 		uri := fileURI(pathInfo.AbsPath)
 		if _, ok := seen[uri]; ok {
 			continue
 		}
 		seen[uri] = struct{}{}
+		displayPaths[uri] = diagnosticDisplayPath(target, pathInfo.DisplayPath)
 		uris = append(uris, uri)
 	}
-	return uris, nil
+	return uris, displayPaths, nil
 }
 
 func collectDiagnosticTargets(input fileToolInput) []string {
@@ -348,7 +353,19 @@ func (h handlerBase) reactiveBootstrap(ctx context.Context, uris []string) (int,
 	return count, nil
 }
 
-func buildDiagnosticsTables(items []protocol.PublishDiagnosticsParams) []diagnosticsTable {
+func diagnosticDisplayPath(raw string, fallback string) string {
+	trimmed := strings.TrimSpace(raw)
+	if filepath.IsAbs(trimmed) {
+		absolute, err := filepath.Abs(filepath.Clean(trimmed))
+		if err == nil {
+			return absolute
+		}
+		return filepath.Clean(trimmed)
+	}
+	return fallback
+}
+
+func buildDiagnosticsTables(items []protocol.PublishDiagnosticsParams, displayPaths map[string]string) []diagnosticsTable {
 	if len(items) == 0 {
 		return nil
 	}
@@ -380,13 +397,44 @@ func buildDiagnosticsTables(items []protocol.PublishDiagnosticsParams) []diagnos
 		if len(rows) == 0 {
 			continue
 		}
+		file := format.URIToPath(item.URI)
+		if displayPath := strings.TrimSpace(displayPaths[item.URI]); displayPath != "" {
+			file = displayPath
+		}
 		tables = append(tables, diagnosticsTable{
-			File: format.URIToPath(item.URI),
+			File: file,
 			Cols: []string{"L", "C", "sev", "msg", "src", "code"},
 			Rows: rows,
 		})
 	}
 	return tables
+}
+
+func diagnosticsMessageAfterFetch(message string, uris []string, items []protocol.PublishDiagnosticsParams) string {
+	if !strings.Contains(message, "partial diagnostics") || len(uris) == 0 {
+		return message
+	}
+	withRows := make(map[string]struct{}, len(items))
+	for _, item := range items {
+		uri := strings.TrimSpace(item.URI)
+		if uri == "" || len(item.Diagnostics) == 0 {
+			continue
+		}
+		withRows[uri] = struct{}{}
+	}
+	if len(withRows) == 0 {
+		return message
+	}
+	for _, uri := range uris {
+		uri = strings.TrimSpace(uri)
+		if uri == "" {
+			continue
+		}
+		if _, ok := withRows[uri]; !ok {
+			return message
+		}
+	}
+	return ""
 }
 
 func countDiagnosticRows(tables []diagnosticsTable) int {
