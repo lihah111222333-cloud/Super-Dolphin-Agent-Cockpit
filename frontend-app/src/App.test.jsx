@@ -6,6 +6,16 @@ import { resetClientStoreForTests } from './entities/client/model/useClientStore
 
 let bridgeCallback;
 
+function deferred() {
+  let resolve;
+  let reject;
+  const promise = new Promise((promiseResolve, promiseReject) => {
+    resolve = promiseResolve;
+    reject = promiseReject;
+  });
+  return { promise, resolve, reject };
+}
+
 const backend = vi.hoisted(() => ({
   readConfig: vi.fn(),
   getWindowBootstrap: vi.fn(),
@@ -2030,6 +2040,25 @@ describe('frontend-app connected client shell', () => {
     expect(await screen.findByText('审查风格')).toBeInTheDocument();
     expect(screen.queryByText('安全工程师')).not.toBeInTheDocument();
     expect(backend.getDashboardPage).toHaveBeenCalledTimes(3);
+  });
+
+  it('waits for the project path before loading a dashboard page selected during bootstrap', async () => {
+    const config = deferred();
+    backend.readConfig.mockReturnValueOnce(config.promise);
+
+    render(<App />);
+    fireEvent.click(screen.getByLabelText('技能'));
+
+    expect(screen.getByText('正在加载项目...')).toBeInTheDocument();
+    expect(backend.getDashboardPage).not.toHaveBeenCalledWith({ cwd: '未选择项目', page: 'skills' });
+
+    await act(async () => {
+      config.resolve({ cwd: '/repo/app' });
+      await Promise.resolve();
+    });
+
+    expect(await screen.findByText('后端')).toBeInTheDocument();
+    expect(backend.getDashboardPage).toHaveBeenCalledWith({ cwd: '/repo/app', page: 'skills' });
   });
 
   it('keeps cached skills visible when navigating back and refreshes silently', async () => {

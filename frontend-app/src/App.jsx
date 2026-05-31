@@ -327,6 +327,11 @@ function normalizeSettingsCwd(value) {
   return cwd;
 }
 
+function isSettingsCwdReady(value) {
+  const cwd = (value || '').toString().trim();
+  return Boolean(cwd && cwd !== '.' && cwd !== '未选择项目');
+}
+
 function stringSetting(value, fallback) {
   if (typeof value === 'string' && value.trim()) return value.trim();
   return fallback;
@@ -1811,6 +1816,7 @@ function App({ skipBootstrap = false }) {
   const activeLabel = useMemo(() => (
     navItems.find((item) => item.id === store.activePage)?.label || 'Chat'
   ), [store.activePage]);
+  const projectPathReady = isSettingsCwdReady(projectPath);
 
   return (
     <div className="sa-window" data-testid="frontend-app">
@@ -1818,16 +1824,38 @@ function App({ skipBootstrap = false }) {
         <NavRail activePage={store.activePage} setActivePage={store.setActivePage} memorySimilarCount={memorySimilarCount} />
         <main className="sa-main">
           {store.activePage === 'chat' ? <ChatPage store={store} projectPath={projectPath} /> : null}
-          {store.activePage === 'prompts' ? <PromptPage projectPath={projectPath} refreshKey={store.promptRevision} /> : null}
-          {store.activePage === 'workflows' ? <WorkflowPage projectPath={projectPath} store={store} refreshKey={store.workflowRevision} /> : null}
-          {store.activePage === 'skills' ? <SkillsPage projectPath={projectPath} refreshKey={store.skillRevision} /> : null}
-          {store.activePage === 'memory' ? <MemoryPage projectPath={projectPath} onSimilarCountChange={updateMemorySimilarCount} refreshKey={memoryRevision} /> : null}
-          {store.activePage === 'files' ? <FilesPage projectPath={projectPath} store={store} /> : null}
-          {store.activePage === 'settings' ? <SettingsPage projectPath={projectPath} /> : null}
+          {store.activePage === 'prompts' ? (
+            projectPathReady ? <PromptPage projectPath={projectPath} refreshKey={store.promptRevision} /> : <ProjectLoadingPage />
+          ) : null}
+          {store.activePage === 'workflows' ? (
+            projectPathReady ? <WorkflowPage projectPath={projectPath} store={store} refreshKey={store.workflowRevision} /> : <ProjectLoadingPage />
+          ) : null}
+          {store.activePage === 'skills' ? (
+            projectPathReady ? <SkillsPage projectPath={projectPath} refreshKey={store.skillRevision} /> : <ProjectLoadingPage />
+          ) : null}
+          {store.activePage === 'memory' ? (
+            projectPathReady ? <MemoryPage projectPath={projectPath} onSimilarCountChange={updateMemorySimilarCount} refreshKey={memoryRevision} /> : <ProjectLoadingPage />
+          ) : null}
+          {store.activePage === 'files' ? (
+            projectPathReady ? <FilesPage projectPath={projectPath} store={store} /> : <ProjectLoadingPage />
+          ) : null}
+          {store.activePage === 'settings' ? (
+            projectPathReady ? <SettingsPage projectPath={projectPath} /> : <ProjectLoadingPage />
+          ) : null}
           <span className="sr-only">当前页面：{activeLabel}</span>
         </main>
       </div>
     </div>
+  );
+}
+
+function ProjectLoadingPage() {
+  return (
+    <section className="console-page">
+      <div className="empty-state">
+        <h2>正在加载项目...</h2>
+      </div>
+    </section>
   );
 }
 
