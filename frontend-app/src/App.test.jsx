@@ -81,6 +81,7 @@ describe('frontend-app connected client shell', () => {
     vi.clearAllMocks();
     bridgeCallback = null;
     resetClientStoreForTests();
+    window.localStorage.clear();
     backend.readConfig.mockResolvedValue({ cwd: '/repo/app' });
     backend.getWindowBootstrap.mockResolvedValue({ snapshot: null });
     backend.getProjects.mockResolvedValue({ projects: ['/repo/app'], active: '/repo/app' });
@@ -245,6 +246,34 @@ describe('frontend-app connected client shell', () => {
       'settings.provider.codex.codexModelProvider': 'openai',
     }[key] ?? null));
     backend.setPreference.mockResolvedValue({ ok: true });
+  });
+
+  it('renders the product titlebar without macOS controls and defaults to dark theme', async () => {
+    render(<App />);
+
+    const shell = await screen.findByTestId('frontend-app');
+    expect(shell).toHaveAttribute('data-theme', 'dark');
+    expect(document.querySelector('.traffic-lights')).not.toBeInTheDocument();
+    expect(screen.getByText('Super Agent')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '切换到白天模式' })).toBeInTheDocument();
+  });
+
+  it('toggles the local color theme without calling backend preferences', async () => {
+    render(<App />);
+
+    const shell = await screen.findByTestId('frontend-app');
+    const preferenceCallsBeforeToggle = backend.setPreference.mock.calls.length;
+
+    fireEvent.click(screen.getByRole('button', { name: '切换到白天模式' }));
+    expect(shell).toHaveAttribute('data-theme', 'light');
+    expect(window.localStorage.getItem('super-dolphin-theme')).toBe('light');
+    expect(screen.getByRole('button', { name: '切换到黑夜模式' })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: '切换到黑夜模式' }));
+    expect(shell).toHaveAttribute('data-theme', 'dark');
+    expect(window.localStorage.getItem('super-dolphin-theme')).toBe('dark');
+    expect(screen.getByRole('button', { name: '切换到白天模式' })).toBeInTheDocument();
+    expect(backend.setPreference.mock.calls.length).toBe(preferenceCallsBeforeToggle);
   });
 
   it('bootstraps project, sidebar, timeline and token usage from backend', async () => {
