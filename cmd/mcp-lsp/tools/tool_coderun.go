@@ -169,12 +169,19 @@ func (h CodeRunHandler) handleProjectCommand(ctx context.Context, req CodeRunReq
 	if strings.TrimSpace(req.Command) == "" {
 		return nil, errors.New("command is required for project_cmd mode")
 	}
+	req.WorkDir = strings.TrimSpace(req.WorkDir)
 	if req.WorkDir == "" {
 		root, err := toolWorkspaceRoot(ctx)
 		if err != nil {
 			return nil, err
 		}
 		req.WorkDir = root
+	} else if filepath.IsAbs(req.WorkDir) {
+		var err error
+		ctx, req.WorkDir, err = contextWithExplicitProjectWorkDir(ctx, req.WorkDir)
+		if err != nil {
+			return nil, err
+		}
 	} else if !filepath.IsAbs(req.WorkDir) {
 		root, err := toolWorkspaceRoot(ctx)
 		if err != nil {
@@ -187,6 +194,48 @@ func (h CodeRunHandler) handleProjectCommand(ctx context.Context, req CodeRunReq
 	request.TraceTool = "code_run"
 	request.TraceMode = "project_cmd"
 	return h.execute(ctx, request, "", "project_cmd")
+}
+
+func contextWithExplicitProjectWorkDir(ctx context.Context, workDir string) (context.Context, string, error) {
+	normalized, err := normalizeExplicitProjectWorkDir(workDir)
+	if err != nil {
+		return ctx, "", err
+	}
+	scope, _ := common.ToolScopeFromContext(ctx)
+	if strings.TrimSpace(scope.CWD) == "" {
+		scope.CWD = normalized
+	}
+	scope.WorkspaceRoots = append(scope.WorkspaceRoots, normalized)
+	if strings.TrimSpace(scope.Family) == "" {
+		scope.Family = "lsp"
+	}
+	return common.WithToolScope(ctx, scope), normalized, nil
+}
+
+func normalizeExplicitProjectWorkDir(workDir string) (string, error) {
+	trimmed := strings.TrimSpace(workDir)
+	if trimmed == "" {
+		return "", errors.New("work_dir is required")
+	}
+	if !filepath.IsAbs(trimmed) {
+		return "", fmt.Errorf("work_dir must be absolute: %q", workDir)
+	}
+	absolute, err := filepath.Abs(trimmed)
+	if err != nil {
+		return "", fmt.Errorf("resolve work_dir: %w", err)
+	}
+	resolved, err := filepath.EvalSymlinks(filepath.Clean(absolute))
+	if err != nil {
+		return "", fmt.Errorf("resolve work_dir: %w", err)
+	}
+	info, err := os.Stat(resolved)
+	if err != nil {
+		return "", fmt.Errorf("stat work_dir: %w", err)
+	}
+	if !info.IsDir() {
+		return "", fmt.Errorf("work_dir is not a directory: %s", resolved)
+	}
+	return filepath.Clean(resolved), nil
 }
 
 func (h CodeRunHandler) execute(ctx context.Context, request lspexec.Request, language string, mode string) (any, error) {

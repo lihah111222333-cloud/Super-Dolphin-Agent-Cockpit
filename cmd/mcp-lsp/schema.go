@@ -121,7 +121,7 @@ var codeRunSchema = objectSchema(map[string]schema{
 	"code":      stringProp("Code snippet (run mode)"),
 	"command":   stringProp("Project command (project_cmd mode). Prefer host exec_command for shell/git/package scripts such as npm run lint when available."),
 	"auto_wrap": booleanProp("Auto-wrap Go code with package main and imports (default true for Go)"),
-	"work_dir":  stringProp("Working directory (must be within workspace root)"),
+	"work_dir":  stringProp("Working directory. Absolute paths are accepted as the explicit execution root; relative paths resolve under the trusted workspace root."),
 	"timeout":   integerProp("Timeout in seconds (default 30)"),
 }, "mode")
 

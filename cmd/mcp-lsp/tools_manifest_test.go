@@ -82,6 +82,23 @@ func TestCodeRunSchemaMarksProjectCommandAsExecCommandFallback(t *testing.T) {
 	}
 }
 
+func TestCodeRunSchemaDocumentsExplicitAbsoluteWorkDir(t *testing.T) {
+	props, ok := codeRunSchema["properties"].(map[string]any)
+	if !ok {
+		t.Fatalf("code_run schema properties type = %T", codeRunSchema["properties"])
+	}
+	workDir, ok := props["work_dir"].(map[string]any)
+	if !ok {
+		t.Fatalf("code_run work_dir schema type = %T", props["work_dir"])
+	}
+	desc, _ := workDir["description"].(string)
+	for _, must := range []string{"Absolute paths", "explicit execution root", "relative paths"} {
+		if !strings.Contains(desc, must) {
+			t.Fatalf("code_run work_dir description = %q, want %q", desc, must)
+		}
+	}
+}
+
 func TestPositionSchemasExposeCopyablePosExample(t *testing.T) {
 	for name, schema := range map[string]schema{
 		"inspect":    lspInspectSchema,

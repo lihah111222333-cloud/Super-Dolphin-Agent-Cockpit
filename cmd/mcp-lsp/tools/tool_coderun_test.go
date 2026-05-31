@@ -239,6 +239,48 @@ func TestCodeRunProjectCommandAllowsAbsoluteWorkDirInAdditionalWorkspaceRoot(t *
 	}
 }
 
+func TestCodeRunProjectCommandAllowsExplicitAbsoluteWorkDirOutsideWorkspaceRoots(t *testing.T) {
+	startupRoot := t.TempDir()
+	staleRoot := t.TempDir()
+	explicitRoot := t.TempDir()
+	handler, err := NewCodeRunHandler(startupRoot)
+	if err != nil {
+		t.Fatalf("new code_run handler: %v", err)
+	}
+	payload, err := json.Marshal(CodeRunRequest{
+		Mode:    "project_cmd",
+		Command: printWorkingDirectoryCommand(),
+		WorkDir: explicitRoot,
+	})
+	if err != nil {
+		t.Fatalf("marshal request: %v", err)
+	}
+	ctx := common.WithToolScope(context.Background(), common.ToolScope{
+		CWD:            staleRoot,
+		WorkspaceRoots: []string{staleRoot},
+		Family:         "lsp",
+	})
+
+	got, err := handler(ctx, payload)
+	if err != nil {
+		t.Fatalf("code_run returned error: %v", err)
+	}
+	result, ok := got.(CodeRunResult)
+	if !ok {
+		t.Fatalf("code_run result = %#v, want CodeRunResult", got)
+	}
+	if !result.Success {
+		t.Fatalf("code_run success = false, output=%q exit=%d", result.Output, result.ExitCode)
+	}
+	wantRoot, err := filepath.EvalSymlinks(explicitRoot)
+	if err != nil {
+		t.Fatalf("eval explicit root: %v", err)
+	}
+	if strings.TrimSpace(result.Output) != filepath.Clean(wantRoot) {
+		t.Fatalf("pwd output = %q, want explicit root %q", strings.TrimSpace(result.Output), wantRoot)
+	}
+}
+
 func printWorkingDirectoryCommand() string {
 	if runtime.GOOS == "windows" {
 		return "cd"
