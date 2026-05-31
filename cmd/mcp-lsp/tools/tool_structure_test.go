@@ -78,7 +78,9 @@ type structureTestManager struct {
 	workspaceSymbols  []protocol.WorkspaceSymbolResult
 	documentSymbols   []protocol.DocumentSymbol
 	completionItems   []protocol.CompletionItem
+	definitions       []protocol.LocationResult
 	references        []protocol.LocationResult
+	callHierarchy     []protocol.CallHierarchyResult
 	gotWorkspaceQuery string
 	gotWorkspaceLang  string
 	didOpenContext    context.Context
@@ -89,8 +91,8 @@ type structureTestManager struct {
 
 func (*structureTestManager) Close() error { return nil }
 
-func (*structureTestManager) Definition(context.Context, string, protocol.Position) ([]protocol.LocationResult, error) {
-	return nil, nil
+func (m *structureTestManager) Definition(context.Context, string, protocol.Position) ([]protocol.LocationResult, error) {
+	return m.definitions, nil
 }
 
 func (*structureTestManager) Implementation(context.Context, string, protocol.Position) ([]protocol.LocationResult, error) {
@@ -113,8 +115,8 @@ func (m *structureTestManager) References(context.Context, string, protocol.Posi
 	return m.references, nil
 }
 
-func (*structureTestManager) CallHierarchy(context.Context, string, protocol.Position, string) ([]protocol.CallHierarchyResult, error) {
-	return nil, nil
+func (m *structureTestManager) CallHierarchy(context.Context, string, protocol.Position, string) ([]protocol.CallHierarchyResult, error) {
+	return m.callHierarchy, nil
 }
 
 func (*structureTestManager) TypeHierarchy(context.Context, string, protocol.Position, string) ([]protocol.TypeHierarchyResult, error) {
