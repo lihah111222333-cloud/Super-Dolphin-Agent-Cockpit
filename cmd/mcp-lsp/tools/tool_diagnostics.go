@@ -102,10 +102,14 @@ func (h handlerBase) handleDiagnostics(ctx context.Context, input fileToolInput)
 
 	tables := buildDiagnosticsTables(items)
 	if len(tables) == 0 {
+		message := "no diagnostics"
+		if strings.TrimSpace(input.FilePath) == "" && len(input.FilePaths) == 0 {
+			message = "no diagnostics for currently open documents (pass file_path or file_paths to scope to specific files)"
+		}
 		return emptyListEnvelope{
 			Success: true,
 			Data:    []any{},
-			Meta:    resultMeta{Count: 0, Source: source, Message: "no diagnostics"},
+			Meta:    resultMeta{Count: 0, Source: source, Message: message},
 		}, nil
 	}
 	return diagnosticsResponse{

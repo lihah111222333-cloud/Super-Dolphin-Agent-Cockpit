@@ -51,6 +51,9 @@ func FormatToPlainText(result any) (string, bool) {
 	if result == nil {
 		return "", false
 	}
+	if text, ok := formatBudgetOverflow(result); ok {
+		return text, true
+	}
 	if text, ok := formatXrefAndOutline(result); ok {
 		return text, true
 	}
@@ -58,6 +61,63 @@ func FormatToPlainText(result any) (string, bool) {
 		return text, true
 	}
 	return formatCompactList(result)
+}
+
+// formatBudgetOverflow renders the {error_code: result_too_large, ...}
+// envelope produced by middleware.WithOutputBudget into LLM-readable
+// guidance instead of dumping raw JSON.
+func formatBudgetOverflow(result any) (string, bool) {
+	payload, ok := result.(map[string]any)
+	if !ok {
+		return "", false
+	}
+	if code, _ := payload["error_code"].(string); code != "result_too_large" {
+		return "", false
+	}
+	tool := stringPayloadValue(payload, "tool", "tool")
+	hint, _ := payload["hint"].(string)
+	actual := numericPayloadValue(payload, "actual_bytes")
+	budget := numericPayloadValue(payload, "budget_bytes")
+	var sb strings.Builder
+	fmt.Fprintf(&sb, "%s result truncated: exceeded output budget (%.0f / %.0f bytes).", tool, actual, budget)
+	if hint != "" {
+		fmt.Fprintf(&sb, "\nHint: %s", hint)
+	}
+	appendBudgetNextAction(&sb, payload["next_action"])
+	return sb.String(), true
+}
+
+func stringPayloadValue(payload map[string]any, key, fallback string) string {
+	value, _ := payload[key].(string)
+	if value == "" {
+		return fallback
+	}
+	return value
+}
+
+func numericPayloadValue(payload map[string]any, key string) float64 {
+	switch value := payload[key].(type) {
+	case float64:
+		return value
+	case int:
+		return float64(value)
+	default:
+		return 0
+	}
+}
+
+func appendBudgetNextAction(sb *strings.Builder, value any) {
+	next, ok := value.(map[string]any)
+	if !ok {
+		return
+	}
+	if tip, _ := next["tip"].(string); tip != "" {
+		fmt.Fprintf(sb, "\nTip: %s", tip)
+	}
+	args, ok := next["suggest_args"].(map[string]any)
+	if ok && len(args) > 0 {
+		fmt.Fprintf(sb, "\nSuggested args: %v", args)
+	}
 }
 
 func formatXrefAndOutline(result any) (string, bool) {
