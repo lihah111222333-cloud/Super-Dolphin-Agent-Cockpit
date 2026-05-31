@@ -346,8 +346,14 @@ func buildDiagnosticsTables(items []protocol.PublishDiagnosticsParams) []diagnos
 		if len(item.Diagnostics) == 0 {
 			continue
 		}
+		seen := make(map[string]struct{}, len(item.Diagnostics))
 		rows := make([][]any, 0, len(item.Diagnostics))
 		for _, diag := range item.Diagnostics {
+			key := fmt.Sprintf("%d:%d:%d:%s:%s", diag.Range.Start.Line, diag.Range.Start.Character, diag.Severity, diag.Message, diag.Source)
+			if _, ok := seen[key]; ok {
+				continue
+			}
+			seen[key] = struct{}{}
 			rows = append(rows, []any{
 				format.FromLSP(diag.Range.Start.Line),
 				format.FromLSP(diag.Range.Start.Character),
@@ -356,6 +362,9 @@ func buildDiagnosticsTables(items []protocol.PublishDiagnosticsParams) []diagnos
 				diag.Source,
 				diagnosticCode(diag.Code),
 			})
+		}
+		if len(rows) == 0 {
+			continue
 		}
 		tables = append(tables, diagnosticsTable{
 			File: format.URIToPath(item.URI),
