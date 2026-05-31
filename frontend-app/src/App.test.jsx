@@ -1313,6 +1313,9 @@ describe('frontend-app connected client shell', () => {
     await waitFor(() => {
       expect(backend.consolidateMemorySimilarities).toHaveBeenCalledWith({ cwd: '/repo/app' });
     });
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: '忽略' })).not.toBeDisabled();
+    });
 
     fireEvent.click(screen.getByRole('button', { name: '忽略' }));
     await waitFor(() => {
