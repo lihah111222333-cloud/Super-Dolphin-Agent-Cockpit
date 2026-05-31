@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # CI entrypoint for commit-history guards.
-# Resolves the GitHub event range, checks commit titles, then reuses the local pre-push fix-test guard.
+# Resolves the GitHub event range, then runs the shared commit guards.
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -23,47 +23,6 @@ USAGE
 fail() {
   echo "FAIL: ci commit guard: $*" >&2
   exit 2
-}
-
-first_commit_title() {
-  git log -1 --format='%B' "$1" | awk '
-    /^[[:space:]]*#/ { next }
-    /^[[:space:]]*$/ { next }
-    { sub(/[[:space:]]+$/, ""); print; exit }
-  '
-}
-
-title_has_chinese() {
-  local title="$1"
-  [[ "$title" =~ [一-龥] ]]
-}
-
-check_chinese_commit_titles() {
-  local range="$1"
-  local commit
-  local title
-  local failures
-  failures=0
-
-  while IFS= read -r commit; do
-    [ -n "$commit" ] || continue
-    title="$(first_commit_title "$commit")"
-    if [ -z "$title" ]; then
-      echo "FAIL: commit ${commit:0:7} title must not be empty." >&2
-      failures=1
-      continue
-    fi
-    if ! title_has_chinese "$title"; then
-      echo "FAIL: commit ${commit:0:7} title must contain Chinese text." >&2
-      echo "  title: $title" >&2
-      failures=1
-    fi
-  done < <(git rev-list --reverse "$range")
-
-  if [ "$failures" -ne 0 ]; then
-    exit 1
-  fi
-  echo "✅ Chinese commit title guard OK"
 }
 
 require_commit() {
@@ -137,7 +96,7 @@ if ! git rev-list --reverse "$RANGE" >/dev/null; then
 fi
 
 echo "[ci-commit-guard] Chinese commit title guard: $RANGE"
-check_chinese_commit_titles "$RANGE"
+./scripts/guard_commit_titles.sh --range "$RANGE"
 
 echo "[ci-commit-guard] fix-test guard: $RANGE"
 ./scripts/guard_fix_commits_have_tests.sh --range "$RANGE"

@@ -119,13 +119,14 @@ func TestGuardFixCommitsHaveTestsRange(t *testing.T) {
 func TestPrePushRunsFixTestGuardForPushedRange(t *testing.T) {
 	root := prepareFixTestGuardRepo(t)
 	copyFixTestGuardRepoFile(t, root, ".githooks/pre-push", 0o755)
-	runFixTestGuardGit(t, root, "add", ".githooks/pre-push", "scripts/guard_fix_commits_have_tests.sh")
+	copyFixTestGuardRepoFile(t, root, "scripts/guard_commit_titles.sh", 0o755)
+	runFixTestGuardGit(t, root, "add", ".githooks/pre-push", "scripts/guard_commit_titles.sh", "scripts/guard_fix_commits_have_tests.sh")
 	runFixTestGuardGit(t, root, "commit", "-m", "chore: install pre-push fixture")
 	base := strings.TrimSpace(runFixTestGuardGitOutput(t, root, "rev-parse", "HEAD"))
 
 	writeFixTestGuardFile(t, root, "internal/app/parser.go", "package app\n\nfunc parse() {}\n")
 	runFixTestGuardGit(t, root, "add", ".")
-	runFixTestGuardGit(t, root, "commit", "-m", "fix: repair parser panic")
+	runFixTestGuardGit(t, root, "commit", "-m", "fix: 修复 parser panic")
 	head := strings.TrimSpace(runFixTestGuardGitOutput(t, root, "rev-parse", "HEAD"))
 
 	stdin := "refs/heads/main " + head + " refs/heads/main " + base + "\n"
@@ -136,16 +137,78 @@ func TestPrePushRunsFixTestGuardForPushedRange(t *testing.T) {
 	if err == nil {
 		t.Fatalf("pre-push succeeded, want failure\n%s", string(out))
 	}
-	for _, part := range []string{"[pre-push] fix-test guard", "fix commit 缺少锁定 bug 的测试", "fix: repair parser panic"} {
+	for _, part := range []string{"[pre-push] Chinese commit title guard", "Chinese commit title guard OK", "[pre-push] fix-test guard", "fix commit 缺少锁定 bug 的测试", "fix: 修复 parser panic"} {
 		if !strings.Contains(string(out), part) {
 			t.Fatalf("pre-push output missing %q\n%s", part, string(out))
 		}
 	}
 }
 
+func TestCommitMsgRunsChineseTitleGuard(t *testing.T) {
+	root := prepareFixTestGuardRepo(t)
+	copyFixTestGuardRepoFile(t, root, ".githooks/commit-msg", 0o755)
+	copyFixTestGuardRepoFile(t, root, "scripts/guard_commit_titles.sh", 0o755)
+	writeFixTestGuardFile(t, root, "docs/readme.md", "docs only\n")
+	runFixTestGuardGit(t, root, "add", "docs/readme.md")
+
+	t.Run("rejects title without chinese even when body has chinese", func(t *testing.T) {
+		msgFile := filepath.Join(root, "COMMIT_EDITMSG")
+		if err := os.WriteFile(msgFile, []byte("docs: update guide\n\n这里有中文正文\n"), 0o644); err != nil {
+			t.Fatalf("write commit message: %v", err)
+		}
+
+		out, err := runCommitMsgHook(t, root, msgFile)
+		if err == nil {
+			t.Fatalf("commit-msg succeeded, want failure\n%s", out)
+		}
+		assertOutputContainsAll(t, out, "[commit-msg] Chinese commit title guard", "commit title must contain Chinese text", "title: docs: update guide")
+		assertOutputOmitsAll(t, out, "[commit-msg] fix-test guard")
+	})
+
+	t.Run("allows chinese non fix title", func(t *testing.T) {
+		msgFile := filepath.Join(root, "COMMIT_EDITMSG")
+		if err := os.WriteFile(msgFile, []byte("docs: 更新 guide\n"), 0o644); err != nil {
+			t.Fatalf("write commit message: %v", err)
+		}
+
+		out, err := runCommitMsgHook(t, root, msgFile)
+		if err != nil {
+			t.Fatalf("commit-msg failed: %v\n%s", err, out)
+		}
+		assertOutputContainsAll(t, out, "[commit-msg] Chinese commit title guard", "Chinese commit title guard OK", "[commit-msg] fix-test guard")
+	})
+}
+
+func TestPrePushRunsChineseTitleGuardForPushedRange(t *testing.T) {
+	root := prepareFixTestGuardRepo(t)
+	copyFixTestGuardRepoFile(t, root, ".githooks/pre-push", 0o755)
+	copyFixTestGuardRepoFile(t, root, "scripts/guard_commit_titles.sh", 0o755)
+	runFixTestGuardGit(t, root, "add", ".githooks/pre-push", "scripts/guard_commit_titles.sh", "scripts/guard_fix_commits_have_tests.sh")
+	runFixTestGuardGit(t, root, "commit", "-m", "chore: install pre-push fixture")
+	base := strings.TrimSpace(runFixTestGuardGitOutput(t, root, "rev-parse", "HEAD"))
+
+	writeFixTestGuardFile(t, root, "docs/readme.md", "docs only\n")
+	runFixTestGuardGit(t, root, "add", "docs/readme.md")
+	runFixTestGuardGit(t, root, "commit", "-m", "docs: update guide", "-m", "这里有中文正文")
+	head := strings.TrimSpace(runFixTestGuardGitOutput(t, root, "rev-parse", "HEAD"))
+	shortHead := strings.TrimSpace(runFixTestGuardGitOutput(t, root, "rev-parse", "--short=7", "HEAD"))
+
+	stdin := "refs/heads/main " + head + " refs/heads/main " + base + "\n"
+	cmd := exec.Command("bash", filepath.Join(".githooks", "pre-push"))
+	cmd.Dir = root
+	cmd.Stdin = strings.NewReader(stdin)
+	out, err := cmd.CombinedOutput()
+	if err == nil {
+		t.Fatalf("pre-push succeeded, want failure\n%s", string(out))
+	}
+	assertOutputContainsAll(t, string(out), "[pre-push] Chinese commit title guard", "commit "+shortHead+" title must contain Chinese text", "title: docs: update guide")
+	assertOutputOmitsAll(t, string(out), "[pre-push] fix-test guard")
+}
+
 func TestCICommitGuardRunsFixTestGuardForPullRequestRange(t *testing.T) {
 	root := prepareFixTestGuardRepo(t)
 	copyFixTestGuardRepoFile(t, root, "scripts/ci_commit_guard.sh", 0o755)
+	copyFixTestGuardRepoFile(t, root, "scripts/guard_commit_titles.sh", 0o755)
 	base := strings.TrimSpace(runFixTestGuardGitOutput(t, root, "rev-parse", "HEAD"))
 
 	writeFixTestGuardFile(t, root, "internal/app/parser.go", "package app\n\nfunc parse() {}\n")
@@ -167,6 +230,7 @@ func TestCICommitGuardRunsFixTestGuardForPullRequestRange(t *testing.T) {
 func TestCICommitGuardRunsFixTestGuardForPushRange(t *testing.T) {
 	root := prepareFixTestGuardRepo(t)
 	copyFixTestGuardRepoFile(t, root, "scripts/ci_commit_guard.sh", 0o755)
+	copyFixTestGuardRepoFile(t, root, "scripts/guard_commit_titles.sh", 0o755)
 	base := strings.TrimSpace(runFixTestGuardGitOutput(t, root, "rev-parse", "HEAD"))
 
 	writeFixTestGuardFile(t, root, "internal/app/parser.go", "package app\n\nfunc parse(input string) string {\n\tif input == \"\" {\n\t\treturn \"empty\"\n\t}\n\treturn \"ok\"\n}\n")
@@ -189,6 +253,7 @@ func TestCICommitGuardRunsFixTestGuardForPushRange(t *testing.T) {
 func TestCICommitGuardRejectsTitleWithoutChinese(t *testing.T) {
 	root := prepareFixTestGuardRepo(t)
 	copyFixTestGuardRepoFile(t, root, "scripts/ci_commit_guard.sh", 0o755)
+	copyFixTestGuardRepoFile(t, root, "scripts/guard_commit_titles.sh", 0o755)
 	base := strings.TrimSpace(runFixTestGuardGitOutput(t, root, "rev-parse", "HEAD"))
 
 	writeFixTestGuardFile(t, root, "docs/readme.md", "docs only\n")
@@ -292,7 +357,7 @@ func commitPrePushGoOnlyChange(t *testing.T, root string) string {
 	writeFixTestGuardFile(t, root, "go.mod", "module example.com/prepushscope\n\ngo 1.22\n")
 	writeFixTestGuardFile(t, root, "internal/app/app.go", "package app\n\nfunc App() {}\n")
 	runFixTestGuardGit(t, root, "add", "go.mod", "internal/app/app.go")
-	runFixTestGuardGit(t, root, "commit", "-m", "chore: update app package")
+	runFixTestGuardGit(t, root, "commit", "-m", "chore: 更新 app package")
 	return strings.TrimSpace(runFixTestGuardGitOutput(t, root, "rev-parse", "HEAD"))
 }
 
@@ -313,7 +378,7 @@ func commitPrePushFrontendOnlyChange(t *testing.T, root string) string {
 	writeFixTestGuardFile(t, root, "cmd/agent-terminal/frontend/scripts/size-guard.cjs", "console.log('ok')\n")
 	writeFixTestGuardFile(t, root, "cmd/agent-terminal/frontend/vue-app/app.js", "export const app = true\n")
 	runFixTestGuardGit(t, root, "add", "cmd/agent-terminal/frontend")
-	runFixTestGuardGit(t, root, "commit", "-m", "chore: update frontend package")
+	runFixTestGuardGit(t, root, "commit", "-m", "chore: 更新 frontend package")
 	return strings.TrimSpace(runFixTestGuardGitOutput(t, root, "rev-parse", "HEAD"))
 }
 
@@ -333,7 +398,7 @@ func commitPrePushDocsOnlyChange(t *testing.T, root string) string {
 	t.Helper()
 	writeFixTestGuardFile(t, root, "docs/readme.md", "docs only\n")
 	runFixTestGuardGit(t, root, "add", "docs/readme.md")
-	runFixTestGuardGit(t, root, "commit", "-m", "docs: update guide")
+	runFixTestGuardGit(t, root, "commit", "-m", "docs: 更新 guide")
 	return strings.TrimSpace(runFixTestGuardGitOutput(t, root, "rev-parse", "HEAD"))
 }
 
@@ -384,8 +449,9 @@ func preparePrePushScopeRepo(t *testing.T) string {
 	t.Helper()
 	root := prepareFixTestGuardRepo(t)
 	copyFixTestGuardRepoFile(t, root, ".githooks/pre-push", 0o755)
+	copyFixTestGuardRepoFile(t, root, "scripts/guard_commit_titles.sh", 0o755)
 	writePrePushFakeGoTestScript(t, root)
-	runFixTestGuardGit(t, root, "add", ".githooks/pre-push", "scripts/guard_fix_commits_have_tests.sh", "scripts/test_with_guard.sh")
+	runFixTestGuardGit(t, root, "add", ".githooks/pre-push", "scripts/guard_commit_titles.sh", "scripts/guard_fix_commits_have_tests.sh", "scripts/test_with_guard.sh")
 	runFixTestGuardGit(t, root, "commit", "-m", "chore: install pre-push scope fixture")
 	return root
 }
@@ -443,6 +509,14 @@ func runCICommitGuard(t *testing.T, root string, env map[string]string, args ...
 	for key, value := range env {
 		cmd.Env = append(cmd.Env, key+"="+value)
 	}
+	out, err := cmd.CombinedOutput()
+	return string(out), err
+}
+
+func runCommitMsgHook(t *testing.T, root, msgFile string) (string, error) {
+	t.Helper()
+	cmd := exec.Command("bash", filepath.Join(".githooks", "commit-msg"), msgFile)
+	cmd.Dir = root
 	out, err := cmd.CombinedOutput()
 	return string(out), err
 }
