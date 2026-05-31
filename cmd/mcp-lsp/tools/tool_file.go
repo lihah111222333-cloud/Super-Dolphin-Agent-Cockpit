@@ -54,11 +54,10 @@ type fileToolInput struct {
 	FilePath   string   `json:"file_path,omitempty"`
 	FilePaths  []string `json:"file_paths,omitempty"`
 	LanguageID string   `json:"language_id,omitempty"`
-	// Offset is a deprecated alias for the line in pos. Kept so old
-	// system prompts that still teach `offset=N` keep working; new
-	// callers should pass pos="file:line" instead.
-	Offset int `json:"offset,omitempty"`
-	Limit  int `json:"limit,omitempty"`
+	// Line is the resolved line number from pos="file:line". Internal only;
+	// not exposed in the schema. Callers must use pos.
+	line  int
+	Limit int `json:"limit,omitempty"`
 	// ExpandComments is retained as a no-op accept so legacy callers
 	// passing expand_comments=true/false do not get a strict-decode
 	// error. Comment expansion is now always on.
@@ -145,7 +144,7 @@ func (h handlerBase) handleFile(ctx context.Context, params json.RawMessage) (an
 			req := readFileRequest{
 				rawPath:    input.FilePath,
 				rawPaths:   input.FilePaths,
-				line:       input.Offset,
+				line:       input.line,
 				limit:      input.Limit,
 				scope:      strings.ToLower(strings.TrimSpace(input.Scope)),
 				languageID: input.LanguageID,
@@ -177,12 +176,10 @@ func (r readFileRequest) wantsLineWindow() bool {
 	return r.scope == "lines" || r.line <= 0
 }
 
-// normalizeFileInputFromPos lets the file tool accept the same pos
-// syntax used by inspect/xref/completion. "file:line" feeds offset; the
-// optional ":col" segment is ignored for the file tool because none of
-// its actions are column-scoped. file_path / offset still win when both
-// pos and the legacy fields are present, so callers can migrate
-// incrementally without breakage.
+// normalizeFileInputFromPos parses pos="file_path:line" (line optional)
+// and populates FilePath and the internal line field. The optional
+// ":col" segment is ignored because none of the file tool actions are
+// column-scoped. FilePath wins when both pos and file_path are present.
 func normalizeFileInputFromPos(input *fileToolInput) error {
 	pos := strings.TrimSpace(input.Pos)
 	if pos == "" {
@@ -198,8 +195,8 @@ func normalizeFileInputFromPos(input *fileToolInput) error {
 	if strings.TrimSpace(input.FilePath) == "" {
 		input.FilePath = filePath
 	}
-	if input.Offset <= 0 {
-		input.Offset = line
+	if input.line <= 0 {
+		input.line = line
 	}
 	return nil
 }

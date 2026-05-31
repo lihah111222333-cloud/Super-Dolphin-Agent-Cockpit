@@ -260,10 +260,9 @@ func TestE2EFileToolSmartCommentExpansion_SingleRead(t *testing.T) {
 	targetPath := setupTestFile(t, root, "main.go", sharedTestGoContent)
 
 	res, err := callFileTool(t, root, fileToolInput{
-		Action:   "read_file",
-		FilePath: targetPath,
-		Offset:   7,
-		Limit:    2,
+		Action: "read_file",
+		Pos:    targetPath + ":7",
+		Limit:  2,
 	})
 	if err != nil {
 		t.Fatalf("failed to read file: %v", err)
@@ -327,10 +326,9 @@ func TargetFunc() {
 	targetPath := setupTestFile(t, root, "main.go", fileContent)
 
 	res, err := callFileTool(t, root, fileToolInput{
-		Action:   "read_file",
-		FilePath: targetPath,
-		Offset:   5,
-		Limit:    0,
+		Action: "read_file",
+		Pos:    targetPath + ":5",
+		Limit:  0,
 	})
 	if err != nil {
 		t.Fatalf("failed to read file: %v", err)
@@ -354,10 +352,9 @@ func TestE2EFileToolSmartCommentExpansion_NegativeLimit(t *testing.T) {
 	targetPath := setupTestFile(t, root, "main.go", sharedTestGoContent)
 
 	res, err := callFileTool(t, root, fileToolInput{
-		Action:   "read_file",
-		FilePath: targetPath,
-		Offset:   7,
-		Limit:    -5,
+		Action: "read_file",
+		Pos:    targetPath + ":7",
+		Limit:  -5,
 	})
 	if err != nil {
 		t.Fatalf("failed to read file with negative limit: %v", err)
