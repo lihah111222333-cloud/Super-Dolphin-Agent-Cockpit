@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"strings"
 
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/tools"
@@ -34,8 +33,6 @@ var lspToolManifests = []ToolManifest{
 	toolManifestWithSchema("structure", "Document/workspace symbol outline. Example: action=document_symbol file_path=internal/foo.go.", lspStructureSchema),
 	toolManifestWithSchema("edit", "Edit files via patch, rename symbols, run code actions, or format. Actions: replace_range (default, patch-based edit), rename (semantic rename via LSP), code_action (apply quick-fixes), format (auto-format file). Example: action=replace_range file_path=internal/foo.go patch=\" import \\\"fmt\\\"\\n-x := 1\\n+x := 2\".", lspEditSchema),
 	toolManifestWithSchema("completion", "Context-aware code completions at a position. Example: pos=internal/foo.go:42:9.", lspCompletionSchema),
-	toolManifestWithSchema("code_run", "Run a project command or short snippet (Go/JS/TS) only when no host exec_command is available; do not use for package scripts such as npm run lint when exec_command exists. Example: mode=project_cmd command=\"go test ./cmd/mcp-lsp\".", codeRunSchema),
-	toolManifestWithSchema("code_run_test", "Run one Go test function. Example: test_func=TestName test_pkg=./cmd/mcp-lsp.", codeRunTestSchema),
 }
 
 var legacyToolAliases = map[string]string{
@@ -61,24 +58,14 @@ func newToolHandlers(m *Manager) (ToolHandlers, error) {
 		WorkspaceRoot: m.root,
 		Registry:      m.registry,
 	}
-	codeRunH, err := tools.NewCodeRunHandler(m.root)
-	if err != nil {
-		return nil, fmt.Errorf("code_run handler: %w", err)
-	}
-	codeRunTestH, err := tools.NewCodeRunTestHandler(m.root)
-	if err != nil {
-		return nil, fmt.Errorf("code_run_test handler: %w", err)
-	}
 	return ToolHandlers{
-		"file":          ToolHandler(tools.NewFileHandler(cfg)),
-		"inspect":       ToolHandler(tools.NewInspectHandler(m.registry)),
-		"xref":          ToolHandler(tools.NewXRefHandler(m.registry)),
-		"grep":          ToolHandler(tools.NewGrepHandler(cfg)),
-		"structure":     ToolHandler(tools.NewStructureHandler(m.registry)),
-		"edit":          ToolHandler(tools.NewEditHandlerWithRoot(m.root, m.registry)),
-		"completion":    ToolHandler(tools.NewCompletionHandler(m.registry)),
-		"code_run":      ToolHandler(codeRunH),
-		"code_run_test": ToolHandler(codeRunTestH),
+		"file":       ToolHandler(tools.NewFileHandler(cfg)),
+		"inspect":    ToolHandler(tools.NewInspectHandler(m.registry)),
+		"xref":       ToolHandler(tools.NewXRefHandler(m.registry)),
+		"grep":       ToolHandler(tools.NewGrepHandler(cfg)),
+		"structure":  ToolHandler(tools.NewStructureHandler(m.registry)),
+		"edit":       ToolHandler(tools.NewEditHandlerWithRoot(m.root, m.registry)),
+		"completion": ToolHandler(tools.NewCompletionHandler(m.registry)),
 	}, nil
 }
 

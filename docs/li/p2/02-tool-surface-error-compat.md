@@ -28,7 +28,7 @@ P2 只允许 `force` 越过明确实现的 apply safety guard；不得暗示已�
 
 ### P1：工具 surface 与通用语言能力边界不清
 
-`lsp_file/lsp_inspect/lsp_xref/lsp_grep/lsp_structure/lsp_edit/lsp_completion` 是 generic LSP tools。`code_run/code_run_test` 是 execution helper，当前只覆盖 Go/JS/TS 或 Go test；它们不能被当成通用语言服务能力。P2 要么把它们标注为 helper，要么由 language adapter 暴露 capability 并对 unsupported language 返回 structured capability error。
+`lsp_file/lsp_inspect/lsp_xref/lsp_grep/lsp_structure/lsp_edit/lsp_completion` 是 generic LSP tools。执行命令、snippet 和测试能力已从 LSP 工具面移除，统一走独立 CLI/命令工具；它们不能被当成通用语言服务能力。
 
 ### P2：空结果 envelope 不统一
 
@@ -108,13 +108,12 @@ type ToolErrorEnvelope struct {
 3. 修改 `internal/mcpserver/common/server.go` 与 middleware：tool handler error 转 structured result，而不是 JSON-RPC transport error；transport/protocol error 仍走 JSON-RPC error。
 4. 修改 `cmd/mcp-lsp/tools/factory.go`：统一空列表 envelope。
 5. 对 timeout/recovery middleware 增加 structured error 输出。
-6. 明确 `code_run/code_run_test` 是 execution helper；unsupported language 返回 structured capability error。
+6. 明确执行能力不属于 LSP 工具面；unsupported language 返回 structured capability error。
 
 ## 必要测试
 
 - `TestToolsListExposesLegacyLSPNames`
 - `TestToolsCallAcceptsShortAndLegacyLSPNames`
-- `TestToolsListKeepsCodeRunHelpersVisible`
 - `TestEditSchemaIncludesForce`
 - `TestEditForceDoesNotBypassTrustedScopeOrPathSafety`
 - `TestToolsCallReturnsStructuredToolError`
@@ -124,7 +123,6 @@ type ToolErrorEnvelope struct {
 - `TestRenderListResultEmptyEnvelope`
 - `TestLanguageOverrideParticipatesInCacheKey`
 - `TestStructuredToolErrorEnvelopeIsLanguageAgnosticForGoPythonAndTypeScript`
-- `TestCodeRunUnsupportedLanguageReturnsCapabilityError`
 
 ## 验收命令
 
@@ -133,7 +131,6 @@ set -euo pipefail
 required_tests=(
   './cmd/mcp-lsp:TestToolsListExposesLegacyLSPNames'
   './cmd/mcp-lsp:TestToolsCallAcceptsShortAndLegacyLSPNames'
-  './cmd/mcp-lsp:TestToolsListKeepsCodeRunHelpersVisible'
   './cmd/mcp-lsp:TestEditSchemaIncludesForce'
   './cmd/mcp-lsp/tools:TestEditForceDoesNotBypassTrustedScopeOrPathSafety'
   './internal/mcpserver/common:TestToolsCallReturnsStructuredToolError'
@@ -143,7 +140,6 @@ required_tests=(
   './cmd/mcp-lsp/tools:TestRenderListResultEmptyEnvelope'
   './cmd/mcp-lsp/tools:TestLanguageOverrideParticipatesInCacheKey'
   './cmd/mcp-lsp/tools:TestStructuredToolErrorEnvelopeIsLanguageAgnosticForGoPythonAndTypeScript'
-  './cmd/mcp-lsp/tools:TestCodeRunUnsupportedLanguageReturnsCapabilityError'
 )
 run_required_test() {
   local pkg="$1"

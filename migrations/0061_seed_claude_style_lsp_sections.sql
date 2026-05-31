@@ -30,7 +30,7 @@ INSERT INTO public.prompt_template_sections
 SELECT id, 'lsp_basics', 'static', 55,
     $LSPSEED$LSP toolchain — required reading for all agents:
 
-You have 11 repository-aware tools covering four action classes (search, understand, edit, verify). Do not default to the `lsp_grep + lsp_file` two-tool combo, and do not wrap `code_run` around shell commands that a dedicated tool already does.
+You have 7 repository-aware LSP tools covering search, understand, edit, and diagnostics. Do not default to the `lsp_grep + lsp_file` two-tool combo, and do not use shell commands where a dedicated tool already does the job.
 
 ### Tools and primary actions
 
@@ -44,13 +44,13 @@ You have 11 repository-aware tools covering four action classes (search, underst
 - `lsp_file(diagnostics, file_paths=[...])` — batch compile / type diagnostics
 - `lsp_edit(replace_range, patch="@@ ctx\n-old\n+new" | edits=[{old_string,new_string}, ...])` — precise edits
 - `lsp_completion` — code completion
-- `code_run / code_run_test` — real shell, build, scripts, Go test functions
+- `exec_command` — shell execution, package scripts, and tests
 
 ### Mandatory workflow
 
 ```
 Review: grep locate  → inspect read   → xref impact → read_file study   → conclude
-Fix:    grep locate  → xref impact    → read_file context → edit apply  → diagnostics check → code_run_test / code_run verify
+Fix:    grep locate  → xref impact    → read_file context → edit apply  → diagnostics check → exec_command verify
 ```
 
 ### Five combos
@@ -73,7 +73,7 @@ Fix:    grep locate  → xref impact    → read_file context → edit apply  �
 ### Prohibitions
 
 1. Do not default to the `lsp_grep + lsp_file` two-tool combo
-2. Do not invoke `code_run` to run `grep / rg / cat / head / tail / sed / awk / find / ls` or similar shell commands that a dedicated tool already covers
+2. Do not invoke shell commands to run `grep / rg / cat / head / tail / sed / awk / find / ls` or similar work that a dedicated tool already covers
 3. Do not modify code without first running `xref` for impact
 4. Do not claim verification passed without running `diagnostics` — `diagnostics` only catches compile / type errors; runtime behavior must be exercised with actual tests
 5. Each task must combine at least four LSP tools$LSPSEED$,
@@ -127,8 +127,7 @@ SELECT id, 'lsp_advanced', 'dynamic', 20,
 
 ### Execution and testing
 
-- `code_run(project_cmd)` — real shell / build / scripts
-- `code_run_test(test_func, test_pkg)` — run a single Go test function; faster than whole-package `go test`
+- `exec_command` — shell execution, package scripts, and tests
 
 ### Advanced combinations (beyond basic A–E)
 
@@ -141,7 +140,7 @@ SELECT id, 'lsp_advanced', 'dynamic', 20,
 - Only have a keyword or pattern → grep family (scan)
 - Need cross-file structure → structure family (outline)
 - About to modify → edit family (structural edits)
-- Need to verify → `file.diagnostics` + `code_run_test`$LSPSEED$,
+- Need to verify → `file.diagnostics` + `exec_command`$LSPSEED$,
     '{"tags_has": ["refactor", "rename", "trace", "call hierarchy", "type hierarchy", "find references", "implementations", "bug", "重构", "重写", "改名", "重命名", "调用链", "被谁调用", "谁调用", "调用关系", "哪里调用", "类型层次", "继承体系", "接口的实现", "有几个实现", "影响面", "影响哪", "会不会影响", "牵一发", "排查", "追查", "追踪", "调试", "根因", "定位问题", "找引用", "查引用", "哪里用到", "哪里引用", "找用法", "用法", "报错", "编译错", "编译失败", "bug", "修 bug", "修复"]}'::jsonb, TRUE
 FROM public.prompt_templates WHERE prompt_key = 'main/claude-style'
 ON CONFLICT (template_id, section_key) DO NOTHING;
@@ -152,7 +151,7 @@ INSERT INTO public.prompt_template_sections
 SELECT id, 'lsp_basics_zh', 'dynamic', 30,
     $LSPSEED$LSP 工具链 · 所有 Agent 必读：
 
-你有 11 个仓库感知工具，覆盖四类动作：搜索、理解、修改、验证。**禁止**只用 `lsp_grep + lsp_file` 两件套，也不要用 `code_run` 去拼 shell 替代已有的专用工具。
+你有 7 个仓库感知 LSP 工具，覆盖搜索、理解、修改和诊断。**禁止**只用 `lsp_grep + lsp_file` 两件套，也不要用 shell 替代已有的专用工具。
 
 ### 工具与主要 action
 
@@ -166,13 +165,13 @@ SELECT id, 'lsp_basics_zh', 'dynamic', 30,
 - `lsp_file(diagnostics, file_paths=[…])` —— 批量取编译 / 类型诊断
 - `lsp_edit(replace_range, patch="@@ ctx\n-old\n+new" | edits=[{old_string,new_string}, …])` —— 精确改动
 - `lsp_completion` —— 代码补全
-- `code_run / code_run_test` —— 真实 shell / 构建 / 测试
+- `exec_command` —— shell 执行 / 包脚本 / 测试
 
 ### 强制工作流
 
 ```
 审查类：grep 定位 → inspect 理解 → xref 影响面 → read_file 精读 → 输出判定
-修复类：grep 定位 → xref 影响面 → read_file 读上下文 → edit 修改 → diagnostics 检查 → code_run_test / code_run build / test 验证
+修复类：grep 定位 → xref 影响面 → read_file 读上下文 → edit 修改 → diagnostics 检查 → exec_command 验证
 ```
 
 ### 5 个组合技
@@ -195,7 +194,7 @@ SELECT id, 'lsp_basics_zh', 'dynamic', 30,
 ### 禁止
 
 1. 只用 `lsp_grep + lsp_file` 两件套
-2. 用 `code_run` 执行 `grep / rg / cat / head / tail / sed / awk / find / ls` 等可被专用工具替代的命令
+2. 用 shell 执行 `grep / rg / cat / head / tail / sed / awk / find / ls` 等可被专用工具替代的命令
 3. 不做 `xref` 影响面分析就改代码
 4. 不跑 `diagnostics` 就说验证通过 —— `diagnostics` 只查编译 / 类型，运行时行为必须跑对应测试
 5. 每个任务必须组合使用至少 4 种 LSP 工具$LSPSEED$,
@@ -249,8 +248,7 @@ SELECT id, 'lsp_advanced_zh', 'dynamic', 40,
 
 ### 执行与测试
 
-- `code_run(project_cmd)` —— 真实 shell / 构建 / 脚本
-- `code_run_test(test_func, test_pkg)` —— 精准跑单个 Go 测试函数，比整包 `go test` 快
+- `exec_command` —— shell 执行 / 包脚本 / 测试
 
 ### 高级组合（对基础 A–E 之外的补充）
 
@@ -263,7 +261,7 @@ SELECT id, 'lsp_advanced_zh', 'dynamic', 40,
 - 只有关键字或模式 → grep（扫描定位）
 - 要跨文件结构感 → structure（大纲）
 - 要改动 → edit（结构化改）
-- 要验证 → `file.diagnostics` + `code_run_test`$LSPSEED$,
+- 要验证 → `file.diagnostics` + `exec_command`$LSPSEED$,
     '{"language": "zh", "tags_has": ["refactor", "rename", "trace", "call hierarchy", "type hierarchy", "find references", "implementations", "bug", "重构", "重写", "改名", "重命名", "调用链", "被谁调用", "谁调用", "调用关系", "哪里调用", "类型层次", "继承体系", "接口的实现", "有几个实现", "影响面", "影响哪", "会不会影响", "牵一发", "排查", "追查", "追踪", "调试", "根因", "定位问题", "找引用", "查引用", "哪里用到", "哪里引用", "找用法", "用法", "报错", "编译错", "编译失败", "修 bug", "修复"]}'::jsonb, TRUE
 FROM public.prompt_templates WHERE prompt_key = 'main/claude-style'
 ON CONFLICT (template_id, section_key) DO NOTHING;

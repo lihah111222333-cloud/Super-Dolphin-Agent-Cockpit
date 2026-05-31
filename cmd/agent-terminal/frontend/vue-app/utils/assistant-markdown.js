@@ -410,7 +410,7 @@ function createMarkdownRenderer() {
  * 当一段 assistant 文本中此类行 ≥ 2 时，说明内容可能是内部推理泄漏，
  * 需要在每个工具调用前后插入换行，避免渲染为一坨纯文本。
  */
-const REASONING_TOOL_CALL_NAMES_RE = new RegExp(String.raw`(read_file|replace_range|open_file|did_change|rename|hover|definition|references|document_symbol|workspace_symbol|implementation|type_definition|signature_help|code_action|call_hierarchy|type_hierarchy|completion|format|semantic_tokens|folding_range|lsp_[a-z_]+|code_run(_test)?|exec_command|update_plan|request_user_input)`);
+const REASONING_TOOL_CALL_NAMES_RE = new RegExp(String.raw`(read_file|replace_range|open_file|did_change|rename|hover|definition|references|document_symbol|workspace_symbol|implementation|type_definition|signature_help|code_action|call_hierarchy|type_hierarchy|completion|format|semantic_tokens|folding_range|lsp_[a-z_]+|exec_command|update_plan|request_user_input)`);
 const REASONING_TOOL_LINE_RE = new RegExp('^' + REASONING_TOOL_CALL_NAMES_RE.source + '\\s*\\(', 'i');
 
 /**

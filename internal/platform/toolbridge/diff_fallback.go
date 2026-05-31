@@ -107,7 +107,7 @@ func (t *diffFallbackTracker) currentGitDiff(ctx context.Context, cwd string) (s
 
 func shouldFallbackDiffTool(toolName string) bool {
 	switch canonicalToolName(toolName) {
-	case "code_run", "code_run_test", "edit":
+	case "edit":
 		return true
 	default:
 		return false

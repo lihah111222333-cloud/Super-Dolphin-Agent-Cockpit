@@ -336,7 +336,7 @@ sequenceDiagram
 
 ### `tools/`：具体 MCP 工具实现
 - `factory.go`
-  - `newManagerTool()` / `newSandboxTool()`。
+  - `newManagerTool()`。
   - 参数解码策略：`decodeRaw / decodeLenient / decodeStrict`。
   - `wrapToolHandler()` 只挂 `Recovery + Logging + Timeout`。
 - `tool_file.go`
@@ -359,10 +359,6 @@ sequenceDiagram
   - replace_range 计划生成、写盘、回滚、LSP 同步、函数上下文回显。
 - `tool_edit_support.go`
   - patch/hunk 辅助、workspace edit 收集与应用、line ending 保留、rollback 辅助。
-- `tool_coderun.go`
-  - `code_run`：snippet 运行 / 项目 shell 命令。
-- `tool_coderuntest.go`
-  - `code_run_test`：指定 Go 测试函数运行。
 
 ---
 
@@ -438,7 +434,6 @@ sequenceDiagram
 `tools/factory.go` 的核心职责：
 
 - `newManagerTool()`：给依赖 `Registry` 的工具生成统一 handler。
-- `newSandboxTool()`：给依赖 `Sandbox` 的工具生成统一 handler。
 - 三种解码模式：
   - `decodeRaw`：直接 `json.Unmarshal`
   - `decodeLenient`：把空 / `null` 视为 `{}`
@@ -714,7 +709,6 @@ graph TD
     - `lsp_grep` 的 `text_search` 与 `ast_search` 过滤边界并不相同；前者走 Go-side 文件筛选，后者主要委托给 `sg`
     - `lsp_edit` 会保留文件权限与行尾风格，并在 LSP 同步失败时回滚
     - `replace_range` 的匹配策略已按 `seeksequence.go + patchmatch.go` 更正，补上了 `substring_exact` fallback 与多候选歧义行为
-    - `code_run` 的非零退出与执行器错误是两种不同返回模型
 8. **已补齐 `multilsp` 子包遗漏职责**：JSTS/Java bootstrap、cache 持久化开关、bootstrap 文档协调器、fallback-only 语言策略都已纳入，并注明当前 runtime 尚未注册 markdown/json/yaml manager。
 9. **保留一条实现观察**：`ManagerPool.snapshotManagers()` 当前只返回 primary manager；`recycler` 的重建路径也仍带明显 Go-centric 痕迹，说明池化/回收基础设施仍在演进中。
 

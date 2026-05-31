@@ -14,7 +14,7 @@ const LSP_TOOL_NAMES = [
   'format_preview',
 ];
 const JSON_RENDER_TOOL_NAMES = ['json_render'];
-const GO_RUN_TOOL_NAMES = ['go_run', 'code_run', 'code_run_test'];
+const GO_RUN_TOOL_NAMES = ['go_run'];
 const PLAYWRIGHT_TOOL_PREFIXES = ['mcp__playwright__', 'playwright_', 'browser_'];
 const STAT_ICON_PATHS = {
   lsp: 'M8 7 3 12l5 5M16 7l5 5-5 5M13 4l-2 16',

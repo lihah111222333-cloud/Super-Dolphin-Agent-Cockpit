@@ -9,7 +9,7 @@ var reviewerAllowedTools = []string{
 }
 
 var reviewerDeniedTools = []string{
-	"edit", "lsp_edit", "code_run", "code_run_test",
+	"edit", "lsp_edit",
 	"orchestration_launch_agent", "orchestration_stop_agent",
 }
 

@@ -14,7 +14,6 @@ const (
 	TierFast   = 5 * time.Second
 	TierNormal = 30 * time.Second
 	TierSlow   = 120 * time.Second
-	TierExec   = 300 * time.Second
 )
 
 func Timeout(limit time.Duration) Middleware {

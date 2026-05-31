@@ -7,7 +7,7 @@ import (
 )
 
 func TestClassifyToolCanonicalAndLegacyLSPNames(t *testing.T) {
-	for _, name := range []string{"file", "grep", "inspect", "xref", "structure", "edit", "format_preview", "completion", "lsp_file", "lsp_grep", "lsp_edit", "lsp_format_preview", "lsp_hover", "code_run", "code_run_test"} {
+	for _, name := range []string{"file", "grep", "inspect", "xref", "structure", "edit", "format_preview", "completion", "lsp_file", "lsp_grep", "lsp_edit", "lsp_format_preview", "lsp_hover"} {
 		if got := classifyTool(name); got != dto.ClientKindLSP {
 			t.Fatalf("classifyTool(%q) = %q, want %q", name, got, dto.ClientKindLSP)
 		}

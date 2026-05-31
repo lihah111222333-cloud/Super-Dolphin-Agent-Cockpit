@@ -17,7 +17,7 @@ func TestEnvInfoProviderResolveBuildsEnvironmentDetails(t *testing.T) {
 			IsWorktree:                   true,
 			Provider:                     "codex",
 			Model:                        "gpt-5.5",
-			EnabledTools:                 []string{"code_run", "file", "grep", "lsp_file"},
+			EnabledTools:                 []string{"exec_command", "file", "grep", "lsp_file"},
 			AdditionalWorkingDirectories: []string{"/repo/extra", " /repo/extra-two ", "/repo/extra"},
 		},
 	})
@@ -54,7 +54,7 @@ func TestEnvInfoProviderResolveBuildsEnvironmentDetails(t *testing.T) {
 
 func TestEnvInfoProviderResolveWithoutLSPToolsMarksUnavailable(t *testing.T) {
 	provider := EnvInfoProvider{}
-	text, err := provider.Resolve(context.Background(), SectionContext{BuildCtx: BuildCtx{EnabledTools: []string{"code_run"}}})
+	text, err := provider.Resolve(context.Background(), SectionContext{BuildCtx: BuildCtx{EnabledTools: []string{"exec_command"}}})
 	if err != nil {
 		t.Fatalf("Resolve() error = %v", err)
 	}

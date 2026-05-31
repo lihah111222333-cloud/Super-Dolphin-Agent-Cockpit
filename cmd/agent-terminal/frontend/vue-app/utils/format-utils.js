@@ -206,7 +206,7 @@ function knownToolSummary(name, failed, result, preview) {
     if (Number.isFinite(count)) return `${Math.trunc(count)} 条补全建议`;
     return '已获取补全建议';
   }
-  if (name === 'code_run' || name === 'go_run' || name === 'code_run_test') return failed ? `命令执行失败${toolFailureSuffix(result, preview)}` : '命令执行成功';
+  if (name === 'go_run' || name === 'exec_command') return failed ? `命令执行失败${toolFailureSuffix(result, preview)}` : '命令执行成功';
 
   if (name.startsWith('orchestration_launch') || name === 'spawn_agent') return failed ? '启动 Agent 失败' : '已启动 Agent';
   if (name.startsWith('orchestration_send') || name === 'send_input') return failed ? '发送消息失败' : '已发送消息';

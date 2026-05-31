@@ -23,7 +23,7 @@ func TestDiffFallbackTracker_SkipsSeen(t *testing.T) {
 	}, resolverFunc(func(context.Context, string) (string, error) { return repo, nil }), nil)
 	tracker.MarkSeen("call-seen")
 
-	tracker.handleToolCallEnd(diffFallbackEvent("agent-1", "thread-1", "call-seen", "code_run"))
+	tracker.handleToolCallEnd(diffFallbackEvent("agent-1", "thread-1", "call-seen", "edit"))
 	if len(emitted) != 0 {
 		t.Fatalf("emitted fallback diff count = %d, want 0", len(emitted))
 	}
@@ -39,7 +39,7 @@ func TestDiffFallbackTracker_EmitsDiff(t *testing.T) {
 		return nil
 	}, resolverFunc(func(context.Context, string) (string, error) { return repo, nil }), nil)
 
-	tracker.handleToolCallEnd(diffFallbackEvent("agent-2", "thread-2", "call-new", "code_run"))
+	tracker.handleToolCallEnd(diffFallbackEvent("agent-2", "thread-2", "call-new", "edit"))
 	if len(emitted) != 1 {
 		t.Fatalf("emitted fallback diff count = %d, want 1", len(emitted))
 	}
@@ -47,8 +47,8 @@ func TestDiffFallbackTracker_EmitsDiff(t *testing.T) {
 	if got.AgentID != "agent-2" || got.ThreadID != "thread-2" || got.CallID != "call-new" {
 		t.Fatalf("emitted metadata = %+v, want agent/thread/call ids", got)
 	}
-	if got.ToolName != "code_run" {
-		t.Fatalf("emitted ToolName = %q, want code_run", got.ToolName)
+	if got.ToolName != "edit" {
+		t.Fatalf("emitted ToolName = %q, want edit", got.ToolName)
 	}
 	if len(got.Files) != 1 || got.Files[0] != "tracked.txt" {
 		t.Fatalf("emitted Files = %#v, want [tracked.txt]", got.Files)

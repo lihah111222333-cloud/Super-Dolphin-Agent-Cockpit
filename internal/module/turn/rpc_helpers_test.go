@@ -111,7 +111,7 @@ func expandedPrepareInputSpec(items []InputItem) prepareInputSpec {
 		Model:                "gpt-5",
 		GitRoot:              "/override-repo",
 		Language:             "Japanese",
-		EnabledTools:         []string{"code_run"},
+		EnabledTools:         []string{"exec_command"},
 		ThreadRuntimeConfig: map[string]any{
 			"provider":                     "claude-thread",
 			"gitRoot":                      "/thread-repo",
@@ -164,7 +164,7 @@ func assertExpandedPrepareInputOverrides(t *testing.T, input PrepareInput) {
 
 func assertExpandedPrepareInputTools(t *testing.T, input PrepareInput) {
 	t.Helper()
-	if got := input.EnabledTools; len(got) != 1 || got[0] != "code_run" {
+	if got := input.EnabledTools; len(got) != 1 || got[0] != "exec_command" {
 		t.Fatalf("EnabledTools = %#v, want request override", got)
 	}
 }

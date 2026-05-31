@@ -45,12 +45,6 @@ var toolOverflowHints = map[string]toolOverflowHint{
 			"suggest_args": map[string]any{"max_results": 10},
 		},
 	},
-	"code_run": {
-		Hint: "Command output too large; pipe through head/tail or redirect to file",
-	},
-	"code_run_test": {
-		Hint: "Test output too large; run a single test function or check -v flag",
-	},
 }
 
 func lookupHint(toolName string) toolOverflowHint {

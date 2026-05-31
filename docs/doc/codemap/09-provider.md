@@ -588,7 +588,7 @@ sequenceDiagram
 
 #### 关键类型 / 流程
 
-- `ReviewerDecision()`：允许只读 LSP/共享文件读；显式禁止 `lsp_edit / code_run / orchestration_launch_agent` 等会改变系统状态的工具。锚点：`internal/provider/toolfilter/presets.go:26-32`。
+- `ReviewerDecision()`：允许只读 LSP/共享文件读；显式禁止 `lsp_edit / orchestration_launch_agent` 等会改变系统状态的工具。锚点：`internal/provider/toolfilter/presets.go:26-32`。
 - `WorkerDecision()`：保留大部分能力，但封锁 orchestration 系列，防止 worker 自己再拉起/操作 agent。锚点：`internal/provider/toolfilter/presets.go:35-40`。
 - `FullAccessDecision()`：只回 `HookDecisionAllow`，不附加 allow/deny 列表。锚点：`internal/provider/toolfilter/presets.go:43-45`。
 
