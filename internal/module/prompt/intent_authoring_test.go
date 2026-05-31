@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	promptintent "github.com/anthropic-ai/super-agent-v3/internal/module/prompt/intent"
@@ -13,14 +14,20 @@ import (
 )
 
 type fakePromptIntentDream struct {
-	output  string
-	outputs []string
-	err     error
-	prompts []string
+	output      string
+	outputs     []string
+	err         error
+	prompts     []string
+	hasDeadline bool
+	deadline    time.Time
 }
 
-func (f *fakePromptIntentDream) ExecuteDream(_ context.Context, prompt string) (string, error) {
+func (f *fakePromptIntentDream) ExecuteDream(ctx context.Context, prompt string) (string, error) {
 	f.prompts = append(f.prompts, prompt)
+	if deadline, ok := ctx.Deadline(); ok {
+		f.hasDeadline = true
+		f.deadline = deadline
+	}
 	if f.err != nil {
 		return "", f.err
 	}
