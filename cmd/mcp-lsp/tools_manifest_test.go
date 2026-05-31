@@ -28,6 +28,37 @@ func TestLSPToolManifestDescriptionsExposeShortExamples(t *testing.T) {
 	}
 }
 
+func TestLSPToolManifestDescriptionsExposeRecommendationAndReason(t *testing.T) {
+	for _, manifest := range lspToolManifests {
+		for _, must := range []string{"Recommended tool:", "Why:"} {
+			if !strings.Contains(manifest.Description, must) {
+				t.Fatalf("%s description = %q, want %q", manifest.Name, manifest.Description, must)
+			}
+		}
+	}
+}
+
+func TestLSPToolManifestDescriptionsPromptOpenFileForStatefulActions(t *testing.T) {
+	statefulTools := map[string]bool{
+		"file":       true,
+		"inspect":    true,
+		"xref":       true,
+		"structure":  true,
+		"edit":       true,
+		"completion": true,
+	}
+	for _, manifest := range lspToolManifests {
+		if !statefulTools[manifest.Name] {
+			continue
+		}
+		for _, must := range []string{"open_file", "first"} {
+			if !strings.Contains(manifest.Description, must) {
+				t.Fatalf("%s description = %q, want open_file-first hint containing %q", manifest.Name, manifest.Description, must)
+			}
+		}
+	}
+}
+
 func TestPositionSchemasExposeCopyablePosExample(t *testing.T) {
 	for name, schema := range map[string]schema{
 		"inspect":    lspInspectSchema,

@@ -41,6 +41,10 @@ type registryToolProvider struct {
 	semanticToolsAvailable func(context.Context) bool
 }
 
+func init() {
+	common.RegisterToolResultPlainTextRenderer(tools.FormatToPlainText)
+}
+
 // run boots the MCP binary itself. The core process only exposes ctl/* endpoints
 // and manifest metadata; external executors decide when and how this binary starts.
 func run() error {
@@ -280,28 +284,15 @@ func handleScopedToolsCall(ctx context.Context, tp registryToolProvider, family 
 }
 
 func wrapScopedToolResult(result any) (any, error) {
-	var plainText string
-	var err error
-
-	// 1. Resolve LLM-facing plain text
-	if str, ok := result.(string); ok {
-		plainText = str
-	} else if formatter, ok := result.(interface{ ToPlainText() string }); ok {
-		plainText = formatter.ToPlainText()
-	} else if formattedText, handled := tools.FormatToPlainText(result); handled {
-		plainText = formattedText
-	} else {
-		var raw []byte
-		raw, err = json.Marshal(result)
-		if err != nil {
-			return nil, err
-		}
-		plainText = string(raw)
+	raw, err := json.Marshal(result)
+	if err != nil {
+		return nil, err
 	}
-
-	// 2. Preserve structured JSON for the frontend using the shared MCP
-	// structuredContent object contract.
-	structuredContent, err := common.StructuredContentForToolResult(result)
+	plainText, err := common.ResolveToolResultText(result, raw)
+	if err != nil {
+		return nil, err
+	}
+	structuredContent, err := common.StructuredContentFromRaw(raw)
 	if err != nil {
 		return nil, err
 	}

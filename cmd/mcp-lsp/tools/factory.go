@@ -147,7 +147,33 @@ func unmarshalToolParams[T any](raw []byte, value *T) error {
 }
 
 func formatDecodeParamsError(err error) error {
-	return fmt.Errorf("decode params: %w; hint: pass numeric fields as JSON numbers, string fields as JSON strings, and remove unknown fields", err)
+	hint := "hint: pass numeric fields as JSON numbers, string fields as JSON strings, and remove unknown fields"
+	if migration := legacyPositionMigrationHint(err); migration != "" {
+		hint = hint + "; " + migration
+	}
+	return fmt.Errorf("decode params: %w; %s", err, hint)
+}
+
+// legacyPositionMigrationHint detects the old {file_path, line, column}
+// fields in a strict-decode error and returns a migration hint pointing
+// callers at the unified pos parameter. It returns "" when the error is
+// unrelated to those fields so callers fall back to the generic hint.
+func legacyPositionMigrationHint(err error) string {
+	if err == nil {
+		return ""
+	}
+	msg := err.Error()
+	switch {
+	case strings.Contains(msg, `"file_path"`),
+		strings.Contains(msg, `"line"`),
+		strings.Contains(msg, `"column"`),
+		strings.Contains(msg, "field file_path"),
+		strings.Contains(msg, "field line"),
+		strings.Contains(msg, "field column"):
+		return `the inspect/xref/completion tools merged file_path/line/column into a single pos parameter formatted as "file_path:line:column" (example internal/foo.go:42:9)`
+	default:
+		return ""
+	}
 }
 
 func dispatchToolAction[T any](
@@ -321,29 +347,32 @@ func resolveFilePositionRequest(ctx context.Context, params filePositionParams) 
 func parsePos(pos string) (string, int, int, error) {
 	pos = strings.TrimSpace(pos)
 	if pos == "" {
-		return "", 0, 0, errors.New("position parameter 'pos' is empty")
+		return "", 0, 0, errors.New("position parameter 'pos' is empty; expected 'file_path:line:column' (example internal/foo.go:42:9)")
 	}
 	lastColon := strings.LastIndex(pos, ":")
 	if lastColon == -1 {
-		return "", 0, 0, fmt.Errorf("invalid pos format %q; expected 'file_path:line:column'", pos)
+		return "", 0, 0, fmt.Errorf("invalid pos format %q; expected 'file_path:line:column' (example internal/foo.go:42:9)", pos)
 	}
 	colStr := pos[lastColon+1:]
 	col, err := strconv.Atoi(colStr)
 	if err != nil || col <= 0 {
-		return "", 0, 0, fmt.Errorf("invalid column %q in pos %q; expected a positive integer", colStr, pos)
+		return "", 0, 0, fmt.Errorf("invalid column %q in pos %q; expected a positive integer (format 'file_path:line:column')", colStr, pos)
 	}
 
 	remaining := pos[:lastColon]
 	secondLastColon := strings.LastIndex(remaining, ":")
 	if secondLastColon == -1 {
-		return "", 0, 0, fmt.Errorf("invalid pos format %q; expected 'file_path:line:column'", pos)
+		return "", 0, 0, fmt.Errorf("invalid pos format %q; expected 'file_path:line:column' (example internal/foo.go:42:9)", pos)
 	}
 	lineStr := remaining[secondLastColon+1:]
 	line, err := strconv.Atoi(lineStr)
 	if err != nil || line <= 0 {
-		return "", 0, 0, fmt.Errorf("invalid line %q in pos %q; expected a positive integer", lineStr, pos)
+		return "", 0, 0, fmt.Errorf("invalid line %q in pos %q; expected a positive integer (format 'file_path:line:column')", lineStr, pos)
 	}
-	filePath := remaining[:secondLastColon]
+	filePath := strings.TrimSpace(remaining[:secondLastColon])
+	if filePath == "" {
+		return "", 0, 0, fmt.Errorf("invalid pos format %q; missing file path before ':line:column' (example internal/foo.go:42:9)", pos)
+	}
 	return filePath, line, col, nil
 }
 

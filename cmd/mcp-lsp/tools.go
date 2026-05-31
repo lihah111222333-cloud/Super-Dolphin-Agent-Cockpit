@@ -27,15 +27,15 @@ type toolDefinition struct {
 }
 
 var lspToolManifests = []ToolManifest{
-	toolManifestWithSchema("file", "File: read_file/open_file/diagnostics. Example read_file: action=read_file file_path=internal/foo.go offset=42 limit=40.", lspFileSchema),
-	toolManifestWithSchema("inspect", "Hover/definition/implementation/type_definition/signature_help. Example definition: action=definition pos=internal/foo.go:42:9.", lspInspectSchema),
-	toolManifestWithSchema("xref", "References/call_hierarchy/type_hierarchy. Example references: action=references pos=internal/foo.go:42:9.", lspXrefSchema),
-	toolManifestWithOutputSchema("grep", "Search codebase: text_search or ast_search. Example text search: action=text_search query=targetName path=internal glob=*.go.", lspGrepSchema, lspGrepOutputSchema),
-	toolManifestWithSchema("structure", "Document/workspace symbols, folding ranges, semantic tokens. Example document_symbol: action=document_symbol file_path=internal/foo.go.", lspStructureSchema),
-	toolManifestWithSchema("edit", "Edit by patching disk and syncing LSP. Example: file_path=internal/foo.go patch=\"*** Begin Patch...\".", lspEditSchema),
-	toolManifestWithSchema("completion", "Request code completions. Example: pos=internal/foo.go:42:9.", lspCompletionSchema),
-	toolManifestWithSchema("code_run", "Execute code snippet or project command. Example project_cmd: mode=project_cmd command=\"go test ./cmd/mcp-lsp\".", codeRunSchema),
-	toolManifestWithSchema("code_run_test", "Run one Go test. Example: test_func=TestName test_pkg=./cmd/mcp-lsp.", codeRunTestSchema),
+	toolManifestWithSchema("file", "Recommended tool: file. Why: opens files into LSP, reads exact line ranges, and returns diagnostics. Use action=open_file first before diagnostics or other stateful file operations. Example read_file: action=read_file file_path=internal/foo.go offset=42 limit=40.", lspFileSchema),
+	toolManifestWithSchema("inspect", "Recommended tool: inspect. Why: resolves hover, definitions, implementations, type definitions, and signatures with language-server symbol knowledge. Use file action=open_file first when the target file may not already be open. Example definition: action=definition pos=internal/foo.go:42:9.", lspInspectSchema),
+	toolManifestWithSchema("xref", "Recommended tool: xref. Why: finds references, call hierarchy, and type hierarchy with language-server relationships. Use file action=open_file first when the target file may not already be open. Example references: action=references pos=internal/foo.go:42:9.", lspXrefSchema),
+	toolManifestWithOutputSchema("grep", "Recommended tool: grep. Why: searches the codebase by text, regex, or AST before jumping into exact symbols. Example text search: action=text_search query=targetName path=internal glob=*.go.", lspGrepSchema, lspGrepOutputSchema),
+	toolManifestWithSchema("structure", "Recommended tool: structure. Why: lists document/workspace symbols, folding ranges, and semantic tokens for code navigation. Use file action=open_file first before file-scoped structure actions when the target file may not already be open. Example document_symbol: action=document_symbol file_path=internal/foo.go.", lspStructureSchema),
+	toolManifestWithSchema("edit", "Recommended tool: edit. Why: patches disk and syncs the language server so diagnostics and later reads see the change. Use file action=open_file first before editing a file that may not already be open. Example: file_path=internal/foo.go patch=\"*** Begin Patch...\".", lspEditSchema),
+	toolManifestWithSchema("completion", "Recommended tool: completion. Why: asks the language server for context-aware code completions at a position. Use file action=open_file first when the target file may not already be open. Example: pos=internal/foo.go:42:9.", lspCompletionSchema),
+	toolManifestWithSchema("code_run", "Recommended tool: code_run. Why: runs project commands or snippets only when no host exec_command is available and no dedicated LSP tool covers the job. Example project_cmd: mode=project_cmd command=\"go test ./cmd/mcp-lsp\".", codeRunSchema),
+	toolManifestWithSchema("code_run_test", "Recommended tool: code_run_test. Why: runs one Go test function after LSP diagnostics or targeted investigation. Example: test_func=TestName test_pkg=./cmd/mcp-lsp.", codeRunTestSchema),
 }
 
 var legacyToolAliases = map[string]string{

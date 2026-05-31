@@ -344,17 +344,22 @@ func fitsBatchPayload(resp batchReadResponse) bool {
 }
 
 func renderReadContent(content string, offset, limit int, expand bool) string {
+	if content == "" {
+		return "(empty file)"
+	}
 	lines := splitNormalizedLines(content)
 	start := clampOffset(offset, len(lines))
+	requestedStart := start
 
 	actualLimit := shared.ClampLimit(limit, 1, maxReadFileLimit, defaultReadFileLimit)
 
+	expandedDiff := 0
 	if expand {
 		expandedStart := expandStartToIncludeComments(lines, start)
 		if expandedStart < start {
-			diff := start - expandedStart
+			expandedDiff = start - expandedStart
 			start = expandedStart
-			actualLimit = actualLimit + diff
+			actualLimit = actualLimit + expandedDiff
 			if actualLimit > maxReadFileLimit {
 				actualLimit = maxReadFileLimit
 			}
@@ -367,7 +372,11 @@ func renderReadContent(content string, offset, limit int, expand bool) string {
 	if start == 1 && end == len(lines) {
 		return rendered
 	}
-	return fmt.Sprintf("%s\n\n...[showing lines %d-%d of %d total, use offset=%d to continue]", rendered, start, end, len(lines), end+1)
+	footer := fmt.Sprintf("...[showing lines %d-%d of %d total, use offset=%d to continue]", start, end, len(lines), end+1)
+	if expandedDiff > 0 {
+		footer += fmt.Sprintf(" [auto-expanded %d line(s) upward from offset=%d to include adjacent comments; pass expand_comments=false to disable]", expandedDiff, requestedStart)
+	}
+	return fmt.Sprintf("%s\n\n%s", rendered, footer)
 }
 
 func resolveRoot(raw string) string {

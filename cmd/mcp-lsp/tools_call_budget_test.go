@@ -64,14 +64,17 @@ func TestDirectToolsCallGrepContentWithinSixteenKiBBudget(t *testing.T) {
 	if got := len(response.Result.StructuredContent); got > budget {
 		t.Fatalf("structuredContent = %d bytes, want <= %d", got, budget)
 	}
+	if !strings.Contains(response.Result.Content[0].Text, "Warning: results were truncated") {
+		t.Fatalf("content text missing truncation warning: %s", response.Result.Content[0].Text)
+	}
 	var payload struct {
 		DroppedForPayload int `json:"dropped_for_payload"`
 	}
-	if err := json.Unmarshal([]byte(response.Result.Content[0].Text), &payload); err != nil {
-		t.Fatalf("unmarshal content text: %v", err)
+	if err := json.Unmarshal(response.Result.StructuredContent, &payload); err != nil {
+		t.Fatalf("unmarshal structuredContent: %v; raw=%s", err, response.Result.StructuredContent)
 	}
 	if payload.DroppedForPayload == 0 {
-		t.Fatalf("direct tools/call grep did not drop rows; content=%s", response.Result.Content[0].Text)
+		t.Fatalf("direct tools/call grep did not drop rows; structuredContent=%s", response.Result.StructuredContent)
 	}
 }
 
