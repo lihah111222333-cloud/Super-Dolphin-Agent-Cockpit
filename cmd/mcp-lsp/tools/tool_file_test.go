@@ -80,6 +80,24 @@ func TestFileHandlerAppliesSixteenKiBOutputBudget(t *testing.T) {
 	}
 }
 
+func TestFileBatchMetaUsesTotalShowingAndHint(t *testing.T) {
+	root := t.TempDir()
+	paths := writeBatchReadFixturePaths(t, root, lspReadFileBatchMax+2)
+
+	got, err := callFileTool(t, root, fileToolInput{Action: "read_file", FilePaths: paths})
+	if err != nil {
+		t.Fatalf("read_file batch returned error: %v", err)
+	}
+	payload := mustMarshalObject(t, got)
+	meta := requireObjectField(t, payload, "meta")
+	requireNumberField(t, meta, "total", len(paths))
+	requireNumberField(t, meta, "showing", lspReadFileBatchMax)
+	requireBoolField(t, meta, "truncated", true)
+	requireStringFieldContains(t, meta, "hint", "file_paths", "batch")
+	requireAbsentField(t, meta, "count")
+	requireAbsentField(t, meta, "success_count")
+}
+
 func callFileTool(t *testing.T, root string, input fileToolInput) (any, error) {
 	t.Helper()
 	handler := NewFileHandler(Config{WorkspaceRoot: root})
@@ -88,6 +106,19 @@ func callFileTool(t *testing.T, root string, input fileToolInput) (any, error) {
 		t.Fatalf("marshal input: %v", err)
 	}
 	return handler(common.WithToolScope(context.Background(), common.ToolScope{CWD: root}), payload)
+}
+
+func writeBatchReadFixturePaths(t *testing.T, root string, count int) []string {
+	t.Helper()
+	paths := make([]string, 0, count)
+	for i := range count {
+		name := fmt.Sprintf("file-%02d.txt", i)
+		if err := os.WriteFile(filepath.Join(root, name), []byte("content\n"), 0o600); err != nil {
+			t.Fatalf("write fixture: %v", err)
+		}
+		paths = append(paths, name)
+	}
+	return paths
 }
 
 func largeLineFileContent(lines int, width int) string {
