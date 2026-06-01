@@ -7,10 +7,10 @@ import {
   callBackend,
   applyDagOps,
   applySkillResolution,
-  consolidateMemorySimilarities,
   deleteDag,
   deleteMemoryEntry,
   deleteSharedFile,
+  getMemoryConsolidationStatus,
   deleteSkill,
   getBuildInfo,
   getDashboardPage,
@@ -34,6 +34,7 @@ import {
   selectProjectDirs,
   setMemoryAutoDreamIntent,
   setPreference,
+  startConsolidateMemorySimilarities,
   startDag,
   startThread,
   suggestSkillSummary,
@@ -87,6 +88,8 @@ const SHARED_FILE_SORTS = Object.freeze([
   { key: 'path-asc', label: '按文件名' },
 ]);
 const SKILLS_REQUEST_TIMEOUT_MS = 8000;
+const MEMORY_CONSOLIDATION_POLL_MS = 2000;
+const MEMORY_CONSOLIDATION_MAX_POLLS = 180;
 const DASHBOARD_QUERY_STALE_MS = 30_000;
 const DASHBOARD_QUERY_GC_MS = 10 * 60_000;
 const MEMORY_CATEGORIES = Object.freeze([
@@ -615,13 +618,25 @@ function runtimeLogLabel(entry) {
   return entry?.message || entry?.event || entry?.method || '';
 }
 
+function parseSafeLogTimestamp(entry) {
+  const ts = runtimeLogTimestamp(entry);
+  if (!ts) return 0;
+  const text = ts.toString().trim();
+  const asNumber = Number(text);
+  if (Number.isFinite(asNumber) && asNumber > 0) return asNumber;
+  // 截断高精度时间戳中的多余小数秒，以兼容 JS Date.parse 的 3 位毫秒限制
+  const sanitized = text.replace(/(\.\d{3})\d+/g, '$1');
+  const parsed = Date.parse(sanitized);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
+}
+
 function runtimeLogEntries(warnings = [], results = []) {
   return [
     ...(warnings || []).map((entry) => ({ ...entry, runtimeKind: 'warning' })),
     ...(results || []).map((entry) => ({ ...entry, runtimeKind: 'result' })),
   ].sort((left, right) => {
-    const leftTime = Date.parse(runtimeLogTimestamp(left)) || 0;
-    const rightTime = Date.parse(runtimeLogTimestamp(right)) || 0;
+    const leftTime = parseSafeLogTimestamp(left);
+    const rightTime = parseSafeLogTimestamp(right);
     return rightTime - leftTime;
   });
 }
@@ -639,6 +654,12 @@ function withTimeout(promise, timeoutMs, message) {
   });
   return Promise.race([promise, timeout]).finally(() => {
     if (timeoutID) globalThis.clearTimeout(timeoutID);
+  });
+}
+
+function delay(ms) {
+  return new Promise((resolve) => {
+    globalThis.setTimeout(resolve, ms);
   });
 }
 
@@ -1705,6 +1726,61 @@ function errorMessage(error) {
   return memoryNoticeText(error?.message || String(error || ''));
 }
 
+function memoryConsolidationResultMessage(result) {
+  const merged = Number(result?.merged) || 0;
+  const ignored = Number(result?.ignored) || 0;
+  const failed = Number(result?.failed) || 0;
+  const skipped = Number(result?.skipped) || 0;
+  const parts = [`已整合 ${merged} 组`];
+  if (ignored) parts.push(`${ignored} 组判定不应合`);
+  if (failed) parts.push(`${failed} 组失败`);
+  if (skipped) parts.push(`${skipped} 组跳过`);
+  const firstError = Array.isArray(result?.errors) ? result.errors[0] : '';
+  return {
+    level: failed || skipped ? 'warning' : 'info',
+    message: `${parts.join('，')}${firstError ? `，原因：${firstError}` : ''}`,
+  };
+}
+
+function memoryConsolidationJobFailed(status) {
+  const message = textValue(status?.error) || '智能整合暂时失败，请稍后重试';
+  return new Error(message);
+}
+
+function clearMemorySimilarGroups(snapshot) {
+  if (!snapshot || typeof snapshot !== 'object' || Array.isArray(snapshot)) return snapshot;
+  const overview = snapshot.overview && typeof snapshot.overview === 'object' && !Array.isArray(snapshot.overview)
+    ? snapshot.overview
+    : {};
+  const health = overview.health && typeof overview.health === 'object' && !Array.isArray(overview.health)
+    ? overview.health
+    : null;
+  if (!health || !Array.isArray(health.similarGroups) || health.similarGroups.length === 0) return snapshot;
+  return {
+    ...snapshot,
+    overview: {
+      ...overview,
+      health: {
+        ...health,
+        similarGroups: [],
+      },
+    },
+  };
+}
+
+async function waitForMemoryConsolidationJob(cwd, jobID) {
+  for (let attempt = 0; attempt < MEMORY_CONSOLIDATION_MAX_POLLS; attempt += 1) {
+    const status = await getMemoryConsolidationStatus({ cwd, jobId: jobID });
+    if (status?.status === 'succeeded') return status.result || {};
+    if (status?.status === 'failed') throw memoryConsolidationJobFailed(status);
+    if (status?.status !== 'running') {
+      throw new Error('智能整合状态异常，请稍后重试');
+    }
+    await delay(MEMORY_CONSOLIDATION_POLL_MS);
+  }
+  throw new Error('智能整合仍在进行，请稍后查看结果');
+}
+
 function dagKeyOf(raw) {
   return firstText(raw?.dag_key, raw?.dagKey, raw?.key, raw?.id);
 }
@@ -2614,6 +2690,7 @@ function AppShell({ skipBootstrap = false }) {
   const addWarning = store.addWarning;
   const queryClient = useQueryClient();
   const memoryRevision = Number(store.memoryRevision || 0);
+  const [memoryPageSimilarCount, setMemoryPageSimilarCount] = useState(null);
 
   useEffect(() => {
     if (skipBootstrap) return undefined;
@@ -2640,6 +2717,12 @@ function AppShell({ skipBootstrap = false }) {
   const memorySimilarCount = Math.max(0, Number(memoryBadgeQuery.data) || 0);
 
   useEffect(() => {
+    if (store.activePage !== 'memory') {
+      setMemoryPageSimilarCount(null);
+    }
+  }, [store.activePage, memoryCwd]);
+
+  useEffect(() => {
     if (!memoryBadgeQuery.error) return;
     addWarning('warn', 'memory.badge.refresh.failed', { error: errorMessage(memoryBadgeQuery.error) });
   }, [addWarning, memoryBadgeQuery.error]);
@@ -2659,13 +2742,24 @@ function AppShell({ skipBootstrap = false }) {
     <div className="sa-window" data-theme={theme} data-testid="frontend-app">
       <Titlebar theme={theme} onToggleTheme={toggleTheme} />
       <div className="sa-body">
-        <NavRail activePage={store.activePage} setActivePage={store.setActivePage} memorySimilarCount={memorySimilarCount} />
+        <NavRail
+          activePage={store.activePage}
+          setActivePage={store.setActivePage}
+          memorySimilarCount={memoryPageSimilarCount ?? memorySimilarCount}
+        />
         <main className="sa-main">
           {store.activePage === 'chat' ? <ChatPage store={store} projectPath={projectPath} /> : null}
           {store.activePage === 'prompts' ? <PromptPage projectPath={projectPath} store={store} refreshKey={store.promptRevision} /> : null}
           {store.activePage === 'workflows' ? <WorkflowPage projectPath={projectPath} store={store} refreshKey={store.workflowRevision} /> : null}
-          {store.activePage === 'skills' ? <SkillsPage projectPath={projectPath} refreshKey={store.skillRevision} /> : null}
-          {store.activePage === 'memory' ? <MemoryPage projectPath={projectPath} refreshKey={memoryRevision} /> : null}
+          {store.activePage === 'skills' ? <SkillsPage projectPath={projectPath} refreshKey={store.skillRevision} resolveLaunchPreferences={store.resolveLaunchPreferences} /> : null}
+          {store.activePage === 'memory' ? (
+            <MemoryPage
+              projectPath={projectPath}
+              refreshKey={memoryRevision}
+              onSimilarCountChange={setMemoryPageSimilarCount}
+              resolveLaunchPreferences={store.resolveLaunchPreferences}
+            />
+          ) : null}
           {store.activePage === 'files' ? <FilesPage projectPath={projectPath} store={store} /> : null}
           {store.activePage === 'settings' ? <SettingsPage projectPath={projectPath} /> : null}
           <span className="sr-only">当前页面：{activeLabel}</span>
@@ -4411,7 +4505,11 @@ function RuntimeActivityPanel({ activityStats, tokenUsage, warnings, runtimeResu
 }
 
 function formatTime(value) {
-  const date = new Date(value);
+  if (!value) return '--:--';
+  const text = value.toString().trim();
+  // 截断高精度时间戳中的多余小数秒，以兼容 JS new Date() 的 3 位毫秒限制
+  const sanitized = text.replace(/(\.\d{3})\d+/g, '$1');
+  const date = new Date(sanitized);
   if (!Number.isFinite(date.getTime())) return '--:--';
   return date.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
 }
@@ -5154,7 +5252,7 @@ function ConfirmDagDeleteModal({ dag, deleting, onClose, onConfirm }) {
   );
 }
 
-function SkillsPage({ projectPath, refreshKey = 0 }) {
+function SkillsPage({ projectPath, refreshKey = 0, resolveLaunchPreferences }) {
   const projectCwd = optionalSettingsCwd(projectPath);
   const queryClient = useQueryClient();
   const [query, setQuery] = useState('');
@@ -5298,6 +5396,9 @@ function SkillsPage({ projectPath, refreshKey = 0 }) {
     setSummarySuggestion('');
     try {
       const cwd = normalizeSettingsCwd(projectPath);
+      const launchPreferences = typeof resolveLaunchPreferences === 'function'
+        ? await resolveLaunchPreferences(cwd)
+        : null;
       const description = await suggestSkillSummary({
         cwd,
         name: editorForm.displayName || editorForm.name,
@@ -5305,6 +5406,9 @@ function SkillsPage({ projectPath, refreshKey = 0 }) {
         content: editorForm.body,
         scenario_words: wordListFromText(editorForm.keywords),
         scope: editorForm.scope,
+        provider: textValue(launchPreferences?.modelProvider || launchPreferences?.provider),
+        model: textValue(launchPreferences?.model),
+        codexModelProvider: textValue(launchPreferences?.config?.codexModelProvider),
       });
       setSummarySuggestion(normalizeSummarySuggestion(description));
     } catch (err) {
@@ -5846,6 +5950,12 @@ function SkillEditorModal({
               </button>
             </div>
             <input id="skills-description-input" value={form.description} onChange={update('description')} disabled={!isMain} aria-label="技能简介" />
+            {summarySuggestion ? (
+              <div className="skills-inline-tip skills-summary-suggestion" data-testid="skills-summary-suggestion">
+                <span>建议：{summarySuggestion}</span>
+                <button type="button" onClick={onApplySummary}>采用</button>
+              </div>
+            ) : null}
             <div className="skills-inline-tip">建议写成“当你需要……时使用”。</div>
           </div>
           <div className="skills-field">
@@ -5857,12 +5967,6 @@ function SkillEditorModal({
           </div>
           <label>关键词<input value={form.keywords} onChange={update('keywords')} disabled={!isMain} aria-label="关键词" /></label>
         </div>
-        {summarySuggestion ? (
-          <div className="skills-editor-actions">
-          {summarySuggestion ? <span>建议：{summarySuggestion}</span> : null}
-          {summarySuggestion ? <button type="button" onClick={onApplySummary}>采用</button> : null}
-          </div>
-        ) : null}
         {files.some((file) => !file.isMain) ? (
           <div className="skills-subfiles-wrap">
             <span>附加内容</span>
@@ -6312,7 +6416,7 @@ function ConfirmSharedFileDeleteModal({ file, deleting, onClose, onConfirm }) {
   );
 }
 
-function MemoryPage({ projectPath, onSimilarCountChange }) {
+function MemoryPage({ projectPath, onSimilarCountChange, resolveLaunchPreferences }) {
   const memoryCwd = optionalSettingsCwd(projectPath);
   const isProjectPending = !memoryCwd;
   const queryClient = useQueryClient();
@@ -6340,6 +6444,7 @@ function MemoryPage({ projectPath, onSimilarCountChange }) {
   const [mergingAll, setMergingAll] = useState(false);
   const [ignoringKey, setIgnoringKey] = useState('');
   const [mergingKey, setMergingKey] = useState('');
+  const [consolidationJob, setConsolidationJob] = useState(null);
 
   const refreshMemory = useCallback(async () => {
     if (!memoryCwd) return;
@@ -6353,6 +6458,37 @@ function MemoryPage({ projectPath, onSimilarCountChange }) {
   const showNotice = useCallback((level, message) => {
     setNotice({ level: level || 'info', message: memoryNoticeText(message) });
   }, []);
+
+  const applyConsolidationResult = useCallback(async (cwd, result) => {
+    const summary = memoryConsolidationResultMessage(result);
+    if (!Number(result?.failed) && !Number(result?.skipped)) {
+      queryClient.setQueryData(dashboardQueryKey(cwd, 'memory'), clearMemorySimilarGroups);
+    }
+    showNotice(summary.level, summary.message);
+    await queryClient.invalidateQueries({ queryKey: dashboardQueryKey(cwd, 'memory') });
+  }, [queryClient, showNotice]);
+
+  useEffect(() => {
+    if (!consolidationJob?.jobId || !consolidationJob?.cwd) return undefined;
+    let cancelled = false;
+
+    (async () => {
+      try {
+        const result = await waitForMemoryConsolidationJob(consolidationJob.cwd, consolidationJob.jobId);
+        if (cancelled) return;
+        await applyConsolidationResult(consolidationJob.cwd, result);
+      } catch (err) {
+        if (cancelled) return;
+        const message = errorMessage(err);
+        const level = message.includes('仍在进行') ? 'warning' : 'error';
+        showNotice(level, level === 'warning' ? message : `智能整合失败：${message}`);
+      } finally {
+        if (!cancelled) setConsolidationJob(null);
+      }
+    })();
+
+    return () => { cancelled = true; };
+  }, [applyConsolidationResult, consolidationJob, showNotice]);
 
   const preferenceEntries = useMemo(
     () => snapshot.entries.filter((entry) => entry.category === 'preference'),
@@ -6519,29 +6655,34 @@ function MemoryPage({ projectPath, onSimilarCountChange }) {
   }, [memoryCwd, mergeTarget, mergingKey, refreshMemory, showNotice]);
 
   const mergeAllGroups = useCallback(async () => {
-    if (!similarGroups.length || mergingAll) return;
+    if (!similarGroups.length || mergingAll || consolidationJob) return;
     if (!memoryCwd) { showNotice('error', '正在连接本地项目...'); return; }
     setMergingAll(true);
-    showNotice('info', '智能整合中（通常 10-20 秒），请勿离开');
     try {
-      const result = await consolidateMemorySimilarities({ cwd: memoryCwd });
-      const merged = Number(result?.merged) || 0;
-      const ignored = Number(result?.ignored) || 0;
-      const failed = Number(result?.failed) || 0;
-      const skipped = Number(result?.skipped) || 0;
-      const parts = [`已整合 ${merged} 组`];
-      if (ignored) parts.push(`${ignored} 组判定不应合`);
-      if (failed) parts.push(`${failed} 组失败`);
-      if (skipped) parts.push(`${skipped} 组跳过`);
-      const firstError = Array.isArray(result?.errors) ? result.errors[0] : '';
-      showNotice(failed || skipped ? 'warning' : 'info', `${parts.join('，')}${firstError ? `，原因：${firstError}` : ''}`);
-      await refreshMemory();
+      const launchPreferences = typeof resolveLaunchPreferences === 'function'
+        ? await resolveLaunchPreferences(memoryCwd)
+        : null;
+      const started = await startConsolidateMemorySimilarities({
+        cwd: memoryCwd,
+        provider: textValue(launchPreferences?.modelProvider || launchPreferences?.provider),
+        model: textValue(launchPreferences?.model),
+        codexModelProvider: textValue(launchPreferences?.config?.codexModelProvider),
+      });
+      const jobID = textValue(started?.jobId);
+      if (started?.status === 'failed') throw memoryConsolidationJobFailed(started);
+      if (started?.status !== 'succeeded' && !jobID) throw new Error('智能整合未能启动，请稍后重试');
+      if (started?.status === 'succeeded') {
+        await applyConsolidationResult(memoryCwd, started.result || {});
+      } else {
+        setConsolidationJob({ cwd: memoryCwd, jobId: jobID });
+        showNotice('info', '智能整合已在后台进行，完成后会自动更新');
+      }
     } catch (err) {
       showNotice('error', `智能整合失败：${errorMessage(err)}`);
     } finally {
       setMergingAll(false);
     }
-  }, [memoryCwd, mergingAll, refreshMemory, showNotice, similarGroups.length]);
+  }, [applyConsolidationResult, consolidationJob, memoryCwd, mergingAll, resolveLaunchPreferences, showNotice, similarGroups.length]);
 
   const ignoreGroup = useCallback(async (group) => {
     const key = memoryPairKey(group);
@@ -6624,8 +6765,8 @@ function MemoryPage({ projectPath, onSimilarCountChange }) {
         <div className="similar-alert">
           <AlertTriangle size={20} />
           <span>{similarGroups.length} 组条目内容相似</span>
-          <button type="button" onClick={() => { void mergeAllGroups(); }} disabled={mergingAll || Boolean(mergingKey) || Boolean(ignoringKey)}>
-            {mergingAll ? '整合中...' : '一键整合全部'}
+          <button type="button" onClick={() => { void mergeAllGroups(); }} disabled={mergingAll || Boolean(consolidationJob) || Boolean(mergingKey) || Boolean(ignoringKey)}>
+            {mergingAll ? '启动中...' : (consolidationJob ? '后台整合中' : '一键整合全部')}
           </button>
           <button type="button" onClick={() => setSimilarExpanded((expanded) => !expanded)}>{similarExpanded ? '收起' : '展开'}</button>
         </div>
@@ -6638,8 +6779,8 @@ function MemoryPage({ projectPath, onSimilarCountChange }) {
               <div className="memory-similar-item" key={key}>
                 <span>「{group.nameA || group.pathA}」与「{group.nameB || group.pathB}」</span>
                 <strong>{formatMemoryScore(group.score)}</strong>
-                <button type="button" onClick={() => setMergeTarget(group)} disabled={Boolean(mergingKey) || mergingAll || Boolean(ignoringKey)}>整合</button>
-                <button type="button" className="ghost" onClick={() => { void ignoreGroup(group); }} disabled={Boolean(ignoringKey) || mergingAll || Boolean(mergingKey)}>
+                <button type="button" onClick={() => setMergeTarget(group)} disabled={Boolean(mergingKey) || mergingAll || Boolean(consolidationJob) || Boolean(ignoringKey)}>整合</button>
+                <button type="button" className="ghost" onClick={() => { void ignoreGroup(group); }} disabled={Boolean(ignoringKey) || mergingAll || Boolean(consolidationJob) || Boolean(mergingKey)}>
                   {ignoringKey === key ? '...' : '忽略'}
                 </button>
               </div>

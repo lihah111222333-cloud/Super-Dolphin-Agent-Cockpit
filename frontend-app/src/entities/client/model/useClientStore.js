@@ -97,7 +97,9 @@ function normalizeTimestamp(value) {
   if (!text) return 0;
   const asNumber = Number(text);
   if (Number.isFinite(asNumber) && asNumber > 0) return asNumber;
-  const parsed = Date.parse(text);
+  // 截断高精度时间戳中的多余小数秒，以兼容 JS Date.parse 的 3 位毫秒限制
+  const sanitized = text.replace(/(\.\d{3})\d+/g, '$1');
+  const parsed = Date.parse(sanitized);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
 }
 
@@ -901,8 +903,8 @@ function mergeRuntimeResultEntries(existingEntries = [], incomingEntries = []) {
   }
   return [...nextById.values()]
     .sort((left, right) => {
-      const leftTime = Date.parse(left.timestamp) || 0;
-      const rightTime = Date.parse(right.timestamp) || 0;
+      const leftTime = normalizeTimestamp(left.timestamp);
+      const rightTime = normalizeTimestamp(right.timestamp);
       return rightTime - leftTime;
     })
     .slice(0, MAX_RUNTIME_RESULT_ENTRIES);
