@@ -12,6 +12,7 @@ import (
 	contract "github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
 	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
+	codexmodel "github.com/anthropic-ai/super-agent-v3/internal/provider/codexapp/codexmodel"
 	codexprotocol "github.com/anthropic-ai/super-agent-v3/internal/provider/codexapp/protocol"
 	providershared "github.com/anthropic-ai/super-agent-v3/internal/provider/shared"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
@@ -229,171 +230,13 @@ func (s *session) setRuntimeConfigValue(key string, value any) {
 	s.runtimeConfig[key] = value
 }
 
-func decodeAllowedModels(raw []byte) ([]string, error) {
-	var top map[string]any
-	if err := json.Unmarshal(raw, &top); err == nil {
-		// Try "models" key first, then "data" key (codex app-server format)
-		if models := modelIDs(top["models"]); len(models) > 0 {
-			return models, nil
-		}
-		if models := modelIDs(top["data"]); len(models) > 0 {
-			return models, nil
-		}
-	}
-	var list []any
-	if err := json.Unmarshal(raw, &list); err == nil {
-		if models := modelIDs(list); len(models) > 0 {
-			return models, nil
-		}
-	}
-	return nil, errors.New("codexapp: invalid model/list response")
-}
-
-func resolveDefaultCodexModel(ctx context.Context, t *transport) (string, error) {
-	model, _, err := resolveSupportedCodexModel(ctx, t, "")
-	return model, err
-}
-
 func resolveSupportedCodexModel(ctx context.Context, t *transport, requested string) (string, bool, error) {
 	requested = strings.TrimSpace(requested)
 	raw, err := callWithTimeout(ctx, t, 10*time.Second, "model/list", map[string]any{})
 	if err != nil {
 		return "", false, err
 	}
-	models, err := decodeAllowedModels(raw)
-	if err != nil {
-		return "", false, err
-	}
-	preferred := preferredCodexModel(models)
-	if requested == "" {
-		return preferred, preferred != "", nil
-	}
-	if codexModelIsCodexFamily(requested) && codexModelListContains(models, requested) {
-		return requested, false, nil
-	}
-	if !codexModelIsGenericGPT(requested) && codexModelListContains(models, requested) {
-		return requested, false, nil
-	}
-	if preferred != "" {
-		return preferred, !strings.EqualFold(preferred, requested), nil
-	}
-	if codexModelListContains(models, requested) {
-		return requested, false, nil
-	}
-	return requested, false, nil
-}
-
-func preferredCodexModel(models []string) string {
-	for _, model := range models {
-		if strings.EqualFold(strings.TrimSpace(model), "gpt-5-codex") {
-			return strings.TrimSpace(model)
-		}
-	}
-	for _, model := range models {
-		if trimmed := strings.TrimSpace(model); trimmed != "" && strings.Contains(strings.ToLower(trimmed), "codex") {
-			return trimmed
-		}
-	}
-	for _, model := range models {
-		if trimmed := strings.TrimSpace(model); trimmed != "" {
-			return trimmed
-		}
-	}
-	return ""
-}
-
-func codexModelListContains(models []string, requested string) bool {
-	requested = strings.TrimSpace(requested)
-	if requested == "" {
-		return false
-	}
-	for _, model := range models {
-		if strings.EqualFold(strings.TrimSpace(model), requested) {
-			return true
-		}
-	}
-	return false
-}
-
-func codexModelNeedsListResolution(model string) bool {
-	model = strings.ToLower(strings.TrimSpace(model))
-	return model == "" || codexModelIsGenericGPT(model)
-}
-
-func codexModelIsGenericGPT(model string) bool {
-	model = strings.ToLower(strings.TrimSpace(model))
-	return strings.HasPrefix(model, "gpt-") && !codexModelIsCodexFamily(model)
-}
-
-func codexModelIsCodexFamily(model string) bool {
-	return strings.Contains(strings.ToLower(strings.TrimSpace(model)), "codex")
-}
-
-func wrapCodexModelUnsupportedError(err error, model string) error {
-	if err == nil {
-		return nil
-	}
-	notice := codexModelUnsupportedNotice(err, model)
-	if notice == "" {
-		return err
-	}
-	return fmt.Errorf("%s: %w", notice, err)
-}
-
-func codexModelUnsupportedNotice(err error, model string) string {
-	if err == nil {
-		return ""
-	}
-	text := err.Error()
-	lower := strings.ToLower(text)
-	if !strings.Contains(lower, "model") ||
-		!strings.Contains(lower, "not supported") ||
-		!strings.Contains(lower, "codex") ||
-		!strings.Contains(lower, "chatgpt") {
-		return ""
-	}
-	selected := strings.TrimSpace(model)
-	if selected == "" {
-		selected = quotedModelFromUnsupportedText(text)
-	}
-	if selected != "" {
-		return fmt.Sprintf("Codex model %q is not supported by the current ChatGPT account. Choose a supported Codex model in Settings or clear the model override, then retry", selected)
-	}
-	return "The selected Codex model is not supported by the current ChatGPT account. Choose a supported Codex model in Settings or clear the model override, then retry"
-}
-
-func quotedModelFromUnsupportedText(text string) string {
-	const prefix = "The '"
-	start := strings.Index(text, prefix)
-	if start < 0 {
-		return ""
-	}
-	rest := text[start+len(prefix):]
-	end := strings.Index(rest, "'")
-	if end <= 0 {
-		return ""
-	}
-	return strings.TrimSpace(rest[:end])
-}
-
-func modelIDs(raw any) []string {
-	list, _ := raw.([]any)
-	out := make([]string, 0, len(list))
-	seen := make(map[string]struct{}, len(list))
-	for _, item := range list {
-		entry, _ := item.(map[string]any)
-		id, _ := entry["id"].(string)
-		id = strings.TrimSpace(id)
-		if id == "" {
-			continue
-		}
-		if _, ok := seen[id]; ok {
-			continue
-		}
-		seen[id] = struct{}{}
-		out = append(out, id)
-	}
-	return out
+	return codexmodel.ResolveSupported(raw, requested)
 }
 
 func configString(cfg map[string]any, keys ...string) string {
@@ -580,21 +423,6 @@ func sharedFirstNonEmpty(values ...string) string {
 	return ""
 }
 
-func (d *driver) finishStartedSession(s *session, req dto.StartSessionRequest, result startResult) contract.Session {
-	s.setThreadID(result.threadID)
-	if result.model != "" {
-		s.setRuntimeConfigValue("model", result.model)
-	}
-	if cwd := strings.TrimSpace(req.CWD); cwd != "" {
-		s.setRuntimeConfigValue("cwd", cwd)
-	}
-	if port := parsePortFromURL(s.transport.serverURL); port > 0 {
-		s.setRuntimeConfigValue("port", port)
-	}
-	d.reportRuntime(s.agentID)
-	return s
-}
-
 func primeResumeToolScope(s *session, req dto.ResumeSessionRequest) {
 	if resumeID := sharedFirstNonEmpty(req.ProviderThreadID, req.ThreadID); resumeID != "" {
 		s.setThreadID(resumeID)
@@ -641,7 +469,7 @@ func (d *driver) startRemoteThreadWithDynamicTools(ctx context.Context, t *trans
 
 func startRemoteThreadWithParams(ctx context.Context, t *transport, req dto.StartSessionRequest, params threadStartParams) (startResult, error) {
 	configKeys := sortedConfigKeys(req.Config)
-	if codexModelNeedsListResolution(params.Model) {
+	if codexmodel.NeedsListResolution(params.Model) {
 		requestedModel := strings.TrimSpace(params.Model)
 		model, replaced, err := resolveSupportedCodexModel(ctx, t, requestedModel)
 		if err != nil {
@@ -703,7 +531,7 @@ func startRemoteThreadWithParams(ctx context.Context, t *transport, req dto.Star
 	raw, err := callWithTimeout(ctx, t, 30*time.Second, "thread/start", params)
 	if err != nil {
 		logThreadStartIdentityTrace("codexapp: thread/start request failed", t.serverURL, req, params, err)
-		return startResult{}, wrapCodexModelUnsupportedError(err, params.Model)
+		return startResult{}, codexmodel.WrapUnsupportedError(err, params.Model)
 	}
 	return decodeStartResult(raw)
 }
@@ -765,27 +593,4 @@ func (d *driver) restoreApprovalPolicy(ctx context.Context, s *session, threadID
 		return
 	}
 	s.setRuntimeConfigValue("approvalPolicy", s.approvalPolicyValue())
-}
-
-func (d *driver) reportRuntime(agentID string) {
-	if d == nil || d.reporter == nil {
-		return
-	}
-	agentID = strings.TrimSpace(agentID)
-	if agentID == "" {
-		return
-	}
-	ctx, cancel := platformconfig.WithTimeout(context.Background(), 2*time.Second)
-	defer cancel()
-
-	// TODO: Prefer a provider-reported control/runtime port once the Codex App
-	// protocol exposes one explicitly; for now we fall back to the configured
-	// app-server endpoint port after session startup succeeds.
-	if err := d.reporter.ReportRuntime(ctx, contract.RuntimeReport{
-		AgentID:  agentID,
-		Port:     parsePortFromURL(d.serverURL),
-		Provider: d.Name(),
-	}); err != nil {
-		d.logger.Warn("codexapp: report runtime failed", "agent_id", agentID, "error", err)
-	}
 }

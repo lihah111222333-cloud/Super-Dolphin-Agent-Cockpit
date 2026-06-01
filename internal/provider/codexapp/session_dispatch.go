@@ -7,6 +7,7 @@ import (
 
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
+	codexmodel "github.com/anthropic-ai/super-agent-v3/internal/provider/codexapp/codexmodel"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
@@ -79,7 +80,7 @@ func (s *session) finishTurn(params json.RawMessage, optimistic bool) {
 	if errText == "" {
 		errText = "turn failed"
 	}
-	if notice := codexModelUnsupportedNotice(errors.New(errText), s.runtimeConfigString("model")); notice != "" {
+	if notice := codexmodel.UnsupportedNotice(errors.New(errText), s.runtimeConfigString("model")); notice != "" {
 		errText = notice
 	}
 	h.complete(errors.New(errText))
