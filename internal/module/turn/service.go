@@ -13,6 +13,7 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
 	turnobservation "github.com/anthropic-ai/super-agent-v3/internal/module/turn/observation"
+	platformobs "github.com/anthropic-ai/super-agent-v3/internal/platform/observability"
 	turndedupe "github.com/anthropic-ai/super-agent-v3/internal/store/turndedupe"
 	"github.com/anthropic-ai/super-agent-v3/internal/util"
 	"github.com/anthropic-ai/super-agent-v3/internal/util/configutil"
@@ -38,6 +39,7 @@ type service struct {
 	turnContextProvider    contract.TurnContextProvider
 	skillLookup            skillHydrationPort
 	observation            turnobservation.Contract
+	tracing                *platformobs.Service
 	interruptSettleTimeout time.Duration
 	// dedupeStore is the optional durable mirror for dedupe_key -> local_turn_id.
 	// nil when the deployment has not wired the turndedupe store; the tracker
@@ -57,11 +59,11 @@ type steerableSession interface {
 }
 
 func NewService(logger *slog.Logger) Service {
-	return newService(logger, nil, nil, nil, nil, nil, contract.BuildManifest)
+	return newService(logger, nil, nil, nil, nil, nil, contract.BuildManifest, nil)
 }
 
 func NewServiceWithPromptAssembly(logger *slog.Logger, promptAssembly contract.PromptAssemblyService) Service {
-	return newService(logger, promptAssembly, nil, nil, nil, nil, contract.BuildManifest)
+	return newService(logger, promptAssembly, nil, nil, nil, nil, contract.BuildManifest, nil)
 }
 
 // NewServiceWithPromptAssemblyAndTurnContext p20.2 §5 step 1：skill.Service
@@ -75,12 +77,13 @@ func NewServiceWithPromptAssemblyAndTurnContext(
 	observation turnobservation.Contract,
 	dedupeStore turndedupe.Store,
 	manifestBuild contract.ManifestBuildFunc,
+	tracing *platformobs.Service,
 ) Service {
 	var lookup skillHydrationPort
 	if skillSvc != nil {
 		lookup = skillSvc
 	}
-	return newService(logger, promptAssembly, turnContextProvider, lookup, observation, dedupeStore, manifestBuild)
+	return newService(logger, promptAssembly, turnContextProvider, lookup, observation, dedupeStore, manifestBuild, tracing)
 }
 
 func newService(
@@ -91,9 +94,14 @@ func newService(
 	observation turnobservation.Contract,
 	dedupeStore turndedupe.Store,
 	manifestBuild contract.ManifestBuildFunc,
+	tracingOpt ...*platformobs.Service,
 ) Service {
 	if logger == nil {
 		logger = pkglogger.Get()
+	}
+	var tracing *platformobs.Service
+	if len(tracingOpt) > 0 {
+		tracing = tracingOpt[0]
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	if manifestBuild == nil {
@@ -108,6 +116,7 @@ func newService(
 		promptAssembly:         promptAssembly,
 		skillLookup:            skillLookup,
 		observation:            observation,
+		tracing:                tracing,
 		dedupeStore:            dedupeStore,
 		interruptSettleTimeout: ctxutil.InterruptSettleTimeout,
 		ctx:                    ctx,
@@ -174,11 +183,14 @@ func hasManagedPeerBinary(dir string) bool {
 	return false
 }
 
-func (s *service) PrepareTurn(ctx context.Context, session contract.Session, input PrepareInput) (dto.TurnRequest, error) {
+func (s *service) PrepareTurn(ctx context.Context, session contract.Session, input PrepareInput) (req dto.TurnRequest, err error) {
 	ctx, threadID, err := requireTurnContext(ctx, session)
 	if err != nil {
 		return dto.TurnRequest{}, err
 	}
+	span := s.beginTurnTraceSpan(ctx, "turn.prepare", threadID, input.AgentID, "", platformobs.NewCodeAnchor("internal/module/turn/service.go", "turn.(*service).PrepareTurn", 177), nil)
+	ctx = span.ctx
+	defer func() { s.finishTurnTraceSpan(span, err) }()
 	input = hydratePrepareInput(input, session)
 	// V1 provider-native skill discovery 只在 turn 侧补全元数据，正文由
 	// Claude/Codex 从 provider-native mirror 自行发现；hydrate 是 optional
@@ -196,14 +208,16 @@ func (s *service) PrepareTurn(ctx context.Context, session contract.Session, inp
 	userText := s.assembler.PromptText(input)
 	s.cleanupStaleToolResults(threadID, input)
 	localID := idgen.NewID("turn")
+	span.turnID = localID
 	mcp := s.manifest.Build(input, threadID)
+	span.metadata = turnPrepareTraceMetadata(input, mcp)
 	synthetic := s.syntheticMemoryContext(ctx, session, input, threadID, userText, mcp)
 	resolvedSkills := s.skills.Resolve(input.Skills, candidateSkills, userText)
 	assembledInputs := s.assembler.Assemble(input)
 	if len(synthetic.Inputs) > 0 {
 		assembledInputs = append(synthetic.Inputs, assembledInputs...)
 	}
-	req := dto.TurnRequest{
+	req = dto.TurnRequest{
 		LocalID:                      localID,
 		ThreadID:                     threadID,
 		CWD:                          strings.TrimSpace(input.CWD),
@@ -251,12 +265,15 @@ func turnMCPSnapshot(snapshot contract.MCPSnapshot, manifest dto.MCPManifest) co
 	return cloned
 }
 
-func (s *service) StartTurn(ctx context.Context, session contract.Session, req dto.TurnRequest) (contract.TurnHandle, error) {
+func (s *service) StartTurn(ctx context.Context, session contract.Session, req dto.TurnRequest) (handle contract.TurnHandle, err error) {
 	ctx, threadID, err := requireTurnContext(ctx, session, req.ThreadID)
 	req.LocalID = ensureLocalTurnID(req.LocalID)
 	if err != nil {
 		return nil, err
 	}
+	span := s.beginTurnTraceSpan(ctx, "turn.start", threadID, "", req.LocalID, platformobs.NewCodeAnchor("internal/module/turn/service.go", "turn.(*service).StartTurn", 254), nil)
+	ctx = span.ctx
+	defer func() { s.finishTurnTraceSpan(span, err) }()
 	req.ThreadID = threadID
 	s.tracker.Cleanup()
 	s.tracker.Start(req.LocalID, "", req.ThreadID)
@@ -266,7 +283,7 @@ func (s *service) StartTurn(ctx context.Context, session contract.Session, req d
 	// req.DedupeKey is empty.
 	s.tracker.RegisterDedupeKey(req.LocalID, req.DedupeKey)
 	s.recordDedupeUpsert(ctx, req.DedupeKey, req.LocalID, req.ThreadID)
-	handle, err := session.StartTurn(ctx, req)
+	handle, err = session.StartTurn(ctx, req)
 	if err != nil {
 		s.tracker.Complete(req.LocalID, false, err.Error())
 		s.recordDedupeTerminal(ctx, req.DedupeKey)
@@ -284,7 +301,7 @@ func (s *service) StartTurn(ctx context.Context, session contract.Session, req d
 	s.recordDedupeProviderID(ctx, req.DedupeKey, providerID)
 	s.mapObservationTurn(req.LocalID, providerID)
 	s.tracker.Update(req.LocalID, StateRunning)
-	s.watchTurn(handle, req.LocalID)
+	s.watchTurn(ctx, handle, req.LocalID, req.ThreadID)
 	return handle, nil
 }
 
@@ -503,7 +520,7 @@ func (s *service) recordDedupeTerminalForLocalID(ctx context.Context, localID st
 	s.recordDedupeTerminal(ctx, key)
 }
 
-func (s *service) watchTurn(handle contract.TurnHandle, localID string) {
+func (s *service) watchTurn(parentCtx context.Context, handle contract.TurnHandle, localID string, threadID string) {
 	if handle == nil {
 		return
 	}
@@ -514,6 +531,7 @@ func (s *service) watchTurn(handle contract.TurnHandle, localID string) {
 	if localID == "" {
 		return
 	}
+	span := s.beginTurnTraceSpan(parentCtx, "turn.watch.completed", threadID, "", localID, platformobs.NewCodeAnchor("internal/module/turn/service.go", "turn.(*service).watchTurn", 518), nil)
 	svcCtx := s.ctx
 	if svcCtx == nil {
 		svcCtx = context.Background()
@@ -526,6 +544,7 @@ func (s *service) watchTurn(handle contract.TurnHandle, localID string) {
 			s.tracker.Stall(localID, "turn watch timed out")
 			s.recordDedupeTerminalForLocalID(ctx, localID)
 			s.logger.Warn("turn watcher TTL expired", "localID", localID)
+			s.finishTurnTraceSpan(span, errors.New("turn watch timed out"))
 			return
 		case <-ctx.Done():
 			// service shutdown; drop the watcher without marking the turn
@@ -539,10 +558,12 @@ func (s *service) watchTurn(handle contract.TurnHandle, localID string) {
 			}
 			s.tracker.Complete(localID, false, err.Error())
 			s.recordDedupeTerminalForLocalID(ctx, localID)
+			s.finishTurnTraceSpan(span, err)
 			return
 		}
 		s.tracker.Complete(localID, true, "")
 		s.recordDedupeTerminalForLocalID(ctx, localID)
+		s.finishTurnTraceSpan(span, nil)
 	})
 }
 
@@ -605,4 +626,59 @@ func (s *service) Shutdown() {
 		return
 	}
 	s.ctxCancel()
+}
+
+type turnTraceSpan struct {
+	ctx       context.Context
+	trace     platformobs.TraceContext
+	kind      string
+	threadID  string
+	agentID   string
+	turnID    string
+	code      platformobs.CodeAnchor
+	metadata  map[string]any
+	startedAt time.Time
+}
+
+func (s *service) beginTurnTraceSpan(ctx context.Context, kind, threadID, agentID, turnID string, code platformobs.CodeAnchor, metadata map[string]any) turnTraceSpan {
+	ctx = util.NonNilContext(ctx)
+	trace, ok := platformobs.TraceFromContext(ctx)
+	parentSpanID := ""
+	if ok {
+		parentSpanID = trace.SpanID
+	}
+	if trace.TraceID == "" {
+		trace.TraceID = idgen.NewID("trace")
+	}
+	trace.ParentSpanID = parentSpanID
+	trace.SpanID = idgen.NewID("span")
+	span := turnTraceSpan{ctx: platformobs.ContextWithTrace(ctx, trace), trace: trace, kind: kind, threadID: strings.TrimSpace(threadID), agentID: strings.TrimSpace(agentID), turnID: strings.TrimSpace(turnID), code: code, metadata: metadata, startedAt: time.Now()}
+	s.recordTurnTraceEvent(span, "begin", platformobs.StatusOK, 0, "")
+	return span
+}
+
+func (s *service) finishTurnTraceSpan(span turnTraceSpan, err error) {
+	status := platformobs.StatusOK
+	message := ""
+	phase := "done"
+	if err != nil {
+		status = platformobs.StatusError
+		message = err.Error()
+		phase = "error"
+	}
+	s.recordTurnTraceEvent(span, phase, status, time.Since(span.startedAt).Milliseconds(), message)
+}
+
+func (s *service) recordTurnTraceEvent(span turnTraceSpan, phase string, status platformobs.Status, durationMS int64, message string) {
+	if s == nil || s.tracing == nil {
+		return
+	}
+	event := platformobs.TraceEvent{SchemaVersion: platformobs.SchemaVersion, Timestamp: time.Now(), TraceID: span.trace.TraceID, SpanID: span.trace.SpanID, ParentSpanID: span.trace.ParentSpanID, Kind: span.kind, Phase: phase, Method: span.kind, ThreadID: span.threadID, AgentID: span.agentID, TurnID: span.turnID, DurationMS: durationMS, Status: status, Error: message, Code: span.code, Metadata: span.metadata}
+	if err := s.tracing.Record(span.ctx, event); err != nil && s.logger != nil {
+		s.logger.Warn("turn trace record failed", "kind", span.kind, "phase", phase, "error", err)
+	}
+}
+
+func turnPrepareTraceMetadata(input PrepareInput, manifest dto.MCPManifest) map[string]any {
+	return map[string]any{"input_count": len(input.Inputs), "file_count": len(input.Files), "image_count": len(input.Images), "skill_count": len(input.Skills) + len(input.CandidateSkills), "manifest_tool_count": len(manifest.Binaries)}
 }
