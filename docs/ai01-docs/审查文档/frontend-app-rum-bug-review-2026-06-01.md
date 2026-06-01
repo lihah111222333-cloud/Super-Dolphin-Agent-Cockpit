@@ -1,4 +1,6 @@
-# Frontend-App 腾讯 RUM 扫描与闭环修复记录
+# Frontend-App 腾讯 RUM 扫描与闭环修复历史记录
+
+> 当前状态（2026-06-01 后续同步）：腾讯云 RUM / `aegis-web-sdk` 已从 `frontend-app` 运行时代码中移除。本文以下内容保留为历史审查记录，不再代表当前接入状态；当前代码不再读取 `VITE_TENCENT_RUM_*`，不再生成 Aegis chunk，也不再包含 `tencentRum.*` 模块。
 
 日期：2026-06-01
 分支：`main`
@@ -147,6 +149,14 @@ P2 已修复：
 1. Wails `/wails/ws` 是 WebSocket RPC，Aegis `injectTraceHeader` 只覆盖 fetch/XHR；完整前后端链路需要桥接层和后端协议改造。
 2. 主 JS chunk 仍超过 Vite 500 kB 提醒线；RUM SDK 已拆出，但主应用还需要页面级切分。
 3. 部分弹层还缺完整 focus trap；当前已修复误中断和 resizer 键盘阻塞，下一轮建议做统一弹层可访问性基建。
+
+## 后续脱离记录
+
+- 已删除 `frontend-app/src/shared/monitoring/tencentRum.js` 与 `frontend-app/src/shared/monitoring/tencentRum.test.js`。
+- 已删除 `aegis-web-sdk` 依赖，并从 `frontend-app/src/main.jsx` 移除 RUM 初始化入口。
+- 已从 `frontend-app/README.md` 移除腾讯 RUM 启用说明；当前不再暴露 `VITE_TENCENT_RUM_*` 配置契约。
+- 当前代码扫描确认 `frontend-app/src`、`frontend-app/README.md`、`frontend-app/package.json`、`frontend-app/package-lock.json`、`frontend-app/vite.config.js` 无 Tencent / RUM / Aegis 运行时命中。
+- 当前构建确认不再输出 `aegis.min-*` 或其他 Aegis 动态 chunk。
 
 ## 参考
 
