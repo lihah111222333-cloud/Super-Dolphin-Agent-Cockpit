@@ -182,7 +182,7 @@ func (s *service) recordUITrace(method, threadID, agentID, turnID, callID, toolN
 		ToolName:      strings.TrimSpace(toolName),
 		DurationMS:    duration.Milliseconds(),
 		Status:        status,
-		Code:          observability.NewCodeAnchor("internal/module/uistate/patch.go", method, 0),
+		Code:          observability.CodeAnchorFromCaller(0),
 		Metadata:      metadata,
 	})
 }

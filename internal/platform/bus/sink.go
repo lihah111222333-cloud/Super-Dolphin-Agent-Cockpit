@@ -185,18 +185,21 @@ func (s *LogSink) recordTraceEvent(ev any, status observability.Status, metadata
 		Timestamp:     time.Now(),
 		Kind:          "bus_event",
 		Method:        "bus.event.lifecycle",
+		TraceID:       ids.traceID,
+		SpanID:        ids.spanID,
+		ParentSpanID:  ids.parentSpanID,
 		ThreadID:      ids.threadID,
 		AgentID:       ids.agentID,
 		TurnID:        ids.turnID,
 		CallID:        ids.callID,
 		ToolName:      ids.toolName,
 		Status:        status,
-		Code:          observability.NewCodeAnchor("internal/platform/bus/sink.go", "LogSink.recordTraceEvent", 0),
+		Code:          observability.CodeAnchorFromCaller(0),
 		Metadata:      metadata,
 	})
 }
 
-type busTraceIDs struct{ threadID, agentID, turnID, callID, toolName string }
+type busTraceIDs struct{ traceID, spanID, parentSpanID, threadID, agentID, turnID, callID, toolName string }
 
 func busTraceIdentifiers(ev any) busTraceIDs {
 	value := reflect.Indirect(reflect.ValueOf(ev))
@@ -204,11 +207,14 @@ func busTraceIdentifiers(ev any) busTraceIDs {
 		return busTraceIDs{}
 	}
 	return busTraceIDs{
-		threadID: stringField(value, "ThreadID"),
-		agentID:  stringField(value, "AgentID"),
-		turnID:   stringField(value, "TurnID"),
-		callID:   stringField(value, "CallID"),
-		toolName: stringField(value, "ToolName"),
+		traceID:      stringField(value, "TraceID"),
+		spanID:       stringField(value, "SpanID"),
+		parentSpanID: stringField(value, "ParentSpanID"),
+		threadID:     stringField(value, "ThreadID"),
+		agentID:      stringField(value, "AgentID"),
+		turnID:       stringField(value, "TurnID"),
+		callID:       stringField(value, "CallID"),
+		toolName:     stringField(value, "ToolName"),
 	}
 }
 
