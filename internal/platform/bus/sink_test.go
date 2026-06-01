@@ -50,7 +50,7 @@ func TestLogSinkHighFrequencyEventsUseDebugLevel(t *testing.T) {
 
 	var buf lockedBuffer
 	logger := slog.New(slog.NewJSONHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug}))
-	sink := NewLogSink(dispatcher, logger)
+	sink := NewLogSink(logSinkParams{Dispatcher: dispatcher, Logger: logger})
 	t.Cleanup(sink.Close)
 
 	event.Publish(dispatcher, agentdto.StateChanged{})
