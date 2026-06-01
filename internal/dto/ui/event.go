@@ -19,6 +19,7 @@ type UITimelineAppended struct {
 	ItemKind  string `json:"item_kind"`
 	RequestID int64  `json:"request_id,omitempty"`
 	CallID    string `json:"call_id,omitempty"`
+	ToolName  string `json:"tool_name,omitempty"`
 }
 
 // UITokensUpdated reports token usage changes for a thread projection.

@@ -197,6 +197,7 @@ func (s *service) emitAppended(emitter AppendedEmitter, threadID string, item It
 		ItemKind:  item.Kind,
 		RequestID: item.RequestID,
 		CallID:    item.CallID,
+		ToolName:  strings.TrimSpace(util.FirstNonEmpty(item.ToolName, item.Tool)),
 	})
 }
 
