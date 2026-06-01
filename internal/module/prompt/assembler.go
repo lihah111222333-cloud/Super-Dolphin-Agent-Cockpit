@@ -364,9 +364,6 @@ func (s *service) logBuildFallback(stage string, err error) {
 }
 
 func (s *service) notifyInvalidationProviders(reason InvalidateReason) {
-	if s == nil {
-		return
-	}
 	s.dynamicMu.RLock()
 	providers := make([]DynamicSectionProvider, 0, len(s.dynamic))
 	for _, provider := range s.dynamic {

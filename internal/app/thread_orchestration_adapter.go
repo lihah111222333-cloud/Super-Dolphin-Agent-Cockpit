@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"errors"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	"github.com/anthropic-ai/super-agent-v3/internal/module/thread"
@@ -53,17 +54,17 @@ func (a threadOrchestrationAdapter) BindSessionGeneration(ctx context.Context, a
 }
 
 func (noopThreadOrchestrationFacade) LaunchAgent(context.Context, thread.LaunchAgentRequest) error {
-	return nil
+	return errors.New("orchestration: service not configured")
 }
 
 func (noopThreadOrchestrationFacade) StopAgent(context.Context, string) error {
-	return nil
+	return errors.New("orchestration: service not configured")
 }
 
 func (noopThreadOrchestrationFacade) Recover(context.Context, string) error {
-	return nil
+	return errors.New("orchestration: service not configured")
 }
 
 func (noopThreadOrchestrationFacade) BindSessionGeneration(context.Context, string, uint64) error {
-	return nil
+	return errors.New("orchestration: service not configured")
 }

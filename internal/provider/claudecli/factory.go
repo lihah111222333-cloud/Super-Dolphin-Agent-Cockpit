@@ -9,6 +9,7 @@ import (
 
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
+	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
 func encodeAttachmentHint(input dto.InputItem) string {
@@ -141,6 +142,7 @@ func decodeMessageBlock(role string, rawBlock json.RawMessage, data map[string]a
 	case "user":
 		return decodeUserMessageBlock(rawBlock, data)
 	default:
+		pkglogger.Get().Warn("claudecli: unknown message block role", "role", role)
 		return nil, nil
 	}
 }

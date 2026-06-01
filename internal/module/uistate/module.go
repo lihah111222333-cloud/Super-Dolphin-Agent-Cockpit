@@ -114,7 +114,10 @@ func (s *service) loadBatchConfigs(ctx context.Context, threads []ThreadSummary)
 	if len(threadIDs) == 0 {
 		return nil
 	}
-	batchConfigs, _ := bulkReader.ReadRuntimeConfigs(ctx, threadIDs)
+	batchConfigs, err := bulkReader.ReadRuntimeConfigs(ctx, threadIDs)
+	if err != nil {
+		s.logger.WarnContext(ctx, "uistate: ReadRuntimeConfigs failed", "err", err)
+	}
 	return batchConfigs
 }
 
@@ -140,7 +143,11 @@ func (s *service) enrichFromDB(ctx context.Context, agents []AgentSummary, threa
 		if batchConfigs != nil {
 			cfg = batchConfigs[threadID]
 		} else if s.runtimeConfig != nil {
-			cfg, _ = s.runtimeConfig.ReadRuntimeConfig(ctx, threadID)
+			var rcErr error
+			cfg, rcErr = s.runtimeConfig.ReadRuntimeConfig(ctx, threadID)
+			if rcErr != nil {
+				s.logger.WarnContext(ctx, "uistate: ReadRuntimeConfig failed", "threadID", threadID, "err", rcErr)
+			}
 		}
 
 		applyTaskRuntimeToThreadRuntimeConfig(threadID, cfg, runtimeMap)

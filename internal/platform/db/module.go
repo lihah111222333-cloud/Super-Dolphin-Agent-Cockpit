@@ -303,9 +303,13 @@ func getAppliedMigrations(ctx context.Context, pool *pgxpool.Pool) (map[string]b
 
 	for rows.Next() {
 		var f string
-		if err := rows.Scan(&f); err == nil {
-			applied[f] = true
+		if err := rows.Scan(&f); err != nil {
+			return nil, fmt.Errorf("scan migration filename: %w", err)
 		}
+		applied[f] = true
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate migrations: %w", err)
 	}
 	return applied, nil
 }

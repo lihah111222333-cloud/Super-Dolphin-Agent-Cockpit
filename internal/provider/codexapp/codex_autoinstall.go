@@ -82,14 +82,15 @@ func EnsureCodexBootstrap(ctx context.Context, cfg CodexBootstrapConfig) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
+	providerName := codexBootstrapProviderName(provider)
 	content := strings.Join([]string{
-		"model_provider = " + codexBootstrapTOMLString(provider),
+		"model_provider = " + strconv.Quote(provider),
 		"",
-		"[model_providers." + codexBootstrapTOMLString(provider) + "]",
-		"name = " + codexBootstrapTOMLString(codexBootstrapProviderName(provider)),
-		"base_url = " + codexBootstrapTOMLString(baseURL),
-		"env_key = " + codexBootstrapTOMLString(codexRelayBootstrapTokenEnv),
-		"wire_api = " + codexBootstrapTOMLString("responses"),
+		"[model_providers." + strconv.Quote(provider) + "]",
+		"name = " + strconv.Quote(providerName),
+		"base_url = " + strconv.Quote(baseURL),
+		"env_key = " + strconv.Quote(codexRelayBootstrapTokenEnv),
+		"wire_api = " + strconv.Quote("responses"),
 		"",
 	}, "\n")
 	configPath := filepath.Join(home, "config.toml")
@@ -116,15 +117,8 @@ func validateCodexBootstrapConfig(home, baseURL, bootstrapToken string) error {
 	return errors.Join(problems...)
 }
 
-func codexBootstrapTOMLString(value string) string {
-	return strconv.Quote(value)
-}
-
 func codexBootstrapProviderName(provider string) string {
-	if strings.TrimSpace(provider) == defaultBootstrapModelProvider {
-		return "Super Dolphin Relay"
-	}
-	return strings.TrimSpace(provider)
+	return map[bool]string{true: "Super Dolphin Relay", false: provider}[provider == defaultBootstrapModelProvider]
 }
 
 type codexGitHubRelease struct {
@@ -165,7 +159,7 @@ func bundledOrPathCodexAvailable(ctx context.Context) (bool, error) {
 	}
 	if bundledCodexRequired() {
 		return false, fmt.Errorf(
-			"codexapp: bundled Codex CLI is required but was not found in %s=%q; packaged asset is missing",
+			"codexapp: bundled Codex CLI is required but was not found in %s=\"%s\"; packaged asset is missing",
 			peerBinDirEnv,
 			strings.Join(bundledCodexPeerBinDirs(), string(os.PathListSeparator)),
 		)
@@ -176,7 +170,6 @@ func bundledOrPathCodexAvailable(ctx context.Context) (bool, error) {
 func bundledCodexRequired() bool {
 	return strings.TrimSpace(os.Getenv(requireBundledCodexEnv)) == "1"
 }
-
 func bundledCodexPeerBinDirs() []string {
 	dirs := filepath.SplitList(os.Getenv(peerBinDirEnv))
 	if bundledCodexRequired() && len(dirs) > 1 {
@@ -273,12 +266,9 @@ func codexManagedInstallRoot() (string, error) {
 }
 
 func findManagedCodexBinary(ctx context.Context, root, sourceSHA256 string) (string, error) {
-	entries, err := os.ReadDir(root)
-	if errors.Is(err, os.ErrNotExist) {
-		return "", nil
-	}
+	entries, err := readManagedCodexInstallRoot(root)
 	if err != nil {
-		return "", fmt.Errorf("read managed Codex install root %s: %w", root, err)
+		return "", err
 	}
 	names := make([]string, 0, len(entries))
 	for _, entry := range entries {
@@ -302,7 +292,23 @@ func findManagedCodexBinary(ctx context.Context, root, sourceSHA256 string) (str
 	}
 	return "", nil
 }
-
+func readManagedCodexInstallRoot(root string) ([]os.DirEntry, error) {
+	info, err := os.Stat(root)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("read managed Codex install root %s: %w", root, err)
+	}
+	if !info.IsDir() {
+		return nil, fmt.Errorf("read managed Codex install root %s: not a directory", root)
+	}
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		return nil, fmt.Errorf("read managed Codex install root %s: %w", root, err)
+	}
+	return entries, nil
+}
 func installManagedCodexCLI(ctx context.Context, root, checksum string) (string, error) {
 	release, err := fetchCodexRelease(ctx)
 	if err != nil {
@@ -562,7 +568,16 @@ func isExecutable(path string) bool {
 		return false
 	}
 	if runtime.GOOS == "windows" {
-		return true
+		header := make([]byte, 2)
+		f, err := os.Open(filepath.Clean(path))
+		if err != nil {
+			return false
+		}
+		defer f.Close()
+		if _, err := io.ReadFull(f, header); err != nil {
+			return false
+		}
+		return string(header) == "MZ"
 	}
 	return info.Mode().Perm()&0o111 != 0
 }

@@ -69,7 +69,12 @@ Thumbs.db
 # Local Claude harness state (settings, scheduled-task locks, per-user memory stores)
 /.claude/
 /.agents/
-/.codex/
+/.codex/*
+!/.codex/
+!/.codex/config.toml
+!/.codex/hooks.json
+!/.codex/.gitignore
+/.codex/logs/
 /.code_exec/
 /.tmp/
 /tmp/

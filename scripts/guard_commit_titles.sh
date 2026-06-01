@@ -56,7 +56,13 @@ commit_body() {
 
 has_chinese() {
   local text="$1"
-  printf '%s\n' "$text" | grep -qP '\p{Han}'
+  local pattern
+  pattern=$'\xE4[\xB8-\xBF][\x80-\xBF]|[\xE5-\xE9][\x80-\xBF][\x80-\xBF]'
+
+  (
+    export LC_ALL=C
+    [[ "$text" =~ $pattern ]]
+  )
 }
 
 check_message_parts() {
