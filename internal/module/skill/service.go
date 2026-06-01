@@ -98,7 +98,7 @@ func hashResolutionEnvelope(v any) string {
 }
 
 func (s *service) LookupArtifactApproval(_ context.Context, req contract.ArtifactApprovalRequest) (bool, error) {
-	if s == nil || s.approval == nil {
+	if s.approval == nil {
 		return false, nil
 	}
 	_, ok := s.approval.LookupArtifact(ApprovalRequest{
@@ -112,16 +112,13 @@ func (s *service) LookupArtifactApproval(_ context.Context, req contract.Artifac
 }
 
 func (s *service) ApprovalRevision() uint64 {
-	if s == nil || s.approval == nil {
+	if s.approval == nil {
 		return 0
 	}
 	return s.approval.Revision()
 }
 
 func (s *service) SkillRevision() uint64 {
-	if s == nil {
-		return 0
-	}
 	return atomic.LoadUint64(&s.skillsChangedSeq)
 }
 
