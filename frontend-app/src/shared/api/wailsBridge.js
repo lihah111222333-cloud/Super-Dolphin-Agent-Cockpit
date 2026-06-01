@@ -15,6 +15,7 @@ const WAILS_RUNTIME_MODULE = '/wails/runtime.js';
 const RPC_RESULT_PREVIEW_LIMIT = 1200;
 const FRONTEND_TRACE_INGEST_METHOD = 'observability/frontend/ingest';
 const FRONTEND_TRACE_BATCH_LIMIT = 50;
+const FRONTEND_TRACE_QUEUE_LIMIT = 500;
 const FRONTEND_TRACE_RPC_SLOW_MS = 1000;
 const FRONTEND_TRACE_ALLOWED_PHASES = new Set([
   'frontend.rpc.start',
@@ -334,10 +335,18 @@ function scheduleFrontendTraceFlush() {
   Promise.resolve().then(flushFrontendTraceQueue);
 }
 
+function enqueueFrontendTraceEvent(event) {
+  if (frontendTraceQueue.length >= FRONTEND_TRACE_QUEUE_LIMIT) {
+    const overflow = frontendTraceQueue.length - FRONTEND_TRACE_QUEUE_LIMIT + 1;
+    frontendTraceQueue.splice(0, overflow);
+  }
+  frontendTraceQueue.push(event);
+}
+
 export function emitFrontendTraceEvent(event, options = {}) {
   const sanitized = sanitizeFrontendTraceEvent(event);
   if (!shouldRemoteFlushFrontendTrace(sanitized)) return false;
-  frontendTraceQueue.push(sanitized);
+  enqueueFrontendTraceEvent(sanitized);
   if (options.flush !== false) scheduleFrontendTraceFlush();
   return true;
 }
