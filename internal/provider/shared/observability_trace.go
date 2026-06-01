@@ -15,7 +15,9 @@ func RecordTrace(ctx context.Context, tracer *observability.Service, event obser
 		return
 	}
 	fillTraceEvent(ctx, &event, provider, code)
-	_ = tracer.Record(ctx, event)
+	if err := tracer.Record(ctx, event); err != nil {
+		observability.WarnRecordError(nil, "provider.shared", event, err)
+	}
 }
 
 func fillTraceEvent(ctx context.Context, event *observability.TraceEvent, provider string, code observability.CodeAnchor) {

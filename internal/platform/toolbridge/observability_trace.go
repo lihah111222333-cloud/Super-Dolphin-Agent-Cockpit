@@ -17,7 +17,9 @@ func (h *Handler) recordToolTrace(ctx context.Context, event observability.Trace
 		return
 	}
 	fillToolTrace(ctx, &event)
-	_ = h.tracer.Record(ctx, event)
+	if err := h.tracer.Record(ctx, event); err != nil {
+		observability.WarnRecordError(h.logger, "toolbridge", event, err)
+	}
 }
 
 func beginToolTraceContext(ctx context.Context) context.Context {

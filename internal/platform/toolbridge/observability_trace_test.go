@@ -1,8 +1,10 @@
 package toolbridge
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"log/slog"
 	"strings"
 	"testing"
 
@@ -41,6 +43,31 @@ func TestHandleToolCallRecordsSummaryOnlyTraceEvents(t *testing.T) {
 	})
 	requireObservedToolCallResult(t, result, err)
 	assertSummaryOnlyToolTrace(t, tracer, secretOutput, secretFile)
+}
+
+func TestRecordToolTraceLogsRecordErrors(t *testing.T) {
+	cfg, err := observability.ParseConfig(observability.EnvMap{"OBS_TRACING_ENABLED": "1", "OBS_INDEX_MAX_EVENTS": "10", "OBS_INDEX_MAX_TRACE_EVENTS": "10", "OBS_INDEX_MAX_THREAD_EVENTS": "10"})
+	if err != nil {
+		t.Fatalf("ParseConfig: %v", err)
+	}
+	var logs bytes.Buffer
+	h := &Handler{
+		logger: slog.New(slog.NewTextHandler(&logs, &slog.HandlerOptions{Level: slog.LevelDebug})),
+		tracer: observability.NewService(cfg, observability.WithSink(failingToolTraceSink{})),
+	}
+
+	h.recordToolTrace(context.Background(), observability.TraceEvent{Method: "tool.call.end", Status: observability.StatusOK})
+
+	got := logs.String()
+	if !strings.Contains(got, "observability: trace record failed") || !strings.Contains(got, "toolbridge") || !strings.Contains(got, "tool.call.end") || !strings.Contains(got, "tool trace sink unavailable") {
+		t.Fatalf("logs = %q, want visible trace record failure warning", got)
+	}
+}
+
+type failingToolTraceSink struct{}
+
+func (failingToolTraceSink) Append(context.Context, observability.TraceEvent) error {
+	return assertErr("tool trace sink unavailable")
 }
 
 func TestHandleToolCallErrorTraceIncludesCompactStack(t *testing.T) {

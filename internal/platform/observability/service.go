@@ -2,6 +2,9 @@ package observability
 
 import (
 	"context"
+	"sort"
+	"strconv"
+	"strings"
 	"sync"
 	"time"
 )
@@ -142,7 +145,74 @@ func (s *Service) Query(ctx context.Context, query Query) QueryResult {
 		tail.Source = QuerySourceJSONLTail
 		return tail
 	}
-	return QueryResult{Source: QuerySourceMixed, Events: append(memory.Events, tail.Events...), Truncated: memory.Truncated || tail.Truncated}
+	return mergeQueryResults(memory, tail, query.Limit)
+}
+
+func mergeQueryResults(memory QueryResult, tail QueryResult, limit int) QueryResult {
+	combined := make([]TraceEvent, 0, len(memory.Events)+len(tail.Events))
+	seen := make(map[string]struct{}, len(memory.Events)+len(tail.Events))
+	for _, event := range memory.Events {
+		combined = appendUniqueTraceEvent(combined, seen, event)
+	}
+	for _, event := range tail.Events {
+		combined = appendUniqueTraceEvent(combined, seen, event)
+	}
+	sort.SliceStable(combined, func(i, j int) bool {
+		left, right := combined[i].Timestamp, combined[j].Timestamp
+		if left.IsZero() || right.IsZero() {
+			return false
+		}
+		return left.Before(right)
+	})
+	truncated := memory.Truncated || tail.Truncated
+	if limit > 0 && len(combined) > limit {
+		combined = combined[len(combined)-limit:]
+		truncated = true
+	}
+	return QueryResult{Source: QuerySourceMixed, Events: combined, Truncated: truncated}
+}
+
+func appendUniqueTraceEvent(events []TraceEvent, seen map[string]struct{}, event TraceEvent) []TraceEvent {
+	key := traceEventDedupeKey(event)
+	if key == "" {
+		return append(events, event)
+	}
+	if _, ok := seen[key]; ok {
+		return events
+	}
+	seen[key] = struct{}{}
+	return append(events, event)
+}
+
+func traceEventDedupeKey(event TraceEvent) string {
+	if event.TraceID == "" && event.SpanID == "" && event.CallID == "" && event.TurnID == "" && event.Method == "" {
+		return ""
+	}
+	parts := []string{
+		event.TraceID,
+		event.SpanID,
+		event.ParentSpanID,
+		event.Kind,
+		event.Phase,
+		event.Method,
+		event.ThreadID,
+		event.AgentID,
+		event.TurnID,
+		event.CallID,
+		event.ToolName,
+		event.ClientKind,
+		event.ClientRoute,
+		strconv.FormatInt(event.DurationMS, 10),
+		string(event.Status),
+		event.Error,
+		event.Code.File,
+		event.Code.Function,
+		strconv.Itoa(event.Code.Line),
+	}
+	if !event.Timestamp.IsZero() {
+		parts = append(parts, event.Timestamp.UTC().Format(time.RFC3339Nano))
+	}
+	return strings.Join(parts, "\x00")
 }
 
 func (s *Service) queryTail(ctx context.Context, query Query) (QueryResult, error) {

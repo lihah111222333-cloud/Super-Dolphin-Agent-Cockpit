@@ -1,11 +1,22 @@
 package shared
 
 import (
+	"bytes"
 	"context"
+	"errors"
+	"log/slog"
+	"strings"
 	"testing"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/observability"
+	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
+
+type failingTraceSink struct{}
+
+func (failingTraceSink) Append(context.Context, observability.TraceEvent) error {
+	return errors.New("trace sink unavailable")
+}
 
 func TestRecordTraceAddsProviderCorrelationAndNoPayload(t *testing.T) {
 	cfg, err := observability.ParseConfig(observability.EnvMap{"OBS_TRACING_ENABLED": "1", "OBS_INDEX_MAX_EVENTS": "10", "OBS_INDEX_MAX_TRACE_EVENTS": "10", "OBS_INDEX_MAX_THREAD_EVENTS": "10"})
@@ -24,5 +35,24 @@ func TestRecordTraceAddsProviderCorrelationAndNoPayload(t *testing.T) {
 	}
 	if _, ok := events[0].Metadata["prompt"]; ok {
 		t.Fatalf("event leaked prompt metadata: %+v", events[0])
+	}
+}
+
+func TestRecordTraceLogsRecordErrors(t *testing.T) {
+	cfg, err := observability.ParseConfig(observability.EnvMap{"OBS_TRACING_ENABLED": "1", "OBS_INDEX_MAX_EVENTS": "10", "OBS_INDEX_MAX_TRACE_EVENTS": "10", "OBS_INDEX_MAX_THREAD_EVENTS": "10"})
+	if err != nil {
+		t.Fatalf("ParseConfig: %v", err)
+	}
+	var logs bytes.Buffer
+	previousLogger := pkglogger.Get()
+	pkglogger.SetForTest(slog.New(slog.NewTextHandler(&logs, &slog.HandlerOptions{Level: slog.LevelDebug})))
+	t.Cleanup(func() { pkglogger.SetForTest(previousLogger) })
+	svc := observability.NewService(cfg, observability.WithSink(failingTraceSink{}))
+
+	RecordTrace(context.Background(), svc, observability.TraceEvent{Method: "provider.turn.run", Status: observability.StatusOK}, "codex", observability.CodeAnchor{File: "test.go", Function: "test", Line: 1})
+
+	got := logs.String()
+	if !strings.Contains(got, "observability: trace record failed") || !strings.Contains(got, "provider.shared") || !strings.Contains(got, "provider.turn.run") || !strings.Contains(got, "trace sink unavailable") {
+		t.Fatalf("logs = %q, want visible trace record failure warning", got)
 	}
 }
