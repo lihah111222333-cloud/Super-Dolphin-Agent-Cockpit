@@ -14,6 +14,7 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/module/insight"
 	"github.com/anthropic-ai/super-agent-v3/internal/module/memory"
 	"github.com/anthropic-ai/super-agent-v3/internal/module/notify"
+	moduleobservability "github.com/anthropic-ai/super-agent-v3/internal/module/observability"
 	"github.com/anthropic-ai/super-agent-v3/internal/module/prompt"
 	"github.com/anthropic-ai/super-agent-v3/internal/module/skill"
 	"github.com/anthropic-ai/super-agent-v3/internal/module/thread"
@@ -26,6 +27,7 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/db"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/hooks"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/mcpcontrol"
+	platformobservability "github.com/anthropic-ai/super-agent-v3/internal/platform/observability"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/pidregistry"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
 	platformrunner "github.com/anthropic-ai/super-agent-v3/internal/platform/runner"
@@ -54,11 +56,13 @@ var Module = fx.Options(
 	mcpcontrol.Module,
 	platformrunner.Module,
 	statemachine.Module,
+	platformobservability.Module,
 	store.Module,
 	dashboard.Module,
 	feedback.Module,
 	memory.Module,
 	prompt.Module,
+	moduleobservability.Module,
 	skill.Module,
 	fx.Invoke(initProviderHooks),
 	thread.Module,
