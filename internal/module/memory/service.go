@@ -320,7 +320,11 @@ func (h *MemoryLifecycleHooks) writeIntent(ctx context.Context, threadID string,
 	if store == secondary {
 		scope = secondaryScope
 	}
-	if h.checkDedupAndHandle(entry, store, scope, options) {
+	handled, dedupErr := h.checkDedupAndHandle(entry, store, scope, options)
+	if dedupErr != nil {
+		return dedupErr
+	}
+	if handled {
 		return nil
 	}
 
@@ -333,9 +337,9 @@ func (h *MemoryLifecycleHooks) writeIntent(ctx context.Context, threadID string,
 
 // checkDedupAndHandle runs the dedup filter check and handles Skip/Merge.
 // Returns true if the write was fully handled (caller should not proceed).
-func (h *MemoryLifecycleHooks) checkDedupAndHandle(entry MemoryWriteRequest, store memoryStructuredStore, scope string, options WriteOptions) bool {
+func (h *MemoryLifecycleHooks) checkDedupAndHandle(entry MemoryWriteRequest, store memoryStructuredStore, scope string, options WriteOptions) (bool, error) {
 	if h.dedupFilter == nil {
-		return false
+		return false, nil
 	}
 	candidate := dedup.EntrySnapshot{
 		Name:        entry.Name,
@@ -349,29 +353,28 @@ func (h *MemoryLifecycleHooks) checkDedupAndHandle(entry MemoryWriteRequest, sto
 		if h.logger != nil {
 			h.logger.Warn("memory dedup check failed", "err", err, "scope", scope, "type", entry.Type)
 		}
-		return false
+		return false, nil
 	}
 	switch result.Action {
 	case dedup.Skip:
-		return true
+		return true, nil
 	case dedup.Merge:
 		return h.tryDedupMerge(result, store, entry.Type, options)
 	}
-	return false
+	return false, nil
 }
 
-func (h *MemoryLifecycleHooks) tryDedupMerge(result dedup.CheckResult, store memoryStructuredStore, memType MemoryType, options WriteOptions) bool {
+func (h *MemoryLifecycleHooks) tryDedupMerge(result dedup.CheckResult, store memoryStructuredStore, memType MemoryType, options WriteOptions) (bool, error) {
 	ws, ok := store.(memoryWriteStore)
 	if !ok {
-		return false
+		return false, nil
 	}
 	merged := snapshotToMemoryEntry(*result.MergedEntry)
 	if mergeErr := mergeAndWriteMemory(ws, result.TargetPath, merged, options, h.memoryCoordinator()); mergeErr != nil {
-
-		return false
+		return false, mergeErr
 	}
 	h.handleDedupOverflow(ws, memType, options)
-	return true
+	return true, nil
 }
 
 func (h *MemoryLifecycleHooks) maybeOverflowMerge(store memoryStructuredStore, memType MemoryType, options WriteOptions) {
