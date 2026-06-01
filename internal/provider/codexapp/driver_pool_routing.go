@@ -15,6 +15,7 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
+	"github.com/anthropic-ai/super-agent-v3/internal/provider/codexapp/supportutil"
 	providershared "github.com/anthropic-ai/super-agent-v3/internal/provider/shared"
 )
 
@@ -230,7 +231,7 @@ func defaultCodexModelProviderForHome(providerHome codexProviderHomeSelection) s
 }
 
 func defaultCodexModelProviderForConfig(config map[string]any, fallback string) string {
-	if provider := firstConfigString(config, "modelProvider", "model_provider"); provider != "" {
+	if provider := supportutil.FirstConfigString(config, "modelProvider", "model_provider"); provider != "" {
 		return provider
 	}
 	if fallback = strings.TrimSpace(fallback); fallback != "" {
