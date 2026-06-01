@@ -4749,8 +4749,7 @@ function ReasoningTrace({ message, active = false }) {
   const StatusIcon = done ? CheckCircle2 : Clock3;
   const StepIcon = meta.Icon;
   return (
-    <article className={`message assistant message--reasoning${done ? '' : ' is-active'}`} aria-label="AI 思考记录">
-      <MessageAvatar role="assistant" />
+    <article className={`reasoning-message${done ? '' : ' is-active'}`} aria-label="AI 思考记录">
       <details className="reasoning-trace">
         <summary>
           <span className="reasoning-trace-status">
