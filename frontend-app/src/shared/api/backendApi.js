@@ -24,6 +24,11 @@ export const RPC_METHODS = Object.freeze({
   UI_STATE_GET: 'ui/state/get',
   UI_SIDEBAR_GET: 'ui/sidebar/get',
   UI_LOG: 'ui/log',
+  OBSERVABILITY_TRACE_GET: 'observability/trace/get',
+  OBSERVABILITY_THREAD_RECENT: 'observability/thread/recent',
+  OBSERVABILITY_SLOW_LIST: 'observability/slow/list',
+  OBSERVABILITY_ERROR_LIST: 'observability/error/list',
+  OBSERVABILITY_STATUS: 'observability/status',
   OBSERVABILITY_FRONTEND_INGEST: 'observability/frontend/ingest',
   UI_OPEN_NEW_WINDOW: 'ui/openNewWindow',
 
@@ -187,6 +192,32 @@ function requireBoolean(method, params, key) {
   if (!hasOwn(payload, key)) throw new Error(`${method}: ${key} is required`);
   if (typeof payload[key] !== 'boolean') throw new Error(`${method}: ${key} must be boolean`);
   return { ...payload, [key]: payload[key] };
+}
+
+function normalizeOptionalLimit(method, payload) {
+  if (!hasOwn(payload, 'limit') || payload.limit === undefined || payload.limit === '') return undefined;
+  const limit = Number(payload.limit);
+  if (!Number.isInteger(limit) || limit <= 0) throw new Error(`${method}: limit must be a positive integer`);
+  return limit;
+}
+
+function observabilityTracePayload(method, params) {
+  const payload = assertPlainObject(method, params);
+  const traceId = normalizeString(payload.traceId || payload.trace_id);
+  if (!traceId) throw new Error(`${method}: traceId is required`);
+  return cleanObject({ traceId, limit: normalizeOptionalLimit(method, payload), includeTail: payload.includeTail });
+}
+
+function observabilityThreadPayload(method, params) {
+  const payload = assertPlainObject(method, params);
+  const threadId = normalizeString(payload.threadId || payload.thread_id);
+  if (!threadId) throw new Error(`${method}: threadId is required`);
+  return cleanObject({ threadId, limit: normalizeOptionalLimit(method, payload), includeTail: payload.includeTail });
+}
+
+function observabilityListPayload(method, params = {}) {
+  const payload = assertPlainObject(method, params);
+  return cleanObject({ limit: normalizeOptionalLimit(method, payload), component: normalizeString(payload.component) });
 }
 
 function legacyThreadNamePayload(method, params) {
@@ -565,6 +596,11 @@ export function createBackendApi(deps = {}) {
       RPC_METHODS.UI_DASHBOARD_GET,
       requireKey(RPC_METHODS.UI_DASHBOARD_GET, requireCwd(RPC_METHODS.UI_DASHBOARD_GET, params), 'page'),
     ),
+    getObservabilityTrace: (params) => callBackend(RPC_METHODS.OBSERVABILITY_TRACE_GET, observabilityTracePayload(RPC_METHODS.OBSERVABILITY_TRACE_GET, params)),
+    getObservabilityThreadRecent: (params) => callBackend(RPC_METHODS.OBSERVABILITY_THREAD_RECENT, observabilityThreadPayload(RPC_METHODS.OBSERVABILITY_THREAD_RECENT, params)),
+    listObservabilitySlow: (params = {}) => callBackend(RPC_METHODS.OBSERVABILITY_SLOW_LIST, observabilityListPayload(RPC_METHODS.OBSERVABILITY_SLOW_LIST, params)),
+    listObservabilityErrors: (params = {}) => callBackend(RPC_METHODS.OBSERVABILITY_ERROR_LIST, observabilityListPayload(RPC_METHODS.OBSERVABILITY_ERROR_LIST, params)),
+    getObservabilityStatus: () => callBackend(RPC_METHODS.OBSERVABILITY_STATUS, {}),
     getMemorySnapshot: (params) => callBackend(RPC_METHODS.UI_MEMORY_GET, requireCwd(RPC_METHODS.UI_MEMORY_GET, params)),
     getMemoryEntry: (params) => callBackend(RPC_METHODS.UI_MEMORY_ENTRY_GET, memoryEntryGetPayload(RPC_METHODS.UI_MEMORY_ENTRY_GET, params)),
     upsertMemoryEntry: (params) => callBackend(RPC_METHODS.UI_MEMORY_ENTRY_UPSERT, memoryEntryUpsertPayload(RPC_METHODS.UI_MEMORY_ENTRY_UPSERT, params)),
@@ -854,6 +890,11 @@ export const getPreference = backendApi.getPreference;
 export const getAllPreferences = backendApi.getAllPreferences;
 export const setPreference = backendApi.setPreference;
 export const getDashboardPage = backendApi.getDashboardPage;
+export const getObservabilityTrace = backendApi.getObservabilityTrace;
+export const getObservabilityThreadRecent = backendApi.getObservabilityThreadRecent;
+export const listObservabilitySlow = backendApi.listObservabilitySlow;
+export const listObservabilityErrors = backendApi.listObservabilityErrors;
+export const getObservabilityStatus = backendApi.getObservabilityStatus;
 export const getMemorySnapshot = backendApi.getMemorySnapshot;
 export const getMemoryEntry = backendApi.getMemoryEntry;
 export const upsertMemoryEntry = backendApi.upsertMemoryEntry;
