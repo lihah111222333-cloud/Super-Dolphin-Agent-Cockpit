@@ -618,7 +618,7 @@ Stack rules:
 Environment variables:
 
 ```text
-OBS_TRACING_ENABLED=1
+OBS_TRACING_ENABLED=<unset|1|0>   # unset/1 = safe tracing enabled; 0 = explicitly disabled
 OBS_TRACE_DEBUG=0
 OBS_TRACE_STACKS=slow,error,panic
 OBS_INDEX_MAX_EVENTS=5000
@@ -637,7 +637,7 @@ OBS_SLOW_RPC_UI_STATE_MS=300
 OBS_SLOW_RPC_TURN_START_MS=1000
 ```
 
-Defaults should be safe for packaged app users: tracing is disabled when `OBS_TRACING_ENABLED` is absent and enabled only when `OBS_TRACING_ENABLED=1` is set.
+Defaults should be safe for packaged app users: tracing runs in safe mode when `OBS_TRACING_ENABLED` is absent or `1`, and is disabled only when `OBS_TRACING_ENABLED=0` is set.
 
 Validation requirements:
 
@@ -817,7 +817,7 @@ frontend-app/src/App.test.jsx only if render/profiler tracing is wired
 
 Manual smoke:
 
-1. Start app with tracing explicitly enabled via `OBS_TRACING_ENABLED=1`; if the env var is absent, tracing is disabled by default.
+1. Start app normally; tracing is enabled in safe mode by default. Set `OBS_TRACING_ENABLED=0` only when intentionally disabling tracing.
 2. Send one message.
 3. Locate `trace-YYYY-MM-DD.jsonl` in project log dir.
 4. Confirm the trace directory and file permissions are owner-only where supported.
@@ -841,7 +841,7 @@ Manual smoke:
 
 ## 15. Open Questions
 
-1. Should trace JSONL stay disabled by default in packaged production unless `OBS_TRACING_ENABLED=1` is set, and then default to slow/error only?
+1. Should trace JSONL stay enabled by default in packaged production safe mode, while still allowing `OBS_TRACING_ENABLED=0` to disable it?
 2. Should normal successful RPC events be written to JSONL, or only indexed in memory unless slow/error?
 3. What UI location should host the trace view: Dashboard page, debug panel, or per-thread drawer?
 4. Should code anchors support click-to-open through existing `ui/code/open`?
@@ -850,7 +850,7 @@ Manual smoke:
 
 ## 16. Recommended Answers
 
-1. Keep tracing disabled by default; enable it only with `OBS_TRACING_ENABLED=1`, and then keep the default sampler to lifecycle/RPC done/slow/error and summaries.
+1. Keep tracing enabled by default in safe mode; allow explicit opt-out with `OBS_TRACING_ENABLED=0`, and keep the default sampler to lifecycle/RPC done/slow/error and summaries.
 2. Write successful RPC done events for important lifecycle methods; for high-frequency methods such as `ui/state/get`, `ui/sidebar/get`, and `ui/log`, write only slow/error events by default and keep normal success in memory or sampled summaries.
 3. Start with Dashboard debug panel plus trace id search; per-thread drawer can come later.
 4. Yes, use existing code preview/open RPC if available; otherwise render path/function/line text.

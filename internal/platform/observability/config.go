@@ -54,7 +54,7 @@ func ParseConfig(env interface{ LookupEnv(string) (string, bool) }) (Config, err
 	if err != nil {
 		return Config{}, err
 	}
-	if !present || !enabled {
+	if present && !enabled {
 		cfg.Enabled = false
 		cfg.DisabledReason = "observability tracing disabled"
 		return cfg, nil
