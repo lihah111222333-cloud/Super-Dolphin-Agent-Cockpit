@@ -9,6 +9,7 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/config"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/observability"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
 	platformrunner "github.com/anthropic-ai/super-agent-v3/internal/platform/runner"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
@@ -32,12 +33,21 @@ var Module = fx.Module("ui.wails",
 	fx.Invoke(bindEventBridge),
 )
 
-func NewApp(dispatcher contract.RPCDispatcher, cfg *config.Config) *App {
+type appParams struct {
+	fx.In
+
+	Dispatcher    contract.RPCDispatcher
+	Config        *config.Config
+	Observability *observability.Service `optional:"true"`
+}
+
+func NewApp(p appParams) *App {
 	return &App{
-		dispatch:    dispatcher.Dispatch,
-		emitter:     func(string, any) {},
-		windowTitle: applicationTitle(),
-		debug:       isDebug(cfg),
+		dispatch:      p.Dispatcher.Dispatch,
+		emitter:       func(string, any) {},
+		windowTitle:   applicationTitle(),
+		debug:         isDebug(p.Config),
+		observability: p.Observability,
 	}
 }
 
