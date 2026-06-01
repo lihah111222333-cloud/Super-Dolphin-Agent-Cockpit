@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"strings"
+	"time"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/difftracker"
 )
@@ -37,20 +38,28 @@ func (h *Handler) emitToolDiff(ctx context.Context, req ToolCallRequest, snapsho
 	if h == nil || snapshot == nil || h.emitter == nil {
 		return
 	}
+	started := time.Now()
 	diffText, files, err := difftracker.EmitGitDiff(ctx, snapshot)
-	if err != nil || diffText == "" {
+	if err != nil {
+		h.recordToolTrace(ctx, toolDiffTraceEvent(req, difftracker.DiffResult{Files: files}, time.Since(started), err))
 		return
 	}
-	if err := h.emitter(ctx, difftracker.DiffResult{
+	if diffText == "" {
+		return
+	}
+	diff := difftracker.DiffResult{
 		AgentID:  req.AgentID,
 		ThreadID: req.ThreadID,
 		CallID:   req.CallID,
 		ToolName: req.Name,
 		DiffText: diffText,
 		Files:    files,
-	}); err != nil {
+	}
+	if err := h.emitter(ctx, diff); err != nil {
+		h.recordToolTrace(ctx, toolDiffTraceEvent(req, diff, time.Since(started), err))
 		return
 	}
+	h.recordToolTrace(ctx, toolDiffTraceEvent(req, diff, time.Since(started), nil))
 	if h.diffFallback != nil {
 		h.diffFallback.MarkSeen(req.CallID)
 	}

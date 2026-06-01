@@ -9,12 +9,14 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	providerdto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
 	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/difftracker"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/mcpcontrol"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/observability"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 	"github.com/kelindar/event"
 )
@@ -38,6 +40,7 @@ type Handler struct {
 	preferences  uiPreferenceReader
 	cfg          *platformconfig.Config
 	logger       *pkglogger.Logger
+	tracer       *observability.Service
 	dispatcher   *event.Dispatcher
 	// hostTools 是可选依赖：agent-terminal 生产图只装配 memory_read / memory_write
 	// host-direct 工具。字段保持 nil-safe：测试或未来无 HostToolRegistry 的
@@ -78,6 +81,7 @@ func NewHandler(in handlerIn) *Handler {
 		preferences:  in.Preferences,
 		cfg:          in.Config,
 		logger:       logger,
+		tracer:       in.Tracer,
 		dispatcher:   in.Dispatcher,
 		hostTools:    in.HostTools,
 		surfaces:     make(map[string]*codexToolSurface),
@@ -86,17 +90,25 @@ func NewHandler(in handlerIn) *Handler {
 	return handler
 }
 
-func (h *Handler) HandleToolCall(ctx context.Context, msg contract.ToolCallRawMessage) (any, error) {
+func (h *Handler) HandleToolCall(ctx context.Context, msg contract.ToolCallRawMessage) (result any, err error) {
 	req, err := decodeToolCallRequest(msg.Params)
 	if err != nil {
 		return nil, err
 	}
-	surfaceReq := req
-	if strings.TrimSpace(surfaceReq.CallID) == "" {
-		surfaceReq.CallID = callIDFromRawJSONRPCID(msg.ID)
+	traceReq := req
+	if strings.TrimSpace(traceReq.CallID) == "" {
+		traceReq.CallID = callIDFromRawJSONRPCID(msg.ID)
 	}
-	if result, handled, err := h.routeCodexSurfaceToolCall(ctx, surfaceReq); handled || err != nil {
-		return result, err
+	traceReq = normalizeToolCallRequest(traceReq)
+	ctx = beginToolTraceContext(ctx)
+	started := time.Now()
+	h.recordToolTrace(ctx, toolTraceBeginEvent(traceReq))
+	defer func() {
+		h.recordToolTrace(ctx, toolTraceEndEvent(traceReq, result, err, time.Since(started), 0))
+	}()
+	surfaceReq := traceReq
+	if result, handled, routeErr := h.routeCodexSurfaceToolCall(ctx, surfaceReq); handled || routeErr != nil {
+		return result, routeErr
 	}
 	return h.routeToolCall(ctx, req)
 }
