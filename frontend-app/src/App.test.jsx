@@ -2377,7 +2377,7 @@ describe('frontend-app connected client shell', () => {
     });
   });
 
-  it('uses the opened thread provider model selector even when the selected provider differs', async () => {
+  it('uses the opened thread provider model selector without showing the global provider toggle', async () => {
     backend.getPreference.mockImplementation(({ key }) => Promise.resolve({
       'settings.provider.active': 'claude',
       'settings.provider.claude.model': 'sonnet',
@@ -2401,13 +2401,10 @@ describe('frontend-app connected client shell', () => {
 
     render(<App />);
 
-    await screen.findByLabelText('切换 Claude / Codex provider');
     await waitFor(() => {
-      const providerToggle = screen.getByLabelText('切换 Claude / Codex provider');
-      expect(providerToggle).toHaveTextContent('Codex');
-      expect(providerToggle).toBeDisabled();
       expect(screen.getByRole('button', { name: '选择模型' })).toHaveTextContent('GPT-5.4 · 中');
     });
+    expect(screen.queryByLabelText('切换 Claude / Codex provider')).not.toBeInTheDocument();
   });
 
   it('uses sidebar runtime metadata for provider-less thread cards', async () => {
