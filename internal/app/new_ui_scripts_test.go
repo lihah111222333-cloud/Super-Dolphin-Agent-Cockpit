@@ -24,6 +24,8 @@ func TestNewUIDesktopScriptContract(t *testing.T) {
 		`VITE_DEV_PORT="${VITE_DEV_HOST##*:}"`,
 		`fail_if_port_busy "$VITE_DEV_HOST:$VITE_DEV_PORT"`,
 		`npm run dev -- --host "$VITE_DEV_HOST" --port "$VITE_DEV_PORT" --strictPort`,
+		`ensure_embedded_frontend_dist`,
+		`make frontend-build`,
 		`go run ./cmd/agent-terminal`,
 		`cleanup`,
 	}
@@ -35,8 +37,8 @@ func TestNewUIDesktopScriptContract(t *testing.T) {
 	if strings.Contains(text, "(cd \"$FRONTEND_APP_DIR\" && npm run dev) &") {
 		t.Fatal("run-new-ui-desktop.sh must pass VITE_DEV_URL host and port into Vite")
 	}
-	if strings.Contains(text, "cmd/agent-terminal/frontend") {
-		t.Fatal("run-new-ui-desktop.sh must not start or mutate the legacy frontend package")
+	if strings.Contains(text, `cmd/agent-terminal/frontend && npm run dev`) {
+		t.Fatal("run-new-ui-desktop.sh must not start the legacy frontend dev server")
 	}
 }
 

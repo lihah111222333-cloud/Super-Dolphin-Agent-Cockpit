@@ -45,6 +45,14 @@ ensure_node_deps() {
   fi
 }
 
+ensure_embedded_frontend_dist() {
+  if [ -f "$PROJECT_DIR/cmd/agent-terminal/frontend/dist/index.html" ]; then
+    return 0
+  fi
+  echo "  → building embedded agent-terminal frontend assets"
+  (cd "$PROJECT_DIR" && make frontend-build)
+}
+
 ensure_peer_binaries() {
   local missing=0
   for bin in mcp-orch mcp-lsp; do
@@ -340,6 +348,7 @@ fail_if_port_busy "$SUPER_DOLPHIN_HTTP_ADDR"
 fail_if_port_busy "$GO_AGENT_CTL_RPC_ADDR"
 ensure_local_postgres
 ensure_node_deps "$FRONTEND_APP_DIR"
+ensure_embedded_frontend_dist
 ensure_peer_binaries
 
 echo "┌─────────────────────────────────────────┐"
