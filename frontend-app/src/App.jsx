@@ -1062,14 +1062,6 @@ function workStatusForThread({ sending, loading, activeThreadId, activeThread, s
   };
 }
 
-function hasAssistantReply(messages = []) {
-  return (messages || []).some((message) => (
-    (message?.role || '').toString().trim().toLowerCase() === 'assistant'
-    && !isReasoningMessage(message)
-    && Boolean((message?.text || '').toString().trim())
-  ));
-}
-
 function hasAssistantReplyAfterLastUser(messages = []) {
   let lastUserIndex = -1;
   for (let index = 0; index < messages.length; index += 1) {
@@ -1454,6 +1446,17 @@ function wordListFromText(value) {
 
 function textValue(value) {
   return value === null || value === undefined ? '' : value.toString().trim();
+}
+
+function runUIAction(action) {
+  try {
+    const result = typeof action === 'function' ? action() : action;
+    if (result && typeof result.catch === 'function') {
+      void result.catch(() => {});
+    }
+  } catch (error) {
+    void error;
+  }
 }
 
 function normalizeSummarySuggestion(value) {
@@ -3022,9 +3025,14 @@ function ChatPage({ store, projectPath }) {
   const modelThreadId = composerConfigThreadId(store, activeThreadId);
   const activeThread = activeThreadForStore(store);
   const timelineBlocked = Boolean(activeThreadId && store.threadStateLoadingByThread?.[activeThreadId]);
-  const [lastSettledThreadId, setLastSettledThreadId] = useState(activeThreadId);
-  const timelineContentBlocked = timelineBlocked && normalizedThreadIdentity(lastSettledThreadId) !== normalizedThreadIdentity(activeThreadId);
-  const messages = threadScopedMapValue(store.timelinesByThread, activeThreadId, activeThread, []) || [];
+  const cachedTimeline = threadScopedMapValue(store.timelinesByThread, activeThreadId, activeThread, []) || [];
+  const timelineReady = Boolean(
+    activeThreadId
+    && store.threadTimelineReadyByThread?.[activeThreadId]
+    && (!timelineBlocked || cachedTimeline.length > 0),
+  );
+  const timelineBlockedWithoutCache = timelineBlocked && !timelineReady;
+  const messages = timelineBlockedWithoutCache ? [] : cachedTimeline;
   const tokenUsage = threadScopedMapValue(store.tokenUsageByThread, activeThreadId, activeThread, null);
   const activityStats = threadScopedMapValue(store.activityStatsByThread, activeThreadId, activeThread, null);
   const diffText = threadScopedMapValue(store.diffTextByThread, activeThreadId, activeThread, '') || '';
@@ -3043,10 +3051,6 @@ function ChatPage({ store, projectPath }) {
   const effectiveThreadRailWidth = clampWidth(threadRailWidth, THREAD_RAIL_MIN_WIDTH, threadRailMaxWidth);
   const maxRightPanelWidth = rightPanelMaxWidth(viewportWidth, effectiveThreadRailWidth);
   const rightPanelWidth = clampWidth(store.rightPanelWidth, 0, maxRightPanelWidth);
-
-  useEffect(() => {
-    if (!timelineBlocked) setLastSettledThreadId(activeThreadId);
-  }, [activeThreadId, timelineBlocked]);
 
   useEffect(() => {
     const onResize = () => setViewportWidth(currentViewportWidth());
@@ -3078,12 +3082,24 @@ function ChatPage({ store, projectPath }) {
   }, [maxRightPanelWidth, rightPanelOpen, store, viewportWidth]);
 
   useEffect(() => {
+    if (!rightPanelOpen || !activeThreadId) return;
+    if (store.threadDiffReadyByThread?.[activeThreadId]) return;
+    if (store.threadStateLoadingByThread?.[activeThreadId]) return;
+    runUIAction(() => store.syncThreadState?.(activeThreadId, {
+      includeArchived: true,
+      includeDiff: true,
+      loadMessages: false,
+      preserveActiveThreadId: true,
+    }));
+  }, [activeThreadId, rightPanelOpen, store]);
+
+  useEffect(() => {
     const onKeyDown = (event) => {
       if (event.defaultPrevented || event.key !== 'Escape' || event.metaKey || event.ctrlKey || event.altKey || event.shiftKey) return;
       if (shouldIgnoreGlobalEscape(event.target)) return;
       if (!store.hasActiveThreadActions?.()) return;
       event.preventDefault();
-      void store.interruptActiveThread?.();
+      runUIAction(() => store.interruptActiveThread?.());
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
@@ -3252,7 +3268,7 @@ function ChatPage({ store, projectPath }) {
           activeTurn={activeTurn}
           modelThreadId={modelThreadId}
           timelineBlocked={timelineBlocked}
-          timelineContentBlocked={timelineContentBlocked}
+          timelineContentBlocked={timelineBlockedWithoutCache}
           canUseProjectActions={canUseProjectActions}
         />
         {rightPanelOpen ? (
@@ -3313,17 +3329,17 @@ function ProjectSelector({ store, projectPath }) {
 
   const selectProject = async (value) => {
     setOpen(false);
-    await store.setActiveProjectPath?.(value);
+    return store.setActiveProjectPath?.(value);
   };
 
   const addProject = async () => {
     setOpen(false);
-    await store.addProjectFromPicker?.();
+    return store.addProjectFromPicker?.();
   };
 
   const removeProject = async (event, value) => {
     event.stopPropagation();
-    await store.removeProjectPath?.(value);
+    return store.removeProjectPath?.(value);
   };
 
   return (
@@ -3349,7 +3365,7 @@ function ProjectSelector({ store, projectPath }) {
                 type="button"
                 className="project-dropdown-item"
                 role="menuitem"
-                onClick={() => void selectProject(item.value)}
+                onClick={() => runUIAction(() => selectProject(item.value))}
               >
                 <span className="project-option-check" aria-hidden="true">{item.value === selected.value ? '✓' : ''}</span>
                 <span className="project-dropdown-label">{item.label}</span>
@@ -3360,7 +3376,7 @@ function ProjectSelector({ store, projectPath }) {
                   className="project-dropdown-remove"
                   aria-label={`移除此项目 ${item.label}`}
                   title="移除此项目"
-                  onClick={(event) => void removeProject(event, item.value)}
+                  onClick={(event) => runUIAction(() => removeProject(event, item.value))}
                 >
                   <X size={12} />
                 </button>
@@ -3372,7 +3388,7 @@ function ProjectSelector({ store, projectPath }) {
             type="button"
             className="project-dropdown-item project-dropdown-add"
             role="menuitem"
-            onClick={() => void addProject()}
+            onClick={() => runUIAction(addProject)}
           >
             <Plus size={13} />
             <span>添加项目</span>
@@ -3404,7 +3420,7 @@ function ProviderToggle({ store, canUseProjectActions = true }) {
       title={title}
       onClick={() => {
         if (disabled) return;
-        void store.toggleProviderMode();
+        runUIAction(() => store.toggleProviderMode());
       }}
     >
       <span className="provider-track" aria-hidden="true">
@@ -3417,6 +3433,7 @@ function ProviderToggle({ store, canUseProjectActions = true }) {
 
 function TopCommandBar({ store, projectPath, rightPanelOpen = false, toggleRightPanel = () => {} }) {
   const canUseThreadActions = Boolean(store.hasActiveThreadActions?.());
+  const canInterruptThread = Boolean(store.hasInterruptibleThreadAction?.());
   const bootstrapFailureMessage = store.bootstrapStatus === 'failed' && textValue(store.error)
     ? `连接后端失败：${textValue(store.error)}`
     : '';
@@ -3431,15 +3448,15 @@ function TopCommandBar({ store, projectPath, rightPanelOpen = false, toggleRight
         className="icon-btn"
         aria-label="新窗口（独立进程）"
         title="新窗口（独立进程）"
-        onClick={() => void store.openNewWindow?.()}
+        onClick={() => runUIAction(() => store.openNewWindow?.())}
       >
         <PanelTopOpen size={15} />
       </button>
       {canUseThreadActions ? (
-        <button type="button" className="icon-btn" aria-label="复制当前线程" title="复制当前线程" onClick={() => void store.copyActiveThreadInfo()}><Copy size={15} /></button>
+        <button type="button" className="icon-btn" aria-label="复制当前线程" title="复制当前线程" onClick={() => runUIAction(() => store.copyActiveThreadInfo())}><Copy size={15} /></button>
       ) : null}
-      {canUseThreadActions ? (
-        <button type="button" className="icon-btn" aria-label="停止" title="中断当前执行" onClick={() => void store.interruptActiveThread()}><CircleStop size={15} /></button>
+      {canInterruptThread ? (
+        <button type="button" className="icon-btn" aria-label="停止" title="中断当前执行" onClick={() => runUIAction(() => store.interruptActiveThread())}><CircleStop size={15} /></button>
       ) : null}
       <button
         type="button"
@@ -3447,7 +3464,7 @@ function TopCommandBar({ store, projectPath, rightPanelOpen = false, toggleRight
         aria-label={canUseThreadActions ? '进程恢复' : '请先选择会话'}
         title={canUseThreadActions ? '手动杀进程并恢复连接' : '请先选择会话'}
         disabled={!canUseThreadActions}
-        onClick={() => void store.recoverActiveThread()}
+        onClick={() => runUIAction(() => store.recoverActiveThread())}
       >
         <RefreshCw size={15} />
       </button>
@@ -3531,9 +3548,11 @@ function ThreadRail({ store }) {
     }
     setRenamingThreadId(thread.id);
     try {
-      await store.renameThread(thread.id, nextName);
-      setEditingThreadId('');
-      setEditingName('');
+      const saved = await store.renameThread(thread.id, nextName);
+      if (saved) {
+        setEditingThreadId('');
+        setEditingName('');
+      }
     } finally {
       setRenamingThreadId('');
     }
@@ -3571,7 +3590,7 @@ function ThreadRail({ store }) {
               className="thread-clean-confirm"
               onClick={() => {
                 setConfirmCleanMode(false);
-                void store.deleteStaleThreads(staleThreadIds);
+                runUIAction(() => store.deleteStaleThreads(staleThreadIds));
               }}
             >
               确认
@@ -3630,7 +3649,7 @@ function ThreadRail({ store }) {
                       onKeyDown={(event) => {
                         if (event.key === 'Enter') {
                           event.preventDefault();
-                          void submitRename(thread);
+                          runUIAction(() => submitRename(thread));
                         }
                         if (event.key === 'Escape') {
                           event.preventDefault();
@@ -3645,7 +3664,7 @@ function ThreadRail({ store }) {
                       data-rename-save-button-for={thread.id}
                       disabled={renamingThreadId === thread.id}
                       onMouseDown={(event) => event.preventDefault()}
-                      onClick={() => void submitRename(thread)}
+                      onClick={() => runUIAction(() => submitRename(thread))}
                     >
                       保存
                     </button>
@@ -3659,7 +3678,7 @@ function ThreadRail({ store }) {
                     aria-label={pinLabel}
                     title={pinLabel}
                     aria-pressed={pinned}
-                    onClick={() => void store.toggleThreadPin(thread.id)}
+                    onClick={() => runUIAction(() => store.toggleThreadPin(thread.id))}
                     onMouseEnter={() => setHoveredPinThreadId(thread.id)}
                     onMouseLeave={() => setHoveredPinThreadId((current) => (current === thread.id ? '' : current))}
                     onFocus={() => setHoveredPinThreadId(thread.id)}
@@ -3675,7 +3694,7 @@ function ThreadRail({ store }) {
                   <button
                     type="button"
                     className="thread-main"
-                    onClick={() => void store.setActiveThread(thread.id)}
+                    onClick={() => runUIAction(() => store.setActiveThread(thread.id))}
                   >
                     <span
                       className="thread-name"
@@ -3706,7 +3725,8 @@ function ThreadRail({ store }) {
                 className={`thread-archive ${thread.archived ? 'active' : ''}`}
                 aria-label={archiveLabel}
                 title={archiveLabel}
-                onClick={() => void store.archiveThread(thread.id, !thread.archived)}
+                disabled={Boolean(store.threadArchiveLoadingByThread?.[thread.id])}
+                onClick={() => runUIAction(() => store.archiveThread(thread.id, !thread.archived))}
               >
                 <Archive size={15} />
               </button>
@@ -3783,8 +3803,8 @@ function ModelSelector({ store, activeThreadId, disabled = false }) {
   };
 
   const restoreInheritance = async () => {
-    await store.restoreComposerModelInheritance?.({ threadId: activeThreadId });
-    setOpen(false);
+    const restored = await store.restoreComposerModelInheritance?.({ threadId: activeThreadId });
+    if (restored) setOpen(false);
   };
 
   const selectedModel = canonicalizeModelValue(providerKey, draft.model || activeModel);
@@ -3813,7 +3833,7 @@ function ModelSelector({ store, activeThreadId, disabled = false }) {
         aria-busy={selectorBusy}
         title={disabled ? unavailableTitle : (canOverrideThread ? '线程执行配置' : '全局模型配置')}
         disabled={disabled}
-        onClick={() => void openSelector()}
+        onClick={() => runUIAction(openSelector)}
       >
         {label}
         <ChevronDown size={12} />
@@ -3822,20 +3842,20 @@ function ModelSelector({ store, activeThreadId, disabled = false }) {
         <div className="model-dropdown" role="dialog" aria-label="模型配置">
           <label>
             <span>模型</span>
-            <select aria-label="模型" value={selectModelValue} disabled={disabled || selectorBusy} onChange={(event) => void saveModelConfig({ model: event.target.value })}>
+            <select aria-label="模型" value={selectModelValue} disabled={disabled || selectorBusy} onChange={(event) => runUIAction(() => saveModelConfig({ model: event.target.value }))}>
               {canOverrideThread ? <option value="">{inheritModelLabel}</option> : null}
               {modelOptions.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
             </select>
           </label>
           <label>
             <span>强度</span>
-            <select aria-label="推理强度" value={selectEffortValue} disabled={disabled || selectorBusy} onChange={(event) => void saveModelConfig({ effort: event.target.value })}>
+            <select aria-label="推理强度" value={selectEffortValue} disabled={disabled || selectorBusy} onChange={(event) => runUIAction(() => saveModelConfig({ effort: event.target.value }))}>
               {canOverrideThread ? <option value="">{inheritEffortLabel}</option> : null}
               {effortOptions.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
             </select>
           </label>
           {canOverrideThread && !inherited ? (
-            <button type="button" className="model-inherit" disabled={disabled || selectorBusy} onClick={() => void restoreInheritance()}>
+            <button type="button" className="model-inherit" disabled={disabled || selectorBusy} onClick={() => runUIAction(restoreInheritance)}>
               继承全局
             </button>
           ) : null}
@@ -4867,7 +4887,7 @@ function ComposerDock({
     if (imeLikely) return;
     event.preventDefault();
     if (!canSend) return;
-    void sendMessage();
+    runUIAction(() => sendMessage());
   };
 
   return (
@@ -4879,7 +4899,7 @@ function ComposerDock({
       onDragEnter={handleDragEnter}
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
-      onDrop={handleDrop}
+      onDrop={(event) => runUIAction(() => handleDrop(event))}
     >
       <div className="composer-card">
         {dropActive ? <div className="composer-drop-hint" aria-live="polite">松开即可添加附件</div> : null}
@@ -4905,7 +4925,7 @@ function ComposerDock({
           rows={3}
           value={draft}
           onChange={(event) => setDraft(event.target.value)}
-          onPaste={(event) => { void handlePaste(event); }}
+          onPaste={(event) => { runUIAction(() => handlePaste(event)); }}
           onCompositionStart={() => { isComposingRef.current = true; }}
           onCompositionEnd={() => { isComposingRef.current = false; }}
           onKeyDown={handleKeyDown}
@@ -4919,7 +4939,7 @@ function ComposerDock({
             title={projectActionBlocked ? projectActionBlockedTitle : '添加文件'}
             disabled={projectActionBlocked}
             onClick={() => {
-              if (!projectActionBlocked) void selectFiles();
+              if (!projectActionBlocked) runUIAction(() => selectFiles());
             }}
           >
             <Plus size={18} />
@@ -4947,7 +4967,7 @@ function ComposerDock({
               aria-label="发送消息"
               disabled={!canSend}
               onClick={() => {
-                if (canSend) void sendMessage();
+                if (canSend) runUIAction(() => sendMessage());
               }}
             >
               <Send size={18} />
@@ -4993,7 +5013,7 @@ function Conversation({
   canUseProjectActions = true,
 }) {
   const introMode = !activeThreadId && !timelineBlocked && messages.length === 0;
-  const showProviderToggle = !hasAssistantReply(messages);
+  const showProviderToggle = !activeThreadId;
   const hasActiveReasoning = messages.some((message) => isReasoningMessage(message) && message.done === false);
   const pendingReasoning = !introMode && !timelineBlocked && !hasActiveReasoning && !hasAssistantReplyAfterLastUser(messages)
     ? syntheticReasoningMessage({ activeTurn, sending })
@@ -5045,12 +5065,19 @@ function Conversation({
             </article>
           )
         )) : null}
+        {!introMode && timelineContentBlocked ? (
+          <div className="timeline-placeholder" data-testid="timeline-loading-placeholder" aria-live="polite">
+            <span className="timeline-placeholder-line" />
+            <span className="timeline-placeholder-line timeline-placeholder-line--short" />
+            <p>正在同步会话历史</p>
+          </div>
+        ) : null}
         {pendingReasoning ? <ReasoningTrace key={pendingReasoning.id} message={pendingReasoning} active /> : null}
       </div>
       {!introMode ? (
         <WorkStatus
           sending={sending}
-          loading={timelineBlocked}
+          loading={timelineContentBlocked}
           activeThreadId={activeThreadId}
           activeThread={activeThread}
           statusEntry={statusEntry}

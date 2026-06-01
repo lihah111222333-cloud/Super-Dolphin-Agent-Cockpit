@@ -711,6 +711,19 @@ function activeProviderLockedThreadId(state) {
   return normalizeBackendThreadId(matchedThread?.id || id);
 }
 
+function activeTurnIdForThread(state, threadId) {
+  const id = normalizeBackendThreadId(threadId);
+  if (!id) return '';
+  const direct = normalizeTurnSummary(state.activeTurnByThread?.[id]);
+  if (direct?.id) return direct.id;
+  const activeId = normalizeThreadId(state.activeThreadId);
+  if (activeId && activeId !== id) {
+    const active = normalizeTurnSummary(state.activeTurnByThread?.[activeId]);
+    if (active?.id && threadMatchesIdentifier({ id, thread_id: id }, active.threadId || activeId)) return active.id;
+  }
+  return '';
+}
+
 function backendThreadIdForArchiveState(state, value) {
   const id = normalizeThreadId(value);
   if (!id) return '';
@@ -859,9 +872,9 @@ function oldestThreadMessageCursor(messages) {
   const timestamps = messages
     .map((message) => normalizeString(message?.createdAt || message?.created_at))
     .map((raw) => ({ raw, timestamp: Date.parse(raw) }))
-    .filter(({ raw, timestamp }) => raw && Number.isFinite(timestamp) && timestamp > 0)
-    .sort((left, right) => left.timestamp - right.timestamp);
-  return timestamps[0]?.raw || '';
+	    .filter(({ raw, timestamp }) => raw && Number.isFinite(timestamp) && timestamp > 0)
+	    .sort((left, right) => left.timestamp - right.timestamp);
+	  return timestamps[0]?.raw || '';
 }
 
 function compactRuntimeResultText(value) {
@@ -1057,7 +1070,8 @@ function dedupeAssistantTimelineItems(items = []) {
 
 function mergeTimelineItems(existingItems = [], incomingItems = [], options = {}) {
   const preserveExistingVisible = options?.preserveExistingVisible === true;
-  const incomingById = new Map(incomingItems.map((item) => [item.id, item]));
+  const visibleIncomingItems = incomingItems.filter(isVisibleTimelineItem);
+  const incomingById = new Map(visibleIncomingItems.map((item) => [item.id, item]));
   const incomingIds = new Set(incomingById.keys());
   const consumedIncomingIds = new Set();
   const merged = [];
@@ -1073,7 +1087,7 @@ function mergeTimelineItems(existingItems = [], incomingItems = [], options = {}
     const shouldPreserveExistingMessage = (
       ((preserveExistingVisible && isVisibleTimelineItem(existingItem)) || existingItem.role === 'user' || existingItem.optimistic || existingItem.runtime) &&
       !incomingIds.has(existingItem.id) &&
-      !incomingItems.some((incomingItem) => (
+      !visibleIncomingItems.some((incomingItem) => (
         sameTimelineContent(existingItem, incomingItem) ||
         sameTimelineContentCompact(existingItem, incomingItem)
       ))
@@ -1083,7 +1097,7 @@ function mergeTimelineItems(existingItems = [], incomingItems = [], options = {}
     }
   }
 
-  for (const incomingItem of incomingItems) {
+  for (const incomingItem of visibleIncomingItems) {
     if (!consumedIncomingIds.has(incomingItem.id)) {
       merged.push(incomingItem);
     }
@@ -1426,11 +1440,14 @@ const baseState = {
   threadConfigLoadingByThread: {},
   threadConfigFailedByThread: {},
   threadStateLoadingByThread: {},
+  threadArchiveLoadingByThread: {},
   threadConfigSaving: false,
   timelinesByThread: {},
+  threadTimelineReadyByThread: {},
   tokenUsageByThread: {},
   activityStatsByThread: {},
   diffTextByThread: {},
+  threadDiffReadyByThread: {},
   activityEntries: [],
   runtimeResultEntries: [],
   warningEntries: [],
@@ -1604,11 +1621,14 @@ export const useClientStore = create((set, get) => {
       threadConfigLoadingByThread: {},
       threadConfigFailedByThread: {},
       threadStateLoadingByThread: {},
+      threadArchiveLoadingByThread: {},
       pendingActiveThreadId: '',
       timelinesByThread: {},
+      threadTimelineReadyByThread: {},
       tokenUsageByThread: {},
       activityStatsByThread: {},
       diffTextByThread: {},
+      threadDiffReadyByThread: {},
       runtimeResultEntries: [],
       draft: '',
       attachments: [],
@@ -1704,9 +1724,14 @@ export const useClientStore = create((set, get) => {
         : explicitActiveThreadId;
 
       const timelinesByThread = {};
+      const threadTimelineReadyByThread = {};
       for (const [threadId, items] of Object.entries(state.timelinesByThread)) {
         const canonicalId = canonicalizeThreadKey(threadId, nextThreads);
         timelinesByThread[canonicalId] = items;
+      }
+      for (const [threadId, ready] of Object.entries(state.threadTimelineReadyByThread || {})) {
+        const canonicalId = canonicalizeThreadKey(threadId, nextThreads);
+        threadTimelineReadyByThread[canonicalId] = Boolean(ready);
       }
       const runtimeResultEntries = [];
       const incomingTimelines = payload.timelinesByThread || payload.timelines_by_thread;
@@ -1714,11 +1739,14 @@ export const useClientStore = create((set, get) => {
         for (const [threadId, items] of Object.entries(incomingTimelines)) {
           if (Array.isArray(items)) {
             const canonicalId = canonicalizeThreadKey(threadId, nextThreads);
+            const existingTimeline = timelinesByThread[canonicalId] || [];
+            const normalizedItems = items.map(normalizeTimelineItem);
             runtimeResultEntries.push(...runtimeResultEntriesFromTimelineItems(items, canonicalId));
-            timelinesByThread[canonicalId] = mergeTimelineItems(
-              timelinesByThread[canonicalId] || [],
-              items.map(normalizeTimelineItem).filter(isVisibleTimelineItem),
-            );
+            const visibleItems = normalizedItems.filter(isVisibleTimelineItem);
+            timelinesByThread[canonicalId] = visibleItems.length === 0 && threadTimelineReadyByThread[canonicalId]
+              ? existingTimeline
+              : mergeTimelineItems(existingTimeline, visibleItems, { preserveExistingVisible: true });
+            threadTimelineReadyByThread[canonicalId] = true;
           }
         }
       }
@@ -1764,19 +1792,26 @@ export const useClientStore = create((set, get) => {
       }
 
       const diffTextByThread = {};
+      const threadDiffReadyByThread = {};
       for (const [threadId, text] of Object.entries(state.diffTextByThread)) {
         const canonicalId = canonicalizeThreadKey(threadId, nextThreads);
         diffTextByThread[canonicalId] = text;
+      }
+      for (const [threadId, ready] of Object.entries(state.threadDiffReadyByThread || {})) {
+        const canonicalId = canonicalizeThreadKey(threadId, nextThreads);
+        threadDiffReadyByThread[canonicalId] = Boolean(ready);
       }
       const incomingDiff = payload.diffTextByThread || payload.diff_text_by_thread;
       if (incomingDiff && typeof incomingDiff === 'object') {
         for (const [threadId, text] of Object.entries(incomingDiff)) {
           const canonicalId = canonicalizeThreadKey(threadId, nextThreads);
           diffTextByThread[canonicalId] = text;
+          threadDiffReadyByThread[canonicalId] = true;
         }
       }
       if (activeThreadId && typeof payload.diffText === 'string') {
         diffTextByThread[activeThreadId] = payload.diffText;
+        threadDiffReadyByThread[activeThreadId] = true;
       }
 
       let activeTurnByThread = canonicalizeActiveTurnByThread(state.activeTurnByThread, nextThreads);
@@ -1795,9 +1830,11 @@ export const useClientStore = create((set, get) => {
         threads: nextThreads,
         pinnedThreadAtById: pinnedAtById,
         timelinesByThread,
+        threadTimelineReadyByThread,
         tokenUsageByThread,
         activityStatsByThread,
         diffTextByThread,
+        threadDiffReadyByThread,
         runtimeResultEntries: mergeRuntimeResultEntries(state.runtimeResultEntries, runtimeResultEntries),
         activeTurnByThread,
         statuses: {
@@ -1879,7 +1916,21 @@ export const useClientStore = create((set, get) => {
         before = nextBefore;
       }
 
-      if (allMessages.length === 0) return;
+      if (allMessages.length === 0) {
+        set((state) => ({
+          timelinesByThread: state.threadTimelineReadyByThread?.[id]
+            ? state.timelinesByThread
+            : {
+              ...state.timelinesByThread,
+              [id]: mergeTimelineItems(state.timelinesByThread[id] || [], []),
+            },
+          threadTimelineReadyByThread: {
+            ...state.threadTimelineReadyByThread,
+            [id]: true,
+          },
+        }));
+        return;
+      }
       const pageItems = sortTimelineChronologically(allMessages.map((message) => normalizeTimelineItem({
         id: message.id || message.messageId || message.message_id,
         role: message.role,
@@ -1892,6 +1943,10 @@ export const useClientStore = create((set, get) => {
         timelinesByThread: {
           ...state.timelinesByThread,
           [id]: mergeTimelineItems(state.timelinesByThread[id] || [], pageItems, { preserveExistingVisible: true }),
+        },
+        threadTimelineReadyByThread: {
+          ...state.threadTimelineReadyByThread,
+          [id]: true,
         },
       }));
     } catch (error) {
@@ -1912,6 +1967,13 @@ export const useClientStore = create((set, get) => {
         timestamp: notice.timestamp,
       }, ...state.activityEntries].slice(0, 120),
     }));
+  };
+
+  const notifyRPCFailure = (messagePrefix, warningEvent, error, fields = {}) => {
+    const message = error?.message || String(error);
+    notifyAction(`${messagePrefix}失败：${message}`, 'error', fields);
+    addWarning('error', warningEvent, { ...fields, error: message });
+    return false;
   };
 
   const bridgeThreadIdForPayload = (payload) => {
@@ -2063,6 +2125,8 @@ export const useClientStore = create((set, get) => {
 
       const diffTextByThread = { ...state.diffTextByThread };
       if (typeof diffText === 'string') diffTextByThread[threadId] = diffText;
+      const threadDiffReadyByThread = { ...state.threadDiffReadyByThread };
+      if (typeof diffText === 'string') threadDiffReadyByThread[threadId] = true;
       const activeTurnByThread = { ...state.activeTurnByThread };
       const patchActiveTurn = activeTurnPayload(payload);
       if (patchActiveTurn !== undefined) {
@@ -2105,6 +2169,7 @@ export const useClientStore = create((set, get) => {
         tokenUsageByThread,
         activityStatsByThread,
         diffTextByThread,
+        threadDiffReadyByThread,
         runtimeResultEntries: mergeRuntimeResultEntries(state.runtimeResultEntries, runtimeResultEntries),
         activeTurnByThread,
         statuses: {
@@ -2204,16 +2269,28 @@ export const useClientStore = create((set, get) => {
   };
 
   const activeThreadRPC = async (action, rpc) => {
-    const threadId = backendThreadIdForState(get(), get().activeThreadId);
+    const currentState = get();
+    const threadId = backendThreadIdForState(currentState, currentState.activeThreadId);
     if (!threadId) {
       notifyAction('当前没有可操作的后端线程', 'warning');
       return false;
     }
-    const cwd = requireCwd(action);
-    const payload = action === 'thread.interrupt'
-      ? { cwd, threadId, source: 'ui_stop' }
-      : { cwd, threadId };
+    const actionLabels = {
+      'thread.interrupt': '中断当前执行',
+      'thread.compact': '压缩上下文',
+      'thread.recover': '恢复连接',
+    };
     try {
+      const cwd = requireCwd(action);
+      let payload = { cwd, threadId };
+      if (action === 'thread.interrupt') {
+        const turnId = activeTurnIdForThread(currentState, threadId);
+        if (!turnId) {
+          notifyAction('当前没有可中断任务', 'warning', { threadId });
+          return false;
+        }
+        payload = { cwd, threadId, turnId, source: 'ui_stop' };
+      }
       await rpc(cleanObject(payload));
       notifyAction({
         'thread.interrupt': '已发送中断请求',
@@ -2222,9 +2299,10 @@ export const useClientStore = create((set, get) => {
       }[action] || '线程操作已提交', 'success', { threadId });
       return true;
     } catch (error) {
-      notifyAction(`${action} 失败：${error.message}`, 'error', { threadId });
-      addWarning('error', `${action}.failed`, { threadId, error: error.message });
-      throw error;
+      const message = error?.message || String(error);
+      notifyAction(`${actionLabels[action] || '线程操作'}失败：${message}`, 'error', { threadId });
+      addWarning('error', `${action}.failed`, { threadId, error: message });
+      return false;
     }
   };
 
@@ -2295,6 +2373,8 @@ export const useClientStore = create((set, get) => {
       if (!id) return false;
       const cwd = requireCwd('thread.sync');
       const activeAtRequest = get().activeThreadId;
+      const includeDiff = syncOptions.includeDiff !== false;
+      const shouldLoadMessages = syncOptions.loadMessages !== false;
       set((state) => ({
         threadStateLoadingByThread: {
           ...state.threadStateLoadingByThread,
@@ -2302,16 +2382,33 @@ export const useClientStore = create((set, get) => {
         },
       }));
       try {
-        const snapshot = await getThreadState({ cwd, threadId: id, includeDiff: true });
+        const snapshotPromise = getThreadState({ cwd, threadId: id, includeDiff });
+        const messagesPromise = shouldLoadMessages
+          ? loadThreadMessages(id, { includeArchived: syncOptions.includeArchived === true })
+          : Promise.resolve();
+        const snapshot = await snapshotPromise;
         const activeChanged = normalizeThreadId(get().activeThreadId) !== normalizeThreadId(activeAtRequest);
         applySnapshot(snapshot, {
           preferredActiveThreadId: id,
           preserveActiveThreadId: activeChanged || syncOptions.preserveActiveThreadId === true,
           includeArchivedActiveThread: syncOptions.includeArchived === true,
         });
-        await loadThreadMessages(id, { includeArchived: syncOptions.includeArchived === true });
+        if (includeDiff) {
+          set((state) => ({
+            threadDiffReadyByThread: {
+              ...state.threadDiffReadyByThread,
+              [id]: true,
+            },
+          }));
+        }
+        await messagesPromise;
         if (!activeChanged && shouldAutoLoadThreadConfig(get(), id)) await get().loadThreadConfig(id);
         return true;
+      } catch (error) {
+        const message = error?.message || String(error);
+        notifyAction(`同步会话失败：${message}`, 'error', { threadId: id });
+        addWarning('error', 'thread.sync.failed', { threadId: id, error: message });
+        return false;
       } finally {
         set((state) => ({
           threadStateLoadingByThread: {
@@ -2504,7 +2601,7 @@ export const useClientStore = create((set, get) => {
             actionNotice: actionNotice(`线程配置保存失败：${error.message}`, 'error'),
           });
           addWarning('error', 'thread.config.set.failed', { threadId, error: error.message });
-          throw error;
+          return false;
         }
       }
 
@@ -2515,13 +2612,17 @@ export const useClientStore = create((set, get) => {
         effort: hasEffort ? nextEffort || current.effort : current.effort,
         codexModelProvider: current.codexModelProvider,
       }, provider);
-      await setPreference({ cwd, key: providerPreferenceKey(provider, 'model'), value: value.model });
-      await setPreference({ cwd, key: providerPreferenceKey(provider, 'effort'), value: value.effort });
-      set({
-        providerConfig: value,
-        actionNotice: actionNotice('全局模型配置已保存', 'success'),
-      });
-      return true;
+      try {
+        await setPreference({ cwd, key: providerPreferenceKey(provider, 'model'), value: value.model });
+        await setPreference({ cwd, key: providerPreferenceKey(provider, 'effort'), value: value.effort });
+        set({
+          providerConfig: value,
+          actionNotice: actionNotice('全局模型配置已保存', 'success'),
+        });
+        return true;
+      } catch (error) {
+        return notifyRPCFailure('全局模型配置保存', 'provider.config.save.failed', error, { provider });
+      }
     },
 
     restoreComposerModelInheritance: async (config = {}) => {
@@ -2534,31 +2635,39 @@ export const useClientStore = create((set, get) => {
       if (!threadId) return false;
       const existingConfig = state.threadConfigByThread[threadId] || await get().loadThreadConfig(threadId);
       if (!existingConfig?.supportsThreadOverride) return false;
-      const saved = await setThreadConfig({ threadId, model: '', effort: '' });
-      const normalized = normalizeThreadConfig(saved, threadId, existingConfig.provider || state.provider);
-      set((current) => ({
-        threadConfigByThread: {
-          ...current.threadConfigByThread,
-          [threadId]: normalized,
-        },
-        actionNotice: actionNotice('已恢复继承全局默认', 'success'),
-      }));
-      return true;
+      try {
+        const saved = await setThreadConfig({ threadId, model: '', effort: '' });
+        const normalized = normalizeThreadConfig(saved, threadId, existingConfig.provider || state.provider);
+        set((current) => ({
+          threadConfigByThread: {
+            ...current.threadConfigByThread,
+            [threadId]: normalized,
+          },
+          actionNotice: actionNotice('已恢复继承全局默认', 'success'),
+        }));
+        return true;
+      } catch (error) {
+        return notifyRPCFailure('恢复线程模型继承', 'thread.config.restore.failed', error, { threadId });
+      }
     },
 
     saveComposerModelProvider: async (codexModelProvider) => {
       const key = providerPreferenceKey('codex', 'codexModelProvider');
       const value = requireProviderPreferenceValue(codexModelProvider, key, 'composer.modelProvider.save');
       const cwd = requireCwd('composer.modelProvider.save');
-      await setPreference({ cwd, key, value });
-      set((state) => ({
-        providerConfig: normalizeProviderRuntimeConfig({
-          ...state.providerConfig,
-          codexModelProvider: value,
-        }, state.provider || DEFAULT_PROVIDER),
-        actionNotice: actionNotice('模型渠道已保存', 'success'),
-      }));
-      return true;
+      try {
+        await setPreference({ cwd, key, value });
+        set((state) => ({
+          providerConfig: normalizeProviderRuntimeConfig({
+            ...state.providerConfig,
+            codexModelProvider: value,
+          }, state.provider || DEFAULT_PROVIDER),
+          actionNotice: actionNotice('模型渠道已保存', 'success'),
+        }));
+        return true;
+      } catch (error) {
+        return notifyRPCFailure('模型渠道保存', 'provider.model_provider.save.failed', error, { provider: 'codex' });
+      }
     },
 
     setActiveProjectPath: async (path) => {
@@ -2600,7 +2709,7 @@ export const useClientStore = create((set, get) => {
         });
         notifyAction(`切换项目失败：${error.message}`, 'error');
         addWarning('error', 'project.set_active.failed', { path: target, error: error.message });
-        throw error;
+        return false;
       }
     },
 
@@ -2622,7 +2731,7 @@ export const useClientStore = create((set, get) => {
       } catch (error) {
         notifyAction(`添加项目失败：${error.message}`, 'error');
         addWarning('error', 'project.add.failed', { path: selected, error: error.message });
-        throw error;
+        return false;
       }
     },
 
@@ -2643,7 +2752,7 @@ export const useClientStore = create((set, get) => {
       } catch (error) {
         notifyAction(`打开新窗口失败：${error.message}`, 'error');
         addWarning('error', 'ui.open_new_window.failed', { path: selected, error: error.message });
-        throw error;
+        return false;
       }
     },
 
@@ -2659,7 +2768,7 @@ export const useClientStore = create((set, get) => {
       } catch (error) {
         notifyAction(`移除项目失败：${error.message}`, 'error');
         addWarning('error', 'project.remove.failed', { path: target, error: error.message });
-        throw error;
+        return false;
       }
     },
 
@@ -2672,13 +2781,17 @@ export const useClientStore = create((set, get) => {
       const current = normalizeProviderName(get().provider) || DEFAULT_PROVIDER;
       const next = current === 'claude' ? 'codex' : 'claude';
       const cwd = requireCwd('provider.toggle');
-      await setPreference({ cwd, key: PROVIDER_ACTIVE_PREF_KEY, value: next });
-      await loadProviderConfig(cwd, next);
-      set({
-        provider: next,
-        actionNotice: actionNotice(`已切换为 ${next === 'claude' ? 'Claude' : 'Codex'}`, 'success'),
-      });
-      return true;
+      try {
+        await setPreference({ cwd, key: PROVIDER_ACTIVE_PREF_KEY, value: next });
+        await loadProviderConfig(cwd, next);
+        set({
+          provider: next,
+          actionNotice: actionNotice(`已切换为 ${next === 'claude' ? 'Claude' : 'Codex'}`, 'success'),
+        });
+        return true;
+      } catch (error) {
+        return notifyRPCFailure('切换 provider', 'provider.toggle.failed', error);
+      }
     },
 
     setActiveThread: async (threadId) => {
@@ -2702,8 +2815,7 @@ export const useClientStore = create((set, get) => {
           draft: restored.draft,
           attachments: restored.attachments,
         });
-        await get().syncThreadState(id, { includeArchived: true });
-        return;
+        return get().syncThreadState(id, { includeArchived: true, includeDiff: false });
       }
       set((state) => ({
         activeThreadId: id,
@@ -2716,7 +2828,8 @@ export const useClientStore = create((set, get) => {
         },
       }));
       try {
-        await get().syncThreadState(id, { includeArchived: true });
+        const synced = await get().syncThreadState(id, { includeArchived: true, includeDiff: false });
+        if (!synced) return false;
       } catch (error) {
         set((state) => ({
           threadStateLoadingByThread: {
@@ -2724,8 +2837,9 @@ export const useClientStore = create((set, get) => {
             [id]: false,
           },
         }));
-        throw error;
+        return notifyRPCFailure('切换会话', 'thread.select.failed', error, { threadId: id });
       }
+      return true;
     },
 
     newThread: () => {
@@ -2763,8 +2877,9 @@ export const useClientStore = create((set, get) => {
         }));
         return attachments;
       } catch (error) {
-        addWarning('error', 'attachments.select.failed', { error: error.message });
-        throw error;
+        notifyAction(`选择附件失败：${error.message || String(error)}`, 'error');
+        addWarning('error', 'attachments.select.failed', { error: error.message || String(error) });
+        return [];
       }
     },
 
@@ -2975,6 +3090,11 @@ export const useClientStore = create((set, get) => {
     recoverActiveThread: () => activeThreadRPC('thread.recover', recoverThread),
 
     hasActiveThreadActions: () => Boolean(backendThreadIdForState(get(), get().activeThreadId)),
+    hasInterruptibleThreadAction: () => {
+      const state = get();
+      const threadId = backendThreadIdForState(state, state.activeThreadId);
+      return Boolean(threadId && activeTurnIdForThread(state, threadId));
+    },
 
     refreshActiveThreadStatus: async () => {
       const threadId = backendThreadIdForState(get(), get().activeThreadId);
@@ -3045,12 +3165,16 @@ export const useClientStore = create((set, get) => {
       const id = backendThreadIdForState(get(), threadId);
       const nextName = normalizeString(name);
       if (!id || !nextName) return false;
-      await renameThreadRPC({ threadId: id, name: nextName });
-      set((state) => ({
-        threads: state.threads.map((thread) => (thread.id === id ? { ...thread, name: nextName } : thread)),
-        actionNotice: actionNotice('线程已重命名', 'success'),
-      }));
-      return true;
+      try {
+        await renameThreadRPC({ threadId: id, name: nextName });
+        set((state) => ({
+          threads: state.threads.map((thread) => (thread.id === id ? { ...thread, name: nextName } : thread)),
+          actionNotice: actionNotice('线程已重命名', 'success'),
+        }));
+        return true;
+      } catch (error) {
+        return notifyRPCFailure('重命名会话', 'thread.rename.failed', error, { threadId: id });
+      }
     },
 
     toggleThreadPin: async (threadId) => {
@@ -3065,31 +3189,57 @@ export const useClientStore = create((set, get) => {
       } else {
         nextMap[id] = Date.now();
       }
-      await setPreference({
-        cwd,
-        key: THREAD_PINS_CHAT_PREF_KEY,
-        value: nextMap,
-      });
-      set((state) => ({
-        pinnedThreadAtById: nextMap,
-        threads: state.threads.map((thread) => (thread.id === id ? {
-          ...thread,
-          pinned: !pinned,
-          pinnedAt: nextMap[id] || 0,
-        } : thread)),
-        actionNotice: actionNotice(pinned ? '会话已取消置顶' : '会话已置顶', 'success'),
-      }));
-      return true;
+      try {
+        await setPreference({
+          cwd,
+          key: THREAD_PINS_CHAT_PREF_KEY,
+          value: nextMap,
+        });
+        set((state) => ({
+          pinnedThreadAtById: nextMap,
+          threads: state.threads.map((thread) => (thread.id === id ? {
+            ...thread,
+            pinned: !pinned,
+            pinnedAt: nextMap[id] || 0,
+          } : thread)),
+          actionNotice: actionNotice(pinned ? '会话已取消置顶' : '会话已置顶', 'success'),
+        }));
+        return true;
+      } catch (error) {
+        return notifyRPCFailure(pinned ? '取消置顶会话' : '置顶会话', 'thread.pin.failed', error, { threadId: id });
+      }
     },
 
     archiveThread: async (threadId, archived) => {
       const id = backendThreadIdForArchiveState(get(), threadId);
       if (!id) return false;
       const cwd = requireCwd('thread.archive');
-      if (archived) {
-        await archiveThreadRPC({ threadId: id });
-      } else {
-        await unarchiveThreadRPC({ threadId: id });
+      if (get().threadArchiveLoadingByThread?.[id]) return false;
+      set((state) => ({
+        threadArchiveLoadingByThread: {
+          ...state.threadArchiveLoadingByThread,
+          [id]: true,
+        },
+      }));
+      try {
+        if (archived) {
+          await archiveThreadRPC({ threadId: id });
+        } else {
+          await unarchiveThreadRPC({ threadId: id });
+        }
+      } catch (error) {
+        const message = error?.message || String(error);
+        const action = archived ? '归档' : '恢复';
+        notifyAction(`${action}会话失败：${message}`, 'error', { threadId: id });
+        addWarning('error', `thread.${archived ? 'archive' : 'unarchive'}.failed`, { threadId: id, error: message });
+        return false;
+      } finally {
+        set((state) => ({
+          threadArchiveLoadingByThread: {
+            ...state.threadArchiveLoadingByThread,
+            [id]: false,
+          },
+        }));
       }
       const archivedAt = archived ? Date.now() : 0;
       await setPreference({
