@@ -222,7 +222,7 @@ install-hooks:
 	  echo "⚠️  既有 core.hooksPath = $$CURRENT (将被覆盖为 $(INSTALL_HOOKS_DIR))"; \
 	fi
 	@git config core.hooksPath "$(INSTALL_HOOKS_DIR)"
-	@echo "✅ git hooks installed ($(INSTALL_HOOKS_DIR)/pre-commit + commit-msg + pre-push)"
+	@echo "✅ git hooks installed ($(INSTALL_HOOKS_DIR)/pre-commit + commit-msg + pre-merge-commit + pre-push)"
 	@echo "   绕过仅限紧急（仓库规约 docs/1/会话习惯.md §10.12«禁止 bypass pre-commit hook»）：git commit/push --no-verify"
 
 # _hook_check: build 完成后的 hook 装设 + 路径有效性检查，warn-only 不阻断

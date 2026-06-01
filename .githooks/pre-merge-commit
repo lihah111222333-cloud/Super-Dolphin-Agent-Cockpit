@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+# pre-merge-commit — run the same code checks for automatic merge commits.
+set -euo pipefail
+
+unset GOFLAGS
+export GOFLAGS=
+
+SCRIPT_DIR="$(cd -- "${BASH_SOURCE[0]%/*}" && pwd)"
+if ! "$SCRIPT_DIR/run-index-code-checks" pre-merge-commit; then
+  echo "❌ pre-merge-commit code checks failed" >&2
+  exit 1
+fi
+
+echo "✅ pre-merge-commit OK"

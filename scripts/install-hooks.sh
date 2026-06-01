@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # 安装 super-agent-v3 git hooks
-# 通过 core.hooksPath 指向 .githooks/，让 pre-commit / commit-msg / pre-push 等钩子随仓库分发。
+# 通过 core.hooksPath 指向 .githooks/ 绝对路径，让普通 checkout 和 linked worktree 使用同一套钩子。
 # 用法：在仓库根目录执行 `bash scripts/install-hooks.sh`
 
 set -euo pipefail
@@ -13,7 +13,8 @@ if [[ ! -d .githooks ]]; then
     exit 1
 fi
 
-git config core.hooksPath .githooks
+HOOKS_DIR="$REPO_ROOT/.githooks"
+git config core.hooksPath "$HOOKS_DIR"
 chmod +x .githooks/* 2>/dev/null || true
 
 echo "✅ git hooks 已启用"

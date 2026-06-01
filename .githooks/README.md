@@ -22,11 +22,12 @@ make install-hooks
 
 | Hook | 触发 | 做什么 | 大约耗时 |
 |---|---|---|---|
-| `pre-commit` | `git commit` | 检查 **staged `.go` 影响面**：拒绝 staged/worktree 不一致和 AD 状态，`gofmt -l` + `go vet` + `go test -short`；删除/重命名会覆盖旧/新包 | 1–3 秒 |
+| `pre-commit` | `git commit` | 基于 **index 快照**检查 staged 代码：后端 Go 变更跑 `gofmt`、后端代码守卫、`go vet`、变更包及受影响包测试；前端变更跑对应前端守卫/测试；纯文档不跑代码守卫 | 视影响面而定 |
 | `commit-msg` | `git commit` | 要求提交标题包含中文；提交正文如果存在也必须包含中文；提交主题属于 `fix` / `hotfix` / `bugfix` / `修复` 时，要求同一提交修改锁定 bug 的测试、fixture、golden 或 snapshot | <1 秒 |
-| `pre-push` | `git push` | 要求 worktree/index/untracked 干净，只允许推送当前 `HEAD`；检查本次 push 范围内每个 commit 标题和非空正文都包含中文，fix commits 都带锁定 bug 的测试；按 push 范围只跑变更语言/包对应测试 | 视变更包而定 |
+| `pre-merge-commit` | 自动 merge commit | 基于 merge 后的 **index 快照**跑与 `pre-commit` 相同的代码检查，防止 merge 引入未过守卫的已有提交 | 视影响面而定 |
+| `pre-push` | `git push` | 不要求 worktree 干净；基于将要推送的 commit 快照检查 push range：标题/正文中文、fix-test、后端守卫、变更包及受影响包测试、前端守卫/测试；纯文档不跑代码守卫 | 视影响面而定 |
 
-`pre-commit` 只跑 staged `.go` 影响到的包；前端变更只跑 `cmd/agent-terminal/frontend` 这个前端包的 guard/vitest。`commit-msg` 要求标题包含中文，正文如果存在也必须包含中文，并用提交主题识别 fix 类提交。`pre-push` 从本次 push range 计算变更路径：先校验范围内 commit 标题 / 非空正文的中文要求和 fix-test 规则；有 Go 代码才跑对应 Go 包测试，有前端代码才跑前端包测试，只有文档/其它非代码变更则不跑包测试。三者都**不**做格式自动修复，只拦下不通过的提交/推送。为保证检查对象就是将被提交的内容，`pre-commit` 会拒绝 staged Go 影响包内仍有未暂存/未跟踪 `.go` 改动，也会拒绝 `git add` 后又删除的 AD 状态。
+`pre-commit` 和 `pre-merge-commit` 不读取脏 worktree 内容，而是把当前 index 写成临时快照后检查，所以工作区存在未提交改动不会提前拦截提交，也不会污染将要提交的内容。`commit-msg` 要求标题包含中文，正文如果存在也必须包含中文，并用提交主题识别 fix 类提交。`pre-push` 不要求 worktree/index/untracked 干净；它从 push range 计算变更路径，并在临时 worktree 中 checkout 将要推送的 commit 后运行代码检查。后端 Go 代码会跑守卫、`go vet`、变更包及反向依赖受影响包测试；前端代码会按包运行守卫/测试；只有文档/其它非代码变更时不跑代码守卫。所有 hook 都**不**做格式自动修复，只拦下不通过的提交/推送。
 
 CI 也会在 `.github/workflows/ci.yml` 的 `commit-guard` job 中运行 `scripts/ci_commit_guard.sh`：它按 GitHub `pull_request` / `push` 事件解析提交范围，先复用 `scripts/guard_commit_titles.sh --range` 要求范围内每个 commit 的标题包含中文，且非空正文也包含中文，再复用 `scripts/guard_fix_commits_have_tests.sh --range` 拦截未安装 hook 或绕过 hook 后进入 PR / main 的 fix 类提交。正文为空允许；正文一旦存在，纯英文正文会失败。
 
@@ -63,19 +64,9 @@ internal/foo/bar.go
 
 直接复制底下的命令跑，再 `git add -u` 重新 commit。
 
-### staged / worktree 不一致拦下
+### staged 快照检查
 
-```
-❌ 以下 staged Go 影响包内的 .go 文件还有未暂存或未跟踪 worktree 改动：
-  internal/foo/bar.go
-
-  请先 git add 这些文件，或还原/删除未暂存改动。
-  否则 gofmt/go vet/go test 检查的不是将被提交的内容。
-```
-
-先 `git add internal/foo/bar.go`，或还原未暂存改动后重新 commit。
-
-如果看到“staged .go 文件在 worktree 中不存在”，通常是 `git add new.go` 后又 `rm new.go` 的 AD 状态；请 `git restore --staged new.go` 或恢复文件后重新 `git add`。
+`pre-commit` 检查的是 index 快照，不要求 worktree 干净。修改了文件但没有 `git add` 的内容不会进入本次提交检查；已 `git add` 的内容会被写入临时 worktree 后运行 gofmt、守卫、vet 和测试。
 
 ### go vet 拦下
 
@@ -109,7 +100,7 @@ FAIL  github.com/.../internal/app    0.5s
   ⚠️  紧急 bypass（违反仓库规约 docs/1/会话习惯.md §10.12«禁止 bypass pre-commit hook»、需事后补检查）：git push --no-verify
 ```
 
-`pre-push` 会先拒绝未提交/未暂存/未跟踪内容，并拒绝 `local_sha != HEAD` 的显式 ref 推送，确保包级检查对象等于将要推送的 commit；Go 输出会自动剔除 ld 链接器警告噪声（`ld: warning ... newer macOS version`）。
+`pre-push` 不要求工作区干净。它会 checkout 将要推送的 commit 到临时 worktree 后运行检查，避免未提交改动污染 push 检查对象。
 
 ## 诊断
 
@@ -132,7 +123,7 @@ git config --get core.hooksPath
 
 ### 为什么第一次很慢？
 
-冷启时 Go 需要重建测试缓存，`pre-push` 的 Go 包级测试耗时取决于本次 push 涉及的包数量。`pre-commit` 只检查 staged `.go` 涉及的包，暖启通常 0.5–3 秒。前端只在 `cmd/agent-terminal/frontend` 代码变更时跑该前端包的 guard/vitest。
+冷启时 Go 需要重建测试缓存，`pre-push` 的 Go 包级测试耗时取决于本次 push 涉及的变更包和受影响包数量。`pre-commit` 检查 staged 代码的变更包和受影响包。前端只在前端包代码变更时跑对应包的守卫/测试。
 
 ### 清了 GOCACHE 会怎样？
 
@@ -140,11 +131,11 @@ git config --get core.hooksPath
 
 ### rebase / cherry-pick / merge / revert 中间提交会怎样？
 
-`pre-commit` / `commit-msg` 不覆盖所有 sequencer 自动产生的中间提交；这是 Git 客户端 hook 的结构性限制。`pre-push` 会在最终 push 前要求 worktree/index/untracked 干净，并要求每个非删除 ref 的 `local_sha` 等于当前 `HEAD`，再检查本次 push 范围内所有 fix commits 都带锁定 bug 的测试，最后按 push range 只跑受影响的 Go 包测试和/或前端包测试，确保兜底检查的是将要推送的 commit。
+`pre-commit` / `commit-msg` 不覆盖所有 sequencer 自动产生的中间提交；这是 Git 客户端 hook 的结构性限制。`pre-merge-commit` 会覆盖自动 merge commit 的代码检查；`pre-push` 会在最终 push 前检查本次 push 范围内所有 commit 的中文标题/正文和 fix-test 规则，并基于将要推送的 commit 快照运行后端/前端检查，确保兜底检查的是将要推送的内容。
 
 ### Linux 能用吗？
 
-脚本只依赖 bash、git、go、make 和 POSIX 常见工具；没有用 `flock` / `timeout`。当前主验证环境是 macOS bash 3.2 + BSD `mktemp`，Linux bash 一般可用。路径枚举使用 `git diff --cached --name-status -z`，可正确处理空格/中文路径；首次接入请先跑 `make install-hooks && bash .githooks/pre-commit` 自检。
+脚本只依赖 bash、git、go、make 和 POSIX 常见工具；没有用 `flock` / `timeout`。当前主验证环境是 macOS bash 3.2 + BSD `mktemp`，Linux bash 一般可用。路径枚举使用 NUL 分隔的 `git diff --name-status -z` / `git diff-tree -z`，可正确处理空格/中文路径；首次接入请先跑 `make install-hooks && bash .githooks/pre-commit` 自检。
 
 ## 卸载
 
@@ -159,11 +150,11 @@ git config --unset core.hooksPath
 - **本地工作流约束**：只在你的电脑上跑，不影响远端仓库或他人
 - **同事不装即裸推**：core.hooksPath 仅本机生效。要让所有人都用，需要每个人各自 `make install-hooks`
 - **fix 必须带回归测试**：`fix` / `hotfix` / `bugfix` / `修复` 提交必须在同一提交修改测试、fixture、golden 或 snapshot；commit-msg 拦当前提交，pre-push 拦历史补推
-- **rebase / amend 也跑**：交互式人工提交会跑；sequencer 自动中间提交不保证由 pre-commit / commit-msg 拦截，最终由 pre-push 兜底
-- **环境降噪**：pre-commit 会清空 `GOFLAGS`；pre-push 会清理 Git hook 环境后跑对应包测试，并过滤 Go 测试里的 `ld: warning:` 链接器噪声
+- **rebase / amend 也跑**：交互式人工提交会跑；sequencer 自动中间提交不保证由 pre-commit / commit-msg 拦截，自动 merge commit 由 pre-merge-commit 检查代码，最终由 pre-push 兜底
+- **环境降噪**：pre-commit / pre-merge-commit 会清空 `GOFLAGS`；pre-push 会清理 Git hook 环境后跑对应检查
 - **CI 可短路 hook 检查提示**：`MAKE_HOOK_CHECK=0 make build` 可关闭 build 末尾的本地 hooksPath 提示，避免 CI 日志噪声
 - **失败信息不自动进 agent 上下文**：你需要复制错误给 agent，让 agent 改
 
 ## 修改钩子内容
 
-直接编辑 `.githooks/pre-commit`、`.githooks/commit-msg` 或 `.githooks/pre-push`，git 追踪它们，提交后所有装了 hook 的人下次 pull 自动生效。
+直接编辑 `.githooks/pre-commit`、`.githooks/commit-msg`、`.githooks/pre-merge-commit`、`.githooks/pre-push` 或 `scripts/hook_code_checks.sh`，git 追踪它们，提交后所有装了 hook 的人下次 pull 自动生效。

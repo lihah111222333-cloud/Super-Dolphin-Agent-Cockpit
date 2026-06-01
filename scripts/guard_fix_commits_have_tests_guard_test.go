@@ -488,8 +488,9 @@ func preparePrePushScopeRepo(t *testing.T) string {
 	root := prepareFixTestGuardRepo(t)
 	copyFixTestGuardRepoFile(t, root, ".githooks/pre-push", 0o755)
 	copyFixTestGuardRepoFile(t, root, "scripts/guard_commit_titles.sh", 0o755)
+	copyFixTestGuardRepoFile(t, root, "scripts/hook_code_checks.sh", 0o755)
 	writePrePushFakeGoTestScript(t, root)
-	runFixTestGuardGit(t, root, "add", ".githooks/pre-push", "scripts/guard_commit_titles.sh", "scripts/guard_fix_commits_have_tests.sh", "scripts/test_with_guard.sh")
+	runFixTestGuardGit(t, root, "add", ".githooks/pre-push", "scripts/guard_commit_titles.sh", "scripts/guard_fix_commits_have_tests.sh", "scripts/hook_code_checks.sh", "scripts/test_with_guard.sh")
 	runFixTestGuardGit(t, root, "commit", "-m", "chore: install pre-push scope fixture")
 	return root
 }

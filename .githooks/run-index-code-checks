@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+LABEL="${1:?hook label is required}"
+ROOT="$(git rev-parse --show-toplevel)"
+cd "$ROOT"
+
+./scripts/hook_code_checks.sh index "$LABEL"
