@@ -141,6 +141,7 @@ const RIGHT_PANEL_MAX_RATIO = 0.4;
 const CONVERSATION_MIN_RATIO = 0.4;
 const NAV_RAIL_WIDTH = 76;
 const SPLITTER_WIDTH = 6;
+const RESIZER_KEY_STEP = 16;
 const RUNTIME_TOOLBAR_HEIGHT = 67;
 const ACTIVITY_ICON_ROW_HEIGHT = 64;
 const ACTIVITY_LOG_ROW_HEIGHT = 32;
@@ -682,6 +683,15 @@ function hasUsableProjectCwd(store) {
 
 function canUseProjectActionsForStore(store) {
   return store?.bootstrapStatus === 'ready' && hasUsableProjectCwd(store);
+}
+
+function shouldIgnoreGlobalEscape(target) {
+  const element = target instanceof Element ? target : null;
+  if (!element) return false;
+  const tagName = element.tagName.toLowerCase();
+  if (['input', 'textarea', 'select', 'option'].includes(tagName)) return true;
+  if (element.isContentEditable) return true;
+  return Boolean(element.closest('[role="dialog"], [role="menu"], [role="listbox"], [data-escape-scope="local"]'));
 }
 
 function disambiguateProjectLabels(items) {
@@ -2885,6 +2895,7 @@ function ChatPage({ store, projectPath }) {
   useEffect(() => {
     const onKeyDown = (event) => {
       if (event.defaultPrevented || event.key !== 'Escape' || event.metaKey || event.ctrlKey || event.altKey || event.shiftKey) return;
+      if (shouldIgnoreGlobalEscape(event.target)) return;
       if (!store.hasActiveThreadActions?.()) return;
       event.preventDefault();
       void store.interruptActiveThread?.();
@@ -2908,6 +2919,19 @@ function ChatPage({ store, projectPath }) {
     };
     window.addEventListener('pointermove', move);
     window.addEventListener('pointerup', stop);
+  };
+
+  const handleThreadRailResizeKeyDown = (event) => {
+    if (event.metaKey || event.ctrlKey || event.altKey || event.shiftKey) return;
+    let nextWidth = null;
+    if (event.key === 'ArrowLeft') nextWidth = effectiveThreadRailWidth - RESIZER_KEY_STEP;
+    else if (event.key === 'ArrowRight') nextWidth = effectiveThreadRailWidth + RESIZER_KEY_STEP;
+    else if (event.key === 'Home') nextWidth = THREAD_RAIL_MIN_WIDTH;
+    else if (event.key === 'End') nextWidth = threadRailMaxWidth;
+    if (nextWidth === null) return;
+    event.preventDefault();
+    threadRailResizedRef.current = true;
+    setThreadRailWidth(clampWidth(nextWidth, THREAD_RAIL_MIN_WIDTH, threadRailMaxWidth));
   };
 
   const beginRightPanelResize = (event) => {
@@ -2960,6 +2984,25 @@ function ChatPage({ store, projectPath }) {
     window.addEventListener('blur', finish);
   };
 
+  const handleRightPanelResizeKeyDown = (event) => {
+    if (event.metaKey || event.ctrlKey || event.altKey || event.shiftKey) return;
+    let nextWidth = null;
+    if (event.key === 'ArrowLeft') nextWidth = rightPanelWidth + RESIZER_KEY_STEP;
+    else if (event.key === 'ArrowRight') nextWidth = rightPanelWidth - RESIZER_KEY_STEP;
+    else if (event.key === 'Home') nextWidth = 0;
+    else if (event.key === 'End') nextWidth = maxRightPanelWidth;
+    if (nextWidth === null) return;
+    event.preventDefault();
+    rightPanelResizedRef.current = true;
+    const clampedWidth = clampWidth(nextWidth, 0, maxRightPanelWidth);
+    if (clampedWidth <= RIGHT_PANEL_CLOSE_THRESHOLD) {
+      store.setRightPanelWidth?.(0);
+      setRightPanelOpen(false);
+      return;
+    }
+    store.setRightPanelWidth?.(clampedWidth);
+  };
+
   const layoutColumns = rightPanelOpen
     ? `${effectiveThreadRailWidth}px ${SPLITTER_WIDTH}px minmax(0, 1fr) ${SPLITTER_WIDTH}px ${rightPanelWidth}px`
     : `${effectiveThreadRailWidth}px ${SPLITTER_WIDTH}px minmax(0, 1fr)`;
@@ -2988,11 +3031,17 @@ function ChatPage({ store, projectPath }) {
         style={{ gridTemplateColumns: layoutColumns }}
       >
         <ThreadRail store={store} />
-        <button
-          type="button"
+        <div
+          role="separator"
           className="splitter splitter--left"
+          aria-orientation="vertical"
           aria-label="调整会话栏宽度"
+          aria-valuemin={THREAD_RAIL_MIN_WIDTH}
+          aria-valuemax={threadRailMaxWidth}
+          aria-valuenow={effectiveThreadRailWidth}
           data-testid="thread-rail-resizer"
+          tabIndex={0}
+          onKeyDown={handleThreadRailResizeKeyDown}
           onPointerDown={beginThreadRailResize}
         />
         <Conversation
@@ -3020,11 +3069,17 @@ function ChatPage({ store, projectPath }) {
           canUseProjectActions={canUseProjectActions}
         />
         {rightPanelOpen ? (
-          <button
-            type="button"
+          <div
+            role="separator"
             className="splitter splitter--right"
+            aria-orientation="vertical"
             aria-label="调整侧边栏宽度"
+            aria-valuemin={0}
+            aria-valuemax={maxRightPanelWidth}
+            aria-valuenow={rightPanelWidth}
             data-testid="right-panel-resizer"
+            tabIndex={0}
+            onKeyDown={handleRightPanelResizeKeyDown}
             onPointerDown={beginRightPanelResize}
           />
         ) : null}
@@ -3471,7 +3526,7 @@ function ThreadRail({ store }) {
   );
 }
 
-function ModelSelector({ store, activeThreadId }) {
+function ModelSelector({ store, activeThreadId, disabled = false }) {
   const [open, setOpen] = useState(false);
   const wrapRef = useRef(null);
   const activeThreadConfig = activeThreadId ? store.threadConfigByThread?.[activeThreadId] : null;
@@ -3503,7 +3558,12 @@ function ModelSelector({ store, activeThreadId }) {
     return () => document.removeEventListener('pointerdown', onPointerDown, true);
   }, [open]);
 
+  useEffect(() => {
+    if (disabled && open) setOpen(false);
+  }, [disabled, open]);
+
   const openSelector = async () => {
+    if (disabled) return;
     const nextOpen = !open;
     setDraft({ model: draftModel, effort: draftEffort });
     setOpen(nextOpen);
@@ -3548,6 +3608,7 @@ function ModelSelector({ store, activeThreadId }) {
   const inheritModelLabel = activeModel ? `默认（当前：${modelOptionFor(providerKey, activeModel)?.label || activeModel}）` : '默认';
   const inheritEffortLabel = activeEffort ? `默认（当前：${effortOptionFor(providerKey, activeEffort)?.label || activeEffort}）` : '默认';
   const selectorBusy = Boolean(store.threadConfigSaving || (activeThreadId && store.threadConfigLoadingByThread?.[activeThreadId]));
+  const unavailableTitle = '请先连接后端并选择项目';
 
   return (
     <div className="composer-model-wrap" ref={wrapRef}>
@@ -3558,7 +3619,8 @@ function ModelSelector({ store, activeThreadId }) {
         aria-expanded={open}
         aria-haspopup="dialog"
         aria-busy={selectorBusy}
-        title={canOverrideThread ? '线程执行配置' : '全局模型配置'}
+        title={disabled ? unavailableTitle : (canOverrideThread ? '线程执行配置' : '全局模型配置')}
+        disabled={disabled}
         onClick={() => void openSelector()}
       >
         {label}
@@ -3568,20 +3630,20 @@ function ModelSelector({ store, activeThreadId }) {
         <div className="model-dropdown" role="dialog" aria-label="模型配置">
           <label>
             <span>模型</span>
-            <select aria-label="模型" value={selectModelValue} disabled={selectorBusy} onChange={(event) => void saveModelConfig({ model: event.target.value })}>
+            <select aria-label="模型" value={selectModelValue} disabled={disabled || selectorBusy} onChange={(event) => void saveModelConfig({ model: event.target.value })}>
               {canOverrideThread ? <option value="">{inheritModelLabel}</option> : null}
               {modelOptions.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
             </select>
           </label>
           <label>
             <span>强度</span>
-            <select aria-label="推理强度" value={selectEffortValue} disabled={selectorBusy} onChange={(event) => void saveModelConfig({ effort: event.target.value })}>
+            <select aria-label="推理强度" value={selectEffortValue} disabled={disabled || selectorBusy} onChange={(event) => void saveModelConfig({ effort: event.target.value })}>
               {canOverrideThread ? <option value="">{inheritEffortLabel}</option> : null}
               {effortOptions.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
             </select>
           </label>
           {canOverrideThread && !inherited ? (
-            <button type="button" className="model-inherit" disabled={selectorBusy} onClick={() => void restoreInheritance()}>
+            <button type="button" className="model-inherit" disabled={disabled || selectorBusy} onClick={() => void restoreInheritance()}>
               继承全局
             </button>
           ) : null}
@@ -4030,10 +4092,13 @@ function ComposerDock({
     : null;
   const hasComposerInput = Boolean(textValue(draft) || attachments.length > 0);
   const canSend = canUseProjectActions && !sending && hasComposerInput;
+  const projectActionBlocked = !canUseProjectActions;
+  const projectActionBlockedTitle = '请先连接后端并选择项目';
 
   useEffect(() => {
     if (typeof attachPaths !== 'function') return undefined;
     return onFilesDropped((event) => {
+      if (!canUseProjectActions) return;
       const payload = event && typeof event === 'object' ? event : {};
       const files = Array.isArray(payload.files) ? payload.files : [];
       if (files.length === 0) return;
@@ -4043,7 +4108,7 @@ function ComposerDock({
       attachPaths(files);
       setDropActive(false);
     });
-  }, [attachPaths]);
+  }, [attachPaths, canUseProjectActions]);
 
   const preview = (item) => {
     setPreviewAttachment(item);
@@ -4058,16 +4123,19 @@ function ComposerDock({
     const images = extractClipboardImageFiles(event);
     if (images.length === 0) return;
     event.preventDefault();
+    if (projectActionBlocked) return;
     await attachPastedImages(images);
   };
   const handleDragEnter = (event) => {
     if (!hasFilesTransfer(event)) return;
     event.preventDefault();
+    if (projectActionBlocked) return;
     setDropActive(true);
   };
   const handleDragOver = (event) => {
     if (!hasFilesTransfer(event)) return;
     event.preventDefault();
+    if (projectActionBlocked) return;
     if (event.dataTransfer) event.dataTransfer.dropEffect = 'copy';
     setDropActive(true);
   };
@@ -4080,6 +4148,7 @@ function ComposerDock({
     if (!hasFilesTransfer(event)) return;
     event.preventDefault();
     setDropActive(false);
+    if (projectActionBlocked) return;
     const files = collectTransferFiles(event);
     if (files.length > 0) await attachDroppedFiles(files);
   };
@@ -4134,12 +4203,27 @@ function ComposerDock({
           placeholder="输入给 Agent 的内容，Enter 发送，Shift+Enter 换行"
         />
         <div className="composer-meta">
-          <button type="button" className="composer-attach" aria-label="添加文件" onClick={() => void selectFiles()}>
+          <button
+            type="button"
+            className="composer-attach"
+            aria-label="添加文件"
+            title={projectActionBlocked ? projectActionBlockedTitle : '添加文件'}
+            disabled={projectActionBlocked}
+            onClick={() => {
+              if (!projectActionBlocked) void selectFiles();
+            }}
+          >
             <Plus size={18} />
           </button>
           <label className="permission-chip">
             <span className="sr-only">发送权限</span>
-            <select aria-label="发送权限" value={permission} onChange={(event) => setPermission(event.target.value)}>
+            <select
+              aria-label="发送权限"
+              value={permission}
+              disabled={projectActionBlocked}
+              title={projectActionBlocked ? projectActionBlockedTitle : undefined}
+              onChange={(event) => setPermission(event.target.value)}
+            >
               <option>完全访问权限</option>
               <option>工作区写入</option>
               <option>只读模式</option>
@@ -4147,7 +4231,7 @@ function ComposerDock({
           </label>
           <div className="composer-actions">
             {showProviderToggle ? <ProviderToggle store={store} canUseProjectActions={canUseProjectActions} /> : null}
-            <ModelSelector store={store} activeThreadId={modelThreadId} />
+            <ModelSelector store={store} activeThreadId={modelThreadId} disabled={projectActionBlocked} />
             <button
               type="button"
               className="send"
@@ -4275,6 +4359,7 @@ function RuntimePanel({ diffText, tokenUsage, activityStats, warnings, runtimeRe
   const [activityPanelHeight, setActivityPanelHeight] = useState(() => clampActivityPanelHeight(ACTIVITY_PANEL_DEFAULT_HEIGHT));
   const [collapsedDiffFiles, setCollapsedDiffFiles] = useState(() => new Set());
   const diffSummary = useMemo(() => summarizeUnifiedDiff(diffText), [diffText]);
+  const activityPanelMax = activityPanelMaxHeight(viewportHeight);
 
   useEffect(() => {
     const onResize = () => {
@@ -4301,6 +4386,18 @@ function RuntimePanel({ diffText, tokenUsage, activityStats, warnings, runtimeRe
     };
     window.addEventListener(moveEventName, move);
     window.addEventListener(stopEventName, stop);
+  };
+
+  const handleActivityPanelResizeKeyDown = (event) => {
+    if (event.metaKey || event.ctrlKey || event.altKey || event.shiftKey) return;
+    let nextHeight = null;
+    if (event.key === 'ArrowUp' || event.key === 'PageUp') nextHeight = activityPanelHeight + RESIZER_KEY_STEP;
+    else if (event.key === 'ArrowDown' || event.key === 'PageDown') nextHeight = activityPanelHeight - RESIZER_KEY_STEP;
+    else if (event.key === 'Home') nextHeight = ACTIVITY_PANEL_MIN_HEIGHT;
+    else if (event.key === 'End') nextHeight = activityPanelMax;
+    if (nextHeight === null) return;
+    event.preventDefault();
+    setActivityPanelHeight(clampActivityPanelHeight(nextHeight, viewportHeight));
   };
 
   const toggleDiffFile = (filename) => {
@@ -4377,13 +4474,27 @@ function RuntimePanel({ diffText, tokenUsage, activityStats, warnings, runtimeRe
         tokenUsage={tokenUsage}
         warnings={warnings}
         runtimeResults={runtimeResults}
+        activityPanelHeight={activityPanelHeight}
+        activityPanelMaxHeight={activityPanelMax}
+        activityPanelMinHeight={ACTIVITY_PANEL_MIN_HEIGHT}
+        onResizeKeyDown={handleActivityPanelResizeKeyDown}
         onResizeStart={beginActivityPanelResize}
       />
     </aside>
   );
 }
 
-function RuntimeActivityPanel({ activityStats, tokenUsage, warnings, runtimeResults, onResizeStart }) {
+function RuntimeActivityPanel({
+  activityStats,
+  tokenUsage,
+  warnings,
+  runtimeResults,
+  activityPanelHeight,
+  activityPanelMaxHeight,
+  activityPanelMinHeight,
+  onResizeKeyDown,
+  onResizeStart,
+}) {
   const [hoveredStat, setHoveredStat] = useState(null);
   const [hoveredWarning, setHoveredWarning] = useState(null);
   const panelRef = useRef(null);
@@ -4408,12 +4519,18 @@ function RuntimeActivityPanel({ activityStats, tokenUsage, warnings, runtimeResu
 
   return (
     <section className="runtime-activity-panel" aria-label="工具使用面板" ref={panelRef}>
-      <button
-        type="button"
+      <div
+        role="separator"
         className="activity-panel-resizer"
+        aria-orientation="horizontal"
         aria-label="调整工具使用面板高度"
+        aria-valuemin={activityPanelMinHeight}
+        aria-valuemax={activityPanelMaxHeight}
+        aria-valuenow={activityPanelHeight}
         title="拖动调整工具使用面板高度，最大为应用高度的 1/2"
         data-testid="activity-panel-resizer"
+        tabIndex={0}
+        onKeyDown={onResizeKeyDown}
         onPointerDown={(event) => onResizeStart(event, 'pointer')}
         onMouseDown={(event) => {
           if (!window.PointerEvent) onResizeStart(event, 'mouse');
@@ -7511,8 +7628,9 @@ function SettingsPage({ projectPath }) {
         <div className="section-header">PROPERTIES</div>
         <div className="data-card-vue" data-testid="settings-provider-sandbox-card">
           <div className="settings-stall-row settings-provider-control-row">
-            <label className="settings-stall-label">推理摘要 (Summary)</label>
+            <label className="settings-stall-label" htmlFor="provider-summary-mode-select">推理摘要 (Summary)</label>
             <select
+              id="provider-summary-mode-select"
               className="settings-stall-input settings-provider-select"
               data-testid="provider-summary-mode-select"
               value={summaryMode}
@@ -7525,8 +7643,9 @@ function SettingsPage({ projectPath }) {
             </select>
           </div>
           <div className="settings-stall-row settings-provider-control-row">
-            <label className="settings-stall-label">审批策略 (ApprovalPolicy)</label>
+            <label className="settings-stall-label" htmlFor="provider-approval-mode-select">审批策略 (ApprovalPolicy)</label>
             <select
+              id="provider-approval-mode-select"
               className="settings-stall-input settings-provider-select"
               data-testid="provider-approval-mode-select"
               value={approvalMode}
@@ -7577,16 +7696,18 @@ function SettingsPage({ projectPath }) {
             />
           </label>
           <div className="settings-prompt-meta">生效行数 {lspPromptLineCount} · 字符 {lspPromptCharCount}</div>
-          <div className="settings-prompt-label">当前生效内容（只读）</div>
+          <label className="settings-prompt-label" htmlFor="settings-lsp-effective-output">当前生效内容（只读）</label>
           <textarea
+            id="settings-lsp-effective-output"
             className="settings-prompt-textarea settings-prompt-textarea-readonly"
             data-testid="settings-lsp-effective-output"
             rows={12}
             value={lspPromptDisplayHint}
             readOnly
           />
-          <div className="settings-prompt-label">自定义覆盖（可编辑，空=默认）</div>
+          <label className="settings-prompt-label" htmlFor="settings-lsp-prompt-input">自定义覆盖（可编辑，空=默认）</label>
           <textarea
+            id="settings-lsp-prompt-input"
             className="settings-prompt-textarea"
             data-testid="settings-lsp-prompt-input"
             rows={8}
@@ -7694,7 +7815,9 @@ function SettingsPage({ projectPath }) {
             <span>{store.logLevel}</span>
           </div>
           <div className="settings-stall-row settings-log-control-row">
+            <label className="settings-stall-label" htmlFor="settings-log-level-select">日志级别</label>
             <select
+              id="settings-log-level-select"
               className="settings-stall-input settings-log-level-select"
               data-testid="settings-log-level-select"
               value={store.logLevel}

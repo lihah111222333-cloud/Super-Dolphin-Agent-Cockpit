@@ -943,7 +943,8 @@ select {
   border-right: 1px solid var(--line);
 }
 
-.splitter:hover {
+.splitter:hover,
+.splitter:focus-visible {
   background: #25272a;
 }
 
@@ -4814,7 +4815,8 @@ textarea:disabled {
   background: var(--surface);
 }
 
-.splitter:hover {
+.splitter:hover,
+.splitter:focus-visible {
   background: var(--surface-3);
 }
 
