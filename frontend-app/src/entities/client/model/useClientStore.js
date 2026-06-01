@@ -711,6 +711,19 @@ function activeProviderLockedThreadId(state) {
   return normalizeBackendThreadId(matchedThread?.id || id);
 }
 
+function activeTurnIdForThread(state, threadId) {
+  const id = normalizeBackendThreadId(threadId);
+  if (!id) return '';
+  const direct = normalizeTurnSummary(state.activeTurnByThread?.[id]);
+  if (direct?.id) return direct.id;
+  const activeId = normalizeThreadId(state.activeThreadId);
+  if (activeId && activeId !== id) {
+    const active = normalizeTurnSummary(state.activeTurnByThread?.[activeId]);
+    if (active?.id && threadMatchesIdentifier({ id, thread_id: id }, active.threadId || activeId)) return active.id;
+  }
+  return '';
+}
+
 function backendThreadIdForArchiveState(state, value) {
   const id = normalizeThreadId(value);
   if (!id) return '';
@@ -1427,6 +1440,7 @@ const baseState = {
   threadConfigLoadingByThread: {},
   threadConfigFailedByThread: {},
   threadStateLoadingByThread: {},
+  threadArchiveLoadingByThread: {},
   threadConfigSaving: false,
   timelinesByThread: {},
   threadTimelineReadyByThread: {},
@@ -1607,6 +1621,7 @@ export const useClientStore = create((set, get) => {
       threadConfigLoadingByThread: {},
       threadConfigFailedByThread: {},
       threadStateLoadingByThread: {},
+      threadArchiveLoadingByThread: {},
       pendingActiveThreadId: '',
       timelinesByThread: {},
       threadTimelineReadyByThread: {},
@@ -1954,6 +1969,13 @@ export const useClientStore = create((set, get) => {
     }));
   };
 
+  const notifyRPCFailure = (messagePrefix, warningEvent, error, fields = {}) => {
+    const message = error?.message || String(error);
+    notifyAction(`${messagePrefix}失败：${message}`, 'error', fields);
+    addWarning('error', warningEvent, { ...fields, error: message });
+    return false;
+  };
+
   const bridgeThreadIdForPayload = (payload) => {
     const identifier = runtimeThreadIdentifier(payload);
     const id = normalizeThreadId(identifier);
@@ -2247,16 +2269,28 @@ export const useClientStore = create((set, get) => {
   };
 
   const activeThreadRPC = async (action, rpc) => {
-    const threadId = backendThreadIdForState(get(), get().activeThreadId);
+    const currentState = get();
+    const threadId = backendThreadIdForState(currentState, currentState.activeThreadId);
     if (!threadId) {
       notifyAction('当前没有可操作的后端线程', 'warning');
       return false;
     }
-    const cwd = requireCwd(action);
-    const payload = action === 'thread.interrupt'
-      ? { cwd, threadId, source: 'ui_stop' }
-      : { cwd, threadId };
+    const actionLabels = {
+      'thread.interrupt': '中断当前执行',
+      'thread.compact': '压缩上下文',
+      'thread.recover': '恢复连接',
+    };
     try {
+      const cwd = requireCwd(action);
+      let payload = { cwd, threadId };
+      if (action === 'thread.interrupt') {
+        const turnId = activeTurnIdForThread(currentState, threadId);
+        if (!turnId) {
+          notifyAction('当前没有可中断任务', 'warning', { threadId });
+          return false;
+        }
+        payload = { cwd, threadId, turnId, source: 'ui_stop' };
+      }
       await rpc(cleanObject(payload));
       notifyAction({
         'thread.interrupt': '已发送中断请求',
@@ -2265,9 +2299,10 @@ export const useClientStore = create((set, get) => {
       }[action] || '线程操作已提交', 'success', { threadId });
       return true;
     } catch (error) {
-      notifyAction(`${action} 失败：${error.message}`, 'error', { threadId });
-      addWarning('error', `${action}.failed`, { threadId, error: error.message });
-      throw error;
+      const message = error?.message || String(error);
+      notifyAction(`${actionLabels[action] || '线程操作'}失败：${message}`, 'error', { threadId });
+      addWarning('error', `${action}.failed`, { threadId, error: message });
+      return false;
     }
   };
 
@@ -2369,6 +2404,11 @@ export const useClientStore = create((set, get) => {
         await messagesPromise;
         if (!activeChanged && shouldAutoLoadThreadConfig(get(), id)) await get().loadThreadConfig(id);
         return true;
+      } catch (error) {
+        const message = error?.message || String(error);
+        notifyAction(`同步会话失败：${message}`, 'error', { threadId: id });
+        addWarning('error', 'thread.sync.failed', { threadId: id, error: message });
+        return false;
       } finally {
         set((state) => ({
           threadStateLoadingByThread: {
@@ -2561,7 +2601,7 @@ export const useClientStore = create((set, get) => {
             actionNotice: actionNotice(`线程配置保存失败：${error.message}`, 'error'),
           });
           addWarning('error', 'thread.config.set.failed', { threadId, error: error.message });
-          throw error;
+          return false;
         }
       }
 
@@ -2572,13 +2612,17 @@ export const useClientStore = create((set, get) => {
         effort: hasEffort ? nextEffort || current.effort : current.effort,
         codexModelProvider: current.codexModelProvider,
       }, provider);
-      await setPreference({ cwd, key: providerPreferenceKey(provider, 'model'), value: value.model });
-      await setPreference({ cwd, key: providerPreferenceKey(provider, 'effort'), value: value.effort });
-      set({
-        providerConfig: value,
-        actionNotice: actionNotice('全局模型配置已保存', 'success'),
-      });
-      return true;
+      try {
+        await setPreference({ cwd, key: providerPreferenceKey(provider, 'model'), value: value.model });
+        await setPreference({ cwd, key: providerPreferenceKey(provider, 'effort'), value: value.effort });
+        set({
+          providerConfig: value,
+          actionNotice: actionNotice('全局模型配置已保存', 'success'),
+        });
+        return true;
+      } catch (error) {
+        return notifyRPCFailure('全局模型配置保存', 'provider.config.save.failed', error, { provider });
+      }
     },
 
     restoreComposerModelInheritance: async (config = {}) => {
@@ -2591,31 +2635,39 @@ export const useClientStore = create((set, get) => {
       if (!threadId) return false;
       const existingConfig = state.threadConfigByThread[threadId] || await get().loadThreadConfig(threadId);
       if (!existingConfig?.supportsThreadOverride) return false;
-      const saved = await setThreadConfig({ threadId, model: '', effort: '' });
-      const normalized = normalizeThreadConfig(saved, threadId, existingConfig.provider || state.provider);
-      set((current) => ({
-        threadConfigByThread: {
-          ...current.threadConfigByThread,
-          [threadId]: normalized,
-        },
-        actionNotice: actionNotice('已恢复继承全局默认', 'success'),
-      }));
-      return true;
+      try {
+        const saved = await setThreadConfig({ threadId, model: '', effort: '' });
+        const normalized = normalizeThreadConfig(saved, threadId, existingConfig.provider || state.provider);
+        set((current) => ({
+          threadConfigByThread: {
+            ...current.threadConfigByThread,
+            [threadId]: normalized,
+          },
+          actionNotice: actionNotice('已恢复继承全局默认', 'success'),
+        }));
+        return true;
+      } catch (error) {
+        return notifyRPCFailure('恢复线程模型继承', 'thread.config.restore.failed', error, { threadId });
+      }
     },
 
     saveComposerModelProvider: async (codexModelProvider) => {
       const key = providerPreferenceKey('codex', 'codexModelProvider');
       const value = requireProviderPreferenceValue(codexModelProvider, key, 'composer.modelProvider.save');
       const cwd = requireCwd('composer.modelProvider.save');
-      await setPreference({ cwd, key, value });
-      set((state) => ({
-        providerConfig: normalizeProviderRuntimeConfig({
-          ...state.providerConfig,
-          codexModelProvider: value,
-        }, state.provider || DEFAULT_PROVIDER),
-        actionNotice: actionNotice('模型渠道已保存', 'success'),
-      }));
-      return true;
+      try {
+        await setPreference({ cwd, key, value });
+        set((state) => ({
+          providerConfig: normalizeProviderRuntimeConfig({
+            ...state.providerConfig,
+            codexModelProvider: value,
+          }, state.provider || DEFAULT_PROVIDER),
+          actionNotice: actionNotice('模型渠道已保存', 'success'),
+        }));
+        return true;
+      } catch (error) {
+        return notifyRPCFailure('模型渠道保存', 'provider.model_provider.save.failed', error, { provider: 'codex' });
+      }
     },
 
     setActiveProjectPath: async (path) => {
@@ -2657,7 +2709,7 @@ export const useClientStore = create((set, get) => {
         });
         notifyAction(`切换项目失败：${error.message}`, 'error');
         addWarning('error', 'project.set_active.failed', { path: target, error: error.message });
-        throw error;
+        return false;
       }
     },
 
@@ -2679,7 +2731,7 @@ export const useClientStore = create((set, get) => {
       } catch (error) {
         notifyAction(`添加项目失败：${error.message}`, 'error');
         addWarning('error', 'project.add.failed', { path: selected, error: error.message });
-        throw error;
+        return false;
       }
     },
 
@@ -2700,7 +2752,7 @@ export const useClientStore = create((set, get) => {
       } catch (error) {
         notifyAction(`打开新窗口失败：${error.message}`, 'error');
         addWarning('error', 'ui.open_new_window.failed', { path: selected, error: error.message });
-        throw error;
+        return false;
       }
     },
 
@@ -2716,7 +2768,7 @@ export const useClientStore = create((set, get) => {
       } catch (error) {
         notifyAction(`移除项目失败：${error.message}`, 'error');
         addWarning('error', 'project.remove.failed', { path: target, error: error.message });
-        throw error;
+        return false;
       }
     },
 
@@ -2729,13 +2781,17 @@ export const useClientStore = create((set, get) => {
       const current = normalizeProviderName(get().provider) || DEFAULT_PROVIDER;
       const next = current === 'claude' ? 'codex' : 'claude';
       const cwd = requireCwd('provider.toggle');
-      await setPreference({ cwd, key: PROVIDER_ACTIVE_PREF_KEY, value: next });
-      await loadProviderConfig(cwd, next);
-      set({
-        provider: next,
-        actionNotice: actionNotice(`已切换为 ${next === 'claude' ? 'Claude' : 'Codex'}`, 'success'),
-      });
-      return true;
+      try {
+        await setPreference({ cwd, key: PROVIDER_ACTIVE_PREF_KEY, value: next });
+        await loadProviderConfig(cwd, next);
+        set({
+          provider: next,
+          actionNotice: actionNotice(`已切换为 ${next === 'claude' ? 'Claude' : 'Codex'}`, 'success'),
+        });
+        return true;
+      } catch (error) {
+        return notifyRPCFailure('切换 provider', 'provider.toggle.failed', error);
+      }
     },
 
     setActiveThread: async (threadId) => {
@@ -2759,8 +2815,7 @@ export const useClientStore = create((set, get) => {
           draft: restored.draft,
           attachments: restored.attachments,
         });
-        await get().syncThreadState(id, { includeArchived: true, includeDiff: false });
-        return;
+        return get().syncThreadState(id, { includeArchived: true, includeDiff: false });
       }
       set((state) => ({
         activeThreadId: id,
@@ -2773,7 +2828,8 @@ export const useClientStore = create((set, get) => {
         },
       }));
       try {
-        await get().syncThreadState(id, { includeArchived: true, includeDiff: false });
+        const synced = await get().syncThreadState(id, { includeArchived: true, includeDiff: false });
+        if (!synced) return false;
       } catch (error) {
         set((state) => ({
           threadStateLoadingByThread: {
@@ -2781,8 +2837,9 @@ export const useClientStore = create((set, get) => {
             [id]: false,
           },
         }));
-        throw error;
+        return notifyRPCFailure('切换会话', 'thread.select.failed', error, { threadId: id });
       }
+      return true;
     },
 
     newThread: () => {
@@ -2820,8 +2877,9 @@ export const useClientStore = create((set, get) => {
         }));
         return attachments;
       } catch (error) {
-        addWarning('error', 'attachments.select.failed', { error: error.message });
-        throw error;
+        notifyAction(`选择附件失败：${error.message || String(error)}`, 'error');
+        addWarning('error', 'attachments.select.failed', { error: error.message || String(error) });
+        return [];
       }
     },
 
@@ -3032,6 +3090,11 @@ export const useClientStore = create((set, get) => {
     recoverActiveThread: () => activeThreadRPC('thread.recover', recoverThread),
 
     hasActiveThreadActions: () => Boolean(backendThreadIdForState(get(), get().activeThreadId)),
+    hasInterruptibleThreadAction: () => {
+      const state = get();
+      const threadId = backendThreadIdForState(state, state.activeThreadId);
+      return Boolean(threadId && activeTurnIdForThread(state, threadId));
+    },
 
     refreshActiveThreadStatus: async () => {
       const threadId = backendThreadIdForState(get(), get().activeThreadId);
@@ -3102,12 +3165,16 @@ export const useClientStore = create((set, get) => {
       const id = backendThreadIdForState(get(), threadId);
       const nextName = normalizeString(name);
       if (!id || !nextName) return false;
-      await renameThreadRPC({ threadId: id, name: nextName });
-      set((state) => ({
-        threads: state.threads.map((thread) => (thread.id === id ? { ...thread, name: nextName } : thread)),
-        actionNotice: actionNotice('线程已重命名', 'success'),
-      }));
-      return true;
+      try {
+        await renameThreadRPC({ threadId: id, name: nextName });
+        set((state) => ({
+          threads: state.threads.map((thread) => (thread.id === id ? { ...thread, name: nextName } : thread)),
+          actionNotice: actionNotice('线程已重命名', 'success'),
+        }));
+        return true;
+      } catch (error) {
+        return notifyRPCFailure('重命名会话', 'thread.rename.failed', error, { threadId: id });
+      }
     },
 
     toggleThreadPin: async (threadId) => {
@@ -3122,31 +3189,57 @@ export const useClientStore = create((set, get) => {
       } else {
         nextMap[id] = Date.now();
       }
-      await setPreference({
-        cwd,
-        key: THREAD_PINS_CHAT_PREF_KEY,
-        value: nextMap,
-      });
-      set((state) => ({
-        pinnedThreadAtById: nextMap,
-        threads: state.threads.map((thread) => (thread.id === id ? {
-          ...thread,
-          pinned: !pinned,
-          pinnedAt: nextMap[id] || 0,
-        } : thread)),
-        actionNotice: actionNotice(pinned ? '会话已取消置顶' : '会话已置顶', 'success'),
-      }));
-      return true;
+      try {
+        await setPreference({
+          cwd,
+          key: THREAD_PINS_CHAT_PREF_KEY,
+          value: nextMap,
+        });
+        set((state) => ({
+          pinnedThreadAtById: nextMap,
+          threads: state.threads.map((thread) => (thread.id === id ? {
+            ...thread,
+            pinned: !pinned,
+            pinnedAt: nextMap[id] || 0,
+          } : thread)),
+          actionNotice: actionNotice(pinned ? '会话已取消置顶' : '会话已置顶', 'success'),
+        }));
+        return true;
+      } catch (error) {
+        return notifyRPCFailure(pinned ? '取消置顶会话' : '置顶会话', 'thread.pin.failed', error, { threadId: id });
+      }
     },
 
     archiveThread: async (threadId, archived) => {
       const id = backendThreadIdForArchiveState(get(), threadId);
       if (!id) return false;
       const cwd = requireCwd('thread.archive');
-      if (archived) {
-        await archiveThreadRPC({ threadId: id });
-      } else {
-        await unarchiveThreadRPC({ threadId: id });
+      if (get().threadArchiveLoadingByThread?.[id]) return false;
+      set((state) => ({
+        threadArchiveLoadingByThread: {
+          ...state.threadArchiveLoadingByThread,
+          [id]: true,
+        },
+      }));
+      try {
+        if (archived) {
+          await archiveThreadRPC({ threadId: id });
+        } else {
+          await unarchiveThreadRPC({ threadId: id });
+        }
+      } catch (error) {
+        const message = error?.message || String(error);
+        const action = archived ? '归档' : '恢复';
+        notifyAction(`${action}会话失败：${message}`, 'error', { threadId: id });
+        addWarning('error', `thread.${archived ? 'archive' : 'unarchive'}.failed`, { threadId: id, error: message });
+        return false;
+      } finally {
+        set((state) => ({
+          threadArchiveLoadingByThread: {
+            ...state.threadArchiveLoadingByThread,
+            [id]: false,
+          },
+        }));
       }
       const archivedAt = archived ? Date.now() : 0;
       await setPreference({

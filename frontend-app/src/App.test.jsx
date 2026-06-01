@@ -1091,7 +1091,7 @@ describe('frontend-app connected client shell', () => {
     expect(screen.getByText('新对话')).toBeInTheDocument();
   });
 
-  it('shows a busy loading status while the active thread state is refreshing', async () => {
+  it('shows a lightweight history placeholder when the active thread has no trusted cache', async () => {
     const { container } = render(<App />);
     await screen.findByText('后端线程');
 
@@ -1101,6 +1101,14 @@ describe('frontend-app connected client shell', () => {
         threads: state.threads.map((thread) => (
           thread.id === 'thread-1' ? { ...thread, status: 'idle' } : thread
         )),
+        timelinesByThread: {
+          ...state.timelinesByThread,
+          'thread-1': [],
+        },
+        threadTimelineReadyByThread: {
+          ...state.threadTimelineReadyByThread,
+          'thread-1': false,
+        },
         threadStateLoadingByThread: {
           ...state.threadStateLoadingByThread,
           'thread-1': true,
@@ -1109,6 +1117,7 @@ describe('frontend-app connected client shell', () => {
     });
 
     await waitFor(() => {
+      expect(screen.getByTestId('timeline-loading-placeholder')).toHaveTextContent('正在同步会话历史');
       const status = container.querySelector('.work-status');
       expect(status).toHaveTextContent('加载中');
       expect(status).toHaveClass('is-busy');
@@ -1127,6 +1136,7 @@ describe('frontend-app connected client shell', () => {
       timelinesByThread: {
         'thread-1': [{ id: 'assistant-cached', kind: 'assistant', text: '刷新前已有的回答', ts: '2026-05-30T00:00:00Z' }],
       },
+      threadTimelineReadyByThread: { 'thread-1': true },
       threadStateLoadingByThread: { 'thread-1': true },
     });
 
@@ -1134,9 +1144,10 @@ describe('frontend-app connected client shell', () => {
 
     expect(screen.getByText('刷新前已有的回答')).toBeInTheDocument();
     expect(screen.getByTestId('chat-timeline')).toHaveTextContent('刷新前已有的回答');
+    expect(screen.queryByTestId('timeline-loading-placeholder')).not.toBeInTheDocument();
     const status = container.querySelector('.work-status');
-    expect(status).toHaveTextContent('加载中');
-    expect(status).toHaveClass('is-busy');
+    expect(status).not.toHaveTextContent('加载中');
+    expect(status).not.toHaveClass('is-busy');
   });
 
   it('shows AI thinking records with elapsed time in the chat timeline', async () => {
@@ -1813,6 +1824,7 @@ describe('frontend-app connected client shell', () => {
     expect(screen.queryByText('Agent A ready')).not.toBeInTheDocument();
     expect(screen.queryByText('stale cached Agent B content')).not.toBeInTheDocument();
     expect(screen.queryByText(/我们应该在/)).not.toBeInTheDocument();
+    expect(screen.getByTestId('timeline-loading-placeholder')).toHaveTextContent('正在同步会话历史');
 
     act(() => {
       resolveThreadBState({
@@ -1881,6 +1893,7 @@ describe('frontend-app connected client shell', () => {
     }));
     expect(screen.getByText('cached Agent B content')).toBeInTheDocument();
     expect(screen.queryByText('Agent A ready')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('timeline-loading-placeholder')).not.toBeInTheDocument();
   });
 
   it('resizes the chat rail and right sidebar without crossing their minimum widths', async () => {
@@ -2127,7 +2140,7 @@ describe('frontend-app connected client shell', () => {
         providerThreadId: 'provider-thread-1',
         provider: 'codex',
       }));
-      expect(backend.interruptTurn).toHaveBeenCalledWith({ cwd: '/repo/app', threadId: 'thread-1', source: 'ui_stop' });
+      expect(backend.interruptTurn).toHaveBeenCalledWith({ cwd: '/repo/app', threadId: 'thread-1', turnId: 'turn-1', source: 'ui_stop' });
       expect(backend.recoverThread).toHaveBeenCalledWith({ cwd: '/repo/app', threadId: 'thread-1' });
       expect(backend.archiveThread).toHaveBeenCalledWith({ threadId: 'thread-1' });
       expect(backend.setPreference).toHaveBeenCalledWith(expect.objectContaining({
@@ -2144,7 +2157,7 @@ describe('frontend-app connected client shell', () => {
     fireEvent.keyDown(window, { key: 'Escape', code: 'Escape' });
 
     await waitFor(() => {
-      expect(backend.interruptTurn).toHaveBeenCalledWith({ cwd: '/repo/app', threadId: 'thread-1', source: 'ui_stop' });
+      expect(backend.interruptTurn).toHaveBeenCalledWith({ cwd: '/repo/app', threadId: 'thread-1', turnId: 'turn-1', source: 'ui_stop' });
     });
   });
 
@@ -2159,7 +2172,7 @@ describe('frontend-app connected client shell', () => {
     expect(backend.interruptTurn).not.toHaveBeenCalled();
   });
 
-  it('interrupts the selected running conversation with Escape even when active turn is not cached', async () => {
+  it('does not send an invalid interrupt when a running conversation has no active turn id', async () => {
     backend.getSidebarState.mockResolvedValueOnce({
       activeThreadId: 'thread-1',
       threads: [{ id: 'thread-1', name: '后端线程', provider: 'codex', status: '工作中' }],
@@ -2170,9 +2183,8 @@ describe('frontend-app connected client shell', () => {
 
     fireEvent.keyDown(window, { key: 'Escape', code: 'Escape' });
 
-    await waitFor(() => {
-      expect(backend.interruptTurn).toHaveBeenCalledWith({ cwd: '/repo/app', threadId: 'thread-1', source: 'ui_stop' });
-    });
+    await waitFor(() => expect(screen.getByTestId('chat-action-feedback')).toHaveTextContent('当前没有可中断任务'));
+    expect(backend.interruptTurn).not.toHaveBeenCalled();
   });
 
   it('previews attachments on click and removes them only with the remove control', async () => {
@@ -2713,6 +2725,20 @@ describe('frontend-app connected client shell', () => {
       expect(screen.queryByText('后端线程')).not.toBeInTheDocument();
       expect(screen.getByTestId('chat-action-feedback')).toHaveTextContent('线程已归档');
     });
+  });
+
+  it('keeps the thread visible and reports a readable error when archive RPC fails', async () => {
+    backend.archiveThread.mockRejectedValueOnce(new Error('orchestration: service not configured'));
+    render(<App />);
+    await screen.findByText('后端线程');
+
+    fireEvent.click(screen.getByLabelText('归档会话'));
+
+    expect(await screen.findByText('归档会话失败：orchestration: service not configured')).toBeInTheDocument();
+    expect(screen.getByText('后端线程')).toBeInTheDocument();
+    expect(backend.setPreference).not.toHaveBeenCalledWith(expect.objectContaining({
+      key: 'archivedThreadAtById.thread-1',
+    }));
   });
 
   it('shows the pin action tooltip when hovering the thread pin icon', async () => {

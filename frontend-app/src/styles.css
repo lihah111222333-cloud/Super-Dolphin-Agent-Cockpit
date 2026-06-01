@@ -1038,6 +1038,33 @@ select {
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 }
 
+.timeline-placeholder {
+  width: var(--conversation-content-width);
+  max-width: var(--conversation-content-width);
+  margin: 22px var(--conversation-content-right-gutter) 22px var(--conversation-content-left-gutter);
+  display: grid;
+  gap: 10px;
+  color: var(--text-muted);
+}
+
+.timeline-placeholder-line {
+  width: min(420px, 62%);
+  height: 12px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, var(--surface-2), var(--surface-3), var(--surface-2));
+  background-size: 200% 100%;
+  animation: placeholder-sheen 1.2s ease-in-out infinite;
+}
+
+.timeline-placeholder-line--short {
+  width: min(260px, 42%);
+}
+
+.timeline-placeholder p {
+  margin: 2px 0 0;
+  font-size: 13px;
+}
+
 .message {
   min-width: 0;
   width: var(--conversation-content-width);
@@ -1881,6 +1908,15 @@ select {
 @keyframes status-spin {
   to {
     transform: rotate(360deg);
+  }
+}
+
+@keyframes placeholder-sheen {
+  0% {
+    background-position: 100% 0;
+  }
+  100% {
+    background-position: -100% 0;
   }
 }
 
