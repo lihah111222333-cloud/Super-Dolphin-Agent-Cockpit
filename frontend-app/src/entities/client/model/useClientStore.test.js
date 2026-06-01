@@ -1063,6 +1063,41 @@ describe('useClientStore backend contract', () => {
     ]);
   });
 
+  it('does not let later thread/state empty assistant rows replace visible replies', async () => {
+    resetClientStoreForTests({
+      cwd: '/repo/app',
+      activeProject: '/repo/app',
+      activeThreadId: 'thread-1',
+      threads: [{ id: 'thread-1', name: 'Existing', provider: 'codex', status: 'idle' }],
+    });
+    backend.getThreadMessages.mockResolvedValue({ messages: [] });
+    backend.getThreadState
+      .mockResolvedValueOnce({
+        activeThreadId: 'thread-1',
+        threads: [{ id: 'thread-1', name: 'Existing', provider: 'codex', status: 'idle' }],
+        timelinesByThread: {
+          'thread-1': [{ id: 'assistant-1', role: 'assistant', text: '1', createdAt: '2026-06-01T14:22:00Z' }],
+        },
+      })
+      .mockResolvedValueOnce({
+        activeThreadId: 'thread-1',
+        threads: [{ id: 'thread-1', name: 'Existing', provider: 'codex', status: 'idle' }],
+        timelinesByThread: {
+          'thread-1': [
+            { id: 'assistant-1', role: 'assistant', text: '', createdAt: '2026-06-01T14:34:00Z' },
+            { id: 'assistant-empty-new', role: 'assistant', text: '', createdAt: '2026-06-01T14:34:01Z' },
+          ],
+        },
+      });
+
+    await useClientStore.getState().syncThreadState('thread-1');
+    await useClientStore.getState().syncThreadState('thread-1');
+
+    expect(useClientStore.getState().timelinesByThread['thread-1']).toEqual([
+      expect.objectContaining({ id: 'assistant-1', role: 'assistant', text: '1' }),
+    ]);
+  });
+
   it('reads thread/messages text fields instead of rendering blank assistant bubbles', async () => {
     resetClientStoreForTests({
       cwd: '/repo/app',
