@@ -1432,6 +1432,7 @@ const baseState = {
   tokenUsageByThread: {},
   activityStatsByThread: {},
   diffTextByThread: {},
+  threadDiffReadyByThread: {},
   activityEntries: [],
   runtimeResultEntries: [],
   warningEntries: [],
@@ -1611,6 +1612,7 @@ export const useClientStore = create((set, get) => {
       tokenUsageByThread: {},
       activityStatsByThread: {},
       diffTextByThread: {},
+      threadDiffReadyByThread: {},
       runtimeResultEntries: [],
       draft: '',
       attachments: [],
@@ -1774,19 +1776,26 @@ export const useClientStore = create((set, get) => {
       }
 
       const diffTextByThread = {};
+      const threadDiffReadyByThread = {};
       for (const [threadId, text] of Object.entries(state.diffTextByThread)) {
         const canonicalId = canonicalizeThreadKey(threadId, nextThreads);
         diffTextByThread[canonicalId] = text;
+      }
+      for (const [threadId, ready] of Object.entries(state.threadDiffReadyByThread || {})) {
+        const canonicalId = canonicalizeThreadKey(threadId, nextThreads);
+        threadDiffReadyByThread[canonicalId] = Boolean(ready);
       }
       const incomingDiff = payload.diffTextByThread || payload.diff_text_by_thread;
       if (incomingDiff && typeof incomingDiff === 'object') {
         for (const [threadId, text] of Object.entries(incomingDiff)) {
           const canonicalId = canonicalizeThreadKey(threadId, nextThreads);
           diffTextByThread[canonicalId] = text;
+          threadDiffReadyByThread[canonicalId] = true;
         }
       }
       if (activeThreadId && typeof payload.diffText === 'string') {
         diffTextByThread[activeThreadId] = payload.diffText;
+        threadDiffReadyByThread[activeThreadId] = true;
       }
 
       let activeTurnByThread = canonicalizeActiveTurnByThread(state.activeTurnByThread, nextThreads);
@@ -1809,6 +1818,7 @@ export const useClientStore = create((set, get) => {
         tokenUsageByThread,
         activityStatsByThread,
         diffTextByThread,
+        threadDiffReadyByThread,
         runtimeResultEntries: mergeRuntimeResultEntries(state.runtimeResultEntries, runtimeResultEntries),
         activeTurnByThread,
         statuses: {
@@ -2092,6 +2102,8 @@ export const useClientStore = create((set, get) => {
 
       const diffTextByThread = { ...state.diffTextByThread };
       if (typeof diffText === 'string') diffTextByThread[threadId] = diffText;
+      const threadDiffReadyByThread = { ...state.threadDiffReadyByThread };
+      if (typeof diffText === 'string') threadDiffReadyByThread[threadId] = true;
       const activeTurnByThread = { ...state.activeTurnByThread };
       const patchActiveTurn = activeTurnPayload(payload);
       if (patchActiveTurn !== undefined) {
@@ -2134,6 +2146,7 @@ export const useClientStore = create((set, get) => {
         tokenUsageByThread,
         activityStatsByThread,
         diffTextByThread,
+        threadDiffReadyByThread,
         runtimeResultEntries: mergeRuntimeResultEntries(state.runtimeResultEntries, runtimeResultEntries),
         activeTurnByThread,
         statuses: {
@@ -2326,7 +2339,6 @@ export const useClientStore = create((set, get) => {
       const activeAtRequest = get().activeThreadId;
       const includeDiff = syncOptions.includeDiff !== false;
       const shouldLoadMessages = syncOptions.loadMessages !== false;
-      const shouldLoadDiffAfter = syncOptions.loadDiffAfter === true && !includeDiff;
       set((state) => ({
         threadStateLoadingByThread: {
           ...state.threadStateLoadingByThread,
@@ -2345,18 +2357,16 @@ export const useClientStore = create((set, get) => {
           preserveActiveThreadId: activeChanged || syncOptions.preserveActiveThreadId === true,
           includeArchivedActiveThread: syncOptions.includeArchived === true,
         });
+        if (includeDiff) {
+          set((state) => ({
+            threadDiffReadyByThread: {
+              ...state.threadDiffReadyByThread,
+              [id]: true,
+            },
+          }));
+        }
         await messagesPromise;
         if (!activeChanged && shouldAutoLoadThreadConfig(get(), id)) await get().loadThreadConfig(id);
-        if (shouldLoadDiffAfter && normalizeThreadId(get().activeThreadId) === normalizeThreadId(id)) {
-          void get().syncThreadState(id, {
-            includeArchived: syncOptions.includeArchived === true,
-            includeDiff: true,
-            loadMessages: false,
-            preserveActiveThreadId: true,
-          }).catch((error) => {
-            addWarning('error', 'thread.diff.refresh.failed', { threadId: id, error: error.message });
-          });
-        }
         return true;
       } finally {
         set((state) => ({
@@ -2748,7 +2758,7 @@ export const useClientStore = create((set, get) => {
           draft: restored.draft,
           attachments: restored.attachments,
         });
-        await get().syncThreadState(id, { includeArchived: true, includeDiff: false, loadDiffAfter: true });
+        await get().syncThreadState(id, { includeArchived: true, includeDiff: false });
         return;
       }
       set((state) => ({
@@ -2762,7 +2772,7 @@ export const useClientStore = create((set, get) => {
         },
       }));
       try {
-        await get().syncThreadState(id, { includeArchived: true, includeDiff: false, loadDiffAfter: true });
+        await get().syncThreadState(id, { includeArchived: true, includeDiff: false });
       } catch (error) {
         set((state) => ({
           threadStateLoadingByThread: {
