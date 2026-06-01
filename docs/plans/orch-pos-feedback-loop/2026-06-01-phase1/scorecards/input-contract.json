@@ -1,0 +1,40 @@
+{
+  "round_id": "orch-pos-phase1-2026-06-01",
+  "scorer": "input-contract",
+  "target": "cmd/mcp-orch/tools read-only selectors",
+  "score_before": 68,
+  "score_after": 88,
+  "dimensions": {
+    "input_cognitive_load": {
+      "before": 55,
+      "after": 86,
+      "evidence": "Read tools previously required tool-specific fields such as agent_id, dag_key, run_key, path, prompt_key, and card_key. Phase 1 adds a shared pos selector."
+    },
+    "schema_consistency": {
+      "before": 65,
+      "after": 88,
+      "evidence": "Read schemas now expose pos and do not require legacy selector fields."
+    },
+    "hint_quality": {
+      "before": 60,
+      "after": 84,
+      "evidence": "invalid_pos and pos_conflict use coded tool errors with next-step hints."
+    }
+  },
+  "findings": [
+    {
+      "id": "IC-001",
+      "severity": "P1",
+      "status": "fixed",
+      "summary": "Read tools had multiple selector field names, increasing AI reasoning cost.",
+      "fix": "Added shared pos parsing and resolver helpers."
+    },
+    {
+      "id": "IC-002",
+      "severity": "P2",
+      "status": "carried",
+      "summary": "Mutation tools still use legacy selector fields.",
+      "next_round": "M3"
+    }
+  ]
+}

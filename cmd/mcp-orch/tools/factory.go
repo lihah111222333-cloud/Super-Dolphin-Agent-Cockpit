@@ -66,12 +66,25 @@ func buildToolDefinitions(defs ...ToolDefinition) []ToolDefinition {
 func resourceToolDefinitions(spec resourceToolSpec) []ToolDefinition {
 	return buildToolDefinitions(
 		defineTool(spec.ListName, spec.ListDescription, ObjectSchema(map[string]Schema{
-			"keyword": StringSchema("Search keyword (optional)."),
+			"keyword":  StringSchema("Search keyword (optional)."),
+			"envelope": BooleanSchema("When true, return an object envelope with data/total/showing/truncated/hint while preserving the legacy item field."),
 		}), spec.ListHandler),
 		defineTool(spec.GetName, spec.GetDescription, ObjectSchema(map[string]Schema{
+			"pos":         StringSchema(resourcePosDescription(spec.KeyField)),
 			spec.KeyField: StringSchema(spec.KeyDescription),
-		}, spec.KeyField), spec.GetHandler),
+		}), spec.GetHandler),
 	)
+}
+
+func resourcePosDescription(keyField string) string {
+	switch strings.TrimSpace(keyField) {
+	case "prompt_key":
+		return "Flattened prompt locator, e.g. prompt:<prompt_key>. Preferred over legacy prompt_key."
+	case "card_key":
+		return "Flattened command-card locator, e.g. command:<card_key>. Preferred over legacy card_key."
+	default:
+		return "Flattened resource locator. Preferred over the legacy key field."
+	}
 }
 
 func requireDependency(dependency any, name string) error {

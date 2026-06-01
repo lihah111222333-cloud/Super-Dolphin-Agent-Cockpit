@@ -1,0 +1,54 @@
+{
+  "phase": "M6",
+  "date": "2026-06-01",
+  "dimension": "array_output_migration",
+  "machines": [
+    {
+      "name": "machine-a",
+      "scores": {
+        "cognitive_load": 62,
+        "output_uniformity": 25,
+        "discoverability": 48,
+        "compatibility": 90,
+        "test_coverage": 58
+      }
+    },
+    {
+      "name": "machine-b",
+      "scores": {
+        "cognitive_load": 60,
+        "output_uniformity": 28,
+        "discoverability": 50,
+        "compatibility": 88,
+        "test_coverage": 60
+      }
+    },
+    {
+      "name": "machine-c",
+      "scores": {
+        "cognitive_load": 63,
+        "output_uniformity": 25,
+        "discoverability": 47,
+        "compatibility": 86,
+        "test_coverage": 58
+      }
+    }
+  ],
+  "adjudicated_scores": {
+    "cognitive_load": 62,
+    "output_uniformity": 26,
+    "discoverability": 48,
+    "compatibility": 88,
+    "test_coverage": 59,
+    "weighted_total": 56.5
+  },
+  "target_scores": {
+    "cognitive_load": 76,
+    "output_uniformity": 64,
+    "discoverability": 78,
+    "compatibility": 90,
+    "test_coverage": 82,
+    "weighted_total": 77.0
+  },
+  "verdict": "Add optional envelope=true to direct-array list tools while keeping legacy default arrays unchanged."
+}
