@@ -140,6 +140,26 @@ func assignUniqueInt64(dst *int64, value, hint string) error {
 }
 
 func validateOrchPosShape(pos orchPos) error {
+	nonEmpty := countOrchPosFields(pos)
+	if nonEmpty == 0 {
+		return errors.New("next: pass a non-empty pos")
+	}
+	if done, err := validateStandaloneOrchPos(pos, nonEmpty); done || err != nil {
+		return err
+	}
+	if done, err := validateRuntimeOrchPos(pos); done || err != nil {
+		return err
+	}
+	if pos.NodeKey != "" && pos.DagKey == "" {
+		return errors.New("next: node pos must include dag:<dag_key>")
+	}
+	if pos.DagKey != "" {
+		return nil
+	}
+	return errors.New("next: use agent:<agent_id>, dag:<dag_key>, run:<run_key>, workspace:<run_key>, prompt:<key>, command:<key>, or shared:<path>")
+}
+
+func countOrchPosFields(pos orchPos) int {
 	nonEmpty := 0
 	for _, value := range []string{
 		pos.AgentID,
@@ -158,43 +178,47 @@ func validateOrchPosShape(pos orchPos) error {
 	if pos.RunID > 0 {
 		nonEmpty++
 	}
-	if nonEmpty == 0 {
-		return errors.New("next: pass a non-empty pos")
-	}
-	if pos.AgentID != "" {
-		if nonEmpty != 1 {
-			return errors.New("next: agent pos must be exactly agent:<agent_id>")
+	return nonEmpty
+}
+
+func validateStandaloneOrchPos(pos orchPos, nonEmpty int) (bool, error) {
+	for _, rule := range []struct {
+		value string
+		hint  string
+	}{
+		{pos.AgentID, "next: agent pos must be exactly agent:<agent_id>"},
+		{pos.WorkspaceRunKey, "next: workspace pos must be exactly workspace:<run_key>"},
+		{runOnlyPosValue(pos), "next: run-only pos must be exactly run:<run_key>"},
+	} {
+		if rule.value == "" {
+			continue
 		}
-		return nil
-	}
-	if pos.WorkspaceRunKey != "" {
 		if nonEmpty != 1 {
-			return errors.New("next: workspace pos must be exactly workspace:<run_key>")
+			return true, errors.New(rule.hint)
 		}
-		return nil
+		return true, nil
 	}
+	return false, nil
+}
+
+func runOnlyPosValue(pos orchPos) string {
 	if pos.RunKey != "" && pos.DagKey == "" {
-		if nonEmpty != 1 {
-			return errors.New("next: run-only pos must be exactly run:<run_key>")
-		}
-		return nil
+		return pos.RunKey
 	}
-	if pos.RunID > 0 {
-		if pos.RunKey != "" {
-			return errors.New("next: choose run:<run_key> or run_id:<run_id>, not both")
-		}
-		if pos.DagKey == "" || pos.NodeKey == "" {
-			return errors.New("next: runtime node pos must be dag:<dag_key>/run_id:<run_id>/node:<node_key>")
-		}
-		return nil
+	return ""
+}
+
+func validateRuntimeOrchPos(pos orchPos) (bool, error) {
+	if pos.RunID <= 0 {
+		return false, nil
 	}
-	if pos.NodeKey != "" && pos.DagKey == "" {
-		return errors.New("next: node pos must include dag:<dag_key>")
+	if pos.RunKey != "" {
+		return true, errors.New("next: choose run:<run_key> or run_id:<run_id>, not both")
 	}
-	if pos.DagKey != "" {
-		return nil
+	if pos.DagKey == "" || pos.NodeKey == "" {
+		return true, errors.New("next: runtime node pos must be dag:<dag_key>/run_id:<run_id>/node:<node_key>")
 	}
-	return errors.New("next: use agent:<agent_id>, dag:<dag_key>, run:<run_key>, workspace:<run_key>, prompt:<key>, command:<key>, or shared:<path>")
+	return true, nil
 }
 
 func resolveAgentIDInput(agentID, pos string) (string, error) {
