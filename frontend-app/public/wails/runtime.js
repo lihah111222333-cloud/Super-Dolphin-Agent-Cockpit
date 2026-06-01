@@ -325,6 +325,20 @@ function stripFrontendMetaPayload(value) {
   return changed ? cleaned : value;
 }
 
+function stripFrontendTraceMetaPayload(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return value;
+  let changed = false;
+  const cleaned = {};
+  for (const [key, item] of Object.entries(value)) {
+    if (key === '_aoTraceparent' || key === '_aoTraceId' || key === '_aoSpanId') {
+      changed = true;
+      continue;
+    }
+    cleaned[key] = item;
+  }
+  return changed ? cleaned : value;
+}
+
 async function callByID(methodID, ...args) {
   const id = Number(methodID);
   switch (id) {
@@ -332,7 +346,7 @@ async function callByID(methodID, ...args) {
       const method = (args[0] || '').toString().trim();
       const params = args.length > 1 ? args[1] : {};
       const payload = params == null ? {} : params;
-      return rpcCall(method, method === 'ui/log' ? payload : stripFrontendMetaPayload(payload));
+      return rpcCall(method, method === 'ui/log' ? stripFrontendTraceMetaPayload(payload) : stripFrontendMetaPayload(payload));
     }
     case METHOD_IDS.GET_BUILD_INFO: {
       try {

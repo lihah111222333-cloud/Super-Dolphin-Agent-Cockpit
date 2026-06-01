@@ -11,6 +11,7 @@ import {
   setPreference,
   writePrompt,
 } from '../../shared/api/backendApi.js';
+import { FocusTrapDialog } from '../../shared/ui/FocusTrapDialog.jsx';
 
 const ACTIVE_PROMPT_PREF_KEY = 'settings.activePromptKey';
 const PROMPTS_REQUEST_TIMEOUT_MS = 8000;
@@ -817,14 +818,20 @@ function PromptEditorModal({ form, notice, saving, onChange, onClose, onSave }) 
   const previewText = form.content || form.whenToUse || form.description || '已保存，AI 会在相关场景中使用';
   const advancedDebugAvailable = promptAdvancedDebugEnabled();
   return (
-    <div className="modal-overlay prompt-modal-overlay" onClick={onClose}>
-      <section className="modal-box prompt-editor-modal" role="dialog" aria-modal="true" aria-label="编辑提示词" onClick={(event) => event.stopPropagation()}>
+    <FocusTrapDialog
+      ariaLabel="编辑提示词"
+      className="modal-box prompt-editor-modal"
+      overlayClassName="modal-overlay prompt-modal-overlay"
+      closeDisabled={saving}
+      closeOnOverlayClick
+      onClose={onClose}
+    >
         <header>
           <div>
             <h2>编辑提示词</h2>
             <p>{scopeLabel}</p>
           </div>
-          <button type="button" onClick={onClose} aria-label="关闭编辑器"><X size={16} /></button>
+          <button type="button" onClick={onClose} aria-label="关闭编辑器" disabled={saving}><X size={16} /></button>
         </header>
         <div className="prompt-scope-copy">
           <div>可用范围：{scopeLabel}</div>
@@ -854,11 +861,10 @@ function PromptEditorModal({ form, notice, saving, onChange, onClose, onSave }) 
         ) : null}
         {notice ? <div className="prompt-notice">{notice}</div> : null}
         <footer>
-          <button type="button" className="ghost" onClick={onClose}>取消</button>
+          <button type="button" className="ghost" onClick={onClose} disabled={saving}>取消</button>
           <button type="button" onClick={onSave} disabled={saving}>{saving ? '保存中...' : '保存'}</button>
         </footer>
-      </section>
-    </div>
+    </FocusTrapDialog>
   );
 }
 
@@ -930,14 +936,20 @@ function PromptIntentWizardModal({ cwd, initialDraft, resolveLaunchPreferences, 
   const noticeIsGuidance = notice === PROMPT_DRAFT_NOT_READY_MESSAGE || notice === PROMPT_DRAFT_REVIEW_MESSAGE;
 
   return (
-    <div className="modal-overlay prompt-modal-overlay" onClick={onClose}>
-      <section className="modal-box prompt-wizard-modal" role="dialog" aria-modal="true" aria-label="添加给 AI 的内容" onClick={(event) => event.stopPropagation()}>
+    <FocusTrapDialog
+      ariaLabel="添加给 AI 的内容"
+      className="modal-box prompt-wizard-modal"
+      overlayClassName="modal-overlay prompt-modal-overlay"
+      closeDisabled={Boolean(working)}
+      closeOnOverlayClick
+      onClose={onClose}
+    >
         <header>
           <div>
             <h2>添加给 AI 的内容</h2>
             <p>{cwd || '未知'}</p>
           </div>
-          <button type="button" onClick={onClose}>关闭</button>
+          <button type="button" onClick={onClose} disabled={Boolean(working)}>关闭</button>
         </header>
         <div className="prompt-kind-tabs" role="tablist" aria-label="内容类型">
           {PROMPT_KIND_OPTIONS.map((option) => (
@@ -994,12 +1006,11 @@ function PromptIntentWizardModal({ cwd, initialDraft, resolveLaunchPreferences, 
         {draftNeedsRevision ? <div className="prompt-notice">{PROMPT_DRAFT_NOT_READY_MESSAGE}</div> : null}
         {notice ? <div className={`prompt-notice${noticeIsGuidance ? '' : ' error'}`}>{notice}</div> : null}
         <footer>
-          <button type="button" className="ghost" onClick={onClose}>关闭</button>
+          <button type="button" className="ghost" onClick={onClose} disabled={Boolean(working)}>关闭</button>
           <button type="button" onClick={commitDraft} disabled={!draft?.draftKey || draftNeedsRevision || working === 'commit'}>
             {working === 'commit' ? '保存中...' : '确认保存'}
           </button>
         </footer>
-      </section>
-    </div>
+    </FocusTrapDialog>
   );
 }
