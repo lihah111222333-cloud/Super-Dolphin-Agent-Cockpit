@@ -21,16 +21,18 @@ func (f QueryTailReaderFunc) QueryTraceEvents(ctx context.Context, query Query) 
 }
 
 type Service struct {
-	index         *Index
-	sampler       *Sampler
-	sanitizer     Sanitizer
-	sink          serviceSink
-	tail          queryTailReader
-	tailSem       chan struct{}
-	tailTimeoutMS int
-	cache         map[Query]QueryResult
-	inflight      map[Query]*tailCall
-	cacheMu       sync.Mutex
+	enabled        bool
+	disabledReason string
+	index          *Index
+	sampler        *Sampler
+	sanitizer      Sanitizer
+	sink           serviceSink
+	tail           queryTailReader
+	tailSem        chan struct{}
+	tailTimeoutMS  int
+	cache          map[Query]QueryResult
+	inflight       map[Query]*tailCall
+	cacheMu        sync.Mutex
 }
 
 type ServiceOption func(*Service)
@@ -43,11 +45,20 @@ type tailCall struct {
 
 func NewService(cfg Config, options ...ServiceOption) *Service {
 	cfg = normalizeServiceConfig(cfg)
-	svc := &Service{index: NewIndex(cfg), sampler: NewSampler(), sanitizer: NewSanitizer(cfg), tailSem: make(chan struct{}, cfg.QueryTailMaxConcurrency), tailTimeoutMS: cfg.QueryTailTimeoutMS, cache: map[Query]QueryResult{}, inflight: map[Query]*tailCall{}}
+	svc := &Service{enabled: true, index: NewIndex(cfg), sampler: NewSampler(), sanitizer: NewSanitizer(cfg), tailSem: make(chan struct{}, cfg.QueryTailMaxConcurrency), tailTimeoutMS: cfg.QueryTailTimeoutMS, cache: map[Query]QueryResult{}, inflight: map[Query]*tailCall{}}
 	for _, option := range options {
 		option(svc)
 	}
 	return svc
+}
+
+func NewDisabledService(cfg Config) *Service {
+	cfg = normalizeServiceConfig(cfg)
+	reason := cfg.DisabledReason
+	if reason == "" {
+		reason = "observability tracing disabled"
+	}
+	return &Service{enabled: false, disabledReason: reason, index: NewIndex(cfg), sampler: NewSampler(), sanitizer: NewSanitizer(cfg), tailSem: make(chan struct{}, cfg.QueryTailMaxConcurrency), tailTimeoutMS: cfg.QueryTailTimeoutMS, cache: map[Query]QueryResult{}, inflight: map[Query]*tailCall{}}
 }
 
 func WithSink(sink serviceSink) ServiceOption { return func(s *Service) { s.sink = sink } }
@@ -62,7 +73,22 @@ func WithSampler(sampler *Sampler) ServiceOption {
 	}
 }
 
+type ServiceStatus struct {
+	Enabled        bool   `json:"enabled"`
+	DisabledReason string `json:"disabled_reason,omitempty"`
+	SchemaVersion  int    `json:"schema_version"`
+}
+
+func (s *Service) Status() ServiceStatus {
+	return ServiceStatus{Enabled: s.enabled, DisabledReason: s.disabledReason, SchemaVersion: SchemaVersion}
+}
+
+func (s *Service) Enabled() bool { return s.enabled }
+
 func (s *Service) Record(ctx context.Context, event TraceEvent) error {
+	if !s.enabled {
+		return nil
+	}
 	event = s.sanitizer.SanitizeEvent(event)
 	decision := s.sampler.Decide(event)
 	if decision.Summary != nil {
@@ -85,6 +111,9 @@ func (s *Service) Record(ctx context.Context, event TraceEvent) error {
 }
 
 func (s *Service) Query(ctx context.Context, query Query) QueryResult {
+	if !s.enabled {
+		return QueryResult{Source: QuerySourceMemory}
+	}
 	memory := s.index.Query(query)
 	if !query.IncludeTail || s.tail == nil {
 		return memory
