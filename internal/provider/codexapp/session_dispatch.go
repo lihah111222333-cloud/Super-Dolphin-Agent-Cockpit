@@ -79,6 +79,9 @@ func (s *session) finishTurn(params json.RawMessage, optimistic bool) {
 	if errText == "" {
 		errText = "turn failed"
 	}
+	if notice := codexModelUnsupportedNotice(errors.New(errText), s.runtimeConfigString("model")); notice != "" {
+		errText = notice
+	}
 	h.complete(errors.New(errText))
 }
 

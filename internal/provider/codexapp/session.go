@@ -341,7 +341,7 @@ func (s *session) StartTurn(ctx context.Context, req dto.TurnRequest) (contract.
 	)
 	raw, err := callWithTimeout(ctx, callTargetFunc(s.callTransport), 30*time.Second, "turn/start", params)
 	if err != nil {
-		return nil, err
+		return nil, wrapCodexModelUnsupportedError(err, params.Model)
 	}
 	resp, err := decodeTurnStartResult(raw)
 	if err != nil {
