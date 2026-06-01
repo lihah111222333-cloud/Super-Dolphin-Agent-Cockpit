@@ -179,7 +179,10 @@ func (f *Flusher) buildParams(sig flushSignal) (insightstore.UpsertParams, bool)
 			}
 		}
 	}
-	skillsJSON, _ := json.Marshal(skills)
+	skillsJSON, err := json.Marshal(skills)
+	if err != nil {
+		return insightstore.UpsertParams{}, false
+	}
 
 	return insightstore.UpsertParams{
 		ThreadID:                 sig.ThreadID,

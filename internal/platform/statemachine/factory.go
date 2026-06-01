@@ -3,6 +3,7 @@ package statemachine
 import (
 	"context"
 	"fmt"
+	"log/slog"
 
 	"github.com/qmuntal/stateless"
 )
@@ -70,6 +71,7 @@ func New(cfg Config, accessor func() string, mutator func(string)) *stateless.St
 func AllowedTriggers(sm *stateless.StateMachine, ctx context.Context) []string {
 	triggers, err := sm.PermittedTriggersCtx(ctx)
 	if err != nil {
+		slog.ErrorContext(ctx, "statemachine: PermittedTriggersCtx failed", "error", err)
 		return nil
 	}
 	result := make([]string, 0, len(triggers))

@@ -408,6 +408,7 @@ func (s *service) defaultPersonalMirrorTargets() []SkillMirrorTarget {
 	superHome := s.resolvedSuperDolphinHome()
 	owner, err := resolveOwnerIdentity(superHome, defaultOwnerOSUID(), defaultAppProfile())
 	if err != nil {
+		fmt.Fprintf(os.Stderr, "skill: defaultPersonalMirrorTargets: %v\n", err)
 		return nil
 	}
 	return []SkillMirrorTarget{

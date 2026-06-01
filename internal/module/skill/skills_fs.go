@@ -297,7 +297,10 @@ func (s *service) writePersonalLocal(ctx context.Context, path, content, scope, 
 	}
 	s.publishSkillsChanged(ctx, "local_write", name, scope)
 	result := map[string]any{"ok": true, "path": path, "dir": filepath.Dir(path), "bytes": len(content)}
-	cwd, _ := requireCWD(ctx)
+	cwd, err := requireCWD(ctx)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "skill: WriteLocal requireCWD: %v\n", err)
+	}
 	return attachMirrorPublish(result, s.publishWriteTimeMirrors(ctx, cwd, scope, personalType, name)), nil
 }
 
@@ -419,7 +422,10 @@ func (s *service) deletePersonalLocal(ctx context.Context, name, dir, scope, per
 	}
 	s.publishSkillsChanged(ctx, "delete_local", name, scope)
 	result := map[string]any{"ok": true, "name": name, "dir": dir, "archive_dir": archiveDir, "removed_agent_bindings": 0}
-	cwd, _ := requireCWD(ctx)
+	cwd, err := requireCWD(ctx)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "skill: DeleteLocal requireCWD: %v\n", err)
+	}
 	return attachMirrorPublish(result, s.publishWriteTimeMirrors(ctx, cwd, scope, personalType, name)), nil
 }
 

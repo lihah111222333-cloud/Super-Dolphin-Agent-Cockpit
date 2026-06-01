@@ -31,9 +31,6 @@ type dynamicTurnAttachmentProvider interface {
 }
 
 func (s *service) resolveDynamicTurnAttachments(ctx context.Context, sectionCtx SectionContext) []dto.AttachmentEnvelope {
-	if s == nil {
-		return nil
-	}
 	sections := s.dynamicSections()
 	attachments := make([]dto.AttachmentEnvelope, 0, len(sections))
 	s.dynamicMu.RLock()
