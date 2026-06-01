@@ -859,9 +859,9 @@ function oldestThreadMessageCursor(messages) {
   const timestamps = messages
     .map((message) => normalizeString(message?.createdAt || message?.created_at))
     .map((raw) => ({ raw, timestamp: Date.parse(raw) }))
-    .filter(({ raw, timestamp }) => raw && Number.isFinite(timestamp) && timestamp > 0)
-    .sort((left, right) => left.timestamp - right.timestamp);
-  return timestamps[0]?.raw || '';
+	    .filter(({ raw, timestamp }) => raw && Number.isFinite(timestamp) && timestamp > 0)
+	    .sort((left, right) => left.timestamp - right.timestamp);
+	  return timestamps[0]?.raw || '';
 }
 
 function compactRuntimeResultText(value) {
@@ -1057,7 +1057,8 @@ function dedupeAssistantTimelineItems(items = []) {
 
 function mergeTimelineItems(existingItems = [], incomingItems = [], options = {}) {
   const preserveExistingVisible = options?.preserveExistingVisible === true;
-  const incomingById = new Map(incomingItems.map((item) => [item.id, item]));
+  const visibleIncomingItems = incomingItems.filter(isVisibleTimelineItem);
+  const incomingById = new Map(visibleIncomingItems.map((item) => [item.id, item]));
   const incomingIds = new Set(incomingById.keys());
   const consumedIncomingIds = new Set();
   const merged = [];
@@ -1073,7 +1074,7 @@ function mergeTimelineItems(existingItems = [], incomingItems = [], options = {}
     const shouldPreserveExistingMessage = (
       ((preserveExistingVisible && isVisibleTimelineItem(existingItem)) || existingItem.role === 'user' || existingItem.optimistic || existingItem.runtime) &&
       !incomingIds.has(existingItem.id) &&
-      !incomingItems.some((incomingItem) => (
+      !visibleIncomingItems.some((incomingItem) => (
         sameTimelineContent(existingItem, incomingItem) ||
         sameTimelineContentCompact(existingItem, incomingItem)
       ))
@@ -1083,7 +1084,7 @@ function mergeTimelineItems(existingItems = [], incomingItems = [], options = {}
     }
   }
 
-  for (const incomingItem of incomingItems) {
+  for (const incomingItem of visibleIncomingItems) {
     if (!consumedIncomingIds.has(incomingItem.id)) {
       merged.push(incomingItem);
     }
