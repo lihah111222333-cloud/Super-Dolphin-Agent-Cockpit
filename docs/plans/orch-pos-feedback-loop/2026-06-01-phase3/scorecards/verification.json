@@ -1,0 +1,28 @@
+{
+  "round_id": "orch-pos-phase3-2026-06-01",
+  "scorer": "verification",
+  "target": "M3 tests",
+  "score_before": 58,
+  "dimensions": {
+    "schema_tests": {
+      "score": 55,
+      "evidence": "Phase 1 tests cover read tools. Mutation schemas still need pos checks."
+    },
+    "handler_tests": {
+      "score": 50,
+      "evidence": "Mutation handler tests need to prove pos maps to service requests."
+    },
+    "focused_package_test": {
+      "score": 70,
+      "evidence": "The tools package passed after Phase 1 and remains the verification target for M3."
+    }
+  },
+  "findings": [
+    {
+      "id": "VT-003",
+      "severity": "P1",
+      "decision": "must_fix",
+      "summary": "Add tests for mutation schemas and handlers accepting pos."
+    }
+  ]
+}

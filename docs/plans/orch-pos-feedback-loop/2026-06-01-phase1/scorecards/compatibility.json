@@ -1,0 +1,40 @@
+{
+  "round_id": "orch-pos-phase1-2026-06-01",
+  "scorer": "compatibility",
+  "target": "legacy field compatibility",
+  "score_before": 74,
+  "score_after": 90,
+  "dimensions": {
+    "backward_compatibility": {
+      "before": 80,
+      "after": 92,
+      "evidence": "Legacy fields remain accepted. pos is additive."
+    },
+    "conflict_detection": {
+      "before": 40,
+      "after": 88,
+      "evidence": "If pos and a legacy selector disagree, the handler returns pos_conflict instead of silently choosing one."
+    },
+    "blast_radius": {
+      "before": 78,
+      "after": 90,
+      "evidence": "Service-layer contracts were not changed; only tools-layer decoding and schemas changed."
+    }
+  },
+  "findings": [
+    {
+      "id": "BC-001",
+      "severity": "P1",
+      "status": "fixed",
+      "summary": "Adding pos could have broken existing clients if legacy fields were removed.",
+      "fix": "Legacy fields remain supported and are only optional in schema."
+    },
+    {
+      "id": "BC-002",
+      "severity": "P2",
+      "status": "fixed",
+      "summary": "pos paths containing slash could be misparsed.",
+      "fix": "shared:, prompt:, and command: are parsed as single-payload selectors before slash segmentation."
+    }
+  ]
+}

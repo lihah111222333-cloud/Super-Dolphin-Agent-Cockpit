@@ -43,11 +43,13 @@ type LaunchAgentInput struct {
 
 type SendMessageInput struct {
 	AgentID string `json:"agent_id"`
+	Pos     string `json:"pos,omitempty"`
 	Message string `json:"message"`
 }
 
 type AgentIDInput struct {
 	AgentID string `json:"agent_id"`
+	Pos     string `json:"pos,omitempty"`
 }
 
 type ListAgentsInput struct {
@@ -56,6 +58,16 @@ type ListAgentsInput struct {
 	IncludeInactive bool   `json:"include_inactive,omitempty"`
 	IncludeReports  bool   `json:"include_reports,omitempty"`
 	Limit           int    `json:"limit,omitempty"`
+	Envelope        bool   `json:"envelope,omitempty"`
+}
+
+type ListAgentsOutput struct {
+	Agents    []contract.AgentSnapshot `json:"agents"`
+	Data      []contract.AgentSnapshot `json:"data"`
+	Total     int                      `json:"total"`
+	Showing   int                      `json:"showing"`
+	Truncated bool                     `json:"truncated"`
+	Hint      string                   `json:"hint,omitempty"`
 }
 
 type launchAgentSnapshotter interface {
@@ -313,7 +325,7 @@ func HandleSendMessage(svc contract.OrchestrationService) ToolHandler {
 
 func HandleStopAgent(svc contract.OrchestrationService) ToolHandler {
 	return makeHandler(svc, "orchestration service", func(ctx context.Context, in AgentIDInput) (map[string]any, error) {
-		agentID, err := requireTrimmed(in.AgentID, "agent_id")
+		agentID, err := resolveAgentIDInput(in.AgentID, in.Pos)
 		if err != nil {
 			return nil, err
 		}
@@ -370,8 +382,23 @@ func HandleListAgents(svc contract.OrchestrationService) ToolHandler {
 				"include_reports", in.IncludeReports,
 				"limit", in.Limit)
 		}
+		if in.Envelope {
+			return newListAgentsOutput(filtered, in.Limit), nil
+		}
 		return filtered, nil
 	})
+}
+
+func newListAgentsOutput(agents []contract.AgentSnapshot, limit int) ListAgentsOutput {
+	env := newListEnvelope(agents, limit, "next: use get_agent_report pos=agent:<agent_id> for full report")
+	return ListAgentsOutput{
+		Agents:    agents,
+		Data:      env.Data,
+		Total:     env.Total,
+		Showing:   env.Showing,
+		Truncated: env.Truncated,
+		Hint:      env.Hint,
+	}
 }
 
 func listAgentSnapshots(ctx context.Context, svc contract.OrchestrationService) ([]contract.AgentSnapshot, error) {
@@ -420,25 +447,29 @@ func orchestrationToolDefinitions(svc contract.OrchestrationService) []ToolDefin
 			"disabled_tools": StringSchema("Optional comma-separated list of tool names to disable for the launched agent. Merged with the default deny list."),
 		}, "name"), HandleLaunchAgent(svc)),
 		defineTool("send_message", "Submit a text turn to an existing orchestration agent.", ObjectSchema(map[string]Schema{
+			"pos":      StringSchema("Flattened agent locator, e.g. agent:<agent_id>. Preferred over legacy agent_id."),
 			"agent_id": StringSchema("Target orchestration agent ID."),
 			"message":  StringSchema("Message content to submit as a text input."),
-		}, "agent_id", "message"), HandleSendMessage(svc)),
+		}, "message"), HandleSendMessage(svc)),
 		defineTool("stop_agent", "Stop and recycle an orchestration agent by archiving its persisted thread when available.", ObjectSchema(map[string]Schema{
+			"pos":      StringSchema("Flattened agent locator, e.g. agent:<agent_id>. Preferred over legacy agent_id."),
 			"agent_id": StringSchema("Target orchestration agent ID."),
-		}, "agent_id"), HandleStopAgent(svc)),
+		}), HandleStopAgent(svc)),
 		defineTool("list_agents", "List orchestration agents and current runtime snapshots. Defaults to active agents only and omits report bodies; use get_agent_report for full reports.", ObjectSchema(map[string]Schema{
 			"state":            StringSchema("Optional state filter, e.g. idle, turn_running, stopped. Comma-separated values are accepted."),
 			"cwd":              StringSchema("Optional absolute cwd filter. When trusted tool-call scope includes _cwd, list_agents defaults to that trusted _cwd and uses it instead of this argument."),
 			"include_inactive": BooleanSchema("Include stopped/failed historical agents. Defaults to false."),
 			"include_reports":  BooleanSchema("Include last_report bodies in list output. Defaults to false; prefer get_agent_report."),
 			"limit":            IntegerSchema("Maximum number of agents to return after filtering. 0 means no explicit limit."),
+			"envelope":         BooleanSchema("When true, return {agents,data,total,showing,truncated,hint}; default false keeps the legacy array response."),
 		}), HandleListAgents(svc)),
 		defineTool("get_agent_report", "Read the current report snapshot for an orchestration agent. Pass wait=true when a parent agent must block for a child report. Pass the persisted agent_id returned by launch/list; display name is not an identifier.", ObjectSchema(map[string]Schema{
+			"pos":          StringSchema("Flattened agent locator, e.g. agent:<agent_id>. Preferred over legacy agent_id."),
 			"agent_id":     StringSchema("Persisted target orchestration agent ID returned by launch/list; do not pass name."),
 			"wait":         BooleanSchema("Defaults to false. When true, wait until a report, failed/stopped fallback, or timeout."),
 			"requester_id": StringSchema("Optional explicit parent/requester agent id. Defaults to the trusted tool scope agent_id when available."),
 			"timeout_ms":   IntegerSchema("Optional maximum wait in milliseconds when wait=true. Defaults to the RPC request timeout."),
-		}, "agent_id"), HandleGetAgentReport(svc)),
+		}), HandleGetAgentReport(svc)),
 	)
 }
 
@@ -637,7 +668,7 @@ func submissionFromMessage(
 	svc contract.OrchestrationService,
 	in SendMessageInput,
 ) (contract.TurnSubmission, error) {
-	agentID, err := requireTrimmed(in.AgentID, "agent_id")
+	agentID, err := resolveAgentIDInput(in.AgentID, in.Pos)
 	if err != nil {
 		return contract.TurnSubmission{}, err
 	}

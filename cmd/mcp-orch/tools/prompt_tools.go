@@ -16,11 +16,13 @@ import (
 const promptSectionsPreviewMaxRunes = 200
 
 type promptListInput struct {
-	Keyword string `json:"keyword,omitempty"`
+	Keyword  string `json:"keyword,omitempty"`
+	Envelope bool   `json:"envelope,omitempty"`
 }
 
 type promptGetInput struct {
 	PromptKey string `json:"prompt_key"`
+	Pos       string `json:"pos,omitempty"`
 }
 
 type promptTemplateDTO struct {
@@ -41,9 +43,25 @@ type promptTemplateDTO struct {
 	Description    string          `json:"description"`
 }
 
+type PromptListOutput struct {
+	Prompts   []promptTemplateDTO `json:"prompts"`
+	Data      []promptTemplateDTO `json:"data"`
+	Total     int                 `json:"total"`
+	Showing   int                 `json:"showing"`
+	Truncated bool                `json:"truncated"`
+	Hint      string              `json:"hint,omitempty"`
+}
+
 func HandlePromptList(store promptstore.Store) ToolHandler {
-	return makeHandler(store, "prompt store", func(ctx context.Context, in promptListInput) ([]promptTemplateDTO, error) {
-		return listPromptTemplates(ctx, store, in)
+	return makeHandler(store, "prompt store", func(ctx context.Context, in promptListInput) (any, error) {
+		templates, err := listPromptTemplates(ctx, store, in)
+		if err != nil {
+			return nil, err
+		}
+		if in.Envelope {
+			return newPromptListOutput(templates), nil
+		}
+		return templates, nil
 	})
 }
 
@@ -87,6 +105,18 @@ func listPromptTemplates(ctx context.Context, store promptstore.Store, input pro
 	return mapPromptTemplates(templates), nil
 }
 
+func newPromptListOutput(templates []promptTemplateDTO) PromptListOutput {
+	env := newListEnvelope(templates, int(resourceListLimit), "next: use prompt_get pos=prompt:<prompt_key> for full prompt")
+	return PromptListOutput{
+		Prompts:   templates,
+		Data:      env.Data,
+		Total:     env.Total,
+		Showing:   env.Showing,
+		Truncated: env.Truncated,
+		Hint:      env.Hint,
+	}
+}
+
 func getPromptTemplate(ctx context.Context, store promptstore.Store, input promptGetInput) (promptTemplateDTO, error) {
 	if err := requireDependency(store, "prompt store"); err != nil {
 		return promptTemplateDTO{}, err
@@ -95,7 +125,7 @@ func getPromptTemplate(ctx context.Context, store promptstore.Store, input promp
 	if err != nil {
 		return promptTemplateDTO{}, err
 	}
-	promptKey, err := requireTrimmed(input.PromptKey, "prompt_key")
+	promptKey, err := resolvePromptKeyInput(input.PromptKey, input.Pos)
 	if err != nil {
 		return promptTemplateDTO{}, err
 	}

@@ -1,0 +1,33 @@
+{
+  "phase": "M5",
+  "date": "2026-06-01",
+  "issues": [
+    {
+      "id": "M5-GAP-001",
+      "title": "Direct-array list outputs are not envelope-shaped yet",
+      "tools": ["list_agents", "workspace_list_runs", "prompt_list", "command_list"],
+      "severity": "high",
+      "status": "open",
+      "reason": "Changing these tools from direct arrays to objects would be a wire-shape breaking change.",
+      "next_round": "Design a compatibility migration using compat_mode or versioned tools before implementation."
+    },
+    {
+      "id": "M5-GAP-002",
+      "title": "List total is returned-count, not full backend count",
+      "tools": ["task_list_dags", "task_list_runs", "shared_file_list", "list_models"],
+      "severity": "medium",
+      "status": "open",
+      "reason": "Current service methods return slices without a full-count field.",
+      "next_round": "Add service-level count/has_more support where the store can provide it."
+    },
+    {
+      "id": "M5-GAP-003",
+      "title": "Truncated is inferred from limit and returned length",
+      "tools": ["task_list_dags", "task_list_runs", "shared_file_list"],
+      "severity": "medium",
+      "status": "open",
+      "reason": "Without backend has_more, limit reached means possible truncation, not a proven full-count comparison.",
+      "next_round": "Replace inference with backend has_more when pagination metadata exists."
+    }
+  ]
+}

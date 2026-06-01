@@ -1,0 +1,24 @@
+{
+  "phase": "M6",
+  "date": "2026-06-01",
+  "issues": [
+    {
+      "id": "M6-GAP-001",
+      "title": "Envelope is opt-in rather than default",
+      "tools": ["list_agents", "workspace_list_runs", "prompt_list", "command_list"],
+      "severity": "medium",
+      "status": "open",
+      "reason": "Default switch would be a wire-shape breaking change for existing clients.",
+      "next_round": "After client migration evidence exists, consider defaulting new versioned tools to envelope."
+    },
+    {
+      "id": "M6-GAP-002",
+      "title": "Full backend count and has_more are still unavailable",
+      "tools": ["list_agents", "workspace_list_runs", "prompt_list", "command_list"],
+      "severity": "medium",
+      "status": "open",
+      "reason": "The underlying services return slices, not pagination metadata.",
+      "next_round": "Add service-level total_count and has_more where stores can support it."
+    }
+  ]
+}

@@ -1,0 +1,64 @@
+{
+  "round_id": "orch-pos-phase1-2026-06-01",
+  "issues": [
+    {
+      "id": "IC-001",
+      "source": "input-contract",
+      "severity": "P1",
+      "decision": "must_fix",
+      "status": "fixed",
+      "summary": "Read tools required multiple selector field names instead of a unified pos."
+    },
+    {
+      "id": "BC-001",
+      "source": "compatibility",
+      "severity": "P1",
+      "decision": "must_fix",
+      "status": "fixed",
+      "summary": "pos rollout must not break legacy clients."
+    },
+    {
+      "id": "BC-002",
+      "source": "compatibility",
+      "severity": "P2",
+      "decision": "must_fix",
+      "status": "fixed",
+      "summary": "Slash-bearing resource selectors need single-payload parsing."
+    },
+    {
+      "id": "VT-001",
+      "source": "verification",
+      "severity": "P1",
+      "decision": "must_fix",
+      "status": "fixed",
+      "summary": "pos grammar and schema exposure need tests."
+    },
+    {
+      "id": "IC-002",
+      "source": "input-contract",
+      "severity": "P2",
+      "decision": "carry_forward",
+      "status": "open",
+      "summary": "Mutation tools still need pos support.",
+      "target_milestone": "M3"
+    },
+    {
+      "id": "M4-001",
+      "source": "adjudication",
+      "severity": "P1",
+      "decision": "carry_forward",
+      "status": "open",
+      "summary": "task_create_dag and task_dag_apply_ops still have complex nested primary inputs.",
+      "target_milestone": "M4"
+    },
+    {
+      "id": "VT-002",
+      "source": "verification",
+      "severity": "P2",
+      "decision": "needs_separate_triage",
+      "status": "open",
+      "summary": "Full cmd/mcp-orch suite has unrelated Windows/environment failures.",
+      "target_milestone": "separate triage"
+    }
+  ]
+}
