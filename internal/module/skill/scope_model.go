@@ -353,14 +353,6 @@ func (s *service) allSkillRootTargets(cwd string) []skillRootTarget {
 	return targets
 }
 
-func (s *service) resolveExistingSkillPath(target, cwd string) (string, error) {
-	resolved, err := s.resolveExistingSkillPathTarget(target, cwd)
-	if err != nil {
-		return "", err
-	}
-	return resolved.path, nil
-}
-
 func (s *service) resolveExistingSkillPathTarget(target, cwd string) (resolvedSkillPathTarget, error) {
 	roots := s.allSkillRootTargets(cwd)
 	if len(roots) == 0 {

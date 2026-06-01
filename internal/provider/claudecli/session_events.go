@@ -403,8 +403,14 @@ func dataString(data any, keys ...string) string {
 	return ""
 }
 func dataBool(data any, key string) bool {
-	m, _ := data.(map[string]any)
-	value, _ := m[key].(bool)
+	m, ok := data.(map[string]any)
+	if !ok {
+		return false
+	}
+	value, ok := m[key].(bool)
+	if !ok {
+		return false
+	}
 	return value
 }
 func dataInt(data any, keys ...string) (int, bool) {

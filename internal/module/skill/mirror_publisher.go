@@ -144,7 +144,10 @@ func projectMismatchedManifestPublishReport(records []canonicalSkillRecord, targ
 func lockSkillMirrorRoot(root string) func() {
 	key := filepath.Clean(strings.TrimSpace(root))
 	value, _ := skillMirrorRootLocks.LoadOrStore(key, &sync.Mutex{})
-	mu := value.(*sync.Mutex)
+	mu, ok := value.(*sync.Mutex)
+	if !ok {
+		mu = &sync.Mutex{}
+	}
 	mu.Lock()
 	return mu.Unlock
 }

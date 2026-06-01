@@ -568,25 +568,6 @@ func uniqStrings(values []string) []string {
 	return out
 }
 
-func (s *service) resolveSkill(name, cwd string) (skillRecord, error) {
-	needle := strings.ToLower(strings.TrimSpace(name))
-	if needle == "" {
-		return skillRecord{}, errors.New("skill name is required")
-	}
-	records, err := s.scanSkills(cwd)
-	if err != nil {
-		return skillRecord{}, err
-	}
-	for _, record := range records {
-		for _, candidate := range []string{record.info.Name, filepath.Base(record.info.Dir), record.rel} {
-			if strings.EqualFold(strings.TrimSpace(candidate), needle) {
-				return record, nil
-			}
-		}
-	}
-	return skillRecord{}, os.ErrNotExist
-}
-
 func upsertSkillSummary(content, summary string) string {
 	summary = strings.TrimSpace(summary)
 	frontmatter, body, ok := splitFrontmatter(content)

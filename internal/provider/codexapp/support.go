@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"maps"
 	"strings"
 	"time"
@@ -34,7 +35,8 @@ func (s *PeerSupervisor) waitForPeerAfterCancel(name string, h peerHandle, waitC
 func mustJSON(v any) json.RawMessage {
 	raw, err := json.Marshal(v)
 	if err != nil {
-		panic("codexapp: mustJSON: " + err.Error())
+		slog.Error("codexapp: mustJSON marshal failed", "error", err)
+		return json.RawMessage("null")
 	}
 	return raw
 }

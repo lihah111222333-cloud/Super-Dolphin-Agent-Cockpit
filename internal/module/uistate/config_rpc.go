@@ -187,7 +187,10 @@ func readActiveThreadID(ctx context.Context, prefs uipreference.Store, cwd strin
 	default:
 		return ""
 	}
-	value, _ := decodePreferenceValue(raw).(string)
+	value, ok := decodePreferenceValue(raw).(string)
+	if !ok {
+		return ""
+	}
 	return strings.TrimSpace(value)
 }
 
@@ -202,7 +205,10 @@ func firstRuntimeConfigValue(values ...string) string {
 
 func runtimeConfigString(cfg map[string]any, keys ...string) string {
 	for _, key := range keys {
-		value, _ := cfg[key].(string)
+		value, ok := cfg[key].(string)
+		if !ok {
+			continue
+		}
 		if value = strings.TrimSpace(value); value != "" {
 			return value
 		}
