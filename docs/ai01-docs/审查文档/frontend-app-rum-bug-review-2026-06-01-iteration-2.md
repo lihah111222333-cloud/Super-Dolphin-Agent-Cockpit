@@ -1,4 +1,6 @@
-# Frontend-App RUM 闭环第二轮审查记录
+# Frontend-App RUM 闭环第二轮历史审查记录
+
+> 当前状态（2026-06-01 后续同步）：腾讯云 RUM / `aegis-web-sdk` 已从 `frontend-app` 脱离。本文以下内容是第二轮历史闭环记录；当前构建不再包含 `aegis.min-*` chunk，运行时不再读取 `VITE_TENCENT_RUM_*`，Wails trace metadata 仅保留为本地 RPC 日志关联能力，不代表腾讯 RUM / APM 接入。
 
 日期：2026-06-01
 Benchmark：`FE-RUM-BENCH-2026-06-01-v2`
@@ -144,6 +146,14 @@ Console 样本仅包含 Vite dev-server debug 与 React DevTools info。
 1. P3：`model-dropdown` 仍是 popover/dropdown，不是 modal；建议后续补 Escape close、focus restore 或改成更明确的 popover/listbox 语义。
 2. P3：Wails WebSocket 到腾讯 APM 的完整 span 系统需要后端协议与 APM collector 设计，本轮只做日志可关联 trace context。
 3. P3：可把 runtime scan 固化成脚本，避免后续依赖一次性命令与 `/tmp` artifact。
+
+## 后续脱离记录
+
+- 已删除 `frontend-app/src/shared/monitoring/tencentRum.js` 与 `frontend-app/src/shared/monitoring/tencentRum.test.js`。
+- 已删除 `aegis-web-sdk` 依赖，并从 `frontend-app/src/main.jsx` 移除 RUM 初始化入口。
+- 已从 `frontend-app/README.md` 移除腾讯 RUM 启用说明；当前不再暴露 `VITE_TENCENT_RUM_*` 配置契约。
+- 当前代码扫描确认 `frontend-app/src`、`frontend-app/README.md`、`frontend-app/package.json`、`frontend-app/package-lock.json`、`frontend-app/vite.config.js` 无 Tencent / RUM / Aegis 运行时命中。
+- 当前构建确认不再输出 `aegis.min-*` 或其他 Aegis 动态 chunk。
 
 ## 参考
 

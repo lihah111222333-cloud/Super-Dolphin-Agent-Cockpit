@@ -56,7 +56,7 @@ commit_body() {
 
 has_chinese() {
   local text="$1"
-  [[ "$text" =~ [一-龥] ]]
+  printf '%s\n' "$text" | grep -qP '\p{Han}'
 }
 
 check_message_parts() {
