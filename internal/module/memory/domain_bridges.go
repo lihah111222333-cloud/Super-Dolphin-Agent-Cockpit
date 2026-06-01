@@ -197,7 +197,11 @@ func (h *MemoryLifecycleHooks) writeStructuredAgentMemory(ctx context.Context, t
 	if entry.Type == MemoryTypeFeedback && actual == "team" {
 		return agentMemoryWriteOutcome{}, agentMemoryError("team_scope_not_allowed", fmt.Errorf("feedback memory cannot be written to team scope"))
 	}
-	if h.checkDedupAndHandle(entry, store, actual, options) {
+	handled, dedupErr := h.checkDedupAndHandle(entry, store, actual, options)
+	if dedupErr != nil {
+		return agentMemoryWriteOutcome{}, agentMemoryError("merge_failed", dedupErr)
+	}
+	if handled {
 		return agentMemoryWriteOutcome{store: store, actualTarget: actual, skipped: true}, nil
 	}
 	written, err := upsertStructuredMemoryReturningEntry(store, entry, options)

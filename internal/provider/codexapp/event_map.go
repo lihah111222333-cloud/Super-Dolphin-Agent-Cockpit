@@ -382,7 +382,10 @@ func encodeEventPayload(payload map[string]any, fallback json.RawMessage) json.R
 }
 
 func nestedValue(payload map[string]any, key string) map[string]any {
-	value, _ := payload[key].(map[string]any)
+	value, ok := payload[key].(map[string]any)
+	if !ok {
+		return nil
+	}
 	return value
 }
 

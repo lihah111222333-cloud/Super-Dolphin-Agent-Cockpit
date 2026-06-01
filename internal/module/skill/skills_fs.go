@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -22,6 +23,14 @@ func (e skillNotFoundError) Error() string {
 
 func (skillNotFoundError) Unwrap() error {
 	return os.ErrNotExist
+}
+
+func requireCWDOrLog(ctx context.Context, op string) string {
+	cwd, err := requireCWD(ctx)
+	if err != nil {
+		slog.Warn("skill: requireCWD failed", "op", op, "error", err)
+	}
+	return cwd
 }
 
 func (s *service) ListSkills(ctx context.Context) ([]SkillInfo, error) {
@@ -297,8 +306,7 @@ func (s *service) writePersonalLocal(ctx context.Context, path, content, scope, 
 	}
 	s.publishSkillsChanged(ctx, "local_write", name, scope)
 	result := map[string]any{"ok": true, "path": path, "dir": filepath.Dir(path), "bytes": len(content)}
-	cwd, _ := requireCWD(ctx)
-	return attachMirrorPublish(result, s.publishWriteTimeMirrors(ctx, cwd, scope, personalType, name)), nil
+	return attachMirrorPublish(result, s.publishWriteTimeMirrors(ctx, requireCWDOrLog(ctx, "WriteLocal"), scope, personalType, name)), nil
 }
 
 func (s *service) ImportLocalDir(ctx context.Context, p importSkillDirParams) (any, error) {
@@ -419,8 +427,7 @@ func (s *service) deletePersonalLocal(ctx context.Context, name, dir, scope, per
 	}
 	s.publishSkillsChanged(ctx, "delete_local", name, scope)
 	result := map[string]any{"ok": true, "name": name, "dir": dir, "archive_dir": archiveDir, "removed_agent_bindings": 0}
-	cwd, _ := requireCWD(ctx)
-	return attachMirrorPublish(result, s.publishWriteTimeMirrors(ctx, cwd, scope, personalType, name)), nil
+	return attachMirrorPublish(result, s.publishWriteTimeMirrors(ctx, requireCWDOrLog(ctx, "DeleteLocal"), scope, personalType, name)), nil
 }
 
 func (s *service) ReadRemote(ctx context.Context, url string) (any, error) {

@@ -2,6 +2,7 @@ package bus
 
 import (
 	"context"
+	"log/slog"
 
 	"github.com/kelindar/event"
 )
@@ -17,6 +18,10 @@ func NewRouter(_ *event.Dispatcher) *Router {
 
 func Route[T event.Event](dispatcher *event.Dispatcher, handler func(T)) context.CancelFunc {
 	if dispatcher == nil || handler == nil {
+		slog.Warn("bus: Route called with nil dispatcher or handler, subscription skipped",
+			slog.Bool("dispatcher_nil", dispatcher == nil),
+			slog.Bool("handler_nil", handler == nil),
+		)
 		return func() {}
 	}
 	return event.Subscribe(dispatcher, handler)

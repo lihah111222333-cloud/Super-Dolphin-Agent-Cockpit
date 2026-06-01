@@ -2,6 +2,7 @@ package memory
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"strings"
 
@@ -85,6 +86,13 @@ func (p *MemoryEntrypointProvider) loadEntrypointBlock(root, source string) stri
 	}
 	raw, _, err := shared.SafeReadEntrypoint(root, memoryIndexPath(root))
 	if err != nil {
+		if !errors.Is(err, shared.ErrSafeReadNotFound) && p.logger != nil {
+			p.logger.Warn("memory entrypoint read failed",
+				"source", source,
+				"root", root,
+				"error", err,
+			)
+		}
 		return ""
 	}
 	cleaned := cleanEntrypointContent(string(raw))

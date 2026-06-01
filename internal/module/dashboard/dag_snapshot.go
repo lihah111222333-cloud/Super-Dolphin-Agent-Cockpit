@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"math"
 	"strconv"
 	"strings"
@@ -445,6 +446,7 @@ func dashboardRowTime(row map[string]any, key string, required bool) (time.Time,
 func dashboardOptionalTime(row map[string]any, key string) *time.Time {
 	value, err := dashboardRowTimePtr(row, key, false)
 	if err != nil {
+		slog.Warn("dashboard: dashboardOptionalTime parse failed", "key", key, "error", err)
 		return nil
 	}
 	return value

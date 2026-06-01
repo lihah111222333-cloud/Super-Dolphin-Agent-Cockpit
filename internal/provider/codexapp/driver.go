@@ -13,11 +13,10 @@ import (
 
 	contract "github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
-	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
-	codexmodel "github.com/anthropic-ai/super-agent-v3/internal/provider/codexapp/codexmodel"
 	codexprotocol "github.com/anthropic-ai/super-agent-v3/internal/provider/codexapp/protocol"
+	"github.com/anthropic-ai/super-agent-v3/internal/provider/codexapp/supportutil"
 	"github.com/anthropic-ai/super-agent-v3/internal/provider/unified"
 	"github.com/anthropic-ai/super-agent-v3/internal/util/ctxutil"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
@@ -304,7 +303,7 @@ func (d *driver) StartSession(ctx context.Context, req dto.StartSessionRequest) 
 		s.setRuntimeConfigValue("developerInstructions", developerInstructions)
 	}
 	startPolicy := codexNativeToolPolicyFromConfig(req.Config)
-	approvalPolicy := resolveApprovalPolicy(req.Config)
+	approvalPolicy := supportutil.ResolveApprovalPolicy(req.Config)
 	if startPolicy.RequiresReadOnlySandbox() {
 		approvalPolicy = "never"
 	}
@@ -360,46 +359,12 @@ func (d *driver) clearStaleProviderThreadID(agentID, message string) {
 	}
 }
 
-func (d *driver) finishStartedSession(s *session, req dto.StartSessionRequest, result startResult) contract.Session {
-	s.setThreadID(result.threadID)
-	if result.model != "" {
-		s.setRuntimeConfigValue("model", result.model)
-	}
-	if cwd := strings.TrimSpace(req.CWD); cwd != "" {
-		s.setRuntimeConfigValue("cwd", cwd)
-	}
-	if port := parsePortFromURL(s.transport.serverURL); port > 0 {
-		s.setRuntimeConfigValue("port", port)
-	}
-	d.reportRuntime(s.agentID)
-	return s
-}
-
-func (d *driver) reportRuntime(agentID string) {
-	if d == nil || d.reporter == nil {
-		return
-	}
-	agentID = strings.TrimSpace(agentID)
-	if agentID == "" {
-		return
-	}
-	ctx, cancel := platformconfig.WithTimeout(context.Background(), 2*time.Second)
-	defer cancel()
-	if err := d.reporter.ReportRuntime(ctx, contract.RuntimeReport{
-		AgentID:  agentID,
-		Port:     parsePortFromURL(d.serverURL),
-		Provider: d.Name(),
-	}); err != nil {
-		d.logger.Warn("codexapp: report runtime failed", "agent_id", agentID, "error", err)
-	}
-}
-
 func (s *session) AllowedModels(ctx context.Context) ([]string, error) {
 	raw, err := callWithTimeout(ctx, callTargetFunc(s.callTransport), 10*time.Second, "model/list", map[string]any{})
 	if err != nil {
 		return nil, err
 	}
-	models, err := codexmodel.DecodeAllowed(raw)
+	models, err := supportutil.DecodeAllowedModels(raw)
 	if err != nil {
 		return nil, err
 	}
@@ -431,8 +396,8 @@ func (d *driver) startAssemblyInstructions(req dto.StartSessionRequest) (string,
 	developer := strings.TrimSpace(shared.FirstNonEmpty(
 		req.StartAssembly.DeveloperInstructions,
 		req.StartAssembly.Snapshot.DeveloperInstructions,
-		configString(req.Config, "developerInstructions"),
-		configString(req.Config, "developer_instructions"),
+		supportutil.ConfigString(req.Config, "developerInstructions"),
+		supportutil.ConfigString(req.Config, "developer_instructions"),
 	))
 	if base == "" {
 		base = fallbackBaseInstructions
