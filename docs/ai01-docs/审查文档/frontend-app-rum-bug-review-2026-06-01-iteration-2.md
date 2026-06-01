@@ -89,13 +89,13 @@ ADR-3：Modal focus trap
 
 Build 体积摘要：
 
-| Asset | Raw | Gzip |
-| --- | ---: | ---: |
-| `index-BJ9gltsN.js` | 281.54 kB | 80.58 kB |
-| `react-core-Be7ANt6U.js` | 181.78 kB | 57.18 kB |
-| `aegis.min-BHQRIVNU.js` | 129.20 kB | 41.62 kB |
-| `query-state-u8UpDdbk.js` | 34.24 kB | 10.37 kB |
-| `icons-M6RkBtzg.js` | 17.23 kB | 6.56 kB |
+| Asset                     |       Raw |     Gzip |
+| ------------------------- | --------: | -------: |
+| `index-BJ9gltsN.js`       | 281.54 kB | 80.58 kB |
+| `react-core-Be7ANt6U.js`  | 181.78 kB | 57.18 kB |
+| `aegis.min-BHQRIVNU.js`   | 129.20 kB | 41.62 kB |
+| `query-state-u8UpDdbk.js` |  34.24 kB | 10.37 kB |
+| `icons-M6RkBtzg.js`       |  17.23 kB |  6.56 kB |
 
 ## Runtime Scan Evidence
 
