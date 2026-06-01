@@ -155,7 +155,10 @@ func payloadToolName(payload map[string]any, fallbacks ...string) string {
 
 func isTurnTerminalEvent(method string) bool {
 	switch strings.TrimSpace(method) {
-	case "turn/completed", "turn.completed", "turn/aborted", "turn.aborted":
+	case "turn/completed", "turn.completed",
+		"turn/aborted", "turn.aborted",
+		"turn/failed", "turn.failed",
+		"turn/error", "turn.error":
 		return true
 	default:
 		return false
@@ -177,7 +180,10 @@ func isMessageStreamDeltaEvent(method string) bool {
 }
 
 func turnTerminalSuccess(method string, payload map[string]any) bool {
-	if strings.Contains(strings.ToLower(strings.TrimSpace(method)), "aborted") {
+	normalizedMethod := strings.ToLower(strings.TrimSpace(method))
+	if strings.Contains(normalizedMethod, "aborted") ||
+		strings.Contains(normalizedMethod, "failed") ||
+		strings.Contains(normalizedMethod, "error") {
 		return false
 	}
 	if value, ok := payload["success"].(bool); ok {
