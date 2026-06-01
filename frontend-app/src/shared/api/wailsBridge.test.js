@@ -276,6 +276,8 @@ describe('wails bridge frontend trace emitter', () => {
     }));
     expect(events[0].trace_id).toBe(byID.mock.calls[0][2]._aoTraceId);
     expect(events[0].span_id).toBe(byID.mock.calls[0][2]._aoSpanId);
+    expect(events[0]).not.toHaveProperty('error_name');
+    expect(events[0]).not.toHaveProperty('error_code');
     const serialized = JSON.stringify(events);
     expect(serialized).not.toContain('result_preview');
     expect(serialized).not.toContain('do not persist');

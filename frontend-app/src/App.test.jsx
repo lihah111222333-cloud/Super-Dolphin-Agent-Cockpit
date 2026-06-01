@@ -40,6 +40,11 @@ const backend = vi.hoisted(() => ({
   getThreadMessages: vi.fn(),
   getBuildInfo: vi.fn(),
   getDashboardPage: vi.fn(),
+  getObservabilityStatus: vi.fn(),
+  getObservabilityTrace: vi.fn(),
+  getObservabilityThreadRecent: vi.fn(),
+  listObservabilitySlow: vi.fn(),
+  listObservabilityErrors: vi.fn(),
   listSharedFiles: vi.fn(),
   listPromptAssets: vi.fn(),
   getDashboardPrompts: vi.fn(),
@@ -210,6 +215,11 @@ describe('frontend-app connected client shell', () => {
       }
       return Promise.resolve({});
     });
+    backend.getObservabilityStatus.mockResolvedValue({ enabled: true, schema_version: 1, index_trace_keys: 1, sink_events_written: 2, sink_write_errors: 0 });
+    backend.getObservabilityTrace.mockResolvedValue({ source: 'memory', events: [], slowest_events: [], errors: [], total_duration_ms: 0, truncated: false });
+    backend.getObservabilityThreadRecent.mockResolvedValue({ source: 'memory', events: [], slowest_events: [], errors: [], total_duration_ms: 0, truncated: false });
+    backend.listObservabilitySlow.mockResolvedValue({ source: 'memory', events: [], slowest_events: [], errors: [], total_duration_ms: 0, truncated: false });
+    backend.listObservabilityErrors.mockResolvedValue({ source: 'memory', events: [], slowest_events: [], errors: [], total_duration_ms: 0, truncated: false });
     backend.listSharedFiles.mockResolvedValue({
       files: [],
       finalOutputRefs: [],
@@ -393,6 +403,35 @@ describe('frontend-app connected client shell', () => {
     expect(window.localStorage.getItem('super-dolphin-theme')).toBe('dark');
     expect(screen.getByRole('button', { name: '切换到白天模式' })).toBeInTheDocument();
     expect(backend.setPreference.mock.calls.length).toBe(preferenceCallsBeforeToggle);
+  });
+
+  it('opens observability tracing dashboard and queries by trace id', async () => {
+    backend.getObservabilityTrace.mockResolvedValue({
+      source: 'mixed',
+      total_duration_ms: 135,
+      truncated: false,
+      slowest_events: [],
+      errors: [],
+      events: [{
+        trace_id: 'trace-1',
+        span_id: 'span-rpc',
+        method: 'rpc.dispatch',
+        status: 'slow',
+        duration_ms: 120,
+        thread_id: 'thread-1',
+        code: { file: 'internal/platform/rpc/server.go', function: '(*Server).Dispatch', line: 270 },
+        stack: [{ file: 'internal/platform/rpc/server.go', function: '(*Server).Dispatch', line: 270 }],
+      }],
+    });
+    render(<App />);
+
+    fireEvent.click(await screen.findByRole('button', { name: '链路追踪' }));
+    fireEvent.change(screen.getByLabelText('Trace ID'), { target: { value: 'trace-1' } });
+    fireEvent.click(screen.getByRole('button', { name: '查询 Trace' }));
+
+    expect(await screen.findByText(/source=mixed/)).toBeInTheDocument();
+    expect(screen.getAllByText(/internal\/platform\/rpc\/server.go:270/).length).toBeGreaterThan(0);
+    expect(backend.getObservabilityTrace).toHaveBeenCalledWith({ traceId: 'trace-1', limit: 50 });
   });
 
   it('bootstraps project, sidebar, timeline and token usage from backend', async () => {

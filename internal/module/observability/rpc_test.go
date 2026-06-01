@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+	"time"
 
 	"go.uber.org/fx"
 	"go.uber.org/fx/fxtest"
@@ -25,11 +26,10 @@ func (s *recordingSink) Append(_ context.Context, event platformobs.TraceEvent) 
 func TestNewHandlersReturnsRPCHandlerMapResult(t *testing.T) {
 	svc := platformobs.NewDisabledService(platformobs.Config{DisabledReason: "unit"})
 	result := NewHandlers(svc)
-	if _, ok := result.Handlers["observability/status"]; !ok {
-		t.Fatalf("observability/status not registered")
-	}
-	if _, ok := result.Handlers["observability/frontend/ingest"]; !ok {
-		t.Fatalf("observability/frontend/ingest not registered")
+	for _, method := range []string{"observability/trace/get", "observability/thread/recent", "observability/slow/list", "observability/error/list", "observability/status", "observability/frontend/ingest"} {
+		if _, ok := result.Handlers[method]; !ok {
+			t.Fatalf("%s not registered", method)
+		}
 	}
 }
 
@@ -61,6 +61,54 @@ func TestStatusRPCReportsDisabledService(t *testing.T) {
 	}
 	if got.Enabled || got.DisabledReason != "unit disabled" {
 		t.Fatalf("status = %+v", got)
+	}
+}
+
+func TestTraceGetRPCSummarizesSlowErrorsAndCodeAnchors(t *testing.T) {
+	svc := newRecordingService(&recordingSink{})
+	seedTraceEvents(t, svc)
+	server := newTestRPCServer(t, svc)
+	got := dispatchQuery(t, server, "observability/trace/get", json.RawMessage(`{"traceId":"trace-1","limit":10,"includeTail":false}`))
+	if got.Source != platformobs.QuerySourceMemory || len(got.Events) != 3 || got.TotalDurationMS <= 0 {
+		t.Fatalf("trace response = %+v", got)
+	}
+	if got.SlowestEvents[0].Method != "rpc.dispatch" || got.Errors[0].Method != "tool.call.end" {
+		t.Fatalf("summary slow=%+v errors=%+v", got.SlowestEvents, got.Errors)
+	}
+	if got.Events[1].Code.File == "" || len(got.Events[2].Stack) != 1 {
+		t.Fatalf("missing code anchor or compact stack: %+v", got.Events)
+	}
+}
+
+func TestTraceGetMissingTraceReturnsEmptyNonErrorResult(t *testing.T) {
+	server := newTestRPCServer(t, newRecordingService(&recordingSink{}))
+	got := dispatchQuery(t, server, "observability/trace/get", json.RawMessage(`{"trace_id":"missing","include_tail":false}`))
+	if got.Source != platformobs.QuerySourceMemory || len(got.Events) != 0 || got.Truncated {
+		t.Fatalf("missing trace response = %+v", got)
+	}
+}
+
+func TestThreadRecentAndListRPCsUseBoundedQueries(t *testing.T) {
+	svc := newRecordingService(&recordingSink{})
+	seedTraceEvents(t, svc)
+	server := newTestRPCServer(t, svc)
+	thread := dispatchQuery(t, server, "observability/thread/recent", json.RawMessage(`{"threadId":"thread-1","limit":2,"includeTail":false}`))
+	slow := dispatchQuery(t, server, "observability/slow/list", json.RawMessage(`{"limit":5,"component":"rpc"}`))
+	errs := dispatchQuery(t, server, "observability/error/list", json.RawMessage(`{"limit":5,"component":"tool"}`))
+	if len(thread.Events) != 2 || len(slow.Events) != 1 || len(errs.Events) != 1 {
+		t.Fatalf("thread=%+v slow=%+v errors=%+v", thread, slow, errs)
+	}
+}
+
+func TestTraceGetRPCReportsTailSourceAndTruncation(t *testing.T) {
+	tail := platformobs.QueryTailReaderFunc(func(context.Context, platformobs.Query) (platformobs.QueryResult, error) {
+		return platformobs.QueryResult{Source: platformobs.QuerySourceJSONLTail, Events: []platformobs.TraceEvent{{TraceID: "tail-trace", Method: "tail"}}, Truncated: true}, nil
+	})
+	svc := platformobs.NewService(testTraceConfig(), platformobs.WithTailReader(tail))
+	server := newTestRPCServer(t, svc)
+	got := dispatchQuery(t, server, "observability/trace/get", json.RawMessage(`{"traceId":"tail-trace"}`))
+	if got.Source != platformobs.QuerySourceJSONLTail || !got.Truncated || len(got.Events) != 1 {
+		t.Fatalf("tail response = %+v", got)
 	}
 }
 
@@ -142,8 +190,40 @@ func TestFrontendIngestDisabledServiceDropsWithoutRecording(t *testing.T) {
 	}
 }
 
+func seedTraceEvents(t *testing.T, svc *platformobs.Service) {
+	t.Helper()
+	base := time.Date(2026, 6, 2, 0, 0, 0, 0, time.UTC)
+	recordTrace(t, svc, platformobs.TraceEvent{Timestamp: base, TraceID: "trace-1", SpanID: "span-ui", Kind: "wails", Method: "ui.call", ThreadID: "thread-1", DurationMS: 5, Status: platformobs.StatusOK})
+	recordTrace(t, svc, platformobs.TraceEvent{Timestamp: base.Add(5 * time.Millisecond), TraceID: "trace-1", SpanID: "span-rpc", Kind: "rpc", Method: "rpc.dispatch", ThreadID: "thread-1", DurationMS: 120, Status: platformobs.StatusSlow, Code: platformobs.NewCodeAnchor("internal/platform/rpc/server.go", "(*Server).Dispatch", 270)})
+	recordTrace(t, svc, platformobs.TraceEvent{Timestamp: base.Add(130 * time.Millisecond), TraceID: "trace-1", SpanID: "span-tool", Kind: "tool", Method: "tool.call.end", ThreadID: "thread-1", CallID: "call-1", ToolName: "lsp_file", DurationMS: 15, Status: platformobs.StatusError, Error: "tool call failed", Stack: []platformobs.StackFrame{{File: "internal/platform/toolbridge/handler.go", Function: "(*Handler).HandleToolCall", Line: 99}}})
+}
+
+func recordTrace(t *testing.T, svc *platformobs.Service, event platformobs.TraceEvent) {
+	t.Helper()
+	if err := svc.Record(t.Context(), event); err != nil {
+		t.Fatalf("Record: %v", err)
+	}
+}
+
 func newRecordingService(sink *recordingSink) *platformobs.Service {
-	return platformobs.NewService(platformobs.Config{MetadataMaxBytes: 4096, StringMaxBytes: 64}, platformobs.WithSink(sink), platformobs.WithSampler(platformobs.NewSampler(platformobs.SamplerConfig{HighFrequencyKeepEvery: 1})))
+	return platformobs.NewService(testTraceConfig(), platformobs.WithSink(sink), platformobs.WithSampler(platformobs.NewSampler(platformobs.SamplerConfig{HighFrequencyKeepEvery: 1})))
+}
+
+func testTraceConfig() platformobs.Config {
+	return platformobs.Config{MetadataMaxBytes: 4096, StringMaxBytes: 64, IndexMaxEvents: 16, IndexMaxTraceEvents: 16, IndexMaxThreadEvents: 16, IndexMaxSlowEvents: 16, IndexMaxErrorEvents: 16, QueryTailTimeoutMS: 100, QueryTailMaxConcurrency: 1}
+}
+
+func dispatchQuery(t *testing.T, server *platformrpc.Server, method string, payload json.RawMessage) queryResponse {
+	t.Helper()
+	raw, err := server.Dispatch(t.Context(), method, payload)
+	if err != nil {
+		t.Fatalf("Dispatch %s: %v", method, err)
+	}
+	var resp queryResponse
+	if err := json.Unmarshal(raw, &resp); err != nil {
+		t.Fatalf("unmarshal %s: %v", method, err)
+	}
+	return resp
 }
 
 func dispatchIngest(t *testing.T, server *platformrpc.Server, payload json.RawMessage) frontendIngestResponse {

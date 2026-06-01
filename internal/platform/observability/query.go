@@ -18,6 +18,7 @@ type Query struct {
 }
 
 type QueryResult struct {
-	Source QuerySource
-	Events []TraceEvent
+	Source    QuerySource
+	Events    []TraceEvent
+	Truncated bool
 }
