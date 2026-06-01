@@ -54,6 +54,7 @@ export function canonicalizeModelValue(providerKey, value) {
 
 export const MODEL_OPTIONS_BY_PROVIDER = Object.freeze({
   codex: Object.freeze([
+    { value: 'gpt-5-codex', label: 'GPT-5 Codex' },
     { value: 'gpt-5.5', label: 'GPT-5.5' },
     { value: 'gpt-5.4', label: 'GPT-5.4' },
     { value: 'gpt-5.3-codex', label: 'GPT-5.3 Codex' },
@@ -112,5 +113,5 @@ export function appendCurrentOption(options, currentValue, labelBuilder = (value
 export function getProviderDefaultConfig(providerId) {
   return normalizeProviderConfigValue(providerId) === 'claude'
     ? { model: 'sonnet', effort: 'high' }
-    : { model: 'gpt-5.5', effort: 'xhigh' };
+    : { model: 'gpt-5-codex', effort: 'xhigh' };
 }
