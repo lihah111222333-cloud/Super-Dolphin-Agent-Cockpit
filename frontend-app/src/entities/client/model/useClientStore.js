@@ -22,6 +22,7 @@ import {
   saveClipboardImage,
   beginTextClipboardWrite,
   copyTextToClipboard,
+  emitFrontendTraceEvent,
   selectFiles,
   selectProjectDir,
   setActiveProject as setActiveProjectRPC,
@@ -37,6 +38,7 @@ const DEFAULT_PROVIDER = 'codex';
 const MAX_WARNING_ENTRIES = 300;
 const MAX_RUNTIME_RESULT_ENTRIES = 120;
 const RUNTIME_RESULT_DETAIL_LIMIT = 1600;
+const BRIDGE_PATCH_SLOW_MS = 50;
 const PROVIDER_ACTIVE_PREF_KEY = 'settings.provider.active';
 const ACTIVE_PROMPT_PREF_KEY = 'settings.activePromptKey';
 const THREAD_PINS_CHAT_PREF_KEY = 'threadPins.chat';
@@ -1884,7 +1886,9 @@ export const useClientStore = create((set, get) => {
       sequencesByThread.set(threadId, sequence);
     }
 
-    const timelineItems = payload.timelineItems || payload.timeline_items;
+    const patchStart = Date.now();
+    try {
+      const timelineItems = payload.timelineItems || payload.timeline_items;
     const runtimeResultEntries = runtimeResultEntriesFromTimelineItems(timelineItems, threadId);
     const tokenUsage = normalizeTokenUsage(payload.tokenUsage || payload.token_usage);
     const activityStats = normalizeActivityStats(payload.activityStats || payload.activity_stats);
@@ -1992,6 +1996,20 @@ export const useClientStore = create((set, get) => {
         }, ...state.activityEntries].slice(0, 120),
       };
     });
+    } finally {
+      const durationMs = Date.now() - patchStart;
+      if (durationMs >= BRIDGE_PATCH_SLOW_MS) {
+        emitFrontendTraceEvent({
+          phase: 'frontend.patch.apply.slow',
+          method,
+          thread_id: threadId,
+          agent_id: normalizeString(payload.agentId || payload.agent_id || payload.agentRuntime?.agentId || payload.agent_runtime?.agent_id),
+          turn_id: normalizeString(payload.turnId || payload.turn_id || payload.activeTurn?.id || payload.active_turn?.id),
+          duration_ms: durationMs,
+          status: 'ok',
+        });
+      }
+    }
   };
 
   const handleBridgeEvent = (evt) => {

@@ -108,6 +108,7 @@ const MEMORY_EDITOR_TYPES = Object.freeze([
   { key: 'feedback', label: '偏好' },
   { key: 'project', label: '项目' },
 ]);
+export const APP_PROFILER_ID = 'App';
 const COMPOSER_DROP_TARGET_IDS = new Set(['chat-input-bar', 'composer-input', 'chatInput']);
 
 const THEME_STORAGE_KEY = 'super-dolphin-theme';

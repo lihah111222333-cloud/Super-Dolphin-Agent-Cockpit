@@ -1,7 +1,12 @@
 import { describe, expect, it, vi } from 'vitest';
-import { createBackendApi, RPC_METHODS } from './backendApi.js';
+import { createBackendApi, emitFrontendTraceEvent, RPC_METHODS } from './backendApi.js';
 
 describe('frontend-app backend API facade', () => {
+  it('exposes the dedicated frontend observability ingest RPC method name', () => {
+    expect(RPC_METHODS.OBSERVABILITY_FRONTEND_INGEST).toBe('observability/frontend/ingest');
+    expect(typeof emitFrontendTraceEvent).toBe('function');
+  });
+
   it('starts a pending backend thread with the legacy thread/start payload shape', async () => {
     const callAPI = vi.fn().mockResolvedValue({ threadId: 'thread-123' });
     const api = createBackendApi({ callAPI });
