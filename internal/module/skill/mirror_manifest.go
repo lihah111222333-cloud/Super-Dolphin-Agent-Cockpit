@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"hash"
 	"io/fs"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"sort"
@@ -408,7 +409,7 @@ func (s *service) defaultPersonalMirrorTargets() []SkillMirrorTarget {
 	superHome := s.resolvedSuperDolphinHome()
 	owner, err := resolveOwnerIdentity(superHome, defaultOwnerOSUID(), defaultAppProfile())
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "skill: defaultPersonalMirrorTargets: %v\n", err)
+		slog.Warn("skill: defaultPersonalMirrorTargets resolveOwnerIdentity failed", "error", err)
 		return nil
 	}
 	return []SkillMirrorTarget{

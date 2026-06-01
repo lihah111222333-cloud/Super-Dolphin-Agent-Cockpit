@@ -550,7 +550,10 @@ func rawStringList(value any) []string {
 func stringListFromAny(values []any) []string {
 	out := make([]string, 0, len(values))
 	for _, value := range values {
-		text, _ := value.(string)
+		text, ok := value.(string)
+		if !ok {
+			continue
+		}
 		out = append(out, text)
 	}
 	return out

@@ -3,6 +3,7 @@ package memory
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -353,7 +354,7 @@ func (h *MemoryLifecycleHooks) checkDedupAndHandle(entry MemoryWriteRequest, sto
 		if h.logger != nil {
 			h.logger.Warn("memory dedup check failed", "err", err, "scope", scope, "type", entry.Type)
 		}
-		return false, nil
+		return false, fmt.Errorf("memory dedup check: %w", err)
 	}
 	switch result.Action {
 	case dedup.Skip:
