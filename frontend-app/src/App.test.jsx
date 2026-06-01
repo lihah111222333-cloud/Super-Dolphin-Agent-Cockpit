@@ -1903,10 +1903,10 @@ describe('frontend-app connected client shell', () => {
           threads: [{ id: 'thread-1', name: '后端线程', provider: 'codex', status: '工作中' }],
         },
     ));
-    backend.getThreadState.mockImplementation(({ threadId }) => Promise.resolve({
+    backend.getThreadState.mockImplementation(({ threadId, includeDiff }) => Promise.resolve({
       activeThreadId: threadId,
       timelinesByThread: { [threadId]: [] },
-      diffTextByThread: { [threadId]: '' },
+      ...(includeDiff ? { diffTextByThread: { [threadId]: '' } } : {}),
     }));
 
     render(<App />);
@@ -1938,6 +1938,21 @@ describe('frontend-app connected client shell', () => {
       });
     });
     expect(useClientStore.getState().activeThreadId).toBe('thread-other');
+    expect(backend.getThreadState).not.toHaveBeenCalledWith({
+      cwd: '/repo/other',
+      threadId: 'thread-other',
+      includeDiff: true,
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: '显示侧边栏' }));
+
+    await waitFor(() => {
+      expect(backend.getThreadState).toHaveBeenCalledWith({
+        cwd: '/repo/other',
+        threadId: 'thread-other',
+        includeDiff: true,
+      });
+    });
   });
 
   it('shows a loading chat list immediately while a project switch refreshes slowly', async () => {

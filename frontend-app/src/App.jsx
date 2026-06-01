@@ -2898,6 +2898,18 @@ function ChatPage({ store, projectPath }) {
   }, [maxRightPanelWidth, rightPanelOpen, store, viewportWidth]);
 
   useEffect(() => {
+    if (!rightPanelOpen || !activeThreadId) return;
+    if (store.threadDiffReadyByThread?.[activeThreadId]) return;
+    if (store.threadStateLoadingByThread?.[activeThreadId]) return;
+    void store.syncThreadState?.(activeThreadId, {
+      includeArchived: true,
+      includeDiff: true,
+      loadMessages: false,
+      preserveActiveThreadId: true,
+    });
+  }, [activeThreadId, rightPanelOpen, store]);
+
+  useEffect(() => {
     const onKeyDown = (event) => {
       if (event.defaultPrevented || event.key !== 'Escape' || event.metaKey || event.ctrlKey || event.altKey || event.shiftKey) return;
       if (shouldIgnoreGlobalEscape(event.target)) return;
