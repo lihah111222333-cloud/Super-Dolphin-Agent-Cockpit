@@ -954,13 +954,6 @@ function workStatusForThread({ sending, activeThreadId, activeThread, statusEntr
   };
 }
 
-function hasAssistantReply(messages = []) {
-  return (messages || []).some((message) => (
-    (message?.role || '').toString().trim().toLowerCase() === 'assistant'
-    && Boolean((message?.text || '').toString().trim())
-  ));
-}
-
 function providerToggleState(store) {
   const activeThreadId = normalizedThreadIdentity(store?.activeThreadId);
   const activeThread = activeThreadForStore(store);
@@ -4298,7 +4291,7 @@ function Conversation({
   canUseProjectActions = true,
 }) {
   const introMode = !activeThreadId && !timelineBlocked && messages.length === 0;
-  const showProviderToggle = !hasAssistantReply(messages);
+  const showProviderToggle = !activeThreadId;
   const composer = (
     <ComposerDock
       floating={introMode}
