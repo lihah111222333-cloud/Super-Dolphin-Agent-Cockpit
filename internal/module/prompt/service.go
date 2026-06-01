@@ -102,7 +102,7 @@ var (
 )
 
 func (s *service) Config() Config {
-	if s == nil || s.cfg == nil {
+	if s.cfg == nil {
 		return Config{}
 	}
 	return *s.cfg
