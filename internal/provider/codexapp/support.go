@@ -13,6 +13,7 @@ import (
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
 	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
 	codexprotocol "github.com/anthropic-ai/super-agent-v3/internal/provider/codexapp/protocol"
+	"github.com/anthropic-ai/super-agent-v3/internal/provider/codexapp/supportutil"
 	providershared "github.com/anthropic-ai/super-agent-v3/internal/provider/shared"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
@@ -183,7 +184,7 @@ func (s *session) runtimeConfigString(key string) string {
 		return ""
 	}
 	v, _ := s.runtimeConfig[key].(string)
-	return sanitizeConfigStringArtifact(v)
+	return supportutil.SanitizeConfigStringArtifact(v)
 }
 
 func (s *session) runtimeConfigStringSlice(keys ...string) []string {
@@ -229,26 +230,6 @@ func (s *session) setRuntimeConfigValue(key string, value any) {
 	s.runtimeConfig[key] = value
 }
 
-func decodeAllowedModels(raw []byte) ([]string, error) {
-	var top map[string]any
-	if err := json.Unmarshal(raw, &top); err == nil {
-		// Try "models" key first, then "data" key (codex app-server format)
-		if models := modelIDs(top["models"]); len(models) > 0 {
-			return models, nil
-		}
-		if models := modelIDs(top["data"]); len(models) > 0 {
-			return models, nil
-		}
-	}
-	var list []any
-	if err := json.Unmarshal(raw, &list); err == nil {
-		if models := modelIDs(list); len(models) > 0 {
-			return models, nil
-		}
-	}
-	return nil, errors.New("codexapp: invalid model/list response")
-}
-
 func resolveDefaultCodexModel(ctx context.Context, t *transport) (string, error) {
 	model, _, err := resolveSupportedCodexModel(ctx, t, "")
 	return model, err
@@ -260,183 +241,27 @@ func resolveSupportedCodexModel(ctx context.Context, t *transport, requested str
 	if err != nil {
 		return "", false, err
 	}
-	models, err := decodeAllowedModels(raw)
+	models, err := supportutil.DecodeAllowedModels(raw)
 	if err != nil {
 		return "", false, err
 	}
-	preferred := preferredCodexModel(models)
+	preferred := supportutil.PreferredCodexModel(models)
 	if requested == "" {
 		return preferred, preferred != "", nil
 	}
-	if codexModelIsCodexFamily(requested) && codexModelListContains(models, requested) {
+	if supportutil.CodexModelIsCodexFamily(requested) && supportutil.CodexModelListContains(models, requested) {
 		return requested, false, nil
 	}
-	if !codexModelIsGenericGPT(requested) && codexModelListContains(models, requested) {
+	if !supportutil.CodexModelIsGenericGPT(requested) && supportutil.CodexModelListContains(models, requested) {
 		return requested, false, nil
 	}
 	if preferred != "" {
 		return preferred, !strings.EqualFold(preferred, requested), nil
 	}
-	if codexModelListContains(models, requested) {
+	if supportutil.CodexModelListContains(models, requested) {
 		return requested, false, nil
 	}
 	return requested, false, nil
-}
-
-func preferredCodexModel(models []string) string {
-	for _, model := range models {
-		if strings.EqualFold(strings.TrimSpace(model), "gpt-5-codex") {
-			return strings.TrimSpace(model)
-		}
-	}
-	for _, model := range models {
-		if trimmed := strings.TrimSpace(model); trimmed != "" && strings.Contains(strings.ToLower(trimmed), "codex") {
-			return trimmed
-		}
-	}
-	for _, model := range models {
-		if trimmed := strings.TrimSpace(model); trimmed != "" {
-			return trimmed
-		}
-	}
-	return ""
-}
-
-func codexModelListContains(models []string, requested string) bool {
-	requested = strings.TrimSpace(requested)
-	if requested == "" {
-		return false
-	}
-	for _, model := range models {
-		if strings.EqualFold(strings.TrimSpace(model), requested) {
-			return true
-		}
-	}
-	return false
-}
-
-func codexModelNeedsListResolution(model string) bool {
-	model = strings.ToLower(strings.TrimSpace(model))
-	return model == "" || codexModelIsGenericGPT(model)
-}
-
-func codexModelIsGenericGPT(model string) bool {
-	model = strings.ToLower(strings.TrimSpace(model))
-	return strings.HasPrefix(model, "gpt-") && !codexModelIsCodexFamily(model)
-}
-
-func codexModelIsCodexFamily(model string) bool {
-	return strings.Contains(strings.ToLower(strings.TrimSpace(model)), "codex")
-}
-
-func wrapCodexModelUnsupportedError(err error, model string) error {
-	if err == nil {
-		return nil
-	}
-	notice := codexModelUnsupportedNotice(err, model)
-	if notice == "" {
-		return err
-	}
-	return fmt.Errorf("%s: %w", notice, err)
-}
-
-func codexModelUnsupportedNotice(err error, model string) string {
-	if err == nil {
-		return ""
-	}
-	text := err.Error()
-	lower := strings.ToLower(text)
-	if !strings.Contains(lower, "model") ||
-		!strings.Contains(lower, "not supported") ||
-		!strings.Contains(lower, "codex") ||
-		!strings.Contains(lower, "chatgpt") {
-		return ""
-	}
-	selected := strings.TrimSpace(model)
-	if selected == "" {
-		selected = quotedModelFromUnsupportedText(text)
-	}
-	if selected != "" {
-		return fmt.Sprintf("Codex model %q is not supported by the current ChatGPT account. Choose a supported Codex model in Settings or clear the model override, then retry", selected)
-	}
-	return "The selected Codex model is not supported by the current ChatGPT account. Choose a supported Codex model in Settings or clear the model override, then retry"
-}
-
-func quotedModelFromUnsupportedText(text string) string {
-	const prefix = "The '"
-	start := strings.Index(text, prefix)
-	if start < 0 {
-		return ""
-	}
-	rest := text[start+len(prefix):]
-	end := strings.Index(rest, "'")
-	if end <= 0 {
-		return ""
-	}
-	return strings.TrimSpace(rest[:end])
-}
-
-func modelIDs(raw any) []string {
-	list, _ := raw.([]any)
-	out := make([]string, 0, len(list))
-	seen := make(map[string]struct{}, len(list))
-	for _, item := range list {
-		entry, _ := item.(map[string]any)
-		id, _ := entry["id"].(string)
-		id = strings.TrimSpace(id)
-		if id == "" {
-			continue
-		}
-		if _, ok := seen[id]; ok {
-			continue
-		}
-		seen[id] = struct{}{}
-		out = append(out, id)
-	}
-	return out
-}
-
-func configString(cfg map[string]any, keys ...string) string {
-	if cfg == nil {
-		return ""
-	}
-	for _, key := range keys {
-		value, _ := cfg[key].(string)
-		if value = sanitizeConfigStringArtifact(value); value != "" {
-			return value
-		}
-	}
-	return ""
-}
-
-func firstConfigString(cfg map[string]any, keys ...string) string {
-	for _, key := range keys {
-		if value := configString(cfg, key); value != "" {
-			return value
-		}
-	}
-	return ""
-}
-
-func sanitizeConfigStringArtifact(value string) string {
-	value = strings.TrimSpace(value)
-	switch strings.ToLower(value) {
-	case "", "[object object]", "undefined", "null":
-		return ""
-	default:
-		return value
-	}
-}
-
-func resolveApprovalPolicy(cfg map[string]any) string {
-	for _, key := range []string{"approvalPolicy", "approval_policy"} {
-		if value := configString(cfg, key); value != "" {
-			return value
-		}
-	}
-	// Default to "never" — UI approval flow is not yet wired,
-	// so any other default would block MCP tool calls indefinitely.
-	return "never"
 }
 
 func (d *driver) buildThreadStartParams(req dto.StartSessionRequest) threadStartParams {
@@ -444,13 +269,13 @@ func (d *driver) buildThreadStartParams(req dto.StartSessionRequest) threadStart
 	params := threadStartParams{
 		Cwd:                   strings.TrimSpace(req.CWD),
 		Model:                 strings.TrimSpace(req.Model),
-		ModelProvider:         firstConfigString(req.Config, contract.CodexModelProviderKey, "modelProvider", "model_provider"),
+		ModelProvider:         supportutil.FirstConfigString(req.Config, contract.CodexModelProviderKey, "modelProvider", "model_provider"),
 		BaseInstructions:      baseInstructions,
 		DeveloperInstructions: developerInstructions,
-		ApprovalPolicy:        resolveApprovalPolicy(req.Config),
-		Personality:           configString(req.Config, "personality"),
-		Summary:               configString(req.Config, "summary"),
-		Effort:                configString(req.Config, "effort"),
+		ApprovalPolicy:        supportutil.ResolveApprovalPolicy(req.Config),
+		Personality:           supportutil.ConfigString(req.Config, "personality"),
+		Summary:               supportutil.ConfigString(req.Config, "summary"),
+		Effort:                supportutil.ConfigString(req.Config, "effort"),
 		Sandbox:               codexSandboxWireJSON(configJSON(req.Config, "sandbox")),
 	}
 	codexNativeToolPolicyFromConfig(req.Config).ApplyThreadStartParams(&params)
@@ -478,8 +303,8 @@ func (d *driver) startDynamicSession(ctx context.Context, s *session, req dto.St
 			"agent_id", strings.TrimSpace(req.AgentID),
 			"provider", strings.TrimSpace(req.Provider),
 			"model", strings.TrimSpace(req.Model),
-			"config_model_provider", configString(req.Config, "modelProvider"),
-			"config_codex_model_provider", configString(req.Config, "codexModelProvider"),
+			"config_model_provider", supportutil.ConfigString(req.Config, "modelProvider"),
+			"config_codex_model_provider", supportutil.ConfigString(req.Config, "codexModelProvider"),
 			"error", err,
 		)
 		cleanupFailedSession(s, "force stop failed on start error")
@@ -641,7 +466,7 @@ func (d *driver) startRemoteThreadWithDynamicTools(ctx context.Context, t *trans
 
 func startRemoteThreadWithParams(ctx context.Context, t *transport, req dto.StartSessionRequest, params threadStartParams) (startResult, error) {
 	configKeys := sortedConfigKeys(req.Config)
-	if codexModelNeedsListResolution(params.Model) {
+	if supportutil.CodexModelNeedsListResolution(params.Model) {
 		requestedModel := strings.TrimSpace(params.Model)
 		model, replaced, err := resolveSupportedCodexModel(ctx, t, requestedModel)
 		if err != nil {
@@ -664,9 +489,9 @@ func startRemoteThreadWithParams(ctx context.Context, t *transport, req dto.Star
 		pkglogger.Warn("codexapp: thread/start config trace",
 			"agent_id", strings.TrimSpace(req.AgentID),
 			"req_model", strings.TrimSpace(req.Model),
-			"config_model", configString(req.Config, "model"),
+			"config_model", supportutil.ConfigString(req.Config, "model"),
 			"params_model", params.Model,
-			"config_effort", configString(req.Config, "effort"),
+			"config_effort", supportutil.ConfigString(req.Config, "effort"),
 			"params_effort", params.Effort,
 			"config_keys", configKeys,
 		)
@@ -703,15 +528,15 @@ func startRemoteThreadWithParams(ctx context.Context, t *transport, req dto.Star
 	raw, err := callWithTimeout(ctx, t, 30*time.Second, "thread/start", params)
 	if err != nil {
 		logThreadStartIdentityTrace("codexapp: thread/start request failed", t.serverURL, req, params, err)
-		return startResult{}, wrapCodexModelUnsupportedError(err, params.Model)
+		return startResult{}, supportutil.WrapCodexModelUnsupportedError(err, params.Model)
 	}
 	return decodeStartResult(raw)
 }
 
 func logThreadStartIdentityTrace(msg, serverURL string, req dto.StartSessionRequest, params threadStartParams, err error) {
 	provider := strings.TrimSpace(req.Provider)
-	configModelProvider := configString(req.Config, "modelProvider")
-	configCodexModelProvider := configString(req.Config, "codexModelProvider")
+	configModelProvider := supportutil.ConfigString(req.Config, "modelProvider")
+	configCodexModelProvider := supportutil.ConfigString(req.Config, "codexModelProvider")
 	if !strings.EqualFold(provider, "codex") &&
 		strings.TrimSpace(params.ModelProvider) == "" &&
 		configModelProvider == "" &&

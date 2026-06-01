@@ -17,6 +17,7 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/runtimesafe"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
+	"github.com/anthropic-ai/super-agent-v3/internal/provider/codexapp/supportutil"
 	"github.com/anthropic-ai/super-agent-v3/internal/provider/unified"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
@@ -297,14 +298,14 @@ func (s *session) RuntimeConfigSnapshot() map[string]any {
 		out = map[string]any{}
 	}
 	if value := strings.TrimSpace(shared.FirstNonEmpty(
-		configString(out, "baseInstructions"),
-		configString(out, "instructions"),
+		supportutil.ConfigString(out, "baseInstructions"),
+		supportutil.ConfigString(out, "instructions"),
 	)); value != "" {
 		out["baseInstructions"] = value
 	}
 	if value := strings.TrimSpace(shared.FirstNonEmpty(
-		configString(out, "developerInstructions"),
-		configString(out, "developer_instructions"),
+		supportutil.ConfigString(out, "developerInstructions"),
+		supportutil.ConfigString(out, "developer_instructions"),
 	)); value != "" {
 		out["developerInstructions"] = value
 	}
@@ -334,7 +335,7 @@ func (s *session) StartTurn(ctx context.Context, req dto.TurnRequest) (contract.
 	if params.Effort == "" {
 		params.Effort = s.runtimeConfigString("effort")
 	}
-	if codexModelNeedsListResolution(params.Model) {
+	if supportutil.CodexModelNeedsListResolution(params.Model) {
 		params.Model = s.resolveTurnStartModel(ctx, params.Model)
 	}
 	pkglogger.Debug("codexapp: turn/start params",
@@ -344,7 +345,7 @@ func (s *session) StartTurn(ctx context.Context, req dto.TurnRequest) (contract.
 	)
 	raw, err := callWithTimeout(ctx, callTargetFunc(s.callTransport), 30*time.Second, "turn/start", params)
 	if err != nil {
-		return nil, wrapCodexModelUnsupportedError(err, params.Model)
+		return nil, supportutil.WrapCodexModelUnsupportedError(err, params.Model)
 	}
 	resp, err := decodeTurnStartResult(raw)
 	if err != nil {

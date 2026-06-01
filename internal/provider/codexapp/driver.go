@@ -16,6 +16,7 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 	codexprotocol "github.com/anthropic-ai/super-agent-v3/internal/provider/codexapp/protocol"
+	"github.com/anthropic-ai/super-agent-v3/internal/provider/codexapp/supportutil"
 	"github.com/anthropic-ai/super-agent-v3/internal/provider/unified"
 	"github.com/anthropic-ai/super-agent-v3/internal/util/ctxutil"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
@@ -302,7 +303,7 @@ func (d *driver) StartSession(ctx context.Context, req dto.StartSessionRequest) 
 		s.setRuntimeConfigValue("developerInstructions", developerInstructions)
 	}
 	startPolicy := codexNativeToolPolicyFromConfig(req.Config)
-	approvalPolicy := resolveApprovalPolicy(req.Config)
+	approvalPolicy := supportutil.ResolveApprovalPolicy(req.Config)
 	if startPolicy.RequiresReadOnlySandbox() {
 		approvalPolicy = "never"
 	}
@@ -363,7 +364,7 @@ func (s *session) AllowedModels(ctx context.Context) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	models, err := decodeAllowedModels(raw)
+	models, err := supportutil.DecodeAllowedModels(raw)
 	if err != nil {
 		return nil, err
 	}
@@ -395,8 +396,8 @@ func (d *driver) startAssemblyInstructions(req dto.StartSessionRequest) (string,
 	developer := strings.TrimSpace(shared.FirstNonEmpty(
 		req.StartAssembly.DeveloperInstructions,
 		req.StartAssembly.Snapshot.DeveloperInstructions,
-		configString(req.Config, "developerInstructions"),
-		configString(req.Config, "developer_instructions"),
+		supportutil.ConfigString(req.Config, "developerInstructions"),
+		supportutil.ConfigString(req.Config, "developer_instructions"),
 	))
 	if base == "" {
 		base = fallbackBaseInstructions
