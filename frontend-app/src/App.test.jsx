@@ -115,6 +115,24 @@ vi.mock('./shared/api/backendApi.js', () => ({
   sendFrontendLogBatch: vi.fn(),
 }));
 
+function promptPreferenceValue(key, activePromptKey = '') {
+  return {
+    'settings.provider.active': 'codex',
+    'settings.provider.codex.model': 'gpt-5.5',
+    'settings.provider.codex.effort': 'xhigh',
+    'settings.provider.codex.codexHome': '~/.codex',
+    'settings.provider.codex.codexInstanceKey': 'default',
+    'settings.provider.codex.codexModelProvider': 'openai',
+    'settings.provider.claude.model': 'sonnet',
+    'settings.provider.claude.effort': 'high',
+    'settings.activePromptKey': activePromptKey,
+  }[key] ?? null;
+}
+
+function mockPromptPreferences(activePromptKey = '') {
+  backend.getPreference.mockImplementation(({ key }) => Promise.resolve(promptPreferenceValue(key, activePromptKey)));
+}
+
 describe('frontend-app connected client shell', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -320,9 +338,13 @@ describe('frontend-app connected client shell', () => {
     });
     backend.getPreference.mockImplementation(({ key }) => Promise.resolve({
       'settings.provider.active': 'codex',
+      'settings.provider.codex.model': 'gpt-5.5',
+      'settings.provider.codex.effort': 'xhigh',
       'settings.provider.codex.codexHome': '~/.codex',
       'settings.provider.codex.codexInstanceKey': 'default',
       'settings.provider.codex.codexModelProvider': 'openai',
+      'settings.provider.claude.model': 'sonnet',
+      'settings.provider.claude.effort': 'high',
     }[key] ?? null));
     backend.archiveThread.mockResolvedValue({ ok: true });
     backend.unarchiveThread.mockResolvedValue({ ok: true });
@@ -432,12 +454,17 @@ describe('frontend-app connected client shell', () => {
 
     const sendButton = screen.getByRole('button', { name: '发送消息' });
     expect(sendButton).toBeDisabled();
+    expect(screen.getByRole('button', { name: '添加文件' })).toBeDisabled();
+    expect(screen.getByRole('combobox', { name: '发送权限' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: '选择模型' })).toBeDisabled();
 
     fireEvent.click(sendButton);
+    fireEvent.click(screen.getByRole('button', { name: '添加文件' }));
     fireEvent.keyDown(screen.getByTestId('composer-input'), { key: 'Enter', code: 'Enter', charCode: 13 });
 
     expect(backend.startThread).not.toHaveBeenCalled();
     expect(backend.startTurn).not.toHaveBeenCalled();
+    expect(backend.selectFiles).not.toHaveBeenCalled();
   });
 
   it('renders assistant markdown messages as formatted content', async () => {
@@ -472,7 +499,7 @@ describe('frontend-app connected client shell', () => {
       },
     });
 
-    render(<App />);
+    const { container } = render(<App />);
 
     expect(await screen.findByRole('heading', { name: '结果汇总', level: 2 })).toBeInTheDocument();
     expect(screen.getByRole('table')).toBeInTheDocument();
@@ -484,7 +511,7 @@ describe('frontend-app connected client shell', () => {
     expect(screen.getAllByRole('checkbox')).toHaveLength(2);
     expect(screen.getAllByRole('checkbox')[0]).toBeChecked();
     expect(screen.getAllByRole('checkbox')[1]).not.toBeChecked();
-    expect(screen.getByRole('separator')).toBeInTheDocument();
+    expect(container.querySelector('hr')).toBeInTheDocument();
     expect(screen.getByRole('img', { name: '图例' })).toHaveAttribute('src', 'https://example.com/chart.png');
     expect(screen.getByText('<script>alert(1)</script>')).toBeInTheDocument();
     expect(screen.queryByText('## 结果汇总')).not.toBeInTheDocument();
@@ -861,6 +888,43 @@ describe('frontend-app connected client shell', () => {
     expect(within(container.querySelector('.runtime-panel')).getByRole('button', { name: 'file' })).toBeInTheDocument();
     expect(container.querySelector('.runtime-panel')).not.toHaveTextContent('diff --git a/file b/file');
     expect(layout).toHaveStyle({ gridTemplateColumns: '240px 6px minmax(0, 1fr) 6px 189px' });
+  });
+
+  it('supports keyboard resizing for chat and activity separators', async () => {
+    Object.defineProperty(window, 'innerWidth', { configurable: true, value: 1400 });
+    Object.defineProperty(window, 'innerHeight', { configurable: true, value: 640 });
+
+    render(<App />);
+
+    await screen.findByText('后端线程');
+    const layout = screen.getByTestId('chat-layout');
+    const leftResizer = screen.getByRole('separator', { name: '调整会话栏宽度' });
+
+    expect(leftResizer).toHaveAttribute('aria-valuenow', '264');
+
+    fireEvent.keyDown(leftResizer, { key: 'ArrowLeft' });
+
+    expect(leftResizer).toHaveAttribute('aria-valuenow', '248');
+    expect(layout).toHaveStyle({ gridTemplateColumns: '248px 6px minmax(0, 1fr)' });
+
+    fireEvent.click(screen.getByRole('button', { name: '显示侧边栏' }));
+    const rightResizer = screen.getByRole('separator', { name: '调整侧边栏宽度' });
+
+    expect(rightResizer).toHaveAttribute('aria-valuenow', '264');
+
+    fireEvent.keyDown(rightResizer, { key: 'ArrowLeft' });
+
+    expect(rightResizer).toHaveAttribute('aria-valuenow', '280');
+    expect(layout).toHaveStyle({ gridTemplateColumns: '248px 6px minmax(0, 1fr) 6px 280px' });
+
+    const activityResizer = screen.getByRole('separator', { name: '调整工具使用面板高度' });
+
+    expect(activityResizer).toHaveAttribute('aria-valuenow', '160');
+
+    fireEvent.keyDown(activityResizer, { key: 'ArrowUp' });
+
+    expect(activityResizer).toHaveAttribute('aria-valuenow', '176');
+    expect(screen.getByTestId('runtime-panel')).toHaveStyle({ '--activity-panel-height': '176px' });
   });
 
   it('opens the right sidebar at one fifth on wide screens', async () => {
@@ -1406,6 +1470,17 @@ describe('frontend-app connected client shell', () => {
     await waitFor(() => {
       expect(backend.interruptTurn).toHaveBeenCalledWith({ cwd: '/repo/app', threadId: 'thread-1', source: 'ui_stop' });
     });
+  });
+
+  it('does not interrupt the selected conversation when Escape is handled by the composer', async () => {
+    render(<App />);
+    await screen.findByText('后端线程');
+
+    const input = screen.getByTestId('composer-input');
+    input.focus();
+    fireEvent.keyDown(input, { key: 'Escape', code: 'Escape' });
+
+    expect(backend.interruptTurn).not.toHaveBeenCalled();
   });
 
   it('interrupts the selected running conversation with Escape even when active turn is not cached', async () => {
@@ -2332,9 +2407,7 @@ describe('frontend-app connected client shell', () => {
         },
       ],
     });
-    backend.getPreference.mockImplementation(({ key }) => Promise.resolve(
-      key === 'settings.activePromptKey' ? 'main/reviewer' : null,
-    ));
+    mockPromptPreferences('main/reviewer');
 
     render(<App />);
     await screen.findByText('后端线程');
@@ -2377,7 +2450,7 @@ describe('frontend-app connected client shell', () => {
       enabled: true,
     }];
     backend.listPromptAssets.mockImplementation(() => Promise.resolve({ prompts }));
-    backend.getPreference.mockResolvedValue('');
+    mockPromptPreferences();
 
     render(<App />);
     await screen.findByText('后端线程');
@@ -2432,7 +2505,7 @@ describe('frontend-app connected client shell', () => {
           scope: 'project',
         }],
       });
-      backend.getPreference.mockResolvedValue('');
+      mockPromptPreferences();
 
       render(<App />);
       await screen.findByText('后端线程');
@@ -2456,7 +2529,7 @@ describe('frontend-app connected client shell', () => {
       enabled: true,
     }];
     backend.listPromptAssets.mockImplementation(() => Promise.resolve({ prompts }));
-    backend.getPreference.mockResolvedValue('');
+    mockPromptPreferences();
 
     render(<App />);
     await screen.findByText('后端线程');
@@ -2508,9 +2581,13 @@ describe('frontend-app connected client shell', () => {
       }
       return Promise.resolve({
         'settings.provider.active': 'codex',
+        'settings.provider.codex.model': 'gpt-5.5',
+        'settings.provider.codex.effort': 'xhigh',
         'settings.provider.codex.codexHome': '~/.codex',
         'settings.provider.codex.codexInstanceKey': 'default',
         'settings.provider.codex.codexModelProvider': 'openai',
+        'settings.provider.claude.model': 'sonnet',
+        'settings.provider.claude.effort': 'high',
       }[key] ?? null);
     });
 
@@ -2534,7 +2611,7 @@ describe('frontend-app connected client shell', () => {
   it('shows a retryable blocking error instead of an empty prompt state on initial load failure', async () => {
     backend.listPromptAssets.mockRejectedValueOnce(new Error('prompt backend offline'));
     backend.getDashboardPrompts.mockRejectedValueOnce(new Error('readonly fallback offline'));
-    backend.getPreference.mockResolvedValue('');
+    mockPromptPreferences();
 
     render(<App />);
     await screen.findByText('后端线程');
@@ -2575,7 +2652,7 @@ describe('frontend-app connected client shell', () => {
         tags: ['intent:expert'],
       }],
     });
-    backend.getPreference.mockResolvedValue('');
+    mockPromptPreferences();
 
     render(<App />);
     await screen.findByText('后端线程');
@@ -2599,7 +2676,7 @@ describe('frontend-app connected client shell', () => {
       enabled: true,
     }];
     backend.listPromptAssets.mockImplementation(() => Promise.resolve({ prompts }));
-    backend.getPreference.mockResolvedValue('');
+    mockPromptPreferences();
 
     render(<App />);
     await screen.findByText('后端线程');
