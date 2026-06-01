@@ -1062,14 +1062,6 @@ function workStatusForThread({ sending, loading, activeThreadId, activeThread, s
   };
 }
 
-function hasAssistantReply(messages = []) {
-  return (messages || []).some((message) => (
-    (message?.role || '').toString().trim().toLowerCase() === 'assistant'
-    && !isReasoningMessage(message)
-    && Boolean((message?.text || '').toString().trim())
-  ));
-}
-
 function hasAssistantReplyAfterLastUser(messages = []) {
   let lastUserIndex = -1;
   for (let index = 0; index < messages.length; index += 1) {
@@ -3022,11 +3014,13 @@ function ChatPage({ store, projectPath }) {
   const modelThreadId = composerConfigThreadId(store, activeThreadId);
   const activeThread = activeThreadForStore(store);
   const timelineBlocked = Boolean(activeThreadId && store.threadStateLoadingByThread?.[activeThreadId]);
-  const timelineReady = Boolean(activeThreadId && store.threadTimelineReadyByThread?.[activeThreadId]);
+  const cachedTimeline = threadScopedMapValue(store.timelinesByThread, activeThreadId, activeThread, []) || [];
+  const timelineReady = Boolean(
+    activeThreadId
+    && (store.threadTimelineReadyByThread?.[activeThreadId] || cachedTimeline.length > 0),
+  );
   const timelineBlockedWithoutCache = timelineBlocked && !timelineReady;
-  const messages = timelineBlockedWithoutCache
-    ? []
-    : (threadScopedMapValue(store.timelinesByThread, activeThreadId, activeThread, []) || []);
+  const messages = timelineBlockedWithoutCache ? [] : cachedTimeline;
   const tokenUsage = threadScopedMapValue(store.tokenUsageByThread, activeThreadId, activeThread, null);
   const activityStats = threadScopedMapValue(store.activityStatsByThread, activeThreadId, activeThread, null);
   const diffText = threadScopedMapValue(store.diffTextByThread, activeThreadId, activeThread, '') || '';
@@ -3261,7 +3255,8 @@ function ChatPage({ store, projectPath }) {
           statusEntry={statusEntry}
           activeTurn={activeTurn}
           modelThreadId={modelThreadId}
-          timelineBlocked={timelineBlockedWithoutCache}
+          timelineBlocked={timelineBlocked}
+          timelineContentBlocked={timelineBlockedWithoutCache}
           canUseProjectActions={canUseProjectActions}
         />
         {rightPanelOpen ? (
