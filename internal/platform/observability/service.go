@@ -10,6 +10,10 @@ type serviceSink interface {
 	Append(context.Context, TraceEvent) error
 }
 
+type serviceSinkStats interface {
+	Stats() SinkStats
+}
+
 type queryTailReader interface {
 	QueryTraceEvents(context.Context, Query) (QueryResult, error)
 }
@@ -74,13 +78,25 @@ func WithSampler(sampler *Sampler) ServiceOption {
 }
 
 type ServiceStatus struct {
-	Enabled        bool   `json:"enabled"`
-	DisabledReason string `json:"disabled_reason,omitempty"`
-	SchemaVersion  int    `json:"schema_version"`
+	Enabled           bool   `json:"enabled"`
+	DisabledReason    string `json:"disabled_reason,omitempty"`
+	SchemaVersion     int    `json:"schema_version"`
+	IndexTraceKeys    int    `json:"index_trace_keys"`
+	SinkEventsWritten int64  `json:"sink_events_written"`
+	SinkWriteErrors   int64  `json:"sink_write_errors"`
 }
 
 func (s *Service) Status() ServiceStatus {
-	return ServiceStatus{Enabled: s.enabled, DisabledReason: s.disabledReason, SchemaVersion: SchemaVersion}
+	status := ServiceStatus{Enabled: s.enabled, DisabledReason: s.disabledReason, SchemaVersion: SchemaVersion}
+	if s.index != nil {
+		status.IndexTraceKeys = s.index.TraceKeyCount()
+	}
+	if statsSink, ok := s.sink.(serviceSinkStats); ok {
+		stats := statsSink.Stats()
+		status.SinkEventsWritten = stats.EventsWritten
+		status.SinkWriteErrors = stats.WriteErrors
+	}
+	return status
 }
 
 func (s *Service) Enabled() bool { return s.enabled }
@@ -126,7 +142,7 @@ func (s *Service) Query(ctx context.Context, query Query) QueryResult {
 		tail.Source = QuerySourceJSONLTail
 		return tail
 	}
-	return QueryResult{Source: QuerySourceMixed, Events: append(memory.Events, tail.Events...)}
+	return QueryResult{Source: QuerySourceMixed, Events: append(memory.Events, tail.Events...), Truncated: memory.Truncated || tail.Truncated}
 }
 
 func (s *Service) queryTail(ctx context.Context, query Query) (QueryResult, error) {

@@ -291,7 +291,7 @@ function sanitizeFrontendTraceEvent(event) {
   }
   if (Number.isFinite(durationMS) && durationMS >= 0) out.duration_ms = Math.round(durationMS);
   if (event.status === 'error') {
-    const error = safeTraceString(event.error_code || event.error_name || event.error, 120);
+    const error = safeTraceString(event.error, 120);
     if (error) out.error = error;
   }
   const metadata = safeTraceMetadata(event.metadata);
@@ -506,8 +506,7 @@ export async function callAPI(method, params = {}) {
       client_route: clientRoute,
       duration_ms: durationMs,
       status: 'error',
-      error_name: error?.name || 'Error',
-      error_code: error?.code,
+      error: error?.code || error?.name || 'Error',
       metadata: { req_id: reqId },
     });
     throw error;
