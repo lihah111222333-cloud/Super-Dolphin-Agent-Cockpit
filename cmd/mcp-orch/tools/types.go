@@ -16,6 +16,24 @@ type ToolDefinition struct {
 	Handler     ToolHandler `json:"-"`
 }
 
+type listEnvelope[T any] struct {
+	Data      []T    `json:"data"`
+	Total     int    `json:"total"`
+	Showing   int    `json:"showing"`
+	Truncated bool   `json:"truncated"`
+	Hint      string `json:"hint,omitempty"`
+}
+
+func newListEnvelope[T any](items []T, limit int, hint string) listEnvelope[T] {
+	return listEnvelope[T]{
+		Data:      items,
+		Total:     len(items),
+		Showing:   len(items),
+		Truncated: limit > 0 && len(items) >= limit,
+		Hint:      hint,
+	}
+}
+
 func successResult(fields map[string]any) map[string]any {
 	result := map[string]any{"success": true}
 	for key, value := range fields {

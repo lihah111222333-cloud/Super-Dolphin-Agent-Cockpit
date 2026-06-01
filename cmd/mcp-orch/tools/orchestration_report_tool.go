@@ -20,6 +20,7 @@ const (
 
 type GetAgentReportInput struct {
 	AgentID     string `json:"agent_id"`
+	Pos         string `json:"pos,omitempty"`
 	Wait        *bool  `json:"wait,omitempty"`
 	RequesterID string `json:"requester_id,omitempty"`
 	TimeoutMS   int    `json:"timeout_ms,omitempty"`
@@ -27,7 +28,7 @@ type GetAgentReportInput struct {
 
 func HandleGetAgentReport(svc contract.OrchestrationService) ToolHandler {
 	return makeHandler(svc, "orchestration service", func(ctx context.Context, in GetAgentReportInput) (any, error) {
-		agentID, err := requireTrimmed(in.AgentID, "agent_id")
+		agentID, err := resolveAgentIDInput(in.AgentID, in.Pos)
 		if err != nil {
 			return nil, err
 		}
