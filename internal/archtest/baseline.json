@@ -955,20 +955,6 @@
     "todo_count": 0,
     "max_struct_fields": 10
   },
-  "internal/provider/codexapp/support.go": {
-    "lines": 455,
-    "max_func_len": 49,
-    "max_nesting": 2,
-    "max_complexity": 8,
-    "max_params": 5,
-    "max_returns": 2,
-    "max_underscore": 0,
-    "global_vars": 0,
-    "panic_count": 0,
-    "naked_returns": 0,
-    "empty_funcs": 0,
-    "todo_count": 1
-  },
   "internal/provider/shared/config_helpers.go": {
     "lines": 90,
     "max_func_len": 24,
