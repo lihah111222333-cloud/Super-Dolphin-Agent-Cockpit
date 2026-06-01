@@ -7,6 +7,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/anthropic-ai/super-agent-v3/internal/util/idgen"
 )
 
 type serviceSink interface {
@@ -109,6 +111,7 @@ func (s *Service) Record(ctx context.Context, event TraceEvent) error {
 		return nil
 	}
 	event = s.sanitizer.SanitizeEvent(event)
+	event = s.correlateTraceByThread(event)
 	decision := s.sampler.Decide(event)
 	if decision.Summary != nil {
 		summary := s.sanitizer.SanitizeEvent(*decision.Summary)
@@ -127,6 +130,24 @@ func (s *Service) Record(ctx context.Context, event TraceEvent) error {
 		return s.sink.Append(ctx, event)
 	}
 	return nil
+}
+
+func (s *Service) correlateTraceByThread(event TraceEvent) TraceEvent {
+	if event.TraceID != "" || event.ThreadID == "" || s == nil || s.index == nil {
+		return event
+	}
+	trace, ok := s.index.LatestTraceContextByThread(event.ThreadID)
+	if !ok || trace.TraceID == "" {
+		return event
+	}
+	event.TraceID = trace.TraceID
+	if event.ParentSpanID == "" {
+		event.ParentSpanID = trace.SpanID
+	}
+	if event.SpanID == "" {
+		event.SpanID = idgen.NewID("span")
+	}
+	return event
 }
 
 func (s *Service) Query(ctx context.Context, query Query) QueryResult {

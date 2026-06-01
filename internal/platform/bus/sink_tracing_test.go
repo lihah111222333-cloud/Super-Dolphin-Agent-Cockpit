@@ -33,6 +33,33 @@ func TestLogSinkRecordsLifecycleTraceIdentifiers(t *testing.T) {
 	}
 }
 
+func TestLogSinkCorrelatesLifecycleTraceByThread(t *testing.T) {
+	t.Parallel()
+
+	dispatcher := NewDispatcher()
+	t.Cleanup(func() { _ = dispatcher.Close() })
+	trace := observability.NewService(observability.Config{IndexMaxEvents: 20, IndexMaxTraceEvents: 20, IndexMaxThreadEvents: 20})
+	sink := NewLogSink(logSinkParams{Dispatcher: dispatcher, Logger: slog.New(slog.DiscardHandler), Trace: trace})
+	t.Cleanup(sink.Close)
+
+	if err := trace.Record(context.Background(), observability.TraceEvent{TraceID: "trace-thread-1", SpanID: "thread-span-1", Kind: "thread.start", Method: "thread.start", ThreadID: "thread-1", Status: observability.StatusOK}); err != nil {
+		t.Fatalf("seed trace event: %v", err)
+	}
+	event.Publish(dispatcher, turndto.TurnCompleted{TurnHeader: sharedto.TurnHeader{AgentHeader: sharedto.AgentHeader{ThreadHeader: sharedto.ThreadHeader{ThreadID: "thread-1"}, AgentID: "agent-1"}, TurnIDHeader: sharedto.TurnIDHeader{TurnID: "turn-1"}}, Success: true})
+
+	events := waitForTraceQueryEvents(t, trace, observability.Query{TraceID: "trace-thread-1", Limit: 20}, "bus.event.lifecycle", 1)
+	got := events[0]
+	if got.TraceID != "trace-thread-1" || got.ParentSpanID != "thread-span-1" || got.SpanID == "" {
+		t.Fatalf("correlated trace identifiers = trace:%q span:%q parent:%q", got.TraceID, got.SpanID, got.ParentSpanID)
+	}
+	if got.Code.Line == 0 || got.Code.Function == "" {
+		t.Fatalf("code anchor not concrete: %#v", got.Code)
+	}
+	if _, ok := got.Metadata["event"]; ok {
+		t.Fatalf("trace metadata persisted raw event payload: %#v", got.Metadata)
+	}
+}
+
 func TestLogSinkSummarizesHighFrequencyLifecycleTrace(t *testing.T) {
 	t.Parallel()
 
@@ -60,15 +87,20 @@ func TestLogSinkSummarizesHighFrequencyLifecycleTrace(t *testing.T) {
 
 func waitForTraceEvents(t *testing.T, trace *observability.Service, method string, want int) []observability.TraceEvent {
 	t.Helper()
+	return waitForTraceQueryEvents(t, trace, observability.Query{Limit: 100}, method, want)
+}
+
+func waitForTraceQueryEvents(t *testing.T, trace *observability.Service, query observability.Query, method string, want int) []observability.TraceEvent {
+	t.Helper()
 	deadline := time.Now().Add(time.Second)
 	for time.Now().Before(deadline) {
-		got := filterTraceEvents(trace.Query(context.Background(), observability.Query{Limit: 100}).Events, method)
+		got := filterTraceEvents(trace.Query(context.Background(), query).Events, method)
 		if len(got) >= want {
 			return got
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
-	got := filterTraceEvents(trace.Query(context.Background(), observability.Query{Limit: 100}).Events, method)
+	got := filterTraceEvents(trace.Query(context.Background(), query).Events, method)
 	t.Fatalf("trace events = %d, want at least %d: %#v", len(got), want, got)
 	return nil
 }
