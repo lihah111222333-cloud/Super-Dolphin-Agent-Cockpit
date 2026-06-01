@@ -335,6 +335,7 @@ export CODEXAPP_ALLOW_LEGACY_DEFAULT_HOME="${CODEXAPP_ALLOW_LEGACY_DEFAULT_HOME:
 
 ensure_dev_control_session_token
 configure_dev_postgres_runtime
+fail_if_port_busy "$VITE_DEV_HOST:$VITE_DEV_PORT"
 fail_if_port_busy "$SUPER_DOLPHIN_HTTP_ADDR"
 fail_if_port_busy "$GO_AGENT_CTL_RPC_ADDR"
 ensure_local_postgres

@@ -22,6 +22,7 @@ func TestNewUIDesktopScriptContract(t *testing.T) {
 		`SUPER_DOLPHIN_DEV_ENTRYPOINT="${SUPER_DOLPHIN_DEV_ENTRYPOINT:-run-new-ui-desktop.sh}"`,
 		`VITE_DEV_HOST="${VITE_DEV_URL#http://}"`,
 		`VITE_DEV_PORT="${VITE_DEV_HOST##*:}"`,
+		`fail_if_port_busy "$VITE_DEV_HOST:$VITE_DEV_PORT"`,
 		`npm run dev -- --host "$VITE_DEV_HOST" --port "$VITE_DEV_PORT" --strictPort`,
 		`go run ./cmd/agent-terminal`,
 		`cleanup`,
