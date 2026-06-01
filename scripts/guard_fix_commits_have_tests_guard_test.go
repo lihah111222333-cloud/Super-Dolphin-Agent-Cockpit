@@ -4,6 +4,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 	"testing"
 )
@@ -130,7 +131,7 @@ func TestPrePushRunsFixTestGuardForPushedRange(t *testing.T) {
 	head := strings.TrimSpace(runFixTestGuardGitOutput(t, root, "rev-parse", "HEAD"))
 
 	stdin := "refs/heads/main " + head + " refs/heads/main " + base + "\n"
-	cmd := exec.Command("bash", filepath.Join(".githooks", "pre-push"))
+	cmd := exec.Command("bash", bashPath(".githooks", "pre-push"))
 	cmd.Dir = root
 	cmd.Stdin = strings.NewReader(stdin)
 	out, err := cmd.CombinedOutput()
@@ -162,6 +163,20 @@ func TestCommitMsgRunsChineseTitleGuard(t *testing.T) {
 			t.Fatalf("commit-msg succeeded, want failure\n%s", out)
 		}
 		assertOutputContainsAll(t, out, "[commit-msg] Chinese commit message guard", "commit title must contain Chinese text", "title: docs: update guide")
+		assertOutputOmitsAll(t, out, "[commit-msg] fix-test guard")
+	})
+
+	t.Run("rejects english title with spaces", func(t *testing.T) {
+		msgFile := filepath.Join(root, "COMMIT_EDITMSG")
+		if err := os.WriteFile(msgFile, []byte("refactor: split orch tool definitions\n"), 0o644); err != nil {
+			t.Fatalf("write commit message: %v", err)
+		}
+
+		out, err := runCommitMsgHook(t, root, msgFile)
+		if err == nil {
+			t.Fatalf("commit-msg succeeded, want failure\n%s", out)
+		}
+		assertOutputContainsAll(t, out, "[commit-msg] Chinese commit message guard", "commit title must contain Chinese text", "title: refactor: split orch tool definitions")
 		assertOutputOmitsAll(t, out, "[commit-msg] fix-test guard")
 	})
 
@@ -208,7 +223,7 @@ func TestPrePushRunsChineseTitleGuardForPushedRange(t *testing.T) {
 	shortHead := strings.TrimSpace(runFixTestGuardGitOutput(t, root, "rev-parse", "--short=7", "HEAD"))
 
 	stdin := "refs/heads/main " + head + " refs/heads/main " + base + "\n"
-	cmd := exec.Command("bash", filepath.Join(".githooks", "pre-push"))
+	cmd := exec.Command("bash", bashPath(".githooks", "pre-push"))
 	cmd.Dir = root
 	cmd.Stdin = strings.NewReader(stdin)
 	out, err := cmd.CombinedOutput()
@@ -527,7 +542,7 @@ func prePushStdin(base, head string) string {
 
 func runPrePushScopeHook(t *testing.T, root, stdin, binDir, logPath string) (string, error) {
 	t.Helper()
-	cmd := exec.Command("bash", filepath.Join(".githooks", "pre-push"))
+	cmd := exec.Command("bash", bashPath(".githooks", "pre-push"))
 	cmd.Dir = root
 	cmd.Stdin = strings.NewReader(stdin)
 	cmd.Env = append(os.Environ(),
@@ -540,12 +555,25 @@ func runPrePushScopeHook(t *testing.T, root, stdin, binDir, logPath string) (str
 
 func runCICommitGuard(t *testing.T, root string, env map[string]string, args ...string) (string, error) {
 	t.Helper()
-	cmdArgs := append([]string{filepath.Join("scripts", "ci_commit_guard.sh")}, args...)
+	keys := make([]string, 0, len(env))
+	for key := range env {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+
+	cmdArgs := append([]string{bashPath("scripts", "ci_commit_guard.sh")}, bashArgs(root, args)...)
 	cmd := exec.Command("bash", cmdArgs...)
 	cmd.Dir = root
 	cmd.Env = os.Environ()
-	for key, value := range env {
-		cmd.Env = append(cmd.Env, key+"="+value)
+	if len(keys) > 0 {
+		wslEnv := strings.Join(keys, ":")
+		if existing := os.Getenv("WSLENV"); existing != "" {
+			wslEnv = existing + ":" + wslEnv
+		}
+		cmd.Env = append(cmd.Env, "WSLENV="+wslEnv)
+	}
+	for _, key := range keys {
+		cmd.Env = append(cmd.Env, key+"="+env[key])
 	}
 	out, err := cmd.CombinedOutput()
 	return string(out), err
@@ -553,7 +581,7 @@ func runCICommitGuard(t *testing.T, root string, env map[string]string, args ...
 
 func runCommitMsgHook(t *testing.T, root, msgFile string) (string, error) {
 	t.Helper()
-	cmd := exec.Command("bash", filepath.Join(".githooks", "commit-msg"), msgFile)
+	cmd := exec.Command("bash", bashPath(".githooks", "commit-msg"), bashArg(root, msgFile))
 	cmd.Dir = root
 	out, err := cmd.CombinedOutput()
 	return string(out), err
@@ -625,7 +653,7 @@ func writeFixTestGuardFile(t *testing.T, root, path, content string) {
 
 func runFixTestGuard(t *testing.T, root string, args ...string) (string, error) {
 	t.Helper()
-	cmdArgs := append([]string{filepath.Join("scripts", "guard_fix_commits_have_tests.sh")}, args...)
+	cmdArgs := append([]string{bashPath("scripts", "guard_fix_commits_have_tests.sh")}, bashArgs(root, args)...)
 	cmd := exec.Command("bash", cmdArgs...)
 	cmd.Dir = root
 	out, err := cmd.CombinedOutput()
@@ -647,4 +675,26 @@ func runFixTestGuardGitOutput(t *testing.T, root string, args ...string) string 
 		t.Fatalf("git %s failed: %v\n%s", strings.Join(args, " "), err, string(out))
 	}
 	return string(out)
+}
+
+func bashPath(parts ...string) string {
+	return filepath.ToSlash(filepath.Join(parts...))
+}
+
+func bashArgs(root string, args []string) []string {
+	converted := make([]string, len(args))
+	for i, arg := range args {
+		converted[i] = bashArg(root, arg)
+	}
+	return converted
+}
+
+func bashArg(root, arg string) string {
+	if filepath.IsAbs(arg) {
+		if rel, err := filepath.Rel(root, arg); err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+			return filepath.ToSlash(rel)
+		}
+		return filepath.ToSlash(arg)
+	}
+	return arg
 }
