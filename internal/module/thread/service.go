@@ -11,8 +11,10 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	shareddto "github.com/anthropic-ai/super-agent-v3/internal/dto/shared"
 	threaddto "github.com/anthropic-ai/super-agent-v3/internal/dto/thread"
+	platformobs "github.com/anthropic-ai/super-agent-v3/internal/platform/observability"
 	"github.com/anthropic-ai/super-agent-v3/internal/util/idempotency"
 	"github.com/anthropic-ai/super-agent-v3/internal/util/identifier"
+	"github.com/anthropic-ai/super-agent-v3/internal/util/idgen"
 	"github.com/anthropic-ai/super-agent-v3/internal/util/safego"
 
 	bindingstore "github.com/anthropic-ai/super-agent-v3/internal/store/binding"
@@ -57,6 +59,7 @@ type service struct {
 	toolRegistry   contract.ToolRegistry
 	turns          contract.TurnThreadCleaner
 	orchestration  OrchestrationFacade
+	tracing        *platformobs.Service
 	bus            *event.Dispatcher
 
 	emitStarted      func(threaddto.Started)
@@ -638,4 +641,54 @@ func (s *service) publishMessagesPage(threadID string, totalCount, pages int) {
 		return
 	}
 	s.emitMessagesPage(event.(threaddto.MessagesPage))
+}
+
+type threadTraceSpan struct {
+	ctx       context.Context
+	trace     platformobs.TraceContext
+	kind      string
+	threadID  string
+	agentID   string
+	code      platformobs.CodeAnchor
+	metadata  map[string]any
+	startedAt time.Time
+}
+
+func (s *service) beginThreadTraceSpan(ctx context.Context, kind, threadID, agentID string, code platformobs.CodeAnchor, metadata map[string]any) threadTraceSpan {
+	ctx = util.NonNilContext(ctx)
+	trace, ok := platformobs.TraceFromContext(ctx)
+	parentSpanID := ""
+	if ok {
+		parentSpanID = trace.SpanID
+	}
+	if trace.TraceID == "" {
+		trace.TraceID = idgen.NewID("trace")
+	}
+	trace.ParentSpanID = parentSpanID
+	trace.SpanID = idgen.NewID("span")
+	span := threadTraceSpan{ctx: platformobs.ContextWithTrace(ctx, trace), trace: trace, kind: kind, threadID: strings.TrimSpace(threadID), agentID: strings.TrimSpace(agentID), code: code, metadata: metadata, startedAt: time.Now()}
+	s.recordThreadTraceEvent(span, "begin", platformobs.StatusOK, 0, "")
+	return span
+}
+
+func (s *service) finishThreadTraceSpan(span threadTraceSpan, err error) {
+	status := platformobs.StatusOK
+	message := ""
+	phase := "done"
+	if err != nil {
+		status = platformobs.StatusError
+		message = err.Error()
+		phase = "error"
+	}
+	s.recordThreadTraceEvent(span, phase, status, time.Since(span.startedAt).Milliseconds(), message)
+}
+
+func (s *service) recordThreadTraceEvent(span threadTraceSpan, phase string, status platformobs.Status, durationMS int64, message string) {
+	if s == nil || s.tracing == nil {
+		return
+	}
+	event := platformobs.TraceEvent{SchemaVersion: platformobs.SchemaVersion, Timestamp: time.Now(), TraceID: span.trace.TraceID, SpanID: span.trace.SpanID, ParentSpanID: span.trace.ParentSpanID, Kind: span.kind, Phase: phase, Method: span.kind, ThreadID: span.threadID, AgentID: span.agentID, DurationMS: durationMS, Status: status, Error: message, Code: span.code, Metadata: span.metadata}
+	if err := s.tracing.Record(span.ctx, event); err != nil && s.logger != nil {
+		s.logger.Warn("thread trace record failed", "kind", span.kind, "phase", phase, "error", err)
+	}
 }
