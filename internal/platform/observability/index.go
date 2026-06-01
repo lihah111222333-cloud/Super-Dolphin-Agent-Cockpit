@@ -63,6 +63,23 @@ func (i *Index) TraceKeyCount() int {
 	return len(i.traceRefs)
 }
 
+func (i *Index) LatestTraceContextByThread(threadID string) (TraceContext, bool) {
+	i.mu.Lock()
+	defer i.mu.Unlock()
+	ring := i.threadRefs[threadID]
+	if ring == nil {
+		return TraceContext{}, false
+	}
+	ring.prune(i.events)
+	for n := len(ring.seqs) - 1; n >= 0; n-- {
+		event := i.events[ring.seqs[n]]
+		if event.TraceID != "" {
+			return TraceContext{TraceID: event.TraceID, SpanID: event.SpanID, ParentSpanID: event.ParentSpanID}, true
+		}
+	}
+	return TraceContext{}, false
+}
+
 func (i *Index) querySeqs(query Query) []uint64 {
 	switch {
 	case query.TraceID != "":
