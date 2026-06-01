@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/observability"
 	bindingstore "github.com/anthropic-ai/super-agent-v3/internal/store/binding"
 	"github.com/anthropic-ai/super-agent-v3/internal/store/uipreference"
 	"github.com/anthropic-ai/super-agent-v3/internal/util/historyjsonl"
@@ -33,6 +34,7 @@ type serviceParams struct {
 	Preferences   uipreference.Store
 	Bindings      bindingstore.Store                 `optional:"true"`
 	RuntimeConfig contract.ThreadRuntimeConfigReader `optional:"true"`
+	Trace         *observability.Service             `optional:"true"`
 }
 
 var Module = fx.Module("uistate",
@@ -41,7 +43,7 @@ var Module = fx.Module("uistate",
 		if p.RuntimeConfig != nil {
 			rcl = p.RuntimeConfig
 		}
-		return NewService(p.Logger, p.ThreadLister, p.Agents, p.Preferences, newBindingAdapter(p.Bindings), rcl)
+		return NewService(p.Logger, p.ThreadLister, p.Agents, p.Preferences, newBindingAdapter(p.Bindings), rcl, WithObservability(p.Trace))
 	}),
 	// P22 P4 S1b: publish the narrow contract.UIProjectStateFacade so
 	// ui/wails and other frontends can consume GetProjects without
