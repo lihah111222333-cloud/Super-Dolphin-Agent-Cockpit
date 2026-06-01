@@ -651,6 +651,18 @@ function normalizeProjectPath(path) {
   return value;
 }
 
+function hasUsableProjectCwd(store) {
+  const activeProject = normalizeProjectPath(store?.activeProject);
+  const cwd = activeProject && activeProject !== '.' && activeProject !== '未选择项目'
+    ? activeProject
+    : normalizeProjectPath(store?.cwd);
+  return Boolean(cwd && cwd !== '.' && cwd !== '未选择项目');
+}
+
+function canUseProjectActionsForStore(store) {
+  return store?.bootstrapStatus === 'ready' && hasUsableProjectCwd(store);
+}
+
 function disambiguateProjectLabels(items) {
   let changed = true;
   while (changed) {
@@ -2735,6 +2747,7 @@ function ChatPage({ store, projectPath }) {
   const warningEntries = scopedActivityEntries(store.warningEntries, activeThreadId, activeThread, { includeUnscoped: true });
   const runtimeResultEntriesForThread = scopedActivityEntries(store.runtimeResultEntries, activeThreadId, activeThread, { includeUnscoped: true });
   const statusEntry = activeThreadId ? store.statuses?.[activeThreadId] : null;
+  const canUseProjectActions = canUseProjectActionsForStore(store);
   const [viewportWidth, setViewportWidth] = useState(currentViewportWidth);
   const [threadRailWidth, setThreadRailWidth] = useState(() => threadRailTargetWidth());
   const threadRailResizedRef = useRef(false);
@@ -2910,6 +2923,7 @@ function ChatPage({ store, projectPath }) {
           statusEntry={statusEntry}
           modelThreadId={modelThreadId}
           timelineBlocked={timelineBlocked}
+          canUseProjectActions={canUseProjectActions}
         />
         {rightPanelOpen ? (
           <button
@@ -3033,24 +3047,27 @@ function ProjectSelector({ store, projectPath }) {
   );
 }
 
-function ProviderToggle({ store }) {
+function ProviderToggle({ store, canUseProjectActions = true }) {
   const { locked, provider } = providerToggleState(store);
   const isClaude = provider === 'claude';
   const providerLabel = isClaude ? 'Claude' : 'Codex';
-  const title = locked
-    ? '已开启的聊天不能更改 provider，请新建对话后切换'
-    : '切换 Claude / Codex provider';
+  const projectActionBlocked = !canUseProjectActions;
+  const disabled = locked || projectActionBlocked;
+  const unavailableLabel = '请先连接后端并选择项目';
+  let title = '切换 Claude / Codex provider';
+  if (projectActionBlocked) title = unavailableLabel;
+  if (locked) title = '已开启的聊天不能更改 provider，请新建对话后切换';
   return (
     <button
       type="button"
-      className={`provider ${isClaude ? 'active' : ''} ${locked ? 'locked' : ''}`}
-      aria-label="切换 Claude / Codex provider"
+      className={`provider ${isClaude ? 'active' : ''} ${disabled ? 'locked' : ''}`}
+      aria-label={projectActionBlocked ? unavailableLabel : '切换 Claude / Codex provider'}
       aria-pressed={isClaude}
-      aria-disabled={locked}
-      disabled={locked}
+      aria-disabled={disabled}
+      disabled={disabled}
       title={title}
       onClick={() => {
-        if (locked) return;
+        if (disabled) return;
         void store.toggleProviderMode();
       }}
     >
@@ -3064,6 +3081,12 @@ function ProviderToggle({ store }) {
 
 function TopCommandBar({ store, projectPath, rightPanelOpen = false, toggleRightPanel = () => {} }) {
   const canUseThreadActions = Boolean(store.hasActiveThreadActions?.());
+  const bootstrapFailureMessage = store.bootstrapStatus === 'failed' && textValue(store.error)
+    ? `连接后端失败：${textValue(store.error)}`
+    : '';
+  const feedback = store.actionNotice?.message
+    ? store.actionNotice
+    : (bootstrapFailureMessage ? { message: bootstrapFailureMessage, tone: 'error' } : null);
   return (
     <div className="top-command" data-testid="chat-toolbar">
       <ProjectSelector store={store} projectPath={projectPath} />
@@ -3092,13 +3115,13 @@ function TopCommandBar({ store, projectPath, rightPanelOpen = false, toggleRight
       >
         <RefreshCw size={15} />
       </button>
-      {store.actionNotice?.message ? (
+      {feedback?.message ? (
         <span
-          className={`action-feedback ${store.actionNotice.tone || 'info'}`}
+          className={`action-feedback ${feedback.tone || 'info'}`}
           data-testid="chat-action-feedback"
           role="status"
         >
-          {store.actionNotice.message}
+          {feedback.message}
         </span>
       ) : null}
       <span className="project-pill" aria-label="当前工作目录" title={`当前窗口 CWD：${projectPath}`}><Folder size={14} /> {projectDisplayName(projectPath)}</span>
@@ -3902,6 +3925,7 @@ function ComposerDock({
   setPermission,
   modelThreadId,
   showProviderToggle = true,
+  canUseProjectActions = true,
 }) {
   const composerClass = `composer ${floating ? 'composer--floating' : 'composer--docked'}`;
   const [previewAttachment, setPreviewAttachment] = useState(null);
@@ -3910,6 +3934,8 @@ function ComposerDock({
   const activePreview = previewAttachment && attachments.some((item) => attachmentKey(item) === attachmentKey(previewAttachment))
     ? previewAttachment
     : null;
+  const hasComposerInput = Boolean(textValue(draft) || attachments.length > 0);
+  const canSend = canUseProjectActions && !sending && hasComposerInput;
 
   useEffect(() => {
     if (typeof attachPaths !== 'function') return undefined;
@@ -3969,6 +3995,7 @@ function ComposerDock({
     const imeLikely = event.isComposing || isComposingRef.current || keyCode === 229 || event.key === 'Process' || event.key === 'Unidentified';
     if (imeLikely) return;
     event.preventDefault();
+    if (!canSend) return;
     void sendMessage();
   };
 
@@ -4025,9 +4052,17 @@ function ComposerDock({
             </select>
           </label>
           <div className="composer-actions">
-            {showProviderToggle ? <ProviderToggle store={store} /> : null}
+            {showProviderToggle ? <ProviderToggle store={store} canUseProjectActions={canUseProjectActions} /> : null}
             <ModelSelector store={store} activeThreadId={modelThreadId} />
-            <button type="button" className="send" aria-label="发送消息" disabled={sending} onClick={() => void sendMessage()}>
+            <button
+              type="button"
+              className="send"
+              aria-label="发送消息"
+              disabled={!canSend}
+              onClick={() => {
+                if (canSend) void sendMessage();
+              }}
+            >
               <Send size={18} />
             </button>
           </div>
@@ -4066,6 +4101,7 @@ function Conversation({
   statusEntry,
   modelThreadId,
   timelineBlocked,
+  canUseProjectActions = true,
 }) {
   const introMode = !activeThreadId && !timelineBlocked && messages.length === 0;
   const showProviderToggle = !hasAssistantReply(messages);
@@ -4087,6 +4123,7 @@ function Conversation({
       setPermission={setPermission}
       modelThreadId={modelThreadId}
       showProviderToggle={showProviderToggle}
+      canUseProjectActions={canUseProjectActions}
     />
   );
   return (

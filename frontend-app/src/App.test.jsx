@@ -382,6 +382,56 @@ describe('frontend-app connected client shell', () => {
     });
   });
 
+  it('shows a bootstrap failure notice when the backend bridge is unavailable', async () => {
+    backend.readConfig.mockRejectedValue(new Error('runtime shim: failed to connect ws://127.0.0.1:5175/wails/ws'));
+
+    render(<App />);
+
+    expect(await screen.findByText('连接后端失败：runtime shim: failed to connect ws://127.0.0.1:5175/wails/ws')).toBeInTheDocument();
+  });
+
+  it('disables provider switching when no project cwd is available', () => {
+    resetClientStoreForTests({
+      bootstrapStatus: 'ready',
+      cwd: '',
+      activeProject: '',
+      provider: 'codex',
+    });
+
+    render(<App skipBootstrap />);
+
+    const providerToggle = screen.getByRole('button', { name: '请先连接后端并选择项目' });
+    expect(providerToggle).toBeDisabled();
+
+    fireEvent.click(providerToggle);
+
+    expect(backend.setPreference).not.toHaveBeenCalledWith(expect.objectContaining({
+      key: 'settings.provider.active',
+    }));
+  });
+
+  it('disables composer send by button and Enter when no project cwd is available', () => {
+    resetClientStoreForTests({
+      bootstrapStatus: 'ready',
+      cwd: '',
+      activeProject: '',
+      activeThreadId: '',
+      draft: 'Write something',
+      attachments: [],
+    });
+
+    render(<App skipBootstrap />);
+
+    const sendButton = screen.getByRole('button', { name: '发送消息' });
+    expect(sendButton).toBeDisabled();
+
+    fireEvent.click(sendButton);
+    fireEvent.keyDown(screen.getByTestId('composer-input'), { key: 'Enter', code: 'Enter', charCode: 13 });
+
+    expect(backend.startThread).not.toHaveBeenCalled();
+    expect(backend.startTurn).not.toHaveBeenCalled();
+  });
+
   it('renders assistant markdown messages as formatted content', async () => {
     backend.getThreadState.mockResolvedValue({
       activeThreadId: 'thread-1',
