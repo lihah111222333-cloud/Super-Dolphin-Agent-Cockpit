@@ -181,6 +181,29 @@ function resolveClientMeta() {
   return { clientKind, clientRoute };
 }
 
+function randomHex(byteLength) {
+  const cryptoSource = globalThis.crypto;
+  if (!cryptoSource || typeof cryptoSource.getRandomValues !== 'function') {
+    throw new Error('secure random source is required for Wails RPC trace context');
+  }
+  const bytes = new Uint8Array(byteLength);
+  while (true) {
+    cryptoSource.getRandomValues(bytes);
+    const value = Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('');
+    if (!/^0+$/.test(value)) return value;
+  }
+}
+
+function createTraceContext() {
+  const traceId = randomHex(16);
+  const spanId = randomHex(8);
+  return {
+    traceId,
+    spanId,
+    traceparent: `00-${traceId}-${spanId}-01`,
+  };
+}
+
 async function invokeRuntimeByID(methodID, args = [], options = {}) {
   const reqId = ++bridgeRequestSeq;
   const start = Date.now();
@@ -252,11 +275,25 @@ export async function callAPI(method, params = {}) {
   }
 
   const { clientKind, clientRoute } = resolveClientMeta();
+  let trace;
+  try {
+    trace = createTraceContext();
+  } catch (error) {
+    writeBridgeLog('error', 'api.rpc.trace_context_failed', {
+      req_id: reqId,
+      method,
+      error,
+    });
+    throw error;
+  }
   const payload = {
     ...rawPayload,
     _aoClientKind: clientKind,
     _aoClientRoute: clientRoute,
     _aoRequestId: reqId,
+    _aoTraceparent: trace.traceparent,
+    _aoTraceId: trace.traceId,
+    _aoSpanId: trace.spanId,
   };
 
   writeBridgeLog('debug', 'api.rpc.start', {
@@ -264,6 +301,9 @@ export async function callAPI(method, params = {}) {
     method,
     client_kind: clientKind,
     client_route: clientRoute,
+    trace_id: trace.traceId,
+    span_id: trace.spanId,
+    traceparent: trace.traceparent,
     param_keys: Object.keys(payload),
   });
 
@@ -277,6 +317,9 @@ export async function callAPI(method, params = {}) {
       method,
       client_kind: clientKind,
       client_route: clientRoute,
+      trace_id: trace.traceId,
+      span_id: trace.spanId,
+      traceparent: trace.traceparent,
       duration_ms: Date.now() - start,
       result_preview: compactBridgeValuePreview(result),
     });
@@ -287,6 +330,9 @@ export async function callAPI(method, params = {}) {
       method,
       client_kind: clientKind,
       client_route: clientRoute,
+      trace_id: trace.traceId,
+      span_id: trace.spanId,
+      traceparent: trace.traceparent,
       duration_ms: Date.now() - start,
       error,
     });

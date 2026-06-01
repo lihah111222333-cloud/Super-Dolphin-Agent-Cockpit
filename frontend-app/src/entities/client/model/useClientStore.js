@@ -41,12 +41,7 @@ const PROVIDER_ACTIVE_PREF_KEY = 'settings.provider.active';
 const ACTIVE_PROMPT_PREF_KEY = 'settings.activePromptKey';
 const THREAD_PINS_CHAT_PREF_KEY = 'threadPins.chat';
 const objectPrototype = Object.prototype;
-const CODEX_IDENTITY_DEFAULTS = Object.freeze({
-  codexHome: '~/.codex',
-  codexInstanceKey: 'default',
-  codexModelProvider: 'openai',
-});
-const PROVIDER_DEFAULT_CONFIGS = Object.freeze({
+const PROVIDER_DISPLAY_DEFAULT_CONFIGS = Object.freeze({
   codex: Object.freeze({ model: 'gpt-5.5', effort: 'xhigh' }),
   claude: Object.freeze({ model: 'sonnet', effort: 'high' }),
 });
@@ -97,7 +92,9 @@ function normalizeTimestamp(value) {
   if (!text) return 0;
   const asNumber = Number(text);
   if (Number.isFinite(asNumber) && asNumber > 0) return asNumber;
-  const parsed = Date.parse(text);
+  // 截断高精度时间戳中的多余小数秒，以兼容 JS Date.parse 的 3 位毫秒限制
+  const sanitized = text.replace(/(\.\d{3})\d+/g, '$1');
+  const parsed = Date.parse(sanitized);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
 }
 
@@ -117,6 +114,14 @@ function normalizeProviderName(value) {
   throw new Error(`invalid provider preference: ${normalizeProviderConfigValue(value)}`);
 }
 
+function requireActiveProviderPreference(value, reason) {
+  const provider = normalizeProviderName(value);
+  if (!provider) {
+    throw new Error(`${reason}: settings.provider.active preference is required`);
+  }
+  return provider;
+}
+
 function providerPreferenceScope(provider) {
   return provider === 'codex' ? 'codex' : 'claude';
 }
@@ -125,30 +130,37 @@ function providerPreferenceKey(provider, suffix) {
   return `settings.provider.${provider}.${suffix}`;
 }
 
-function normalizeCodexIdentityValue(value, fallback) {
-  if (typeof value === 'boolean') return fallback;
-  return normalizeProviderConfigValue(value) || fallback;
+function normalizeCodexIdentityValue(value) {
+  if (typeof value === 'boolean') return '';
+  return normalizeProviderConfigValue(value);
 }
 
-function defaultProviderConfig(provider) {
-  return PROVIDER_DEFAULT_CONFIGS[provider] || PROVIDER_DEFAULT_CONFIGS[DEFAULT_PROVIDER];
+function providerDisplayDefaultConfig(provider) {
+  return PROVIDER_DISPLAY_DEFAULT_CONFIGS[provider] || PROVIDER_DISPLAY_DEFAULT_CONFIGS[DEFAULT_PROVIDER];
 }
 
 function normalizeProviderRuntimeConfig(raw = {}, providerValue = DEFAULT_PROVIDER) {
   const provider = normalizeProviderName(providerValue) || DEFAULT_PROVIDER;
-  const defaults = defaultProviderConfig(provider);
   return {
     provider,
-    model: normalizeProviderConfigValue(raw.model) || defaults.model,
-    effort: normalizeProviderConfigValue(raw.effort) || defaults.effort,
-    codexModelProvider: normalizeCodexIdentityValue(raw.codexModelProvider, CODEX_IDENTITY_DEFAULTS.codexModelProvider),
+    model: normalizeProviderConfigValue(raw.model),
+    effort: normalizeProviderConfigValue(raw.effort),
+    codexModelProvider: normalizeCodexIdentityValue(raw.codexModelProvider),
   };
+}
+
+function requireProviderPreferenceValue(value, key, reason) {
+  const normalized = normalizeProviderConfigValue(value);
+  if (!normalized) {
+    throw new Error(`${reason}: ${key} preference is required`);
+  }
+  return normalized;
 }
 
 function normalizeThreadConfig(raw = {}, fallbackThreadId = '', fallbackProvider = DEFAULT_PROVIDER) {
   const source = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
   const provider = normalizeProviderName(source.provider || fallbackProvider) || DEFAULT_PROVIDER;
-  const defaults = defaultProviderConfig(provider);
+  const defaults = providerDisplayDefaultConfig(provider);
   return {
     threadId: normalizeThreadId(source.threadId || source.thread_id || fallbackThreadId),
     provider,
@@ -208,18 +220,23 @@ async function resolveLaunchPreferences(cwd) {
     providerScope === 'codex' ? getPreference({ cwd, key: providerPreferenceKey('codex', 'codexInstanceKey') }) : Promise.resolve(null),
     providerScope === 'codex' ? getPreference({ cwd, key: providerPreferenceKey('codex', 'codexModelProvider') }) : Promise.resolve(null),
   ]);
+  const modelKey = providerPreferenceKey(providerScope, 'model');
+  const effortKey = providerPreferenceKey(providerScope, 'effort');
 
   const launch = cleanObject({
     modelProvider: provider,
-    model: normalizeProviderConfigValue(model),
-    effort: normalizeProviderConfigValue(effort),
+    model: requireProviderPreferenceValue(model, modelKey, 'startThread'),
+    effort: requireProviderPreferenceValue(effort, effortKey, 'startThread'),
     prompt_key: normalizeProviderConfigValue(activePromptKey),
   });
   if (providerScope === 'codex') {
+    const codexHomeKey = providerPreferenceKey('codex', 'codexHome');
+    const codexInstanceKeyKey = providerPreferenceKey('codex', 'codexInstanceKey');
+    const codexModelProviderKey = providerPreferenceKey('codex', 'codexModelProvider');
     launch.config = {
-      codexHome: normalizeCodexIdentityValue(codexHome, CODEX_IDENTITY_DEFAULTS.codexHome),
-      codexInstanceKey: normalizeCodexIdentityValue(codexInstanceKey, CODEX_IDENTITY_DEFAULTS.codexInstanceKey),
-      codexModelProvider: normalizeCodexIdentityValue(codexModelProvider, CODEX_IDENTITY_DEFAULTS.codexModelProvider),
+      codexHome: requireProviderPreferenceValue(codexHome, codexHomeKey, 'startThread'),
+      codexInstanceKey: requireProviderPreferenceValue(codexInstanceKey, codexInstanceKeyKey, 'startThread'),
+      codexModelProvider: requireProviderPreferenceValue(codexModelProvider, codexModelProviderKey, 'startThread'),
     };
   }
   return launch;
@@ -901,8 +918,8 @@ function mergeRuntimeResultEntries(existingEntries = [], incomingEntries = []) {
   }
   return [...nextById.values()]
     .sort((left, right) => {
-      const leftTime = Date.parse(left.timestamp) || 0;
-      const rightTime = Date.parse(right.timestamp) || 0;
+      const leftTime = normalizeTimestamp(left.timestamp);
+      const rightTime = normalizeTimestamp(right.timestamp);
       return rightTime - leftTime;
     })
     .slice(0, MAX_RUNTIME_RESULT_ENTRIES);
@@ -1282,19 +1299,8 @@ function buildTurnInput(text, attachments) {
   return items;
 }
 
-function isRecoverableTurnStartError(error) {
-  const message = normalizeString(error?.message || error).toLowerCase();
-  return message.includes('session is not available') || message.includes('session not found');
-}
-
 async function startTurnWithRecover(payload) {
-  try {
-    return await startTurn(payload);
-  } catch (error) {
-    if (!isRecoverableTurnStartError(error)) throw error;
-    await recoverThread({ cwd: payload.cwd, threadId: payload.threadId });
-    return startTurn(payload);
-  }
+  return startTurn(payload);
 }
 
 function createLaunchIntentId() {
@@ -1557,14 +1563,23 @@ export const useClientStore = create((set, get) => {
     const cwd = normalizePath(cwdValue) || requireCwd('provider.config');
     const provider = normalizeProviderName(providerValue || get().provider) || DEFAULT_PROVIDER;
     const providerScope = providerPreferenceScope(provider);
+    const modelKey = providerPreferenceKey(providerScope, 'model');
+    const effortKey = providerPreferenceKey(providerScope, 'effort');
+    const codexModelProviderKey = providerPreferenceKey('codex', 'codexModelProvider');
     const [model, effort, codexModelProvider] = await Promise.all([
-      getPreference({ cwd, key: providerPreferenceKey(providerScope, 'model') }),
-      getPreference({ cwd, key: providerPreferenceKey(providerScope, 'effort') }),
+      getPreference({ cwd, key: modelKey }),
+      getPreference({ cwd, key: effortKey }),
       providerScope === 'codex'
-        ? getPreference({ cwd, key: providerPreferenceKey('codex', 'codexModelProvider') })
-        : Promise.resolve(CODEX_IDENTITY_DEFAULTS.codexModelProvider),
+        ? getPreference({ cwd, key: codexModelProviderKey })
+        : Promise.resolve(''),
     ]);
-    const providerConfig = normalizeProviderRuntimeConfig({ model, effort, codexModelProvider }, provider);
+    const providerConfig = normalizeProviderRuntimeConfig({
+      model: requireProviderPreferenceValue(model, modelKey, 'provider.config'),
+      effort: requireProviderPreferenceValue(effort, effortKey, 'provider.config'),
+      codexModelProvider: providerScope === 'codex'
+        ? requireProviderPreferenceValue(codexModelProvider, codexModelProviderKey, 'provider.config')
+        : '',
+    }, provider);
     set({ provider, providerConfig });
     return providerConfig;
   };
@@ -2109,15 +2124,18 @@ export const useClientStore = create((set, get) => {
         const windowCwd = normalizePath(windowSnapshot.cwd);
         const scopedCwd = windowCwd || cwd;
         const bootstrapPage = normalizeBootstrapPage(windowSnapshot.page);
-        const activeProvider = normalizeProviderName(await getPreference({ cwd: scopedCwd, key: PROVIDER_ACTIVE_PREF_KEY }));
+        const activeProvider = requireActiveProviderPreference(
+          await getPreference({ cwd: scopedCwd, key: PROVIDER_ACTIVE_PREF_KEY }),
+          'frontend-app bootstrap',
+        );
         set({
           cwd,
           projectScopeCwd: scopedCwd,
           activeProject: scopedCwd,
-          provider: activeProvider || DEFAULT_PROVIDER,
+          provider: activeProvider,
           ...(bootstrapPage ? { activePage: bootstrapPage } : {}),
         });
-        await loadProviderConfig(scopedCwd, activeProvider || DEFAULT_PROVIDER);
+        await loadProviderConfig(scopedCwd, activeProvider);
         const projects = await getProjects({ cwd: scopedCwd });
         applyProjects(projects, scopedCwd);
         const sidebar = await getSidebarState({ cwd: scopedCwd });
@@ -2392,9 +2410,10 @@ export const useClientStore = create((set, get) => {
     },
 
     saveComposerModelProvider: async (codexModelProvider) => {
-      const value = normalizeCodexIdentityValue(codexModelProvider, CODEX_IDENTITY_DEFAULTS.codexModelProvider);
+      const key = providerPreferenceKey('codex', 'codexModelProvider');
+      const value = requireProviderPreferenceValue(codexModelProvider, key, 'composer.modelProvider.save');
       const cwd = requireCwd('composer.modelProvider.save');
-      await setPreference({ cwd, key: providerPreferenceKey('codex', 'codexModelProvider'), value });
+      await setPreference({ cwd, key, value });
       set((state) => ({
         providerConfig: normalizeProviderRuntimeConfig({
           ...state.providerConfig,
@@ -2761,6 +2780,10 @@ export const useClientStore = create((set, get) => {
         set({ sending: false });
         return true;
       } catch (error) {
+        const stateBeforeRollback = get();
+        const createdThreadId = !previousThreadId && stateBeforeRollback.activeThreadId !== provisionalThreadId
+          ? backendThreadIdForState(stateBeforeRollback, stateBeforeRollback.activeThreadId)
+          : '';
         set((state) => {
           const timelinesByThread = { ...state.timelinesByThread };
           const activeTimeline = timelinesByThread[state.activeThreadId] || [];
@@ -2778,6 +2801,16 @@ export const useClientStore = create((set, get) => {
             actionNotice: actionNotice(`发送失败：${error.message}`, 'error'),
           };
         });
+        if (createdThreadId) {
+          try {
+            await deleteThreadRPC({ threadId: createdThreadId });
+          } catch (cleanupError) {
+            addWarning('warn', 'thread.provisional.delete.failed', {
+              threadId: createdThreadId,
+              error: cleanupError.message || String(cleanupError),
+            });
+          }
+        }
         addWarning('error', 'thread.send.failed', { error: error.message });
         throw error;
       }

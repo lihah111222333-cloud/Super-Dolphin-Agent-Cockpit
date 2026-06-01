@@ -3,14 +3,15 @@ import { QueryClient, QueryClientProvider, useQuery, useQueryClient } from '@tan
 import { AlertTriangle, Archive, ArrowLeft, Bot, Boxes, Brain, ChevronDown, CircleStop, Code2, Copy, Download, Eye, File, FileText, Folder, FolderOpen, GitBranch, Link2, MemoryStick, MessageCircle, Moon, MoreHorizontal, PanelTopOpen, Pencil, Pin, Plus, RefreshCw, Search, Send, Settings, Sparkles, Sun, Trash2, Workflow, X } from 'lucide-react';
 import { useClientStore } from './entities/client/model/useClientStore.js';
 import { PromptPageView } from './features/prompts/PromptPageView.jsx';
+import { FocusTrapDialog } from './shared/ui/FocusTrapDialog.jsx';
 import {
   callBackend,
   applyDagOps,
   applySkillResolution,
-  consolidateMemorySimilarities,
   deleteDag,
   deleteMemoryEntry,
   deleteSharedFile,
+  getMemoryConsolidationStatus,
   deleteSkill,
   getBuildInfo,
   getDashboardPage,
@@ -34,6 +35,7 @@ import {
   selectProjectDirs,
   setMemoryAutoDreamIntent,
   setPreference,
+  startConsolidateMemorySimilarities,
   startDag,
   startThread,
   suggestSkillSummary,
@@ -87,6 +89,8 @@ const SHARED_FILE_SORTS = Object.freeze([
   { key: 'path-asc', label: '按文件名' },
 ]);
 const SKILLS_REQUEST_TIMEOUT_MS = 8000;
+const MEMORY_CONSOLIDATION_POLL_MS = 2000;
+const MEMORY_CONSOLIDATION_MAX_POLLS = 180;
 const DASHBOARD_QUERY_STALE_MS = 30_000;
 const DASHBOARD_QUERY_GC_MS = 10 * 60_000;
 const MEMORY_CATEGORIES = Object.freeze([
@@ -138,6 +142,7 @@ const RIGHT_PANEL_MAX_RATIO = 0.4;
 const CONVERSATION_MIN_RATIO = 0.4;
 const NAV_RAIL_WIDTH = 76;
 const SPLITTER_WIDTH = 6;
+const RESIZER_KEY_STEP = 16;
 const RUNTIME_TOOLBAR_HEIGHT = 67;
 const ACTIVITY_ICON_ROW_HEIGHT = 64;
 const ACTIVITY_LOG_ROW_HEIGHT = 32;
@@ -615,13 +620,25 @@ function runtimeLogLabel(entry) {
   return entry?.message || entry?.event || entry?.method || '';
 }
 
+function parseSafeLogTimestamp(entry) {
+  const ts = runtimeLogTimestamp(entry);
+  if (!ts) return 0;
+  const text = ts.toString().trim();
+  const asNumber = Number(text);
+  if (Number.isFinite(asNumber) && asNumber > 0) return asNumber;
+  // 截断高精度时间戳中的多余小数秒，以兼容 JS Date.parse 的 3 位毫秒限制
+  const sanitized = text.replace(/(\.\d{3})\d+/g, '$1');
+  const parsed = Date.parse(sanitized);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
+}
+
 function runtimeLogEntries(warnings = [], results = []) {
   return [
     ...(warnings || []).map((entry) => ({ ...entry, runtimeKind: 'warning' })),
     ...(results || []).map((entry) => ({ ...entry, runtimeKind: 'result' })),
   ].sort((left, right) => {
-    const leftTime = Date.parse(runtimeLogTimestamp(left)) || 0;
-    const rightTime = Date.parse(runtimeLogTimestamp(right)) || 0;
+    const leftTime = parseSafeLogTimestamp(left);
+    const rightTime = parseSafeLogTimestamp(right);
     return rightTime - leftTime;
   });
 }
@@ -642,6 +659,12 @@ function withTimeout(promise, timeoutMs, message) {
   });
 }
 
+function delay(ms) {
+  return new Promise((resolve) => {
+    globalThis.setTimeout(resolve, ms);
+  });
+}
+
 function normalizeProjectPath(path) {
   const value = (path || '').toString().trim();
   if (!value) return '';
@@ -649,6 +672,27 @@ function normalizeProjectPath(path) {
     return value.replace(/[\\/]+$/, '');
   }
   return value;
+}
+
+function hasUsableProjectCwd(store) {
+  const activeProject = normalizeProjectPath(store?.activeProject);
+  const cwd = activeProject && activeProject !== '.' && activeProject !== '未选择项目'
+    ? activeProject
+    : normalizeProjectPath(store?.cwd);
+  return Boolean(cwd && cwd !== '.' && cwd !== '未选择项目');
+}
+
+function canUseProjectActionsForStore(store) {
+  return store?.bootstrapStatus === 'ready' && hasUsableProjectCwd(store);
+}
+
+function shouldIgnoreGlobalEscape(target) {
+  const element = target instanceof Element ? target : null;
+  if (!element) return false;
+  const tagName = element.tagName.toLowerCase();
+  if (['input', 'textarea', 'select', 'option'].includes(tagName)) return true;
+  if (element.isContentEditable) return true;
+  return Boolean(element.closest('[role="dialog"], [role="menu"], [role="listbox"], [data-escape-scope="local"]'));
 }
 
 function disambiguateProjectLabels(items) {
@@ -1693,6 +1737,61 @@ function errorMessage(error) {
   return memoryNoticeText(error?.message || String(error || ''));
 }
 
+function memoryConsolidationResultMessage(result) {
+  const merged = Number(result?.merged) || 0;
+  const ignored = Number(result?.ignored) || 0;
+  const failed = Number(result?.failed) || 0;
+  const skipped = Number(result?.skipped) || 0;
+  const parts = [`已整合 ${merged} 组`];
+  if (ignored) parts.push(`${ignored} 组判定不应合`);
+  if (failed) parts.push(`${failed} 组失败`);
+  if (skipped) parts.push(`${skipped} 组跳过`);
+  const firstError = Array.isArray(result?.errors) ? result.errors[0] : '';
+  return {
+    level: failed || skipped ? 'warning' : 'info',
+    message: `${parts.join('，')}${firstError ? `，原因：${firstError}` : ''}`,
+  };
+}
+
+function memoryConsolidationJobFailed(status) {
+  const message = textValue(status?.error) || '智能整合暂时失败，请稍后重试';
+  return new Error(message);
+}
+
+function clearMemorySimilarGroups(snapshot) {
+  if (!snapshot || typeof snapshot !== 'object' || Array.isArray(snapshot)) return snapshot;
+  const overview = snapshot.overview && typeof snapshot.overview === 'object' && !Array.isArray(snapshot.overview)
+    ? snapshot.overview
+    : {};
+  const health = overview.health && typeof overview.health === 'object' && !Array.isArray(overview.health)
+    ? overview.health
+    : null;
+  if (!health || !Array.isArray(health.similarGroups) || health.similarGroups.length === 0) return snapshot;
+  return {
+    ...snapshot,
+    overview: {
+      ...overview,
+      health: {
+        ...health,
+        similarGroups: [],
+      },
+    },
+  };
+}
+
+async function waitForMemoryConsolidationJob(cwd, jobID) {
+  for (let attempt = 0; attempt < MEMORY_CONSOLIDATION_MAX_POLLS; attempt += 1) {
+    const status = await getMemoryConsolidationStatus({ cwd, jobId: jobID });
+    if (status?.status === 'succeeded') return status.result || {};
+    if (status?.status === 'failed') throw memoryConsolidationJobFailed(status);
+    if (status?.status !== 'running') {
+      throw new Error('智能整合状态异常，请稍后重试');
+    }
+    await delay(MEMORY_CONSOLIDATION_POLL_MS);
+  }
+  throw new Error('智能整合仍在进行，请稍后查看结果');
+}
+
 function dagKeyOf(raw) {
   return firstText(raw?.dag_key, raw?.dagKey, raw?.key, raw?.id);
 }
@@ -2602,6 +2701,7 @@ function AppShell({ skipBootstrap = false }) {
   const addWarning = store.addWarning;
   const queryClient = useQueryClient();
   const memoryRevision = Number(store.memoryRevision || 0);
+  const [memoryPageSimilarCount, setMemoryPageSimilarCount] = useState(null);
 
   useEffect(() => {
     if (skipBootstrap) return undefined;
@@ -2628,6 +2728,12 @@ function AppShell({ skipBootstrap = false }) {
   const memorySimilarCount = Math.max(0, Number(memoryBadgeQuery.data) || 0);
 
   useEffect(() => {
+    if (store.activePage !== 'memory') {
+      setMemoryPageSimilarCount(null);
+    }
+  }, [store.activePage, memoryCwd]);
+
+  useEffect(() => {
     if (!memoryBadgeQuery.error) return;
     addWarning('warn', 'memory.badge.refresh.failed', { error: errorMessage(memoryBadgeQuery.error) });
   }, [addWarning, memoryBadgeQuery.error]);
@@ -2647,13 +2753,24 @@ function AppShell({ skipBootstrap = false }) {
     <div className="sa-window" data-theme={theme} data-testid="frontend-app">
       <Titlebar theme={theme} onToggleTheme={toggleTheme} />
       <div className="sa-body">
-        <NavRail activePage={store.activePage} setActivePage={store.setActivePage} memorySimilarCount={memorySimilarCount} />
+        <NavRail
+          activePage={store.activePage}
+          setActivePage={store.setActivePage}
+          memorySimilarCount={memoryPageSimilarCount ?? memorySimilarCount}
+        />
         <main className="sa-main">
           {store.activePage === 'chat' ? <ChatPage store={store} projectPath={projectPath} /> : null}
           {store.activePage === 'prompts' ? <PromptPage projectPath={projectPath} store={store} refreshKey={store.promptRevision} /> : null}
           {store.activePage === 'workflows' ? <WorkflowPage projectPath={projectPath} store={store} refreshKey={store.workflowRevision} /> : null}
-          {store.activePage === 'skills' ? <SkillsPage projectPath={projectPath} refreshKey={store.skillRevision} /> : null}
-          {store.activePage === 'memory' ? <MemoryPage projectPath={projectPath} refreshKey={memoryRevision} /> : null}
+          {store.activePage === 'skills' ? <SkillsPage projectPath={projectPath} refreshKey={store.skillRevision} resolveLaunchPreferences={store.resolveLaunchPreferences} /> : null}
+          {store.activePage === 'memory' ? (
+            <MemoryPage
+              projectPath={projectPath}
+              refreshKey={memoryRevision}
+              onSimilarCountChange={setMemoryPageSimilarCount}
+              resolveLaunchPreferences={store.resolveLaunchPreferences}
+            />
+          ) : null}
           {store.activePage === 'files' ? <FilesPage projectPath={projectPath} store={store} /> : null}
           {store.activePage === 'settings' ? <SettingsPage projectPath={projectPath} /> : null}
           <span className="sr-only">当前页面：{activeLabel}</span>
@@ -2735,6 +2852,7 @@ function ChatPage({ store, projectPath }) {
   const warningEntries = scopedActivityEntries(store.warningEntries, activeThreadId, activeThread, { includeUnscoped: true });
   const runtimeResultEntriesForThread = scopedActivityEntries(store.runtimeResultEntries, activeThreadId, activeThread, { includeUnscoped: true });
   const statusEntry = activeThreadId ? store.statuses?.[activeThreadId] : null;
+  const canUseProjectActions = canUseProjectActionsForStore(store);
   const [viewportWidth, setViewportWidth] = useState(currentViewportWidth);
   const [threadRailWidth, setThreadRailWidth] = useState(() => threadRailTargetWidth());
   const threadRailResizedRef = useRef(false);
@@ -2778,6 +2896,7 @@ function ChatPage({ store, projectPath }) {
   useEffect(() => {
     const onKeyDown = (event) => {
       if (event.defaultPrevented || event.key !== 'Escape' || event.metaKey || event.ctrlKey || event.altKey || event.shiftKey) return;
+      if (shouldIgnoreGlobalEscape(event.target)) return;
       if (!store.hasActiveThreadActions?.()) return;
       event.preventDefault();
       void store.interruptActiveThread?.();
@@ -2801,6 +2920,19 @@ function ChatPage({ store, projectPath }) {
     };
     window.addEventListener('pointermove', move);
     window.addEventListener('pointerup', stop);
+  };
+
+  const handleThreadRailResizeKeyDown = (event) => {
+    if (event.metaKey || event.ctrlKey || event.altKey || event.shiftKey) return;
+    let nextWidth = null;
+    if (event.key === 'ArrowLeft') nextWidth = effectiveThreadRailWidth - RESIZER_KEY_STEP;
+    else if (event.key === 'ArrowRight') nextWidth = effectiveThreadRailWidth + RESIZER_KEY_STEP;
+    else if (event.key === 'Home') nextWidth = THREAD_RAIL_MIN_WIDTH;
+    else if (event.key === 'End') nextWidth = threadRailMaxWidth;
+    if (nextWidth === null) return;
+    event.preventDefault();
+    threadRailResizedRef.current = true;
+    setThreadRailWidth(clampWidth(nextWidth, THREAD_RAIL_MIN_WIDTH, threadRailMaxWidth));
   };
 
   const beginRightPanelResize = (event) => {
@@ -2853,6 +2985,25 @@ function ChatPage({ store, projectPath }) {
     window.addEventListener('blur', finish);
   };
 
+  const handleRightPanelResizeKeyDown = (event) => {
+    if (event.metaKey || event.ctrlKey || event.altKey || event.shiftKey) return;
+    let nextWidth = null;
+    if (event.key === 'ArrowLeft') nextWidth = rightPanelWidth + RESIZER_KEY_STEP;
+    else if (event.key === 'ArrowRight') nextWidth = rightPanelWidth - RESIZER_KEY_STEP;
+    else if (event.key === 'Home') nextWidth = 0;
+    else if (event.key === 'End') nextWidth = maxRightPanelWidth;
+    if (nextWidth === null) return;
+    event.preventDefault();
+    rightPanelResizedRef.current = true;
+    const clampedWidth = clampWidth(nextWidth, 0, maxRightPanelWidth);
+    if (clampedWidth <= RIGHT_PANEL_CLOSE_THRESHOLD) {
+      store.setRightPanelWidth?.(0);
+      setRightPanelOpen(false);
+      return;
+    }
+    store.setRightPanelWidth?.(clampedWidth);
+  };
+
   const layoutColumns = rightPanelOpen
     ? `${effectiveThreadRailWidth}px ${SPLITTER_WIDTH}px minmax(0, 1fr) ${SPLITTER_WIDTH}px ${rightPanelWidth}px`
     : `${effectiveThreadRailWidth}px ${SPLITTER_WIDTH}px minmax(0, 1fr)`;
@@ -2881,11 +3032,17 @@ function ChatPage({ store, projectPath }) {
         style={{ gridTemplateColumns: layoutColumns }}
       >
         <ThreadRail store={store} />
-        <button
-          type="button"
+        <div
+          role="separator"
           className="splitter splitter--left"
+          aria-orientation="vertical"
           aria-label="调整会话栏宽度"
+          aria-valuemin={THREAD_RAIL_MIN_WIDTH}
+          aria-valuemax={threadRailMaxWidth}
+          aria-valuenow={effectiveThreadRailWidth}
           data-testid="thread-rail-resizer"
+          tabIndex={0}
+          onKeyDown={handleThreadRailResizeKeyDown}
           onPointerDown={beginThreadRailResize}
         />
         <Conversation
@@ -2910,13 +3067,20 @@ function ChatPage({ store, projectPath }) {
           statusEntry={statusEntry}
           modelThreadId={modelThreadId}
           timelineBlocked={timelineBlocked}
+          canUseProjectActions={canUseProjectActions}
         />
         {rightPanelOpen ? (
-          <button
-            type="button"
+          <div
+            role="separator"
             className="splitter splitter--right"
+            aria-orientation="vertical"
             aria-label="调整侧边栏宽度"
+            aria-valuemin={0}
+            aria-valuemax={maxRightPanelWidth}
+            aria-valuenow={rightPanelWidth}
             data-testid="right-panel-resizer"
+            tabIndex={0}
+            onKeyDown={handleRightPanelResizeKeyDown}
             onPointerDown={beginRightPanelResize}
           />
         ) : null}
@@ -3033,24 +3197,27 @@ function ProjectSelector({ store, projectPath }) {
   );
 }
 
-function ProviderToggle({ store }) {
+function ProviderToggle({ store, canUseProjectActions = true }) {
   const { locked, provider } = providerToggleState(store);
   const isClaude = provider === 'claude';
   const providerLabel = isClaude ? 'Claude' : 'Codex';
-  const title = locked
-    ? '已开启的聊天不能更改 provider，请新建对话后切换'
-    : '切换 Claude / Codex provider';
+  const projectActionBlocked = !canUseProjectActions;
+  const disabled = locked || projectActionBlocked;
+  const unavailableLabel = '请先连接后端并选择项目';
+  let title = '切换 Claude / Codex provider';
+  if (projectActionBlocked) title = unavailableLabel;
+  if (locked) title = '已开启的聊天不能更改 provider，请新建对话后切换';
   return (
     <button
       type="button"
-      className={`provider ${isClaude ? 'active' : ''} ${locked ? 'locked' : ''}`}
-      aria-label="切换 Claude / Codex provider"
+      className={`provider ${isClaude ? 'active' : ''} ${disabled ? 'locked' : ''}`}
+      aria-label={projectActionBlocked ? unavailableLabel : '切换 Claude / Codex provider'}
       aria-pressed={isClaude}
-      aria-disabled={locked}
-      disabled={locked}
+      aria-disabled={disabled}
+      disabled={disabled}
       title={title}
       onClick={() => {
-        if (locked) return;
+        if (disabled) return;
         void store.toggleProviderMode();
       }}
     >
@@ -3064,6 +3231,12 @@ function ProviderToggle({ store }) {
 
 function TopCommandBar({ store, projectPath, rightPanelOpen = false, toggleRightPanel = () => {} }) {
   const canUseThreadActions = Boolean(store.hasActiveThreadActions?.());
+  const bootstrapFailureMessage = store.bootstrapStatus === 'failed' && textValue(store.error)
+    ? `连接后端失败：${textValue(store.error)}`
+    : '';
+  const feedback = store.actionNotice?.message
+    ? store.actionNotice
+    : (bootstrapFailureMessage ? { message: bootstrapFailureMessage, tone: 'error' } : null);
   return (
     <div className="top-command" data-testid="chat-toolbar">
       <ProjectSelector store={store} projectPath={projectPath} />
@@ -3092,13 +3265,13 @@ function TopCommandBar({ store, projectPath, rightPanelOpen = false, toggleRight
       >
         <RefreshCw size={15} />
       </button>
-      {store.actionNotice?.message ? (
+      {feedback?.message ? (
         <span
-          className={`action-feedback ${store.actionNotice.tone || 'info'}`}
+          className={`action-feedback ${feedback.tone || 'info'}`}
           data-testid="chat-action-feedback"
           role="status"
         >
-          {store.actionNotice.message}
+          {feedback.message}
         </span>
       ) : null}
       <span className="project-pill" aria-label="当前工作目录" title={`当前窗口 CWD：${projectPath}`}><Folder size={14} /> {projectDisplayName(projectPath)}</span>
@@ -3354,7 +3527,7 @@ function ThreadRail({ store }) {
   );
 }
 
-function ModelSelector({ store, activeThreadId }) {
+function ModelSelector({ store, activeThreadId, disabled = false }) {
   const [open, setOpen] = useState(false);
   const wrapRef = useRef(null);
   const activeThreadConfig = activeThreadId ? store.threadConfigByThread?.[activeThreadId] : null;
@@ -3386,7 +3559,12 @@ function ModelSelector({ store, activeThreadId }) {
     return () => document.removeEventListener('pointerdown', onPointerDown, true);
   }, [open]);
 
+  useEffect(() => {
+    if (disabled && open) setOpen(false);
+  }, [disabled, open]);
+
   const openSelector = async () => {
+    if (disabled) return;
     const nextOpen = !open;
     setDraft({ model: draftModel, effort: draftEffort });
     setOpen(nextOpen);
@@ -3431,6 +3609,7 @@ function ModelSelector({ store, activeThreadId }) {
   const inheritModelLabel = activeModel ? `默认（当前：${modelOptionFor(providerKey, activeModel)?.label || activeModel}）` : '默认';
   const inheritEffortLabel = activeEffort ? `默认（当前：${effortOptionFor(providerKey, activeEffort)?.label || activeEffort}）` : '默认';
   const selectorBusy = Boolean(store.threadConfigSaving || (activeThreadId && store.threadConfigLoadingByThread?.[activeThreadId]));
+  const unavailableTitle = '请先连接后端并选择项目';
 
   return (
     <div className="composer-model-wrap" ref={wrapRef}>
@@ -3441,7 +3620,8 @@ function ModelSelector({ store, activeThreadId }) {
         aria-expanded={open}
         aria-haspopup="dialog"
         aria-busy={selectorBusy}
-        title={canOverrideThread ? '线程执行配置' : '全局模型配置'}
+        title={disabled ? unavailableTitle : (canOverrideThread ? '线程执行配置' : '全局模型配置')}
+        disabled={disabled}
         onClick={() => void openSelector()}
       >
         {label}
@@ -3451,20 +3631,20 @@ function ModelSelector({ store, activeThreadId }) {
         <div className="model-dropdown" role="dialog" aria-label="模型配置">
           <label>
             <span>模型</span>
-            <select aria-label="模型" value={selectModelValue} disabled={selectorBusy} onChange={(event) => void saveModelConfig({ model: event.target.value })}>
+            <select aria-label="模型" value={selectModelValue} disabled={disabled || selectorBusy} onChange={(event) => void saveModelConfig({ model: event.target.value })}>
               {canOverrideThread ? <option value="">{inheritModelLabel}</option> : null}
               {modelOptions.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
             </select>
           </label>
           <label>
             <span>强度</span>
-            <select aria-label="推理强度" value={selectEffortValue} disabled={selectorBusy} onChange={(event) => void saveModelConfig({ effort: event.target.value })}>
+            <select aria-label="推理强度" value={selectEffortValue} disabled={disabled || selectorBusy} onChange={(event) => void saveModelConfig({ effort: event.target.value })}>
               {canOverrideThread ? <option value="">{inheritEffortLabel}</option> : null}
               {effortOptions.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
             </select>
           </label>
           {canOverrideThread && !inherited ? (
-            <button type="button" className="model-inherit" disabled={selectorBusy} onClick={() => void restoreInheritance()}>
+            <button type="button" className="model-inherit" disabled={disabled || selectorBusy} onClick={() => void restoreInheritance()}>
               继承全局
             </button>
           ) : null}
@@ -3523,8 +3703,7 @@ function extractClipboardImageFiles(event) {
 function AttachmentPreviewModal({ attachment, onClose, onRemove }) {
   const isImage = attachment.kind === 'image' && attachment.previewUrl;
   return (
-    <div className="modal-overlay" role="presentation">
-      <section className="modal-box attachment-preview-modal" role="dialog" aria-modal="true" aria-label="附件预览">
+    <FocusTrapDialog ariaLabel="附件预览" className="modal-box attachment-preview-modal" onClose={onClose}>
         <header>
           <div>
             <strong>{attachment.name || attachment.path}</strong>
@@ -3544,8 +3723,7 @@ function AttachmentPreviewModal({ attachment, onClose, onRemove }) {
           <button type="button" onClick={onRemove}><Trash2 size={14} /> 移除附件</button>
           <button type="button" onClick={onClose}>关闭</button>
         </footer>
-      </section>
-    </div>
+    </FocusTrapDialog>
   );
 }
 
@@ -3902,6 +4080,7 @@ function ComposerDock({
   setPermission,
   modelThreadId,
   showProviderToggle = true,
+  canUseProjectActions = true,
 }) {
   const composerClass = `composer ${floating ? 'composer--floating' : 'composer--docked'}`;
   const [previewAttachment, setPreviewAttachment] = useState(null);
@@ -3910,10 +4089,15 @@ function ComposerDock({
   const activePreview = previewAttachment && attachments.some((item) => attachmentKey(item) === attachmentKey(previewAttachment))
     ? previewAttachment
     : null;
+  const hasComposerInput = Boolean(textValue(draft) || attachments.length > 0);
+  const canSend = canUseProjectActions && !sending && hasComposerInput;
+  const projectActionBlocked = !canUseProjectActions;
+  const projectActionBlockedTitle = '请先连接后端并选择项目';
 
   useEffect(() => {
     if (typeof attachPaths !== 'function') return undefined;
     return onFilesDropped((event) => {
+      if (!canUseProjectActions) return;
       const payload = event && typeof event === 'object' ? event : {};
       const files = Array.isArray(payload.files) ? payload.files : [];
       if (files.length === 0) return;
@@ -3923,7 +4107,7 @@ function ComposerDock({
       attachPaths(files);
       setDropActive(false);
     });
-  }, [attachPaths]);
+  }, [attachPaths, canUseProjectActions]);
 
   const preview = (item) => {
     setPreviewAttachment(item);
@@ -3938,16 +4122,19 @@ function ComposerDock({
     const images = extractClipboardImageFiles(event);
     if (images.length === 0) return;
     event.preventDefault();
+    if (projectActionBlocked) return;
     await attachPastedImages(images);
   };
   const handleDragEnter = (event) => {
     if (!hasFilesTransfer(event)) return;
     event.preventDefault();
+    if (projectActionBlocked) return;
     setDropActive(true);
   };
   const handleDragOver = (event) => {
     if (!hasFilesTransfer(event)) return;
     event.preventDefault();
+    if (projectActionBlocked) return;
     if (event.dataTransfer) event.dataTransfer.dropEffect = 'copy';
     setDropActive(true);
   };
@@ -3960,6 +4147,7 @@ function ComposerDock({
     if (!hasFilesTransfer(event)) return;
     event.preventDefault();
     setDropActive(false);
+    if (projectActionBlocked) return;
     const files = collectTransferFiles(event);
     if (files.length > 0) await attachDroppedFiles(files);
   };
@@ -3969,6 +4157,7 @@ function ComposerDock({
     const imeLikely = event.isComposing || isComposingRef.current || keyCode === 229 || event.key === 'Process' || event.key === 'Unidentified';
     if (imeLikely) return;
     event.preventDefault();
+    if (!canSend) return;
     void sendMessage();
   };
 
@@ -4013,21 +4202,44 @@ function ComposerDock({
           placeholder="输入给 Agent 的内容，Enter 发送，Shift+Enter 换行"
         />
         <div className="composer-meta">
-          <button type="button" className="composer-attach" aria-label="添加文件" onClick={() => void selectFiles()}>
+          <button
+            type="button"
+            className="composer-attach"
+            aria-label="添加文件"
+            title={projectActionBlocked ? projectActionBlockedTitle : '添加文件'}
+            disabled={projectActionBlocked}
+            onClick={() => {
+              if (!projectActionBlocked) void selectFiles();
+            }}
+          >
             <Plus size={18} />
           </button>
           <label className="permission-chip">
             <span className="sr-only">发送权限</span>
-            <select aria-label="发送权限" value={permission} onChange={(event) => setPermission(event.target.value)}>
+            <select
+              aria-label="发送权限"
+              value={permission}
+              disabled={projectActionBlocked}
+              title={projectActionBlocked ? projectActionBlockedTitle : undefined}
+              onChange={(event) => setPermission(event.target.value)}
+            >
               <option>完全访问权限</option>
               <option>工作区写入</option>
               <option>只读模式</option>
             </select>
           </label>
           <div className="composer-actions">
-            {showProviderToggle ? <ProviderToggle store={store} /> : null}
-            <ModelSelector store={store} activeThreadId={modelThreadId} />
-            <button type="button" className="send" aria-label="发送消息" disabled={sending} onClick={() => void sendMessage()}>
+            {showProviderToggle ? <ProviderToggle store={store} canUseProjectActions={canUseProjectActions} /> : null}
+            <ModelSelector store={store} activeThreadId={modelThreadId} disabled={projectActionBlocked} />
+            <button
+              type="button"
+              className="send"
+              aria-label="发送消息"
+              disabled={!canSend}
+              onClick={() => {
+                if (canSend) void sendMessage();
+              }}
+            >
               <Send size={18} />
             </button>
           </div>
@@ -4066,6 +4278,7 @@ function Conversation({
   statusEntry,
   modelThreadId,
   timelineBlocked,
+  canUseProjectActions = true,
 }) {
   const introMode = !activeThreadId && !timelineBlocked && messages.length === 0;
   const showProviderToggle = !hasAssistantReply(messages);
@@ -4087,6 +4300,7 @@ function Conversation({
       setPermission={setPermission}
       modelThreadId={modelThreadId}
       showProviderToggle={showProviderToggle}
+      canUseProjectActions={canUseProjectActions}
     />
   );
   return (
@@ -4144,6 +4358,7 @@ function RuntimePanel({ diffText, tokenUsage, activityStats, warnings, runtimeRe
   const [activityPanelHeight, setActivityPanelHeight] = useState(() => clampActivityPanelHeight(ACTIVITY_PANEL_DEFAULT_HEIGHT));
   const [collapsedDiffFiles, setCollapsedDiffFiles] = useState(() => new Set());
   const diffSummary = useMemo(() => summarizeUnifiedDiff(diffText), [diffText]);
+  const activityPanelMax = activityPanelMaxHeight(viewportHeight);
 
   useEffect(() => {
     const onResize = () => {
@@ -4170,6 +4385,18 @@ function RuntimePanel({ diffText, tokenUsage, activityStats, warnings, runtimeRe
     };
     window.addEventListener(moveEventName, move);
     window.addEventListener(stopEventName, stop);
+  };
+
+  const handleActivityPanelResizeKeyDown = (event) => {
+    if (event.metaKey || event.ctrlKey || event.altKey || event.shiftKey) return;
+    let nextHeight = null;
+    if (event.key === 'ArrowUp' || event.key === 'PageUp') nextHeight = activityPanelHeight + RESIZER_KEY_STEP;
+    else if (event.key === 'ArrowDown' || event.key === 'PageDown') nextHeight = activityPanelHeight - RESIZER_KEY_STEP;
+    else if (event.key === 'Home') nextHeight = ACTIVITY_PANEL_MIN_HEIGHT;
+    else if (event.key === 'End') nextHeight = activityPanelMax;
+    if (nextHeight === null) return;
+    event.preventDefault();
+    setActivityPanelHeight(clampActivityPanelHeight(nextHeight, viewportHeight));
   };
 
   const toggleDiffFile = (filename) => {
@@ -4246,13 +4473,27 @@ function RuntimePanel({ diffText, tokenUsage, activityStats, warnings, runtimeRe
         tokenUsage={tokenUsage}
         warnings={warnings}
         runtimeResults={runtimeResults}
+        activityPanelHeight={activityPanelHeight}
+        activityPanelMaxHeight={activityPanelMax}
+        activityPanelMinHeight={ACTIVITY_PANEL_MIN_HEIGHT}
+        onResizeKeyDown={handleActivityPanelResizeKeyDown}
         onResizeStart={beginActivityPanelResize}
       />
     </aside>
   );
 }
 
-function RuntimeActivityPanel({ activityStats, tokenUsage, warnings, runtimeResults, onResizeStart }) {
+function RuntimeActivityPanel({
+  activityStats,
+  tokenUsage,
+  warnings,
+  runtimeResults,
+  activityPanelHeight,
+  activityPanelMaxHeight,
+  activityPanelMinHeight,
+  onResizeKeyDown,
+  onResizeStart,
+}) {
   const [hoveredStat, setHoveredStat] = useState(null);
   const [hoveredWarning, setHoveredWarning] = useState(null);
   const panelRef = useRef(null);
@@ -4277,12 +4518,18 @@ function RuntimeActivityPanel({ activityStats, tokenUsage, warnings, runtimeResu
 
   return (
     <section className="runtime-activity-panel" aria-label="工具使用面板" ref={panelRef}>
-      <button
-        type="button"
+      <div
+        role="separator"
         className="activity-panel-resizer"
+        aria-orientation="horizontal"
         aria-label="调整工具使用面板高度"
+        aria-valuemin={activityPanelMinHeight}
+        aria-valuemax={activityPanelMaxHeight}
+        aria-valuenow={activityPanelHeight}
         title="拖动调整工具使用面板高度，最大为应用高度的 1/2"
         data-testid="activity-panel-resizer"
+        tabIndex={0}
+        onKeyDown={onResizeKeyDown}
         onPointerDown={(event) => onResizeStart(event, 'pointer')}
         onMouseDown={(event) => {
           if (!window.PointerEvent) onResizeStart(event, 'mouse');
@@ -4374,7 +4621,11 @@ function RuntimeActivityPanel({ activityStats, tokenUsage, warnings, runtimeResu
 }
 
 function formatTime(value) {
-  const date = new Date(value);
+  if (!value) return '--:--';
+  const text = value.toString().trim();
+  // 截断高精度时间戳中的多余小数秒，以兼容 JS new Date() 的 3 位毫秒限制
+  const sanitized = text.replace(/(\.\d{3})\d+/g, '$1');
+  const date = new Date(sanitized);
   if (!Number.isFinite(date.getTime())) return '--:--';
   return date.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
 }
@@ -5056,8 +5307,7 @@ function DagScheduleModal({ cron, actionLabel, saving, onClose, onSave }) {
   };
 
   return (
-    <div className="modal-overlay">
-      <section className="modal-box" role="dialog" aria-modal="true" aria-label={actionLabel}>
+    <FocusTrapDialog ariaLabel={actionLabel} closeDisabled={saving} onClose={onClose}>
         <header><h2>{actionLabel}</h2><button type="button" className="ghost" onClick={onClose} disabled={saving}>关闭</button></header>
         <div className="dag-node-editor">
           <label>
@@ -5096,15 +5346,13 @@ function DagScheduleModal({ cron, actionLabel, saving, onClose, onSave }) {
           <button type="button" className="ghost" onClick={onClose} disabled={saving}>取消</button>
           <button type="button" onClick={confirm} disabled={saving}>{saving ? '保存中...' : actionLabel}</button>
         </footer>
-      </section>
-    </div>
+    </FocusTrapDialog>
   );
 }
 
 function ConfirmDagDeleteModal({ dag, deleting, onClose, onConfirm }) {
   return (
-    <div className="modal-overlay">
-      <section className="modal-box" role="dialog" aria-modal="true" aria-label="删除自动化">
+    <FocusTrapDialog ariaLabel="删除自动化" closeDisabled={deleting} onClose={onClose}>
         <header><h2>删除自动化</h2><button type="button" className="ghost" onClick={onClose} disabled={deleting}>关闭</button></header>
         <p>确定删除自动化 “{dag.title}” 吗？该操作会删除配置和运行关联信息，无法恢复。</p>
         <p className="path">{dag.dagKey}</p>
@@ -5112,12 +5360,11 @@ function ConfirmDagDeleteModal({ dag, deleting, onClose, onConfirm }) {
           <button type="button" className="ghost" onClick={onClose} disabled={deleting}>取消</button>
           <button type="button" className="text-danger" onClick={() => { void onConfirm(); }} disabled={deleting}>{deleting ? '删除中...' : '确认删除'}</button>
         </footer>
-      </section>
-    </div>
+    </FocusTrapDialog>
   );
 }
 
-function SkillsPage({ projectPath, refreshKey = 0 }) {
+function SkillsPage({ projectPath, refreshKey = 0, resolveLaunchPreferences }) {
   const projectCwd = optionalSettingsCwd(projectPath);
   const queryClient = useQueryClient();
   const [query, setQuery] = useState('');
@@ -5261,6 +5508,9 @@ function SkillsPage({ projectPath, refreshKey = 0 }) {
     setSummarySuggestion('');
     try {
       const cwd = normalizeSettingsCwd(projectPath);
+      const launchPreferences = typeof resolveLaunchPreferences === 'function'
+        ? await resolveLaunchPreferences(cwd)
+        : null;
       const description = await suggestSkillSummary({
         cwd,
         name: editorForm.displayName || editorForm.name,
@@ -5268,6 +5518,9 @@ function SkillsPage({ projectPath, refreshKey = 0 }) {
         content: editorForm.body,
         scenario_words: wordListFromText(editorForm.keywords),
         scope: editorForm.scope,
+        provider: textValue(launchPreferences?.modelProvider || launchPreferences?.provider),
+        model: textValue(launchPreferences?.model),
+        codexModelProvider: textValue(launchPreferences?.config?.codexModelProvider),
       });
       setSummarySuggestion(normalizeSummarySuggestion(description));
     } catch (err) {
@@ -5790,14 +6043,13 @@ function SkillEditorModal({
     setBodyEditing(!activeSkillPath);
   }, [activeSkillPath]);
   return (
-    <div className="modal-overlay">
-      <section className="modal-box skills-editor-modal" role="dialog" aria-modal="true" aria-label={modalTitle}>
+    <FocusTrapDialog ariaLabel={modalTitle} className="modal-box skills-editor-modal" closeDisabled={saving} onClose={onClose}>
         <header className="skills-editor-modal-head">
           <div>
             <h2>{modalTitle}</h2>
             <p>你可以修改简介和技能内容。</p>
           </div>
-          <button type="button" className="ghost" onClick={onClose}>关闭</button>
+          <button type="button" className="ghost" onClick={onClose} disabled={saving}>关闭</button>
         </header>
         <div className="form-grid">
           <label className="wide">技能名称<input value={form.displayName} onChange={updateDisplayName} disabled={!isMain} /></label>
@@ -5809,6 +6061,12 @@ function SkillEditorModal({
               </button>
             </div>
             <input id="skills-description-input" value={form.description} onChange={update('description')} disabled={!isMain} aria-label="技能简介" />
+            {summarySuggestion ? (
+              <div className="skills-inline-tip skills-summary-suggestion" data-testid="skills-summary-suggestion">
+                <span>建议：{summarySuggestion}</span>
+                <button type="button" onClick={onApplySummary}>采用</button>
+              </div>
+            ) : null}
             <div className="skills-inline-tip">建议写成“当你需要……时使用”。</div>
           </div>
           <div className="skills-field">
@@ -5820,12 +6078,6 @@ function SkillEditorModal({
           </div>
           <label>关键词<input value={form.keywords} onChange={update('keywords')} disabled={!isMain} aria-label="关键词" /></label>
         </div>
-        {summarySuggestion ? (
-          <div className="skills-editor-actions">
-          {summarySuggestion ? <span>建议：{summarySuggestion}</span> : null}
-          {summarySuggestion ? <button type="button" onClick={onApplySummary}>采用</button> : null}
-          </div>
-        ) : null}
         {files.some((file) => !file.isMain) ? (
           <div className="skills-subfiles-wrap">
             <span>附加内容</span>
@@ -5863,18 +6115,16 @@ function SkillEditorModal({
           <div className="skills-inline-tip">点击“编辑正文”展开编辑；切回“预览正文”查看效果。</div>
         </div>
         <footer>
-          <button type="button" className="ghost" onClick={onClose}>取消</button>
+          <button type="button" className="ghost" onClick={onClose} disabled={saving}>取消</button>
           <button type="button" onClick={() => { void onSave(); }} disabled={saving}>{saving ? '保存中...' : '保存技能'}</button>
         </footer>
-      </section>
-    </div>
+    </FocusTrapDialog>
   );
 }
 
 function ConfirmSkillDeleteModal({ skill, deleting, onClose, onConfirm }) {
   return (
-    <div className="modal-overlay">
-      <section className="modal-box" role="dialog" aria-modal="true" aria-label="删除技能">
+    <FocusTrapDialog ariaLabel="删除技能" closeDisabled={deleting} onClose={onClose}>
         <header><h2>删除技能</h2><button type="button" className="ghost" onClick={onClose} disabled={deleting}>关闭</button></header>
         <p>确定删除技能 “{skill.name}” 吗？该操作会删除技能目录及其资源文件，无法恢复。</p>
         <p className="path">{skill.dir || '-'}</p>
@@ -5882,15 +6132,13 @@ function ConfirmSkillDeleteModal({ skill, deleting, onClose, onConfirm }) {
           <button type="button" className="ghost" onClick={onClose} disabled={deleting}>取消</button>
           <button type="button" className="text-danger" onClick={() => { void onConfirm(); }} disabled={deleting}>{deleting ? '删除中...' : '确认删除'}</button>
         </footer>
-      </section>
-    </div>
+    </FocusTrapDialog>
   );
 }
 
 function ImportScopeModal({ importing, onClose, onConfirm }) {
   return (
-    <div className="modal-overlay">
-      <section className="modal-box" role="dialog" aria-modal="true" aria-label="导入技能">
+    <FocusTrapDialog ariaLabel="导入技能" closeDisabled={importing} onClose={onClose}>
         <header><h2>导入技能</h2><button type="button" className="ghost" onClick={onClose} disabled={importing}>关闭</button></header>
         <p>这些技能导入后给谁使用？</p>
         <footer>
@@ -5898,8 +6146,7 @@ function ImportScopeModal({ importing, onClose, onConfirm }) {
           <button type="button" onClick={() => { void onConfirm('personal'); }} disabled={importing}>私人使用</button>
           <button type="button" onClick={() => { void onConfirm('project'); }} disabled={importing}>项目共享</button>
         </footer>
-      </section>
-    </div>
+    </FocusTrapDialog>
   );
 }
 
@@ -6231,8 +6478,7 @@ function SharedFileRow({
 
 function SharedFileViewer({ file, copied, exporting, onClose, onCopy, onExport }) {
   return (
-    <div className="modal-overlay">
-      <section className="modal-box shared-file-viewer-modal" role="dialog" aria-modal="true" aria-label="文件预览">
+    <FocusTrapDialog ariaLabel="文件预览" className="modal-box shared-file-viewer-modal" onClose={onClose}>
         <header>
           <div>
             <h2>文件预览</h2>
@@ -6249,15 +6495,13 @@ function SharedFileViewer({ file, copied, exporting, onClose, onCopy, onExport }
           <dt>更新时间</dt><dd>{sharedFileTimestamp(file.updatedAt)}</dd>
         </dl>
         <pre className="shared-file-content-preview">{sharedFilePreview(file)}</pre>
-      </section>
-    </div>
+    </FocusTrapDialog>
   );
 }
 
 function ConfirmSharedFileDeleteModal({ file, deleting, onClose, onConfirm }) {
   return (
-    <div className="modal-overlay">
-      <section className="modal-box" role="dialog" aria-modal="true" aria-label="删除文件">
+    <FocusTrapDialog ariaLabel="删除文件" closeDisabled={deleting} onClose={onClose}>
         <header>
           <h2>删除文件</h2>
           <button type="button" className="ghost" onClick={onClose} disabled={deleting}>关闭</button>
@@ -6270,12 +6514,11 @@ function ConfirmSharedFileDeleteModal({ file, deleting, onClose, onConfirm }) {
             {deleting ? '删除中...' : '确认删除'}
           </button>
         </footer>
-      </section>
-    </div>
+    </FocusTrapDialog>
   );
 }
 
-function MemoryPage({ projectPath, onSimilarCountChange }) {
+function MemoryPage({ projectPath, onSimilarCountChange, resolveLaunchPreferences }) {
   const memoryCwd = optionalSettingsCwd(projectPath);
   const isProjectPending = !memoryCwd;
   const queryClient = useQueryClient();
@@ -6303,6 +6546,7 @@ function MemoryPage({ projectPath, onSimilarCountChange }) {
   const [mergingAll, setMergingAll] = useState(false);
   const [ignoringKey, setIgnoringKey] = useState('');
   const [mergingKey, setMergingKey] = useState('');
+  const [consolidationJob, setConsolidationJob] = useState(null);
 
   const refreshMemory = useCallback(async () => {
     if (!memoryCwd) return;
@@ -6316,6 +6560,37 @@ function MemoryPage({ projectPath, onSimilarCountChange }) {
   const showNotice = useCallback((level, message) => {
     setNotice({ level: level || 'info', message: memoryNoticeText(message) });
   }, []);
+
+  const applyConsolidationResult = useCallback(async (cwd, result) => {
+    const summary = memoryConsolidationResultMessage(result);
+    if (!Number(result?.failed) && !Number(result?.skipped)) {
+      queryClient.setQueryData(dashboardQueryKey(cwd, 'memory'), clearMemorySimilarGroups);
+    }
+    showNotice(summary.level, summary.message);
+    await queryClient.invalidateQueries({ queryKey: dashboardQueryKey(cwd, 'memory') });
+  }, [queryClient, showNotice]);
+
+  useEffect(() => {
+    if (!consolidationJob?.jobId || !consolidationJob?.cwd) return undefined;
+    let cancelled = false;
+
+    (async () => {
+      try {
+        const result = await waitForMemoryConsolidationJob(consolidationJob.cwd, consolidationJob.jobId);
+        if (cancelled) return;
+        await applyConsolidationResult(consolidationJob.cwd, result);
+      } catch (err) {
+        if (cancelled) return;
+        const message = errorMessage(err);
+        const level = message.includes('仍在进行') ? 'warning' : 'error';
+        showNotice(level, level === 'warning' ? message : `智能整合失败：${message}`);
+      } finally {
+        if (!cancelled) setConsolidationJob(null);
+      }
+    })();
+
+    return () => { cancelled = true; };
+  }, [applyConsolidationResult, consolidationJob, showNotice]);
 
   const preferenceEntries = useMemo(
     () => snapshot.entries.filter((entry) => entry.category === 'preference'),
@@ -6482,29 +6757,34 @@ function MemoryPage({ projectPath, onSimilarCountChange }) {
   }, [memoryCwd, mergeTarget, mergingKey, refreshMemory, showNotice]);
 
   const mergeAllGroups = useCallback(async () => {
-    if (!similarGroups.length || mergingAll) return;
+    if (!similarGroups.length || mergingAll || consolidationJob) return;
     if (!memoryCwd) { showNotice('error', '正在连接本地项目...'); return; }
     setMergingAll(true);
-    showNotice('info', '智能整合中（通常 10-20 秒），请勿离开');
     try {
-      const result = await consolidateMemorySimilarities({ cwd: memoryCwd });
-      const merged = Number(result?.merged) || 0;
-      const ignored = Number(result?.ignored) || 0;
-      const failed = Number(result?.failed) || 0;
-      const skipped = Number(result?.skipped) || 0;
-      const parts = [`已整合 ${merged} 组`];
-      if (ignored) parts.push(`${ignored} 组判定不应合`);
-      if (failed) parts.push(`${failed} 组失败`);
-      if (skipped) parts.push(`${skipped} 组跳过`);
-      const firstError = Array.isArray(result?.errors) ? result.errors[0] : '';
-      showNotice(failed || skipped ? 'warning' : 'info', `${parts.join('，')}${firstError ? `，原因：${firstError}` : ''}`);
-      await refreshMemory();
+      const launchPreferences = typeof resolveLaunchPreferences === 'function'
+        ? await resolveLaunchPreferences(memoryCwd)
+        : null;
+      const started = await startConsolidateMemorySimilarities({
+        cwd: memoryCwd,
+        provider: textValue(launchPreferences?.modelProvider || launchPreferences?.provider),
+        model: textValue(launchPreferences?.model),
+        codexModelProvider: textValue(launchPreferences?.config?.codexModelProvider),
+      });
+      const jobID = textValue(started?.jobId);
+      if (started?.status === 'failed') throw memoryConsolidationJobFailed(started);
+      if (started?.status !== 'succeeded' && !jobID) throw new Error('智能整合未能启动，请稍后重试');
+      if (started?.status === 'succeeded') {
+        await applyConsolidationResult(memoryCwd, started.result || {});
+      } else {
+        setConsolidationJob({ cwd: memoryCwd, jobId: jobID });
+        showNotice('info', '智能整合已在后台进行，完成后会自动更新');
+      }
     } catch (err) {
       showNotice('error', `智能整合失败：${errorMessage(err)}`);
     } finally {
       setMergingAll(false);
     }
-  }, [memoryCwd, mergingAll, refreshMemory, showNotice, similarGroups.length]);
+  }, [applyConsolidationResult, consolidationJob, memoryCwd, mergingAll, resolveLaunchPreferences, showNotice, similarGroups.length]);
 
   const ignoreGroup = useCallback(async (group) => {
     const key = memoryPairKey(group);
@@ -6587,8 +6867,8 @@ function MemoryPage({ projectPath, onSimilarCountChange }) {
         <div className="similar-alert">
           <AlertTriangle size={20} />
           <span>{similarGroups.length} 组条目内容相似</span>
-          <button type="button" onClick={() => { void mergeAllGroups(); }} disabled={mergingAll || Boolean(mergingKey) || Boolean(ignoringKey)}>
-            {mergingAll ? '整合中...' : '一键整合全部'}
+          <button type="button" onClick={() => { void mergeAllGroups(); }} disabled={mergingAll || Boolean(consolidationJob) || Boolean(mergingKey) || Boolean(ignoringKey)}>
+            {mergingAll ? '启动中...' : (consolidationJob ? '后台整合中' : '一键整合全部')}
           </button>
           <button type="button" onClick={() => setSimilarExpanded((expanded) => !expanded)}>{similarExpanded ? '收起' : '展开'}</button>
         </div>
@@ -6601,8 +6881,8 @@ function MemoryPage({ projectPath, onSimilarCountChange }) {
               <div className="memory-similar-item" key={key}>
                 <span>「{group.nameA || group.pathA}」与「{group.nameB || group.pathB}」</span>
                 <strong>{formatMemoryScore(group.score)}</strong>
-                <button type="button" onClick={() => setMergeTarget(group)} disabled={Boolean(mergingKey) || mergingAll || Boolean(ignoringKey)}>整合</button>
-                <button type="button" className="ghost" onClick={() => { void ignoreGroup(group); }} disabled={Boolean(ignoringKey) || mergingAll || Boolean(mergingKey)}>
+                <button type="button" onClick={() => setMergeTarget(group)} disabled={Boolean(mergingKey) || mergingAll || Boolean(consolidationJob) || Boolean(ignoringKey)}>整合</button>
+                <button type="button" className="ghost" onClick={() => { void ignoreGroup(group); }} disabled={Boolean(ignoringKey) || mergingAll || Boolean(consolidationJob) || Boolean(mergingKey)}>
                   {ignoringKey === key ? '...' : '忽略'}
                 </button>
               </div>
@@ -6725,8 +7005,12 @@ function MemoryEditorModal({ editor, saving, onClose, onChange, onSave, onDelete
   const form = editor.form;
   const identityLocked = editor.mode === 'edit' && Boolean(form.existingPath);
   return (
-    <div className="modal-overlay">
-      <section className="modal-box memory-editor-modal" role="dialog" aria-modal="true" aria-label={editor.mode === 'edit' ? '编辑记忆' : '新建记忆'}>
+    <FocusTrapDialog
+      ariaLabel={editor.mode === 'edit' ? '编辑记忆' : '新建记忆'}
+      className="modal-box memory-editor-modal"
+      closeDisabled={saving}
+      onClose={onClose}
+    >
         <header>
           <div>
             <h2>{editor.mode === 'edit' ? '编辑记忆' : '新建记忆'}</h2>
@@ -6765,15 +7049,13 @@ function MemoryEditorModal({ editor, saving, onClose, onChange, onSave, onDelete
             {saving ? '保存中...' : '保存'}
           </button>
         </div>
-      </section>
-    </div>
+    </FocusTrapDialog>
   );
 }
 
 function MemoryDeleteModal({ entry, deleting, onClose, onConfirm }) {
   return (
-    <div className="modal-overlay">
-      <section className="modal-box" role="dialog" aria-modal="true" aria-label="删除记忆">
+    <FocusTrapDialog ariaLabel="删除记忆" closeDisabled={deleting} onClose={onClose}>
         <header>
           <h2>删除记忆</h2>
           <button type="button" className="ghost" onClick={onClose} disabled={deleting}>关闭</button>
@@ -6784,15 +7066,13 @@ function MemoryDeleteModal({ entry, deleting, onClose, onConfirm }) {
           <button type="button" className="ghost" onClick={onClose} disabled={deleting}>取消</button>
           <button type="button" className="danger" onClick={() => { void onConfirm(); }} disabled={deleting}>{deleting ? '删除中...' : '确认删除'}</button>
         </footer>
-      </section>
-    </div>
+    </FocusTrapDialog>
   );
 }
 
 function MemoryMergeModal({ group, merging, onClose, onConfirm }) {
   return (
-    <div className="modal-overlay">
-      <section className="modal-box" role="dialog" aria-modal="true" aria-label="整合相似记忆">
+    <FocusTrapDialog ariaLabel="整合相似记忆" closeDisabled={merging} onClose={onClose}>
         <header>
           <div>
             <h2>整合相似记忆</h2>
@@ -6806,8 +7086,7 @@ function MemoryMergeModal({ group, merging, onClose, onConfirm }) {
           <button type="button" className="ghost" onClick={onClose} disabled={merging}>取消</button>
           <button type="button" className="light" onClick={() => { void onConfirm(); }} disabled={merging}>{merging ? '整合中...' : '确认整合'}</button>
         </footer>
-      </section>
-    </div>
+    </FocusTrapDialog>
   );
 }
 
@@ -7333,8 +7612,9 @@ function SettingsPage({ projectPath }) {
         <div className="section-header">PROPERTIES</div>
         <div className="data-card-vue" data-testid="settings-provider-sandbox-card">
           <div className="settings-stall-row settings-provider-control-row">
-            <label className="settings-stall-label">推理摘要 (Summary)</label>
+            <label className="settings-stall-label" htmlFor="provider-summary-mode-select">推理摘要 (Summary)</label>
             <select
+              id="provider-summary-mode-select"
               className="settings-stall-input settings-provider-select"
               data-testid="provider-summary-mode-select"
               value={summaryMode}
@@ -7347,8 +7627,9 @@ function SettingsPage({ projectPath }) {
             </select>
           </div>
           <div className="settings-stall-row settings-provider-control-row">
-            <label className="settings-stall-label">审批策略 (ApprovalPolicy)</label>
+            <label className="settings-stall-label" htmlFor="provider-approval-mode-select">审批策略 (ApprovalPolicy)</label>
             <select
+              id="provider-approval-mode-select"
               className="settings-stall-input settings-provider-select"
               data-testid="provider-approval-mode-select"
               value={approvalMode}
@@ -7399,16 +7680,18 @@ function SettingsPage({ projectPath }) {
             />
           </label>
           <div className="settings-prompt-meta">生效行数 {lspPromptLineCount} · 字符 {lspPromptCharCount}</div>
-          <div className="settings-prompt-label">当前生效内容（只读）</div>
+          <label className="settings-prompt-label" htmlFor="settings-lsp-effective-output">当前生效内容（只读）</label>
           <textarea
+            id="settings-lsp-effective-output"
             className="settings-prompt-textarea settings-prompt-textarea-readonly"
             data-testid="settings-lsp-effective-output"
             rows={12}
             value={lspPromptDisplayHint}
             readOnly
           />
-          <div className="settings-prompt-label">自定义覆盖（可编辑，空=默认）</div>
+          <label className="settings-prompt-label" htmlFor="settings-lsp-prompt-input">自定义覆盖（可编辑，空=默认）</label>
           <textarea
+            id="settings-lsp-prompt-input"
             className="settings-prompt-textarea"
             data-testid="settings-lsp-prompt-input"
             rows={8}
@@ -7516,7 +7799,9 @@ function SettingsPage({ projectPath }) {
             <span>{store.logLevel}</span>
           </div>
           <div className="settings-stall-row settings-log-control-row">
+            <label className="settings-stall-label" htmlFor="settings-log-level-select">日志级别</label>
             <select
+              id="settings-log-level-select"
               className="settings-stall-input settings-log-level-select"
               data-testid="settings-log-level-select"
               value={store.logLevel}

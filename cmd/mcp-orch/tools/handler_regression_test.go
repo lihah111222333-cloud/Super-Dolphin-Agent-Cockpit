@@ -61,8 +61,9 @@ func TestHandleListDAGsReturnsWrappedDAGs(t *testing.T) {
 	if len(out.DAGs) != 1 || out.DAGs[0].DagKey != "dag-1" {
 		t.Fatalf("HandleListDAGs() = %#v", out)
 	}
-	if len(out.Data) != 1 || out.Data[0].DagKey != "dag-1" || out.Total != 1 || out.Showing != 1 || out.Truncated || out.Hint == "" {
-		t.Fatalf("HandleListDAGs() envelope = %#v", out)
+	assertEnvelopeCounts(t, "HandleListDAGs()", len(out.Data), out.Total, out.Showing, out.Truncated, out.Hint)
+	if out.Data[0].DagKey != "dag-1" {
+		t.Fatalf("HandleListDAGs() data = %#v", out.Data)
 	}
 	if gotFilter != (contract.ListDAGsFilter{Status: "running", Keyword: "daily", Limit: 7}) {
 		t.Fatalf("ListDAGs filter = %#v", gotFilter)
@@ -92,9 +93,10 @@ func TestHandleListAgentsEnvelopeKeepsLegacyArrayDefault(t *testing.T) {
 	if !ok {
 		t.Fatalf("HandleListAgents() envelope response = %T, want ListAgentsOutput", result)
 	}
-	if len(out.Agents) != 1 || len(out.Data) != 1 || out.Total != 1 || out.Showing != 1 || out.Truncated || out.Hint == "" {
-		t.Fatalf("HandleListAgents() envelope = %#v", out)
+	if len(out.Agents) != 1 {
+		t.Fatalf("HandleListAgents() agents = %#v", out.Agents)
 	}
+	assertEnvelopeCounts(t, "HandleListAgents()", len(out.Data), out.Total, out.Showing, out.Truncated, out.Hint)
 }
 
 func TestCreateDAGRequestFromInputRequiresAgentID(t *testing.T) {

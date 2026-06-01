@@ -116,11 +116,15 @@ func TestHandleSharedFileList_ReturnsEnvelopeWithLegacyFiles(t *testing.T) {
 	if len(res.Files) != 1 || res.Files[0].Path != "reports/summary.md" {
 		t.Fatalf("legacy files = %+v", res.Files)
 	}
-	if len(res.Data) != 1 || res.Data[0].Path != "reports/summary.md" || res.Total != 1 || res.Showing != 1 || res.Truncated || res.Hint == "" {
-		t.Fatalf("shared file list envelope = %+v", res)
+	assertEnvelopeCounts(t, "HandleSharedFileList()", len(res.Data), res.Total, res.Showing, res.Truncated, res.Hint)
+	if res.Data[0].Path != "reports/summary.md" {
+		t.Fatalf("shared file list data = %+v", res.Data)
 	}
-	if len(res.AllowedPrefixes) == 0 || res.AllowedPrefixHint == "" {
-		t.Fatalf("shared file allowed prefix fields missing = %+v", res)
+	if len(res.AllowedPrefixes) == 0 {
+		t.Fatalf("shared file allowed prefixes missing = %+v", res)
+	}
+	if res.AllowedPrefixHint == "" {
+		t.Fatalf("shared file allowed prefix hint missing = %+v", res)
 	}
 }
 

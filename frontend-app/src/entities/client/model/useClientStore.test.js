@@ -70,9 +70,13 @@ describe('useClientStore backend contract', () => {
     backend.getThreadMessages.mockResolvedValue({ messages: [] });
     backend.getPreference.mockImplementation(({ key }) => Promise.resolve({
       'settings.provider.active': 'codex',
+      'settings.provider.codex.model': 'gpt-5.5',
+      'settings.provider.codex.effort': 'xhigh',
       'settings.provider.codex.codexHome': '~/.codex',
       'settings.provider.codex.codexInstanceKey': 'default',
       'settings.provider.codex.codexModelProvider': 'openai',
+      'settings.provider.claude.model': 'sonnet',
+      'settings.provider.claude.effort': 'high',
     }[key] ?? null));
     backend.archiveThread.mockResolvedValue({ ok: true });
     backend.unarchiveThread.mockResolvedValue({ ok: true });
@@ -117,6 +121,36 @@ describe('useClientStore backend contract', () => {
     expect(state.provider).toBe('codex');
     expect(state.threads).toHaveLength(1);
     expect(state.tokenUsageByThread['thread-1'].usedTokens).toBe(42);
+  });
+
+  it('fails bootstrap when the active provider preference is missing', async () => {
+    backend.getPreference.mockImplementation(({ key }) => Promise.resolve({
+      'settings.provider.codex.codexHome': '~/.codex',
+      'settings.provider.codex.codexInstanceKey': 'default',
+      'settings.provider.codex.codexModelProvider': 'openai',
+    }[key] ?? null));
+
+    await expect(useClientStore.getState().bootstrap()).rejects.toThrow(
+      'frontend-app bootstrap: settings.provider.active preference is required',
+    );
+
+    expect(backend.getProjects).not.toHaveBeenCalled();
+    expect(useClientStore.getState().bootstrapStatus).toBe('failed');
+  });
+
+  it('fails bootstrap when the selected provider model preference is missing', async () => {
+    backend.getPreference.mockImplementation(({ key }) => Promise.resolve({
+      'settings.provider.active': 'codex',
+      'settings.provider.codex.effort': 'xhigh',
+      'settings.provider.codex.codexModelProvider': 'openai',
+    }[key] ?? null));
+
+    await expect(useClientStore.getState().bootstrap()).rejects.toThrow(
+      'provider.config: settings.provider.codex.model preference is required',
+    );
+
+    expect(backend.getProjects).not.toHaveBeenCalled();
+    expect(useClientStore.getState().bootstrapStatus).toBe('failed');
   });
 
   it('hydrates thread providers from sidebar runtime metadata', async () => {
@@ -214,6 +248,22 @@ describe('useClientStore backend contract', () => {
     expect(useClientStore.getState().actionNotice).toEqual(expect.objectContaining({
       message: '已开启的聊天不能更改 provider，请新建对话后切换',
       tone: 'warning',
+    }));
+  });
+
+  it('keeps provider toggle fail-fast when cwd is missing', async () => {
+    resetClientStoreForTests({
+      cwd: '',
+      activeProject: '',
+      provider: 'codex',
+    });
+
+    await expect(useClientStore.getState().toggleProviderMode()).rejects.toThrow(
+      'frontend-app: cwd is required for provider.toggle',
+    );
+
+    expect(backend.setPreference).not.toHaveBeenCalledWith(expect.objectContaining({
+      key: 'settings.provider.active',
     }));
   });
 
@@ -908,6 +958,30 @@ describe('useClientStore backend contract', () => {
     }));
   });
 
+  it('fails thread/start launch when provider runtime preferences are missing', async () => {
+    resetClientStoreForTests({
+      cwd: '/repo/app',
+      activeProject: '/repo/app',
+      activeThreadId: '',
+      draft: 'Use configured launch',
+      attachments: [],
+    });
+    backend.getPreference.mockImplementation(({ key }) => Promise.resolve({
+      'settings.provider.active': 'codex',
+      'settings.provider.codex.effort': 'xhigh',
+      'settings.provider.codex.codexHome': '/Users/test/.codex-alt',
+      'settings.provider.codex.codexInstanceKey': 'desktop-main',
+      'settings.provider.codex.codexModelProvider': 'openrouter',
+    }[key] ?? null));
+
+    await expect(useClientStore.getState().sendDraft()).rejects.toThrow(
+      'startThread: settings.provider.codex.model preference is required',
+    );
+
+    expect(backend.startThread).not.toHaveBeenCalled();
+    expect(backend.startTurn).not.toHaveBeenCalled();
+  });
+
   it('exposes the same launch preferences for non-chat thread launches', async () => {
     resetClientStoreForTests({
       cwd: '/repo/app',
@@ -1000,7 +1074,7 @@ describe('useClientStore backend contract', () => {
     expect(useClientStore.getState().activeThreadId).toBe('thread-claude');
   });
 
-  it('recovers and retries turn/start when the backend session is missing', async () => {
+  it('does not auto-recover or retry turn/start when the backend session is missing', async () => {
     resetClientStoreForTests({
       cwd: '/repo/app',
       activeProject: '/repo/app',
@@ -1009,16 +1083,14 @@ describe('useClientStore backend contract', () => {
       attachments: [],
     });
     backend.startTurn
-      .mockRejectedValueOnce(new Error('session not found for agent "agent_123"'))
-      .mockResolvedValueOnce({ ok: true });
+      .mockRejectedValueOnce(new Error('session not found for agent "agent_123"'));
     backend.recoverThread.mockResolvedValue({ recovered: true });
 
-    await useClientStore.getState().sendDraft();
+    await expect(useClientStore.getState().sendDraft()).rejects.toThrow('session not found for agent "agent_123"');
 
-    expect(backend.recoverThread).toHaveBeenCalledWith({ cwd: '/repo/app', threadId: 'thread-1' });
-    expect(backend.startTurn).toHaveBeenCalledTimes(2);
-    expect(backend.startTurn.mock.invocationCallOrder[0]).toBeLessThan(backend.recoverThread.mock.invocationCallOrder[0]);
-    expect(backend.recoverThread.mock.invocationCallOrder[0]).toBeLessThan(backend.startTurn.mock.invocationCallOrder[1]);
+    expect(backend.recoverThread).not.toHaveBeenCalled();
+    expect(backend.startTurn).toHaveBeenCalledTimes(1);
+    expect(useClientStore.getState().draft).toBe('Retry on missing session');
   });
 
   it('applies window bootstrap snapshot before scoped RPCs', async () => {
@@ -1320,6 +1392,48 @@ describe('useClientStore backend contract', () => {
       level: 'error',
       event: 'thread.send.failed',
     }));
+  });
+
+  it('deletes a provisional backend thread when the first turn fails', async () => {
+    resetClientStoreForTests({
+      cwd: '/repo/app',
+      activeProject: '/repo/app',
+      activeThreadId: '',
+      draft: 'Clean up provisional thread',
+      attachments: [],
+    });
+    backend.getPreference.mockImplementation(({ key }) => Promise.resolve({
+      'settings.provider.active': 'codex',
+      'settings.provider.codex.model': 'gpt-5.5',
+      'settings.provider.codex.effort': 'xhigh',
+      'settings.provider.codex.codexHome': '/Users/test/.codex-alt',
+      'settings.provider.codex.codexInstanceKey': 'desktop-main',
+      'settings.provider.codex.codexModelProvider': 'openrouter',
+    }[key] ?? null));
+    backend.startThread.mockResolvedValue({ threadId: 'thread-provisional' });
+    backend.startTurn.mockRejectedValue(new Error('turn/start failed'));
+
+    await expect(useClientStore.getState().sendDraft()).rejects.toThrow('turn/start failed');
+
+    expect(backend.deleteThread).toHaveBeenCalledWith({ threadId: 'thread-provisional' });
+    expect(useClientStore.getState().draft).toBe('Clean up provisional thread');
+  });
+
+  it('keeps sending fail-fast when cwd is missing', async () => {
+    resetClientStoreForTests({
+      cwd: '',
+      activeProject: '',
+      activeThreadId: '',
+      draft: 'Do not send without cwd',
+      attachments: [],
+    });
+
+    await expect(useClientStore.getState().sendDraft()).rejects.toThrow(
+      'frontend-app: cwd is required for send message',
+    );
+
+    expect(backend.startThread).not.toHaveBeenCalled();
+    expect(backend.startTurn).not.toHaveBeenCalled();
   });
 
   it('starts a new composer draft from a shared file continuation action', () => {

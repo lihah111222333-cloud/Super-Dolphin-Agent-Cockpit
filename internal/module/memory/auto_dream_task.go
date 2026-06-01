@@ -3,13 +3,16 @@ package memory
 import (
 	"context"
 	"errors"
+	"fmt"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	threaddto "github.com/anthropic-ai/super-agent-v3/internal/dto/thread"
 	shared "github.com/anthropic-ai/super-agent-v3/internal/module/memory/shared"
+	"github.com/anthropic-ai/super-agent-v3/internal/util/ctxutil"
 	"github.com/anthropic-ai/super-agent-v3/internal/util/safego"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
@@ -405,4 +408,187 @@ func shouldAutoDreamScan(stamp consolidationStamp, now time.Time) bool {
 		now = time.Now()
 	}
 	return now.Sub(lastScan) >= autoDreamScanThrottle
+}
+
+type uiSimilarityConsolidateAllStatusParams struct {
+	CWD   string `json:"cwd,omitempty"`
+	JobID string `json:"jobId"`
+}
+
+type uiSimilarityConsolidateAllStartResult struct {
+	JobID  string                            `json:"jobId"`
+	Status string                            `json:"status"`
+	Result *uiSimilarityConsolidateAllResult `json:"result,omitempty"`
+	Error  string                            `json:"error,omitempty"`
+}
+
+type uiSimilarityConsolidateAllStatusResult = uiSimilarityConsolidateAllStartResult
+
+func startConsolidateAllHandler(_ context.Context, p memoryHandlerDeps, req uiSimilarityConsolidateAllParams) (uiSimilarityConsolidateAllStartResult, error) {
+	if p.Service == nil {
+		return uiSimilarityConsolidateAllStartResult{}, errors.New("memory service is not configured")
+	}
+	return uiMemoryConsolidationJobs.start(p, req)
+}
+
+func statusConsolidateAllHandler(_ context.Context, p memoryHandlerDeps, req uiSimilarityConsolidateAllStatusParams) (uiSimilarityConsolidateAllStatusResult, error) {
+	if p.Service == nil {
+		return uiSimilarityConsolidateAllStatusResult{}, errors.New("memory service is not configured")
+	}
+	return uiMemoryConsolidationJobs.status(req)
+}
+
+const (
+	uiMemoryConsolidationStatusRunning   = "running"
+	uiMemoryConsolidationStatusSucceeded = "succeeded"
+)
+
+type uiMemoryConsolidationRunner func(context.Context, memoryHandlerDeps, uiSimilarityConsolidateAllParams) (uiSimilarityConsolidateAllResult, error)
+
+type uiMemoryConsolidationJob struct {
+	id          string
+	cwdKey      string
+	status      string
+	result      *uiSimilarityConsolidateAllResult
+	err         string
+	completedAt time.Time
+}
+
+type uiMemoryConsolidationJobStore struct {
+	mu      sync.Mutex
+	jobs    map[string]*uiMemoryConsolidationJob
+	running map[string]string
+	run     uiMemoryConsolidationRunner
+	timeout time.Duration
+	ttl     time.Duration
+	now     func() time.Time
+}
+
+var uiMemoryConsolidationJobs = newUIMemoryConsolidationJobStore(runConsolidateAll, ctxutil.DreamConsolidationTimeout)
+
+func newUIMemoryConsolidationJobStore(run uiMemoryConsolidationRunner, timeout time.Duration) *uiMemoryConsolidationJobStore {
+	if run == nil {
+		panic("memory consolidation runner is required")
+	}
+	if timeout <= 0 {
+		timeout = ctxutil.DreamConsolidationTimeout
+	}
+	return &uiMemoryConsolidationJobStore{
+		jobs:    make(map[string]*uiMemoryConsolidationJob),
+		running: make(map[string]string),
+		run:     run,
+		timeout: timeout,
+		ttl:     10 * time.Minute,
+		now:     time.Now,
+	}
+}
+
+func (s *uiMemoryConsolidationJobStore) start(deps memoryHandlerDeps, req uiSimilarityConsolidateAllParams) (uiSimilarityConsolidateAllStartResult, error) {
+	cwdKey := uiMemoryConsolidationCWDKey(deps, req.CWD)
+	now := s.now()
+
+	s.mu.Lock()
+	s.pruneLocked(now)
+	if runningID := s.running[cwdKey]; runningID != "" {
+		out := s.snapshotLocked(s.jobs[runningID])
+		s.mu.Unlock()
+		return out, nil
+	}
+	jobID := fmt.Sprintf("memory-consolidate-%d-%d", now.UnixNano(), len(s.jobs)+1)
+	job := &uiMemoryConsolidationJob{id: jobID, cwdKey: cwdKey, status: uiMemoryConsolidationStatusRunning}
+	s.jobs[jobID] = job
+	s.running[cwdKey] = jobID
+	out := s.snapshotLocked(job)
+	s.mu.Unlock()
+
+	go s.runJob(jobID, deps, req)
+	return out, nil
+}
+
+func (s *uiMemoryConsolidationJobStore) status(req uiSimilarityConsolidateAllStatusParams) (uiSimilarityConsolidateAllStatusResult, error) {
+	jobID := strings.TrimSpace(req.JobID)
+	if jobID == "" {
+		return uiSimilarityConsolidateAllStatusResult{}, publicValidationErr("jobId is required")
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.pruneLocked(s.now())
+	job := s.jobs[jobID]
+	if job == nil {
+		return uiSimilarityConsolidateAllStatusResult{}, publicValidationErr("memory consolidation job not found")
+	}
+	if cwdKey := strings.TrimSpace(req.CWD); cwdKey != "" && cwdKey != job.cwdKey {
+		return uiSimilarityConsolidateAllStatusResult{}, publicValidationErr("memory consolidation job not found")
+	}
+	return s.snapshotLocked(job), nil
+}
+
+func (s *uiMemoryConsolidationJobStore) runJob(jobID string, deps memoryHandlerDeps, req uiSimilarityConsolidateAllParams) {
+	ctx, cancel := ctxutil.WithTimeout(context.Background(), s.timeout)
+	defer cancel()
+
+	result, err := s.run(ctx, deps, req)
+	s.finishJob(jobID, deps, result, err)
+}
+
+func (s *uiMemoryConsolidationJobStore) finishJob(jobID string, deps memoryHandlerDeps, result uiSimilarityConsolidateAllResult, err error) {
+	if err == nil {
+		publishUIMemoryChanged(deps, "consolidate-similarities")
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	job := s.jobs[jobID]
+	if job == nil {
+		return
+	}
+	job.completedAt = s.now()
+	if err != nil {
+		job.status = "failed"
+		job.err = err.Error()
+	} else {
+		job.status = uiMemoryConsolidationStatusSucceeded
+		job.result = &result
+	}
+	delete(s.running, job.cwdKey)
+}
+
+func (s *uiMemoryConsolidationJobStore) snapshotLocked(job *uiMemoryConsolidationJob) uiSimilarityConsolidateAllStatusResult {
+	if job == nil {
+		return uiSimilarityConsolidateAllStatusResult{}
+	}
+	out := uiSimilarityConsolidateAllStatusResult{JobID: job.id, Status: job.status, Error: job.err}
+	if job.result != nil {
+		copyResult := *job.result
+		out.Result = &copyResult
+	}
+	return out
+}
+
+func (s *uiMemoryConsolidationJobStore) pruneLocked(now time.Time) {
+	if s.ttl <= 0 {
+		return
+	}
+	for id, job := range s.jobs {
+		if job == nil || job.completedAt.IsZero() || now.Sub(job.completedAt) <= s.ttl {
+			continue
+		}
+		delete(s.jobs, id)
+		if s.running[job.cwdKey] == id {
+			delete(s.running, job.cwdKey)
+		}
+	}
+}
+
+func uiMemoryConsolidationCWDKey(deps memoryHandlerDeps, cwd string) string {
+	if trimmed := strings.TrimSpace(cwd); trimmed != "" {
+		return trimmed
+	}
+	if deps.Service != nil {
+		if projectRoot := strings.TrimSpace(deps.Service.Config().ProjectRoot); projectRoot != "" {
+			return projectRoot
+		}
+	}
+	return "default"
 }

@@ -10,13 +10,13 @@ import (
 
 type ParseFunc func(string) (string, error)
 
-func Execute(ctx context.Context, dream contract.DreamExecutor, prompt string, parse ParseFunc) (string, error) {
+func ExecuteWithOptions(ctx context.Context, dream contract.DreamExecutor, prompt string, options contract.DreamOptions, parse ParseFunc) (string, error) {
 	ctx, cancel := platformconfig.WithTimeoutIfNone(ctx, platformconfig.RPCRequestTimeout)
 	defer cancel()
 
 	var lastErr error
 	for attempt := 0; attempt < 2; attempt++ {
-		raw, err := dream.ExecuteDream(ctx, prompt)
+		raw, err := executeDream(ctx, dream, prompt, options)
 		if err != nil {
 			return "", err
 		}
@@ -30,6 +30,13 @@ func Execute(ctx context.Context, dream contract.DreamExecutor, prompt string, p
 		}
 	}
 	return "", lastErr
+}
+
+func executeDream(ctx context.Context, dream contract.DreamExecutor, prompt string, options contract.DreamOptions) (string, error) {
+	if withOptions, ok := dream.(contract.DreamExecutorWithOptions); ok {
+		return withOptions.ExecuteDreamWithOptions(ctx, prompt, options)
+	}
+	return dream.ExecuteDream(ctx, prompt)
 }
 
 func retryable(err error) bool {

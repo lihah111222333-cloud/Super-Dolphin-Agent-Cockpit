@@ -21,6 +21,7 @@ const (
 	InterruptSettleTimeout    = ctxutil.InterruptSettleTimeout
 	AsyncLaunchTimeout        = ctxutil.AsyncLaunchTimeout
 	DreamConsolidationTimeout = ctxutil.DreamConsolidationTimeout
+	PromptIntentDraftTimeout  = ctxutil.PromptIntentDraftTimeout
 )
 
 func WithTimeout(ctx context.Context, timeout time.Duration) (context.Context, context.CancelFunc) {

@@ -57,7 +57,7 @@ func HandleDraft(
 	if err != nil {
 		return nil, err
 	}
-	ctx, cancel := platformconfig.WithTimeoutIfNone(ctx, platformconfig.RPCRequestTimeout)
+	ctx, cancel := platformconfig.WithTimeoutIfNone(ctx, platformconfig.PromptIntentDraftTimeout)
 	defer cancel()
 	prompt, err := buildPromptIntentDraftPrompt(ctx, promptStore, cwd, kind, rawInput)
 	if err != nil {
