@@ -27,13 +27,20 @@ export async function writeSkill(cwd = '', path = '', content = '', scope = '', 
 }
 
 export async function suggestSkillSummary(cwd = '', params = {}) {
-  const raw = await callAPI('skills/summary/suggest', withOptionalCwd({
+  const payload = {
     name: trimString(params?.name),
     description: trimString(params?.description),
     content: (params?.content || '').toString(),
     scenario_words: Array.isArray(params?.scenarioWords) ? params.scenarioWords : [],
     scope: trimString(params?.scope),
-  }, cwd));
+  };
+  const provider = trimString(params?.provider || params?.modelProvider);
+  const model = trimString(params?.model);
+  const modelProvider = trimString(params?.model_provider || params?.codexModelProvider);
+  if (provider) payload.provider = provider;
+  if (model) payload.model = model;
+  if (modelProvider) payload.model_provider = modelProvider;
+  const raw = await callAPI('skills/summary/suggest', withOptionalCwd(payload, cwd));
   return trimString(raw?.description);
 }
 

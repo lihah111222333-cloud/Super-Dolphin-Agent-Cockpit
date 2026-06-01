@@ -58,6 +58,8 @@ const backend = vi.hoisted(() => ({
   mergeMemoryEntries: vi.fn(),
   ignoreMemorySimilarity: vi.fn(),
   consolidateMemorySimilarities: vi.fn(),
+  startConsolidateMemorySimilarities: vi.fn(),
+  getMemoryConsolidationStatus: vi.fn(),
   listDags: vi.fn(),
   getDagDetail: vi.fn(),
   getDagRuns: vi.fn(),
@@ -300,6 +302,12 @@ describe('frontend-app connected client shell', () => {
     backend.mergeMemoryEntries.mockResolvedValue({ path: 'feedback/tdd.md' });
     backend.ignoreMemorySimilarity.mockResolvedValue({ ok: true });
     backend.consolidateMemorySimilarities.mockResolvedValue({ merged: 1, ignored: 0, failed: 0, skipped: 0 });
+    backend.startConsolidateMemorySimilarities.mockResolvedValue({ jobId: 'memory-job-1', status: 'running' });
+    backend.getMemoryConsolidationStatus.mockResolvedValue({
+      jobId: 'memory-job-1',
+      status: 'succeeded',
+      result: { merged: 1, ignored: 0, failed: 0, skipped: 0 },
+    });
     backend.onFilesDropped.mockReturnValue(() => {});
     backend.saveTextFile.mockResolvedValue('/exports/file.md');
     backend.beginTextClipboardWrite.mockReturnValue(null);
@@ -2781,6 +2789,115 @@ describe('frontend-app connected client shell', () => {
     });
   });
 
+  it('does not submit prompt drafts that still need revision', async () => {
+    backend.draftPromptIntent.mockResolvedValueOnce({
+      draft_key: 'intent/expert/alcohol-support',
+      kind: 'expert',
+      scope: 'project',
+      status: 'draft',
+      card: {
+        kind: 'expert',
+        title: '想喝酒时给予支持性鼓励',
+        summary: '在用户想喝酒时给予支持。',
+        output: '温和提醒用户先停下来。',
+        hit_examples: ['我想喝酒'],
+        miss_examples: ['帮我写代码'],
+      },
+      issues: [{ code: 'missing_when_not_to_use', severity: 'block', message: '需要补充不用它的场景' }],
+    });
+
+    render(<App />);
+    await screen.findByText('后端线程');
+    fireEvent.click(screen.getByLabelText('提示词'));
+    fireEvent.click(await screen.findByRole('button', { name: '+ 添加给 AI 的内容' }));
+    fireEvent.change(await screen.findByLabelText('写下希望 AI 记住或使用的内容'), {
+      target: { value: '在我想喝酒的时候鼓励我' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: '帮我生成' }));
+
+    expect(await screen.findByText('想喝酒时给予支持性鼓励')).toBeInTheDocument();
+    expect(screen.getByText('这条内容还需要完善后才能保存，请调整描述后重新生成。')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '确认保存' })).toBeDisabled();
+    expect(backend.commitPromptIntent).not.toHaveBeenCalled();
+  });
+
+  it('shows user-facing prompt save guidance when the backend rejects an unready draft', async () => {
+    backend.draftPromptIntent.mockResolvedValueOnce({
+      draft_key: 'intent/expert/alcohol-support',
+      kind: 'expert',
+      scope: 'project',
+      status: 'ready_to_save',
+      card: {
+        kind: 'expert',
+        title: '想喝酒时给予支持性鼓励',
+        summary: '在用户想喝酒时给予支持。',
+        output: '温和提醒用户先停下来。',
+        hit_examples: ['我想喝酒'],
+        miss_examples: ['帮我写代码'],
+      },
+      issues: [],
+    });
+    backend.commitPromptIntent.mockRejectedValueOnce(new Error('with_tx prompt_template: [-31007] prompt intent draft is not ready to save'));
+
+    render(<App />);
+    await screen.findByText('后端线程');
+    fireEvent.click(screen.getByLabelText('提示词'));
+    fireEvent.click(await screen.findByRole('button', { name: '+ 添加给 AI 的内容' }));
+    fireEvent.change(await screen.findByLabelText('写下希望 AI 记住或使用的内容'), {
+      target: { value: '在我想喝酒的时候鼓励我' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: '帮我生成' }));
+    expect(await screen.findByText('想喝酒时给予支持性鼓励')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '确认保存' }));
+
+    await waitFor(() => {
+      expect(screen.getByText('这条内容还需要完善后才能保存，请调整描述后重新生成。')).toBeInTheDocument();
+    });
+    expect(screen.getByText('这条内容还需要完善后才能保存，请调整描述后重新生成。')).not.toHaveClass('error');
+    expect(screen.queryByText(/with_tx|31007|not ready to save/i)).not.toBeInTheDocument();
+  });
+
+  it('shows generated prompt draft details like the legacy confirmation card', async () => {
+    backend.draftPromptIntent.mockResolvedValueOnce({
+      draft_key: 'intent/expert/alcohol-support',
+      kind: 'expert',
+      scope: 'project',
+      status: 'draft',
+      card: {
+        kind: 'expert',
+        title: '想喝酒时暂停提醒',
+        summary: '在用户表达想喝酒时给予支持。',
+        when_to_use: '当用户表达想喝酒、想买酒或可能冲动饮酒时使用。',
+        when_not_to_use: '不要用于普通饮食建议或医疗诊断。',
+        workflow: ['先接住情绪', '提醒用户暂停饮酒', '建议做一个安全替代行动'],
+        save_boundary: '只给出建议，不声称已经保存到记忆。',
+        output: '输出一段温和、坚定的提醒，并给出一个可马上执行的替代行动。',
+        hit_examples: ['我现在想喝酒'],
+        miss_examples: ['推荐一杯咖啡'],
+      },
+      issues: [{ code: 'missing_when_not_to_use', severity: 'block', message: 'internal field copy' }],
+    });
+
+    render(<App />);
+    await screen.findByText('后端线程');
+    fireEvent.click(screen.getByLabelText('提示词'));
+    fireEvent.click(await screen.findByRole('button', { name: '+ 添加给 AI 的内容' }));
+    fireEvent.change(await screen.findByLabelText('写下希望 AI 记住或使用的内容'), {
+      target: { value: '在我想喝酒的时候阻止我' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: '帮我生成' }));
+
+    expect(await screen.findByText('想喝酒时暂停提醒')).toBeInTheDocument();
+    expect(screen.getByText('当用户表达想喝酒、想买酒或可能冲动饮酒时使用。')).toBeInTheDocument();
+    expect(screen.getByText('不要用于普通饮食建议或医疗诊断。')).toBeInTheDocument();
+    expect(screen.getByText('先接住情绪')).toBeInTheDocument();
+    expect(screen.getByText('只给出建议，不声称已经保存到记忆。')).toBeInTheDocument();
+    expect(screen.getByText('我现在想喝酒')).toBeInTheDocument();
+    expect(screen.getByText('推荐一杯咖啡')).toBeInTheDocument();
+    expect(screen.getByText('需要说明哪些问题不适合使用它。')).toBeInTheDocument();
+    expect(screen.queryByText('internal field copy')).not.toBeInTheDocument();
+  });
+
   it('loads memory center through ui/memory/get and groups entries by type', async () => {
     backend.getMemorySnapshot.mockResolvedValue({
       overview: {
@@ -3213,9 +3330,24 @@ describe('frontend-app connected client shell', () => {
     await waitFor(() => {
       expect(screen.getByRole('button', { name: '一键整合全部' })).not.toBeDisabled();
     });
+    backend.getPreference.mockImplementation(({ key }) => Promise.resolve({
+      'settings.provider.active': 'codex',
+      'settings.provider.codex.model': 'gpt-5.4',
+      'settings.provider.codex.codexHome': '~/.codex',
+      'settings.provider.codex.codexInstanceKey': 'default',
+      'settings.provider.codex.codexModelProvider': 'openai',
+    }[key] ?? null));
     fireEvent.click(screen.getByRole('button', { name: '一键整合全部' }));
     await waitFor(() => {
-      expect(backend.consolidateMemorySimilarities).toHaveBeenCalledWith({ cwd: '/repo/app' });
+      expect(backend.startConsolidateMemorySimilarities).toHaveBeenCalledWith(expect.objectContaining({
+        cwd: '/repo/app',
+        provider: 'codex',
+        model: 'gpt-5.4',
+        codexModelProvider: 'openai',
+      }));
+    });
+    await waitFor(() => {
+      expect(backend.getMemoryConsolidationStatus).toHaveBeenCalledWith({ cwd: '/repo/app', jobId: 'memory-job-1' });
     });
     await waitFor(() => {
       expect(screen.getByRole('button', { name: '忽略' })).not.toBeDisabled();
@@ -3261,11 +3393,15 @@ describe('frontend-app connected client shell', () => {
       },
     };
     let hasSimilar = true;
-    let finishConsolidation;
     backend.getMemorySnapshot.mockImplementation(() => Promise.resolve(hasSimilar ? snapshotWithSimilar : snapshotWithoutSimilar));
-    backend.consolidateMemorySimilarities.mockImplementation(() => new Promise((resolve) => {
-      finishConsolidation = resolve;
-    }));
+    backend.startConsolidateMemorySimilarities.mockResolvedValue({ jobId: 'memory-job-live', status: 'running' });
+    backend.getMemoryConsolidationStatus
+      .mockResolvedValueOnce({ jobId: 'memory-job-live', status: 'running' })
+      .mockResolvedValueOnce({
+        jobId: 'memory-job-live',
+        status: 'succeeded',
+        result: { merged: 1, ignored: 0, failed: 0, skipped: 0 },
+      });
 
     render(<App />);
     await screen.findByText('后端线程');
@@ -3275,17 +3411,31 @@ describe('frontend-app connected client shell', () => {
 
     fireEvent.click(screen.getByLabelText('记忆中心'));
     expect(await screen.findByText('1 组条目内容相似')).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: '一键整合全部' }));
 
-    await waitFor(() => {
-      expect(backend.consolidateMemorySimilarities).toHaveBeenCalledWith({ cwd: '/repo/app' });
-    });
-    expect(screen.getByRole('button', { name: '整合中...' })).toBeDisabled();
+    vi.useFakeTimers();
+    try {
+      fireEvent.click(screen.getByRole('button', { name: '一键整合全部' }));
+      await act(async () => {
+        await Promise.resolve();
+        await Promise.resolve();
+      });
 
-    hasSimilar = false;
-    await act(async () => {
-      finishConsolidation({ merged: 1, ignored: 0, failed: 0, skipped: 0 });
-    });
+      expect(backend.startConsolidateMemorySimilarities).toHaveBeenCalledWith(expect.objectContaining({
+        cwd: '/repo/app',
+        provider: 'codex',
+        codexModelProvider: 'openai',
+      }));
+      expect(backend.getMemoryConsolidationStatus).toHaveBeenCalledWith({ cwd: '/repo/app', jobId: 'memory-job-live' });
+      expect(screen.getByRole('button', { name: '后台整合中' })).toBeDisabled();
+
+      hasSimilar = false;
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(2000);
+        await Promise.resolve();
+      });
+    } finally {
+      vi.useRealTimers();
+    }
 
     await waitFor(() => {
       expect(screen.queryByText('1 组条目内容相似')).not.toBeInTheDocument();
@@ -4439,6 +4589,14 @@ describe('frontend-app connected client shell', () => {
 
   it('creates a skill, suggests a summary, and saves through skills/local/write', async () => {
     backend.suggestSkillSummary.mockResolvedValueOnce({ description: '当你需要部署服务时使用。' });
+    backend.getPreference.mockImplementation(({ key }) => Promise.resolve({
+      'settings.provider.active': 'codex',
+      'settings.provider.codex.model': 'gpt-5.5',
+      'settings.provider.codex.effort': 'xhigh',
+      'settings.provider.codex.codexHome': '~/.codex',
+      'settings.provider.codex.codexInstanceKey': 'default',
+      'settings.provider.codex.codexModelProvider': 'openrouter',
+    }[key] ?? null));
 
     render(<App />);
     await screen.findByText('后端线程');
@@ -4453,7 +4611,10 @@ describe('frontend-app connected client shell', () => {
     fireEvent.change(screen.getByLabelText('技能内容'), { target: { value: '## 部署规则\n执行部署前检查环境。' } });
     fireEvent.click(screen.getByRole('button', { name: '帮我生成' }));
 
-    expect(await screen.findByText(/当你需要部署服务时使用。/)).toBeInTheDocument();
+    const summarySuggestion = await screen.findByText(/当你需要部署服务时使用。/);
+    expect(summarySuggestion).toBeInTheDocument();
+    expect(screen.getByLabelText('技能简介').compareDocumentPosition(summarySuggestion) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(summarySuggestion.compareDocumentPosition(screen.getByText('使用范围')) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: '采用' }));
     expect(screen.getByLabelText('技能简介')).toHaveValue('当你需要部署服务时使用。');
     fireEvent.click(screen.getByRole('button', { name: '保存技能' }));
@@ -4466,6 +4627,9 @@ describe('frontend-app connected client shell', () => {
         content: '## 部署规则\n执行部署前检查环境。',
         scenario_words: ['deploy', 'ship'],
         scope: 'project',
+        provider: 'codex',
+        model: 'gpt-5.5',
+        codexModelProvider: 'openrouter',
       });
       expect(backend.writeSkill).toHaveBeenCalledWith(expect.objectContaining({
         cwd: '/repo/app',

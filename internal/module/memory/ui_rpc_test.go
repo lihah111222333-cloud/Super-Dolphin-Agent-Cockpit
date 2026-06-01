@@ -9,6 +9,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 )
 
 func TestBuildUIMemorySnapshotIncludesDurableAndAgentMemories(t *testing.T) {
@@ -63,6 +65,131 @@ func TestRegisterUIMemoryMutationHandlersDoesNotExposeSharedFilePromote(t *testi
 	if _, ok := handlers["ui/memory/shared-file/cleanup-apply"]; !ok {
 		t.Fatal("ui/memory/shared-file/cleanup-apply should be registered")
 	}
+	if _, ok := handlers["ui/memory/similarity/consolidate-all/start"]; !ok {
+		t.Fatal("ui/memory/similarity/consolidate-all/start should be registered")
+	}
+	if _, ok := handlers["ui/memory/similarity/consolidate-all/status"]; !ok {
+		t.Fatal("ui/memory/similarity/consolidate-all/status should be registered")
+	}
+}
+
+func TestUIMemoryConsolidationJobStoreReturnsRunningBeforeWorkCompletes(t *testing.T) {
+	store, started, release := newBlockingMemoryConsolidationJobStore()
+
+	start, err := store.start(memoryHandlerDeps{}, uiSimilarityConsolidateAllParams{CWD: "/repo/app"})
+	if err != nil {
+		t.Fatalf("start() error = %v", err)
+	}
+	if start.JobID == "" || start.Status != uiMemoryConsolidationStatusRunning {
+		t.Fatalf("start() = %+v, want running job id", start)
+	}
+
+	waitForMemoryConsolidationSignal(t, started, "background consolidation did not start")
+	assertMemoryConsolidationStatus(t, store, start.JobID, uiMemoryConsolidationStatusRunning)
+
+	close(release)
+	status := waitForMemoryConsolidationJobStatus(t, store, start.JobID, uiMemoryConsolidationStatusSucceeded)
+	if status.Result == nil || status.Result.Merged != 1 {
+		t.Fatalf("status(succeeded) = %+v, want merged result", status)
+	}
+}
+
+func TestSimilarityAdapterDreamExecutePassesRequestedProviderOptions(t *testing.T) {
+	dream := &recordingOptionsDreamExecutor{output: `{"decisions":[]}`}
+	adapter := newSimilarityAdapter(memoryHandlerDeps{DreamExecutor: dream}, contract.DreamOptions{
+		Provider:      "codex",
+		Model:         "gpt-5.5",
+		ModelProvider: "openai",
+	})
+
+	if _, err := adapter.DreamExecute(context.Background(), "memory prompt"); err != nil {
+		t.Fatalf("DreamExecute() error = %v", err)
+	}
+	if len(dream.options) != 1 {
+		t.Fatalf("recorded options = %d, want 1", len(dream.options))
+	}
+	if got := dream.options[0]; got.Provider != "codex" || got.Model != "gpt-5.5" || got.ModelProvider != "openai" {
+		t.Fatalf("dream options = %+v, want codex/gpt-5.5/openai", got)
+	}
+}
+
+func TestConsolidateAllDreamFailureUsesUserFacingError(t *testing.T) {
+	err := publicConsolidateAllError(fmt.Errorf("LLM consolidate: provider failed"))
+	if err == nil {
+		t.Fatal("publicConsolidateAllError() = nil, want user-facing error")
+	}
+	if strings.Contains(err.Error(), "durable memory") || strings.Contains(err.Error(), "LLM consolidate") {
+		t.Fatalf("error %q still exposes internal wording", err.Error())
+	}
+	if !strings.Contains(err.Error(), "模型") {
+		t.Fatalf("error %q should explain model failure", err.Error())
+	}
+}
+
+type recordingOptionsDreamExecutor struct {
+	output  string
+	options []contract.DreamOptions
+}
+
+func (e *recordingOptionsDreamExecutor) ExecuteDream(ctx context.Context, prompt string) (string, error) {
+	return e.ExecuteDreamWithOptions(ctx, prompt, contract.DreamOptions{})
+}
+
+func (e *recordingOptionsDreamExecutor) ExecuteDreamWithOptions(_ context.Context, _ string, options contract.DreamOptions) (string, error) {
+	e.options = append(e.options, options)
+	return e.output, nil
+}
+
+func newBlockingMemoryConsolidationJobStore() (*uiMemoryConsolidationJobStore, <-chan struct{}, chan<- struct{}) {
+	started := make(chan struct{})
+	release := make(chan struct{})
+	store := newUIMemoryConsolidationJobStore(func(ctx context.Context, _ memoryHandlerDeps, _ uiSimilarityConsolidateAllParams) (uiSimilarityConsolidateAllResult, error) {
+		close(started)
+		select {
+		case <-release:
+			return uiSimilarityConsolidateAllResult{Merged: 1}, nil
+		case <-ctx.Done():
+			return uiSimilarityConsolidateAllResult{}, ctx.Err()
+		}
+	}, time.Minute)
+	return store, started, release
+}
+
+func waitForMemoryConsolidationSignal(t *testing.T, signal <-chan struct{}, message string) {
+	t.Helper()
+	select {
+	case <-signal:
+	case <-time.After(time.Second):
+		t.Fatal(message)
+	}
+}
+
+func assertMemoryConsolidationStatus(t *testing.T, store *uiMemoryConsolidationJobStore, jobID, want string) {
+	t.Helper()
+	status, err := store.status(uiSimilarityConsolidateAllStatusParams{CWD: "/repo/app", JobID: jobID})
+	if err != nil {
+		t.Fatalf("status(%s) error = %v", want, err)
+	}
+	if status.Status != want {
+		t.Fatalf("status(%s) = %+v", want, status)
+	}
+}
+
+func waitForMemoryConsolidationJobStatus(t *testing.T, store *uiMemoryConsolidationJobStore, jobID, want string) uiSimilarityConsolidateAllStatusResult {
+	t.Helper()
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		status, err := store.status(uiSimilarityConsolidateAllStatusParams{CWD: "/repo/app", JobID: jobID})
+		if err != nil {
+			t.Fatalf("status() error = %v", err)
+		}
+		if status.Status == want {
+			return status
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatalf("job %s did not reach %s", jobID, want)
+	return uiSimilarityConsolidateAllStatusResult{}
 }
 
 func newUIMemorySnapshotConfig(t *testing.T, projectRoot, privateRoot string) *Config {

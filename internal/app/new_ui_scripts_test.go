@@ -67,6 +67,9 @@ func TestNewUIDesktopScriptAutostartsLocalPostgresBeforeBackend(t *testing.T) {
 	if strings.Contains(text, `export DATABASE_URL="${DATABASE_URL:-`) {
 		t.Fatal("run-new-ui-desktop.sh must not overwrite an explicit DATABASE_URL")
 	}
+	if strings.Contains(text, ",,}") {
+		t.Fatal("run-new-ui-desktop.sh must remain compatible with macOS Bash 3.2 and avoid Bash 4 lowercase expansion")
+	}
 }
 
 func TestNewUIWebScriptContract(t *testing.T) {

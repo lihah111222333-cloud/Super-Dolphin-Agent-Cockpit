@@ -12,9 +12,9 @@ type DreamExecutor interface {
 }
 
 type DreamOptions struct {
-	Provider      string
-	Model         string
-	ModelProvider string
+	Provider      string `json:"provider,omitempty"`
+	Model         string `json:"model,omitempty"`
+	ModelProvider string `json:"model_provider,omitempty"`
 }
 
 type DreamExecutorWithOptions interface {
