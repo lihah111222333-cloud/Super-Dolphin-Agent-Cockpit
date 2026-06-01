@@ -39,6 +39,16 @@ const backend = vi.hoisted(() => ({
   }),
 }));
 
+function deferred() {
+  let resolve;
+  let reject;
+  const promise = new Promise((promiseResolve, promiseReject) => {
+    resolve = promiseResolve;
+    reject = promiseReject;
+  });
+  return { promise, resolve, reject };
+}
+
 vi.mock('../../../shared/api/backendApi.js', () => ({
   ...backend,
   registerBridgeLogStore: vi.fn(),
@@ -356,15 +366,71 @@ describe('useClientStore backend contract', () => {
     await expect(useClientStore.getState().setActiveProjectPath('/repo/other')).resolves.toBe(true);
 
     expect(backend.getSidebarState).toHaveBeenCalledWith({ cwd: '/repo/other' });
-    expect(useClientStore.getState().activeThreadId).toBe('thread-new');
+    expect(useClientStore.getState().activeThreadId).toBe('');
     expect(useClientStore.getState().threads).toEqual([
       expect.objectContaining({ id: 'thread-new', name: 'Other project thread', provider: 'claude' }),
     ]);
+    expect(backend.getThreadState).not.toHaveBeenCalledWith({
+      cwd: '/repo/other',
+      threadId: 'thread-new',
+      includeDiff: true,
+    });
     expect(useClientStore.getState().threads.some((thread) => thread.id === 'thread-old')).toBe(false);
     expect(useClientStore.getState().timelinesByThread).not.toHaveProperty('thread-old');
     expect(useClientStore.getState().tokenUsageByThread).not.toHaveProperty('thread-old');
     expect(useClientStore.getState().activityStatsByThread).not.toHaveProperty('thread-old');
     expect(useClientStore.getState().diffTextByThread).not.toHaveProperty('thread-old');
+
+    await useClientStore.getState().setActiveThread('thread-new');
+    expect(backend.getThreadState).toHaveBeenCalledWith({
+      cwd: '/repo/other',
+      threadId: 'thread-new',
+      includeDiff: true,
+    });
+    expect(useClientStore.getState().activeThreadId).toBe('thread-new');
+  });
+
+  it('switches project immediately while the sidebar refresh continues in the background', async () => {
+    const projectChange = deferred();
+    const sidebarRefresh = deferred();
+    resetClientStoreForTests({
+      cwd: '/repo/app',
+      projectScopeCwd: '/repo/app',
+      activeProject: '/repo/app',
+      projects: ['/repo/app', '/repo/other'],
+      activeThreadId: 'thread-old',
+      threads: [{ id: 'thread-old', name: 'Old project thread', provider: 'codex', status: 'running' }],
+      timelinesByThread: { 'thread-old': [{ id: 'old-user', role: 'user', text: 'old cwd message' }] },
+    });
+    backend.setActiveProject.mockReturnValue(projectChange.promise);
+    backend.getSidebarState.mockReturnValue(sidebarRefresh.promise);
+
+    const switchPromise = useClientStore.getState().setActiveProjectPath('/repo/other');
+    await Promise.resolve();
+
+    expect(useClientStore.getState()).toEqual(expect.objectContaining({
+      activeProject: '/repo/other',
+      activeThreadId: '',
+      chatSurfaceLoadingCwd: '/repo/other',
+    }));
+    expect(useClientStore.getState().threads).toEqual([]);
+    expect(backend.getSidebarState).toHaveBeenCalledWith({ cwd: '/repo/other' });
+
+    sidebarRefresh.resolve({
+      activeThreadId: 'thread-other',
+      threads: [{ id: 'thread-other', name: 'Other project thread', provider: 'claude', status: 'idle' }],
+    });
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(useClientStore.getState().threads).toEqual([
+      expect.objectContaining({ id: 'thread-other', name: 'Other project thread' }),
+    ]);
+    expect(useClientStore.getState().activeThreadId).toBe('');
+    expect(useClientStore.getState().chatSurfaceLoadingCwd).toBe('');
+
+    projectChange.resolve({ projects: ['/repo/app', '/repo/other'], active: '/repo/other' });
+    await expect(switchPromise).resolves.toBe(true);
   });
 
   it('filters mixed sidebar snapshots to the selected project cwd', async () => {
@@ -388,7 +454,7 @@ describe('useClientStore backend contract', () => {
     expect(useClientStore.getState().threads).toEqual([
       expect.objectContaining({ id: 'thread-app', name: 'App thread', cwd: '/repo/app' }),
     ]);
-    expect(useClientStore.getState().activeThreadId).toBe('thread-app');
+    expect(useClientStore.getState().activeThreadId).toBe('');
   });
 
   it('keeps composer drafts isolated by selected thread and project cwd', async () => {
@@ -460,12 +526,12 @@ describe('useClientStore backend contract', () => {
 
     await expect(useClientStore.getState().setActiveProjectPath('/repo/other')).resolves.toBe(true);
 
-    expect(backend.getThreadState).toHaveBeenCalledWith({
+    expect(backend.getThreadState).not.toHaveBeenCalledWith({
       cwd: '/repo/other',
       threadId: 'thread-new',
       includeDiff: true,
     });
-    expect(useClientStore.getState().activeThreadId).toBe('thread-new');
+    expect(useClientStore.getState().activeThreadId).toBe('');
     expect(useClientStore.getState().threads).toEqual([
       expect.objectContaining({ id: 'thread-new', name: 'Other project thread' }),
     ]);
