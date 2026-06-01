@@ -3022,9 +3022,11 @@ function ChatPage({ store, projectPath }) {
   const modelThreadId = composerConfigThreadId(store, activeThreadId);
   const activeThread = activeThreadForStore(store);
   const timelineBlocked = Boolean(activeThreadId && store.threadStateLoadingByThread?.[activeThreadId]);
-  const [lastSettledThreadId, setLastSettledThreadId] = useState(activeThreadId);
-  const timelineContentBlocked = timelineBlocked && normalizedThreadIdentity(lastSettledThreadId) !== normalizedThreadIdentity(activeThreadId);
-  const messages = threadScopedMapValue(store.timelinesByThread, activeThreadId, activeThread, []) || [];
+  const timelineReady = Boolean(activeThreadId && store.threadTimelineReadyByThread?.[activeThreadId]);
+  const timelineBlockedWithoutCache = timelineBlocked && !timelineReady;
+  const messages = timelineBlockedWithoutCache
+    ? []
+    : (threadScopedMapValue(store.timelinesByThread, activeThreadId, activeThread, []) || []);
   const tokenUsage = threadScopedMapValue(store.tokenUsageByThread, activeThreadId, activeThread, null);
   const activityStats = threadScopedMapValue(store.activityStatsByThread, activeThreadId, activeThread, null);
   const diffText = threadScopedMapValue(store.diffTextByThread, activeThreadId, activeThread, '') || '';
@@ -3043,10 +3045,6 @@ function ChatPage({ store, projectPath }) {
   const effectiveThreadRailWidth = clampWidth(threadRailWidth, THREAD_RAIL_MIN_WIDTH, threadRailMaxWidth);
   const maxRightPanelWidth = rightPanelMaxWidth(viewportWidth, effectiveThreadRailWidth);
   const rightPanelWidth = clampWidth(store.rightPanelWidth, 0, maxRightPanelWidth);
-
-  useEffect(() => {
-    if (!timelineBlocked) setLastSettledThreadId(activeThreadId);
-  }, [activeThreadId, timelineBlocked]);
 
   useEffect(() => {
     const onResize = () => setViewportWidth(currentViewportWidth());
@@ -3251,8 +3249,7 @@ function ChatPage({ store, projectPath }) {
           statusEntry={statusEntry}
           activeTurn={activeTurn}
           modelThreadId={modelThreadId}
-          timelineBlocked={timelineBlocked}
-          timelineContentBlocked={timelineContentBlocked}
+          timelineBlocked={timelineBlockedWithoutCache}
           canUseProjectActions={canUseProjectActions}
         />
         {rightPanelOpen ? (
