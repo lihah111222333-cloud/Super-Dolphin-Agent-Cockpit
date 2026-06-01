@@ -1,0 +1,40 @@
+{
+  "round_id": "orch-pos-phase1-2026-06-01",
+  "scorer": "verification",
+  "target": "tests and residual risk",
+  "score_before": 70,
+  "score_after": 83,
+  "dimensions": {
+    "contract_tests": {
+      "before": 55,
+      "after": 88,
+      "evidence": "pos_test.go covers canonical selectors, invalid selectors, schema exposure, handler behavior, and conflict rejection."
+    },
+    "package_verification": {
+      "before": 70,
+      "after": 84,
+      "evidence": "go test ./cmd/mcp-orch/tools -count=1 passes."
+    },
+    "full_suite_status": {
+      "before": 65,
+      "after": 70,
+      "evidence": "go test ./cmd/mcp-orch/... still has unrelated existing failures in sidecar runtime inheritance and nodeexec automation."
+    }
+  },
+  "findings": [
+    {
+      "id": "VT-001",
+      "severity": "P1",
+      "status": "fixed",
+      "summary": "No visible contract tests existed for the new pos grammar.",
+      "fix": "Added parser/schema/handler tests."
+    },
+    {
+      "id": "VT-002",
+      "severity": "P2",
+      "status": "carried",
+      "summary": "Full cmd/mcp-orch package suite is not clean in this Windows environment.",
+      "next_round": "Separate from pos Phase 1 unless leadership requires full-suite cleanup before M3."
+    }
+  ]
+}

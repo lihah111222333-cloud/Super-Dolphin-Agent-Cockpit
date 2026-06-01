@@ -1,0 +1,72 @@
+{
+  "round_id": "orch-pos-phase3-2026-06-01",
+  "issues": [
+    {
+      "id": "MS-001",
+      "source": "mutation-selector",
+      "severity": "P1",
+      "decision": "must_fix",
+      "status": "fixed",
+      "summary": "Mutation tools had not adopted unified pos selectors."
+    },
+    {
+      "id": "MS-002",
+      "source": "mutation-selector",
+      "severity": "P1",
+      "decision": "must_fix",
+      "status": "fixed",
+      "summary": "Runtime node tools needed a compact selector for dag + run_id + node."
+    },
+    {
+      "id": "BC-003",
+      "source": "compatibility",
+      "severity": "P1",
+      "decision": "must_fix",
+      "status": "fixed",
+      "summary": "pos rollout had to remain additive for legacy clients."
+    },
+    {
+      "id": "BC-004",
+      "source": "compatibility",
+      "severity": "P1",
+      "decision": "must_fix",
+      "status": "fixed",
+      "summary": "Conflicting pos and legacy selector fields must be rejected."
+    },
+    {
+      "id": "VT-003",
+      "source": "verification",
+      "severity": "P1",
+      "decision": "must_fix",
+      "status": "fixed",
+      "summary": "Mutation schemas and handlers needed pos tests."
+    },
+    {
+      "id": "M4-001",
+      "source": "carry-forward",
+      "severity": "P1",
+      "decision": "carry_forward",
+      "status": "open",
+      "summary": "task_create_dag and task_dag_apply_ops still need flattened primary inputs.",
+      "target_milestone": "M4"
+    },
+    {
+      "id": "M5-001",
+      "source": "carry-forward",
+      "severity": "P2",
+      "decision": "carry_forward",
+      "status": "open",
+      "summary": "Output envelopes and hints are not yet normalized across orch tools.",
+      "target_milestone": "M5"
+    },
+    {
+      "id": "VT-004",
+      "source": "verification",
+      "severity": "P2",
+      "decision": "needs_separate_triage",
+      "status": "open",
+      "summary": "Full cmd/mcp-orch suite has unrelated Windows/environment failures.",
+      "target_milestone": "separate triage"
+    }
+  ]
+}

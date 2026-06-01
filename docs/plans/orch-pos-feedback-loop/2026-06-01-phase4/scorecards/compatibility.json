@@ -1,0 +1,34 @@
+{
+  "round_id": "orch-pos-phase4-2026-06-01",
+  "scorer": "compatibility",
+  "target": "complex input backward compatibility",
+  "score_before": 72,
+  "dimensions": {
+    "legacy_payload_safety": {
+      "score": 82,
+      "evidence": "Existing nested schedule, node execution, and raw ops can remain supported."
+    },
+    "conflict_risk": {
+      "score": 55,
+      "evidence": "Flat fields can conflict with nested fields unless validated."
+    },
+    "typed_ops_safety": {
+      "score": 76,
+      "evidence": "nodeexec typed ops have strict white-lists that must not be bypassed."
+    }
+  },
+  "findings": [
+    {
+      "id": "BC-005",
+      "severity": "P1",
+      "decision": "must_fix",
+      "summary": "Flat and nested fields must either agree or fail fast."
+    },
+    {
+      "id": "BC-006",
+      "severity": "P1",
+      "decision": "must_fix",
+      "summary": "Flat apply_ops generation must produce the same typed wire shape accepted by nodeexec.Ops."
+    }
+  ]
+}

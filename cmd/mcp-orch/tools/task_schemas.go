@@ -33,10 +33,16 @@ func applyOpsOpSchema() Schema {
 
 func createDAGSchema() Schema {
 	return ObjectSchema(map[string]Schema{
-		"agent_id":    StringSchema("Creator orchestration agent ID."),
-		"dag_key":     StringSchema("Unique DAG key."),
-		"title":       StringSchema("DAG title."),
-		"description": StringSchema("Optional DAG description."),
+		"agent_id":            StringSchema("Creator orchestration agent ID."),
+		"dag_key":             StringSchema("Unique DAG key."),
+		"title":               StringSchema("DAG title."),
+		"description":         StringSchema("Optional DAG description."),
+		"trigger":             StringSchema("Flat schedule shortcut; same as schedule.trigger."),
+		"default_retry":       IntegerSchema("Flat schedule shortcut; same as schedule.default_retry."),
+		"default_timeout_sec": IntegerSchema("Flat schedule shortcut; same as schedule.default_timeout_sec."),
+		"fail_fast":           BooleanSchema("Flat schedule shortcut; same as schedule.fail_fast."),
+		"max_concurrency":     IntegerSchema("Flat schedule shortcut; same as schedule.max_concurrency."),
+		"queue_policy":        StringSchema("Flat schedule shortcut; same as schedule.queue_policy."),
 		"schedule": ObjectSchema(map[string]Schema{
 			"trigger":             StringSchema("Start trigger."),
 			"default_retry":       IntegerSchema("Default retry count for nodes."),
@@ -53,6 +59,11 @@ func createDAGSchema() Schema {
 			"assigned_to": StringSchema("Optional assignee."),
 			"depends_on":  ArraySchema(StringSchema("Dependency node key."), "Node dependency keys."),
 			"command_ref": StringSchema("Optional command card key."),
+			"on_failure":  StringSchema("Flat execution shortcut; same as execution.on_failure."),
+			"pool":        StringSchema("Flat execution shortcut; same as execution.pool."),
+			"priority":    IntegerSchema("Flat execution shortcut; same as execution.priority."),
+			"retry":       IntegerSchema("Flat execution shortcut; same as execution.retry."),
+			"timeout_sec": IntegerSchema("Flat execution shortcut; same as execution.timeout_sec."),
 			"config":      RawObjectSchema("Optional full node config; for automation nodes use config.exec.command_ref to make the node executable."),
 			"execution": ObjectSchema(map[string]Schema{
 				"on_failure":  StringSchema("Failure policy override."),
@@ -62,7 +73,7 @@ func createDAGSchema() Schema {
 				"timeout_sec": IntegerSchema("Timeout override in seconds."),
 			}),
 		}, "node_key", "title"), "Optional DAG nodes."),
-	}, "agent_id", "dag_key", "title", "schedule")
+	}, "agent_id", "dag_key", "title")
 }
 
 func createDAGRequestFromInput(in CreateDAGInput) (contract.CreateDAGRequest, error) {
@@ -88,7 +99,11 @@ func createDAGRequestFromInput(in CreateDAGInput) (contract.CreateDAGRequest, er
 	if err != nil {
 		return contract.CreateDAGRequest{}, err
 	}
-	metadata, err := encodeJSONRaw(createDAGMetadata(in.Schedule, finalNodeKey))
+	schedule, err := createDAGEffectiveSchedule(in)
+	if err != nil {
+		return contract.CreateDAGRequest{}, err
+	}
+	metadata, err := encodeJSONRaw(createDAGMetadata(schedule, finalNodeKey))
 	if err != nil {
 		return contract.CreateDAGRequest{}, err
 	}
@@ -158,15 +173,18 @@ func normalizeFinalNodeKey(raw string, nodes []contract.CreateDAGNodeRequest) (s
 func createDAGNodeConfig(node CreateDAGNodeInput) (json.RawMessage, error) {
 	commandRef := strings.TrimSpace(node.CommandRef)
 	isAutomation := strings.TrimSpace(node.NodeType) == "automation"
+	execution, err := createDAGEffectiveExecution(node)
+	if err != nil {
+		return nil, err
+	}
 	if hasExplicitRawJSON(node.Config) {
 		if isAutomation && commandRef != "" {
 			return mergeAutomationCommandRef(node.Config, commandRef)
 		}
 		return append(json.RawMessage(nil), node.Config...), nil
 	}
-	config := nodeConfig(node.Execution)
+	config := nodeConfig(execution)
 	if isAutomation && commandRef != "" {
-		var err error
 		config, err = upsertAutomationCommandRef(config, commandRef)
 		if err != nil {
 			return nil, err
@@ -226,6 +244,106 @@ func stringValue(value any) string {
 func hasExplicitRawJSON(raw json.RawMessage) bool {
 	trimmed := strings.TrimSpace(string(raw))
 	return trimmed != "" && trimmed != "null"
+}
+
+func createDAGEffectiveSchedule(in CreateDAGInput) (DAGScheduleInput, error) {
+	schedule := in.Schedule
+	if err := mergeScheduleString(&schedule.Trigger, in.Trigger, "trigger"); err != nil {
+		return DAGScheduleInput{}, err
+	}
+	if err := mergeScheduleInt(&schedule.DefaultRetry, in.DefaultRetry, "default_retry"); err != nil {
+		return DAGScheduleInput{}, err
+	}
+	if err := mergeScheduleInt(&schedule.DefaultTimeoutSec, in.DefaultTimeoutSec, "default_timeout_sec"); err != nil {
+		return DAGScheduleInput{}, err
+	}
+	if in.FailFast {
+		schedule.FailFast = true
+	}
+	if err := mergeScheduleInt(&schedule.MaxConcurrency, in.MaxConcurrency, "max_concurrency"); err != nil {
+		return DAGScheduleInput{}, err
+	}
+	if err := mergeScheduleString(&schedule.QueuePolicy, in.QueuePolicy, "queue_policy"); err != nil {
+		return DAGScheduleInput{}, err
+	}
+	return schedule, nil
+}
+
+func createDAGEffectiveExecution(node CreateDAGNodeInput) (*DAGExecutionInput, error) {
+	if node.Execution == nil {
+		if !hasFlatExecutionFields(node) {
+			return nil, nil
+		}
+		return &DAGExecutionInput{
+			OnFailure:  strings.TrimSpace(node.OnFailure),
+			Pool:       strings.TrimSpace(node.Pool),
+			Priority:   node.Priority,
+			Retry:      node.Retry,
+			TimeoutSec: node.TimeoutSec,
+		}, nil
+	}
+	execution := *node.Execution
+	if err := mergeExecutionString(&execution.OnFailure, node.OnFailure, "on_failure"); err != nil {
+		return nil, err
+	}
+	if err := mergeExecutionString(&execution.Pool, node.Pool, "pool"); err != nil {
+		return nil, err
+	}
+	if err := mergeScheduleInt(&execution.Priority, node.Priority, "priority"); err != nil {
+		return nil, err
+	}
+	if err := mergeScheduleInt(&execution.Retry, node.Retry, "retry"); err != nil {
+		return nil, err
+	}
+	if err := mergeScheduleInt(&execution.TimeoutSec, node.TimeoutSec, "timeout_sec"); err != nil {
+		return nil, err
+	}
+	return &execution, nil
+}
+
+func hasFlatExecutionFields(node CreateDAGNodeInput) bool {
+	return strings.TrimSpace(node.OnFailure) != "" ||
+		strings.TrimSpace(node.Pool) != "" ||
+		node.Priority != 0 ||
+		node.Retry != 0 ||
+		node.TimeoutSec != 0
+}
+
+func mergeScheduleString(dst *string, flatValue, field string) error {
+	flat := strings.TrimSpace(flatValue)
+	if flat == "" {
+		return nil
+	}
+	nested := strings.TrimSpace(*dst)
+	if nested != "" && nested != flat {
+		return fmt.Errorf("%s conflicts with schedule.%s", field, field)
+	}
+	*dst = flat
+	return nil
+}
+
+func mergeExecutionString(dst *string, flatValue, field string) error {
+	flat := strings.TrimSpace(flatValue)
+	if flat == "" {
+		return nil
+	}
+	nested := strings.TrimSpace(*dst)
+	if nested != "" && nested != flat {
+		return fmt.Errorf("%s conflicts with execution.%s", field, field)
+	}
+	*dst = flat
+	return nil
+}
+
+func mergeScheduleInt(dst *int, flatValue int, field string) error {
+	if flatValue == 0 {
+		return nil
+	}
+	if *dst != 0 && *dst != flatValue {
+		return fmt.Errorf("%s conflicts with nested %s", field, field)
+	}
+	*dst = flatValue
+	return nil
 }
 
 func nodeConfig(execution *DAGExecutionInput) map[string]any {
