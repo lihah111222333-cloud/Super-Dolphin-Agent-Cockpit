@@ -3508,6 +3508,7 @@ describe('frontend-app connected client shell', () => {
     backend.getPreference.mockImplementation(({ key }) => Promise.resolve({
       'settings.provider.active': 'codex',
       'settings.provider.codex.model': 'gpt-5.4',
+      'settings.provider.codex.effort': 'xhigh',
       'settings.provider.codex.codexHome': '~/.codex',
       'settings.provider.codex.codexInstanceKey': 'default',
       'settings.provider.codex.codexModelProvider': 'openai',
