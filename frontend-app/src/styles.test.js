@@ -192,7 +192,9 @@ describe('composer layout styles', () => {
   });
 
   it('styles AI reasoning traces with theme tokens and shrink-safe text', () => {
-    const message = declarationsFor('.message--reasoning');
+    const message = declarationsFor('.reasoning-message');
+    const adjacentMessage = declarationsFor('.reasoning-message + .reasoning-message');
+    const openMessage = declarationsFor('.reasoning-message:has(.reasoning-trace[open])');
     const trace = declarationsFor('.reasoning-trace');
     const summary = declarationsFor('.reasoning-trace summary');
     const summaryMeta = declarationsFor('.reasoning-trace summary em');
@@ -202,21 +204,36 @@ describe('composer layout styles', () => {
     const stepOutput = declarationsFor('.reasoning-step-body .message-output');
     const stepOutputPre = declarationsFor('.reasoning-step-body .message-output pre');
     const stepOutputCode = declarationsFor('.reasoning-step-body .message-output code');
+    const stepMarkdown = declarationsFor('.reasoning-step-body .message-markdown');
+    const stepMarkdownPre = declarationsFor('.reasoning-step-body .message-markdown pre');
+    const stepMarkdownCode = declarationsFor('.reasoning-step-body .message-markdown pre code');
     const stepTitle = declarationsFor('.reasoning-step-body header strong');
 
+    expect(message['box-sizing']).toBe('border-box');
+    expect(message.display).toBe('flow-root');
+    expect(message.flex).toBe('0 0 auto');
     expect(message.width).toBe('min(720px, var(--conversation-content-width))');
     expect(message['max-width']).toBe('min(720px, var(--conversation-content-width))');
-    expect(message['margin-top']).toBe('0');
-    expect(message['margin-bottom']).toBe('0');
-    expect(message['padding-left']).toBe('30px');
+    expect(message.margin).toBe('4px var(--conversation-content-right-gutter) 4px var(--conversation-content-left-gutter)');
+    expect(message['min-height']).toBe('30px');
+    expect(message.padding).toBe('0 0 0 66px');
+    expect(openMessage['margin-bottom']).toBe('8px');
+    expect(adjacentMessage['margin-top']).toBe('4px');
+    expect(trace.display).toBe('block');
+    expect(trace.margin).toBe('0');
+    expect(trace.width).toBe('100%');
     expect(trace.border).toBe('0');
     expect(trace.background).toBe('transparent');
+    expect(trace.padding).toBe('0');
     expect(trace['box-shadow']).toBe('none');
     expect(trace.color).toBe('var(--text-sec)');
-    expect(summary.display).toBe('grid');
-    expect(summary['min-height']).toBe('20px');
-    expect(summary['font-size']).toBe('12px');
-    expect(summary.gap).toBe('5px');
+    expect(summary.display).toBe('flex');
+    expect(summary.width).toBe('fit-content');
+    expect(summary['max-width']).toBe('100%');
+    expect(summary['min-height']).toBe('30px');
+    expect(summary['font-size']).toBe('14px');
+    expect(summary['line-height']).toBe('1.25');
+    expect(summary.gap).toBe('6px');
     expect(summary.padding).toBe('0');
     expect(summaryMeta['min-width']).toBe('0');
     expect(summaryMeta.overflow).toBe('hidden');
@@ -225,15 +242,24 @@ describe('composer layout styles', () => {
     expect(step['grid-template-columns']).toBe('18px minmax(0, 1fr)');
     expect(step.gap).toBe('6px');
     expect(stepList.resize).toBe('vertical');
-    expect(stepList.padding).toBe('5px 7px');
-    expect(stepList['max-height']).toBe('min(200px, 32vh)');
+    expect(stepList.overflow).toBe('auto');
+    expect(stepList.padding).toBe('8px 10px');
+    expect(stepList['max-height']).toBe('min(240px, 34vh)');
     expect(openStepList.border).toBe('1px solid var(--border)');
-    expect(stepOutput['font-size']).toBe('12px');
+    expect(openStepList['box-sizing']).toBe('border-box');
+    expect(openStepList.width).toBe('100%');
+    expect(stepMarkdown['font-size']).toBe('14px');
+    expect(stepMarkdown['line-height']).toBe('1.42');
+    expect(stepMarkdownPre.margin).toBe('4px 0 0');
+    expect(stepMarkdownPre.padding).toBe('7px 9px');
+    expect(stepMarkdownCode.font).toBe('14px/1.42 ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace');
+    expect(stepOutput['font-size']).toBe('14px');
     expect(stepOutput['line-height']).toBe('1.42');
-    expect(stepOutputPre.padding).toBe('6px 8px');
-    expect(stepOutputCode.font).toBe('12px/1.42 ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace');
+    expect(stepOutputPre.margin).toBe('4px 0 0');
+    expect(stepOutputPre.padding).toBe('7px 9px');
+    expect(stepOutputCode.font).toBe('14px/1.42 ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace');
     expect(stepTitle['text-overflow']).toBe('ellipsis');
-    expect(stepTitle['font-size']).toBe('12px');
+    expect(stepTitle['font-size']).toBe('14px');
   });
 
   it('keeps assistant message content compact instead of spanning the full timeline', () => {

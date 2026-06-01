@@ -1295,6 +1295,9 @@ describe('frontend-app connected client shell', () => {
     render(<App />);
 
     const trace = await screen.findByLabelText('AI 思考记录');
+    expect(trace).toHaveClass('reasoning-message');
+    expect(trace).not.toHaveClass('message');
+    expect(trace).not.toHaveClass('assistant');
     expect(trace).toHaveTextContent('已处理 3s');
     expect(trace).toHaveTextContent('file.open');
     const step = within(trace).getByLabelText('工具步骤');
