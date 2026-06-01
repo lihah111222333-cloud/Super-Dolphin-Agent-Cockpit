@@ -47,7 +47,8 @@ func (r JSONLTailReader) QueryTraceEvents(ctx context.Context, query Query) (Que
 		return QueryResult{Source: QuerySourceJSONLTail}, err
 	}
 	events := filterTailEvents(result.Events, query)
-	return QueryResult{Source: QuerySourceJSONLTail, Events: limitTailEvents(events, query.Limit)}, nil
+	events, truncated := limitTailEvents(events, query.Limit)
+	return QueryResult{Source: QuerySourceJSONLTail, Events: events, Truncated: truncated}, nil
 }
 
 func (r JSONLTailReader) Read(ctx context.Context) (TailReadResult, error) {
@@ -135,11 +136,11 @@ func matchesError(event TraceEvent, query Query) bool {
 	return !query.Errors || event.Status == StatusError || event.Status == StatusPanic
 }
 
-func limitTailEvents(events []TraceEvent, limit int) []TraceEvent {
+func limitTailEvents(events []TraceEvent, limit int) ([]TraceEvent, bool) {
 	if limit > 0 && len(events) > limit {
-		return events[len(events)-limit:]
+		return events[len(events)-limit:], true
 	}
-	return events
+	return events, false
 }
 
 func listTraceJSONLFiles(dir string) ([]traceTailFile, error) {

@@ -53,7 +53,8 @@ func (i *Index) Query(query Query) QueryResult {
 	i.mu.Lock()
 	defer i.mu.Unlock()
 	seqs := i.querySeqs(query)
-	return QueryResult{Source: QuerySourceMemory, Events: i.eventsForSeqs(seqs, query.Limit)}
+	events, truncated := i.eventsForSeqs(seqs, query.Limit)
+	return QueryResult{Source: QuerySourceMemory, Events: events, Truncated: truncated}
 }
 
 func (i *Index) TraceKeyCount() int {
@@ -90,9 +91,11 @@ func (i *Index) keySeqs(refs map[string]*seqRing, key string) []uint64 {
 	return append([]uint64(nil), ring.seqs...)
 }
 
-func (i *Index) eventsForSeqs(seqs []uint64, limit int) []TraceEvent {
+func (i *Index) eventsForSeqs(seqs []uint64, limit int) ([]TraceEvent, bool) {
+	truncated := false
 	if limit > 0 && len(seqs) > limit {
 		seqs = seqs[len(seqs)-limit:]
+		truncated = true
 	}
 	out := make([]TraceEvent, 0, len(seqs))
 	for _, seq := range seqs {
@@ -100,7 +103,7 @@ func (i *Index) eventsForSeqs(seqs []uint64, limit int) []TraceEvent {
 			out = append(out, event)
 		}
 	}
-	return out
+	return out, truncated
 }
 
 func (i *Index) appendKeyRef(refs map[string]*seqRing, key string, cap int, seq uint64) {
