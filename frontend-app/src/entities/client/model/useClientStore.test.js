@@ -986,6 +986,41 @@ describe('useClientStore backend contract', () => {
     ]);
   });
 
+  it('loads every selected thread message page when history exceeds the backend page size', async () => {
+    resetClientStoreForTests({
+      cwd: '/repo/app',
+      activeProject: '/repo/app',
+      activeThreadId: 'thread-1',
+      threads: [{ id: 'thread-1', name: 'Existing', provider: 'codex', status: 'idle' }],
+    });
+    backend.getThreadState.mockResolvedValueOnce({
+      activeThreadId: 'thread-1',
+      threads: [{ id: 'thread-1', name: 'Existing', provider: 'codex', status: 'idle' }],
+      timelinesByThread: {},
+    });
+    const messages = Array.from({ length: 301 }, (_, index) => {
+      const id = index + 1;
+      return {
+        id,
+        role: id % 2 === 0 ? 'assistant' : 'user',
+        content: `message ${id}`,
+        createdAt: new Date(Date.UTC(2026, 4, 30, 0, id, 0)).toISOString(),
+      };
+    });
+    backend.getThreadMessages
+      .mockResolvedValueOnce({ messages: messages.slice(1).reverse(), total: 301 })
+      .mockResolvedValueOnce({ messages: [messages[0]], total: 301 });
+
+    await useClientStore.getState().syncThreadState('thread-1');
+
+    expect(backend.getThreadMessages).toHaveBeenNthCalledWith(1, { threadId: 'thread-1', limit: 300 });
+    expect(backend.getThreadMessages).toHaveBeenNthCalledWith(2, { threadId: 'thread-1', limit: 300, before: '2' });
+    const timeline = useClientStore.getState().timelinesByThread['thread-1'];
+    expect(timeline).toHaveLength(301);
+    expect(timeline[0]).toEqual(expect.objectContaining({ id: '1', text: 'message 1' }));
+    expect(timeline[300]).toEqual(expect.objectContaining({ id: '301', text: 'message 301' }));
+  });
+
   it('builds thread/start launch payload from provider preferences', async () => {
     resetClientStoreForTests({
       cwd: '/repo/app',
@@ -1948,6 +1983,41 @@ describe('useClientStore backend contract', () => {
         threadId: 'thread-1',
         message: expect.stringContaining('grep'),
         detail: expect.stringContaining('src/App.jsx: found runtime log'),
+      }),
+    ]);
+  });
+
+  it('preserves backend thinking start and duration fields for elapsed-time display', () => {
+    resetClientStoreForTests({
+      cwd: '/repo/app',
+      activeProject: '/repo/app',
+      activeThreadId: 'thread-1',
+      timelinesByThread: { 'thread-1': [] },
+    });
+    useClientStore.getState().initializeEvents();
+
+    bridgeCallback({
+      type: 'ui/thread/patch',
+      payload: {
+        threadId: 'thread-1',
+        sequence: '9007199254740993125',
+        timelineItems: [{
+          id: 'thinking-started-at',
+          kind: 'thinking',
+          text: 'grep',
+          started_at: '2026-05-30T08:00:00Z',
+          duration_ms: 2300,
+          done: true,
+        }],
+      },
+    });
+
+    expect(useClientStore.getState().timelinesByThread['thread-1']).toEqual([
+      expect.objectContaining({
+        id: 'thinking-started-at',
+        kind: 'thinking',
+        time: '2026-05-30T08:00:00Z',
+        elapsedMs: 2300,
       }),
     ]);
   });

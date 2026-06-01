@@ -804,18 +804,26 @@ export function createBackendApi(deps = {}) {
         ...normalizeTurnInput(input, attachments),
       });
     },
-    interruptTurn: (params) => callBackend(
-      RPC_METHODS.TURN_INTERRUPT,
-      requireThreadId(RPC_METHODS.TURN_INTERRUPT, requireCwd(RPC_METHODS.TURN_INTERRUPT, params)),
-    ),
-    compactThread: (params) => callBackend(
-      RPC_METHODS.THREAD_COMPACT_START,
-      requireThreadId(RPC_METHODS.THREAD_COMPACT_START, requireCwd(RPC_METHODS.THREAD_COMPACT_START, params)),
-    ),
-    recoverThread: (params) => callBackend(
-      RPC_METHODS.THREAD_RECOVER,
-      requireThreadId(RPC_METHODS.THREAD_RECOVER, requireCwd(RPC_METHODS.THREAD_RECOVER, params)),
-    ),
+    interruptTurn: (params) => {
+      const payload = requireThreadId(RPC_METHODS.TURN_INTERRUPT, requireCwd(RPC_METHODS.TURN_INTERRUPT, params));
+      return callBackend(RPC_METHODS.TURN_INTERRUPT, cleanObject({
+        threadId: payload.threadId,
+        source: normalizeString(payload.source),
+      }));
+    },
+    compactThread: (params) => {
+      const payload = requireThreadId(RPC_METHODS.THREAD_COMPACT_START, requireCwd(RPC_METHODS.THREAD_COMPACT_START, params));
+      return callBackend(RPC_METHODS.THREAD_COMPACT_START, cleanObject({
+        threadId: payload.threadId,
+        args: payload.args,
+      }));
+    },
+    recoverThread: (params) => {
+      const payload = requireThreadId(RPC_METHODS.THREAD_RECOVER, requireCwd(RPC_METHODS.THREAD_RECOVER, params));
+      return callBackend(RPC_METHODS.THREAD_RECOVER, {
+        threadId: payload.threadId,
+      });
+    },
     renameThread: (params) => callBackend(
       RPC_METHODS.THREAD_NAME_SET,
       legacyThreadNamePayload(RPC_METHODS.THREAD_NAME_SET, params),
