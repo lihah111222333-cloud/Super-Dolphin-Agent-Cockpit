@@ -65,7 +65,11 @@ func suggestSkillSummary(ctx context.Context, dream contract.DreamExecutor, p sk
 	if err != nil {
 		return "", err
 	}
-	return summarysuggest.Execute(ctx, dream, prompt, parseSkillSummarySuggestionResult)
+	return summarysuggest.ExecuteWithOptions(ctx, dream, prompt, contract.DreamOptions{
+		Provider:      strings.TrimSpace(p.Provider),
+		Model:         strings.TrimSpace(p.Model),
+		ModelProvider: strings.TrimSpace(p.ModelProvider),
+	}, parseSkillSummarySuggestionResult)
 }
 
 func normalizeSkillSummarySuggestParams(p skillSummarySuggestParams) skillSummarySuggestParams {

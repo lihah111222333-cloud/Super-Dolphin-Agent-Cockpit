@@ -10,6 +10,7 @@ import (
 	"strings"
 	"sync"
 
+	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 	"github.com/wailsapp/wails/v3/pkg/application"
 )
 
@@ -50,10 +51,16 @@ func (a *App) CallAPI(method string, params json.RawMessage) (any, error) {
 	if len(params) == 0 {
 		params = json.RawMessage("{}")
 	}
+	ctx, err := frontendTraceContext(a.callContext(), params)
+	if err != nil {
+		return nil, err
+	}
 	if method != "ui/log" {
 		params = stripFrontendMeta(params)
+	} else {
+		params = stripFrontendTraceMeta(params)
 	}
-	result, err := a.dispatch(a.callContext(), method, params)
+	result, err := a.dispatch(ctx, method, params)
 	if err != nil {
 		return nil, err
 	}
@@ -156,13 +163,25 @@ func (a *App) callAPIObject(method string, params any) (any, error) {
 // These are useful for logging but must not reach StrictHandler RPC endpoints
 // which reject unknown fields.
 func stripFrontendMeta(raw json.RawMessage) json.RawMessage {
+	return stripJSONFields(raw, func(key string) bool {
+		return strings.HasPrefix(key, "_ao")
+	})
+}
+
+func stripFrontendTraceMeta(raw json.RawMessage) json.RawMessage {
+	return stripJSONFields(raw, func(key string) bool {
+		return key == "_aoTraceparent" || key == "_aoTraceId" || key == "_aoSpanId"
+	})
+}
+
+func stripJSONFields(raw json.RawMessage, shouldStrip func(string) bool) json.RawMessage {
 	var obj map[string]json.RawMessage
 	if err := json.Unmarshal(raw, &obj); err != nil {
 		return raw // not an object — pass through as-is
 	}
 	changed := false
 	for key := range obj {
-		if strings.HasPrefix(key, "_ao") {
+		if shouldStrip(key) {
 			delete(obj, key)
 			changed = true
 		}
@@ -175,6 +194,129 @@ func stripFrontendMeta(raw json.RawMessage) json.RawMessage {
 		return raw
 	}
 	return cleaned
+}
+
+func frontendTraceContext(ctx context.Context, raw json.RawMessage) (context.Context, error) {
+	if !isJSONObject(raw) {
+		return ctx, nil
+	}
+	obj, err := decodeFrontendMetaObject(raw)
+	if err != nil {
+		return nil, err
+	}
+	traceparent, ok, err := frontendStringField(obj, "_aoTraceparent")
+	if err != nil {
+		return nil, err
+	}
+	if !ok {
+		return ctx, nil
+	}
+	traceID, spanID, err := parseFrontendTraceparent(traceparent)
+	if err != nil {
+		return nil, fmt.Errorf("wails binding: invalid _aoTraceparent: %w", err)
+	}
+	if err := validateFrontendTraceMetadata(obj, traceID, spanID); err != nil {
+		return nil, err
+	}
+	return pkglogger.WithTraceContext(ctx, traceID, spanID, ""), nil
+}
+
+func isJSONObject(raw json.RawMessage) bool {
+	return strings.HasPrefix(strings.TrimSpace(string(raw)), "{")
+}
+
+func decodeFrontendMetaObject(raw json.RawMessage) (map[string]json.RawMessage, error) {
+	var obj map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &obj); err != nil {
+		return nil, fmt.Errorf("wails binding: decode frontend metadata: %w", err)
+	}
+	return obj, nil
+}
+
+func validateFrontendTraceMetadata(obj map[string]json.RawMessage, traceID, spanID string) error {
+	if metadataTraceID, ok, err := frontendStringField(obj, "_aoTraceId"); err != nil {
+		return err
+	} else if ok && metadataTraceID != traceID {
+		return fmt.Errorf("wails binding: mismatched _aoTraceId")
+	}
+	if metadataSpanID, ok, err := frontendStringField(obj, "_aoSpanId"); err != nil {
+		return err
+	} else if ok && metadataSpanID != spanID {
+		return fmt.Errorf("wails binding: mismatched _aoSpanId")
+	}
+	return nil
+}
+
+func frontendStringField(obj map[string]json.RawMessage, key string) (string, bool, error) {
+	raw, ok := obj[key]
+	if !ok {
+		return "", false, nil
+	}
+	var value string
+	if err := json.Unmarshal(raw, &value); err != nil {
+		return "", true, fmt.Errorf("wails binding: %s must be a string", key)
+	}
+	return value, true, nil
+}
+
+func parseFrontendTraceparent(value string) (string, string, error) {
+	parts := strings.Split(value, "-")
+	if len(parts) != 4 {
+		return "", "", fmt.Errorf("expected 4 dash-separated fields")
+	}
+	if parts[0] != "00" {
+		return "", "", fmt.Errorf("unsupported version %q", parts[0])
+	}
+	traceID, spanID, flags := parts[1], parts[2], parts[3]
+	if err := validateTraceID(traceID); err != nil {
+		return "", "", err
+	}
+	if err := validateSpanID(spanID); err != nil {
+		return "", "", err
+	}
+	if err := validateTraceFlags(flags); err != nil {
+		return "", "", err
+	}
+	return traceID, spanID, nil
+}
+
+func validateTraceID(value string) error {
+	if len(value) != 32 || !isLowerHex(value) || allZeroHex(value) {
+		return fmt.Errorf("invalid trace id")
+	}
+	return nil
+}
+
+func validateSpanID(value string) error {
+	if len(value) != 16 || !isLowerHex(value) || allZeroHex(value) {
+		return fmt.Errorf("invalid span id")
+	}
+	return nil
+}
+
+func validateTraceFlags(value string) error {
+	if len(value) != 2 || !isLowerHex(value) {
+		return fmt.Errorf("invalid flags")
+	}
+	return nil
+}
+
+func isLowerHex(value string) bool {
+	for _, ch := range value {
+		if (ch < '0' || ch > '9') && (ch < 'a' || ch > 'f') {
+			return false
+		}
+	}
+	return true
+}
+
+func allZeroHex(value string) bool {
+	for _, ch := range value {
+		if ch != '0' {
+			return false
+		}
+	}
+	return true
 }
 
 func decodeAPIResult(result json.RawMessage) (any, error) {

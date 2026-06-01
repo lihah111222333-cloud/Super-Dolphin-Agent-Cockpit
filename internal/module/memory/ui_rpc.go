@@ -530,11 +530,16 @@ func dagFinalOutputReferencesPath(ctx context.Context, dagRuntime contract.DAGRu
 // ---------------------------------------------------------------------------
 
 type similarityAdapter struct {
-	deps memoryHandlerDeps
+	deps         memoryHandlerDeps
+	dreamOptions contract.DreamOptions
 }
 
-func newSimilarityAdapter(d memoryHandlerDeps) similarityAdapter {
-	return similarityAdapter{deps: d}
+func newSimilarityAdapter(d memoryHandlerDeps, options ...contract.DreamOptions) similarityAdapter {
+	adapter := similarityAdapter{deps: d}
+	if len(options) > 0 {
+		adapter.dreamOptions = options[0]
+	}
+	return adapter
 }
 
 func (s similarityAdapter) Logger() *slog.Logger { return s.deps.Logger }
@@ -605,6 +610,9 @@ func (s similarityAdapter) Merge(ctx context.Context, req similarity.MergeReques
 func (s similarityAdapter) DreamExecute(ctx context.Context, prompt string) (string, error) {
 	if s.deps.DreamExecutor == nil {
 		return "", contract.ErrDreamExecutorNotConfigured
+	}
+	if withOptions, ok := s.deps.DreamExecutor.(contract.DreamExecutorWithOptions); ok {
+		return withOptions.ExecuteDreamWithOptions(ctx, prompt, s.dreamOptions)
 	}
 	return s.deps.DreamExecutor.ExecuteDream(ctx, prompt)
 }

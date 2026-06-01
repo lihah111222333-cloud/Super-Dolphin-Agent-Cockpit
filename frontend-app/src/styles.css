@@ -943,7 +943,8 @@ select {
   border-right: 1px solid var(--line);
 }
 
-.splitter:hover {
+.splitter:hover,
+.splitter:focus-visible {
   background: #25272a;
 }
 
@@ -2860,6 +2861,13 @@ details {
 .skills-editor-label-row button,
 .skills-body-head button {
   min-height: 30px;
+}
+
+.skills-summary-suggestion {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
 }
 
 .skills-scope-segmented {
@@ -4807,7 +4815,8 @@ textarea:disabled {
   background: var(--surface);
 }
 
-.splitter:hover {
+.splitter:hover,
+.splitter:focus-visible {
   background: var(--surface-3);
 }
 
