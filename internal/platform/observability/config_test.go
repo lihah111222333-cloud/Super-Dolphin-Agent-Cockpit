@@ -5,19 +5,25 @@ import (
 	"testing"
 )
 
-func TestConfigDisabledDefaultIsExplicit(t *testing.T) {
+func TestConfigDefaultEnablesSafeTracing(t *testing.T) {
 	cfg, err := ParseConfig(EnvMap{})
 	if err != nil {
 		t.Fatalf("ParseConfig default: %v", err)
 	}
-	if cfg.Enabled {
-		t.Fatalf("default Enabled = true, want false")
+	if !cfg.Enabled {
+		t.Fatalf("default Enabled = false, want true")
 	}
-	if cfg.DisabledReason == "" {
-		t.Fatalf("DisabledReason is empty")
+	if cfg.DisabledReason != "" {
+		t.Fatalf("DisabledReason = %q, want empty", cfg.DisabledReason)
+	}
+	if cfg.Debug {
+		t.Fatalf("Debug = true, want default safe mode")
 	}
 	if cfg.SchemaVersion != SchemaVersion {
 		t.Fatalf("SchemaVersion = %d, want %d", cfg.SchemaVersion, SchemaVersion)
+	}
+	if cfg.IndexMaxEvents != 5000 || cfg.IndexMaxTraceEvents != 128 || cfg.IndexMaxThreadEvents != 256 {
+		t.Fatalf("unexpected safe defaults: %+v", cfg)
 	}
 }
 
@@ -49,6 +55,7 @@ func assertStackEnabled(t *testing.T, cfg Config, status Status) {
 
 func TestConfigEnabledRejectsUnsafeValues(t *testing.T) {
 	cases := []EnvMap{
+		{"OBS_INDEX_MAX_EVENTS": "0"},
 		{"OBS_TRACING_ENABLED": "1", "OBS_INDEX_MAX_EVENTS": "0"},
 		{"OBS_TRACING_ENABLED": "1", "OBS_INDEX_MAX_TRACE_EVENTS": "-1"},
 		{"OBS_TRACING_ENABLED": "1", "OBS_EVENT_MAX_BYTES": "104857601"},

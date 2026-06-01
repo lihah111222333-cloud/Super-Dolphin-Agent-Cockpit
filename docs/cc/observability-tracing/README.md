@@ -31,7 +31,7 @@ The React `frontend-app` exposes a minimal “链路追踪” dashboard. It can 
 
 ## Configuration and guardrails
 
-Tracing is controlled by `OBS_TRACING_ENABLED` and related `OBS_*` bounds in `internal/platform/observability/config.go`.
+Tracing is enabled in safe mode by default. Set `OBS_TRACING_ENABLED=0` to explicitly disable it, or `OBS_TRACE_DEBUG=true` to raise debug-time index bounds. Other `OBS_*` bounds are validated in `internal/platform/observability/config.go`.
 
 Operational guardrails:
 
