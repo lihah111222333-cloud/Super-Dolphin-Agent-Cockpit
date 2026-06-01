@@ -16,7 +16,9 @@ func (d *driver) recordDriverTrace(ctx context.Context, event observability.Trac
 		return
 	}
 	fillClaudeTrace(ctx, &event)
-	_ = d.tracer.Record(ctx, event)
+	if err := d.tracer.Record(ctx, event); err != nil {
+		observability.WarnRecordError(d.logger, "provider.claudecli.driver", event, err)
+	}
 }
 
 func (s *session) recordProviderTrace(ctx context.Context, event observability.TraceEvent) {
@@ -27,7 +29,9 @@ func (s *session) recordProviderTrace(ctx context.Context, event observability.T
 		event.AgentID = s.agentID
 	}
 	fillClaudeTrace(ctx, &event)
-	_ = s.tracer.Record(ctx, event)
+	if err := s.tracer.Record(ctx, event); err != nil {
+		observability.WarnRecordError(s.logger, "provider.claudecli.session", event, err)
+	}
 }
 
 func fillClaudeTrace(ctx context.Context, event *observability.TraceEvent) {

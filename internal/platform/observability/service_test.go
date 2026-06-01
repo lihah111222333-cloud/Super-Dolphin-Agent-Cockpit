@@ -3,6 +3,7 @@ package observability
 import (
 	"context"
 	"testing"
+	"time"
 )
 
 type recordingSink struct{ events []TraceEvent }
@@ -70,5 +71,39 @@ func TestServiceQueryReportsMixedSourceWhenMemoryAndTailBothContribute(t *testin
 	}
 	if methods(got.Events) != "memory,tail" {
 		t.Fatalf("events = %#v", got.Events)
+	}
+}
+
+func TestServiceQueryMixedTailDedupeLimitAndTruncation(t *testing.T) {
+	cfg := Config{IndexMaxEvents: 8, IndexMaxTraceEvents: 8, IndexMaxThreadEvents: 8, IndexMaxSlowEvents: 8, IndexMaxErrorEvents: 8, MetadataMaxBytes: 4096, StringMaxBytes: 512, QueryTailTimeoutMS: 100, QueryTailMaxConcurrency: 1}
+	base := time.Unix(1700000000, 0)
+	duplicate := TraceEvent{Timestamp: base.Add(2 * time.Second), TraceID: "trace", SpanID: "span-2", Method: "memory-duplicate", Status: StatusOK}
+	tail := QueryTailReaderFunc(func(context.Context, Query) (QueryResult, error) {
+		return QueryResult{Source: QuerySourceJSONLTail, Events: []TraceEvent{
+			{Timestamp: base.Add(1 * time.Second), TraceID: "trace", SpanID: "span-1", Method: "tail-older", Status: StatusOK},
+			duplicate,
+			{Timestamp: base.Add(4 * time.Second), TraceID: "trace", SpanID: "span-4", Method: "tail-newest", Status: StatusOK},
+		}, Truncated: true}, nil
+	})
+	svc := NewService(cfg, WithTailReader(tail))
+	for _, event := range []TraceEvent{
+		{Timestamp: base, TraceID: "trace", SpanID: "span-0", Method: "memory-oldest", Status: StatusOK},
+		duplicate,
+		{Timestamp: base.Add(3 * time.Second), TraceID: "trace", SpanID: "span-3", Method: "memory-newer", Status: StatusOK},
+	} {
+		if err := svc.Record(context.Background(), event); err != nil {
+			t.Fatalf("Record(%s): %v", event.Method, err)
+		}
+	}
+
+	got := svc.Query(context.Background(), Query{TraceID: "trace", IncludeTail: true, Limit: 3})
+	if got.Source != QuerySourceMixed {
+		t.Fatalf("source = %q, want mixed", got.Source)
+	}
+	if !got.Truncated {
+		t.Fatal("Truncated = false, want true")
+	}
+	if methods(got.Events) != "memory-duplicate,memory-newer,tail-newest" {
+		t.Fatalf("events = %q (%#v), want deduped newest chronological three", methods(got.Events), got.Events)
 	}
 }
