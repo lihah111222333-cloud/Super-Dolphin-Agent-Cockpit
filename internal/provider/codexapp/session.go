@@ -334,6 +334,9 @@ func (s *session) StartTurn(ctx context.Context, req dto.TurnRequest) (contract.
 	if params.Effort == "" {
 		params.Effort = s.runtimeConfigString("effort")
 	}
+	if codexModelNeedsListResolution(params.Model) {
+		params.Model = s.resolveTurnStartModel(ctx, params.Model)
+	}
 	pkglogger.Debug("codexapp: turn/start params",
 		"agent_id", s.agentID,
 		"model", params.Model,
@@ -341,7 +344,7 @@ func (s *session) StartTurn(ctx context.Context, req dto.TurnRequest) (contract.
 	)
 	raw, err := callWithTimeout(ctx, callTargetFunc(s.callTransport), 30*time.Second, "turn/start", params)
 	if err != nil {
-		return nil, err
+		return nil, wrapCodexModelUnsupportedError(err, params.Model)
 	}
 	resp, err := decodeTurnStartResult(raw)
 	if err != nil {
@@ -355,6 +358,34 @@ func (s *session) StartTurn(ctx context.Context, req dto.TurnRequest) (contract.
 	s.mu.Unlock()
 	s.rememberPendingTurn(h, params)
 	return h, nil
+}
+
+func (s *session) resolveTurnStartModel(ctx context.Context, requested string) string {
+	requested = strings.TrimSpace(requested)
+	if s == nil || s.transport == nil {
+		return requested
+	}
+	model, replaced, err := resolveSupportedCodexModel(ctx, s.transport, requested)
+	if err != nil {
+		pkglogger.Warn("codexapp: turn/start model/list selection failed",
+			"agent_id", s.agentID,
+			"thread_id", s.ThreadID(),
+			"requested_model", requested,
+			"error", err,
+		)
+		return requested
+	}
+	if model == "" || !replaced {
+		return requested
+	}
+	s.setRuntimeConfigValue("model", model)
+	pkglogger.Info("codexapp: turn/start selected supported model from model/list",
+		"agent_id", s.agentID,
+		"thread_id", s.ThreadID(),
+		"requested_model", requested,
+		"model", model,
+	)
+	return model
 }
 
 func (s *session) Steer(ctx context.Context, req dto.SteerRequest) error {
