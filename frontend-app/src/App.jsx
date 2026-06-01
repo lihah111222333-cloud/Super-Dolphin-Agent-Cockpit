@@ -3299,6 +3299,7 @@ function ThreadRail({ store }) {
   const activeThreads = store.threads.filter((thread) => !thread.archived);
   const archivedThreads = store.threads.filter((thread) => thread.archived);
   const threads = showArchivedThreads ? archivedThreads : activeThreads;
+  const chatListLoading = Boolean(store.chatSurfaceLoadingCwd);
   const visibleThreads = threads
     .map((thread, index) => ({
       ...thread,
@@ -3405,7 +3406,7 @@ function ThreadRail({ store }) {
       <div className="thread-list">
         {visibleThreads.length === 0 ? (
           <p className="thread-empty">
-            {showArchivedThreads ? '暂无归档会话' : '暂无会话，点击「新建对话」开始草稿'}
+            {chatListLoading && !showArchivedThreads ? '正在加载会话列表…' : (showArchivedThreads ? '暂无归档会话' : '暂无会话，点击「新建对话」开始草稿')}
           </p>
         ) : null}
         {visibleThreads.map((thread) => {

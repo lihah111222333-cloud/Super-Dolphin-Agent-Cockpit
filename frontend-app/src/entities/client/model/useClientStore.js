@@ -1351,6 +1351,7 @@ const baseState = {
   sharedFilesPageCacheByCwd: {},
   memoryRevision: 0,
   memoryPageCacheByCwd: {},
+  chatSurfaceLoadingCwd: '',
   threads: [],
   pinnedThreadAtById: {},
   activityThreadAtById: {},
@@ -1390,6 +1391,8 @@ export const useClientStore = create((set, get) => {
   let bridgeUnsubscribe = null;
   const sequencesByThread = new Map();
   const composerDrafts = new Map();
+  const sidebarSnapshotsByCwd = new Map();
+  let sidebarRefreshSeq = 0;
 
   const saveActiveComposerDraft = (state = get()) => {
     const key = composerDraftKey(state);
@@ -1525,7 +1528,8 @@ export const useClientStore = create((set, get) => {
     return activeProject && activeProject !== '.' ? activeProject : normalizePath(get().cwd);
   };
 
-  const clearChatSurfaceForCwdSwitch = () => {
+  const clearChatSurfaceForCwdSwitch = (cwdValue = '') => {
+    const cwd = normalizePath(cwdValue);
     sequencesByThread.clear();
     set({
       activeThreadId: '',
@@ -1545,6 +1549,7 @@ export const useClientStore = create((set, get) => {
       runtimeResultEntries: [],
       draft: '',
       attachments: [],
+      chatSurfaceLoadingCwd: cwd,
     });
   };
 
@@ -1557,6 +1562,12 @@ export const useClientStore = create((set, get) => {
       projects,
       activeProject: active || normalizePath(fallbackCwd),
     });
+  };
+
+  const cacheSidebarSnapshot = (cwdValue, snapshot) => {
+    const cwd = normalizePath(cwdValue);
+    if (!cwd || cwd === '.' || !snapshot || typeof snapshot !== 'object' || Array.isArray(snapshot)) return;
+    sidebarSnapshotsByCwd.set(cwd, snapshot);
   };
 
   const loadProviderConfig = async (cwdValue, providerValue) => {
@@ -1586,6 +1597,7 @@ export const useClientStore = create((set, get) => {
 
   const applySnapshot = (payload = {}, options = {}) => {
     const preferredActiveThreadId = normalizeThreadId(options.preferredActiveThreadId);
+    const autoSelectThread = options.autoSelectThread !== false;
     set((state) => {
       const archivedAtById = hasArchiveMapPayload(payload) ? archiveMapFromPayload(payload) : archiveMapFromThreads(state.threads);
       const pinnedAtById = hasPinMapPayload(payload) ? pinMapFromPayload(payload) : state.pinnedThreadAtById;
@@ -1614,14 +1626,19 @@ export const useClientStore = create((set, get) => {
         (!nextThreads.some((thread) => threadMatchesIdentifier(thread, state.activeThreadId)) ? normalizeBackendThreadId(state.activeThreadId) : '')
       ) : '';
       const activeLookupOptions = options.includeArchivedActiveThread ? { includeArchived: true } : {};
-      const activeThreadId = (
+      const explicitActiveThreadId = (
         preservedActiveThreadId ||
-        backendThreadIdFromThreads(preferredActiveThreadId, nextThreads, activeLookupOptions) ||
-        backendThreadIdFromThreads(snapshotActive, nextThreads, activeLookupOptions) ||
-        backendThreadIdFromThreads(state.activeThreadId, nextThreads, activeLookupOptions) ||
-        selectableThreads[0]?.id ||
-        ''
+        backendThreadIdFromThreads(preferredActiveThreadId, nextThreads, activeLookupOptions)
       );
+      const activeThreadId = autoSelectThread
+        ? (
+          explicitActiveThreadId ||
+          backendThreadIdFromThreads(snapshotActive, nextThreads, activeLookupOptions) ||
+          backendThreadIdFromThreads(state.activeThreadId, nextThreads, activeLookupOptions) ||
+          selectableThreads[0]?.id ||
+          ''
+        )
+        : explicitActiveThreadId;
 
       const timelinesByThread = {};
       for (const [threadId, items] of Object.entries(state.timelinesByThread)) {
@@ -1728,18 +1745,34 @@ export const useClientStore = create((set, get) => {
     });
   };
 
-  const refreshChatSurfaceForCwd = async (cwdValue) => {
+  const refreshChatSurfaceForCwdInBackground = (cwdValue) => {
     const cwd = normalizePath(cwdValue);
     if (!cwd || cwd === '.') {
       throw new Error('frontend-app: cwd is required for project chat refresh');
     }
-    clearChatSurfaceForCwdSwitch();
-    const sidebar = await getSidebarState({ cwd });
-    applySnapshot(sidebar);
-    const activeThreadId = backendThreadIdForState(get(), get().activeThreadId);
-    if (activeThreadId) {
-      await get().syncThreadState(activeThreadId);
+    const seq = ++sidebarRefreshSeq;
+    const cachedSidebar = sidebarSnapshotsByCwd.get(cwd);
+    clearChatSurfaceForCwdSwitch(cwd);
+    if (cachedSidebar) {
+      applySnapshot(cachedSidebar, { autoSelectThread: false, scopeCwd: cwd });
     }
+    getSidebarState({ cwd })
+      .then((sidebar) => {
+        cacheSidebarSnapshot(cwd, sidebar);
+        if (seq !== sidebarRefreshSeq || normalizePath(currentChatCwd()) !== cwd) return;
+        applySnapshot(sidebar, { autoSelectThread: false, scopeCwd: cwd });
+        set((state) => ({
+          chatSurfaceLoadingCwd: state.chatSurfaceLoadingCwd === cwd ? '' : state.chatSurfaceLoadingCwd,
+        }));
+      })
+      .catch((error) => {
+        if (seq !== sidebarRefreshSeq || normalizePath(currentChatCwd()) !== cwd) return;
+        set((state) => ({
+          chatSurfaceLoadingCwd: state.chatSurfaceLoadingCwd === cwd ? '' : state.chatSurfaceLoadingCwd,
+          actionNotice: actionNotice(`刷新会话列表失败：${error.message}`, 'error'),
+        }));
+        addWarning('error', 'thread.sidebar.refresh.failed', { cwd, error: error.message });
+      });
   };
 
   const loadThreadMessages = async (threadId, options = {}) => {
@@ -2109,6 +2142,8 @@ export const useClientStore = create((set, get) => {
       }
       sequencesByThread.clear();
       composerDrafts.clear();
+      sidebarSnapshotsByCwd.clear();
+      sidebarRefreshSeq += 1;
     },
 
     bootstrap: async () => {
@@ -2139,6 +2174,7 @@ export const useClientStore = create((set, get) => {
         const projects = await getProjects({ cwd: scopedCwd });
         applyProjects(projects, scopedCwd);
         const sidebar = await getSidebarState({ cwd: scopedCwd });
+        cacheSidebarSnapshot(scopedCwd, sidebar);
         applySnapshot(sidebar);
         const activeThreadId = backendThreadIdForState(useClientStore.getState(), useClientStore.getState().activeThreadId);
         if (activeThreadId) {
@@ -2428,22 +2464,39 @@ export const useClientStore = create((set, get) => {
       const target = normalizePath(path);
       if (!target) return false;
       const cwd = requireProjectScopeCwd('project.setActive');
+      const previousActiveProject = normalizePath(get().activeProject);
+      const previousProjects = Array.isArray(get().projects) ? [...get().projects] : [];
       try {
         saveActiveComposerDraft();
-        const activeProject = normalizePath(get().activeProject);
         const visibleProjects = Array.isArray(get().projects) ? get().projects.map(normalizePath).filter(Boolean) : [];
-        if (target !== '.' && (activeProject === '.' || !visibleProjects.includes(target))) {
+        if (target !== '.' && (previousActiveProject === '.' || !visibleProjects.includes(target))) {
           const addedProjects = await addProjectRPC({ cwd, path: target });
           applyProjects(addedProjects, cwd);
         }
+        const optimisticProjects = target === '.' || visibleProjects.includes(target)
+          ? previousProjects
+          : [...new Set([...previousProjects, target])];
+        set({
+          projects: optimisticProjects,
+          activeProject: target,
+        });
+        const optimisticCwd = target && target !== '.' ? target : cwd;
+        refreshChatSurfaceForCwdInBackground(optimisticCwd);
         const projects = await setActiveProjectRPC({ cwd, path: target });
         applyProjects(projects, cwd);
         const selectedProject = normalizePath(get().activeProject);
         const selectedCwd = selectedProject && selectedProject !== '.' ? selectedProject : cwd;
-        await refreshChatSurfaceForCwd(selectedCwd);
+        if (selectedCwd !== optimisticCwd) {
+          refreshChatSurfaceForCwdInBackground(selectedCwd);
+        }
         notifyAction(`已切换项目：${projectShortLabel(target)}`, 'success');
         return true;
       } catch (error) {
+        set({
+          activeProject: previousActiveProject,
+          projects: previousProjects,
+          chatSurfaceLoadingCwd: '',
+        });
         notifyAction(`切换项目失败：${error.message}`, 'error');
         addWarning('error', 'project.set_active.failed', { path: target, error: error.message });
         throw error;
