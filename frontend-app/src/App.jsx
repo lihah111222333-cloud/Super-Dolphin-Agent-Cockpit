@@ -5002,7 +5002,7 @@ function Conversation({
   canUseProjectActions = true,
 }) {
   const introMode = !activeThreadId && !timelineBlocked && messages.length === 0;
-  const showProviderToggle = !hasAssistantReply(messages);
+  const showProviderToggle = !activeThreadId;
   const hasActiveReasoning = messages.some((message) => isReasoningMessage(message) && message.done === false);
   const pendingReasoning = !introMode && !timelineBlocked && !hasActiveReasoning && !hasAssistantReplyAfterLastUser(messages)
     ? syntheticReasoningMessage({ activeTurn, sending })
