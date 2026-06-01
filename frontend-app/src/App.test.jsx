@@ -1520,6 +1520,37 @@ describe('frontend-app connected client shell', () => {
     expect(screen.queryByRole('button', { name: /预览附件 a\.txt/ })).not.toBeInTheDocument();
   });
 
+  it('traps focus in the attachment preview and restores focus after Escape', async () => {
+    backend.selectFiles.mockResolvedValue(['/tmp/a.txt']);
+
+    render(<App />);
+    await screen.findByText('后端线程');
+
+    fireEvent.click(screen.getByLabelText('添加文件'));
+    const attachment = await screen.findByRole('button', { name: /预览附件 a\.txt/ });
+    attachment.focus();
+    fireEvent.click(attachment);
+
+    const dialog = screen.getByRole('dialog', { name: '附件预览' });
+    const closeIcon = within(dialog).getByLabelText('关闭附件预览');
+    const closeText = within(dialog).getByRole('button', { name: '关闭' });
+    await waitFor(() => {
+      expect(document.activeElement).toBe(closeIcon);
+    });
+
+    fireEvent.keyDown(dialog, { key: 'Tab', code: 'Tab', shiftKey: true });
+    expect(document.activeElement).toBe(closeText);
+    fireEvent.keyDown(dialog, { key: 'Tab', code: 'Tab' });
+    expect(document.activeElement).toBe(closeIcon);
+    fireEvent.keyDown(dialog, { key: 'Escape', code: 'Escape' });
+
+    await waitFor(() => {
+      expect(screen.queryByRole('dialog', { name: '附件预览' })).not.toBeInTheDocument();
+    });
+    expect(document.activeElement).toBe(attachment);
+    expect(backend.interruptTurn).not.toHaveBeenCalled();
+  });
+
   it('adds pasted images and dropped files to the composer attachments', async () => {
     backend.saveClipboardImage.mockResolvedValue('/tmp/pasted.png');
 
@@ -2437,6 +2468,73 @@ describe('frontend-app connected client shell', () => {
         value: '',
       });
     });
+  });
+
+  it('traps focus in the prompt editor and restores focus after Escape', async () => {
+    backend.listPromptAssets.mockResolvedValue({
+      prompts: [{
+        id: 'main/reviewer',
+        name: '代码审查专家',
+        content: '先检查阻塞问题',
+        description: '审查代码质量',
+        when_to_use: 'Use for code review.',
+        agentType: 'coder',
+        tags: ['intent:expert', 'review'],
+        scope: 'project',
+        enabled: true,
+      }],
+    });
+    mockPromptPreferences();
+
+    render(<App />);
+    await screen.findByText('后端线程');
+    fireEvent.click(screen.getByLabelText('提示词'));
+
+    const card = (await screen.findByText('代码审查专家')).closest('article');
+    const editButton = within(card).getByRole('button', { name: '编辑' });
+    editButton.focus();
+    fireEvent.click(editButton);
+
+    const editor = await screen.findByRole('dialog', { name: '编辑提示词' });
+    const closeButton = within(editor).getByLabelText('关闭编辑器');
+    await waitFor(() => {
+      expect(document.activeElement).toBe(closeButton);
+    });
+
+    fireEvent.keyDown(editor, { key: 'Escape', code: 'Escape' });
+    await waitFor(() => {
+      expect(screen.queryByRole('dialog', { name: '编辑提示词' })).not.toBeInTheDocument();
+    });
+    expect(document.activeElement).toBe(editButton);
+  });
+
+  it('traps focus in the prompt wizard and restores focus after Escape', async () => {
+    backend.listPromptAssets.mockResolvedValue({ prompts: [] });
+    mockPromptPreferences();
+
+    render(<App />);
+    await screen.findByText('后端线程');
+    fireEvent.click(screen.getByLabelText('提示词'));
+
+    const addButton = await screen.findByRole('button', { name: '+ 添加给 AI 的内容' });
+    addButton.focus();
+    fireEvent.click(addButton);
+
+    const wizard = await screen.findByRole('dialog', { name: '添加给 AI 的内容' });
+    const closeButtons = within(wizard).getAllByRole('button', { name: '关闭' });
+    await waitFor(() => {
+      expect(document.activeElement).toBe(closeButtons[0]);
+    });
+
+    fireEvent.keyDown(wizard, { key: 'Tab', code: 'Tab', shiftKey: true });
+    expect(document.activeElement).toBe(closeButtons.at(-1));
+    fireEvent.keyDown(wizard, { key: 'Tab', code: 'Tab' });
+    expect(document.activeElement).toBe(closeButtons[0]);
+    fireEvent.keyDown(wizard, { key: 'Escape', code: 'Escape' });
+    await waitFor(() => {
+      expect(screen.queryByRole('dialog', { name: '添加给 AI 的内容' })).not.toBeInTheDocument();
+    });
+    expect(document.activeElement).toBe(addButton);
   });
 
   it('auto-updates prompt assets without a manual refresh button', async () => {
@@ -3643,6 +3741,54 @@ describe('frontend-app connected client shell', () => {
     fireEvent.click(within(remainingFinalCard).getByRole('button', { name: '用此文件继续对话' }));
     expect(screen.getByTestId('composer-input').value).toContain('reports/final.md');
     expect(screen.getByText('final.md')).toBeInTheDocument();
+  });
+
+  it('keeps the shared-file delete dialog open while deletion is pending', async () => {
+    const deletePending = deferred();
+    backend.listSharedFiles.mockResolvedValue({
+      files: [{
+        path: 'scratch/work.json',
+        content: '{"step":1}',
+        updated_by: 'agent',
+        updated_at: '2026-05-30T07:00:00Z',
+      }],
+      memory: [{
+        path: 'scratch/work.json',
+        content: '{"step":1}',
+        updated_by: 'agent',
+        updated_at: '2026-05-30T07:00:00Z',
+      }],
+      finalOutputRefs: [],
+      sharedFileRetention: {
+        items: [{ path: 'scratch/work.json', protected: false, cleanupCandidate: true, reason: 'unreferenced' }],
+        protectedCount: 0,
+        cleanupCandidateCount: 1,
+      },
+    });
+    backend.deleteSharedFile.mockReturnValue(deletePending.promise);
+
+    render(<App />);
+    await screen.findByText('后端线程');
+    fireEvent.click(screen.getByLabelText('共享文件'));
+
+    const workCard = (await screen.findByText('work.json')).closest('article');
+    fireEvent.click(within(workCard).getByRole('button', { name: '删除' }));
+    let dialog = await screen.findByRole('dialog', { name: '删除文件' });
+    fireEvent.click(within(dialog).getByRole('button', { name: '确认删除' }));
+    await waitFor(() => {
+      expect(within(screen.getByRole('dialog', { name: '删除文件' })).getByRole('button', { name: '删除中...' })).toBeDisabled();
+    });
+
+    dialog = screen.getByRole('dialog', { name: '删除文件' });
+    fireEvent.keyDown(dialog, { key: 'Escape', code: 'Escape' });
+    expect(screen.getByRole('dialog', { name: '删除文件' })).toBeInTheDocument();
+
+    await act(async () => {
+      deletePending.resolve({ deleted: true });
+    });
+    await waitFor(() => {
+      expect(screen.queryByRole('dialog', { name: '删除文件' })).not.toBeInTheDocument();
+    });
   });
 
   it('accepts the legacy shared-files response without final-output metadata', async () => {

@@ -3,6 +3,7 @@ import { QueryClient, QueryClientProvider, useQuery, useQueryClient } from '@tan
 import { AlertTriangle, Archive, ArrowLeft, Bot, Boxes, Brain, ChevronDown, CircleStop, Code2, Copy, Download, Eye, File, FileText, Folder, FolderOpen, GitBranch, Link2, MemoryStick, MessageCircle, Moon, MoreHorizontal, PanelTopOpen, Pencil, Pin, Plus, RefreshCw, Search, Send, Settings, Sparkles, Sun, Trash2, Workflow, X } from 'lucide-react';
 import { useClientStore } from './entities/client/model/useClientStore.js';
 import { PromptPageView } from './features/prompts/PromptPageView.jsx';
+import { FocusTrapDialog } from './shared/ui/FocusTrapDialog.jsx';
 import {
   callBackend,
   applyDagOps,
@@ -3702,8 +3703,7 @@ function extractClipboardImageFiles(event) {
 function AttachmentPreviewModal({ attachment, onClose, onRemove }) {
   const isImage = attachment.kind === 'image' && attachment.previewUrl;
   return (
-    <div className="modal-overlay" role="presentation">
-      <section className="modal-box attachment-preview-modal" role="dialog" aria-modal="true" aria-label="附件预览">
+    <FocusTrapDialog ariaLabel="附件预览" className="modal-box attachment-preview-modal" onClose={onClose}>
         <header>
           <div>
             <strong>{attachment.name || attachment.path}</strong>
@@ -3723,8 +3723,7 @@ function AttachmentPreviewModal({ attachment, onClose, onRemove }) {
           <button type="button" onClick={onRemove}><Trash2 size={14} /> 移除附件</button>
           <button type="button" onClick={onClose}>关闭</button>
         </footer>
-      </section>
-    </div>
+    </FocusTrapDialog>
   );
 }
 
@@ -5308,8 +5307,7 @@ function DagScheduleModal({ cron, actionLabel, saving, onClose, onSave }) {
   };
 
   return (
-    <div className="modal-overlay">
-      <section className="modal-box" role="dialog" aria-modal="true" aria-label={actionLabel}>
+    <FocusTrapDialog ariaLabel={actionLabel} closeDisabled={saving} onClose={onClose}>
         <header><h2>{actionLabel}</h2><button type="button" className="ghost" onClick={onClose} disabled={saving}>关闭</button></header>
         <div className="dag-node-editor">
           <label>
@@ -5348,15 +5346,13 @@ function DagScheduleModal({ cron, actionLabel, saving, onClose, onSave }) {
           <button type="button" className="ghost" onClick={onClose} disabled={saving}>取消</button>
           <button type="button" onClick={confirm} disabled={saving}>{saving ? '保存中...' : actionLabel}</button>
         </footer>
-      </section>
-    </div>
+    </FocusTrapDialog>
   );
 }
 
 function ConfirmDagDeleteModal({ dag, deleting, onClose, onConfirm }) {
   return (
-    <div className="modal-overlay">
-      <section className="modal-box" role="dialog" aria-modal="true" aria-label="删除自动化">
+    <FocusTrapDialog ariaLabel="删除自动化" closeDisabled={deleting} onClose={onClose}>
         <header><h2>删除自动化</h2><button type="button" className="ghost" onClick={onClose} disabled={deleting}>关闭</button></header>
         <p>确定删除自动化 “{dag.title}” 吗？该操作会删除配置和运行关联信息，无法恢复。</p>
         <p className="path">{dag.dagKey}</p>
@@ -5364,8 +5360,7 @@ function ConfirmDagDeleteModal({ dag, deleting, onClose, onConfirm }) {
           <button type="button" className="ghost" onClick={onClose} disabled={deleting}>取消</button>
           <button type="button" className="text-danger" onClick={() => { void onConfirm(); }} disabled={deleting}>{deleting ? '删除中...' : '确认删除'}</button>
         </footer>
-      </section>
-    </div>
+    </FocusTrapDialog>
   );
 }
 
@@ -6048,14 +6043,13 @@ function SkillEditorModal({
     setBodyEditing(!activeSkillPath);
   }, [activeSkillPath]);
   return (
-    <div className="modal-overlay">
-      <section className="modal-box skills-editor-modal" role="dialog" aria-modal="true" aria-label={modalTitle}>
+    <FocusTrapDialog ariaLabel={modalTitle} className="modal-box skills-editor-modal" closeDisabled={saving} onClose={onClose}>
         <header className="skills-editor-modal-head">
           <div>
             <h2>{modalTitle}</h2>
             <p>你可以修改简介和技能内容。</p>
           </div>
-          <button type="button" className="ghost" onClick={onClose}>关闭</button>
+          <button type="button" className="ghost" onClick={onClose} disabled={saving}>关闭</button>
         </header>
         <div className="form-grid">
           <label className="wide">技能名称<input value={form.displayName} onChange={updateDisplayName} disabled={!isMain} /></label>
@@ -6121,18 +6115,16 @@ function SkillEditorModal({
           <div className="skills-inline-tip">点击“编辑正文”展开编辑；切回“预览正文”查看效果。</div>
         </div>
         <footer>
-          <button type="button" className="ghost" onClick={onClose}>取消</button>
+          <button type="button" className="ghost" onClick={onClose} disabled={saving}>取消</button>
           <button type="button" onClick={() => { void onSave(); }} disabled={saving}>{saving ? '保存中...' : '保存技能'}</button>
         </footer>
-      </section>
-    </div>
+    </FocusTrapDialog>
   );
 }
 
 function ConfirmSkillDeleteModal({ skill, deleting, onClose, onConfirm }) {
   return (
-    <div className="modal-overlay">
-      <section className="modal-box" role="dialog" aria-modal="true" aria-label="删除技能">
+    <FocusTrapDialog ariaLabel="删除技能" closeDisabled={deleting} onClose={onClose}>
         <header><h2>删除技能</h2><button type="button" className="ghost" onClick={onClose} disabled={deleting}>关闭</button></header>
         <p>确定删除技能 “{skill.name}” 吗？该操作会删除技能目录及其资源文件，无法恢复。</p>
         <p className="path">{skill.dir || '-'}</p>
@@ -6140,15 +6132,13 @@ function ConfirmSkillDeleteModal({ skill, deleting, onClose, onConfirm }) {
           <button type="button" className="ghost" onClick={onClose} disabled={deleting}>取消</button>
           <button type="button" className="text-danger" onClick={() => { void onConfirm(); }} disabled={deleting}>{deleting ? '删除中...' : '确认删除'}</button>
         </footer>
-      </section>
-    </div>
+    </FocusTrapDialog>
   );
 }
 
 function ImportScopeModal({ importing, onClose, onConfirm }) {
   return (
-    <div className="modal-overlay">
-      <section className="modal-box" role="dialog" aria-modal="true" aria-label="导入技能">
+    <FocusTrapDialog ariaLabel="导入技能" closeDisabled={importing} onClose={onClose}>
         <header><h2>导入技能</h2><button type="button" className="ghost" onClick={onClose} disabled={importing}>关闭</button></header>
         <p>这些技能导入后给谁使用？</p>
         <footer>
@@ -6156,8 +6146,7 @@ function ImportScopeModal({ importing, onClose, onConfirm }) {
           <button type="button" onClick={() => { void onConfirm('personal'); }} disabled={importing}>私人使用</button>
           <button type="button" onClick={() => { void onConfirm('project'); }} disabled={importing}>项目共享</button>
         </footer>
-      </section>
-    </div>
+    </FocusTrapDialog>
   );
 }
 
@@ -6489,8 +6478,7 @@ function SharedFileRow({
 
 function SharedFileViewer({ file, copied, exporting, onClose, onCopy, onExport }) {
   return (
-    <div className="modal-overlay">
-      <section className="modal-box shared-file-viewer-modal" role="dialog" aria-modal="true" aria-label="文件预览">
+    <FocusTrapDialog ariaLabel="文件预览" className="modal-box shared-file-viewer-modal" onClose={onClose}>
         <header>
           <div>
             <h2>文件预览</h2>
@@ -6507,15 +6495,13 @@ function SharedFileViewer({ file, copied, exporting, onClose, onCopy, onExport }
           <dt>更新时间</dt><dd>{sharedFileTimestamp(file.updatedAt)}</dd>
         </dl>
         <pre className="shared-file-content-preview">{sharedFilePreview(file)}</pre>
-      </section>
-    </div>
+    </FocusTrapDialog>
   );
 }
 
 function ConfirmSharedFileDeleteModal({ file, deleting, onClose, onConfirm }) {
   return (
-    <div className="modal-overlay">
-      <section className="modal-box" role="dialog" aria-modal="true" aria-label="删除文件">
+    <FocusTrapDialog ariaLabel="删除文件" closeDisabled={deleting} onClose={onClose}>
         <header>
           <h2>删除文件</h2>
           <button type="button" className="ghost" onClick={onClose} disabled={deleting}>关闭</button>
@@ -6528,8 +6514,7 @@ function ConfirmSharedFileDeleteModal({ file, deleting, onClose, onConfirm }) {
             {deleting ? '删除中...' : '确认删除'}
           </button>
         </footer>
-      </section>
-    </div>
+    </FocusTrapDialog>
   );
 }
 
@@ -7020,8 +7005,12 @@ function MemoryEditorModal({ editor, saving, onClose, onChange, onSave, onDelete
   const form = editor.form;
   const identityLocked = editor.mode === 'edit' && Boolean(form.existingPath);
   return (
-    <div className="modal-overlay">
-      <section className="modal-box memory-editor-modal" role="dialog" aria-modal="true" aria-label={editor.mode === 'edit' ? '编辑记忆' : '新建记忆'}>
+    <FocusTrapDialog
+      ariaLabel={editor.mode === 'edit' ? '编辑记忆' : '新建记忆'}
+      className="modal-box memory-editor-modal"
+      closeDisabled={saving}
+      onClose={onClose}
+    >
         <header>
           <div>
             <h2>{editor.mode === 'edit' ? '编辑记忆' : '新建记忆'}</h2>
@@ -7060,15 +7049,13 @@ function MemoryEditorModal({ editor, saving, onClose, onChange, onSave, onDelete
             {saving ? '保存中...' : '保存'}
           </button>
         </div>
-      </section>
-    </div>
+    </FocusTrapDialog>
   );
 }
 
 function MemoryDeleteModal({ entry, deleting, onClose, onConfirm }) {
   return (
-    <div className="modal-overlay">
-      <section className="modal-box" role="dialog" aria-modal="true" aria-label="删除记忆">
+    <FocusTrapDialog ariaLabel="删除记忆" closeDisabled={deleting} onClose={onClose}>
         <header>
           <h2>删除记忆</h2>
           <button type="button" className="ghost" onClick={onClose} disabled={deleting}>关闭</button>
@@ -7079,15 +7066,13 @@ function MemoryDeleteModal({ entry, deleting, onClose, onConfirm }) {
           <button type="button" className="ghost" onClick={onClose} disabled={deleting}>取消</button>
           <button type="button" className="danger" onClick={() => { void onConfirm(); }} disabled={deleting}>{deleting ? '删除中...' : '确认删除'}</button>
         </footer>
-      </section>
-    </div>
+    </FocusTrapDialog>
   );
 }
 
 function MemoryMergeModal({ group, merging, onClose, onConfirm }) {
   return (
-    <div className="modal-overlay">
-      <section className="modal-box" role="dialog" aria-modal="true" aria-label="整合相似记忆">
+    <FocusTrapDialog ariaLabel="整合相似记忆" closeDisabled={merging} onClose={onClose}>
         <header>
           <div>
             <h2>整合相似记忆</h2>
@@ -7101,8 +7086,7 @@ function MemoryMergeModal({ group, merging, onClose, onConfirm }) {
           <button type="button" className="ghost" onClick={onClose} disabled={merging}>取消</button>
           <button type="button" className="light" onClick={() => { void onConfirm(); }} disabled={merging}>{merging ? '整合中...' : '确认整合'}</button>
         </footer>
-      </section>
-    </div>
+    </FocusTrapDialog>
   );
 }
 
