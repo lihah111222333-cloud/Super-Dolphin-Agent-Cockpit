@@ -2845,7 +2845,11 @@ function ChatPage({ store, projectPath }) {
   const modelThreadId = composerConfigThreadId(store, activeThreadId);
   const activeThread = activeThreadForStore(store);
   const timelineBlocked = Boolean(activeThreadId && store.threadStateLoadingByThread?.[activeThreadId]);
-  const messages = timelineBlocked ? [] : (threadScopedMapValue(store.timelinesByThread, activeThreadId, activeThread, []) || []);
+  const timelineReady = Boolean(activeThreadId && store.threadTimelineReadyByThread?.[activeThreadId]);
+  const timelineBlockedWithoutCache = timelineBlocked && !timelineReady;
+  const messages = timelineBlockedWithoutCache
+    ? []
+    : (threadScopedMapValue(store.timelinesByThread, activeThreadId, activeThread, []) || []);
   const tokenUsage = threadScopedMapValue(store.tokenUsageByThread, activeThreadId, activeThread, null);
   const activityStats = threadScopedMapValue(store.activityStatsByThread, activeThreadId, activeThread, null);
   const diffText = threadScopedMapValue(store.diffTextByThread, activeThreadId, activeThread, '') || '';
@@ -3066,7 +3070,7 @@ function ChatPage({ store, projectPath }) {
           activeThread={activeThread}
           statusEntry={statusEntry}
           modelThreadId={modelThreadId}
-          timelineBlocked={timelineBlocked}
+          timelineBlocked={timelineBlockedWithoutCache}
           canUseProjectActions={canUseProjectActions}
         />
         {rightPanelOpen ? (

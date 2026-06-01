@@ -1179,7 +1179,7 @@ describe('frontend-app connected client shell', () => {
     await waitFor(() => expect(backend.getThreadState).toHaveBeenCalledWith({
       cwd: '/repo/app',
       threadId: 'thread-b',
-      includeDiff: true,
+      includeDiff: false,
     }));
     expect(useClientStore.getState().activeThreadId).toBe('thread-b');
     expect(useClientStore.getState().pendingActiveThreadId).toBe('');
@@ -1207,6 +1207,55 @@ describe('frontend-app connected client shell', () => {
     expect(useClientStore.getState().pendingActiveThreadId).toBe('');
     expect(screen.queryByText('Agent A ready')).not.toBeInTheDocument();
     expect(screen.queryByText('stale cached Agent B content')).not.toBeInTheDocument();
+  });
+
+  it('shows trusted cached target-thread history immediately while refreshing', async () => {
+    backend.getSidebarState.mockResolvedValue({
+      activeThreadId: 'thread-a',
+      threads: [
+        { id: 'thread-a', name: 'Agent A', provider: 'codex', status: 'idle' },
+        { id: 'thread-b', name: 'Agent B', provider: 'codex', status: 'idle' },
+      ],
+    });
+    backend.getThreadState.mockImplementation(({ threadId }) => {
+      if (threadId === 'thread-b') return new Promise(() => {});
+      return Promise.resolve({
+        activeThreadId: threadId,
+        timelinesByThread: {
+          [threadId]: [{ id: 'assistant-a', kind: 'assistant', text: 'Agent A ready' }],
+        },
+      });
+    });
+    backend.getThreadMessages.mockImplementation(({ threadId }) => {
+      if (threadId === 'thread-b') return new Promise(() => {});
+      return Promise.resolve({ messages: [] });
+    });
+
+    render(<App />);
+    await screen.findByText('Agent A ready');
+
+    act(() => {
+      useClientStore.setState((state) => ({
+        timelinesByThread: {
+          ...state.timelinesByThread,
+          'thread-b': [{ id: 'cached-b', role: 'assistant', text: 'cached Agent B content' }],
+        },
+        threadTimelineReadyByThread: {
+          ...state.threadTimelineReadyByThread,
+          'thread-b': true,
+        },
+      }));
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: /Agent B/ }));
+
+    await waitFor(() => expect(backend.getThreadState).toHaveBeenCalledWith({
+      cwd: '/repo/app',
+      threadId: 'thread-b',
+      includeDiff: false,
+    }));
+    expect(screen.getByText('cached Agent B content')).toBeInTheDocument();
+    expect(screen.queryByText('Agent A ready')).not.toBeInTheDocument();
   });
 
   it('resizes the chat rail and right sidebar without crossing their minimum widths', async () => {
@@ -1885,7 +1934,7 @@ describe('frontend-app connected client shell', () => {
       expect(backend.getThreadState).toHaveBeenCalledWith({
         cwd: '/repo/other',
         threadId: 'thread-other',
-        includeDiff: true,
+        includeDiff: false,
       });
     });
     expect(useClientStore.getState().activeThreadId).toBe('thread-other');

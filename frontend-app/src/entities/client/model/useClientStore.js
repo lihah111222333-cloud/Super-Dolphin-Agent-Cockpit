@@ -1365,6 +1365,7 @@ const baseState = {
   threadStateLoadingByThread: {},
   threadConfigSaving: false,
   timelinesByThread: {},
+  threadTimelineReadyByThread: {},
   tokenUsageByThread: {},
   activityStatsByThread: {},
   diffTextByThread: {},
@@ -1543,6 +1544,7 @@ export const useClientStore = create((set, get) => {
       threadStateLoadingByThread: {},
       pendingActiveThreadId: '',
       timelinesByThread: {},
+      threadTimelineReadyByThread: {},
       tokenUsageByThread: {},
       activityStatsByThread: {},
       diffTextByThread: {},
@@ -1641,9 +1643,14 @@ export const useClientStore = create((set, get) => {
         : explicitActiveThreadId;
 
       const timelinesByThread = {};
+      const threadTimelineReadyByThread = {};
       for (const [threadId, items] of Object.entries(state.timelinesByThread)) {
         const canonicalId = canonicalizeThreadKey(threadId, nextThreads);
         timelinesByThread[canonicalId] = items;
+      }
+      for (const [threadId, ready] of Object.entries(state.threadTimelineReadyByThread || {})) {
+        const canonicalId = canonicalizeThreadKey(threadId, nextThreads);
+        threadTimelineReadyByThread[canonicalId] = Boolean(ready);
       }
       const runtimeResultEntries = [];
       const incomingTimelines = payload.timelinesByThread || payload.timelines_by_thread;
@@ -1651,11 +1658,13 @@ export const useClientStore = create((set, get) => {
         for (const [threadId, items] of Object.entries(incomingTimelines)) {
           if (Array.isArray(items)) {
             const canonicalId = canonicalizeThreadKey(threadId, nextThreads);
+            const existingTimeline = timelinesByThread[canonicalId] || [];
+            const normalizedItems = items.map(normalizeTimelineItem);
             runtimeResultEntries.push(...runtimeResultEntriesFromTimelineItems(items, canonicalId));
-            timelinesByThread[canonicalId] = mergeTimelineItems(
-              timelinesByThread[canonicalId] || [],
-              items.map(normalizeTimelineItem),
-            );
+            timelinesByThread[canonicalId] = normalizedItems.length === 0 && threadTimelineReadyByThread[canonicalId]
+              ? existingTimeline
+              : mergeTimelineItems(existingTimeline, normalizedItems);
+            threadTimelineReadyByThread[canonicalId] = true;
           }
         }
       }
@@ -1732,6 +1741,7 @@ export const useClientStore = create((set, get) => {
         threads: nextThreads,
         pinnedThreadAtById: pinnedAtById,
         timelinesByThread,
+        threadTimelineReadyByThread,
         tokenUsageByThread,
         activityStatsByThread,
         diffTextByThread,
@@ -1781,7 +1791,19 @@ export const useClientStore = create((set, get) => {
     if (!id) return;
     try {
       const res = await getThreadMessages({ threadId: id, limit: 300 });
-      if (!Array.isArray(res?.messages) || res.messages.length === 0) return;
+      if (!Array.isArray(res?.messages) || res.messages.length === 0) {
+        set((state) => ({
+          timelinesByThread: {
+            ...state.timelinesByThread,
+            [id]: mergeTimelineItems(state.timelinesByThread[id] || [], []),
+          },
+          threadTimelineReadyByThread: {
+            ...state.threadTimelineReadyByThread,
+            [id]: true,
+          },
+        }));
+        return;
+      }
       set((state) => ({
         timelinesByThread: {
           ...state.timelinesByThread,
@@ -1791,6 +1813,10 @@ export const useClientStore = create((set, get) => {
             text: message.content,
             createdAt: message.createdAt || message.created_at,
           }))),
+        },
+        threadTimelineReadyByThread: {
+          ...state.threadTimelineReadyByThread,
+          [id]: true,
         },
       }));
     } catch (error) {
@@ -2194,6 +2220,9 @@ export const useClientStore = create((set, get) => {
       if (!id) return false;
       const cwd = requireCwd('thread.sync');
       const activeAtRequest = get().activeThreadId;
+      const includeDiff = syncOptions.includeDiff !== false;
+      const shouldLoadMessages = syncOptions.loadMessages !== false;
+      const shouldLoadDiffAfter = syncOptions.loadDiffAfter === true && !includeDiff;
       set((state) => ({
         threadStateLoadingByThread: {
           ...state.threadStateLoadingByThread,
@@ -2201,15 +2230,29 @@ export const useClientStore = create((set, get) => {
         },
       }));
       try {
-        const snapshot = await getThreadState({ cwd, threadId: id, includeDiff: true });
+        const snapshotPromise = getThreadState({ cwd, threadId: id, includeDiff });
+        const messagesPromise = shouldLoadMessages
+          ? loadThreadMessages(id, { includeArchived: syncOptions.includeArchived === true })
+          : Promise.resolve();
+        const snapshot = await snapshotPromise;
         const activeChanged = normalizeThreadId(get().activeThreadId) !== normalizeThreadId(activeAtRequest);
         applySnapshot(snapshot, {
           preferredActiveThreadId: id,
           preserveActiveThreadId: activeChanged || syncOptions.preserveActiveThreadId === true,
           includeArchivedActiveThread: syncOptions.includeArchived === true,
         });
-        await loadThreadMessages(id, { includeArchived: syncOptions.includeArchived === true });
+        await messagesPromise;
         if (!activeChanged && shouldAutoLoadThreadConfig(get(), id)) await get().loadThreadConfig(id);
+        if (shouldLoadDiffAfter && normalizeThreadId(get().activeThreadId) === normalizeThreadId(id)) {
+          void get().syncThreadState(id, {
+            includeArchived: syncOptions.includeArchived === true,
+            includeDiff: true,
+            loadMessages: false,
+            preserveActiveThreadId: true,
+          }).catch((error) => {
+            addWarning('error', 'thread.diff.refresh.failed', { threadId: id, error: error.message });
+          });
+        }
         return true;
       } finally {
         set((state) => ({
@@ -2601,7 +2644,7 @@ export const useClientStore = create((set, get) => {
           draft: restored.draft,
           attachments: restored.attachments,
         });
-        await get().syncThreadState(id, { includeArchived: true });
+        await get().syncThreadState(id, { includeArchived: true, includeDiff: false, loadDiffAfter: true });
         return;
       }
       set((state) => ({
@@ -2615,7 +2658,7 @@ export const useClientStore = create((set, get) => {
         },
       }));
       try {
-        await get().syncThreadState(id, { includeArchived: true });
+        await get().syncThreadState(id, { includeArchived: true, includeDiff: false, loadDiffAfter: true });
       } catch (error) {
         set((state) => ({
           threadStateLoadingByThread: {

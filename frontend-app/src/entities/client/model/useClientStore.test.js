@@ -385,7 +385,7 @@ describe('useClientStore backend contract', () => {
     expect(backend.getThreadState).toHaveBeenCalledWith({
       cwd: '/repo/other',
       threadId: 'thread-new',
-      includeDiff: true,
+      includeDiff: false,
     });
     expect(useClientStore.getState().activeThreadId).toBe('thread-new');
   });
