@@ -20,6 +20,7 @@ const (
 	InterruptSettleTimeout    = 6 * time.Second
 	AsyncLaunchTimeout        = 60 * time.Second
 	DreamConsolidationTimeout = 5 * time.Minute
+	PromptIntentDraftTimeout  = DreamConsolidationTimeout
 )
 
 func WithTimeout(ctx context.Context, timeout time.Duration) (context.Context, context.CancelFunc) {

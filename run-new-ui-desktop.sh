@@ -208,7 +208,7 @@ resolve_postgres_share_dir() {
 
 postgres_is_local_database_url() {
   local url="$1"
-  local rest authority host port
+  local rest authority host port normalized_host
   POSTGRES_URL_HOST=""
   POSTGRES_URL_PORT=""
   case "$url" in
@@ -223,7 +223,8 @@ postgres_is_local_database_url() {
   if [ "$port" = "$authority" ] || [ -z "$port" ]; then
     port="5432"
   fi
-  case "${host,,}" in
+  normalized_host="$(printf '%s' "$host" | tr '[:upper:]' '[:lower:]')"
+  case "$normalized_host" in
     localhost|127.0.0.1)
       POSTGRES_URL_HOST="$host"
       POSTGRES_URL_PORT="$port"
