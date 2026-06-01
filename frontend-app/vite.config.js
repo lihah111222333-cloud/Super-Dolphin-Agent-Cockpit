@@ -35,6 +35,9 @@ export default defineConfig({
         target: `ws://${backendAddr}`,
         ws: true,
       },
+      '/generated-image': {
+        target: `http://${backendAddr}`,
+      },
     },
   },
   test: {
