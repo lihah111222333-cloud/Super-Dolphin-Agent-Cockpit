@@ -121,6 +121,26 @@ describe('frontend-app backend API facade', () => {
     });
   });
 
+  it('strips cwd from strict thread-scoped runtime RPC payloads', async () => {
+    const callAPI = vi.fn().mockResolvedValue({ ok: true });
+    const api = createBackendApi({ callAPI });
+
+    await api.interruptTurn({ cwd: '/repo/app', threadId: 'thread-1', source: 'ui_stop' });
+    await api.compactThread({ cwd: '/repo/app', threadId: 'thread-1' });
+    await api.recoverThread({ cwd: '/repo/app', threadId: 'thread-1' });
+
+    expect(callAPI).toHaveBeenNthCalledWith(1, RPC_METHODS.TURN_INTERRUPT, {
+      threadId: 'thread-1',
+      source: 'ui_stop',
+    });
+    expect(callAPI).toHaveBeenNthCalledWith(2, RPC_METHODS.THREAD_COMPACT_START, {
+      threadId: 'thread-1',
+    });
+    expect(callAPI).toHaveBeenNthCalledWith(3, RPC_METHODS.THREAD_RECOVER, {
+      threadId: 'thread-1',
+    });
+  });
+
   it('fails fast before cwd-scoped RPCs when cwd is missing', () => {
     const callAPI = vi.fn();
     const api = createBackendApi({ callAPI });

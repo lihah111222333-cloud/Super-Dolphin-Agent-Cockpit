@@ -37,6 +37,7 @@ const DEFAULT_PROVIDER = 'codex';
 const MAX_WARNING_ENTRIES = 300;
 const MAX_RUNTIME_RESULT_ENTRIES = 120;
 const RUNTIME_RESULT_DETAIL_LIMIT = 1600;
+const THREAD_MESSAGES_PAGE_SIZE = 300;
 const PROVIDER_ACTIVE_PREF_KEY = 'settings.provider.active';
 const ACTIVE_PROMPT_PREF_KEY = 'settings.activePromptKey';
 const THREAD_PINS_CHAT_PREF_KEY = 'threadPins.chat';
@@ -732,6 +733,9 @@ function normalizeTurnSummary(value) {
     threadId: normalizeBackendThreadId(value.threadId || value.thread_id),
     agentId: normalizeThreadId(value.agentId || value.agent_id),
     status: normalizeString(value.status),
+    startedAt: normalizeString(value.startedAt || value.started_at || value.createdAt || value.created_at || value.ts || value.time),
+    updatedAt: normalizeString(value.updatedAt || value.updated_at),
+    completedAt: normalizeString(value.completedAt || value.completed_at || value.finishedAt || value.finished_at),
   };
 }
 
@@ -799,22 +803,65 @@ function extractText(value) {
     return value.map((item) => extractText(item)).filter(Boolean).join('\n');
   }
   if (typeof value === 'object') {
-    return extractText(value.text || value.content || value.message || value.delta);
+    return extractText(value.text || value.content || value.message || value.delta || value.output || value.result || value.answer || value.response);
   }
   return '';
 }
 
 function normalizeTimelineItem(item) {
-  const role = normalizeString(item?.role || item?.kind || item?.type).toLowerCase();
-  const normalizedRole = role.includes('user') ? 'user' : 'assistant';
+  const rawKind = normalizeString(item?.kind || item?.type || item?.eventType || item?.event_type || item?.role).toLowerCase();
+  const rawRole = normalizeString(item?.role || item?.kind || item?.type || item?.eventType || item?.event_type).toLowerCase();
+  const normalizedRole = rawRole.includes('user') ? 'user' : 'assistant';
+  const normalizedKind = rawRole.includes('user')
+    ? 'user'
+    : (
+      rawKind.includes('thinking') || rawKind.includes('reasoning') ? 'thinking'
+        : rawKind.includes('command') || rawKind.includes('exec') ? 'command'
+          : rawKind.includes('tool') ? 'tool'
+            : rawKind.includes('assistant') || rawKind.includes('agent_message') || rawKind.includes('agentmessage') || rawKind === 'final_answer' ? 'assistant'
+              : 'assistant'
+    );
+  const text = extractText(item?.text || item?.content || item?.message || item?.delta || item?.output || item?.result || item?.answer || item?.response || item?.summary || item?.preview);
   return {
     id: normalizeString(item?.id || item?.messageId || item?.message_id) || `${normalizedRole}-${Date.now()}`,
     role: normalizedRole,
-    text: extractText(item?.text || item?.content || item?.message || item?.delta),
-    time: normalizeString(item?.time || item?.ts || item?.createdAt || item?.created_at) || new Date().toISOString(),
+    kind: normalizedKind,
+    text,
+    title: normalizeString(item?.title || item?.label || item?.name || item?.tool || item?.toolName || item?.command),
+    status: normalizeString(item?.status),
+    time: normalizeString(item?.time || item?.startedAt || item?.started_at || item?.ts || item?.createdAt || item?.created_at) || new Date().toISOString(),
+    completedAt: normalizeString(item?.completedAt || item?.completed_at || item?.finishedAt || item?.finished_at),
     done: item?.done !== false,
     optimistic: Boolean(item?.optimistic),
+    elapsedMs: item?.elapsedMs !== undefined
+      ? Number(item.elapsedMs)
+      : (item?.elapsed_ms !== undefined
+        ? Number(item.elapsed_ms)
+        : (item?.durationMs !== undefined ? Number(item.durationMs) : (item?.duration_ms !== undefined ? Number(item.duration_ms) : undefined))),
   };
+}
+
+function normalizeThreadMessagesTotal(value) {
+  if (value === null || value === undefined || value === '') return null;
+  const total = Number(value);
+  return Number.isFinite(total) && total >= 0 ? total : null;
+}
+
+function threadMessageNumericId(message) {
+  const value = Number(message?.id);
+  return Number.isSafeInteger(value) && value > 0 ? value : 0;
+}
+
+function oldestThreadMessageCursor(messages) {
+  const ids = messages.map(threadMessageNumericId).filter((id) => id > 0);
+  if (ids.length > 0) return String(Math.min(...ids));
+
+  const timestamps = messages
+    .map((message) => normalizeString(message?.createdAt || message?.created_at))
+    .map((raw) => ({ raw, timestamp: Date.parse(raw) }))
+    .filter(({ raw, timestamp }) => raw && Number.isFinite(timestamp) && timestamp > 0)
+    .sort((left, right) => left.timestamp - right.timestamp);
+  return timestamps[0]?.raw || '';
 }
 
 function compactRuntimeResultText(value) {
@@ -936,7 +983,7 @@ function sortTimelineChronologically(items = []) {
 }
 
 function sameTimelineContent(left, right) {
-  return left?.role === right?.role && normalizeString(left?.text) === normalizeString(right?.text);
+  return left?.role === right?.role && normalizeTimelineKind(left) === normalizeTimelineKind(right) && normalizeString(left?.text) === normalizeString(right?.text);
 }
 
 function compactTimelineText(value) {
@@ -945,8 +992,22 @@ function compactTimelineText(value) {
 
 function sameTimelineContentCompact(left, right) {
   return left?.role === right?.role &&
+    normalizeTimelineKind(left) === normalizeTimelineKind(right) &&
     compactTimelineText(left?.text) &&
     compactTimelineText(left?.text) === compactTimelineText(right?.text);
+}
+
+function normalizeTimelineKind(item) {
+  const kind = normalizeString(item?.kind).toLowerCase();
+  if (kind) return kind;
+  return item?.role === 'user' ? 'user' : 'assistant';
+}
+
+function isVisibleTimelineItem(item) {
+  if (item?.role === 'user') return true;
+  if (normalizeString(item?.text)) return true;
+  const kind = normalizeTimelineKind(item);
+  return kind === 'thinking' || kind === 'reasoning' || kind === 'tool' || kind === 'command' || kind === 'process';
 }
 
 function preferredAssistantTimelineItem(existingItem, incomingItem) {
@@ -994,7 +1055,8 @@ function dedupeAssistantTimelineItems(items = []) {
   return output;
 }
 
-function mergeTimelineItems(existingItems = [], incomingItems = []) {
+function mergeTimelineItems(existingItems = [], incomingItems = [], options = {}) {
+  const preserveExistingVisible = options?.preserveExistingVisible === true;
   const incomingById = new Map(incomingItems.map((item) => [item.id, item]));
   const incomingIds = new Set(incomingById.keys());
   const consumedIncomingIds = new Set();
@@ -1009,7 +1071,7 @@ function mergeTimelineItems(existingItems = [], incomingItems = []) {
     }
 
     const shouldPreserveExistingMessage = (
-      (existingItem.role === 'user' || existingItem.optimistic || existingItem.runtime) &&
+      ((preserveExistingVisible && isVisibleTimelineItem(existingItem)) || existingItem.role === 'user' || existingItem.optimistic || existingItem.runtime) &&
       !incomingIds.has(existingItem.id) &&
       !incomingItems.some((incomingItem) => (
         sameTimelineContent(existingItem, incomingItem) ||
@@ -1120,6 +1182,7 @@ function runtimeAssistantCompletion(payload = {}) {
     item: {
       id: explicitId || `assistant-final-${runtimeTurnId(payload) || Date.now()}`,
       role: 'assistant',
+      kind: 'assistant',
       text,
       time: normalizeString(payload.timestamp || item.ts || item.createdAt || item.created_at) || new Date().toISOString(),
       done: true,
@@ -1654,7 +1717,7 @@ export const useClientStore = create((set, get) => {
             runtimeResultEntries.push(...runtimeResultEntriesFromTimelineItems(items, canonicalId));
             timelinesByThread[canonicalId] = mergeTimelineItems(
               timelinesByThread[canonicalId] || [],
-              items.map(normalizeTimelineItem),
+              items.map(normalizeTimelineItem).filter(isVisibleTimelineItem),
             );
           }
         }
@@ -1780,17 +1843,55 @@ export const useClientStore = create((set, get) => {
     const id = backendThreadIdForState(get(), threadId, { includeArchived: loadOptions.includeArchived === true });
     if (!id) return;
     try {
-      const res = await getThreadMessages({ threadId: id, limit: 300 });
-      if (!Array.isArray(res?.messages) || res.messages.length === 0) return;
+      const allMessages = [];
+      const seenCursors = new Set();
+      let before = '';
+      let expectedTotal = null;
+
+      while (true) {
+        const params = before
+          ? { threadId: id, limit: THREAD_MESSAGES_PAGE_SIZE, before }
+          : { threadId: id, limit: THREAD_MESSAGES_PAGE_SIZE };
+        const res = await getThreadMessages(params);
+        const page = Array.isArray(res?.messages) ? res.messages : [];
+        expectedTotal = normalizeThreadMessagesTotal(res?.total) ?? expectedTotal;
+        if (page.length === 0) {
+          if (expectedTotal !== null && allMessages.length < expectedTotal) {
+            throw new Error(`thread/messages returned ${allMessages.length}/${expectedTotal} messages before history was complete`);
+          }
+          break;
+        }
+
+        allMessages.push(...page);
+        const shouldLoadMore = expectedTotal !== null
+          ? allMessages.length < expectedTotal
+          : page.length >= THREAD_MESSAGES_PAGE_SIZE;
+        if (!shouldLoadMore) break;
+
+        const nextBefore = oldestThreadMessageCursor(page);
+        if (!nextBefore) {
+          throw new Error('thread/messages cannot continue pagination without an id or createdAt cursor');
+        }
+        if (seenCursors.has(nextBefore)) {
+          throw new Error(`thread/messages pagination cursor repeated: ${nextBefore}`);
+        }
+        seenCursors.add(nextBefore);
+        before = nextBefore;
+      }
+
+      if (allMessages.length === 0) return;
+      const pageItems = sortTimelineChronologically(allMessages.map((message) => normalizeTimelineItem({
+        id: message.id || message.messageId || message.message_id,
+        role: message.role,
+        kind: message.kind || message.type || message.eventType || message.event_type,
+        text: message.content || message.text || message.message || message.delta || message.output || message.result || message.answer || message.response,
+        createdAt: message.createdAt || message.created_at,
+        completedAt: message.completedAt || message.completed_at || message.finishedAt || message.finished_at,
+      })).filter(isVisibleTimelineItem));
       set((state) => ({
         timelinesByThread: {
           ...state.timelinesByThread,
-          [id]: sortTimelineChronologically(res.messages.map((message) => normalizeTimelineItem({
-            id: message.id,
-            role: message.role,
-            text: message.content,
-            createdAt: message.createdAt || message.created_at,
-          }))),
+          [id]: mergeTimelineItems(state.timelinesByThread[id] || [], pageItems, { preserveExistingVisible: true }),
         },
       }));
     } catch (error) {
@@ -1861,6 +1962,7 @@ export const useClientStore = create((set, get) => {
         nextTimeline.push({
           id: itemId,
           role: 'assistant',
+          kind: 'assistant',
           text: delta,
           time: normalizeString(payload.timestamp) || new Date().toISOString(),
           done: false,
@@ -1948,9 +2050,8 @@ export const useClientStore = create((set, get) => {
       if (Array.isArray(timelineItems)) {
         timelinesByThread[threadId] = mergeTimelineItems(
           timelinesByThread[threadId] || [],
-          timelineItems
-            .map(normalizeTimelineItem)
-            .filter((item) => item.role === 'user' || normalizeString(item.text)),
+          timelineItems.map(normalizeTimelineItem).filter(isVisibleTimelineItem),
+          { preserveExistingVisible: true },
         );
       }
 
