@@ -250,15 +250,37 @@ func decodeAllowedModels(raw []byte) ([]string, error) {
 }
 
 func resolveDefaultCodexModel(ctx context.Context, t *transport) (string, error) {
+	model, _, err := resolveSupportedCodexModel(ctx, t, "")
+	return model, err
+}
+
+func resolveSupportedCodexModel(ctx context.Context, t *transport, requested string) (string, bool, error) {
+	requested = strings.TrimSpace(requested)
 	raw, err := callWithTimeout(ctx, t, 10*time.Second, "model/list", map[string]any{})
 	if err != nil {
-		return "", err
+		return "", false, err
 	}
 	models, err := decodeAllowedModels(raw)
 	if err != nil {
-		return "", err
+		return "", false, err
 	}
-	return preferredCodexModel(models), nil
+	preferred := preferredCodexModel(models)
+	if requested == "" {
+		return preferred, preferred != "", nil
+	}
+	if codexModelIsCodexFamily(requested) && codexModelListContains(models, requested) {
+		return requested, false, nil
+	}
+	if !codexModelIsGenericGPT(requested) && codexModelListContains(models, requested) {
+		return requested, false, nil
+	}
+	if preferred != "" {
+		return preferred, !strings.EqualFold(preferred, requested), nil
+	}
+	if codexModelListContains(models, requested) {
+		return requested, false, nil
+	}
+	return requested, false, nil
 }
 
 func preferredCodexModel(models []string) string {
@@ -278,6 +300,33 @@ func preferredCodexModel(models []string) string {
 		}
 	}
 	return ""
+}
+
+func codexModelListContains(models []string, requested string) bool {
+	requested = strings.TrimSpace(requested)
+	if requested == "" {
+		return false
+	}
+	for _, model := range models {
+		if strings.EqualFold(strings.TrimSpace(model), requested) {
+			return true
+		}
+	}
+	return false
+}
+
+func codexModelNeedsListResolution(model string) bool {
+	model = strings.ToLower(strings.TrimSpace(model))
+	return model == "" || codexModelIsGenericGPT(model)
+}
+
+func codexModelIsGenericGPT(model string) bool {
+	model = strings.ToLower(strings.TrimSpace(model))
+	return strings.HasPrefix(model, "gpt-") && !codexModelIsCodexFamily(model)
+}
+
+func codexModelIsCodexFamily(model string) bool {
+	return strings.Contains(strings.ToLower(strings.TrimSpace(model)), "codex")
 }
 
 func wrapCodexModelUnsupportedError(err error, model string) error {
@@ -592,18 +641,21 @@ func (d *driver) startRemoteThreadWithDynamicTools(ctx context.Context, t *trans
 
 func startRemoteThreadWithParams(ctx context.Context, t *transport, req dto.StartSessionRequest, params threadStartParams) (startResult, error) {
 	configKeys := sortedConfigKeys(req.Config)
-	if strings.TrimSpace(params.Model) == "" {
-		model, err := resolveDefaultCodexModel(ctx, t)
+	if codexModelNeedsListResolution(params.Model) {
+		requestedModel := strings.TrimSpace(params.Model)
+		model, replaced, err := resolveSupportedCodexModel(ctx, t, requestedModel)
 		if err != nil {
 			pkglogger.Warn("codexapp: model/list default selection failed",
 				"agent_id", strings.TrimSpace(req.AgentID),
 				"cwd", params.Cwd,
+				"requested_model", requestedModel,
 				"error", err,
 			)
-		} else if model != "" {
+		} else if model != "" && replaced {
 			params.Model = model
-			pkglogger.Info("codexapp: thread/start selected model from model/list",
+			pkglogger.Info("codexapp: thread/start selected supported model from model/list",
 				"agent_id", strings.TrimSpace(req.AgentID),
+				"requested_model", requestedModel,
 				"model", model,
 			)
 		}
