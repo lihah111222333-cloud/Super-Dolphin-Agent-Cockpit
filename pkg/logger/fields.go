@@ -2,6 +2,8 @@ package logger
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"fmt"
 	"io"
 	"log/slog"
@@ -66,6 +68,27 @@ func WithTraceIDs(ctx context.Context, traceID, spanID string) context.Context {
 func WithTraceContext(ctx context.Context, traceID, spanID, parentSpanID string) context.Context {
 	ctx = WithTraceIDs(ctx, traceID, spanID)
 	return WithParentSpanID(ctx, parentSpanID)
+}
+
+func NewSpanID() (string, error) {
+	var data [8]byte
+	if _, err := rand.Read(data[:]); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(data[:]), nil
+}
+
+func WithChildTraceSpan(ctx context.Context) (context.Context, string, error) {
+	traceID := TraceIDFromContext(ctx)
+	if traceID == "" {
+		return ctx, "", nil
+	}
+	parentSpanID := SpanIDFromContext(ctx)
+	spanID, err := NewSpanID()
+	if err != nil {
+		return nil, "", err
+	}
+	return WithTraceContext(ctx, traceID, spanID, parentSpanID), spanID, nil
 }
 
 func TraceIDFromContext(ctx context.Context) string {
