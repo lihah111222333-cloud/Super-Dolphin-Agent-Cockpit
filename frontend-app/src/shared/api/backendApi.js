@@ -14,6 +14,7 @@ import {
   selectProjectDir as selectProjectDirViaBridge,
   selectProjectDirs as selectProjectDirsViaBridge,
   sendFrontendLogBatch,
+  emitFrontendTraceEvent,
 } from './wailsBridge';
 
 export const RPC_METHODS = Object.freeze({
@@ -23,6 +24,7 @@ export const RPC_METHODS = Object.freeze({
   UI_STATE_GET: 'ui/state/get',
   UI_SIDEBAR_GET: 'ui/sidebar/get',
   UI_LOG: 'ui/log',
+  OBSERVABILITY_FRONTEND_INGEST: 'observability/frontend/ingest',
   UI_OPEN_NEW_WINDOW: 'ui/openNewWindow',
 
   UI_PROJECTS_GET: 'ui/projects/get',
@@ -921,4 +923,4 @@ export const copyTextToClipboard = backendApi.copyTextToClipboard;
 export const selectFiles = backendApi.selectFiles;
 export const selectProjectDir = backendApi.selectProjectDir;
 export const selectProjectDirs = backendApi.selectProjectDirs;
-export { registerBridgeLogStore, sendFrontendLogBatch };
+export { registerBridgeLogStore, sendFrontendLogBatch, emitFrontendTraceEvent };

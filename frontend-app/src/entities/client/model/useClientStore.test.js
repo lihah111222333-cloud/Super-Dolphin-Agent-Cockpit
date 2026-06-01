@@ -31,6 +31,7 @@ const backend = vi.hoisted(() => ({
   selectFiles: vi.fn(),
   beginTextClipboardWrite: vi.fn(),
   copyTextToClipboard: vi.fn(),
+  emitFrontendTraceEvent: vi.fn(),
   onBridgeEvent: vi.fn((callback) => {
     bridgeCallback = callback;
     return () => {
@@ -1268,6 +1269,41 @@ describe('useClientStore backend contract', () => {
       expect.objectContaining({ role: 'user', text: 'Keep my message visible' }),
       expect.objectContaining({ role: 'assistant', text: 'AI reply' }),
     ]);
+  });
+
+  it('emits a sanitized slow patch trace after thresholded bridge patch application', () => {
+    resetClientStoreForTests({
+      threads: [{ id: 'thread-new', name: 'Trace me', provider: 'codex', status: 'running' }],
+    });
+    const nowSpy = vi.spyOn(Date, 'now')
+      .mockReturnValueOnce(0)
+      .mockReturnValueOnce(10)
+      .mockReturnValueOnce(75);
+    useClientStore.getState().initializeEvents();
+
+    bridgeCallback({
+      type: 'ui/thread/patch',
+      payload: {
+        threadId: 'thread-new',
+        sequence: '1',
+        prompt: 'forbidden prompt text',
+        timelineItems: [{ id: 'assistant-1', kind: 'assistant', text: 'AI reply' }],
+        agentRuntime: { agentId: 'agent-1' },
+        activeTurn: { id: 'turn-1' },
+      },
+    });
+
+    expect(backend.emitFrontendTraceEvent).toHaveBeenCalledWith(expect.objectContaining({
+      phase: 'frontend.patch.apply.slow',
+      method: 'ui/thread/patch',
+      thread_id: 'thread-new',
+      agent_id: 'agent-1',
+      turn_id: 'turn-1',
+      duration_ms: 75,
+      status: 'ok',
+    }));
+    expect(JSON.stringify(backend.emitFrontendTraceEvent.mock.calls[0][0])).not.toContain('prompt');
+    nowSpy.mockRestore();
   });
 
   it('preserves the selected Claude provider when runtime patches omit provider metadata', () => {

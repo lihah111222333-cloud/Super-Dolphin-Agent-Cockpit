@@ -100,6 +100,7 @@ const backend = vi.hoisted(() => ({
   saveTextFile: vi.fn(),
   beginTextClipboardWrite: vi.fn(),
   copyTextToClipboard: vi.fn(),
+  emitFrontendTraceEvent: vi.fn(),
   onFilesDropped: vi.fn(() => () => {}),
   onBridgeEvent: vi.fn((callback) => {
     bridgeCallback = callback;
