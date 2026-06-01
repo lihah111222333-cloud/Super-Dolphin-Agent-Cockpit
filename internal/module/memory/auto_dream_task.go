@@ -297,7 +297,7 @@ func (h *MemoryLifecycleHooks) launchAutoDreamTask(taskCtx context.Context, thre
 		})
 		if err != nil {
 			if h.logger != nil && !errors.Is(err, context.Canceled) {
-				h.logger.Warn("memory auto-dream execution failed", "thread_id", threadID, "error", err)
+				h.logger.Error("memory auto-dream execution failed", "thread_id", threadID, "error", err)
 			}
 			return
 		}

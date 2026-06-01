@@ -2,6 +2,7 @@ package prompt
 
 import (
 	"encoding/json"
+	"log/slog"
 	"strings"
 )
 
@@ -21,6 +22,10 @@ func IsRuntimeAssetTemplate(template PromptTemplate) bool {
 func TemplateTags(raw json.RawMessage) []string {
 	var tags []string
 	if err := json.Unmarshal(raw, &tags); err != nil {
+		slog.Warn("prompt: TemplateTags unmarshal failed, returning nil tag slice",
+			slog.Int("raw_len", len(raw)),
+			slog.String("error", err.Error()),
+		)
 		return nil
 	}
 	return tags
