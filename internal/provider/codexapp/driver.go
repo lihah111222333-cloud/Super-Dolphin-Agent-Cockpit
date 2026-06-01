@@ -367,7 +367,7 @@ func (s *session) AllowedModels(ctx context.Context) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	return ensureCodexModelPresent(models, "gpt-5.5"), nil
+	return models, nil
 }
 
 type startResult struct {

@@ -176,6 +176,62 @@ func TestTurnCompleted_EndToEnd_FailedTurnCarriesError(t *testing.T) {
 	}
 }
 
+func TestTurnCompleted_EndToEnd_TurnFailedEventCarriesError(t *testing.T) {
+	s := newAccumulatorTestSession()
+	terminal, _ := json.Marshal(map[string]any{
+		"turnId": "T-failed-event",
+		"status": "failed",
+		"error":  "The 'gpt-5' model is not supported when using Codex with a ChatGPT account.",
+	})
+	completed, ok := sniffAndTranslate(t, s, "turn/failed", terminal)
+	if !ok {
+		t.Fatalf("expected turn/failed to translate into TurnCompleted DTO")
+	}
+	if completed.Success {
+		t.Fatalf("expected Success=false for a turn/failed event")
+	}
+	if !strings.Contains(completed.Error, "gpt-5") {
+		t.Fatalf("TurnCompleted.Error = %q, want the provider failure detail", completed.Error)
+	}
+}
+
+func TestFinishTurn_ModelUnsupportedErrorCompletesHandleWithNotice(t *testing.T) {
+	h := newTurnHandle("local-1", "T-model-error")
+	s := &session{
+		turns: map[string]*turnHandle{
+			"T-model-error": h,
+		},
+		activeTurnID: "T-model-error",
+		runtimeConfig: map[string]any{
+			"model": "gpt-5",
+		},
+	}
+	terminal, _ := json.Marshal(map[string]any{
+		"turnId": "T-model-error",
+		"error":  "The 'gpt-5' model is not supported when using Codex with a ChatGPT account.",
+	})
+
+	s.finishTurn(terminal, false)
+
+	select {
+	case <-h.Done():
+	default:
+		t.Fatal("expected failed turn to complete the handle")
+	}
+	if h.Err() == nil {
+		t.Fatal("expected failed turn to complete with an error")
+	}
+	if !strings.Contains(h.Err().Error(), `Codex model "gpt-5" is not supported`) {
+		t.Fatalf("turn handle error = %q, want actionable model notice", h.Err().Error())
+	}
+	if s.activeTurnID != "" {
+		t.Fatalf("activeTurnID = %q, want cleared", s.activeTurnID)
+	}
+	if _, ok := s.turns["T-model-error"]; ok {
+		t.Fatal("expected completed turn to be removed")
+	}
+}
+
 // TestTurnCompleted_EndToEnd_AbortedTurnIsUnsuccessful covers the second
 // failure shape: an aborted codex turn must translate into Success=false
 // (turnTerminalSuccess short-circuits on "aborted" regardless of payload).

@@ -249,6 +249,84 @@ func decodeAllowedModels(raw []byte) ([]string, error) {
 	return nil, errors.New("codexapp: invalid model/list response")
 }
 
+func resolveDefaultCodexModel(ctx context.Context, t *transport) (string, error) {
+	raw, err := callWithTimeout(ctx, t, 10*time.Second, "model/list", map[string]any{})
+	if err != nil {
+		return "", err
+	}
+	models, err := decodeAllowedModels(raw)
+	if err != nil {
+		return "", err
+	}
+	return preferredCodexModel(models), nil
+}
+
+func preferredCodexModel(models []string) string {
+	for _, model := range models {
+		if strings.EqualFold(strings.TrimSpace(model), "gpt-5-codex") {
+			return strings.TrimSpace(model)
+		}
+	}
+	for _, model := range models {
+		if trimmed := strings.TrimSpace(model); trimmed != "" && strings.Contains(strings.ToLower(trimmed), "codex") {
+			return trimmed
+		}
+	}
+	for _, model := range models {
+		if trimmed := strings.TrimSpace(model); trimmed != "" {
+			return trimmed
+		}
+	}
+	return ""
+}
+
+func wrapCodexModelUnsupportedError(err error, model string) error {
+	if err == nil {
+		return nil
+	}
+	notice := codexModelUnsupportedNotice(err, model)
+	if notice == "" {
+		return err
+	}
+	return fmt.Errorf("%s: %w", notice, err)
+}
+
+func codexModelUnsupportedNotice(err error, model string) string {
+	if err == nil {
+		return ""
+	}
+	text := err.Error()
+	lower := strings.ToLower(text)
+	if !strings.Contains(lower, "model") ||
+		!strings.Contains(lower, "not supported") ||
+		!strings.Contains(lower, "codex") ||
+		!strings.Contains(lower, "chatgpt") {
+		return ""
+	}
+	selected := strings.TrimSpace(model)
+	if selected == "" {
+		selected = quotedModelFromUnsupportedText(text)
+	}
+	if selected != "" {
+		return fmt.Sprintf("Codex model %q is not supported by the current ChatGPT account. Choose a supported Codex model in Settings or clear the model override, then retry", selected)
+	}
+	return "The selected Codex model is not supported by the current ChatGPT account. Choose a supported Codex model in Settings or clear the model override, then retry"
+}
+
+func quotedModelFromUnsupportedText(text string) string {
+	const prefix = "The '"
+	start := strings.Index(text, prefix)
+	if start < 0 {
+		return ""
+	}
+	rest := text[start+len(prefix):]
+	end := strings.Index(rest, "'")
+	if end <= 0 {
+		return ""
+	}
+	return strings.TrimSpace(rest[:end])
+}
+
 func modelIDs(raw any) []string {
 	list, _ := raw.([]any)
 	out := make([]string, 0, len(list))
@@ -267,18 +345,6 @@ func modelIDs(raw any) []string {
 		out = append(out, id)
 	}
 	return out
-}
-
-// ensureCodexModelPresent injects a model into the allowed list if the upstream
-// model/list RPC has not yet been updated. This covers the window between a new
-// model launch and the next Codex CLI release.
-func ensureCodexModelPresent(models []string, target string) []string {
-	for _, m := range models {
-		if strings.EqualFold(m, target) {
-			return models
-		}
-	}
-	return append([]string{target}, models...)
 }
 
 func configString(cfg map[string]any, keys ...string) string {
@@ -526,6 +592,22 @@ func (d *driver) startRemoteThreadWithDynamicTools(ctx context.Context, t *trans
 
 func startRemoteThreadWithParams(ctx context.Context, t *transport, req dto.StartSessionRequest, params threadStartParams) (startResult, error) {
 	configKeys := sortedConfigKeys(req.Config)
+	if strings.TrimSpace(params.Model) == "" {
+		model, err := resolveDefaultCodexModel(ctx, t)
+		if err != nil {
+			pkglogger.Warn("codexapp: model/list default selection failed",
+				"agent_id", strings.TrimSpace(req.AgentID),
+				"cwd", params.Cwd,
+				"error", err,
+			)
+		} else if model != "" {
+			params.Model = model
+			pkglogger.Info("codexapp: thread/start selected model from model/list",
+				"agent_id", strings.TrimSpace(req.AgentID),
+				"model", model,
+			)
+		}
+	}
 	if strings.TrimSpace(params.Model) == "" || strings.TrimSpace(params.Effort) == "" {
 		pkglogger.Warn("codexapp: thread/start config trace",
 			"agent_id", strings.TrimSpace(req.AgentID),
@@ -569,7 +651,7 @@ func startRemoteThreadWithParams(ctx context.Context, t *transport, req dto.Star
 	raw, err := callWithTimeout(ctx, t, 30*time.Second, "thread/start", params)
 	if err != nil {
 		logThreadStartIdentityTrace("codexapp: thread/start request failed", t.serverURL, req, params, err)
-		return startResult{}, err
+		return startResult{}, wrapCodexModelUnsupportedError(err, params.Model)
 	}
 	return decodeStartResult(raw)
 }
