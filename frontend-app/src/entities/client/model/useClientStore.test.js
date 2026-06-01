@@ -217,6 +217,22 @@ describe('useClientStore backend contract', () => {
     }));
   });
 
+  it('keeps provider toggle fail-fast when cwd is missing', async () => {
+    resetClientStoreForTests({
+      cwd: '',
+      activeProject: '',
+      provider: 'codex',
+    });
+
+    await expect(useClientStore.getState().toggleProviderMode()).rejects.toThrow(
+      'frontend-app: cwd is required for provider.toggle',
+    );
+
+    expect(backend.setPreference).not.toHaveBeenCalledWith(expect.objectContaining({
+      key: 'settings.provider.active',
+    }));
+  });
+
   it('routes project selector actions through the project RPC contract', async () => {
     resetClientStoreForTests({
       cwd: '/repo/app',
@@ -1320,6 +1336,23 @@ describe('useClientStore backend contract', () => {
       level: 'error',
       event: 'thread.send.failed',
     }));
+  });
+
+  it('keeps sending fail-fast when cwd is missing', async () => {
+    resetClientStoreForTests({
+      cwd: '',
+      activeProject: '',
+      activeThreadId: '',
+      draft: 'Do not send without cwd',
+      attachments: [],
+    });
+
+    await expect(useClientStore.getState().sendDraft()).rejects.toThrow(
+      'frontend-app: cwd is required for send message',
+    );
+
+    expect(backend.startThread).not.toHaveBeenCalled();
+    expect(backend.startTurn).not.toHaveBeenCalled();
   });
 
   it('starts a new composer draft from a shared file continuation action', () => {
