@@ -522,6 +522,7 @@ func writePrePushScopeFakeBins(t *testing.T, logPath string) string {
 	t.Helper()
 	binDir := t.TempDir()
 	for name, content := range map[string]string{
+		"go":   "#!/usr/bin/env bash\nprintf 'go %s\\n' \"$*\" >>\"$HOOK_SCOPE_LOG\"\nif [ \"${1:-}\" = \"list\" ]; then shift; printf '%s\\n' \"$@\"; fi\n",
 		"node": "#!/usr/bin/env bash\nprintf 'node %s\\n' \"$*\" >>\"$HOOK_SCOPE_LOG\"\n",
 		"npx":  "#!/usr/bin/env bash\nprintf 'npx %s\\n' \"$*\" >>\"$HOOK_SCOPE_LOG\"\n",
 	} {
@@ -545,10 +546,11 @@ func runPrePushScopeHook(t *testing.T, root, stdin, binDir, logPath string) (str
 	cmd := exec.Command("bash", bashPath(".githooks", "pre-push"))
 	cmd.Dir = root
 	cmd.Stdin = strings.NewReader(stdin)
-	cmd.Env = append(os.Environ(),
-		"PATH="+binDir+string(os.PathListSeparator)+os.Getenv("PATH"),
-		"HOOK_SCOPE_LOG="+logPath,
+	env := append(os.Environ(),
+		"PATH="+bashArg("", binDir)+":/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+		"HOOK_SCOPE_LOG="+bashArg("", logPath),
 	)
+	cmd.Env = appendWSLEnvKeys(env, "PATH", "HOOK_SCOPE_LOG")
 	out, err := cmd.CombinedOutput()
 	return string(out), err
 }
@@ -675,26 +677,4 @@ func runFixTestGuardGitOutput(t *testing.T, root string, args ...string) string 
 		t.Fatalf("git %s failed: %v\n%s", strings.Join(args, " "), err, string(out))
 	}
 	return string(out)
-}
-
-func bashPath(parts ...string) string {
-	return filepath.ToSlash(filepath.Join(parts...))
-}
-
-func bashArgs(root string, args []string) []string {
-	converted := make([]string, len(args))
-	for i, arg := range args {
-		converted[i] = bashArg(root, arg)
-	}
-	return converted
-}
-
-func bashArg(root, arg string) string {
-	if filepath.IsAbs(arg) {
-		if rel, err := filepath.Rel(root, arg); err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
-			return filepath.ToSlash(rel)
-		}
-		return filepath.ToSlash(arg)
-	}
-	return arg
 }
