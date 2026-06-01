@@ -103,154 +103,167 @@ func TestReadToolSchemasExposePosWithoutLegacyRequired(t *testing.T) {
 }
 
 func TestReadHandlersAcceptPosSelectors(t *testing.T) {
-	t.Run("agent report", func(t *testing.T) {
-		var gotAgentID string
-		handler := HandleGetAgentReport(&golden.OrchestrationStub{
-			GetReportFunc: func(_ context.Context, agentID string) (contract.AgentReportResult, error) {
-				gotAgentID = agentID
-				return contract.AgentReportResult{AgentID: agentID, Report: "done"}, nil
-			},
-		})
-		result, err := handler(context.Background(), json.RawMessage(`{"pos":"agent:agent-1"}`))
-		if err != nil {
-			t.Fatalf("HandleGetAgentReport() error = %v", err)
-		}
-		if gotAgentID != "agent-1" || result.(contract.AgentReportResult).AgentID != "agent-1" {
-			t.Fatalf("agent report pos got agent_id=%q result=%#v", gotAgentID, result)
-		}
-	})
+	t.Run("agent report", assertAgentReportPosSelector)
+	t.Run("dag", assertDAGPosSelector)
+	t.Run("run", assertRunPosSelector)
+	t.Run("list runs", assertListRunsPosSelector)
+	t.Run("workspace run", assertWorkspaceRunPosSelector)
+	t.Run("shared file", assertSharedFilePosSelector)
+	t.Run("prompt", assertPromptPosSelector)
+	t.Run("command", assertCommandPosSelector)
+}
 
-	t.Run("dag", func(t *testing.T) {
-		var gotDagKey string
-		handler := HandleGetDAG(&golden.OrchestrationStub{
-			GetDAGFunc: func(_ context.Context, dagKey string) (contract.DAGDetail, error) {
-				gotDagKey = dagKey
-				return contract.DAGDetail{DAG: contract.DAGSummary{DagKey: dagKey}}, nil
-			},
-		})
-		result, err := handler(context.Background(), json.RawMessage(`{"pos":"dag:review-loop"}`))
-		if err != nil {
-			t.Fatalf("HandleGetDAG() error = %v", err)
-		}
-		if gotDagKey != "review-loop" || result.(contract.DAGDetail).DAG.DagKey != "review-loop" {
-			t.Fatalf("dag pos got dag_key=%q result=%#v", gotDagKey, result)
-		}
+func assertAgentReportPosSelector(t *testing.T) {
+	var gotAgentID string
+	handler := HandleGetAgentReport(&golden.OrchestrationStub{
+		GetReportFunc: func(_ context.Context, agentID string) (contract.AgentReportResult, error) {
+			gotAgentID = agentID
+			return contract.AgentReportResult{AgentID: agentID, Report: "done"}, nil
+		},
 	})
+	result, err := handler(context.Background(), json.RawMessage(`{"pos":"agent:agent-1"}`))
+	if err != nil {
+		t.Fatalf("HandleGetAgentReport() error = %v", err)
+	}
+	if gotAgentID != "agent-1" || result.(contract.AgentReportResult).AgentID != "agent-1" {
+		t.Fatalf("agent report pos got agent_id=%q result=%#v", gotAgentID, result)
+	}
+}
 
-	t.Run("run", func(t *testing.T) {
-		var got contract.GetRunRequest
-		handler := HandleGetRun(&golden.OrchestrationStub{
-			GetRunFunc: func(_ context.Context, req contract.GetRunRequest) (contract.GetRunResponse, error) {
-				got = req
-				return contract.GetRunResponse{Run: contract.Run{RunKey: req.RunKey}}, nil
-			},
-		})
-		result, err := handler(context.Background(), json.RawMessage(`{"pos":"dag:review-loop/run:run-1"}`))
-		if err != nil {
-			t.Fatalf("HandleGetRun() error = %v", err)
-		}
-		if got.RunKey != "run-1" || result.(contract.GetRunResponse).Run.RunKey != "run-1" {
-			t.Fatalf("run pos got req=%#v result=%#v", got, result)
-		}
+func assertDAGPosSelector(t *testing.T) {
+	var gotDagKey string
+	handler := HandleGetDAG(&golden.OrchestrationStub{
+		GetDAGFunc: func(_ context.Context, dagKey string) (contract.DAGDetail, error) {
+			gotDagKey = dagKey
+			return contract.DAGDetail{DAG: contract.DAGSummary{DagKey: dagKey}}, nil
+		},
 	})
+	result, err := handler(context.Background(), json.RawMessage(`{"pos":"dag:review-loop"}`))
+	if err != nil {
+		t.Fatalf("HandleGetDAG() error = %v", err)
+	}
+	if gotDagKey != "review-loop" || result.(contract.DAGDetail).DAG.DagKey != "review-loop" {
+		t.Fatalf("dag pos got dag_key=%q result=%#v", gotDagKey, result)
+	}
+}
 
-	t.Run("list runs", func(t *testing.T) {
-		var got contract.ListRunsRequest
-		handler := HandleListRuns(&golden.OrchestrationStub{
-			ListRunsFunc: func(_ context.Context, req contract.ListRunsRequest) (contract.ListRunsResponse, error) {
-				got = req
-				return contract.ListRunsResponse{Runs: []contract.Run{{DagKey: req.DagKey}}}, nil
-			},
-		})
-		result, err := handler(context.Background(), json.RawMessage(`{"pos":"dag:review-loop","status":"running","limit":3}`))
-		if err != nil {
-			t.Fatalf("HandleListRuns() error = %v", err)
-		}
-		if got.DagKey != "review-loop" || got.Status != "running" || got.Limit != 3 {
-			t.Fatalf("list runs pos req = %#v", got)
-		}
-		out, ok := result.(ListRunsOutput)
-		if !ok {
-			t.Fatalf("HandleListRuns() response = %T, want ListRunsOutput", result)
-		}
-		if len(out.Runs) != 1 || len(out.Data) != 1 || out.Total != 1 || out.Showing != 1 || out.Truncated || out.Hint == "" {
-			t.Fatalf("HandleListRuns() envelope = %#v", out)
-		}
+func assertRunPosSelector(t *testing.T) {
+	var got contract.GetRunRequest
+	handler := HandleGetRun(&golden.OrchestrationStub{
+		GetRunFunc: func(_ context.Context, req contract.GetRunRequest) (contract.GetRunResponse, error) {
+			got = req
+			return contract.GetRunResponse{Run: contract.Run{RunKey: req.RunKey}}, nil
+		},
 	})
+	result, err := handler(context.Background(), json.RawMessage(`{"pos":"dag:review-loop/run:run-1"}`))
+	if err != nil {
+		t.Fatalf("HandleGetRun() error = %v", err)
+	}
+	if got.RunKey != "run-1" || result.(contract.GetRunResponse).Run.RunKey != "run-1" {
+		t.Fatalf("run pos got req=%#v result=%#v", got, result)
+	}
+}
 
-	t.Run("workspace run", func(t *testing.T) {
-		var gotRunKey string
-		handler := HandleWorkspaceGetRun(stubWorkspaceService{
-			getRun: func(_ context.Context, runKey string) (*workspace.Run, error) {
-				gotRunKey = runKey
-				return &workspace.Run{RunKey: runKey, Status: "created"}, nil
-			},
-		})
-		result, err := handler(context.Background(), json.RawMessage(`{"pos":"workspace:ws-1"}`))
-		if err != nil {
-			t.Fatalf("HandleWorkspaceGetRun() error = %v", err)
-		}
-		if gotRunKey != "ws-1" || result.(*workspaceRunDTO).RunKey != "ws-1" {
-			t.Fatalf("workspace pos got run_key=%q result=%#v", gotRunKey, result)
-		}
+func assertListRunsPosSelector(t *testing.T) {
+	var got contract.ListRunsRequest
+	handler := HandleListRuns(&golden.OrchestrationStub{
+		ListRunsFunc: func(_ context.Context, req contract.ListRunsRequest) (contract.ListRunsResponse, error) {
+			got = req
+			return contract.ListRunsResponse{Runs: []contract.Run{{DagKey: req.DagKey}}}, nil
+		},
 	})
+	result, err := handler(context.Background(), json.RawMessage(`{"pos":"dag:review-loop","status":"running","limit":3}`))
+	if err != nil {
+		t.Fatalf("HandleListRuns() error = %v", err)
+	}
+	if got.DagKey != "review-loop" || got.Status != "running" || got.Limit != 3 {
+		t.Fatalf("list runs pos req = %#v", got)
+	}
+	assertListRunsEnvelope(t, result)
+}
 
-	t.Run("shared file", func(t *testing.T) {
-		var gotPath string
-		handler := HandleSharedFileRead(stubSharedFileStore{
-			get: func(_ context.Context, path string) (*sharedfilestore.SharedFile, error) {
-				gotPath = path
-				return &sharedfilestore.SharedFile{Path: path, Content: "ok"}, nil
-			},
-		})
-		result, err := handler(context.Background(), json.RawMessage(`{"pos":"shared:handoff/task-1/settings.json"}`))
-		if err != nil {
-			t.Fatalf("HandleSharedFileRead() error = %v", err)
-		}
-		if gotPath != "handoff/task-1/settings.json" || result.(sharedFileDTO).Path != "handoff/task-1/settings.json" {
-			t.Fatalf("shared pos got path=%q result=%#v", gotPath, result)
-		}
+func assertWorkspaceRunPosSelector(t *testing.T) {
+	var gotRunKey string
+	handler := HandleWorkspaceGetRun(stubWorkspaceService{
+		getRun: func(_ context.Context, runKey string) (*workspace.Run, error) {
+			gotRunKey = runKey
+			return &workspace.Run{RunKey: runKey, Status: "created"}, nil
+		},
 	})
+	result, err := handler(context.Background(), json.RawMessage(`{"pos":"workspace:ws-1"}`))
+	if err != nil {
+		t.Fatalf("HandleWorkspaceGetRun() error = %v", err)
+	}
+	if gotRunKey != "ws-1" || result.(*workspaceRunDTO).RunKey != "ws-1" {
+		t.Fatalf("workspace pos got run_key=%q result=%#v", gotRunKey, result)
+	}
+}
 
-	t.Run("prompt", func(t *testing.T) {
-		var gotKey string
-		handler := HandlePromptGet(stubPromptStore{
-			get: func(_ context.Context, key string) (*promptstore.PromptTemplate, error) {
-				gotKey = key
-				return &promptstore.PromptTemplate{
-					ID:        42,
-					PromptKey: key,
-					Title:     "Prompt",
-					Tags:      json.RawMessage(`["scope.global"]`),
-					Enabled:   true,
-				}, nil
-			},
-		})
-		result, err := handler(promptToolTestContext(), json.RawMessage(`{"pos":"prompt:main/dag_designer_zh"}`))
-		if err != nil {
-			t.Fatalf("HandlePromptGet() error = %v", err)
-		}
-		if gotKey != "main/dag_designer_zh" || result.(promptTemplateDTO).PromptKey != "main/dag_designer_zh" {
-			t.Fatalf("prompt pos got key=%q result=%#v", gotKey, result)
-		}
+func assertSharedFilePosSelector(t *testing.T) {
+	var gotPath string
+	handler := HandleSharedFileRead(stubSharedFileStore{
+		get: func(_ context.Context, path string) (*sharedfilestore.SharedFile, error) {
+			gotPath = path
+			return &sharedfilestore.SharedFile{Path: path, Content: "ok"}, nil
+		},
 	})
+	result, err := handler(context.Background(), json.RawMessage(`{"pos":"shared:handoff/task-1/settings.json"}`))
+	if err != nil {
+		t.Fatalf("HandleSharedFileRead() error = %v", err)
+	}
+	if gotPath != "handoff/task-1/settings.json" || result.(sharedFileDTO).Path != "handoff/task-1/settings.json" {
+		t.Fatalf("shared pos got path=%q result=%#v", gotPath, result)
+	}
+}
 
-	t.Run("command", func(t *testing.T) {
-		var gotKey string
-		handler := HandleCommandGet(stubCommandStore{
-			get: func(_ context.Context, key string) (*commandcardstore.CommandCard, error) {
-				gotKey = key
-				return &commandcardstore.CommandCard{CardKey: key, Title: "Build"}, nil
-			},
-		})
-		result, err := handler(context.Background(), json.RawMessage(`{"pos":"command:build/smoke"}`))
-		if err != nil {
-			t.Fatalf("HandleCommandGet() error = %v", err)
-		}
-		if gotKey != "build/smoke" || result.(commandCardDTO).CardKey != "build/smoke" {
-			t.Fatalf("command pos got key=%q result=%#v", gotKey, result)
-		}
+func assertPromptPosSelector(t *testing.T) {
+	var gotKey string
+	handler := HandlePromptGet(stubPromptStore{
+		get: func(_ context.Context, key string) (*promptstore.PromptTemplate, error) {
+			gotKey = key
+			return &promptstore.PromptTemplate{
+				ID:        42,
+				PromptKey: key,
+				Title:     "Prompt",
+				Tags:      json.RawMessage(`["scope.global"]`),
+				Enabled:   true,
+			}, nil
+		},
 	})
+	result, err := handler(promptToolTestContext(), json.RawMessage(`{"pos":"prompt:main/dag_designer_zh"}`))
+	if err != nil {
+		t.Fatalf("HandlePromptGet() error = %v", err)
+	}
+	if gotKey != "main/dag_designer_zh" || result.(promptTemplateDTO).PromptKey != "main/dag_designer_zh" {
+		t.Fatalf("prompt pos got key=%q result=%#v", gotKey, result)
+	}
+}
+
+func assertCommandPosSelector(t *testing.T) {
+	var gotKey string
+	handler := HandleCommandGet(stubCommandStore{
+		get: func(_ context.Context, key string) (*commandcardstore.CommandCard, error) {
+			gotKey = key
+			return &commandcardstore.CommandCard{CardKey: key, Title: "Build"}, nil
+		},
+	})
+	result, err := handler(context.Background(), json.RawMessage(`{"pos":"command:build/smoke"}`))
+	if err != nil {
+		t.Fatalf("HandleCommandGet() error = %v", err)
+	}
+	if gotKey != "build/smoke" || result.(commandCardDTO).CardKey != "build/smoke" {
+		t.Fatalf("command pos got key=%q result=%#v", gotKey, result)
+	}
+}
+
+func assertListRunsEnvelope(t *testing.T, result any) {
+	out, ok := result.(ListRunsOutput)
+	if !ok {
+		t.Fatalf("HandleListRuns() response = %T, want ListRunsOutput", result)
+	}
+	if len(out.Runs) != 1 || len(out.Data) != 1 || out.Total != 1 || out.Showing != 1 || out.Truncated || out.Hint == "" {
+		t.Fatalf("HandleListRuns() envelope = %#v", out)
+	}
 }
 
 func TestMutationToolSchemasExposePosWithoutSelectorRequired(t *testing.T) {
@@ -292,117 +305,125 @@ func TestMutationToolSchemasExposePosWithoutSelectorRequired(t *testing.T) {
 }
 
 func TestMutationHandlersAcceptPosSelectors(t *testing.T) {
-	t.Run("send message", func(t *testing.T) {
-		var got contract.TurnSubmission
-		handler := HandleSendMessage(&golden.OrchestrationStub{
-			SubmitTurnFunc: func(_ context.Context, req contract.TurnSubmission) error {
-				got = req
-				return nil
-			},
-		})
-		if _, err := handler(context.Background(), json.RawMessage(`{"pos":"agent:agent-1","message":"hello"}`)); err != nil {
-			t.Fatalf("HandleSendMessage() error = %v", err)
-		}
-		if got.AgentID != "agent-1" || got.ThreadID != "agent-1" || len(got.Inputs) != 1 {
-			t.Fatalf("send_message pos submission = %#v", got)
-		}
-	})
+	t.Run("send message", assertSendMessagePosSelector)
+	t.Run("stop agent", assertStopAgentPosSelector)
+	t.Run("start dag", assertStartDAGPosSelector)
+	t.Run("terminate dag", assertTerminateDAGPosSelector)
+	t.Run("delete dag", assertDeleteDAGPosSelector)
+	t.Run("update runtime node", assertUpdateNodePosSelector)
+	t.Run("dispatch runtime node", assertDispatchNodePosSelector)
+}
 
-	t.Run("stop agent", func(t *testing.T) {
-		var gotAgentID string
-		handler := HandleStopAgent(&golden.OrchestrationStub{
-			StopAgentFunc: func(_ context.Context, agentID string) error {
-				gotAgentID = agentID
-				return nil
-			},
-		})
-		if _, err := handler(context.Background(), json.RawMessage(`{"pos":"agent:agent-1"}`)); err != nil {
-			t.Fatalf("HandleStopAgent() error = %v", err)
-		}
-		if gotAgentID != "agent-1" {
-			t.Fatalf("stop_agent pos agent_id = %q", gotAgentID)
-		}
+func assertSendMessagePosSelector(t *testing.T) {
+	var got contract.TurnSubmission
+	handler := HandleSendMessage(&golden.OrchestrationStub{
+		SubmitTurnFunc: func(_ context.Context, req contract.TurnSubmission) error {
+			got = req
+			return nil
+		},
 	})
+	if _, err := handler(context.Background(), json.RawMessage(`{"pos":"agent:agent-1","message":"hello"}`)); err != nil {
+		t.Fatalf("HandleSendMessage() error = %v", err)
+	}
+	if got.AgentID != "agent-1" || got.ThreadID != "agent-1" || len(got.Inputs) != 1 {
+		t.Fatalf("send_message pos submission = %#v", got)
+	}
+}
 
-	t.Run("start dag", func(t *testing.T) {
-		var got contract.StartDAGRequest
-		handler := HandleStartDAG(&golden.OrchestrationStub{
-			StartDAGFunc: func(_ context.Context, req contract.StartDAGRequest) (contract.StartDAGResponse, error) {
-				got = req
-				return contract.StartDAGResponse{RunKey: "run-1"}, nil
-			},
-		})
-		if _, err := handler(context.Background(), json.RawMessage(`{"pos":"dag:review-loop","trigger_source":"manual"}`)); err != nil {
-			t.Fatalf("HandleStartDAG() error = %v", err)
-		}
-		if got.DagKey != "review-loop" || got.TriggerSource != "manual" {
-			t.Fatalf("start_dag pos req = %#v", got)
-		}
+func assertStopAgentPosSelector(t *testing.T) {
+	var gotAgentID string
+	handler := HandleStopAgent(&golden.OrchestrationStub{
+		StopAgentFunc: func(_ context.Context, agentID string) error {
+			gotAgentID = agentID
+			return nil
+		},
 	})
+	if _, err := handler(context.Background(), json.RawMessage(`{"pos":"agent:agent-1"}`)); err != nil {
+		t.Fatalf("HandleStopAgent() error = %v", err)
+	}
+	if gotAgentID != "agent-1" {
+		t.Fatalf("stop_agent pos agent_id = %q", gotAgentID)
+	}
+}
 
-	t.Run("terminate dag", func(t *testing.T) {
-		var got contract.TerminateDAGRequest
-		handler := HandleTerminateDAG(&golden.OrchestrationStub{
-			TerminateDAGFunc: func(_ context.Context, req contract.TerminateDAGRequest) error {
-				got = req
-				return nil
-			},
-		})
-		if _, err := handler(context.Background(), json.RawMessage(`{"pos":"dag:review-loop/run:run-1","reason":"stop"}`)); err != nil {
-			t.Fatalf("HandleTerminateDAG() error = %v", err)
-		}
-		if got.DagKey != "review-loop" || got.RunKey != "run-1" || got.Reason != "stop" {
-			t.Fatalf("terminate_dag pos req = %#v", got)
-		}
+func assertStartDAGPosSelector(t *testing.T) {
+	var got contract.StartDAGRequest
+	handler := HandleStartDAG(&golden.OrchestrationStub{
+		StartDAGFunc: func(_ context.Context, req contract.StartDAGRequest) (contract.StartDAGResponse, error) {
+			got = req
+			return contract.StartDAGResponse{RunKey: "run-1"}, nil
+		},
 	})
+	if _, err := handler(context.Background(), json.RawMessage(`{"pos":"dag:review-loop","trigger_source":"manual"}`)); err != nil {
+		t.Fatalf("HandleStartDAG() error = %v", err)
+	}
+	if got.DagKey != "review-loop" || got.TriggerSource != "manual" {
+		t.Fatalf("start_dag pos req = %#v", got)
+	}
+}
 
-	t.Run("delete dag", func(t *testing.T) {
-		var got contract.DeleteDAGRequest
-		handler := HandleDeleteDAG(&golden.OrchestrationStub{
-			DeleteDAGFunc: func(_ context.Context, req contract.DeleteDAGRequest) error {
-				got = req
-				return nil
-			},
-		})
-		if _, err := handler(context.Background(), json.RawMessage(`{"pos":"dag:review-loop"}`)); err != nil {
-			t.Fatalf("HandleDeleteDAG() error = %v", err)
-		}
-		if got.DagKey != "review-loop" {
-			t.Fatalf("delete_dag pos req = %#v", got)
-		}
+func assertTerminateDAGPosSelector(t *testing.T) {
+	var got contract.TerminateDAGRequest
+	handler := HandleTerminateDAG(&golden.OrchestrationStub{
+		TerminateDAGFunc: func(_ context.Context, req contract.TerminateDAGRequest) error {
+			got = req
+			return nil
+		},
 	})
+	if _, err := handler(context.Background(), json.RawMessage(`{"pos":"dag:review-loop/run:run-1","reason":"stop"}`)); err != nil {
+		t.Fatalf("HandleTerminateDAG() error = %v", err)
+	}
+	if got.DagKey != "review-loop" || got.RunKey != "run-1" || got.Reason != "stop" {
+		t.Fatalf("terminate_dag pos req = %#v", got)
+	}
+}
 
-	t.Run("update runtime node", func(t *testing.T) {
-		var got contract.UpdateNodeStatusRequest
-		handler := HandleUpdateNode(&golden.OrchestrationStub{
-			UpdateNodeStatusFunc: func(_ context.Context, req contract.UpdateNodeStatusRequest) (contract.DAGNode, error) {
-				got = req
-				return contract.DAGNode{DagKey: req.DagKey, NodeKey: req.NodeKey, Status: req.Status}, nil
-			},
-		})
-		if _, err := handler(context.Background(), json.RawMessage(`{"pos":"dag:review-loop/run_id:42/node:score","status":"done","result":"ok"}`)); err != nil {
-			t.Fatalf("HandleUpdateNode() error = %v", err)
-		}
-		if got.DagKey != "review-loop" || got.NodeKey != "score" || got.RunID != 42 || got.Status != "done" {
-			t.Fatalf("update_node pos req = %#v", got)
-		}
+func assertDeleteDAGPosSelector(t *testing.T) {
+	var got contract.DeleteDAGRequest
+	handler := HandleDeleteDAG(&golden.OrchestrationStub{
+		DeleteDAGFunc: func(_ context.Context, req contract.DeleteDAGRequest) error {
+			got = req
+			return nil
+		},
 	})
+	if _, err := handler(context.Background(), json.RawMessage(`{"pos":"dag:review-loop"}`)); err != nil {
+		t.Fatalf("HandleDeleteDAG() error = %v", err)
+	}
+	if got.DagKey != "review-loop" {
+		t.Fatalf("delete_dag pos req = %#v", got)
+	}
+}
 
-	t.Run("dispatch runtime node", func(t *testing.T) {
-		var got contract.DispatchNodeRequest
-		handler := HandleDispatchNode(&golden.OrchestrationStub{
-			DispatchNodeFunc: func(_ context.Context, req contract.DispatchNodeRequest) (contract.DispatchNodeResponse, error) {
-				got = req
-				return contract.DispatchNodeResponse{Enqueued: true}, nil
-			},
-		})
-		if _, err := handler(context.Background(), json.RawMessage(`{"pos":"dag:review-loop/run_id:42/node:score","assigned_to":"agent-1"}`)); err != nil {
-			t.Fatalf("HandleDispatchNode() error = %v", err)
-		}
-		if got.DagKey != "review-loop" || got.NodeKey != "score" || got.RunID != 42 || got.AssignedTo != "agent-1" {
-			t.Fatalf("dispatch_node pos req = %#v", got)
-		}
+func assertUpdateNodePosSelector(t *testing.T) {
+	var got contract.UpdateNodeStatusRequest
+	handler := HandleUpdateNode(&golden.OrchestrationStub{
+		UpdateNodeStatusFunc: func(_ context.Context, req contract.UpdateNodeStatusRequest) (contract.DAGNode, error) {
+			got = req
+			return contract.DAGNode{DagKey: req.DagKey, NodeKey: req.NodeKey, Status: req.Status}, nil
+		},
 	})
+	if _, err := handler(context.Background(), json.RawMessage(`{"pos":"dag:review-loop/run_id:42/node:score","status":"done","result":"ok"}`)); err != nil {
+		t.Fatalf("HandleUpdateNode() error = %v", err)
+	}
+	if got.DagKey != "review-loop" || got.NodeKey != "score" || got.RunID != 42 || got.Status != "done" {
+		t.Fatalf("update_node pos req = %#v", got)
+	}
+}
+
+func assertDispatchNodePosSelector(t *testing.T) {
+	var got contract.DispatchNodeRequest
+	handler := HandleDispatchNode(&golden.OrchestrationStub{
+		DispatchNodeFunc: func(_ context.Context, req contract.DispatchNodeRequest) (contract.DispatchNodeResponse, error) {
+			got = req
+			return contract.DispatchNodeResponse{Enqueued: true}, nil
+		},
+	})
+	if _, err := handler(context.Background(), json.RawMessage(`{"pos":"dag:review-loop/run_id:42/node:score","assigned_to":"agent-1"}`)); err != nil {
+		t.Fatalf("HandleDispatchNode() error = %v", err)
+	}
+	if got.DagKey != "review-loop" || got.NodeKey != "score" || got.RunID != 42 || got.AssignedTo != "agent-1" {
+		t.Fatalf("dispatch_node pos req = %#v", got)
+	}
 }
 
 func TestPosSelectorRejectsLegacyConflict(t *testing.T) {

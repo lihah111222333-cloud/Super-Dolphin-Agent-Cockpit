@@ -311,9 +311,10 @@ func TestHandlePromptListEnvelopeKeepsLegacyDefault(t *testing.T) {
 	if !ok {
 		t.Fatalf("HandlePromptList() envelope response = %T, want PromptListOutput", result)
 	}
-	if len(out.Prompts) != 1 || len(out.Data) != 1 || out.Total != 1 || out.Showing != 1 || out.Truncated || out.Hint == "" {
-		t.Fatalf("HandlePromptList() envelope = %#v", out)
+	if len(out.Prompts) != 1 {
+		t.Fatalf("HandlePromptList() prompts = %#v", out.Prompts)
 	}
+	assertEnvelopeCounts(t, "HandlePromptList()", len(out.Data), out.Total, out.Showing, out.Truncated, out.Hint)
 }
 
 func TestHandlePromptListKeepsTask8RuntimeDiscoveryBoundary(t *testing.T) {
@@ -445,9 +446,10 @@ func TestHandleCommandListEnvelopeKeepsLegacyDefault(t *testing.T) {
 	if !ok {
 		t.Fatalf("HandleCommandList() envelope response = %T, want CommandListOutput", result)
 	}
-	if len(out.Commands) != 1 || len(out.Data) != 1 || out.Total != 1 || out.Showing != 1 || out.Truncated || out.Hint == "" {
-		t.Fatalf("HandleCommandList() envelope = %#v", out)
+	if len(out.Commands) != 1 {
+		t.Fatalf("HandleCommandList() commands = %#v", out.Commands)
 	}
+	assertEnvelopeCounts(t, "HandleCommandList()", len(out.Data), out.Total, out.Showing, out.Truncated, out.Hint)
 }
 
 func TestHandleCommandGetTranslatesNotFound(t *testing.T) {
@@ -617,9 +619,10 @@ func TestWorkspaceListRunsEnvelopeKeepsLegacyDefault(t *testing.T) {
 	if !ok {
 		t.Fatalf("HandleWorkspaceListRuns() envelope response = %T, want WorkspaceListRunsOutput", result)
 	}
-	if len(out.Runs) != 1 || len(out.Data) != 1 || out.Total != 1 || out.Showing != 1 || out.Truncated || out.Hint == "" {
-		t.Fatalf("HandleWorkspaceListRuns() envelope = %#v", out)
+	if len(out.Runs) != 1 {
+		t.Fatalf("HandleWorkspaceListRuns() runs = %#v", out.Runs)
 	}
+	assertEnvelopeCounts(t, "HandleWorkspaceListRuns()", len(out.Data), out.Total, out.Showing, out.Truncated, out.Hint)
 }
 
 func TestWorkspaceListRunsLimitSchemaUsesInteger(t *testing.T) {
