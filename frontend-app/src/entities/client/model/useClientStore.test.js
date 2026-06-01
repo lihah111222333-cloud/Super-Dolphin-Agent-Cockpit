@@ -986,6 +986,73 @@ describe('useClientStore backend contract', () => {
     ]);
   });
 
+  it('keeps thread/state assistant text when thread/messages later returns empty assistant rows', async () => {
+    resetClientStoreForTests({
+      cwd: '/repo/app',
+      activeProject: '/repo/app',
+      activeThreadId: 'thread-1',
+      threads: [{
+        id: 'thread-1',
+        agentId: 'agent_1780323743107010000',
+        providerThreadId: '019e8390-77dc-7951-960f-246fac8780bd',
+        name: 'Existing',
+        provider: 'codex',
+        status: 'idle',
+      }],
+    });
+    backend.getThreadState.mockResolvedValueOnce({
+      activeThreadId: 'thread-1',
+      threads: [{
+        id: 'thread-1',
+        agentId: 'agent_1780323743107010000',
+        providerThreadId: '019e8390-77dc-7951-960f-246fac8780bd',
+        name: 'Existing',
+        provider: 'codex',
+        status: 'idle',
+      }],
+      timelinesByThread: {
+        'thread-1': [{ id: 'assistant-1', role: 'assistant', text: '1', createdAt: '2026-06-01T14:22:00Z' }],
+      },
+    });
+    backend.getThreadMessages.mockResolvedValueOnce({
+      messages: [
+        { id: 'assistant-1', role: 'assistant', content: '', createdAt: '2026-06-01T14:26:00Z' },
+        { id: 'assistant-2', role: 'assistant', content: '', createdAt: '2026-06-01T14:27:00Z' },
+      ],
+    });
+
+    await useClientStore.getState().syncThreadState('thread-1');
+
+    expect(useClientStore.getState().timelinesByThread['thread-1']).toEqual([
+      expect.objectContaining({ id: 'assistant-1', role: 'assistant', text: '1' }),
+    ]);
+  });
+
+  it('reads thread/messages text fields instead of rendering blank assistant bubbles', async () => {
+    resetClientStoreForTests({
+      cwd: '/repo/app',
+      activeProject: '/repo/app',
+      activeThreadId: 'thread-1',
+      threads: [{ id: 'thread-1', name: 'Existing', provider: 'codex', status: 'idle' }],
+    });
+    backend.getThreadState.mockResolvedValueOnce({
+      activeThreadId: 'thread-1',
+      threads: [{ id: 'thread-1', name: 'Existing', provider: 'codex', status: 'idle' }],
+      timelinesByThread: {},
+    });
+    backend.getThreadMessages.mockResolvedValueOnce({
+      messages: [
+        { id: 'assistant-text', role: 'assistant', text: 'loaded from text field', createdAt: '2026-06-01T14:26:00Z' },
+      ],
+    });
+
+    await useClientStore.getState().syncThreadState('thread-1');
+
+    expect(useClientStore.getState().timelinesByThread['thread-1']).toEqual([
+      expect.objectContaining({ id: 'assistant-text', role: 'assistant', text: 'loaded from text field' }),
+    ]);
+  });
+
   it('builds thread/start launch payload from provider preferences', async () => {
     resetClientStoreForTests({
       cwd: '/repo/app',

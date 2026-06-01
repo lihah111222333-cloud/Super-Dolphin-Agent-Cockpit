@@ -1814,15 +1814,15 @@ export const useClientStore = create((set, get) => {
         }));
         return;
       }
+      const loadedMessages = sortTimelineChronologically(
+        res.messages
+          .map(normalizeTimelineItem)
+          .filter((message) => message.role === 'user' || normalizeString(message.text)),
+      );
       set((state) => ({
         timelinesByThread: {
           ...state.timelinesByThread,
-          [id]: sortTimelineChronologically(res.messages.map((message) => normalizeTimelineItem({
-            id: message.id,
-            role: message.role,
-            text: message.content,
-            createdAt: message.createdAt || message.created_at,
-          }))),
+          [id]: sortTimelineChronologically(mergeTimelineItems(state.timelinesByThread[id] || [], loadedMessages)),
         },
         threadTimelineReadyByThread: {
           ...state.threadTimelineReadyByThread,
