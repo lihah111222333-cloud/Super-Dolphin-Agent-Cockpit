@@ -10,7 +10,7 @@ Run this after Task 10 is merged into the integration branch.
 
 ## Checklist
 
-1. Start the app with default tracing enabled, for example `OBS_TRACING_ENABLED=1`.
+1. Start the app with tracing explicitly enabled via `OBS_TRACING_ENABLED=1`; if the env var is absent, tracing is disabled by default.
 2. Send one chat message that reaches `turn/start` and causes at least one provider/tool path or normal turn lifecycle event.
 3. Locate `~/.multi-agent/log/<project>/traces/trace-YYYY-MM-DD.jsonl`.
 4. Confirm the trace directory and JSONL file are owner-only where the OS supports permissions.

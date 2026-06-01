@@ -98,7 +98,7 @@ If `./internal/provider/...` is too broad or slow, rerun the exact touched provi
 Manual smoke checklist:
 
 ```text
-1. Start app with default tracing enabled.
+1. Start app with tracing explicitly enabled via `OBS_TRACING_ENABLED=1`; if the env var is absent, tracing is disabled by default.
 2. Send one message.
 3. Locate ~/.multi-agent/log/<project>/traces/trace-YYYY-MM-DD.jsonl.
 4. Confirm trace directory/file permissions are owner-only where supported.
