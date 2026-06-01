@@ -232,6 +232,9 @@ func (s *service) manualConsolidationRuntimeContext(ctx context.Context, root st
 	}
 	stamp, err := loadConsolidationStamp(root)
 	if err != nil {
+		if !errors.Is(err, os.ErrNotExist) && s.logger != nil {
+			s.logger.Warn("memory consolidation stamp load failed", "error", err)
+		}
 		return ""
 	}
 	sessions, err := s.dreamHooks.autoDreamSessionCount(ctx, "", stamp.lastSuccessTime())

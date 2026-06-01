@@ -36,7 +36,7 @@ func NewLogSink(dispatcher *event.Dispatcher, logger *pkglogger.Logger) *LogSink
 }
 
 func (s *LogSink) Close() {
-	if s == nil || s.subs == nil {
+	if s.subs == nil {
 		return
 	}
 	s.subs.CancelAll()
