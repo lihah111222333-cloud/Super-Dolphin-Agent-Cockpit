@@ -43,6 +43,8 @@ export const RPC_METHODS = Object.freeze({
   UI_MEMORY_ENTRY_MERGE: 'ui/memory/entry/merge',
   UI_MEMORY_SIMILARITY_IGNORE: 'ui/memory/similarity/ignore',
   UI_MEMORY_SIMILARITY_CONSOLIDATE_ALL: 'ui/memory/similarity/consolidate-all',
+  UI_MEMORY_SIMILARITY_CONSOLIDATE_ALL_START: 'ui/memory/similarity/consolidate-all/start',
+  UI_MEMORY_SIMILARITY_CONSOLIDATE_ALL_STATUS: 'ui/memory/similarity/consolidate-all/status',
   UI_SHARED_FILE_GET: 'ui/memory/shared-file/get',
   UI_SHARED_FILE_DELETE: 'ui/memory/shared-file/delete',
   DASHBOARD_SHARED_FILES: 'dashboard/sharedFiles',
@@ -442,6 +444,16 @@ function promptIntentDraftPayload(params) {
   });
 }
 
+function memoryConsolidationPayload(method, params) {
+  const payload = requireCwd(method, params);
+  return cleanObject({
+    cwd: payload.cwd,
+    provider: normalizeString(payload.provider ?? payload.modelProvider),
+    model: normalizeString(payload.model),
+    model_provider: normalizeString(payload.model_provider ?? payload.codexModelProvider),
+  });
+}
+
 function promptDraftKeyPayload(method, params) {
   const payload = requireCwd(method, params);
   const draftKey = normalizeString(payload.draft_key ?? payload.draftKey);
@@ -562,6 +574,18 @@ export function createBackendApi(deps = {}) {
     mergeMemoryEntries: (params) => callBackend(RPC_METHODS.UI_MEMORY_ENTRY_MERGE, memoryPairPayload(RPC_METHODS.UI_MEMORY_ENTRY_MERGE, params)),
     ignoreMemorySimilarity: (params) => callBackend(RPC_METHODS.UI_MEMORY_SIMILARITY_IGNORE, memoryPairPayload(RPC_METHODS.UI_MEMORY_SIMILARITY_IGNORE, params)),
     consolidateMemorySimilarities: (params) => callBackend(RPC_METHODS.UI_MEMORY_SIMILARITY_CONSOLIDATE_ALL, requireCwd(RPC_METHODS.UI_MEMORY_SIMILARITY_CONSOLIDATE_ALL, params)),
+    startConsolidateMemorySimilarities: (params) => callBackend(
+      RPC_METHODS.UI_MEMORY_SIMILARITY_CONSOLIDATE_ALL_START,
+      memoryConsolidationPayload(RPC_METHODS.UI_MEMORY_SIMILARITY_CONSOLIDATE_ALL_START, params),
+    ),
+    getMemoryConsolidationStatus: (params) => callBackend(
+      RPC_METHODS.UI_MEMORY_SIMILARITY_CONSOLIDATE_ALL_STATUS,
+      requireKey(
+        RPC_METHODS.UI_MEMORY_SIMILARITY_CONSOLIDATE_ALL_STATUS,
+        requireCwd(RPC_METHODS.UI_MEMORY_SIMILARITY_CONSOLIDATE_ALL_STATUS, params),
+        'jobId',
+      ),
+    ),
     listSharedFiles: (params = {}) => {
       const payload = assertPlainObject(RPC_METHODS.DASHBOARD_SHARED_FILES, params);
       if (Object.keys(payload).length > 0) {
@@ -656,6 +680,12 @@ export function createBackendApi(deps = {}) {
         scenario_words: Array.isArray(payload.scenario_words) ? payload.scenario_words : [],
         scope: normalizeString(payload.scope),
       };
+      const provider = normalizeString(payload.provider ?? payload.modelProvider);
+      const model = normalizeString(payload.model);
+      const modelProvider = normalizeString(payload.model_provider ?? payload.codexModelProvider);
+      if (provider) summaryPayload.provider = provider;
+      if (model) summaryPayload.model = model;
+      if (modelProvider) summaryPayload.model_provider = modelProvider;
       const raw = await callBackend(RPC_METHODS.SKILLS_SUMMARY_SUGGEST, summaryPayload);
       return normalizeSkillSummarySuggestion(raw);
     },
@@ -830,6 +860,8 @@ export const setMemoryAutoDreamIntent = backendApi.setMemoryAutoDreamIntent;
 export const mergeMemoryEntries = backendApi.mergeMemoryEntries;
 export const ignoreMemorySimilarity = backendApi.ignoreMemorySimilarity;
 export const consolidateMemorySimilarities = backendApi.consolidateMemorySimilarities;
+export const startConsolidateMemorySimilarities = backendApi.startConsolidateMemorySimilarities;
+export const getMemoryConsolidationStatus = backendApi.getMemoryConsolidationStatus;
 export const listSharedFiles = backendApi.listSharedFiles;
 export const readSharedFile = backendApi.readSharedFile;
 export const deleteSharedFile = backendApi.deleteSharedFile;

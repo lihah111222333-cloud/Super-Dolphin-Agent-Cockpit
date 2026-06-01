@@ -14,7 +14,7 @@ func Execute[T any](ctx context.Context, dream contract.DreamExecutor, prompt st
 }
 
 func ExecuteWithOptions[T any](ctx context.Context, dream contract.DreamExecutor, prompt string, options contract.DreamOptions, parse ParseFunc[T]) (T, error) {
-	ctx, cancel := platformconfig.WithTimeoutIfNone(ctx, platformconfig.RPCRequestTimeout)
+	ctx, cancel := platformconfig.WithTimeoutIfNone(ctx, platformconfig.PromptIntentDraftTimeout)
 	defer cancel()
 
 	var zero T

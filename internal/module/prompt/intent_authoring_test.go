@@ -20,6 +20,7 @@ type fakePromptIntentDream struct {
 	prompts     []string
 	hasDeadline bool
 	deadline    time.Time
+	deadlines   []time.Time
 }
 
 func (f *fakePromptIntentDream) ExecuteDream(ctx context.Context, prompt string) (string, error) {
@@ -27,6 +28,7 @@ func (f *fakePromptIntentDream) ExecuteDream(ctx context.Context, prompt string)
 	if deadline, ok := ctx.Deadline(); ok {
 		f.hasDeadline = true
 		f.deadline = deadline
+		f.deadlines = append(f.deadlines, deadline)
 	}
 	if f.err != nil {
 		return "", f.err
