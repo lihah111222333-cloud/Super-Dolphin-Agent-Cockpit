@@ -22,6 +22,7 @@ vi.mock('./shared/api/backendApi.js', () => ({
   ...backend,
   registerBridgeLogStore: vi.fn(),
   sendFrontendLogBatch: vi.fn(),
+  emitFrontendTraceEvent: vi.fn(),
 }));
 
 // Mock navigator.clipboard
