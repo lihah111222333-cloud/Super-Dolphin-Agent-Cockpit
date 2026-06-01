@@ -1133,6 +1133,7 @@ describe('frontend-app connected client shell', () => {
     const { container } = render(<App skipBootstrap />);
 
     expect(screen.getByText('刷新前已有的回答')).toBeInTheDocument();
+    expect(screen.getByTestId('chat-timeline')).toHaveTextContent('刷新前已有的回答');
     const status = container.querySelector('.work-status');
     expect(status).toHaveTextContent('加载中');
     expect(status).toHaveClass('is-busy');
