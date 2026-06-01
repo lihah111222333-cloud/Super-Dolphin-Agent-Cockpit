@@ -32,7 +32,10 @@ func (s *PeerSupervisor) waitForPeerAfterCancel(name string, h peerHandle, waitC
 }
 
 func mustJSON(v any) json.RawMessage {
-	raw, _ := json.Marshal(v)
+	raw, err := json.Marshal(v)
+	if err != nil {
+		panic("codexapp: mustJSON: " + err.Error())
+	}
 	return raw
 }
 

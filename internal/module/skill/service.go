@@ -89,7 +89,10 @@ func resolutionPreviewHash(item skillResolutionItem, preview skillResolutionPrev
 }
 
 func hashResolutionEnvelope(v any) string {
-	data, _ := json.Marshal(v)
+	data, err := json.Marshal(v)
+	if err != nil {
+		panic("skill: hashResolutionEnvelope: " + err.Error())
+	}
 	sum := sha256.Sum256(data)
 	return hex.EncodeToString(sum[:])
 }
