@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 )
 
@@ -144,6 +145,29 @@ func ResolveApprovalPolicy(cfg map[string]any) string {
 		}
 	}
 	return "never"
+}
+
+func ConfigJSON(cfg map[string]any, key string) json.RawMessage {
+	if cfg == nil || cfg[key] == nil {
+		return nil
+	}
+	raw, err := json.Marshal(cfg[key])
+	if err != nil || string(raw) == "null" {
+		return nil
+	}
+	return raw
+}
+
+func SortedConfigKeys(cfg map[string]any) []string {
+	if len(cfg) == 0 {
+		return nil
+	}
+	keys := make([]string, 0, len(cfg))
+	for key := range cfg {
+		keys = append(keys, strings.TrimSpace(key))
+	}
+	sort.Strings(keys)
+	return keys
 }
 
 func quotedModelFromUnsupportedText(text string) string {

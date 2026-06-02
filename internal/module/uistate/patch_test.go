@@ -11,6 +11,7 @@ import (
 	tooldto "github.com/anthropic-ai/super-agent-v3/internal/dto/tool"
 	turndto "github.com/anthropic-ai/super-agent-v3/internal/dto/turn"
 	uidto "github.com/anthropic-ai/super-agent-v3/internal/dto/ui"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/observability"
 	"github.com/kelindar/event"
 )
 
@@ -205,6 +206,68 @@ func TestEmitThreadPatchEventPayloadTooLargeFallsBack(t *testing.T) {
 
 	svc.emitThreadPatchEvent(largeThreadPatch())
 	assertLargeFallbackPatch(t, mustReceiveThreadPatch(t, got))
+}
+
+func TestEmitThreadPatchTraceCorrelatesByThread(t *testing.T) {
+	t.Parallel()
+
+	trace := seededUITraceService(t)
+	dispatcher := event.NewDispatcher()
+	t.Cleanup(func() { _ = dispatcher.Close() })
+	svc := newObservedPatchTestService(t, dispatcher, trace)
+	got := subscribeThreadPatch(t, dispatcher)
+
+	svc.emitThreadPatchEvent(uidto.UIThreadPatch{ThreadID: "thread-1", Source: "turn/completed", Sequence: 1, Status: "running", DiffText: "secret diff payload"})
+	_ = mustReceiveThreadPatch(t, got)
+
+	result := trace.Query(context.Background(), observability.Query{TraceID: "trace-ui-1", Limit: 20})
+	assertCorrelatedUIPatchTrace(t, result.Events)
+}
+
+func seededUITraceService(t *testing.T) *observability.Service {
+	t.Helper()
+	trace := newUITraceService()
+	if err := trace.Record(context.Background(), observability.TraceEvent{TraceID: "trace-ui-1", SpanID: "turn-span-1", Kind: "turn.start", Method: "turn.start", ThreadID: "thread-1", Status: observability.StatusOK}); err != nil {
+		t.Fatalf("seed trace event: %v", err)
+	}
+	return trace
+}
+
+func newObservedPatchTestService(t *testing.T, dispatcher *event.Dispatcher, trace *observability.Service) *service {
+	t.Helper()
+	svc, _, err := NewService(nil, nil, nil, nil, nil, nil, WithObservability(trace))
+	if err != nil {
+		t.Fatalf("NewService() error = %v", err)
+	}
+	svc.bindDispatcher(dispatcher)
+	return svc
+}
+
+func assertCorrelatedUIPatchTrace(t *testing.T, events []observability.TraceEvent) {
+	t.Helper()
+	uiEvents := filterUITraceEvents(events, "uistate.patch.emit")
+	if len(uiEvents) == 0 {
+		t.Fatalf("ui trace events for trace-ui-1 = 0, want at least 1: %#v", events)
+	}
+	traceEvent := lastUITraceEvent(uiEvents)
+	if traceEvent.TraceID != "trace-ui-1" || traceEvent.ParentSpanID != "turn-span-1" || traceEvent.SpanID == "" {
+		t.Fatalf("correlated ui trace identifiers = trace:%q span:%q parent:%q", traceEvent.TraceID, traceEvent.SpanID, traceEvent.ParentSpanID)
+	}
+	if traceEvent.Code.Line == 0 || traceEvent.Code.Function == "" {
+		t.Fatalf("code anchor not concrete: %#v", traceEvent.Code)
+	}
+	if raw := traceEvent.Metadata; raw["diffText"] != nil || raw["diff_text"] != nil {
+		t.Fatalf("ui trace metadata leaked payload: %#v", raw)
+	}
+}
+
+func lastUITraceEvent(events []observability.TraceEvent) observability.TraceEvent {
+	for n := len(events) - 1; n >= 0; n-- {
+		if events[n].Status == observability.StatusOK {
+			return events[n]
+		}
+	}
+	return events[len(events)-1]
 }
 
 func largeThreadPatch() uidto.UIThreadPatch {

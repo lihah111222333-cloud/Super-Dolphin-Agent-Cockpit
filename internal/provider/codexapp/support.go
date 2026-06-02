@@ -281,7 +281,7 @@ func (d *driver) buildThreadStartParams(req dto.StartSessionRequest) threadStart
 		Personality:           supportutil.ConfigString(req.Config, "personality"),
 		Summary:               supportutil.ConfigString(req.Config, "summary"),
 		Effort:                supportutil.ConfigString(req.Config, "effort"),
-		Sandbox:               codexSandboxWireJSON(configJSON(req.Config, "sandbox")),
+		Sandbox:               codexSandboxWireJSON(supportutil.ConfigJSON(req.Config, "sandbox")),
 	}
 	codexNativeToolPolicyFromConfig(req.Config).ApplyThreadStartParams(&params)
 	return params
@@ -470,7 +470,7 @@ func (d *driver) startRemoteThreadWithDynamicTools(ctx context.Context, t *trans
 }
 
 func startRemoteThreadWithParams(ctx context.Context, t *transport, req dto.StartSessionRequest, params threadStartParams) (startResult, error) {
-	configKeys := sortedConfigKeys(req.Config)
+	configKeys := supportutil.SortedConfigKeys(req.Config)
 	if supportutil.CodexModelNeedsListResolution(params.Model) {
 		requestedModel := strings.TrimSpace(params.Model)
 		model, replaced, err := resolveSupportedCodexModel(ctx, t, requestedModel)
@@ -559,7 +559,7 @@ func logThreadStartIdentityTrace(msg, serverURL string, req dto.StartSessionRequ
 		"effort", strings.TrimSpace(params.Effort),
 		"approval_policy", strings.TrimSpace(params.ApprovalPolicy),
 		"cwd", strings.TrimSpace(params.Cwd),
-		"config_keys", sortedConfigKeys(req.Config),
+		"config_keys", supportutil.SortedConfigKeys(req.Config),
 	}
 	if err != nil {
 		fields = append(fields, "error", err)

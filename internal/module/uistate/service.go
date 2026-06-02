@@ -12,6 +12,7 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	uidto "github.com/anthropic-ai/super-agent-v3/internal/dto/ui"
 	"github.com/anthropic-ai/super-agent-v3/internal/module/uistate/timeline"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/observability"
 	"github.com/anthropic-ai/super-agent-v3/internal/store/uipreference"
 	"github.com/anthropic-ai/super-agent-v3/internal/util/clone"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
@@ -38,6 +39,7 @@ type service struct {
 	emitThreadPatch       threadPatchEmitter
 	emitProjectionUpdated projectionUpdatedEmitter
 	emitPreferenceChange  preferenceChangedEmitter
+	trace                 *observability.Service
 }
 
 type bindingLookup interface {
@@ -65,6 +67,12 @@ var errPreferenceKeyRequired = errors.New("uistate: preference key is required")
 
 var _ Service = (*service)(nil)
 
+type ServiceOption func(*service)
+
+func WithObservability(trace *observability.Service) ServiceOption {
+	return func(s *service) { s.trace = trace }
+}
+
 func NewService(
 	logger *slog.Logger,
 	threads contract.ThreadLister,
@@ -72,6 +80,7 @@ func NewService(
 	preferences uipreference.Store,
 	bindings bindingLookup,
 	runtimeCfg runtimeConfigLookup,
+	options ...ServiceOption,
 ) (*service, Service, error) {
 	if logger == nil {
 		logger = pkglogger.Get()
@@ -92,6 +101,11 @@ func NewService(
 		timelinePatchByThread: map[string]threadTimelinePatchState{},
 		patchSeq:              map[string]int64{},
 		projectionSeq:         map[string]int64{},
+	}
+	for _, option := range options {
+		if option != nil {
+			option(svc)
+		}
 	}
 	return svc, svc, nil
 }

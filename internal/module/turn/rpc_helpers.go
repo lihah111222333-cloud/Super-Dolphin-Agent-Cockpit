@@ -14,6 +14,7 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
 	threaddto "github.com/anthropic-ai/super-agent-v3/internal/dto/thread"
+	platformobs "github.com/anthropic-ai/super-agent-v3/internal/platform/observability"
 	platformrpc "github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
 	"github.com/anthropic-ai/super-agent-v3/internal/util"
 	"github.com/anthropic-ai/super-agent-v3/internal/util/configutil"
@@ -231,17 +232,15 @@ func turnStartHandler(svc Service, resolver contract.SessionResolver, spawner co
 		// provider CLI now using the first-turn user text for router
 		// evaluation. SpawnIfNeeded is a no-op for already-running
 		// threads, so eager-path threads are unaffected.
-		var spawnRouting threaddto.SpawnRouting
-		if spawner != nil {
-			launched, routing, err := spawner.SpawnIfNeeded(ctx, contract.ThreadIDFrom(ctx), collectTurnStartUserInput(p), p.CWD)
-			if err != nil {
-				return nil, err
-			}
-			if launched {
-				spawnRouting = routing
-			}
+		spawnRouting, err := traceSpawnIfNeeded(ctx, spawner, p)
+		if err != nil {
+			return nil, err
 		}
-		return withReadyTurnSession(ctx, resolver, func(ctx context.Context, session contract.Session) (any, error) {
+		readyCtx, session, err := tracedReadyTurnSession(ctx, svc, resolver)
+		if err != nil {
+			return nil, err
+		}
+		return func(ctx context.Context, session contract.Session) (any, error) {
 			if err := platformrpc.RequireSessionCapability(session, dto.CapMessageSend); err != nil {
 				return nil, err
 			}
@@ -280,8 +279,37 @@ func turnStartHandler(svc Service, resolver contract.SessionResolver, spawner co
 			}
 			attachTurnPromptKeyStale(&result, spawnRouting.PromptKeyStale)
 			return result, nil
-		})
+		}(readyCtx, session)
 	})
+}
+
+func traceSpawnIfNeeded(ctx context.Context, spawner contract.PendingLaunchSpawner, p turnStartParams) (threaddto.SpawnRouting, error) {
+	if spawner == nil {
+		return threaddto.SpawnRouting{}, nil
+	}
+	launched, routing, err := spawner.SpawnIfNeeded(ctx, contract.ThreadIDFrom(ctx), collectTurnStartUserInput(p), p.CWD)
+	if err != nil || !launched {
+		return threaddto.SpawnRouting{}, err
+	}
+	return routing, nil
+}
+
+func tracedReadyTurnSession(ctx context.Context, svc Service, resolver contract.SessionResolver) (context.Context, contract.Session, error) {
+	readyCtx := ctx
+	var readySpan turnTraceSpan
+	concrete, tracing := svc.(*service)
+	if tracing {
+		readySpan = concrete.beginTurnTraceSpan(ctx, "turn.ready_wait", contract.ThreadIDFrom(ctx), "", "", platformobs.NewCodeAnchor("internal/module/turn/rpc_helpers.go", "turn.tracedReadyTurnSession", 287), nil)
+		readyCtx = readySpan.ctx
+	}
+	session, err := resolveReadyTurnSession(readyCtx, resolver)
+	if tracing {
+		concrete.finishTurnTraceSpan(readySpan, err)
+	}
+	if err != nil {
+		return readyCtx, nil, err
+	}
+	return readyCtx, session, nil
 }
 
 func completeLaunchIntentIfAvailable(ctx context.Context, spawner contract.PendingLaunchSpawner) {
