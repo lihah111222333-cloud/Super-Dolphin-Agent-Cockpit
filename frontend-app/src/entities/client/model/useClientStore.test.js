@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, expect, it, vi } from 'vitest';
 
 let bridgeCallback;
 
@@ -58,7 +58,10 @@ vi.mock('../../../shared/api/backendApi.js', () => ({
 
 import { resetClientStoreForTests, useClientStore } from './useClientStore.js';
 
-describe('useClientStore backend contract', () => {
+function registerBridgeEventHandlersForTest() {
+  return useClientStore.getState().initializeEvents();
+}
+
   beforeEach(() => {
     vi.clearAllMocks();
     bridgeCallback = null;
@@ -1544,7 +1547,7 @@ describe('useClientStore backend contract', () => {
     backend.startTurn.mockResolvedValue({ ok: true });
 
     await useClientStore.getState().sendDraft();
-    useClientStore.getState().initializeEvents();
+    registerBridgeEventHandlersForTest();
     bridgeCallback({
       type: 'ui/thread/patch',
       payload: {
@@ -1568,7 +1571,7 @@ describe('useClientStore backend contract', () => {
       .mockReturnValueOnce(0)
       .mockReturnValueOnce(10)
       .mockReturnValueOnce(75);
-    useClientStore.getState().initializeEvents();
+    registerBridgeEventHandlersForTest();
 
     bridgeCallback({
       type: 'ui/thread/patch',
@@ -1603,7 +1606,7 @@ describe('useClientStore backend contract', () => {
       activeThreadId: 'thread-claude',
       threads: [{ id: 'thread-claude', name: 'Claude chat', provider: 'claude', status: 'running' }],
     });
-    useClientStore.getState().initializeEvents();
+    registerBridgeEventHandlersForTest();
 
     bridgeCallback({
       type: 'ui/thread/patch',
@@ -1631,7 +1634,7 @@ describe('useClientStore backend contract', () => {
       threads: [{ id: 'thread-other', name: 'Other project chat', provider: 'codex', status: 'running' }],
       timelinesByThread: { 'thread-other': [{ id: 'other-user', role: 'user', text: 'other cwd message' }] },
     });
-    useClientStore.getState().initializeEvents();
+    registerBridgeEventHandlersForTest();
 
     bridgeCallback({
       type: 'ui/thread/patch',
@@ -1659,7 +1662,7 @@ describe('useClientStore backend contract', () => {
   });
 
   it('increments workflow revision from task and cron bridge events', () => {
-    useClientStore.getState().initializeEvents();
+    registerBridgeEventHandlersForTest();
 
     expect(useClientStore.getState().workflowRevision).toBe(0);
     bridgeCallback({
@@ -1689,7 +1692,7 @@ describe('useClientStore backend contract', () => {
         { id: 'thread-child', name: 'Child agent', provider: 'codex', status: 'running' },
       ],
     });
-    useClientStore.getState().initializeEvents();
+    registerBridgeEventHandlersForTest();
 
     bridgeCallback({
       type: 'ui/sidebar/changed',
@@ -1708,7 +1711,7 @@ describe('useClientStore backend contract', () => {
   });
 
   it('increments prompt revision from prompt and active-prompt preference bridge events', () => {
-    useClientStore.getState().initializeEvents();
+    registerBridgeEventHandlersForTest();
 
     expect(useClientStore.getState().promptRevision).toBe(0);
     bridgeCallback({
@@ -1889,6 +1892,43 @@ describe('useClientStore backend contract', () => {
     ]);
   });
 
+  it('applies thread snapshot before a concurrent message history load finishes', async () => {
+    const snapshot = deferred();
+    const messages = deferred();
+    backend.getThreadState.mockReturnValue(snapshot.promise);
+    backend.getThreadMessages.mockReturnValue(messages.promise);
+    resetClientStoreForTests({
+      cwd: '/repo/app',
+      activeProject: '/repo/app',
+      activeThreadId: 'thread-1',
+      threads: [{ id: 'thread-1', name: 'Existing', provider: 'codex', status: 'running' }],
+    });
+
+    const sync = useClientStore.getState().syncThreadState('thread-1');
+    await vi.waitFor(() => expect(backend.getThreadMessages).toHaveBeenCalledWith({ threadId: 'thread-1', limit: 300 }));
+    snapshot.resolve({
+      activeThreadId: 'thread-1',
+      threads: [{ id: 'thread-1', name: 'Synced name', provider: 'codex', status: 'idle' }],
+      timelinesByThread: {
+        'thread-1': [{ id: 'snapshot-assistant', kind: 'assistant', text: 'snapshot reply' }],
+      },
+    });
+    await vi.waitFor(() => expect(useClientStore.getState().threads[0]).toEqual(expect.objectContaining({ name: 'Synced name' })));
+
+    expect(useClientStore.getState().timelinesByThread['thread-1']).toEqual([
+      expect.objectContaining({ text: 'snapshot reply' }),
+    ]);
+
+    messages.resolve({
+      messages: [{ id: 'message-user', role: 'user', content: 'loaded prompt', createdAt: '2026-05-30T00:00:00Z' }],
+    });
+    await expect(sync).resolves.toBe(true);
+    expect(useClientStore.getState().timelinesByThread['thread-1']).toEqual([
+      expect.objectContaining({ text: 'loaded prompt' }),
+      expect.objectContaining({ text: 'snapshot reply' }),
+    ]);
+  });
+
   it('applies runtime agent message delta and completion events to the timeline', () => {
     resetClientStoreForTests({
       cwd: '/repo/app',
@@ -1899,7 +1939,7 @@ describe('useClientStore backend contract', () => {
         'thread-1': [{ id: 'user-1', role: 'user', text: 'say ok', time: '2026-05-30T00:00:00Z' }],
       },
     });
-    useClientStore.getState().initializeEvents();
+    registerBridgeEventHandlersForTest();
 
     bridgeCallback({
       method: 'item/agentMessage/delta',
@@ -1944,7 +1984,7 @@ describe('useClientStore backend contract', () => {
         'thread-1': [{ id: 'user-1', role: 'user', text: '怎么没有内容了', time: '2026-05-30T00:00:00Z' }],
       },
     });
-    useClientStore.getState().initializeEvents();
+    registerBridgeEventHandlersForTest();
 
     bridgeCallback({
       type: 'ui/thread/patch',
@@ -2000,7 +2040,7 @@ describe('useClientStore backend contract', () => {
         ],
       },
     });
-    useClientStore.getState().initializeEvents();
+    registerBridgeEventHandlersForTest();
 
     bridgeCallback({
       type: 'ui/thread/patch',
@@ -2036,7 +2076,7 @@ describe('useClientStore backend contract', () => {
         'thread-1': [{ id: 'user-1', role: 'user', text: '怎么没有内容了', time: '2026-05-30T00:00:00Z' }],
       },
     });
-    useClientStore.getState().initializeEvents();
+    registerBridgeEventHandlersForTest();
 
     bridgeCallback({
       type: 'ui/thread/patch',
@@ -2080,7 +2120,7 @@ describe('useClientStore backend contract', () => {
         'thread-1': [{ id: 'user-1', role: 'user', text: 'say ok', time: '2026-05-30T00:00:00Z' }],
       },
     });
-    useClientStore.getState().initializeEvents();
+    registerBridgeEventHandlersForTest();
 
     bridgeCallback({
       method: 'turn/output/delta',
@@ -2125,7 +2165,7 @@ describe('useClientStore backend contract', () => {
         'thread-1': [{ id: 'user-1', role: 'user', text: 'say ok', done: true }],
       },
     });
-    useClientStore.getState().initializeEvents();
+    registerBridgeEventHandlersForTest();
 
     bridgeCallback({
       type: 'item/agentMessage/delta',
@@ -2158,14 +2198,14 @@ describe('useClientStore backend contract', () => {
     ]);
   });
 
-  it('applies bridge patches for timeline, token usage, diff and warnings', async () => {
+  it('applies bridge patches for timeline, token usage, diff and warnings', () => {
     resetClientStoreForTests({
       cwd: '/repo/app',
       activeProject: '/repo/app',
       activeThreadId: 'thread-1',
       timelinesByThread: { 'thread-1': [] },
     });
-    useClientStore.getState().initializeEvents();
+    registerBridgeEventHandlersForTest();
 
     bridgeCallback({
       type: 'ui/thread/patch',
@@ -2213,7 +2253,7 @@ describe('useClientStore backend contract', () => {
       threads: [{ id: 'thread-1', name: 'Existing', provider: 'codex', status: 'running' }],
       timelinesByThread: { 'thread-1': [] },
     });
-    useClientStore.getState().initializeEvents();
+    registerBridgeEventHandlersForTest();
 
     bridgeCallback({
       type: 'ui/thread/patch',
@@ -2232,14 +2272,14 @@ describe('useClientStore backend contract', () => {
     ]);
   });
 
-  it('records tool result timeline items for the runtime log while preserving warnings', async () => {
+  it('records tool result timeline items for the runtime log while preserving warnings', () => {
     resetClientStoreForTests({
       cwd: '/repo/app',
       activeProject: '/repo/app',
       activeThreadId: 'thread-1',
       timelinesByThread: { 'thread-1': [] },
     });
-    useClientStore.getState().initializeEvents();
+    registerBridgeEventHandlersForTest();
 
     bridgeCallback({
       type: 'ui/thread/patch',
@@ -2283,7 +2323,7 @@ describe('useClientStore backend contract', () => {
       activeThreadId: 'thread-1',
       timelinesByThread: { 'thread-1': [] },
     });
-    useClientStore.getState().initializeEvents();
+    registerBridgeEventHandlersForTest();
 
     bridgeCallback({
       type: 'ui/thread/patch',
@@ -2318,7 +2358,7 @@ describe('useClientStore backend contract', () => {
       activeThreadId: 'thread-1',
       timelinesByThread: { 'thread-1': [] },
     });
-    useClientStore.getState().initializeEvents();
+    registerBridgeEventHandlersForTest();
 
     bridgeCallback({
       type: 'ui/thread/patch',
@@ -2595,4 +2635,3 @@ describe('useClientStore backend contract', () => {
       tone: 'success',
     }));
   });
-});

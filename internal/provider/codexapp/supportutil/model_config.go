@@ -61,6 +61,9 @@ func CodexModelListContains(models []string, requested string) bool {
 
 func CodexModelNeedsListResolution(model string) bool {
 	model = strings.ToLower(strings.TrimSpace(model))
+	if model == "gpt-5.5" {
+		return false
+	}
 	return model == "" || CodexModelIsGenericGPT(model)
 }
 

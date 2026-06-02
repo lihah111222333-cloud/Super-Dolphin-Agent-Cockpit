@@ -1,9 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { waitFor } from '@testing-library/react';
-import { readFileSync } from 'node:fs';
 import { beginTextClipboardWrite, copyTextToClipboard } from './wailsBridge.js';
 
 const runtimeModule = 'http://127.0.0.1:5175/wails/runtime.js';
+const devRuntimeShimModule = '../../../public/wails/runtime.js?test-runtime-shim';
 
 function captureBridgeLogs(registerBridgeLogStore) {
   const logs = [];
@@ -21,6 +21,52 @@ function waitForTraceFlush() {
   return new Promise((resolve) => {
     setTimeout(resolve, 0);
   });
+}
+
+function importFreshDevRuntimeShim() {
+  vi.resetModules();
+  return import(devRuntimeShimModule);
+}
+
+function resetWailsRuntimeMocks() {
+  vi.resetModules();
+  vi.doUnmock(runtimeModule);
+}
+
+function resetFrontendTraceEmitter() {
+  resetWailsRuntimeMocks();
+  delete window.__AO_FRONTEND_TRACE_DEBUG__;
+  window.localStorage.clear();
+}
+
+function createTestWebSocketClass(sockets) {
+  return class TestWebSocket {
+    static CONNECTING = 0;
+
+    static OPEN = 1;
+
+    constructor(url) {
+      this.url = url;
+      this.readyState = TestWebSocket.CONNECTING;
+      sockets.push(this);
+    }
+
+    open() {
+      this.readyState = TestWebSocket.OPEN;
+      this.onopen?.();
+    }
+
+    close(event = { code: 1006, reason: 'network lost' }) {
+      this.readyState = 3;
+      this.onclose?.(event);
+    }
+
+    emit(method, params) {
+      this.onmessage?.({
+        data: JSON.stringify({ jsonrpc: '2.0', method, params }),
+      });
+    }
+  };
 }
 
 describe('wails bridge clipboard helpers', () => {
@@ -96,10 +142,7 @@ describe('wails bridge clipboard helpers', () => {
 });
 
 describe('wails bridge warning logs', () => {
-  beforeEach(() => {
-    vi.resetModules();
-    vi.doUnmock(runtimeModule);
-  });
+  beforeEach(resetWailsRuntimeMocks);
 
   it('reports a failed backend RPC once as api.rpc.failed', async () => {
     const error = new Error('backend unavailable');
@@ -160,6 +203,10 @@ describe('wails bridge warning logs', () => {
       result_preview: expect.stringContaining('"total":3'),
     }));
   });
+});
+
+describe('wails bridge RPC trace log fields', () => {
+  beforeEach(resetWailsRuntimeMocks);
 
   it('injects W3C trace metadata into backend RPC payloads', async () => {
     const byID = vi.fn().mockResolvedValue({ ok: true });
@@ -215,6 +262,10 @@ describe('wails bridge warning logs', () => {
       span_id: failedPayload._aoSpanId,
     }));
   });
+});
+
+describe('wails bridge non-RPC binding logs', () => {
+  beforeEach(resetWailsRuntimeMocks);
 
   it('keeps bridge.call.failed for non-RPC bridge binding failures', async () => {
     const error = new Error('native binding unavailable');
@@ -233,12 +284,7 @@ describe('wails bridge warning logs', () => {
 });
 
 describe('wails bridge frontend trace emitter', () => {
-  beforeEach(() => {
-    vi.resetModules();
-    vi.doUnmock(runtimeModule);
-    delete window.__AO_FRONTEND_TRACE_DEBUG__;
-    window.localStorage.clear();
-  });
+  beforeEach(resetFrontendTraceEmitter);
 
   afterEach(() => {
     vi.unstubAllGlobals();
@@ -286,6 +332,15 @@ describe('wails bridge frontend trace emitter', () => {
     expect(serialized).not.toContain('raw stack');
     expect(serialized).not.toContain('prompt');
   });
+});
+
+describe('wails bridge frontend debug trace emitter', () => {
+  beforeEach(resetFrontendTraceEmitter);
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    delete window.__AO_FRONTEND_TRACE_DEBUG__;
+  });
 
   it('keeps successful debug RPC traces on the same trace context when debug tracing is enabled', async () => {
     window.__AO_FRONTEND_TRACE_DEBUG__ = true;
@@ -315,6 +370,15 @@ describe('wails bridge frontend trace emitter', () => {
     expect(ingestPayload.events.every((event) => event.trace_id === rpcPayload._aoTraceId)).toBe(true);
     expect(ingestPayload.events.every((event) => event.span_id === rpcPayload._aoSpanId)).toBe(true);
     expect(JSON.stringify(ingestPayload.events)).not.toContain('result_preview');
+  });
+});
+
+describe('wails bridge frontend trace queue', () => {
+  beforeEach(resetFrontendTraceEmitter);
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    delete window.__AO_FRONTEND_TRACE_DEBUG__;
   });
 
   it('drops oldest queued frontend traces at the queue bound without leaking sensitive metadata', async () => {
@@ -369,6 +433,15 @@ describe('wails bridge frontend trace emitter', () => {
     expect(serialized).not.toContain('prompt');
     expect(serialized).not.toContain('raw_stack');
   });
+});
+
+describe('wails bridge frontend trace defaults', () => {
+  beforeEach(resetFrontendTraceEmitter);
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    delete window.__AO_FRONTEND_TRACE_DEBUG__;
+  });
 
   it('does not remote flush successful debug-level RPC traces by default', async () => {
     const byID = vi.fn().mockResolvedValue({ ok: true });
@@ -394,39 +467,9 @@ describe('development Wails runtime shim events', () => {
   it('reconnects existing event subscriptions after the dev WebSocket disconnects', async () => {
     vi.useFakeTimers();
     const sockets = [];
-    class TestWebSocket {
-      static CONNECTING = 0;
+    vi.stubGlobal('WebSocket', createTestWebSocketClass(sockets));
 
-      static OPEN = 1;
-
-      constructor(url) {
-        this.url = url;
-        this.readyState = TestWebSocket.CONNECTING;
-        sockets.push(this);
-      }
-
-      open() {
-        this.readyState = TestWebSocket.OPEN;
-        this.onopen?.();
-      }
-
-      close(event = { code: 1006, reason: 'network lost' }) {
-        this.readyState = 3;
-        this.onclose?.(event);
-      }
-
-      emit(method, params) {
-        this.onmessage?.({
-          data: JSON.stringify({ jsonrpc: '2.0', method, params }),
-        });
-      }
-    }
-    vi.stubGlobal('WebSocket', TestWebSocket);
-
-    const runtimeSource = readFileSync('public/wails/runtime.js', 'utf8')
-      .replace('export const Call =', 'const Call =')
-      .replace('export const Events =', 'const Events =');
-    const runtime = new Function(`${runtimeSource}\nreturn { Call, Events };`)();
+    const runtime = await importFreshDevRuntimeShim();
     const received = [];
 
     runtime.Events.On('agent-event', (event) => received.push(event));

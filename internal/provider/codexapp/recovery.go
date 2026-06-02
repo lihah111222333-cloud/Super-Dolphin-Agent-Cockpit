@@ -209,6 +209,17 @@ func (s *session) attemptRecovery(reason string) error {
 		return err
 	}
 	s.dispatchRecoveryAttempt(reason, count)
+	if s.runtime != nil {
+		s.runtime.cancelReader()
+		if s.transport != nil {
+			s.transport.closeSocket()
+		}
+		waitCtx, cancel := withTimeout(s.ctx, 2*time.Second)
+		defer cancel()
+		if err := s.runtime.waitReader(waitCtx); err != nil {
+			return s.failRecovery(reason, err)
+		}
+	}
 	if err := s.recovery.Reconnect(s.ctx); err != nil {
 		return s.failRecovery(reason, err)
 	}
@@ -240,16 +251,11 @@ func (s *session) dispatchRecoveryAttempt(reason string, attempt int32) {
 }
 
 // completeRecoveryReplay performs the P1c-frozen replay sequence (see README
-// §recovery replay 顺序): wait for the old reader to exit, spawn a new one,
+// §recovery replay 顺序): spawn a new reader after pre-reconnect drain,
 // reset the suppressed map, resume the thread, then replay the pending turn.
 // Returns the first error it encounters, already wrapped via failRecovery.
 func (s *session) completeRecoveryReplay(reason string) error {
-	waitCtx, cancel := withTimeout(s.ctx, 2*time.Second)
-	defer cancel()
 	if s.runtime != nil {
-		if err := s.runtime.waitReader(waitCtx); err != nil {
-			return s.failRecovery(reason, err)
-		}
 		if !s.runtime.restartReader() {
 			return s.failRecovery(reason, errRuntimeStopped)
 		}
