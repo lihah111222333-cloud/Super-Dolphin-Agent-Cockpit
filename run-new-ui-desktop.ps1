@@ -12,6 +12,7 @@ $script:ViteProcess = $null
 $script:DesktopProcess = $null
 $script:LocalPostgresStarted = $false
 $script:RunLogDir = Join-Path $ProjectDir '.tmp\run-new-ui-desktop'
+$script:CleanupDone = $false
 
 function ConvertFrom-DotEnvLine {
     param([Parameter(Mandatory)][AllowEmptyString()][string]$Line)
@@ -121,6 +122,86 @@ function Assert-PortFree {
     throw "port $port is already in use"
 }
 
+function Get-ProcessCommandLine {
+    param([Parameter(Mandatory)][int]$ProcessId)
+
+    try {
+        $proc = Get-CimInstance Win32_Process -Filter "ProcessId = $ProcessId" -ErrorAction SilentlyContinue
+        if ($proc) { return $proc.CommandLine }
+    } catch {}
+    return ''
+}
+
+function Get-ProcessWorkingDirectory {
+    param([Parameter(Mandatory)][int]$ProcessId)
+
+    try {
+        $proc = Get-Process -Id $ProcessId -ErrorAction SilentlyContinue
+        if ($proc -and $proc.Path) {
+            return Split-Path -Parent $proc.Path
+        }
+    } catch {}
+    return ''
+}
+
+function Stop-ProcessTree {
+    param(
+        [Parameter(Mandatory)][string]$Label,
+        [Parameter(Mandatory)][int]$ProcessId
+    )
+
+    try {
+        $children = @(Get-CimInstance Win32_Process -Filter "ParentProcessId = $ProcessId" -ErrorAction SilentlyContinue)
+        foreach ($child in $children) {
+            Stop-ProcessTree -Label $Label -ProcessId ([int]$child.ProcessId)
+        }
+
+        $proc = Get-Process -Id $ProcessId -ErrorAction SilentlyContinue
+        if (-not $proc) { return }
+        Write-Host "  -> stopping $Label (PID: $ProcessId)"
+        Stop-Process -Id $ProcessId -Force -ErrorAction SilentlyContinue
+    } catch {}
+}
+
+function Stop-StaleViteForPort {
+    param([Parameter(Mandatory)][int]$Port)
+
+    try {
+        $listeners = @(Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue)
+        foreach ($listener in $listeners) {
+            $pidValue = [int]$listener.OwningProcess
+            $commandLine = Get-ProcessCommandLine -ProcessId $pidValue
+            $workingDir = Get-ProcessWorkingDirectory -ProcessId $pidValue
+            $isVite = $commandLine -match 'vite(\.js)?' -or $commandLine -match 'npm(\.cmd)?\s+run\s+dev'
+            $isFrontendApp = $commandLine -like "*frontend-app*" -or $workingDir -eq $FrontendAppDir
+            if ($isVite -and $isFrontendApp) {
+                Stop-ProcessTree -Label "stale frontend-app vite on port $Port" -ProcessId $pidValue
+            }
+        }
+    } catch {}
+}
+
+function Get-LogTail {
+    param(
+        [Parameter(Mandatory)][string]$Path,
+        [int]$Count = 80
+    )
+
+    if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) { return }
+    Write-Host "  -> log tail: $Path"
+    Get-Content -LiteralPath $Path -Tail $Count -ErrorAction SilentlyContinue | ForEach-Object { Write-Host $_ }
+}
+
+function Get-BackendLogTail {
+    Get-LogTail -Path $env:SUPER_DOLPHIN_BACKEND_LOG
+    if ($env:SUPER_DOLPHIN_BACKEND_ERR_LOG) { Get-LogTail -Path $env:SUPER_DOLPHIN_BACKEND_ERR_LOG }
+}
+
+function Get-FrontendLogTail {
+    Get-LogTail -Path $env:SUPER_DOLPHIN_FRONTEND_LOG
+    if ($env:SUPER_DOLPHIN_FRONTEND_ERR_LOG) { Get-LogTail -Path $env:SUPER_DOLPHIN_FRONTEND_ERR_LOG }
+}
+
 function Wait-ForHttp {
     param(
         [Parameter(Mandatory)][string]$Url,
@@ -138,6 +219,46 @@ function Wait-ForHttp {
     }
 
     throw "timed out waiting for $Label`: $Url"
+}
+
+function Wait-ForBackend {
+    $url = "http://$($env:SUPER_DOLPHIN_HTTP_ADDR)/metrics"
+    for ($i = 0; $i -lt 100; $i++) {
+        try {
+            $null = Invoke-WebRequest -Uri $url -UseBasicParsing -TimeoutSec 1 -ErrorAction Stop
+            Write-Host "  -> desktop backend ready: $url"
+            return
+        } catch {
+            if ($script:DesktopProcess -and $script:DesktopProcess.HasExited) {
+                Write-Host "XX desktop backend exited before readiness: $url"
+                Get-BackendLogTail
+                throw 'desktop backend exited before readiness'
+            }
+            Start-Sleep -Milliseconds 200
+        }
+    }
+
+    Write-Host "XX timed out waiting for desktop backend: $url"
+    Get-BackendLogTail
+    throw "timed out waiting for desktop backend: $url"
+}
+
+function Wait-ForAnyProcessExit {
+    while ($true) {
+        if ($script:DesktopProcess -and $script:DesktopProcess.HasExited) {
+            if ($script:DesktopProcess.ExitCode -ne 0) {
+                Get-BackendLogTail
+            }
+            exit $script:DesktopProcess.ExitCode
+        }
+        if ($script:ViteProcess -and $script:ViteProcess.HasExited) {
+            if ($script:ViteProcess.ExitCode -ne 0) {
+                Get-FrontendLogTail
+            }
+            exit $script:ViteProcess.ExitCode
+        }
+        Start-Sleep -Milliseconds 500
+    }
 }
 
 function Resolve-NpmCommand {
@@ -370,9 +491,26 @@ function Configure-DevPostgresRuntime {
     Set-DefaultEnv -Name 'SUPER_DOLPHIN_POSTGRES_SHARE_DIR' -Value $shareDir
 
     if (-not $databaseUrl) {
-        Set-DefaultEnv -Name 'SUPER_DOLPHIN_EMBEDDED_POSTGRES' -Value 'true'
-        Write-Host '  -> embedded PostgreSQL enabled for dev runtime'
+        Set-DefaultEnv -Name 'DATABASE_URL' -Value "postgres://super_dolphin@127.0.0.1:$($env:SUPER_DOLPHIN_LOCAL_POSTGRES_PORT)/super_dolphin?sslmode=disable"
+        Set-DefaultEnv -Name 'DEV_LOCAL_POSTGRES_MANAGED' -Value '1'
+        Write-Host '  -> local PostgreSQL enabled for dev runtime'
     }
+}
+
+function Initialize-LocalPostgresDataDir {
+    New-Item -ItemType Directory -Force -Path (Split-Path -Parent $env:SUPER_DOLPHIN_LOCAL_POSTGRES_DATA_DIR) | Out-Null
+    Write-Host "  -> initializing local PostgreSQL data dir: $($env:SUPER_DOLPHIN_LOCAL_POSTGRES_DATA_DIR)"
+
+    $initdb = Get-PostgresExecutablePath -BinDir $env:SUPER_DOLPHIN_POSTGRES_BIN_DIR -Name 'initdb'
+    if (-not $initdb) { throw 'initdb was not found' }
+
+    & $initdb -D $env:SUPER_DOLPHIN_LOCAL_POSTGRES_DATA_DIR `
+        -U super_dolphin `
+        -L $env:SUPER_DOLPHIN_POSTGRES_SHARE_DIR `
+        '--locale=C' `
+        '--auth=trust' `
+        '--encoding=UTF8' *> $null
+    if ($LASTEXITCODE -ne 0) { throw 'failed to initialize local PostgreSQL data dir' }
 }
 
 function Ensure-LocalPostgres {
@@ -388,7 +526,11 @@ function Ensure-LocalPostgres {
     }
 
     if (-not (Test-Path -LiteralPath (Join-Path $env:SUPER_DOLPHIN_LOCAL_POSTGRES_DATA_DIR 'PG_VERSION') -PathType Leaf)) {
-        throw "DATABASE_URL points to local PostgreSQL ($($endpoint.Host):$($endpoint.Port)), but data dir is not initialized: $($env:SUPER_DOLPHIN_LOCAL_POSTGRES_DATA_DIR)"
+        if ($env:DEV_LOCAL_POSTGRES_MANAGED -eq '1') {
+            Initialize-LocalPostgresDataDir
+        } else {
+            throw "DATABASE_URL points to local PostgreSQL ($($endpoint.Host):$($endpoint.Port)), but data dir is not initialized: $($env:SUPER_DOLPHIN_LOCAL_POSTGRES_DATA_DIR)"
+        }
     }
 
     New-Item -ItemType Directory -Force -Path $env:SUPER_DOLPHIN_LOCAL_POSTGRES_RUNTIME_DIR | Out-Null
@@ -406,15 +548,75 @@ function Ensure-LocalPostgres {
     $script:LocalPostgresStarted = $true
 }
 
+function Seed-DevPreferences {
+    $seedPreference = if ($env:SUPER_DOLPHIN_SEED_DEV_PREFERENCES) { $env:SUPER_DOLPHIN_SEED_DEV_PREFERENCES } else { '1' }
+    switch ($seedPreference) {
+        { $_ -in @('0', 'false', 'FALSE', 'no', 'NO') } {
+            Write-Host '  -> dev provider preference seed skipped'
+            return
+        }
+    }
+
+    if ($env:DEV_LOCAL_POSTGRES_MANAGED -ne '1') { return }
+
+    foreach ($name in @(
+        'SUPER_DOLPHIN_DEV_PROVIDER',
+        'SUPER_DOLPHIN_DEV_CODEX_MODEL',
+        'SUPER_DOLPHIN_DEV_CODEX_EFFORT',
+        'SUPER_DOLPHIN_DEV_CODEX_HOME',
+        'SUPER_DOLPHIN_DEV_CODEX_INSTANCE_KEY',
+        'SUPER_DOLPHIN_DEV_CODEX_MODEL_PROVIDER'
+    )) {
+        if (-not [Environment]::GetEnvironmentVariable($name, 'Process')) {
+            throw 'dev provider preferences require non-empty SUPER_DOLPHIN_DEV_PROVIDER, SUPER_DOLPHIN_DEV_CODEX_MODEL, SUPER_DOLPHIN_DEV_CODEX_EFFORT, SUPER_DOLPHIN_DEV_CODEX_HOME, SUPER_DOLPHIN_DEV_CODEX_INSTANCE_KEY, and SUPER_DOLPHIN_DEV_CODEX_MODEL_PROVIDER'
+        }
+    }
+
+    if ($env:SUPER_DOLPHIN_DEV_PROVIDER -ne 'codex') {
+        throw "run-new-ui-desktop.ps1 only seeds codex dev provider preferences; got SUPER_DOLPHIN_DEV_PROVIDER=$($env:SUPER_DOLPHIN_DEV_PROVIDER)"
+    }
+
+    $psql = Get-PostgresExecutablePath -BinDir $env:SUPER_DOLPHIN_POSTGRES_BIN_DIR -Name 'psql'
+    if (-not $psql) { throw "missing PostgreSQL psql binary: $($env:SUPER_DOLPHIN_POSTGRES_BIN_DIR)\psql.exe" }
+
+    $sql = @"
+INSERT INTO ui_preferences (cwd, key, value)
+VALUES
+  ('', 'settings.provider.active', to_jsonb(:'active_provider'::text)),
+  ('', 'settings.provider.codex.model', to_jsonb(:'codex_model'::text)),
+  ('', 'settings.provider.codex.effort', to_jsonb(:'codex_effort'::text)),
+  ('', 'settings.provider.codex.codexHome', to_jsonb(:'codex_home'::text)),
+  ('', 'settings.provider.codex.codexInstanceKey', to_jsonb(:'codex_instance_key'::text)),
+  ('', 'settings.provider.codex.codexModelProvider', to_jsonb(:'codex_model_provider'::text))
+ON CONFLICT (cwd, key) DO NOTHING;
+"@
+
+    $sqlFile = Join-Path $script:RunLogDir 'seed-dev-preferences.sql'
+    New-Item -ItemType Directory -Force -Path $script:RunLogDir | Out-Null
+    Set-Content -LiteralPath $sqlFile -Value $sql -Encoding UTF8
+    & $psql $env:DATABASE_URL `
+        -v 'ON_ERROR_STOP=1' `
+        -v "active_provider=$($env:SUPER_DOLPHIN_DEV_PROVIDER)" `
+        -v "codex_model=$($env:SUPER_DOLPHIN_DEV_CODEX_MODEL)" `
+        -v "codex_effort=$($env:SUPER_DOLPHIN_DEV_CODEX_EFFORT)" `
+        -v "codex_home=$($env:SUPER_DOLPHIN_DEV_CODEX_HOME)" `
+        -v "codex_instance_key=$($env:SUPER_DOLPHIN_DEV_CODEX_INSTANCE_KEY)" `
+        -v "codex_model_provider=$($env:SUPER_DOLPHIN_DEV_CODEX_MODEL_PROVIDER)" `
+        -f $sqlFile *> $null
+    if ($LASTEXITCODE -ne 0) { throw 'failed to seed dev provider preferences' }
+    Write-Host '  -> dev provider preferences ready'
+}
+
 function Stop-StartedProcesses {
+    if ($script:CleanupDone) { return }
+    $script:CleanupDone = $true
+
     if ($script:ViteProcess -and -not $script:ViteProcess.HasExited) {
-        Write-Host "  -> stopping frontend-app vite (PID: $($script:ViteProcess.Id))"
-        Stop-Process -Id $script:ViteProcess.Id -Force -ErrorAction SilentlyContinue
+        Stop-ProcessTree -Label 'frontend-app vite' -ProcessId $script:ViteProcess.Id
     }
 
     if ($script:DesktopProcess -and -not $script:DesktopProcess.HasExited) {
-        Write-Host "  -> stopping new UI desktop backend (PID: $($script:DesktopProcess.Id))"
-        Stop-Process -Id $script:DesktopProcess.Id -Force -ErrorAction SilentlyContinue
+        Stop-ProcessTree -Label 'new UI desktop backend' -ProcessId $script:DesktopProcess.Id
     }
 
     if ($script:LocalPostgresStarted) {
@@ -446,6 +648,17 @@ Set-DefaultEnv -Name 'SUPER_DOLPHIN_RUNTIME_RESOURCES_DIR' -Value $ProjectDir
 Set-DefaultEnv -Name 'SUPER_DOLPHIN_DEV_ENTRYPOINT' -Value 'run-new-ui-desktop.ps1'
 Set-DefaultEnv -Name 'SUPER_DOLPHIN_HOME' -Value (Join-Path $env:USERPROFILE '.super-dolphin')
 Set-DefaultEnv -Name 'CODEX_HOME' -Value (Join-Path $env:USERPROFILE '.codex')
+Set-DefaultEnv -Name 'SUPER_DOLPHIN_BACKEND_LOG' -Value (Join-Path $script:RunLogDir 'backend.log')
+Set-DefaultEnv -Name 'SUPER_DOLPHIN_FRONTEND_LOG' -Value (Join-Path $script:RunLogDir 'frontend.log')
+Set-DefaultEnv -Name 'SUPER_DOLPHIN_BACKEND_ERR_LOG' -Value (Join-Path $script:RunLogDir 'backend.err.log')
+Set-DefaultEnv -Name 'SUPER_DOLPHIN_FRONTEND_ERR_LOG' -Value (Join-Path $script:RunLogDir 'frontend.err.log')
+Set-DefaultEnv -Name 'SUPER_DOLPHIN_DEV_PROVIDER' -Value 'codex'
+Set-DefaultEnv -Name 'SUPER_DOLPHIN_DEV_CODEX_MODEL' -Value 'gpt-5.5'
+Set-DefaultEnv -Name 'SUPER_DOLPHIN_DEV_CODEX_EFFORT' -Value 'xhigh'
+Set-DefaultEnv -Name 'SUPER_DOLPHIN_DEV_CODEX_HOME' -Value $env:CODEX_HOME
+Set-DefaultEnv -Name 'SUPER_DOLPHIN_DEV_CODEX_INSTANCE_KEY' -Value 'default'
+Set-DefaultEnv -Name 'SUPER_DOLPHIN_DEV_CODEX_MODEL_PROVIDER' -Value 'openai'
+Set-DefaultEnv -Name 'SUPER_DOLPHIN_LOCAL_POSTGRES_PORT' -Value '55433'
 Set-DefaultEnv -Name 'SUPER_DOLPHIN_LOCAL_POSTGRES_DATA_DIR' -Value (Join-Path $ProjectDir '.tmp\pgdata')
 Set-DefaultEnv -Name 'SUPER_DOLPHIN_LOCAL_POSTGRES_RUNTIME_DIR' -Value (Join-Path $ProjectDir '.tmp\pgsocket')
 Set-DefaultEnv -Name 'SUPER_DOLPHIN_LOCAL_POSTGRES_LOG' -Value (Join-Path $ProjectDir '.tmp\postgres.log')
@@ -459,9 +672,10 @@ try {
     Add-CodexCliToPath
     Ensure-DevControlSessionToken
     Configure-DevPostgresRuntime
+    Stop-StaleViteForPort -Port $ViteDevPort
+    Assert-PortFree -Address "$ViteDevHost`:$ViteDevPort"
     Assert-PortFree -Address $env:SUPER_DOLPHIN_HTTP_ADDR
     Assert-PortFree -Address $env:GO_AGENT_CTL_RPC_ADDR
-    Assert-PortFree -Address "$ViteDevHost`:$ViteDevPort"
     Ensure-LocalPostgres
     Ensure-NodeDeps -Dir $FrontendAppDir
     Ensure-PeerBinaries
@@ -474,14 +688,25 @@ try {
     Write-Host "  control rpc:  $($env:GO_AGENT_CTL_RPC_ADDR)"
     Write-Host "  peer bin dir: $($env:GO_AGENT_PEER_BIN_DIR)"
     Write-Host "  runtime:      $($env:SUPER_DOLPHIN_RUNTIME_MODE) ($($env:SUPER_DOLPHIN_RUNTIME_RESOURCES_DIR))"
+    Write-Host "  home:         $($env:SUPER_DOLPHIN_HOME)"
+    Write-Host "  logs:         $($env:SUPER_DOLPHIN_BACKEND_LOG)"
 
     New-Item -ItemType Directory -Force -Path $script:RunLogDir | Out-Null
-    $viteOutLog = Join-Path $script:RunLogDir 'vite.out.log'
-    $viteErrLog = Join-Path $script:RunLogDir 'vite.err.log'
-    $desktopOutLog = Join-Path $script:RunLogDir 'desktop.out.log'
-    $desktopErrLog = Join-Path $script:RunLogDir 'desktop.err.log'
-    Remove-Item -LiteralPath $viteOutLog, $viteErrLog, $desktopOutLog, $desktopErrLog -Force -ErrorAction SilentlyContinue
-    Write-Host "  logs:         $script:RunLogDir"
+    New-Item -ItemType Directory -Force -Path (Split-Path -Parent $env:SUPER_DOLPHIN_BACKEND_LOG) | Out-Null
+    New-Item -ItemType Directory -Force -Path (Split-Path -Parent $env:SUPER_DOLPHIN_FRONTEND_LOG) | Out-Null
+    New-Item -ItemType Directory -Force -Path $env:SUPER_DOLPHIN_HOME | Out-Null
+    Remove-Item -LiteralPath $env:SUPER_DOLPHIN_BACKEND_LOG, $env:SUPER_DOLPHIN_BACKEND_ERR_LOG, $env:SUPER_DOLPHIN_FRONTEND_LOG, $env:SUPER_DOLPHIN_FRONTEND_ERR_LOG -Force -ErrorAction SilentlyContinue
+
+    $script:DesktopProcess = Start-Process -FilePath 'go' `
+        -ArgumentList @('run', './cmd/agent-terminal') `
+        -WorkingDirectory $ProjectDir `
+        -PassThru `
+        -WindowStyle Hidden `
+        -RedirectStandardOutput $env:SUPER_DOLPHIN_BACKEND_LOG `
+        -RedirectStandardError $env:SUPER_DOLPHIN_BACKEND_ERR_LOG
+
+    Wait-ForBackend
+    Seed-DevPreferences
 
     $npm = Resolve-NpmCommand
     $script:ViteProcess = Start-Process -FilePath $npm `
@@ -489,19 +714,11 @@ try {
         -WorkingDirectory $FrontendAppDir `
         -PassThru `
         -WindowStyle Hidden `
-        -RedirectStandardOutput $viteOutLog `
-        -RedirectStandardError $viteErrLog
+        -RedirectStandardOutput $env:SUPER_DOLPHIN_FRONTEND_LOG `
+        -RedirectStandardError $env:SUPER_DOLPHIN_FRONTEND_ERR_LOG
     Wait-ForHttp -Url $env:VITE_DEV_URL -Label 'frontend-app vite'
 
-    $script:DesktopProcess = Start-Process -FilePath 'go' `
-        -ArgumentList @('run', './cmd/agent-terminal') `
-        -WorkingDirectory $ProjectDir `
-        -PassThru `
-        -RedirectStandardOutput $desktopOutLog `
-        -RedirectStandardError $desktopErrLog
-
-    Wait-Process -Id $script:DesktopProcess.Id
-    exit $script:DesktopProcess.ExitCode
+    Wait-ForAnyProcessExit
 } finally {
     Stop-StartedProcesses
 }
