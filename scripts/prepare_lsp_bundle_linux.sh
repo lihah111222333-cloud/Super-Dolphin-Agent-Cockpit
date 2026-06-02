@@ -26,10 +26,38 @@ lsp_dir="${SUPER_DOLPHIN_LSP_BUNDLE_DIR:-$root/.build-cache/lsp/$lsp_profile/$pl
 node_src="${SUPER_DOLPHIN_NODE_DIST:-}"
 gopls_bin="${SUPER_DOLPHIN_GOPLS_BIN:-$(command -v gopls || true)}"
 go_toolchain_src="${SUPER_DOLPHIN_GO_TOOLCHAIN_DIR:-$(go env GOROOT)}"
-rust_analyzer_bin="${SUPER_DOLPHIN_RUST_ANALYZER_BIN:-$(command -v rust-analyzer || true)}"
 jdtls_home="${SUPER_DOLPHIN_JDTLS_HOME:-}"
 jdk_home="${SUPER_DOLPHIN_JDK_HOME:-}"
 npm_bin="${SUPER_DOLPHIN_NPM_BIN:-$(command -v npm || true)}"
+
+resolve_rust_analyzer_bin() {
+  local candidate="${1:-}"
+  if [[ -z "$candidate" ]]; then
+    candidate="$(command -v rust-analyzer || true)"
+  fi
+  if [[ -z "$candidate" ]]; then
+    return 0
+  fi
+  local target=""
+  if [[ -L "$candidate" ]]; then
+    target="$(readlink "$candidate" || true)"
+  fi
+  if [[ "$(basename "$candidate")" == "rust-analyzer" && "$(basename "$target")" == "rustup" ]]; then
+    local rustup_bin=""
+    if command -v rustup >/dev/null 2>&1; then
+      rustup_bin="$(rustup which rust-analyzer 2>/dev/null || true)"
+    fi
+    if [[ -n "$rustup_bin" && -x "$rustup_bin" ]]; then
+      printf '%s\n' "$rustup_bin"
+      return 0
+    fi
+    echo "rust-analyzer resolves to rustup shim without a default toolchain; install a standalone rust-analyzer or set SUPER_DOLPHIN_RUST_ANALYZER_BIN" >&2
+    return 1
+  fi
+  printf '%s\n' "$candidate"
+}
+
+rust_analyzer_bin="$(resolve_rust_analyzer_bin "${SUPER_DOLPHIN_RUST_ANALYZER_BIN:-}")"
 
 echo "==> preparing $lsp_profile Linux LSP bundle: $lsp_dir"
 rm -rf "$lsp_dir"

@@ -23,13 +23,46 @@ case "$lsp_profile" in
 esac
 
 lsp_dir="${SUPER_DOLPHIN_LSP_BUNDLE_DIR:-$root/.build-cache/lsp/$lsp_profile/$platform}"
-node_src="${SUPER_DOLPHIN_NODE_DIST:-/Users/ai/.local/node/node-v24.15.0-darwin-arm64}"
-gopls_bin="${SUPER_DOLPHIN_GOPLS_BIN:-/Users/ai/.local/go/bin/gopls}"
-go_toolchain_src="${SUPER_DOLPHIN_GO_TOOLCHAIN_DIR:-/Users/ai/.local/go}"
-rust_analyzer_bin="${SUPER_DOLPHIN_RUST_ANALYZER_BIN:-/opt/homebrew/bin/rust-analyzer}"
+default_node_dist="$(node -p 'require("path").dirname(require("path").dirname(process.execPath))' 2>/dev/null || true)"
+node_src="${SUPER_DOLPHIN_NODE_DIST:-$default_node_dist}"
+gopls_bin="${SUPER_DOLPHIN_GOPLS_BIN:-$(command -v gopls || true)}"
+go_toolchain_src="${SUPER_DOLPHIN_GO_TOOLCHAIN_DIR:-$(go env GOROOT)}"
 jdtls_home="${SUPER_DOLPHIN_JDTLS_HOME:-/opt/homebrew/Cellar/jdtls/1.58.0/libexec}"
 jdk_home="${SUPER_DOLPHIN_JDK_HOME:-/opt/homebrew/opt/openjdk/libexec/openjdk.jdk/Contents/Home}"
 npm_bin="${SUPER_DOLPHIN_NPM_BIN:-$(command -v npm || true)}"
+
+resolve_rust_analyzer_bin() {
+  local candidate="${1:-}"
+  if [[ -z "$candidate" ]]; then
+    candidate="$(command -v rust-analyzer || true)"
+  fi
+  if [[ -z "$candidate" ]]; then
+    return 0
+  fi
+  local target=""
+  if [[ -L "$candidate" ]]; then
+    target="$(readlink "$candidate" || true)"
+  fi
+  if [[ "$(basename "$candidate")" == "rust-analyzer" && "$(basename "$target")" == "rustup" ]]; then
+    local rustup_bin=""
+    if command -v rustup >/dev/null 2>&1; then
+      rustup_bin="$(rustup which rust-analyzer 2>/dev/null || true)"
+    fi
+    if [[ -n "$rustup_bin" && -x "$rustup_bin" ]]; then
+      printf '%s\n' "$rustup_bin"
+      return 0
+    fi
+    if [[ -x "/opt/homebrew/bin/rust-analyzer" ]]; then
+      printf '%s\n' "/opt/homebrew/bin/rust-analyzer"
+      return 0
+    fi
+    echo "rust-analyzer resolves to rustup shim without a default toolchain; install a standalone rust-analyzer or set SUPER_DOLPHIN_RUST_ANALYZER_BIN" >&2
+    return 1
+  fi
+  printf '%s\n' "$candidate"
+}
+
+rust_analyzer_bin="$(resolve_rust_analyzer_bin "${SUPER_DOLPHIN_RUST_ANALYZER_BIN:-}")"
 
 echo "==> preparing $lsp_profile LSP bundle: $lsp_dir"
 rm -rf "$lsp_dir"
