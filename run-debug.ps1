@@ -714,6 +714,13 @@ Write-Host "> 模式: $Label"
 Write-Host "> 目录: $BuildDir"
 Write-Host '------------------------------------'
 
+$DevDatabaseUrl = 'postgres://postgres:123@127.0.0.1:5432/go_agent_v2?sslmode=disable'
+if (-not $env:DATABASE_URL) { $env:DATABASE_URL = $DevDatabaseUrl }
+$DbUrl = $env:DATABASE_URL
+$env:SUPER_DOLPHIN_RUNTIME_MODE = 'dev'
+$env:SUPER_DOLPHIN_RUNTIME_RESOURCES_DIR = $BuildDir
+$env:SUPER_DOLPHIN_DEV_ENTRYPOINT = 'run-debug.ps1'
+Write-Host "> Dev DB DSN: $DbUrl"
 Write-Host '[0/4] Pre-flight 守卫...'
 Assert-DatabaseConfigured
 Protect-OwnerIdentitySalt

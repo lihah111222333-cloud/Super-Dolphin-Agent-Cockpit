@@ -14,12 +14,6 @@ import (
 	platformshared "github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 )
 
-const (
-	ReportMethodReportEvent            = "agent/reportEvent"
-	ReportMethodRememberReportRequest  = "agent/rememberReportRequest"
-	ReportEventTypeThreadStatusChanged = "thread/status/changed"
-)
-
 var terminalReportEventTypesList = []string{
 	"agent/event/task_complete",
 	"completed",

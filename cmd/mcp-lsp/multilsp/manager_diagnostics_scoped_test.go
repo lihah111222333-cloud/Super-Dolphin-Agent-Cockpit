@@ -450,6 +450,14 @@ func TestDiagnosticsManagerResolvedScopeCanBeInjected(t *testing.T) {
 	}
 }
 
+func TestDefaultDiagnosticsMaxWaitIsOnePointFiveSeconds(t *testing.T) {
+	mgr := newDiagnosticsTestManager(t, Config{WorkspaceRoot: t.TempDir()})
+
+	if got := mgr.diagMaxWait; got != 1500*time.Millisecond {
+		t.Fatalf("default diagnostics max wait = %s, want 1.5s", got)
+	}
+}
+
 func TestWaitDiagnosticsStableFailsWhenTargetNeverPublishes(t *testing.T) {
 	root := t.TempDir()
 	writeDiagnosticsTestFile(t, root, "package.json", `{"name":"missing-diagnostics"}`)

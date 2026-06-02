@@ -28,6 +28,31 @@ func TestSkillResolutionApplyRPCUseProjectSharedRemovesExternalPersonalSameName(
 	assertResolutionItemAbsent(t, dispatchResolutionList(t, server, project).Items, "external_personal_project_same_name", "build", skillScopePersonal)
 }
 
+func TestSkillResolutionApplyRPCUseProjectSharedRemovesAllExternalPersonalProviderCopies(t *testing.T) {
+	project, server, claudeDir, _ := setupExternalPersonalProjectConflictFixtureWithService(t)
+	codexDir := filepath.Join(providerPersonalMirrorRoot(SkillProviderCodex), "build")
+	writeSkillWithSupportFiles(t, codexDir, "build")
+	writeFileWithMode(t, filepath.Join(codexDir, "references", "guide.md"), "codex external personal edit\n", 0o644)
+	item := findResolutionItem(t, dispatchResolutionList(t, server, project).Items, "external_personal_project_same_name", "build", skillScopePersonal)
+	if len(item.ProviderEntries) != 2 {
+		t.Fatalf("provider entries = %+v, want claude and codex copies", item.ProviderEntries)
+	}
+	preview := dispatchExternalPersonalProjectPreview(t, server, project, item.ConflictID, "use_project_shared_skill", "")
+
+	report := dispatchExternalPersonalProjectApply(t, server, project, item.ConflictID, "use_project_shared_skill", preview.Items[0], "")
+
+	if report.Action != "use_project_shared_skill" || report.ResultingHash == "" {
+		t.Fatalf("use project shared report = %+v, want action/resulting hash", report)
+	}
+	if _, err := os.Stat(claudeDir); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("claude external provider dir stat err = %v, want removed", err)
+	}
+	if _, err := os.Stat(codexDir); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("codex external provider dir stat err = %v, want removed", err)
+	}
+	assertResolutionItemAbsent(t, dispatchResolutionList(t, server, project).Items, "external_personal_project_same_name", "build", skillScopePersonal)
+}
+
 func TestSkillResolutionApplyRPCSavesExternalPersonalSameNameAsNewPersonalSkill(t *testing.T) {
 	project, server, externalDir, svc := setupExternalPersonalProjectConflictFixtureWithService(t)
 	item := findResolutionItem(t, dispatchResolutionList(t, server, project).Items, "external_personal_project_same_name", "build", skillScopePersonal)

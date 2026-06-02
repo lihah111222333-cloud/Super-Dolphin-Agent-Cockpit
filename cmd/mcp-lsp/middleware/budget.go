@@ -13,7 +13,7 @@ var defaultToolBudgets = map[string]int{
 	"inspect":       8 * 1024,
 	"xref":          16 * 1024,
 	"structure":     16 * 1024,
-	"edit":          16 * 1024,
+	"edit":          32 * 1024,
 	"completion":    16 * 1024,
 	"code_run":      32 * 1024,
 	"code_run_test": 32 * 1024,

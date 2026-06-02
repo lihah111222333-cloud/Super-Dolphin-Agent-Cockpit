@@ -1,0 +1,412 @@
+package runtimeenv
+
+import (
+	"errors"
+	"os"
+	"path/filepath"
+	"slices"
+	"strings"
+	"testing"
+)
+
+func TestPackagedResourcesDir(t *testing.T) {
+	got := packagedResourcesDir("/Applications/Super Dolphin.app/Contents/MacOS/agent-terminal")
+	want := "/Applications/Super Dolphin.app/Contents/Resources"
+	if got != want {
+		t.Fatalf("packagedResourcesDir() = %q, want %q", got, want)
+	}
+}
+
+func TestPackagedRuntimeFromExecutableDetectsMacOSAppMainBinary(t *testing.T) {
+	app := filepath.Join(t.TempDir(), "Super Dolphin.app")
+	resources := filepath.Join(app, "Contents", "Resources")
+	writePackagedRuntimeFixture(t, resources, runtimeGOOS()+"-"+runtimeGOARCH())
+
+	got, ok := PackagedRuntimeFromExecutable(filepath.Join(app, "Contents", "MacOS", "agent-terminal"), "/Users/alice")
+	if !ok {
+		t.Fatal("PackagedRuntimeFromExecutable ok = false, want true")
+	}
+	if got.ResourcesDir != resources {
+		t.Fatalf("ResourcesDir = %q", got.ResourcesDir)
+	}
+	if got.BinDir != filepath.Join(resources, "bin") {
+		t.Fatalf("BinDir = %q", got.BinDir)
+	}
+	if got.MigrationsDir != filepath.Join(resources, "migrations") {
+		t.Fatalf("MigrationsDir = %q", got.MigrationsDir)
+	}
+	if got.PostgresRoot != filepath.Join(resources, "postgres") {
+		t.Fatalf("PostgresRoot = %q", got.PostgresRoot)
+	}
+	if got.AppDataDir != "/Users/alice/Library/Application Support/Super Dolphin" {
+		t.Fatalf("AppDataDir = %q", got.AppDataDir)
+	}
+}
+
+func TestPackagedRuntimeFromExecutableRejectsMacOSResourcePeerBinary(t *testing.T) {
+	_, ok := PackagedRuntimeFromExecutable("/Applications/Super Dolphin.app/Contents/Resources/bin/mcp-orch", "/Users/alice")
+	if ok {
+		t.Fatal("PackagedRuntimeFromExecutable ok = true, want false for sidecar peer binary")
+	}
+}
+
+func TestPackagedRuntimeFromExecutableRejectsDevBinary(t *testing.T) {
+	_, ok := PackagedRuntimeFromExecutable("/Users/alice/src/Super-Dolphin/bin/agent-terminal", "/Users/alice")
+	if ok {
+		t.Fatal("PackagedRuntimeFromExecutable ok = true, want false")
+	}
+}
+
+func TestPackagedResourcesDirRejectsResourcesBinPeer(t *testing.T) {
+	got := packagedResourcesDir("/Applications/Super Dolphin.app/Contents/Resources/bin/mcp-orch")
+	if got != "" {
+		t.Fatalf("packagedResourcesDir() = %q, want empty for sidecar peer binary", got)
+	}
+}
+
+func TestApplyPackagedEnvPrependsBundledTools(t *testing.T) {
+	resources := t.TempDir()
+	binDir := filepath.Join(resources, "bin")
+	lspBinDir := filepath.Join(resources, "lsp", "bin")
+	lspNodeBinDir := filepath.Join(resources, "lsp", "node", "bin")
+	lspNodeModulesBinDir := filepath.Join(resources, "lsp", "node_modules", ".bin")
+	gitCore := filepath.Join(resources, "libexec", "git-core")
+	templates := filepath.Join(resources, "share", "git-core", "templates")
+	makeDirs(t, binDir, lspBinDir, lspNodeBinDir, lspNodeModulesBinDir, gitCore, templates)
+	writeBundledSidecars(t, binDir)
+	t.Setenv("PATH", strings.Join([]string{"/opt/homebrew/bin", "/usr/bin"}, string(os.PathListSeparator)))
+	t.Setenv(peerBinDirEnv, "/old/bin")
+
+	if err := applyPackagedEnv(resources, "/Users/alice"); err != nil {
+		t.Fatalf("applyPackagedEnv() error = %v", err)
+	}
+
+	path := os.Getenv("PATH")
+	assertPathHasPrefix(t, path, binDir, lspBinDir, lspNodeBinDir, lspNodeModulesBinDir)
+	assertPathListExcludes(t, path,
+		"/opt/homebrew/bin",
+		"/usr/local/bin",
+		filepath.Join("/Users/alice", ".local", "bin"),
+		filepath.Join("/Users/alice", ".npm-global", "bin"),
+		filepath.Join("/Users/alice", "bin"),
+	)
+	assertEnvEquals(t, peerBinDirEnv, binDir)
+	assertEnvEquals(t, "SUPER_DOLPHIN_LSP_BUNDLE_DIR", filepath.Join(resources, "lsp"))
+	assertEnvEquals(t, "SUPER_DOLPHIN_LSP_MANIFEST", filepath.Join(resources, "lsp", "lsp-manifest.json"))
+	assertEnvEquals(t, "GIT_EXEC_PATH", gitCore)
+	assertEnvEquals(t, "GIT_TEMPLATE_DIR", templates)
+}
+
+func TestApplyPackagedEnvSetsControlPlaneDefaults(t *testing.T) {
+	resources := t.TempDir()
+	writeBundledSidecars(t, filepath.Join(resources, "bin"))
+	t.Setenv(controlRPCAddrEnv, "")
+	t.Setenv(sessionTokenEnv, "")
+	t.Setenv("SUPER_DOLPHIN_HTTP_ADDR", "")
+
+	if err := applyPackagedEnv(resources, "/Users/alice"); err != nil {
+		t.Fatalf("applyPackagedEnv() error = %v", err)
+	}
+
+	if got := os.Getenv(controlRPCAddrEnv); got != "127.0.0.1:0" {
+		t.Fatalf("%s = %q, want packaged ephemeral bind", controlRPCAddrEnv, got)
+	}
+	if got := os.Getenv(sessionTokenEnv); !strings.HasPrefix(got, "sd-") || len(got) <= len("sd-") {
+		t.Fatalf("%s = %q, want generated token", sessionTokenEnv, got)
+	}
+	if got := os.Getenv("SUPER_DOLPHIN_HTTP_ADDR"); got != "127.0.0.1:0" {
+		t.Fatalf("SUPER_DOLPHIN_HTTP_ADDR = %q, want packaged ephemeral bind", got)
+	}
+}
+
+func TestApplyPackagedEnvPreservesExplicitControlAddrAndSessionToken(t *testing.T) {
+	resources := t.TempDir()
+	writeBundledSidecars(t, filepath.Join(resources, "bin"))
+	t.Setenv(controlRPCAddrEnv, "127.0.0.1:19090")
+	t.Setenv(httpAddrEnv, "127.0.0.1:14511")
+	t.Setenv(sessionTokenEnv, "existing-token")
+
+	if err := applyPackagedEnv(resources, "/Users/alice"); err != nil {
+		t.Fatalf("applyPackagedEnv() error = %v", err)
+	}
+
+	if got := os.Getenv(controlRPCAddrEnv); got != "127.0.0.1:19090" {
+		t.Fatalf("%s = %q, want explicit address preserved", controlRPCAddrEnv, got)
+	}
+	if got := os.Getenv(sessionTokenEnv); got != "existing-token" {
+		t.Fatalf("%s = %q, want explicit token preserved", sessionTokenEnv, got)
+	}
+	if got := os.Getenv(httpAddrEnv); got != "127.0.0.1:14511" {
+		t.Fatalf("%s = %q, want explicit address preserved", httpAddrEnv, got)
+	}
+}
+
+func TestApplyPackagedEnvSetsModelRegistryWhenBundled(t *testing.T) {
+	resources := t.TempDir()
+	writeBundledSidecars(t, filepath.Join(resources, "bin"))
+	modelRegistry := filepath.Join(resources, "models.yaml")
+	if err := os.WriteFile(modelRegistry, []byte("providers: []\n"), 0o600); err != nil {
+		t.Fatalf("write models.yaml: %v", err)
+	}
+	t.Setenv("SUPER_DOLPHIN_MODEL_REGISTRY", "")
+
+	if err := applyPackagedEnv(resources, ""); err != nil {
+		t.Fatalf("applyPackagedEnv() error = %v", err)
+	}
+
+	if got := os.Getenv("SUPER_DOLPHIN_MODEL_REGISTRY"); got != modelRegistry {
+		t.Fatalf("SUPER_DOLPHIN_MODEL_REGISTRY = %q, want %q", got, modelRegistry)
+	}
+}
+
+func TestApplyPackagedEnvRequiresBundledCodex(t *testing.T) {
+	resources := t.TempDir()
+	binDir := filepath.Join(resources, "bin")
+	writeBundledSidecars(t, binDir)
+	t.Setenv("SUPER_DOLPHIN_REQUIRE_BUNDLED_CODEX", "")
+	t.Setenv(codexHomeEnv, "")
+	t.Setenv(packagedCodexEnv, "")
+
+	if err := applyPackagedEnv(resources, "/Users/alice"); err != nil {
+		t.Fatalf("applyPackagedEnv() error = %v", err)
+	}
+
+	if got := os.Getenv("SUPER_DOLPHIN_REQUIRE_BUNDLED_CODEX"); got != "1" {
+		t.Fatalf("SUPER_DOLPHIN_REQUIRE_BUNDLED_CODEX = %q, want packaged runtime to require bundled Codex", got)
+	}
+	if got, want := os.Getenv(codexHomeEnv), filepath.Join("/Users/alice", "Library", "Application Support", "Super Dolphin", "providers", "codex"); got != want {
+		t.Fatalf("%s = %q, want %q", codexHomeEnv, got, want)
+	}
+	if got := os.Getenv(packagedCodexEnv); got != "1" {
+		t.Fatalf("%s = %q, want packaged runtime default Codex identity enabled", packagedCodexEnv, got)
+	}
+}
+
+func TestApplyPackagedEnvOverridesInheritedPackagedPaths(t *testing.T) {
+	resources := t.TempDir()
+	binDir := filepath.Join(resources, "bin")
+	writeBundledSidecars(t, binDir)
+	t.Setenv(projectRootEnv, "/old/project")
+	t.Setenv(peerBinDirEnv, "/old/bin")
+	t.Setenv(requireCodexEnv, "0")
+
+	if err := applyPackagedEnv(resources, "/Users/alice"); err != nil {
+		t.Fatalf("applyPackagedEnv() error = %v", err)
+	}
+
+	if got := os.Getenv(projectRootEnv); got != resources {
+		t.Fatalf("%s = %q, want packaged resources %q", projectRootEnv, got, resources)
+	}
+	if got := os.Getenv(peerBinDirEnv); got != binDir {
+		t.Fatalf("%s = %q, want packaged bin %q", peerBinDirEnv, got, binDir)
+	}
+	if got := os.Getenv(requireCodexEnv); got != "1" {
+		t.Fatalf("%s = %q, want packaged runtime override", requireCodexEnv, got)
+	}
+}
+
+func TestApplyPackagedEnvFailsWhenBundledSidecarMissing(t *testing.T) {
+	resources := t.TempDir()
+	binDir := filepath.Join(resources, "bin")
+	writeExecutable(t, binDir, "mcp-orch")
+	writeExecutable(t, binDir, "mcp-ida")
+
+	err := applyPackagedEnv(resources, "/Users/alice")
+	if err == nil {
+		t.Fatal("applyPackagedEnv() error = nil, want missing sidecar failure")
+	}
+	for _, want := range []string{"missing bundled sidecar", filepath.Join(binDir, "mcp-lsp")} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("applyPackagedEnv() error = %v, want substring %q", err, want)
+		}
+	}
+}
+
+func TestApplyPackagedEnvFailsWhenBundledLSPManifestMissing(t *testing.T) {
+	resources := t.TempDir()
+	binDir := filepath.Join(resources, "bin")
+	writeOnlyBundledSidecars(t, binDir)
+
+	err := applyPackagedEnv(resources, "/Users/alice")
+	if err == nil {
+		t.Fatal("applyPackagedEnv() error = nil, want missing bundled LSP manifest failure")
+	}
+	for _, want := range []string{"missing bundled LSP manifest", filepath.Join(resources, "lsp", "lsp-manifest.json")} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("applyPackagedEnv() error = %v, want substring %q", err, want)
+		}
+	}
+}
+
+func TestApplyPackagedEnvFailsWhenBundledLSPServerMissing(t *testing.T) {
+	resources := t.TempDir()
+	binDir := filepath.Join(resources, "bin")
+	writeOnlyBundledSidecars(t, binDir)
+	writeBundledLSPManifest(t, resources)
+	writeExecutable(t, filepath.Join(resources, "lsp", "bin"), "typescript-language-server")
+	writeExecutable(t, filepath.Join(resources, "lsp", "bin"), "pyright-langserver")
+	writeExecutable(t, filepath.Join(resources, "lsp", "bin"), "vscode-css-language-server")
+	writeExecutable(t, filepath.Join(resources, "lsp", "bin"), "rust-analyzer")
+	writeExecutable(t, filepath.Join(resources, "lsp", "bin"), "jdtls")
+
+	err := applyPackagedEnv(resources, "/Users/alice")
+	if err == nil {
+		t.Fatal("applyPackagedEnv() error = nil, want missing bundled LSP server failure")
+	}
+	for _, want := range []string{"missing bundled LSP server", filepath.Join(resources, "lsp", "bin", "gopls")} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("applyPackagedEnv() error = %v, want substring %q", err, want)
+		}
+	}
+}
+
+func writeBundledSidecars(t *testing.T, binDir string) {
+	t.Helper()
+	writeOnlyBundledSidecars(t, binDir)
+	resources := filepath.Dir(binDir)
+	writeBundledLSPManifest(t, resources)
+	writeExecutable(t, filepath.Join(resources, "lsp", "bin"), "gopls")
+	writeExecutable(t, filepath.Join(resources, "lsp", "bin"), "typescript-language-server")
+	writeExecutable(t, filepath.Join(resources, "lsp", "bin"), "pyright-langserver")
+	writeExecutable(t, filepath.Join(resources, "lsp", "bin"), "vscode-css-language-server")
+	writeExecutable(t, filepath.Join(resources, "lsp", "bin"), "rust-analyzer")
+	writeExecutable(t, filepath.Join(resources, "lsp", "bin"), "jdtls")
+}
+
+func writeOnlyBundledSidecars(t *testing.T, binDir string) {
+	t.Helper()
+	for _, name := range []string{"mcp-orch", "mcp-lsp", "mcp-ida"} {
+		writeExecutable(t, binDir, name)
+	}
+}
+
+func writeBundledLSPManifest(t *testing.T, resources string) {
+	t.Helper()
+	manifest := `{
+  "schema_version": 1,
+  "servers": {
+    "gopls": {"path": "lsp/bin/gopls", "version": "test", "sha256": "0000000000000000000000000000000000000000000000000000000000000000"},
+    "typescript-language-server": {"path": "lsp/bin/typescript-language-server", "version": "test", "sha256": "0000000000000000000000000000000000000000000000000000000000000000"},
+    "pyright": {"path": "lsp/bin/pyright-langserver", "version": "test", "sha256": "0000000000000000000000000000000000000000000000000000000000000000"},
+    "vscode-langservers-extracted": {"path": "lsp/bin/vscode-css-language-server", "version": "test", "sha256": "0000000000000000000000000000000000000000000000000000000000000000"},
+    "rust-analyzer": {"path": "lsp/bin/rust-analyzer", "version": "test", "sha256": "0000000000000000000000000000000000000000000000000000000000000000"},
+    "jdtls": {"path": "lsp/bin/jdtls", "version": "test", "sha256": "0000000000000000000000000000000000000000000000000000000000000000"}
+  }
+}
+`
+	path := filepath.Join(resources, "lsp", "lsp-manifest.json")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatalf("MkdirAll(%q) error = %v", filepath.Dir(path), err)
+	}
+	if err := os.WriteFile(path, []byte(manifest), 0o644); err != nil {
+		t.Fatalf("WriteFile(%q) error = %v", path, err)
+	}
+}
+
+func pathListContains(pathList, want string) bool {
+	return slices.Contains(filepath.SplitList(pathList), want)
+}
+
+func makeDirs(t *testing.T, dirs ...string) {
+	t.Helper()
+	for _, dir := range dirs {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatalf("MkdirAll(%q) error = %v", dir, err)
+		}
+	}
+}
+
+func assertPathHasPrefix(t *testing.T, path string, entries ...string) {
+	t.Helper()
+	wantPrefix := strings.Join(entries, string(os.PathListSeparator)) + string(os.PathListSeparator)
+	if !strings.HasPrefix(path, wantPrefix) {
+		t.Fatalf("PATH = %q, want bundled runtime and LSP bins first: %q", path, wantPrefix)
+	}
+}
+
+func assertPathListExcludes(t *testing.T, pathList string, entries ...string) {
+	t.Helper()
+	for _, forbidden := range entries {
+		if pathListContains(pathList, forbidden) {
+			t.Fatalf("PATH = %q, must not include user package-manager path %q in packaged runtime", pathList, forbidden)
+		}
+	}
+}
+
+func assertEnvEquals(t *testing.T, key, want string) {
+	t.Helper()
+	if got := os.Getenv(key); got != want {
+		t.Fatalf("%s = %q, want %q", key, got, want)
+	}
+}
+
+func writeExecutable(t *testing.T, dir, name string) {
+	t.Helper()
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatalf("MkdirAll(%q) error = %v", dir, err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, name), []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatalf("WriteFile(%q) error = %v", filepath.Join(dir, name), err)
+	}
+}
+
+func TestConfigurePackagedAppReturnsSetenvError(t *testing.T) {
+	previousExecutable := executablePathForRuntime
+	previousHome := userHomeDirForRuntime
+	previousSetenv := setenvForRuntime
+	t.Cleanup(func() {
+		executablePathForRuntime = previousExecutable
+		userHomeDirForRuntime = previousHome
+		setenvForRuntime = previousSetenv
+	})
+
+	app := filepath.Join(t.TempDir(), "Super Dolphin.app")
+	writePackagedRuntimeFixture(t, filepath.Join(app, "Contents", "Resources"), runtimeGOOS()+"-"+runtimeGOARCH())
+	executablePathForRuntime = func() (string, error) {
+		return filepath.Join(app, "Contents", "MacOS", "agent-terminal"), nil
+	}
+	userHomeDirForRuntime = func() (string, error) {
+		return "/Users/alice", nil
+	}
+	setenvForRuntime = func(key, value string) error {
+		if key == projectRootEnv {
+			return errors.New("injected setenv failure")
+		}
+		return nil
+	}
+	t.Setenv(projectRootEnv, "")
+
+	err := ConfigurePackagedApp()
+	if err == nil {
+		t.Fatal("ConfigurePackagedApp() error = nil, want setenv failure")
+	}
+	for _, want := range []string{"configure packaged runtime env", projectRootEnv, "injected setenv failure"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("ConfigurePackagedApp() error = %v, want substring %q", err, want)
+		}
+	}
+}
+
+func TestConfigurePackagedAppSkipsDevBinaryWithoutUserHome(t *testing.T) {
+	previousExecutable := executablePathForRuntime
+	previousHome := userHomeDirForRuntime
+	t.Cleanup(func() {
+		executablePathForRuntime = previousExecutable
+		userHomeDirForRuntime = previousHome
+	})
+	t.Setenv(runtimeModeEnv, "")
+	t.Setenv(packageRootEnv, "")
+	t.Setenv(packagedLauncherEnv, "")
+
+	executablePathForRuntime = func() (string, error) {
+		return filepath.Join(t.TempDir(), "bin", "agent-terminal"), nil
+	}
+	userHomeDirForRuntime = func() (string, error) {
+		t.Fatal("user home must not be required for a dev binary")
+		return "", nil
+	}
+
+	if err := ConfigurePackagedApp(); err != nil {
+		t.Fatalf("ConfigurePackagedApp() error = %v, want nil for dev binary", err)
+	}
+}

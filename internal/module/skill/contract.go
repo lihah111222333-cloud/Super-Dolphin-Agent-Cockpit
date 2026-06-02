@@ -295,8 +295,10 @@ func normalizeProviderMirrorProvider(provider string) (SkillProvider, error) {
 }
 
 func isProjectProviderMirrorRoot(cwd string, provider SkillProvider, skillsRoot string) bool {
-	expected := providerProjectMirrorRoot(provider, strings.TrimSpace(cwd))
-	return sameCleanPath(expected, skillsRoot)
+	home := strings.TrimSpace(os.Getenv("SUPER_DOLPHIN_HOME"))
+	return sameCleanPath(providerProjectMirrorRoot(provider, strings.TrimSpace(cwd)), skillsRoot) ||
+		home != "" && strings.TrimSpace(os.Getenv("SUPER_DOLPHIN_PACKAGED_CODEX_IDENTITY")) == "1" &&
+			sameCleanPath(filepath.Join(home, "provider-mirrors", "project", string(provider), "skills"), skillsRoot)
 }
 
 func (s *service) providerPersonalMirrorTargetKind(provider SkillProvider, target contract.SkillProviderMirrorTarget) string {

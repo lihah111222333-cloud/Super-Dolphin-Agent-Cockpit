@@ -44,6 +44,22 @@ func TestBuildTurnStartParams(t *testing.T) {
 	}
 }
 
+func TestBuildThreadStartParamsNormalizesSandboxModeForAppServer(t *testing.T) {
+	params := (&driver{}).buildThreadStartParams(dto.StartSessionRequest{
+		CWD: t.TempDir(),
+		Config: map[string]any{
+			"sandbox": map[string]any{
+				"mode":           "workspace-write",
+				"writable_roots": []string{"/repo"},
+				"network_access": false,
+			},
+		},
+	})
+	if string(params.Sandbox) != `"workspace-write"` {
+		t.Fatalf("Sandbox = %s, want workspace-write mode string", string(params.Sandbox))
+	}
+}
+
 func TestBuildTurnStartParamsIncludesAttachments(t *testing.T) {
 	t.Parallel()
 

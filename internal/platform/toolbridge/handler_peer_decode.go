@@ -14,6 +14,7 @@ import (
 	providerdto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
 	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/common"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/mcpcontrol"
+	"github.com/anthropic-ai/super-agent-v3/internal/util/safego"
 )
 
 const peerReadyTimeout = 10 * time.Second
@@ -36,6 +37,7 @@ type codexToolEntry struct {
 	name          string
 	realName      string
 	executionKind string
+	family        string
 	client        mcpClient
 }
 
@@ -81,7 +83,7 @@ func (h *Handler) addHostSurfaceTools(surface *codexToolSurface, out *[]contract
 		return nil
 	}
 	for _, tool := range h.hostTools.ListHostTools() {
-		if err := addSurfaceTool(surface, out, tool, codexToolEntry{name: tool.Name, realName: tool.Name, executionKind: "host"}); err != nil {
+		if err := addSurfaceTool(surface, out, tool, codexToolEntry{name: tool.Name, realName: tool.Name, executionKind: "host", family: "host"}); err != nil {
 			return err
 		}
 	}
@@ -142,10 +144,10 @@ func prepareMCPSurfaceBinaries(
 	for i, binary := range binaries {
 		i, binary := i, binary
 		wg.Add(1)
-		go func() {
+		safego.Go(ctx, nil, "toolbridge.prepareMCPSurfaceBinary", func(workerCtx context.Context) {
 			defer wg.Done()
 			result := mcpSurfaceBinaryResult{binary: binary}
-			client, err := factory(ctx, binary)
+			client, err := factory(workerCtx, binary)
 			if err != nil {
 				recordErr(err)
 				return
@@ -156,14 +158,14 @@ func prepareMCPSurfaceBinaries(
 			}
 			result.client = client
 			results[i] = result
-			tools, err := client.ListTools(ctx)
+			tools, err := client.ListTools(workerCtx)
 			if err != nil {
 				recordErr(err)
 				return
 			}
 			result.tools = tools
 			results[i] = result
-		}()
+		})
 	}
 	wg.Wait()
 	if firstErr != nil {
@@ -184,7 +186,7 @@ func closeMCPClients(results []mcpSurfaceBinaryResult) {
 func addMCPToolsToSurface(surface *codexToolSurface, out *[]contract.DynamicToolSchema, family string, client mcpClient, tools []mcpdto.MCPTool) error {
 	for _, tool := range tools {
 		canonical := canonicalCodexToolName(family, tool.Name)
-		entry := codexToolEntry{name: canonical, realName: tool.Name, executionKind: "stdio", client: client}
+		entry := codexToolEntry{name: canonical, realName: tool.Name, executionKind: "stdio", family: strings.TrimSpace(family), client: client}
 		if err := addSurfaceTool(surface, out, tool, entry); err != nil {
 			return err
 		}
@@ -215,11 +217,26 @@ func addSurfaceTool(surface *codexToolSurface, out *[]contract.DynamicToolSchema
 	surface.aliases[name] = name
 	*out = append(*out, contract.DynamicToolSchema{
 		Name:         name,
-		Description:  tool.Description,
+		Description:  codexSurfaceDescription(entry, tool.Description),
 		InputSchema:  tool.InputSchema,
 		OutputSchema: tool.OutputSchema,
 	})
 	return nil
+}
+
+func codexSurfaceDescription(entry codexToolEntry, description string) string {
+	description = strings.TrimSpace(description)
+	name := strings.TrimSpace(entry.name)
+	if description == "" {
+		return description
+	}
+	if strings.Contains(description, "Recommended tool:") && strings.Contains(description, "Why:") {
+		return description
+	}
+	if strings.TrimSpace(entry.family) != mcpdto.ClientKindLSP {
+		return description
+	}
+	return fmt.Sprintf("Recommended tool: %s. Why: %s", name, description)
 }
 
 func addSurfaceAlias(surface *codexToolSurface, alias, canonical string) error {

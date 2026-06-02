@@ -5,14 +5,17 @@ import (
 	"encoding/json"
 	"errors"
 	"os"
+	"os/exec"
 	"strings"
 	"sync"
 
+	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/tools"
 	mcp "github.com/anthropic-ai/super-agent-v3/internal/dto/mcp"
 	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/common"
 	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/common/bootstrap"
 	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
 	platformrunner "github.com/anthropic-ai/super-agent-v3/internal/platform/runner"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/runtimeenv"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/runtimesafe"
 	platformshared "github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
@@ -34,7 +37,12 @@ type runtimeParams struct {
 }
 
 type registryToolProvider struct {
-	defs []toolDefinition
+	defs                   []toolDefinition
+	semanticToolsAvailable func(context.Context) bool
+}
+
+func init() {
+	common.RegisterToolResultPlainTextRenderer(tools.FormatToPlainText)
 }
 
 // run boots the MCP binary itself. The core process only exposes ctl/* endpoints
@@ -132,9 +140,13 @@ func provideLSPBackgroundRunners(m *Manager) []platformrunner.Runner {
 	return m.BackgroundRunners()
 }
 
-func (p registryToolProvider) ListTools(context.Context) ([]mcp.MCPTool, error) {
+func (p registryToolProvider) ListTools(ctx context.Context) ([]mcp.MCPTool, error) {
+	semanticAvailable := p.isSemanticLSPAvailable(ctx)
 	toolsList := make([]mcp.MCPTool, 0, len(p.defs))
 	for _, def := range p.defs {
+		if isSemanticLSPToolName(def.Manifest.Name) && !semanticAvailable {
+			continue
+		}
 		schema, err := marshalInputSchema(def.Manifest.Schema)
 		if err != nil {
 			return nil, err
@@ -154,6 +166,46 @@ func (p registryToolProvider) ListTools(context.Context) ([]mcp.MCPTool, error) 
 		toolsList = append(toolsList, tool)
 	}
 	return toolsList, nil
+}
+
+func (p registryToolProvider) isSemanticLSPAvailable(ctx context.Context) bool {
+	if p.semanticToolsAvailable != nil {
+		return p.semanticToolsAvailable(ctx)
+	}
+	return runtimeSemanticLSPToolsAvailable(ctx)
+}
+
+func isSemanticLSPToolName(name string) bool {
+	switch canonicalToolName(name) {
+	case "inspect", "xref", "structure", "edit", "completion":
+		return true
+	default:
+		return false
+	}
+}
+
+func runtimeSemanticLSPToolsAvailable(context.Context) bool {
+	lspBundle, packaged, err := runtimeenv.LoadLSPBundleFromEnv()
+	if packaged {
+		return err == nil && len(lspBundle.SemanticLanguages()) > 0
+	}
+	for _, binary := range runtimeSemanticLSPServerBinaries() {
+		if _, err := exec.LookPath(binary); err == nil {
+			return true
+		}
+	}
+	return false
+}
+
+func runtimeSemanticLSPServerBinaries() []string {
+	return []string{
+		"gopls",
+		"typescript-language-server",
+		"pyright-langserver",
+		"vscode-css-language-server",
+		"rust-analyzer",
+		"jdtls",
+	}
 }
 
 func (p registryToolProvider) CallTool(ctx context.Context, name string, args json.RawMessage) (any, error) {
@@ -232,13 +284,22 @@ func handleScopedToolsCall(ctx context.Context, tp registryToolProvider, family 
 }
 
 func wrapScopedToolResult(result any) (any, error) {
-	text, err := json.Marshal(result)
+	raw, err := json.Marshal(result)
 	if err != nil {
 		return nil, err
 	}
+	plainText, err := common.ResolveToolResultText(result, raw)
+	if err != nil {
+		return nil, err
+	}
+	structuredContent, err := common.StructuredContentFromRaw(raw)
+	if err != nil {
+		return nil, err
+	}
+
 	return map[string]any{
-		"content":           []map[string]string{{"type": "text", "text": string(text)}},
-		"structuredContent": json.RawMessage(text),
+		"content":           []map[string]string{{"type": "text", "text": plainText}},
+		"structuredContent": structuredContent,
 		"isError":           common.ToolResultIsError(result),
 	}, nil
 }

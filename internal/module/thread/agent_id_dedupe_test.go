@@ -126,3 +126,20 @@ func TestPrepareStartRequestConcurrentChildReservationsAreUnique(t *testing.T) {
 		t.Fatalf("reserved ids = %#v, want agent-parent-2", seen)
 	}
 }
+
+func TestPrepareStartRequestFailsFastOnInvalidRuntimeMode(t *testing.T) {
+	t.Setenv("SUPER_DOLPHIN_RUNTIME_MODE", "mystery")
+	svc := &service{threadStore: &stubThreadStore{}}
+
+	_, _, release, err := svc.prepareStartRequest(context.Background(), StartRequest{
+		AgentID:  "agent-invalid-runtime",
+		Provider: "codex",
+		CWD:      wantStartCWD(t),
+	})
+	if release != nil {
+		release()
+	}
+	if err == nil || !strings.Contains(err.Error(), "invalid SUPER_DOLPHIN_RUNTIME_MODE") {
+		t.Fatalf("prepareStartRequest() error = %v, want invalid runtime mode fail-fast", err)
+	}
+}

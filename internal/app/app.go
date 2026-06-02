@@ -3,9 +3,11 @@ package app
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io/fs"
 	"log/slog"
 	"os"
+	"path/filepath"
 	"runtime"
 	"runtime/debug"
 	"strings"
@@ -17,8 +19,22 @@ import (
 
 	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/runtimesafe"
+	"github.com/anthropic-ai/super-agent-v3/internal/provider/codexapp"
+	providershared "github.com/anthropic-ai/super-agent-v3/internal/provider/shared"
 	uiwails "github.com/anthropic-ai/super-agent-v3/internal/ui/wails"
 	"github.com/wailsapp/wails/v3/pkg/application"
+)
+
+var ensureCodexCLIAvailableForDesktop = codexapp.EnsureCLIAvailable
+var ensureCodexBootstrapForDesktop = codexapp.EnsureCodexBootstrap
+var codexAppManagedHomeForDesktop = func() (string, error) {
+	return providershared.AppManagedProviderHome(providershared.ProviderCodex)
+}
+
+const (
+	codexRelayBaseURLEnv          = "SUPER_DOLPHIN_CODEX_RELAY_BASE_URL"
+	codexRelayBootstrapTokenEnv   = "SUPER_DOLPHIN_CODEX_RELAY_BOOTSTRAP_TOKEN"
+	codexRelayPrivilegedAPIKeyEnv = "SUPER_DOLPHIN_CODEX_RELAY_API_KEY"
 )
 
 func NewLogger() *slog.Logger {
@@ -106,6 +122,9 @@ func RunDesktop(frontendFS fs.FS) error {
 	owner := newAppOwnerContext(context.Background())
 	defer owner.Cancel()
 	ctx := owner.RootContext()
+	if err := runDesktopPreflight(ctx); err != nil {
+		return err
+	}
 	var wailsApp *application.App
 	var lifecycle *uiwails.WailsLifecycle
 
@@ -134,6 +153,80 @@ func RunDesktop(frontendFS fs.FS) error {
 
 	stopErr := stopFXApp(context.WithoutCancel(ctx), app)
 	return errors.Join(runErr, preDrainErr, stopErr)
+}
+
+func runDesktopPreflight(ctx context.Context) error {
+	projectRoot, err := platformconfig.PrimeProcessEnvironment()
+	if err != nil {
+		return fmt.Errorf("desktop preflight: load environment: %w", err)
+	}
+	if err := ensurePackagedCodexBootstrap(ctx, projectRoot); err != nil {
+		return fmt.Errorf("desktop preflight: Codex bootstrap failed: %w", err)
+	}
+	return nil
+}
+
+func ensurePackagedCodexBootstrap(ctx context.Context, projectRoot string) error {
+	required, err := packagedCodexRelayRequired(projectRoot)
+	if err != nil {
+		return err
+	}
+	if !required {
+		return nil
+	}
+	baseURL, bootstrapToken, configured, err := codexRelayBootstrapEnv()
+	if err != nil {
+		return err
+	}
+	if !configured {
+		return fmt.Errorf("packaged Codex relay config missing: set %s and %s in %s or the process environment", codexRelayBaseURLEnv, codexRelayBootstrapTokenEnv, filepath.Join(projectRoot, ".env"))
+	}
+	home, err := codexAppManagedHomeForDesktop()
+	if err != nil {
+		return fmt.Errorf("resolve app-managed Codex home: %w", err)
+	}
+	return ensureCodexBootstrapForDesktop(ctx, codexapp.CodexBootstrapConfig{
+		Home:                home,
+		RelayBaseURL:        baseURL,
+		RelayBootstrapToken: bootstrapToken,
+	})
+}
+
+func packagedCodexRelayRequired(projectRoot string) (bool, error) {
+	projectRoot = strings.TrimSpace(projectRoot)
+	if projectRoot == "" {
+		return false, nil
+	}
+	info, err := os.Stat(filepath.Join(projectRoot, "runtime-manifest.json"))
+	if err == nil {
+		return !info.IsDir(), nil
+	}
+	if os.IsNotExist(err) {
+		return false, nil
+	}
+	return false, fmt.Errorf("inspect packaged runtime manifest: %w", err)
+}
+
+func codexRelayBootstrapEnv() (baseURL string, bootstrapToken string, configured bool, err error) {
+	if strings.TrimSpace(os.Getenv(codexRelayPrivilegedAPIKeyEnv)) != "" {
+		return "", "", false, fmt.Errorf("%s is a privileged relay API key env and must not be packaged; use %s", codexRelayPrivilegedAPIKeyEnv, codexRelayBootstrapTokenEnv)
+	}
+	baseURL = strings.TrimSpace(os.Getenv(codexRelayBaseURLEnv))
+	bootstrapToken = strings.TrimSpace(os.Getenv(codexRelayBootstrapTokenEnv))
+	if baseURL == "" && bootstrapToken == "" {
+		return "", "", false, nil
+	}
+	var problems []error
+	if baseURL == "" {
+		problems = append(problems, fmt.Errorf("%s is required when %s is set", codexRelayBaseURLEnv, codexRelayBootstrapTokenEnv))
+	}
+	if bootstrapToken == "" {
+		problems = append(problems, fmt.Errorf("%s is required when %s is set", codexRelayBootstrapTokenEnv, codexRelayBaseURLEnv))
+	}
+	if err := errors.Join(problems...); err != nil {
+		return "", "", false, err
+	}
+	return baseURL, bootstrapToken, true, nil
 }
 
 func newFXApp(options ...fx.Option) *fx.App {

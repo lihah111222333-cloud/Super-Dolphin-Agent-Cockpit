@@ -1,11 +1,12 @@
 package main
 
 import (
-	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 	"os"
 	"runtime"
 
 	_ "github.com/anthropic-ai/super-agent-v3/internal/platform/rlimit"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/runtimeenv"
+	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
 // mcpStdout holds the original stdout exclusively for the MCP JSON-RPC
@@ -14,6 +15,14 @@ import (
 var mcpStdout *os.File
 
 func main() {
+	if err := os.Setenv("SUPER_DOLPHIN_PROCESS_ROLE", "sidecar"); err != nil {
+		_, _ = os.Stderr.WriteString("mcp-orch startup env failed: " + err.Error() + "\n")
+		os.Exit(1)
+	}
+	if err := runtimeenv.ConfigureSidecarRuntime(); err != nil {
+		_, _ = os.Stderr.WriteString("mcp-orch sidecar runtime env failed: " + err.Error() + "\n")
+		os.Exit(1)
+	}
 	// Cap GOMAXPROCS for this lightweight sidecar. The default (NumCPU)
 	// causes the Go scheduler to spin 10+ idle P threads in
 	// findRunnable/stealWork, burning ~30% CPU per process for no gain.

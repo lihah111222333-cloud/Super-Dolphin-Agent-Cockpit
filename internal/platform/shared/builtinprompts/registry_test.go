@@ -148,6 +148,61 @@ func TestRegistryLoadsMainGeneralZhWithProductionParity(t *testing.T) {
 	require.JSONEq(t, `{"isWorktree": true}`, string(worktreeHint.EnableWhen))
 }
 
+func TestDefaultRegistryLoadsDeveloperExpertCards(t *testing.T) {
+	t.Parallel()
+
+	reg, err := NewDefaultRegistry()
+	require.NoError(t, err)
+
+	cases := []struct {
+		promptKey  string
+		agentKey   string
+		title      string
+		workflow   string
+		promptText string
+	}{
+		{
+			promptKey: "main/git-ops",
+			agentKey:  "git-ops",
+			title:     "Git 操作专家",
+			workflow:  "workflow:git",
+			promptText: "Git 操作专家：基于 diff、log、冲突或提交上下文，" +
+				"产出可验证的 git 操作建议；危险历史改写必须要求用户确认。",
+		},
+		{
+			promptKey: "main/docs",
+			agentKey:  "docs-writer",
+			title:     "文档专家",
+			workflow:  "workflow:documentation",
+			promptText: "技术文档专家：基于代码、接口、变更和目标读者，" +
+				"产出结构清楚、可维护的 README、API 文档、注释或 changelog 草稿。",
+		},
+	}
+	for _, tc := range cases {
+		template, ok := reg.GetTemplate(tc.promptKey)
+		require.True(t, ok, tc.promptKey)
+		require.Equal(t, "expert", template.Kind)
+		require.Equal(t, tc.title, template.Title)
+		require.Equal(t, tc.agentKey, template.AgentKey)
+		require.Equal(t, "global", template.Scope)
+		require.Equal(t, 20, template.Priority)
+		require.Equal(t, tc.promptText, template.PromptText)
+		require.NotEmpty(t, template.WhenToUse)
+		require.NotEmpty(t, template.Description)
+		require.Contains(t, template.Tags, "builtin:system")
+		require.Contains(t, template.Tags, "intent:expert")
+		require.Contains(t, template.Tags, "domain:developer")
+		require.Contains(t, template.Tags, tc.workflow)
+
+		sections := reg.SectionsByTemplateID(template.ID)
+		requireSectionKeys(t, sections, "identity")
+		require.Equal(t, tc.promptText, sectionBodyByKey(sections, "identity"))
+		requireNoExternalIdentityClaims(t, tc.promptKey, tc.promptText)
+		requireNoExternalToolProtocols(t, tc.promptKey, tc.promptText)
+		requireNoHostAssumptions(t, tc.promptKey, tc.promptText)
+	}
+}
+
 func TestRegistryLoadsDAGDesignerPrompts(t *testing.T) {
 	t.Parallel()
 
@@ -238,6 +293,39 @@ func TestMainGeneralZhResidentLSPSectionsStayThinAndRecallBacked(t *testing.T) {
 	require.LessOrEqual(t, nonBlankLineCount(lspAdvanced), 12)
 	require.LessOrEqual(t, sharedNonBlankLineCount(lspAdvanced, recallLSPAdvanced), 3)
 	require.Contains(t, string(requireSection(t, sections, "lsp_advanced").EnableWhen), "tags_has")
+
+	body := strings.Join([]string{
+		lspBasics,
+		lspAdvanced,
+		recallLSPBasics,
+		recallLSPAdvanced,
+	}, "\n")
+	for _, want := range []string{
+		"9 个仓库感知工具",
+		"`file`、`grep`、`inspect`、`xref`、`structure`、`edit`、`completion`、`code_run`、`code_run_test`",
+		"`grep(text_search",
+		"`file(read_file",
+		"`edit(file_path",
+		"npm run lint",
+	} {
+		require.Contains(t, body, want)
+	}
+	for _, stale := range []string{
+		"11 个仓库感知工具",
+		"lsp_file",
+		"lsp_grep",
+		"lsp_inspect",
+		"lsp_xref",
+		"lsp_structure",
+		"lsp_edit",
+		"lsp_completion",
+		"replace_range",
+		"code_action",
+		"`edit(rename)",
+		"`edit(format)",
+	} {
+		require.NotContains(t, body, stale)
+	}
 }
 
 func TestExternalToolAndHostLeakGuardsAllowNegativeBoundaryText(t *testing.T) {

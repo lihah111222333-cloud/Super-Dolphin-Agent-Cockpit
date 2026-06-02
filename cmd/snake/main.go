@@ -5,6 +5,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"log/slog"
 	"os"
 	"time"
 )
@@ -35,7 +36,7 @@ func main() {
 	flag.Parse()
 
 	if err := run(os.Stdin, os.Stdout, *width, *height, *speed, *seed); err != nil {
-		fmt.Fprintln(os.Stderr, err)
+		slog.Error("snake failed", "error", err)
 		os.Exit(1)
 	}
 }

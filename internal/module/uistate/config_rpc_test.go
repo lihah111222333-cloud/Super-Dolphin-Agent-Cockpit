@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"os"
 	"path/filepath"
 	"testing"
 
@@ -193,6 +194,31 @@ func TestConfigReadFallsBackToDefaultsWhenThreadConfigUnavailable(t *testing.T) 
 	}
 	if len(threads.runtimeConfigIDs) != 1 || threads.runtimeConfigIDs[0] != "thread-9" {
 		t.Fatalf("ReadRuntimeConfig thread ids = %#v, want [thread-9]", threads.runtimeConfigIDs)
+	}
+}
+
+func TestConfigReadDoesNotUsePackagedResourcesAsCWD(t *testing.T) {
+	t.Parallel()
+
+	resourcesRoot := t.TempDir()
+	manifestPath := filepath.Join(resourcesRoot, "runtime-manifest.json")
+	if err := os.WriteFile(manifestPath, []byte(`{"app":"Super Dolphin"}`), 0o644); err != nil {
+		t.Fatalf("write runtime manifest: %v", err)
+	}
+	threads := &configThreadServiceStub{}
+	server := newConfigTestServer(
+		&contract.Config{RPCAddr: "127.0.0.1:0", ProjectRoot: resourcesRoot},
+		&uiPreferenceStoreStub{values: map[string]json.RawMessage{}},
+		&sharedFileStoreStub{},
+		threads,
+	)
+
+	cfg := dispatchConfig[runtimeConfigResult](t, server, "config/read", `{}`)
+	if cfg.CWD != "" {
+		t.Fatalf("config/read cwd = %q, want empty packaged resources cwd", cfg.CWD)
+	}
+	if len(threads.getConfigIDs) != 0 || len(threads.runtimeConfigIDs) != 0 {
+		t.Fatalf("thread config lookups = get %#v runtime %#v, want none", threads.getConfigIDs, threads.runtimeConfigIDs)
 	}
 }
 

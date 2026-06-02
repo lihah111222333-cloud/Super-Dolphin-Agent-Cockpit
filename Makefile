@@ -1,4 +1,4 @@
-.PHONY: build build-plain build-agent-terminal build-agent-terminal-plain frontend-deps frontend-build run run-plain run-agent-terminal-debug run-agent-terminal-debug-plain build-peer-binaries test test-deferred vet clean guard guard-shell protocol-sync-check rpc-regression-check codemap-check codemap-refresh project-map-check project-map-refresh capcontract-check capcontract-refresh setup-cgo ui-cover-build ui-cover-run ui-cover-report app-cover-build app-cover-run app-cover-report log-audit p2-audit ida-test-all ida-test-heavy sqlc-generate sqlc-verify
+.PHONY: build build-plain build-agent-terminal build-agent-terminal-plain frontend-deps frontend-build run run-plain run-agent-terminal-debug run-agent-terminal-debug-plain build-peer-binaries package-macos package-linux test test-deferred vet clean guard guard-shell protocol-sync-check rpc-regression-check codemap-check codemap-refresh project-map-check project-map-refresh capcontract-check capcontract-refresh setup-cgo ui-cover-build ui-cover-run ui-cover-report app-cover-build app-cover-run app-cover-report log-audit p2-audit ida-test-all ida-test-heavy sqlc-generate sqlc-verify
 
 # Auto-detect macOS version to avoid ld warnings about version mismatch.
 # Override with: make MIN_MACOS_VERSION=15.0 build
@@ -24,11 +24,11 @@ endif
 
 build: guard frontend-build
 	go run ./cmd/frida-bootstrap --frida-version "$(FRIDA_DEVKIT_VERSION)" -- \
-		go build -tags frida -ldflags "$(FRIDA_LDFLAGS)" ./...
+		go build -tags frida -ldflags "$(FRIDA_LDFLAGS)" $(GO_PACKAGE_PATTERNS)
 	@$(MAKE) --no-print-directory _hook_check
 
 build-plain: guard frontend-build
-	go build ./...
+	go build $(GO_PACKAGE_PATTERNS)
 
 build-agent-terminal: frontend-build
 	go run ./cmd/frida-bootstrap --frida-version "$(FRIDA_DEVKIT_VERSION)" -- \
@@ -68,14 +68,32 @@ export ENABLE_MEMORY_TOOLS
 export MULTI_AGENT_MEMORY_FEATURE_TEAMMEM
 DEV_CONTROL_SESSION_TOKEN ?= dev-local-$(shell date +%s)-$(shell echo $$$$)
 
+DEV_DATABASE_URL ?= postgres://postgres:123@127.0.0.1:5432/go_agent_v2?sslmode=disable
+run-agent-terminal-debug run-agent-terminal-debug-plain: export DATABASE_URL ?= $(DEV_DATABASE_URL)
+run-agent-terminal-debug run-agent-terminal-debug-plain: export SUPER_DOLPHIN_RUNTIME_MODE := dev
+run-agent-terminal-debug run-agent-terminal-debug-plain: export SUPER_DOLPHIN_RUNTIME_RESOURCES_DIR := $(CURDIR)
+run-agent-terminal-debug run-agent-terminal-debug-plain: export SUPER_DOLPHIN_DEV_ENTRYPOINT := make run-agent-terminal-debug
+
 # When agent-terminal runs via `go run`, its own binary lives under a go-build
 # tempdir, so spawnToolbridgePeers cannot locate mcp-orch / mcp-lsp next to it.
 # Build the peers into ./bin and point GO_AGENT_PEER_BIN_DIR at that directory
 # so dev runs get the same toolbridge wiring as packaged builds.
 build-peer-binaries:
 	@mkdir -p bin
-	go build -o bin/mcp-orch ./cmd/mcp-orch
-	go build -o bin/mcp-lsp ./cmd/mcp-lsp
+	@tmp="$$(mktemp "bin/.mcp-orch.XXXXXX")"; \
+		trap 'rm -f "$$tmp"' EXIT; \
+		go build -o "$$tmp" ./cmd/mcp-orch; \
+		mv -f "$$tmp" bin/mcp-orch
+	@tmp="$$(mktemp "bin/.mcp-lsp.XXXXXX")"; \
+		trap 'rm -f "$$tmp"' EXIT; \
+		go build -o "$$tmp" ./cmd/mcp-lsp; \
+		mv -f "$$tmp" bin/mcp-lsp
+
+package-macos:
+	./scripts/package_macos.sh
+
+package-linux:
+	./scripts/package_linux.sh
 
 run-agent-terminal-debug: frontend-build build-peer-binaries
 	GO_AGENT_CTL_SESSION_TOKEN=$(DEV_CONTROL_SESSION_TOKEN) \
@@ -96,9 +114,11 @@ mcp:
 # 先并行跑其余包，再用 -p 1 串行跑这 2 个，避免全仓并行时的 flaky failure。
 DEFERRED_TEST_PKGS := ./internal/provider/claudecli ./internal/provider/codexapp
 TEST_WITH_GUARD := ./scripts/test_with_guard.sh
+# Explicit source-package roots keep generated package artifacts under dist/package out of Go package discovery.
+GO_PACKAGE_PATTERNS := ./cmd/... ./internal/... ./pkg/... ./scripts/...
 
 test: frontend-build
-	$(TEST_WITH_GUARD) $$(go list ./... | grep -v -E '/(provider/claudecli|provider/codexapp)$$') -race -count=1
+	$(TEST_WITH_GUARD) $$(go list $(GO_PACKAGE_PATTERNS) | grep -v -E '/(provider/claudecli|provider/codexapp)$$') -race -count=1
 	@echo "\n=== deferred E2E packages (sequential, -p 1) ==="
 	$(TEST_WITH_GUARD) $(DEFERRED_TEST_PKGS) -race -count=1 -p 1 -timeout 120s
 
@@ -150,15 +170,15 @@ project-map-refresh:
 	@echo "✅ project map refreshed"
 
 capcontract-check:
-	go run scripts/capcontract.go --check
+	go run ./scripts/capcontract --check
 	@echo "✅ capability contract manifest is up to date"
 
 capcontract-refresh:
-	go run scripts/capcontract.go
+	go run ./scripts/capcontract
 	@echo "✅ capability contract manifest refreshed"
 
 vet: guard
-	go vet ./...
+	go vet $(GO_PACKAGE_PATTERNS)
 
 clean:
 	rm -rf bin/
@@ -228,7 +248,7 @@ ci-l0:
 
 ci-l1:
 	@echo "[ci-l1] extended unit regression"
-	$(TEST_WITH_GUARD) $$(go list ./... | grep -v -E '/(provider/claudecli|provider/codexapp)$$') -count=1
+	$(TEST_WITH_GUARD) $$(go list $(GO_PACKAGE_PATTERNS) | grep -v -E '/(provider/claudecli|provider/codexapp)$$') -count=1
 	@echo "[ci-l1] deferred E2E packages (sequential)"
 	$(TEST_WITH_GUARD) $(DEFERRED_TEST_PKGS) -count=1 -p 1 -timeout 120s
 

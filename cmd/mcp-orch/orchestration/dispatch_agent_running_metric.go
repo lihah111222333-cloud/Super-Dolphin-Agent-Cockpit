@@ -3,23 +3,9 @@ package orchestration
 import (
 	"context"
 
-	orchmetrics "github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/orchestration/metrics"
 	taskdag "github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/taskdag"
 	"github.com/anthropic-ai/super-agent-v3/pkg/dagmetrics"
 )
-
-type DispatchAgentRunningMetrics = orchmetrics.DispatchAgentRunningMetrics
-
-func DispatchAgentRunningCounters() DispatchAgentRunningMetrics {
-	return orchmetrics.DispatchAgentRunningCounters()
-}
-
-type DispatchRetryMetrics struct {
-	DispatchFailedTotal       int64
-	RetryCountPerNode         map[string]int64
-	RetryCountPerNodeOverflow int64
-	RetryAlertTotal           int64
-}
 
 type DispatchRetryAlert struct {
 	DagKey        string
@@ -33,20 +19,6 @@ type DispatchRetryAlert struct {
 
 type DispatchRetryAlertSink interface {
 	AlertDispatchRetry(ctx context.Context, alert DispatchRetryAlert) error
-}
-
-func DispatchRetryCounters() DispatchRetryMetrics {
-	snap := dagmetrics.Read()
-	perNode := make(map[string]int64, len(snap.RetryCountPerNode))
-	for _, count := range snap.RetryCountPerNode {
-		perNode[count.DagKey+"/"+count.NodeKey] = int64(count.Count)
-	}
-	return DispatchRetryMetrics{
-		DispatchFailedTotal:       int64(snap.DispatchFailedTotal),
-		RetryCountPerNode:         perNode,
-		RetryCountPerNodeOverflow: int64(snap.RetryCountPerNodeOverflow),
-		RetryAlertTotal:           int64(snap.RetryAlertTotal),
-	}
 }
 
 func recordDispatchFailedMetric() {
@@ -74,8 +46,4 @@ func recordDispatchRetryMetric(w *taskdag.Wakeup, lastErr string) (DispatchRetry
 		RetryCount:    int64(record.Count),
 		LastError:     lastErr,
 	}, record.ShouldAlert
-}
-
-func resetDispatchRetryMetricsForTesting() {
-	dagmetrics.ResetForTesting()
 }

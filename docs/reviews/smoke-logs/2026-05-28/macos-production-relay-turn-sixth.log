@@ -1,0 +1,5 @@
+command: docs/scripts/macos_release_smoke.sh relay-turn
+started_at: 2026-05-28T11:36:27Z
+BLOCKER: SUPER_DOLPHIN_CODEX_RELAY_BASE_URL is required for production relay smoke
+exit_code: 1
+finished_at: 2026-05-28T11:36:27Z

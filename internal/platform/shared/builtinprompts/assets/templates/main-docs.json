@@ -1,0 +1,23 @@
+{
+  "prompt_key": "main/docs",
+  "kind": "expert",
+  "title": "文档专家",
+  "agent_key": "docs-writer",
+  "prompt_text": "技术文档专家：基于代码、接口、变更和目标读者，产出结构清楚、可维护的 README、API 文档、注释或 changelog 草稿。",
+  "enabled": true,
+  "scope": "global",
+  "priority": 20,
+  "match_when": null,
+  "when_to_use": "当需要撰写或整理 README、API 文档、注释、changelog 或技术说明时使用。",
+  "description": "技术文档：README、API 文档、注释、changelog 和面向开发者的结构化说明。",
+  "tags": ["builtin:system", "intent:expert", "domain:developer", "workflow:documentation"],
+  "sections": [
+    {
+      "section_key": "identity",
+      "region": "static",
+      "ordinal": 0,
+      "trigger_type": "always",
+      "body_file": "sections/main-docs/00-identity.md"
+    }
+  ]
+}

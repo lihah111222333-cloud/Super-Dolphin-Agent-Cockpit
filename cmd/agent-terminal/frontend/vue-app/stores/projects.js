@@ -55,6 +55,18 @@ function scopedProjectParams(params = {}) {
   return { ...params, cwd };
 }
 
+function projectParamsForAdd(path) {
+  const cwd = normalizePath((state.scopeCwd || '').toString()) || normalizePath(path);
+  if (!cwd || cwd === '.') throw new Error('project scope cwd is required');
+  return { path, cwd };
+}
+
+function projectParamsForSetActive(path) {
+  const cwd = normalizePath((state.scopeCwd || '').toString()) || (path === '.' ? '' : normalizePath(path));
+  if (!cwd || cwd === '.') throw new Error('project scope cwd is required');
+  return { path, cwd };
+}
+
 async function callProjectAPI(method, params = {}) {
   if (typeof globalThis.__AO_PROJECTS_CALL_API__ === 'function') {
     return globalThis.__AO_PROJECTS_CALL_API__(method, params);
@@ -74,8 +86,11 @@ async function reloadProjects() {
 async function setActive(path) {
   const next = normalizePath(path) || '.';
   logWarn('project', 'active.set.start', { path: next, ts: Date.now() });
-  const res = await callProjectAPI('ui/projects/setActive', scopedProjectParams({ path: next }));
+  const params = projectParamsForSetActive(next);
+  const hadScope = Boolean(normalizePath((state.scopeCwd || '').toString()));
+  const res = await callProjectAPI('ui/projects/setActive', params);
   applyProjectsState(res);
+  if (!hadScope) setScopeCwd(params.cwd);
   logWarn('project', 'active.set.done', { active: state.active, ts: Date.now() });
   logInfo('project', 'active.changed', { active: state.active });
 }
@@ -83,8 +98,14 @@ async function setActive(path) {
 async function addProject(path) {
   const normalized = normalizePath(path);
   if (!normalized || normalized === '.') return false;
-  const res = await callProjectAPI('ui/projects/add', scopedProjectParams({ path: normalized }));
+  const hadScope = Boolean(normalizePath((state.scopeCwd || '').toString()));
+  const res = await callProjectAPI('ui/projects/add', projectParamsForAdd(normalized));
   applyProjectsState(res);
+  if (!hadScope) {
+    const addedPath = state.projects.includes(normalized) ? normalized : (state.projects[0] || normalized);
+    setScopeCwd(addedPath);
+    await setActive(addedPath);
+  }
   logInfo('project', 'added', { path: normalized, total: state.projects.length });
   return true;
 }
@@ -187,7 +208,8 @@ export function useProjectStore() {
       // 消歧：label 碰撞时逐步增加段数，直到唯一或到达完整路径
       disambiguateProjectLabels(items);
       items.forEach((item) => delete item._segments);
-      return [{ value: '.', label: '当前目录 (.)', full: '.' }, ...items];
+      const scopeCwd = normalizePath(state.scopeCwd || '');
+      return [{ value: '.', label: '当前目录 (.)', full: scopeCwd || '.' }, ...items];
     }),
 
     setActive,

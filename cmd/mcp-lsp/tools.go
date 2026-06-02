@@ -27,15 +27,15 @@ type toolDefinition struct {
 }
 
 var lspToolManifests = []ToolManifest{
-	toolManifestWithSchema("file", "File: read_file (offset/limit paging), open_file, diagnostics. Batch: file_paths. For locating code, prefer grep first.", lspFileSchema),
-	toolManifestWithSchema("inspect", "Hover/definition/implementation/type_definition/signature_help at file:line:column (1-based). Use before editing to verify types and signatures.", lspInspectSchema),
-	toolManifestWithSchema("xref", "References/call_hierarchy/type_hierarchy. verbosity=compact(default)|full, max_results cap 50. Use before renaming or refactoring to find all references.", lspXrefSchema),
-	toolManifestWithOutputSchema("grep", "Search codebase: text_search (literal default, regex=true) or ast_search. Default/cap max_results=50; snippets cap at 150 chars; payload target is 16KB and drops rows when needed. Returns 1-based file:line:col.", lspGrepSchema, lspGrepOutputSchema),
-	toolManifestWithSchema("structure", "Document/workspace symbols, folding ranges, semantic tokens. Use to understand file structure before targeted edits.", lspStructureSchema),
-	toolManifestWithSchema("edit", "Edit: applies a patch to disk, then re-reads the file to sync the LSP document cache. Before editing, use grep to locate and inspect or xref to verify context.", lspEditSchema),
-	toolManifestWithSchema("completion", "Request code completions via LSP. Use to discover available APIs and method signatures.", lspCompletionSchema),
-	toolManifestWithSchema("code_run", "Execute code snippet or project shell command. mode=project_cmd for shell. For code search prefer grep; for file reading prefer file.", codeRunSchema),
-	toolManifestWithSchema("code_run_test", "Run a Go test function inside the trusted workspace roots. Defaults test_pkg to ./... and executes go test -run without shell expansion.", codeRunTestSchema),
+	toolManifestWithSchema("file", "Open files into LSP, read line ranges, and fetch LSP/type diagnostics. Run package scripts such as npm run lint with host exec_command. Pass action=open_file before stateful actions on a fresh file. Example: action=read_file pos=internal/foo.go:42 limit=40.", lspFileSchema),
+	toolManifestWithSchema("inspect", "Resolve hover, definition, implementation, type_definition, signature_help at a position. Example: action=definition pos=internal/foo.go:42:9.", lspInspectSchema),
+	toolManifestWithSchema("xref", "References / call_hierarchy / type_hierarchy at a position. Example: action=references pos=internal/foo.go:42:9.", lspXrefSchema),
+	toolManifestWithOutputSchema("grep", "Codebase text or AST search; use before jumping to symbols. Example: action=text_search query=targetName path=internal glob=*.go.", lspGrepSchema, lspGrepOutputSchema),
+	toolManifestWithSchema("structure", "Document/workspace symbol outline. Example: action=document_symbol file_path=internal/foo.go.", lspStructureSchema),
+	toolManifestWithSchema("edit", "Patch file contents and resync the language server so diagnostics reflect the change. Patch body lines start with ' '=context, '-'=remove, '+'=add (blank context = single space, not empty). Pure-insertion hunks are rejected; add a ' ' context line and a '+' line. Example minimal patch: \" import \\\"fmt\\\"\\n-x := 1\\n+x := 2\\n y := 3\".", lspEditSchema),
+	toolManifestWithSchema("completion", "Context-aware code completions at a position. Example: pos=internal/foo.go:42:9.", lspCompletionSchema),
+	toolManifestWithSchema("code_run", "Run a project command or short snippet (Go/JS/TS) only when no host exec_command is available; do not use for package scripts such as npm run lint when exec_command exists. Example: mode=project_cmd command=\"go test ./cmd/mcp-lsp\".", codeRunSchema),
+	toolManifestWithSchema("code_run_test", "Run one Go test function. Example: test_func=TestName test_pkg=./cmd/mcp-lsp.", codeRunTestSchema),
 }
 
 var legacyToolAliases = map[string]string{

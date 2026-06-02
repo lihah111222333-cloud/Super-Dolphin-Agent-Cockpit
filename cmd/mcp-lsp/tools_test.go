@@ -28,8 +28,13 @@ func TestLSPToolManifestsExposeShortNames(t *testing.T) {
 	}
 }
 
-func TestToolsListExposesShortLSPNames(t *testing.T) {
-	provider := registryToolProvider{defs: toolDefinitions(ToolHandlers{})}
+func TestToolsListExposesShortLSPNamesWhenSemanticLSPIsAvailable(t *testing.T) {
+	provider := registryToolProvider{
+		defs: toolDefinitions(ToolHandlers{}),
+		semanticToolsAvailable: func(context.Context) bool {
+			return true
+		},
+	}
 	list, err := provider.ListTools(context.Background())
 	if err != nil {
 		t.Fatalf("ListTools() error = %v", err)
@@ -46,6 +51,53 @@ func TestToolsListExposesShortLSPNames(t *testing.T) {
 	for _, legacy := range []string{"lsp_file", "lsp_inspect", "lsp_xref", "lsp_grep", "lsp_structure", "lsp_edit", "lsp_completion"} {
 		if got[legacy] {
 			t.Fatalf("tools/list exposed legacy alias %q; got %#v", legacy, got)
+		}
+	}
+}
+
+func TestToolsListHidesSemanticLSPToolsWhenLanguageServersUnavailable(t *testing.T) {
+	t.Setenv("PATH", t.TempDir())
+	provider := registryToolProvider{defs: toolDefinitions(ToolHandlers{})}
+	list, err := provider.ListTools(context.Background())
+	if err != nil {
+		t.Fatalf("ListTools() error = %v", err)
+	}
+
+	got := make(map[string]bool, len(list))
+	for _, tool := range list {
+		got[tool.Name] = true
+	}
+	for _, hidden := range []string{"inspect", "xref", "structure", "edit", "completion"} {
+		if got[hidden] {
+			t.Fatalf("tools/list exposed semantic LSP tool %q without a language server; got %#v", hidden, got)
+		}
+	}
+	for _, want := range []string{"file", "grep", "code_run", "code_run_test"} {
+		if !got[want] {
+			t.Fatalf("tools/list missing non-semantic helper %q; got %#v", want, got)
+		}
+	}
+}
+
+func TestToolsListPackagedAvailabilityIgnoresSystemOnlyLanguageServers(t *testing.T) {
+	systemBin := t.TempDir()
+	writeMcpLSPExecutable(t, systemBin, "gopls")
+	t.Setenv("PATH", systemBin)
+	t.Setenv("SUPER_DOLPHIN_LSP_BUNDLE_DIR", t.TempDir())
+	t.Setenv("SUPER_DOLPHIN_LSP_MANIFEST", filepath.Join(t.TempDir(), "manifest.json"))
+	provider := registryToolProvider{defs: toolDefinitions(ToolHandlers{})}
+	list, err := provider.ListTools(context.Background())
+	if err != nil {
+		t.Fatalf("ListTools() error = %v", err)
+	}
+
+	got := make(map[string]bool, len(list))
+	for _, tool := range list {
+		got[tool.Name] = true
+	}
+	for _, hidden := range []string{"inspect", "xref", "structure", "edit", "completion"} {
+		if got[hidden] {
+			t.Fatalf("tools/list exposed semantic LSP tool %q from system PATH in packaged mode; got %#v", hidden, got)
 		}
 	}
 }
@@ -93,6 +145,35 @@ func TestCodeRunTestTarget(t *testing.T) {}
 	require.Equal(t, "go", payload.Language)
 	require.Equal(t, "test", payload.Mode)
 	require.Contains(t, payload.Output, "example.test/coderuntest")
+}
+
+func TestCodeRunTestAcceptsRelativePackageInsideBackendSubmodule(t *testing.T) {
+	workspaceRoot := canonicalToolTestRoot(t, t.TempDir())
+	backendRoot := filepath.Join(workspaceRoot, "backend")
+	pkgDir := filepath.Join(backendRoot, "internal", "service")
+	writeTestFile(t, filepath.Join(backendRoot, "go.mod"), "module example.test/backend\n\ngo 1.25.0\n")
+	writeTestFile(t, filepath.Join(pkgDir, "service_test.go"), `package service
+
+import "testing"
+
+func TestBackendSubmoduleTarget(t *testing.T) {}
+`)
+	rawRoots, err := json.Marshal([]string{workspaceRoot})
+	require.NoError(t, err)
+	t.Setenv("GO_AGENT_LSP_ROOTS", string(rawRoots))
+
+	handlers, err := newToolHandlers(&Manager{root: t.TempDir()})
+	require.NoError(t, err)
+	result, err := registryToolProvider{defs: toolDefinitions(handlers)}.CallTool(context.Background(), "code_run_test", mustJSON(t, map[string]any{
+		"test_func": "TestBackendSubmoduleTarget",
+		"test_pkg":  "./backend/internal/service",
+	}))
+	require.NoError(t, err)
+
+	payload, ok := result.(lsptools.CodeRunResult)
+	require.Truef(t, ok, "code_run_test result = %#v, want CodeRunResult", result)
+	require.Truef(t, payload.Success, "code_run_test failed: output=%q exit=%d", payload.Output, payload.ExitCode)
+	require.Contains(t, payload.Output, "example.test/backend/internal/service")
 }
 
 func TestCodeRunTestRejectsAbsoluteTestPkgOutsideWorkspaceRoot(t *testing.T) {
@@ -365,7 +446,10 @@ func assertStructuredToolResult(t *testing.T, result any) {
 	t.Helper()
 	payload, ok := result.(map[string]any)
 	require.Truef(t, ok, "tool result type = %T, want map[string]any", result)
-	require.NotNilf(t, payload["structuredContent"], "tool result = %#v, want structured content", result)
+	raw, ok := payload["structuredContent"].(json.RawMessage)
+	require.Truef(t, ok, "structuredContent = %T, want json.RawMessage", payload["structuredContent"])
+	var object map[string]any
+	require.NoErrorf(t, json.Unmarshal(raw, &object), "structuredContent = %s, want JSON object", raw)
 }
 
 func TestHandleScopedToolsCallRoutesTrustedScopeToManagerPool(t *testing.T) {
@@ -564,38 +648,4 @@ func canonicalToolTestRoot(t *testing.T, root string) string {
 		return root
 	}
 	return realRoot
-}
-
-func TestEditSchemaExposesPatchDiskFieldsOnly(t *testing.T) {
-	props, ok := lspEditSchema["properties"].(map[string]any)
-	if !ok {
-		t.Fatalf("edit schema properties type = %T", lspEditSchema["properties"])
-	}
-	for _, field := range []string{"patch", "version"} {
-		if _, ok := props[field]; !ok {
-			t.Fatalf("edit schema missing runtime field %q", field)
-		}
-	}
-	for _, field := range []string{"action", "line", "column", "end_line", "end_column", "edits", "new_name", "new_text", "only", "persist_to_disk", "force"} {
-		if _, ok := props[field]; ok {
-			t.Fatalf("edit schema exposes removed non-patch field %q", field)
-		}
-	}
-	required, ok := lspEditSchema["required"].([]string)
-	if !ok {
-		t.Fatalf("edit schema required type = %T", lspEditSchema["required"])
-	}
-	if !reflect.DeepEqual(required, []string{"file_path", "patch"}) {
-		t.Fatalf("edit schema required = %#v, want file_path and patch", required)
-	}
-}
-
-func TestStructureSchemaExposesLegacyPathAlias(t *testing.T) {
-	props, ok := lspStructureSchema["properties"].(map[string]any)
-	if !ok {
-		t.Fatalf("structure schema properties type = %T", lspStructureSchema["properties"])
-	}
-	if _, ok := props["path"]; !ok {
-		t.Fatalf("structure schema missing legacy path alias")
-	}
 }

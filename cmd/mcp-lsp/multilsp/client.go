@@ -88,13 +88,17 @@ func NewClientWithOptions(options Options) (Client, error) {
 	if binary == "" {
 		return nil, ErrBinaryRequired
 	}
+	requestHandler := options.RequestHandler
+	if requestHandler == nil {
+		requestHandler = configurationRequestHandlerFromInitOptions(options.InitOptions)
+	}
 	transport, err := newTransport(transportOptions{
 		Binary:              binary,
 		Args:                defaultArgs(options.Args),
 		Dir:                 options.Dir,
 		Env:                 append([]string(nil), options.Env...),
 		NotificationHandler: options.NotificationHandler,
-		RequestHandler:      options.RequestHandler,
+		RequestHandler:      requestHandler,
 	})
 	if err != nil {
 		return nil, err

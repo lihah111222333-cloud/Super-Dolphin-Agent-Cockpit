@@ -210,10 +210,9 @@ func TestStructureWorkspaceSymbolUsesLanguageManager(t *testing.T) {
 	handler := NewStructureHandler(registry)
 
 	input, err := json.Marshal(structureParams{
-		Action:    "workspace_symbol",
-		Language:  "javascript",
-		Query:     "greet",
-		Verbosity: "compact",
+		Action:   "workspace_symbol",
+		Language: "javascript",
+		Query:    "greet",
 	})
 	if err != nil {
 		t.Fatalf("marshal input: %v", err)
@@ -335,10 +334,9 @@ func TestStructureWorkspaceSymbolDetectsLanguageFromFilePath(t *testing.T) {
 	handler := NewStructureHandler(registry)
 
 	input := marshalStructureParams(t, structureParams{
-		Action:    "workspace_symbol",
-		FilePath:  "frontend/service.ts",
-		Query:     "createService",
-		Verbosity: "compact",
+		Action:   "workspace_symbol",
+		FilePath: "frontend/service.ts",
+		Query:    "createService",
 	})
 
 	if _, err := handler(common.WithToolScope(context.Background(), common.ToolScope{CWD: root, WorkspaceRoots: []string{root}}), input); err != nil {
@@ -358,10 +356,9 @@ func TestStructureWorkspaceSymbolBootstrapsRequestedFilePathBeforeSearch(t *test
 	handler := NewStructureHandler(registry)
 
 	input := marshalStructureParams(t, structureParams{
-		Action:    "workspace_symbol",
-		FilePath:  "frontend/app.js",
-		Query:     "greet",
-		Verbosity: "compact",
+		Action:   "workspace_symbol",
+		FilePath: "frontend/app.js",
+		Query:    "greet",
 	})
 
 	if _, err := handler(common.WithToolScope(context.Background(), common.ToolScope{CWD: root, WorkspaceRoots: []string{root}}), input); err != nil {

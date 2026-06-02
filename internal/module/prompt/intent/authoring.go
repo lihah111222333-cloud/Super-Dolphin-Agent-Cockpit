@@ -12,6 +12,8 @@ import (
 	"time"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
+	"github.com/anthropic-ai/super-agent-v3/internal/module/prompt/intent/draftdream"
+	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
 	platformrpc "github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
 	promptstore "github.com/anthropic-ai/super-agent-v3/internal/store/prompt"
 )
@@ -55,15 +57,13 @@ func HandleDraft(
 	if err != nil {
 		return nil, err
 	}
+	ctx, cancel := platformconfig.WithTimeoutIfNone(ctx, platformconfig.RPCRequestTimeout)
+	defer cancel()
 	prompt, err := buildPromptIntentDraftPrompt(ctx, promptStore, cwd, kind, rawInput)
 	if err != nil {
 		return nil, err
 	}
-	rawDream, err := dream.ExecuteDream(ctx, prompt)
-	if err != nil {
-		return nil, err
-	}
-	cards, err := parsePromptIntentCards(rawDream)
+	cards, err := draftdream.Execute(ctx, dream, prompt, parsePromptIntentCards)
 	if err != nil {
 		return nil, err
 	}

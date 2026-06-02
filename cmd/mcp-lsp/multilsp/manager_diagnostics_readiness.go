@@ -6,6 +6,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	lspmanager "github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/manager"
 )
 
 type diagnosticReadiness struct {
@@ -64,9 +66,9 @@ func (w *diagnosticStableWait) deadlineError() error {
 		return nil
 	}
 	if len(w.readiness.missing) > 0 {
-		return fmt.Errorf("diagnostics did not publish for requested targets before %s: %s", w.manager.diagMaxWait, strings.Join(w.readiness.missing, ", "))
+		return fmt.Errorf("%w: diagnostics did not publish for requested targets before %s: %s", lspmanager.ErrDiagnosticsNotReady, w.manager.diagMaxWait, strings.Join(w.readiness.missing, ", "))
 	}
-	return fmt.Errorf("diagnostics did not stabilize before %s", w.manager.diagMaxWait)
+	return fmt.Errorf("%w: diagnostics did not stabilize before %s", lspmanager.ErrDiagnosticsNotReady, w.manager.diagMaxWait)
 }
 
 func (w *diagnosticStableWait) refresh(resetLast bool) error {

@@ -55,7 +55,7 @@ func TestCodexDreamExecutor_SuccessReturnsExtractedJSON(t *testing.T) {
 	if c.lastInput != "consolidate" {
 		t.Errorf("input: got %q, want 'consolidate'", c.lastInput)
 	}
-	wantArgs := []string{"exec", "--json"}
+	wantArgs := []string{"exec", "--json", "--skip-git-repo-check"}
 	if len(c.lastArgs) != len(wantArgs) {
 		t.Fatalf("args without model: got %v, want %v", c.lastArgs, wantArgs)
 	}
@@ -72,7 +72,7 @@ func TestCodexDreamExecutor_ModelEnvAddsArgs(t *testing.T) {
 	if _, err := exec.ExecuteDream(context.Background(), "p"); err != nil {
 		t.Fatalf("expected success, got %v", err)
 	}
-	want := []string{"exec", "--json", "--model", "gpt-5-codex"}
+	want := []string{"exec", "--json", "--skip-git-repo-check", "--model", "gpt-5-codex"}
 	if len(c.lastArgs) != len(want) {
 		t.Fatalf("args: got %v, want %v", c.lastArgs, want)
 	}
