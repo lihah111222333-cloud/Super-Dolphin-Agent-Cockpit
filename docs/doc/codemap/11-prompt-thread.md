@@ -2,6 +2,7 @@
 
 > 拆卷说明：本卷只覆盖 `internal/module/prompt/`、`internal/module/thread/`、provider bridge、以及 blank-thread 首发链；memory 深水区另见 [`11-memory.md`](11-memory.md)。
 > 当前口径：以 2026-04-20 HEAD 为准；用于收口 prompt / thread / provider `start / resume / fork`、prompt store、snapshot、以及前端 blank-thread 首发真值。
+> UI 路径校正（2026-06-02）：当前新 UI 的聊天页面在 `frontend-app/`，见 [`01-terminal-ui-react.md`](01-terminal-ui-react.md)。本卷中的 `cmd/agent-terminal/frontend/vue-app/` 锚点保留为 legacy Vue/package-embed 参考。
 > 必读搭配：`docs/会话习惯.md` §10.21 / §10.25；shared patches：`tmp/codemap-missing-coverage.md`、`tmp/codemap-mermaid-patches.md`、`tmp/codemap-test-freeze.md`、`tmp/codemap-howto-patches.md`。
 
 ## 1. 这卷回答什么
@@ -71,6 +72,17 @@
 | `internal/platform/eventsurface/bind.go` | typed event -> RPC/UI method | `thread/started`、`turn/*`、`ui/thread/patch` |
 
 ### 3.4 Frontend blank-thread 文件图
+
+当前 React 新 UI：
+
+| 路径 | 角色 | 本卷重点 |
+|---|---|---|
+| `frontend-app/src/App.jsx` | chat shell、composer、timeline 渲染 | composer 输入、发送按钮、历史消息与执行计划展示 |
+| `frontend-app/src/entities/client/model/useClientStore.js` | Zustand 客户端状态与 thread/turn action | `sendDraft()` 负责 blank-thread `thread/start -> turn/start` 两段式 |
+| `frontend-app/src/shared/api/backendApi.js` | RPC facade 与 payload 校验 | `startThread()`、`startTurn()`、cwd / threadId fail-fast |
+| `frontend-app/src/shared/api/wailsBridge.js` | Wails runtime bridge | `callAPI()`、runtime event、前端日志回传 |
+
+Legacy Vue 参考：
 
 | 路径 | 角色 | 本卷重点 |
 |---|---|---|

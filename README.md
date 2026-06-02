@@ -8,9 +8,11 @@ Multi-agent orchestration platform for AI-assisted development. Provides session
 
 ```
 cmd/
-├── agent-terminal/      # Frontend + HTTP server (Vue.js SPA)
+├── agent-terminal/      # Wails desktop host + HTTP/RPC bridge; legacy embedded frontend
 ├── mcp-orch/            # MCP orchestration peer (agent lifecycle, DAG, cron)
 └── mcp-lsp/             # MCP generic multi-language LSP peer (code intelligence)
+
+frontend-app/            # Current React/Vite new UI used by run-new-ui-desktop.sh
 
 internal/
 ├── contract/            # Cross-module interfaces & DTOs
@@ -41,7 +43,12 @@ make install-hooks   # Required: enables pre-commit & pre-push checks
 # Provision PostgreSQL and export DATABASE_URL (required for store layer):
 export DATABASE_URL="postgres://USER:PASS@127.0.0.1:5432/super_dolphin?sslmode=disable"
 
-# Frontend assets are gitignored; build them so go:embed picks up the bundle:
+# For the current new UI desktop dev flow:
+( cd frontend-app && npm install )
+./run-new-ui-desktop.sh
+
+# Legacy embedded frontend assets are gitignored; build them only when working on
+# cmd/agent-terminal/frontend or a package-embed path:
 ( cd cmd/agent-terminal/frontend && npm install && npm run build )
 ```
 
@@ -85,6 +92,7 @@ Notes:
 ### Build & Run
 
 ```bash
+./run-new-ui-desktop.sh      # Run current React/Vite new UI in the desktop host
 make build-plain           # Build all Go binaries (without Frida)
 make run-plain             # Run the cmd/server entry
 make build-agent-terminal  # Build the desktop UI binary (Wails + Frida)
@@ -97,6 +105,7 @@ make build-agent-terminal-plain   # Same without Frida (lighter)
 make test                  # Full test suite
 go test ./... -count=1     # Direct Go test
 go test -bench=. ./...     # Run benchmarks
+( cd frontend-app && npm run lint && npm test && npm run build )
 ```
 
 ### Notes for skill subsystem (post 2026-04-30 P4/P5/P6 cutover)

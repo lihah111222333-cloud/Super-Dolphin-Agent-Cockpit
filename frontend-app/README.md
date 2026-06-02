@@ -2,7 +2,9 @@
 
 Independent React/Vite client UI for the Super Agent desktop-style shell.
 
-This folder is intentionally separate from `cmd/agent-terminal/frontend` so the original Wails/Vite client can keep using its existing startup scripts unchanged.
+This folder is the current new UI for the desktop dev flow. It is intentionally
+separate from `cmd/agent-terminal/frontend`, which remains the legacy
+Vue/package-embed frontend path.
 
 ```bash
 cd frontend-app
@@ -10,14 +12,13 @@ npm install
 npm run dev
 ```
 
-For the full local desktop/web setup, run this from the repository root:
+For the full local desktop setup, run this from the repository root:
 
 ```bash
-./scripts/dev-dual-frontends.sh
+./run-new-ui-desktop.sh
 ```
 
-The script keeps the original client available, starts the existing `/frontend`
-web client on a separate port, and launches this app through the Wails desktop
-host with its own RPC and bridge ports.
+The script starts this app's Vite server, then launches `cmd/agent-terminal`
+with `VITE_DEV_URL` so the Wails desktop host proxies to `frontend-app`.
 
 The design follows the provided dark macOS-style screenshots: title bar, narrow left navigation, dense black workspace, chat thread rail, runtime log panel, capability pages, workflow pages, skill cards, shared files, memory center, and settings.
