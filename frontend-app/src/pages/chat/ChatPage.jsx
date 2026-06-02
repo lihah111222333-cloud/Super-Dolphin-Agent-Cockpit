@@ -1,4 +1,4 @@
-import React, { useEffect, useId, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Archive, ArrowLeft, Bot, Boxes, Brain, CheckCircle2, ChevronDown, CircleStop, Clock3, Code2, Copy, Eye, File, FileText, Folder, GitBranch, Link2, PanelTopOpen, Pencil, Pin, Plus, RefreshCw, Send, Settings, Sparkles, Terminal, Trash2, UserRound, Workflow, Wrench, X } from 'lucide-react';
 import { FocusTrapDialog } from '../../shared/ui/FocusTrapDialog.jsx';
@@ -3917,8 +3917,8 @@ function RuntimeActivityPanel({
   onResizeKeyDown,
   onResizeStart,
 }) {
-  const [hoveredStat, setHoveredStat] = useState(null);
-  const [hoveredWarning, setHoveredWarning] = useState(null);
+  const [activeStat, setActiveStat] = useState(null);
+  const [activeWarning, setActiveWarning] = useState(null);
   const panelRef = useRef(null);
   const stats = useMemo(() => activityStats || {}, [activityStats]);
   const statItems = useMemo(() => activityStatItems(stats), [stats]);
@@ -3926,21 +3926,90 @@ function RuntimeActivityPanel({
     statItems.map((item) => [item.key, activityStatDetailEntries(stats, item.key)]),
   ), [statItems, stats]);
   const logEntries = useMemo(() => runtimeLogEntries(warnings, runtimeResults), [warnings, runtimeResults]);
-  const hoveredWarningEntry = useMemo(
-    () => logEntries.find((entry) => entry.id === hoveredWarning?.id) || null,
-    [hoveredWarning, logEntries],
+  const activeWarningEntry = useMemo(
+    () => logEntries.find((entry) => entry.id === activeWarning?.id) || null,
+    [activeWarning, logEntries],
   );
-  const showStatTooltip = (key, element) => setHoveredStat({ key, anchorRect: elementViewportRect(element) });
-  const hideStatTooltip = (key) => setHoveredStat((current) => (current?.key === key ? null : current));
-  const showWarningPopover = (id, element) => setHoveredWarning({
-    id,
-    anchorRect: elementViewportRect(element),
-    panelRect: elementViewportRect(panelRef.current),
-  });
-  const hideWarningPopover = (id) => setHoveredWarning((current) => (current?.id === id ? null : current));
+  const activeStatItem = useMemo(
+    () => statItems.find((item) => item.key === activeStat?.key) || null,
+    [activeStat, statItems],
+  );
+  const activeStatDetailEntries = activeStat ? detailEntriesByStat[activeStat.key] || [] : [];
+  const hideStatTooltip = useCallback(() => setActiveStat(null), []);
+  const hideWarningPopover = useCallback(() => setActiveWarning(null), []);
+  const toggleStatTooltip = (key, element) => {
+    setActiveWarning(null);
+    setActiveStat((current) => (
+      current?.key === key ? null : { key, anchorRect: elementViewportRect(element) }
+    ));
+  };
+  const toggleWarningPopover = (id, element) => {
+    setActiveStat(null);
+    setActiveWarning((current) => (
+      current?.id === id ? null : {
+        id,
+        anchorRect: elementViewportRect(element),
+        panelRect: elementViewportRect(panelRef.current),
+      }
+    ));
+  };
+  const handleStatKeyDown = (event, key) => {
+    if (event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault();
+      toggleStatTooltip(key, event.currentTarget);
+    }
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      hideStatTooltip();
+    }
+  };
+  const handleWarningKeyDown = (event, id) => {
+    if (event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault();
+      toggleWarningPopover(id, event.currentTarget);
+    }
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      hideWarningPopover();
+    }
+  };
+
+  useEffect(() => {
+    if (!activeStat && !activeWarning) return undefined;
+    const handleDocumentPointerDown = (event) => {
+      if (panelRef.current?.contains(event.target)) return;
+      hideStatTooltip();
+      hideWarningPopover();
+    };
+    const handleDocumentKeyDown = (event) => {
+      if (event.key !== 'Escape') return;
+      hideStatTooltip();
+      hideWarningPopover();
+    };
+    document.addEventListener('pointerdown', handleDocumentPointerDown);
+    document.addEventListener('keydown', handleDocumentKeyDown);
+    return () => {
+      document.removeEventListener('pointerdown', handleDocumentPointerDown);
+      document.removeEventListener('keydown', handleDocumentKeyDown);
+    };
+  }, [activeStat, activeWarning, hideStatTooltip, hideWarningPopover]);
 
   return (
-    <section className="runtime-activity-panel" aria-label="工具使用面板" ref={panelRef}>
+    <section
+      className="runtime-activity-panel"
+      aria-label="工具使用面板"
+      ref={panelRef}
+      onPointerDown={(event) => {
+        if (event.target.closest('.runtime-stat, .runtime-stat-tooltip, .warning-log-line, .warning-log-popover')) return;
+        hideStatTooltip();
+        hideWarningPopover();
+      }}
+      onClick={(event) => {
+        if (event.target.closest('.runtime-stat, .runtime-stat-tooltip, .warning-log-line, .warning-log-popover')) return;
+        hideStatTooltip();
+        hideWarningPopover();
+      }}
+    >
       <RuntimeActivityResizer
         activityPanelHeight={activityPanelHeight}
         activityPanelMaxHeight={activityPanelMaxHeight}
@@ -3949,15 +4018,24 @@ function RuntimeActivityPanel({
         onResizeStart={onResizeStart}
       />
       <RuntimeStatList
-        detailEntriesByStat={detailEntriesByStat}
-        hoveredStat={hoveredStat}
-        onHideStat={hideStatTooltip}
-        onShowStat={showStatTooltip}
+        activeStat={activeStat}
+        onStatKeyDown={handleStatKeyDown}
+        onToggleStat={toggleStatTooltip}
         statItems={statItems}
         tokenUsage={tokenUsage}
       />
-      <RuntimeLogLines entries={logEntries} onHide={hideWarningPopover} onShow={showWarningPopover} />
-      <RuntimeWarningPopover entry={hoveredWarningEntry} hoverState={hoveredWarning} />
+      <RuntimeStatTooltip
+        activeStat={activeStat}
+        detailEntries={activeStatDetailEntries}
+        item={activeStatItem}
+      />
+      <RuntimeLogLines
+        activeWarning={activeWarning}
+        entries={logEntries}
+        onWarningKeyDown={handleWarningKeyDown}
+        onToggleWarning={toggleWarningPopover}
+      />
+      <RuntimeWarningPopover entry={activeWarningEntry} hoverState={activeWarning} />
     </section>
   );
 }
@@ -3984,17 +4062,16 @@ function RuntimeActivityResizer({ activityPanelHeight, activityPanelMaxHeight, a
   );
 }
 
-function RuntimeStatList({ detailEntriesByStat, hoveredStat, onHideStat, onShowStat, statItems, tokenUsage }) {
+function RuntimeStatList({ activeStat, onStatKeyDown, onToggleStat, statItems, tokenUsage }) {
   return (
     <div className="runtime-icons" role="list" aria-label="工具调用统计">
       {statItems.map((item) => (
         <RuntimeStatItem
           key={item.key}
           item={item}
-          detailEntries={detailEntriesByStat[item.key] || []}
-          hoveredStat={hoveredStat}
-          onHide={onHideStat}
-          onShow={onShowStat}
+          activeStat={activeStat}
+          onKeyDown={onStatKeyDown}
+          onToggle={onToggleStat}
         />
       ))}
       <span className="runtime-context" title={tokenUsage ? `上下文使用率 ${tokenUsage.usedPercent.toFixed(1)}%` : '等待后端同步上下文使用率'}>
@@ -4004,31 +4081,34 @@ function RuntimeStatList({ detailEntriesByStat, hoveredStat, onHideStat, onShowS
   );
 }
 
-function RuntimeStatItem({ detailEntries, hoveredStat, item, onHide, onShow }) {
+function RuntimeStatItem({ activeStat, item, onKeyDown, onToggle }) {
   const { key, label, icon: Icon, className, value } = item;
   return (
     <span
       className={`runtime-stat ${className}`}
       role="listitem"
       tabIndex={0}
+      aria-expanded={activeStat?.key === key}
+      aria-haspopup="dialog"
       aria-label={key === 'tool' ? '工具调用总数' : `${label} 调用次数`}
       title={`${label}: ${value}`}
-      onMouseEnter={(event) => onShow(key, event.currentTarget)}
-      onMouseLeave={() => onHide(key)}
-      onFocus={(event) => onShow(key, event.currentTarget)}
-      onBlur={() => onHide(key)}
+      onClick={(event) => {
+        event.stopPropagation();
+        onToggle(key, event.currentTarget);
+      }}
+      onKeyDown={(event) => onKeyDown(event, key)}
     >
       <Icon size={16} aria-hidden="true" />
       <strong>{value}</strong>
-      {hoveredStat?.key === key ? <RuntimeStatTooltip detailEntries={detailEntries} hoveredStat={hoveredStat} label={label} value={value} /> : null}
     </span>
   );
 }
 
-function RuntimeStatTooltip({ detailEntries, hoveredStat, label, value }) {
+function RuntimeStatTooltip({ activeStat, detailEntries, item }) {
+  if (!activeStat || !item) return null;
   return (
-    <span className="runtime-stat-tooltip" data-testid="runtime-stat-tooltip" role="tooltip" style={runtimeStatTooltipStyle(hoveredStat.anchorRect)}>
-      <span className="runtime-stat-tooltip-title"><b>{label}</b><strong>{value}</strong></span>
+    <span className="runtime-stat-tooltip" data-testid="runtime-stat-tooltip" role="tooltip" style={runtimeStatTooltipStyle(activeStat.anchorRect)}>
+      <span className="runtime-stat-tooltip-title"><b>{item.label}</b><strong>{item.value}</strong></span>
       {detailEntries.length > 0 ? (
         <span className="runtime-stat-tooltip-list">
           {detailEntries.map((entry) => (
@@ -4043,7 +4123,7 @@ function RuntimeStatTooltip({ detailEntries, hoveredStat, label, value }) {
   );
 }
 
-function RuntimeLogLines({ entries, onHide, onShow }) {
+function RuntimeLogLines({ activeWarning, entries, onWarningKeyDown, onToggleWarning }) {
   return (
     <div className="log-lines" data-testid="warning-log-panel">
       {entries.length === 0 ? <p><time>--:--</time> runtime log 等待事件</p> : null}
@@ -4052,10 +4132,13 @@ function RuntimeLogLines({ entries, onHide, onShow }) {
           key={entry.id}
           className={`warning-log-line runtime-log-line--${entry.runtimeKind || 'warning'}`}
           tabIndex={0}
-          onMouseEnter={(event) => onShow(entry.id, event.currentTarget)}
-          onMouseLeave={() => onHide(entry.id)}
-          onFocus={(event) => onShow(entry.id, event.currentTarget)}
-          onBlur={() => onHide(entry.id)}
+          aria-expanded={activeWarning?.id === entry.id}
+          aria-haspopup="dialog"
+          onClick={(event) => {
+            event.stopPropagation();
+            onToggleWarning(entry.id, event.currentTarget);
+          }}
+          onKeyDown={(event) => onWarningKeyDown(event, entry.id)}
         >
           <time>{formatTime(runtimeLogTimestamp(entry))}</time> <b>{runtimeLogInlineLabel(entry)}</b>
           {Number(entry.occurrenceCount) > 1 ? <span> ×{Number(entry.occurrenceCount)}</span> : null}
