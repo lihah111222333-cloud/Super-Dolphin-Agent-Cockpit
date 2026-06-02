@@ -331,18 +331,49 @@ func providerProjectRoot(cwd string) (string, error) {
 func nearestGitRoot(dir string) (string, error) {
 	original := dir
 	for {
+		gitPath := filepath.Join(dir, ".git")
+		ok, err := isValidGitRootMarker(gitPath)
+		if err != nil {
+			return "", err
+		}
+		if ok {
+			return dir, nil
+		}
 		parent := filepath.Dir(dir)
 		if parent == dir {
 			return original, nil
 		}
-		gitPath := filepath.Join(dir, ".git")
-		if _, err := os.Stat(gitPath); err == nil {
-			return dir, nil
-		} else if !os.IsNotExist(err) {
-			return "", fmt.Errorf("stat provider project git root marker: %w", err)
-		}
 		dir = parent
 	}
+}
+
+func isValidGitRootMarker(path string) (bool, error) {
+	info, err := os.Stat(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return false, nil
+		}
+		return false, fmt.Errorf("stat provider project git root marker: %w", err)
+	}
+	if info.IsDir() {
+		headInfo, err := os.Stat(filepath.Join(path, "HEAD"))
+		if err != nil {
+			if os.IsNotExist(err) {
+				return false, nil
+			}
+			return false, fmt.Errorf("stat provider project git HEAD marker: %w", err)
+		}
+		return !headInfo.IsDir(), nil
+	}
+	if info.Size() > 4096 {
+		return false, nil
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return false, fmt.Errorf("read provider project git root marker: %w", err)
+	}
+	marker := strings.TrimSpace(string(data))
+	return strings.HasPrefix(strings.ToLower(marker), "gitdir:"), nil
 }
 
 func EnsureNoSkillMirrorConflicts(report contract.SkillMirrorReport) error {

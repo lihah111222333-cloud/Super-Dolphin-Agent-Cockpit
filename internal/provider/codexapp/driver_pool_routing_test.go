@@ -170,6 +170,9 @@ func TestStartSessionReconcilesProjectMirrorsFromGitRootBeforePoolAcquire(t *tes
 	if err := os.MkdirAll(filepath.Join(repoRoot, ".git"), 0o755); err != nil {
 		t.Fatalf("MkdirAll .git: %v", err)
 	}
+	if err := os.WriteFile(filepath.Join(repoRoot, ".git", "HEAD"), []byte("ref: refs/heads/main\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile .git/HEAD: %v", err)
+	}
 	subdir := filepath.Join(repoRoot, "cmd", "agent-terminal")
 	if err := os.MkdirAll(subdir, 0o755); err != nil {
 		t.Fatalf("MkdirAll subdir: %v", err)
