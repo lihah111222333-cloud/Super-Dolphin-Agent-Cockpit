@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Archive, ArrowLeft, Bot, Boxes, Brain, CheckCircle2, ChevronDown, CircleStop, Clock3, Code2, Copy, Eye, File, FileText, Folder, GitBranch, Link2, PanelTopOpen, Pencil, Pin, Plus, RefreshCw, Send, Settings, Sparkles, Terminal, Trash2, UserRound, Workflow, Wrench, X } from 'lucide-react';
+import { Archive, ArrowLeft, Bot, Boxes, Brain, CheckCircle2, ChevronDown, Clock3, Code2, Copy, File, FileText, Folder, GitBranch, Link2, Pencil, Pin, Plus, Send, Settings, Sparkles, Terminal, Trash2, UserRound, Workflow, Wrench, X } from 'lucide-react';
 import { FocusTrapDialog } from '../../shared/ui/FocusTrapDialog.jsx';
 import { onFilesDropped, copyTextToClipboard } from '../../shared/api/backendApi.js';
 import { appendCurrentModelOption, canonicalizeModelValue, modelOptionFor, normalizeConfigText, normalizeProviderKey, textValue } from '../shared/pageShared.js';
@@ -1153,8 +1153,7 @@ function useChatInterruptShortcut(store, activeThreadId) {
   }, [store, activeThreadId]);
 }
 
-function useRuntimeSidePanelLayout({ activeThreadId, railWidth, store, viewportWidth }) {
-  const [open, setOpen] = useState(false);
+function useRuntimeSidePanelLayout({ activeThreadId, railWidth, store, viewportWidth, open, setOpen }) {
   const resizedRef = useRef(false);
   const layoutRef = useRef(null);
   const maxWidth = rightPanelMaxWidth(viewportWidth, railWidth);
@@ -1275,7 +1274,7 @@ function finishRightPanelDrag({ event, setOpen, state, store, drag }) {
   store.setRightPanelWidth?.(state.latestWidth);
 }
 
-function ChatPage({ store, projectPath }) {
+function ChatPage({ store, projectPath, rightPanelOpen = false, setRightPanelOpen = () => {} }) {
   const activeThreadId = store.activeThreadId;
   const modelThreadId = composerConfigThreadId(store, activeThreadId);
   const threadData = useChatThreadData(store, activeThreadId);
@@ -1287,10 +1286,15 @@ function ChatPage({ store, projectPath }) {
     handleKeyDown: handleRuntimeResizeKeyDown,
     layoutRef: chatLayoutRef,
     maxWidth: runtimeMaxWidth,
-    open: rightPanelOpen,
-    toggle: toggleRightPanel,
     width: rightPanelWidth,
-  } = useRuntimeSidePanelLayout({ activeThreadId, railWidth: rail.width, store, viewportWidth });
+  } = useRuntimeSidePanelLayout({
+    activeThreadId,
+    railWidth: rail.width,
+    store,
+    viewportWidth,
+    open: rightPanelOpen,
+    setOpen: setRightPanelOpen,
+  });
   useChatInterruptShortcut(store, activeThreadId);
   const layoutColumns = rightPanelOpen
     ? `${rail.width}px ${SPLITTER_WIDTH}px minmax(0, 1fr) ${SPLITTER_WIDTH}px ${rightPanelWidth}px`
@@ -1298,12 +1302,6 @@ function ChatPage({ store, projectPath }) {
 
   return (
     <section className="chat-page" data-testid="chat-page">
-      <TopCommandBar
-        store={store}
-        projectPath={projectPath}
-        rightPanelOpen={rightPanelOpen}
-        toggleRightPanel={toggleRightPanel}
-      />
       <div ref={chatLayoutRef} className="chat-layout" data-testid="chat-layout" style={{ gridTemplateColumns: layoutColumns }}>
         <ThreadRail store={store} />
         <ThreadRailResizer rail={rail} />
@@ -1394,7 +1392,7 @@ function RuntimePanelSlot({ beginResize, handleKeyDown, maxWidth, open, threadDa
   );
 }
 
-function ProjectSelector({ store, projectPath }) {
+export function ProjectSelector({ store, projectPath }) {
   const [open, setOpen] = useState(false);
   const wrapRef = useRef(null);
   const activeProject = store.activeProject || projectPath;
@@ -1537,69 +1535,6 @@ function ProviderToggle({ store, canUseProjectActions = true }) {
   );
 }
 
-function TopCommandBar({ store, projectPath, rightPanelOpen = false, toggleRightPanel = () => {} }) {
-  const canUseThreadActions = Boolean(store.hasActiveThreadActions?.());
-  const canInterruptThread = Boolean(store.hasInterruptibleThreadAction?.());
-  const bootstrapFailureMessage = store.bootstrapStatus === 'failed' && textValue(store.error)
-    ? `连接后端失败：${textValue(store.error)}`
-    : '';
-  let feedback = null;
-  if (store.actionNotice?.message) {
-    feedback = store.actionNotice;
-  } else if (bootstrapFailureMessage) {
-    feedback = { message: bootstrapFailureMessage, tone: 'error' };
-  }
-  return (
-    <div className="top-command" data-testid="chat-toolbar">
-      <ProjectSelector store={store} projectPath={projectPath} />
-      <button
-        type="button"
-        className="icon-btn"
-        aria-label="新窗口（独立进程）"
-        title="新窗口（独立进程）"
-        onClick={() => runUIAction(() => store.openNewWindow?.())}
-      >
-        <PanelTopOpen size={15} />
-      </button>
-      {canUseThreadActions ? (
-        <button type="button" className="icon-btn" aria-label="复制当前线程" title="复制当前线程" onClick={() => runUIAction(() => store.copyActiveThreadInfo())}><Copy size={15} /></button>
-      ) : null}
-      {canInterruptThread ? (
-        <button type="button" className="icon-btn" aria-label="停止" title="中断当前执行" onClick={() => runUIAction(() => store.interruptActiveThread())}><CircleStop size={15} /></button>
-      ) : null}
-      <button
-        type="button"
-        className="icon-btn"
-        aria-label={canUseThreadActions ? '进程恢复' : '请先选择会话'}
-        title={canUseThreadActions ? '手动杀进程并恢复连接' : '请先选择会话'}
-        disabled={!canUseThreadActions}
-        onClick={() => runUIAction(() => store.recoverActiveThread())}
-      >
-        <RefreshCw size={15} />
-      </button>
-      {feedback?.message ? (
-        <span
-          className={`action-feedback ${feedback.tone || 'info'}`}
-          data-testid="chat-action-feedback"
-          role="status"
-        >
-          {feedback.message}
-        </span>
-      ) : null}
-      <button
-        type="button"
-        className={`icon-btn sidebar-toggle ${rightPanelOpen ? 'active' : ''}`}
-        aria-label={rightPanelOpen ? '隐藏侧边栏' : '显示侧边栏'}
-        title={rightPanelOpen ? '隐藏侧边栏' : '显示侧边栏'}
-        aria-pressed={rightPanelOpen}
-        onClick={toggleRightPanel}
-      >
-        {rightPanelOpen ? <X size={15} /> : <Eye size={15} />}
-        <span className="sidebar-toggle-label">侧边栏</span>
-      </button>
-    </div>
-  );
-}
 
 function ThreadRail({ store }) {
   const [showArchivedThreads, setShowArchivedThreads] = useState(false);
@@ -1838,7 +1773,7 @@ function ThreadRenameCardContent({ thread, editingName, renaming, onCancelRename
   return (
     <>
       <span className="thread-pin thread-pin--placeholder" aria-hidden="true">
-        <Pin size={20} strokeWidth={2.2} />
+        <Pin size={14} strokeWidth={2.2} />
       </span>
       <div className="thread-main thread-main--editing">
         <input
@@ -1935,7 +1870,7 @@ function ThreadPinButton({ thread, hoveredPinThreadId, onSetHoveredPinThreadId, 
       onFocus={() => onSetHoveredPinThreadId(thread.id)}
       onBlur={clearHover}
     >
-      <Pin size={20} strokeWidth={2.2} />
+      <Pin size={14} strokeWidth={2.2} />
       {hoveredPinThreadId === thread.id ? (
         <span className="thread-pin-tooltip" data-testid="thread-pin-tooltip" role="tooltip">
           {pinLabel}
