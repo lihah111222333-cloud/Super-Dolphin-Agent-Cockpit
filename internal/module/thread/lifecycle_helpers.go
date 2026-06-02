@@ -533,6 +533,46 @@ func pageCount(totalCount, limit int) int {
 	return pages
 }
 
+type messagePageReaderSession interface {
+	ReadMessagesPage(ctx context.Context, threadID string, req dto.MessagePageRequest) (dto.MessagePageResult, error)
+}
+
+func (s *service) readMessagesPageSource(ctx context.Context, threadID string, binding *bindingstore.Binding, req dto.MessagePageRequest) (dto.MessagePageResult, error) {
+	req.Limit = normalizeMessagesPageLimit(req.Limit)
+	req.Before = strings.TrimSpace(req.Before)
+	session, err := s.sessionForBinding(binding)
+	if err == nil && session != nil {
+		return s.readMessagesPageFromSession(ctx, threadID, binding, session, req)
+	}
+	if err == nil {
+		err = contract.ErrSessionNotFound
+	} else if !errors.Is(err, contract.ErrSessionNotFound) {
+		return dto.MessagePageResult{}, err
+	}
+	historyReq := readMessagesHistoryRequestForSession(threadID, binding, nil)
+	return historyjsonl.ReadProviderMessagesPageOrError(historyReq, req, err)
+}
+
+func (s *service) readMessagesPageFromSession(ctx context.Context, threadID string, binding *bindingstore.Binding, session contract.Session, req dto.MessagePageRequest) (dto.MessagePageResult, error) {
+	targetID := historyTargetID(binding, threadID)
+	if pager, ok := session.(messagePageReaderSession); ok {
+		return pager.ReadMessagesPage(ctx, targetID, req)
+	}
+	historyReq := readMessagesHistoryRequestForSession(threadID, binding, session)
+	page, pageErr := historyjsonl.ReadProviderMessagesPage(historyReq, req)
+	if pageErr == nil {
+		return page, nil
+	}
+	if req.Before != "" || !historyjsonl.IsMissingProviderHistory(pageErr) {
+		return dto.MessagePageResult{}, pageErr
+	}
+	messages, err := session.ReadHistory(ctx, targetID, req.Limit)
+	if err != nil {
+		return dto.MessagePageResult{}, err
+	}
+	return dto.MessagePageResult{Messages: messages}, nil
+}
+
 func (s *service) readMessagesSource(ctx context.Context, threadID string, binding *bindingstore.Binding) ([]dto.Message, error) {
 	session, err := s.sessionForBinding(binding)
 	if err == nil && session != nil {
@@ -548,6 +588,25 @@ func (s *service) readMessagesSource(ctx context.Context, threadID string, bindi
 		req = historyjsonl.ReadRequest{Provider: binding.Provider, RolloutPath: binding.RolloutPath, ThreadID: util.FirstNonEmpty(binding.CodexThreadID, threadID), ProviderThreadID: binding.ProviderThreadID, SessionUUID: binding.SessionUUID, CodexHome: binding.CodexHome}
 	}
 	return historyjsonl.ReadProviderMessagesOrError(req, err)
+}
+
+func readMessagesHistoryRequestForSession(threadID string, binding *bindingstore.Binding, session contract.Session) historyjsonl.ReadRequest {
+	req := historyjsonl.ReadRequest{ThreadID: strings.TrimSpace(threadID)}
+	if binding != nil {
+		sessionID := ""
+		if session != nil {
+			sessionID = strings.TrimSpace(session.ThreadID())
+		}
+		req = historyjsonl.ReadRequest{
+			Provider:         binding.Provider,
+			RolloutPath:      binding.RolloutPath,
+			ThreadID:         util.FirstNonEmpty(binding.CodexThreadID, sessionID, threadID),
+			ProviderThreadID: binding.ProviderThreadID,
+			SessionUUID:      util.FirstNonEmpty(binding.SessionUUID, sessionID),
+			CodexHome:        binding.CodexHome,
+		}
+	}
+	return req
 }
 
 func (s *service) sessionForBinding(binding *bindingstore.Binding) (contract.Session, error) {

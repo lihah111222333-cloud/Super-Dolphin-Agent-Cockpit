@@ -6,6 +6,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
 )
 
 func TestCodexHistoryFallsBackToSessionUUID(t *testing.T) {
@@ -72,6 +74,78 @@ func TestReadProviderMessagesIfExistsTreatsMissingPathAsOptional(t *testing.T) {
 	}
 }
 
+func TestReadProviderMessagesPageReturnsRecentMessagesAndCursor(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	path := writeCodexRolloutLines(t, root, "thread-page", []string{"one", "two", "three", "four"})
+
+	first, err := ReadProviderMessagesPage(ReadRequest{Provider: "codex", RolloutPath: path}, dto.MessagePageRequest{Limit: 2})
+	if err != nil {
+		t.Fatalf("ReadProviderMessagesPage(first) error = %v", err)
+	}
+	requireHistoryPageContents(t, first.Messages, []string{"three", "four"})
+	requireHistoryPageCursor(t, first)
+
+	second, err := ReadProviderMessagesPage(ReadRequest{Provider: "codex", RolloutPath: path}, dto.MessagePageRequest{Limit: 2, Before: first.NextBefore})
+	if err != nil {
+		t.Fatalf("ReadProviderMessagesPage(second) error = %v", err)
+	}
+	requireHistoryPageContents(t, second.Messages, []string{"one", "two"})
+	requireHistoryPageIDsDoNotOverlap(t, first.Messages, second.Messages)
+	requireHistoryPageEnd(t, second)
+}
+
+func requireHistoryPageContents(t *testing.T, messages []dto.Message, want []string) {
+	t.Helper()
+	got := make([]string, 0, len(messages))
+	for _, msg := range messages {
+		got = append(got, msg.Content)
+	}
+	if fmt.Sprint(got) != fmt.Sprint(want) {
+		t.Fatalf("page contents = %#v, want %#v", got, want)
+	}
+}
+
+func requireHistoryPageCursor(t *testing.T, page dto.MessagePageResult) {
+	t.Helper()
+	if !page.HasMore {
+		t.Fatal("hasMore = false, want true")
+	}
+	if page.NextBefore == "" || page.NextBefore == "3" {
+		t.Fatalf("nextBefore = %q, want opaque cursor", page.NextBefore)
+	}
+}
+
+func requireHistoryPageEnd(t *testing.T, page dto.MessagePageResult) {
+	t.Helper()
+	if page.HasMore {
+		t.Fatal("hasMore = true, want false")
+	}
+	if page.NextBefore != "" {
+		t.Fatalf("nextBefore = %q, want empty", page.NextBefore)
+	}
+}
+
+func requireHistoryPageIDsDoNotOverlap(t *testing.T, first, second []dto.Message) {
+	t.Helper()
+	seen := make(map[int64]string, len(first))
+	for _, msg := range first {
+		if msg.ID == 0 {
+			t.Fatalf("first page message %q has zero ID", msg.Content)
+		}
+		seen[msg.ID] = msg.Content
+	}
+	for _, msg := range second {
+		if msg.ID == 0 {
+			t.Fatalf("second page message %q has zero ID", msg.Content)
+		}
+		if previous, ok := seen[msg.ID]; ok {
+			t.Fatalf("message ID %d reused by %q and %q", msg.ID, previous, msg.Content)
+		}
+	}
+}
+
 func writeCodexRollout(t *testing.T, root, id, content string) string {
 	t.Helper()
 	path := filepath.Join(root, "sessions", "2026", "05", "15", "rollout-2026-05-15T22-55-30-"+id+".jsonl")
@@ -79,6 +153,26 @@ func writeCodexRollout(t *testing.T, root, id, content string) string {
 		t.Fatalf("MkdirAll() error = %v", err)
 	}
 	raw := `{"timestamp":"2026-05-15T22:55:30Z","type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"` + content + `"}]}}` + "\n"
+	if err := os.WriteFile(path, []byte(raw), 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+	return path
+}
+
+func writeCodexRolloutLines(t *testing.T, root, id string, contents []string) string {
+	t.Helper()
+	path := filepath.Join(root, "sessions", "2026", "05", "15", "rollout-2026-05-15T22-55-30-"+id+".jsonl")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	var raw string
+	for i, content := range contents {
+		raw += fmt.Sprintf(
+			`{"timestamp":"2026-05-15T22:55:%02dZ","type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"%s"}]}}`+"\n",
+			i+30,
+			content,
+		)
+	}
 	if err := os.WriteFile(path, []byte(raw), 0o644); err != nil {
 		t.Fatalf("WriteFile() error = %v", err)
 	}
