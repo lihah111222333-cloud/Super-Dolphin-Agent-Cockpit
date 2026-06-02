@@ -4,9 +4,11 @@ import (
 	"context"
 	"log/slog"
 	"strings"
+	"time"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/observability"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
@@ -14,17 +16,18 @@ type Client struct {
 	registry *Registry
 	sessions *SessionManager
 	logger   *slog.Logger
+	tracer   *observability.Service
 }
 
 func NewClient(registry *Registry, sessions *SessionManager, logger *slog.Logger) *Client {
+	return newClient(registry, sessions, logger, nil)
+}
+
+func newClient(registry *Registry, sessions *SessionManager, logger *slog.Logger, tracer *observability.Service) *Client {
 	if logger == nil {
 		logger = pkglogger.Get()
 	}
-	return &Client{
-		registry: registry,
-		sessions: sessions,
-		logger:   logger,
-	}
+	return &Client{registry: registry, sessions: sessions, logger: logger, tracer: tracer}
 }
 
 func (c *Client) StartSession(
@@ -57,10 +60,14 @@ func (c *Client) open(
 		return nil, err
 	}
 	c.logger.Info(action+" session", "provider", strings.TrimSpace(provider), "agent_id", strings.TrimSpace(agentID))
+	started := time.Now()
 	session, err := run(driver)
+	c.recordProviderTrace(ctx, providerSessionEvent("provider.session.acquire", provider, agentID, "", time.Since(started), err))
 	if err != nil {
 		return nil, err
 	}
+	session = c.wrapSession(provider, session)
+	c.recordProviderTrace(ctx, providerSessionEvent("provider.session.ready", provider, agentID, session.ThreadID(), time.Since(started), nil))
 	if c.sessions != nil {
 		c.sessions.Register(agentID, session)
 	}

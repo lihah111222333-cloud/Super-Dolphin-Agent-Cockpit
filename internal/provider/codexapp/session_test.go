@@ -13,6 +13,7 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	tooldto "github.com/anthropic-ai/super-agent-v3/internal/dto/tool"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/observability"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/toolbridge"
 	"github.com/anthropic-ai/super-agent-v3/internal/provider/unified"
@@ -260,8 +261,10 @@ func TestOnInboundMessage_ToolsCall_DispatchesLifecycle(t *testing.T) {
 
 	manager := &ServerManager{}
 	sawLifecycleContext := false
+	var sawTrace observability.TraceContext
 	manager.SetToolHandler(func(ctx context.Context, _ RawMessage) (any, error) {
 		sawLifecycleContext = contract.ToolLifecycleAlreadyPublished(ctx)
+		sawTrace, _ = observability.TraceFromContext(ctx)
 		return map[string]any{"ok": true}, nil
 	})
 	resp := newRecordingResponder()
@@ -271,6 +274,7 @@ func TestOnInboundMessage_ToolsCall_DispatchesLifecycle(t *testing.T) {
 	s.setRuntimeConfig(map[string]any{"cwd": "/trusted/root"})
 	s.mu.Lock()
 	s.activeTurnID = "turn-1"
+	s.turns["turn-1"] = &turnHandle{trace: observability.TraceContext{TraceID: "trace-1", SpanID: "provider-span", ParentSpanID: "turn-span"}}
 	s.mu.Unlock()
 
 	s.onInboundMessage(ctx, resp, RawMessage{
@@ -290,12 +294,20 @@ func TestOnInboundMessage_ToolsCall_DispatchesLifecycle(t *testing.T) {
 	if !reflect.DeepEqual(call.result, map[string]any{"ok": true}) {
 		t.Fatalf("response result = %#v, want ok result", call.result)
 	}
-	if !sawLifecycleContext {
-		t.Fatal("tool handler context missing lifecycle already-published marker")
-	}
+	assertToolHandlerTraceContext(t, sawLifecycleContext, sawTrace)
 	end := waitToolCallEnd(t, endCh)
 	if end.CallID != begin.CallID || end.ToolName != begin.ToolName || !end.Success {
 		t.Fatalf("end = %+v, want successful req-1/file end", end)
+	}
+}
+
+func assertToolHandlerTraceContext(t *testing.T, sawLifecycleContext bool, sawTrace observability.TraceContext) {
+	t.Helper()
+	if !sawLifecycleContext {
+		t.Fatal("tool handler context missing lifecycle already-published marker")
+	}
+	if sawTrace.TraceID != "trace-1" || sawTrace.SpanID != "provider-span" || sawTrace.ParentSpanID != "turn-span" {
+		t.Fatalf("tool handler trace context = %#v, want active turn trace", sawTrace)
 	}
 }
 

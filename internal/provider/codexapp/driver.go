@@ -6,7 +6,6 @@ import (
 	"errors"
 	"log/slog"
 	"os"
-	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -423,17 +422,6 @@ func buildThreadResumeParams(req dto.ResumeSessionRequest) threadResumeParams {
 	return params
 }
 
-func configJSON(cfg map[string]any, key string) json.RawMessage {
-	if cfg == nil || cfg[key] == nil {
-		return nil
-	}
-	raw, err := json.Marshal(cfg[key])
-	if err != nil || string(raw) == "null" {
-		return nil
-	}
-	return raw
-}
-
 func codexSandboxWireJSON(raw json.RawMessage) json.RawMessage {
 	raw = json.RawMessage(strings.TrimSpace(string(raw)))
 	if len(raw) == 0 {
@@ -485,18 +473,6 @@ func canonicalCodexSandboxMode(value string) string {
 	default:
 		return ""
 	}
-}
-
-func sortedConfigKeys(cfg map[string]any) []string {
-	if len(cfg) == 0 {
-		return nil
-	}
-	keys := make([]string, 0, len(cfg))
-	for key := range cfg {
-		keys = append(keys, strings.TrimSpace(key))
-	}
-	sort.Strings(keys)
-	return keys
 }
 
 func hasAnyConfigKey(cfg map[string]any, keys ...string) bool {

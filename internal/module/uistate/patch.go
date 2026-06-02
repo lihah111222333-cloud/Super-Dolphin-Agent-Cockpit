@@ -1,6 +1,7 @@
 package uistate
 
 import (
+	"context"
 	"encoding/json"
 	"strings"
 	"time"
@@ -9,6 +10,7 @@ import (
 	sharedto "github.com/anthropic-ai/super-agent-v3/internal/dto/shared"
 	uidto "github.com/anthropic-ai/super-agent-v3/internal/dto/ui"
 	"github.com/anthropic-ai/super-agent-v3/internal/module/uistate/timeline"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/observability"
 	"github.com/anthropic-ai/super-agent-v3/internal/util/clone"
 	"github.com/kelindar/event"
 )
@@ -26,7 +28,11 @@ func (s *service) bindDispatcher(dispatcher *event.Dispatcher) {
 	s.emitProjectionUpdated = contract.NewEmitter[uidto.UIProjectionUpdated](dispatcher)
 	emitTimelineAppend := contract.NewEmitter[uidto.UITimelineAppended](dispatcher)
 	if s.timeline != nil {
-		s.timeline.SetEmitter(timeline.AppendedEmitter(emitTimelineAppend))
+		s.timeline.SetEmitter(timeline.AppendedEmitter(func(ev uidto.UITimelineAppended) {
+			started := time.Now()
+			emitTimelineAppend(ev)
+			s.recordTimelineAppendTrace(ev, time.Since(started))
+		}))
 	}
 }
 
@@ -34,7 +40,10 @@ func (s *service) emitThreadPatchEvent(patch uidto.UIThreadPatch) {
 	if s == nil || s.emitThreadPatch == nil || strings.TrimSpace(patch.ThreadID) == "" {
 		return
 	}
-	s.emitThreadPatch(s.guardThreadPatchPayload(patch))
+	started := time.Now()
+	guarded := s.guardThreadPatchPayload(patch)
+	s.emitThreadPatch(guarded)
+	s.recordPatchEmitTrace(guarded, time.Since(started))
 }
 
 func (s *service) emitPreferenceChangedEvent(scope, key string, value any) {
@@ -61,7 +70,9 @@ func (s *service) emitProjectionUpdatedEvents(events ...uidto.UIProjectionUpdate
 		if strings.TrimSpace(ev.Projection) == "" {
 			continue
 		}
+		started := time.Now()
 		s.emitProjectionUpdated(ev)
+		s.recordProjectionUpdatedTrace(ev, time.Since(started))
 	}
 }
 
@@ -110,6 +121,70 @@ func shouldNotifyProjectionForPreference(key string) bool {
 		return true
 	}
 	return strings.HasPrefix(strings.TrimSpace(key), "settings.")
+}
+
+const slowUIStateTraceMS int64 = 50
+
+func (s *service) recordPatchEmitTrace(patch uidto.UIThreadPatch, duration time.Duration) {
+	if s == nil || s.trace == nil {
+		return
+	}
+	metadata := map[string]any{
+		"source":               strings.TrimSpace(patch.Source),
+		"sequence":             patch.Sequence,
+		"timeline_items_count": len(patch.TimelineItems),
+		"removed_items_count":  len(patch.RemovedItemIds),
+		"timeline_order_count": len(patch.TimelineOrder),
+		"recover":              patch.Recover,
+		"refresh_required":     patch.RefreshRequired,
+		"fallback_reason":      strings.TrimSpace(patch.FallbackReason),
+	}
+	s.recordUITrace("uistate.patch.emit", strings.TrimSpace(patch.ThreadID), "", "", "", "", duration, metadata)
+}
+
+func (s *service) recordTimelineAppendTrace(ev uidto.UITimelineAppended, duration time.Duration) {
+	if s == nil || s.trace == nil {
+		return
+	}
+	metadata := map[string]any{
+		"item_id":    strings.TrimSpace(ev.ItemID),
+		"item_kind":  strings.TrimSpace(ev.ItemKind),
+		"request_id": ev.RequestID,
+	}
+	s.recordUITrace("uistate.timeline.append", strings.TrimSpace(ev.ThreadID), "", strings.TrimSpace(ev.TurnID), strings.TrimSpace(ev.CallID), strings.TrimSpace(ev.ToolName), duration, metadata)
+}
+
+func (s *service) recordProjectionUpdatedTrace(ev uidto.UIProjectionUpdated, duration time.Duration) {
+	if s == nil || s.trace == nil {
+		return
+	}
+	metadata := map[string]any{
+		"projection": strings.TrimSpace(ev.Projection),
+		"revision":   ev.Revision,
+	}
+	s.recordUITrace("uistate.projection.updated", strings.TrimSpace(ev.ThreadID), "", "", "", "", duration, metadata)
+}
+
+func (s *service) recordUITrace(method, threadID, agentID, turnID, callID, toolName string, duration time.Duration, metadata map[string]any) {
+	status := observability.StatusOK
+	if duration.Milliseconds() >= slowUIStateTraceMS {
+		status = observability.StatusSlow
+	}
+	_ = s.trace.Record(context.Background(), observability.TraceEvent{
+		SchemaVersion: observability.SchemaVersion,
+		Timestamp:     time.Now(),
+		Kind:          "ui_state",
+		Method:        method,
+		ThreadID:      strings.TrimSpace(threadID),
+		AgentID:       strings.TrimSpace(agentID),
+		TurnID:        strings.TrimSpace(turnID),
+		CallID:        strings.TrimSpace(callID),
+		ToolName:      strings.TrimSpace(toolName),
+		DurationMS:    duration.Milliseconds(),
+		Status:        status,
+		Code:          observability.CodeAnchorFromCaller(0),
+		Metadata:      metadata,
+	})
 }
 
 func (s *service) threadPatchLocked(threadID, source string) uidto.UIThreadPatch {

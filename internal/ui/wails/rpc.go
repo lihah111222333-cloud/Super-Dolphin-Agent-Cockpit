@@ -4,11 +4,13 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/creachadair/jrpc2/handler"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/config"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/observability"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
@@ -121,7 +123,7 @@ func NewRPCHandlers(app *App, cfg *config.Config, uiState contract.UIProjectStat
 			return map[string]string{"path": path}, nil
 		}),
 		"ui/log": rpc.StrictHandler(func(ctx context.Context, p map[string]any) (any, error) {
-			return handleUILog(ctx, p), nil
+			return handleUILog(ctx, app, p)
 		}),
 		"ui/selectProjectDir": rpc.StrictHandler(func(ctx context.Context, p selectProjectDirParams) (any, error) {
 			path, err := app.selectProjectDir(p.DefaultPath)
@@ -209,7 +211,7 @@ func handleCopyText(app *App, text string) (map[string]any, error) {
 	return map[string]any{"ok": ok}, nil
 }
 
-func handleUILog(ctx context.Context, params map[string]any) map[string]any {
+func handleUILog(ctx context.Context, app *App, params map[string]any) (map[string]any, error) {
 	clientKind := extractFirstString(params, "_aoClientKind")
 	clientRoute := extractFirstString(params, "_aoClientRoute")
 	ingested := 0
@@ -227,7 +229,29 @@ func handleUILog(ctx context.Context, params map[string]any) map[string]any {
 		ingested++
 	}
 
-	return map[string]any{"ok": true, "ingested": ingested}
+	if app != nil && app.observability != nil && app.observability.Enabled() {
+		event := observability.TraceEvent{
+			Timestamp:    time.Now(),
+			TraceID:      pkglogger.TraceIDFromContext(ctx),
+			SpanID:       pkglogger.SpanIDFromContext(ctx),
+			ParentSpanID: pkglogger.ParentSpanIDFromContext(ctx),
+			Kind:         "frontend.log.ingested",
+			Phase:        "ingested",
+			Method:       "ui/log",
+			Status:       observability.StatusOK,
+			ClientKind:   clientKind,
+			ClientRoute:  clientRoute,
+			Code:         observability.NewCodeAnchor("internal/ui/wails/rpc.go", "handleUILog", 212),
+			Metadata: map[string]any{
+				"ingested": ingested,
+			},
+		}
+		if err := app.observability.Record(ctx, event); err != nil {
+			pkglogger.FromContext(ctx).Warn("frontend log trace record failed", "method", "ui/log", "error", err)
+		}
+	}
+
+	return map[string]any{"ok": true, "ingested": ingested}, nil
 }
 
 func normalizeFrontendLogLevel(level, scope, event string) string {

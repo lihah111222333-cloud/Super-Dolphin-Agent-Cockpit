@@ -6,6 +6,7 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	threaddto "github.com/anthropic-ai/super-agent-v3/internal/dto/thread"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/bus"
+	platformobs "github.com/anthropic-ai/super-agent-v3/internal/platform/observability"
 	bindingstore "github.com/anthropic-ai/super-agent-v3/internal/store/binding"
 	promptstore "github.com/anthropic-ai/super-agent-v3/internal/store/prompt"
 	sharedfilestore "github.com/anthropic-ai/super-agent-v3/internal/store/sharedfile"
@@ -24,7 +25,7 @@ func NewService(
 	orchestration OrchestrationFacade,
 	threadEvents *bus.ThreadEmitters,
 ) Service {
-	return newService(logger, threadStore, bindingStore, nil, sessions, starter, turns, orchestration, threadEvents, nil, nil, nil, nil, nil, nil, nil)
+	return newService(logger, threadStore, bindingStore, nil, sessions, starter, turns, orchestration, threadEvents, nil, nil, nil, nil, nil, nil, nil, nil)
 }
 
 func NewServiceWithPromptAssembly(
@@ -40,7 +41,7 @@ func NewServiceWithPromptAssembly(
 	cfg *contract.Config,
 	toolRegistry contract.ToolRegistry,
 ) Service {
-	return newService(logger, threadStore, bindingStore, nil, sessions, starter, turns, orchestration, threadEvents, promptAssembly, cfg, toolRegistry, nil, nil, nil, nil)
+	return newService(logger, threadStore, bindingStore, nil, sessions, starter, turns, orchestration, threadEvents, promptAssembly, cfg, toolRegistry, nil, nil, nil, nil, nil)
 }
 
 func NewServiceWithPromptAssemblyAndSharedFiles(
@@ -60,8 +61,13 @@ func NewServiceWithPromptAssemblyAndSharedFiles(
 	promptCatalog promptstore.RuntimePromptCatalog,
 	matchWhenEval contract.MatchWhenEvaluator,
 	enableWhenEval contract.EnableWhenEvaluator,
+	tracingOpt ...*platformobs.Service,
 ) Service {
-	return newService(logger, threadStore, bindingStore, sharedFiles, sessions, starter, turns, orchestration, threadEvents, promptAssembly, cfg, toolRegistry, promptStore, promptCatalog, matchWhenEval, enableWhenEval)
+	var tracing *platformobs.Service
+	if len(tracingOpt) > 0 {
+		tracing = tracingOpt[0]
+	}
+	return newService(logger, threadStore, bindingStore, sharedFiles, sessions, starter, turns, orchestration, threadEvents, promptAssembly, cfg, toolRegistry, promptStore, promptCatalog, matchWhenEval, enableWhenEval, tracing)
 }
 
 func newService(
@@ -81,6 +87,7 @@ func newService(
 	promptCatalog promptstore.RuntimePromptCatalog,
 	matchWhenEval contract.MatchWhenEvaluator,
 	enableWhenEval contract.EnableWhenEvaluator,
+	tracing *platformobs.Service,
 ) Service {
 	if logger == nil {
 		logger = pkglogger.Get()
@@ -101,6 +108,7 @@ func newService(
 		toolRegistry:     toolRegistry,
 		turns:            turns,
 		orchestration:    orchestration,
+		tracing:          tracing,
 		bus:              dispatcher,
 		promptStore:      promptStore,
 		promptCatalog:    promptCatalog,

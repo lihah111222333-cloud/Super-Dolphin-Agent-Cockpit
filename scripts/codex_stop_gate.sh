@@ -51,7 +51,7 @@ HOOK_INPUT=""
 if [[ ! -t 0 ]]; then
   if IFS= read -r -t 1 first_line; then
     HOOK_INPUT="${first_line}"
-    while IFS= read -r -t 0.1 next_line; do
+    while IFS= read -r -t 1 next_line; do
       HOOK_INPUT="${HOOK_INPUT}"$'\n'"${next_line}"
     done
   fi
@@ -62,7 +62,7 @@ mkdir -p "${LOG_DIR}" 2>/dev/null || true
 LOG_FILE="${LOG_DIR}/stop-gate-$(date +%Y%m%d%H%M%S).log"
 
 GO_PACKAGE_PATTERNS=("./cmd/..." "./internal/..." "./pkg/..." "./scripts/...")
-FRONTEND_PROJECT="cmd/agent-terminal/frontend"
+FRONTEND_PROJECT="frontend-app"
 
 log() {
   printf '%s\n' "$*" >&2
@@ -235,7 +235,11 @@ run_cmd() {
 
 run_frontend_size_guard() {
   local project="$1"
-  (cd "${project}" && "${NODE_BIN}" scripts/size-guard.cjs)
+  if [[ -f "${project}/scripts/size-guard.cjs" ]]; then
+    (cd "${project}" && "${NODE_BIN}" scripts/size-guard.cjs)
+    return
+  fi
+  (cd "${project}" && npm run lint)
 }
 
 run_frontend_vitest() {

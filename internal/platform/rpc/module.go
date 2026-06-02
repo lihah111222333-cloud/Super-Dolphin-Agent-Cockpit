@@ -12,6 +12,7 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/mcp"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/config"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/observability"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
@@ -92,8 +93,9 @@ func (r approvalRequester) activeServer() *jrpc2.Server {
 type Params struct {
 	fx.In
 
-	Logger *pkglogger.Logger
-	Config *config.Config
+	Logger        *pkglogger.Logger
+	Config        *config.Config
+	Observability *observability.Service `optional:"true"`
 }
 
 // HandlerMapResult is the fx-compatible output wrapper for handler.Map.

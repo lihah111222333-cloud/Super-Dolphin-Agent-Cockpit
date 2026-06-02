@@ -84,6 +84,176 @@ fail_if_port_busy() {
   fi
 }
 
+process_exited() {
+  local pid="$1"
+  local stat
+  if ! kill -0 "$pid" 2>/dev/null; then
+    return 0
+  fi
+  stat="$(ps -p "$pid" -o stat= 2>/dev/null || true)"
+  case "$stat" in
+    *Z*) return 0 ;;
+  esac
+  return 1
+}
+
+child_pids_of() {
+  local pid="$1"
+  if [ -z "$pid" ]; then
+    return 0
+  fi
+  if command -v pgrep >/dev/null 2>&1; then
+    pgrep -P "$pid" 2>/dev/null || true
+    return 0
+  fi
+  ps -eo pid=,ppid= 2>/dev/null | awk -v parent="$pid" '$2 == parent { print $1 }'
+}
+
+process_workdir() {
+  local pid="$1"
+  lsof -a -p "$pid" -d cwd -Fn 2>/dev/null | sed -n 's/^n//p' | head -n 1
+}
+
+stop_process_tree() {
+  local label="$1"
+  local pid="$2"
+  local child
+  if [ -z "$pid" ]; then
+    return 0
+  fi
+  for child in $(child_pids_of "$pid"); do
+    stop_process_tree "$label" "$child"
+  done
+  if ! kill -0 "$pid" 2>/dev/null; then
+    return 0
+  fi
+  echo "  → stopping $label (PID: $pid)"
+  kill "$pid" 2>/dev/null || true
+  for _ in $(seq 1 20); do
+    if process_exited "$pid"; then
+      return 0
+    fi
+    sleep 0.1
+  done
+  kill -KILL "$pid" 2>/dev/null || true
+}
+
+stop_stale_vite_for_port() {
+  local port="$1"
+  local pid cwd command_line
+  for pid in $(lsof -tiTCP:"$port" -sTCP:LISTEN 2>/dev/null || true); do
+    cwd="$(process_workdir "$pid")"
+    command_line="$(ps -p "$pid" -o command= 2>/dev/null || true)"
+    case "$command_line" in
+      *frontend-app/node_modules/.bin/vite*)
+        if [ "$cwd" = "$FRONTEND_APP_DIR" ]; then
+          stop_process_tree "stale frontend-app vite on port $port" "$pid"
+        fi
+        ;;
+    esac
+  done
+}
+
+print_backend_log_tail() {
+  if [ -f "$SUPER_DOLPHIN_BACKEND_LOG" ]; then
+    echo "  → backend log tail: $SUPER_DOLPHIN_BACKEND_LOG" >&2
+    tail -80 "$SUPER_DOLPHIN_BACKEND_LOG" >&2 || true
+  fi
+}
+
+print_frontend_log_tail() {
+  if [ -f "$SUPER_DOLPHIN_FRONTEND_LOG" ]; then
+    echo "  → frontend log tail: $SUPER_DOLPHIN_FRONTEND_LOG" >&2
+    tail -80 "$SUPER_DOLPHIN_FRONTEND_LOG" >&2 || true
+  fi
+}
+
+wait_for_backend() {
+  local url="http://${SUPER_DOLPHIN_HTTP_ADDR}/metrics"
+  for _ in $(seq 1 100); do
+    if curl -fsS "$url" >/dev/null 2>&1; then
+      echo "  → desktop backend ready: $url"
+      return 0
+    fi
+    if [ -n "${DESKTOP_PID:-}" ] && process_exited "$DESKTOP_PID"; then
+      echo "❌ desktop backend exited before readiness: $url" >&2
+      print_backend_log_tail
+      wait "$DESKTOP_PID" || true
+      exit 1
+    fi
+    sleep 0.2
+  done
+  echo "❌ timed out waiting for desktop backend: $url" >&2
+  print_backend_log_tail
+  exit 1
+}
+
+wait_for_any_process_exit() {
+  while true; do
+    if [ -n "${DESKTOP_PID:-}" ] && process_exited "$DESKTOP_PID"; then
+      wait "$DESKTOP_PID"
+      local status="$?"
+      if [ "$status" -ne 0 ]; then
+        print_backend_log_tail
+      fi
+      return "$status"
+    fi
+    if [ -n "${VITE_PID:-}" ] && process_exited "$VITE_PID"; then
+      wait "$VITE_PID"
+      local status="$?"
+      if [ "$status" -ne 0 ]; then
+        print_frontend_log_tail
+      fi
+      return "$status"
+    fi
+    sleep 0.5
+  done
+}
+
+seed_dev_preferences() {
+  case "${SUPER_DOLPHIN_SEED_DEV_PREFERENCES:-1}" in
+    0|false|FALSE|no|NO)
+      echo "  → dev provider preference seed skipped"
+      return 0
+      ;;
+  esac
+  if [ "${DEV_LOCAL_POSTGRES_MANAGED:-}" != "1" ]; then
+    return 0
+  fi
+  if [ -z "$SUPER_DOLPHIN_DEV_PROVIDER" ] || [ -z "$SUPER_DOLPHIN_DEV_CODEX_MODEL" ] || [ -z "$SUPER_DOLPHIN_DEV_CODEX_EFFORT" ] || [ -z "$SUPER_DOLPHIN_DEV_CODEX_HOME" ] || [ -z "$SUPER_DOLPHIN_DEV_CODEX_INSTANCE_KEY" ] || [ -z "$SUPER_DOLPHIN_DEV_CODEX_MODEL_PROVIDER" ]; then
+    echo "❌ dev provider preferences require non-empty SUPER_DOLPHIN_DEV_PROVIDER, SUPER_DOLPHIN_DEV_CODEX_MODEL, SUPER_DOLPHIN_DEV_CODEX_EFFORT, SUPER_DOLPHIN_DEV_CODEX_HOME, SUPER_DOLPHIN_DEV_CODEX_INSTANCE_KEY, and SUPER_DOLPHIN_DEV_CODEX_MODEL_PROVIDER" >&2
+    exit 1
+  fi
+  if [ "$SUPER_DOLPHIN_DEV_PROVIDER" != "codex" ]; then
+    echo "❌ run-new-ui-desktop.sh only seeds codex dev provider preferences; got SUPER_DOLPHIN_DEV_PROVIDER=$SUPER_DOLPHIN_DEV_PROVIDER" >&2
+    exit 1
+  fi
+  if [ ! -x "$SUPER_DOLPHIN_POSTGRES_BIN_DIR/psql" ]; then
+    echo "❌ missing PostgreSQL psql binary: $SUPER_DOLPHIN_POSTGRES_BIN_DIR/psql" >&2
+    exit 1
+  fi
+
+  "$SUPER_DOLPHIN_POSTGRES_BIN_DIR/psql" "$DATABASE_URL" \
+    -v ON_ERROR_STOP=1 \
+    -v active_provider="$SUPER_DOLPHIN_DEV_PROVIDER" \
+    -v codex_model="$SUPER_DOLPHIN_DEV_CODEX_MODEL" \
+    -v codex_effort="$SUPER_DOLPHIN_DEV_CODEX_EFFORT" \
+    -v codex_home="$SUPER_DOLPHIN_DEV_CODEX_HOME" \
+    -v codex_instance_key="$SUPER_DOLPHIN_DEV_CODEX_INSTANCE_KEY" \
+    -v codex_model_provider="$SUPER_DOLPHIN_DEV_CODEX_MODEL_PROVIDER" <<'SQL' >/dev/null
+INSERT INTO ui_preferences (cwd, key, value)
+VALUES
+  ('', 'settings.provider.active', to_jsonb(:'active_provider'::text)),
+  ('', 'settings.provider.codex.model', to_jsonb(:'codex_model'::text)),
+  ('', 'settings.provider.codex.effort', to_jsonb(:'codex_effort'::text)),
+  ('', 'settings.provider.codex.codexHome', to_jsonb(:'codex_home'::text)),
+  ('', 'settings.provider.codex.codexInstanceKey', to_jsonb(:'codex_instance_key'::text)),
+  ('', 'settings.provider.codex.codexModelProvider', to_jsonb(:'codex_model_provider'::text))
+ON CONFLICT (cwd, key) DO NOTHING;
+SQL
+  echo "  → dev provider preferences ready"
+}
+
 postgres_platform_id() {
   local os arch
   os="$(uname -s | tr '[:upper:]' '[:lower:]')"
@@ -252,9 +422,22 @@ configure_dev_postgres_runtime() {
   export SUPER_DOLPHIN_POSTGRES_SHARE_DIR="${SUPER_DOLPHIN_POSTGRES_SHARE_DIR:-$share_dir}"
 
   if [ -z "$database_url" ]; then
-    export SUPER_DOLPHIN_EMBEDDED_POSTGRES="${SUPER_DOLPHIN_EMBEDDED_POSTGRES:-true}"
-    echo "  → embedded PostgreSQL enabled for dev runtime"
+    DATABASE_URL="${DATABASE_URL:-postgres://super_dolphin@127.0.0.1:${SUPER_DOLPHIN_LOCAL_POSTGRES_PORT}/super_dolphin?sslmode=disable}"
+    export DATABASE_URL
+    DEV_LOCAL_POSTGRES_MANAGED="1"
+    echo "  → local PostgreSQL enabled for dev runtime"
   fi
+}
+
+initialize_local_postgres_data_dir() {
+  mkdir -p "$(dirname "$SUPER_DOLPHIN_LOCAL_POSTGRES_DATA_DIR")"
+  echo "  → initializing local PostgreSQL data dir: $SUPER_DOLPHIN_LOCAL_POSTGRES_DATA_DIR"
+  "$SUPER_DOLPHIN_POSTGRES_BIN_DIR/initdb" -D "$SUPER_DOLPHIN_LOCAL_POSTGRES_DATA_DIR" \
+    -U super_dolphin \
+    -L "$SUPER_DOLPHIN_POSTGRES_SHARE_DIR" \
+    --locale=C \
+    --auth=trust \
+    --encoding=UTF8 >/dev/null
 }
 
 ensure_local_postgres() {
@@ -273,9 +456,13 @@ ensure_local_postgres() {
     return 0
   fi
   if [ ! -f "$SUPER_DOLPHIN_LOCAL_POSTGRES_DATA_DIR/PG_VERSION" ]; then
-    echo "❌ DATABASE_URL points to local PostgreSQL ($host:$port), but data dir is not initialized: $SUPER_DOLPHIN_LOCAL_POSTGRES_DATA_DIR" >&2
-    echo "   Start PostgreSQL manually, set DATABASE_URL to a reachable database, or initialize the local data dir." >&2
-    exit 1
+    if [ "${DEV_LOCAL_POSTGRES_MANAGED:-}" = "1" ]; then
+      initialize_local_postgres_data_dir
+    else
+      echo "❌ DATABASE_URL points to local PostgreSQL ($host:$port), but data dir is not initialized: $SUPER_DOLPHIN_LOCAL_POSTGRES_DATA_DIR" >&2
+      echo "   Start PostgreSQL manually, set DATABASE_URL to a reachable database, or initialize the local data dir." >&2
+      exit 1
+    fi
   fi
 
   mkdir -p "$SUPER_DOLPHIN_LOCAL_POSTGRES_RUNTIME_DIR" "$(dirname "$SUPER_DOLPHIN_LOCAL_POSTGRES_LOG")"
@@ -289,20 +476,23 @@ ensure_local_postgres() {
 }
 
 cleanup() {
-  if [ -n "${VITE_PID:-}" ] && kill -0 "$VITE_PID" 2>/dev/null; then
-    echo "  → stopping frontend-app vite (PID: $VITE_PID)"
-    kill "$VITE_PID" 2>/dev/null || true
+  if [ "${CLEANUP_DONE:-}" = "1" ]; then
+    return 0
   fi
-  if [ -n "${DESKTOP_PID:-}" ] && kill -0 "$DESKTOP_PID" 2>/dev/null; then
-    echo "  → stopping new UI desktop backend (PID: $DESKTOP_PID)"
-    kill "$DESKTOP_PID" 2>/dev/null || true
+  CLEANUP_DONE="1"
+  if [ -n "${VITE_PID:-}" ]; then
+    stop_process_tree "frontend-app vite" "$VITE_PID"
+  fi
+  if [ -n "${DESKTOP_PID:-}" ]; then
+    stop_process_tree "new UI desktop backend" "$DESKTOP_PID"
   fi
   if [ "${LOCAL_POSTGRES_STARTED:-}" = "1" ]; then
     echo "  → stopping local PostgreSQL"
     "$SUPER_DOLPHIN_POSTGRES_BIN_DIR/pg_ctl" -D "$SUPER_DOLPHIN_LOCAL_POSTGRES_DATA_DIR" -w -t 30 stop -m fast >/dev/null 2>&1 || true
   fi
 }
-trap cleanup EXIT INT TERM
+trap cleanup EXIT
+trap 'cleanup; exit 130' INT TERM HUP
 
 SUPER_DOLPHIN_HTTP_ADDR="${SUPER_DOLPHIN_HTTP_ADDR:-127.0.0.1:4512}"
 GO_AGENT_CTL_RPC_ADDR="${GO_AGENT_CTL_RPC_ADDR:-127.0.0.1:8092}"
@@ -321,11 +511,22 @@ GO_AGENT_PEER_BIN_DIR="${GO_AGENT_PEER_BIN_DIR:-$PROJECT_DIR}"
 SUPER_DOLPHIN_RUNTIME_MODE="${SUPER_DOLPHIN_RUNTIME_MODE:-dev}"
 SUPER_DOLPHIN_RUNTIME_RESOURCES_DIR="${SUPER_DOLPHIN_RUNTIME_RESOURCES_DIR:-$PROJECT_DIR}"
 SUPER_DOLPHIN_DEV_ENTRYPOINT="${SUPER_DOLPHIN_DEV_ENTRYPOINT:-run-new-ui-desktop.sh}"
+SUPER_DOLPHIN_HOME="${SUPER_DOLPHIN_HOME:-/tmp/sd-new-ui-${USER:-user}/super-dolphin-home}"
+SUPER_DOLPHIN_BACKEND_LOG="${SUPER_DOLPHIN_BACKEND_LOG:-$PROJECT_DIR/.tmp/run-new-ui-desktop/backend.log}"
+SUPER_DOLPHIN_FRONTEND_LOG="${SUPER_DOLPHIN_FRONTEND_LOG:-$PROJECT_DIR/.tmp/run-new-ui-desktop/frontend.log}"
+SUPER_DOLPHIN_DEV_PROVIDER="${SUPER_DOLPHIN_DEV_PROVIDER:-codex}"
+SUPER_DOLPHIN_DEV_CODEX_MODEL="${SUPER_DOLPHIN_DEV_CODEX_MODEL:-gpt-5.5}"
+SUPER_DOLPHIN_DEV_CODEX_EFFORT="${SUPER_DOLPHIN_DEV_CODEX_EFFORT:-xhigh}"
+SUPER_DOLPHIN_DEV_CODEX_HOME="${SUPER_DOLPHIN_DEV_CODEX_HOME:-$HOME/.codex}"
+SUPER_DOLPHIN_DEV_CODEX_INSTANCE_KEY="${SUPER_DOLPHIN_DEV_CODEX_INSTANCE_KEY:-default}"
+SUPER_DOLPHIN_DEV_CODEX_MODEL_PROVIDER="${SUPER_DOLPHIN_DEV_CODEX_MODEL_PROVIDER:-openai}"
+SUPER_DOLPHIN_LOCAL_POSTGRES_PORT="${SUPER_DOLPHIN_LOCAL_POSTGRES_PORT:-55433}"
 SUPER_DOLPHIN_LOCAL_POSTGRES_DATA_DIR="${SUPER_DOLPHIN_LOCAL_POSTGRES_DATA_DIR:-$PROJECT_DIR/.tmp/pgdata}"
 SUPER_DOLPHIN_LOCAL_POSTGRES_RUNTIME_DIR="${SUPER_DOLPHIN_LOCAL_POSTGRES_RUNTIME_DIR:-$PROJECT_DIR/.tmp/pgsocket}"
 SUPER_DOLPHIN_LOCAL_POSTGRES_LOG="${SUPER_DOLPHIN_LOCAL_POSTGRES_LOG:-$PROJECT_DIR/.tmp/postgres.log}"
 export SUPER_DOLPHIN_HTTP_ADDR GO_AGENT_CTL_RPC_ADDR VITE_DEV_URL FRONTEND_DEVSERVER_URL GO_AGENT_PEER_BIN_DIR
 export SUPER_DOLPHIN_RUNTIME_MODE SUPER_DOLPHIN_RUNTIME_RESOURCES_DIR SUPER_DOLPHIN_DEV_ENTRYPOINT
+export SUPER_DOLPHIN_HOME
 export SUPER_DOLPHIN_LOCAL_POSTGRES_DATA_DIR SUPER_DOLPHIN_LOCAL_POSTGRES_RUNTIME_DIR SUPER_DOLPHIN_LOCAL_POSTGRES_LOG
 export LOG_LEVEL="${LOG_LEVEL:-debug}"
 export ENABLE_MEMORY_SYSTEM="${ENABLE_MEMORY_SYSTEM:-1}"
@@ -333,8 +534,11 @@ export ENABLE_MEMORY_TOOLS="${ENABLE_MEMORY_TOOLS:-1}"
 export MULTI_AGENT_MEMORY_FEATURE_TEAMMEM="${MULTI_AGENT_MEMORY_FEATURE_TEAMMEM:-1}"
 export CODEXAPP_ALLOW_LEGACY_DEFAULT_HOME="${CODEXAPP_ALLOW_LEGACY_DEFAULT_HOME:-1}"
 
+mkdir -p "$(dirname "$SUPER_DOLPHIN_BACKEND_LOG")" "$(dirname "$SUPER_DOLPHIN_FRONTEND_LOG")" "$SUPER_DOLPHIN_HOME"
 ensure_dev_control_session_token
 configure_dev_postgres_runtime
+stop_stale_vite_for_port "$VITE_DEV_PORT"
+fail_if_port_busy "$VITE_DEV_HOST:$VITE_DEV_PORT"
 fail_if_port_busy "$SUPER_DOLPHIN_HTTP_ADDR"
 fail_if_port_busy "$GO_AGENT_CTL_RPC_ADDR"
 ensure_local_postgres
@@ -349,11 +553,16 @@ echo "  bridge:       $SUPER_DOLPHIN_HTTP_ADDR"
 echo "  control rpc:  $GO_AGENT_CTL_RPC_ADDR"
 echo "  peer bin dir: $GO_AGENT_PEER_BIN_DIR"
 echo "  runtime:      $SUPER_DOLPHIN_RUNTIME_MODE ($SUPER_DOLPHIN_RUNTIME_RESOURCES_DIR)"
+echo "  home:         $SUPER_DOLPHIN_HOME"
+echo "  logs:         $SUPER_DOLPHIN_BACKEND_LOG"
 
-(cd "$FRONTEND_APP_DIR" && npm run dev -- --host "$VITE_DEV_HOST" --port "$VITE_DEV_PORT" --strictPort) &
+(cd "$PROJECT_DIR" && go run ./cmd/agent-terminal >"$SUPER_DOLPHIN_BACKEND_LOG" 2>&1) &
+DESKTOP_PID=$!
+wait_for_backend
+seed_dev_preferences
+
+(cd "$FRONTEND_APP_DIR" && npm run dev -- --host "$VITE_DEV_HOST" --port "$VITE_DEV_PORT" --strictPort >"$SUPER_DOLPHIN_FRONTEND_LOG" 2>&1) &
 VITE_PID=$!
 wait_for_http "$VITE_DEV_URL" "frontend-app vite"
 
-(cd "$PROJECT_DIR" && go run ./cmd/agent-terminal) &
-DESKTOP_PID=$!
-wait "$DESKTOP_PID"
+wait_for_any_process_exit

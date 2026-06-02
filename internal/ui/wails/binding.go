@@ -7,9 +7,12 @@ import (
 	"fmt"
 	"runtime"
 	"runtime/debug"
+	"sort"
 	"strings"
 	"sync"
+	"time"
 
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/observability"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 	"github.com/wailsapp/wails/v3/pkg/application"
 )
@@ -19,11 +22,12 @@ const (
 )
 
 type App struct {
-	dispatch    func(ctx context.Context, method string, params json.RawMessage) (json.RawMessage, error)
-	emitter     func(event string, data any)
-	wailsApp    *application.App
-	windowTitle string
-	debug       bool
+	dispatch      func(ctx context.Context, method string, params json.RawMessage) (json.RawMessage, error)
+	emitter       func(event string, data any)
+	wailsApp      *application.App
+	windowTitle   string
+	debug         bool
+	observability *observability.Service
 
 	group string
 
@@ -41,30 +45,124 @@ type App struct {
 }
 
 func (a *App) CallAPI(method string, params json.RawMessage) (any, error) {
+	method, params, ctx, err := a.prepareCallAPIRequest(method, params)
+	if err != nil {
+		return nil, err
+	}
+	startedAt := time.Now()
+	if err := a.recordCallAPITrace(ctx, method, params, startedAt, "wails.call_api.start", "start", 0, observability.StatusOK, nil); err != nil {
+		pkglogger.FromContext(ctx).Warn("wails call api trace record failed", "phase", "start", "method", method, "error", err)
+	}
+	params = stripCallAPITraceParams(method, params)
+	result, err := a.dispatch(ctx, method, params)
+	if err != nil {
+		if recordErr := a.recordCallAPITrace(ctx, method, params, startedAt, "wails.call_api.failed", "failed", time.Since(startedAt), observability.StatusError, err); recordErr != nil {
+			pkglogger.FromContext(ctx).Warn("wails call api trace record failed", "phase", "failed", "method", method, "error", recordErr)
+		}
+		return nil, err
+	}
+	duration := time.Since(startedAt)
+	if err := a.recordCallAPITrace(ctx, method, params, startedAt, "wails.call_api.done", "done", duration, wailsTraceStatus(method, duration), nil); err != nil {
+		pkglogger.FromContext(ctx).Warn("wails call api trace record failed", "phase", "done", "method", method, "error", err)
+	}
+	return decodeAPIResult(result)
+}
+
+func (a *App) prepareCallAPIRequest(method string, params json.RawMessage) (string, json.RawMessage, context.Context, error) {
 	if a == nil || a.dispatch == nil {
-		return nil, errors.New("wails binding: dispatch is not configured")
+		return "", nil, nil, errors.New("wails binding: dispatch is not configured")
 	}
 	method = strings.TrimSpace(method)
 	if method == "" {
-		return nil, errors.New("wails binding: method is required")
+		return "", nil, nil, errors.New("wails binding: method is required")
 	}
 	if len(params) == 0 {
 		params = json.RawMessage("{}")
 	}
 	ctx, err := frontendTraceContext(a.callContext(), params)
 	if err != nil {
-		return nil, err
+		return "", nil, nil, err
 	}
-	if method != "ui/log" {
-		params = stripFrontendMeta(params)
-	} else {
-		params = stripFrontendTraceMeta(params)
-	}
-	result, err := a.dispatch(ctx, method, params)
+	ctx, _, err = pkglogger.WithChildTraceSpan(ctx)
 	if err != nil {
-		return nil, err
+		return "", nil, nil, err
 	}
-	return decodeAPIResult(result)
+	ctx = contextWithObservabilityTraceFromLogger(ctx)
+	return method, params, ctx, nil
+}
+
+func stripCallAPITraceParams(method string, params json.RawMessage) json.RawMessage {
+	if method == "ui/log" {
+		return stripFrontendTraceMeta(params)
+	}
+	return stripFrontendMeta(params)
+}
+
+func contextWithObservabilityTraceFromLogger(ctx context.Context) context.Context {
+	traceID := pkglogger.TraceIDFromContext(ctx)
+	spanID := pkglogger.SpanIDFromContext(ctx)
+	if traceID == "" || spanID == "" {
+		return ctx
+	}
+	return observability.ContextWithSpan(ctx, traceID, spanID, pkglogger.ParentSpanIDFromContext(ctx))
+}
+
+func (a *App) recordCallAPITrace(ctx context.Context, method string, params json.RawMessage, startedAt time.Time, kind string, phase string, duration time.Duration, status observability.Status, callErr error) error {
+	if a == nil || a.observability == nil || !a.observability.Enabled() {
+		return nil
+	}
+	metadata := map[string]any{"param_bytes": len(params)}
+	if keys := wailsParamKeys(params); len(keys) > 0 {
+		metadata["param_keys"] = keys
+	}
+	event := observability.TraceEvent{
+		Timestamp:    startedAt,
+		TraceID:      pkglogger.TraceIDFromContext(ctx),
+		SpanID:       pkglogger.SpanIDFromContext(ctx),
+		ParentSpanID: pkglogger.ParentSpanIDFromContext(ctx),
+		Kind:         kind,
+		Phase:        phase,
+		Method:       strings.TrimSpace(method),
+		DurationMS:   duration.Milliseconds(),
+		Status:       status,
+		Code:         observability.NewCodeAnchor("internal/ui/wails/binding.go", "(*App).CallAPI", 46),
+		Metadata:     metadata,
+	}
+	if callErr != nil {
+		event.Error = strings.TrimSpace(callErr.Error())
+	}
+	return a.observability.Record(ctx, event)
+}
+
+func wailsParamKeys(raw json.RawMessage) []string {
+	var obj map[string]json.RawMessage
+	if len(raw) == 0 || json.Unmarshal(raw, &obj) != nil {
+		return nil
+	}
+	keys := make([]string, 0, len(obj))
+	for key := range obj {
+		keys = append(keys, strings.TrimSpace(key))
+	}
+	sort.Strings(keys)
+	return keys
+}
+
+func wailsTraceStatus(method string, duration time.Duration) observability.Status {
+	if duration > wailsSlowThreshold(method) {
+		return observability.StatusSlow
+	}
+	return observability.StatusOK
+}
+
+func wailsSlowThreshold(method string) time.Duration {
+	switch {
+	case strings.TrimSpace(method) == "thread/start":
+		return 1000 * time.Millisecond
+	case strings.HasPrefix(strings.TrimSpace(method), "ui/"):
+		return 300 * time.Millisecond
+	default:
+		return 500 * time.Millisecond
+	}
 }
 
 // LaunchAgent preserves the legacy desktop entrypoint while routing creation

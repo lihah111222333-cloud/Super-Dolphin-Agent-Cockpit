@@ -6,14 +6,18 @@ import (
 	"time"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
+	platformobs "github.com/anthropic-ai/super-agent-v3/internal/platform/observability"
 )
 
-func (s *service) InterruptTurn(ctx context.Context, session contract.Session, source string) (TurnStatus, error) {
+func (s *service) InterruptTurn(ctx context.Context, session contract.Session, source string) (status TurnStatus, err error) {
 	ctx, threadID, err := requireTurnContext(ctx, session)
 	if err != nil {
 		return TurnStatus{}, err
 	}
 	active, tracked := s.tracker.ActiveByThread(threadID)
+	span := s.beginTurnTraceSpan(ctx, "turn.interrupt", threadID, "", active.localID, platformobs.NewCodeAnchor("internal/module/turn/interrupt_service.go", "turn.(*service).InterruptTurn", 11), map[string]any{"source": source})
+	ctx = span.ctx
+	defer func() { s.finishTurnTraceSpan(span, err) }()
 	before := s.interruptBaseStatus(active, tracked)
 	start := time.Now()
 	waited, err := interruptAndWait(ctx, session, s.tracker, active, threadID, source, nil)
