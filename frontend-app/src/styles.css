@@ -833,10 +833,10 @@ select {
   justify-self: end;
   display: inline-grid;
   place-items: center;
-  border: 1px solid transparent;
+  border: 1px solid var(--border);
   border-radius: 999px;
-  background: transparent;
-  color: #f0f2f4;
+  background: color-mix(in srgb, var(--surface-2) 88%, var(--bg));
+  color: var(--text-muted);
   cursor: pointer;
   font: inherit;
   padding: 0;
@@ -844,14 +844,16 @@ select {
 
 .thread-pin:hover,
 .thread-pin:focus-visible {
-  color: var(--ink);
+  color: var(--text-pri);
+  border-color: var(--border-strong);
+  background: var(--surface-3);
   outline: 0;
 }
 
 .thread-pin.active {
   color: var(--green);
-  background: rgba(49, 209, 127, 0.08);
-  border-color: rgba(49, 209, 127, 0.36);
+  background: color-mix(in srgb, var(--green) 10%, var(--surface-2));
+  border-color: color-mix(in srgb, var(--green) 42%, var(--border-strong));
 }
 
 .thread-pin--placeholder {
@@ -5884,7 +5886,9 @@ textarea:disabled {
 .avatar,
 .empty-state span {
   border-radius: var(--radius-sm);
+  border-color: var(--border);
   background: var(--surface-2);
+  color: var(--text-muted);
 }
 
 .sa-window[data-theme="light"] .avatar {
