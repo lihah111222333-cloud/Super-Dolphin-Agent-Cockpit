@@ -859,22 +859,34 @@ const CLAUDE_LONG_TO_SHORT = Object.freeze({
   'claude-haiku-4-5': 'haiku',
 });
 const TURN_STATE_INFO = Object.freeze({
-  idle: Object.freeze({ label: '已连接', tone: 'connected', busy: false }),
+  idle: Object.freeze({ label: '空闲', tone: 'connected', busy: false }),
+  starting: Object.freeze({ label: '启动中', tone: 'active', busy: true }),
   preparing: Object.freeze({ label: '准备中', tone: 'active', busy: true }),
+  thinking: Object.freeze({ label: '思考中', tone: 'active', busy: true }),
   running: Object.freeze({ label: '运行中', tone: 'active', busy: true }),
+  editing: Object.freeze({ label: '编辑中', tone: 'active', busy: true }),
+  waiting: Object.freeze({ label: '等待确认', tone: 'warning', busy: true }),
+  syncing: Object.freeze({ label: '同步中', tone: 'active', busy: true }),
+  responding: Object.freeze({ label: '回复中', tone: 'active', busy: true }),
   force_completing: Object.freeze({ label: '强制完成中', tone: 'active', busy: true }),
   interrupting: Object.freeze({ label: '中断中', tone: 'warning', busy: true }),
   interrupted: Object.freeze({ label: '已中断', tone: 'warning', busy: false }),
   completed: Object.freeze({ label: '已完成', tone: 'done', busy: false }),
+  error: Object.freeze({ label: '异常', tone: 'error', busy: false }),
   failed: Object.freeze({ label: '失败', tone: 'error', busy: false }),
   stalled: Object.freeze({ label: '停滞', tone: 'error', busy: false }),
+  stopped: Object.freeze({ label: '已停止', tone: 'idle', busy: false }),
+  archived: Object.freeze({ label: '已归档', tone: 'idle', busy: false }),
 });
 const LEGACY_TURN_STATE_ALIASES = Object.freeze({
   工作中: 'running',
   发送中: 'preparing',
-  error: 'failed',
-  错误: 'failed',
+  pending: 'starting',
+  recovering: 'syncing',
+  错误: 'error',
   失败: 'failed',
+  空闲: 'idle',
+  等待指示: 'idle',
 });
 
 function normalizeProviderKey(value) {
@@ -891,11 +903,20 @@ function threadProviderLabel(provider) {
 }
 
 function threadCardStatusLabel(thread, running) {
-  if (running) return '工作中';
   const status = (thread?.status || '').toString().trim();
   const normalized = status.toLowerCase();
-  if (!status || normalized === 'idle' || normalized === 'waiting' || status === '空闲' || status === '等待指示') return '';
+  const mapped = TURN_STATE_INFO[normalizeTurnState(status)];
+  if (!status || normalized === 'idle' || status === '空闲' || status === '等待指示') return '';
+  if (mapped?.label) return mapped.label;
+  if (running) return '工作中';
   return status;
+}
+
+function threadStatusBusy(status) {
+  const mapped = TURN_STATE_INFO[normalizeTurnState(status)];
+  if (mapped) return mapped.busy;
+  const normalized = (status || '').toString().trim().toLowerCase();
+  return normalized === '工作中';
 }
 
 function normalizedThreadIdentity(value) {
@@ -3639,7 +3660,7 @@ function ThreadRail({ store }) {
         {visibleThreads.map((thread) => {
           const selectedThreadId = store.pendingActiveThreadId || store.activeThreadId;
           const active = selectedThreadId === thread.id;
-          const running = ['running', '工作中', 'pending', 'recovering'].includes((thread.status || '').toLowerCase()) || thread.status === '工作中';
+          const running = threadStatusBusy(thread.status);
           const archiveLabel = thread.archived ? '恢复会话' : '归档会话';
           const pinned = thread.pinnedAt > 0 || thread.pinned;
           const pinLabel = pinned ? '取消置顶对话' : '置顶对话';
