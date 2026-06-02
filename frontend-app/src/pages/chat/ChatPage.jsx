@@ -1068,6 +1068,7 @@ function useChatThreadData(store, activeThreadId) {
     activeTurn: threadScopedMapValue(store.activeTurnByThread, activeThreadId, activeThread, null),
     activityStats: threadScopedMapValue(store.activityStatsByThread, activeThreadId, activeThread, null),
     diffText: threadScopedMapValue(store.diffTextByThread, activeThreadId, activeThread, '') || '',
+    messagePagination: threadScopedMapValue(store.threadMessagePaginationByThread, activeThreadId, activeThread, null),
     messages: timelineContentBlocked ? [] : cachedTimeline,
     runtimeResults: scopedActivityEntries(store.runtimeResultEntries, activeThreadId, activeThread, { includeUnscoped: true }),
     statusEntry: activeThreadId ? store.statuses?.[activeThreadId] : null,
@@ -1328,6 +1329,8 @@ function ChatPage({ store, projectPath }) {
           statusEntry={threadData.statusEntry}
           activeTurn={threadData.activeTurn}
           modelThreadId={modelThreadId}
+          messagePagination={threadData.messagePagination}
+          loadOlderThreadMessages={store.loadOlderThreadMessages}
           timelineBlocked={threadData.timelineBlocked}
           timelineContentBlocked={threadData.timelineContentBlocked}
           canUseProjectActions={canUseProjectActions}
@@ -3617,6 +3620,8 @@ function Conversation(props) {
     activeThread,
     statusEntry,
     activeTurn,
+    messagePagination,
+    loadOlderThreadMessages,
     timelineBlocked,
     timelineContentBlocked = false,
   } = props;
@@ -3635,6 +3640,8 @@ function Conversation(props) {
         pendingReasoning={pendingReasoning}
         projectPath={projectPath}
         activeThreadId={activeThreadId}
+        messagePagination={messagePagination}
+        loadOlderThreadMessages={loadOlderThreadMessages}
         timelineContentBlocked={timelineContentBlocked}
       />
       {!introMode ? (
@@ -3750,22 +3757,62 @@ function useMaterializedTimelineWindow({ activeThreadId, introMode, messages, ti
   };
 }
 
-function ConversationTimeline({ composer, introMode, messages, pendingReasoning, projectPath, activeThreadId, timelineContentBlocked }) {
+function ConversationTimeline({
+  composer,
+  introMode,
+  messages,
+  pendingReasoning,
+  projectPath,
+  activeThreadId,
+  messagePagination,
+  loadOlderThreadMessages,
+  timelineContentBlocked,
+}) {
   const {
     hiddenOlderCount,
     revealOlder,
     visibleMessages,
   } = useMaterializedTimelineWindow({ activeThreadId, introMode, messages, timelineContentBlocked });
+  const olderPageRequestingThreadRef = useRef('');
+  const [olderPageRequestingThreadId, setOlderPageRequestingThreadId] = useState('');
+  const olderPageRequesting = olderPageRequestingThreadId === activeThreadId;
+  const olderPageLoading = Boolean(messagePagination?.loading || olderPageRequesting);
+  const hasBackendOlderPage = Boolean(activeThreadId && messagePagination?.hasMore && typeof loadOlderThreadMessages === 'function');
+  const canLoadBackendOlderPage = hasBackendOlderPage && !olderPageLoading;
+  const requestBackendOlderPage = useCallback(() => {
+    if (!activeThreadId || !messagePagination?.hasMore || messagePagination?.loading || typeof loadOlderThreadMessages !== 'function') return;
+    if (olderPageRequestingThreadRef.current === activeThreadId) return;
+    olderPageRequestingThreadRef.current = activeThreadId;
+    setOlderPageRequestingThreadId(activeThreadId);
+    void (async () => {
+      try {
+        await loadOlderThreadMessages(activeThreadId);
+      }
+      finally {
+        if (olderPageRequestingThreadRef.current === activeThreadId) olderPageRequestingThreadRef.current = '';
+        setOlderPageRequestingThreadId((current) => (current === activeThreadId ? '' : current));
+      }
+    })();
+  }, [activeThreadId, loadOlderThreadMessages, messagePagination?.hasMore, messagePagination?.loading]);
+  const requestOlderMessages = useCallback(() => {
+    if (timelineContentBlocked) return;
+    if (hiddenOlderCount > 0) {
+      revealOlder();
+      return;
+    }
+    if (canLoadBackendOlderPage) requestBackendOlderPage();
+  }, [canLoadBackendOlderPage, hiddenOlderCount, requestBackendOlderPage, revealOlder, timelineContentBlocked]);
   const handleScroll = useCallback((event) => {
-    if (hiddenOlderCount <= 0 || timelineContentBlocked) return;
-    if (event.currentTarget.scrollTop <= TIMELINE_SCROLL_LOAD_THRESHOLD) revealOlder();
-  }, [hiddenOlderCount, revealOlder, timelineContentBlocked]);
+    if (timelineContentBlocked) return;
+    if (hiddenOlderCount <= 0 && !hasBackendOlderPage) return;
+    if (event.currentTarget.scrollTop <= TIMELINE_SCROLL_LOAD_THRESHOLD) requestOlderMessages();
+  }, [hasBackendOlderPage, hiddenOlderCount, requestOlderMessages, timelineContentBlocked]);
 
   return (
     <div className="timeline" data-testid="chat-timeline" onScroll={handleScroll}>
       {introMode ? <IntroChatStage composer={composer} projectPath={projectPath} /> : null}
-      {!introMode && !timelineContentBlocked && hiddenOlderCount > 0 ? (
-        <TimelineOlderMessagesMarker hiddenCount={hiddenOlderCount} onReveal={revealOlder} />
+      {!introMode && !timelineContentBlocked && (hiddenOlderCount > 0 || hasBackendOlderPage) ? (
+        <TimelineOlderMessagesMarker hiddenCount={hiddenOlderCount} loading={olderPageLoading} onReveal={requestOlderMessages} />
       ) : null}
       {!introMode && !timelineContentBlocked ? visibleMessages.map((message) => <TimelineMessage key={message.id} message={message} />) : null}
       {!introMode && timelineContentBlocked ? <TimelineLoadingPlaceholder /> : null}
@@ -3774,11 +3821,14 @@ function ConversationTimeline({ composer, introMode, messages, pendingReasoning,
   );
 }
 
-function TimelineOlderMessagesMarker({ hiddenCount, onReveal }) {
+function TimelineOlderMessagesMarker({ hiddenCount, loading, onReveal }) {
+  const label = hiddenCount > 0
+    ? `显示更早的消息（${hiddenCount} 条）`
+    : (loading ? '正在加载更早的消息' : '加载更早的消息');
   return (
     <div className="timeline-placeholder" data-testid="timeline-older-marker">
-      <button type="button" className="ghost" onClick={onReveal}>
-        显示更早的消息（{hiddenCount} 条）
+      <button type="button" className="ghost" disabled={hiddenCount <= 0 && loading} aria-busy={loading ? 'true' : 'false'} onClick={onReveal}>
+        {label}
       </button>
     </div>
   );
