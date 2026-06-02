@@ -5606,6 +5606,8 @@ describe('frontend-app connected client shell', () => {
     fireEvent.click(screen.getByText('高级设置'));
     fireEvent.input(screen.getByLabelText('名称'), { target: { value: '起草 v2' } });
     expect(screen.getByLabelText('名称')).toHaveValue('起草 v2');
+    expect(screen.getByLabelText('执行者')).toHaveValue('agent-a');
+    fireEvent.input(screen.getByLabelText('执行者'), { target: { value: 'agent-b' } });
     fireEvent.change(screen.getByLabelText('依赖步骤'), { target: { value: 'outline' } });
     expect(screen.queryByLabelText('Provider')).not.toBeInTheDocument();
     expect(screen.queryByLabelText('Prompt Key')).not.toBeInTheDocument();
@@ -5619,6 +5621,7 @@ describe('frontend-app connected client shell', () => {
           node_key: 'draft',
           patch: expect.objectContaining({
             title: '起草 v2',
+            assigned_to: 'agent-b',
             depends_on: ['outline'],
             config: expect.objectContaining({ provider: 'codex', model: 'gpt-5', prompt_key: 'main/writer' }),
           }),
@@ -5655,6 +5658,44 @@ describe('frontend-app connected client shell', () => {
       }));
       expect(designPayload.config.enabledTools).toContain('task_start_dag');
     });
+  });
+
+  it('blocks scheduling when root DAG steps have no assignee', async () => {
+    const dag = {
+      dag_key: 'daily-brief',
+      title: 'Daily Brief',
+      status: 'ready',
+      trigger: 'manual',
+      version: 7,
+    };
+    const unassignedRoot = {
+      node_key: 'draft',
+      title: '起草',
+      node_type: 'agent',
+      assigned_to: '',
+      depends_on: [],
+      config: { provider: 'codex', model: 'gpt-5', first_turn: '请起草简报' },
+    };
+    backend.getDashboardPage.mockImplementation(({ page }) => Promise.resolve(
+      page === 'dags' ? { dags: [dag] } : { skills: [] },
+    ));
+    backend.getDagDetail.mockResolvedValue({ dag, nodes: [unassignedRoot] });
+    backend.getDagRuns.mockResolvedValue({ runs: [] });
+
+    render(<App />);
+    await screen.findByText('后端线程');
+    fireEvent.click(screen.getByLabelText('自动化'));
+    expect((await screen.findAllByText('Daily Brief')).length).toBeGreaterThanOrEqual(1);
+
+    expect(await screen.findByText('首个步骤「起草」缺少执行者，请先在高级设置中填写执行者。')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '运行' })).toBeDisabled();
+
+    fireEvent.click(screen.getByRole('button', { name: '创建定时任务' }));
+    const scheduleDialog = await screen.findByRole('dialog', { name: '创建定时任务' });
+    fireEvent.click(within(scheduleDialog).getByRole('button', { name: '创建定时任务' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('保存定时任务失败：首个步骤「起草」缺少执行者');
+    expect(backend.applyDagOps).not.toHaveBeenCalled();
   });
 
   it('keeps workflow action notices scoped to the selected task', async () => {
