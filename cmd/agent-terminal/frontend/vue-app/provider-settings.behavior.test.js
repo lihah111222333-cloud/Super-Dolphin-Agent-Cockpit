@@ -237,7 +237,7 @@ describe('ProviderSettings behavior', () => {
     const { vm } = createProviderSettings();
     await vm.loadProviderSettings();
 
-    expect(vm.providerModel.value).toBe('gpt-5.5');
+    expect(vm.providerModel.value).toBe('gpt-5-codex');
     expect(vm.effortMode.value).toBe('xhigh');
 
     vm.sandboxMode.value = 'readOnly';

@@ -15,6 +15,7 @@ const backend = vi.hoisted(() => ({
   setPreference: vi.fn(),
   getPreference: vi.fn(),
   callBackend: vi.fn(),
+  onFilesDropped: vi.fn(() => () => {}),
   onBridgeEvent: vi.fn(() => () => {}),
 }));
 
@@ -101,8 +102,8 @@ describe('SettingsPage connected integration tests', () => {
 
     // Verify preference select values
     await waitFor(() => {
-      expect(screen.getByTestId('provider-summary-mode-select')).toHaveValue('concise');
-      expect(screen.getByTestId('provider-approval-mode-select')).toHaveValue('untrusted');
+      expect(screen.getByRole('combobox', { name: '推理摘要 (Summary)' })).toHaveValue('concise');
+      expect(screen.getByRole('combobox', { name: '审批策略 (ApprovalPolicy)' })).toHaveValue('untrusted');
     });
 
     // Change value and save
@@ -129,8 +130,8 @@ describe('SettingsPage connected integration tests', () => {
     render(<App skipBootstrap />);
 
     await waitFor(() => {
-      expect(screen.getByTestId('settings-lsp-effective-output')).toHaveValue('effective prompt text');
-      expect(screen.getByTestId('settings-lsp-prompt-input')).toHaveValue('custom override text');
+      expect(screen.getByRole('textbox', { name: '当前生效内容（只读）' })).toHaveValue('effective prompt text');
+      expect(screen.getByRole('textbox', { name: '自定义覆盖（可编辑，空=默认）' })).toHaveValue('custom override text');
       expect(screen.getByTestId('settings-show-injected-toggle-input')).toBeChecked();
     });
 
@@ -256,7 +257,7 @@ describe('SettingsPage connected integration tests', () => {
     });
 
     // Change log level
-    const select = screen.getByTestId('settings-log-level-select');
+    const select = screen.getByRole('combobox', { name: '日志级别' });
     fireEvent.change(select, { target: { value: 'error' } });
 
     await waitFor(() => {

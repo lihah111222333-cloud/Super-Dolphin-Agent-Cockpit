@@ -1,16 +1,18 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { QueryClient, QueryClientProvider, useQuery, useQueryClient } from '@tanstack/react-query';
-import { AlertTriangle, Archive, ArrowLeft, Bot, Boxes, Brain, ChevronDown, CircleStop, Code2, Copy, Download, Eye, File, FileText, Folder, FolderOpen, GitBranch, Link2, MemoryStick, MessageCircle, Moon, MoreHorizontal, PanelTopOpen, Pencil, Pin, Plus, RefreshCw, Search, Send, Settings, Sparkles, Sun, Trash2, Workflow, X } from 'lucide-react';
+import { AlertTriangle, Archive, ArrowLeft, Bot, Boxes, Brain, CheckCircle2, ChevronDown, CircleStop, Clock3, Code2, Copy, Download, Eye, File, FileText, Folder, FolderOpen, GitBranch, Link2, MemoryStick, MessageCircle, Moon, MoreHorizontal, PanelTopOpen, Pencil, Pin, Plus, RefreshCw, Search, Send, Settings, Sparkles, Sun, Terminal, Trash2, UserRound, Workflow, Wrench, X } from 'lucide-react';
 import { useClientStore } from './entities/client/model/useClientStore.js';
 import { PromptPageView } from './features/prompts/PromptPageView.jsx';
+import { FocusTrapDialog } from './shared/ui/FocusTrapDialog.jsx';
 import {
   callBackend,
   applyDagOps,
   applySkillResolution,
-  consolidateMemorySimilarities,
   deleteDag,
   deleteMemoryEntry,
   deleteSharedFile,
+  getMemoryConsolidationStatus,
   deleteSkill,
   getBuildInfo,
   getDashboardPage,
@@ -30,10 +32,12 @@ import {
   previewSkillResolution,
   readSharedFile,
   readSkill,
+  copyTextToClipboard,
   saveTextFile,
   selectProjectDirs,
   setMemoryAutoDreamIntent,
   setPreference,
+  startConsolidateMemorySimilarities,
   startDag,
   startThread,
   suggestSkillSummary,
@@ -51,6 +55,30 @@ const navItems = [
   { id: 'files', label: '共享文件', icon: FolderOpen },
   { id: 'settings', label: '设置', icon: MoreHorizontal },
 ];
+
+const PAGE_ROUTE_BY_ID = Object.freeze({
+  chat: '/',
+  prompts: '/prompts',
+  workflows: '/dags',
+  skills: '/skills',
+  memory: '/memory',
+  files: '/files',
+  settings: '/settings',
+});
+
+const PAGE_ID_BY_ROUTE = Object.freeze({
+  '/': 'chat',
+  '/chat': 'chat',
+  '/prompts': 'prompts',
+  '/dags': 'workflows',
+  '/workflows': 'workflows',
+  '/skills': 'skills',
+  '/memory': 'memory',
+  '/memory-center': 'memory',
+  '/files': 'files',
+  '/shared-files': 'files',
+  '/settings': 'settings',
+});
 
 const PROVIDER_LABELS = Object.freeze({
   claude: 'Claude',
@@ -87,6 +115,8 @@ const SHARED_FILE_SORTS = Object.freeze([
   { key: 'path-asc', label: '按文件名' },
 ]);
 const SKILLS_REQUEST_TIMEOUT_MS = 8000;
+const MEMORY_CONSOLIDATION_POLL_MS = 2000;
+const MEMORY_CONSOLIDATION_MAX_POLLS = 180;
 const DASHBOARD_QUERY_STALE_MS = 30_000;
 const DASHBOARD_QUERY_GC_MS = 10 * 60_000;
 const MEMORY_CATEGORIES = Object.freeze([
@@ -116,6 +146,31 @@ function normalizeColorTheme(value) {
   return value === COLOR_THEMES.light || value === COLOR_THEMES.dark ? value : COLOR_THEMES.dark;
 }
 
+function normalizeAppPathname(value) {
+  const raw = (value || '').toString().trim().toLowerCase();
+  if (!raw || raw === '/') return '/';
+  return raw.replace(/\/+$/g, '') || '/';
+}
+
+function appPageFromPathname(pathname) {
+  return PAGE_ID_BY_ROUTE[normalizeAppPathname(pathname)] || '';
+}
+
+function appPageFromLocation() {
+  if (typeof window === 'undefined') return 'chat';
+  return appPageFromPathname(window.location?.pathname) || 'chat';
+}
+
+function hasExplicitAppPageRoute() {
+  if (typeof window === 'undefined') return false;
+  const path = normalizeAppPathname(window.location?.pathname);
+  return path !== '/' && Boolean(PAGE_ID_BY_ROUTE[path]);
+}
+
+function appRouteForPage(page) {
+  return PAGE_ROUTE_BY_ID[page] || PAGE_ROUTE_BY_ID.chat;
+}
+
 function useColorTheme() {
   const [theme, setTheme] = useState(() => normalizeColorTheme(window.localStorage.getItem(THEME_STORAGE_KEY)));
 
@@ -138,6 +193,7 @@ const RIGHT_PANEL_MAX_RATIO = 0.4;
 const CONVERSATION_MIN_RATIO = 0.4;
 const NAV_RAIL_WIDTH = 76;
 const SPLITTER_WIDTH = 6;
+const RESIZER_KEY_STEP = 16;
 const RUNTIME_TOOLBAR_HEIGHT = 67;
 const ACTIVITY_ICON_ROW_HEIGHT = 64;
 const ACTIVITY_LOG_ROW_HEIGHT = 32;
@@ -604,7 +660,10 @@ function parseUnifiedDiffLineEntries(fileText) {
 }
 
 function warningDetailText(entry) {
-  return entry?.detail || JSON.stringify(entry?.fields ?? {});
+  if (entry?.runtimeKind === 'result' && entry?.fields && typeof entry.fields === 'object') {
+    return JSON.stringify(entry.fields, null, 2);
+  }
+  return entry?.detail || JSON.stringify(entry?.fields ?? {}, null, 2);
 }
 
 function runtimeLogTimestamp(entry) {
@@ -615,13 +674,33 @@ function runtimeLogLabel(entry) {
   return entry?.message || entry?.event || entry?.method || '';
 }
 
+function parseSafeLogTimestamp(entry) {
+  const ts = runtimeLogTimestamp(entry);
+  if (!ts) return 0;
+  const text = ts.toString().trim();
+  const asNumber = Number(text);
+  if (Number.isFinite(asNumber) && asNumber > 0) return asNumber;
+  // 截断高精度时间戳中的多余小数秒，以兼容 JS Date.parse 的 3 位毫秒限制
+  const sanitized = text.replace(/(\.\d{3})\d+/g, '$1');
+  const parsed = Date.parse(sanitized);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
+}
+
+function runtimeLogInlineLabel(entry) {
+  const label = runtimeLogLabel(entry);
+  if (entry?.runtimeKind === 'result') {
+    return label.split(' · ', 1)[0] || label;
+  }
+  return label;
+}
+
 function runtimeLogEntries(warnings = [], results = []) {
   return [
     ...(warnings || []).map((entry) => ({ ...entry, runtimeKind: 'warning' })),
     ...(results || []).map((entry) => ({ ...entry, runtimeKind: 'result' })),
   ].sort((left, right) => {
-    const leftTime = Date.parse(runtimeLogTimestamp(left)) || 0;
-    const rightTime = Date.parse(runtimeLogTimestamp(right)) || 0;
+    const leftTime = parseSafeLogTimestamp(left);
+    const rightTime = parseSafeLogTimestamp(right);
     return rightTime - leftTime;
   });
 }
@@ -642,6 +721,12 @@ function withTimeout(promise, timeoutMs, message) {
   });
 }
 
+function delay(ms) {
+  return new Promise((resolve) => {
+    globalThis.setTimeout(resolve, ms);
+  });
+}
+
 function normalizeProjectPath(path) {
   const value = (path || '').toString().trim();
   if (!value) return '';
@@ -649,6 +734,27 @@ function normalizeProjectPath(path) {
     return value.replace(/[\\/]+$/, '');
   }
   return value;
+}
+
+function hasUsableProjectCwd(store) {
+  const activeProject = normalizeProjectPath(store?.activeProject);
+  const cwd = activeProject && activeProject !== '.' && activeProject !== '未选择项目'
+    ? activeProject
+    : normalizeProjectPath(store?.cwd);
+  return Boolean(cwd && cwd !== '.' && cwd !== '未选择项目');
+}
+
+function canUseProjectActionsForStore(store) {
+  return store?.bootstrapStatus === 'ready' && hasUsableProjectCwd(store);
+}
+
+function shouldIgnoreGlobalEscape(target) {
+  const element = target instanceof Element ? target : null;
+  if (!element) return false;
+  const tagName = element.tagName.toLowerCase();
+  if (['input', 'textarea', 'select', 'option'].includes(tagName)) return true;
+  if (element.isContentEditable) return true;
+  return Boolean(element.closest('[role="dialog"], [role="menu"], [role="listbox"], [data-escape-scope="local"]'));
 }
 
 function disambiguateProjectLabels(items) {
@@ -749,6 +855,7 @@ const CLAUDE_LONG_TO_SHORT = Object.freeze({
   'claude-haiku-4-5': 'haiku',
 });
 const TURN_STATE_INFO = Object.freeze({
+  idle: Object.freeze({ label: '已连接', tone: 'connected', busy: false }),
   preparing: Object.freeze({ label: '准备中', tone: 'active', busy: true }),
   running: Object.freeze({ label: '运行中', tone: 'active', busy: true }),
   force_completing: Object.freeze({ label: '强制完成中', tone: 'active', busy: true }),
@@ -779,8 +886,22 @@ function threadProviderLabel(provider) {
   return knownProviderKey(provider) || 'unknown';
 }
 
+function threadCardStatusLabel(thread, running) {
+  if (running) return '工作中';
+  const status = (thread?.status || '').toString().trim();
+  const normalized = status.toLowerCase();
+  if (!status || normalized === 'idle' || normalized === 'waiting' || status === '空闲' || status === '等待指示') return '';
+  return status;
+}
+
 function normalizedThreadIdentity(value) {
   return (value || '').toString().trim();
+}
+
+function isInternalThreadIdentifier(value) {
+  const text = normalizedThreadIdentity(value);
+  if (!text) return false;
+  return /^agent_[a-z0-9_-]+$/i.test(text) || /^thread[-_][a-z0-9_-]+$/i.test(text);
 }
 
 function threadSortTimestamp(value) {
@@ -888,9 +1009,40 @@ function cleanWorkStatusDetails(value) {
     .trim();
 }
 
-function workStatusForThread({ sending, activeThreadId, activeThread, statusEntry }) {
+function isInternalThreadDisplayText(value, activeThreadId, activeThread) {
+  const text = normalizedThreadIdentity(value);
+  if (!text) return false;
+  const unprefixed = text.replace(/^线程\s+/u, '').trim();
+  const ids = activeThreadIdentifiers(activeThreadId, activeThread);
+  return ids.has(text)
+    || ids.has(unprefixed)
+    || isInternalThreadIdentifier(text)
+    || isInternalThreadIdentifier(unprefixed);
+}
+
+function displayThreadName(thread, fallback = '新对话') {
+  const ids = activeThreadIdentifiers(thread?.id, thread);
+  for (const value of [thread?.name, thread?.title, thread?.displayName, thread?.display_name]) {
+    const text = normalizedThreadIdentity(value);
+    if (!text) continue;
+    if (ids.has(text) || isInternalThreadIdentifier(text)) continue;
+    return text;
+  }
+  return fallback;
+}
+
+function workStatusDetailsForThread({ activeThreadId, activeThread, statusEntry }) {
+  const details = cleanWorkStatusDetails(firstStatusText(statusEntry?.statusDetails, activeThread?.lastMessage));
+  if (details && !isInternalThreadDisplayText(details, activeThreadId, activeThread)) return details;
+  return '当前会话已连接';
+}
+
+function workStatusForThread({ sending, loading, activeThreadId, activeThread, statusEntry }) {
   if (!activeThreadId) {
     return { label: '待启动', details: '发送首条消息后创建线程', tone: 'idle', busy: false };
+  }
+  if (loading) {
+    return { label: '加载中', details: '正在同步当前会话', tone: 'active', busy: true };
   }
   const rawState = firstStatusText(
     statusEntry?.state,
@@ -904,16 +1056,24 @@ function workStatusForThread({ sending, activeThreadId, activeThread, statusEntr
   const label = mapped?.label || firstStatusText(statusEntry?.statusHeader, rawState) || '已连接';
   return {
     label,
-    details: cleanWorkStatusDetails(firstStatusText(statusEntry?.statusDetails, activeThread?.lastMessage, `线程 ${activeThreadId}`)),
+    details: workStatusDetailsForThread({ activeThreadId, activeThread, statusEntry }),
     tone: mapped?.tone || 'connected',
     busy: mapped?.busy ?? Boolean(sending),
   };
 }
 
-function hasAssistantReply(messages = []) {
-  return (messages || []).some((message) => (
-    (message?.role || '').toString().trim().toLowerCase() === 'assistant'
-    && Boolean((message?.text || '').toString().trim())
+function hasAssistantReplyAfterLastUser(messages = []) {
+  let lastUserIndex = -1;
+  for (let index = 0; index < messages.length; index += 1) {
+    if ((messages[index]?.role || '').toString().trim().toLowerCase() === 'user') {
+      lastUserIndex = index;
+    }
+  }
+  return messages.some((message, index) => (
+    index > lastUserIndex &&
+    (message?.role || '').toString().trim().toLowerCase() === 'assistant' &&
+    !isReasoningMessage(message) &&
+    Boolean((message?.text || '').toString().trim())
   ));
 }
 
@@ -1286,6 +1446,17 @@ function wordListFromText(value) {
 
 function textValue(value) {
   return value === null || value === undefined ? '' : value.toString().trim();
+}
+
+function runUIAction(action) {
+  try {
+    const result = typeof action === 'function' ? action() : action;
+    if (result && typeof result.catch === 'function') {
+      void result.catch(() => {});
+    }
+  } catch (error) {
+    void error;
+  }
 }
 
 function normalizeSummarySuggestion(value) {
@@ -1691,6 +1862,61 @@ function memoryNoticeText(value) {
 
 function errorMessage(error) {
   return memoryNoticeText(error?.message || String(error || ''));
+}
+
+function memoryConsolidationResultMessage(result) {
+  const merged = Number(result?.merged) || 0;
+  const ignored = Number(result?.ignored) || 0;
+  const failed = Number(result?.failed) || 0;
+  const skipped = Number(result?.skipped) || 0;
+  const parts = [`已整合 ${merged} 组`];
+  if (ignored) parts.push(`${ignored} 组判定不应合`);
+  if (failed) parts.push(`${failed} 组失败`);
+  if (skipped) parts.push(`${skipped} 组跳过`);
+  const firstError = Array.isArray(result?.errors) ? result.errors[0] : '';
+  return {
+    level: failed || skipped ? 'warning' : 'info',
+    message: `${parts.join('，')}${firstError ? `，原因：${firstError}` : ''}`,
+  };
+}
+
+function memoryConsolidationJobFailed(status) {
+  const message = textValue(status?.error) || '智能整合暂时失败，请稍后重试';
+  return new Error(message);
+}
+
+function clearMemorySimilarGroups(snapshot) {
+  if (!snapshot || typeof snapshot !== 'object' || Array.isArray(snapshot)) return snapshot;
+  const overview = snapshot.overview && typeof snapshot.overview === 'object' && !Array.isArray(snapshot.overview)
+    ? snapshot.overview
+    : {};
+  const health = overview.health && typeof overview.health === 'object' && !Array.isArray(overview.health)
+    ? overview.health
+    : null;
+  if (!health || !Array.isArray(health.similarGroups) || health.similarGroups.length === 0) return snapshot;
+  return {
+    ...snapshot,
+    overview: {
+      ...overview,
+      health: {
+        ...health,
+        similarGroups: [],
+      },
+    },
+  };
+}
+
+async function waitForMemoryConsolidationJob(cwd, jobID) {
+  for (let attempt = 0; attempt < MEMORY_CONSOLIDATION_MAX_POLLS; attempt += 1) {
+    const status = await getMemoryConsolidationStatus({ cwd, jobId: jobID });
+    if (status?.status === 'succeeded') return status.result || {};
+    if (status?.status === 'failed') throw memoryConsolidationJobFailed(status);
+    if (status?.status !== 'running') {
+      throw new Error('智能整合状态异常，请稍后重试');
+    }
+    await delay(MEMORY_CONSOLIDATION_POLL_MS);
+  }
+  throw new Error('智能整合仍在进行，请稍后查看结果');
 }
 
 function dagKeyOf(raw) {
@@ -2596,12 +2822,66 @@ function validateRuntimeThresholds(form) {
   return { stallThresholdSec, contextThresholds: [warn, danger, critical] };
 }
 
+function useActivePageHistory(activePage, setActivePage, routeBootstrapPending = false) {
+  const initializedRef = useRef(false);
+  const explicitRouteRef = useRef(hasExplicitAppPageRoute());
+  const suppressNextPushRef = useRef(false);
+  const activePageRef = useRef(activePage);
+
+  useEffect(() => {
+    activePageRef.current = activePage;
+  }, [activePage]);
+
+  useEffect(() => {
+    initializedRef.current = true;
+    const locationPage = appPageFromLocation();
+    if (explicitRouteRef.current && locationPage && locationPage !== activePageRef.current) {
+      suppressNextPushRef.current = true;
+      setActivePage(locationPage);
+    }
+    const onPopState = () => {
+      const nextPage = appPageFromLocation();
+      suppressNextPushRef.current = true;
+      setActivePage(nextPage);
+    };
+    window.addEventListener('popstate', onPopState);
+    return () => window.removeEventListener('popstate', onPopState);
+  }, [setActivePage]);
+
+  useEffect(() => {
+    if (!initializedRef.current) return;
+    const locationPage = appPageFromLocation();
+    if (explicitRouteRef.current && locationPage) {
+      if (locationPage !== activePage) {
+        suppressNextPushRef.current = true;
+        setActivePage(locationPage);
+        return;
+      }
+      if (routeBootstrapPending) return;
+      explicitRouteRef.current = false;
+    }
+
+    if (suppressNextPushRef.current) {
+      suppressNextPushRef.current = false;
+      return;
+    }
+
+    const nextPath = appRouteForPage(activePage);
+    if (normalizeAppPathname(window.location?.pathname) === normalizeAppPathname(nextPath)) return;
+    window.history.pushState({ activePage }, '', nextPath);
+  }, [activePage, routeBootstrapPending, setActivePage]);
+}
+
 function AppShell({ skipBootstrap = false }) {
   const store = useClientStore();
   const bootstrap = store.bootstrap;
   const addWarning = store.addWarning;
   const queryClient = useQueryClient();
   const memoryRevision = Number(store.memoryRevision || 0);
+  const [memoryPageSimilarCount, setMemoryPageSimilarCount] = useState(null);
+  const setActivePage = store.setActivePage;
+
+  useActivePageHistory(store.activePage, setActivePage, !skipBootstrap && !['ready', 'failed'].includes(store.bootstrapStatus));
 
   useEffect(() => {
     if (skipBootstrap) return undefined;
@@ -2628,6 +2908,12 @@ function AppShell({ skipBootstrap = false }) {
   const memorySimilarCount = Math.max(0, Number(memoryBadgeQuery.data) || 0);
 
   useEffect(() => {
+    if (store.activePage !== 'memory') {
+      setMemoryPageSimilarCount(null);
+    }
+  }, [store.activePage, memoryCwd]);
+
+  useEffect(() => {
     if (!memoryBadgeQuery.error) return;
     addWarning('warn', 'memory.badge.refresh.failed', { error: errorMessage(memoryBadgeQuery.error) });
   }, [addWarning, memoryBadgeQuery.error]);
@@ -2647,13 +2933,24 @@ function AppShell({ skipBootstrap = false }) {
     <div className="sa-window" data-theme={theme} data-testid="frontend-app">
       <Titlebar theme={theme} onToggleTheme={toggleTheme} />
       <div className="sa-body">
-        <NavRail activePage={store.activePage} setActivePage={store.setActivePage} memorySimilarCount={memorySimilarCount} />
+        <NavRail
+          activePage={store.activePage}
+          setActivePage={store.setActivePage}
+          memorySimilarCount={memoryPageSimilarCount ?? memorySimilarCount}
+        />
         <main className="sa-main">
           {store.activePage === 'chat' ? <ChatPage store={store} projectPath={projectPath} /> : null}
           {store.activePage === 'prompts' ? <PromptPage projectPath={projectPath} store={store} refreshKey={store.promptRevision} /> : null}
           {store.activePage === 'workflows' ? <WorkflowPage projectPath={projectPath} store={store} refreshKey={store.workflowRevision} /> : null}
-          {store.activePage === 'skills' ? <SkillsPage projectPath={projectPath} refreshKey={store.skillRevision} /> : null}
-          {store.activePage === 'memory' ? <MemoryPage projectPath={projectPath} refreshKey={memoryRevision} /> : null}
+          {store.activePage === 'skills' ? <SkillsPage projectPath={projectPath} refreshKey={store.skillRevision} resolveLaunchPreferences={store.resolveLaunchPreferences} /> : null}
+          {store.activePage === 'memory' ? (
+            <MemoryPage
+              projectPath={projectPath}
+              refreshKey={memoryRevision}
+              onSimilarCountChange={setMemoryPageSimilarCount}
+              resolveLaunchPreferences={store.resolveLaunchPreferences}
+            />
+          ) : null}
           {store.activePage === 'files' ? <FilesPage projectPath={projectPath} store={store} /> : null}
           {store.activePage === 'settings' ? <SettingsPage projectPath={projectPath} /> : null}
           <span className="sr-only">当前页面：{activeLabel}</span>
@@ -2728,13 +3025,22 @@ function ChatPage({ store, projectPath }) {
   const modelThreadId = composerConfigThreadId(store, activeThreadId);
   const activeThread = activeThreadForStore(store);
   const timelineBlocked = Boolean(activeThreadId && store.threadStateLoadingByThread?.[activeThreadId]);
-  const messages = timelineBlocked ? [] : (threadScopedMapValue(store.timelinesByThread, activeThreadId, activeThread, []) || []);
+  const cachedTimeline = threadScopedMapValue(store.timelinesByThread, activeThreadId, activeThread, []) || [];
+  const timelineReady = Boolean(
+    activeThreadId
+    && store.threadTimelineReadyByThread?.[activeThreadId]
+    && (!timelineBlocked || cachedTimeline.length > 0),
+  );
+  const timelineBlockedWithoutCache = timelineBlocked && !timelineReady;
+  const messages = timelineBlockedWithoutCache ? [] : cachedTimeline;
   const tokenUsage = threadScopedMapValue(store.tokenUsageByThread, activeThreadId, activeThread, null);
   const activityStats = threadScopedMapValue(store.activityStatsByThread, activeThreadId, activeThread, null);
   const diffText = threadScopedMapValue(store.diffTextByThread, activeThreadId, activeThread, '') || '';
+  const activeTurn = threadScopedMapValue(store.activeTurnByThread, activeThreadId, activeThread, null);
   const warningEntries = scopedActivityEntries(store.warningEntries, activeThreadId, activeThread, { includeUnscoped: true });
   const runtimeResultEntriesForThread = scopedActivityEntries(store.runtimeResultEntries, activeThreadId, activeThread, { includeUnscoped: true });
   const statusEntry = activeThreadId ? store.statuses?.[activeThreadId] : null;
+  const canUseProjectActions = canUseProjectActionsForStore(store);
   const [viewportWidth, setViewportWidth] = useState(currentViewportWidth);
   const [threadRailWidth, setThreadRailWidth] = useState(() => threadRailTargetWidth());
   const threadRailResizedRef = useRef(false);
@@ -2776,11 +3082,24 @@ function ChatPage({ store, projectPath }) {
   }, [maxRightPanelWidth, rightPanelOpen, store, viewportWidth]);
 
   useEffect(() => {
+    if (!rightPanelOpen || !activeThreadId) return;
+    if (store.threadDiffReadyByThread?.[activeThreadId]) return;
+    if (store.threadStateLoadingByThread?.[activeThreadId]) return;
+    runUIAction(() => store.syncThreadState?.(activeThreadId, {
+      includeArchived: true,
+      includeDiff: true,
+      loadMessages: false,
+      preserveActiveThreadId: true,
+    }));
+  }, [activeThreadId, rightPanelOpen, store]);
+
+  useEffect(() => {
     const onKeyDown = (event) => {
       if (event.defaultPrevented || event.key !== 'Escape' || event.metaKey || event.ctrlKey || event.altKey || event.shiftKey) return;
+      if (shouldIgnoreGlobalEscape(event.target)) return;
       if (!store.hasActiveThreadActions?.()) return;
       event.preventDefault();
-      void store.interruptActiveThread?.();
+      runUIAction(() => store.interruptActiveThread?.());
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
@@ -2801,6 +3120,19 @@ function ChatPage({ store, projectPath }) {
     };
     window.addEventListener('pointermove', move);
     window.addEventListener('pointerup', stop);
+  };
+
+  const handleThreadRailResizeKeyDown = (event) => {
+    if (event.metaKey || event.ctrlKey || event.altKey || event.shiftKey) return;
+    let nextWidth = null;
+    if (event.key === 'ArrowLeft') nextWidth = effectiveThreadRailWidth - RESIZER_KEY_STEP;
+    else if (event.key === 'ArrowRight') nextWidth = effectiveThreadRailWidth + RESIZER_KEY_STEP;
+    else if (event.key === 'Home') nextWidth = THREAD_RAIL_MIN_WIDTH;
+    else if (event.key === 'End') nextWidth = threadRailMaxWidth;
+    if (nextWidth === null) return;
+    event.preventDefault();
+    threadRailResizedRef.current = true;
+    setThreadRailWidth(clampWidth(nextWidth, THREAD_RAIL_MIN_WIDTH, threadRailMaxWidth));
   };
 
   const beginRightPanelResize = (event) => {
@@ -2853,6 +3185,25 @@ function ChatPage({ store, projectPath }) {
     window.addEventListener('blur', finish);
   };
 
+  const handleRightPanelResizeKeyDown = (event) => {
+    if (event.metaKey || event.ctrlKey || event.altKey || event.shiftKey) return;
+    let nextWidth = null;
+    if (event.key === 'ArrowLeft') nextWidth = rightPanelWidth + RESIZER_KEY_STEP;
+    else if (event.key === 'ArrowRight') nextWidth = rightPanelWidth - RESIZER_KEY_STEP;
+    else if (event.key === 'Home') nextWidth = 0;
+    else if (event.key === 'End') nextWidth = maxRightPanelWidth;
+    if (nextWidth === null) return;
+    event.preventDefault();
+    rightPanelResizedRef.current = true;
+    const clampedWidth = clampWidth(nextWidth, 0, maxRightPanelWidth);
+    if (clampedWidth <= RIGHT_PANEL_CLOSE_THRESHOLD) {
+      store.setRightPanelWidth?.(0);
+      setRightPanelOpen(false);
+      return;
+    }
+    store.setRightPanelWidth?.(clampedWidth);
+  };
+
   const layoutColumns = rightPanelOpen
     ? `${effectiveThreadRailWidth}px ${SPLITTER_WIDTH}px minmax(0, 1fr) ${SPLITTER_WIDTH}px ${rightPanelWidth}px`
     : `${effectiveThreadRailWidth}px ${SPLITTER_WIDTH}px minmax(0, 1fr)`;
@@ -2881,11 +3232,17 @@ function ChatPage({ store, projectPath }) {
         style={{ gridTemplateColumns: layoutColumns }}
       >
         <ThreadRail store={store} />
-        <button
-          type="button"
+        <div
+          role="separator"
           className="splitter splitter--left"
+          aria-orientation="vertical"
           aria-label="调整会话栏宽度"
+          aria-valuemin={THREAD_RAIL_MIN_WIDTH}
+          aria-valuemax={threadRailMaxWidth}
+          aria-valuenow={effectiveThreadRailWidth}
           data-testid="thread-rail-resizer"
+          tabIndex={0}
+          onKeyDown={handleThreadRailResizeKeyDown}
           onPointerDown={beginThreadRailResize}
         />
         <Conversation
@@ -2908,15 +3265,24 @@ function ChatPage({ store, projectPath }) {
           activeThreadId={activeThreadId}
           activeThread={activeThread}
           statusEntry={statusEntry}
+          activeTurn={activeTurn}
           modelThreadId={modelThreadId}
           timelineBlocked={timelineBlocked}
+          timelineContentBlocked={timelineBlockedWithoutCache}
+          canUseProjectActions={canUseProjectActions}
         />
         {rightPanelOpen ? (
-          <button
-            type="button"
+          <div
+            role="separator"
             className="splitter splitter--right"
+            aria-orientation="vertical"
             aria-label="调整侧边栏宽度"
+            aria-valuemin={0}
+            aria-valuemax={maxRightPanelWidth}
+            aria-valuenow={rightPanelWidth}
             data-testid="right-panel-resizer"
+            tabIndex={0}
+            onKeyDown={handleRightPanelResizeKeyDown}
             onPointerDown={beginRightPanelResize}
           />
         ) : null}
@@ -2963,17 +3329,17 @@ function ProjectSelector({ store, projectPath }) {
 
   const selectProject = async (value) => {
     setOpen(false);
-    await store.setActiveProjectPath?.(value);
+    return store.setActiveProjectPath?.(value);
   };
 
   const addProject = async () => {
     setOpen(false);
-    await store.addProjectFromPicker?.();
+    return store.addProjectFromPicker?.();
   };
 
   const removeProject = async (event, value) => {
     event.stopPropagation();
-    await store.removeProjectPath?.(value);
+    return store.removeProjectPath?.(value);
   };
 
   return (
@@ -2999,7 +3365,7 @@ function ProjectSelector({ store, projectPath }) {
                 type="button"
                 className="project-dropdown-item"
                 role="menuitem"
-                onClick={() => void selectProject(item.value)}
+                onClick={() => runUIAction(() => selectProject(item.value))}
               >
                 <span className="project-option-check" aria-hidden="true">{item.value === selected.value ? '✓' : ''}</span>
                 <span className="project-dropdown-label">{item.label}</span>
@@ -3010,7 +3376,7 @@ function ProjectSelector({ store, projectPath }) {
                   className="project-dropdown-remove"
                   aria-label={`移除此项目 ${item.label}`}
                   title="移除此项目"
-                  onClick={(event) => void removeProject(event, item.value)}
+                  onClick={(event) => runUIAction(() => removeProject(event, item.value))}
                 >
                   <X size={12} />
                 </button>
@@ -3022,7 +3388,7 @@ function ProjectSelector({ store, projectPath }) {
             type="button"
             className="project-dropdown-item project-dropdown-add"
             role="menuitem"
-            onClick={() => void addProject()}
+            onClick={() => runUIAction(addProject)}
           >
             <Plus size={13} />
             <span>添加项目</span>
@@ -3033,25 +3399,28 @@ function ProjectSelector({ store, projectPath }) {
   );
 }
 
-function ProviderToggle({ store }) {
+function ProviderToggle({ store, canUseProjectActions = true }) {
   const { locked, provider } = providerToggleState(store);
   const isClaude = provider === 'claude';
   const providerLabel = isClaude ? 'Claude' : 'Codex';
-  const title = locked
-    ? '已开启的聊天不能更改 provider，请新建对话后切换'
-    : '切换 Claude / Codex provider';
+  const projectActionBlocked = !canUseProjectActions;
+  const disabled = locked || projectActionBlocked;
+  const unavailableLabel = '请先连接后端并选择项目';
+  let title = '切换 Claude / Codex provider';
+  if (projectActionBlocked) title = unavailableLabel;
+  if (locked) title = '已开启的聊天不能更改 provider，请新建对话后切换';
   return (
     <button
       type="button"
-      className={`provider ${isClaude ? 'active' : ''} ${locked ? 'locked' : ''}`}
-      aria-label="切换 Claude / Codex provider"
+      className={`provider ${isClaude ? 'active' : ''} ${disabled ? 'locked' : ''}`}
+      aria-label={projectActionBlocked ? unavailableLabel : '切换 Claude / Codex provider'}
       aria-pressed={isClaude}
-      aria-disabled={locked}
-      disabled={locked}
+      aria-disabled={disabled}
+      disabled={disabled}
       title={title}
       onClick={() => {
-        if (locked) return;
-        void store.toggleProviderMode();
+        if (disabled) return;
+        runUIAction(() => store.toggleProviderMode());
       }}
     >
       <span className="provider-track" aria-hidden="true">
@@ -3064,6 +3433,13 @@ function ProviderToggle({ store }) {
 
 function TopCommandBar({ store, projectPath, rightPanelOpen = false, toggleRightPanel = () => {} }) {
   const canUseThreadActions = Boolean(store.hasActiveThreadActions?.());
+  const canInterruptThread = Boolean(store.hasInterruptibleThreadAction?.());
+  const bootstrapFailureMessage = store.bootstrapStatus === 'failed' && textValue(store.error)
+    ? `连接后端失败：${textValue(store.error)}`
+    : '';
+  const feedback = store.actionNotice?.message
+    ? store.actionNotice
+    : (bootstrapFailureMessage ? { message: bootstrapFailureMessage, tone: 'error' } : null);
   return (
     <div className="top-command" data-testid="chat-toolbar">
       <ProjectSelector store={store} projectPath={projectPath} />
@@ -3072,15 +3448,15 @@ function TopCommandBar({ store, projectPath, rightPanelOpen = false, toggleRight
         className="icon-btn"
         aria-label="新窗口（独立进程）"
         title="新窗口（独立进程）"
-        onClick={() => void store.openNewWindow?.()}
+        onClick={() => runUIAction(() => store.openNewWindow?.())}
       >
         <PanelTopOpen size={15} />
       </button>
       {canUseThreadActions ? (
-        <button type="button" className="icon-btn" aria-label="复制当前线程" title="复制当前线程" onClick={() => void store.copyActiveThreadInfo()}><Copy size={15} /></button>
+        <button type="button" className="icon-btn" aria-label="复制当前线程" title="复制当前线程" onClick={() => runUIAction(() => store.copyActiveThreadInfo())}><Copy size={15} /></button>
       ) : null}
-      {canUseThreadActions ? (
-        <button type="button" className="icon-btn" aria-label="停止" title="中断当前执行" onClick={() => void store.interruptActiveThread()}><CircleStop size={15} /></button>
+      {canInterruptThread ? (
+        <button type="button" className="icon-btn" aria-label="停止" title="中断当前执行" onClick={() => runUIAction(() => store.interruptActiveThread())}><CircleStop size={15} /></button>
       ) : null}
       <button
         type="button"
@@ -3088,17 +3464,17 @@ function TopCommandBar({ store, projectPath, rightPanelOpen = false, toggleRight
         aria-label={canUseThreadActions ? '进程恢复' : '请先选择会话'}
         title={canUseThreadActions ? '手动杀进程并恢复连接' : '请先选择会话'}
         disabled={!canUseThreadActions}
-        onClick={() => void store.recoverActiveThread()}
+        onClick={() => runUIAction(() => store.recoverActiveThread())}
       >
         <RefreshCw size={15} />
       </button>
-      {store.actionNotice?.message ? (
+      {feedback?.message ? (
         <span
-          className={`action-feedback ${store.actionNotice.tone || 'info'}`}
+          className={`action-feedback ${feedback.tone || 'info'}`}
           data-testid="chat-action-feedback"
           role="status"
         >
-          {store.actionNotice.message}
+          {feedback.message}
         </span>
       ) : null}
       <span className="project-pill" aria-label="当前工作目录" title={`当前窗口 CWD：${projectPath}`}><Folder size={14} /> {projectDisplayName(projectPath)}</span>
@@ -3126,6 +3502,7 @@ function ThreadRail({ store }) {
   const activeThreads = store.threads.filter((thread) => !thread.archived);
   const archivedThreads = store.threads.filter((thread) => thread.archived);
   const threads = showArchivedThreads ? archivedThreads : activeThreads;
+  const chatListLoading = Boolean(store.chatSurfaceLoadingCwd);
   const visibleThreads = threads
     .map((thread, index) => ({
       ...thread,
@@ -3155,7 +3532,7 @@ function ThreadRail({ store }) {
   };
   const beginRename = (thread) => {
     setEditingThreadId(thread.id);
-    setEditingName((thread.name || '').toString());
+    setEditingName(displayThreadName(thread, ''));
   };
   const cancelRename = () => {
     if (renamingThreadId) return;
@@ -3171,9 +3548,11 @@ function ThreadRail({ store }) {
     }
     setRenamingThreadId(thread.id);
     try {
-      await store.renameThread(thread.id, nextName);
-      setEditingThreadId('');
-      setEditingName('');
+      const saved = await store.renameThread(thread.id, nextName);
+      if (saved) {
+        setEditingThreadId('');
+        setEditingName('');
+      }
     } finally {
       setRenamingThreadId('');
     }
@@ -3211,7 +3590,7 @@ function ThreadRail({ store }) {
               className="thread-clean-confirm"
               onClick={() => {
                 setConfirmCleanMode(false);
-                void store.deleteStaleThreads(staleThreadIds);
+                runUIAction(() => store.deleteStaleThreads(staleThreadIds));
               }}
             >
               确认
@@ -3232,7 +3611,7 @@ function ThreadRail({ store }) {
       <div className="thread-list">
         {visibleThreads.length === 0 ? (
           <p className="thread-empty">
-            {showArchivedThreads ? '暂无归档会话' : '暂无会话，点击「新建对话」开始草稿'}
+            {chatListLoading && !showArchivedThreads ? '正在加载会话列表…' : (showArchivedThreads ? '暂无归档会话' : '暂无会话，点击「新建对话」开始草稿')}
           </p>
         ) : null}
         {visibleThreads.map((thread) => {
@@ -3243,6 +3622,8 @@ function ThreadRail({ store }) {
           const pinned = thread.pinnedAt > 0 || thread.pinned;
           const pinLabel = pinned ? '取消置顶对话' : '置顶对话';
           const editing = editingThreadId === thread.id;
+          const threadLabel = displayThreadName(thread);
+          const statusLabel = threadCardStatusLabel(thread, running);
           return (
             <div
               key={thread.id}
@@ -3268,7 +3649,7 @@ function ThreadRail({ store }) {
                       onKeyDown={(event) => {
                         if (event.key === 'Enter') {
                           event.preventDefault();
-                          void submitRename(thread);
+                          runUIAction(() => submitRename(thread));
                         }
                         if (event.key === 'Escape') {
                           event.preventDefault();
@@ -3283,7 +3664,7 @@ function ThreadRail({ store }) {
                       data-rename-save-button-for={thread.id}
                       disabled={renamingThreadId === thread.id}
                       onMouseDown={(event) => event.preventDefault()}
-                      onClick={() => void submitRename(thread)}
+                      onClick={() => runUIAction(() => submitRename(thread))}
                     >
                       保存
                     </button>
@@ -3297,7 +3678,7 @@ function ThreadRail({ store }) {
                     aria-label={pinLabel}
                     title={pinLabel}
                     aria-pressed={pinned}
-                    onClick={() => void store.toggleThreadPin(thread.id)}
+                    onClick={() => runUIAction(() => store.toggleThreadPin(thread.id))}
                     onMouseEnter={() => setHoveredPinThreadId(thread.id)}
                     onMouseLeave={() => setHoveredPinThreadId((current) => (current === thread.id ? '' : current))}
                     onFocus={() => setHoveredPinThreadId(thread.id)}
@@ -3313,27 +3694,29 @@ function ThreadRail({ store }) {
                   <button
                     type="button"
                     className="thread-main"
-                    onClick={() => void store.setActiveThread(thread.id)}
+                    onClick={() => runUIAction(() => store.setActiveThread(thread.id))}
                   >
                     <span
                       className="thread-name"
-                      title="点击重命名"
+                      title={threadLabel}
                       onClick={(event) => {
                         event.stopPropagation();
                         beginRename(thread);
                       }}
                     >
-                      {thread.name}
+                      {threadLabel}
                     </span>
                     <b>{threadProviderLabel(thread.provider)}</b>
-                    <em className={running ? 'running' : ''}>
-                      {running ? '工作中' : thread.status || '等待指示'}
-                      {thread.staleReason ? (
-                        <span className="thread-stale-badge" data-stale-reason={thread.staleReason}>
-                          {thread.staleReason === 'expired' ? '超7天' : '空对话'}
-                        </span>
-                      ) : null}
-                    </em>
+                    {statusLabel || thread.staleReason ? (
+                      <em className={running ? 'running' : ''}>
+                        {statusLabel}
+                        {thread.staleReason ? (
+                          <span className="thread-stale-badge" data-stale-reason={thread.staleReason}>
+                            {thread.staleReason === 'expired' ? '超7天' : '空对话'}
+                          </span>
+                        ) : null}
+                      </em>
+                    ) : null}
                   </button>
                 </>
               )}
@@ -3342,7 +3725,8 @@ function ThreadRail({ store }) {
                 className={`thread-archive ${thread.archived ? 'active' : ''}`}
                 aria-label={archiveLabel}
                 title={archiveLabel}
-                onClick={() => void store.archiveThread(thread.id, !thread.archived)}
+                disabled={Boolean(store.threadArchiveLoadingByThread?.[thread.id])}
+                onClick={() => runUIAction(() => store.archiveThread(thread.id, !thread.archived))}
               >
                 <Archive size={15} />
               </button>
@@ -3354,7 +3738,7 @@ function ThreadRail({ store }) {
   );
 }
 
-function ModelSelector({ store, activeThreadId }) {
+function ModelSelector({ store, activeThreadId, disabled = false }) {
   const [open, setOpen] = useState(false);
   const wrapRef = useRef(null);
   const activeThreadConfig = activeThreadId ? store.threadConfigByThread?.[activeThreadId] : null;
@@ -3386,7 +3770,12 @@ function ModelSelector({ store, activeThreadId }) {
     return () => document.removeEventListener('pointerdown', onPointerDown, true);
   }, [open]);
 
+  useEffect(() => {
+    if (disabled && open) setOpen(false);
+  }, [disabled, open]);
+
   const openSelector = async () => {
+    if (disabled) return;
     const nextOpen = !open;
     setDraft({ model: draftModel, effort: draftEffort });
     setOpen(nextOpen);
@@ -3414,8 +3803,8 @@ function ModelSelector({ store, activeThreadId }) {
   };
 
   const restoreInheritance = async () => {
-    await store.restoreComposerModelInheritance?.({ threadId: activeThreadId });
-    setOpen(false);
+    const restored = await store.restoreComposerModelInheritance?.({ threadId: activeThreadId });
+    if (restored) setOpen(false);
   };
 
   const selectedModel = canonicalizeModelValue(providerKey, draft.model || activeModel);
@@ -3431,6 +3820,7 @@ function ModelSelector({ store, activeThreadId }) {
   const inheritModelLabel = activeModel ? `默认（当前：${modelOptionFor(providerKey, activeModel)?.label || activeModel}）` : '默认';
   const inheritEffortLabel = activeEffort ? `默认（当前：${effortOptionFor(providerKey, activeEffort)?.label || activeEffort}）` : '默认';
   const selectorBusy = Boolean(store.threadConfigSaving || (activeThreadId && store.threadConfigLoadingByThread?.[activeThreadId]));
+  const unavailableTitle = '请先连接后端并选择项目';
 
   return (
     <div className="composer-model-wrap" ref={wrapRef}>
@@ -3441,8 +3831,9 @@ function ModelSelector({ store, activeThreadId }) {
         aria-expanded={open}
         aria-haspopup="dialog"
         aria-busy={selectorBusy}
-        title={canOverrideThread ? '线程执行配置' : '全局模型配置'}
-        onClick={() => void openSelector()}
+        title={disabled ? unavailableTitle : (canOverrideThread ? '线程执行配置' : '全局模型配置')}
+        disabled={disabled}
+        onClick={() => runUIAction(openSelector)}
       >
         {label}
         <ChevronDown size={12} />
@@ -3451,20 +3842,20 @@ function ModelSelector({ store, activeThreadId }) {
         <div className="model-dropdown" role="dialog" aria-label="模型配置">
           <label>
             <span>模型</span>
-            <select aria-label="模型" value={selectModelValue} disabled={selectorBusy} onChange={(event) => void saveModelConfig({ model: event.target.value })}>
+            <select aria-label="模型" value={selectModelValue} disabled={disabled || selectorBusy} onChange={(event) => runUIAction(() => saveModelConfig({ model: event.target.value }))}>
               {canOverrideThread ? <option value="">{inheritModelLabel}</option> : null}
               {modelOptions.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
             </select>
           </label>
           <label>
             <span>强度</span>
-            <select aria-label="推理强度" value={selectEffortValue} disabled={selectorBusy} onChange={(event) => void saveModelConfig({ effort: event.target.value })}>
+            <select aria-label="推理强度" value={selectEffortValue} disabled={disabled || selectorBusy} onChange={(event) => runUIAction(() => saveModelConfig({ effort: event.target.value }))}>
               {canOverrideThread ? <option value="">{inheritEffortLabel}</option> : null}
               {effortOptions.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
             </select>
           </label>
           {canOverrideThread && !inherited ? (
-            <button type="button" className="model-inherit" disabled={selectorBusy} onClick={() => void restoreInheritance()}>
+            <button type="button" className="model-inherit" disabled={disabled || selectorBusy} onClick={() => runUIAction(restoreInheritance)}>
               继承全局
             </button>
           ) : null}
@@ -3523,8 +3914,7 @@ function extractClipboardImageFiles(event) {
 function AttachmentPreviewModal({ attachment, onClose, onRemove }) {
   const isImage = attachment.kind === 'image' && attachment.previewUrl;
   return (
-    <div className="modal-overlay" role="presentation">
-      <section className="modal-box attachment-preview-modal" role="dialog" aria-modal="true" aria-label="附件预览">
+    <FocusTrapDialog ariaLabel="附件预览" className="modal-box attachment-preview-modal" onClose={onClose}>
         <header>
           <div>
             <strong>{attachment.name || attachment.path}</strong>
@@ -3544,8 +3934,7 @@ function AttachmentPreviewModal({ attachment, onClose, onRemove }) {
           <button type="button" onClick={onRemove}><Trash2 size={14} /> 移除附件</button>
           <button type="button" onClick={onClose}>关闭</button>
         </footer>
-      </section>
-    </div>
+    </FocusTrapDialog>
   );
 }
 
@@ -3566,6 +3955,10 @@ function isMarkdownTableDivider(line) {
 function safeMarkdownUrl(rawUrl, options = {}) {
   const value = (rawUrl || '').toString().trim();
   if (!value) return '';
+  if (options.image) {
+    const localSrc = imagePreviewSource(value);
+    if (localSrc) return localSrc;
+  }
   try {
     const parsed = new URL(value, window.location?.origin || 'http://localhost');
     const protocol = parsed.protocol.toLowerCase();
@@ -3580,26 +3973,189 @@ function safeMarkdownUrl(rawUrl, options = {}) {
   return '';
 }
 
+const IMAGE_PATH_RE = /\.(?:png|jpe?g|webp|gif|svg)(?:[?#].*)?$/i;
+const INLINE_IMAGE_PATH_RE = /(?:file:\/\/\/?[^\s`<>()"']+|~?\/(?!\/)[^\s`<>()"']+|\.{1,2}\/[^\s`<>()"']+|[A-Za-z]:[\\/][^\s`<>()"']+)\.(?:png|jpe?g|webp|gif|svg)(?:[?#][^\s`<>()"']*)?/gi;
+
+function basenameFromPath(path) {
+  const value = (path || '').toString().trim().split(/[?#]/, 1)[0];
+  if (!value) return '';
+  return value.split(/[\\/]/).filter(Boolean).pop() || value;
+}
+
+function fileURLToPath(value) {
+  try {
+    const url = new URL(value);
+    if (url.protocol.toLowerCase() !== 'file:') return '';
+    return decodeURIComponent(url.pathname || '');
+  } catch {
+    return '';
+  }
+}
+
+function isGeneratedImagePath(value) {
+  const path = (value || '').toString().trim();
+  if (!path || !IMAGE_PATH_RE.test(path)) return false;
+  return /(?:^|[/\\])\.codex[/\\]generated_images[/\\]/i.test(path);
+}
+
+function imagePreviewSource(rawValue) {
+  const value = (rawValue || '').toString().trim();
+  if (!value || !IMAGE_PATH_RE.test(value)) return '';
+  if (/^data:image\//i.test(value) || /^https?:\/\//i.test(value)) return value;
+  const localPath = /^file:\/\//i.test(value) ? fileURLToPath(value) : value;
+  if (isGeneratedImagePath(localPath)) {
+    return `/generated-image?path=${encodeURIComponent(localPath)}`;
+  }
+  if (/^[A-Za-z]:[\\/]/.test(localPath)) {
+    return `file:///${localPath.replace(/\\/g, '/')}`;
+  }
+  if (/^(?:\/|~\/|\.{1,2}\/)/.test(localPath)) {
+    return `file://${localPath}`;
+  }
+  return '';
+}
+
+function renderImagePreview(rawSource, altText, key) {
+  const src = imagePreviewSource(rawSource);
+  if (!src) return null;
+  const label = (altText || '').toString().trim() || basenameFromPath(rawSource) || '图片预览';
+  return <MarkdownImagePreview key={key} src={src} label={label} />;
+}
+
+function LightboxShell({ label, href, onClose, children }) {
+  const displayLabel = (label || '').toString().trim() || '预览';
+  return createPortal(
+    <div className="image-lightbox" role="dialog" aria-modal="true" aria-label={`图片预览：${displayLabel}`}>
+      <button type="button" className="image-lightbox-backdrop" aria-label="关闭图片预览" onClick={onClose} />
+      <section className="image-lightbox-panel">
+        <header>
+          <strong>{displayLabel}</strong>
+          <div>
+            {href ? <a href={href} target="_blank" rel="noreferrer">外部打开</a> : null}
+            <button type="button" aria-label="关闭图片预览" onClick={onClose}><X size={16} /></button>
+          </div>
+        </header>
+        {children}
+      </section>
+    </div>,
+    document.body,
+  );
+}
+
+function MarkdownImagePreview({ src, label }) {
+  const [failed, setFailed] = useState(false);
+  const [expanded, setExpanded] = useState(false);
+  const displayLabel = (label || '').toString().trim() || '图片预览';
+  useEffect(() => {
+    if (!expanded) return undefined;
+    const onKeyDown = (event) => {
+      if (event.key === 'Escape') setExpanded(false);
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [expanded]);
+
+  if (failed) {
+    return (
+      <span className="message-image-fallback" role="note" title={src}>
+        <span>图片无法加载</span>
+        <code>{displayLabel}</code>
+      </span>
+    );
+  }
+
+  const lightbox = expanded ? (
+    <LightboxShell label={displayLabel} href={src} onClose={() => setExpanded(false)}>
+      <img src={src} alt={displayLabel} />
+    </LightboxShell>
+  ) : null;
+
+  return (
+    <>
+      <button
+        type="button"
+        className="message-image-preview"
+        aria-label={`放大图片 ${displayLabel}`}
+        onClick={() => setExpanded(true)}
+      >
+        <img
+          src={src}
+          alt={displayLabel}
+          loading="lazy"
+          decoding="async"
+          onError={() => setFailed(true)}
+        />
+        <span>点击放大</span>
+      </button>
+      {lightbox}
+    </>
+  );
+}
+
+function svgDataUrl(svg) {
+  const value = (svg || '').toString();
+  if (!value) return '';
+  return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(value)}`;
+}
+
+function trimTrailingImagePathPunctuation(value) {
+  let path = (value || '').toString();
+  let suffix = '';
+  while (/[.,;:!?，。；：！？、]$/.test(path)) {
+    suffix = `${path.at(-1)}${suffix}`;
+    path = path.slice(0, -1);
+  }
+  return { path, suffix };
+}
+
+function renderPlainTextWithImagePreviews(text, keyPrefix) {
+  const source = (text || '').toString();
+  const parts = [];
+  let lastIndex = 0;
+  let matchIndex = 0;
+  for (const match of source.matchAll(INLINE_IMAGE_PATH_RE)) {
+    const token = match[0];
+    const start = match.index ?? 0;
+    const { path, suffix } = trimTrailingImagePathPunctuation(token);
+    const image = renderImagePreview(path, basenameFromPath(path), `${keyPrefix}-image-${matchIndex}`);
+    if (!image) continue;
+    if (start > lastIndex) parts.push(source.slice(lastIndex, start));
+    parts.push(image);
+    if (suffix) parts.push(suffix);
+    lastIndex = start + token.length;
+    matchIndex += 1;
+  }
+  if (lastIndex < source.length) parts.push(source.slice(lastIndex));
+  return parts.length > 0 ? parts : [source];
+}
+
 function renderInlineMarkdown(text, keyPrefix) {
   const source = (text || '').toString();
   const parts = [];
-  const pattern = /(!\[[^\]]*]\([^)]+\)|\[[^\]]+]\([^)]+\)|`[^`]+`|\*\*[^*]+\*\*|__[^_]+__|~~[^~]+~~|\*[^*]+\*|_[^_]+_)/g;
+  const pattern = new RegExp(`(${INLINE_IMAGE_PATH_RE.source})|(!\\[[^\\]]*]\\([^)]+\\)|\\[[^\\]]+]\\([^)]+\\)|\`[^\`]+\`|\\*\\*[^*]+\\*\\*|__[^_]+__|~~[^~]+~~|\\*[^*]+\\*|_[^_]+_)`, 'gi');
   let lastIndex = 0;
   let matchIndex = 0;
   for (const match of source.matchAll(pattern)) {
-    if (match.index > lastIndex) parts.push(source.slice(lastIndex, match.index));
+    if (match.index > lastIndex) {
+      parts.push(...renderPlainTextWithImagePreviews(source.slice(lastIndex, match.index), `${keyPrefix}-text-${matchIndex}`));
+    }
     const token = match[0];
     const key = `${keyPrefix}-inline-${matchIndex}`;
-    if (token.startsWith('![')) {
+    const inlineImage = renderImagePreview(token, basenameFromPath(token), key);
+    if (inlineImage) {
+      parts.push(inlineImage);
+    } else if (token.startsWith('![')) {
       const parsed = token.match(/^!\[([^\]]*)]\(([^)]+)\)$/);
       const src = safeMarkdownUrl(parsed?.[2], { image: true });
-      parts.push(src ? <img key={key} src={src} alt={parsed?.[1] || ''} /> : token);
+      parts.push(src ? <MarkdownImagePreview key={key} src={src} label={parsed?.[1] || basenameFromPath(parsed?.[2])} /> : token);
     } else if (token.startsWith('[')) {
       const parsed = token.match(/^\[([^\]]+)]\(([^)]+)\)$/);
       const href = safeMarkdownUrl(parsed?.[2]);
       parts.push(href ? <a key={key} href={href} target="_blank" rel="noreferrer">{parsed?.[1]}</a> : parsed?.[1] || token);
     } else if (token.startsWith('`')) {
-      parts.push(<code key={key}>{token.slice(1, -1)}</code>);
+      const codeText = token.slice(1, -1).trim();
+      const image = renderImagePreview(codeText, basenameFromPath(codeText), key);
+      parts.push(image || <code key={key}>{token.slice(1, -1)}</code>);
     } else if (token.startsWith('~~')) {
       parts.push(<del key={key}>{token.slice(2, -2)}</del>);
     } else if (token.startsWith('*') && !token.startsWith('**')) {
@@ -3612,7 +4168,9 @@ function renderInlineMarkdown(text, keyPrefix) {
     lastIndex = match.index + token.length;
     matchIndex += 1;
   }
-  if (lastIndex < source.length) parts.push(source.slice(lastIndex));
+  if (lastIndex < source.length) {
+    parts.push(...renderPlainTextWithImagePreviews(source.slice(lastIndex), `${keyPrefix}-text-tail`));
+  }
   return parts.length > 0 ? parts : source;
 }
 
@@ -3625,6 +4183,157 @@ function renderMarkdownParagraph(lines, key) {
       ])}
     </p>
   );
+}
+
+const CODE_FENCE_LANGUAGE_PREFIXES = Object.freeze([
+  'mermaid',
+  'javascript',
+  'typescript',
+  'plaintext',
+  'markdown',
+  'jsonc',
+  'json',
+  'bash',
+  'shell',
+  'text',
+  'diff',
+  'patch',
+  'yaml',
+  'toml',
+  'html',
+  'css',
+  'tsx',
+  'jsx',
+  'zsh',
+  'sh',
+  'txt',
+  'sql',
+  'log',
+  'xml',
+  'go',
+  'py',
+  'md',
+].sort((left, right) => right.length - left.length));
+
+let mermaidModulePromise = null;
+
+function loadMermaidModule() {
+  if (!mermaidModulePromise) {
+    mermaidModulePromise = import('mermaid').then((module) => {
+      const mermaid = module.default || module;
+      mermaid.initialize({
+        startOnLoad: false,
+        securityLevel: 'strict',
+        theme: 'base',
+        themeVariables: {
+          fontFamily: 'ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
+        },
+      });
+      return mermaid;
+    });
+  }
+  return mermaidModulePromise;
+}
+
+function isMermaidLanguage(language) {
+  const value = (language || '').toString().trim().toLowerCase();
+  return value === 'mermaid' || value === 'mmd';
+}
+
+function isMermaidSource(source) {
+  const firstLine = normalizeMessageText(source).trim().split('\n')[0]?.trim().toLowerCase() || '';
+  return /^(flowchart|graph|sequencediagram|classdiagram|statediagram|statediagram-v2|erdiagram|journey|gantt|pie|mindmap|timeline|gitgraph|quadrantchart|requirementdiagram)\b/.test(firstLine);
+}
+
+function MermaidDiagram({ source }) {
+  const reactId = useId();
+  const [state, setState] = useState({ status: 'loading', svg: '', error: '' });
+  const [expanded, setExpanded] = useState(false);
+  const diagram = normalizeMessageText(source).trim();
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!diagram) {
+      setState({ status: 'error', svg: '', error: 'Mermaid 图表内容为空' });
+      return () => { cancelled = true; };
+    }
+    setState({ status: 'loading', svg: '', error: '' });
+    loadMermaidModule()
+      .then((mermaid) => mermaid.render(`mermaid-${reactId.replace(/[^a-zA-Z0-9_-]/g, '')}`, diagram))
+      .then((result) => {
+        if (!cancelled) setState({ status: 'ready', svg: result?.svg || '', error: '' });
+      })
+      .catch((error) => {
+        if (!cancelled) setState({ status: 'error', svg: '', error: error?.message || String(error) });
+      });
+    return () => { cancelled = true; };
+  }, [diagram, reactId]);
+
+  useEffect(() => {
+    if (!expanded) return undefined;
+    const onKeyDown = (event) => {
+      if (event.key === 'Escape') setExpanded(false);
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [expanded]);
+
+  if (state.status === 'ready' && state.svg) {
+    const href = svgDataUrl(state.svg);
+    return (
+      <figure className="mermaid-diagram" aria-label="Mermaid 图表">
+        <button
+          type="button"
+          className="mermaid-diagram-preview"
+          aria-label="放大 Mermaid 图表"
+          onClick={() => setExpanded(true)}
+        >
+          <div dangerouslySetInnerHTML={{ __html: state.svg }} />
+          <span>点击放大</span>
+        </button>
+        {expanded ? (
+          <LightboxShell label="Mermaid 图表" href={href} onClose={() => setExpanded(false)}>
+            <div className="mermaid-lightbox-svg" dangerouslySetInnerHTML={{ __html: state.svg }} />
+          </LightboxShell>
+        ) : null}
+      </figure>
+    );
+  }
+
+  return (
+    <figure className={`mermaid-diagram mermaid-diagram--${state.status}`} aria-label="Mermaid 图表">
+      <figcaption>{state.status === 'loading' ? '正在渲染 Mermaid 图表...' : `Mermaid 渲染失败：${state.error}`}</figcaption>
+      <pre><code>{diagram}</code></pre>
+    </figure>
+  );
+}
+
+function CodeBlock({ language = '', code = '' }) {
+  if (isMermaidLanguage(language) || isMermaidSource(code)) {
+    return <MermaidDiagram source={code} />;
+  }
+  return <pre><code>{code}</code></pre>;
+}
+
+function splitMarkdownFenceLine(line) {
+  const markerIndex = line.indexOf('```');
+  if (markerIndex < 0) return null;
+  const prefix = line.slice(0, markerIndex);
+  const afterMarker = line.slice(markerIndex + 3).replace(/^\s+/, '');
+  if (!afterMarker) return { prefix, language: '', firstCodeLine: '' };
+
+  const tokenMatch = afterMarker.match(/^([A-Za-z][\w-]*)(?:\s+(.*))?$/);
+  if (tokenMatch && tokenMatch[2] !== undefined) {
+    return { prefix, language: tokenMatch[1].toLowerCase(), firstCodeLine: tokenMatch[2] };
+  }
+
+  const lower = afterMarker.toLowerCase();
+  const language = CODE_FENCE_LANGUAGE_PREFIXES.find((item) => lower.startsWith(item));
+  if (language && afterMarker.length > language.length) {
+    return { prefix, language, firstCodeLine: afterMarker.slice(language.length) };
+  }
+
+  return { prefix, language: afterMarker.toLowerCase(), firstCodeLine: '' };
 }
 
 function normalizeMessageText(text) {
@@ -3754,16 +4463,26 @@ function MarkdownMessage({ text }) {
       continue;
     }
 
-    if (trimmed.startsWith('```')) {
+    const fence = splitMarkdownFenceLine(line);
+    if (fence) {
+      if (fence.prefix.trim()) {
+        nodes.push(renderMarkdownParagraph([fence.prefix.trimEnd()], nextKey('paragraph')));
+      }
       const key = nextKey('code');
-      const codeLines = [];
+      const codeLines = fence.firstCodeLine ? [fence.firstCodeLine] : [];
       index += 1;
-      while (index < lines.length && !lines[index].trim().startsWith('```')) {
+      while (index < lines.length) {
+        const closingIndex = lines[index].indexOf('```');
+        if (closingIndex >= 0) {
+          const beforeClose = lines[index].slice(0, closingIndex);
+          if (beforeClose) codeLines.push(beforeClose);
+          index += 1;
+          break;
+        }
         codeLines.push(lines[index]);
         index += 1;
       }
-      if (index < lines.length) index += 1;
-      nodes.push(<pre key={key}><code>{codeLines.join('\n')}</code></pre>);
+      nodes.push(<CodeBlock key={key} language={fence.language} code={codeLines.join('\n')} />);
       continue;
     }
 
@@ -3862,6 +4581,7 @@ function MarkdownMessage({ text }) {
       const nextTrimmed = next.trim();
       if (!nextTrimmed) break;
       if (
+        next.includes('```') ||
         nextTrimmed.startsWith('```') ||
         nextTrimmed.startsWith('>') ||
         nextTrimmed.match(/^(-{3,}|\*{3,}|_{3,})$/) ||
@@ -3885,6 +4605,192 @@ function MessageContent({ text }) {
   return <StructuredMessage kind={output.kind} text={output.text} />;
 }
 
+function isReasoningMessage(message) {
+  const kind = (message?.kind || '').toString().trim().toLowerCase();
+  return kind === 'thinking' || kind === 'reasoning' || kind === 'tool' || kind === 'command' || kind === 'process';
+}
+
+function reasoningTitle(message) {
+  const kind = (message?.kind || '').toString().trim().toLowerCase();
+  const title = (message?.title || '').toString().trim();
+  if (title) return title;
+  if (kind === 'tool') return '调用工具';
+  if (kind === 'command') return '执行命令';
+  return 'AI 思考';
+}
+
+function reasoningKindMeta(message = {}) {
+  const kind = (message?.kind || '').toString().trim().toLowerCase();
+  if (kind === 'tool') return { label: '工具', tone: 'tool', Icon: Wrench };
+  if (kind === 'command') return { label: '命令', tone: 'command', Icon: Terminal };
+  if (kind === 'process') return { label: '流程', tone: 'process', Icon: Sparkles };
+  return { label: '思考', tone: 'thinking', Icon: Brain };
+}
+
+function reasoningStatusText(message = {}, done = true) {
+  const status = (message?.status || '').toString().trim().toLowerCase();
+  if (!done) return '执行中';
+  if (status === 'failed' || status === 'error') return '失败';
+  if (status === 'skipped' || status === 'cancelled' || status === 'canceled') return '已跳过';
+  return '完成';
+}
+
+function reasoningStepDescription(message = {}) {
+  const body = (message?.text || '').toString().trim();
+  if (body) return body;
+  const meta = reasoningKindMeta(message);
+  if (meta.tone === 'tool') return '正在调用工具并等待返回结果。';
+  if (meta.tone === 'command') return '正在执行命令并读取输出。';
+  if (meta.tone === 'process') return '正在推进任务流程并同步上下文。';
+  return 'AI 正在分析上下文、选择工具并整理回答。';
+}
+
+function MessageAvatar({ role = 'assistant' }) {
+  const isUser = role === 'user';
+  const Icon = isUser ? UserRound : Bot;
+  return (
+    <div className={`avatar avatar--${isUser ? 'user' : 'assistant'}`} aria-hidden="true">
+      <Icon size={18} strokeWidth={2.2} />
+    </div>
+  );
+}
+
+function AssistantMessageActions({ text }) {
+  const [copyState, setCopyState] = useState('idle');
+  const resetTimerRef = useRef(null);
+  useEffect(() => () => {
+    if (resetTimerRef.current) window.clearTimeout(resetTimerRef.current);
+  }, []);
+  const copyableText = (text || '').toString();
+  const canCopy = copyableText.trim().length > 0;
+  const scheduleReset = (delay) => {
+    if (resetTimerRef.current) window.clearTimeout(resetTimerRef.current);
+    resetTimerRef.current = window.setTimeout(() => {
+      resetTimerRef.current = null;
+      setCopyState('idle');
+    }, delay);
+  };
+  const copyOutput = async () => {
+    if (!canCopy) return;
+    try {
+      await copyTextToClipboard(copyableText);
+      setCopyState('copied');
+      scheduleReset(1800);
+    } catch {
+      setCopyState('failed');
+      scheduleReset(2200);
+    }
+  };
+  if (!canCopy) return null;
+  const copied = copyState === 'copied';
+  const failed = copyState === 'failed';
+  return (
+    <div className="message-actions" aria-label="AI 输出操作">
+      <button
+        type="button"
+        className={`message-copy${copied ? ' is-copied' : ''}${failed ? ' is-failed' : ''}`}
+        aria-label="复制 AI 输出"
+        title="复制 AI 输出"
+        onClick={() => { void copyOutput(); }}
+      >
+        {copied ? <CheckCircle2 size={14} aria-hidden="true" /> : <Copy size={14} aria-hidden="true" />}
+        <span>{copied ? '已复制' : failed ? '复制失败' : '复制'}</span>
+      </button>
+    </div>
+  );
+}
+
+function timestampMs(value) {
+  if (typeof value === 'number' && Number.isFinite(value) && value > 0) {
+    return value < 1_000_000_000_000 ? value * 1000 : value;
+  }
+  const text = (value || '').toString().trim();
+  if (/^\d+(?:\.\d+)?$/.test(text)) {
+    const numeric = Number(text);
+    if (Number.isFinite(numeric) && numeric > 0) return numeric < 1_000_000_000_000 ? numeric * 1000 : numeric;
+  }
+  const parsed = Date.parse(text);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
+}
+
+function durationLabelFromMs(ms, options = {}) {
+  const totalSeconds = Math.max(0, Math.floor(ms / 1000));
+  if (totalSeconds <= 0 && !options.showZero) return '';
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  if (minutes <= 0) return `${seconds}s`;
+  return `${minutes}m ${seconds}s`;
+}
+
+function useElapsedLabel(startValue, endValue, active) {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (!active) return undefined;
+    const timer = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, [active]);
+  const start = timestampMs(startValue);
+  if (!start) return '';
+  const completed = timestampMs(endValue);
+  if (!active && !completed) return '';
+  const end = completed || now;
+  if (end < start) return '';
+  return durationLabelFromMs(end - start, { showZero: active });
+}
+
+function ReasoningTrace({ message, active = false }) {
+  const done = !active && message?.done !== false;
+  const hookElapsed = useElapsedLabel(message?.time, message?.completedAt, !done);
+  const elapsed = (done && typeof message?.elapsedMs === 'number' && message.elapsedMs > 0)
+    ? durationLabelFromMs(message.elapsedMs)
+    : hookElapsed;
+  const statusLabel = done ? `已处理${elapsed ? ` ${elapsed}` : ''}` : `正在思考${elapsed ? ` ${elapsed}` : ''}`;
+  const meta = reasoningKindMeta(message);
+  const StatusIcon = done ? CheckCircle2 : Clock3;
+  const StepIcon = meta.Icon;
+  return (
+    <article className={`reasoning-message${done ? '' : ' is-active'}`} aria-label="AI 思考记录">
+      <details className="reasoning-trace">
+        <summary>
+          <span className="reasoning-trace-status">
+            <StatusIcon size={15} aria-hidden="true" />
+            {statusLabel}
+          </span>
+          <em>{reasoningTitle(message)}</em>
+        </summary>
+        <div className="reasoning-step-list">
+          <section className={`reasoning-step reasoning-step--${meta.tone}`} aria-label={`${meta.label}步骤`}>
+            <div className="reasoning-step-icon">
+              <StepIcon size={15} aria-hidden="true" />
+            </div>
+            <div className="reasoning-step-body">
+              <header>
+                <span>{meta.label}</span>
+                <strong>{reasoningTitle(message)}</strong>
+                <b aria-label={`执行状态：${reasoningStatusText(message, done)}`}>{reasoningStatusText(message, done)}</b>
+              </header>
+              <MessageContent text={reasoningStepDescription(message)} />
+            </div>
+          </section>
+        </div>
+      </details>
+    </article>
+  );
+}
+
+function syntheticReasoningMessage({ activeTurn, sending }) {
+  if (!activeTurn && !sending) return null;
+  return {
+    id: `thinking-${activeTurn?.id || 'sending'}`,
+    role: 'assistant',
+    kind: 'thinking',
+    title: '正在处理请求',
+    text: '',
+    time: activeTurn?.startedAt || new Date().toISOString(),
+    done: false,
+  };
+}
+
 function ComposerDock({
   floating = false,
   draft,
@@ -3902,6 +4808,7 @@ function ComposerDock({
   setPermission,
   modelThreadId,
   showProviderToggle = true,
+  canUseProjectActions = true,
 }) {
   const composerClass = `composer ${floating ? 'composer--floating' : 'composer--docked'}`;
   const [previewAttachment, setPreviewAttachment] = useState(null);
@@ -3910,10 +4817,15 @@ function ComposerDock({
   const activePreview = previewAttachment && attachments.some((item) => attachmentKey(item) === attachmentKey(previewAttachment))
     ? previewAttachment
     : null;
+  const hasComposerInput = Boolean(textValue(draft) || attachments.length > 0);
+  const canSend = canUseProjectActions && !sending && hasComposerInput;
+  const projectActionBlocked = !canUseProjectActions;
+  const projectActionBlockedTitle = '请先连接后端并选择项目';
 
   useEffect(() => {
     if (typeof attachPaths !== 'function') return undefined;
     return onFilesDropped((event) => {
+      if (!canUseProjectActions) return;
       const payload = event && typeof event === 'object' ? event : {};
       const files = Array.isArray(payload.files) ? payload.files : [];
       if (files.length === 0) return;
@@ -3923,7 +4835,7 @@ function ComposerDock({
       attachPaths(files);
       setDropActive(false);
     });
-  }, [attachPaths]);
+  }, [attachPaths, canUseProjectActions]);
 
   const preview = (item) => {
     setPreviewAttachment(item);
@@ -3938,16 +4850,19 @@ function ComposerDock({
     const images = extractClipboardImageFiles(event);
     if (images.length === 0) return;
     event.preventDefault();
+    if (projectActionBlocked) return;
     await attachPastedImages(images);
   };
   const handleDragEnter = (event) => {
     if (!hasFilesTransfer(event)) return;
     event.preventDefault();
+    if (projectActionBlocked) return;
     setDropActive(true);
   };
   const handleDragOver = (event) => {
     if (!hasFilesTransfer(event)) return;
     event.preventDefault();
+    if (projectActionBlocked) return;
     if (event.dataTransfer) event.dataTransfer.dropEffect = 'copy';
     setDropActive(true);
   };
@@ -3960,6 +4875,7 @@ function ComposerDock({
     if (!hasFilesTransfer(event)) return;
     event.preventDefault();
     setDropActive(false);
+    if (projectActionBlocked) return;
     const files = collectTransferFiles(event);
     if (files.length > 0) await attachDroppedFiles(files);
   };
@@ -3969,7 +4885,8 @@ function ComposerDock({
     const imeLikely = event.isComposing || isComposingRef.current || keyCode === 229 || event.key === 'Process' || event.key === 'Unidentified';
     if (imeLikely) return;
     event.preventDefault();
-    void sendMessage();
+    if (!canSend) return;
+    runUIAction(() => sendMessage());
   };
 
   return (
@@ -3981,7 +4898,7 @@ function ComposerDock({
       onDragEnter={handleDragEnter}
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
-      onDrop={handleDrop}
+      onDrop={(event) => runUIAction(() => handleDrop(event))}
     >
       <div className="composer-card">
         {dropActive ? <div className="composer-drop-hint" aria-live="polite">松开即可添加附件</div> : null}
@@ -4004,30 +4921,54 @@ function ComposerDock({
           id="composer-input"
           data-testid="composer-input"
           data-file-drop-target=""
+          rows={3}
           value={draft}
           onChange={(event) => setDraft(event.target.value)}
-          onPaste={(event) => { void handlePaste(event); }}
+          onPaste={(event) => { runUIAction(() => handlePaste(event)); }}
           onCompositionStart={() => { isComposingRef.current = true; }}
           onCompositionEnd={() => { isComposingRef.current = false; }}
           onKeyDown={handleKeyDown}
           placeholder="输入给 Agent 的内容，Enter 发送，Shift+Enter 换行"
         />
         <div className="composer-meta">
-          <button type="button" className="composer-attach" aria-label="添加文件" onClick={() => void selectFiles()}>
+          <button
+            type="button"
+            className="composer-attach"
+            aria-label="添加文件"
+            title={projectActionBlocked ? projectActionBlockedTitle : '添加文件'}
+            disabled={projectActionBlocked}
+            onClick={() => {
+              if (!projectActionBlocked) runUIAction(() => selectFiles());
+            }}
+          >
             <Plus size={18} />
           </button>
           <label className="permission-chip">
             <span className="sr-only">发送权限</span>
-            <select aria-label="发送权限" value={permission} onChange={(event) => setPermission(event.target.value)}>
+            <select
+              aria-label="发送权限"
+              value={permission}
+              disabled={projectActionBlocked}
+              title={projectActionBlocked ? projectActionBlockedTitle : undefined}
+              onChange={(event) => setPermission(event.target.value)}
+            >
               <option>完全访问权限</option>
               <option>工作区写入</option>
               <option>只读模式</option>
             </select>
           </label>
           <div className="composer-actions">
-            {showProviderToggle ? <ProviderToggle store={store} /> : null}
-            <ModelSelector store={store} activeThreadId={modelThreadId} />
-            <button type="button" className="send" aria-label="发送消息" disabled={sending} onClick={() => void sendMessage()}>
+            {showProviderToggle ? <ProviderToggle store={store} canUseProjectActions={canUseProjectActions} /> : null}
+            <ModelSelector store={store} activeThreadId={modelThreadId} disabled={projectActionBlocked} />
+            <button
+              type="button"
+              className="send"
+              aria-label="发送消息"
+              disabled={!canSend}
+              onClick={() => {
+                if (canSend) runUIAction(() => sendMessage());
+              }}
+            >
               <Send size={18} />
             </button>
           </div>
@@ -4064,11 +5005,18 @@ function Conversation({
   activeThreadId,
   activeThread,
   statusEntry,
+  activeTurn,
   modelThreadId,
   timelineBlocked,
+  timelineContentBlocked = false,
+  canUseProjectActions = true,
 }) {
   const introMode = !activeThreadId && !timelineBlocked && messages.length === 0;
-  const showProviderToggle = !hasAssistantReply(messages);
+  const showProviderToggle = !activeThreadId;
+  const hasActiveReasoning = messages.some((message) => isReasoningMessage(message) && message.done === false);
+  const pendingReasoning = !introMode && !timelineBlocked && !hasActiveReasoning && !hasAssistantReplyAfterLastUser(messages)
+    ? syntheticReasoningMessage({ activeTurn, sending })
+    : null;
   const composer = (
     <ComposerDock
       floating={introMode}
@@ -4087,6 +5035,7 @@ function Conversation({
       setPermission={setPermission}
       modelThreadId={modelThreadId}
       showProviderToggle={showProviderToggle}
+      canUseProjectActions={canUseProjectActions}
     />
   );
   return (
@@ -4101,19 +5050,33 @@ function Conversation({
             {composer}
           </div>
         ) : null}
-        {!introMode && !timelineBlocked ? messages.map((message) => (
-          <article key={message.id} className={`message ${message.role}`}>
-            <div className="avatar">{message.role === 'user' ? 'U' : 'AI'}</div>
-            <div className="bubble">
-              <header><span>{message.role === 'user' ? '你' : 'AI'}</span><time>{formatTime(message.time)}</time></header>
-              <MessageContent text={message.text} />
-            </div>
-          </article>
+        {!introMode && !timelineContentBlocked ? messages.map((message) => (
+          isReasoningMessage(message) ? (
+            <ReasoningTrace key={message.id} message={message} active={message.done === false} />
+          ) : (
+            <article key={message.id} className={`message ${message.role}`}>
+              <MessageAvatar role={message.role} />
+              <div className="bubble">
+                <header><span>{message.role === 'user' ? '你' : 'AI'}</span><time>{formatTime(message.time)}</time></header>
+                <MessageContent text={message.text} />
+                {message.role === 'assistant' ? <AssistantMessageActions text={message.text} /> : null}
+              </div>
+            </article>
+          )
         )) : null}
+        {!introMode && timelineContentBlocked ? (
+          <div className="timeline-placeholder" data-testid="timeline-loading-placeholder" aria-live="polite">
+            <span className="timeline-placeholder-line" />
+            <span className="timeline-placeholder-line timeline-placeholder-line--short" />
+            <p>正在同步会话历史</p>
+          </div>
+        ) : null}
+        {pendingReasoning ? <ReasoningTrace key={pendingReasoning.id} message={pendingReasoning} active /> : null}
       </div>
       {!introMode ? (
         <WorkStatus
           sending={sending}
+          loading={timelineContentBlocked}
           activeThreadId={activeThreadId}
           activeThread={activeThread}
           statusEntry={statusEntry}
@@ -4125,13 +5088,13 @@ function Conversation({
   );
 }
 
-function WorkStatus({ sending, activeThreadId, activeThread, statusEntry, tokenUsage }) {
-  const status = workStatusForThread({ sending, activeThreadId, activeThread, statusEntry });
+function WorkStatus({ sending, loading, activeThreadId, activeThread, statusEntry, tokenUsage }) {
+  const status = workStatusForThread({ sending, loading, activeThreadId, activeThread, statusEntry });
   const className = `work-status work-status--${status.tone}${status.busy ? ' is-busy' : ''}`;
   const tokenText = tokenUsage ? `${tokenUsage.usedTokens} / ${tokenUsage.contextWindowTokens} tokens` : 'token usage 等待后端同步';
   return (
     <div className={className}>
-      <span className="spinner" />
+      <span className="spinner" aria-hidden="true" />
       <span className="work-status-label">{status.label}</span>
       <em>{status.details}</em>
       <code title={tokenText}>{tokenText}</code>
@@ -4144,6 +5107,7 @@ function RuntimePanel({ diffText, tokenUsage, activityStats, warnings, runtimeRe
   const [activityPanelHeight, setActivityPanelHeight] = useState(() => clampActivityPanelHeight(ACTIVITY_PANEL_DEFAULT_HEIGHT));
   const [collapsedDiffFiles, setCollapsedDiffFiles] = useState(() => new Set());
   const diffSummary = useMemo(() => summarizeUnifiedDiff(diffText), [diffText]);
+  const activityPanelMax = activityPanelMaxHeight(viewportHeight);
 
   useEffect(() => {
     const onResize = () => {
@@ -4170,6 +5134,18 @@ function RuntimePanel({ diffText, tokenUsage, activityStats, warnings, runtimeRe
     };
     window.addEventListener(moveEventName, move);
     window.addEventListener(stopEventName, stop);
+  };
+
+  const handleActivityPanelResizeKeyDown = (event) => {
+    if (event.metaKey || event.ctrlKey || event.altKey || event.shiftKey) return;
+    let nextHeight = null;
+    if (event.key === 'ArrowUp' || event.key === 'PageUp') nextHeight = activityPanelHeight + RESIZER_KEY_STEP;
+    else if (event.key === 'ArrowDown' || event.key === 'PageDown') nextHeight = activityPanelHeight - RESIZER_KEY_STEP;
+    else if (event.key === 'Home') nextHeight = ACTIVITY_PANEL_MIN_HEIGHT;
+    else if (event.key === 'End') nextHeight = activityPanelMax;
+    if (nextHeight === null) return;
+    event.preventDefault();
+    setActivityPanelHeight(clampActivityPanelHeight(nextHeight, viewportHeight));
   };
 
   const toggleDiffFile = (filename) => {
@@ -4246,13 +5222,27 @@ function RuntimePanel({ diffText, tokenUsage, activityStats, warnings, runtimeRe
         tokenUsage={tokenUsage}
         warnings={warnings}
         runtimeResults={runtimeResults}
+        activityPanelHeight={activityPanelHeight}
+        activityPanelMaxHeight={activityPanelMax}
+        activityPanelMinHeight={ACTIVITY_PANEL_MIN_HEIGHT}
+        onResizeKeyDown={handleActivityPanelResizeKeyDown}
         onResizeStart={beginActivityPanelResize}
       />
     </aside>
   );
 }
 
-function RuntimeActivityPanel({ activityStats, tokenUsage, warnings, runtimeResults, onResizeStart }) {
+function RuntimeActivityPanel({
+  activityStats,
+  tokenUsage,
+  warnings,
+  runtimeResults,
+  activityPanelHeight,
+  activityPanelMaxHeight,
+  activityPanelMinHeight,
+  onResizeKeyDown,
+  onResizeStart,
+}) {
   const [hoveredStat, setHoveredStat] = useState(null);
   const [hoveredWarning, setHoveredWarning] = useState(null);
   const panelRef = useRef(null);
@@ -4277,12 +5267,18 @@ function RuntimeActivityPanel({ activityStats, tokenUsage, warnings, runtimeResu
 
   return (
     <section className="runtime-activity-panel" aria-label="工具使用面板" ref={panelRef}>
-      <button
-        type="button"
+      <div
+        role="separator"
         className="activity-panel-resizer"
+        aria-orientation="horizontal"
         aria-label="调整工具使用面板高度"
+        aria-valuemin={activityPanelMinHeight}
+        aria-valuemax={activityPanelMaxHeight}
+        aria-valuenow={activityPanelHeight}
         title="拖动调整工具使用面板高度，最大为应用高度的 1/2"
         data-testid="activity-panel-resizer"
+        tabIndex={0}
+        onKeyDown={onResizeKeyDown}
         onPointerDown={(event) => onResizeStart(event, 'pointer')}
         onMouseDown={(event) => {
           if (!window.PointerEvent) onResizeStart(event, 'mouse');
@@ -4320,8 +5316,8 @@ function RuntimeActivityPanel({ activityStats, tokenUsage, warnings, runtimeResu
                   {detailEntries.length > 0 ? (
                     <span className="runtime-stat-tooltip-list">
                       {detailEntries.map((entry) => (
-                        <span key={entry.name}>
-                          <span>{entry.name}</span>
+                        <span key={entry.name} className="runtime-stat-tooltip-row">
+                          <span className="runtime-stat-tooltip-name" title={entry.name}>{entry.name}</span>
                           <strong>{entry.count}</strong>
                         </span>
                       ))}
@@ -4350,7 +5346,7 @@ function RuntimeActivityPanel({ activityStats, tokenUsage, warnings, runtimeResu
             onFocus={(event) => showWarningPopover(entry.id, event.currentTarget)}
             onBlur={() => hideWarningPopover(entry.id)}
           >
-            <time>{formatTime(runtimeLogTimestamp(entry))}</time> <b>{runtimeLogLabel(entry)}</b>
+            <time>{formatTime(runtimeLogTimestamp(entry))}</time> <b>{runtimeLogInlineLabel(entry)}</b>
             {Number(entry.occurrenceCount) > 1 ? <span> ×{Number(entry.occurrenceCount)}</span> : null}
           </p>
         ))}
@@ -4364,7 +5360,7 @@ function RuntimeActivityPanel({ activityStats, tokenUsage, warnings, runtimeResu
         >
           <span className="warning-log-popover-title">
             <time>{formatTime(runtimeLogTimestamp(hoveredWarningEntry))}</time>
-            <b>{runtimeLogLabel(hoveredWarningEntry)}</b>
+            <b>{runtimeLogInlineLabel(hoveredWarningEntry)}</b>
           </span>
           <code>{warningDetailText(hoveredWarningEntry)}</code>
         </div>
@@ -4374,7 +5370,11 @@ function RuntimeActivityPanel({ activityStats, tokenUsage, warnings, runtimeResu
 }
 
 function formatTime(value) {
-  const date = new Date(value);
+  if (!value) return '--:--';
+  const text = value.toString().trim();
+  // 截断高精度时间戳中的多余小数秒，以兼容 JS new Date() 的 3 位毫秒限制
+  const sanitized = text.replace(/(\.\d{3})\d+/g, '$1');
+  const date = new Date(sanitized);
   if (!Number.isFinite(date.getTime())) return '--:--';
   return date.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
 }
@@ -5056,8 +6056,7 @@ function DagScheduleModal({ cron, actionLabel, saving, onClose, onSave }) {
   };
 
   return (
-    <div className="modal-overlay">
-      <section className="modal-box" role="dialog" aria-modal="true" aria-label={actionLabel}>
+    <FocusTrapDialog ariaLabel={actionLabel} closeDisabled={saving} onClose={onClose}>
         <header><h2>{actionLabel}</h2><button type="button" className="ghost" onClick={onClose} disabled={saving}>关闭</button></header>
         <div className="dag-node-editor">
           <label>
@@ -5096,15 +6095,13 @@ function DagScheduleModal({ cron, actionLabel, saving, onClose, onSave }) {
           <button type="button" className="ghost" onClick={onClose} disabled={saving}>取消</button>
           <button type="button" onClick={confirm} disabled={saving}>{saving ? '保存中...' : actionLabel}</button>
         </footer>
-      </section>
-    </div>
+    </FocusTrapDialog>
   );
 }
 
 function ConfirmDagDeleteModal({ dag, deleting, onClose, onConfirm }) {
   return (
-    <div className="modal-overlay">
-      <section className="modal-box" role="dialog" aria-modal="true" aria-label="删除自动化">
+    <FocusTrapDialog ariaLabel="删除自动化" closeDisabled={deleting} onClose={onClose}>
         <header><h2>删除自动化</h2><button type="button" className="ghost" onClick={onClose} disabled={deleting}>关闭</button></header>
         <p>确定删除自动化 “{dag.title}” 吗？该操作会删除配置和运行关联信息，无法恢复。</p>
         <p className="path">{dag.dagKey}</p>
@@ -5112,12 +6109,11 @@ function ConfirmDagDeleteModal({ dag, deleting, onClose, onConfirm }) {
           <button type="button" className="ghost" onClick={onClose} disabled={deleting}>取消</button>
           <button type="button" className="text-danger" onClick={() => { void onConfirm(); }} disabled={deleting}>{deleting ? '删除中...' : '确认删除'}</button>
         </footer>
-      </section>
-    </div>
+    </FocusTrapDialog>
   );
 }
 
-function SkillsPage({ projectPath, refreshKey = 0 }) {
+function SkillsPage({ projectPath, refreshKey = 0, resolveLaunchPreferences }) {
   const projectCwd = optionalSettingsCwd(projectPath);
   const queryClient = useQueryClient();
   const [query, setQuery] = useState('');
@@ -5261,6 +6257,9 @@ function SkillsPage({ projectPath, refreshKey = 0 }) {
     setSummarySuggestion('');
     try {
       const cwd = normalizeSettingsCwd(projectPath);
+      const launchPreferences = typeof resolveLaunchPreferences === 'function'
+        ? await resolveLaunchPreferences(cwd)
+        : null;
       const description = await suggestSkillSummary({
         cwd,
         name: editorForm.displayName || editorForm.name,
@@ -5268,6 +6267,9 @@ function SkillsPage({ projectPath, refreshKey = 0 }) {
         content: editorForm.body,
         scenario_words: wordListFromText(editorForm.keywords),
         scope: editorForm.scope,
+        provider: textValue(launchPreferences?.modelProvider || launchPreferences?.provider),
+        model: textValue(launchPreferences?.model),
+        codexModelProvider: textValue(launchPreferences?.config?.codexModelProvider),
       });
       setSummarySuggestion(normalizeSummarySuggestion(description));
     } catch (err) {
@@ -5790,14 +6792,13 @@ function SkillEditorModal({
     setBodyEditing(!activeSkillPath);
   }, [activeSkillPath]);
   return (
-    <div className="modal-overlay">
-      <section className="modal-box skills-editor-modal" role="dialog" aria-modal="true" aria-label={modalTitle}>
+    <FocusTrapDialog ariaLabel={modalTitle} className="modal-box skills-editor-modal" closeDisabled={saving} onClose={onClose}>
         <header className="skills-editor-modal-head">
           <div>
             <h2>{modalTitle}</h2>
             <p>你可以修改简介和技能内容。</p>
           </div>
-          <button type="button" className="ghost" onClick={onClose}>关闭</button>
+          <button type="button" className="ghost" onClick={onClose} disabled={saving}>关闭</button>
         </header>
         <div className="form-grid">
           <label className="wide">技能名称<input value={form.displayName} onChange={updateDisplayName} disabled={!isMain} /></label>
@@ -5809,6 +6810,12 @@ function SkillEditorModal({
               </button>
             </div>
             <input id="skills-description-input" value={form.description} onChange={update('description')} disabled={!isMain} aria-label="技能简介" />
+            {summarySuggestion ? (
+              <div className="skills-inline-tip skills-summary-suggestion" data-testid="skills-summary-suggestion">
+                <span>建议：{summarySuggestion}</span>
+                <button type="button" onClick={onApplySummary}>采用</button>
+              </div>
+            ) : null}
             <div className="skills-inline-tip">建议写成“当你需要……时使用”。</div>
           </div>
           <div className="skills-field">
@@ -5820,12 +6827,6 @@ function SkillEditorModal({
           </div>
           <label>关键词<input value={form.keywords} onChange={update('keywords')} disabled={!isMain} aria-label="关键词" /></label>
         </div>
-        {summarySuggestion ? (
-          <div className="skills-editor-actions">
-          {summarySuggestion ? <span>建议：{summarySuggestion}</span> : null}
-          {summarySuggestion ? <button type="button" onClick={onApplySummary}>采用</button> : null}
-          </div>
-        ) : null}
         {files.some((file) => !file.isMain) ? (
           <div className="skills-subfiles-wrap">
             <span>附加内容</span>
@@ -5863,18 +6864,16 @@ function SkillEditorModal({
           <div className="skills-inline-tip">点击“编辑正文”展开编辑；切回“预览正文”查看效果。</div>
         </div>
         <footer>
-          <button type="button" className="ghost" onClick={onClose}>取消</button>
+          <button type="button" className="ghost" onClick={onClose} disabled={saving}>取消</button>
           <button type="button" onClick={() => { void onSave(); }} disabled={saving}>{saving ? '保存中...' : '保存技能'}</button>
         </footer>
-      </section>
-    </div>
+    </FocusTrapDialog>
   );
 }
 
 function ConfirmSkillDeleteModal({ skill, deleting, onClose, onConfirm }) {
   return (
-    <div className="modal-overlay">
-      <section className="modal-box" role="dialog" aria-modal="true" aria-label="删除技能">
+    <FocusTrapDialog ariaLabel="删除技能" closeDisabled={deleting} onClose={onClose}>
         <header><h2>删除技能</h2><button type="button" className="ghost" onClick={onClose} disabled={deleting}>关闭</button></header>
         <p>确定删除技能 “{skill.name}” 吗？该操作会删除技能目录及其资源文件，无法恢复。</p>
         <p className="path">{skill.dir || '-'}</p>
@@ -5882,15 +6881,13 @@ function ConfirmSkillDeleteModal({ skill, deleting, onClose, onConfirm }) {
           <button type="button" className="ghost" onClick={onClose} disabled={deleting}>取消</button>
           <button type="button" className="text-danger" onClick={() => { void onConfirm(); }} disabled={deleting}>{deleting ? '删除中...' : '确认删除'}</button>
         </footer>
-      </section>
-    </div>
+    </FocusTrapDialog>
   );
 }
 
 function ImportScopeModal({ importing, onClose, onConfirm }) {
   return (
-    <div className="modal-overlay">
-      <section className="modal-box" role="dialog" aria-modal="true" aria-label="导入技能">
+    <FocusTrapDialog ariaLabel="导入技能" closeDisabled={importing} onClose={onClose}>
         <header><h2>导入技能</h2><button type="button" className="ghost" onClick={onClose} disabled={importing}>关闭</button></header>
         <p>这些技能导入后给谁使用？</p>
         <footer>
@@ -5898,8 +6895,7 @@ function ImportScopeModal({ importing, onClose, onConfirm }) {
           <button type="button" onClick={() => { void onConfirm('personal'); }} disabled={importing}>私人使用</button>
           <button type="button" onClick={() => { void onConfirm('project'); }} disabled={importing}>项目共享</button>
         </footer>
-      </section>
-    </div>
+    </FocusTrapDialog>
   );
 }
 
@@ -6231,8 +7227,7 @@ function SharedFileRow({
 
 function SharedFileViewer({ file, copied, exporting, onClose, onCopy, onExport }) {
   return (
-    <div className="modal-overlay">
-      <section className="modal-box shared-file-viewer-modal" role="dialog" aria-modal="true" aria-label="文件预览">
+    <FocusTrapDialog ariaLabel="文件预览" className="modal-box shared-file-viewer-modal" onClose={onClose}>
         <header>
           <div>
             <h2>文件预览</h2>
@@ -6249,15 +7244,13 @@ function SharedFileViewer({ file, copied, exporting, onClose, onCopy, onExport }
           <dt>更新时间</dt><dd>{sharedFileTimestamp(file.updatedAt)}</dd>
         </dl>
         <pre className="shared-file-content-preview">{sharedFilePreview(file)}</pre>
-      </section>
-    </div>
+    </FocusTrapDialog>
   );
 }
 
 function ConfirmSharedFileDeleteModal({ file, deleting, onClose, onConfirm }) {
   return (
-    <div className="modal-overlay">
-      <section className="modal-box" role="dialog" aria-modal="true" aria-label="删除文件">
+    <FocusTrapDialog ariaLabel="删除文件" closeDisabled={deleting} onClose={onClose}>
         <header>
           <h2>删除文件</h2>
           <button type="button" className="ghost" onClick={onClose} disabled={deleting}>关闭</button>
@@ -6270,12 +7263,11 @@ function ConfirmSharedFileDeleteModal({ file, deleting, onClose, onConfirm }) {
             {deleting ? '删除中...' : '确认删除'}
           </button>
         </footer>
-      </section>
-    </div>
+    </FocusTrapDialog>
   );
 }
 
-function MemoryPage({ projectPath, onSimilarCountChange }) {
+function MemoryPage({ projectPath, onSimilarCountChange, resolveLaunchPreferences }) {
   const memoryCwd = optionalSettingsCwd(projectPath);
   const isProjectPending = !memoryCwd;
   const queryClient = useQueryClient();
@@ -6303,6 +7295,7 @@ function MemoryPage({ projectPath, onSimilarCountChange }) {
   const [mergingAll, setMergingAll] = useState(false);
   const [ignoringKey, setIgnoringKey] = useState('');
   const [mergingKey, setMergingKey] = useState('');
+  const [consolidationJob, setConsolidationJob] = useState(null);
 
   const refreshMemory = useCallback(async () => {
     if (!memoryCwd) return;
@@ -6316,6 +7309,37 @@ function MemoryPage({ projectPath, onSimilarCountChange }) {
   const showNotice = useCallback((level, message) => {
     setNotice({ level: level || 'info', message: memoryNoticeText(message) });
   }, []);
+
+  const applyConsolidationResult = useCallback(async (cwd, result) => {
+    const summary = memoryConsolidationResultMessage(result);
+    if (!Number(result?.failed) && !Number(result?.skipped)) {
+      queryClient.setQueryData(dashboardQueryKey(cwd, 'memory'), clearMemorySimilarGroups);
+    }
+    showNotice(summary.level, summary.message);
+    await queryClient.invalidateQueries({ queryKey: dashboardQueryKey(cwd, 'memory') });
+  }, [queryClient, showNotice]);
+
+  useEffect(() => {
+    if (!consolidationJob?.jobId || !consolidationJob?.cwd) return undefined;
+    let cancelled = false;
+
+    (async () => {
+      try {
+        const result = await waitForMemoryConsolidationJob(consolidationJob.cwd, consolidationJob.jobId);
+        if (cancelled) return;
+        await applyConsolidationResult(consolidationJob.cwd, result);
+      } catch (err) {
+        if (cancelled) return;
+        const message = errorMessage(err);
+        const level = message.includes('仍在进行') ? 'warning' : 'error';
+        showNotice(level, level === 'warning' ? message : `智能整合失败：${message}`);
+      } finally {
+        if (!cancelled) setConsolidationJob(null);
+      }
+    })();
+
+    return () => { cancelled = true; };
+  }, [applyConsolidationResult, consolidationJob, showNotice]);
 
   const preferenceEntries = useMemo(
     () => snapshot.entries.filter((entry) => entry.category === 'preference'),
@@ -6482,29 +7506,34 @@ function MemoryPage({ projectPath, onSimilarCountChange }) {
   }, [memoryCwd, mergeTarget, mergingKey, refreshMemory, showNotice]);
 
   const mergeAllGroups = useCallback(async () => {
-    if (!similarGroups.length || mergingAll) return;
+    if (!similarGroups.length || mergingAll || consolidationJob) return;
     if (!memoryCwd) { showNotice('error', '正在连接本地项目...'); return; }
     setMergingAll(true);
-    showNotice('info', '智能整合中（通常 10-20 秒），请勿离开');
     try {
-      const result = await consolidateMemorySimilarities({ cwd: memoryCwd });
-      const merged = Number(result?.merged) || 0;
-      const ignored = Number(result?.ignored) || 0;
-      const failed = Number(result?.failed) || 0;
-      const skipped = Number(result?.skipped) || 0;
-      const parts = [`已整合 ${merged} 组`];
-      if (ignored) parts.push(`${ignored} 组判定不应合`);
-      if (failed) parts.push(`${failed} 组失败`);
-      if (skipped) parts.push(`${skipped} 组跳过`);
-      const firstError = Array.isArray(result?.errors) ? result.errors[0] : '';
-      showNotice(failed || skipped ? 'warning' : 'info', `${parts.join('，')}${firstError ? `，原因：${firstError}` : ''}`);
-      await refreshMemory();
+      const launchPreferences = typeof resolveLaunchPreferences === 'function'
+        ? await resolveLaunchPreferences(memoryCwd)
+        : null;
+      const started = await startConsolidateMemorySimilarities({
+        cwd: memoryCwd,
+        provider: textValue(launchPreferences?.modelProvider || launchPreferences?.provider),
+        model: textValue(launchPreferences?.model),
+        codexModelProvider: textValue(launchPreferences?.config?.codexModelProvider),
+      });
+      const jobID = textValue(started?.jobId);
+      if (started?.status === 'failed') throw memoryConsolidationJobFailed(started);
+      if (started?.status !== 'succeeded' && !jobID) throw new Error('智能整合未能启动，请稍后重试');
+      if (started?.status === 'succeeded') {
+        await applyConsolidationResult(memoryCwd, started.result || {});
+      } else {
+        setConsolidationJob({ cwd: memoryCwd, jobId: jobID });
+        showNotice('info', '智能整合已在后台进行，完成后会自动更新');
+      }
     } catch (err) {
       showNotice('error', `智能整合失败：${errorMessage(err)}`);
     } finally {
       setMergingAll(false);
     }
-  }, [memoryCwd, mergingAll, refreshMemory, showNotice, similarGroups.length]);
+  }, [applyConsolidationResult, consolidationJob, memoryCwd, mergingAll, resolveLaunchPreferences, showNotice, similarGroups.length]);
 
   const ignoreGroup = useCallback(async (group) => {
     const key = memoryPairKey(group);
@@ -6587,8 +7616,8 @@ function MemoryPage({ projectPath, onSimilarCountChange }) {
         <div className="similar-alert">
           <AlertTriangle size={20} />
           <span>{similarGroups.length} 组条目内容相似</span>
-          <button type="button" onClick={() => { void mergeAllGroups(); }} disabled={mergingAll || Boolean(mergingKey) || Boolean(ignoringKey)}>
-            {mergingAll ? '整合中...' : '一键整合全部'}
+          <button type="button" onClick={() => { void mergeAllGroups(); }} disabled={mergingAll || Boolean(consolidationJob) || Boolean(mergingKey) || Boolean(ignoringKey)}>
+            {mergingAll ? '启动中...' : (consolidationJob ? '后台整合中' : '一键整合全部')}
           </button>
           <button type="button" onClick={() => setSimilarExpanded((expanded) => !expanded)}>{similarExpanded ? '收起' : '展开'}</button>
         </div>
@@ -6601,8 +7630,8 @@ function MemoryPage({ projectPath, onSimilarCountChange }) {
               <div className="memory-similar-item" key={key}>
                 <span>「{group.nameA || group.pathA}」与「{group.nameB || group.pathB}」</span>
                 <strong>{formatMemoryScore(group.score)}</strong>
-                <button type="button" onClick={() => setMergeTarget(group)} disabled={Boolean(mergingKey) || mergingAll || Boolean(ignoringKey)}>整合</button>
-                <button type="button" className="ghost" onClick={() => { void ignoreGroup(group); }} disabled={Boolean(ignoringKey) || mergingAll || Boolean(mergingKey)}>
+                <button type="button" onClick={() => setMergeTarget(group)} disabled={Boolean(mergingKey) || mergingAll || Boolean(consolidationJob) || Boolean(ignoringKey)}>整合</button>
+                <button type="button" className="ghost" onClick={() => { void ignoreGroup(group); }} disabled={Boolean(ignoringKey) || mergingAll || Boolean(consolidationJob) || Boolean(mergingKey)}>
                   {ignoringKey === key ? '...' : '忽略'}
                 </button>
               </div>
@@ -6725,8 +7754,12 @@ function MemoryEditorModal({ editor, saving, onClose, onChange, onSave, onDelete
   const form = editor.form;
   const identityLocked = editor.mode === 'edit' && Boolean(form.existingPath);
   return (
-    <div className="modal-overlay">
-      <section className="modal-box memory-editor-modal" role="dialog" aria-modal="true" aria-label={editor.mode === 'edit' ? '编辑记忆' : '新建记忆'}>
+    <FocusTrapDialog
+      ariaLabel={editor.mode === 'edit' ? '编辑记忆' : '新建记忆'}
+      className="modal-box memory-editor-modal"
+      closeDisabled={saving}
+      onClose={onClose}
+    >
         <header>
           <div>
             <h2>{editor.mode === 'edit' ? '编辑记忆' : '新建记忆'}</h2>
@@ -6765,15 +7798,13 @@ function MemoryEditorModal({ editor, saving, onClose, onChange, onSave, onDelete
             {saving ? '保存中...' : '保存'}
           </button>
         </div>
-      </section>
-    </div>
+    </FocusTrapDialog>
   );
 }
 
 function MemoryDeleteModal({ entry, deleting, onClose, onConfirm }) {
   return (
-    <div className="modal-overlay">
-      <section className="modal-box" role="dialog" aria-modal="true" aria-label="删除记忆">
+    <FocusTrapDialog ariaLabel="删除记忆" closeDisabled={deleting} onClose={onClose}>
         <header>
           <h2>删除记忆</h2>
           <button type="button" className="ghost" onClick={onClose} disabled={deleting}>关闭</button>
@@ -6784,15 +7815,13 @@ function MemoryDeleteModal({ entry, deleting, onClose, onConfirm }) {
           <button type="button" className="ghost" onClick={onClose} disabled={deleting}>取消</button>
           <button type="button" className="danger" onClick={() => { void onConfirm(); }} disabled={deleting}>{deleting ? '删除中...' : '确认删除'}</button>
         </footer>
-      </section>
-    </div>
+    </FocusTrapDialog>
   );
 }
 
 function MemoryMergeModal({ group, merging, onClose, onConfirm }) {
   return (
-    <div className="modal-overlay">
-      <section className="modal-box" role="dialog" aria-modal="true" aria-label="整合相似记忆">
+    <FocusTrapDialog ariaLabel="整合相似记忆" closeDisabled={merging} onClose={onClose}>
         <header>
           <div>
             <h2>整合相似记忆</h2>
@@ -6806,8 +7835,7 @@ function MemoryMergeModal({ group, merging, onClose, onConfirm }) {
           <button type="button" className="ghost" onClick={onClose} disabled={merging}>取消</button>
           <button type="button" className="light" onClick={() => { void onConfirm(); }} disabled={merging}>{merging ? '整合中...' : '确认整合'}</button>
         </footer>
-      </section>
-    </div>
+    </FocusTrapDialog>
   );
 }
 
@@ -7333,8 +8361,9 @@ function SettingsPage({ projectPath }) {
         <div className="section-header">PROPERTIES</div>
         <div className="data-card-vue" data-testid="settings-provider-sandbox-card">
           <div className="settings-stall-row settings-provider-control-row">
-            <label className="settings-stall-label">推理摘要 (Summary)</label>
+            <label className="settings-stall-label" htmlFor="provider-summary-mode-select">推理摘要 (Summary)</label>
             <select
+              id="provider-summary-mode-select"
               className="settings-stall-input settings-provider-select"
               data-testid="provider-summary-mode-select"
               value={summaryMode}
@@ -7347,8 +8376,9 @@ function SettingsPage({ projectPath }) {
             </select>
           </div>
           <div className="settings-stall-row settings-provider-control-row">
-            <label className="settings-stall-label">审批策略 (ApprovalPolicy)</label>
+            <label className="settings-stall-label" htmlFor="provider-approval-mode-select">审批策略 (ApprovalPolicy)</label>
             <select
+              id="provider-approval-mode-select"
               className="settings-stall-input settings-provider-select"
               data-testid="provider-approval-mode-select"
               value={approvalMode}
@@ -7399,16 +8429,18 @@ function SettingsPage({ projectPath }) {
             />
           </label>
           <div className="settings-prompt-meta">生效行数 {lspPromptLineCount} · 字符 {lspPromptCharCount}</div>
-          <div className="settings-prompt-label">当前生效内容（只读）</div>
+          <label className="settings-prompt-label" htmlFor="settings-lsp-effective-output">当前生效内容（只读）</label>
           <textarea
+            id="settings-lsp-effective-output"
             className="settings-prompt-textarea settings-prompt-textarea-readonly"
             data-testid="settings-lsp-effective-output"
             rows={12}
             value={lspPromptDisplayHint}
             readOnly
           />
-          <div className="settings-prompt-label">自定义覆盖（可编辑，空=默认）</div>
+          <label className="settings-prompt-label" htmlFor="settings-lsp-prompt-input">自定义覆盖（可编辑，空=默认）</label>
           <textarea
+            id="settings-lsp-prompt-input"
             className="settings-prompt-textarea"
             data-testid="settings-lsp-prompt-input"
             rows={8}
@@ -7516,7 +8548,9 @@ function SettingsPage({ projectPath }) {
             <span>{store.logLevel}</span>
           </div>
           <div className="settings-stall-row settings-log-control-row">
+            <label className="settings-stall-label" htmlFor="settings-log-level-select">日志级别</label>
             <select
+              id="settings-log-level-select"
               className="settings-stall-input settings-log-level-select"
               data-testid="settings-log-level-select"
               value={store.logLevel}

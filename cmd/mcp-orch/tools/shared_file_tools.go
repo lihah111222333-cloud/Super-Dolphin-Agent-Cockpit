@@ -17,6 +17,7 @@ const (
 
 type sharedFileReadInput struct {
 	Path string `json:"path"`
+	Pos  string `json:"pos,omitempty"`
 }
 
 type sharedFileWriteInput struct {
@@ -47,8 +48,9 @@ func HandleSharedFileWrite(store sharedfilestore.Store) ToolHandler {
 func sharedFileToolDefinitions(store sharedfilestore.Store) []ToolDefinition {
 	return buildToolDefinitions(
 		defineTool("shared_file_read", "Read a shared file by path. Shared files are stored in the database and can be accessed by all agents.", ObjectSchema(map[string]Schema{
+			"pos":  StringSchema("Flattened shared-file locator, e.g. shared:<path>. Preferred over legacy path."),
 			"path": StringSchema("File path (for example 'config/settings.json')."),
-		}, "path"), HandleSharedFileRead(store)),
+		}), HandleSharedFileRead(store)),
 		defineTool("shared_file_write", "Write content to a shared file. Creates or overwrites the file at the given path.", ObjectSchema(map[string]Schema{
 			"path":    StringSchema("File path (for example 'config/settings.json')."),
 			"content": StringSchema("File content to write."),
@@ -60,7 +62,7 @@ func readSharedFile(ctx context.Context, store sharedfilestore.Store, input shar
 	if err := requireDependency(store, "shared file store"); err != nil {
 		return sharedFileDTO{}, err
 	}
-	rawPath, err := requireTrimmed(input.Path, "path")
+	rawPath, err := resolveSharedPathInput(input.Path, input.Pos)
 	if err != nil {
 		return sharedFileDTO{}, err
 	}

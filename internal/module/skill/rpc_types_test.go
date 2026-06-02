@@ -124,6 +124,20 @@ func (f *sequenceSkillDreamExecutor) ExecuteDream(ctx context.Context, _ string)
 	return "", errors.New("unexpected extra dream call")
 }
 
+type optionsSkillDreamExecutor struct {
+	result  string
+	options []contract.DreamOptions
+}
+
+func (f *optionsSkillDreamExecutor) ExecuteDream(ctx context.Context, prompt string) (string, error) {
+	return f.ExecuteDreamWithOptions(ctx, prompt, contract.DreamOptions{})
+}
+
+func (f *optionsSkillDreamExecutor) ExecuteDreamWithOptions(_ context.Context, _ string, options contract.DreamOptions) (string, error) {
+	f.options = append(f.options, options)
+	return f.result, nil
+}
+
 func TestSkillSummarySuggestRPCUsesDreamExecutor(t *testing.T) {
 	t.Parallel()
 
@@ -165,6 +179,35 @@ func TestSkillSummarySuggestRPCUsesDreamExecutor(t *testing.T) {
 		if !strings.Contains(dream.prompt, want) {
 			t.Fatalf("dream prompt missing precision rule %q:\n%s", want, dream.prompt)
 		}
+	}
+}
+
+func TestSkillSummarySuggestRPCPassesRequestedDreamOptions(t *testing.T) {
+	t.Parallel()
+
+	svc := newTestSkillService(t)
+	dream := &optionsSkillDreamExecutor{result: `{"description":"当你需要管理多代理工程流程时使用。"}`}
+	server := platformrpc.NewServer(platformrpc.Params{Config: &contract.Config{RPCAddr: "127.0.0.1:0"}})
+	server.Register(newSkillHandlers(svc, dream).Handlers)
+
+	_, err := server.Dispatch(context.Background(), "skills/summary/suggest", json.RawMessage(`{
+		"cwd":"/tmp/project",
+		"name":"Agent工程学",
+		"content":"# Agent 工程学\n管理多代理工程流程。",
+		"scope":"project",
+		"provider":"codex",
+		"model":"gpt-5.5",
+		"model_provider":"openrouter"
+	}`))
+	if err != nil {
+		t.Fatalf("Dispatch() error = %v", err)
+	}
+	if len(dream.options) != 1 {
+		t.Fatalf("dream options calls = %d, want 1", len(dream.options))
+	}
+	want := contract.DreamOptions{Provider: "codex", Model: "gpt-5.5", ModelProvider: "openrouter"}
+	if dream.options[0] != want {
+		t.Fatalf("dream options = %#v, want %#v", dream.options[0], want)
 	}
 }
 

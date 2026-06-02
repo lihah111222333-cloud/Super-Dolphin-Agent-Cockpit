@@ -61,9 +61,42 @@ func TestHandleListDAGsReturnsWrappedDAGs(t *testing.T) {
 	if len(out.DAGs) != 1 || out.DAGs[0].DagKey != "dag-1" {
 		t.Fatalf("HandleListDAGs() = %#v", out)
 	}
+	assertEnvelopeCounts(t, "HandleListDAGs()", len(out.Data), out.Total, out.Showing, out.Truncated, out.Hint)
+	if out.Data[0].DagKey != "dag-1" {
+		t.Fatalf("HandleListDAGs() data = %#v", out.Data)
+	}
 	if gotFilter != (contract.ListDAGsFilter{Status: "running", Keyword: "daily", Limit: 7}) {
 		t.Fatalf("ListDAGs filter = %#v", gotFilter)
 	}
+}
+
+func TestHandleListAgentsEnvelopeKeepsLegacyArrayDefault(t *testing.T) {
+	handler := HandleListAgents(&golden.OrchestrationStub{
+		ListAgentsFunc: func(context.Context) ([]contract.AgentSnapshot, error) {
+			return []contract.AgentSnapshot{{AgentID: "agent-1", State: "idle"}}, nil
+		},
+	})
+
+	legacy, err := handler(context.Background(), json.RawMessage(`{}`))
+	if err != nil {
+		t.Fatalf("HandleListAgents() legacy error = %v", err)
+	}
+	if _, ok := legacy.([]contract.AgentSnapshot); !ok {
+		t.Fatalf("HandleListAgents() legacy response = %T, want []contract.AgentSnapshot", legacy)
+	}
+
+	result, err := handler(context.Background(), json.RawMessage(`{"envelope":true,"limit":5}`))
+	if err != nil {
+		t.Fatalf("HandleListAgents() envelope error = %v", err)
+	}
+	out, ok := result.(ListAgentsOutput)
+	if !ok {
+		t.Fatalf("HandleListAgents() envelope response = %T, want ListAgentsOutput", result)
+	}
+	if len(out.Agents) != 1 {
+		t.Fatalf("HandleListAgents() agents = %#v", out.Agents)
+	}
+	assertEnvelopeCounts(t, "HandleListAgents()", len(out.Data), out.Total, out.Showing, out.Truncated, out.Hint)
 }
 
 func TestCreateDAGRequestFromInputRequiresAgentID(t *testing.T) {
@@ -236,6 +269,57 @@ func TestHandleCreateDAGMergesCommandRefIntoAutomationConfig(t *testing.T) {
 	assertJSONEqual(t, got.Nodes[0].Config, `{"exec":{"kind":"command_card","command_ref":"build"},"outputs":{"to_node_result":true}}`)
 }
 
+func TestHandleCreateDAGAcceptsFlatScheduleAndNodeExecution(t *testing.T) {
+	var got contract.CreateDAGRequest
+	handler := HandleCreateDAG(&golden.OrchestrationStub{
+		CreateDAGFunc: func(_ context.Context, req contract.CreateDAGRequest) (contract.DAGDetail, error) {
+			got = req
+			return contract.DAGDetail{}, nil
+		},
+	})
+
+	_, err := handler(context.Background(), json.RawMessage(`{
+		"agent_id":"designer-1",
+		"dag_key":"dag-flat",
+		"title":"Flat DAG",
+		"trigger":"manual",
+		"default_retry":2,
+		"max_concurrency":3,
+		"nodes":[{
+			"node_key":"score",
+			"title":"Score",
+			"node_type":"automation",
+			"retry":1,
+			"timeout_sec":30
+		}]
+	}`))
+	if err != nil {
+		t.Fatalf("HandleCreateDAG() error = %v", err)
+	}
+	assertJSONEqual(t, got.Metadata, `{"schedule":{"trigger":"manual","default_retry":2,"max_concurrency":3}}`)
+	assertJSONEqual(t, got.Nodes[0].Config, `{"execution":{"retry":1,"timeout_sec":30}}`)
+}
+
+func TestHandleCreateDAGRejectsFlatScheduleConflict(t *testing.T) {
+	handler := HandleCreateDAG(&golden.OrchestrationStub{
+		CreateDAGFunc: func(context.Context, contract.CreateDAGRequest) (contract.DAGDetail, error) {
+			t.Fatal("CreateDAG should not be called when flat schedule conflicts with nested schedule")
+			return contract.DAGDetail{}, nil
+		},
+	})
+
+	_, err := handler(context.Background(), json.RawMessage(`{
+		"agent_id":"designer-1",
+		"dag_key":"dag-conflict",
+		"title":"Conflict",
+		"trigger":"manual",
+		"schedule":{"trigger":"scheduled"}
+	}`))
+	if err == nil || err.Error() != "trigger conflicts with schedule.trigger" {
+		t.Fatalf("HandleCreateDAG() error = %v, want trigger conflict", err)
+	}
+}
+
 func TestTaskCreateDAGSchemaExposesNodeConfig(t *testing.T) {
 	defs := taskToolDefinitions(nil)
 	var createDAG ToolDefinition
@@ -254,6 +338,29 @@ func TestTaskCreateDAGSchemaExposesNodeConfig(t *testing.T) {
 	nodeProps := items["properties"].(map[string]any)
 	if _, ok := nodeProps["config"].(map[string]any); !ok {
 		t.Fatalf("task_create_dag node properties = %#v, want config schema", nodeProps)
+	}
+}
+
+func TestTaskCreateDAGSchemaExposesFlatShortcuts(t *testing.T) {
+	defs := taskToolDefinitions(nil)
+	createDAG := mustFindToolDefinition(t, defs, "task_create_dag")
+	props := createDAG.InputSchema["properties"].(map[string]any)
+	for _, want := range []string{"trigger", "default_retry", "max_concurrency"} {
+		if _, ok := props[want].(map[string]any); !ok {
+			t.Fatalf("task_create_dag properties missing flat %s: %#v", want, props)
+		}
+	}
+	nodes := props["nodes"].(map[string]any)
+	items := nodes["items"].(map[string]any)
+	nodeProps := items["properties"].(map[string]any)
+	for _, want := range []string{"retry", "timeout_sec", "on_failure"} {
+		if _, ok := nodeProps[want].(map[string]any); !ok {
+			t.Fatalf("task_create_dag node properties missing flat %s: %#v", want, nodeProps)
+		}
+	}
+	required := createDAG.InputSchema["required"].([]string)
+	if slices.Contains(required, "schedule") {
+		t.Fatalf("task_create_dag required = %#v, want flat schedule path to make schedule optional", required)
 	}
 }
 
@@ -285,6 +392,97 @@ func TestTaskDAGApplyOpsSchemaExposesOpDiscriminator(t *testing.T) {
 	required := items["required"].([]string)
 	if !slices.Contains(required, "op") {
 		t.Fatalf("ops.items.required = %#v, want op", required)
+	}
+}
+
+func TestTaskDAGApplyOpsSchemaExposesFlatAction(t *testing.T) {
+	defs := taskToolDefinitions(nil)
+	applyOps := mustFindToolDefinition(t, defs, "task_dag_apply_ops")
+	props := applyOps.InputSchema["properties"].(map[string]any)
+	action, ok := props["action"].(map[string]any)
+	if !ok {
+		t.Fatalf("task_dag_apply_ops properties = %#v, want action", props)
+	}
+	for _, want := range []string{"update_dag", "add_node", "update_node", "remove_node", "apply_ops_raw"} {
+		if !slices.Contains(EnumValues(Schema(action)), want) {
+			t.Fatalf("action enum = %#v, want %s", action["enum"], want)
+		}
+	}
+	required := applyOps.InputSchema["required"].([]string)
+	if slices.Contains(required, "dag_key") || slices.Contains(required, "ops") {
+		t.Fatalf("task_dag_apply_ops required = %#v, want pos/flat action support", required)
+	}
+}
+
+func TestHandleApplyOpsBuildsFlatAddNode(t *testing.T) {
+	var got contract.ApplyOpsRequest
+	handler := HandleApplyOps(&golden.OrchestrationStub{
+		ApplyOpsFunc: func(_ context.Context, req contract.ApplyOpsRequest) (contract.ApplyOpsResponse, error) {
+			got = req
+			return contract.ApplyOpsResponse{NewVersion: 6}, nil
+		},
+	})
+
+	_, err := handler(context.Background(), json.RawMessage(`{
+		"pos":"dag:dag-flat",
+		"base_version":5,
+		"action":"add_node",
+		"node_key":"score",
+		"title":"Score",
+		"node_type":"automation",
+		"depends_on":["plan"],
+		"config":{"exec":{"kind":"command_card","command_ref":"score"}}
+	}`))
+	if err != nil {
+		t.Fatalf("HandleApplyOps() error = %v", err)
+	}
+	if got.DagKey != "dag-flat" || got.BaseVersion != 5 {
+		t.Fatalf("ApplyOps request = %#v", got)
+	}
+	assertJSONEqual(t, got.Ops, `[{"op":"add_node","node":{"node_key":"score","title":"Score","node_type":"automation","depends_on":["plan"],"config":{"exec":{"kind":"command_card","command_ref":"score"}}}}]`)
+}
+
+func TestHandleApplyOpsBuildsFlatUpdateNode(t *testing.T) {
+	var got contract.ApplyOpsRequest
+	handler := HandleApplyOps(&golden.OrchestrationStub{
+		ApplyOpsFunc: func(_ context.Context, req contract.ApplyOpsRequest) (contract.ApplyOpsResponse, error) {
+			got = req
+			return contract.ApplyOpsResponse{NewVersion: 6}, nil
+		},
+	})
+
+	_, err := handler(context.Background(), json.RawMessage(`{
+		"dag_key":"dag-flat",
+		"base_version":5,
+		"action":"update_node",
+		"node_key":"score",
+		"title":"Score v2",
+		"depends_on":[]
+	}`))
+	if err != nil {
+		t.Fatalf("HandleApplyOps() error = %v", err)
+	}
+	assertJSONEqual(t, got.Ops, `[{"op":"update_node","node_key":"score","patch":{"title":"Score v2","depends_on":[]}}]`)
+}
+
+func TestHandleApplyOpsRejectsPatchFlatConflict(t *testing.T) {
+	handler := HandleApplyOps(&golden.OrchestrationStub{
+		ApplyOpsFunc: func(context.Context, contract.ApplyOpsRequest) (contract.ApplyOpsResponse, error) {
+			t.Fatal("ApplyOps should not be called when patch conflicts with flat fields")
+			return contract.ApplyOpsResponse{}, nil
+		},
+	})
+
+	_, err := handler(context.Background(), json.RawMessage(`{
+		"dag_key":"dag-flat",
+		"base_version":5,
+		"action":"update_node",
+		"node_key":"score",
+		"title":"Score v2",
+		"patch":{"title":"Score raw"}
+	}`))
+	if err == nil || err.Error() != "patch cannot be combined with flat update_node fields" {
+		t.Fatalf("HandleApplyOps() error = %v, want patch conflict", err)
 	}
 }
 

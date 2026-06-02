@@ -17,7 +17,8 @@ import (
 )
 
 type stubWorkspaceService struct {
-	getRun func(context.Context, string) (*workspace.Run, error)
+	getRun   func(context.Context, string) (*workspace.Run, error)
+	listRuns func(context.Context, string, string, int) ([]workspace.Run, error)
 }
 
 func (s stubWorkspaceService) GetRun(ctx context.Context, runKey string) (*workspace.Run, error) {
@@ -31,7 +32,10 @@ func (stubWorkspaceService) CreateRun(context.Context, workspace.CreateRunReques
 	return nil, errors.New("unexpected CreateRun call")
 }
 
-func (stubWorkspaceService) ListRuns(context.Context, string, string, int) ([]workspace.Run, error) {
+func (s stubWorkspaceService) ListRuns(ctx context.Context, status, dagKey string, limit int) ([]workspace.Run, error) {
+	if s.listRuns != nil {
+		return s.listRuns(ctx, status, dagKey, limit)
+	}
 	return nil, errors.New("unexpected ListRuns call")
 }
 
@@ -81,7 +85,8 @@ func (s stubPromptStore) ListSectionsByTemplateID(ctx context.Context, templateI
 
 type stubCommandStore struct {
 	commandcardstore.Store
-	get func(context.Context, string) (*commandcardstore.CommandCard, error)
+	get  func(context.Context, string) (*commandcardstore.CommandCard, error)
+	list func(context.Context, commandcardstore.ListFilter) ([]commandcardstore.CommandCard, error)
 }
 
 func (s stubCommandStore) Get(ctx context.Context, key string) (*commandcardstore.CommandCard, error) {
@@ -89,6 +94,13 @@ func (s stubCommandStore) Get(ctx context.Context, key string) (*commandcardstor
 		return nil, nil
 	}
 	return s.get(ctx, key)
+}
+
+func (s stubCommandStore) List(ctx context.Context, filter commandcardstore.ListFilter) ([]commandcardstore.CommandCard, error) {
+	if s.list == nil {
+		return nil, errors.New("unexpected List call")
+	}
+	return s.list(ctx, filter)
 }
 
 type stubSharedFileStore struct {
@@ -265,6 +277,46 @@ func TestHandlePromptListKeepsLegacyPromptText(t *testing.T) {
 	}
 }
 
+func TestHandlePromptListEnvelopeKeepsLegacyDefault(t *testing.T) {
+	t.Parallel()
+
+	handler := HandlePromptList(stubPromptStore{
+		list: func(_ context.Context, filter promptstore.ListFilter) ([]promptstore.PromptTemplate, error) {
+			if filter.Keyword != "custom" {
+				t.Fatalf("List() keyword = %q, want custom", filter.Keyword)
+			}
+			return []promptstore.PromptTemplate{{
+				ID:        1,
+				PromptKey: "main/reviewer",
+				Title:     "Reviewer",
+				Enabled:   true,
+				Tags:      json.RawMessage(`["scope.global"]`),
+			}}, nil
+		},
+	})
+
+	legacy, err := handler(promptToolTestContext(), mustRawInput(t, promptListInput{Keyword: " custom "}))
+	if err != nil {
+		t.Fatalf("HandlePromptList() legacy error = %v", err)
+	}
+	if _, ok := legacy.([]promptTemplateDTO); !ok {
+		t.Fatalf("HandlePromptList() legacy response = %T, want []promptTemplateDTO", legacy)
+	}
+
+	result, err := handler(promptToolTestContext(), mustRawInput(t, promptListInput{Keyword: " custom ", Envelope: true}))
+	if err != nil {
+		t.Fatalf("HandlePromptList() envelope error = %v", err)
+	}
+	out, ok := result.(PromptListOutput)
+	if !ok {
+		t.Fatalf("HandlePromptList() envelope response = %T, want PromptListOutput", result)
+	}
+	if len(out.Prompts) != 1 {
+		t.Fatalf("HandlePromptList() prompts = %#v", out.Prompts)
+	}
+	assertEnvelopeCounts(t, "HandlePromptList()", len(out.Data), out.Total, out.Showing, out.Truncated, out.Hint)
+}
+
 func TestHandlePromptListKeepsTask8RuntimeDiscoveryBoundary(t *testing.T) {
 	t.Parallel()
 
@@ -364,6 +416,40 @@ func TestHandlePromptGetHidesOutOfScopeTemplate(t *testing.T) {
 	if sectionsQueried {
 		t.Fatal("HandlePromptGet() queried sections for out-of-scope prompt")
 	}
+}
+
+func TestHandleCommandListEnvelopeKeepsLegacyDefault(t *testing.T) {
+	t.Parallel()
+
+	handler := HandleCommandList(stubCommandStore{
+		list: func(_ context.Context, filter commandcardstore.ListFilter) ([]commandcardstore.CommandCard, error) {
+			if filter.Keyword != "build" {
+				t.Fatalf("List() keyword = %q, want build", filter.Keyword)
+			}
+			return []commandcardstore.CommandCard{{CardKey: "cmd/build", Title: "Build"}}, nil
+		},
+	})
+
+	legacy, err := handler(context.Background(), mustRawInput(t, commandListInput{Keyword: " build "}))
+	if err != nil {
+		t.Fatalf("HandleCommandList() legacy error = %v", err)
+	}
+	if _, ok := legacy.([]commandCardDTO); !ok {
+		t.Fatalf("HandleCommandList() legacy response = %T, want []commandCardDTO", legacy)
+	}
+
+	result, err := handler(context.Background(), mustRawInput(t, commandListInput{Keyword: " build ", Envelope: true}))
+	if err != nil {
+		t.Fatalf("HandleCommandList() envelope error = %v", err)
+	}
+	out, ok := result.(CommandListOutput)
+	if !ok {
+		t.Fatalf("HandleCommandList() envelope response = %T, want CommandListOutput", result)
+	}
+	if len(out.Commands) != 1 {
+		t.Fatalf("HandleCommandList() commands = %#v", out.Commands)
+	}
+	assertEnvelopeCounts(t, "HandleCommandList()", len(out.Data), out.Total, out.Showing, out.Truncated, out.Hint)
 }
 
 func TestHandleCommandGetTranslatesNotFound(t *testing.T) {
@@ -505,6 +591,38 @@ func TestHandleSharedFileWriteAllowsNestedUserPrefix(t *testing.T) {
 	if !called {
 		t.Fatal("HandleSharedFileWrite() did not call Upsert")
 	}
+}
+
+func TestWorkspaceListRunsEnvelopeKeepsLegacyDefault(t *testing.T) {
+	handler := HandleWorkspaceListRuns(stubWorkspaceService{
+		listRuns: func(_ context.Context, status, dagKey string, limit int) ([]workspace.Run, error) {
+			if status != "active" || dagKey != "dag-1" || limit != 5 {
+				t.Fatalf("ListRuns() filter = status:%q dag:%q limit:%d", status, dagKey, limit)
+			}
+			return []workspace.Run{{RunKey: "ws-1", DagKey: "dag-1", Status: "active"}}, nil
+		},
+	})
+
+	legacy, err := handler(context.Background(), mustRawInput(t, workspaceListRunsInput{Status: "active", DagKey: "dag-1", Limit: 5}))
+	if err != nil {
+		t.Fatalf("HandleWorkspaceListRuns() legacy error = %v", err)
+	}
+	if _, ok := legacy.([]workspaceRunDTO); !ok {
+		t.Fatalf("HandleWorkspaceListRuns() legacy response = %T, want []workspaceRunDTO", legacy)
+	}
+
+	result, err := handler(context.Background(), mustRawInput(t, workspaceListRunsInput{Status: "active", DagKey: "dag-1", Limit: 5, Envelope: true}))
+	if err != nil {
+		t.Fatalf("HandleWorkspaceListRuns() envelope error = %v", err)
+	}
+	out, ok := result.(WorkspaceListRunsOutput)
+	if !ok {
+		t.Fatalf("HandleWorkspaceListRuns() envelope response = %T, want WorkspaceListRunsOutput", result)
+	}
+	if len(out.Runs) != 1 {
+		t.Fatalf("HandleWorkspaceListRuns() runs = %#v", out.Runs)
+	}
+	assertEnvelopeCounts(t, "HandleWorkspaceListRuns()", len(out.Data), out.Total, out.Showing, out.Truncated, out.Hint)
 }
 
 func TestWorkspaceListRunsLimitSchemaUsesInteger(t *testing.T) {

@@ -11,6 +11,7 @@ import {
   setPreference,
   writePrompt,
 } from '../../shared/api/backendApi.js';
+import { FocusTrapDialog } from '../../shared/ui/FocusTrapDialog.jsx';
 
 const ACTIVE_PROMPT_PREF_KEY = 'settings.activePromptKey';
 const PROMPTS_REQUEST_TIMEOUT_MS = 8000;
@@ -40,6 +41,37 @@ const PROMPT_KIND_OPTIONS = Object.freeze([
   { key: 'recall', label: '参考资料' },
   { key: 'default_rule', label: '默认规则' },
 ]);
+
+const PROMPT_DRAFT_NOT_READY_MESSAGE = '这条内容还需要完善后才能保存，请调整描述后重新生成。';
+const PROMPT_DRAFT_REVIEW_MESSAGE = '保存前请先确认提示里的风险。';
+const PROMPT_ISSUE_COPY = Object.freeze({
+  missing_title: '需要补充一个清晰名称。',
+  missing_summary: '需要补充一句简短说明。',
+  missing_when_to_use: '需要说明 AI 什么时候会使用它。',
+  missing_when_not_to_use: '需要说明哪些问题不适合使用它。',
+  missing_workflow: '需要补充 AI 执行时的具体步骤。',
+  missing_output: '需要写清楚输出会包含哪些栏目或结构。',
+  vague_when_to_use: '适用场景还太泛，需要具体到任务或问题类型。',
+  vague_output: '需要写清楚输出会包含哪些栏目或结构。',
+  missing_save_boundary: '需要说明保存边界：没有明确保存工具或用户确认时，只能输出建议保存的条目，不能声称已经保存。',
+  missing_recall_topic: '资料需要有一个可检索主题。',
+  missing_recall_body: '资料正文不能为空。',
+  missing_default_rule_body: '默认规则正文不能为空。',
+  missing_hit_examples: '需要补充适合使用的例子。',
+  missing_miss_examples: '需要补充不适合使用的例子。',
+  missing_source_facts: '需要先从原文提取关键要点，再整理成可用内容。',
+  missing_source_fact_coverage: '原文里的关键要点没有覆盖完整，建议按缺口重新整理。',
+  source_fact_not_applied: '原文里的关键要点没有写入保存内容。',
+  external_system_prompt: '这是外部模型或产品的系统提示词，不能直接作为默认规则启用。',
+  external_system_prompt_source: '这是外部模型或产品的系统提示词，保存前需要确认来源和用途。',
+  identity_pollution: '内容里包含模型或供应商身份声明，不能写入专家能力或默认规则。',
+  tool_protocol_pollution: '内容里包含外部工具协议，不能写入专家能力或默认规则。',
+  overbroad_scope: '适用范围太宽，建议收窄到具体任务或问题。',
+  default_rule_conflict: '和已有默认规则可能重复或冲突，保存前需要确认。',
+  project_prompt_duplicate: '当前项目已有相似提示词，建议先确认是否更新已有内容。',
+  builtin_prompt_duplicate: '系统已内置相似能力，不需要再保存一份。',
+  duplicate_recall_topic: '当前项目已有同名资料主题，请更新已有资料或换一个更具体的主题。',
+});
 
 function textValue(value) {
   return value === null || value === undefined ? '' : value.toString().trim();
@@ -107,6 +139,24 @@ function promptAssetScope(raw, tags) {
 
 function promptPreviewText(item) {
   return item.content || item.whenToUse || item.description || '已保存，AI 会在相关场景中使用';
+}
+
+function promptTextList(value) {
+  return Array.isArray(value) ? value.map(textValue).filter(Boolean) : [];
+}
+
+function promptIssueMessage(issue) {
+  const code = textValue(issue?.code);
+  return PROMPT_ISSUE_COPY[code] || textValue(issue?.message) || code;
+}
+
+function normalizePromptIssues(raw) {
+  if (!Array.isArray(raw)) return [];
+  return raw.map((issue) => ({
+    code: textValue(issue?.code),
+    severity: textValue(issue?.severity).toLowerCase() === 'block' ? 'block' : 'review',
+    message: promptIssueMessage(issue),
+  })).filter((issue) => issue.message);
 }
 
 function normalizePromptItem(raw = {}, index = 0) {
@@ -222,6 +272,9 @@ function emptyPromptForm() {
 
 function normalizeDraftItem(raw = {}, fallbackKind = 'expert', meta = {}) {
   const card = raw.card && typeof raw.card === 'object' ? raw.card : {};
+  const workflow = promptTextList(card.workflow);
+  const hitExamples = promptTextList(card.hit_examples || card.hitExamples);
+  const missExamples = promptTextList(card.miss_examples || card.missExamples);
   return {
     draftKey: firstText(raw.draft_key, raw.draftKey),
     kind: firstText(raw.inferred_kind, raw.inferredKind, raw.kind, card.kind, meta.inferredKind, fallbackKind),
@@ -229,11 +282,15 @@ function normalizeDraftItem(raw = {}, fallbackKind = 'expert', meta = {}) {
     status: firstText(raw.status, 'review'),
     title: firstText(card.title, raw.title, '未命名草稿'),
     summary: firstText(card.summary, raw.description),
-    output: firstText(card.output, card.recall_body, card.default_rule_body, raw.content),
-    hitExamples: Array.isArray(card.hit_examples) ? card.hit_examples : [],
-    missExamples: Array.isArray(card.miss_examples) ? card.miss_examples : [],
+    whenToUse: firstText(card.when_to_use, card.whenToUse),
+    whenNotToUse: firstText(card.when_not_to_use, card.whenNotToUse),
+    workflow,
+    saveBoundary: firstText(card.save_boundary, card.saveBoundary),
+    output: firstText(card.output, card.recall_body, card.recallBody, card.default_rule_body, card.defaultRuleBody, raw.content),
+    hitExamples,
+    missExamples,
     card,
-    issues: Array.isArray(raw.issues) ? raw.issues : [],
+    issues: normalizePromptIssues(raw.issues),
   };
 }
 
@@ -268,7 +325,26 @@ function pendingDraftFromItem(item) {
 
 function noticeText(error, prefix) {
   const message = error?.message || String(error || '');
+  const friendly = promptFriendlyErrorText(message);
+  if (friendly) return friendly;
   return `${prefix}：${message}`;
+}
+
+function promptFriendlyErrorText(message) {
+  const lower = textValue(message).toLowerCase();
+  if (lower.includes('prompt intent draft is not ready to save')) {
+    return PROMPT_DRAFT_NOT_READY_MESSAGE;
+  }
+  if (lower.includes('prompt intent draft requires risk confirmation')) {
+    return PROMPT_DRAFT_REVIEW_MESSAGE;
+  }
+  return '';
+}
+
+function promptDraftNeedsRevision(draft) {
+  const status = textValue(draft?.status).toLowerCase();
+  const hasBlockIssue = Array.isArray(draft?.issues) && draft.issues.some((issue) => textValue(issue?.severity).toLowerCase() === 'block');
+  return status === 'draft' || status === 'draft_blocked' || status === 'blocked' || hasBlockIssue;
 }
 
 function errorMessage(error) {
@@ -742,14 +818,20 @@ function PromptEditorModal({ form, notice, saving, onChange, onClose, onSave }) 
   const previewText = form.content || form.whenToUse || form.description || '已保存，AI 会在相关场景中使用';
   const advancedDebugAvailable = promptAdvancedDebugEnabled();
   return (
-    <div className="modal-overlay prompt-modal-overlay" onClick={onClose}>
-      <section className="modal-box prompt-editor-modal" role="dialog" aria-modal="true" aria-label="编辑提示词" onClick={(event) => event.stopPropagation()}>
+    <FocusTrapDialog
+      ariaLabel="编辑提示词"
+      className="modal-box prompt-editor-modal"
+      overlayClassName="modal-overlay prompt-modal-overlay"
+      closeDisabled={saving}
+      closeOnOverlayClick
+      onClose={onClose}
+    >
         <header>
           <div>
             <h2>编辑提示词</h2>
             <p>{scopeLabel}</p>
           </div>
-          <button type="button" onClick={onClose} aria-label="关闭编辑器"><X size={16} /></button>
+          <button type="button" onClick={onClose} aria-label="关闭编辑器" disabled={saving}><X size={16} /></button>
         </header>
         <div className="prompt-scope-copy">
           <div>可用范围：{scopeLabel}</div>
@@ -779,11 +861,10 @@ function PromptEditorModal({ form, notice, saving, onChange, onClose, onSave }) 
         ) : null}
         {notice ? <div className="prompt-notice">{notice}</div> : null}
         <footer>
-          <button type="button" className="ghost" onClick={onClose}>取消</button>
+          <button type="button" className="ghost" onClick={onClose} disabled={saving}>取消</button>
           <button type="button" onClick={onSave} disabled={saving}>{saving ? '保存中...' : '保存'}</button>
         </footer>
-      </section>
-    </div>
+    </FocusTrapDialog>
   );
 }
 
@@ -835,6 +916,10 @@ function PromptIntentWizardModal({ cwd, initialDraft, resolveLaunchPreferences, 
 
   const commitDraft = async () => {
     if (!draft?.draftKey) return;
+    if (promptDraftNeedsRevision(draft)) {
+      setNotice(PROMPT_DRAFT_NOT_READY_MESSAGE);
+      return;
+    }
     setWorking('commit');
     setNotice('');
     try {
@@ -847,15 +932,24 @@ function PromptIntentWizardModal({ cwd, initialDraft, resolveLaunchPreferences, 
     }
   };
 
+  const draftNeedsRevision = promptDraftNeedsRevision(draft);
+  const noticeIsGuidance = notice === PROMPT_DRAFT_NOT_READY_MESSAGE || notice === PROMPT_DRAFT_REVIEW_MESSAGE;
+
   return (
-    <div className="modal-overlay prompt-modal-overlay" onClick={onClose}>
-      <section className="modal-box prompt-wizard-modal" role="dialog" aria-modal="true" aria-label="添加给 AI 的内容" onClick={(event) => event.stopPropagation()}>
+    <FocusTrapDialog
+      ariaLabel="添加给 AI 的内容"
+      className="modal-box prompt-wizard-modal"
+      overlayClassName="modal-overlay prompt-modal-overlay"
+      closeDisabled={Boolean(working)}
+      closeOnOverlayClick
+      onClose={onClose}
+    >
         <header>
           <div>
             <h2>添加给 AI 的内容</h2>
             <p>{cwd || '未知'}</p>
           </div>
-          <button type="button" onClick={onClose}>关闭</button>
+          <button type="button" onClick={onClose} disabled={Boolean(working)}>关闭</button>
         </header>
         <div className="prompt-kind-tabs" role="tablist" aria-label="内容类型">
           {PROMPT_KIND_OPTIONS.map((option) => (
@@ -877,17 +971,46 @@ function PromptIntentWizardModal({ cwd, initialDraft, resolveLaunchPreferences, 
           <article className="prompt-draft-review">
             <div className="prompt-draft-title"><CheckCircle2 size={16} /> {draft.title}</div>
             {draft.summary ? <p>{draft.summary}</p> : null}
+            {draft.whenToUse ? <p>{draft.whenToUse}</p> : null}
+            {draft.whenNotToUse ? <p>{draft.whenNotToUse}</p> : null}
+            {draft.workflow?.length ? (
+              <ol>
+                {draft.workflow.map((step) => <li key={step}>{step}</li>)}
+              </ol>
+            ) : null}
+            {draft.saveBoundary ? <p><span>保存边界：</span><span>{draft.saveBoundary}</span></p> : null}
             {draft.output ? <pre>{draft.output}</pre> : null}
+            {draft.hitExamples.length || draft.missExamples.length ? (
+              <div className="prompt-draft-examples">
+                {draft.hitExamples.length ? (
+                  <div>
+                    <strong>适合的问题</strong>
+                    <ul>{draft.hitExamples.map((example) => <li key={example}>{example}</li>)}</ul>
+                  </div>
+                ) : null}
+                {draft.missExamples.length ? (
+                  <div>
+                    <strong>不适合的问题</strong>
+                    <ul>{draft.missExamples.map((example) => <li key={example}>{example}</li>)}</ul>
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
+            {draft.issues.length ? (
+              <div className="prompt-draft-issues">
+                {draft.issues.map((issue) => <div key={`${issue.code}:${issue.message}`}>{issue.message}</div>)}
+              </div>
+            ) : null}
           </article>
         ) : null}
-        {notice ? <div className="prompt-notice error">{notice}</div> : null}
+        {draftNeedsRevision ? <div className="prompt-notice">{PROMPT_DRAFT_NOT_READY_MESSAGE}</div> : null}
+        {notice ? <div className={`prompt-notice${noticeIsGuidance ? '' : ' error'}`}>{notice}</div> : null}
         <footer>
-          <button type="button" className="ghost" onClick={onClose}>关闭</button>
-          <button type="button" onClick={commitDraft} disabled={!draft?.draftKey || working === 'commit'}>
+          <button type="button" className="ghost" onClick={onClose} disabled={Boolean(working)}>关闭</button>
+          <button type="button" onClick={commitDraft} disabled={!draft?.draftKey || draftNeedsRevision || working === 'commit'}>
             {working === 'commit' ? '保存中...' : '确认保存'}
           </button>
         </footer>
-      </section>
-    </div>
+    </FocusTrapDialog>
   );
 }

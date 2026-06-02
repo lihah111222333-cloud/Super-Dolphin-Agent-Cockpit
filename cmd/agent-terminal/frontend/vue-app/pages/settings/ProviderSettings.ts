@@ -84,7 +84,7 @@ function providerDefaults(providerID: string) {
   if (normalizeProviderID(providerID) === 'claude') {
     return { model: 'sonnet', effort: 'high' };
   }
-  return { model: 'gpt-5.5', effort: 'xhigh' };
+  return { model: 'gpt-5-codex', effort: 'xhigh' };
 }
 
 function validateAbsPaths(raw: string): string {
@@ -141,7 +141,7 @@ function setupProviderSettings(props: ProviderSettingsProps) {
   const summaryMode = ref(DEFAULT_SUMMARY_MODE) as { value: string };
   const approvalMode = ref(DEFAULT_APPROVAL_MODE) as { value: string };
   const effortModeValue = ref('xhigh') as { value: string };
-  const providerModelValue = ref('gpt-5.5') as { value: string };
+  const providerModelValue = ref('gpt-5-codex') as { value: string };
   const effortPreferenceExplicit = ref(false) as { value: boolean };
   const providerModelPreferenceExplicit = ref(false) as { value: boolean };
   const effortPreferenceTouched = ref(false) as { value: boolean };

@@ -1,0 +1,54 @@
+{
+  "phase": "M5",
+  "date": "2026-06-01",
+  "dimension": "output_uniformity",
+  "machines": [
+    {
+      "name": "machine-a",
+      "scores": {
+        "cognitive_load": 84,
+        "output_uniformity": 40,
+        "hint_quality": 54,
+        "compatibility": 80,
+        "test_coverage": 74
+      }
+    },
+    {
+      "name": "machine-b",
+      "scores": {
+        "cognitive_load": 82,
+        "output_uniformity": 45,
+        "hint_quality": 58,
+        "compatibility": 76,
+        "test_coverage": 76
+      }
+    },
+    {
+      "name": "machine-c",
+      "scores": {
+        "cognitive_load": 80,
+        "output_uniformity": 42,
+        "hint_quality": 55,
+        "compatibility": 78,
+        "test_coverage": 75
+      }
+    }
+  ],
+  "adjudicated_scores": {
+    "cognitive_load": 82,
+    "output_uniformity": 42,
+    "hint_quality": 55,
+    "compatibility": 78,
+    "test_coverage": 75,
+    "weighted_total": 66.0
+  },
+  "target_scores": {
+    "cognitive_load": 86,
+    "output_uniformity": 70,
+    "hint_quality": 72,
+    "compatibility": 85,
+    "test_coverage": 84,
+    "weighted_total": 79.4
+  },
+  "verdict": "Proceed with additive envelope fields on object-shaped list outputs. Defer direct-array outputs to a compatibility migration round."
+}

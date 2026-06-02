@@ -50,6 +50,57 @@ func TestStartTurnAppliesTurnToolScopeRuntimeConfig(t *testing.T) {
 	}
 }
 
+func TestStartTurnReplacesGenericGPTModelFromModelList(t *testing.T) {
+	turnParams := make(chan map[string]any, 1)
+	serverURL := startCodexRPCServerWithHandler(t, func(msg jsonRPCMessage) json.RawMessage {
+		switch msg.Method {
+		case "model/list":
+			return mustJSON(map[string]any{
+				"models": []map[string]any{
+					{"id": "gpt-5"},
+					{"id": "gpt-5-codex"},
+				},
+			})
+		case "turn/start":
+			var params map[string]any
+			_ = json.Unmarshal(msg.Params, &params)
+			turnParams <- params
+			return mustJSON(map[string]any{"turn": map[string]any{"id": "turn-model-replaced"}})
+		default:
+			return mustJSON(map[string]any{"ok": true})
+		}
+	})
+	s, err := newSession(context.Background(), pkglogger.Get(), serverURL, "agent-1", nil, nil, nil)
+	if err != nil {
+		t.Fatalf("newSession() error = %v", err)
+	}
+	s.runtime.Start()
+	t.Cleanup(func() { closeCodexTestSession(t, s) })
+	s.setRuntimeConfig(map[string]any{"model": "gpt-5"})
+
+	handle, err := s.StartTurn(context.Background(), dto.TurnRequest{
+		ThreadID: "provider-thread-1",
+		Inputs:   []dto.InputItem{{Type: "text", Content: "1+1=几"}},
+	})
+	if err != nil {
+		t.Fatalf("StartTurn() error = %v", err)
+	}
+	if handle.ProviderID() != "turn-model-replaced" {
+		t.Fatalf("ProviderID() = %q, want turn-model-replaced", handle.ProviderID())
+	}
+	select {
+	case params := <-turnParams:
+		if params["model"] != "gpt-5-codex" {
+			t.Fatalf("turn/start model = %#v, want gpt-5-codex; params=%#v", params["model"], params)
+		}
+	default:
+		t.Fatal("turn/start params were not captured")
+	}
+	if got := s.RuntimeConfigSnapshot()["model"]; got != "gpt-5-codex" {
+		t.Fatalf("runtime model = %#v, want gpt-5-codex", got)
+	}
+}
+
 func TestApplyTurnToolScopeRuntimeConfigUpdatesCWDAndRoots(t *testing.T) {
 	s := &session{runtimeConfig: map[string]any{
 		"cwd":                          "/old",

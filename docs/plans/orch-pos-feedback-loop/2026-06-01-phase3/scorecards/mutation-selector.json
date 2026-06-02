@@ -1,0 +1,34 @@
+{
+  "round_id": "orch-pos-phase3-2026-06-01",
+  "scorer": "mutation-selector",
+  "target": "mutation and lifecycle tool selectors",
+  "score_before": 52,
+  "dimensions": {
+    "input_cognitive_load": {
+      "score": 45,
+      "evidence": "Mutation tools still require different selector fields: agent_id, dag_key, run_key, node_key, and run_id."
+    },
+    "pos_consistency": {
+      "score": 48,
+      "evidence": "Read tools accept pos after Phase 1, but mutation tools do not."
+    },
+    "runtime_node_addressability": {
+      "score": 55,
+      "evidence": "Runtime node operations require dag_key + node_key + run_id. Without a pos form, callers must remember three fields."
+    }
+  },
+  "findings": [
+    {
+      "id": "MS-001",
+      "severity": "P1",
+      "decision": "must_fix",
+      "summary": "Mutation tools have not adopted the unified pos selector."
+    },
+    {
+      "id": "MS-002",
+      "severity": "P1",
+      "decision": "must_fix",
+      "summary": "Runtime node tools need a compact selector for dag + run_id + node."
+    }
+  ]
+}

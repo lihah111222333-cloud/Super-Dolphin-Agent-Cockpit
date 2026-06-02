@@ -5,6 +5,9 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+	"time"
+
+	sharedfilestore "github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/sharedfile"
 )
 
 func TestHandleListModels_AllProviders(t *testing.T) {
@@ -19,6 +22,9 @@ func TestHandleListModels_AllProviders(t *testing.T) {
 	}
 	if len(res.Providers) != 2 {
 		t.Fatalf("Providers count = %d, want 2 (claude + codex)", len(res.Providers))
+	}
+	if len(res.Data) != 2 || res.Total != 2 || res.Showing != 2 || res.Truncated || res.Hint == "" {
+		t.Fatalf("model list envelope = %+v", res)
 	}
 }
 
@@ -88,8 +94,64 @@ func TestHandleSharedFileList_NilStoreError(t *testing.T) {
 	}
 }
 
+func TestHandleSharedFileList_ReturnsEnvelopeWithLegacyFiles(t *testing.T) {
+	updatedAt := time.Date(2026, 6, 1, 9, 30, 0, 0, time.UTC)
+	store := &stubSharedFileListStore{files: []sharedfilestore.SharedFile{{
+		Path:      "reports/summary.md",
+		UpdatedBy: "agent",
+		UpdatedAt: updatedAt,
+	}}}
+	h := HandleSharedFileList(store)
+	out, err := h(context.Background(), json.RawMessage(`{"prefix":"reports/","limit":5}`))
+	if err != nil {
+		t.Fatalf("err = %v", err)
+	}
+	if store.got != (sharedfilestore.ListFilter{Prefix: "reports/", Limit: 5}) {
+		t.Fatalf("shared file filter = %#v", store.got)
+	}
+	res, ok := out.(SharedFileListResult)
+	if !ok {
+		t.Fatalf("unexpected return type %T", out)
+	}
+	if len(res.Files) != 1 || res.Files[0].Path != "reports/summary.md" {
+		t.Fatalf("legacy files = %+v", res.Files)
+	}
+	assertEnvelopeCounts(t, "HandleSharedFileList()", len(res.Data), res.Total, res.Showing, res.Truncated, res.Hint)
+	if res.Data[0].Path != "reports/summary.md" {
+		t.Fatalf("shared file list data = %+v", res.Data)
+	}
+	if len(res.AllowedPrefixes) == 0 {
+		t.Fatalf("shared file allowed prefixes missing = %+v", res)
+	}
+	if res.AllowedPrefixHint == "" {
+		t.Fatalf("shared file allowed prefix hint missing = %+v", res)
+	}
+}
+
 type stubModelRegistry struct {
 	providers []ProviderModels
+}
+
+type stubSharedFileListStore struct {
+	files []sharedfilestore.SharedFile
+	got   sharedfilestore.ListFilter
+}
+
+func (s *stubSharedFileListStore) Get(context.Context, string) (*sharedfilestore.SharedFile, error) {
+	return nil, nil
+}
+
+func (s *stubSharedFileListStore) List(_ context.Context, filter sharedfilestore.ListFilter) ([]sharedfilestore.SharedFile, error) {
+	s.got = filter
+	return append([]sharedfilestore.SharedFile(nil), s.files...), nil
+}
+
+func (s *stubSharedFileListStore) Upsert(context.Context, sharedfilestore.UpsertParams) (*sharedfilestore.SharedFile, error) {
+	return nil, nil
+}
+
+func (s *stubSharedFileListStore) Delete(context.Context, string) (int64, error) {
+	return 0, nil
 }
 
 func testModelRegistry() stubModelRegistry {

@@ -2,6 +2,8 @@ package eventsurface
 
 import (
 	"encoding/json"
+	"fmt"
+	"log/slog"
 	"strings"
 )
 
@@ -119,10 +121,18 @@ func payloadMap(payload any) map[string]any {
 	}
 	raw, err := json.Marshal(payload)
 	if err != nil {
+		slog.Warn("eventsurface: payloadMap marshal failed, dropping legacy refresh payload",
+			slog.String("payload_type", fmt.Sprintf("%T", payload)),
+			slog.String("error", err.Error()),
+		)
 		return map[string]any{}
 	}
 	var out map[string]any
 	if err := json.Unmarshal(raw, &out); err != nil {
+		slog.Warn("eventsurface: payloadMap unmarshal failed, dropping legacy refresh payload",
+			slog.String("payload_type", fmt.Sprintf("%T", payload)),
+			slog.String("error", err.Error()),
+		)
 		return map[string]any{}
 	}
 	return out

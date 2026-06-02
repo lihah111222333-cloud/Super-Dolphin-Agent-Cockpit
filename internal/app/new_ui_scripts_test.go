@@ -39,6 +39,39 @@ func TestNewUIDesktopScriptContract(t *testing.T) {
 	}
 }
 
+func TestNewUIDesktopScriptAutostartsLocalPostgresBeforeBackend(t *testing.T) {
+	text := readRootScript(t, "../../run-new-ui-desktop.sh")
+
+	required := []string{
+		`configure_dev_postgres_runtime`,
+		`ensure_local_postgres`,
+		`resolve_postgres_bin_dir`,
+		`resolve_postgres_share_dir`,
+		`SUPER_DOLPHIN_POSTGRES_DIST`,
+		`SUPER_DOLPHIN_POSTGRES_BIN_DIR`,
+		`SUPER_DOLPHIN_POSTGRES_SHARE_DIR`,
+		`SUPER_DOLPHIN_PROCESS_ROLE="${SUPER_DOLPHIN_PROCESS_ROLE:-desktop}"`,
+		`SUPER_DOLPHIN_LOCAL_POSTGRES_DATA_DIR="${SUPER_DOLPHIN_LOCAL_POSTGRES_DATA_DIR:-$PROJECT_DIR/.tmp/pgdata}"`,
+		`SUPER_DOLPHIN_LOCAL_POSTGRES_RUNTIME_DIR="${SUPER_DOLPHIN_LOCAL_POSTGRES_RUNTIME_DIR:-$PROJECT_DIR/.tmp/pgsocket}"`,
+		`SUPER_DOLPHIN_LOCAL_POSTGRES_LOG="${SUPER_DOLPHIN_LOCAL_POSTGRES_LOG:-$PROJECT_DIR/.tmp/postgres.log}"`,
+		`postgres_is_local_database_url`,
+		`pg_ctl" -D "$SUPER_DOLPHIN_LOCAL_POSTGRES_DATA_DIR"`,
+	}
+	for _, want := range required {
+		if !strings.Contains(text, want) {
+			t.Fatalf("run-new-ui-desktop.sh missing %q", want)
+		}
+	}
+	assertTextOrder(t, text, "ensure_dev_control_session_token\nconfigure_dev_postgres_runtime", `ensure_node_deps "$FRONTEND_APP_DIR"`)
+	assertTextOrder(t, text, "ensure_local_postgres\nensure_node_deps", `(cd "$PROJECT_DIR" && go run ./cmd/agent-terminal) &`)
+	if strings.Contains(text, `export DATABASE_URL="${DATABASE_URL:-`) {
+		t.Fatal("run-new-ui-desktop.sh must not overwrite an explicit DATABASE_URL")
+	}
+	if strings.Contains(text, ",,}") {
+		t.Fatal("run-new-ui-desktop.sh must remain compatible with macOS Bash 3.2 and avoid Bash 4 lowercase expansion")
+	}
+}
+
 func TestNewUIWebScriptContract(t *testing.T) {
 	text := readRootScript(t, "../../run-new-ui-web.sh")
 
@@ -70,4 +103,19 @@ func readRootScript(t *testing.T, path string) string {
 		t.Fatalf("read %s: %v", path, err)
 	}
 	return string(raw)
+}
+
+func assertTextOrder(t *testing.T, text, first, second string) {
+	t.Helper()
+	firstIndex := strings.Index(text, first)
+	if firstIndex < 0 {
+		t.Fatalf("missing first text %q", first)
+	}
+	secondIndex := strings.Index(text, second)
+	if secondIndex < 0 {
+		t.Fatalf("missing second text %q", second)
+	}
+	if firstIndex >= secondIndex {
+		t.Fatalf("expected %q before %q", first, second)
+	}
 }

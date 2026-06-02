@@ -3,7 +3,6 @@ package main
 import (
 	"os"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"testing"
 )
@@ -252,7 +251,7 @@ func TestVerifyPackagedAppMacOSAcceptsRuntimeManifestContract(t *testing.T) {
 		"lsp_bundle_path":                 "lsp",
 		"lsp_manifest_path":               "lsp/lsp-manifest.json",
 		"model_registry_path":             "models.yaml",
-		"embedded_postgres_resource_path": "postgres/" + runtime.GOOS + "-" + runtime.GOARCH,
+		"embedded_postgres_resource_path": "postgres/" + bashVerifierPlatform(),
 	})
 
 	output, err := runVerifyPackagedAppMacOS(t, app)
@@ -270,7 +269,7 @@ func TestVerifyPackagedAppMacOSDoesNotRequireGoToolchain(t *testing.T) {
 		"lsp_bundle_path":                 "lsp",
 		"lsp_manifest_path":               "lsp/lsp-manifest.json",
 		"model_registry_path":             "models.yaml",
-		"embedded_postgres_resource_path": "postgres/" + runtime.GOOS + "-" + runtime.GOARCH,
+		"embedded_postgres_resource_path": "postgres/" + bashVerifierPlatform(),
 	})
 
 	output, err := runVerifyPackagedAppMacOSWithEnv(t, app, []string{"PATH=/usr/bin:/bin:/usr/sbin:/sbin"})
@@ -300,7 +299,7 @@ func TestVerifyPackagedAppMacOSSmokesJDTLSWhenBundled(t *testing.T) {
 		"lsp_bundle_path":                 "lsp",
 		"lsp_manifest_path":               "lsp/lsp-manifest.json",
 		"model_registry_path":             "models.yaml",
-		"embedded_postgres_resource_path": "postgres/" + runtime.GOOS + "-" + runtime.GOARCH,
+		"embedded_postgres_resource_path": "postgres/" + bashVerifierPlatform(),
 	})
 
 	output, err := runVerifyPackagedAppMacOS(t, app)
@@ -326,7 +325,7 @@ func TestVerifyPackagedAppMacOSTypeScriptLSPExecutableCheckPassesUnderCleanPath(
 		"lsp_bundle_path":                 "lsp",
 		"lsp_manifest_path":               "lsp/lsp-manifest.json",
 		"model_registry_path":             "models.yaml",
-		"embedded_postgres_resource_path": "postgres/" + runtime.GOOS + "-" + runtime.GOARCH,
+		"embedded_postgres_resource_path": "postgres/" + bashVerifierPlatform(),
 	})
 
 	output, err := runVerifyPackagedAppMacOSWithEnv(t, app, []string{"PATH=/usr/bin:/bin:/usr/sbin:/sbin"})
@@ -347,7 +346,7 @@ func TestVerifyPackagedAppMacOSAcceptsMinifiedLSPManifestWithReorderedFields(t *
 		"lsp_bundle_path":                 "lsp",
 		"lsp_manifest_path":               "lsp/lsp-manifest.json",
 		"model_registry_path":             "models.yaml",
-		"embedded_postgres_resource_path": "postgres/" + runtime.GOOS + "-" + runtime.GOARCH,
+		"embedded_postgres_resource_path": "postgres/" + bashVerifierPlatform(),
 	})
 	writeMinifiedReorderedLSPManifest(t, filepath.Join(resources, "lsp"), "lsp/")
 
@@ -414,7 +413,7 @@ func TestVerifyPackagedAppMacOSRejectsMissingLSPManifest(t *testing.T) {
 		"lsp_bundle_path":                 "lsp",
 		"lsp_manifest_path":               "lsp/lsp-manifest.json",
 		"model_registry_path":             "models.yaml",
-		"embedded_postgres_resource_path": "postgres/" + runtime.GOOS + "-" + runtime.GOARCH,
+		"embedded_postgres_resource_path": "postgres/" + bashVerifierPlatform(),
 	})
 	if err := os.Remove(filepath.Join(resources, "lsp", "lsp-manifest.json")); err != nil {
 		t.Fatalf("remove LSP manifest: %v", err)
@@ -438,7 +437,7 @@ func TestVerifyPackagedAppMacOSRejectsLSPManifestDigestMismatch(t *testing.T) {
 		"lsp_bundle_path":                 "lsp",
 		"lsp_manifest_path":               "lsp/lsp-manifest.json",
 		"model_registry_path":             "models.yaml",
-		"embedded_postgres_resource_path": "postgres/" + runtime.GOOS + "-" + runtime.GOARCH,
+		"embedded_postgres_resource_path": "postgres/" + bashVerifierPlatform(),
 	})
 	writeFile(t, filepath.Join(resources, "lsp", "bin", "rust-analyzer"), "#!/bin/sh\nexit 9\n", 0o755)
 
@@ -472,7 +471,7 @@ func TestVerifyPackagedAppMacOSRejectsMissingBundledGopls(t *testing.T) {
 		"lsp_bundle_path":                 "lsp",
 		"lsp_manifest_path":               "lsp/lsp-manifest.json",
 		"model_registry_path":             "models.yaml",
-		"embedded_postgres_resource_path": "postgres/" + runtime.GOOS + "-" + runtime.GOARCH,
+		"embedded_postgres_resource_path": "postgres/" + bashVerifierPlatform(),
 	})
 	if err := os.Remove(filepath.Join(resources, "bin", "gopls")); err != nil {
 		t.Fatalf("remove bundled gopls: %v", err)
@@ -496,7 +495,7 @@ func TestVerifyPackagedAppMacOSRejectsRuntimeManifestMismatch(t *testing.T) {
 		"lsp_bundle_path":                 "lsp",
 		"lsp_manifest_path":               "lsp/lsp-manifest.json",
 		"model_registry_path":             "models.yaml",
-		"embedded_postgres_resource_path": "postgres/" + runtime.GOOS + "-" + runtime.GOARCH,
+		"embedded_postgres_resource_path": "postgres/" + bashVerifierPlatform(),
 	})
 
 	output, err := runVerifyPackagedAppMacOS(t, app)
@@ -517,16 +516,17 @@ func TestVerifyPackagedAppMacOSRejectsRuntimeManifestSymlinkEscape(t *testing.T)
 		"lsp_bundle_path":                 "lsp",
 		"lsp_manifest_path":               "lsp/lsp-manifest.json",
 		"model_registry_path":             "models.yaml",
-		"embedded_postgres_resource_path": "postgres/" + runtime.GOOS + "-" + runtime.GOARCH,
+		"embedded_postgres_resource_path": "postgres/" + bashVerifierPlatform(),
 	})
 	outside := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(outside, runtime.GOOS+"-"+runtime.GOARCH), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Join(outside, bashVerifierPlatform()), 0o755); err != nil {
 		t.Fatalf("mkdir escaped postgres: %v", err)
 	}
 	if err := os.RemoveAll(filepath.Join(resources, "postgres")); err != nil {
 		t.Fatalf("remove bundled postgres: %v", err)
 	}
 	if err := os.Symlink(outside, filepath.Join(resources, "postgres")); err != nil {
+		skipIfSymlinkPrivilegeNotHeld(t, err)
 		t.Fatalf("symlink escaped postgres: %v", err)
 	}
 

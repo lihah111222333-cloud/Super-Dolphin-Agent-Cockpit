@@ -94,6 +94,12 @@ func registerUIMemoryMutationHandlers(p memoryHandlerDeps) handler.Map {
 		"ui/memory/similarity/consolidate-all": platformrpc.StrictHandler(func(ctx context.Context, req uiSimilarityConsolidateAllParams) (uiSimilarityConsolidateAllResult, error) {
 			return consolidateAllHandler(ctx, p, req)
 		}),
+		"ui/memory/similarity/consolidate-all/start": platformrpc.StrictHandler(func(ctx context.Context, req uiSimilarityConsolidateAllParams) (uiSimilarityConsolidateAllStartResult, error) {
+			return startConsolidateAllHandler(ctx, p, req)
+		}),
+		"ui/memory/similarity/consolidate-all/status": platformrpc.StrictHandler(func(ctx context.Context, req uiSimilarityConsolidateAllStatusParams) (uiSimilarityConsolidateAllStatusResult, error) {
+			return statusConsolidateAllHandler(ctx, p, req)
+		}),
 	}
 	return out
 }
@@ -477,7 +483,18 @@ type uiSimilarityIgnoreParams struct {
 
 // uiSimilarityConsolidateAllParams 是 ui/memory/similarity/consolidate-all RPC 入参。
 type uiSimilarityConsolidateAllParams struct {
-	CWD string `json:"cwd,omitempty"`
+	CWD           string `json:"cwd,omitempty"`
+	Provider      string `json:"provider,omitempty"`
+	Model         string `json:"model,omitempty"`
+	ModelProvider string `json:"model_provider,omitempty"`
+}
+
+func (p uiSimilarityConsolidateAllParams) dreamOptions() contract.DreamOptions {
+	return contract.DreamOptions{
+		Provider:      strings.TrimSpace(p.Provider),
+		Model:         strings.TrimSpace(p.Model),
+		ModelProvider: strings.TrimSpace(p.ModelProvider),
+	}
 }
 
 // uiSimilarityConsolidateAllResult 是 RPC 出参（字段语义与 similarity.ConsolidateResult 对齐）。
@@ -514,32 +531,48 @@ func ignoreSimilarityPairHandler(ctx context.Context, p memoryHandlerDeps, req u
 // consolidateAllHandler 是 ui/memory/similarity/consolidate-all 的 RPC 入口。
 // 主流程在 similarity 子包；本函数负责 ErrDreamExecutorNotConfigured 哨兵透传 + 路径 redact。
 func consolidateAllHandler(ctx context.Context, p memoryHandlerDeps, req uiSimilarityConsolidateAllParams) (uiSimilarityConsolidateAllResult, error) {
+	result, err := runConsolidateAll(ctx, p, req)
+	if err != nil {
+		return uiSimilarityConsolidateAllResult{}, err
+	}
+	publishUIMemoryChanged(p, "consolidate-similarities")
+	return result, nil
+}
+
+func runConsolidateAll(ctx context.Context, p memoryHandlerDeps, req uiSimilarityConsolidateAllParams) (uiSimilarityConsolidateAllResult, error) {
 	if p.Service == nil {
 		return uiSimilarityConsolidateAllResult{}, errors.New("memory service is not configured")
 	}
-	adapter := newSimilarityAdapter(p)
+	adapter := newSimilarityAdapter(p, req.dreamOptions())
 	res, err := similarity.ConsolidateAll(ctx, adapter, req.CWD)
 	if err != nil {
-		// 哨兵直透：LLM 不可用 / team-memory secret 命中两类错误前端要据此提示用户，
-		// 走 redact 会让用户看到模糊的 "durable memory entry save failed" 而失去 actionable 信息。
-		if errors.Is(err, contract.ErrDreamExecutorNotConfigured) {
-			return uiSimilarityConsolidateAllResult{}, err
-		}
-		if errors.Is(err, ErrTeamMemSecretDetected) {
-			// 透出**裸 sentinel** 而不是原 *TeamMemSecretError —— 后者 Error() 含
-			// validated path / 行号 / rule id，泄露到前端会违反 redact 策略。
-			// 详细路径已经在 mergeUIMemoryEntries 内部经 redactIfPathBearing 进 logger。
-			return uiSimilarityConsolidateAllResult{}, ErrTeamMemSecretDetected
+		if publicErr := publicConsolidateAllError(err); publicErr != nil {
+			return uiSimilarityConsolidateAllResult{}, publicErr
 		}
 		return uiSimilarityConsolidateAllResult{}, redactIfPathBearing(p.Logger, "consolidate_all",
 			errDurableMemorySaveFailed, err)
 	}
-	publishUIMemoryChanged(p, "consolidate-similarities")
 	return uiSimilarityConsolidateAllResult{
 		Merged: res.Merged, Ignored: res.Ignored,
 		Failed: res.Failed, Skipped: res.Skipped,
 		Errors: res.Errors,
 	}, nil
+}
+
+func publicConsolidateAllError(err error) error {
+	if errors.Is(err, contract.ErrDreamExecutorNotConfigured) {
+		return err
+	}
+	if errors.Is(err, ErrTeamMemSecretDetected) {
+		return ErrTeamMemSecretDetected
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		return publicValidationErr("智能整合耗时过长，请稍后重试")
+	}
+	if strings.Contains(err.Error(), "LLM consolidate:") {
+		return publicValidationErr("智能整合调用模型失败，请检查当前模型配置后重试")
+	}
+	return nil
 }
 
 func publishUIMemoryChanged(deps memoryHandlerDeps, action string) {

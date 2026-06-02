@@ -81,6 +81,9 @@ type PublishFunc func(method string, payload any)
 
 func Bind(dispatcher *event.Dispatcher, logger *pkglogger.Logger, publish PublishFunc) []context.CancelFunc {
 	if dispatcher == nil || publish == nil {
+		if logger != nil {
+			logger.Error("eventsurface: Bind called with nil dispatcher or publish, event pipeline disabled")
+		}
 		return nil
 	}
 	if logger != nil {

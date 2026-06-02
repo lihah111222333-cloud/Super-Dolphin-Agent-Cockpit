@@ -1,8 +1,10 @@
 package bus
 
 import (
-	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
+	"log/slog"
 	"reflect"
+
+	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 
 	agentdto "github.com/anthropic-ai/super-agent-v3/internal/dto/agent"
 	taskdto "github.com/anthropic-ai/super-agent-v3/internal/dto/task"
@@ -21,6 +23,7 @@ type LogSink struct {
 func NewLogSink(dispatcher *event.Dispatcher, logger *pkglogger.Logger) *LogSink {
 	sink := &LogSink{subs: NewSubscription()}
 	if dispatcher == nil || logger == nil {
+		slog.Warn("bus: NewLogSink called with nil dispatcher or logger, event logging disabled")
 		return sink
 	}
 	sink.bindAgent(dispatcher, logger)
@@ -33,7 +36,7 @@ func NewLogSink(dispatcher *event.Dispatcher, logger *pkglogger.Logger) *LogSink
 }
 
 func (s *LogSink) Close() {
-	if s == nil || s.subs == nil {
+	if s.subs == nil {
 		return
 	}
 	s.subs.CancelAll()
