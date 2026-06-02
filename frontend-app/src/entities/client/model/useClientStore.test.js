@@ -1005,6 +1005,46 @@ describe('useClientStore backend contract', () => {
     ]);
   });
 
+  it('filters injected AGENTS instructions from restored thread history', async () => {
+    resetClientStoreForTests({
+      cwd: '/repo/app',
+      activeProject: '/repo/app',
+      activeThreadId: 'thread-1',
+      threads: [{ id: 'thread-1', name: 'Existing', provider: 'codex', status: 'idle' }],
+    });
+    backend.getThreadState.mockResolvedValueOnce({
+      activeThreadId: 'thread-1',
+      threads: [{ id: 'thread-1', name: 'Existing', provider: 'codex', status: 'idle' }],
+      timelinesByThread: {},
+    });
+    backend.getThreadMessages.mockResolvedValueOnce({
+      messages: [
+        {
+          id: 'injected-agents',
+          role: 'user',
+          content: [
+            '# AGENTS.md instructions for /home/ai01@f666.com/桌面/project/Super-Dolphin',
+            '',
+            '<INSTRUCTIONS>',
+            '# Super Agent v3 Agent Context Policy',
+            '</INSTRUCTIONS>',
+          ].join('\n'),
+          createdAt: '2026-05-30T00:00:00Z',
+        },
+        { id: 'real-user', role: 'user', content: '真实用户问题', createdAt: '2026-05-30T00:01:00Z' },
+        { id: 'assistant-reply', role: 'assistant', content: '真实 AI 回复', createdAt: '2026-05-30T00:02:00Z' },
+      ],
+      total: 3,
+    });
+
+    await useClientStore.getState().syncThreadState('thread-1');
+
+    expect(useClientStore.getState().timelinesByThread['thread-1'].map((message) => message.text)).toEqual([
+      '真实用户问题',
+      '真实 AI 回复',
+    ]);
+  });
+
   it('loads every selected thread message page when history exceeds the backend page size', async () => {
     resetClientStoreForTests({
       cwd: '/repo/app',
@@ -1639,6 +1679,39 @@ describe('useClientStore backend contract', () => {
 
     expect(backend.deleteThread).toHaveBeenCalledWith({ threadId: 'thread-provisional' });
     expect(useClientStore.getState().draft).toBe('Clean up provisional thread');
+  });
+
+
+  it('does not delete an unrelated active thread when a provisional send fails', async () => {
+    const turnResult = deferred();
+
+    resetClientStoreForTests({
+      cwd: '/repo/app',
+      activeProject: '/repo/app',
+      activeThreadId: '',
+      draft: 'Keep draft',
+      attachments: [],
+      threads: [{ id: 'thread-other', name: 'Other thread', provider: 'codex', status: 'running' }],
+    });
+    backend.getPreference.mockImplementation(({ key }) => Promise.resolve({
+      'settings.provider.active': 'codex',
+      'settings.provider.codex.model': 'gpt-5.5',
+      'settings.provider.codex.effort': 'xhigh',
+      'settings.provider.codex.codexHome': '/Users/test/.codex-alt',
+      'settings.provider.codex.codexInstanceKey': 'desktop-main',
+      'settings.provider.codex.codexModelProvider': 'openrouter',
+    }[key] ?? null));
+    backend.startThread.mockResolvedValue({ threadId: 'thread-provisional' });
+    backend.startTurn.mockImplementation(() => turnResult.promise);
+
+    const sendPromise = useClientStore.getState().sendDraft();
+    useClientStore.setState({ activeThreadId: 'thread-other' });
+    turnResult.reject(new Error('turn/start failed'));
+
+    await expect(sendPromise).rejects.toThrow('turn/start failed');
+
+    expect(backend.deleteThread).toHaveBeenCalledWith({ threadId: 'thread-provisional' });
+    expect(backend.deleteThread).not.toHaveBeenCalledWith({ threadId: 'thread-other' });
   });
 
   it('keeps sending fail-fast when cwd is missing', async () => {

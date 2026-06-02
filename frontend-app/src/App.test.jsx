@@ -408,8 +408,9 @@ describe('frontend-app connected client shell', () => {
     render(<App />);
 
     expect(await screen.findByText('后端线程')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: '选择项目' })).toHaveTextContent(/^app$/);
-    expect(screen.getByLabelText('当前工作目录')).toHaveAttribute('title', '当前窗口 CWD：/repo/app');
+    const projectSelector = screen.getByRole('button', { name: '选择项目' });
+    expect(projectSelector).toHaveTextContent(/^app$/);
+    expect(projectSelector).toHaveAttribute('title', '/repo/app');
     expect(screen.getByText(/128 \/ 1024 tokens/)).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: '显示侧边栏' }));
     expect(within(screen.getByTestId('runtime-panel')).getByRole('button', { name: 'file' })).toBeInTheDocument();
@@ -420,6 +421,15 @@ describe('frontend-app connected client shell', () => {
       threadId: 'thread-1',
       includeDiff: true,
     });
+  });
+
+  it('shows the project selector only once in the shell toolbar', async () => {
+    render(<App />);
+
+    expect(await screen.findByText('后端线程')).toBeInTheDocument();
+    expect(screen.getAllByRole('button', { name: '选择项目' })).toHaveLength(1);
+    expect(screen.queryByLabelText('当前工作目录')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '显示侧边栏' })).toHaveTextContent('侧边栏');
   });
 
   it('uses the current URL path as the active page on boot', async () => {
@@ -690,6 +700,52 @@ describe('frontend-app connected client shell', () => {
     render(<App />);
 
     expect(await screen.findByText('这是 AI 输出。')).toBeInTheDocument();
+  });
+
+  it('hides injected AGENTS instructions from restored chat history', async () => {
+    backend.getThreadState.mockResolvedValue({
+      activeThreadId: 'thread-1',
+      timelinesByThread: {},
+    });
+    backend.getThreadMessages.mockResolvedValue({
+      messages: [
+        {
+          id: 1,
+          role: 'user',
+          content: [
+            '# AGENTS.md instructions for /home/ai01@f666.com/桌面/project/Super-Dolphin',
+            '',
+            '<INSTRUCTIONS>',
+            '# Super Agent v3 Agent Context Policy',
+            '',
+            '## Scope',
+            'This file defines how agents should load context.',
+            '</INSTRUCTIONS>',
+          ].join('\n'),
+          createdAt: '2026-05-30T00:00:00Z',
+        },
+        {
+          id: 2,
+          role: 'user',
+          content: '请修复前端渲染问题',
+          createdAt: '2026-05-30T00:01:00Z',
+        },
+        {
+          id: 3,
+          role: 'assistant',
+          content: '已完成修复。',
+          createdAt: '2026-05-30T00:02:00Z',
+        },
+      ],
+      total: 3,
+    });
+
+    render(<App />);
+
+    expect(await screen.findByText('请修复前端渲染问题')).toBeInTheDocument();
+    expect(screen.getByText('已完成修复。')).toBeInTheDocument();
+    expect(screen.queryByText(/AGENTS\.md instructions/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Super Agent v3 Agent Context Policy/)).not.toBeInTheDocument();
   });
 
   it('renders malformed inline markdown fences as readable code blocks', async () => {
@@ -1305,6 +1361,44 @@ describe('frontend-app connected client shell', () => {
     expect(step).toHaveTextContent('完成');
     expect(step).toHaveTextContent('读取 frontend-app/src/App.jsx');
     expect(screen.getByText('工具结果已整理。')).toBeInTheDocument();
+  });
+
+  it('renders AI execution plans as checklist details in the processing frame', async () => {
+    backend.getThreadState.mockResolvedValue({
+      activeThreadId: 'thread-1',
+      timelinesByThread: {
+        'thread-1': [{
+          id: 'plan-1',
+          kind: 'plan',
+          title: '执行计划',
+          status: 'running',
+          done: false,
+          text: [
+            '并行审查前端和后端代码',
+            '✅ 1. 读取当前前端代码',
+            '🔄 2. 修复项目选择器重复展示',
+            '⏳ 3. 隐藏注入提示词',
+          ].join('\n'),
+          ts: '2026-05-30T00:00:00Z',
+        }],
+      },
+    });
+
+    render(<App />);
+
+    const plan = await screen.findByLabelText('AI 执行计划');
+    expect(plan).toHaveTextContent('执行计划');
+    expect(plan).toHaveTextContent('已完成 1/3 项任务');
+    expect(within(plan).getByText('读取当前前端代码')).toBeInTheDocument();
+    expect(within(plan).getByText('修复项目选择器重复展示')).toBeInTheDocument();
+    expect(within(plan).getByText('隐藏注入提示词')).toBeInTheDocument();
+    const list = within(plan).getByRole('list');
+    expect(list.tagName).toBe('OL');
+    expect(list).toHaveClass('execution-plan-list');
+    const items = within(list).getAllByRole('listitem');
+    expect(items).toHaveLength(3);
+    expect(items[0]).toHaveAttribute('data-plan-status', 'done');
+    expect(items[1]).toHaveAttribute('data-plan-status', 'pending');
   });
 
   it('shows an active thinking placeholder while a turn is running before output arrives', async () => {

@@ -51,7 +51,7 @@ This policy governs agent instruction loading from `.agent/skills/**`. It does n
 
 - Go module: `github.com/anthropic-ai/super-agent-v3`, Go `1.25.7`.
 - Entrypoints:
-  - `cmd/agent-terminal`: Wails/Vue desktop UI and HTTP server.
+  - `cmd/agent-terminal`: Wails desktop host and HTTP server. In dev, `VITE_DEV_URL` proxies the host to the current `frontend-app` Vite server; without that dev proxy it serves the legacy embedded bundle.
   - `cmd/mcp-orch`: orchestration peer for agent lifecycle, DAG, cron, and toolbridge.
   - `cmd/mcp-lsp`: generic multi-language LSP peer.
   - `cmd/mcp-ida`: IDA MCP peer.
@@ -64,7 +64,8 @@ This policy governs agent instruction loading from `.agent/skills/**`. It does n
   - `internal/store`: sqlc-backed persistence layer.
   - `internal/archtest`: architecture guards, code-size guard, and ratchet baseline.
   - `pkg`: reusable public libraries.
-  - `cmd/agent-terminal/frontend`: Vue/Vite frontend package.
+  - `frontend-app`: current React/Vite new UI package used by `run-new-ui-desktop.sh`.
+  - `cmd/agent-terminal/frontend`: legacy Vue/Vite embedded frontend package; edit only when a task explicitly targets the legacy/package-embed path.
 
 ## Command Policy
 
@@ -78,7 +79,8 @@ This policy governs agent instruction loading from `.agent/skills/**`. It does n
   - `make install-hooks`
   - `make sqlc-verify`
   - `make codemap-check`
-- Frontend commands run in `cmd/agent-terminal/frontend`.
+- Current new UI frontend commands run in `frontend-app`.
+- Legacy Vue frontend commands run in `cmd/agent-terminal/frontend` only when the task explicitly targets the legacy/package-embed path.
 
 ## Completion Verification
 
@@ -109,7 +111,16 @@ Guard, architecture, or baseline changes:
 ./scripts/test_with_guard.sh ./internal/archtest -count=1
 ```
 
-Frontend changes:
+Current new UI frontend changes:
+
+```bash
+cd frontend-app
+npm run lint
+npm test
+npm run build
+```
+
+Legacy embedded Vue frontend changes:
 
 ```bash
 cd cmd/agent-terminal/frontend
@@ -118,7 +129,7 @@ npx vitest run
 npm run build
 ```
 
-`cmd/agent-terminal` embeds frontend assets from `cmd/agent-terminal/frontend/dist`. The bundle is gitignored, so first clone, cleaned dist, and agent-terminal build/run verification require a frontend build before the Go build/run can represent the current UI.
+`run-new-ui-desktop.sh` starts `frontend-app` on Vite and launches `cmd/agent-terminal` with `VITE_DEV_URL`, so the desktop host proxies the current React UI. `cmd/agent-terminal` still embeds assets from `cmd/agent-terminal/frontend/dist` when no dev proxy is configured; that legacy bundle is gitignored and only represents the legacy/package-embed frontend path.
 
 SQL/store changes:
 
