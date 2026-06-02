@@ -919,6 +919,23 @@ function threadStatusBusy(status) {
   return normalized === '工作中';
 }
 
+function threadStatusDotState(status) {
+  const normalized = normalizeTurnState(status);
+  if (!normalized) return 'idle';
+  if (['failed', 'error', 'stalled'].includes(normalized)) return 'error';
+  if (['running', 'force_completing'].includes(normalized)) return 'running';
+  if (['preparing', 'starting', 'thinking'].includes(normalized)) return 'thinking';
+  if (['waiting', 'interrupting', 'interrupted'].includes(normalized)) return 'waiting';
+  if (['syncing', 'responding', 'editing'].includes(normalized)) return normalized;
+  if (['completed', 'idle', 'stopped', 'archived'].includes(normalized)) return 'idle';
+  return 'idle';
+}
+
+function threadStatusDotTitle(status, statusLabel) {
+  const normalized = normalizeTurnState(status);
+  return statusLabel || TURN_STATE_INFO[normalized]?.label || '空闲';
+}
+
 function normalizedThreadIdentity(value) {
   return (value || '').toString().trim();
 }
@@ -3667,6 +3684,8 @@ function ThreadRail({ store }) {
           const editing = editingThreadId === thread.id;
           const threadLabel = displayThreadName(thread);
           const statusLabel = threadCardStatusLabel(thread, running);
+          const statusDotState = threadStatusDotState(thread.status);
+          const statusDotTitle = threadStatusDotTitle(thread.status, statusLabel);
           return (
             <div
               key={thread.id}
@@ -3750,16 +3769,19 @@ function ThreadRail({ store }) {
                       {threadLabel}
                     </span>
                     <b>{threadProviderLabel(thread.provider)}</b>
-                    {statusLabel || thread.staleReason ? (
-                      <em className={running ? 'running' : ''}>
-                        {statusLabel}
-                        {thread.staleReason ? (
-                          <span className="thread-stale-badge" data-stale-reason={thread.staleReason}>
-                            {thread.staleReason === 'expired' ? '超7天' : '空对话'}
-                          </span>
-                        ) : null}
-                      </em>
-                    ) : null}
+                    <span className="thread-status-row" data-thread-status={statusDotState}>
+                      <span
+                        className={`thread-status-dot thread-status-dot--${statusDotState}`}
+                        title={statusDotTitle}
+                        aria-hidden="true"
+                      />
+                      {statusLabel ? <span className="thread-status-label">{statusLabel}</span> : null}
+                      {thread.staleReason ? (
+                        <span className="thread-stale-badge" data-stale-reason={thread.staleReason}>
+                          {thread.staleReason === 'expired' ? '超7天' : '空对话'}
+                        </span>
+                      ) : null}
+                    </span>
                   </button>
                 </>
               )}

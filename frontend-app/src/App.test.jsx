@@ -800,6 +800,7 @@ describe('frontend-app connected client shell', () => {
     expect(card).toHaveTextContent('codex');
     expect(card).not.toHaveTextContent('idle');
     expect(card.querySelector('em')).toBeNull();
+    expect(card.querySelector('.thread-status-dot')).toHaveClass('thread-status-dot--idle');
   });
 
   it('maps backend projected thread statuses in thread cards', async () => {
@@ -810,6 +811,7 @@ describe('frontend-app connected client shell', () => {
         { id: 'thread-editing', name: '编辑会话', provider: 'codex', status: 'editing' },
         { id: 'thread-waiting', name: '确认会话', provider: 'codex', status: 'waiting' },
         { id: 'thread-syncing', name: '同步会话', provider: 'codex', status: 'syncing' },
+        { id: 'thread-error', name: '异常会话', provider: 'codex', status: 'error' },
       ],
     });
 
@@ -819,6 +821,10 @@ describe('frontend-app connected client shell', () => {
     expect(screen.getByText('编辑会话').closest('.thread-card')).toHaveTextContent('编辑中');
     expect(screen.getByText('确认会话').closest('.thread-card')).toHaveTextContent('等待确认');
     expect(screen.getByText('同步会话').closest('.thread-card')).toHaveTextContent('同步中');
+    expect(screen.getByText('异常会话').closest('.thread-card')).toHaveTextContent('异常');
+    expect(screen.getByText('思考会话').closest('.thread-card').querySelector('.thread-status-dot')).toHaveClass('thread-status-dot--thinking');
+    expect(screen.getByText('确认会话').closest('.thread-card').querySelector('.thread-status-dot')).toHaveClass('thread-status-dot--waiting');
+    expect(screen.getByText('异常会话').closest('.thread-card').querySelector('.thread-status-dot')).toHaveClass('thread-status-dot--error');
   });
 
   it('shows a bootstrap failure notice when the backend bridge is unavailable', async () => {
