@@ -2261,6 +2261,7 @@ function dagNodeFormFromNode(node) {
   return {
     nodeKey: textValue(node?.nodeKey),
     title: textValue(node?.title),
+    assignedTo: textValue(node?.assignedTo),
     provider: firstText(config.provider, config.agentKey, config.agent_key),
     model: textValue(config.model),
     promptKey: firstText(config.prompt_key, config.promptKey),
@@ -2281,9 +2282,25 @@ function dagNodePatchFromForm(form, node) {
   };
   return {
     title: textValue(form.title),
+    assigned_to: textValue(form.assignedTo),
     depends_on: wordListFromText(form.dependsOn),
     config: cleanObject(config),
   };
+}
+
+function rootNodesMissingAssignee(nodes = []) {
+  if (!Array.isArray(nodes) || nodes.length === 0) return [];
+  return nodes.filter((node) => {
+    const dependsOn = Array.isArray(node?.dependsOn) ? node.dependsOn : [];
+    return dependsOn.length === 0 && !textValue(node?.assignedTo);
+  });
+}
+
+function rootAssigneeWarning(nodes = []) {
+  const missing = rootNodesMissingAssignee(nodes);
+  if (missing.length === 0) return '';
+  const names = missing.map((node) => node.title || node.nodeKey).filter(Boolean).join('、');
+  return names ? `首个步骤「${names}」缺少执行者，请先在高级设置中填写执行者。` : '首个步骤缺少执行者，请先在高级设置中填写执行者。';
 }
 
 function listToText(words) {
@@ -5662,14 +5679,16 @@ function WorkflowPage({ projectPath, store, refreshKey = 0 }) {
   const recentRunPanelLabel = dagStatusLabel(activeRun?.status || runs[0]?.status || activeDetailDag?.latestRun?.status);
   const scheduleActionLabel = isScheduledTrigger(activeDetailDag?.trigger) || activeDetailDag?.cronExpr ? '修改计划' : '创建定时任务';
   const scheduleToggleVisible = isScheduledTrigger(activeDetailDag?.trigger) && Boolean(activeDetailDag?.cronExpr);
+  const missingRootAssigneeWarning = useMemo(() => rootAssigneeWarning(nodes), [nodes]);
   const startDisabledReason = useMemo(() => {
     if (!dagKey) return '未选择自动化';
     if (loading || detailLoading) return '自动化详情加载中';
     if (activeRunKey) return '已有运行正在进行';
     if (!STARTABLE_DAG_STATUSES.has(textValue(activeDetailDag?.status).toLowerCase())) return '当前流程状态不可运行';
     if (!STARTABLE_DAG_TRIGGERS.has(textValue(activeDetailDag?.trigger).toLowerCase())) return '当前触发方式不可运行';
+    if (missingRootAssigneeWarning) return missingRootAssigneeWarning;
     return '';
-  }, [activeDetailDag, activeRunKey, dagKey, detailLoading, loading]);
+  }, [activeDetailDag, activeRunKey, dagKey, detailLoading, loading, missingRootAssigneeWarning]);
 
   const runSelectedDag = useCallback(async () => {
     if (startDisabledReason) return;
@@ -5745,6 +5764,10 @@ function WorkflowPage({ projectPath, store, refreshKey = 0 }) {
       setError('自动化详情不完整，无法保存定时任务');
       return;
     }
+    if (missingRootAssigneeWarning) {
+      setError(`保存定时任务失败：${missingRootAssigneeWarning}`);
+      return;
+    }
     const targetDagKey = dagKey;
     setActioning('schedule');
     setError('');
@@ -5764,7 +5787,7 @@ function WorkflowPage({ projectPath, store, refreshKey = 0 }) {
     } finally {
       setActioning('');
     }
-  }, [baseVersion, clearNotice, dagKey, refreshDags, refreshDetail, scheduleCron, showTaskNotice]);
+  }, [baseVersion, clearNotice, dagKey, missingRootAssigneeWarning, refreshDags, refreshDetail, scheduleCron, showTaskNotice]);
 
   const toggleScheduleEnabled = useCallback(async () => {
     if (!dagKey) return;
@@ -6057,6 +6080,7 @@ function DagNodeEditor({ nodes, savingNodeKey, onSave }) {
           </select>
         </label>
         <label>名称<input value={form.title} onChange={update('title')} aria-label="名称" /></label>
+        <label>执行者<input value={form.assignedTo} onChange={update('assignedTo')} aria-label="执行者" /></label>
         <label>
           执行引擎
           <select value={form.provider} onChange={update('provider')} aria-label="执行引擎">
