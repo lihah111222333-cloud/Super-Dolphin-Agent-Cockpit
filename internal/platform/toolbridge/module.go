@@ -13,6 +13,7 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/difftracker"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/mcpcontrol"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/observability"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 	"github.com/kelindar/event"
 	"go.uber.org/fx"
@@ -59,6 +60,7 @@ type handlerIn struct {
 	Preferences  uiPreferenceReader        `optional:"true"`
 	Config       *platformconfig.Config    `optional:"true"`
 	Logger       *pkglogger.Logger         `optional:"true"`
+	Tracer       *observability.Service    `optional:"true"`
 	Dispatcher   *event.Dispatcher         `optional:"true"`
 	// HostTools is an fx optional field: in the agent-terminal graph it is
 	// filled by provideHostToolRegistry; tests or future no-provider graphs

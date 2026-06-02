@@ -12,6 +12,7 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
+	platformobs "github.com/anthropic-ai/super-agent-v3/internal/platform/observability"
 	threadstore "github.com/anthropic-ai/super-agent-v3/internal/store/thread"
 	"github.com/anthropic-ai/super-agent-v3/internal/util"
 	"github.com/anthropic-ai/super-agent-v3/internal/util/clone"
@@ -135,9 +136,12 @@ func (s *service) acquirePendingLaunchLock(threadID string) *sync.Mutex {
 	return m.(*sync.Mutex)
 }
 
-func (s *service) SpawnIfNeeded(ctx context.Context, threadID, userInputForRouter, requestCWD string) (bool, SpawnRouting, error) {
+func (s *service) SpawnIfNeeded(ctx context.Context, threadID, userInputForRouter, requestCWD string) (launched bool, routing SpawnRouting, err error) {
 	ctx = util.NonNilContext(ctx)
 	threadID = strings.TrimSpace(threadID)
+	span := s.beginThreadTraceSpan(ctx, "thread.spawn_if_needed", threadID, threadID, platformobs.NewCodeAnchor("internal/module/thread/spawn.go", "thread.(*service).SpawnIfNeeded", 138), nil)
+	ctx = span.ctx
+	defer func() { s.finishThreadTraceSpan(span, err) }()
 	if err := validateSpawnIfNeededInputs(s, threadID); err != nil {
 		return false, SpawnRouting{}, err
 	}

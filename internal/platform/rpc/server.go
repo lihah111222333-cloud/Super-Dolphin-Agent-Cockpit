@@ -12,6 +12,7 @@ import (
 	"time"
 
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/mcp"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/observability"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/runtimesafe"
 	platformshared "github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
@@ -24,9 +25,10 @@ import (
 const controlRPCAddrEnv = "GO_AGENT_CTL_RPC_ADDR"
 
 type Server struct {
-	logger  *pkglogger.Logger
-	addr    string
-	methods handler.Map
+	logger        *pkglogger.Logger
+	addr          string
+	methods       handler.Map
+	observability *observability.Service
 
 	mu         sync.RWMutex
 	active     map[*jrpc2.Server]string
@@ -246,10 +248,11 @@ func NewServer(p Params) *Server {
 		logger = pkglogger.Get()
 	}
 	return &Server{
-		logger:  logger,
-		addr:    p.Config.RPCAddr,
-		methods: handler.Map{},
-		active:  make(map[*jrpc2.Server]string),
+		logger:        logger,
+		addr:          p.Config.RPCAddr,
+		methods:       handler.Map{},
+		observability: p.Observability,
+		active:        make(map[*jrpc2.Server]string),
 	}
 }
 
@@ -265,13 +268,24 @@ func (s *Server) Register(handlerMaps ...handler.Map) {
 // whose shape is determined by the dispatched method at runtime.
 func (s *Server) Dispatch(ctx context.Context, method string, params json.RawMessage) (json.RawMessage, error) {
 	ctx = platformshared.NonNilContext(ctx)
+	var err error
+	ctx, _, err = pkglogger.WithChildTraceSpan(ctx)
+	if err != nil {
+		return nil, err
+	}
+	ctx = contextWithObservabilityTraceFromLogger(ctx)
+	startedAt := time.Now()
+	if err := s.recordDispatchTrace(ctx, method, params, startedAt, "backend.rpc.dispatch.start", "start", 0, observability.StatusOK, nil); err != nil {
+		s.logTraceRecordError(ctx, method, "start", err)
+	}
+
 	var rpcLog jrpc2.RPCLogger
 	if tracker := newRPCRequestTracker(s.logger); tracker != nil {
 		rpcLog = tracker
 	}
 
 	local := jrpcserver.NewLocal(s.methods, &jrpcserver.LocalOptions{
-		Server: prepareServerOptions(rpcLog, nil),
+		Server: prepareServerOptions(rpcLog, &jrpc2.ServerOptions{NewContext: func() context.Context { return ctx }}),
 	})
 	defer local.Close()
 
@@ -282,9 +296,93 @@ func (s *Server) Dispatch(ctx context.Context, method string, params json.RawMes
 
 	var result json.RawMessage
 	if err := local.Client.CallResult(ctx, method, callParams, &result); err != nil {
+		if recordErr := s.recordDispatchTrace(ctx, method, params, startedAt, "backend.rpc.dispatch.failed", "failed", time.Since(startedAt), observability.StatusError, err); recordErr != nil {
+			s.logTraceRecordError(ctx, method, "failed", recordErr)
+		}
 		return nil, err
 	}
+	duration := time.Since(startedAt)
+	if err := s.recordDispatchTrace(ctx, method, params, startedAt, "backend.rpc.dispatch.done", "done", duration, rpcTraceStatus(method, duration), nil); err != nil {
+		s.logTraceRecordError(ctx, method, "done", err)
+	}
 	return append(json.RawMessage(nil), result...), nil
+}
+
+func contextWithObservabilityTraceFromLogger(ctx context.Context) context.Context {
+	traceID := pkglogger.TraceIDFromContext(ctx)
+	spanID := pkglogger.SpanIDFromContext(ctx)
+	if traceID == "" || spanID == "" {
+		return ctx
+	}
+	return observability.ContextWithSpan(ctx, traceID, spanID, pkglogger.ParentSpanIDFromContext(ctx))
+}
+
+func (s *Server) logTraceRecordError(ctx context.Context, method string, phase string, err error) {
+	logger := s.logger
+	if logger == nil {
+		logger = pkglogger.FromContext(ctx)
+	}
+	logger.Warn("rpc dispatch trace record failed", "phase", phase, "method", method, "error", err)
+}
+
+func (s *Server) recordDispatchTrace(ctx context.Context, method string, params json.RawMessage, startedAt time.Time, kind string, phase string, duration time.Duration, status observability.Status, dispatchErr error) error {
+	if s == nil || s.observability == nil || !s.observability.Enabled() {
+		return nil
+	}
+	metadata := map[string]any{
+		"param_bytes": len(params),
+	}
+	if keys := rpcParamKeys(params); len(keys) > 0 {
+		metadata["param_keys"] = keys
+	}
+	event := observability.TraceEvent{
+		Timestamp:    startedAt,
+		TraceID:      pkglogger.TraceIDFromContext(ctx),
+		SpanID:       pkglogger.SpanIDFromContext(ctx),
+		ParentSpanID: pkglogger.ParentSpanIDFromContext(ctx),
+		Kind:         kind,
+		Phase:        phase,
+		Method:       strings.TrimSpace(method),
+		DurationMS:   duration.Milliseconds(),
+		Status:       status,
+		Code:         observability.NewCodeAnchor("internal/platform/rpc/server.go", "(*Server).Dispatch", 270),
+		Metadata:     metadata,
+	}
+	if dispatchErr != nil {
+		event.Error = strings.TrimSpace(dispatchErr.Error())
+	}
+	return s.observability.Record(ctx, event)
+}
+
+func rpcParamKeys(raw json.RawMessage) []string {
+	var obj map[string]json.RawMessage
+	if len(raw) == 0 || json.Unmarshal(raw, &obj) != nil {
+		return nil
+	}
+	keys := make([]string, 0, len(obj))
+	for key := range obj {
+		keys = append(keys, strings.TrimSpace(key))
+	}
+	sort.Strings(keys)
+	return keys
+}
+
+func rpcTraceStatus(method string, duration time.Duration) observability.Status {
+	if duration > rpcSlowThreshold(method) {
+		return observability.StatusSlow
+	}
+	return observability.StatusOK
+}
+
+func rpcSlowThreshold(method string) time.Duration {
+	switch {
+	case strings.TrimSpace(method) == "thread/start":
+		return 1000 * time.Millisecond
+	case strings.HasPrefix(strings.TrimSpace(method), "ui/"):
+		return 300 * time.Millisecond
+	default:
+		return 500 * time.Millisecond
+	}
 }
 
 func (s *Server) NotifyAll(ctx context.Context, bridge *PushBridge, method string, params any) {

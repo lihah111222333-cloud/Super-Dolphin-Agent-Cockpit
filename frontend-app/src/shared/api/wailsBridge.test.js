@@ -16,6 +16,12 @@ function captureBridgeLogs(registerBridgeLogStore) {
   return logs;
 }
 
+function waitForTraceFlush() {
+  return new Promise((resolve) => {
+    setTimeout(resolve, 0);
+  });
+}
+
 describe('wails bridge clipboard helpers', () => {
   afterEach(() => {
     vi.unstubAllGlobals();
@@ -222,6 +228,160 @@ describe('wails bridge warning logs', () => {
 
     const errorEvents = logs.filter((entry) => entry.level === 'error').map((entry) => entry.event);
     expect(errorEvents).toEqual(['bridge.call.failed']);
+  });
+});
+
+describe('wails bridge frontend trace emitter', () => {
+  beforeEach(() => {
+    vi.resetModules();
+    vi.doUnmock(runtimeModule);
+    delete window.__AO_FRONTEND_TRACE_DEBUG__;
+    window.localStorage.clear();
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    delete window.__AO_FRONTEND_TRACE_DEBUG__;
+  });
+
+  it('flushes failed RPC traces through observability frontend ingest without sensitive payload fields', async () => {
+    const backendError = new Error('raw prompt text must not be persisted');
+    backendError.code = 'E_BACKEND';
+    backendError.stack = 'raw stack with file contents';
+    const byID = vi.fn((_methodID, method, payload) => {
+      if (method === 'observability/frontend/ingest') return Promise.resolve({ recorded: payload.events.length });
+      return Promise.reject(backendError);
+    });
+    vi.doMock(runtimeModule, () => ({
+      Call: { ByID: byID },
+      Events: { On: vi.fn() },
+    }));
+    const { callAPI } = await import('./wailsBridge.js');
+
+    await expect(callAPI('thread/start', {
+      prompt: 'do not persist this prompt',
+      result_preview: 'do not persist preview',
+    })).rejects.toThrow('raw prompt text must not be persisted');
+    await waitForTraceFlush();
+    await waitForTraceFlush();
+
+    const ingestCall = byID.mock.calls.find(([, method]) => method === 'observability/frontend/ingest');
+    expect(ingestCall).toBeTruthy();
+    const events = ingestCall[2].events;
+    expect(events).toHaveLength(1);
+    expect(events[0]).toEqual(expect.objectContaining({
+      phase: 'frontend.rpc.failed',
+      method: 'thread/start',
+      status: 'error',
+      error: 'E_BACKEND',
+    }));
+    expect(events[0].trace_id).toBe(byID.mock.calls[0][2]._aoTraceId);
+    expect(events[0].span_id).toBe(byID.mock.calls[0][2]._aoSpanId);
+    expect(events[0]).not.toHaveProperty('error_name');
+    expect(events[0]).not.toHaveProperty('error_code');
+    const serialized = JSON.stringify(events);
+    expect(serialized).not.toContain('result_preview');
+    expect(serialized).not.toContain('do not persist');
+    expect(serialized).not.toContain('raw stack');
+    expect(serialized).not.toContain('prompt');
+  });
+
+  it('keeps successful debug RPC traces on the same trace context when debug tracing is enabled', async () => {
+    window.__AO_FRONTEND_TRACE_DEBUG__ = true;
+    const byID = vi.fn((methodID, method, payload) => {
+      if (method === 'observability/frontend/ingest') return Promise.resolve({ recorded: payload.events.length });
+      return Promise.resolve({ ok: true, result_preview: 'not persisted remotely' });
+    });
+    vi.doMock(runtimeModule, () => ({
+      Call: { ByID: byID },
+      Events: { On: vi.fn() },
+    }));
+    const { callAPI } = await import('./wailsBridge.js');
+
+    await expect(callAPI('thread/config/get', { threadId: 'thread-1' })).resolves.toEqual({
+      ok: true,
+      result_preview: 'not persisted remotely',
+    });
+    await waitForTraceFlush();
+    await waitForTraceFlush();
+
+    const rpcPayload = byID.mock.calls[0][2];
+    const ingestPayload = byID.mock.calls.find(([, method]) => method === 'observability/frontend/ingest')[2];
+    expect(ingestPayload.events.map((event) => event.phase)).toEqual([
+      'frontend.rpc.start',
+      'frontend.rpc.done',
+    ]);
+    expect(ingestPayload.events.every((event) => event.trace_id === rpcPayload._aoTraceId)).toBe(true);
+    expect(ingestPayload.events.every((event) => event.span_id === rpcPayload._aoSpanId)).toBe(true);
+    expect(JSON.stringify(ingestPayload.events)).not.toContain('result_preview');
+  });
+
+  it('drops oldest queued frontend traces at the queue bound without leaking sensitive metadata', async () => {
+    const byID = vi.fn((_methodID, method, payload) => {
+      if (method === 'observability/frontend/ingest') return Promise.resolve({ recorded: payload.events.length });
+      return Promise.resolve({ ok: true });
+    });
+    vi.doMock(runtimeModule, () => ({
+      Call: { ByID: byID },
+      Events: { On: vi.fn() },
+    }));
+    const { emitFrontendTraceEvent } = await import('./wailsBridge.js');
+
+    for (let i = 0; i < 510; i += 1) {
+      expect(emitFrontendTraceEvent({
+        phase: 'frontend.rpc.failed',
+        method: `thread/start-${i}`,
+        trace_id: `trace-${i}`,
+        span_id: `span-${i}`,
+        status: 'error',
+        error: 'E_BACKEND',
+        metadata: {
+          req_id: i,
+          prompt: 'secret prompt must not leak',
+          text: 'secret text must not leak',
+          raw_stack: 'secret stack must not leak',
+        },
+      }, { flush: false })).toBe(true);
+    }
+    expect(emitFrontendTraceEvent({
+      phase: 'frontend.rpc.failed',
+      method: 'trigger-flush',
+      trace_id: 'trace-trigger',
+      span_id: 'span-trigger',
+      status: 'error',
+      error: 'E_BACKEND',
+      metadata: { req_id: 510, prompt: 'trigger secret must not leak' },
+    })).toBe(true);
+
+    for (let i = 0; i < 12; i += 1) {
+      await waitForTraceFlush();
+    }
+
+    const ingestCalls = byID.mock.calls.filter(([, method]) => method === 'observability/frontend/ingest');
+    const events = ingestCalls.flatMap(([, , payload]) => payload.events);
+    expect(events).toHaveLength(500);
+    expect(events[0].method).toBe('thread/start-11');
+    expect(events.some((event) => event.method === 'thread/start-0')).toBe(false);
+    expect(events.some((event) => event.method === 'thread/start-10')).toBe(false);
+    expect(events[events.length - 1].method).toBe('trigger-flush');
+    const serialized = JSON.stringify(events);
+    expect(serialized).not.toContain('secret');
+    expect(serialized).not.toContain('prompt');
+    expect(serialized).not.toContain('raw_stack');
+  });
+
+  it('does not remote flush successful debug-level RPC traces by default', async () => {
+    const byID = vi.fn().mockResolvedValue({ ok: true });
+    vi.doMock(runtimeModule, () => ({
+      Call: { ByID: byID },
+      Events: { On: vi.fn() },
+    }));
+    const { callAPI } = await import('./wailsBridge.js');
+
+    await expect(callAPI('thread/config/get', { threadId: 'thread-1' })).resolves.toEqual({ ok: true });
+    await waitForTraceFlush();
+
+    expect(byID.mock.calls.some(([, method]) => method === 'observability/frontend/ingest')).toBe(false);
   });
 });
 
