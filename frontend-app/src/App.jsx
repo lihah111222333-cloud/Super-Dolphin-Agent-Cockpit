@@ -1,8 +1,10 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { AlertTriangle, Archive, ArrowLeft, Bot, Boxes, Brain, ChevronDown, CircleStop, Code2, Copy, Download, Eye, File, FileText, Folder, FolderOpen, GitBranch, Image, Link2, MemoryStick, MessageCircle, MoreHorizontal, Pencil, Plus, RefreshCw, Search, Send, Settings, Sparkles, Trash2, Workflow, X } from 'lucide-react';
+import { QueryClient, QueryClientProvider, useQuery, useQueryClient } from '@tanstack/react-query';
+import { AlertTriangle, Archive, ArrowLeft, Bot, Boxes, Brain, ChevronDown, CircleStop, Code2, Copy, Download, Eye, File, FileText, Folder, FolderOpen, GitBranch, Link2, MemoryStick, MessageCircle, Moon, MoreHorizontal, PanelTopOpen, Pencil, Pin, Plus, RefreshCw, Search, Send, Settings, Sparkles, Sun, Trash2, Workflow, X } from 'lucide-react';
 import { useClientStore } from './entities/client/model/useClientStore.js';
 import { PromptPageView } from './features/prompts/PromptPageView.jsx';
 import {
+  callBackend,
   applyDagOps,
   applySkillResolution,
   consolidateMemorySimilarities,
@@ -19,10 +21,12 @@ import {
   getDagRuns,
   getPreference,
   importSkillDirectories,
+  listSharedFiles,
   listSkillFiles,
   listSkillResolutions,
   ignoreMemorySimilarity,
   mergeMemoryEntries,
+  onFilesDropped,
   previewSkillResolution,
   readSharedFile,
   readSkill,
@@ -41,12 +45,17 @@ import {
 const navItems = [
   { id: 'chat', label: 'Chat', icon: MessageCircle },
   { id: 'prompts', label: '提示词', icon: FileText },
-  { id: 'workflows', label: '任务流程', icon: Workflow },
+  { id: 'workflows', label: '自动化', icon: Workflow },
   { id: 'skills', label: '技能', icon: Sparkles },
-  { id: 'memory', label: '记忆中心', icon: Brain, alert: true },
+  { id: 'memory', label: '记忆中心', icon: Brain },
   { id: 'files', label: '共享文件', icon: FolderOpen },
   { id: 'settings', label: '设置', icon: MoreHorizontal },
 ];
+
+const PROVIDER_LABELS = Object.freeze({
+  claude: 'Claude',
+  codex: 'Codex',
+});
 
 const DAG_RECENT_RUN_LIMIT = 5;
 const DAG_DESIGNER_ENABLED_TOOLS = Object.freeze([
@@ -77,6 +86,9 @@ const SHARED_FILE_SORTS = Object.freeze([
   { key: 'updated-asc', label: '最早更新' },
   { key: 'path-asc', label: '按文件名' },
 ]);
+const SKILLS_REQUEST_TIMEOUT_MS = 8000;
+const DASHBOARD_QUERY_STALE_MS = 30_000;
+const DASHBOARD_QUERY_GC_MS = 10 * 60_000;
 const MEMORY_CATEGORIES = Object.freeze([
   { key: 'preference', label: '偏好' },
   { key: 'project', label: '项目' },
@@ -88,24 +100,546 @@ const MEMORY_TYPE_INFO = Object.freeze({
   project: { category: 'project', label: '项目' },
   reference: { category: 'project', label: '项目' },
 });
-const MEMORY_SCOPE_LABELS = Object.freeze({
-  private: '私有',
-  team: '团队',
-});
 const MEMORY_EDITOR_TYPES = Object.freeze([
   { key: 'feedback', label: '偏好' },
   { key: 'project', label: '项目' },
 ]);
-const MEMORY_EDITOR_TARGETS = Object.freeze([
-  { key: 'private', label: '私有' },
-  { key: 'team', label: '团队' },
-]);
+const COMPOSER_DROP_TARGET_IDS = new Set(['chat-input-bar', 'composer-input', 'chatInput']);
 
+const THEME_STORAGE_KEY = 'super-dolphin-theme';
+const COLOR_THEMES = Object.freeze({
+  dark: 'dark',
+  light: 'light',
+});
+
+function normalizeColorTheme(value) {
+  return value === COLOR_THEMES.light || value === COLOR_THEMES.dark ? value : COLOR_THEMES.dark;
+}
+
+function useColorTheme() {
+  const [theme, setTheme] = useState(() => normalizeColorTheme(window.localStorage.getItem(THEME_STORAGE_KEY)));
+
+  const toggleTheme = useCallback(() => {
+    setTheme((current) => {
+      const next = current === COLOR_THEMES.dark ? COLOR_THEMES.light : COLOR_THEMES.dark;
+      window.localStorage.setItem(THEME_STORAGE_KEY, next);
+      return next;
+    });
+  }, []);
+
+  return { theme, toggleTheme };
+}
+
+const THREAD_RAIL_MIN_WIDTH = 240;
+const THREAD_RAIL_RATIO = 0.2;
+const RIGHT_PANEL_CLOSE_THRESHOLD = 0;
+const RIGHT_PANEL_DEFAULT_RATIO = 0.2;
+const RIGHT_PANEL_MAX_RATIO = 0.4;
+const CONVERSATION_MIN_RATIO = 0.4;
+const NAV_RAIL_WIDTH = 76;
+const SPLITTER_WIDTH = 6;
+const RUNTIME_TOOLBAR_HEIGHT = 67;
+const ACTIVITY_ICON_ROW_HEIGHT = 64;
+const ACTIVITY_LOG_ROW_HEIGHT = 32;
+const ACTIVITY_PANEL_MIN_HEIGHT = ACTIVITY_ICON_ROW_HEIGHT + ACTIVITY_LOG_ROW_HEIGHT;
+const ACTIVITY_PANEL_DEFAULT_HEIGHT = ACTIVITY_ICON_ROW_HEIGHT + (ACTIVITY_LOG_ROW_HEIGHT * 3);
+const FLOATING_POPOVER_MARGIN = 12;
+const RUNTIME_STAT_TOOLTIP_WIDTH = 360;
+const RUNTIME_STAT_TOOLTIP_MIN_HEIGHT = 96;
+const WARNING_POPOVER_MIN_WIDTH = 280;
+
+const LSP_TOOL_NAMES = Object.freeze([
+  'grep',
+  'file',
+  'inspect',
+  'xref',
+  'structure',
+  'edit',
+  'completion',
+  'format_preview',
+]);
+const JSON_RENDER_TOOL_NAMES = Object.freeze(['json_render']);
+const GO_RUN_TOOL_NAMES = Object.freeze(['go_run']);
+const PLAYWRIGHT_TOOL_PREFIXES = Object.freeze(['mcp__playwright__', 'playwright_', 'browser_']);
+
+function clampWidth(value, min, max) {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) return min;
+  return Math.max(min, Math.min(max, numeric));
+}
+
+function currentViewportWidth() {
+  if (typeof window === 'undefined') return 0;
+  const width = Number(window.innerWidth);
+  return Number.isFinite(width) ? width : 0;
+}
+
+function currentViewportHeight() {
+  if (typeof window === 'undefined') return 0;
+  const height = Number(window.innerHeight);
+  return Number.isFinite(height) ? height : 0;
+}
+
+function chatLayoutWidthBudget(viewportWidth = currentViewportWidth()) {
+  return Math.max(0, viewportWidth - NAV_RAIL_WIDTH);
+}
+
+function ratioWidth(ratio, viewportWidth = currentViewportWidth()) {
+  return Math.floor(chatLayoutWidthBudget(viewportWidth) * ratio);
+}
+
+function threadRailTargetWidth(viewportWidth = currentViewportWidth()) {
+  return Math.max(THREAD_RAIL_MIN_WIDTH, ratioWidth(THREAD_RAIL_RATIO, viewportWidth));
+}
+
+function rightPanelDefaultWidth(viewportWidth = currentViewportWidth()) {
+  return Math.max(0, ratioWidth(RIGHT_PANEL_DEFAULT_RATIO, viewportWidth));
+}
+
+function rightPanelMaxWidth(viewportWidth, threadRailWidth) {
+  const layoutWidth = chatLayoutWidthBudget(viewportWidth);
+  const ratioMax = ratioWidth(RIGHT_PANEL_MAX_RATIO, viewportWidth);
+  const conversationMin = ratioWidth(CONVERSATION_MIN_RATIO, viewportWidth);
+  const remainingAfterConversation = layoutWidth - threadRailWidth - (SPLITTER_WIDTH * 2) - conversationMin;
+  return Math.max(0, Math.min(ratioMax, remainingAfterConversation));
+}
+
+function runtimePanelContentHeight(viewportHeight = currentViewportHeight()) {
+  return Math.max(0, Math.floor(viewportHeight) - RUNTIME_TOOLBAR_HEIGHT);
+}
+
+function activityPanelMaxHeight(viewportHeight = currentViewportHeight()) {
+  return Math.max(ACTIVITY_PANEL_MIN_HEIGHT, Math.floor(runtimePanelContentHeight(viewportHeight) / 2));
+}
+
+function clampActivityPanelHeight(value, viewportHeight = currentViewportHeight()) {
+  const numeric = Number(value);
+  const height = Number.isFinite(numeric) ? numeric : ACTIVITY_PANEL_DEFAULT_HEIGHT;
+  return Math.max(ACTIVITY_PANEL_MIN_HEIGHT, Math.min(activityPanelMaxHeight(viewportHeight), Math.round(height)));
+}
+
+function runtimePanelHeightVars(activityPanelHeight, viewportHeight = currentViewportHeight()) {
+  const contentHeight = runtimePanelContentHeight(viewportHeight);
+  const activityMaxHeight = activityPanelMaxHeight(viewportHeight);
+  const diffMinHeight = Math.max(0, Math.floor(contentHeight / 2));
+  const diffMaxHeight = Math.max(diffMinHeight, contentHeight - ACTIVITY_PANEL_MIN_HEIGHT);
+  return {
+    '--runtime-toolbar-height': `${RUNTIME_TOOLBAR_HEIGHT}px`,
+    '--activity-panel-height': `${clampActivityPanelHeight(activityPanelHeight, viewportHeight)}px`,
+    '--activity-panel-min-height': `${ACTIVITY_PANEL_MIN_HEIGHT}px`,
+    '--activity-panel-max-height': `${activityMaxHeight}px`,
+    '--diff-panel-min-height': `${diffMinHeight}px`,
+    '--diff-panel-max-height': `${diffMaxHeight}px`,
+  };
+}
+
+function elementViewportRect(element) {
+  if (!element?.getBoundingClientRect) return null;
+  const rect = element.getBoundingClientRect();
+  return {
+    left: rect.left,
+    right: rect.right,
+    top: rect.top,
+    bottom: rect.bottom,
+    width: rect.width,
+    height: rect.height,
+  };
+}
+
+function runtimeStatTooltipStyle(anchorRect) {
+  if (!anchorRect) return {};
+  const viewportWidth = currentViewportWidth();
+  const viewportHeight = currentViewportHeight();
+  const maxLeft = Math.max(FLOATING_POPOVER_MARGIN, viewportWidth - RUNTIME_STAT_TOOLTIP_WIDTH - FLOATING_POPOVER_MARGIN);
+  const left = Math.max(FLOATING_POPOVER_MARGIN, Math.min(maxLeft, Math.round(anchorRect.left)));
+  const preferredBottom = Math.max(FLOATING_POPOVER_MARGIN, Math.round(viewportHeight - anchorRect.top + 10));
+  const maxBottom = Math.max(FLOATING_POPOVER_MARGIN, viewportHeight - FLOATING_POPOVER_MARGIN - RUNTIME_STAT_TOOLTIP_MIN_HEIGHT);
+  const bottom = Math.min(preferredBottom, maxBottom);
+  const maxHeight = Math.max(
+    RUNTIME_STAT_TOOLTIP_MIN_HEIGHT,
+    Math.round(viewportHeight - bottom - FLOATING_POPOVER_MARGIN),
+  );
+  return {
+    '--runtime-stat-tooltip-left': `${left}px`,
+    '--runtime-stat-tooltip-bottom': `${bottom}px`,
+    '--runtime-stat-tooltip-max-height': `${maxHeight}px`,
+  };
+}
+
+function warningLogPopoverStyle(anchorRect, panelRect) {
+  if (!anchorRect || !panelRect) return {};
+  const viewportWidth = currentViewportWidth();
+  const viewportHeight = currentViewportHeight();
+  const preferredLeft = Math.round(panelRect.left + 18);
+  const preferredRight = Math.round(viewportWidth - panelRect.right + 18);
+  const leftLimit = Math.max(FLOATING_POPOVER_MARGIN, viewportWidth - WARNING_POPOVER_MIN_WIDTH - FLOATING_POPOVER_MARGIN);
+  const left = Math.max(FLOATING_POPOVER_MARGIN, Math.min(leftLimit, preferredLeft));
+  const right = Math.max(FLOATING_POPOVER_MARGIN, preferredRight);
+  const bottom = Math.max(FLOATING_POPOVER_MARGIN, Math.round(viewportHeight - anchorRect.top + 10));
+  return {
+    '--warning-log-popover-left': `${left}px`,
+    '--warning-log-popover-right': `${right}px`,
+    '--warning-log-popover-bottom': `${bottom}px`,
+  };
+}
+
+function canonicalLspToolName(name) {
+  return ({
+    lsp_file: 'file',
+    lsp_grep: 'grep',
+    lsp_inspect: 'inspect',
+    lsp_xref: 'xref',
+    lsp_structure: 'structure',
+    lsp_edit: 'edit',
+    lsp_completion: 'completion',
+    lsp_format_preview: 'format_preview',
+  })[name] || name;
+}
+
+function normalizeActivityToolName(name) {
+  const raw = (name || '').toString().trim().toLowerCase();
+  const mcpParts = raw.startsWith('mcp__') ? raw.split('__') : [];
+  const withoutMCPServer = mcpParts.length >= 3 ? mcpParts.slice(2).join('__') : raw;
+  const normalized = withoutMCPServer
+    .replace(/[./:-]+/g, '_')
+    .replace(/^functions_+/, '')
+    .replace(/^function_+/, '')
+    .replace(/^tools_+/, '')
+    .replace(/^tool_+/, '')
+    .replace(/_+/g, '_')
+    .replace(/^_+|_+$/g, '');
+  return canonicalLspToolName(normalized);
+}
+
+function sumToolCallsByMatcher(toolMap, matcher) {
+  let sum = 0;
+  for (const [rawName, value] of Object.entries(toolMap || {})) {
+    const name = normalizeActivityToolName(rawName);
+    if (!name || !matcher(name, (rawName || '').toString().trim().toLowerCase())) continue;
+    sum += Number(value) || 0;
+  }
+  return sum;
+}
+
+function sumToolCallsByNames(toolMap, names) {
+  const expected = new Set((names || []).map((name) => normalizeActivityToolName(name)).filter(Boolean));
+  if (expected.size === 0) return 0;
+  return sumToolCallsByMatcher(toolMap, (name) => expected.has(name));
+}
+
+function activityStatItems(stats = {}) {
+  const toolCalls = stats?.toolCalls || {};
+  const lspFromTools = sumToolCallsByNames(toolCalls, LSP_TOOL_NAMES);
+  const totalTools = Object.values(toolCalls).reduce((sum, value) => sum + (Number(value) || 0), 0);
+  return [
+    { key: 'lsp', label: 'LSP (8 tools)', icon: Code2, className: 'stat-lsp', value: lspFromTools || Number(stats?.lspCalls) || 0 },
+    { key: 'jsonRender', label: 'JSON-Render', icon: Boxes, className: 'stat-json-render', value: sumToolCallsByNames(toolCalls, JSON_RENDER_TOOL_NAMES) },
+    {
+      key: 'playwright',
+      label: 'Playwright',
+      icon: Workflow,
+      className: 'stat-playwright',
+      value: sumToolCallsByMatcher(toolCalls, (name, rawName) => PLAYWRIGHT_TOOL_PREFIXES.some((prefix) => name.startsWith(prefix) || rawName.startsWith(prefix))),
+    },
+    { key: 'goRun', label: 'go-run', icon: Link2, className: 'stat-go-run', value: sumToolCallsByNames(toolCalls, GO_RUN_TOOL_NAMES) },
+    { key: 'command', label: '命令', icon: GitBranch, className: 'stat-cmd', value: Number(stats?.commands) || 0 },
+    { key: 'file', label: '文件', icon: FileText, className: 'stat-file', value: Number(stats?.fileEdits) || 0 },
+    { key: 'tool', label: '工具', icon: Settings, className: 'stat-tool', value: totalTools },
+  ];
+}
+
+function activityToolEntries(stats = {}) {
+  return filteredActivityToolEntries(stats, () => true);
+}
+
+function filteredActivityToolEntries(stats = {}, matcher) {
+  const merged = {};
+  for (const [rawName, value] of Object.entries(stats?.toolCalls || {})) {
+    const raw = (rawName || '').toString().trim().toLowerCase();
+    const name = normalizeActivityToolName(rawName) || rawName;
+    if (!matcher(name, raw)) continue;
+    merged[name] = (merged[name] || 0) + (Number(value) || 0);
+  }
+  return Object.entries(merged)
+    .map(([name, count]) => ({ name, count }))
+    .filter((entry) => entry.count > 0)
+    .sort((left, right) => right.count - left.count || left.name.localeCompare(right.name));
+}
+
+function activityStatDetailEntries(stats = {}, statKey = '') {
+  if (statKey === 'lsp') {
+    const lspNames = new Set(LSP_TOOL_NAMES.map((name) => normalizeActivityToolName(name)));
+    return filteredActivityToolEntries(stats, (name) => lspNames.has(name));
+  }
+  if (statKey === 'jsonRender') {
+    const names = new Set(JSON_RENDER_TOOL_NAMES.map((name) => normalizeActivityToolName(name)));
+    return filteredActivityToolEntries(stats, (name) => names.has(name));
+  }
+  if (statKey === 'playwright') {
+    return filteredActivityToolEntries(stats, (name, rawName) => (
+      PLAYWRIGHT_TOOL_PREFIXES.some((prefix) => name.startsWith(prefix) || rawName.startsWith(prefix))
+    ));
+  }
+  if (statKey === 'goRun') {
+    const names = new Set(GO_RUN_TOOL_NAMES.map((name) => normalizeActivityToolName(name)));
+    return filteredActivityToolEntries(stats, (name) => names.has(name));
+  }
+  if (statKey === 'command') {
+    return Number(stats?.commands) > 0 ? [{ name: '命令调用', count: Number(stats.commands) }] : [];
+  }
+  if (statKey === 'file') {
+    return Number(stats?.fileEdits) > 0 ? [{ name: '文件变更', count: Number(stats.fileEdits) }] : [];
+  }
+  return activityToolEntries(stats);
+}
+
+function parseDiffFilename(line, prefix) {
+  const raw = line.slice(prefix.length).trim();
+  if (!raw || raw === '/dev/null') return '';
+  return raw.startsWith('a/') || raw.startsWith('b/') ? raw.slice(2) : raw;
+}
+
+function summarizeUnifiedDiff(diffText) {
+  if (!diffText || typeof diffText !== 'string') {
+    return { fileCount: 0, additions: 0, deletions: 0, changedLines: 0, files: [] };
+  }
+
+  const files = [];
+  let current = null;
+  let pendingFileHeader = null;
+
+  const startFile = (filename) => {
+    current = { filename: filename || `file-${files.length + 1}`, additions: 0, deletions: 0, lines: [] };
+    files.push(current);
+  };
+
+  const ensureCurrent = () => {
+    if (!current) startFile();
+  };
+
+  const appendLine = (line) => {
+    ensureCurrent();
+    current.lines.push(line);
+  };
+
+  for (const line of diffText.split('\n')) {
+    if (line.startsWith('diff --git')) {
+      const match = line.match(/^diff --git a\/(.+?) b\/(.+)$/);
+      pendingFileHeader = null;
+      startFile(match?.[2] || match?.[1] || `file-${files.length + 1}`);
+      current.lines.push(line);
+      continue;
+    }
+
+    if (line.startsWith('*** Begin Patch') || line.startsWith('*** End Patch') || line.startsWith('*** End of File')) {
+      pendingFileHeader = null;
+      continue;
+    }
+
+    if (line.startsWith('*** Update File:') || line.startsWith('*** Add File:') || line.startsWith('*** Delete File:')) {
+      const prefix = line.startsWith('*** Update File:')
+        ? '*** Update File:'
+          : line.startsWith('*** Add File:')
+            ? '*** Add File:'
+            : '*** Delete File:';
+      pendingFileHeader = null;
+      startFile(parseDiffFilename(line, prefix) || current?.filename || `file-${files.length + 1}`);
+      current.lines.push(line);
+      continue;
+    }
+
+    if (line.startsWith('*** Move to:')) {
+      const filename = parseDiffFilename(line, '*** Move to:');
+      if (current && filename) current.filename = filename;
+      appendLine(line);
+      continue;
+    }
+
+    if (line.startsWith('--- ')) {
+      pendingFileHeader = {
+        oldFilename: parseDiffFilename(line, '---'),
+        beginsNewFile: Boolean(current && (current.additions > 0 || current.deletions > 0)),
+        line,
+      };
+      if (current && !pendingFileHeader.beginsNewFile) current.lines.push(line);
+      continue;
+    }
+
+    if (line.startsWith('+++ ')) {
+      const filename = parseDiffFilename(line, '+++');
+      const headerFilename = filename || pendingFileHeader?.oldFilename || current?.filename || `file-${files.length + 1}`;
+      if (!current || pendingFileHeader?.beginsNewFile) startFile(headerFilename);
+      else current.filename = headerFilename || current.filename;
+      if (pendingFileHeader?.line && !current.lines.includes(pendingFileHeader.line)) {
+        current.lines.push(pendingFileHeader.line);
+      }
+      current.lines.push(line);
+      pendingFileHeader = null;
+      continue;
+    }
+
+    if (line.startsWith('index ') || line.startsWith('new file') || line.startsWith('deleted file') || line.startsWith('@@')) {
+      appendLine(line);
+      continue;
+    }
+
+    if (line.startsWith('+') && !line.startsWith('+++')) {
+      ensureCurrent();
+      current.additions += 1;
+      current.lines.push(line);
+      continue;
+    }
+
+    if (line.startsWith('-') && !line.startsWith('---')) {
+      ensureCurrent();
+      current.deletions += 1;
+      current.lines.push(line);
+      continue;
+    }
+
+    if (current) current.lines.push(line);
+  }
+
+  const changedFiles = files.filter((file) => file.additions > 0 || file.deletions > 0 || file.filename);
+  const additions = changedFiles.reduce((sum, file) => sum + file.additions, 0);
+  const deletions = changedFiles.reduce((sum, file) => sum + file.deletions, 0);
+  return {
+    fileCount: changedFiles.length,
+    additions,
+    deletions,
+    changedLines: additions + deletions,
+    files: changedFiles.map((file) => ({
+      filename: file.filename,
+      additions: file.additions,
+      deletions: file.deletions,
+      text: file.lines.join('\n'),
+    })),
+  };
+}
+
+function parseUnifiedDiffLineEntries(fileText) {
+  let oldLine = null;
+  let newLine = null;
+
+  return String(fileText || '').split('\n').flatMap((line, index) => {
+    if (
+      line.startsWith('diff --git')
+      || line.startsWith('index ')
+      || line.startsWith('--- ')
+      || line.startsWith('+++ ')
+      || line.startsWith('*** Begin Patch')
+      || line.startsWith('*** Update File:')
+      || line.startsWith('*** Add File:')
+      || line.startsWith('*** Delete File:')
+      || line.startsWith('*** Move to:')
+      || line.startsWith('*** End Patch')
+      || line.startsWith('*** End of File')
+    ) {
+      return [];
+    }
+
+    if (line.startsWith('@@')) {
+      const match = line.match(/^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/);
+      oldLine = match ? Number(match[1]) : null;
+      newLine = match ? Number(match[2]) : null;
+      return {
+        key: `${index}:hunk`,
+        type: 'hunk',
+        oldNo: '',
+        newNo: '',
+        prefix: '',
+        content: line,
+      };
+    }
+
+    if (line.startsWith('+') && !line.startsWith('+++')) {
+      const entry = {
+        key: `${index}:add`,
+        type: 'add',
+        oldNo: '',
+        newNo: newLine ?? '',
+        prefix: '+',
+        content: line.slice(1),
+      };
+      if (newLine !== null) newLine += 1;
+      return entry;
+    }
+
+    if (line.startsWith('-') && !line.startsWith('---')) {
+      const entry = {
+        key: `${index}:del`,
+        type: 'del',
+        oldNo: oldLine ?? '',
+        newNo: '',
+        prefix: '-',
+        content: line.slice(1),
+      };
+      if (oldLine !== null) oldLine += 1;
+      return entry;
+    }
+
+    if (line.startsWith(' ')) {
+      const entry = {
+        key: `${index}:context`,
+        type: 'context',
+        oldNo: oldLine ?? '',
+        newNo: newLine ?? '',
+        prefix: '',
+        content: line.slice(1),
+      };
+      if (oldLine !== null) oldLine += 1;
+      if (newLine !== null) newLine += 1;
+      return entry;
+    }
+
+    return {
+      key: `${index}:meta`,
+      type: 'meta',
+      oldNo: '',
+      newNo: '',
+      prefix: '',
+      content: line,
+    };
+  });
+}
+
+function warningDetailText(entry) {
+  return entry?.detail || JSON.stringify(entry?.fields ?? {});
+}
+
+function runtimeLogTimestamp(entry) {
+  return entry?.timestamp || entry?.time || entry?.ts || '';
+}
+
+function runtimeLogLabel(entry) {
+  return entry?.message || entry?.event || entry?.method || '';
+}
+
+function runtimeLogEntries(warnings = [], results = []) {
+  return [
+    ...(warnings || []).map((entry) => ({ ...entry, runtimeKind: 'warning' })),
+    ...(results || []).map((entry) => ({ ...entry, runtimeKind: 'result' })),
+  ].sort((left, right) => {
+    const leftTime = Date.parse(runtimeLogTimestamp(left)) || 0;
+    const rightTime = Date.parse(runtimeLogTimestamp(right)) || 0;
+    return rightTime - leftTime;
+  });
+}
 
 function projectDisplayName(path) {
   const value = (path || '').toString().trim();
   if (!value || value === '未选择项目') return '未选择项目';
   return value.split(/[\\/]/).filter(Boolean).pop() || value;
+}
+
+function withTimeout(promise, timeoutMs, message) {
+  let timeoutID;
+  const timeout = new Promise((_, reject) => {
+    timeoutID = globalThis.setTimeout(() => reject(new Error(message)), timeoutMs);
+  });
+  return Promise.race([promise, timeout]).finally(() => {
+    if (timeoutID) globalThis.clearTimeout(timeoutID);
+  });
 }
 
 function normalizeProjectPath(path) {
@@ -214,9 +748,192 @@ const CLAUDE_LONG_TO_SHORT = Object.freeze({
   'claude-opus-4-7[1m]': 'opus[1m]',
   'claude-haiku-4-5': 'haiku',
 });
+const TURN_STATE_INFO = Object.freeze({
+  preparing: Object.freeze({ label: '准备中', tone: 'active', busy: true }),
+  running: Object.freeze({ label: '运行中', tone: 'active', busy: true }),
+  force_completing: Object.freeze({ label: '强制完成中', tone: 'active', busy: true }),
+  interrupting: Object.freeze({ label: '中断中', tone: 'warning', busy: true }),
+  interrupted: Object.freeze({ label: '已中断', tone: 'warning', busy: false }),
+  completed: Object.freeze({ label: '已完成', tone: 'done', busy: false }),
+  failed: Object.freeze({ label: '失败', tone: 'error', busy: false }),
+  stalled: Object.freeze({ label: '停滞', tone: 'error', busy: false }),
+});
+const LEGACY_TURN_STATE_ALIASES = Object.freeze({
+  工作中: 'running',
+  发送中: 'preparing',
+  error: 'failed',
+  错误: 'failed',
+  失败: 'failed',
+});
 
 function normalizeProviderKey(value) {
   return (value || '').toString().trim().toLowerCase() === 'claude' ? 'claude' : 'codex';
+}
+
+function knownProviderKey(value) {
+  const normalized = (value || '').toString().trim().toLowerCase();
+  return normalized === 'claude' || normalized === 'codex' ? normalized : '';
+}
+
+function threadProviderLabel(provider) {
+  return knownProviderKey(provider) || 'unknown';
+}
+
+function normalizedThreadIdentity(value) {
+  return (value || '').toString().trim();
+}
+
+function threadSortTimestamp(value) {
+  if (typeof value === 'number') return Number.isFinite(value) && value > 0 ? value : 0;
+  const text = (value || '').toString().trim();
+  if (!text) return 0;
+  const asNumber = Number(text);
+  if (Number.isFinite(asNumber) && asNumber > 0) return asNumber;
+  const parsed = Date.parse(text);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
+}
+
+function threadMatchesActiveId(thread, activeThreadId) {
+  const id = normalizedThreadIdentity(activeThreadId);
+  if (!id || !thread) return false;
+  return [
+    thread.id,
+    thread.threadId,
+    thread.thread_id,
+    thread.agentId,
+    thread.agent_id,
+    thread.providerThreadId,
+    thread.provider_thread_id,
+  ].some((value) => normalizedThreadIdentity(value) === id);
+}
+
+function activeThreadIdentifiers(activeThreadId, activeThread) {
+  return new Set([
+    activeThreadId,
+    activeThread?.id,
+    activeThread?.threadId,
+    activeThread?.thread_id,
+    activeThread?.agentId,
+    activeThread?.agent_id,
+    activeThread?.providerThreadId,
+    activeThread?.provider_thread_id,
+    activeThread?.sessionId,
+    activeThread?.session_id,
+  ].map(normalizedThreadIdentity).filter(Boolean));
+}
+
+function threadScopedMapValue(map = {}, activeThreadId, activeThread, fallback = null) {
+  const ids = activeThreadIdentifiers(activeThreadId, activeThread);
+  for (const id of ids) {
+    if (Object.prototype.hasOwnProperty.call(map || {}, id)) return map[id];
+  }
+  return fallback;
+}
+
+function activityEntryThreadIdentifier(entry = {}) {
+  const fields = entry.fields || {};
+  const patch = fields._threadPatch || fields._thread_patch || {};
+  return normalizedThreadIdentity(
+    entry.threadId ||
+    entry.thread_id ||
+    entry.agentId ||
+    entry.agent_id ||
+    fields.threadId ||
+    fields.thread_id ||
+    fields.agentId ||
+    fields.agent_id ||
+    patch.threadId ||
+    patch.thread_id ||
+    patch.agentId ||
+    patch.agent_id,
+  );
+}
+
+function scopedActivityEntries(entries = [], activeThreadId, activeThread, options = {}) {
+  const ids = activeThreadIdentifiers(activeThreadId, activeThread);
+  if (ids.size === 0) return [];
+  return (entries || []).filter((entry) => {
+    const entryThreadId = activityEntryThreadIdentifier(entry);
+    if (!entryThreadId) return Boolean(options.includeUnscoped);
+    return ids.has(entryThreadId);
+  });
+}
+
+function activeThreadForStore(store) {
+  const activeThreadId = normalizedThreadIdentity(store?.activeThreadId);
+  if (!activeThreadId) return null;
+  return (store?.threads || []).find((thread) => threadMatchesActiveId(thread, activeThreadId)) || null;
+}
+
+function normalizeTurnState(value) {
+  const raw = normalizedThreadIdentity(value);
+  if (!raw) return '';
+  const alias = LEGACY_TURN_STATE_ALIASES[raw] || raw;
+  return alias.toLowerCase().replace(/-/g, '_');
+}
+
+function firstStatusText(...values) {
+  for (const value of values) {
+    const text = normalizedThreadIdentity(value);
+    if (text) return text;
+  }
+  return '';
+}
+
+function cleanWorkStatusDetails(value) {
+  return normalizedThreadIdentity(value)
+    .replace(/\uFFFD+/g, '')
+    .replace(/\|+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function workStatusForThread({ sending, activeThreadId, activeThread, statusEntry }) {
+  if (!activeThreadId) {
+    return { label: '待启动', details: '发送首条消息后创建线程', tone: 'idle', busy: false };
+  }
+  const rawState = firstStatusText(
+    statusEntry?.state,
+    statusEntry?.status,
+    activeThread?.state,
+    activeThread?.status,
+    sending ? 'preparing' : '',
+  );
+  const normalizedState = normalizeTurnState(rawState);
+  const mapped = TURN_STATE_INFO[normalizedState];
+  const label = mapped?.label || firstStatusText(statusEntry?.statusHeader, rawState) || '已连接';
+  return {
+    label,
+    details: cleanWorkStatusDetails(firstStatusText(statusEntry?.statusDetails, activeThread?.lastMessage, `线程 ${activeThreadId}`)),
+    tone: mapped?.tone || 'connected',
+    busy: mapped?.busy ?? Boolean(sending),
+  };
+}
+
+function hasAssistantReply(messages = []) {
+  return (messages || []).some((message) => (
+    (message?.role || '').toString().trim().toLowerCase() === 'assistant'
+    && Boolean((message?.text || '').toString().trim())
+  ));
+}
+
+function providerToggleState(store) {
+  const activeThreadId = normalizedThreadIdentity(store?.activeThreadId);
+  const activeThread = activeThreadForStore(store);
+  const threadConfig = threadScopedMapValue(store?.threadConfigByThread, activeThreadId, activeThread, null);
+  const provider = knownProviderKey(activeThread?.provider) || knownProviderKey(threadConfig?.provider) || knownProviderKey(store?.provider) || 'codex';
+  return {
+    locked: Boolean(activeThreadId),
+    provider,
+  };
+}
+
+function composerConfigThreadId(store, activeThreadId) {
+  if (!activeThreadId) return '';
+  const thread = activeThreadForStore({ ...store, activeThreadId });
+  if (!thread) return activeThreadId;
+  if (thread.archived) return '';
+  return activeThreadId;
 }
 
 function normalizeConfigText(value) {
@@ -318,6 +1035,119 @@ function normalizeSettingsCwd(value) {
     throw new Error('settings: cwd is required');
   }
   return cwd;
+}
+
+function optionalSettingsCwd(value) {
+  const cwd = (value || '').toString().trim();
+  return cwd && cwd !== '.' && cwd !== '未选择项目' ? cwd : '';
+}
+
+function dashboardQueryKey(cwd, page, ...parts) {
+  return ['dashboard', 'project', cwd, page, ...parts.map((part) => textValue(part)).filter(Boolean)];
+}
+
+function dashboardGlobalQueryKey(page, ...parts) {
+  return ['dashboard', 'global', page, ...parts.map((part) => textValue(part)).filter(Boolean)];
+}
+
+async function fetchSkillsDashboard(cwd) {
+  const response = await withTimeout(
+    getDashboardPage({ cwd, page: 'skills' }),
+    SKILLS_REQUEST_TIMEOUT_MS,
+    '技能列表加载超时，请检查技能目录或后端状态。',
+  );
+  return normalizeSkillsResponse(response);
+}
+
+async function fetchSkillResolutionsDashboard(cwd) {
+  const response = await withTimeout(
+    listSkillResolutions({ cwd }),
+    SKILLS_REQUEST_TIMEOUT_MS,
+    '技能冲突检查超时，请检查技能目录或后端状态。',
+  );
+  return normalizeResolutionResponse(response);
+}
+
+async function fetchSharedFilesDashboard() {
+  const response = await withTimeout(
+    listSharedFiles(),
+    SKILLS_REQUEST_TIMEOUT_MS,
+    '共享文件加载超时，请检查文件索引或后端状态。',
+  );
+  return normalizeSharedFilesResponse(response);
+}
+
+async function fetchMemoryDashboard(cwd) {
+  const response = await withTimeout(
+    getMemorySnapshot({ cwd }),
+    SKILLS_REQUEST_TIMEOUT_MS,
+    '记忆中心加载超时，请检查记忆数据或后端状态。',
+  );
+  return normalizeMemorySnapshot(response);
+}
+
+async function fetchDagsDashboard(cwd) {
+  const response = await withTimeout(
+    getDashboardPage({ cwd, page: 'dags' }),
+    SKILLS_REQUEST_TIMEOUT_MS,
+    '自动化加载超时，请检查任务数据或后端状态。',
+  );
+  return normalizeDagsResponse(response);
+}
+
+function queryErrorMessage(query) {
+  return query?.error ? errorMessage(query.error) : '';
+}
+
+function queryHasSnapshot(query) {
+  return query?.data !== undefined;
+}
+
+function dashboardQueryErrorState(query, hasSnapshot = queryHasSnapshot(query)) {
+  const message = queryErrorMessage(query);
+  return {
+    cachedSyncError: message && hasSnapshot ? `同步失败，显示的是上次成功的数据：${message}` : '',
+    blockingError: message && !hasSnapshot ? message : '',
+  };
+}
+
+function useDashboardQueryFocusInvalidation(queryKey) {
+  const queryClient = useQueryClient();
+  useEffect(() => {
+    if (!Array.isArray(queryKey) || queryKey.length === 0) return undefined;
+    const invalidate = () => {
+      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
+      void queryClient.invalidateQueries({ queryKey });
+    };
+    window.addEventListener('focus', invalidate);
+    document.addEventListener('visibilitychange', invalidate);
+    return () => {
+      window.removeEventListener('focus', invalidate);
+      document.removeEventListener('visibilitychange', invalidate);
+    };
+  }, [queryClient, queryKey]);
+}
+
+function useDashboardFocusInvalidation(cwd, surface) {
+  const queryKey = useMemo(
+    () => (cwd && surface ? dashboardQueryKey(cwd, surface) : null),
+    [cwd, surface],
+  );
+  useDashboardQueryFocusInvalidation(queryKey);
+}
+
+function createDashboardQueryClient() {
+  return new QueryClient({
+    defaultOptions: {
+      queries: {
+        gcTime: DASHBOARD_QUERY_GC_MS,
+        retry: false,
+        staleTime: DASHBOARD_QUERY_STALE_MS,
+        refetchOnMount: 'always',
+        refetchOnWindowFocus: 'always',
+      },
+    },
+  });
 }
 
 function stringSetting(value, fallback) {
@@ -556,6 +1386,7 @@ function normalizeSharedFile(raw, index) {
 }
 
 function normalizeFinalOutputRefs(value) {
+  if (value === undefined) return [];
   if (!Array.isArray(value)) throw new Error('shared files dashboard finalOutputRefs must be an array');
   return value.map((item, index) => {
     if (typeof item === 'string') {
@@ -578,6 +1409,9 @@ function normalizeFinalOutputRefs(value) {
 }
 
 function normalizeSharedFileRetention(value) {
+  if (value === undefined) {
+    return { items: [], protectedCount: 0, cleanupCandidateCount: 0 };
+  }
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     throw new Error('shared files dashboard sharedFileRetention must be an object');
   }
@@ -608,13 +1442,16 @@ function normalizeSharedFilesResponse(response) {
   if (!response || typeof response !== 'object' || Array.isArray(response)) {
     throw new Error('shared files dashboard response must be an object');
   }
-  if (!Array.isArray(response.memory)) {
-    throw new Error('shared files dashboard response memory must be an array');
+  const rawFiles = Array.isArray(response.files) ? response.files : response.memory;
+  if (!Array.isArray(rawFiles)) {
+    throw new Error('shared files dashboard response files must be an array');
   }
+  const rawRefs = response.finalOutputRefs;
+  const rawRetention = response.sharedFileRetention;
   return {
-    files: response.memory.map((item, index) => normalizeSharedFile(item, index)),
-    finalOutputRefs: normalizeFinalOutputRefs(response.finalOutputRefs),
-    retention: normalizeSharedFileRetention(response.sharedFileRetention),
+    files: rawFiles.map((item, index) => normalizeSharedFile(item, index)),
+    finalOutputRefs: normalizeFinalOutputRefs(rawRefs),
+    retention: normalizeSharedFileRetention(rawRetention),
   };
 }
 
@@ -661,7 +1498,38 @@ function memoryTemplateForType(type) {
   }
 }
 
-function defaultMemoryForm(type = 'project', target = 'private') {
+function memoryTargetForType(type) {
+  return textValue(type) === 'project' ? 'team' : 'private';
+}
+
+function memorySlugText(value) {
+  return textValue(value)
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 48);
+}
+
+function memoryNameHash(value) {
+  let hash = 5381;
+  const text = textValue(value);
+  for (let index = 0; index < text.length; index += 1) {
+    hash = ((hash << 5) + hash + text.charCodeAt(index)) >>> 0;
+  }
+  return hash.toString(36);
+}
+
+function memoryAutoName(form) {
+  const existing = textValue(form?.name);
+  if (existing) return existing;
+  const type = textValue(form?.type) || 'project';
+  const base = firstText(form?.title, form?.description, form?.content, type);
+  const slug = memorySlugText(base);
+  if (slug) return slug;
+  return `${type}-${memoryNameHash(base)}`;
+}
+
+function defaultMemoryForm(type = 'project', target = memoryTargetForType(type)) {
   return {
     target,
     existingPath: '',
@@ -708,7 +1576,6 @@ function normalizeMemoryEntry(raw, index, target) {
   return {
     id: `${target}:${path}:${index}`,
     target,
-    scope: MEMORY_SCOPE_LABELS[target] || target,
     path,
     type,
     category: typeInfo.category,
@@ -761,6 +1628,19 @@ function memoryHealth(overview, counts) {
     maxPerCategory: numberOrNull(health.maxPerCategory) ?? 15,
     similarGroups: normalizeSimilarityGroups(health.similarGroups),
   };
+}
+
+function memorySimilarGroupCount(response) {
+  const snapshot = response && typeof response === 'object' && Array.isArray(response.entries)
+    ? response
+    : normalizeMemorySnapshot(response);
+  const counts = {
+    preference: snapshot.entries.filter((entry) => entry.category === 'preference').length,
+    project: snapshot.entries.filter((entry) => entry.category === 'project').length,
+    all: snapshot.entries.length,
+  };
+  const health = memoryHealth(snapshot.overview, counts);
+  return health?.similarGroups?.length || 0;
 }
 
 function memoryHealthPercent(count, max) {
@@ -866,22 +1746,21 @@ function normalizeDagNode(raw = {}, index = 0) {
 function normalizeDashboardDag(raw = {}, index = 0) {
   const dagKey = dagKeyOf(raw);
   const latestRun = raw.latest_run || raw.latestRun || null;
+  const cronExpr = cronExprFromDagItem(raw);
   return {
     id: dagKey || `dag:${index}`,
     dagKey,
-    title: firstText(raw.title, raw.name, dagKey, `任务流程 ${index + 1}`),
+    title: firstText(raw.title, raw.name, dagKey, `自动化 ${index + 1}`),
     description: firstText(raw.description, raw.summary),
     status: firstText(raw.status, raw.state),
-    trigger: firstText(raw.trigger, raw.trigger_type, raw.triggerType),
-    cronExpr: firstText(raw.cron_expr, raw.cronExpr),
+    trigger: dagTriggerValue(raw),
+    cronExpr,
     nextRunAt: firstText(raw.next_run_at, raw.nextRunAt),
     startedAt: firstText(raw.started_at, raw.startedAt, raw.created_at, raw.createdAt),
     finishedAt: firstText(raw.finished_at, raw.finishedAt),
     version: dagVersionOf(raw),
     latestRun: latestRun ? normalizeDagRun(latestRun) : null,
-    scheduleEnabled: typeof raw.schedule_enabled === 'boolean'
-      ? raw.schedule_enabled
-      : (typeof raw.scheduleEnabled === 'boolean' ? raw.scheduleEnabled : Boolean(raw.next_run_at || raw.nextRunAt)),
+    scheduleEnabled: scheduleEnabledFromDagItem(raw),
     raw,
   };
 }
@@ -900,15 +1779,52 @@ function dagStatusLabel(value) {
   const status = textValue(value).toLowerCase();
   const labels = {
     draft: '草稿',
-    ready: '就绪',
+    ready: '可运行',
     running: '运行中',
+    succeeded: '成功',
     done: '成功',
     success: '成功',
     failed: '失败',
     cancelled: '已取消',
     canceled: '已取消',
+    pending: '待开始',
+    queued: '排队中',
+    starting: '启动中',
+    awaiting_verify: '待确认',
+    skipped: '已跳过',
+    idle: '空闲',
   };
   return labels[status] || textValue(value) || '-';
+}
+
+function dagTriggerValue(raw = {}) {
+  const trigger = raw.trigger || raw.trigger_config || raw.triggerConfig;
+  if (trigger && typeof trigger === 'object' && !Array.isArray(trigger)) {
+    return firstText(trigger.type, trigger.kind, raw.trigger_type, raw.triggerType);
+  }
+  return firstText(trigger, raw.trigger_type, raw.triggerType);
+}
+
+function cronExprFromDagItem(item = {}) {
+  const trigger = item.trigger || item.trigger_config || item.triggerConfig;
+  if (trigger && typeof trigger === 'object' && !Array.isArray(trigger)) {
+    return firstText(trigger.schedule, trigger.cron, trigger.expression, item.schedule, item.cron, item.cron_expr, item.cronExpr);
+  }
+  return firstText(item.schedule, item.cron, item.cron_expr, item.cronExpr);
+}
+
+function scheduleEnabledFromDagItem(item = {}) {
+  if (typeof item.schedule_enabled === 'boolean') return item.schedule_enabled;
+  if (typeof item.scheduleEnabled === 'boolean') return item.scheduleEnabled;
+  const trigger = item.trigger || item.trigger_config || item.triggerConfig;
+  if (trigger && typeof trigger === 'object' && !Array.isArray(trigger)) {
+    return Boolean(firstText(trigger.next_run_at, trigger.nextRunAt, item.next_run_at, item.nextRunAt));
+  }
+  return Boolean(firstText(item.next_run_at, item.nextRunAt));
+}
+
+function isScheduledTrigger(value) {
+  return ['scheduled', 'schedule', 'cron'].includes(textValue(value).toLowerCase());
 }
 
 function triggerLabel(value) {
@@ -920,6 +1836,122 @@ function triggerLabel(value) {
     cron: '定时',
   };
   return labels[trigger] || textValue(value) || '-';
+}
+
+const DEFAULT_DAG_SCHEDULE = Object.freeze({ preset: 'daily', time: '08:00', weekday: '1', monthDay: '1' });
+const DAG_WEEKDAY_OPTIONS = Object.freeze([
+  { value: '1', label: '周一' },
+  { value: '2', label: '周二' },
+  { value: '3', label: '周三' },
+  { value: '4', label: '周四' },
+  { value: '5', label: '周五' },
+  { value: '6', label: '周六' },
+  { value: '7', label: '周日' },
+]);
+const DAG_WEEKDAY_LABELS = Object.freeze(Object.fromEntries(DAG_WEEKDAY_OPTIONS.map((item) => [item.value, item.label])));
+
+function twoDigits(value) {
+  return value.toString().padStart(2, '0');
+}
+
+function parseScheduleTime(value) {
+  const text = textValue(value);
+  const match = /^(\d{1,2}):(\d{2})$/.exec(text);
+  if (!match) return null;
+  const hour = Number(match[1]);
+  const minute = Number(match[2]);
+  if (!Number.isInteger(hour) || !Number.isInteger(minute) || hour < 0 || hour > 23 || minute < 0 || minute > 59) {
+    return null;
+  }
+  return { hour, minute, label: `${twoDigits(hour)}:${twoDigits(minute)}` };
+}
+
+function scheduleStateFromCron(cronExpr) {
+  const text = textValue(cronExpr);
+  if (!text) return { ...DEFAULT_DAG_SCHEDULE, warning: '' };
+  const parts = text.split(/\s+/);
+  if (parts.length !== 5) return { ...DEFAULT_DAG_SCHEDULE, warning: '已有计划格式无法识别，请重新选择运行频率和时间。' };
+  const [minuteText, hourText, dayOfMonth, month, dayOfWeek] = parts;
+  const hour = Number(hourText);
+  const minute = Number(minuteText);
+  if (!Number.isInteger(hour) || !Number.isInteger(minute) || hour < 0 || hour > 23 || minute < 0 || minute > 59) {
+    return { ...DEFAULT_DAG_SCHEDULE, warning: '已有计划格式无法识别，请重新选择运行频率和时间。' };
+  }
+  const time = `${twoDigits(hour)}:${twoDigits(minute)}`;
+  if (dayOfMonth === '*' && month === '*' && dayOfWeek === '1-5') return { ...DEFAULT_DAG_SCHEDULE, preset: 'weekdays', time };
+  if (dayOfMonth === '*' && month === '*' && Object.prototype.hasOwnProperty.call(DAG_WEEKDAY_LABELS, dayOfWeek)) {
+    return { ...DEFAULT_DAG_SCHEDULE, preset: 'weekly', weekday: dayOfWeek, time };
+  }
+  const monthDay = Number(dayOfMonth);
+  if (Number.isInteger(monthDay) && monthDay >= 1 && monthDay <= 31 && month === '*' && dayOfWeek === '*') {
+    return { ...DEFAULT_DAG_SCHEDULE, preset: 'monthly', monthDay: monthDay.toString(), time };
+  }
+  if (dayOfMonth === '*' && month === '*' && dayOfWeek === '*') return { ...DEFAULT_DAG_SCHEDULE, preset: 'daily', time };
+  return { ...DEFAULT_DAG_SCHEDULE, warning: '已有计划超出简化设置范围，请重新选择运行频率和时间。' };
+}
+
+function scheduleLabelFromState(schedule) {
+  const parsed = parseScheduleTime(schedule?.time);
+  if (!parsed) return '';
+  if (schedule?.preset === 'daily') return `每天 ${parsed.label}`;
+  if (schedule?.preset === 'weekdays') return `工作日 ${parsed.label}`;
+  if (schedule?.preset === 'weekly') return `${DAG_WEEKDAY_LABELS[schedule.weekday] ? `每${DAG_WEEKDAY_LABELS[schedule.weekday]}` : '每周'} ${parsed.label}`;
+  if (schedule?.preset === 'monthly') return `每月 ${schedule.monthDay || DEFAULT_DAG_SCHEDULE.monthDay} 日 ${parsed.label}`;
+  return '';
+}
+
+function scheduleLabelFromCron(cronExpr) {
+  if (!textValue(cronExpr)) return '';
+  const state = scheduleStateFromCron(cronExpr);
+  if (state.warning) return '';
+  return scheduleLabelFromState(state);
+}
+
+function scheduleLabelFromDag(item) {
+  return scheduleLabelFromCron(cronExprFromDagItem(item));
+}
+
+function cronExprFromSchedule(preset, time, weekday, monthDay) {
+  const parsed = parseScheduleTime(time);
+  if (!parsed) return { cronExpr: '', error: '请选择运行时间' };
+  const minute = parsed.minute.toString();
+  const hour = parsed.hour.toString();
+  if (preset === 'daily') return { cronExpr: `${minute} ${hour} * * *`, error: '' };
+  if (preset === 'weekdays') return { cronExpr: `${minute} ${hour} * * 1-5`, error: '' };
+  if (preset === 'weekly') {
+    if (!Object.prototype.hasOwnProperty.call(DAG_WEEKDAY_LABELS, weekday)) return { cronExpr: '', error: '请选择星期几' };
+    return { cronExpr: `${minute} ${hour} * * ${weekday}`, error: '' };
+  }
+  if (preset === 'monthly') {
+    const day = Number(monthDay);
+    if (!Number.isInteger(day) || day < 1 || day > 31) return { cronExpr: '', error: '请选择每月几号' };
+    return { cronExpr: `${minute} ${hour} ${day} * *`, error: '' };
+  }
+  return { cronExpr: '', error: '请选择运行频率' };
+}
+
+function schedulePlanLabel(item) {
+  const readable = scheduleLabelFromDag(item);
+  if (readable) return readable;
+  return triggerLabel(item?.trigger);
+}
+
+function latestDagRunLabel(item) {
+  const status = firstText(item?.latestRun?.status, item?.latest_run_status, item?.latestRunStatus);
+  if (status) return dagStatusLabel(status);
+  if (item?.latestRun?.runKey) return '有运行记录';
+  if (isScheduledTrigger(item?.trigger)) return '未运行';
+  return textValue(item?.status).toLowerCase() === 'draft' || textValue(item?.status).toLowerCase() === 'ready' ? '未启动' : '-';
+}
+
+function displayDagStatusLabel(item) {
+  const trigger = textValue(item?.trigger).toLowerCase();
+  const status = textValue(item?.status).toLowerCase();
+  if (isScheduledTrigger(trigger) && cronExprFromDagItem(item)) {
+    if (status === 'running') return '运行中';
+    return scheduleEnabledFromDagItem(item) ? '已启用' : '已暂停';
+  }
+  return dagStatusLabel(item?.status);
 }
 
 function isRunningStatus(value) {
@@ -1186,9 +2218,12 @@ function isMainSkillFile(path) {
 
 function normalizeResolutionResponse(response) {
   if (Array.isArray(response)) return response;
+  if (!response || typeof response !== 'object') {
+    throw new Error('skill resolutions response must be an object');
+  }
   if (Array.isArray(response?.items)) return response.items;
   if (Array.isArray(response?.conflicts)) return response.conflicts;
-  return [];
+  throw new Error('skill resolutions response items must be an array');
 }
 
 function resolutionKindLabel(kind) {
@@ -1561,9 +2596,12 @@ function validateRuntimeThresholds(form) {
   return { stallThresholdSec, contextThresholds: [warn, danger, critical] };
 }
 
-function App({ skipBootstrap = false }) {
+function AppShell({ skipBootstrap = false }) {
   const store = useClientStore();
   const bootstrap = store.bootstrap;
+  const addWarning = store.addWarning;
+  const queryClient = useQueryClient();
+  const memoryRevision = Number(store.memoryRevision || 0);
 
   useEffect(() => {
     if (skipBootstrap) return undefined;
@@ -1578,22 +2616,44 @@ function App({ skipBootstrap = false }) {
     };
   }, [bootstrap, skipBootstrap]);
 
+  const projectPath = store.activeProject && store.activeProject !== '.' ? store.activeProject : store.cwd || '未选择项目';
+  const memoryCwd = optionalSettingsCwd(projectPath);
+  useDashboardFocusInvalidation(memoryCwd, 'memory');
+  const memoryBadgeQuery = useQuery({
+    queryKey: dashboardQueryKey(memoryCwd, 'memory'),
+    queryFn: () => fetchMemoryDashboard(memoryCwd),
+    enabled: Boolean(memoryCwd),
+    select: memorySimilarGroupCount,
+  });
+  const memorySimilarCount = Math.max(0, Number(memoryBadgeQuery.data) || 0);
+
+  useEffect(() => {
+    if (!memoryBadgeQuery.error) return;
+    addWarning('warn', 'memory.badge.refresh.failed', { error: errorMessage(memoryBadgeQuery.error) });
+  }, [addWarning, memoryBadgeQuery.error]);
+
+  useEffect(() => {
+    if (!memoryCwd || memoryRevision <= 0) return;
+    void queryClient.invalidateQueries({ queryKey: dashboardQueryKey(memoryCwd, 'memory') });
+  }, [memoryCwd, memoryRevision, queryClient]);
+
   const activeLabel = useMemo(() => (
     navItems.find((item) => item.id === store.activePage)?.label || 'Chat'
   ), [store.activePage]);
 
-  const projectPath = store.activeProject && store.activeProject !== '.' ? store.activeProject : store.cwd || '未选择项目';
+  const { theme, toggleTheme } = useColorTheme();
 
   return (
-    <div className="sa-window" data-testid="frontend-app">
+    <div className="sa-window" data-theme={theme} data-testid="frontend-app">
+      <Titlebar theme={theme} onToggleTheme={toggleTheme} />
       <div className="sa-body">
-        <NavRail activePage={store.activePage} setActivePage={store.setActivePage} />
+        <NavRail activePage={store.activePage} setActivePage={store.setActivePage} memorySimilarCount={memorySimilarCount} />
         <main className="sa-main">
           {store.activePage === 'chat' ? <ChatPage store={store} projectPath={projectPath} /> : null}
-          {store.activePage === 'prompts' ? <PromptPage projectPath={projectPath} /> : null}
-          {store.activePage === 'workflows' ? <WorkflowPage projectPath={projectPath} store={store} /> : null}
+          {store.activePage === 'prompts' ? <PromptPage projectPath={projectPath} store={store} refreshKey={store.promptRevision} /> : null}
+          {store.activePage === 'workflows' ? <WorkflowPage projectPath={projectPath} store={store} refreshKey={store.workflowRevision} /> : null}
           {store.activePage === 'skills' ? <SkillsPage projectPath={projectPath} refreshKey={store.skillRevision} /> : null}
-          {store.activePage === 'memory' ? <MemoryPage projectPath={projectPath} /> : null}
+          {store.activePage === 'memory' ? <MemoryPage projectPath={projectPath} refreshKey={memoryRevision} /> : null}
           {store.activePage === 'files' ? <FilesPage projectPath={projectPath} store={store} /> : null}
           {store.activePage === 'settings' ? <SettingsPage projectPath={projectPath} /> : null}
           <span className="sr-only">当前页面：{activeLabel}</span>
@@ -1603,12 +2663,47 @@ function App({ skipBootstrap = false }) {
   );
 }
 
-function NavRail({ activePage, setActivePage }) {
+function App(props) {
+  const [queryClient] = useState(createDashboardQueryClient);
+  return (
+    <QueryClientProvider client={queryClient}>
+      <AppShell {...props} />
+    </QueryClientProvider>
+  );
+}
+
+function Titlebar({ theme, onToggleTheme }) {
+  const isDark = theme === COLOR_THEMES.dark;
+  const ThemeIcon = isDark ? Sun : Moon;
+  const label = isDark ? '白天模式' : '黑夜模式';
+
+  return (
+    <header className="titlebar">
+      <div className="titlebar-brand">
+        <span className="brand-orb" aria-hidden="true" />
+        <strong>Super Agent</strong>
+      </div>
+      <button
+        type="button"
+        className="theme-toggle"
+        onClick={onToggleTheme}
+        aria-label={`切换到${label}`}
+      >
+        <ThemeIcon size={16} aria-hidden="true" />
+        <span>{label}</span>
+      </button>
+    </header>
+  );
+}
+
+function NavRail({ activePage, setActivePage, memorySimilarCount = 0 }) {
+  const memoryBadgeCount = Math.max(0, Number(memorySimilarCount) || 0);
   return (
     <aside className="nav-rail" data-testid="sidebar-nav">
       <nav>
         {navItems.map((item) => {
           const Icon = item.icon;
+          const badgeCount = item.id === 'memory' ? memoryBadgeCount : 0;
           return (
             <button
               key={item.id}
@@ -1619,7 +2714,7 @@ function NavRail({ activePage, setActivePage }) {
             >
               <Icon size={22} aria-hidden="true" />
               <span>{item.label}</span>
-              {item.alert ? <i /> : null}
+              {badgeCount > 0 ? <i aria-hidden="true" title={`${badgeCount} 条待整合相似记忆`} /> : null}
             </button>
           );
         })}
@@ -1630,17 +2725,75 @@ function NavRail({ activePage, setActivePage }) {
 
 function ChatPage({ store, projectPath }) {
   const activeThreadId = store.activeThreadId;
-  const messages = store.timelinesByThread[activeThreadId] || [];
-  const tokenUsage = store.tokenUsageByThread[activeThreadId] || null;
-  const diffText = store.diffTextByThread[activeThreadId] || '';
+  const modelThreadId = composerConfigThreadId(store, activeThreadId);
+  const activeThread = activeThreadForStore(store);
+  const timelineBlocked = Boolean(activeThreadId && store.threadStateLoadingByThread?.[activeThreadId]);
+  const messages = timelineBlocked ? [] : (threadScopedMapValue(store.timelinesByThread, activeThreadId, activeThread, []) || []);
+  const tokenUsage = threadScopedMapValue(store.tokenUsageByThread, activeThreadId, activeThread, null);
+  const activityStats = threadScopedMapValue(store.activityStatsByThread, activeThreadId, activeThread, null);
+  const diffText = threadScopedMapValue(store.diffTextByThread, activeThreadId, activeThread, '') || '';
+  const warningEntries = scopedActivityEntries(store.warningEntries, activeThreadId, activeThread, { includeUnscoped: true });
+  const runtimeResultEntriesForThread = scopedActivityEntries(store.runtimeResultEntries, activeThreadId, activeThread, { includeUnscoped: true });
+  const statusEntry = activeThreadId ? store.statuses?.[activeThreadId] : null;
+  const [viewportWidth, setViewportWidth] = useState(currentViewportWidth);
+  const [threadRailWidth, setThreadRailWidth] = useState(() => threadRailTargetWidth());
+  const threadRailResizedRef = useRef(false);
+  const [rightPanelOpen, setRightPanelOpen] = useState(false);
+  const rightPanelResizedRef = useRef(false);
+  const chatLayoutRef = useRef(null);
+  const threadRailMaxWidth = threadRailTargetWidth(viewportWidth);
+  const effectiveThreadRailWidth = clampWidth(threadRailWidth, THREAD_RAIL_MIN_WIDTH, threadRailMaxWidth);
+  const maxRightPanelWidth = rightPanelMaxWidth(viewportWidth, effectiveThreadRailWidth);
+  const rightPanelWidth = clampWidth(store.rightPanelWidth, 0, maxRightPanelWidth);
 
-  const beginResize = (event) => {
+  useEffect(() => {
+    const onResize = () => setViewportWidth(currentViewportWidth());
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  }, []);
+
+  useEffect(() => {
+    setThreadRailWidth((width) => {
+      const targetWidth = threadRailTargetWidth(viewportWidth);
+      if (!threadRailResizedRef.current) return targetWidth;
+      return clampWidth(width, THREAD_RAIL_MIN_WIDTH, targetWidth);
+    });
+  }, [viewportWidth]);
+
+  useEffect(() => {
+    if (!rightPanelOpen) return;
+    const targetWidth = rightPanelResizedRef.current
+      ? clampWidth(store.rightPanelWidth, 0, maxRightPanelWidth)
+      : clampWidth(rightPanelDefaultWidth(viewportWidth), 0, maxRightPanelWidth);
+    if (targetWidth <= 0) {
+      store.setRightPanelWidth?.(0);
+      setRightPanelOpen(false);
+      return;
+    }
+    if (targetWidth !== store.rightPanelWidth) {
+      store.setRightPanelWidth?.(targetWidth);
+    }
+  }, [maxRightPanelWidth, rightPanelOpen, store, viewportWidth]);
+
+  useEffect(() => {
+    const onKeyDown = (event) => {
+      if (event.defaultPrevented || event.key !== 'Escape' || event.metaKey || event.ctrlKey || event.altKey || event.shiftKey) return;
+      if (!store.hasActiveThreadActions?.()) return;
+      event.preventDefault();
+      void store.interruptActiveThread?.();
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [store, activeThreadId]);
+
+  const beginThreadRailResize = (event) => {
     event.preventDefault();
+    threadRailResizedRef.current = true;
     const startX = event.clientX;
-    const startWidth = store.rightPanelWidth;
+    const startWidth = effectiveThreadRailWidth;
     const move = (moveEvent) => {
-      const next = Math.max(360, Math.min(780, startWidth - (moveEvent.clientX - startX)));
-      store.setRightPanelWidth(next);
+      const next = clampWidth(startWidth + (moveEvent.clientX - startX), THREAD_RAIL_MIN_WIDTH, threadRailMaxWidth);
+      setThreadRailWidth(next);
     };
     const stop = () => {
       window.removeEventListener('pointermove', move);
@@ -1650,14 +2803,91 @@ function ChatPage({ store, projectPath }) {
     window.addEventListener('pointerup', stop);
   };
 
+  const beginRightPanelResize = (event) => {
+    event.preventDefault();
+    event.currentTarget?.setPointerCapture?.(event.pointerId);
+    rightPanelResizedRef.current = true;
+    const startX = event.clientX;
+    const startWidth = rightPanelWidth;
+    let latestWidth = startWidth;
+    let stopped = false;
+    const layoutColumnsForWidth = (width) => `${effectiveThreadRailWidth}px ${SPLITTER_WIDTH}px minmax(0, 1fr) ${SPLITTER_WIDTH}px ${width}px`;
+    const applyDragWidth = (width) => {
+      if (chatLayoutRef.current) {
+        chatLayoutRef.current.style.gridTemplateColumns = layoutColumnsForWidth(width);
+      }
+    };
+    const finish = () => {
+      if (stopped) return;
+      stopped = true;
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', finish);
+      window.removeEventListener('pointercancel', finish);
+      window.removeEventListener('blur', finish);
+      event.currentTarget?.releasePointerCapture?.(event.pointerId);
+      if (latestWidth <= RIGHT_PANEL_CLOSE_THRESHOLD) {
+        store.setRightPanelWidth?.(0);
+        setRightPanelOpen(false);
+        return;
+      }
+      store.setRightPanelWidth?.(latestWidth);
+    };
+    const move = (moveEvent) => {
+      if (Number(moveEvent.buttons) === 0) {
+        finish();
+        return;
+      }
+      const rawNext = startWidth - (moveEvent.clientX - startX);
+      if (rawNext <= RIGHT_PANEL_CLOSE_THRESHOLD) {
+        latestWidth = 0;
+        applyDragWidth(0);
+        finish();
+        return;
+      }
+      latestWidth = clampWidth(rawNext, 0, maxRightPanelWidth);
+      applyDragWidth(latestWidth);
+    };
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', finish);
+    window.addEventListener('pointercancel', finish);
+    window.addEventListener('blur', finish);
+  };
+
+  const layoutColumns = rightPanelOpen
+    ? `${effectiveThreadRailWidth}px ${SPLITTER_WIDTH}px minmax(0, 1fr) ${SPLITTER_WIDTH}px ${rightPanelWidth}px`
+    : `${effectiveThreadRailWidth}px ${SPLITTER_WIDTH}px minmax(0, 1fr)`;
+
+  const toggleRightPanel = () => {
+    const next = !rightPanelOpen;
+    if (next) {
+      rightPanelResizedRef.current = false;
+      store.setRightPanelWidth?.(clampWidth(rightPanelDefaultWidth(viewportWidth), 0, maxRightPanelWidth));
+    }
+    setRightPanelOpen(next);
+  };
+
   return (
     <section className="chat-page" data-testid="chat-page">
-      <TopCommandBar store={store} projectPath={projectPath} />
+      <TopCommandBar
+        store={store}
+        projectPath={projectPath}
+        rightPanelOpen={rightPanelOpen}
+        toggleRightPanel={toggleRightPanel}
+      />
       <div
+        ref={chatLayoutRef}
         className="chat-layout"
-        style={{ gridTemplateColumns: `320px minmax(0, 1fr) 8px ${store.rightPanelWidth}px` }}
+        data-testid="chat-layout"
+        style={{ gridTemplateColumns: layoutColumns }}
       >
         <ThreadRail store={store} />
+        <button
+          type="button"
+          className="splitter splitter--left"
+          aria-label="调整会话栏宽度"
+          data-testid="thread-rail-resizer"
+          onPointerDown={beginThreadRailResize}
+        />
         <Conversation
           messages={messages}
           draft={store.draft}
@@ -1665,6 +2895,9 @@ function ChatPage({ store, projectPath }) {
           sendMessage={store.sendDraft}
           attachments={store.attachments}
           selectFiles={store.selectFilesForComposer}
+          attachPaths={store.attachPathsForComposer}
+          attachDroppedFiles={store.attachDroppedFilesForComposer}
+          attachPastedImages={store.attachPastedImagesForComposer}
           removeAttachment={store.removeAttachment}
           sending={store.sending}
           store={store}
@@ -1673,19 +2906,29 @@ function ChatPage({ store, projectPath }) {
           setPermission={store.setPermission}
           tokenUsage={tokenUsage}
           activeThreadId={activeThreadId}
+          activeThread={activeThread}
+          statusEntry={statusEntry}
+          modelThreadId={modelThreadId}
+          timelineBlocked={timelineBlocked}
         />
-        <button
-          type="button"
-          className="splitter"
-          aria-label="调整工作台宽度"
-          onPointerDown={beginResize}
-        />
-        <RuntimePanel
-          diffText={diffText}
-          tokenUsage={tokenUsage}
-          warnings={store.warningEntries}
-          activity={store.activityEntries}
-        />
+        {rightPanelOpen ? (
+          <button
+            type="button"
+            className="splitter splitter--right"
+            aria-label="调整侧边栏宽度"
+            data-testid="right-panel-resizer"
+            onPointerDown={beginRightPanelResize}
+          />
+        ) : null}
+        {rightPanelOpen ? (
+          <RuntimePanel
+            diffText={diffText}
+            tokenUsage={tokenUsage}
+            activityStats={activityStats}
+            warnings={warningEntries}
+            runtimeResults={runtimeResultEntriesForThread}
+          />
+        ) : null}
       </div>
     </section>
   );
@@ -1703,6 +2946,9 @@ function ProjectSelector({ store, projectPath }) {
   const selected = options.find((item) => item.value === selectedValue)
     || options.find((item) => item.value === '.')
     || { value: '.', label: '当前目录 (.)', full: '.' };
+  const selectedButtonLabel = selected.value === '.'
+    ? projectDisplayName(projectPath)
+    : projectDisplayName(selected.full || selected.value);
 
   useEffect(() => {
     if (!open) return undefined;
@@ -1742,7 +2988,7 @@ function ProjectSelector({ store, projectPath }) {
         onClick={() => setOpen((value) => !value)}
       >
         <Folder size={15} />
-        <span>{selected.label}</span>
+        <span>{selectedButtonLabel}</span>
         <ChevronDown size={14} />
       </button>
       {open ? (
@@ -1787,29 +3033,55 @@ function ProjectSelector({ store, projectPath }) {
   );
 }
 
-function TopCommandBar({ store, projectPath }) {
+function ProviderToggle({ store }) {
+  const { locked, provider } = providerToggleState(store);
+  const isClaude = provider === 'claude';
+  const providerLabel = isClaude ? 'Claude' : 'Codex';
+  const title = locked
+    ? '已开启的聊天不能更改 provider，请新建对话后切换'
+    : '切换 Claude / Codex provider';
+  return (
+    <button
+      type="button"
+      className={`provider ${isClaude ? 'active' : ''} ${locked ? 'locked' : ''}`}
+      aria-label="切换 Claude / Codex provider"
+      aria-pressed={isClaude}
+      aria-disabled={locked}
+      disabled={locked}
+      title={title}
+      onClick={() => {
+        if (locked) return;
+        void store.toggleProviderMode();
+      }}
+    >
+      <span className="provider-track" aria-hidden="true">
+        <span className="provider-thumb" />
+      </span>
+      <span className="provider-label">{providerLabel}</span>
+    </button>
+  );
+}
+
+function TopCommandBar({ store, projectPath, rightPanelOpen = false, toggleRightPanel = () => {} }) {
   const canUseThreadActions = Boolean(store.hasActiveThreadActions?.());
-  const providerLabel = store.provider === 'claude' ? 'Claude' : 'Codex';
   return (
     <div className="top-command" data-testid="chat-toolbar">
       <ProjectSelector store={store} projectPath={projectPath} />
+      <button
+        type="button"
+        className="icon-btn"
+        aria-label="新窗口（独立进程）"
+        title="新窗口（独立进程）"
+        onClick={() => void store.openNewWindow?.()}
+      >
+        <PanelTopOpen size={15} />
+      </button>
       {canUseThreadActions ? (
         <button type="button" className="icon-btn" aria-label="复制当前线程" title="复制当前线程" onClick={() => void store.copyActiveThreadInfo()}><Copy size={15} /></button>
       ) : null}
       {canUseThreadActions ? (
         <button type="button" className="icon-btn" aria-label="停止" title="中断当前执行" onClick={() => void store.interruptActiveThread()}><CircleStop size={15} /></button>
       ) : null}
-      <button
-        type="button"
-        className={`provider ${store.provider === 'claude' ? 'active' : ''}`}
-        aria-label="切换 Claude / Codex provider"
-        title="切换 Claude / Codex provider"
-        onClick={() => void store.toggleProviderMode()}
-      >
-        <span />
-        {providerLabel}
-      </button>
-      <button type="button" className="icon-btn launch-agent" aria-label="新对话" title="新对话：发送第一条消息时才会创建会话" onClick={store.newThread}><Pencil size={15} /></button>
       <button
         type="button"
         className="icon-btn"
@@ -1830,6 +3102,16 @@ function TopCommandBar({ store, projectPath }) {
         </span>
       ) : null}
       <span className="project-pill" aria-label="当前工作目录" title={`当前窗口 CWD：${projectPath}`}><Folder size={14} /> {projectDisplayName(projectPath)}</span>
+      <button
+        type="button"
+        className={`icon-btn sidebar-toggle ${rightPanelOpen ? 'active' : ''}`}
+        aria-label={rightPanelOpen ? '隐藏侧边栏' : '显示侧边栏'}
+        title={rightPanelOpen ? '隐藏侧边栏' : '显示侧边栏'}
+        aria-pressed={rightPanelOpen}
+        onClick={toggleRightPanel}
+      >
+        {rightPanelOpen ? <X size={15} /> : <Eye size={15} />}
+      </button>
     </div>
   );
 }
@@ -1837,14 +3119,32 @@ function TopCommandBar({ store, projectPath }) {
 function ThreadRail({ store }) {
   const [showArchivedThreads, setShowArchivedThreads] = useState(false);
   const [confirmCleanMode, setConfirmCleanMode] = useState(false);
+  const [hoveredPinThreadId, setHoveredPinThreadId] = useState('');
+  const [editingThreadId, setEditingThreadId] = useState('');
+  const [editingName, setEditingName] = useState('');
+  const [renamingThreadId, setRenamingThreadId] = useState('');
   const activeThreads = store.threads.filter((thread) => !thread.archived);
   const archivedThreads = store.threads.filter((thread) => thread.archived);
   const threads = showArchivedThreads ? archivedThreads : activeThreads;
-  const visibleThreads = threads.map((thread) => ({ ...thread, staleReason: archivedStaleReason(thread) }));
+  const visibleThreads = threads
+    .map((thread, index) => ({
+      ...thread,
+      staleReason: archivedStaleReason(thread),
+      listIndex: index,
+      pinnedAt: Number(store.pinnedThreadAtById?.[thread.id] || thread.pinnedAt || 0),
+      activityAt: threadSortTimestamp(store.activityThreadAtById?.[thread.id] || thread.updatedAt),
+    }))
+    .sort((left, right) => {
+      const leftPinned = left.pinnedAt > 0;
+      const rightPinned = right.pinnedAt > 0;
+      if (leftPinned !== rightPinned) return leftPinned ? -1 : 1;
+      if (leftPinned && rightPinned && left.pinnedAt !== right.pinnedAt) return right.pinnedAt - left.pinnedAt;
+      if (!leftPinned && !rightPinned && left.activityAt !== right.activityAt) return right.activityAt - left.activityAt;
+      return left.listIndex - right.listIndex;
+    });
   const staleThreadIds = showArchivedThreads
     ? visibleThreads.filter((thread) => thread.staleReason).map((thread) => thread.id)
     : [];
-  const railLabel = showArchivedThreads ? '归档列表' : '会话列表';
   const toggleArchiveLabel = showArchivedThreads ? '返回会话列表' : '打开归档列表';
   const toggleArchiveList = () => {
     setShowArchivedThreads((value) => {
@@ -1853,17 +3153,46 @@ function ThreadRail({ store }) {
       return next;
     });
   };
+  const beginRename = (thread) => {
+    setEditingThreadId(thread.id);
+    setEditingName((thread.name || '').toString());
+  };
+  const cancelRename = () => {
+    if (renamingThreadId) return;
+    setEditingThreadId('');
+    setEditingName('');
+  };
+  const submitRename = async (thread) => {
+    const nextName = editingName.trim();
+    if (!nextName || renamingThreadId) return;
+    if (nextName === (thread.name || '').toString().trim()) {
+      cancelRename();
+      return;
+    }
+    setRenamingThreadId(thread.id);
+    try {
+      await store.renameThread(thread.id, nextName);
+      setEditingThreadId('');
+      setEditingName('');
+    } finally {
+      setRenamingThreadId('');
+    }
+  };
+  const handleRenameBlur = (event, thread) => {
+    const saveFor = event.relatedTarget?.dataset?.renameSaveButtonFor || '';
+    if (saveFor === thread.id) return;
+    cancelRename();
+  };
   return (
-    <aside className="thread-rail" data-testid="thread-rail">
+    <aside className="thread-rail" data-testid="thread-rail" aria-label={showArchivedThreads ? '归档列表' : '会话列表'}>
       <div className="thread-tools">
-        <span className="round thread-kind" role="img" aria-label={railLabel} title={railLabel}>
-          <Bot size={17} />
-        </span>
+        <button type="button" className="round thread-new-primary" aria-label="新建对话" title="新对话：发送第一条消息时才会创建会话" onClick={store.newThread}>
+          <Pencil size={17} />
+        </button>
         <span className="count thread-count" role="img" aria-label={`${visibleThreads.length} 个 Agent`} title={`${visibleThreads.length} 个 Agent`}>
           <Bot size={14} />
           <strong>{visibleThreads.length}</strong>
         </span>
-        <button type="button" className="round add" aria-label="新建对话" onClick={store.newThread}><Plus size={18} /></button>
         {showArchivedThreads && staleThreadIds.length > 0 && !confirmCleanMode ? (
           <button
             type="button"
@@ -1903,35 +3232,111 @@ function ThreadRail({ store }) {
       <div className="thread-list">
         {visibleThreads.length === 0 ? (
           <p className="thread-empty">
-            {showArchivedThreads ? '暂无归档会话' : '暂无会话，点击顶部「新对话」开始草稿'}
+            {showArchivedThreads ? '暂无归档会话' : '暂无会话，点击「新建对话」开始草稿'}
           </p>
         ) : null}
         {visibleThreads.map((thread) => {
-          const active = store.activeThreadId === thread.id;
+          const selectedThreadId = store.pendingActiveThreadId || store.activeThreadId;
+          const active = selectedThreadId === thread.id;
           const running = ['running', '工作中', 'pending', 'recovering'].includes((thread.status || '').toLowerCase()) || thread.status === '工作中';
           const archiveLabel = thread.archived ? '恢复会话' : '归档会话';
+          const pinned = thread.pinnedAt > 0 || thread.pinned;
+          const pinLabel = pinned ? '取消置顶对话' : '置顶对话';
+          const editing = editingThreadId === thread.id;
           return (
             <div
               key={thread.id}
               className={`thread-card ${active ? 'active' : ''}`}
             >
-              <button
-                type="button"
-                className="thread-main"
-                onClick={() => void store.setActiveThread(thread.id)}
-              >
-                <span className="thread-pin"><GitBranch size={15} /></span>
-                <span className="thread-name">{thread.name}</span>
-                <b>{thread.provider || 'Codex'}</b>
-                <em className={running ? 'running' : ''}>
-                  {running ? '工作中' : thread.status || '等待指示'}
-                  {thread.staleReason ? (
-                    <span className="thread-stale-badge" data-stale-reason={thread.staleReason}>
-                      {thread.staleReason === 'expired' ? '超7天' : '空对话'}
+              {editing ? (
+                <>
+                  <span className="thread-pin thread-pin--placeholder" aria-hidden="true">
+                    <Pin size={20} strokeWidth={2.2} />
+                  </span>
+                  <div className="thread-main thread-main--editing">
+                    <input
+                      className="thread-name-input"
+                      aria-label="会话别名"
+                      value={editingName}
+                      maxLength={64}
+                      disabled={renamingThreadId === thread.id}
+                      autoFocus
+                      onFocus={(event) => event.currentTarget.select()}
+                      onChange={(event) => setEditingName(event.target.value)}
+                      onClick={(event) => event.stopPropagation()}
+                      onBlur={(event) => handleRenameBlur(event, thread)}
+                      onKeyDown={(event) => {
+                        if (event.key === 'Enter') {
+                          event.preventDefault();
+                          void submitRename(thread);
+                        }
+                        if (event.key === 'Escape') {
+                          event.preventDefault();
+                          cancelRename();
+                        }
+                      }}
+                    />
+                    <button
+                      type="button"
+                      className="thread-rename-save"
+                      aria-label="保存别名"
+                      data-rename-save-button-for={thread.id}
+                      disabled={renamingThreadId === thread.id}
+                      onMouseDown={(event) => event.preventDefault()}
+                      onClick={() => void submitRename(thread)}
+                    >
+                      保存
+                    </button>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <button
+                    type="button"
+                    className={`thread-pin ${pinned ? 'active' : ''}`}
+                    aria-label={pinLabel}
+                    title={pinLabel}
+                    aria-pressed={pinned}
+                    onClick={() => void store.toggleThreadPin(thread.id)}
+                    onMouseEnter={() => setHoveredPinThreadId(thread.id)}
+                    onMouseLeave={() => setHoveredPinThreadId((current) => (current === thread.id ? '' : current))}
+                    onFocus={() => setHoveredPinThreadId(thread.id)}
+                    onBlur={() => setHoveredPinThreadId((current) => (current === thread.id ? '' : current))}
+                  >
+                    <Pin size={20} strokeWidth={2.2} />
+                    {hoveredPinThreadId === thread.id ? (
+                      <span className="thread-pin-tooltip" data-testid="thread-pin-tooltip" role="tooltip">
+                        {pinLabel}
+                      </span>
+                    ) : null}
+                  </button>
+                  <button
+                    type="button"
+                    className="thread-main"
+                    onClick={() => void store.setActiveThread(thread.id)}
+                  >
+                    <span
+                      className="thread-name"
+                      title="点击重命名"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        beginRename(thread);
+                      }}
+                    >
+                      {thread.name}
                     </span>
-                  ) : null}
-                </em>
-              </button>
+                    <b>{threadProviderLabel(thread.provider)}</b>
+                    <em className={running ? 'running' : ''}>
+                      {running ? '工作中' : thread.status || '等待指示'}
+                      {thread.staleReason ? (
+                        <span className="thread-stale-badge" data-stale-reason={thread.staleReason}>
+                          {thread.staleReason === 'expired' ? '超7天' : '空对话'}
+                        </span>
+                      ) : null}
+                    </em>
+                  </button>
+                </>
+              )}
               <button
                 type="button"
                 className={`thread-archive ${thread.archived ? 'active' : ''}`}
@@ -2005,11 +3410,11 @@ function ModelSelector({ store, activeThreadId }) {
       next = { ...next, effort: 'high' };
     }
     setDraft(next);
-    await store.saveComposerModelConfig?.({ model: next.model, effort: next.effort });
+    await store.saveComposerModelConfig?.({ threadId: activeThreadId, model: next.model, effort: next.effort });
   };
 
   const restoreInheritance = async () => {
-    await store.restoreComposerModelInheritance?.();
+    await store.restoreComposerModelInheritance?.({ threadId: activeThreadId });
     setOpen(false);
   };
 
@@ -2069,6 +3474,576 @@ function ModelSelector({ store, activeThreadId }) {
   );
 }
 
+function attachmentKey(item) {
+  return textValue(item?.path || item?.previewUrl || item?.url);
+}
+
+function hasFilesTransfer(event) {
+  const transfer = event?.dataTransfer;
+  if (!transfer) return false;
+  if (transfer.files && transfer.files.length > 0) return true;
+  return Array.from(transfer.types || []).includes('Files');
+}
+
+function collectTransferFiles(event) {
+  const transfer = event?.dataTransfer;
+  if (!transfer) return [];
+  const files = Array.from(transfer.files || []).filter(Boolean);
+  if (files.length > 0) return files;
+  return Array.from(transfer.items || [])
+    .filter((item) => item?.kind === 'file')
+    .map((item) => item.getAsFile?.())
+    .filter(Boolean);
+}
+
+function extractClipboardImageFiles(event) {
+  const clipboard = event?.clipboardData;
+  if (!clipboard) return [];
+  const images = [];
+  const seen = new Set();
+  const add = (file) => {
+    if (!file || seen.has(file)) return;
+    const type = textValue(file.type).toLowerCase();
+    const name = textValue(file.name).toLowerCase();
+    if (!type.startsWith('image/') && !/\.(png|jpe?g|gif|webp|bmp|svg)$/i.test(name)) return;
+    seen.add(file);
+    images.push(file);
+  };
+  Array.from(clipboard.files || []).forEach(add);
+  Array.from(clipboard.items || []).forEach((item) => {
+    if (!item) return;
+    const type = textValue(item.type).toLowerCase();
+    if (type.startsWith('image/') || item.kind === 'file') {
+      add(item.getAsFile?.());
+    }
+  });
+  return images;
+}
+
+function AttachmentPreviewModal({ attachment, onClose, onRemove }) {
+  const isImage = attachment.kind === 'image' && attachment.previewUrl;
+  return (
+    <div className="modal-overlay" role="presentation">
+      <section className="modal-box attachment-preview-modal" role="dialog" aria-modal="true" aria-label="附件预览">
+        <header>
+          <div>
+            <strong>{attachment.name || attachment.path}</strong>
+            <p>{attachment.path}</p>
+          </div>
+          <button type="button" aria-label="关闭附件预览" onClick={onClose}><X size={16} /></button>
+        </header>
+        {isImage ? (
+          <img className="attachment-preview-image" src={attachment.previewUrl} alt={attachment.name || '附件图片预览'} />
+        ) : (
+          <div className="attachment-preview-file">
+            <File size={28} />
+            <code>{attachment.path}</code>
+          </div>
+        )}
+        <footer>
+          <button type="button" onClick={onRemove}><Trash2 size={14} /> 移除附件</button>
+          <button type="button" onClick={onClose}>关闭</button>
+        </footer>
+      </section>
+    </div>
+  );
+}
+
+function markdownTableCells(line) {
+  return line
+    .trim()
+    .replace(/^\|/, '')
+    .replace(/\|$/, '')
+    .split('|')
+    .map((cell) => cell.trim());
+}
+
+function isMarkdownTableDivider(line) {
+  const cells = markdownTableCells(line);
+  return cells.length > 0 && cells.every((cell) => /^:?-{3,}:?$/.test(cell));
+}
+
+function safeMarkdownUrl(rawUrl, options = {}) {
+  const value = (rawUrl || '').toString().trim();
+  if (!value) return '';
+  try {
+    const parsed = new URL(value, window.location?.origin || 'http://localhost');
+    const protocol = parsed.protocol.toLowerCase();
+    if (options.image) {
+      if (protocol === 'http:' || protocol === 'https:' || protocol === 'data:' || protocol === 'file:') return value;
+      return '';
+    }
+    if (protocol === 'http:' || protocol === 'https:' || protocol === 'mailto:' || protocol === 'file:') return parsed.href;
+  } catch {
+    return '';
+  }
+  return '';
+}
+
+function renderInlineMarkdown(text, keyPrefix) {
+  const source = (text || '').toString();
+  const parts = [];
+  const pattern = /(!\[[^\]]*]\([^)]+\)|\[[^\]]+]\([^)]+\)|`[^`]+`|\*\*[^*]+\*\*|__[^_]+__|~~[^~]+~~|\*[^*]+\*|_[^_]+_)/g;
+  let lastIndex = 0;
+  let matchIndex = 0;
+  for (const match of source.matchAll(pattern)) {
+    if (match.index > lastIndex) parts.push(source.slice(lastIndex, match.index));
+    const token = match[0];
+    const key = `${keyPrefix}-inline-${matchIndex}`;
+    if (token.startsWith('![')) {
+      const parsed = token.match(/^!\[([^\]]*)]\(([^)]+)\)$/);
+      const src = safeMarkdownUrl(parsed?.[2], { image: true });
+      parts.push(src ? <img key={key} src={src} alt={parsed?.[1] || ''} /> : token);
+    } else if (token.startsWith('[')) {
+      const parsed = token.match(/^\[([^\]]+)]\(([^)]+)\)$/);
+      const href = safeMarkdownUrl(parsed?.[2]);
+      parts.push(href ? <a key={key} href={href} target="_blank" rel="noreferrer">{parsed?.[1]}</a> : parsed?.[1] || token);
+    } else if (token.startsWith('`')) {
+      parts.push(<code key={key}>{token.slice(1, -1)}</code>);
+    } else if (token.startsWith('~~')) {
+      parts.push(<del key={key}>{token.slice(2, -2)}</del>);
+    } else if (token.startsWith('*') && !token.startsWith('**')) {
+      parts.push(<em key={key}>{token.slice(1, -1)}</em>);
+    } else if (token.startsWith('_') && !token.startsWith('__')) {
+      parts.push(<em key={key}>{token.slice(1, -1)}</em>);
+    } else {
+      parts.push(<strong key={key}>{token.slice(2, -2)}</strong>);
+    }
+    lastIndex = match.index + token.length;
+    matchIndex += 1;
+  }
+  if (lastIndex < source.length) parts.push(source.slice(lastIndex));
+  return parts.length > 0 ? parts : source;
+}
+
+function renderMarkdownParagraph(lines, key) {
+  return (
+    <p key={key}>
+      {lines.flatMap((line, index) => [
+        ...(index > 0 ? [<br key={`${key}-br-${index}`} />] : []),
+        ...renderInlineMarkdown(line, `${key}-${index}`),
+      ])}
+    </p>
+  );
+}
+
+function normalizeMessageText(text) {
+  return (text || '').toString().replace(/\r\n/g, '\n');
+}
+
+function standaloneCodeFence(text) {
+  const trimmed = normalizeMessageText(text).trim();
+  const match = trimmed.match(/^```([^\n`]*)\n([\s\S]*?)\n```$/);
+  if (!match) return null;
+  return {
+    language: (match[1] || '').trim().toLowerCase(),
+    body: match[2],
+  };
+}
+
+function candidatePayload(text) {
+  const fenced = standaloneCodeFence(text);
+  if (!fenced) return { language: '', body: normalizeMessageText(text) };
+  return fenced;
+}
+
+function parseJsonOutput(text) {
+  const payload = candidatePayload(text);
+  if (payload.language && !['json', 'jsonc'].includes(payload.language)) return null;
+  const trimmed = payload.body.trim();
+  if (!trimmed.startsWith('{') && !trimmed.startsWith('[')) return null;
+  try {
+    return JSON.stringify(JSON.parse(trimmed), null, 2);
+  } catch {
+    return null;
+  }
+}
+
+function isDiffOutput(text) {
+  const payload = candidatePayload(text);
+  const body = payload.body.trim();
+  if (['diff', 'patch'].includes(payload.language)) return body.length > 0;
+  const lines = body.split('\n');
+  if (body.startsWith('diff --git ') || body.startsWith('*** Begin Patch')) return true;
+  const hasOldHeader = lines.some((line) => line.startsWith('--- '));
+  const hasNewHeader = lines.some((line) => line.startsWith('+++ '));
+  const hasHunk = lines.some((line) => line.startsWith('@@ '));
+  return hasOldHeader && hasNewHeader && hasHunk;
+}
+
+function isLogOutput(text) {
+  const payload = candidatePayload(text);
+  const lines = payload.body.split('\n').map((line) => line.trimEnd()).filter(Boolean);
+  if (lines.length === 0) return false;
+  if (['log', 'logs', 'console', 'terminal'].includes(payload.language)) return true;
+
+  const levelLines = lines.filter((line) => /^(\[[A-Z]+]|\d{4}-\d{2}-\d{2}[T\s]\d{2}:\d{2}:\d{2}|(?:TRACE|DEBUG|INFO|WARN|WARNING|ERROR|FATAL)\b)/.test(line));
+  const stackTrace = lines.some((line) => /^(?:\w+\s*)?Error:/.test(line))
+    && lines.some((line) => /^\s*at\s+.+:\d+:\d+\)?$/.test(line));
+  const terminalPrompt = lines.some((line) => /^[$#]\s+[A-Za-z0-9_./-]+/.test(line));
+  return stackTrace || levelLines.length > 0 || terminalPrompt;
+}
+
+function isConfigOutput(text) {
+  const payload = candidatePayload(text);
+  const lines = payload.body.split('\n').map((line) => line.trim()).filter(Boolean);
+  if (lines.length < 2) return false;
+  if (['yaml', 'yml', 'toml', 'ini', 'env', 'dotenv', 'properties'].includes(payload.language)) return true;
+  const keyValueLines = lines.filter((line) => /^[-\w."']+(\s*[:=]\s*|\s+=\s+).+/.test(line));
+  return keyValueLines.length >= 2 && keyValueLines.length / lines.length >= 0.6;
+}
+
+function detectMessageOutput(text) {
+  const json = parseJsonOutput(text);
+  if (json) return { kind: 'json', text: json };
+  const payload = candidatePayload(text);
+  const body = payload.body.trimEnd();
+  if (isDiffOutput(text)) return { kind: 'diff', text: body };
+  if (isLogOutput(text)) return { kind: 'log', text: body };
+  if (isConfigOutput(text)) return { kind: 'config', text: body };
+  return { kind: 'markdown', text: normalizeMessageText(text) };
+}
+
+function diffLineClass(line) {
+  if (line.startsWith('@@')) return 'diff-line diff-line--hunk';
+  if (line.startsWith('+++') || line.startsWith('---') || line.startsWith('diff --git') || line.startsWith('index ')) return 'diff-line diff-line--meta';
+  if (line.startsWith('+')) return 'diff-line diff-line--added';
+  if (line.startsWith('-')) return 'diff-line diff-line--deleted';
+  return 'diff-line';
+}
+
+function StructuredMessage({ kind, text }) {
+  const outputText = normalizeMessageText(text);
+  if (kind === 'diff') {
+    return (
+      <div className={`message-output message-output--${kind}`} data-output-kind={kind}>
+        <pre>
+          <code>
+            {outputText.split('\n').map((line, index) => (
+              <span key={`${kind}-${index}`} className={diffLineClass(line)}>{line || ' '}</span>
+            ))}
+          </code>
+        </pre>
+      </div>
+    );
+  }
+  return (
+    <div className={`message-output message-output--${kind}`} data-output-kind={kind}>
+      <pre><code>{outputText}</code></pre>
+    </div>
+  );
+}
+
+function MarkdownMessage({ text }) {
+  const lines = normalizeMessageText(text).split('\n');
+  const nodes = [];
+  let index = 0;
+  const nextKey = (kind) => `${kind}-${nodes.length}`;
+
+  while (index < lines.length) {
+    const line = lines[index];
+    const trimmed = line.trim();
+    if (!trimmed) {
+      index += 1;
+      continue;
+    }
+
+    if (/^(-{3,}|\*{3,}|_{3,})$/.test(trimmed)) {
+      nodes.push(<hr key={nextKey('separator')} />);
+      index += 1;
+      continue;
+    }
+
+    if (trimmed.startsWith('```')) {
+      const key = nextKey('code');
+      const codeLines = [];
+      index += 1;
+      while (index < lines.length && !lines[index].trim().startsWith('```')) {
+        codeLines.push(lines[index]);
+        index += 1;
+      }
+      if (index < lines.length) index += 1;
+      nodes.push(<pre key={key}><code>{codeLines.join('\n')}</code></pre>);
+      continue;
+    }
+
+    const heading = trimmed.match(/^(#{1,6})\s+(.+)$/);
+    if (heading) {
+      const level = Math.min(6, heading[1].length);
+      const HeadingTag = `h${level}`;
+      nodes.push(<HeadingTag key={nextKey('heading')}>{renderInlineMarkdown(heading[2], `heading-${nodes.length}`)}</HeadingTag>);
+      index += 1;
+      continue;
+    }
+
+    if (index + 1 < lines.length && trimmed.includes('|') && isMarkdownTableDivider(lines[index + 1])) {
+      const key = nextKey('table');
+      const headers = markdownTableCells(line);
+      index += 2;
+      const rows = [];
+      while (index < lines.length && lines[index].trim().includes('|')) {
+        rows.push(markdownTableCells(lines[index]));
+        index += 1;
+      }
+      nodes.push(
+        <table key={key}>
+          <thead>
+            <tr>{headers.map((cell, cellIndex) => <th key={`${key}-h-${cellIndex}`}>{renderInlineMarkdown(cell, `${key}-h-${cellIndex}`)}</th>)}</tr>
+          </thead>
+          <tbody>
+            {rows.map((row, rowIndex) => (
+              <tr key={`${key}-r-${rowIndex}`}>
+                {headers.map((_, cellIndex) => <td key={`${key}-r-${rowIndex}-${cellIndex}`}>{renderInlineMarkdown(row[cellIndex] || '', `${key}-r-${rowIndex}-${cellIndex}`)}</td>)}
+              </tr>
+            ))}
+          </tbody>
+        </table>,
+      );
+      continue;
+    }
+
+    if (trimmed.startsWith('>')) {
+      const key = nextKey('quote');
+      const quoteLines = [];
+      while (index < lines.length && lines[index].trim().startsWith('>')) {
+        quoteLines.push(lines[index].trim().replace(/^>\s?/, ''));
+        index += 1;
+      }
+      nodes.push(<blockquote key={key}>{renderMarkdownParagraph(quoteLines, `${key}-p`)}</blockquote>);
+      continue;
+    }
+
+    const unordered = trimmed.match(/^[-*]\s+(.+)$/);
+    const ordered = trimmed.match(/^\d+\.\s+(.+)$/);
+    const task = trimmed.match(/^[-*]\s+\[([ xX])]\s+(.+)$/);
+    if (task) {
+      const key = nextKey('task-list');
+      const items = [];
+      while (index < lines.length) {
+        const itemMatch = lines[index].trim().match(/^[-*]\s+\[([ xX])]\s+(.+)$/);
+        if (!itemMatch) break;
+        items.push({ checked: itemMatch[1].toLowerCase() === 'x', text: itemMatch[2] });
+        index += 1;
+      }
+      nodes.push(
+        <ul key={key} className="task-list">
+          {items.map((item, itemIndex) => (
+            <li key={`${key}-${itemIndex}`}>
+              <input type="checkbox" checked={item.checked} disabled readOnly />
+              <span>{renderInlineMarkdown(item.text, `${key}-${itemIndex}`)}</span>
+            </li>
+          ))}
+        </ul>,
+      );
+      continue;
+    }
+    if (unordered || ordered) {
+      const key = nextKey('list');
+      const ListTag = ordered ? 'ol' : 'ul';
+      const items = [];
+      while (index < lines.length) {
+        const itemMatch = lines[index].trim().match(ordered ? /^\d+\.\s+(.+)$/ : /^[-*]\s+(.+)$/);
+        if (!itemMatch) break;
+        items.push(itemMatch[1]);
+        index += 1;
+      }
+      nodes.push(
+        <ListTag key={key}>
+          {items.map((item, itemIndex) => <li key={`${key}-${itemIndex}`}>{renderInlineMarkdown(item, `${key}-${itemIndex}`)}</li>)}
+        </ListTag>,
+      );
+      continue;
+    }
+
+    const paragraph = [line];
+    index += 1;
+    while (index < lines.length) {
+      const next = lines[index];
+      const nextTrimmed = next.trim();
+      if (!nextTrimmed) break;
+      if (
+        nextTrimmed.startsWith('```') ||
+        nextTrimmed.startsWith('>') ||
+        nextTrimmed.match(/^(-{3,}|\*{3,}|_{3,})$/) ||
+        nextTrimmed.match(/^(#{1,6})\s+(.+)$/) ||
+        nextTrimmed.match(/^[-*]\s+(.+)$/) ||
+        nextTrimmed.match(/^\d+\.\s+(.+)$/) ||
+        (index + 1 < lines.length && nextTrimmed.includes('|') && isMarkdownTableDivider(lines[index + 1]))
+      ) break;
+      paragraph.push(next);
+      index += 1;
+    }
+    nodes.push(renderMarkdownParagraph(paragraph, nextKey('paragraph')));
+  }
+
+  return <div className="message-markdown">{nodes.length > 0 ? nodes : <p />}</div>;
+}
+
+function MessageContent({ text }) {
+  const output = detectMessageOutput(text);
+  if (output.kind === 'markdown') return <MarkdownMessage text={output.text} />;
+  return <StructuredMessage kind={output.kind} text={output.text} />;
+}
+
+function ComposerDock({
+  floating = false,
+  draft,
+  setDraft,
+  sendMessage,
+  attachments,
+  selectFiles,
+  attachPaths,
+  attachDroppedFiles,
+  attachPastedImages,
+  removeAttachment,
+  sending,
+  store,
+  permission,
+  setPermission,
+  modelThreadId,
+  showProviderToggle = true,
+}) {
+  const composerClass = `composer ${floating ? 'composer--floating' : 'composer--docked'}`;
+  const [previewAttachment, setPreviewAttachment] = useState(null);
+  const [dropActive, setDropActive] = useState(false);
+  const isComposingRef = useRef(false);
+  const activePreview = previewAttachment && attachments.some((item) => attachmentKey(item) === attachmentKey(previewAttachment))
+    ? previewAttachment
+    : null;
+
+  useEffect(() => {
+    if (typeof attachPaths !== 'function') return undefined;
+    return onFilesDropped((event) => {
+      const payload = event && typeof event === 'object' ? event : {};
+      const files = Array.isArray(payload.files) ? payload.files : [];
+      if (files.length === 0) return;
+      const details = payload.details && typeof payload.details === 'object' ? payload.details : {};
+      const targetId = textValue(details.id);
+      if (targetId && !COMPOSER_DROP_TARGET_IDS.has(targetId)) return;
+      attachPaths(files);
+      setDropActive(false);
+    });
+  }, [attachPaths]);
+
+  const preview = (item) => {
+    setPreviewAttachment(item);
+  };
+  const remove = (item) => {
+    removeAttachment(attachmentKey(item));
+    if (activePreview && attachmentKey(activePreview) === attachmentKey(item)) {
+      setPreviewAttachment(null);
+    }
+  };
+  const handlePaste = async (event) => {
+    const images = extractClipboardImageFiles(event);
+    if (images.length === 0) return;
+    event.preventDefault();
+    await attachPastedImages(images);
+  };
+  const handleDragEnter = (event) => {
+    if (!hasFilesTransfer(event)) return;
+    event.preventDefault();
+    setDropActive(true);
+  };
+  const handleDragOver = (event) => {
+    if (!hasFilesTransfer(event)) return;
+    event.preventDefault();
+    if (event.dataTransfer) event.dataTransfer.dropEffect = 'copy';
+    setDropActive(true);
+  };
+  const handleDragLeave = (event) => {
+    if (!hasFilesTransfer(event)) return;
+    event.preventDefault();
+    setDropActive(false);
+  };
+  const handleDrop = async (event) => {
+    if (!hasFilesTransfer(event)) return;
+    event.preventDefault();
+    setDropActive(false);
+    const files = collectTransferFiles(event);
+    if (files.length > 0) await attachDroppedFiles(files);
+  };
+  const handleKeyDown = (event) => {
+    if (event.key !== 'Enter' || event.shiftKey || event.metaKey || event.ctrlKey || event.altKey) return;
+    const keyCode = Number(event.keyCode || event.which || 0);
+    const imeLikely = event.isComposing || isComposingRef.current || keyCode === 229 || event.key === 'Process' || event.key === 'Unidentified';
+    if (imeLikely) return;
+    event.preventDefault();
+    void sendMessage();
+  };
+
+  return (
+    <footer
+      id="chat-input-bar"
+      className={`${composerClass}${dropActive ? ' drop-active' : ''}`}
+      data-testid="composer-dock"
+      data-file-drop-target=""
+      onDragEnter={handleDragEnter}
+      onDragOver={handleDragOver}
+      onDragLeave={handleDragLeave}
+      onDrop={handleDrop}
+    >
+      <div className="composer-card">
+        {dropActive ? <div className="composer-drop-hint" aria-live="polite">松开即可添加附件</div> : null}
+        {attachments.length > 0 ? (
+          <div className="attachments">
+            {attachments.map((item) => (
+              <span key={attachmentKey(item)} className={`attachment-pill${item.kind === 'image' ? ' attachment-pill--image' : ''}`}>
+                <button type="button" className="attachment-preview" aria-label={`预览附件 ${item.name || item.path}`} onClick={() => preview(item)}>
+                  {item.kind === 'image' && item.previewUrl ? <img src={item.previewUrl} alt="" /> : <File size={14} />}
+                  <span>{item.name || item.path}</span>
+                </button>
+                <button type="button" className="attachment-remove" aria-label={`移除附件 ${item.name || item.path}`} onClick={() => remove(item)}>
+                  <X size={12} />
+                </button>
+              </span>
+            ))}
+          </div>
+        ) : null}
+        <textarea
+          id="composer-input"
+          data-testid="composer-input"
+          data-file-drop-target=""
+          value={draft}
+          onChange={(event) => setDraft(event.target.value)}
+          onPaste={(event) => { void handlePaste(event); }}
+          onCompositionStart={() => { isComposingRef.current = true; }}
+          onCompositionEnd={() => { isComposingRef.current = false; }}
+          onKeyDown={handleKeyDown}
+          placeholder="输入给 Agent 的内容，Enter 发送，Shift+Enter 换行"
+        />
+        <div className="composer-meta">
+          <button type="button" className="composer-attach" aria-label="添加文件" onClick={() => void selectFiles()}>
+            <Plus size={18} />
+          </button>
+          <label className="permission-chip">
+            <span className="sr-only">发送权限</span>
+            <select aria-label="发送权限" value={permission} onChange={(event) => setPermission(event.target.value)}>
+              <option>完全访问权限</option>
+              <option>工作区写入</option>
+              <option>只读模式</option>
+            </select>
+          </label>
+          <div className="composer-actions">
+            {showProviderToggle ? <ProviderToggle store={store} /> : null}
+            <ModelSelector store={store} activeThreadId={modelThreadId} />
+            <button type="button" className="send" aria-label="发送消息" disabled={sending} onClick={() => void sendMessage()}>
+              <Send size={18} />
+            </button>
+          </div>
+        </div>
+      </div>
+      {activePreview ? (
+        <AttachmentPreviewModal
+          attachment={activePreview}
+          onClose={() => setPreviewAttachment(null)}
+          onRemove={() => remove(activePreview)}
+        />
+      ) : null}
+    </footer>
+  );
+}
+
 function Conversation({
   messages,
   draft,
@@ -2076,6 +4051,9 @@ function Conversation({
   sendMessage,
   attachments,
   selectFiles,
+  attachPaths,
+  attachDroppedFiles,
+  attachPastedImages,
   removeAttachment,
   sending,
   store,
@@ -2084,110 +4062,314 @@ function Conversation({
   setPermission,
   tokenUsage,
   activeThreadId,
+  activeThread,
+  statusEntry,
+  modelThreadId,
+  timelineBlocked,
 }) {
+  const introMode = !activeThreadId && !timelineBlocked && messages.length === 0;
+  const showProviderToggle = !hasAssistantReply(messages);
+  const composer = (
+    <ComposerDock
+      floating={introMode}
+      draft={draft}
+      setDraft={setDraft}
+      sendMessage={sendMessage}
+      attachments={attachments}
+      selectFiles={selectFiles}
+      attachPaths={attachPaths}
+      attachDroppedFiles={attachDroppedFiles}
+      attachPastedImages={attachPastedImages}
+      removeAttachment={removeAttachment}
+      sending={sending}
+      store={store}
+      permission={permission}
+      setPermission={setPermission}
+      modelThreadId={modelThreadId}
+      showProviderToggle={showProviderToggle}
+    />
+  );
   return (
-    <section className="conversation">
+    <section className={`conversation${introMode ? ' conversation--intro' : ''}`}>
       <div className="timeline" data-testid="chat-timeline">
-        {messages.length === 0 ? (
-          <div className="empty-chat">
-            <h2>我们应该在 {projectDisplayName(projectPath)} 中构建什么？</h2>
-            <p>{projectPath}</p>
+        {introMode ? (
+          <div className="intro-chat-stage">
+            <div className="empty-chat">
+              <h2>我们应该在 {projectDisplayName(projectPath)} 中构建什么？</h2>
+              <p>{projectPath}</p>
+            </div>
+            {composer}
           </div>
         ) : null}
-        {messages.map((message) => (
+        {!introMode && !timelineBlocked ? messages.map((message) => (
           <article key={message.id} className={`message ${message.role}`}>
             <div className="avatar">{message.role === 'user' ? 'U' : 'AI'}</div>
             <div className="bubble">
               <header><span>{message.role === 'user' ? '你' : 'AI'}</span><time>{formatTime(message.time)}</time></header>
-              <pre>{message.text}</pre>
+              <MessageContent text={message.text} />
             </div>
           </article>
-        ))}
+        )) : null}
       </div>
-      <WorkStatus sending={sending} activeThreadId={activeThreadId} tokenUsage={tokenUsage} />
-      <footer className="composer composer--docked" data-testid="composer-dock">
-        <div className="composer-card">
-          {attachments.length > 0 ? (
-            <div className="attachments">
-              {attachments.map((item) => (
-                <button key={item.path} type="button" onClick={() => removeAttachment(item.path)}>
-                  {item.name || item.path}
-                </button>
-              ))}
-            </div>
-          ) : null}
-          <textarea
-            data-testid="composer-input"
-            value={draft}
-            onChange={(event) => setDraft(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key === 'Enter' && !event.shiftKey) {
-                event.preventDefault();
-                void sendMessage();
-              }
-            }}
-            placeholder="输入给 Agent 的内容，Enter 发送，Shift+Enter 换行"
-          />
-          <div className="composer-meta">
-            <button type="button" className="composer-attach" aria-label="添加文件" onClick={() => void selectFiles()}>
-              <Plus size={18} />
-            </button>
-            <label className="permission-chip">
-              <span className="sr-only">发送权限</span>
-              <select aria-label="发送权限" value={permission} onChange={(event) => setPermission(event.target.value)}>
-                <option>完全访问权限</option>
-                <option>工作区写入</option>
-                <option>只读模式</option>
-              </select>
-            </label>
-            <span className="composer-project" data-testid="composer-project" title={projectPath}>
-              <Folder size={14} />
-              {projectDisplayName(projectPath)}
-            </span>
-            <ModelSelector store={store} activeThreadId={activeThreadId} />
-            <button type="button" className="send" aria-label="发送消息" disabled={sending} onClick={() => void sendMessage()}>
-              <Send size={18} />
-            </button>
-          </div>
-        </div>
-      </footer>
+      {!introMode ? (
+        <WorkStatus
+          sending={sending}
+          activeThreadId={activeThreadId}
+          activeThread={activeThread}
+          statusEntry={statusEntry}
+          tokenUsage={tokenUsage}
+        />
+      ) : null}
+      {!introMode ? composer : null}
     </section>
   );
 }
 
-function WorkStatus({ sending, activeThreadId, tokenUsage }) {
+function WorkStatus({ sending, activeThreadId, activeThread, statusEntry, tokenUsage }) {
+  const status = workStatusForThread({ sending, activeThreadId, activeThread, statusEntry });
+  const className = `work-status work-status--${status.tone}${status.busy ? ' is-busy' : ''}`;
+  const tokenText = tokenUsage ? `${tokenUsage.usedTokens} / ${tokenUsage.contextWindowTokens} tokens` : 'token usage 等待后端同步';
   return (
-    <div className="work-status">
-      <span className="spinner" /> {sending ? '发送中' : activeThreadId ? '已连接' : '待启动'}
-      <em>{activeThreadId ? `线程 ${activeThreadId}` : '发送首条消息后创建线程'}</em>
-      <code>{tokenUsage ? `${tokenUsage.usedTokens} / ${tokenUsage.contextWindowTokens} tokens` : 'token usage 等待后端同步'}</code>
+    <div className={className}>
+      <span className="spinner" />
+      <span className="work-status-label">{status.label}</span>
+      <em>{status.details}</em>
+      <code title={tokenText}>{tokenText}</code>
     </div>
   );
 }
 
-function RuntimePanel({ diffText, tokenUsage, warnings, activity }) {
+function RuntimePanel({ diffText, tokenUsage, activityStats, warnings, runtimeResults }) {
+  const [viewportHeight, setViewportHeight] = useState(currentViewportHeight);
+  const [activityPanelHeight, setActivityPanelHeight] = useState(() => clampActivityPanelHeight(ACTIVITY_PANEL_DEFAULT_HEIGHT));
+  const [collapsedDiffFiles, setCollapsedDiffFiles] = useState(() => new Set());
+  const diffSummary = useMemo(() => summarizeUnifiedDiff(diffText), [diffText]);
+
+  useEffect(() => {
+    const onResize = () => {
+      const nextHeight = currentViewportHeight();
+      setViewportHeight(nextHeight);
+      setActivityPanelHeight((height) => clampActivityPanelHeight(height, nextHeight));
+    };
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  }, []);
+
+  const beginActivityPanelResize = (event, inputType = 'pointer') => {
+    event.preventDefault();
+    const startY = event.clientY;
+    const startHeight = activityPanelHeight;
+    const moveEventName = inputType === 'mouse' ? 'mousemove' : 'pointermove';
+    const stopEventName = inputType === 'mouse' ? 'mouseup' : 'pointerup';
+    const move = (moveEvent) => {
+      setActivityPanelHeight(clampActivityPanelHeight(startHeight + (startY - moveEvent.clientY), viewportHeight));
+    };
+    const stop = () => {
+      window.removeEventListener(moveEventName, move);
+      window.removeEventListener(stopEventName, stop);
+    };
+    window.addEventListener(moveEventName, move);
+    window.addEventListener(stopEventName, stop);
+  };
+
+  const toggleDiffFile = (filename) => {
+    setCollapsedDiffFiles((current) => {
+      const next = new Set(current);
+      if (next.has(filename)) next.delete(filename);
+      else next.add(filename);
+      return next;
+    });
+  };
+
   return (
-    <aside className="runtime-panel">
+    <aside
+      className="runtime-panel"
+      data-testid="runtime-panel"
+      style={runtimePanelHeightVars(activityPanelHeight, viewportHeight)}
+    >
       <div className="runtime-toolbar">
-        <button type="button"><Image size={14} /> {diffText ? 1 : 0}</button>
-        <button type="button"><FileText size={14} /> {activity.length}</button>
-        <span className="score good">+{warnings.filter((item) => item.level === 'warn').length}</span>
-        <span className="score bad">-{warnings.filter((item) => item.level === 'error').length}</span>
+        <button type="button" aria-label="代码变更文件数" title={`代码变更文件数: ${diffSummary.fileCount}`}>
+          <FileText size={14} /> {diffSummary.fileCount}
+        </button>
+        <button type="button" aria-label="代码变更行数" title={`代码变更行数: ${diffSummary.changedLines}`}>
+          <Code2 size={14} /> {diffSummary.changedLines}
+        </button>
+        <span className="score good" aria-label="代码新增行数" title={`代码新增行数: ${diffSummary.additions}`}>+{diffSummary.additions}</span>
+        <span className="score bad" aria-label="代码删除行数" title={`代码删除行数: ${diffSummary.deletions}`}>-{diffSummary.deletions}</span>
       </div>
-      <div className="diff-empty">{diffText ? <pre>{diffText}</pre> : '暂无代码变更'}</div>
-      <div className="runtime-icons">
-        {[Code2, Boxes, FileText, Link2, GitBranch, AlertTriangle].map((Icon, index) => <Icon key={index} size={16} />)}
-        <span>{tokenUsage ? `${tokenUsage.usedPercent.toFixed(1)}% context` : 'context --'}</span>
+      <div className="diff-empty">
+        {diffText ? (
+          <div className="diff-view" data-testid="diff-view">
+            {diffSummary.files.map((file, index) => {
+              const groupKey = `${file.filename}:${index}`;
+              const collapsed = collapsedDiffFiles.has(groupKey);
+              return (
+                <section className={`diff-file-group${collapsed ? ' is-collapsed' : ''}`} key={groupKey}>
+                  <div className="diff-file-header">
+                    <button
+                      type="button"
+                      className="diff-file-toggle"
+                      aria-expanded={!collapsed}
+                      aria-controls={`runtime-diff-file-${index}`}
+                      onClick={() => toggleDiffFile(groupKey)}
+                    >
+                      <span className="diff-file-title">
+                        <ChevronDown className="diff-file-caret" size={14} aria-hidden="true" />
+                        <span className="diff-file-name">{file.filename}</span>
+                      </span>
+                      <span className="diff-file-stats" aria-hidden="true">
+                        <b className="good">+{file.additions}</b>
+                        <b className="bad">-{file.deletions}</b>
+                      </span>
+                    </button>
+                  </div>
+                  {!collapsed ? (
+                    <div className="diff-file-lines" id={`runtime-diff-file-${index}`}>
+                      {parseUnifiedDiffLineEntries(file.text).map((line) => (
+                        <div className={`diff-line ${line.type}`} key={line.key}>
+                          <span className="diff-line-num diff-line-old">{line.oldNo}</span>
+                          <span className="diff-line-num diff-line-new">{line.newNo}</span>
+                          <span className="diff-line-prefix">{line.prefix}</span>
+                          <span className="diff-line-content">{line.content}</span>
+                        </div>
+                      ))}
+                    </div>
+                  ) : null}
+                </section>
+              );
+            })}
+          </div>
+        ) : '暂无代码变更'}
+      </div>
+      <RuntimeActivityPanel
+        activityStats={activityStats}
+        tokenUsage={tokenUsage}
+        warnings={warnings}
+        runtimeResults={runtimeResults}
+        onResizeStart={beginActivityPanelResize}
+      />
+    </aside>
+  );
+}
+
+function RuntimeActivityPanel({ activityStats, tokenUsage, warnings, runtimeResults, onResizeStart }) {
+  const [hoveredStat, setHoveredStat] = useState(null);
+  const [hoveredWarning, setHoveredWarning] = useState(null);
+  const panelRef = useRef(null);
+  const stats = useMemo(() => activityStats || {}, [activityStats]);
+  const statItems = useMemo(() => activityStatItems(stats), [stats]);
+  const detailEntriesByStat = useMemo(() => Object.fromEntries(
+    statItems.map((item) => [item.key, activityStatDetailEntries(stats, item.key)]),
+  ), [statItems, stats]);
+  const logEntries = useMemo(() => runtimeLogEntries(warnings, runtimeResults), [warnings, runtimeResults]);
+  const hoveredWarningEntry = useMemo(
+    () => logEntries.find((entry) => entry.id === hoveredWarning?.id) || null,
+    [hoveredWarning, logEntries],
+  );
+  const showStatTooltip = (key, element) => setHoveredStat({ key, anchorRect: elementViewportRect(element) });
+  const hideStatTooltip = (key) => setHoveredStat((current) => (current?.key === key ? null : current));
+  const showWarningPopover = (id, element) => setHoveredWarning({
+    id,
+    anchorRect: elementViewportRect(element),
+    panelRect: elementViewportRect(panelRef.current),
+  });
+  const hideWarningPopover = (id) => setHoveredWarning((current) => (current?.id === id ? null : current));
+
+  return (
+    <section className="runtime-activity-panel" aria-label="工具使用面板" ref={panelRef}>
+      <button
+        type="button"
+        className="activity-panel-resizer"
+        aria-label="调整工具使用面板高度"
+        title="拖动调整工具使用面板高度，最大为应用高度的 1/2"
+        data-testid="activity-panel-resizer"
+        onPointerDown={(event) => onResizeStart(event, 'pointer')}
+        onMouseDown={(event) => {
+          if (!window.PointerEvent) onResizeStart(event, 'mouse');
+        }}
+      />
+      <div className="runtime-icons" role="list" aria-label="工具调用统计">
+        {statItems.map(({ key, label, icon: Icon, className, value }) => {
+          const detailEntries = detailEntriesByStat[key] || [];
+          return (
+            <span
+              key={key}
+              className={`runtime-stat ${className}`}
+              role="listitem"
+              tabIndex={0}
+              aria-label={key === 'tool' ? '工具调用总数' : `${label} 调用次数`}
+              title={`${label}: ${value}`}
+              onMouseEnter={(event) => showStatTooltip(key, event.currentTarget)}
+              onMouseLeave={() => hideStatTooltip(key)}
+              onFocus={(event) => showStatTooltip(key, event.currentTarget)}
+              onBlur={() => hideStatTooltip(key)}
+            >
+              <Icon size={16} aria-hidden="true" />
+              <strong>{value}</strong>
+              {hoveredStat?.key === key ? (
+                <span
+                  className="runtime-stat-tooltip"
+                  data-testid="runtime-stat-tooltip"
+                  role="tooltip"
+                  style={runtimeStatTooltipStyle(hoveredStat.anchorRect)}
+                >
+                  <span className="runtime-stat-tooltip-title">
+                    <b>{label}</b>
+                    <strong>{value}</strong>
+                  </span>
+                  {detailEntries.length > 0 ? (
+                    <span className="runtime-stat-tooltip-list">
+                      {detailEntries.map((entry) => (
+                        <span key={entry.name}>
+                          <span>{entry.name}</span>
+                          <strong>{entry.count}</strong>
+                        </span>
+                      ))}
+                    </span>
+                  ) : (
+                    <span className="runtime-stat-tooltip-empty">后端暂无明细</span>
+                  )}
+                </span>
+              ) : null}
+            </span>
+          );
+        })}
+        <span className="runtime-context" title={tokenUsage ? `上下文使用率 ${tokenUsage.usedPercent.toFixed(1)}%` : '等待后端同步上下文使用率'}>
+          {tokenUsage ? `${tokenUsage.usedPercent.toFixed(1)}% context` : 'context --'}
+        </span>
       </div>
       <div className="log-lines" data-testid="warning-log-panel">
-        {warnings.length === 0 ? <p><time>--:--</time> warning log 等待事件</p> : null}
-        {warnings.map((entry) => (
-          <p key={entry.id}>
-            <time>{formatTime(entry.timestamp)}</time> <b>{entry.event}</b> · {JSON.stringify(entry.fields)}
+        {logEntries.length === 0 ? <p><time>--:--</time> runtime log 等待事件</p> : null}
+        {logEntries.map((entry) => (
+          <p
+            key={entry.id}
+            className={`warning-log-line runtime-log-line--${entry.runtimeKind || 'warning'}`}
+            tabIndex={0}
+            onMouseEnter={(event) => showWarningPopover(entry.id, event.currentTarget)}
+            onMouseLeave={() => hideWarningPopover(entry.id)}
+            onFocus={(event) => showWarningPopover(entry.id, event.currentTarget)}
+            onBlur={() => hideWarningPopover(entry.id)}
+          >
+            <time>{formatTime(runtimeLogTimestamp(entry))}</time> <b>{runtimeLogLabel(entry)}</b>
+            {Number(entry.occurrenceCount) > 1 ? <span> ×{Number(entry.occurrenceCount)}</span> : null}
           </p>
         ))}
       </div>
-    </aside>
+      {hoveredWarningEntry ? (
+        <div
+          className="warning-log-popover"
+          data-testid="warning-log-popover"
+          role="tooltip"
+          style={warningLogPopoverStyle(hoveredWarning.anchorRect, hoveredWarning.panelRect)}
+        >
+          <span className="warning-log-popover-title">
+            <time>{formatTime(runtimeLogTimestamp(hoveredWarningEntry))}</time>
+            <b>{runtimeLogLabel(hoveredWarningEntry)}</b>
+          </span>
+          <code>{warningDetailText(hoveredWarningEntry)}</code>
+        </div>
+      ) : null}
+    </section>
   );
 }
 
@@ -2207,59 +4389,63 @@ function PageHeader({ icon: Icon, title, subtitle, actions }) {
   );
 }
 
-function PromptPage({ projectPath }) {
-  return <PromptPageView projectPath={projectPath} />;
+function RetryableSyncError({ className = 'danger-text', message, onRetry }) {
+  if (!message) return null;
+  return (
+    <div className={className} role="alert">
+      <span>{message}</span>
+      <button type="button" className="ghost" onClick={() => { void onRetry(); }}>重试同步</button>
+    </div>
+  );
+}
+
+function PromptPage({ projectPath, store, refreshKey = 0 }) {
+  return <PromptPageView projectPath={projectPath} refreshKey={refreshKey} resolveLaunchPreferences={store?.resolveLaunchPreferences} />;
 }
 
 
-function WorkflowPage({ projectPath, store }) {
-  const [items, setItems] = useState([]);
+function WorkflowPage({ projectPath, store, refreshKey = 0 }) {
+  const workflowCwd = optionalSettingsCwd(projectPath);
+  const isProjectPending = !workflowCwd;
+  const queryClient = useQueryClient();
+  useDashboardFocusInvalidation(workflowCwd, 'dags');
   const [activeCategory, setActiveCategory] = useState(DAG_CATEGORIES[0].key);
+  const [categoryManuallySelected, setCategoryManuallySelected] = useState(false);
   const [selectedDagKey, setSelectedDagKey] = useState('');
-  const [detailDag, setDetailDag] = useState(null);
-  const [nodes, setNodes] = useState([]);
-  const [runs, setRuns] = useState([]);
-  const [activeRun, setActiveRun] = useState(null);
   const [selectedRunKey, setSelectedRunKey] = useState('');
-  const [selectedRun, setSelectedRun] = useState(null);
-  const [loading, setLoading] = useState(false);
-  const [detailLoading, setDetailLoading] = useState(false);
   const [actioning, setActioning] = useState('');
   const [savingNodeKey, setSavingNodeKey] = useState('');
   const [error, setError] = useState('');
-  const [notice, setNotice] = useState('');
+  const [workflowSyncFailure, setWorkflowSyncFailure] = useState('');
+  const [notice, setNotice] = useState(null);
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [scheduleOpen, setScheduleOpen] = useState(false);
   const [scheduleCron, setScheduleCron] = useState('0 8 * * *');
+  const selectedDagKeyRef = useRef(selectedDagKey);
+  const handledWorkflowRefreshRef = useRef(0);
+  const workflowRefreshKey = Number(refreshKey || 0);
 
-  const refreshDags = useCallback(async (options = {}) => {
-    const isCancelled = typeof options.isCancelled === 'function' ? options.isCancelled : () => false;
-    setLoading(true);
-    setError('');
+  const dagsQuery = useQuery({
+    queryKey: dashboardQueryKey(workflowCwd, 'dags'),
+    queryFn: () => fetchDagsDashboard(workflowCwd),
+    enabled: Boolean(workflowCwd),
+  });
+  const hasDagsSnapshot = queryHasSnapshot(dagsQuery);
+  const items = useMemo(() => (Array.isArray(dagsQuery.data) ? dagsQuery.data : []), [dagsQuery.data]);
+  const loading = Boolean(workflowCwd) && dagsQuery.isPending && !hasDagsSnapshot;
+  const dagListErrorState = dashboardQueryErrorState(dagsQuery, hasDagsSnapshot);
+
+  const refreshDags = useCallback(async () => {
+    if (!workflowCwd) return [];
+    const key = dashboardQueryKey(workflowCwd, 'dags');
     try {
-      const cwd = normalizeSettingsCwd(projectPath);
-      const response = await getDashboardPage({ cwd, page: 'dags' });
-      const nextItems = normalizeDagsResponse(response);
-      if (!isCancelled()) setItems(nextItems);
-      return nextItems;
+      await queryClient.invalidateQueries({ queryKey: key }, { throwOnError: true });
+      setWorkflowSyncFailure('');
     } catch (err) {
-      if (!isCancelled()) {
-        setItems([]);
-        setError(`加载任务流程失败：${err.message || String(err)}`);
-      }
-      return [];
-    } finally {
-      if (!isCancelled()) setLoading(false);
+      setWorkflowSyncFailure(`同步失败，显示的是上次成功的数据：${errorMessage(err)}`);
     }
-  }, [projectPath]);
-
-  useEffect(() => {
-    let cancelled = false;
-    refreshDags({ isCancelled: () => cancelled });
-    return () => {
-      cancelled = true;
-    };
-  }, [refreshDags]);
+    return queryClient.getQueryData(key) || [];
+  }, [queryClient, workflowCwd]);
 
   const counts = useMemo(() => categoryCounts(items), [items]);
   const preferredCategory = useMemo(() => firstAvailableCategory(items), [items]);
@@ -2273,10 +4459,25 @@ function WorkflowPage({ projectPath, store }) {
   );
 
   useEffect(() => {
-    if (items.length > 0 && visibleItems.length === 0 && activeCategory !== preferredCategory) {
+    selectedDagKeyRef.current = selectedDagKey;
+    setNotice(null);
+  }, [selectedDagKey]);
+
+  const clearNotice = useCallback(() => {
+    setNotice(null);
+  }, []);
+
+  const showTaskNotice = useCallback((message, taskKey = selectedDagKey) => {
+    const key = textValue(taskKey);
+    if (!message || !key || selectedDagKeyRef.current !== key) return;
+    setNotice({ dagKey: key, message });
+  }, [selectedDagKey]);
+
+  useEffect(() => {
+    if (!categoryManuallySelected && items.length > 0 && visibleItems.length === 0 && activeCategory !== preferredCategory) {
       setActiveCategory(preferredCategory);
     }
-  }, [activeCategory, items.length, preferredCategory, visibleItems.length]);
+  }, [activeCategory, categoryManuallySelected, items.length, preferredCategory, visibleItems.length]);
 
   useEffect(() => {
     if (visibleItems.length === 0) {
@@ -2288,37 +4489,24 @@ function WorkflowPage({ projectPath, store }) {
     }
   }, [selectedDagKey, visibleItems]);
 
-  const loadRunDetail = useCallback(async (runKey, options = {}) => {
+  const fetchRunDetail = useCallback(async (runKey) => {
     const key = textValue(runKey);
-    if (!key) {
-      setSelectedRun(null);
-      setSelectedRunKey('');
-      return null;
-    }
-    const isCancelled = typeof options.isCancelled === 'function' ? options.isCancelled : () => false;
+    if (!key) return null;
     const response = await getDagRun({ runKey: key });
-    if (isCancelled()) return null;
     const run = response?.run ? normalizeDagRun(response.run) : null;
     const runNodes = Array.isArray(response?.nodes) ? response.nodes.map((node, index) => normalizeDagNode(node, index)) : [];
-    setSelectedRunKey(key);
-    setSelectedRun({ run, nodes: runNodes });
     return { run, nodes: runNodes };
   }, []);
 
-  const refreshDetail = useCallback(async (dagKey, preferredRunKey = '', options = {}) => {
-    const key = textValue(dagKey);
-    if (!key) return;
-    const isCancelled = typeof options.isCancelled === 'function' ? options.isCancelled : () => false;
-    setDetailLoading(true);
-    setError('');
-    try {
+  const dagDetailQuery = useQuery({
+    queryKey: dashboardQueryKey(workflowCwd, 'dag-detail', selectedDagKey),
+    queryFn: async () => {
+      const key = textValue(selectedDagKey);
       const [detailResponse, runsResponse, activeResponse] = await Promise.all([
         getDagDetail({ dagKey: key }),
         getDagRuns({ dagKey: key, limit: DAG_RECENT_RUN_LIMIT }),
         getDagRuns({ dagKey: key, status: 'running', limit: 1 }),
       ]);
-      if (isCancelled()) return;
-
       const listDag = items.find((item) => item.dagKey === key);
       const dag = normalizeDashboardDag({ ...objectValue(listDag?.raw), ...objectValue(detailResponse?.dag) });
       const normalizedNodes = Array.isArray(detailResponse?.nodes)
@@ -2330,59 +4518,90 @@ function WorkflowPage({ projectPath, store }) {
       const runningRun = Array.isArray(activeResponse?.runs) && activeResponse.runs.length > 0
         ? normalizeDagRun(activeResponse.runs[0])
         : null;
-      const nextRunKey = textValue(preferredRunKey)
-        || runningRun?.runKey
-        || nextRuns[0]?.runKey
-        || '';
-
-      setDetailDag(dag);
-      setNodes(normalizedNodes);
-      setRuns(nextRuns);
-      setActiveRun(runningRun);
-      if (nextRunKey) await loadRunDetail(nextRunKey, { isCancelled });
-      else {
-        setSelectedRunKey('');
-        setSelectedRun(null);
-      }
-    } catch (err) {
-      if (!isCancelled()) {
-        setDetailDag(null);
-        setNodes([]);
-        setRuns([]);
-        setActiveRun(null);
-        setSelectedRun(null);
-        setError(`加载任务流程详情失败：${err.message || String(err)}`);
-      }
-    } finally {
-      if (!isCancelled()) setDetailLoading(false);
-    }
-  }, [items, loadRunDetail]);
+      return { dag, nodes: normalizedNodes, runs: nextRuns, activeRun: runningRun };
+    },
+    enabled: Boolean(workflowCwd && selectedDagKey),
+  });
+  const hasDetailSnapshot = queryHasSnapshot(dagDetailQuery);
+  const detailLoading = Boolean(selectedDagKey) && dagDetailQuery.isPending && !hasDetailSnapshot && !selectedDag;
+  const detailData = dagDetailQuery.data || {};
+  const detailDag = detailData.dag || null;
+  const nodes = useMemo(() => (Array.isArray(detailData.nodes) ? detailData.nodes : []), [detailData.nodes]);
+  const runs = useMemo(() => (Array.isArray(detailData.runs) ? detailData.runs : []), [detailData.runs]);
+  const activeRun = detailData.activeRun || null;
+  const detailErrorState = dashboardQueryErrorState(dagDetailQuery, hasDetailSnapshot);
 
   useEffect(() => {
-    let cancelled = false;
-    if (selectedDagKey) {
-      refreshDetail(selectedDagKey, '', { isCancelled: () => cancelled });
-    } else {
-      setDetailDag(null);
-      setNodes([]);
-      setRuns([]);
-      setActiveRun(null);
-      setSelectedRun(null);
-      setSelectedRunKey('');
+    const nextRunKey = activeRun?.runKey || runs[0]?.runKey || '';
+    if (!nextRunKey) {
+      if (selectedRunKey) setSelectedRunKey('');
+      return;
     }
-    return () => {
-      cancelled = true;
-    };
-  }, [refreshDetail, selectedDagKey]);
+    if (!selectedRunKey || !runs.some((run) => run.runKey === selectedRunKey)) {
+      setSelectedRunKey(nextRunKey);
+    }
+  }, [activeRun, runs, selectedRunKey]);
+
+  const runDetailQuery = useQuery({
+    queryKey: dashboardQueryKey(workflowCwd, 'dag-run', selectedRunKey),
+    queryFn: () => fetchRunDetail(selectedRunKey),
+    enabled: Boolean(workflowCwd && selectedRunKey),
+  });
+  const selectedRun = runDetailQuery.data || null;
+
+  const loadRunDetail = useCallback(async (runKey) => {
+    const key = textValue(runKey);
+    if (!key) {
+      setSelectedRunKey('');
+      return null;
+    }
+    setSelectedRunKey(key);
+    return queryClient.fetchQuery({
+      queryKey: dashboardQueryKey(workflowCwd, 'dag-run', key),
+      queryFn: () => fetchRunDetail(key),
+    });
+  }, [fetchRunDetail, queryClient, workflowCwd]);
+
+  const refreshDetail = useCallback(async (dagKey, preferredRunKey = '') => {
+    const key = textValue(dagKey);
+    if (!key) return;
+    if (preferredRunKey) setSelectedRunKey(textValue(preferredRunKey));
+    await queryClient.invalidateQueries({ queryKey: dashboardQueryKey(workflowCwd, 'dag-detail', key) });
+    await queryClient.invalidateQueries({ queryKey: dashboardQueryKey(workflowCwd, 'dag-run') });
+  }, [queryClient, workflowCwd]);
+
+  const refreshWorkflowSurface = useCallback(async () => {
+    if (!workflowCwd) return;
+    await refreshDags();
+    const activeKey = selectedDagKeyRef.current;
+    if (activeKey) {
+      await refreshDetail(activeKey, selectedRunKey);
+    }
+  }, [refreshDags, refreshDetail, selectedRunKey, workflowCwd]);
+
+  useEffect(() => {
+    if (workflowRefreshKey <= 0) return;
+    if (handledWorkflowRefreshRef.current === workflowRefreshKey) return;
+    handledWorkflowRefreshRef.current = workflowRefreshKey;
+    void refreshWorkflowSurface();
+  }, [refreshWorkflowSurface, workflowRefreshKey]);
+
+  const syncError = workflowSyncFailure || dagListErrorState.cachedSyncError || detailErrorState.cachedSyncError;
+  const blockingLoadError = dagListErrorState.blockingError
+    ? `加载自动化失败：${dagListErrorState.blockingError}`
+    : (detailErrorState.blockingError ? `加载自动化详情失败：${detailErrorState.blockingError}` : '');
 
   const activeDetailDag = detailDag || selectedDag;
   const dagKey = activeDetailDag?.dagKey || selectedDag?.dagKey || '';
   const baseVersion = dagVersionOf(activeDetailDag);
   const activeRunKey = activeRun?.runKey || (isRunningStatus(selectedRun?.run?.status) ? selectedRun?.run?.runKey : '');
   const finalText = finalOutputText(selectedRun?.run) || finalOutputText(activeRun) || finalOutputText(selectedDag?.latestRun);
+  const recentRunPanelLabel = dagStatusLabel(activeRun?.status || runs[0]?.status || activeDetailDag?.latestRun?.status);
+  const scheduleActionLabel = isScheduledTrigger(activeDetailDag?.trigger) || activeDetailDag?.cronExpr ? '修改计划' : '创建定时任务';
+  const scheduleToggleVisible = isScheduledTrigger(activeDetailDag?.trigger) && Boolean(activeDetailDag?.cronExpr);
   const startDisabledReason = useMemo(() => {
-    if (!dagKey) return '未选择任务流程';
-    if (loading || detailLoading) return '任务流程详情加载中';
+    if (!dagKey) return '未选择自动化';
+    if (loading || detailLoading) return '自动化详情加载中';
     if (activeRunKey) return '已有运行正在进行';
     if (!STARTABLE_DAG_STATUSES.has(textValue(activeDetailDag?.status).toLowerCase())) return '当前流程状态不可运行';
     if (!STARTABLE_DAG_TRIGGERS.has(textValue(activeDetailDag?.trigger).toLowerCase())) return '当前触发方式不可运行';
@@ -2391,43 +4610,45 @@ function WorkflowPage({ projectPath, store }) {
 
   const runSelectedDag = useCallback(async () => {
     if (startDisabledReason) return;
+    const targetDagKey = dagKey;
     setActioning('start');
     setError('');
-    setNotice('');
+    clearNotice();
     try {
       const result = await startDag({
-        dagKey,
+        dagKey: targetDagKey,
         triggerSource: 'manual',
         idempotencyKey: `ui-${Date.now()}-${Math.random().toString(16).slice(2)}`,
       });
       const runKey = runKeyOf(result);
-      await refreshDags();
-      await refreshDetail(dagKey, runKey);
+      await refreshDags().catch(() => []);
+      await refreshDetail(targetDagKey, runKey).catch(() => {});
       const warning = textValue(result?.warning);
-      setNotice(warning ? `已启动，后端提示：${warning}` : '已启动任务流程');
+      showTaskNotice(warning ? `已启动，后端提示：${warning}` : '已启动自动化', targetDagKey);
     } catch (err) {
-      setError(`启动任务流程失败：${err.message || String(err)}`);
+      setError(`启动自动化失败：${err.message || String(err)}`);
     } finally {
       setActioning('');
     }
-  }, [dagKey, refreshDags, refreshDetail, startDisabledReason]);
+  }, [clearNotice, dagKey, refreshDags, refreshDetail, showTaskNotice, startDisabledReason]);
 
   const stopSelectedDag = useCallback(async () => {
     if (!dagKey || !activeRunKey) return;
+    const targetDagKey = dagKey;
     setActioning('stop');
     setError('');
-    setNotice('');
+    clearNotice();
     try {
-      await terminateDagRun({ dagKey, runKey: activeRunKey, reason: 'user_requested' });
-      await refreshDags();
-      await refreshDetail(dagKey);
-      setNotice('已停止运行');
+      await terminateDagRun({ dagKey: targetDagKey, runKey: activeRunKey, reason: 'user_requested' });
+      await refreshDags().catch(() => []);
+      await refreshDetail(targetDagKey).catch(() => {});
+      showTaskNotice('已停止运行', targetDagKey);
     } catch (err) {
       setError(`停止运行失败：${err.message || String(err)}`);
     } finally {
       setActioning('');
     }
-  }, [activeRunKey, dagKey, refreshDags, refreshDetail]);
+  }, [activeRunKey, clearNotice, dagKey, refreshDags, refreshDetail, showTaskNotice]);
 
   const confirmDeleteDAG = useCallback(async () => {
     const target = deleteTarget;
@@ -2435,90 +4656,93 @@ function WorkflowPage({ projectPath, store }) {
     if (!targetKey) return;
     setActioning('delete');
     setError('');
-    setNotice('');
+    clearNotice();
     try {
       await deleteDag({ dagKey: targetKey });
       setDeleteTarget(null);
-      const nextItems = await refreshDags();
+      const nextItems = await refreshDags().catch(() => items.filter((item) => item.dagKey !== targetKey));
       setSelectedDagKey(nextItems.find((item) => dagCategoryOf(item) === activeCategory)?.dagKey || nextItems[0]?.dagKey || '');
-      setNotice(`已删除 ${target?.title || targetKey}`);
+      showTaskNotice(`已删除 ${target?.title || targetKey}`, targetKey);
     } catch (err) {
-      setError(`删除任务流程失败：${err.message || String(err)}`);
+      setError(`删除自动化失败：${err.message || String(err)}`);
     } finally {
       setActioning('');
     }
-  }, [activeCategory, dagKey, deleteTarget, refreshDags]);
+  }, [activeCategory, clearNotice, dagKey, deleteTarget, items, refreshDags, showTaskNotice]);
 
   const openScheduleModal = useCallback(() => {
     setScheduleCron(activeDetailDag?.cronExpr || '0 8 * * *');
     setScheduleOpen(true);
   }, [activeDetailDag]);
 
-  const saveSchedule = useCallback(async () => {
-    const cronExpr = textValue(scheduleCron);
+  const saveSchedule = useCallback(async (nextCronExpr = '') => {
+    const cronExpr = textValue(nextCronExpr) || textValue(scheduleCron);
     if (!dagKey || !cronExpr) return;
     if (baseVersion === null) {
-      setError('缺少 DAG version，无法保存定时任务');
+      setError('自动化详情不完整，无法保存定时任务');
       return;
     }
+    const targetDagKey = dagKey;
     setActioning('schedule');
     setError('');
-    setNotice('');
+    clearNotice();
     try {
       await applyDagOps({
-        dagKey,
+        dagKey: targetDagKey,
         baseVersion,
         ops: [{ op: 'update_dag', patch: { trigger: 'scheduled', cron_expr: cronExpr } }],
       });
       setScheduleOpen(false);
-      await refreshDags();
-      await refreshDetail(dagKey);
-      setNotice('已保存定时任务');
+      await refreshDags().catch(() => []);
+      await refreshDetail(targetDagKey).catch(() => {});
+      showTaskNotice('已保存定时任务', targetDagKey);
     } catch (err) {
       setError(`保存定时任务失败：${err.message || String(err)}`);
     } finally {
       setActioning('');
     }
-  }, [baseVersion, dagKey, refreshDags, refreshDetail, scheduleCron]);
+  }, [baseVersion, clearNotice, dagKey, refreshDags, refreshDetail, scheduleCron, showTaskNotice]);
 
   const toggleScheduleEnabled = useCallback(async () => {
     if (!dagKey) return;
     if (baseVersion === null) {
-      setError('缺少 DAG version，无法切换自动运行');
+      setError('自动化详情不完整，无法切换自动运行');
       return;
     }
+    const targetDagKey = dagKey;
     const enabled = !activeDetailDag?.scheduleEnabled;
     setActioning('schedule-toggle');
     setError('');
-    setNotice('');
+    clearNotice();
     try {
       await applyDagOps({
-        dagKey,
+        dagKey: targetDagKey,
         baseVersion,
         ops: [{ op: 'update_dag', patch: { schedule_enabled: enabled } }],
       });
-      await refreshDags();
-      await refreshDetail(dagKey);
-      setNotice(enabled ? '已启用自动运行' : '已暂停自动运行');
+      await refreshDags().catch(() => []);
+      await refreshDetail(targetDagKey).catch(() => {});
+      showTaskNotice(enabled ? '已启用自动运行' : '已暂停自动运行', targetDagKey);
     } catch (err) {
       setError(`切换自动运行失败：${err.message || String(err)}`);
     } finally {
       setActioning('');
     }
-  }, [activeDetailDag, baseVersion, dagKey, refreshDags, refreshDetail]);
+  }, [activeDetailDag, baseVersion, clearNotice, dagKey, refreshDags, refreshDetail, showTaskNotice]);
 
   const saveAgentNode = useCallback(async (form, node) => {
     if (!dagKey || !node?.nodeKey) return;
     if (baseVersion === null) {
-      setError('缺少 DAG version，无法保存节点');
+      setError('自动化详情不完整，无法保存步骤');
       return;
     }
+    const targetDagKey = dagKey;
     setSavingNodeKey(node.nodeKey);
     setError('');
-    setNotice('');
+    clearNotice();
     try {
       await applyDagOps({
-        dagKey,
+        dagKey: targetDagKey,
         baseVersion,
         ops: [{
           op: 'update_node',
@@ -2526,28 +4750,35 @@ function WorkflowPage({ projectPath, store }) {
           patch: dagNodePatchFromForm(form, node),
         }],
       });
-      await refreshDetail(dagKey);
-      setNotice(`已保存节点 ${node.title}`);
+      await refreshDetail(targetDagKey).catch(() => {});
+      showTaskNotice(`已保存步骤 ${node.title}`, targetDagKey);
     } catch (err) {
-      setError(`保存节点失败：${err.message || String(err)}`);
+      setError(`保存步骤失败：${err.message || String(err)}`);
     } finally {
       setSavingNodeKey('');
     }
-  }, [baseVersion, dagKey, refreshDetail]);
+  }, [baseVersion, clearNotice, dagKey, refreshDetail, showTaskNotice]);
 
   const startDesignFlow = useCallback(async () => {
+    if (!workflowCwd) return;
     setActioning('design');
     setError('');
-    setNotice('');
+    clearNotice();
     try {
-      const cwd = normalizeSettingsCwd(projectPath);
+      if (typeof store?.resolveLaunchPreferences !== 'function') {
+        throw new Error('自动化启动配置不可用');
+      }
+      const launchPreferences = await store.resolveLaunchPreferences(workflowCwd);
+      const { config: launchConfig = {}, ...launchPayload } = launchPreferences || {};
       const response = await startThread({
-        cwd,
+        cwd: workflowCwd,
+        ...launchPayload,
         name: 'AI 设计流程',
         agentKey: 'dag_designer',
         promptKey: 'main/dag_designer_zh',
         deferSpawn: true,
         config: {
+          ...launchConfig,
           enabledTools: [...DAG_DESIGNER_ENABLED_TOOLS],
           providerNativeSkills: false,
         },
@@ -2562,7 +4793,7 @@ function WorkflowPage({ projectPath, store }) {
     } finally {
       setActioning('');
     }
-  }, [projectPath, store]);
+  }, [clearNotice, store, workflowCwd]);
 
   const agentNodes = nodes.filter((node) => textValue(node.nodeType).toLowerCase() === 'agent');
 
@@ -2570,20 +4801,29 @@ function WorkflowPage({ projectPath, store }) {
     <section className="workflow-page">
       <PageHeader
         icon={Workflow}
-        title="任务流程"
-        subtitle={`当前项目：${projectPath}`}
+        title="自动化"
+        subtitle={workflowCwd ? `当前项目：${workflowCwd}` : '正在连接本地项目...'}
         actions={(
-          <>
-            <button type="button" onClick={() => { void refreshDags(); }} disabled={loading}>刷新</button>
-            <button type="button" onClick={() => { void startDesignFlow(); }} disabled={actioning === 'design'}>
-              {actioning === 'design' ? '启动中...' : 'AI 设计流程'}
-            </button>
-          </>
+          <button type="button" onClick={() => { void startDesignFlow(); }} disabled={isProjectPending || actioning === 'design'}>
+            {actioning === 'design' ? '启动中...' : 'AI 设计流程'}
+          </button>
         )}
+      />
+      {syncError ? (
+        <div className="danger-text workflow-sync-alert" role="alert">
+          <span>{syncError}</span>
+          <button type="button" className="ghost" onClick={() => { void refreshWorkflowSurface(); }}>重试同步</button>
+        </div>
+      ) : null}
+      {error ? <p className="danger-text" role="alert">{error}</p> : null}
+      <RetryableSyncError
+        className="danger-text workflow-sync-alert"
+        message={blockingLoadError}
+        onRetry={refreshWorkflowSurface}
       />
       <div className="workflow-grid">
         <aside className="workflow-list">
-          <div className="tabs" role="tablist" aria-label="任务流程分类">
+          <div className="tabs" role="tablist" aria-label="自动化分类">
             {DAG_CATEGORIES.map((category) => (
               <button
                 key={category.key}
@@ -2591,14 +4831,17 @@ function WorkflowPage({ projectPath, store }) {
                 role="tab"
                 aria-selected={activeCategory === category.key ? 'true' : 'false'}
                 className={activeCategory === category.key ? 'active' : ''}
-                onClick={() => setActiveCategory(category.key)}
+                onClick={() => {
+                  setCategoryManuallySelected(true);
+                  setActiveCategory(category.key);
+                }}
               >
                 {category.label} {counts[category.key] || 0}
               </button>
             ))}
           </div>
-          {loading ? <p className="console-message">正在加载任务流程...</p> : null}
-          {!loading && visibleItems.length === 0 ? <p className="console-message">暂无任务流程</p> : null}
+          {!isProjectPending && loading ? <p className="console-message">正在加载自动化...</p> : null}
+          {!isProjectPending && !blockingLoadError && !loading && visibleItems.length === 0 ? <p className="console-message">无任务</p> : null}
           {visibleItems.map((item) => (
             <button
               type="button"
@@ -2607,25 +4850,27 @@ function WorkflowPage({ projectPath, store }) {
               onClick={() => setSelectedDagKey(item.dagKey)}
             >
               <strong>{item.title}</strong>
-              <span>{item.dagKey || '-'}</span>
-              <em>{dagStatusLabel(item.status)} · {triggerLabel(item.trigger)} · {dagStatusLabel(item.latestRun?.status || '')}</em>
+              <span>{latestDagRunLabel(item) === '-' ? '暂无运行' : `最近运行：${latestDagRunLabel(item)}`}</span>
+              <em>{displayDagStatusLabel(item)} · {schedulePlanLabel(item)} · {latestDagRunLabel(item)}</em>
             </button>
           ))}
         </aside>
         <section className="workflow-detail">
           {!activeDetailDag ? (
-            <EmptyState icon={Workflow} title="暂无任务流程" text="左侧选择任务流程后查看详情。" />
+            <EmptyState icon={Workflow} title="暂无自动化" text="左侧选择自动化后查看详情。" />
           ) : (
             <>
               <div className="detail-top">
                 <h2>{activeDetailDag.title}</h2>
                 <button type="button" className="danger" onClick={() => setDeleteTarget(activeDetailDag)} disabled={actioning === 'delete'}>删除</button>
                 <button type="button" onClick={openScheduleModal} disabled={baseVersion === null || actioning === 'schedule'}>
-                  {activeDetailDag.cronExpr ? '修改计划' : '创建定时任务'}
+                  {scheduleActionLabel}
                 </button>
-                <button type="button" onClick={() => { void toggleScheduleEnabled(); }} disabled={baseVersion === null || actioning === 'schedule-toggle'}>
-                  {activeDetailDag.scheduleEnabled ? '暂停自动运行' : '启用自动运行'}
-                </button>
+                {scheduleToggleVisible ? (
+                  <button type="button" onClick={() => { void toggleScheduleEnabled(); }} disabled={baseVersion === null || actioning === 'schedule-toggle'}>
+                    {activeDetailDag.scheduleEnabled ? '暂停自动运行' : '启用自动运行'}
+                  </button>
+                ) : null}
                 {activeRunKey ? (
                   <button type="button" className="danger" onClick={() => { void stopSelectedDag(); }} disabled={actioning === 'stop'}>
                     {actioning === 'stop' ? '停止中...' : '停止运行'}
@@ -2641,53 +4886,54 @@ function WorkflowPage({ projectPath, store }) {
                 </button>
               </div>
               {detailLoading ? <p className="console-message">正在加载详情...</p> : null}
-              {notice ? <p className="settings-status">{notice}</p> : null}
-              {error ? <p className="danger-text" role="alert">{error}</p> : null}
+              {notice?.message && notice.dagKey === selectedDagKey ? <p className="settings-status">{notice.message}</p> : null}
               {startDisabledReason ? <p className="console-message">{startDisabledReason}</p> : null}
               <Panel title="最终结果">{finalText || '当前运行尚未标记最终结果。'}</Panel>
               <div className="stat-grid">
-                <Panel title="任务状态">{dagStatusLabel(activeDetailDag.status)}</Panel>
-                <Panel title="运行计划">{triggerLabel(activeDetailDag.trigger)}{activeDetailDag.cronExpr ? ` · ${activeDetailDag.cronExpr}` : ''}</Panel>
-                <Panel title="最近运行">{dagStatusLabel(activeRun?.status || runs[0]?.status || activeDetailDag.latestRun?.status)}</Panel>
+                <Panel title="任务状态">{displayDagStatusLabel(activeDetailDag)}</Panel>
+                <Panel title="运行计划">{schedulePlanLabel(activeDetailDag)}</Panel>
+                <Panel title="最近运行">{recentRunPanelLabel === '-' ? latestDagRunLabel(activeDetailDag) : recentRunPanelLabel}</Panel>
                 <Panel title="最终结果">{finalText ? '已生成' : '-'}</Panel>
               </div>
               <Panel title="运行历史">
                 <div className="dag-run-list">
                   {runs.length === 0 ? <p>暂无运行记录</p> : null}
-                  {runs.map((run) => (
+                  {runs.map((run, index) => (
                     <button
                       key={run.id}
                       type="button"
                       className={`run-row ${run.runKey === selectedRunKey ? 'active' : ''}`}
                       onClick={() => { void loadRunDetail(run.runKey); }}
                     >
-                      <span>{run.runKey}</span>
+                      <span>{`第 ${index + 1} 次运行`}</span>
                       <em>{dagStatusLabel(run.status)}</em>
-                      <time>{run.startedAt || '-'}</time>
+                      <time>{run.startedAt || '时间未记录'}</time>
                     </button>
                   ))}
                 </div>
               </Panel>
               <Panel title="执行步骤">
                 <div className="dag-node-list">
-                  {nodes.length === 0 ? <p>暂无节点</p> : null}
+                  {nodes.length === 0 ? <p>暂无步骤</p> : null}
                   {nodes.map((node) => (
                     <article key={node.id} className="dag-node-row">
                       <strong>{node.title}</strong>
-                      <span>{node.nodeKey}</span>
-                      <em>{dagStatusLabel(node.status)} · {node.nodeType || '-'}</em>
+                      <em>{dagStatusLabel(node.status)}</em>
                       {node.threadId ? <button type="button" onClick={() => { void store?.setActiveThread?.(node.threadId); store?.setActivePage?.('chat'); }}>查看对话</button> : null}
                     </article>
                   ))}
                 </div>
               </Panel>
-              {agentNodes.length > 0 ? (
-                <DagNodeEditor
-                  nodes={agentNodes}
-                  savingNodeKey={savingNodeKey}
-                  onSave={saveAgentNode}
-                />
-              ) : null}
+              <details className="workflow-advanced">
+                <summary>高级设置</summary>
+                {agentNodes.length > 0 ? (
+                  <DagNodeEditor
+                    nodes={agentNodes}
+                    savingNodeKey={savingNodeKey}
+                    onSave={saveAgentNode}
+                  />
+                ) : <p className="console-message">暂无可配置步骤</p>}
+              </details>
             </>
           )}
         </section>
@@ -2695,8 +4941,8 @@ function WorkflowPage({ projectPath, store }) {
       {scheduleOpen ? (
         <DagScheduleModal
           cron={scheduleCron}
+          actionLabel={scheduleActionLabel}
           saving={actioning === 'schedule'}
-          onChange={setScheduleCron}
           onClose={() => setScheduleOpen(false)}
           onSave={saveSchedule}
         />
@@ -2736,26 +4982,40 @@ function DagNodeEditor({ nodes, savingNodeKey, onSave }) {
 
   if (!activeNode) return null;
   const update = (key) => (event) => setForm((current) => ({ ...current, [key]: event.target.value }));
+  const modelOptions = form.provider ? appendCurrentModelOption(form.provider, form.model) : [];
 
   return (
-    <Panel title="节点配置">
+    <Panel title="步骤设置">
       <div className="dag-node-editor">
         <label>
-          节点
+          步骤
           <select value={activeNode.nodeKey} onChange={(event) => setActiveNodeKey(event.target.value)}>
             {nodes.map((node) => <option key={node.nodeKey} value={node.nodeKey}>{node.title}</option>)}
           </select>
         </label>
-        <label>节点标题<input value={form.title} onChange={update('title')} aria-label="节点标题" /></label>
-        <label>Provider<input value={form.provider} onChange={update('provider')} aria-label="Provider" /></label>
-        <label>Model<input value={form.model} onChange={update('model')} aria-label="Model" /></label>
-        <label>Prompt Key<input value={form.promptKey} onChange={update('promptKey')} aria-label="Prompt Key" /></label>
-        <label>依赖节点<input value={form.dependsOn} onChange={update('dependsOn')} aria-label="依赖节点" /></label>
-        <label className="wide">首轮指令<textarea value={form.firstTurn} onChange={update('firstTurn')} aria-label="首轮指令" /></label>
+        <label>名称<input value={form.title} onChange={update('title')} aria-label="名称" /></label>
+        <label>
+          执行引擎
+          <select value={form.provider} onChange={update('provider')} aria-label="执行引擎">
+            <option value="">默认</option>
+            <option value="claude">claude</option>
+            <option value="codex">codex</option>
+          </select>
+        </label>
+        <label>
+          模型
+          <select value={form.model} onChange={update('model')} aria-label="模型">
+            <option value="">默认</option>
+            {modelOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+          </select>
+        </label>
+        <label>提示词<input value={form.promptKey} onChange={update('promptKey')} aria-label="提示词" /></label>
+        <label>依赖步骤<input value={form.dependsOn} onChange={update('dependsOn')} aria-label="依赖步骤" /></label>
+        <label className="wide">指令<textarea value={form.firstTurn} onChange={update('firstTurn')} aria-label="指令" /></label>
         <label>输出文件<input value={form.outputFile} onChange={update('outputFile')} aria-label="输出文件" /></label>
         <div className="dag-node-editor-actions">
           <button type="button" onClick={() => { void onSave(form, activeNode); }} disabled={savingNodeKey === activeNode.nodeKey}>
-            {savingNodeKey === activeNode.nodeKey ? '保存中...' : '保存节点'}
+            {savingNodeKey === activeNode.nodeKey ? '保存中...' : '保存步骤'}
           </button>
         </div>
       </div>
@@ -2763,18 +5023,78 @@ function DagNodeEditor({ nodes, savingNodeKey, onSave }) {
   );
 }
 
-function DagScheduleModal({ cron, saving, onChange, onClose, onSave }) {
+function DagScheduleModal({ cron, actionLabel, saving, onClose, onSave }) {
+  const initialSchedule = useMemo(() => scheduleStateFromCron(cron), [cron]);
+  const [preset, setPreset] = useState(initialSchedule.preset);
+  const [time, setTime] = useState(initialSchedule.time);
+  const [weekday, setWeekday] = useState(initialSchedule.weekday);
+  const [monthDay, setMonthDay] = useState(initialSchedule.monthDay);
+  const [inputError, setInputError] = useState(initialSchedule.warning || '');
+  const monthDays = useMemo(() => Array.from({ length: 31 }, (_item, index) => (index + 1).toString()), []);
+  const previewText = scheduleLabelFromState({ preset, time, weekday, monthDay });
+
+  useEffect(() => {
+    setPreset(initialSchedule.preset);
+    setTime(initialSchedule.time);
+    setWeekday(initialSchedule.weekday);
+    setMonthDay(initialSchedule.monthDay);
+    setInputError(initialSchedule.warning || '');
+  }, [initialSchedule]);
+
+  const choose = (setter) => (event) => {
+    setter(event.target.value);
+    setInputError('');
+  };
+
+  const confirm = () => {
+    const { cronExpr, error } = cronExprFromSchedule(preset, time, weekday, monthDay);
+    if (error) {
+      setInputError(error);
+      return;
+    }
+    void onSave(cronExpr);
+  };
+
   return (
     <div className="modal-overlay">
-      <section className="modal-box" role="dialog" aria-modal="true" aria-label="设置定时任务">
-        <header><h2>设置定时任务</h2><button type="button" className="ghost" onClick={onClose} disabled={saving}>关闭</button></header>
-        <label className="skills-body-field">
-          Cron 表达式
-          <input value={cron} onChange={(event) => onChange(event.target.value)} aria-label="Cron 表达式" />
-        </label>
+      <section className="modal-box" role="dialog" aria-modal="true" aria-label={actionLabel}>
+        <header><h2>{actionLabel}</h2><button type="button" className="ghost" onClick={onClose} disabled={saving}>关闭</button></header>
+        <div className="dag-node-editor">
+          <label>
+            运行频率
+            <select value={preset} onChange={choose(setPreset)} disabled={saving} aria-label="运行频率">
+              <option value="daily">每天</option>
+              <option value="weekdays">工作日</option>
+              <option value="weekly">每周</option>
+              <option value="monthly">每月</option>
+            </select>
+          </label>
+          {preset === 'weekly' ? (
+            <label>
+              星期几
+              <select value={weekday} onChange={choose(setWeekday)} disabled={saving} aria-label="星期几">
+                {DAG_WEEKDAY_OPTIONS.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
+              </select>
+            </label>
+          ) : null}
+          {preset === 'monthly' ? (
+            <label>
+              每月几号
+              <select value={monthDay} onChange={choose(setMonthDay)} disabled={saving} aria-label="每月几号">
+                {monthDays.map((day) => <option key={day} value={day}>{day} 日</option>)}
+              </select>
+            </label>
+          ) : null}
+          <label>
+            运行时间
+            <input value={time} type="time" onChange={choose(setTime)} disabled={saving} aria-label="运行时间" />
+          </label>
+        </div>
+        {previewText ? <p className="settings-status">{previewText} 自动运行</p> : null}
+        {inputError ? <p className="danger-text" role="alert">{inputError}</p> : null}
         <footer>
           <button type="button" className="ghost" onClick={onClose} disabled={saving}>取消</button>
-          <button type="button" onClick={() => { void onSave(); }} disabled={saving}>{saving ? '保存中...' : '保存定时任务'}</button>
+          <button type="button" onClick={confirm} disabled={saving}>{saving ? '保存中...' : actionLabel}</button>
         </footer>
       </section>
     </div>
@@ -2784,9 +5104,9 @@ function DagScheduleModal({ cron, saving, onChange, onClose, onSave }) {
 function ConfirmDagDeleteModal({ dag, deleting, onClose, onConfirm }) {
   return (
     <div className="modal-overlay">
-      <section className="modal-box" role="dialog" aria-modal="true" aria-label="删除任务流程">
-        <header><h2>删除任务流程</h2><button type="button" className="ghost" onClick={onClose} disabled={deleting}>关闭</button></header>
-        <p>确定删除任务流程 “{dag.title}” 吗？该操作会删除流程定义和运行关联信息，无法恢复。</p>
+      <section className="modal-box" role="dialog" aria-modal="true" aria-label="删除自动化">
+        <header><h2>删除自动化</h2><button type="button" className="ghost" onClick={onClose} disabled={deleting}>关闭</button></header>
+        <p>确定删除自动化 “{dag.title}” 吗？该操作会删除配置和运行关联信息，无法恢复。</p>
         <p className="path">{dag.dagKey}</p>
         <footer>
           <button type="button" className="ghost" onClick={onClose} disabled={deleting}>取消</button>
@@ -2798,10 +5118,10 @@ function ConfirmDagDeleteModal({ dag, deleting, onClose, onConfirm }) {
 }
 
 function SkillsPage({ projectPath, refreshKey = 0 }) {
-  const [items, setItems] = useState([]);
+  const projectCwd = optionalSettingsCwd(projectPath);
+  const queryClient = useQueryClient();
   const [query, setQuery] = useState('');
   const [scopeFilter, setScopeFilter] = useState('all');
-  const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [editorOpen, setEditorOpen] = useState(false);
@@ -2815,60 +5135,56 @@ function SkillsPage({ projectPath, refreshKey = 0 }) {
   const [deleting, setDeleting] = useState(false);
   const [importScopeOpen, setImportScopeOpen] = useState(false);
   const [importing, setImporting] = useState(false);
-  const [resolutionConflicts, setResolutionConflicts] = useState([]);
-  const [resolutionLoading, setResolutionLoading] = useState(false);
   const [resolutionPreview, setResolutionPreview] = useState(null);
   const [resolutionNamePrompt, setResolutionNamePrompt] = useState(null);
   const [resolutionNameInput, setResolutionNameInput] = useState('');
   const [resolutionActioning, setResolutionActioning] = useState('');
+  const skillRefreshKey = Number(refreshKey || 0);
 
-  const refreshSkills = useCallback(async (options = {}) => {
-    const isCancelled = typeof options.isCancelled === 'function' ? options.isCancelled : () => false;
-    setLoading(true);
-    setError('');
-    setNotice('');
-    try {
-      const cwd = normalizeSettingsCwd(projectPath);
-      const response = await getDashboardPage({ cwd, page: 'skills' });
-      if (isCancelled()) return;
-      setItems(normalizeSkillsResponse(response));
-    } catch (err) {
-      if (isCancelled()) return;
-      setItems([]);
-      setError(err.message || String(err));
-    } finally {
-      if (!isCancelled()) setLoading(false);
-    }
-  }, [projectPath]);
-
-  const refreshResolutions = useCallback(async (options = {}) => {
-    const isCancelled = typeof options.isCancelled === 'function' ? options.isCancelled : () => false;
-    setResolutionLoading(true);
-    try {
-      const cwd = normalizeSettingsCwd(projectPath);
-      const response = await listSkillResolutions({ cwd });
-      if (!isCancelled()) {
-        const conflicts = normalizeResolutionResponse(response);
-        setResolutionConflicts(conflicts);
-        if (conflicts.length === 0) {
-          setResolutionPreview(null);
-          setResolutionNamePrompt(null);
-          setResolutionNameInput('');
-        }
-      }
-    } catch (err) {
-      if (!isCancelled()) setError(`读取技能冲突失败：${err.message || String(err)}`);
-    } finally {
-      if (!isCancelled()) setResolutionLoading(false);
-    }
-  }, [projectPath]);
+  const skillsQuery = useQuery({
+    queryKey: dashboardQueryKey(projectCwd, 'skills'),
+    queryFn: () => fetchSkillsDashboard(projectCwd),
+    enabled: Boolean(projectCwd),
+  });
+  const skillResolutionsQuery = useQuery({
+    queryKey: dashboardQueryKey(projectCwd, 'skill-resolutions'),
+    queryFn: () => fetchSkillResolutionsDashboard(projectCwd),
+    enabled: Boolean(projectCwd),
+  });
+  const skillsData = skillsQuery.data;
+  const resolutionConflictsData = skillResolutionsQuery.data;
+  const refetchSkills = skillsQuery.refetch;
+  const refetchSkillResolutions = skillResolutionsQuery.refetch;
+  const items = useMemo(() => (Array.isArray(skillsData) ? skillsData : []), [skillsData]);
+  const resolutionConflicts = useMemo(() => (
+    Array.isArray(resolutionConflictsData) ? resolutionConflictsData : []
+  ), [resolutionConflictsData]);
+  const hasSkillsSnapshot = Array.isArray(skillsData);
+  const isProjectPending = !projectCwd;
+  const isInitialSkillsLoading = Boolean(projectCwd) && skillsQuery.isPending && !hasSkillsSnapshot;
+  const syncErrorText = skillsQuery.error
+    ? errorMessage(skillsQuery.error)
+    : (skillResolutionsQuery.error ? `读取技能冲突失败：${errorMessage(skillResolutionsQuery.error)}` : '');
+  const showCachedSyncError = Boolean(syncErrorText && hasSkillsSnapshot);
+  const showBlockingSyncError = Boolean(syncErrorText && !hasSkillsSnapshot);
 
   const refreshSkillSurface = useCallback(async () => {
-    await refreshSkills();
-    await refreshResolutions();
-  }, [refreshResolutions, refreshSkills]);
+    if (!projectCwd) return;
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: dashboardQueryKey(projectCwd, 'skills') }),
+      queryClient.invalidateQueries({ queryKey: dashboardQueryKey(projectCwd, 'skill-resolutions') }),
+    ]);
+  }, [projectCwd, queryClient]);
 
-  const openCreateEditor = useCallback(() => {
+  const retrySkillSurface = useCallback(async () => {
+    if (!projectCwd) return;
+    await Promise.all([
+      refetchSkills(),
+      refetchSkillResolutions(),
+    ]);
+  }, [projectCwd, refetchSkillResolutions, refetchSkills]);
+
+  const openCreateEditor = () => {
     setEditorForm(emptySkillForm());
     setActiveSkillPath('');
     setSkillFiles([]);
@@ -2876,9 +5192,9 @@ function SkillsPage({ projectPath, refreshKey = 0 }) {
     setError('');
     setNotice('');
     setEditorOpen(true);
-  }, []);
+  };
 
-  const openEditSkill = useCallback(async (skill) => {
+  const openEditSkill = async (skill) => {
     if (!skill?.dir) {
       setError('skills/local/read: path is required');
       return;
@@ -2886,7 +5202,6 @@ function SkillsPage({ projectPath, refreshKey = 0 }) {
     setError('');
     setNotice('');
     setSummarySuggestion('');
-    setLoading(true);
     const path = `${skill.dir.replace(/[\\/]+$/g, '')}/SKILL.md`;
     try {
       const cwd = normalizeSettingsCwd(projectPath);
@@ -2910,12 +5225,10 @@ function SkillsPage({ projectPath, refreshKey = 0 }) {
       setEditorOpen(true);
     } catch (err) {
       setError(`读取技能失败：${err.message || String(err)}`);
-    } finally {
-      setLoading(false);
     }
-  }, [projectPath]);
+  };
 
-  const openSkillFile = useCallback(async (file) => {
+  const openSkillFile = async (file) => {
     const path = (file?.path || '').toString().trim();
     if (!path) return;
     setError('');
@@ -2940,9 +5253,9 @@ function SkillsPage({ projectPath, refreshKey = 0 }) {
     } catch (err) {
       setError(`读取子文件失败：${err.message || String(err)}`);
     }
-  }, [editorForm.name, projectPath]);
+  };
 
-  const suggestSummary = useCallback(async () => {
+  const suggestSummary = async () => {
     setSummarySuggesting(true);
     setError('');
     setSummarySuggestion('');
@@ -2962,9 +5275,9 @@ function SkillsPage({ projectPath, refreshKey = 0 }) {
     } finally {
       setSummarySuggesting(false);
     }
-  }, [editorForm, projectPath]);
+  };
 
-  const saveEditor = useCallback(async () => {
+  const saveEditor = async () => {
     setSaving(true);
     setError('');
     setNotice('');
@@ -2992,13 +5305,13 @@ function SkillsPage({ projectPath, refreshKey = 0 }) {
     } finally {
       setSaving(false);
     }
-  }, [activeSkillPath, editorForm, projectPath, refreshSkillSurface]);
+  };
 
-  const onDeleteSkill = useCallback((skill) => {
+  const onDeleteSkill = (skill) => {
     setDeleteTarget(skill);
-  }, []);
+  };
 
-  const confirmDeleteSkill = useCallback(async () => {
+  const confirmDeleteSkill = async () => {
     const skill = deleteTarget;
     const skillName = (skill?.name || '').toString().trim();
     if (!skillName) {
@@ -3025,9 +5338,9 @@ function SkillsPage({ projectPath, refreshKey = 0 }) {
     } finally {
       setDeleting(false);
     }
-  }, [deleteTarget, projectPath, refreshSkillSurface]);
+  };
 
-  const confirmImportScope = useCallback(async (scope) => {
+  const confirmImportScope = async (scope) => {
     setImporting(true);
     setError('');
     setNotice('');
@@ -3052,9 +5365,9 @@ function SkillsPage({ projectPath, refreshKey = 0 }) {
     } finally {
       setImporting(false);
     }
-  }, [projectPath, refreshSkillSurface]);
+  };
 
-  const runResolutionAction = useCallback(async (conflict, actionOrEntry, entry = null, newName = '') => {
+  const runResolutionAction = async (conflict, actionOrEntry, entry = null, newName = '') => {
     const conflictID = (conflict?.conflict_id || conflict?.conflictId || '').toString().trim();
     const actionEntry = typeof actionOrEntry === 'string' ? { action: actionOrEntry } : actionOrEntry || {};
     const action = (actionEntry.action || '').toString().trim();
@@ -3130,9 +5443,9 @@ function SkillsPage({ projectPath, refreshKey = 0 }) {
     } finally {
       setResolutionActioning('');
     }
-  }, [projectPath, refreshSkillSurface]);
+  };
 
-  const confirmResolutionNewName = useCallback(async () => {
+  const confirmResolutionNewName = async () => {
     const prompt = resolutionNamePrompt;
     if (!prompt) return;
     const newName = resolutionNameInput.trim();
@@ -3145,9 +5458,9 @@ function SkillsPage({ projectPath, refreshKey = 0 }) {
       setResolutionNamePrompt(null);
       setResolutionNameInput('');
     }
-  }, [resolutionNameInput, resolutionNamePrompt, runResolutionAction]);
+  };
 
-  const confirmResolutionPreview = useCallback(async () => {
+  const confirmResolutionPreview = async () => {
     const preview = resolutionPreview;
     const proof = Array.isArray(preview?.items) ? preview.items[0] : null;
     if (!preview?.requiresApply || !proof?.preview_id || !proof?.preview_hash) return;
@@ -3171,16 +5484,46 @@ function SkillsPage({ projectPath, refreshKey = 0 }) {
     } finally {
       setResolutionActioning('');
     }
-  }, [refreshSkillSurface, resolutionPreview]);
+  };
 
   useEffect(() => {
-    let cancelled = false;
-    refreshSkills({ isCancelled: () => cancelled });
-    refreshResolutions({ isCancelled: () => cancelled });
-    return () => {
-      cancelled = true;
+    setError('');
+    setNotice('');
+    setResolutionPreview(null);
+    setResolutionNamePrompt(null);
+    setResolutionNameInput('');
+  }, [projectCwd]);
+
+  useEffect(() => {
+    if (skillRefreshKey <= 0 || !projectCwd) return;
+    void refreshSkillSurface();
+  }, [projectCwd, refreshSkillSurface, skillRefreshKey]);
+
+  useEffect(() => {
+    if (!projectCwd) return undefined;
+    const refreshWhenVisible = () => {
+      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
+      void refreshSkillSurface();
     };
-  }, [refreshKey, refreshResolutions, refreshSkills]);
+    const handleVisibilityChange = () => {
+      if (typeof document === 'undefined' || document.visibilityState === 'visible') {
+        refreshWhenVisible();
+      }
+    };
+    window.addEventListener('focus', refreshWhenVisible);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => {
+      window.removeEventListener('focus', refreshWhenVisible);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [projectCwd, refreshSkillSurface]);
+
+  useEffect(() => {
+    if (resolutionConflicts.length > 0) return;
+    setResolutionPreview(null);
+    setResolutionNamePrompt(null);
+    setResolutionNameInput('');
+  }, [resolutionConflicts.length]);
 
   const counts = useMemo(() => items.reduce((acc, item) => {
     acc.all += 1;
@@ -3216,7 +5559,6 @@ function SkillsPage({ projectPath, refreshKey = 0 }) {
       <PageHeader
         icon={Sparkles}
         title="技能管理"
-        actions={<button type="button" onClick={() => { void refreshSkillSurface(); }} disabled={loading || resolutionLoading}>刷新</button>}
       />
       <div className="subhead">技能列表</div>
       <div className="skills-toolbar">
@@ -3236,8 +5578,22 @@ function SkillsPage({ projectPath, refreshKey = 0 }) {
           </button>
         ))}
       </div>
-      {loading ? <p className="console-message">加载技能中...</p> : null}
+      {isProjectPending ? <p className="console-message">正在连接本地项目...</p> : null}
+      {isInitialSkillsLoading ? <p className="console-message">加载技能中...</p> : null}
       {notice ? <p className="settings-status">{notice}</p> : null}
+      {showCachedSyncError ? (
+        <div className="danger-text skills-sync-alert" role="alert">
+          <span>同步失败，显示的是上次成功的数据：{syncErrorText}</span>
+          <button type="button" className="ghost" onClick={() => { void retrySkillSurface(); }}>重试同步</button>
+        </div>
+      ) : null}
+      {showBlockingSyncError ? (
+        <RetryableSyncError
+          className="danger-text skills-sync-alert"
+          message={syncErrorText}
+          onRetry={retrySkillSurface}
+        />
+      ) : null}
       {error ? <p className="danger-text" role="alert">{error}</p> : null}
       {resolutionConflicts.length > 0 ? (
         <section className="skills-resolution-panel">
@@ -3333,8 +5689,8 @@ function SkillsPage({ projectPath, refreshKey = 0 }) {
           ) : null}
         </section>
       ) : null}
-      {!loading && !error && filteredItems.length === 0 ? <p className="console-message">暂无技能</p> : null}
-      {!error && filteredItems.length > 0 ? (
+      {!isProjectPending && !isInitialSkillsLoading && !showBlockingSyncError && filteredItems.length === 0 ? <p className="console-message">暂无技能</p> : null}
+      {filteredItems.length > 0 ? (
         <div className="skill-grid">
           {filteredItems.map((skill) => <SkillCard key={skill.id} skill={skill} onEdit={openEditSkill} onDelete={onDeleteSkill} />)}
         </div>
@@ -3380,15 +5736,17 @@ function SkillsPage({ projectPath, refreshKey = 0 }) {
 function SkillCard({ skill, onEdit, onDelete }) {
   const tags = skill.tags.slice(0, 4);
   const extraTagCount = skill.tags.length - tags.length;
-  const description = skill.description || '暂无描述';
-  const summary = skill.summary || description;
+  const descriptionText = (skill.description || '').toString().trim();
+  const summaryText = (skill.summary || '').toString().trim();
+  const description = descriptionText || summaryText || '暂无描述';
+  const shouldShowSummary = Boolean(summaryText && summaryText !== description);
 
   return (
     <article className="skill-card">
       <header><h3>{skill.title}</h3><span>{scopeLabel(skill.scope)}</span></header>
       <p className="path">{skill.dir || '未提供路径'}</p>
       <p>{description}</p>
-      <div className="quote">{summary}</div>
+      {shouldShowSummary ? <div className="quote">{summaryText}</div> : null}
       <small>关键词</small>
       <div className="tags">
         {tags.length > 0 ? tags.map((tag) => <span key={tag}>{tag}</span>) : <span>暂无关键词</span>}
@@ -3546,11 +5904,26 @@ function ImportScopeModal({ importing, onClose, onConfirm }) {
 }
 
 function FilesPage({ projectPath, store }) {
-  const [files, setFiles] = useState([]);
-  const [finalOutputRefs, setFinalOutputRefs] = useState([]);
-  const [retention, setRetention] = useState({ items: [], protectedCount: 0, cleanupCandidateCount: 0 });
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
+  const exportDefaultPath = optionalSettingsCwd(projectPath);
+  const queryClient = useQueryClient();
+  const sharedFilesQueryKey = useMemo(() => dashboardGlobalQueryKey('shared-files'), []);
+  useDashboardQueryFocusInvalidation(sharedFilesQueryKey);
+  const sharedFilesQuery = useQuery({
+    queryKey: sharedFilesQueryKey,
+    queryFn: fetchSharedFilesDashboard,
+  });
+  const hasSharedFilesSnapshot = queryHasSnapshot(sharedFilesQuery);
+  const sharedFilesData = sharedFilesQuery.data || {
+    files: [],
+    finalOutputRefs: [],
+    retention: { items: [], protectedCount: 0, cleanupCandidateCount: 0 },
+  };
+  const files = sharedFilesData.files;
+  const finalOutputRefs = sharedFilesData.finalOutputRefs;
+  const retention = sharedFilesData.retention;
+  const loading = sharedFilesQuery.isPending && !hasSharedFilesSnapshot;
+  const { cachedSyncError: syncError, blockingError } = dashboardQueryErrorState(sharedFilesQuery, hasSharedFilesSnapshot);
+  const error = blockingError ? `加载共享文件失败：${blockingError}` : '';
   const [notice, setNotice] = useState(null);
   const [searchText, setSearchText] = useState('');
   const [sortMode, setSortMode] = useState('updated-desc');
@@ -3561,6 +5934,7 @@ function FilesPage({ projectPath, store }) {
   const [exportingPath, setExportingPath] = useState('');
   const [deletingPath, setDeletingPath] = useState('');
   const [copied, setCopied] = useState(false);
+  const sharedFilesRevision = Number(store?.sharedFilesRevision || 0);
 
   const finalOutputByPath = useMemo(() => (
     new Map(finalOutputRefs.filter((ref) => files.some((file) => file.path === ref.path)).map((ref) => [ref.path, ref]))
@@ -3578,28 +5952,17 @@ function FilesPage({ projectPath, store }) {
   }), [files.length, finalCount, workCount]);
 
   const refreshFiles = useCallback(async () => {
-    setLoading(true);
-    setError('');
-    try {
-      const cwd = normalizeSettingsCwd(projectPath);
-      const response = await getDashboardPage({ cwd, page: 'memory' });
-      const normalized = normalizeSharedFilesResponse(response);
-      setFiles(normalized.files);
-      setFinalOutputRefs(normalized.finalOutputRefs);
-      setRetention(normalized.retention);
-    } catch (err) {
-      setFiles([]);
-      setFinalOutputRefs([]);
-      setRetention({ items: [], protectedCount: 0, cleanupCandidateCount: 0 });
-      setError(`加载共享文件失败：${err.message || String(err)}`);
-    } finally {
-      setLoading(false);
-    }
-  }, [projectPath]);
+    await queryClient.invalidateQueries({ queryKey: sharedFilesQueryKey });
+  }, [queryClient, sharedFilesQueryKey]);
 
   useEffect(() => {
+    setNotice(null);
+  }, []);
+
+  useEffect(() => {
+    if (sharedFilesRevision <= 0) return;
     void refreshFiles();
-  }, [refreshFiles]);
+  }, [refreshFiles, sharedFilesRevision]);
 
   const visibleFiles = useMemo(() => {
     const filtered = sortSharedFiles(files.filter((file) => sharedFileMatches(file, searchText)), sortMode);
@@ -3651,7 +6014,7 @@ function FilesPage({ projectPath, store }) {
     try {
       const detail = await loadFileDetail(file);
       const savedPath = await saveTextFile({
-        defaultPath: normalizeSettingsCwd(projectPath),
+        defaultPath: exportDefaultPath,
         defaultFilename: sharedFileExportName(detail.path),
         content: detail.content,
       });
@@ -3661,7 +6024,7 @@ function FilesPage({ projectPath, store }) {
     } finally {
       setExportingPath('');
     }
-  }, [exportingPath, loadFileDetail, projectPath]);
+  }, [exportDefaultPath, exportingPath, loadFileDetail]);
 
   const askDelete = useCallback((file) => {
     const protection = protectionFor(file);
@@ -3727,9 +6090,6 @@ function FilesPage({ projectPath, store }) {
             <select aria-label="共享文件排序" value={sortMode} onChange={(event) => setSortMode(event.target.value)}>
               {SHARED_FILE_SORTS.map((item) => <option key={item.key} value={item.key}>{item.label}</option>)}
             </select>
-            <button type="button" onClick={() => { void refreshFiles(); }} disabled={loading}>
-              <RefreshCw size={15} /> {loading ? '刷新中' : '刷新'}
-            </button>
           </>
         )}
       />
@@ -3756,7 +6116,13 @@ function FilesPage({ projectPath, store }) {
         })}
       </div>
       {notice ? <p className={notice.level === 'error' ? 'danger-text' : 'settings-status'}>{notice.message}</p> : null}
-      {error ? <p className="danger-text">{error}</p> : null}
+      {syncError ? (
+        <div className="danger-text shared-files-sync-alert" role="alert">
+          <span>{syncError}</span>
+          <button type="button" className="ghost" onClick={() => { void refreshFiles(); }}>重试同步</button>
+        </div>
+      ) : null}
+      <RetryableSyncError className="danger-text shared-files-sync-alert" message={error} onRetry={refreshFiles} />
       {!error && loading && files.length === 0 ? <p className="console-message">正在加载共享文件...</p> : null}
       {!error && !loading && files.length === 0 ? (
         <div className="empty-state">
@@ -3909,10 +6275,19 @@ function ConfirmSharedFileDeleteModal({ file, deleting, onClose, onConfirm }) {
   );
 }
 
-function MemoryPage({ projectPath }) {
-  const [snapshot, setSnapshot] = useState({ overview: {}, entries: [] });
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
+function MemoryPage({ projectPath, onSimilarCountChange }) {
+  const memoryCwd = optionalSettingsCwd(projectPath);
+  const isProjectPending = !memoryCwd;
+  const queryClient = useQueryClient();
+  const memoryQuery = useQuery({
+    queryKey: dashboardQueryKey(memoryCwd, 'memory'),
+    queryFn: () => fetchMemoryDashboard(memoryCwd),
+    enabled: Boolean(memoryCwd),
+  });
+  const hasMemorySnapshot = queryHasSnapshot(memoryQuery);
+  const snapshot = memoryQuery.data || { overview: {}, entries: [] };
+  const loading = Boolean(memoryCwd) && memoryQuery.isPending && !hasMemorySnapshot;
+  const { cachedSyncError: syncError, blockingError: error } = dashboardQueryErrorState(memoryQuery, hasMemorySnapshot);
   const [notice, setNotice] = useState({ level: 'info', message: '' });
   const [searchText, setSearchText] = useState('');
   const [activeCategory, setActiveCategory] = useState('preference');
@@ -3930,22 +6305,13 @@ function MemoryPage({ projectPath }) {
   const [mergingKey, setMergingKey] = useState('');
 
   const refreshMemory = useCallback(async () => {
-    setLoading(true);
-    setError('');
-    try {
-      const cwd = normalizeSettingsCwd(projectPath);
-      const response = await getMemorySnapshot({ cwd });
-      setSnapshot(normalizeMemorySnapshot(response));
-    } catch (err) {
-      setError(errorMessage(err));
-    } finally {
-      setLoading(false);
-    }
-  }, [projectPath]);
+    if (!memoryCwd) return;
+    await queryClient.invalidateQueries({ queryKey: dashboardQueryKey(memoryCwd, 'memory') });
+  }, [memoryCwd, queryClient]);
 
   useEffect(() => {
-    refreshMemory().catch(() => { });
-  }, [refreshMemory]);
+    setNotice({ level: 'info', message: '' });
+  }, [memoryCwd]);
 
   const showNotice = useCallback((level, message) => {
     setNotice({ level: level || 'info', message: memoryNoticeText(message) });
@@ -3981,22 +6347,29 @@ function MemoryPage({ projectPath }) {
   const projPercent = health ? memoryHealthPercent(health.projectCount, health.maxPerCategory) : 0;
   const similarGroups = health?.similarGroups || [];
 
+  useEffect(() => {
+    if (typeof onSimilarCountChange === 'function') {
+      onSimilarCountChange(similarGroups.length);
+    }
+  }, [onSimilarCountChange, similarGroups.length]);
+
   const updateEditorForm = useCallback((patch) => {
     setEditor((current) => ({ ...current, form: { ...current.form, ...patch } }));
   }, []);
 
   const openCreate = useCallback((type) => {
-    const form = defaultMemoryForm(type, 'private');
+    if (isProjectPending) return;
+    const form = defaultMemoryForm(type, memoryTargetForType(type));
     setEditor({ open: true, mode: 'create', form });
     setCreateMenuOpen(false);
-  }, []);
+  }, [isProjectPending]);
 
   const openEdit = useCallback(async (entry) => {
+    if (!memoryCwd) return;
     const key = `${entry.target}:${entry.path}`;
     setBusyKey(key);
     try {
-      const cwd = normalizeSettingsCwd(projectPath);
-      const detail = await getMemoryEntry({ cwd, target: entry.target, path: entry.path });
+      const detail = await getMemoryEntry({ cwd: memoryCwd, target: entry.target, path: entry.path });
       setEditor({
         open: true,
         mode: 'edit',
@@ -4015,7 +6388,7 @@ function MemoryPage({ projectPath }) {
     } finally {
       setBusyKey('');
     }
-  }, [projectPath, showNotice]);
+  }, [memoryCwd, showNotice]);
 
   const closeEditor = useCallback(() => {
     if (saving) return;
@@ -4024,24 +6397,23 @@ function MemoryPage({ projectPath }) {
 
   const saveEditor = useCallback(async () => {
     if (saving) return;
+    if (!memoryCwd) { showNotice('error', '正在连接本地项目...'); return; }
     const form = editor.form;
-    const name = textValue(form.name);
     const description = textValue(form.description);
     const content = textValue(form.content);
-    if (!name) { showNotice('error', '请先填写名称'); return; }
     if (!description) { showNotice('error', '请先填写描述'); return; }
     if (!content) { showNotice('error', '内容不能为空'); return; }
     setSaving(true);
     try {
-      const cwd = normalizeSettingsCwd(projectPath);
+      const type = textValue(form.type) || 'project';
       await upsertMemoryEntry({
-        cwd,
-        target: form.target,
+        cwd: memoryCwd,
+        target: form.existingPath ? form.target : memoryTargetForType(type),
         existingPath: form.existingPath,
-        name,
+        name: memoryAutoName({ ...form, type }),
         description,
         title: textValue(form.title),
-        type: form.type,
+        type,
         content,
       });
       setEditor((current) => ({ ...current, open: false }));
@@ -4052,15 +6424,15 @@ function MemoryPage({ projectPath }) {
     } finally {
       setSaving(false);
     }
-  }, [editor.form, projectPath, refreshMemory, saving, showNotice]);
+  }, [editor.form, memoryCwd, refreshMemory, saving, showNotice]);
 
   const confirmDelete = useCallback(async () => {
     if (!deleteTarget || deletingKey) return;
+    if (!memoryCwd) { showNotice('error', '正在连接本地项目...'); return; }
     const key = `${deleteTarget.target}:${deleteTarget.path}`;
     setDeletingKey(key);
     try {
-      const cwd = normalizeSettingsCwd(projectPath);
-      await deleteMemoryEntry({ cwd, target: deleteTarget.target, path: deleteTarget.path });
+      await deleteMemoryEntry({ cwd: memoryCwd, target: deleteTarget.target, path: deleteTarget.path });
       showNotice('info', `已删除：${memoryEntryTitle(deleteTarget)}`);
       setDeleteTarget(null);
       await refreshMemory();
@@ -4069,10 +6441,10 @@ function MemoryPage({ projectPath }) {
     } finally {
       setDeletingKey('');
     }
-  }, [deleteTarget, deletingKey, projectPath, refreshMemory, showNotice]);
+  }, [deleteTarget, deletingKey, memoryCwd, refreshMemory, showNotice]);
 
   const toggleAutoDream = useCallback(async () => {
-    if (autoToggling) return;
+    if (autoToggling || isProjectPending) return;
     const next = !autoDreamEnabled;
     setAutoToggling(true);
     try {
@@ -4084,16 +6456,16 @@ function MemoryPage({ projectPath }) {
     } finally {
       setAutoToggling(false);
     }
-  }, [autoDreamEnabled, autoToggling, refreshMemory, showNotice]);
+  }, [autoDreamEnabled, autoToggling, isProjectPending, refreshMemory, showNotice]);
 
   const confirmMerge = useCallback(async () => {
     if (!mergeTarget || mergingKey) return;
+    if (!memoryCwd) { showNotice('error', '正在连接本地项目...'); return; }
     const key = memoryPairKey(mergeTarget);
     setMergingKey(key);
     try {
-      const cwd = normalizeSettingsCwd(projectPath);
       await mergeMemoryEntries({
-        cwd,
+        cwd: memoryCwd,
         targetA: mergeTarget.targetA,
         pathA: mergeTarget.pathA,
         targetB: mergeTarget.targetB,
@@ -4107,15 +6479,15 @@ function MemoryPage({ projectPath }) {
     } finally {
       setMergingKey('');
     }
-  }, [mergeTarget, mergingKey, projectPath, refreshMemory, showNotice]);
+  }, [memoryCwd, mergeTarget, mergingKey, refreshMemory, showNotice]);
 
   const mergeAllGroups = useCallback(async () => {
     if (!similarGroups.length || mergingAll) return;
+    if (!memoryCwd) { showNotice('error', '正在连接本地项目...'); return; }
     setMergingAll(true);
     showNotice('info', '智能整合中（通常 10-20 秒），请勿离开');
     try {
-      const cwd = normalizeSettingsCwd(projectPath);
-      const result = await consolidateMemorySimilarities({ cwd });
+      const result = await consolidateMemorySimilarities({ cwd: memoryCwd });
       const merged = Number(result?.merged) || 0;
       const ignored = Number(result?.ignored) || 0;
       const failed = Number(result?.failed) || 0;
@@ -4132,16 +6504,16 @@ function MemoryPage({ projectPath }) {
     } finally {
       setMergingAll(false);
     }
-  }, [mergingAll, projectPath, refreshMemory, showNotice, similarGroups.length]);
+  }, [memoryCwd, mergingAll, refreshMemory, showNotice, similarGroups.length]);
 
   const ignoreGroup = useCallback(async (group) => {
     const key = memoryPairKey(group);
     if (ignoringKey) return;
+    if (!memoryCwd) { showNotice('error', '正在连接本地项目...'); return; }
     setIgnoringKey(key);
     try {
-      const cwd = normalizeSettingsCwd(projectPath);
       await ignoreMemorySimilarity({
-        cwd,
+        cwd: memoryCwd,
         targetA: group.targetA,
         pathA: group.pathA,
         targetB: group.targetB,
@@ -4154,7 +6526,7 @@ function MemoryPage({ projectPath }) {
     } finally {
       setIgnoringKey('');
     }
-  }, [ignoringKey, projectPath, refreshMemory, showNotice]);
+  }, [ignoringKey, memoryCwd, refreshMemory, showNotice]);
 
   return (
     <section className="memory-page">
@@ -4167,16 +6539,13 @@ function MemoryPage({ projectPath }) {
               <Search size={17} />
               <input
                 aria-label="搜索记忆"
-                placeholder="搜索 name / description / path"
+                placeholder="搜索记忆标题 / 内容"
                 value={searchText}
                 onChange={(event) => setSearchText(event.target.value)}
               />
             </label>
-            <button type="button" onClick={() => { void refreshMemory(); }} disabled={loading}>
-              <RefreshCw size={15} /> {loading ? '刷新中' : '刷新'}
-            </button>
             <div className="memory-create">
-              <button type="button" className="light" aria-label="+ 新建 ▾" onClick={() => setCreateMenuOpen((open) => !open)}>
+              <button type="button" className="light" aria-label="+ 新建 ▾" onClick={() => setCreateMenuOpen((open) => !open)} disabled={isProjectPending}>
                 <Plus size={15} /> 新建 ▾
               </button>
               {createMenuOpen ? (
@@ -4207,7 +6576,7 @@ function MemoryPage({ projectPath }) {
         <Panel title="自动沉淀">
           <p><span className={autoDreamEnabled ? 'green-dot' : 'orange-dot'} /> {autoDreamEnabled ? '已开启' : '已关闭'}</p>
           <small>对话结束后自动整理重要内容</small>
-          <button type="button" onClick={() => { void toggleAutoDream(); }} disabled={autoToggling}>
+          <button type="button" onClick={() => { void toggleAutoDream(); }} disabled={autoToggling || isProjectPending}>
             {autoDreamEnabled ? '关闭' : '开启'}
           </button>
           {autoDreamPendingRestart ? <small className="memory-pending">已保存切换，重启 agent-terminal 后生效</small> : null}
@@ -4243,8 +6612,20 @@ function MemoryPage({ projectPath }) {
       ) : null}
 
       {notice.message ? <div className={`memory-notice is-${notice.level}`}>{notice.message}</div> : null}
-      {loading ? <div className="memory-notice is-info">正在加载记忆中心...</div> : null}
-      {error ? <div className="memory-notice is-error">{error}</div> : null}
+      {isProjectPending ? <div className="memory-notice is-info">正在连接本地项目...</div> : null}
+      {!isProjectPending && loading ? <div className="memory-notice is-info">正在加载记忆中心...</div> : null}
+      {syncError ? (
+        <div className="memory-notice is-error" role="alert">
+          <span>{syncError}</span>
+          <button type="button" onClick={() => { void refreshMemory(); }}>重试同步</button>
+        </div>
+      ) : null}
+      {error ? (
+        <div className="memory-notice is-error" role="alert">
+          <span>{error}</span>
+          <button type="button" onClick={() => { void refreshMemory(); }}>重试同步</button>
+        </div>
+      ) : null}
 
       <div className="memory-tabs" role="tablist" aria-label="记忆分类">
         {MEMORY_CATEGORIES.map((item) => (
@@ -4260,7 +6641,7 @@ function MemoryPage({ projectPath }) {
         ))}
       </div>
 
-      {!error && !loading && visibleEntries.length === 0 ? (
+      {!error && !isProjectPending && !loading && visibleEntries.length === 0 ? (
         <div className="empty-state memory-empty">
           <span><MemoryStick size={24} /></span>
           <h2>{searchText ? '没有匹配的条目' : '暂无记忆'}</h2>
@@ -4268,7 +6649,7 @@ function MemoryPage({ projectPath }) {
         </div>
       ) : null}
 
-      {!error && visibleEntries.length ? (
+      {!error && !isProjectPending && visibleEntries.length ? (
         <div className="memory-cards">
           {visibleEntries.map((entry) => (
             <MemoryCard
@@ -4327,12 +6708,10 @@ function MemoryCard({ entry, busy, deleting, onEdit, onDelete }) {
       <header>
         <h3>{memoryEntryTitle(entry)}</h3>
         <span>{entry.tag}</span>
-        <em>{entry.scope}</em>
         {entry.source === 'dream' ? <em>梦境</em> : null}
       </header>
       {entry.description ? <p>{entry.description}</p> : null}
       <code>{entry.preview || '暂无预览'}</code>
-      <small className="path">{entry.path}</small>
       <footer>
         <time>{sharedFileTimestamp(entry.updatedAt)}</time>
         <button type="button" onClick={() => { void onEdit(entry); }} disabled={busy}>{busy ? '加载中...' : '编辑'}</button>
@@ -4351,23 +6730,22 @@ function MemoryEditorModal({ editor, saving, onClose, onChange, onSave, onDelete
         <header>
           <div>
             <h2>{editor.mode === 'edit' ? '编辑记忆' : '新建记忆'}</h2>
-            <p>{form.target === 'team' ? '团队记忆' : '私有记忆'}</p>
+            <p>{form.type === 'project' ? '项目记忆' : '偏好记忆'}</p>
           </div>
-          <button type="button" className="ghost" onClick={onClose} disabled={saving}><X size={14} /> 关闭</button>
         </header>
         <div className="memory-form-grid">
-          <label>目标
-            <select value={form.target} onChange={(event) => onChange({ target: event.target.value })} disabled={identityLocked}>
-              {MEMORY_EDITOR_TARGETS.map((target) => <option key={target.key} value={target.key}>{target.label}</option>)}
-            </select>
-          </label>
-          <label>类型
-            <select value={form.type} onChange={(event) => onChange({ type: event.target.value, content: memoryTemplateForType(event.target.value) })} disabled={identityLocked}>
+          <label>分类
+            <select
+              value={form.type}
+              onChange={(event) => onChange({
+                type: event.target.value,
+                target: memoryTargetForType(event.target.value),
+                content: memoryTemplateForType(event.target.value),
+              })}
+              disabled={identityLocked}
+            >
               {MEMORY_EDITOR_TYPES.map((type) => <option key={type.key} value={type.key}>{type.label}</option>)}
             </select>
-          </label>
-          <label>标识名
-            <input value={form.name} onChange={(event) => onChange({ name: event.target.value })} disabled={identityLocked} placeholder="内部标识，如 reply-in-chinese" />
           </label>
           <label>描述
             <input value={form.description} onChange={(event) => onChange({ description: event.target.value })} placeholder="一句话描述为什么值得长期保留" />
@@ -4376,7 +6754,6 @@ function MemoryEditorModal({ editor, saving, onClose, onChange, onSave, onDelete
             <input value={form.title} onChange={(event) => onChange({ title: event.target.value })} placeholder="卡片上显示的短标题" />
           </label>
         </div>
-        {identityLocked ? <p className="memory-form-helper">现有记忆的标识名和类型暂时锁定；如需修改，请删除后重建。</p> : null}
         <label className="memory-content-label">内容
           <textarea rows={12} value={form.content} onChange={(event) => onChange({ content: event.target.value })} />
         </label>
@@ -4384,7 +6761,7 @@ function MemoryEditorModal({ editor, saving, onClose, onChange, onSave, onDelete
           <button type="button" className="ghost" onClick={onClose} disabled={saving}>取消</button>
           {form.existingPath ? <button type="button" className="danger" onClick={onDelete} disabled={saving}>删除</button> : null}
           <button type="button" onClick={() => onChange({ content: memoryTemplateForType(form.type) })} disabled={saving}>套用当前类型模板</button>
-          <button type="button" className="light" onClick={() => { void onSave(); }} disabled={saving || !textValue(form.name) || !textValue(form.description) || !textValue(form.content)}>
+          <button type="button" className="light" onClick={() => { void onSave(); }} disabled={saving || !textValue(form.description) || !textValue(form.content)}>
             {saving ? '保存中...' : '保存'}
           </button>
         </div>
@@ -4402,7 +6779,7 @@ function MemoryDeleteModal({ entry, deleting, onClose, onConfirm }) {
           <button type="button" className="ghost" onClick={onClose} disabled={deleting}>关闭</button>
         </header>
         <p>删除后无法恢复。如果后续可能重用，建议先编辑备份内容。</p>
-        <p className="path">{memoryEntryTitle(entry)} · {entry.target}</p>
+        <p className="path">{memoryEntryTitle(entry)}</p>
         <footer>
           <button type="button" className="ghost" onClick={onClose} disabled={deleting}>取消</button>
           <button type="button" className="danger" onClick={() => { void onConfirm(); }} disabled={deleting}>{deleting ? '删除中...' : '确认删除'}</button>
@@ -4423,8 +6800,8 @@ function MemoryMergeModal({ group, merging, onClose, onConfirm }) {
           </div>
           <button type="button" className="ghost" onClick={onClose} disabled={merging}>关闭</button>
         </header>
-        <p>合并到：{group.nameA || group.pathA} · {group.targetA}</p>
-        <p>移除：{group.nameB || group.pathB} · {group.targetB}</p>
+        <p>合并到：{group.nameA || '保留项'}</p>
+        <p>移除：{group.nameB || '重复项'}</p>
         <footer>
           <button type="button" className="ghost" onClick={onClose} disabled={merging}>取消</button>
           <button type="button" className="light" onClick={() => { void onConfirm(); }} disabled={merging}>{merging ? '整合中...' : '确认整合'}</button>
@@ -4435,6 +6812,10 @@ function MemoryMergeModal({ group, merging, onClose, onConfirm }) {
 }
 
 function SettingsPage({ projectPath }) {
+  const store = useClientStore();
+  const cwd = projectPath || store.activeProject || store.cwd;
+
+  // Build Info & Original Form states
   const [buildInfo, setBuildInfo] = useState(null);
   const [form, setForm] = useState({
     stallThresholdSec: String(SETTINGS_DEFAULTS.stallThresholdSec),
@@ -4454,7 +6835,42 @@ function SettingsPage({ projectPath }) {
   const [status, setStatus] = useState('');
   const [error, setError] = useState('');
 
-  const settingsCwd = projectPath;
+  // Provider Settings State (for summary & approval)
+  const [summaryMode, setSummaryMode] = useState('detailed');
+  const [approvalMode, setApprovalMode] = useState('on-request');
+  const [providerNotice, setProviderNotice] = useState({ level: 'info', message: '' });
+  const [providerSaving, setProviderSaving] = useState(false);
+
+  // Prompt Settings State
+  const [lspPromptHint, setLspPromptHint] = useState('');
+  const [lspPromptEffectiveHint, setLspPromptEffectiveHint] = useState('');
+  const [lspPromptDefaultHint, setLspPromptDefaultHint] = useState('');
+  const [lspPromptUsingDefault, setLspPromptUsingDefault] = useState(true);
+  const [lspPromptLoading, setLspPromptLoading] = useState(false);
+  const [lspPromptSaving, setLspPromptSaving] = useState(false);
+  const [lspPromptNotice, setLspPromptNotice] = useState({ level: 'info', message: '' });
+  const [showInjectedPromptInChat, setShowInjectedPromptInChat] = useState(false);
+  const [showInjectedPromptSaving, setShowInjectedPromptSaving] = useState(false);
+  const [currentScopeCwd, setCurrentScopeCwd] = useState('');
+
+  // Model Built-in capabilities State
+  const [builtinTools, setBuiltinTools] = useState([]);
+  const [builtinToolsLoading, setBuiltinToolsLoading] = useState(false);
+  const [builtinSavingIds, setBuiltinSavingIds] = useState({});
+  const [builtinExpandedGroups, setBuiltinExpandedGroups] = useState({});
+  const [builtinToolsNotice, setBuiltinToolsNotice] = useState({ level: 'info', message: '' });
+
+  // Boolean helper
+  const parseBoolPreference = useCallback((value) => {
+    if (typeof value === 'boolean') return value;
+    if (typeof value === 'number') return value !== 0;
+    if (typeof value === 'string') {
+      const normalized = value.trim().toLowerCase();
+      if (['1', 'true', 'yes', 'on'].includes(normalized)) return true;
+      if (['0', 'false', 'no', 'off'].includes(normalized)) return false;
+    }
+    return false;
+  }, []);
 
   const refreshBuildInfo = useCallback(async () => {
     setError('');
@@ -4470,56 +6886,57 @@ function SettingsPage({ projectPath }) {
 
   const loadPreferences = useCallback(async () => {
     setError('');
-    const cwd = normalizeSettingsCwd(settingsCwd);
-    const [stallValue, contextValue, activeProviderValue] = await Promise.all([
-      getPreference({ cwd, key: SETTINGS_KEYS.stallThreshold }),
-      getPreference({ cwd, key: SETTINGS_KEYS.contextThresholds }),
-      getPreference({ cwd, key: SETTINGS_KEYS.activeProvider }),
-    ]);
-    const activeProvider = normalizeProviderName(activeProviderValue);
-    const providerPrefix = `settings.provider.${activeProvider}`;
-    const [
-      codexHome,
-      codexInstanceKey,
-      codexModelProvider,
-      providerModel,
-      providerEffort,
-      sandbox,
-    ] = await Promise.all([
-      getPreference({ cwd, key: providerSettingKey('codex', 'codexHome') }),
-      getPreference({ cwd, key: providerSettingKey('codex', 'codexInstanceKey') }),
-      getPreference({ cwd, key: providerSettingKey('codex', 'codexModelProvider') }),
-      getPreference({ cwd, key: `${providerPrefix}.model` }),
-      getPreference({ cwd, key: `${providerPrefix}.effort` }),
-      getPreference({ cwd, key: `${providerPrefix}.sandbox` }),
-    ]);
-    const contextThresholds = normalizeContextThresholds(contextValue);
-    setForm({
-      stallThresholdSec: String(numberSetting(stallValue, SETTINGS_DEFAULTS.stallThresholdSec)),
-      contextWarn: String(contextThresholds[0]),
-      contextDanger: String(contextThresholds[1]),
-      contextCritical: String(contextThresholds[2]),
-      activeProvider,
-      codexHome: stringSetting(codexHome, SETTINGS_DEFAULTS.codexHome),
-      codexInstanceKey: stringSetting(codexInstanceKey, SETTINGS_DEFAULTS.codexInstanceKey),
-      codexModelProvider: stringSetting(codexModelProvider, SETTINGS_DEFAULTS.codexModelProvider),
-      providerModel: stringSetting(providerModel, SETTINGS_DEFAULTS.providerModel),
-      providerEffort: stringSetting(providerEffort, SETTINGS_DEFAULTS.providerEffort),
-      sandboxPolicy: sandboxPolicyFromPreference(sandbox),
-      writableRoots: writableRootsFromPreference(sandbox),
-      networkAccess: Boolean(sandbox && typeof sandbox === 'object' && sandbox.networkAccess),
-    });
-  }, [settingsCwd]);
-
-  useEffect(() => {
-    refreshBuildInfo().catch(() => { });
-  }, [refreshBuildInfo]);
-
-  useEffect(() => {
-    loadPreferences().catch((err) => {
+    if (!cwd) return;
+    try {
+      const [stallValue, contextValue, activeProviderValue] = await Promise.all([
+        getPreference({ cwd, key: SETTINGS_KEYS.stallThreshold }),
+        getPreference({ cwd, key: SETTINGS_KEYS.contextThresholds }),
+        getPreference({ cwd, key: SETTINGS_KEYS.activeProvider }),
+      ]);
+      const activeProvider = normalizeProviderName(activeProviderValue);
+      const providerPrefix = `settings.provider.${activeProvider}`;
+      const [
+        codexHome,
+        codexInstanceKey,
+        codexModelProvider,
+        providerModel,
+        providerEffort,
+        sandbox,
+        summaryValue,
+        approvalValue,
+      ] = await Promise.all([
+        getPreference({ cwd, key: providerSettingKey('codex', 'codexHome') }),
+        getPreference({ cwd, key: providerSettingKey('codex', 'codexInstanceKey') }),
+        getPreference({ cwd, key: providerSettingKey('codex', 'codexModelProvider') }),
+        getPreference({ cwd, key: `${providerPrefix}.model` }),
+        getPreference({ cwd, key: `${providerPrefix}.effort` }),
+        getPreference({ cwd, key: `${providerPrefix}.sandbox` }),
+        getPreference({ cwd, key: 'settings.provider.codex.summary' }),
+        getPreference({ cwd, key: 'settings.provider.codex.approvalPolicy' }),
+      ]);
+      const contextThresholds = normalizeContextThresholds(contextValue);
+      setForm({
+        stallThresholdSec: String(numberSetting(stallValue, SETTINGS_DEFAULTS.stallThresholdSec)),
+        contextWarn: String(contextThresholds[0]),
+        contextDanger: String(contextThresholds[1]),
+        contextCritical: String(contextThresholds[2]),
+        activeProvider,
+        codexHome: stringSetting(codexHome, SETTINGS_DEFAULTS.codexHome),
+        codexInstanceKey: stringSetting(codexInstanceKey, SETTINGS_DEFAULTS.codexInstanceKey),
+        codexModelProvider: stringSetting(codexModelProvider, SETTINGS_DEFAULTS.codexModelProvider),
+        providerModel: stringSetting(providerModel, SETTINGS_DEFAULTS.providerModel),
+        providerEffort: stringSetting(providerEffort, SETTINGS_DEFAULTS.providerEffort),
+        sandboxPolicy: sandboxPolicyFromPreference(sandbox),
+        writableRoots: writableRootsFromPreference(sandbox),
+        networkAccess: Boolean(sandbox && typeof sandbox === 'object' && sandbox.networkAccess),
+      });
+      setSummaryMode(summaryValue || 'detailed');
+      setApprovalMode(approvalValue || 'on-request');
+      setProviderNotice({ level: 'info', message: '' });
+    } catch (err) {
       setError(err.message || String(err));
-    });
-  }, [loadPreferences]);
+    }
+  }, [cwd]);
 
   const updateForm = (key) => (event) => {
     const value = event.target.type === 'checkbox' ? event.target.checked : event.target.value;
@@ -4530,11 +6947,10 @@ function SettingsPage({ projectPath }) {
     setError('');
     setStatus('');
     try {
-      const cwd = normalizeSettingsCwd(settingsCwd);
       const { stallThresholdSec, contextThresholds } = validateRuntimeThresholds(form);
       await setPreference({ cwd, key: SETTINGS_KEYS.stallThreshold, value: stallThresholdSec });
       await setPreference({ cwd, key: SETTINGS_KEYS.contextThresholds, value: contextThresholds });
-      setStatus('运行阈值已保存');
+      setStatus('已保存超时与上下文使用率设置');
     } catch (err) {
       setError(err.message || String(err));
     }
@@ -4544,7 +6960,6 @@ function SettingsPage({ projectPath }) {
     setError('');
     setStatus('');
     try {
-      const cwd = normalizeSettingsCwd(settingsCwd);
       const provider = normalizeProviderName(form.activeProvider);
       await setPreference({ cwd, key: SETTINGS_KEYS.activeProvider, value: provider });
       await setPreference({ cwd, key: providerSettingKey(provider, 'model'), value: form.providerModel.trim() });
@@ -4563,52 +6978,582 @@ function SettingsPage({ projectPath }) {
     }
   };
 
+  // Provider preferences loaders/savers (summary & approvalPolicy)
+  const loadProviderPreferences = useCallback(async () => {
+    if (!cwd) return;
+    try {
+      const summaryValue = await getPreference({ cwd, key: 'settings.provider.codex.summary' });
+      const approvalValue = await getPreference({ cwd, key: 'settings.provider.codex.approvalPolicy' });
+      setSummaryMode(summaryValue || 'detailed');
+      setApprovalMode(approvalValue || 'on-request');
+      setProviderNotice({ level: 'info', message: '' });
+    } catch (error) {
+      setProviderNotice({ level: 'error', message: `加载 Preferences 失败: ${error.message}` });
+    }
+  }, [cwd]);
+
+  const saveProviderPreferences = useCallback(async () => {
+    if (!cwd || providerSaving) return;
+    setProviderSaving(true);
+    try {
+      await setPreference({ cwd, key: 'settings.provider.codex.summary', value: summaryMode });
+      await setPreference({ cwd, key: 'settings.provider.codex.approvalPolicy', value: approvalMode });
+      setProviderNotice({ level: 'info', message: `已保存：${summaryMode} / ${approvalMode}` });
+    } catch (error) {
+      setProviderNotice({ level: 'error', message: `保存失败: ${error.message}` });
+    } finally {
+      setProviderSaving(false);
+    }
+  }, [cwd, summaryMode, approvalMode, providerSaving]);
+
+  // Prompt hints loaders/savers
+  const loadLspPromptHint = useCallback(async () => {
+    if (!cwd) return;
+    setLspPromptLoading(true);
+    try {
+      const res = await callBackend('config/lspPromptHint/read', { cwd });
+      const hint = (res?.hint || '').toString();
+      const defaultHint = (res?.defaultHint || '').toString();
+      const overrideHint = (res?.overrideHint || '').toString();
+      const usingDefault = Boolean(res?.usingDefault);
+      setLspPromptHint(overrideHint);
+      setLspPromptEffectiveHint(hint);
+      setLspPromptDefaultHint(defaultHint);
+      setLspPromptUsingDefault(usingDefault || overrideHint.trim() === '');
+      setLspPromptNotice({ level: 'info', message: '' });
+    } catch (error) {
+      setLspPromptNotice({ level: 'error', message: `加载失败：${error?.message || error}` });
+    } finally {
+      setLspPromptLoading(false);
+    }
+  }, [cwd]);
+
+  const loadCurrentScopeCwd = useCallback(async () => {
+    try {
+      const cfg = await callBackend('config/read', {});
+      setCurrentScopeCwd((cfg?.cwd || '').toString().trim());
+    } catch {
+      setCurrentScopeCwd('');
+    }
+  }, []);
+
+  const loadInjectedPromptVisibility = useCallback(async () => {
+    if (!cwd) return;
+    try {
+      const value = await getPreference({ cwd, key: 'settings.showInjectedPromptInChat' });
+      setShowInjectedPromptInChat(parseBoolPreference(value));
+    } catch (error) {
+      setLspPromptNotice({ level: 'error', message: `加载聊天注入显示开关失败：${error?.message || error}` });
+    }
+  }, [cwd, parseBoolPreference]);
+
+  const saveLspPromptHint = useCallback(async () => {
+    if (!cwd || lspPromptSaving) return;
+    setLspPromptSaving(true);
+    try {
+      const res = await callBackend('config/lspPromptHint/write', { cwd, hint: lspPromptHint });
+      setLspPromptEffectiveHint((res?.hint || '').toString());
+      setLspPromptDefaultHint((res?.defaultHint || lspPromptDefaultHint || '').toString());
+      setLspPromptHint((res?.overrideHint || '').toString());
+      const usingDefault = Boolean(res?.usingDefault);
+      setLspPromptUsingDefault(usingDefault);
+      if (usingDefault) {
+        setLspPromptNotice({ level: 'info', message: '已恢复默认提示词' });
+      } else {
+        setLspPromptNotice({ level: 'info', message: '提示词已保存' });
+      }
+    } catch (error) {
+      setLspPromptNotice({ level: 'error', message: `保存失败：${error?.message || error}` });
+    } finally {
+      setLspPromptSaving(false);
+    }
+  }, [cwd, lspPromptHint, lspPromptDefaultHint, lspPromptSaving]);
+
+  const resetLspPromptHint = useCallback(async () => {
+    if (!cwd || lspPromptSaving) return;
+    setLspPromptSaving(true);
+    try {
+      const res = await callBackend('config/lspPromptHint/write', { cwd, hint: '' });
+      setLspPromptEffectiveHint((res?.hint || '').toString());
+      setLspPromptDefaultHint((res?.defaultHint || lspPromptDefaultHint || '').toString());
+      setLspPromptHint('');
+      setLspPromptUsingDefault(true);
+      setLspPromptNotice({ level: 'info', message: '已恢复默认提示词' });
+    } catch (error) {
+      setLspPromptNotice({ level: 'error', message: `恢复失败：${error?.message || error}` });
+    } finally {
+      setLspPromptSaving(false);
+    }
+  }, [cwd, lspPromptDefaultHint, lspPromptSaving]);
+
+  const handleInjectedPromptVisibilityChange = useCallback(async (event) => {
+    if (!cwd || showInjectedPromptSaving) return;
+    const next = event.target.checked;
+    setShowInjectedPromptInChat(next);
+    setShowInjectedPromptSaving(true);
+    try {
+      await setPreference({ cwd, key: 'settings.showInjectedPromptInChat', value: next });
+      setLspPromptNotice({
+        level: 'info',
+        message: next ? '聊天区已改为显示自动注入内容' : '聊天区已改为隐藏自动注入内容',
+      });
+    } catch (error) {
+      setLspPromptNotice({ level: 'error', message: `保存聊天注入显示开关失败：${error?.message || error}` });
+      await loadInjectedPromptVisibility();
+    } finally {
+      setShowInjectedPromptSaving(false);
+    }
+  }, [cwd, showInjectedPromptSaving, loadInjectedPromptVisibility]);
+
+  const copyEffectivePromptHint = useCallback(async () => {
+    const text = (lspPromptEffectiveHint || lspPromptDefaultHint || '').trim() || '暂无可用提示词';
+    if (!text || text === '暂无可用提示词') {
+      setLspPromptNotice({ level: 'error', message: '暂无可复制内容' });
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(text);
+      setLspPromptNotice({ level: 'info', message: '已复制生效提示词' });
+    } catch (error) {
+      setLspPromptNotice({ level: 'error', message: `复制失败：${error?.message || error}` });
+    }
+  }, [lspPromptEffectiveHint, lspPromptDefaultHint]);
+
+  // Model Built-in capabilities loaders/savers
+  const applyToolsPayload = useCallback((payload) => {
+    const list = Array.isArray(payload?.tools) ? payload.tools : [];
+    setBuiltinTools(list.map((item) => ({
+      id: (item.id || '').toString(),
+      label: (item.label || item.id || '').toString(),
+      description: (item.description || '').toString(),
+      enabled: Boolean(item.enabled),
+      provider: (item.provider || 'claude').toString(),
+      replacedBy: item.replacedBy ? (item.replacedBy || '').toString() : undefined,
+      filterMode: (item.filterMode || '').toString() || undefined,
+      enforcement: (item.enforcement || '').toString() || undefined,
+    })));
+  }, []);
+
+  const loadBuiltinTools = useCallback(async () => {
+    if (!cwd) return;
+    setBuiltinToolsLoading(true);
+    try {
+      const res = await callBackend('config/builtinTools/read', { cwd });
+      applyToolsPayload(res);
+      setBuiltinToolsNotice({ level: 'info', message: '' });
+    } catch (error) {
+      setBuiltinToolsNotice({ level: 'error', message: `加载失败：${error?.message || error}` });
+    } finally {
+      setBuiltinToolsLoading(false);
+    }
+  }, [cwd, applyToolsPayload]);
+
+  const toggleBuiltinTool = useCallback(async (tool) => {
+    if (!cwd || tool.replacedBy) return;
+    const id = tool.id;
+    if (!id) return;
+    if (builtinSavingIds[id]) return;
+    setBuiltinSavingIds((prev) => ({ ...prev, [id]: true }));
+    const nextEnabled = !tool.enabled;
+
+    setBuiltinTools((prev) =>
+      prev.map((item) => (item.id === id ? { ...item, enabled: nextEnabled } : item))
+    );
+
+    try {
+      const res = await callBackend('config/builtinTools/write', { cwd, id, enabled: nextEnabled });
+      applyToolsPayload(res);
+      setBuiltinToolsNotice({ level: 'info', message: `${tool.label || id} 已${nextEnabled ? '启用' : '禁用'}` });
+    } catch (error) {
+      setBuiltinTools((prev) =>
+        prev.map((item) => (item.id === id ? { ...item, enabled: !nextEnabled } : item))
+      );
+      setBuiltinToolsNotice({ level: 'error', message: `保存失败：${error?.message || error}` });
+    } finally {
+      setBuiltinSavingIds((prev) => ({ ...prev, [id]: false }));
+    }
+  }, [cwd, builtinSavingIds, applyToolsPayload]);
+
+  // Collapsible accordion group controls
+  const toggleGroupExpanded = useCallback((key) => {
+    setBuiltinExpandedGroups((prev) => ({
+      ...prev,
+      [key]: !prev[key],
+    }));
+  }, []);
+
+  // Sync state
+  useEffect(() => {
+    refreshBuildInfo().catch(() => { });
+  }, [refreshBuildInfo]);
+
+  useEffect(() => {
+    loadPreferences().catch(() => { });
+    loadLspPromptHint();
+    loadCurrentScopeCwd();
+    loadInjectedPromptVisibility();
+    loadBuiltinTools();
+  }, [cwd, loadPreferences, loadLspPromptHint, loadCurrentScopeCwd, loadInjectedPromptVisibility, loadBuiltinTools]);
+
+  // Derived Prompt variables
+  const lspPromptDisplayHint = (lspPromptEffectiveHint || lspPromptDefaultHint || '').trim() || '暂无可用提示词';
+  const lspPromptLineCount = lspPromptDisplayHint === '暂无可用提示词' ? 0 : lspPromptDisplayHint.split('\n').length;
+  const lspPromptCharCount = lspPromptDisplayHint === '暂无可用提示词' ? 0 : lspPromptDisplayHint.length;
+
+  // Derived Built-in capabilities groups
+  const enforcementBucket = useCallback((tool) => {
+    const enforcement = (tool.enforcement || '').toString().trim();
+    if (enforcement) return enforcement;
+    if (tool.filterMode === 'hard') return 'native-hard';
+    return 'soft-audit';
+  }, []);
+
+  const groups = useMemo(() => {
+    const disabled = builtinTools.filter((t) => !t.enabled || t.replacedBy);
+    const nativeHard = disabled.filter((t) => enforcementBucket(t) === 'native-hard');
+    const effectHard = disabled.filter((t) => enforcementBucket(t) === 'effect-hard');
+    const softAudit = disabled.filter((t) => enforcementBucket(t) === 'soft-audit');
+    const notFiltered = builtinTools.filter((t) => t.enabled && !t.replacedBy);
+
+    const result = [];
+    const pushGroup = (key, label, items, note) => {
+      if (items.length === 0) return;
+      result.push({
+        key,
+        label: `${label}（${items.length}）`,
+        tools: items,
+        note,
+        disabledCount: items.length,
+        canToggle: true,
+      });
+    };
+
+    pushGroup('native-hard', '启动前已关闭', nativeHard, '模型启动前就看不到这些能力。');
+    pushGroup('effect-hard', '已限制为只读', effectHard, 'Codex 暂不支持单独关闭这类能力，已限制为只读，避免它直接改文件或执行命令。');
+    pushGroup('soft-audit', '仅提醒使用项目工具', softAudit, 'Codex 暂不支持可靠关闭这类能力，只能提示模型优先使用本项目工具；这不是强制拦截。');
+
+    if (notFiltered.length > 0) {
+      result.push({
+        key: 'unfiltered',
+        label: `保持可用（${notFiltered.length}）`,
+        tools: notFiltered,
+        disabledCount: 0,
+        canToggle: true,
+      });
+    }
+    return result;
+  }, [builtinTools, enforcementBucket]);
+
+  const filteredCount = useMemo(() => builtinTools.filter((t) => t.replacedBy || !t.enabled).length, [builtinTools]);
+  const totalToolCount = builtinTools.length;
+
+  const toolStatusLabel = useCallback((tool) => {
+    if (tool.replacedBy) return '已由项目工具接管';
+    if (tool.enabled) return '保持可用';
+    const enforcement = enforcementBucket(tool);
+    if (enforcement === 'native-hard') return '启动前已关闭';
+    if (enforcement === 'effect-hard') return '已限制为只读';
+    if (enforcement === 'soft-audit') return '仅提醒使用项目工具';
+    return '已管控';
+  }, [enforcementBucket]);
+
+  const toolMetaText = useCallback((tool) => {
+    const parts = [];
+    const description = (tool.description || '').trim();
+    if (description) parts.push(description);
+    const provider = PROVIDER_LABELS[tool.provider] || tool.provider || '';
+    if (provider) parts.push(provider);
+    parts.push(toolStatusLabel(tool));
+    return parts.join(' · ');
+  }, [toolStatusLabel]);
+
+  const groupSummary = useCallback((group) => {
+    if (group.key === 'unfiltered') return `可用 ${group.tools.length} 项`;
+    return `已管控 ${group.disabledCount} 项`;
+  }, []);
+
+  const formatLogTime = (value) => {
+    if (!value) return '--:--:--';
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return '--:--:--';
+    return date.toLocaleTimeString('zh-CN', { hour12: false });
+  };
+
+  const logList = store.logEntries ? store.logEntries.slice(0, 14) : [];
+
   return (
-    <section className="settings-page">
-      <PageHeader icon={Settings} title="设置" actions={<button type="button" onClick={() => void refreshBuildInfo()}>刷新构建信息</button>} />
-      <Panel title="ABOUT">
-        <dl>
-          <dt>版本</dt><dd>Agent Orchestrator {buildInfo?.version || 'unknown'}</dd>
-          <dt>运行时</dt><dd>{buildInfo?.runtime || 'unknown'}</dd>
-          <dt>构建时间</dt><dd>{buildInfo?.buildTime || 'unknown'}</dd>
-          <dt>Commit</dt><dd>{buildInfo?.commit || 'unknown'}</dd>
-          <dt>当前项目</dt><dd>{settingsCwd}</dd>
-        </dl>
-      </Panel>
-      <Panel title="TURN TRACKER">
-        <div className="form-line">
-          <label>统一超时阈值<input aria-label="统一超时阈值" type="number" min="30" value={form.stallThresholdSec} onChange={updateForm('stallThresholdSec')} /> 秒</label>
-          <button type="button" onClick={() => void saveRuntimeSettings()}>保存超时阈值</button>
+    <section className="settings-page" data-testid="settings-page">
+      <PageHeader icon={Settings} title="设置" actions={<button className="btn btn-secondary" type="button" data-testid="settings-refresh-build-button" onClick={() => void refreshBuildInfo()}>刷新构建信息</button>} />
+      {status ? <p className="settings-page-notice settings-status" role="status">{status}</p> : null}
+      {error ? <p className="settings-page-notice danger-text" role="alert">{error}</p> : null}
+
+      <div className="panel-body" data-testid="settings-panel-body">
+        <Panel title="ABOUT">
+          <dl>
+            <dt>版本</dt><dd>Agent Orchestrator {buildInfo?.version || 'unknown'}</dd>
+            <dt>运行时</dt><dd>{buildInfo?.runtime || 'unknown'}</dd>
+            <dt>构建时间</dt><dd>{buildInfo?.buildTime || 'unknown'}</dd>
+            <dt>Commit</dt><dd>{buildInfo?.commit || 'unknown'}</dd>
+            <dt>当前项目</dt><dd>{cwd}</dd>
+          </dl>
+        </Panel>
+
+        <Panel title="TURN TRACKER">
+          <div className="form-line">
+            <label>统一超时阈值<input aria-label="统一超时阈值" data-testid="settings-stall-threshold-input" type="number" min="30" value={form.stallThresholdSec} onChange={updateForm('stallThresholdSec')} /> 秒</label>
+            <button className="btn btn-primary" type="button" data-testid="settings-stall-threshold-save-button" onClick={() => void saveRuntimeSettings()}>保存超时阈值</button>
+          </div>
+        </Panel>
+
+        <Panel title="CONTEXT USAGE ALERT" data-testid="settings-ctx-thresholds-card">
+          <div className="form-line">
+            <label>Warn 阈值<input aria-label="Warn 阈值" type="number" min="1" max="100" value={form.contextWarn} onChange={updateForm('contextWarn')} /></label>
+            <label>Danger 阈值<input aria-label="Danger 阈值" type="number" min="1" max="100" value={form.contextDanger} onChange={updateForm('contextDanger')} /></label>
+            <label>Critical 阈值<input aria-label="Critical 阈值" type="number" min="1" max="100" value={form.contextCritical} onChange={updateForm('contextCritical')} /></label>
+            <button className="btn btn-primary" type="button" data-testid="settings-ctx-thresholds-save-button" onClick={() => void saveRuntimeSettings()}>保存运行阈值</button>
+          </div>
+        </Panel>
+
+        <Panel title="PROVIDER">
+          <div className="form-grid">
+            <label>Active Provider<select value={form.activeProvider} onChange={updateForm('activeProvider')}><option value="codex">Codex</option><option value="claude">Claude</option></select></label>
+            <label>Provider Model<input value={form.providerModel} onChange={updateForm('providerModel')} /></label>
+            <label>Provider Effort<input value={form.providerEffort} onChange={updateForm('providerEffort')} /></label>
+            <label>Codex Home<input aria-label="Codex Home" value={form.codexHome} onChange={updateForm('codexHome')} /></label>
+            <label>Instance Key<input aria-label="Instance Key" value={form.codexInstanceKey} onChange={updateForm('codexInstanceKey')} /></label>
+            <label>Model Provider<input aria-label="Model Provider" value={form.codexModelProvider} onChange={updateForm('codexModelProvider')} /></label>
+            <label>Sandbox Policy<select aria-label="Sandbox Policy" value={form.sandboxPolicy} onChange={updateForm('sandboxPolicy')}><option value="workspaceWrite">workspaceWrite</option><option value="readOnly">readOnly</option><option value="dangerFullAccess">dangerFullAccess</option></select></label>
+            <label className="checkbox-line"><input type="checkbox" checked={form.networkAccess} onChange={updateForm('networkAccess')} /> Network Access</label>
+            <label className="wide">Writable Roots<textarea value={form.writableRoots} onChange={updateForm('writableRoots')} placeholder="每行一个绝对路径" /></label>
+          </div>
+          <div className="settings-actions"><button className="btn btn-primary" type="button" onClick={() => void saveProviderSettings()}>保存 Provider 设置</button></div>
+        </Panel>
+
+        {/* Inference Summary & Approval Policy Card */}
+        <div className="section-header">PROPERTIES</div>
+        <div className="data-card-vue" data-testid="settings-provider-sandbox-card">
+          <div className="settings-stall-row settings-provider-control-row">
+            <label className="settings-stall-label">推理摘要 (Summary)</label>
+            <select
+              className="settings-stall-input settings-provider-select"
+              data-testid="provider-summary-mode-select"
+              value={summaryMode}
+              onChange={(e) => setSummaryMode(e.target.value)}
+            >
+              <option value="detailed">detailed（详细摘要，推荐）</option>
+              <option value="auto">auto（自动）</option>
+              <option value="concise">concise（简洁）</option>
+              <option value="none">none（关闭）</option>
+            </select>
+          </div>
+          <div className="settings-stall-row settings-provider-control-row">
+            <label className="settings-stall-label">审批策略 (ApprovalPolicy)</label>
+            <select
+              className="settings-stall-input settings-provider-select"
+              data-testid="provider-approval-mode-select"
+              value={approvalMode}
+              onChange={(e) => setApprovalMode(e.target.value)}
+            >
+              <option value="on-request">on-request（按需，默认）</option>
+              <option value="untrusted">untrusted（始终询问）</option>
+              <option value="on-failure">on-failure（失败后询问）</option>
+              <option value="never">never（全部放行）</option>
+            </select>
+          </div>
+          {providerNotice.message && (
+            <div className={`settings-prompt-notice settings-provider-notice is-${providerNotice.level}`} role={providerNotice.level === 'error' ? 'alert' : 'status'}>
+              {providerNotice.message}
+            </div>
+          )}
+          <div className="settings-action-row settings-action-inline settings-provider-actions">
+            <button className="btn btn-secondary btn-toolbar-sm" onClick={loadProviderPreferences} disabled={providerSaving}>刷新</button>
+            <button className="btn btn-primary btn-toolbar-sm" data-testid="provider-sandbox-save-button" onClick={saveProviderPreferences} disabled={providerSaving}>
+              {providerSaving ? '保存中...' : '保存'}
+            </button>
+          </div>
         </div>
-      </Panel>
-      <Panel title="CONTEXT USAGE ALERT">
-        <div className="form-line">
-          <label>Warn 阈值<input type="number" min="1" max="100" value={form.contextWarn} onChange={updateForm('contextWarn')} /></label>
-          <label>Danger 阈值<input type="number" min="1" max="100" value={form.contextDanger} onChange={updateForm('contextDanger')} /></label>
-          <label>Critical 阈值<input type="number" min="1" max="100" value={form.contextCritical} onChange={updateForm('contextCritical')} /></label>
-          <button type="button" onClick={() => void saveRuntimeSettings()}>保存运行阈值</button>
+
+        {/* PROMPT Section */}
+        <div className="section-header">PROMPT</div>
+        <div className="data-card-vue settings-prompt-card" data-testid="settings-lsp-prompt-card">
+          <div className="data-row-vue">
+            <strong>自动注入提示词 (LSP / Playwright / json-render)</strong>
+            <span>{lspPromptLoading ? '加载中...' : (lspPromptUsingDefault ? '默认注入' : '自定义覆盖')}</span>
+          </div>
+          <div className="settings-prompt-desc">下方“生效内容”是后端每轮实际注入文本：“覆盖编辑”用于调试，留空保存可恢复默认。</div>
+          <div className="settings-prompt-meta" data-testid="settings-lsp-effective-cwd">
+            当前作用 CWD: {currentScopeCwd || '未知'}
+          </div>
+          <label className="settings-prompt-toggle" data-testid="settings-show-injected-toggle">
+            <div className="settings-prompt-toggle-copy">
+              <span className="settings-prompt-toggle-title">聊天区显示自动注入内容（调试）</span>
+              <span className="settings-prompt-toggle-desc">开启后将保留首发消息里的“已注入 ...”段。</span>
+            </div>
+            <input
+              type="checkbox"
+              className="settings-prompt-toggle-input"
+              data-testid="settings-show-injected-toggle-input"
+              checked={showInjectedPromptInChat}
+              onChange={handleInjectedPromptVisibilityChange}
+              disabled={lspPromptLoading || showInjectedPromptSaving}
+            />
+          </label>
+          <div className="settings-prompt-meta">生效行数 {lspPromptLineCount} · 字符 {lspPromptCharCount}</div>
+          <div className="settings-prompt-label">当前生效内容（只读）</div>
+          <textarea
+            className="settings-prompt-textarea settings-prompt-textarea-readonly"
+            data-testid="settings-lsp-effective-output"
+            rows={12}
+            value={lspPromptDisplayHint}
+            readOnly
+          />
+          <div className="settings-prompt-label">自定义覆盖（可编辑，空=默认）</div>
+          <textarea
+            className="settings-prompt-textarea"
+            data-testid="settings-lsp-prompt-input"
+            rows={8}
+            value={lspPromptHint}
+            onChange={(e) => setLspPromptHint(e.target.value)}
+            placeholder={lspPromptDefaultHint || '请输入提示词'}
+            disabled={lspPromptLoading || lspPromptSaving}
+          />
+          {lspPromptNotice.message && (
+            <div className={`settings-prompt-notice is-${lspPromptNotice.level}`} data-testid="settings-lsp-prompt-notice" role={lspPromptNotice.level === 'error' ? 'alert' : 'status'}>
+              {lspPromptNotice.message}
+            </div>
+          )}
+          <div className="settings-action-row settings-action-inline">
+            <button className="btn btn-secondary btn-toolbar-sm" data-testid="settings-lsp-refresh-button" onClick={loadLspPromptHint} disabled={lspPromptSaving}>刷新</button>
+            <button className="btn btn-secondary btn-toolbar-sm" data-testid="settings-lsp-copy-button" onClick={copyEffectivePromptHint} disabled={lspPromptLoading || lspPromptSaving}>复制生效提示词</button>
+            <button className="btn btn-secondary btn-toolbar-sm" data-testid="settings-lsp-reset-button" onClick={resetLspPromptHint} disabled={lspPromptLoading || lspPromptSaving}>恢复默认</button>
+            <button className="btn btn-primary btn-toolbar-sm" data-testid="settings-lsp-save-button" onClick={saveLspPromptHint} disabled={lspPromptLoading || lspPromptSaving}>
+              {lspPromptSaving ? '保存中...' : '保存提示词'}
+            </button>
+          </div>
         </div>
-      </Panel>
-      <Panel title="PROVIDER">
-        <div className="form-grid">
-          <label>Active Provider<select value={form.activeProvider} onChange={updateForm('activeProvider')}><option value="codex">Codex</option><option value="claude">Claude</option></select></label>
-          <label>Provider Model<input value={form.providerModel} onChange={updateForm('providerModel')} /></label>
-          <label>Provider Effort<input value={form.providerEffort} onChange={updateForm('providerEffort')} /></label>
-          <label>Codex Home<input value={form.codexHome} onChange={updateForm('codexHome')} /></label>
-          <label>Instance Key<input value={form.codexInstanceKey} onChange={updateForm('codexInstanceKey')} /></label>
-          <label>Model Provider<input value={form.codexModelProvider} onChange={updateForm('codexModelProvider')} /></label>
-          <label>Sandbox Policy<select value={form.sandboxPolicy} onChange={updateForm('sandboxPolicy')}><option value="workspaceWrite">workspaceWrite</option><option value="readOnly">readOnly</option><option value="dangerFullAccess">dangerFullAccess</option></select></label>
-          <label className="checkbox-line"><input type="checkbox" checked={form.networkAccess} onChange={updateForm('networkAccess')} /> Network Access</label>
-          <label className="wide">Writable Roots<textarea value={form.writableRoots} onChange={updateForm('writableRoots')} placeholder="每行一个绝对路径" /></label>
+
+        {/* Model Built-in capabilities Section */}
+        <div className="section-header">模型内置能力</div>
+        <div className="data-card-vue" data-testid="settings-builtin-tools-card">
+          <div className="data-row-vue">
+            <strong>内置能力开关</strong>
+            <span data-testid="settings-builtin-tools-summary">
+              {builtinToolsLoading ? '加载中...' : `已管控 ${filteredCount} / ${totalToolCount}`}
+            </span>
+          </div>
+          <div className="settings-prompt-desc">
+            默认管控与本项目文件、命令、编排、计划、权限、插件管理重复，或会绕过项目治理的能力。
+          </div>
+          {builtinTools.length === 0 && !builtinToolsLoading ? (
+            <div className="settings-log-empty" data-testid="settings-builtin-tools-empty">暂无可配置的内置工具</div>
+          ) : (
+            <div className="settings-builtin-tool-groups" data-testid="settings-builtin-tools-groups">
+              {groups.map((group) => {
+                const isOpen = isOpenGroup(group.key);
+                return (
+                  <section
+                    key={group.key}
+                    className="settings-builtin-tool-group"
+                    data-testid={`settings-builtin-tool-group-${group.key}`}
+                  >
+                    <button
+                      type="button"
+                      className="settings-builtin-tool-group-head"
+                      data-testid={`settings-builtin-tool-group-head-${group.key}`}
+                      aria-expanded={isOpen ? 'true' : 'false'}
+                      onClick={() => toggleGroupExpanded(group.key)}
+                    >
+                      <span className={`settings-builtin-tool-group-chevron ${isOpen ? 'is-open' : ''}`}>▸</span>
+                      <span className="settings-builtin-tool-group-name">{group.label}</span>
+                      <span className="settings-builtin-tool-group-summary">{groupSummary(group)}</span>
+                    </button>
+                    {isOpen && (
+                      <div className="settings-builtin-tool-group-body">
+                        {group.note && (
+                          <p className="settings-builtin-tool-group-note" data-testid={`settings-builtin-tool-group-note-${group.key}`}>
+                            {group.note}
+                          </p>
+                        )}
+                        {group.tools.map((tool) => (
+                          <label
+                            key={tool.id}
+                            className={`settings-prompt-toggle ${(!tool.enabled || tool.replacedBy) ? 'is-disabled-tool' : ''}`}
+                            data-testid={`settings-builtin-tool-${tool.id}`}
+                          >
+                            <div className="settings-prompt-toggle-copy">
+                              <span className="settings-prompt-toggle-title">{tool.label}</span>
+                              <span className="settings-prompt-toggle-desc">{toolMetaText(tool)}</span>
+                            </div>
+                            <input
+                              type="checkbox"
+                              className="settings-prompt-toggle-input"
+                              data-testid={`settings-builtin-tool-input-${tool.id}`}
+                              checked={!tool.enabled || !!tool.replacedBy}
+                              disabled={!!tool.replacedBy || Boolean(builtinSavingIds[tool.id])}
+                              onChange={() => toggleBuiltinTool(tool)}
+                            />
+                          </label>
+                        ))}
+                      </div>
+                    )}
+                  </section>
+                );
+              })}
+            </div>
+          )}
+          {builtinToolsNotice.message && (
+            <div className={`settings-prompt-notice is-${builtinToolsNotice.level}`} data-testid="settings-builtin-tools-notice" role={builtinToolsNotice.level === 'error' ? 'alert' : 'status'}>
+              {builtinToolsNotice.message}
+            </div>
+          )}
         </div>
-        <div className="settings-actions"><button type="button" onClick={() => void saveProviderSettings()}>保存 Provider 设置</button></div>
-      </Panel>
-      {status ? <p className="settings-status">{status}</p> : null}
-      {error ? <p className="danger-text" role="alert">{error}</p> : null}
+
+        {/* UI LOG Section */}
+        <div className="section-header">UI LOG</div>
+        <div className="data-card-vue settings-log-card" data-testid="settings-log-card">
+          <div className="data-row-vue">
+            <strong>日志级别</strong>
+            <span>{store.logLevel}</span>
+          </div>
+          <div className="settings-stall-row settings-log-control-row">
+            <select
+              className="settings-stall-input settings-log-level-select"
+              data-testid="settings-log-level-select"
+              value={store.logLevel}
+              onChange={(e) => store.setLogLevel(e.target.value)}
+            >
+              <option value="debug">debug（最详细）</option>
+              <option value="info">info（默认）</option>
+              <option value="warn">warn</option>
+              <option value="error">error（仅错误）</option>
+            </select>
+            <span className="settings-stall-unit">立即生效（跨 tab 同步）</span>
+          </div>
+          <div className="settings-action-row settings-log-action-row">
+            <button className="btn btn-secondary btn-toolbar-sm" data-testid="settings-log-refresh-button">刷新日志</button>
+          </div>
+          {logList.length === 0 ? (
+            <div className="settings-log-empty" data-testid="settings-log-empty">暂无日志</div>
+          ) : (
+            <div className="settings-log-list" data-testid="settings-log-list">
+              {logList.map((entry) => (
+                <div key={entry.seq || entry.id} className="settings-log-item">
+                  <span className="settings-log-time">{formatLogTime(entry.ts)}</span>
+                  <span className={`settings-log-level is-${entry.level}`}>{entry.level}</span>
+                  <span className="settings-log-event">{entry.scope}.{entry.event}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
     </section>
   );
-}
 
+  function isOpenGroup(key) {
+    return Boolean(builtinExpandedGroups[key]);
+  }
+}
 function Panel({ title, children }) {
   return (
     <section className="panel">

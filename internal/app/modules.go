@@ -77,6 +77,8 @@ var Module = fx.Options(
 	toolbridge.Module, // P15 新增：始终加载
 	ToolbridgeAdapters,
 	ToolbridgeCodexBinding,
+	SharedFileAdapter,
+
 	// orchestration is handled entirely by the standalone mcp-orch MCP server;
 	// the desktop app must NOT embed its own orchestration module, otherwise
 	// localLauncher re-spawns the desktop binary as a subprocess which exits

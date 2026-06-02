@@ -393,36 +393,104 @@ func countNormalizedLines(content string) int {
 	return len(strings.Split(strings.ReplaceAll(content, "\r\n", "\n"), "\n"))
 }
 
+// resolveGoModCache returns the current GOMODCACHE path from environment.
+// Called per-walk (not cached) to support test isolation via t.Setenv.
+func resolveGoModCache() string {
+	if dir := os.Getenv("GOMODCACHE"); dir != "" {
+		return filepath.Clean(dir)
+	}
+	if gopath := os.Getenv("GOPATH"); gopath != "" {
+		return filepath.Join(gopath, "pkg", "mod")
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return ""
+	}
+	return filepath.Join(home, "go", "pkg", "mod")
+}
+
+// isInsideGoModCache checks if absPath is inside the Go module cache.
+func isInsideGoModCache(absPath string) bool {
+	cache := resolveGoModCache()
+	if cache != "" {
+		cleaned := filepath.Clean(absPath)
+		if strings.HasPrefix(cleaned, cache+string(filepath.Separator)) || cleaned == cache {
+			return true
+		}
+	}
+	slashed := filepath.ToSlash(absPath)
+	return strings.Contains(slashed, "/go/pkg/mod/")
+}
+
 func shouldSkipDir(name string) bool {
 	_, ok := skippedDirNames[strings.ToLower(strings.TrimSpace(name))]
 	return ok
 }
 
 func shouldExcludePath(path string) bool {
-	cleaned := filepath.ToSlash(filepath.Clean(path))
-	for segment := range skippedDirNames {
-		if strings.Contains(cleaned, "/"+segment+"/") || strings.HasSuffix(cleaned, "/"+segment) {
+	cleaned := strings.ToLower(filepath.ToSlash(filepath.Clean(path)))
+	for index, segment := range strings.Split(cleaned, "/") {
+		if isLinuxTopLevelTmpSegment(index, segment, cleaned) {
+			continue
+		}
+		if _, ok := skippedDirNames[segment]; ok {
 			return true
 		}
 	}
 	return false
 }
 
+func isLinuxTopLevelTmpSegment(index int, segment, cleanedPath string) bool {
+	if segment != "tmp" {
+		return false
+	}
+	// /tmp/... (Linux/macOS symlink target)
+	if index == 1 && strings.HasPrefix(cleanedPath, "/tmp/") {
+		return true
+	}
+	// /private/tmp/... (macOS resolved symlink)
+	if index == 2 && strings.HasPrefix(cleanedPath, "/private/tmp/") {
+		return true
+	}
+	return false
+}
+
 var skippedDirNames = map[string]struct{}{
-	".agent":       {},
-	".agents":      {},
-	".build-cache": {},
-	".cache":       {},
-	".claude":      {},
-	".git":         {},
-	".workspace":   {},
-	".worktrees":   {},
-	"__pycache__":  {},
-	"build":        {},
-	"coverage":     {},
-	"dist":         {},
-	"node_modules": {},
-	"vendor":       {},
+	".agent":        {},
+	".agents":       {},
+	".build-cache":  {},
+	".cache":        {},
+	".cargo":        {},
+	".claude":       {},
+	".dart_tool":    {},
+	".eslintcache":  {},
+	".git":          {},
+	".gomodcache":   {},
+	".gradle":       {},
+	".mvn":          {},
+	".mypy_cache":   {},
+	".next":         {},
+	".nuxt":         {},
+	".parcel-cache": {},
+	".pytest_cache": {},
+	".ruff_cache":   {},
+	".svelte-kit":   {},
+	".tox":          {},
+	".turbo":        {},
+	".venv":         {},
+	".workspace":    {},
+	".worktrees":    {},
+	"__pycache__":   {},
+	"build":         {},
+	"cache":         {},
+	"coverage":      {},
+	"dist":          {},
+	"gomodcache":    {},
+	"node_modules":  {},
+	"target":        {},
+	"tmp":           {},
+	"vendor":        {},
+	"venv":          {},
 }
 
 func inferLanguage(value string) string {

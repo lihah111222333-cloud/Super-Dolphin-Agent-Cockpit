@@ -51,14 +51,22 @@ func provideDreamExecutorProvider() contract.DreamExecutorProvider {
 }
 
 func (e dreamExecutor) ExecuteDream(ctx context.Context, prompt string) (string, error) {
+	return e.ExecuteDreamWithOptions(ctx, prompt, contract.DreamOptions{})
+}
+
+func (e dreamExecutor) ExecuteDreamWithOptions(ctx context.Context, prompt string, options contract.DreamOptions) (string, error) {
 	if err := ctx.Err(); err != nil {
 		return "", err
 	}
 	// --output-format json 让 claude -p 输出 envelope JSON（含 result + usage），
 	// dreamexec.Run 自动探测后走 ExtractClaudeEnvelope，usage 由 OnUsage 路由到 dreammetrics。
 	args := []string{"-p", "--output-format", "json"}
-	if e.model != "" {
-		args = append(args, "--model", e.model)
+	model := strings.TrimSpace(options.Model)
+	if model == "" {
+		model = e.model
+	}
+	if model != "" {
+		args = append(args, "--model", model)
 	}
 	raw, err := dreamexec.Run(ctx, e.commander, dreamexec.RunOptions{
 		Binary:         e.binary,

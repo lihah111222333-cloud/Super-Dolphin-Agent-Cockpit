@@ -146,7 +146,7 @@ describe('tool activity formatting', () => {
   it('summarizes known tools and keeps a generic fallback for unknown tools', () => {
     expect(summarizeToolActivity('mcp__lsp__grep', { preview: '{"total":3}', success: true })).toEqual({ name: 'grep', summary: '搜索到 3 处', status: 'done' });
     expect(summarizeToolActivity('mcp__lsp__lsp_grep', { preview: '{"total":3}', success: true })).toEqual({ name: 'grep', summary: '搜索到 3 处', status: 'done' });
-    expect(summarizeToolActivity('mcp__lsp__code_run', { preview: '{"output":"cat: missing file"}', success: false })).toEqual({ name: 'code_run', summary: '命令执行失败：cat: missing file', status: 'failed' });
+    expect(summarizeToolActivity('functions.exec_command', { preview: '{"output":"cat: missing file"}', success: false })).toEqual({ name: 'exec_command', summary: '命令执行失败：cat: missing file', status: 'failed' });
     expect(summarizeToolActivity('future.vendor/scan', { status: 'completed', success: true })).toEqual({ name: 'future_vendor_scan', summary: '已完成', status: 'done' });
   });
 

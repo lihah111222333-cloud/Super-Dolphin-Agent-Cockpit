@@ -240,7 +240,7 @@ func withRuntimeWorkspaceScopeFallback(ctx context.Context) (context.Context, er
 func shouldWarnLSPCWDTrace(toolName string) bool {
 	toolName = canonicalToolName(toolName)
 	switch toolName {
-	case "file", "inspect", "xref", "grep", "structure", "edit", "completion", "code_run", "code_run_test":
+	case "file", "inspect", "xref", "grep", "structure", "edit", "completion":
 		return true
 	default:
 		return false
@@ -278,7 +278,9 @@ func handleScopedToolsCall(ctx context.Context, tp registryToolProvider, family 
 	ctx = common.WithToolScope(ctx, scope)
 	result, err = tp.CallTool(ctx, req.Name, req.Arguments)
 	if err != nil {
-		result = common.NewToolErrorEnvelope(req.Name, err)
+		if result == nil {
+			result = common.NewToolErrorEnvelope(req.Name, err)
+		}
 	}
 	return wrapScopedToolResult(result)
 }

@@ -16,9 +16,11 @@ const (
 )
 
 type CompactList[T any] struct {
-	Data    []T `json:"data"`
-	Total   int `json:"total"`
-	Showing int `json:"showing"`
+	Data      []T    `json:"data"`
+	Total     int    `json:"total"`
+	Showing   int    `json:"showing"`
+	Truncated bool   `json:"truncated,omitempty"`
+	Hint      string `json:"hint,omitempty"`
 }
 
 type CompactCompletionItem struct {
@@ -32,7 +34,7 @@ type CompactWorkspaceSymbol struct {
 	Kind      int    `json:"kind,omitempty"`
 	File      string `json:"file,omitempty"`
 	Line      int    `json:"line"`
-	Column    int    `json:"column"`
+	Col       int    `json:"col"`
 	Container string `json:"container,omitempty"`
 }
 
@@ -70,14 +72,27 @@ func WorkspaceSymbolLimit(requested int, verbosity string) int {
 	return ResolveResultLimit(requested, verbosity, lspWorkspaceSymbolCompactLimit)
 }
 
-func NewCompactList[T any](items []T, total int) CompactList[T] {
+func NewCompactList[T any](items []T, total int, hints ...string) CompactList[T] {
 	if total < len(items) {
 		total = len(items)
 	}
+	truncated := total > len(items)
+	hint := ""
+	if truncated {
+		hint = "next: increase max_results or narrow the request"
+		for _, candidate := range hints {
+			if value := strings.TrimSpace(candidate); value != "" {
+				hint = value
+				break
+			}
+		}
+	}
 	return CompactList[T]{
-		Data:    items,
-		Total:   total,
-		Showing: len(items),
+		Data:      items,
+		Total:     total,
+		Showing:   len(items),
+		Truncated: truncated,
+		Hint:      hint,
 	}
 }
 
@@ -102,7 +117,7 @@ func CompactWorkspaceSymbols(items []protocol.WorkspaceSymbolResult) []CompactWo
 				Kind:      int(si.Kind),
 				File:      URIToPath(si.Location.URI),
 				Line:      FromLSP(si.Location.Range.Start.Line),
-				Column:    FromLSP(si.Location.Range.Start.Character),
+				Col:       FromLSP(si.Location.Range.Start.Character),
 				Container: si.ContainerName,
 			})
 			continue
@@ -116,7 +131,7 @@ func CompactWorkspaceSymbols(items []protocol.WorkspaceSymbolResult) []CompactWo
 			if file, line, column, ok := LocationFromAny(ws.Location); ok {
 				row.File = file
 				row.Line = line
-				row.Column = column
+				row.Col = column
 			}
 			out = append(out, row)
 		}
@@ -191,9 +206,10 @@ func GroupLocationsByFile(items []protocol.LocationResult, total int) protocol.G
 		total = len(items)
 	}
 	grouped := protocol.GroupedLocationResult{
-		Files:   make(map[string][]protocol.CompactLocation),
-		Total:   total,
-		Showing: len(items),
+		Data:      make(map[string][]protocol.CompactLocation),
+		Total:     total,
+		Showing:   len(items),
+		Truncated: total > len(items),
 	}
 	lastRange := make(map[string][2]int)
 	for i := range items {
@@ -203,8 +219,8 @@ func GroupLocationsByFile(items []protocol.LocationResult, total int) protocol.G
 		}
 		file := URIToPath(loc.URI)
 		row := protocol.CompactLocation{
-			Line:   FromLSP(loc.Range.Start.Line),
-			Column: FromLSP(loc.Range.Start.Character),
+			Line: FromLSP(loc.Range.Start.Line),
+			Col:  FromLSP(loc.Range.Start.Character),
 		}
 		if items[i].HasFuncRange() {
 			cur := [2]int{items[i].FuncStart, items[i].FuncEnd}
@@ -212,10 +228,13 @@ func GroupLocationsByFile(items []protocol.LocationResult, total int) protocol.G
 				row.FuncStart = items[i].FuncStart
 				row.FuncEnd = items[i].FuncEnd
 				lastRange[file] = cur
-				grouped.Hint = "step 2: use the returned func_start/func_end to read that function range, e.g. read_file(offset=func_start, limit=func_end-func_start+1)"
+				grouped.Hint = "next: file action=read_file pos=<file>:<func_start> limit=<func_end-func_start+1>"
 			}
 		}
-		grouped.Files[file] = append(grouped.Files[file], row)
+		grouped.Data[file] = append(grouped.Data[file], row)
+	}
+	if grouped.Truncated && grouped.Hint == "" {
+		grouped.Hint = "next: increase max_results or narrow the target position"
 	}
 	return grouped
 }

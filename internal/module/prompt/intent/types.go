@@ -15,13 +15,16 @@ const (
 )
 
 type DraftParams struct {
-	Kind         string `json:"kind"`
-	RawInput     string `json:"raw_input"`
-	Cwd          string `json:"cwd,omitempty"`
-	SourceType   string `json:"source_type,omitempty"`
-	SourceURL    string `json:"source_url,omitempty"`
-	LicenseHint  string `json:"license_hint,omitempty"`
-	EnableGlobal bool   `json:"enable_global,omitempty"`
+	Kind          string `json:"kind"`
+	RawInput      string `json:"raw_input"`
+	Cwd           string `json:"cwd,omitempty"`
+	SourceType    string `json:"source_type,omitempty"`
+	SourceURL     string `json:"source_url,omitempty"`
+	LicenseHint   string `json:"license_hint,omitempty"`
+	EnableGlobal  bool   `json:"enable_global,omitempty"`
+	Provider      string `json:"provider,omitempty"`
+	Model         string `json:"model,omitempty"`
+	ModelProvider string `json:"model_provider,omitempty"`
 }
 
 type DryRunParams struct {

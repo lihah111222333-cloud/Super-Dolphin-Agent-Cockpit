@@ -1340,7 +1340,6 @@ V3 的拆法不是把 `Server` 切成几个更小的 `ServerXxx`，而是把字�
 | `lsp`、`lspTools` | `cmd/mcp-lsp` / `module/lspgui` | `LSPToolSet` 接口 |
 | `cfg` | `platform/config` | 配置切片 |
 | `db` | `platform/db` | `DBTX` / `Pool` |
-| `codeRunner` | `cmd/mcp-lsp` / `module/lspgui` | `CodeRunner` 接口 |
 | `providerAdapter` | `provider/unified` / `provider/claudecli` / `provider/codexapp` | `ProviderAdapter` 接口 |
 | `methods` | `platform/rpc` | `[]RPCHandler` group |
 | `dynTools` | `cmd/mcp-*` 本地 registry / manifest | `[]ToolHandler` group |
@@ -1571,7 +1570,6 @@ V2 当前主链路是：
 - `s.registerMethods()`
 - `applyStallConfig(s, deps.Config)`
 - `ensureStallPreferenceFromDB(s)`
-- `initCodeRunner(s)`
 - `initIDAClient(s)`
 - `recoverSubAgents(s)`
 - `applyInjectedPromptVisibilityPreference(s, context.Background())`
@@ -1589,7 +1587,6 @@ V2 当前主链路是：
 | `registerMethods` | RPC 方法表注册 | `platform/rpc` + 各业务模块 | handler group `fx.Out` + `fx.Invoke(RegisterHandlers)` |
 | `applyStallConfig` | 静态配置作用到 provider adapter | `platform/config` + `provider/unified` | `fx.Invoke(ApplyStallPolicy)` |
 | `ensureStallPreferenceFromDB` | 从偏好 store 恢复 runtime timeout | `module/uistate`、`ui/runtime` 或 `module/preferences` | `fx.Invoke(RestoreRuntimePreferences)` |
-| `initCodeRunner` | 创建 code runner | `cmd/mcp-lsp` / `module/lspgui` | `fx.Provide(NewCodeRunner)` |
 | `initIDAClient` | 启动 IDA gateway | `cmd/mcp-ida` | `fx.Provide(NewGateway)` + `Lifecycle` |
 | `recoverSubAgents` | 启动期恢复子 agent | `cmd/mcp-orch/orchestration` | `fx.Invoke(RecoverSubAgents)` |
 | `applyInjectedPromptVisibilityPreference` | 恢复 UI 注入提示词可见性 | `module/uistate` + `ui/runtime` | `fx.Invoke(ApplyUIPreferences)` |
@@ -1649,7 +1646,6 @@ var Module = fx.Options(
 	UIStateModule,
 	UIRuntimeModule,
 	UIDashboardModule,
-	CodeRunModule,
 	OrchestrationModule,
 	IDAModule,
 	MonitorModule,

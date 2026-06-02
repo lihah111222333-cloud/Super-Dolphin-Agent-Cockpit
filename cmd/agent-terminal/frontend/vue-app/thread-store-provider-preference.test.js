@@ -461,14 +461,23 @@ describe('thread store provider preference scope', () => {
     await store.startThread('/repo-codex', {});
 
     expect(startPayload?.config?.enabledTools).toEqual(
-      expect.arrayContaining(['file', 'grep', 'code_run', 'code_run_test']),
+      expect.arrayContaining(['file', 'grep', 'inspect', 'xref', 'structure', 'edit', 'completion']),
     );
-    expect(startPayload?.config?.enabledTools || []).not.toEqual(
-      expect.arrayContaining(['inspect', 'xref', 'structure', 'edit', 'completion']),
+    const removedRunTools = ['code' + '_run', 'code' + '_run_test'];
+    expect(startPayload?.config?.enabledTools || []).not.toEqual(expect.arrayContaining(removedRunTools));
+    expect(startPayload?.config?.mcpTools).toEqual(
+      expect.arrayContaining([
+        'mcp__lsp__file',
+        'mcp__lsp__grep',
+        'mcp__lsp__inspect',
+        'mcp__lsp__xref',
+        'mcp__lsp__structure',
+        'mcp__lsp__edit',
+        'mcp__lsp__completion',
+      ]),
     );
-    expect(startPayload?.config?.mcpTools).toEqual(expect.arrayContaining(['mcp__lsp__file', 'mcp__lsp__grep']));
     expect(startPayload?.config?.mcpTools || []).not.toEqual(
-      expect.arrayContaining(['mcp__lsp__inspect', 'mcp__lsp__xref', 'mcp__lsp__structure', 'mcp__lsp__edit', 'mcp__lsp__completion']),
+      expect.arrayContaining(removedRunTools.map((name) => `mcp__lsp__${name}`)),
     );
   });
 });

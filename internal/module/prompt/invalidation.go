@@ -1,9 +1,15 @@
 package prompt
 
 import (
+	"context"
 	"strings"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
+	uidto "github.com/anthropic-ai/super-agent-v3/internal/dto/ui"
+	promptintent "github.com/anthropic-ai/super-agent-v3/internal/module/prompt/intent"
+	platformrpc "github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
+	promptstore "github.com/anthropic-ai/super-agent-v3/internal/store/prompt"
+	"github.com/creachadair/jrpc2/handler"
 )
 
 type SectionInvalidator = contract.SectionInvalidator
@@ -97,4 +103,121 @@ func (s *promptService) invalidatePromptSections(names ...string) {
 		return
 	}
 	s.sections.InvalidateSections(contract.InvalidateClear, names...)
+}
+
+func publishUIPromptsChanged(
+	emit func(uidto.UIPromptsChanged),
+	cwd string,
+	promptKey string,
+	draftKey string,
+	action string,
+	err error,
+) {
+	if emit == nil || err != nil {
+		return
+	}
+	emit(uidto.UIPromptsChanged{
+		Cwd:       strings.TrimSpace(cwd),
+		PromptKey: strings.TrimSpace(promptKey),
+		DraftKey:  strings.TrimSpace(draftKey),
+		Action:    strings.TrimSpace(action),
+	})
+}
+
+func publishUIPromptIntentChanged(
+	emit func(uidto.UIPromptsChanged),
+	cwd string,
+	result any,
+	action string,
+	err error,
+) {
+	if err != nil {
+		return
+	}
+	switch value := result.(type) {
+	case promptintent.DraftResult:
+		publishUIPromptsChanged(emit, cwd, "", value.DraftKey, action, nil)
+	case promptintent.DraftSetResult:
+		publishUIPromptsChanged(emit, cwd, "", promptDraftSetEventKey(value), action, nil)
+	case promptintent.CommitResult:
+		publishUIPromptsChanged(emit, cwd, value.PromptKey, value.DraftKey, action, nil)
+	case promptintent.DiscardResult:
+		publishUIPromptsChanged(emit, cwd, "", value.DraftKey, action, nil)
+	}
+}
+
+func promptDraftSetEventKey(result promptintent.DraftSetResult) string {
+	keys := make([]string, 0, len(result.Drafts))
+	for _, draft := range result.Drafts {
+		if key := strings.TrimSpace(draft.DraftKey); key != "" {
+			keys = append(keys, key)
+		}
+	}
+	return strings.Join(keys, ",")
+}
+
+func promptWriteRPCHandler(promptSvc PromptService, emit func(uidto.UIPromptsChanged)) handler.Func {
+	return platformrpc.StrictHandler(func(ctx context.Context, p promptWriteParams) (any, error) {
+		result, err := handlePromptWrite(ctx, promptSvc, p)
+		publishUIPromptsChanged(emit, p.Cwd, p.ID, "", "write", err)
+		return result, err
+	})
+}
+
+func promptDeleteRPCHandler(promptSvc PromptService, emit func(uidto.UIPromptsChanged)) handler.Func {
+	return platformrpc.StrictHandler(func(ctx context.Context, p promptDeleteParams) (any, error) {
+		result, err := handlePromptDelete(ctx, promptSvc, p)
+		publishUIPromptsChanged(emit, p.Cwd, p.ID, "", "delete", err)
+		return result, err
+	})
+}
+
+func promptSectionWriteRPCHandler(promptSvc PromptService, emit func(uidto.UIPromptsChanged)) handler.Func {
+	return platformrpc.StrictHandler(func(ctx context.Context, p promptSectionWriteParams) (any, error) {
+		result, err := handlePromptSectionWrite(ctx, promptSvc, p)
+		publishUIPromptsChanged(emit, p.Cwd, p.PromptID, "", "section-write", err)
+		return result, err
+	})
+}
+
+func promptSectionDeleteRPCHandler(promptSvc PromptService, emit func(uidto.UIPromptsChanged)) handler.Func {
+	return platformrpc.StrictHandler(func(ctx context.Context, p promptSectionDeleteParams) (any, error) {
+		result, err := handlePromptSectionDelete(ctx, promptSvc, p)
+		publishUIPromptsChanged(emit, p.Cwd, p.PromptID, "", "section-delete", err)
+		return result, err
+	})
+}
+
+func promptIntentDraftRPCHandler(
+	store promptstore.Store,
+	dream contract.DreamExecutor,
+	builtin contract.BuiltinPromptRegistry,
+	emit func(uidto.UIPromptsChanged),
+) handler.Func {
+	return platformrpc.StrictHandler(func(ctx context.Context, p promptintent.DraftParams) (any, error) {
+		result, err := promptintent.HandleDraft(ctx, store, dream, builtin, p)
+		publishUIPromptIntentChanged(emit, p.Cwd, result, "draft", err)
+		return result, err
+	})
+}
+
+func promptIntentCommitRPCHandler(
+	store promptstore.Store,
+	sectionInvalidator contract.SectionInvalidator,
+	builtin contract.BuiltinPromptRegistry,
+	emit func(uidto.UIPromptsChanged),
+) handler.Func {
+	return platformrpc.StrictHandler(func(ctx context.Context, p promptintent.CommitParams) (any, error) {
+		result, err := promptintent.HandleCommit(ctx, store, sectionInvalidator, builtin, p)
+		publishUIPromptIntentChanged(emit, p.Cwd, result, "commit", err)
+		return result, err
+	})
+}
+
+func promptIntentDiscardRPCHandler(store promptstore.Store, emit func(uidto.UIPromptsChanged)) handler.Func {
+	return platformrpc.StrictHandler(func(ctx context.Context, p promptintent.DiscardParams) (any, error) {
+		result, err := promptintent.HandleDiscard(ctx, store, p)
+		publishUIPromptIntentChanged(emit, p.Cwd, result, "discard", err)
+		return result, err
+	})
 }

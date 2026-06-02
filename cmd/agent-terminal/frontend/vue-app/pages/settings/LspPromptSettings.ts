@@ -188,7 +188,7 @@ export const LspPromptSettings = {
     <div class="section-header">PROMPT</div>
     <div class="data-card-vue settings-prompt-card" data-testid="settings-lsp-prompt-card">
       <div class="data-row-vue">
-        <strong>自动注入提示词（LSP / Playwright / json-render / code_run）</strong>
+        <strong>自动注入提示词（LSP / Playwright / json-render）</strong>
         <span>{{ lspPromptLoading ? '加载中...' : (lspPromptUsingDefault ? '默认注入' : '自定义覆盖') }}</span>
       </div>
       <div class="settings-prompt-desc">下方“生效内容”是后端每轮实际注入文本；“覆盖编辑”用于调试，留空保存可恢复默认。</div>

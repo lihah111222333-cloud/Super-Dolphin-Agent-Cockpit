@@ -11,7 +11,7 @@
 ## 1. 先看结论
 
 - `mcp-lsp` 是完整 MCP 工具服务：**stdio MCP server 始终开启**，**HTTP MCP server 仅在 peer mode 开启**。
-- `mcp-lsp` 的工具面固定为 9 个，其中 LSP 家族 7 个：`lsp_file`、`lsp_inspect`、`lsp_xref`、`lsp_grep`、`lsp_structure`、`lsp_edit`、`lsp_completion`；另有 `code_run`、`code_run_test`。
+- `mcp-lsp` 的工具面固定为 7 个 LSP 工具：`file`、`inspect`、`xref`、`grep`、`structure`、`edit`、`completion`；执行命令和测试走独立 CLI/命令工具，不在 `mcp-lsp` 暴露。
 - `mcp-lsp` 的真正 handler 全在 `cmd/mcp-lsp/tools/*`；传输层统一落在 `internal/mcpserver/common/server.go:92` 与 `internal/mcpserver/common/http_transport.go:40`。
 - **首个真正依赖语言服务器的工具调用**会懒触发：`registry.GetManagerForFile/GetManagerForLanguage` → `installer.EnsureInstalled` → `multilsp.Manager.EnsureClient`（`ClientEnsurer`）→ `client.Initialize` / `initialized`。
 - `mcp-ida` 当前只有 `tools/ida` bootstrap 能力，没有本地 `tools/list` / `tools/call`、没有 schema / manifest / handler 映射，也没有 stdio/HTTP MCP tool server。

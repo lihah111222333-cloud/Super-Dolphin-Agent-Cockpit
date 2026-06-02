@@ -8,8 +8,49 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/protocol"
 	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/common"
 )
+
+func TestResolveFilePositionRequestAllowsEndOfLineColumn(t *testing.T) {
+	dir := t.TempDir()
+	writePositionFixture(t, dir, "sample.go", "package sample\n\nfunc demo() {\n\tvalue.\n}\n")
+
+	_, position, err := resolveFilePositionRequest(common.WithToolScope(context.Background(), common.ToolScope{CWD: dir}), filePositionParams{
+		Pos: "sample.go:4:8",
+	})
+	if err != nil {
+		t.Fatalf("resolveFilePositionRequest returned error: %v", err)
+	}
+	want := protocol.Position{Line: 3, Character: 7}
+	if position != want {
+		t.Fatalf("position = %#v, want %#v", position, want)
+	}
+}
+
+func TestIdentifierCompletionRetryPositionsIncludeUnderscoreSuffixStart(t *testing.T) {
+	dir := t.TempDir()
+	target := filepath.Join(dir, "constant.py")
+	writePositionFixture(t, dir, "constant.py", "REG_CRYPTO = \"crypto\"\n")
+
+	positions, err := identifierCompletionRetryPositions(target, protocol.Position{Line: 0, Character: 6})
+	if err != nil {
+		t.Fatalf("identifierCompletionRetryPositions returned error: %v", err)
+	}
+	got := make([]int, 0, len(positions))
+	for _, position := range positions {
+		got = append(got, position.Character)
+	}
+	want := []int{10, 9, 4, 0}
+	if len(got) != len(want) {
+		t.Fatalf("retry characters = %#v, want %#v", got, want)
+	}
+	for index := range want {
+		if got[index] != want[index] {
+			t.Fatalf("retry characters = %#v, want %#v", got, want)
+		}
+	}
+}
 
 func TestResolveFilePositionRequestRejectsColumnBeyondLineWithLLMHint(t *testing.T) {
 	dir := t.TempDir()
@@ -32,7 +73,7 @@ func TestResolveFilePositionRequestRejectsColumnBeyondLineWithLLMHint(t *testing
 	if coded.Retryable {
 		t.Fatalf("retryable = true, want false")
 	}
-	if !strings.Contains(coded.Hint, "Retry with a column inside the target identifier") {
+	if !strings.Contains(coded.Hint, "next: retry with pos=") {
 		t.Fatalf("hint = %q, want retry guidance", coded.Hint)
 	}
 	if got := coded.Meta["line_text"]; got != "\tvalue := compute(input)" {
@@ -70,7 +111,7 @@ func TestResolveFilePositionRequestRejectsLineBeyondFileWithLLMHint(t *testing.T
 	if got := coded.Meta["line_count"]; got != 2 {
 		t.Fatalf("line_count = %#v, want 2", got)
 	}
-	if !strings.Contains(coded.Hint, "Read the target file") {
+	if !strings.Contains(coded.Hint, "next: file action=read_file") {
 		t.Fatalf("hint = %q, want read_file guidance", coded.Hint)
 	}
 }

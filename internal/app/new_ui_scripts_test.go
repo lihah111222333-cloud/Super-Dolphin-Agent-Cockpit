@@ -17,7 +17,12 @@ func TestNewUIDesktopScriptContract(t *testing.T) {
 		`VITE_DEV_URL="${VITE_DEV_URL:-http://127.0.0.1:5175}"`,
 		`FRONTEND_DEVSERVER_URL="${FRONTEND_DEVSERVER_URL:-$VITE_DEV_URL}"`,
 		`GO_AGENT_PEER_BIN_DIR="${GO_AGENT_PEER_BIN_DIR:-$PROJECT_DIR}"`,
-		`npm run dev`,
+		`SUPER_DOLPHIN_RUNTIME_MODE="${SUPER_DOLPHIN_RUNTIME_MODE:-dev}"`,
+		`SUPER_DOLPHIN_RUNTIME_RESOURCES_DIR="${SUPER_DOLPHIN_RUNTIME_RESOURCES_DIR:-$PROJECT_DIR}"`,
+		`SUPER_DOLPHIN_DEV_ENTRYPOINT="${SUPER_DOLPHIN_DEV_ENTRYPOINT:-run-new-ui-desktop.sh}"`,
+		`VITE_DEV_HOST="${VITE_DEV_URL#http://}"`,
+		`VITE_DEV_PORT="${VITE_DEV_HOST##*:}"`,
+		`npm run dev -- --host "$VITE_DEV_HOST" --port "$VITE_DEV_PORT" --strictPort`,
 		`go run ./cmd/agent-terminal`,
 		`cleanup`,
 	}
@@ -25,6 +30,9 @@ func TestNewUIDesktopScriptContract(t *testing.T) {
 		if !strings.Contains(text, want) {
 			t.Fatalf("run-new-ui-desktop.sh missing %q", want)
 		}
+	}
+	if strings.Contains(text, "(cd \"$FRONTEND_APP_DIR\" && npm run dev) &") {
+		t.Fatal("run-new-ui-desktop.sh must pass VITE_DEV_URL host and port into Vite")
 	}
 	if strings.Contains(text, "cmd/agent-terminal/frontend") {
 		t.Fatal("run-new-ui-desktop.sh must not start or mutate the legacy frontend package")

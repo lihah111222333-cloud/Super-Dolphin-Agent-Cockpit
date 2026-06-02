@@ -60,6 +60,49 @@ func TestProjectAdaptersAllowExplicitTargetsInsideNoiseDirs(t *testing.T) {
 	}
 }
 
+func TestProjectAdapterDoesNotUseUnrelatedNestedMarkerForFileTarget(t *testing.T) {
+	registry := NewDefaultLanguageAdapterRegistry()
+	root := canonicalScopePath(t.TempDir(), "")
+	target := filepath.Join(root, "src", "constant.py")
+	unrelatedRoot := filepath.Join(root, "unrelated")
+	writeGenericTestFile(t, target, "VALUE = 1\n")
+	writeGenericTestFile(t, filepath.Join(unrelatedRoot, "pyproject.toml"), "[project]\nname = \"unrelated\"\n")
+
+	resolved := resolveProjectNoiseCase(t, registry, root, target, "python")
+	if resolved.WorkspaceRoot != root {
+		t.Fatalf("python workspace root = %q, want current workspace root %q, not unrelated project %q", resolved.WorkspaceRoot, root, unrelatedRoot)
+	}
+	if resolved.RootKind != "dir_fallback" {
+		t.Fatalf("python root kind = %q, want dir_fallback", resolved.RootKind)
+	}
+}
+
+func TestProjectAdapterUsesScopeTargetPathForNestedMarkerDecision(t *testing.T) {
+	registry := NewDefaultLanguageAdapterRegistry()
+	root := canonicalScopePath(t.TempDir(), "")
+	target := filepath.Join(root, "src", "constant.py")
+	unrelatedRoot := filepath.Join(root, "unrelated")
+	writeGenericTestFile(t, target, "VALUE = 1\n")
+	writeGenericTestFile(t, filepath.Join(unrelatedRoot, "pyproject.toml"), "[project]\nname = \"unrelated\"\n")
+
+	adapter, ok := registry.AdapterForLanguage("python")
+	if !ok {
+		t.Fatal("missing python adapter")
+	}
+	resolved, err := adapter.ResolveRoot(context.Background(), LSPToolScope{
+		Family:     defaultLSPToolFamily,
+		CWD:        root,
+		LanguageID: "python",
+		TargetPath: target,
+	}, "")
+	if err != nil {
+		t.Fatalf("python ResolveRoot: %v", err)
+	}
+	if resolved.WorkspaceRoot != root {
+		t.Fatalf("python workspace root = %q, want current workspace root %q, not unrelated project %q", resolved.WorkspaceRoot, root, unrelatedRoot)
+	}
+}
+
 func TestGoRootSkipsNoiseDirsDuringSubmoduleDiscovery(t *testing.T) {
 	root := canonicalScopePath(t.TempDir(), "")
 	writeGenericTestFile(t, filepath.Join(root, "docs", "go.mod"), "module example.test/docs\n\ngo 1.25.0\n")

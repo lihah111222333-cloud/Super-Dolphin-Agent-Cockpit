@@ -3,6 +3,7 @@ package edit
 import (
 	"errors"
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -65,7 +66,52 @@ func TestParseAcceptsLenientHeaderWithoutSpace(t *testing.T) {
 }
 
 func TestParseRejectsInsertionOnly(t *testing.T) {
+	// Pure insertion without any context should still be rejected
 	_, err := Parse("+new\n")
+	if !errors.Is(err, ErrInvalidPatch) {
+		t.Fatalf("Parse error = %v, want ErrInvalidPatch", err)
+	}
+}
+
+func TestParseAllowsPureInsertionHunk(t *testing.T) {
+	// Pure insertion with before context should be allowed
+	patch := " func main() {\n+\tfmt.Println(\"hello\")\n"
+	hunk, err := Parse(patch)
+	if err != nil {
+		t.Fatalf("Parse pure insertion: %v", err)
+	}
+	if hunk.OldText != "" {
+		t.Fatalf("OldText = %q, want empty for pure insertion", hunk.OldText)
+	}
+	if !strings.Contains(hunk.NewText, "fmt.Println") {
+		t.Fatalf("NewText = %q, want containing fmt.Println", hunk.NewText)
+	}
+	if len(hunk.BeforeContext) == 0 || hunk.BeforeContext[0] != "func main() {" {
+		t.Fatalf("BeforeContext = %v, want [\"func main() {\"]", hunk.BeforeContext)
+	}
+}
+
+func TestParseAllowsPureInsertionWithAfterContext(t *testing.T) {
+	patch := " import (\n+\t\"fmt\"\n )\n"
+	hunk, err := Parse(patch)
+	if err != nil {
+		t.Fatalf("Parse pure insertion with after context: %v", err)
+	}
+	if hunk.OldText != "" {
+		t.Fatalf("OldText = %q, want empty", hunk.OldText)
+	}
+	if hunk.NewText != "\t\"fmt\"\n" {
+		t.Fatalf("NewText = %q", hunk.NewText)
+	}
+}
+
+func TestParseRejectsPureInsertionWithoutContext(t *testing.T) {
+	// Pure insertion without any context line should be rejected
+	patch := "+line1\n+line2\n"
+	_, err := Parse(patch)
+	if err == nil {
+		t.Fatal("expected error for pure insertion without context")
+	}
 	if !errors.Is(err, ErrInvalidPatch) {
 		t.Fatalf("Parse error = %v, want ErrInvalidPatch", err)
 	}

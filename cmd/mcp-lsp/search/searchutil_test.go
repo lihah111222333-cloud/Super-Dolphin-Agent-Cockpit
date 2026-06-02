@@ -44,6 +44,78 @@ func TestSearchTextCapsLineSnippet(t *testing.T) {
 	}
 }
 
+func TestSearchTextSmartCaseDefault(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "sample.txt")
+	if err := os.WriteFile(path, []byte("needle\nNeedle\n"), 0o600); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
+
+	lowerMatches, err := SearchText(context.Background(), TextSearchOptions{
+		Root:         root,
+		Path:         path,
+		Query:        "needle",
+		MaxFileBytes: 1024,
+	})
+	if err != nil {
+		t.Fatalf("SearchText lowercase error: %v", err)
+	}
+	if len(lowerMatches) != 2 {
+		t.Fatalf("lowercase smart-case matches = %d, want 2", len(lowerMatches))
+	}
+
+	upperMatches, err := SearchText(context.Background(), TextSearchOptions{
+		Root:         root,
+		Path:         path,
+		Query:        "Needle",
+		MaxFileBytes: 1024,
+	})
+	if err != nil {
+		t.Fatalf("SearchText uppercase error: %v", err)
+	}
+	if len(upperMatches) != 1 || upperMatches[0].Text != "Needle" {
+		t.Fatalf("uppercase smart-case matches = %#v, want exact-case Needle only", upperMatches)
+	}
+}
+
+func TestSearchTextCaseSensitiveOverride(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "sample.txt")
+	if err := os.WriteFile(path, []byte("needle\nNeedle\n"), 0o600); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
+
+	insensitive := false
+	insensitiveMatches, err := SearchText(context.Background(), TextSearchOptions{
+		Root:          root,
+		Path:          path,
+		Query:         "Needle",
+		CaseSensitive: &insensitive,
+		MaxFileBytes:  1024,
+	})
+	if err != nil {
+		t.Fatalf("SearchText explicit insensitive error: %v", err)
+	}
+	if len(insensitiveMatches) != 2 {
+		t.Fatalf("explicit insensitive matches = %d, want 2", len(insensitiveMatches))
+	}
+
+	sensitive := true
+	sensitiveMatches, err := SearchText(context.Background(), TextSearchOptions{
+		Root:          root,
+		Path:          path,
+		Query:         "needle",
+		CaseSensitive: &sensitive,
+		MaxFileBytes:  1024,
+	})
+	if err != nil {
+		t.Fatalf("SearchText explicit sensitive error: %v", err)
+	}
+	if len(sensitiveMatches) != 1 || sensitiveMatches[0].Text != "needle" {
+		t.Fatalf("explicit sensitive matches = %#v, want exact-case needle only", sensitiveMatches)
+	}
+}
+
 func TestWalkSearchEntryPropagatesWalkErr(t *testing.T) {
 	var results []SearchMatch
 	err := walkSearchEntry(context.Background(), "/repo", "/repo/a.go", "", 1024, literalMatcher("x"), &results, nil, errors.New("walk boom"))
@@ -400,5 +472,58 @@ func writeSearchTestFile(t *testing.T, path, content string) {
 	}
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 		t.Fatalf("write %s: %v", path, err)
+	}
+}
+
+func TestSearchTextSkipsGoModCache(t *testing.T) {
+	root, _ := filepath.EvalSymlinks(t.TempDir())
+	keep := filepath.Join(root, "src", "keep.go")
+	writeSearchTestFile(t, keep, "package main\nconst needle = true\n")
+	modCache := filepath.Join(root, "go", "pkg", "mod", "github.com", "foo", "bar")
+	writeSearchTestFile(t, filepath.Join(modCache, "skip.go"), "package bar\nconst needle = false\n")
+	t.Setenv("GOMODCACHE", filepath.Join(root, "go", "pkg", "mod"))
+	matches, err := SearchText(context.Background(), TextSearchOptions{Root: root, Query: "needle"})
+	if err != nil {
+		t.Fatalf("SearchText() error = %v", err)
+	}
+	if len(matches) != 1 {
+		t.Fatalf("SearchText() matches = %d, want 1 (only src/keep.go)", len(matches))
+	}
+	if matches[0].AbsPath != keep {
+		t.Fatalf("SearchText() match = %q, want %q", matches[0].AbsPath, keep)
+	}
+}
+
+func TestSearchTextSkipsGoModCacheByPathSegment(t *testing.T) {
+	root, _ := filepath.EvalSymlinks(t.TempDir())
+	keep := filepath.Join(root, "src", "keep.go")
+	writeSearchTestFile(t, keep, "package main\nconst needle = true\n")
+	modDir := filepath.Join(root, "go", "pkg", "mod", "example.com", "lib")
+	writeSearchTestFile(t, filepath.Join(modDir, "skip.go"), "package lib\nconst needle = false\n")
+	t.Setenv("GOMODCACHE", "")
+	t.Setenv("GOPATH", "")
+	matches, err := SearchText(context.Background(), TextSearchOptions{Root: root, Query: "needle"})
+	if err != nil {
+		t.Fatalf("SearchText() error = %v", err)
+	}
+	if len(matches) != 1 {
+		t.Fatalf("SearchText() matches = %d, want 1", len(matches))
+	}
+	if matches[0].AbsPath != keep {
+		t.Fatalf("SearchText() match = %q, want %q", matches[0].AbsPath, keep)
+	}
+}
+
+func TestSearchTextDoesNotSkipUserDirNamedMod(t *testing.T) {
+	root, _ := filepath.EvalSymlinks(t.TempDir())
+	modFile := filepath.Join(root, "mod", "keep.go")
+	writeSearchTestFile(t, modFile, "package mod\nconst needle = true\n")
+	t.Setenv("GOMODCACHE", "/nonexistent/path")
+	matches, err := SearchText(context.Background(), TextSearchOptions{Root: root, Query: "needle"})
+	if err != nil {
+		t.Fatalf("SearchText() error = %v", err)
+	}
+	if len(matches) != 1 {
+		t.Fatalf("SearchText() matches = %d, want 1 (mod/keep.go should be included)", len(matches))
 	}
 }

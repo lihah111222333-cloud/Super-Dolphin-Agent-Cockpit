@@ -260,10 +260,9 @@ func TestE2EFileToolSmartCommentExpansion_SingleRead(t *testing.T) {
 	targetPath := setupTestFile(t, root, "main.go", sharedTestGoContent)
 
 	res, err := callFileTool(t, root, fileToolInput{
-		Action:   "read_file",
-		FilePath: targetPath,
-		Offset:   7,
-		Limit:    2,
+		Action: "read_file",
+		Pos:    targetPath + ":7",
+		Limit:  2,
 	})
 	if err != nil {
 		t.Fatalf("failed to read file: %v", err)
@@ -282,35 +281,6 @@ func TestE2EFileToolSmartCommentExpansion_SingleRead(t *testing.T) {
 	}
 }
 
-func TestE2EFileToolSmartCommentExpansion_OptOut(t *testing.T) {
-	root := t.TempDir()
-	targetPath := setupTestFile(t, root, "main.go", sharedTestGoContent)
-
-	falseVal := false
-	resOptOut, err := callFileTool(t, root, fileToolInput{
-		Action:         "read_file",
-		FilePath:       targetPath,
-		Offset:         7,
-		Limit:          2,
-		ExpandComments: &falseVal,
-	})
-	if err != nil {
-		t.Fatalf("failed to read file with opt-out: %v", err)
-	}
-
-	contentOptOut, ok := resOptOut.(string)
-	if !ok {
-		t.Fatalf("unexpected response type: %T", resOptOut)
-	}
-
-	if strings.Contains(contentOptOut, "Increment increments") {
-		t.Errorf("opt-out failed: comments were still expanded:\n%s", contentOptOut)
-	}
-	if !strings.Contains(contentOptOut, "7: func Increment") {
-		t.Errorf("expected line 7 in opt-out result, got:\n%s", contentOptOut)
-	}
-}
-
 func TestE2EFileToolSmartCommentExpansion_BatchRead(t *testing.T) {
 	root := t.TempDir()
 	targetPath := setupTestFile(t, root, "main.go", sharedTestGoContent)
@@ -318,8 +288,6 @@ func TestE2EFileToolSmartCommentExpansion_BatchRead(t *testing.T) {
 	resBatch, err := callFileTool(t, root, fileToolInput{
 		Action:    "read_file",
 		FilePaths: []string{targetPath},
-		Offset:    7,
-		Limit:     2,
 	})
 	if err != nil {
 		t.Fatalf("batch read failed: %v", err)
@@ -335,11 +303,14 @@ func TestE2EFileToolSmartCommentExpansion_BatchRead(t *testing.T) {
 	}
 
 	batchContent := batchPayload.Data[0].Content
-	if !strings.Contains(batchContent, "5: // Increment increments an integer by 1.") {
-		t.Errorf("batch read failed to expand comments, got:\n%s", batchContent)
+	if !strings.Contains(batchContent, "1: package main") {
+		t.Errorf("batch read should start from line 1, got:\n%s", batchContent)
 	}
-	if !strings.Contains(batchContent, "8: \treturn x + 1") {
-		t.Errorf("batch read failed tail mitigation, got:\n%s", batchContent)
+	if !strings.Contains(batchContent, "5: // Increment increments an integer by 1.") {
+		t.Errorf("batch read should contain comments, got:\n%s", batchContent)
+	}
+	if !strings.Contains(batchContent, "7: func Increment(x int) int {") {
+		t.Errorf("batch read should contain function declaration, got:\n%s", batchContent)
 	}
 }
 
@@ -355,10 +326,9 @@ func TargetFunc() {
 	targetPath := setupTestFile(t, root, "main.go", fileContent)
 
 	res, err := callFileTool(t, root, fileToolInput{
-		Action:   "read_file",
-		FilePath: targetPath,
-		Offset:   5,
-		Limit:    0,
+		Action: "read_file",
+		Pos:    targetPath + ":5",
+		Limit:  0,
 	})
 	if err != nil {
 		t.Fatalf("failed to read file: %v", err)
@@ -382,10 +352,9 @@ func TestE2EFileToolSmartCommentExpansion_NegativeLimit(t *testing.T) {
 	targetPath := setupTestFile(t, root, "main.go", sharedTestGoContent)
 
 	res, err := callFileTool(t, root, fileToolInput{
-		Action:   "read_file",
-		FilePath: targetPath,
-		Offset:   7,
-		Limit:    -5,
+		Action: "read_file",
+		Pos:    targetPath + ":7",
+		Limit:  -5,
 	})
 	if err != nil {
 		t.Fatalf("failed to read file with negative limit: %v", err)

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
@@ -62,6 +63,10 @@ func provideDreamExecutorProvider() contract.DreamExecutorProvider {
 }
 
 func (e dreamExecutor) ExecuteDream(ctx context.Context, prompt string) (string, error) {
+	return e.ExecuteDreamWithOptions(ctx, prompt, contract.DreamOptions{})
+}
+
+func (e dreamExecutor) ExecuteDreamWithOptions(ctx context.Context, prompt string, options contract.DreamOptions) (string, error) {
 	if err := ctx.Err(); err != nil {
 		return "", err
 	}
@@ -69,8 +74,15 @@ func (e dreamExecutor) ExecuteDream(ctx context.Context, prompt string) (string,
 	// --json 输出 JSONL stream（含 agent_message + turn.completed.usage），供
 	// dreamexec.Run 自动探测后走 ExtractCodexJSONL；usage 由 OnUsage 路由到 dreammetrics。
 	args := []string{"exec", "--json", "--skip-git-repo-check"}
-	if e.model != "" {
-		args = append(args, "--model", e.model)
+	if modelProvider := strings.TrimSpace(options.ModelProvider); modelProvider != "" {
+		args = append(args, "-c", "model_provider="+strconv.Quote(modelProvider))
+	}
+	model := strings.TrimSpace(options.Model)
+	if model == "" {
+		model = e.model
+	}
+	if model != "" {
+		args = append(args, "--model", model)
 	}
 	raw, err := dreamexec.Run(ctx, e.commander, dreamexec.RunOptions{
 		Binary:         e.binary,

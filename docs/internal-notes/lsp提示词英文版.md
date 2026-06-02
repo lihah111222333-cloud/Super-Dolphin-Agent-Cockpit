@@ -1,6 +1,6 @@
 # LSP Toolchain Guide — required reading for all agents
 
-You have 9 repository-aware tools covering four action classes (search, understand, edit, verify). Use the current short tool names: `file`, `grep`, `inspect`, `xref`, `structure`, `edit`, `completion`, `code_run`, and `code_run_test`. Use `exec_command` by default for ordinary shell, git, filesystem inspection, package scripts, and broad tests; prefer LSP for code understanding, symbol navigation, references / call chains, diagnostics, edits, and pinpoint code tests. Do not default to the `grep + file` two-tool combo, and do not wrap `code_run` around ordinary shell work or dedicated-tool work.
+You have 7 repository-aware LSP tools covering search, understand, edit, and diagnostics. Use the current short tool names: `file`, `grep`, `inspect`, `xref`, `structure`, `edit`, and `completion`. Use `exec_command` by default for ordinary shell, git, filesystem inspection, package scripts, and tests; prefer LSP for code understanding, symbol navigation, references / call chains, diagnostics, and edits. Do not default to the `grep + file` two-tool combo, and do not use ordinary shell work in place of dedicated tools.
 
 ### Tools and primary actions
 
@@ -10,23 +10,22 @@ You have 9 repository-aware tools covering four action classes (search, understa
 - `inspect(definition | implementation)` — from `file:line:col`, jump to definition / all implementations
 - `xref(references, verbosity="compact")` — reference scan; each hit carries `func_start / func_end`
 - `xref(call_hierarchy, direction="incoming")` — who calls this function
-- `file(read_file, offset=, limit=)` — paged read with 1-based line numbers
+- `file(read_file, pos=<file>:<line>, limit=)` — paged read with 1-based line numbers
 - `file(diagnostics, file_paths=[...])` — batch compile / type diagnostics
 - `edit(file_path=..., patch="*** Begin Patch...")` — apply-patch style disk edits with LSP sync
 - `completion(pos=...)` — code completion
-- `exec_command` — ordinary shell, git, package scripts, broad tests
-- `code_run / code_run_test` — build / script fallback when the provider has no `exec_command`, or pinpoint Go tests
+- `exec_command` — ordinary shell, git, package scripts, tests
 
 ### Mandatory workflow
 
 ```
 Review: grep locate  → inspect read   → xref impact → file(read_file) study   → conclude
-Fix:    grep locate  → xref impact    → file(read_file) context → edit apply  → file(diagnostics) check → code_run_test / exec_command verify
+Fix:    grep locate  → xref impact    → file(read_file) context → edit apply  → file(diagnostics) check → exec_command verify
 ```
 
 ### Five combos
 
-- **A**: `ast_search` → use the returned `func_start / func_end` with `file(read_file, offset, limit)` for precise reads
+- **A**: `ast_search` → use the returned `func_start / func_end` with `file(read_file, pos=<file>:<func_start>, limit)` for precise reads
 - **B**: `workspace_symbol` → `definition` → `file(read_file)` — three-step locate
 - **C**: `references` + `call_hierarchy(incoming + outgoing)` — full impact view
 - **D**: `definition` → `implementation` → `references` — interface three-step
@@ -34,7 +33,7 @@ Fix:    grep locate  → xref impact    → file(read_file) context → edit app
 
 ### func_start / func_end shortcut
 
-`grep(ast_search)`, `inspect(definition|implementation)`, and `xref(references, verbosity="compact")` all return `func_start / func_end`. Call `file(read_file, offset=func_start, limit=func_end-func_start+1)` directly to read the full function; no need to run `document_symbol` first.
+`grep(ast_search)`, `inspect(definition|implementation)`, and `xref(references, verbosity="compact")` all return `func_start / func_end`. Call `file(read_file, pos=<file>:<func_start>, limit=func_end-func_start+1)` directly to read the full function; no need to run `document_symbol` first.
 
 ### Parallel and batch
 
@@ -44,7 +43,7 @@ Fix:    grep locate  → xref impact    → file(read_file) context → edit app
 ### Prohibitions
 
 1. Do not default to the `grep + file` two-tool combo
-2. Do not invoke `code_run` for ordinary shell work, or to run `grep / rg / cat / head / tail / sed / awk / find / ls` or similar commands that a dedicated tool already covers
+2. Do not use ordinary shell to run `grep / rg / cat / head / tail / sed / awk / find / ls` or similar commands that a dedicated tool already covers
 3. Do not modify code without first running `xref` for impact
 4. Do not claim verification passed without running `file(diagnostics)` — diagnostics only catch compile / type errors; runtime behavior must be exercised with actual tests
 5. Complex cross-file edits should combine multiple LSP tools; simple tasks do not need tool-count padding
@@ -90,9 +89,7 @@ Fix:    grep locate  → xref impact    → file(read_file) context → edit app
 
 ### Execution and testing
 
-- `exec_command` — ordinary shell, git, package scripts, broad tests
-- `code_run(project_cmd)` — build / script fallback when the provider has no `exec_command`
-- `code_run_test(test_func, test_pkg)` — run a single Go test function; faster than whole-package `go test`
+- `exec_command` — ordinary shell, git, package scripts, tests
 
 ### Advanced combinations (beyond basic A–E)
 
@@ -105,4 +102,4 @@ Fix:    grep locate  → xref impact    → file(read_file) context → edit app
 - Only have a keyword or pattern → grep family (scan)
 - Need cross-file structure → structure family (outline)
 - About to modify → edit family (structural edits)
-- Need to verify → `file(diagnostics)` + `code_run_test`
+- Need to verify → `file(diagnostics)` + `exec_command`

@@ -10,31 +10,45 @@ func TestEditSchemaExposesPatchDiskFieldsOnly(t *testing.T) {
 	if !ok {
 		t.Fatalf("edit schema properties type = %T", lspEditSchema["properties"])
 	}
-	for _, field := range []string{"patch", "version"} {
+	for _, field := range []string{"action", "file_path", "patch", "pos", "new_name", "only"} {
 		if _, ok := props[field]; !ok {
-			t.Fatalf("edit schema missing runtime field %q", field)
+			t.Fatalf("edit schema missing expected field %q", field)
 		}
 	}
-	for _, field := range []string{"action", "line", "column", "end_line", "end_column", "edits", "new_name", "new_text", "only", "persist_to_disk", "force"} {
+	for _, field := range []string{"line", "column", "end_line", "end_column", "edits", "new_text", "persist_to_disk", "force", "version"} {
 		if _, ok := props[field]; ok {
-			t.Fatalf("edit schema exposes removed non-patch field %q", field)
+			t.Fatalf("edit schema exposes removed legacy field %q", field)
 		}
 	}
 	required, ok := lspEditSchema["required"].([]string)
 	if !ok {
 		t.Fatalf("edit schema required type = %T", lspEditSchema["required"])
 	}
-	if !reflect.DeepEqual(required, []string{"file_path", "patch"}) {
-		t.Fatalf("edit schema required = %#v, want file_path and patch", required)
+	if !reflect.DeepEqual(required, []string{"action"}) {
+		t.Fatalf("edit schema required = %#v, want [action]", required)
 	}
 }
 
-func TestStructureSchemaExposesLegacyPathAlias(t *testing.T) {
+func TestStructureSchemaHidesLegacyPathAlias(t *testing.T) {
 	props, ok := lspStructureSchema["properties"].(map[string]any)
 	if !ok {
 		t.Fatalf("structure schema properties type = %T", lspStructureSchema["properties"])
 	}
-	if _, ok := props["path"]; !ok {
-		t.Fatalf("structure schema missing legacy path alias")
+	if _, ok := props["path"]; ok {
+		t.Fatalf("structure schema exposes legacy path alias")
+	}
+}
+
+func TestGrepSchemaDocumentsSmartCaseOverride(t *testing.T) {
+	props, ok := lspGrepSchema["properties"].(map[string]any)
+	if !ok {
+		t.Fatalf("grep schema properties type = %T", lspGrepSchema["properties"])
+	}
+	caseSensitive, ok := props["case_sensitive"].(map[string]any)
+	if !ok {
+		t.Fatalf("grep case_sensitive schema type = %T", props["case_sensitive"])
+	}
+	if got := caseSensitive["description"]; got != "Override smart-case (default: sensitive when query has uppercase, insensitive otherwise)" {
+		t.Fatalf("grep case_sensitive description = %q", got)
 	}
 }

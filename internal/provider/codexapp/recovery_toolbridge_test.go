@@ -265,7 +265,7 @@ func TestToolBridge_Recovery_ResumeToolCall(t *testing.T) {
 	s := newStartedRecoverySession(t, server.URL, manager)
 	defer closeCodexTestSession(t, s)
 	second := reconnectRecoverySession(t, s, connections)
-	sendCodexToolCall(t, &writeMu, second, 88, "code_run", map[string]any{"command": "pwd"})
+	sendCodexToolCall(t, &writeMu, second, 88, "grep", map[string]any{"action": "text_search", "query": "needle"})
 	assertRecoveredToolCall(t, toolCalls)
 	assertToolResponse(t, responses, "88")
 	assertRecoveryCounters(t, &mu, &initializeCount, &threadResumes)

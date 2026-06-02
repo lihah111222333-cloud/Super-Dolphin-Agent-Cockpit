@@ -91,7 +91,7 @@ INSERT INTO public.prompt_template_sections
 SELECT id, 'tool_preferences', 'static', 50,
 $body$Tool preferences:
 - Prefer repository-aware tools first: use lsp_file for reading, lsp_edit for edits, and lsp_grep for search.
-- Use code_run for shell execution only when a dedicated tool cannot do the job.
+- Use exec_command for shell execution, package scripts, and tests when a dedicated tool cannot do the job.
 - Do not reach for shell fallbacks like cat, head, tail, sed, awk, grep, rg, find, or ls when a dedicated tool fits.
 - Batch independent tool calls in parallel and run dependent calls sequentially.$body$,
     NULL, TRUE

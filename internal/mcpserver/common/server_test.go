@@ -136,6 +136,38 @@ func TestToolsCallErrorEnvelopeSetsMCPIsError(t *testing.T) {
 	}
 }
 
+func TestToolsCallPreservesStructuredValueReturnedWithError(t *testing.T) {
+	input := bytes.NewBufferString(`{"jsonrpc":"2.0","id":27,"method":"tools/call","params":{"name":"edit","arguments":{}}}`)
+	var output bytes.Buffer
+	provider := captureToolProvider{call: func(context.Context, string, json.RawMessage) (any, error) {
+		return map[string]any{
+			"success": false,
+			"error":   "patch matched multiple locations",
+			"meta": map[string]any{
+				"candidate_locations": []string{"sample.go:1-L1"},
+			},
+		}, errors.New("patch matched multiple locations")
+	}}
+
+	server := NewServer("test", "dev", NewStdioTransport(input, &output), provider)
+	if err := server.Run(context.Background()); err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	var resp struct {
+		Result struct {
+			IsError           bool            `json:"isError"`
+			StructuredContent json.RawMessage `json:"structuredContent"`
+		} `json:"result"`
+	}
+	decodeJSONRPCOutput(t, output.Bytes(), &resp)
+	if !resp.Result.IsError {
+		t.Fatalf("isError = false, want true; output=%s", output.String())
+	}
+	if !bytes.Contains(resp.Result.StructuredContent, []byte("candidate_locations")) {
+		t.Fatalf("structuredContent = %s, want original structured payload; output=%s", resp.Result.StructuredContent, output.String())
+	}
+}
+
 func TestToolsCallSuccessFalsePayloadSetsMCPIsError(t *testing.T) {
 	input := bytes.NewBufferString(`{"jsonrpc":"2.0","id":25,"method":"tools/call","params":{"name":"edit","arguments":{}}}`)
 	var output bytes.Buffer

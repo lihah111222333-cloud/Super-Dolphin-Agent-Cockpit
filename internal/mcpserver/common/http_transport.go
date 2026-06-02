@@ -222,7 +222,9 @@ func (h *HTTPServer) handleToolsCall(ctx context.Context, req jsonRPCRequest) *j
 		pkglogger.Warn("mcp http: tools/call error",
 			"server", h.name, "tool", params.Name,
 			"elapsed", elapsed, "error", err)
-		value = NewToolErrorEnvelope(params.Name, err)
+		if value == nil {
+			value = NewToolErrorEnvelope(params.Name, err)
+		}
 	}
 	resp, raw, err := toolCallResultResponse(req.ID, value)
 	if err != nil {

@@ -38,13 +38,13 @@ func NewInspectHandler(registry lspmanager.Registry) ToolHandler {
 				return runHover(ctx, manager, filePath, position)
 			},
 			"definition": func(ctx context.Context, _ inspectParams) (any, error) {
-				return runLocationInspect(ctx, filePath, position, "no definition found", manager.Definition, funcEnricher)
+				return runLocationInspect(ctx, filePath, position, "definition", "no definition found", manager.Definition, funcEnricher)
 			},
 			"implementation": func(ctx context.Context, _ inspectParams) (any, error) {
-				return runLocationInspect(ctx, filePath, position, "no implementation found", manager.Implementation, funcEnricher)
+				return runLocationInspect(ctx, filePath, position, "implementation", "no implementation found", manager.Implementation, funcEnricher)
 			},
 			"type_definition": func(ctx context.Context, _ inspectParams) (any, error) {
-				return runLocationInspect(ctx, filePath, position, "no type definition found", manager.TypeDefinition, funcEnricher)
+				return runLocationInspect(ctx, filePath, position, "type definition", "no type definition found", manager.TypeDefinition, funcEnricher)
 			},
 			"signature_help": func(ctx context.Context, _ inspectParams) (any, error) {
 				return runSignatureHelp(ctx, manager, filePath, position)
@@ -65,7 +65,11 @@ func runHover(
 	}
 	content := hoverText(result)
 	if content == "" {
-		return "no hover info available", nil
+		return emptyListEnvelope{
+			Success: true,
+			Data:    []any{},
+			Meta:    resultMeta{Count: 0, Message: rustDetachedWorkspaceMessage(filePath, "hover", "no hover info available")},
+		}, nil
 	}
 	return content, nil
 }
@@ -74,18 +78,28 @@ func runLocationInspect(
 	ctx context.Context,
 	filePath string,
 	position protocol.Position,
+	capability string,
 	emptyMessage string,
 	run func(context.Context, string, protocol.Position) ([]protocol.LocationResult, error),
 	enricher format.SymbolProvider,
 ) (any, error) {
 	results, err := run(ctx, filePath, position)
+	if isUnsupportedCapability(err) {
+		return unsupportedCapabilityEmptyResult(capability), nil
+	}
 	if err != nil {
+		if capability == "implementation" {
+			return nil, implementationTargetError(err)
+		}
 		return nil, err
 	}
 	format.EnrichLocationResultsWithFuncRange(results, enricher)
-	return renderListResult(results, protocol.XRefResultLimit, emptyMessage, func(items []protocol.LocationResult, _ int) any {
-		return format.NormalizeForDisplay(items)
-	})
+	total := len(results)
+	grouped := groupLocationsByFile(ctx, limitSlice(results, protocol.XRefResultLimit), total)
+	if total == 0 {
+		grouped.Hint = emptyMessage
+	}
+	return grouped, nil
 }
 
 func runSignatureHelp(

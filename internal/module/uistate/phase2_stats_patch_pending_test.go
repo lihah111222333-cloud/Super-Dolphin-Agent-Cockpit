@@ -198,15 +198,15 @@ func TestActivityStats_MCPNamespacedNonLSPToolDoesNotIncrementLSPCalls(t *testin
 
 	// Non-LSP MCP tool: stripped name does not start with "lsp_", so LSPCalls stays 0.
 	svc.applyToolCallBegin(tooldto.ToolCallBegin{
-		ToolCallHeader: sharedto.ToolCallHeader{TurnHeader: turnHeader, CallID: "call-mcp-other-1", ToolName: "mcp__lsp__code_run"},
+		ToolCallHeader: sharedto.ToolCallHeader{TurnHeader: turnHeader, CallID: "call-mcp-other-1", ToolName: "mcp__json_render__render"},
 	})
 
 	stats := activityStatsForThread(t, svc, "thread-stats-mcp-other")
 	if stats.LSPCalls != 0 {
-		t.Fatalf("stats.LSPCalls = %d, want 0 (code_run is shell, not LSP)", stats.LSPCalls)
+		t.Fatalf("stats.LSPCalls = %d, want 0 (json_render is not LSP)", stats.LSPCalls)
 	}
-	if got := stats.ToolCalls["mcp__lsp__code_run"]; got != 1 {
-		t.Fatalf("stats.ToolCalls[mcp__lsp__code_run] = %d, want 1", got)
+	if got := stats.ToolCalls["mcp__json_render__render"]; got != 1 {
+		t.Fatalf("stats.ToolCalls[mcp__json_render__render] = %d, want 1", got)
 	}
 }
 

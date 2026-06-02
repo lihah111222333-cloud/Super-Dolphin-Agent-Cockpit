@@ -5,8 +5,11 @@ import {
   onAgentEvent as subscribeAgentEvent,
   onFilesDropped as subscribeFilesDropped,
   readDroppedTextFiles as readDroppedTextFilesViaBridge,
+  saveClipboardImage as saveClipboardImageViaBridge,
   registerBridgeLogStore,
   saveTextFile as saveTextFileViaBridge,
+  beginTextClipboardWrite as beginTextClipboardWriteViaBridge,
+  copyTextToClipboard as copyTextToClipboardViaBridge,
   selectFiles as selectFilesViaBridge,
   selectProjectDir as selectProjectDirViaBridge,
   selectProjectDirs as selectProjectDirsViaBridge,
@@ -20,6 +23,7 @@ export const RPC_METHODS = Object.freeze({
   UI_STATE_GET: 'ui/state/get',
   UI_SIDEBAR_GET: 'ui/sidebar/get',
   UI_LOG: 'ui/log',
+  UI_OPEN_NEW_WINDOW: 'ui/openNewWindow',
 
   UI_PROJECTS_GET: 'ui/projects/get',
   UI_PROJECTS_SET_ACTIVE: 'ui/projects/setActive',
@@ -41,6 +45,7 @@ export const RPC_METHODS = Object.freeze({
   UI_MEMORY_SIMILARITY_CONSOLIDATE_ALL: 'ui/memory/similarity/consolidate-all',
   UI_SHARED_FILE_GET: 'ui/memory/shared-file/get',
   UI_SHARED_FILE_DELETE: 'ui/memory/shared-file/delete',
+  DASHBOARD_SHARED_FILES: 'dashboard/sharedFiles',
 
   PROMPT_ASSETS_LIST: 'prompt-assets/list',
   DASHBOARD_PROMPTS: 'dashboard/prompts',
@@ -178,6 +183,11 @@ function requireBoolean(method, params, key) {
   if (!hasOwn(payload, key)) throw new Error(`${method}: ${key} is required`);
   if (typeof payload[key] !== 'boolean') throw new Error(`${method}: ${key} must be boolean`);
   return { ...payload, [key]: payload[key] };
+}
+
+function legacyThreadNamePayload(method, params) {
+  const payload = requireKey(method, requireThreadId(method, params), 'name');
+  return { threadId: payload.threadId, name: payload.name };
 }
 
 function memoryEntryGetPayload(method, params) {
@@ -426,6 +436,9 @@ function promptIntentDraftPayload(params) {
     source_url: normalizeString(payload.source_url ?? payload.sourceUrl),
     license_hint: normalizeString(payload.license_hint ?? payload.licenseHint),
     enable_global: enableGlobal,
+    provider: normalizeString(payload.provider ?? payload.modelProvider),
+    model: normalizeString(payload.model),
+    model_provider: normalizeString(payload.model_provider ?? payload.codexModelProvider),
   });
 }
 
@@ -483,7 +496,10 @@ export function createBackendApi(deps = {}) {
     onBridgeEvent: deps.onBridgeEvent || subscribeBridgeEvent,
     onFilesDropped: deps.onFilesDropped || subscribeFilesDropped,
     readDroppedTextFiles: deps.readDroppedTextFiles || readDroppedTextFilesViaBridge,
+    saveClipboardImage: deps.saveClipboardImage || saveClipboardImageViaBridge,
     saveTextFile: deps.saveTextFile || saveTextFileViaBridge,
+    beginTextClipboardWrite: deps.beginTextClipboardWrite || beginTextClipboardWriteViaBridge,
+    copyTextToClipboard: deps.copyTextToClipboard || copyTextToClipboardViaBridge,
     selectFiles: deps.selectFiles || selectFilesViaBridge,
     selectProjectDir: deps.selectProjectDir || selectProjectDirViaBridge,
     selectProjectDirs: deps.selectProjectDirs || selectProjectDirsViaBridge,
@@ -502,6 +518,7 @@ export function createBackendApi(deps = {}) {
     getWindowBootstrap: () => callBackend(RPC_METHODS.UI_WINDOW_BOOTSTRAP_GET, {}),
 
     getSidebarState: (params) => callBackend(RPC_METHODS.UI_SIDEBAR_GET, requireCwd(RPC_METHODS.UI_SIDEBAR_GET, params)),
+    openNewWindow: (params) => callBackend(RPC_METHODS.UI_OPEN_NEW_WINDOW, requireCwd(RPC_METHODS.UI_OPEN_NEW_WINDOW, params)),
     getThreadState: (params) => callBackend(
       RPC_METHODS.UI_STATE_GET,
       requireThreadId(RPC_METHODS.UI_STATE_GET, requireCwd(RPC_METHODS.UI_STATE_GET, params)),
@@ -545,6 +562,13 @@ export function createBackendApi(deps = {}) {
     mergeMemoryEntries: (params) => callBackend(RPC_METHODS.UI_MEMORY_ENTRY_MERGE, memoryPairPayload(RPC_METHODS.UI_MEMORY_ENTRY_MERGE, params)),
     ignoreMemorySimilarity: (params) => callBackend(RPC_METHODS.UI_MEMORY_SIMILARITY_IGNORE, memoryPairPayload(RPC_METHODS.UI_MEMORY_SIMILARITY_IGNORE, params)),
     consolidateMemorySimilarities: (params) => callBackend(RPC_METHODS.UI_MEMORY_SIMILARITY_CONSOLIDATE_ALL, requireCwd(RPC_METHODS.UI_MEMORY_SIMILARITY_CONSOLIDATE_ALL, params)),
+    listSharedFiles: (params = {}) => {
+      const payload = assertPlainObject(RPC_METHODS.DASHBOARD_SHARED_FILES, params);
+      if (Object.keys(payload).length > 0) {
+        throw new Error(`${RPC_METHODS.DASHBOARD_SHARED_FILES}: params are not supported`);
+      }
+      return callBackend(RPC_METHODS.DASHBOARD_SHARED_FILES, {});
+    },
     readSharedFile: (params) => callBackend(
       RPC_METHODS.UI_SHARED_FILE_GET,
       requireKey(RPC_METHODS.UI_SHARED_FILE_GET, assertPlainObject(RPC_METHODS.UI_SHARED_FILE_GET, params), 'path'),
@@ -764,7 +788,7 @@ export function createBackendApi(deps = {}) {
     ),
     renameThread: (params) => callBackend(
       RPC_METHODS.THREAD_NAME_SET,
-      requireKey(RPC_METHODS.THREAD_NAME_SET, requireThreadId(RPC_METHODS.THREAD_NAME_SET, requireCwd(RPC_METHODS.THREAD_NAME_SET, params)), 'name'),
+      legacyThreadNamePayload(RPC_METHODS.THREAD_NAME_SET, params),
     ),
 
     getBuildInfo: native.getBuildInfo,
@@ -772,7 +796,10 @@ export function createBackendApi(deps = {}) {
     onBridgeEvent: native.onBridgeEvent,
     onFilesDropped: native.onFilesDropped,
     readDroppedTextFiles: native.readDroppedTextFiles,
+    saveClipboardImage: native.saveClipboardImage,
     saveTextFile: native.saveTextFile,
+    beginTextClipboardWrite: native.beginTextClipboardWrite,
+    copyTextToClipboard: native.copyTextToClipboard,
     selectFiles: native.selectFiles,
     selectProjectDir: native.selectProjectDir,
     selectProjectDirs: native.selectProjectDirs,
@@ -785,6 +812,7 @@ export const callBackend = backendApi.callBackend;
 export const readConfig = backendApi.readConfig;
 export const getWindowBootstrap = backendApi.getWindowBootstrap;
 export const getSidebarState = backendApi.getSidebarState;
+export const openNewWindow = backendApi.openNewWindow;
 export const getThreadState = backendApi.getThreadState;
 export const getProjects = backendApi.getProjects;
 export const setActiveProject = backendApi.setActiveProject;
@@ -802,6 +830,7 @@ export const setMemoryAutoDreamIntent = backendApi.setMemoryAutoDreamIntent;
 export const mergeMemoryEntries = backendApi.mergeMemoryEntries;
 export const ignoreMemorySimilarity = backendApi.ignoreMemorySimilarity;
 export const consolidateMemorySimilarities = backendApi.consolidateMemorySimilarities;
+export const listSharedFiles = backendApi.listSharedFiles;
 export const readSharedFile = backendApi.readSharedFile;
 export const deleteSharedFile = backendApi.deleteSharedFile;
 export const listPromptAssets = backendApi.listPromptAssets;
@@ -853,7 +882,10 @@ export const onAgentEvent = backendApi.onAgentEvent;
 export const onBridgeEvent = backendApi.onBridgeEvent;
 export const onFilesDropped = backendApi.onFilesDropped;
 export const readDroppedTextFiles = backendApi.readDroppedTextFiles;
+export const saveClipboardImage = backendApi.saveClipboardImage;
 export const saveTextFile = backendApi.saveTextFile;
+export const beginTextClipboardWrite = backendApi.beginTextClipboardWrite;
+export const copyTextToClipboard = backendApi.copyTextToClipboard;
 export const selectFiles = backendApi.selectFiles;
 export const selectProjectDir = backendApi.selectProjectDir;
 export const selectProjectDirs = backendApi.selectProjectDirs;

@@ -13,6 +13,7 @@ var Module = fx.Module(
 	fx.Provide(
 		NewDispatcher,
 		NewThreadEmitters,
+		NewUISharedFilesChangedEmitter,
 		NewLogSink,
 		NewSubscriberGroup,
 	),

@@ -73,7 +73,7 @@ func TestReadBatchReturnsPartialFailureWhenAnyItemFails(t *testing.T) {
 	}
 	ctx := common.WithToolScope(context.Background(), common.ToolScope{CWD: root, WorkspaceRoots: []string{root}})
 
-	resp, err := handlerBase{}.readBatch(ctx, []string{"ok.txt", "missing.txt"}, 0, 0, false)
+	resp, err := handlerBase{}.readBatch(ctx, readFileRequest{rawPaths: []string{"ok.txt", "missing.txt"}})
 	if err == nil {
 		t.Fatalf("readBatch() err = nil, response = %#v; want partial failure error", resp)
 	}

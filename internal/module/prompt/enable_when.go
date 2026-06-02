@@ -84,7 +84,7 @@ func sectionEnableKeyMatches(key string, want any, buildCtx contract.BuildCtx, u
 // matchEnabledToolsHas implements enabled_tools_has for section-level
 // enable_when: string value matches one tool; array value is OR across each
 // string element. Comparison is exact (case-sensitive) against canonical short
-// tool names in BuildCtx.EnabledTools (e.g. "grep", "code_run"). Legacy
+// tool names in BuildCtx.EnabledTools (e.g. "grep", "exec_command"). Legacy
 // "lsp_*" names are accepted as aliases during the tool rename migration.
 func matchEnabledToolsHas(want any, enabled []string) bool {
 	if len(enabled) == 0 {

@@ -10,13 +10,17 @@ import (
 type ParseFunc[T any] func(string) (T, error)
 
 func Execute[T any](ctx context.Context, dream contract.DreamExecutor, prompt string, parse ParseFunc[T]) (T, error) {
+	return ExecuteWithOptions(ctx, dream, prompt, contract.DreamOptions{}, parse)
+}
+
+func ExecuteWithOptions[T any](ctx context.Context, dream contract.DreamExecutor, prompt string, options contract.DreamOptions, parse ParseFunc[T]) (T, error) {
 	ctx, cancel := platformconfig.WithTimeoutIfNone(ctx, platformconfig.RPCRequestTimeout)
 	defer cancel()
 
 	var zero T
 	var lastErr error
 	for attempt := 0; attempt < 2; attempt++ {
-		raw, err := dream.ExecuteDream(ctx, prompt)
+		raw, err := executeDream(ctx, dream, prompt, options)
 		if err != nil {
 			return zero, err
 		}
@@ -27,4 +31,11 @@ func Execute[T any](ctx context.Context, dream contract.DreamExecutor, prompt st
 		lastErr = err
 	}
 	return zero, lastErr
+}
+
+func executeDream(ctx context.Context, dream contract.DreamExecutor, prompt string, options contract.DreamOptions) (string, error) {
+	if withOptions, ok := dream.(contract.DreamExecutorWithOptions); ok {
+		return withOptions.ExecuteDreamWithOptions(ctx, prompt, options)
+	}
+	return dream.ExecuteDream(ctx, prompt)
 }

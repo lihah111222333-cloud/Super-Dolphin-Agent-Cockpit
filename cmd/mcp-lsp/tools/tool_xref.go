@@ -69,14 +69,11 @@ func runReferences(
 	format.EnrichLocationResultsWithFuncRange(results, enricher)
 	total := len(results)
 	results = limitSlice(results, limit)
-	if len(results) == 0 {
-		return emptyListEnvelope{
-			Success: true,
-			Data:    []any{},
-			Meta:    resultMeta{Count: 0, Message: "no references found"},
-		}, nil
+	grouped := groupLocationsByFile(ctx, results, total)
+	if total == 0 {
+		grouped.Hint = "no references found"
 	}
-	return format.GroupLocationsByFile(results, total), nil
+	return grouped, nil
 }
 
 func runCallHierarchy(
@@ -91,12 +88,20 @@ func runCallHierarchy(
 		return nil, err
 	}
 	results, err := manager.CallHierarchy(ctx, filePath, position, direction)
+	if isUnsupportedCapability(err) {
+		return unsupportedCapabilityEmptyResult("call hierarchy"), nil
+	}
 	if err != nil {
 		return nil, err
 	}
-	return renderListResult(results, shared.ClampLimit(req.MaxResults, 1, protocol.XRefResultLimit, protocol.XRefResultLimit), "no call hierarchy found", func(items []protocol.CallHierarchyResult, _ int) any {
-		return format.NormalizeForDisplay(items)
-	})
+	limit := shared.ClampLimit(req.MaxResults, 1, protocol.XRefResultLimit, protocol.XRefResultLimit)
+	total := len(results)
+	hint := "next: increase max_results or narrow the target position"
+	list := format.NewCompactList(compactCallHierarchyResults(ctx, limitSlice(results, limit)), total, hint)
+	if total == 0 {
+		list.Hint = "no call hierarchy found"
+	}
+	return list, nil
 }
 
 func runTypeHierarchy(
@@ -111,8 +116,11 @@ func runTypeHierarchy(
 		return nil, err
 	}
 	results, err := manager.TypeHierarchy(ctx, filePath, position, direction)
+	if isUnsupportedCapability(err) {
+		return unsupportedCapabilityEmptyResult("type hierarchy"), nil
+	}
 	if err != nil {
-		return nil, err
+		return nil, typeHierarchyTargetError(err)
 	}
 	return renderListResult(results, shared.ClampLimit(req.MaxResults, 1, protocol.XRefResultLimit, protocol.XRefResultLimit), "no type hierarchy found", func(items []protocol.TypeHierarchyResult, _ int) any {
 		return format.NormalizeForDisplay(items)

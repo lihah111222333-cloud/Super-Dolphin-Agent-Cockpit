@@ -47,24 +47,30 @@ func (s *service) effectiveDAGRuntime() contract.DAGRuntime {
 }
 
 func (s *service) ListDAGs(ctx context.Context, filter contract.ListDAGsFilter) ([]contract.DAGSummary, error) {
+	filter.Status = strings.TrimSpace(filter.Status)
+	filter.Keyword = strings.TrimSpace(filter.Keyword)
+	filter.Limit = util.ClampLimit(filter.Limit, 1, maxLogLimit, defaultLogLimit)
+	if s.hasDAGSnapshotQueries() {
+		return s.listDAGsFromSnapshot(ctx, filter)
+	}
 	runtime := s.effectiveDAGRuntime()
 	if runtime == nil {
 		return nil, errOrchestrationServiceNotAvailable
 	}
-	filter.Status = strings.TrimSpace(filter.Status)
-	filter.Keyword = strings.TrimSpace(filter.Keyword)
-	filter.Limit = util.ClampLimit(filter.Limit, 1, maxLogLimit, defaultLogLimit)
 	return runtime.ListDAGs(ctx, filter)
 }
 
 func (s *service) GetDAGDetail(ctx context.Context, dagKey string) (*contract.DAGDetail, error) {
-	runtime := s.effectiveDAGRuntime()
-	if runtime == nil {
-		return nil, errOrchestrationServiceNotAvailable
-	}
 	key := strings.TrimSpace(dagKey)
 	if key == "" {
 		return nil, errors.New("dashboard: dag key is required")
+	}
+	if s.hasDAGSnapshotQueries() {
+		return s.getDAGDetailFromSnapshot(ctx, key)
+	}
+	runtime := s.effectiveDAGRuntime()
+	if runtime == nil {
+		return nil, errOrchestrationServiceNotAvailable
 	}
 	detail, err := runtime.GetDAG(ctx, key)
 	if err != nil {
@@ -74,18 +80,22 @@ func (s *service) GetDAGDetail(ctx context.Context, dagKey string) (*contract.DA
 }
 
 func (s *service) ListDAGRuns(ctx context.Context, dagKey, status string, limit int32) ([]contract.Run, error) {
-	runtime := s.effectiveDAGRuntime()
-	if runtime == nil {
-		return nil, errOrchestrationServiceNotAvailable
-	}
 	key := strings.TrimSpace(dagKey)
 	if key == "" {
 		return nil, errors.New("dashboard: dag key is required")
 	}
 	limit = int32(util.ClampLimit(int(limit), 1, maxLogLimit, 50))
+	status = strings.TrimSpace(status)
+	if s.hasDAGSnapshotQueries() {
+		return s.listDAGRunsFromSnapshot(ctx, key, status, limit)
+	}
+	runtime := s.effectiveDAGRuntime()
+	if runtime == nil {
+		return nil, errOrchestrationServiceNotAvailable
+	}
 	resp, err := runtime.ListRuns(ctx, contract.ListRunsRequest{
 		DagKey: key,
-		Status: strings.TrimSpace(status),
+		Status: status,
 		Limit:  limit,
 	})
 	if err != nil {
@@ -98,13 +108,16 @@ func (s *service) ListDAGRuns(ctx context.Context, dagKey, status string, limit 
 }
 
 func (s *service) GetDAGRun(ctx context.Context, runKey string) (contract.GetRunResponse, error) {
-	runtime := s.effectiveDAGRuntime()
-	if runtime == nil {
-		return contract.GetRunResponse{}, errOrchestrationServiceNotAvailable
-	}
 	key := strings.TrimSpace(runKey)
 	if key == "" {
 		return contract.GetRunResponse{}, errors.New("dashboard: run key is required")
+	}
+	if s.hasDAGSnapshotQueries() {
+		return s.getDAGRunFromSnapshot(ctx, key)
+	}
+	runtime := s.effectiveDAGRuntime()
+	if runtime == nil {
+		return contract.GetRunResponse{}, errOrchestrationServiceNotAvailable
 	}
 	resp, err := runtime.GetRun(ctx, contract.GetRunRequest{RunKey: key})
 	if err != nil {

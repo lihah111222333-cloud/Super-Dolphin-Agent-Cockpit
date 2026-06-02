@@ -385,7 +385,7 @@ func (s *service) applyKeepSelectedResolution(ctx context.Context, report SkillM
 	if err := validateSameNameSourcePreview(preview, source.Path, source.Path); err != nil {
 		return report, err
 	}
-	hash, err := removeSameNameDuplicateSources(item, source)
+	hash, err := s.removeSameNameDuplicateSources(p.CWD, item, source)
 	if err != nil {
 		return report, err
 	}
@@ -395,7 +395,7 @@ func (s *service) applyKeepSelectedResolution(ctx context.Context, report SkillM
 	return report, nil
 }
 
-func removeSameNameDuplicateSources(item skillResolutionItem, selected skillResolutionSource) (string, error) {
+func (s *service) removeSameNameDuplicateSources(cwd string, item skillResolutionItem, selected skillResolutionSource) (string, error) {
 	if selected.Scope != skillScopeProject && selected.Scope != skillScopePersonal {
 		return "", fmt.Errorf("keep selected requires a project or personal skill")
 	}
@@ -405,6 +405,12 @@ func removeSameNameDuplicateSources(item skillResolutionItem, selected skillReso
 	for _, source := range item.Sources {
 		if source.CanonicalID == selected.CanonicalID {
 			continue
+		}
+		record := canonicalSkillRecord{Name: item.Name, Scope: source.Scope, PersonalType: source.PersonalType, Dir: filepath.FromSlash(source.Path)}
+		for _, target := range s.writeTimeMirrorTargets(cwd, source.Scope) {
+			if _, _, err := cleanupSuppressedPersonalMirrorRecord(target, record); err != nil {
+				return "", err
+			}
 		}
 		if err := removeSameNameDuplicateSource(source); err != nil {
 			return "", err

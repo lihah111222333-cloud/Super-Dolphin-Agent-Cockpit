@@ -1,19 +1,19 @@
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { CheckCircle2, Copy, File, FileText, Plus, RefreshCw, X } from 'lucide-react';
+import { CheckCircle2, File, FileText, Plus, X } from 'lucide-react';
 import {
   commitPromptIntent,
   deletePrompt,
   discardPromptIntent,
   draftPromptIntent,
-  getDashboardPrompts,
   getPreference,
-  getPrompt,
   listPromptAssets,
   setPreference,
   writePrompt,
 } from '../../shared/api/backendApi.js';
 
 const ACTIVE_PROMPT_PREF_KEY = 'settings.activePromptKey';
+const PROMPTS_REQUEST_TIMEOUT_MS = 8000;
 
 const PROMPT_TABS = Object.freeze([
   { key: 'all', label: '全部' },
@@ -43,6 +43,11 @@ const PROMPT_KIND_OPTIONS = Object.freeze([
 
 function textValue(value) {
   return value === null || value === undefined ? '' : value.toString().trim();
+}
+
+function optionalPromptCwd(value) {
+  const cwd = textValue(value);
+  return cwd && cwd !== '.' && cwd !== '未选择项目' ? cwd : '';
 }
 
 function firstText(...values) {
@@ -175,15 +180,6 @@ function trunc(value, max = 120) {
   return text.length > max ? `${text.slice(0, max)}...` : text;
 }
 
-function readonlyFallbackError(error) {
-  const status = Number(error?.status ?? error?.statusCode);
-  if (status === 404) return true;
-  if (error?.code === -32601 || Number(error?.code) === -32601) return true;
-  const name = textValue(error?.name).toLowerCase();
-  const code = textValue(error?.code).toLowerCase();
-  return name === 'notfounderror' || name === 'method_not_found' || code === 'method_not_found';
-}
-
 function wordListFromText(value) {
   return textValue(value)
     .split(/[，,;；\n]/)
@@ -275,85 +271,146 @@ function noticeText(error, prefix) {
   return `${prefix}：${message}`;
 }
 
-export function PromptPageView({ projectPath }) {
-  const cwd = textValue(projectPath);
-  const [items, setItems] = useState([]);
+function errorMessage(error) {
+  if (!error) return '';
+  return error?.message || String(error);
+}
+
+function withTimeout(promise, timeoutMs, message) {
+  let timeoutID;
+  const timeout = new Promise((_, reject) => {
+    timeoutID = globalThis.setTimeout(() => reject(new Error(message)), timeoutMs);
+  });
+  return Promise.race([promise, timeout]).finally(() => {
+    if (timeoutID) globalThis.clearTimeout(timeoutID);
+  });
+}
+
+function promptAssetsQueryKey(cwd) {
+  return ['dashboard', 'project', cwd, 'prompts'];
+}
+
+function activePromptQueryKey(cwd) {
+  return ['dashboard', 'project', cwd, 'active-prompt'];
+}
+
+async function fetchPromptAssetsSurface(cwd) {
+  const response = await withTimeout(
+    listPromptAssets({ cwd }),
+    PROMPTS_REQUEST_TIMEOUT_MS,
+    '提示词列表加载超时，请检查提示词目录或后端状态。',
+  );
+  return { items: normalizePromptList(response) };
+}
+
+async function fetchActivePromptId(cwd) {
+  const value = await withTimeout(
+    getPreference({ cwd, key: ACTIVE_PROMPT_PREF_KEY }),
+    PROMPTS_REQUEST_TIMEOUT_MS,
+    '强制提示词状态加载超时，请检查后端状态。',
+  );
+  return typeof value === 'string' ? value.trim() : '';
+}
+
+export function PromptPageView({ projectPath, refreshKey = 0, resolveLaunchPreferences }) {
+  const cwd = optionalPromptCwd(projectPath);
+  const isProjectPending = !cwd;
+  const queryClient = useQueryClient();
   const [activeTab, setActiveTab] = useState('all');
   const [scopeFilter, setScopeFilter] = useState('all');
   const [statusFilter, setStatusFilter] = useState('all');
-  const [activePromptId, setActivePromptId] = useState('');
-  const [loading, setLoading] = useState(false);
-  const [fallbackMode, setFallbackMode] = useState(false);
   const [notice, setNotice] = useState('');
-  const [error, setError] = useState('');
   const [actioning, setActioning] = useState('');
   const [editorOpen, setEditorOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [form, setForm] = useState(emptyPromptForm);
   const [wizardOpen, setWizardOpen] = useState(false);
   const [wizardDraft, setWizardDraft] = useState(null);
+  const promptRefreshKey = Number(refreshKey || 0);
 
-  const refreshPrompts = useCallback(async () => {
-    if (!cwd || cwd === '.' || cwd === '未选择项目') {
-      setItems([]);
-      setFallbackMode(true);
-      setError('当前作用域未确定，无法加载提示词');
-      return [];
-    }
-    setLoading(true);
-    setError('');
-    try {
-      const response = await listPromptAssets({ cwd });
-      const next = normalizePromptList(response);
-      setItems(next);
-      setFallbackMode(false);
-      return next;
-    } catch (err) {
-      if (readonlyFallbackError(err)) {
-        setFallbackMode(true);
-        const fallback = await getDashboardPrompts({ cwd });
-        const next = normalizePromptList(fallback);
-        setItems(next);
-        return next;
-      }
-      setItems([]);
-      setError(noticeText(err, '加载提示词失败'));
-      return [];
-    } finally {
-      setLoading(false);
-    }
-  }, [cwd]);
+  const promptAssetsQuery = useQuery({
+    queryKey: promptAssetsQueryKey(cwd),
+    queryFn: () => fetchPromptAssetsSurface(cwd),
+    enabled: Boolean(cwd),
+  });
+  const activePromptQuery = useQuery({
+    queryKey: activePromptQueryKey(cwd),
+    queryFn: () => fetchActivePromptId(cwd),
+    enabled: Boolean(cwd),
+  });
+  const refetchPromptAssets = promptAssetsQuery.refetch;
+  const refetchActivePrompt = activePromptQuery.refetch;
+  const items = useMemo(() => (
+    Array.isArray(promptAssetsQuery.data?.items) ? promptAssetsQuery.data.items : []
+  ), [promptAssetsQuery.data]);
+  const fallbackMode = Boolean(promptAssetsQuery.data?.fallbackMode);
+  const activePromptId = textValue(activePromptQuery.data);
+  const hasPromptSnapshot = Array.isArray(promptAssetsQuery.data?.items);
+  const loading = Boolean(cwd) && promptAssetsQuery.isPending && !hasPromptSnapshot;
+  const promptSyncError = promptAssetsQuery.error ? errorMessage(promptAssetsQuery.error) : '';
+  const activePromptSyncError = activePromptQuery.error ? errorMessage(activePromptQuery.error) : '';
+  const syncErrorMessage = [promptSyncError, activePromptSyncError].filter(Boolean).join('；');
+  const syncError = syncErrorMessage && hasPromptSnapshot
+    ? `同步失败，显示的是上次成功的数据：${syncErrorMessage}`
+    : '';
+  const error = promptSyncError && !hasPromptSnapshot
+    ? noticeText(promptAssetsQuery.error, '加载提示词失败')
+    : '';
+  const showBlockingError = Boolean(error);
 
-  const refreshActivePrompt = useCallback(async () => {
-    if (!cwd || cwd === '.' || cwd === '未选择项目') {
-      setActivePromptId('');
-      return '';
+  const refreshPromptSurface = useCallback(async (options = {}) => {
+    const isCancelled = typeof options.isCancelled === 'function' ? options.isCancelled : () => false;
+    if (!cwd) return [];
+    const [assetResult, activeResult] = await Promise.all([
+      refetchPromptAssets(),
+      refetchActivePrompt(),
+    ]);
+    const nextItems = Array.isArray(assetResult.data?.items) ? assetResult.data.items : [];
+    if (isCancelled()) return nextItems;
+    const nextActiveId = textValue(activeResult.data);
+    if (nextActiveId && !nextItems.some((item) => item.id === nextActiveId && canForceLaunchPrompt(item))) {
+      queryClient.setQueryData(activePromptQueryKey(cwd), '');
     }
-    try {
-      const value = await getPreference({ cwd, key: ACTIVE_PROMPT_PREF_KEY });
-      const next = typeof value === 'string' ? value.trim() : '';
-      setActivePromptId(next);
-      return next;
-    } catch {
-      setActivePromptId('');
-      return '';
-    }
+    return nextItems;
+  }, [cwd, queryClient, refetchActivePrompt, refetchPromptAssets]);
+
+  useEffect(() => {
+    setNotice('');
   }, [cwd]);
 
   useEffect(() => {
+    if (!cwd || !activePromptId || items.length === 0) return;
+    if (!items.some((item) => item.id === activePromptId && canForceLaunchPrompt(item))) {
+      queryClient.setQueryData(activePromptQueryKey(cwd), '');
+    }
+  }, [activePromptId, cwd, items, queryClient]);
+
+  useEffect(() => {
+    if (promptRefreshKey <= 0) return undefined;
     let cancelled = false;
-    refreshPrompts().then((nextItems) => {
-      if (cancelled) return;
-      refreshActivePrompt().then((activeId) => {
-        if (cancelled || !activeId || nextItems.length === 0) return;
-        const valid = nextItems.some((item) => item.id === activeId && canForceLaunchPrompt(item));
-        if (!valid) setActivePromptId('');
-      });
-    });
+    void refreshPromptSurface({ isCancelled: () => cancelled });
     return () => {
       cancelled = true;
     };
-  }, [refreshActivePrompt, refreshPrompts]);
+  }, [promptRefreshKey, refreshPromptSurface]);
+
+  useEffect(() => {
+    const runAutoRefresh = () => {
+      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
+      void refreshPromptSurface();
+    };
+    const handleVisibilityChange = () => {
+      if (typeof document === 'undefined' || document.visibilityState === 'visible') {
+        runAutoRefresh();
+      }
+    };
+    window.addEventListener('focus', runAutoRefresh);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => {
+      window.removeEventListener('focus', runAutoRefresh);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [refreshPromptSurface]);
 
   const counts = useMemo(() => promptCounts(items), [items]);
   const visibleItems = useMemo(
@@ -364,6 +421,10 @@ export function PromptPageView({ projectPath }) {
   const switchTab = (key) => {
     setActiveTab(key);
     setNotice('');
+  };
+
+  const retryPromptSync = () => {
+    void refreshPromptSurface({ force: true });
   };
 
   const openCreate = () => {
@@ -380,29 +441,6 @@ export function PromptPageView({ projectPath }) {
     setForm(promptFormFromItem(item));
     setEditorOpen(true);
     setNotice('');
-  };
-
-  const copyPrompt = async (item) => {
-    if (item.isPendingDraft) {
-      setNotice('这条草稿还在待确认，确认保存后才能复制内容');
-      return;
-    }
-    try {
-      const response = await getPrompt({ cwd, id: item.id });
-      const text = firstText(response?.prompt?.content, response?.prompt?.prompt_text, item.content).trim();
-      if (!text) {
-        setNotice('暂无可复制内容');
-        return;
-      }
-      if (!navigator?.clipboard?.writeText) {
-        setNotice('复制失败：当前环境不支持剪贴板');
-        return;
-      }
-      await navigator.clipboard.writeText(text);
-      setNotice('已复制提示词内容');
-    } catch (err) {
-      setNotice(noticeText(err, '复制失败'));
-    }
   };
 
   const savePrompt = async () => {
@@ -426,7 +464,7 @@ export function PromptPageView({ projectPath }) {
         enabled: form.enabled,
         scope: form.scope === 'global' ? 'global' : 'project',
       });
-      await refreshPrompts();
+      await refreshPromptSurface({ force: true });
       setEditorOpen(false);
       setNotice(`提示词已保存：${name}`);
     } catch (err) {
@@ -445,7 +483,7 @@ export function PromptPageView({ projectPath }) {
     setActioning(`delete:${item.id}`);
     try {
       await deletePrompt({ cwd, id: item.id, scope: item.scope === 'global' ? 'global' : 'project' });
-      await refreshPrompts();
+      await refreshPromptSurface({ force: true });
       setNotice(`已删除：${item.name}`);
     } catch (err) {
       setNotice(noticeText(err, '删除失败'));
@@ -459,7 +497,7 @@ export function PromptPageView({ projectPath }) {
     setActioning(`launch:${item.id}`);
     try {
       await setPreference({ cwd, key: ACTIVE_PROMPT_PREF_KEY, value: item.id });
-      setActivePromptId(item.id);
+      queryClient.setQueryData(activePromptQueryKey(cwd), item.id);
       setNotice(`已设为强制使用：${item.name}`);
     } catch (err) {
       setNotice(noticeText(err, '设置强制使用失败'));
@@ -473,7 +511,7 @@ export function PromptPageView({ projectPath }) {
     setActioning('launch:clear');
     try {
       await setPreference({ cwd, key: ACTIVE_PROMPT_PREF_KEY, value: '' });
-      setActivePromptId('');
+      queryClient.setQueryData(activePromptQueryKey(cwd), '');
       setNotice('已取消强制使用，新对话将使用默认路由');
     } catch (err) {
       setNotice(noticeText(err, '取消强制使用失败'));
@@ -494,7 +532,7 @@ export function PromptPageView({ projectPath }) {
     setActioning(`discard:${draftKey}`);
     try {
       await discardPromptIntent({ cwd, draftKey });
-      await refreshPrompts();
+      await refreshPromptSurface({ force: true });
       setNotice(`已丢弃：${item.name}`);
     } catch (err) {
       setNotice(noticeText(err, '丢弃失败'));
@@ -506,13 +544,13 @@ export function PromptPageView({ projectPath }) {
   const handleWizardSaved = async () => {
     setWizardOpen(false);
     setWizardDraft(null);
-    await refreshPrompts();
+    await refreshPromptSurface({ force: true });
     setNotice('已保存，可在新对话中被 AI 发现和使用');
   };
 
   return (
     <section className="console-page prompt-page">
-      <PageHeader title="AI 能力与资料" projectPath={cwd} onRefresh={refreshPrompts} loading={loading} />
+      <PageHeader title="AI 能力与资料" projectPath={cwd || projectPath} />
       <PromptTabs tabs={PROMPT_TABS} activeTab={activeTab} counts={counts} disabled={fallbackMode} onSwitch={switchTab} />
       <div className="prompt-filter-row">
         <PromptSegment title="范围" items={PROMPT_SCOPE_FILTERS} value={scopeFilter} disabled={fallbackMode} onChange={setScopeFilter} />
@@ -522,21 +560,30 @@ export function PromptPageView({ projectPath }) {
         <button type="button" onClick={openCreate} disabled={fallbackMode || !cwd}>
           <Plus size={15} /> + 添加给 AI 的内容
         </button>
-        <button type="button" className="ghost" onClick={refreshPrompts} disabled={loading}>
-          <RefreshCw size={15} /> {loading ? '加载中...' : '刷新'}
-        </button>
       </div>
+      {isProjectPending ? <div className="prompt-notice">正在连接本地项目...</div> : null}
       {fallbackMode ? <div className="prompt-notice warn">prompt-assets/list 暂不可用，页面已切换为只读模式。</div> : null}
-      {error ? <div className="prompt-notice error">{error}</div> : null}
+      {syncError ? (
+        <div className="prompt-notice error" role="alert">
+          <span>{syncError}</span>
+          <button type="button" className="ghost" onClick={retryPromptSync}>重试同步</button>
+        </div>
+      ) : null}
+      {error ? (
+        <div className="prompt-notice error" role="alert">
+          <span>{error}</span>
+          <button type="button" className="ghost" onClick={retryPromptSync}>重试同步</button>
+        </div>
+      ) : null}
       {loading ? <div className="prompt-loading">加载中...</div> : null}
-      {!loading && visibleItems.length === 0 ? (
+      {!isProjectPending && !loading && !showBlockingError && visibleItems.length === 0 ? (
         <div className="empty-state prompt-empty">
           <File size={30} />
           <h3>暂无内容</h3>
           <p>{activeTab === 'pending' ? '暂无待确认内容。' : '点击“添加给 AI 的内容”开始创建。'}</p>
         </div>
       ) : null}
-      {!loading && visibleItems.length > 0 ? (
+      {!isProjectPending && !loading && visibleItems.length > 0 ? (
         <div className="prompt-card-grid">
           {visibleItems.map((item, index) => (
             <PromptCard
@@ -546,7 +593,6 @@ export function PromptPageView({ projectPath }) {
               actioning={actioning}
               fallbackMode={fallbackMode}
               onEdit={openEdit}
-              onCopy={copyPrompt}
               onDelete={removePrompt}
               onSetLaunch={setLaunchPrompt}
               onClearLaunch={clearLaunchPrompt}
@@ -574,6 +620,7 @@ export function PromptPageView({ projectPath }) {
         <PromptIntentWizardModal
           cwd={cwd}
           initialDraft={wizardDraft}
+          resolveLaunchPreferences={resolveLaunchPreferences}
           onClose={() => {
             setWizardOpen(false);
             setWizardDraft(null);
@@ -585,16 +632,13 @@ export function PromptPageView({ projectPath }) {
   );
 }
 
-function PageHeader({ title, projectPath, onRefresh, loading }) {
+function PageHeader({ title, projectPath }) {
   return (
     <header className="prompt-header">
       <div>
         <h1><FileText size={25} /> {title}</h1>
         <p title={projectPath}>当前项目：{projectPath || '未知'}</p>
       </div>
-      <button type="button" onClick={onRefresh} disabled={loading} aria-label="刷新提示词">
-        <RefreshCw size={16} />
-      </button>
     </header>
   );
 }
@@ -640,7 +684,7 @@ function PromptSegment({ title, items, value, disabled, onChange }) {
 
 function PromptCard(props) {
   const {
-    item, active, actioning, fallbackMode, onEdit, onCopy, onDelete, onSetLaunch, onClearLaunch, onContinueDraft, onDiscardDraft,
+    item, active, actioning, fallbackMode, onEdit, onDelete, onSetLaunch, onClearLaunch, onContinueDraft, onDiscardDraft,
   } = props;
   const bucket = promptBucket(item);
   return (
@@ -673,7 +717,6 @@ function PromptCard(props) {
         ) : (
           <>
             <button type="button" onClick={() => onEdit(item)}>{fallbackMode ? '查看' : '编辑'}</button>
-            <button type="button" className="ghost" onClick={() => onCopy(item)}><Copy size={14} /> 复制</button>
             {active ? (
               <button type="button" className="ghost" disabled={actioning === 'launch:clear'} onClick={onClearLaunch}>取消强制</button>
             ) : canForceLaunchPrompt(item) ? (
@@ -744,7 +787,7 @@ function PromptEditorModal({ form, notice, saving, onChange, onClose, onSave }) 
   );
 }
 
-function PromptIntentWizardModal({ cwd, initialDraft, onClose, onSaved }) {
+function PromptIntentWizardModal({ cwd, initialDraft, resolveLaunchPreferences, onClose, onSaved }) {
   const [kind, setKind] = useState(initialDraft?.kind || 'expert');
   const [scope, setScope] = useState(initialDraft?.scope || 'project');
   const [rawInput, setRawInput] = useState('');
@@ -769,12 +812,18 @@ function PromptIntentWizardModal({ cwd, initialDraft, onClose, onSaved }) {
     setWorking('draft');
     setNotice('');
     try {
+      const launchPreferences = typeof resolveLaunchPreferences === 'function'
+        ? await resolveLaunchPreferences(cwd)
+        : null;
       const response = await draftPromptIntent({
         cwd,
         kind,
         rawInput: text,
         sourceType: 'user_input',
         scope,
+        provider: textValue(launchPreferences?.modelProvider || launchPreferences?.provider),
+        model: textValue(launchPreferences?.model),
+        codexModelProvider: textValue(launchPreferences?.config?.codexModelProvider),
       });
       setDraft(normalizeDraft(response, kind));
     } catch (err) {
