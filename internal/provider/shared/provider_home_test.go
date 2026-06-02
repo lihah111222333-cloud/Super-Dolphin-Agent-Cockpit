@@ -165,6 +165,34 @@ func TestProviderMirrorTargetsUsesCanonicalProjectRoot(t *testing.T) {
 	}
 }
 
+func TestProviderMirrorTargetsIgnoresInvalidParentGitMarker(t *testing.T) {
+	superHome := filepath.Join(t.TempDir(), "sd-home")
+	userHome := filepath.Join(t.TempDir(), "user-home")
+	t.Setenv(SuperDolphinHomeEnv, superHome)
+	t.Setenv("HOME", userHome)
+	t.Setenv("USERPROFILE", userHome)
+	parent := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(parent, ".git"), 0o755); err != nil {
+		t.Fatalf("MkdirAll invalid parent .git: %v", err)
+	}
+	project := filepath.Join(parent, "project")
+	if err := os.MkdirAll(project, 0o755); err != nil {
+		t.Fatalf("MkdirAll project: %v", err)
+	}
+
+	targets, err := ProviderMirrorTargets(ProviderCodex, project)
+	if err != nil {
+		t.Fatalf("ProviderMirrorTargets() error = %v", err)
+	}
+	wantProject, err := filepath.EvalSymlinks(project)
+	if err != nil {
+		t.Fatalf("EvalSymlinks project: %v", err)
+	}
+	if targets[1].SkillsRoot != filepath.Join(wantProject, ".agents", "skills") {
+		t.Fatalf("project skills = %q, want cwd-scoped mirror under %q", targets[1].SkillsRoot, wantProject)
+	}
+}
+
 func TestProviderMirrorTargetsUsesGitRootForSubdirCWD(t *testing.T) {
 	superHome := filepath.Join(t.TempDir(), "sd-home")
 	userHome := filepath.Join(t.TempDir(), "user-home")
@@ -175,6 +203,9 @@ func TestProviderMirrorTargetsUsesGitRootForSubdirCWD(t *testing.T) {
 	subdir := filepath.Join(project, "cmd", "agent-terminal")
 	if err := os.MkdirAll(filepath.Join(project, ".git"), 0o755); err != nil {
 		t.Fatalf("MkdirAll .git: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(project, ".git", "HEAD"), []byte("ref: refs/heads/main\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile .git/HEAD: %v", err)
 	}
 	if err := os.MkdirAll(subdir, 0o755); err != nil {
 		t.Fatalf("MkdirAll subdir: %v", err)
