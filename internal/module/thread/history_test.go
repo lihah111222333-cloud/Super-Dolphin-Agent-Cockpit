@@ -23,12 +23,12 @@ func TestReadMessagesSupportsTimestampCursorCompatibility(t *testing.T) {
 	session := &historyTestSession{
 		threadID: "thread-1",
 		messages: []dto.Message{
-			{Role: "user", Content: "m1", Timestamp: base.Add(1 * time.Minute)},
-			{Role: "assistant", Content: "m2", Timestamp: base.Add(2 * time.Minute)},
-			{Role: "user", Content: "m3", Timestamp: base.Add(3 * time.Minute)},
-			{Role: "assistant", Content: "m4", Timestamp: base.Add(4 * time.Minute)},
-			{Role: "user", Content: "m5", Timestamp: base.Add(5 * time.Minute)},
-			{Role: "assistant", Content: "m6", Timestamp: base.Add(6 * time.Minute)},
+			{ID: 1, Role: "user", Content: "m1", Timestamp: base.Add(1 * time.Minute)},
+			{ID: 2, Role: "assistant", Content: "m2", Timestamp: base.Add(2 * time.Minute)},
+			{ID: 3, Role: "user", Content: "m3", Timestamp: base.Add(3 * time.Minute)},
+			{ID: 4, Role: "assistant", Content: "m4", Timestamp: base.Add(4 * time.Minute)},
+			{ID: 5, Role: "user", Content: "m5", Timestamp: base.Add(5 * time.Minute)},
+			{ID: 6, Role: "assistant", Content: "m6", Timestamp: base.Add(6 * time.Minute)},
 		},
 	}
 	svc := NewService(
@@ -56,21 +56,115 @@ func TestReadMessagesSupportsTimestampCursorCompatibility(t *testing.T) {
 			{ID: 4, AgentID: "agent-1", Role: "assistant", EventType: "agent_message", Content: "m4", Timestamp: base.Add(4 * time.Minute)},
 			{ID: 3, AgentID: "agent-1", Role: "user", EventType: "", Content: "m3", Timestamp: base.Add(3 * time.Minute)},
 		},
-		Total: 6,
+		Total: 2,
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("ReadMessages() = %#v, want %#v", got, want)
 	}
-	if got := session.readCalls; len(got) != 1 {
-		t.Fatalf("read calls = %#v, want 1 call", got)
+	if got := session.readCalls; len(got) != 0 {
+		t.Fatalf("read calls = %#v, want no full-history reads", got)
 	}
-	if session.readCalls[0].Limit != 0 {
-		t.Fatalf("read limits = %#v, want [0]", session.readCalls)
+	if got := session.pageCalls; len(got) != 1 {
+		t.Fatalf("page calls = %#v, want 1 call", got)
 	}
-	for _, call := range session.readCalls {
+	for _, call := range session.pageCalls {
 		if call.ThreadID != "thread-1" {
-			t.Fatalf("read thread id = %q, want thread-1", call.ThreadID)
+			t.Fatalf("page thread id = %q, want thread-1", call.ThreadID)
 		}
+	}
+}
+
+func TestReadMessagesFirstPageUsesMessagePageReader(t *testing.T) {
+	t.Parallel()
+
+	session := &historyTestSession{
+		threadID: "thread-1",
+		messages: []dto.Message{
+			{Role: "user", Content: "m1"},
+			{Role: "assistant", Content: "m2"},
+			{Role: "user", Content: "m3"},
+			{Role: "assistant", Content: "m4"},
+		},
+		page: dto.MessagePageResult{
+			Messages: []dto.Message{
+				{Role: "user", Content: "m3"},
+				{Role: "assistant", Content: "m4"},
+			},
+			HasMore:    true,
+			NextBefore: "opaque-before-m3",
+		},
+	}
+	svc := NewService(
+		silentLogger(),
+		nil,
+		newHistoryTestBindingStore(&bindingstore.Binding{
+			AgentID:          "agent-1",
+			Provider:         "codex",
+			ProviderThreadID: "thread-1",
+			CodexThreadID:    "thread-1",
+		}),
+		&historyTestSessionProvider{sessions: map[string]contract.Session{"agent-1": session}},
+		nil,
+		nil,
+		nil,
+		nil,
+	)
+
+	got, err := svc.ReadMessages(context.Background(), "thread-1", 2, "")
+	if err != nil {
+		t.Fatalf("ReadMessages() error = %v", err)
+	}
+	requireMessageContents(t, got.Messages, []string{"m4", "m3"})
+	requireMessagesPageMetadata(t, got, true, "opaque-before-m3", 2)
+	requireNoReadHistoryCalls(t, session)
+	requireSinglePageCall(t, session, "thread-1", 2, "")
+}
+
+func requireMessageContents(t *testing.T, messages []dto.Message, want []string) {
+	t.Helper()
+	got := make([]string, 0, len(messages))
+	for _, msg := range messages {
+		got = append(got, msg.Content)
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("message contents = %#v, want %#v", got, want)
+	}
+}
+
+func requireMessagesPageMetadata(t *testing.T, got dto.ThreadMessagesResult, hasMore bool, nextBefore string, total int64) {
+	t.Helper()
+	if got.HasMore != hasMore {
+		t.Fatalf("hasMore = %v, want %v", got.HasMore, hasMore)
+	}
+	if got.NextBefore != nextBefore {
+		t.Fatalf("nextBefore = %q, want %q", got.NextBefore, nextBefore)
+	}
+	if got.Total != total {
+		t.Fatalf("total = %d, want %d", got.Total, total)
+	}
+}
+
+func requireNoReadHistoryCalls(t *testing.T, session *historyTestSession) {
+	t.Helper()
+	if len(session.readCalls) != 0 {
+		t.Fatalf("ReadHistory calls = %#v, want none", session.readCalls)
+	}
+}
+
+func requireSinglePageCall(t *testing.T, session *historyTestSession, threadID string, limit int, before string) {
+	t.Helper()
+	if len(session.pageCalls) != 1 {
+		t.Fatalf("ReadMessagesPage calls = %#v, want 1", session.pageCalls)
+	}
+	call := session.pageCalls[0]
+	if call.ThreadID != threadID {
+		t.Fatalf("ReadMessagesPage thread = %q, want %q", call.ThreadID, threadID)
+	}
+	if call.Request.Limit != limit {
+		t.Fatalf("ReadMessagesPage limit = %d, want %d", call.Request.Limit, limit)
+	}
+	if call.Request.Before != before {
+		t.Fatalf("ReadMessagesPage before = %q, want %q", call.Request.Before, before)
 	}
 }
 
@@ -419,12 +513,19 @@ type historyReadCall struct {
 	Limit    int
 }
 
+type historyPageCall struct {
+	ThreadID string
+	Request  dto.MessagePageRequest
+}
+
 type historyTestSession struct {
 	threadID   string
 	threads    []dto.ThreadRef
 	messages   []dto.Message
+	page       dto.MessagePageResult
 	forkResult dto.ForkResult
 	readCalls  []historyReadCall
+	pageCalls  []historyPageCall
 }
 
 func (s *historyTestSession) ThreadID() string    { return s.threadID }
@@ -463,6 +564,53 @@ func (s *historyTestSession) ReadHistory(_ context.Context, threadID string, lim
 	}
 	start := len(s.messages) - limit
 	return append([]dto.Message(nil), s.messages[start:]...), nil
+}
+
+func (s *historyTestSession) ReadMessagesPage(_ context.Context, threadID string, req dto.MessagePageRequest) (dto.MessagePageResult, error) {
+	s.pageCalls = append(s.pageCalls, historyPageCall{
+		ThreadID: strings.TrimSpace(threadID),
+		Request:  req,
+	})
+	if hasHistoryTestPage(s.page) {
+		return cloneHistoryTestPage(s.page), nil
+	}
+	messages, err := historyTestMessagesBefore(s.messages, req.Before)
+	if err != nil {
+		return dto.MessagePageResult{}, err
+	}
+	if req.Limit > 0 && len(messages) > req.Limit {
+		messages = messages[len(messages)-req.Limit:]
+	}
+	return dto.MessagePageResult{Messages: messages}, nil
+}
+
+func hasHistoryTestPage(page dto.MessagePageResult) bool {
+	return len(page.Messages) != 0 || page.HasMore || page.NextBefore != ""
+}
+
+func cloneHistoryTestPage(page dto.MessagePageResult) dto.MessagePageResult {
+	page.Messages = append([]dto.Message(nil), page.Messages...)
+	return page
+}
+
+func historyTestMessagesBefore(messages []dto.Message, before string) ([]dto.Message, error) {
+	out := append([]dto.Message(nil), messages...)
+	if before == "" {
+		return out, nil
+	}
+	cutoff, err := parseBeforeCursor(before)
+	if err != nil {
+		return nil, err
+	}
+	out = paginateMessagesBeforeTime(out, len(out), cutoff)
+	reverseHistoryTestMessages(out)
+	return out, nil
+}
+
+func reverseHistoryTestMessages(messages []dto.Message) {
+	for i, j := 0, len(messages)-1; i < j; i, j = i+1, j-1 {
+		messages[i], messages[j] = messages[j], messages[i]
+	}
 }
 
 func (s *historyTestSession) Configure(context.Context, dto.ThreadConfigPatch) error { return nil }

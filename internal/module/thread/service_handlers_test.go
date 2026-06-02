@@ -413,8 +413,10 @@ func TestNewThreadHandlersDispatchMessagesReturnsEnvelope(t *testing.T) {
 
 	stub := &stubThreadService{
 		readMessagesResult: dto.ThreadMessagesResult{
-			Messages: []dto.Message{{ID: 2, AgentID: "thread-1", Role: "assistant", EventType: "agent_message", Content: "world"}},
-			Total:    7,
+			Messages:   []dto.Message{{ID: 2, AgentID: "thread-1", Role: "assistant", EventType: "agent_message", Content: "world"}},
+			Total:      7,
+			HasMore:    true,
+			NextBefore: "opaque-cursor",
 		},
 	}
 	server := newThreadTestServer(stub)
@@ -426,11 +428,33 @@ func TestNewThreadHandlersDispatchMessagesReturnsEnvelope(t *testing.T) {
 	if err := json.Unmarshal(raw, &got); err != nil {
 		t.Fatalf("Unmarshal(thread/messages) error = %v", err)
 	}
-	if got.Total != 7 || len(got.Messages) != 1 || got.Messages[0].ID != 2 {
-		t.Fatalf("Dispatch(thread/messages) = %#v", got)
+	requireThreadMessagesEnvelope(t, got)
+	requireThreadMessagesDispatchCall(t, stub, "thread-1", 2, "3")
+}
+
+func requireThreadMessagesEnvelope(t *testing.T, got dto.ThreadMessagesResult) {
+	t.Helper()
+	if got.Total != 7 {
+		t.Fatalf("total = %d, want 7", got.Total)
 	}
-	if stub.readMessagesThread != "thread-1" || stub.readMessagesLimit != 2 || stub.readMessagesBefore != "3" {
-		t.Fatalf("ReadMessages call = (%q, %d, %q)", stub.readMessagesThread, stub.readMessagesLimit, stub.readMessagesBefore)
+	if !got.HasMore || got.NextBefore != "opaque-cursor" {
+		t.Fatalf("page metadata = hasMore:%v nextBefore:%q", got.HasMore, got.NextBefore)
+	}
+	if len(got.Messages) != 1 || got.Messages[0].ID != 2 {
+		t.Fatalf("messages = %#v, want id 2", got.Messages)
+	}
+}
+
+func requireThreadMessagesDispatchCall(t *testing.T, stub *stubThreadService, threadID string, limit int, before string) {
+	t.Helper()
+	if stub.readMessagesThread != threadID {
+		t.Fatalf("ReadMessages thread = %q, want %q", stub.readMessagesThread, threadID)
+	}
+	if stub.readMessagesLimit != limit {
+		t.Fatalf("ReadMessages limit = %d, want %d", stub.readMessagesLimit, limit)
+	}
+	if stub.readMessagesBefore != before {
+		t.Fatalf("ReadMessages before = %q, want %q", stub.readMessagesBefore, before)
 	}
 }
 

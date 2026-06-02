@@ -109,6 +109,87 @@ func TestReadMessagesReadsPersistedHistoryWithoutLiveSession(t *testing.T) {
 	}
 }
 
+func TestReadMessagesPersistedPagesKeepStableIDsAcrossBeforeCursor(t *testing.T) {
+	t.Parallel()
+
+	svc := newPersistedMessagesPageService(t, []string{"one", "two", "three", "four"})
+	first, err := svc.ReadMessages(context.Background(), "thread-1", 2, "")
+	if err != nil {
+		t.Fatalf("ReadMessages(first) error = %v", err)
+	}
+	if !first.HasMore || first.NextBefore == "" {
+		t.Fatalf("first page metadata = hasMore:%v nextBefore:%q, want cursor", first.HasMore, first.NextBefore)
+	}
+	second, err := svc.ReadMessages(context.Background(), "thread-1", 2, first.NextBefore)
+	if err != nil {
+		t.Fatalf("ReadMessages(second) error = %v", err)
+	}
+	requireReadMessagesContents(t, first.Messages, []string{"four", "three"})
+	requireReadMessagesContents(t, second.Messages, []string{"two", "one"})
+	requireReadMessagesIDsDoNotOverlap(t, first.Messages, second.Messages)
+}
+
+func newPersistedMessagesPageService(t *testing.T, contents []string) Service {
+	t.Helper()
+	dir := t.TempDir()
+	rolloutPath := filepath.Join(dir, "rollout-demo-thread.jsonl")
+	raw := ""
+	for _, content := range contents {
+		raw += "{\"timestamp\":\"2026-03-21T01:02:03Z\",\"type\":\"response_item\",\"payload\":{\"type\":\"message\",\"role\":\"assistant\",\"content\":[{\"type\":\"output_text\",\"text\":\"" + content + "\"}]}}\n"
+	}
+	if err := os.WriteFile(rolloutPath, []byte(raw), 0o600); err != nil {
+		t.Fatalf("os.WriteFile() error = %v", err)
+	}
+	return NewService(
+		silentLogger(),
+		&historyTestThreadStore{threads: map[string]threadstore.Thread{
+			"thread-1": {ThreadID: "thread-1", AgentID: "agent-1", Prompt: "demo"},
+		}},
+		newHistoryTestBindingStore(&bindingstore.Binding{
+			AgentID:          "agent-1",
+			Provider:         "codex",
+			ProviderThreadID: "provider-thread-1",
+			CodexThreadID:    "thread-1",
+			RolloutPath:      rolloutPath,
+		}),
+		&historyTestSessionProvider{},
+		nil,
+		nil,
+		nil,
+		nil,
+	)
+}
+
+func requireReadMessagesContents(t *testing.T, messages []dto.Message, want []string) {
+	t.Helper()
+	got := make([]string, 0, len(messages))
+	for _, msg := range messages {
+		got = append(got, msg.Content)
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("message contents = %#v, want %#v", got, want)
+	}
+}
+
+func requireReadMessagesIDsDoNotOverlap(t *testing.T, first, second []dto.Message) {
+	t.Helper()
+	seen := make(map[int64]string, len(first))
+	for _, msg := range first {
+		if msg.ID == 0 {
+			t.Fatalf("first page message %q has zero ID", msg.Content)
+		}
+		seen[msg.ID] = msg.Content
+	}
+	for _, msg := range second {
+		if msg.ID == 0 {
+			t.Fatalf("second page message %q has zero ID", msg.Content)
+		}
+		if previous, ok := seen[msg.ID]; ok {
+			t.Fatalf("message ID %d reused by %q and %q", msg.ID, previous, msg.Content)
+		}
+	}
+}
+
 func TestReadMessagesFailsFastWithoutSessionOrPersistedHistory(t *testing.T) {
 	t.Parallel()
 
