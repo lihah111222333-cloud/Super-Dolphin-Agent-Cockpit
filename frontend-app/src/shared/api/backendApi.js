@@ -26,6 +26,7 @@ export const RPC_METHODS = Object.freeze({
   UI_LOG: 'ui/log',
   OBSERVABILITY_TRACE_GET: 'observability/trace/get',
   OBSERVABILITY_THREAD_RECENT: 'observability/thread/recent',
+  OBSERVABILITY_RECENT_LIST: 'observability/recent/list',
   OBSERVABILITY_SLOW_LIST: 'observability/slow/list',
   OBSERVABILITY_ERROR_LIST: 'observability/error/list',
   OBSERVABILITY_STATUS: 'observability/status',
@@ -218,6 +219,20 @@ function observabilityThreadPayload(method, params) {
 function observabilityListPayload(method, params = {}) {
   const payload = assertPlainObject(method, params);
   return cleanObject({ limit: normalizeOptionalLimit(method, payload), component: normalizeString(payload.component) });
+}
+
+function observabilityRecentPayload(method, params = {}) {
+  const payload = assertPlainObject(method, params);
+  return cleanObject({
+    limit: normalizeOptionalLimit(method, payload),
+    status: normalizeString(payload.status),
+    component: normalizeString(payload.component),
+    method: normalizeString(payload.method),
+    traceId: normalizeString(payload.traceId || payload.trace_id),
+    threadId: normalizeString(payload.threadId || payload.thread_id),
+    agentId: normalizeString(payload.agentId || payload.agent_id),
+    keyword: normalizeString(payload.keyword),
+  });
 }
 
 function legacyThreadNamePayload(method, params) {
@@ -598,6 +613,7 @@ export function createBackendApi(deps = {}) {
     ),
     getObservabilityTrace: (params) => callBackend(RPC_METHODS.OBSERVABILITY_TRACE_GET, observabilityTracePayload(RPC_METHODS.OBSERVABILITY_TRACE_GET, params)),
     getObservabilityThreadRecent: (params) => callBackend(RPC_METHODS.OBSERVABILITY_THREAD_RECENT, observabilityThreadPayload(RPC_METHODS.OBSERVABILITY_THREAD_RECENT, params)),
+    listObservabilityRecent: (params = {}) => callBackend(RPC_METHODS.OBSERVABILITY_RECENT_LIST, observabilityRecentPayload(RPC_METHODS.OBSERVABILITY_RECENT_LIST, params)),
     listObservabilitySlow: (params = {}) => callBackend(RPC_METHODS.OBSERVABILITY_SLOW_LIST, observabilityListPayload(RPC_METHODS.OBSERVABILITY_SLOW_LIST, params)),
     listObservabilityErrors: (params = {}) => callBackend(RPC_METHODS.OBSERVABILITY_ERROR_LIST, observabilityListPayload(RPC_METHODS.OBSERVABILITY_ERROR_LIST, params)),
     getObservabilityStatus: () => callBackend(RPC_METHODS.OBSERVABILITY_STATUS, {}),
@@ -905,6 +921,7 @@ export const setPreference = backendApi.setPreference;
 export const getDashboardPage = backendApi.getDashboardPage;
 export const getObservabilityTrace = backendApi.getObservabilityTrace;
 export const getObservabilityThreadRecent = backendApi.getObservabilityThreadRecent;
+export const listObservabilityRecent = backendApi.listObservabilityRecent;
 export const listObservabilitySlow = backendApi.listObservabilitySlow;
 export const listObservabilityErrors = backendApi.listObservabilityErrors;
 export const getObservabilityStatus = backendApi.getObservabilityStatus;

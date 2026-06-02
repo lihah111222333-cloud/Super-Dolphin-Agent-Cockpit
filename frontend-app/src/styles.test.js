@@ -191,6 +191,18 @@ describe('composer layout styles', () => {
     expect(svg['max-width']).toBe('100%');
   });
 
+  it('keeps observability system log cards from being flex-shrunk and clipped', () => {
+    const systemLog = declarationsFor('.observability-system-log');
+    const logTable = declarationsFor('.observability-log-table');
+    const logHead = declarationsFor('.observability-log-table-head');
+
+    expect(systemLog['flex-shrink']).toBe('0');
+    expect(systemLog.overflow).toBe('visible');
+    expect(logTable['max-height']).toBe('min(560px, calc(100vh - 320px))');
+    expect(logTable.overflow).toBe('auto');
+    expect(logHead['grid-template-columns']).toContain('minmax(168px');
+  });
+
   it('styles AI reasoning traces with theme tokens and shrink-safe text', () => {
     const message = declarationsFor('.reasoning-message');
     const adjacentMessage = declarationsFor('.reasoning-message + .reasoning-message');
