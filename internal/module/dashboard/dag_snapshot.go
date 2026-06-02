@@ -1,0 +1,475 @@
+package dashboard
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"math"
+	"strconv"
+	"strings"
+	"time"
+
+	"github.com/anthropic-ai/super-agent-v3/internal/contract"
+)
+
+const (
+	dashboardListDAGsSnapshotQuery = `
+SELECT id, dag_key, version, title, description, status, created_by, metadata,
+       trigger, cron_expr, next_run_at, started_at, finished_at, created_at, updated_at
+FROM task_dags
+WHERE ($1::text = '' OR status = $1)
+  AND ($2::text = ''
+    OR dag_key ILIKE '%' || $2 || '%'
+    OR title ILIKE '%' || $2 || '%'
+    OR description ILIKE '%' || $2 || '%')
+ORDER BY updated_at DESC, id DESC
+LIMIT $3`
+	dashboardGetDAGSnapshotQuery = `
+SELECT id, dag_key, version, title, description, status, created_by, metadata,
+       trigger, cron_expr, next_run_at, started_at, finished_at, created_at, updated_at
+FROM task_dags
+WHERE dag_key = $1
+LIMIT 1`
+	dashboardListTemplateNodesSnapshotQuery = `
+SELECT id, dag_key, node_key, title, node_type, assigned_to, depends_on, status,
+       command_ref, config, result, run_id, started_at, finished_at, created_at,
+       updated_at, active_turn_id, active_wakeup_id, last_event_at, spawning_thread_id
+FROM task_dag_nodes
+WHERE dag_key = $1 AND run_id IS NULL
+ORDER BY id ASC`
+	dashboardListRunNodesSnapshotQuery = `
+SELECT id, dag_key, node_key, title, node_type, assigned_to, depends_on, status,
+       command_ref, config, result, run_id, started_at, finished_at, created_at,
+       updated_at, active_turn_id, active_wakeup_id, last_event_at, spawning_thread_id
+FROM task_dag_nodes
+WHERE dag_key = $1 AND run_id = $2
+ORDER BY id ASC`
+	dashboardListRunsSnapshotQuery = `
+SELECT id, run_key, dag_key, dag_version_snapshot, trigger_source, status,
+       started_at, finished_at, events, budget_used, budget_limit, metadata,
+       created_at, updated_at
+FROM task_dag_runs
+WHERE dag_key = $1 AND ($2::text = '' OR status = $2)
+ORDER BY started_at DESC, id DESC
+LIMIT $3`
+	dashboardGetRunSnapshotQuery = `
+SELECT id, run_key, dag_key, dag_version_snapshot, trigger_source, status,
+       started_at, finished_at, events, budget_used, budget_limit, metadata,
+       created_at, updated_at
+FROM task_dag_runs
+WHERE run_key = $1
+LIMIT 1`
+)
+
+func (s *service) hasDAGSnapshotQueries() bool {
+	return s != nil && s.dbQueries != nil
+}
+
+func (s *service) listDAGsFromSnapshot(ctx context.Context, filter contract.ListDAGsFilter) ([]contract.DAGSummary, error) {
+	rows, err := s.dbQueries.Query(ctx, dashboardListDAGsSnapshotQuery, filter.Status, filter.Keyword, filter.Limit)
+	if err != nil {
+		return nil, err
+	}
+	return dashboardDAGSummariesFromRows(rows)
+}
+
+func (s *service) getDAGDetailFromSnapshot(ctx context.Context, dagKey string) (*contract.DAGDetail, error) {
+	rows, err := s.dbQueries.Query(ctx, dashboardGetDAGSnapshotQuery, dagKey)
+	if err != nil {
+		return nil, err
+	}
+	if len(rows) == 0 {
+		return nil, fmt.Errorf("dashboard: dag %q not found", dagKey)
+	}
+	dag, err := dashboardDAGSummaryFromRow(rows[0])
+	if err != nil {
+		return nil, err
+	}
+	nodeRows, err := s.dbQueries.Query(ctx, dashboardListTemplateNodesSnapshotQuery, dagKey)
+	if err != nil {
+		return nil, err
+	}
+	nodes, err := dashboardDAGNodesFromRows(nodeRows)
+	if err != nil {
+		return nil, err
+	}
+	return &contract.DAGDetail{DAG: dag, Nodes: nodes}, nil
+}
+
+func (s *service) listDAGRunsFromSnapshot(ctx context.Context, dagKey, status string, limit int32) ([]contract.Run, error) {
+	rows, err := s.dbQueries.Query(ctx, dashboardListRunsSnapshotQuery, dagKey, status, limit)
+	if err != nil {
+		return nil, err
+	}
+	return dashboardRunsFromRows(rows)
+}
+
+func (s *service) getDAGRunFromSnapshot(ctx context.Context, runKey string) (contract.GetRunResponse, error) {
+	rows, err := s.dbQueries.Query(ctx, dashboardGetRunSnapshotQuery, runKey)
+	if err != nil {
+		return contract.GetRunResponse{}, err
+	}
+	if len(rows) == 0 {
+		return contract.GetRunResponse{}, fmt.Errorf("dashboard: dag run %q not found", runKey)
+	}
+	run, err := dashboardRunFromRow(rows[0])
+	if err != nil {
+		return contract.GetRunResponse{}, err
+	}
+	nodeRows, err := s.dbQueries.Query(ctx, dashboardListRunNodesSnapshotQuery, run.DagKey, run.ID)
+	if err != nil {
+		return contract.GetRunResponse{}, err
+	}
+	nodes, err := dashboardDAGNodesFromRows(nodeRows)
+	if err != nil {
+		return contract.GetRunResponse{}, err
+	}
+	return contract.GetRunResponse{Run: run, Nodes: nodes}, nil
+}
+
+func dashboardDAGSummariesFromRows(rows []map[string]any) ([]contract.DAGSummary, error) {
+	out := make([]contract.DAGSummary, 0, len(rows))
+	for index, row := range rows {
+		item, err := dashboardDAGSummaryFromRow(row)
+		if err != nil {
+			return nil, fmt.Errorf("dashboard: map dag row %d: %w", index, err)
+		}
+		out = append(out, item)
+	}
+	return out, nil
+}
+
+func dashboardDAGSummaryFromRow(row map[string]any) (contract.DAGSummary, error) {
+	id, err := dashboardRowInt64(row, "id", true)
+	if err != nil {
+		return contract.DAGSummary{}, err
+	}
+	dagKey, err := dashboardRequiredRowString(row, "dag_key")
+	if err != nil {
+		return contract.DAGSummary{}, err
+	}
+	version, err := dashboardRowInt64(row, "version", true)
+	if err != nil {
+		return contract.DAGSummary{}, err
+	}
+	createdAt, err := dashboardRowTime(row, "created_at", true)
+	if err != nil {
+		return contract.DAGSummary{}, err
+	}
+	updatedAt, err := dashboardRowTime(row, "updated_at", true)
+	if err != nil {
+		return contract.DAGSummary{}, err
+	}
+	return contract.DAGSummary{
+		ID:          id,
+		DagKey:      dagKey,
+		Version:     version,
+		Title:       dashboardString(row, "title"),
+		Description: dashboardString(row, "description"),
+		Status:      dashboardString(row, "status"),
+		CreatedBy:   dashboardString(row, "created_by"),
+		Metadata:    dashboardJSON(row, "metadata"),
+		Trigger:     dashboardString(row, "trigger"),
+		CronExpr:    dashboardString(row, "cron_expr"),
+		NextRunAt:   dashboardOptionalTime(row, "next_run_at"),
+		StartedAt:   dashboardOptionalTime(row, "started_at"),
+		FinishedAt:  dashboardOptionalTime(row, "finished_at"),
+		CreatedAt:   createdAt,
+		UpdatedAt:   updatedAt,
+	}, nil
+}
+
+func dashboardDAGNodesFromRows(rows []map[string]any) ([]contract.DAGNode, error) {
+	out := make([]contract.DAGNode, 0, len(rows))
+	for index, row := range rows {
+		item, err := dashboardDAGNodeFromRow(row)
+		if err != nil {
+			return nil, fmt.Errorf("dashboard: map dag node row %d: %w", index, err)
+		}
+		out = append(out, item)
+	}
+	return out, nil
+}
+
+func dashboardDAGNodeFromRow(row map[string]any) (contract.DAGNode, error) {
+	id, err := dashboardRowInt64(row, "id", true)
+	if err != nil {
+		return contract.DAGNode{}, err
+	}
+	dagKey, err := dashboardRequiredRowString(row, "dag_key")
+	if err != nil {
+		return contract.DAGNode{}, err
+	}
+	nodeKey, err := dashboardRequiredRowString(row, "node_key")
+	if err != nil {
+		return contract.DAGNode{}, err
+	}
+	dependsOn, err := dashboardStringSlice(row, "depends_on")
+	if err != nil {
+		return contract.DAGNode{}, err
+	}
+	createdAt, err := dashboardRowTime(row, "created_at", true)
+	if err != nil {
+		return contract.DAGNode{}, err
+	}
+	updatedAt, err := dashboardRowTime(row, "updated_at", true)
+	if err != nil {
+		return contract.DAGNode{}, err
+	}
+	activeWakeupID, err := dashboardOptionalInt64Ptr(row, "active_wakeup_id")
+	if err != nil {
+		return contract.DAGNode{}, err
+	}
+	return contract.DAGNode{
+		ID:               id,
+		DagKey:           dagKey,
+		NodeKey:          nodeKey,
+		Title:            dashboardString(row, "title"),
+		NodeType:         dashboardString(row, "node_type"),
+		AssignedTo:       dashboardString(row, "assigned_to"),
+		DependsOn:        dependsOn,
+		Status:           dashboardString(row, "status"),
+		CommandRef:       dashboardString(row, "command_ref"),
+		Config:           dashboardJSON(row, "config"),
+		Result:           dashboardJSON(row, "result"),
+		StartedAt:        dashboardOptionalTime(row, "started_at"),
+		FinishedAt:       dashboardOptionalTime(row, "finished_at"),
+		CreatedAt:        createdAt,
+		UpdatedAt:        updatedAt,
+		ActiveTurnID:     dashboardStringPtr(row, "active_turn_id"),
+		ActiveWakeupID:   activeWakeupID,
+		LastEventAt:      dashboardOptionalTime(row, "last_event_at"),
+		SpawningThreadID: dashboardStringPtr(row, "spawning_thread_id"),
+	}, nil
+}
+
+func dashboardRunsFromRows(rows []map[string]any) ([]contract.Run, error) {
+	out := make([]contract.Run, 0, len(rows))
+	for index, row := range rows {
+		item, err := dashboardRunFromRow(row)
+		if err != nil {
+			return nil, fmt.Errorf("dashboard: map dag run row %d: %w", index, err)
+		}
+		out = append(out, item)
+	}
+	return out, nil
+}
+
+func dashboardRunFromRow(row map[string]any) (contract.Run, error) {
+	id, err := dashboardRowInt64(row, "id", true)
+	if err != nil {
+		return contract.Run{}, err
+	}
+	version, err := dashboardRowInt64(row, "dag_version_snapshot", true)
+	if err != nil {
+		return contract.Run{}, err
+	}
+	budgetUsed, err := dashboardRowInt64(row, "budget_used", true)
+	if err != nil {
+		return contract.Run{}, err
+	}
+	runKey, err := dashboardRequiredRowString(row, "run_key")
+	if err != nil {
+		return contract.Run{}, err
+	}
+	dagKey, err := dashboardRequiredRowString(row, "dag_key")
+	if err != nil {
+		return contract.Run{}, err
+	}
+	startedAt, err := dashboardRowTime(row, "started_at", true)
+	if err != nil {
+		return contract.Run{}, err
+	}
+	createdAt, err := dashboardRowTime(row, "created_at", true)
+	if err != nil {
+		return contract.Run{}, err
+	}
+	updatedAt, err := dashboardRowTime(row, "updated_at", true)
+	if err != nil {
+		return contract.Run{}, err
+	}
+	budgetLimit, err := dashboardOptionalInt64Ptr(row, "budget_limit")
+	if err != nil {
+		return contract.Run{}, err
+	}
+	return contract.Run{
+		ID:                 id,
+		RunKey:             runKey,
+		DagKey:             dagKey,
+		DagVersionSnapshot: version,
+		TriggerSource:      dashboardString(row, "trigger_source"),
+		Status:             dashboardString(row, "status"),
+		StartedAt:          startedAt,
+		FinishedAt:         dashboardOptionalTime(row, "finished_at"),
+		Events:             dashboardJSONOrDefault(row, "events", json.RawMessage("[]")),
+		BudgetUsed:         budgetUsed,
+		BudgetLimit:        budgetLimit,
+		Metadata:           dashboardJSONOrDefault(row, "metadata", json.RawMessage("{}")),
+		CreatedAt:          createdAt,
+		UpdatedAt:          updatedAt,
+	}, nil
+}
+
+func dashboardRequiredRowString(row map[string]any, key string) (string, error) {
+	value := strings.TrimSpace(dashboardString(row, key))
+	if value == "" {
+		return "", fmt.Errorf("%s is required", key)
+	}
+	return value, nil
+}
+
+func dashboardString(row map[string]any, key string) string {
+	value := row[key]
+	switch typed := value.(type) {
+	case nil:
+		return ""
+	case string:
+		return typed
+	case []byte:
+		return string(typed)
+	default:
+		return fmt.Sprint(typed)
+	}
+}
+
+func dashboardStringPtr(row map[string]any, key string) *string {
+	value := strings.TrimSpace(dashboardString(row, key))
+	if value == "" {
+		return nil
+	}
+	return &value
+}
+
+func dashboardJSON(row map[string]any, key string) json.RawMessage {
+	return dashboardJSONOrDefault(row, key, nil)
+}
+
+func dashboardJSONOrDefault(row map[string]any, key string, fallback json.RawMessage) json.RawMessage {
+	value, ok := row[key]
+	if !ok || value == nil {
+		return append(json.RawMessage(nil), fallback...)
+	}
+	switch typed := value.(type) {
+	case json.RawMessage:
+		return append(json.RawMessage(nil), typed...)
+	case []byte:
+		return append(json.RawMessage(nil), typed...)
+	case string:
+		return json.RawMessage(strings.TrimSpace(typed))
+	default:
+		raw, err := json.Marshal(typed)
+		if err != nil {
+			return append(json.RawMessage(nil), fallback...)
+		}
+		return raw
+	}
+}
+
+func dashboardStringSlice(row map[string]any, key string) ([]string, error) {
+	raw := dashboardJSONOrDefault(row, key, json.RawMessage("[]"))
+	if len(raw) == 0 {
+		return []string{}, nil
+	}
+	var values []string
+	if err := json.Unmarshal(raw, &values); err != nil {
+		return nil, fmt.Errorf("%s: %w", key, err)
+	}
+	if values == nil {
+		values = []string{}
+	}
+	return values, nil
+}
+
+func dashboardRowInt64(row map[string]any, key string, required bool) (int64, error) {
+	value, ok := row[key]
+	if !ok || value == nil {
+		if required {
+			return 0, fmt.Errorf("%s is required", key)
+		}
+		return 0, nil
+	}
+	return dashboardInt64Value(key, value)
+}
+
+func dashboardInt64Value(key string, value any) (int64, error) {
+	switch typed := value.(type) {
+	case int:
+		return int64(typed), nil
+	case int32:
+		return int64(typed), nil
+	case int64:
+		return typed, nil
+	case float64:
+		if math.Trunc(typed) != typed {
+			return 0, fmt.Errorf("%s must be an integer", key)
+		}
+		return int64(typed), nil
+	case *int64:
+		if typed == nil {
+			return 0, nil
+		}
+		return *typed, nil
+	case string:
+		parsed, err := strconv.ParseInt(strings.TrimSpace(typed), 10, 64)
+		if err != nil {
+			return 0, fmt.Errorf("%s: %w", key, err)
+		}
+		return parsed, nil
+	default:
+		return 0, fmt.Errorf("%s has unsupported type %T", key, value)
+	}
+}
+
+func dashboardOptionalInt64Ptr(row map[string]any, key string) (*int64, error) {
+	if value, ok := row[key]; !ok || value == nil {
+		return nil, nil
+	}
+	value, err := dashboardRowInt64(row, key, false)
+	if err != nil {
+		return nil, err
+	}
+	return &value, nil
+}
+
+func dashboardRowTime(row map[string]any, key string, required bool) (time.Time, error) {
+	ptr, err := dashboardRowTimePtr(row, key, required)
+	if err != nil {
+		return time.Time{}, err
+	}
+	if ptr == nil {
+		return time.Time{}, nil
+	}
+	return *ptr, nil
+}
+
+func dashboardOptionalTime(row map[string]any, key string) *time.Time {
+	value, err := dashboardRowTimePtr(row, key, false)
+	if err != nil {
+		return nil
+	}
+	return value
+}
+
+func dashboardRowTimePtr(row map[string]any, key string, required bool) (*time.Time, error) {
+	value, ok := row[key]
+	if !ok || value == nil {
+		if required {
+			return nil, fmt.Errorf("%s is required", key)
+		}
+		return nil, nil
+	}
+	switch typed := value.(type) {
+	case time.Time:
+		return &typed, nil
+	case *time.Time:
+		return typed, nil
+	case string:
+		parsed, err := time.Parse(time.RFC3339Nano, strings.TrimSpace(typed))
+		if err != nil {
+			return nil, fmt.Errorf("%s: %w", key, err)
+		}
+		return &parsed, nil
+	default:
+		return nil, fmt.Errorf("%s has unsupported type %T", key, value)
+	}
+}

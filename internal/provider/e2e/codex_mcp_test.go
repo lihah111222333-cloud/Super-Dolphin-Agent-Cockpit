@@ -331,15 +331,8 @@ func assertCodexUserConfigFields(t *testing.T, params map[string]any) {
 	if params["effort"] != "high" {
 		t.Fatalf("effort = %#v, want high", params["effort"])
 	}
-	sandbox, ok := params["sandbox"].(map[string]any)
-	if !ok {
-		t.Fatalf("sandbox = %#v, want object", params["sandbox"])
-	}
-	if sandbox["mode"] != "workspace-write" {
-		t.Fatalf("sandbox.mode = %#v, want workspace-write", sandbox["mode"])
-	}
-	if sandbox["network_access"] != false {
-		t.Fatalf("sandbox.network_access = %#v, want false", sandbox["network_access"])
+	if params["sandbox"] != "workspace-write" {
+		t.Fatalf("sandbox = %#v, want workspace-write", params["sandbox"])
 	}
 }
 

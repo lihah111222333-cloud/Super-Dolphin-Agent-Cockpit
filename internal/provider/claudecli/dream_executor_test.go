@@ -83,6 +83,23 @@ func TestClaudeDreamExecutor_ModelEnvAddsArgs(t *testing.T) {
 	}
 }
 
+func TestClaudeDreamExecutor_RequestModelOverridesEnvModel(t *testing.T) {
+	c := &capturingCommander{outputs: []string{`{"memories":[]}`}}
+	exec := newDreamExecutor(c, "claude", "env-model")
+	if _, err := exec.ExecuteDreamWithOptions(context.Background(), "p", contract.DreamOptions{Model: "request-model"}); err != nil {
+		t.Fatalf("expected success, got %v", err)
+	}
+	want := []string{"-p", "--output-format", "json", "--model", "request-model"}
+	if len(c.lastArgs) != len(want) {
+		t.Fatalf("args: got %v, want %v", c.lastArgs, want)
+	}
+	for i, a := range want {
+		if c.lastArgs[i] != a {
+			t.Fatalf("args[%d]: got %q, want %q", i, c.lastArgs[i], a)
+		}
+	}
+}
+
 // TestClaudeDreamExecutor_EnvelopeUsageIncrementsDreamMetrics 验证完整流路：
 // envelope JSON 输出 -> dreamexec 探测 -> ExtractClaudeEnvelope -> OnUsage 路由 -> dreammetrics.AddTokens。
 // fixture 使用小数量便于验证：input=1+2+3=6、output=4、cacheRead=3。

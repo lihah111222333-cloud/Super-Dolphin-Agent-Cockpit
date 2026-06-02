@@ -29,8 +29,31 @@ func TestRenderReadContentDefaultLimitIsTwoHundredFifty(t *testing.T) {
 	if strings.Contains(got, "251: line-251") {
 		t.Fatalf("read_file default output includes line 251: %q", got)
 	}
-	if !strings.Contains(got, "...[showing lines 1-250 of 260 total, use offset=251 to continue]") {
+	if !strings.Contains(got, `[scope=lines L1-L250 of 260 total; use pos="file:251" to continue]`) {
 		t.Fatalf("read_file continuation hint = %q, want 250-line default", got)
+	}
+}
+
+func TestFileReadPosWithoutLineReadsFullFile(t *testing.T) {
+	root := t.TempDir()
+	target := filepath.Join(root, "sample.txt")
+	if err := os.WriteFile(target, []byte("alpha\nbeta\n"), 0o600); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
+
+	got, err := callFileTool(t, root, fileToolInput{Action: "read_file", Pos: "sample.txt"})
+	if err != nil {
+		t.Fatalf("read_file returned error: %v", err)
+	}
+	content, ok := got.(string)
+	if !ok {
+		t.Fatalf("read_file result type = %T, want string", got)
+	}
+	if !strings.Contains(content, "1: alpha") || !strings.Contains(content, "2: beta") {
+		t.Fatalf("read_file content = %q, want full file", content)
+	}
+	if !strings.Contains(content, "[scope=file 3 lines]") {
+		t.Fatalf("read_file footer = %q, want file scope", content)
 	}
 }
 
@@ -57,6 +80,30 @@ func TestFileHandlerAppliesSixteenKiBOutputBudget(t *testing.T) {
 	}
 }
 
+func TestFileBatchResponseUsesTopLevelTotalShowingAndHint(t *testing.T) {
+	root := t.TempDir()
+	paths := writeBatchReadFixturePaths(t, root, lspReadFileBatchMax+2)
+
+	got, err := callFileTool(t, root, fileToolInput{Action: "read_file", FilePaths: paths})
+	if err != nil {
+		t.Fatalf("read_file batch returned error: %v", err)
+	}
+	payload := mustMarshalObject(t, got)
+	requireNumberField(t, payload, "total", len(paths))
+	requireNumberField(t, payload, "showing", lspReadFileBatchMax)
+	requireBoolField(t, payload, "truncated", true)
+	requireStringFieldContains(t, payload, "hint", "file_paths", "batch")
+	meta := requireObjectField(t, payload, "meta")
+	requireNumberField(t, meta, "max_batch", lspReadFileBatchMax)
+	requireNumberField(t, meta, "dropped", len(paths)-lspReadFileBatchMax)
+	requireAbsentField(t, meta, "count")
+	requireAbsentField(t, meta, "success_count")
+	requireAbsentField(t, meta, "total")
+	requireAbsentField(t, meta, "showing")
+	requireAbsentField(t, meta, "truncated")
+	requireAbsentField(t, meta, "hint")
+}
+
 func callFileTool(t *testing.T, root string, input fileToolInput) (any, error) {
 	t.Helper()
 	handler := NewFileHandler(Config{WorkspaceRoot: root})
@@ -65,6 +112,19 @@ func callFileTool(t *testing.T, root string, input fileToolInput) (any, error) {
 		t.Fatalf("marshal input: %v", err)
 	}
 	return handler(common.WithToolScope(context.Background(), common.ToolScope{CWD: root}), payload)
+}
+
+func writeBatchReadFixturePaths(t *testing.T, root string, count int) []string {
+	t.Helper()
+	paths := make([]string, 0, count)
+	for i := range count {
+		name := fmt.Sprintf("file-%02d.txt", i)
+		if err := os.WriteFile(filepath.Join(root, name), []byte("content\n"), 0o600); err != nil {
+			t.Fatalf("write fixture: %v", err)
+		}
+		paths = append(paths, name)
+	}
+	return paths
 }
 
 func largeLineFileContent(lines int, width int) string {
@@ -76,4 +136,70 @@ func largeLineFileContent(lines int, width int) string {
 		fmt.Fprintf(&body, "line-%03d %s", line, strings.Repeat("x", width))
 	}
 	return body.String()
+}
+
+func TestReadFileWithLimitDoesNotForceLineWindow(t *testing.T) {
+	// limit should cap function-mode output, not switch to line-window.
+	// Without a registry (no LSP), function mode falls back to line-window
+	// with a reason tag. The key assertion: the reason must NOT be
+	// "explicit" (which means wantsLineWindow returned true), it should be
+	// a fallback reason like "no symbol provider available".
+	root := t.TempDir()
+	target := filepath.Join(root, "main.go")
+	content := "package main\n\nfunc hello() {\n\treturn\n}\n"
+	if err := os.WriteFile(target, []byte(content), 0o600); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
+
+	// pos=main.go:3 (has line), limit=10 — should attempt function mode
+	got, err := callFileTool(t, root, fileToolInput{
+		Action: "read_file",
+		Pos:    "main.go:3",
+		Limit:  10,
+	})
+	if err != nil {
+		t.Fatalf("read_file error: %v", err)
+	}
+	result := got.(string)
+	// With no registry, function mode falls back with reason "no symbol
+	// provider available", NOT the explicit line-window path.
+	if strings.Contains(result, "scope=lines") && !strings.Contains(result, "no symbol provider") {
+		t.Fatalf("limit forced line-window without fallback reason: %q", result)
+	}
+}
+
+func TestFileReadAllowsExplicitAbsoluteWorkDirOutsideWorkspaceRoots(t *testing.T) {
+	staleRoot := t.TempDir()
+	explicitRoot := t.TempDir()
+	target := filepath.Join(explicitRoot, "sample.txt")
+	if err := os.WriteFile(target, []byte("needle\n"), 0o600); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
+	handler := NewFileHandler(Config{WorkspaceRoot: staleRoot})
+	payload, err := json.Marshal(map[string]any{
+		"action":    "read_file",
+		"file_path": "sample.txt",
+		"work_dir":  explicitRoot,
+		"scope":     "lines",
+	})
+	if err != nil {
+		t.Fatalf("marshal payload: %v", err)
+	}
+	ctx := common.WithToolScope(context.Background(), common.ToolScope{
+		CWD:            staleRoot,
+		WorkspaceRoots: []string{staleRoot},
+		Family:         "lsp",
+	})
+
+	got, err := handler(ctx, payload)
+	if err != nil {
+		t.Fatalf("file read returned error: %v", err)
+	}
+	text, ok := got.(string)
+	if !ok {
+		t.Fatalf("file read result = %T, want string", got)
+	}
+	if !strings.Contains(text, "needle") {
+		t.Fatalf("file read result = %q, want explicit work_dir file contents", text)
+	}
 }

@@ -3,6 +3,7 @@ package multilsp
 import (
 	"bufio"
 	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 
@@ -13,6 +14,9 @@ var (
 	markdownHeadingPattern = regexp.MustCompile(`^(#{1,6})\s+(.+?)\s*$`)
 	jsonKeyPattern         = regexp.MustCompile(`^(\s*)"([^"]+)"\s*:\s*(.*)$`)
 	yamlKeyPattern         = regexp.MustCompile(`^(\s*)([-\s]*)?["']?([A-Za-z0-9_.-]+)["']?\s*:\s*(.*)$`)
+	pythonClassPattern     = regexp.MustCompile(`^(\s*)class\s+([A-Za-z_][A-Za-z0-9_]*)\b`)
+	pythonFunctionPattern  = regexp.MustCompile(`^(\s*)(?:async\s+def|def)\s+([A-Za-z_][A-Za-z0-9_]*)\s*\(`)
+	pythonAssignPattern    = regexp.MustCompile(`^([A-Za-z_][A-Za-z0-9_]*)\s*(?::[^=]+)?=\s*[^=].*$`)
 )
 
 type fallbackSymbol struct {
@@ -32,7 +36,7 @@ type fallbackNode struct {
 
 func (m *manager) fallbackDocumentSymbols(ref documentRef) ([]protocol.DocumentSymbol, bool, error) {
 	switch ref.languageID {
-	case "markdown", "json", "yaml":
+	case "markdown", "json", "yaml", "python":
 	default:
 		return nil, false, nil
 	}
@@ -48,6 +52,12 @@ func (m *manager) fallbackDocumentSymbols(ref documentRef) ([]protocol.DocumentS
 		return parseJSONSymbols(lines), true, nil
 	case "yaml":
 		return parseYAMLSymbols(lines), true, nil
+	case "python":
+		if !isPythonStaticFallbackPath(ref.absPath) {
+			return nil, false, nil
+		}
+		symbols := parsePythonSymbols(lines)
+		return symbols, true, nil
 	default:
 		return nil, false, nil
 	}
@@ -121,6 +131,107 @@ func parseYAMLSymbols(lines []string) []protocol.DocumentSymbol {
 		lineNo++
 	}
 	return buildLevelSymbols(lines, items)
+}
+
+func parsePythonSymbols(lines []string) []protocol.DocumentSymbol {
+	items := make([]fallbackSymbol, 0)
+	tripleQuote := ""
+	for lineNo, line := range lines {
+		if pythonLineInTripleQuotedString(line, &tripleQuote) {
+			continue
+		}
+		if symbol, ok := pythonLineSymbol(lineNo, line); ok {
+			items = append(items, symbol)
+		}
+	}
+	return buildLevelSymbols(lines, items)
+}
+
+func isPythonStaticFallbackPath(path string) bool {
+	base := strings.ToLower(filepath.Base(path))
+	return base == "constant.py" || base == "constants.py" ||
+		strings.HasSuffix(base, "_constant.py") || strings.HasSuffix(base, "_constants.py")
+}
+
+func pythonLineInTripleQuotedString(line string, active *string) bool {
+	trimmed := strings.TrimSpace(line)
+	if *active != "" {
+		if strings.Contains(trimmed, *active) {
+			*active = ""
+		}
+		return true
+	}
+	quote, ok := firstPythonTripleQuote(trimmed)
+	if !ok {
+		return false
+	}
+	if strings.Count(trimmed, quote)%2 == 1 {
+		*active = quote
+	}
+	return strings.HasPrefix(trimmed, quote)
+}
+
+func firstPythonTripleQuote(line string) (string, bool) {
+	doubleIndex := strings.Index(line, `"""`)
+	singleIndex := strings.Index(line, `'''`)
+	switch {
+	case doubleIndex < 0 && singleIndex < 0:
+		return "", false
+	case singleIndex < 0 || doubleIndex >= 0 && doubleIndex < singleIndex:
+		return `"""`, true
+	default:
+		return `'''`, true
+	}
+}
+
+func pythonLineSymbol(lineNo int, line string) (fallbackSymbol, bool) {
+	trimmed := strings.TrimSpace(line)
+	if trimmed == "" || strings.HasPrefix(trimmed, "#") {
+		return fallbackSymbol{}, false
+	}
+	if symbol, ok := pythonClassOrFunctionSymbol(lineNo, line); ok {
+		return symbol, true
+	}
+	if symbol, ok := pythonAssignmentSymbol(lineNo, line); ok {
+		return symbol, true
+	}
+	return fallbackSymbol{}, false
+}
+
+func pythonClassOrFunctionSymbol(lineNo int, line string) (fallbackSymbol, bool) {
+	if matches := pythonClassPattern.FindStringSubmatch(line); len(matches) == 3 {
+		return pythonNamedSymbol(lineNo, line, matches[1], matches[2], protocol.SymbolKindClass), true
+	}
+	if matches := pythonFunctionPattern.FindStringSubmatch(line); len(matches) == 3 {
+		return pythonNamedSymbol(lineNo, line, matches[1], matches[2], protocol.SymbolKindFunction), true
+	}
+	return fallbackSymbol{}, false
+}
+
+func pythonAssignmentSymbol(lineNo int, line string) (fallbackSymbol, bool) {
+	if strings.TrimLeft(line, " \t") != line {
+		return fallbackSymbol{}, false
+	}
+	matches := pythonAssignPattern.FindStringSubmatch(line)
+	if len(matches) != 2 {
+		return fallbackSymbol{}, false
+	}
+	return pythonNamedSymbol(lineNo, line, "", matches[1], protocol.SymbolKindVariable), true
+}
+
+func pythonNamedSymbol(lineNo int, line, indent, name string, kind protocol.SymbolKind) fallbackSymbol {
+	startCol := strings.Index(line, name)
+	if startCol < 0 {
+		startCol = indentWidth(indent)
+	}
+	return fallbackSymbol{
+		level:    indentWidth(indent),
+		name:     name,
+		kind:     kind,
+		line:     lineNo,
+		startCol: startCol,
+		endCol:   startCol + len(name),
+	}
 }
 
 func buildLevelSymbols(lines []string, items []fallbackSymbol) []protocol.DocumentSymbol {

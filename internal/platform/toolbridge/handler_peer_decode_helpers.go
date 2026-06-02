@@ -20,8 +20,6 @@ var toolCWDTraceCanonicalTools = map[string]struct{}{
 	"edit":                       {},
 	"format_preview":             {},
 	"completion":                 {},
-	"code_run":                   {},
-	"code_run_test":              {},
 	"orchestration_launch_agent": {},
 }
 

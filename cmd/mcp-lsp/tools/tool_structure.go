@@ -23,6 +23,14 @@ type structureParams struct {
 	MaxResults int    `json:"max_results"`
 }
 
+type documentSymbolListResponse struct {
+	Data      []protocol.DocumentSymbol `json:"data"`
+	Total     int                       `json:"total"`
+	Showing   int                       `json:"showing"`
+	Truncated bool                      `json:"truncated,omitempty"`
+	Hint      string                    `json:"hint,omitempty"`
+}
+
 func NewStructureHandler(registry lspmanager.Registry) ToolHandler {
 	return newManagerTool("structure", middleware.TierNormal, registry, decodeLenient, func(ctx context.Context, registry lspmanager.Registry, req structureParams) (any, error) {
 		req.FilePath = firstNonEmpty(req.FilePath, req.Path)
@@ -115,10 +123,27 @@ func runDocumentSymbols(
 	if err != nil {
 		return nil, err
 	}
-	results = limitDocumentSymbols(results, shared.ClampLimit(req.MaxResults, 1, protocol.XRefResultLimit, protocol.XRefResultLimit))
-	return renderListResult(results, protocol.XRefResultLimit, "no symbols found", func(items []protocol.DocumentSymbol, _ int) any {
-		return format.NormalizeForDisplay(items)
-	})
+	total := countDocumentSymbolNodes(results)
+	limit := shared.ClampLimit(req.MaxResults, 1, protocol.XRefResultLimit, protocol.XRefResultLimit)
+	results = limitDocumentSymbols(results, limit)
+	showing := countDocumentSymbolNodes(results)
+	if showing == 0 {
+		return emptyListEnvelope{
+			Success: true,
+			Data:    []any{},
+			Meta:    resultMeta{Count: 0, Message: "no symbols found"},
+		}, nil
+	}
+	resp := documentSymbolListResponse{
+		Data:      format.NormalizeForDisplay(results),
+		Total:     total,
+		Showing:   showing,
+		Truncated: showing < total,
+	}
+	if resp.Truncated {
+		resp.Hint = "next: increase max_results or narrow the file/symbol scope"
+	}
+	return resp, nil
 }
 
 func runWorkspaceSymbols(
@@ -148,7 +173,11 @@ func runWorkspaceSymbols(
 			Meta:    resultMeta{Count: 0, Message: "no symbols found"},
 		}, nil
 	}
-	return format.NewCompactList(format.CompactWorkspaceSymbols(results), total), nil
+	return format.NewCompactList(
+		format.CompactWorkspaceSymbols(results),
+		total,
+		"next: increase max_results or narrow query/language",
+	), nil
 }
 
 func bootstrapWorkspaceSymbolTarget(ctx context.Context, manager lspmanager.Manager, filePath string) error {
@@ -256,6 +285,15 @@ func limitDocumentSymbolNodes(
 		capped = append(capped, item)
 	}
 	return capped
+}
+
+func countDocumentSymbolNodes(symbols []protocol.DocumentSymbol) int {
+	total := 0
+	for i := range symbols {
+		total++
+		total += countDocumentSymbolNodes(symbols[i].Children)
+	}
+	return total
 }
 
 func capSemanticTokens(

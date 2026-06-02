@@ -146,7 +146,7 @@ func (s *service) populateDashboardTaskTraces(ctx context.Context, out *Dashboar
 }
 
 func (s *service) populateDashboardDAGs(ctx context.Context, out *DashboardPage) error {
-	if s.effectiveDAGRuntime() == nil {
+	if !s.hasDAGSnapshotQueries() && s.effectiveDAGRuntime() == nil {
 		return nil
 	}
 	items, err := s.ListDAGs(ctx, contract.ListDAGsFilter{Limit: dashboardPageDefaultLimit})
@@ -345,9 +345,17 @@ func (s *service) listDashboardMemory(ctx context.Context) ([]sharedfilestore.Sh
 	})
 }
 
+func (s *service) ListSharedFiles(ctx context.Context) ([]sharedfilestore.SharedFile, error) {
+	items, err := s.listDashboardMemory(ctx)
+	if items == nil {
+		items = []sharedfilestore.SharedFile{}
+	}
+	return items, err
+}
+
 func (s *service) listDashboardFinalOutputRefs(ctx context.Context) ([]FinalOutputRef, error) {
 	if s.effectiveDAGRuntime() == nil {
-		return []FinalOutputRef{}, nil
+		return s.listDashboardFinalOutputRefsFromSnapshot(ctx)
 	}
 	dags, err := s.ListDAGs(ctx, contract.ListDAGsFilter{Limit: dashboardFinalOutputDAGLimit})
 	if err != nil {
@@ -382,6 +390,36 @@ func (s *service) listDashboardFinalOutputRefs(ctx context.Context) ([]FinalOutp
 	}
 	if err := group.Wait(); err != nil {
 		return nil, err
+	}
+	return refs, nil
+}
+
+func (s *service) listDashboardFinalOutputRefsFromSnapshot(ctx context.Context) ([]FinalOutputRef, error) {
+	if !s.hasDAGSnapshotQueries() {
+		return []FinalOutputRef{}, nil
+	}
+	dags, err := s.listDAGsFromSnapshot(ctx, contract.ListDAGsFilter{Limit: dashboardFinalOutputDAGLimit})
+	if err != nil {
+		return nil, err
+	}
+	refs := make([]FinalOutputRef, 0)
+	seen := make(map[string]struct{})
+	for _, dag := range dags {
+		runs, runErr := s.listDAGRunsFromSnapshot(ctx, dag.DagKey, "", dashboardFinalOutputRunLimit)
+		if runErr != nil {
+			return nil, runErr
+		}
+		for _, run := range runs {
+			ref, ok := finalOutputRefFromRun(run)
+			if !ok {
+				continue
+			}
+			if _, exists := seen[ref.Path]; exists {
+				continue
+			}
+			seen[ref.Path] = struct{}{}
+			refs = append(refs, ref)
+		}
 	}
 	return refs, nil
 }

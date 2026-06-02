@@ -80,6 +80,32 @@ describe('frontend-app backend API facade', () => {
     expect(callAPI).toHaveBeenCalledWith(RPC_METHODS.THREAD_DELETE, { threadId: 'thread-3' });
   });
 
+  it('exposes text copy through the native bridge helper without adding a backend RPC payload', async () => {
+    const callAPI = vi.fn();
+    const beginTextClipboardWrite = vi.fn().mockReturnValue(null);
+    const copyTextToClipboard = vi.fn().mockResolvedValue(true);
+    const api = createBackendApi({ callAPI, beginTextClipboardWrite, copyTextToClipboard });
+
+    expect(api.beginTextClipboardWrite()).toBeNull();
+    await expect(api.copyTextToClipboard('thread info')).resolves.toBe(true);
+
+    expect(beginTextClipboardWrite).toHaveBeenCalledTimes(1);
+    expect(copyTextToClipboard).toHaveBeenCalledWith('thread info');
+    expect(callAPI).not.toHaveBeenCalled();
+  });
+
+  it('maps thread rename to the legacy name RPC without cwd', async () => {
+    const callAPI = vi.fn().mockResolvedValue({ ok: true });
+    const api = createBackendApi({ callAPI });
+
+    await api.renameThread({ cwd: '/repo/app', threadId: 'thread-1', name: 'Renamed' });
+
+    expect(callAPI).toHaveBeenCalledWith(RPC_METHODS.THREAD_NAME_SET, {
+      threadId: 'thread-1',
+      name: 'Renamed',
+    });
+  });
+
   it('maps thread config get and set to legacy thread config RPCs', async () => {
     const callAPI = vi.fn().mockResolvedValue({ ok: true });
     const api = createBackendApi({ callAPI });
@@ -326,6 +352,9 @@ describe('frontend-app backend API facade', () => {
       rawInput: '当用户要求代码审查时使用。',
       sourceType: 'user_input',
       scope: 'project',
+      provider: 'codex',
+      model: 'gpt-5.5',
+      codexModelProvider: 'openrouter',
     });
     await api.commitPromptIntent({ cwd: '/repo/app', draftKey: 'intent/expert/review' });
     await api.draftPromptIntent({
@@ -370,6 +399,9 @@ describe('frontend-app backend API facade', () => {
       kind: 'expert',
       raw_input: '当用户要求代码审查时使用。',
       source_type: 'user_input',
+      provider: 'codex',
+      model: 'gpt-5.5',
+      model_provider: 'openrouter',
     });
     expect(callAPI).toHaveBeenCalledWith(RPC_METHODS.PROMPT_INTENTS_COMMIT, {
       cwd: '/repo/app',
@@ -440,19 +472,32 @@ describe('frontend-app backend API facade', () => {
     expect(() => api.mergeMemoryEntries({ cwd: '/repo/app', targetA: 'private', pathA: 'a.md', targetB: 'team' })).toThrow('pathB is required');
   });
 
-  it('wraps shared file read and delete RPCs with the legacy payload shapes', async () => {
+  it('wraps the independent new-window RPC with cwd validation', async () => {
     const callAPI = vi.fn().mockResolvedValue({ ok: true });
     const api = createBackendApi({ callAPI });
 
+    await api.openNewWindow({ cwd: '/repo/window' });
+
+    expect(callAPI).toHaveBeenCalledWith(RPC_METHODS.UI_OPEN_NEW_WINDOW, { cwd: '/repo/window' });
+    expect(() => api.openNewWindow({ cwd: '' })).toThrow('cwd is required');
+  });
+
+  it('wraps shared file list, read and delete RPCs with the global payload shapes', async () => {
+    const callAPI = vi.fn().mockResolvedValue({ ok: true });
+    const api = createBackendApi({ callAPI });
+
+    await api.listSharedFiles();
     await api.readSharedFile({ path: 'reports/final.md' });
     await api.deleteSharedFile({ path: 'scratch/work.json' });
 
+    expect(callAPI).toHaveBeenCalledWith(RPC_METHODS.DASHBOARD_SHARED_FILES, {});
     expect(callAPI).toHaveBeenCalledWith(RPC_METHODS.UI_SHARED_FILE_GET, {
       path: 'reports/final.md',
     });
     expect(callAPI).toHaveBeenCalledWith(RPC_METHODS.UI_SHARED_FILE_DELETE, {
       path: 'scratch/work.json',
     });
+    expect(() => api.listSharedFiles([])).toThrow('params must be an object');
     expect(() => api.readSharedFile({ path: '' })).toThrow('path is required');
     expect(() => api.deleteSharedFile({ path: '' })).toThrow('path is required');
   });

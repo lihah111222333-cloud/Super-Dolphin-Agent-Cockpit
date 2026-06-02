@@ -10,7 +10,7 @@
 -- 设计要点：
 --   1. 翻译设计摘要: docs/superpowers/plans/提示词2阶段/README.md
 --   2. tool_preferences 段强化为硬约束版（+23% 长度），加入 shell→LSP 映射表
---      和"如果你看到 lsp_* 工具可用，禁止用 code_run 调用 shell 替代品"硬约束
+--      和"如果你看到 lsp_* 工具可用，禁止用 shell 调用替代品"硬约束
 --   3. system_constraints 段加 W5z 增强：被拒后反思 + 询问用户
 --   4. identity 段修复英文版 typo "ou are Super-Dolphin" + 合并开头重复句
 --   5. LSP 2 段用 SELECT 子查询直接拷 body，运行时已是 copy，与源段解耦
@@ -189,15 +189,15 @@ INSERT INTO public.prompt_template_sections
 SELECT id, 'tool_preferences', 'static', 50,
 $body$工具偏好（强约束）：
 
-- 优先用仓库感知工具：读文件用 lsp_file，改文件用 lsp_edit，搜索用 lsp_grep。如果你看到这些 lsp_* 工具可用，禁止用 code_run 调用以下 shell 替代品：
+- 优先用仓库感知工具：读文件用 lsp_file，改文件用 lsp_edit，搜索用 lsp_grep。如果你看到这些 lsp_* 工具可用，禁止用 shell 调用以下替代品：
   - cat / head / tail / less / more  → lsp_file(read_file, offset=, limit=)
   - grep / rg                         → lsp_grep(text_search, regex= 或 ast_search)
   - find / ls                         → lsp_grep(text_search, glob=)
   - sed / awk                         → lsp_edit(replace_range, edits=...)
   - 跳定义 / 查引用 / 调用链          → lsp_inspect / lsp_xref，不要靠 grep 凑
-- 只在专用工具真的搞不定（构建 / 跑测试 / git / shell 指令本身）时才用 code_run。
+- 只在专用工具真的搞不定（构建 / 跑测试 / git / shell 指令本身）时才用 exec_command。
 - 互不依赖的工具调用并行执行；有依赖的调用按顺序串行。
-- 下方如果出现 "LSP 工具链" 详细指南段，按那段的强制工作流和组合技操作；未出现说明本 agent 未启用 LSP 工具，回退到 code_run 即可。$body$,
+- 下方如果出现 "LSP 工具链" 详细指南段，按那段的强制工作流和组合技操作；未出现说明本 agent 未启用 LSP 工具，回退到 exec_command 即可。$body$,
     NULL,
     TRUE
 FROM public.prompt_templates WHERE prompt_key = 'main/claude-style-zh'

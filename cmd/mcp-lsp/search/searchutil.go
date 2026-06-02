@@ -34,7 +34,7 @@ type TextSearchOptions struct {
 	Glob          string
 	Query         string
 	Regex         bool
-	CaseSensitive bool
+	CaseSensitive *bool
 	MaxResults    int
 	MaxFileBytes  int
 }
@@ -65,7 +65,11 @@ type sgStreamMatch struct {
 }
 
 func SearchText(ctx context.Context, opts TextSearchOptions) ([]SearchMatch, error) {
-	matcher, err := shared.NewLineMatcher(opts.Query, opts.Regex, opts.CaseSensitive)
+	caseSensitive := strings.ToLower(opts.Query) != opts.Query
+	if opts.CaseSensitive != nil {
+		caseSensitive = *opts.CaseSensitive
+	}
+	matcher, err := shared.NewLineMatcher(opts.Query, opts.Regex, caseSensitive)
 	if err != nil {
 		return nil, err
 	}
@@ -185,6 +189,9 @@ func walkSearchEntry(
 	}
 	if entry.IsDir() {
 		if shouldSkipDir(entry.Name()) {
+			return filepath.SkipDir
+		}
+		if isInsideGoModCache(candidate) {
 			return filepath.SkipDir
 		}
 		return nil

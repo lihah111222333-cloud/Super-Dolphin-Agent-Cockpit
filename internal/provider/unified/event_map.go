@@ -66,6 +66,8 @@ var typedEventPublishers = map[reflect.Type]typedEventPublisher{
 	typedEventType[uidto.SkillsChanged]():           publishEvent[uidto.SkillsChanged],
 	typedEventType[uidto.UIThreadPatch]():           publishEvent[uidto.UIThreadPatch],
 	typedEventType[uidto.UIPreferencesChanged]():    publishEvent[uidto.UIPreferencesChanged],
+	typedEventType[uidto.UISharedFilesChanged]():    publishEvent[uidto.UISharedFilesChanged],
+	typedEventType[uidto.UIMemoryChanged]():         publishEvent[uidto.UIMemoryChanged],
 }
 
 // EventDispatcher manages raw driver events and republishes translated typed events.

@@ -15,6 +15,7 @@ func repairPromptIntentCardsIfNeeded(
 	requestedKind Kind,
 	rawInput string,
 	cards []Card,
+	options contract.DreamOptions,
 ) ([]Card, error) {
 	issues := repairablePromptIntentIssues(rawInput, cards)
 	if len(issues) == 0 {
@@ -24,7 +25,7 @@ func repairPromptIntentCardsIfNeeded(
 	if err != nil {
 		return nil, err
 	}
-	rawDream, err := dream.ExecuteDream(ctx, prompt)
+	rawDream, err := executePromptIntentDream(ctx, dream, prompt, options)
 	if err != nil {
 		return nil, fmt.Errorf("prompt intent repair failed: %w", err)
 	}
@@ -33,6 +34,13 @@ func repairPromptIntentCardsIfNeeded(
 		return nil, fmt.Errorf("prompt intent repair returned invalid JSON: %w", err)
 	}
 	return repaired, nil
+}
+
+func executePromptIntentDream(ctx context.Context, dream contract.DreamExecutor, prompt string, options contract.DreamOptions) (string, error) {
+	if withOptions, ok := dream.(contract.DreamExecutorWithOptions); ok {
+		return withOptions.ExecuteDreamWithOptions(ctx, prompt, options)
+	}
+	return dream.ExecuteDream(ctx, prompt)
 }
 
 func repairablePromptIntentIssues(rawInput string, cards []Card) []Issue {

@@ -8,13 +8,13 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"regexp"
 	"sort"
 	"strconv"
 	"strings"
 	"time"
 
-	lspexec "github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/exec"
 	lspmanager "github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/manager"
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/middleware"
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/protocol"
@@ -79,19 +79,6 @@ func newManagerTool[T any](
 	})
 }
 
-func newSandboxTool(
-	name string,
-	sandbox SandboxRunner,
-	handler func(context.Context, SandboxRunner, json.RawMessage) (any, error),
-) middleware.Handler {
-	return wrapToolHandler(name, middleware.TierExec, func(ctx context.Context, params json.RawMessage) (any, error) {
-		if sandbox == nil {
-			return nil, fmt.Errorf("%s sandbox is nil", name)
-		}
-		return handler(ctx, sandbox, params)
-	})
-}
-
 func decodeToolParams[T any](raw json.RawMessage, mode decodeMode) (T, error) {
 	var value T
 	var err error
@@ -146,7 +133,7 @@ func unmarshalToolParams[T any](raw []byte, value *T) error {
 }
 
 func formatDecodeParamsError(err error) error {
-	hint := "hint: pass numeric fields as JSON numbers, string fields as JSON strings, and remove unknown fields"
+	hint := "next: pass numeric fields as JSON numbers, string fields as JSON strings, and remove unknown fields"
 	if migration := legacyPositionMigrationHint(err); migration != "" {
 		hint = hint + "; " + migration
 	}
@@ -289,7 +276,7 @@ func missingDependencyHandler(message string) ToolHandler {
 }
 
 func missingManagerHandler() ToolHandler {
-	return missingDependencyHandler("lsp manager is required")
+	return missingDependencyHandler("lsp manager is not available; use text_search or read_file as alternatives")
 }
 
 func managerForFile(ctx context.Context, registry lspmanager.Registry, filePath string, languageID string) (lspmanager.Manager, error) {
@@ -306,7 +293,7 @@ func normalizeLanguageIDOverride(languageID string) string {
 func requireFilePath(raw string) (string, error) {
 	filePath := strings.TrimSpace(raw)
 	if filePath == "" {
-		return "", errors.New("file_path is required")
+		return "", errors.New("file_path is required; pass an absolute or workspace-relative path")
 	}
 	return filePath, nil
 }
@@ -426,8 +413,9 @@ func validateResolvedFilePosition(filePath string, line int, column int) error {
 	}
 	lineText := lines[line-1]
 	lineLength := len([]rune(lineText))
-	if column > lineLength {
-		return newPositionOutOfRangeError(line, column, lineText, lineLength)
+	maxColumn := lineLength + 1
+	if column > maxColumn {
+		return newPositionOutOfRangeError(line, column, lineText, lineLength, maxColumn)
 	}
 	return nil
 }
@@ -437,7 +425,7 @@ func newLineOutOfRangeError(line int, lineCount int) error {
 		"line_out_of_range",
 		fmt.Errorf("line %d is beyond end of file with %d lines", line, lineCount),
 		false,
-		"Retry by correcting the line in the 'pos' parameter (format 'file_path:line:column'). Read the target file with file.read_file to choose an existing 1-based line before retrying.",
+		"next: file action=read_file pos=<file>:1 limit=200, then retry with an existing 1-based line in pos=<file>:<line>:<col>",
 	)
 	var coded *common.CodedToolError
 	if errors.As(err, &coded) {
@@ -451,12 +439,12 @@ func newLineOutOfRangeError(line int, lineCount int) error {
 
 var positionIdentifierRE = regexp.MustCompile(`[A-Za-z_][A-Za-z0-9_]*`)
 
-func newPositionOutOfRangeError(line int, column int, lineText string, lineLength int) error {
+func newPositionOutOfRangeError(line int, column int, lineText string, lineLength int, maxColumn int) error {
 	err := common.NewCodedToolError(
 		"position_out_of_range",
-		fmt.Errorf("column %d is beyond end of line %d, max column is %d", column, line, lineLength),
+		fmt.Errorf("column %d is beyond end of line %d, max column is %d", column, line, maxColumn),
 		false,
-		"Retry with a column inside the target identifier by correcting the 'pos' parameter (format 'file_path:line:column'); inspect meta.line_text and meta.suggested_columns for valid 1-based columns.",
+		"next: retry with pos=<file>:<line>:<col> using a column inside the target identifier or at end of line; inspect meta.line_text and meta.suggested_columns",
 	)
 	var coded *common.CodedToolError
 	if errors.As(err, &coded) {
@@ -464,6 +452,7 @@ func newPositionOutOfRangeError(line int, column int, lineText string, lineLengt
 			"line":              line,
 			"line_text":         lineText,
 			"line_length":       lineLength,
+			"max_column":        maxColumn,
 			"requested_column":  column,
 			"suggested_columns": suggestedIdentifierColumns(lineText),
 		}
@@ -501,37 +490,87 @@ func renderListResult[T any](items []T, limit int, emptyMessage string, render f
 	return render(items, total), nil
 }
 
-func executeSandbox(
-	ctx context.Context,
-	sandbox SandboxRunner,
-	request lspexec.Request,
-	language string,
-	mode string,
-) (any, error) {
-	result, err := sandbox.Run(ctx, request)
-	if err != nil {
-		return nil, common.NewCodedToolError("sandbox_exec_failed", err, true, "Inspect sandbox command setup and retry after fixing the environment.")
-	}
-	return CodeRunResult{
-		Success:   result.ExitCode == 0,
-		Output:    result.Output,
-		ExitCode:  result.ExitCode,
-		Duration:  result.Duration,
-		Language:  language,
-		Mode:      mode,
-		Truncated: result.Truncated,
-	}, nil
-}
-
 func wrapToolHandler(toolName string, tier time.Duration, handler middleware.Handler) middleware.Handler {
 	log := pkglogger.Get()
+	scopedHandler := func(ctx context.Context, params json.RawMessage) (any, error) {
+		var err error
+		ctx, err = contextWithExplicitToolWorkDir(ctx, params)
+		if err != nil {
+			return nil, err
+		}
+		return handler(ctx, params)
+	}
 	chained := middleware.Chain(
-		handler,
+		scopedHandler,
 		middleware.Recovery(log, toolName),
 		middleware.Logging(log, toolName),
 		middleware.Timeout(tier),
 	)
 	return middleware.WithOutputBudget(toolName, chained, middleware.Budget{})
+}
+
+type explicitToolWorkDirParams struct {
+	WorkDir string `json:"work_dir,omitempty"`
+}
+
+func contextWithExplicitToolWorkDir(ctx context.Context, params json.RawMessage) (context.Context, error) {
+	trimmed := bytes.TrimSpace(params)
+	if len(trimmed) == 0 || bytes.Equal(trimmed, []byte("null")) {
+		return ctx, nil
+	}
+	var input explicitToolWorkDirParams
+	if err := json.Unmarshal(trimmed, &input); err != nil {
+		return ctx, fmt.Errorf("parse explicit tool work_dir params: %w", err)
+	}
+	workDir := strings.TrimSpace(input.WorkDir)
+	if workDir == "" || !filepath.IsAbs(workDir) {
+		return ctx, nil
+	}
+	scopedCtx, _, err := contextWithExplicitAbsoluteWorkDir(ctx, workDir)
+	if err != nil {
+		return ctx, err
+	}
+	return scopedCtx, nil
+}
+
+func contextWithExplicitAbsoluteWorkDir(ctx context.Context, workDir string) (context.Context, string, error) {
+	normalized, err := normalizeExplicitAbsoluteWorkDir(workDir)
+	if err != nil {
+		return ctx, "", err
+	}
+	scope, _ := common.ToolScopeFromContext(ctx)
+	scope.CWD = normalized
+	scope.WorkspaceRoots = append(scope.WorkspaceRoots, normalized)
+	if strings.TrimSpace(scope.Family) == "" {
+		scope.Family = "lsp"
+	}
+	return common.WithToolScope(ctx, scope), normalized, nil
+}
+
+func normalizeExplicitAbsoluteWorkDir(workDir string) (string, error) {
+	trimmed := strings.TrimSpace(workDir)
+	if trimmed == "" {
+		return "", errors.New("work_dir is required")
+	}
+	if !filepath.IsAbs(trimmed) {
+		return "", fmt.Errorf("work_dir must be absolute: %q", workDir)
+	}
+	absolute, err := filepath.Abs(trimmed)
+	if err != nil {
+		return "", fmt.Errorf("resolve work_dir: %w", err)
+	}
+	resolved, err := filepath.EvalSymlinks(filepath.Clean(absolute))
+	if err != nil {
+		return "", fmt.Errorf("resolve work_dir: %w", err)
+	}
+	info, err := os.Stat(resolved)
+	if err != nil {
+		return "", fmt.Errorf("stat work_dir: %w", err)
+	}
+	if !info.IsDir() {
+		return "", fmt.Errorf("work_dir is not a directory: %s", resolved)
+	}
+	return filepath.Clean(resolved), nil
 }
 
 // funcRangeEnricher fetches DocumentSymbols on demand so location-emitting

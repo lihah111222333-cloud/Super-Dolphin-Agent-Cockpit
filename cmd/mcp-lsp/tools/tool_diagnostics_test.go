@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -21,8 +22,11 @@ type diagnosticsTestRegistry struct {
 	lastScope         common.ToolScope
 	scopeOK           bool
 	bootstrapErrByURI map[string]error
+	diagnosticsByURI  map[string][]protocol.Diagnostic
 	manager           lspmanager.Manager
 	waitErrs          []error
+	waitFn            func(call int, uris []string) error
+	waitURIs          [][]string
 	waitCalls         int
 }
 
@@ -47,15 +51,19 @@ func (r *diagnosticsTestRegistry) Diagnostics(ctx context.Context, uris []string
 	r.lastScope, r.scopeOK = common.ToolScopeFromContext(ctx)
 	items := make([]protocol.PublishDiagnosticsParams, 0, len(uris))
 	for _, uri := range uris {
-		items = append(items, protocol.PublishDiagnosticsParams{URI: uri})
+		items = append(items, protocol.PublishDiagnosticsParams{URI: uri, Diagnostics: r.diagnosticsByURI[uri]})
 	}
 	return items, nil
 }
 
-func (r *diagnosticsTestRegistry) WaitDiagnosticsStable(context.Context, []string) error {
+func (r *diagnosticsTestRegistry) WaitDiagnosticsStable(_ context.Context, uris []string) error {
 	r.callOrder = append(r.callOrder, "wait")
 	index := r.waitCalls
 	r.waitCalls++
+	r.waitURIs = append(r.waitURIs, append([]string(nil), uris...))
+	if r.waitFn != nil {
+		return r.waitFn(index, uris)
+	}
 	if index < len(r.waitErrs) {
 		return r.waitErrs[index]
 	}
@@ -130,6 +138,59 @@ func TestDiagnosticsBatchUsesMetaCWD(t *testing.T) {
 		t.Fatalf("diagnostics returned error: %v", err)
 	}
 	assertDiagnosticURIs(t, registry.lastURIs, []string{canonicalFileURI(t, first), canonicalFileURI(t, second)})
+}
+
+func TestDiagnosticsResponseUsesTopLevelMetaFields(t *testing.T) {
+	root := t.TempDir()
+	target := writeDiagnosticsFixture(t, root, "broken.go")
+	targetURI := canonicalFileURI(t, target)
+	duplicate := protocol.Diagnostic{
+		Range: protocol.Range{
+			Start: protocol.Position{Line: 2, Character: 4},
+			End:   protocol.Position{Line: 2, Character: 8},
+		},
+		Severity: protocol.SeverityError,
+		Source:   "gopls",
+		Message:  "undefined: missing",
+	}
+	registry := &diagnosticsTestRegistry{
+		diagnosticsByURI: map[string][]protocol.Diagnostic{
+			targetURI: {
+				duplicate,
+				duplicate,
+				{
+					Range: protocol.Range{
+						Start: protocol.Position{Line: 3, Character: 1},
+						End:   protocol.Position{Line: 3, Character: 5},
+					},
+					Severity: protocol.SeverityWarning,
+					Source:   "gopls",
+					Message:  "unused value",
+				},
+			},
+		},
+	}
+	handler := NewFileHandler(Config{WorkspaceRoot: root, Registry: registry})
+	req := marshalDiagnosticsInput(t, fileToolInput{Action: "diagnostics", FilePath: "broken.go"})
+
+	result, err := handler(common.WithToolScope(context.Background(), common.ToolScope{CWD: root}), req)
+	if err != nil {
+		t.Fatalf("diagnostics returned error: %v", err)
+	}
+	payload := mustMarshalObject(t, result)
+	if payload["total"] != float64(2) || payload["showing"] != float64(2) {
+		t.Fatalf("diagnostics total/showing = %#v/%#v, want 2/2", payload["total"], payload["showing"])
+	}
+	if hint, _ := payload["hint"].(string); !strings.Contains(hint, "read_file") || !strings.Contains(hint, "replace_range") {
+		t.Fatalf("diagnostics hint = %q, want repair guidance", hint)
+	}
+	meta, ok := payload["meta"].(map[string]any)
+	if !ok {
+		t.Fatalf("diagnostics meta = %#v, want object", payload["meta"])
+	}
+	if _, ok := meta["count"]; ok {
+		t.Fatalf("diagnostics meta contains legacy count: %#v", meta)
+	}
 }
 
 func TestDiagnosticsWithoutMetaCWDRejectsExternalAbsolutePath(t *testing.T) {
@@ -249,6 +310,49 @@ func TestDiagnosticsRecoversStartupWaitByOpeningTarget(t *testing.T) {
 	}
 	if len(registry.callOrder) == 0 || registry.callOrder[len(registry.callOrder)-1] != "diagnostics" {
 		t.Fatalf("diagnostics call order = %#v, want diagnostics after startup recovery", registry.callOrder)
+	}
+}
+
+func TestDiagnosticsBatchReturnsPartialAfterStartupRetryMissesOneTarget(t *testing.T) {
+	root := t.TempDir()
+	first := writeDiagnosticsFixture(t, root, "ready.go")
+	second := writeDiagnosticsFixture(t, root, "slow.go")
+	firstURI := canonicalFileURI(t, first)
+	secondURI := canonicalFileURI(t, second)
+	manager := &diagnosticsStartupManager{}
+	registry := &diagnosticsTestRegistry{
+		manager: manager,
+		waitFn: func(_ int, uris []string) error {
+			if len(uris) == 1 && uris[0] == firstURI {
+				return nil
+			}
+			return fmt.Errorf("%w: diagnostics did not publish for requested targets before 1.5s: %s", lspmanager.ErrDiagnosticsNotReady, secondURI)
+		},
+	}
+	handler := NewFileHandler(Config{WorkspaceRoot: root, Registry: registry})
+	req := marshalDiagnosticsInput(t, fileToolInput{Action: "diagnostics", FilePaths: []string{"ready.go", "slow.go"}})
+
+	result, err := handler(common.WithToolScope(context.Background(), common.ToolScope{CWD: root}), req)
+	if err != nil {
+		t.Fatalf("diagnostics returned batch readiness error: %v", err)
+	}
+	envelope, ok := result.(diagnosticsResponse)
+	if !ok {
+		t.Fatalf("diagnostics result = %T, want diagnosticsResponse for no diagnostic rows", result)
+	}
+	if !strings.Contains(envelope.Meta.Message, "partial") || !strings.Contains(envelope.Meta.Message, secondURI) {
+		t.Fatalf("diagnostics message = %q, want partial warning for %s", envelope.Meta.Message, secondURI)
+	}
+	raw, err := json.Marshal(envelope)
+	if err != nil {
+		t.Fatalf("marshal diagnostics response: %v", err)
+	}
+	if strings.Contains(string(raw), "source") {
+		t.Fatalf("diagnostics response exposes source: %s", string(raw))
+	}
+	assertDiagnosticURIs(t, manager.didOpenURIs, []string{firstURI, secondURI})
+	if registry.waitCalls < 3 {
+		t.Fatalf("WaitDiagnosticsStable calls = %d, want batch retry plus per-target wait", registry.waitCalls)
 	}
 }
 

@@ -26,7 +26,7 @@ func TestFormatToPlainTextUsesCompletionTitleForCompactCompletionList(t *testing
 
 func TestFormatToPlainTextUsesWorkspaceSymbolTitleForCompactWorkspaceList(t *testing.T) {
 	list := format.NewCompactList([]format.CompactWorkspaceSymbol{
-		{Name: "Target", Kind: 12, File: "target.go", Line: 7, Column: 3},
+		{Name: "Target", Kind: 12, File: "target.go", Line: 7, Col: 3},
 	}, 1)
 
 	text, ok := FormatToPlainText(list)

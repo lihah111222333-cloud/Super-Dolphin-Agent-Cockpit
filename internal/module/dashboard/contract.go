@@ -8,6 +8,7 @@ import (
 	ailogstore "github.com/anthropic-ai/super-agent-v3/internal/store/ailog"
 	auditlogstore "github.com/anthropic-ai/super-agent-v3/internal/store/auditlog"
 	buslogstore "github.com/anthropic-ai/super-agent-v3/internal/store/buslog"
+	sharedfilestore "github.com/anthropic-ai/super-agent-v3/internal/store/sharedfile"
 )
 
 type Service interface {
@@ -27,6 +28,7 @@ type Service interface {
 	TerminateDAG(ctx context.Context, dagKey, runKey, reason string) error
 	DeleteDAG(ctx context.Context, dagKey string) error
 	ApplyDAGOps(ctx context.Context, req contract.ApplyOpsRequest) (contract.ApplyOpsResponse, error)
+	ListSharedFiles(ctx context.Context) ([]sharedfilestore.SharedFile, error)
 	Query(ctx context.Context, query string, args ...any) ([]map[string]any, error)
 	GetAILogsByCategory(ctx context.Context, category, keyword string, limit int) ([]ailogstore.AILog, error)
 	GetAILogStats(ctx context.Context) ([]ailogstore.StatusCount, error)

@@ -190,7 +190,7 @@ func requireReplaceRangeResult(t *testing.T, got any) replaceRangeResult {
 	if !ok {
 		t.Fatalf("result type = %T, want replaceRangeResult", got)
 	}
-	if !result.Success || !result.Applied || result.Status != "applied" {
+	if result.Status != "applied" || !result.Persisted {
 		t.Fatalf("unexpected result: %#v", result)
 	}
 	if result.LSPSync {
@@ -319,8 +319,15 @@ func TestEditFailureAfterDeadClientReturnsRetryableWithoutAutoReplay(t *testing.
 	if err == nil || !strings.Contains(err.Error(), "LSP client closed") {
 		t.Fatalf("edit error = %v, want dead-client edit sync failure", err)
 	}
-	if got != nil {
-		t.Fatalf("result = %#v, want nil wrapped result on error", got)
+	if got == nil {
+		t.Fatalf("result = nil, want replaceRangeFailure envelope")
+	}
+	failure, ok := got.(replaceRangeFailure)
+	if !ok {
+		t.Fatalf("result type = %T, want replaceRangeFailure", got)
+	}
+	if failure.Success {
+		t.Fatalf("failure.Success = true, want false")
 	}
 	assertDeadClientRollbackState(t, path, original, manager)
 	envelope := newToolErrorEnvelope("edit", "go", errors.Join(multilsp.ErrTransportClosed, manager.didChangeErr))
@@ -381,8 +388,15 @@ func TestReplaceRangeSyncFailureReportsRollbackFailure(t *testing.T) {
 
 	got, err := handler(testToolContext(root), input)
 	requireSyncRollbackFailure(t, err)
-	if got != nil {
-		t.Fatalf("result = %#v, want nil wrapped result on error", got)
+	if got == nil {
+		t.Fatalf("result = nil, want replaceRangeFailure envelope")
+	}
+	failure, ok := got.(replaceRangeFailure)
+	if !ok {
+		t.Fatalf("result type = %T, want replaceRangeFailure", got)
+	}
+	if failure.Success {
+		t.Fatalf("failure.Success = true, want false")
 	}
 }
 
@@ -394,4 +408,62 @@ func requireSyncRollbackFailure(t *testing.T, err error) {
 	if !strings.Contains(err.Error(), "lsp sync boom") || !strings.Contains(err.Error(), "rollback failed") {
 		t.Fatalf("edit error = %v, want sync and rollback failure details", err)
 	}
+}
+
+func TestEditPureInsertionHunk(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "main.go")
+	content := "package main\n\nimport (\n)\n\nfunc main() {\n}\n"
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
+
+	handler := NewEditHandlerWithRoot(root, &structureTestRegistry{fileErr: lspmanager.ErrUnsupportedLanguage})
+	input, err := json.Marshal(EditRequest{
+		FilePath: path,
+		Patch:    " import (\n+\t\"fmt\"\n )\n",
+	})
+	if err != nil {
+		t.Fatalf("marshal input: %v", err)
+	}
+
+	got, err := handler(testToolContext(root), input)
+	if err != nil {
+		t.Fatalf("pure insertion edit error: %v", err)
+	}
+	result := requireReplaceRangeResult(t, got)
+	if result.Status != "applied" {
+		t.Fatalf("pure insertion not applied: %+v", result)
+	}
+	want := "package main\n\nimport (\n\t\"fmt\"\n)\n\nfunc main() {\n}\n"
+	assertFileContent(t, path, want)
+}
+
+func TestEditPureInsertionEOF(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "main.go")
+	content := "package main\n\nfunc main() {\n}\n"
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
+
+	handler := NewEditHandlerWithRoot(root, &structureTestRegistry{fileErr: lspmanager.ErrUnsupportedLanguage})
+	input, err := json.Marshal(EditRequest{
+		FilePath: path,
+		Patch:    " }\n+\n+func helper() {}\n",
+	})
+	if err != nil {
+		t.Fatalf("marshal input: %v", err)
+	}
+
+	got, err := handler(testToolContext(root), input)
+	if err != nil {
+		t.Fatalf("pure insertion EOF edit error: %v", err)
+	}
+	result := requireReplaceRangeResult(t, got)
+	if result.Status != "applied" {
+		t.Fatalf("pure insertion EOF not applied: %+v", result)
+	}
+	want := "package main\n\nfunc main() {\n}\n\nfunc helper() {}\n"
+	assertFileContent(t, path, want)
 }

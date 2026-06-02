@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/format"
@@ -32,6 +33,27 @@ func TestReferencesCompactBudget(t *testing.T) {
 	if grouped.Total != 60 || grouped.Showing != 30 {
 		t.Fatalf("compact references total/showing = %d/%d, want 60/30", grouped.Total, grouped.Showing)
 	}
+	payload := mustMarshalObject(t, grouped)
+	if payload["truncated"] != true {
+		t.Fatalf("compact references truncated = %#v, want true", payload["truncated"])
+	}
+}
+
+func TestInspectLocationResultUsesDataEnvelope(t *testing.T) {
+	root, filePath := writeXRefFixture(t)
+	handler := NewInspectHandler(&structureTestRegistry{
+		fileManager: &structureTestManager{definitions: []protocol.LocationResult{makeLocationResult(filePath, 1, 1)}},
+	})
+
+	got := callInspectTool(t, handler, root, filePath, inspectParams{Action: "definition"})
+	payload := mustMarshalObject(t, got)
+	data, ok := payload["data"].(map[string]any)
+	if !ok {
+		t.Fatalf("inspect data = %#v, want grouped location map", payload["data"])
+	}
+	if _, ok := data["sample.go"]; !ok {
+		t.Fatalf("inspect data keys = %#v, want relative file key sample.go", data)
+	}
 }
 
 // TestCompletionCompactBudget mirrors the references coverage but for
@@ -50,6 +72,13 @@ func TestCompletionCompactBudget(t *testing.T) {
 	if list.Total != 60 || list.Showing != 20 {
 		t.Fatalf("compact completion total/showing = %d/%d, want 60/20", list.Total, list.Showing)
 	}
+	payload := mustMarshalObject(t, list)
+	if payload["truncated"] != true {
+		t.Fatalf("compact completion truncated = %#v, want true", payload["truncated"])
+	}
+	if hint, _ := payload["hint"].(string); !strings.Contains(hint, "max_results") || !strings.Contains(hint, "cursor") {
+		t.Fatalf("compact completion hint = %q, want max_results/cursor guidance", hint)
+	}
 }
 
 // TestWorkspaceSymbolCompactBudget mirrors the references coverage for
@@ -67,9 +96,47 @@ func TestWorkspaceSymbolCompactBudget(t *testing.T) {
 	if list.Total != 60 || list.Showing != 20 {
 		t.Fatalf("compact workspace_symbol total/showing = %d/%d, want 60/20", list.Total, list.Showing)
 	}
+	payload := mustMarshalObject(t, list)
+	if payload["truncated"] != true {
+		t.Fatalf("compact workspace_symbol truncated = %#v, want true", payload["truncated"])
+	}
+	if hint, _ := payload["hint"].(string); !strings.Contains(hint, "max_results") || !strings.Contains(hint, "query") {
+		t.Fatalf("compact workspace_symbol hint = %q, want max_results/query guidance", hint)
+	}
+}
+
+func TestCallHierarchyResultUsesCompactLocations(t *testing.T) {
+	root, filePath := writeXRefFixture(t)
+	handler := NewXRefHandler(&structureTestRegistry{
+		fileManager: &structureTestManager{callHierarchy: makeCallHierarchyResults(filePath)},
+	})
+
+	got := callXRefTool(t, handler, root, filePath, xrefParams{Action: "call_hierarchy", Direction: "outgoing"})
+	payload := mustMarshalObject(t, got)
+	data, ok := payload["data"].([]any)
+	if !ok || len(data) != 1 {
+		t.Fatalf("call_hierarchy data = %#v, want one compact row", payload["data"])
+	}
+	row, ok := data[0].(map[string]any)
+	if !ok {
+		t.Fatalf("call_hierarchy row = %#v, want object", data[0])
+	}
+	assertCompactHierarchyItem(t, row["item"], "sample.go", 1, 1)
+	incoming := requireCompactHierarchyRows(t, row["incoming"], "incoming")
+	assertCompactHierarchyItem(t, incoming[0]["from"], "sample.go", 2, 3)
+	assertCompactHierarchyLocation(t, incoming[0]["fromRanges"], "sample.go", 4, 5)
+	outgoing := requireCompactHierarchyRows(t, row["outgoing"], "outgoing")
+	assertCompactHierarchyItem(t, outgoing[0]["to"], "sample.go", 6, 7)
+	assertCompactHierarchyLocation(t, outgoing[0]["fromRanges"], "sample.go", 8, 9)
 }
 
 func callXRefTool(t *testing.T, handler ToolHandler, root string, filePath string, params xrefParams) any {
+	t.Helper()
+	params.Pos = fmt.Sprintf("%s:1:1", filePath)
+	return callToolHandler(t, handler, root, params)
+}
+
+func callInspectTool(t *testing.T, handler ToolHandler, root string, filePath string, params inspectParams) any {
 	t.Helper()
 	params.Pos = fmt.Sprintf("%s:1:1", filePath)
 	return callToolHandler(t, handler, root, params)
@@ -102,16 +169,14 @@ func callToolHandler(t *testing.T, handler ToolHandler, root string, params any)
 func makeLocationResults(count int) []protocol.LocationResult {
 	out := make([]protocol.LocationResult, 0, count)
 	for i := range count {
-		location := protocol.Location{
-			URI: fileURI(filepath.Join(os.TempDir(), fmt.Sprintf("ref-%02d.go", i))),
-			Range: protocol.Range{
-				Start: protocol.Position{Line: i, Character: 0},
-				End:   protocol.Position{Line: i, Character: 1},
-			},
-		}
-		out = append(out, protocol.LocationResult{Location: &location})
+		out = append(out, makeLocationResult(filepath.Join(os.TempDir(), fmt.Sprintf("ref-%02d.go", i)), i+1, 1))
 	}
 	return out
+}
+
+func makeLocationResult(filePath string, line int, col int) protocol.LocationResult {
+	location := protocol.Location{URI: fileURI(filePath), Range: makeRange(line, col)}
+	return protocol.LocationResult{Location: &location}
 }
 
 func makeCompletionItems(count int) []protocol.CompletionItem {
@@ -139,4 +204,80 @@ func makeWorkspaceSymbols(count int) []protocol.WorkspaceSymbolResult {
 		}})
 	}
 	return out
+}
+
+func makeRange(line int, col int) protocol.Range {
+	start := protocol.Position{Line: line - 1, Character: col - 1}
+	end := protocol.Position{Line: start.Line, Character: start.Character + 1}
+	return protocol.Range{Start: start, End: end}
+}
+
+func makeCallHierarchyResults(filePath string) []protocol.CallHierarchyResult {
+	return []protocol.CallHierarchyResult{{
+		Item: makeCallHierarchyItem("root", filePath, 1, 1),
+		Incoming: []protocol.CallHierarchyIncomingCall{{
+			From:       makeCallHierarchyItem("caller", filePath, 2, 3),
+			FromRanges: []protocol.Range{makeRange(4, 5)},
+		}},
+		Outgoing: []protocol.CallHierarchyOutgoingCall{{
+			To:         makeCallHierarchyItem("callee", filePath, 6, 7),
+			FromRanges: []protocol.Range{makeRange(8, 9)},
+		}},
+	}}
+}
+
+func makeCallHierarchyItem(name string, filePath string, line int, col int) protocol.CallHierarchyItem {
+	return protocol.CallHierarchyItem{
+		Name:           name,
+		Kind:           int(protocol.SymbolKindFunction),
+		URI:            fileURI(filePath),
+		Range:          makeRange(line, col),
+		SelectionRange: makeRange(line, col),
+	}
+}
+
+func assertCompactHierarchyItem(t *testing.T, value any, file string, line int, col int) {
+	t.Helper()
+	item, ok := value.(map[string]any)
+	if !ok {
+		t.Fatalf("hierarchy item = %#v, want object", value)
+	}
+	if item["uri"] != nil || item["range"] != nil {
+		t.Fatalf("hierarchy item kept raw LSP fields: %#v", item)
+	}
+	if item["file"] != file ||
+		int(item["line"].(float64)) != line ||
+		int(item["col"].(float64)) != col {
+		t.Fatalf("hierarchy item location = %#v, want %s:%d:%d", item, file, line, col)
+	}
+}
+
+func requireCompactHierarchyRows(t *testing.T, value any, field string) []map[string]any {
+	t.Helper()
+	rows, ok := value.([]any)
+	if !ok || len(rows) != 1 {
+		t.Fatalf("hierarchy %s = %#v, want one row", field, value)
+	}
+	row, ok := rows[0].(map[string]any)
+	if !ok {
+		t.Fatalf("hierarchy %s row = %#v, want object", field, rows[0])
+	}
+	return []map[string]any{row}
+}
+
+func assertCompactHierarchyLocation(t *testing.T, value any, file string, line int, col int) {
+	t.Helper()
+	rows, ok := value.([]any)
+	if !ok || len(rows) != 1 {
+		t.Fatalf("hierarchy locations = %#v, want one row", value)
+	}
+	location, ok := rows[0].(map[string]any)
+	if !ok {
+		t.Fatalf("hierarchy location = %#v, want object", rows[0])
+	}
+	if location["file"] != file ||
+		int(location["line"].(float64)) != line ||
+		int(location["col"].(float64)) != col {
+		t.Fatalf("hierarchy location = %#v, want %s:%d:%d", location, file, line, col)
+	}
 }

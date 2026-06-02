@@ -295,6 +295,12 @@ ensure_pushed_refs_match_head() {
 ensure_pushed_refs_match_head
 
 if [ -s "$PUSH_RANGES" ]; then
+  echo "[pre-push] Chinese commit message guard..."
+  while IFS= read -r range; do
+    [ -n "$range" ] || continue
+    run_without_git_env ./scripts/guard_commit_titles.sh --range "$range"
+  done < <(sort -u "$PUSH_RANGES")
+
   echo "[pre-push] fix-test guard..."
   while IFS= read -r range; do
     [ -n "$range" ] || continue

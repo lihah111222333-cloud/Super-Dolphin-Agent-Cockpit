@@ -27,20 +27,6 @@
     "empty_funcs": 0,
     "todo_count": 0
   },
-  "cmd/mcp-lsp/exec/sandbox_unix.go": {
-    "lines": 34,
-    "max_func_len": 8,
-    "max_nesting": 1,
-    "max_complexity": 2,
-    "max_params": 2,
-    "max_returns": 1,
-    "max_underscore": 0,
-    "global_vars": 0,
-    "panic_count": 0,
-    "naked_returns": 0,
-    "empty_funcs": 1,
-    "todo_count": 0
-  },
   "cmd/mcp-lsp/main.go": {
     "lines": 27,
     "max_func_len": 8,
@@ -92,7 +78,7 @@
     "max_params": 2,
     "max_returns": 1,
     "max_underscore": 0,
-    "global_vars": 9,
+    "global_vars": 7,
     "panic_count": 0,
     "naked_returns": 0,
     "empty_funcs": 0,

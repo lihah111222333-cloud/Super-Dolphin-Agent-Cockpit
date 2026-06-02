@@ -314,6 +314,7 @@ func (m *manager) createAndRegisterClient(ctx context.Context, cfg workspaceConf
 		env:              append([]string(nil), cfg.env...),
 		workspaceFolders: cloneWorkspaceFolders(cfg.workspaceFolders),
 		client:           client,
+		lastActivity:     time.Now(),
 	}
 	return client, nil
 }
@@ -355,6 +356,7 @@ func (m *manager) DidChange(ctx context.Context, uri string, version int, change
 	if err != nil {
 		return err
 	}
+	m.touchWorkspaceActivity(client)
 	err = m.withPooledClient(client, func() error {
 		return client.DidChange(ctx, ref.uri, version, changes)
 	})
@@ -485,55 +487,6 @@ func (m *manager) LogMessage(params protocol.LogMessageParams) error {
 	return nil
 }
 
-func (m *manager) request(ctx context.Context, client Client, method string, params any) (json.RawMessage, error) {
-	if client == nil {
-		return nil, fmt.Errorf("request %s: client is nil", method)
-	}
-	var (
-		raw json.RawMessage
-		err error
-	)
-	err = m.withPooledClient(client, func() error {
-		raw, err = client.Request(ctx, method, params)
-		return err
-	})
-	if err != nil {
-		if isClientDeadError(err) {
-			if canAutoRetryDeadClientRequest(method) {
-				if retried, retryErr := m.retryRequestAfterDeadClient(ctx, client, method, params); retryErr == nil {
-					return retried, nil
-				} else {
-					err = errors.Join(err, retryErr)
-				}
-			} else {
-				err = m.nonReplayableDeadClientError(ctx, client, err)
-			}
-		}
-		return nil, fmt.Errorf("%s: %w", method, err)
-	}
-	return raw, nil
-}
-
-func (m *manager) retryRequestAfterDeadClient(ctx context.Context, client Client, method string, params any) (json.RawMessage, error) {
-	replacement, err := m.rebuildClientAfterFailure(ctx, client, true)
-	if err != nil {
-		return nil, err
-	}
-	if replacement == nil {
-		return nil, ErrClientClosed
-	}
-	var raw json.RawMessage
-	err = m.withPooledClient(replacement, func() error {
-		var requestErr error
-		raw, requestErr = replacement.Request(ctx, method, params)
-		return requestErr
-	})
-	if err != nil {
-		return nil, err
-	}
-	return raw, nil
-}
-
 func (m *manager) documentClient(ctx context.Context, uri string) (Client, documentRef, error) {
 	ref, err := m.resolveDocumentRef(ctx, uri, "")
 	if err != nil {
@@ -560,6 +513,24 @@ func clientHealthy(client Client) bool {
 		return checked.Healthy()
 	}
 	return true
+}
+
+// touchWorkspaceActivity updates the lastActivity timestamp for the
+// workspace that owns the given client. This is called on every request
+// and notification to track idle time for automatic shutdown.
+func (m *manager) touchWorkspaceActivity(client Client) {
+	if m == nil || client == nil {
+		return
+	}
+	now := time.Now()
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, workspace := range m.workspaces {
+		if workspace != nil && workspace.client == client {
+			workspace.lastActivity = now
+			return
+		}
+	}
 }
 
 func isClientDeadError(err error) bool {
@@ -608,37 +579,6 @@ func (m *manager) detachClient(client Client) *workspaceClient {
 		}
 	}
 	return nil
-}
-
-func (m *manager) rebuildClientAfterFailure(ctx context.Context, client Client, restore bool) (Client, error) {
-	detached := m.detachClient(client)
-	if detached == nil || detached.client == nil {
-		return nil, ErrClientClosed
-	}
-	m.AdvanceDiagnosticGeneration()
-	_ = shutdownClients([]Client{detached.client})
-	cfg := workspaceConfigFromClient(*detached)
-	replacement, ensureErr := m.ensureClient(ctx, cfg)
-	if ensureErr != nil {
-		return nil, ensureErr
-	}
-	if restore {
-		if err := restoreBootstrappedWorkspace(ctx, m, cfg); err != nil {
-			return replacement, err
-		}
-	}
-	return replacement, nil
-}
-
-func workspaceConfigFromClient(workspace workspaceClient) workspaceConfig {
-	return workspaceConfig{
-		key:              workspace.key,
-		rootPath:         workspace.rootPath,
-		rootURI:          workspace.rootURI,
-		languageID:       workspace.languageID,
-		env:              append([]string(nil), workspace.env...),
-		workspaceFolders: cloneWorkspaceFolders(workspace.workspaceFolders),
-	}
 }
 
 func decodeInto[T any](raw json.RawMessage, out *T) error {

@@ -105,6 +105,43 @@ func TestGrepDefaultMaxResultsIsFifty(t *testing.T) {
 	}
 }
 
+func TestGrepTextSearchExcludesWorkspaceCacheDirectoriesFromRootSearch(t *testing.T) {
+	root := t.TempDir()
+	keep := filepath.Join(root, "admin-ui-v2", "eslint.config.js")
+	writeGrepFixtureFile(t, keep, "export default defineConfig([])\n")
+	for _, rel := range []string{
+		".gomodcache/github.com/arl/statsviz@v0.8.0/internal/static/vite.config.js",
+		".tools/gomodcache/github.com/arl/statsviz@v0.8.0/internal/static/vite.config.js",
+		"cache/vite.config.js",
+		"dist/vite.config.js",
+		"node_modules/vite/config.js",
+	} {
+		writeGrepFixtureFile(t, filepath.Join(root, rel), "export default defineConfig({})\n")
+	}
+
+	got, err := callGrepTool(t, root, grepToolInput{
+		Action:     "text_search",
+		Query:      "defineConfig",
+		Path:       root,
+		Glob:       "*.js",
+		MaxResults: 5,
+	})
+	if err != nil {
+		t.Fatalf("grep returned error: %v", err)
+	}
+	resp, ok := got.(grepResponse)
+	if !ok {
+		t.Fatalf("grep result type = %T, want grepResponse", got)
+	}
+	if resp.Total != 1 || resp.Showing != 1 || resp.Truncated {
+		t.Fatalf("grep totals = total:%d showing:%d truncated:%t, want only source match", resp.Total, resp.Showing, resp.Truncated)
+	}
+	wantKeep := canonicalGrepPath(t, keep)
+	if _, ok := resp.Data[wantKeep]; !ok {
+		t.Fatalf("grep data = %#v, want only %q", resp.Data, wantKeep)
+	}
+}
+
 func TestGrepHandlerAppliesSixteenKiBPayloadBudget(t *testing.T) {
 	root := t.TempDir()
 	writeLargeGrepFixture(t, root)
@@ -139,7 +176,7 @@ func TestBuildGrepResponseOmitsFuncCellsWhenAbsent(t *testing.T) {
 		Col:  3,
 		Text: "match",
 	}}, 1, false)
-	rows := resp.Files["/tmp/sample.go"].Rows
+	rows := resp.Data["/tmp/sample.go"].Rows
 	if len(rows) != 1 {
 		t.Fatalf("rows = %d, want 1", len(rows))
 	}
@@ -157,12 +194,46 @@ func TestBuildGrepResponseIncludesFuncCellsWhenPresent(t *testing.T) {
 		FuncStart: 8,
 		FuncEnd:   12,
 	}}, 1, false)
-	row := resp.Files["/tmp/sample.go"].Rows[0]
+	row := resp.Data["/tmp/sample.go"].Rows[0]
 	if len(row) != 5 {
 		t.Fatalf("row = %#v, want func_start/func_end cells", row)
 	}
 	if row[3] != 8 || row[4] != 12 {
 		t.Fatalf("func cells = %#v, want 8/12", row[3:])
+	}
+}
+
+func TestBuildGrepResponsePadsMixedFuncRows(t *testing.T) {
+	resp := buildGrepResponse([]search.SearchMatch{
+		{
+			File: "/tmp/sample.go",
+			Line: 10,
+			Col:  3,
+			Text: "plain match",
+		},
+		{
+			File:      "/tmp/sample.go",
+			Line:      12,
+			Col:       5,
+			Text:      "function match",
+			FuncStart: 8,
+			FuncEnd:   14,
+		},
+	}, 2, false)
+	block := resp.Data["/tmp/sample.go"]
+	if len(block.Cols) != 5 {
+		t.Fatalf("cols = %#v, want func range columns", block.Cols)
+	}
+	for idx, row := range block.Rows {
+		if len(row) != len(block.Cols) {
+			t.Fatalf("row %d = %#v, want %d cells for cols %#v", idx, row, len(block.Cols), block.Cols)
+		}
+	}
+	if block.Rows[0][3] != nil || block.Rows[0][4] != nil {
+		t.Fatalf("plain row func cells = %#v, want nil placeholders", block.Rows[0][3:])
+	}
+	if block.Rows[1][3] != 8 || block.Rows[1][4] != 14 {
+		t.Fatalf("function row func cells = %#v, want 8/14", block.Rows[1][3:])
 	}
 }
 
@@ -186,7 +257,7 @@ func TestCapGrepResponseBytesCountsTruncationMessage(t *testing.T) {
 func grepResponseCrossingBudgetByMessage(t *testing.T, budget int) grepResponse {
 	t.Helper()
 	resp := grepResponse{
-		Files: map[string]grepFileRows{
+		Data: map[string]grepFileRows{
 			"/tmp/sample.go": {
 				Cols: []string{"line", "col", "text"},
 			},
@@ -198,9 +269,9 @@ func grepResponseCrossingBudgetByMessage(t *testing.T, budget int) grepResponse 
 	}
 	for size := 1; size < 512; size++ {
 		candidate := resp
-		fileRows := candidate.Files["/tmp/sample.go"]
+		fileRows := candidate.Data["/tmp/sample.go"]
 		fileRows.Rows = [][]any{{1, 1, strings.Repeat("x", size)}}
-		candidate.Files = map[string]grepFileRows{"/tmp/sample.go": fileRows}
+		candidate.Data = map[string]grepFileRows{"/tmp/sample.go": fileRows}
 		rawWithoutMessage := mustMarshalGrepResponse(t, candidate)
 		candidate.Message = grepMessage(candidate.RegexFallback, candidate.DroppedForPayload)
 		rawWithMessage := mustMarshalGrepResponse(t, candidate)
@@ -226,10 +297,27 @@ func writeLargeGrepFixture(t *testing.T, root string) {
 	for i := range 50 {
 		name := fmt.Sprintf("file-%02d-%s.txt", i, strings.Repeat("x", 120))
 		body := "needle " + strings.Repeat("payload", 30) + "\n"
-		if err := os.WriteFile(filepath.Join(root, name), []byte(body), 0o600); err != nil {
-			t.Fatalf("write grep fixture: %v", err)
-		}
+		writeGrepFixtureFile(t, filepath.Join(root, name), body)
 	}
+}
+
+func writeGrepFixtureFile(t *testing.T, path string, body string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatalf("mkdir grep fixture: %v", err)
+	}
+	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+		t.Fatalf("write grep fixture: %v", err)
+	}
+}
+
+func canonicalGrepPath(t *testing.T, path string) string {
+	t.Helper()
+	resolved, err := filepath.EvalSymlinks(path)
+	if err != nil {
+		t.Fatalf("canonicalize grep path %s: %v", path, err)
+	}
+	return resolved
 }
 
 func callGrepTool(t *testing.T, root string, input grepToolInput) (any, error) {

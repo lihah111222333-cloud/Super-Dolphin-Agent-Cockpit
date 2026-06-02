@@ -142,7 +142,13 @@ type promptsResponse struct {
 }
 
 type filesResponse struct {
-	Files []sharedfilestore.SharedFile `json:"files"`
+	Files               []sharedfilestore.SharedFile `json:"files"`
+	FinalOutputRefs     []FinalOutputRef             `json:"finalOutputRefs"`
+	SharedFileRetention SharedFileRetention          `json:"sharedFileRetention"`
+}
+
+type finalOutputSnapshotLister interface {
+	listDashboardFinalOutputRefsFromSnapshot(context.Context) ([]FinalOutputRef, error)
 }
 
 type skillsResponse struct {
@@ -245,11 +251,22 @@ func registerDashboardCoreHandlers(m handler.Map, svc Service) {
 		return promptsResponse{Prompts: page.Prompts}, nil
 	})
 	m["dashboard/sharedFiles"] = platformrpc.StrictHandler(func(ctx context.Context, _ struct{}) (any, error) {
-		page, err := svc.GetDashboardPage(ctx, "memory")
+		files, err := svc.ListSharedFiles(ctx)
 		if err != nil {
 			return nil, err
 		}
-		return filesResponse{Files: page.Memory}, nil
+		refs := []FinalOutputRef{}
+		if lister, ok := svc.(finalOutputSnapshotLister); ok {
+			refs, err = lister.listDashboardFinalOutputRefsFromSnapshot(ctx)
+			if err != nil {
+				return nil, err
+			}
+		}
+		return filesResponse{
+			Files:               files,
+			FinalOutputRefs:     refs,
+			SharedFileRetention: buildSharedFileRetention(files, refs),
+		}, nil
 	})
 	m["dashboard/skills"] = platformrpc.StrictHandler(func(ctx context.Context, p dashboardPromptsParams) (any, error) {
 		ctx = withDashboardPromptScopeCWD(ctx, p.Cwd)

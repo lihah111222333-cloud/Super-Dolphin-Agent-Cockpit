@@ -26,7 +26,7 @@ func TestReviewerPreset_AllowsReadOnlyTools(t *testing.T) {
 func TestReviewerPreset_DeniesWriteTools(t *testing.T) {
 	got := ReviewerDecision()
 	assertAllow(t, got)
-	want := []string{"edit", "lsp_edit", "code_run", "code_run_test", "orchestration_launch_agent", "orchestration_stop_agent"}
+	want := []string{"edit", "lsp_edit", "orchestration_launch_agent", "orchestration_stop_agent"}
 	if !slices.Equal(got.DeniedTools, want) {
 		t.Fatalf("denied = %#v, want %#v", got.DeniedTools, want)
 	}

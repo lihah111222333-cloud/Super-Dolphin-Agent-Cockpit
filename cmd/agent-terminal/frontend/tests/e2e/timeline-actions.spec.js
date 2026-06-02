@@ -106,7 +106,7 @@ test('timeline interactions cover file refs, approvals, copies, image preview, a
           fileEdits: 2,
           toolCalls: {
             mcp__playwright__click: 2,
-            code_run: 1,
+            exec_command: 1,
           },
         },
         alerts: [
@@ -134,7 +134,7 @@ test('timeline interactions cover file refs, approvals, copies, image preview, a
         fileEdits: 2,
         toolCalls: {
           mcp__playwright__click: 2,
-          code_run: 1,
+          exec_command: 1,
         },
       },
     },
@@ -227,7 +227,7 @@ test('tool ticker remains visible on hover and preserves collapsed-tool summary'
           {
             id: 'tool-item-2',
             kind: 'tool',
-            tool: 'code_run',
+            tool: 'exec_command',
             preview: 'npm run build',
             elapsedMs: 91,
             status: 'done',

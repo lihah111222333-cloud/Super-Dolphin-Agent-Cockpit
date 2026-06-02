@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	uidto "github.com/anthropic-ai/super-agent-v3/internal/dto/ui"
 	"github.com/anthropic-ai/super-agent-v3/internal/store/sqlc"
 )
 
@@ -130,6 +131,7 @@ func TestUpsertForwardsPayloadAndMapsRow(t *testing.T) {
 	t.Parallel()
 	now := time.Unix(3_000_000, 0).UTC()
 	var captured sqlc.UpsertSharedFileParams
+	var emitted uidto.UISharedFilesChanged
 	s := &store{q: &sharedFileQuerierStub{
 		upsertFn: func(_ context.Context, arg sqlc.UpsertSharedFileParams) (sqlc.SharedFile, error) {
 			captured = arg
@@ -141,7 +143,7 @@ func TestUpsertForwardsPayloadAndMapsRow(t *testing.T) {
 				UpdatedAt: now,
 			}, nil
 		},
-	}}
+	}, emitSharedFilesChanged: func(ev uidto.UISharedFilesChanged) { emitted = ev }}
 	got, err := s.Upsert(context.Background(), UpsertParams{
 		Path:      "reports/demo.md",
 		Content:   "hello",
@@ -156,6 +158,7 @@ func TestUpsertForwardsPayloadAndMapsRow(t *testing.T) {
 	if got == nil || got.Path != captured.Path || got.Content != "hello" || got.UpdatedBy != "system" {
 		t.Fatalf("Upsert() row mapped incorrectly: %+v", got)
 	}
+	assertSharedFilesChangedEvent(t, emitted, "reports/demo.md", "write")
 }
 
 func TestUpsertWrapsQuerierError(t *testing.T) {
@@ -189,12 +192,13 @@ func TestListWrapsQuerierError(t *testing.T) {
 func TestDeleteForwardsPathAndReturnsCount(t *testing.T) {
 	t.Parallel()
 	var captured string
+	var emitted uidto.UISharedFilesChanged
 	s := &store{q: &sharedFileQuerierStub{
 		deleteFn: func(_ context.Context, arg sqlc.DeleteSharedFileParams) (int64, error) {
 			captured = arg.Path
 			return 1, nil
 		},
-	}}
+	}, emitSharedFilesChanged: func(ev uidto.UISharedFilesChanged) { emitted = ev }}
 	count, err := s.Delete(context.Background(), "dag/dag-1/readme.md")
 	if err != nil {
 		t.Fatalf("Delete() unexpected error: %v", err)
@@ -205,6 +209,7 @@ func TestDeleteForwardsPathAndReturnsCount(t *testing.T) {
 	if count != 1 {
 		t.Fatalf("Delete() count = %d, want 1", count)
 	}
+	assertSharedFilesChangedEvent(t, emitted, "dag/dag-1/readme.md", "delete")
 }
 
 func TestDeleteWrapsQuerierError(t *testing.T) {
@@ -218,5 +223,18 @@ func TestDeleteWrapsQuerierError(t *testing.T) {
 	_, err := s.Delete(context.Background(), "x")
 	if err == nil || !errors.Is(err, sentinel) {
 		t.Fatalf("Delete() err = %v, want wrap of sentinel", err)
+	}
+}
+
+func assertSharedFilesChangedEvent(t *testing.T, got uidto.UISharedFilesChanged, wantPath, wantAction string) {
+	t.Helper()
+	if got.Path != wantPath {
+		t.Fatalf("changed event path = %q, want %q; event=%+v", got.Path, wantPath, got)
+	}
+	if got.Action != wantAction {
+		t.Fatalf("changed event action = %q, want %q; event=%+v", got.Action, wantAction, got)
+	}
+	if got.Timestamp.IsZero() {
+		t.Fatalf("changed event timestamp is zero; event=%+v", got)
 	}
 }

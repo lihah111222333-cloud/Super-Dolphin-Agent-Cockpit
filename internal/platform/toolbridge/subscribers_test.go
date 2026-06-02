@@ -71,13 +71,13 @@ func TestToolbridgeDiffFallbackSubscribersRegisterCancelAndDeliver(t *testing.T)
 		t.Fatal("Register returned nil cancel")
 	}
 
-	event.Publish(dispatcher, diffFallbackEvent("agent-1", "thread-1", "call-1", "code_run"))
+	event.Publish(dispatcher, diffFallbackEvent("agent-1", "thread-1", "call-1", "edit"))
 	waitForToolbridgeFallbackEmits(t, &mu, &emitted, 1)
 
 	cancel()
 	cancel()
 
-	event.Publish(dispatcher, diffFallbackEvent("agent-1", "thread-1", "call-after-cancel", "code_run"))
+	event.Publish(dispatcher, diffFallbackEvent("agent-1", "thread-1", "call-after-cancel", "edit"))
 	time.Sleep(50 * time.Millisecond)
 	mu.Lock()
 	got := len(emitted)

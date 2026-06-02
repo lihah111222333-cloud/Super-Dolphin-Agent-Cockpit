@@ -527,7 +527,7 @@ func TestProxyToolCall_PeerExplicitFailureSetsIsError(t *testing.T) {
 		if method != ProxyMethodToolsCall {
 			t.Fatalf("Callback() method = %q, want %s", method, ProxyMethodToolsCall)
 		}
-		assertToolCallPayload(t, params, "lsp_code_run", json.RawMessage(`{}`))
+		assertToolCallPayload(t, params, "lsp_edit", json.RawMessage(`{}`))
 		resp, ok := result.(*peerToolCallResponse)
 		if !ok {
 			t.Fatalf("Callback() result type = %T, want *peerToolCallResponse", result)
@@ -542,7 +542,7 @@ func TestProxyToolCall_PeerExplicitFailureSetsIsError(t *testing.T) {
 		"id":      "req-peer-failure",
 		"method":  "tools/call",
 		"params": map[string]any{
-			"name":      "lsp_code_run",
+			"name":      "lsp_edit",
 			"arguments": map[string]any{},
 		},
 	}))

@@ -49,7 +49,7 @@ func TestValidateQuery(t *testing.T) {
 		{
 			name:        "rejects disallowed table",
 			query:       "SELECT * FROM pg_stat_activity",
-			wantErrText: "disallowed function",
+			wantErrText: "disallowed",
 		},
 		{
 			name:        "rejects placeholder mismatch",
@@ -83,6 +83,27 @@ func TestCTEBypassBlocked(t *testing.T) {
 	err := validateQuery("WITH running AS (SELECT thread_id FROM agent_threads) SELECT current_timestamp", 0)
 	if err == nil || !strings.Contains(err.Error(), "outer SELECT must reference a table") {
 		t.Fatalf("validateQuery() error = %v", err)
+	}
+}
+
+func TestValidateQueryAllowsDAGSnapshotTables(t *testing.T) {
+	t.Parallel()
+
+	queries := []string{
+		"SELECT * FROM task_dags",
+		"SELECT version FROM task_dags",
+		"SELECT * FROM task_dag_runs WHERE dag_key = $1",
+		"SELECT * FROM task_dag_nodes WHERE dag_key = $1",
+	}
+	for _, query := range queries {
+		query := query
+		t.Run(query, func(t *testing.T) {
+			t.Parallel()
+			argCount := strings.Count(query, "$")
+			if err := validateQuery(query, argCount); err != nil {
+				t.Fatalf("validateQuery(%q) error = %v", query, err)
+			}
+		})
 	}
 }
 

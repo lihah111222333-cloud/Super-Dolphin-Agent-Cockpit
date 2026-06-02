@@ -136,9 +136,9 @@ func TestEnableWhen_TagsHas(t *testing.T) {
 
 func TestEnableWhen_EnabledToolsHas(t *testing.T) {
 	t.Parallel()
-	withLsp := contract.BuildCtx{EnabledTools: []string{"code_run", "grep", "file"}}
-	withLegacyLsp := contract.BuildCtx{EnabledTools: []string{"code_run", "lsp_grep", "lsp_file"}}
-	noLsp := contract.BuildCtx{EnabledTools: []string{"code_run"}}
+	withLsp := contract.BuildCtx{EnabledTools: []string{"exec_command", "grep", "file"}}
+	withLegacyLsp := contract.BuildCtx{EnabledTools: []string{"exec_command", "lsp_grep", "lsp_file"}}
+	noLsp := contract.BuildCtx{EnabledTools: []string{"exec_command"}}
 	noTools := contract.BuildCtx{}
 
 	// Single string hit / miss.

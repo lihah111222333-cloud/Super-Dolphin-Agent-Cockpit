@@ -53,7 +53,7 @@ func NewDreamExecutor(providers []contract.DreamExecutorProvider, logger *slog.L
 		maxPromptBytes: defaultMaxPromptBytes,
 	}
 	for _, provider := range providers {
-		name := strings.TrimSpace(provider.Name)
+		name := normalizeDreamProviderName(provider.Name)
 		if name == "" || provider.Executor == nil {
 			continue
 		}
@@ -90,7 +90,7 @@ func resolveProviderOrder(registered []string, override string) []string {
 	used := make(map[string]bool, len(out))
 	var ordered []string
 	for raw := range strings.SplitSeq(override, ",") {
-		n := strings.TrimSpace(raw)
+		n := normalizeDreamProviderName(raw)
 		if n == "" || !inSet[n] || used[n] {
 			continue
 		}
@@ -108,6 +108,10 @@ func resolveProviderOrder(registered []string, override string) []string {
 }
 
 func (e *dreamExecutor) ExecuteDream(ctx context.Context, prompt string) (string, error) {
+	return e.ExecuteDreamWithOptions(ctx, prompt, contract.DreamOptions{})
+}
+
+func (e *dreamExecutor) ExecuteDreamWithOptions(ctx context.Context, prompt string, options contract.DreamOptions) (string, error) {
 	if err := e.preflight(prompt); err != nil {
 		return "", err
 	}
@@ -119,7 +123,7 @@ func (e *dreamExecutor) ExecuteDream(ctx context.Context, prompt string) (string
 		ctx, cancel = platformconfig.WithTimeout(ctx, e.timeout)
 		defer cancel()
 	}
-	return e.runFailover(ctx, prompt)
+	return e.runFailover(ctx, prompt, options)
 }
 
 // preflight 检查入参 prompt + size cap。ctx 检查放在 ExecuteDream
@@ -141,18 +145,27 @@ func (e *dreamExecutor) preflight(prompt string) error {
 
 // runFailover 依次调用注册的 provider，遇 NotConfigured 跳过，
 // 遇真错误立即短路，全链路未配置返回最后一个 NotConfigured。
-func (e *dreamExecutor) runFailover(ctx context.Context, prompt string) (string, error) {
+func (e *dreamExecutor) runFailover(ctx context.Context, prompt string, options contract.DreamOptions) (string, error) {
+	order, requestedProvider, err := e.providerOrderForOptions(options)
+	if err != nil {
+		return "", err
+	}
 	var lastNotConfigured error
-	for _, name := range e.order {
+	for _, name := range order {
 		executor := e.executors[name]
 		if executor == nil {
 			continue
 		}
-		result, err := executor.ExecuteDream(ctx, prompt)
+		result, err := executeProviderDream(ctx, executor, prompt, options)
 		if err == nil {
 			e.logger.Info("dream executor succeeded", "provider", name, "size_bytes", len(result))
 			dreammetrics.IncSuccess()
 			return result, nil
+		}
+		if requestedProvider {
+			e.logger.Warn("requested dream executor failed", "provider", name, "error", err)
+			dreammetrics.IncProviderFailed()
+			return "", fmt.Errorf("dream executor provider %q failed: %w", name, err)
 		}
 		if errors.Is(err, contract.ErrDreamExecutorNotConfigured) {
 			e.logger.Debug("dream executor skipped (not configured)", "provider", name)
@@ -165,9 +178,31 @@ func (e *dreamExecutor) runFailover(ctx context.Context, prompt string) (string,
 		return "", err
 	}
 	if lastNotConfigured != nil {
-		e.logger.Warn("all dream executors not configured", "providers", e.order)
+		e.logger.Warn("all dream executors not configured", "providers", order)
 		dreammetrics.IncAllNotConfigured()
 		return "", lastNotConfigured
 	}
 	return "", fmt.Errorf("%w: no provider dream executors registered", contract.ErrDreamExecutorNotConfigured)
+}
+
+func (e *dreamExecutor) providerOrderForOptions(options contract.DreamOptions) ([]string, bool, error) {
+	provider := normalizeDreamProviderName(options.Provider)
+	if provider == "" {
+		return append([]string(nil), e.order...), false, nil
+	}
+	if _, ok := e.executors[provider]; !ok {
+		return nil, true, fmt.Errorf("dream executor provider %q is not registered", provider)
+	}
+	return []string{provider}, true, nil
+}
+
+func executeProviderDream(ctx context.Context, executor contract.DreamExecutor, prompt string, options contract.DreamOptions) (string, error) {
+	if withOptions, ok := executor.(contract.DreamExecutorWithOptions); ok {
+		return withOptions.ExecuteDreamWithOptions(ctx, prompt, options)
+	}
+	return executor.ExecuteDream(ctx, prompt)
+}
+
+func normalizeDreamProviderName(value string) string {
+	return strings.ToLower(strings.TrimSpace(value))
 }

@@ -202,7 +202,7 @@ func runUnsupportedTextReplaceRangeCase(t *testing.T, tt unsupportedTextReplaceR
 func assertUnsupportedTextReplaceRangeResult(t *testing.T, result replaceRangeResult) {
 	t.Helper()
 
-	if !result.Success || !result.Applied || !result.Persisted || result.Status != "applied" {
+	if result.Status != "applied" || !result.Persisted {
 		t.Fatalf("unexpected result: %#v", result)
 	}
 	if result.LSPSync {

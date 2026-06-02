@@ -44,23 +44,23 @@ func RenderLineNumberedText(content string, startLine int) string {
 }
 
 func RenderGroupedLocations(result protocol.GroupedLocationResult) string {
-	if len(result.Files) == 0 {
+	if len(result.Data) == 0 {
 		return ""
 	}
-	files := make([]string, 0, len(result.Files))
-	for file := range result.Files {
+	files := make([]string, 0, len(result.Data))
+	for file := range result.Data {
 		files = append(files, file)
 	}
 	sort.Strings(files)
 	var builder strings.Builder
 	for i := range files {
 		file := files[i]
-		for _, row := range result.Files[file] {
+		for _, row := range result.Data[file] {
 			builder.WriteString(file)
 			builder.WriteByte(':')
 			builder.WriteString(strconv.Itoa(row.Line))
 			builder.WriteByte(':')
-			builder.WriteString(strconv.Itoa(row.Column))
+			builder.WriteString(strconv.Itoa(row.Col))
 			if row.FuncStart > 0 && row.FuncEnd >= row.FuncStart {
 				builder.WriteString(" [func L")
 				builder.WriteString(strconv.Itoa(row.FuncStart))
