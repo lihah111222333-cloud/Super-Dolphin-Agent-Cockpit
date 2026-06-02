@@ -1,11 +1,21 @@
 import React from 'react';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { describe, expect, it, vi } from 'vitest';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import mermaid from 'mermaid';
 import { ChatPage } from './ChatPage.jsx';
 
 vi.mock('../../shared/api/backendApi.js', () => ({
   copyTextToClipboard: vi.fn(),
   onFilesDropped: vi.fn(() => () => {}),
+}));
+
+vi.mock('mermaid', () => ({
+  default: {
+    initialize: vi.fn(),
+    render: vi.fn((_id, source) => Promise.resolve({
+      svg: `<svg role="img" aria-label="mock mermaid"><text>${source}</text></svg>`,
+    })),
+  },
 }));
 
 function createFakeStore(overrides = {}) {
@@ -32,6 +42,7 @@ function createFakeStore(overrides = {}) {
     hasActiveThreadActions: vi.fn(() => Boolean(store.activeThreadId)),
     hasInterruptibleThreadAction: vi.fn(() => false),
     interruptActiveThread: vi.fn(),
+    loadOlderThreadMessages: vi.fn(),
     loadThreadConfig: vi.fn(),
     newThread: vi.fn(),
     openNewWindow: vi.fn(),
@@ -66,6 +77,7 @@ function createFakeStore(overrides = {}) {
     threadConfigLoadingByThread: {},
     threadConfigSaving: false,
     threadDiffReadyByThread: {},
+    threadMessagePaginationByThread: {},
     threadStateLoadingByThread: {},
     threadTimelineReadyByThread: {},
     threads: [],
@@ -77,6 +89,22 @@ function createFakeStore(overrides = {}) {
   };
   return store;
 }
+
+function createActiveThreadStore(messages, overrides = {}) {
+  return createFakeStore({
+    activeThreadId: 'thread-1',
+    threads: [{ id: 'thread-1', name: '渲染窗口会话', provider: 'codex', status: 'idle', updatedAt: '2026-06-02T08:00:00Z' }],
+    threadTimelineReadyByThread: { 'thread-1': true },
+    timelinesByThread: {
+      'thread-1': messages,
+    },
+    ...overrides,
+  });
+}
+
+beforeEach(() => {
+  vi.clearAllMocks();
+});
 
 describe('ChatPage module', () => {
   it('exports the chat page component', () => {
@@ -139,5 +167,143 @@ describe('ChatPage module', () => {
       preserveActiveThreadId: true,
     });
     expect(screen.getByTestId('diff-view')).toBeInTheDocument();
+  });
+
+  it('materializes only the recent timeline window until older messages are requested', () => {
+    const messages = Array.from({ length: 120 }, (_, index) => ({
+      id: `msg-${index + 1}`,
+      role: index % 2 === 0 ? 'user' : 'assistant',
+      text: `历史消息 ${index + 1}`,
+      time: `2026-06-02T08:${String(index % 60).padStart(2, '0')}:00Z`,
+    }));
+
+    const { container } = render(<ChatPage store={createActiveThreadStore(messages)} projectPath="/repo/app" />);
+
+    expect(screen.getByText('历史消息 120')).toBeInTheDocument();
+    expect(screen.queryByText('历史消息 1')).not.toBeInTheDocument();
+    expect(screen.getByTestId('timeline-older-marker')).toHaveTextContent('显示更早的消息（40 条）');
+    expect(container.querySelectorAll('.message')).toHaveLength(80);
+
+    fireEvent.click(screen.getByRole('button', { name: '显示更早的消息（40 条）' }));
+
+    expect(screen.getByText('历史消息 1')).toBeInTheDocument();
+    expect(container.querySelectorAll('.message')).toHaveLength(120);
+    expect(screen.queryByTestId('timeline-older-marker')).not.toBeInTheDocument();
+  });
+
+  it('materializes older timeline messages when the user scrolls to the top', () => {
+    const messages = Array.from({ length: 90 }, (_, index) => ({
+      id: `scroll-msg-${index + 1}`,
+      role: index % 2 === 0 ? 'user' : 'assistant',
+      text: `滚动历史消息 ${index + 1}`,
+      time: `2026-06-02T08:${String(index % 60).padStart(2, '0')}:00Z`,
+    }));
+
+    render(<ChatPage store={createActiveThreadStore(messages)} projectPath="/repo/app" />);
+
+    expect(screen.queryByText('滚动历史消息 1')).not.toBeInTheDocument();
+
+    const timeline = screen.getByTestId('chat-timeline');
+    Object.defineProperty(timeline, 'scrollTop', { configurable: true, value: 0 });
+    fireEvent.scroll(timeline);
+
+    expect(screen.getByText('滚动历史消息 1')).toBeInTheDocument();
+    expect(screen.queryByTestId('timeline-older-marker')).not.toBeInTheDocument();
+  });
+
+  it('loads an older backend message page when no local older messages are hidden', async () => {
+    let resolveLoad;
+    const loadPromise = new Promise((resolve) => {
+      resolveLoad = resolve;
+    });
+    const loadOlderThreadMessages = vi.fn(() => loadPromise);
+    const store = createActiveThreadStore([
+      { id: 'msg-1', role: 'user', text: '当前页第一条', time: '2026-06-02T08:00:00Z' },
+      { id: 'msg-2', role: 'assistant', text: '当前页第二条', time: '2026-06-02T08:01:00Z' },
+    ], {
+      loadOlderThreadMessages,
+      threadMessagePaginationByThread: {
+        'thread-1': { hasMore: true, nextBefore: 'msg-1', loading: false },
+      },
+    });
+
+    render(<ChatPage store={store} projectPath="/repo/app" />);
+
+    fireEvent.click(screen.getByRole('button', { name: '加载更早的消息' }));
+
+    expect(loadOlderThreadMessages).toHaveBeenCalledTimes(1);
+    expect(loadOlderThreadMessages).toHaveBeenCalledWith('thread-1');
+    expect(screen.getByRole('button', { name: '正在加载更早的消息' })).toBeDisabled();
+
+    const timeline = screen.getByTestId('chat-timeline');
+    Object.defineProperty(timeline, 'scrollTop', { configurable: true, value: 0 });
+    fireEvent.scroll(timeline);
+    expect(loadOlderThreadMessages).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      resolveLoad(true);
+      await loadPromise;
+    });
+    expect(screen.getByRole('button', { name: '加载更早的消息' })).not.toBeDisabled();
+  });
+
+  it('reveals hidden local older messages before loading another backend page', () => {
+    const loadOlderThreadMessages = vi.fn(() => Promise.resolve(true));
+    const messages = Array.from({ length: 120 }, (_, index) => ({
+      id: `local-hidden-msg-${index + 1}`,
+      role: index % 2 === 0 ? 'user' : 'assistant',
+      text: `本地隐藏历史消息 ${index + 1}`,
+      time: `2026-06-02T08:${String(index % 60).padStart(2, '0')}:00Z`,
+    }));
+    const store = createActiveThreadStore(messages, {
+      loadOlderThreadMessages,
+      threadMessagePaginationByThread: {
+        'thread-1': { hasMore: true, nextBefore: 'local-hidden-msg-1', loading: false },
+      },
+    });
+
+    render(<ChatPage store={store} projectPath="/repo/app" />);
+
+    expect(screen.queryByText('本地隐藏历史消息 1')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '显示更早的消息（40 条）' }));
+
+    expect(screen.getByText('本地隐藏历史消息 1')).toBeInTheDocument();
+    expect(loadOlderThreadMessages).not.toHaveBeenCalled();
+  });
+
+  it('does not render Mermaid diagrams from unmaterialized older history', async () => {
+    const messages = Array.from({ length: 85 }, (_, index) => {
+      if (index === 0) {
+        return {
+          id: 'hidden-mermaid',
+          role: 'assistant',
+          text: [
+            '旧图表不应首屏渲染：',
+            '```mermaid',
+            'flowchart TD',
+            '  Old[旧历史] --> Heavy[重渲染]',
+            '```',
+          ].join('\n'),
+          time: '2026-06-02T07:00:00Z',
+        };
+      }
+      return {
+        id: `recent-${index}`,
+        role: index % 2 === 0 ? 'user' : 'assistant',
+        text: `最近消息 ${index}`,
+        time: `2026-06-02T08:${String(index % 60).padStart(2, '0')}:00Z`,
+      };
+    });
+
+    render(<ChatPage store={createActiveThreadStore(messages)} projectPath="/repo/app" />);
+
+    expect(screen.getByText('最近消息 84')).toBeInTheDocument();
+    expect(screen.queryByText('旧图表不应首屏渲染：')).not.toBeInTheDocument();
+    expect(mermaid.render).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole('button', { name: '显示更早的消息（5 条）' }));
+
+    expect(screen.getByText('旧图表不应首屏渲染：')).toBeInTheDocument();
+    await waitFor(() => expect(mermaid.render).toHaveBeenCalledTimes(1));
   });
 });

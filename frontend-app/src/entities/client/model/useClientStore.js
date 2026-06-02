@@ -972,6 +972,17 @@ function normalizeThreadMessagesTotal(value) {
   return Number.isFinite(total) && total >= 0 ? total : null;
 }
 
+function normalizeThreadMessagesBoolean(value) {
+  if (typeof value === 'boolean') return value;
+  if (typeof value === 'number') return value > 0;
+  const normalized = normalizeString(value).toLowerCase();
+  if (normalized === 'true') return true;
+  if (normalized === 'false') return false;
+  if (normalized === '1') return true;
+  if (normalized === '0') return false;
+  return Boolean(value);
+}
+
 function threadMessageNumericId(message) {
   const value = Number(message?.id);
   return Number.isSafeInteger(value) && value > 0 ? value : 0;
@@ -987,6 +998,30 @@ function oldestThreadMessageCursor(messages) {
 	    .filter(({ raw, timestamp }) => raw && Number.isFinite(timestamp) && timestamp > 0)
 	    .sort((left, right) => left.timestamp - right.timestamp);
 	  return timestamps[0]?.raw || '';
+}
+
+function normalizeThreadMessagesPageMeta(res, page) {
+  const backendHasMore = hasOwn(res, 'hasMore') || hasOwn(res, 'has_more');
+  const hasMore = backendHasMore
+    ? normalizeThreadMessagesBoolean(res.hasMore ?? res.has_more)
+    : (normalizeThreadMessagesTotal(res?.total) ?? page.length) > page.length || page.length >= THREAD_MESSAGES_PAGE_SIZE;
+  const nextBefore = normalizeString(res?.nextBefore || res?.next_before);
+  return {
+    hasMore,
+    nextBefore: hasMore ? nextBefore || (backendHasMore ? '' : oldestThreadMessageCursor(page)) : '',
+  };
+}
+
+function threadMessagesPaginationPatch(state, id, patch = {}) {
+  return {
+    threadMessagePaginationByThread: {
+      ...state.threadMessagePaginationByThread,
+      [id]: {
+        ...(state.threadMessagePaginationByThread[id] || { hasMore: false, nextBefore: '', loading: false }),
+        ...patch,
+      },
+    },
+  };
 }
 
 function compactRuntimeResultText(value) {
@@ -1321,6 +1356,10 @@ function snapshotTimelineBase(state, nextThreads) {
       nextThreads,
       Boolean,
     ),
+    threadMessagePaginationByThread: canonicalizeThreadValues(
+      state.threadMessagePaginationByThread || {},
+      nextThreads,
+    ),
   };
 }
 
@@ -1419,6 +1458,7 @@ function buildSnapshotState(state, payload = {}, options = {}) {
     pinnedThreadAtById: maps.pinnedAtById,
     timelinesByThread: timelineState.timelinesByThread,
     threadTimelineReadyByThread: timelineState.threadTimelineReadyByThread,
+    threadMessagePaginationByThread: timelineState.threadMessagePaginationByThread,
     runtimeResultEntries: mergeRuntimeResultEntries(state.runtimeResultEntries, timelineState.runtimeResultEntries),
     activeTurnByThread: snapshotActiveTurnByThread(state, payload, nextThreads),
     statuses: { ...state.statuses, ...(payload.statuses || {}) },
@@ -2144,6 +2184,7 @@ const baseState = {
   threadConfigSaving: false,
   timelinesByThread: {},
   threadTimelineReadyByThread: {},
+  threadMessagePaginationByThread: {},
   tokenUsageByThread: {},
   activityStatsByThread: {},
   diffTextByThread: {},
@@ -2175,6 +2216,8 @@ function createClientStoreRuntime(set, get) {
     sequencesByThread: new Map(),
     composerDrafts: new Map(),
     sidebarSnapshotsByCwd: new Map(),
+    threadMessageGenerations: new Map(),
+    threadSyncGenerations: new Map(),
     sidebarRefreshSeq: 0,
   };
   attachComposerDraftRuntime(runtime);
@@ -2326,7 +2369,7 @@ function attachLogRuntime(runtime) {
 
 function attachScopeRuntime(runtime) {
   const { set, get, addWarning } = runtime;
-  const { sequencesByThread, sidebarSnapshotsByCwd } = runtime;
+  const { sequencesByThread, sidebarSnapshotsByCwd, threadMessageGenerations, threadSyncGenerations } = runtime;
 
   const requireCwd = (reason) => {
     const activeProject = normalizePath(get().activeProject);
@@ -2357,6 +2400,8 @@ function attachScopeRuntime(runtime) {
   const clearChatSurfaceForCwdSwitch = (cwdValue = '') => {
     const cwd = normalizePath(cwdValue);
     sequencesByThread.clear();
+    threadMessageGenerations.clear();
+    threadSyncGenerations.clear();
     set({
       activeThreadId: '',
       threads: [],
@@ -2371,6 +2416,7 @@ function attachScopeRuntime(runtime) {
       pendingActiveThreadId: '',
       timelinesByThread: {},
       threadTimelineReadyByThread: {},
+      threadMessagePaginationByThread: {},
       tokenUsageByThread: {},
       activityStatsByThread: {},
       diffTextByThread: {},
@@ -2505,41 +2551,6 @@ function messagePageParams(id, before) {
   return { threadId: id, limit: THREAD_MESSAGES_PAGE_SIZE };
 }
 
-function assertThreadMessagesPageProgress(nextBefore, seenCursors) {
-  if (!nextBefore) {
-    throw new Error('thread/messages cannot continue pagination without an id or createdAt cursor');
-  }
-  if (seenCursors.has(nextBefore)) {
-    throw new Error(`thread/messages pagination cursor repeated: ${nextBefore}`);
-  }
-  seenCursors.add(nextBefore);
-}
-
-async function fetchThreadMessagePages(id) {
-  const allMessages = [];
-  const seenCursors = new Set();
-  let before = '';
-  let expectedTotal = null;
-  while (true) {
-    const res = await getThreadMessages(messagePageParams(id, before));
-    const page = Array.isArray(res?.messages) ? res.messages : [];
-    expectedTotal = normalizeThreadMessagesTotal(res?.total) ?? expectedTotal;
-    if (page.length === 0) {
-      if (expectedTotal !== null && allMessages.length < expectedTotal) {
-        throw new Error(`thread/messages returned ${allMessages.length}/${expectedTotal} messages before history was complete`);
-      }
-      return allMessages;
-    }
-    allMessages.push(...page);
-    const shouldLoadMore = expectedTotal !== null
-      ? allMessages.length < expectedTotal
-      : page.length >= THREAD_MESSAGES_PAGE_SIZE;
-    if (!shouldLoadMore) return allMessages;
-    before = oldestThreadMessageCursor(page);
-    assertThreadMessagesPageProgress(before, seenCursors);
-  }
-}
-
 function markThreadMessagesReady(set, id) {
   set((state) => ({
     timelinesByThread: state.threadTimelineReadyByThread?.[id]
@@ -2555,6 +2566,18 @@ function markThreadMessagesReady(set, id) {
   }));
 }
 
+async function fetchThreadMessagePage(id, before = '') {
+  const startedAt = Date.now();
+  const res = await getThreadMessages(messagePageParams(id, before));
+  const page = Array.isArray(res?.messages) ? res.messages : [];
+  return {
+    messages: page,
+    items: normalizeThreadMessageItems(page),
+    meta: normalizeThreadMessagesPageMeta(res, page),
+    durationMs: Date.now() - startedAt,
+  };
+}
+
 function normalizeThreadMessageItems(allMessages) {
   return sortTimelineChronologically(allMessages.map((message) => normalizeTimelineItem({
     id: message.id || message.messageId || message.message_id,
@@ -2566,7 +2589,21 @@ function normalizeThreadMessageItems(allMessages) {
   })).filter(isVisibleTimelineItem));
 }
 
-function applyThreadMessageItems(set, id, pageItems) {
+function emitThreadHistoryInitialPageTrace(id, page, status, error) {
+  emitFrontendTraceEvent(cleanObject({
+    phase: 'frontend.thread_history.initial_page.load',
+    thread_id: id,
+    page_size: THREAD_MESSAGES_PAGE_SIZE,
+    message_count: page?.messages?.length || 0,
+    has_more: Boolean(page?.meta?.hasMore),
+    next_before: page?.meta?.nextBefore ? 'present' : '',
+    duration_ms: page?.durationMs,
+    status,
+    error_name: error?.name || '',
+  }));
+}
+
+function applyThreadMessageItems(set, id, pageItems, pageMeta = {}) {
   set((state) => ({
     timelinesByThread: {
       ...state.timelinesByThread,
@@ -2576,26 +2613,57 @@ function applyThreadMessageItems(set, id, pageItems) {
       ...state.threadTimelineReadyByThread,
       [id]: true,
     },
+    ...threadMessagesPaginationPatch(state, id, {
+      hasMore: Boolean(pageMeta.hasMore),
+      nextBefore: normalizeString(pageMeta.nextBefore),
+      loading: false,
+    }),
   }));
 }
 
 function attachThreadMessagesRuntime(runtime) {
   const { set, get, addWarning } = runtime;
+  const { threadMessageGenerations } = runtime;
+
+  const nextThreadMessageGeneration = (id) => {
+    const nextGeneration = (threadMessageGenerations.get(id) || 0) + 1;
+    threadMessageGenerations.set(id, nextGeneration);
+    return nextGeneration;
+  };
+
+  const isCurrentThreadMessageGeneration = (id, generation) => threadMessageGenerations.get(id) === generation;
+
+  const setThreadMessagesLoading = (id, generation, loading) => {
+    set((state) => {
+      if (!isCurrentThreadMessageGeneration(id, generation)) return {};
+      return threadMessagesPaginationPatch(state, id, { loading });
+    });
+  };
 
   const loadThreadMessages = async (threadId, options = {}) => {
     const loadOptions = options && typeof options === 'object' ? options : {};
     const id = backendThreadIdForState(get(), threadId, { includeArchived: loadOptions.includeArchived === true });
     if (!id) return;
+    const generation = nextThreadMessageGeneration(id);
+    setThreadMessagesLoading(id, generation, true);
     try {
-      const allMessages = await fetchThreadMessagePages(id);
-      if (allMessages.length === 0) {
+      const page = await fetchThreadMessagePage(id);
+      emitThreadHistoryInitialPageTrace(id, page, 'ok');
+      if (!isCurrentThreadMessageGeneration(id, generation)) return;
+      if (page.messages.length === 0) {
         markThreadMessagesReady(set, id);
+        setThreadMessagesLoading(id, generation, false);
         return;
       }
-      applyThreadMessageItems(set, id, normalizeThreadMessageItems(allMessages));
+      applyThreadMessageItems(set, id, page.items, page.meta);
     }
     catch (error) {
+      emitThreadHistoryInitialPageTrace(id, null, 'error', error);
+      setThreadMessagesLoading(id, generation, false);
       addWarning('error', 'thread.messages.failed', { threadId: id, error: error.message });
+    }
+    finally {
+      setThreadMessagesLoading(id, generation, false);
     }
   };
 
@@ -2604,7 +2672,47 @@ function attachThreadMessagesRuntime(runtime) {
     await loadThreadMessages(threadId, { includeArchived: syncOptions.includeArchived === true });
   };
 
-  Object.assign(runtime, { loadThreadMessages, startThreadMessagesLoad });
+  const loadOlderThreadMessages = async (threadId, options = {}) => {
+    const loadOptions = options && typeof options === 'object' ? options : {};
+    const id = backendThreadIdForState(get(), threadId, { includeArchived: loadOptions.includeArchived === true });
+    if (!id) return false;
+    const pagination = get().threadMessagePaginationByThread?.[id] || {};
+    if (pagination.loading) return false;
+    if (!pagination.hasMore) return false;
+    const before = normalizeString(pagination.nextBefore);
+    if (!before) {
+      addWarning('error', 'thread.messages.pagination.missing_cursor', { threadId: id });
+      return false;
+    }
+    const generation = threadMessageGenerations.get(id) || nextThreadMessageGeneration(id);
+    setThreadMessagesLoading(id, generation, true);
+    try {
+      const page = await fetchThreadMessagePage(id, before);
+      if (!isCurrentThreadMessageGeneration(id, generation)) return false;
+      if (page.messages.length === 0) {
+        markThreadMessagesReady(set, id);
+        set((state) => threadMessagesPaginationPatch(state, id, {
+          hasMore: false,
+          nextBefore: '',
+          loading: false,
+        }));
+        return true;
+      }
+      applyThreadMessageItems(set, id, page.items, page.meta);
+      return true;
+    }
+    catch (error) {
+      if (isCurrentThreadMessageGeneration(id, generation)) {
+        addWarning('error', 'thread.messages.failed', { threadId: id, error: error.message });
+      }
+      return false;
+    }
+    finally {
+      setThreadMessagesLoading(id, generation, false);
+    }
+  };
+
+  Object.assign(runtime, { loadThreadMessages, startThreadMessagesLoad, loadOlderThreadMessages });
 }
 
 function attachNotificationRuntime(runtime) {
@@ -2905,6 +3013,8 @@ function createLifecycleActions(runtime) {
       runtime.sequencesByThread.clear();
       runtime.composerDrafts.clear();
       runtime.sidebarSnapshotsByCwd.clear();
+      runtime.threadMessageGenerations.clear();
+      runtime.threadSyncGenerations.clear();
       runtime.sidebarRefreshSeq += 1;
     },
 
@@ -2962,6 +3072,26 @@ function createBootstrapActions(runtime) {
 }
 
 function createThreadSyncActions(runtime) {
+  const nextThreadSyncGeneration = (id) => {
+    const nextGeneration = (runtime.threadSyncGenerations.get(id) || 0) + 1;
+    runtime.threadSyncGenerations.set(id, nextGeneration);
+    return nextGeneration;
+  };
+
+  const isCurrentThreadSyncGeneration = (id, generation) => runtime.threadSyncGenerations.get(id) === generation;
+
+  const setThreadStateLoading = (id, generation, loading) => {
+    runtime.set((state) => {
+      if (!isCurrentThreadSyncGeneration(id, generation)) return {};
+      return {
+        threadStateLoadingByThread: {
+          ...state.threadStateLoadingByThread,
+          [id]: loading,
+        },
+      };
+    });
+  };
+
   return {
     syncThreadState: async (threadId, options = {}) => {
       const syncOptions = options && typeof options === 'object' ? options : {};
@@ -2970,16 +3100,16 @@ function createThreadSyncActions(runtime) {
       const cwd = runtime.requireCwd('thread.sync');
       const activeAtRequest = runtime.get().activeThreadId;
       const includeDiff = syncOptions.includeDiff !== false;
-      runtime.set((state) => ({
-        threadStateLoadingByThread: {
-          ...state.threadStateLoadingByThread,
-          [id]: true,
-        },
-      }));
+      const generation = nextThreadSyncGeneration(id);
+      setThreadStateLoading(id, generation, true);
       try {
         const snapshotPromise = getThreadState({ cwd, threadId: id, includeDiff });
         const messagesPromise = runtime.startThreadMessagesLoad(id, syncOptions);
         const snapshot = await snapshotPromise;
+        if (!isCurrentThreadSyncGeneration(id, generation)) {
+          await messagesPromise;
+          return true;
+        }
         const activeChanged = normalizeThreadId(runtime.get().activeThreadId) !== normalizeThreadId(activeAtRequest);
         runtime.applySnapshot(snapshot, {
           preferredActiveThreadId: id,
@@ -2999,20 +3129,18 @@ function createThreadSyncActions(runtime) {
         return true;
       }
       catch (error) {
+        if (!isCurrentThreadSyncGeneration(id, generation)) return false;
         const message = error?.message || String(error);
         runtime.notifyAction(`同步会话失败：${message}`, 'error', { threadId: id });
         runtime.addWarning('error', 'thread.sync.failed', { threadId: id, error: message });
         return false;
       }
       finally {
-        runtime.set((state) => ({
-          threadStateLoadingByThread: {
-            ...state.threadStateLoadingByThread,
-            [id]: false,
-          },
-        }));
+        setThreadStateLoading(id, generation, false);
       }
     },
+
+    loadOlderThreadMessages: async (threadId, options = {}) => runtime.loadOlderThreadMessages(threadId, options),
 
 
   };

@@ -14,6 +14,19 @@ type Message struct {
 }
 
 type ThreadMessagesResult struct {
-	Messages []Message `json:"messages"`
-	Total    int64     `json:"total"`
+	Messages   []Message `json:"messages"`
+	Total      int64     `json:"total"`
+	HasMore    bool      `json:"hasMore"`
+	NextBefore string    `json:"nextBefore"`
+}
+
+type MessagePageRequest struct {
+	Limit  int
+	Before string
+}
+
+type MessagePageResult struct {
+	Messages   []Message
+	HasMore    bool
+	NextBefore string
 }
