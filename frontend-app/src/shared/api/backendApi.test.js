@@ -13,12 +13,14 @@ describe('frontend-app backend API facade', () => {
 
     await api.getObservabilityTrace({ trace_id: 'trace-1', limit: 5 });
     await api.getObservabilityThreadRecent({ thread_id: 'thread-1', limit: 7 });
+    await api.listObservabilityRecent({ limit: 20, status: 'error', component: 'frontend', keyword: 'thread/start' });
     await api.listObservabilitySlow({ component: 'rpc' });
     await api.listObservabilityErrors({ limit: 3 });
     await api.getObservabilityStatus();
 
     expect(callAPI).toHaveBeenCalledWith(RPC_METHODS.OBSERVABILITY_TRACE_GET, { traceId: 'trace-1', limit: 5 });
     expect(callAPI).toHaveBeenCalledWith(RPC_METHODS.OBSERVABILITY_THREAD_RECENT, { threadId: 'thread-1', limit: 7 });
+    expect(callAPI).toHaveBeenCalledWith(RPC_METHODS.OBSERVABILITY_RECENT_LIST, { limit: 20, status: 'error', component: 'frontend', keyword: 'thread/start' });
     expect(callAPI).toHaveBeenCalledWith(RPC_METHODS.OBSERVABILITY_SLOW_LIST, { component: 'rpc' });
     expect(callAPI).toHaveBeenCalledWith(RPC_METHODS.OBSERVABILITY_ERROR_LIST, { limit: 3 });
     expect(callAPI).toHaveBeenCalledWith(RPC_METHODS.OBSERVABILITY_STATUS, {});

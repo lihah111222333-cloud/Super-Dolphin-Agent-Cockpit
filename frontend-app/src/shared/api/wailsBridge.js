@@ -251,6 +251,28 @@ function safeTraceString(value, limit = 160) {
   return text.length > limit ? `${text.slice(0, limit)}…` : text;
 }
 
+function safeTraceErrorMessage(error) {
+  const code = safeTraceString(error?.code, 80);
+  const name = safeTraceString(error?.name, 80);
+  const message = safeTraceString(error?.message, 240);
+  const safeMessage = containsForbiddenTraceText(message) ? '' : message;
+  if (code && safeMessage) return `${code}: ${safeMessage}`;
+  if (safeMessage) return safeMessage;
+  return code || name || 'Error';
+}
+
+function containsForbiddenTraceText(text) {
+  const normalized = safeTraceString(text, 512).toLowerCase();
+  if (!normalized) return false;
+  for (const key of FRONTEND_TRACE_FORBIDDEN_KEYS) {
+    const token = key.toLowerCase();
+    if (normalized.includes(token) || normalized.includes(token.replaceAll('_', ' '))) {
+      return true;
+    }
+  }
+  return false;
+}
+
 function safeTraceMetadata(metadata) {
   if (!metadata || typeof metadata !== 'object' || Array.isArray(metadata)) return undefined;
   const out = {};
@@ -515,7 +537,7 @@ export async function callAPI(method, params = {}) {
       client_route: clientRoute,
       duration_ms: durationMs,
       status: 'error',
-      error: error?.code || error?.name || 'Error',
+      error: safeTraceErrorMessage(error),
       metadata: { req_id: reqId },
     });
     throw error;

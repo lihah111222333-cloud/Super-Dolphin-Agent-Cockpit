@@ -19,6 +19,8 @@ const (
 	defaultQueryLimit       = 100
 	defaultListLimit        = 50
 	maxQueryLimit           = 500
+	recentRawLimitMultiple  = 50
+	maxRecentRawQueryLimit  = 5000
 	summaryEventLimit       = 10
 )
 
@@ -43,6 +45,22 @@ type threadRecentParams struct {
 type eventListParams struct {
 	Limit     int    `json:"limit"`
 	Component string `json:"component"`
+}
+
+type recentListParams struct {
+	TraceID          string `json:"traceId"`
+	TraceIDSnake     string `json:"trace_id"`
+	ThreadID         string `json:"threadId"`
+	ThreadIDSnake    string `json:"thread_id"`
+	AgentID          string `json:"agentId"`
+	AgentIDSnake     string `json:"agent_id"`
+	Limit            int    `json:"limit"`
+	Component        string `json:"component"`
+	Status           string `json:"status"`
+	Method           string `json:"method"`
+	Keyword          string `json:"keyword"`
+	IncludeTail      *bool  `json:"includeTail"`
+	IncludeTailSnake *bool  `json:"include_tail"`
 }
 
 type queryResponse struct {
@@ -89,6 +107,7 @@ func NewHandlers(svc *platformobs.Service) platformrpc.HandlerMapResult {
 	return platformrpc.HandlerMapResult{Handlers: handler.Map{
 		"observability/trace/get":       platformrpc.StrictHandler(traceGetHandler(svc)),
 		"observability/thread/recent":   platformrpc.StrictHandler(threadRecentHandler(svc)),
+		"observability/recent/list":     platformrpc.StrictHandler(recentListHandler(svc)),
 		"observability/slow/list":       platformrpc.StrictHandler(slowListHandler(svc)),
 		"observability/error/list":      platformrpc.StrictHandler(errorListHandler(svc)),
 		"observability/status":          platformrpc.StrictHandler(statusHandler(svc)),
@@ -130,6 +149,22 @@ func threadRecentHandler(svc *platformobs.Service) func(context.Context, threadR
 		}
 		query := platformobs.Query{ThreadID: threadID, Limit: normalizeLimit(p.Limit, defaultQueryLimit), IncludeTail: includeTail(p.IncludeTail, p.IncludeTailSnake)}
 		return responseFromQueryResult(svc.Query(ctx, query), ""), nil
+	}
+}
+
+func recentListHandler(svc *platformobs.Service) func(context.Context, recentListParams) (queryResponse, error) {
+	return func(ctx context.Context, p recentListParams) (queryResponse, error) {
+		if svc == nil {
+			return queryResponse{}, fmt.Errorf("observability service is not wired")
+		}
+		limit := normalizeLimit(p.Limit, defaultListLimit)
+		query := platformobs.Query{Limit: recentRawQueryLimit(limit), IncludeTail: includeTail(p.IncludeTail, p.IncludeTailSnake)}
+		if traceID := firstTrimmed(p.TraceID, p.TraceIDSnake); traceID != "" {
+			query.TraceID = traceID
+		} else if threadID := firstTrimmed(p.ThreadID, p.ThreadIDSnake); threadID != "" {
+			query.ThreadID = threadID
+		}
+		return responseFromRecentResult(svc.Query(ctx, query), p, limit), nil
 	}
 }
 
@@ -183,6 +218,19 @@ func frontendIngestHandler(svc *platformobs.Service) func(context.Context, front
 	}
 }
 
+func responseFromRecentResult(result platformobs.QueryResult, params recentListParams, limit int) queryResponse {
+	events := filterRecentEvents(result.Events, params)
+	events = latestTraceEventsFirst(events, limit)
+	return queryResponse{
+		Source:          result.Source,
+		Events:          events,
+		SlowestEvents:   slowestEvents(events, summaryEventLimit),
+		Errors:          errorEvents(events, summaryEventLimit),
+		TotalDurationMS: totalDurationMS(events),
+		Truncated:       result.Truncated,
+	}
+}
+
 func responseFromQueryResult(result platformobs.QueryResult, component string) queryResponse {
 	events := filterEventsByComponent(result.Events, component)
 	return queryResponse{
@@ -193,6 +241,70 @@ func responseFromQueryResult(result platformobs.QueryResult, component string) q
 		TotalDurationMS: totalDurationMS(events),
 		Truncated:       result.Truncated,
 	}
+}
+
+func filterRecentEvents(events []platformobs.TraceEvent, params recentListParams) []platformobs.TraceEvent {
+	out := make([]platformobs.TraceEvent, 0, len(events))
+	for _, event := range events {
+		if recentEventMatches(event, params) {
+			out = append(out, event)
+		}
+	}
+	return out
+}
+
+func recentEventMatches(event platformobs.TraceEvent, params recentListParams) bool {
+	if internalRecentNoise(event) && !explicitInternalRecentSearch(params) {
+		return false
+	}
+	return eventMatchesComponent(event, params.Component) &&
+		eventMatchesStatus(event, params.Status) &&
+		eventMatchesText(event.Method, params.Method) &&
+		eventMatchesText(event.TraceID, firstTrimmed(params.TraceID, params.TraceIDSnake)) &&
+		eventMatchesText(event.ThreadID, firstTrimmed(params.ThreadID, params.ThreadIDSnake)) &&
+		eventMatchesText(event.AgentID, firstTrimmed(params.AgentID, params.AgentIDSnake)) &&
+		eventMatchesKeyword(event, params.Keyword)
+}
+
+func internalRecentNoise(event platformobs.TraceEvent) bool {
+	values := []string{event.Kind, event.Phase, event.Method, event.ClientKind}
+	for _, value := range values {
+		text := strings.ToLower(strings.TrimSpace(value))
+		switch {
+		case text == "":
+			continue
+		case strings.Contains(text, "lifecycle"):
+			return true
+		case strings.HasPrefix(text, "bus.event."):
+			return true
+		case strings.HasPrefix(text, "uistate."):
+			return true
+		case strings.HasPrefix(text, "turn.ready_"):
+			return true
+		case strings.Contains(text, "observability/"):
+			return true
+		}
+	}
+	return false
+}
+
+func explicitInternalRecentSearch(params recentListParams) bool {
+	values := []string{params.Component, params.Method, params.Keyword}
+	for _, value := range values {
+		text := strings.ToLower(strings.TrimSpace(value))
+		if text == "" {
+			continue
+		}
+		if strings.Contains(text, "lifecycle") ||
+			strings.Contains(text, "bus.event") ||
+			strings.Contains(text, "uistate") ||
+			strings.Contains(text, "patch") ||
+			strings.Contains(text, "turn.ready") ||
+			strings.Contains(text, "observability") {
+			return true
+		}
+	}
+	return false
 }
 
 func filterEventsByComponent(events []platformobs.TraceEvent, component string) []platformobs.TraceEvent {
@@ -210,7 +322,50 @@ func filterEventsByComponent(events []platformobs.TraceEvent, component string) 
 }
 
 func eventMatchesComponent(event platformobs.TraceEvent, component string) bool {
+	component = strings.ToLower(strings.TrimSpace(component))
+	if component == "" {
+		return true
+	}
 	return strings.ToLower(strings.TrimSpace(event.Kind)) == component || strings.ToLower(strings.TrimSpace(event.ClientKind)) == component || strings.ToLower(strings.TrimSpace(event.Method)) == component
+}
+
+func eventMatchesStatus(event platformobs.TraceEvent, status string) bool {
+	status = strings.ToLower(strings.TrimSpace(status))
+	if status == "" || status == "all" {
+		return true
+	}
+	return strings.ToLower(strings.TrimSpace(string(event.Status))) == status
+}
+
+func eventMatchesText(value, query string) bool {
+	query = strings.ToLower(strings.TrimSpace(query))
+	if query == "" {
+		return true
+	}
+	return strings.Contains(strings.ToLower(strings.TrimSpace(value)), query)
+}
+
+func eventMatchesKeyword(event platformobs.TraceEvent, keyword string) bool {
+	keyword = strings.ToLower(strings.TrimSpace(keyword))
+	if keyword == "" {
+		return true
+	}
+	values := []string{
+		event.TraceID, event.SpanID, event.ParentSpanID, event.Kind, event.Phase, event.Method,
+		event.ThreadID, event.AgentID, event.TurnID, event.CallID, event.ToolName, event.ClientKind,
+		event.ClientRoute, event.Error, event.Code.File, event.Code.Function,
+	}
+	for _, value := range values {
+		if strings.Contains(strings.ToLower(strings.TrimSpace(value)), keyword) {
+			return true
+		}
+	}
+	for key, value := range event.Metadata {
+		if strings.Contains(strings.ToLower(strings.TrimSpace(key)), keyword) || strings.Contains(strings.ToLower(fmt.Sprint(value)), keyword) {
+			return true
+		}
+	}
+	return false
 }
 
 func slowestEvents(events []platformobs.TraceEvent, limit int) []platformobs.TraceEvent {
@@ -234,6 +389,68 @@ func limitEvents(events []platformobs.TraceEvent, limit int) []platformobs.Trace
 		return events[:limit]
 	}
 	return events
+}
+
+func latestEventsFirst(events []platformobs.TraceEvent, limit int) []platformobs.TraceEvent {
+	if limit > 0 && len(events) > limit {
+		events = events[len(events)-limit:]
+	}
+	out := append([]platformobs.TraceEvent(nil), events...)
+	sort.SliceStable(out, func(i, j int) bool {
+		left, right := out[i].Timestamp, out[j].Timestamp
+		if left.IsZero() || right.IsZero() {
+			return i > j
+		}
+		return left.After(right)
+	})
+	return out
+}
+
+func latestTraceEventsFirst(events []platformobs.TraceEvent, limit int) []platformobs.TraceEvent {
+	ordered := latestEventsFirst(events, 0)
+	if limit <= 0 {
+		return ordered
+	}
+	selected := latestTraceIDs(ordered, limit)
+	out := make([]platformobs.TraceEvent, 0, len(ordered))
+	for _, event := range ordered {
+		if _, ok := selected[strings.TrimSpace(event.TraceID)]; ok {
+			out = append(out, event)
+		}
+	}
+	return out
+}
+
+func latestTraceIDs(events []platformobs.TraceEvent, limit int) map[string]struct{} {
+	selected := make(map[string]struct{}, limit)
+	for _, event := range events {
+		traceID := strings.TrimSpace(event.TraceID)
+		if traceID == "" {
+			continue
+		}
+		if _, ok := selected[traceID]; ok {
+			continue
+		}
+		selected[traceID] = struct{}{}
+		if len(selected) >= limit {
+			break
+		}
+	}
+	return selected
+}
+
+func recentRawQueryLimit(displayLimit int) int {
+	if displayLimit <= 0 {
+		displayLimit = defaultListLimit
+	}
+	rawLimit := displayLimit * recentRawLimitMultiple
+	if rawLimit < maxQueryLimit {
+		rawLimit = maxQueryLimit
+	}
+	if rawLimit > maxRecentRawQueryLimit {
+		return maxRecentRawQueryLimit
+	}
+	return rawLimit
 }
 
 func totalDurationMS(events []platformobs.TraceEvent) int64 {
