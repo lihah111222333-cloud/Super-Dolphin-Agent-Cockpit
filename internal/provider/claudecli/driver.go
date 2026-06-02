@@ -13,6 +13,7 @@ import (
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
 
 	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/observability"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/pidregistry"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 	"github.com/anthropic-ai/super-agent-v3/internal/provider/manifestbuilder"
@@ -38,6 +39,7 @@ type driver struct {
 	proxyAddrFn     func() string
 	mirror          contract.SkillMirrorReconciler
 	recovery        contract.SessionRecoveryReporter
+	tracer          *observability.Service
 }
 
 type startSpec struct {
@@ -91,7 +93,7 @@ func (d *driver) proxyHTTPAddr() string {
 	return strings.TrimSpace(d.proxyAddrFn())
 }
 
-func newDriver(logger *slog.Logger, eventDispatcher *unified.EventDispatcher, reporter contract.RuntimeReporter, reg *pidregistry.Registry, proxyAddrFn func() string, mirror contract.SkillMirrorReconciler, recovery contract.SessionRecoveryReporter) contract.Driver {
+func newDriver(logger *slog.Logger, eventDispatcher *unified.EventDispatcher, reporter contract.RuntimeReporter, reg *pidregistry.Registry, proxyAddrFn func() string, mirror contract.SkillMirrorReconciler, recovery contract.SessionRecoveryReporter, tracers ...*observability.Service) contract.Driver {
 	if logger == nil {
 		logger = pkglogger.Get()
 	}
@@ -107,7 +109,15 @@ func newDriver(logger *slog.Logger, eventDispatcher *unified.EventDispatcher, re
 		proxyAddrFn:     proxyAddrFn,
 		mirror:          mirror,
 		recovery:        recovery,
+		tracer:          firstClaudeTracer(tracers),
 	}
+}
+
+func firstClaudeTracer(tracers []*observability.Service) *observability.Service {
+	if len(tracers) == 0 {
+		return nil
+	}
+	return tracers[0]
 }
 
 func (d *driver) Name() string { return "claude" }
@@ -192,14 +202,20 @@ func resumeSessionRuntimeConfig(req dto.ResumeSessionRequest) map[string]any {
 	return cfg
 }
 
-func (d *driver) start(ctx context.Context, spec startSpec) (contract.Session, error) {
+func (d *driver) start(ctx context.Context, spec startSpec) (session contract.Session, err error) {
+	traceStarted := time.Now()
+	defer func() {
+		d.recordDriverTrace(ctx, claudeSessionEvent("provider.session.acquire", spec, time.Since(traceStarted), err))
+		if err == nil && session != nil {
+			d.recordDriverTrace(ctx, claudeSessionEvent("provider.session.ready", spec, time.Since(traceStarted), nil))
+		}
+	}()
 	if err := shared.CheckCtx(ctx); err != nil {
 		return nil, err
 	}
 	if err := validateStartCWD(spec.cwd); err != nil {
 		return nil, err
 	}
-	var err error
 	spec, err = d.prepareProviderHomeAndMirrors(ctx, spec)
 	if err != nil {
 		return nil, err
@@ -347,6 +363,7 @@ func (d *driver) newStartedSession(spec startSpec, started preparedStartSession)
 		cleanup:           started.cleanup,
 		pidRegistry:       d.pidRegistry,
 		recovery:          d.recovery,
+		tracer:            d.tracer,
 		suppressedTurns:   map[string]struct{}{},
 		imageTracker:      newImageHashTracker(),
 	}

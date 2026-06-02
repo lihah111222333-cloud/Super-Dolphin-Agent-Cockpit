@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
+	platformobs "github.com/anthropic-ai/super-agent-v3/internal/platform/observability"
 
 	bindingstore "github.com/anthropic-ai/super-agent-v3/internal/store/binding"
 	"github.com/anthropic-ai/super-agent-v3/internal/util"
@@ -123,8 +124,19 @@ func (s *service) completeStart(ctx context.Context, req StartRequest, agentID s
 	return result, nil
 }
 
-func (s *service) Start(ctx context.Context, req StartRequest) (StartResult, error) {
+func (s *service) Start(ctx context.Context, req StartRequest) (result StartResult, err error) {
 	ctx = util.NonNilContext(ctx)
+	span := s.beginThreadTraceSpan(ctx, "thread.start", req.AgentID, req.AgentID, platformobs.NewCodeAnchor("internal/module/thread/lifecycle.go", "thread.(*service).Start", 126), map[string]any{"provider": strings.TrimSpace(req.Provider)})
+	ctx = span.ctx
+	defer func() {
+		if result.ThreadID != "" {
+			span.threadID = result.ThreadID
+		}
+		if result.AgentID != "" {
+			span.agentID = result.AgentID
+		}
+		s.finishThreadTraceSpan(span, err)
+	}()
 	if req.LaunchIntentID = strings.TrimSpace(req.LaunchIntentID); req.LaunchIntentID == "" {
 		return s.startOnce(ctx, req)
 	}
@@ -133,7 +145,7 @@ func (s *service) Start(ctx context.Context, req StartRequest) (StartResult, err
 		return StartResult{}, err
 	}
 	req.LaunchIntentID = intentID
-	result, err := s.launchIntentRegistry.DoJSON(intentID, startRequestFingerprint(req), func() (StartResult, error) {
+	result, err = s.launchIntentRegistry.DoJSON(intentID, startRequestFingerprint(req), func() (StartResult, error) {
 		return s.startOnce(ctx, req)
 	})
 	if err == nil && result.ThreadID != "" {
