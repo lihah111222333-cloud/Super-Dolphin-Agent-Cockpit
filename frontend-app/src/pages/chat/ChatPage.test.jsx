@@ -102,6 +102,39 @@ function createActiveThreadStore(messages, overrides = {}) {
   });
 }
 
+function TestChatPageWrapper({ store, projectPath, rightPanelOpen: initialOpen = false }) {
+  const [open, setOpen] = React.useState(initialOpen);
+  const bootstrapFailureMessage = store.bootstrapStatus === 'failed' && store.error
+    ? `连接后端失败：${store.error}`
+    : '';
+  const feedback = store.actionNotice?.message
+    ? store.actionNotice
+    : (bootstrapFailureMessage ? { message: bootstrapFailureMessage, tone: 'error' } : null);
+
+  return (
+    <div>
+      <button type="button" onClick={() => setOpen((prev) => !prev)}>
+        显示侧边栏
+      </button>
+      {feedback?.message ? (
+        <span
+          className={`action-feedback ${feedback.tone || 'info'}`}
+          data-testid="chat-action-feedback"
+          role="status"
+        >
+          {feedback.message}
+        </span>
+      ) : null}
+      <ChatPage
+        store={store}
+        projectPath={projectPath}
+        rightPanelOpen={open}
+        setRightPanelOpen={setOpen}
+      />
+    </div>
+  );
+}
+
 beforeEach(() => {
   vi.clearAllMocks();
 });
@@ -120,7 +153,7 @@ describe('ChatPage module', () => {
       error: 'backend unavailable',
     });
 
-    render(<ChatPage store={store} projectPath="未选择项目" />);
+    render(<TestChatPageWrapper store={store} projectPath="未选择项目" />);
 
     expect(screen.getByText('连接后端失败：backend unavailable')).toBeInTheDocument();
     expect(screen.getByText('暂无会话，点击「新建对话」开始草稿')).toBeInTheDocument();
@@ -147,7 +180,7 @@ describe('ChatPage module', () => {
       diffTextByThread: { 'thread-1': 'diff --git a/ChatPage.test.jsx b/ChatPage.test.jsx\n+expect(screen.getByTestId("runtime-panel"))' },
     });
 
-    render(<ChatPage store={store} projectPath="/repo/app" />);
+    render(<TestChatPageWrapper store={store} projectPath="/repo/app" />);
 
     expect(screen.getByText('修复会话')).toBeInTheDocument();
     expect(screen.getByText('哪里失败了？')).toBeInTheDocument();
