@@ -14,6 +14,7 @@ import (
 
 	contract "github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/observability"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/runtimesafe"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
@@ -52,25 +53,16 @@ type session struct {
 	rolloutToolOrder     []string
 	processedApprovals   map[string]*processedApprovalEntry
 	runtimeConfig        map[string]any
-	// turnOutputAccumulator buffers per-turn TurnOutputDelta (stream="message")
-	// payloads so TurnCompleted can carry the merged final reply (ADR-015 §2.1).
-	// Key = providerID (codex turn UUID). Guarded by accumulatorMu to avoid
-	// deadlocking with the broader s.mu critical sections (takeTurn / failTurns).
+	// turnOutputAccumulator buffers per-turn output; key = provider turn UUID.
 	turnOutputAccumulator map[string]*turnOutputBuffer
 	accumulatorMu         sync.Mutex
-	// poolRelease is set when the session was acquired from the P21
-	// ServerPool (multi-provider Codex path). It decrements the entry's
-	// refCount and closes the app-server process group when this was the last
-	// session; nil for ServerManager-backed sessions.
+	// poolRelease releases a P21 multi-provider Codex pool slot; nil outside pool mode.
 	poolRelease            func()
 	poolReleaseOnce        sync.Once
 	releaseTools           func(contract.CodexToolSurfaceScope) error
 	toolSurfaceReleaseOnce sync.Once
 	toolSurfaceID          atomic.Value
-	// runtime is the session-private RunnerModule owner introduced by P22
-	// P1c. It replaces the implicit reader / health / recovery goroutines
-	// newSession() used to start. driver.StartSession / ResumeSession call
-	// runtime.Start() explicitly; Close / ForceStop drain via runtime.Stop().
+	// runtime owns the session-private reader / health / recovery goroutines.
 	runtime *SessionRuntime
 }
 
@@ -81,6 +73,7 @@ var codexToolSurfaceSeq atomic.Uint64
 type turnHandle struct {
 	localID    string
 	providerID string
+	trace      observability.TraceContext
 	done       chan struct{}
 	mu         sync.RWMutex
 	err        error
@@ -165,10 +158,6 @@ func newSessionWithOptions(
 	return s, nil
 }
 
-// Each session owns its own WS connection. Precedence:
-//   - explicit poolURL (P21 multi-provider Codex, per-codexHome pool)
-//   - ServerManager shared URL (single-instance Codex)
-//   - raw serverURL arg (remote debug override)
 func resolveSessionTransportURL(
 	ctx context.Context,
 	serverURL string,
@@ -196,9 +185,6 @@ func releaseSessionPoolSlot(cfg sessionOptions) {
 	}
 }
 
-// sessionOption is a functional option for newSession used to pass
-// pool-specific context without exploding the positional signature
-// every existing non-pool caller relies on.
 type sessionOption func(*sessionOptions)
 
 type sessionOptions struct {
@@ -206,9 +192,6 @@ type sessionOptions struct {
 	poolRelease func()
 }
 
-// withPoolServer wires a ServerPool-backed SpawnedServer into the
-// session. The release function is invoked exactly once during
-// shutdownSessionCleanup (guarded by poolReleaseOnce).
 func withPoolServer(url string, release func()) sessionOption {
 	return func(o *sessionOptions) {
 		o.poolURL = url
@@ -255,8 +238,9 @@ func (s *session) handleInboundToolCall(ctx context.Context, resp Responder, msg
 	}
 	s.publishToolCallBegin(prepared)
 	s.suppressToolEnd(prepared.header.TurnID, prepared.header.CallID, prepared.header.ToolName)
+	toolCtx := s.contextWithTurnTrace(ctx, prepared.header.TurnID)
 	runtimesafe.SafeGo(s.ctx, s.logger, "codexapp.session.toolCall", func(_ context.Context) {
-		result, callErr := toolHandler(contract.WithToolLifecycleAlreadyPublished(ctx), prepared.params)
+		result, callErr := toolHandler(contract.WithToolLifecycleAlreadyPublished(toolCtx), prepared.params)
 		s.publishToolCallEnd(prepared, result, callErr)
 		if respErr := resp.RespondWithID(msg.ID, result, callErr); respErr != nil {
 			s.logger.Warn("codexapp: tool call respond failed",
@@ -353,12 +337,27 @@ func (s *session) StartTurn(ctx context.Context, req dto.TurnRequest) (contract.
 	}
 	providerID := strings.TrimSpace(resp.Turn.ID)
 	h := newTurnHandle(resolveLocalTurnID(req.LocalID, providerID), providerID)
+	h.trace, _ = observability.TraceFromContext(ctx)
 	s.mu.Lock()
 	s.turns[providerID] = h
 	s.activeTurnID = providerID
 	s.mu.Unlock()
 	s.rememberPendingTurn(h, params)
 	return h, nil
+}
+
+func (s *session) contextWithTurnTrace(ctx context.Context, providerTurnID string) context.Context {
+	providerTurnID = strings.TrimSpace(providerTurnID)
+	if s == nil || providerTurnID == "" {
+		return ctx
+	}
+	s.mu.Lock()
+	h := s.turns[providerTurnID]
+	s.mu.Unlock()
+	if h == nil || h.trace.TraceID == "" {
+		return ctx
+	}
+	return observability.ContextWithTrace(ctx, h.trace)
 }
 
 func (s *session) resolveTurnStartModel(ctx context.Context, requested string) string {
@@ -531,15 +530,8 @@ func (s *session) ForceStop() error {
 	return s.shutdownSession(false)
 }
 
-// SessionRuntime returns the session-private runtime handle. Exposed for
-// explicit Start() call sites (driver.StartSession / ResumeSession) and
-// tests; no production code outside this package should reach into it.
 func (s *session) SessionRuntime() *SessionRuntime { return s.runtime }
 
-// shutdownSessionCleanup handles cleanup when a session shuts down.
-// Currently its single job is to return a pool-backed session to the
-// ServerPool so the app-server can be reclaimed when this was the last
-// session. Idempotent so concurrent Close + ForceStop can't double-release.
 func (s *session) shutdownSessionCleanup() error {
 	if s == nil {
 		return nil

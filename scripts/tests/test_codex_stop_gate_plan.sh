@@ -8,14 +8,14 @@ trap 'rm -rf "${tmp_dir}"' EXIT
 
 run_plan() {
   local fixture="$1"
-  CODEX_STOP_GATE_CHANGED_FILES_FILE="${fixture}" "${gate}" --print-plan | sort
+  CODEX_STOP_GATE_CHANGED_FILES_FILE="${fixture}" bash "${gate}" --print-plan | sort
 }
 
 run_gate_with_input() {
   local fixture="$1"
   local input="$2"
   CODEX_STOP_GATE_CHANGED_FILES_FILE="${fixture}" CODEX_STOP_GATE_LOG_DIR="${tmp_dir}/logs" \
-    bash -c "printf '%s\n' \"\$1\" | \"\$2\"" _ "${input}" "${gate}"
+    bash -c "printf '%s\n' \"\$1\" | bash \"\$2\"" _ "${input}" "${gate}"
 }
 
 assert_contains() {
@@ -64,17 +64,17 @@ assert_contains "${module_plan}" "guard go" "go.mod change enables Go guard"
 
 frontend_fixture="${tmp_dir}/frontend.txt"
 cat >"${frontend_fixture}" <<'EOF'
-cmd/agent-terminal/frontend/src/App.jsx
-cmd/agent-terminal/frontend/package.json
+frontend-app/src/App.jsx
+frontend-app/package.json
 EOF
 frontend_plan="$(run_plan "${frontend_fixture}")"
-assert_contains "${frontend_plan}" "frontend_project cmd/agent-terminal/frontend" "frontend mapping includes agent terminal package"
+assert_contains "${frontend_plan}" "frontend_project frontend-app" "frontend mapping includes React frontend app"
 assert_contains "${frontend_plan}" "guard frontend" "frontend changes enable frontend guard"
 assert_not_contains "${frontend_plan}" "guard go" "frontend-only changes skip Go guard"
 
 ignored_frontend_fixture="${tmp_dir}/ignored-frontend.txt"
 cat >"${ignored_frontend_fixture}" <<'EOF'
-cmd/agent-terminal/frontend/dist/index.html
+frontend-app/dist/index.html
 EOF
 ignored_frontend_plan="$(run_plan "${ignored_frontend_fixture}")"
 assert_contains "${ignored_frontend_plan}" "none" "ignored frontend build output skips hook gates"

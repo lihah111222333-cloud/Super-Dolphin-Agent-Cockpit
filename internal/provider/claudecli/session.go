@@ -11,6 +11,7 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/observability"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/pidregistry"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 	"github.com/anthropic-ai/super-agent-v3/internal/provider/unified"
@@ -52,6 +53,7 @@ type session struct {
 	logWatcherGen        uint64
 	sessionContextWindow int
 	recovery             contract.SessionRecoveryReporter
+	tracer               *observability.Service
 	mu                   sync.Mutex
 
 	activeTurn      *turnHandle
@@ -186,12 +188,19 @@ func putRuntimeConfigStringIfMissing(out map[string]any, key, value string) {
 	putRuntimeConfigString(out, key, value)
 }
 
-func (s *session) StartTurn(ctx context.Context, req dto.TurnRequest) (contract.TurnHandle, error) {
+func (s *session) StartTurn(ctx context.Context, req dto.TurnRequest) (out contract.TurnHandle, err error) {
+	traceStarted := time.Now()
+	var providerID string
+	defer func() {
+		s.recordProviderTrace(ctx, claudeTurnRunEvent(req, providerID, time.Since(traceStarted), err))
+	}()
 	if err := shared.CheckCtx(ctx); err != nil {
 		return nil, err
 	}
 	s.mu.Lock()
 	payload, turnID, handle, err := s.prepareTurnLocked(ctx, req)
+	providerID = turnID
+	out = handle
 	if err != nil {
 		s.mu.Unlock()
 		return nil, err
