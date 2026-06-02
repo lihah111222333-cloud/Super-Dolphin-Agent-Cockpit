@@ -904,7 +904,7 @@ select {
   line-height: 1;
 }
 
-.thread-card em {
+.thread-status-row {
   grid-column: 1 / 3;
   display: inline-flex;
   min-width: 0;
@@ -916,17 +916,77 @@ select {
   line-height: 1.35;
 }
 
-.thread-card em::before {
-  content: "";
+.thread-status-dot {
+  --thread-status-color: color-mix(in srgb, var(--text-subtle) 76%, var(--surface));
   flex: 0 0 auto;
   width: 8px;
   height: 8px;
   border-radius: 999px;
-  background: #55575a;
+  background: var(--thread-status-color);
+  box-shadow:
+    0 0 0 2px color-mix(in srgb, var(--thread-status-color) 18%, transparent),
+    0 0 0 1px color-mix(in srgb, var(--surface) 82%, transparent);
 }
 
-.thread-card em.running::before {
-  background: var(--green);
+.thread-status-dot--idle {
+  --thread-status-color: var(--green);
+}
+
+.thread-status-dot--running {
+  --thread-status-color: var(--green);
+  background: linear-gradient(135deg, var(--green) 0%, var(--green) 58%, var(--red) 122%);
+  box-shadow:
+    0 0 0 2px color-mix(in srgb, var(--green) 20%, transparent),
+    0 0 12px color-mix(in srgb, var(--green) 34%, transparent);
+}
+
+.thread-status-dot--thinking {
+  --thread-status-color: var(--orange);
+  animation: thread-status-pulse 1.35s ease-in-out infinite;
+}
+
+.thread-status-dot--waiting {
+  --thread-status-color: var(--orange);
+  animation: thread-status-pulse 1.35s ease-in-out infinite;
+}
+
+.thread-status-dot--syncing {
+  --thread-status-color: var(--blue);
+  animation: thread-status-pulse 1.35s ease-in-out infinite;
+}
+
+.thread-status-dot--responding {
+  --thread-status-color: var(--blue);
+}
+
+.thread-status-dot--editing {
+  --thread-status-color: var(--purple);
+}
+
+.thread-status-dot--error {
+  --thread-status-color: var(--red);
+  box-shadow:
+    0 0 0 2px color-mix(in srgb, var(--red) 20%, transparent),
+    0 0 12px color-mix(in srgb, var(--red) 28%, transparent);
+}
+
+.thread-status-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@keyframes thread-status-pulse {
+  0%,
+  100% {
+    opacity: 0.7;
+    transform: scale(0.94);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.08);
+  }
 }
 
 .thread-stale-badge {
