@@ -4880,6 +4880,17 @@ dd {
   border-color: rgba(255, 98, 98, .35);
 }
 
+.prompt-risk-confirm {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.prompt-risk-confirm button {
+  flex: 0 0 auto;
+}
+
 .prompt-empty {
   min-height: 260px;
 }
@@ -5034,6 +5045,11 @@ dd {
   .prompt-editor-grid,
   .prompt-card-grid {
     grid-template-columns: 1fr;
+  }
+
+  .prompt-risk-confirm {
+    align-items: flex-start;
+    flex-direction: column;
   }
 }
 

@@ -415,7 +415,7 @@ describe('frontend-app backend API facade', () => {
       model: 'gpt-5.5',
       codexModelProvider: 'openrouter',
     });
-    await api.commitPromptIntent({ cwd: '/repo/app', draftKey: 'intent/expert/review' });
+    await api.commitPromptIntent({ cwd: '/repo/app', draftKey: 'intent/expert/review', confirmRisk: true });
     await api.draftPromptIntent({
       cwd: '/repo/app',
       kind: 'expert',
@@ -465,6 +465,7 @@ describe('frontend-app backend API facade', () => {
     expect(callAPI).toHaveBeenCalledWith(RPC_METHODS.PROMPT_INTENTS_COMMIT, {
       cwd: '/repo/app',
       draft_key: 'intent/expert/review',
+      confirm_risk: true,
     });
     expect(callAPI).toHaveBeenCalledWith(RPC_METHODS.PROMPT_INTENTS_DRAFT, {
       cwd: '/repo/app',

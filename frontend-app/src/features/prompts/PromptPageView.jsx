@@ -347,6 +347,10 @@ function promptDraftNeedsRevision(draft) {
   return status === 'draft' || status === 'draft_blocked' || status === 'blocked' || hasBlockIssue;
 }
 
+function promptDraftRequiresRiskConfirmation(draft) {
+  return Array.isArray(draft?.issues) && draft.issues.some((issue) => textValue(issue?.severity).toLowerCase() === 'review');
+}
+
 function errorMessage(error) {
   if (!error) return '';
   return error?.message || String(error);
@@ -873,6 +877,7 @@ function PromptIntentWizardModal({ cwd, initialDraft, resolveLaunchPreferences, 
   const [scope, setScope] = useState(initialDraft?.scope || 'project');
   const [rawInput, setRawInput] = useState('');
   const [draft, setDraft] = useState(initialDraft);
+  const [riskConfirmed, setRiskConfirmed] = useState(false);
   const [notice, setNotice] = useState('');
   const [working, setWorking] = useState('');
 
@@ -880,6 +885,7 @@ function PromptIntentWizardModal({ cwd, initialDraft, resolveLaunchPreferences, 
     setKind(initialDraft?.kind || 'expert');
     setScope(initialDraft?.scope || 'project');
     setDraft(initialDraft);
+    setRiskConfirmed(false);
     setRawInput('');
     setNotice('');
   }, [initialDraft]);
@@ -907,6 +913,7 @@ function PromptIntentWizardModal({ cwd, initialDraft, resolveLaunchPreferences, 
         codexModelProvider: textValue(launchPreferences?.config?.codexModelProvider),
       });
       setDraft(normalizeDraft(response, kind));
+      setRiskConfirmed(false);
     } catch (err) {
       setNotice(noticeText(err, '生成失败'));
     } finally {
@@ -920,10 +927,19 @@ function PromptIntentWizardModal({ cwd, initialDraft, resolveLaunchPreferences, 
       setNotice(PROMPT_DRAFT_NOT_READY_MESSAGE);
       return;
     }
+    if (promptDraftRequiresRiskConfirmation(draft) && !riskConfirmed) {
+      setNotice(PROMPT_DRAFT_REVIEW_MESSAGE);
+      return;
+    }
     setWorking('commit');
     setNotice('');
     try {
-      await commitPromptIntent({ cwd, draftKey: draft.draftKey, scope: draft.scope });
+      await commitPromptIntent({
+        cwd,
+        draftKey: draft.draftKey,
+        scope: draft.scope,
+        confirmRisk: promptDraftRequiresRiskConfirmation(draft) ? true : undefined,
+      });
       await onSaved();
     } catch (err) {
       setNotice(noticeText(err, '保存失败'));
@@ -933,6 +949,8 @@ function PromptIntentWizardModal({ cwd, initialDraft, resolveLaunchPreferences, 
   };
 
   const draftNeedsRevision = promptDraftNeedsRevision(draft);
+  const draftRequiresRiskConfirmation = promptDraftRequiresRiskConfirmation(draft);
+  const saveDisabled = !draft?.draftKey || draftNeedsRevision || (draftRequiresRiskConfirmation && !riskConfirmed) || working === 'commit';
   const noticeIsGuidance = notice === PROMPT_DRAFT_NOT_READY_MESSAGE || notice === PROMPT_DRAFT_REVIEW_MESSAGE;
 
   return (
@@ -1004,10 +1022,18 @@ function PromptIntentWizardModal({ cwd, initialDraft, resolveLaunchPreferences, 
           </article>
         ) : null}
         {draftNeedsRevision ? <div className="prompt-notice">{PROMPT_DRAFT_NOT_READY_MESSAGE}</div> : null}
+        {draftRequiresRiskConfirmation ? (
+          <div className="prompt-notice warn prompt-risk-confirm" role="status">
+            <span>{riskConfirmed ? '已确认风险，可以保存。' : PROMPT_DRAFT_REVIEW_MESSAGE}</span>
+            <button type="button" className="ghost" onClick={() => setRiskConfirmed(true)} disabled={riskConfirmed || Boolean(working)}>
+              {riskConfirmed ? '已确认风险' : '确认风险'}
+            </button>
+          </div>
+        ) : null}
         {notice ? <div className={`prompt-notice${noticeIsGuidance ? '' : ' error'}`}>{notice}</div> : null}
         <footer>
           <button type="button" className="ghost" onClick={onClose} disabled={Boolean(working)}>关闭</button>
-          <button type="button" onClick={commitDraft} disabled={!draft?.draftKey || draftNeedsRevision || working === 'commit'}>
+          <button type="button" onClick={commitDraft} disabled={saveDisabled}>
             {working === 'commit' ? '保存中...' : '确认保存'}
           </button>
         </footer>

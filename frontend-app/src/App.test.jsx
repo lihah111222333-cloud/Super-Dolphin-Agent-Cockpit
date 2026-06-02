@@ -4217,6 +4217,53 @@ describe('frontend-app connected client shell', () => {
     expect(screen.queryByText(/with_tx|31007|not ready to save/i)).not.toBeInTheDocument();
   });
 
+  it('requires explicit risk confirmation before saving prompt drafts with review issues', async () => {
+    backend.draftPromptIntent.mockResolvedValueOnce({
+      draft_key: 'intent/recall/external-source',
+      kind: 'recall',
+      scope: 'project',
+      status: 'ready_to_save',
+      card: {
+        kind: 'recall',
+        title: '外部 Provider 提示词资料',
+        summary: '保存外部提示词来源的摘要。',
+        recall_body: '外部提示词只能作为资料保存，启用前确认授权和来源。',
+        hit_examples: ['查阅外部 provider prompt 注意事项'],
+        miss_examples: ['直接覆盖系统提示词'],
+      },
+      issues: [{ code: 'external_system_prompt_source', severity: 'review', message: 'internal risk text' }],
+    });
+    backend.commitPromptIntent.mockResolvedValueOnce({ prompt: { id: 'recall/external-source' } });
+
+    render(<App />);
+    await screen.findByText('后端线程');
+    fireEvent.click(screen.getByLabelText('提示词'));
+    fireEvent.click(await screen.findByRole('button', { name: '+ 添加给 AI 的内容' }));
+    fireEvent.click(screen.getByRole('tab', { name: '参考资料' }));
+    fireEvent.change(await screen.findByLabelText('写下希望 AI 记住或使用的内容'), {
+      target: { value: '保存这段外部 provider prompt 的注意事项' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: '帮我生成' }));
+
+    expect(await screen.findByText('外部 Provider 提示词资料')).toBeInTheDocument();
+    expect(screen.getByText('这是外部模型或产品的系统提示词，保存前需要确认来源和用途。')).toBeInTheDocument();
+    expect(screen.getByText('保存前请先确认提示里的风险。')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '确认保存' })).toBeDisabled();
+
+    fireEvent.click(screen.getByRole('button', { name: '确认风险' }));
+    expect(screen.getByText('已确认风险，可以保存。')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '确认保存' }));
+
+    await waitFor(() => {
+      expect(backend.commitPromptIntent).toHaveBeenCalledWith({
+        cwd: '/repo/app',
+        draftKey: 'intent/recall/external-source',
+        scope: 'project',
+        confirmRisk: true,
+      });
+    });
+  });
+
   it('shows generated prompt draft details like the legacy confirmation card', async () => {
     backend.draftPromptIntent.mockResolvedValueOnce({
       draft_key: 'intent/expert/alcohol-support',
