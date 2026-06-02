@@ -784,6 +784,31 @@ async function toggleInlineTraceFromRecentLogs(table) {
     expect(card).toHaveTextContent('codex');
     expect(card).not.toHaveTextContent('idle');
     expect(card.querySelector('em')).toBeNull();
+    expect(card.querySelector('.thread-status-dot')).toHaveClass('thread-status-dot--idle');
+  });
+
+  it('maps backend projected thread statuses in thread cards', async () => {
+    backend.getSidebarState.mockResolvedValue({
+      activeThreadId: 'thread-thinking',
+      threads: [
+        { id: 'thread-thinking', name: '思考会话', provider: 'codex', status: 'thinking' },
+        { id: 'thread-editing', name: '编辑会话', provider: 'codex', status: 'editing' },
+        { id: 'thread-waiting', name: '确认会话', provider: 'codex', status: 'waiting' },
+        { id: 'thread-syncing', name: '同步会话', provider: 'codex', status: 'syncing' },
+        { id: 'thread-error', name: '异常会话', provider: 'codex', status: 'error' },
+      ],
+    });
+
+    render(<App />);
+
+    expect((await screen.findByText('思考会话')).closest('.thread-card')).toHaveTextContent('思考中');
+    expect(screen.getByText('编辑会话').closest('.thread-card')).toHaveTextContent('编辑中');
+    expect(screen.getByText('确认会话').closest('.thread-card')).toHaveTextContent('等待确认');
+    expect(screen.getByText('同步会话').closest('.thread-card')).toHaveTextContent('同步中');
+    expect(screen.getByText('异常会话').closest('.thread-card')).toHaveTextContent('异常');
+    expect(screen.getByText('思考会话').closest('.thread-card').querySelector('.thread-status-dot')).toHaveClass('thread-status-dot--thinking');
+    expect(screen.getByText('确认会话').closest('.thread-card').querySelector('.thread-status-dot')).toHaveClass('thread-status-dot--waiting');
+    expect(screen.getByText('异常会话').closest('.thread-card').querySelector('.thread-status-dot')).toHaveClass('thread-status-dot--error');
   });
 
   it('shows a bootstrap failure notice when the backend bridge is unavailable', async () => {
@@ -1414,9 +1439,11 @@ async function toggleInlineTraceFromRecentLogs(table) {
       },
     });
 
-    render(<App />);
+    const { container } = render(<App />);
 
-    expect(await screen.findByText('准备中')).toBeInTheDocument();
+    await waitFor(() => {
+      expect(container.querySelector('.work-status-label')).toHaveTextContent('准备中');
+    });
 
     act(() => {
       bridgeCallback({
@@ -1429,7 +1456,47 @@ async function toggleInlineTraceFromRecentLogs(table) {
       });
     });
 
-    expect(await screen.findByText('强制完成中')).toBeInTheDocument();
+    await waitFor(() => {
+      expect(container.querySelector('.work-status-label')).toHaveTextContent('强制完成中');
+    });
+  });
+
+  it('renders backend projected thread states in the work status label', async () => {
+    backend.getSidebarState.mockResolvedValue({
+      activeThreadId: 'thread-1',
+      threads: [{ id: 'thread-1', name: '后端线程', provider: 'codex', status: 'idle' }],
+    });
+
+    const { container } = render(<App />);
+
+    await waitFor(() => {
+      expect(container.querySelector('.work-status-label')).toHaveTextContent('空闲');
+    });
+
+    for (const [index, [status, label]] of [
+      ['starting', '启动中'],
+      ['thinking', '思考中'],
+      ['editing', '编辑中'],
+      ['waiting', '等待确认'],
+      ['syncing', '同步中'],
+      ['responding', '回复中'],
+      ['error', '异常'],
+      ['archived', '已归档'],
+    ].entries()) {
+      act(() => {
+        bridgeCallback({
+          type: 'ui/thread/patch',
+          payload: {
+            threadId: 'thread-1',
+            sequence: `${index + 1}`,
+            status,
+          },
+        });
+      });
+      await waitFor(() => {
+        expect(container.querySelector('.work-status-label')).toHaveTextContent(label);
+      });
+    }
   });
 
   it('sanitizes corrupted work status text and keeps the token chip complete', async () => {
