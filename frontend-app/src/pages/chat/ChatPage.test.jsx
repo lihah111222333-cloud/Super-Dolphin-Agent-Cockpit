@@ -1,5 +1,5 @@
 import React from 'react';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import mermaid from 'mermaid';
 import { ChatPage } from './ChatPage.jsx';
@@ -42,6 +42,7 @@ function createFakeStore(overrides = {}) {
     hasActiveThreadActions: vi.fn(() => Boolean(store.activeThreadId)),
     hasInterruptibleThreadAction: vi.fn(() => false),
     interruptActiveThread: vi.fn(),
+    loadOlderThreadMessages: vi.fn(),
     loadThreadConfig: vi.fn(),
     newThread: vi.fn(),
     openNewWindow: vi.fn(),
@@ -76,6 +77,7 @@ function createFakeStore(overrides = {}) {
     threadConfigLoadingByThread: {},
     threadConfigSaving: false,
     threadDiffReadyByThread: {},
+    threadMessagePaginationByThread: {},
     threadStateLoadingByThread: {},
     threadTimelineReadyByThread: {},
     threads: [],
@@ -88,7 +90,7 @@ function createFakeStore(overrides = {}) {
   return store;
 }
 
-function createActiveThreadStore(messages) {
+function createActiveThreadStore(messages, overrides = {}) {
   return createFakeStore({
     activeThreadId: 'thread-1',
     threads: [{ id: 'thread-1', name: '渲染窗口会话', provider: 'codex', status: 'idle', updatedAt: '2026-06-02T08:00:00Z' }],
@@ -96,6 +98,7 @@ function createActiveThreadStore(messages) {
     timelinesByThread: {
       'thread-1': messages,
     },
+    ...overrides,
   });
 }
 
@@ -206,6 +209,66 @@ describe('ChatPage module', () => {
 
     expect(screen.getByText('滚动历史消息 1')).toBeInTheDocument();
     expect(screen.queryByTestId('timeline-older-marker')).not.toBeInTheDocument();
+  });
+
+  it('loads an older backend message page when no local older messages are hidden', async () => {
+    let resolveLoad;
+    const loadPromise = new Promise((resolve) => {
+      resolveLoad = resolve;
+    });
+    const loadOlderThreadMessages = vi.fn(() => loadPromise);
+    const store = createActiveThreadStore([
+      { id: 'msg-1', role: 'user', text: '当前页第一条', time: '2026-06-02T08:00:00Z' },
+      { id: 'msg-2', role: 'assistant', text: '当前页第二条', time: '2026-06-02T08:01:00Z' },
+    ], {
+      loadOlderThreadMessages,
+      threadMessagePaginationByThread: {
+        'thread-1': { hasMore: true, nextBefore: 'msg-1', loading: false },
+      },
+    });
+
+    render(<ChatPage store={store} projectPath="/repo/app" />);
+
+    fireEvent.click(screen.getByRole('button', { name: '加载更早的消息' }));
+
+    expect(loadOlderThreadMessages).toHaveBeenCalledTimes(1);
+    expect(loadOlderThreadMessages).toHaveBeenCalledWith('thread-1');
+    expect(screen.getByRole('button', { name: '正在加载更早的消息' })).toBeDisabled();
+
+    const timeline = screen.getByTestId('chat-timeline');
+    Object.defineProperty(timeline, 'scrollTop', { configurable: true, value: 0 });
+    fireEvent.scroll(timeline);
+    expect(loadOlderThreadMessages).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      resolveLoad(true);
+      await loadPromise;
+    });
+    expect(screen.getByRole('button', { name: '加载更早的消息' })).not.toBeDisabled();
+  });
+
+  it('reveals hidden local older messages before loading another backend page', () => {
+    const loadOlderThreadMessages = vi.fn(() => Promise.resolve(true));
+    const messages = Array.from({ length: 120 }, (_, index) => ({
+      id: `local-hidden-msg-${index + 1}`,
+      role: index % 2 === 0 ? 'user' : 'assistant',
+      text: `本地隐藏历史消息 ${index + 1}`,
+      time: `2026-06-02T08:${String(index % 60).padStart(2, '0')}:00Z`,
+    }));
+    const store = createActiveThreadStore(messages, {
+      loadOlderThreadMessages,
+      threadMessagePaginationByThread: {
+        'thread-1': { hasMore: true, nextBefore: 'local-hidden-msg-1', loading: false },
+      },
+    });
+
+    render(<ChatPage store={store} projectPath="/repo/app" />);
+
+    expect(screen.queryByText('本地隐藏历史消息 1')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '显示更早的消息（40 条）' }));
+
+    expect(screen.getByText('本地隐藏历史消息 1')).toBeInTheDocument();
+    expect(loadOlderThreadMessages).not.toHaveBeenCalled();
   });
 
   it('does not render Mermaid diagrams from unmaterialized older history', async () => {
