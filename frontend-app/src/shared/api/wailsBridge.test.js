@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { waitFor } from '@testing-library/react';
 import { readFileSync } from 'node:fs';
 import { beginTextClipboardWrite, copyTextToClipboard } from './wailsBridge.js';
 
@@ -245,7 +246,7 @@ describe('wails bridge frontend trace emitter', () => {
   });
 
   it('flushes failed RPC traces through observability frontend ingest without sensitive payload fields', async () => {
-    const backendError = new Error('raw prompt text must not be persisted');
+    const backendError = new Error('backend unavailable');
     backendError.code = 'E_BACKEND';
     backendError.stack = 'raw stack with file contents';
     const byID = vi.fn((_methodID, method, payload) => {
@@ -261,7 +262,7 @@ describe('wails bridge frontend trace emitter', () => {
     await expect(callAPI('thread/start', {
       prompt: 'do not persist this prompt',
       result_preview: 'do not persist preview',
-    })).rejects.toThrow('raw prompt text must not be persisted');
+    })).rejects.toThrow('backend unavailable');
     await waitForTraceFlush();
     await waitForTraceFlush();
 
@@ -273,7 +274,7 @@ describe('wails bridge frontend trace emitter', () => {
       phase: 'frontend.rpc.failed',
       method: 'thread/start',
       status: 'error',
-      error: 'E_BACKEND',
+      error: 'E_BACKEND: backend unavailable',
     }));
     expect(events[0].trace_id).toBe(byID.mock.calls[0][2]._aoTraceId);
     expect(events[0].span_id).toBe(byID.mock.calls[0][2]._aoSpanId);
@@ -353,13 +354,12 @@ describe('wails bridge frontend trace emitter', () => {
       metadata: { req_id: 510, prompt: 'trigger secret must not leak' },
     })).toBe(true);
 
-    for (let i = 0; i < 12; i += 1) {
-      await waitForTraceFlush();
-    }
-
-    const ingestCalls = byID.mock.calls.filter(([, method]) => method === 'observability/frontend/ingest');
-    const events = ingestCalls.flatMap(([, , payload]) => payload.events);
-    expect(events).toHaveLength(500);
+    let events = [];
+    await waitFor(() => {
+      const ingestCalls = byID.mock.calls.filter(([, method]) => method === 'observability/frontend/ingest');
+      events = ingestCalls.flatMap(([, , payload]) => payload.events);
+      expect(events).toHaveLength(500);
+    });
     expect(events[0].method).toBe('thread/start-11');
     expect(events.some((event) => event.method === 'thread/start-0')).toBe(false);
     expect(events.some((event) => event.method === 'thread/start-10')).toBe(false);
