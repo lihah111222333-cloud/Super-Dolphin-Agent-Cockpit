@@ -13,7 +13,9 @@ import (
 	"path/filepath"
 	"strings"
 
+	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
+	"github.com/anthropic-ai/super-agent-v3/internal/util/historyjsonl"
 )
 
 type historyBackend struct {
@@ -49,6 +51,24 @@ func (h *historyBackend) ReadHistory(ctx context.Context, threadID string) ([]Me
 		return nil, fmt.Errorf("scan claude history: %w", err)
 	}
 	return out, nil
+}
+
+func (h *historyBackend) ReadMessagesPage(ctx context.Context, threadID string, req dto.MessagePageRequest) (historyjsonl.JSONLPageResult[Message], error) {
+	if err := shared.CheckCtx(ctx); err != nil {
+		return historyjsonl.JSONLPageResult[Message]{}, err
+	}
+	path, err := h.sessionPath(threadID)
+	if err != nil {
+		return historyjsonl.JSONLPageResult[Message]{}, err
+	}
+	if path == "" {
+		return historyjsonl.JSONLPageResult[Message]{}, nil
+	}
+	page, err := historyjsonl.ReadJSONLPage(path, req.Limit, req.Before, parseHistoryLine)
+	if err != nil {
+		return historyjsonl.JSONLPageResult[Message]{}, fmt.Errorf("read claude history page: %w", err)
+	}
+	return page, nil
 }
 
 func (h *historyBackend) sessionPath(threadID string) (string, error) {
