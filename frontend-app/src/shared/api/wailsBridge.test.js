@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { readFileSync } from 'node:fs';
 import { beginTextClipboardWrite, copyTextToClipboard } from './wailsBridge.js';
 
 const runtimeModule = 'http://127.0.0.1:5175/wails/runtime.js';
@@ -381,5 +382,69 @@ describe('wails bridge frontend trace emitter', () => {
     await waitForTraceFlush();
 
     expect(byID.mock.calls.some(([, method]) => method === 'observability/frontend/ingest')).toBe(false);
+  });
+});
+
+describe('development Wails runtime shim events', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+  });
+
+  it('reconnects existing event subscriptions after the dev WebSocket disconnects', async () => {
+    vi.useFakeTimers();
+    const sockets = [];
+    class TestWebSocket {
+      static CONNECTING = 0;
+
+      static OPEN = 1;
+
+      constructor(url) {
+        this.url = url;
+        this.readyState = TestWebSocket.CONNECTING;
+        sockets.push(this);
+      }
+
+      open() {
+        this.readyState = TestWebSocket.OPEN;
+        this.onopen?.();
+      }
+
+      close(event = { code: 1006, reason: 'network lost' }) {
+        this.readyState = 3;
+        this.onclose?.(event);
+      }
+
+      emit(method, params) {
+        this.onmessage?.({
+          data: JSON.stringify({ jsonrpc: '2.0', method, params }),
+        });
+      }
+    }
+    vi.stubGlobal('WebSocket', TestWebSocket);
+
+    const runtimeSource = readFileSync('public/wails/runtime.js', 'utf8')
+      .replace('export const Call =', 'const Call =')
+      .replace('export const Events =', 'const Events =');
+    const runtime = new Function(`${runtimeSource}\nreturn { Call, Events };`)();
+    const received = [];
+
+    runtime.Events.On('agent-event', (event) => received.push(event));
+    expect(sockets).toHaveLength(1);
+    sockets[0].open();
+    sockets[0].emit('thread/messages', { threadId: 'thread-1', text: 'before reconnect' });
+    await Promise.resolve();
+    expect(received).toHaveLength(1);
+
+    sockets[0].close();
+    await vi.advanceTimersByTimeAsync(500);
+
+    expect(sockets).toHaveLength(2);
+    sockets[1].open();
+    sockets[1].emit('thread/messages', { threadId: 'thread-1', text: 'after reconnect' });
+    await Promise.resolve();
+
+    expect(received).toHaveLength(2);
+    expect(received[1].data.payload.text).toBe('after reconnect');
   });
 });

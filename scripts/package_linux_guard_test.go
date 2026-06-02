@@ -129,12 +129,18 @@ func TestPackageLinuxScriptWritesRuntimeManifestContract(t *testing.T) {
 		t.Fatalf("Abs(package_linux.sh) error = %v", err)
 	}
 	stage := t.TempDir()
-	cmd := exec.Command("bash", "-c", `
+	harness := `#!/usr/bin/env bash
 set -euo pipefail
-source "$1"
+source ` + bashQuote(bashArg("", scriptPath)) + `
 platform=linux-amd64
-write_runtime_manifest "$2"
-`, "package-linux-runtime-manifest-test", scriptPath, stage)
+write_runtime_manifest ` + bashQuote(bashArg("", stage)) + `
+`
+	harnessPath := filepath.Join(t.TempDir(), "package-linux-runtime-manifest-test.sh")
+	if err := os.WriteFile(harnessPath, []byte(harness), 0o700); err != nil {
+		t.Fatalf("write runtime manifest harness: %v", err)
+	}
+	cmd := exec.Command("bash", bashArg("", harnessPath))
+	cmd.Env = packageScriptValidationEnv(t, "linux", nil)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("write_runtime_manifest failed: %v; output=%s", err, out)
@@ -174,12 +180,18 @@ func TestPackageLinuxCopyModelRegistryFailsFastWhenSourceMissing(t *testing.T) {
 	}
 	root := t.TempDir()
 	stage := t.TempDir()
-	cmd := exec.Command("bash", "-c", `
+	harness := `#!/usr/bin/env bash
 set -euo pipefail
-source "$1"
-root="$2"
-copy_model_registry "$3"
-`, "package-linux-copy-test", scriptPath, root, stage)
+source ` + bashQuote(bashArg("", scriptPath)) + `
+root=` + bashQuote(bashArg("", root)) + `
+copy_model_registry ` + bashQuote(bashArg("", stage)) + `
+`
+	harnessPath := filepath.Join(t.TempDir(), "package-linux-copy-test.sh")
+	if err := os.WriteFile(harnessPath, []byte(harness), 0o700); err != nil {
+		t.Fatalf("write copy model registry harness: %v", err)
+	}
+	cmd := exec.Command("bash", bashArg("", harnessPath))
+	cmd.Env = packageScriptValidationEnv(t, "linux", nil)
 	out, err := cmd.CombinedOutput()
 	if err == nil {
 		t.Fatalf("copy_model_registry succeeded, want missing registry failure; output=%s", out)
@@ -191,7 +203,7 @@ copy_model_registry "$3"
 	if exitErr.ExitCode() == 0 {
 		t.Fatalf("copy_model_registry exit code = 0, want non-zero; output=%s", out)
 	}
-	want := "missing model registry: " + filepath.Join(root, "cmd/mcp-orch/tools/modelregistry/models.yaml")
+	want := "missing model registry: " + bashArg("", filepath.Join(root, "cmd/mcp-orch/tools/modelregistry/models.yaml"))
 	if got := strings.TrimSpace(string(out)); got != want {
 		t.Fatalf("copy_model_registry output = %q, want %q", got, want)
 	}

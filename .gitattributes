@@ -13,7 +13,12 @@
 
 # Unix shell scripts must always use LF, even when checked out on Windows
 # (otherwise bash and /usr/bin/env rejects them).
+.gitattributes text eol=lf
 *.sh text eol=lf
+.githooks/* text eol=lf
+scripts/go text eol=lf
+scripts/*.py text eol=lf
+scripts/*.js text eol=lf
 
 # sqlc-generated Go output must remain LF-stable across Windows checkouts.
 internal/store/sqlc/*.go text eol=lf

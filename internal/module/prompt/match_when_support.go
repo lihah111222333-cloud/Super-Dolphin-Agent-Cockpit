@@ -15,7 +15,10 @@ import (
 // EvaluateMatchWhen/matchWhenKeyMatches evaluator after the former match_when.go
 // contents were folded into enable_when.go.
 func matchWhenStringValue(want any) string {
-	value, _ := want.(string)
+	value, ok := want.(string)
+	if !ok {
+		return ""
+	}
 	return value
 }
 

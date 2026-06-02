@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"maps"
 	"strings"
 	"time"
@@ -12,8 +13,8 @@ import (
 	contract "github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
 	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
-	codexmodel "github.com/anthropic-ai/super-agent-v3/internal/provider/codexapp/codexmodel"
 	codexprotocol "github.com/anthropic-ai/super-agent-v3/internal/provider/codexapp/protocol"
+	"github.com/anthropic-ai/super-agent-v3/internal/provider/codexapp/supportutil"
 	providershared "github.com/anthropic-ai/super-agent-v3/internal/provider/shared"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
@@ -32,7 +33,11 @@ func (s *PeerSupervisor) waitForPeerAfterCancel(name string, h peerHandle, waitC
 }
 
 func mustJSON(v any) json.RawMessage {
-	raw, _ := json.Marshal(v)
+	raw, err := json.Marshal(v)
+	if err != nil {
+		slog.Error("codexapp: mustJSON marshal failed", "error", err)
+		return json.RawMessage("null")
+	}
 	return raw
 }
 
@@ -184,7 +189,7 @@ func (s *session) runtimeConfigString(key string) string {
 		return ""
 	}
 	v, _ := s.runtimeConfig[key].(string)
-	return sanitizeConfigStringArtifact(v)
+	return supportutil.SanitizeConfigStringArtifact(v)
 }
 
 func (s *session) runtimeConfigStringSlice(keys ...string) []string {
@@ -230,56 +235,38 @@ func (s *session) setRuntimeConfigValue(key string, value any) {
 	s.runtimeConfig[key] = value
 }
 
+func resolveDefaultCodexModel(ctx context.Context, t *transport) (string, error) {
+	model, _, err := resolveSupportedCodexModel(ctx, t, "")
+	return model, err
+}
+
 func resolveSupportedCodexModel(ctx context.Context, t *transport, requested string) (string, bool, error) {
 	requested = strings.TrimSpace(requested)
 	raw, err := callWithTimeout(ctx, t, 10*time.Second, "model/list", map[string]any{})
 	if err != nil {
 		return "", false, err
 	}
-	return codexmodel.ResolveSupported(raw, requested)
-}
-
-func configString(cfg map[string]any, keys ...string) string {
-	if cfg == nil {
-		return ""
+	models, err := supportutil.DecodeAllowedModels(raw)
+	if err != nil {
+		return "", false, err
 	}
-	for _, key := range keys {
-		value, _ := cfg[key].(string)
-		if value = sanitizeConfigStringArtifact(value); value != "" {
-			return value
-		}
+	preferred := supportutil.PreferredCodexModel(models)
+	if requested == "" {
+		return preferred, preferred != "", nil
 	}
-	return ""
-}
-
-func firstConfigString(cfg map[string]any, keys ...string) string {
-	for _, key := range keys {
-		if value := configString(cfg, key); value != "" {
-			return value
-		}
+	if supportutil.CodexModelIsCodexFamily(requested) && supportutil.CodexModelListContains(models, requested) {
+		return requested, false, nil
 	}
-	return ""
-}
-
-func sanitizeConfigStringArtifact(value string) string {
-	value = strings.TrimSpace(value)
-	switch strings.ToLower(value) {
-	case "", "[object object]", "undefined", "null":
-		return ""
-	default:
-		return value
+	if !supportutil.CodexModelIsGenericGPT(requested) && supportutil.CodexModelListContains(models, requested) {
+		return requested, false, nil
 	}
-}
-
-func resolveApprovalPolicy(cfg map[string]any) string {
-	for _, key := range []string{"approvalPolicy", "approval_policy"} {
-		if value := configString(cfg, key); value != "" {
-			return value
-		}
+	if preferred != "" {
+		return preferred, !strings.EqualFold(preferred, requested), nil
 	}
-	// Default to "never" — UI approval flow is not yet wired,
-	// so any other default would block MCP tool calls indefinitely.
-	return "never"
+	if supportutil.CodexModelListContains(models, requested) {
+		return requested, false, nil
+	}
+	return requested, false, nil
 }
 
 func (d *driver) buildThreadStartParams(req dto.StartSessionRequest) threadStartParams {
@@ -287,14 +274,14 @@ func (d *driver) buildThreadStartParams(req dto.StartSessionRequest) threadStart
 	params := threadStartParams{
 		Cwd:                   strings.TrimSpace(req.CWD),
 		Model:                 strings.TrimSpace(req.Model),
-		ModelProvider:         firstConfigString(req.Config, contract.CodexModelProviderKey, "modelProvider", "model_provider"),
+		ModelProvider:         supportutil.FirstConfigString(req.Config, contract.CodexModelProviderKey, "modelProvider", "model_provider"),
 		BaseInstructions:      baseInstructions,
 		DeveloperInstructions: developerInstructions,
-		ApprovalPolicy:        resolveApprovalPolicy(req.Config),
-		Personality:           configString(req.Config, "personality"),
-		Summary:               configString(req.Config, "summary"),
-		Effort:                configString(req.Config, "effort"),
-		Sandbox:               codexSandboxWireJSON(configJSON(req.Config, "sandbox")),
+		ApprovalPolicy:        supportutil.ResolveApprovalPolicy(req.Config),
+		Personality:           supportutil.ConfigString(req.Config, "personality"),
+		Summary:               supportutil.ConfigString(req.Config, "summary"),
+		Effort:                supportutil.ConfigString(req.Config, "effort"),
+		Sandbox:               codexSandboxWireJSON(supportutil.ConfigJSON(req.Config, "sandbox")),
 	}
 	codexNativeToolPolicyFromConfig(req.Config).ApplyThreadStartParams(&params)
 	return params
@@ -321,8 +308,8 @@ func (d *driver) startDynamicSession(ctx context.Context, s *session, req dto.St
 			"agent_id", strings.TrimSpace(req.AgentID),
 			"provider", strings.TrimSpace(req.Provider),
 			"model", strings.TrimSpace(req.Model),
-			"config_model_provider", configString(req.Config, "modelProvider"),
-			"config_codex_model_provider", configString(req.Config, "codexModelProvider"),
+			"config_model_provider", supportutil.ConfigString(req.Config, "modelProvider"),
+			"config_codex_model_provider", supportutil.ConfigString(req.Config, "codexModelProvider"),
 			"error", err,
 		)
 		cleanupFailedSession(s, "force stop failed on start error")
@@ -423,6 +410,21 @@ func sharedFirstNonEmpty(values ...string) string {
 	return ""
 }
 
+func (d *driver) finishStartedSession(s *session, req dto.StartSessionRequest, result startResult) contract.Session {
+	s.setThreadID(result.threadID)
+	if result.model != "" {
+		s.setRuntimeConfigValue("model", result.model)
+	}
+	if cwd := strings.TrimSpace(req.CWD); cwd != "" {
+		s.setRuntimeConfigValue("cwd", cwd)
+	}
+	if port := parsePortFromURL(s.transport.serverURL); port > 0 {
+		s.setRuntimeConfigValue("port", port)
+	}
+	d.reportRuntime(s.agentID)
+	return s
+}
+
 func primeResumeToolScope(s *session, req dto.ResumeSessionRequest) {
 	if resumeID := sharedFirstNonEmpty(req.ProviderThreadID, req.ThreadID); resumeID != "" {
 		s.setThreadID(resumeID)
@@ -468,8 +470,8 @@ func (d *driver) startRemoteThreadWithDynamicTools(ctx context.Context, t *trans
 }
 
 func startRemoteThreadWithParams(ctx context.Context, t *transport, req dto.StartSessionRequest, params threadStartParams) (startResult, error) {
-	configKeys := sortedConfigKeys(req.Config)
-	if codexmodel.NeedsListResolution(params.Model) {
+	configKeys := supportutil.SortedConfigKeys(req.Config)
+	if supportutil.CodexModelNeedsListResolution(params.Model) {
 		requestedModel := strings.TrimSpace(params.Model)
 		model, replaced, err := resolveSupportedCodexModel(ctx, t, requestedModel)
 		if err != nil {
@@ -492,9 +494,9 @@ func startRemoteThreadWithParams(ctx context.Context, t *transport, req dto.Star
 		pkglogger.Warn("codexapp: thread/start config trace",
 			"agent_id", strings.TrimSpace(req.AgentID),
 			"req_model", strings.TrimSpace(req.Model),
-			"config_model", configString(req.Config, "model"),
+			"config_model", supportutil.ConfigString(req.Config, "model"),
 			"params_model", params.Model,
-			"config_effort", configString(req.Config, "effort"),
+			"config_effort", supportutil.ConfigString(req.Config, "effort"),
 			"params_effort", params.Effort,
 			"config_keys", configKeys,
 		)
@@ -531,15 +533,15 @@ func startRemoteThreadWithParams(ctx context.Context, t *transport, req dto.Star
 	raw, err := callWithTimeout(ctx, t, 30*time.Second, "thread/start", params)
 	if err != nil {
 		logThreadStartIdentityTrace("codexapp: thread/start request failed", t.serverURL, req, params, err)
-		return startResult{}, codexmodel.WrapUnsupportedError(err, params.Model)
+		return startResult{}, supportutil.WrapCodexModelUnsupportedError(err, params.Model)
 	}
 	return decodeStartResult(raw)
 }
 
 func logThreadStartIdentityTrace(msg, serverURL string, req dto.StartSessionRequest, params threadStartParams, err error) {
 	provider := strings.TrimSpace(req.Provider)
-	configModelProvider := configString(req.Config, "modelProvider")
-	configCodexModelProvider := configString(req.Config, "codexModelProvider")
+	configModelProvider := supportutil.ConfigString(req.Config, "modelProvider")
+	configCodexModelProvider := supportutil.ConfigString(req.Config, "codexModelProvider")
 	if !strings.EqualFold(provider, "codex") &&
 		strings.TrimSpace(params.ModelProvider) == "" &&
 		configModelProvider == "" &&
@@ -557,7 +559,7 @@ func logThreadStartIdentityTrace(msg, serverURL string, req dto.StartSessionRequ
 		"effort", strings.TrimSpace(params.Effort),
 		"approval_policy", strings.TrimSpace(params.ApprovalPolicy),
 		"cwd", strings.TrimSpace(params.Cwd),
-		"config_keys", sortedConfigKeys(req.Config),
+		"config_keys", supportutil.SortedConfigKeys(req.Config),
 	}
 	if err != nil {
 		fields = append(fields, "error", err)
@@ -593,4 +595,27 @@ func (d *driver) restoreApprovalPolicy(ctx context.Context, s *session, threadID
 		return
 	}
 	s.setRuntimeConfigValue("approvalPolicy", s.approvalPolicyValue())
+}
+
+func (d *driver) reportRuntime(agentID string) {
+	if d == nil || d.reporter == nil {
+		return
+	}
+	agentID = strings.TrimSpace(agentID)
+	if agentID == "" {
+		return
+	}
+	ctx, cancel := platformconfig.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	// TODO: Prefer a provider-reported control/runtime port once the Codex App
+	// protocol exposes one explicitly; for now we fall back to the configured
+	// app-server endpoint port after session startup succeeds.
+	if err := d.reporter.ReportRuntime(ctx, contract.RuntimeReport{
+		AgentID:  agentID,
+		Port:     parsePortFromURL(d.serverURL),
+		Provider: d.Name(),
+	}); err != nil {
+		d.logger.Warn("codexapp: report runtime failed", "agent_id", agentID, "error", err)
+	}
 }

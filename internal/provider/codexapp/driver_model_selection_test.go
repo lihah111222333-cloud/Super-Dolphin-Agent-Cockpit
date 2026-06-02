@@ -73,13 +73,6 @@ func TestDriverStartSessionSelectsDefaultModelFromModelList(t *testing.T) {
 	assertRuntimeConfigValue(t, s, "model", "gpt-5-codex")
 }
 
-func assertCodexHomeConfigUnchanged(t *testing.T, config map[string]any) {
-	t.Helper()
-	if config["codexHome"] != "~/.codex" {
-		t.Fatalf("StartSession mutated input config codexHome = %#v", config["codexHome"])
-	}
-}
-
 func TestDriverStartSessionReplacesGenericGPTModelFromModelList(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("USERPROFILE", t.TempDir())

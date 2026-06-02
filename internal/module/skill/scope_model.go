@@ -220,7 +220,9 @@ func listSkillFiles(dir string, entries []os.DirEntry) []map[string]any {
 		files = append(files, map[string]any{"name": entry.Name(), "path": filepath.Join(dir, entry.Name()), "size": info.Size(), "is_main": strings.EqualFold(entry.Name(), skillMainFile)})
 	}
 	sort.Slice(files, func(i, j int) bool {
-		return strings.ToLower(files[i]["name"].(string)) < strings.ToLower(files[j]["name"].(string))
+		ni, _ := files[i]["name"].(string)
+		nj, _ := files[j]["name"].(string)
+		return strings.ToLower(ni) < strings.ToLower(nj)
 	})
 	return files
 }
@@ -349,14 +351,6 @@ func (s *service) allSkillRootTargets(cwd string) []skillRootTarget {
 		appendUniqueSkillRoot(s.personalSkillsRoot(personalType), skillScopePersonal, personalType)
 	}
 	return targets
-}
-
-func (s *service) resolveExistingSkillPath(target, cwd string) (string, error) {
-	resolved, err := s.resolveExistingSkillPathTarget(target, cwd)
-	if err != nil {
-		return "", err
-	}
-	return resolved.path, nil
 }
 
 func (s *service) resolveExistingSkillPathTarget(target, cwd string) (resolvedSkillPathTarget, error) {

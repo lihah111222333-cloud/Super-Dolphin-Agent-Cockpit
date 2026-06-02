@@ -29,7 +29,7 @@ var errServiceDisabled = errors.New("feedback: service not wired (store is nil)"
 
 func (s *service) Record(ctx context.Context, req RecordRequest) (RecordResult, error) {
 	ctx = util.NonNilContext(ctx)
-	if s == nil || s.store == nil {
+	if s.store == nil {
 		return RecordResult{}, errServiceDisabled
 	}
 	threadID := strings.TrimSpace(req.ThreadID)
@@ -47,7 +47,7 @@ func (s *service) Record(ctx context.Context, req RecordRequest) (RecordResult, 
 		Payload:         req.Payload,
 	})
 	if err != nil {
-		s.logger.Warn("feedback/record: insert failed",
+		s.logger.Error("feedback/record: insert failed",
 			slog.String("thread_id", threadID),
 			slog.String("event_type", eventType),
 			slog.String("error", err.Error()),

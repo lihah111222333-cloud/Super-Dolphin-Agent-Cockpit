@@ -7,7 +7,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"testing"
 )
@@ -65,17 +64,19 @@ func runPackagedRelayEnvResolver(t *testing.T, scriptPath, goos string, values m
 		t.Fatalf("write %s harness: %v", scriptPath, err)
 	}
 
-	cmd := exec.Command("bash", harnessPath)
+	cmd := exec.Command("bash", bashArg("", harnessPath))
 	cmd.Dir = "."
-	cmd.Env = packageScriptValidationEnv(goos, values)
+	cmd.Env = packageScriptValidationEnv(t, goos, values)
 	output, err := cmd.CombinedOutput()
 	return string(output), err
 }
 
-func packageScriptValidationEnv(goos string, values map[string]string) []string {
+func packageScriptValidationEnv(t *testing.T, goos string, values map[string]string) []string {
+	t.Helper()
 	blocked := map[string]bool{
 		"GOOS":                               true,
 		"GOARCH":                             true,
+		"PATH":                               true,
 		"SUPER_DOLPHIN_CODEX_RELAY_BASE_URL": true,
 		"SUPER_DOLPHIN_CODEX_RELAY_BOOTSTRAP_TOKEN": true,
 		"SUPER_DOLPHIN_CODEX_RELAY_BOOTSTRAP_PROOF": true,
@@ -93,7 +94,36 @@ func packageScriptValidationEnv(goos string, values map[string]string) []string 
 	for key, value := range values {
 		env = append(env, key+"="+value)
 	}
-	return env
+	env = append(env, "PATH="+bashArg("", writePackageFakeGoBin(t, goos, "amd64"))+":/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin")
+	return appendWSLEnvKeys(env,
+		"PATH",
+		"GOOS",
+		"GOARCH",
+		"SUPER_DOLPHIN_CODEX_RELAY_BASE_URL",
+		"SUPER_DOLPHIN_CODEX_RELAY_BOOTSTRAP_TOKEN",
+		"SUPER_DOLPHIN_CODEX_RELAY_BOOTSTRAP_PROOF",
+		"SUPER_DOLPHIN_CODEX_RELAY_API_KEY",
+	)
+}
+
+func writePackageFakeGoBin(t *testing.T, goos, goarch string) string {
+	t.Helper()
+	binDir := t.TempDir()
+	content := `#!/usr/bin/env bash
+set -euo pipefail
+if [ "${1:-}" = "env" ]; then
+  case "${2:-}" in
+    GOOS) printf '%s\n' ` + bashQuote(goos) + `; exit 0 ;;
+    GOARCH) printf '%s\n' ` + bashQuote(goarch) + `; exit 0 ;;
+  esac
+fi
+echo "fake go only supports: go env GOOS|GOARCH" >&2
+exit 1
+`
+	if err := os.WriteFile(filepath.Join(binDir, "go"), []byte(content), 0o700); err != nil {
+		t.Fatalf("write fake go: %v", err)
+	}
+	return binDir
 }
 
 func scriptPrefixThroughFunction(t *testing.T, script, name string) string {
@@ -349,9 +379,9 @@ func runPackageWriteLSPManifest(t *testing.T, scriptPath, goos, bundleRoot strin
 	if err := os.WriteFile(harnessPath, []byte(harness), 0o700); err != nil {
 		t.Fatalf("write %s harness: %v", scriptPath, err)
 	}
-	cmd := exec.Command("bash", harnessPath, bundleRoot)
+	cmd := exec.Command("bash", bashArg("", harnessPath), bashArg("", bundleRoot))
 	cmd.Dir = "."
-	cmd.Env = packageScriptValidationEnv(goos, nil)
+	cmd.Env = packageScriptValidationEnv(t, goos, nil)
 	output, err := cmd.CombinedOutput()
 	return string(output), err
 }
@@ -362,7 +392,7 @@ func writeMinimalPackagedMacOSApp(t *testing.T) string {
 	app := filepath.Join(t.TempDir(), "Super Dolphin.app")
 	macos := filepath.Join(app, "Contents", "MacOS")
 	resources := filepath.Join(app, "Contents", "Resources")
-	platform := runtime.GOOS + "-" + runtime.GOARCH
+	platform := bashVerifierPlatform()
 	pg := filepath.Join(resources, "postgres", platform)
 
 	for _, path := range []string{
@@ -513,10 +543,11 @@ func runVerifyPackagedAppMacOS(t *testing.T, app string) (string, error) {
 
 func runVerifyPackagedAppMacOSWithEnv(t *testing.T, app string, env []string) (string, error) {
 	t.Helper()
-	cmd := exec.Command("bash", "verify_packaged_app_macos.sh", app)
+	cmd := exec.Command("bash", "verify_packaged_app_macos.sh", bashArg("", app))
 	cmd.Dir = "."
 	if env != nil {
 		cmd.Env = append(os.Environ(), env...)
+		cmd.Env = appendWSLEnvKeys(cmd.Env, "PATH")
 	}
 	output, err := cmd.CombinedOutput()
 	return string(output), err
@@ -584,7 +615,7 @@ func writeMinimalPackagedLinuxStage(t *testing.T) string {
 
 func runVerifyPackagedAppLinux(t *testing.T, target string) (string, error) {
 	t.Helper()
-	cmd := exec.Command("bash", "verify_packaged_app_linux.sh", target)
+	cmd := exec.Command("bash", "verify_packaged_app_linux.sh", bashArg("", target))
 	cmd.Dir = "."
 	output, err := cmd.CombinedOutput()
 	return string(output), err

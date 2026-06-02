@@ -139,12 +139,22 @@ function mockPromptPreferences(activePromptKey = '') {
   backend.getPreference.mockImplementation(({ key }) => Promise.resolve(promptPreferenceValue(key, activePromptKey)));
 }
 
+vi.mock('mermaid', () => ({
+  default: {
+    initialize: vi.fn(),
+    render: vi.fn(async (_id, source) => ({
+      svg: `<svg role="img" aria-label="mock mermaid"><text>${source}</text></svg>`,
+    })),
+  },
+}));
+
 describe('frontend-app connected client shell', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     bridgeCallback = null;
     resetClientStoreForTests();
     window.localStorage.clear();
+    window.history.replaceState({}, '', '/');
     Object.defineProperty(window, 'innerWidth', { configurable: true, value: 1024 });
     backend.readConfig.mockResolvedValue({ cwd: '/repo/app' });
     backend.getWindowBootstrap.mockResolvedValue({ snapshot: null });
@@ -452,6 +462,65 @@ describe('frontend-app connected client shell', () => {
     });
   });
 
+  it('uses the current URL path as the active page on boot', async () => {
+    window.history.pushState({}, '', '/dags');
+    backend.getWindowBootstrap.mockResolvedValueOnce({ snapshot: { page: 'chat' } });
+
+    render(<App />);
+
+    const workflowButton = await screen.findByRole('button', { name: '自动化' });
+    await waitFor(() => expect(workflowButton).toHaveClass('active'));
+    expect(screen.getByText('当前页面：自动化')).toBeInTheDocument();
+    expect(window.location.pathname).toBe('/dags');
+  });
+
+  it('lets user navigation override the explicit boot URL after initial route sync', async () => {
+    window.history.pushState({}, '', '/dags');
+
+    render(<App skipBootstrap />);
+
+    const workflowButton = await screen.findByRole('button', { name: '自动化' });
+    await waitFor(() => expect(workflowButton).toHaveClass('active'));
+
+    fireEvent.click(screen.getByRole('button', { name: '技能' }));
+
+    await waitFor(() => expect(screen.getByRole('button', { name: '技能' })).toHaveClass('active'));
+    expect(screen.getByText('当前页面：技能')).toBeInTheDocument();
+    expect(window.location.pathname).toBe('/skills');
+  });
+
+  it('writes page navigation to browser history and restores it on popstate', async () => {
+    render(<App skipBootstrap />);
+
+    fireEvent.click(screen.getByRole('button', { name: '技能' }));
+    await waitFor(() => expect(window.location.pathname).toBe('/skills'));
+
+    fireEvent.click(screen.getByRole('button', { name: '设置' }));
+    await waitFor(() => expect(window.location.pathname).toBe('/settings'));
+
+    await act(async () => {
+      window.history.pushState({ activePage: 'skills' }, '', '/skills');
+      window.dispatchEvent(new PopStateEvent('popstate', { state: { activePage: 'skills' } }));
+    });
+
+    await waitFor(() => expect(screen.getByRole('button', { name: '技能' })).toHaveClass('active'));
+    expect(screen.getByText('当前页面：技能')).toBeInTheDocument();
+  });
+
+  it('hides idle status noise while keeping the provider badge in thread cards', async () => {
+    backend.getSidebarState.mockResolvedValue({
+      activeThreadId: 'thread-1',
+      threads: [{ id: 'thread-1', name: '静默会话', provider: 'codex', status: 'idle' }],
+    });
+
+    render(<App />);
+
+    const card = (await screen.findByText('静默会话')).closest('.thread-card');
+    expect(card).toHaveTextContent('codex');
+    expect(card).not.toHaveTextContent('idle');
+    expect(card.querySelector('em')).toBeNull();
+  });
+
   it('shows a bootstrap failure notice when the backend bridge is unavailable', async () => {
     backend.readConfig.mockRejectedValue(new Error('runtime shim: failed to connect ws://127.0.0.1:5175/wails/ws'));
 
@@ -556,6 +625,251 @@ describe('frontend-app connected client shell', () => {
     expect(screen.getByText('<script>alert(1)</script>')).toBeInTheDocument();
     expect(screen.queryByText('## 结果汇总')).not.toBeInTheDocument();
   });
+
+  it('copies completed AI output from the assistant message action', async () => {
+    const text = [
+      '这是 AI 输出。',
+      '',
+      '```js',
+      'console.log("copy me");',
+      '```',
+    ].join('\n');
+    backend.getThreadState.mockResolvedValue({
+      activeThreadId: 'thread-1',
+      timelinesByThread: {
+        'thread-1': [{ id: 'assistant-copyable', kind: 'assistant', text, ts: '2026-05-30T00:00:00Z' }],
+      },
+    });
+
+    render(<App />);
+
+    await screen.findByText('这是 AI 输出。');
+    fireEvent.click(screen.getByRole('button', { name: '复制 AI 输出' }));
+
+    await waitFor(() => expect(backend.copyTextToClipboard).toHaveBeenCalledWith(text));
+    expect(screen.getByRole('button', { name: '复制 AI 输出' })).toHaveTextContent('已复制');
+  });
+
+  it('renders mermaid code fences as diagrams instead of plain code blocks', async () => {
+    backend.getThreadState.mockResolvedValue({
+      activeThreadId: 'thread-1',
+      timelinesByThread: {
+        'thread-1': [{
+          id: 'assistant-mermaid',
+          kind: 'assistant',
+          text: [
+            '总体结构如下：',
+            '```mermaid',
+            'flowchart TD',
+            '  User[用户] --> App[前端]',
+            '  App --> API[后端]',
+            '```',
+          ].join('\n'),
+          ts: '2026-05-30T00:00:00Z',
+        }],
+      },
+    });
+
+    const { container } = render(<App />);
+
+    expect(await screen.findByLabelText('Mermaid 图表')).toBeInTheDocument();
+    await screen.findByLabelText('mock mermaid');
+    expect(container.querySelector('.mermaid-diagram')).toHaveTextContent('flowchart TD');
+  });
+
+  it('opens rendered mermaid diagrams in the enlarged preview with an external link', async () => {
+    backend.getThreadState.mockResolvedValue({
+      activeThreadId: 'thread-1',
+      timelinesByThread: {
+        'thread-1': [{
+          id: 'assistant-mermaid-lightbox',
+          kind: 'assistant',
+          text: [
+            '```mermaid',
+            'flowchart TD',
+            '  A[开始] --> B[完成]',
+            '```',
+          ].join('\n'),
+          ts: '2026-05-30T00:00:00Z',
+        }],
+      },
+    });
+
+    render(<App />);
+
+    fireEvent.click(await screen.findByRole('button', { name: '放大 Mermaid 图表' }));
+
+    const dialog = screen.getByRole('dialog', { name: '图片预览：Mermaid 图表' });
+    expect(within(dialog).getByLabelText('mock mermaid')).toBeInTheDocument();
+    expect(within(dialog).getByRole('link', { name: '外部打开' })).toHaveAttribute(
+      'href',
+      expect.stringContaining('data:image/svg+xml;charset=utf-8,'),
+    );
+  });
+
+  it('keeps assistant output from the thread snapshot when thread message history is stale', async () => {
+    backend.getThreadState.mockResolvedValue({
+      activeThreadId: 'thread-1',
+      timelinesByThread: {
+        'thread-1': [
+          { id: 'user-stale-history', kind: 'user', text: '我要图片。', ts: '2026-05-30T00:00:00Z' },
+          { id: 'assistant-visible-output', kind: 'assistant', text: '这是 AI 输出。', ts: '2026-05-30T00:00:02Z' },
+        ],
+      },
+    });
+    backend.getThreadMessages.mockResolvedValue({
+      messages: [{
+        id: 1,
+        role: 'user',
+        content: '我要图片。',
+        createdAt: '2026-05-30T00:00:00Z',
+      }],
+      total: 1,
+    });
+
+    render(<App />);
+
+    expect(await screen.findByText('这是 AI 输出。')).toBeInTheDocument();
+  });
+
+  it('renders malformed inline markdown fences as readable code blocks', async () => {
+    backend.getThreadState.mockResolvedValue({
+      activeThreadId: 'thread-1',
+      timelinesByThread: {
+        'thread-1': [{
+          id: 'assistant-inline-fence',
+          kind: 'assistant',
+          text: [
+            '下面是当前仓库结构： ```textSuper-Dolphin/',
+            '├── cmd/#可执行入口',
+            '├── frontend-app/#当前前端',
+            '└── README.md',
+          ].join('\n'),
+          ts: '2026-05-30T00:00:00Z',
+        }],
+      },
+    });
+
+    const { container } = render(<App />);
+
+    expect(await screen.findByText('下面是当前仓库结构：')).toBeInTheDocument();
+    const codeBlock = container.querySelector('.message-markdown pre');
+    expect(codeBlock).toHaveTextContent('Super-Dolphin/');
+    expect(codeBlock).toHaveTextContent('frontend-app/#当前前端');
+    expect(codeBlock).not.toHaveTextContent('```');
+    expect(screen.queryByText(/```textSuper-Dolphin/)).not.toBeInTheDocument();
+  });
+
+  it('renders generated local image paths from assistant replies as image previews', async () => {
+    const imagePath = '/Users/ai/.codex/generated_images/019e8195-2f77-7aa1-96bd-63f784e87ac4/ig_088272cb55a587f8016a1d3d9660148191951c218f7b0b6c1.png';
+    backend.getThreadState.mockResolvedValue({
+      activeThreadId: 'thread-1',
+      timelinesByThread: {
+        'thread-1': [{
+          id: 'assistant-image-path',
+          kind: 'assistant',
+          text: `已展示。图片文件路径：\`${imagePath}\``,
+          ts: '2026-05-30T00:00:00Z',
+        }],
+      },
+    });
+
+    render(<App />);
+
+    const image = await screen.findByRole('img', { name: 'ig_088272cb55a587f8016a1d3d9660148191951c218f7b0b6c1.png' });
+    expect(image).toHaveAttribute('src', `/generated-image?path=${encodeURIComponent(imagePath)}`);
+    expect(screen.getByRole('button', { name: '放大图片 ig_088272cb55a587f8016a1d3d9660148191951c218f7b0b6c1.png' })).toBeInTheDocument();
+    expect(screen.queryByText(imagePath)).not.toBeInTheDocument();
+  });
+
+  it('opens assistant image previews in an enlarged lightbox with an external link', async () => {
+    const imagePath = '/Users/ai/.codex/generated_images/019e8195-2f77-7aa1-96bd-63f784e87ac4/ig_lightbox.png';
+    const routedSrc = `/generated-image?path=${encodeURIComponent(imagePath)}`;
+    backend.getThreadState.mockResolvedValue({
+      activeThreadId: 'thread-1',
+      timelinesByThread: {
+        'thread-1': [{
+          id: 'assistant-image-lightbox',
+          kind: 'assistant',
+          text: `图片已生成：${imagePath}`,
+          ts: '2026-05-30T00:00:00Z',
+        }],
+      },
+    });
+
+    render(<App />);
+
+    fireEvent.click(await screen.findByRole('button', { name: '放大图片 ig_lightbox.png' }));
+
+    const dialog = screen.getByRole('dialog', { name: '图片预览：ig_lightbox.png' });
+    expect(within(dialog).getByRole('img', { name: 'ig_lightbox.png' })).toHaveAttribute('src', routedSrc);
+    expect(within(dialog).getByRole('link', { name: '外部打开' })).toHaveAttribute('href', routedSrc);
+  });
+
+  it('shows a readable fallback when a generated image preview cannot load', async () => {
+    const imagePath = '/Users/ai/.codex/generated_images/019e8195-2f77-7aa1-96bd-63f784e87ac4/ig_missing.png';
+    backend.getThreadState.mockResolvedValue({
+      activeThreadId: 'thread-1',
+      timelinesByThread: {
+        'thread-1': [{
+          id: 'assistant-missing-image-path',
+          kind: 'assistant',
+          text: `图片文件路径：\`${imagePath}\``,
+          ts: '2026-05-30T00:00:00Z',
+        }],
+      },
+    });
+
+    render(<App />);
+
+    const image = await screen.findByRole('img', { name: 'ig_missing.png' });
+    fireEvent.error(image);
+
+    expect(screen.getByRole('note')).toHaveTextContent('图片无法加载');
+    expect(screen.getByRole('note')).toHaveTextContent('ig_missing.png');
+  });
+
+  it('renders bare generated local image paths from assistant replies as image previews', async () => {
+    const imagePath = '/Users/ai/.codex/generated_images/019e8195-2f77-7aa1-96bd-63f784e87ac4/ig_bare_path.png';
+    backend.getThreadState.mockResolvedValue({
+      activeThreadId: 'thread-1',
+      timelinesByThread: {
+        'thread-1': [{
+          id: 'assistant-bare-image-path',
+          kind: 'assistant',
+          text: `图片已生成：${imagePath}`,
+          ts: '2026-05-30T00:00:00Z',
+        }],
+      },
+    });
+
+    render(<App />);
+
+    const image = await screen.findByRole('img', { name: 'ig_bare_path.png' });
+    expect(image).toHaveAttribute('src', `/generated-image?path=${encodeURIComponent(imagePath)}`);
+    expect(screen.queryByText(imagePath)).not.toBeInTheDocument();
+  });
+
+  it('renders local image paths in markdown image syntax through the generated image route', async () => {
+    const imagePath = '/Users/ai/.codex/generated_images/019e8195-2f77-7aa1-96bd-63f784e87ac4/ig_markdown_path.png';
+    backend.getThreadState.mockResolvedValue({
+      activeThreadId: 'thread-1',
+      timelinesByThread: {
+        'thread-1': [{
+          id: 'assistant-markdown-image-path',
+          kind: 'assistant',
+          text: `![生成图](${imagePath})`,
+          ts: '2026-05-30T00:00:00Z',
+        }],
+      },
+    });
+
+    render(<App />);
+
+    const image = await screen.findByRole('img', { name: '生成图' });
+    expect(image).toHaveAttribute('src', `/generated-image?path=${encodeURIComponent(imagePath)}`);
+  });
+
 
   it('renders common llm output forms with dedicated formatting', async () => {
     backend.getThreadState.mockResolvedValue({
@@ -796,6 +1110,331 @@ describe('frontend-app connected client shell', () => {
       expect(status.querySelector('code')).toHaveTextContent('21017 / 258400 tokens');
       expect(status.querySelector('code')).toHaveAttribute('title', '21017 / 258400 tokens');
     });
+  });
+
+  it('does not expose internal thread identifiers in visible chat status', async () => {
+    const internalId = 'agent_1780284988948557000';
+    backend.getSidebarState.mockResolvedValueOnce({
+      activeThreadId: internalId,
+      threads: [{ id: internalId, name: internalId, provider: 'codex', status: 'idle' }],
+      statuses: { [internalId]: 'idle' },
+    });
+    backend.getThreadState.mockResolvedValueOnce({
+      activeThreadId: internalId,
+      timelinesByThread: { [internalId]: [] },
+    });
+
+    const { container } = render(<App />);
+
+    await screen.findByText('当前会话已连接');
+    expect(container).not.toHaveTextContent(internalId);
+    expect(screen.getByText('新对话')).toBeInTheDocument();
+  });
+
+  it('shows a lightweight history placeholder when the active thread has no trusted cache', async () => {
+    const { container } = render(<App />);
+    await screen.findByText('后端线程');
+
+    act(() => {
+      useClientStore.setState((state) => ({
+        statuses: { ...state.statuses, 'thread-1': 'idle' },
+        threads: state.threads.map((thread) => (
+          thread.id === 'thread-1' ? { ...thread, status: 'idle' } : thread
+        )),
+        timelinesByThread: {
+          ...state.timelinesByThread,
+          'thread-1': [],
+        },
+        threadTimelineReadyByThread: {
+          ...state.threadTimelineReadyByThread,
+          'thread-1': false,
+        },
+        threadStateLoadingByThread: {
+          ...state.threadStateLoadingByThread,
+          'thread-1': true,
+        },
+      }));
+    });
+
+    await waitFor(() => {
+      expect(screen.getByTestId('timeline-loading-placeholder')).toHaveTextContent('正在同步会话历史');
+      const status = container.querySelector('.work-status');
+      expect(status).toHaveTextContent('加载中');
+      expect(status).toHaveClass('is-busy');
+      expect(status.querySelector('.spinner')).toHaveAttribute('aria-hidden', 'true');
+    });
+  });
+
+  it('keeps the existing timeline visible while the active thread state is refreshing', async () => {
+    resetClientStoreForTests({
+      bootstrapStatus: 'ready',
+      cwd: '/repo/app',
+      activeProject: '/repo/app',
+      activeThreadId: 'thread-1',
+      threads: [{ id: 'thread-1', name: '后端线程', provider: 'codex', status: 'idle' }],
+      statuses: { 'thread-1': 'idle' },
+      timelinesByThread: {
+        'thread-1': [{ id: 'assistant-cached', kind: 'assistant', text: '刷新前已有的回答', ts: '2026-05-30T00:00:00Z' }],
+      },
+      threadTimelineReadyByThread: { 'thread-1': true },
+      threadStateLoadingByThread: { 'thread-1': true },
+    });
+
+    const { container } = render(<App skipBootstrap />);
+
+    expect(screen.getByText('刷新前已有的回答')).toBeInTheDocument();
+    expect(screen.getByTestId('chat-timeline')).toHaveTextContent('刷新前已有的回答');
+    expect(screen.queryByTestId('timeline-loading-placeholder')).not.toBeInTheDocument();
+    const status = container.querySelector('.work-status');
+    expect(status).not.toHaveTextContent('加载中');
+    expect(status).not.toHaveClass('is-busy');
+  });
+
+  it('shows AI thinking records with elapsed time in the chat timeline', async () => {
+    backend.getThreadState.mockResolvedValue({
+      activeThreadId: 'thread-1',
+      timelinesByThread: {
+        'thread-1': [{
+          id: 'thinking-1',
+          kind: 'thinking',
+          text: '已探索 4 个文件并运行 2 条命令。',
+          done: true,
+          ts: '2026-05-30T00:00:00Z',
+          completedAt: '2026-05-30T00:06:05Z',
+        }, {
+          id: 'assistant-after-thinking',
+          kind: 'assistant',
+          text: '这是整理后的回答。',
+          ts: '2026-05-30T00:06:06Z',
+        }],
+      },
+    });
+
+    render(<App />);
+
+    expect(await screen.findByLabelText('AI 思考记录')).toHaveTextContent('已处理 6m 5s');
+    expect(screen.getByLabelText('AI 思考记录')).toHaveTextContent('已探索 4 个文件并运行 2 条命令。');
+    expect(screen.getByText('这是整理后的回答。')).toBeInTheDocument();
+  });
+
+  it('does not invent elapsed time for completed thinking records without an end timestamp', async () => {
+    backend.getThreadState.mockResolvedValue({
+      activeThreadId: 'thread-1',
+      timelinesByThread: {
+        'thread-1': [{
+          id: 'thinking-without-end',
+          kind: 'thinking',
+          text: '完成态缺少结束时间。',
+          done: true,
+          ts: '2026-05-30T00:00:00Z',
+        }],
+      },
+    });
+
+    render(<App />);
+
+    const traces = await screen.findAllByLabelText('AI 思考记录');
+    const trace = traces.find((node) => node.textContent.includes('完成态缺少结束时间。'));
+    expect(trace).toBeTruthy();
+    expect(trace).toHaveTextContent('已处理');
+    expect(trace).not.toHaveTextContent(/已处理 \d+[sm]/);
+  });
+
+  it('does not show noisy zero-second elapsed time for completed thinking records', async () => {
+    backend.getThreadState.mockResolvedValue({
+      activeThreadId: 'thread-1',
+      timelinesByThread: {
+        'thread-1': [{
+          id: 'thinking-zero-duration',
+          kind: 'thinking',
+          text: '完成态小于一秒。',
+          done: true,
+          ts: '2026-05-30T00:00:00Z',
+          completedAt: '2026-05-30T00:00:00Z',
+        }],
+      },
+    });
+
+    render(<App />);
+
+    const traces = await screen.findAllByLabelText('AI 思考记录');
+    const trace = traces.find((node) => node.textContent.includes('完成态小于一秒。'));
+    expect(trace).toBeTruthy();
+    expect(trace).toHaveTextContent('已处理');
+    expect(trace).not.toHaveTextContent('已处理 0s');
+  });
+
+  it('uses numeric unix timestamps for thinking elapsed time instead of dropping them', async () => {
+    backend.getThreadState.mockResolvedValue({
+      activeThreadId: 'thread-1',
+      timelinesByThread: {
+        'thread-1': [{
+          id: 'thinking-numeric-time',
+          kind: 'thinking',
+          text: '使用后端数值时间。',
+          done: true,
+          ts: 1000,
+          completedAt: 1003,
+        }],
+      },
+    });
+
+    render(<App />);
+
+    const traces = await screen.findAllByLabelText('AI 思考记录');
+    const trace = traces.find((node) => node.textContent.includes('使用后端数值时间。'));
+    expect(trace).toBeTruthy();
+    expect(trace).toHaveTextContent('已处理 3s');
+  });
+
+  it('uses backend-provided thinking duration when timestamps are incomplete', async () => {
+    backend.getThreadState.mockResolvedValue({
+      activeThreadId: 'thread-1',
+      timelinesByThread: {
+        'thread-1': [{
+          id: 'thinking-duration-ms',
+          kind: 'thinking',
+          text: '使用后端耗时。',
+          done: true,
+          ts: '2026-05-30T00:00:00Z',
+          elapsedMs: 2300,
+        }],
+      },
+    });
+
+    render(<App />);
+
+    const traces = await screen.findAllByLabelText('AI 思考记录');
+    const trace = traces.find((node) => node.textContent.includes('使用后端耗时。'));
+    expect(trace).toBeTruthy();
+    expect(trace).toHaveTextContent('已处理 2s');
+  });
+
+  it('shows tool execution details inside the AI processing frame', async () => {
+    backend.getThreadState.mockResolvedValue({
+      activeThreadId: 'thread-1',
+      timelinesByThread: {
+        'thread-1': [{
+          id: 'tool-file-read',
+          kind: 'tool',
+          title: 'file.open',
+          status: 'completed',
+          text: '读取 frontend-app/src/App.jsx，定位 ReasoningTrace。',
+          done: true,
+          ts: '2026-05-30T00:00:00Z',
+          completedAt: '2026-05-30T00:00:03Z',
+        }, {
+          id: 'assistant-after-tool',
+          kind: 'assistant',
+          text: '工具结果已整理。',
+          ts: '2026-05-30T00:00:04Z',
+        }],
+      },
+    });
+
+    render(<App />);
+
+    const trace = await screen.findByLabelText('AI 思考记录');
+    expect(trace).toHaveClass('reasoning-message');
+    expect(trace).not.toHaveClass('message');
+    expect(trace).not.toHaveClass('assistant');
+    expect(trace).toHaveTextContent('已处理 3s');
+    expect(trace).toHaveTextContent('file.open');
+    const step = within(trace).getByLabelText('工具步骤');
+    expect(step).toHaveTextContent('工具');
+    expect(step).toHaveTextContent('完成');
+    expect(step).toHaveTextContent('读取 frontend-app/src/App.jsx');
+    expect(screen.getByText('工具结果已整理。')).toBeInTheDocument();
+  });
+
+  it('shows an active thinking placeholder while a turn is running before output arrives', async () => {
+    backend.getSidebarState.mockResolvedValueOnce({
+      activeThreadId: 'thread-1',
+      threads: [{ id: 'thread-1', name: '后端线程', provider: 'codex', status: 'running' }],
+      active_turn: { id: 'turn-running', thread_id: 'thread-1', status: 'running', started_at: '2026-05-30T00:00:00Z' },
+    });
+    backend.getThreadState.mockResolvedValueOnce({
+      activeThreadId: 'thread-1',
+      timelinesByThread: {
+        'thread-1': [{ id: 'user-waiting', kind: 'user', text: '请生成架构图', ts: '2026-05-30T00:00:00Z' }],
+      },
+    });
+
+    render(<App />);
+
+    expect(await screen.findByLabelText('AI 思考记录')).toHaveTextContent(/正在思考 \d+[sm]/);
+    expect(screen.getByLabelText('AI 思考记录')).toHaveTextContent('AI 正在分析上下文、选择工具并整理回答。');
+  });
+
+  it('updates active thinking elapsed time in place every second', async () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(new Date('2026-05-30T00:00:00Z'));
+      resetClientStoreForTests({
+        bootstrapStatus: 'ready',
+        cwd: '/repo/app',
+        activeProject: '/repo/app',
+        activeThreadId: 'thread-1',
+        timelinesByThread: {
+          'thread-1': [{
+            id: 'thinking-live',
+            role: 'assistant',
+            kind: 'thinking',
+            title: 'grep',
+            text: '正在搜索。',
+            time: '2026-05-30T00:00:00Z',
+            done: false,
+          }],
+        },
+      });
+
+      render(<App skipBootstrap />);
+
+      const trace = screen.getByLabelText('AI 思考记录');
+      expect(trace).toHaveTextContent('正在思考 0s');
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(2100);
+      });
+
+      expect(trace).toHaveTextContent('正在思考 2s');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('renders runtime tool details with long names in a shrink-safe structure', async () => {
+    const longToolName = 'mcp__very_long_server_name_that_would_overflow__deeply_nested_tool_name_with_many_segments';
+    backend.getSidebarState.mockResolvedValueOnce({
+      activeThreadId: 'thread-1',
+      threads: [{ id: 'thread-1', name: '后端线程', provider: 'codex', status: 'running' }],
+      activityStatsByThread: {
+        'thread-1': {
+          toolCalls: { [longToolName]: 3 },
+        },
+      },
+    });
+
+    const { container } = render(<App />);
+    await screen.findByText('后端线程');
+    fireEvent.click(screen.getByRole('button', { name: '显示侧边栏' }));
+
+    const toolStat = screen.getByLabelText('工具调用总数');
+    fireEvent.mouseEnter(toolStat);
+
+    const tooltip = await screen.findByTestId('runtime-stat-tooltip');
+    expect(tooltip).toHaveTextContent('deeply_nested_tool_name_with_many_segments');
+    expect(tooltip.querySelector('.runtime-stat-tooltip-row')).toBeInTheDocument();
+    expect(tooltip.querySelector('.runtime-stat-tooltip-name')).toHaveAttribute('title', 'deeply_nested_tool_name_with_many_segments');
+    expect(container.querySelector('.runtime-panel')).toHaveClass('runtime-panel');
+  });
+
+  it('sets the chat composer textarea to three visible rows', async () => {
+    render(<App />);
+    await screen.findByText('后端线程');
+
+    const composer = screen.getByTestId('composer-input');
+    expect(composer).toHaveAttribute('rows', '3');
   });
 
   it('does not render a duplicate desktop titlebar inside the app shell', async () => {
@@ -1219,7 +1858,7 @@ describe('frontend-app connected client shell', () => {
     await waitFor(() => expect(backend.getThreadState).toHaveBeenCalledWith({
       cwd: '/repo/app',
       threadId: 'thread-b',
-      includeDiff: true,
+      includeDiff: false,
     }));
     expect(useClientStore.getState().activeThreadId).toBe('thread-b');
     expect(useClientStore.getState().pendingActiveThreadId).toBe('');
@@ -1228,6 +1867,7 @@ describe('frontend-app connected client shell', () => {
     expect(screen.queryByText('Agent A ready')).not.toBeInTheDocument();
     expect(screen.queryByText('stale cached Agent B content')).not.toBeInTheDocument();
     expect(screen.queryByText(/我们应该在/)).not.toBeInTheDocument();
+    expect(screen.getByTestId('timeline-loading-placeholder')).toHaveTextContent('正在同步会话历史');
 
     act(() => {
       resolveThreadBState({
@@ -1247,6 +1887,56 @@ describe('frontend-app connected client shell', () => {
     expect(useClientStore.getState().pendingActiveThreadId).toBe('');
     expect(screen.queryByText('Agent A ready')).not.toBeInTheDocument();
     expect(screen.queryByText('stale cached Agent B content')).not.toBeInTheDocument();
+  });
+
+  it('shows trusted cached target-thread history immediately while refreshing', async () => {
+    backend.getSidebarState.mockResolvedValue({
+      activeThreadId: 'thread-a',
+      threads: [
+        { id: 'thread-a', name: 'Agent A', provider: 'codex', status: 'idle' },
+        { id: 'thread-b', name: 'Agent B', provider: 'codex', status: 'idle' },
+      ],
+    });
+    backend.getThreadState.mockImplementation(({ threadId }) => {
+      if (threadId === 'thread-b') return new Promise(() => {});
+      return Promise.resolve({
+        activeThreadId: threadId,
+        timelinesByThread: {
+          [threadId]: [{ id: 'assistant-a', kind: 'assistant', text: 'Agent A ready' }],
+        },
+      });
+    });
+    backend.getThreadMessages.mockImplementation(({ threadId }) => {
+      if (threadId === 'thread-b') return new Promise(() => {});
+      return Promise.resolve({ messages: [] });
+    });
+
+    render(<App />);
+    await screen.findByText('Agent A ready');
+
+    act(() => {
+      useClientStore.setState((state) => ({
+        timelinesByThread: {
+          ...state.timelinesByThread,
+          'thread-b': [{ id: 'cached-b', role: 'assistant', text: 'cached Agent B content' }],
+        },
+        threadTimelineReadyByThread: {
+          ...state.threadTimelineReadyByThread,
+          'thread-b': true,
+        },
+      }));
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: /Agent B/ }));
+
+    await waitFor(() => expect(backend.getThreadState).toHaveBeenCalledWith({
+      cwd: '/repo/app',
+      threadId: 'thread-b',
+      includeDiff: false,
+    }));
+    expect(screen.getByText('cached Agent B content')).toBeInTheDocument();
+    expect(screen.queryByText('Agent A ready')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('timeline-loading-placeholder')).not.toBeInTheDocument();
   });
 
   it('resizes the chat rail and right sidebar without crossing their minimum widths', async () => {
@@ -1344,11 +2034,13 @@ describe('frontend-app connected client shell', () => {
     expect(logPanel).toHaveTextContent('api.rpc.failed');
     expect(logPanel).toHaveTextContent('grep');
     expect(logPanel).toHaveTextContent('返回');
+    expect(logPanel).not.toHaveTextContent('{"total":3}');
 
     const resultLine = within(logPanel).getByText(/grep/).closest('p');
     fireEvent.mouseEnter(resultLine);
 
     expect(screen.getByTestId('warning-log-popover')).toHaveTextContent('src/App.jsx: runtime log result');
+    expect(screen.getByTestId('warning-log-popover')).toHaveTextContent('"preview": "{\\"total\\":3}"');
   });
 
   it('clamps right-edge runtime hover details into the viewport', async () => {
@@ -1491,7 +2183,7 @@ describe('frontend-app connected client shell', () => {
         providerThreadId: 'provider-thread-1',
         provider: 'codex',
       }));
-      expect(backend.interruptTurn).toHaveBeenCalledWith({ cwd: '/repo/app', threadId: 'thread-1', source: 'ui_stop' });
+      expect(backend.interruptTurn).toHaveBeenCalledWith({ cwd: '/repo/app', threadId: 'thread-1', turnId: 'turn-1', source: 'ui_stop' });
       expect(backend.recoverThread).toHaveBeenCalledWith({ cwd: '/repo/app', threadId: 'thread-1' });
       expect(backend.archiveThread).toHaveBeenCalledWith({ threadId: 'thread-1' });
       expect(backend.setPreference).toHaveBeenCalledWith(expect.objectContaining({
@@ -1508,7 +2200,7 @@ describe('frontend-app connected client shell', () => {
     fireEvent.keyDown(window, { key: 'Escape', code: 'Escape' });
 
     await waitFor(() => {
-      expect(backend.interruptTurn).toHaveBeenCalledWith({ cwd: '/repo/app', threadId: 'thread-1', source: 'ui_stop' });
+      expect(backend.interruptTurn).toHaveBeenCalledWith({ cwd: '/repo/app', threadId: 'thread-1', turnId: 'turn-1', source: 'ui_stop' });
     });
   });
 
@@ -1523,7 +2215,7 @@ describe('frontend-app connected client shell', () => {
     expect(backend.interruptTurn).not.toHaveBeenCalled();
   });
 
-  it('interrupts the selected running conversation with Escape even when active turn is not cached', async () => {
+  it('does not send an invalid interrupt when a running conversation has no active turn id', async () => {
     backend.getSidebarState.mockResolvedValueOnce({
       activeThreadId: 'thread-1',
       threads: [{ id: 'thread-1', name: '后端线程', provider: 'codex', status: '工作中' }],
@@ -1534,9 +2226,8 @@ describe('frontend-app connected client shell', () => {
 
     fireEvent.keyDown(window, { key: 'Escape', code: 'Escape' });
 
-    await waitFor(() => {
-      expect(backend.interruptTurn).toHaveBeenCalledWith({ cwd: '/repo/app', threadId: 'thread-1', source: 'ui_stop' });
-    });
+    await waitFor(() => expect(screen.getByTestId('chat-action-feedback')).toHaveTextContent('当前没有可中断任务'));
+    expect(backend.interruptTurn).not.toHaveBeenCalled();
   });
 
   it('previews attachments on click and removes them only with the remove control', async () => {
@@ -1742,7 +2433,7 @@ describe('frontend-app connected client shell', () => {
     });
   });
 
-  it('uses the opened thread provider model selector even when the selected provider differs', async () => {
+  it('uses the opened thread provider model selector without showing the global provider toggle', async () => {
     backend.getPreference.mockImplementation(({ key }) => Promise.resolve({
       'settings.provider.active': 'claude',
       'settings.provider.claude.model': 'sonnet',
@@ -1766,13 +2457,10 @@ describe('frontend-app connected client shell', () => {
 
     render(<App />);
 
-    await screen.findByLabelText('切换 Claude / Codex provider');
     await waitFor(() => {
-      const providerToggle = screen.getByLabelText('切换 Claude / Codex provider');
-      expect(providerToggle).toHaveTextContent('Codex');
-      expect(providerToggle).toBeDisabled();
       expect(screen.getByRole('button', { name: '选择模型' })).toHaveTextContent('GPT-5.4 · 中');
     });
+    expect(screen.queryByLabelText('切换 Claude / Codex provider')).not.toBeInTheDocument();
   });
 
   it('uses sidebar runtime metadata for provider-less thread cards', async () => {
@@ -1894,10 +2582,10 @@ describe('frontend-app connected client shell', () => {
           threads: [{ id: 'thread-1', name: '后端线程', provider: 'codex', status: '工作中' }],
         },
     ));
-    backend.getThreadState.mockImplementation(({ threadId }) => Promise.resolve({
+    backend.getThreadState.mockImplementation(({ threadId, includeDiff }) => Promise.resolve({
       activeThreadId: threadId,
       timelinesByThread: { [threadId]: [] },
-      diffTextByThread: { [threadId]: '' },
+      ...(includeDiff ? { diffTextByThread: { [threadId]: '' } } : {}),
     }));
 
     render(<App />);
@@ -1910,6 +2598,82 @@ describe('frontend-app connected client shell', () => {
       expect(backend.getSidebarState).toHaveBeenCalledWith({ cwd: '/repo/other' });
       expect(screen.getByText('Other project chat')).toBeInTheDocument();
       expect(screen.queryByText('后端线程')).not.toBeInTheDocument();
+    });
+    expect(useClientStore.getState().activeThreadId).toBe('');
+    expect(screen.getByRole('button', { name: /Other project chat/ }).closest('.thread-card')).not.toHaveClass('active');
+    expect(backend.getThreadState).not.toHaveBeenCalledWith({
+      cwd: '/repo/other',
+      threadId: 'thread-other',
+      includeDiff: true,
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: /Other project chat/ }));
+
+    await waitFor(() => {
+      expect(backend.getThreadState).toHaveBeenCalledWith({
+        cwd: '/repo/other',
+        threadId: 'thread-other',
+        includeDiff: false,
+      });
+    });
+    expect(useClientStore.getState().activeThreadId).toBe('thread-other');
+    expect(backend.getThreadState).not.toHaveBeenCalledWith({
+      cwd: '/repo/other',
+      threadId: 'thread-other',
+      includeDiff: true,
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: '显示侧边栏' }));
+
+    await waitFor(() => {
+      expect(backend.getThreadState).toHaveBeenCalledWith({
+        cwd: '/repo/other',
+        threadId: 'thread-other',
+        includeDiff: true,
+      });
+    });
+  });
+
+  it('shows a loading chat list immediately while a project switch refreshes slowly', async () => {
+    const projectChange = deferred();
+    const sidebarRefresh = deferred();
+    backend.getProjects.mockResolvedValue({ projects: ['/repo/app', '/repo/other'], active: '/repo/app' });
+    backend.setActiveProject.mockReturnValue(projectChange.promise);
+    backend.getSidebarState.mockImplementation(({ cwd }) => (
+      cwd === '/repo/other'
+        ? sidebarRefresh.promise
+        : Promise.resolve({
+          activeThreadId: 'thread-1',
+          threads: [{ id: 'thread-1', name: '后端线程', provider: 'codex', status: '工作中' }],
+        })
+    ));
+
+    render(<App />);
+    await screen.findByText('后端线程');
+
+    fireEvent.click(screen.getByRole('button', { name: '选择项目' }));
+    fireEvent.click(screen.getByRole('menuitem', { name: 'repo/other' }));
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: '选择项目' })).toHaveTextContent(/^other$/);
+      expect(screen.getByText('正在加载会话列表…')).toBeInTheDocument();
+      expect(screen.queryByText('后端线程')).not.toBeInTheDocument();
+    });
+
+    await act(async () => {
+      sidebarRefresh.resolve({
+        activeThreadId: 'thread-other',
+        threads: [{ id: 'thread-other', name: 'Other project chat', provider: 'claude', status: 'idle' }],
+      });
+      await Promise.resolve();
+    });
+
+    await screen.findByText('Other project chat');
+    expect(useClientStore.getState().activeThreadId).toBe('');
+
+    await act(async () => {
+      projectChange.resolve({ projects: ['/repo/app', '/repo/other'], active: '/repo/other' });
+      await Promise.resolve();
     });
   });
 
@@ -1940,13 +2704,15 @@ describe('frontend-app connected client shell', () => {
     fireEvent.click(screen.getByRole('menuitem', { name: 'repo/other' }));
 
     await waitFor(() => {
-      expect(backend.getThreadState).toHaveBeenCalledWith({
-        cwd: '/repo/other',
-        threadId: 'thread-other',
-        includeDiff: true,
-      });
       expect(screen.getByText('Other project chat')).toBeInTheDocument();
       expect(screen.queryByText('后端线程')).not.toBeInTheDocument();
+    });
+    expect(useClientStore.getState().activeThreadId).toBe('');
+    expect(screen.getByRole('button', { name: /Other project chat/ }).closest('.thread-card')).not.toHaveClass('active');
+    expect(backend.getThreadState).not.toHaveBeenCalledWith({
+      cwd: '/repo/other',
+      threadId: 'thread-other',
+      includeDiff: true,
     });
   });
 
@@ -2002,6 +2768,20 @@ describe('frontend-app connected client shell', () => {
       expect(screen.queryByText('后端线程')).not.toBeInTheDocument();
       expect(screen.getByTestId('chat-action-feedback')).toHaveTextContent('线程已归档');
     });
+  });
+
+  it('keeps the thread visible and reports a readable error when archive RPC fails', async () => {
+    backend.archiveThread.mockRejectedValueOnce(new Error('orchestration: service not configured'));
+    render(<App />);
+    await screen.findByText('后端线程');
+
+    fireEvent.click(screen.getByLabelText('归档会话'));
+
+    expect(await screen.findByText('归档会话失败：orchestration: service not configured')).toBeInTheDocument();
+    expect(screen.getByText('后端线程')).toBeInTheDocument();
+    expect(backend.setPreference).not.toHaveBeenCalledWith(expect.objectContaining({
+      key: 'archivedThreadAtById.thread-1',
+    }));
   });
 
   it('shows the pin action tooltip when hovering the thread pin icon', async () => {

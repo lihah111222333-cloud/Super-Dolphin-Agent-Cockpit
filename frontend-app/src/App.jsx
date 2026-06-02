@@ -1,6 +1,7 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { QueryClient, QueryClientProvider, useQuery, useQueryClient } from '@tanstack/react-query';
-import { AlertTriangle, Archive, ArrowLeft, Bot, Boxes, Brain, ChevronDown, CircleStop, Code2, Copy, Download, Eye, File, FileText, Folder, FolderOpen, GitBranch, Link2, MemoryStick, MessageCircle, Moon, MoreHorizontal, PanelTopOpen, Pencil, Pin, Plus, RefreshCw, Search, Send, Settings, Sparkles, Sun, Trash2, Workflow, X } from 'lucide-react';
+import { AlertTriangle, Archive, ArrowLeft, Bot, Boxes, Brain, CheckCircle2, ChevronDown, CircleStop, Clock3, Code2, Copy, Download, Eye, File, FileText, Folder, FolderOpen, GitBranch, Link2, MemoryStick, MessageCircle, Moon, MoreHorizontal, PanelTopOpen, Pencil, Pin, Plus, RefreshCw, Search, Send, Settings, Sparkles, Sun, Terminal, Trash2, UserRound, Workflow, Wrench, X } from 'lucide-react';
 import { useClientStore } from './entities/client/model/useClientStore.js';
 import { PromptPageView } from './features/prompts/PromptPageView.jsx';
 import { FocusTrapDialog } from './shared/ui/FocusTrapDialog.jsx';
@@ -36,6 +37,7 @@ import {
   previewSkillResolution,
   readSharedFile,
   readSkill,
+  copyTextToClipboard,
   saveTextFile,
   selectProjectDirs,
   setMemoryAutoDreamIntent,
@@ -59,6 +61,30 @@ const navItems = [
   { id: 'files', label: '共享文件', icon: FolderOpen },
   { id: 'settings', label: '设置', icon: MoreHorizontal },
 ];
+
+const PAGE_ROUTE_BY_ID = Object.freeze({
+  chat: '/',
+  prompts: '/prompts',
+  workflows: '/dags',
+  skills: '/skills',
+  memory: '/memory',
+  files: '/files',
+  settings: '/settings',
+});
+
+const PAGE_ID_BY_ROUTE = Object.freeze({
+  '/': 'chat',
+  '/chat': 'chat',
+  '/prompts': 'prompts',
+  '/dags': 'workflows',
+  '/workflows': 'workflows',
+  '/skills': 'skills',
+  '/memory': 'memory',
+  '/memory-center': 'memory',
+  '/files': 'files',
+  '/shared-files': 'files',
+  '/settings': 'settings',
+});
 
 const PROVIDER_LABELS = Object.freeze({
   claude: 'Claude',
@@ -125,6 +151,31 @@ const COLOR_THEMES = Object.freeze({
 
 function normalizeColorTheme(value) {
   return value === COLOR_THEMES.light || value === COLOR_THEMES.dark ? value : COLOR_THEMES.dark;
+}
+
+function normalizeAppPathname(value) {
+  const raw = (value || '').toString().trim().toLowerCase();
+  if (!raw || raw === '/') return '/';
+  return raw.replace(/\/+$/g, '') || '/';
+}
+
+function appPageFromPathname(pathname) {
+  return PAGE_ID_BY_ROUTE[normalizeAppPathname(pathname)] || '';
+}
+
+function appPageFromLocation() {
+  if (typeof window === 'undefined') return 'chat';
+  return appPageFromPathname(window.location?.pathname) || 'chat';
+}
+
+function hasExplicitAppPageRoute() {
+  if (typeof window === 'undefined') return false;
+  const path = normalizeAppPathname(window.location?.pathname);
+  return path !== '/' && Boolean(PAGE_ID_BY_ROUTE[path]);
+}
+
+function appRouteForPage(page) {
+  return PAGE_ROUTE_BY_ID[page] || PAGE_ROUTE_BY_ID.chat;
 }
 
 function useColorTheme() {
@@ -616,7 +667,10 @@ function parseUnifiedDiffLineEntries(fileText) {
 }
 
 function warningDetailText(entry) {
-  return entry?.detail || JSON.stringify(entry?.fields ?? {});
+  if (entry?.runtimeKind === 'result' && entry?.fields && typeof entry.fields === 'object') {
+    return JSON.stringify(entry.fields, null, 2);
+  }
+  return entry?.detail || JSON.stringify(entry?.fields ?? {}, null, 2);
 }
 
 function runtimeLogTimestamp(entry) {
@@ -637,6 +691,14 @@ function parseSafeLogTimestamp(entry) {
   const sanitized = text.replace(/(\.\d{3})\d+/g, '$1');
   const parsed = Date.parse(sanitized);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
+}
+
+function runtimeLogInlineLabel(entry) {
+  const label = runtimeLogLabel(entry);
+  if (entry?.runtimeKind === 'result') {
+    return label.split(' · ', 1)[0] || label;
+  }
+  return label;
 }
 
 function runtimeLogEntries(warnings = [], results = []) {
@@ -800,6 +862,7 @@ const CLAUDE_LONG_TO_SHORT = Object.freeze({
   'claude-haiku-4-5': 'haiku',
 });
 const TURN_STATE_INFO = Object.freeze({
+  idle: Object.freeze({ label: '已连接', tone: 'connected', busy: false }),
   preparing: Object.freeze({ label: '准备中', tone: 'active', busy: true }),
   running: Object.freeze({ label: '运行中', tone: 'active', busy: true }),
   force_completing: Object.freeze({ label: '强制完成中', tone: 'active', busy: true }),
@@ -830,8 +893,22 @@ function threadProviderLabel(provider) {
   return knownProviderKey(provider) || 'unknown';
 }
 
+function threadCardStatusLabel(thread, running) {
+  if (running) return '工作中';
+  const status = (thread?.status || '').toString().trim();
+  const normalized = status.toLowerCase();
+  if (!status || normalized === 'idle' || normalized === 'waiting' || status === '空闲' || status === '等待指示') return '';
+  return status;
+}
+
 function normalizedThreadIdentity(value) {
   return (value || '').toString().trim();
+}
+
+function isInternalThreadIdentifier(value) {
+  const text = normalizedThreadIdentity(value);
+  if (!text) return false;
+  return /^agent_[a-z0-9_-]+$/i.test(text) || /^thread[-_][a-z0-9_-]+$/i.test(text);
 }
 
 function threadSortTimestamp(value) {
@@ -939,9 +1016,40 @@ function cleanWorkStatusDetails(value) {
     .trim();
 }
 
-function workStatusForThread({ sending, activeThreadId, activeThread, statusEntry }) {
+function isInternalThreadDisplayText(value, activeThreadId, activeThread) {
+  const text = normalizedThreadIdentity(value);
+  if (!text) return false;
+  const unprefixed = text.replace(/^线程\s+/u, '').trim();
+  const ids = activeThreadIdentifiers(activeThreadId, activeThread);
+  return ids.has(text)
+    || ids.has(unprefixed)
+    || isInternalThreadIdentifier(text)
+    || isInternalThreadIdentifier(unprefixed);
+}
+
+function displayThreadName(thread, fallback = '新对话') {
+  const ids = activeThreadIdentifiers(thread?.id, thread);
+  for (const value of [thread?.name, thread?.title, thread?.displayName, thread?.display_name]) {
+    const text = normalizedThreadIdentity(value);
+    if (!text) continue;
+    if (ids.has(text) || isInternalThreadIdentifier(text)) continue;
+    return text;
+  }
+  return fallback;
+}
+
+function workStatusDetailsForThread({ activeThreadId, activeThread, statusEntry }) {
+  const details = cleanWorkStatusDetails(firstStatusText(statusEntry?.statusDetails, activeThread?.lastMessage));
+  if (details && !isInternalThreadDisplayText(details, activeThreadId, activeThread)) return details;
+  return '当前会话已连接';
+}
+
+function workStatusForThread({ sending, loading, activeThreadId, activeThread, statusEntry }) {
   if (!activeThreadId) {
     return { label: '待启动', details: '发送首条消息后创建线程', tone: 'idle', busy: false };
+  }
+  if (loading) {
+    return { label: '加载中', details: '正在同步当前会话', tone: 'active', busy: true };
   }
   const rawState = firstStatusText(
     statusEntry?.state,
@@ -955,16 +1063,24 @@ function workStatusForThread({ sending, activeThreadId, activeThread, statusEntr
   const label = mapped?.label || firstStatusText(statusEntry?.statusHeader, rawState) || '已连接';
   return {
     label,
-    details: cleanWorkStatusDetails(firstStatusText(statusEntry?.statusDetails, activeThread?.lastMessage, `线程 ${activeThreadId}`)),
+    details: workStatusDetailsForThread({ activeThreadId, activeThread, statusEntry }),
     tone: mapped?.tone || 'connected',
     busy: mapped?.busy ?? Boolean(sending),
   };
 }
 
-function hasAssistantReply(messages = []) {
-  return (messages || []).some((message) => (
-    (message?.role || '').toString().trim().toLowerCase() === 'assistant'
-    && Boolean((message?.text || '').toString().trim())
+function hasAssistantReplyAfterLastUser(messages = []) {
+  let lastUserIndex = -1;
+  for (let index = 0; index < messages.length; index += 1) {
+    if ((messages[index]?.role || '').toString().trim().toLowerCase() === 'user') {
+      lastUserIndex = index;
+    }
+  }
+  return messages.some((message, index) => (
+    index > lastUserIndex &&
+    (message?.role || '').toString().trim().toLowerCase() === 'assistant' &&
+    !isReasoningMessage(message) &&
+    Boolean((message?.text || '').toString().trim())
   ));
 }
 
@@ -1337,6 +1453,17 @@ function wordListFromText(value) {
 
 function textValue(value) {
   return value === null || value === undefined ? '' : value.toString().trim();
+}
+
+function runUIAction(action) {
+  try {
+    const result = typeof action === 'function' ? action() : action;
+    if (result && typeof result.catch === 'function') {
+      void result.catch(() => {});
+    }
+  } catch (error) {
+    void error;
+  }
 }
 
 function normalizeSummarySuggestion(value) {
@@ -2702,6 +2829,56 @@ function validateRuntimeThresholds(form) {
   return { stallThresholdSec, contextThresholds: [warn, danger, critical] };
 }
 
+function useActivePageHistory(activePage, setActivePage, routeBootstrapPending = false) {
+  const initializedRef = useRef(false);
+  const explicitRouteRef = useRef(hasExplicitAppPageRoute());
+  const suppressNextPushRef = useRef(false);
+  const activePageRef = useRef(activePage);
+
+  useEffect(() => {
+    activePageRef.current = activePage;
+  }, [activePage]);
+
+  useEffect(() => {
+    initializedRef.current = true;
+    const locationPage = appPageFromLocation();
+    if (explicitRouteRef.current && locationPage && locationPage !== activePageRef.current) {
+      suppressNextPushRef.current = true;
+      setActivePage(locationPage);
+    }
+    const onPopState = () => {
+      const nextPage = appPageFromLocation();
+      suppressNextPushRef.current = true;
+      setActivePage(nextPage);
+    };
+    window.addEventListener('popstate', onPopState);
+    return () => window.removeEventListener('popstate', onPopState);
+  }, [setActivePage]);
+
+  useEffect(() => {
+    if (!initializedRef.current) return;
+    const locationPage = appPageFromLocation();
+    if (explicitRouteRef.current && locationPage) {
+      if (locationPage !== activePage) {
+        suppressNextPushRef.current = true;
+        setActivePage(locationPage);
+        return;
+      }
+      if (routeBootstrapPending) return;
+      explicitRouteRef.current = false;
+    }
+
+    if (suppressNextPushRef.current) {
+      suppressNextPushRef.current = false;
+      return;
+    }
+
+    const nextPath = appRouteForPage(activePage);
+    if (normalizeAppPathname(window.location?.pathname) === normalizeAppPathname(nextPath)) return;
+    window.history.pushState({ activePage }, '', nextPath);
+  }, [activePage, routeBootstrapPending, setActivePage]);
+}
+
 function AppShell({ skipBootstrap = false }) {
   const store = useClientStore();
   const bootstrap = store.bootstrap;
@@ -2709,6 +2886,9 @@ function AppShell({ skipBootstrap = false }) {
   const queryClient = useQueryClient();
   const memoryRevision = Number(store.memoryRevision || 0);
   const [memoryPageSimilarCount, setMemoryPageSimilarCount] = useState(null);
+  const setActivePage = store.setActivePage;
+
+  useActivePageHistory(store.activePage, setActivePage, !skipBootstrap && !['ready', 'failed'].includes(store.bootstrapStatus));
 
   useEffect(() => {
     if (skipBootstrap) return undefined;
@@ -2853,10 +3033,18 @@ function ChatPage({ store, projectPath }) {
   const modelThreadId = composerConfigThreadId(store, activeThreadId);
   const activeThread = activeThreadForStore(store);
   const timelineBlocked = Boolean(activeThreadId && store.threadStateLoadingByThread?.[activeThreadId]);
-  const messages = timelineBlocked ? [] : (threadScopedMapValue(store.timelinesByThread, activeThreadId, activeThread, []) || []);
+  const cachedTimeline = threadScopedMapValue(store.timelinesByThread, activeThreadId, activeThread, []) || [];
+  const timelineReady = Boolean(
+    activeThreadId
+    && store.threadTimelineReadyByThread?.[activeThreadId]
+    && (!timelineBlocked || cachedTimeline.length > 0),
+  );
+  const timelineBlockedWithoutCache = timelineBlocked && !timelineReady;
+  const messages = timelineBlockedWithoutCache ? [] : cachedTimeline;
   const tokenUsage = threadScopedMapValue(store.tokenUsageByThread, activeThreadId, activeThread, null);
   const activityStats = threadScopedMapValue(store.activityStatsByThread, activeThreadId, activeThread, null);
   const diffText = threadScopedMapValue(store.diffTextByThread, activeThreadId, activeThread, '') || '';
+  const activeTurn = threadScopedMapValue(store.activeTurnByThread, activeThreadId, activeThread, null);
   const warningEntries = scopedActivityEntries(store.warningEntries, activeThreadId, activeThread, { includeUnscoped: true });
   const runtimeResultEntriesForThread = scopedActivityEntries(store.runtimeResultEntries, activeThreadId, activeThread, { includeUnscoped: true });
   const statusEntry = activeThreadId ? store.statuses?.[activeThreadId] : null;
@@ -2902,12 +3090,24 @@ function ChatPage({ store, projectPath }) {
   }, [maxRightPanelWidth, rightPanelOpen, store, viewportWidth]);
 
   useEffect(() => {
+    if (!rightPanelOpen || !activeThreadId) return;
+    if (store.threadDiffReadyByThread?.[activeThreadId]) return;
+    if (store.threadStateLoadingByThread?.[activeThreadId]) return;
+    runUIAction(() => store.syncThreadState?.(activeThreadId, {
+      includeArchived: true,
+      includeDiff: true,
+      loadMessages: false,
+      preserveActiveThreadId: true,
+    }));
+  }, [activeThreadId, rightPanelOpen, store]);
+
+  useEffect(() => {
     const onKeyDown = (event) => {
       if (event.defaultPrevented || event.key !== 'Escape' || event.metaKey || event.ctrlKey || event.altKey || event.shiftKey) return;
       if (shouldIgnoreGlobalEscape(event.target)) return;
       if (!store.hasActiveThreadActions?.()) return;
       event.preventDefault();
-      void store.interruptActiveThread?.();
+      runUIAction(() => store.interruptActiveThread?.());
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
@@ -3073,8 +3273,10 @@ function ChatPage({ store, projectPath }) {
           activeThreadId={activeThreadId}
           activeThread={activeThread}
           statusEntry={statusEntry}
+          activeTurn={activeTurn}
           modelThreadId={modelThreadId}
           timelineBlocked={timelineBlocked}
+          timelineContentBlocked={timelineBlockedWithoutCache}
           canUseProjectActions={canUseProjectActions}
         />
         {rightPanelOpen ? (
@@ -3135,17 +3337,17 @@ function ProjectSelector({ store, projectPath }) {
 
   const selectProject = async (value) => {
     setOpen(false);
-    await store.setActiveProjectPath?.(value);
+    return store.setActiveProjectPath?.(value);
   };
 
   const addProject = async () => {
     setOpen(false);
-    await store.addProjectFromPicker?.();
+    return store.addProjectFromPicker?.();
   };
 
   const removeProject = async (event, value) => {
     event.stopPropagation();
-    await store.removeProjectPath?.(value);
+    return store.removeProjectPath?.(value);
   };
 
   return (
@@ -3171,7 +3373,7 @@ function ProjectSelector({ store, projectPath }) {
                 type="button"
                 className="project-dropdown-item"
                 role="menuitem"
-                onClick={() => void selectProject(item.value)}
+                onClick={() => runUIAction(() => selectProject(item.value))}
               >
                 <span className="project-option-check" aria-hidden="true">{item.value === selected.value ? '✓' : ''}</span>
                 <span className="project-dropdown-label">{item.label}</span>
@@ -3182,7 +3384,7 @@ function ProjectSelector({ store, projectPath }) {
                   className="project-dropdown-remove"
                   aria-label={`移除此项目 ${item.label}`}
                   title="移除此项目"
-                  onClick={(event) => void removeProject(event, item.value)}
+                  onClick={(event) => runUIAction(() => removeProject(event, item.value))}
                 >
                   <X size={12} />
                 </button>
@@ -3194,7 +3396,7 @@ function ProjectSelector({ store, projectPath }) {
             type="button"
             className="project-dropdown-item project-dropdown-add"
             role="menuitem"
-            onClick={() => void addProject()}
+            onClick={() => runUIAction(addProject)}
           >
             <Plus size={13} />
             <span>添加项目</span>
@@ -3226,7 +3428,7 @@ function ProviderToggle({ store, canUseProjectActions = true }) {
       title={title}
       onClick={() => {
         if (disabled) return;
-        void store.toggleProviderMode();
+        runUIAction(() => store.toggleProviderMode());
       }}
     >
       <span className="provider-track" aria-hidden="true">
@@ -3239,6 +3441,7 @@ function ProviderToggle({ store, canUseProjectActions = true }) {
 
 function TopCommandBar({ store, projectPath, rightPanelOpen = false, toggleRightPanel = () => {} }) {
   const canUseThreadActions = Boolean(store.hasActiveThreadActions?.());
+  const canInterruptThread = Boolean(store.hasInterruptibleThreadAction?.());
   const bootstrapFailureMessage = store.bootstrapStatus === 'failed' && textValue(store.error)
     ? `连接后端失败：${textValue(store.error)}`
     : '';
@@ -3253,15 +3456,15 @@ function TopCommandBar({ store, projectPath, rightPanelOpen = false, toggleRight
         className="icon-btn"
         aria-label="新窗口（独立进程）"
         title="新窗口（独立进程）"
-        onClick={() => void store.openNewWindow?.()}
+        onClick={() => runUIAction(() => store.openNewWindow?.())}
       >
         <PanelTopOpen size={15} />
       </button>
       {canUseThreadActions ? (
-        <button type="button" className="icon-btn" aria-label="复制当前线程" title="复制当前线程" onClick={() => void store.copyActiveThreadInfo()}><Copy size={15} /></button>
+        <button type="button" className="icon-btn" aria-label="复制当前线程" title="复制当前线程" onClick={() => runUIAction(() => store.copyActiveThreadInfo())}><Copy size={15} /></button>
       ) : null}
-      {canUseThreadActions ? (
-        <button type="button" className="icon-btn" aria-label="停止" title="中断当前执行" onClick={() => void store.interruptActiveThread()}><CircleStop size={15} /></button>
+      {canInterruptThread ? (
+        <button type="button" className="icon-btn" aria-label="停止" title="中断当前执行" onClick={() => runUIAction(() => store.interruptActiveThread())}><CircleStop size={15} /></button>
       ) : null}
       <button
         type="button"
@@ -3269,7 +3472,7 @@ function TopCommandBar({ store, projectPath, rightPanelOpen = false, toggleRight
         aria-label={canUseThreadActions ? '进程恢复' : '请先选择会话'}
         title={canUseThreadActions ? '手动杀进程并恢复连接' : '请先选择会话'}
         disabled={!canUseThreadActions}
-        onClick={() => void store.recoverActiveThread()}
+        onClick={() => runUIAction(() => store.recoverActiveThread())}
       >
         <RefreshCw size={15} />
       </button>
@@ -3307,6 +3510,7 @@ function ThreadRail({ store }) {
   const activeThreads = store.threads.filter((thread) => !thread.archived);
   const archivedThreads = store.threads.filter((thread) => thread.archived);
   const threads = showArchivedThreads ? archivedThreads : activeThreads;
+  const chatListLoading = Boolean(store.chatSurfaceLoadingCwd);
   const visibleThreads = threads
     .map((thread, index) => ({
       ...thread,
@@ -3336,7 +3540,7 @@ function ThreadRail({ store }) {
   };
   const beginRename = (thread) => {
     setEditingThreadId(thread.id);
-    setEditingName((thread.name || '').toString());
+    setEditingName(displayThreadName(thread, ''));
   };
   const cancelRename = () => {
     if (renamingThreadId) return;
@@ -3352,9 +3556,11 @@ function ThreadRail({ store }) {
     }
     setRenamingThreadId(thread.id);
     try {
-      await store.renameThread(thread.id, nextName);
-      setEditingThreadId('');
-      setEditingName('');
+      const saved = await store.renameThread(thread.id, nextName);
+      if (saved) {
+        setEditingThreadId('');
+        setEditingName('');
+      }
     } finally {
       setRenamingThreadId('');
     }
@@ -3392,7 +3598,7 @@ function ThreadRail({ store }) {
               className="thread-clean-confirm"
               onClick={() => {
                 setConfirmCleanMode(false);
-                void store.deleteStaleThreads(staleThreadIds);
+                runUIAction(() => store.deleteStaleThreads(staleThreadIds));
               }}
             >
               确认
@@ -3413,7 +3619,7 @@ function ThreadRail({ store }) {
       <div className="thread-list">
         {visibleThreads.length === 0 ? (
           <p className="thread-empty">
-            {showArchivedThreads ? '暂无归档会话' : '暂无会话，点击「新建对话」开始草稿'}
+            {chatListLoading && !showArchivedThreads ? '正在加载会话列表…' : (showArchivedThreads ? '暂无归档会话' : '暂无会话，点击「新建对话」开始草稿')}
           </p>
         ) : null}
         {visibleThreads.map((thread) => {
@@ -3424,6 +3630,8 @@ function ThreadRail({ store }) {
           const pinned = thread.pinnedAt > 0 || thread.pinned;
           const pinLabel = pinned ? '取消置顶对话' : '置顶对话';
           const editing = editingThreadId === thread.id;
+          const threadLabel = displayThreadName(thread);
+          const statusLabel = threadCardStatusLabel(thread, running);
           return (
             <div
               key={thread.id}
@@ -3449,7 +3657,7 @@ function ThreadRail({ store }) {
                       onKeyDown={(event) => {
                         if (event.key === 'Enter') {
                           event.preventDefault();
-                          void submitRename(thread);
+                          runUIAction(() => submitRename(thread));
                         }
                         if (event.key === 'Escape') {
                           event.preventDefault();
@@ -3464,7 +3672,7 @@ function ThreadRail({ store }) {
                       data-rename-save-button-for={thread.id}
                       disabled={renamingThreadId === thread.id}
                       onMouseDown={(event) => event.preventDefault()}
-                      onClick={() => void submitRename(thread)}
+                      onClick={() => runUIAction(() => submitRename(thread))}
                     >
                       保存
                     </button>
@@ -3478,7 +3686,7 @@ function ThreadRail({ store }) {
                     aria-label={pinLabel}
                     title={pinLabel}
                     aria-pressed={pinned}
-                    onClick={() => void store.toggleThreadPin(thread.id)}
+                    onClick={() => runUIAction(() => store.toggleThreadPin(thread.id))}
                     onMouseEnter={() => setHoveredPinThreadId(thread.id)}
                     onMouseLeave={() => setHoveredPinThreadId((current) => (current === thread.id ? '' : current))}
                     onFocus={() => setHoveredPinThreadId(thread.id)}
@@ -3494,27 +3702,29 @@ function ThreadRail({ store }) {
                   <button
                     type="button"
                     className="thread-main"
-                    onClick={() => void store.setActiveThread(thread.id)}
+                    onClick={() => runUIAction(() => store.setActiveThread(thread.id))}
                   >
                     <span
                       className="thread-name"
-                      title="点击重命名"
+                      title={threadLabel}
                       onClick={(event) => {
                         event.stopPropagation();
                         beginRename(thread);
                       }}
                     >
-                      {thread.name}
+                      {threadLabel}
                     </span>
                     <b>{threadProviderLabel(thread.provider)}</b>
-                    <em className={running ? 'running' : ''}>
-                      {running ? '工作中' : thread.status || '等待指示'}
-                      {thread.staleReason ? (
-                        <span className="thread-stale-badge" data-stale-reason={thread.staleReason}>
-                          {thread.staleReason === 'expired' ? '超7天' : '空对话'}
-                        </span>
-                      ) : null}
-                    </em>
+                    {statusLabel || thread.staleReason ? (
+                      <em className={running ? 'running' : ''}>
+                        {statusLabel}
+                        {thread.staleReason ? (
+                          <span className="thread-stale-badge" data-stale-reason={thread.staleReason}>
+                            {thread.staleReason === 'expired' ? '超7天' : '空对话'}
+                          </span>
+                        ) : null}
+                      </em>
+                    ) : null}
                   </button>
                 </>
               )}
@@ -3523,7 +3733,8 @@ function ThreadRail({ store }) {
                 className={`thread-archive ${thread.archived ? 'active' : ''}`}
                 aria-label={archiveLabel}
                 title={archiveLabel}
-                onClick={() => void store.archiveThread(thread.id, !thread.archived)}
+                disabled={Boolean(store.threadArchiveLoadingByThread?.[thread.id])}
+                onClick={() => runUIAction(() => store.archiveThread(thread.id, !thread.archived))}
               >
                 <Archive size={15} />
               </button>
@@ -3600,8 +3811,8 @@ function ModelSelector({ store, activeThreadId, disabled = false }) {
   };
 
   const restoreInheritance = async () => {
-    await store.restoreComposerModelInheritance?.({ threadId: activeThreadId });
-    setOpen(false);
+    const restored = await store.restoreComposerModelInheritance?.({ threadId: activeThreadId });
+    if (restored) setOpen(false);
   };
 
   const selectedModel = canonicalizeModelValue(providerKey, draft.model || activeModel);
@@ -3630,7 +3841,7 @@ function ModelSelector({ store, activeThreadId, disabled = false }) {
         aria-busy={selectorBusy}
         title={disabled ? unavailableTitle : (canOverrideThread ? '线程执行配置' : '全局模型配置')}
         disabled={disabled}
-        onClick={() => void openSelector()}
+        onClick={() => runUIAction(openSelector)}
       >
         {label}
         <ChevronDown size={12} />
@@ -3639,20 +3850,20 @@ function ModelSelector({ store, activeThreadId, disabled = false }) {
         <div className="model-dropdown" role="dialog" aria-label="模型配置">
           <label>
             <span>模型</span>
-            <select aria-label="模型" value={selectModelValue} disabled={disabled || selectorBusy} onChange={(event) => void saveModelConfig({ model: event.target.value })}>
+            <select aria-label="模型" value={selectModelValue} disabled={disabled || selectorBusy} onChange={(event) => runUIAction(() => saveModelConfig({ model: event.target.value }))}>
               {canOverrideThread ? <option value="">{inheritModelLabel}</option> : null}
               {modelOptions.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
             </select>
           </label>
           <label>
             <span>强度</span>
-            <select aria-label="推理强度" value={selectEffortValue} disabled={disabled || selectorBusy} onChange={(event) => void saveModelConfig({ effort: event.target.value })}>
+            <select aria-label="推理强度" value={selectEffortValue} disabled={disabled || selectorBusy} onChange={(event) => runUIAction(() => saveModelConfig({ effort: event.target.value }))}>
               {canOverrideThread ? <option value="">{inheritEffortLabel}</option> : null}
               {effortOptions.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
             </select>
           </label>
           {canOverrideThread && !inherited ? (
-            <button type="button" className="model-inherit" disabled={disabled || selectorBusy} onClick={() => void restoreInheritance()}>
+            <button type="button" className="model-inherit" disabled={disabled || selectorBusy} onClick={() => runUIAction(restoreInheritance)}>
               继承全局
             </button>
           ) : null}
@@ -3752,6 +3963,10 @@ function isMarkdownTableDivider(line) {
 function safeMarkdownUrl(rawUrl, options = {}) {
   const value = (rawUrl || '').toString().trim();
   if (!value) return '';
+  if (options.image) {
+    const localSrc = imagePreviewSource(value);
+    if (localSrc) return localSrc;
+  }
   try {
     const parsed = new URL(value, window.location?.origin || 'http://localhost');
     const protocol = parsed.protocol.toLowerCase();
@@ -3766,26 +3981,189 @@ function safeMarkdownUrl(rawUrl, options = {}) {
   return '';
 }
 
+const IMAGE_PATH_RE = /\.(?:png|jpe?g|webp|gif|svg)(?:[?#].*)?$/i;
+const INLINE_IMAGE_PATH_RE = /(?:file:\/\/\/?[^\s`<>()"']+|~?\/(?!\/)[^\s`<>()"']+|\.{1,2}\/[^\s`<>()"']+|[A-Za-z]:[\\/][^\s`<>()"']+)\.(?:png|jpe?g|webp|gif|svg)(?:[?#][^\s`<>()"']*)?/gi;
+
+function basenameFromPath(path) {
+  const value = (path || '').toString().trim().split(/[?#]/, 1)[0];
+  if (!value) return '';
+  return value.split(/[\\/]/).filter(Boolean).pop() || value;
+}
+
+function fileURLToPath(value) {
+  try {
+    const url = new URL(value);
+    if (url.protocol.toLowerCase() !== 'file:') return '';
+    return decodeURIComponent(url.pathname || '');
+  } catch {
+    return '';
+  }
+}
+
+function isGeneratedImagePath(value) {
+  const path = (value || '').toString().trim();
+  if (!path || !IMAGE_PATH_RE.test(path)) return false;
+  return /(?:^|[/\\])\.codex[/\\]generated_images[/\\]/i.test(path);
+}
+
+function imagePreviewSource(rawValue) {
+  const value = (rawValue || '').toString().trim();
+  if (!value || !IMAGE_PATH_RE.test(value)) return '';
+  if (/^data:image\//i.test(value) || /^https?:\/\//i.test(value)) return value;
+  const localPath = /^file:\/\//i.test(value) ? fileURLToPath(value) : value;
+  if (isGeneratedImagePath(localPath)) {
+    return `/generated-image?path=${encodeURIComponent(localPath)}`;
+  }
+  if (/^[A-Za-z]:[\\/]/.test(localPath)) {
+    return `file:///${localPath.replace(/\\/g, '/')}`;
+  }
+  if (/^(?:\/|~\/|\.{1,2}\/)/.test(localPath)) {
+    return `file://${localPath}`;
+  }
+  return '';
+}
+
+function renderImagePreview(rawSource, altText, key) {
+  const src = imagePreviewSource(rawSource);
+  if (!src) return null;
+  const label = (altText || '').toString().trim() || basenameFromPath(rawSource) || '图片预览';
+  return <MarkdownImagePreview key={key} src={src} label={label} />;
+}
+
+function LightboxShell({ label, href, onClose, children }) {
+  const displayLabel = (label || '').toString().trim() || '预览';
+  return createPortal(
+    <div className="image-lightbox" role="dialog" aria-modal="true" aria-label={`图片预览：${displayLabel}`}>
+      <button type="button" className="image-lightbox-backdrop" aria-label="关闭图片预览" onClick={onClose} />
+      <section className="image-lightbox-panel">
+        <header>
+          <strong>{displayLabel}</strong>
+          <div>
+            {href ? <a href={href} target="_blank" rel="noreferrer">外部打开</a> : null}
+            <button type="button" aria-label="关闭图片预览" onClick={onClose}><X size={16} /></button>
+          </div>
+        </header>
+        {children}
+      </section>
+    </div>,
+    document.body,
+  );
+}
+
+function MarkdownImagePreview({ src, label }) {
+  const [failed, setFailed] = useState(false);
+  const [expanded, setExpanded] = useState(false);
+  const displayLabel = (label || '').toString().trim() || '图片预览';
+  useEffect(() => {
+    if (!expanded) return undefined;
+    const onKeyDown = (event) => {
+      if (event.key === 'Escape') setExpanded(false);
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [expanded]);
+
+  if (failed) {
+    return (
+      <span className="message-image-fallback" role="note" title={src}>
+        <span>图片无法加载</span>
+        <code>{displayLabel}</code>
+      </span>
+    );
+  }
+
+  const lightbox = expanded ? (
+    <LightboxShell label={displayLabel} href={src} onClose={() => setExpanded(false)}>
+      <img src={src} alt={displayLabel} />
+    </LightboxShell>
+  ) : null;
+
+  return (
+    <>
+      <button
+        type="button"
+        className="message-image-preview"
+        aria-label={`放大图片 ${displayLabel}`}
+        onClick={() => setExpanded(true)}
+      >
+        <img
+          src={src}
+          alt={displayLabel}
+          loading="lazy"
+          decoding="async"
+          onError={() => setFailed(true)}
+        />
+        <span>点击放大</span>
+      </button>
+      {lightbox}
+    </>
+  );
+}
+
+function svgDataUrl(svg) {
+  const value = (svg || '').toString();
+  if (!value) return '';
+  return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(value)}`;
+}
+
+function trimTrailingImagePathPunctuation(value) {
+  let path = (value || '').toString();
+  let suffix = '';
+  while (/[.,;:!?，。；：！？、]$/.test(path)) {
+    suffix = `${path.at(-1)}${suffix}`;
+    path = path.slice(0, -1);
+  }
+  return { path, suffix };
+}
+
+function renderPlainTextWithImagePreviews(text, keyPrefix) {
+  const source = (text || '').toString();
+  const parts = [];
+  let lastIndex = 0;
+  let matchIndex = 0;
+  for (const match of source.matchAll(INLINE_IMAGE_PATH_RE)) {
+    const token = match[0];
+    const start = match.index ?? 0;
+    const { path, suffix } = trimTrailingImagePathPunctuation(token);
+    const image = renderImagePreview(path, basenameFromPath(path), `${keyPrefix}-image-${matchIndex}`);
+    if (!image) continue;
+    if (start > lastIndex) parts.push(source.slice(lastIndex, start));
+    parts.push(image);
+    if (suffix) parts.push(suffix);
+    lastIndex = start + token.length;
+    matchIndex += 1;
+  }
+  if (lastIndex < source.length) parts.push(source.slice(lastIndex));
+  return parts.length > 0 ? parts : [source];
+}
+
 function renderInlineMarkdown(text, keyPrefix) {
   const source = (text || '').toString();
   const parts = [];
-  const pattern = /(!\[[^\]]*]\([^)]+\)|\[[^\]]+]\([^)]+\)|`[^`]+`|\*\*[^*]+\*\*|__[^_]+__|~~[^~]+~~|\*[^*]+\*|_[^_]+_)/g;
+  const pattern = new RegExp(`(${INLINE_IMAGE_PATH_RE.source})|(!\\[[^\\]]*]\\([^)]+\\)|\\[[^\\]]+]\\([^)]+\\)|\`[^\`]+\`|\\*\\*[^*]+\\*\\*|__[^_]+__|~~[^~]+~~|\\*[^*]+\\*|_[^_]+_)`, 'gi');
   let lastIndex = 0;
   let matchIndex = 0;
   for (const match of source.matchAll(pattern)) {
-    if (match.index > lastIndex) parts.push(source.slice(lastIndex, match.index));
+    if (match.index > lastIndex) {
+      parts.push(...renderPlainTextWithImagePreviews(source.slice(lastIndex, match.index), `${keyPrefix}-text-${matchIndex}`));
+    }
     const token = match[0];
     const key = `${keyPrefix}-inline-${matchIndex}`;
-    if (token.startsWith('![')) {
+    const inlineImage = renderImagePreview(token, basenameFromPath(token), key);
+    if (inlineImage) {
+      parts.push(inlineImage);
+    } else if (token.startsWith('![')) {
       const parsed = token.match(/^!\[([^\]]*)]\(([^)]+)\)$/);
       const src = safeMarkdownUrl(parsed?.[2], { image: true });
-      parts.push(src ? <img key={key} src={src} alt={parsed?.[1] || ''} /> : token);
+      parts.push(src ? <MarkdownImagePreview key={key} src={src} label={parsed?.[1] || basenameFromPath(parsed?.[2])} /> : token);
     } else if (token.startsWith('[')) {
       const parsed = token.match(/^\[([^\]]+)]\(([^)]+)\)$/);
       const href = safeMarkdownUrl(parsed?.[2]);
       parts.push(href ? <a key={key} href={href} target="_blank" rel="noreferrer">{parsed?.[1]}</a> : parsed?.[1] || token);
     } else if (token.startsWith('`')) {
-      parts.push(<code key={key}>{token.slice(1, -1)}</code>);
+      const codeText = token.slice(1, -1).trim();
+      const image = renderImagePreview(codeText, basenameFromPath(codeText), key);
+      parts.push(image || <code key={key}>{token.slice(1, -1)}</code>);
     } else if (token.startsWith('~~')) {
       parts.push(<del key={key}>{token.slice(2, -2)}</del>);
     } else if (token.startsWith('*') && !token.startsWith('**')) {
@@ -3798,7 +4176,9 @@ function renderInlineMarkdown(text, keyPrefix) {
     lastIndex = match.index + token.length;
     matchIndex += 1;
   }
-  if (lastIndex < source.length) parts.push(source.slice(lastIndex));
+  if (lastIndex < source.length) {
+    parts.push(...renderPlainTextWithImagePreviews(source.slice(lastIndex), `${keyPrefix}-text-tail`));
+  }
   return parts.length > 0 ? parts : source;
 }
 
@@ -3811,6 +4191,157 @@ function renderMarkdownParagraph(lines, key) {
       ])}
     </p>
   );
+}
+
+const CODE_FENCE_LANGUAGE_PREFIXES = Object.freeze([
+  'mermaid',
+  'javascript',
+  'typescript',
+  'plaintext',
+  'markdown',
+  'jsonc',
+  'json',
+  'bash',
+  'shell',
+  'text',
+  'diff',
+  'patch',
+  'yaml',
+  'toml',
+  'html',
+  'css',
+  'tsx',
+  'jsx',
+  'zsh',
+  'sh',
+  'txt',
+  'sql',
+  'log',
+  'xml',
+  'go',
+  'py',
+  'md',
+].sort((left, right) => right.length - left.length));
+
+let mermaidModulePromise = null;
+
+function loadMermaidModule() {
+  if (!mermaidModulePromise) {
+    mermaidModulePromise = import('mermaid').then((module) => {
+      const mermaid = module.default || module;
+      mermaid.initialize({
+        startOnLoad: false,
+        securityLevel: 'strict',
+        theme: 'base',
+        themeVariables: {
+          fontFamily: 'ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
+        },
+      });
+      return mermaid;
+    });
+  }
+  return mermaidModulePromise;
+}
+
+function isMermaidLanguage(language) {
+  const value = (language || '').toString().trim().toLowerCase();
+  return value === 'mermaid' || value === 'mmd';
+}
+
+function isMermaidSource(source) {
+  const firstLine = normalizeMessageText(source).trim().split('\n')[0]?.trim().toLowerCase() || '';
+  return /^(flowchart|graph|sequencediagram|classdiagram|statediagram|statediagram-v2|erdiagram|journey|gantt|pie|mindmap|timeline|gitgraph|quadrantchart|requirementdiagram)\b/.test(firstLine);
+}
+
+function MermaidDiagram({ source }) {
+  const reactId = useId();
+  const [state, setState] = useState({ status: 'loading', svg: '', error: '' });
+  const [expanded, setExpanded] = useState(false);
+  const diagram = normalizeMessageText(source).trim();
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!diagram) {
+      setState({ status: 'error', svg: '', error: 'Mermaid 图表内容为空' });
+      return () => { cancelled = true; };
+    }
+    setState({ status: 'loading', svg: '', error: '' });
+    loadMermaidModule()
+      .then((mermaid) => mermaid.render(`mermaid-${reactId.replace(/[^a-zA-Z0-9_-]/g, '')}`, diagram))
+      .then((result) => {
+        if (!cancelled) setState({ status: 'ready', svg: result?.svg || '', error: '' });
+      })
+      .catch((error) => {
+        if (!cancelled) setState({ status: 'error', svg: '', error: error?.message || String(error) });
+      });
+    return () => { cancelled = true; };
+  }, [diagram, reactId]);
+
+  useEffect(() => {
+    if (!expanded) return undefined;
+    const onKeyDown = (event) => {
+      if (event.key === 'Escape') setExpanded(false);
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [expanded]);
+
+  if (state.status === 'ready' && state.svg) {
+    const href = svgDataUrl(state.svg);
+    return (
+      <figure className="mermaid-diagram" aria-label="Mermaid 图表">
+        <button
+          type="button"
+          className="mermaid-diagram-preview"
+          aria-label="放大 Mermaid 图表"
+          onClick={() => setExpanded(true)}
+        >
+          <div dangerouslySetInnerHTML={{ __html: state.svg }} />
+          <span>点击放大</span>
+        </button>
+        {expanded ? (
+          <LightboxShell label="Mermaid 图表" href={href} onClose={() => setExpanded(false)}>
+            <div className="mermaid-lightbox-svg" dangerouslySetInnerHTML={{ __html: state.svg }} />
+          </LightboxShell>
+        ) : null}
+      </figure>
+    );
+  }
+
+  return (
+    <figure className={`mermaid-diagram mermaid-diagram--${state.status}`} aria-label="Mermaid 图表">
+      <figcaption>{state.status === 'loading' ? '正在渲染 Mermaid 图表...' : `Mermaid 渲染失败：${state.error}`}</figcaption>
+      <pre><code>{diagram}</code></pre>
+    </figure>
+  );
+}
+
+function CodeBlock({ language = '', code = '' }) {
+  if (isMermaidLanguage(language) || isMermaidSource(code)) {
+    return <MermaidDiagram source={code} />;
+  }
+  return <pre><code>{code}</code></pre>;
+}
+
+function splitMarkdownFenceLine(line) {
+  const markerIndex = line.indexOf('```');
+  if (markerIndex < 0) return null;
+  const prefix = line.slice(0, markerIndex);
+  const afterMarker = line.slice(markerIndex + 3).replace(/^\s+/, '');
+  if (!afterMarker) return { prefix, language: '', firstCodeLine: '' };
+
+  const tokenMatch = afterMarker.match(/^([A-Za-z][\w-]*)(?:\s+(.*))?$/);
+  if (tokenMatch && tokenMatch[2] !== undefined) {
+    return { prefix, language: tokenMatch[1].toLowerCase(), firstCodeLine: tokenMatch[2] };
+  }
+
+  const lower = afterMarker.toLowerCase();
+  const language = CODE_FENCE_LANGUAGE_PREFIXES.find((item) => lower.startsWith(item));
+  if (language && afterMarker.length > language.length) {
+    return { prefix, language, firstCodeLine: afterMarker.slice(language.length) };
+  }
+
+  return { prefix, language: afterMarker.toLowerCase(), firstCodeLine: '' };
 }
 
 function normalizeMessageText(text) {
@@ -3940,16 +4471,26 @@ function MarkdownMessage({ text }) {
       continue;
     }
 
-    if (trimmed.startsWith('```')) {
+    const fence = splitMarkdownFenceLine(line);
+    if (fence) {
+      if (fence.prefix.trim()) {
+        nodes.push(renderMarkdownParagraph([fence.prefix.trimEnd()], nextKey('paragraph')));
+      }
       const key = nextKey('code');
-      const codeLines = [];
+      const codeLines = fence.firstCodeLine ? [fence.firstCodeLine] : [];
       index += 1;
-      while (index < lines.length && !lines[index].trim().startsWith('```')) {
+      while (index < lines.length) {
+        const closingIndex = lines[index].indexOf('```');
+        if (closingIndex >= 0) {
+          const beforeClose = lines[index].slice(0, closingIndex);
+          if (beforeClose) codeLines.push(beforeClose);
+          index += 1;
+          break;
+        }
         codeLines.push(lines[index]);
         index += 1;
       }
-      if (index < lines.length) index += 1;
-      nodes.push(<pre key={key}><code>{codeLines.join('\n')}</code></pre>);
+      nodes.push(<CodeBlock key={key} language={fence.language} code={codeLines.join('\n')} />);
       continue;
     }
 
@@ -4048,6 +4589,7 @@ function MarkdownMessage({ text }) {
       const nextTrimmed = next.trim();
       if (!nextTrimmed) break;
       if (
+        next.includes('```') ||
         nextTrimmed.startsWith('```') ||
         nextTrimmed.startsWith('>') ||
         nextTrimmed.match(/^(-{3,}|\*{3,}|_{3,})$/) ||
@@ -4069,6 +4611,192 @@ function MessageContent({ text }) {
   const output = detectMessageOutput(text);
   if (output.kind === 'markdown') return <MarkdownMessage text={output.text} />;
   return <StructuredMessage kind={output.kind} text={output.text} />;
+}
+
+function isReasoningMessage(message) {
+  const kind = (message?.kind || '').toString().trim().toLowerCase();
+  return kind === 'thinking' || kind === 'reasoning' || kind === 'tool' || kind === 'command' || kind === 'process';
+}
+
+function reasoningTitle(message) {
+  const kind = (message?.kind || '').toString().trim().toLowerCase();
+  const title = (message?.title || '').toString().trim();
+  if (title) return title;
+  if (kind === 'tool') return '调用工具';
+  if (kind === 'command') return '执行命令';
+  return 'AI 思考';
+}
+
+function reasoningKindMeta(message = {}) {
+  const kind = (message?.kind || '').toString().trim().toLowerCase();
+  if (kind === 'tool') return { label: '工具', tone: 'tool', Icon: Wrench };
+  if (kind === 'command') return { label: '命令', tone: 'command', Icon: Terminal };
+  if (kind === 'process') return { label: '流程', tone: 'process', Icon: Sparkles };
+  return { label: '思考', tone: 'thinking', Icon: Brain };
+}
+
+function reasoningStatusText(message = {}, done = true) {
+  const status = (message?.status || '').toString().trim().toLowerCase();
+  if (!done) return '执行中';
+  if (status === 'failed' || status === 'error') return '失败';
+  if (status === 'skipped' || status === 'cancelled' || status === 'canceled') return '已跳过';
+  return '完成';
+}
+
+function reasoningStepDescription(message = {}) {
+  const body = (message?.text || '').toString().trim();
+  if (body) return body;
+  const meta = reasoningKindMeta(message);
+  if (meta.tone === 'tool') return '正在调用工具并等待返回结果。';
+  if (meta.tone === 'command') return '正在执行命令并读取输出。';
+  if (meta.tone === 'process') return '正在推进任务流程并同步上下文。';
+  return 'AI 正在分析上下文、选择工具并整理回答。';
+}
+
+function MessageAvatar({ role = 'assistant' }) {
+  const isUser = role === 'user';
+  const Icon = isUser ? UserRound : Bot;
+  return (
+    <div className={`avatar avatar--${isUser ? 'user' : 'assistant'}`} aria-hidden="true">
+      <Icon size={18} strokeWidth={2.2} />
+    </div>
+  );
+}
+
+function AssistantMessageActions({ text }) {
+  const [copyState, setCopyState] = useState('idle');
+  const resetTimerRef = useRef(null);
+  useEffect(() => () => {
+    if (resetTimerRef.current) window.clearTimeout(resetTimerRef.current);
+  }, []);
+  const copyableText = (text || '').toString();
+  const canCopy = copyableText.trim().length > 0;
+  const scheduleReset = (delay) => {
+    if (resetTimerRef.current) window.clearTimeout(resetTimerRef.current);
+    resetTimerRef.current = window.setTimeout(() => {
+      resetTimerRef.current = null;
+      setCopyState('idle');
+    }, delay);
+  };
+  const copyOutput = async () => {
+    if (!canCopy) return;
+    try {
+      await copyTextToClipboard(copyableText);
+      setCopyState('copied');
+      scheduleReset(1800);
+    } catch {
+      setCopyState('failed');
+      scheduleReset(2200);
+    }
+  };
+  if (!canCopy) return null;
+  const copied = copyState === 'copied';
+  const failed = copyState === 'failed';
+  return (
+    <div className="message-actions" aria-label="AI 输出操作">
+      <button
+        type="button"
+        className={`message-copy${copied ? ' is-copied' : ''}${failed ? ' is-failed' : ''}`}
+        aria-label="复制 AI 输出"
+        title="复制 AI 输出"
+        onClick={() => { void copyOutput(); }}
+      >
+        {copied ? <CheckCircle2 size={14} aria-hidden="true" /> : <Copy size={14} aria-hidden="true" />}
+        <span>{copied ? '已复制' : failed ? '复制失败' : '复制'}</span>
+      </button>
+    </div>
+  );
+}
+
+function timestampMs(value) {
+  if (typeof value === 'number' && Number.isFinite(value) && value > 0) {
+    return value < 1_000_000_000_000 ? value * 1000 : value;
+  }
+  const text = (value || '').toString().trim();
+  if (/^\d+(?:\.\d+)?$/.test(text)) {
+    const numeric = Number(text);
+    if (Number.isFinite(numeric) && numeric > 0) return numeric < 1_000_000_000_000 ? numeric * 1000 : numeric;
+  }
+  const parsed = Date.parse(text);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
+}
+
+function durationLabelFromMs(ms, options = {}) {
+  const totalSeconds = Math.max(0, Math.floor(ms / 1000));
+  if (totalSeconds <= 0 && !options.showZero) return '';
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  if (minutes <= 0) return `${seconds}s`;
+  return `${minutes}m ${seconds}s`;
+}
+
+function useElapsedLabel(startValue, endValue, active) {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (!active) return undefined;
+    const timer = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, [active]);
+  const start = timestampMs(startValue);
+  if (!start) return '';
+  const completed = timestampMs(endValue);
+  if (!active && !completed) return '';
+  const end = completed || now;
+  if (end < start) return '';
+  return durationLabelFromMs(end - start, { showZero: active });
+}
+
+function ReasoningTrace({ message, active = false }) {
+  const done = !active && message?.done !== false;
+  const hookElapsed = useElapsedLabel(message?.time, message?.completedAt, !done);
+  const elapsed = (done && typeof message?.elapsedMs === 'number' && message.elapsedMs > 0)
+    ? durationLabelFromMs(message.elapsedMs)
+    : hookElapsed;
+  const statusLabel = done ? `已处理${elapsed ? ` ${elapsed}` : ''}` : `正在思考${elapsed ? ` ${elapsed}` : ''}`;
+  const meta = reasoningKindMeta(message);
+  const StatusIcon = done ? CheckCircle2 : Clock3;
+  const StepIcon = meta.Icon;
+  return (
+    <article className={`reasoning-message${done ? '' : ' is-active'}`} aria-label="AI 思考记录">
+      <details className="reasoning-trace">
+        <summary>
+          <span className="reasoning-trace-status">
+            <StatusIcon size={15} aria-hidden="true" />
+            {statusLabel}
+          </span>
+          <em>{reasoningTitle(message)}</em>
+        </summary>
+        <div className="reasoning-step-list">
+          <section className={`reasoning-step reasoning-step--${meta.tone}`} aria-label={`${meta.label}步骤`}>
+            <div className="reasoning-step-icon">
+              <StepIcon size={15} aria-hidden="true" />
+            </div>
+            <div className="reasoning-step-body">
+              <header>
+                <span>{meta.label}</span>
+                <strong>{reasoningTitle(message)}</strong>
+                <b aria-label={`执行状态：${reasoningStatusText(message, done)}`}>{reasoningStatusText(message, done)}</b>
+              </header>
+              <MessageContent text={reasoningStepDescription(message)} />
+            </div>
+          </section>
+        </div>
+      </details>
+    </article>
+  );
+}
+
+function syntheticReasoningMessage({ activeTurn, sending }) {
+  if (!activeTurn && !sending) return null;
+  return {
+    id: `thinking-${activeTurn?.id || 'sending'}`,
+    role: 'assistant',
+    kind: 'thinking',
+    title: '正在处理请求',
+    text: '',
+    time: activeTurn?.startedAt || new Date().toISOString(),
+    done: false,
+  };
 }
 
 function ComposerDock({
@@ -4166,7 +4894,7 @@ function ComposerDock({
     if (imeLikely) return;
     event.preventDefault();
     if (!canSend) return;
-    void sendMessage();
+    runUIAction(() => sendMessage());
   };
 
   return (
@@ -4178,7 +4906,7 @@ function ComposerDock({
       onDragEnter={handleDragEnter}
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
-      onDrop={handleDrop}
+      onDrop={(event) => runUIAction(() => handleDrop(event))}
     >
       <div className="composer-card">
         {dropActive ? <div className="composer-drop-hint" aria-live="polite">松开即可添加附件</div> : null}
@@ -4201,9 +4929,10 @@ function ComposerDock({
           id="composer-input"
           data-testid="composer-input"
           data-file-drop-target=""
+          rows={3}
           value={draft}
           onChange={(event) => setDraft(event.target.value)}
-          onPaste={(event) => { void handlePaste(event); }}
+          onPaste={(event) => { runUIAction(() => handlePaste(event)); }}
           onCompositionStart={() => { isComposingRef.current = true; }}
           onCompositionEnd={() => { isComposingRef.current = false; }}
           onKeyDown={handleKeyDown}
@@ -4217,7 +4946,7 @@ function ComposerDock({
             title={projectActionBlocked ? projectActionBlockedTitle : '添加文件'}
             disabled={projectActionBlocked}
             onClick={() => {
-              if (!projectActionBlocked) void selectFiles();
+              if (!projectActionBlocked) runUIAction(() => selectFiles());
             }}
           >
             <Plus size={18} />
@@ -4245,7 +4974,7 @@ function ComposerDock({
               aria-label="发送消息"
               disabled={!canSend}
               onClick={() => {
-                if (canSend) void sendMessage();
+                if (canSend) runUIAction(() => sendMessage());
               }}
             >
               <Send size={18} />
@@ -4284,12 +5013,18 @@ function Conversation({
   activeThreadId,
   activeThread,
   statusEntry,
+  activeTurn,
   modelThreadId,
   timelineBlocked,
+  timelineContentBlocked = false,
   canUseProjectActions = true,
 }) {
   const introMode = !activeThreadId && !timelineBlocked && messages.length === 0;
-  const showProviderToggle = !hasAssistantReply(messages);
+  const showProviderToggle = !activeThreadId;
+  const hasActiveReasoning = messages.some((message) => isReasoningMessage(message) && message.done === false);
+  const pendingReasoning = !introMode && !timelineBlocked && !hasActiveReasoning && !hasAssistantReplyAfterLastUser(messages)
+    ? syntheticReasoningMessage({ activeTurn, sending })
+    : null;
   const composer = (
     <ComposerDock
       floating={introMode}
@@ -4323,19 +5058,33 @@ function Conversation({
             {composer}
           </div>
         ) : null}
-        {!introMode && !timelineBlocked ? messages.map((message) => (
-          <article key={message.id} className={`message ${message.role}`}>
-            <div className="avatar">{message.role === 'user' ? 'U' : 'AI'}</div>
-            <div className="bubble">
-              <header><span>{message.role === 'user' ? '你' : 'AI'}</span><time>{formatTime(message.time)}</time></header>
-              <MessageContent text={message.text} />
-            </div>
-          </article>
+        {!introMode && !timelineContentBlocked ? messages.map((message) => (
+          isReasoningMessage(message) ? (
+            <ReasoningTrace key={message.id} message={message} active={message.done === false} />
+          ) : (
+            <article key={message.id} className={`message ${message.role}`}>
+              <MessageAvatar role={message.role} />
+              <div className="bubble">
+                <header><span>{message.role === 'user' ? '你' : 'AI'}</span><time>{formatTime(message.time)}</time></header>
+                <MessageContent text={message.text} />
+                {message.role === 'assistant' ? <AssistantMessageActions text={message.text} /> : null}
+              </div>
+            </article>
+          )
         )) : null}
+        {!introMode && timelineContentBlocked ? (
+          <div className="timeline-placeholder" data-testid="timeline-loading-placeholder" aria-live="polite">
+            <span className="timeline-placeholder-line" />
+            <span className="timeline-placeholder-line timeline-placeholder-line--short" />
+            <p>正在同步会话历史</p>
+          </div>
+        ) : null}
+        {pendingReasoning ? <ReasoningTrace key={pendingReasoning.id} message={pendingReasoning} active /> : null}
       </div>
       {!introMode ? (
         <WorkStatus
           sending={sending}
+          loading={timelineContentBlocked}
           activeThreadId={activeThreadId}
           activeThread={activeThread}
           statusEntry={statusEntry}
@@ -4347,13 +5096,13 @@ function Conversation({
   );
 }
 
-function WorkStatus({ sending, activeThreadId, activeThread, statusEntry, tokenUsage }) {
-  const status = workStatusForThread({ sending, activeThreadId, activeThread, statusEntry });
+function WorkStatus({ sending, loading, activeThreadId, activeThread, statusEntry, tokenUsage }) {
+  const status = workStatusForThread({ sending, loading, activeThreadId, activeThread, statusEntry });
   const className = `work-status work-status--${status.tone}${status.busy ? ' is-busy' : ''}`;
   const tokenText = tokenUsage ? `${tokenUsage.usedTokens} / ${tokenUsage.contextWindowTokens} tokens` : 'token usage 等待后端同步';
   return (
     <div className={className}>
-      <span className="spinner" />
+      <span className="spinner" aria-hidden="true" />
       <span className="work-status-label">{status.label}</span>
       <em>{status.details}</em>
       <code title={tokenText}>{tokenText}</code>
@@ -4575,8 +5324,8 @@ function RuntimeActivityPanel({
                   {detailEntries.length > 0 ? (
                     <span className="runtime-stat-tooltip-list">
                       {detailEntries.map((entry) => (
-                        <span key={entry.name}>
-                          <span>{entry.name}</span>
+                        <span key={entry.name} className="runtime-stat-tooltip-row">
+                          <span className="runtime-stat-tooltip-name" title={entry.name}>{entry.name}</span>
                           <strong>{entry.count}</strong>
                         </span>
                       ))}
@@ -4605,7 +5354,7 @@ function RuntimeActivityPanel({
             onFocus={(event) => showWarningPopover(entry.id, event.currentTarget)}
             onBlur={() => hideWarningPopover(entry.id)}
           >
-            <time>{formatTime(runtimeLogTimestamp(entry))}</time> <b>{runtimeLogLabel(entry)}</b>
+            <time>{formatTime(runtimeLogTimestamp(entry))}</time> <b>{runtimeLogInlineLabel(entry)}</b>
             {Number(entry.occurrenceCount) > 1 ? <span> ×{Number(entry.occurrenceCount)}</span> : null}
           </p>
         ))}
@@ -4619,7 +5368,7 @@ function RuntimeActivityPanel({
         >
           <span className="warning-log-popover-title">
             <time>{formatTime(runtimeLogTimestamp(hoveredWarningEntry))}</time>
-            <b>{runtimeLogLabel(hoveredWarningEntry)}</b>
+            <b>{runtimeLogInlineLabel(hoveredWarningEntry)}</b>
           </span>
           <code>{warningDetailText(hoveredWarningEntry)}</code>
         </div>
