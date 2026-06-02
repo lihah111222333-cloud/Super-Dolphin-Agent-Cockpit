@@ -131,19 +131,33 @@ describe('composer layout styles', () => {
 
   it('keeps runtime panel details shrink-safe inside the right rail', () => {
     const panel = declarationsFor('.runtime-panel');
+    const activityPanel = declarationsFor('.runtime-activity-panel');
     const icons = declarationsFor('.runtime-icons');
+    const logs = declarationsFor('.log-lines');
     const tooltipRow = declarationsFor('.runtime-stat-tooltip-row');
     const tooltipName = declarationsFor('.runtime-stat-tooltip-name');
     const logLine = declarationsFor('.warning-log-line');
 
     expect(panel['border-left']).toBe('1px solid var(--line)');
-    expect(panel['overflow-x']).toBe('hidden');
+    expect(panel.position).toBe('relative');
+    expect(Number(panel['z-index'])).toBeGreaterThan(20);
+    expect(panel['overflow-x']).toBe('visible');
+    expect(activityPanel['min-width']).toBe('0');
+    expect(activityPanel['max-width']).toBe('100%');
+    expect(activityPanel['overflow-x']).toBe('visible');
     expect(icons['min-width']).toBe('0');
+    expect(icons.overflow).toBe('visible');
+    expect(logs['min-width']).toBe('0');
+    expect(logs['max-width']).toBe('100%');
+    expect(logs['overflow-x']).toBe('hidden');
     expect(tooltipRow['min-width']).toBe('0');
     expect(tooltipName['min-width']).toBe('0');
     expect(tooltipName.overflow).toBe('hidden');
     expect(tooltipName['text-overflow']).toBe('ellipsis');
     expect(logLine['min-width']).toBe('0');
+    expect(logLine.display).toBe('block');
+    expect(logLine.width).toBe('100%');
+    expect(logLine['max-width']).toBe('100%');
     expect(logLine.overflow).toBe('hidden');
     expect(logLine['text-overflow']).toBe('ellipsis');
   });
@@ -500,17 +514,20 @@ describe('runtime activity panel styles', () => {
     const activity = declarationsFor('.runtime-activity-panel');
     const diff = declarationsFor('.diff-empty');
     const tooltip = declarationsFor('.runtime-stat-tooltip');
+    const warningPopover = declarationsFor('.warning-log-popover');
 
-    expect(panel['overflow-x']).toBe('hidden');
+    expect(panel['overflow-x']).toBe('visible');
     expect(panel['overflow-y']).toBe('visible');
     expect(panel['grid-template-rows']).toContain('var(--activity-panel-height)');
-    expect(activity.overflow).toBe('visible');
+    expect(activity['overflow-x']).toBe('visible');
+    expect(activity['overflow-y']).toBe('visible');
     expect(activity.height).toBe('var(--activity-panel-height)');
     expect(Number(activity['z-index'])).toBeGreaterThan(Number(diff['z-index']));
     expect(tooltip.position).toBe('fixed');
     expect(tooltip.left).toBe('var(--runtime-stat-tooltip-left, 12px)');
     expect(tooltip['max-height']).toBe('var(--runtime-stat-tooltip-max-height, min(280px, 42vh))');
     expect(Number(tooltip['z-index'])).toBeGreaterThan(Number(activity['z-index']));
+    expect(Number(tooltip['z-index'])).toBeGreaterThan(Number(warningPopover['z-index']));
   });
 
   it('keeps resized runtime sidebar content visible instead of requiring horizontal scrolling', () => {
@@ -554,7 +571,7 @@ describe('runtime activity panel styles', () => {
     expect(icons['min-width']).toBe('0');
     expect(icons['display']).toBe('grid');
     expect(icons['grid-template-columns']).toBe('repeat(4, minmax(0, 1fr))');
-    expect(icons['overflow']).toBe('hidden');
+    expect(icons['overflow']).toBe('visible');
     expect(stat['min-width']).toBe('0');
     expect(stat['justify-content']).toBe('center');
   });

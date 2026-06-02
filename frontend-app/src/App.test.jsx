@@ -1853,6 +1853,8 @@ describe('frontend-app connected client shell', () => {
 
     const toolStat = screen.getByLabelText('工具调用总数');
     fireEvent.mouseEnter(toolStat);
+    expect(screen.queryByTestId('runtime-stat-tooltip')).not.toBeInTheDocument();
+    fireEvent.click(toolStat);
 
     const tooltip = await screen.findByTestId('runtime-stat-tooltip');
     expect(tooltip).toHaveTextContent('deeply_nested_tool_name_with_many_segments');
@@ -2418,10 +2420,12 @@ describe('frontend-app connected client shell', () => {
     expect(screen.queryByText('edit:')).not.toBeInTheDocument();
 
     fireEvent.mouseEnter(screen.getByLabelText('LSP (8 tools) 调用次数'));
+    expect(screen.queryByTestId('runtime-stat-tooltip')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByLabelText('LSP (8 tools) 调用次数'));
     expect(screen.getByTestId('runtime-stat-tooltip')).toHaveTextContent('LSP (8 tools)');
     expect(screen.getByTestId('runtime-stat-tooltip')).toHaveTextContent('edit');
     expect(screen.getByTestId('runtime-stat-tooltip')).toHaveTextContent('3');
-    fireEvent.mouseLeave(screen.getByLabelText('LSP (8 tools) 调用次数'));
+    fireEvent.click(screen.getByTestId('warning-log-panel'));
     expect(screen.queryByTestId('runtime-stat-tooltip')).not.toBeInTheDocument();
 
     fireEvent.mouseDown(screen.getByTestId('activity-panel-resizer'), { clientY: 500 });
@@ -2470,12 +2474,14 @@ describe('frontend-app connected client shell', () => {
 
     const resultLine = within(logPanel).getByText(/grep/).closest('p');
     fireEvent.mouseEnter(resultLine);
+    expect(screen.queryByTestId('warning-log-popover')).not.toBeInTheDocument();
+    fireEvent.click(resultLine);
 
     expect(screen.getByTestId('warning-log-popover')).toHaveTextContent('src/App.jsx: runtime log result');
     expect(screen.getByTestId('warning-log-popover')).toHaveTextContent('"preview": "{\\"total\\":3}"');
   });
 
-  it('clamps right-edge runtime hover details into the viewport', async () => {
+  it('clamps right-edge runtime click details into the viewport', async () => {
     Object.defineProperty(window, 'innerHeight', { configurable: true, value: 640 });
 
     render(<App />);
@@ -2498,7 +2504,7 @@ describe('frontend-app connected client shell', () => {
       },
     });
 
-    fireEvent.mouseEnter(toolStat);
+    fireEvent.click(toolStat);
 
     const tooltip = screen.getByTestId('runtime-stat-tooltip');
     expect(tooltip).toHaveTextContent('工具');
@@ -2506,7 +2512,7 @@ describe('frontend-app connected client shell', () => {
     expect(tooltip.style.getPropertyValue('--runtime-stat-tooltip-bottom')).toBe('70px');
   });
 
-  it('lets bottom-right runtime hover details use the available vertical space', async () => {
+  it('lets bottom-right runtime click details use the available vertical space', async () => {
     Object.defineProperty(window, 'innerHeight', { configurable: true, value: 640 });
     backend.getSidebarState.mockResolvedValue({
       activeThreadId: 'thread-1',
@@ -2544,7 +2550,7 @@ describe('frontend-app connected client shell', () => {
       },
     });
 
-    fireEvent.mouseEnter(toolStat);
+    fireEvent.click(toolStat);
 
     const tooltip = screen.getByTestId('runtime-stat-tooltip');
     expect(tooltip).toHaveTextContent('very_long_tool_name_18');
@@ -3534,11 +3540,13 @@ describe('frontend-app connected client shell', () => {
     expect(screen.queryByText(/turn\/start/)).not.toBeInTheDocument();
 
     fireEvent.mouseEnter(warningLine);
+    expect(screen.queryByTestId('warning-log-popover')).not.toBeInTheDocument();
+    fireEvent.click(warningLine);
 
     expect(screen.getByTestId('warning-log-popover')).toHaveTextContent('rpc.failed');
     expect(screen.getByTestId('warning-log-popover')).toHaveTextContent('turn/start');
 
-    fireEvent.mouseLeave(warningLine);
+    fireEvent.click(screen.getByTestId('warning-log-panel'));
 
     expect(screen.queryByTestId('warning-log-popover')).not.toBeInTheDocument();
   });
