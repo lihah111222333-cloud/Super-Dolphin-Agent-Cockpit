@@ -1,6 +1,7 @@
-# super-agent-v3 代码地图：终端入口与 UI 层（Vue 前端）
+# super-agent-v3 代码地图：终端入口与 UI 层（legacy Vue 前端）
 
 > 范围：`cmd/agent-terminal/frontend/vue-app/`
+> 当前状态（2026-06-02）：当前新 UI 页面代码在 `frontend-app/`，由 [`01-terminal-ui-react.md`](01-terminal-ui-react.md) 覆盖。本卷保留 legacy/package-embed Vue 前端、历史链路和旧测试定位；除非任务明确要求旧 Vue 或 packaged embed，不要把当前页面修改定位到本卷路径。
 > 关联后端卷：[`01-terminal-ui-go.md`](01-terminal-ui-go.md)；backend contract / module-local 窄端口看 [`04-app-contract.md`](04-app-contract.md)
 > 维护提示：本卷仅维护 Vue 入口、页面、store 与 composable；58f19fa 接口隔离未改前端入口，后端端口归属不要在本卷展开。
 
@@ -170,7 +171,7 @@ sequenceDiagram
 
 1. 用户任务里旧称的 `useSkillSelection` / `LaunchSkillPicker` / `useSkillPreview` 已退出聊天页生产链路。
 2. 用户任务里写的 `useTimeline`，源码实际拆成 `components/timeline/useTimelineItems.js:93-177` 与 `components/timeline/useTimelineHelpers.js:283-317`。
-3. 当前聊天页不做技能选择或 prompt 注入；真实 runtime 路径看 `07-module-read.md` §4 与 `09-provider.md`。
+3. Legacy Vue 聊天页不做技能选择或 prompt 注入；真实 runtime 路径看 `07-module-read.md` §4 与 `09-provider.md`。
 
 ## 8. C19 补遗：技能管理与 provider-native mirror
 

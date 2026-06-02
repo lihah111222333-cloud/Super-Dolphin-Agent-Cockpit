@@ -3477,7 +3477,6 @@ function TopCommandBar({ store, projectPath, rightPanelOpen = false, toggleRight
           {feedback.message}
         </span>
       ) : null}
-      <span className="project-pill" aria-label="当前工作目录" title={`当前窗口 CWD：${projectPath}`}><Folder size={14} /> {projectDisplayName(projectPath)}</span>
       <button
         type="button"
         className={`icon-btn sidebar-toggle ${rightPanelOpen ? 'active' : ''}`}
@@ -3487,6 +3486,7 @@ function TopCommandBar({ store, projectPath, rightPanelOpen = false, toggleRight
         onClick={toggleRightPanel}
       >
         {rightPanelOpen ? <X size={15} /> : <Eye size={15} />}
+        <span className="sidebar-toggle-label">侧边栏</span>
       </button>
     </div>
   );
@@ -4607,13 +4607,14 @@ function MessageContent({ text }) {
 
 function isReasoningMessage(message) {
   const kind = (message?.kind || '').toString().trim().toLowerCase();
-  return kind === 'thinking' || kind === 'reasoning' || kind === 'tool' || kind === 'command' || kind === 'process';
+  return kind === 'thinking' || kind === 'reasoning' || kind === 'tool' || kind === 'command' || kind === 'process' || kind === 'plan';
 }
 
 function reasoningTitle(message) {
   const kind = (message?.kind || '').toString().trim().toLowerCase();
   const title = (message?.title || '').toString().trim();
   if (title) return title;
+  if (kind === 'plan') return '执行计划';
   if (kind === 'tool') return '调用工具';
   if (kind === 'command') return '执行命令';
   return 'AI 思考';
@@ -4623,6 +4624,7 @@ function reasoningKindMeta(message = {}) {
   const kind = (message?.kind || '').toString().trim().toLowerCase();
   if (kind === 'tool') return { label: '工具', tone: 'tool', Icon: Wrench };
   if (kind === 'command') return { label: '命令', tone: 'command', Icon: Terminal };
+  if (kind === 'plan') return { label: '计划', tone: 'plan', Icon: CheckCircle2 };
   if (kind === 'process') return { label: '流程', tone: 'process', Icon: Sparkles };
   return { label: '思考', tone: 'thinking', Icon: Brain };
 }
@@ -4639,10 +4641,66 @@ function reasoningStepDescription(message = {}) {
   const body = (message?.text || '').toString().trim();
   if (body) return body;
   const meta = reasoningKindMeta(message);
+  if (meta.tone === 'plan') return '正在罗列执行计划并同步进度。';
   if (meta.tone === 'tool') return '正在调用工具并等待返回结果。';
   if (meta.tone === 'command') return '正在执行命令并读取输出。';
   if (meta.tone === 'process') return '正在推进任务流程并同步上下文。';
   return 'AI 正在分析上下文、选择工具并整理回答。';
+}
+
+function parsePlanItems(text) {
+  const statusMarkers = {
+    '✅': true,
+    '☑': true,
+    '✓': true,
+    '✔': true,
+    '🔄': false,
+    '⏳': false,
+    '○': false,
+    '◯': false,
+    '☐': false,
+    '❌': false,
+  };
+  return normalizeMessageText(text)
+    .split('\n')
+    .map((line) => line.trim())
+    .map((line) => {
+      const match = line.match(/^([✅☑✓✔🔄⏳○◯☐❌])?\s*(?:[-*]|\d+[.)])\s*(?:\[([ xX])\]\s*)?(.+)$/u);
+      if (!match) return null;
+      const label = (match[3] || '').trim();
+      if (!label || /^plan$/i.test(label)) return null;
+      return {
+        text: label,
+        done: match[1] ? statusMarkers[match[1]] === true : (match[2] || '').toLowerCase() === 'x',
+      };
+    })
+    .filter(Boolean);
+}
+
+function ExecutionPlan({ message }) {
+  const items = parsePlanItems(message?.text);
+  const completed = items.filter((item) => item.done).length;
+  const summary = items.length > 0 ? `已完成 ${completed}/${items.length} 项任务` : '正在整理执行计划';
+  return (
+    <section className="execution-plan" aria-label="AI 执行计划">
+      <header>
+        <span>{reasoningTitle(message)}</span>
+        <b>{summary}</b>
+      </header>
+      {items.length > 0 ? (
+        <ol className="execution-plan-list">
+          {items.map((item, index) => (
+            <li key={`${item.text}-${index}`} data-plan-status={item.done ? 'done' : 'pending'}>
+              <span className="execution-plan-check" aria-hidden="true">{item.done ? '✓' : ''}</span>
+              <span>{item.text}</span>
+            </li>
+          ))}
+        </ol>
+      ) : (
+        <MessageContent text={reasoningStepDescription(message)} />
+      )}
+    </section>
+  );
 }
 
 function MessageAvatar({ role = 'assistant' }) {
@@ -4769,7 +4827,7 @@ function ReasoningTrace({ message, active = false }) {
                 <strong>{reasoningTitle(message)}</strong>
                 <b aria-label={`执行状态：${reasoningStatusText(message, done)}`}>{reasoningStatusText(message, done)}</b>
               </header>
-              <MessageContent text={reasoningStepDescription(message)} />
+              {meta.tone === 'plan' ? <ExecutionPlan message={message} /> : <MessageContent text={reasoningStepDescription(message)} />}
             </div>
           </section>
         </div>

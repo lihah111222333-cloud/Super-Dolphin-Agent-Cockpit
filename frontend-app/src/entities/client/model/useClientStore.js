@@ -831,8 +831,9 @@ function normalizeTimelineItem(item) {
       rawKind.includes('thinking') || rawKind.includes('reasoning') ? 'thinking'
         : rawKind.includes('command') || rawKind.includes('exec') ? 'command'
           : rawKind.includes('tool') ? 'tool'
-            : rawKind.includes('assistant') || rawKind.includes('agent_message') || rawKind.includes('agentmessage') || rawKind === 'final_answer' ? 'assistant'
-              : 'assistant'
+            : rawKind.includes('plan') ? 'plan'
+              : rawKind.includes('assistant') || rawKind.includes('agent_message') || rawKind.includes('agentmessage') || rawKind === 'final_answer' ? 'assistant'
+                : 'assistant'
     );
   const text = extractText(item?.text || item?.content || item?.message || item?.delta || item?.output || item?.result || item?.answer || item?.response || item?.summary || item?.preview);
   return {
@@ -1016,11 +1017,19 @@ function normalizeTimelineKind(item) {
   return item?.role === 'user' ? 'user' : 'assistant';
 }
 
+function isInjectedPromptTimelineItem(item) {
+  if (item?.role !== 'user') return false;
+  const text = normalizeString(item?.text).trim();
+  if (!text) return false;
+  return /^#\s+AGENTS\.md instructions for .+\n/i.test(text) && /<INSTRUCTIONS>[\s\S]*<\/INSTRUCTIONS>/i.test(text);
+}
+
 function isVisibleTimelineItem(item) {
+  if (isInjectedPromptTimelineItem(item)) return false;
   if (item?.role === 'user') return true;
   if (normalizeString(item?.text)) return true;
   const kind = normalizeTimelineKind(item);
-  return kind === 'thinking' || kind === 'reasoning' || kind === 'tool' || kind === 'command' || kind === 'process';
+  return kind === 'thinking' || kind === 'reasoning' || kind === 'tool' || kind === 'command' || kind === 'process' || kind === 'plan';
 }
 
 function preferredAssistantTimelineItem(existingItem, incomingItem) {
@@ -3000,8 +3009,8 @@ export const useClientStore = create((set, get) => {
         },
       }));
 
-      try {
         let threadId = previousThreadId;
+        try {
         if (!threadId) {
           const launchPreferences = await resolveLaunchPreferences(cwd);
           const thread = await startThread({
@@ -3050,8 +3059,8 @@ export const useClientStore = create((set, get) => {
         return true;
       } catch (error) {
         const stateBeforeRollback = get();
-        const createdThreadId = !previousThreadId && stateBeforeRollback.activeThreadId !== provisionalThreadId
-          ? backendThreadIdForState(stateBeforeRollback, stateBeforeRollback.activeThreadId)
+        const createdThreadId = !previousThreadId && threadId
+          ? backendThreadIdForState(stateBeforeRollback, threadId)
           : '';
         set((state) => {
           const timelinesByThread = { ...state.timelinesByThread };
