@@ -37,6 +37,12 @@ const ACTIVITY_PANEL_DEFAULT_HEIGHT = ACTIVITY_ICON_ROW_HEIGHT + (ACTIVITY_LOG_R
 
 const FLOATING_POPOVER_MARGIN = 12;
 
+const TIMELINE_INITIAL_MATERIALIZED_MESSAGES = 80;
+
+const TIMELINE_MATERIALIZATION_INCREMENT = 80;
+
+const TIMELINE_SCROLL_LOAD_THRESHOLD = 32;
+
 const RUNTIME_STAT_TOOLTIP_WIDTH = 360;
 
 const RUNTIME_STAT_TOOLTIP_MIN_HEIGHT = 96;
@@ -3628,6 +3634,7 @@ function Conversation(props) {
         messages={messages}
         pendingReasoning={pendingReasoning}
         projectPath={projectPath}
+        activeThreadId={activeThreadId}
         timelineContentBlocked={timelineContentBlocked}
       />
       {!introMode ? (
@@ -3687,13 +3694,92 @@ function ConversationComposer({
   );
 }
 
-function ConversationTimeline({ composer, introMode, messages, pendingReasoning, projectPath, timelineContentBlocked }) {
+function useMaterializedTimelineWindow({ activeThreadId, introMode, messages, timelineContentBlocked }) {
+  const materializationKey = `${activeThreadId || ''}:${introMode ? 'intro' : 'thread'}:${timelineContentBlocked ? 'blocked' : 'ready'}`;
+  const [materialization, setMaterialization] = useState(() => ({
+    count: TIMELINE_INITIAL_MATERIALIZED_MESSAGES,
+    key: materializationKey,
+  }));
+  const messageCount = messages.length;
+  const materializedCount = materialization.key === materializationKey
+    ? materialization.count
+    : TIMELINE_INITIAL_MATERIALIZED_MESSAGES;
+
+  useEffect(() => {
+    setMaterialization((current) => {
+      if (current.key === materializationKey) return current;
+      return { count: TIMELINE_INITIAL_MATERIALIZED_MESSAGES, key: materializationKey };
+    });
+  }, [materializationKey]);
+
+  useEffect(() => {
+    setMaterialization((current) => {
+      if (current.key !== materializationKey) return current;
+      return {
+        ...current,
+        count: Math.min(
+          Math.max(TIMELINE_INITIAL_MATERIALIZED_MESSAGES, current.count),
+          Math.max(TIMELINE_INITIAL_MATERIALIZED_MESSAGES, messageCount),
+        ),
+      };
+    });
+  }, [materializationKey, messageCount]);
+
+  const visibleStart = Math.max(0, messageCount - materializedCount);
+  const visibleMessages = useMemo(() => messages.slice(visibleStart), [messages, visibleStart]);
+  const hiddenOlderCount = visibleStart;
+  const revealOlder = useCallback(() => {
+    setMaterialization((current) => {
+      const currentCount = current.key === materializationKey
+        ? current.count
+        : TIMELINE_INITIAL_MATERIALIZED_MESSAGES;
+      return {
+        count: Math.min(
+          messageCount,
+          Math.max(TIMELINE_INITIAL_MATERIALIZED_MESSAGES, currentCount) + TIMELINE_MATERIALIZATION_INCREMENT,
+        ),
+        key: materializationKey,
+      };
+    });
+  }, [materializationKey, messageCount]);
+
+  return {
+    hiddenOlderCount,
+    revealOlder,
+    visibleMessages,
+  };
+}
+
+function ConversationTimeline({ composer, introMode, messages, pendingReasoning, projectPath, activeThreadId, timelineContentBlocked }) {
+  const {
+    hiddenOlderCount,
+    revealOlder,
+    visibleMessages,
+  } = useMaterializedTimelineWindow({ activeThreadId, introMode, messages, timelineContentBlocked });
+  const handleScroll = useCallback((event) => {
+    if (hiddenOlderCount <= 0 || timelineContentBlocked) return;
+    if (event.currentTarget.scrollTop <= TIMELINE_SCROLL_LOAD_THRESHOLD) revealOlder();
+  }, [hiddenOlderCount, revealOlder, timelineContentBlocked]);
+
   return (
-    <div className="timeline" data-testid="chat-timeline">
+    <div className="timeline" data-testid="chat-timeline" onScroll={handleScroll}>
       {introMode ? <IntroChatStage composer={composer} projectPath={projectPath} /> : null}
-      {!introMode && !timelineContentBlocked ? messages.map((message) => <TimelineMessage key={message.id} message={message} />) : null}
+      {!introMode && !timelineContentBlocked && hiddenOlderCount > 0 ? (
+        <TimelineOlderMessagesMarker hiddenCount={hiddenOlderCount} onReveal={revealOlder} />
+      ) : null}
+      {!introMode && !timelineContentBlocked ? visibleMessages.map((message) => <TimelineMessage key={message.id} message={message} />) : null}
       {!introMode && timelineContentBlocked ? <TimelineLoadingPlaceholder /> : null}
       {pendingReasoning ? <ReasoningTrace key={pendingReasoning.id} message={pendingReasoning} active /> : null}
+    </div>
+  );
+}
+
+function TimelineOlderMessagesMarker({ hiddenCount, onReveal }) {
+  return (
+    <div className="timeline-placeholder" data-testid="timeline-older-marker">
+      <button type="button" className="ghost" onClick={onReveal}>
+        显示更早的消息（{hiddenCount} 条）
+      </button>
     </div>
   );
 }
