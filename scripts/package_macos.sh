@@ -19,6 +19,7 @@ codex_relay_bootstrap_token_env="SUPER_DOLPHIN_CODEX_RELAY_BOOTSTRAP_TOKEN"
 codex_relay_bootstrap_proof_env="SUPER_DOLPHIN_CODEX_RELAY_BOOTSTRAP_PROOF"
 codex_relay_privileged_api_key_env="SUPER_DOLPHIN_CODEX_RELAY_API_KEY"
 packaged_relay_base_url=""
+packaged_relay_api_key=""
 packaged_relay_bootstrap_token=""
 packaged_relay_bootstrap_proof=""
 codex_artifact_env="SUPER_DOLPHIN_CODEX_ARTIFACT"
@@ -94,22 +95,29 @@ validate_env_file_value() {
 }
 
 resolve_packaged_relay_env() {
-  if [[ -n "${SUPER_DOLPHIN_CODEX_RELAY_API_KEY:-}" ]]; then
-    echo "privileged Codex relay API key env is not allowed for release packaging; set $codex_relay_bootstrap_token_env instead of $codex_relay_privileged_api_key_env" >&2
-    exit 1
-  fi
   packaged_relay_base_url="${SUPER_DOLPHIN_CODEX_RELAY_BASE_URL:-}"
+  packaged_relay_api_key="${SUPER_DOLPHIN_CODEX_RELAY_API_KEY:-}"
   packaged_relay_bootstrap_token="${SUPER_DOLPHIN_CODEX_RELAY_BOOTSTRAP_TOKEN:-}"
+  if [[ -z "${packaged_relay_bootstrap_token//[[:space:]]/}" && -n "${packaged_relay_api_key//[[:space:]]/}" ]]; then
+    packaged_relay_bootstrap_token="$packaged_relay_api_key"
+  fi
   packaged_relay_bootstrap_proof="${SUPER_DOLPHIN_CODEX_RELAY_BOOTSTRAP_PROOF:-}"
   validate_env_file_value "$codex_relay_base_url_env" "$packaged_relay_base_url"
   validate_env_file_value "$codex_relay_bootstrap_token_env" "$packaged_relay_bootstrap_token"
   validate_env_file_value "$codex_relay_bootstrap_proof_env" "$packaged_relay_bootstrap_proof"
+  if [[ -n "${packaged_relay_api_key//[[:space:]]/}" ]]; then
+    validate_env_file_value "$codex_relay_privileged_api_key_env" "$packaged_relay_api_key"
+  fi
 }
 
 write_packaged_relay_env() {
   local resources="$1"
   local env_path="$resources/.env"
   {
+    if [[ -n "${packaged_relay_api_key//[[:space:]]/}" ]]; then
+      printf '%s=%s
+' "$codex_relay_privileged_api_key_env" "$packaged_relay_api_key"
+    fi
     printf '%s=%s
 ' "$codex_relay_base_url_env" "$packaged_relay_base_url"
     printf '%s=%s
@@ -1198,13 +1206,16 @@ mkdir -p "$macos" "$resources/bin" "$resources/postgres/$platform"
 phase_start "frontend build"
 if [[ "${SUPER_DOLPHIN_SKIP_FRONTEND_BUILD:-}" != "1" ]]; then
   (
-    cd "$root/cmd/agent-terminal/frontend"
+    cd "$root/frontend-app"
     npm ci
     npm run build
   )
-elif [[ ! -f "$root/cmd/agent-terminal/frontend/dist/index.html" ]]; then
+  rsync -a --delete "$root/frontend-app/dist"/ "$root/cmd/agent-terminal/frontend/dist"/
+elif [[ ! -f "$root/frontend-app/dist/index.html" ]]; then
   echo "frontend dist missing; unset SUPER_DOLPHIN_SKIP_FRONTEND_BUILD or run npm run build first" >&2
   exit 1
+else
+  rsync -a --delete "$root/frontend-app/dist"/ "$root/cmd/agent-terminal/frontend/dist"/
 fi
 phase_end
 
@@ -1212,7 +1223,7 @@ phase_start "go binaries"
 (
   cd "$root"
   make build-peer-binaries
-  make build-agent-terminal-plain
+  go build -o bin/agent-terminal ./cmd/agent-terminal
   go build -o bin/mcp-ida ./cmd/mcp-ida
 )
 phase_end
@@ -1303,8 +1314,64 @@ phase_start "verify packaged app"
 "$root/scripts/verify_packaged_app_macos.sh" "$app"
 phase_end
 
+phase_start "stage dmg contents"
+staging="$dist/dmg-staging"
+rm -rf "$staging"
+mkdir -p "$staging"
+ditto "$app" "$staging/$app_name.app"
+install_script="$staging/安装 $app_name.command"
+cat > "$install_script" <<'INSTALL_SH'
+#!/bin/bash
+set -e
+
+APP_NAME="Super Dolphin"
+SRC_DIR="$(cd "$(dirname "$0")" && pwd)"
+SRC_APP="$SRC_DIR/$APP_NAME.app"
+DEST_APP="/Applications/$APP_NAME.app"
+
+clear
+printf '\n'
+printf '===============================================\n'
+printf '   %s 安装程序\n' "$APP_NAME"
+printf '===============================================\n\n'
+
+if [[ ! -d "$SRC_APP" ]]; then
+  printf '错误：未在 %s 找到 %s.app\n' "$SRC_DIR" "$APP_NAME" >&2
+  printf '请确认本脚本与 %s.app 位于同一目录。\n' "$APP_NAME" >&2
+  printf '\n按回车键退出...'
+  read -r _ || true
+  exit 1
+fi
+
+printf '正在安装到 /Applications ...\n'
+if [[ -d "$DEST_APP" ]]; then
+  printf '检测到已安装的旧版本，正在替换...\n'
+  rm -rf "$DEST_APP"
+fi
+
+ditto "$SRC_APP" "$DEST_APP"
+
+printf '正在解除下载隔离标签...\n'
+xattr -dr com.apple.quarantine "$DEST_APP" 2>/dev/null || true
+
+printf '\n===============================================\n'
+printf '   安装完成！\n'
+printf '===============================================\n\n'
+printf '已安装至：%s\n' "$DEST_APP"
+printf '可在「应用程序」文件夹或启动台中找到 %s。\n\n' "$APP_NAME"
+printf '正在为您打开应用...\n'
+open "$DEST_APP" || true
+
+sleep 2
+exit 0
+INSTALL_SH
+chmod 755 "$install_script"
+ln -s /Applications "$staging/Applications"
+phase_end
+
 phase_start "create dmg"
-hdiutil create -volname "$app_name" -srcfolder "$app" -ov -format UDZO "$dist/$app_name.dmg"
+hdiutil create -volname "$app_name" -srcfolder "$staging" -ov -format UDZO "$dist/$app_name.dmg"
+rm -rf "$staging"
 phase_end
 
 if [[ -n "${NOTARY_PROFILE:-}" ]]; then

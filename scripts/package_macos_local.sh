@@ -15,6 +15,8 @@ case "$target" in
 esac
 
 relay_url="${SUPER_DOLPHIN_CODEX_RELAY_BASE_URL:-}"
+relay_api_key_env="SUPER_DOLPHIN_CODEX_RELAY_API_KEY"
+relay_api_key="${SUPER_DOLPHIN_CODEX_RELAY_API_KEY:-}"
 postgres_dist="${SUPER_DOLPHIN_POSTGRES_DIST:-$root/.build-cache/postgres/16.14/$(go env GOOS)-$(go env GOARCH)}"
 codex_bin="${SUPER_DOLPHIN_CODEX_ARTIFACT:-$(command -v codex || true)}"
 
@@ -88,11 +90,11 @@ phase_end() {
   echo "==> [$phase_label] done in ${elapsed}s $(date '+%H:%M:%S')" >&2
 }
 
-if [[ -z "${SUPER_DOLPHIN_CODEX_RELAY_BOOTSTRAP_TOKEN:-}" ]]; then
-  echo "SUPER_DOLPHIN_CODEX_RELAY_BOOTSTRAP_TOKEN is required; packaging helpers do not prompt for or accept privileged API keys" >&2
+bootstrap_token="${SUPER_DOLPHIN_CODEX_RELAY_BOOTSTRAP_TOKEN:-$relay_api_key}"
+if [[ -z "${bootstrap_token:-}" ]]; then
+  echo "SUPER_DOLPHIN_CODEX_RELAY_BOOTSTRAP_TOKEN or SUPER_DOLPHIN_CODEX_RELAY_API_KEY is required" >&2
   exit 1
 fi
-bootstrap_token="$SUPER_DOLPHIN_CODEX_RELAY_BOOTSTRAP_TOKEN"
 if [[ -z "${bootstrap_token//[[:space:]]/}" ]]; then
   echo "bootstrap token must not be empty" >&2
   exit 1
@@ -101,11 +103,6 @@ if [[ -z "${relay_url//[[:space:]]/}" ]]; then
   echo "SUPER_DOLPHIN_CODEX_RELAY_BASE_URL is required" >&2
   exit 1
 fi
-if [[ -n "${SUPER_DOLPHIN_CODEX_RELAY_API_KEY:-}" ]]; then
-  echo "SUPER_DOLPHIN_CODEX_RELAY_API_KEY must not be set for packaging" >&2
-  exit 1
-fi
-
 test -x "$codex_bin" || { echo "missing Codex artifact: $codex_bin" >&2; exit 1; }
 codex_artifact="$(resolve_local_codex_binary "$codex_bin")"
 test -d "$postgres_dist" || { echo "missing PostgreSQL dist: $postgres_dist" >&2; exit 1; }
@@ -126,7 +123,9 @@ package_one() {
   phase_end
 
   phase_start "package macos ($profile)"
-  SUPER_DOLPHIN_LSP_PROFILE="$profile" \
+  env \
+    "$relay_api_key_env=$relay_api_key" \
+    SUPER_DOLPHIN_LSP_PROFILE="$profile" \
     APP_NAME="$app_name" \
     SUPER_DOLPHIN_POSTGRES_DIST="$postgres_dist" \
     SUPER_DOLPHIN_CODEX_ARTIFACT="$codex_artifact" \
@@ -142,7 +141,6 @@ package_one() {
   echo "DMG ready: $root/dist/package/macos/$app_name.dmg"
 }
 
-unset SUPER_DOLPHIN_CODEX_RELAY_API_KEY
 if [[ "$target" == "all" ]]; then
   package_one standard
   package_one full
