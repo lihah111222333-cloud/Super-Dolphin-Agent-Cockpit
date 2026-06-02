@@ -536,6 +536,24 @@ select {
   place-items: center;
 }
 
+.top-command .sidebar-toggle {
+  margin-left: auto;
+  width: auto;
+  min-width: 88px;
+  padding: 0 12px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+}
+
+.top-command .sidebar-toggle-label {
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1;
+  white-space: nowrap;
+}
+
 .top-command .sidebar-toggle.active {
   border-color: rgba(49, 209, 127, 0.5);
   color: var(--green);
@@ -1771,6 +1789,77 @@ select {
 
 .reasoning-step-body .message-output code {
   font: 14px/1.42 ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+}
+
+.execution-plan {
+  display: grid;
+  gap: 8px;
+  color: var(--text-muted);
+}
+
+.execution-plan header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin: 0;
+}
+
+.execution-plan header span {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-muted);
+  font-size: 14px;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.execution-plan header b {
+  flex: 0 0 auto;
+  color: var(--text-subtle);
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.execution-plan-list {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.execution-plan-list li {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr);
+  gap: 7px;
+  align-items: start;
+  color: var(--text-muted);
+  font-size: 14px;
+  line-height: 1.35;
+}
+
+.execution-plan-list li[data-plan-status="done"] {
+  color: var(--text-subtle);
+}
+
+.execution-plan-check {
+  width: 16px;
+  height: 16px;
+  display: inline-grid;
+  place-items: center;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--success);
+  font-size: 12px;
+  font-weight: 800;
+  line-height: 1;
+}
+
+.execution-plan-list li[data-plan-status="done"] .execution-plan-check {
+  border-color: color-mix(in srgb, var(--success) 36%, var(--border));
+  background: color-mix(in srgb, var(--success) 12%, transparent);
 }
 
 .message-output {
@@ -6281,6 +6370,16 @@ textarea:disabled {
     justify-content: center;
     padding: 0;
     font-size: 0;
+  }
+
+  .top-command .sidebar-toggle {
+    width: 38px;
+    min-width: 38px;
+    padding: 0;
+  }
+
+  .top-command .sidebar-toggle-label {
+    display: none;
   }
 
   .top-command .provider span {

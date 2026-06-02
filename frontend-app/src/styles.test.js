@@ -416,6 +416,13 @@ describe('composer layout styles', () => {
     expect(dropdown['max-width']).toBe('min(520px, 86vw)');
   });
 
+  it('keeps the right sidebar toggle docked to the page edge', () => {
+    const toggle = declarationsFor('.top-command .sidebar-toggle');
+
+    expect(toggle['margin-left']).toBe('auto');
+    expect(toggle.display).toBe('inline-flex');
+  });
+
   it('lets the model selector popover escape the adaptive composer card', () => {
     const card = declarationsFor('.composer-card');
     const wrap = declarationsFor('.composer-model-wrap');
