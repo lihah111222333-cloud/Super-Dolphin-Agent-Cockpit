@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { normalizeProviderConfigValue } from './provider-config-options.js';
+
+import { CODEX_IDENTITY_DEFAULTS, normalizeProviderConfigValue } from './provider-config-options.js';
 
 describe('normalizeProviderConfigValue', () => {
   it('extracts scalar values from option-shaped objects', () => {
@@ -13,5 +14,15 @@ describe('normalizeProviderConfigValue', () => {
     expect(normalizeProviderConfigValue(' undefined ')).toBe('');
     expect(normalizeProviderConfigValue('null')).toBe('');
     expect(normalizeProviderConfigValue({ label: 'Sonnet 4.7' })).toBe('');
+  });
+});
+
+describe('provider config defaults', () => {
+  it('leaves Codex home empty so the backend can choose the app-managed home', () => {
+    expect(CODEX_IDENTITY_DEFAULTS).toMatchObject({
+      codexHome: '',
+      codexInstanceKey: 'default',
+      codexModelProvider: 'super-dolphin-relay',
+    });
   });
 });

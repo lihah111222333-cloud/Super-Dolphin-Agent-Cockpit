@@ -22,9 +22,9 @@ export function normalizeProviderConfigValue(value) {
 }
 
 export const CODEX_IDENTITY_DEFAULTS = Object.freeze({
-  codexHome: '~/.codex',
+  codexHome: '',
   codexInstanceKey: 'default',
-  codexModelProvider: 'openai',
+  codexModelProvider: 'super-dolphin-relay',
 });
 
 // Claude CLI accepts both short aliases (opus/sonnet/haiku resolve to latest

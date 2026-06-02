@@ -49,12 +49,14 @@ type emptyListEnvelope struct {
 	Meta    resultMeta `json:"meta"`
 }
 type fileToolInput struct {
-	Action     string   `json:"action"`
-	FilePath   string   `json:"file_path,omitempty"`
-	FilePaths  []string `json:"file_paths,omitempty"`
-	LanguageID string   `json:"language_id,omitempty"`
-	Offset     int      `json:"offset,omitempty"`
-	Limit      int      `json:"limit,omitempty"`
+	Action         string   `json:"action"`
+	Pos            string   `json:"pos,omitempty"`
+	FilePath       string   `json:"file_path,omitempty"`
+	FilePaths      []string `json:"file_paths,omitempty"`
+	LanguageID     string   `json:"language_id,omitempty"`
+	Offset         int      `json:"offset,omitempty"`
+	Limit          int      `json:"limit,omitempty"`
+	ExpandComments *bool    `json:"expand_comments,omitempty"`
 }
 type openFileResult struct {
 	Success  bool   `json:"success"`
@@ -124,21 +126,54 @@ func (h handlerBase) handleFile(ctx context.Context, params json.RawMessage) (an
 	if err != nil {
 		return nil, err
 	}
+	if err := normalizeFileInputFromPos(&input); err != nil {
+		return nil, err
+	}
 	h.warnFileCWDTrace(ctx, input)
+
+	expand := true
+	if input.ExpandComments != nil {
+		expand = *input.ExpandComments
+	}
+
 	return dispatchToolAction(ctx, "file", input.Action, input, map[string]actionHandler[fileToolInput]{
 		"open_file": func(ctx context.Context, input fileToolInput) (any, error) {
 			return h.openFile(ctx, input.FilePath, input.LanguageID)
 		},
 		"read_file": func(ctx context.Context, input fileToolInput) (any, error) {
 			if len(input.FilePaths) > 0 {
-				return h.readBatch(ctx, input.FilePaths, input.Offset, input.Limit)
+				return h.readBatch(ctx, input.FilePaths, input.Offset, input.Limit, expand)
 			}
-			return h.readSingle(ctx, input.FilePath, input.Offset, input.Limit)
+			return h.readSingle(ctx, input.FilePath, input.Offset, input.Limit, expand)
 		},
 		"diagnostics": func(ctx context.Context, input fileToolInput) (any, error) {
 			return h.handleDiagnostics(ctx, input)
 		},
 	})
+}
+
+// normalizeFileInputFromPos lets the file tool accept the same pos
+// syntax used by inspect/xref/completion. "file:line" feeds offset; the
+// optional ":col" segment is ignored for the file tool because none of
+// its actions are column-scoped. file_path / offset still win when both
+// pos and the legacy fields are present, so callers can migrate
+// incrementally without breakage.
+func normalizeFileInputFromPos(input *fileToolInput) error {
+	pos := strings.TrimSpace(input.Pos)
+	if pos == "" {
+		return nil
+	}
+	filePath, line, _, _, err := parseFilePos(pos, false)
+	if err != nil {
+		return err
+	}
+	if strings.TrimSpace(input.FilePath) == "" {
+		input.FilePath = filePath
+	}
+	if input.Offset <= 0 {
+		input.Offset = line
+	}
+	return nil
 }
 
 func (h handlerBase) openFile(ctx context.Context, rawPath string, languageID string) (openFileResult, error) {
@@ -175,7 +210,7 @@ func (h handlerBase) openFile(ctx context.Context, rawPath string, languageID st
 	}, nil
 }
 
-func (h handlerBase) readSingle(ctx context.Context, rawPath string, offset, limit int) (string, error) {
+func (h handlerBase) readSingle(ctx context.Context, rawPath string, offset, limit int, expand bool) (string, error) {
 	root, roots, err := toolWorkspaceRoots(ctx)
 	if err != nil {
 		return "", err
@@ -185,10 +220,10 @@ func (h handlerBase) readSingle(ctx context.Context, rawPath string, offset, lim
 		warnFileReadFailure("read_file", root, rawPath, err)
 		return "", err
 	}
-	return renderReadContent(file.Content, offset, limit), nil
+	return renderReadContent(file.Content, offset, limit, expand), nil
 }
 
-func (h handlerBase) readBatch(ctx context.Context, rawPaths []string, offset, limit int) (batchReadResponse, error) {
+func (h handlerBase) readBatch(ctx context.Context, rawPaths []string, offset, limit int, expand bool) (batchReadResponse, error) {
 	paths, meta := trimBatchPaths(rawPaths)
 	results := make(chan indexedBatchItem, len(paths))
 	var wg sync.WaitGroup
@@ -212,7 +247,7 @@ func (h handlerBase) readBatch(ctx context.Context, rawPaths []string, offset, l
 			}
 			item.FilePath = file.Path.DisplayPath
 			item.Success = true
-			item.Content = renderReadContent(file.Content, offset, limit)
+			item.Content = renderReadContent(file.Content, offset, limit, expand)
 			results <- indexedBatchItem{Index: idx, Item: item}
 		}(index, rawPath)
 	}
@@ -336,17 +371,40 @@ func fitsBatchPayload(resp batchReadResponse) bool {
 	return err == nil && len(raw) <= lspReadFileBatchPayloadMax
 }
 
-func renderReadContent(content string, offset, limit int) string {
+func renderReadContent(content string, offset, limit int, expand bool) string {
+	if content == "" {
+		return "(empty file)"
+	}
 	lines := splitNormalizedLines(content)
 	start := clampOffset(offset, len(lines))
-	limit = shared.ClampLimit(limit, 1, maxReadFileLimit, defaultReadFileLimit)
-	end := minInt(start+limit-1, len(lines))
+	requestedStart := start
+
+	actualLimit := shared.ClampLimit(limit, 1, maxReadFileLimit, defaultReadFileLimit)
+
+	expandedDiff := 0
+	if expand {
+		expandedStart := expandStartToIncludeComments(lines, start)
+		if expandedStart < start {
+			expandedDiff = start - expandedStart
+			start = expandedStart
+			actualLimit = actualLimit + expandedDiff
+			if actualLimit > maxReadFileLimit {
+				actualLimit = maxReadFileLimit
+			}
+		}
+	}
+
+	end := minInt(start+actualLimit-1, len(lines))
 	segment := strings.Join(lines[start-1:end], "\n")
 	rendered := format.RenderLineNumberedText(segment, start)
 	if start == 1 && end == len(lines) {
 		return rendered
 	}
-	return fmt.Sprintf("%s\n\n...[showing lines %d-%d of %d total, use offset=%d to continue]", rendered, start, end, len(lines), end+1)
+	footer := fmt.Sprintf("...[showing lines %d-%d of %d total, use offset=%d to continue]", start, end, len(lines), end+1)
+	if expandedDiff > 0 {
+		footer += fmt.Sprintf(" [auto-expanded %d line(s) upward from offset=%d to include adjacent comments; pass expand_comments=false to disable]", expandedDiff, requestedStart)
+	}
+	return fmt.Sprintf("%s\n\n%s", rendered, footer)
 }
 
 func resolveRoot(raw string) string {
@@ -408,4 +466,173 @@ func minInt(left, right int) int {
 		return left
 	}
 	return right
+}
+
+func (r openFileResult) ToPlainText() string {
+	if r.Success {
+		return fmt.Sprintf("Successfully opened file: %s (%d bytes).", r.FilePath, r.Bytes)
+	}
+	return fmt.Sprintf("Failed to open file: %s. Message: %s", r.FilePath, r.Message)
+}
+
+func (r batchReadResponse) ToPlainText() string {
+	var sb strings.Builder
+	sb.WriteString(fmt.Sprintf("Batch Read Results: success=%t (processed %d of %d requested)\n", r.Success, r.Meta.SuccessCount, r.Meta.RequestedCount))
+	if r.Meta.Message != "" {
+		sb.WriteString(fmt.Sprintf("Message: %s\n", r.Meta.Message))
+	}
+	sb.WriteString("\n")
+
+	for _, item := range r.Data {
+		fmt.Fprintf(&sb, "===== %s =====\n", item.FilePath)
+		if item.Success {
+			sb.WriteString(item.Content)
+		} else {
+			fmt.Fprintf(&sb, "Error: %s\n", item.Error)
+		}
+		fmt.Fprintf(&sb, "\n===== END %s =====\n\n", item.FilePath)
+	}
+
+	if r.Meta.Truncated || r.Meta.Dropped > 0 {
+		sb.WriteString("Warning: batch payload was truncated due to batch limits.\n")
+	}
+
+	return strings.TrimSpace(sb.String())
+}
+
+var singleLineCommentPrefixes = []string{"//", "#", "--"}
+
+func isCommentLine(line string) bool {
+	trimmed := strings.TrimSpace(line)
+	if trimmed == "" {
+		return false
+	}
+	for _, prefix := range singleLineCommentPrefixes {
+		if strings.HasPrefix(trimmed, prefix) {
+			return true
+		}
+	}
+	for _, item := range blockCommentSuffixes {
+		if isBlockCommentMarkerMatch(trimmed, item.Prefix, item.Suffix) {
+			return true
+		}
+	}
+	return false
+}
+
+func isBlockCommentMarkerMatch(trimmed, prefix, suffix string) bool {
+	firstIdx := strings.Index(trimmed, prefix)
+	lastIdx := strings.LastIndex(trimmed, suffix)
+	if firstIdx != -1 && firstIdx < lastIdx {
+		isSingle := strings.HasPrefix(trimmed, prefix)
+		if len(suffix) == 3 {
+			return isSingle && len(trimmed) > 3
+		}
+		return isSingle
+	}
+	return strings.HasPrefix(trimmed, prefix) || strings.HasSuffix(trimmed, suffix)
+}
+
+func isLicenseLine(line string) bool {
+	lower := strings.ToLower(line)
+	// Match actual copyright headers containing (c) or years (202x, 201x)
+	if strings.Contains(lower, "copyright") && (strings.Contains(lower, "(c)") || strings.Contains(lower, "202") || strings.Contains(lower, "201")) {
+		return true
+	}
+	// Match standard license headers
+	if strings.Contains(lower, "licensed under") || strings.Contains(lower, "spdx-license-identifier") {
+		return true
+	}
+	return false
+}
+
+var blockCommentSuffixes = []struct {
+	Suffix string
+	Prefix string
+}{
+	{"*/", "/*"},
+	{`"""`, `"""`},
+	{"'''", "'''"},
+}
+
+func checkBlockCommentMarker(line string) (isBlock bool, marker string, singleLine bool) {
+	trimmed := strings.TrimSpace(line)
+	for _, item := range blockCommentSuffixes {
+		if strings.HasSuffix(trimmed, item.Suffix) {
+			firstIdx := strings.Index(trimmed, item.Prefix)
+			lastIdx := strings.LastIndex(trimmed, item.Suffix)
+			containsPrefixBeforeSuffix := firstIdx != -1 && firstIdx < lastIdx
+
+			if containsPrefixBeforeSuffix {
+				isSingle := strings.HasPrefix(trimmed, item.Prefix)
+				if item.Suffix == `"""` || item.Suffix == "'''" {
+					isSingle = isSingle && len(trimmed) > 3
+				}
+				if isSingle {
+					return true, item.Prefix, true
+				}
+				return false, "", false
+			}
+
+			return true, item.Prefix, false
+		}
+	}
+	return false, "", false
+}
+
+func shouldStopOnBlankLine(trimmed string, inBlock bool) bool {
+	return trimmed == "" && !inBlock
+}
+
+func shouldStopOnNonComment(line string) bool {
+	return !isCommentLine(line) || isLicenseLine(line)
+}
+
+func expandStartToIncludeComments(lines []string, startLine int) int {
+	const maxCommentExpandLines = 20
+	current := startLine
+
+	inMultiLineBlock := false
+	var blockStartMarker string
+
+	for i := 0; i < maxCommentExpandLines; i++ {
+		prevIdx := current - 2
+		if prevIdx < 0 {
+			break
+		}
+
+		prevLine := lines[prevIdx]
+		trimmedPrev := strings.TrimSpace(prevLine)
+
+		if shouldStopOnBlankLine(trimmedPrev, inMultiLineBlock) {
+			break
+		}
+
+		if inMultiLineBlock {
+			if strings.Contains(trimmedPrev, blockStartMarker) {
+				inMultiLineBlock = false
+				if !strings.HasPrefix(trimmedPrev, blockStartMarker) {
+					break
+				}
+			}
+			current--
+			continue
+		}
+
+		isBlock, marker, isSingle := checkBlockCommentMarker(prevLine)
+		if isBlock {
+			current--
+			if !isSingle {
+				inMultiLineBlock = true
+				blockStartMarker = marker
+			}
+			continue
+		}
+
+		if shouldStopOnNonComment(prevLine) {
+			break
+		}
+		current--
+	}
+	return current
 }

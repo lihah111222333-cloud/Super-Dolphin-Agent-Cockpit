@@ -295,6 +295,26 @@ describe('AppRoot behavior', () => {
     expect(stores.threadStore.setPreferenceScopeCwd).toHaveBeenCalledWith('/window-root');
   });
 
+  it('boots without treating packaged resources as a project cwd', async () => {
+    stores.projectStore.state.active = '.';
+    apiMock.getBuildInfo.mockResolvedValueOnce({ version: '1.0.0' });
+    apiMock.callAPI.mockImplementation(async (method) => {
+      if (method === 'config/read') return { cwd: '' };
+      return defaultAppAPI(method);
+    });
+
+    const vm = AppRoot.setup();
+    hooks.mounted.forEach((fn) => fn());
+    await flush();
+
+    expect(vm.bootstrapError.value).toBe('');
+    expect(vm.windowCwd.value).toBe('');
+    expect(vm.currentCwdDisplay.value).toBe('未选择项目目录');
+    expect(stores.projectStore.setScopeCwd).toHaveBeenCalledWith('');
+    expect(stores.projectStore.reloadProjects).not.toHaveBeenCalled();
+    expect(stores.threadStore.setPreferenceScopeCwd).toHaveBeenCalledWith('');
+  });
+
   it('prefers the Wails window cwd query over the process cwd from config/read', async () => {
     stores.projectStore.state.active = '.';
     globalThis.window.location.search = '?ao_window_cwd=%2Fworktrees%2Ffeature-a';

@@ -15,8 +15,8 @@ func TestStartLaunchIntentRetainedPendingTerminalKeepsKey(t *testing.T) {
 		"delete":  func(ctx context.Context, svc *service, threadID string) error { return svc.Delete(ctx, threadID) },
 	} {
 		t.Run(name, func(t *testing.T) {
-			deleteErr := errors.New("delete failed")
-			threads := &cleanupCountingThreadStore{deleteErr: deleteErr}
+			statusErr := errors.New("status update failed")
+			threads := &cleanupCountingThreadStore{statusErr: statusErr}
 			svc := &service{threadStore: threads}
 			req := StartRequest{LaunchIntentID: "launch_018f00e0-39fc-72ac-a47a-2a858c75d111", Provider: "claude", CWD: wantStartCWD(t), DeferSpawn: true}
 			first, err := svc.Start(context.Background(), req)
@@ -25,10 +25,10 @@ func TestStartLaunchIntentRetainedPendingTerminalKeepsKey(t *testing.T) {
 			}
 			threads.thread.PendingLaunch = true
 			cause := errors.New("post-launch cleanup uncertain")
-			if err := svc.cleanupFailedPendingLaunch(context.Background(), first.ThreadID, first.AgentID, idempotency.Retain(cause)); !errors.Is(err, deleteErr) {
-				t.Fatalf("cleanupFailedPendingLaunch() error = %v, want delete failure", err)
+			if err := svc.cleanupFailedPendingLaunch(context.Background(), first.ThreadID, first.AgentID, idempotency.Retain(cause)); !errors.Is(err, statusErr) {
+				t.Fatalf("cleanupFailedPendingLaunch() error = %v, want status failure", err)
 			}
-			threads.deleteErr = nil
+			threads.statusErr = nil
 			upsertsBefore := threads.upsertCount
 			if err := terminate(context.Background(), svc, first.ThreadID); err != nil {
 				t.Fatalf("terminal pending launch error = %v", err)

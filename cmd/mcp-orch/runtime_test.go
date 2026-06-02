@@ -12,8 +12,14 @@ import (
 	"time"
 
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/tools/modelregistry"
+	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	mcp "github.com/anthropic-ai/super-agent-v3/internal/dto/mcp"
 	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/common/bootstrap"
+	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
+	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
+	"go.uber.org/fx"
 )
 
 type stubBootstrapClient struct {
@@ -66,6 +72,131 @@ func (s *stubBootstrapClient) SubscribeHooks(_ context.Context, subscriptionID s
 		}
 	}
 	return &mcp.HookSubscribeResponse{}, s.subscribeErr
+}
+
+type fakeMCPOrchDBRow struct {
+	version int
+	err     error
+	seen    *bool
+}
+
+func (r fakeMCPOrchDBRow) Scan(dest ...any) error {
+	if r.seen != nil {
+		*r.seen = true
+	}
+	if r.err != nil {
+		return r.err
+	}
+	if len(dest) != 1 {
+		return errors.New("fake row expected one dest")
+	}
+	ptr, ok := dest[0].(*int)
+	if !ok {
+		return errors.New("fake row dest not *int")
+	}
+	*ptr = r.version
+	return nil
+}
+
+type fakeMCPOrchDBProbe struct {
+	pingErr error
+	row     pgx.Row
+	pinged  bool
+}
+
+func (p *fakeMCPOrchDBProbe) Ping(context.Context) error {
+	p.pinged = true
+	return p.pingErr
+}
+
+func (p *fakeMCPOrchDBProbe) QueryRow(context.Context, string, ...any) pgx.Row {
+	return p.row
+}
+
+func TestRegisterPoolLifecycleFailsFastOnPoolPing(t *testing.T) {
+	pool := newRuntimeTestPool(t, "postgres://super_dolphin@127.0.0.1:1/super_dolphin?sslmode=disable")
+	cfg := &platformconfig.Config{
+		EmbeddedPostgres: contract.EmbeddedPostgresConfig{
+			Enabled: true,
+			Owner:   true,
+			BinDir:  filepath.Join(t.TempDir(), "missing-bin"),
+		},
+	}
+	app := fx.New(
+		fx.NopLogger,
+		fx.Supply(slog.Default(), pool, cfg),
+		fx.Invoke(registerPoolLifecycle),
+	)
+	if err := app.Err(); err != nil {
+		t.Fatalf("fx.New() error = %v", err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	err := app.Start(ctx)
+	if err == nil {
+		t.Fatal("app.Start() error = nil, want database ping failure")
+	}
+	if !strings.Contains(err.Error(), "mcp-orch database ping failed") {
+		t.Fatalf("app.Start() error = %v, want mcp-orch database ping failed", err)
+	}
+}
+
+func TestVerifyMCPOrchDatabaseSchemaMissingFailsFast(t *testing.T) {
+	sentinel := errors.New("relation schema_migrations does not exist")
+	probe := &fakeMCPOrchDBProbe{row: fakeMCPOrchDBRow{err: sentinel}}
+
+	err := verifyMCPOrchDatabaseReady(context.Background(), probe)
+
+	if err == nil || !errors.Is(err, sentinel) {
+		t.Fatalf("verifyMCPOrchDatabaseReady() error = %v, want schema_migrations error", err)
+	}
+	if !probe.pinged {
+		t.Fatal("verifyMCPOrchDatabaseReady() did not ping database before schema check")
+	}
+	if !strings.Contains(err.Error(), "mcp-orch database schema check failed") {
+		t.Fatalf("verifyMCPOrchDatabaseReady() error = %v, want schema check failure", err)
+	}
+}
+
+func TestVerifyMCPOrchDatabaseSchemaVersionBelowMinimumFailsFast(t *testing.T) {
+	probe := &fakeMCPOrchDBProbe{row: fakeMCPOrchDBRow{version: platformdb.MinRequiredSchemaVersion - 1}}
+
+	err := verifyMCPOrchDatabaseReady(context.Background(), probe)
+
+	if err == nil {
+		t.Fatal("verifyMCPOrchDatabaseReady() error = nil, want below-minimum schema failure")
+	}
+	for _, want := range []string{"mcp-orch database schema check failed", "database migration version"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("verifyMCPOrchDatabaseReady() error = %v, want %q", err, want)
+		}
+	}
+}
+
+func TestVerifyMCPOrchDatabaseSchemaReadySucceeds(t *testing.T) {
+	seen := false
+	probe := &fakeMCPOrchDBProbe{row: fakeMCPOrchDBRow{version: platformdb.MinRequiredSchemaVersion, seen: &seen}}
+
+	if err := verifyMCPOrchDatabaseReady(context.Background(), probe); err != nil {
+		t.Fatalf("verifyMCPOrchDatabaseReady() error = %v, want nil", err)
+	}
+	if !probe.pinged || !seen {
+		t.Fatalf("verifyMCPOrchDatabaseReady() pinged=%v scanned=%v, want both true", probe.pinged, seen)
+	}
+}
+
+func newRuntimeTestPool(t *testing.T, databaseURL string) *pgxpool.Pool {
+	t.Helper()
+	poolCfg, err := pgxpool.ParseConfig(databaseURL)
+	if err != nil {
+		t.Fatalf("ParseConfig() error = %v", err)
+	}
+	pool, err := pgxpool.NewWithConfig(context.Background(), poolCfg)
+	if err != nil {
+		t.Fatalf("NewWithConfig() error = %v", err)
+	}
+	t.Cleanup(pool.Close)
+	return pool
 }
 
 func TestBootstrapRunnerSkipsStartWhenRPCAddrMissing(t *testing.T) {

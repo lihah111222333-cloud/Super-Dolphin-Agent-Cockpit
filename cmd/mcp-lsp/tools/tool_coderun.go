@@ -13,7 +13,9 @@ import (
 
 	lspexec "github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/exec"
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/middleware"
+	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/multilsp"
 	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/common"
+	platformshared "github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 )
 
 type SandboxRunner interface {
@@ -126,13 +128,15 @@ func (h CodeRunHandler) HandleTest(ctx context.Context, params json.RawMessage) 
 	if !goTestNamePattern.MatchString(testFunc) {
 		return nil, fmt.Errorf("test_func must contain only letters, numbers, and underscores: %q", req.TestFunc)
 	}
-	workDir, pkgArg, err := goTestPackageWorkDir(ctx, req.TestPkg)
+	workDir, pkgArgs, err := goTestPackageWorkDir(ctx, req.TestPkg)
 	if err != nil {
 		return nil, err
 	}
 	timeout := middleware.ClampTimeout(req.Timeout, middleware.TierExec, middleware.TierExec)
+	args := []string{"go", "test", "-run", "^" + regexp.QuoteMeta(testFunc) + "$"}
+	args = append(args, pkgArgs...)
 	request := lspexec.Request{
-		Args:      []string{"go", "test", "-run", "^" + regexp.QuoteMeta(testFunc) + "$", pkgArg},
+		Args:      args,
 		WorkDir:   workDir,
 		Timeout:   timeout,
 		TraceTool: "code_run_test",
@@ -327,26 +331,180 @@ func defaultCodeRunTimeout() time.Duration {
 
 var goTestNamePattern = regexp.MustCompile(`^[A-Za-z0-9_]+$`)
 
-func goTestPackageWorkDir(ctx context.Context, testPkg string) (string, string, error) {
+func goTestPackageWorkDir(ctx context.Context, testPkg string) (string, []string, error) {
 	root, _, err := toolWorkspaceRoots(ctx)
 	if err != nil {
-		return "", "", err
+		return "", nil, err
 	}
 	pkg := strings.TrimSpace(testPkg)
 	if pkg == "" {
 		pkg = "./..."
 	}
 	if filepath.IsAbs(pkg) {
-		return cleanGoTestPackagePath(pkg), goTestPackageArgForAbsolute(pkg), nil
+		workDir := cleanGoTestPackagePath(pkg)
+		if _, err := common.WorkspaceRootForPathFromContextStrict(ctx, workDir); err != nil {
+			return "", nil, err
+		}
+		return workDir, []string{goTestPackageArgForAbsolute(pkg)}, nil
 	}
 	if !isRelativeGoTestPackage(pkg) {
-		return "", "", fmt.Errorf("test_pkg must be a relative ./ package pattern or an absolute path inside workspace roots: %q", testPkg)
+		return "", nil, fmt.Errorf("test_pkg must be a relative ./ package pattern or an absolute path inside workspace roots: %q", testPkg)
 	}
 	candidate := filepath.Join(root, cleanGoTestPackagePath(pkg))
 	if _, err := common.WorkspaceRootForPathFromContextStrict(ctx, candidate); err != nil {
-		return "", "", err
+		return "", nil, err
 	}
-	return root, normalizeRelativeGoTestPackageArg(pkg), nil
+	return resolveRelativeGoTestPackage(ctx, root, pkg, candidate)
+}
+
+func resolveRelativeGoTestPackage(ctx context.Context, root string, pkg string, candidate string) (string, []string, error) {
+	info, err := multilsp.ResolveGoRoot(multilsp.GoRootRequest{
+		CWD:      root,
+		FilePath: candidate,
+	})
+	if err != nil {
+		return "", nil, err
+	}
+	if info.ModuleRoot != "" && pathWithinGoTestRoot(info.ModuleRoot, candidate) {
+		return goTestPackageSelection(ctx, info.ModuleRoot, candidate, pkg)
+	}
+	if isRelativeGoTestAllPackage(pkg) {
+		return resolveRelativeGoTestAllPackage(ctx, root, pkg, info)
+	}
+	if len(info.ModuleRoots) == 1 {
+		moduleRoot := info.ModuleRoots[0]
+		moduleCandidate := filepath.Join(moduleRoot, cleanGoTestPackagePath(pkg))
+		return goTestPackageSelection(ctx, moduleRoot, moduleCandidate, pkg)
+	}
+	if len(info.ModuleRoots) > 1 {
+		return "", nil, ambiguousGoTestPackageError(pkg, info.ModuleRoots)
+	}
+	return root, []string{normalizeRelativeGoTestPackageArg(pkg)}, nil
+}
+
+func resolveRelativeGoTestAllPackage(ctx context.Context, root string, pkg string, info multilsp.GoRootInfo) (string, []string, error) {
+	if info.ModuleRoot != "" {
+		return goTestPackageSelection(ctx, info.ModuleRoot, info.ModuleRoot, pkg)
+	}
+	switch len(info.ModuleRoots) {
+	case 0:
+		return root, []string{normalizeRelativeGoTestPackageArg(pkg)}, nil
+	case 1:
+		moduleRoot := info.ModuleRoots[0]
+		return goTestPackageSelection(ctx, moduleRoot, moduleRoot, pkg)
+	default:
+		if info.GoWorkPath == "" {
+			return "", nil, ambiguousGoTestPackageError(pkg, info.ModuleRoots)
+		}
+		workDir := info.WorkspaceRoot
+		if workDir == "" {
+			workDir = root
+		}
+		if err := validateGoTestWorkDir(ctx, workDir); err != nil {
+			return "", nil, err
+		}
+		args, err := goTestWorkspaceModuleArgs(workDir, info.ModuleRoots)
+		if err != nil {
+			return "", nil, err
+		}
+		return workDir, args, nil
+	}
+}
+
+func goTestPackageSelection(ctx context.Context, workDir string, candidate string, pkg string) (string, []string, error) {
+	if err := validateGoTestWorkDir(ctx, workDir); err != nil {
+		return "", nil, err
+	}
+	args, err := goTestPackageArgsRelativeToWorkDir(workDir, candidate, pkg)
+	if err != nil {
+		return "", nil, err
+	}
+	return workDir, args, nil
+}
+
+func validateGoTestWorkDir(ctx context.Context, workDir string) error {
+	_, err := common.WorkspaceRootForPathFromContextStrict(ctx, workDir)
+	return err
+}
+
+func goTestPackageArgsRelativeToWorkDir(workDir string, candidate string, pkg string) ([]string, error) {
+	normalizedWorkDir, normalizedCandidate, err := normalizeGoTestPackageRelPaths(workDir, candidate)
+	if err != nil {
+		return nil, err
+	}
+	if !pathWithinGoTestRoot(normalizedWorkDir, normalizedCandidate) {
+		return nil, fmt.Errorf("test_pkg %q resolves outside Go module root %s", pkg, workDir)
+	}
+	rel, err := filepath.Rel(normalizedWorkDir, normalizedCandidate)
+	if err != nil {
+		return nil, fmt.Errorf("resolve test_pkg relative to module root: %w", err)
+	}
+	if relativePathEscapesRoot(rel) {
+		return nil, fmt.Errorf("test_pkg %q resolves outside Go module root %s", pkg, workDir)
+	}
+	return []string{formatGoTestPackageArg(rel, pkg)}, nil
+}
+
+func normalizeGoTestPackageRelPaths(workDir string, candidate string) (string, string, error) {
+	normalizedWorkDir, err := platformshared.NormalizeAbsolutePath(workDir)
+	if err != nil {
+		return "", "", fmt.Errorf("normalize Go test work dir: %w", err)
+	}
+	normalizedCandidate, err := platformshared.NormalizeAbsolutePath(candidate)
+	if err != nil {
+		return "", "", fmt.Errorf("normalize Go test package path: %w", err)
+	}
+	return normalizedWorkDir, normalizedCandidate, nil
+}
+
+func formatGoTestPackageArg(rel string, pkg string) string {
+	arg := filepath.ToSlash(filepath.Clean(rel))
+	if arg == "." {
+		if isRelativeGoTestAllPackage(pkg) {
+			return "./..."
+		}
+		return "."
+	}
+	if !strings.HasPrefix(arg, "./") {
+		arg = "./" + arg
+	}
+	if isRelativeGoTestAllPackage(pkg) {
+		arg = strings.TrimSuffix(arg, "/") + "/..."
+	}
+	return arg
+}
+
+func relativePathEscapesRoot(rel string) bool {
+	cleaned := filepath.ToSlash(filepath.Clean(rel))
+	return cleaned == ".." || strings.HasPrefix(cleaned, "../")
+}
+
+func goTestWorkspaceModuleArgs(workDir string, moduleRoots []string) ([]string, error) {
+	args := make([]string, 0, len(moduleRoots))
+	for _, moduleRoot := range moduleRoots {
+		moduleArgs, err := goTestPackageArgsRelativeToWorkDir(workDir, moduleRoot, "./...")
+		if err != nil {
+			return nil, err
+		}
+		args = append(args, moduleArgs...)
+	}
+	return args, nil
+}
+
+func pathWithinGoTestRoot(root string, target string) bool {
+	return platformshared.ContainsPath(root, target)
+}
+
+func isRelativeGoTestAllPackage(pkg string) bool {
+	return strings.HasSuffix(filepath.ToSlash(strings.TrimSpace(pkg)), "/...")
+}
+
+func ambiguousGoTestPackageError(pkg string, moduleRoots []string) error {
+	return fmt.Errorf(
+		"test_pkg %q is ambiguous across multiple Go modules; use a module-relative package path or an absolute package path inside one module: [%s]",
+		pkg,
+		strings.Join(moduleRoots, ", "),
+	)
 }
 
 func isRelativeGoTestPackage(pkg string) bool {
@@ -388,4 +546,31 @@ func goTestPackageArgForAbsolute(pkg string) string {
 		return "./..."
 	}
 	return "."
+}
+
+func (r CodeRunResult) ToPlainText() string {
+	var sb strings.Builder
+	status := "SUCCESS"
+	if !r.Success {
+		status = "FAILED"
+	}
+	sb.WriteString(fmt.Sprintf("Code Run Status: %s (Exit Code: %d, Duration: %dms)\n", status, r.ExitCode, r.Duration))
+	if r.Mode != "" {
+		sb.WriteString(fmt.Sprintf("Mode: %s", r.Mode))
+		if r.Language != "" {
+			sb.WriteString(fmt.Sprintf(", Language: %s", r.Language))
+		}
+		sb.WriteString("\n")
+	}
+	sb.WriteString("\nOutput:\n")
+	sb.WriteString("```\n")
+	sb.WriteString(r.Output)
+	if !strings.HasSuffix(r.Output, "\n") {
+		sb.WriteString("\n")
+	}
+	sb.WriteString("```\n")
+	if r.Truncated {
+		sb.WriteString("Warning: output was truncated due to buffer limits.\n")
+	}
+	return strings.TrimSpace(sb.String())
 }

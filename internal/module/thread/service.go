@@ -27,6 +27,7 @@ import (
 const (
 	statusArchived = "archived"
 	statusCreated  = "created"
+	statusFailed   = "failed"
 	statusStopped  = "stopped"
 )
 

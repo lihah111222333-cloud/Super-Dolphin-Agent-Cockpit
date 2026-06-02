@@ -2,18 +2,21 @@ package db
 
 import (
 	"context"
+	"errors"
 	"fmt"
-	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"go.uber.org/fx"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/config"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/embeddedpg"
+	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
 var Module = fx.Module(
@@ -23,9 +26,13 @@ var Module = fx.Module(
 )
 
 func NewPool(cfg *config.Config) (*pgxpool.Pool, error) {
-	poolCfg, err := pgxpool.ParseConfig(cfg.DatabaseURL)
+	databaseURL, err := requireDatabaseURL(cfg.DatabaseURL)
 	if err != nil {
 		return nil, err
+	}
+	poolCfg, err := pgxpool.ParseConfig(databaseURL)
+	if err != nil {
+		return nil, fmt.Errorf("parse DATABASE_URL: %w", err)
 	}
 
 	poolCfg.MaxConns = 100
@@ -40,10 +47,33 @@ func NewPool(cfg *config.Config) (*pgxpool.Pool, error) {
 	return pool, nil
 }
 
+func requireDatabaseURL(databaseURL string) (string, error) {
+	databaseURL = strings.TrimSpace(databaseURL)
+	if databaseURL == "" {
+		return "", errors.New("DATABASE_URL is empty; set DATABASE_URL or use embedded postgres owner so a DSN is generated")
+	}
+	return databaseURL, nil
+}
+
+func createDatabaseSQL(targetDB string) (string, error) {
+	if strings.TrimSpace(targetDB) == "" {
+		return "", errors.New("database name is empty in DATABASE_URL")
+	}
+	return "CREATE DATABASE " + pgx.Identifier{targetDB}.Sanitize(), nil
+}
+
 func ensureDatabaseExists(targetDB, databaseURL string) error {
-	connConfig, err := pgx.ParseConfig(databaseURL)
+	createSQL, err := createDatabaseSQL(targetDB)
 	if err != nil {
 		return err
+	}
+	databaseURL, err = requireDatabaseURL(databaseURL)
+	if err != nil {
+		return err
+	}
+	connConfig, err := pgx.ParseConfig(databaseURL)
+	if err != nil {
+		return fmt.Errorf("parse DATABASE_URL: %w", err)
 	}
 	connConfig.Database = "postgres" // connect to default db
 
@@ -61,7 +91,7 @@ func ensureDatabaseExists(targetDB, databaseURL string) error {
 
 	if !exists {
 		// CREATE DATABASE cannot run inside a transaction block in postgres
-		if _, err := conn.Exec(context.Background(), `CREATE DATABASE "`+targetDB+`"`); err != nil {
+		if _, err := conn.Exec(context.Background(), createSQL); err != nil {
 			return err
 		}
 	}
@@ -126,6 +156,10 @@ type schemaVersionQueryRow interface {
 // readable bilingual error rather than letting a runtime SQL call blow up
 // later when an operator points the binary at a database whose migrations
 // have not caught up.
+func VerifyMinSchemaVersion(ctx context.Context, q schemaVersionQueryRow) error {
+	return verifyMinSchemaVersion(ctx, q)
+}
+
 func verifyMinSchemaVersion(ctx context.Context, q schemaVersionQueryRow) error {
 	var maxVersion int
 	if err := q.QueryRow(ctx, "SELECT COALESCE(MAX(version), 0) FROM schema_migrations").Scan(&maxVersion); err != nil {
@@ -151,29 +185,112 @@ func ensureSchemaMigrationsTable(ctx context.Context, pool *pgxpool.Pool) error 
 	return err
 }
 
+type baselineTx interface {
+	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
+	Exec(ctx context.Context, sql string, args ...any) (pgconn.CommandTag, error)
+	Commit(ctx context.Context) error
+	Rollback(ctx context.Context) error
+}
+
+type baselineBeginFunc func(context.Context) (baselineTx, error)
+type baselineReadFileFunc func(string) ([]byte, error)
+
+var requiredBaselineTables = []string{
+	"agent_codex_binding",
+	"agent_interactions",
+	"agent_provider_binding",
+	"agent_status",
+	"agent_threads",
+	"audit_events",
+	"bus_exception_logs",
+	"command_card_runs",
+	"command_card_versions",
+	"command_cards",
+	"cwd_instance_locks",
+	"prompt_template_versions",
+	"prompt_versions",
+	"prompt_templates",
+	"prompts",
+	"shared_files",
+	"system_logs",
+	"task_acks",
+	"task_dag_nodes",
+	"task_dags",
+	"task_traces",
+	"topology_approval_archives",
+	"topology_approvals",
+	"ui_preferences",
+	"workspace_run_files",
+	"workspace_runs",
+}
+
 func applyBaselineIfMissing(ctx context.Context, pool *pgxpool.Pool, dir string) error {
-	var hasBaseline bool
-	err := pool.QueryRow(ctx, "SELECT EXISTS(SELECT 1 FROM schema_migrations WHERE filename = '001_baseline.sql')").Scan(&hasBaseline)
+	return applyBaselineIfMissingWithBegin(ctx, func(ctx context.Context) (baselineTx, error) {
+		return pool.Begin(ctx)
+	}, dir, os.ReadFile)
+}
+
+func applyBaselineIfMissingWithBegin(ctx context.Context, begin baselineBeginFunc, dir string, readFile baselineReadFileFunc) error {
+	tx, err := begin(ctx)
 	if err != nil {
+		return fmt.Errorf("begin baseline transaction: %w", err)
+	}
+	if err := applyBaselineInTx(ctx, tx, dir, readFile); err != nil {
+		if rollbackErr := tx.Rollback(context.Background()); rollbackErr != nil {
+			return fmt.Errorf("%w; rollback baseline transaction: %v", err, rollbackErr)
+		}
 		return err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("commit baseline transaction: %w", err)
+	}
+	return nil
+}
+
+func applyBaselineInTx(ctx context.Context, tx baselineTx, dir string, readFile baselineReadFileFunc) error {
+	var hasBaseline bool
+	err := tx.QueryRow(ctx, "SELECT EXISTS(SELECT 1 FROM schema_migrations WHERE filename = '001_baseline.sql')").Scan(&hasBaseline)
+	if err != nil {
+		return fmt.Errorf("detect baseline marker: %w", err)
 	}
 	if hasBaseline {
 		return nil
 	}
 
-	var threadsExist bool
-	_ = pool.QueryRow(ctx, "SELECT EXISTS(SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'agent_threads')").Scan(&threadsExist)
-
-	if !threadsExist {
-		c, err := os.ReadFile(filepath.Join(dir, "001_baseline.sql"))
-		if err == nil {
-			if _, err := pool.Exec(ctx, string(c)); err != nil {
-				return err
-			}
+	existingTables, err := countExistingBaselineTables(ctx, tx)
+	if err != nil {
+		return err
+	}
+	if existingTables > 0 && existingTables != len(requiredBaselineTables) {
+		return fmt.Errorf("partial existing baseline schema: found %d of %d required tables; refusing to mark 001_baseline.sql applied", existingTables, len(requiredBaselineTables))
+	}
+	if existingTables == 0 {
+		c, err := readFile(filepath.Join(dir, "001_baseline.sql"))
+		if err != nil {
+			return fmt.Errorf("read baseline migration 001_baseline.sql: %w", err)
+		}
+		if _, err := tx.Exec(ctx, string(c)); err != nil {
+			return fmt.Errorf("execute baseline migration 001_baseline.sql: %w", err)
 		}
 	}
-	_, err = pool.Exec(ctx, "INSERT INTO schema_migrations (version, name, filename) VALUES (1, 'baseline', '001_baseline.sql')")
-	return err
+	if _, err := tx.Exec(ctx, "INSERT INTO schema_migrations (version, name, filename) VALUES (1, 'baseline', '001_baseline.sql')"); err != nil {
+		return fmt.Errorf("insert baseline marker: %w", err)
+	}
+	return nil
+}
+
+func countExistingBaselineTables(ctx context.Context, tx baselineTx) (int, error) {
+	var existingTables int
+	err := tx.QueryRow(ctx, `
+		SELECT COUNT(*)
+		FROM information_schema.tables
+		WHERE table_schema = 'public'
+		  AND table_name = ANY($1)
+	`, requiredBaselineTables).Scan(&existingTables)
+	if err != nil {
+		return 0, fmt.Errorf("probe existing baseline schema: %w", err)
+	}
+	return existingTables, nil
 }
 
 func getAppliedMigrations(ctx context.Context, pool *pgxpool.Pool) (map[string]bool, error) {
@@ -299,25 +416,64 @@ func splitMigrationBody(body string) []string {
 }
 
 func registerLifecycle(lc fx.Lifecycle, logger *pkglogger.Logger, pool *pgxpool.Pool, cfg *config.Config) {
+	embeddedPostgres := newEmbeddedPostgresResource(cfg)
 	lc.Append(fx.Hook{
 		OnStart: func(ctx context.Context) error {
+			if err := embeddedPostgres.Open(ctx); err != nil {
+				return err
+			}
+			failAfterEmbeddedOpen := func(err error) error {
+				stopCtx, cancel := config.WithTimeout(context.WithoutCancel(ctx), config.ShutdownTimeout)
+				defer cancel()
+				if closeErr := embeddedPostgres.Close(stopCtx); closeErr != nil {
+					return errors.Join(err, closeErr)
+				}
+				return err
+			}
 			poolCfg := pool.Config()
 			if err := ensureDatabaseExists(poolCfg.ConnConfig.Database, cfg.DatabaseURL); err != nil {
-				return err
+				return failAfterEmbeddedOpen(err)
 			}
 			if err := autoMigrate(ctx, pool, cfg.ProjectRoot); err != nil {
-				return err
+				return failAfterEmbeddedOpen(err)
 			}
-			if err := verifyMinSchemaVersion(ctx, pool); err != nil {
-				return err
+			if err := VerifyMinSchemaVersion(ctx, pool); err != nil {
+				return failAfterEmbeddedOpen(err)
 			}
 			logger.Info("db pool ready")
-			return pool.Ping(ctx)
-		},
-		OnStop: func(context.Context) error {
-			pool.Close()
-			logger.Info("db pool closed")
+			if err := pool.Ping(ctx); err != nil {
+				return failAfterEmbeddedOpen(err)
+			}
 			return nil
 		},
+		OnStop: func(ctx context.Context) error {
+			pool.Close()
+			logger.Info("db pool closed")
+			return embeddedPostgres.Close(ctx)
+		},
 	})
+}
+
+type embeddedPostgresResource struct {
+	cfg   *config.Config
+	owned bool
+}
+
+func newEmbeddedPostgresResource(cfg *config.Config) *embeddedPostgresResource {
+	return &embeddedPostgresResource{cfg: cfg}
+}
+
+func (r *embeddedPostgresResource) Open(ctx context.Context) error {
+	if err := embeddedpg.Start(ctx, r.cfg.EmbeddedPostgres); err != nil {
+		return err
+	}
+	r.owned = r.cfg.EmbeddedPostgres.Enabled && r.cfg.EmbeddedPostgres.Owner
+	return nil
+}
+
+func (r *embeddedPostgresResource) Close(ctx context.Context) error {
+	if !r.owned {
+		return nil
+	}
+	return embeddedpg.Stop(ctx, r.cfg.EmbeddedPostgres)
 }

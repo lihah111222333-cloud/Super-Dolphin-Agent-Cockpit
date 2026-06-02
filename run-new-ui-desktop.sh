@@ -77,7 +77,7 @@ wait_for_http() {
 fail_if_port_busy() {
   local addr="$1"
   local port="${addr##*:}"
-  if lsof -ti ":$port" >/dev/null 2>&1; then
+  if lsof -tiTCP:"$port" -sTCP:LISTEN >/dev/null 2>&1; then
     echo "❌ port $port is already in use:"
     lsof -nP -iTCP:"$port" -sTCP:LISTEN || true
     exit 1
@@ -96,12 +96,12 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM
 
-GO_AGENT_HTTP_ASSET_ADDR="${GO_AGENT_HTTP_ASSET_ADDR:-127.0.0.1:4512}"
+SUPER_DOLPHIN_HTTP_ADDR="${SUPER_DOLPHIN_HTTP_ADDR:-127.0.0.1:4512}"
 GO_AGENT_CTL_RPC_ADDR="${GO_AGENT_CTL_RPC_ADDR:-127.0.0.1:8092}"
 VITE_DEV_URL="${VITE_DEV_URL:-http://127.0.0.1:5175}"
 FRONTEND_DEVSERVER_URL="${FRONTEND_DEVSERVER_URL:-$VITE_DEV_URL}"
 GO_AGENT_PEER_BIN_DIR="${GO_AGENT_PEER_BIN_DIR:-$PROJECT_DIR}"
-export GO_AGENT_HTTP_ASSET_ADDR GO_AGENT_CTL_RPC_ADDR VITE_DEV_URL FRONTEND_DEVSERVER_URL GO_AGENT_PEER_BIN_DIR
+export SUPER_DOLPHIN_HTTP_ADDR GO_AGENT_CTL_RPC_ADDR VITE_DEV_URL FRONTEND_DEVSERVER_URL GO_AGENT_PEER_BIN_DIR
 export LOG_LEVEL="${LOG_LEVEL:-debug}"
 export ENABLE_MEMORY_SYSTEM="${ENABLE_MEMORY_SYSTEM:-1}"
 export ENABLE_MEMORY_TOOLS="${ENABLE_MEMORY_TOOLS:-1}"
@@ -109,7 +109,7 @@ export MULTI_AGENT_MEMORY_FEATURE_TEAMMEM="${MULTI_AGENT_MEMORY_FEATURE_TEAMMEM:
 export CODEXAPP_ALLOW_LEGACY_DEFAULT_HOME="${CODEXAPP_ALLOW_LEGACY_DEFAULT_HOME:-1}"
 
 ensure_dev_control_session_token
-fail_if_port_busy "$GO_AGENT_HTTP_ASSET_ADDR"
+fail_if_port_busy "$SUPER_DOLPHIN_HTTP_ADDR"
 fail_if_port_busy "$GO_AGENT_CTL_RPC_ADDR"
 ensure_node_deps "$FRONTEND_APP_DIR"
 ensure_peer_binaries
@@ -118,7 +118,7 @@ echo "┌───────────────────────�
 echo "│  Super Agent new UI desktop             │"
 echo "└─────────────────────────────────────────┘"
 echo "  frontend-app: $VITE_DEV_URL"
-echo "  bridge:       $GO_AGENT_HTTP_ASSET_ADDR"
+echo "  bridge:       $SUPER_DOLPHIN_HTTP_ADDR"
 echo "  control rpc:  $GO_AGENT_CTL_RPC_ADDR"
 echo "  peer bin dir: $GO_AGENT_PEER_BIN_DIR"
 

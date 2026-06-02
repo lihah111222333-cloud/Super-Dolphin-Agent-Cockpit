@@ -13,10 +13,8 @@ import (
 )
 
 type filePositionParams struct {
-	FilePath   string `json:"file_path"`
+	Pos        string `json:"pos"`
 	LanguageID string `json:"language_id,omitempty"`
-	Line       int    `json:"line"`
-	Column     int    `json:"column"`
 }
 
 type inspectParams struct {
@@ -25,27 +23,28 @@ type inspectParams struct {
 }
 
 func NewInspectHandler(registry lspmanager.Registry) ToolHandler {
-	return newManagerTool("inspect", middleware.TierNormal, registry, decodeStrict, func(ctx context.Context, registry lspmanager.Registry, req inspectParams) (any, error) {
-		manager, err := managerForFile(ctx, registry, req.FilePath, req.LanguageID)
-		if err != nil {
-			return nil, err
-		}
+	return newManagerTool("inspect", middleware.TierNormal, registry, decodeLenient, func(ctx context.Context, registry lspmanager.Registry, req inspectParams) (any, error) {
 		filePath, position, err := resolveFilePositionRequest(ctx, req.filePositionParams)
 		if err != nil {
 			return nil, err
 		}
+		manager, err := managerForFile(ctx, registry, filePath, req.LanguageID)
+		if err != nil {
+			return nil, err
+		}
+		funcEnricher := newFuncRangeEnricher(ctx, registry)
 		return dispatchToolAction(ctx, "inspect", req.Action, req, map[string]actionHandler[inspectParams]{
 			"hover": func(ctx context.Context, _ inspectParams) (any, error) {
 				return runHover(ctx, manager, filePath, position)
 			},
 			"definition": func(ctx context.Context, _ inspectParams) (any, error) {
-				return runLocationInspect(ctx, filePath, position, "no definition found", manager.Definition)
+				return runLocationInspect(ctx, filePath, position, "no definition found", manager.Definition, funcEnricher)
 			},
 			"implementation": func(ctx context.Context, _ inspectParams) (any, error) {
-				return runLocationInspect(ctx, filePath, position, "no implementation found", manager.Implementation)
+				return runLocationInspect(ctx, filePath, position, "no implementation found", manager.Implementation, funcEnricher)
 			},
 			"type_definition": func(ctx context.Context, _ inspectParams) (any, error) {
-				return runLocationInspect(ctx, filePath, position, "no type definition found", manager.TypeDefinition)
+				return runLocationInspect(ctx, filePath, position, "no type definition found", manager.TypeDefinition, funcEnricher)
 			},
 			"signature_help": func(ctx context.Context, _ inspectParams) (any, error) {
 				return runSignatureHelp(ctx, manager, filePath, position)
@@ -77,11 +76,13 @@ func runLocationInspect(
 	position protocol.Position,
 	emptyMessage string,
 	run func(context.Context, string, protocol.Position) ([]protocol.LocationResult, error),
+	enricher format.SymbolProvider,
 ) (any, error) {
 	results, err := run(ctx, filePath, position)
 	if err != nil {
 		return nil, err
 	}
+	format.EnrichLocationResultsWithFuncRange(results, enricher)
 	return renderListResult(results, protocol.XRefResultLimit, emptyMessage, func(items []protocol.LocationResult, _ int) any {
 		return format.NormalizeForDisplay(items)
 	})

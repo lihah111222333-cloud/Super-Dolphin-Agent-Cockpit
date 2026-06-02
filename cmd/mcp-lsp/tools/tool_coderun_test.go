@@ -120,6 +120,47 @@ func TestCodeRunTestBuildsGoTestRequestWithoutShell(t *testing.T) {
 	}
 }
 
+func TestCodeRunTestRelativePackageInsideBackendSubmoduleUsesModuleRoot(t *testing.T) {
+	root := t.TempDir()
+	backend := filepath.Join(root, "backend")
+	pkgDir := filepath.Join(backend, "internal", "service")
+	if err := os.MkdirAll(pkgDir, 0o700); err != nil {
+		t.Fatalf("mkdir package dir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(backend, "go.mod"), []byte("module example.test/backend\n\ngo 1.25.0\n"), 0o600); err != nil {
+		t.Fatalf("write go.mod: %v", err)
+	}
+	sandbox := &recordingCodeRunTestSandbox{root: root}
+	handler := NewCodeRunTestHandlerWithSandbox(sandbox)
+	payload, err := json.Marshal(CodeRunTestRequest{
+		TestFunc: "TestTarget",
+		TestPkg:  "./backend/internal/service/...",
+	})
+	if err != nil {
+		t.Fatalf("marshal request: %v", err)
+	}
+	ctx := common.WithToolScope(context.Background(), common.ToolScope{
+		CWD:            root,
+		WorkspaceRoots: []string{root},
+		Family:         "lsp",
+	})
+
+	if _, err := handler(ctx, payload); err != nil {
+		t.Fatalf("code_run_test returned error: %v", err)
+	}
+	wantArgs := []string{"go", "test", "-run", "^TestTarget$", "./internal/service/..."}
+	if !reflect.DeepEqual(sandbox.req.Args, wantArgs) {
+		t.Fatalf("code_run_test args = %#v, want %#v", sandbox.req.Args, wantArgs)
+	}
+	wantWorkDir, err := filepath.EvalSymlinks(backend)
+	if err != nil {
+		t.Fatalf("eval backend module root: %v", err)
+	}
+	if sandbox.req.WorkDir != wantWorkDir {
+		t.Fatalf("code_run_test work_dir = %q, want backend module root %q", sandbox.req.WorkDir, wantWorkDir)
+	}
+}
+
 func TestCodeRunProjectCommandUsesTrustedToolScopeCWD(t *testing.T) {
 	startupRoot := t.TempDir()
 	trustedRoot := t.TempDir()

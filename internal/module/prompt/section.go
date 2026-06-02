@@ -85,8 +85,9 @@ func renderToolPreferencesSectionText(build BuildCtx) string {
 	}
 	bullets := []string{
 		"Prefer repository-aware tools first: use file for reading, edit for edits, and grep for search.",
-		"Use code_run for shell execution only when a dedicated tool cannot do the job, and use it for new-file creation when needed.",
-		"Do not reach for shell fallbacks like cat, head, tail, sed, awk, grep, rg, find, or ls when a dedicated tool fits.",
+		"Use exec_command for ordinary shell commands such as git, directory/file inspection, package scripts, broad test commands, and direct shell requests.",
+		"Prefer LSP tools for code understanding, symbol jumps, references, call hierarchy, diagnostics, edits, and targeted code tests before falling back to shell.",
+		"Do not route ordinary shell through LSP code_run, and do not use shell fallbacks like cat, head, tail, sed, awk, grep, rg, find, or ls when a dedicated tool fits.",
 		suppressedToolsBullet(build.SuppressedTools),
 		toolPreferencePlanningLine(build.EnabledTools),
 		"Batch independent tool calls in parallel and run dependent calls sequentially.",

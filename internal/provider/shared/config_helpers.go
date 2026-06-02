@@ -18,7 +18,16 @@ const peerBinDirEnv = "GO_AGENT_PEER_BIN_DIR"
 
 var managedBinaryNames = []string{"mcp-lsp", "mcp-orch"}
 
+const (
+	projectRootEnv          = "PROJECT_ROOT"
+	requireBundledCodexEnv  = "SUPER_DOLPHIN_REQUIRE_BUNDLED_CODEX"
+	runtimeManifestFilename = "runtime-manifest.json"
+)
+
 func ResolveBinaryDir(cwd string, cfg map[string]any) string {
+	if dir := packagedBinaryDir(); dir != "" {
+		return dir
+	}
 	if dir := ConfigString(cfg, "binary_dir", "binaryDir"); dir != "" {
 		return dir
 	}
@@ -42,6 +51,32 @@ func ResolveBinaryDir(cwd string, cfg map[string]any) string {
 		}
 	}
 	return ""
+}
+
+func packagedBinaryDir() string {
+	if dir := packagedBinaryDirFromProjectRoot(); dir != "" {
+		return dir
+	}
+	if strings.TrimSpace(os.Getenv(requireBundledCodexEnv)) != "1" {
+		return ""
+	}
+	candidates := peerBinDirCandidates()
+	if len(candidates) == 0 {
+		return ""
+	}
+	return candidates[0]
+}
+
+func packagedBinaryDirFromProjectRoot() string {
+	root := strings.TrimSpace(os.Getenv(projectRootEnv))
+	if root == "" {
+		return ""
+	}
+	info, err := os.Stat(filepath.Join(root, runtimeManifestFilename))
+	if err != nil || info.IsDir() {
+		return ""
+	}
+	return filepath.Join(root, "bin")
 }
 
 func peerBinDirCandidates() []string {

@@ -433,6 +433,59 @@ func configJSON(cfg map[string]any, key string) json.RawMessage {
 	return raw
 }
 
+func codexSandboxWireJSON(raw json.RawMessage) json.RawMessage {
+	raw = json.RawMessage(strings.TrimSpace(string(raw)))
+	if len(raw) == 0 {
+		return nil
+	}
+	var text string
+	if err := json.Unmarshal(raw, &text); err == nil {
+		if mode := canonicalCodexSandboxMode(text); mode != "" {
+			return mustJSON(mode)
+		}
+		return raw
+	}
+	var obj map[string]any
+	if err := json.Unmarshal(raw, &obj); err != nil {
+		return raw
+	}
+	if mode := sandboxModeObjectValue(obj); mode != "" {
+		return mustJSON(mode)
+	}
+	if len(obj) == 1 {
+		for key := range obj {
+			if mode := canonicalCodexSandboxMode(key); mode != "" {
+				return mustJSON(mode)
+			}
+		}
+	}
+	return raw
+}
+
+func sandboxModeObjectValue(obj map[string]any) string {
+	for _, key := range []string{"mode", "type"} {
+		value, _ := obj[key].(string)
+		if mode := canonicalCodexSandboxMode(value); mode != "" {
+			return mode
+		}
+	}
+	return ""
+}
+
+func canonicalCodexSandboxMode(value string) string {
+	key := strings.NewReplacer("-", "", "_", "").Replace(strings.ToLower(strings.TrimSpace(value)))
+	switch key {
+	case "readonly":
+		return "read-only"
+	case "workspacewrite":
+		return "workspace-write"
+	case "dangerfullaccess":
+		return "danger-full-access"
+	default:
+		return ""
+	}
+}
+
 func sortedConfigKeys(cfg map[string]any) []string {
 	if len(cfg) == 0 {
 		return nil

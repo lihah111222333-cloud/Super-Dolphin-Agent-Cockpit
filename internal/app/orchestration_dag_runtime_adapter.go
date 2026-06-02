@@ -27,6 +27,7 @@ var _ contract.DAGRuntime = (*mcpOrchDAGRuntime)(nil)
 var (
 	dagRuntimePeerReadyTimeout      = 10 * time.Second
 	dagRuntimePeerReadyPollInterval = 300 * time.Millisecond
+	nowFunc                         = time.Now
 )
 
 func newMCPOrchDAGRuntime(handler *toolbridge.Handler) *mcpOrchDAGRuntime {
@@ -153,13 +154,13 @@ func encodeDAGToolCall(toolName string, args any) (contract.ToolCallRawMessage, 
 }
 
 func (r *mcpOrchDAGRuntime) runDAGToolCall(ctx context.Context, toolName string, msg contract.ToolCallRawMessage) (*toolbridge.ToolCallResult, error) {
-	deadline := time.Now().Add(dagRuntimePeerReadyTimeout)
+	deadline := nowFunc().Add(dagRuntimePeerReadyTimeout)
 	for {
 		result, err := r.runDAGToolCallOnce(ctx, toolName, msg)
 		if err == nil || !errors.Is(err, toolbridge.ErrNoPeerAvailable) {
 			return result, err
 		}
-		if time.Now().After(deadline) {
+		if nowFunc().After(deadline) {
 			return nil, fmt.Errorf("app: mcp-orch peer not ready for %s after %s: %w", toolName, dagRuntimePeerReadyTimeout, err)
 		}
 		wait := dagRuntimePeerReadyPollInterval

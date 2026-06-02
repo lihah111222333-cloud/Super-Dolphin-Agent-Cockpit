@@ -226,6 +226,9 @@ func (t *transport) spawnLocal(ctx context.Context) error {
 	if ctx == nil {
 		ctx = context.Background()
 	}
+	if err := ensureCodexCLIAvailable(ctx); err != nil {
+		return err
+	}
 	argv := localSpawnAppServerArgs()
 	pkglogger.Info("codexapp: spawning local app-server", "argv", argv)
 	// Wrap in the platform-appropriate FD-limit raiser. On macOS GUI-launched

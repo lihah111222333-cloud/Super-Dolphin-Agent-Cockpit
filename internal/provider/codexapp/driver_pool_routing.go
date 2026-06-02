@@ -26,7 +26,8 @@ const poolRoutingEnvVar = "CODEXAPP_USE_POOL"
 
 const (
 	defaultCodexInstanceKey   = "default"
-	defaultCodexModelProvider = "openai"
+	defaultCodexModelProvider = defaultBootstrapModelProvider
+	localCodexModelProvider   = "codex"
 )
 
 func (d *driver) prepareStartSessionRequest(ctx context.Context, req dto.StartSessionRequest) (dto.StartSessionRequest, error) {
@@ -34,19 +35,23 @@ func (d *driver) prepareStartSessionRequest(ctx context.Context, req dto.StartSe
 		return req, err
 	}
 	requestedHome := providershared.ConfigString(req.Config, contract.CodexHomeKey)
-	providerHomeRequest, err := codexProviderHomeRequest(requestedHome)
+	providerHome, err := selectCodexProviderHome(requestedHome)
 	if err != nil {
 		return req, err
 	}
-	home, err := providershared.EnsureProviderHome(providershared.ProviderCodex, providerHomeRequest)
+	if providerHome.explicitAppManagedHome {
+		if err := validateAppManagedRelayLaunchEnv(); err != nil {
+			return req, err
+		}
+	}
+	home, mirrorHome, err := ensureResolvedCodexProviderHome(providerHome)
 	if err != nil {
 		return req, err
 	}
-	mirrorHome := normalizedExplicitProviderHome(providerHomeRequest, home)
 	if err := d.reconcileProviderMirrors(ctx, req.CWD, mirrorHome); err != nil {
 		return req, err
 	}
-	config, err := withDefaultCodexIdentity(req.Config, home)
+	config, err := withDefaultCodexIdentity(req.Config, home, defaultCodexModelProviderForHome(providerHome))
 	if err != nil {
 		return req, err
 	}
@@ -70,15 +75,19 @@ func (d *driver) prepareResumeSessionRequest(ctx context.Context, req dto.Resume
 	if _, ok := resumeIdentity(req); !ok {
 		return req, errors.New("codex identity required for resume")
 	}
-	providerHomeRequest, err := codexProviderHomeRequest(requestedHome)
+	providerHome, err := selectCodexProviderHome(requestedHome)
 	if err != nil {
 		return req, err
 	}
-	home, err := providershared.EnsureProviderHome(providershared.ProviderCodex, providerHomeRequest)
+	if providerHome.explicitAppManagedHome {
+		if err := validateAppManagedRelayLaunchEnv(); err != nil {
+			return req, err
+		}
+	}
+	home, mirrorHome, err := ensureResolvedCodexProviderHome(providerHome)
 	if err != nil {
 		return req, err
 	}
-	mirrorHome := normalizedExplicitProviderHome(providerHomeRequest, home)
 	if err := d.reconcileProviderMirrors(ctx, req.CWD, mirrorHome); err != nil {
 		return req, err
 	}
@@ -111,22 +120,32 @@ func normalizedExplicitProviderHome(rawHome, normalizedHome string) string {
 	return normalizedHome
 }
 
-func codexProviderHomeRequest(rawHome string) (string, error) {
-	if strings.TrimSpace(rawHome) == "" {
-		return "", nil
-	}
-	requested, err := comparableCodexHomePath(rawHome)
+func matchesAppManagedCodexHome(requested string) bool {
+	home, err := providershared.AppManagedProviderHome(providershared.ProviderCodex)
 	if err != nil {
-		return "", err
+		return false
 	}
-	defaultHome, err := defaultCodexCLIHome()
+	comparable, err := comparableCodexHomePath(home)
 	if err != nil {
-		return "", err
+		return false
 	}
-	if filepath.Clean(requested) == filepath.Clean(defaultHome) {
-		return "", nil
+	return filepath.Clean(requested) == filepath.Clean(comparable)
+}
+
+func legacyAppManagedCodexHome() (string, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", fmt.Errorf("resolve user home: %w", err)
 	}
-	return rawHome, nil
+	return filepath.Clean(filepath.Join(home, ".super-dolphin", "providers", "codex")), nil
+}
+
+func matchesDefaultCodexCLIHome(requested string) bool {
+	home, err := defaultCodexCLIHome()
+	if err != nil {
+		return false
+	}
+	return filepath.Clean(requested) == filepath.Clean(home)
 }
 
 func defaultCodexCLIHome() (string, error) {
@@ -182,7 +201,7 @@ func comparableCodexHomePath(raw string) (string, error) {
 	return "", fmt.Errorf("codexHome canonicalize: %w", err)
 }
 
-func withDefaultCodexIdentity(config map[string]any, home string) (map[string]any, error) {
+func withDefaultCodexIdentity(config map[string]any, home, fallbackModelProvider string) (map[string]any, error) {
 	home = strings.TrimSpace(home)
 	if home == "" {
 		return config, providershared.ErrCodexHomeRequired
@@ -197,10 +216,27 @@ func withDefaultCodexIdentity(config map[string]any, home string) (map[string]an
 	if err := putDefaultCodexString(out, contract.CodexInstanceKeyKey, defaultCodexInstanceKey); err != nil {
 		return config, err
 	}
-	if err := putDefaultCodexString(out, contract.CodexModelProviderKey, defaultCodexModelProvider); err != nil {
+	if err := putDefaultCodexString(out, contract.CodexModelProviderKey, defaultCodexModelProviderForConfig(out, fallbackModelProvider)); err != nil {
 		return config, err
 	}
 	return out, nil
+}
+
+func defaultCodexModelProviderForHome(providerHome codexProviderHomeSelection) string {
+	if providerHome.useAppManagedHome {
+		return defaultCodexModelProvider
+	}
+	return localCodexModelProvider
+}
+
+func defaultCodexModelProviderForConfig(config map[string]any, fallback string) string {
+	if provider := firstConfigString(config, "modelProvider", "model_provider"); provider != "" {
+		return provider
+	}
+	if fallback = strings.TrimSpace(fallback); fallback != "" {
+		return fallback
+	}
+	return localCodexModelProvider
 }
 
 func putDefaultCodexString(config map[string]any, key, value string) error {
@@ -564,7 +600,7 @@ func codexReadOnlySandbox(raw json.RawMessage) json.RawMessage {
 	if codexSandboxIsReadOnly(raw) {
 		return append(json.RawMessage(nil), raw...)
 	}
-	return json.RawMessage(`{"mode":"read-only"}`)
+	return json.RawMessage(`{"read-only":null}`)
 }
 
 func codexSandboxIsReadOnly(raw json.RawMessage) bool {
@@ -574,11 +610,18 @@ func codexSandboxIsReadOnly(raw json.RawMessage) bool {
 	}
 	var text string
 	if err := json.Unmarshal(raw, &text); err == nil {
-		return strings.EqualFold(strings.TrimSpace(text), "read-only")
+		return strings.EqualFold(strings.TrimSpace(text), "read-only") ||
+			strings.EqualFold(strings.TrimSpace(text), "readOnly")
 	}
 	var obj map[string]any
 	if err := json.Unmarshal(raw, &obj); err != nil {
 		return false
+	}
+	if _, ok := obj["read-only"]; ok {
+		return true
+	}
+	if _, ok := obj["readOnly"]; ok {
+		return true
 	}
 	mode, _ := obj["mode"].(string)
 	return strings.EqualFold(strings.TrimSpace(mode), "read-only")

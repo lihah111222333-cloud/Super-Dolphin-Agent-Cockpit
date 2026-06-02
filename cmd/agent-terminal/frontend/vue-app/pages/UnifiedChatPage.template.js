@@ -177,7 +177,6 @@ export const template = `
                   :token-inline="activeTokenInline"
                   :token-tooltip="activeTokenTooltip"
                   :token-level="activeTokenLevel"
-                  :disabled="!selectedThreadId && !providerPreferenceReady"
                   :send-disabled="activeThreadSendBlocked"
                   :thread-config-provider="threadConfigUi.meta.provider"
                   :thread-config-supports-override="threadConfigUi.meta.supportsThreadOverride"
