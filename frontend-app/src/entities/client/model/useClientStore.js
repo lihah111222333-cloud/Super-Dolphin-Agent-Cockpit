@@ -1082,6 +1082,7 @@ function mergeTimelineItems(existingItems = [], incomingItems = [], options = {}
   const preserveExistingVisible = options?.preserveExistingVisible === true;
   const visibleIncomingItems = incomingItems.filter(isVisibleTimelineItem);
   const incomingById = new Map(visibleIncomingItems.map((item) => [item.id, item]));
+  const uniqueIncomingItems = visibleIncomingItems.filter((item) => incomingById.get(item.id) === item);
   const incomingIds = new Set(incomingById.keys());
   const consumedIncomingIds = new Set();
   const merged = [];
@@ -1097,7 +1098,7 @@ function mergeTimelineItems(existingItems = [], incomingItems = [], options = {}
     const shouldPreserveExistingMessage = (
       ((preserveExistingVisible && isVisibleTimelineItem(existingItem)) || existingItem.role === 'user' || existingItem.optimistic || existingItem.runtime) &&
       !incomingIds.has(existingItem.id) &&
-      !visibleIncomingItems.some((incomingItem) => (
+      !uniqueIncomingItems.some((incomingItem) => (
         sameTimelineContent(existingItem, incomingItem) ||
         sameTimelineContentCompact(existingItem, incomingItem)
       ))
@@ -1107,7 +1108,7 @@ function mergeTimelineItems(existingItems = [], incomingItems = [], options = {}
     }
   }
 
-  for (const incomingItem of visibleIncomingItems) {
+  for (const incomingItem of uniqueIncomingItems) {
     if (!consumedIncomingIds.has(incomingItem.id)) {
       merged.push(incomingItem);
     }
