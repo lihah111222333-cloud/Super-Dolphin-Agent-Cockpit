@@ -442,67 +442,54 @@ func (s *service) LookupByDedupeKey(ctx context.Context, dedupeKey string) (Turn
 // that didn't opt into dedupe pay no cost. Errors are logged and
 // dropped — the tracker already holds the key, so durability is
 // strictly best-effort.
-func (s *service) recordDedupeUpsert(ctx context.Context, dedupeKey, localID, threadID string) {
+func (s *service) recordDedupeUpsert(ctx context.Context, dedupeKey, localID, threadID string) error {
 	if s == nil || s.dedupeStore == nil {
-		return
+		return nil
 	}
 	key := strings.TrimSpace(dedupeKey)
 	if key == "" {
-		return
+		return nil
 	}
-	err := s.dedupeStore.Upsert(ctx, turndedupe.UpsertParams{
+	return s.dedupeStore.Upsert(ctx, turndedupe.UpsertParams{
 		DedupeKey:   key,
 		LocalTurnID: strings.TrimSpace(localID),
 		ThreadID:    strings.TrimSpace(threadID),
 		Now:         time.Now(),
 	})
-	if err != nil && s.logger != nil {
-		s.logger.Warn("turn: dedupe registry upsert failed",
-			"dedupe_key", key, "local_id", localID, "error", err.Error())
-	}
 }
 
 // recordDedupeProviderID updates the registry row with the provider
 // turn id once StartTurn returns. Same best-effort semantics as
 // recordDedupeUpsert.
-func (s *service) recordDedupeProviderID(ctx context.Context, dedupeKey, providerID string) {
+func (s *service) recordDedupeProviderID(ctx context.Context, dedupeKey, providerID string) error {
 	if s == nil || s.dedupeStore == nil {
-		return
+		return nil
 	}
 	key := strings.TrimSpace(dedupeKey)
 	pid := strings.TrimSpace(providerID)
 	if key == "" || pid == "" {
-		return
+		return nil
 	}
-	err := s.dedupeStore.BindProviderTurnID(ctx, turndedupe.BindProviderTurnIDParams{
+	return s.dedupeStore.BindProviderTurnID(ctx, turndedupe.BindProviderTurnIDParams{
 		DedupeKey:      key,
 		ProviderTurnID: pid,
 		Now:            time.Now(),
 	})
-	if err != nil && s.logger != nil {
-		s.logger.Warn("turn: dedupe registry bind provider id failed",
-			"dedupe_key", key, "provider_id", pid, "error", err.Error())
-	}
 }
 
 // recordDedupeTerminal stamps terminal_at on the registry row so
 // future GetLive calls skip it. Resolves the dedupe key from the
 // tracker when called without an explicit key argument. Safe to
 // invoke even when nothing was previously upserted.
-func (s *service) recordDedupeTerminal(ctx context.Context, dedupeKey string) {
+func (s *service) recordDedupeTerminal(ctx context.Context, dedupeKey string) error {
 	if s == nil || s.dedupeStore == nil {
-		return
+		return nil
 	}
 	key := strings.TrimSpace(dedupeKey)
 	if key == "" {
-		return
+		return nil
 	}
-	if err := s.dedupeStore.MarkTerminal(ctx, key, time.Now()); err != nil {
-		if s.logger != nil {
-			s.logger.Warn("turn: dedupe registry mark terminal failed",
-				"dedupe_key", key, "error", err.Error())
-		}
-	}
+	return s.dedupeStore.MarkTerminal(ctx, key, time.Now())
 }
 
 // recordDedupeTerminalForLocalID looks up the dedupe key on the

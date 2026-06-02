@@ -2,7 +2,6 @@ import { createElement, Profiler, StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import './styles.css';
 import App, { APP_PROFILER_ID } from './App.jsx';
-import { initTencentRum } from './shared/monitoring/tencentRum.js';
 import { emitFrontendTraceEvent } from './shared/api/backendApi.js';
 
 const REACT_RENDER_SLOW_MS = 50;
@@ -25,8 +24,6 @@ function emitSlowRenderTrace(id, phase, actualDuration) {
     },
   });
 }
-
-initTencentRum();
 
 createRoot(document.getElementById('root')).render(
   createElement(

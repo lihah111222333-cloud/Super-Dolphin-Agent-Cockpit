@@ -2,6 +2,7 @@ package bus
 
 import (
 	"context"
+	"log/slog"
 	"reflect"
 	"strings"
 	"sync"
@@ -38,6 +39,7 @@ type logSinkParams struct {
 func NewLogSink(p logSinkParams) *LogSink {
 	sink := &LogSink{subs: NewSubscription(), trace: p.Trace, traceCounts: map[string]int64{}}
 	if p.Dispatcher == nil || p.Logger == nil {
+		slog.Warn("bus: NewLogSink called with nil dispatcher or logger, event logging disabled")
 		return sink
 	}
 	sink.bindAgent(p.Dispatcher, p.Logger)
@@ -50,7 +52,7 @@ func NewLogSink(p logSinkParams) *LogSink {
 }
 
 func (s *LogSink) Close() {
-	if s == nil || s.subs == nil {
+	if s.subs == nil {
 		return
 	}
 	s.subs.CancelAll()

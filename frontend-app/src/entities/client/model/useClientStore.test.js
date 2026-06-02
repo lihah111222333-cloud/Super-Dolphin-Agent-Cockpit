@@ -40,6 +40,16 @@ const backend = vi.hoisted(() => ({
   }),
 }));
 
+function deferred() {
+  let resolve;
+  let reject;
+  const promise = new Promise((promiseResolve, promiseReject) => {
+    resolve = promiseResolve;
+    reject = promiseReject;
+  });
+  return { promise, resolve, reject };
+}
+
 vi.mock('../../../shared/api/backendApi.js', () => ({
   ...backend,
   registerBridgeLogStore: vi.fn(),
@@ -293,6 +303,25 @@ describe('useClientStore backend contract', () => {
     expect(useClientStore.getState().projects).toEqual(['/repo/app', '/repo/other']);
   });
 
+  it('restores the project selector state when setActiveProject RPC fails', async () => {
+    backend.setActiveProject.mockRejectedValueOnce(new Error('project backend offline'));
+    resetClientStoreForTests({
+      cwd: '/repo/app',
+      projectScopeCwd: '/repo/app',
+      activeProject: '/repo/app',
+      projects: ['/repo/app', '/repo/other'],
+    });
+
+    await expect(useClientStore.getState().setActiveProjectPath('/repo/other')).resolves.toBe(false);
+
+    expect(useClientStore.getState().activeProject).toBe('/repo/app');
+    expect(useClientStore.getState().projects).toEqual(['/repo/app', '/repo/other']);
+    expect(useClientStore.getState().actionNotice).toEqual(expect.objectContaining({
+      message: '切换项目失败：project backend offline',
+      tone: 'error',
+    }));
+  });
+
   it('opens an independent app window from the selected directory', async () => {
     resetClientStoreForTests({
       cwd: '/repo/app',
@@ -357,15 +386,71 @@ describe('useClientStore backend contract', () => {
     await expect(useClientStore.getState().setActiveProjectPath('/repo/other')).resolves.toBe(true);
 
     expect(backend.getSidebarState).toHaveBeenCalledWith({ cwd: '/repo/other' });
-    expect(useClientStore.getState().activeThreadId).toBe('thread-new');
+    expect(useClientStore.getState().activeThreadId).toBe('');
     expect(useClientStore.getState().threads).toEqual([
       expect.objectContaining({ id: 'thread-new', name: 'Other project thread', provider: 'claude' }),
     ]);
+    expect(backend.getThreadState).not.toHaveBeenCalledWith({
+      cwd: '/repo/other',
+      threadId: 'thread-new',
+      includeDiff: true,
+    });
     expect(useClientStore.getState().threads.some((thread) => thread.id === 'thread-old')).toBe(false);
     expect(useClientStore.getState().timelinesByThread).not.toHaveProperty('thread-old');
     expect(useClientStore.getState().tokenUsageByThread).not.toHaveProperty('thread-old');
     expect(useClientStore.getState().activityStatsByThread).not.toHaveProperty('thread-old');
     expect(useClientStore.getState().diffTextByThread).not.toHaveProperty('thread-old');
+
+    await useClientStore.getState().setActiveThread('thread-new');
+    expect(backend.getThreadState).toHaveBeenCalledWith({
+      cwd: '/repo/other',
+      threadId: 'thread-new',
+      includeDiff: false,
+    });
+    expect(useClientStore.getState().activeThreadId).toBe('thread-new');
+  });
+
+  it('switches project immediately while the sidebar refresh continues in the background', async () => {
+    const projectChange = deferred();
+    const sidebarRefresh = deferred();
+    resetClientStoreForTests({
+      cwd: '/repo/app',
+      projectScopeCwd: '/repo/app',
+      activeProject: '/repo/app',
+      projects: ['/repo/app', '/repo/other'],
+      activeThreadId: 'thread-old',
+      threads: [{ id: 'thread-old', name: 'Old project thread', provider: 'codex', status: 'running' }],
+      timelinesByThread: { 'thread-old': [{ id: 'old-user', role: 'user', text: 'old cwd message' }] },
+    });
+    backend.setActiveProject.mockReturnValue(projectChange.promise);
+    backend.getSidebarState.mockReturnValue(sidebarRefresh.promise);
+
+    const switchPromise = useClientStore.getState().setActiveProjectPath('/repo/other');
+    await Promise.resolve();
+
+    expect(useClientStore.getState()).toEqual(expect.objectContaining({
+      activeProject: '/repo/other',
+      activeThreadId: '',
+      chatSurfaceLoadingCwd: '/repo/other',
+    }));
+    expect(useClientStore.getState().threads).toEqual([]);
+    expect(backend.getSidebarState).toHaveBeenCalledWith({ cwd: '/repo/other' });
+
+    sidebarRefresh.resolve({
+      activeThreadId: 'thread-other',
+      threads: [{ id: 'thread-other', name: 'Other project thread', provider: 'claude', status: 'idle' }],
+    });
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(useClientStore.getState().threads).toEqual([
+      expect.objectContaining({ id: 'thread-other', name: 'Other project thread' }),
+    ]);
+    expect(useClientStore.getState().activeThreadId).toBe('');
+    expect(useClientStore.getState().chatSurfaceLoadingCwd).toBe('');
+
+    projectChange.resolve({ projects: ['/repo/app', '/repo/other'], active: '/repo/other' });
+    await expect(switchPromise).resolves.toBe(true);
   });
 
   it('filters mixed sidebar snapshots to the selected project cwd', async () => {
@@ -389,7 +474,7 @@ describe('useClientStore backend contract', () => {
     expect(useClientStore.getState().threads).toEqual([
       expect.objectContaining({ id: 'thread-app', name: 'App thread', cwd: '/repo/app' }),
     ]);
-    expect(useClientStore.getState().activeThreadId).toBe('thread-app');
+    expect(useClientStore.getState().activeThreadId).toBe('');
   });
 
   it('keeps composer drafts isolated by selected thread and project cwd', async () => {
@@ -461,12 +546,12 @@ describe('useClientStore backend contract', () => {
 
     await expect(useClientStore.getState().setActiveProjectPath('/repo/other')).resolves.toBe(true);
 
-    expect(backend.getThreadState).toHaveBeenCalledWith({
+    expect(backend.getThreadState).not.toHaveBeenCalledWith({
       cwd: '/repo/other',
       threadId: 'thread-new',
       includeDiff: true,
     });
-    expect(useClientStore.getState().activeThreadId).toBe('thread-new');
+    expect(useClientStore.getState().activeThreadId).toBe('');
     expect(useClientStore.getState().threads).toEqual([
       expect.objectContaining({ id: 'thread-new', name: 'Other project thread' }),
     ]);
@@ -918,6 +1003,143 @@ describe('useClientStore backend contract', () => {
       'first prompt',
       'first reply',
       'latest reply',
+    ]);
+  });
+
+  it('loads every selected thread message page when history exceeds the backend page size', async () => {
+    resetClientStoreForTests({
+      cwd: '/repo/app',
+      activeProject: '/repo/app',
+      activeThreadId: 'thread-1',
+      threads: [{ id: 'thread-1', name: 'Existing', provider: 'codex', status: 'idle' }],
+    });
+    backend.getThreadState.mockResolvedValueOnce({
+      activeThreadId: 'thread-1',
+      threads: [{ id: 'thread-1', name: 'Existing', provider: 'codex', status: 'idle' }],
+      timelinesByThread: {},
+    });
+    const messages = Array.from({ length: 301 }, (_, index) => {
+      const id = index + 1;
+      return {
+        id,
+        role: id % 2 === 0 ? 'assistant' : 'user',
+        content: `message ${id}`,
+        createdAt: new Date(Date.UTC(2026, 4, 30, 0, id, 0)).toISOString(),
+      };
+    });
+    backend.getThreadMessages
+      .mockResolvedValueOnce({ messages: messages.slice(1).reverse(), total: 301 })
+      .mockResolvedValueOnce({ messages: [messages[0]], total: 301 });
+
+    await useClientStore.getState().syncThreadState('thread-1');
+
+    expect(backend.getThreadMessages).toHaveBeenNthCalledWith(1, { threadId: 'thread-1', limit: 300 });
+    expect(backend.getThreadMessages).toHaveBeenNthCalledWith(2, { threadId: 'thread-1', limit: 300, before: '2' });
+    const timeline = useClientStore.getState().timelinesByThread['thread-1'];
+    expect(timeline).toHaveLength(301);
+    expect(timeline[0]).toEqual(expect.objectContaining({ id: '1', text: 'message 1' }));
+    expect(timeline[300]).toEqual(expect.objectContaining({ id: '301', text: 'message 301' }));
+  });
+
+  it('keeps thread/state assistant text when thread/messages later returns empty assistant rows', async () => {
+    resetClientStoreForTests({
+      cwd: '/repo/app',
+      activeProject: '/repo/app',
+      activeThreadId: 'thread-1',
+      threads: [{
+        id: 'thread-1',
+        agentId: 'agent_1780323743107010000',
+        providerThreadId: '019e8390-77dc-7951-960f-246fac8780bd',
+        name: 'Existing',
+        provider: 'codex',
+        status: 'idle',
+      }],
+    });
+    backend.getThreadState.mockResolvedValueOnce({
+      activeThreadId: 'thread-1',
+      threads: [{
+        id: 'thread-1',
+        agentId: 'agent_1780323743107010000',
+        providerThreadId: '019e8390-77dc-7951-960f-246fac8780bd',
+        name: 'Existing',
+        provider: 'codex',
+        status: 'idle',
+      }],
+      timelinesByThread: {
+        'thread-1': [{ id: 'assistant-1', role: 'assistant', text: '1', createdAt: '2026-06-01T14:22:00Z' }],
+      },
+    });
+    backend.getThreadMessages.mockResolvedValueOnce({
+      messages: [
+        { id: 'assistant-1', role: 'assistant', content: '', createdAt: '2026-06-01T14:26:00Z' },
+        { id: 'assistant-2', role: 'assistant', content: '', createdAt: '2026-06-01T14:27:00Z' },
+      ],
+    });
+
+    await useClientStore.getState().syncThreadState('thread-1');
+
+    expect(useClientStore.getState().timelinesByThread['thread-1']).toEqual([
+      expect.objectContaining({ id: 'assistant-1', role: 'assistant', text: '1' }),
+    ]);
+  });
+
+  it('does not let later thread/state empty assistant rows replace visible replies', async () => {
+    resetClientStoreForTests({
+      cwd: '/repo/app',
+      activeProject: '/repo/app',
+      activeThreadId: 'thread-1',
+      threads: [{ id: 'thread-1', name: 'Existing', provider: 'codex', status: 'idle' }],
+    });
+    backend.getThreadMessages.mockResolvedValue({ messages: [] });
+    backend.getThreadState
+      .mockResolvedValueOnce({
+        activeThreadId: 'thread-1',
+        threads: [{ id: 'thread-1', name: 'Existing', provider: 'codex', status: 'idle' }],
+        timelinesByThread: {
+          'thread-1': [{ id: 'assistant-1', role: 'assistant', text: '1', createdAt: '2026-06-01T14:22:00Z' }],
+        },
+      })
+      .mockResolvedValueOnce({
+        activeThreadId: 'thread-1',
+        threads: [{ id: 'thread-1', name: 'Existing', provider: 'codex', status: 'idle' }],
+        timelinesByThread: {
+          'thread-1': [
+            { id: 'assistant-1', role: 'assistant', text: '', createdAt: '2026-06-01T14:34:00Z' },
+            { id: 'assistant-empty-new', role: 'assistant', text: '', createdAt: '2026-06-01T14:34:01Z' },
+          ],
+        },
+      });
+
+    await useClientStore.getState().syncThreadState('thread-1');
+    await useClientStore.getState().syncThreadState('thread-1');
+
+    expect(useClientStore.getState().timelinesByThread['thread-1']).toEqual([
+      expect.objectContaining({ id: 'assistant-1', role: 'assistant', text: '1' }),
+    ]);
+  });
+
+  it('reads thread/messages text fields instead of rendering blank assistant bubbles', async () => {
+    resetClientStoreForTests({
+      cwd: '/repo/app',
+      activeProject: '/repo/app',
+      activeThreadId: 'thread-1',
+      threads: [{ id: 'thread-1', name: 'Existing', provider: 'codex', status: 'idle' }],
+    });
+    backend.getThreadState.mockResolvedValueOnce({
+      activeThreadId: 'thread-1',
+      threads: [{ id: 'thread-1', name: 'Existing', provider: 'codex', status: 'idle' }],
+      timelinesByThread: {},
+    });
+    backend.getThreadMessages.mockResolvedValueOnce({
+      messages: [
+        { id: 'assistant-text', role: 'assistant', text: 'loaded from text field', createdAt: '2026-06-01T14:26:00Z' },
+      ],
+    });
+
+    await useClientStore.getState().syncThreadState('thread-1');
+
+    expect(useClientStore.getState().timelinesByThread['thread-1']).toEqual([
+      expect.objectContaining({ id: 'assistant-text', role: 'assistant', text: 'loaded from text field' }),
     ]);
   });
 
@@ -1922,6 +2144,41 @@ describe('useClientStore backend contract', () => {
     ]);
   });
 
+  it('preserves backend thinking start and duration fields for elapsed-time display', () => {
+    resetClientStoreForTests({
+      cwd: '/repo/app',
+      activeProject: '/repo/app',
+      activeThreadId: 'thread-1',
+      timelinesByThread: { 'thread-1': [] },
+    });
+    useClientStore.getState().initializeEvents();
+
+    bridgeCallback({
+      type: 'ui/thread/patch',
+      payload: {
+        threadId: 'thread-1',
+        sequence: '9007199254740993125',
+        timelineItems: [{
+          id: 'thinking-started-at',
+          kind: 'thinking',
+          text: 'grep',
+          started_at: '2026-05-30T08:00:00Z',
+          duration_ms: 2300,
+          done: true,
+        }],
+      },
+    });
+
+    expect(useClientStore.getState().timelinesByThread['thread-1']).toEqual([
+      expect.objectContaining({
+        id: 'thinking-started-at',
+        kind: 'thinking',
+        time: '2026-05-30T08:00:00Z',
+        elapsedMs: 2300,
+      }),
+    ]);
+  });
+
   it('does not surface stale or sparse thread patch sequences as warnings', () => {
     resetClientStoreForTests({
       cwd: '/repo/app',
@@ -2034,7 +2291,7 @@ describe('useClientStore backend contract', () => {
     await useClientStore.getState().renameThread('thread-1', 'Renamed');
     await useClientStore.getState().archiveThread('thread-1', true);
 
-    expect(backend.interruptTurn).toHaveBeenCalledWith({ cwd: '/repo/app', threadId: 'thread-1', source: 'ui_stop' });
+    expect(backend.interruptTurn).toHaveBeenCalledWith({ cwd: '/repo/app', threadId: 'thread-1', turnId: 'turn-1', source: 'ui_stop' });
     expect(backend.compactThread).toHaveBeenCalledWith({ cwd: '/repo/app', threadId: 'thread-1' });
     expect(backend.recoverThread).toHaveBeenCalledWith({ cwd: '/repo/app', threadId: 'thread-1' });
     expect(backend.renameThread).toHaveBeenCalledWith({ threadId: 'thread-1', name: 'Renamed' });
@@ -2046,7 +2303,7 @@ describe('useClientStore backend contract', () => {
     });
   });
 
-  it('calls interrupt for the selected running thread without cached active turn', async () => {
+  it('does not call interrupt when the selected running thread has no active turn id', async () => {
     resetClientStoreForTests({
       cwd: '/repo/app',
       activeProject: '/repo/app',
@@ -2054,9 +2311,35 @@ describe('useClientStore backend contract', () => {
       threads: [{ id: 'thread-1', name: '运行线程', provider: 'codex', status: 'running' }],
     });
 
-    await expect(useClientStore.getState().interruptActiveThread()).resolves.toBe(true);
+    await expect(useClientStore.getState().interruptActiveThread()).resolves.toBe(false);
 
-    expect(backend.interruptTurn).toHaveBeenCalledWith({ cwd: '/repo/app', threadId: 'thread-1', source: 'ui_stop' });
+    expect(backend.interruptTurn).not.toHaveBeenCalled();
+    expect(useClientStore.getState().actionNotice).toEqual(expect.objectContaining({
+      message: '当前没有可中断任务',
+      tone: 'warning',
+    }));
+  });
+
+  it('surfaces recover RPC failures without throwing an unhandled action error', async () => {
+    backend.recoverThread.mockRejectedValueOnce(new Error('orchestration: service not configured'));
+    resetClientStoreForTests({
+      cwd: '/repo/app',
+      activeProject: '/repo/app',
+      activeThreadId: 'thread-1',
+      threads: [{ id: 'thread-1', name: '运行线程', provider: 'codex', status: 'running' }],
+    });
+
+    await expect(useClientStore.getState().recoverActiveThread()).resolves.toBe(false);
+
+    expect(backend.recoverThread).toHaveBeenCalledWith({ cwd: '/repo/app', threadId: 'thread-1' });
+    expect(useClientStore.getState().actionNotice).toEqual(expect.objectContaining({
+      message: '恢复连接失败：orchestration: service not configured',
+      tone: 'error',
+    }));
+    expect(useClientStore.getState().warningEntries.at(-1)).toEqual(expect.objectContaining({
+      event: 'thread.recover.failed',
+      level: 'error',
+    }));
   });
 
   it('restores archived threads without enabling active thread actions', async () => {
@@ -2080,6 +2363,77 @@ describe('useClientStore backend contract', () => {
     expect(useClientStore.getState().actionNotice).toEqual(expect.objectContaining({
       message: '线程已恢复到列表',
       tone: 'success',
+    }));
+  });
+
+  it('surfaces archive RPC failures without mutating local archive state', async () => {
+    backend.archiveThread.mockRejectedValueOnce(new Error('orchestration: service not configured'));
+    resetClientStoreForTests({
+      cwd: '/repo/app',
+      activeProject: '/repo/app',
+      activeThreadId: 'thread-1',
+      threads: [{ id: 'thread-1', name: '后端线程', provider: 'codex', status: 'idle', archived: false }],
+    });
+
+    await expect(useClientStore.getState().archiveThread('thread-1', true)).resolves.toBe(false);
+
+    expect(backend.archiveThread).toHaveBeenCalledWith({ threadId: 'thread-1' });
+    expect(backend.setPreference).not.toHaveBeenCalledWith(expect.objectContaining({
+      key: 'archivedThreadAtById.thread-1',
+    }));
+    expect(useClientStore.getState().threads[0]).toEqual(expect.objectContaining({ archived: false, status: 'idle' }));
+    expect(useClientStore.getState().threadArchiveLoadingByThread['thread-1']).toBe(false);
+    expect(useClientStore.getState().actionNotice).toEqual(expect.objectContaining({
+      message: '归档会话失败：orchestration: service not configured',
+      tone: 'error',
+    }));
+    expect(useClientStore.getState().warningEntries.at(-1)).toEqual(expect.objectContaining({
+      event: 'thread.archive.failed',
+      level: 'error',
+    }));
+  });
+
+  it('surfaces rename RPC failures without closing over a rejected action', async () => {
+    backend.renameThread.mockRejectedValueOnce(new Error('name backend offline'));
+    resetClientStoreForTests({
+      cwd: '/repo/app',
+      activeProject: '/repo/app',
+      activeThreadId: 'thread-1',
+      threads: [{ id: 'thread-1', name: '旧名称', provider: 'codex', status: 'idle' }],
+    });
+
+    await expect(useClientStore.getState().renameThread('thread-1', '新名称')).resolves.toBe(false);
+
+    expect(useClientStore.getState().threads[0]).toEqual(expect.objectContaining({ name: '旧名称' }));
+    expect(useClientStore.getState().actionNotice).toEqual(expect.objectContaining({
+      message: '重命名会话失败：name backend offline',
+      tone: 'error',
+    }));
+    expect(useClientStore.getState().warningEntries.at(-1)).toEqual(expect.objectContaining({
+      event: 'thread.rename.failed',
+      level: 'error',
+    }));
+  });
+
+  it('surfaces pin preference failures without mutating local pin state', async () => {
+    backend.setPreference.mockRejectedValueOnce(new Error('preference backend offline'));
+    resetClientStoreForTests({
+      cwd: '/repo/app',
+      activeProject: '/repo/app',
+      activeThreadId: 'thread-1',
+      threads: [{ id: 'thread-1', name: '后端线程', provider: 'codex', status: 'idle', pinned: false, pinnedAt: 0 }],
+    });
+
+    await expect(useClientStore.getState().toggleThreadPin('thread-1')).resolves.toBe(false);
+
+    expect(useClientStore.getState().threads[0]).toEqual(expect.objectContaining({ pinned: false, pinnedAt: 0 }));
+    expect(useClientStore.getState().actionNotice).toEqual(expect.objectContaining({
+      message: '置顶会话失败：preference backend offline',
+      tone: 'error',
+    }));
+    expect(useClientStore.getState().warningEntries.at(-1)).toEqual(expect.objectContaining({
+      event: 'thread.pin.failed',
+      level: 'error',
     }));
   });
 

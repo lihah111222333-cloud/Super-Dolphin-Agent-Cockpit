@@ -15,6 +15,7 @@ const backend = vi.hoisted(() => ({
   setPreference: vi.fn(),
   getPreference: vi.fn(),
   callBackend: vi.fn(),
+  onFilesDropped: vi.fn(() => () => {}),
   onBridgeEvent: vi.fn(() => () => {}),
 }));
 

@@ -53,7 +53,7 @@ func (r *toolResultLifecycleRegistry) Register(meta ToolResultMeta, record ToolR
 
 func (r *toolResultLifecycleRegistry) Cleanup(threadID, model string, cfg *contract.FRCConfig) ToolResultCleanupResult {
 	threadID = strings.TrimSpace(threadID)
-	if r == nil || threadID == "" || !cfg.EnabledForModel(model) {
+	if r == nil || threadID == "" || cfg == nil || !cfg.EnabledForModel(model) {
 		return ToolResultCleanupResult{}
 	}
 	keepRecent := cfg.KeepRecentCount()

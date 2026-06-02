@@ -89,7 +89,10 @@ func (s *service) readConfiguredSkillState(ctx context.Context, resolvedID strin
 }
 
 func configuredSkillNames(config any) []string {
-	payload, _ := config.(map[string]any)
+	payload, ok := config.(map[string]any)
+	if !ok {
+		return nil
+	}
 	raw, ok := payload["skills"]
 	if !ok {
 		return nil
