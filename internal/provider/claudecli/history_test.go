@@ -6,6 +6,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
 )
 
 func TestSessionReadHistoryFallsBackToResolvedThreadID(t *testing.T) {
@@ -53,6 +55,63 @@ func TestReadHistoryReturnsEmptyForNewSession(t *testing.T) {
 	}
 	if len(msgs) != 0 {
 		t.Fatalf("ReadHistory() returned %d messages, want 0", len(msgs))
+	}
+}
+
+func TestReadMessagesPageReturnsRecentClaudeHistory(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	threadID := "thread-page"
+	writeClaudeHistoryMessages(t, dir, threadID, []string{"one", "two", "three"})
+
+	page, err := (&historyBackend{sessionDir: dir}).ReadMessagesPage(context.Background(), threadID, dto.MessagePageRequest{Limit: 2})
+	if err != nil {
+		t.Fatalf("ReadMessagesPage() error = %v", err)
+	}
+	if len(page.Items) != 2 || page.Items[0].Content != "two" || page.Items[1].Content != "three" {
+		t.Fatalf("page items = %#v, want two/three", page.Items)
+	}
+	if len(page.Offsets) != 2 || page.Offsets[0] == page.Offsets[1] {
+		t.Fatalf("page offsets = %#v, want stable per-record offsets", page.Offsets)
+	}
+	if !page.HasMore || page.NextBefore == "" {
+		t.Fatalf("page metadata = hasMore:%v nextBefore:%q, want more with cursor", page.HasMore, page.NextBefore)
+	}
+}
+
+func TestSessionReadMessagesPageSetsStableIDsFromOffsets(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	threadID := "thread-page"
+	writeClaudeHistoryMessages(t, dir, threadID, []string{"one", "two", "three"})
+	s := &session{
+		threadID: threadID,
+		history:  &historyBackend{sessionDir: dir},
+	}
+
+	page, err := s.ReadMessagesPage(context.Background(), threadID, dto.MessagePageRequest{Limit: 2})
+	if err != nil {
+		t.Fatalf("ReadMessagesPage() error = %v", err)
+	}
+	if len(page.Messages) != 2 || page.Messages[0].ID == 0 || page.Messages[0].ID == page.Messages[1].ID {
+		t.Fatalf("page messages = %#v, want non-zero stable IDs", page.Messages)
+	}
+}
+
+func writeClaudeHistoryMessages(t *testing.T, dir, threadID string, contents []string) {
+	t.Helper()
+	projectsDir := filepath.Join(dir, "projects", "test-project")
+	if err := os.MkdirAll(projectsDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	raw := ""
+	for _, content := range contents {
+		raw += `{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"` + content + `"}]}}` + "\n"
+	}
+	if err := os.WriteFile(filepath.Join(projectsDir, threadID+".jsonl"), []byte(raw), 0o644); err != nil {
+		t.Fatal(err)
 	}
 }
 

@@ -968,6 +968,48 @@ async function toggleInlineTraceFromRecentLogs(table) {
     expect(container.querySelector('.mermaid-diagram')).toHaveTextContent('点击放大');
   });
 
+  it('does not render Mermaid diagrams from unmaterialized older timeline history', async () => {
+    const messages = Array.from({ length: 85 }, (_, index) => {
+      if (index === 0) {
+        return {
+          id: 'older-mermaid',
+          kind: 'assistant',
+          text: [
+            '旧 Mermaid 图表：',
+            '```mermaid',
+            'flowchart TD',
+            '  Old[旧历史] --> Hidden[首屏隐藏]',
+            '```',
+          ].join('\n'),
+          ts: '2026-05-30T00:00:00Z',
+        };
+      }
+      return {
+        id: `recent-${index}`,
+        kind: index % 2 === 0 ? 'user' : 'assistant',
+        text: `最近 timeline 消息 ${index}`,
+        ts: '2026-05-30T00:00:00Z',
+      };
+    });
+    backend.getThreadState.mockResolvedValue({
+      activeThreadId: 'thread-1',
+      timelinesByThread: {
+        'thread-1': messages,
+      },
+    });
+
+    render(<App />);
+
+    expect(await screen.findByText('最近 timeline 消息 84')).toBeInTheDocument();
+    expect(screen.queryByText('旧 Mermaid 图表：')).not.toBeInTheDocument();
+    expect(mermaid.render).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole('button', { name: '显示更早的消息（5 条）' }));
+
+    await waitFor(() => expect(mermaid.render).toHaveBeenCalledTimes(1));
+    expect(screen.getByText('旧 Mermaid 图表：')).toBeInTheDocument();
+  });
+
   it('sanitizes rendered mermaid SVG before rendering it as an image data URL', async () => {
     mermaid.render.mockResolvedValueOnce({
       svg: [

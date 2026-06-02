@@ -22,6 +22,7 @@ import (
 )
 
 const eventTypeAgentMessage = "agent_message"
+const defaultMessagesPageLimit = 300
 
 // keepaliveSentinelPrefix marks cache-keepalive maintenance turns. These silent
 // turns are filtered out of history before display so they (and any model
@@ -71,18 +72,26 @@ func (s *service) ReadMessages(ctx context.Context, threadID string, limit int, 
 	// Ensure session is resumed in background when thread is loaded after restart.
 	s.backgroundResumeIfNeeded(ctx, threadID)
 	agentID := agentIDFromBinding(binding, threadID)
-	all, err := s.readMessagesSource(ctx, threadID, binding)
+	pageResult, err := s.readMessagesPageSource(ctx, threadID, binding, dto.MessagePageRequest{
+		Limit:  normalizeMessagesPageLimit(limit),
+		Before: strings.TrimSpace(before),
+	})
 	if err != nil {
 		return dto.ThreadMessagesResult{}, err
 	}
-	all = decorateThreadMessages(agentID, dropKeepaliveTurns(all))
-	page, err := selectMessagesPage(all, limit, before)
+	messages := decorateThreadMessages(agentID, dropKeepaliveTurns(pageResult.Messages))
+	page, err := selectMessagesPage(messages, limit, "")
 	if err != nil {
 		return dto.ThreadMessagesResult{}, err
 	}
-	total := int64(len(all))
+	total := int64(len(page))
 	s.publishMessagesPage(threadID, int(total), pageCount(int(total), limit))
-	return dto.ThreadMessagesResult{Messages: page, Total: total}, nil
+	return dto.ThreadMessagesResult{
+		Messages:   page,
+		Total:      total,
+		HasMore:    pageResult.HasMore,
+		NextBefore: pageResult.NextBefore,
+	}, nil
 }
 
 func (s *service) ReadRuntimeConfig(ctx context.Context, threadID string) (map[string]any, error) {
@@ -382,6 +391,13 @@ func selectMessagesPage(all []dto.Message, limit int, before string) ([]dto.Mess
 		}
 		return paginateMessagesBeforeTime(all, limit, cutoff), nil
 	}
+}
+
+func normalizeMessagesPageLimit(limit int) int {
+	if limit > 0 {
+		return limit
+	}
+	return defaultMessagesPageLimit
 }
 
 func clampBeforeID(raw string) int64 {
