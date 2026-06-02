@@ -164,6 +164,33 @@ describe('useClientStore backend contract', () => {
     expect(useClientStore.getState().bootstrapStatus).toBe('failed');
   });
 
+  it('bootstraps when optional Codex model provider preference is absent', async () => {
+    backend.getPreference.mockImplementation(({ key }) => Promise.resolve({
+      'settings.provider.active': 'codex',
+      'settings.provider.codex.model': 'gpt-5.5',
+      'settings.provider.codex.effort': 'xhigh',
+      'settings.provider.codex.codexHome': '~/.codex',
+      'settings.provider.codex.codexInstanceKey': 'default',
+    }[key] ?? null));
+
+    await useClientStore.getState().bootstrap();
+
+    expect(useClientStore.getState().bootstrapStatus).toBe('ready');
+    expect(backend.getProjects).toHaveBeenCalledWith({ cwd: '/repo/app' });
+    expect(backend.getSidebarState).toHaveBeenCalledWith({ cwd: '/repo/app' });
+    expect(backend.getThreadState).toHaveBeenCalledWith({
+      cwd: '/repo/app',
+      threadId: 'thread-1',
+      includeDiff: true,
+    });
+    expect(useClientStore.getState().providerConfig).toEqual(expect.objectContaining({
+      provider: 'codex',
+      model: 'gpt-5.5',
+      effort: 'xhigh',
+      codexModelProvider: '',
+    }));
+  });
+
   it('hydrates thread providers from sidebar runtime metadata', async () => {
     backend.getSidebarState.mockResolvedValue({
       activeThreadId: 'thread-claude',
@@ -1606,6 +1633,38 @@ describe('useClientStore backend contract', () => {
       payload: { job_id: 'job-1', run_id: 'run-1', status: 'running' },
     });
     expect(useClientStore.getState().workflowRevision).toBe(2);
+  });
+
+  it('refreshes the chat list when the backend sidebar projection changes', async () => {
+    resetClientStoreForTests({
+      cwd: '/repo/app',
+      activeProject: '/repo/app',
+      activeThreadId: 'thread-main',
+      threads: [{ id: 'thread-main', name: 'Main agent', provider: 'codex', status: 'running' }],
+    });
+    backend.getSidebarState.mockResolvedValueOnce({
+      activeThreadId: 'thread-main',
+      threads: [
+        { id: 'thread-main', name: 'Main agent', provider: 'codex', status: 'running' },
+        { id: 'thread-child', name: 'Child agent', provider: 'codex', status: 'running' },
+      ],
+    });
+    useClientStore.getState().initializeEvents();
+
+    bridgeCallback({
+      type: 'ui/sidebar/changed',
+      payload: { projection: 'sidebar', revision: 2 },
+    });
+
+    await vi.waitFor(() => {
+      expect(backend.getSidebarState).toHaveBeenCalledWith({ cwd: '/repo/app' });
+    });
+    await vi.waitFor(() => {
+      expect(useClientStore.getState().threads).toEqual(expect.arrayContaining([
+        expect.objectContaining({ id: 'thread-child', name: 'Child agent' }),
+      ]));
+    });
+    expect(useClientStore.getState().activeThreadId).toBe('thread-main');
   });
 
   it('increments prompt revision from prompt and active-prompt preference bridge events', () => {
