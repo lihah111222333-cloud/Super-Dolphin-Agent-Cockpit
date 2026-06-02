@@ -351,18 +351,33 @@ func dashboardJSONOrDefault(row map[string]any, key string, fallback json.RawMes
 	}
 	switch typed := value.(type) {
 	case json.RawMessage:
-		return append(json.RawMessage(nil), typed...)
+		return dashboardValidJSONOrFallback(typed, fallback)
 	case []byte:
-		return append(json.RawMessage(nil), typed...)
+		return dashboardValidJSONOrFallback(json.RawMessage(typed), fallback)
 	case string:
-		return json.RawMessage(strings.TrimSpace(typed))
+		return dashboardValidJSONOrFallback(json.RawMessage(strings.TrimSpace(typed)), fallback)
 	default:
 		raw, err := json.Marshal(typed)
 		if err != nil {
 			return append(json.RawMessage(nil), fallback...)
 		}
-		return raw
+		return dashboardValidJSONOrFallback(raw, fallback)
 	}
+}
+
+func dashboardValidJSONOrFallback(raw json.RawMessage, fallback json.RawMessage) json.RawMessage {
+	trimmed := strings.TrimSpace(string(raw))
+	if trimmed == "" {
+		return append(json.RawMessage(nil), fallback...)
+	}
+	if json.Valid(json.RawMessage(trimmed)) {
+		return append(json.RawMessage(nil), trimmed...)
+	}
+	quoted, err := json.Marshal(trimmed)
+	if err != nil {
+		return append(json.RawMessage(nil), fallback...)
+	}
+	return quoted
 }
 
 func dashboardStringSlice(row map[string]any, key string) ([]string, error) {
