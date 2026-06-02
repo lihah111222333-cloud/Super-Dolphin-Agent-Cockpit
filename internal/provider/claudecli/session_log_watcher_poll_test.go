@@ -63,6 +63,10 @@ func TestSessionLogWatcherResetsAfterTruncate(t *testing.T) {
 	if err := os.WriteFile(path, append(watcherPollLine("session-1", "2026-04-13T00:00:01Z", 1, 0, 0, 2), '\n'), 0o644); err != nil {
 		t.Fatalf("Rewrite %q error = %v", path, err)
 	}
+	nextModTime := time.Now().Add(5 * time.Second)
+	if err := os.Chtimes(path, nextModTime, nextModTime); err != nil {
+		t.Fatalf("Chtimes %q error = %v", path, err)
+	}
 	second := waitWatcherUsage(t, updates)
 	if second.Timestamp != "2026-04-13T00:00:01Z" || second.TotalTokens != 3 {
 		t.Fatalf("second usage = %#v, want rewritten line to be replayed", second)
