@@ -43,6 +43,7 @@ const backend = vi.hoisted(() => ({
   getObservabilityStatus: vi.fn(),
   getObservabilityTrace: vi.fn(),
   getObservabilityThreadRecent: vi.fn(),
+  listObservabilityRecent: vi.fn(),
   listObservabilitySlow: vi.fn(),
   listObservabilityErrors: vi.fn(),
   listSharedFiles: vi.fn(),
@@ -228,6 +229,7 @@ describe('frontend-app connected client shell', () => {
     backend.getObservabilityStatus.mockResolvedValue({ enabled: true, schema_version: 1, index_trace_keys: 1, sink_events_written: 2, sink_write_errors: 0 });
     backend.getObservabilityTrace.mockResolvedValue({ source: 'memory', events: [], slowest_events: [], errors: [], total_duration_ms: 0, truncated: false });
     backend.getObservabilityThreadRecent.mockResolvedValue({ source: 'memory', events: [], slowest_events: [], errors: [], total_duration_ms: 0, truncated: false });
+    backend.listObservabilityRecent.mockResolvedValue({ source: 'memory', events: [], slowest_events: [], errors: [], total_duration_ms: 0, truncated: false });
     backend.listObservabilitySlow.mockResolvedValue({ source: 'memory', events: [], slowest_events: [], errors: [], total_duration_ms: 0, truncated: false });
     backend.listObservabilityErrors.mockResolvedValue({ source: 'memory', events: [], slowest_events: [], errors: [], total_duration_ms: 0, truncated: false });
     backend.listSharedFiles.mockResolvedValue({
@@ -416,32 +418,301 @@ describe('frontend-app connected client shell', () => {
   });
 
   it('opens observability tracing dashboard and queries by trace id', async () => {
-    backend.getObservabilityTrace.mockResolvedValue({
+    backend.listObservabilityRecent.mockResolvedValueOnce({
       source: 'mixed',
       total_duration_ms: 135,
       truncated: false,
       slowest_events: [],
       errors: [],
       events: [{
+        ts: '2026-06-02T09:01:20.100Z',
         trace_id: 'trace-1',
         span_id: 'span-rpc',
         method: 'rpc.dispatch',
         status: 'slow',
         duration_ms: 120,
         thread_id: 'thread-1',
-        code: { file: 'internal/platform/rpc/server.go', function: '(*Server).Dispatch', line: 270 },
-        stack: [{ file: 'internal/platform/rpc/server.go', function: '(*Server).Dispatch', line: 270 }],
       }],
+    }).mockResolvedValueOnce({
+      source: 'mixed',
+      total_duration_ms: 135,
+      truncated: false,
+      slowest_events: [],
+      errors: [],
+      events: [
+        {
+          ts: '2026-06-02T09:01:20.100Z',
+          trace_id: 'trace-1',
+          span_id: 'span-rpc',
+          method: 'rpc.dispatch',
+          status: 'slow',
+          duration_ms: 120,
+          thread_id: 'thread-1',
+        },
+        {
+          ts: '2026-06-02T09:01:23.000Z',
+          trace_id: 'trace-1',
+          span_id: 'span-ui',
+          method: 'ui/sidebar/get',
+          status: 'ok',
+          thread_id: 'thread-1',
+        },
+        {
+          ts: '2026-06-02T09:01:24.000Z',
+          trace_id: 'trace-1',
+          span_id: 'span-noise',
+          method: 'bus.event.lifecycle',
+          kind: 'bus_event',
+          status: 'dropped_summary',
+          thread_id: 'thread-1',
+        },
+      ],
+    });
+    backend.getObservabilityTrace.mockResolvedValue({
+      source: 'mixed',
+      total_duration_ms: 135,
+      truncated: false,
+      slowest_events: [],
+      errors: [],
+      events: [
+        {
+          ts: '2026-06-02T09:01:19.000Z',
+          trace_id: 'trace-1',
+          span_id: 'span-begin',
+          method: 'tool.call.begin',
+          status: 'ok',
+          thread_id: 'thread-1',
+        },
+        {
+          ts: '2026-06-02T09:01:20.100Z',
+          trace_id: 'trace-1',
+          span_id: 'span-rpc',
+          method: 'rpc.dispatch',
+          status: 'slow',
+          duration_ms: 120,
+          thread_id: 'thread-1',
+          parent_span_id: 'span-root',
+          code: { file: 'internal/platform/rpc/server.go', function: '(*Server).Dispatch', line: 270 },
+          stack: [{ file: 'internal/platform/rpc/server.go', function: '(*Server).Dispatch', line: 270 }],
+          error: 'rpc dispatch exceeded slow threshold',
+          metadata: {
+            component: 'rpc',
+            route: 'observability/trace/get',
+          },
+        },
+        {
+          ts: '2026-06-02T09:01:23.000Z',
+          trace_id: 'trace-1',
+          span_id: 'span-ui',
+          method: 'ui/sidebar/get',
+          status: 'ok',
+          thread_id: 'thread-1',
+        },
+        {
+          ts: '2026-06-02T09:01:24.000Z',
+          trace_id: 'trace-1',
+          span_id: 'span-noise',
+          method: 'bus.event.lifecycle',
+          kind: 'bus_event',
+          status: 'dropped_summary',
+          thread_id: 'thread-1',
+        },
+      ],
     });
     render(<App />);
 
     fireEvent.click(await screen.findByRole('button', { name: '链路追踪' }));
     fireEvent.change(screen.getByLabelText('Trace ID'), { target: { value: 'trace-1' } });
-    fireEvent.click(screen.getByRole('button', { name: '查询 Trace' }));
+    fireEvent.click(screen.getByRole('button', { name: '查询最新日志' }));
+    const table = await screen.findByTestId('observability-recent-logs');
+    fireEvent.click(within(table).getByRole('button', { name: '打开 Trace trace-1' }));
 
     expect(await screen.findByText(/source=mixed/)).toBeInTheDocument();
     expect(screen.getAllByText(/internal\/platform\/rpc\/server.go:270/).length).toBeGreaterThan(0);
+    const traceRows = screen.getAllByRole('row').filter((row) => row.classList.contains('observability-event-row'));
+    expect(traceRows[0]).toHaveClass('observability-event-row');
+    expect(traceRows[0]).not.toHaveClass('settings-row');
+    expect(traceRows[0]).toHaveTextContent('120ms');
+    expect(traceRows[0]).toHaveTextContent('请求上下文');
+    expect(traceRows[0]).toHaveTextContent('链路标识');
+    expect(traceRows[0]).toHaveTextContent('失败原因');
+    const zeroDurationRow = traceRows.find((row) => row.textContent.includes('ui/sidebar/get'));
+    expect(zeroDurationRow).toBeTruthy();
+    expect(zeroDurationRow).toHaveTextContent('2026-06-02 09:01:23');
+    expect(zeroDurationRow).toHaveTextContent('耗时未记录');
+    expect(zeroDurationRow).not.toHaveTextContent('0ms');
+    expect(zeroDurationRow).not.toHaveTextContent('code=-');
+    expect(traceRows[0]).toHaveTextContent('trace');
+    expect(traceRows[0]).toHaveTextContent('trace-1');
+    expect(traceRows[0]).toHaveTextContent('span');
+    expect(traceRows[0]).toHaveTextContent('span-rpc');
+    expect(traceRows[0]).toHaveTextContent('parent');
+    expect(traceRows[0]).toHaveTextContent('span-root');
+    expect(screen.getByText('rpc dispatch exceeded slow threshold')).toBeInTheDocument();
+    expect(screen.getByText(/"component": "rpc"/)).toBeInTheDocument();
+    expect(screen.getByText(/"route": "observability\/trace\/get"/)).toBeInTheDocument();
+    expect(backend.listObservabilityRecent).toHaveBeenCalledWith({
+      limit: 50,
+      status: '',
+      component: '',
+      method: '',
+          traceId: 'trace-1',
+          threadId: '',
+          agentId: '',
+          keyword: '',
+        });
+    expect(backend.listObservabilityRecent).toHaveBeenLastCalledWith({
+      limit: 50,
+      status: '',
+      component: '',
+      method: '',
+      traceId: 'trace-1',
+      threadId: '',
+      agentId: '',
+      keyword: '',
+    });
     expect(backend.getObservabilityTrace).toHaveBeenCalledWith({ traceId: 'trace-1', limit: 50 });
+    expect(screen.getByText(/默认显示关键事件 2\/4/)).toBeInTheDocument();
+    expect(screen.getByText(/已折叠 2 条成功过程事件/)).toBeInTheDocument();
+    expect(screen.queryByText('tool.call.begin')).not.toBeInTheDocument();
+    expect(screen.queryByText('bus.event.lifecycle')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '显示全部事件' }));
+    await waitFor(() => expect(screen.getAllByText('tool.call.begin').length).toBeGreaterThan(0));
+    expect(screen.getAllByText('bus.event.lifecycle').length).toBeGreaterThan(0);
+  });
+
+  it('renders recent system logs and opens a trace from the table', async () => {
+    backend.listObservabilityRecent.mockResolvedValue({
+      source: 'mixed',
+      total_duration_ms: 38,
+      truncated: false,
+      slowest_events: [],
+      errors: [],
+      events: [
+        {
+          ts: '2026-06-02T09:01:22.459Z',
+          trace_id: 'trace-frontend-1',
+          span_id: 'span-ui',
+          method: 'thread/start',
+          phase: 'frontend.rpc.failed',
+          kind: 'frontend',
+          status: 'error',
+          duration_ms: 33,
+          thread_id: 'thread-1',
+          client_route: '/chat',
+          error: 'thread start failed',
+        },
+        {
+          ts: '2026-06-02T09:01:20.100Z',
+          trace_id: 'trace-frontend-1',
+          span_id: 'span-rpc',
+          method: 'rpc.dispatch',
+          kind: 'rpc',
+          status: 'ok',
+          duration_ms: 5,
+          thread_id: 'thread-1',
+        },
+        {
+          ts: '2026-06-02T09:02:03.000Z',
+          trace_id: 'trace-frontend-2',
+          span_id: 'span-ui-2',
+          method: 'thread/config/get',
+          phase: 'frontend.rpc.done',
+          kind: 'frontend',
+          status: 'ok',
+          duration_ms: 7,
+          thread_id: 'thread-2',
+        },
+        {
+          ts: '2026-06-02T09:03:04.000Z',
+          trace_id: '',
+          span_id: 'span-provider',
+          method: 'provider.session.acquire',
+          kind: 'provider',
+          status: 'ok',
+          duration_ms: 3268,
+          thread_id: 'thread-provider',
+        },
+      ],
+    });
+    backend.getObservabilityTrace.mockResolvedValue({
+      source: 'mixed',
+      total_duration_ms: 33,
+      truncated: false,
+      slowest_events: [],
+      errors: [],
+      events: [{
+        trace_id: 'trace-frontend-1',
+        span_id: 'span-ui',
+        method: 'thread/start',
+        status: 'error',
+        duration_ms: 33,
+      }],
+    });
+    render(<App />);
+
+    fireEvent.click(await screen.findByRole('button', { name: '链路追踪' }));
+    fireEvent.change(screen.getByLabelText('状态'), { target: { value: 'error' } });
+    fireEvent.change(screen.getByLabelText('关键词'), { target: { value: 'thread/start' } });
+    fireEvent.click(screen.getByRole('button', { name: '查询最新日志' }));
+
+    const table = await screen.findByTestId('observability-recent-logs');
+    expect(table).toHaveTextContent('2 条 trace · 3 个匹配 event');
+    expect(table).toHaveTextContent('2026-06-02 09:01:22');
+    expect(table).toHaveTextContent('2026-06-02 09:02:03');
+    expect(table).not.toHaveTextContent('2026-06-02T09:01:22.459Z');
+    expect(table).toHaveTextContent('thread/start');
+    expect(table).toHaveTextContent('trace-frontend-1');
+    expect(table).toHaveTextContent('thread start failed');
+    expect(table).not.toHaveTextContent('provider.session.acquire');
+    expect(within(table).getAllByRole('button', { name: /复制 Trace ID/ })).toHaveLength(2);
+    expect(within(table).getAllByRole('button', { name: /打开 Trace/ })).toHaveLength(2);
+    expect(table).toHaveTextContent('2 个匹配 event');
+    expect(backend.listObservabilityRecent).toHaveBeenCalledWith({
+      limit: 50,
+      status: 'error',
+      component: '',
+      method: '',
+      traceId: '',
+      threadId: '',
+      agentId: '',
+      keyword: 'thread/start',
+    });
+
+    expect(screen.queryByText(/Trace 查询结果/)).not.toBeInTheDocument();
+    fireEvent.click(within(table).getByRole('button', { name: '复制 Trace ID trace-frontend-1' }));
+
+    await waitFor(() => expect(backend.copyTextToClipboard).toHaveBeenCalledWith('trace-frontend-1'));
+    expect(within(table).getByRole('button', { name: '复制 Trace ID trace-frontend-1' })).toHaveTextContent('已复制');
+    expect(backend.getObservabilityTrace).not.toHaveBeenCalled();
+
+    fireEvent.click(within(table).getByRole('button', { name: '打开 Trace trace-frontend-1' }));
+
+    expect(await screen.findByText(/Trace 查询结果/)).toBeInTheDocument();
+    expect(backend.getObservabilityTrace).toHaveBeenCalledWith({ traceId: 'trace-frontend-1', limit: 50 });
+    expect(backend.listObservabilityRecent).toHaveBeenLastCalledWith({
+      limit: 50,
+      status: 'error',
+      component: '',
+      method: '',
+      traceId: 'trace-frontend-1',
+      threadId: '',
+      agentId: '',
+      keyword: 'thread/start',
+    });
+  });
+
+  it('keeps the observability page focused on filtered logs and trace drilldown', async () => {
+    render(<App />);
+
+    fireEvent.click(await screen.findByRole('button', { name: '链路追踪' }));
+
+    expect(screen.queryByTestId('observability-backend-logs')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('observability-status')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '刷新慢点/错误' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '查询 Trace' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '查询 Thread Recent' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '查询最新日志' })).toBeInTheDocument();
   });
 
   it('bootstraps project, sidebar, timeline and token usage from backend', async () => {

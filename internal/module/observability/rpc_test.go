@@ -3,6 +3,7 @@ package observability
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -26,7 +27,7 @@ func (s *recordingSink) Append(_ context.Context, event platformobs.TraceEvent) 
 func TestNewHandlersReturnsRPCHandlerMapResult(t *testing.T) {
 	svc := platformobs.NewDisabledService(platformobs.Config{DisabledReason: "unit"})
 	result := NewHandlers(svc)
-	for _, method := range []string{"observability/trace/get", "observability/thread/recent", "observability/slow/list", "observability/error/list", "observability/status", "observability/frontend/ingest"} {
+	for _, method := range []string{"observability/trace/get", "observability/thread/recent", "observability/recent/list", "observability/slow/list", "observability/error/list", "observability/status", "observability/frontend/ingest"} {
 		if _, ok := result.Handlers[method]; !ok {
 			t.Fatalf("%s not registered", method)
 		}
@@ -97,6 +98,129 @@ func TestThreadRecentAndListRPCsUseBoundedQueries(t *testing.T) {
 	errs := dispatchQuery(t, server, "observability/error/list", json.RawMessage(`{"limit":5,"component":"tool"}`))
 	if len(thread.Events) != 2 || len(slow.Events) != 1 || len(errs.Events) != 1 {
 		t.Fatalf("thread=%+v slow=%+v errors=%+v", thread, slow, errs)
+	}
+}
+
+func TestRecentListRPCFiltersLatestEventsForSystemLog(t *testing.T) {
+	svc := newRecordingService(&recordingSink{})
+	seedTraceEvents(t, svc)
+	recordTrace(t, svc, platformobs.TraceEvent{
+		Timestamp:  time.Date(2026, 6, 2, 0, 0, 1, 0, time.UTC),
+		TraceID:    "trace-2",
+		SpanID:     "span-frontend",
+		Kind:       "frontend",
+		Phase:      "frontend.rpc.failed",
+		Method:     "thread/start",
+		ThreadID:   "thread-2",
+		DurationMS: 33,
+		Status:     platformobs.StatusError,
+		Error:      "thread start failed",
+		Metadata:   map[string]any{"req_id": 42},
+	})
+	server := newTestRPCServer(t, svc)
+
+	got := dispatchQuery(t, server, "observability/recent/list", json.RawMessage(`{"limit":5,"status":"error","component":"frontend","keyword":"thread/start","includeTail":false}`))
+
+	if got.Source != platformobs.QuerySourceMemory || len(got.Events) != 1 {
+		t.Fatalf("recent response = %+v", got)
+	}
+	event := got.Events[0]
+	if event.TraceID != "trace-2" || event.Method != "thread/start" || event.Status != platformobs.StatusError {
+		t.Fatalf("recent event = %+v", event)
+	}
+	if got.Errors[0].Method != "thread/start" || got.TotalDurationMS != 33 {
+		t.Fatalf("recent summary = %+v", got)
+	}
+}
+
+func TestRecentListRPCSuppressesInternalLifecycleNoiseByDefault(t *testing.T) {
+	svc := newRecordingService(&recordingSink{})
+	base := time.Date(2026, 6, 2, 0, 0, 0, 0, time.UTC)
+	recordTrace(t, svc, platformobs.TraceEvent{
+		Timestamp:  base,
+		TraceID:    "trace-request",
+		SpanID:     "span-request",
+		Kind:       "frontend",
+		Phase:      "frontend.rpc.done",
+		Method:     "thread/start",
+		DurationMS: 18,
+		Status:     platformobs.StatusOK,
+	})
+	recordTrace(t, svc, platformobs.TraceEvent{
+		Timestamp:  base.Add(time.Millisecond),
+		TraceID:    "trace-lifecycle",
+		SpanID:     "span-lifecycle",
+		Kind:       "bus",
+		Phase:      "bus.event.lifecycle",
+		Method:     "bus.event.lifecycle",
+		DurationMS: 0,
+		Status:     platformobs.StatusOK,
+	})
+	recordTrace(t, svc, platformobs.TraceEvent{
+		Timestamp:  base.Add(2 * time.Millisecond),
+		TraceID:    "trace-patch",
+		SpanID:     "span-patch",
+		Kind:       "uistate",
+		Phase:      "uistate.patch.emit",
+		Method:     "uistate.patch.emit",
+		DurationMS: 0,
+		Status:     platformobs.StatusError,
+	})
+	server := newTestRPCServer(t, svc)
+
+	got := dispatchQuery(t, server, "observability/recent/list", json.RawMessage(`{"limit":10,"includeTail":false}`))
+
+	if len(got.Events) != 1 || got.Events[0].TraceID != "trace-request" {
+		t.Fatalf("recent events = %+v, want only user request event", got.Events)
+	}
+
+	lifecycle := dispatchQuery(t, server, "observability/recent/list", json.RawMessage(`{"limit":10,"keyword":"lifecycle","includeTail":false}`))
+	if len(lifecycle.Events) != 1 || lifecycle.Events[0].TraceID != "trace-lifecycle" {
+		t.Fatalf("explicit lifecycle search = %+v, want lifecycle event", lifecycle.Events)
+	}
+}
+
+func TestRecentListRPCLimitCountsTraceRowsAfterFiltering(t *testing.T) {
+	base := time.Date(2026, 6, 2, 0, 0, 0, 0, time.UTC)
+	var seenTailLimit int
+	tail := platformobs.QueryTailReaderFunc(func(_ context.Context, query platformobs.Query) (platformobs.QueryResult, error) {
+		seenTailLimit = query.Limit
+		events := make([]platformobs.TraceEvent, 0, 120)
+		for trace := 0; trace < 60; trace++ {
+			for span := 0; span < 2; span++ {
+				events = append(events, platformobs.TraceEvent{
+					Timestamp: base.Add(time.Duration(trace*10+span) * time.Millisecond),
+					TraceID:   fmt.Sprintf("trace-%02d", trace),
+					SpanID:    fmt.Sprintf("span-%02d-%d", trace, span),
+					Kind:      "frontend",
+					Phase:     "frontend.rpc.done",
+					Method:    "ui/sidebar/get",
+					Status:    platformobs.StatusOK,
+				})
+			}
+		}
+		return platformobs.QueryResult{Source: platformobs.QuerySourceJSONLTail, Events: events}, nil
+	})
+	svc := platformobs.NewService(testTraceConfig(), platformobs.WithTailReader(tail))
+	server := newTestRPCServer(t, svc)
+
+	got := dispatchQuery(t, server, "observability/recent/list", json.RawMessage(`{"limit":50}`))
+
+	if seenTailLimit < 2500 {
+		t.Fatalf("tail query limit = %d, want expanded raw window for recent trace rows", seenTailLimit)
+	}
+	traces := make(map[string]struct{})
+	for _, event := range got.Events {
+		traces[event.TraceID] = struct{}{}
+	}
+	if len(traces) != 50 {
+		t.Fatalf("recent trace rows = %d from %d events, want 50 traces", len(traces), len(got.Events))
+	}
+	if _, ok := traces["trace-10"]; !ok {
+		t.Fatalf("oldest selected trace missing; selected=%v", traces)
+	}
+	if _, ok := traces["trace-09"]; ok {
+		t.Fatalf("response included more than the latest 50 traces; selected=%v", traces)
 	}
 }
 
