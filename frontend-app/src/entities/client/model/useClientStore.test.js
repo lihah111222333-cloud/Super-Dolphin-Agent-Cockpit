@@ -1076,7 +1076,7 @@ function registerBridgeEventHandlersForTest() {
     ]);
   });
 
-  it('loads every selected thread message page when history exceeds the backend page size', async () => {
+  it('applies the selected thread first message page without waiting for older history', async () => {
     resetClientStoreForTests({
       cwd: '/repo/app',
       activeProject: '/repo/app',
@@ -1097,18 +1097,145 @@ function registerBridgeEventHandlersForTest() {
         createdAt: new Date(Date.UTC(2026, 4, 30, 0, id, 0)).toISOString(),
       };
     });
-    backend.getThreadMessages
-      .mockResolvedValueOnce({ messages: messages.slice(1).reverse(), total: 301 })
-      .mockResolvedValueOnce({ messages: [messages[0]], total: 301 });
+    backend.getThreadMessages.mockResolvedValueOnce({
+      messages: messages.slice(1).reverse(),
+      total: 301,
+      hasMore: true,
+      nextBefore: '2',
+    });
 
     await useClientStore.getState().syncThreadState('thread-1');
 
     expect(backend.getThreadMessages).toHaveBeenNthCalledWith(1, { threadId: 'thread-1', limit: 300 });
-    expect(backend.getThreadMessages).toHaveBeenNthCalledWith(2, { threadId: 'thread-1', limit: 300, before: '2' });
+    expect(backend.getThreadMessages).toHaveBeenCalledTimes(1);
     const timeline = useClientStore.getState().timelinesByThread['thread-1'];
-    expect(timeline).toHaveLength(301);
-    expect(timeline[0]).toEqual(expect.objectContaining({ id: '1', text: 'message 1' }));
-    expect(timeline[300]).toEqual(expect.objectContaining({ id: '301', text: 'message 301' }));
+    expect(timeline).toHaveLength(300);
+    expect(timeline[0]).toEqual(expect.objectContaining({ id: '2', text: 'message 2' }));
+    expect(timeline[299]).toEqual(expect.objectContaining({ id: '301', text: 'message 301' }));
+    expect(useClientStore.getState().threadMessagePaginationByThread['thread-1']).toEqual(expect.objectContaining({
+      hasMore: true,
+      nextBefore: '2',
+      loading: false,
+    }));
+    expect(backend.emitFrontendTraceEvent).toHaveBeenCalledWith(expect.objectContaining({
+      phase: 'frontend.thread_history.initial_page.load',
+      thread_id: 'thread-1',
+      page_size: 300,
+      message_count: 300,
+      has_more: true,
+      next_before: 'present',
+      status: 'ok',
+    }));
+    expect(JSON.stringify(backend.emitFrontendTraceEvent.mock.calls.at(-1)[0])).not.toContain('message 301');
+  });
+
+  it('loads older thread messages on demand with backend pagination cursors', async () => {
+    resetClientStoreForTests({
+      cwd: '/repo/app',
+      activeProject: '/repo/app',
+      activeThreadId: 'thread-1',
+      threads: [{ id: 'thread-1', name: 'Existing', provider: 'codex', status: 'idle' }],
+    });
+    backend.getThreadState.mockResolvedValueOnce({
+      activeThreadId: 'thread-1',
+      threads: [{ id: 'thread-1', name: 'Existing', provider: 'codex', status: 'idle' }],
+      timelinesByThread: {},
+    });
+    backend.getThreadMessages
+      .mockResolvedValueOnce({
+        messages: [
+          { id: '3', role: 'assistant', content: 'new reply', createdAt: '2026-05-30T00:03:00Z' },
+          { id: '2', role: 'user', content: 'new prompt', createdAt: '2026-05-30T00:02:00Z' },
+        ],
+        hasMore: true,
+        nextBefore: '2',
+      })
+      .mockResolvedValueOnce({
+        messages: [
+          { id: '1', role: 'user', content: 'old prompt', createdAt: '2026-05-30T00:01:00Z' },
+        ],
+        hasMore: false,
+        nextBefore: '',
+      });
+
+    await useClientStore.getState().syncThreadState('thread-1');
+    await expect(useClientStore.getState().loadOlderThreadMessages('thread-1')).resolves.toBe(true);
+
+    expect(backend.getThreadMessages).toHaveBeenNthCalledWith(2, {
+      threadId: 'thread-1',
+      limit: 300,
+      before: '2',
+    });
+    expect(useClientStore.getState().timelinesByThread['thread-1'].map((message) => message.text)).toEqual([
+      'old prompt',
+      'new prompt',
+      'new reply',
+    ]);
+    expect(useClientStore.getState().threadMessagePaginationByThread['thread-1']).toEqual(expect.objectContaining({
+      hasMore: false,
+      nextBefore: '',
+      loading: false,
+    }));
+  });
+
+  it('treats string zero hasMore as false for thread message pagination', async () => {
+    resetClientStoreForTests({
+      cwd: '/repo/app',
+      activeProject: '/repo/app',
+      activeThreadId: 'thread-1',
+      threads: [{ id: 'thread-1', name: 'Existing', provider: 'codex', status: 'idle' }],
+    });
+    backend.getThreadState.mockResolvedValueOnce({
+      activeThreadId: 'thread-1',
+      threads: [{ id: 'thread-1', name: 'Existing', provider: 'codex', status: 'idle' }],
+      timelinesByThread: {},
+    });
+    backend.getThreadMessages.mockResolvedValueOnce({
+      messages: [
+        { id: '2', role: 'assistant', content: 'reply', createdAt: '2026-05-30T00:02:00Z' },
+      ],
+      hasMore: '0',
+      nextBefore: '2',
+    });
+
+    await useClientStore.getState().syncThreadState('thread-1');
+
+    expect(useClientStore.getState().threadMessagePaginationByThread['thread-1']).toEqual(expect.objectContaining({
+      hasMore: false,
+      nextBefore: '',
+      loading: false,
+    }));
+  });
+
+  it('does not invent an older-message cursor when backend hasMore is true without nextBefore', async () => {
+    resetClientStoreForTests({
+      cwd: '/repo/app',
+      activeProject: '/repo/app',
+      activeThreadId: 'thread-1',
+      threads: [{ id: 'thread-1', name: 'Existing', provider: 'codex', status: 'idle' }],
+    });
+    backend.getThreadState.mockResolvedValueOnce({
+      activeThreadId: 'thread-1',
+      threads: [{ id: 'thread-1', name: 'Existing', provider: 'codex', status: 'idle' }],
+      timelinesByThread: {},
+    });
+    backend.getThreadMessages.mockResolvedValueOnce({
+      messages: [
+        { id: '2', role: 'assistant', content: 'reply', createdAt: '2026-05-30T00:02:00Z' },
+      ],
+      hasMore: true,
+    });
+
+    await useClientStore.getState().syncThreadState('thread-1');
+    await expect(useClientStore.getState().loadOlderThreadMessages('thread-1')).resolves.toBe(false);
+
+    expect(backend.getThreadMessages).toHaveBeenCalledTimes(1);
+    expect(useClientStore.getState().warningEntries).toEqual([
+      expect.objectContaining({
+        event: 'thread.messages.pagination.missing_cursor',
+        threadId: 'thread-1',
+      }),
+    ]);
   });
 
   it('keeps thread/state assistant text when thread/messages later returns empty assistant rows', async () => {
@@ -1927,6 +2054,200 @@ function registerBridgeEventHandlersForTest() {
       expect.objectContaining({ text: 'loaded prompt' }),
       expect.objectContaining({ text: 'snapshot reply' }),
     ]);
+  });
+
+  it('applies the first message page before a slower thread snapshot returns', async () => {
+    const snapshot = deferred();
+    backend.getThreadState.mockReturnValue(snapshot.promise);
+    backend.getThreadMessages.mockResolvedValue({
+      messages: [{ id: 'message-user', role: 'user', content: 'loaded prompt', createdAt: '2026-05-30T00:00:00Z' }],
+      hasMore: false,
+      nextBefore: '',
+    });
+    resetClientStoreForTests({
+      cwd: '/repo/app',
+      activeProject: '/repo/app',
+      activeThreadId: 'thread-1',
+      threads: [{ id: 'thread-1', name: 'Existing', provider: 'codex', status: 'running' }],
+    });
+
+    const sync = useClientStore.getState().syncThreadState('thread-1');
+    await vi.waitFor(() => expect(useClientStore.getState().timelinesByThread['thread-1']).toEqual([
+      expect.objectContaining({ text: 'loaded prompt' }),
+    ]));
+
+    snapshot.resolve({
+      activeThreadId: 'thread-1',
+      threads: [{ id: 'thread-1', name: 'Synced name', provider: 'codex', status: 'idle' }],
+      timelinesByThread: {},
+    });
+    await expect(sync).resolves.toBe(true);
+    expect(useClientStore.getState().timelinesByThread['thread-1']).toEqual([
+      expect.objectContaining({ text: 'loaded prompt' }),
+    ]);
+  });
+
+  it('keeps trusted cached messages visible while a refresh message page is loading', async () => {
+    const snapshot = deferred();
+    const messages = deferred();
+    backend.getThreadState.mockReturnValue(snapshot.promise);
+    backend.getThreadMessages.mockReturnValue(messages.promise);
+    resetClientStoreForTests({
+      cwd: '/repo/app',
+      activeProject: '/repo/app',
+      activeThreadId: 'thread-1',
+      threads: [{ id: 'thread-1', name: 'Existing', provider: 'codex', status: 'running' }],
+      timelinesByThread: {
+        'thread-1': [{ id: 'cached-user', role: 'user', text: 'cached prompt', time: '2026-05-30T00:00:00Z' }],
+      },
+      threadTimelineReadyByThread: { 'thread-1': true },
+    });
+
+    const sync = useClientStore.getState().syncThreadState('thread-1');
+    await vi.waitFor(() => expect(backend.getThreadMessages).toHaveBeenCalled());
+    expect(useClientStore.getState().timelinesByThread['thread-1']).toEqual([
+      expect.objectContaining({ text: 'cached prompt' }),
+    ]);
+
+    messages.resolve({ messages: [], hasMore: false, nextBefore: '' });
+    snapshot.resolve({
+      activeThreadId: 'thread-1',
+      threads: [{ id: 'thread-1', name: 'Existing', provider: 'codex', status: 'idle' }],
+      timelinesByThread: {},
+    });
+
+    await expect(sync).resolves.toBe(true);
+    expect(useClientStore.getState().timelinesByThread['thread-1']).toEqual([
+      expect.objectContaining({ text: 'cached prompt' }),
+    ]);
+  });
+
+  it('ignores stale message pages and loading cleanup from older same-thread requests', async () => {
+    const firstSnapshot = deferred();
+    const secondSnapshot = deferred();
+    const firstMessages = deferred();
+    const secondMessages = deferred();
+    backend.getThreadState
+      .mockReturnValueOnce(firstSnapshot.promise)
+      .mockReturnValueOnce(secondSnapshot.promise);
+    backend.getThreadMessages
+      .mockReturnValueOnce(firstMessages.promise)
+      .mockReturnValueOnce(secondMessages.promise);
+    resetClientStoreForTests({
+      cwd: '/repo/app',
+      activeProject: '/repo/app',
+      activeThreadId: 'thread-1',
+      threads: [{ id: 'thread-1', name: 'Existing', provider: 'codex', status: 'running' }],
+    });
+
+    const firstSync = useClientStore.getState().syncThreadState('thread-1');
+    await vi.waitFor(() => expect(backend.getThreadMessages).toHaveBeenCalledTimes(1));
+    const secondSync = useClientStore.getState().syncThreadState('thread-1');
+    await vi.waitFor(() => expect(backend.getThreadMessages).toHaveBeenCalledTimes(2));
+
+    secondMessages.resolve({
+      messages: [{ id: 'fresh', role: 'user', content: 'fresh prompt', createdAt: '2026-05-30T00:02:00Z' }],
+      hasMore: false,
+      nextBefore: '',
+    });
+    await vi.waitFor(() => expect(useClientStore.getState().timelinesByThread['thread-1']).toEqual([
+      expect.objectContaining({ text: 'fresh prompt' }),
+    ]));
+    firstMessages.resolve({
+      messages: [{ id: 'stale', role: 'user', content: 'stale prompt', createdAt: '2026-05-30T00:01:00Z' }],
+      hasMore: true,
+      nextBefore: 'stale',
+    });
+    firstSnapshot.resolve({
+      activeThreadId: 'thread-1',
+      threads: [{ id: 'thread-1', name: 'Old snapshot', provider: 'codex', status: 'idle' }],
+      timelinesByThread: {},
+    });
+    secondSnapshot.resolve({
+      activeThreadId: 'thread-1',
+      threads: [{ id: 'thread-1', name: 'Fresh snapshot', provider: 'codex', status: 'idle' }],
+      timelinesByThread: {},
+    });
+
+    await expect(firstSync).resolves.toBe(true);
+    await expect(secondSync).resolves.toBe(true);
+    expect(useClientStore.getState().timelinesByThread['thread-1']).toEqual([
+      expect.objectContaining({ text: 'fresh prompt' }),
+    ]);
+    expect(useClientStore.getState().threadMessagePaginationByThread['thread-1']).toEqual(expect.objectContaining({
+      hasMore: false,
+      loading: false,
+    }));
+  });
+
+  it('ignores stale same-thread snapshots that resolve after a newer sync applied', async () => {
+    const firstSnapshot = deferred();
+    const secondSnapshot = deferred();
+    const firstMessages = deferred();
+    const secondMessages = deferred();
+    backend.getThreadState
+      .mockReturnValueOnce(firstSnapshot.promise)
+      .mockReturnValueOnce(secondSnapshot.promise);
+    backend.getThreadMessages
+      .mockReturnValueOnce(firstMessages.promise)
+      .mockReturnValueOnce(secondMessages.promise);
+    resetClientStoreForTests({
+      cwd: '/repo/app',
+      activeProject: '/repo/app',
+      activeThreadId: 'thread-1',
+      threads: [{ id: 'thread-1', name: 'Existing', provider: 'codex', status: 'running' }],
+    });
+
+    const firstSync = useClientStore.getState().syncThreadState('thread-1');
+    await vi.waitFor(() => expect(backend.getThreadState).toHaveBeenCalledTimes(1));
+    const secondSync = useClientStore.getState().syncThreadState('thread-1');
+    await vi.waitFor(() => expect(backend.getThreadState).toHaveBeenCalledTimes(2));
+
+    secondMessages.resolve({
+      messages: [{ id: 'fresh-message', role: 'user', content: 'fresh prompt', createdAt: '2026-05-30T00:02:00Z' }],
+      hasMore: false,
+      nextBefore: '',
+    });
+    secondSnapshot.resolve({
+      activeThreadId: 'thread-1',
+      threads: [{ id: 'thread-1', name: 'Fresh snapshot', provider: 'codex', status: 'idle' }],
+      timelinesByThread: {
+        'thread-1': [{ id: 'fresh-snapshot', kind: 'assistant', text: 'fresh snapshot reply' }],
+      },
+      diffText: 'fresh diff',
+    });
+    await vi.waitFor(() => expect(useClientStore.getState().threads[0]).toEqual(expect.objectContaining({
+      name: 'Fresh snapshot',
+      status: 'idle',
+    })));
+
+    firstMessages.resolve({
+      messages: [{ id: 'stale-message', role: 'user', content: 'stale prompt', createdAt: '2026-05-30T00:01:00Z' }],
+      hasMore: true,
+      nextBefore: 'stale',
+    });
+    firstSnapshot.resolve({
+      activeThreadId: 'thread-1',
+      threads: [{ id: 'thread-1', name: 'Old snapshot', provider: 'codex', status: 'running' }],
+      timelinesByThread: {
+        'thread-1': [{ id: 'old-snapshot', kind: 'assistant', text: 'old snapshot reply' }],
+      },
+      diffText: 'old diff',
+    });
+
+    await expect(firstSync).resolves.toBe(true);
+    await expect(secondSync).resolves.toBe(true);
+    const state = useClientStore.getState();
+    expect(state.threads[0]).toEqual(expect.objectContaining({
+      name: 'Fresh snapshot',
+      status: 'idle',
+    }));
+    expect(state.timelinesByThread['thread-1'].map((message) => message.text)).toEqual([
+      'fresh prompt',
+      'fresh snapshot reply',
+    ]);
+    expect(state.diffTextByThread['thread-1']).toBe('fresh diff');
+    expect(state.threadStateLoadingByThread['thread-1']).toBe(false);
   });
 
   it('applies runtime agent message delta and completion events to the timeline', () => {
