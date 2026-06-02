@@ -1,7 +1,6 @@
-import { describe, expect, it, vi } from 'vitest';
+import { expect, it, vi } from 'vitest';
 import { createBackendApi, emitFrontendTraceEvent, RPC_METHODS } from './backendApi.js';
 
-describe('frontend-app backend API facade', () => {
   it('exposes the dedicated frontend observability ingest RPC method name', () => {
     expect(RPC_METHODS.OBSERVABILITY_FRONTEND_INGEST).toBe('observability/frontend/ingest');
     expect(typeof emitFrontendTraceEvent).toBe('function');
@@ -384,117 +383,128 @@ describe('frontend-app backend API facade', () => {
   });
 
 
+async function callPromptFacadeMethods(api) {
+  await api.listPromptAssets({ cwd: '/repo/app' });
+  await api.getDashboardPrompts({ cwd: '/repo/app' });
+  await api.getPrompt({ cwd: '/repo/app', id: 'main/reviewer' });
+  await api.writePrompt({
+    cwd: '/repo/app',
+    id: 'main/reviewer',
+    name: '代码审查专家',
+    description: '审查代码质量',
+    agentType: 'coder',
+    when_to_use: 'Use for code review.',
+    content: '先检查阻塞问题',
+    tags: ['review'],
+    enabled: true,
+    scope: 'global',
+    priority: 5,
+  });
+  await api.deletePrompt({ cwd: '/repo/app', id: 'main/reviewer', scope: 'global' });
+  await api.draftPromptIntent({
+    cwd: '/repo/app',
+    kind: 'expert',
+    rawInput: '当用户要求代码审查时使用。',
+    sourceType: 'user_input',
+    scope: 'project',
+    provider: 'codex',
+    model: 'gpt-5.5',
+    codexModelProvider: 'openrouter',
+  });
+  await api.commitPromptIntent({ cwd: '/repo/app', draftKey: 'intent/expert/review' });
+  await api.draftPromptIntent({
+    cwd: '/repo/app',
+    kind: 'expert',
+    rawInput: '全局使用这条提示词。',
+    scope: 'global',
+  });
+  await api.commitPromptIntent({ cwd: '/repo/app', draftKey: 'intent/expert/global', scope: 'global' });
+  await api.discardPromptIntent({ cwd: '/repo/app', draft_key: 'intent/expert/review' });
+  await api.dryRunPromptIntent({
+    cwd: '/repo/app',
+    draftKey: 'intent/expert/review',
+    kind: 'expert',
+    card: { title: '代码审查专家' },
+    question: '帮我审查这段代码',
+  });
+}
+
+function expectPromptFacadeCalls(callAPI) {
+  expect(callAPI).toHaveBeenCalledWith(RPC_METHODS.PROMPT_ASSETS_LIST, { cwd: '/repo/app' });
+  expect(callAPI).toHaveBeenCalledWith(RPC_METHODS.DASHBOARD_PROMPTS, { cwd: '/repo/app' });
+  expect(callAPI).toHaveBeenCalledWith(RPC_METHODS.PROMPTS_GET, { cwd: '/repo/app', id: 'main/reviewer' });
+  expect(callAPI).toHaveBeenCalledWith(RPC_METHODS.PROMPTS_WRITE, {
+    cwd: '/repo/app',
+    id: 'main/reviewer',
+    name: '代码审查专家',
+    description: '审查代码质量',
+    agentType: 'coder',
+    when_to_use: 'Use for code review.',
+    content: '先检查阻塞问题',
+    tags: ['review'],
+    enabled: true,
+    scope: 'global',
+    priority: 5,
+  });
+  expect(callAPI).toHaveBeenCalledWith(RPC_METHODS.PROMPTS_DELETE, {
+    cwd: '/repo/app',
+    id: 'main/reviewer',
+    scope: 'global',
+  });
+  expect(callAPI).toHaveBeenCalledWith(RPC_METHODS.PROMPT_INTENTS_DRAFT, {
+    cwd: '/repo/app',
+    kind: 'expert',
+    raw_input: '当用户要求代码审查时使用。',
+    source_type: 'user_input',
+    provider: 'codex',
+    model: 'gpt-5.5',
+    model_provider: 'openrouter',
+  });
+  expect(callAPI).toHaveBeenCalledWith(RPC_METHODS.PROMPT_INTENTS_COMMIT, {
+    cwd: '/repo/app',
+    draft_key: 'intent/expert/review',
+  });
+  expect(callAPI).toHaveBeenCalledWith(RPC_METHODS.PROMPT_INTENTS_DRAFT, {
+    cwd: '/repo/app',
+    kind: 'expert',
+    raw_input: '全局使用这条提示词。',
+    source_type: 'user_input',
+    enable_global: true,
+  });
+  expect(callAPI).toHaveBeenCalledWith(RPC_METHODS.PROMPT_INTENTS_COMMIT, {
+    cwd: '/repo/app',
+    draft_key: 'intent/expert/global',
+    enable_global: true,
+  });
+  expect(callAPI).toHaveBeenCalledWith(RPC_METHODS.PROMPT_INTENTS_DISCARD, {
+    cwd: '/repo/app',
+    draft_key: 'intent/expert/review',
+  });
+  expect(callAPI).toHaveBeenCalledWith(RPC_METHODS.PROMPT_INTENTS_DRY_RUN, {
+    cwd: '/repo/app',
+    draft_key: 'intent/expert/review',
+    kind: 'expert',
+    card: { title: '代码审查专家' },
+    question: '帮我审查这段代码',
+  });
+}
+
+function expectPromptFacadeValidation(api) {
+  expect(() => api.listPromptAssets({ cwd: '' })).toThrow('cwd is required');
+  expect(() => api.getPrompt({ cwd: '/repo/app', id: '' })).toThrow('id is required');
+  expect(() => api.writePrompt({ cwd: '/repo/app', name: '' })).toThrow('name is required');
+  expect(() => api.commitPromptIntent({ cwd: '/repo/app', draftKey: '' })).toThrow('draft_key is required');
+  expect(() => api.dryRunPromptIntent({ cwd: '/repo/app', draftKey: 'd1', question: '' })).toThrow('question is required');
+}
+
   it('wraps prompt RPCs with legacy payload shapes', async () => {
     const callAPI = vi.fn().mockResolvedValue({ ok: true });
     const api = createBackendApi({ callAPI });
 
-    await api.listPromptAssets({ cwd: '/repo/app' });
-    await api.getDashboardPrompts({ cwd: '/repo/app' });
-    await api.getPrompt({ cwd: '/repo/app', id: 'main/reviewer' });
-    await api.writePrompt({
-      cwd: '/repo/app',
-      id: 'main/reviewer',
-      name: '代码审查专家',
-      description: '审查代码质量',
-      agentType: 'coder',
-      when_to_use: 'Use for code review.',
-      content: '先检查阻塞问题',
-      tags: ['review'],
-      enabled: true,
-      scope: 'global',
-      priority: 5,
-    });
-    await api.deletePrompt({ cwd: '/repo/app', id: 'main/reviewer', scope: 'global' });
-    await api.draftPromptIntent({
-      cwd: '/repo/app',
-      kind: 'expert',
-      rawInput: '当用户要求代码审查时使用。',
-      sourceType: 'user_input',
-      scope: 'project',
-      provider: 'codex',
-      model: 'gpt-5.5',
-      codexModelProvider: 'openrouter',
-    });
-    await api.commitPromptIntent({ cwd: '/repo/app', draftKey: 'intent/expert/review' });
-    await api.draftPromptIntent({
-      cwd: '/repo/app',
-      kind: 'expert',
-      rawInput: '全局使用这条提示词。',
-      scope: 'global',
-    });
-    await api.commitPromptIntent({ cwd: '/repo/app', draftKey: 'intent/expert/global', scope: 'global' });
-    await api.discardPromptIntent({ cwd: '/repo/app', draft_key: 'intent/expert/review' });
-    await api.dryRunPromptIntent({
-      cwd: '/repo/app',
-      draftKey: 'intent/expert/review',
-      kind: 'expert',
-      card: { title: '代码审查专家' },
-      question: '帮我审查这段代码',
-    });
+    await callPromptFacadeMethods(api);
 
-    expect(callAPI).toHaveBeenCalledWith(RPC_METHODS.PROMPT_ASSETS_LIST, { cwd: '/repo/app' });
-    expect(callAPI).toHaveBeenCalledWith(RPC_METHODS.DASHBOARD_PROMPTS, { cwd: '/repo/app' });
-    expect(callAPI).toHaveBeenCalledWith(RPC_METHODS.PROMPTS_GET, { cwd: '/repo/app', id: 'main/reviewer' });
-    expect(callAPI).toHaveBeenCalledWith(RPC_METHODS.PROMPTS_WRITE, {
-      cwd: '/repo/app',
-      id: 'main/reviewer',
-      name: '代码审查专家',
-      description: '审查代码质量',
-      agentType: 'coder',
-      when_to_use: 'Use for code review.',
-      content: '先检查阻塞问题',
-      tags: ['review'],
-      enabled: true,
-      scope: 'global',
-      priority: 5,
-    });
-    expect(callAPI).toHaveBeenCalledWith(RPC_METHODS.PROMPTS_DELETE, {
-      cwd: '/repo/app',
-      id: 'main/reviewer',
-      scope: 'global',
-    });
-    expect(callAPI).toHaveBeenCalledWith(RPC_METHODS.PROMPT_INTENTS_DRAFT, {
-      cwd: '/repo/app',
-      kind: 'expert',
-      raw_input: '当用户要求代码审查时使用。',
-      source_type: 'user_input',
-      provider: 'codex',
-      model: 'gpt-5.5',
-      model_provider: 'openrouter',
-    });
-    expect(callAPI).toHaveBeenCalledWith(RPC_METHODS.PROMPT_INTENTS_COMMIT, {
-      cwd: '/repo/app',
-      draft_key: 'intent/expert/review',
-    });
-    expect(callAPI).toHaveBeenCalledWith(RPC_METHODS.PROMPT_INTENTS_DRAFT, {
-      cwd: '/repo/app',
-      kind: 'expert',
-      raw_input: '全局使用这条提示词。',
-      source_type: 'user_input',
-      enable_global: true,
-    });
-    expect(callAPI).toHaveBeenCalledWith(RPC_METHODS.PROMPT_INTENTS_COMMIT, {
-      cwd: '/repo/app',
-      draft_key: 'intent/expert/global',
-      enable_global: true,
-    });
-    expect(callAPI).toHaveBeenCalledWith(RPC_METHODS.PROMPT_INTENTS_DISCARD, {
-      cwd: '/repo/app',
-      draft_key: 'intent/expert/review',
-    });
-    expect(callAPI).toHaveBeenCalledWith(RPC_METHODS.PROMPT_INTENTS_DRY_RUN, {
-      cwd: '/repo/app',
-      draft_key: 'intent/expert/review',
-      kind: 'expert',
-      card: { title: '代码审查专家' },
-      question: '帮我审查这段代码',
-    });
-
-    expect(() => api.listPromptAssets({ cwd: '' })).toThrow('cwd is required');
-    expect(() => api.getPrompt({ cwd: '/repo/app', id: '' })).toThrow('id is required');
-    expect(() => api.writePrompt({ cwd: '/repo/app', name: '' })).toThrow('name is required');
-    expect(() => api.commitPromptIntent({ cwd: '/repo/app', draftKey: '' })).toThrow('draft_key is required');
-    expect(() => api.dryRunPromptIntent({ cwd: '/repo/app', draftKey: 'd1', question: '' })).toThrow('question is required');
+    expectPromptFacadeCalls(callAPI);
+    expectPromptFacadeValidation(api);
   });
 
   it('wraps memory center RPCs with the legacy payload shapes', async () => {
@@ -574,4 +584,3 @@ describe('frontend-app backend API facade', () => {
     expect(() => api.readSharedFile({ path: '' })).toThrow('path is required');
     expect(() => api.deleteSharedFile({ path: '' })).toThrow('path is required');
   });
-});

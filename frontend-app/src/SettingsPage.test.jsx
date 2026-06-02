@@ -35,68 +35,85 @@ Object.defineProperty(navigator, 'clipboard', {
   writable: true,
 });
 
-describe('SettingsPage connected integration tests', () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-    mockClipboardWriteText.mockReset();
+const builtInTools = [
+  { id: 'tool-1', label: 'File Search', description: 'Search workspace files', enabled: true, provider: 'claude', filterMode: 'hard' },
+  { id: 'tool-2', label: 'Command Exec', description: 'Run terminal commands', enabled: false, provider: 'codex', filterMode: 'soft' },
+];
 
-    resetClientStoreForTests({
-      bootstrapStatus: 'ready',
-      cwd: '/repo/app',
-      activeProject: '/repo/app',
-      activePage: 'settings',
-      logLevel: 'info',
-      logEntries: [],
-    });
+const enabledBuiltInTools = [
+  { id: 'tool-1', label: 'File Search', description: 'Search workspace files', enabled: true, provider: 'claude', filterMode: 'hard' },
+  { id: 'tool-2', label: 'Command Exec', description: 'Run terminal commands', enabled: true, provider: 'codex', filterMode: 'soft' },
+];
 
-    backend.readConfig.mockResolvedValue({ cwd: '/repo/app' });
-    backend.getWindowBootstrap.mockResolvedValue({ ok: true });
-    backend.getProjects.mockResolvedValue({ projects: ['/repo/app'], active: '/repo/app' });
-    backend.getSidebarState.mockResolvedValue({ threads: [], activeThreadId: '' });
-    backend.getMemorySnapshot.mockResolvedValue({
-      overview: {
-        enabled: true,
-        autoDreamEnabled: false,
-        autoDreamIntent: null,
-        projectRoot: '/repo/app',
-        health: { preferenceCount: 0, projectCount: 0, maxPerCategory: 15, similarGroups: [] },
-      },
-      private: { entries: [] },
-      team: { entries: [] },
-    });
-
-    // Default mock preference responses
-    backend.getPreference.mockImplementation(({ key }) => {
-      if (key === 'settings.provider.codex.summary') return Promise.resolve('concise');
-      if (key === 'settings.provider.codex.approvalPolicy') return Promise.resolve('untrusted');
-      if (key === 'settings.showInjectedPromptInChat') return Promise.resolve(true);
-      return Promise.resolve(null);
-    });
-
-    // Default mock prompt config responses
-    backend.callBackend.mockImplementation((method, _params) => {
-      if (method === 'config/read') {
-        return Promise.resolve({ cwd: '/repo/app' });
-      }
-      if (method === 'config/lspPromptHint/read') {
-        return Promise.resolve({
-          hint: 'effective prompt text',
-          defaultHint: 'default prompt text',
-          overrideHint: 'custom override text',
-          usingDefault: false,
-        });
-      }
-      if (method === 'config/builtinTools/read') {
-        return Promise.resolve({
-          tools: [
-            { id: 'tool-1', label: 'File Search', description: 'Search workspace files', enabled: true, provider: 'claude', filterMode: 'hard' },
-            { id: 'tool-2', label: 'Command Exec', description: 'Run terminal commands', enabled: false, provider: 'codex', filterMode: 'soft' },
-          ],
-        });
-      }
-      return Promise.resolve({});
-    });
+function resetSettingsStore() {
+  resetClientStoreForTests({
+    bootstrapStatus: 'ready',
+    cwd: '/repo/app',
+    activeProject: '/repo/app',
+    activePage: 'settings',
+    logLevel: 'info',
+    logEntries: [],
   });
+}
+
+function mockSettingsBootstrap() {
+  backend.readConfig.mockResolvedValue({ cwd: '/repo/app' });
+  backend.getWindowBootstrap.mockResolvedValue({ ok: true });
+  backend.getProjects.mockResolvedValue({ projects: ['/repo/app'], active: '/repo/app' });
+  backend.getSidebarState.mockResolvedValue({ threads: [], activeThreadId: '' });
+  backend.getMemorySnapshot.mockResolvedValue({
+    overview: {
+      enabled: true,
+      autoDreamEnabled: false,
+      autoDreamIntent: null,
+      projectRoot: '/repo/app',
+      health: { preferenceCount: 0, projectCount: 0, maxPerCategory: 15, similarGroups: [] },
+    },
+    private: { entries: [] },
+    team: { entries: [] },
+  });
+}
+
+function mockSettingsPreferences() {
+  backend.getPreference.mockImplementation(({ key }) => {
+    if (key === 'settings.provider.codex.summary') return Promise.resolve('concise');
+    if (key === 'settings.provider.codex.approvalPolicy') return Promise.resolve('untrusted');
+    if (key === 'settings.showInjectedPromptInChat') return Promise.resolve(true);
+    return Promise.resolve(null);
+  });
+}
+
+function mockSettingsConfigApi() {
+  backend.callBackend.mockImplementation((method, _params) => {
+    if (method === 'config/read') {
+      return Promise.resolve({ cwd: '/repo/app' });
+    }
+    if (method === 'config/lspPromptHint/read') {
+      return Promise.resolve({
+        hint: 'effective prompt text',
+        defaultHint: 'default prompt text',
+        overrideHint: 'custom override text',
+        usingDefault: false,
+      });
+    }
+    if (method === 'config/builtinTools/read') {
+      return Promise.resolve({ tools: builtInTools });
+    }
+    return Promise.resolve({});
+  });
+}
+
+function resetSettingsPageTestState() {
+  vi.clearAllMocks();
+  mockClipboardWriteText.mockReset();
+  resetSettingsStore();
+  mockSettingsBootstrap();
+  mockSettingsPreferences();
+  mockSettingsConfigApi();
+}
+
+describe('SettingsPage provider settings', () => {
+  beforeEach(resetSettingsPageTestState);
 
   it('renders preference settings cards and triggers save/refresh', async () => {
     render(<App skipBootstrap />);
@@ -126,6 +143,10 @@ describe('SettingsPage connected integration tests', () => {
       expect(screen.getByText('已保存：auto / never')).toHaveAttribute('role', 'status');
     });
   });
+});
+
+describe('SettingsPage prompt settings', () => {
+  beforeEach(resetSettingsPageTestState);
 
   it('loads prompt settings and executes prompt actions', async () => {
     render(<App skipBootstrap />);
@@ -196,6 +217,10 @@ describe('SettingsPage connected integration tests', () => {
       expect(screen.getByTestId('settings-lsp-prompt-notice')).toHaveAttribute('role', 'alert');
     });
   });
+});
+
+describe('SettingsPage built-in tool settings', () => {
+  beforeEach(resetSettingsPageTestState);
 
   it('handles model built-in capabilities accordion and tool toggles', async () => {
     render(<App skipBootstrap />);
@@ -226,12 +251,7 @@ describe('SettingsPage connected integration tests', () => {
     backend.callBackend.mockImplementation((method, params) => {
       if (method === 'config/builtinTools/write') {
         expect(params).toEqual({ cwd: '/repo/app', id: 'tool-2', enabled: true });
-        return Promise.resolve({
-          tools: [
-            { id: 'tool-1', label: 'File Search', description: 'Search workspace files', enabled: true, provider: 'claude', filterMode: 'hard' },
-            { id: 'tool-2', label: 'Command Exec', description: 'Run terminal commands', enabled: true, provider: 'codex', filterMode: 'soft' },
-          ],
-        });
+        return Promise.resolve({ tools: enabledBuiltInTools });
       }
       return Promise.resolve({});
     });
@@ -243,6 +263,10 @@ describe('SettingsPage connected integration tests', () => {
       expect(screen.getByTestId('settings-builtin-tools-notice')).toHaveAttribute('role', 'status');
     });
   });
+});
+
+describe('SettingsPage log settings', () => {
+  beforeEach(resetSettingsPageTestState);
 
   it('renders log entries from store and handles log level changes', async () => {
     render(<App skipBootstrap />);

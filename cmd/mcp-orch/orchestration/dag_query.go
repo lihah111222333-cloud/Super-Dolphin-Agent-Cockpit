@@ -300,19 +300,20 @@ func bumpDAGVersionTx(ctx context.Context, tx taskdag.DAGOpsStore, dagKey string
 }
 
 // enforceRunningDAGInvariants 是 F4.5 主体：在 DAG 状态为 running 或存在
-// running run 时拒绝任何会改写模板的 ApplyOps。runtime append 尚未闭环前，
-// running add_node 只写模板节点会让当前 run 看不到/调度不到新节点，因此也必须
-// fail-fast。
+// running run 时拒绝会改写节点结构的 ApplyOps。runtime append 尚未闭环前，
+// running add_node 只写模板节点会让当前 run 看不到/调度不到新节点，因此必须
+// fail-fast。update_dag 只改未来调度 / 展示元数据，当前 run 已持有 version
+// snapshot，不需要阻断。
 //
 // 设计取舍：
-//   - update_dag / add_node / update_node / remove_node 在 draft 下合法，但 running 下
-//     必须显式拒绝。
+//   - add_node / update_node / remove_node 在 draft 下合法，但 running 下必须显式拒绝。
+//   - update_dag 允许在 active run 存在时修改计划字段，避免 UI 无法暂停/修改未来调度。
 func enforceRunningDAGInvariants(dagStatus string, activeRuns int64, parts partitionedOps) error {
 	reason, running := runningDAGReason(dagStatus, activeRuns)
 	if !running {
 		return nil
 	}
-	return rejectMutableOpsInRunningDAG(reason, parts)
+	return rejectNodeOpsInRunningDAG(reason, parts)
 }
 
 func rejectTerminalDAGOps(dagStatus string) error {
@@ -334,12 +335,12 @@ func runningDAGReason(dagStatus string, activeRuns int64) (string, bool) {
 	return "", false
 }
 
-func rejectMutableOpsInRunningDAG(reason string, parts partitionedOps) error {
+func rejectNodeOpsInRunningDAG(reason string, parts partitionedOps) error {
 	for _, item := range []struct {
 		name string
 		ops  nodeexec.Ops
 	}{
-		{"update_dag", parts.dagUpdates}, {"add_node", parts.adds}, {"update_node", parts.updates}, {"remove_node", parts.removes},
+		{"add_node", parts.adds}, {"update_node", parts.updates}, {"remove_node", parts.removes},
 	} {
 		if len(item.ops) > 0 {
 			return fmt.Errorf("%w: %s, %s not allowed while runtime append is incomplete", ErrApplyOpsInvalid, reason, item.name)

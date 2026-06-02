@@ -69,6 +69,128 @@ function mediaDeclarationsFor(mediaParams, selector) {
   return matches;
 }
 
+const RAW_COLOR_VALUE = /#[0-9a-fA-F]{3,8}\b|rgba?\(/;
+
+function expectThemeTokenColors(selector, properties) {
+  const declarations = declarationsFor(selector);
+
+  for (const property of properties) {
+    expect(declarations[property], `${selector} ${property}`).toBeDefined();
+    expect(declarations[property], `${selector} ${property}`).not.toMatch(RAW_COLOR_VALUE);
+  }
+}
+
+const TOKEN_COLOR_RULES = [
+  ['.provider', ['color']],
+  ['.provider:hover', ['color']],
+  ['.provider.active', ['color']],
+  ['.provider-track', ['background']],
+  ['.provider.active .provider-track', ['background']],
+  ['.provider-thumb', ['background']],
+  ['.top-command .project-dropdown', ['background']],
+  ['.top-command .project-dropdown-row.selected', ['background']],
+  ['.top-command .project-dropdown-item:hover', ['background']],
+  ['.top-command .sidebar-toggle.active', ['border-color', 'background', 'color']],
+  ['.top-command .action-feedback', ['border', 'background', 'color']],
+  ['.top-command .action-feedback.success', ['border-color', 'background', 'color']],
+  ['.top-command .action-feedback.warning', ['border-color', 'background', 'color']],
+  ['.top-command .action-feedback.error', ['border-color', 'background', 'color']],
+  ['.thread-new-primary', ['border-color', 'color']],
+  ['.thread-archive-toggle.active', ['border-color', 'background', 'color']],
+  ['.thread-clean', ['border-color', 'color']],
+  ['.thread-name-input', ['border', 'background', 'color']],
+  ['.thread-name-input:focus', ['border-color', 'box-shadow']],
+  ['.thread-rename-save', ['border', 'background', 'color']],
+  ['.thread-archive', ['border', 'background', 'color']],
+  ['.thread-archive.active', ['border-color', 'background', 'color']],
+  ['.thread-pin', ['color']],
+  ['.thread-pin.active', ['border-color', 'background', 'color']],
+  ['.thread-pin-tooltip', ['border', 'background', 'color']],
+  ['.image-lightbox-backdrop', ['background']],
+  ['.message-markdown', ['color']],
+  ['.message.assistant .message-markdown', ['color']],
+  ['.message-markdown th', ['background']],
+  ['.message-markdown code', ['background']],
+  ['.message-markdown pre', ['background']],
+  ['.message-output', ['color']],
+  ['.message.assistant .message-output', ['color']],
+  ['.message-output pre', ['background']],
+  ['.message-output--json pre', ['border-left']],
+  ['.message-output--config pre', ['border-left']],
+  ['.message-output--log pre', ['border-left']],
+  ['.message-output--diff pre', ['border-left']],
+  ['.diff-line--meta', ['color', 'background']],
+  ['.diff-line--hunk', ['color', 'background']],
+  ['.diff-line--added', ['color', 'background']],
+  ['.diff-line--deleted', ['color', 'background']],
+  ['.work-status', ['border', 'background', 'color']],
+  ['.work-status--done', ['border-color']],
+  ['.work-status--warning', ['border-color']],
+  ['.work-status--error', ['border-color']],
+  ['.work-status code', ['border', 'background', 'color']],
+  ['.composer-card', ['background']],
+  ['.composer--floating .composer-card', ['border-color', 'background']],
+  ['.composer textarea:focus', ['border-color']],
+  ['.composer.drop-active', ['border-top-color']],
+  ['.composer.drop-active .composer-card', ['border-color', 'box-shadow']],
+  ['.composer-drop-hint', ['border', 'background', 'color']],
+  ['.composer button', ['background', 'color']],
+  ['.composer-model', ['background', 'color']],
+  ['.model-dropdown', ['background']],
+  ['.model-dropdown select', ['background', 'color']],
+  ['.model-inherit', ['border', 'background', 'color']],
+  ['.runtime-toolbar button', ['background', 'color']],
+  ['.score', ['background', 'color']],
+  ['.score.good', ['border-color', 'color']],
+  ['.score.bad', ['border-color', 'color']],
+  ['.diff-file-group', ['background']],
+  ['.diff-file-header', ['background']],
+  ['.diff-line.add', ['background']],
+  ['.diff-line.del', ['background']],
+  ['.diff-line.hunk', ['background']],
+  ['.runtime-activity-panel', ['background']],
+  ['.runtime-stat-tooltip', ['border', 'background', 'color']],
+  ['.runtime-stat.stat-lsp', ['color']],
+  ['.runtime-stat.stat-json-render', ['color']],
+  ['.runtime-stat.stat-playwright', ['color']],
+  ['.runtime-stat.stat-go-run', ['color']],
+  ['.runtime-stat.stat-cmd', ['color']],
+  ['.runtime-stat.stat-file', ['color']],
+  ['.runtime-stat.stat-tool', ['color']],
+  ['.warning-log-popover', ['border', 'background', 'color']],
+  ['.warning-log-popover code', ['color']],
+  ['.skill-card header span', ['border', 'color']],
+  ['.skill-card .quote', ['background']],
+  ['.skill-card button', ['background', 'color']],
+  ['.modal-box button', ['background', 'color']],
+  ['.skills-subfiles button.active', ['border-color', 'color']],
+  ['.skills-body-field textarea', ['background', 'color']],
+  ['.file-row header span', ['border', 'color']],
+  ['.file-row.is-final-output', ['border-color']],
+  ['.file-row.is-final-output header span', ['border-color', 'color']],
+  ['.similar-alert', ['border', 'color']],
+  ['.similar-alert button', ['border-color', 'color']],
+  ['.memory-health-track', ['background']],
+  ['.memory-health-track.danger span', ['background']],
+  ['.memory-notice', ['color', 'background']],
+  ['.memory-notice.is-error', ['border-color', 'color']],
+  ['.memory-notice.is-warning', ['border-color', 'color']],
+  ['.memory-similar-item', ['border', 'background', 'color']],
+  ['.memory-similar-item button', ['background', 'color']],
+  ['.memory-card.type-project', ['border-left-color']],
+  ['.memory-form-grid label', ['color']],
+  ['.memory-form-grid input', ['background', 'color']],
+  ['.memory-editor-actions button', ['background', 'color']],
+  ['.prompt-tabs button', ['color', 'background']],
+  ['.prompt-tabs button.active', ['color', 'border-color', 'background']],
+  ['.prompt-badges span', ['color', 'background']],
+  ['.prompt-badges span.active', ['color', 'border-color']],
+  ['.sa-window[data-theme="light"] .message-markdown pre', ['background']],
+  ['.sa-window[data-theme="light"] .log-lines', ['background', 'color']],
+  ['.sa-window[data-theme="light"] .diff-file-lines', ['background']],
+  ['.modal-overlay', ['background']],
+];
+
 describe('composer layout styles', () => {
   it('does not draw a separator line between the composer textarea and controls', () => {
     const textarea = declarationsFor('.composer textarea');
@@ -137,7 +259,9 @@ describe('composer layout styles', () => {
     expect(logLine.overflow).toBe('hidden');
     expect(logLine['text-overflow']).toBe('ellipsis');
   });
+});
 
+describe('theme-aware component styles', () => {
   it('uses theme-aware colors for skill filter active buttons', () => {
     const active = declarationsFor('.skill-filter .active');
 
@@ -145,6 +269,24 @@ describe('composer layout styles', () => {
     expect(active.color).toBe('var(--text-pri)');
     expect(active['border-color']).toBe('var(--border-strong)');
     expect(active.background).not.toBe('#4d4f55');
+  });
+
+  it('keeps skill editor controls on theme token surfaces', () => {
+    const modalButton = declarationsFor('.skills-editor-modal button');
+    const scopeButton = declarationsFor('.skills-scope-segmented button');
+    const activeScopeButton = declarationsFor('.skills-scope-segmented button.active');
+    const bodyPreview = declarationsFor('.skills-body-preview');
+    const bodyPreviewHeading = declarationsFor('.skills-body-preview h3');
+
+    expect(modalButton.background).toBe('var(--surface-2)');
+    expect(modalButton.color).toBe('var(--text-pri)');
+    expect(scopeButton.background).toBe('var(--surface-2)');
+    expect(scopeButton.color).toBe('var(--text-sec)');
+    expect(activeScopeButton.background).toBe('color-mix(in srgb, var(--success) 12%, var(--surface))');
+    expect(activeScopeButton.color).toBe('var(--success)');
+    expect(bodyPreview.background).toBe('var(--surface-2)');
+    expect(bodyPreview.color).toBe('var(--text-sec)');
+    expect(bodyPreviewHeading.color).toBe('var(--text-pri)');
   });
 
   it('shows a readable generated-image fallback instead of a bare broken image icon', () => {
@@ -178,7 +320,7 @@ describe('composer layout styles', () => {
     const preview = declarationsFor('.mermaid-diagram-preview');
     const hint = declarationsFor('.mermaid-diagram-preview span');
     const lightboxSvg = declarationsFor('.mermaid-lightbox-svg');
-    const svg = declarationsFor('.mermaid-diagram svg');
+    const image = declarationsFor('.mermaid-diagram img');
 
     expect(diagram['max-width']).toBe('100%');
     expect(diagram.overflow).toBe('auto');
@@ -187,10 +329,12 @@ describe('composer layout styles', () => {
     expect(preview.background).toBe('transparent');
     expect(hint.opacity).toBe('0');
     expect(lightboxSvg.overflow).toBe('auto');
-    expect(svg.display).toBe('block');
-    expect(svg['max-width']).toBe('100%');
+    expect(image.display).toBe('block');
+    expect(image['max-width']).toBe('100%');
   });
+});
 
+describe('timeline content styles', () => {
   it('keeps observability system log cards from being flex-shrunk and clipped', () => {
     const systemLog = declarationsFor('.observability-system-log');
     const logTable = declarationsFor('.observability-log-table');
@@ -202,7 +346,9 @@ describe('composer layout styles', () => {
     expect(logTable.overflow).toBe('auto');
     expect(logHead['grid-template-columns']).toContain('minmax(168px');
   });
+});
 
+describe('reasoning trace styles', () => {
   it('styles AI reasoning traces with theme tokens and shrink-safe text', () => {
     const message = declarationsFor('.reasoning-message');
     const adjacentMessage = declarationsFor('.reasoning-message + .reasoning-message');
@@ -273,7 +419,9 @@ describe('composer layout styles', () => {
     expect(stepTitle['text-overflow']).toBe('ellipsis');
     expect(stepTitle['font-size']).toBe('14px');
   });
+});
 
+describe('assistant message styles', () => {
   it('keeps assistant message content compact instead of spanning the full timeline', () => {
     const message = declarationsFor('.message');
     const assistantBubble = declarationsFor('.message.assistant .bubble');
@@ -297,7 +445,9 @@ describe('composer layout styles', () => {
     expect(button.background).toBe('transparent');
     expect(copied.color).toBe('var(--success)');
   });
+});
 
+describe('conversation grid styles', () => {
   it('does not override the computed chat grid at medium widths', () => {
     const mediumChatLayouts = mediaDeclarationsFor('(max-width: 1280px)', '.chat-layout');
     const mediumRuntimePanels = mediaDeclarationsFor('(max-width: 1280px)', '.runtime-panel');
@@ -346,7 +496,9 @@ describe('composer layout styles', () => {
     expect(token['white-space']).toBe('nowrap');
     expect(token.overflow).toBe('visible');
   });
+});
 
+describe('conversation content column styles', () => {
   it('keeps timeline messages, status, and docked composer in one left-biased content column', () => {
     const conversation = declarationsFor('.conversation');
     const timeline = declarationsFor('.timeline');
@@ -411,12 +563,14 @@ describe('composer layout styles', () => {
 
     expect(floatingCard.background).toContain('var(--surface)');
     expect(floatingCard['border-color']).toContain('var(--border-strong)');
-    expect(floatingCard['box-shadow']).toContain('rgba(42, 54, 88, 0.14)');
+    expect(floatingCard['box-shadow']).toContain('var(--shadow)');
     expect(attach.background).toBe('color-mix(in srgb, var(--surface-2) 86%, var(--surface))');
     expect(permission.background).toBe('color-mix(in srgb, var(--surface-2) 86%, var(--surface))');
     expect(track.background).toBe('color-mix(in srgb, var(--surface-3) 72%, var(--border))');
   });
+});
 
+describe('composer control styles', () => {
   it('keeps the collapsed project selector short while allowing a wider project menu', () => {
     const select = declarationsFor('.top-command .project-select');
     const dropdown = declarationsFor('.top-command .project-dropdown');
@@ -476,7 +630,7 @@ describe('composer layout styles', () => {
     expect(composerProvider.background).toBe('transparent');
     expect(track.width).toBe('43px');
     expect(track.height).toBe('22px');
-    expect(track.background).toBe('#2a2a2b');
+    expect(track.background).toBe('var(--surface-3)');
     expect(thumb.width).toBe('16px');
     expect(thumb.height).toBe('16px');
     expect(label.width).toBe('52px');
@@ -502,7 +656,9 @@ describe('runtime activity panel styles', () => {
     expect(tooltip['max-height']).toBe('var(--runtime-stat-tooltip-max-height, min(280px, 42vh))');
     expect(Number(tooltip['z-index'])).toBeGreaterThan(Number(activity['z-index']));
   });
+});
 
+describe('runtime resize styles', () => {
   it('keeps resized runtime sidebar content visible instead of requiring horizontal scrolling', () => {
     const toolbar = declarationsFor('.runtime-toolbar');
     const toolbarButton = declarationsFor('.runtime-toolbar button');
@@ -593,7 +749,7 @@ describe('light theme baseline usability', () => {
     expect(assistantMarkdown.color).toBe('var(--text-sec)');
     expect(inlineCode.color).toBe('var(--text-pri)');
     expect(inlineCode.background).toBe('var(--surface-3)');
-    expect(codeBlock.background).toBe('#f8fafc');
+    expect(codeBlock.background).toBe('var(--surface-code)');
     expect(codeBlock.color).toBe('var(--text-pri)');
   });
 
@@ -606,12 +762,12 @@ describe('light theme baseline usability', () => {
 
     expect(activity.background).toBe('var(--surface)');
     expect(activity.color).toBe('var(--text-sec)');
-    expect(logs.background).toBe('#f8fafc');
+    expect(logs.background).toBe('var(--surface-code)');
     expect(logs.color).toBe('var(--text-sec)');
     expect(tooltip.background).toBe('var(--surface)');
     expect(tooltip.color).toBe('var(--text-pri)');
     expect(popoverCode.color).toBe('var(--text-sec)');
-    expect(diffLines.background).toBe('#f8fafc');
+    expect(diffLines.background).toBe('var(--surface-code)');
   });
 
   it('keeps light-mode runtime summary pills on matching surfaces', () => {
@@ -631,7 +787,9 @@ describe('light theme baseline usability', () => {
     expect(goodScore.background).toBe('color-mix(in srgb, var(--success) 9%, var(--surface))');
     expect(badScore.background).toBe('color-mix(in srgb, var(--error) 8%, var(--surface))');
   });
+});
 
+describe('light theme control surfaces', () => {
   it('keeps card actions consistent with light-mode controls', () => {
     const skillButton = declarationsFor('.sa-window[data-theme="light"] .skill-card button');
     const dangerButton = declarationsFor('.sa-window[data-theme="light"] .skill-card button.text-danger');
@@ -640,6 +798,24 @@ describe('light theme baseline usability', () => {
     expect(skillButton.color).toBe('var(--text-pri)');
     expect(dangerButton.background).toBe('color-mix(in srgb, var(--error) 8%, var(--surface))');
     expect(dangerButton.color).toBe('var(--error)');
+  });
+
+  it('keeps skill editor controls and preview readable in light mode', () => {
+    const modalButton = declarationsFor('.sa-window[data-theme="light"] .skills-editor-modal button');
+    const scopeButton = declarationsFor('.sa-window[data-theme="light"] .skills-scope-segmented button');
+    const activeScopeButton = declarationsFor('.sa-window[data-theme="light"] .skills-scope-segmented button.active');
+    const preview = declarationsFor('.sa-window[data-theme="light"] .skills-body-preview');
+    const previewHeading = declarationsFor('.sa-window[data-theme="light"] .skills-body-preview h3');
+
+    expect(modalButton.background).toBe('var(--surface-2)');
+    expect(modalButton.color).toBe('var(--text-pri)');
+    expect(scopeButton.background).toBe('var(--surface-2)');
+    expect(scopeButton.color).toBe('var(--text-sec)');
+    expect(activeScopeButton.background).toBe('color-mix(in srgb, var(--success) 12%, var(--surface))');
+    expect(activeScopeButton.color).toBe('var(--success)');
+    expect(preview.background).toBe('var(--surface-2)');
+    expect(preview.color).toBe('var(--text-sec)');
+    expect(previewHeading.color).toBe('var(--text-pri)');
   });
 
   it('keeps chat action and composer controls on light-mode surfaces', () => {
@@ -727,7 +903,9 @@ describe('blue-purple theme contract', () => {
     expect(primaryDisabled.color).toBe('var(--text-muted)');
     expect(secondary.background).toBe('transparent');
   });
+});
 
+describe('blue-purple form and notice contract', () => {
   it('keeps focus and semantic notices visible without decorative glow', () => {
     const focus = declarationsFor(':where(button, input, textarea, select):focus-visible');
     const notice = declarationsFor('.settings-prompt-notice');
@@ -742,5 +920,37 @@ describe('blue-purple theme contract', () => {
     expect(declarationsFor('.settings-prompt-notice.is-warning').color).toBe('var(--warning)');
     expect(error.color).toBe('var(--error)');
     expect(status.color).toBe('var(--success)');
+  });
+
+  it('keeps prompt editor readonly previews on theme-aware form surfaces', () => {
+    const preview = declarationsFor('.prompt-editor-grid .prompt-preview-readonly');
+
+    expect(preview.background).toBe('color-mix(in srgb, var(--surface-2) 72%, var(--bg))');
+    expect(preview.color).toBe('var(--text-sec)');
+    expect(preview['border-color']).toBe('var(--border)');
+    expect(preview.cursor).toBe('default');
+  });
+});
+
+describe('theme token color coverage', () => {
+  it('keeps themeable component colors on tokens instead of raw color literals', () => {
+    for (const [selector, properties] of TOKEN_COLOR_RULES) {
+      expectThemeTokenColors(selector, properties);
+    }
+  });
+
+  it('does not hardcode raw colors outside theme token declarations', () => {
+    const violations = [];
+
+    root.walkDecls((declaration) => {
+      if (declaration.prop.startsWith('--')) return;
+      if (!RAW_COLOR_VALUE.test(declaration.value)) return;
+
+      violations.push(
+        `${declaration.source.start.line}: ${declaration.parent.selector} { ${declaration.prop}: ${declaration.value}; }`,
+      );
+    });
+
+    expect(violations).toEqual([]);
   });
 });

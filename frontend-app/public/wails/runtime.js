@@ -171,7 +171,7 @@ function ensureSocket() {
     };
 
     nextSocket.onmessage = (event) => {
-      readSocketText(event?.data)
+      void Promise.resolve(readSocketText(event?.data))
         .then(handleSocketText)
         .catch((error) => {
           // A malformed push frame must not break the bridge; keep the error
@@ -184,7 +184,7 @@ function ensureSocket() {
   return connectPromise;
 }
 
-async function readSocketText(data) {
+function readSocketText(data) {
   if (typeof data === 'string') return data;
   if (data == null) return '';
   if (typeof data.text === 'function') return data.text();
@@ -250,7 +250,8 @@ function emitEvent(eventName, data) {
   for (const callback of [...callbacks]) {
     try {
       callback(envelope);
-    } catch (error) {
+    }
+    catch (error) {
       console.warn(`[wails-dev-shim] ${eventName} callback failed`, error);
     }
   }
@@ -313,24 +314,33 @@ async function rpcCall(method, params = {}) {
   const timeoutMs = rpcTimeoutMs(methodName);
   return new Promise((resolve, reject) => {
     const callId = String(id);
-    const timer = setTimeout(() => {
-      if (pendingCalls.has(callId)) {
-        pendingCalls.delete(callId);
-        reject(new Error(`runtime shim: rpc call timeout (${timeoutMs / 1000}s) for ${methodName}`));
-      }
-    }, timeoutMs);
-    pendingCalls.set(callId, {
-      resolve: (value) => { clearTimeout(timer); resolve(value); },
-      reject: (error) => { clearTimeout(timer); reject(error); },
-    });
-    try {
-      activeSocket.send(JSON.stringify(request));
-    } catch (error) {
-      clearTimeout(timer);
-      pendingCalls.delete(callId);
-      reject(toError(error, 'runtime shim: websocket send failed'));
-    }
+    const timer = registerPendingCall(callId, methodName, timeoutMs, resolve, reject);
+    void sendRPCRequest(activeSocket, request, callId, timer, reject);
   });
+}
+
+function registerPendingCall(callId, methodName, timeoutMs, resolve, reject) {
+  const timer = setTimeout(() => {
+    if (!pendingCalls.has(callId)) return;
+    pendingCalls.delete(callId);
+    reject(new Error(`runtime shim: rpc call timeout (${timeoutMs / 1000}s) for ${methodName}`));
+  }, timeoutMs);
+  pendingCalls.set(callId, {
+    resolve: (value) => { clearTimeout(timer); resolve(value); },
+    reject: (error) => { clearTimeout(timer); reject(error); },
+  });
+  return timer;
+}
+
+function sendRPCRequest(activeSocket, request, callId, timer, reject) {
+  try {
+    void activeSocket.send(JSON.stringify(request));
+  }
+  catch (error) {
+    clearTimeout(timer);
+    pendingCalls.delete(callId);
+    reject(toError(error, 'runtime shim: websocket send failed'));
+  }
 }
 
 function normalizeListResult(raw) {
@@ -367,6 +377,15 @@ function stripFrontendTraceMetaPayload(value) {
   return changed ? cleaned : value;
 }
 
+function getBuildInfoFallback() {
+  const defaultBuildInfo = { version: 'dev' };
+  return (
+    rpcCall('ui/buildInfo', {})
+    .then((info) => (info && typeof info === 'object' ? info : {}))
+    .catch(() => defaultBuildInfo)
+  );
+}
+
 async function callByID(methodID, ...args) {
   const id = Number(methodID);
   switch (id) {
@@ -377,13 +396,7 @@ async function callByID(methodID, ...args) {
       return rpcCall(method, method === 'ui/log' ? stripFrontendTraceMetaPayload(payload) : stripFrontendMetaPayload(payload));
     }
     case METHOD_IDS.GET_BUILD_INFO: {
-      try {
-        const info = await rpcCall('ui/buildInfo', {});
-        return info && typeof info === 'object' ? info : {};
-      } catch (error) {
-        console.warn('[wails-dev-shim] ui/buildInfo failed', error);
-        return { version: 'dev' };
-      }
+      return getBuildInfoFallback();
     }
     case METHOD_IDS.SAVE_CLIPBOARD_IMAGE: {
       const base64Payload = (args[0] || '').toString();

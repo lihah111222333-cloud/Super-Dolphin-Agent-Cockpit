@@ -93,7 +93,7 @@ function resolveRuntimeModuleSpecifier() {
   return WAILS_RUNTIME_MODULE;
 }
 
-async function waitRuntime() {
+function waitRuntime() {
   if (!runtimePromise) {
     writeBridgeLog('info', 'bridge.runtime.load.start', {});
     runtimePromise = import(/* @vite-ignore */ resolveRuntimeModuleSpecifier())
@@ -113,15 +113,18 @@ async function waitRuntime() {
 }
 
 function parseRuntimeEventJSON(rawText) {
+  let parsed;
   try {
     if (typeof rawText === 'string') {
       const preparedText = rawText
         .replace(/:\s*(-?\d{16,21})\b/g, ':"$1"')
         .replace(/([[,]\s*)(-?\d{16,21})\b/g, '$1"$2"');
-      return JSON.parse(preparedText);
+      parsed = JSON.parse(preparedText);
+    } else {
+      parsed = JSON.parse(rawText);
     }
-    return JSON.parse(rawText);
-  } catch (error) {
+  }
+  catch (error) {
     writeBridgeLog('warn', 'api.json.parse.failed', {
       error,
       raw_len: rawText.length,
@@ -129,6 +132,7 @@ function parseRuntimeEventJSON(rawText) {
     });
     return {};
   }
+  return parsed;
 }
 
 export function normalizeRuntimeEventEnvelope(evt) {
@@ -158,7 +162,8 @@ function subscribeRuntimeEvent(eventName, callback, options = {}) {
         runtime.Events.Off(eventName);
         return true;
       }
-    } catch {
+    }
+    catch {
       // ignore
     }
     return false;
@@ -171,12 +176,13 @@ function subscribeRuntimeEvent(eventName, callback, options = {}) {
     }
     try {
       callback(normalized);
-    } catch (error) {
+    }
+    catch (error) {
       writeBridgeLog('error', options.callbackFailedLog || 'runtime.callback.failed', { error });
     }
   };
 
-  waitRuntime().then((runtime) => {
+  void waitRuntime().then((runtime) => {
     if (!runtime?.Events?.On) {
       writeBridgeLog('warn', options.subscribeUnavailableLog || 'runtime.subscribe.unavailable', { eventName });
       return;
@@ -190,6 +196,8 @@ function subscribeRuntimeEvent(eventName, callback, options = {}) {
       cancelled = true;
       teardown(runtime, unbind);
     };
+  }).catch((error) => {
+    writeBridgeLog('error', options.subscribeFailedLog || 'runtime.subscribe.failed', { eventName, error });
   });
 
   return () => {
@@ -240,7 +248,8 @@ function isFrontendTraceDebugEnabled() {
   if (window.__AO_FRONTEND_TRACE_DEBUG__ === true) return true;
   try {
     return window.localStorage?.getItem('observability.frontend.debug') === 'true';
-  } catch {
+  }
+  catch {
     return false;
   }
 }
@@ -340,12 +349,14 @@ async function flushFrontendTraceQueue() {
     if (runtime?.Call?.ByID) {
       await runtime.Call.ByID(METHOD_IDS.CALL_API, FRONTEND_TRACE_INGEST_METHOD, { events: batch });
     }
-  } catch (error) {
+  }
+  catch (error) {
     console.warn('[Bridge warn] frontend.trace.flush.failed', {
       error: error?.name || 'Error',
       count: batch.length,
     });
-  } finally {
+  }
+  finally {
     frontendTraceFlushInFlight = false;
     if (frontendTraceQueue.length > 0) scheduleFrontendTraceFlush();
   }
@@ -354,7 +365,11 @@ async function flushFrontendTraceQueue() {
 function scheduleFrontendTraceFlush() {
   if (frontendTraceFlushScheduled || frontendTraceFlushInFlight) return;
   frontendTraceFlushScheduled = true;
-  Promise.resolve().then(flushFrontendTraceQueue);
+  void Promise.resolve()
+    .then(flushFrontendTraceQueue)
+    .catch((error) => {
+      writeBridgeLog('error', 'frontend.trace.flush.schedule.failed', { error });
+    });
 }
 
 function enqueueFrontendTraceEvent(event) {
@@ -393,15 +408,11 @@ async function invokeRuntimeByID(methodID, args = [], options = {}) {
     throw new Error('Wails runtime bridge not ready');
   }
 
+  let result;
   try {
-    const result = await runtime.Call.ByID(methodID, ...args);
-    writeBridgeLog('debug', 'bridge.call.done', {
-      req_id: reqId,
-      method_id: methodID,
-      duration_ms: Date.now() - start,
-    });
-    return result;
-  } catch (error) {
+    result = await runtime.Call.ByID(methodID, ...args);
+  }
+  catch (error) {
     if (options.logFailure !== false) {
       writeBridgeLog('error', 'bridge.call.failed', {
         req_id: reqId,
@@ -412,16 +423,19 @@ async function invokeRuntimeByID(methodID, args = [], options = {}) {
     }
     throw error;
   }
+  writeBridgeLog('debug', 'bridge.call.done', {
+    req_id: reqId,
+    method_id: methodID,
+    duration_ms: Date.now() - start,
+  });
+  return result;
 }
 
-async function callByID(methodID, ...args) {
+function callByID(methodID, ...args) {
   return invokeRuntimeByID(methodID, args);
 }
 
-export async function callAPI(method, params = {}) {
-  const reqId = ++rpcRequestSeq;
-  const start = Date.now();
-
+function normalizeAPIMethod(method, reqId) {
   if (!method || typeof method !== 'string' || !method.trim()) {
     const error = new Error('callAPI method must be a non-empty string');
     writeBridgeLog('warn', 'api.rpc.invalid_method', {
@@ -430,7 +444,10 @@ export async function callAPI(method, params = {}) {
     });
     throw error;
   }
+  return method;
+}
 
+function normalizeAPIPayload(method, params, reqId) {
   const rawPayload = params == null ? {} : params;
   if (typeof rawPayload !== 'object' || Array.isArray(rawPayload)) {
     const error = new TypeError('callAPI params must be an object');
@@ -442,12 +459,19 @@ export async function callAPI(method, params = {}) {
     });
     throw error;
   }
+  return rawPayload;
+}
 
+function createAPITrace(method, reqId) {
   const { clientKind, clientRoute } = resolveClientMeta();
-  let trace;
   try {
-    trace = createTraceContext();
-  } catch (error) {
+    return {
+      clientKind,
+      clientRoute,
+      trace: createTraceContext(),
+    };
+  }
+  catch (error) {
     writeBridgeLog('error', 'api.rpc.trace_context_failed', {
       req_id: reqId,
       method,
@@ -455,7 +479,10 @@ export async function callAPI(method, params = {}) {
     });
     throw error;
   }
-  const payload = {
+}
+
+function buildAPIPayload(rawPayload, reqId, clientKind, clientRoute, trace) {
+  return {
     ...rawPayload,
     _aoClientKind: clientKind,
     _aoClientRoute: clientRoute,
@@ -464,7 +491,9 @@ export async function callAPI(method, params = {}) {
     _aoTraceId: trace.traceId,
     _aoSpanId: trace.spanId,
   };
+}
 
+function logAPIStart(reqId, method, payload, clientKind, clientRoute, trace) {
   writeBridgeLog('debug', 'api.rpc.start', {
     req_id: reqId,
     method,
@@ -485,63 +514,83 @@ export async function callAPI(method, params = {}) {
     status: 'ok',
     metadata: { req_id: reqId },
   }, { flush: false });
+}
 
+function logAPIDone(reqId, method, start, result, clientKind, clientRoute, trace) {
+  const durationMs = Date.now() - start;
+  writeBridgeLog('debug', 'api.rpc.done', {
+    req_id: reqId,
+    method,
+    client_kind: clientKind,
+    client_route: clientRoute,
+    trace_id: trace.traceId,
+    span_id: trace.spanId,
+    traceparent: trace.traceparent,
+    duration_ms: durationMs,
+    result_preview: compactBridgeValuePreview(result),
+  });
+  emitFrontendTraceEvent({
+    phase: 'frontend.rpc.done',
+    method,
+    trace_id: trace.traceId,
+    span_id: trace.spanId,
+    client_kind: clientKind,
+    client_route: clientRoute,
+    duration_ms: durationMs,
+    status: 'ok',
+    metadata: { req_id: reqId },
+  });
+}
+
+function logAPIFailed(reqId, method, start, error, clientKind, clientRoute, trace) {
+  const durationMs = Date.now() - start;
+  writeBridgeLog('error', 'api.rpc.failed', {
+    req_id: reqId,
+    method,
+    client_kind: clientKind,
+    client_route: clientRoute,
+    trace_id: trace.traceId,
+    span_id: trace.spanId,
+    traceparent: trace.traceparent,
+    duration_ms: durationMs,
+    error,
+  });
+  emitFrontendTraceEvent({
+    phase: 'frontend.rpc.failed',
+    method,
+    trace_id: trace.traceId,
+    span_id: trace.spanId,
+    client_kind: clientKind,
+    client_route: clientRoute,
+    duration_ms: durationMs,
+    status: 'error',
+    error: safeTraceErrorMessage(error),
+    metadata: { req_id: reqId },
+  });
+}
+
+export async function callAPI(method, params = {}) {
+  const reqId = ++rpcRequestSeq;
+  const start = Date.now();
+  const rpcMethod = normalizeAPIMethod(method, reqId);
+  const rawPayload = normalizeAPIPayload(rpcMethod, params, reqId);
+  const { clientKind, clientRoute, trace } = createAPITrace(rpcMethod, reqId);
+  const payload = buildAPIPayload(rawPayload, reqId, clientKind, clientRoute, trace);
+  logAPIStart(reqId, rpcMethod, payload, clientKind, clientRoute, trace);
+
+  let result;
   try {
-    const result = await invokeRuntimeByID(METHOD_IDS.CALL_API, [method, payload], {
+    result = await invokeRuntimeByID(METHOD_IDS.CALL_API, [rpcMethod, payload], {
       logFailure: false,
       logRuntimeUnavailable: false,
     });
-    const durationMs = Date.now() - start;
-    writeBridgeLog('debug', 'api.rpc.done', {
-      req_id: reqId,
-      method,
-      client_kind: clientKind,
-      client_route: clientRoute,
-      trace_id: trace.traceId,
-      span_id: trace.spanId,
-      traceparent: trace.traceparent,
-      duration_ms: durationMs,
-      result_preview: compactBridgeValuePreview(result),
-    });
-    emitFrontendTraceEvent({
-      phase: 'frontend.rpc.done',
-      method,
-      trace_id: trace.traceId,
-      span_id: trace.spanId,
-      client_kind: clientKind,
-      client_route: clientRoute,
-      duration_ms: durationMs,
-      status: 'ok',
-      metadata: { req_id: reqId },
-    });
-    return result;
-  } catch (error) {
-    const durationMs = Date.now() - start;
-    writeBridgeLog('error', 'api.rpc.failed', {
-      req_id: reqId,
-      method,
-      client_kind: clientKind,
-      client_route: clientRoute,
-      trace_id: trace.traceId,
-      span_id: trace.spanId,
-      traceparent: trace.traceparent,
-      duration_ms: durationMs,
-      error,
-    });
-    emitFrontendTraceEvent({
-      phase: 'frontend.rpc.failed',
-      method,
-      trace_id: trace.traceId,
-      span_id: trace.spanId,
-      client_kind: clientKind,
-      client_route: clientRoute,
-      duration_ms: durationMs,
-      status: 'error',
-      error: safeTraceErrorMessage(error),
-      metadata: { req_id: reqId },
-    });
+  }
+  catch (error) {
+    logAPIFailed(reqId, rpcMethod, start, error, clientKind, clientRoute, trace);
     throw error;
   }
+  logAPIDone(reqId, rpcMethod, start, result, clientKind, clientRoute, trace);
+  return result;
 }
 
 export async function sendFrontendLogBatch(entries) {
@@ -556,7 +605,8 @@ export async function sendFrontendLogBatch(entries) {
       _aoClientKind: clientKind,
       _aoClientRoute: clientRoute,
     });
-  } catch {
+  }
+  catch {
     // Fail silently to avoid recursive storms
   }
 }
@@ -576,7 +626,8 @@ export async function selectProjectDir(defaultPath = '') {
         });
         return value;
       }
-    } catch (error) {
+    }
+    catch (error) {
       writeBridgeLog('warn', 'ui.selectProjectDir.byId.failed', { error });
     }
   }
@@ -620,7 +671,8 @@ export async function selectFiles() {
       });
       return files;
     }
-  } catch (error) {
+  }
+  catch (error) {
     writeBridgeLog('warn', 'ui.selectFiles.byId.failed', { error });
   }
 
@@ -691,65 +743,93 @@ export async function copyTextToClipboard(text) {
   if (!value) throw new Error('clipboard text is empty');
 
   const failures = [];
-  const isDebugShim = typeof window !== 'undefined' && window.__WAILS_SHIM_DEBUG__ === true;
-  if (!isDebugShim) {
-    try {
-      const res = await callAPI('ui/copyText', { text: value });
-      if (res?.ok) return true;
-      failures.push(`native ui/copyText returned ok=false${res?.error ? `: ${res.error}` : ''}`);
-    } catch (error) {
-      failures.push(`native ui/copyText failed: ${error.message || String(error)}`);
-    }
-  }
+  if (await copyTextViaNativeBridge(value, failures)) return true;
+  if (await copyTextViaClipboardAPI(value, failures)) return true;
+  if (await copyTextViaExecCommand(value, failures)) return true;
 
-  if (navigator?.clipboard?.writeText) {
-    try {
-      await navigator.clipboard.writeText(value);
-      return true;
-    } catch (error) {
-      failures.push(`browser clipboard.writeText failed: ${error.message || String(error)}`);
-      writeBridgeLog('warn', 'ui.copyText.clipboard_api_failed', { error: error.message || String(error) });
-    }
-  } else {
+  throw new Error(`clipboard copy failed: ${failures.join('; ')}`);
+}
+
+function isDebugRuntimeShim() {
+  return typeof window !== 'undefined' && window.__WAILS_SHIM_DEBUG__ === true;
+}
+
+async function copyTextViaNativeBridge(value, failures) {
+  if (isDebugRuntimeShim()) return false;
+  try {
+    const res = await callAPI('ui/copyText', { text: value });
+    if (res?.ok) return true;
+    failures.push(`native ui/copyText returned ok=false${res?.error ? `: ${res.error}` : ''}`);
+  }
+  catch (error) {
+    failures.push(`native ui/copyText failed: ${error.message || String(error)}`);
+  }
+  return false;
+}
+
+async function copyTextViaClipboardAPI(value, failures) {
+  if (!navigator?.clipboard?.writeText) {
     failures.push('browser clipboard.writeText is unavailable');
+    return false;
   }
+  let copied = false;
+  try {
+    await navigator.clipboard.writeText(value);
+    copied = true;
+  }
+  catch (error) {
+    failures.push(`browser clipboard.writeText failed: ${error.message || String(error)}`);
+    writeBridgeLog('warn', 'ui.copyText.clipboard_api_failed', { error: error.message || String(error) });
+  }
+  return copied;
+}
 
+async function copyTextViaExecCommand(value, failures) {
+  let copied = false;
   try {
     if (!document?.body || typeof document.execCommand !== 'function') {
       throw new Error('document.execCommand is unavailable');
     }
-    const textarea = document.createElement('textarea');
-    textarea.value = value;
-    textarea.style.position = 'fixed';
-    textarea.style.top = '0';
-    textarea.style.left = '-9999px';
-    textarea.style.opacity = '0';
-    textarea.setAttribute('readonly', '');
+    const textarea = createClipboardTextarea(value);
     document.body.appendChild(textarea);
     const selection = document.getSelection?.();
-    const ranges = selection
-      ? Array.from({ length: selection.rangeCount }, (_, index) => selection.getRangeAt(index))
-      : [];
+    const ranges = getSelectionRanges(selection);
     try {
       textarea.focus();
       textarea.select();
       textarea.setSelectionRange?.(0, value.length);
-      const ok = document.execCommand('copy');
-      if (!ok) throw new Error("document.execCommand('copy') returned false");
-      return true;
-    } finally {
+      copied = document.execCommand('copy');
+      if (!copied) throw new Error("document.execCommand('copy') returned false");
+    }
+    finally {
       document.body.removeChild(textarea);
       if (selection) {
         selection.removeAllRanges();
         ranges.forEach((range) => selection.addRange(range));
       }
     }
-  } catch (error) {
+  }
+  catch (error) {
     failures.push(`document.execCommand fallback failed: ${error.message || String(error)}`);
     writeBridgeLog('warn', 'ui.copyText.exec_command_failed', { error: error.message || String(error) });
   }
+  return copied;
+}
 
-  throw new Error(`clipboard copy failed: ${failures.join('; ')}`);
+function createClipboardTextarea(value) {
+  const textarea = document.createElement('textarea');
+  textarea.value = value;
+  textarea.style.position = 'fixed';
+  textarea.style.top = '0';
+  textarea.style.left = '-9999px';
+  textarea.style.opacity = '0';
+  textarea.setAttribute('readonly', '');
+  return textarea;
+}
+
+function getSelectionRanges(selection) {
+  if (!selection) return [];
+  return Array.from({ length: selection.rangeCount }, (_, index) => selection.getRangeAt(index));
 }
 
 export function beginTextClipboardWrite() {
@@ -777,7 +857,8 @@ export function beginTextClipboardWrite() {
         'text/plain': blobPromise,
       }),
     ]);
-  } catch {
+  }
+  catch {
     return null;
   }
 

@@ -441,6 +441,7 @@ function promptWritePayload(params) {
     'name',
   );
   const priority = optionalInteger(payload.priority);
+  const matchWhen = promptMatchWhen(payload);
   return cleanObject({
     cwd: payload.cwd,
     id: normalizeString(payload.id),
@@ -453,10 +454,14 @@ function promptWritePayload(params) {
     tags: Array.isArray(payload.tags) ? payload.tags : [],
     enabled: hasOwn(payload, 'enabled') ? Boolean(payload.enabled) : undefined,
     scope: normalizeString(payload.scope) || 'project',
-    match_when: hasOwn(payload, 'match_when')
-      ? payload.match_when
-      : (hasOwn(payload, 'matchWhen') ? payload.matchWhen : undefined),
+    match_when: matchWhen,
   });
+}
+
+function promptMatchWhen(payload) {
+  if (hasOwn(payload, 'match_when')) return payload.match_when;
+  if (hasOwn(payload, 'matchWhen')) return payload.matchWhen;
+  return undefined;
 }
 
 function promptDeletePayload(params) {
@@ -548,9 +553,8 @@ function hasOwn(value, key) {
   return objectPrototype.hasOwnProperty.call(value, key);
 }
 
-export function createBackendApi(deps = {}) {
-  const callAPI = deps.callAPI || callWailsAPI;
-  const native = {
+function resolveNativeDeps(deps) {
+  return {
     getBuildInfo: deps.getBuildInfo || getWailsBuildInfo,
     onAgentEvent: deps.onAgentEvent || subscribeAgentEvent,
     onBridgeEvent: deps.onBridgeEvent || subscribeBridgeEvent,
@@ -564,26 +568,26 @@ export function createBackendApi(deps = {}) {
     selectProjectDir: deps.selectProjectDir || selectProjectDirViaBridge,
     selectProjectDirs: deps.selectProjectDirs || selectProjectDirsViaBridge,
   };
+}
 
-  const callBackend = (method, params = {}) => {
+function createBackendCaller(callAPI) {
+  return (method, params = {}) => {
     const rpcMethod = normalizeString(method);
     if (!rpcMethod) throw new Error('backend RPC method is required');
     return callAPI(rpcMethod, assertPlainObject(rpcMethod, params));
   };
+}
 
+function createConfigProjectApi(callBackend) {
   return {
-    callBackend,
-
     readConfig: () => callBackend(RPC_METHODS.CONFIG_READ, {}),
     getWindowBootstrap: () => callBackend(RPC_METHODS.UI_WINDOW_BOOTSTRAP_GET, {}),
-
     getSidebarState: (params) => callBackend(RPC_METHODS.UI_SIDEBAR_GET, requireCwd(RPC_METHODS.UI_SIDEBAR_GET, params)),
     openNewWindow: (params) => callBackend(RPC_METHODS.UI_OPEN_NEW_WINDOW, requireCwd(RPC_METHODS.UI_OPEN_NEW_WINDOW, params)),
     getThreadState: (params) => callBackend(
       RPC_METHODS.UI_STATE_GET,
       requireThreadId(RPC_METHODS.UI_STATE_GET, requireCwd(RPC_METHODS.UI_STATE_GET, params)),
     ),
-
     getProjects: (params) => callBackend(RPC_METHODS.UI_PROJECTS_GET, requireCwd(RPC_METHODS.UI_PROJECTS_GET, params)),
     setActiveProject: (params) => callBackend(
       RPC_METHODS.UI_PROJECTS_SET_ACTIVE,
@@ -597,7 +601,6 @@ export function createBackendApi(deps = {}) {
       RPC_METHODS.UI_PROJECTS_REMOVE,
       requireKey(RPC_METHODS.UI_PROJECTS_REMOVE, requireCwd(RPC_METHODS.UI_PROJECTS_REMOVE, params), 'path'),
     ),
-
     getPreference: (params) => callBackend(RPC_METHODS.UI_PREFERENCES_GET, assertPlainObject(RPC_METHODS.UI_PREFERENCES_GET, params)),
     getAllPreferences: (params = {}) => callBackend(RPC_METHODS.UI_PREFERENCES_GET_ALL, assertPlainObject(RPC_METHODS.UI_PREFERENCES_GET_ALL, params)),
     setPreference: (params) => {
@@ -606,11 +609,15 @@ export function createBackendApi(deps = {}) {
       if (!hasOwn(payload, 'value')) throw new Error(`${RPC_METHODS.UI_PREFERENCES_SET}: value is required`);
       return callBackend(RPC_METHODS.UI_PREFERENCES_SET, payload);
     },
-
     getDashboardPage: (params) => callBackend(
       RPC_METHODS.UI_DASHBOARD_GET,
       requireKey(RPC_METHODS.UI_DASHBOARD_GET, requireCwd(RPC_METHODS.UI_DASHBOARD_GET, params), 'page'),
     ),
+  };
+}
+
+function createObservabilityMemoryApi(callBackend) {
+  return {
     getObservabilityTrace: (params) => callBackend(RPC_METHODS.OBSERVABILITY_TRACE_GET, observabilityTracePayload(RPC_METHODS.OBSERVABILITY_TRACE_GET, params)),
     getObservabilityThreadRecent: (params) => callBackend(RPC_METHODS.OBSERVABILITY_THREAD_RECENT, observabilityThreadPayload(RPC_METHODS.OBSERVABILITY_THREAD_RECENT, params)),
     listObservabilityRecent: (params = {}) => callBackend(RPC_METHODS.OBSERVABILITY_RECENT_LIST, observabilityRecentPayload(RPC_METHODS.OBSERVABILITY_RECENT_LIST, params)),
@@ -634,17 +641,11 @@ export function createBackendApi(deps = {}) {
     ),
     getMemoryConsolidationStatus: (params) => callBackend(
       RPC_METHODS.UI_MEMORY_SIMILARITY_CONSOLIDATE_ALL_STATUS,
-      requireKey(
-        RPC_METHODS.UI_MEMORY_SIMILARITY_CONSOLIDATE_ALL_STATUS,
-        requireCwd(RPC_METHODS.UI_MEMORY_SIMILARITY_CONSOLIDATE_ALL_STATUS, params),
-        'jobId',
-      ),
+      requireKey(RPC_METHODS.UI_MEMORY_SIMILARITY_CONSOLIDATE_ALL_STATUS, requireCwd(RPC_METHODS.UI_MEMORY_SIMILARITY_CONSOLIDATE_ALL_STATUS, params), 'jobId'),
     ),
     listSharedFiles: (params = {}) => {
       const payload = assertPlainObject(RPC_METHODS.DASHBOARD_SHARED_FILES, params);
-      if (Object.keys(payload).length > 0) {
-        throw new Error(`${RPC_METHODS.DASHBOARD_SHARED_FILES}: params are not supported`);
-      }
+      if (Object.keys(payload).length > 0) throw new Error(`${RPC_METHODS.DASHBOARD_SHARED_FILES}: params are not supported`);
       return callBackend(RPC_METHODS.DASHBOARD_SHARED_FILES, {});
     },
     readSharedFile: (params) => callBackend(
@@ -655,6 +656,11 @@ export function createBackendApi(deps = {}) {
       RPC_METHODS.UI_SHARED_FILE_DELETE,
       requireKey(RPC_METHODS.UI_SHARED_FILE_DELETE, assertPlainObject(RPC_METHODS.UI_SHARED_FILE_DELETE, params), 'path'),
     ),
+  };
+}
+
+function createPromptDagApi(callBackend) {
+  return {
     listPromptAssets: (params) => callBackend(RPC_METHODS.PROMPT_ASSETS_LIST, requireCwd(RPC_METHODS.PROMPT_ASSETS_LIST, params)),
     getDashboardPrompts: (params) => callBackend(RPC_METHODS.DASHBOARD_PROMPTS, requireCwd(RPC_METHODS.DASHBOARD_PROMPTS, params)),
     getPrompt: (params) => callBackend(
@@ -688,6 +694,11 @@ export function createBackendApi(deps = {}) {
       requireKey(RPC_METHODS.DASHBOARD_DAG_DELETE, assertPlainObject(RPC_METHODS.DASHBOARD_DAG_DELETE, params), 'dagKey'),
     ),
     applyDagOps: (params) => callBackend(RPC_METHODS.DASHBOARD_DAG_APPLY_OPS, dashboardDagApplyOpsPayload(params)),
+  };
+}
+
+function createSkillApi(callBackend) {
+  return {
     readSkill: (params) => callBackend(
       RPC_METHODS.SKILLS_LOCAL_READ,
       requireKey(RPC_METHODS.SKILLS_LOCAL_READ, requireCwd(RPC_METHODS.SKILLS_LOCAL_READ, params), 'path'),
@@ -696,198 +707,175 @@ export function createBackendApi(deps = {}) {
       RPC_METHODS.SKILLS_LOCAL_LIST_FILES,
       requireKey(RPC_METHODS.SKILLS_LOCAL_LIST_FILES, requireCwd(RPC_METHODS.SKILLS_LOCAL_LIST_FILES, params), 'dir'),
     ),
-    writeSkill: (params) => {
-      const payload = requireSkillScope(
-        RPC_METHODS.SKILLS_LOCAL_WRITE,
-        requireContent(
-          RPC_METHODS.SKILLS_LOCAL_WRITE,
-          requireKey(RPC_METHODS.SKILLS_LOCAL_WRITE, requireCwd(RPC_METHODS.SKILLS_LOCAL_WRITE, params), 'path'),
-        ),
-      );
-      return callBackend(RPC_METHODS.SKILLS_LOCAL_WRITE, cleanObject({
-        cwd: payload.cwd,
-        path: payload.path,
-        content: payload.content,
-        scope: payload.scope,
-        personal_type: skillPersonalType(payload),
-      }));
-    },
-    importSkillDirectories: (params) => {
-      const payload = requireSkillScope(
-        RPC_METHODS.SKILLS_LOCAL_IMPORT_DIR,
-        requirePaths(RPC_METHODS.SKILLS_LOCAL_IMPORT_DIR, requireCwd(RPC_METHODS.SKILLS_LOCAL_IMPORT_DIR, params)),
-      );
-      return callBackend(RPC_METHODS.SKILLS_LOCAL_IMPORT_DIR, cleanObject({
-        cwd: payload.cwd,
-        paths: payload.paths,
-        scope: payload.scope,
-        personal_type: skillPersonalType(payload),
-      }));
-    },
-    suggestSkillSummary: async (params) => {
-      const payload = requireCwd(RPC_METHODS.SKILLS_SUMMARY_SUGGEST, params);
-      const summaryPayload = {
-        cwd: payload.cwd,
-        name: normalizeString(payload.name),
-        description: normalizeString(payload.description),
-        content: (payload.content || '').toString(),
-        scenario_words: Array.isArray(payload.scenario_words) ? payload.scenario_words : [],
-        scope: normalizeString(payload.scope),
-      };
-      const provider = normalizeString(payload.provider ?? payload.modelProvider);
-      const model = normalizeString(payload.model);
-      const modelProvider = normalizeString(payload.model_provider ?? payload.codexModelProvider);
-      if (provider) summaryPayload.provider = provider;
-      if (model) summaryPayload.model = model;
-      if (modelProvider) summaryPayload.model_provider = modelProvider;
-      const raw = await callBackend(RPC_METHODS.SKILLS_SUMMARY_SUGGEST, summaryPayload);
-      return normalizeSkillSummarySuggestion(raw);
-    },
-    listSkillResolutions: (params) => callBackend(
-      RPC_METHODS.SKILLS_RESOLUTION_LIST,
-      requireCwd(RPC_METHODS.SKILLS_RESOLUTION_LIST, params),
-    ),
-    previewSkillResolution: (params) => callBackend(
-      RPC_METHODS.SKILLS_RESOLUTION_PREVIEW,
-      {
-        cwd: requireCwd(RPC_METHODS.SKILLS_RESOLUTION_PREVIEW, params).cwd,
-        ...skillResolutionPayload(params),
-      },
-    ),
-    applySkillResolution: (params) => {
-      const payload = assertPlainObject(RPC_METHODS.SKILLS_RESOLUTION_APPLY, params);
-      return callBackend(RPC_METHODS.SKILLS_RESOLUTION_APPLY, cleanObject({
-        cwd: requireCwd(RPC_METHODS.SKILLS_RESOLUTION_APPLY, payload).cwd,
-        ...skillResolutionPayload(payload),
-        preview_id: normalizeString(payload.preview_id ?? payload.previewId),
-        preview_hash: normalizeString(payload.preview_hash ?? payload.previewHash),
-      }));
-    },
-    deleteSkill: (params) => {
-      const payload = requireKey(
-        RPC_METHODS.SKILLS_LOCAL_DELETE,
-        requireCwd(RPC_METHODS.SKILLS_LOCAL_DELETE, params),
-        'name',
-      );
-      const scope = normalizeString(payload.scope);
-      if (scope !== 'project' && scope !== 'personal') {
-        throw new Error(`${RPC_METHODS.SKILLS_LOCAL_DELETE}: scope must be project or personal`);
-      }
-      return callBackend(RPC_METHODS.SKILLS_LOCAL_DELETE, cleanObject({
-        cwd: payload.cwd,
-        name: payload.name,
-        scope,
-        personal_type: normalizeString(payload.personal_type || payload.personalType),
-      }));
-    },
+    writeSkill: (params) => writeSkillPayload(callBackend, params),
+    importSkillDirectories: (params) => importSkillDirectoriesPayload(callBackend, params),
+    suggestSkillSummary: (params) => suggestSkillSummaryPayload(callBackend, params),
+    listSkillResolutions: (params) => callBackend(RPC_METHODS.SKILLS_RESOLUTION_LIST, requireCwd(RPC_METHODS.SKILLS_RESOLUTION_LIST, params)),
+    previewSkillResolution: (params) => callBackend(RPC_METHODS.SKILLS_RESOLUTION_PREVIEW, {
+      cwd: requireCwd(RPC_METHODS.SKILLS_RESOLUTION_PREVIEW, params).cwd,
+      ...skillResolutionPayload(params),
+    }),
+    applySkillResolution: (params) => applySkillResolutionPayload(callBackend, params),
+    deleteSkill: (params) => deleteSkillPayload(callBackend, params),
     runDashboardCommand: () => {
       throw new Error('dashboard command execution backend RPC is not registered');
     },
+  };
+}
 
-    getThreadMessages: (params) => callBackend(
-      RPC_METHODS.THREAD_MESSAGES,
-      requireThreadId(RPC_METHODS.THREAD_MESSAGES, assertPlainObject(RPC_METHODS.THREAD_MESSAGES, params)),
-    ),
-    resolveThreadIdentity: (params) => callBackend(
-      RPC_METHODS.THREAD_RESOLVE,
-      requireThreadId(RPC_METHODS.THREAD_RESOLVE, assertPlainObject(RPC_METHODS.THREAD_RESOLVE, params)),
-    ),
-    archiveThread: (params) => {
-      const payload = requireThreadId(RPC_METHODS.THREAD_ARCHIVE, assertPlainObject(RPC_METHODS.THREAD_ARCHIVE, params));
-      return callBackend(RPC_METHODS.THREAD_ARCHIVE, { threadId: payload.threadId });
-    },
-    unarchiveThread: (params) => {
-      const payload = requireThreadId(RPC_METHODS.THREAD_UNARCHIVE, assertPlainObject(RPC_METHODS.THREAD_UNARCHIVE, params));
-      return callBackend(RPC_METHODS.THREAD_UNARCHIVE, { threadId: payload.threadId });
-    },
-    deleteThread: (params) => {
-      const payload = requireThreadId(RPC_METHODS.THREAD_DELETE, assertPlainObject(RPC_METHODS.THREAD_DELETE, params));
-      return callBackend(RPC_METHODS.THREAD_DELETE, { threadId: payload.threadId });
-    },
-    getThreadConfig: (params) => {
-      const payload = requireThreadId(RPC_METHODS.THREAD_CONFIG_GET, assertPlainObject(RPC_METHODS.THREAD_CONFIG_GET, params));
-      return callBackend(RPC_METHODS.THREAD_CONFIG_GET, { threadId: payload.threadId });
-    },
-    setThreadConfig: (params) => {
-      const payload = requireThreadId(RPC_METHODS.THREAD_CONFIG_SET, assertPlainObject(RPC_METHODS.THREAD_CONFIG_SET, params));
-      return callBackend(RPC_METHODS.THREAD_CONFIG_SET, {
-        threadId: payload.threadId,
-        model: normalizeProviderConfigValue(payload.model),
-        effort: normalizeProviderConfigValue(payload.effort),
-      });
-    },
-    startThread: (params) => {
-      const payload = requireCwd(RPC_METHODS.THREAD_START, params);
-      const provider = normalizeProvider(payload);
-      if (!provider) {
-        throw new Error(`${RPC_METHODS.THREAD_START}: provider is required`);
-      }
-      const rest = { ...payload };
-      const promptKey = normalizeString(rest.promptKey || rest.prompt_key);
-      const agentKey = normalizeString(rest.agentKey || rest.agent_key);
-      const deferSpawn = rest.deferSpawn ?? rest.defer_spawn;
-      delete rest.provider;
-      delete rest.modelProvider;
-      delete rest.model_provider;
-      delete rest.promptKey;
-      delete rest.prompt_key;
-      delete rest.agentKey;
-      delete rest.agent_key;
-      delete rest.deferSpawn;
-      delete rest.defer_spawn;
-      delete rest.optimisticUserMessage;
-      delete rest.optimistic_user_message;
-      delete rest.skipInitialRuntimeSync;
-      delete rest.skip_initial_runtime_sync;
-      const request = cleanObject({
-        ...rest,
-        modelProvider: provider,
-        prompt_key: promptKey,
-        agent_key: agentKey,
-      });
-      if (deferSpawn === true) {
-        request.defer_spawn = true;
-      }
-      return callBackend(RPC_METHODS.THREAD_START, request);
-    },
-    startTurn: (params) => {
-      const payload = requireThreadId(RPC_METHODS.TURN_START, requireCwd(RPC_METHODS.TURN_START, params));
-      const { input, attachments, ...rest } = payload;
-      return callBackend(RPC_METHODS.TURN_START, {
-        ...rest,
-        ...normalizeTurnInput(input, attachments),
-      });
-    },
-    interruptTurn: (params) => {
-      const payload = requireThreadId(RPC_METHODS.TURN_INTERRUPT, requireCwd(RPC_METHODS.TURN_INTERRUPT, params));
-      const turnId = normalizeString(payload.turnId || payload.turn_id);
-      if (!turnId) {
-        throw new Error(`${RPC_METHODS.TURN_INTERRUPT}: turnId is required`);
-      }
-      return callBackend(RPC_METHODS.TURN_INTERRUPT, cleanObject({
-        threadId: payload.threadId,
-        turnId,
-        source: normalizeString(payload.source),
-      }));
-    },
-    compactThread: (params) => {
-      const payload = requireThreadId(RPC_METHODS.THREAD_COMPACT_START, requireCwd(RPC_METHODS.THREAD_COMPACT_START, params));
-      return callBackend(RPC_METHODS.THREAD_COMPACT_START, cleanObject({
-        threadId: payload.threadId,
-        args: payload.args,
-      }));
-    },
-    recoverThread: (params) => {
-      const payload = requireThreadId(RPC_METHODS.THREAD_RECOVER, requireCwd(RPC_METHODS.THREAD_RECOVER, params));
-      return callBackend(RPC_METHODS.THREAD_RECOVER, {
-        threadId: payload.threadId,
-      });
-    },
-    renameThread: (params) => callBackend(
-      RPC_METHODS.THREAD_NAME_SET,
-      legacyThreadNamePayload(RPC_METHODS.THREAD_NAME_SET, params),
-    ),
+function writeSkillPayload(callBackend, params) {
+  const payload = requireSkillScope(
+    RPC_METHODS.SKILLS_LOCAL_WRITE,
+    requireContent(RPC_METHODS.SKILLS_LOCAL_WRITE, requireKey(RPC_METHODS.SKILLS_LOCAL_WRITE, requireCwd(RPC_METHODS.SKILLS_LOCAL_WRITE, params), 'path')),
+  );
+  return callBackend(RPC_METHODS.SKILLS_LOCAL_WRITE, cleanObject({
+    cwd: payload.cwd,
+    path: payload.path,
+    content: payload.content,
+    scope: payload.scope,
+    personal_type: skillPersonalType(payload),
+  }));
+}
 
+function importSkillDirectoriesPayload(callBackend, params) {
+  const payload = requireSkillScope(
+    RPC_METHODS.SKILLS_LOCAL_IMPORT_DIR,
+    requirePaths(RPC_METHODS.SKILLS_LOCAL_IMPORT_DIR, requireCwd(RPC_METHODS.SKILLS_LOCAL_IMPORT_DIR, params)),
+  );
+  return callBackend(RPC_METHODS.SKILLS_LOCAL_IMPORT_DIR, cleanObject({
+    cwd: payload.cwd,
+    paths: payload.paths,
+    scope: payload.scope,
+    personal_type: skillPersonalType(payload),
+  }));
+}
+
+async function suggestSkillSummaryPayload(callBackend, params) {
+  const payload = requireCwd(RPC_METHODS.SKILLS_SUMMARY_SUGGEST, params);
+  const summaryPayload = {
+    cwd: payload.cwd,
+    name: normalizeString(payload.name),
+    description: normalizeString(payload.description),
+    content: (payload.content || '').toString(),
+    scenario_words: Array.isArray(payload.scenario_words) ? payload.scenario_words : [],
+    scope: normalizeString(payload.scope),
+  };
+  const provider = normalizeString(payload.provider ?? payload.modelProvider);
+  const model = normalizeString(payload.model);
+  const modelProvider = normalizeString(payload.model_provider ?? payload.codexModelProvider);
+  if (provider) summaryPayload.provider = provider;
+  if (model) summaryPayload.model = model;
+  if (modelProvider) summaryPayload.model_provider = modelProvider;
+  const raw = await callBackend(RPC_METHODS.SKILLS_SUMMARY_SUGGEST, summaryPayload);
+  return normalizeSkillSummarySuggestion(raw);
+}
+
+function applySkillResolutionPayload(callBackend, params) {
+  const payload = assertPlainObject(RPC_METHODS.SKILLS_RESOLUTION_APPLY, params);
+  return callBackend(RPC_METHODS.SKILLS_RESOLUTION_APPLY, cleanObject({
+    cwd: requireCwd(RPC_METHODS.SKILLS_RESOLUTION_APPLY, payload).cwd,
+    ...skillResolutionPayload(payload),
+    preview_id: normalizeString(payload.preview_id ?? payload.previewId),
+    preview_hash: normalizeString(payload.preview_hash ?? payload.previewHash),
+  }));
+}
+
+function deleteSkillPayload(callBackend, params) {
+  const payload = requireKey(RPC_METHODS.SKILLS_LOCAL_DELETE, requireCwd(RPC_METHODS.SKILLS_LOCAL_DELETE, params), 'name');
+  const scope = normalizeString(payload.scope);
+  if (scope !== 'project' && scope !== 'personal') {
+    throw new Error(`${RPC_METHODS.SKILLS_LOCAL_DELETE}: scope must be project or personal`);
+  }
+  return callBackend(RPC_METHODS.SKILLS_LOCAL_DELETE, cleanObject({
+    cwd: payload.cwd,
+    name: payload.name,
+    scope,
+    personal_type: normalizeString(payload.personal_type || payload.personalType),
+  }));
+}
+
+function createThreadApi(callBackend) {
+  return {
+    getThreadMessages: (params) => callBackend(RPC_METHODS.THREAD_MESSAGES, requireThreadId(RPC_METHODS.THREAD_MESSAGES, assertPlainObject(RPC_METHODS.THREAD_MESSAGES, params))),
+    resolveThreadIdentity: (params) => callBackend(RPC_METHODS.THREAD_RESOLVE, requireThreadId(RPC_METHODS.THREAD_RESOLVE, assertPlainObject(RPC_METHODS.THREAD_RESOLVE, params))),
+    archiveThread: (params) => callBackend(RPC_METHODS.THREAD_ARCHIVE, threadIdOnlyPayload(RPC_METHODS.THREAD_ARCHIVE, params)),
+    unarchiveThread: (params) => callBackend(RPC_METHODS.THREAD_UNARCHIVE, threadIdOnlyPayload(RPC_METHODS.THREAD_UNARCHIVE, params)),
+    deleteThread: (params) => callBackend(RPC_METHODS.THREAD_DELETE, threadIdOnlyPayload(RPC_METHODS.THREAD_DELETE, params)),
+    getThreadConfig: (params) => callBackend(RPC_METHODS.THREAD_CONFIG_GET, threadIdOnlyPayload(RPC_METHODS.THREAD_CONFIG_GET, params)),
+    setThreadConfig: (params) => callBackend(RPC_METHODS.THREAD_CONFIG_SET, threadConfigPayload(params)),
+    startThread: (params) => callBackend(RPC_METHODS.THREAD_START, threadStartPayload(params)),
+    startTurn: (params) => callBackend(RPC_METHODS.TURN_START, turnStartPayload(params)),
+    interruptTurn: (params) => callBackend(RPC_METHODS.TURN_INTERRUPT, turnInterruptPayload(params)),
+    compactThread: (params) => callBackend(RPC_METHODS.THREAD_COMPACT_START, compactThreadPayload(params)),
+    recoverThread: (params) => callBackend(RPC_METHODS.THREAD_RECOVER, threadIdOnlyPayload(RPC_METHODS.THREAD_RECOVER, requireCwd(RPC_METHODS.THREAD_RECOVER, params))),
+    renameThread: (params) => callBackend(RPC_METHODS.THREAD_NAME_SET, legacyThreadNamePayload(RPC_METHODS.THREAD_NAME_SET, params)),
+  };
+}
+
+function threadIdOnlyPayload(method, params) {
+  const payload = requireThreadId(method, assertPlainObject(method, params));
+  return { threadId: payload.threadId };
+}
+
+function threadConfigPayload(params) {
+  const payload = requireThreadId(RPC_METHODS.THREAD_CONFIG_SET, assertPlainObject(RPC_METHODS.THREAD_CONFIG_SET, params));
+  return {
+    threadId: payload.threadId,
+    model: normalizeProviderConfigValue(payload.model),
+    effort: normalizeProviderConfigValue(payload.effort),
+  };
+}
+
+function threadStartPayload(params) {
+  const payload = requireCwd(RPC_METHODS.THREAD_START, params);
+  const provider = normalizeProvider(payload);
+  if (!provider) throw new Error(`${RPC_METHODS.THREAD_START}: provider is required`);
+  const rest = { ...payload };
+  const promptKey = normalizeString(rest.promptKey || rest.prompt_key);
+  const agentKey = normalizeString(rest.agentKey || rest.agent_key);
+  const deferSpawn = rest.deferSpawn ?? rest.defer_spawn;
+  stripThreadStartInternalKeys(rest);
+  const request = cleanObject({ ...rest, modelProvider: provider, prompt_key: promptKey, agent_key: agentKey });
+  if (deferSpawn === true) request.defer_spawn = true;
+  return request;
+}
+
+function stripThreadStartInternalKeys(rest) {
+  delete rest.provider;
+  delete rest.modelProvider;
+  delete rest.model_provider;
+  delete rest.promptKey;
+  delete rest.prompt_key;
+  delete rest.agentKey;
+  delete rest.agent_key;
+  delete rest.deferSpawn;
+  delete rest.defer_spawn;
+  delete rest.optimisticUserMessage;
+  delete rest.optimistic_user_message;
+  delete rest.skipInitialRuntimeSync;
+  delete rest.skip_initial_runtime_sync;
+}
+
+function turnStartPayload(params) {
+  const payload = requireThreadId(RPC_METHODS.TURN_START, requireCwd(RPC_METHODS.TURN_START, params));
+  const { input, attachments, ...rest } = payload;
+  return { ...rest, ...normalizeTurnInput(input, attachments) };
+}
+
+function turnInterruptPayload(params) {
+  const payload = requireThreadId(RPC_METHODS.TURN_INTERRUPT, requireCwd(RPC_METHODS.TURN_INTERRUPT, params));
+  const turnId = normalizeString(payload.turnId || payload.turn_id);
+  if (!turnId) throw new Error(`${RPC_METHODS.TURN_INTERRUPT}: turnId is required`);
+  return cleanObject({ threadId: payload.threadId, turnId, source: normalizeString(payload.source) });
+}
+
+function compactThreadPayload(params) {
+  const payload = requireThreadId(RPC_METHODS.THREAD_COMPACT_START, requireCwd(RPC_METHODS.THREAD_COMPACT_START, params));
+  return cleanObject({ threadId: payload.threadId, args: payload.args });
+}
+
+function createNativeApi(native) {
+  return {
     getBuildInfo: native.getBuildInfo,
     onAgentEvent: native.onAgentEvent,
     onBridgeEvent: native.onBridgeEvent,
@@ -900,6 +888,19 @@ export function createBackendApi(deps = {}) {
     selectFiles: native.selectFiles,
     selectProjectDir: native.selectProjectDir,
     selectProjectDirs: native.selectProjectDirs,
+  };
+}
+
+export function createBackendApi(deps = {}) {
+  const callBackend = createBackendCaller(deps.callAPI || callWailsAPI);
+  return {
+    callBackend,
+    ...createConfigProjectApi(callBackend),
+    ...createObservabilityMemoryApi(callBackend),
+    ...createPromptDagApi(callBackend),
+    ...createSkillApi(callBackend),
+    ...createThreadApi(callBackend),
+    ...createNativeApi(resolveNativeDeps(deps)),
   };
 }
 

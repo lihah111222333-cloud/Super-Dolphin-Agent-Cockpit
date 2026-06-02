@@ -11,8 +11,50 @@ const FOCUSABLE_SELECTOR = [
 
 function focusableElements(root) {
   if (!root) return [];
-  return Array.from(root.querySelectorAll(FOCUSABLE_SELECTOR))
-    .filter((element) => element && typeof element.focus === 'function' && element.getAttribute('aria-hidden') !== 'true');
+  return (
+    Array.from(root.querySelectorAll(FOCUSABLE_SELECTOR))
+    .filter((element) => element && typeof element.focus === 'function' && element.getAttribute('aria-hidden') !== 'true')
+  );
+}
+
+function rememberActiveElement() {
+  const activeElement = typeof document !== 'undefined' ? document.activeElement : null;
+  return activeElement && typeof activeElement.focus === 'function' ? activeElement : null;
+}
+
+function focusInitialDialogTarget(dialog, initialFocusSelector) {
+  if (!dialog) return;
+  const target = initialFocusSelector ? dialog.querySelector(initialFocusSelector) : null;
+  const first = target || focusableElements(dialog)[0] || dialog;
+  first.focus({ preventScroll: true });
+}
+
+function restoreFocus(target) {
+  if (target?.isConnected && typeof target.focus === 'function') {
+    target.focus({ preventScroll: true });
+  }
+}
+
+function wrapTabFocus(event, dialog, items) {
+  const first = items[0];
+  const last = items[items.length - 1];
+  const active = document.activeElement;
+  const focusTarget = event.shiftKey ? last : first;
+  const atBoundary = event.shiftKey ? active === first : active === last;
+  if (atBoundary || !dialog.contains(active)) {
+    event.preventDefault();
+    focusTarget.focus({ preventScroll: true });
+  }
+}
+
+function trapTabKey(event, dialog) {
+  const items = focusableElements(dialog);
+  if (!dialog || items.length === 0) {
+    event.preventDefault();
+    dialog?.focus({ preventScroll: true });
+    return;
+  }
+  wrapTabFocus(event, dialog, items);
 }
 
 export function FocusTrapDialog({
@@ -30,21 +72,13 @@ export function FocusTrapDialog({
   const restoreFocusRef = useRef(null);
 
   useEffect(() => {
-    const activeElement = typeof document !== 'undefined' ? document.activeElement : null;
-    restoreFocusRef.current = activeElement && typeof activeElement.focus === 'function' ? activeElement : null;
+    restoreFocusRef.current = rememberActiveElement();
     const timer = window.setTimeout(() => {
-      const dialog = dialogRef.current;
-      if (!dialog) return;
-      const target = initialFocusSelector ? dialog.querySelector(initialFocusSelector) : null;
-      const first = target || focusableElements(dialog)[0] || dialog;
-      first.focus({ preventScroll: true });
+      focusInitialDialogTarget(dialogRef.current, initialFocusSelector);
     }, 0);
     return () => {
       window.clearTimeout(timer);
-      const target = restoreFocusRef.current;
-      if (target?.isConnected && typeof target.focus === 'function') {
-        target.focus({ preventScroll: true });
-      }
+      restoreFocus(restoreFocusRef.current);
     };
   }, [initialFocusSelector]);
 
@@ -69,28 +103,7 @@ export function FocusTrapDialog({
     }
     if (event.key !== 'Tab') return;
 
-    const dialog = dialogRef.current;
-    const items = focusableElements(dialog);
-    if (!dialog || items.length === 0) {
-      event.preventDefault();
-      dialog?.focus({ preventScroll: true });
-      return;
-    }
-
-    const first = items[0];
-    const last = items[items.length - 1];
-    const active = document.activeElement;
-    if (event.shiftKey) {
-      if (active === first || !dialog.contains(active)) {
-        event.preventDefault();
-        last.focus({ preventScroll: true });
-      }
-      return;
-    }
-    if (active === last || !dialog.contains(active)) {
-      event.preventDefault();
-      first.focus({ preventScroll: true });
-    }
+    trapTabKey(event, dialogRef.current);
   }, [requestClose]);
 
   return (

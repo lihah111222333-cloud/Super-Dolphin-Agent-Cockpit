@@ -1,8 +1,9 @@
 import React from 'react';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, expect, it, vi } from 'vitest';
 import App from './App.jsx';
 import { resetClientStoreForTests, useClientStore } from './entities/client/model/useClientStore.js';
+import mermaid from 'mermaid';
 
 let bridgeCallback;
 
@@ -27,94 +28,33 @@ function deferred() {
   return { promise, resolve, reject };
 }
 
-const backend = vi.hoisted(() => ({
-  readConfig: vi.fn(),
-  getWindowBootstrap: vi.fn(),
-  openNewWindow: vi.fn(),
-  getProjects: vi.fn(),
-  setActiveProject: vi.fn(),
-  addProject: vi.fn(),
-  removeProject: vi.fn(),
-  getSidebarState: vi.fn(),
-  getThreadState: vi.fn(),
-  getThreadMessages: vi.fn(),
-  getBuildInfo: vi.fn(),
-  getDashboardPage: vi.fn(),
-  getObservabilityStatus: vi.fn(),
-  getObservabilityTrace: vi.fn(),
-  getObservabilityThreadRecent: vi.fn(),
-  listObservabilityRecent: vi.fn(),
-  listObservabilitySlow: vi.fn(),
-  listObservabilityErrors: vi.fn(),
-  listSharedFiles: vi.fn(),
-  listPromptAssets: vi.fn(),
-  getDashboardPrompts: vi.fn(),
-  getPrompt: vi.fn(),
-  writePrompt: vi.fn(),
-  deletePrompt: vi.fn(),
-  draftPromptIntent: vi.fn(),
-  commitPromptIntent: vi.fn(),
-  discardPromptIntent: vi.fn(),
-  dryRunPromptIntent: vi.fn(),
-  getMemorySnapshot: vi.fn(),
-  getMemoryEntry: vi.fn(),
-  upsertMemoryEntry: vi.fn(),
-  deleteMemoryEntry: vi.fn(),
-  setMemoryAutoDreamIntent: vi.fn(),
-  mergeMemoryEntries: vi.fn(),
-  ignoreMemorySimilarity: vi.fn(),
-  consolidateMemorySimilarities: vi.fn(),
-  startConsolidateMemorySimilarities: vi.fn(),
-  getMemoryConsolidationStatus: vi.fn(),
-  listDags: vi.fn(),
-  getDagDetail: vi.fn(),
-  getDagRuns: vi.fn(),
-  getDagRun: vi.fn(),
-  startDag: vi.fn(),
-  terminateDagRun: vi.fn(),
-  deleteDag: vi.fn(),
-  applyDagOps: vi.fn(),
-  deleteSkill: vi.fn(),
-  readSkill: vi.fn(),
-  listSkillFiles: vi.fn(),
-  writeSkill: vi.fn(),
-  importSkillDirectories: vi.fn(),
-  suggestSkillSummary: vi.fn(),
-  selectProjectDir: vi.fn(),
-  selectProjectDirs: vi.fn(),
-  listSkillResolutions: vi.fn(),
-  previewSkillResolution: vi.fn(),
-  applySkillResolution: vi.fn(),
-  readSharedFile: vi.fn(),
-  deleteSharedFile: vi.fn(),
-  getPreference: vi.fn(),
-  startThread: vi.fn(),
-  startTurn: vi.fn(),
-  interruptTurn: vi.fn(),
-  compactThread: vi.fn(),
-  recoverThread: vi.fn(),
-  resolveThreadIdentity: vi.fn(),
-  archiveThread: vi.fn(),
-  unarchiveThread: vi.fn(),
-  deleteThread: vi.fn(),
-  getThreadConfig: vi.fn(),
-  setThreadConfig: vi.fn(),
-  renameThread: vi.fn(),
-  setPreference: vi.fn(),
-  selectFiles: vi.fn(),
-  saveClipboardImage: vi.fn(),
-  saveTextFile: vi.fn(),
-  beginTextClipboardWrite: vi.fn(),
-  copyTextToClipboard: vi.fn(),
-  emitFrontendTraceEvent: vi.fn(),
-  onFilesDropped: vi.fn(() => () => {}),
-  onBridgeEvent: vi.fn((callback) => {
-    bridgeCallback = callback;
-    return () => {
-      bridgeCallback = null;
-    };
-  }),
-}));
+const backend = vi.hoisted(() => {
+  const mockNames = `
+    readConfig getWindowBootstrap openNewWindow getProjects setActiveProject addProject removeProject
+    getSidebarState getThreadState getThreadMessages getBuildInfo getDashboardPage getObservabilityStatus
+    getObservabilityTrace getObservabilityThreadRecent listObservabilityRecent listObservabilitySlow
+    listObservabilityErrors listSharedFiles listPromptAssets getDashboardPrompts getPrompt writePrompt
+    deletePrompt draftPromptIntent commitPromptIntent discardPromptIntent dryRunPromptIntent getMemorySnapshot
+    getMemoryEntry upsertMemoryEntry deleteMemoryEntry setMemoryAutoDreamIntent mergeMemoryEntries
+    ignoreMemorySimilarity consolidateMemorySimilarities startConsolidateMemorySimilarities getMemoryConsolidationStatus
+    listDags getDagDetail getDagRuns getDagRun startDag terminateDagRun deleteDag applyDagOps deleteSkill
+    readSkill listSkillFiles writeSkill importSkillDirectories suggestSkillSummary selectProjectDir selectProjectDirs
+    listSkillResolutions previewSkillResolution applySkillResolution readSharedFile deleteSharedFile getPreference
+    startThread startTurn interruptTurn compactThread recoverThread resolveThreadIdentity archiveThread unarchiveThread
+    deleteThread getThreadConfig setThreadConfig renameThread setPreference selectFiles saveClipboardImage saveTextFile
+    beginTextClipboardWrite copyTextToClipboard emitFrontendTraceEvent
+  `.trim().split(/\s+/);
+  return {
+    ...Object.fromEntries(mockNames.map((name) => [name, vi.fn()])),
+    onFilesDropped: vi.fn(() => () => {}),
+    onBridgeEvent: vi.fn((callback) => {
+      bridgeCallback = callback;
+      return () => {
+        bridgeCallback = null;
+      };
+    }),
+  };
+});
 
 vi.mock('./shared/api/backendApi.js', () => ({
   ...backend,
@@ -143,251 +83,424 @@ function mockPromptPreferences(activePromptKey = '') {
 vi.mock('mermaid', () => ({
   default: {
     initialize: vi.fn(),
-    render: vi.fn(async (_id, source) => ({
+    render: vi.fn((_id, source) => Promise.resolve({
       svg: `<svg role="img" aria-label="mock mermaid"><text>${source}</text></svg>`,
     })),
   },
 }));
 
-describe('frontend-app connected client shell', () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-    bridgeCallback = null;
-    resetClientStoreForTests();
-    window.localStorage.clear();
-    window.history.replaceState({}, '', '/');
-    Object.defineProperty(window, 'innerWidth', { configurable: true, value: 1024 });
-    backend.readConfig.mockResolvedValue({ cwd: '/repo/app' });
-    backend.getWindowBootstrap.mockResolvedValue({ snapshot: null });
-    backend.openNewWindow.mockResolvedValue({ ok: true });
-    backend.getProjects.mockResolvedValue({ projects: ['/repo/app'], active: '/repo/app' });
-    backend.setActiveProject.mockResolvedValue({ projects: ['/repo/app'], active: '/repo/app' });
-    backend.addProject.mockResolvedValue({ projects: ['/repo/app'], active: '/repo/app' });
-    backend.removeProject.mockResolvedValue({ projects: ['/repo/app'], active: '/repo/app' });
-    backend.getSidebarState.mockResolvedValue({
-      activeThreadId: 'thread-1',
-      threads: [{ id: 'thread-1', name: '后端线程', provider: 'codex', status: '工作中' }],
-      active_turn: { id: 'turn-1', thread_id: 'thread-1', status: 'running' },
-      tokenUsageByThread: {
-        'thread-1': { usedTokens: 128, contextWindowTokens: 1024, usedPercent: 12.5 },
-      },
-      activityStatsByThread: {
-        'thread-1': {
-          lspCalls: 3,
-          commands: 4,
-          fileEdits: 2,
-          toolCalls: { edit: 3, json_render: 1, shell: 2 },
-        },
-      },
-    });
-    backend.getThreadState.mockResolvedValue({
-      activeThreadId: 'thread-1',
-      timelinesByThread: {
-        'thread-1': [{ id: 'assistant-1', kind: 'assistant', text: '来自后端的消息', ts: '2026-05-30T00:00:00Z' }],
-      },
-      diffTextByThread: {
-        'thread-1': 'diff --git a/file b/file',
-      },
-    });
-    backend.getThreadMessages.mockResolvedValue({ messages: [] });
-    const defaultSkills = [
-      {
-        name: 'backend',
-        display_name: '后端',
-        dir: '/repo/app/.agent/skills/backend',
-        description: '当你需要 Go 后端开发时使用。',
-        summary: 'Go 后端开发指南',
-        trigger_words: ['Go', 'backend', 'service'],
-        force_words: ['sqlc'],
-        scope: 'project',
-      },
-      {
-        name: 'personal-review',
-        dir: '/Users/test/.super-dolphin/skills/personal/user/personal-review',
-        description: '当你需要私人代码审查偏好时使用。',
-        trigger_words: ['review'],
-        scope: 'personal',
-        personal_type: 'user',
-      },
-    ];
-    backend.getDashboardPage.mockImplementation(({ page }) => {
-      if (page === 'memory') {
-        return Promise.resolve({
-          memory: [],
-          finalOutputRefs: [],
-          sharedFileRetention: { items: [], protectedCount: 0, cleanupCandidateCount: 0 },
-        });
-      }
-      if (page === 'dags') {
-        return Promise.resolve({ dags: [] });
-      }
-      if (page === 'skills') {
-        return Promise.resolve({ skills: defaultSkills });
-      }
-      return Promise.resolve({});
-    });
-    backend.getObservabilityStatus.mockResolvedValue({ enabled: true, schema_version: 1, index_trace_keys: 1, sink_events_written: 2, sink_write_errors: 0 });
-    backend.getObservabilityTrace.mockResolvedValue({ source: 'memory', events: [], slowest_events: [], errors: [], total_duration_ms: 0, truncated: false });
-    backend.getObservabilityThreadRecent.mockResolvedValue({ source: 'memory', events: [], slowest_events: [], errors: [], total_duration_ms: 0, truncated: false });
-    backend.listObservabilityRecent.mockResolvedValue({ source: 'memory', events: [], slowest_events: [], errors: [], total_duration_ms: 0, truncated: false });
-    backend.listObservabilitySlow.mockResolvedValue({ source: 'memory', events: [], slowest_events: [], errors: [], total_duration_ms: 0, truncated: false });
-    backend.listObservabilityErrors.mockResolvedValue({ source: 'memory', events: [], slowest_events: [], errors: [], total_duration_ms: 0, truncated: false });
-    backend.listSharedFiles.mockResolvedValue({
-      files: [],
-      finalOutputRefs: [],
-      sharedFileRetention: { items: [], protectedCount: 0, cleanupCandidateCount: 0 },
-    });
-    backend.listPromptAssets.mockResolvedValue({ prompts: [] });
-    backend.getDashboardPrompts.mockResolvedValue({ prompts: [] });
-    backend.getPrompt.mockResolvedValue({ prompt: { content: '' } });
-    backend.writePrompt.mockResolvedValue({ prompt: { id: 'saved-prompt' } });
-    backend.deletePrompt.mockResolvedValue({ deleted: true });
-    backend.draftPromptIntent.mockResolvedValue({
-      draft_key: 'intent/expert/default',
-      kind: 'expert',
+function decodedSvgDataUrl(image) {
+  const src = image.getAttribute('src') || '';
+  const prefix = 'data:image/svg+xml;charset=utf-8,';
+  expect(src.startsWith(prefix)).toBe(true);
+  return decodeURIComponent(src.slice(prefix.length));
+}
+
+function defaultSkillFixtures() {
+  return [
+    {
+      name: 'backend',
+      display_name: '后端',
+      dir: '/repo/app/.agent/skills/backend',
+      description: '当你需要 Go 后端开发时使用。',
+      summary: 'Go 后端开发指南',
+      trigger_words: ['Go', 'backend', 'service'],
+      force_words: ['sqlc'],
       scope: 'project',
-      status: 'review',
-      card: {
-        kind: 'expert',
-        title: '默认专家',
-        summary: '整理后的能力',
-        output: '执行说明',
-        hit_examples: ['需要专家能力时'],
-        miss_examples: ['普通聊天'],
+    },
+    {
+      name: 'personal-review',
+      dir: '/Users/test/.super-dolphin/skills/personal/user/personal-review',
+      description: '当你需要私人代码审查偏好时使用。',
+      trigger_words: ['review'],
+      scope: 'personal',
+      personal_type: 'user',
+    },
+  ];
+}
+
+function resetConnectedShellTestState() {
+  vi.clearAllMocks();
+  bridgeCallback = null;
+  resetClientStoreForTests();
+  window.localStorage.clear();
+  window.history.replaceState({}, '', '/');
+  Object.defineProperty(window, 'innerWidth', { configurable: true, value: 1024 });
+}
+
+function mockBootstrapBackendDefaults() {
+  backend.readConfig.mockResolvedValue({ cwd: '/repo/app' });
+  backend.getWindowBootstrap.mockResolvedValue({ snapshot: null });
+  backend.openNewWindow.mockResolvedValue({ ok: true });
+  backend.getProjects.mockResolvedValue({ projects: ['/repo/app'], active: '/repo/app' });
+  backend.setActiveProject.mockResolvedValue({ projects: ['/repo/app'], active: '/repo/app' });
+  backend.addProject.mockResolvedValue({ projects: ['/repo/app'], active: '/repo/app' });
+  backend.removeProject.mockResolvedValue({ projects: ['/repo/app'], active: '/repo/app' });
+  backend.getSidebarState.mockResolvedValue({
+    activeThreadId: 'thread-1',
+    threads: [{ id: 'thread-1', name: '后端线程', provider: 'codex', status: '工作中' }],
+    active_turn: { id: 'turn-1', thread_id: 'thread-1', status: 'running' },
+    tokenUsageByThread: {
+      'thread-1': { usedTokens: 128, contextWindowTokens: 1024, usedPercent: 12.5 },
+    },
+    activityStatsByThread: {
+      'thread-1': {
+        lspCalls: 3,
+        commands: 4,
+        fileEdits: 2,
+        toolCalls: { edit: 3, json_render: 1, shell: 2 },
       },
-      issues: [],
-    });
-    backend.commitPromptIntent.mockResolvedValue({ prompt: { id: 'intent/expert/default' } });
-    backend.discardPromptIntent.mockResolvedValue({ ok: true });
-    backend.dryRunPromptIntent.mockResolvedValue({ would_use: true, reasons: ['matched'] });
-    backend.getMemorySnapshot.mockResolvedValue({
-      overview: {
-        enabled: true,
-        autoDreamEnabled: false,
-        autoDreamIntent: null,
-        projectRoot: '/repo/app',
-        health: { preferenceCount: 0, projectCount: 0, maxPerCategory: 15, similarGroups: [] },
-      },
-      private: { entries: [] },
-      team: { entries: [] },
-    });
-    backend.listDags.mockResolvedValue({ dags: [] });
-    backend.getDagDetail.mockResolvedValue({ dag: null, nodes: [] });
-    backend.getDagRuns.mockResolvedValue({ runs: [] });
-    backend.getDagRun.mockResolvedValue({ run: null, nodes: [] });
-    backend.startDag.mockResolvedValue({ runKey: 'run-started' });
-    backend.terminateDagRun.mockResolvedValue({ ok: true });
-    backend.deleteDag.mockResolvedValue({ ok: true });
-    backend.applyDagOps.mockResolvedValue({ newVersion: 2 });
-    backend.deleteSkill.mockResolvedValue({ ok: true });
-    backend.readSkill.mockImplementation(({ path }) => Promise.resolve({
-      skill: {
-        content: path.endsWith('/SKILL.md')
-          ? [
-            '---',
-            'name: "backend"',
-            'display_name: "后端"',
-            'description: "当你需要 Go 后端开发时使用。"',
-            'trigger_words: ["Go", "backend"]',
-            '---',
-            '',
-            '## 后端规则',
-          ].join('\n')
-          : '关联文件内容',
-      },
-    }));
-    backend.listSkillFiles.mockResolvedValue({
-      files: [
-        { name: 'SKILL.md', path: '/repo/app/.agent/skills/backend/SKILL.md', is_main: true },
-        { name: 'guide.md', path: '/repo/app/.agent/skills/backend/references/guide.md', is_main: false },
-      ],
-    });
-    backend.writeSkill.mockResolvedValue({ path: '/repo/app/.agent/skills/backend/SKILL.md' });
-    backend.importSkillDirectories.mockResolvedValue({
-      imported: [{ name: 'ImportedSkill', skill_file: '/imports/ImportedSkill/SKILL.md' }],
-      failures: [],
-    });
-    backend.suggestSkillSummary.mockResolvedValue('当你需要部署服务时使用。');
-    backend.selectProjectDir.mockResolvedValue('/repo/new');
-    backend.selectProjectDirs.mockResolvedValue(['/imports/ImportedSkill']);
-    backend.listSkillResolutions.mockResolvedValue({ items: [] });
-    backend.previewSkillResolution.mockResolvedValue({
-      items: [{
-        provider: 'codex',
-        preview_id: 'preview-1',
-        preview_hash: 'hash-1',
-        source_path: '/repo/app/.agent/skills/backend/SKILL.md',
-        target_path: '/Users/test/.codex/skills/backend/SKILL.md',
-      }],
-    });
-    backend.applySkillResolution.mockResolvedValue({ ok: true });
-    backend.readSharedFile.mockImplementation(({ path }) => Promise.resolve({
-      path,
-      content: `content for ${path}`,
-      updatedBy: 'agent',
-      updatedAt: '2026-05-30T07:00:00Z',
-    }));
-    backend.deleteSharedFile.mockResolvedValue({ deleted: true });
-    backend.getMemoryEntry.mockResolvedValue({
-      target: 'private',
-      path: 'feedback/tdd.md',
-      name: 'tdd-rule',
-      title: '遵守 TDD',
-      description: '先写红测',
-      type: 'feedback',
-      content: '规则\n先写红测',
-    });
-    backend.upsertMemoryEntry.mockResolvedValue({ path: 'feedback/tdd.md' });
-    backend.deleteMemoryEntry.mockResolvedValue({ deleted: true });
-    backend.setMemoryAutoDreamIntent.mockResolvedValue({ ok: true, enabled: true });
-    backend.mergeMemoryEntries.mockResolvedValue({ path: 'feedback/tdd.md' });
-    backend.ignoreMemorySimilarity.mockResolvedValue({ ok: true });
-    backend.consolidateMemorySimilarities.mockResolvedValue({ merged: 1, ignored: 0, failed: 0, skipped: 0 });
-    backend.startConsolidateMemorySimilarities.mockResolvedValue({ jobId: 'memory-job-1', status: 'running' });
-    backend.getMemoryConsolidationStatus.mockResolvedValue({
-      jobId: 'memory-job-1',
-      status: 'succeeded',
-      result: { merged: 1, ignored: 0, failed: 0, skipped: 0 },
-    });
-    backend.onFilesDropped.mockReturnValue(() => {});
-    backend.saveTextFile.mockResolvedValue('/exports/file.md');
-    backend.beginTextClipboardWrite.mockReturnValue(null);
-    backend.copyTextToClipboard.mockResolvedValue(true);
-    backend.getBuildInfo.mockResolvedValue({
-      version: 'v1.2.3',
-      runtime: 'linux/amd64',
-      buildTime: '2026-05-30T07:00:00Z',
-      commit: 'abc123def456',
-    });
-    backend.getPreference.mockImplementation(({ key }) => Promise.resolve({
-      'settings.provider.active': 'codex',
-      'settings.provider.codex.model': 'gpt-5.5',
-      'settings.provider.codex.effort': 'xhigh',
-      'settings.provider.codex.codexHome': '~/.codex',
-      'settings.provider.codex.codexInstanceKey': 'default',
-      'settings.provider.codex.codexModelProvider': 'openai',
-      'settings.provider.claude.model': 'sonnet',
-      'settings.provider.claude.effort': 'high',
-    }[key] ?? null));
-    backend.archiveThread.mockResolvedValue({ ok: true });
-    backend.unarchiveThread.mockResolvedValue({ ok: true });
-    backend.deleteThread.mockResolvedValue({ ok: true });
-    backend.getThreadConfig.mockResolvedValue({
-      threadId: 'thread-1',
-      provider: 'codex',
-      supportsThreadOverride: true,
-      override: {},
-      effective: { model: 'gpt-5.4', effort: 'medium' },
-    });
-    backend.setThreadConfig.mockResolvedValue({
-      threadId: 'thread-1',
-      provider: 'codex',
-      supportsThreadOverride: true,
-      override: { model: 'gpt-5.5', effort: '' },
-      effective: { model: 'gpt-5.5', effort: 'medium' },
-    });
-    backend.setPreference.mockResolvedValue({ ok: true });
+    },
   });
+  backend.getThreadState.mockResolvedValue({
+    activeThreadId: 'thread-1',
+    timelinesByThread: {
+      'thread-1': [{ id: 'assistant-1', kind: 'assistant', text: '来自后端的消息', ts: '2026-05-30T00:00:00Z' }],
+    },
+    diffTextByThread: {
+      'thread-1': 'diff --git a/file b/file',
+    },
+  });
+  backend.getThreadMessages.mockResolvedValue({ messages: [] });
+}
+
+function mockDashboardPageDefaults() {
+  const defaultSkills = defaultSkillFixtures();
+  backend.getDashboardPage.mockImplementation(({ page }) => {
+    if (page === 'memory') {
+      return Promise.resolve({
+        memory: [],
+        finalOutputRefs: [],
+        sharedFileRetention: { items: [], protectedCount: 0, cleanupCandidateCount: 0 },
+      });
+    }
+    if (page === 'dags') {
+      return Promise.resolve({ dags: [] });
+    }
+    if (page === 'skills') {
+      return Promise.resolve({ skills: defaultSkills });
+    }
+    return Promise.resolve({});
+  });
+}
+
+function mockObservabilityDefaults() {
+  const emptyTraceResult = {
+    source: 'memory',
+    events: [],
+    slowest_events: [],
+    errors: [],
+    total_duration_ms: 0,
+    truncated: false,
+  };
+  backend.getObservabilityStatus.mockResolvedValue({
+    enabled: true,
+    schema_version: 1,
+    index_trace_keys: 1,
+    sink_events_written: 2,
+    sink_write_errors: 0,
+  });
+  backend.getObservabilityTrace.mockResolvedValue(emptyTraceResult);
+  backend.getObservabilityThreadRecent.mockResolvedValue(emptyTraceResult);
+  backend.listObservabilityRecent.mockResolvedValue(emptyTraceResult);
+  backend.listObservabilitySlow.mockResolvedValue(emptyTraceResult);
+  backend.listObservabilityErrors.mockResolvedValue(emptyTraceResult);
+}
+
+function mockPromptDefaults() {
+  backend.listPromptAssets.mockResolvedValue({ prompts: [] });
+  backend.getDashboardPrompts.mockResolvedValue({ prompts: [] });
+  backend.getPrompt.mockResolvedValue({ prompt: { content: '' } });
+  backend.writePrompt.mockResolvedValue({ prompt: { id: 'saved-prompt' } });
+  backend.deletePrompt.mockResolvedValue({ deleted: true });
+  backend.draftPromptIntent.mockResolvedValue({
+    draft_key: 'intent/expert/default',
+    kind: 'expert',
+    scope: 'project',
+    status: 'review',
+    card: {
+      kind: 'expert',
+      title: '默认专家',
+      summary: '整理后的能力',
+      output: '执行说明',
+      hit_examples: ['需要专家能力时'],
+      miss_examples: ['普通聊天'],
+    },
+    issues: [],
+  });
+  backend.commitPromptIntent.mockResolvedValue({ prompt: { id: 'intent/expert/default' } });
+  backend.discardPromptIntent.mockResolvedValue({ ok: true });
+  backend.dryRunPromptIntent.mockResolvedValue({ would_use: true, reasons: ['matched'] });
+}
+
+function mockMemoryDefaults() {
+  backend.getMemorySnapshot.mockResolvedValue({
+    overview: {
+      enabled: true,
+      autoDreamEnabled: false,
+      autoDreamIntent: null,
+      projectRoot: '/repo/app',
+      health: { preferenceCount: 0, projectCount: 0, maxPerCategory: 15, similarGroups: [] },
+    },
+    private: { entries: [] },
+    team: { entries: [] },
+  });
+  backend.getMemoryEntry.mockResolvedValue({
+    target: 'private',
+    path: 'feedback/tdd.md',
+    name: 'tdd-rule',
+    title: '遵守 TDD',
+    description: '先写红测',
+    type: 'feedback',
+    content: '规则\n先写红测',
+  });
+  backend.upsertMemoryEntry.mockResolvedValue({ path: 'feedback/tdd.md' });
+  backend.deleteMemoryEntry.mockResolvedValue({ deleted: true });
+  backend.setMemoryAutoDreamIntent.mockResolvedValue({ ok: true, enabled: true });
+  backend.mergeMemoryEntries.mockResolvedValue({ path: 'feedback/tdd.md' });
+  backend.ignoreMemorySimilarity.mockResolvedValue({ ok: true });
+  backend.consolidateMemorySimilarities.mockResolvedValue({ merged: 1, ignored: 0, failed: 0, skipped: 0 });
+  backend.startConsolidateMemorySimilarities.mockResolvedValue({ jobId: 'memory-job-1', status: 'running' });
+  backend.getMemoryConsolidationStatus.mockResolvedValue({
+    jobId: 'memory-job-1',
+    status: 'succeeded',
+    result: { merged: 1, ignored: 0, failed: 0, skipped: 0 },
+  });
+}
+
+function mockWorkflowDefaults() {
+  backend.listDags.mockResolvedValue({ dags: [] });
+  backend.getDagDetail.mockResolvedValue({ dag: null, nodes: [] });
+  backend.getDagRuns.mockResolvedValue({ runs: [] });
+  backend.getDagRun.mockResolvedValue({ run: null, nodes: [] });
+  backend.startDag.mockResolvedValue({ runKey: 'run-started' });
+  backend.terminateDagRun.mockResolvedValue({ ok: true });
+  backend.deleteDag.mockResolvedValue({ ok: true });
+  backend.applyDagOps.mockResolvedValue({ newVersion: 2 });
+}
+
+function mockSkillDefaults() {
+  backend.deleteSkill.mockResolvedValue({ ok: true });
+  backend.readSkill.mockImplementation(({ path }) => Promise.resolve({
+    skill: {
+      content: path.endsWith('/SKILL.md')
+        ? [
+          '---',
+          'name: "backend"',
+          'display_name: "后端"',
+          'description: "当你需要 Go 后端开发时使用。"',
+          'trigger_words: ["Go", "backend"]',
+          '---',
+          '',
+          '## 后端规则',
+        ].join('\n')
+        : '关联文件内容',
+    },
+  }));
+  backend.listSkillFiles.mockResolvedValue({
+    files: [
+      { name: 'SKILL.md', path: '/repo/app/.agent/skills/backend/SKILL.md', is_main: true },
+      { name: 'guide.md', path: '/repo/app/.agent/skills/backend/references/guide.md', is_main: false },
+    ],
+  });
+  backend.writeSkill.mockResolvedValue({ path: '/repo/app/.agent/skills/backend/SKILL.md' });
+  backend.importSkillDirectories.mockResolvedValue({
+    imported: [{ name: 'ImportedSkill', skill_file: '/imports/ImportedSkill/SKILL.md' }],
+    failures: [],
+  });
+  backend.suggestSkillSummary.mockResolvedValue('当你需要部署服务时使用。');
+  backend.selectProjectDir.mockResolvedValue('/repo/new');
+  backend.selectProjectDirs.mockResolvedValue(['/imports/ImportedSkill']);
+  backend.listSkillResolutions.mockResolvedValue({ items: [] });
+  backend.previewSkillResolution.mockResolvedValue({
+    items: [{
+      provider: 'codex',
+      preview_id: 'preview-1',
+      preview_hash: 'hash-1',
+      source_path: '/repo/app/.agent/skills/backend/SKILL.md',
+      target_path: '/Users/test/.codex/skills/backend/SKILL.md',
+    }],
+  });
+  backend.applySkillResolution.mockResolvedValue({ ok: true });
+}
+
+function mockSharedFileDefaults() {
+  backend.listSharedFiles.mockResolvedValue({
+    files: [],
+    finalOutputRefs: [],
+    sharedFileRetention: { items: [], protectedCount: 0, cleanupCandidateCount: 0 },
+  });
+  backend.readSharedFile.mockImplementation(({ path }) => Promise.resolve({
+    path,
+    content: `content for ${path}`,
+    updatedBy: 'agent',
+    updatedAt: '2026-05-30T07:00:00Z',
+  }));
+  backend.deleteSharedFile.mockResolvedValue({ deleted: true });
+  backend.saveTextFile.mockResolvedValue('/exports/file.md');
+}
+
+function mockSettingsAndThreadDefaults() {
+  backend.onFilesDropped.mockReturnValue(() => {});
+  backend.beginTextClipboardWrite.mockReturnValue(null);
+  backend.copyTextToClipboard.mockResolvedValue(true);
+  backend.getBuildInfo.mockResolvedValue({
+    version: 'v1.2.3',
+    runtime: 'linux/amd64',
+    buildTime: '2026-05-30T07:00:00Z',
+    commit: 'abc123def456',
+  });
+  backend.getPreference.mockImplementation(({ key }) => Promise.resolve({
+    'settings.provider.active': 'codex',
+    'settings.provider.codex.model': 'gpt-5.5',
+    'settings.provider.codex.effort': 'xhigh',
+    'settings.provider.codex.codexHome': '~/.codex',
+    'settings.provider.codex.codexInstanceKey': 'default',
+    'settings.provider.codex.codexModelProvider': 'openai',
+    'settings.provider.claude.model': 'sonnet',
+    'settings.provider.claude.effort': 'high',
+  }[key] ?? null));
+  backend.archiveThread.mockResolvedValue({ ok: true });
+  backend.unarchiveThread.mockResolvedValue({ ok: true });
+  backend.deleteThread.mockResolvedValue({ ok: true });
+  backend.getThreadConfig.mockResolvedValue({
+    threadId: 'thread-1',
+    provider: 'codex',
+    supportsThreadOverride: true,
+    override: {},
+    effective: { model: 'gpt-5.4', effort: 'medium' },
+  });
+  backend.setThreadConfig.mockResolvedValue({
+    threadId: 'thread-1',
+    provider: 'codex',
+    supportsThreadOverride: true,
+    override: { model: 'gpt-5.5', effort: '' },
+    effective: { model: 'gpt-5.5', effort: 'medium' },
+  });
+  backend.setPreference.mockResolvedValue({ ok: true });
+}
+
+beforeEach(resetConnectedShellTestState);
+beforeEach(mockBootstrapBackendDefaults);
+beforeEach(mockDashboardPageDefaults);
+beforeEach(mockObservabilityDefaults);
+beforeEach(mockPromptDefaults);
+beforeEach(mockMemoryDefaults);
+beforeEach(mockWorkflowDefaults);
+beforeEach(mockSkillDefaults);
+beforeEach(mockSharedFileDefaults);
+beforeEach(mockSettingsAndThreadDefaults);
+
+function mockTraceDashboardQueryResult() {
+  backend.listObservabilityRecent.mockResolvedValueOnce({
+    source: 'mixed',
+    total_duration_ms: 135,
+    truncated: false,
+    slowest_events: [],
+    errors: [],
+    events: [{
+      ts: '2026-06-02T09:01:20.100Z',
+      trace_id: 'trace-1',
+      span_id: 'span-rpc',
+      method: 'rpc.dispatch',
+      status: 'slow',
+      duration_ms: 120,
+      thread_id: 'thread-1',
+    }],
+  });
+  backend.getObservabilityTrace.mockResolvedValue({
+    source: 'mixed',
+    total_duration_ms: 135,
+    truncated: false,
+    slowest_events: [],
+    errors: [],
+    events: [
+      { ts: '2026-06-02T09:01:19.000Z', trace_id: 'trace-1', span_id: 'span-begin', method: 'tool.call.begin', status: 'ok', thread_id: 'thread-1' },
+      {
+        ts: '2026-06-02T09:01:20.100Z',
+        trace_id: 'trace-1',
+        span_id: 'span-rpc',
+        method: 'rpc.dispatch',
+        status: 'slow',
+        duration_ms: 120,
+        thread_id: 'thread-1',
+        parent_span_id: 'span-root',
+        code: { file: 'internal/platform/rpc/server.go', function: '(*Server).Dispatch', line: 270 },
+        stack: [{ file: 'internal/platform/rpc/server.go', function: '(*Server).Dispatch', line: 270 }],
+        error: 'rpc dispatch exceeded slow threshold',
+        metadata: { component: 'rpc', route: 'observability/trace/get' },
+      },
+      { ts: '2026-06-02T09:01:23.000Z', trace_id: 'trace-1', span_id: 'span-ui', method: 'ui/sidebar/get', status: 'ok', thread_id: 'thread-1' },
+      { ts: '2026-06-02T09:01:24.000Z', trace_id: 'trace-1', span_id: 'span-noise', method: 'bus.event.lifecycle', kind: 'bus_event', status: 'dropped_summary', thread_id: 'thread-1' },
+    ],
+  });
+}
+
+async function openTraceDashboardForTraceId() {
+  render(<App />);
+  fireEvent.click(await screen.findByRole('button', { name: '链路追踪' }));
+  fireEvent.change(screen.getByLabelText('Trace ID'), { target: { value: 'trace-1' } });
+  fireEvent.click(screen.getByRole('button', { name: '查询最新日志' }));
+  const table = await screen.findByTestId('observability-recent-logs');
+  fireEvent.click(within(table).getByRole('button', { name: '打开 Trace trace-1' }));
+  return table;
+}
+
+function expectTraceDashboardRpcCalls() {
+  expect(backend.listObservabilityRecent).toHaveBeenCalledTimes(1);
+  expect(backend.listObservabilityRecent).toHaveBeenCalledWith({
+    limit: 50,
+    status: '',
+    component: '',
+    method: '',
+    traceId: 'trace-1',
+    threadId: '',
+    agentId: '',
+    keyword: '',
+  });
+  expect(backend.getObservabilityTrace).toHaveBeenCalledWith({ traceId: 'trace-1', limit: 50 });
+}
+
+async function expectTraceDashboardRows(table) {
+  const inlineTrace = await within(table).findByTestId('observability-inline-trace-trace-1');
+  expect(inlineTrace).toHaveTextContent('source=mixed');
+  expect(screen.getAllByText(/internal\/platform\/rpc\/server.go:270/).length).toBeGreaterThan(0);
+  const traceRows = screen.getAllByRole('row').filter((row) => row.classList.contains('observability-event-row'));
+  expect(traceRows[0]).toHaveClass('observability-event-row');
+  expect(traceRows[0]).not.toHaveClass('settings-row');
+  expect(traceRows[0]).toHaveTextContent('120ms');
+  expect(traceRows[0]).toHaveTextContent('请求上下文');
+  expect(traceRows[0]).toHaveTextContent('链路标识');
+  expect(traceRows[0]).toHaveTextContent('失败原因');
+  const zeroDurationRow = traceRows.find((row) => row.textContent.includes('ui/sidebar/get'));
+  expect(zeroDurationRow).toBeTruthy();
+  expect(zeroDurationRow).toHaveTextContent('2026-06-02 09:01:23');
+  expect(zeroDurationRow).toHaveTextContent('耗时未记录');
+  expect(zeroDurationRow).not.toHaveTextContent('0ms');
+  expect(zeroDurationRow).not.toHaveTextContent('code=-');
+  expect(traceRows[0]).toHaveTextContent('trace');
+  expect(traceRows[0]).toHaveTextContent('trace-1');
+  expect(traceRows[0]).toHaveTextContent('span');
+  expect(traceRows[0]).toHaveTextContent('span-rpc');
+  expect(traceRows[0]).toHaveTextContent('parent');
+  expect(traceRows[0]).toHaveTextContent('span-root');
+}
+
+function expectTraceDashboardDetails() {
+  expect(screen.getByText('rpc dispatch exceeded slow threshold')).toBeInTheDocument();
+  expect(screen.getByText(/"component": "rpc"/)).toBeInTheDocument();
+  expect(screen.getByText(/"route": "observability\/trace\/get"/)).toBeInTheDocument();
+  expect(screen.getByText(/默认显示关键事件 2\/4/)).toBeInTheDocument();
+  expect(screen.getByText(/已折叠 2 条成功过程事件/)).toBeInTheDocument();
+  expect(screen.queryByText('tool.call.begin')).not.toBeInTheDocument();
+  expect(screen.queryByText('bus.event.lifecycle')).not.toBeInTheDocument();
+}
+
+async function showAllTraceDashboardEvents() {
+  fireEvent.click(screen.getByRole('button', { name: '显示全部事件' }));
+  await waitFor(() => expect(screen.getAllByText('tool.call.begin').length).toBeGreaterThan(0));
+  expect(screen.getAllByText('bus.event.lifecycle').length).toBeGreaterThan(0);
+}
 
   it('renders the product titlebar without macOS controls and defaults to dark theme', async () => {
     render(<App />);
@@ -418,288 +531,159 @@ describe('frontend-app connected client shell', () => {
   });
 
   it('opens observability tracing dashboard and queries by trace id', async () => {
-    backend.listObservabilityRecent.mockResolvedValueOnce({
-      source: 'mixed',
-      total_duration_ms: 135,
-      truncated: false,
-      slowest_events: [],
-      errors: [],
-      events: [{
-        ts: '2026-06-02T09:01:20.100Z',
-        trace_id: 'trace-1',
-        span_id: 'span-rpc',
-        method: 'rpc.dispatch',
-        status: 'slow',
-        duration_ms: 120,
-        thread_id: 'thread-1',
-      }],
-    }).mockResolvedValueOnce({
-      source: 'mixed',
-      total_duration_ms: 135,
-      truncated: false,
-      slowest_events: [],
-      errors: [],
-      events: [
-        {
-          ts: '2026-06-02T09:01:20.100Z',
-          trace_id: 'trace-1',
-          span_id: 'span-rpc',
-          method: 'rpc.dispatch',
-          status: 'slow',
-          duration_ms: 120,
-          thread_id: 'thread-1',
-        },
-        {
-          ts: '2026-06-02T09:01:23.000Z',
-          trace_id: 'trace-1',
-          span_id: 'span-ui',
-          method: 'ui/sidebar/get',
-          status: 'ok',
-          thread_id: 'thread-1',
-        },
-        {
-          ts: '2026-06-02T09:01:24.000Z',
-          trace_id: 'trace-1',
-          span_id: 'span-noise',
-          method: 'bus.event.lifecycle',
-          kind: 'bus_event',
-          status: 'dropped_summary',
-          thread_id: 'thread-1',
-        },
-      ],
-    });
-    backend.getObservabilityTrace.mockResolvedValue({
-      source: 'mixed',
-      total_duration_ms: 135,
-      truncated: false,
-      slowest_events: [],
-      errors: [],
-      events: [
-        {
-          ts: '2026-06-02T09:01:19.000Z',
-          trace_id: 'trace-1',
-          span_id: 'span-begin',
-          method: 'tool.call.begin',
-          status: 'ok',
-          thread_id: 'thread-1',
-        },
-        {
-          ts: '2026-06-02T09:01:20.100Z',
-          trace_id: 'trace-1',
-          span_id: 'span-rpc',
-          method: 'rpc.dispatch',
-          status: 'slow',
-          duration_ms: 120,
-          thread_id: 'thread-1',
-          parent_span_id: 'span-root',
-          code: { file: 'internal/platform/rpc/server.go', function: '(*Server).Dispatch', line: 270 },
-          stack: [{ file: 'internal/platform/rpc/server.go', function: '(*Server).Dispatch', line: 270 }],
-          error: 'rpc dispatch exceeded slow threshold',
-          metadata: {
-            component: 'rpc',
-            route: 'observability/trace/get',
-          },
-        },
-        {
-          ts: '2026-06-02T09:01:23.000Z',
-          trace_id: 'trace-1',
-          span_id: 'span-ui',
-          method: 'ui/sidebar/get',
-          status: 'ok',
-          thread_id: 'thread-1',
-        },
-        {
-          ts: '2026-06-02T09:01:24.000Z',
-          trace_id: 'trace-1',
-          span_id: 'span-noise',
-          method: 'bus.event.lifecycle',
-          kind: 'bus_event',
-          status: 'dropped_summary',
-          thread_id: 'thread-1',
-        },
-      ],
-    });
-    render(<App />);
+    mockTraceDashboardQueryResult();
 
-    fireEvent.click(await screen.findByRole('button', { name: '链路追踪' }));
-    fireEvent.change(screen.getByLabelText('Trace ID'), { target: { value: 'trace-1' } });
-    fireEvent.click(screen.getByRole('button', { name: '查询最新日志' }));
-    const table = await screen.findByTestId('observability-recent-logs');
-    fireEvent.click(within(table).getByRole('button', { name: '打开 Trace trace-1' }));
+    const table = await openTraceDashboardForTraceId();
 
-    expect(await screen.findByText(/source=mixed/)).toBeInTheDocument();
-    expect(screen.getAllByText(/internal\/platform\/rpc\/server.go:270/).length).toBeGreaterThan(0);
-    const traceRows = screen.getAllByRole('row').filter((row) => row.classList.contains('observability-event-row'));
-    expect(traceRows[0]).toHaveClass('observability-event-row');
-    expect(traceRows[0]).not.toHaveClass('settings-row');
-    expect(traceRows[0]).toHaveTextContent('120ms');
-    expect(traceRows[0]).toHaveTextContent('请求上下文');
-    expect(traceRows[0]).toHaveTextContent('链路标识');
-    expect(traceRows[0]).toHaveTextContent('失败原因');
-    const zeroDurationRow = traceRows.find((row) => row.textContent.includes('ui/sidebar/get'));
-    expect(zeroDurationRow).toBeTruthy();
-    expect(zeroDurationRow).toHaveTextContent('2026-06-02 09:01:23');
-    expect(zeroDurationRow).toHaveTextContent('耗时未记录');
-    expect(zeroDurationRow).not.toHaveTextContent('0ms');
-    expect(zeroDurationRow).not.toHaveTextContent('code=-');
-    expect(traceRows[0]).toHaveTextContent('trace');
-    expect(traceRows[0]).toHaveTextContent('trace-1');
-    expect(traceRows[0]).toHaveTextContent('span');
-    expect(traceRows[0]).toHaveTextContent('span-rpc');
-    expect(traceRows[0]).toHaveTextContent('parent');
-    expect(traceRows[0]).toHaveTextContent('span-root');
-    expect(screen.getByText('rpc dispatch exceeded slow threshold')).toBeInTheDocument();
-    expect(screen.getByText(/"component": "rpc"/)).toBeInTheDocument();
-    expect(screen.getByText(/"route": "observability\/trace\/get"/)).toBeInTheDocument();
-    expect(backend.listObservabilityRecent).toHaveBeenCalledWith({
-      limit: 50,
-      status: '',
-      component: '',
-      method: '',
-          traceId: 'trace-1',
-          threadId: '',
-          agentId: '',
-          keyword: '',
-        });
-    expect(backend.listObservabilityRecent).toHaveBeenLastCalledWith({
-      limit: 50,
-      status: '',
-      component: '',
-      method: '',
-      traceId: 'trace-1',
-      threadId: '',
-      agentId: '',
-      keyword: '',
-    });
-    expect(backend.getObservabilityTrace).toHaveBeenCalledWith({ traceId: 'trace-1', limit: 50 });
-    expect(screen.getByText(/默认显示关键事件 2\/4/)).toBeInTheDocument();
-    expect(screen.getByText(/已折叠 2 条成功过程事件/)).toBeInTheDocument();
-    expect(screen.queryByText('tool.call.begin')).not.toBeInTheDocument();
-    expect(screen.queryByText('bus.event.lifecycle')).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: '显示全部事件' }));
-    await waitFor(() => expect(screen.getAllByText('tool.call.begin').length).toBeGreaterThan(0));
-    expect(screen.getAllByText('bus.event.lifecycle').length).toBeGreaterThan(0);
+    await expectTraceDashboardRows(table);
+    expectTraceDashboardDetails();
+    expectTraceDashboardRpcCalls();
+    await showAllTraceDashboardEvents();
   });
 
-  it('renders recent system logs and opens a trace from the table', async () => {
-    backend.listObservabilityRecent.mockResolvedValue({
-      source: 'mixed',
-      total_duration_ms: 38,
-      truncated: false,
-      slowest_events: [],
-      errors: [],
-      events: [
-        {
-          ts: '2026-06-02T09:01:22.459Z',
-          trace_id: 'trace-frontend-1',
-          span_id: 'span-ui',
-          method: 'thread/start',
-          phase: 'frontend.rpc.failed',
-          kind: 'frontend',
-          status: 'error',
-          duration_ms: 33,
-          thread_id: 'thread-1',
-          client_route: '/chat',
-          error: 'thread start failed',
-        },
-        {
-          ts: '2026-06-02T09:01:20.100Z',
-          trace_id: 'trace-frontend-1',
-          span_id: 'span-rpc',
-          method: 'rpc.dispatch',
-          kind: 'rpc',
-          status: 'ok',
-          duration_ms: 5,
-          thread_id: 'thread-1',
-        },
-        {
-          ts: '2026-06-02T09:02:03.000Z',
-          trace_id: 'trace-frontend-2',
-          span_id: 'span-ui-2',
-          method: 'thread/config/get',
-          phase: 'frontend.rpc.done',
-          kind: 'frontend',
-          status: 'ok',
-          duration_ms: 7,
-          thread_id: 'thread-2',
-        },
-        {
-          ts: '2026-06-02T09:03:04.000Z',
-          trace_id: '',
-          span_id: 'span-provider',
-          method: 'provider.session.acquire',
-          kind: 'provider',
-          status: 'ok',
-          duration_ms: 3268,
-          thread_id: 'thread-provider',
-        },
-      ],
-    });
-    backend.getObservabilityTrace.mockResolvedValue({
-      source: 'mixed',
-      total_duration_ms: 33,
-      truncated: false,
-      slowest_events: [],
-      errors: [],
-      events: [{
+function mockRecentSystemLogsResult() {
+  backend.listObservabilityRecent.mockResolvedValue({
+    source: 'mixed',
+    total_duration_ms: 38,
+    truncated: false,
+    slowest_events: [],
+    errors: [],
+    events: [
+      {
+        ts: '2026-06-02T09:01:22.459Z',
         trace_id: 'trace-frontend-1',
         span_id: 'span-ui',
         method: 'thread/start',
+        phase: 'frontend.rpc.failed',
+        kind: 'frontend',
         status: 'error',
         duration_ms: 33,
-      }],
-    });
-    render(<App />);
-
-    fireEvent.click(await screen.findByRole('button', { name: '链路追踪' }));
-    fireEvent.change(screen.getByLabelText('状态'), { target: { value: 'error' } });
-    fireEvent.change(screen.getByLabelText('关键词'), { target: { value: 'thread/start' } });
-    fireEvent.click(screen.getByRole('button', { name: '查询最新日志' }));
-
-    const table = await screen.findByTestId('observability-recent-logs');
-    expect(table).toHaveTextContent('2 条 trace · 3 个匹配 event');
-    expect(table).toHaveTextContent('2026-06-02 09:01:22');
-    expect(table).toHaveTextContent('2026-06-02 09:02:03');
-    expect(table).not.toHaveTextContent('2026-06-02T09:01:22.459Z');
-    expect(table).toHaveTextContent('thread/start');
-    expect(table).toHaveTextContent('trace-frontend-1');
-    expect(table).toHaveTextContent('thread start failed');
-    expect(table).not.toHaveTextContent('provider.session.acquire');
-    expect(within(table).getAllByRole('button', { name: /复制 Trace ID/ })).toHaveLength(2);
-    expect(within(table).getAllByRole('button', { name: /打开 Trace/ })).toHaveLength(2);
-    expect(table).toHaveTextContent('2 个匹配 event');
-    expect(backend.listObservabilityRecent).toHaveBeenCalledWith({
-      limit: 50,
+        thread_id: 'thread-1',
+        client_route: '/chat',
+        error: 'thread start failed',
+      },
+      {
+        ts: '2026-06-02T09:01:20.100Z',
+        trace_id: 'trace-frontend-1',
+        span_id: 'span-rpc',
+        method: 'rpc.dispatch',
+        kind: 'rpc',
+        status: 'ok',
+        duration_ms: 5,
+        thread_id: 'thread-1',
+      },
+      {
+        ts: '2026-06-02T09:02:03.000Z',
+        trace_id: 'trace-frontend-2',
+        span_id: 'span-ui-2',
+        method: 'thread/config/get',
+        phase: 'frontend.rpc.done',
+        kind: 'frontend',
+        status: 'ok',
+        duration_ms: 7,
+        thread_id: 'thread-2',
+      },
+      {
+        ts: '2026-06-02T09:03:04.000Z',
+        trace_id: '',
+        span_id: 'span-provider',
+        method: 'provider.session.acquire',
+        kind: 'provider',
+        status: 'ok',
+        duration_ms: 3268,
+        thread_id: 'thread-provider',
+      },
+    ],
+  });
+  backend.getObservabilityTrace.mockResolvedValue({
+    source: 'mixed',
+    total_duration_ms: 33,
+    truncated: false,
+    slowest_events: [],
+    errors: [],
+    events: [{
+      trace_id: 'trace-frontend-1',
+      span_id: 'span-ui',
+      method: 'thread/start',
       status: 'error',
-      component: '',
-      method: '',
-      traceId: '',
-      threadId: '',
-      agentId: '',
-      keyword: 'thread/start',
-    });
+      duration_ms: 33,
+    }],
+  });
+}
 
-    expect(screen.queryByText(/Trace 查询结果/)).not.toBeInTheDocument();
-    fireEvent.click(within(table).getByRole('button', { name: '复制 Trace ID trace-frontend-1' }));
+async function openRecentSystemLogs() {
+  render(<App />);
+  fireEvent.click(await screen.findByRole('button', { name: '链路追踪' }));
+  fireEvent.change(screen.getByLabelText('状态'), { target: { value: 'error' } });
+  fireEvent.change(screen.getByLabelText('关键词'), { target: { value: 'thread/start' } });
+  fireEvent.click(screen.getByRole('button', { name: '查询最新日志' }));
+  return screen.findByTestId('observability-recent-logs');
+}
 
-    await waitFor(() => expect(backend.copyTextToClipboard).toHaveBeenCalledWith('trace-frontend-1'));
-    expect(within(table).getByRole('button', { name: '复制 Trace ID trace-frontend-1' })).toHaveTextContent('已复制');
-    expect(backend.getObservabilityTrace).not.toHaveBeenCalled();
+function expectRecentSystemLogsTable(table) {
+  expect(table).toHaveTextContent('2 条 trace · 3 个匹配 event');
+  expect(table).toHaveTextContent('2026-06-02 09:01:22');
+  expect(table).toHaveTextContent('2026-06-02 09:02:03');
+  expect(table).not.toHaveTextContent('2026-06-02T09:01:22.459Z');
+  expect(table).toHaveTextContent('thread/start');
+  expect(table).toHaveTextContent('trace-frontend-1');
+  expect(table).toHaveTextContent('thread start failed');
+  expect(table).not.toHaveTextContent('provider.session.acquire');
+  expect(within(table).getAllByRole('button', { name: /复制 Trace ID/ })).toHaveLength(2);
+  expect(within(table).getAllByRole('button', { name: /打开 Trace/ })).toHaveLength(2);
+  expect(table).toHaveTextContent('2 个匹配 event');
+}
 
-    fireEvent.click(within(table).getByRole('button', { name: '打开 Trace trace-frontend-1' }));
+function expectRecentSystemLogsRpcCall() {
+  expect(backend.listObservabilityRecent).toHaveBeenCalledWith({
+    limit: 50,
+    status: 'error',
+    component: '',
+    method: '',
+    traceId: '',
+    threadId: '',
+    agentId: '',
+    keyword: 'thread/start',
+  });
+}
 
-    expect(await screen.findByText(/Trace 查询结果/)).toBeInTheDocument();
-    expect(backend.getObservabilityTrace).toHaveBeenCalledWith({ traceId: 'trace-frontend-1', limit: 50 });
-    expect(backend.listObservabilityRecent).toHaveBeenLastCalledWith({
-      limit: 50,
-      status: 'error',
-      component: '',
-      method: '',
-      traceId: 'trace-frontend-1',
-      threadId: '',
-      agentId: '',
-      keyword: 'thread/start',
-    });
+async function copyTraceFromRecentLogs(table) {
+  expect(screen.queryByText(/Trace 查询结果/)).not.toBeInTheDocument();
+  expect(within(table).queryByTestId('observability-inline-trace-trace-frontend-1')).not.toBeInTheDocument();
+  fireEvent.click(within(table).getByRole('button', { name: '复制 Trace ID trace-frontend-1' }));
+
+  await waitFor(() => expect(backend.copyTextToClipboard).toHaveBeenCalledWith('trace-frontend-1'));
+  expect(within(table).getByRole('button', { name: '复制 Trace ID trace-frontend-1' })).toHaveTextContent('已复制');
+  expect(backend.getObservabilityTrace).not.toHaveBeenCalled();
+}
+
+async function toggleInlineTraceFromRecentLogs(table) {
+  fireEvent.click(within(table).getByRole('button', { name: '打开 Trace trace-frontend-1' }));
+
+  const inlineTrace = await within(table).findByTestId('observability-inline-trace-trace-frontend-1');
+  expect(inlineTrace).toHaveTextContent('Trace 结果');
+  expect(inlineTrace).toHaveTextContent('source=mixed');
+  expect(inlineTrace).toHaveTextContent('thread/start');
+  expect(within(table).getByRole('button', { name: '收起 Trace trace-frontend-1' })).toHaveAttribute('aria-expanded', 'true');
+  expect(backend.getObservabilityTrace).toHaveBeenCalledWith({ traceId: 'trace-frontend-1', limit: 50 });
+  expect(backend.listObservabilityRecent).toHaveBeenCalledTimes(1);
+  expect(table).toHaveTextContent('trace-frontend-2');
+
+  fireEvent.click(within(table).getByRole('button', { name: '收起 Trace trace-frontend-1' }));
+  await waitFor(() => expect(within(table).queryByTestId('observability-inline-trace-trace-frontend-1')).not.toBeInTheDocument());
+  expect(within(table).getByRole('button', { name: '打开 Trace trace-frontend-1' })).toHaveAttribute('aria-expanded', 'false');
+  expect(backend.getObservabilityTrace).toHaveBeenCalledTimes(1);
+}
+
+  it('renders recent system logs and opens a trace from the table', async () => {
+    mockRecentSystemLogsResult();
+
+    const table = await openRecentSystemLogs();
+
+    expectRecentSystemLogsTable(table);
+    expectRecentSystemLogsRpcCall();
+    await copyTraceFromRecentLogs(table);
+    await toggleInlineTraceFromRecentLogs(table);
   });
 
   it('keeps the observability page focused on filtered logs and trace drilldown', async () => {
@@ -954,8 +938,54 @@ describe('frontend-app connected client shell', () => {
     const { container } = render(<App />);
 
     expect(await screen.findByLabelText('Mermaid 图表')).toBeInTheDocument();
-    await screen.findByLabelText('mock mermaid');
-    expect(container.querySelector('.mermaid-diagram')).toHaveTextContent('flowchart TD');
+    const image = await screen.findByRole('img', { name: 'Mermaid 图表' });
+    expect(decodedSvgDataUrl(image)).toContain('flowchart TD');
+    expect(container.querySelector('.mermaid-diagram')).toHaveTextContent('点击放大');
+  });
+
+  it('sanitizes rendered mermaid SVG before rendering it as an image data URL', async () => {
+    mermaid.render.mockResolvedValueOnce({
+      svg: [
+        '<svg role="img" aria-label="unsafe mermaid" onload="alert(1)">',
+        '<script>alert(1)</script>',
+        '<foreignObject><div>unsafe html</div></foreignObject>',
+        '<a href="javascript:alert(1)"><text>unsafe link</text></a>',
+        '<rect style="background: url( javascript:alert(1) )" />',
+        '<text>safe mermaid</text>',
+        '</svg>',
+      ].join(''),
+    });
+    backend.getThreadState.mockResolvedValue({
+      activeThreadId: 'thread-1',
+      timelinesByThread: {
+        'thread-1': [{
+          id: 'assistant-mermaid-sanitized',
+          kind: 'assistant',
+          text: [
+            '```mermaid',
+            'flowchart TD',
+            '  A-->B',
+            '```',
+          ].join('\n'),
+          ts: '2026-05-30T00:00:00Z',
+        }],
+      },
+    });
+
+    const { container } = render(<App />);
+
+    await screen.findByLabelText('Mermaid 图表');
+    const image = await screen.findByRole('img', { name: 'Mermaid 图表' });
+    const svg = decodedSvgDataUrl(image);
+    expect(svg).toContain('safe mermaid');
+    expect(svg).not.toContain('<script');
+    expect(svg).not.toContain('foreignObject');
+    expect(svg).not.toContain('onload');
+    expect(svg).not.toContain('javascript:alert');
+    expect(container.querySelector('script')).toBeNull();
+    expect(container.querySelector('foreignObject')).toBeNull();
+    expect(container.querySelector('[onload]')).toBeNull();
+    expect(container.querySelector('[href^="javascript:"]')).toBeNull();
   });
 
   it('opens rendered mermaid diagrams in the enlarged preview with an external link', async () => {
@@ -981,7 +1011,7 @@ describe('frontend-app connected client shell', () => {
     fireEvent.click(await screen.findByRole('button', { name: '放大 Mermaid 图表' }));
 
     const dialog = screen.getByRole('dialog', { name: '图片预览：Mermaid 图表' });
-    expect(within(dialog).getByLabelText('mock mermaid')).toBeInTheDocument();
+    expect(within(dialog).getByRole('img', { name: 'Mermaid 图表' })).toBeInTheDocument();
     expect(within(dialog).getByRole('link', { name: '外部打开' })).toHaveAttribute(
       'href',
       expect.stringContaining('data:image/svg+xml;charset=utf-8,'),
@@ -1492,7 +1522,7 @@ describe('frontend-app connected client shell', () => {
     });
   });
 
-  it('keeps the existing timeline visible while the active thread state is refreshing', async () => {
+  it('keeps the existing timeline visible while the active thread state is refreshing', () => {
     resetClientStoreForTests({
       bootstrapStatus: 'ready',
       cwd: '/repo/app',
@@ -1763,7 +1793,8 @@ describe('frontend-app connected client shell', () => {
       });
 
       expect(trace).toHaveTextContent('正在思考 2s');
-    } finally {
+    }
+    finally {
       vi.useRealTimers();
     }
   });
@@ -3796,7 +3827,8 @@ describe('frontend-app connected client shell', () => {
 
       expect(await screen.findByText('代码审查助手')).toBeInTheDocument();
       expect(intervalSpy.mock.calls.filter((call) => call[1] === 4000)).toHaveLength(0);
-    } finally {
+    }
+    finally {
       intervalSpy.mockRestore();
     }
   });
@@ -3858,9 +3890,11 @@ describe('frontend-app connected client shell', () => {
     let activePreferenceFails = true;
     backend.getPreference.mockImplementation(({ key }) => {
       if (key === 'settings.activePromptKey') {
-        return activePreferenceFails
+        return (
+          activePreferenceFails
           ? Promise.reject(new Error('active prompt preference offline'))
-          : Promise.resolve('');
+          : Promise.resolve('')
+        );
       }
       return Promise.resolve({
         'settings.provider.active': 'codex',
@@ -3984,131 +4018,148 @@ describe('frontend-app connected client shell', () => {
     expect(screen.queryByText('代码审查专家')).not.toBeInTheDocument();
   });
 
-  it('wires prompt edit, delete, pending draft, and intent wizard actions without card copy action', async () => {
-    backend.getPreference.mockImplementation(({ key }) => Promise.resolve({
-      'settings.provider.active': 'codex',
-      'settings.provider.codex.model': 'gpt-5.5',
-      'settings.provider.codex.effort': 'xhigh',
-      'settings.provider.codex.codexHome': '~/.codex',
-      'settings.provider.codex.codexInstanceKey': 'default',
-      'settings.provider.codex.codexModelProvider': 'openrouter',
-    }[key] ?? null));
-    let prompts = [{
+function mockPromptAssetWorkflow() {
+  backend.getPreference.mockImplementation(({ key }) => Promise.resolve({
+    'settings.provider.active': 'codex',
+    'settings.provider.codex.model': 'gpt-5.5',
+    'settings.provider.codex.effort': 'xhigh',
+    'settings.provider.codex.codexHome': '~/.codex',
+    'settings.provider.codex.codexInstanceKey': 'default',
+    'settings.provider.codex.codexModelProvider': 'openrouter',
+  }[key] ?? null));
+  let prompts = [{
+    id: 'main/reviewer',
+    name: '代码审查专家',
+    content: '先检查阻塞问题',
+    description: '审查代码质量',
+    when_to_use: 'Use for code review.',
+    agentType: 'coder',
+    tags: ['intent:expert', 'review'],
+    scope: 'project',
+    enabled: true,
+  }, {
+    id: 'intent/recall/ready',
+    draft_key: 'intent/recall/ready',
+    name: '价格表资料',
+    description: '待确认的资料',
+    tags: ['intent:recall', 'pricing'],
+    state: 'pending_confirm',
+    draft_status: 'ready_to_save',
+    card: { kind: 'recall', title: '价格表资料', summary: '待确认的资料', output: '价格资料内容' },
+  }];
+  backend.listPromptAssets.mockImplementation(() => Promise.resolve({ prompts }));
+  backend.writePrompt.mockImplementation(({ id, name, content }) => {
+    prompts = prompts.map((item) => (item.id === id ? { ...item, name, content } : item));
+    return Promise.resolve({ prompt: { id } });
+  });
+  backend.deletePrompt.mockImplementation(({ id }) => {
+    prompts = prompts.filter((item) => item.id !== id);
+    return Promise.resolve({ deleted: true });
+  });
+  backend.draftPromptIntent.mockResolvedValue({
+    draft_key: 'intent/expert/review',
+    kind: 'expert',
+    scope: 'project',
+    status: 'review',
+    card: {
+      kind: 'expert',
+      title: '代码风险审查',
+      summary: '识别阻塞风险',
+      output: '先列阻塞问题，再给修改建议',
+      hit_examples: ['审查这段代码'],
+      miss_examples: ['解释一个概念'],
+    },
+    issues: [],
+  });
+  backend.commitPromptIntent.mockResolvedValue({ prompt: { id: 'main/code-risk-review' } });
+}
+
+async function openPromptAssetsPage() {
+  render(<App />);
+  await screen.findByText('后端线程');
+  fireEvent.click(screen.getByLabelText('提示词'));
+  expect(await screen.findByText('代码审查专家')).toBeInTheDocument();
+}
+
+async function editAndDeleteReviewerPrompt() {
+  const card = screen.getByText('代码审查专家').closest('article');
+  expect(within(card).queryByRole('button', { name: '复制' })).not.toBeInTheDocument();
+  fireEvent.click(within(card).getByRole('button', { name: '编辑' }));
+  const editor = await screen.findByRole('dialog', { name: '编辑提示词' });
+  expect(editor).toBeInTheDocument();
+  expect(within(editor).getByText('可用范围：这个项目')).toBeInTheDocument();
+  expect(within(editor).getByLabelText('保存后 AI 会看到什么')).toHaveValue('先检查阻塞问题');
+  expect(within(editor).queryByLabelText('Agent Key')).not.toBeInTheDocument();
+  expect(within(editor).queryByLabelText('场景标签')).not.toBeInTheDocument();
+  expect(within(editor).queryByLabelText('排序权重')).not.toBeInTheDocument();
+  fireEvent.change(screen.getByLabelText('名称'), { target: { value: '代码风险审查' } });
+  fireEvent.change(screen.getByLabelText('AI 使用时怎么做'), { target: { value: '先列阻塞问题，再给修改建议' } });
+  fireEvent.click(screen.getByRole('button', { name: '保存' }));
+  await waitFor(() => {
+    expect(backend.writePrompt).toHaveBeenCalledWith(expect.objectContaining({
+      cwd: '/repo/app',
       id: 'main/reviewer',
-      name: '代码审查专家',
-      content: '先检查阻塞问题',
-      description: '审查代码质量',
-      when_to_use: 'Use for code review.',
+      name: '代码风险审查',
       agentType: 'coder',
-      tags: ['intent:expert', 'review'],
+      content: '先列阻塞问题，再给修改建议',
       scope: 'project',
       enabled: true,
-    }, {
-      id: 'intent/recall/ready',
-      draft_key: 'intent/recall/ready',
-      name: '价格表资料',
-      description: '待确认的资料',
-      tags: ['intent:recall', 'pricing'],
-      state: 'pending_confirm',
-      draft_status: 'ready_to_save',
-      card: { kind: 'recall', title: '价格表资料', summary: '待确认的资料', output: '价格资料内容' },
-    }];
-    backend.listPromptAssets.mockImplementation(() => Promise.resolve({ prompts }));
-    backend.writePrompt.mockImplementation(({ id, name, content }) => {
-      prompts = prompts.map((item) => (item.id === id ? { ...item, name, content } : item));
-      return Promise.resolve({ prompt: { id } });
-    });
-    backend.deletePrompt.mockImplementation(({ id }) => {
-      prompts = prompts.filter((item) => item.id !== id);
-      return Promise.resolve({ deleted: true });
-    });
-    backend.draftPromptIntent.mockResolvedValue({
-      draft_key: 'intent/expert/review',
+    }));
+  });
+
+  const updatedCard = await screen.findByText('代码风险审查');
+  fireEvent.click(within(updatedCard.closest('article')).getByRole('button', { name: '删除' }));
+  await waitFor(() => {
+    expect(backend.deletePrompt).toHaveBeenCalledWith({ cwd: '/repo/app', id: 'main/reviewer', scope: 'project' });
+  });
+}
+
+async function handlePendingPromptDraft() {
+  const pendingCard = screen.getByText('价格表资料').closest('article');
+  fireEvent.click(within(pendingCard).getByRole('button', { name: '继续确认' }));
+  const pendingDialog = await screen.findByRole('dialog', { name: '添加给 AI 的内容' });
+  expect(pendingDialog).toBeInTheDocument();
+  expect(screen.getAllByText('价格表资料').length).toBeGreaterThanOrEqual(1);
+  fireEvent.click(within(pendingDialog).getAllByRole('button', { name: '关闭' }).at(-1));
+
+  fireEvent.click(within(pendingCard).getByRole('button', { name: '丢弃' }));
+  await waitFor(() => {
+    expect(backend.discardPromptIntent).toHaveBeenCalledWith({ cwd: '/repo/app', draftKey: 'intent/recall/ready' });
+  });
+}
+
+async function createGeneratedPromptIntent() {
+  fireEvent.click(screen.getByRole('button', { name: '+ 添加给 AI 的内容' }));
+  expect(await screen.findByRole('dialog', { name: '添加给 AI 的内容' })).toBeInTheDocument();
+  fireEvent.change(screen.getByLabelText('写下希望 AI 记住或使用的内容'), {
+    target: { value: '当用户要求代码审查时，先检查阻塞问题。' },
+  });
+  expect(screen.queryByRole('button', { name: '整理草稿' })).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: '帮我生成' }));
+  expect(await screen.findByText('代码风险审查')).toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: '确认保存' }));
+  await waitFor(() => {
+    expect(backend.draftPromptIntent).toHaveBeenCalledWith({
+      cwd: '/repo/app',
       kind: 'expert',
+      rawInput: '当用户要求代码审查时，先检查阻塞问题。',
+      sourceType: 'user_input',
       scope: 'project',
-      status: 'review',
-      card: {
-        kind: 'expert',
-        title: '代码风险审查',
-        summary: '识别阻塞风险',
-        output: '先列阻塞问题，再给修改建议',
-        hit_examples: ['审查这段代码'],
-        miss_examples: ['解释一个概念'],
-      },
-      issues: [],
+      provider: 'codex',
+      model: 'gpt-5.5',
+      codexModelProvider: 'openrouter',
     });
-    backend.commitPromptIntent.mockResolvedValue({ prompt: { id: 'main/code-risk-review' } });
-    render(<App />);
-    await screen.findByText('后端线程');
-    fireEvent.click(screen.getByLabelText('提示词'));
-    expect(await screen.findByText('代码审查专家')).toBeInTheDocument();
+    expect(backend.commitPromptIntent).toHaveBeenCalledWith({ cwd: '/repo/app', draftKey: 'intent/expert/review', scope: 'project' });
+  });
+}
 
-    const card = screen.getByText('代码审查专家').closest('article');
-    expect(within(card).queryByRole('button', { name: '复制' })).not.toBeInTheDocument();
+  it('wires prompt edit, delete, pending draft, and intent wizard actions without card copy action', async () => {
+    mockPromptAssetWorkflow();
 
-    fireEvent.click(within(card).getByRole('button', { name: '编辑' }));
-    const editor = await screen.findByRole('dialog', { name: '编辑提示词' });
-    expect(editor).toBeInTheDocument();
-    expect(within(editor).getByText('可用范围：这个项目')).toBeInTheDocument();
-    expect(within(editor).getByLabelText('保存后 AI 会看到什么')).toHaveValue('先检查阻塞问题');
-    expect(within(editor).queryByLabelText('Agent Key')).not.toBeInTheDocument();
-    expect(within(editor).queryByLabelText('场景标签')).not.toBeInTheDocument();
-    expect(within(editor).queryByLabelText('排序权重')).not.toBeInTheDocument();
-    fireEvent.change(screen.getByLabelText('名称'), { target: { value: '代码风险审查' } });
-    fireEvent.change(screen.getByLabelText('AI 使用时怎么做'), { target: { value: '先列阻塞问题，再给修改建议' } });
-    fireEvent.click(screen.getByRole('button', { name: '保存' }));
-    await waitFor(() => {
-      expect(backend.writePrompt).toHaveBeenCalledWith(expect.objectContaining({
-        cwd: '/repo/app',
-        id: 'main/reviewer',
-        name: '代码风险审查',
-        agentType: 'coder',
-        content: '先列阻塞问题，再给修改建议',
-        scope: 'project',
-        enabled: true,
-      }));
-    });
-
-    const updatedCard = await screen.findByText('代码风险审查');
-    fireEvent.click(within(updatedCard.closest('article')).getByRole('button', { name: '删除' }));
-    await waitFor(() => {
-      expect(backend.deletePrompt).toHaveBeenCalledWith({ cwd: '/repo/app', id: 'main/reviewer', scope: 'project' });
-    });
-
-    const pendingCard = screen.getByText('价格表资料').closest('article');
-    fireEvent.click(within(pendingCard).getByRole('button', { name: '继续确认' }));
-    const pendingDialog = await screen.findByRole('dialog', { name: '添加给 AI 的内容' });
-    expect(pendingDialog).toBeInTheDocument();
-    expect(screen.getAllByText('价格表资料').length).toBeGreaterThanOrEqual(1);
-    fireEvent.click(within(pendingDialog).getAllByRole('button', { name: '关闭' }).at(-1));
-
-    fireEvent.click(within(pendingCard).getByRole('button', { name: '丢弃' }));
-    await waitFor(() => {
-      expect(backend.discardPromptIntent).toHaveBeenCalledWith({ cwd: '/repo/app', draftKey: 'intent/recall/ready' });
-    });
-
-    fireEvent.click(screen.getByRole('button', { name: '+ 添加给 AI 的内容' }));
-    expect(await screen.findByRole('dialog', { name: '添加给 AI 的内容' })).toBeInTheDocument();
-    fireEvent.change(screen.getByLabelText('写下希望 AI 记住或使用的内容'), {
-      target: { value: '当用户要求代码审查时，先检查阻塞问题。' },
-    });
-    expect(screen.queryByRole('button', { name: '整理草稿' })).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: '帮我生成' }));
-    expect(await screen.findByText('代码风险审查')).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: '确认保存' }));
-    await waitFor(() => {
-      expect(backend.draftPromptIntent).toHaveBeenCalledWith({
-        cwd: '/repo/app',
-        kind: 'expert',
-        rawInput: '当用户要求代码审查时，先检查阻塞问题。',
-        sourceType: 'user_input',
-        scope: 'project',
-        provider: 'codex',
-        model: 'gpt-5.5',
-        codexModelProvider: 'openrouter',
-      });
-      expect(backend.commitPromptIntent).toHaveBeenCalledWith({ cwd: '/repo/app', draftKey: 'intent/expert/review', scope: 'project' });
-    });
+    await openPromptAssetsPage();
+    await editAndDeleteReviewerPrompt();
+    await handlePendingPromptDraft();
+    await createGeneratedPromptIntent();
   });
 
   it('uses the first generated prompt draft option when the backend infers multiple choices', async () => {
@@ -4423,7 +4474,8 @@ describe('frontend-app connected client shell', () => {
 
       expect(await screen.findByText('遵守 TDD')).toBeInTheDocument();
       expect(intervalSpy.mock.calls.filter((call) => call[1] === 4000)).toHaveLength(0);
-    } finally {
+    }
+    finally {
       intervalSpy.mockRestore();
     }
   });
@@ -4722,37 +4774,88 @@ describe('frontend-app connected client shell', () => {
     });
   });
 
+function createSimilaritySnapshots() {
+  const group = {
+    nameA: 'A', targetA: 'private', pathA: 'feedback/a.md',
+    nameB: 'B', targetB: 'team', pathB: 'feedback/b.md',
+    score: 0.88,
+  };
+  const snapshotWithSimilar = {
+    overview: {
+      enabled: true,
+      autoDreamEnabled: true,
+      projectRoot: '/repo/app',
+      health: {
+        preferenceCount: 2,
+        projectCount: 0,
+        maxPerCategory: 15,
+        similarGroups: [group],
+      },
+    },
+    private: { entries: [] },
+    team: { entries: [] },
+  };
+  const snapshotWithoutSimilar = {
+    ...snapshotWithSimilar,
+    overview: {
+      ...snapshotWithSimilar.overview,
+      health: {
+        ...snapshotWithSimilar.overview.health,
+        similarGroups: [],
+      },
+    },
+  };
+  return { snapshotWithSimilar, snapshotWithoutSimilar };
+}
+
+async function openMemoryCenterWithSimilarity() {
+  render(<App />);
+  await screen.findByText('后端线程');
+  await waitFor(() => {
+    expect(screen.getByLabelText('记忆中心').querySelector('i')).toHaveAttribute('title', '1 条待整合相似记忆');
+  });
+
+  fireEvent.click(screen.getByLabelText('记忆中心'));
+  expect(await screen.findByText('1 组条目内容相似')).toBeInTheDocument();
+}
+
+async function runConsolidationUntilSimilaritiesClear(clearSimilarities) {
+  vi.useFakeTimers();
+  try {
+    fireEvent.click(screen.getByRole('button', { name: '一键整合全部' }));
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(backend.startConsolidateMemorySimilarities).toHaveBeenCalledWith(expect.objectContaining({
+      cwd: '/repo/app',
+      provider: 'codex',
+      codexModelProvider: 'openai',
+    }));
+    expect(backend.getMemoryConsolidationStatus).toHaveBeenCalledWith({ cwd: '/repo/app', jobId: 'memory-job-live' });
+    expect(screen.getByRole('button', { name: '后台整合中' })).toBeDisabled();
+
+    clearSimilarities();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2000);
+      await Promise.resolve();
+    });
+  }
+  finally {
+    vi.useRealTimers();
+  }
+}
+
+function expectSimilarityWarningCleared() {
+  expect(screen.queryByText('1 组条目内容相似')).not.toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: '一键整合全部' })).not.toBeInTheDocument();
+  expect(screen.getByText('已整合 1 组')).toBeInTheDocument();
+  expect(screen.getByLabelText('记忆中心').querySelector('i')).toBeNull();
+}
+
   it('simulates one-click memory consolidation and clears similarity warnings after refresh', async () => {
-    const group = {
-      nameA: 'A', targetA: 'private', pathA: 'feedback/a.md',
-      nameB: 'B', targetB: 'team', pathB: 'feedback/b.md',
-      score: 0.88,
-    };
-    const snapshotWithSimilar = {
-      overview: {
-        enabled: true,
-        autoDreamEnabled: true,
-        projectRoot: '/repo/app',
-        health: {
-          preferenceCount: 2,
-          projectCount: 0,
-          maxPerCategory: 15,
-          similarGroups: [group],
-        },
-      },
-      private: { entries: [] },
-      team: { entries: [] },
-    };
-    const snapshotWithoutSimilar = {
-      ...snapshotWithSimilar,
-      overview: {
-        ...snapshotWithSimilar.overview,
-        health: {
-          ...snapshotWithSimilar.overview.health,
-          similarGroups: [],
-        },
-      },
-    };
+    const { snapshotWithSimilar, snapshotWithoutSimilar } = createSimilaritySnapshots();
     let hasSimilar = true;
     backend.getMemorySnapshot.mockImplementation(() => Promise.resolve(hasSimilar ? snapshotWithSimilar : snapshotWithoutSimilar));
     backend.startConsolidateMemorySimilarities.mockResolvedValue({ jobId: 'memory-job-live', status: 'running' });
@@ -4764,65 +4867,34 @@ describe('frontend-app connected client shell', () => {
         result: { merged: 1, ignored: 0, failed: 0, skipped: 0 },
       });
 
-    render(<App />);
-    await screen.findByText('后端线程');
-    await waitFor(() => {
-      expect(screen.getByLabelText('记忆中心').querySelector('i')).toHaveAttribute('title', '1 条待整合相似记忆');
+    await openMemoryCenterWithSimilarity();
+    await runConsolidationUntilSimilaritiesClear(() => {
+      hasSimilar = false;
     });
 
-    fireEvent.click(screen.getByLabelText('记忆中心'));
-    expect(await screen.findByText('1 组条目内容相似')).toBeInTheDocument();
-
-    vi.useFakeTimers();
-    try {
-      fireEvent.click(screen.getByRole('button', { name: '一键整合全部' }));
-      await act(async () => {
-        await Promise.resolve();
-        await Promise.resolve();
-      });
-
-      expect(backend.startConsolidateMemorySimilarities).toHaveBeenCalledWith(expect.objectContaining({
-        cwd: '/repo/app',
-        provider: 'codex',
-        codexModelProvider: 'openai',
-      }));
-      expect(backend.getMemoryConsolidationStatus).toHaveBeenCalledWith({ cwd: '/repo/app', jobId: 'memory-job-live' });
-      expect(screen.getByRole('button', { name: '后台整合中' })).toBeDisabled();
-
-      hasSimilar = false;
-      await act(async () => {
-        await vi.advanceTimersByTimeAsync(2000);
-        await Promise.resolve();
-      });
-    } finally {
-      vi.useRealTimers();
-    }
-
     await waitFor(() => {
-      expect(screen.queryByText('1 组条目内容相似')).not.toBeInTheDocument();
-      expect(screen.queryByRole('button', { name: '一键整合全部' })).not.toBeInTheDocument();
-      expect(screen.getByText('已整合 1 组')).toBeInTheDocument();
-      expect(screen.getByLabelText('记忆中心').querySelector('i')).toBeNull();
+      expectSimilarityWarningCleared();
     });
     expect(backend.getMemorySnapshot).toHaveBeenLastCalledWith({ cwd: '/repo/app' });
   });
 
-  it('loads shared files from the shared-files RPC and wires open, export, delete, and continue actions', async () => {
-    let memoryFiles = [
-      {
-        path: 'reports/final.md',
-        content: 'final summary',
-        updated_by: 'dag-runner',
-        updated_at: '2026-05-30T08:00:00Z',
-      },
-      {
-        path: 'scratch/work.json',
-        content: '{"step":1}',
-        updated_by: 'agent',
-        updated_at: '2026-05-30T07:00:00Z',
-      },
-    ];
-    const memoryPayload = () => ({
+function createSharedFileState() {
+  let memoryFiles = [
+    {
+      path: 'reports/final.md',
+      content: 'final summary',
+      updated_by: 'dag-runner',
+      updated_at: '2026-05-30T08:00:00Z',
+    },
+    {
+      path: 'scratch/work.json',
+      content: '{"step":1}',
+      updated_by: 'agent',
+      updated_at: '2026-05-30T07:00:00Z',
+    },
+  ];
+  return {
+    payload: () => ({
       files: memoryFiles,
       memory: memoryFiles,
       finalOutputRefs: [{ path: 'reports/final.md', runKey: 'run-1', dagKey: 'daily-brief', sourceNodeKey: 'report' }],
@@ -4834,99 +4906,127 @@ describe('frontend-app connected client shell', () => {
         protectedCount: 1,
         cleanupCandidateCount: 1,
       },
-    });
-    backend.listSharedFiles.mockImplementation(() => Promise.resolve(memoryPayload()));
-    backend.readSharedFile.mockImplementation(({ path }) => Promise.resolve({
-      path,
-      content: path === 'reports/final.md' ? 'FINAL CONTENT' : '{"step":1,"detail":true}',
-      updatedBy: path === 'reports/final.md' ? 'dag-runner' : 'agent',
-      updatedAt: '2026-05-30T08:30:00Z',
-    }));
-    backend.deleteSharedFile.mockImplementation(({ path }) => {
+    }),
+    add(file) {
+      memoryFiles = [...memoryFiles, file];
+    },
+    remove(path) {
       memoryFiles = memoryFiles.filter((item) => item.path !== path);
-      return Promise.resolve({ deleted: true });
+    },
+  };
+}
+
+function mockSharedFileWorkflow(sharedFiles) {
+  backend.listSharedFiles.mockImplementation(() => Promise.resolve(sharedFiles.payload()));
+  backend.readSharedFile.mockImplementation(({ path }) => Promise.resolve({
+    path,
+    content: path === 'reports/final.md' ? 'FINAL CONTENT' : '{"step":1,"detail":true}',
+    updatedBy: path === 'reports/final.md' ? 'dag-runner' : 'agent',
+    updatedAt: '2026-05-30T08:30:00Z',
+  }));
+  backend.deleteSharedFile.mockImplementation(({ path }) => {
+    sharedFiles.remove(path);
+    return Promise.resolve({ deleted: true });
+  });
+  backend.saveTextFile.mockResolvedValue('/exports/work.json');
+}
+
+async function openSharedFilesPage() {
+  render(<App />);
+  await screen.findByText('后端线程');
+  fireEvent.click(screen.getByLabelText('共享文件'));
+
+  expect(await screen.findByText('final.md')).toBeInTheDocument();
+  expect(screen.getByText('work.json')).toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: /刷新/ })).not.toBeInTheDocument();
+  expect(screen.getByRole('tab', { name: '全部 2' })).toBeInTheDocument();
+  expect(screen.getByRole('tab', { name: '最终产物 1' })).toBeInTheDocument();
+  expect(screen.getByRole('tab', { name: '工作文件 1' })).toBeInTheDocument();
+  await waitFor(() => {
+    expect(backend.listSharedFiles).toHaveBeenCalledWith();
+  });
+}
+
+async function refreshSharedFilesFromBridge(sharedFiles) {
+  sharedFiles.add({
+    path: 'scratch/notes.md',
+    content: 'fresh notes',
+    updated_by: 'agent',
+    updated_at: '2026-05-30T09:00:00Z',
+  });
+  await act(async () => {
+    bridgeCallback?.({ type: 'ui/shared-files/changed', payload: { path: 'scratch/notes.md', action: 'write' } });
+  });
+  expect(await screen.findByText('notes.md')).toBeInTheDocument();
+  expect(screen.getByRole('tab', { name: '全部 3' })).toBeInTheDocument();
+  expect(screen.getByRole('tab', { name: '工作文件 2' })).toBeInTheDocument();
+}
+
+async function refreshSharedFilesFromFocus(sharedFiles) {
+  sharedFiles.add({
+    path: 'scratch/focus-refresh.md',
+    content: 'focus refresh',
+    updated_by: 'agent',
+    updated_at: '2026-05-30T09:01:00Z',
+  });
+  await act(async () => {
+    window.dispatchEvent(new Event('focus'));
+  });
+  expect(await screen.findByText('focus-refresh.md')).toBeInTheDocument();
+  expect(screen.getByRole('tab', { name: '全部 4' })).toBeInTheDocument();
+  expect(screen.getByRole('tab', { name: '工作文件 3' })).toBeInTheDocument();
+}
+
+async function previewFinalSharedFile() {
+  const finalCard = screen.getByText('final.md').closest('article');
+  expect(within(finalCard).getByText('最终产物')).toBeInTheDocument();
+  expect(within(finalCard).getByRole('button', { name: '不可删除' })).toBeDisabled();
+  fireEvent.click(within(finalCard).getByRole('button', { name: '打开' }));
+
+  expect(await screen.findByRole('dialog', { name: '文件预览' })).toBeInTheDocument();
+  expect(screen.getByText('FINAL CONTENT')).toBeInTheDocument();
+  expect(backend.readSharedFile).toHaveBeenCalledWith({ path: 'reports/final.md' });
+  fireEvent.click(screen.getByRole('button', { name: '关闭' }));
+}
+
+async function exportAndDeleteWorkSharedFile() {
+  const workCard = screen.getByText('work.json').closest('article');
+  fireEvent.click(within(workCard).getByRole('button', { name: '导出' }));
+  await waitFor(() => {
+    expect(backend.saveTextFile).toHaveBeenCalledWith({
+      defaultPath: '/repo/app',
+      defaultFilename: 'work.json',
+      content: '{"step":1,"detail":true}',
     });
-    backend.saveTextFile.mockResolvedValue('/exports/work.json');
+  });
+  expect(await screen.findByText(/已保存到：\/exports\/work\.json/)).toBeInTheDocument();
 
-    render(<App />);
-    await screen.findByText('后端线程');
-    fireEvent.click(screen.getByLabelText('共享文件'));
+  fireEvent.click(within(workCard).getByRole('button', { name: '删除' }));
+  expect(await screen.findByRole('dialog', { name: '删除文件' })).toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: '确认删除' }));
+  await waitFor(() => {
+    expect(backend.deleteSharedFile).toHaveBeenCalledWith({ path: 'scratch/work.json' });
+  });
+  expect(await screen.findByText(/已删除文件：scratch\/work\.json/)).toBeInTheDocument();
+}
 
-    expect(await screen.findByText('final.md')).toBeInTheDocument();
-    expect(screen.getByText('work.json')).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: /刷新/ })).not.toBeInTheDocument();
-    expect(screen.getByRole('tab', { name: '全部 2' })).toBeInTheDocument();
-    expect(screen.getByRole('tab', { name: '最终产物 1' })).toBeInTheDocument();
-    expect(screen.getByRole('tab', { name: '工作文件 1' })).toBeInTheDocument();
-    await waitFor(() => {
-      expect(backend.listSharedFiles).toHaveBeenCalledWith();
-    });
+function continueChatFromFinalSharedFile() {
+  const remainingFinalCard = screen.getByText('final.md').closest('article');
+  fireEvent.click(within(remainingFinalCard).getByRole('button', { name: '用此文件继续对话' }));
+  expect(screen.getByTestId('composer-input').value).toContain('reports/final.md');
+  expect(screen.getByText('final.md')).toBeInTheDocument();
+}
 
-    memoryFiles = [
-      ...memoryFiles,
-      {
-        path: 'scratch/notes.md',
-        content: 'fresh notes',
-        updated_by: 'agent',
-        updated_at: '2026-05-30T09:00:00Z',
-      },
-    ];
-    await act(async () => {
-      bridgeCallback?.({ type: 'ui/shared-files/changed', payload: { path: 'scratch/notes.md', action: 'write' } });
-    });
-    expect(await screen.findByText('notes.md')).toBeInTheDocument();
-    expect(screen.getByRole('tab', { name: '全部 3' })).toBeInTheDocument();
-    expect(screen.getByRole('tab', { name: '工作文件 2' })).toBeInTheDocument();
+  it('loads shared files from the shared-files RPC and wires open, export, delete, and continue actions', async () => {
+    const sharedFiles = createSharedFileState();
+    mockSharedFileWorkflow(sharedFiles);
 
-    memoryFiles = [
-      ...memoryFiles,
-      {
-        path: 'scratch/focus-refresh.md',
-        content: 'focus refresh',
-        updated_by: 'agent',
-        updated_at: '2026-05-30T09:01:00Z',
-      },
-    ];
-    await act(async () => {
-      window.dispatchEvent(new Event('focus'));
-    });
-    expect(await screen.findByText('focus-refresh.md')).toBeInTheDocument();
-    expect(screen.getByRole('tab', { name: '全部 4' })).toBeInTheDocument();
-    expect(screen.getByRole('tab', { name: '工作文件 3' })).toBeInTheDocument();
-
-    const finalCard = screen.getByText('final.md').closest('article');
-    expect(within(finalCard).getByText('最终产物')).toBeInTheDocument();
-    expect(within(finalCard).getByRole('button', { name: '不可删除' })).toBeDisabled();
-    fireEvent.click(within(finalCard).getByRole('button', { name: '打开' }));
-
-    expect(await screen.findByRole('dialog', { name: '文件预览' })).toBeInTheDocument();
-    expect(screen.getByText('FINAL CONTENT')).toBeInTheDocument();
-    expect(backend.readSharedFile).toHaveBeenCalledWith({ path: 'reports/final.md' });
-    fireEvent.click(screen.getByRole('button', { name: '关闭' }));
-
-    const workCard = screen.getByText('work.json').closest('article');
-    fireEvent.click(within(workCard).getByRole('button', { name: '导出' }));
-    await waitFor(() => {
-      expect(backend.saveTextFile).toHaveBeenCalledWith({
-        defaultPath: '/repo/app',
-        defaultFilename: 'work.json',
-        content: '{"step":1,"detail":true}',
-      });
-    });
-    expect(await screen.findByText(/已保存到：\/exports\/work\.json/)).toBeInTheDocument();
-
-    fireEvent.click(within(workCard).getByRole('button', { name: '删除' }));
-    expect(await screen.findByRole('dialog', { name: '删除文件' })).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: '确认删除' }));
-    await waitFor(() => {
-      expect(backend.deleteSharedFile).toHaveBeenCalledWith({ path: 'scratch/work.json' });
-    });
-    expect(await screen.findByText(/已删除文件：scratch\/work\.json/)).toBeInTheDocument();
-
-    const remainingFinalCard = screen.getByText('final.md').closest('article');
-    fireEvent.click(within(remainingFinalCard).getByRole('button', { name: '用此文件继续对话' }));
-    expect(screen.getByTestId('composer-input').value).toContain('reports/final.md');
-    expect(screen.getByText('final.md')).toBeInTheDocument();
+    await openSharedFilesPage();
+    await refreshSharedFilesFromBridge(sharedFiles);
+    await refreshSharedFilesFromFocus(sharedFiles);
+    await previewFinalSharedFile();
+    await exportAndDeleteWorkSharedFile();
+    continueChatFromFinalSharedFile();
   });
 
   it('keeps the shared-file delete dialog open while deletion is pending', async () => {
@@ -5060,7 +5160,8 @@ describe('frontend-app connected client shell', () => {
 
       expect(await screen.findByText('final.md')).toBeInTheDocument();
       expect(intervalSpy.mock.calls.filter((call) => call[1] === 4000)).toHaveLength(0);
-    } finally {
+    }
+    finally {
       intervalSpy.mockRestore();
     }
   });
@@ -5297,7 +5398,8 @@ describe('frontend-app connected client shell', () => {
 
       expect((await screen.findAllByText('流程 A')).length).toBeGreaterThanOrEqual(1);
       expect(intervalSpy.mock.calls.filter((call) => call[1] === 4000)).toHaveLength(0);
-    } finally {
+    }
+    finally {
       intervalSpy.mockRestore();
     }
   });
@@ -5517,11 +5619,183 @@ describe('frontend-app connected client shell', () => {
     expect(within(dialog).getByLabelText('运行时间')).toHaveValue('01:00');
   });
 
+function mockWorkflowDagLifecycle() {
+  const dag = {
+    dag_key: 'daily-brief',
+    title: 'Daily Brief',
+    description: '每日简报',
+    status: 'ready',
+    trigger: 'manual',
+    version: 7,
+  };
+  const agentNode = {
+    node_key: 'draft',
+    title: '起草',
+    node_type: 'agent',
+    assigned_to: 'agent-a',
+    depends_on: [],
+    config: {
+      provider: 'codex',
+      model: 'gpt-5',
+      prompt_key: 'main/writer',
+      first_turn: '请起草简报',
+    },
+  };
+  backend.getDashboardPage.mockImplementation(({ page }) => Promise.resolve(
+    page === 'dags' ? { dags: [dag] } : { skills: [] },
+  ));
+  backend.getDagDetail.mockResolvedValue({ dag, nodes: [agentNode] });
+  let hasActiveRun = false;
+  backend.getDagRuns.mockImplementation(({ status }) => Promise.resolve({
+    runs: status === 'running' && hasActiveRun ? [{ run_key: 'run-live', status: 'running' }] : [],
+  }));
+  backend.getDagRun.mockResolvedValue({ run: { run_key: 'run-live', status: 'running' }, nodes: [agentNode] });
+  backend.startDag.mockImplementation(() => {
+    hasActiveRun = true;
+    return Promise.resolve({ runKey: 'run-live' });
+  });
+  backend.terminateDagRun.mockImplementation(() => {
+    hasActiveRun = false;
+    return Promise.resolve({ ok: true });
+  });
+  backend.getPreference.mockImplementation(({ key }) => Promise.resolve({
+    'settings.provider.active': 'codex',
+    'settings.provider.codex.model': 'gpt-5.5',
+    'settings.provider.codex.effort': 'xhigh',
+    'settings.provider.codex.codexHome': '/Users/test/.codex-alt',
+    'settings.provider.codex.codexInstanceKey': 'desktop-main',
+    'settings.provider.codex.codexModelProvider': 'openrouter',
+    'settings.activePromptKey': 'main/reviewer',
+  }[key] ?? null));
+  backend.startThread.mockResolvedValue({ thread: { id: 'thread-design' } });
+  backend.getThreadState.mockResolvedValueOnce({ timelinesByThread: {}, activeThreadId: 'thread-design' });
+}
+
+async function openWorkflowDashboard() {
+  render(<App />);
+  await screen.findByText('后端线程');
+  await screen.findByText('后端线程');
+  fireEvent.click(screen.getByLabelText('自动化'));
+  expect((await screen.findAllByText('Daily Brief')).length).toBeGreaterThanOrEqual(2);
+}
+
+async function runAndStopWorkflowDag() {
+  fireEvent.click(await screen.findByRole('button', { name: '运行' }));
+  await waitFor(() => {
+    expect(backend.startDag).toHaveBeenCalledWith(expect.objectContaining({
+      dagKey: 'daily-brief',
+      triggerSource: 'manual',
+    }));
+  });
+
+  fireEvent.click(await screen.findByRole('button', { name: '停止运行' }));
+  await waitFor(() => {
+    expect(backend.terminateDagRun).toHaveBeenCalledWith({
+      dagKey: 'daily-brief',
+      runKey: 'run-live',
+      reason: 'user_requested',
+    });
+  });
+  await waitFor(() => expect(screen.queryByRole('button', { name: '停止运行' })).not.toBeInTheDocument());
+}
+
+async function createWorkflowSchedule() {
+  fireEvent.click(screen.getByRole('button', { name: '创建定时任务' }));
+  const scheduleDialog = await screen.findByRole('dialog', { name: '创建定时任务' });
+  expect(scheduleDialog).toBeInTheDocument();
+  expect(within(scheduleDialog).queryByLabelText('Cron 表达式')).not.toBeInTheDocument();
+  fireEvent.change(within(scheduleDialog).getByLabelText('运行频率'), { target: { value: 'weekdays' } });
+  fireEvent.change(within(scheduleDialog).getByLabelText('运行时间'), { target: { value: '09:00' } });
+  expect(within(scheduleDialog).getByText('工作日 09:00 自动运行')).toBeInTheDocument();
+  fireEvent.click(within(scheduleDialog).getByRole('button', { name: '创建定时任务' }));
+  await waitFor(() => {
+    expect(backend.applyDagOps).toHaveBeenCalledWith({
+      dagKey: 'daily-brief',
+      baseVersion: 7,
+      ops: [{ op: 'update_dag', patch: { trigger: 'scheduled', cron_expr: '0 9 * * 1-5' } }],
+    });
+  });
+  expect(await screen.findByText('已保存定时任务')).toBeInTheDocument();
+}
+
+async function editWorkflowStep() {
+  fireEvent.click(screen.getByText('高级设置'));
+  fireEvent.input(screen.getByLabelText('名称'), { target: { value: '起草 v2' } });
+  expect(screen.getByLabelText('名称')).toHaveValue('起草 v2');
+  expect(screen.getByLabelText('执行者')).toHaveValue('agent-a');
+  fireEvent.input(screen.getByLabelText('执行者'), { target: { value: 'agent-b' } });
+  fireEvent.change(screen.getByLabelText('依赖步骤'), { target: { value: 'outline' } });
+  expect(screen.queryByLabelText('Provider')).not.toBeInTheDocument();
+  expect(screen.queryByLabelText('Prompt Key')).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: '保存步骤' }));
+  await waitFor(() => {
+    expect(backend.applyDagOps).toHaveBeenCalledWith({
+      dagKey: 'daily-brief',
+      baseVersion: 7,
+      ops: [expect.objectContaining({
+        op: 'update_node',
+        node_key: 'draft',
+        patch: expect.objectContaining({
+          title: '起草 v2',
+          assigned_to: 'agent-b',
+          depends_on: ['outline'],
+          config: expect.objectContaining({ provider: 'codex', model: 'gpt-5', prompt_key: 'main/writer' }),
+        }),
+      })],
+    });
+  });
+}
+
+async function deleteWorkflowDag() {
+  fireEvent.click(screen.getByRole('button', { name: '删除' }));
+  expect(await screen.findByRole('dialog', { name: '删除自动化' })).toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: '确认删除' }));
+  await waitFor(() => {
+    expect(backend.deleteDag).toHaveBeenCalledWith({ dagKey: 'daily-brief' });
+  });
+}
+
+async function designWorkflowWithAi() {
+  fireEvent.click(screen.getByRole('button', { name: 'AI 设计流程' }));
+  await waitFor(() => {
+    expect(backend.startThread).toHaveBeenCalledWith(expect.objectContaining({
+      cwd: '/repo/app',
+      modelProvider: 'codex',
+      model: 'gpt-5.5',
+      effort: 'xhigh',
+      name: 'AI 设计流程',
+      agentKey: 'dag_designer',
+      promptKey: 'main/dag_designer_zh',
+      deferSpawn: true,
+    }));
+    const designPayload = backend.startThread.mock.calls.at(-1)[0];
+    expect(designPayload.provider).toBeUndefined();
+    expect(designPayload.config).toEqual(expect.objectContaining({
+      codexHome: '/Users/test/.codex-alt',
+      codexInstanceKey: 'desktop-main',
+      codexModelProvider: 'openrouter',
+      providerNativeSkills: false,
+    }));
+    expect(designPayload.config.enabledTools).toContain('task_start_dag');
+  });
+}
+
   it('runs, stops, deletes, schedules, edits and designs DAGs through the old RPC surface', async () => {
+    mockWorkflowDagLifecycle();
+
+    await openWorkflowDashboard();
+    await runAndStopWorkflowDag();
+    await createWorkflowSchedule();
+
+    await editWorkflowStep();
+    await deleteWorkflowDag();
+    await designWorkflowWithAi();
+  });
+
+  it('uses the active-run query, not stale selected run detail, to unlock DAG controls after stop', async () => {
     const dag = {
       dag_key: 'daily-brief',
       title: 'Daily Brief',
-      description: '每日简报',
       status: 'ready',
       trigger: 'manual',
       version: 7,
@@ -5532,52 +5806,31 @@ describe('frontend-app connected client shell', () => {
       node_type: 'agent',
       assigned_to: 'agent-a',
       depends_on: [],
-      config: {
-        provider: 'codex',
-        model: 'gpt-5',
-        prompt_key: 'main/writer',
-        first_turn: '请起草简报',
-      },
+      config: {},
     };
+    let hasActiveRun = true;
     backend.getDashboardPage.mockImplementation(({ page }) => Promise.resolve(
       page === 'dags' ? { dags: [dag] } : { skills: [] },
     ));
     backend.getDagDetail.mockResolvedValue({ dag, nodes: [agentNode] });
-    let hasActiveRun = false;
-    backend.getDagRuns.mockImplementation(({ status }) => Promise.resolve({
-      runs: status === 'running' && hasActiveRun ? [{ run_key: 'run-live', status: 'running' }] : [],
-    }));
-    backend.getDagRun.mockResolvedValue({ run: { run_key: 'run-live', status: 'running' }, nodes: [agentNode] });
-    backend.startDag.mockImplementation(() => {
-      hasActiveRun = true;
-      return Promise.resolve({ runKey: 'run-live' });
+    backend.getDagRuns.mockImplementation(({ status }) => {
+      if (status === 'running') {
+        return Promise.resolve({ runs: hasActiveRun ? [{ run_key: 'run-live', status: 'running' }] : [] });
+      }
+      return Promise.resolve({ runs: [{ run_key: 'run-live', status: hasActiveRun ? 'running' : 'cancelled' }] });
     });
-    backend.getPreference.mockImplementation(({ key }) => Promise.resolve({
-      'settings.provider.active': 'codex',
-      'settings.provider.codex.model': 'gpt-5.5',
-      'settings.provider.codex.effort': 'xhigh',
-      'settings.provider.codex.codexHome': '/Users/test/.codex-alt',
-      'settings.provider.codex.codexInstanceKey': 'desktop-main',
-      'settings.provider.codex.codexModelProvider': 'openrouter',
-      'settings.activePromptKey': 'main/reviewer',
-    }[key] ?? null));
-    backend.startThread.mockResolvedValue({ thread: { id: 'thread-design' } });
-    backend.getThreadState.mockResolvedValueOnce({ timelinesByThread: {}, activeThreadId: 'thread-design' });
+    backend.getDagRun.mockResolvedValue({ run: { run_key: 'run-live', status: 'running' }, nodes: [agentNode] });
+    backend.terminateDagRun.mockImplementation(() => {
+      hasActiveRun = false;
+      return Promise.resolve({ ok: true });
+    });
 
     render(<App />);
     await screen.findByText('后端线程');
     fireEvent.click(screen.getByLabelText('自动化'));
-    expect((await screen.findAllByText('Daily Brief')).length).toBeGreaterThanOrEqual(2);
+    expect(await screen.findByRole('button', { name: '停止运行' })).toBeInTheDocument();
 
-    fireEvent.click(await screen.findByRole('button', { name: '运行' }));
-    await waitFor(() => {
-      expect(backend.startDag).toHaveBeenCalledWith(expect.objectContaining({
-        dagKey: 'daily-brief',
-        triggerSource: 'manual',
-      }));
-    });
-
-    fireEvent.click(await screen.findByRole('button', { name: '停止运行' }));
+    fireEvent.click(screen.getByRole('button', { name: '停止运行' }));
     await waitFor(() => {
       expect(backend.terminateDagRun).toHaveBeenCalledWith({
         dagKey: 'daily-brief',
@@ -5586,77 +5839,9 @@ describe('frontend-app connected client shell', () => {
       });
     });
 
-    fireEvent.click(screen.getByRole('button', { name: '创建定时任务' }));
-    const scheduleDialog = await screen.findByRole('dialog', { name: '创建定时任务' });
-    expect(scheduleDialog).toBeInTheDocument();
-    expect(within(scheduleDialog).queryByLabelText('Cron 表达式')).not.toBeInTheDocument();
-    fireEvent.change(within(scheduleDialog).getByLabelText('运行频率'), { target: { value: 'weekdays' } });
-    fireEvent.change(within(scheduleDialog).getByLabelText('运行时间'), { target: { value: '09:00' } });
-    expect(within(scheduleDialog).getByText('工作日 09:00 自动运行')).toBeInTheDocument();
-    fireEvent.click(within(scheduleDialog).getByRole('button', { name: '创建定时任务' }));
     await waitFor(() => {
-      expect(backend.applyDagOps).toHaveBeenCalledWith({
-        dagKey: 'daily-brief',
-        baseVersion: 7,
-        ops: [{ op: 'update_dag', patch: { trigger: 'scheduled', cron_expr: '0 9 * * 1-5' } }],
-      });
-    });
-    expect(await screen.findByText('已保存定时任务')).toBeInTheDocument();
-
-    fireEvent.click(screen.getByText('高级设置'));
-    fireEvent.input(screen.getByLabelText('名称'), { target: { value: '起草 v2' } });
-    expect(screen.getByLabelText('名称')).toHaveValue('起草 v2');
-    expect(screen.getByLabelText('执行者')).toHaveValue('agent-a');
-    fireEvent.input(screen.getByLabelText('执行者'), { target: { value: 'agent-b' } });
-    fireEvent.change(screen.getByLabelText('依赖步骤'), { target: { value: 'outline' } });
-    expect(screen.queryByLabelText('Provider')).not.toBeInTheDocument();
-    expect(screen.queryByLabelText('Prompt Key')).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: '保存步骤' }));
-    await waitFor(() => {
-      expect(backend.applyDagOps).toHaveBeenCalledWith({
-        dagKey: 'daily-brief',
-        baseVersion: 7,
-        ops: [expect.objectContaining({
-          op: 'update_node',
-          node_key: 'draft',
-          patch: expect.objectContaining({
-            title: '起草 v2',
-            assigned_to: 'agent-b',
-            depends_on: ['outline'],
-            config: expect.objectContaining({ provider: 'codex', model: 'gpt-5', prompt_key: 'main/writer' }),
-          }),
-        })],
-      });
-    });
-
-    fireEvent.click(screen.getByRole('button', { name: '删除' }));
-    expect(await screen.findByRole('dialog', { name: '删除自动化' })).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: '确认删除' }));
-    await waitFor(() => {
-      expect(backend.deleteDag).toHaveBeenCalledWith({ dagKey: 'daily-brief' });
-    });
-
-    fireEvent.click(screen.getByRole('button', { name: 'AI 设计流程' }));
-    await waitFor(() => {
-      expect(backend.startThread).toHaveBeenCalledWith(expect.objectContaining({
-        cwd: '/repo/app',
-        modelProvider: 'codex',
-        model: 'gpt-5.5',
-        effort: 'xhigh',
-        name: 'AI 设计流程',
-        agentKey: 'dag_designer',
-        promptKey: 'main/dag_designer_zh',
-        deferSpawn: true,
-      }));
-      const designPayload = backend.startThread.mock.calls.at(-1)[0];
-      expect(designPayload.provider).toBeUndefined();
-      expect(designPayload.config).toEqual(expect.objectContaining({
-        codexHome: '/Users/test/.codex-alt',
-        codexInstanceKey: 'desktop-main',
-        codexModelProvider: 'openrouter',
-        providerNativeSkills: false,
-      }));
-      expect(designPayload.config.enabledTools).toContain('task_start_dag');
+      expect(screen.queryByRole('button', { name: '停止运行' })).not.toBeInTheDocument();
+      expect(screen.getByRole('button', { name: '运行' })).not.toBeDisabled();
     });
   });
 
@@ -5938,7 +6123,8 @@ describe('frontend-app connected client shell', () => {
 
       expect(screen.queryByText('加载技能中...')).not.toBeInTheDocument();
       expect(screen.getByRole('alert')).toHaveTextContent('技能列表加载超时');
-    } finally {
+    }
+    finally {
       vi.useRealTimers();
     }
 
@@ -6379,4 +6565,3 @@ describe('frontend-app connected client shell', () => {
     expect(await screen.findByText('Agent Orchestrator v1.2.4')).toBeInTheDocument();
     expect(screen.getByText('feedface9876')).toBeInTheDocument();
   });
-});

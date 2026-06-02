@@ -384,7 +384,7 @@ func StartDAGExecutionDiagnostics(readyRootNodes, scheduledWakeups int64) (strin
 	}
 	if readyRootNodes > 0 {
 		return StartDAGExecutionWaitingForAssignee,
-			"run 已启动，但首个步骤没有配置执行者，无法自动派发；请先为根步骤设置 assigned_to 后重新运行。"
+			"run 已启动，但首个步骤没有配置执行者，无法自动派发；请先为根步骤设置 assigned_to 后重新运行，或调用 task_dispatch_node 为 ready 节点指定 assigned_to。"
 	}
 	return StartDAGExecutionNoReadyRoots, "run 已启动，但没有可调度的根节点；请检查 DAG 节点依赖。"
 }

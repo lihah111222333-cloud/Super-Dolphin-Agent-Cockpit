@@ -13,7 +13,7 @@ import (
 
 // F4.4 update_dag 真实业务实现单测。覆盖矩阵：
 //   - happy: 更新 DAG 元数据字段并推进 version
-//   - reject: running DAG / active run 下不允许 update_dag
+//   - happy: running DAG / active run 下允许 update_dag 调整未来调度元数据
 //   - reject: trigger 非枚举值
 //   - reject: 同批多个 update_dag 语义歧义
 
@@ -74,7 +74,7 @@ func assertPatchString(t *testing.T, field string, got *string, want string) {
 	}
 }
 
-func TestApplyOps_UpdateDAG_ActiveRunRejected(t *testing.T) {
+func TestApplyOps_UpdateDAG_ActiveRunAllowed(t *testing.T) {
 	t.Parallel()
 
 	stub := &stubDAGOpsStore{currentVersion: 3, activeRuns: 1}
@@ -85,22 +85,54 @@ func TestApplyOps_UpdateDAG_ActiveRunRejected(t *testing.T) {
 		Ops:         json.RawMessage(`[{"op":"update_dag","patch":{"title":"x"}}]`),
 	}
 
-	_, err := s.ApplyOps(context.Background(), req)
-	if err == nil {
-		t.Fatal("active run update_dag: want err, got nil")
+	resp, err := s.ApplyOps(context.Background(), req)
+	if err != nil {
+		t.Fatalf("active run update_dag err = %v, want nil", err)
 	}
-	if !errors.Is(err, ErrApplyOpsInvalid) {
-		t.Fatalf("err = %v, want errors.Is ErrApplyOpsInvalid", err)
+	if resp.NewVersion != 4 {
+		t.Fatalf("NewVersion = %d, want 4", resp.NewVersion)
 	}
-	if !strings.Contains(err.Error(), "running") {
-		t.Fatalf("err = %v, want mention running/active run", err)
-	}
-	if len(stub.dagPatchCalls) != 0 || len(stub.bumpCalls) != 0 {
-		t.Fatalf("dagPatchCalls=%v bumpCalls=%v, want no writes", stub.dagPatchCalls, stub.bumpCalls)
+	if len(stub.dagPatchCalls) != 1 || len(stub.bumpCalls) != 1 {
+		t.Fatalf("dagPatchCalls=%v bumpCalls=%v, want one patch and one bump", stub.dagPatchCalls, stub.bumpCalls)
 	}
 }
 
-func TestApplyOps_UpdateDAG_RunningDAGRejected(t *testing.T) {
+func TestApplyOps_UpdateDAG_ScheduleToggleAllowedWithActiveRun(t *testing.T) {
+	t.Parallel()
+
+	stub := &stubDAGOpsStore{
+		currentVersion: 3,
+		activeRuns:     1,
+		dagTrigger:     "scheduled",
+		dagCronExpr:    "0 8 * * *",
+	}
+	s := makeApplyOpsService(stub)
+	req := contract.ApplyOpsRequest{
+		DagKey:      "dag-a",
+		BaseVersion: 3,
+		Ops:         json.RawMessage(`[{"op":"update_dag","patch":{"schedule_enabled":false}}]`),
+	}
+
+	resp, err := s.ApplyOps(context.Background(), req)
+	if err != nil {
+		t.Fatalf("ApplyOps active-run schedule toggle err = %v, want nil", err)
+	}
+	if resp.NewVersion != 4 {
+		t.Fatalf("NewVersion = %d, want 4", resp.NewVersion)
+	}
+	if len(stub.dagPatchCalls) != 1 {
+		t.Fatalf("dagPatchCalls = %d, want 1", len(stub.dagPatchCalls))
+	}
+	got := stub.dagPatchCalls[0]
+	if got.ScheduleEnabled == nil || *got.ScheduleEnabled {
+		t.Fatalf("ScheduleEnabled = %#v, want false", got.ScheduleEnabled)
+	}
+	if len(stub.upsertCalls) != 0 || len(stub.deleteCalls) != 0 {
+		t.Fatalf("schedule-only update should not touch nodes: upsert=%d delete=%d", len(stub.upsertCalls), len(stub.deleteCalls))
+	}
+}
+
+func TestApplyOps_UpdateDAG_RunningDAGAllowed(t *testing.T) {
 	t.Parallel()
 
 	stub := &stubDAGOpsStore{
@@ -114,18 +146,15 @@ func TestApplyOps_UpdateDAG_RunningDAGRejected(t *testing.T) {
 		Ops:         json.RawMessage(`[{"op":"update_dag","patch":{"title":"x"}}]`),
 	}
 
-	_, err := s.ApplyOps(context.Background(), req)
-	if err == nil {
-		t.Fatal("running DAG update_dag: want err, got nil")
+	resp, err := s.ApplyOps(context.Background(), req)
+	if err != nil {
+		t.Fatalf("running DAG update_dag err = %v, want nil", err)
 	}
-	if !errors.Is(err, ErrApplyOpsInvalid) {
-		t.Fatalf("err = %v, want errors.Is ErrApplyOpsInvalid", err)
+	if resp.NewVersion != 4 {
+		t.Fatalf("NewVersion = %d, want 4", resp.NewVersion)
 	}
-	if !strings.Contains(err.Error(), "running") {
-		t.Fatalf("err = %v, want mention running DAG", err)
-	}
-	if len(stub.dagPatchCalls) != 0 || len(stub.bumpCalls) != 0 {
-		t.Fatalf("dagPatchCalls=%v bumpCalls=%v, want no writes", stub.dagPatchCalls, stub.bumpCalls)
+	if len(stub.dagPatchCalls) != 1 || len(stub.bumpCalls) != 1 {
+		t.Fatalf("dagPatchCalls=%v bumpCalls=%v, want one patch and one bump", stub.dagPatchCalls, stub.bumpCalls)
 	}
 }
 

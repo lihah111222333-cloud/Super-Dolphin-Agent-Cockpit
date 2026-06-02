@@ -128,3 +128,58 @@ func TestDriverStartSessionReplacesGenericGPTModelFromModelList(t *testing.T) {
 	}
 	assertRuntimeConfigValue(t, s, "model", "gpt-5-codex")
 }
+
+func TestDriverStartSessionPreservesExplicitGPT55Model(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("USERPROFILE", t.TempDir())
+	startParams := make(chan map[string]any, 1)
+	serverURL := startCodexRPCServerWithHandler(t, func(msg jsonRPCMessage) json.RawMessage {
+		switch msg.Method {
+		case "model/list":
+			return mustJSON(map[string]any{
+				"models": []map[string]any{
+					{"id": "gpt-5.3-codex"},
+				},
+			})
+		case "thread/start":
+			var params map[string]any
+			_ = json.Unmarshal(msg.Params, &params)
+			startParams <- params
+			return mustJSON(map[string]any{
+				"thread": map[string]any{"id": "provider-thread-gpt55", "cwd": "/repo"},
+				"model":  "gpt-5.5",
+			})
+		case "initialize":
+			return mustJSON(map[string]any{"ok": true})
+		default:
+			return mustJSON(map[string]any{"ok": true})
+		}
+	})
+	d := &driver{
+		pool:      newSingleURLPoolForTest(t, serverURL),
+		mirror:    &recordingSkillMirrorReconciler{},
+		listTools: noopCodexToolLister,
+	}
+
+	got, err := d.StartSession(context.Background(), dto.StartSessionRequest{
+		Provider: "codex",
+		AgentID:  "agent-gpt55-preserved",
+		CWD:      t.TempDir(),
+		Model:    "gpt-5.5",
+	})
+	if err != nil {
+		t.Fatalf("StartSession() error = %v", err)
+	}
+	s := mustCodexSession(t, got, "StartSession")
+	defer closeCodexTestSession(t, s)
+
+	select {
+	case params := <-startParams:
+		if params["model"] != "gpt-5.5" {
+			t.Fatalf("thread/start model = %#v, want gpt-5.5; params=%#v", params["model"], params)
+		}
+	default:
+		t.Fatal("thread/start params were not captured")
+	}
+	assertRuntimeConfigValue(t, s, "model", "gpt-5.5")
+}

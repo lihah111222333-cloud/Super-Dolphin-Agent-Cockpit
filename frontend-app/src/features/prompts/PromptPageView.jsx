@@ -98,7 +98,8 @@ function parseTags(value) {
   try {
     const parsed = JSON.parse(text);
     return Array.isArray(parsed) ? parsed.map(textValue).filter(Boolean) : [];
-  } catch {
+  }
+  catch {
     return text.split(/[，,;；\n]/).map(textValue).filter(Boolean);
   }
 }
@@ -117,7 +118,8 @@ function promptAdvancedDebugEnabled() {
   if (window.__SUPER_DOLPHIN_PROMPT_DEBUG__ === true) return true;
   try {
     return window.localStorage?.getItem('super-dolphin.promptDebug') === '1';
-  } catch {
+  }
+  catch {
     return false;
   }
 }
@@ -231,11 +233,13 @@ function trunc(value, max = 120) {
 }
 
 function wordListFromText(value) {
-  return textValue(value)
+  return (
+    textValue(value)
     .split(/[，,;；\n]/)
     .map(textValue)
     .filter(Boolean)
-    .filter((word, index, list) => list.findIndex((item) => item.toLowerCase() === word.toLowerCase()) === index);
+    .filter((word, index, list) => list.findIndex((item) => item.toLowerCase() === word.toLowerCase()) === index)
+  );
 }
 
 function promptFormFromItem(item) {
@@ -388,22 +392,23 @@ async function fetchActivePromptId(cwd) {
   return typeof value === 'string' ? value.trim() : '';
 }
 
-export function PromptPageView({ projectPath, refreshKey = 0, resolveLaunchPreferences }) {
-  const cwd = optionalPromptCwd(projectPath);
-  const isProjectPending = !cwd;
-  const queryClient = useQueryClient();
-  const [activeTab, setActiveTab] = useState('all');
-  const [scopeFilter, setScopeFilter] = useState('all');
-  const [statusFilter, setStatusFilter] = useState('all');
-  const [notice, setNotice] = useState('');
-  const [actioning, setActioning] = useState('');
-  const [editorOpen, setEditorOpen] = useState(false);
-  const [saving, setSaving] = useState(false);
-  const [form, setForm] = useState(emptyPromptForm);
-  const [wizardOpen, setWizardOpen] = useState(false);
-  const [wizardDraft, setWizardDraft] = useState(null);
-  const promptRefreshKey = Number(refreshKey || 0);
+function promptQueryState(cwd, promptAssetsQuery, activePromptQuery) {
+  const items = Array.isArray(promptAssetsQuery.data?.items) ? promptAssetsQuery.data.items : [];
+  const hasPromptSnapshot = Array.isArray(promptAssetsQuery.data?.items);
+  const promptSyncError = promptAssetsQuery.error ? errorMessage(promptAssetsQuery.error) : '';
+  const activePromptSyncError = activePromptQuery.error ? errorMessage(activePromptQuery.error) : '';
+  const syncErrorMessage = [promptSyncError, activePromptSyncError].filter(Boolean).join('；');
+  return {
+    items,
+    fallbackMode: Boolean(promptAssetsQuery.data?.fallbackMode),
+    activePromptId: textValue(activePromptQuery.data),
+    loading: Boolean(cwd) && promptAssetsQuery.isPending && !hasPromptSnapshot,
+    syncError: syncErrorMessage && hasPromptSnapshot ? `同步失败，显示的是上次成功的数据：${syncErrorMessage}` : '',
+    error: promptSyncError && !hasPromptSnapshot ? noticeText(promptAssetsQuery.error, '加载提示词失败') : '',
+  };
+}
 
+function usePromptQueries(cwd) {
   const promptAssetsQuery = useQuery({
     queryKey: promptAssetsQueryKey(cwd),
     queryFn: () => fetchPromptAssetsSurface(cwd),
@@ -414,27 +419,16 @@ export function PromptPageView({ projectPath, refreshKey = 0, resolveLaunchPrefe
     queryFn: () => fetchActivePromptId(cwd),
     enabled: Boolean(cwd),
   });
-  const refetchPromptAssets = promptAssetsQuery.refetch;
-  const refetchActivePrompt = activePromptQuery.refetch;
-  const items = useMemo(() => (
-    Array.isArray(promptAssetsQuery.data?.items) ? promptAssetsQuery.data.items : []
-  ), [promptAssetsQuery.data]);
-  const fallbackMode = Boolean(promptAssetsQuery.data?.fallbackMode);
-  const activePromptId = textValue(activePromptQuery.data);
-  const hasPromptSnapshot = Array.isArray(promptAssetsQuery.data?.items);
-  const loading = Boolean(cwd) && promptAssetsQuery.isPending && !hasPromptSnapshot;
-  const promptSyncError = promptAssetsQuery.error ? errorMessage(promptAssetsQuery.error) : '';
-  const activePromptSyncError = activePromptQuery.error ? errorMessage(activePromptQuery.error) : '';
-  const syncErrorMessage = [promptSyncError, activePromptSyncError].filter(Boolean).join('；');
-  const syncError = syncErrorMessage && hasPromptSnapshot
-    ? `同步失败，显示的是上次成功的数据：${syncErrorMessage}`
-    : '';
-  const error = promptSyncError && !hasPromptSnapshot
-    ? noticeText(promptAssetsQuery.error, '加载提示词失败')
-    : '';
-  const showBlockingError = Boolean(error);
+  const state = promptQueryState(cwd, promptAssetsQuery, activePromptQuery);
+  return {
+    ...state,
+    refetchPromptAssets: promptAssetsQuery.refetch,
+    refetchActivePrompt: activePromptQuery.refetch,
+  };
+}
 
-  const refreshPromptSurface = useCallback(async (options = {}) => {
+function usePromptRefreshSurface(cwd, queryClient, refetchPromptAssets, refetchActivePrompt) {
+  return useCallback(async (options = {}) => {
     const isCancelled = typeof options.isCancelled === 'function' ? options.isCancelled : () => false;
     if (!cwd) return [];
     const [assetResult, activeResult] = await Promise.all([
@@ -449,10 +443,12 @@ export function PromptPageView({ projectPath, refreshKey = 0, resolveLaunchPrefe
     }
     return nextItems;
   }, [cwd, queryClient, refetchActivePrompt, refetchPromptAssets]);
+}
 
+function usePromptRefreshEffects(cwd, activePromptId, items, queryClient, promptRefreshKey, refreshPromptSurface, setNotice) {
   useEffect(() => {
     setNotice('');
-  }, [cwd]);
+  }, [cwd, setNotice]);
 
   useEffect(() => {
     if (!cwd || !activePromptId || items.length === 0) return;
@@ -476,9 +472,7 @@ export function PromptPageView({ projectPath, refreshKey = 0, resolveLaunchPrefe
       void refreshPromptSurface();
     };
     const handleVisibilityChange = () => {
-      if (typeof document === 'undefined' || document.visibilityState === 'visible') {
-        runAutoRefresh();
-      }
+      if (typeof document === 'undefined' || document.visibilityState === 'visible') runAutoRefresh();
     };
     window.addEventListener('focus', runAutoRefresh);
     document.addEventListener('visibilitychange', handleVisibilityChange);
@@ -487,225 +481,394 @@ export function PromptPageView({ projectPath, refreshKey = 0, resolveLaunchPrefe
       document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
   }, [refreshPromptSurface]);
+}
+
+function promptWritePayload(cwd, form, name) {
+  return {
+    cwd,
+    id: form.id,
+    name,
+    description: form.description,
+    agentType: form.agentType || 'main',
+    priority: Number.isFinite(Number(form.priority)) ? Number(form.priority) : 0,
+    when_to_use: form.whenToUse,
+    content: form.content,
+    tags: wordListFromText(form.tagsText),
+    enabled: form.enabled,
+    scope: form.scope === 'global' ? 'global' : 'project',
+  };
+}
+
+async function savePromptForm({ cwd, form, refreshPromptSurface, setEditorOpen, setNotice, setSaving }) {
+  const name = textValue(form.name);
+  if (!name) {
+    setNotice('请填写提示词名称');
+    return;
+  }
+  setSaving(true);
+  try {
+    await writePrompt(promptWritePayload(cwd, form, name));
+    await refreshPromptSurface({ force: true });
+    setEditorOpen(false);
+    setNotice(`提示词已保存：${name}`);
+  }
+  catch (err) {
+    setNotice(noticeText(err, '保存失败'));
+  }
+  finally {
+    setSaving(false);
+  }
+}
+
+async function removePromptItem({ cwd, item, refreshPromptSurface, setActioning, setNotice }) {
+  setActioning(`delete:${item.id}`);
+  try {
+    await deletePrompt({ cwd, id: item.id, scope: item.scope === 'global' ? 'global' : 'project' });
+    await refreshPromptSurface({ force: true });
+    setNotice(`已删除：${item.name}`);
+  }
+  catch (err) {
+    setNotice(noticeText(err, '删除失败'));
+  }
+  finally {
+    setActioning('');
+  }
+}
+
+async function setLaunchPreference({ cwd, item, queryClient, setActioning, setNotice }) {
+  setActioning(`launch:${item.id}`);
+  try {
+    await setPreference({ cwd, key: ACTIVE_PROMPT_PREF_KEY, value: item.id });
+    queryClient.setQueryData(activePromptQueryKey(cwd), item.id);
+    setNotice(`已设为强制使用：${item.name}`);
+  }
+  catch (err) {
+    setNotice(noticeText(err, '设置强制使用失败'));
+  }
+  finally {
+    setActioning('');
+  }
+}
+
+async function clearLaunchPreference({ cwd, queryClient, setActioning, setNotice }) {
+  setActioning('launch:clear');
+  try {
+    await setPreference({ cwd, key: ACTIVE_PROMPT_PREF_KEY, value: '' });
+    queryClient.setQueryData(activePromptQueryKey(cwd), '');
+    setNotice('已取消强制使用，新对话将使用默认路由');
+  }
+  catch (err) {
+    setNotice(noticeText(err, '取消强制使用失败'));
+  }
+  finally {
+    setActioning('');
+  }
+}
+
+async function discardPromptDraftItem({ cwd, item, refreshPromptSurface, setActioning, setNotice }) {
+  const draftKey = item.draftKey || item.id;
+  setActioning(`discard:${draftKey}`);
+  try {
+    await discardPromptIntent({ cwd, draftKey });
+    await refreshPromptSurface({ force: true });
+    setNotice(`已丢弃：${item.name}`);
+  }
+  catch (err) {
+    setNotice(noticeText(err, '丢弃失败'));
+  }
+  finally {
+    setActioning('');
+  }
+}
+
+function usePromptEditorActions(params) {
+  const { cwd, fallbackMode, actioning, form, queryClient, refreshPromptSurface, setters } = params;
+  const { setActioning, setEditorOpen, setForm, setNotice, setSaving, setWizardDraft, setWizardOpen } = setters;
+  return {
+    switchTab: (key) => {
+      setters.setActiveTab(key);
+      setNotice('');
+    },
+    retryPromptSync: () => {
+      void refreshPromptSurface({ force: true });
+    },
+    openCreate: () => {
+      if (fallbackMode) {
+        setNotice('当前为只读降级，暂不支持新建');
+        return;
+      }
+      setWizardDraft(null);
+      setWizardOpen(true);
+      setNotice('');
+    },
+    openEdit: (item) => {
+      setForm(promptFormFromItem(item));
+      setEditorOpen(true);
+      setNotice('');
+    },
+    savePrompt: () => savePromptForm({ cwd, form, refreshPromptSurface, setEditorOpen, setNotice, setSaving }),
+    removePrompt: (item) => {
+      if (fallbackMode) {
+        setNotice('当前为只读降级，暂不支持删除');
+        return;
+      }
+      if (!item.id || actioning) return;
+      void removePromptItem({ cwd, item, refreshPromptSurface, setActioning, setNotice });
+    },
+    setLaunchPrompt: (item) => {
+      if (!canForceLaunchPrompt(item) || actioning) return;
+      void setLaunchPreference({ cwd, item, queryClient, setActioning, setNotice });
+    },
+    clearLaunchPrompt: () => {
+      if (actioning) return;
+      void clearLaunchPreference({ cwd, queryClient, setActioning, setNotice });
+    },
+  };
+}
+
+function usePromptDraftActions({ cwd, actioning, refreshPromptSurface, setters }) {
+  const { setActioning, setNotice, setWizardDraft, setWizardOpen } = setters;
+  return {
+    continuePendingDraft: (item) => {
+      setWizardDraft(pendingDraftFromItem(item));
+      setWizardOpen(true);
+      setNotice('');
+    },
+    discardDraft: (item) => {
+      const draftKey = item.draftKey || item.id;
+      if (!draftKey || actioning) return;
+      void discardPromptDraftItem({ cwd, item, refreshPromptSurface, setActioning, setNotice });
+    },
+    handleWizardSaved: async () => {
+      setWizardOpen(false);
+      setWizardDraft(null);
+      await refreshPromptSurface({ force: true });
+      setNotice('已保存，可在新对话中被 AI 发现和使用');
+    },
+  };
+}
+
+function PromptFilterControls({ scopeFilter, statusFilter, fallbackMode, onScopeChange, onStatusChange }) {
+  return (
+    <div className="prompt-filter-row">
+      <PromptSegment title="范围" items={PROMPT_SCOPE_FILTERS} value={scopeFilter} disabled={fallbackMode} onChange={onScopeChange} />
+      <PromptSegment title="状态" items={PROMPT_STATUS_FILTERS} value={statusFilter} disabled={fallbackMode} onChange={onStatusChange} />
+    </div>
+  );
+}
+
+function PromptToolbar({ cwd, fallbackMode, onCreate }) {
+  return (
+    <div className="prompt-toolbar">
+      <button type="button" onClick={onCreate} disabled={fallbackMode || !cwd}>
+        <Plus size={15} /> + 添加给 AI 的内容
+      </button>
+    </div>
+  );
+}
+
+function PromptStatusMessages({ isProjectPending, fallbackMode, syncError, error, loading, onRetry }) {
+  return (
+    <>
+      {isProjectPending ? <div className="prompt-notice">正在连接本地项目...</div> : null}
+      {fallbackMode ? <div className="prompt-notice warn">prompt-assets/list 暂不可用，页面已切换为只读模式。</div> : null}
+      {syncError ? <PromptRetryNotice message={syncError} onRetry={onRetry} /> : null}
+      {error ? <PromptRetryNotice message={error} onRetry={onRetry} /> : null}
+      {loading ? <output className="prompt-loading" aria-live="polite">正在加载提示词...</output> : null}
+    </>
+  );
+}
+
+function PromptRetryNotice({ message, onRetry }) {
+  return (
+    <div className="prompt-notice error" role="alert">
+      <span>{message}</span>
+      <button type="button" className="ghost" onClick={onRetry}>重试同步</button>
+    </div>
+  );
+}
+
+function PromptEmptyState({ activeTab }) {
+  return (
+    <div className="empty-state prompt-empty">
+      <File size={30} />
+      <h3>暂无内容</h3>
+      <p>{activeTab === 'pending' ? '暂无待确认内容。' : '点击“添加给 AI 的内容”开始创建。'}</p>
+    </div>
+  );
+}
+
+function PromptCardsGrid({ visibleItems, activePromptId, actioning, fallbackMode, editorActions, draftActions }) {
+  return (
+    <div className="prompt-card-grid">
+      {visibleItems.map((item, index) => (
+        <PromptCard
+          key={item.id || index}
+          item={item}
+          active={activePromptId === item.id && canForceLaunchPrompt(item)}
+          actioning={actioning}
+          fallbackMode={fallbackMode}
+          onEdit={editorActions.openEdit}
+          onDelete={editorActions.removePrompt}
+          onSetLaunch={editorActions.setLaunchPrompt}
+          onClearLaunch={editorActions.clearLaunchPrompt}
+          onContinueDraft={draftActions.continuePendingDraft}
+          onDiscardDraft={draftActions.discardDraft}
+        />
+      ))}
+    </div>
+  );
+}
+
+function PromptPageLayout(props) {
+  const showEmpty = !props.isProjectPending && !props.loading && !props.showBlockingError && props.visibleItems.length === 0;
+  const showCards = !props.isProjectPending && !props.loading && props.visibleItems.length > 0;
+  return (
+    <section className="console-page prompt-page">
+      <PageHeader title="AI 能力与资料" projectPath={props.cwd || props.projectPath} />
+      <PromptTabs tabs={PROMPT_TABS} activeTab={props.activeTab} counts={props.counts} disabled={props.fallbackMode} onSwitch={props.editorActions.switchTab} />
+      <PromptFilterControls {...props.filters} fallbackMode={props.fallbackMode} />
+      <PromptToolbar cwd={props.cwd} fallbackMode={props.fallbackMode} onCreate={props.editorActions.openCreate} />
+      <PromptStatusMessages {...props} onRetry={props.editorActions.retryPromptSync} />
+      {showEmpty ? <PromptEmptyState activeTab={props.activeTab} /> : null}
+      {showCards ? <PromptCardsGrid {...props} /> : null}
+      {props.notice && !props.modals.editorOpen && !props.modals.wizardOpen ? <div className="prompt-notice">{props.notice}</div> : null}
+      <PromptEditorHost {...props} />
+      <PromptWizardHost {...props} />
+    </section>
+  );
+}
+
+function PromptEditorHost({ modals, notice, saving, setters, editorActions }) {
+  if (!modals.editorOpen) return null;
+  return (
+    <PromptEditorModal
+      form={modals.form}
+      notice={notice}
+      saving={saving}
+      onChange={setters.setForm}
+      onClose={() => {
+        setters.setEditorOpen(false);
+        setters.setNotice('');
+      }}
+      onSave={editorActions.savePrompt}
+    />
+  );
+}
+
+function PromptWizardHost({ modals, cwd, resolveLaunchPreferences, setters, draftActions }) {
+  if (!modals.wizardOpen) return null;
+  return (
+    <PromptIntentWizardModal
+      cwd={cwd}
+      initialDraft={modals.wizardDraft}
+      resolveLaunchPreferences={resolveLaunchPreferences}
+      onClose={() => {
+        setters.setWizardOpen(false);
+        setters.setWizardDraft(null);
+      }}
+      onSaved={draftActions.handleWizardSaved}
+    />
+  );
+}
+
+function usePromptPageState() {
+  const [activeTab, setActiveTab] = useState('all');
+  const [scopeFilter, setScopeFilter] = useState('all');
+  const [statusFilter, setStatusFilter] = useState('all');
+  const [notice, setNotice] = useState('');
+  const [actioning, setActioning] = useState('');
+  const [editorOpen, setEditorOpen] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [form, setForm] = useState(emptyPromptForm);
+  const [wizardOpen, setWizardOpen] = useState(false);
+  const [wizardDraft, setWizardDraft] = useState(null);
+  return {
+    activeTab,
+    actioning,
+    form,
+    modals: { editorOpen, form, wizardDraft, wizardOpen },
+    notice,
+    saving,
+    scopeFilter,
+    statusFilter,
+    setters: {
+      setActiveTab,
+      setActioning,
+      setEditorOpen,
+      setForm,
+      setNotice,
+      setSaving,
+      setScopeFilter,
+      setStatusFilter,
+      setWizardDraft,
+      setWizardOpen,
+    },
+  };
+}
+
+export function PromptPageView({ projectPath, refreshKey = 0, resolveLaunchPreferences }) {
+  const cwd = optionalPromptCwd(projectPath);
+  const isProjectPending = !cwd;
+  const queryClient = useQueryClient();
+  const pageState = usePromptPageState();
+  const { activeTab, actioning, form, modals, notice, saving, scopeFilter, statusFilter, setters } = pageState;
+
+  const queryState = usePromptQueries(cwd);
+  const { items, fallbackMode, activePromptId, loading, syncError, error } = queryState;
+  const refreshPromptSurface = usePromptRefreshSurface(
+    cwd,
+    queryClient,
+    queryState.refetchPromptAssets,
+    queryState.refetchActivePrompt,
+  );
+  usePromptRefreshEffects(cwd, activePromptId, items, queryClient, Number(refreshKey || 0), refreshPromptSurface, setters.setNotice);
 
   const counts = useMemo(() => promptCounts(items), [items]);
   const visibleItems = useMemo(
     () => filterPrompts(items, activeTab, scopeFilter, statusFilter),
     [activeTab, items, scopeFilter, statusFilter],
   );
-
-  const switchTab = (key) => {
-    setActiveTab(key);
-    setNotice('');
+  const editorActions = usePromptEditorActions({
+    cwd,
+    fallbackMode,
+    actioning,
+    form,
+    queryClient,
+    refreshPromptSurface,
+    setters,
+  });
+  const draftActions = usePromptDraftActions({ cwd, actioning, refreshPromptSurface, setters });
+  const layoutProps = {
+    activePromptId,
+    activeTab,
+    actioning,
+    counts,
+    cwd,
+    draftActions,
+    editorActions,
+    error,
+    fallbackMode,
+    filters: {
+      scopeFilter,
+      statusFilter,
+      onScopeChange: setters.setScopeFilter,
+      onStatusChange: setters.setStatusFilter,
+    },
+    isProjectPending,
+    loading,
+    modals,
+    notice,
+    projectPath,
+    resolveLaunchPreferences,
+    saving,
+    setters,
+    showBlockingError: Boolean(error),
+    syncError,
+    visibleItems,
   };
 
-  const retryPromptSync = () => {
-    void refreshPromptSurface({ force: true });
-  };
-
-  const openCreate = () => {
-    if (fallbackMode) {
-      setNotice('当前为只读降级，暂不支持新建');
-      return;
-    }
-    setWizardDraft(null);
-    setWizardOpen(true);
-    setNotice('');
-  };
-
-  const openEdit = (item) => {
-    setForm(promptFormFromItem(item));
-    setEditorOpen(true);
-    setNotice('');
-  };
-
-  const savePrompt = async () => {
-    const name = textValue(form.name);
-    if (!name) {
-      setNotice('请填写提示词名称');
-      return;
-    }
-    setSaving(true);
-    try {
-      await writePrompt({
-        cwd,
-        id: form.id,
-        name,
-        description: form.description,
-        agentType: form.agentType || 'main',
-        priority: Number.isFinite(Number(form.priority)) ? Number(form.priority) : 0,
-        when_to_use: form.whenToUse,
-        content: form.content,
-        tags: wordListFromText(form.tagsText),
-        enabled: form.enabled,
-        scope: form.scope === 'global' ? 'global' : 'project',
-      });
-      await refreshPromptSurface({ force: true });
-      setEditorOpen(false);
-      setNotice(`提示词已保存：${name}`);
-    } catch (err) {
-      setNotice(noticeText(err, '保存失败'));
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const removePrompt = async (item) => {
-    if (fallbackMode) {
-      setNotice('当前为只读降级，暂不支持删除');
-      return;
-    }
-    if (!item.id || actioning) return;
-    setActioning(`delete:${item.id}`);
-    try {
-      await deletePrompt({ cwd, id: item.id, scope: item.scope === 'global' ? 'global' : 'project' });
-      await refreshPromptSurface({ force: true });
-      setNotice(`已删除：${item.name}`);
-    } catch (err) {
-      setNotice(noticeText(err, '删除失败'));
-    } finally {
-      setActioning('');
-    }
-  };
-
-  const setLaunchPrompt = async (item) => {
-    if (!canForceLaunchPrompt(item) || actioning) return;
-    setActioning(`launch:${item.id}`);
-    try {
-      await setPreference({ cwd, key: ACTIVE_PROMPT_PREF_KEY, value: item.id });
-      queryClient.setQueryData(activePromptQueryKey(cwd), item.id);
-      setNotice(`已设为强制使用：${item.name}`);
-    } catch (err) {
-      setNotice(noticeText(err, '设置强制使用失败'));
-    } finally {
-      setActioning('');
-    }
-  };
-
-  const clearLaunchPrompt = async () => {
-    if (actioning) return;
-    setActioning('launch:clear');
-    try {
-      await setPreference({ cwd, key: ACTIVE_PROMPT_PREF_KEY, value: '' });
-      queryClient.setQueryData(activePromptQueryKey(cwd), '');
-      setNotice('已取消强制使用，新对话将使用默认路由');
-    } catch (err) {
-      setNotice(noticeText(err, '取消强制使用失败'));
-    } finally {
-      setActioning('');
-    }
-  };
-
-  const continuePendingDraft = (item) => {
-    setWizardDraft(pendingDraftFromItem(item));
-    setWizardOpen(true);
-    setNotice('');
-  };
-
-  const discardDraft = async (item) => {
-    const draftKey = item.draftKey || item.id;
-    if (!draftKey || actioning) return;
-    setActioning(`discard:${draftKey}`);
-    try {
-      await discardPromptIntent({ cwd, draftKey });
-      await refreshPromptSurface({ force: true });
-      setNotice(`已丢弃：${item.name}`);
-    } catch (err) {
-      setNotice(noticeText(err, '丢弃失败'));
-    } finally {
-      setActioning('');
-    }
-  };
-
-  const handleWizardSaved = async () => {
-    setWizardOpen(false);
-    setWizardDraft(null);
-    await refreshPromptSurface({ force: true });
-    setNotice('已保存，可在新对话中被 AI 发现和使用');
-  };
-
-  return (
-    <section className="console-page prompt-page">
-      <PageHeader title="AI 能力与资料" projectPath={cwd || projectPath} />
-      <PromptTabs tabs={PROMPT_TABS} activeTab={activeTab} counts={counts} disabled={fallbackMode} onSwitch={switchTab} />
-      <div className="prompt-filter-row">
-        <PromptSegment title="范围" items={PROMPT_SCOPE_FILTERS} value={scopeFilter} disabled={fallbackMode} onChange={setScopeFilter} />
-        <PromptSegment title="状态" items={PROMPT_STATUS_FILTERS} value={statusFilter} disabled={fallbackMode} onChange={setStatusFilter} />
-      </div>
-      <div className="prompt-toolbar">
-        <button type="button" onClick={openCreate} disabled={fallbackMode || !cwd}>
-          <Plus size={15} /> + 添加给 AI 的内容
-        </button>
-      </div>
-      {isProjectPending ? <div className="prompt-notice">正在连接本地项目...</div> : null}
-      {fallbackMode ? <div className="prompt-notice warn">prompt-assets/list 暂不可用，页面已切换为只读模式。</div> : null}
-      {syncError ? (
-        <div className="prompt-notice error" role="alert">
-          <span>{syncError}</span>
-          <button type="button" className="ghost" onClick={retryPromptSync}>重试同步</button>
-        </div>
-      ) : null}
-      {error ? (
-        <div className="prompt-notice error" role="alert">
-          <span>{error}</span>
-          <button type="button" className="ghost" onClick={retryPromptSync}>重试同步</button>
-        </div>
-      ) : null}
-      {loading ? <div className="prompt-loading">加载中...</div> : null}
-      {!isProjectPending && !loading && !showBlockingError && visibleItems.length === 0 ? (
-        <div className="empty-state prompt-empty">
-          <File size={30} />
-          <h3>暂无内容</h3>
-          <p>{activeTab === 'pending' ? '暂无待确认内容。' : '点击“添加给 AI 的内容”开始创建。'}</p>
-        </div>
-      ) : null}
-      {!isProjectPending && !loading && visibleItems.length > 0 ? (
-        <div className="prompt-card-grid">
-          {visibleItems.map((item, index) => (
-            <PromptCard
-              key={item.id || index}
-              item={item}
-              active={activePromptId === item.id && canForceLaunchPrompt(item)}
-              actioning={actioning}
-              fallbackMode={fallbackMode}
-              onEdit={openEdit}
-              onDelete={removePrompt}
-              onSetLaunch={setLaunchPrompt}
-              onClearLaunch={clearLaunchPrompt}
-              onContinueDraft={continuePendingDraft}
-              onDiscardDraft={discardDraft}
-            />
-          ))}
-        </div>
-      ) : null}
-      {notice && !editorOpen && !wizardOpen ? <div className="prompt-notice">{notice}</div> : null}
-      {editorOpen ? (
-        <PromptEditorModal
-          form={form}
-          notice={notice}
-          saving={saving}
-          onChange={setForm}
-          onClose={() => {
-            setEditorOpen(false);
-            setNotice('');
-          }}
-          onSave={savePrompt}
-        />
-      ) : null}
-      {wizardOpen ? (
-        <PromptIntentWizardModal
-          cwd={cwd}
-          initialDraft={wizardDraft}
-          resolveLaunchPreferences={resolveLaunchPreferences}
-          onClose={() => {
-            setWizardOpen(false);
-            setWizardDraft(null);
-          }}
-          onSaved={handleWizardSaved}
-        />
-      ) : null}
-    </section>
-  );
+  return <PromptPageLayout {...layoutProps} />;
 }
 
 function PageHeader({ title, projectPath }) {
@@ -758,51 +921,91 @@ function PromptSegment({ title, items, value, disabled, onChange }) {
   );
 }
 
-function PromptCard(props) {
-  const {
-    item, active, actioning, fallbackMode, onEdit, onDelete, onSetLaunch, onClearLaunch, onContinueDraft, onDiscardDraft,
-  } = props;
+function promptBucketLabel(bucket) {
+  if (bucket === 'expert') return '专家能力';
+  if (bucket === 'recall') return '参考资料';
+  if (bucket === 'default_rule') return '默认规则';
+  return '待确认';
+}
+
+function PromptBadges({ item, active }) {
   const bucket = promptBucket(item);
+  return (
+    <div className="prompt-badges">
+      <span>{promptBucketLabel(bucket)}</span>
+      {item.scope === 'global' ? <span>全局可用</span> : null}
+      {item.isPendingDraft ? <span>待确认</span> : null}
+      {item.enabled === false && !item.isPendingDraft ? <span>已停用</span> : null}
+      {active ? <span className="active">强制中</span> : null}
+    </div>
+  );
+}
+
+function PromptTagRow({ tags }) {
+  if (!tags.length) return null;
+  return (
+    <div className="prompt-tag-row">
+      {tags.map((tag) => <span key={tag}>{tag}</span>)}
+    </div>
+  );
+}
+
+function PromptForceAction({ item, active, actioning, onSetLaunch, onClearLaunch }) {
+  if (active) {
+    return (
+      <button type="button" className="ghost" disabled={actioning === 'launch:clear'} onClick={onClearLaunch}>取消强制</button>
+    );
+  }
+  if (!canForceLaunchPrompt(item)) return null;
+  return (
+    <button type="button" className="ghost" disabled={Boolean(actioning)} onClick={() => onSetLaunch(item)}>强制使用</button>
+  );
+}
+
+function PromptPendingActions({ item, actioning, onContinueDraft, onDiscardDraft }) {
+  const discardKey = item.draftKey || item.id;
+  return (
+    <>
+      <button type="button" onClick={() => onContinueDraft(item)}>继续确认</button>
+      <button type="button" className="ghost danger" disabled={actioning === `discard:${discardKey}`} onClick={() => onDiscardDraft(item)}>
+        {actioning === `discard:${discardKey}` ? '丢弃中...' : '丢弃'}
+      </button>
+    </>
+  );
+}
+
+function PromptSavedActions({ item, active, actioning, fallbackMode, onEdit, onDelete, onSetLaunch, onClearLaunch }) {
+  return (
+    <>
+      <button type="button" onClick={() => onEdit(item)}>{fallbackMode ? '查看' : '编辑'}</button>
+      <PromptForceAction item={item} active={active} actioning={actioning} onSetLaunch={onSetLaunch} onClearLaunch={onClearLaunch} />
+      <button type="button" className="ghost danger" disabled={fallbackMode || actioning === `delete:${item.id}`} onClick={() => onDelete(item)}>
+        {actioning === `delete:${item.id}` ? '删除中...' : '删除'}
+      </button>
+    </>
+  );
+}
+
+function PromptCardActions(props) {
+  if (props.item.isPendingDraft) {
+    return <PromptPendingActions {...props} />;
+  }
+  return <PromptSavedActions {...props} />;
+}
+
+function PromptCard(props) {
+  const { item, active } = props;
   return (
     <article className={`prompt-card ${item.enabled === false && !item.isPendingDraft ? 'disabled' : ''} ${item.isPendingDraft ? 'pending' : ''}`}>
       <div className="prompt-card-head">
         <h3>{item.name || '未命名'}</h3>
-        <div className="prompt-badges">
-          <span>{bucket === 'expert' ? '专家能力' : bucket === 'recall' ? '参考资料' : bucket === 'default_rule' ? '默认规则' : '待确认'}</span>
-          {item.scope === 'global' ? <span>全局可用</span> : null}
-          {item.isPendingDraft ? <span>待确认</span> : null}
-          {item.enabled === false && !item.isPendingDraft ? <span>已停用</span> : null}
-          {active ? <span className="active">强制中</span> : null}
-        </div>
+        <PromptBadges item={item} active={active} />
       </div>
       {item.description ? <p className="prompt-card-desc">{item.description}</p> : null}
-      {item.tags.length > 0 ? (
-        <div className="prompt-tag-row">
-          {item.tags.map((tag) => <span key={tag}>{tag}</span>)}
-        </div>
-      ) : null}
+      <PromptTagRow tags={item.tags} />
       <p className="prompt-card-preview">{trunc(item.preview)}</p>
       <div className="prompt-card-actions">
-        {item.isPendingDraft ? (
-          <>
-            <button type="button" onClick={() => onContinueDraft(item)}>继续确认</button>
-            <button type="button" className="ghost danger" disabled={actioning === `discard:${item.draftKey || item.id}`} onClick={() => onDiscardDraft(item)}>
-              {actioning === `discard:${item.draftKey || item.id}` ? '丢弃中...' : '丢弃'}
-            </button>
-          </>
-        ) : (
-          <>
-            <button type="button" onClick={() => onEdit(item)}>{fallbackMode ? '查看' : '编辑'}</button>
-            {active ? (
-              <button type="button" className="ghost" disabled={actioning === 'launch:clear'} onClick={onClearLaunch}>取消强制</button>
-            ) : canForceLaunchPrompt(item) ? (
-              <button type="button" className="ghost" disabled={Boolean(actioning)} onClick={() => onSetLaunch(item)}>强制使用</button>
-            ) : null}
-            <button type="button" className="ghost danger" disabled={fallbackMode || actioning === `delete:${item.id}`} onClick={() => onDelete(item)}>
-              {actioning === `delete:${item.id}` ? '删除中...' : '删除'}
-            </button>
-          </>
-        )}
+        <PromptCardActions {...props} />
       </div>
     </article>
   );
@@ -868,6 +1071,125 @@ function PromptEditorModal({ form, notice, saving, onChange, onClose, onSave }) 
   );
 }
 
+async function buildPromptDraft({ cwd, kind, rawInput, scope, resolveLaunchPreferences }) {
+  const launchPreferences = typeof resolveLaunchPreferences === 'function'
+    ? await resolveLaunchPreferences(cwd)
+    : null;
+  return draftPromptIntent({
+    cwd,
+    kind,
+    rawInput,
+    sourceType: 'user_input',
+    scope,
+    provider: textValue(launchPreferences?.modelProvider || launchPreferences?.provider),
+    model: textValue(launchPreferences?.model),
+    codexModelProvider: textValue(launchPreferences?.config?.codexModelProvider),
+  });
+}
+
+function PromptKindTabs({ kind, onChange }) {
+  return (
+    <div className="prompt-kind-tabs" role="tablist" aria-label="内容类型">
+      {PROMPT_KIND_OPTIONS.map((option) => (
+        <button key={option.key} type="button" role="tab" aria-selected={kind === option.key} className={kind === option.key ? 'active' : ''} onClick={() => onChange(option.key)}>
+          {option.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function PromptScopeChoice({ scope, onChange, ariaLabel = '草稿范围' }) {
+  return (
+    <div className="prompt-scope-choice" role="group" aria-label={ariaLabel}>
+      <button type="button" className={scope !== 'global' ? 'active' : ''} onClick={() => onChange('project')}>这个项目</button>
+      <button type="button" className={scope === 'global' ? 'active' : ''} onClick={() => onChange('global')}>全局可用</button>
+    </div>
+  );
+}
+
+function PromptDraftExamples({ draft }) {
+  if (!draft.hitExamples.length && !draft.missExamples.length) return null;
+  return (
+    <div className="prompt-draft-examples">
+      {draft.hitExamples.length ? (
+        <div>
+          <strong>适合的问题</strong>
+          <ul>{draft.hitExamples.map((example) => <li key={example}>{example}</li>)}</ul>
+        </div>
+      ) : null}
+      {draft.missExamples.length ? (
+        <div>
+          <strong>不适合的问题</strong>
+          <ul>{draft.missExamples.map((example) => <li key={example}>{example}</li>)}</ul>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function PromptDraftReview({ draft }) {
+  if (!draft) return null;
+  return (
+    <article className="prompt-draft-review">
+      <div className="prompt-draft-title"><CheckCircle2 size={16} /> {draft.title}</div>
+      {draft.summary ? <p>{draft.summary}</p> : null}
+      {draft.whenToUse ? <p>{draft.whenToUse}</p> : null}
+      {draft.whenNotToUse ? <p>{draft.whenNotToUse}</p> : null}
+      {draft.workflow?.length ? <ol>{draft.workflow.map((step) => <li key={step}>{step}</li>)}</ol> : null}
+      {draft.saveBoundary ? <p><span>保存边界：</span><span>{draft.saveBoundary}</span></p> : null}
+      {draft.output ? <pre>{draft.output}</pre> : null}
+      <PromptDraftExamples draft={draft} />
+      {draft.issues.length ? (
+        <div className="prompt-draft-issues">
+          {draft.issues.map((issue) => <div key={`${issue.code}:${issue.message}`}>{issue.message}</div>)}
+        </div>
+      ) : null}
+    </article>
+  );
+}
+
+function PromptWizardNotice({ draftNeedsRevision, notice }) {
+  const noticeIsGuidance = notice === PROMPT_DRAFT_NOT_READY_MESSAGE || notice === PROMPT_DRAFT_REVIEW_MESSAGE;
+  return (
+    <>
+      {draftNeedsRevision ? <div className="prompt-notice">{PROMPT_DRAFT_NOT_READY_MESSAGE}</div> : null}
+      {notice ? <div className={`prompt-notice${noticeIsGuidance ? '' : ' error'}`}>{notice}</div> : null}
+    </>
+  );
+}
+
+async function runPromptDraftGeneration(params) {
+  const { cwd, kind, rawInput, scope, resolveLaunchPreferences, setDraft, setNotice, setWorking } = params;
+  setWorking('draft');
+  setNotice('');
+  try {
+    const response = await buildPromptDraft({ cwd, kind, rawInput, scope, resolveLaunchPreferences });
+    setDraft(normalizeDraft(response, kind));
+  }
+  catch (err) {
+    setNotice(noticeText(err, '生成失败'));
+  }
+  finally {
+    setWorking('');
+  }
+}
+
+async function runPromptDraftCommit({ cwd, draft, onSaved, setNotice, setWorking }) {
+  setWorking('commit');
+  setNotice('');
+  try {
+    await commitPromptIntent({ cwd, draftKey: draft.draftKey, scope: draft.scope });
+    await onSaved();
+  }
+  catch (err) {
+    setNotice(noticeText(err, '保存失败'));
+  }
+  finally {
+    setWorking('');
+  }
+}
+
 function PromptIntentWizardModal({ cwd, initialDraft, resolveLaunchPreferences, onClose, onSaved }) {
   const [kind, setKind] = useState(initialDraft?.kind || 'expert');
   const [scope, setScope] = useState(initialDraft?.scope || 'project');
@@ -890,28 +1212,7 @@ function PromptIntentWizardModal({ cwd, initialDraft, resolveLaunchPreferences, 
       setNotice('请先写下希望 AI 记住或使用的内容');
       return;
     }
-    setWorking('draft');
-    setNotice('');
-    try {
-      const launchPreferences = typeof resolveLaunchPreferences === 'function'
-        ? await resolveLaunchPreferences(cwd)
-        : null;
-      const response = await draftPromptIntent({
-        cwd,
-        kind,
-        rawInput: text,
-        sourceType: 'user_input',
-        scope,
-        provider: textValue(launchPreferences?.modelProvider || launchPreferences?.provider),
-        model: textValue(launchPreferences?.model),
-        codexModelProvider: textValue(launchPreferences?.config?.codexModelProvider),
-      });
-      setDraft(normalizeDraft(response, kind));
-    } catch (err) {
-      setNotice(noticeText(err, '生成失败'));
-    } finally {
-      setWorking('');
-    }
+    await runPromptDraftGeneration({ cwd, kind, rawInput: text, scope, resolveLaunchPreferences, setDraft, setNotice, setWorking });
   };
 
   const commitDraft = async () => {
@@ -920,20 +1221,10 @@ function PromptIntentWizardModal({ cwd, initialDraft, resolveLaunchPreferences, 
       setNotice(PROMPT_DRAFT_NOT_READY_MESSAGE);
       return;
     }
-    setWorking('commit');
-    setNotice('');
-    try {
-      await commitPromptIntent({ cwd, draftKey: draft.draftKey, scope: draft.scope });
-      await onSaved();
-    } catch (err) {
-      setNotice(noticeText(err, '保存失败'));
-    } finally {
-      setWorking('');
-    }
+    await runPromptDraftCommit({ cwd, draft, onSaved, setNotice, setWorking });
   };
 
   const draftNeedsRevision = promptDraftNeedsRevision(draft);
-  const noticeIsGuidance = notice === PROMPT_DRAFT_NOT_READY_MESSAGE || notice === PROMPT_DRAFT_REVIEW_MESSAGE;
 
   return (
     <FocusTrapDialog
@@ -951,60 +1242,15 @@ function PromptIntentWizardModal({ cwd, initialDraft, resolveLaunchPreferences, 
           </div>
           <button type="button" onClick={onClose} disabled={Boolean(working)}>关闭</button>
         </header>
-        <div className="prompt-kind-tabs" role="tablist" aria-label="内容类型">
-          {PROMPT_KIND_OPTIONS.map((option) => (
-            <button key={option.key} type="button" role="tab" aria-selected={kind === option.key} className={kind === option.key ? 'active' : ''} onClick={() => setKind(option.key)}>
-              {option.label}
-            </button>
-          ))}
-        </div>
-        <div className="prompt-scope-choice" role="group" aria-label="草稿范围">
-          <button type="button" className={scope !== 'global' ? 'active' : ''} onClick={() => setScope('project')}>这个项目</button>
-          <button type="button" className={scope === 'global' ? 'active' : ''} onClick={() => setScope('global')}>全局可用</button>
-        </div>
+        <PromptKindTabs kind={kind} onChange={setKind} />
+        <PromptScopeChoice scope={scope} onChange={setScope} />
         <label className="prompt-wizard-input">
           写下希望 AI 记住或使用的内容
           <textarea value={rawInput} onChange={(event) => setRawInput(event.target.value)} aria-label="写下希望 AI 记住或使用的内容" />
         </label>
         <button type="button" onClick={runDraft} disabled={working === 'draft'}>{working === 'draft' ? '生成中...' : '帮我生成'}</button>
-        {draft ? (
-          <article className="prompt-draft-review">
-            <div className="prompt-draft-title"><CheckCircle2 size={16} /> {draft.title}</div>
-            {draft.summary ? <p>{draft.summary}</p> : null}
-            {draft.whenToUse ? <p>{draft.whenToUse}</p> : null}
-            {draft.whenNotToUse ? <p>{draft.whenNotToUse}</p> : null}
-            {draft.workflow?.length ? (
-              <ol>
-                {draft.workflow.map((step) => <li key={step}>{step}</li>)}
-              </ol>
-            ) : null}
-            {draft.saveBoundary ? <p><span>保存边界：</span><span>{draft.saveBoundary}</span></p> : null}
-            {draft.output ? <pre>{draft.output}</pre> : null}
-            {draft.hitExamples.length || draft.missExamples.length ? (
-              <div className="prompt-draft-examples">
-                {draft.hitExamples.length ? (
-                  <div>
-                    <strong>适合的问题</strong>
-                    <ul>{draft.hitExamples.map((example) => <li key={example}>{example}</li>)}</ul>
-                  </div>
-                ) : null}
-                {draft.missExamples.length ? (
-                  <div>
-                    <strong>不适合的问题</strong>
-                    <ul>{draft.missExamples.map((example) => <li key={example}>{example}</li>)}</ul>
-                  </div>
-                ) : null}
-              </div>
-            ) : null}
-            {draft.issues.length ? (
-              <div className="prompt-draft-issues">
-                {draft.issues.map((issue) => <div key={`${issue.code}:${issue.message}`}>{issue.message}</div>)}
-              </div>
-            ) : null}
-          </article>
-        ) : null}
-        {draftNeedsRevision ? <div className="prompt-notice">{PROMPT_DRAFT_NOT_READY_MESSAGE}</div> : null}
-        {notice ? <div className={`prompt-notice${noticeIsGuidance ? '' : ' error'}`}>{notice}</div> : null}
+        <PromptDraftReview draft={draft} />
+        <PromptWizardNotice draftNeedsRevision={draftNeedsRevision} notice={notice} />
         <footer>
           <button type="button" className="ghost" onClick={onClose} disabled={Boolean(working)}>关闭</button>
           <button type="button" onClick={commitDraft} disabled={!draft?.draftKey || draftNeedsRevision || working === 'commit'}>
