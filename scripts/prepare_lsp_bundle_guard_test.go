@@ -91,6 +91,20 @@ func TestPrepareLSPBundleScriptsEmbedGoToolchainForGopls(t *testing.T) {
 	}
 }
 
+func TestPrepareLSPBundleMacOSResolvesHostToolDefaultsDynamically(t *testing.T) {
+	script := readScript(t, "prepare_lsp_bundle_macos.sh")
+
+	assertScriptContains(t, script, "default_node_dist=\"$(node -p 'require(\"path\").dirname(require(\"path\").dirname(process.execPath))' 2>/dev/null || true)\"")
+	assertScriptContains(t, script, "node_src=\"${SUPER_DOLPHIN_NODE_DIST:-$default_node_dist}\"")
+	assertScriptContains(t, script, "gopls_bin=\"${SUPER_DOLPHIN_GOPLS_BIN:-$(command -v gopls || true)}\"")
+	assertScriptContains(t, script, "go_toolchain_src=\"${SUPER_DOLPHIN_GO_TOOLCHAIN_DIR:-$(go env GOROOT)}\"")
+	assertScriptContains(t, script, "resolve_rust_analyzer_bin()")
+	assertScriptContains(t, script, "rust_analyzer_bin=\"$(resolve_rust_analyzer_bin \"${SUPER_DOLPHIN_RUST_ANALYZER_BIN:-}\")\"")
+	assertScriptContains(t, script, "rust-analyzer resolves to rustup shim without a default toolchain")
+	assertScriptDoesNotContain(t, script, "/Users/ai/.local/node")
+	assertScriptDoesNotContain(t, script, "/Users/ai/.local/go")
+}
+
 func TestPrepareLSPBundleScriptsExposeBundledJavaRuntime(t *testing.T) {
 	for _, scriptPath := range []string{"prepare_lsp_bundle_macos.sh", "prepare_lsp_bundle_linux.sh"} {
 		t.Run(scriptPath, func(t *testing.T) {
