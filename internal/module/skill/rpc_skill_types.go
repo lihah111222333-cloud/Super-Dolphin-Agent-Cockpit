@@ -6,6 +6,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 )
 
 type pathParams struct {
@@ -74,7 +76,6 @@ type skillSummaryWriteParams struct {
 	PersonalType string `json:"personal_type,omitempty"`
 	CWD          string `json:"cwd,omitempty"`
 }
-
 type skillSummarySuggestParams struct {
 	CWD           string   `json:"cwd,omitempty"`
 	Name          string   `json:"name,omitempty"`
@@ -82,6 +83,7 @@ type skillSummarySuggestParams struct {
 	Content       string   `json:"content,omitempty"`
 	ScenarioWords []string `json:"scenario_words,omitempty"`
 	Scope         string   `json:"scope,omitempty"`
+	contract.DreamOptions
 }
 
 type skillSummarySuggestResult struct {

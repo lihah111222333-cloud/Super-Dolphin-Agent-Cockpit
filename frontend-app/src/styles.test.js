@@ -76,6 +76,216 @@ describe('composer layout styles', () => {
     expect(textarea['border-bottom']).toBe('0');
   });
 
+  it('keeps the composer textarea within a three-to-eight-row range', () => {
+    const textarea = declarationsFor('.composer textarea');
+
+    expect(textarea['line-height']).toBe('1.5');
+    expect(textarea['min-height']).toBe('calc(1.5em * 3 + 34px)');
+    expect(textarea['max-height']).toBe('calc(1.5em * 8 + 34px)');
+    expect(textarea['overflow-y']).toBe('auto');
+  });
+
+  it('keeps composer permission and send controls aligned with the shell theme', () => {
+    const permission = declarationsFor('.permission-chip select');
+    const sendIcon = declarationsFor('.composer .send svg');
+
+    expect(permission['border-color']).toBe('var(--border-strong)');
+    expect(permission.background).toBe('color-mix(in srgb, var(--surface-2) 88%, var(--bg))');
+    expect(permission.color).toBe('var(--text-sec)');
+    expect(sendIcon.transform).toBe('rotate(-90deg)');
+    expect(sendIcon['transform-origin']).toBe('50% 50%');
+  });
+
+  it('keeps app rail and agent list icons on consistent fixed sizes', () => {
+    const navIcon = declarationsFor('.nav-rail button svg');
+    const threadToolIcon = declarationsFor('.thread-tools svg');
+    const threadCardIcon = declarationsFor('.thread-card svg');
+    const providerBadge = declarationsFor('.thread-card b');
+    const statusLine = declarationsFor('.thread-card em');
+
+    expect(navIcon.width).toBe('20px');
+    expect(navIcon.height).toBe('20px');
+    expect(navIcon['flex-shrink']).toBe('0');
+    expect(threadToolIcon.width).toBe('16px');
+    expect(threadToolIcon.height).toBe('16px');
+    expect(threadCardIcon.width).toBe('16px');
+    expect(threadCardIcon.height).toBe('16px');
+    expect(providerBadge.display).toBe('inline-flex');
+    expect(providerBadge['min-height']).toBe('22px');
+    expect(providerBadge['min-width']).toBe('52px');
+    expect(providerBadge['font-size']).toBe('12px');
+    expect(providerBadge['line-height']).toBe('1');
+    expect(statusLine.display).toBe('inline-flex');
+    expect(statusLine['font-size']).toBe('12px');
+  });
+
+  it('keeps runtime panel details shrink-safe inside the right rail', () => {
+    const panel = declarationsFor('.runtime-panel');
+    const icons = declarationsFor('.runtime-icons');
+    const tooltipRow = declarationsFor('.runtime-stat-tooltip-row');
+    const tooltipName = declarationsFor('.runtime-stat-tooltip-name');
+    const logLine = declarationsFor('.warning-log-line');
+
+    expect(panel['border-left']).toBe('1px solid var(--line)');
+    expect(panel['overflow-x']).toBe('hidden');
+    expect(icons['min-width']).toBe('0');
+    expect(tooltipRow['min-width']).toBe('0');
+    expect(tooltipName['min-width']).toBe('0');
+    expect(tooltipName.overflow).toBe('hidden');
+    expect(tooltipName['text-overflow']).toBe('ellipsis');
+    expect(logLine['min-width']).toBe('0');
+    expect(logLine.overflow).toBe('hidden');
+    expect(logLine['text-overflow']).toBe('ellipsis');
+  });
+
+  it('uses theme-aware colors for skill filter active buttons', () => {
+    const active = declarationsFor('.skill-filter .active');
+
+    expect(active.background).toBe('color-mix(in srgb, var(--accent-2) 16%, var(--surface-3))');
+    expect(active.color).toBe('var(--text-pri)');
+    expect(active['border-color']).toBe('var(--border-strong)');
+    expect(active.background).not.toBe('#4d4f55');
+  });
+
+  it('shows a readable generated-image fallback instead of a bare broken image icon', () => {
+    const fallback = declarationsFor('.message-image-fallback');
+    const fallbackCode = declarationsFor('.message-image-fallback code');
+
+    expect(fallback.display).toBe('inline-grid');
+    expect(fallback.background).toBe('var(--surface-2)');
+    expect(fallback.color).toBe('var(--text-sec)');
+    expect(fallbackCode.overflow).toBe('hidden');
+    expect(fallbackCode['text-overflow']).toBe('ellipsis');
+  });
+
+  it('styles generated image previews with an enlarge affordance', () => {
+    const preview = declarationsFor('.message-image-preview');
+    const hint = declarationsFor('.message-image-preview span');
+    const lightbox = declarationsFor('.image-lightbox');
+    const panel = declarationsFor('.image-lightbox-panel');
+
+    expect(preview.cursor).toBe('zoom-in');
+    expect(preview.background).toBe('transparent');
+    expect(hint.opacity).toBe('0');
+    expect(lightbox.position).toBe('fixed');
+    expect(lightbox['z-index']).toBe('80');
+    expect(panel.width).toBe('min(1180px, 94vw)');
+    expect(panel['max-height']).toBe('92vh');
+  });
+
+  it('styles mermaid diagrams as bounded readable timeline content', () => {
+    const diagram = declarationsFor('.mermaid-diagram');
+    const preview = declarationsFor('.mermaid-diagram-preview');
+    const hint = declarationsFor('.mermaid-diagram-preview span');
+    const lightboxSvg = declarationsFor('.mermaid-lightbox-svg');
+    const svg = declarationsFor('.mermaid-diagram svg');
+
+    expect(diagram['max-width']).toBe('100%');
+    expect(diagram.overflow).toBe('auto');
+    expect(diagram.background).toBe('var(--surface)');
+    expect(preview.cursor).toBe('zoom-in');
+    expect(preview.background).toBe('transparent');
+    expect(hint.opacity).toBe('0');
+    expect(lightboxSvg.overflow).toBe('auto');
+    expect(svg.display).toBe('block');
+    expect(svg['max-width']).toBe('100%');
+  });
+
+  it('styles AI reasoning traces with theme tokens and shrink-safe text', () => {
+    const message = declarationsFor('.reasoning-message');
+    const adjacentMessage = declarationsFor('.reasoning-message + .reasoning-message');
+    const openMessage = declarationsFor('.reasoning-message:has(.reasoning-trace[open])');
+    const trace = declarationsFor('.reasoning-trace');
+    const summary = declarationsFor('.reasoning-trace summary');
+    const summaryMeta = declarationsFor('.reasoning-trace summary em');
+    const step = declarationsFor('.reasoning-step');
+    const stepList = declarationsFor('.reasoning-step-list');
+    const openStepList = declarationsFor('.reasoning-trace[open] .reasoning-step-list');
+    const stepOutput = declarationsFor('.reasoning-step-body .message-output');
+    const stepOutputPre = declarationsFor('.reasoning-step-body .message-output pre');
+    const stepOutputCode = declarationsFor('.reasoning-step-body .message-output code');
+    const stepMarkdown = declarationsFor('.reasoning-step-body .message-markdown');
+    const stepMarkdownPre = declarationsFor('.reasoning-step-body .message-markdown pre');
+    const stepMarkdownCode = declarationsFor('.reasoning-step-body .message-markdown pre code');
+    const stepTitle = declarationsFor('.reasoning-step-body header strong');
+
+    expect(message['box-sizing']).toBe('border-box');
+    expect(message.display).toBe('flow-root');
+    expect(message.flex).toBe('0 0 auto');
+    expect(message.width).toBe('min(720px, var(--conversation-content-width))');
+    expect(message['max-width']).toBe('min(720px, var(--conversation-content-width))');
+    expect(message.margin).toBe('4px var(--conversation-content-right-gutter) 4px var(--conversation-content-left-gutter)');
+    expect(message['min-height']).toBe('30px');
+    expect(message.padding).toBe('0 0 0 66px');
+    expect(openMessage['margin-bottom']).toBe('8px');
+    expect(adjacentMessage['margin-top']).toBe('4px');
+    expect(trace.display).toBe('block');
+    expect(trace.margin).toBe('0');
+    expect(trace.width).toBe('100%');
+    expect(trace.border).toBe('0');
+    expect(trace.background).toBe('transparent');
+    expect(trace.padding).toBe('0');
+    expect(trace['box-shadow']).toBe('none');
+    expect(trace.color).toBe('var(--text-sec)');
+    expect(summary.display).toBe('flex');
+    expect(summary.width).toBe('fit-content');
+    expect(summary['max-width']).toBe('100%');
+    expect(summary['min-height']).toBe('30px');
+    expect(summary['font-size']).toBe('14px');
+    expect(summary['line-height']).toBe('1.25');
+    expect(summary.gap).toBe('6px');
+    expect(summary.padding).toBe('0');
+    expect(summaryMeta['min-width']).toBe('0');
+    expect(summaryMeta.overflow).toBe('hidden');
+    expect(summaryMeta['text-overflow']).toBe('ellipsis');
+    expect(step.display).toBe('grid');
+    expect(step['grid-template-columns']).toBe('18px minmax(0, 1fr)');
+    expect(step.gap).toBe('6px');
+    expect(stepList.resize).toBe('vertical');
+    expect(stepList.overflow).toBe('auto');
+    expect(stepList.padding).toBe('8px 10px');
+    expect(stepList['max-height']).toBe('min(240px, 34vh)');
+    expect(openStepList.border).toBe('1px solid var(--border)');
+    expect(openStepList['box-sizing']).toBe('border-box');
+    expect(openStepList.width).toBe('100%');
+    expect(stepMarkdown['font-size']).toBe('14px');
+    expect(stepMarkdown['line-height']).toBe('1.42');
+    expect(stepMarkdownPre.margin).toBe('4px 0 0');
+    expect(stepMarkdownPre.padding).toBe('7px 9px');
+    expect(stepMarkdownCode.font).toBe('14px/1.42 ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace');
+    expect(stepOutput['font-size']).toBe('14px');
+    expect(stepOutput['line-height']).toBe('1.42');
+    expect(stepOutputPre.margin).toBe('4px 0 0');
+    expect(stepOutputPre.padding).toBe('7px 9px');
+    expect(stepOutputCode.font).toBe('14px/1.42 ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace');
+    expect(stepTitle['text-overflow']).toBe('ellipsis');
+    expect(stepTitle['font-size']).toBe('14px');
+  });
+
+  it('keeps assistant message content compact instead of spanning the full timeline', () => {
+    const message = declarationsFor('.message');
+    const assistantBubble = declarationsFor('.message.assistant .bubble');
+    const markdown = declarationsFor('.message-markdown');
+
+    expect(message.margin).toBe('18px var(--conversation-content-right-gutter) 18px var(--conversation-content-left-gutter)');
+    expect(assistantBubble['max-width']).toBe('min(760px, 100%)');
+    expect(assistantBubble.background).toBe('transparent');
+    expect(markdown['font-size']).toBe('14px');
+    expect(markdown['line-height']).toBe('1.62');
+  });
+
+  it('styles assistant message copy actions as low-noise controls', () => {
+    const actions = declarationsFor('.message-actions');
+    const button = declarationsFor('.message-copy');
+    const copied = declarationsFor('.message-copy.is-copied');
+
+    expect(actions.display).toBe('flex');
+    expect(button['min-height']).toBe('34px');
+    expect(button['border-radius']).toBe('999px');
+    expect(button.background).toBe('transparent');
+    expect(copied.color).toBe('var(--success)');
+  });
+
   it('does not override the computed chat grid at medium widths', () => {
     const mediumChatLayouts = mediaDeclarationsFor('(max-width: 1280px)', '.chat-layout');
     const mediumRuntimePanels = mediaDeclarationsFor('(max-width: 1280px)', '.runtime-panel');
@@ -148,7 +358,7 @@ describe('composer layout styles', () => {
     expect(message.width).toBe('var(--conversation-content-width)');
     expect(message['max-width']).toBe('var(--conversation-content-width)');
     expect(message.margin).toBe(
-      '22px var(--conversation-content-right-gutter) 22px var(--conversation-content-left-gutter)',
+      '18px var(--conversation-content-right-gutter) 18px var(--conversation-content-left-gutter)',
     );
     expect(userMessage['margin-left']).toBeUndefined();
     expect(userMessage.width).toBe('var(--conversation-content-width)');
@@ -179,6 +389,20 @@ describe('composer layout styles', () => {
     expect(floatingComposer['max-width']).toBe('100%');
     expect(floatingCard.width).toBe('100%');
     expect(floatingCard.margin).toBe('0 auto');
+  });
+
+  it('keeps the light-mode new-chat composer on matching theme surfaces', () => {
+    const floatingCard = declarationsFor('.sa-window[data-theme="light"] .conversation--intro .composer--floating .composer-card');
+    const attach = declarationsFor('.sa-window[data-theme="light"] .conversation--intro .composer--floating .composer-attach');
+    const permission = declarationsFor('.sa-window[data-theme="light"] .conversation--intro .composer--floating .permission-chip select');
+    const track = declarationsFor('.sa-window[data-theme="light"] .conversation--intro .composer--floating .provider-track');
+
+    expect(floatingCard.background).toContain('var(--surface)');
+    expect(floatingCard['border-color']).toContain('var(--border-strong)');
+    expect(floatingCard['box-shadow']).toContain('rgba(42, 54, 88, 0.14)');
+    expect(attach.background).toBe('color-mix(in srgb, var(--surface-2) 86%, var(--surface))');
+    expect(permission.background).toBe('color-mix(in srgb, var(--surface-2) 86%, var(--surface))');
+    expect(track.background).toBe('color-mix(in srgb, var(--surface-3) 72%, var(--border))');
   });
 
   it('keeps the collapsed project selector short while allowing a wider project menu', () => {
@@ -306,24 +530,113 @@ describe('runtime activity panel styles', () => {
     expect(stat['justify-content']).toBe('center');
   });
 
-  it('wraps long runtime tool names instead of clipping them', () => {
-    const toolName = declarationsFor('.runtime-stat-tooltip-list span span');
+  it('truncates long runtime tool names without widening the tooltip', () => {
+    const toolName = declarationsFor('.runtime-stat-tooltip-name');
 
-    expect(toolName.overflow).toBe('visible');
+    expect(toolName['min-width']).toBe('0');
+    expect(toolName.overflow).toBe('hidden');
     expect(toolName['overflow-wrap']).toBe('anywhere');
-    expect(toolName['white-space']).toBe('normal');
+    expect(toolName['text-overflow']).toBe('ellipsis');
+    expect(toolName['white-space']).toBe('nowrap');
   });
 
   it('keeps warning log details inside hover popovers', () => {
     const line = declarationsFor('.warning-log-line');
     const popover = declarationsFor('.warning-log-popover');
+    const code = declarationsFor('.warning-log-popover code');
 
     expect(line['white-space']).toBe('nowrap');
     expect(popover.position).toBe('fixed');
+    expect(popover['box-sizing']).toBe('border-box');
+    expect(popover['min-width']).toBe('0');
     expect(popover.left).toBe('var(--warning-log-popover-left, 12px)');
     expect(popover.right).toBe('var(--warning-log-popover-right, 12px)');
     expect(popover['pointer-events']).toBe('none');
     expect(Number(popover['z-index'])).toBeGreaterThan(80);
+    expect(code.display).toBe('block');
+    expect(code['max-width']).toBe('100%');
+    expect(code['overflow-wrap']).toBe('anywhere');
+    expect(code['word-break']).toBe('break-word');
+  });
+});
+
+describe('light theme baseline usability', () => {
+  it('keeps assistant text and code readable in light mode', () => {
+    const lightTheme = declarationsFor('.sa-window[data-theme="light"]');
+    const markdown = declarationsFor('.sa-window[data-theme="light"] .message-markdown');
+    const assistantMarkdown = declarationsFor('.sa-window[data-theme="light"] .message.assistant .message-markdown');
+    const inlineCode = declarationsFor('.sa-window[data-theme="light"] .message-markdown code');
+    const codeBlock = declarationsFor('.sa-window[data-theme="light"] .message-markdown pre');
+
+    expect(lightTheme['--bg']).toBe('#f6f8fc');
+    expect(lightTheme['--text-sec']).toBe('#2f3a52');
+    expect(markdown.color).toBe('var(--text-sec)');
+    expect(assistantMarkdown.color).toBe('var(--text-sec)');
+    expect(inlineCode.color).toBe('var(--text-pri)');
+    expect(inlineCode.background).toBe('var(--surface-3)');
+    expect(codeBlock.background).toBe('#f8fafc');
+    expect(codeBlock.color).toBe('var(--text-pri)');
+  });
+
+  it('uses light surfaces for runtime details instead of the dark console treatment', () => {
+    const activity = declarationsFor('.sa-window[data-theme="light"] .runtime-activity-panel');
+    const logs = declarationsFor('.sa-window[data-theme="light"] .log-lines');
+    const tooltip = declarationsFor('.sa-window[data-theme="light"] .runtime-stat-tooltip');
+    const popoverCode = declarationsFor('.sa-window[data-theme="light"] .warning-log-popover code');
+    const diffLines = declarationsFor('.sa-window[data-theme="light"] .diff-file-lines');
+
+    expect(activity.background).toBe('var(--surface)');
+    expect(activity.color).toBe('var(--text-sec)');
+    expect(logs.background).toBe('#f8fafc');
+    expect(logs.color).toBe('var(--text-sec)');
+    expect(tooltip.background).toBe('var(--surface)');
+    expect(tooltip.color).toBe('var(--text-pri)');
+    expect(popoverCode.color).toBe('var(--text-sec)');
+    expect(diffLines.background).toBe('#f8fafc');
+  });
+
+  it('keeps light-mode runtime summary pills on matching surfaces', () => {
+    const toolbar = declarationsFor('.sa-window[data-theme="light"] .runtime-toolbar');
+    const button = declarationsFor('.sa-window[data-theme="light"] .runtime-toolbar button');
+    const score = declarationsFor('.sa-window[data-theme="light"] .score');
+    const goodScore = declarationsFor('.sa-window[data-theme="light"] .score.good');
+    const badScore = declarationsFor('.sa-window[data-theme="light"] .score.bad');
+
+    expect(toolbar.background).toBe('var(--surface)');
+    expect(toolbar['border-bottom-color']).toBe('var(--border)');
+    expect(button.background).toBe('var(--surface-2)');
+    expect(button.color).toBe('var(--text-sec)');
+    expect(button['border-color']).toBe('var(--border)');
+    expect(score.background).toBe('var(--surface-2)');
+    expect(score.color).toBe('var(--text-sec)');
+    expect(goodScore.background).toBe('color-mix(in srgb, var(--success) 9%, var(--surface))');
+    expect(badScore.background).toBe('color-mix(in srgb, var(--error) 8%, var(--surface))');
+  });
+
+  it('keeps card actions consistent with light-mode controls', () => {
+    const skillButton = declarationsFor('.sa-window[data-theme="light"] .skill-card button');
+    const dangerButton = declarationsFor('.sa-window[data-theme="light"] .skill-card button.text-danger');
+
+    expect(skillButton.background).toBe('var(--surface-2)');
+    expect(skillButton.color).toBe('var(--text-pri)');
+    expect(dangerButton.background).toBe('color-mix(in srgb, var(--error) 8%, var(--surface))');
+    expect(dangerButton.color).toBe('var(--error)');
+  });
+
+  it('keeps chat action and composer controls on light-mode surfaces', () => {
+    const feedback = declarationsFor('.sa-window[data-theme="light"] .top-command .action-feedback.success');
+    const composerButton = declarationsFor('.sa-window[data-theme="light"] .composer button');
+    const permission = declarationsFor('.sa-window[data-theme="light"] .permission-chip select');
+    const model = declarationsFor('.sa-window[data-theme="light"] .composer-model');
+
+    expect(feedback.background).toBe('color-mix(in srgb, var(--success) 11%, var(--surface))');
+    expect(feedback.color).toBe('var(--success)');
+    expect(composerButton.background).toBe('var(--surface-2)');
+    expect(composerButton.color).toBe('var(--text-sec)');
+    expect(permission.background).toBe('var(--surface-2)');
+    expect(permission.color).toBe('var(--text-sec)');
+    expect(model.background).toBe('var(--surface-2)');
+    expect(model.color).toBe('var(--text-sec)');
   });
 });
 
@@ -368,7 +681,7 @@ describe('blue-purple theme contract', () => {
     expect(dark['--accent-2']).toBe('var(--primary-2)');
     expect(dark['--green']).toBe('var(--success)');
     expect(dark['--blue']).toBe('var(--info)');
-    expect(light['--bg']).toBe('#f3f6ff');
+    expect(light['--bg']).toBe('#f6f8fc');
     expect(light['--primary']).toBe('#6d28d9');
     expect(light['--primary-2']).toBe('#0284c7');
     expect(light['--accent']).toBe('var(--primary)');

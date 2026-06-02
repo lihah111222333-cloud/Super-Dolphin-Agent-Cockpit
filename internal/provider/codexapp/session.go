@@ -17,6 +17,7 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/runtimesafe"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
+	"github.com/anthropic-ai/super-agent-v3/internal/provider/codexapp/supportutil"
 	"github.com/anthropic-ai/super-agent-v3/internal/provider/unified"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
@@ -297,14 +298,14 @@ func (s *session) RuntimeConfigSnapshot() map[string]any {
 		out = map[string]any{}
 	}
 	if value := strings.TrimSpace(shared.FirstNonEmpty(
-		configString(out, "baseInstructions"),
-		configString(out, "instructions"),
+		supportutil.ConfigString(out, "baseInstructions"),
+		supportutil.ConfigString(out, "instructions"),
 	)); value != "" {
 		out["baseInstructions"] = value
 	}
 	if value := strings.TrimSpace(shared.FirstNonEmpty(
-		configString(out, "developerInstructions"),
-		configString(out, "developer_instructions"),
+		supportutil.ConfigString(out, "developerInstructions"),
+		supportutil.ConfigString(out, "developer_instructions"),
 	)); value != "" {
 		out["developerInstructions"] = value
 	}
@@ -334,6 +335,9 @@ func (s *session) StartTurn(ctx context.Context, req dto.TurnRequest) (contract.
 	if params.Effort == "" {
 		params.Effort = s.runtimeConfigString("effort")
 	}
+	if supportutil.CodexModelNeedsListResolution(params.Model) {
+		params.Model = s.resolveTurnStartModel(ctx, params.Model)
+	}
 	pkglogger.Debug("codexapp: turn/start params",
 		"agent_id", s.agentID,
 		"model", params.Model,
@@ -341,7 +345,7 @@ func (s *session) StartTurn(ctx context.Context, req dto.TurnRequest) (contract.
 	)
 	raw, err := callWithTimeout(ctx, callTargetFunc(s.callTransport), 30*time.Second, "turn/start", params)
 	if err != nil {
-		return nil, err
+		return nil, supportutil.WrapCodexModelUnsupportedError(err, params.Model)
 	}
 	resp, err := decodeTurnStartResult(raw)
 	if err != nil {
@@ -355,6 +359,34 @@ func (s *session) StartTurn(ctx context.Context, req dto.TurnRequest) (contract.
 	s.mu.Unlock()
 	s.rememberPendingTurn(h, params)
 	return h, nil
+}
+
+func (s *session) resolveTurnStartModel(ctx context.Context, requested string) string {
+	requested = strings.TrimSpace(requested)
+	if s == nil || s.transport == nil {
+		return requested
+	}
+	model, replaced, err := resolveSupportedCodexModel(ctx, s.transport, requested)
+	if err != nil {
+		pkglogger.Warn("codexapp: turn/start model/list selection failed",
+			"agent_id", s.agentID,
+			"thread_id", s.ThreadID(),
+			"requested_model", requested,
+			"error", err,
+		)
+		return requested
+	}
+	if model == "" || !replaced {
+		return requested
+	}
+	s.setRuntimeConfigValue("model", model)
+	pkglogger.Info("codexapp: turn/start selected supported model from model/list",
+		"agent_id", s.agentID,
+		"thread_id", s.ThreadID(),
+		"requested_model", requested,
+		"model", model,
+	)
+	return model
 }
 
 func (s *session) Steer(ctx context.Context, req dto.SteerRequest) error {

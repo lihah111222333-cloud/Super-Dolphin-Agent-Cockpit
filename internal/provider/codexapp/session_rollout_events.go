@@ -236,7 +236,10 @@ func codexMCPToolResultPayload(result map[string]any) map[string]any {
 func codexMCPToolResultContentText(okPayload map[string]any) string {
 	content, _ := okPayload["content"].([]any)
 	for _, raw := range content {
-		item, _ := raw.(map[string]any)
+		item, ok := raw.(map[string]any)
+		if !ok {
+			continue
+		}
 		if text := stringValue(item, "text"); text != "" {
 			return text
 		}

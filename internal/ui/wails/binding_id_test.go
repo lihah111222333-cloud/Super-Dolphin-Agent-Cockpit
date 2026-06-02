@@ -4,7 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"hash/fnv"
+	"strings"
 	"testing"
+
+	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
 // TestFrontendMethodIDsMatchBackendFQN verifies that the hardcoded Wails v3
@@ -86,6 +89,109 @@ func TestCallAPIStripsFrontendMetaForStrictRoutes(t *testing.T) {
 	}
 	if got["defaultPath"] != "/tmp" {
 		t.Fatalf("captured params = %#v, want defaultPath preserved", got)
+	}
+}
+
+func TestCallAPIInjectsTraceContextAndStripsFrontendTraceMeta(t *testing.T) {
+	const traceID = "4bf92f3577b34da6a3ce929d0e0e4736"
+	const spanID = "00f067aa0ba902b7"
+	traceparent := "00-" + traceID + "-" + spanID + "-01"
+	var captured json.RawMessage
+	app := &App{dispatch: func(ctx context.Context, method string, params json.RawMessage) (json.RawMessage, error) {
+		if method != "ui/selectFiles" {
+			t.Fatalf("method = %q, want ui/selectFiles", method)
+		}
+		if got := pkglogger.TraceIDFromContext(ctx); got != traceID {
+			t.Fatalf("trace_id = %q, want %q", got, traceID)
+		}
+		if got := pkglogger.SpanIDFromContext(ctx); got != spanID {
+			t.Fatalf("span_id = %q, want %q", got, spanID)
+		}
+		captured = append(json.RawMessage(nil), params...)
+		return json.RawMessage(`{"ok":true}`), nil
+	}}
+
+	_, err := app.CallAPI("ui/selectFiles", json.RawMessage(`{"defaultPath":"/tmp","_aoTraceparent":"`+traceparent+`","_aoTraceId":"`+traceID+`","_aoSpanId":"`+spanID+`","_aoClientKind":"desktop-wails"}`))
+	if err != nil {
+		t.Fatalf("CallAPI(ui/selectFiles) error = %v", err)
+	}
+	var got map[string]any
+	if err := json.Unmarshal(captured, &got); err != nil {
+		t.Fatalf("captured params are invalid JSON: %v", err)
+	}
+	for _, key := range []string{"_aoTraceparent", "_aoTraceId", "_aoSpanId", "_aoClientKind"} {
+		if _, ok := got[key]; ok {
+			t.Fatalf("captured params still contain %s: %#v", key, got)
+		}
+	}
+	if got["defaultPath"] != "/tmp" {
+		t.Fatalf("captured params = %#v, want defaultPath preserved", got)
+	}
+}
+
+func TestCallAPIRejectsInvalidTraceparent(t *testing.T) {
+	app := &App{dispatch: func(context.Context, string, json.RawMessage) (json.RawMessage, error) {
+		t.Fatal("dispatch should not be called for invalid traceparent")
+		return nil, nil
+	}}
+
+	_, err := app.CallAPI("thread/list", json.RawMessage(`{"_aoTraceparent":"not-a-traceparent"}`))
+	if err == nil {
+		t.Fatal("CallAPI(thread/list) error = nil, want invalid traceparent error")
+	}
+	if !strings.Contains(err.Error(), "invalid _aoTraceparent") {
+		t.Fatalf("CallAPI(thread/list) error = %v, want invalid _aoTraceparent", err)
+	}
+}
+
+func TestCallAPIRejectsMismatchedTraceMetadata(t *testing.T) {
+	app := &App{dispatch: func(context.Context, string, json.RawMessage) (json.RawMessage, error) {
+		t.Fatal("dispatch should not be called for mismatched trace metadata")
+		return nil, nil
+	}}
+
+	_, err := app.CallAPI("thread/list", json.RawMessage(`{"_aoTraceparent":"00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01","_aoTraceId":"11111111111111111111111111111111","_aoSpanId":"00f067aa0ba902b7"}`))
+	if err == nil {
+		t.Fatal("CallAPI(thread/list) error = nil, want mismatched trace metadata error")
+	}
+	if !strings.Contains(err.Error(), "mismatched _aoTraceId") {
+		t.Fatalf("CallAPI(thread/list) error = %v, want mismatched _aoTraceId", err)
+	}
+}
+
+func TestCallAPIPreservesUILogClientMetaButConsumesTraceMeta(t *testing.T) {
+	const traceID = "4bf92f3577b34da6a3ce929d0e0e4736"
+	const spanID = "00f067aa0ba902b7"
+	var captured json.RawMessage
+	app := &App{dispatch: func(ctx context.Context, method string, params json.RawMessage) (json.RawMessage, error) {
+		if method != "ui/log" {
+			t.Fatalf("method = %q, want ui/log", method)
+		}
+		if got := pkglogger.TraceIDFromContext(ctx); got != traceID {
+			t.Fatalf("trace_id = %q, want %q", got, traceID)
+		}
+		if got := pkglogger.SpanIDFromContext(ctx); got != spanID {
+			t.Fatalf("span_id = %q, want %q", got, spanID)
+		}
+		captured = append(json.RawMessage(nil), params...)
+		return json.RawMessage(`{"ok":true}`), nil
+	}}
+
+	_, err := app.CallAPI("ui/log", json.RawMessage(`{"entries":[],"_aoClientKind":"desktop-wails","_aoClientRoute":"/chat","_aoTraceparent":"00-`+traceID+`-`+spanID+`-01","_aoTraceId":"`+traceID+`","_aoSpanId":"`+spanID+`"}`))
+	if err != nil {
+		t.Fatalf("CallAPI(ui/log) error = %v", err)
+	}
+	var got map[string]any
+	if err := json.Unmarshal(captured, &got); err != nil {
+		t.Fatalf("captured params are invalid JSON: %v", err)
+	}
+	if got["_aoClientKind"] != "desktop-wails" || got["_aoClientRoute"] != "/chat" {
+		t.Fatalf("captured meta = %#v, want client meta preserved", got)
+	}
+	for _, key := range []string{"_aoTraceparent", "_aoTraceId", "_aoSpanId"} {
+		if _, ok := got[key]; ok {
+			t.Fatalf("captured params still contain %s: %#v", key, got)
+		}
 	}
 }
 

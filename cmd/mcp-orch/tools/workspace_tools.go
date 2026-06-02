@@ -30,12 +30,24 @@ type WorkspaceCreateRunRequest struct {
 
 type workspaceGetRunInput struct {
 	RunKey string `json:"run_key"`
+	Pos    string `json:"pos,omitempty"`
 }
 
 type workspaceListRunsInput struct {
-	Status string `json:"status,omitempty"`
-	DagKey string `json:"dag_key,omitempty"`
-	Limit  int    `json:"limit,omitempty"`
+	Status   string `json:"status,omitempty"`
+	DagKey   string `json:"dag_key,omitempty"`
+	Pos      string `json:"pos,omitempty"`
+	Limit    int    `json:"limit,omitempty"`
+	Envelope bool   `json:"envelope,omitempty"`
+}
+
+type WorkspaceListRunsOutput struct {
+	Runs      []workspaceRunDTO `json:"runs"`
+	Data      []workspaceRunDTO `json:"data"`
+	Total     int               `json:"total"`
+	Showing   int               `json:"showing"`
+	Truncated bool              `json:"truncated"`
+	Hint      string            `json:"hint,omitempty"`
 }
 
 type WorkspaceMergeRunRequest struct {
@@ -64,8 +76,15 @@ func HandleWorkspaceGetRun(svc workspace.Service) ToolHandler {
 }
 
 func HandleWorkspaceListRuns(svc workspace.Service) ToolHandler {
-	return makeHandler(svc, "workspace service", func(ctx context.Context, in workspaceListRunsInput) ([]workspaceRunDTO, error) {
-		return listWorkspaceRuns(ctx, svc, in)
+	return makeHandler(svc, "workspace service", func(ctx context.Context, in workspaceListRunsInput) (any, error) {
+		runs, err := listWorkspaceRuns(ctx, svc, in)
+		if err != nil {
+			return nil, err
+		}
+		if in.Envelope {
+			return newWorkspaceListRunsOutput(runs, normalizeWorkspaceListLimit(in.Limit)), nil
+		}
+		return runs, nil
 	})
 }
 
@@ -92,12 +111,15 @@ func workspaceToolDefinitions(svc workspace.Service) []ToolDefinition {
 			"metadata":    RawObjectSchema("Optional metadata for the run record."),
 		}, "source_root"), HandleWorkspaceCreateRun(svc)),
 		defineTool("workspace_get_run", "Get workspace run detail by run key.", ObjectSchema(map[string]Schema{
+			"pos":     StringSchema("Flattened workspace run locator, e.g. workspace:<run_key>. Preferred over legacy run_key."),
 			"run_key": StringSchema("Workspace run key."),
-		}, "run_key"), HandleWorkspaceGetRun(svc)),
+		}), HandleWorkspaceGetRun(svc)),
 		defineTool("workspace_list_runs", "List workspace runs with optional status and DAG filters.", ObjectSchema(map[string]Schema{
-			"status":  StringSchema("Optional run status filter."),
-			"dag_key": StringSchema("Optional DAG key filter."),
-			"limit":   IntegerSchema("Max number of runs to return."),
+			"status":   StringSchema("Optional run status filter."),
+			"pos":      StringSchema("Optional flattened DAG locator for filtering, e.g. dag:<dag_key>. Preferred over legacy dag_key."),
+			"dag_key":  StringSchema("Optional DAG key filter."),
+			"limit":    IntegerSchema("Max number of runs to return."),
+			"envelope": BooleanSchema("When true, return {runs,data,total,showing,truncated,hint}; default false keeps the legacy array response."),
 		}), HandleWorkspaceListRuns(svc)),
 		defineTool("workspace_merge_run", "Merge changed files from virtual workspace back to source root with conflict detection. Also updates PostgreSQL run and file states.", ObjectSchema(map[string]Schema{
 			"run_key":        StringSchema("Workspace run key."),
@@ -145,7 +167,7 @@ func getWorkspaceRun(ctx context.Context, svc workspace.Service, input workspace
 	if err := requireDependency(svc, "workspace service"); err != nil {
 		return nil, err
 	}
-	runKey, err := requireTrimmed(input.RunKey, "run_key")
+	runKey, err := resolveWorkspaceRunKeyInput(input.RunKey, input.Pos)
 	if err != nil {
 		return nil, err
 	}
@@ -161,11 +183,27 @@ func listWorkspaceRuns(ctx context.Context, svc workspace.Service, input workspa
 	if err := requireDependency(svc, "workspace service"); err != nil {
 		return nil, err
 	}
-	runs, err := svc.ListRuns(ctx, strings.TrimSpace(input.Status), strings.TrimSpace(input.DagKey), normalizeWorkspaceListLimit(input.Limit))
+	dagKey, err := resolveOptionalDAGKeyInput(input.DagKey, input.Pos)
+	if err != nil {
+		return nil, err
+	}
+	runs, err := svc.ListRuns(ctx, strings.TrimSpace(input.Status), dagKey, normalizeWorkspaceListLimit(input.Limit))
 	if err != nil {
 		return nil, err
 	}
 	return mapWorkspaceRuns(ctx, svc, runs)
+}
+
+func newWorkspaceListRunsOutput(runs []workspaceRunDTO, limit int) WorkspaceListRunsOutput {
+	env := newListEnvelope(runs, limit, "next: use workspace_get_run pos=workspace:<run_key> for details")
+	return WorkspaceListRunsOutput{
+		Runs:      runs,
+		Data:      env.Data,
+		Total:     env.Total,
+		Showing:   env.Showing,
+		Truncated: env.Truncated,
+		Hint:      env.Hint,
+	}
 }
 
 func mergeWorkspaceRun(ctx context.Context, svc workspace.Service, input WorkspaceMergeRunRequest) (*WorkspaceMergeRunResult, error) {

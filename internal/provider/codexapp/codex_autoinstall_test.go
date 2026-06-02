@@ -21,11 +21,33 @@ import (
 const (
 	codexReleaseSHA256EnvForTest        = "SUPER_DOLPHIN_CODEX_RELEASE_SHA256"
 	codexTrustedReleaseMirrorEnvForTest = "SUPER_DOLPHIN_CODEX_TRUSTED_RELEASE_MIRROR"
+	codexFakeHelperEnv                  = "SUPER_DOLPHIN_CODEX_FAKE_HELPER"
+	codexFakeSupportsAppServerEnv       = "SUPER_DOLPHIN_CODEX_FAKE_SUPPORTS_APP_SERVER"
 )
 
 type codexReleaseTestOptions struct {
 	AssetName string
 	Body      []byte
+}
+
+func TestMain(m *testing.M) {
+	if os.Getenv(codexFakeHelperEnv) == "1" {
+		runFakeCodexProcess()
+	}
+	os.Exit(m.Run())
+}
+
+func runFakeCodexProcess() {
+	if marker := strings.TrimSpace(os.Getenv("CODEX_FAKE_MARKER")); marker != "" {
+		_ = os.WriteFile(marker, []byte("ran"), 0o600)
+	}
+	if len(os.Args) >= 3 && os.Args[1] == "app-server" && os.Args[2] == "--help" {
+		if os.Getenv(codexFakeSupportsAppServerEnv) == "1" {
+			os.Exit(0)
+		}
+		os.Exit(42)
+	}
+	os.Exit(0)
 }
 
 func TestEnsureCodexCLIAvailableAutoInstallsOfficialReleaseWhenMissing(t *testing.T) {
@@ -38,7 +60,6 @@ func TestEnsureCodexCLIAvailableAutoInstallsOfficialReleaseWhenMissing(t *testin
 	})
 	setTrustedCodexReleaseMirrorForTest(t, server.URL+"/latest", body)
 	t.Setenv(codexInstallRootEnv, installRoot)
-
 	if err := ensureCodexCLIAvailable(context.Background()); err != nil {
 		t.Fatalf("ensureCodexCLIAvailable() error = %v", err)
 	}
@@ -568,6 +589,10 @@ func writeBundledCodexManifestForTest(t *testing.T, resourcesRoot, packageSHA256
 
 func writeFakeCodex(t *testing.T, path string, supportsAppServer bool) {
 	t.Helper()
+	if runtime.GOOS == "windows" {
+		writeFakeCodexWindows(t, path, supportsAppServer)
+		return
+	}
 	body := "#!/bin/sh\n"
 	if supportsAppServer {
 		body += "if [ \"$1\" = \"app-server\" ] && [ \"$2\" = \"--help\" ]; then exit 0; fi\nexit 0\n"
@@ -581,12 +606,37 @@ func writeFakeCodex(t *testing.T, path string, supportsAppServer bool) {
 
 func writeFakeCodexWithMarker(t *testing.T, path string) {
 	t.Helper()
+	if runtime.GOOS == "windows" {
+		writeFakeCodexWindows(t, path, true)
+		return
+	}
 	body := "#!/bin/sh\n" +
 		"if [ -n \"$CODEX_FAKE_MARKER\" ]; then printf ran > \"$CODEX_FAKE_MARKER\"; fi\n" +
 		"if [ \"$1\" = \"app-server\" ] && [ \"$2\" = \"--help\" ]; then exit 0; fi\n" +
 		"exit 0\n"
 	if err := os.WriteFile(path, []byte(body), 0o755); err != nil {
 		t.Fatalf("write fake codex: %v", err)
+	}
+}
+
+func writeFakeCodexWindows(t *testing.T, path string, supportsAppServer bool) {
+	t.Helper()
+	exe, err := os.Executable()
+	if err != nil {
+		t.Fatalf("locate test executable: %v", err)
+	}
+	body, err := os.ReadFile(exe)
+	if err != nil {
+		t.Fatalf("read test executable: %v", err)
+	}
+	if err := os.WriteFile(path, body, 0o755); err != nil {
+		t.Fatalf("write fake codex executable: %v", err)
+	}
+	t.Setenv(codexFakeHelperEnv, "1")
+	if supportsAppServer {
+		t.Setenv(codexFakeSupportsAppServerEnv, "1")
+	} else {
+		t.Setenv(codexFakeSupportsAppServerEnv, "0")
 	}
 }
 

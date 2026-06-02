@@ -1,0 +1,34 @@
+{
+  "round_id": "orch-pos-phase4-2026-06-01",
+  "scorer": "complex-input",
+  "target": "task_create_dag and task_dag_apply_ops",
+  "score_before": 48,
+  "dimensions": {
+    "create_dag_nesting": {
+      "score": 52,
+      "evidence": "schedule is nested, and node execution overrides require a nested execution object."
+    },
+    "apply_ops_nesting": {
+      "score": 40,
+      "evidence": "Callers must construct an ops array with op-specific nested objects."
+    },
+    "raw_escape_hatch": {
+      "score": 70,
+      "evidence": "Raw ops already exists and must stay available for advanced cases."
+    }
+  },
+  "findings": [
+    {
+      "id": "CI-001",
+      "severity": "P1",
+      "decision": "must_fix",
+      "summary": "task_create_dag should expose flat schedule fields and flat node execution shortcuts."
+    },
+    {
+      "id": "CI-002",
+      "severity": "P1",
+      "decision": "must_fix",
+      "summary": "task_dag_apply_ops should expose single-action flat fields for common add/update/remove/update_dag operations."
+    }
+  ]
+}

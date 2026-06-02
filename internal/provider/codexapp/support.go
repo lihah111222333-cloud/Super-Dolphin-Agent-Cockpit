@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"maps"
 	"strings"
 	"time"
@@ -13,6 +14,7 @@ import (
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
 	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
 	codexprotocol "github.com/anthropic-ai/super-agent-v3/internal/provider/codexapp/protocol"
+	"github.com/anthropic-ai/super-agent-v3/internal/provider/codexapp/supportutil"
 	providershared "github.com/anthropic-ai/super-agent-v3/internal/provider/shared"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
@@ -31,7 +33,11 @@ func (s *PeerSupervisor) waitForPeerAfterCancel(name string, h peerHandle, waitC
 }
 
 func mustJSON(v any) json.RawMessage {
-	raw, _ := json.Marshal(v)
+	raw, err := json.Marshal(v)
+	if err != nil {
+		slog.Error("codexapp: mustJSON marshal failed", "error", err)
+		return json.RawMessage("null")
+	}
 	return raw
 }
 
@@ -183,7 +189,7 @@ func (s *session) runtimeConfigString(key string) string {
 		return ""
 	}
 	v, _ := s.runtimeConfig[key].(string)
-	return sanitizeConfigStringArtifact(v)
+	return supportutil.SanitizeConfigStringArtifact(v)
 }
 
 func (s *session) runtimeConfigStringSlice(keys ...string) []string {
@@ -229,99 +235,38 @@ func (s *session) setRuntimeConfigValue(key string, value any) {
 	s.runtimeConfig[key] = value
 }
 
-func decodeAllowedModels(raw []byte) ([]string, error) {
-	var top map[string]any
-	if err := json.Unmarshal(raw, &top); err == nil {
-		// Try "models" key first, then "data" key (codex app-server format)
-		if models := modelIDs(top["models"]); len(models) > 0 {
-			return models, nil
-		}
-		if models := modelIDs(top["data"]); len(models) > 0 {
-			return models, nil
-		}
-	}
-	var list []any
-	if err := json.Unmarshal(raw, &list); err == nil {
-		if models := modelIDs(list); len(models) > 0 {
-			return models, nil
-		}
-	}
-	return nil, errors.New("codexapp: invalid model/list response")
+func resolveDefaultCodexModel(ctx context.Context, t *transport) (string, error) {
+	model, _, err := resolveSupportedCodexModel(ctx, t, "")
+	return model, err
 }
 
-func modelIDs(raw any) []string {
-	list, _ := raw.([]any)
-	out := make([]string, 0, len(list))
-	seen := make(map[string]struct{}, len(list))
-	for _, item := range list {
-		entry, _ := item.(map[string]any)
-		id, _ := entry["id"].(string)
-		id = strings.TrimSpace(id)
-		if id == "" {
-			continue
-		}
-		if _, ok := seen[id]; ok {
-			continue
-		}
-		seen[id] = struct{}{}
-		out = append(out, id)
+func resolveSupportedCodexModel(ctx context.Context, t *transport, requested string) (string, bool, error) {
+	requested = strings.TrimSpace(requested)
+	raw, err := callWithTimeout(ctx, t, 10*time.Second, "model/list", map[string]any{})
+	if err != nil {
+		return "", false, err
 	}
-	return out
-}
-
-// ensureCodexModelPresent injects a model into the allowed list if the upstream
-// model/list RPC has not yet been updated. This covers the window between a new
-// model launch and the next Codex CLI release.
-func ensureCodexModelPresent(models []string, target string) []string {
-	for _, m := range models {
-		if strings.EqualFold(m, target) {
-			return models
-		}
+	models, err := supportutil.DecodeAllowedModels(raw)
+	if err != nil {
+		return "", false, err
 	}
-	return append([]string{target}, models...)
-}
-
-func configString(cfg map[string]any, keys ...string) string {
-	if cfg == nil {
-		return ""
+	preferred := supportutil.PreferredCodexModel(models)
+	if requested == "" {
+		return preferred, preferred != "", nil
 	}
-	for _, key := range keys {
-		value, _ := cfg[key].(string)
-		if value = sanitizeConfigStringArtifact(value); value != "" {
-			return value
-		}
+	if supportutil.CodexModelIsCodexFamily(requested) && supportutil.CodexModelListContains(models, requested) {
+		return requested, false, nil
 	}
-	return ""
-}
-
-func firstConfigString(cfg map[string]any, keys ...string) string {
-	for _, key := range keys {
-		if value := configString(cfg, key); value != "" {
-			return value
-		}
+	if !supportutil.CodexModelIsGenericGPT(requested) && supportutil.CodexModelListContains(models, requested) {
+		return requested, false, nil
 	}
-	return ""
-}
-
-func sanitizeConfigStringArtifact(value string) string {
-	value = strings.TrimSpace(value)
-	switch strings.ToLower(value) {
-	case "", "[object object]", "undefined", "null":
-		return ""
-	default:
-		return value
+	if preferred != "" {
+		return preferred, !strings.EqualFold(preferred, requested), nil
 	}
-}
-
-func resolveApprovalPolicy(cfg map[string]any) string {
-	for _, key := range []string{"approvalPolicy", "approval_policy"} {
-		if value := configString(cfg, key); value != "" {
-			return value
-		}
+	if supportutil.CodexModelListContains(models, requested) {
+		return requested, false, nil
 	}
-	// Default to "never" — UI approval flow is not yet wired,
-	// so any other default would block MCP tool calls indefinitely.
-	return "never"
+	return requested, false, nil
 }
 
 func (d *driver) buildThreadStartParams(req dto.StartSessionRequest) threadStartParams {
@@ -329,13 +274,13 @@ func (d *driver) buildThreadStartParams(req dto.StartSessionRequest) threadStart
 	params := threadStartParams{
 		Cwd:                   strings.TrimSpace(req.CWD),
 		Model:                 strings.TrimSpace(req.Model),
-		ModelProvider:         firstConfigString(req.Config, contract.CodexModelProviderKey, "modelProvider", "model_provider"),
+		ModelProvider:         supportutil.FirstConfigString(req.Config, contract.CodexModelProviderKey, "modelProvider", "model_provider"),
 		BaseInstructions:      baseInstructions,
 		DeveloperInstructions: developerInstructions,
-		ApprovalPolicy:        resolveApprovalPolicy(req.Config),
-		Personality:           configString(req.Config, "personality"),
-		Summary:               configString(req.Config, "summary"),
-		Effort:                configString(req.Config, "effort"),
+		ApprovalPolicy:        supportutil.ResolveApprovalPolicy(req.Config),
+		Personality:           supportutil.ConfigString(req.Config, "personality"),
+		Summary:               supportutil.ConfigString(req.Config, "summary"),
+		Effort:                supportutil.ConfigString(req.Config, "effort"),
 		Sandbox:               codexSandboxWireJSON(configJSON(req.Config, "sandbox")),
 	}
 	codexNativeToolPolicyFromConfig(req.Config).ApplyThreadStartParams(&params)
@@ -363,8 +308,8 @@ func (d *driver) startDynamicSession(ctx context.Context, s *session, req dto.St
 			"agent_id", strings.TrimSpace(req.AgentID),
 			"provider", strings.TrimSpace(req.Provider),
 			"model", strings.TrimSpace(req.Model),
-			"config_model_provider", configString(req.Config, "modelProvider"),
-			"config_codex_model_provider", configString(req.Config, "codexModelProvider"),
+			"config_model_provider", supportutil.ConfigString(req.Config, "modelProvider"),
+			"config_codex_model_provider", supportutil.ConfigString(req.Config, "codexModelProvider"),
 			"error", err,
 		)
 		cleanupFailedSession(s, "force stop failed on start error")
@@ -526,13 +471,32 @@ func (d *driver) startRemoteThreadWithDynamicTools(ctx context.Context, t *trans
 
 func startRemoteThreadWithParams(ctx context.Context, t *transport, req dto.StartSessionRequest, params threadStartParams) (startResult, error) {
 	configKeys := sortedConfigKeys(req.Config)
+	if supportutil.CodexModelNeedsListResolution(params.Model) {
+		requestedModel := strings.TrimSpace(params.Model)
+		model, replaced, err := resolveSupportedCodexModel(ctx, t, requestedModel)
+		if err != nil {
+			pkglogger.Warn("codexapp: model/list default selection failed",
+				"agent_id", strings.TrimSpace(req.AgentID),
+				"cwd", params.Cwd,
+				"requested_model", requestedModel,
+				"error", err,
+			)
+		} else if model != "" && replaced {
+			params.Model = model
+			pkglogger.Info("codexapp: thread/start selected supported model from model/list",
+				"agent_id", strings.TrimSpace(req.AgentID),
+				"requested_model", requestedModel,
+				"model", model,
+			)
+		}
+	}
 	if strings.TrimSpace(params.Model) == "" || strings.TrimSpace(params.Effort) == "" {
 		pkglogger.Warn("codexapp: thread/start config trace",
 			"agent_id", strings.TrimSpace(req.AgentID),
 			"req_model", strings.TrimSpace(req.Model),
-			"config_model", configString(req.Config, "model"),
+			"config_model", supportutil.ConfigString(req.Config, "model"),
 			"params_model", params.Model,
-			"config_effort", configString(req.Config, "effort"),
+			"config_effort", supportutil.ConfigString(req.Config, "effort"),
 			"params_effort", params.Effort,
 			"config_keys", configKeys,
 		)
@@ -569,15 +533,15 @@ func startRemoteThreadWithParams(ctx context.Context, t *transport, req dto.Star
 	raw, err := callWithTimeout(ctx, t, 30*time.Second, "thread/start", params)
 	if err != nil {
 		logThreadStartIdentityTrace("codexapp: thread/start request failed", t.serverURL, req, params, err)
-		return startResult{}, err
+		return startResult{}, supportutil.WrapCodexModelUnsupportedError(err, params.Model)
 	}
 	return decodeStartResult(raw)
 }
 
 func logThreadStartIdentityTrace(msg, serverURL string, req dto.StartSessionRequest, params threadStartParams, err error) {
 	provider := strings.TrimSpace(req.Provider)
-	configModelProvider := configString(req.Config, "modelProvider")
-	configCodexModelProvider := configString(req.Config, "codexModelProvider")
+	configModelProvider := supportutil.ConfigString(req.Config, "modelProvider")
+	configCodexModelProvider := supportutil.ConfigString(req.Config, "codexModelProvider")
 	if !strings.EqualFold(provider, "codex") &&
 		strings.TrimSpace(params.ModelProvider) == "" &&
 		configModelProvider == "" &&

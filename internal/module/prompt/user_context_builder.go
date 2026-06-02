@@ -255,6 +255,9 @@ func isTrustedSourceLabel(s string) bool {
 // 输出以 continuation byte 结尾的非法序列。退位最多 3 字节（UTF-8 最长 4 字节）。
 // 调用者保证 limit < len(content)。
 func truncateAtRuneBoundary(content string, limit int) string {
+	if limit >= len(content) {
+		return content
+	}
 	cut := limit
 	for cut > 0 && !utf8.RuneStart(content[cut]) {
 		cut--

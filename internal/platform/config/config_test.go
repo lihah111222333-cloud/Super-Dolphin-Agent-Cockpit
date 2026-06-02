@@ -128,8 +128,8 @@ func TestNew_LoadsDotEnvFromProjectRoot(t *testing.T) {
 }
 
 func TestResolvePackagedProjectRootUsesMacOSResources(t *testing.T) {
-	got := resolvePackagedProjectRoot("/Applications/Super Dolphin.app/Contents/MacOS/agent-terminal")
-	want := "/Applications/Super Dolphin.app/Contents/Resources"
+	got := resolvePackagedProjectRoot(filepath.FromSlash("/Applications/Super Dolphin.app/Contents/MacOS/agent-terminal"))
+	want := filepath.FromSlash("/Applications/Super Dolphin.app/Contents/Resources")
 	if got != want {
 		t.Fatalf("resolvePackagedProjectRoot() = %q, want %q", got, want)
 	}

@@ -121,6 +121,35 @@ describe('frontend-app backend API facade', () => {
     });
   });
 
+  it('strips cwd from strict thread-scoped runtime RPC payloads', async () => {
+    const callAPI = vi.fn().mockResolvedValue({ ok: true });
+    const api = createBackendApi({ callAPI });
+
+    await api.interruptTurn({ cwd: '/repo/app', threadId: 'thread-1', turnId: 'turn-1', source: 'ui_stop' });
+    await api.compactThread({ cwd: '/repo/app', threadId: 'thread-1' });
+    await api.recoverThread({ cwd: '/repo/app', threadId: 'thread-1' });
+
+    expect(callAPI).toHaveBeenNthCalledWith(1, RPC_METHODS.TURN_INTERRUPT, {
+      threadId: 'thread-1',
+      turnId: 'turn-1',
+      source: 'ui_stop',
+    });
+    expect(callAPI).toHaveBeenNthCalledWith(2, RPC_METHODS.THREAD_COMPACT_START, {
+      threadId: 'thread-1',
+    });
+    expect(callAPI).toHaveBeenNthCalledWith(3, RPC_METHODS.THREAD_RECOVER, {
+      threadId: 'thread-1',
+    });
+  });
+
+  it('fails fast before turn/interrupt when turnId is missing', () => {
+    const callAPI = vi.fn();
+    const api = createBackendApi({ callAPI });
+
+    expect(() => api.interruptTurn({ cwd: '/repo/app', threadId: 'thread-1' })).toThrow('turn/interrupt: turnId is required');
+    expect(callAPI).not.toHaveBeenCalled();
+  });
+
   it('fails fast before cwd-scoped RPCs when cwd is missing', () => {
     const callAPI = vi.fn();
     const api = createBackendApi({ callAPI });
@@ -210,6 +239,9 @@ describe('frontend-app backend API facade', () => {
       content: 'body',
       scenario_words: ['deploy'],
       scope: 'project',
+      provider: 'codex',
+      model: 'gpt-5.5',
+      codexModelProvider: 'openrouter',
     })).resolves.toBe('当你需要部署服务时使用。');
 
     expect(callAPI).toHaveBeenCalledWith(RPC_METHODS.SKILLS_SUMMARY_SUGGEST, {
@@ -219,6 +251,9 @@ describe('frontend-app backend API facade', () => {
       content: 'body',
       scenario_words: ['deploy'],
       scope: 'project',
+      provider: 'codex',
+      model: 'gpt-5.5',
+      model_provider: 'openrouter',
     });
   });
 
@@ -453,6 +488,13 @@ describe('frontend-app backend API facade', () => {
     await api.mergeMemoryEntries({ cwd: '/repo/app', targetA: 'private', pathA: 'a.md', targetB: 'team', pathB: 'b.md' });
     await api.ignoreMemorySimilarity({ cwd: '/repo/app', targetA: 'private', pathA: 'a.md', targetB: 'team', pathB: 'b.md' });
     await api.consolidateMemorySimilarities({ cwd: '/repo/app' });
+    await api.startConsolidateMemorySimilarities({
+      cwd: '/repo/app',
+      provider: 'codex',
+      model: 'gpt-5.5',
+      codexModelProvider: 'openai',
+    });
+    await api.getMemoryConsolidationStatus({ cwd: '/repo/app', jobId: 'memory-job-1' });
 
     expect(callAPI).toHaveBeenCalledWith(RPC_METHODS.UI_MEMORY_GET, { cwd: '/repo/app' });
     expect(callAPI).toHaveBeenCalledWith(RPC_METHODS.UI_MEMORY_ENTRY_GET, { cwd: '/repo/app', target: 'private', path: 'feedback/tdd.md' });
@@ -465,6 +507,13 @@ describe('frontend-app backend API facade', () => {
     expect(callAPI).toHaveBeenCalledWith(RPC_METHODS.UI_MEMORY_ENTRY_MERGE, { cwd: '/repo/app', targetA: 'private', pathA: 'a.md', targetB: 'team', pathB: 'b.md' });
     expect(callAPI).toHaveBeenCalledWith(RPC_METHODS.UI_MEMORY_SIMILARITY_IGNORE, { cwd: '/repo/app', targetA: 'private', pathA: 'a.md', targetB: 'team', pathB: 'b.md' });
     expect(callAPI).toHaveBeenCalledWith(RPC_METHODS.UI_MEMORY_SIMILARITY_CONSOLIDATE_ALL, { cwd: '/repo/app' });
+    expect(callAPI).toHaveBeenCalledWith(RPC_METHODS.UI_MEMORY_SIMILARITY_CONSOLIDATE_ALL_START, {
+      cwd: '/repo/app',
+      provider: 'codex',
+      model: 'gpt-5.5',
+      model_provider: 'openai',
+    });
+    expect(callAPI).toHaveBeenCalledWith(RPC_METHODS.UI_MEMORY_SIMILARITY_CONSOLIDATE_ALL_STATUS, { cwd: '/repo/app', jobId: 'memory-job-1' });
 
     expect(() => api.getMemoryEntry({ cwd: '/repo/app', path: '' })).toThrow('path is required');
     expect(() => api.upsertMemoryEntry({ cwd: '/repo/app', name: 'x', description: 'd', type: 'feedback', content: '' })).toThrow('content is required');

@@ -35,6 +35,11 @@ type ProviderModels = modelregistry.ProviderModels
 // ListModelsResult 是 list_models 的返回结构。
 type ListModelsResult struct {
 	Providers []ProviderModels `json:"providers"`
+	Data      []ProviderModels `json:"data"`
+	Total     int              `json:"total"`
+	Showing   int              `json:"showing"`
+	Truncated bool             `json:"truncated"`
+	Hint      string           `json:"hint,omitempty"`
 }
 
 type ListModelsOption func(*listModelsConfig)
@@ -65,7 +70,7 @@ func HandleListModels(opts ...ListModelsOption) ToolHandler {
 			if err != nil {
 				return nil, err
 			}
-			return ListModelsResult{Providers: providers}, nil
+			return newListModelsResult(providers), nil
 		}
 		provider, ok, err := registry.LookupProvider(input.Provider)
 		if err != nil {
@@ -74,7 +79,19 @@ func HandleListModels(opts ...ListModelsOption) ToolHandler {
 		if !ok {
 			return nil, fmt.Errorf("model provider %q not found", input.Provider)
 		}
-		return ListModelsResult{Providers: []ProviderModels{provider}}, nil
+		return newListModelsResult([]ProviderModels{provider}), nil
+	}
+}
+
+func newListModelsResult(providers []ProviderModels) ListModelsResult {
+	env := newListEnvelope(providers, 0, "next: use provider/model values in launch_agent or DAG node config")
+	return ListModelsResult{
+		Providers: providers,
+		Data:      env.Data,
+		Total:     env.Total,
+		Showing:   env.Showing,
+		Truncated: env.Truncated,
+		Hint:      env.Hint,
 	}
 }
 
@@ -106,6 +123,11 @@ type SharedFileEntry struct {
 // SharedFileListResult 是 shared_file_list 的返回结构。
 type SharedFileListResult struct {
 	Files             []SharedFileEntry `json:"files"`
+	Data              []SharedFileEntry `json:"data"`
+	Total             int               `json:"total"`
+	Showing           int               `json:"showing"`
+	Truncated         bool              `json:"truncated"`
+	Hint              string            `json:"hint,omitempty"`
 	AllowedPrefixes   []string          `json:"allowed_prefixes"`
 	AllowedPrefixHint string            `json:"allowed_prefix_hint"`
 }
@@ -128,12 +150,22 @@ func HandleSharedFileList(store sharedfilestore.Store) ToolHandler {
 				UpdatedAt: r.UpdatedAt.Format("2006-01-02T15:04:05Z07:00"),
 			})
 		}
-		return SharedFileListResult{
-			Files:             entries,
-			AllowedPrefixes:   sharedfilepath.WritePrefixes(),
-			AllowedPrefixHint: "writes must start with one of allowed_prefixes",
-		}, nil
+		return newSharedFileListResult(entries, int(in.Limit)), nil
 	})
+}
+
+func newSharedFileListResult(entries []SharedFileEntry, limit int) SharedFileListResult {
+	env := newListEnvelope(entries, limit, "next: use shared_file_read pos=shared:<path> to read content")
+	return SharedFileListResult{
+		Files:             entries,
+		Data:              env.Data,
+		Total:             env.Total,
+		Showing:           env.Showing,
+		Truncated:         env.Truncated,
+		Hint:              env.Hint,
+		AllowedPrefixes:   sharedfilepath.WritePrefixes(),
+		AllowedPrefixHint: "writes must start with one of allowed_prefixes",
+	}
 }
 
 // registryToolDefinitions 是 T4.1 + T4.4 工具的注册聚合。

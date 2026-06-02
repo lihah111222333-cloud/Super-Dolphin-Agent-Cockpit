@@ -7,6 +7,7 @@ import (
 	"compress/gzip"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 )
 
@@ -14,15 +15,15 @@ func codexWheelForTest(t *testing.T) []byte {
 	t.Helper()
 	var buf bytes.Buffer
 	zw := zip.NewWriter(&buf)
-	for name, body := range map[string]string{
-		"codex_cli_bin/bin/" + codexExecutableFileName(): "#!/bin/sh\n",
-		"codex_cli_bin/codex-path/rg":                    "#!/bin/sh\n",
+	for name, body := range map[string][]byte{
+		"codex_cli_bin/bin/" + codexExecutableFileName(): fakeCodexBodyForTest(t),
+		"codex_cli_bin/codex-path/rg":                    []byte("#!/bin/sh\n"),
 	} {
 		w, err := zw.Create(name)
 		if err != nil {
 			t.Fatalf("zip create %q: %v", name, err)
 		}
-		if _, err := w.Write([]byte(body)); err != nil {
+		if _, err := w.Write(body); err != nil {
 			t.Fatalf("zip write %q: %v", name, err)
 		}
 	}
@@ -58,7 +59,7 @@ func codexTarGzForTest(t *testing.T) []byte {
 	var buf bytes.Buffer
 	gw := gzip.NewWriter(&buf)
 	tw := tar.NewWriter(gw)
-	body := []byte("#!/bin/sh\n")
+	body := fakeCodexBodyForTest(t)
 	if err := tw.WriteHeader(&tar.Header{
 		Name: "codex-package/bin/" + codexExecutableFileName(),
 		Mode: 0o755,
@@ -76,6 +77,24 @@ func codexTarGzForTest(t *testing.T) []byte {
 		t.Fatalf("gzip close: %v", err)
 	}
 	return buf.Bytes()
+}
+
+func fakeCodexBodyForTest(t *testing.T) []byte {
+	t.Helper()
+	if runtime.GOOS != "windows" {
+		return []byte("#!/bin/sh\n")
+	}
+	exe, err := os.Executable()
+	if err != nil {
+		t.Fatalf("locate test executable: %v", err)
+	}
+	body, err := os.ReadFile(exe)
+	if err != nil {
+		t.Fatalf("read test executable: %v", err)
+	}
+	t.Setenv(codexFakeHelperEnv, "1")
+	t.Setenv(codexFakeSupportsAppServerEnv, "1")
+	return body
 }
 
 func codexReleaseAssetNameForTest(t *testing.T) string {

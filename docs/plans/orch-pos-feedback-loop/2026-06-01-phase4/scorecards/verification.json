@@ -1,0 +1,28 @@
+{
+  "round_id": "orch-pos-phase4-2026-06-01",
+  "scorer": "verification",
+  "target": "M4 tests",
+  "score_before": 56,
+  "dimensions": {
+    "create_dag_tests": {
+      "score": 50,
+      "evidence": "Existing tests cover nested schedule and command_ref, not flat schedule/execution shortcuts."
+    },
+    "apply_ops_tests": {
+      "score": 45,
+      "evidence": "Existing tests cover schema discriminator, not flat action-to-ops conversion."
+    },
+    "regression_safety": {
+      "score": 72,
+      "evidence": "cmd/mcp-orch/tools focused test suite is available."
+    }
+  },
+  "findings": [
+    {
+      "id": "VT-005",
+      "severity": "P1",
+      "decision": "must_fix",
+      "summary": "Add tests for flat create_dag and apply_ops paths plus conflict handling."
+    }
+  ]
+}

@@ -13,11 +13,13 @@ import (
 const resourceListLimit int32 = 50
 
 type commandListInput struct {
-	Keyword string `json:"keyword,omitempty"`
+	Keyword  string `json:"keyword,omitempty"`
+	Envelope bool   `json:"envelope,omitempty"`
 }
 
 type commandGetInput struct {
 	CardKey string `json:"card_key"`
+	Pos     string `json:"pos,omitempty"`
 }
 
 type commandCardDTO struct {
@@ -37,9 +39,25 @@ type commandCardDTO struct {
 	RunCount        int64           `json:"run_count"`
 }
 
+type CommandListOutput struct {
+	Commands  []commandCardDTO `json:"commands"`
+	Data      []commandCardDTO `json:"data"`
+	Total     int              `json:"total"`
+	Showing   int              `json:"showing"`
+	Truncated bool             `json:"truncated"`
+	Hint      string           `json:"hint,omitempty"`
+}
+
 func HandleCommandList(store commandcardstore.Store) ToolHandler {
-	return makeHandler(store, "command card store", func(ctx context.Context, in commandListInput) ([]commandCardDTO, error) {
-		return listCommandCards(ctx, store, in)
+	return makeHandler(store, "command card store", func(ctx context.Context, in commandListInput) (any, error) {
+		cards, err := listCommandCards(ctx, store, in)
+		if err != nil {
+			return nil, err
+		}
+		if in.Envelope {
+			return newCommandListOutput(cards), nil
+		}
+		return cards, nil
 	})
 }
 
@@ -76,11 +94,23 @@ func listCommandCards(ctx context.Context, store commandcardstore.Store, input c
 	return mapCommandCards(cards), nil
 }
 
+func newCommandListOutput(cards []commandCardDTO) CommandListOutput {
+	env := newListEnvelope(cards, int(resourceListLimit), "next: use command_get pos=command:<card_key> for command details")
+	return CommandListOutput{
+		Commands:  cards,
+		Data:      env.Data,
+		Total:     env.Total,
+		Showing:   env.Showing,
+		Truncated: env.Truncated,
+		Hint:      env.Hint,
+	}
+}
+
 func getCommandCard(ctx context.Context, store commandcardstore.Store, input commandGetInput) (commandCardDTO, error) {
 	if err := requireDependency(store, "command card store"); err != nil {
 		return commandCardDTO{}, err
 	}
-	cardKey, err := requireTrimmed(input.CardKey, "card_key")
+	cardKey, err := resolveCommandKeyInput(input.CardKey, input.Pos)
 	if err != nil {
 		return commandCardDTO{}, err
 	}

@@ -134,7 +134,7 @@ func waitRetryDelay(retryCtx context.Context, handle *turnHandle, delay time.Dur
 func (s *session) sendRetryLocked(retry *turnRetryState, handle *turnHandle, payload []byte) error {
 	if s.pendingRetry != retry || s.activeTurn != handle || s.transport == nil || !s.transport.readyForSend() {
 		s.takeActiveTurnLocked()
-		return nil
+		return fmt.Errorf("claudecli: turn state drifted, cannot retry")
 	}
 	if err := s.transport.Send(payload); err != nil {
 		s.takeActiveTurnLocked()

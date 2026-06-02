@@ -18,10 +18,12 @@ const METHOD_IDS = Object.freeze({
 
 const JSONRPC_VERSION = '2.0';
 const WS_PATH = '/wails/ws';
+const EVENT_RECONNECT_DELAY_MS = 500;
 
 let nextRequestId = 1;
 let socket = null;
 let connectPromise = null;
+let eventReconnectTimer = null;
 const pendingCalls = new Map();
 const eventListeners = new Map();
 
@@ -97,6 +99,31 @@ function rejectPending(error) {
   pendingCalls.clear();
 }
 
+function hasEventListeners() {
+  for (const callbacks of eventListeners.values()) {
+    if (callbacks?.size > 0) return true;
+  }
+  return false;
+}
+
+function clearEventReconnectIfIdle() {
+  if (hasEventListeners() || eventReconnectTimer == null) return;
+  clearTimeout(eventReconnectTimer);
+  eventReconnectTimer = null;
+}
+
+function scheduleEventReconnect(error) {
+  if (!hasEventListeners() || eventReconnectTimer != null) return;
+  eventReconnectTimer = setTimeout(() => {
+    eventReconnectTimer = null;
+    if (!hasEventListeners() || isSocketOpen(socket) || isSocketConnecting(socket)) return;
+    ensureSocket().catch((nextError) => {
+      console.warn('[wails-dev-shim] event bridge reconnect failed', nextError || error);
+      scheduleEventReconnect(nextError || error);
+    });
+  }, EVENT_RECONNECT_DELAY_MS);
+}
+
 function ensureSocket() {
   if (isSocketOpen(socket)) return Promise.resolve(socket);
   if (isSocketConnecting(socket) && connectPromise) return connectPromise;
@@ -140,6 +167,7 @@ function ensureSocket() {
         return;
       }
       rejectPending(err);
+      scheduleEventReconnect(err);
     };
 
     nextSocket.onmessage = (event) => {
@@ -325,6 +353,20 @@ function stripFrontendMetaPayload(value) {
   return changed ? cleaned : value;
 }
 
+function stripFrontendTraceMetaPayload(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return value;
+  let changed = false;
+  const cleaned = {};
+  for (const [key, item] of Object.entries(value)) {
+    if (key === '_aoTraceparent' || key === '_aoTraceId' || key === '_aoSpanId') {
+      changed = true;
+      continue;
+    }
+    cleaned[key] = item;
+  }
+  return changed ? cleaned : value;
+}
+
 async function callByID(methodID, ...args) {
   const id = Number(methodID);
   switch (id) {
@@ -332,7 +374,7 @@ async function callByID(methodID, ...args) {
       const method = (args[0] || '').toString().trim();
       const params = args.length > 1 ? args[1] : {};
       const payload = params == null ? {} : params;
-      return rpcCall(method, method === 'ui/log' ? payload : stripFrontendMetaPayload(payload));
+      return rpcCall(method, method === 'ui/log' ? stripFrontendTraceMetaPayload(payload) : stripFrontendMetaPayload(payload));
     }
     case METHOD_IDS.GET_BUILD_INFO: {
       try {
@@ -383,6 +425,7 @@ export const Events = {
       if (!current) return;
       current.delete(callback);
       if (current.size === 0) eventListeners.delete(name);
+      clearEventReconnectIfIdle();
     };
   },
   Off(eventName) {

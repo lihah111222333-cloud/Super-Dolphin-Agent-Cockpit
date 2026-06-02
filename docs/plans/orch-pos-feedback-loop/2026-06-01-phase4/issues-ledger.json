@@ -1,0 +1,80 @@
+{
+  "round_id": "orch-pos-phase4-2026-06-01",
+  "issues": [
+    {
+      "id": "CI-001",
+      "source": "complex-input",
+      "severity": "P1",
+      "decision": "must_fix",
+      "status": "fixed",
+      "summary": "task_create_dag needed flat schedule fields and flat node execution shortcuts."
+    },
+    {
+      "id": "CI-002",
+      "source": "complex-input",
+      "severity": "P1",
+      "decision": "must_fix",
+      "status": "fixed",
+      "summary": "task_dag_apply_ops needed flat single-action fields for common ops."
+    },
+    {
+      "id": "BC-005",
+      "source": "compatibility",
+      "severity": "P1",
+      "decision": "must_fix",
+      "status": "fixed",
+      "summary": "Flat and nested fields must either agree or fail fast."
+    },
+    {
+      "id": "BC-006",
+      "source": "compatibility",
+      "severity": "P1",
+      "decision": "must_fix",
+      "status": "fixed",
+      "summary": "Flat apply_ops generation must produce typed wire shape accepted by nodeexec.Ops."
+    },
+    {
+      "id": "VT-005",
+      "source": "verification",
+      "severity": "P1",
+      "decision": "must_fix",
+      "status": "fixed",
+      "summary": "Add tests for flat create_dag and apply_ops paths plus conflict handling."
+    },
+    {
+      "id": "FIX-001",
+      "source": "implementation-review",
+      "severity": "P1",
+      "decision": "must_fix",
+      "status": "fixed",
+      "summary": "Preserve explicit depends_on empty arrays instead of serializing them as null."
+    },
+    {
+      "id": "M5-001",
+      "source": "carry-forward",
+      "severity": "P2",
+      "decision": "carry_forward",
+      "status": "open",
+      "summary": "Output envelopes and hints are not yet normalized across orch tools.",
+      "target_milestone": "M5"
+    },
+    {
+      "id": "M6-001",
+      "source": "carry-forward",
+      "severity": "P2",
+      "decision": "carry_forward",
+      "status": "open",
+      "summary": "The feedback-loop artifact process is manual and not yet automated.",
+      "target_milestone": "M6"
+    },
+    {
+      "id": "VT-004",
+      "source": "verification",
+      "severity": "P2",
+      "decision": "needs_separate_triage",
+      "status": "open",
+      "summary": "Full cmd/mcp-orch suite has unrelated Windows/environment failures.",
+      "target_milestone": "separate triage"
+    }
+  ]
+}
