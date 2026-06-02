@@ -222,8 +222,11 @@ describe('composer layout styles', () => {
     const navIcon = declarationsFor('.nav-rail button svg');
     const threadToolIcon = declarationsFor('.thread-tools svg');
     const threadCardIcon = declarationsFor('.thread-card svg');
+    const threadPin = declarationsFor('.thread-pin');
+    const threadPinHover = declarationsFor('.thread-pin:hover');
     const providerBadge = declarationsFor('.thread-card b');
-    const statusLine = declarationsFor('.thread-card em');
+    const statusLine = declarationsFor('.thread-status-row');
+    const statusDot = declarationsFor('.thread-status-dot');
 
     expect(navIcon.width).toBe('20px');
     expect(navIcon.height).toBe('20px');
@@ -232,6 +235,10 @@ describe('composer layout styles', () => {
     expect(threadToolIcon.height).toBe('16px');
     expect(threadCardIcon.width).toBe('16px');
     expect(threadCardIcon.height).toBe('16px');
+    expect(threadPin.background).toBe('var(--surface-2)');
+    expect(threadPin.color).toBe('var(--text-muted)');
+    expect(threadPin['border-color']).toBe('var(--border)');
+    expect(threadPinHover.color).toBe('var(--text-pri)');
     expect(providerBadge.display).toBe('inline-flex');
     expect(providerBadge['min-height']).toBe('22px');
     expect(providerBadge['min-width']).toBe('52px');
@@ -239,6 +246,9 @@ describe('composer layout styles', () => {
     expect(providerBadge['line-height']).toBe('1');
     expect(statusLine.display).toBe('inline-flex');
     expect(statusLine['font-size']).toBe('12px');
+    expect(statusDot.width).toBe('8px');
+    expect(statusDot.height).toBe('8px');
+    expect(statusDot['flex']).toBe('0 0 auto');
   });
 
   it('keeps runtime panel details shrink-safe inside the right rail', () => {
