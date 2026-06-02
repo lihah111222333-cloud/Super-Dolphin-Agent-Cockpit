@@ -2205,6 +2205,48 @@ describe('useClientStore backend contract', () => {
     ]);
   });
 
+  it('deduplicates repeated terminal tool ids from one bridge patch', async () => {
+    resetClientStoreForTests({
+      cwd: '/repo/app',
+      activeProject: '/repo/app',
+      activeThreadId: 'thread-1',
+      timelinesByThread: { 'thread-1': [] },
+    });
+    useClientStore.getState().initializeEvents();
+
+    bridgeCallback({
+      type: 'ui/thread/patch',
+      payload: {
+        threadId: 'thread-1',
+        sequence: '9007199254740993124',
+        timelineItems: [{
+          id: 'tool:21:file',
+          kind: 'tool',
+          tool: 'file',
+          status: 'completed',
+          preview: '{"success":true}',
+          output: 'stale duplicate result',
+          ts: '2026-06-02T08:00:01Z',
+        }, {
+          id: 'tool:21:file',
+          kind: 'tool',
+          tool: 'file',
+          status: 'completed',
+          output: 'package codexapp',
+          ts: '2026-06-02T08:00:01Z',
+        }],
+      },
+    });
+
+    const timeline = useClientStore.getState().timelinesByThread['thread-1'];
+    expect(timeline.filter((item) => item.id === 'tool:21:file')).toHaveLength(1);
+    expect(timeline[0]).toEqual(expect.objectContaining({
+      id: 'tool:21:file',
+      status: 'completed',
+      text: expect.stringContaining('package codexapp'),
+    }));
+  });
+
   it('keys bridge diff patches by nested thread id before agent id', () => {
     resetClientStoreForTests({
       cwd: '/repo/app',
