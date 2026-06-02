@@ -1,0 +1,318 @@
+package observability
+
+import (
+	"context"
+	"sort"
+	"strconv"
+	"strings"
+	"sync"
+	"time"
+
+	"github.com/anthropic-ai/super-agent-v3/internal/util/idgen"
+)
+
+type serviceSink interface {
+	Append(context.Context, TraceEvent) error
+}
+
+type serviceSinkStats interface {
+	Stats() SinkStats
+}
+
+type queryTailReader interface {
+	QueryTraceEvents(context.Context, Query) (QueryResult, error)
+}
+
+type QueryTailReaderFunc func(context.Context, Query) (QueryResult, error)
+
+func (f QueryTailReaderFunc) QueryTraceEvents(ctx context.Context, query Query) (QueryResult, error) {
+	return f(ctx, query)
+}
+
+type Service struct {
+	enabled        bool
+	disabledReason string
+	index          *Index
+	sampler        *Sampler
+	sanitizer      Sanitizer
+	sink           serviceSink
+	tail           queryTailReader
+	tailSem        chan struct{}
+	tailTimeoutMS  int
+	cache          map[Query]QueryResult
+	inflight       map[Query]*tailCall
+	cacheMu        sync.Mutex
+}
+
+type ServiceOption func(*Service)
+
+type tailCall struct {
+	ready  chan struct{}
+	result QueryResult
+	err    error
+}
+
+func NewService(cfg Config, options ...ServiceOption) *Service {
+	cfg = normalizeServiceConfig(cfg)
+	svc := &Service{enabled: true, index: NewIndex(cfg), sampler: NewSampler(), sanitizer: NewSanitizer(cfg), tailSem: make(chan struct{}, cfg.QueryTailMaxConcurrency), tailTimeoutMS: cfg.QueryTailTimeoutMS, cache: map[Query]QueryResult{}, inflight: map[Query]*tailCall{}}
+	for _, option := range options {
+		option(svc)
+	}
+	return svc
+}
+
+func NewDisabledService(cfg Config) *Service {
+	cfg = normalizeServiceConfig(cfg)
+	reason := cfg.DisabledReason
+	if reason == "" {
+		reason = "observability tracing disabled"
+	}
+	return &Service{enabled: false, disabledReason: reason, index: NewIndex(cfg), sampler: NewSampler(), sanitizer: NewSanitizer(cfg), tailSem: make(chan struct{}, cfg.QueryTailMaxConcurrency), tailTimeoutMS: cfg.QueryTailTimeoutMS, cache: map[Query]QueryResult{}, inflight: map[Query]*tailCall{}}
+}
+
+func WithSink(sink serviceSink) ServiceOption { return func(s *Service) { s.sink = sink } }
+func WithTailReader(reader queryTailReader) ServiceOption {
+	return func(s *Service) { s.tail = reader }
+}
+func WithSampler(sampler *Sampler) ServiceOption {
+	return func(s *Service) {
+		if sampler != nil {
+			s.sampler = sampler
+		}
+	}
+}
+
+type ServiceStatus struct {
+	Enabled           bool   `json:"enabled"`
+	DisabledReason    string `json:"disabled_reason,omitempty"`
+	SchemaVersion     int    `json:"schema_version"`
+	IndexTraceKeys    int    `json:"index_trace_keys"`
+	SinkEventsWritten int64  `json:"sink_events_written"`
+	SinkWriteErrors   int64  `json:"sink_write_errors"`
+}
+
+func (s *Service) Status() ServiceStatus {
+	status := ServiceStatus{Enabled: s.enabled, DisabledReason: s.disabledReason, SchemaVersion: SchemaVersion}
+	if s.index != nil {
+		status.IndexTraceKeys = s.index.TraceKeyCount()
+	}
+	if statsSink, ok := s.sink.(serviceSinkStats); ok {
+		stats := statsSink.Stats()
+		status.SinkEventsWritten = stats.EventsWritten
+		status.SinkWriteErrors = stats.WriteErrors
+	}
+	return status
+}
+
+func (s *Service) Enabled() bool { return s.enabled }
+
+func (s *Service) Record(ctx context.Context, event TraceEvent) error {
+	if !s.enabled {
+		return nil
+	}
+	event = s.sanitizer.SanitizeEvent(event)
+	event = s.correlateTraceByThread(event)
+	decision := s.sampler.Decide(event)
+	if decision.Summary != nil {
+		summary := s.sanitizer.SanitizeEvent(*decision.Summary)
+		s.index.Add(summary)
+		if s.sink != nil {
+			if err := s.sink.Append(ctx, summary); err != nil {
+				return err
+			}
+		}
+	}
+	if !decision.Keep {
+		return nil
+	}
+	s.index.Add(event)
+	if s.sink != nil {
+		return s.sink.Append(ctx, event)
+	}
+	return nil
+}
+
+func (s *Service) correlateTraceByThread(event TraceEvent) TraceEvent {
+	if event.TraceID != "" || event.ThreadID == "" || s == nil || s.index == nil {
+		return event
+	}
+	trace, ok := s.index.LatestTraceContextByThread(event.ThreadID)
+	if !ok || trace.TraceID == "" {
+		return event
+	}
+	event.TraceID = trace.TraceID
+	if event.ParentSpanID == "" {
+		event.ParentSpanID = trace.SpanID
+	}
+	if event.SpanID == "" {
+		event.SpanID = idgen.NewID("span")
+	}
+	return event
+}
+
+func (s *Service) Query(ctx context.Context, query Query) QueryResult {
+	if !s.enabled {
+		return QueryResult{Source: QuerySourceMemory}
+	}
+	memory := s.index.Query(query)
+	if !query.IncludeTail || s.tail == nil {
+		return memory
+	}
+	tail, err := s.queryTail(ctx, query)
+	if err != nil || len(tail.Events) == 0 {
+		return memory
+	}
+	if len(memory.Events) == 0 {
+		tail.Source = QuerySourceJSONLTail
+		return tail
+	}
+	return mergeQueryResults(memory, tail, query.Limit)
+}
+
+func mergeQueryResults(memory QueryResult, tail QueryResult, limit int) QueryResult {
+	combined := make([]TraceEvent, 0, len(memory.Events)+len(tail.Events))
+	seen := make(map[string]struct{}, len(memory.Events)+len(tail.Events))
+	for _, event := range memory.Events {
+		combined = appendUniqueTraceEvent(combined, seen, event)
+	}
+	for _, event := range tail.Events {
+		combined = appendUniqueTraceEvent(combined, seen, event)
+	}
+	sort.SliceStable(combined, func(i, j int) bool {
+		left, right := combined[i].Timestamp, combined[j].Timestamp
+		if left.IsZero() || right.IsZero() {
+			return false
+		}
+		return left.Before(right)
+	})
+	truncated := memory.Truncated || tail.Truncated
+	if limit > 0 && len(combined) > limit {
+		combined = combined[len(combined)-limit:]
+		truncated = true
+	}
+	return QueryResult{Source: QuerySourceMixed, Events: combined, Truncated: truncated}
+}
+
+func appendUniqueTraceEvent(events []TraceEvent, seen map[string]struct{}, event TraceEvent) []TraceEvent {
+	key := traceEventDedupeKey(event)
+	if key == "" {
+		return append(events, event)
+	}
+	if _, ok := seen[key]; ok {
+		return events
+	}
+	seen[key] = struct{}{}
+	return append(events, event)
+}
+
+func traceEventDedupeKey(event TraceEvent) string {
+	if event.TraceID == "" && event.SpanID == "" && event.CallID == "" && event.TurnID == "" && event.Method == "" {
+		return ""
+	}
+	parts := []string{
+		event.TraceID,
+		event.SpanID,
+		event.ParentSpanID,
+		event.Kind,
+		event.Phase,
+		event.Method,
+		event.ThreadID,
+		event.AgentID,
+		event.TurnID,
+		event.CallID,
+		event.ToolName,
+		event.ClientKind,
+		event.ClientRoute,
+		strconv.FormatInt(event.DurationMS, 10),
+		string(event.Status),
+		event.Error,
+		event.Code.File,
+		event.Code.Function,
+		strconv.Itoa(event.Code.Line),
+	}
+	if !event.Timestamp.IsZero() {
+		parts = append(parts, event.Timestamp.UTC().Format(time.RFC3339Nano))
+	}
+	return strings.Join(parts, "\x00")
+}
+
+func (s *Service) queryTail(ctx context.Context, query Query) (QueryResult, error) {
+	if cached, ok := s.cachedTail(query); ok {
+		return cached, nil
+	}
+	call, owner := s.tailCall(query)
+	if !owner {
+		select {
+		case <-call.ready:
+			return call.result, call.err
+		case <-ctx.Done():
+			return QueryResult{Source: QuerySourceJSONLTail}, ctx.Err()
+		}
+	}
+	defer close(call.ready)
+	defer s.finishTailCall(query)
+	select {
+	case s.tailSem <- struct{}{}:
+		defer func() { <-s.tailSem }()
+	case <-ctx.Done():
+		call.result, call.err = QueryResult{Source: QuerySourceJSONLTail}, ctx.Err()
+		return call.result, call.err
+	}
+	ctx, cancel := context.WithTimeout(ctx, time.Duration(s.tailTimeoutMS)*time.Millisecond)
+	defer cancel()
+	call.result, call.err = s.tail.QueryTraceEvents(ctx, query)
+	if call.err == nil {
+		s.storeTail(query, call.result)
+	}
+	return call.result, call.err
+}
+
+func (s *Service) tailCall(query Query) (*tailCall, bool) {
+	s.cacheMu.Lock()
+	defer s.cacheMu.Unlock()
+	if call := s.inflight[query]; call != nil {
+		return call, false
+	}
+	call := &tailCall{ready: make(chan struct{})}
+	s.inflight[query] = call
+	return call, true
+}
+
+func (s *Service) finishTailCall(query Query) {
+	s.cacheMu.Lock()
+	defer s.cacheMu.Unlock()
+	delete(s.inflight, query)
+}
+
+func (s *Service) cachedTail(query Query) (QueryResult, bool) {
+	s.cacheMu.Lock()
+	defer s.cacheMu.Unlock()
+	result, ok := s.cache[query]
+	return result, ok
+}
+
+func (s *Service) storeTail(query Query, result QueryResult) {
+	s.cacheMu.Lock()
+	defer s.cacheMu.Unlock()
+	if len(s.cache) >= 64 {
+		s.cache = map[Query]QueryResult{}
+	}
+	s.cache[query] = result
+}
+
+func normalizeServiceConfig(cfg Config) Config {
+	cfg = normalizeIndexConfig(cfg)
+	if cfg.MetadataMaxBytes <= 0 {
+		cfg.MetadataMaxBytes = 4096
+	}
+	if cfg.StringMaxBytes <= 0 {
+		cfg.StringMaxBytes = deriveStringMaxBytes(8192)
+	}
+	if cfg.QueryTailMaxConcurrency <= 0 {
+		cfg.QueryTailMaxConcurrency = 1
+	}
+	if cfg.QueryTailTimeoutMS <= 0 {
+		cfg.QueryTailTimeoutMS = 750
+	}
+	return cfg
+}

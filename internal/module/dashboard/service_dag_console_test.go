@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"testing"
+	"time"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 )
@@ -122,6 +123,68 @@ func requireDAGConsoleRunLookup(t *testing.T, orchestration *stubDashboardOrches
 	t.Helper()
 	if orchestration.listRunsRequest.DagKey != "dag-1" || orchestration.listRunsRequest.Limit != 1 {
 		t.Fatalf("ListRuns request = %#v", orchestration.listRunsRequest)
+	}
+}
+
+func TestDashboardDAGDetailRowsPreserveInvalidJSONColumnsAsStrings(t *testing.T) {
+	t.Parallel()
+
+	now := time.Date(2026, 6, 2, 3, 0, 0, 0, time.UTC)
+	dag, err := dashboardDAGSummaryFromRow(map[string]any{
+		"id":         int64(1),
+		"dag_key":    "dag-1",
+		"version":    int64(1),
+		"created_at": now,
+		"updated_at": now,
+		"metadata":   "Running",
+	})
+	if err != nil {
+		t.Fatalf("dashboardDAGSummaryFromRow() error = %v", err)
+	}
+	node, err := dashboardDAGNodeFromRow(map[string]any{
+		"id":         int64(2),
+		"dag_key":    "dag-1",
+		"node_key":   "node-1",
+		"created_at": now,
+		"updated_at": now,
+		"config":     "Running",
+		"result":     "Running",
+	})
+	if err != nil {
+		t.Fatalf("dashboardDAGNodeFromRow() error = %v", err)
+	}
+	if string(dag.Metadata) != `"Running"` || string(node.Config) != `"Running"` || string(node.Result) != `"Running"` {
+		t.Fatalf("invalid detail JSON = metadata %q config %q result %q, want quoted raw string", dag.Metadata, node.Config, node.Result)
+	}
+	if _, err := json.Marshal(contract.DAGDetail{DAG: dag, Nodes: []contract.DAGNode{node}}); err != nil {
+		t.Fatalf("marshal DAG detail with invalid source JSON = %v", err)
+	}
+}
+
+func TestDashboardRunFromRowPreservesInvalidJSONColumnsAsStrings(t *testing.T) {
+	t.Parallel()
+
+	now := time.Date(2026, 6, 2, 3, 0, 0, 0, time.UTC)
+	run, err := dashboardRunFromRow(map[string]any{
+		"id":                   int64(1),
+		"dag_version_snapshot": int64(1),
+		"budget_used":          int64(0),
+		"run_key":              "run-1",
+		"dag_key":              "dag-1",
+		"started_at":           now,
+		"created_at":           now,
+		"updated_at":           now,
+		"events":               "Running",
+		"metadata":             "Running",
+	})
+	if err != nil {
+		t.Fatalf("dashboardRunFromRow() error = %v", err)
+	}
+	if string(run.Events) != `"Running"` || string(run.Metadata) != `"Running"` {
+		t.Fatalf("dashboardRunFromRow invalid JSON = events %q metadata %q, want quoted raw string", run.Events, run.Metadata)
+	}
+	if !json.Valid(run.Events) || !json.Valid(run.Metadata) {
+		t.Fatalf("dashboardRunFromRow returned invalid JSON: events=%q metadata=%q", run.Events, run.Metadata)
 	}
 }
 

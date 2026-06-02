@@ -3,10 +3,12 @@ package wails
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"hash/fnv"
 	"strings"
 	"testing"
 
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/observability"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
@@ -101,12 +103,7 @@ func TestCallAPIInjectsTraceContextAndStripsFrontendTraceMeta(t *testing.T) {
 		if method != "ui/selectFiles" {
 			t.Fatalf("method = %q, want ui/selectFiles", method)
 		}
-		if got := pkglogger.TraceIDFromContext(ctx); got != traceID {
-			t.Fatalf("trace_id = %q, want %q", got, traceID)
-		}
-		if got := pkglogger.SpanIDFromContext(ctx); got != spanID {
-			t.Fatalf("span_id = %q, want %q", got, spanID)
-		}
+		assertContextTraceChild(t, ctx, traceID, spanID)
 		captured = append(json.RawMessage(nil), params...)
 		return json.RawMessage(`{"ok":true}`), nil
 	}}
@@ -126,6 +123,112 @@ func TestCallAPIInjectsTraceContextAndStripsFrontendTraceMeta(t *testing.T) {
 	}
 	if got["defaultPath"] != "/tmp" {
 		t.Fatalf("captured params = %#v, want defaultPath preserved", got)
+	}
+}
+
+func assertContextTraceChild(t *testing.T, ctx context.Context, traceID string, parentSpanID string) {
+	t.Helper()
+	if got := pkglogger.TraceIDFromContext(ctx); got != traceID {
+		t.Fatalf("trace_id = %q, want %q", got, traceID)
+	}
+	spanID := pkglogger.SpanIDFromContext(ctx)
+	if spanID == "" || spanID == parentSpanID {
+		t.Fatalf("span_id = %q, want generated backend child span", spanID)
+	}
+	if got := pkglogger.ParentSpanIDFromContext(ctx); got != parentSpanID {
+		t.Fatalf("parent_span_id = %q, want %q", got, parentSpanID)
+	}
+	trace, ok := observability.TraceFromContext(ctx)
+	if !ok {
+		t.Fatal("observability trace context missing")
+	}
+	if trace.TraceID != traceID || trace.SpanID != spanID || trace.ParentSpanID != parentSpanID {
+		t.Fatalf("observability trace context = (%q,%q,%q), want (%q,%q,%q)", trace.TraceID, trace.SpanID, trace.ParentSpanID, traceID, spanID, parentSpanID)
+	}
+}
+
+func assertWailsTraceEvent(t *testing.T, event observability.TraceEvent, traceID string, parentSpanID string) {
+	t.Helper()
+	if event.TraceID != traceID || event.ParentSpanID != parentSpanID || event.SpanID == "" || event.SpanID == parentSpanID {
+		t.Fatalf("trace context = (%q,%q,%q), want child of frontend span", event.TraceID, event.SpanID, event.ParentSpanID)
+	}
+}
+
+func assertTracePayloadExcludes(t *testing.T, event observability.TraceEvent, forbidden ...string) {
+	t.Helper()
+	encoded, err := json.Marshal(event)
+	if err != nil {
+		t.Fatalf("Marshal event: %v", err)
+	}
+	payload := string(encoded)
+	for _, current := range forbidden {
+		if strings.Contains(payload, current) {
+			t.Fatalf("trace event leaked %q: %s", current, payload)
+		}
+	}
+}
+
+type failingTraceSink struct{ err error }
+
+func (s failingTraceSink) Append(context.Context, observability.TraceEvent) error { return s.err }
+
+func TestCallAPITraceWriteFailureDoesNotBlockDispatch(t *testing.T) {
+	cfg, err := observability.ParseConfig(observability.EnvMap{"OBS_TRACING_ENABLED": "true"})
+	if err != nil {
+		t.Fatalf("ParseConfig: %v", err)
+	}
+	svc := observability.NewService(cfg, observability.WithSink(failingTraceSink{err: errors.New("trace sink unavailable")}))
+	called := false
+	app := &App{
+		observability: svc,
+		dispatch: func(ctx context.Context, method string, params json.RawMessage) (json.RawMessage, error) {
+			called = true
+			assertContextTraceChild(t, ctx, "4bf92f3577b34da6a3ce929d0e0e4736", "00f067aa0ba902b7")
+			return json.RawMessage(`{"ok":true}`), nil
+		},
+	}
+
+	got, err := app.CallAPI("thread/start", json.RawMessage(`{"_aoTraceparent":"00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01"}`))
+	if err != nil {
+		t.Fatalf("CallAPI() error = %v, want trace sink failure to be best-effort", err)
+	}
+	if !called || got == nil {
+		t.Fatalf("dispatch called = %v, result = %#v", called, got)
+	}
+}
+
+func TestCallAPIRecordsLifecycleEventsWithoutRawParams(t *testing.T) {
+	cfg, err := observability.ParseConfig(observability.EnvMap{"OBS_TRACING_ENABLED": "true"})
+	if err != nil {
+		t.Fatalf("ParseConfig: %v", err)
+	}
+	svc := observability.NewService(cfg)
+	const traceID = "4bf92f3577b34da6a3ce929d0e0e4736"
+	const frontendSpanID = "00f067aa0ba902b7"
+	app := &App{
+		observability: svc,
+		dispatch: func(ctx context.Context, method string, params json.RawMessage) (json.RawMessage, error) {
+			if method != "thread/start" {
+				t.Fatalf("method = %q, want thread/start", method)
+			}
+			return json.RawMessage(`{"ok":true}`), nil
+		},
+	}
+
+	_, err = app.CallAPI("thread/start", json.RawMessage(`{"baseInstructions":"secret prompt","_aoTraceparent":"00-`+traceID+`-`+frontendSpanID+`-01","_aoTraceId":"`+traceID+`","_aoSpanId":"`+frontendSpanID+`"}`))
+	if err != nil {
+		t.Fatalf("CallAPI(thread/start) error = %v", err)
+	}
+	events := svc.Query(context.Background(), observability.Query{TraceID: traceID}).Events
+	if len(events) != 2 {
+		t.Fatalf("trace event count = %d, want 2: %#v", len(events), events)
+	}
+	if events[0].Kind != "wails.call_api.start" || events[1].Kind != "wails.call_api.done" {
+		t.Fatalf("event kinds = %q, %q; want wails start/done", events[0].Kind, events[1].Kind)
+	}
+	for _, event := range events {
+		assertWailsTraceEvent(t, event, traceID, frontendSpanID)
+		assertTracePayloadExcludes(t, event, "secret prompt", "params_preview", "ParamsPreview", "rpcParamPreview")
 	}
 }
 
@@ -167,12 +270,7 @@ func TestCallAPIPreservesUILogClientMetaButConsumesTraceMeta(t *testing.T) {
 		if method != "ui/log" {
 			t.Fatalf("method = %q, want ui/log", method)
 		}
-		if got := pkglogger.TraceIDFromContext(ctx); got != traceID {
-			t.Fatalf("trace_id = %q, want %q", got, traceID)
-		}
-		if got := pkglogger.SpanIDFromContext(ctx); got != spanID {
-			t.Fatalf("span_id = %q, want %q", got, spanID)
-		}
+		assertContextTraceChild(t, ctx, traceID, spanID)
 		captured = append(json.RawMessage(nil), params...)
 		return json.RawMessage(`{"ok":true}`), nil
 	}}

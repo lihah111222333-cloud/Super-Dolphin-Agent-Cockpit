@@ -22,6 +22,7 @@ import {
   saveClipboardImage,
   beginTextClipboardWrite,
   copyTextToClipboard,
+  emitFrontendTraceEvent,
   selectFiles,
   selectProjectDir,
   setActiveProject as setActiveProjectRPC,
@@ -37,6 +38,7 @@ const DEFAULT_PROVIDER = 'codex';
 const MAX_WARNING_ENTRIES = 300;
 const MAX_RUNTIME_RESULT_ENTRIES = 120;
 const RUNTIME_RESULT_DETAIL_LIMIT = 1600;
+const BRIDGE_PATCH_SLOW_MS = 50;
 const THREAD_MESSAGES_PAGE_SIZE = 300;
 const PROVIDER_ACTIVE_PREF_KEY = 'settings.provider.active';
 const ACTIVE_PROMPT_PREF_KEY = 'settings.activePromptKey';
@@ -233,12 +235,11 @@ async function resolveLaunchPreferences(cwd) {
   if (providerScope === 'codex') {
     const codexHomeKey = providerPreferenceKey('codex', 'codexHome');
     const codexInstanceKeyKey = providerPreferenceKey('codex', 'codexInstanceKey');
-    const codexModelProviderKey = providerPreferenceKey('codex', 'codexModelProvider');
-    launch.config = {
+    launch.config = cleanObject({
       codexHome: requireProviderPreferenceValue(codexHome, codexHomeKey, 'startThread'),
       codexInstanceKey: requireProviderPreferenceValue(codexInstanceKey, codexInstanceKeyKey, 'startThread'),
-      codexModelProvider: requireProviderPreferenceValue(codexModelProvider, codexModelProviderKey, 'startThread'),
-    };
+      codexModelProvider: normalizeCodexIdentityValue(codexModelProvider),
+    });
   }
   return launch;
 }
@@ -1671,7 +1672,7 @@ export const useClientStore = create((set, get) => {
       model: requireProviderPreferenceValue(model, modelKey, 'provider.config'),
       effort: requireProviderPreferenceValue(effort, effortKey, 'provider.config'),
       codexModelProvider: providerScope === 'codex'
-        ? requireProviderPreferenceValue(codexModelProvider, codexModelProviderKey, 'provider.config')
+        ? normalizeCodexIdentityValue(codexModelProvider)
         : '',
     }, provider);
     set({ provider, providerConfig });
@@ -1845,34 +1846,57 @@ export const useClientStore = create((set, get) => {
     });
   };
 
-  const refreshChatSurfaceForCwdInBackground = (cwdValue) => {
+  const refreshSidebarSnapshotForCwdInBackground = (cwdValue, options = {}) => {
     const cwd = normalizePath(cwdValue);
     if (!cwd || cwd === '.') {
       throw new Error('frontend-app: cwd is required for project chat refresh');
     }
     const seq = ++sidebarRefreshSeq;
-    const cachedSidebar = sidebarSnapshotsByCwd.get(cwd);
-    clearChatSurfaceForCwdSwitch(cwd);
-    if (cachedSidebar) {
-      applySnapshot(cachedSidebar, { autoSelectThread: false, scopeCwd: cwd });
+    if (options.clearSurface) {
+      const cachedSidebar = sidebarSnapshotsByCwd.get(cwd);
+      clearChatSurfaceForCwdSwitch(cwd);
+      if (cachedSidebar) {
+        applySnapshot(cachedSidebar, { autoSelectThread: false, scopeCwd: cwd });
+      }
     }
     getSidebarState({ cwd })
       .then((sidebar) => {
         cacheSidebarSnapshot(cwd, sidebar);
         if (seq !== sidebarRefreshSeq || normalizePath(currentChatCwd()) !== cwd) return;
-        applySnapshot(sidebar, { autoSelectThread: false, scopeCwd: cwd });
-        set((state) => ({
-          chatSurfaceLoadingCwd: state.chatSurfaceLoadingCwd === cwd ? '' : state.chatSurfaceLoadingCwd,
-        }));
+        applySnapshot(sidebar, {
+          autoSelectThread: false,
+          scopeCwd: cwd,
+          preserveActiveThreadId: options.preserveActiveThreadId === true,
+        });
+        if (options.clearSurface) {
+          set((state) => ({
+            chatSurfaceLoadingCwd: state.chatSurfaceLoadingCwd === cwd ? '' : state.chatSurfaceLoadingCwd,
+          }));
+        }
       })
       .catch((error) => {
         if (seq !== sidebarRefreshSeq || normalizePath(currentChatCwd()) !== cwd) return;
-        set((state) => ({
-          chatSurfaceLoadingCwd: state.chatSurfaceLoadingCwd === cwd ? '' : state.chatSurfaceLoadingCwd,
-          actionNotice: actionNotice(`刷新会话列表失败：${error.message}`, 'error'),
-        }));
+        if (options.clearSurface) {
+          set((state) => ({
+            chatSurfaceLoadingCwd: state.chatSurfaceLoadingCwd === cwd ? '' : state.chatSurfaceLoadingCwd,
+            actionNotice: actionNotice(`刷新会话列表失败：${error.message}`, 'error'),
+          }));
+        }
         addWarning('error', 'thread.sidebar.refresh.failed', { cwd, error: error.message });
       });
+  };
+
+  const refreshChatSurfaceForCwdInBackground = (cwdValue) => {
+    refreshSidebarSnapshotForCwdInBackground(cwdValue, { clearSurface: true });
+  };
+
+  const refreshActiveChatSidebarInBackground = () => {
+    const cwd = currentChatCwd();
+    if (!cwd || cwd === '.') {
+      addWarning('warn', 'thread.sidebar.refresh.skipped', { reason: 'missing_cwd' });
+      return;
+    }
+    refreshSidebarSnapshotForCwdInBackground(cwd, { preserveActiveThreadId: true });
   };
 
   const loadThreadMessages = async (threadId, options = {}) => {
@@ -2081,7 +2105,9 @@ export const useClientStore = create((set, get) => {
       sequencesByThread.set(threadId, sequence);
     }
 
-    const timelineItems = payload.timelineItems || payload.timeline_items;
+    const patchStart = Date.now();
+    try {
+      const timelineItems = payload.timelineItems || payload.timeline_items;
     const runtimeResultEntries = runtimeResultEntriesFromTimelineItems(timelineItems, threadId);
     const tokenUsage = normalizeTokenUsage(payload.tokenUsage || payload.token_usage);
     const activityStats = normalizeActivityStats(payload.activityStats || payload.activity_stats);
@@ -2191,6 +2217,20 @@ export const useClientStore = create((set, get) => {
         }, ...state.activityEntries].slice(0, 120),
       };
     });
+    } finally {
+      const durationMs = Date.now() - patchStart;
+      if (durationMs >= BRIDGE_PATCH_SLOW_MS) {
+        emitFrontendTraceEvent({
+          phase: 'frontend.patch.apply.slow',
+          method,
+          thread_id: threadId,
+          agent_id: normalizeString(payload.agentId || payload.agent_id || payload.agentRuntime?.agentId || payload.agent_runtime?.agent_id),
+          turn_id: normalizeString(payload.turnId || payload.turn_id || payload.activeTurn?.id || payload.active_turn?.id),
+          duration_ms: durationMs,
+          status: 'ok',
+        });
+      }
+    }
   };
 
   const handleBridgeEvent = (evt) => {
@@ -2231,6 +2271,10 @@ export const useClientStore = create((set, get) => {
       || eventName === 'dags/changed'
     ) {
       set((state) => ({ workflowRevision: state.workflowRevision + 1 }));
+      return;
+    }
+    if (eventName === 'ui/sidebar/changed') {
+      refreshActiveChatSidebarInBackground();
       return;
     }
     if (method === 'ui/thread/patch') {

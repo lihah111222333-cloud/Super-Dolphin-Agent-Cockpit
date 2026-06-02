@@ -31,6 +31,7 @@ const backend = vi.hoisted(() => ({
   selectFiles: vi.fn(),
   beginTextClipboardWrite: vi.fn(),
   copyTextToClipboard: vi.fn(),
+  emitFrontendTraceEvent: vi.fn(),
   onBridgeEvent: vi.fn((callback) => {
     bridgeCallback = callback;
     return () => {
@@ -161,6 +162,33 @@ describe('useClientStore backend contract', () => {
 
     expect(backend.getProjects).not.toHaveBeenCalled();
     expect(useClientStore.getState().bootstrapStatus).toBe('failed');
+  });
+
+  it('bootstraps when optional Codex model provider preference is absent', async () => {
+    backend.getPreference.mockImplementation(({ key }) => Promise.resolve({
+      'settings.provider.active': 'codex',
+      'settings.provider.codex.model': 'gpt-5.5',
+      'settings.provider.codex.effort': 'xhigh',
+      'settings.provider.codex.codexHome': '~/.codex',
+      'settings.provider.codex.codexInstanceKey': 'default',
+    }[key] ?? null));
+
+    await useClientStore.getState().bootstrap();
+
+    expect(useClientStore.getState().bootstrapStatus).toBe('ready');
+    expect(backend.getProjects).toHaveBeenCalledWith({ cwd: '/repo/app' });
+    expect(backend.getSidebarState).toHaveBeenCalledWith({ cwd: '/repo/app' });
+    expect(backend.getThreadState).toHaveBeenCalledWith({
+      cwd: '/repo/app',
+      threadId: 'thread-1',
+      includeDiff: true,
+    });
+    expect(useClientStore.getState().providerConfig).toEqual(expect.objectContaining({
+      provider: 'codex',
+      model: 'gpt-5.5',
+      effort: 'xhigh',
+      codexModelProvider: '',
+    }));
   });
 
   it('hydrates thread providers from sidebar runtime metadata', async () => {
@@ -1492,6 +1520,41 @@ describe('useClientStore backend contract', () => {
     ]);
   });
 
+  it('emits a sanitized slow patch trace after thresholded bridge patch application', () => {
+    resetClientStoreForTests({
+      threads: [{ id: 'thread-new', name: 'Trace me', provider: 'codex', status: 'running' }],
+    });
+    const nowSpy = vi.spyOn(Date, 'now')
+      .mockReturnValueOnce(0)
+      .mockReturnValueOnce(10)
+      .mockReturnValueOnce(75);
+    useClientStore.getState().initializeEvents();
+
+    bridgeCallback({
+      type: 'ui/thread/patch',
+      payload: {
+        threadId: 'thread-new',
+        sequence: '1',
+        prompt: 'forbidden prompt text',
+        timelineItems: [{ id: 'assistant-1', kind: 'assistant', text: 'AI reply' }],
+        agentRuntime: { agentId: 'agent-1' },
+        activeTurn: { id: 'turn-1' },
+      },
+    });
+
+    expect(backend.emitFrontendTraceEvent).toHaveBeenCalledWith(expect.objectContaining({
+      phase: 'frontend.patch.apply.slow',
+      method: 'ui/thread/patch',
+      thread_id: 'thread-new',
+      agent_id: 'agent-1',
+      turn_id: 'turn-1',
+      duration_ms: 75,
+      status: 'ok',
+    }));
+    expect(JSON.stringify(backend.emitFrontendTraceEvent.mock.calls[0][0])).not.toContain('prompt');
+    nowSpy.mockRestore();
+  });
+
   it('preserves the selected Claude provider when runtime patches omit provider metadata', () => {
     resetClientStoreForTests({
       cwd: '/repo/app',
@@ -1570,6 +1633,38 @@ describe('useClientStore backend contract', () => {
       payload: { job_id: 'job-1', run_id: 'run-1', status: 'running' },
     });
     expect(useClientStore.getState().workflowRevision).toBe(2);
+  });
+
+  it('refreshes the chat list when the backend sidebar projection changes', async () => {
+    resetClientStoreForTests({
+      cwd: '/repo/app',
+      activeProject: '/repo/app',
+      activeThreadId: 'thread-main',
+      threads: [{ id: 'thread-main', name: 'Main agent', provider: 'codex', status: 'running' }],
+    });
+    backend.getSidebarState.mockResolvedValueOnce({
+      activeThreadId: 'thread-main',
+      threads: [
+        { id: 'thread-main', name: 'Main agent', provider: 'codex', status: 'running' },
+        { id: 'thread-child', name: 'Child agent', provider: 'codex', status: 'running' },
+      ],
+    });
+    useClientStore.getState().initializeEvents();
+
+    bridgeCallback({
+      type: 'ui/sidebar/changed',
+      payload: { projection: 'sidebar', revision: 2 },
+    });
+
+    await vi.waitFor(() => {
+      expect(backend.getSidebarState).toHaveBeenCalledWith({ cwd: '/repo/app' });
+    });
+    await vi.waitFor(() => {
+      expect(useClientStore.getState().threads).toEqual(expect.arrayContaining([
+        expect.objectContaining({ id: 'thread-child', name: 'Child agent' }),
+      ]));
+    });
+    expect(useClientStore.getState().activeThreadId).toBe('thread-main');
   });
 
   it('increments prompt revision from prompt and active-prompt preference bridge events', () => {

@@ -18,6 +18,11 @@ import {
   getDashboardPage,
   getMemoryEntry,
   getMemorySnapshot,
+  getObservabilityStatus,
+  getObservabilityTrace,
+  getObservabilityThreadRecent,
+  listObservabilityErrors,
+  listObservabilitySlow,
   getDagDetail,
   getDagRun,
   getDagRuns,
@@ -52,6 +57,7 @@ const navItems = [
   { id: 'workflows', label: '自动化', icon: Workflow },
   { id: 'skills', label: '技能', icon: Sparkles },
   { id: 'memory', label: '记忆中心', icon: Brain },
+  { id: 'observability', label: '链路追踪', icon: Search },
   { id: 'files', label: '共享文件', icon: FolderOpen },
   { id: 'settings', label: '设置', icon: MoreHorizontal },
 ];
@@ -134,6 +140,7 @@ const MEMORY_EDITOR_TYPES = Object.freeze([
   { key: 'feedback', label: '偏好' },
   { key: 'project', label: '项目' },
 ]);
+export const APP_PROFILER_ID = 'App';
 const COMPOSER_DROP_TARGET_IDS = new Set(['chat-input-bar', 'composer-input', 'chatInput']);
 
 const THEME_STORAGE_KEY = 'super-dolphin-theme';
@@ -2952,6 +2959,7 @@ function AppShell({ skipBootstrap = false }) {
             />
           ) : null}
           {store.activePage === 'files' ? <FilesPage projectPath={projectPath} store={store} /> : null}
+          {store.activePage === 'observability' ? <ObservabilityPage /> : null}
           {store.activePage === 'settings' ? <SettingsPage projectPath={projectPath} /> : null}
           <span className="sr-only">当前页面：{activeLabel}</span>
         </main>
@@ -7837,6 +7845,167 @@ function MemoryMergeModal({ group, merging, onClose, onConfirm }) {
         </footer>
     </FocusTrapDialog>
   );
+}
+
+function ObservabilityPage() {
+  const [traceId, setTraceId] = useState('');
+  const [threadId, setThreadId] = useState('');
+  const [component, setComponent] = useState('');
+  const [limit, setLimit] = useState('50');
+  const [status, setStatus] = useState(null);
+  const [traceResult, setTraceResult] = useState(null);
+  const [threadResult, setThreadResult] = useState(null);
+  const [slowResult, setSlowResult] = useState(null);
+  const [errorResult, setErrorResult] = useState(null);
+  const [notice, setNotice] = useState('');
+  const [loading, setLoading] = useState(false);
+
+  const queryLimit = useMemo(() => {
+    const value = Number(limit);
+    return Number.isInteger(value) && value > 0 ? value : 50;
+  }, [limit]);
+
+  const refreshStatus = useCallback(async () => {
+    const next = await getObservabilityStatus();
+    setStatus(next);
+  }, []);
+
+  const refreshLists = useCallback(async () => {
+    const params = { limit: queryLimit, component: component.trim() };
+    const [slow, errors] = await Promise.all([
+      listObservabilitySlow(params),
+      listObservabilityErrors(params),
+    ]);
+    setSlowResult(slow);
+    setErrorResult(errors);
+  }, [component, queryLimit]);
+
+  const runQuery = useCallback(async (kind) => {
+    setLoading(true);
+    setNotice('');
+    try {
+      if (kind === 'trace') {
+        setTraceResult(await getObservabilityTrace({ traceId, limit: queryLimit }));
+      } else if (kind === 'thread') {
+        setThreadResult(await getObservabilityThreadRecent({ threadId, limit: queryLimit }));
+      } else {
+        await refreshLists();
+      }
+      await refreshStatus();
+    } catch (error) {
+      setNotice(errorMessage(error));
+    } finally {
+      setLoading(false);
+    }
+  }, [queryLimit, refreshLists, refreshStatus, threadId, traceId]);
+
+  useEffect(() => {
+    let cancelled = false;
+    getObservabilityStatus()
+      .then((next) => {
+        if (!cancelled) setStatus(next);
+      })
+      .catch((error) => {
+        if (!cancelled) setNotice(errorMessage(error));
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  return (
+    <section className="settings-page observability-page" data-testid="observability-page">
+      <div className="settings-header">
+        <div>
+          <p className="eyebrow">Observability</p>
+          <h1>链路追踪 Dashboard</h1>
+          <p>通过 trace id / thread id 定位慢点、错误、代码锚点和 compact stack。查询只走 observability RPC，不访问 PG。</p>
+        </div>
+        <button type="button" className="btn secondary" onClick={() => runQuery('lists')} disabled={loading}>刷新慢点/错误</button>
+      </div>
+
+      {notice ? <div className="settings-alert error">{notice}</div> : null}
+      <ObservabilityStatusCard status={status} />
+
+      <div className="settings-grid">
+        <label>
+          Trace ID
+          <input value={traceId} onChange={(event) => setTraceId(event.target.value)} placeholder="00-... 或 trace_id" />
+        </label>
+        <label>
+          Thread ID
+          <input value={threadId} onChange={(event) => setThreadId(event.target.value)} placeholder="thread_..." />
+        </label>
+        <label>
+          Component filter
+          <input value={component} onChange={(event) => setComponent(event.target.value)} placeholder="rpc / tool / wails" />
+        </label>
+        <label>
+          Limit
+          <input value={limit} onChange={(event) => setLimit(event.target.value)} inputMode="numeric" />
+        </label>
+      </div>
+
+      <div className="settings-actions">
+        <button type="button" className="btn primary" onClick={() => runQuery('trace')} disabled={loading || !traceId.trim()}>查询 Trace</button>
+        <button type="button" className="btn secondary" onClick={() => runQuery('thread')} disabled={loading || !threadId.trim()}>查询 Thread Recent</button>
+      </div>
+
+      <ObservabilityResult title="Trace 查询结果" result={traceResult} />
+      <ObservabilityResult title="Thread Recent" result={threadResult} />
+      <ObservabilityResult title="Slow List" result={slowResult} />
+      <ObservabilityResult title="Error List" result={errorResult} />
+    </section>
+  );
+}
+
+function ObservabilityStatusCard({ status }) {
+  if (!status) return <div className="settings-card">Tracing status loading...</div>;
+  return (
+    <div className="settings-card" data-testid="observability-status">
+      <h2>Status</h2>
+      <p>{status.enabled ? 'enabled' : `disabled: ${status.disabled_reason || 'no reason'}`}</p>
+      <p>schema={status.schema_version} index_trace_keys={status.index_trace_keys || 0} sink_events={status.sink_events_written || 0} sink_errors={status.sink_write_errors || 0}</p>
+    </div>
+  );
+}
+
+function ObservabilityResult({ title, result }) {
+  if (!result) return null;
+  return (
+    <div className="settings-card observability-result">
+      <h2>{title}</h2>
+      <p>source={result.source || 'memory'} total_duration_ms={result.total_duration_ms || 0} truncated={String(Boolean(result.truncated))}</p>
+      <TraceEventTable events={result.events || []} />
+    </div>
+  );
+}
+
+function TraceEventTable({ events }) {
+  if (!events.length) return <div className="empty-state">没有匹配的 trace events</div>;
+  return (
+    <div className="observability-table" role="table">
+      {events.map((event, index) => (
+        <div className="settings-row" role="row" key={`${event.trace_id || 'trace'}-${event.span_id || index}`}>
+          <div>
+            <strong>{event.method || event.phase || event.kind || 'event'}</strong>
+            <p>{event.status || 'ok'} · {event.duration_ms || 0}ms · thread={event.thread_id || '-'} · turn={event.turn_id || '-'}</p>
+            <p>agent={event.agent_id || '-'} · call={event.call_id || '-'} · tool={event.tool_name || '-'}</p>
+            <p>code={formatCodeAnchor(event.code)}</p>
+            {Array.isArray(event.stack) && event.stack.length ? <p>stack={event.stack.map(formatCodeAnchor).join(' → ')}</p> : null}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function formatCodeAnchor(anchor) {
+  if (!anchor || typeof anchor !== 'object') return '-';
+  const file = anchor.file || '-';
+  const fn = anchor.function || '-';
+  const line = anchor.line || 0;
+  return `${file}:${line} ${fn}`;
 }
 
 function SettingsPage({ projectPath }) {

@@ -13,6 +13,33 @@ let rpcRequestSeq = 0;
 let runtimePromise = null;
 const WAILS_RUNTIME_MODULE = '/wails/runtime.js';
 const RPC_RESULT_PREVIEW_LIMIT = 1200;
+const FRONTEND_TRACE_INGEST_METHOD = 'observability/frontend/ingest';
+const FRONTEND_TRACE_BATCH_LIMIT = 50;
+const FRONTEND_TRACE_QUEUE_LIMIT = 500;
+const FRONTEND_TRACE_RPC_SLOW_MS = 1000;
+const FRONTEND_TRACE_ALLOWED_PHASES = new Set([
+  'frontend.rpc.start',
+  'frontend.rpc.done',
+  'frontend.rpc.failed',
+  'frontend.patch.apply.slow',
+  'frontend.render.slow',
+]);
+const FRONTEND_TRACE_ALLOWED_METADATA_KEYS = new Set(['req_id', 'component', 'react_phase']);
+const FRONTEND_TRACE_FORBIDDEN_KEYS = new Set([
+  'result_preview',
+  'prompt',
+  'user_prompt',
+  'user_message',
+  'message_text',
+  'text',
+  'content',
+  'file_content',
+  'file_contents',
+  'tool_result',
+  'tool_results',
+  'stack',
+  'raw_stack',
+]);
 
 // Track active log store to pipe warnings and errors
 let logStoreInstance = null;
@@ -204,6 +231,126 @@ function createTraceContext() {
   };
 }
 
+let frontendTraceQueue = [];
+let frontendTraceFlushScheduled = false;
+let frontendTraceFlushInFlight = false;
+
+function isFrontendTraceDebugEnabled() {
+  if (typeof window === 'undefined') return false;
+  if (window.__AO_FRONTEND_TRACE_DEBUG__ === true) return true;
+  try {
+    return window.localStorage?.getItem('observability.frontend.debug') === 'true';
+  } catch {
+    return false;
+  }
+}
+
+function safeTraceString(value, limit = 160) {
+  const text = (value || '').toString().trim();
+  if (!text) return '';
+  return text.length > limit ? `${text.slice(0, limit)}…` : text;
+}
+
+function safeTraceMetadata(metadata) {
+  if (!metadata || typeof metadata !== 'object' || Array.isArray(metadata)) return undefined;
+  const out = {};
+  for (const [key, value] of Object.entries(metadata)) {
+    if (!FRONTEND_TRACE_ALLOWED_METADATA_KEYS.has(key)) continue;
+    if (FRONTEND_TRACE_FORBIDDEN_KEYS.has(key)) continue;
+    if (value === undefined || value === null || value === '') continue;
+    if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
+      out[key] = typeof value === 'string' ? safeTraceString(value) : value;
+    }
+  }
+  return Object.keys(out).length > 0 ? out : undefined;
+}
+
+function sanitizeFrontendTraceEvent(event) {
+  if (!event || typeof event !== 'object' || Array.isArray(event)) return null;
+  const phase = safeTraceString(event.phase);
+  if (!FRONTEND_TRACE_ALLOWED_PHASES.has(phase)) return null;
+  const durationMS = Number(event.duration_ms);
+  const out = {
+    ts: new Date().toISOString(),
+    phase,
+    status: event.status === 'error' ? 'error' : 'ok',
+  };
+  for (const [target, source, limit] of [
+    ['trace_id', 'trace_id', 64],
+    ['span_id', 'span_id', 32],
+    ['parent_span_id', 'parent_span_id', 32],
+    ['method', 'method', 160],
+    ['thread_id', 'thread_id', 160],
+    ['agent_id', 'agent_id', 160],
+    ['turn_id', 'turn_id', 160],
+    ['call_id', 'call_id', 160],
+    ['client_kind', 'client_kind', 80],
+    ['client_route', 'client_route', 240],
+  ]) {
+    const value = safeTraceString(event[source], limit);
+    if (value) out[target] = value;
+  }
+  if (Number.isFinite(durationMS) && durationMS >= 0) out.duration_ms = Math.round(durationMS);
+  if (event.status === 'error') {
+    const error = safeTraceString(event.error, 120);
+    if (error) out.error = error;
+  }
+  const metadata = safeTraceMetadata(event.metadata);
+  if (metadata) out.metadata = metadata;
+  return out;
+}
+
+function shouldRemoteFlushFrontendTrace(event) {
+  if (!event) return false;
+  if (event.status === 'error') return true;
+  if (event.phase === 'frontend.patch.apply.slow' || event.phase === 'frontend.render.slow') return true;
+  if (event.phase === 'frontend.rpc.done' && Number(event.duration_ms) >= FRONTEND_TRACE_RPC_SLOW_MS) return true;
+  return isFrontendTraceDebugEnabled();
+}
+
+async function flushFrontendTraceQueue() {
+  if (frontendTraceFlushInFlight || frontendTraceQueue.length === 0) return;
+  frontendTraceFlushScheduled = false;
+  frontendTraceFlushInFlight = true;
+  const batch = frontendTraceQueue.splice(0, FRONTEND_TRACE_BATCH_LIMIT);
+  try {
+    const runtime = await waitRuntime();
+    if (runtime?.Call?.ByID) {
+      await runtime.Call.ByID(METHOD_IDS.CALL_API, FRONTEND_TRACE_INGEST_METHOD, { events: batch });
+    }
+  } catch (error) {
+    console.warn('[Bridge warn] frontend.trace.flush.failed', {
+      error: error?.name || 'Error',
+      count: batch.length,
+    });
+  } finally {
+    frontendTraceFlushInFlight = false;
+    if (frontendTraceQueue.length > 0) scheduleFrontendTraceFlush();
+  }
+}
+
+function scheduleFrontendTraceFlush() {
+  if (frontendTraceFlushScheduled || frontendTraceFlushInFlight) return;
+  frontendTraceFlushScheduled = true;
+  Promise.resolve().then(flushFrontendTraceQueue);
+}
+
+function enqueueFrontendTraceEvent(event) {
+  if (frontendTraceQueue.length >= FRONTEND_TRACE_QUEUE_LIMIT) {
+    const overflow = frontendTraceQueue.length - FRONTEND_TRACE_QUEUE_LIMIT + 1;
+    frontendTraceQueue.splice(0, overflow);
+  }
+  frontendTraceQueue.push(event);
+}
+
+export function emitFrontendTraceEvent(event, options = {}) {
+  const sanitized = sanitizeFrontendTraceEvent(event);
+  if (!shouldRemoteFlushFrontendTrace(sanitized)) return false;
+  enqueueFrontendTraceEvent(sanitized);
+  if (options.flush !== false) scheduleFrontendTraceFlush();
+  return true;
+}
+
 async function invokeRuntimeByID(methodID, args = [], options = {}) {
   const reqId = ++bridgeRequestSeq;
   const start = Date.now();
@@ -306,12 +453,23 @@ export async function callAPI(method, params = {}) {
     traceparent: trace.traceparent,
     param_keys: Object.keys(payload),
   });
+  emitFrontendTraceEvent({
+    phase: 'frontend.rpc.start',
+    method,
+    trace_id: trace.traceId,
+    span_id: trace.spanId,
+    client_kind: clientKind,
+    client_route: clientRoute,
+    status: 'ok',
+    metadata: { req_id: reqId },
+  }, { flush: false });
 
   try {
     const result = await invokeRuntimeByID(METHOD_IDS.CALL_API, [method, payload], {
       logFailure: false,
       logRuntimeUnavailable: false,
     });
+    const durationMs = Date.now() - start;
     writeBridgeLog('debug', 'api.rpc.done', {
       req_id: reqId,
       method,
@@ -320,11 +478,23 @@ export async function callAPI(method, params = {}) {
       trace_id: trace.traceId,
       span_id: trace.spanId,
       traceparent: trace.traceparent,
-      duration_ms: Date.now() - start,
+      duration_ms: durationMs,
       result_preview: compactBridgeValuePreview(result),
+    });
+    emitFrontendTraceEvent({
+      phase: 'frontend.rpc.done',
+      method,
+      trace_id: trace.traceId,
+      span_id: trace.spanId,
+      client_kind: clientKind,
+      client_route: clientRoute,
+      duration_ms: durationMs,
+      status: 'ok',
+      metadata: { req_id: reqId },
     });
     return result;
   } catch (error) {
+    const durationMs = Date.now() - start;
     writeBridgeLog('error', 'api.rpc.failed', {
       req_id: reqId,
       method,
@@ -333,8 +503,20 @@ export async function callAPI(method, params = {}) {
       trace_id: trace.traceId,
       span_id: trace.spanId,
       traceparent: trace.traceparent,
-      duration_ms: Date.now() - start,
+      duration_ms: durationMs,
       error,
+    });
+    emitFrontendTraceEvent({
+      phase: 'frontend.rpc.failed',
+      method,
+      trace_id: trace.traceId,
+      span_id: trace.spanId,
+      client_kind: clientKind,
+      client_route: clientRoute,
+      duration_ms: durationMs,
+      status: 'error',
+      error: error?.code || error?.name || 'Error',
+      metadata: { req_id: reqId },
     });
     throw error;
   }
