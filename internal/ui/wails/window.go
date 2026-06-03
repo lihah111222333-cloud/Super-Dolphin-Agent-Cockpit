@@ -74,8 +74,19 @@ func bindFileDrop(window *application.WebviewWindow, app *application.App, bindi
 		if !ok {
 			return
 		}
-		app.Event.Emit("files-dropped", payload)
+		emitFilesDroppedEvent(app, binding, payload)
 	})
+}
+
+func emitFilesDroppedEvent(app *application.App, binding *App, payload map[string]any) {
+	if binding != nil {
+		binding.emitRuntimeEvent("files-dropped", payload)
+		return
+	}
+	if app == nil || app.Event == nil {
+		return
+	}
+	app.Event.Emit("files-dropped", payload)
 }
 
 func buildFilesDroppedPayload(files []string, details *application.DropTargetDetails) (map[string]any, bool) {

@@ -175,12 +175,7 @@ func applyItemCompleted(it *Item, ev turndto.ItemCompleted, success bool) {
 }
 
 func appendCompletedItemFallback(svc Service, threadID string, ev turndto.ItemCompleted, updateKey string, success bool) bool {
-	if util.FirstNonEmpty(
-		strings.TrimSpace(ev.ItemType),
-		strings.TrimSpace(ev.Command),
-		strings.TrimSpace(ev.File),
-		strings.TrimSpace(ev.ToolName),
-	) == "" {
+	if !shouldAppendCompletedItemFallback(ev) {
 		return false
 	}
 	item := Item{
@@ -207,6 +202,29 @@ func appendCompletedItemFallback(svc Service, threadID string, ev turndto.ItemCo
 	}
 	svc.Append(threadID, strings.TrimSpace(ev.AgentID), item)
 	return true
+}
+
+func shouldAppendCompletedItemFallback(ev turndto.ItemCompleted) bool {
+	itemType := strings.TrimSpace(ev.ItemType)
+	command := strings.TrimSpace(ev.Command)
+	file := strings.TrimSpace(ev.File)
+	toolName := strings.TrimSpace(ev.ToolName)
+	if util.FirstNonEmpty(itemType, command, file, toolName) == "" {
+		return false
+	}
+	if strings.TrimSpace(ev.CallID) != "" || command != "" || file != "" || strings.TrimSpace(ev.Error) != "" {
+		return true
+	}
+	return !isMessageItemType(itemType)
+}
+
+func isMessageItemType(itemType string) bool {
+	switch strings.ToLower(strings.TrimSpace(itemType)) {
+	case "message", "usermessage", "user_message", "assistantmessage", "assistant_message":
+		return true
+	default:
+		return false
+	}
 }
 
 func applyToolCallCompleted(it *Item, ev tooldto.ToolCallEnd, success bool) {

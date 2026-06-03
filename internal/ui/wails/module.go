@@ -39,12 +39,17 @@ type appParams struct {
 	Dispatcher    contract.RPCDispatcher
 	Config        *config.Config
 	Observability *observability.Service `optional:"true"`
+	RPCServer     *rpc.Server
+	PushBridge    *rpc.PushBridge
 }
 
 func NewApp(p appParams) *App {
 	return &App{
-		dispatch:      p.Dispatcher.Dispatch,
-		emitter:       func(string, any) {},
+		dispatch: p.Dispatcher.Dispatch,
+		emitter:  func(string, any) {},
+		pushRuntimeEvent: func(ctx context.Context, event string, payload any) {
+			p.RPCServer.NotifyAll(ctx, p.PushBridge, event, payload)
+		},
 		windowTitle:   applicationTitle(),
 		debug:         isDebug(p.Config),
 		observability: p.Observability,
@@ -118,7 +123,7 @@ func NewWailsApplication(p applicationParams) *application.App {
 	}
 	wailsApp := application.New(application.Options{
 		Name:        title,
-		Description: "Super Agent desktop",
+		Description: "Super Dolphin desktop",
 		Logger:      p.Logger,
 		Services:    []application.Service{p.Service},
 		Assets: application.AssetOptions{
@@ -144,7 +149,7 @@ func NewWailsApplication(p applicationParams) *application.App {
 }
 
 func applicationTitle() string {
-	return "Super Agent"
+	return "Super Dolphin"
 }
 
 func isDebug(cfg *config.Config) bool {

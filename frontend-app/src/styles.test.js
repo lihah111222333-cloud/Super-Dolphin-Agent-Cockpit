@@ -52,10 +52,40 @@ function firstDeclarationsFor(selector) {
   return declarations;
 }
 
+function topLevelDeclarationsFor(selector) {
+  const declarations = {};
+  root.walkRules((rule) => {
+    if (rule.parent?.type !== 'root') return;
+    const selectors = splitSelectors(rule.selector);
+    if (!selectors.includes(selector)) return;
+    rule.walkDecls((decl) => {
+      declarations[decl.prop] = decl.value;
+    });
+  });
+  return declarations;
+}
+
 function mediaDeclarationsFor(mediaParams, selector) {
   const matches = [];
   root.walkAtRules('media', (atRule) => {
     if (atRule.params !== mediaParams) return;
+    atRule.walkRules((rule) => {
+      const selectors = splitSelectors(rule.selector);
+      if (!selectors.includes(selector)) return;
+      const declarations = {};
+      rule.walkDecls((decl) => {
+        declarations[decl.prop] = decl.value;
+      });
+      matches.push(declarations);
+    });
+  });
+  return matches;
+}
+
+function containerDeclarationsFor(containerParams, selector) {
+  const matches = [];
+  root.walkAtRules('container', (atRule) => {
+    if (atRule.params !== containerParams) return;
     atRule.walkRules((rule) => {
       const selectors = splitSelectors(rule.selector);
       if (!selectors.includes(selector)) return;
@@ -95,6 +125,10 @@ const TOKEN_COLOR_RULES = [
   ['.top-command .action-feedback.success', ['border-color', 'background', 'color']],
   ['.top-command .action-feedback.warning', ['border-color', 'background', 'color']],
   ['.top-command .action-feedback.error', ['border-color', 'background', 'color']],
+  ['.nav-rail button.active', ['background', 'color']],
+  ['.nav-rail button.active::before', ['background']],
+  ['.chat-scroll-bottom-btn', ['border', 'background', 'color']],
+  ['.chat-scroll-bottom-btn:hover', ['border-color', 'background', 'color']],
   ['.thread-new-primary', ['border-color', 'color']],
   ['.thread-archive-toggle.active', ['border-color', 'background', 'color']],
   ['.thread-clean', ['border-color', 'color']],
@@ -208,19 +242,27 @@ describe('composer layout styles', () => {
     expect(textarea['overflow-y']).toBe('auto');
   });
 
-  it('keeps composer permission and send controls aligned with the shell theme', () => {
-    const permission = declarationsFor('.permission-chip select');
+  it('keeps composer send controls aligned with the shell theme', () => {
     const sendIcon = declarationsFor('.composer .send svg');
 
-    expect(permission['border-color']).toBe('var(--border-strong)');
-    expect(permission.background).toBe('color-mix(in srgb, var(--surface-2) 88%, var(--bg))');
-    expect(permission.color).toBe('var(--text-sec)');
     expect(sendIcon.transform).toBe('rotate(-90deg)');
     expect(sendIcon['transform-origin']).toBe('50% 50%');
   });
 
+  it('keeps composer interrupt controls visually distinct from sending', () => {
+    const interruptButton = declarationsFor('.composer .send--interrupt');
+    const interruptIcon = declarationsFor('.composer .send--interrupt svg');
+
+    expect(interruptButton.background).toContain('var(--error)');
+    expect(interruptIcon.transform).toBe('none');
+  });
+
   it('keeps app rail and agent list icons on consistent fixed sizes', () => {
+    const nav = declarationsFor('.nav-rail nav');
+    const navButton = declarationsFor('.nav-rail button');
     const navIcon = declarationsFor('.nav-rail button svg');
+    const navActive = declarationsFor('.nav-rail button.active');
+    const navActiveMarker = declarationsFor('.nav-rail button.active::before');
     const threadToolIcon = declarationsFor('.thread-tools svg');
     const threadCardIcon = declarationsFor('.thread-card svg');
     const threadPin = declarationsFor('.thread-pin');
@@ -229,6 +271,12 @@ describe('composer layout styles', () => {
     const statusLine = declarationsFor('.thread-status-row');
     const statusDot = declarationsFor('.thread-status-dot');
 
+    expect(nav.gap).toBe('0');
+    expect(nav['padding-top']).toBe('0');
+    expect(navButton.width).toBe('100%');
+    expect(navButton['border-left']).toBeUndefined();
+    expect(navActive.background).toBe('color-mix(in srgb, var(--accent-2) 13%, transparent)');
+    expect(navActiveMarker.background).toBe('var(--accent-2)');
     expect(navIcon.width).toBe('20px');
     expect(navIcon.height).toBe('20px');
     expect(navIcon['flex-shrink']).toBe('0');
@@ -266,6 +314,38 @@ describe('composer layout styles', () => {
     expect(threadArchiveActive.outline).toBe(threadPinFocus.outline);
     expect(threadArchiveActive['box-shadow']).toBe(threadPinActive['box-shadow']);
     expect(threadArchiveFocus.outline).toBe(threadPinFocus.outline);
+  });
+
+  it('lets thread card actions adapt inside the agent list width', () => {
+    const card = declarationsFor('.thread-card');
+    const main = declarationsFor('.thread-main');
+    const editingMain = declarationsFor('.thread-main--editing');
+    const actions = firstDeclarationsFor('.thread-card-actions');
+    const archive = declarationsFor('.thread-archive');
+    const pin = declarationsFor('.thread-pin');
+    const rename = declarationsFor('.thread-rename-trigger');
+    const compactActions = containerDeclarationsFor('(max-width: 260px)', '.thread-card-actions');
+
+    expect(card['grid-template-columns']).toBe('minmax(0, 1fr) minmax(0, max-content)');
+    expect(card['container-type']).toBe('inline-size');
+    expect(card.padding).toBe('8px');
+    expect(main['grid-column']).toBe('1');
+    expect(main.padding).toBe('0');
+    expect(editingMain['padding-left']).toBe('0');
+    expect(editingMain['padding-right']).toBe('0');
+    expect(actions.display).toBe('flex');
+    expect(actions['flex-wrap']).toBe('wrap');
+    expect(actions['justify-content']).toBe('flex-end');
+    expect(actions['max-width']).toBe('78px');
+    expect(archive.position).toBe('relative');
+    expect(pin.position).toBe('relative');
+    expect(rename.position).toBe('relative');
+    expect(archive.transform).toBe('none');
+    expect(pin.transform).toBe('none');
+    expect(rename.transform).toBe('none');
+    expect(compactActions).toHaveLength(1);
+    expect(compactActions[0]['max-width']).toBe('22px');
+    expect(compactActions[0]['flex-direction']).toBe('column');
   });
 
   it('keeps workflow run history rows aligned as scannable data columns', () => {
@@ -307,10 +387,13 @@ describe('composer layout styles', () => {
     const tooltipName = declarationsFor('.runtime-stat-tooltip-name');
     const logLine = declarationsFor('.warning-log-line');
 
-    expect(panel['border-left']).toBe('1px solid var(--line)');
+    expect(panel.border).toBeUndefined();
     expect(panel.position).toBe('relative');
     expect(Number(panel['z-index'])).toBeGreaterThan(20);
     expect(panel['overflow-x']).toBe('visible');
+    expect(activityPanel.border).toBeUndefined();
+    expect(activityPanel['border-top']).toBe('1px solid var(--line)');
+    expect(activityPanel['border-radius']).toBeUndefined();
     expect(activityPanel['min-width']).toBe('0');
     expect(activityPanel['max-width']).toBe('100%');
     expect(activityPanel['overflow-x']).toBe('visible');
@@ -600,6 +683,7 @@ describe('conversation grid styles', () => {
 
   it('prevents long chat content from widening the conversation grid', () => {
     const conversation = declarationsFor('.conversation');
+    const timelineShell = declarationsFor('.timeline-shell');
     const timeline = declarationsFor('.timeline');
     const message = declarationsFor('.message');
     const bubble = declarationsFor('.bubble');
@@ -608,7 +692,12 @@ describe('conversation grid styles', () => {
 
     expect(conversation['min-width']).toBe('0');
     expect(conversation.overflow).toBe('hidden');
+    expect(timelineShell.position).toBe('relative');
+    expect(timelineShell['min-width']).toBe('0');
+    expect(timelineShell['min-height']).toBe('0');
+    expect(timelineShell.overflow).toBe('hidden');
     expect(timeline['min-width']).toBe('0');
+    expect(timeline.height).toBe('100%');
     expect(timeline['max-width']).toBe('100%');
     expect(message['min-width']).toBe('0');
     expect(bubble['min-width']).toBe('0');
@@ -645,6 +734,7 @@ describe('conversation content column styles', () => {
     const userBubble = declarationsFor('.message.user .bubble');
     const status = declarationsFor('.work-status');
     const composerCard = declarationsFor('.composer-card');
+    const scrollButton = declarationsFor('.chat-scroll-bottom-btn');
 
     expect(conversation['--conversation-content-width']).toBe('min(1040px, calc(100% - 56px))');
     expect(conversation['--conversation-content-left-nudge']).toBe('clamp(48px, 6vw, 112px)');
@@ -673,6 +763,11 @@ describe('conversation content column styles', () => {
     expect(composerCard.margin).toBe(
       '0 var(--conversation-content-right-gutter) 0 var(--conversation-content-left-gutter)',
     );
+    expect(scrollButton.position).toBe('absolute');
+    expect(scrollButton.right).toBe('max(18px, var(--conversation-content-right-gutter))');
+    expect(scrollButton.bottom).toBe('18px');
+    expect(scrollButton.width).toBe('32px');
+    expect(scrollButton.height).toBe('32px');
   });
 
   it('keeps the new-chat intro stage centered and full width', () => {
@@ -696,15 +791,36 @@ describe('conversation content column styles', () => {
   it('keeps the light-mode new-chat composer on matching theme surfaces', () => {
     const floatingCard = declarationsFor('.sa-window[data-theme="light"] .conversation--intro .composer--floating .composer-card');
     const attach = declarationsFor('.sa-window[data-theme="light"] .conversation--intro .composer--floating .composer-attach');
-    const permission = declarationsFor('.sa-window[data-theme="light"] .conversation--intro .composer--floating .permission-chip select');
     const track = declarationsFor('.sa-window[data-theme="light"] .conversation--intro .composer--floating .provider-track');
 
     expect(floatingCard.background).toContain('var(--surface)');
     expect(floatingCard['border-color']).toContain('var(--border-strong)');
     expect(floatingCard['box-shadow']).toContain('var(--shadow)');
     expect(attach.background).toBe('color-mix(in srgb, var(--surface-2) 86%, var(--surface))');
-    expect(permission.background).toBe('color-mix(in srgb, var(--surface-2) 86%, var(--surface))');
     expect(track.background).toBe('color-mix(in srgb, var(--surface-3) 72%, var(--border))');
+  });
+});
+
+describe('titlebar shell styles', () => {
+  it('keeps the local titlebar compact but branded instead of a blank transparent strip', () => {
+    const titlebar = declarationsFor('.titlebar');
+    const body = declarationsFor('.sa-body');
+    const brand = declarationsFor('.titlebar-brand');
+    const sidebarToggle = declarationsFor('.titlebar .sidebar-toggle');
+    const activeSidebarToggle = declarationsFor('.titlebar .sidebar-toggle.active');
+
+    expect(titlebar.height).toBe('48px');
+    expect(titlebar.background).toBe('var(--bg-elevated)');
+    expect(titlebar['border-bottom']).toBe('1px solid var(--line)');
+    expect(body.height).toBe('calc(100vh - 48px)');
+    expect(brand.display).toBe('inline-flex');
+    expect(sidebarToggle.width).toBe('28px');
+    expect(sidebarToggle['min-width']).toBe('28px');
+    expect(sidebarToggle.height).toBe('28px');
+    expect(sidebarToggle.padding).toBe('0');
+    expect(sidebarToggle['box-shadow']).toBe('none');
+    expect(activeSidebarToggle['border-color']).toBe('var(--line)');
+    expect(activeSidebarToggle['box-shadow']).toBe('none');
   });
 });
 
@@ -729,17 +845,27 @@ describe('composer control styles', () => {
 
   it('lets the model selector popover escape the adaptive composer card', () => {
     const card = declarationsFor('.composer-card');
-    const wrap = declarationsFor('.composer-model-wrap');
-    const dropdown = declarationsFor('.model-dropdown');
+    const wrap = topLevelDeclarationsFor('.composer-model-wrap');
+    const button = topLevelDeclarationsFor('.composer-model');
+    const dropdown = topLevelDeclarationsFor('.model-dropdown');
 
     expect(card.overflow).toBe('visible');
     expect(wrap.position).toBe('relative');
-    expect(wrap.width).toBe('158px');
+    expect(wrap.width).toBe('fit-content');
+    expect(wrap['max-width']).toBe('min(150px, 42vw)');
+    expect(button.width).toBe('fit-content');
+    expect(button.padding).toBe('0 7px 0 10px');
     expect(dropdown.position).toBe('absolute');
+    expect(dropdown.inset).toBe('auto 0 calc(100% + 8px) auto');
     expect(dropdown.bottom).toBe('calc(100% + 8px)');
+    expect(dropdown.height).toBe('max-content');
+    expect(dropdown['max-height']).toBe('min(320px, calc(100vh - 48px))');
+    expect(dropdown['grid-auto-rows']).toBe('max-content');
+    expect(dropdown['align-content']).toBe('start');
+    expect(dropdown.overflow).toBe('visible');
   });
 
-  it('keeps attachment and permission left while model controls sit on the right', () => {
+  it('keeps attachment controls left while model controls sit on the right', () => {
     const meta = firstDeclarationsFor('.composer-meta');
     const actions = firstDeclarationsFor('.composer-actions');
     const provider = firstDeclarationsFor('.composer .provider');
@@ -908,6 +1034,8 @@ describe('light theme baseline usability', () => {
     const popoverCode = declarationsFor('.sa-window[data-theme="light"] .warning-log-popover code');
     const diffLines = declarationsFor('.sa-window[data-theme="light"] .diff-file-lines');
 
+    expect(activity['border-top-color']).toBe('var(--border)');
+    expect(activity['border-color']).toBeUndefined();
     expect(activity.background).toBe('var(--surface)');
     expect(activity.color).toBe('var(--text-sec)');
     expect(logs.background).toBe('var(--surface-code)');
@@ -969,15 +1097,12 @@ describe('light theme control surfaces', () => {
   it('keeps chat action and composer controls on light-mode surfaces', () => {
     const feedback = declarationsFor('.sa-window[data-theme="light"] .top-command .action-feedback.success');
     const composerButton = declarationsFor('.sa-window[data-theme="light"] .composer button');
-    const permission = declarationsFor('.sa-window[data-theme="light"] .permission-chip select');
     const model = declarationsFor('.sa-window[data-theme="light"] .composer-model');
 
     expect(feedback.background).toBe('color-mix(in srgb, var(--success) 11%, var(--surface))');
     expect(feedback.color).toBe('var(--success)');
     expect(composerButton.background).toBe('var(--surface-2)');
     expect(composerButton.color).toBe('var(--text-sec)');
-    expect(permission.background).toBe('var(--surface-2)');
-    expect(permission.color).toBe('var(--text-sec)');
     expect(model.background).toBe('var(--surface-2)');
     expect(model.color).toBe('var(--text-sec)');
   });

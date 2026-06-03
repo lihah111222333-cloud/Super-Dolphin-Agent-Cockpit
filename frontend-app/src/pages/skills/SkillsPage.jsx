@@ -1819,7 +1819,7 @@ function SkillEditorModal({
   const [bodyEditing, setBodyEditing] = useState(!activeSkillPath);
   return (
     <FocusTrapDialog ariaLabel={modalTitle} className="modal-box skills-editor-modal" closeDisabled={saving} onClose={onClose}>
-      <SkillEditorHeader modalTitle={modalTitle} saving={saving} onClose={onClose} />
+      <SkillEditorHeader modalTitle={modalTitle} />
       <SkillEditorFields
         form={form}
         isMain={isMain}
@@ -1841,11 +1841,10 @@ function SkillEditorModal({
   );
 }
 
-function SkillEditorHeader({ modalTitle, saving, onClose }) {
+function SkillEditorHeader({ modalTitle }) {
   return (
     <header className="skills-editor-modal-head">
       <div><h2>{modalTitle}</h2><p>你可以修改简介和技能内容。</p></div>
-      <button type="button" className="ghost" onClick={onClose} disabled={saving}>关闭</button>
     </header>
   );
 }

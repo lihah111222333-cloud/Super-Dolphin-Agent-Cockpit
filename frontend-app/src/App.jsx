@@ -1,29 +1,25 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { QueryClient, QueryClientProvider, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Brain, CheckCircle2, CircleStop, Copy, Eye, FileText, FolderOpen, ListTodo, MessageCircle, Moon, MoreHorizontal, PanelTopOpen, RefreshCw, Search, Sparkles, Sun, Terminal, Workflow, X } from 'lucide-react';
+import { Brain, CheckCircle2, CircleStop, Copy, Eye, FileText, FolderOpen, MessageCircle, Moon, MoreHorizontal, PanelTopOpen, RefreshCw, Search, Sparkles, Sun, Workflow, X } from 'lucide-react';
 import { useClientStore } from './entities/client/model/useClientStore.js';
 import { ChatPage, ProjectSelector } from './pages/chat/ChatPage.jsx';
-import { CommandsPage } from './pages/commands/CommandsPage.jsx';
 import { FilesPage } from './pages/files/FilesPage.jsx';
 import { MemoryPage } from './pages/memory/MemoryPage.jsx';
 import { ObservabilityPage } from './pages/observability/ObservabilityPage.jsx';
 import { PromptPage } from './pages/prompts/PromptPage.jsx';
 import { SettingsPage } from './pages/settings/SettingsPage.jsx';
 import { SkillsPage } from './pages/skills/SkillsPage.jsx';
-import { TasksPage } from './pages/tasks/TasksPage.jsx';
 import { WorkflowPage } from './pages/workflows/WorkflowPage.jsx';
 import { dashboardQueryKey, errorMessage, fetchMemoryDashboard, memoryHealth, normalizeMemorySnapshot, optionalSettingsCwd, useDashboardFocusInvalidation, textValue } from './pages/shared/pageShared.js';
 
 const navItems = [
   { id: 'chat', label: 'Chat', icon: MessageCircle },
+  { id: 'skills', label: '技能', icon: Sparkles },
   { id: 'prompts', label: '提示词', icon: FileText },
   { id: 'workflows', label: '自动化', icon: Workflow },
-  { id: 'tasks', label: '任务', icon: ListTodo },
-  { id: 'commands', label: '命令', icon: Terminal },
-  { id: 'skills', label: '技能', icon: Sparkles },
   { id: 'memory', label: '记忆中心', icon: Brain },
-  { id: 'observability', label: '链路追踪', icon: Search },
   { id: 'files', label: '共享文件', icon: FolderOpen },
+  { id: 'observability', label: '链路追踪', icon: Search },
   { id: 'settings', label: '设置', icon: MoreHorizontal },
 ];
 
@@ -31,8 +27,6 @@ const PAGE_ROUTE_BY_ID = Object.freeze({
   chat: '/',
   prompts: '/prompts',
   workflows: '/dags',
-  tasks: '/tasks',
-  commands: '/commands',
   skills: '/skills',
   memory: '/memory',
   observability: '/observability',
@@ -46,8 +40,6 @@ const PAGE_ID_BY_ROUTE = Object.freeze({
   '/prompts': 'prompts',
   '/dags': 'workflows',
   '/workflows': 'workflows',
-  '/tasks': 'tasks',
-  '/commands': 'commands',
   '/skills': 'skills',
   '/memory': 'memory',
   '/memory-center': 'memory',
@@ -276,8 +268,6 @@ function ActivePageContent({ store, projectPath, memoryRevision, setMemoryPageSi
   }
   if (store.activePage === 'prompts') return <PromptPage projectPath={projectPath} store={store} refreshKey={store.promptRevision} />;
   if (store.activePage === 'workflows') return <WorkflowPage projectPath={projectPath} store={store} refreshKey={store.workflowRevision} />;
-  if (store.activePage === 'tasks') return <TasksPage projectPath={projectPath} store={store} refreshKey={store.workflowRevision} />;
-  if (store.activePage === 'commands') return <CommandsPage projectPath={projectPath} store={store} refreshKey={store.workflowRevision} />;
   if (store.activePage === 'skills') {
     return <SkillsPage projectPath={projectPath} refreshKey={store.skillRevision} resolveLaunchPreferences={store.resolveLaunchPreferences} />;
   }
@@ -395,6 +385,10 @@ function Titlebar({ theme, onToggleTheme, store, projectPath, rightPanelOpen, se
 
   return (
     <header className="titlebar" data-testid="chat-toolbar">
+      <div className="titlebar-brand">
+        <span className="brand-orb" aria-hidden="true" />
+        <strong>Super Dolphin</strong>
+      </div>
       <div className="titlebar-center">
         {isChatPage && store && (
           <>
@@ -484,7 +478,6 @@ function Titlebar({ theme, onToggleTheme, store, projectPath, rightPanelOpen, se
             onClick={toggleRightPanel}
           >
             {rightPanelOpen ? <X size={14} /> : <Eye size={14} />}
-            <span className="sidebar-toggle-label">侧边栏</span>
           </button>
         )}
       </div>

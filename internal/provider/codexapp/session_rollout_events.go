@@ -7,6 +7,7 @@ import (
 	shareddto "github.com/anthropic-ai/super-agent-v3/internal/dto/shared"
 	tooldto "github.com/anthropic-ai/super-agent-v3/internal/dto/tool"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
+	"github.com/anthropic-ai/super-agent-v3/internal/provider/codexapp/resultguard"
 	providershared "github.com/anthropic-ai/super-agent-v3/internal/provider/shared"
 )
 
@@ -57,7 +58,8 @@ func translateCodexMCPToolCallEnd(payload map[string]any) (any, bool) {
 		return nil, false
 	}
 	success, errorText := codexMCPToolResultOutcome(item)
-	result := captureCodexRolloutToolResult(header, eventTime(payload), codexMCPToolResultPreview(item))
+	preview := resultguard.ApplyCodexMCPPreview(success, errorText, codexMCPToolResultPreview(item), codexRolloutToolName(item), item)
+	result := captureCodexRolloutToolResult(header, eventTime(payload), preview)
 	return tooldto.ToolCallEnd{
 		ToolCallHeader: header,
 		Success:        success,
@@ -180,10 +182,10 @@ func codexMCPToolResultOutcome(item map[string]any) (bool, string) {
 			}
 		}
 	}
-	if !success {
-		return false, shared.FirstNonEmpty(codexMCPToolResultContentText(resultPayload), "tool call failed")
+	if success {
+		return resultguard.SuccessUnlessEmptyCodexMCPFileRead(codexRolloutToolName(item), item)
 	}
-	return true, ""
+	return false, shared.FirstNonEmpty(codexMCPToolResultContentText(resultPayload), "tool call failed")
 }
 
 func codexMCPToolErrorText(result map[string]any) string {

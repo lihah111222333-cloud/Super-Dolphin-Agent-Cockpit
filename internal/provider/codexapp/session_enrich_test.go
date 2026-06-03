@@ -1,12 +1,17 @@
 package codexapp
 
 import (
+	"context"
 	"encoding/json"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
+	tooldto "github.com/anthropic-ai/super-agent-v3/internal/dto/tool"
+	"github.com/anthropic-ai/super-agent-v3/internal/provider/unified"
 	"github.com/anthropic-ai/super-agent-v3/pkg/skillmetrics"
+	"github.com/kelindar/event"
 )
 
 // rawParams 帮助构造 RawMessage with given params.
@@ -96,6 +101,51 @@ func TestEnrichToolCallParams_PreservesOtherFields(t *testing.T) {
 	out := enrichToolCallParams(msg, "agent-99", "")
 	if !strings.Contains(string(out.Params), `"anchor":"Usage"`) {
 		t.Fatalf("arguments lost: %s", out.Params)
+	}
+}
+
+func TestPublishToolCallEnd_FileReadEmptySuccessResultFailsWithPathGuidance(t *testing.T) {
+	bus := event.NewDispatcher()
+	dispatcher := unified.NewEventDispatcher(bus, nil)
+	endCh := make(chan tooldto.ToolCallEnd, 1)
+	cancelEnd := event.Subscribe(bus, func(ev tooldto.ToolCallEnd) { endCh <- ev })
+	defer cancelEnd()
+	defer func() { _ = bus.Close() }()
+
+	s := newInboundTestSession(context.Background(), nil, &ServerManager{})
+	s.dispatcher = dispatcher
+
+	msg := rawParams(t, map[string]any{
+		"name": "file",
+		"arguments": map[string]any{
+			"action":    "read_file",
+			"file_path": "/home/user/Downloads/missing.md",
+		},
+	})
+	call := preparedToolCall{
+		header:  toolCallHeader("agent-1", "turn-1", "call-file-empty", "file", time.Now()),
+		params:  msg,
+		started: time.Now(),
+	}
+	result := map[string]any{
+		"contentItems":      []map[string]any{{"type": "inputText"}},
+		"structuredContent": map[string]any{"value": ""},
+		"success":           true,
+	}
+
+	s.publishToolCallEnd(call, result, nil)
+
+	end := waitToolCallEnd(t, endCh)
+	if end.Success {
+		t.Fatalf("ToolCallEnd.Success = true, want false for empty file read result: %+v", end)
+	}
+	for _, want := range []string{"missing.md", "does not exist", "outside workspace"} {
+		if !strings.Contains(end.Error, want) {
+			t.Fatalf("ToolCallEnd.Error = %q, want %q", end.Error, want)
+		}
+	}
+	if strings.Contains(end.Result, `"success":true`) {
+		t.Fatalf("ToolCallEnd.Result = %q, want path guidance instead of empty success envelope", end.Result)
 	}
 }
 

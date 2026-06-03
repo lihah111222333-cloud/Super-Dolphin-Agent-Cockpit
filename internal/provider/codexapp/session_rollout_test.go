@@ -95,6 +95,55 @@ func TestOnNotification_CodexRolloutToolResultReusesBeginToolName(t *testing.T) 
 	}
 }
 
+func TestOnNotification_CodexRolloutMCPFileReadEmptySuccessResultFailsWithPathGuidance(t *testing.T) {
+	bus := event.NewDispatcher()
+	dispatcher := unified.NewEventDispatcher(bus, nil)
+	RegisterTranslators(dispatcher)
+	beginCh := make(chan tooldto.ToolCallBegin, 1)
+	endCh := make(chan tooldto.ToolCallEnd, 1)
+	cancelBegin := event.Subscribe(bus, func(ev tooldto.ToolCallBegin) { beginCh <- ev })
+	defer cancelBegin()
+	cancelEnd := event.Subscribe(bus, func(ev tooldto.ToolCallEnd) { endCh <- ev })
+	defer cancelEnd()
+
+	s := newInboundTestSession(context.Background(), nil, &ServerManager{})
+	s.dispatcher = dispatcher
+
+	s.onNotification("response_item", json.RawMessage(`{
+		"item":{
+			"type":"tool_call",
+			"name":"file",
+			"arguments":{"action":"read_file","file_path":"/home/user/Downloads/missing.md"},
+			"call_id":"call-file"
+		}
+	}`))
+	begin := waitToolCallBegin(t, beginCh)
+	if begin.CallID != "call-file" || begin.ToolName != "file" {
+		t.Fatalf("ToolCallBegin = %+v, want call-file/file", begin)
+	}
+
+	s.onNotification("event_msg", json.RawMessage(`{
+		"item":{
+			"type":"tool_result",
+			"call_id":"call-file",
+			"invocation":{"server":"lsp","tool":"file","arguments":{"action":"read_file","file_path":"/home/user/Downloads/missing.md"}},
+			"result":{"Ok":{"content":[{"type":"text","text":""}],"structuredContent":{"value":""},"isError":false}}
+		}
+	}`))
+	end := waitToolCallEnd(t, endCh)
+	if end.Success {
+		t.Fatalf("ToolCallEnd.Success = true, want false for empty file read result: %+v", end)
+	}
+	for _, want := range []string{"missing.md", "does not exist", "outside workspace"} {
+		if !strings.Contains(end.Error, want) {
+			t.Fatalf("ToolCallEnd.Error = %q, want %q", end.Error, want)
+		}
+	}
+	if strings.Contains(end.Result, `"value":""`) {
+		t.Fatalf("ToolCallEnd.Result = %q, want path guidance instead of empty structuredContent", end.Result)
+	}
+}
+
 func TestOnNotification_CodexRolloutResponseItemToolResultDispatchesToolEnd(t *testing.T) {
 	bus := event.NewDispatcher()
 	dispatcher := unified.NewEventDispatcher(bus, nil)

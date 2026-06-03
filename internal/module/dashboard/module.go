@@ -12,7 +12,6 @@ import (
 	promptstore "github.com/anthropic-ai/super-agent-v3/internal/store/prompt"
 	sharedfilestore "github.com/anthropic-ai/super-agent-v3/internal/store/sharedfile"
 	systemlogstore "github.com/anthropic-ai/super-agent-v3/internal/store/systemlog"
-	tasktracestore "github.com/anthropic-ai/super-agent-v3/internal/store/tasktrace"
 	"go.uber.org/fx"
 )
 
@@ -27,7 +26,6 @@ type serviceParams struct {
 	BusLogs       buslogstore.Store
 	AILogs        ailogstore.Store
 	DBQueries     dbquerystore.Store
-	TaskTraces    tasktracestore.Store
 	CommandCards  commandcardstore.Reader
 	Prompts       promptstore.Reader
 	SharedFiles   sharedfilestore.Reader
@@ -58,7 +56,6 @@ var Module = fx.Module("dashboard",
 			p.BusLogs,
 			p.AILogs,
 			p.DBQueries,
-			p.TaskTraces,
 			p.CommandCards,
 			p.Prompts,
 			p.SharedFiles,

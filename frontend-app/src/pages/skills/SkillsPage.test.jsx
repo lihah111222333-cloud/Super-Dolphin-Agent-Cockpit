@@ -90,6 +90,8 @@ describe('SkillsPage backend migration', () => {
     fireEvent.click(within(card).getByRole('button', { name: '编辑详情' }));
 
     const dialog = await screen.findByRole('dialog', { name: '编辑技能' });
+    expect(within(dialog).queryByRole('button', { name: '关闭' })).not.toBeInTheDocument();
+    expect(within(dialog).getByRole('button', { name: '取消' })).toBeInTheDocument();
     expect(backend.readSkill).toHaveBeenCalledWith({
       cwd: '/repo/app',
       path: '/repo/app/.agent/skills/backend/SKILL.md',
