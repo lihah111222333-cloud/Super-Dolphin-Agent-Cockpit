@@ -305,6 +305,76 @@ func TestDiagnoseTraceAppliesBaselineRedactionAndPathScrub(t *testing.T) {
 	}
 }
 
+func TestDiagnoseTraceRedactsExtendedModelFacingPII(t *testing.T) {
+	svc := NewService(diagnosisTestConfig(), WithSampler(NewSampler(SamplerConfig{HighFrequencyKeepEvery: 1})))
+	if err := svc.Record(context.Background(), TraceEvent{
+		TraceID: "trace-extended-redact",
+		Method:  "provider.turn.run dial github.com API.Internal.Example.COM api.internal alice-mbp.local from /workspace/project-secret/private.go",
+		Status:  StatusError,
+		Error:   "host github.com API.Internal.Example.COM api.internal alice-mbp.local failed token=abc123",
+		Code:    CodeAnchor{File: "/workspace/project-secret/private.go", Function: "handler", Line: 12},
+		Stack:   []StackFrame{{File: "/workspace/project/../project-secret/stack.go", Function: "panicFn", Line: 13}},
+		Metadata: map[string]any{
+			"component":        "observability",
+			"user_email":       "alice@example.com",
+			"session_token":    "token=abc123",
+			"unsafe key\nname": "api.internal.example.com",
+		},
+	}); err != nil {
+		t.Fatalf("Record extended redaction event: %v", err)
+	}
+
+	diagnosis, err := svc.DiagnoseTrace(context.Background(), TraceDiagnosisRequest{TraceID: "trace-extended-redact", IncludeStack: true, WorkspaceRoot: "/workspace/project"})
+	if err != nil {
+		t.Fatalf("DiagnoseTrace: %v", err)
+	}
+	text := marshalDiagnosisText(t, diagnosis)
+	assertDiagnosisDoesNotLeak(t, text, []string{"/workspace/project-secret", "github.com", "API.Internal.Example.COM", "api.internal", "alice-mbp.local", "token=abc123", "alice@example.com", "session_token", "user_email", "unsafe key", "\"metadata\"", "component"})
+	if !strings.Contains(text, "provider.turn.run") {
+		t.Fatalf("diagnosis redacted dotted operation name unexpectedly: %s", text)
+	}
+	if diagnosis.Timeline[0].Code.File != redactedPath {
+		t.Fatalf("sibling-prefix code file = %q, want %s", diagnosis.Timeline[0].Code.File, redactedPath)
+	}
+	if diagnosis.ErrorSummaries[0].Stack[0].File != redactedPath {
+		t.Fatalf("dotdot stack file = %q, want %s", diagnosis.ErrorSummaries[0].Stack[0].File, redactedPath)
+	}
+}
+
+func TestDiagnoseTraceRedactsTailDiagnosticsPII(t *testing.T) {
+	tail := QueryTailReaderFunc(func(context.Context, Query) (QueryResult, error) {
+		return QueryResult{
+			Source: QuerySourceJSONLTail,
+			TailDecodeErrors: []TailDecodeError{{
+				File:     "/workspace/project-secret/trace.jsonl",
+				Line:     7,
+				Trailing: true,
+				Error:    "dial Github.COM api.internal token=abc123",
+			}},
+		}, errors.New("open /workspace/project-secret/trace.jsonl on Github.COM api.internal token=abc123")
+	})
+	svc := NewService(diagnosisTestConfig(), WithTailReader(tail))
+
+	diagnosis, err := svc.DiagnoseTrace(context.Background(), TraceDiagnosisRequest{TraceID: "trace-tail-redact", ForceRefresh: true, WorkspaceRoot: "/workspace/project"})
+	if err != nil {
+		t.Fatalf("DiagnoseTrace: %v", err)
+	}
+	text := marshalDiagnosisText(t, diagnosis)
+	assertDiagnosisDoesNotLeak(t, text, []string{"/workspace/project-secret", "Github.COM", "api.internal", "token=abc123"})
+	if diagnosis.TailError == "" || len(diagnosis.TailWarnings) != 1 {
+		t.Fatalf("tail diagnostics = error %q warnings %#v, want visible redacted diagnostics", diagnosis.TailError, diagnosis.TailWarnings)
+	}
+}
+
+func marshalDiagnosisText(t *testing.T, diagnosis TraceDiagnosis) string {
+	t.Helper()
+	payload, err := json.Marshal(diagnosis)
+	if err != nil {
+		t.Fatalf("Marshal diagnosis: %v", err)
+	}
+	return string(payload)
+}
+
 func assertDiagnosisDoesNotLeak(t *testing.T, text string, leakedValues []string) {
 	t.Helper()
 	for _, leaked := range leakedValues {
