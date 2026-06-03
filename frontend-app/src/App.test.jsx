@@ -5231,6 +5231,113 @@ function continueChatFromFinalSharedFile() {
     continueChatFromFinalSharedFile();
   });
 
+  it('formats markdown-fenced JSON shared files for the row summary and preview modal', async () => {
+    const content = [
+      '```json',
+      JSON.stringify({
+        videos: [{
+          title: '月薪5000我是怎么在上海活下去的',
+          hook: '很多人问我，5000块在上海怎么活？',
+          script: '开场：我来上海三年了，最低的时候月薪5000。',
+        }],
+        thumbnail_idea: '本人手写账单特写',
+      }),
+      '```',
+    ].join('\n');
+    backend.listSharedFiles.mockResolvedValue({
+      files: [{
+        path: 'reports/douyin_viral_scripts.md',
+        content,
+        updated_by: 'node-router',
+        updated_at: '2026-06-03T12:59:59Z',
+      }],
+      finalOutputRefs: [{
+        path: 'reports/douyin_viral_scripts.md',
+        runKey: 'run-ui-1',
+        dagKey: 'douyin-viral-script-daily-5pm',
+        sourceNodeKey: 'generate_douyin_scripts',
+      }],
+      sharedFileRetention: {
+        items: [{ path: 'reports/douyin_viral_scripts.md', protected: true, cleanupCandidate: false, reason: 'final_output' }],
+        protectedCount: 1,
+        cleanupCandidateCount: 0,
+      },
+    });
+    backend.readSharedFile.mockResolvedValue({
+      path: 'reports/douyin_viral_scripts.md',
+      content,
+      updatedBy: 'node-router',
+      updatedAt: '2026-06-03T12:59:59Z',
+    });
+
+    const { container } = render(<App />);
+    await screen.findByText('后端线程');
+    fireEvent.click(screen.getByLabelText('共享文件'));
+
+    const finalCard = (await screen.findByText('douyin_viral_scripts.md')).closest('article');
+    expect(within(finalCard).getByText(/JSON 对象 · videos: 1 项/)).toBeInTheDocument();
+    expect(within(finalCard).queryByText(/```json/)).not.toBeInTheDocument();
+
+    fireEvent.click(within(finalCard).getByRole('button', { name: '打开' }));
+    const dialog = await screen.findByRole('dialog', { name: '文件预览' });
+    expect(within(dialog).getByText('JSON（Markdown 代码块）')).toBeInTheDocument();
+
+    const preview = container.querySelector('.shared-file-content-preview');
+    expect(preview?.textContent).toContain('"videos": [');
+    expect(preview?.textContent).toContain('"title": "月薪5000我是怎么在上海活下去的"');
+    expect(preview?.textContent).not.toContain('```json');
+  });
+
+  it('renders invalid markdown-fenced JSON-like shared files without showing parse errors', async () => {
+    const content = [
+      '```json',
+      '{"videos":[{"title":"月薪5000我是怎么在上海活下去的","hook":"很多人问我，5000块在上海怎么活？","thumbnail_idea":"本人手写账单特写，标注"月薪5000存款5万"红色大字","cta":"评论区报一下"}]}',
+      '```',
+    ].join('\n');
+    backend.listSharedFiles.mockResolvedValue({
+      files: [{
+        path: 'reports/douyin_viral_scripts.md',
+        content,
+        updated_by: 'node-router',
+        updated_at: '2026-06-03T12:59:59Z',
+      }],
+      finalOutputRefs: [{
+        path: 'reports/douyin_viral_scripts.md',
+        runKey: 'run-ui-1',
+        dagKey: 'douyin-viral-script-daily-5pm',
+        sourceNodeKey: 'generate_douyin_scripts',
+      }],
+      sharedFileRetention: {
+        items: [{ path: 'reports/douyin_viral_scripts.md', protected: true, cleanupCandidate: false, reason: 'final_output' }],
+        protectedCount: 1,
+        cleanupCandidateCount: 0,
+      },
+    });
+    backend.readSharedFile.mockResolvedValue({
+      path: 'reports/douyin_viral_scripts.md',
+      content,
+      updatedBy: 'node-router',
+      updatedAt: '2026-06-03T12:59:59Z',
+    });
+
+    const { container } = render(<App />);
+    await screen.findByText('后端线程');
+    fireEvent.click(screen.getByLabelText('共享文件'));
+
+    const finalCard = (await screen.findByText('douyin_viral_scripts.md')).closest('article');
+    expect(within(finalCard).getByText(/类 JSON · videos: 1 项/)).toBeInTheDocument();
+    expect(within(finalCard).queryByText(/JSON 格式化失败|JSON Parse error|Unrecognized token/)).not.toBeInTheDocument();
+
+    fireEvent.click(within(finalCard).getByRole('button', { name: '打开' }));
+    const dialog = await screen.findByRole('dialog', { name: '文件预览' });
+    expect(within(dialog).getByText('类 JSON（Markdown 代码块）')).toBeInTheDocument();
+
+    const preview = container.querySelector('.shared-file-content-preview');
+    expect(preview?.textContent).toContain('\n    "hook":');
+    expect(preview?.textContent).toContain('标注"月薪5000存款5万"红色大字');
+    expect(preview?.textContent).not.toMatch(/JSON 格式化失败|JSON Parse error|Unrecognized token|```json/);
+  });
+
   it('keeps the shared-file delete dialog open while deletion is pending', async () => {
     const deletePending = deferred();
     backend.listSharedFiles.mockResolvedValue({

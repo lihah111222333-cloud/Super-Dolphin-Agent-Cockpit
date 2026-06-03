@@ -3903,17 +3903,27 @@ details {
 }
 
 .file-row header {
+  min-width: 0;
   display: flex;
   align-items: center;
   gap: 12px;
 }
 
+.file-row h3 {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .file-row header span {
+  flex: 0 0 auto;
   margin-left: auto;
   border: 1px solid color-mix(in srgb, var(--info) 45%, var(--border));
   border-radius: 999px;
   color: var(--info);
   padding: 2px 10px;
+  white-space: nowrap;
 }
 
 .file-row.is-final-output {
@@ -3929,6 +3939,7 @@ details {
   display: block;
   color: var(--muted);
   margin-top: 8px;
+  overflow-wrap: anywhere;
 }
 
 .file-row code {
@@ -3942,7 +3953,12 @@ details {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
   color: var(--text-sec);
-  font: 20px/1.4 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font: 13px/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+.file-row .shared-file-summary {
+  max-height: calc(1.45em * 3);
+  overflow: hidden;
 }
 
 .file-row footer {
@@ -3981,6 +3997,7 @@ details {
 
 .shared-file-viewer-meta {
   grid-template-columns: 90px minmax(0, 1fr);
+  row-gap: 6px;
   border: 1px solid var(--line);
   border-radius: 7px;
   background: var(--surface-2);
