@@ -234,23 +234,6 @@ type SystemLog struct {
 	Extra      []byte    `db:"extra" json:"extra"`
 }
 
-type TaskTrace struct {
-	ID            int64      `db:"id" json:"id"`
-	TraceID       string     `db:"trace_id" json:"trace_id"`
-	SpanID        string     `db:"span_id" json:"span_id"`
-	ParentSpanID  string     `db:"parent_span_id" json:"parent_span_id"`
-	SpanName      string     `db:"span_name" json:"span_name"`
-	Component     string     `db:"component" json:"component"`
-	Status        string     `db:"status" json:"status"`
-	InputPayload  []byte     `db:"input_payload" json:"input_payload"`
-	OutputPayload []byte     `db:"output_payload" json:"output_payload"`
-	ErrorText     string     `db:"error_text" json:"error_text"`
-	Metadata      []byte     `db:"metadata" json:"metadata"`
-	StartedAt     time.Time  `db:"started_at" json:"started_at"`
-	FinishedAt    *time.Time `db:"finished_at" json:"finished_at"`
-	DurationMs    int32      `db:"duration_ms" json:"duration_ms"`
-}
-
 type TopologyApproval struct {
 	ID                   string     `db:"id" json:"id"`
 	Status               string     `db:"status" json:"status"`

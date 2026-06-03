@@ -260,9 +260,7 @@ function ObservabilityHeader() {
   return (
     <div className="settings-header">
       <div>
-        <p className="eyebrow">Observability</p>
         <h1>链路追踪</h1>
-        <p>按条件筛选最近请求；报错时复制 Trace ID 定位问题，必要时再打开 Trace 诊断。</p>
       </div>
     </div>
   );

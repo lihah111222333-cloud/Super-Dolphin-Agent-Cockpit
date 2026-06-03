@@ -4,6 +4,7 @@ import {
   onBridgeEvent as subscribeBridgeEvent,
   onAgentEvent as subscribeAgentEvent,
   onFilesDropped as subscribeFilesDropped,
+  onRuntimeReconnect as subscribeRuntimeReconnect,
   readDroppedTextFiles as readDroppedTextFilesViaBridge,
   saveClipboardImage as saveClipboardImageViaBridge,
   registerBridgeLogStore,
@@ -706,6 +707,7 @@ const NATIVE_DEP_FALLBACKS = Object.freeze([
   ['onAgentEvent', subscribeAgentEvent],
   ['onBridgeEvent', subscribeBridgeEvent],
   ['onFilesDropped', subscribeFilesDropped],
+  ['onRuntimeReconnect', subscribeRuntimeReconnect],
   ['readDroppedTextFiles', readDroppedTextFilesViaBridge],
   ['saveClipboardImage', saveClipboardImageViaBridge],
   ['saveTextFile', saveTextFileViaBridge],
@@ -1098,6 +1100,7 @@ function createNativeApi(native) {
     onAgentEvent: native.onAgentEvent,
     onBridgeEvent: native.onBridgeEvent,
     onFilesDropped: native.onFilesDropped,
+    onRuntimeReconnect: native.onRuntimeReconnect,
     readDroppedTextFiles: native.readDroppedTextFiles,
     saveClipboardImage: native.saveClipboardImage,
     saveTextFile: native.saveTextFile,
@@ -1225,6 +1228,7 @@ export const getBuildInfo = backendApi.getBuildInfo;
 export const onAgentEvent = backendApi.onAgentEvent;
 export const onBridgeEvent = backendApi.onBridgeEvent;
 export const onFilesDropped = backendApi.onFilesDropped;
+export const onRuntimeReconnect = backendApi.onRuntimeReconnect;
 export const readDroppedTextFiles = backendApi.readDroppedTextFiles;
 export const saveClipboardImage = backendApi.saveClipboardImage;
 export const saveTextFile = backendApi.saveTextFile;

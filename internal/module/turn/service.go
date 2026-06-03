@@ -534,8 +534,11 @@ func (s *service) watchTurn(parentCtx context.Context, handle contract.TurnHandl
 			s.finishTurnTraceSpan(span, errors.New("turn watch timed out"))
 			return
 		case <-ctx.Done():
-			// service shutdown; drop the watcher without marking the turn
-			// stalled so the outer tracker entry expires naturally.
+			// service shutdown; mark the turn stalled so the frontend can
+			// clear the loading state instead of hanging indefinitely.
+			s.tracker.Stall(localID, "service_shutdown")
+			s.recordDedupeTerminalForLocalID(context.Background(), localID)
+			s.finishTurnTraceSpan(span, ctx.Err())
 			return
 		case <-handle.Done():
 		}

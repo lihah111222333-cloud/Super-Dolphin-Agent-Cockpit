@@ -412,6 +412,25 @@ describe('ChatPage module', () => {
     expect(card.querySelector('.thread-status-dot')).toHaveAttribute('title', '空闲');
   });
 
+  it('groups thread card actions separately from the main agent button', () => {
+    const store = createFakeStore({
+      activeThreadId: 'agent-design',
+      threads: [{ id: 'agent-design', name: 'AI 设计流程', provider: 'unknown', status: 'idle' }],
+    });
+
+    render(<ChatPage store={store} projectPath="/repo/app" />);
+
+    const card = screen.getByText('AI 设计流程').closest('.thread-card');
+    const actions = card.querySelector('.thread-card-actions');
+
+    expect(actions).not.toBeNull();
+    expect(within(actions).getByRole('button', { name: '重命名会话' })).toBeInTheDocument();
+    expect(within(actions).getByRole('button', { name: '置顶对话' })).toBeInTheDocument();
+    expect(within(actions).getByRole('button', { name: '归档会话' })).toBeInTheDocument();
+    expect(card.querySelector('.thread-main .thread-pin')).toBeNull();
+    expect(card.querySelector('.thread-main .thread-rename-trigger')).toBeNull();
+  });
+
   it('renders an active conversation without the chat mode switch cards', () => {
     const store = createFakeStore({
       activeThreadId: 'thread-1',
