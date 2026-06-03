@@ -65,12 +65,6 @@ func assertDashboardCoreSlices(t *testing.T, got *DashboardPage) {
 	if got.DAGs == nil {
 		t.Fatalf("GetDashboardPage() missing DAGs slice: %#v", got)
 	}
-	if got.TaskTraces == nil {
-		t.Fatalf("GetDashboardPage() missing task traces slice: %#v", got)
-	}
-	if got.TaskAcks == nil {
-		t.Fatalf("GetDashboardPage() missing task acks slice: %#v", got)
-	}
 }
 
 func assertDashboardPageSlices(t *testing.T, got *DashboardPage) {

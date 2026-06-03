@@ -507,8 +507,6 @@ select {
 .chat-page,
 .console-page,
 .workflow-page,
-.tasks-page,
-.commands-page,
 .memory-page,
 .settings-page {
   height: 100%;
@@ -541,9 +539,7 @@ select {
 .file-row button,
 .settings-page button,
 .memory-page button,
-.workflow-page button,
-.tasks-page button,
-.commands-page button {
+.workflow-page button {
   border: 1px solid var(--line);
   border-radius: var(--radius);
   background: var(--panel-2);
@@ -561,9 +557,7 @@ select {
 .file-row button:hover,
 .settings-page button:hover,
 .memory-page button:hover,
-.workflow-page button:hover,
-.tasks-page button:hover,
-.commands-page button:hover {
+.workflow-page button:hover {
   border-color: var(--accent-2);
   background: var(--panel-3);
 }
@@ -941,16 +935,17 @@ select {
 
 .thread-card {
   position: relative;
+  container-type: inline-size;
   min-height: 54px;
   display: grid;
-  grid-template-columns: minmax(0, 1fr);
-  align-items: stretch;
-  gap: 4px;
+  grid-template-columns: minmax(0, 1fr) minmax(0, max-content);
+  align-items: center;
+  gap: 4px 8px;
   border: 1px solid transparent;
   border-radius: var(--radius-md);
   background: transparent;
   color: var(--ink);
-  padding: 0;
+  padding: 8px;
   overflow: visible;
   transition: background var(--transition), border-color var(--transition);
 }
@@ -966,6 +961,8 @@ select {
 }
 
 .thread-main {
+  grid-column: 1;
+  width: 100%;
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
@@ -974,7 +971,7 @@ select {
   border: 0;
   background: transparent;
   color: inherit;
-  padding: 8px 84px 8px 8px;
+  padding: 0;
   text-align: left;
   cursor: pointer;
   font: inherit;
@@ -987,8 +984,8 @@ select {
 
 .thread-main--editing {
   grid-template-columns: minmax(0, 1fr) auto;
-  padding-left: 34px;
-  padding-right: 12px;
+  padding-left: 0;
+  padding-right: 0;
 }
 
 .thread-name {
@@ -1031,10 +1028,10 @@ select {
 }
 
 .thread-archive {
-  position: absolute;
-  right: 6px;
-  top: 50%;
-  transform: translateY(-50%);
+  position: relative;
+  right: auto;
+  top: auto;
+  transform: none;
   width: 22px;
   height: 22px;
   display: inline-grid;
@@ -1050,15 +1047,15 @@ select {
 }
 
 .thread-rename-trigger {
-  position: absolute;
-  right: 56px;
-  top: 50%;
+  position: relative;
+  right: auto;
+  top: auto;
   z-index: 2;
   width: 22px;
   height: 22px;
   display: inline-grid;
   place-items: center;
-  transform: translateY(-50%);
+  transform: none;
   border: 1px solid var(--border-strong);
   border-radius: 6px;
   background: var(--surface-2);
@@ -1096,12 +1093,12 @@ select {
 }
 
 .thread-pin {
-  position: absolute;
-  right: 32px;
-  top: 50%;
-  transform: translateY(-50%);
-  width: 18px;
-  height: 18px;
+  position: relative;
+  right: auto;
+  top: auto;
+  transform: none;
+  width: 22px;
+  height: 22px;
   display: inline-grid;
   place-items: center;
   border: none !important;
@@ -1114,6 +1111,27 @@ select {
   transition: opacity var(--transition), color var(--transition);
   z-index: 2;
   box-shadow: none !important;
+}
+
+.thread-card-actions {
+  grid-column: 2;
+  grid-row: 1;
+  min-width: 0;
+  max-width: 78px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  align-content: center;
+  justify-content: flex-end;
+  gap: 5px;
+  overflow: visible;
+}
+
+@container (max-width: 260px) {
+  .thread-card-actions {
+    max-width: 22px;
+    flex-direction: column;
+  }
 }
 
 .thread-card:hover .thread-archive,
@@ -1139,11 +1157,6 @@ select {
   border-style: none !important;
   opacity: 1 !important;
   box-shadow: none !important;
-}
-
-.thread-pin--placeholder {
-  pointer-events: none;
-  opacity: 0.48;
 }
 
 .thread-pin-tooltip,
@@ -3642,9 +3655,7 @@ select {
 .console-page,
 .memory-page,
 .settings-page,
-.workflow-page,
-.tasks-page,
-.commands-page {
+.workflow-page {
   overflow: auto;
 }
 
@@ -3784,193 +3795,6 @@ select {
 .workflow-list em {
   color: var(--muted);
   font-style: normal;
-}
-
-.tasks-page > .tabs {
-  margin: 16px 28px 0;
-}
-
-.task-toolbar {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 10px;
-  padding: 16px 28px 0;
-}
-
-.task-toolbar button,
-.task-actions button,
-.commands-page .page-actions button {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.task-card-list,
-.cron-job-list,
-.command-card-list {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
-  gap: 14px;
-  padding: 16px 28px 28px;
-}
-
-.task-card,
-.cron-card,
-.command-card,
-.cron-form,
-.cron-runs-panel,
-.cron-delete-panel {
-  max-width: none;
-  margin: 0;
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  background: var(--surface);
-  color: var(--text-pri);
-  padding: 14px;
-}
-
-.task-card > div,
-.cron-card-head,
-.command-card-head {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 12px;
-  margin-bottom: 12px;
-}
-
-.task-card strong,
-.cron-card strong,
-.command-card strong {
-  display: block;
-  color: var(--text-sec);
-  font-size: 16px;
-}
-
-.task-card span,
-.cron-card span,
-.command-card span {
-  color: var(--text-muted);
-}
-
-.cron-card-head em,
-.command-card-head em {
-  border: 1px solid var(--line);
-  border-radius: var(--radius-sm);
-  color: var(--text-muted);
-  font-style: normal;
-  padding: 3px 8px;
-}
-
-.cron-card-head em.enabled {
-  border-color: color-mix(in srgb, var(--success) 42%, var(--line));
-  color: var(--success);
-}
-
-.cron-card-head em.disabled {
-  border-color: color-mix(in srgb, var(--danger) 35%, var(--line));
-  color: var(--danger);
-}
-
-.task-card dl,
-.cron-card dl,
-.command-card dl {
-  display: grid;
-  grid-template-columns: max-content minmax(0, 1fr);
-  gap: 8px 12px;
-  margin: 0;
-}
-
-.task-card dt,
-.cron-card dt,
-.command-card dt {
-  color: var(--text-muted);
-}
-
-.task-card dd,
-.cron-card dd,
-.command-card dd {
-  min-width: 0;
-  margin: 0;
-  color: var(--text-sec);
-  overflow-wrap: anywhere;
-}
-
-.task-actions {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: flex-end;
-  gap: 10px;
-  margin-top: 14px;
-}
-
-.cron-form {
-  margin: 16px 28px 0;
-}
-
-.cron-form-grid {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 12px;
-}
-
-.cron-form label,
-.task-toggle {
-  display: grid;
-  gap: 6px;
-  color: var(--text-muted);
-}
-
-.task-toggle {
-  grid-auto-flow: column;
-  justify-content: start;
-  align-items: center;
-  margin: 12px 0;
-}
-
-.cron-form input,
-.cron-form select,
-.cron-form textarea {
-  width: 100%;
-  border: 1px solid var(--line);
-  border-radius: var(--radius-sm);
-  background: var(--surface-2);
-  color: var(--text-pri);
-  padding: 9px 10px;
-}
-
-.command-template {
-  max-height: 180px;
-  overflow: auto;
-  border: 1px solid var(--line);
-  border-radius: var(--radius-sm);
-  background: var(--surface-2);
-  color: var(--text-sec);
-  padding: 10px;
-  white-space: pre-wrap;
-}
-
-.cron-runs-panel,
-.cron-delete-panel {
-  margin: 16px 28px 28px;
-}
-
-.cron-run-list {
-  display: grid;
-  gap: 10px;
-}
-
-.cron-run-row {
-  border: 1px solid var(--line);
-  border-radius: var(--radius-sm);
-  background: var(--surface-2);
-  padding: 10px;
-}
-
-.cron-run-row strong,
-.cron-run-row span,
-.cron-run-row em {
-  display: block;
 }
 
 .detail-top {
@@ -6865,8 +6689,6 @@ textarea:disabled {
 .settings-page button,
 .memory-page button,
 .workflow-page button,
-.tasks-page button,
-.commands-page button,
 .prompt-page button,
 .prompt-editor-modal button,
 .prompt-wizard-modal button,
@@ -6886,8 +6708,6 @@ textarea:disabled {
 .settings-page button:hover,
 .memory-page button:hover,
 .workflow-page button:hover,
-.tasks-page button:hover,
-.commands-page button:hover,
 .prompt-page button:hover,
 .prompt-editor-modal button:hover,
 .prompt-wizard-modal button:hover,
@@ -7596,8 +7416,6 @@ textarea:disabled {
 .memory-page,
 .settings-page,
 .workflow-page,
-.tasks-page,
-.commands-page,
 .prompt-page {
   background: var(--bg);
 }
@@ -8278,8 +8096,7 @@ textarea:disabled {
   .stat-grid,
   .form-grid,
   .memory-form-grid,
-  .prompt-editor-grid,
-  .cron-form-grid {
+  .prompt-editor-grid {
     grid-template-columns: 1fr;
   }
 

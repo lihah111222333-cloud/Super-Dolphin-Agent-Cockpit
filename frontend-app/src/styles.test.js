@@ -82,6 +82,23 @@ function mediaDeclarationsFor(mediaParams, selector) {
   return matches;
 }
 
+function containerDeclarationsFor(containerParams, selector) {
+  const matches = [];
+  root.walkAtRules('container', (atRule) => {
+    if (atRule.params !== containerParams) return;
+    atRule.walkRules((rule) => {
+      const selectors = splitSelectors(rule.selector);
+      if (!selectors.includes(selector)) return;
+      const declarations = {};
+      rule.walkDecls((decl) => {
+        declarations[decl.prop] = decl.value;
+      });
+      matches.push(declarations);
+    });
+  });
+  return matches;
+}
+
 const RAW_COLOR_VALUE = /#[0-9a-fA-F]{3,8}\b|rgba?\(/;
 
 function expectThemeTokenColors(selector, properties) {
@@ -299,6 +316,38 @@ describe('composer layout styles', () => {
     expect(threadArchiveFocus.outline).toBe(threadPinFocus.outline);
   });
 
+  it('lets thread card actions adapt inside the agent list width', () => {
+    const card = declarationsFor('.thread-card');
+    const main = declarationsFor('.thread-main');
+    const editingMain = declarationsFor('.thread-main--editing');
+    const actions = firstDeclarationsFor('.thread-card-actions');
+    const archive = declarationsFor('.thread-archive');
+    const pin = declarationsFor('.thread-pin');
+    const rename = declarationsFor('.thread-rename-trigger');
+    const compactActions = containerDeclarationsFor('(max-width: 260px)', '.thread-card-actions');
+
+    expect(card['grid-template-columns']).toBe('minmax(0, 1fr) minmax(0, max-content)');
+    expect(card['container-type']).toBe('inline-size');
+    expect(card.padding).toBe('8px');
+    expect(main['grid-column']).toBe('1');
+    expect(main.padding).toBe('0');
+    expect(editingMain['padding-left']).toBe('0');
+    expect(editingMain['padding-right']).toBe('0');
+    expect(actions.display).toBe('flex');
+    expect(actions['flex-wrap']).toBe('wrap');
+    expect(actions['justify-content']).toBe('flex-end');
+    expect(actions['max-width']).toBe('78px');
+    expect(archive.position).toBe('relative');
+    expect(pin.position).toBe('relative');
+    expect(rename.position).toBe('relative');
+    expect(archive.transform).toBe('none');
+    expect(pin.transform).toBe('none');
+    expect(rename.transform).toBe('none');
+    expect(compactActions).toHaveLength(1);
+    expect(compactActions[0]['max-width']).toBe('22px');
+    expect(compactActions[0]['flex-direction']).toBe('column');
+  });
+
   it('keeps workflow run history rows aligned as scannable data columns', () => {
     const row = declarationsFor('.run-row');
     const label = declarationsFor('.run-row span');
@@ -338,10 +387,13 @@ describe('composer layout styles', () => {
     const tooltipName = declarationsFor('.runtime-stat-tooltip-name');
     const logLine = declarationsFor('.warning-log-line');
 
-    expect(panel['border-left']).toBe('1px solid var(--line)');
+    expect(panel.border).toBeUndefined();
     expect(panel.position).toBe('relative');
     expect(Number(panel['z-index'])).toBeGreaterThan(20);
     expect(panel['overflow-x']).toBe('visible');
+    expect(activityPanel.border).toBeUndefined();
+    expect(activityPanel['border-top']).toBe('1px solid var(--line)');
+    expect(activityPanel['border-radius']).toBeUndefined();
     expect(activityPanel['min-width']).toBe('0');
     expect(activityPanel['max-width']).toBe('100%');
     expect(activityPanel['overflow-x']).toBe('visible');
@@ -982,6 +1034,8 @@ describe('light theme baseline usability', () => {
     const popoverCode = declarationsFor('.sa-window[data-theme="light"] .warning-log-popover code');
     const diffLines = declarationsFor('.sa-window[data-theme="light"] .diff-file-lines');
 
+    expect(activity['border-top-color']).toBe('var(--border)');
+    expect(activity['border-color']).toBeUndefined();
     expect(activity.background).toBe('var(--surface)');
     expect(activity.color).toBe('var(--text-sec)');
     expect(logs.background).toBe('var(--surface-code)');

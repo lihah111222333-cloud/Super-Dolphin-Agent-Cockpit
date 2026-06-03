@@ -17,7 +17,6 @@ import (
 	commandcardstore "github.com/anthropic-ai/super-agent-v3/internal/store/commandcard"
 	promptstore "github.com/anthropic-ai/super-agent-v3/internal/store/prompt"
 	sharedfilestore "github.com/anthropic-ai/super-agent-v3/internal/store/sharedfile"
-	tasktracestore "github.com/anthropic-ai/super-agent-v3/internal/store/tasktrace"
 	"github.com/anthropic-ai/super-agent-v3/internal/util"
 )
 
@@ -129,10 +128,6 @@ type agentsResponse struct {
 	Agents []agentstatusstore.AgentStatus `json:"agents"`
 }
 
-type tracesResponse struct {
-	Traces []tasktracestore.TaskTrace `json:"traces"`
-}
-
 type cardsResponse struct {
 	Cards []commandcardstore.CommandCard `json:"cards"`
 }
@@ -223,13 +218,6 @@ func registerDashboardCoreHandlers(m handler.Map, svc Service) {
 			return nil, err
 		}
 		return agentsResponse{Agents: agents}, nil
-	})
-	m["dashboard/taskTraces"] = platformrpc.StrictHandler(func(ctx context.Context, _ struct{}) (any, error) {
-		page, err := svc.GetDashboardPage(ctx, "tasks")
-		if err != nil {
-			return nil, err
-		}
-		return tracesResponse{Traces: page.TaskTraces}, nil
 	})
 	m["dashboard/commandCards"] = platformrpc.StrictHandler(func(ctx context.Context, _ struct{}) (any, error) {
 		page, err := svc.GetDashboardPage(ctx, "commandCards")
