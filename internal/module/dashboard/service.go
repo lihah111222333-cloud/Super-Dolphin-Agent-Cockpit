@@ -18,6 +18,7 @@ import (
 	promptstore "github.com/anthropic-ai/super-agent-v3/internal/store/prompt"
 	sharedfilestore "github.com/anthropic-ai/super-agent-v3/internal/store/sharedfile"
 	systemlogstore "github.com/anthropic-ai/super-agent-v3/internal/store/systemlog"
+	tasktracestore "github.com/anthropic-ai/super-agent-v3/internal/store/tasktrace"
 	"github.com/anthropic-ai/super-agent-v3/internal/util"
 	"golang.org/x/sync/errgroup"
 )
@@ -39,6 +40,7 @@ type service struct {
 	busLogs        buslogstore.Store
 	aiLogs         ailogstore.Store
 	dbQueries      dbquerystore.Store
+	taskTraces     tasktracestore.Store
 	commandCards   commandcardstore.Reader
 	prompts        promptstore.Reader
 	sharedFiles    sharedfilestore.Reader
@@ -59,6 +61,7 @@ func NewService(
 	busLogs buslogstore.Store,
 	aiLogs ailogstore.Store,
 	dbQueries dbquerystore.Store,
+	taskTraces tasktracestore.Store,
 	commandCards commandcardstore.Reader,
 	prompts promptstore.Reader,
 	sharedFiles sharedfilestore.Reader,
@@ -73,6 +76,7 @@ func NewService(
 		busLogs:        busLogs,
 		aiLogs:         aiLogs,
 		dbQueries:      dbQueries,
+		taskTraces:     taskTraces,
 		commandCards:   commandCards,
 		prompts:        prompts,
 		sharedFiles:    sharedFiles,
@@ -91,6 +95,7 @@ func newServiceWithDAGRuntime(
 	busLogs buslogstore.Store,
 	aiLogs ailogstore.Store,
 	dbQueries dbquerystore.Store,
+	taskTraces tasktracestore.Store,
 	commandCards commandcardstore.Reader,
 	prompts promptstore.Reader,
 	sharedFiles sharedfilestore.Reader,
@@ -104,6 +109,7 @@ func newServiceWithDAGRuntime(
 		busLogs,
 		aiLogs,
 		dbQueries,
+		taskTraces,
 		commandCards,
 		prompts,
 		sharedFiles,
