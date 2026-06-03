@@ -857,14 +857,19 @@ select {
   color: var(--text-pri);
   border-color: var(--border-strong);
   background: var(--surface-3);
+  outline: 0;
   opacity: 1;
 }
 
 .thread-archive.active {
-  color: var(--warning);
-  border-color: var(--warning);
-  background: color-mix(in srgb, var(--warning) 10%, transparent);
-  opacity: 1;
+  color: var(--accent) !important;
+  border: none !important;
+  background: transparent !important;
+  border-color: transparent !important;
+  border-style: none !important;
+  outline: 0;
+  opacity: 1 !important;
+  box-shadow: none !important;
 }
 
 .thread-pin {
@@ -916,7 +921,8 @@ select {
   opacity: 0.48;
 }
 
-.thread-pin-tooltip {
+.thread-pin-tooltip,
+.thread-action-tooltip {
   position: absolute;
   right: calc(100% + 10px);
   top: 50%;
@@ -1338,10 +1344,14 @@ select {
 }
 
 .message-markdown {
+  min-width: 0;
+  max-width: 100%;
   color: var(--text-sec);
   font-size: 14px;
   line-height: 1.62;
+  white-space: normal;
   overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .message.assistant .message-markdown {
@@ -1617,8 +1627,10 @@ select {
 
 .message-markdown pre {
   margin: 10px 0 14px;
+  max-width: 100%;
   overflow: auto;
-  white-space: pre;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
   background: var(--surface-code);
@@ -1629,6 +1641,8 @@ select {
   border: 0;
   background: transparent;
   padding: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 
 .mermaid-diagram {
@@ -2527,8 +2541,8 @@ select {
 
 .runtime-panel {
   --runtime-toolbar-height: 67px;
-  --activity-panel-height: 160px;
-  --activity-panel-min-height: 96px;
+  --activity-panel-height: 64px;
+  --activity-panel-min-height: 64px;
   --activity-panel-max-height: calc((100vh - var(--runtime-toolbar-height)) / 2);
   --diff-panel-min-height: calc((100vh - var(--runtime-toolbar-height)) / 2);
   --diff-panel-max-height: calc(100vh - var(--runtime-toolbar-height) - var(--activity-panel-min-height));
@@ -2786,6 +2800,10 @@ select {
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 }
 
+.runtime-activity-panel.is-log-collapsed {
+  grid-template-rows: minmax(0, 1fr);
+}
+
 .activity-panel-resizer {
   position: absolute;
   top: 0;
@@ -2828,6 +2846,13 @@ select {
   border-top: 0;
   border-bottom: 1px solid var(--line);
   padding: 16px 12px 10px;
+}
+
+.runtime-activity-panel.is-log-collapsed .runtime-icons {
+  height: 100%;
+  align-content: center;
+  border-bottom: 0;
+  padding: 14px 12px 8px;
 }
 
 .runtime-stat {
@@ -2908,10 +2933,9 @@ select {
 
 .runtime-stat-tooltip-name {
   min-width: 0;
-  overflow: hidden;
+  overflow: visible;
   overflow-wrap: anywhere;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  white-space: normal;
 }
 
 .runtime-stat-tooltip-empty {

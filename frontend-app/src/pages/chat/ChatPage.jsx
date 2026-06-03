@@ -29,11 +29,9 @@ const RUNTIME_TOOLBAR_HEIGHT = 67;
 
 const ACTIVITY_ICON_ROW_HEIGHT = 64;
 
-const ACTIVITY_LOG_ROW_HEIGHT = 32;
+const ACTIVITY_PANEL_MIN_HEIGHT = ACTIVITY_ICON_ROW_HEIGHT;
 
-const ACTIVITY_PANEL_MIN_HEIGHT = ACTIVITY_ICON_ROW_HEIGHT + ACTIVITY_LOG_ROW_HEIGHT;
-
-const ACTIVITY_PANEL_DEFAULT_HEIGHT = ACTIVITY_ICON_ROW_HEIGHT + (ACTIVITY_LOG_ROW_HEIGHT * 3);
+const ACTIVITY_PANEL_DEFAULT_HEIGHT = ACTIVITY_ICON_ROW_HEIGHT;
 
 const FLOATING_POPOVER_MARGIN = 12;
 
@@ -1556,6 +1554,7 @@ function ProviderToggle({ store, canUseProjectActions = true }) {
 function ThreadRail({ store }) {
   const [showArchivedThreads, setShowArchivedThreads] = useState(false);
   const [confirmCleanMode, setConfirmCleanMode] = useState(false);
+  const [hoveredArchiveThreadId, setHoveredArchiveThreadId] = useState('');
   const [hoveredPinThreadId, setHoveredPinThreadId] = useState('');
   const rename = useThreadRenameController(store);
   const activeThreads = store.threads.filter((thread) => !thread.archived);
@@ -1611,12 +1610,14 @@ function ThreadRail({ store }) {
             active={(store.pendingActiveThreadId || store.activeThreadId) === thread.id}
             editing={rename.editingThreadId === thread.id}
             editingName={rename.editingName}
+            hoveredArchiveThreadId={hoveredArchiveThreadId}
             hoveredPinThreadId={hoveredPinThreadId}
             renaming={rename.renamingThreadId === thread.id}
             onBeginRename={rename.beginRename}
             onCancelRename={rename.cancelRename}
             onRenameBlur={rename.handleRenameBlur}
             onSetEditingName={rename.setEditingName}
+            onSetHoveredArchiveThreadId={setHoveredArchiveThreadId}
             onSetHoveredPinThreadId={setHoveredPinThreadId}
             onSubmitRename={rename.submitRename}
           />
@@ -1741,12 +1742,14 @@ function ThreadCard({
   active,
   editing,
   editingName,
+  hoveredArchiveThreadId,
   hoveredPinThreadId,
   renaming,
   onBeginRename,
   onCancelRename,
   onRenameBlur,
   onSetEditingName,
+  onSetHoveredArchiveThreadId,
   onSetHoveredPinThreadId,
   onSubmitRename,
 }) {
@@ -1772,17 +1775,39 @@ function ThreadCard({
           onSetHoveredPinThreadId={onSetHoveredPinThreadId}
         />
       )}
-      <button
-        type="button"
-        className={`thread-archive ${thread.archived ? 'active' : ''}`}
-        aria-label={archiveLabel}
-        title={archiveLabel}
-        disabled={Boolean(store.threadArchiveLoadingByThread?.[thread.id])}
-        onClick={() => runUIAction(() => store.archiveThread(thread.id, !thread.archived))}
-      >
-        <Archive size={15} />
-      </button>
+      <ThreadArchiveButton
+        thread={thread}
+        archiveLabel={archiveLabel}
+        hoveredArchiveThreadId={hoveredArchiveThreadId}
+        loading={Boolean(store.threadArchiveLoadingByThread?.[thread.id])}
+        onSetHoveredArchiveThreadId={onSetHoveredArchiveThreadId}
+        onToggle={() => store.archiveThread(thread.id, !thread.archived)}
+      />
     </div>
+  );
+}
+
+function ThreadArchiveButton({ thread, archiveLabel, hoveredArchiveThreadId, loading, onSetHoveredArchiveThreadId, onToggle }) {
+  const clearHover = () => onSetHoveredArchiveThreadId((current) => (current === thread.id ? '' : current));
+  return (
+    <button
+      type="button"
+      className={`thread-archive ${thread.archived ? 'active' : ''}`}
+      aria-label={archiveLabel}
+      disabled={loading}
+      onClick={() => runUIAction(onToggle)}
+      onMouseEnter={() => onSetHoveredArchiveThreadId(thread.id)}
+      onMouseLeave={clearHover}
+      onFocus={() => onSetHoveredArchiveThreadId(thread.id)}
+      onBlur={clearHover}
+    >
+      <Archive size={15} />
+      {hoveredArchiveThreadId === thread.id ? (
+        <span className="thread-action-tooltip" data-testid="thread-archive-tooltip" role="tooltip">
+          {archiveLabel}
+        </span>
+      ) : null}
+    </button>
   );
 }
 
@@ -1879,7 +1904,6 @@ function ThreadPinButton({ thread, hoveredPinThreadId, onSetHoveredPinThreadId, 
       type="button"
       className={`thread-pin ${pinned ? 'active' : ''}`}
       aria-label={pinLabel}
-      title={pinLabel}
       aria-pressed={pinned}
       onClick={() => runUIAction(onToggle)}
       onMouseEnter={() => onSetHoveredPinThreadId(thread.id)}
@@ -4261,6 +4285,7 @@ function RuntimeActivityPanel({
     [activeStat, statItems],
   );
   const activeStatDetailEntries = activeStat ? detailEntriesByStat[activeStat.key] || [] : [];
+  const logLinesVisible = activityPanelHeight > activityPanelMinHeight;
   const hideStatTooltip = useCallback(() => setActiveStat(null), []);
   const hideWarningPopover = useCallback(() => setActiveWarning(null), []);
   const toggleStatTooltip = (key, element) => {
@@ -4301,6 +4326,10 @@ function RuntimeActivityPanel({
   };
 
   useEffect(() => {
+    if (!logLinesVisible && activeWarning) hideWarningPopover();
+  }, [activeWarning, hideWarningPopover, logLinesVisible]);
+
+  useEffect(() => {
     if (!activeStat && !activeWarning) return undefined;
     const handleDocumentPointerDown = (event) => {
       if (panelRef.current?.contains(event.target)) return;
@@ -4322,7 +4351,7 @@ function RuntimeActivityPanel({
 
   return (
     <section
-      className="runtime-activity-panel"
+      className={`runtime-activity-panel${logLinesVisible ? '' : ' is-log-collapsed'}`}
       aria-label="工具使用面板"
       ref={panelRef}
       onPointerDown={(event) => {
@@ -4355,13 +4384,15 @@ function RuntimeActivityPanel({
         detailEntries={activeStatDetailEntries}
         item={activeStatItem}
       />
-      <RuntimeLogLines
-        activeWarning={activeWarning}
-        entries={logEntries}
-        onWarningKeyDown={handleWarningKeyDown}
-        onToggleWarning={toggleWarningPopover}
-      />
-      <RuntimeWarningPopover entry={activeWarningEntry} hoverState={activeWarning} />
+      {logLinesVisible ? (
+        <RuntimeLogLines
+          activeWarning={activeWarning}
+          entries={logEntries}
+          onWarningKeyDown={handleWarningKeyDown}
+          onToggleWarning={toggleWarningPopover}
+        />
+      ) : null}
+      <RuntimeWarningPopover entry={logLinesVisible ? activeWarningEntry : null} hoverState={activeWarning} />
     </section>
   );
 }
@@ -4400,7 +4431,7 @@ function RuntimeStatList({ activeStat, onStatKeyDown, onToggleStat, statItems, t
           onToggle={onToggleStat}
         />
       ))}
-      <span className="runtime-context" title={tokenUsage ? `上下文使用率 ${tokenUsage.usedPercent.toFixed(1)}%` : '等待后端同步上下文使用率'}>
+      <span className="runtime-context" aria-label={tokenUsage ? `上下文使用率 ${tokenUsage.usedPercent.toFixed(1)}%` : '等待后端同步上下文使用率'}>
         {tokenUsage ? `${tokenUsage.usedPercent.toFixed(1)}% context` : 'context --'}
       </span>
     </div>
@@ -4417,7 +4448,6 @@ function RuntimeStatItem({ activeStat, item, onKeyDown, onToggle }) {
       aria-expanded={activeStat?.key === key}
       aria-haspopup="dialog"
       aria-label={key === 'tool' ? '工具调用总数' : `${label} 调用次数`}
-      title={`${label}: ${value}`}
       onClick={(event) => {
         event.stopPropagation();
         onToggle(key, event.currentTarget);
@@ -4439,7 +4469,7 @@ function RuntimeStatTooltip({ activeStat, detailEntries, item }) {
         <span className="runtime-stat-tooltip-list">
           {detailEntries.map((entry) => (
             <span key={entry.name} className="runtime-stat-tooltip-row">
-              <span className="runtime-stat-tooltip-name" title={entry.name}>{entry.name}</span>
+              <span className="runtime-stat-tooltip-name">{entry.name}</span>
               <strong>{entry.count}</strong>
             </span>
           ))}
