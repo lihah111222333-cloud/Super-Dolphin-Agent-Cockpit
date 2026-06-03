@@ -50,17 +50,21 @@ function renderMemoryPage(projectPath = '/repo/app') {
   );
 }
 
-describe('MemoryPage module', () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-    getMemorySnapshot.mockResolvedValue(memorySnapshot());
-    upsertMemoryEntry.mockResolvedValue({ path: 'feedback/default.md' });
-  });
+function resetMemoryBackendMocks() {
+  vi.clearAllMocks();
+  getMemorySnapshot.mockResolvedValue(memorySnapshot());
+  upsertMemoryEntry.mockResolvedValue({ path: 'feedback/default.md' });
+}
 
+beforeEach(resetMemoryBackendMocks);
+
+describe('MemoryPage module export', () => {
   it('exports the memory page component', () => {
     expect(MemoryPage).toBeTypeOf('function');
   });
+});
 
+describe('MemoryPage dashboard loading', () => {
   it('loads memory dashboard entries through getMemorySnapshot', async () => {
     getMemorySnapshot.mockResolvedValue(memorySnapshot({
       privateEntries: [{
@@ -96,7 +100,9 @@ describe('MemoryPage module', () => {
     expect(screen.getByText('DAG 规范')).toBeInTheDocument();
     expect(screen.getByRole('tab', { name: '项目 1' })).toHaveAttribute('aria-selected', 'true');
   });
+});
 
+describe('MemoryPage editor', () => {
   it('creates a preference memory entry with the upsert payload expected by backendApi', async () => {
     renderMemoryPage();
 

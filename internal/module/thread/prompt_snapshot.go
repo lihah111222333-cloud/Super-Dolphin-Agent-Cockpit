@@ -174,13 +174,20 @@ func promptSnapshotHash(
 }
 
 func (s *service) savePromptSnapshot(ctx context.Context, threadID string, assembly contract.StartAssembly) error {
-	if s == nil || s.threadStore == nil || strings.TrimSpace(threadID) == "" {
-		return nil
+	threadID = strings.TrimSpace(threadID)
+	if s == nil {
+		return errors.New("thread: service is not configured")
+	}
+	if s.threadStore == nil {
+		return errors.New("thread: thread store is not configured")
+	}
+	if threadID == "" {
+		return errors.New("thread: prompt snapshot thread_id is required")
 	}
 	if promptSnapshotBlank(assembly.Snapshot) {
-		return nil
+		return errors.New("thread: prompt snapshot is empty")
 	}
-	return s.threadStore.SavePromptSnapshot(ctx, strings.TrimSpace(threadID), toStoredPromptSnapshot(assembly.Snapshot))
+	return s.threadStore.SavePromptSnapshot(ctx, threadID, toStoredPromptSnapshot(assembly.Snapshot))
 }
 
 func toStoredPromptSnapshot(snapshot contract.PromptAssemblySnapshot) threadstore.PromptSnapshot {
@@ -203,19 +210,19 @@ func (s *service) resolveStablePromptSnapshot(
 	threadID string,
 	provider string,
 	fallback contract.PromptAssemblySnapshot,
-) contract.PromptAssemblySnapshot {
-	if stored, err := s.loadStoredPromptSnapshot(ctx, threadID); err == nil {
-		if storedPromptSnapshotValid(stored, provider) {
-			return stored
-		}
-		if !promptSnapshotBlank(stored) && s.logger != nil {
-			s.logger.Debug("thread: recomputing prompt snapshot due to hash/version mismatch",
-				"thread_id", threadID, "stored_version", stored.Version)
-		}
-	} else if s.logger != nil {
-		s.logger.Warn("thread: load stored prompt snapshot failed", "thread_id", threadID, "error", err)
+) (contract.PromptAssemblySnapshot, error) {
+	stored, err := s.loadStoredPromptSnapshot(ctx, threadID)
+	if err != nil {
+		return contract.PromptAssemblySnapshot{}, fmt.Errorf("load stable prompt snapshot for %q: %w", strings.TrimSpace(threadID), err)
 	}
-	return normalizeCallerPromptSnapshot(fallback, provider)
+	if storedPromptSnapshotValid(stored, provider) {
+		return stored, nil
+	}
+	if !promptSnapshotBlank(stored) && s.logger != nil {
+		s.logger.Debug("thread: recomputing prompt snapshot due to hash/version mismatch",
+			"thread_id", threadID, "stored_version", stored.Version)
+	}
+	return normalizeCallerPromptSnapshot(fallback, provider), nil
 }
 
 func (s *service) resolveResumePromptSnapshot(
@@ -326,10 +333,17 @@ func (s *service) preferredStoredPromptSnapshot(
 }
 
 func (s *service) loadStoredPromptSnapshot(ctx context.Context, threadID string) (contract.PromptAssemblySnapshot, error) {
-	if s == nil || s.threadStore == nil || strings.TrimSpace(threadID) == "" {
-		return contract.PromptAssemblySnapshot{}, nil
+	threadID = strings.TrimSpace(threadID)
+	if s == nil {
+		return contract.PromptAssemblySnapshot{}, errors.New("thread: service is not configured")
 	}
-	snapshot, err := s.threadStore.LoadPromptSnapshot(ctx, strings.TrimSpace(threadID))
+	if s.threadStore == nil {
+		return contract.PromptAssemblySnapshot{}, errors.New("thread: thread store is not configured")
+	}
+	if threadID == "" {
+		return contract.PromptAssemblySnapshot{}, errors.New("thread: prompt snapshot thread_id is required")
+	}
+	snapshot, err := s.threadStore.LoadPromptSnapshot(ctx, threadID)
 	if err != nil || snapshot == nil {
 		return contract.PromptAssemblySnapshot{}, err
 	}

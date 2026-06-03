@@ -106,6 +106,9 @@ export const RPC_METHODS = Object.freeze({
 });
 
 const objectPrototype = Object.prototype;
+const TOOL_SURFACE_MODES = new Set(['chat', 'auto', 'agent']);
+const DEFAULT_PROMPT_INTENT_KIND = 'expert';
+const DEFAULT_PROMPT_SOURCE_TYPE = 'user_input';
 
 function assertPlainObject(method, params) {
   const value = params == null ? {} : params;
@@ -128,6 +131,13 @@ function normalizeProviderConfigValue(value) {
     return '';
   }
   return normalizeString(value);
+}
+
+function normalizeToolSurfaceMode(value) {
+  const mode = normalizeString(value).toLowerCase();
+  if (!mode) return '';
+  if (!TOOL_SURFACE_MODES.has(mode)) throw new Error(`${RPC_METHODS.THREAD_START}: toolSurfaceMode must be chat, auto, or agent`);
+  return mode;
 }
 
 function normalizeProvider(params) {
@@ -409,10 +419,14 @@ function dashboardDagRunsPayload(params) {
 }
 
 function dashboardDagTerminatePayload(params) {
-  const payload = requireKey(RPC_METHODS.DASHBOARD_DAG_TERMINATE, assertPlainObject(RPC_METHODS.DASHBOARD_DAG_TERMINATE, params), 'dagKey');
+  const payload = requireKey(
+    RPC_METHODS.DASHBOARD_DAG_TERMINATE,
+    requireKey(RPC_METHODS.DASHBOARD_DAG_TERMINATE, assertPlainObject(RPC_METHODS.DASHBOARD_DAG_TERMINATE, params), 'dagKey'),
+    'runKey',
+  );
   return cleanObject({
     dagKey: payload.dagKey,
-    runKey: normalizeString(payload.runKey),
+    runKey: payload.runKey,
     reason: normalizeString(payload.reason),
   });
 }
@@ -479,22 +493,42 @@ function promptDeletePayload(params) {
 
 function promptIntentDraftPayload(params) {
   const payload = requireCwd(RPC_METHODS.PROMPT_INTENTS_DRAFT, params);
-  const rawInput = normalizeString(payload.raw_input ?? payload.rawInput);
-  if (!rawInput) throw new Error(`${RPC_METHODS.PROMPT_INTENTS_DRAFT}: raw_input is required`);
-  const scope = normalizeString(payload.scope);
-  const enableGlobal = payload.enable_global ?? payload.enableGlobal ?? (scope === 'global' ? true : undefined);
+  const rawInput = promptIntentRawInput(payload);
   return cleanObject({
     cwd: payload.cwd,
-    kind: normalizeString(payload.kind) || 'expert',
+    kind: normalizeString(payload.kind) || DEFAULT_PROMPT_INTENT_KIND,
     raw_input: rawInput,
-    source_type: normalizeString(payload.source_type ?? payload.sourceType) || 'user_input',
+    ...promptIntentSourceFields(payload),
+    enable_global: promptIntentEnableGlobal(payload),
+    ...promptProviderFields(payload),
+  });
+}
+
+function promptIntentRawInput(payload) {
+  const rawInput = normalizeString(payload.raw_input ?? payload.rawInput);
+  if (!rawInput) throw new Error(`${RPC_METHODS.PROMPT_INTENTS_DRAFT}: raw_input is required`);
+  return rawInput;
+}
+
+function promptIntentEnableGlobal(payload) {
+  const scope = normalizeString(payload.scope);
+  return payload.enable_global ?? payload.enableGlobal ?? (scope === 'global' ? true : undefined);
+}
+
+function promptIntentSourceFields(payload) {
+  return {
+    source_type: normalizeString(payload.source_type ?? payload.sourceType) || DEFAULT_PROMPT_SOURCE_TYPE,
     source_url: normalizeString(payload.source_url ?? payload.sourceUrl),
     license_hint: normalizeString(payload.license_hint ?? payload.licenseHint),
-    enable_global: enableGlobal,
+  };
+}
+
+function promptProviderFields(payload) {
+  return {
     provider: normalizeString(payload.provider ?? payload.modelProvider),
     model: normalizeString(payload.model),
     model_provider: normalizeString(payload.model_provider ?? payload.codexModelProvider),
-  });
+  };
 }
 
 function memoryConsolidationPayload(method, params) {
@@ -553,21 +587,23 @@ function hasOwn(value, key) {
   return objectPrototype.hasOwnProperty.call(value, key);
 }
 
+const NATIVE_DEP_FALLBACKS = Object.freeze([
+  ['getBuildInfo', getWailsBuildInfo],
+  ['onAgentEvent', subscribeAgentEvent],
+  ['onBridgeEvent', subscribeBridgeEvent],
+  ['onFilesDropped', subscribeFilesDropped],
+  ['readDroppedTextFiles', readDroppedTextFilesViaBridge],
+  ['saveClipboardImage', saveClipboardImageViaBridge],
+  ['saveTextFile', saveTextFileViaBridge],
+  ['beginTextClipboardWrite', beginTextClipboardWriteViaBridge],
+  ['copyTextToClipboard', copyTextToClipboardViaBridge],
+  ['selectFiles', selectFilesViaBridge],
+  ['selectProjectDir', selectProjectDirViaBridge],
+  ['selectProjectDirs', selectProjectDirsViaBridge],
+]);
+
 function resolveNativeDeps(deps) {
-  return {
-    getBuildInfo: deps.getBuildInfo || getWailsBuildInfo,
-    onAgentEvent: deps.onAgentEvent || subscribeAgentEvent,
-    onBridgeEvent: deps.onBridgeEvent || subscribeBridgeEvent,
-    onFilesDropped: deps.onFilesDropped || subscribeFilesDropped,
-    readDroppedTextFiles: deps.readDroppedTextFiles || readDroppedTextFilesViaBridge,
-    saveClipboardImage: deps.saveClipboardImage || saveClipboardImageViaBridge,
-    saveTextFile: deps.saveTextFile || saveTextFileViaBridge,
-    beginTextClipboardWrite: deps.beginTextClipboardWrite || beginTextClipboardWriteViaBridge,
-    copyTextToClipboard: deps.copyTextToClipboard || copyTextToClipboardViaBridge,
-    selectFiles: deps.selectFiles || selectFilesViaBridge,
-    selectProjectDir: deps.selectProjectDir || selectProjectDirViaBridge,
-    selectProjectDirs: deps.selectProjectDirs || selectProjectDirsViaBridge,
-  };
+  return Object.fromEntries(NATIVE_DEP_FALLBACKS.map(([key, fallback]) => [key, deps[key] || fallback]));
 }
 
 function createBackendCaller(callAPI) {
@@ -618,12 +654,24 @@ function createConfigProjectApi(callBackend) {
 
 function createObservabilityMemoryApi(callBackend) {
   return {
+    ...createObservabilityApi(callBackend),
+    ...createMemoryApi(callBackend),
+  };
+}
+
+function createObservabilityApi(callBackend) {
+  return {
     getObservabilityTrace: (params) => callBackend(RPC_METHODS.OBSERVABILITY_TRACE_GET, observabilityTracePayload(RPC_METHODS.OBSERVABILITY_TRACE_GET, params)),
     getObservabilityThreadRecent: (params) => callBackend(RPC_METHODS.OBSERVABILITY_THREAD_RECENT, observabilityThreadPayload(RPC_METHODS.OBSERVABILITY_THREAD_RECENT, params)),
     listObservabilityRecent: (params = {}) => callBackend(RPC_METHODS.OBSERVABILITY_RECENT_LIST, observabilityRecentPayload(RPC_METHODS.OBSERVABILITY_RECENT_LIST, params)),
     listObservabilitySlow: (params = {}) => callBackend(RPC_METHODS.OBSERVABILITY_SLOW_LIST, observabilityListPayload(RPC_METHODS.OBSERVABILITY_SLOW_LIST, params)),
     listObservabilityErrors: (params = {}) => callBackend(RPC_METHODS.OBSERVABILITY_ERROR_LIST, observabilityListPayload(RPC_METHODS.OBSERVABILITY_ERROR_LIST, params)),
     getObservabilityStatus: () => callBackend(RPC_METHODS.OBSERVABILITY_STATUS, {}),
+  };
+}
+
+function createMemoryApi(callBackend) {
+  return {
     getMemorySnapshot: (params) => callBackend(RPC_METHODS.UI_MEMORY_GET, requireCwd(RPC_METHODS.UI_MEMORY_GET, params)),
     getMemoryEntry: (params) => callBackend(RPC_METHODS.UI_MEMORY_ENTRY_GET, memoryEntryGetPayload(RPC_METHODS.UI_MEMORY_ENTRY_GET, params)),
     upsertMemoryEntry: (params) => callBackend(RPC_METHODS.UI_MEMORY_ENTRY_UPSERT, memoryEntryUpsertPayload(RPC_METHODS.UI_MEMORY_ENTRY_UPSERT, params)),
@@ -834,8 +882,9 @@ function threadStartPayload(params) {
   const promptKey = normalizeString(rest.promptKey || rest.prompt_key);
   const agentKey = normalizeString(rest.agentKey || rest.agent_key);
   const deferSpawn = rest.deferSpawn ?? rest.defer_spawn;
+  const toolSurfaceMode = normalizeToolSurfaceMode(rest.toolSurfaceMode || rest.tool_surface_mode);
   stripThreadStartInternalKeys(rest);
-  const request = cleanObject({ ...rest, modelProvider: provider, prompt_key: promptKey, agent_key: agentKey });
+  const request = cleanObject({ ...rest, modelProvider: provider, prompt_key: promptKey, agent_key: agentKey, toolSurfaceMode });
   if (deferSpawn === true) request.defer_spawn = true;
   return request;
 }
@@ -850,6 +899,8 @@ function stripThreadStartInternalKeys(rest) {
   delete rest.agent_key;
   delete rest.deferSpawn;
   delete rest.defer_spawn;
+  delete rest.toolSurfaceMode;
+  delete rest.tool_surface_mode;
   delete rest.optimisticUserMessage;
   delete rest.optimistic_user_message;
   delete rest.skipInitialRuntimeSync;

@@ -107,3 +107,30 @@ func TestServiceQueryMixedTailDedupeLimitAndTruncation(t *testing.T) {
 		t.Fatalf("events = %q (%#v), want deduped newest chronological three", methods(got.Events), got.Events)
 	}
 }
+
+func TestServiceQueryRereadsTailForRepeatedLatestQueries(t *testing.T) {
+	cfg := Config{IndexMaxEvents: 2, IndexMaxTraceEvents: 2, IndexMaxThreadEvents: 2, IndexMaxSlowEvents: 2, IndexMaxErrorEvents: 2, MetadataMaxBytes: 4096, StringMaxBytes: 512, QueryTailTimeoutMS: 100, QueryTailMaxConcurrency: 1}
+	calls := 0
+	tail := QueryTailReaderFunc(func(context.Context, Query) (QueryResult, error) {
+		calls++
+		method := "tail-old"
+		if calls > 1 {
+			method = "tail-new"
+		}
+		return QueryResult{Source: QuerySourceJSONLTail, Events: []TraceEvent{{TraceID: "trace", Method: method}}}, nil
+	})
+	svc := NewService(cfg, WithTailReader(tail))
+
+	first := svc.Query(context.Background(), Query{TraceID: "trace", IncludeTail: true})
+	second := svc.Query(context.Background(), Query{TraceID: "trace", IncludeTail: true})
+
+	if calls != 2 {
+		t.Fatalf("tail reader calls = %d, want 2", calls)
+	}
+	if methods(first.Events) != "tail-old" {
+		t.Fatalf("first events = %q", methods(first.Events))
+	}
+	if methods(second.Events) != "tail-new" {
+		t.Fatalf("second events = %q, want latest tail result", methods(second.Events))
+	}
+}

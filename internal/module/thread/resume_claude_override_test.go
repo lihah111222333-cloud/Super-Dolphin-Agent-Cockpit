@@ -74,7 +74,7 @@ func TestBackgroundResumeIfNeededRehydratesClaudeOverrideConfig(t *testing.T) {
 		return session, nil
 	}}
 
-	svc := NewService(silentLogger(), threads, bindings, sessions, starter, nil, nil, nil).(*service)
+	svc := NewService(silentLogger(), threads, bindings, sessions, starter, nil, &stubThreadOrchestration{}, nil).(*service)
 	svc.backgroundResumeIfNeeded(context.Background(), "thread-1")
 
 	select {

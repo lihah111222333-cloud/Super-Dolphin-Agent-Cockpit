@@ -1894,6 +1894,11 @@ async function toggleInlineTraceFromRecentLogs(table) {
 
       render(<App skipBootstrap />);
 
+      await act(async () => {
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+
       const trace = screen.getByLabelText('AI 思考记录');
       expect(trace).toHaveTextContent('正在思考 0s');
 
@@ -3782,7 +3787,7 @@ async function toggleInlineTraceFromRecentLogs(table) {
     expect(screen.getByRole('tab', { name: '专家能力 1' })).toBeInTheDocument();
     expect(screen.getByRole('tab', { name: '参考资料 1' })).toBeInTheDocument();
     expect(screen.getByRole('tab', { name: '待确认 1' })).toBeInTheDocument();
-    expect(screen.getByText('强制中')).toBeInTheDocument();
+    expect(screen.getByText('强制使用')).toBeInTheDocument();
     expect(screen.getAllByText('全局可用').length).toBeGreaterThanOrEqual(1);
     expect(screen.queryByRole('button', { name: /刷新/ })).not.toBeInTheDocument();
     expect(backend.listPromptAssets).toHaveBeenCalledWith({ cwd: '/repo/app' });
@@ -3849,7 +3854,7 @@ async function toggleInlineTraceFromRecentLogs(table) {
     await screen.findByText('后端线程');
     fireEvent.click(screen.getByLabelText('提示词'));
 
-    const addButton = await screen.findByRole('button', { name: '+ 添加给 AI 的内容' });
+    const addButton = await screen.findByRole('button', { name: '添加给 AI 的内容' });
     addButton.focus();
     fireEvent.click(addButton);
 
@@ -4246,7 +4251,7 @@ async function handlePendingPromptDraft() {
 }
 
 async function createGeneratedPromptIntent() {
-  fireEvent.click(screen.getByRole('button', { name: '+ 添加给 AI 的内容' }));
+  fireEvent.click(screen.getByRole('button', { name: '添加给 AI 的内容' }));
   expect(await screen.findByRole('dialog', { name: '添加给 AI 的内容' })).toBeInTheDocument();
   fireEvent.change(screen.getByLabelText('写下希望 AI 记住或使用的内容'), {
     target: { value: '当用户要求代码审查时，先检查阻塞问题。' },
@@ -4304,7 +4309,7 @@ async function createGeneratedPromptIntent() {
     render(<App />);
     await screen.findByText('后端线程');
     fireEvent.click(screen.getByLabelText('提示词'));
-    fireEvent.click(await screen.findByRole('button', { name: '+ 添加给 AI 的内容' }));
+    fireEvent.click(await screen.findByRole('button', { name: '添加给 AI 的内容' }));
     fireEvent.change(await screen.findByLabelText('写下希望 AI 记住或使用的内容'), {
       target: { value: '在我喝酒的时候阻止我' },
     });
@@ -4337,7 +4342,7 @@ async function createGeneratedPromptIntent() {
     render(<App />);
     await screen.findByText('后端线程');
     fireEvent.click(screen.getByLabelText('提示词'));
-    fireEvent.click(await screen.findByRole('button', { name: '+ 添加给 AI 的内容' }));
+    fireEvent.click(await screen.findByRole('button', { name: '添加给 AI 的内容' }));
     fireEvent.change(await screen.findByLabelText('写下希望 AI 记住或使用的内容'), {
       target: { value: '在我想喝酒的时候鼓励我' },
     });
@@ -4370,7 +4375,7 @@ async function createGeneratedPromptIntent() {
     render(<App />);
     await screen.findByText('后端线程');
     fireEvent.click(screen.getByLabelText('提示词'));
-    fireEvent.click(await screen.findByRole('button', { name: '+ 添加给 AI 的内容' }));
+    fireEvent.click(await screen.findByRole('button', { name: '添加给 AI 的内容' }));
     fireEvent.change(await screen.findByLabelText('写下希望 AI 记住或使用的内容'), {
       target: { value: '在我想喝酒的时候鼓励我' },
     });
@@ -4409,7 +4414,7 @@ async function createGeneratedPromptIntent() {
     render(<App />);
     await screen.findByText('后端线程');
     fireEvent.click(screen.getByLabelText('提示词'));
-    fireEvent.click(await screen.findByRole('button', { name: '+ 添加给 AI 的内容' }));
+    fireEvent.click(await screen.findByRole('button', { name: '添加给 AI 的内容' }));
     fireEvent.change(await screen.findByLabelText('写下希望 AI 记住或使用的内容'), {
       target: { value: '在我想喝酒的时候阻止我' },
     });

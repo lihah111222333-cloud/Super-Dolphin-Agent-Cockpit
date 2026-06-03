@@ -279,6 +279,7 @@ func TestSpawnIfNeededPropagatesPromptKeyStale(t *testing.T) {
 		threadStore:    store,
 		bindingStore:   &stubBindingStore{},
 		sessions:       sessions,
+		orchestration:  &stubThreadOrchestration{},
 		promptAssembly: promptAssemblyStub{},
 		promptCatalog:  threadprompt.NewRuntimeCatalog(&fakePromptStore{}, nil),
 		starter: &startOnlySessionStarter{onStart: func(_ context.Context, _ dto.StartSessionRequest) (contract.Session, error) {
@@ -328,6 +329,7 @@ func TestSpawnIfNeededInjectsPackagedCodexIdentity(t *testing.T) {
 		threadStore:    store,
 		bindingStore:   bindings,
 		sessions:       sessions,
+		orchestration:  &stubThreadOrchestration{},
 		promptAssembly: promptAssemblyStub{},
 		starter: &startOnlySessionStarter{onStart: func(_ context.Context, _ dto.StartSessionRequest) (contract.Session, error) {
 			session := &stubSession{threadID: providerUUID}

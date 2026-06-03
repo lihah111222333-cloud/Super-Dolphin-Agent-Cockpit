@@ -115,19 +115,13 @@ function registerBridgeEventHandlersForTest() {
     backend.copyTextToClipboard.mockResolvedValue(true);
   });
 
-  it('bootstraps through config, window, projects, sidebar, then thread snapshot', async () => {
+  it('bootstraps through config, window, projects, and sidebar without blocking on thread snapshot', async () => {
     await useClientStore.getState().bootstrap();
 
-    expect(backend.readConfig).toHaveBeenCalledBefore(backend.getWindowBootstrap);
-    expect(backend.getWindowBootstrap).toHaveBeenCalledBefore(backend.getProjects);
     expect(backend.getPreference).toHaveBeenCalledWith({ cwd: '/repo/app', key: 'settings.provider.active' });
     expect(backend.getProjects).toHaveBeenCalledWith({ cwd: '/repo/app' });
     expect(backend.getSidebarState).toHaveBeenCalledWith({ cwd: '/repo/app' });
-    expect(backend.getThreadState).toHaveBeenCalledWith({
-      cwd: '/repo/app',
-      threadId: 'thread-1',
-      includeDiff: true,
-    });
+    expect(backend.getThreadState).not.toHaveBeenCalled();
 
     const state = useClientStore.getState();
     expect(state.cwd).toBe('/repo/app');
@@ -148,7 +142,6 @@ function registerBridgeEventHandlersForTest() {
       'frontend-app bootstrap: settings.provider.active preference is required',
     );
 
-    expect(backend.getProjects).not.toHaveBeenCalled();
     expect(useClientStore.getState().bootstrapStatus).toBe('failed');
   });
 
@@ -163,7 +156,6 @@ function registerBridgeEventHandlersForTest() {
       'provider.config: settings.provider.codex.model preference is required',
     );
 
-    expect(backend.getProjects).not.toHaveBeenCalled();
     expect(useClientStore.getState().bootstrapStatus).toBe('failed');
   });
 
@@ -181,11 +173,7 @@ function registerBridgeEventHandlersForTest() {
     expect(useClientStore.getState().bootstrapStatus).toBe('ready');
     expect(backend.getProjects).toHaveBeenCalledWith({ cwd: '/repo/app' });
     expect(backend.getSidebarState).toHaveBeenCalledWith({ cwd: '/repo/app' });
-    expect(backend.getThreadState).toHaveBeenCalledWith({
-      cwd: '/repo/app',
-      threadId: 'thread-1',
-      includeDiff: true,
-    });
+    expect(backend.getThreadState).not.toHaveBeenCalled();
     expect(useClientStore.getState().providerConfig).toEqual(expect.objectContaining({
       provider: 'codex',
       model: 'gpt-5.5',
@@ -712,11 +700,7 @@ function registerBridgeEventHandlersForTest() {
       id: 'thread-canonical',
       agentId: 'agent_123',
     }));
-    expect(backend.getThreadState).toHaveBeenCalledWith({
-      cwd: '/repo/app',
-      threadId: 'thread-canonical',
-      includeDiff: true,
-    });
+    expect(backend.getThreadState).not.toHaveBeenCalled();
     expect(backend.compactThread).toHaveBeenCalledWith({ cwd: '/repo/app', threadId: 'thread-canonical' });
   });
 
@@ -958,6 +942,7 @@ function registerBridgeEventHandlersForTest() {
       cwd: '/repo/app',
       name: 'Hello backend',
       modelProvider: 'codex',
+      toolSurfaceMode: 'chat',
       deferSpawn: true,
     }));
     const startPayload = backend.startThread.mock.calls[0][0];
@@ -980,6 +965,28 @@ function registerBridgeEventHandlersForTest() {
       expect.objectContaining({ role: 'user', text: 'Hello backend' }),
     ]);
     expect(useClientStore.getState().draft).toBe('');
+  });
+
+  it('upgrades auto tool mode to agent for engineering intents', async () => {
+    resetClientStoreForTests({
+      cwd: '/repo/app',
+      activeProject: '/repo/app',
+      activeThreadId: '',
+      draft: '请帮我看这个文件并跑一下测试',
+      attachments: [],
+      toolSurfaceMode: 'auto',
+    });
+    backend.startThread.mockResolvedValue({ threadId: 'thread-agent' });
+    backend.startTurn.mockResolvedValue({ ok: true });
+
+    await useClientStore.getState().sendDraft();
+
+    expect(backend.startThread).toHaveBeenCalledWith(expect.objectContaining({
+      cwd: '/repo/app',
+      name: '请帮我看这个文件并跑一下测试',
+      toolSurfaceMode: 'agent',
+      deferSpawn: true,
+    }));
   });
 
   it('preserves the optimistic first user message when a fresh thread sync has an empty timeline', async () => {
@@ -2566,14 +2573,14 @@ function registerBridgeEventHandlersForTest() {
     ]);
   });
 
-  it('deduplicates repeated terminal tool ids from one bridge patch', async () => {
+  it('deduplicates repeated terminal tool ids from one bridge patch', () => {
     resetClientStoreForTests({
       cwd: '/repo/app',
       activeProject: '/repo/app',
       activeThreadId: 'thread-1',
       timelinesByThread: { 'thread-1': [] },
     });
-    useClientStore.getState().initializeEvents();
+    void useClientStore.getState().initializeEvents();
 
     bridgeCallback({
       type: 'ui/thread/patch',
@@ -2924,6 +2931,38 @@ function registerBridgeEventHandlersForTest() {
     }));
     expect(useClientStore.getState().warningEntries.at(-1)).toEqual(expect.objectContaining({
       event: 'thread.archive.failed',
+      level: 'error',
+    }));
+  });
+
+  it('surfaces archive preference failures after backend archive succeeds', async () => {
+    backend.setPreference.mockRejectedValueOnce(new Error('preference backend offline'));
+    resetClientStoreForTests({
+      cwd: '/repo/app',
+      activeProject: '/repo/app',
+      activeThreadId: 'thread-1',
+      threads: [{ id: 'thread-1', name: '后端线程', provider: 'codex', status: 'idle', archived: false }],
+    });
+
+    await expect(useClientStore.getState().archiveThread('thread-1', true)).resolves.toBe(false);
+
+    expect(backend.archiveThread).toHaveBeenCalledWith({ threadId: 'thread-1' });
+    expect(backend.setPreference).toHaveBeenCalledWith({
+      cwd: '/repo/app',
+      key: 'archivedThreadAtById.thread-1',
+      value: expect.any(Number),
+    });
+    expect(useClientStore.getState().threads[0]).toEqual(expect.objectContaining({
+      archived: true,
+      status: 'archived',
+    }));
+    expect(useClientStore.getState().activeThreadId).toBe('');
+    expect(useClientStore.getState().actionNotice).toEqual(expect.objectContaining({
+      message: '归档偏好保存失败：preference backend offline',
+      tone: 'error',
+    }));
+    expect(useClientStore.getState().warningEntries.at(-1)).toEqual(expect.objectContaining({
+      event: 'thread.archive.preference.failed',
       level: 'error',
     }));
   });

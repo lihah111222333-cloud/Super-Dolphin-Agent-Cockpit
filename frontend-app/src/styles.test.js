@@ -359,6 +359,38 @@ describe('theme-aware component styles', () => {
 });
 
 describe('timeline content styles', () => {
+  it('keeps observability filters aligned to the page and theme surface', () => {
+    const page = declarationsFor('.settings-page.observability-page');
+    const search = declarationsFor('.observability-search');
+    const grid = firstDeclarationsFor('.observability-filter-grid');
+    const label = declarationsFor('.observability-filter-grid label');
+    const input = declarationsFor('.observability-filter-grid input');
+    const placeholder = declarationsFor('.observability-filter-grid input::placeholder');
+    const focus = declarationsFor('.observability-filter-grid input:focus-visible');
+    const tabletGrid = mediaDeclarationsFor('(max-width: 980px)', '.observability-filter-grid');
+    const mobileGrid = mediaDeclarationsFor('(max-width: 640px)', '.observability-filter-grid');
+
+    expect(page.padding).toBe('18px 24px 36px');
+    expect(search.width).toBe('100%');
+    expect(search['min-width']).toBe('0');
+    expect(search.border).toContain('var(--line)');
+    expect(search.background).toContain('var(--panel)');
+    expect(grid.width).toBe('100%');
+    expect(grid['min-width']).toBe('0');
+    expect(grid['grid-template-columns']).toBe('repeat(4, minmax(0, 1fr))');
+    expect(label['min-width']).toBe('0');
+    expect(input['box-sizing']).toBe('border-box');
+    expect(input['min-width']).toBe('0');
+    expect(input.height).toBe('40px');
+    expect(input.border).toContain('var(--line)');
+    expect(input.background).toContain('var(--panel-2)');
+    expect(placeholder.color).toBe('var(--text-subtle)');
+    expect(focus['border-color']).toContain('var(--blue)');
+    expect(focus['box-shadow']).toContain('var(--blue)');
+    expect(tabletGrid).toContainEqual(expect.objectContaining({ 'grid-template-columns': 'repeat(2, minmax(0, 1fr))' }));
+    expect(mobileGrid).toContainEqual(expect.objectContaining({ 'grid-template-columns': 'minmax(0, 1fr)' }));
+  });
+
   it('keeps observability system log cards from being flex-shrunk and clipped', () => {
     const systemLog = declarationsFor('.observability-system-log');
     const logTable = declarationsFor('.observability-log-table');
