@@ -107,6 +107,7 @@ function waitRuntime() {
       })
       .catch((error) => {
         writeBridgeLog('error', 'bridge.runtime.load.failed', { error });
+        runtimePromise = null; // allow retry on next call
         return null;
       });
   }
@@ -954,5 +955,14 @@ export function onAppWillQuit(callback) {
     subscribeUnavailableLog: 'appWillQuit.subscribe.unavailable',
     subscribeReadyLog: 'appWillQuit.subscribe.ready',
     unsubscribeDoneLog: 'appWillQuit.unsubscribe.done',
+  });
+}
+
+export function onRuntimeReconnect(callback) {
+  return subscribeRuntimeEvent('wails:loaded', callback, {
+    callbackFailedLog: 'reconnect.callback.failed',
+    subscribeUnavailableLog: 'reconnect.subscribe.unavailable',
+    subscribeReadyLog: 'reconnect.subscribe.ready',
+    unsubscribeDoneLog: 'reconnect.unsubscribe.done',
   });
 }

@@ -52,6 +52,11 @@ func TestValidateQuery(t *testing.T) {
 			wantErrText: "disallowed",
 		},
 		{
+			name:        "rejects removed task trace page table",
+			query:       "SELECT * FROM task_traces",
+			wantErrText: "disallowed",
+		},
+		{
 			name:        "rejects placeholder mismatch",
 			query:       "SELECT * FROM agent_threads WHERE status = $2",
 			argCount:    1,

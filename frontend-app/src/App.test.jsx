@@ -50,6 +50,7 @@ const backend = vi.hoisted(() => {
   return {
     ...Object.fromEntries(mockNames.map((name) => [name, vi.fn()])),
     onFilesDropped: vi.fn(() => () => {}),
+    onRuntimeReconnect: vi.fn(() => () => {}),
     onBridgeEvent: vi.fn((callback) => {
       bridgeCallback = callback;
       return () => {
@@ -179,12 +180,6 @@ function mockDashboardPageDefaults() {
     }
     if (page === 'dags') {
       return Promise.resolve({ dags: [] });
-    }
-    if (page === 'tasks') {
-      return Promise.resolve({ taskAcks: [], taskTraces: [] });
-    }
-    if (page === 'commands') {
-      return Promise.resolve({ commandCards: [], prompts: [] });
     }
     if (page === 'skills') {
       return Promise.resolve({ skills: defaultSkills });
@@ -800,6 +795,36 @@ async function toggleInlineTraceFromRecentLogs(table) {
     expect(sidebarToggle).not.toHaveTextContent('侧边栏');
   });
 
+  it('renders the app sidebar in user-to-developer navigation order', () => {
+    render(<App skipBootstrap />);
+
+    expect(within(screen.getByTestId('sidebar-nav')).getAllByRole('button').map((button) => button.getAttribute('aria-label'))).toEqual([
+      'Chat',
+      '技能',
+      '提示词',
+      '自动化',
+      '记忆中心',
+      '共享文件',
+      '链路追踪',
+      '设置',
+    ]);
+  });
+
+  it('renders the app sidebar in user-to-developer navigation order', () => {
+    render(<App skipBootstrap />);
+
+    expect(within(screen.getByTestId('sidebar-nav')).getAllByRole('button').map((button) => button.getAttribute('aria-label'))).toEqual([
+      'Chat',
+      '技能',
+      '提示词',
+      '自动化',
+      '记忆中心',
+      '共享文件',
+      '链路追踪',
+      '设置',
+    ]);
+  });
+
   it('uses the current URL path as the active page on boot', async () => {
     window.history.pushState({}, '', '/dags');
     backend.getWindowBootstrap.mockResolvedValueOnce({ snapshot: { page: 'chat' } });
@@ -812,111 +837,15 @@ async function toggleInlineTraceFromRecentLogs(table) {
     expect(window.location.pathname).toBe('/dags');
   });
 
-  it('renders tasks and cron jobs as a first-class page', async () => {
-    backend.getDashboardPage.mockImplementation(({ page }) => {
-      if (page === 'tasks') {
-        return Promise.resolve({
-          taskAcks: [{ ack_key: 'ACK-101', title: '修复前端回归', status: 'open', assigned_to: 'alice' }],
-          taskTraces: [{ trace_id: 'trace-1', span_name: 'run tests', status: 'ok', started_at: '2026-06-02T09:00:00Z' }],
-        });
-      }
-      if (page === 'dags') return Promise.resolve({ dags: [] });
-      if (page === 'commands') return Promise.resolve({ commandCards: [], prompts: [] });
-      if (page === 'skills') return Promise.resolve({ skills: defaultSkillFixtures() });
-      return Promise.resolve({});
-    });
-    backend.listCronJobs.mockResolvedValue({
-      jobs: [{
-        id: 'cron-1',
-        name: 'Nightly tests',
-        prompt: 'Run nightly tests',
-        schedule_expr: '0 2 * * *',
-        cwd: '/repo/app',
-        config: { codexHome: '~/.codex', codexInstanceKey: 'default', codexModelProvider: 'openai' },
-        enabled: true,
-        failure_count: 0,
-        max_attempts: 3,
-      }],
-    });
-    backend.listCronJobRuns.mockResolvedValue({ runs: [{ id: 'run-1', status: 'succeeded', submitted_at: '2026-06-02T10:00:00Z' }] });
+  it.each(['/tasks', '/commands'])('falls back to chat for the removed %s route', async (pathname) => {
+    window.history.pushState({}, '', pathname);
 
     render(<App />);
-    await screen.findByText('后端线程');
-    fireEvent.click(screen.getByRole('button', { name: '任务' }));
 
-    expect(await screen.findByTestId('tasks-page')).toBeInTheDocument();
-    expect(await screen.findByText('修复前端回归')).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('tab', { name: '执行追踪' }));
-    expect(await screen.findByText('run tests')).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('tab', { name: '定时任务' }));
-    expect(await screen.findByText('Nightly tests')).toBeInTheDocument();
-
-    fireEvent.click(screen.getByRole('button', { name: '立即运行' }));
-    await waitFor(() => expect(backend.runCronJobOnce).toHaveBeenCalledWith({ id: 'cron-1' }));
-    fireEvent.click(screen.getByRole('button', { name: '停用' }));
-    await waitFor(() => expect(backend.setCronJobEnabled).toHaveBeenCalledWith({ id: 'cron-1', enabled: false }));
-    fireEvent.click(screen.getByRole('button', { name: '历史' }));
-    await waitFor(() => expect(backend.listCronJobRuns).toHaveBeenCalledWith({ jobId: 'cron-1', limit: 50 }));
-    expect(await screen.findByText('succeeded')).toBeInTheDocument();
-
-    fireEvent.click(screen.getByRole('button', { name: '新建定时任务' }));
-    fireEvent.change(screen.getByLabelText('定时任务名称'), { target: { value: 'Weekly report' } });
-    fireEvent.change(screen.getByLabelText('Cron 表达式'), { target: { value: '0 9 * * 1' } });
-    fireEvent.change(screen.getByLabelText('定时任务工作目录'), { target: { value: '/repo/app' } });
-    fireEvent.change(screen.getByLabelText('Codex Home'), { target: { value: '~/.codex' } });
-    fireEvent.change(screen.getByLabelText('Instance Key'), { target: { value: 'default' } });
-    fireEvent.change(screen.getByLabelText('Model Provider'), { target: { value: 'openai' } });
-    fireEvent.change(screen.getByLabelText('定时任务提示词'), { target: { value: 'Write weekly report' } });
-    fireEvent.click(screen.getByRole('button', { name: '保存' }));
-
-    await waitFor(() => expect(backend.createCronJob).toHaveBeenCalledWith(expect.objectContaining({
-      name: 'Weekly report',
-      prompt: 'Write weekly report',
-      schedule_expr: '0 9 * * 1',
-      cwd: '/repo/app',
-      config: { codexHome: '~/.codex', codexInstanceKey: 'default', codexModelProvider: 'openai' },
-      next_run_at: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/),
-    })));
-  });
-
-  it('sends command cards to the current chat session', async () => {
-    backend.getDashboardPage.mockImplementation(({ page }) => {
-      if (page === 'commands') {
-        return Promise.resolve({
-          commandCards: [{
-            id: 7,
-            card_key: 'cmd/test',
-            title: 'Run tests',
-            description: 'Run focused tests',
-            command_template: 'npm test -- src/App.test.jsx',
-            risk_level: 'low',
-            enabled: true,
-            run_count: 2,
-          }],
-          prompts: [],
-        });
-      }
-      if (page === 'dags') return Promise.resolve({ dags: [] });
-      if (page === 'tasks') return Promise.resolve({ taskAcks: [], taskTraces: [] });
-      if (page === 'skills') return Promise.resolve({ skills: defaultSkillFixtures() });
-      return Promise.resolve({});
-    });
-    backend.startTurn.mockResolvedValue({ ok: true });
-
-    render(<App />);
-    await screen.findByText('后端线程');
-    fireEvent.click(screen.getByRole('button', { name: '命令' }));
-
-    expect(await screen.findByTestId('commands-page')).toBeInTheDocument();
-    expect(await screen.findByText('Run tests')).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: '发送到当前会话' }));
-
-    await waitFor(() => expect(backend.startTurn).toHaveBeenCalledWith({
-      cwd: '/repo/app',
-      threadId: 'thread-1',
-      input: [{ type: 'text', text: '请执行以下命令并反馈结果：\nnpm test -- src/App.test.jsx' }],
-      manualSkillSelection: false,
-    }));
+    const chatButton = await screen.findByRole('button', { name: 'Chat' });
+    await waitFor(() => expect(chatButton).toHaveClass('active'));
+    expect(screen.queryByRole('button', { name: '任务' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '命令' })).not.toBeInTheDocument();
     expect(screen.getByText('当前页面：Chat')).toBeInTheDocument();
   });
 
@@ -4424,8 +4353,8 @@ async function toggleInlineTraceFromRecentLogs(table) {
     render(<App />);
     await screen.findByText('后端线程');
 
-    expect(screen.getByLabelText('命令')).toBeInTheDocument();
-    expect(screen.getByLabelText('任务')).toBeInTheDocument();
+    expect(screen.queryByLabelText('命令')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('任务')).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByLabelText('技能'));
     expect(screen.getByText('技能管理')).toBeInTheDocument();
@@ -4447,8 +4376,6 @@ async function toggleInlineTraceFromRecentLogs(table) {
   it.each([
     ['提示词', 'AI 能力与资料', '暂无内容', () => expect(backend.listPromptAssets).not.toHaveBeenCalled()],
     ['自动化', '自动化', '无任务', () => expect(backend.getDashboardPage).not.toHaveBeenCalledWith({ cwd: '未选择项目', page: 'dags' })],
-    ['任务', '任务', '暂无任务工单', () => expect(backend.getDashboardPage).not.toHaveBeenCalledWith({ cwd: '未选择项目', page: 'tasks' })],
-    ['命令', '命令卡', '暂无命令卡', () => expect(backend.getDashboardPage).not.toHaveBeenCalledWith({ cwd: '未选择项目', page: 'commands' })],
     ['记忆中心', '记忆中心', '暂无记忆', () => expect(backend.getMemorySnapshot).not.toHaveBeenCalledWith({ cwd: '未选择项目' })],
   ])('keeps the %s route visible while project context resolves', async (navLabel, heading, settledText, assertNoInvalidLoad) => {
     const config = deferred();

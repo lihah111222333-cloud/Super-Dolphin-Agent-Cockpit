@@ -11,7 +11,6 @@ import (
 	commandcardstore "github.com/anthropic-ai/super-agent-v3/internal/store/commandcard"
 	promptstore "github.com/anthropic-ai/super-agent-v3/internal/store/prompt"
 	sharedfilestore "github.com/anthropic-ai/super-agent-v3/internal/store/sharedfile"
-	tasktracestore "github.com/anthropic-ai/super-agent-v3/internal/store/tasktrace"
 	"golang.org/x/sync/errgroup"
 )
 
@@ -26,21 +25,12 @@ const (
 type DashboardPage struct {
 	Agents              []AgentOverview                `json:"agents"`
 	DAGs                []DashboardDAG                 `json:"dags"`
-	TaskAcks            []DashboardTaskAck             `json:"taskAcks"`
-	TaskTraces          []tasktracestore.TaskTrace     `json:"taskTraces"`
 	Skills              []contract.SkillInfo           `json:"skills"`
 	CommandCards        []commandcardstore.CommandCard `json:"commandCards"`
 	Prompts             []promptstore.PromptTemplate   `json:"prompts"`
 	Memory              []sharedfilestore.SharedFile   `json:"memory"`
 	FinalOutputRefs     []FinalOutputRef               `json:"finalOutputRefs"`
 	SharedFileRetention SharedFileRetention            `json:"sharedFileRetention"`
-}
-
-type DashboardTaskAck struct {
-	AckKey     string `json:"ack_key"`
-	Title      string `json:"title"`
-	Status     string `json:"status"`
-	AssignedTo string `json:"assigned_to"`
 }
 
 type dashboardPageLoader func(context.Context) error
@@ -71,8 +61,6 @@ func newDashboardPage() *DashboardPage {
 	return &DashboardPage{
 		Agents:              []AgentOverview{},
 		DAGs:                []DashboardDAG{},
-		TaskAcks:            []DashboardTaskAck{},
-		TaskTraces:          []tasktracestore.TaskTrace{},
 		Skills:              []contract.SkillInfo{},
 		CommandCards:        []commandcardstore.CommandCard{},
 		Prompts:             []promptstore.PromptTemplate{},
@@ -103,10 +91,6 @@ func (s *service) dashboardPageLoaders(out *DashboardPage, page string) []dashbo
 		return []dashboardPageLoader{
 			func(ctx context.Context) error { return s.populateDashboardAgents(ctx, out) },
 		}
-	case "tasks":
-		return []dashboardPageLoader{
-			func(ctx context.Context) error { return s.populateDashboardTaskTraces(ctx, out) },
-		}
 	case "dags":
 		return []dashboardPageLoader{
 			func(ctx context.Context) error { return s.populateDashboardDAGs(ctx, out) },
@@ -136,12 +120,6 @@ func (s *service) dashboardPageLoaders(out *DashboardPage, page string) []dashbo
 func (s *service) populateDashboardAgents(ctx context.Context, out *DashboardPage) error {
 	items, err := s.listAgents(ctx)
 	out.Agents = items
-	return err
-}
-
-func (s *service) populateDashboardTaskTraces(ctx context.Context, out *DashboardPage) error {
-	items, err := s.listDashboardTaskTraces(ctx)
-	out.TaskTraces = items
 	return err
 }
 
@@ -235,12 +213,6 @@ func (s *service) populateDashboardMemory(ctx context.Context, out *DashboardPag
 	out.FinalOutputRefs = refs
 	out.SharedFileRetention = buildSharedFileRetention(items, refs)
 	return nil
-}
-
-func (s *service) listDashboardTaskTraces(ctx context.Context) ([]tasktracestore.TaskTrace, error) {
-	return safeList(s.taskTraces != nil, func() ([]tasktracestore.TaskTrace, error) {
-		return s.taskTraces.List(ctx, tasktracestore.ListFilter{Limit: dashboardPageDefaultLimit})
-	})
 }
 
 func (s *service) listDashboardSkills(ctx context.Context) ([]contract.SkillInfo, error) {

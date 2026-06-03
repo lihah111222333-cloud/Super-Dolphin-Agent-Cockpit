@@ -84,6 +84,14 @@ describe('ObservabilityPage module', () => {
     expect(ObservabilityPage).toBeTypeOf('function');
   });
 
+  it('renders the trace page header without the old helper copy', () => {
+    renderObservabilityPage();
+
+    expect(screen.getByRole('heading', { name: '链路追踪' })).toBeInTheDocument();
+    expect(screen.queryByText('Observability')).not.toBeInTheDocument();
+    expect(screen.queryByText(/按条件筛选最近请求/)).not.toBeInTheDocument();
+  });
+
   it('queries recent logs with the backend payload', async () => {
     const table = await queryRecentLogs();
     const [payload] = listObservabilityRecent.mock.calls[0];

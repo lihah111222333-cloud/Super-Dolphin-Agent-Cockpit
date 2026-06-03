@@ -24,7 +24,7 @@ func TestServiceQueryPassesThroughAndNormalizesArgs(t *testing.T) {
 		fields: []pgconn.FieldDescription{{Name: "thread_id"}},
 		values: [][]any{{"thread-1"}},
 	}}
-	svc := NewService(nil, nil, nil, nil, nil, nil, dbquerystore.NewQueryStore(db, time.Second), nil, nil, nil, nil, nil)
+	svc := NewService(nil, nil, nil, nil, nil, nil, dbquerystore.NewQueryStore(db, time.Second), nil, nil, nil, nil)
 
 	rows, err := svc.Query(context.Background(), "SELECT * FROM agent_threads WHERE thread_id = $1 AND score > $2", float64(7), float64(1.5))
 	if err != nil {
@@ -45,7 +45,7 @@ func TestServiceQueryRejectsDangerousSQL(t *testing.T) {
 	t.Parallel()
 
 	db := &queryDBTXStub{}
-	svc := NewService(nil, nil, nil, nil, nil, nil, dbquerystore.NewQueryStore(db, time.Second), nil, nil, nil, nil, nil)
+	svc := NewService(nil, nil, nil, nil, nil, nil, dbquerystore.NewQueryStore(db, time.Second), nil, nil, nil, nil)
 
 	_, err := svc.Query(context.Background(), "SELECT version() FROM agent_threads")
 	if err == nil || !strings.Contains(err.Error(), "disallowed function") {
@@ -59,7 +59,7 @@ func TestServiceQueryRejectsDangerousSQL(t *testing.T) {
 func TestServiceQueryRequiresStore(t *testing.T) {
 	t.Parallel()
 
-	svc := NewService(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	svc := NewService(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 	_, err := svc.Query(context.Background(), "SELECT * FROM agent_threads")
 	if err == nil || !strings.Contains(err.Error(), "dbquery store is not configured") {
 		t.Fatalf("Query() error = %v", err)
@@ -69,7 +69,7 @@ func TestServiceQueryRequiresStore(t *testing.T) {
 func TestDashboardQueryHandlerRegistered(t *testing.T) {
 	t.Parallel()
 
-	svc := NewService(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	svc := NewService(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 	handlers := NewDashboardHandlers(svc).Handlers
 	if _, ok := handlers["dashboard/query"]; !ok {
 		t.Fatalf("dashboard/query handler missing from %#v", handlers)
@@ -79,7 +79,7 @@ func TestDashboardQueryHandlerRegistered(t *testing.T) {
 func TestDashboardExtraHandlersRegistered(t *testing.T) {
 	t.Parallel()
 
-	svc := NewService(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	svc := NewService(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 	handlers := NewDashboardHandlers(svc).Handlers
 	for _, method := range []string{
 		"dashboard/auditLogs",
@@ -96,6 +96,16 @@ func TestDashboardExtraHandlersRegistered(t *testing.T) {
 		if _, ok := handlers[method]; !ok {
 			t.Fatalf("%s handler missing from %#v", method, handlers)
 		}
+	}
+}
+
+func TestDashboardTaskTraceHandlerRemoved(t *testing.T) {
+	t.Parallel()
+
+	svc := NewService(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	handlers := NewDashboardHandlers(svc).Handlers
+	if _, ok := handlers["dashboard/taskTraces"]; ok {
+		t.Fatalf("dashboard/taskTraces handler should be removed from %#v", handlers)
 	}
 }
 
@@ -505,7 +515,7 @@ func assertDashboardMethodServiceUnavailable(t *testing.T, server *platformrpc.S
 func newDashboardQueryTestServer(t *testing.T, db *queryDBTXStub) *platformrpc.Server {
 	t.Helper()
 
-	svc := NewService(nil, nil, nil, nil, nil, nil, dbquerystore.NewQueryStore(db, time.Second), nil, nil, nil, nil, nil)
+	svc := NewService(nil, nil, nil, nil, nil, nil, dbquerystore.NewQueryStore(db, time.Second), nil, nil, nil, nil)
 	return newDashboardTestServer(t, svc)
 }
 
