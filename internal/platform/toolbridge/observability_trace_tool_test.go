@@ -368,4 +368,15 @@ func assertTraceHostToolSchema(t *testing.T, schema json.RawMessage) {
 	if decoded["additionalProperties"] != false {
 		t.Fatalf("additionalProperties = %#v, want false", decoded["additionalProperties"])
 	}
+	properties, ok := decoded["properties"].(map[string]any)
+	if !ok {
+		t.Fatalf("properties = %#v, want object", decoded["properties"])
+	}
+	limit, ok := properties["limit"].(map[string]any)
+	if !ok {
+		t.Fatalf("limit schema = %#v, want object", properties["limit"])
+	}
+	if limit["maximum"] != float64(observability.TraceDiagnosisMaxLimit) {
+		t.Fatalf("limit maximum = %#v, want %d", limit["maximum"], observability.TraceDiagnosisMaxLimit)
+	}
 }
