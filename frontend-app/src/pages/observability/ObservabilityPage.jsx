@@ -288,8 +288,8 @@ function ObservabilityRecentLogs({ result, onOpenTrace, onCopyTrace, copiedTrace
               row={row}
               onOpenTrace={onOpenTrace}
               onCopyTrace={onCopyTrace}
-              copied={row.traceID === copiedTraceId}
-              traceState={expandedTraces[row.traceID]}
+              copied={Boolean(row.traceID) && row.traceID === copiedTraceId}
+              traceState={row.traceID ? expandedTraces[row.traceID] : undefined}
               key={row.key}
             />
           ))}
@@ -302,12 +302,12 @@ function ObservabilityRecentLogs({ result, onOpenTrace, onCopyTrace, copiedTrace
 function groupObservabilityTraceRows(events) {
   const rowsByTrace = new Map();
   const source = Array.isArray(events) ? events : [];
-  for (const event of source) {
+  for (const [index, event] of source.entries()) {
     const traceID = textValue(event.trace_id);
-    if (!traceID) continue;
-    const existing = rowsByTrace.get(traceID);
+    const rowKey = traceID || observabilityEventRowKey(event, index);
+    const existing = rowsByTrace.get(rowKey);
     if (!existing) {
-      rowsByTrace.set(traceID, { key: traceID, traceID: textValue(event.trace_id), events: [event], representative: event });
+      rowsByTrace.set(rowKey, { key: rowKey, traceID, events: [event], representative: event });
       continue;
     }
     existing.events.push(event);
@@ -325,6 +325,13 @@ function groupObservabilityTraceRows(events) {
       error: row.events.find((event) => textValue(event.error))?.error || '',
     };
   });
+}
+
+function observabilityEventRowKey(event, index) {
+  const parts = [event.ts, event.span_id, event.method, event.phase, event.kind]
+    .map(textValue)
+    .filter(Boolean);
+  return `event-${parts.join(':') || 'unknown'}-${index}`;
 }
 
 function preferredObservabilityRepresentative(current, next) {

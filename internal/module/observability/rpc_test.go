@@ -224,6 +224,46 @@ func TestRecentListRPCLimitCountsTraceRowsAfterFiltering(t *testing.T) {
 	}
 }
 
+func TestRecentListRPCIncludesLatestEventsWithoutTraceID(t *testing.T) {
+	base := time.Date(2026, 6, 3, 14, 0, 1, 0, time.Local)
+	tail := platformobs.QueryTailReaderFunc(func(context.Context, platformobs.Query) (platformobs.QueryResult, error) {
+		return platformobs.QueryResult{
+			Source: platformobs.QuerySourceJSONLTail,
+			Events: []platformobs.TraceEvent{
+				{
+					Timestamp: base,
+					TraceID:   "trace-old",
+					Kind:      "frontend",
+					Phase:     "frontend.rpc.done",
+					Method:    "thread/start",
+					Status:    platformobs.StatusOK,
+				},
+				{
+					Timestamp: base.Add(15 * time.Minute),
+					Kind:      "provider",
+					Phase:     "provider.session.ready",
+					Method:    "provider.session.ready",
+					Status:    platformobs.StatusOK,
+				},
+			},
+		}, nil
+	})
+	svc := platformobs.NewService(testTraceConfig(), platformobs.WithTailReader(tail))
+	server := newTestRPCServer(t, svc)
+
+	got := dispatchQuery(t, server, "observability/recent/list", json.RawMessage(`{"limit":10}`))
+
+	if len(got.Events) != 2 {
+		t.Fatalf("recent events = %+v, want old traced event and latest untraced event", got.Events)
+	}
+	if got.Events[0].Method != "provider.session.ready" || got.Events[0].TraceID != "" {
+		t.Fatalf("latest recent event = %+v, want untraced provider session event first", got.Events[0])
+	}
+	if got.Events[1].TraceID != "trace-old" {
+		t.Fatalf("old traced event = %+v, want trace-old second", got.Events[1])
+	}
+}
+
 func TestTraceGetRPCReportsTailSourceAndTruncation(t *testing.T) {
 	tail := platformobs.QueryTailReaderFunc(func(context.Context, platformobs.Query) (platformobs.QueryResult, error) {
 		return platformobs.QueryResult{Source: platformobs.QuerySourceJSONLTail, Events: []platformobs.TraceEvent{{TraceID: "tail-trace", Method: "tail"}}, Truncated: true}, nil

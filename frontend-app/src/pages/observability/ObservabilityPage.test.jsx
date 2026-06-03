@@ -92,6 +92,31 @@ describe('ObservabilityPage module', () => {
     expect(table).toHaveTextContent('thread start failed');
   });
 
+  it('shows recent events that do not have a trace id', async () => {
+    listObservabilityRecent.mockResolvedValueOnce({
+      source: 'jsonl_tail',
+      truncated: false,
+      events: [
+        {
+          ts: '2026-06-03T06:15:50.000Z',
+          method: 'provider.session.ready',
+          phase: 'provider.session.ready',
+          kind: 'provider',
+          status: 'ok',
+        },
+      ],
+    });
+
+    renderObservabilityPage();
+    fireEvent.click(screen.getByRole('button', { name: '查询最新日志' }));
+    const table = await screen.findByTestId('observability-recent-logs');
+
+    expect(table).toHaveTextContent('provider.session.ready');
+    expect(table).toHaveTextContent('trace=-');
+    expect(within(table).getByRole('button', { name: '打开 Trace -' })).toBeDisabled();
+    expect(within(table).getByRole('button', { name: '复制 Trace ID -' })).toBeDisabled();
+  });
+
   it('expands a trace with the backend payload', async () => {
     const table = await queryRecentLogs();
 
