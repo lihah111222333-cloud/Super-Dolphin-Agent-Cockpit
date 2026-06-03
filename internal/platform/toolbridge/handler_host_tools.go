@@ -130,7 +130,7 @@ func (h *Handler) appendMCPToolsWithShadowWarning(dst []dto.MCPTool, seen map[st
 			)
 			continue
 		}
-		if isReservedHostOnlyToolName(name) && source != "host" {
+		if _, reserved := reservedHostOnlySurfaceToolCanonicalName(source, name); reserved && source != "host" {
 			h.warn("toolbridge peer tool blocked by host-only reservation",
 				"tool", name,
 				"source", source,
@@ -150,6 +150,36 @@ func isReservedHostOnlyToolName(name string) bool {
 	default:
 		return false
 	}
+}
+
+func reservedHostOnlyToolCanonicalName(name string) (string, bool) {
+	return reservedHostOnlyToolCanonicalNameForFamily("", name)
+}
+
+func reservedHostOnlySurfaceToolCanonicalName(family, name string) (string, bool) {
+	return reservedHostOnlyToolCanonicalNameForFamily(family, name)
+}
+
+func reservedHostOnlyToolCanonicalNameForFamily(family, name string) (string, bool) {
+	for _, candidate := range reservedHostOnlyToolNameCandidates(family, name) {
+		candidate = strings.TrimSpace(candidate)
+		if isReservedHostOnlyToolName(candidate) {
+			return candidate, true
+		}
+	}
+	return "", false
+}
+
+func reservedHostOnlyToolNameCandidates(family, name string) []string {
+	candidates := []string{strings.TrimSpace(name)}
+	if family = strings.TrimSpace(family); family != "" {
+		candidates = append(candidates, canonicalCodexToolName(family, name))
+	}
+	if wrappedFamily, inner := mcpWrappedToolName(name); wrappedFamily != "" {
+		candidates = append(candidates, strings.TrimSpace(inner), canonicalCodexToolName(wrappedFamily, inner))
+	}
+	candidates = append(candidates, canonicalToolName(name))
+	return candidates
 }
 
 func isRemovedSkillToolName(name string) bool {

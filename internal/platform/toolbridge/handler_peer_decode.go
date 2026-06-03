@@ -185,7 +185,7 @@ func closeMCPClients(results []mcpSurfaceBinaryResult) {
 
 func addMCPToolsToSurface(surface *codexToolSurface, out *[]contract.DynamicToolSchema, family string, client mcpClient, tools []mcpdto.MCPTool) error {
 	for _, tool := range tools {
-		if isReservedHostOnlyToolName(tool.Name) {
+		if _, reserved := reservedHostOnlySurfaceToolCanonicalName(family, tool.Name); reserved {
 			continue
 		}
 		canonical := canonicalCodexToolName(family, tool.Name)
@@ -326,7 +326,7 @@ func nonEmptyUnique(values ...string) []string {
 func (h *Handler) routeCodexSurfaceToolCall(ctx context.Context, req ToolCallRequest) (*ToolCallResult, bool, error) {
 	surface := h.lookupCodexToolSurface(req)
 	if surface == nil {
-		if isReservedHostOnlyToolName(req.Name) {
+		if _, reserved := reservedHostOnlyToolCanonicalName(req.Name); reserved {
 			return nil, false, nil
 		}
 		if req.Scoped && requiresCodexToolSurface(req.Name) {
@@ -334,8 +334,10 @@ func (h *Handler) routeCodexSurfaceToolCall(ctx context.Context, req ToolCallReq
 		}
 		return nil, false, nil
 	}
-	if surface.aliases[strings.TrimSpace(req.Name)] == "" && isReservedHostOnlyToolName(req.Name) {
-		return nil, false, nil
+	if surface.aliases[strings.TrimSpace(req.Name)] == "" {
+		if _, reserved := reservedHostOnlyToolCanonicalName(req.Name); reserved {
+			return nil, false, nil
+		}
 	}
 	result, err := h.callCodexSurfaceTool(ctx, surface, req)
 	return result, true, err
