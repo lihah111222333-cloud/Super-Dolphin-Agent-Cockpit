@@ -3217,6 +3217,25 @@ select {
   gap: 10px;
 }
 
+.dag-run-list-toggle {
+  min-height: 42px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--accent-2) 8%, var(--surface));
+  color: var(--accent-2);
+  font-weight: 700;
+}
+
+.dag-run-list-toggle:hover {
+  border-color: color-mix(in srgb, var(--accent-2) 55%, var(--border));
+  background: color-mix(in srgb, var(--accent-2) 12%, var(--surface));
+}
+
+.dag-run-list-toggle:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--accent-2) 72%, transparent);
+  outline-offset: 2px;
+}
+
 .dag-node-row {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(140px, auto) minmax(120px, auto) auto;

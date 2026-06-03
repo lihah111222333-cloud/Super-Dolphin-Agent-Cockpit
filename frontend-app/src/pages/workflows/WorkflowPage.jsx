@@ -6,7 +6,9 @@ import { applyDagOps, deleteDag, getDashboardPage, getDagDetail, getDagRun, getD
 import { appendCurrentModelOption, dashboardQueryErrorState, dashboardQueryKey, errorMessage, firstText, listToText, numberOrNull, objectValue, optionalSettingsCwd, queryHasSnapshot, SKILLS_REQUEST_TIMEOUT_MS, textValue, useDashboardFocusInvalidation, withTimeout, wordListFromText } from '../shared/pageShared.js';
 import { PageHeader, Panel, RetryableSyncError } from '../shared/pageComponents.jsx';
 
-const DAG_RECENT_RUN_LIMIT = 5;
+const DAG_RECENT_RUN_LIMIT = 30;
+
+const DAG_RUN_HISTORY_VISIBLE_LIMIT = 10;
 
 const DAG_DESIGNER_ENABLED_TOOLS = Object.freeze([
   'list_models',
@@ -232,6 +234,24 @@ function formatDagRunStartedAt(value) {
     twoDigits(parsed.getMonth() + 1),
     twoDigits(parsed.getDate()),
   ].join('-') + ` ${twoDigits(parsed.getHours())}:${twoDigits(parsed.getMinutes())}:${twoDigits(parsed.getSeconds())}`;
+}
+
+function dagRunStartedAtMillis(run) {
+  const parsed = Date.parse(textValue(run?.startedAt));
+  return Number.isFinite(parsed) ? parsed : Number.POSITIVE_INFINITY;
+}
+
+function chronologicalWorkflowRuns(runs) {
+  const source = Array.isArray(runs) ? runs : [];
+  return source
+    .map((run, index) => ({ index, run }))
+    .sort((left, right) => {
+      const leftTime = dagRunStartedAtMillis(left.run);
+      const rightTime = dagRunStartedAtMillis(right.run);
+      if (leftTime !== rightTime) return leftTime - rightTime;
+      return left.index - right.index;
+    })
+    .map((entry) => entry.run);
 }
 
 function parseScheduleTime(value) {
@@ -1106,12 +1126,31 @@ function WorkflowStatGrid({ derived, selection }) {
 }
 
 function WorkflowRunHistory({ model }) {
-  const { detail, run } = model;
+  const { detail, run, selection } = model;
+  const [expanded, setExpanded] = useState(false);
+  useEffect(() => {
+    setExpanded(false);
+  }, [selection.selectedDagKey]);
+  const orderedRuns = useMemo(() => chronologicalWorkflowRuns(detail.runs), [detail.runs]);
+  const hiddenCount = Math.max(orderedRuns.length - DAG_RUN_HISTORY_VISIBLE_LIMIT, 0);
+  const visibleRuns = expanded || hiddenCount === 0 ? orderedRuns : orderedRuns.slice(hiddenCount);
   return (
     <Panel title="运行历史">
       <div className="dag-run-list">
         {detail.runs.length === 0 ? <p>暂无运行记录</p> : null}
-        {detail.runs.map((item, index) => <WorkflowRunRow index={index} key={item.id} run={item} runState={run} />)}
+        {hiddenCount > 0 ? (
+          <button type="button" className="dag-run-list-toggle" aria-expanded={expanded} onClick={() => setExpanded((current) => !current)}>
+            {expanded ? '收起较早运行记录' : `展开较早 ${hiddenCount} 次运行`}
+          </button>
+        ) : null}
+        {visibleRuns.map((item, index) => (
+          <WorkflowRunRow
+            index={expanded || hiddenCount === 0 ? index : hiddenCount + index}
+            key={item.id}
+            run={item}
+            runState={run}
+          />
+        ))}
       </div>
     </Panel>
   );
