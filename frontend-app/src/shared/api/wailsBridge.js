@@ -21,6 +21,7 @@ const FRONTEND_TRACE_ALLOWED_PHASES = new Set([
   'frontend.rpc.start',
   'frontend.rpc.done',
   'frontend.rpc.failed',
+  'frontend.warning',
   'frontend.patch.apply.slow',
   'frontend.render.slow',
 ]);
@@ -270,6 +271,15 @@ function safeTraceErrorMessage(error) {
   return code || name || 'Error';
 }
 
+function safeTraceErrorValue(value) {
+  if (value instanceof Error || (value && typeof value === 'object')) {
+    return safeTraceErrorMessage(value);
+  }
+  const message = safeTraceString(value, 240);
+  if (!message || containsForbiddenTraceText(message)) return '';
+  return safeTraceString(message, 120);
+}
+
 function containsForbiddenTraceText(text) {
   const normalized = safeTraceString(text, 512).toLowerCase();
   if (!normalized) return false;
@@ -323,7 +333,7 @@ function sanitizeFrontendTraceEvent(event) {
   }
   if (Number.isFinite(durationMS) && durationMS >= 0) out.duration_ms = Math.round(durationMS);
   if (event.status === 'error') {
-    const error = safeTraceString(event.error, 120);
+    const error = safeTraceErrorValue(event.error);
     if (error) out.error = error;
   }
   const metadata = safeTraceMetadata(event.metadata);
@@ -569,6 +579,21 @@ function logAPIFailed(reqId, method, start, error, clientKind, clientRoute, trac
   });
 }
 
+function attachAPITraceToError(error, reqId, method, clientKind, clientRoute, trace) {
+  if (!error || (typeof error !== 'object' && typeof error !== 'function')) return error;
+  error.traceId = trace.traceId;
+  error.trace_id = trace.traceId;
+  error.spanId = trace.spanId;
+  error.span_id = trace.spanId;
+  error.traceparent = trace.traceparent;
+  error.reqId = reqId;
+  error.req_id = reqId;
+  error.method = method;
+  error.clientKind = clientKind;
+  error.clientRoute = clientRoute;
+  return error;
+}
+
 export async function callAPI(method, params = {}) {
   const reqId = ++rpcRequestSeq;
   const start = Date.now();
@@ -586,8 +611,9 @@ export async function callAPI(method, params = {}) {
     });
   }
   catch (error) {
-    logAPIFailed(reqId, rpcMethod, start, error, clientKind, clientRoute, trace);
-    throw error;
+    const tracedError = attachAPITraceToError(error, reqId, rpcMethod, clientKind, clientRoute, trace);
+    logAPIFailed(reqId, rpcMethod, start, tracedError, clientKind, clientRoute, trace);
+    throw tracedError;
   }
   logAPIDone(reqId, rpcMethod, start, result, clientKind, clientRoute, trace);
   return result;

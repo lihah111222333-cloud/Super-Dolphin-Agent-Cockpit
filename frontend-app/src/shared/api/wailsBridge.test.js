@@ -345,13 +345,26 @@ describe('wails bridge frontend trace emitter', () => {
     }));
     const { callAPI } = await import('./wailsBridge.js');
 
+    let thrownError;
     await expect(callAPI('thread/start', {
       prompt: 'do not persist this prompt',
       result_preview: 'do not persist preview',
+    }).catch((error) => {
+      thrownError = error;
+      throw error;
     })).rejects.toThrow('backend unavailable');
     await waitForTraceFlush();
     await waitForTraceFlush();
 
+    const rpcPayload = byID.mock.calls[0][2];
+    expect(thrownError).toEqual(expect.objectContaining({
+      traceId: rpcPayload._aoTraceId,
+      trace_id: rpcPayload._aoTraceId,
+      spanId: rpcPayload._aoSpanId,
+      span_id: rpcPayload._aoSpanId,
+      req_id: rpcPayload._aoRequestId,
+      method: 'thread/start',
+    }));
     const ingestCall = byID.mock.calls.find(([, method]) => method === 'observability/frontend/ingest');
     expect(ingestCall).toBeTruthy();
     const events = ingestCall[2].events;
@@ -362,14 +375,66 @@ describe('wails bridge frontend trace emitter', () => {
       status: 'error',
       error: 'E_BACKEND: backend unavailable',
     }));
-    expect(events[0].trace_id).toBe(byID.mock.calls[0][2]._aoTraceId);
-    expect(events[0].span_id).toBe(byID.mock.calls[0][2]._aoSpanId);
+    expect(events[0].trace_id).toBe(rpcPayload._aoTraceId);
+    expect(events[0].span_id).toBe(rpcPayload._aoSpanId);
     expect(events[0]).not.toHaveProperty('error_name');
     expect(events[0]).not.toHaveProperty('error_code');
     const serialized = JSON.stringify(events);
     expect(serialized).not.toContain('result_preview');
     expect(serialized).not.toContain('do not persist');
     expect(serialized).not.toContain('raw stack');
+    expect(serialized).not.toContain('prompt');
+  });
+
+  it('flushes failed frontend warning traces through observability ingest', async () => {
+    const byID = vi.fn((_methodID, method, payload) => {
+      if (method === 'observability/frontend/ingest') return Promise.resolve({ recorded: payload.events.length });
+      return Promise.resolve({ ok: true });
+    });
+    vi.doMock(runtimeModule, () => ({
+      Call: { ByID: byID },
+      Events: { On: vi.fn() },
+    }));
+    const { emitFrontendTraceEvent } = await import('./wailsBridge.js');
+
+    expect(emitFrontendTraceEvent({
+      phase: 'frontend.warning',
+      method: 'memory.badge.refresh.failed',
+      trace_id: 'trace-memory-1',
+      span_id: 'span-memory-1',
+      thread_id: 'thread-1',
+      status: 'error',
+      error: '记忆中心加载超时，请检查记忆数据或后端状态。',
+      metadata: { component: 'memory', req_id: 17, prompt: 'secret prompt must not leak' },
+    })).toBe(true);
+    expect(emitFrontendTraceEvent({
+      phase: 'frontend.warning',
+      method: 'memory.raw.failed',
+      trace_id: 'trace-memory-2',
+      span_id: 'span-memory-2',
+      status: 'error',
+      error: 'prompt secret must not leak',
+    })).toBe(true);
+    await waitForTraceFlush();
+    await waitForTraceFlush();
+
+    const events = byID.mock.calls
+      .filter(([, method]) => method === 'observability/frontend/ingest')
+      .flatMap(([, , payload]) => payload.events);
+    expect(events).toHaveLength(2);
+    expect(events[0]).toEqual(expect.objectContaining({
+      phase: 'frontend.warning',
+      method: 'memory.badge.refresh.failed',
+      trace_id: 'trace-memory-1',
+      span_id: 'span-memory-1',
+      thread_id: 'thread-1',
+      status: 'error',
+      error: '记忆中心加载超时，请检查记忆数据或后端状态。',
+      metadata: { component: 'memory', req_id: 17 },
+    }));
+    expect(events[1]).not.toHaveProperty('error');
+    const serialized = JSON.stringify(events);
+    expect(serialized).not.toContain('secret');
     expect(serialized).not.toContain('prompt');
   });
 });
