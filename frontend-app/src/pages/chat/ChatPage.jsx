@@ -2630,10 +2630,8 @@ function useModelSelectorController({ store, activeThreadId, disabled, wrapRef }
   const { activeEffort, activeModel, activeThreadConfig, canOverrideThread, draftEffort, draftModel, providerKey } = snapshot;
   const [draft, setDraft] = useState({ model: draftModel, effort: draftEffort });
   const closedDraft = { model: draftModel, effort: draftEffort };
-  if (disabled && open) {
-    setOpen(false);
-  }
   const selectorOpen = open && !disabled;
+  useEffect(() => { if (disabled && open) setOpen(false); }, [disabled, open]);
   const selectorDraft = selectorOpen ? draft : closedDraft;
 
   useEffect(() => {
@@ -2651,9 +2649,11 @@ function useModelSelectorController({ store, activeThreadId, disabled, wrapRef }
     setDraft({ model: draftModel, effort: draftEffort });
     setOpen(nextOpen);
     if (!nextOpen || !activeThreadId) return;
+    let cancelled = false;
     const loaded = await store.loadThreadConfig?.(activeThreadId);
-    if (!loaded) return;
+    if (cancelled || !loaded) return;
     setDraft(loadedModelDraft(loaded, activeModel, activeEffort));
+    return () => { cancelled = true; };
   };
 
   const saveModelConfig = async (patch) => {
@@ -5127,6 +5127,9 @@ function ApprovalTimelineMessage({ message, actions }) {
     try {
       const ok = await actions.onApproval(message, approved);
       if (ok) setResolved(true);
+    }
+    catch (error) {
+      actions.onError?.('approval.failed', error.message || String(error));
     }
     finally {
       setBusy(false);

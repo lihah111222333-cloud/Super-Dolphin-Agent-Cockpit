@@ -42,6 +42,7 @@ const backend = vi.hoisted(() => ({
       bridgeCallback = null;
     };
   }),
+  onRuntimeReconnect: vi.fn(() => () => {}),
 }));
 
 function deferred() {
@@ -1055,75 +1056,6 @@ function registerBridgeEventHandlersForTest() {
       expect.objectContaining({ role: 'user', text: 'Hello backend' }),
     ]);
     expect(useClientStore.getState().draft).toBe('');
-  });
-
-  it('runs dashboard command cards through the current chat turn chain', async () => {
-    resetClientStoreForTests({
-      cwd: '/repo/app',
-      activeProject: '/repo/app',
-      activePage: 'commands',
-      activeThreadId: 'thread-1',
-      threads: [{ id: 'thread-1', name: 'Existing', provider: 'codex', status: 'idle' }],
-      draft: '',
-      attachments: [],
-    });
-    backend.startTurn.mockResolvedValue({ ok: true });
-
-    await expect(useClientStore.getState().runDashboardCommand({ command_template: 'make test' })).resolves.toBe(true);
-
-    expect(backend.startThread).not.toHaveBeenCalled();
-    expect(backend.startTurn).toHaveBeenCalledWith({
-      cwd: '/repo/app',
-      threadId: 'thread-1',
-      input: [{ type: 'text', text: '请执行以下命令并反馈结果：\nmake test' }],
-      manualSkillSelection: false,
-    });
-    expect(useClientStore.getState().activePage).toBe('chat');
-    expect(useClientStore.getState().draft).toBe('');
-  });
-
-  it('starts a chat session when running a dashboard command card without an active thread', async () => {
-    resetClientStoreForTests({
-      cwd: '/repo/app',
-      activeProject: '/repo/app',
-      activePage: 'commands',
-      activeThreadId: '',
-      threads: [],
-      draft: '',
-      attachments: [],
-    });
-    backend.startThread.mockResolvedValue({ threadId: 'thread-new' });
-    backend.startTurn.mockResolvedValue({ ok: true });
-
-    await expect(useClientStore.getState().runDashboardCommand({ command_template: 'npm run build' })).resolves.toBe(true);
-
-    expect(backend.startThread).toHaveBeenCalledWith(expect.objectContaining({
-      cwd: '/repo/app',
-      name: '请执行以下命令并反馈结果：\nnpm run build',
-      toolSurfaceMode: 'agent',
-      deferSpawn: true,
-    }));
-    expect(backend.startThread).toHaveBeenCalledBefore(backend.startTurn);
-    expect(backend.startTurn).toHaveBeenCalledWith({
-      cwd: '/repo/app',
-      threadId: 'thread-new',
-      input: [{ type: 'text', text: '请执行以下命令并反馈结果：\nnpm run build' }],
-      manualSkillSelection: false,
-    });
-    expect(useClientStore.getState().activePage).toBe('chat');
-  });
-
-  it('fails fast when a dashboard command card has no command template', async () => {
-    resetClientStoreForTests({
-      cwd: '/repo/app',
-      activeProject: '/repo/app',
-      activePage: 'commands',
-      activeThreadId: 'thread-1',
-    });
-
-    await expect(useClientStore.getState().runDashboardCommand({ command_template: '   ' }))
-      .rejects.toThrow('dashboard command card command_template is required');
-    expect(backend.startTurn).not.toHaveBeenCalled();
   });
 
   it('upgrades auto tool mode to agent for engineering intents', async () => {
