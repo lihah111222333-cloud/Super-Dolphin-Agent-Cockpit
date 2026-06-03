@@ -5418,7 +5418,7 @@ function continueChatFromFinalSharedFile() {
     await waitFor(() => {
       expect(backend.getDashboardPage).toHaveBeenCalledWith({ cwd: '/repo/app', page: 'dags' });
       expect(backend.getDagDetail).toHaveBeenCalledWith({ dagKey: 'daily-brief' });
-      expect(backend.getDagRuns).toHaveBeenCalledWith({ dagKey: 'daily-brief', limit: 5 });
+      expect(backend.getDagRuns).toHaveBeenCalledWith({ dagKey: 'daily-brief', limit: 30 });
       expect(backend.getDagRuns).toHaveBeenCalledWith({ dagKey: 'daily-brief', status: 'running', limit: 1 });
       expect(backend.getDagRun).toHaveBeenCalledWith({ runKey: 'run-1' });
     });

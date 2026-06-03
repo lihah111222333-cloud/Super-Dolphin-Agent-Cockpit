@@ -44,6 +44,27 @@ func TestIndexCapsPerTraceSlowAndErrorQueries(t *testing.T) {
 	}
 }
 
+func TestIndexQueryAppliesCombinedPredicates(t *testing.T) {
+	idx := NewIndex(Config{IndexMaxEvents: 10, IndexMaxTraceEvents: 10, IndexMaxThreadEvents: 10, IndexMaxSlowEvents: 10, IndexMaxErrorEvents: 10})
+	idx.Add(TraceEvent{TraceID: "trace-a", ThreadID: "thread-a", Method: "ok-a", Status: StatusOK})
+	idx.Add(TraceEvent{TraceID: "trace-a", ThreadID: "thread-a", Method: "slow-a", Status: StatusSlow})
+	idx.Add(TraceEvent{TraceID: "trace-a", ThreadID: "thread-b", Method: "slow-b", Status: StatusSlow})
+	idx.Add(TraceEvent{TraceID: "trace-a", ThreadID: "thread-a", Method: "error-a", Status: StatusError})
+
+	slowInThread := idx.Query(Query{TraceID: "trace-a", ThreadID: "thread-a", Slow: true})
+	if methods(slowInThread.Events) != "slow-a" {
+		t.Fatalf("slow thread methods = %q, want slow-a", methods(slowInThread.Events))
+	}
+	errorsInTrace := idx.Query(Query{TraceID: "trace-a", Errors: true})
+	if methods(errorsInTrace.Events) != "error-a" {
+		t.Fatalf("trace error methods = %q, want error-a", methods(errorsInTrace.Events))
+	}
+	slowAndErrors := idx.Query(Query{TraceID: "trace-a", Slow: true, Errors: true})
+	if len(slowAndErrors.Events) != 0 {
+		t.Fatalf("slow+errors events = %#v, want none", slowAndErrors.Events)
+	}
+}
+
 func TestIndexMissingTraceReturnsEmptyMemorySource(t *testing.T) {
 	idx := NewIndex(Config{IndexMaxEvents: 2, IndexMaxTraceEvents: 2, IndexMaxThreadEvents: 2, IndexMaxSlowEvents: 2, IndexMaxErrorEvents: 2})
 	got := idx.Query(Query{TraceID: "missing"})

@@ -2,6 +2,7 @@ package observability
 
 import (
 	"context"
+	"errors"
 	"sort"
 	"strconv"
 	"strings"
@@ -189,7 +190,9 @@ func mergeQueryResults(memory QueryResult, tail QueryResult, limit int) QueryRes
 		combined = combined[len(combined)-limit:]
 		truncated = true
 	}
-	return QueryResult{Source: QuerySourceMixed, Events: combined, Truncated: truncated}
+	result := QueryResult{Source: QuerySourceMixed, Events: combined, Truncated: truncated}
+	result.copyTailDiagnosticsFrom(tail)
+	return result
 }
 
 func appendUniqueTraceEvent(events []TraceEvent, seen map[string]struct{}, event TraceEvent) []TraceEvent {
@@ -247,17 +250,28 @@ func (s *Service) queryTail(ctx context.Context, query Query) (QueryResult, erro
 	}
 	defer close(call.ready)
 	defer s.finishTailCall(query)
+	call.result, call.err = s.readTail(ctx, query)
+	return call.result, call.err
+}
+
+func (s *Service) queryTailFresh(ctx context.Context, query Query) (QueryResult, error) {
+	return s.readTail(ctx, query)
+}
+
+func (s *Service) readTail(ctx context.Context, query Query) (QueryResult, error) {
+	startedAt := time.Now()
 	select {
 	case s.tailSem <- struct{}{}:
 		defer func() { <-s.tailSem }()
 	case <-ctx.Done():
-		call.result, call.err = QueryResult{Source: QuerySourceJSONLTail}, ctx.Err()
-		return call.result, call.err
+		return QueryResult{Source: QuerySourceJSONLTail, TailDurationMS: durationMillis(time.Since(startedAt)), TailTimedOut: errors.Is(ctx.Err(), context.DeadlineExceeded)}, ctx.Err()
 	}
 	ctx, cancel := context.WithTimeout(ctx, time.Duration(s.tailTimeoutMS)*time.Millisecond)
 	defer cancel()
-	call.result, call.err = s.tail.QueryTraceEvents(ctx, query)
-	return call.result, call.err
+	result, err := s.tail.QueryTraceEvents(ctx, query)
+	result.TailDurationMS = durationMillis(time.Since(startedAt))
+	result.TailTimedOut = result.TailTimedOut || errors.Is(err, context.DeadlineExceeded)
+	return result, err
 }
 
 func (s *Service) tailCall(query Query) (*tailCall, bool) {
@@ -292,4 +306,13 @@ func normalizeServiceConfig(cfg Config) Config {
 		cfg.QueryTailTimeoutMS = 750
 	}
 	return cfg
+}
+
+func (r *QueryResult) copyTailDiagnosticsFrom(tail QueryResult) {
+	r.TailDecodeErrors = tail.TailDecodeErrors
+	r.TailFilesScanned = tail.TailFilesScanned
+	r.TailBytesRead = tail.TailBytesRead
+	r.TailDurationMS = tail.TailDurationMS
+	r.TailTimedOut = tail.TailTimedOut
+	r.TailTruncated = tail.TailTruncated
 }
