@@ -3,7 +3,10 @@ package tools
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"slices"
 	"sort"
 	"strings"
@@ -11,6 +14,7 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/format"
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/middleware"
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/search"
+	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/common"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 )
 
@@ -85,6 +89,9 @@ func (h handlerBase) handleGrep(ctx context.Context, params json.RawMessage) (an
 				MaxFileBytes:  maxReadFileBytes,
 			}
 			matches, runErr = search.SearchText(ctx, opts)
+			if runErr == nil && len(matches) == 0 {
+				matches, runErr = searchSiblingWorkspaceOnRuntimeFallback(ctx, opts)
+			}
 			return nil, runErr
 		},
 		"ast_search": func(ctx context.Context, input grepToolInput) (any, error) {
@@ -138,6 +145,102 @@ func grepMessage(regexFallback bool, dropped int) string {
 		return ""
 	}
 	return strings.Join(parts, "; ")
+}
+
+func searchSiblingWorkspaceOnRuntimeFallback(ctx context.Context, opts search.TextSearchOptions) ([]search.SearchMatch, error) {
+	relPath, root, parent, ok := runtimeSiblingSearchScope(ctx, opts)
+	if !ok {
+		return nil, nil
+	}
+	candidates, err := collectSiblingWorkspaceFileCandidates(parent, relPath, configuredWorkspaceRoots(root, opts.Roots))
+	if err != nil {
+		return nil, err
+	}
+	return searchUniqueSiblingWorkspaceText(ctx, opts, root, relPath, candidates)
+}
+
+func runtimeSiblingSearchScope(ctx context.Context, opts search.TextSearchOptions) (string, string, string, bool) {
+	if !common.RuntimeWorkspaceScopeFallbackFromContext(ctx) {
+		return "", "", "", false
+	}
+	relPath := strings.TrimSpace(opts.Path)
+	if relPath == "" || filepath.IsAbs(relPath) {
+		return "", "", "", false
+	}
+	root := filepath.Clean(opts.Root)
+	parent := filepath.Dir(root)
+	if parent == "" || parent == "." || parent == root {
+		return "", "", "", false
+	}
+	return relPath, root, parent, true
+}
+
+func configuredWorkspaceRoots(root string, additionalRoots []string) map[string]struct{} {
+	configured := map[string]struct{}{filepath.Clean(root): {}}
+	for _, additional := range additionalRoots {
+		configured[filepath.Clean(additional)] = struct{}{}
+	}
+	return configured
+}
+
+func collectSiblingWorkspaceFileCandidates(parent, relPath string, configured map[string]struct{}) ([]string, error) {
+	entries, err := os.ReadDir(parent)
+	if err != nil {
+		return nil, fmt.Errorf("read runtime fallback sibling workspaces under %s: %w", parent, err)
+	}
+	candidates := make([]string, 0, 1)
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		candidateRoot := filepath.Join(parent, entry.Name())
+		if _, ok := configured[filepath.Clean(candidateRoot)]; ok {
+			continue
+		}
+		candidateTarget := filepath.Join(candidateRoot, relPath)
+		info, err := os.Lstat(candidateTarget)
+		if errors.Is(err, os.ErrNotExist) {
+			continue
+		}
+		if err != nil {
+			return nil, fmt.Errorf("stat runtime fallback sibling search path %s: %w", candidateTarget, err)
+		}
+		if info.Mode()&os.ModeSymlink != 0 {
+			return nil, fmt.Errorf("runtime fallback sibling search path %q cannot be a symlink", candidateTarget)
+		}
+		if info.IsDir() {
+			continue
+		}
+		candidates = append(candidates, candidateRoot)
+	}
+	sort.Strings(candidates)
+	return candidates, nil
+}
+
+func searchUniqueSiblingWorkspaceText(ctx context.Context, opts search.TextSearchOptions, root, relPath string, candidates []string) ([]search.SearchMatch, error) {
+	if len(candidates) == 0 {
+		return nil, nil
+	}
+	matchedRoots := make([]string, 0, 1)
+	var matched []search.SearchMatch
+	for _, candidate := range candidates {
+		candidateOpts := opts
+		candidateOpts.Root = candidate
+		candidateOpts.Roots = nil
+		matches, err := search.SearchText(ctx, candidateOpts)
+		if err != nil {
+			return nil, err
+		}
+		if len(matches) == 0 {
+			continue
+		}
+		matchedRoots = append(matchedRoots, candidate)
+		matched = matches
+	}
+	if len(matchedRoots) > 1 {
+		return nil, fmt.Errorf("runtime fallback workspace root %s is stale for relative search path %q: multiple sibling workspaces matched query [%s]; pass work_dir or trusted _cwd/_workspaceRoots", root, relPath, strings.Join(matchedRoots, ", "))
+	}
+	return matched, nil
 }
 
 func emptyGrepMessage(regexFallback bool) string {

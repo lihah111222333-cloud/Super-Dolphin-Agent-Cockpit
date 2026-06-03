@@ -234,7 +234,7 @@ func withRuntimeWorkspaceScopeFallback(ctx context.Context) (context.Context, er
 	if strings.TrimSpace(scope.Family) == "" {
 		scope.Family = mcp.ClientKindLSP
 	}
-	return common.WithToolScope(ctx, scope), nil
+	return common.WithRuntimeWorkspaceScopeFallback(common.WithToolScope(ctx, scope)), nil
 }
 
 func shouldWarnLSPCWDTrace(toolName string) bool {

@@ -15,6 +15,7 @@ import (
 )
 
 func TestLSPBinaryPromptDocsUseReadFilePosContract(t *testing.T) {
+	skipLSPBinaryResidualE2EInShortMode(t)
 	repoRoot := lspBinaryRepoRoot(t)
 	client := startLSPBinaryClient(t, repoRoot)
 
@@ -37,6 +38,7 @@ func TestLSPBinaryPromptDocsUseReadFilePosContract(t *testing.T) {
 }
 
 func TestLSPBinaryGrepTruncatedTextSearchIncludesHint(t *testing.T) {
+	skipLSPBinaryResidualE2EInShortMode(t)
 	root := canonicalToolTestRoot(t, t.TempDir())
 	for i := range 6 {
 		writeLSPBinaryFixture(t, filepath.Join(root, fmt.Sprintf("file-%02d.txt", i)), "needle\n")
@@ -67,7 +69,40 @@ func TestLSPBinaryGrepTruncatedTextSearchIncludesHint(t *testing.T) {
 	}
 }
 
+func TestLSPBinaryGrepFindsExternalPatchInCurrentWorkspaceWithoutExplicitScope(t *testing.T) {
+	skipLSPBinaryResidualE2EInShortMode(t)
+	parent := t.TempDir()
+	staleRoot := canonicalToolTestRoot(t, filepath.Join(parent, "stale"))
+	currentRoot := canonicalToolTestRoot(t, filepath.Join(parent, "current"))
+	relPath := filepath.Join("docs", "li", "p15", "TASKS", "TN-integration.md")
+	stalePath := filepath.Join(staleRoot, relPath)
+	currentPath := filepath.Join(currentRoot, relPath)
+	writeLSPBinaryFixture(t, stalePath, "existing TN integration notes\n")
+	writeLSPBinaryFixture(t, currentPath, "existing TN integration notes\n")
+	client := startLSPBinaryClient(t, staleRoot)
+
+	needle := "BenchmarkTickAppendStrictParallel"
+	writeLSPBinaryFixture(t, currentPath, "existing TN integration notes\n"+needle+"\n")
+
+	result := client.callToolWithoutTrustedScope(t, "grep", map[string]any{
+		"action":      "text_search",
+		"query":       needle,
+		"path":        relPath,
+		"max_results": 5,
+	})
+	if result.IsError {
+		t.Fatalf("grep returned tool error after external patch: %s; stderr=%s", result.ContentText(), client.stderr.String())
+	}
+	var payload lspBinaryGrepResponse
+	decodeLSPBinaryStructuredContent(t, result, &payload)
+	if payload.Total == 0 {
+		t.Fatalf("grep did not find externally patched text %q in current workspace file %s; content=%s stderr=%s",
+			needle, currentPath, result.ContentText(), client.stderr.String())
+	}
+}
+
 func TestLSPBinaryXrefIdentifierMissClassifiesCursorError(t *testing.T) {
+	skipLSPBinaryResidualE2EInShortMode(t)
 	root := canonicalToolTestRoot(t, t.TempDir())
 	writeLSPBinaryFixture(t, filepath.Join(root, "go.mod"), "module example.com/lspbinary\n\ngo 1.25\n")
 	target := filepath.Join(root, "main.go")
@@ -121,6 +156,7 @@ func TestLSPBinaryXrefIdentifierMissClassifiesCursorError(t *testing.T) {
 }
 
 func TestLSPBinaryRustDetachedFileExplainsLimitedWorkspace(t *testing.T) {
+	skipLSPBinaryResidualE2EInShortMode(t)
 	root := canonicalToolTestRoot(t, t.TempDir())
 	target := filepath.Join(root, "docs", "li", "lsp_probe_eval.rs")
 	writeLSPBinaryFixture(t, target, strings.Join([]string{
@@ -190,6 +226,13 @@ func TestLSPBinaryRustDetachedFileExplainsLimitedWorkspace(t *testing.T) {
 		"max_results": 5,
 	})
 	requireRustEmptyResultMessage(t, completion, "completion")
+}
+
+func skipLSPBinaryResidualE2EInShortMode(t *testing.T) {
+	t.Helper()
+	if testing.Short() {
+		t.Skip("skipping mcp-lsp binary e2e test in short mode")
+	}
 }
 
 type lspBinaryClient struct {
@@ -318,6 +361,28 @@ func (c *lspBinaryClient) callTool(t *testing.T, name string, arguments map[stri
 			"arguments":       arguments,
 			"_cwd":            c.root,
 			"_workspaceRoots": []string{c.root},
+		},
+	})
+	resp := c.recv(t)
+	if resp.ID != id {
+		t.Fatalf("tools/call response id = %d, want %d; stderr=%s", resp.ID, id, c.stderr.String())
+	}
+	if resp.Error != nil {
+		t.Fatalf("tools/call RPC error = %d %s; stderr=%s", resp.Error.Code, resp.Error.Message, c.stderr.String())
+	}
+	return resp.Result
+}
+
+func (c *lspBinaryClient) callToolWithoutTrustedScope(t *testing.T, name string, arguments map[string]any) lspBinaryToolResult {
+	t.Helper()
+	id := c.nextRequestID()
+	c.send(t, map[string]any{
+		"jsonrpc": "2.0",
+		"id":      id,
+		"method":  "tools/call",
+		"params": map[string]any{
+			"name":      name,
+			"arguments": arguments,
 		},
 	})
 	resp := c.recv(t)
