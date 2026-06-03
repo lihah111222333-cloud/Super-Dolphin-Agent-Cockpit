@@ -909,11 +909,76 @@ function threadActivityTimestamp() {
   return Date.now();
 }
 
+function tokenUsageObject(value) {
+  return value && typeof value === 'object' && !Array.isArray(value) ? value : null;
+}
+
+function tokenUsageNumber(source, keys) {
+  const object = tokenUsageObject(source);
+  if (!object) return null;
+  for (const key of keys) {
+    if (!hasOwn(object, key)) continue;
+    const number = Number(object[key]);
+    if (Number.isFinite(number)) return number;
+  }
+  return null;
+}
+
+function tokenUsageIO(source) {
+  const input = tokenUsageNumber(source, ['input', 'inputTokens', 'input_tokens', 'promptTokens', 'prompt_tokens']);
+  const output = tokenUsageNumber(source, ['output', 'outputTokens', 'output_tokens', 'completionTokens', 'completion_tokens']);
+  if (input === null && output === null) return null;
+  return (input || 0) + (output || 0);
+}
+
+function firstTokenUsageNumber(...values) {
+  return values.find((value) => Number.isFinite(value)) ?? null;
+}
+
 function normalizeTokenUsage(value) {
   if (!value || typeof value !== 'object') return null;
-  const usedTokens = Number(value.usedTokens ?? value.used_tokens ?? value.totalTokens ?? value.total_tokens ?? 0) || 0;
-  const contextWindowTokens = Number(value.contextWindowTokens ?? value.context_window_tokens ?? value.contextWindow ?? value.context_window ?? 0) || 0;
-  const usedPercent = Number(value.usedPercent ?? value.used_percent ?? (contextWindowTokens > 0 ? (usedTokens / contextWindowTokens) * 100 : 0)) || 0;
+  const usage = tokenUsageObject(value.usage);
+  const info = tokenUsageObject(value.info);
+  const tokenUsage = tokenUsageObject(value.tokenUsage);
+  const currentUsage = tokenUsageObject(tokenUsage?.last) || tokenUsageObject(info?.last_token_usage);
+  const cumulativeUsage = tokenUsageObject(tokenUsage?.total) || tokenUsageObject(info?.total_token_usage);
+  const inputTokens = firstTokenUsageNumber(
+    tokenUsageNumber(currentUsage, ['input', 'inputTokens', 'input_tokens', 'promptTokens', 'prompt_tokens']),
+    tokenUsageNumber(usage, ['input', 'inputTokens', 'input_tokens', 'promptTokens', 'prompt_tokens']),
+    tokenUsageNumber(value, ['input', 'inputTokens', 'input_tokens', 'promptTokens', 'prompt_tokens']),
+    tokenUsageNumber(cumulativeUsage, ['input', 'inputTokens', 'input_tokens', 'promptTokens', 'prompt_tokens']),
+    0,
+  );
+  const outputTokens = firstTokenUsageNumber(
+    tokenUsageNumber(currentUsage, ['output', 'outputTokens', 'output_tokens', 'completionTokens', 'completion_tokens']),
+    tokenUsageNumber(usage, ['output', 'outputTokens', 'output_tokens', 'completionTokens', 'completion_tokens']),
+    tokenUsageNumber(value, ['output', 'outputTokens', 'output_tokens', 'completionTokens', 'completion_tokens']),
+    tokenUsageNumber(cumulativeUsage, ['output', 'outputTokens', 'output_tokens', 'completionTokens', 'completion_tokens']),
+    0,
+  );
+  const usedTokens = firstTokenUsageNumber(
+    tokenUsageNumber(value, ['usedTokens', 'used_tokens']),
+    tokenUsageNumber(currentUsage, ['totalTokens', 'total_tokens']),
+    tokenUsageIO(currentUsage),
+    tokenUsageNumber(usage, ['totalTokens', 'total_tokens']),
+    tokenUsageNumber(value, ['totalTokens', 'total_tokens']),
+    tokenUsageNumber(cumulativeUsage, ['totalTokens', 'total_tokens']),
+    tokenUsageIO(cumulativeUsage),
+    inputTokens + outputTokens,
+    0,
+  );
+  const contextWindowTokens = firstTokenUsageNumber(
+    tokenUsageNumber(value, ['contextWindowTokens', 'context_window_tokens', 'contextWindow', 'context_window', 'modelContextWindow', 'model_context_window']),
+    tokenUsageNumber(tokenUsage, ['contextWindowTokens', 'context_window_tokens', 'contextWindow', 'context_window', 'modelContextWindow', 'model_context_window']),
+    tokenUsageNumber(usage, ['contextWindowTokens', 'context_window_tokens', 'contextWindow', 'context_window', 'modelContextWindow', 'model_context_window']),
+    tokenUsageNumber(info, ['contextWindowTokens', 'context_window_tokens', 'contextWindow', 'context_window', 'modelContextWindow', 'model_context_window']),
+    0,
+  );
+  const rawPercent = firstTokenUsageNumber(
+    tokenUsageNumber(value, ['usedPercent', 'used_percent']),
+    contextWindowTokens > 0 ? (usedTokens / contextWindowTokens) * 100 : 0,
+  ) || 0;
+  const usedPercent = Math.min(100, Math.max(0, rawPercent));
   return { usedTokens, contextWindowTokens, usedPercent };
 }
 
@@ -1418,21 +1483,29 @@ function snapshotNormalizedThreadMap(stateMap, payloadMap, nextThreads, normaliz
   return output;
 }
 
+function snapshotPayloadThreadMap(payload, camelKey, snakeKey) {
+  if (hasOwn(payload, camelKey)) return payload[camelKey];
+  if (hasOwn(payload, snakeKey)) return payload[snakeKey];
+  return undefined;
+}
+
 function snapshotThreadMetrics(state, payload, nextThreads, activeThreadId) {
+  const tokenUsagePayloadMap = snapshotPayloadThreadMap(payload, 'tokenUsageByThread', 'token_usage_by_thread');
+  const activityStatsPayloadMap = snapshotPayloadThreadMap(payload, 'activityStatsByThread', 'activity_stats_by_thread');
   const tokenUsageByThread = snapshotNormalizedThreadMap(
     state.tokenUsageByThread,
-    payload.tokenUsageByThread || payload.token_usage_by_thread,
+    tokenUsagePayloadMap,
     nextThreads,
     normalizeTokenUsage,
   );
   const activityStatsByThread = snapshotNormalizedThreadMap(
     state.activityStatsByThread,
-    payload.activityStatsByThread || payload.activity_stats_by_thread,
+    activityStatsPayloadMap,
     nextThreads,
     normalizeActivityStats,
   );
-  const activeTokenUsage = normalizeTokenUsage(payload.tokenUsage || payload.token_usage);
-  const activeActivityStats = normalizeActivityStats(payload.activityStats || payload.activity_stats);
+  const activeTokenUsage = tokenUsagePayloadMap === undefined ? normalizeTokenUsage(payload.tokenUsage || payload.token_usage) : null;
+  const activeActivityStats = activityStatsPayloadMap === undefined ? normalizeActivityStats(payload.activityStats || payload.activity_stats) : null;
   if (activeTokenUsage && activeThreadId) tokenUsageByThread[activeThreadId] = activeTokenUsage;
   if (activeActivityStats && activeThreadId) activityStatsByThread[activeThreadId] = activeActivityStats;
   return { tokenUsageByThread, activityStatsByThread };
