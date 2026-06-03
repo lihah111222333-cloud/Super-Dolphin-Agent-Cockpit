@@ -4,6 +4,7 @@ import {
   archiveThread as archiveThreadRPC,
   compactThread,
   deleteThread as deleteThreadRPC,
+  forceCompleteTurn,
   getProjects,
   getSidebarState,
   getThreadConfig,
@@ -12,12 +13,15 @@ import {
   getWindowBootstrap,
   getPreference,
   interruptTurn,
+  listSharedFiles,
   onBridgeEvent,
   openNewWindow as openNewWindowRPC,
+  readSharedFile,
   readConfig,
   recoverThread,
   registerBridgeLogStore,
   renameThread as renameThreadRPC,
+  respondApproval as respondApprovalRPC,
   resolveThreadIdentity,
   saveClipboardImage,
   beginTextClipboardWrite,
@@ -33,6 +37,11 @@ import {
   removeProject as removeProjectRPC,
   unarchiveThread as unarchiveThreadRPC,
 } from '../../../shared/api/backendApi.js';
+import {
+  buildSeedInstructionsFromSummary,
+  extractTimelineSummary,
+  FORK_KICKOFF_PROMPT,
+} from './threadFork.js';
 
 const DEFAULT_PROVIDER = 'codex';
 const MAX_WARNING_ENTRIES = 300;
@@ -52,12 +61,10 @@ const PROVIDER_DISPLAY_DEFAULT_CONFIGS = Object.freeze({
 });
 const BOOTSTRAP_PAGE_ALIASES = Object.freeze({
   dags: 'workflows',
-  tasks: 'workflows',
-  commands: 'workflows',
   'memory-center': 'memory',
   memory: 'files',
 });
-const APP_PAGE_IDS = new Set(['chat', 'prompts', 'workflows', 'skills', 'memory', 'files', 'settings']);
+const APP_PAGE_IDS = new Set(['chat', 'prompts', 'workflows', 'tasks', 'commands', 'skills', 'memory', 'observability', 'files', 'settings']);
 const IMAGE_ATTACHMENT_RE = /\.(png|jpe?g|gif|webp|bmp|svg)$/i;
 const ACTIVITY_COUNT_FIELDS = Object.freeze({
   lspCalls: Object.freeze(['lspCalls', 'lsp_calls']),
@@ -87,6 +94,21 @@ const BRIDGE_REVISION_EVENTS = Object.freeze([
 const CHAT_ONLY_INTENT_RE = /(不要|别|无需|不用|不使用|禁止).{0,12}(工具|tool|浏览器|命令|终端|文件|代码)|\b(no|without)\s+tools?\b/i;
 const AGENT_TOOL_INTENT_RE = /(读|读取|看|查看|打开|修改|编辑|修复|实现|重构|跑|运行|执行|测试|构建|编译|扫描|搜索|查找|提交|推送|拉取|合并|调试|浏览|打开网页|操作浏览器|截图|分析).{0,18}(文件|目录|代码|仓库|项目|测试|命令|终端|日志|接口|页面|前端|后端|浏览器|chrome|playwright|git|pr|bug|报错)|\b(read|open|inspect|edit|modify|fix|implement|refactor|run|test|build|compile|scan|grep|search|commit|push|pull|merge|debug|browse).{0,24}(file|dir|code|repo|project|test|command|terminal|log|api|page|frontend|backend|browser|chrome|playwright|git|pr|bug|error)\b|\b(chrome|playwright|git)\b/i;
 const TRACE_DIAGNOSTIC_INTENT_RE = /\b(observability_trace_get|trace[_\s-]?id|traceparent|span[_\s-]?id)\b|慢请求|链路追踪|调用链|观测日志|落盘日志/i;
+
+function emptyForkDraft() {
+  return {
+    open: false,
+    sourceThreadId: '',
+    sourceThreadName: '',
+    sourceTitle: '',
+    sharedFilePaths: [],
+    availableSharedFiles: [],
+    loadingSharedFiles: false,
+    submitting: false,
+    error: '',
+    kickoffError: '',
+  };
+}
 
 function normalizeToolSurfaceMode(value) {
   const mode = normalizeString(value).toLowerCase();
@@ -134,6 +156,23 @@ function positiveNumberFromFields(source, keys = []) {
   return Math.max(0, Number.isFinite(numeric) ? numeric : 0);
 }
 
+function requiredDagStatusPayloadString(payload, field, message) {
+  if (!Object.prototype.hasOwnProperty.call(payload, field)) throw new Error(message);
+  const value = normalizeString(payload[field]);
+  if (!value) throw new Error(message);
+  return value;
+}
+
+function requireDagNodeStatusPayload(payload) {
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) throw new Error('dag status event payload is required');
+  requiredDagStatusPayloadString(payload, 'dag_key', 'dag status event dag key is required');
+  requiredDagStatusPayloadString(payload, 'node_key', 'dag status event node key is required');
+  requiredDagStatusPayloadString(payload, 'new_status', 'dag status event status is required');
+  const runKey = Object.prototype.hasOwnProperty.call(payload, 'run_key') ? normalizeString(payload.run_key) : '';
+  const runID = Object.prototype.hasOwnProperty.call(payload, 'run_id') ? Number(payload.run_id) : 0;
+  if (!runKey && (!Number.isFinite(runID) || runID <= 0)) throw new Error('dag status event run identity is required');
+}
+
 function bridgeRevisionKey(eventName, payload = {}) {
   if (
     PROMPT_REVISION_EVENTS.has(eventName) ||
@@ -141,6 +180,7 @@ function bridgeRevisionKey(eventName, payload = {}) {
   ) {
     return 'promptRevision';
   }
+  if (eventName === 'task/node/statuschanged') requireDagNodeStatusPayload(payload);
   const match = BRIDGE_REVISION_EVENTS.find((entry) => entry.events.has(eventName));
   return match?.key || '';
 }
@@ -1023,6 +1063,7 @@ function extractText(value) {
 
 function normalizeTimelineKindFromRaw(rawRole, rawKind) {
   if (rawRole.includes('user')) return 'user';
+  if (rawKind.includes('approval')) return 'approval';
   if (rawKind.includes('thinking') || rawKind.includes('reasoning')) return 'thinking';
   if (rawKind.includes('command') || rawKind.includes('exec')) return 'command';
   if (rawKind.includes('tool')) return 'tool';
@@ -1050,6 +1091,8 @@ function normalizeTimelineItem(item) {
     kind: normalizedKind,
     text,
     title: normalizeString(firstFieldValue(item, TIMELINE_TITLE_KEYS)),
+    requestId: positiveNumberFromFields(item, ['requestId', 'request_id']),
+    command: normalizeString(item?.command),
     status: normalizeString(item?.status),
     time: normalizeString(firstFieldValue(item, TIMELINE_TIME_KEYS)) || new Date().toISOString(),
     completedAt: normalizeString(firstFieldValue(item, TIMELINE_COMPLETED_KEYS)),
@@ -1877,6 +1920,134 @@ function createSendDraftRequest(state, cwd) {
   };
 }
 
+function dashboardCommandPrompt(card) {
+  const command = normalizeString(card?.command_template || card?.commandTemplate);
+  if (!command) throw new Error('dashboard command card command_template is required');
+  return `请执行以下命令并反馈结果：\n${command}`;
+}
+
+function forkSourceTitle(thread, threadId) {
+  const name = normalizeString(thread?.name);
+  if (name) return `继承自会话：${name}`;
+  const id = normalizeThreadId(threadId || thread?.id);
+  return id ? `继承自会话：${id}` : '继承自前一个对话';
+}
+
+function forkSourceThread(state, threadId) {
+  const id = normalizeThreadId(threadId);
+  if (!id) return null;
+  return state.threads.find((thread) => threadMatchesIdentifier(thread, id)) || null;
+}
+
+function forkToolSurfaceMode(value) {
+  const mode = normalizeToolSurfaceMode(value);
+  return mode === TOOL_SURFACE_MODE_AUTO ? 'chat' : mode;
+}
+
+function normalizeForkSharedFiles(response) {
+  const files = Array.isArray(response?.files) ? response.files : [];
+  const seen = new Set();
+  const normalized = [];
+  for (const file of files) {
+    const path = normalizeString(typeof file === 'string' ? file : file?.path);
+    if (!path || seen.has(path)) continue;
+    seen.add(path);
+    normalized.push({ path });
+  }
+  return normalized;
+}
+
+function cachedForkSharedFiles(state) {
+  const cwd = normalizePath(state.activeProject || state.cwd);
+  const cache = cwd ? state.sharedFilesPageCacheByCwd?.[cwd] : null;
+  return normalizeForkSharedFiles(cache || {});
+}
+
+function initialForkSharedFilePaths(state, availableSharedFiles = [], seedPath = '') {
+  const available = new Set(availableSharedFiles.map((file) => file.path));
+  const selected = [];
+  const add = (path, requireAvailable) => {
+    const value = normalizeString(path);
+    if (!value || selected.includes(value)) return;
+    if (requireAvailable && !available.has(value)) return;
+    selected.push(value);
+  };
+  (state.attachments || []).forEach((item) => add(item?.path, true));
+  add(seedPath, false);
+  return selected;
+}
+
+function mergeForkSharedFilesWithSelected(availableSharedFiles = [], selectedPaths = []) {
+  const seen = new Set();
+  const merged = [];
+  for (const file of availableSharedFiles) {
+    const path = normalizeString(file?.path);
+    if (!path || seen.has(path)) continue;
+    seen.add(path);
+    merged.push({ path });
+  }
+  for (const path of selectedPaths) {
+    const value = normalizeString(path);
+    if (!value || seen.has(value)) continue;
+    seen.add(value);
+    merged.push({ path: value });
+  }
+  return merged;
+}
+
+async function loadForkSharedFiles(paths = []) {
+  const selected = paths.map(normalizeString).filter(Boolean);
+  if (selected.length === 0) return [];
+  return Promise.all(selected.map(async (path) => {
+    const detail = await readSharedFile({ path });
+    if (!detail || typeof detail !== 'object' || Array.isArray(detail)) {
+      throw new Error(`shared file ${path} returned empty response`);
+    }
+    return {
+      path: normalizeString(detail.path) || path,
+      content: (detail.content || '').toString(),
+    };
+  }));
+}
+
+function addForkThreadState(state, threadId, identity, launchPreferences, name, kickoffText) {
+  const provider = launchPreferences.modelProvider || launchPreferences.provider || state.provider || DEFAULT_PROVIDER;
+  return {
+    activePage: 'chat',
+    activeThreadId: threadId,
+    provider,
+    activityThreadAtById: {
+      ...state.activityThreadAtById,
+      [threadId]: threadActivityTimestamp(),
+    },
+    forkDraft: emptyForkDraft(),
+    actionNotice: actionNotice('已创建继承对话', 'success'),
+    threads: [
+      {
+        id: threadId,
+        agentId: identity.agentId,
+        providerThreadId: identity.providerThreadId,
+        sessionId: identity.sessionId,
+        name,
+        provider,
+        status: '工作中',
+      },
+      ...state.threads.filter((item) => !threadMatchesIdentifier(item, threadId)),
+    ],
+    timelinesByThread: {
+      ...state.timelinesByThread,
+      [threadId]: [{
+        id: `fork-kickoff-${Date.now()}`,
+        role: 'user',
+        text: kickoffText,
+        time: new Date().toISOString(),
+        done: true,
+        optimistic: true,
+      }],
+    },
+  };
+}
+
 function optimisticSendThreads(threads = [], previousThreadId = '') {
   if (!previousThreadId || !threads.some((thread) => threadMatchesIdentifier(thread, previousThreadId))) return threads;
   return [
@@ -2304,6 +2475,7 @@ const baseState = {
   warningEntries: [],
   draft: '',
   attachments: [],
+  forkDraft: emptyForkDraft(),
   toolSurfaceMode: TOOL_SURFACE_MODE_AUTO,
   sending: false,
   rightPanelWidth: 380,
@@ -3075,6 +3247,7 @@ function attachActiveThreadRpcRuntime(runtime) {
     }
     const actionLabels = {
       'thread.interrupt': '中断当前执行',
+      'thread.force_complete': '强制完成当前执行',
       'thread.compact': '压缩上下文',
       'thread.recover': '恢复连接',
     };
@@ -3092,6 +3265,7 @@ function attachActiveThreadRpcRuntime(runtime) {
       await rpc(cleanObject(payload));
       notifyAction({
         'thread.interrupt': '已发送中断请求',
+        'thread.force_complete': '已发送强制完成请求',
         'thread.compact': '已发送压缩请求',
         'thread.recover': '已发送恢复请求',
       }[action] || '线程操作已提交', 'success', { threadId });
@@ -3702,8 +3876,16 @@ function createThreadSelectionActions(runtime) {
     continueWithSharedFile: (path) => {
       const target = normalizeString(path);
       if (!target) return false;
+      const current = runtime.get();
+      const sourceThreadId = backendThreadIdForState(current, current.activeThreadId);
+      if (sourceThreadId && typeof current.openForkDraft === 'function') {
+        void runtime.saveActiveComposerDraft(current);
+        runtime.set({ activePage: 'chat' });
+        void current.openForkDraft({ origin: 'shared-files', sharedFilePath: target });
+        return true;
+      }
       const attachment = { path: target, name: basename(target) };
-      void runtime.saveActiveComposerDraft();
+      void runtime.saveActiveComposerDraft(current);
       runtime.set((state) => ({
         activePage: 'chat',
         activeThreadId: '',
@@ -3713,6 +3895,176 @@ function createThreadSelectionActions(runtime) {
           : [attachment],
       }));
       return true;
+    },
+
+
+  };
+}
+
+function createForkThreadActions(runtime) {
+  return {
+    openForkDraft: async (options = {}) => {
+      const state = runtime.get();
+      const sourceThreadId = backendThreadIdForState(state, state.activeThreadId);
+      if (!sourceThreadId) {
+        runtime.notifyAction('当前没有可继承的后端会话', 'warning');
+        return false;
+      }
+      const seedSharedFilePath = normalizeString(options?.sharedFilePath || options?.seedSharedFilePath);
+      const thread = forkSourceThread(state, sourceThreadId);
+      const sourceTitle = forkSourceTitle(thread, sourceThreadId);
+      const cachedFiles = cachedForkSharedFiles(state);
+      const sharedFilePaths = initialForkSharedFilePaths(state, cachedFiles, seedSharedFilePath);
+      runtime.set({
+        forkDraft: {
+          ...emptyForkDraft(),
+          open: true,
+          sourceThreadId,
+          sourceThreadName: normalizeString(thread?.name),
+          sourceTitle,
+          availableSharedFiles: mergeForkSharedFilesWithSelected(cachedFiles, sharedFilePaths),
+          sharedFilePaths,
+          loadingSharedFiles: true,
+        },
+      });
+
+      try {
+        const response = await listSharedFiles();
+        const availableSharedFiles = normalizeForkSharedFiles(response);
+        runtime.set((latest) => {
+          if (latest.forkDraft.sourceThreadId !== sourceThreadId) return {};
+          const selectedPaths = latest.forkDraft.sharedFilePaths || [];
+          const selected = new Set(selectedPaths);
+          const mergedSharedFiles = mergeForkSharedFilesWithSelected(availableSharedFiles, selectedPaths);
+          return {
+            forkDraft: {
+              ...latest.forkDraft,
+              availableSharedFiles: mergedSharedFiles,
+              sharedFilePaths: mergedSharedFiles
+                .map((file) => file.path)
+                .filter((path) => selected.has(path)),
+              loadingSharedFiles: false,
+              error: '',
+            },
+          };
+        });
+      }
+      catch (error) {
+        const message = error.message || String(error);
+        runtime.set((latest) => {
+          if (latest.forkDraft.sourceThreadId !== sourceThreadId) return {};
+          return {
+            forkDraft: {
+              ...latest.forkDraft,
+              loadingSharedFiles: false,
+              error: `共享文件列表加载失败：${message}`,
+            },
+          };
+        });
+        runtime.addWarning('warn', 'thread.fork.shared_files.failed', { threadId: sourceThreadId, error: message });
+      }
+      return true;
+    },
+
+    closeForkDraft: () => {
+      runtime.set({ forkDraft: emptyForkDraft() });
+      return true;
+    },
+
+    toggleForkDraftSharedFile: (path) => {
+      const target = normalizeString(path);
+      if (!target) return false;
+      runtime.set((state) => {
+        const selected = new Set(state.forkDraft.sharedFilePaths || []);
+        if (selected.has(target)) selected.delete(target);
+        else selected.add(target);
+        return {
+          forkDraft: {
+            ...state.forkDraft,
+            sharedFilePaths: Array.from(selected),
+          },
+        };
+      });
+      return true;
+    },
+
+    submitForkThread: async () => {
+      const state = runtime.get();
+      const draft = state.forkDraft || emptyForkDraft();
+      const sourceThreadId = backendThreadIdForState(state, draft.sourceThreadId);
+      if (!draft.open || !sourceThreadId) throw new Error('fork thread: source thread is required');
+      if (draft.submitting) return '';
+
+      runtime.set((latest) => ({
+        forkDraft: {
+          ...latest.forkDraft,
+          submitting: true,
+          error: '',
+          kickoffError: '',
+        },
+      }));
+
+      let newThreadId = '';
+      try {
+        const latest = runtime.get();
+        const sourceThread = forkSourceThread(latest, sourceThreadId);
+        const sourceTitle = draft.sourceTitle || forkSourceTitle(sourceThread, sourceThreadId);
+        const summary = extractTimelineSummary(latest.timelinesByThread?.[sourceThreadId] || []);
+        const sharedFiles = await loadForkSharedFiles(latest.forkDraft.sharedFilePaths);
+        if (!summary && sharedFiles.length === 0) {
+          throw new Error('当前会话没有可用上下文，且未选择共享文件，无法创建继承对话。');
+        }
+        const baseInstructions = buildSeedInstructionsFromSummary(summary, {
+          sourceTitle,
+          sharedFiles,
+        });
+        const cwd = runtime.requireCwd('fork thread');
+        const launchPreferences = await resolveLaunchPreferences(cwd);
+        const response = await startThread({
+          cwd,
+          name: sourceTitle,
+          ...launchPreferences,
+          toolSurfaceMode: forkToolSurfaceMode(latest.toolSurfaceMode),
+          deferSpawn: true,
+          launchIntentId: createLaunchIntentId(),
+          baseInstructions,
+        });
+        const identity = normalizeThreadIdentity(response);
+        if (!identity.threadId) throw new Error('thread/start response missing threadId');
+        newThreadId = identity.threadId;
+        runtime.set((current) => addForkThreadState(current, newThreadId, identity, launchPreferences, sourceTitle, FORK_KICKOFF_PROMPT));
+
+        try {
+          await startTurn({
+            cwd,
+            threadId: newThreadId,
+            input: [{ type: 'text', text: FORK_KICKOFF_PROMPT }],
+            manualSkillSelection: false,
+          });
+        }
+        catch (kickoffError) {
+          const message = kickoffError.message || String(kickoffError);
+          runtime.set({
+            actionNotice: actionNotice(`已创建继承对话，但开场消息发送失败：${message}`, 'warning'),
+          });
+          runtime.addWarning('warn', 'thread.fork.kickoff.failed', { threadId: newThreadId, error: message });
+        }
+        return newThreadId;
+      }
+      catch (error) {
+        if (!newThreadId) {
+          const message = error.message || String(error);
+          runtime.set((latest) => ({
+            forkDraft: {
+              ...latest.forkDraft,
+              submitting: false,
+              error: message,
+            },
+            actionNotice: actionNotice(`创建继承对话失败：${message}`, 'error'),
+          }));
+        }
+        throw error;
+      }
     },
 
 
@@ -3856,6 +4208,12 @@ function createComposerSendActions(runtime) {
       }
     },
 
+    runDashboardCommand: async (card) => {
+      const draft = dashboardCommandPrompt(card);
+      runtime.set({ activePage: 'chat', draft, attachments: [], toolSurfaceMode: 'agent' });
+      return runtime.get().sendDraft();
+    },
+
 
   };
 }
@@ -3863,6 +4221,7 @@ function createComposerSendActions(runtime) {
 function createActiveThreadActions(runtime) {
   return {
     interruptActiveThread: () => runtime.activeThreadRPC('thread.interrupt', interruptTurn),
+    forceCompleteActiveThread: () => runtime.activeThreadRPC('thread.force_complete', forceCompleteTurn),
     compactActiveThread: () => runtime.activeThreadRPC('thread.compact', compactThread),
     recoverActiveThread: () => runtime.activeThreadRPC('thread.recover', recoverThread),
 
@@ -3879,6 +4238,34 @@ function createActiveThreadActions(runtime) {
       await runtime.get().syncThreadState(threadId);
       runtime.notifyAction('线程状态已刷新', 'success', { threadId });
       return true;
+    },
+
+    respondApproval: async (item, approved) => {
+      const requestId = positiveNumberFromFields(item, ['requestId', 'request_id']);
+      const decision = Boolean(approved);
+      if (requestId <= 0) {
+        runtime.notifyAction('当前审批缺少请求编号，无法提交', 'error');
+        runtime.addWarning('error', 'timeline.approval.request_id_missing', {
+          command: normalizeString(item?.command || item?.title),
+        });
+        return false;
+      }
+      try {
+        const result = await respondApprovalRPC({ requestId, approved: decision });
+        if (result?.ok === false) {
+          runtime.notifyAction('审批请求已不再等待处理', 'warning', { requestId });
+          runtime.addWarning('warn', 'timeline.approval.respond_not_pending', { requestId, approved: decision });
+          return false;
+        }
+        runtime.notifyAction('审批结果已提交', 'success', { requestId });
+        return true;
+      }
+      catch (error) {
+        const message = error?.message || String(error);
+        runtime.notifyAction(`审批提交失败：${message}`, 'error', { requestId });
+        runtime.addWarning('error', 'timeline.approval.respond.failed', { requestId, approved: decision, error: message });
+        return false;
+      }
     },
 
 
@@ -4143,6 +4530,7 @@ function createClientStore(set, get) {
     ...createProjectPickerActions(runtime),
     ...createProviderActions(runtime),
     ...createThreadSelectionActions(runtime),
+    ...createForkThreadActions(runtime),
     ...createComposerFilePickerActions(runtime),
     ...createComposerDropActions(runtime),
     ...createComposerSendActions(runtime),

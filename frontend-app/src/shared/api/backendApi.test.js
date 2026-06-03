@@ -163,6 +163,7 @@ import { createBackendApi, emitFrontendTraceEvent, RPC_METHODS } from './backend
     const api = createBackendApi({ callAPI });
 
     await api.interruptTurn({ cwd: '/repo/app', threadId: 'thread-1', turnId: 'turn-1', source: 'ui_stop' });
+    await api.forceCompleteTurn({ cwd: '/repo/app', threadId: 'thread-1' });
     await api.compactThread({ cwd: '/repo/app', threadId: 'thread-1' });
     await api.recoverThread({ cwd: '/repo/app', threadId: 'thread-1' });
 
@@ -171,12 +172,32 @@ import { createBackendApi, emitFrontendTraceEvent, RPC_METHODS } from './backend
       turnId: 'turn-1',
       source: 'ui_stop',
     });
-    expect(callAPI).toHaveBeenNthCalledWith(2, RPC_METHODS.THREAD_COMPACT_START, {
+    expect(callAPI).toHaveBeenNthCalledWith(2, RPC_METHODS.TURN_FORCE_COMPLETE, {
       threadId: 'thread-1',
     });
-    expect(callAPI).toHaveBeenNthCalledWith(3, RPC_METHODS.THREAD_RECOVER, {
+    expect(callAPI).toHaveBeenNthCalledWith(3, RPC_METHODS.THREAD_COMPACT_START, {
       threadId: 'thread-1',
     });
+    expect(callAPI).toHaveBeenNthCalledWith(4, RPC_METHODS.THREAD_RECOVER, {
+      threadId: 'thread-1',
+    });
+  });
+
+  it('wraps approval/respond with strict request id and decision payloads', async () => {
+    const callAPI = vi.fn().mockResolvedValue({ ok: true });
+    const api = createBackendApi({ callAPI });
+
+    await api.respondApproval({ requestId: 11, approved: false });
+
+    expect(RPC_METHODS.APPROVAL_RESPOND).toBe('approval/respond');
+    expect(callAPI).toHaveBeenCalledWith(RPC_METHODS.APPROVAL_RESPOND, {
+      requestId: 11,
+      approved: false,
+    });
+    expect(() => api.respondApproval({ requestId: 0, approved: true }))
+      .toThrow('approval/respond: requestId is required');
+    expect(() => api.respondApproval({ requestId: 11 }))
+      .toThrow('approval/respond: approved is required');
   });
 
   it('fails fast before turn/interrupt when turnId is missing', () => {
@@ -215,6 +236,28 @@ import { createBackendApi, emitFrontendTraceEvent, RPC_METHODS } from './backend
     });
     expect(() => api.deleteSkill({ cwd: '/repo/app', name: 'DocsSkill', scope: 'system' }))
       .toThrow('scope must be project or personal');
+  });
+
+  it('creates project skills through the dedicated internal skills/create RPC', async () => {
+    const callAPI = vi.fn().mockResolvedValue({ path: '/repo/app/.agent/skills/DocsSkill/SKILL.md' });
+    const api = createBackendApi({ callAPI });
+
+    await api.createSkill({
+      cwd: '/repo/app',
+      name: 'DocsSkill',
+      content: '---\nname: "DocsSkill"\n---\n\n## Docs',
+    });
+
+    expect(RPC_METHODS.SKILLS_CREATE).toBe('skills/create');
+    expect(callAPI).toHaveBeenCalledWith(RPC_METHODS.SKILLS_CREATE, {
+      cwd: '/repo/app',
+      name: 'DocsSkill',
+      content: '---\nname: "DocsSkill"\n---\n\n## Docs',
+    });
+    expect(() => api.createSkill({ cwd: '/repo/app', name: '', content: 'body' }))
+      .toThrow('skills/create: name is required');
+    expect(() => api.createSkill({ cwd: '/repo/app', name: 'DocsSkill' }))
+      .toThrow('skills/create: content is required');
   });
 
   it('wraps skill editor and import RPCs with legacy payload shapes', async () => {
@@ -365,6 +408,54 @@ function expectSkillEditorCalls(callAPI) {
     expect(() => api.applyDagOps({ dagKey: 'dag-1', ops: [] })).toThrow('baseVersion is required');
     expect(() => api.getDagRun({ runKey: '' })).toThrow('runKey is required');
     expect(() => api.terminateDagRun({ dagKey: 'dag-1', runKey: '' })).toThrow('runKey is required');
+  });
+
+  it('wraps cronjob RPCs with the legacy payload shapes', async () => {
+    const callAPI = vi.fn().mockResolvedValue({ ok: true });
+    const api = createBackendApi({ callAPI });
+
+    await api.listCronJobs();
+    await api.getCronJob({ id: 'job-1' });
+    await api.createCronJob({ name: 'nightly', prompt: 'run tests' });
+    await api.updateCronJob({ id: 'job-1', name: 'nightly v2', enabled: false });
+    await api.deleteCronJob({ id: 'job-1' });
+    await api.runCronJobOnce({ id: 'job-1' });
+    await api.setCronJobEnabled({ id: 'job-1', enabled: true });
+    await api.listCronJobRuns({ jobId: 'job-1', limit: 50 });
+
+    expect(callAPI).toHaveBeenCalledWith(RPC_METHODS.CRONJOB_LIST, {});
+    expect(callAPI).toHaveBeenCalledWith(RPC_METHODS.CRONJOB_GET, { id: 'job-1' });
+    expect(callAPI).toHaveBeenCalledWith(RPC_METHODS.CRONJOB_CREATE, { name: 'nightly', prompt: 'run tests' });
+    expect(callAPI).toHaveBeenCalledWith(RPC_METHODS.CRONJOB_UPDATE, { id: 'job-1', name: 'nightly v2', enabled: false });
+    expect(callAPI).toHaveBeenCalledWith(RPC_METHODS.CRONJOB_DELETE, { id: 'job-1' });
+    expect(callAPI).toHaveBeenCalledWith(RPC_METHODS.CRONJOB_RUN_ONCE, { id: 'job-1' });
+    expect(callAPI).toHaveBeenCalledWith(RPC_METHODS.CRONJOB_SET_ENABLED, { id: 'job-1', enabled: true });
+    expect(callAPI).toHaveBeenCalledWith(RPC_METHODS.CRONJOB_LIST_RUNS, { job_id: 'job-1', limit: 50 });
+    expect(() => api.getCronJob({ id: '' })).toThrow('id is required');
+    expect(() => api.setCronJobEnabled({ id: 'job-1', enabled: 'true' })).toThrow('enabled must be boolean');
+    expect(() => api.listCronJobRuns({ jobId: '' })).toThrow('job_id is required');
+  });
+
+  it('wraps settings config RPCs with the internal uistate method names', async () => {
+    const callAPI = vi.fn().mockResolvedValue({ ok: true });
+    const api = createBackendApi({ callAPI });
+
+    await api.readLspPromptHint({ cwd: '/repo/app' });
+    await api.writeLspPromptHint({ cwd: '/repo/app', hint: 'custom prompt' });
+    await api.readBuiltinTools({ cwd: '/repo/app' });
+    await api.writeBuiltinTool({ cwd: '/repo/app', id: 'Shell', enabled: false });
+    await api.listDashboardLogs({ limit: 14 });
+
+    expect(callAPI).toHaveBeenCalledWith(RPC_METHODS.CONFIG_LSP_PROMPT_HINT_READ, { cwd: '/repo/app' });
+    expect(callAPI).toHaveBeenCalledWith(RPC_METHODS.CONFIG_LSP_PROMPT_HINT_WRITE, { cwd: '/repo/app', hint: 'custom prompt' });
+    expect(callAPI).toHaveBeenCalledWith(RPC_METHODS.CONFIG_BUILTIN_TOOLS_READ, { cwd: '/repo/app' });
+    expect(callAPI).toHaveBeenCalledWith(RPC_METHODS.CONFIG_BUILTIN_TOOLS_WRITE, { cwd: '/repo/app', id: 'Shell', enabled: false });
+    expect(callAPI).toHaveBeenCalledWith(RPC_METHODS.DASHBOARD_LOGS, { limit: 14 });
+    expect(() => api.readLspPromptHint({ cwd: '' })).toThrow('cwd is required');
+    expect(() => api.writeLspPromptHint({ cwd: '/repo/app' })).toThrow('hint is required');
+    expect(() => api.writeBuiltinTool({ cwd: '/repo/app', id: '', enabled: true })).toThrow('id is required');
+    expect(() => api.writeBuiltinTool({ cwd: '/repo/app', id: 'Shell', enabled: 'false' })).toThrow('enabled must be boolean');
+    expect(() => api.listDashboardLogs({ limit: 0 })).toThrow('limit must be a positive integer');
   });
 
 async function callDagDashboardApis(api) {
@@ -649,4 +740,35 @@ function expectMemoryCenterValidation(api) {
     expect(() => api.listSharedFiles([])).toThrow('params must be an object');
     expect(() => api.readSharedFile({ path: '' })).toThrow('path is required');
     expect(() => api.deleteSharedFile({ path: '' })).toThrow('path is required');
+  });
+
+  it('wraps runtime code locate, open and save RPCs with scoped payloads', async () => {
+    const callAPI = vi.fn().mockResolvedValue({ ok: true });
+    const api = createBackendApi({ callAPI });
+
+    await api.locateCodeFile({ filePath: 'src/App.jsx', project: '/repo/app', projects: ['/repo/app'] });
+    await api.openCodeFile({ filePath: 'src/App.jsx', project: '/repo/app', projects: ['/repo/app'], line: 10, column: 2 });
+    await api.saveCodeFile({ filePath: 'src/App.jsx', content: 'export default App;', project: '/repo/app', projects: ['/repo/app'] });
+
+    expect(callAPI).toHaveBeenCalledWith(RPC_METHODS.UI_CODE_LOCATE, {
+      filePath: 'src/App.jsx',
+      project: '/repo/app',
+      projects: ['/repo/app'],
+    });
+    expect(callAPI).toHaveBeenCalledWith(RPC_METHODS.UI_CODE_OPEN, {
+      filePath: 'src/App.jsx',
+      project: '/repo/app',
+      projects: ['/repo/app'],
+      line: 10,
+      column: 2,
+    });
+    expect(callAPI).toHaveBeenCalledWith(RPC_METHODS.UI_CODE_SAVE, {
+      filePath: 'src/App.jsx',
+      content: 'export default App;',
+      project: '/repo/app',
+      projects: ['/repo/app'],
+    });
+    expect(() => api.locateCodeFile({ filePath: '' })).toThrow('filePath is required');
+    expect(() => api.openCodeFile({ filePath: '' })).toThrow('filePath is required');
+    expect(() => api.saveCodeFile({ filePath: 'src/App.jsx' })).toThrow('content is required');
   });

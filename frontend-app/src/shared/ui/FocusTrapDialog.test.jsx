@@ -13,7 +13,7 @@ describe('FocusTrapDialog', () => {
     );
 
     fireEvent.keyDown(screen.getByRole('dialog'), { key: 'Escape' });
-    expect(screen.getByRole('dialog', { name: 'Test dialog' })).toBeInTheDocument();
+    expect(screen.getByRole('dialog', { name: 'Test dialog' }).tagName).toBe('DIALOG');
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 });
