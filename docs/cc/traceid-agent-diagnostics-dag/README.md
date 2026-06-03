@@ -1,0 +1,106 @@
+# TraceId Agent Diagnostics DAG - 2026-06-03
+
+Source finding:
+
+- `docs/cc/agent-trace-diagnostics/traceid-agent-diagnostics-finding-2026-06-03.md`
+
+Goal:
+
+- Turn a user-provided `trace_id` into a Codex-discoverable, schema-validated, bounded, redacted diagnosis.
+- Prevent agents from guessing local JSONL paths or exposing raw trace events to the model.
+
+## DAG Nodes
+
+| Node | Task | Depends On | Primary Packages |
+| --- | --- | --- | --- |
+| T01 | Trace diagnosis contract | none | `internal/platform/observability` |
+| T02 | Query freshness and predicate alignment | T01 | `internal/platform/observability` |
+| T03 | Tail degradation and warning propagation | T01, T02 | `internal/platform/observability` |
+| T04 | Redacted model-facing projection | T01 | `internal/platform/observability` |
+| T05 | Host-direct trace tool registry | T03, T04 | `internal/platform/toolbridge` |
+| T06 | Host dispatch output and CWD contract | T05 | `internal/platform/toolbridge` |
+| T07 | Codex surface wiring, gating, and duplicate handling | T05, T06 | `internal/platform/toolbridge`, `internal/app` |
+| T08 | Platform observability tests | T02, T03, T04 | `internal/platform/observability` |
+| T09 | Toolbridge and Codex surface tests | T06, T07 | `internal/platform/toolbridge` |
+| T10 | Integration closure, verification, and follow-up docs | T08, T09 | `internal/module/observability`, `.agent/skills`, docs |
+
+## Edge List
+
+```text
+T01 -> T02
+T01 -> T03
+T01 -> T04
+T02 -> T03
+T03 -> T05
+T04 -> T05
+T05 -> T06
+T05 -> T07
+T06 -> T07
+T02 -> T08
+T03 -> T08
+T04 -> T08
+T06 -> T09
+T07 -> T09
+T08 -> T10
+T09 -> T10
+```
+
+## Execution Rules
+
+- Do not make agents parse `~/.multi-agent/log/<project>/traces/*.jsonl` directly.
+- Do not expose raw, unbounded `TraceEvent` data to a model-facing tool.
+- Do not advertise `observability_trace_get` when tracing is disabled.
+- If tail reads fail, return an explicit error or a degraded diagnosis; never return a clean diagnosis.
+- If duplicate host-only tool names are returned by MCP peers, the Codex surface must not fail entirely.
+
+## Worktree Review And Merge Gate
+
+Each implementation worktree must pass this gate before it can merge into the integration branch.
+
+1. Implement only the assigned DAG node or batch in the worktree branch.
+2. Run the verification command scoped to the changed packages.
+3. Request two independent reviews against the worktree's uncommitted diff.
+4. Both reviews must report no unresolved Critical or Important findings.
+5. If either review raises a Critical or Important finding, fix it in the same worktree, rerun verification, and request two fresh reviews of the new diff.
+6. After both reviews pass, commit the exact reviewed diff in the worktree branch.
+7. Merge the committed worktree branch into `feat/traceid-agent-diagnostics`.
+8. After the merge, rerun the affected verification command on the integration branch.
+
+Required reviewer split:
+
+- Reviewer A: production feasibility and correctness.
+- Reviewer B: performance, security/privacy, risk, and maintainability.
+
+Commit rules:
+
+- Do not commit before both reviews pass.
+- Do not change code between passing reviews and commit; any change invalidates the reviews.
+- Do not use `git add .`; stage only the files owned by the worktree task.
+- Do not merge uncommitted worktree changes.
+- Keep non-reserved duplicate handling, disabled-tool behavior, and redaction rules covered by tests in the same worktree commit that changes them.
+
+Suggested merge flow:
+
+```bash
+# In the worktree branch after implementation:
+./scripts/test_with_guard.sh <affected packages> -count=1
+git status --short
+git diff -- <owned files>
+
+# After two passing reviews:
+git add <owned files>
+git commit -m "<type>: <task summary>"
+
+# In the integration worktree:
+git switch feat/traceid-agent-diagnostics
+git merge --no-ff <worktree-branch>
+./scripts/test_with_guard.sh <affected packages> -count=1
+```
+
+## Verification Target
+
+After all implementation tasks are complete:
+
+```bash
+./scripts/test_with_guard.sh ./internal/platform/observability ./internal/platform/toolbridge ./internal/module/observability -count=1
+```
