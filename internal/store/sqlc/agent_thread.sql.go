@@ -113,17 +113,15 @@ func (q *Queries) ExpireStaleAgentThreads(ctx context.Context, arg ExpireStaleAg
 }
 
 const getAgentThreadByID = `-- name: GetAgentThreadByID :one
-SELECT thread_id, name, prompt, model, cwd, status, port, pid, created_at, updated_at, finished_at, last_event_type, error_message, workspace_run_key, owner_thread_id, parent_agent_id, agent_type, agent_memory_scope, config_override, agent_key, prompt_version_id, pending_launch, manually_renamed,
-       COALESCE((
-            SELECT b.agent_id
-            FROM agent_provider_binding b
-            WHERE b.provider_thread_id = agent_threads.thread_id
-               OR b.codex_thread_id = agent_threads.thread_id
-            ORDER BY b.updated_at DESC
-            LIMIT 1
-        ), '') AS agent_id
-FROM agent_threads
-WHERE thread_id = $1
+SELECT t.thread_id, t.name, t.prompt, t.model, t.cwd, t.status, t.port, t.pid, t.created_at, t.updated_at, t.finished_at, t.last_event_type, t.error_message, t.workspace_run_key, t.owner_thread_id, t.parent_agent_id, t.agent_type, t.agent_memory_scope, t.config_override, t.agent_key, t.prompt_version_id, t.pending_launch, t.manually_renamed,
+       COALESCE(b.agent_id, '') AS agent_id
+FROM agent_threads t
+LEFT JOIN LATERAL (
+    SELECT agent_id FROM agent_provider_binding
+    WHERE provider_thread_id = t.thread_id OR codex_thread_id = t.thread_id
+    ORDER BY updated_at DESC LIMIT 1
+) b ON true
+WHERE t.thread_id = $1
 LIMIT 1
 `
 
@@ -132,30 +130,30 @@ type GetAgentThreadByIDParams struct {
 }
 
 type GetAgentThreadByIDRow struct {
-	ThreadID         string      `db:"thread_id" json:"thread_id"`
-	Name             string      `db:"name" json:"name"`
-	Prompt           string      `db:"prompt" json:"prompt"`
-	Model            string      `db:"model" json:"model"`
-	CWD              string      `db:"cwd" json:"cwd"`
-	Status           string      `db:"status" json:"status"`
-	Port             int32       `db:"port" json:"port"`
-	Pid              int32       `db:"pid" json:"pid"`
-	CreatedAt        int64       `db:"created_at" json:"created_at"`
-	UpdatedAt        int64       `db:"updated_at" json:"updated_at"`
-	FinishedAt       *int64      `db:"finished_at" json:"finished_at"`
-	LastEventType    string      `db:"last_event_type" json:"last_event_type"`
-	ErrorMessage     string      `db:"error_message" json:"error_message"`
-	WorkspaceRunKey  string      `db:"workspace_run_key" json:"workspace_run_key"`
-	OwnerThreadID    string      `db:"owner_thread_id" json:"owner_thread_id"`
-	ParentAgentID    string      `db:"parent_agent_id" json:"parent_agent_id"`
-	AgentType        string      `db:"agent_type" json:"agent_type"`
-	AgentMemoryScope string      `db:"agent_memory_scope" json:"agent_memory_scope"`
-	ConfigOverride   []byte      `db:"config_override" json:"config_override"`
-	AgentKey         string      `db:"agent_key" json:"agent_key"`
-	PromptVersionID  *int64      `db:"prompt_version_id" json:"prompt_version_id"`
-	PendingLaunch    bool        `db:"pending_launch" json:"pending_launch"`
-	ManuallyRenamed  bool        `db:"manually_renamed" json:"manually_renamed"`
-	AgentID          interface{} `db:"agent_id" json:"agent_id"`
+	ThreadID         string `db:"thread_id" json:"thread_id"`
+	Name             string `db:"name" json:"name"`
+	Prompt           string `db:"prompt" json:"prompt"`
+	Model            string `db:"model" json:"model"`
+	CWD              string `db:"cwd" json:"cwd"`
+	Status           string `db:"status" json:"status"`
+	Port             int32  `db:"port" json:"port"`
+	Pid              int32  `db:"pid" json:"pid"`
+	CreatedAt        int64  `db:"created_at" json:"created_at"`
+	UpdatedAt        int64  `db:"updated_at" json:"updated_at"`
+	FinishedAt       *int64 `db:"finished_at" json:"finished_at"`
+	LastEventType    string `db:"last_event_type" json:"last_event_type"`
+	ErrorMessage     string `db:"error_message" json:"error_message"`
+	WorkspaceRunKey  string `db:"workspace_run_key" json:"workspace_run_key"`
+	OwnerThreadID    string `db:"owner_thread_id" json:"owner_thread_id"`
+	ParentAgentID    string `db:"parent_agent_id" json:"parent_agent_id"`
+	AgentType        string `db:"agent_type" json:"agent_type"`
+	AgentMemoryScope string `db:"agent_memory_scope" json:"agent_memory_scope"`
+	ConfigOverride   []byte `db:"config_override" json:"config_override"`
+	AgentKey         string `db:"agent_key" json:"agent_key"`
+	PromptVersionID  *int64 `db:"prompt_version_id" json:"prompt_version_id"`
+	PendingLaunch    bool   `db:"pending_launch" json:"pending_launch"`
+	ManuallyRenamed  bool   `db:"manually_renamed" json:"manually_renamed"`
+	AgentID          string `db:"agent_id" json:"agent_id"`
 }
 
 func (q *Queries) GetAgentThreadByID(ctx context.Context, arg GetAgentThreadByIDParams) (GetAgentThreadByIDRow, error) {
@@ -191,18 +189,16 @@ func (q *Queries) GetAgentThreadByID(ctx context.Context, arg GetAgentThreadByID
 }
 
 const getAgentThreadByPort = `-- name: GetAgentThreadByPort :one
-SELECT thread_id, name, prompt, model, cwd, status, port, pid, created_at, updated_at, finished_at, last_event_type, error_message, workspace_run_key, owner_thread_id, parent_agent_id, agent_type, agent_memory_scope, config_override, agent_key, prompt_version_id, pending_launch, manually_renamed,
-       COALESCE((
-            SELECT b.agent_id
-            FROM agent_provider_binding b
-            WHERE b.provider_thread_id = agent_threads.thread_id
-               OR b.codex_thread_id = agent_threads.thread_id
-            ORDER BY b.updated_at DESC
-            LIMIT 1
-        ), '') AS agent_id
-FROM agent_threads
-WHERE port = $1 AND status = 'running'
-ORDER BY updated_at DESC
+SELECT t.thread_id, t.name, t.prompt, t.model, t.cwd, t.status, t.port, t.pid, t.created_at, t.updated_at, t.finished_at, t.last_event_type, t.error_message, t.workspace_run_key, t.owner_thread_id, t.parent_agent_id, t.agent_type, t.agent_memory_scope, t.config_override, t.agent_key, t.prompt_version_id, t.pending_launch, t.manually_renamed,
+       COALESCE(b.agent_id, '') AS agent_id
+FROM agent_threads t
+LEFT JOIN LATERAL (
+    SELECT agent_id FROM agent_provider_binding
+    WHERE provider_thread_id = t.thread_id OR codex_thread_id = t.thread_id
+    ORDER BY updated_at DESC LIMIT 1
+) b ON true
+WHERE t.port = $1 AND t.status = 'running'
+ORDER BY t.updated_at DESC
 LIMIT 1
 `
 
@@ -211,30 +207,30 @@ type GetAgentThreadByPortParams struct {
 }
 
 type GetAgentThreadByPortRow struct {
-	ThreadID         string      `db:"thread_id" json:"thread_id"`
-	Name             string      `db:"name" json:"name"`
-	Prompt           string      `db:"prompt" json:"prompt"`
-	Model            string      `db:"model" json:"model"`
-	CWD              string      `db:"cwd" json:"cwd"`
-	Status           string      `db:"status" json:"status"`
-	Port             int32       `db:"port" json:"port"`
-	Pid              int32       `db:"pid" json:"pid"`
-	CreatedAt        int64       `db:"created_at" json:"created_at"`
-	UpdatedAt        int64       `db:"updated_at" json:"updated_at"`
-	FinishedAt       *int64      `db:"finished_at" json:"finished_at"`
-	LastEventType    string      `db:"last_event_type" json:"last_event_type"`
-	ErrorMessage     string      `db:"error_message" json:"error_message"`
-	WorkspaceRunKey  string      `db:"workspace_run_key" json:"workspace_run_key"`
-	OwnerThreadID    string      `db:"owner_thread_id" json:"owner_thread_id"`
-	ParentAgentID    string      `db:"parent_agent_id" json:"parent_agent_id"`
-	AgentType        string      `db:"agent_type" json:"agent_type"`
-	AgentMemoryScope string      `db:"agent_memory_scope" json:"agent_memory_scope"`
-	ConfigOverride   []byte      `db:"config_override" json:"config_override"`
-	AgentKey         string      `db:"agent_key" json:"agent_key"`
-	PromptVersionID  *int64      `db:"prompt_version_id" json:"prompt_version_id"`
-	PendingLaunch    bool        `db:"pending_launch" json:"pending_launch"`
-	ManuallyRenamed  bool        `db:"manually_renamed" json:"manually_renamed"`
-	AgentID          interface{} `db:"agent_id" json:"agent_id"`
+	ThreadID         string `db:"thread_id" json:"thread_id"`
+	Name             string `db:"name" json:"name"`
+	Prompt           string `db:"prompt" json:"prompt"`
+	Model            string `db:"model" json:"model"`
+	CWD              string `db:"cwd" json:"cwd"`
+	Status           string `db:"status" json:"status"`
+	Port             int32  `db:"port" json:"port"`
+	Pid              int32  `db:"pid" json:"pid"`
+	CreatedAt        int64  `db:"created_at" json:"created_at"`
+	UpdatedAt        int64  `db:"updated_at" json:"updated_at"`
+	FinishedAt       *int64 `db:"finished_at" json:"finished_at"`
+	LastEventType    string `db:"last_event_type" json:"last_event_type"`
+	ErrorMessage     string `db:"error_message" json:"error_message"`
+	WorkspaceRunKey  string `db:"workspace_run_key" json:"workspace_run_key"`
+	OwnerThreadID    string `db:"owner_thread_id" json:"owner_thread_id"`
+	ParentAgentID    string `db:"parent_agent_id" json:"parent_agent_id"`
+	AgentType        string `db:"agent_type" json:"agent_type"`
+	AgentMemoryScope string `db:"agent_memory_scope" json:"agent_memory_scope"`
+	ConfigOverride   []byte `db:"config_override" json:"config_override"`
+	AgentKey         string `db:"agent_key" json:"agent_key"`
+	PromptVersionID  *int64 `db:"prompt_version_id" json:"prompt_version_id"`
+	PendingLaunch    bool   `db:"pending_launch" json:"pending_launch"`
+	ManuallyRenamed  bool   `db:"manually_renamed" json:"manually_renamed"`
+	AgentID          string `db:"agent_id" json:"agent_id"`
 }
 
 func (q *Queries) GetAgentThreadByPort(ctx context.Context, arg GetAgentThreadByPortParams) (GetAgentThreadByPortRow, error) {
@@ -306,10 +302,11 @@ func (q *Queries) ListAgentThreadConfigsByIDs(ctx context.Context, arg ListAgent
 }
 
 const listAgentThreadCwds = `-- name: ListAgentThreadCwds :many
-SELECT thread_id, cwd
+SELECT DISTINCT ON (cwd) thread_id, cwd
 FROM agent_threads
 WHERE cwd <> ''
-ORDER BY created_at DESC
+ORDER BY cwd, created_at DESC
+LIMIT 100
 `
 
 type ListAgentThreadCwdsRow struct {
@@ -338,11 +335,12 @@ func (q *Queries) ListAgentThreadCwds(ctx context.Context) ([]ListAgentThreadCwd
 }
 
 const listAgentThreadCwdsByPrefix = `-- name: ListAgentThreadCwdsByPrefix :many
-SELECT thread_id, cwd
+SELECT DISTINCT ON (cwd) thread_id, cwd
 FROM agent_threads
 WHERE cwd <> ''
   AND cwd LIKE $1 || '%'
-ORDER BY created_at DESC
+ORDER BY cwd, created_at DESC
+LIMIT 100
 `
 
 type ListAgentThreadCwdsByPrefixParams struct {
@@ -375,44 +373,42 @@ func (q *Queries) ListAgentThreadCwdsByPrefix(ctx context.Context, arg ListAgent
 }
 
 const listAgentThreads = `-- name: ListAgentThreads :many
-SELECT thread_id, name, prompt, model, cwd, status, port, pid, created_at, updated_at, finished_at, last_event_type, error_message, workspace_run_key, owner_thread_id, parent_agent_id, agent_type, agent_memory_scope, config_override, agent_key, prompt_version_id, pending_launch, manually_renamed,
-       COALESCE((
-            SELECT b.agent_id
-            FROM agent_provider_binding b
-            WHERE b.provider_thread_id = agent_threads.thread_id
-               OR b.codex_thread_id = agent_threads.thread_id
-            ORDER BY b.updated_at DESC
-            LIMIT 1
-        ), '') AS agent_id
-FROM agent_threads
-ORDER BY created_at DESC
+SELECT t.thread_id, t.name, t.prompt, t.model, t.cwd, t.status, t.port, t.pid, t.created_at, t.updated_at, t.finished_at, t.last_event_type, t.error_message, t.workspace_run_key, t.owner_thread_id, t.parent_agent_id, t.agent_type, t.agent_memory_scope, t.config_override, t.agent_key, t.prompt_version_id, t.pending_launch, t.manually_renamed,
+       COALESCE(b.agent_id, '') AS agent_id
+FROM agent_threads t
+LEFT JOIN LATERAL (
+    SELECT agent_id FROM agent_provider_binding
+    WHERE provider_thread_id = t.thread_id OR codex_thread_id = t.thread_id
+    ORDER BY updated_at DESC LIMIT 1
+) b ON true
+ORDER BY t.created_at DESC
 `
 
 type ListAgentThreadsRow struct {
-	ThreadID         string      `db:"thread_id" json:"thread_id"`
-	Name             string      `db:"name" json:"name"`
-	Prompt           string      `db:"prompt" json:"prompt"`
-	Model            string      `db:"model" json:"model"`
-	CWD              string      `db:"cwd" json:"cwd"`
-	Status           string      `db:"status" json:"status"`
-	Port             int32       `db:"port" json:"port"`
-	Pid              int32       `db:"pid" json:"pid"`
-	CreatedAt        int64       `db:"created_at" json:"created_at"`
-	UpdatedAt        int64       `db:"updated_at" json:"updated_at"`
-	FinishedAt       *int64      `db:"finished_at" json:"finished_at"`
-	LastEventType    string      `db:"last_event_type" json:"last_event_type"`
-	ErrorMessage     string      `db:"error_message" json:"error_message"`
-	WorkspaceRunKey  string      `db:"workspace_run_key" json:"workspace_run_key"`
-	OwnerThreadID    string      `db:"owner_thread_id" json:"owner_thread_id"`
-	ParentAgentID    string      `db:"parent_agent_id" json:"parent_agent_id"`
-	AgentType        string      `db:"agent_type" json:"agent_type"`
-	AgentMemoryScope string      `db:"agent_memory_scope" json:"agent_memory_scope"`
-	ConfigOverride   []byte      `db:"config_override" json:"config_override"`
-	AgentKey         string      `db:"agent_key" json:"agent_key"`
-	PromptVersionID  *int64      `db:"prompt_version_id" json:"prompt_version_id"`
-	PendingLaunch    bool        `db:"pending_launch" json:"pending_launch"`
-	ManuallyRenamed  bool        `db:"manually_renamed" json:"manually_renamed"`
-	AgentID          interface{} `db:"agent_id" json:"agent_id"`
+	ThreadID         string `db:"thread_id" json:"thread_id"`
+	Name             string `db:"name" json:"name"`
+	Prompt           string `db:"prompt" json:"prompt"`
+	Model            string `db:"model" json:"model"`
+	CWD              string `db:"cwd" json:"cwd"`
+	Status           string `db:"status" json:"status"`
+	Port             int32  `db:"port" json:"port"`
+	Pid              int32  `db:"pid" json:"pid"`
+	CreatedAt        int64  `db:"created_at" json:"created_at"`
+	UpdatedAt        int64  `db:"updated_at" json:"updated_at"`
+	FinishedAt       *int64 `db:"finished_at" json:"finished_at"`
+	LastEventType    string `db:"last_event_type" json:"last_event_type"`
+	ErrorMessage     string `db:"error_message" json:"error_message"`
+	WorkspaceRunKey  string `db:"workspace_run_key" json:"workspace_run_key"`
+	OwnerThreadID    string `db:"owner_thread_id" json:"owner_thread_id"`
+	ParentAgentID    string `db:"parent_agent_id" json:"parent_agent_id"`
+	AgentType        string `db:"agent_type" json:"agent_type"`
+	AgentMemoryScope string `db:"agent_memory_scope" json:"agent_memory_scope"`
+	ConfigOverride   []byte `db:"config_override" json:"config_override"`
+	AgentKey         string `db:"agent_key" json:"agent_key"`
+	PromptVersionID  *int64 `db:"prompt_version_id" json:"prompt_version_id"`
+	PendingLaunch    bool   `db:"pending_launch" json:"pending_launch"`
+	ManuallyRenamed  bool   `db:"manually_renamed" json:"manually_renamed"`
+	AgentID          string `db:"agent_id" json:"agent_id"`
 }
 
 func (q *Queries) ListAgentThreads(ctx context.Context) ([]ListAgentThreadsRow, error) {
@@ -461,45 +457,43 @@ func (q *Queries) ListAgentThreads(ctx context.Context) ([]ListAgentThreadsRow, 
 }
 
 const listRecoverableAgentThreads = `-- name: ListRecoverableAgentThreads :many
-SELECT thread_id, name, prompt, model, cwd, status, port, pid, created_at, updated_at, finished_at, last_event_type, error_message, workspace_run_key, owner_thread_id, parent_agent_id, agent_type, agent_memory_scope, config_override, agent_key, prompt_version_id, pending_launch, manually_renamed,
-       COALESCE((
-            SELECT b.agent_id
-            FROM agent_provider_binding b
-            WHERE b.provider_thread_id = agent_threads.thread_id
-               OR b.codex_thread_id = agent_threads.thread_id
-            ORDER BY b.updated_at DESC
-            LIMIT 1
-        ), '') AS agent_id
-FROM agent_threads
-WHERE status = 'created'
-ORDER BY created_at ASC
+SELECT t.thread_id, t.name, t.prompt, t.model, t.cwd, t.status, t.port, t.pid, t.created_at, t.updated_at, t.finished_at, t.last_event_type, t.error_message, t.workspace_run_key, t.owner_thread_id, t.parent_agent_id, t.agent_type, t.agent_memory_scope, t.config_override, t.agent_key, t.prompt_version_id, t.pending_launch, t.manually_renamed,
+       COALESCE(b.agent_id, '') AS agent_id
+FROM agent_threads t
+LEFT JOIN LATERAL (
+    SELECT agent_id FROM agent_provider_binding
+    WHERE provider_thread_id = t.thread_id OR codex_thread_id = t.thread_id
+    ORDER BY updated_at DESC LIMIT 1
+) b ON true
+WHERE t.status = 'created'
+ORDER BY t.created_at ASC
 `
 
 type ListRecoverableAgentThreadsRow struct {
-	ThreadID         string      `db:"thread_id" json:"thread_id"`
-	Name             string      `db:"name" json:"name"`
-	Prompt           string      `db:"prompt" json:"prompt"`
-	Model            string      `db:"model" json:"model"`
-	CWD              string      `db:"cwd" json:"cwd"`
-	Status           string      `db:"status" json:"status"`
-	Port             int32       `db:"port" json:"port"`
-	Pid              int32       `db:"pid" json:"pid"`
-	CreatedAt        int64       `db:"created_at" json:"created_at"`
-	UpdatedAt        int64       `db:"updated_at" json:"updated_at"`
-	FinishedAt       *int64      `db:"finished_at" json:"finished_at"`
-	LastEventType    string      `db:"last_event_type" json:"last_event_type"`
-	ErrorMessage     string      `db:"error_message" json:"error_message"`
-	WorkspaceRunKey  string      `db:"workspace_run_key" json:"workspace_run_key"`
-	OwnerThreadID    string      `db:"owner_thread_id" json:"owner_thread_id"`
-	ParentAgentID    string      `db:"parent_agent_id" json:"parent_agent_id"`
-	AgentType        string      `db:"agent_type" json:"agent_type"`
-	AgentMemoryScope string      `db:"agent_memory_scope" json:"agent_memory_scope"`
-	ConfigOverride   []byte      `db:"config_override" json:"config_override"`
-	AgentKey         string      `db:"agent_key" json:"agent_key"`
-	PromptVersionID  *int64      `db:"prompt_version_id" json:"prompt_version_id"`
-	PendingLaunch    bool        `db:"pending_launch" json:"pending_launch"`
-	ManuallyRenamed  bool        `db:"manually_renamed" json:"manually_renamed"`
-	AgentID          interface{} `db:"agent_id" json:"agent_id"`
+	ThreadID         string `db:"thread_id" json:"thread_id"`
+	Name             string `db:"name" json:"name"`
+	Prompt           string `db:"prompt" json:"prompt"`
+	Model            string `db:"model" json:"model"`
+	CWD              string `db:"cwd" json:"cwd"`
+	Status           string `db:"status" json:"status"`
+	Port             int32  `db:"port" json:"port"`
+	Pid              int32  `db:"pid" json:"pid"`
+	CreatedAt        int64  `db:"created_at" json:"created_at"`
+	UpdatedAt        int64  `db:"updated_at" json:"updated_at"`
+	FinishedAt       *int64 `db:"finished_at" json:"finished_at"`
+	LastEventType    string `db:"last_event_type" json:"last_event_type"`
+	ErrorMessage     string `db:"error_message" json:"error_message"`
+	WorkspaceRunKey  string `db:"workspace_run_key" json:"workspace_run_key"`
+	OwnerThreadID    string `db:"owner_thread_id" json:"owner_thread_id"`
+	ParentAgentID    string `db:"parent_agent_id" json:"parent_agent_id"`
+	AgentType        string `db:"agent_type" json:"agent_type"`
+	AgentMemoryScope string `db:"agent_memory_scope" json:"agent_memory_scope"`
+	ConfigOverride   []byte `db:"config_override" json:"config_override"`
+	AgentKey         string `db:"agent_key" json:"agent_key"`
+	PromptVersionID  *int64 `db:"prompt_version_id" json:"prompt_version_id"`
+	PendingLaunch    bool   `db:"pending_launch" json:"pending_launch"`
+	ManuallyRenamed  bool   `db:"manually_renamed" json:"manually_renamed"`
+	AgentID          string `db:"agent_id" json:"agent_id"`
 }
 
 func (q *Queries) ListRecoverableAgentThreads(ctx context.Context) ([]ListRecoverableAgentThreadsRow, error) {
@@ -548,45 +542,43 @@ func (q *Queries) ListRecoverableAgentThreads(ctx context.Context) ([]ListRecove
 }
 
 const listRunningAgentThreads = `-- name: ListRunningAgentThreads :many
-SELECT thread_id, name, prompt, model, cwd, status, port, pid, created_at, updated_at, finished_at, last_event_type, error_message, workspace_run_key, owner_thread_id, parent_agent_id, agent_type, agent_memory_scope, config_override, agent_key, prompt_version_id, pending_launch, manually_renamed,
-       COALESCE((
-            SELECT b.agent_id
-            FROM agent_provider_binding b
-            WHERE b.provider_thread_id = agent_threads.thread_id
-               OR b.codex_thread_id = agent_threads.thread_id
-            ORDER BY b.updated_at DESC
-            LIMIT 1
-        ), '') AS agent_id
-FROM agent_threads
-WHERE status = 'running'
-ORDER BY created_at ASC
+SELECT t.thread_id, t.name, t.prompt, t.model, t.cwd, t.status, t.port, t.pid, t.created_at, t.updated_at, t.finished_at, t.last_event_type, t.error_message, t.workspace_run_key, t.owner_thread_id, t.parent_agent_id, t.agent_type, t.agent_memory_scope, t.config_override, t.agent_key, t.prompt_version_id, t.pending_launch, t.manually_renamed,
+       COALESCE(b.agent_id, '') AS agent_id
+FROM agent_threads t
+LEFT JOIN LATERAL (
+    SELECT agent_id FROM agent_provider_binding
+    WHERE provider_thread_id = t.thread_id OR codex_thread_id = t.thread_id
+    ORDER BY updated_at DESC LIMIT 1
+) b ON true
+WHERE t.status = 'running'
+ORDER BY t.created_at ASC
 `
 
 type ListRunningAgentThreadsRow struct {
-	ThreadID         string      `db:"thread_id" json:"thread_id"`
-	Name             string      `db:"name" json:"name"`
-	Prompt           string      `db:"prompt" json:"prompt"`
-	Model            string      `db:"model" json:"model"`
-	CWD              string      `db:"cwd" json:"cwd"`
-	Status           string      `db:"status" json:"status"`
-	Port             int32       `db:"port" json:"port"`
-	Pid              int32       `db:"pid" json:"pid"`
-	CreatedAt        int64       `db:"created_at" json:"created_at"`
-	UpdatedAt        int64       `db:"updated_at" json:"updated_at"`
-	FinishedAt       *int64      `db:"finished_at" json:"finished_at"`
-	LastEventType    string      `db:"last_event_type" json:"last_event_type"`
-	ErrorMessage     string      `db:"error_message" json:"error_message"`
-	WorkspaceRunKey  string      `db:"workspace_run_key" json:"workspace_run_key"`
-	OwnerThreadID    string      `db:"owner_thread_id" json:"owner_thread_id"`
-	ParentAgentID    string      `db:"parent_agent_id" json:"parent_agent_id"`
-	AgentType        string      `db:"agent_type" json:"agent_type"`
-	AgentMemoryScope string      `db:"agent_memory_scope" json:"agent_memory_scope"`
-	ConfigOverride   []byte      `db:"config_override" json:"config_override"`
-	AgentKey         string      `db:"agent_key" json:"agent_key"`
-	PromptVersionID  *int64      `db:"prompt_version_id" json:"prompt_version_id"`
-	PendingLaunch    bool        `db:"pending_launch" json:"pending_launch"`
-	ManuallyRenamed  bool        `db:"manually_renamed" json:"manually_renamed"`
-	AgentID          interface{} `db:"agent_id" json:"agent_id"`
+	ThreadID         string `db:"thread_id" json:"thread_id"`
+	Name             string `db:"name" json:"name"`
+	Prompt           string `db:"prompt" json:"prompt"`
+	Model            string `db:"model" json:"model"`
+	CWD              string `db:"cwd" json:"cwd"`
+	Status           string `db:"status" json:"status"`
+	Port             int32  `db:"port" json:"port"`
+	Pid              int32  `db:"pid" json:"pid"`
+	CreatedAt        int64  `db:"created_at" json:"created_at"`
+	UpdatedAt        int64  `db:"updated_at" json:"updated_at"`
+	FinishedAt       *int64 `db:"finished_at" json:"finished_at"`
+	LastEventType    string `db:"last_event_type" json:"last_event_type"`
+	ErrorMessage     string `db:"error_message" json:"error_message"`
+	WorkspaceRunKey  string `db:"workspace_run_key" json:"workspace_run_key"`
+	OwnerThreadID    string `db:"owner_thread_id" json:"owner_thread_id"`
+	ParentAgentID    string `db:"parent_agent_id" json:"parent_agent_id"`
+	AgentType        string `db:"agent_type" json:"agent_type"`
+	AgentMemoryScope string `db:"agent_memory_scope" json:"agent_memory_scope"`
+	ConfigOverride   []byte `db:"config_override" json:"config_override"`
+	AgentKey         string `db:"agent_key" json:"agent_key"`
+	PromptVersionID  *int64 `db:"prompt_version_id" json:"prompt_version_id"`
+	PendingLaunch    bool   `db:"pending_launch" json:"pending_launch"`
+	ManuallyRenamed  bool   `db:"manually_renamed" json:"manually_renamed"`
+	AgentID          string `db:"agent_id" json:"agent_id"`
 }
 
 func (q *Queries) ListRunningAgentThreads(ctx context.Context) ([]ListRunningAgentThreadsRow, error) {
