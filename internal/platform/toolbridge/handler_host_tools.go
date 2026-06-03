@@ -11,6 +11,7 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/mcp"
+	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/common"
 	"github.com/anthropic-ai/super-agent-v3/pkg/skillmetrics"
 )
 
@@ -129,7 +130,7 @@ func (h *Handler) appendMCPToolsWithShadowWarning(dst []dto.MCPTool, seen map[st
 			)
 			continue
 		}
-		if isReservedHostOnlyToolName(name) && source != "host" {
+		if _, reserved := reservedHostOnlySurfaceToolCanonicalName(source, name); reserved && source != "host" {
 			h.warn("toolbridge peer tool blocked by host-only reservation",
 				"tool", name,
 				"source", source,
@@ -144,11 +145,41 @@ func (h *Handler) appendMCPToolsWithShadowWarning(dst []dto.MCPTool, seen map[st
 
 func isReservedHostOnlyToolName(name string) bool {
 	switch strings.TrimSpace(name) {
-	case ToolNameMemoryRead, ToolNameMemoryWrite:
+	case ToolNameMemoryRead, ToolNameMemoryWrite, ToolNameObservabilityTraceGet:
 		return true
 	default:
 		return false
 	}
+}
+
+func reservedHostOnlyToolCanonicalName(name string) (string, bool) {
+	return reservedHostOnlyToolCanonicalNameForFamily("", name)
+}
+
+func reservedHostOnlySurfaceToolCanonicalName(family, name string) (string, bool) {
+	return reservedHostOnlyToolCanonicalNameForFamily(family, name)
+}
+
+func reservedHostOnlyToolCanonicalNameForFamily(family, name string) (string, bool) {
+	for _, candidate := range reservedHostOnlyToolNameCandidates(family, name) {
+		candidate = strings.TrimSpace(candidate)
+		if isReservedHostOnlyToolName(candidate) {
+			return candidate, true
+		}
+	}
+	return "", false
+}
+
+func reservedHostOnlyToolNameCandidates(family, name string) []string {
+	candidates := []string{strings.TrimSpace(name)}
+	if family = strings.TrimSpace(family); family != "" {
+		candidates = append(candidates, canonicalCodexToolName(family, name))
+	}
+	if wrappedFamily, inner := mcpWrappedToolName(name); wrappedFamily != "" {
+		candidates = append(candidates, strings.TrimSpace(inner), canonicalCodexToolName(wrappedFamily, inner))
+	}
+	candidates = append(candidates, canonicalToolName(name))
+	return candidates
 }
 
 func isRemovedSkillToolName(name string) bool {
@@ -197,7 +228,7 @@ func (h *Handler) callHostTool(ctx context.Context, req ToolCallRequest) (*ToolC
 			"duration_ms", time.Since(started).Milliseconds(),
 		)
 	}()
-	cwd, cwdErr := h.resolveRequiredHostToolCWD(ctx, req)
+	cwd, cwdErr := h.resolveHostToolCWD(ctx, req)
 	if cwdErr != nil {
 		outcome = hostToolErrorOutcome(cwdErr)
 		return hostToolErrorResult(req, cwdErr), nil
@@ -215,19 +246,31 @@ func (h *Handler) callHostTool(ctx context.Context, req ToolCallRequest) (*ToolC
 		outcome = hostToolErrorOutcome(err)
 		return hostToolErrorResult(req, err), nil
 	}
-	payload, mErr := json.Marshal(result)
-
-	if mErr != nil {
-		return nil, mErr
+	payload, structured, marshalErr := marshalHostToolResult(result)
+	if marshalErr != nil {
+		return nil, marshalErr
 	}
 	outcome = skillmetrics.HostToolOutcomeOK
 	return &ToolCallResult{
-		Success: true,
+		Success:           true,
+		StructuredContent: structured,
 		ContentItems: []ToolCallContentItem{{
 			Type: "inputText",
 			Text: string(payload),
 		}},
 	}, nil
+}
+
+func marshalHostToolResult(result any) ([]byte, json.RawMessage, error) {
+	payload, err := json.Marshal(result)
+	if err != nil {
+		return nil, nil, err
+	}
+	structured, err := common.StructuredContentFromRaw(payload)
+	if err != nil {
+		return nil, nil, err
+	}
+	return payload, structured, nil
 }
 
 func hostToolErrorOutcome(err error) string {
@@ -260,11 +303,14 @@ func hostToolErrorResult(req ToolCallRequest, err error) *ToolCallResult {
 		envelope["kind"] = "approval_denied"
 	}
 	payload, marshalErr := json.Marshal(envelope)
+	structured := json.RawMessage(append([]byte(nil), payload...))
 	if marshalErr != nil {
 		payload = []byte(err.Error())
+		structured = nil
 	}
 	return &ToolCallResult{
-		Success: false,
+		Success:           false,
+		StructuredContent: structured,
 		ContentItems: []ToolCallContentItem{{
 			Type: "inputText",
 			Text: string(payload),
@@ -294,6 +340,18 @@ func approvalRequestEnvelope(req contract.ApprovalRequest) map[string]any {
 		"sourceMethod": strings.TrimSpace(req.SourceMethod),
 		"payload":      req.Payload,
 	}
+}
+
+func (h *Handler) resolveHostToolCWD(ctx context.Context, req ToolCallRequest) (string, error) {
+	if hostToolRequiresCWD(h.hostTools, req.Name) {
+		return h.resolveRequiredHostToolCWD(ctx, req)
+	}
+	return normalizeToolCallCWD(req.CWD), nil
+}
+
+func hostToolRequiresCWD(registry HostToolRegistry, name string) bool {
+	policy, ok := registry.(HostToolCWDPolicy)
+	return !ok || policy.RequiresCWD(name)
 }
 
 func (h *Handler) resolveRequiredHostToolCWD(ctx context.Context, req ToolCallRequest) (string, error) {

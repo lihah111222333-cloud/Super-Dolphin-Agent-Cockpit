@@ -206,6 +206,17 @@ func (r *CompositeHostToolRegistry) HasTool(name string) bool {
 	return false
 }
 
+func (r *CompositeHostToolRegistry) RequiresCWD(name string) bool {
+	if r != nil {
+		for _, reg := range r.registries {
+			if reg.HasTool(name) {
+				return hostToolRequiresCWD(reg, name)
+			}
+		}
+	}
+	return true
+}
+
 func (r *CompositeHostToolRegistry) CallHostTool(ctx context.Context, call HostToolCall) (any, error) {
 	if r != nil {
 		for _, reg := range r.registries {
