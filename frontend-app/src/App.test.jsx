@@ -810,6 +810,21 @@ async function toggleInlineTraceFromRecentLogs(table) {
     ]);
   });
 
+  it('renders the app sidebar in user-to-developer navigation order', () => {
+    render(<App skipBootstrap />);
+
+    expect(within(screen.getByTestId('sidebar-nav')).getAllByRole('button').map((button) => button.getAttribute('aria-label'))).toEqual([
+      'Chat',
+      '技能',
+      '提示词',
+      '自动化',
+      '记忆中心',
+      '共享文件',
+      '链路追踪',
+      '设置',
+    ]);
+  });
+
   it('uses the current URL path as the active page on boot', async () => {
     window.history.pushState({}, '', '/dags');
     backend.getWindowBootstrap.mockResolvedValueOnce({ snapshot: { page: 'chat' } });
