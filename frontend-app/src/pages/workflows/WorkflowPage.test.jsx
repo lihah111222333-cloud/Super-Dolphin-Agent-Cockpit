@@ -102,4 +102,30 @@ describe('WorkflowPage module', () => {
     const payload = backend.startDag.mock.calls[0][0];
     expect(payload.idempotencyKey).toMatch(/^ui-/);
   });
+
+  it('formats the active run row time as a readable date and time', async () => {
+    mockWorkflowDag();
+    backend.getDagRuns.mockImplementation((params = {}) => Promise.resolve({
+      runs: params.status === 'running'
+        ? []
+        : [{
+            run_key: 'run-readable-time',
+            status: 'succeeded',
+            started_at: '2026-05-30T08:09:10Z',
+          }],
+    }));
+    backend.getDagRun.mockResolvedValue({
+      run: { run_key: 'run-readable-time', status: 'succeeded' },
+      nodes: [],
+    });
+
+    renderWorkflowPage();
+
+    const runRow = await screen.findByRole('button', { name: /第 1 次运行/ });
+    await waitFor(() => expect(runRow).toHaveClass('active'));
+    const time = runRow.querySelector('time');
+    expect(time).toHaveTextContent('2026-05-30 08:09:10');
+    expect(time).toHaveAttribute('dateTime', '2026-05-30T08:09:10Z');
+    expect(time).toHaveAttribute('title', '2026-05-30T08:09:10Z');
+  });
 });
