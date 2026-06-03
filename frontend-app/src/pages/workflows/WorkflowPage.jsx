@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useMemo, useReducer, useRef, useState } 
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Workflow } from 'lucide-react';
 import { FocusTrapDialog } from '../../shared/ui/FocusTrapDialog.jsx';
-import { applyDagOps, deleteDag, getDashboardPage, getDagDetail, getDagRun, getDagRuns, startDag, startThread, terminateDagRun } from '../../shared/api/backendApi.js';
+import { applyDagOps, deleteDag, getDashboardPage, getDagDetail, getDagRun, getDagRuns, readSharedFile, startDag, startThread, terminateDagRun } from '../../shared/api/backendApi.js';
 import { appendCurrentModelOption, dashboardQueryErrorState, dashboardQueryKey, errorMessage, firstText, listToText, numberOrNull, objectValue, optionalSettingsCwd, queryHasSnapshot, SKILLS_REQUEST_TIMEOUT_MS, textValue, useDashboardFocusInvalidation, withTimeout, wordListFromText } from '../shared/pageShared.js';
 import { PageHeader, Panel, RetryableSyncError } from '../shared/pageComponents.jsx';
 
@@ -424,15 +424,98 @@ function firstAvailableCategory(items) {
   return found?.key || DAG_CATEGORIES[0].key;
 }
 
-function finalOutputText(raw) {
+function finalOutputDescriptor(raw) {
   const source = raw?.run || raw || {};
   const metadata = objectValue(source.metadata);
-  const value = source.final_output || source.finalOutput || metadata.final_output || metadata.finalOutput;
+  return source.final_output || source.finalOutput || metadata.final_output || metadata.finalOutput || null;
+}
+
+function finalOutputPreviewText(value) {
   if (typeof value === 'string') return value.trim();
   if (value && typeof value === 'object') {
     return firstText(value.text, value.content, value.message, value.output, value.summary) || JSON.stringify(value);
   }
   return '';
+}
+
+function finalOutputPath(value) {
+  if (!value || typeof value !== 'object') return '';
+  return firstText(value.path, value.sharedfile?.path, value.sharedFile?.path, value.shared_file?.path);
+}
+
+function finalOutputKind(value) {
+  if (!value || typeof value !== 'object') return '';
+  const kind = firstText(value.kind, value.type);
+  const labels = {
+    file: '文件',
+    sharedfile: '文件',
+    shared_file: '文件',
+    text: '文本',
+    json: '数据',
+  };
+  return labels[kind.toLowerCase()] || kind || (finalOutputPath(value) ? '文件' : '');
+}
+
+function parsedDagConfig(value) {
+  if (!value) return {};
+  if (typeof value === 'object' && !Array.isArray(value)) return value;
+  if (typeof value !== 'string') return {};
+  try {
+    const parsed = JSON.parse(value);
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
+  }
+  catch {
+    return {};
+  }
+}
+
+function workflowSharedFileRows(nodes = []) {
+  const rows = [];
+  nodes.forEach((node, index) => {
+    const config = parsedDagConfig(node?.config);
+    const inputs = parsedDagConfig(config.inputs);
+    const outputs = parsedDagConfig(config.outputs);
+    const stepLabel = `第 ${index + 1} 步`;
+    const nodeKey = node?.nodeKey || `node:${index}`;
+    const reads = Array.isArray(inputs.from_sharedfiles) ? inputs.from_sharedfiles : [];
+    reads.forEach((path) => {
+      const filePath = textValue(path);
+      if (filePath) rows.push({ nodeKey, stepLabel, path: filePath, access: '读取' });
+    });
+    const target = parsedDagConfig(outputs.to_sharedfile);
+    const outputPath = textValue(target.path);
+    if (outputPath) {
+      rows.push({
+        nodeKey,
+        stepLabel,
+        path: outputPath,
+        access: `写入 · ${workflowLockModeLabel(target.lock_mode || target.lockMode)}`,
+      });
+    }
+  });
+  return rows;
+}
+
+function workflowLockModeLabel(value) {
+  const mode = textValue(value).toLowerCase();
+  if (mode === 'exclusive') return '独占写入';
+  if (mode === 'append') return '追加写入';
+  if (mode === 'shared') return '共享读取';
+  return mode || '-';
+}
+
+function workflowTopologyRows(nodes = []) {
+  const known = new Map(nodes.map((node, index) => [node.nodeKey, node.title || `步骤 ${index + 1}`]));
+  const missingLabels = new Map();
+  const labelForMissing = (key) => {
+    if (!missingLabels.has(key)) missingLabels.set(key, `外部依赖 ${missingLabels.size + 1}`);
+    return missingLabels.get(key);
+  };
+  return nodes.flatMap((node) => {
+    const title = node.title || node.nodeKey;
+    if (!Array.isArray(node.dependsOn) || node.dependsOn.length === 0) return [`${title}`];
+    return node.dependsOn.map((depKey) => `${known.get(depKey) || labelForMissing(depKey)} --> ${title}`);
+  });
 }
 
 function validThreadIdText(value) {
@@ -565,28 +648,33 @@ function useWorkflowSelection(items) {
   const [activeCategory, setActiveCategory] = useState(DAG_CATEGORIES[0].key);
   const [categoryManuallySelected, setCategoryManuallySelected] = useState(false);
   const [selectedDagKey, setSelectedDagKey] = useState('');
-  const selectedDagKeyRef = useRef(selectedDagKey);
   const counts = useMemo(() => categoryCounts(items), [items]);
   const preferredCategory = useMemo(() => firstAvailableCategory(items), [items]);
-  const visibleItems = useMemo(() => items.filter((item) => dagCategoryOf(item) === activeCategory), [activeCategory, items]);
-  const selectedDag = useMemo(() => items.find((item) => item.dagKey === selectedDagKey) || visibleItems[0] || null, [items, selectedDagKey, visibleItems]);
-
+  const activeCategoryHasItems = items.some((item) => dagCategoryOf(item) === activeCategory);
+  const effectiveActiveCategory = !categoryManuallySelected && items.length > 0 && !activeCategoryHasItems && activeCategory !== preferredCategory
+    ? preferredCategory
+    : activeCategory;
+  if (effectiveActiveCategory !== activeCategory) {
+    setActiveCategory(effectiveActiveCategory);
+  }
+  const visibleItems = useMemo(() => items.filter((item) => dagCategoryOf(item) === effectiveActiveCategory), [effectiveActiveCategory, items]);
+  const effectiveSelectedDagKey = visibleItems.some((item) => item.dagKey === selectedDagKey)
+    ? selectedDagKey
+    : visibleItems[0]?.dagKey || '';
+  if (effectiveSelectedDagKey !== selectedDagKey) {
+    setSelectedDagKey(effectiveSelectedDagKey);
+  }
+  const selectedDagKeyRef = useRef(effectiveSelectedDagKey);
   useEffect(() => {
-    selectedDagKeyRef.current = selectedDagKey;
-  }, [selectedDagKey]);
-  useEffect(() => {
-    if (!categoryManuallySelected && items.length > 0 && visibleItems.length === 0 && activeCategory !== preferredCategory) setActiveCategory(preferredCategory);
-  }, [activeCategory, categoryManuallySelected, items.length, preferredCategory, visibleItems.length]);
-  useEffect(() => {
-    if (visibleItems.length === 0) setSelectedDagKey('');
-    else if (!visibleItems.some((item) => item.dagKey === selectedDagKey)) setSelectedDagKey(visibleItems[0].dagKey);
-  }, [selectedDagKey, visibleItems]);
+    selectedDagKeyRef.current = effectiveSelectedDagKey;
+  }, [effectiveSelectedDagKey]);
+  const selectedDag = useMemo(() => items.find((item) => item.dagKey === effectiveSelectedDagKey) || visibleItems[0] || null, [effectiveSelectedDagKey, items, visibleItems]);
 
   const chooseCategory = useCallback((categoryKey) => {
     setCategoryManuallySelected(true);
     setActiveCategory(categoryKey);
   }, []);
-  return { activeCategory, chooseCategory, counts, selectedDag, selectedDagKey, selectedDagKeyRef, setSelectedDagKey, visibleItems };
+  return { activeCategory: effectiveActiveCategory, chooseCategory, counts, selectedDag, selectedDagKey: effectiveSelectedDagKey, selectedDagKeyRef, setSelectedDagKey, visibleItems };
 }
 
 async function fetchWorkflowRunDetail(runKey) {
@@ -651,18 +739,17 @@ function useWorkflowDetailQuery({ items, selectedDag, selectedDagKey, workflowCw
 function useWorkflowRunDetail({ activeRun, runs, workflowCwd }) {
   const queryClient = useQueryClient();
   const [selectedRunKey, setSelectedRunKey] = useState('');
-  useEffect(() => {
-    const nextRunKey = activeRun?.runKey || runs[0]?.runKey || '';
-    if (!nextRunKey) {
-      if (selectedRunKey) setSelectedRunKey('');
-      return;
-    }
-    if (!selectedRunKey || !runs.some((run) => run.runKey === selectedRunKey)) setSelectedRunKey(nextRunKey);
-  }, [activeRun, runs, selectedRunKey]);
+  const fallbackRunKey = activeRun?.runKey || runs[0]?.runKey || '';
+  const effectiveSelectedRunKey = selectedRunKey && runs.some((run) => run.runKey === selectedRunKey)
+    ? selectedRunKey
+    : fallbackRunKey;
+  if (effectiveSelectedRunKey !== selectedRunKey) {
+    setSelectedRunKey(effectiveSelectedRunKey);
+  }
   const runDetailQuery = useQuery({
-    queryKey: dashboardQueryKey(workflowCwd, 'dag-run', selectedRunKey),
-    queryFn: () => fetchWorkflowRunDetail(selectedRunKey),
-    enabled: Boolean(workflowCwd && selectedRunKey),
+    queryKey: dashboardQueryKey(workflowCwd, 'dag-run', effectiveSelectedRunKey),
+    queryFn: () => fetchWorkflowRunDetail(effectiveSelectedRunKey),
+    enabled: Boolean(workflowCwd && effectiveSelectedRunKey),
   });
   const loadRunDetail = useCallback((runKey) => {
     const key = textValue(runKey);
@@ -670,22 +757,21 @@ function useWorkflowRunDetail({ activeRun, runs, workflowCwd }) {
     setSelectedRunKey(key);
     return queryClient.fetchQuery({ queryKey: dashboardQueryKey(workflowCwd, 'dag-run', key), queryFn: () => fetchWorkflowRunDetail(key) });
   }, [queryClient, workflowCwd]);
-  return { loadRunDetail, selectedRun: runDetailQuery.data || null, selectedRunKey, setSelectedRunKey };
+  return { loadRunDetail, selectedRun: runDetailQuery.data || null, selectedRunKey: effectiveSelectedRunKey, setSelectedRunKey };
 }
 
 function useWorkflowNotice(selectedDagKey) {
-  const [notice, setNotice] = useState(null);
-  const selectedDagKeyRef = useRef(selectedDagKey);
-  useEffect(() => {
-    selectedDagKeyRef.current = selectedDagKey;
-    setNotice(null);
-  }, [selectedDagKey]);
-  const clearNotice = useCallback(() => setNotice(null), []);
-  const showTaskNotice = useCallback((message, taskKey = selectedDagKeyRef.current) => {
+  const [noticeState, setNoticeState] = useState({ selectedDagKey, notice: null });
+  if (noticeState.selectedDagKey !== selectedDagKey) {
+    setNoticeState({ selectedDagKey, notice: null });
+  }
+  const clearNotice = useCallback(() => setNoticeState((current) => ({ ...current, notice: null })), []);
+  const showTaskNotice = useCallback((message, taskKey = selectedDagKey) => {
     const key = textValue(taskKey);
-    if (!message || !key || selectedDagKeyRef.current !== key) return;
-    setNotice({ dagKey: key, message });
-  }, []);
+    if (!message || !key || selectedDagKey !== key) return;
+    setNoticeState({ selectedDagKey: key, notice: { dagKey: key, message } });
+  }, [selectedDagKey]);
+  const notice = noticeState.selectedDagKey === selectedDagKey ? noticeState.notice : null;
   return { clearNotice, notice, showTaskNotice };
 }
 
@@ -748,7 +834,8 @@ function workflowStartDisabledReason({ activeDetailDag, activeRunKey, dagKey, de
 function workflowDerivedSnapshot({ activeDetailDag, activeRunKey, dagKey, detail, list, missingRootAssigneeWarning, run, selection, startDisabledReason }) {
   const messages = workflowLoadMessages(list.errorState, list.syncFailure, detail.detailErrorState);
   const baseVersion = dagVersionOf(activeDetailDag);
-  const finalText = finalOutputText(run.selectedRun?.run) || finalOutputText(detail.activeRun) || finalOutputText(selection.selectedDag?.latestRun);
+  const finalOutput = finalOutputDescriptor(run.selectedRun?.run) || finalOutputDescriptor(detail.activeRun) || finalOutputDescriptor(selection.selectedDag?.latestRun);
+  const finalText = finalOutputPreviewText(finalOutput);
   const recentRunPanelLabel = dagStatusLabel(detail.activeRun?.status || detail.runs[0]?.status || activeDetailDag?.latestRun?.status);
   return {
     activeDetailDag,
@@ -758,6 +845,7 @@ function workflowDerivedSnapshot({ activeDetailDag, activeRunKey, dagKey, detail
     blockingLoadError: messages.blockingLoadError,
     dagKey,
     deleteDisabledReason: activeRunKey ? '已有运行正在进行，请先停止运行后再删除。' : '',
+    finalOutput,
     finalText,
     missingRootAssigneeWarning,
     recentRunPanelLabel,
@@ -1085,8 +1173,9 @@ function WorkflowDetailContent({ model }) {
       {detail.detailLoading ? <p className="console-message">正在加载详情...</p> : null}
       {notices.notice?.message && notices.notice.dagKey === selection.selectedDagKey ? <p className="settings-status">{notices.notice.message}</p> : null}
       {derived.startDisabledReason ? <p className="console-message">{derived.startDisabledReason}</p> : null}
-      <Panel title="最终结果">{derived.finalText || '当前运行尚未标记最终结果。'}</Panel>
+      <WorkflowFinalOutputPanel key={finalOutputPath(derived.finalOutput) || 'inline-output'} finalOutput={derived.finalOutput} previewText={derived.finalText} />
       <WorkflowStatGrid derived={derived} selection={selection} />
+      <WorkflowDiagnostics nodes={detail.nodes} />
       <WorkflowRunHistory model={model} />
       <WorkflowNodeList model={model} />
       <WorkflowAdvanced model={model} />
@@ -1123,6 +1212,84 @@ function WorkflowStopButton({ model }) {
     <button type="button" className="danger" onClick={() => { void actions.stopSelectedDag(); }} disabled={actionState.actioning === 'stop'}>
       {actionState.actioning === 'stop' ? '停止中...' : '停止运行'}
     </button>
+  );
+}
+
+function WorkflowFinalOutputPanel({ finalOutput, previewText }) {
+  const [fileContent, setFileContent] = useState('');
+  const [fileError, setFileError] = useState('');
+  const [reading, setReading] = useState(false);
+  const outputPath = finalOutputPath(finalOutput);
+  const readFinalOutput = async () => {
+    if (!outputPath) return;
+    setReading(true);
+    setFileError('');
+    try {
+      const response = await readSharedFile({ path: outputPath });
+      setFileContent((response?.content || '').toString());
+    }
+    catch {
+      setFileError('无法读取最终结果文件，请稍后重试。');
+    }
+    finally {
+      setReading(false);
+    }
+  };
+  return (
+    <Panel title="最终结果">
+      {outputPath ? (
+        <div className="workflow-final-output">
+          <div className="workflow-file-row">
+            <span>{finalOutputKind(finalOutput) || '文件'}</span>
+            <code>{outputPath}</code>
+            <button type="button" className="ghost" disabled={reading} onClick={() => { void readFinalOutput(); }}>
+              {reading ? '读取中...' : '读取最终结果'}
+            </button>
+          </div>
+          {fileError ? <p className="danger-text">{fileError}</p> : null}
+          {fileContent ? <pre className="workflow-final-preview">{fileContent}</pre> : null}
+        </div>
+      ) : (
+        previewText || '当前运行尚未标记最终结果。'
+      )}
+    </Panel>
+  );
+}
+
+function WorkflowDiagnostics({ nodes }) {
+  return (
+    <div className="workflow-diagnostics">
+      <WorkflowTopologyPanel nodes={nodes} />
+      <WorkflowSharedFilesPanel nodes={nodes} />
+    </div>
+  );
+}
+
+function WorkflowTopologyPanel({ nodes }) {
+  const rows = workflowTopologyRows(nodes);
+  return (
+    <Panel title="流程图">
+      {rows.length === 0 ? <p>暂无流程图</p> : <pre className="workflow-topology-source">{rows.join('\n')}</pre>}
+    </Panel>
+  );
+}
+
+function WorkflowSharedFilesPanel({ nodes }) {
+  const rows = workflowSharedFileRows(nodes);
+  return (
+    <Panel title="工作文件">
+      {rows.length === 0 ? <p>暂无工作文件读写</p> : (
+        <div className="workflow-shared-files">
+          {rows.map((row) => (
+            <div className="workflow-shared-file-row" key={`${row.nodeKey}:${row.access}:${row.path}`}>
+              <span>{row.stepLabel}</span>
+              <strong>{row.path}</strong>
+              <small>{row.access}</small>
+            </div>
+          ))}
+        </div>
+      )}
+    </Panel>
   );
 }
 
@@ -1248,27 +1415,26 @@ function DagNodeEditor({ nodes, savingNodeKey, onSave }) {
 }
 
 function useDagNodeEditorState(nodes) {
-  const [activeNodeKey, setActiveNodeKey] = useState(nodes[0]?.nodeKey || '');
+  const [activeNodeKey, setActiveNodeKeyState] = useState(nodes[0]?.nodeKey || '');
+  const effectiveActiveNodeKey = nodes.some((node) => node.nodeKey === activeNodeKey)
+    ? activeNodeKey
+    : nodes[0]?.nodeKey || '';
   const activeNode = useMemo(
-    () => nodes.find((node) => node.nodeKey === activeNodeKey) || nodes[0] || null,
-    [activeNodeKey, nodes],
+    () => nodes.find((node) => node.nodeKey === effectiveActiveNodeKey) || nodes[0] || null,
+    [effectiveActiveNodeKey, nodes],
   );
   const [form, setForm] = useState(() => dagNodeFormFromNode(activeNode));
-  const [formNodeKey, setFormNodeKey] = useState(activeNode?.nodeKey || '');
-
-  useEffect(() => {
-    if (!activeNode || nodes.some((node) => node.nodeKey === activeNodeKey)) return;
-    setActiveNodeKey(nodes[0]?.nodeKey || '');
-  }, [activeNode, activeNodeKey, nodes]);
-
-  useEffect(() => {
-    const nextNodeKey = activeNode?.nodeKey || '';
-    if (nextNodeKey === formNodeKey) return;
-    setFormNodeKey(nextNodeKey);
+  if (effectiveActiveNodeKey !== activeNodeKey) {
+    setActiveNodeKeyState(effectiveActiveNodeKey);
     setForm(dagNodeFormFromNode(activeNode));
-  }, [activeNode, formNodeKey]);
+  }
 
   const update = useCallback((key) => (event) => setForm((current) => ({ ...current, [key]: event.target.value })), []);
+  const setActiveNodeKey = useCallback((nodeKey) => {
+    const nextNode = nodes.find((node) => node.nodeKey === nodeKey) || nodes[0] || null;
+    setActiveNodeKeyState(nextNode?.nodeKey || '');
+    setForm(dagNodeFormFromNode(nextNode));
+  }, [nodes]);
   const modelOptions = form.provider ? appendCurrentModelOption(form.provider, form.model) : [];
   return { activeNode, form, modelOptions, setActiveNodeKey, update };
 }
@@ -1277,7 +1443,7 @@ function DagNodeSelector({ nodes, activeNode, setActiveNodeKey }) {
   return (
     <label>
       步骤
-      <select value={activeNode.nodeKey} onChange={(event) => setActiveNodeKey(event.target.value)}>
+      <select value={activeNode.nodeKey} onChange={(event) => setActiveNodeKey(event.target.value)} aria-label="步骤">
         {nodes.map((node) => <option key={node.nodeKey} value={node.nodeKey}>{node.title}</option>)}
       </select>
     </label>

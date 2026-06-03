@@ -1,9 +1,33 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import { Copy } from 'lucide-react';
 import { getObservabilityTrace, listObservabilityRecent as getObservabilityRecent, copyTextToClipboard } from '../../shared/api/backendApi.js';
 import { errorMessage, textValue } from '../shared/pageShared.js';
 
 const recentLogRefreshIntervalMS = 2000;
+
+const OBSERVABILITY_PAGE_INITIAL_STATE = Object.freeze({
+  copiedTraceId: '',
+  loading: false,
+  notice: '',
+  recentResult: null,
+});
+
+function observabilityPageReducer(state, action) {
+  switch (action.type) {
+    case 'copy/success':
+      return { ...state, copiedTraceId: action.traceId };
+    case 'notice/set':
+      return { ...state, notice: action.message };
+    case 'query/finish':
+      return { ...state, loading: false };
+    case 'query/start':
+      return { ...state, copiedTraceId: '', loading: true, notice: '' };
+    case 'recent/set':
+      return { ...state, notice: action.clearNotice ? '' : state.notice, recentResult: action.result };
+    default:
+      return state;
+  }
+}
 
 function stableBackendLogValue(value, seen = new WeakSet()) {
   if (!value || typeof value !== 'object') return value;
@@ -146,33 +170,34 @@ function expandedTraceErrorState(current, traceId, message, queryLimit) {
 
 function ObservabilityPage() {
   const { buildRecentParams, filters, queryLimit, setFilter } = useObservabilityFilters();
-  const [recentResult, setRecentResult] = useState(null);
-  const [activeRecentParams, setActiveRecentParams] = useState(null);
-  const [copiedTraceId, setCopiedTraceId] = useState('');
-  const [notice, setNotice] = useState('');
-  const [loading, setLoading] = useState(false);
+  const [pageState, dispatchPageState] = useReducer(observabilityPageReducer, OBSERVABILITY_PAGE_INITIAL_STATE);
+  const activeRecentParamsRef = useRef(null);
+  const { copiedTraceId, loading, notice, recentResult } = pageState;
+  const setNotice = useCallback((message) => {
+    dispatchPageState({ type: 'notice/set', message });
+  }, []);
   const { expandedTraces, setExpandedTraces, toggleTraceExpansion } = useObservabilityTraceExpansion({ queryLimit, setFilter, setNotice });
 
   const refreshRecent = useCallback(async (params) => {
-    setRecentResult(await getObservabilityRecent(params));
+    dispatchPageState({ type: 'recent/set', result: await getObservabilityRecent(params), clearNotice: false });
   }, []);
 
   useEffect(() => {
-    if (!activeRecentParams) return undefined;
     let disposed = false;
     let refreshInFlight = false;
     const refresh = async () => {
+      const activeRecentParams = activeRecentParamsRef.current;
+      if (!activeRecentParams) return;
       if (refreshInFlight) return;
       refreshInFlight = true;
       try {
         const result = await getObservabilityRecent(activeRecentParams);
         if (!disposed) {
-          setRecentResult(result);
-          setNotice('');
+          dispatchPageState({ type: 'recent/set', result, clearNotice: true });
         }
       }
       catch (error) {
-        if (!disposed) setNotice(errorMessage(error));
+        if (!disposed) dispatchPageState({ type: 'notice/set', message: errorMessage(error) });
       }
       finally {
         refreshInFlight = false;
@@ -183,7 +208,7 @@ function ObservabilityPage() {
       disposed = true;
       window.clearInterval(intervalID);
     };
-  }, [activeRecentParams]);
+  }, []);
 
   const copyTraceId = useCallback(async (value) => {
     const nextTraceId = textValue(value);
@@ -191,31 +216,29 @@ function ObservabilityPage() {
     setNotice('');
     try {
       await copyTextToClipboard(nextTraceId);
-      setCopiedTraceId(nextTraceId);
+      dispatchPageState({ type: 'copy/success', traceId: nextTraceId });
     }
     catch (error) {
       setNotice(`复制 Trace ID 失败：${errorMessage(error)}`);
     }
-  }, []);
+  }, [setNotice]);
 
   const runQuery = useCallback(async () => {
-    setLoading(true);
-    setNotice('');
-    setActiveRecentParams(null);
+    dispatchPageState({ type: 'query/start' });
+    activeRecentParamsRef.current = null;
     setExpandedTraces({});
-    setCopiedTraceId('');
     const params = buildRecentParams();
     try {
       await refreshRecent(params);
-      setActiveRecentParams(params);
+      activeRecentParamsRef.current = params;
     }
     catch (error) {
       setNotice(errorMessage(error));
     }
     finally {
-      setLoading(false);
+      dispatchPageState({ type: 'query/finish' });
     }
-  }, [buildRecentParams, refreshRecent, setExpandedTraces]);
+  }, [buildRecentParams, refreshRecent, setExpandedTraces, setNotice]);
 
   return (
     <section className="settings-page observability-page" data-testid="observability-page">
@@ -310,24 +333,28 @@ function ObservabilityRecentLogs({ result, onOpenTrace, onCopyTrace, copiedTrace
       {traceRows.length === 0 ? (
         <div className="empty-state">没有匹配的最近请求</div>
       ) : (
-        <div className="observability-log-table" role="table">
-          <div className="observability-log-table-head" role="row">
-            <span>时间</span>
-            <span>状态</span>
-            <span>请求摘要</span>
-            <span>操作</span>
-          </div>
-          {traceRows.map((row) => (
-            <ObservabilityLogTableRow
-              row={row}
-              onOpenTrace={onOpenTrace}
-              onCopyTrace={onCopyTrace}
-              copied={Boolean(row.traceID) && row.traceID === copiedTraceId}
-              traceState={row.traceID ? expandedTraces[row.traceID] : undefined}
-              key={row.key}
-            />
-          ))}
-        </div>
+        <table className="observability-log-table">
+          <thead className="observability-log-table-head">
+            <tr>
+              <th scope="col">时间</th>
+              <th scope="col">状态</th>
+              <th scope="col">请求摘要</th>
+              <th scope="col">操作</th>
+            </tr>
+          </thead>
+          <tbody>
+            {traceRows.map((row) => (
+              <ObservabilityLogTableRow
+                row={row}
+                onOpenTrace={onOpenTrace}
+                onCopyTrace={onCopyTrace}
+                copied={Boolean(row.traceID) && row.traceID === copiedTraceId}
+                traceState={row.traceID ? expandedTraces[row.traceID] : undefined}
+                key={row.key}
+              />
+            ))}
+          </tbody>
+        </table>
       )}
     </div>
   );
@@ -430,44 +457,58 @@ function ObservabilityLogTableRow({ row, onOpenTrace, onCopyTrace, copied, trace
   const detailId = observabilityTraceDetailId(traceID);
   const actionLabel = expanded ? '收起 Trace' : '打开 Trace';
   return (
-    <div className="observability-log-table-entry" role="rowgroup">
-      <div className="observability-log-table-row" role="row">
-        <time dateTime={row.timestamp}>{formatObservabilityTimestamp(row.timestamp)}</time>
-        <span className={`observability-status-pill is-${observabilityStatusClass(row.status)}`}>{row.status || 'ok'}</span>
-        <div className="observability-log-summary">
-          <strong>{event.method || event.phase || event.kind || 'event'}</strong>
-          <p>{summary}</p>
-          <p className="observability-log-identifiers">
-            trace={traceID || '-'} · thread={event.thread_id || '-'} · {row.eventCount} 个匹配 event
-          </p>
-          {row.error ? <p className="observability-event-error">{row.error}</p> : null}
-        </div>
-        <div className="observability-log-row-actions">
-          <button
-            type="button"
-            className={`btn primary observability-copy-trace${copied ? ' is-copied' : ''}`}
-            onClick={() => onCopyTrace(traceID)}
-            disabled={!traceID}
-            aria-label={`复制 Trace ID ${traceID || '-'}`}
-          >
-            <Copy size={14} />
-            <span>{copied ? '已复制' : '复制 Trace ID'}</span>
-          </button>
-          <button
-            type="button"
-            className="btn secondary observability-open-trace"
-            onClick={() => onOpenTrace(traceID)}
-            disabled={!traceID}
-            aria-controls={detailId}
-            aria-expanded={expanded}
-            aria-label={`${actionLabel} ${traceID || '-'}`}
-          >
-            {actionLabel}
-          </button>
-        </div>
-      </div>
-      <ObservabilityInlineTraceResult traceID={traceID} detailId={detailId} state={traceState} />
-    </div>
+    <>
+      <tr className="observability-log-table-entry observability-log-table-row">
+        <td>
+          <time dateTime={row.timestamp}>{formatObservabilityTimestamp(row.timestamp)}</time>
+        </td>
+        <td>
+          <span className={`observability-status-pill is-${observabilityStatusClass(row.status)}`}>{row.status || 'ok'}</span>
+        </td>
+        <td>
+          <div className="observability-log-summary">
+            <strong>{event.method || event.phase || event.kind || 'event'}</strong>
+            <p>{summary}</p>
+            <p className="observability-log-identifiers">
+              trace={traceID || '-'} · thread={event.thread_id || '-'} · {row.eventCount} 个匹配 event
+            </p>
+            {row.error ? <p className="observability-event-error">{row.error}</p> : null}
+          </div>
+        </td>
+        <td>
+          <div className="observability-log-row-actions">
+            <button
+              type="button"
+              className={`btn primary observability-copy-trace${copied ? ' is-copied' : ''}`}
+              onClick={() => onCopyTrace(traceID)}
+              disabled={!traceID}
+              aria-label={`复制 Trace ID ${traceID || '-'}`}
+            >
+              <Copy size={14} />
+              <span>{copied ? '已复制' : '复制 Trace ID'}</span>
+            </button>
+            <button
+              type="button"
+              className="btn secondary observability-open-trace"
+              onClick={() => onOpenTrace(traceID)}
+              disabled={!traceID}
+              aria-controls={detailId}
+              aria-expanded={expanded}
+              aria-label={`${actionLabel} ${traceID || '-'}`}
+            >
+              {actionLabel}
+            </button>
+          </div>
+        </td>
+      </tr>
+      {expanded ? (
+        <tr className="observability-log-table-detail-row">
+          <td colSpan={4}>
+            <ObservabilityInlineTraceResult traceID={traceID} detailId={detailId} state={traceState} />
+          </td>
+        </tr>
+      ) : null}
+    </>
   );
 }
 
@@ -495,11 +536,10 @@ function ObservabilityInlineTraceResult({ traceID, detailId, state }) {
   if (!state?.expanded) return null;
   const result = state.result;
   return (
-    <div
+    <section
       className="observability-log-trace-detail"
       data-testid={`observability-inline-trace-${traceID}`}
       id={detailId}
-      role="region"
       aria-label={`Trace ${traceID || '-'} 结果`}
       aria-busy={state.loading}
     >
@@ -511,11 +551,11 @@ function ObservabilityInlineTraceResult({ traceID, detailId, state }) {
           ) : null}
         </div>
       </div>
-      {state.loading ? <div className="empty-state" role="status">Trace 加载中...</div> : null}
+      {state.loading ? <output className="empty-state">Trace 加载中...</output> : null}
       {state.error ? <div className="settings-alert error" role="alert">Trace 加载失败：{state.error}</div> : null}
       {!state.loading && !state.error && result ? <TraceEventTable events={result.events || []} /> : null}
       {!state.loading && !state.error && !result ? <div className="empty-state">没有匹配的 trace events</div> : null}
-    </div>
+    </section>
   );
 }
 
@@ -548,11 +588,11 @@ function TraceEventTable({ events }) {
           </button>
         </div>
       ) : null}
-      <div className="observability-table" role="table">
+      <ol className="observability-table" aria-label="Trace events">
         {visibleEvents.map((event, index) => (
           <TraceEventRow event={event} index={index} key={`${event.trace_id || 'trace'}-${event.span_id || index}`} />
         ))}
-      </div>
+      </ol>
     </>
   );
 }
@@ -634,7 +674,7 @@ function TraceEventRow({ event, index }) {
     ? event.stack.map(formatCodeAnchor).join('\n')
     : '';
   return (
-    <div className={`observability-event-row is-${observabilityStatusClass(event.status)}`} role="row">
+    <li className={`observability-event-row is-${observabilityStatusClass(event.status)}`}>
       <div className="observability-event-head">
         <div className="observability-event-title">
           <strong>{title}</strong>
@@ -671,7 +711,7 @@ function TraceEventRow({ event, index }) {
           <pre>{metadataText}</pre>
         </div>
       ) : null}
-    </div>
+    </li>
   );
 }
 

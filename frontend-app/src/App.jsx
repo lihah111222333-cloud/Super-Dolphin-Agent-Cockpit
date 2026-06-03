@@ -1,14 +1,25 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { QueryClient, QueryClientProvider, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Brain, FileText, FolderOpen, MessageCircle, Moon, MoreHorizontal, Search, Sparkles, Sun, Workflow, CircleStop, Copy, Eye, PanelTopOpen, RefreshCw, X } from 'lucide-react';
+import { Brain, CheckCircle2, CircleStop, Copy, Eye, FileText, FolderOpen, ListTodo, MessageCircle, Moon, MoreHorizontal, PanelTopOpen, RefreshCw, Search, Sparkles, Sun, Terminal, Workflow, X } from 'lucide-react';
 import { useClientStore } from './entities/client/model/useClientStore.js';
-import { ChatPage, FilesPage, MemoryPage, ObservabilityPage, PromptPage, SettingsPage, SkillsPage, WorkflowPage, ProjectSelector } from './pages/index.js';
+import { ChatPage, ProjectSelector } from './pages/chat/ChatPage.jsx';
+import { CommandsPage } from './pages/commands/CommandsPage.jsx';
+import { FilesPage } from './pages/files/FilesPage.jsx';
+import { MemoryPage } from './pages/memory/MemoryPage.jsx';
+import { ObservabilityPage } from './pages/observability/ObservabilityPage.jsx';
+import { PromptPage } from './pages/prompts/PromptPage.jsx';
+import { SettingsPage } from './pages/settings/SettingsPage.jsx';
+import { SkillsPage } from './pages/skills/SkillsPage.jsx';
+import { TasksPage } from './pages/tasks/TasksPage.jsx';
+import { WorkflowPage } from './pages/workflows/WorkflowPage.jsx';
 import { dashboardQueryKey, errorMessage, fetchMemoryDashboard, memoryHealth, normalizeMemorySnapshot, optionalSettingsCwd, useDashboardFocusInvalidation, textValue } from './pages/shared/pageShared.js';
 
 const navItems = [
   { id: 'chat', label: 'Chat', icon: MessageCircle },
   { id: 'prompts', label: '提示词', icon: FileText },
   { id: 'workflows', label: '自动化', icon: Workflow },
+  { id: 'tasks', label: '任务', icon: ListTodo },
+  { id: 'commands', label: '命令', icon: Terminal },
   { id: 'skills', label: '技能', icon: Sparkles },
   { id: 'memory', label: '记忆中心', icon: Brain },
   { id: 'observability', label: '链路追踪', icon: Search },
@@ -20,8 +31,11 @@ const PAGE_ROUTE_BY_ID = Object.freeze({
   chat: '/',
   prompts: '/prompts',
   workflows: '/dags',
+  tasks: '/tasks',
+  commands: '/commands',
   skills: '/skills',
   memory: '/memory',
+  observability: '/observability',
   files: '/files',
   settings: '/settings',
 });
@@ -32,9 +46,12 @@ const PAGE_ID_BY_ROUTE = Object.freeze({
   '/prompts': 'prompts',
   '/dags': 'workflows',
   '/workflows': 'workflows',
+  '/tasks': 'tasks',
+  '/commands': 'commands',
   '/skills': 'skills',
   '/memory': 'memory',
   '/memory-center': 'memory',
+  '/observability': 'observability',
   '/files': 'files',
   '/shared-files': 'files',
   '/settings': 'settings',
@@ -150,7 +167,10 @@ function useRoutePopStateSync({ activePageRef, explicitRouteRef, setActivePage, 
 
 function useRoutePushSync({ activePage, routeBootstrapPending, setActivePage }) {
   const initializedRef = useRef(false);
-  const explicitRouteRef = useRef(hasExplicitAppPageRoute());
+  const explicitRouteRef = useRef(null);
+  if (explicitRouteRef.current === null) {
+    explicitRouteRef.current = hasExplicitAppPageRoute();
+  }
   const suppressNextPushRef = useRef(false);
   const activePageRef = useLatestValueRef(activePage);
   useRoutePopStateSync({ activePageRef, explicitRouteRef, setActivePage, suppressNextPushRef });
@@ -189,27 +209,35 @@ function useMemoryBadgeState(store, projectPath) {
   const queryClient = useQueryClient();
   const addWarning = store.addWarning;
   const memoryRevision = Number(store.memoryRevision || 0);
-  const [memoryPageSimilarCount, setMemoryPageSimilarCount] = useState(null);
   const memoryCwd = optionalSettingsCwd(projectPath);
+  const [memoryPageSimilarState, setMemoryPageSimilarState] = useState({ page: store.activePage, cwd: memoryCwd, count: null });
+  if (memoryPageSimilarState.page !== store.activePage || memoryPageSimilarState.cwd !== memoryCwd) {
+    setMemoryPageSimilarState({ page: store.activePage, cwd: memoryCwd, count: null });
+  }
+  const setMemoryPageSimilarCount = useCallback((count) => {
+    setMemoryPageSimilarState((current) => ({ ...current, count }));
+  }, []);
   useDashboardFocusInvalidation(memoryCwd, 'memory');
   const memoryBadgeQuery = useQuery({
     queryKey: dashboardQueryKey(memoryCwd, 'memory'),
-    queryFn: () => fetchMemoryDashboard(memoryCwd),
+    queryFn: async () => {
+      try {
+        return await fetchMemoryDashboard(memoryCwd);
+      }
+      catch (error) {
+        addWarning('warn', 'memory.badge.refresh.failed', { error: errorMessage(error) });
+        throw error;
+      }
+    },
     enabled: Boolean(memoryCwd),
     select: memorySimilarGroupCount,
   });
   const memorySimilarCount = Math.max(0, Number(memoryBadgeQuery.data) || 0);
-
-  useEffect(() => {
-    if (store.activePage !== 'memory') {
-      setMemoryPageSimilarCount(null);
-    }
-  }, [store.activePage, memoryCwd]);
-
-  useEffect(() => {
-    if (!memoryBadgeQuery.error) return;
-    addWarning('warn', 'memory.badge.refresh.failed', { error: errorMessage(memoryBadgeQuery.error) });
-  }, [addWarning, memoryBadgeQuery.error]);
+  const memoryPageSimilarCount = (
+    memoryPageSimilarState.page === store.activePage && memoryPageSimilarState.cwd === memoryCwd
+      ? memoryPageSimilarState.count
+      : null
+  );
 
   useEffect(() => {
     if (!memoryCwd || memoryRevision <= 0) return;
@@ -248,6 +276,8 @@ function ActivePageContent({ store, projectPath, memoryRevision, setMemoryPageSi
   }
   if (store.activePage === 'prompts') return <PromptPage projectPath={projectPath} store={store} refreshKey={store.promptRevision} />;
   if (store.activePage === 'workflows') return <WorkflowPage projectPath={projectPath} store={store} refreshKey={store.workflowRevision} />;
+  if (store.activePage === 'tasks') return <TasksPage projectPath={projectPath} store={store} refreshKey={store.workflowRevision} />;
+  if (store.activePage === 'commands') return <CommandsPage projectPath={projectPath} store={store} refreshKey={store.workflowRevision} />;
   if (store.activePage === 'skills') {
     return <SkillsPage projectPath={projectPath} refreshKey={store.skillRevision} resolveLaunchPreferences={store.resolveLaunchPreferences} />;
   }
@@ -365,10 +395,6 @@ function Titlebar({ theme, onToggleTheme, store, projectPath, rightPanelOpen, se
 
   return (
     <header className="titlebar" data-testid="chat-toolbar">
-      <div className="titlebar-brand">
-        <span className="brand-orb" aria-hidden="true" />
-        <strong>Super Agent</strong>
-      </div>
       <div className="titlebar-center">
         {isChatPage && store && (
           <>
@@ -404,6 +430,17 @@ function Titlebar({ theme, onToggleTheme, store, projectPath, rightPanelOpen, se
                 <CircleStop size={14} />
               </button>
             ) : null}
+            {canUseThreadActions ? (
+              <button
+                type="button"
+                className="icon-btn"
+                aria-label="强制完成"
+                title="强制完成当前执行"
+                onClick={() => runUIAction(() => store.forceCompleteActiveThread())}
+              >
+                <CheckCircle2 size={14} />
+              </button>
+            ) : null}
             <button
               type="button"
               className="icon-btn"
@@ -417,13 +454,12 @@ function Titlebar({ theme, onToggleTheme, store, projectPath, rightPanelOpen, se
           </>
         )}
         {feedback?.message ? (
-          <span
+          <output
             className={`action-feedback ${feedback.tone || 'info'}`}
             data-testid="chat-action-feedback"
-            role="status"
           >
             {feedback.message}
-          </span>
+          </output>
         ) : null}
       </div>
 
