@@ -6,6 +6,7 @@ import (
 	"errors"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -16,6 +17,7 @@ const (
 	TraceDiagnosisMaxSlowSummaries   = 20
 	TraceDiagnosisMaxErrorSummaries  = 20
 	TraceDiagnosisMaxPanicSummaries  = 10
+	TraceDiagnosisMaxTailWarnings    = 20
 	TraceDiagnosisMaxStackFrames     = 24
 	TraceDiagnosisMaxRelatedIDs      = 50
 	TraceDiagnosisMaxStringBytes     = 4096
@@ -133,7 +135,8 @@ func (s *Service) DiagnoseTrace(ctx context.Context, req TraceDiagnosisRequest) 
 		return enforceTraceDiagnosisPayloadLimit(diagnosis), nil
 	}
 	queryTraceID := s.sanitizer.String(rawTraceID)
-	result := s.Query(ctx, Query{TraceID: queryTraceID, Limit: limit})
+	query := Query{TraceID: queryTraceID, Limit: limit}
+	result := s.diagnosisQuery(ctx, query, req.ForceRefresh, &diagnosis, projector)
 	return enforceTraceDiagnosisPayloadLimit(s.diagnosisFromQueryResult(diagnosis, result, req, projector)), nil
 }
 
@@ -154,6 +157,78 @@ func (s *Service) diagnosisFromQueryResult(diagnosis TraceDiagnosis, result Quer
 		diagnosis.addEventSummary(event, req.IncludeStack, projector)
 	}
 	return diagnosis
+}
+
+func (s *Service) diagnosisQuery(ctx context.Context, query Query, forceRefresh bool, diagnosis *TraceDiagnosis, projector traceDiagnosisProjector) QueryResult {
+	memory := s.index.Query(query)
+	if s.tail == nil {
+		return memory
+	}
+	tail, err := s.diagnosisTailQuery(ctx, query, forceRefresh)
+	diagnosis.addTailStatus(tail, err, projector)
+	if err != nil || len(tail.Events) == 0 {
+		return memory
+	}
+	if len(memory.Events) == 0 {
+		tail.Source = QuerySourceJSONLTail
+		return tail
+	}
+	return mergeQueryResults(memory, tail, query.Limit)
+}
+
+func (s *Service) diagnosisTailQuery(ctx context.Context, query Query, forceRefresh bool) (QueryResult, error) {
+	if forceRefresh {
+		return s.queryTailFresh(ctx, query)
+	}
+	return s.queryTail(ctx, query)
+}
+
+func (d *TraceDiagnosis) addTailStatus(result QueryResult, err error, projector traceDiagnosisProjector) {
+	d.TailAttempted = true
+	d.TailFresh = err == nil
+	d.TailFilesScanned = result.TailFilesScanned
+	d.TailBytesRead = result.TailBytesRead
+	d.TailDurationMS = result.TailDurationMS
+	d.TailTimedOut = result.TailTimedOut || errors.Is(err, context.DeadlineExceeded)
+	d.TailTruncated = result.TailTruncated
+	d.DecodeErrorCount = len(result.TailDecodeErrors)
+	d.TailWarnings = tailDecodeWarnings(result.TailDecodeErrors, projector)
+	if err != nil {
+		d.Degraded = true
+		d.TailError = projector.string(err.Error())
+	}
+	if len(result.TailDecodeErrors) > 0 {
+		d.Degraded = true
+	}
+}
+
+func tailDecodeWarnings(errors []TailDecodeError, projector traceDiagnosisProjector) []string {
+	limit := len(errors)
+	if limit > TraceDiagnosisMaxTailWarnings {
+		limit = TraceDiagnosisMaxTailWarnings
+	}
+	warnings := make([]string, 0, limit)
+	for _, decodeError := range errors[:limit] {
+		warnings = append(warnings, tailDecodeWarning(decodeError, projector))
+	}
+	return warnings
+}
+
+func tailDecodeWarning(decodeError TailDecodeError, projector traceDiagnosisProjector) string {
+	parts := []string{"jsonl decode error"}
+	if file := projector.path(decodeError.File); file != "" {
+		parts = append(parts, "file="+file)
+	}
+	if decodeError.Line > 0 {
+		parts = append(parts, "line="+strconv.Itoa(decodeError.Line))
+	}
+	if decodeError.Trailing {
+		parts = append(parts, "trailing=true")
+	}
+	if decodeError.Error != "" {
+		parts = append(parts, "error="+projector.string(decodeError.Error))
+	}
+	return projector.string(strings.Join(parts, " "))
 }
 
 func traceDiagnosisSourceFromQuery(result QueryResult) TraceDiagnosisSource {
