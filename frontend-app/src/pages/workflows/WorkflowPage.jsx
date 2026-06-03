@@ -217,6 +217,23 @@ function twoDigits(value) {
   return value.toString().padStart(2, '0');
 }
 
+function formatDagRunStartedAt(value) {
+  const text = textValue(value);
+  if (!text) return '时间未记录';
+  const matched = text.match(/^(\d{4})-(\d{2})-(\d{2})[T\s](\d{2}):(\d{2}):(\d{2})/);
+  if (matched) {
+    const [, year, month, day, hour, minute, second] = matched;
+    return `${year}-${month}-${day} ${hour}:${minute}:${second}`;
+  }
+  const parsed = new Date(text);
+  if (Number.isNaN(parsed.getTime())) return text;
+  return [
+    parsed.getFullYear().toString().padStart(4, '0'),
+    twoDigits(parsed.getMonth() + 1),
+    twoDigits(parsed.getDate()),
+  ].join('-') + ` ${twoDigits(parsed.getHours())}:${twoDigits(parsed.getMinutes())}:${twoDigits(parsed.getSeconds())}`;
+}
+
 function parseScheduleTime(value) {
   const text = textValue(value);
   const match = /^(\d{1,2}):(\d{2})$/.exec(text);
@@ -1102,11 +1119,12 @@ function WorkflowRunHistory({ model }) {
 
 function WorkflowRunRow({ index, run, runState }) {
   const active = run.runKey === runState.selectedRunKey;
+  const startedAt = textValue(run.startedAt);
   return (
     <button type="button" className={'run-row ' + (active ? 'active' : '')} onClick={() => { void runState.loadRunDetail(run.runKey); }}>
       <span>{'第 ' + (index + 1) + ' 次运行'}</span>
       <em>{dagStatusLabel(run.status)}</em>
-      <time>{run.startedAt || '时间未记录'}</time>
+      <time dateTime={startedAt || undefined} title={startedAt || undefined}>{formatDagRunStartedAt(startedAt)}</time>
     </button>
   );
 }
