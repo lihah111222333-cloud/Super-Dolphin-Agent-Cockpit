@@ -56,6 +56,35 @@ func TestServiceQueryReportsJSONLTailSourceWhenOnlyTailHasEvents(t *testing.T) {
 	}
 }
 
+func TestServiceQueryTailDoesNotReuseStaleResult(t *testing.T) {
+	cfg := Config{IndexMaxEvents: 2, IndexMaxTraceEvents: 2, IndexMaxThreadEvents: 2, IndexMaxSlowEvents: 2, IndexMaxErrorEvents: 2, MetadataMaxBytes: 4096, StringMaxBytes: 512, QueryTailTimeoutMS: 100, QueryTailMaxConcurrency: 1}
+	calls := 0
+	tail := QueryTailReaderFunc(func(_ context.Context, query Query) (QueryResult, error) {
+		if query.TraceID != "tail-changing" {
+			t.Fatalf("tail query trace = %q", query.TraceID)
+		}
+		calls++
+		if calls == 1 {
+			return QueryResult{Source: QuerySourceJSONLTail, Events: []TraceEvent{{TraceID: "tail-changing", Method: "tail-first"}}}, nil
+		}
+		return QueryResult{Source: QuerySourceJSONLTail, Events: []TraceEvent{{TraceID: "tail-changing", Method: "tail-second"}}}, nil
+	})
+	svc := NewService(cfg, WithTailReader(tail))
+	query := Query{TraceID: "tail-changing", IncludeTail: true}
+
+	first := svc.Query(context.Background(), query)
+	if methods(first.Events) != "tail-first" {
+		t.Fatalf("first events = %q (%#v), want first tail result", methods(first.Events), first.Events)
+	}
+	second := svc.Query(context.Background(), query)
+	if methods(second.Events) != "tail-second" {
+		t.Fatalf("second events = %q (%#v), want second tail result", methods(second.Events), second.Events)
+	}
+	if calls != 2 {
+		t.Fatalf("tail calls = %d, want 2", calls)
+	}
+}
+
 func TestServiceQueryReportsMixedSourceWhenMemoryAndTailBothContribute(t *testing.T) {
 	cfg := Config{IndexMaxEvents: 2, IndexMaxTraceEvents: 2, IndexMaxThreadEvents: 2, IndexMaxSlowEvents: 2, IndexMaxErrorEvents: 2, MetadataMaxBytes: 4096, StringMaxBytes: 512, QueryTailTimeoutMS: 100, QueryTailMaxConcurrency: 1}
 	tail := QueryTailReaderFunc(func(context.Context, Query) (QueryResult, error) {
