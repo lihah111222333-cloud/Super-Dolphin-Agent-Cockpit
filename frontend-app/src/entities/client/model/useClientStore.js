@@ -86,6 +86,7 @@ const BRIDGE_REVISION_EVENTS = Object.freeze([
 
 const CHAT_ONLY_INTENT_RE = /(不要|别|无需|不用|不使用|禁止).{0,12}(工具|tool|浏览器|命令|终端|文件|代码)|\b(no|without)\s+tools?\b/i;
 const AGENT_TOOL_INTENT_RE = /(读|读取|看|查看|打开|修改|编辑|修复|实现|重构|跑|运行|执行|测试|构建|编译|扫描|搜索|查找|提交|推送|拉取|合并|调试|浏览|打开网页|操作浏览器|截图|分析).{0,18}(文件|目录|代码|仓库|项目|测试|命令|终端|日志|接口|页面|前端|后端|浏览器|chrome|playwright|git|pr|bug|报错)|\b(read|open|inspect|edit|modify|fix|implement|refactor|run|test|build|compile|scan|grep|search|commit|push|pull|merge|debug|browse).{0,24}(file|dir|code|repo|project|test|command|terminal|log|api|page|frontend|backend|browser|chrome|playwright|git|pr|bug|error)\b|\b(chrome|playwright|git)\b/i;
+const TRACE_DIAGNOSTIC_INTENT_RE = /\b(observability_trace_get|trace[_\s-]?id|traceparent|span[_\s-]?id)\b|慢请求|链路追踪|调用链|观测日志|落盘日志/i;
 
 function normalizeToolSurfaceMode(value) {
   const mode = normalizeString(value).toLowerCase();
@@ -99,7 +100,7 @@ function effectiveToolSurfaceMode(mode, text) {
   if (normalized !== TOOL_SURFACE_MODE_AUTO) return normalized;
   const content = normalizeString(text);
   if (CHAT_ONLY_INTENT_RE.test(content)) return 'chat';
-  if (AGENT_TOOL_INTENT_RE.test(content)) return 'agent';
+  if (AGENT_TOOL_INTENT_RE.test(content) || TRACE_DIAGNOSTIC_INTENT_RE.test(content)) return 'agent';
   return 'chat';
 }
 
