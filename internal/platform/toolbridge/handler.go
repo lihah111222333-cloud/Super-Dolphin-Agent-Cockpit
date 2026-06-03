@@ -115,11 +115,10 @@ func (h *Handler) HandleToolCall(ctx context.Context, msg contract.ToolCallRawMe
 
 func (h *Handler) routeToolCall(ctx context.Context, req ToolCallRequest) (*ToolCallResult, error) {
 	req = normalizeToolCallRequest(req)
+	if result, handled, err := h.routeReservedHostOnlyToolCall(ctx, req); handled || err != nil {
+		return result, err
+	}
 	switch strings.TrimSpace(req.Name) {
-	case ToolNameMemoryRead:
-		return h.routeHostOnlyToolCall(ctx, req, "reader_unavailable")
-	case ToolNameMemoryWrite:
-		return h.routeHostOnlyToolCall(ctx, req, "writer_unavailable")
 	case ToolNameReadSection, ToolNameLegacySkillExpandBody, ToolNameLegacySkillReadResource:
 		return removedSkillToolResult(req.Name), nil
 	}
@@ -145,6 +144,22 @@ func (h *Handler) routeToolCall(ctx context.Context, req ToolCallRequest) (*Tool
 		return nil, err
 	}
 	return h.callPeerTool(ctx, peer.Peer, req)
+}
+
+func (h *Handler) routeReservedHostOnlyToolCall(ctx context.Context, req ToolCallRequest) (*ToolCallResult, bool, error) {
+	switch strings.TrimSpace(req.Name) {
+	case ToolNameMemoryRead:
+		result, err := h.routeHostOnlyToolCall(ctx, req, "reader_unavailable")
+		return result, true, err
+	case ToolNameMemoryWrite:
+		result, err := h.routeHostOnlyToolCall(ctx, req, "writer_unavailable")
+		return result, true, err
+	case ToolNameObservabilityTraceGet:
+		result, err := h.routeHostOnlyToolCall(ctx, req, "trace_unavailable")
+		return result, true, err
+	default:
+		return nil, false, nil
+	}
 }
 
 func (h *Handler) routeHostOnlyToolCall(ctx context.Context, req ToolCallRequest, errCode string) (*ToolCallResult, error) {

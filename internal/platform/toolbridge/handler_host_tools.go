@@ -145,7 +145,7 @@ func (h *Handler) appendMCPToolsWithShadowWarning(dst []dto.MCPTool, seen map[st
 
 func isReservedHostOnlyToolName(name string) bool {
 	switch strings.TrimSpace(name) {
-	case ToolNameMemoryRead, ToolNameMemoryWrite:
+	case ToolNameMemoryRead, ToolNameMemoryWrite, ToolNameObservabilityTraceGet:
 		return true
 	default:
 		return false

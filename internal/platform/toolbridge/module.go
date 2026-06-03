@@ -73,6 +73,7 @@ type hostToolRegistryIn struct {
 
 	Reader contract.AgentMemoryReader `optional:"true"`
 	Writer contract.AgentMemoryWriter `optional:"true"`
+	Tracer *observability.Service     `optional:"true"`
 }
 
 // provideHostToolRegistry builds the Codex-facing HostToolRegistry backed by
@@ -82,6 +83,7 @@ func provideHostToolRegistry(in hostToolRegistryIn) HostToolRegistry {
 	return NewCompositeHostToolRegistry(
 		NewMemoryReadHostToolRegistry(in.Reader, memoryReadHostToolOptions(in.Reader)),
 		NewMemoryWriteHostToolRegistry(in.Writer, memoryWriteHostToolOptions(in.Writer)),
+		NewObservabilityTraceHostToolRegistry(in.Tracer),
 	)
 }
 
