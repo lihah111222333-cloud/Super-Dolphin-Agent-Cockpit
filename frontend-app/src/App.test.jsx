@@ -621,16 +621,20 @@ async function openRecentSystemLogs() {
 }
 
 function expectRecentSystemLogsTable(table) {
-  expect(table).toHaveTextContent('2 条 trace · 3 个匹配 event');
+  expect(table).toHaveTextContent('3 条 trace · 4 个匹配 event');
   expect(table).toHaveTextContent('2026-06-02 09:01:22');
   expect(table).toHaveTextContent('2026-06-02 09:02:03');
+  expect(table).toHaveTextContent('2026-06-02 09:03:04');
   expect(table).not.toHaveTextContent('2026-06-02T09:01:22.459Z');
   expect(table).toHaveTextContent('thread/start');
   expect(table).toHaveTextContent('trace-frontend-1');
   expect(table).toHaveTextContent('thread start failed');
-  expect(table).not.toHaveTextContent('provider.session.acquire');
-  expect(within(table).getAllByRole('button', { name: /复制 Trace ID/ })).toHaveLength(2);
-  expect(within(table).getAllByRole('button', { name: /打开 Trace/ })).toHaveLength(2);
+  expect(table).toHaveTextContent('provider.session.acquire');
+  expect(table).toHaveTextContent('trace=-');
+  expect(within(table).getAllByRole('button', { name: /复制 Trace ID/ })).toHaveLength(3);
+  expect(within(table).getAllByRole('button', { name: /打开 Trace/ })).toHaveLength(3);
+  expect(within(table).getByRole('button', { name: '复制 Trace ID -' })).toBeDisabled();
+  expect(within(table).getByRole('button', { name: '打开 Trace -' })).toBeDisabled();
   expect(table).toHaveTextContent('2 个匹配 event');
 }
 

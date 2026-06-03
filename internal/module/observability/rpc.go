@@ -83,6 +83,11 @@ type frontendIngestResponse struct {
 	DisabledReason string `json:"disabled_reason,omitempty"`
 }
 
+type recentRowSelection struct {
+	traceIDs     map[string]struct{}
+	eventIndexes map[int]struct{}
+}
+
 type frontendTraceEvent struct {
 	Timestamp    time.Time          `json:"ts,omitzero"`
 	TraceID      string             `json:"trace_id,omitempty"`
@@ -411,32 +416,45 @@ func latestTraceEventsFirst(events []platformobs.TraceEvent, limit int) []platfo
 	if limit <= 0 {
 		return ordered
 	}
-	selected := latestTraceIDs(ordered, limit)
+	selected := selectRecentRows(ordered, limit)
 	out := make([]platformobs.TraceEvent, 0, len(ordered))
-	for _, event := range ordered {
-		if _, ok := selected[strings.TrimSpace(event.TraceID)]; ok {
+	for index, event := range ordered {
+		if recentRowSelected(index, event, selected) {
 			out = append(out, event)
 		}
 	}
 	return out
 }
 
-func latestTraceIDs(events []platformobs.TraceEvent, limit int) map[string]struct{} {
-	selected := make(map[string]struct{}, limit)
-	for _, event := range events {
+func selectRecentRows(events []platformobs.TraceEvent, limit int) recentRowSelection {
+	selected := recentRowSelection{traceIDs: make(map[string]struct{}, limit), eventIndexes: make(map[int]struct{}, limit)}
+	rows := 0
+	for index, event := range events {
 		traceID := strings.TrimSpace(event.TraceID)
 		if traceID == "" {
-			continue
+			selected.eventIndexes[index] = struct{}{}
+		} else {
+			if _, ok := selected.traceIDs[traceID]; ok {
+				continue
+			}
+			selected.traceIDs[traceID] = struct{}{}
 		}
-		if _, ok := selected[traceID]; ok {
-			continue
-		}
-		selected[traceID] = struct{}{}
-		if len(selected) >= limit {
+		rows++
+		if rows >= limit {
 			break
 		}
 	}
 	return selected
+}
+
+func recentRowSelected(index int, event platformobs.TraceEvent, selected recentRowSelection) bool {
+	traceID := strings.TrimSpace(event.TraceID)
+	if traceID == "" {
+		_, ok := selected.eventIndexes[index]
+		return ok
+	}
+	_, ok := selected.traceIDs[traceID]
+	return ok
 }
 
 func recentRawQueryLimit(displayLimit int) int {
