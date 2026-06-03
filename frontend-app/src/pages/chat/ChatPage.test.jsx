@@ -564,6 +564,68 @@ describe('ChatPage module', () => {
     expect(screen.getByRole('button', { name: '滚动到底部' })).toBe(bottomButton);
   });
 
+  it('keeps the timeline pinned to the bottom while an active assistant reply grows', () => {
+    const initialMessages = [
+      { id: 'reply-user-1', role: 'user', text: '请继续分析', time: '2026-06-02T08:00:00Z' },
+      { id: 'reply-assistant-1', role: 'assistant', text: '我先检查一下。', time: '2026-06-02T08:01:00Z' },
+    ];
+    const { rerender } = render(<ChatPage store={createActiveThreadStore(initialMessages)} projectPath="/repo/app" />);
+    const timeline = screen.getByTestId('chat-timeline');
+    let scrollHeight = 1000;
+    let scrollTop = 600;
+    Object.defineProperty(timeline, 'clientHeight', { configurable: true, get: () => 400 });
+    Object.defineProperty(timeline, 'scrollHeight', { configurable: true, get: () => scrollHeight });
+    Object.defineProperty(timeline, 'scrollTop', {
+      configurable: true,
+      get: () => scrollTop,
+      set: (value) => {
+        scrollTop = Number(value);
+      },
+    });
+    const animationFrameCallbacks = [];
+    const requestAnimationFrameSpy = vi.spyOn(window, 'requestAnimationFrame').mockImplementation((callback) => {
+      animationFrameCallbacks.push(callback);
+      return animationFrameCallbacks.length;
+    });
+
+    scrollHeight = 1260;
+    rerender(<ChatPage store={createActiveThreadStore([
+      initialMessages[0],
+      { ...initialMessages[1], text: '我先检查一下。\n\n已经定位到滚动逻辑。' },
+    ])} projectPath="/repo/app" />);
+
+    expect(requestAnimationFrameSpy).toHaveBeenCalledTimes(1);
+    act(() => {
+      for (const callback of animationFrameCallbacks) callback(16);
+    });
+    expect(scrollTop).toBe(1260);
+    requestAnimationFrameSpy.mockRestore();
+  });
+
+  it('does not auto-scroll a second time when a user message is appended', () => {
+    const initialMessages = [
+      { id: 'existing-assistant-1', role: 'assistant', text: '上一轮回复。', time: '2026-06-02T08:00:00Z' },
+    ];
+    const { rerender } = render(<ChatPage store={createActiveThreadStore(initialMessages)} projectPath="/repo/app" />);
+    const timeline = screen.getByTestId('chat-timeline');
+    Object.defineProperty(timeline, 'clientHeight', { configurable: true, value: 400 });
+    Object.defineProperty(timeline, 'scrollHeight', { configurable: true, value: 1000 });
+    Object.defineProperty(timeline, 'scrollTop', {
+      configurable: true,
+      value: 600,
+      writable: true,
+    });
+    const requestAnimationFrameSpy = vi.spyOn(window, 'requestAnimationFrame').mockImplementation(() => 1);
+
+    rerender(<ChatPage store={createActiveThreadStore([
+      ...initialMessages,
+      { id: 'new-user-1', role: 'user', text: '继续处理', time: '2026-06-02T08:01:00Z' },
+    ])} projectPath="/repo/app" />);
+
+    expect(requestAnimationFrameSpy).not.toHaveBeenCalled();
+    requestAnimationFrameSpy.mockRestore();
+  });
+
   it('loads an older backend message page when no local older messages are hidden', async () => {
     let resolveLoad;
     const loadPromise = new Promise((resolve) => {

@@ -43,6 +43,8 @@ const TIMELINE_MATERIALIZATION_INCREMENT = 80;
 
 const TIMELINE_SCROLL_LOAD_THRESHOLD = 32;
 
+const TIMELINE_BOTTOM_STICKY_THRESHOLD = 48;
+
 const CONTEXT_USAGE_FORK_THRESHOLD = 90;
 
 const RUNTIME_STAT_TOOLTIP_WIDTH = 360;
@@ -93,6 +95,15 @@ function scrollTimelineElementToBottom(timeline) {
     timeline.scrollTo({ top: timeline.scrollHeight, behavior: 'smooth' });
   }
   timeline.scrollTop = timeline.scrollHeight;
+}
+
+function isTimelineNearBottom(timeline) {
+  if (!timeline) return true;
+  const scrollHeight = Number(timeline.scrollHeight) || 0;
+  const clientHeight = Number(timeline.clientHeight) || 0;
+  const scrollTop = Number(timeline.scrollTop) || 0;
+  if (scrollHeight <= clientHeight) return true;
+  return scrollHeight - clientHeight - scrollTop <= TIMELINE_BOTTOM_STICKY_THRESHOLD;
 }
 
 function requestTimelineBottomScroll(scrollToBottom) {
@@ -1449,6 +1460,35 @@ function hasAssistantReplyAfterLastUser(messages = []) {
     !isReasoningMessage(message) &&
     Boolean((message?.text || '').toString().trim())
   ));
+}
+
+function timelineMessageAutoScrollKey(message) {
+  if (!message) return '';
+  const done = Object.prototype.hasOwnProperty.call(message, 'done') ? String(message.done) : '';
+  return [
+    message.id || '',
+    message.role || message.kind || '',
+    message.status || '',
+    done,
+    timelineItemTextValue(message),
+  ].map((value) => value.toString()).join('\u0001');
+}
+
+function shouldAutoScrollForTimelineMessage(message) {
+  if (!message) return false;
+  const role = (message.role || '').toString().trim().toLowerCase();
+  return role === 'assistant' || isReasoningMessage(message) || isApprovalMessage(message);
+}
+
+function timelineAutoScrollKey({ activeThreadId, introMode, messages, pendingReasoning, timelineContentBlocked }) {
+  if (introMode || timelineContentBlocked) return '';
+  const lastMessage = messages[messages.length - 1] || null;
+  if (!shouldAutoScrollForTimelineMessage(lastMessage) && !shouldAutoScrollForTimelineMessage(pendingReasoning)) return '';
+  return [
+    activeThreadId || '',
+    shouldAutoScrollForTimelineMessage(lastMessage) ? timelineMessageAutoScrollKey(lastMessage) : '',
+    timelineMessageAutoScrollKey(pendingReasoning),
+  ].join('\u0002');
 }
 
 function providerToggleState(store) {
@@ -4903,14 +4943,42 @@ function Conversation(props) {
     canUseProjectActions,
   });
   const timelineRef = useRef(null);
+  const shouldStickToBottomRef = useRef(true);
+  const lastTimelineAutoScrollKeyRef = useRef('');
+  const updateTimelineStickiness = useCallback((timeline) => {
+    shouldStickToBottomRef.current = isTimelineNearBottom(timeline);
+  }, []);
   const scrollTimelineToBottom = useCallback(() => {
+    shouldStickToBottomRef.current = true;
     scrollTimelineElementToBottom(timelineRef.current);
   }, []);
   const sendMessageAndScrollToBottom = useCallback(() => {
     const result = sendMessage();
+    shouldStickToBottomRef.current = true;
     requestTimelineBottomScroll(scrollTimelineToBottom);
     return result;
   }, [scrollTimelineToBottom, sendMessage]);
+  const autoScrollKey = timelineAutoScrollKey({
+    activeThreadId,
+    introMode,
+    messages,
+    pendingReasoning,
+    timelineContentBlocked,
+  });
+  useEffect(() => {
+    shouldStickToBottomRef.current = true;
+    lastTimelineAutoScrollKeyRef.current = '';
+  }, [activeThreadId]);
+  useEffect(() => {
+    if (!autoScrollKey) {
+      lastTimelineAutoScrollKeyRef.current = autoScrollKey;
+      return;
+    }
+    if (lastTimelineAutoScrollKeyRef.current === autoScrollKey) return;
+    lastTimelineAutoScrollKeyRef.current = autoScrollKey;
+    if (!shouldStickToBottomRef.current) return;
+    requestTimelineBottomScroll(scrollTimelineToBottom);
+  }, [autoScrollKey, scrollTimelineToBottom]);
   const composer = (
     <ConversationComposer
       {...props}
@@ -4944,6 +5012,7 @@ function Conversation(props) {
         loadOlderThreadMessages={loadOlderThreadMessages}
         timelineContentBlocked={timelineContentBlocked}
         messageActions={messageActions}
+        onTimelineScroll={updateTimelineStickiness}
         onScrollToBottom={scrollTimelineToBottom}
         timelineRef={timelineRef}
       />
@@ -5067,6 +5136,7 @@ function ConversationTimeline({
   loadOlderThreadMessages,
   timelineContentBlocked,
   messageActions,
+  onTimelineScroll,
   onScrollToBottom,
   timelineRef,
 }) {
@@ -5105,10 +5175,11 @@ function ConversationTimeline({
     if (canLoadBackendOlderPage) requestBackendOlderPage();
   }, [canLoadBackendOlderPage, hiddenOlderCount, requestBackendOlderPage, revealOlder, timelineContentBlocked]);
   const handleScroll = useCallback((event) => {
+    onTimelineScroll?.(event.currentTarget);
     if (timelineContentBlocked) return;
     if (hiddenOlderCount <= 0 && !hasBackendOlderPage) return;
     if (event.currentTarget.scrollTop <= TIMELINE_SCROLL_LOAD_THRESHOLD) requestOlderMessages();
-  }, [hasBackendOlderPage, hiddenOlderCount, requestOlderMessages, timelineContentBlocked]);
+  }, [hasBackendOlderPage, hiddenOlderCount, onTimelineScroll, requestOlderMessages, timelineContentBlocked]);
   return (
     <div className="timeline-shell">
       <div className="timeline" data-testid="chat-timeline" ref={timelineRef} onScroll={handleScroll}>
