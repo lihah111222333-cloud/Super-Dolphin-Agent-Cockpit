@@ -39,9 +39,8 @@ type Service struct {
 	tail           queryTailReader
 	tailSem        chan struct{}
 	tailTimeoutMS  int
-	cache          map[Query]QueryResult
 	inflight       map[Query]*tailCall
-	cacheMu        sync.Mutex
+	inflightMu     sync.Mutex
 }
 
 type ServiceOption func(*Service)
@@ -54,7 +53,7 @@ type tailCall struct {
 
 func NewService(cfg Config, options ...ServiceOption) *Service {
 	cfg = normalizeServiceConfig(cfg)
-	svc := &Service{enabled: true, index: NewIndex(cfg), sampler: NewSampler(), sanitizer: NewSanitizer(cfg), tailSem: make(chan struct{}, cfg.QueryTailMaxConcurrency), tailTimeoutMS: cfg.QueryTailTimeoutMS, cache: map[Query]QueryResult{}, inflight: map[Query]*tailCall{}}
+	svc := &Service{enabled: true, index: NewIndex(cfg), sampler: NewSampler(), sanitizer: NewSanitizer(cfg), tailSem: make(chan struct{}, cfg.QueryTailMaxConcurrency), tailTimeoutMS: cfg.QueryTailTimeoutMS, inflight: map[Query]*tailCall{}}
 	for _, option := range options {
 		option(svc)
 	}
@@ -67,7 +66,7 @@ func NewDisabledService(cfg Config) *Service {
 	if reason == "" {
 		reason = "observability tracing disabled"
 	}
-	return &Service{enabled: false, disabledReason: reason, index: NewIndex(cfg), sampler: NewSampler(), sanitizer: NewSanitizer(cfg), tailSem: make(chan struct{}, cfg.QueryTailMaxConcurrency), tailTimeoutMS: cfg.QueryTailTimeoutMS, cache: map[Query]QueryResult{}, inflight: map[Query]*tailCall{}}
+	return &Service{enabled: false, disabledReason: reason, index: NewIndex(cfg), sampler: NewSampler(), sanitizer: NewSanitizer(cfg), tailSem: make(chan struct{}, cfg.QueryTailMaxConcurrency), tailTimeoutMS: cfg.QueryTailTimeoutMS, inflight: map[Query]*tailCall{}}
 }
 
 func WithSink(sink serviceSink) ServiceOption { return func(s *Service) { s.sink = sink } }
@@ -237,9 +236,6 @@ func traceEventDedupeKey(event TraceEvent) string {
 }
 
 func (s *Service) queryTail(ctx context.Context, query Query) (QueryResult, error) {
-	if cached, ok := s.cachedTail(query); ok {
-		return cached, nil
-	}
 	call, owner := s.tailCall(query)
 	if !owner {
 		select {
@@ -261,15 +257,12 @@ func (s *Service) queryTail(ctx context.Context, query Query) (QueryResult, erro
 	ctx, cancel := context.WithTimeout(ctx, time.Duration(s.tailTimeoutMS)*time.Millisecond)
 	defer cancel()
 	call.result, call.err = s.tail.QueryTraceEvents(ctx, query)
-	if call.err == nil {
-		s.storeTail(query, call.result)
-	}
 	return call.result, call.err
 }
 
 func (s *Service) tailCall(query Query) (*tailCall, bool) {
-	s.cacheMu.Lock()
-	defer s.cacheMu.Unlock()
+	s.inflightMu.Lock()
+	defer s.inflightMu.Unlock()
 	if call := s.inflight[query]; call != nil {
 		return call, false
 	}
@@ -279,25 +272,9 @@ func (s *Service) tailCall(query Query) (*tailCall, bool) {
 }
 
 func (s *Service) finishTailCall(query Query) {
-	s.cacheMu.Lock()
-	defer s.cacheMu.Unlock()
+	s.inflightMu.Lock()
+	defer s.inflightMu.Unlock()
 	delete(s.inflight, query)
-}
-
-func (s *Service) cachedTail(query Query) (QueryResult, bool) {
-	s.cacheMu.Lock()
-	defer s.cacheMu.Unlock()
-	result, ok := s.cache[query]
-	return result, ok
-}
-
-func (s *Service) storeTail(query Query, result QueryResult) {
-	s.cacheMu.Lock()
-	defer s.cacheMu.Unlock()
-	if len(s.cache) >= 64 {
-		s.cache = map[Query]QueryResult{}
-	}
-	s.cache[query] = result
 }
 
 func normalizeServiceConfig(cfg Config) Config {
