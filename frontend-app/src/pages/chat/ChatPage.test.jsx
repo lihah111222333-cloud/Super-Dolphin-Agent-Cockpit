@@ -202,6 +202,41 @@ describe('ChatPage module', () => {
     expect(screen.getByTestId('diff-view')).toBeInTheDocument();
   });
 
+  it('renders compact assistant markdown block markers as formatted content', () => {
+    const store = createActiveThreadStore([
+      {
+        id: 'assistant-compact-markdown',
+        role: 'assistant',
+        text: '我先说明当前进展。 ##Done-Done: 每天17:40自动触发，Cron: `4017***`-Done: 内容方向固定为AI工具-Done: 每天生成3条成片。',
+        time: '2026-06-02T08:01:00Z',
+      },
+    ]);
+
+    const { container } = render(<ChatPage store={store} projectPath="/repo/app" />);
+
+    expect(screen.getByText('我先说明当前进展。')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: /Done-Done: 每天17:40自动触发/ })).toBeInTheDocument();
+    expect(screen.getAllByRole('listitem')).toHaveLength(2);
+    expect(screen.getByText('Done: 内容方向固定为AI工具')).toBeInTheDocument();
+    expect(screen.getByText('Done: 每天生成3条成片。')).toBeInTheDocument();
+    expect(container.querySelector('.message-markdown p')).not.toHaveTextContent('##Done-Done');
+  });
+
+  it('treats backend created thread status as idle noise in thread cards', () => {
+    const store = createActiveThreadStore([], {
+      threads: [{ id: 'thread-1', name: '启动中间态会话', provider: 'codex', status: 'created', updatedAt: '2026-06-02T08:00:00Z' }],
+    });
+
+    render(<ChatPage store={store} projectPath="/repo/app" />);
+
+    const card = screen.getByText('启动中间态会话').closest('.thread-card');
+    expect(card).toHaveTextContent('codex');
+    expect(card).not.toHaveTextContent('created');
+    expect(card.querySelector('.thread-status-label')).toBeNull();
+    expect(card.querySelector('.thread-status-dot')).toHaveClass('thread-status-dot--idle');
+    expect(card.querySelector('.thread-status-dot')).toHaveAttribute('title', '空闲');
+  });
+
   it('materializes only the recent timeline window until older messages are requested', () => {
     const messages = Array.from({ length: 120 }, (_, index) => ({
       id: `msg-${index + 1}`,
