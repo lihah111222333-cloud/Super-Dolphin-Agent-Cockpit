@@ -24,6 +24,40 @@ Goal:
 | T09 | Toolbridge and Codex surface test gate | T05, T07 | `internal/platform/toolbridge` |
 | T10 | Integration closure, verification, and follow-up docs | T08, T09 | docs, verification |
 
+## Completion Status
+
+Integration branch: `feat/traceid-agent-diagnostics`.
+
+| Node | Status | Integration Commit | Notes |
+| --- | --- | --- | --- |
+| T01 | Complete | `cfab2b5d` | Added platform diagnosis contract and initial diagnosis behavior. |
+| T02/T03 | Complete | `a2bf7fb8` | Added fresh tail diagnosis, no completed-result cache, tail degradation and warning propagation. |
+| T04 | Complete | `785e10e6` | Added bounded redacted model-facing projection. |
+| T06 | Complete | `63822fd9` | Added CWD-optional host dispatch and structured host-tool output contract. |
+| T05 | Complete | `cfd8e38d` | Registered `observability_trace_get` as a host-direct tool. |
+| T07 | Complete | `3ea954e8` | Hardened Codex surface gating and reserved host-only duplicate/alias handling. |
+| T08 | Complete | `a2bf7fb8`, `785e10e6` | Platform observability tests were committed with the behavior changes they lock. |
+| T09 | Complete | `b9ca1b29` | Added Codex surface duplicate and trace schema test gate coverage. |
+| T10 | Complete after closure verification | closure commit | Final docs update and final verification. |
+
+Implemented tool contract:
+
+- tool name: `observability_trace_get`;
+- required input: `trace_id`;
+- optional inputs: `limit`, `force_refresh`, `include_stack`;
+- output: redacted `TraceDiagnosis` in `ToolCallResult.StructuredContent`, mirrored as JSON `inputText`;
+- advertised only when tracing is enabled;
+- disabled stale calls return degraded diagnosis rather than falling through to peer tools.
+
+Implemented bounds and defaults:
+
+- diagnosis default `limit`: 80;
+- diagnosis maximum `limit`: 200;
+- serialized diagnosis payload bound: 256 KiB;
+- JSONL tail query window default: 20 MiB;
+- JSONL tail timeout default: 750 ms;
+- JSONL tail max concurrency default: 1.
+
 ## Edge List
 
 ```text
@@ -120,3 +154,9 @@ After all implementation tasks are complete:
 ```bash
 ./scripts/test_with_guard.sh ./internal/platform/observability ./internal/platform/toolbridge ./internal/module/observability -count=1
 ```
+
+Follow-ups outside this DAG unless explicitly re-scoped:
+
+- `observability/trace/diagnose` RPC parity through `internal/module/observability/rpc.go`;
+- `.agent/skills/trace-diagnosis/SKILL.md` to instruct agents to call `observability_trace_get`;
+- UI affordances that surface trace diagnosis actions directly to users.
