@@ -2312,6 +2312,80 @@ async function toggleInlineTraceFromRecentLogs(table) {
     expect(screen.getByText('工具结果已整理。')).toBeInTheDocument();
   });
 
+  it('shows active agent timeline tool cards when timeline state is keyed by agent id', async () => {
+    backend.getSidebarState.mockResolvedValue({
+      activeThreadId: 'thread-1',
+      threads: [{ id: 'thread-1', agentId: 'agent-1', name: 'Thread 1', provider: 'codex', status: 'running' }],
+    });
+
+    render(<App />);
+
+    await screen.findByText('Thread 1');
+
+    act(() => {
+      useClientStore.setState((state) => ({
+        activeThreadId: 'thread-1',
+        threads: [{ id: 'thread-1', agentId: 'agent-1', name: 'Thread 1', provider: 'codex', status: 'running' }],
+        timelinesByThread: {
+          ...state.timelinesByThread,
+          'agent-1': [{
+            id: 'tool-agent-keyed',
+            kind: 'tool',
+            title: 'file',
+            status: 'completed',
+            text: 'agent keyed tool result',
+            done: true,
+            ts: '2026-05-30T00:00:00Z',
+          }],
+        },
+        threadTimelineReadyByThread: {
+          ...state.threadTimelineReadyByThread,
+          'agent-1': true,
+        },
+        threadStateLoadingByThread: {},
+      }));
+    });
+
+    const trace = await screen.findByLabelText('AI 思考记录');
+    expect(trace).toHaveTextContent('file');
+    expect(trace).toHaveTextContent('agent keyed tool result');
+  });
+
+  it('hides ghost command timeline cards from the conversation body', async () => {
+    render(<App />);
+
+    await screen.findByText('后端线程');
+
+    act(() => {
+      useClientStore.setState((state) => ({
+        timelinesByThread: {
+          ...state.timelinesByThread,
+          'thread-1': [{
+            id: 'ghost-command',
+            kind: 'command',
+            title: '执行命令',
+            status: 'completed',
+            done: true,
+          }, {
+            id: 'assistant-after-ghost',
+            role: 'assistant',
+            kind: 'assistant',
+            text: '正常回复',
+            time: '2026-05-30T00:00:00Z',
+          }],
+        },
+        threadTimelineReadyByThread: {
+          ...state.threadTimelineReadyByThread,
+          'thread-1': true,
+        },
+      }));
+    });
+
+    expect(await screen.findByText('正常回复')).toBeInTheDocument();
+    expect(screen.queryByText('执行命令')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('AI 思考记录')).not.toBeInTheDocument();
+  });
+
   it('coalesces running and completed lifecycle events for the same tool call', async () => {
     backend.getThreadState.mockResolvedValue({
       activeThreadId: 'thread-1',

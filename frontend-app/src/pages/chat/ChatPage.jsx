@@ -1232,6 +1232,87 @@ function threadScopedMapValue(map = {}, activeThreadId, activeThread, fallback =
   return fallback;
 }
 
+function threadScopedBooleanValue(map = {}, activeThreadId, activeThread, fallback = false) {
+  const ids = activeThreadIdentifiers(activeThreadId, activeThread);
+  let found = false;
+  for (const id of ids) {
+    if (!Object.prototype.hasOwnProperty.call(map || {}, id)) continue;
+    found = true;
+    if (map[id]) return true;
+  }
+  return found ? false : fallback;
+}
+
+const GENERIC_TIMELINE_COMMAND_TITLES = new Set(['command', 'execute command', 'running command', '执行命令', '命令', '终端命令']);
+
+function timelineItemKind(item = {}) {
+  return (item.kind || item.type || item.eventType || item.event_type || '').toString().trim().toLowerCase();
+}
+
+function timelineItemTextValue(item = {}) {
+  return (item.text || item.content || item.message || item.output || item.result || item.error || '').toString().trim();
+}
+
+function hasRenderableTimelineCommand(item = {}) {
+  if ((item.command || '').toString().trim()) return true;
+  if (timelineItemTextValue(item)) return true;
+  const title = (item.title || '').toString().trim();
+  return Boolean(title.startsWith('$ ') && !GENERIC_TIMELINE_COMMAND_TITLES.has(title.toLowerCase()));
+}
+
+function isRenderableThreadScopedTimelineItem(item = {}) {
+  if (timelineItemKind(item) !== 'command') return true;
+  if ((item.tool || item.toolName || item.tool_name || '').toString().trim()) return false;
+  return hasRenderableTimelineCommand(item);
+}
+
+function timelineItemOrderTime(item = {}) {
+  return timestampMs(item.time || item.ts || item.createdAt || item.created_at || item.completedAt || item.completed_at);
+}
+
+function mergeThreadScopedTimelineItems(items = []) {
+  const merged = [];
+  const indexById = new Map();
+
+  for (const item of items) {
+    const id = (item?.id || '').toString().trim();
+    if (!id) {
+      merged.push(item);
+      continue;
+    }
+    const existingIndex = indexById.get(id);
+    if (existingIndex === undefined) {
+      indexById.set(id, merged.length);
+      merged.push(item);
+      continue;
+    }
+    merged[existingIndex] = { ...merged[existingIndex], ...item };
+  }
+
+  return merged
+    .map((item, index) => ({ item, index, orderTime: timelineItemOrderTime(item) }))
+    .sort((left, right) => {
+      if (left.orderTime && right.orderTime && left.orderTime !== right.orderTime) {
+        return left.orderTime - right.orderTime;
+      }
+      if (left.orderTime && !right.orderTime) return -1;
+      if (!left.orderTime && right.orderTime) return 1;
+      return left.index - right.index;
+    })
+    .map(({ item }) => item);
+}
+
+function threadScopedTimelineValue(map = {}, activeThreadId, activeThread, fallback = []) {
+  const ids = activeThreadIdentifiers(activeThreadId, activeThread);
+  const items = [];
+  for (const id of ids) {
+    if (!Object.prototype.hasOwnProperty.call(map || {}, id)) continue;
+    const value = map[id];
+    if (Array.isArray(value)) items.push(...value.filter(isRenderableThreadScopedTimelineItem));
+  }
+  return items.length > 0 ? mergeThreadScopedTimelineItems(items) : fallback;
+}
+
 function firstNormalizedIdentity(values = []) {
   for (const value of values) {
     const id = normalizedThreadIdentity(value);
@@ -1506,11 +1587,12 @@ function handleTimelineCitationAction(payload, { store, openFileRef }) {
 
 function useChatThreadData(store, activeThreadId) {
   const activeThread = activeThreadForStore(store);
-  const timelineBlocked = Boolean(activeThreadId && store.threadStateLoadingByThread?.[activeThreadId]);
-  const cachedTimeline = threadScopedMapValue(store.timelinesByThread, activeThreadId, activeThread, []) || [];
+  const timelineBlocked = Boolean(activeThreadId && threadScopedBooleanValue(store.threadStateLoadingByThread, activeThreadId, activeThread, false));
+  const cachedTimeline = threadScopedTimelineValue(store.timelinesByThread, activeThreadId, activeThread, []);
+  const timelineReadyFlag = threadScopedBooleanValue(store.threadTimelineReadyByThread, activeThreadId, activeThread, false);
   const timelineReady = Boolean(
     activeThreadId &&
-    store.threadTimelineReadyByThread?.[activeThreadId] &&
+    timelineReadyFlag &&
     (!timelineBlocked || cachedTimeline.length > 0),
   );
   const timelineContentBlocked = timelineBlocked && !timelineReady;
