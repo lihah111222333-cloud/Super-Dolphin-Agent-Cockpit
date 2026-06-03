@@ -1,0 +1,379 @@
+# 每日 AI 工具抖音成片自动化任务定义
+#
+# 状态：
+# - 已定义 DAG、cron、输出目录、节点依赖、失败条件。
+# - 尚未绑定真实运行时的 agent_key 和视频渲染 command_ref。
+# - 注册到 mcp-orch 前，必须把 bindings_required 中的值替换为当前环境真实值。
+
+task:
+  name: daily_douyin_ai_tools_video
+  description: 每天 17:40 生成 3 条 AI 工具方向的抖音成片
+  timezone: Asia/Shanghai
+  schedule: "40 17 * * *"
+  mode: generate_only
+  output_root: docs/cc/video
+
+inputs:
+  niche: AI 工具
+  video_count: 3
+  duration_seconds:
+    min: 20
+    max: 45
+  topic_types:
+    - 效率提升型
+    - 避坑测评型
+    - 场景教程型
+
+bindings_required:
+  agent_key: REQUIRED_RUNTIME_AGENT_KEY
+  video_render_command_ref: REQUIRED_VIDEO_RENDER_COMMAND_REF
+
+dag:
+  nodes:
+    - id: trend_collect
+      kind: agent_task
+      agent_key: ${bindings_required.agent_key}
+      prompt_template: douyin_ai_tools_trend_collect
+      inputs:
+        niche: ${inputs.niche}
+      outputs:
+        trend_report: ${task.output_root}/${date}/trend_report.md
+
+    - id: topic_generate
+      kind: agent_task
+      agent_key: ${bindings_required.agent_key}
+      depends_on:
+        - trend_collect
+      prompt_template: douyin_ai_tools_topic_generate
+      inputs:
+        trend_report: ${dag.nodes.trend_collect.outputs.trend_report}
+        topic_types: ${inputs.topic_types}
+      outputs:
+        topic_pool: ${task.output_root}/${date}/topic_pool.json
+
+    - id: topic_rank
+      kind: agent_task
+      agent_key: ${bindings_required.agent_key}
+      depends_on:
+        - topic_generate
+      prompt_template: douyin_ai_tools_topic_rank
+      inputs:
+        topic_pool: ${dag.nodes.topic_generate.outputs.topic_pool}
+        video_count: ${inputs.video_count}
+      outputs:
+        selected_topics: ${task.output_root}/${date}/selected_topics.json
+
+    - id: video_1_script
+      kind: agent_task
+      agent_key: ${bindings_required.agent_key}
+      depends_on:
+        - topic_rank
+      prompt_template: douyin_ai_tools_script_generate
+      inputs:
+        selected_topic: selected_topics[0]
+        duration_seconds: ${inputs.duration_seconds}
+      outputs:
+        script: ${task.output_root}/${date}/video_1/script.md
+
+    - id: video_1_storyboard
+      kind: agent_task
+      agent_key: ${bindings_required.agent_key}
+      depends_on:
+        - video_1_script
+      prompt_template: douyin_ai_tools_storyboard
+      inputs:
+        script: ${dag.nodes.video_1_script.outputs.script}
+      outputs:
+        storyboard: ${task.output_root}/${date}/video_1/storyboard.md
+
+    - id: video_1_asset_prepare
+      kind: agent_task
+      agent_key: ${bindings_required.agent_key}
+      depends_on:
+        - video_1_storyboard
+      prompt_template: douyin_ai_tools_asset_prepare
+      inputs:
+        storyboard: ${dag.nodes.video_1_storyboard.outputs.storyboard}
+      outputs:
+        assets_manifest: ${task.output_root}/${date}/video_1/assets_manifest.json
+
+    - id: video_1_voiceover
+      kind: agent_task
+      agent_key: ${bindings_required.agent_key}
+      depends_on:
+        - video_1_script
+      prompt_template: douyin_ai_tools_voiceover
+      inputs:
+        script: ${dag.nodes.video_1_script.outputs.script}
+      outputs:
+        voice: ${task.output_root}/${date}/video_1/voice.mp3
+
+    - id: video_1_render
+      kind: command_task
+      command_ref: ${bindings_required.video_render_command_ref}
+      depends_on:
+        - video_1_asset_prepare
+        - video_1_voiceover
+        - video_1_storyboard
+      inputs:
+        assets_manifest: ${dag.nodes.video_1_asset_prepare.outputs.assets_manifest}
+        voice: ${dag.nodes.video_1_voiceover.outputs.voice}
+        storyboard: ${dag.nodes.video_1_storyboard.outputs.storyboard}
+      outputs:
+        final_video: ${task.output_root}/${date}/video_1/final.mp4
+
+    - id: video_1_cover_title
+      kind: agent_task
+      agent_key: ${bindings_required.agent_key}
+      depends_on:
+        - video_1_script
+        - video_1_render
+      prompt_template: douyin_ai_tools_cover_title
+      inputs:
+        script: ${dag.nodes.video_1_script.outputs.script}
+        final_video: ${dag.nodes.video_1_render.outputs.final_video}
+      outputs:
+        cover: ${task.output_root}/${date}/video_1/cover.png
+        title_options: ${task.output_root}/${date}/video_1/title_options.md
+        hashtags: ${task.output_root}/${date}/video_1/hashtags.md
+
+    - id: video_1_qa
+      kind: agent_task
+      agent_key: ${bindings_required.agent_key}
+      depends_on:
+        - video_1_render
+        - video_1_cover_title
+      prompt_template: douyin_ai_tools_video_qa
+      inputs:
+        final_video: ${dag.nodes.video_1_render.outputs.final_video}
+        title_options: ${dag.nodes.video_1_cover_title.outputs.title_options}
+        hashtags: ${dag.nodes.video_1_cover_title.outputs.hashtags}
+      outputs:
+        qa_report: ${task.output_root}/${date}/video_1/qa_report.md
+
+    - id: video_2_script
+      kind: agent_task
+      agent_key: ${bindings_required.agent_key}
+      depends_on:
+        - topic_rank
+      prompt_template: douyin_ai_tools_script_generate
+      inputs:
+        selected_topic: selected_topics[1]
+        duration_seconds: ${inputs.duration_seconds}
+      outputs:
+        script: ${task.output_root}/${date}/video_2/script.md
+
+    - id: video_2_storyboard
+      kind: agent_task
+      agent_key: ${bindings_required.agent_key}
+      depends_on:
+        - video_2_script
+      prompt_template: douyin_ai_tools_storyboard
+      inputs:
+        script: ${dag.nodes.video_2_script.outputs.script}
+      outputs:
+        storyboard: ${task.output_root}/${date}/video_2/storyboard.md
+
+    - id: video_2_asset_prepare
+      kind: agent_task
+      agent_key: ${bindings_required.agent_key}
+      depends_on:
+        - video_2_storyboard
+      prompt_template: douyin_ai_tools_asset_prepare
+      inputs:
+        storyboard: ${dag.nodes.video_2_storyboard.outputs.storyboard}
+      outputs:
+        assets_manifest: ${task.output_root}/${date}/video_2/assets_manifest.json
+
+    - id: video_2_voiceover
+      kind: agent_task
+      agent_key: ${bindings_required.agent_key}
+      depends_on:
+        - video_2_script
+      prompt_template: douyin_ai_tools_voiceover
+      inputs:
+        script: ${dag.nodes.video_2_script.outputs.script}
+      outputs:
+        voice: ${task.output_root}/${date}/video_2/voice.mp3
+
+    - id: video_2_render
+      kind: command_task
+      command_ref: ${bindings_required.video_render_command_ref}
+      depends_on:
+        - video_2_asset_prepare
+        - video_2_voiceover
+        - video_2_storyboard
+      inputs:
+        assets_manifest: ${dag.nodes.video_2_asset_prepare.outputs.assets_manifest}
+        voice: ${dag.nodes.video_2_voiceover.outputs.voice}
+        storyboard: ${dag.nodes.video_2_storyboard.outputs.storyboard}
+      outputs:
+        final_video: ${task.output_root}/${date}/video_2/final.mp4
+
+    - id: video_2_cover_title
+      kind: agent_task
+      agent_key: ${bindings_required.agent_key}
+      depends_on:
+        - video_2_script
+        - video_2_render
+      prompt_template: douyin_ai_tools_cover_title
+      inputs:
+        script: ${dag.nodes.video_2_script.outputs.script}
+        final_video: ${dag.nodes.video_2_render.outputs.final_video}
+      outputs:
+        cover: ${task.output_root}/${date}/video_2/cover.png
+        title_options: ${task.output_root}/${date}/video_2/title_options.md
+        hashtags: ${task.output_root}/${date}/video_2/hashtags.md
+
+    - id: video_2_qa
+      kind: agent_task
+      agent_key: ${bindings_required.agent_key}
+      depends_on:
+        - video_2_render
+        - video_2_cover_title
+      prompt_template: douyin_ai_tools_video_qa
+      inputs:
+        final_video: ${dag.nodes.video_2_render.outputs.final_video}
+        title_options: ${dag.nodes.video_2_cover_title.outputs.title_options}
+        hashtags: ${dag.nodes.video_2_cover_title.outputs.hashtags}
+      outputs:
+        qa_report: ${task.output_root}/${date}/video_2/qa_report.md
+
+    - id: video_3_script
+      kind: agent_task
+      agent_key: ${bindings_required.agent_key}
+      depends_on:
+        - topic_rank
+      prompt_template: douyin_ai_tools_script_generate
+      inputs:
+        selected_topic: selected_topics[2]
+        duration_seconds: ${inputs.duration_seconds}
+      outputs:
+        script: ${task.output_root}/${date}/video_3/script.md
+
+    - id: video_3_storyboard
+      kind: agent_task
+      agent_key: ${bindings_required.agent_key}
+      depends_on:
+        - video_3_script
+      prompt_template: douyin_ai_tools_storyboard
+      inputs:
+        script: ${dag.nodes.video_3_script.outputs.script}
+      outputs:
+        storyboard: ${task.output_root}/${date}/video_3/storyboard.md
+
+    - id: video_3_asset_prepare
+      kind: agent_task
+      agent_key: ${bindings_required.agent_key}
+      depends_on:
+        - video_3_storyboard
+      prompt_template: douyin_ai_tools_asset_prepare
+      inputs:
+        storyboard: ${dag.nodes.video_3_storyboard.outputs.storyboard}
+      outputs:
+        assets_manifest: ${task.output_root}/${date}/video_3/assets_manifest.json
+
+    - id: video_3_voiceover
+      kind: agent_task
+      agent_key: ${bindings_required.agent_key}
+      depends_on:
+        - video_3_script
+      prompt_template: douyin_ai_tools_voiceover
+      inputs:
+        script: ${dag.nodes.video_3_script.outputs.script}
+      outputs:
+        voice: ${task.output_root}/${date}/video_3/voice.mp3
+
+    - id: video_3_render
+      kind: command_task
+      command_ref: ${bindings_required.video_render_command_ref}
+      depends_on:
+        - video_3_asset_prepare
+        - video_3_voiceover
+        - video_3_storyboard
+      inputs:
+        assets_manifest: ${dag.nodes.video_3_asset_prepare.outputs.assets_manifest}
+        voice: ${dag.nodes.video_3_voiceover.outputs.voice}
+        storyboard: ${dag.nodes.video_3_storyboard.outputs.storyboard}
+      outputs:
+        final_video: ${task.output_root}/${date}/video_3/final.mp4
+
+    - id: video_3_cover_title
+      kind: agent_task
+      agent_key: ${bindings_required.agent_key}
+      depends_on:
+        - video_3_script
+        - video_3_render
+      prompt_template: douyin_ai_tools_cover_title
+      inputs:
+        script: ${dag.nodes.video_3_script.outputs.script}
+        final_video: ${dag.nodes.video_3_render.outputs.final_video}
+      outputs:
+        cover: ${task.output_root}/${date}/video_3/cover.png
+        title_options: ${task.output_root}/${date}/video_3/title_options.md
+        hashtags: ${task.output_root}/${date}/video_3/hashtags.md
+
+    - id: video_3_qa
+      kind: agent_task
+      agent_key: ${bindings_required.agent_key}
+      depends_on:
+        - video_3_render
+        - video_3_cover_title
+      prompt_template: douyin_ai_tools_video_qa
+      inputs:
+        final_video: ${dag.nodes.video_3_render.outputs.final_video}
+        title_options: ${dag.nodes.video_3_cover_title.outputs.title_options}
+        hashtags: ${dag.nodes.video_3_cover_title.outputs.hashtags}
+      outputs:
+        qa_report: ${task.output_root}/${date}/video_3/qa_report.md
+
+    - id: daily_summary
+      kind: agent_task
+      agent_key: ${bindings_required.agent_key}
+      depends_on:
+        - video_1_qa
+        - video_2_qa
+        - video_3_qa
+      prompt_template: douyin_ai_tools_daily_summary
+      inputs:
+        qa_reports:
+          - ${dag.nodes.video_1_qa.outputs.qa_report}
+          - ${dag.nodes.video_2_qa.outputs.qa_report}
+          - ${dag.nodes.video_3_qa.outputs.qa_report}
+      outputs:
+        daily_summary: ${task.output_root}/${date}/daily_summary.md
+
+    - id: feedback_update
+      kind: agent_task
+      agent_key: ${bindings_required.agent_key}
+      depends_on:
+        - daily_summary
+      prompt_template: douyin_ai_tools_feedback_update
+      inputs:
+        daily_summary: ${dag.nodes.daily_summary.outputs.daily_summary}
+      outputs:
+        content_memory: ${task.output_root}/content_memory.json
+
+quality_gates:
+  fail_fast: true
+  rules:
+    - id: non_empty_trends
+      description: 趋势采集结果不能为空
+    - id: minimum_topics
+      description: 候选选题不能少于 3 个
+    - id: selected_topic_score
+      description: 入选选题评分必须大于等于 75
+    - id: hook_required
+      description: 脚本必须包含 0-3 秒强钩子
+    - id: duration_range
+      description: 成片时长必须在 20-45 秒
+    - id: final_video_required
+      description: 每条视频必须生成 final.mp4
+    - id: subtitle_required
+      description: 成片必须包含字幕且字幕不能明显不同步
+    - id: rights_and_safety
+      description: 不允许侵权素材、敏感词或违规表达
+
+publish:
+  enabled: false
+  reason: 当前需求为生成成片，不自动发布
