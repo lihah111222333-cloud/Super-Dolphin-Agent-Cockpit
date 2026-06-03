@@ -2,6 +2,10 @@ package observability
 
 import (
 	"context"
+	"errors"
+	"path/filepath"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -85,6 +89,61 @@ func TestServiceQueryTailDoesNotReuseStaleResult(t *testing.T) {
 	}
 }
 
+func TestServiceQueryTailCoalescesInflightButDoesNotCacheCompletedResult(t *testing.T) {
+	cfg := Config{IndexMaxEvents: 2, IndexMaxTraceEvents: 2, IndexMaxThreadEvents: 2, IndexMaxSlowEvents: 2, IndexMaxErrorEvents: 2, MetadataMaxBytes: 4096, StringMaxBytes: 512, QueryTailTimeoutMS: 1000, QueryTailMaxConcurrency: 2}
+	started := make(chan struct{})
+	release := make(chan struct{})
+	var calls atomic.Int32
+	tail := newBlockingSameTraceTailReader(started, release, &calls)
+	svc := NewService(cfg, WithTailReader(tail))
+	query := Query{TraceID: "same", IncludeTail: true}
+	results := make(chan QueryResult, 2)
+
+	go func() {
+		results <- svc.Query(context.Background(), query)
+	}()
+	waitForSignal(t, started, "first tail read to start")
+
+	secondCtx, secondWaiting := newDoneSignalContext(context.Background())
+	go func() {
+		results <- svc.Query(secondCtx, query)
+	}()
+	waitForSignal(t, secondWaiting, "second query to wait on in-flight tail read")
+	close(release)
+
+	first := receiveQueryResult(t, results)
+	second := receiveQueryResult(t, results)
+	assertQueryMethods(t, first, "tail-shared", "first concurrent")
+	assertQueryMethods(t, second, "tail-shared", "second concurrent")
+	assertTailCalls(t, &calls, 1, "after concurrent query")
+
+	after := svc.Query(context.Background(), query)
+	assertQueryMethods(t, after, "tail-after", "sequential")
+	assertTailCalls(t, &calls, 2, "after sequential query")
+}
+
+func TestServiceQueryTailReReadsJSONLForSameQuery(t *testing.T) {
+	dir := t.TempDir()
+	cfg := Config{IndexMaxEvents: 2, IndexMaxTraceEvents: 2, IndexMaxThreadEvents: 2, IndexMaxSlowEvents: 2, IndexMaxErrorEvents: 2, MetadataMaxBytes: 4096, StringMaxBytes: 512, QueryTailTimeoutMS: 100, QueryTailMaxConcurrency: 1}
+	svc := NewService(cfg, WithTailReader(JSONLTailReader{Dir: dir, MaxBytes: 1024 * 1024}))
+	query := Query{TraceID: "disk-tail", IncludeTail: true}
+
+	first := svc.Query(context.Background(), query)
+	if len(first.Events) != 0 {
+		t.Fatalf("first events = %#v, want none before JSONL file exists", first.Events)
+	}
+
+	writeJSONL(t, filepath.Join(dir, "trace-2026-06-03.jsonl"), TraceEvent{SchemaVersion: SchemaVersion, TraceID: "disk-tail", Method: "jsonl-fresh", Status: StatusOK})
+
+	second := svc.Query(context.Background(), query)
+	if second.Source != QuerySourceJSONLTail {
+		t.Fatalf("second source = %q, want jsonl_tail", second.Source)
+	}
+	if got := methods(second.Events); got != "jsonl-fresh" {
+		t.Fatalf("second events = %q (%#v), want fresh JSONL tail event", got, second.Events)
+	}
+}
+
 func TestServiceQueryReportsMixedSourceWhenMemoryAndTailBothContribute(t *testing.T) {
 	cfg := Config{IndexMaxEvents: 2, IndexMaxTraceEvents: 2, IndexMaxThreadEvents: 2, IndexMaxSlowEvents: 2, IndexMaxErrorEvents: 2, MetadataMaxBytes: 4096, StringMaxBytes: 512, QueryTailTimeoutMS: 100, QueryTailMaxConcurrency: 1}
 	tail := QueryTailReaderFunc(func(context.Context, Query) (QueryResult, error) {
@@ -134,5 +193,91 @@ func TestServiceQueryMixedTailDedupeLimitAndTruncation(t *testing.T) {
 	}
 	if methods(got.Events) != "memory-duplicate,memory-newer,tail-newest" {
 		t.Fatalf("events = %q (%#v), want deduped newest chronological three", methods(got.Events), got.Events)
+	}
+}
+
+func newBlockingSameTraceTailReader(started chan<- struct{}, release <-chan struct{}, calls *atomic.Int32) QueryTailReaderFunc {
+	return func(ctx context.Context, query Query) (QueryResult, error) {
+		if query.TraceID != "same" {
+			return QueryResult{Source: QuerySourceJSONLTail}, errors.New("unexpected tail query trace")
+		}
+		call := calls.Add(1)
+		signalFirstTailRead(call, started)
+		if err := waitForTailRelease(ctx, release); err != nil {
+			return QueryResult{Source: QuerySourceJSONLTail}, err
+		}
+		return QueryResult{Source: QuerySourceJSONLTail, Events: []TraceEvent{{TraceID: "same", Method: tailMethodForCall(call)}}}, nil
+	}
+}
+
+func signalFirstTailRead(call int32, started chan<- struct{}) {
+	if call == 1 {
+		close(started)
+	}
+}
+
+func waitForTailRelease(ctx context.Context, release <-chan struct{}) error {
+	select {
+	case <-release:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+func tailMethodForCall(call int32) string {
+	if call == 1 {
+		return "tail-shared"
+	}
+	return "tail-after"
+}
+
+type doneSignalContext struct {
+	context.Context
+	once   sync.Once
+	called chan struct{}
+}
+
+func newDoneSignalContext(ctx context.Context) (*doneSignalContext, <-chan struct{}) {
+	called := make(chan struct{})
+	return &doneSignalContext{Context: ctx, called: called}, called
+}
+
+func (ctx *doneSignalContext) Done() <-chan struct{} {
+	ctx.once.Do(func() { close(ctx.called) })
+	return ctx.Context.Done()
+}
+
+func waitForSignal(t *testing.T, signal <-chan struct{}, name string) {
+	t.Helper()
+	select {
+	case <-signal:
+	case <-time.After(5 * time.Second):
+		t.Fatalf("timed out waiting for %s", name)
+	}
+}
+
+func receiveQueryResult(t *testing.T, results <-chan QueryResult) QueryResult {
+	t.Helper()
+	select {
+	case result := <-results:
+		return result
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for query result")
+		return QueryResult{}
+	}
+}
+
+func assertQueryMethods(t *testing.T, result QueryResult, want string, label string) {
+	t.Helper()
+	if got := methods(result.Events); got != want {
+		t.Fatalf("%s events = %q (%#v), want %q", label, got, result.Events, want)
+	}
+}
+
+func assertTailCalls(t *testing.T, calls *atomic.Int32, want int32, label string) {
+	t.Helper()
+	if got := calls.Load(); got != want {
+		t.Fatalf("tail calls %s = %d, want %d", label, got, want)
 	}
 }
