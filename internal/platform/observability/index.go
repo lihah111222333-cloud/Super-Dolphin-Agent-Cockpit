@@ -53,6 +53,7 @@ func (i *Index) Query(query Query) QueryResult {
 	i.mu.Lock()
 	defer i.mu.Unlock()
 	seqs := i.querySeqs(query)
+	seqs = i.filterSeqs(seqs, query)
 	events, truncated := i.eventsForSeqs(seqs, query.Limit)
 	return QueryResult{Source: QuerySourceMemory, Events: events, Truncated: truncated}
 }
@@ -93,6 +94,17 @@ func (i *Index) querySeqs(query Query) []uint64 {
 	default:
 		return append([]uint64(nil), i.order...)
 	}
+}
+
+func (i *Index) filterSeqs(seqs []uint64, query Query) []uint64 {
+	out := seqs[:0]
+	for _, seq := range seqs {
+		event, ok := i.events[seq]
+		if ok && matchesQuery(event, query) {
+			out = append(out, seq)
+		}
+	}
+	return out
 }
 
 func (i *Index) keySeqs(refs map[string]*seqRing, key string) []uint64 {

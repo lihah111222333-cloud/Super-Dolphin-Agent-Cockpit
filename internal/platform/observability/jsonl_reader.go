@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 )
 
 const (
@@ -27,6 +28,9 @@ type JSONLTailReader struct {
 type TailReadResult struct {
 	Events       []TraceEvent
 	DecodeErrors []TailDecodeError
+	FilesScanned int
+	BytesRead    int
+	Truncated    bool
 }
 
 type TailDecodeError struct {
@@ -42,13 +46,17 @@ func NewTailReader(dir string, cfg Config) JSONLTailReader {
 }
 
 func (r JSONLTailReader) QueryTraceEvents(ctx context.Context, query Query) (QueryResult, error) {
+	startedAt := time.Now()
 	result, err := r.Read(ctx)
+	queryResult := tailQueryResultFromRead(result, time.Since(startedAt), err)
 	if err != nil {
-		return QueryResult{Source: QuerySourceJSONLTail}, err
+		return queryResult, err
 	}
 	events := filterTailEvents(result.Events, query)
 	events, truncated := limitTailEvents(events, query.Limit)
-	return QueryResult{Source: QuerySourceJSONLTail, Events: events, Truncated: truncated}, nil
+	queryResult.Events = events
+	queryResult.Truncated = truncated
+	return queryResult, nil
 }
 
 func (r JSONLTailReader) Read(ctx context.Context) (TailReadResult, error) {
@@ -59,7 +67,10 @@ func (r JSONLTailReader) Read(ctx context.Context) (TailReadResult, error) {
 	if err != nil {
 		return TailReadResult{}, err
 	}
-	return readSelectedTailFiles(ctx, selectTailFiles(files, r.MaxBytes))
+	selected, truncated := selectTailFiles(files, r.MaxBytes)
+	result, err := readSelectedTailFiles(ctx, selected)
+	result.Truncated = result.Truncated || truncated
+	return result, err
 }
 
 func (r JSONLTailReader) validate(ctx context.Context) error {
@@ -80,17 +91,24 @@ func (r JSONLTailReader) validate(ctx context.Context) error {
 	return nil
 }
 
-func selectTailFiles(files []traceTailFile, maxBytes int64) []traceTailFile {
+func selectTailFiles(files []traceTailFile, maxBytes int64) ([]traceTailFile, bool) {
 	remaining := maxBytes
 	selected := make([]traceTailFile, 0, len(files))
+	truncated := false
 	for i := len(files) - 1; i >= 0 && remaining > 0; i-- {
 		file := files[i]
 		readBytes := min(file.size, remaining)
+		if readBytes < file.size {
+			truncated = true
+		}
 		selected = append(selected, traceTailFile{path: file.path, size: file.size, readBytes: readBytes})
 		remaining -= readBytes
 	}
+	if len(selected) < len(files) {
+		truncated = true
+	}
 	sort.Slice(selected, func(i, j int) bool { return selected[i].path < selected[j].path })
-	return selected
+	return selected, truncated
 }
 
 func readSelectedTailFiles(ctx context.Context, files []traceTailFile) (TailReadResult, error) {
@@ -99,7 +117,8 @@ func readSelectedTailFiles(ctx context.Context, files []traceTailFile) (TailRead
 		if err := ctx.Err(); err != nil {
 			return result, err
 		}
-		if err := readTailFile(file, &result); err != nil {
+		result.FilesScanned++
+		if err := readTailFile(ctx, file, &result); err != nil {
 			return result, err
 		}
 	}
@@ -109,31 +128,11 @@ func readSelectedTailFiles(ctx context.Context, files []traceTailFile) (TailRead
 func filterTailEvents(events []TraceEvent, query Query) []TraceEvent {
 	out := make([]TraceEvent, 0, len(events))
 	for _, event := range events {
-		if matchesTailQuery(event, query) {
+		if matchesQuery(event, query) {
 			out = append(out, event)
 		}
 	}
 	return out
-}
-
-func matchesTailQuery(event TraceEvent, query Query) bool {
-	return matchesTraceID(event, query) && matchesThreadID(event, query) && matchesSlow(event, query) && matchesError(event, query)
-}
-
-func matchesTraceID(event TraceEvent, query Query) bool {
-	return query.TraceID == "" || event.TraceID == query.TraceID
-}
-
-func matchesThreadID(event TraceEvent, query Query) bool {
-	return query.ThreadID == "" || event.ThreadID == query.ThreadID
-}
-
-func matchesSlow(event TraceEvent, query Query) bool {
-	return !query.Slow || event.Status == StatusSlow
-}
-
-func matchesError(event TraceEvent, query Query) bool {
-	return !query.Errors || event.Status == StatusError || event.Status == StatusPanic
 }
 
 func limitTailEvents(events []TraceEvent, limit int) ([]TraceEvent, bool) {
@@ -213,7 +212,7 @@ type traceTailFile struct {
 	readBytes int64
 }
 
-func readTailFile(file traceTailFile, result *TailReadResult) error {
+func readTailFile(ctx context.Context, file traceTailFile, result *TailReadResult) error {
 	f, err := os.Open(file.path)
 	if err != nil {
 		return fmt.Errorf("open trace tail file %s: %w", file.path, err)
@@ -223,9 +222,13 @@ func readTailFile(file traceTailFile, result *TailReadResult) error {
 	if _, err := f.Seek(offset, io.SeekStart); err != nil {
 		return fmt.Errorf("seek trace tail file %s: %w", file.path, err)
 	}
-	data, err := io.ReadAll(io.LimitReader(f, file.readBytes))
+	data, err := readTailFileBytes(ctx, f, file.readBytes)
 	if err != nil {
 		return fmt.Errorf("read trace tail file %s: %w", file.path, err)
+	}
+	result.BytesRead += len(data)
+	if file.readBytes < file.size {
+		result.Truncated = true
 	}
 	if offset > 0 {
 		if cut := bytes.IndexByte(data, '\n'); cut >= 0 {
@@ -234,15 +237,47 @@ func readTailFile(file traceTailFile, result *TailReadResult) error {
 			return nil
 		}
 	}
-	parseTailLines(file.path, data, result)
-	return nil
+	return parseTailLines(ctx, file.path, data, result)
 }
 
-func parseTailLines(path string, data []byte, result *TailReadResult) {
+func readTailFileBytes(ctx context.Context, reader io.Reader, limit int64) ([]byte, error) {
+	var out bytes.Buffer
+	out.Grow(int(min(limit, int64(1024*1024))))
+	chunk := make([]byte, 64*1024)
+	remaining := limit
+	for remaining > 0 {
+		if err := ctx.Err(); err != nil {
+			return out.Bytes(), err
+		}
+		n, err := reader.Read(chunk[:min(len(chunk), int(remaining))])
+		if n > 0 {
+			out.Write(chunk[:n])
+			remaining -= int64(n)
+		}
+		if errors.Is(err, io.EOF) {
+			return out.Bytes(), nil
+		}
+		if err != nil {
+			return out.Bytes(), err
+		}
+		if n == 0 {
+			return out.Bytes(), io.ErrNoProgress
+		}
+	}
+	return out.Bytes(), ctx.Err()
+}
+
+func parseTailLines(ctx context.Context, path string, data []byte, result *TailReadResult) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	scanner := bufio.NewScanner(bytes.NewReader(data))
 	scanner.Buffer(make([]byte, 0, 64*1024), 16*1024*1024)
 	line := 0
 	for scanner.Scan() {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		line++
 		raw := bytes.TrimSpace(scanner.Bytes())
 		if len(raw) == 0 {
@@ -259,6 +294,29 @@ func parseTailLines(path string, data []byte, result *TailReadResult) {
 		line++
 		result.DecodeErrors = append(result.DecodeErrors, tailDecodeError(path, line, false, err))
 	}
+	return ctx.Err()
+}
+
+func tailQueryResultFromRead(result TailReadResult, duration time.Duration, err error) QueryResult {
+	return QueryResult{
+		Source:           QuerySourceJSONLTail,
+		TailDecodeErrors: result.DecodeErrors,
+		TailFilesScanned: result.FilesScanned,
+		TailBytesRead:    result.BytesRead,
+		TailDurationMS:   durationMillis(duration),
+		TailTimedOut:     errors.Is(err, context.DeadlineExceeded),
+		TailTruncated:    result.Truncated,
+	}
+}
+
+func durationMillis(duration time.Duration) int64 {
+	if duration <= 0 {
+		return 0
+	}
+	if duration < time.Millisecond {
+		return 1
+	}
+	return duration.Milliseconds()
 }
 
 func tailDecodeError(path string, line int, trailing bool, err error) TailDecodeError {
