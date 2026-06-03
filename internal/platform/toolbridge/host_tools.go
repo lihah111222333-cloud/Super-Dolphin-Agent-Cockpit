@@ -33,6 +33,10 @@ type HostToolRegistry interface {
 	CallHostTool(ctx context.Context, call HostToolCall) (any, error)
 }
 
+type HostToolCWDPolicy interface {
+	RequiresCWD(name string) bool
+}
+
 // Removed skill tool names are kept only so stale Codex tool calls and
 // shadowing MCP peers are rejected explicitly. The implementations were
 // removed with the provider-native mirror cutover.
