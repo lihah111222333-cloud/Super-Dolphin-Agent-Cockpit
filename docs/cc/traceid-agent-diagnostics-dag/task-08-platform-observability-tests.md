@@ -1,10 +1,10 @@
-# T08 - Platform Observability Tests
+# T08 - Platform Observability Test Gate
 
 Depends on: T02, T03, T04
 
 ## Objective
 
-Lock the platform diagnosis behavior with focused Go tests.
+Lock the platform diagnosis behavior with focused Go tests and verify that T02, T03, and T04 carried their regression tests in the same worktree commits.
 
 ## Source Anchors
 
@@ -20,12 +20,17 @@ Add or extend tests for:
 - Malformed JSONL and trailing partial lines expose decode or partial-tail warnings.
 - Memory and tail filtering agree for combined trace/thread/slow/error predicates, or report documented differences.
 - Diagnosis output does not include raw `TraceEvent` or raw metadata.
+- `ForceRefresh=true` does not reuse an older ordinary lookup's in-flight tail result.
+- Tail timeout and truncation produce degraded or warning fields.
+- Large traces remain under the T01 output bounds.
 
 ## Requirements
 
 - Keep fixtures small and deterministic.
 - Avoid sleeping for cache freshness; prefer explicit force-refresh controls or fake readers.
 - Test fail-fast behavior for invalid `TraceID`.
+- Do not leave all platform tests to T08; behavior-changing work in T02, T03, and T04 must include its own tests before that worktree can pass review.
+- Prefer fake tail readers or non-directory paths over permission-only unreadable file fixtures, which can be unstable under different test users.
 
 ## Acceptance Criteria
 
@@ -34,4 +39,3 @@ Add or extend tests for:
 ```
 
 passes locally.
-
