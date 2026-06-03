@@ -107,6 +107,7 @@ function waitRuntime() {
       })
       .catch((error) => {
         writeBridgeLog('error', 'bridge.runtime.load.failed', { error });
+        runtimePromise = null; // allow retry on next call
         return null;
       });
   }
