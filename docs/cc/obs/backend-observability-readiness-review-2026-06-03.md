@@ -28,9 +28,23 @@ Tooling note: repository policy asks sub-agents to use `mcp-go-agent-orchestrati
 
 ## Verdict
 
-Not production-ready for enabled-by-default tracing dashboards until the tail cache freshness bug is fixed.
+Original review verdict: not production-ready for enabled-by-default tracing dashboards until the tail cache freshness bug is fixed. The current branch includes the W1 fix evidence recorded below, but production-readiness should remain gated on final package verification.
 
-Only one finding passed the strict focus gate: stale JSONL tail cache. It received 5/5 initial votes, the follow-up review confirmed it is reachable from the current UI/RPC paths, and no upper layer currently neutralizes it.
+Only one finding passed the strict focus gate at review time: stale JSONL tail cache. It received 5/5 initial votes, the follow-up review confirmed it is reachable from the current UI/RPC paths, and no upper layer neutralized it before the W1 service fix.
+
+## Implementation Status
+
+Current W1/W4 implementation evidence:
+
+- The chosen fix removes the persistent completed tail result cache from `internal/platform/observability/service.go`.
+- In-flight coalescing is retained through `inflight map[Query]*tailCall`, `tailCall(...)`, and `finishTailCall(...)`, so concurrent identical tail reads can still share one active read without reusing completed results later.
+- W1 added `TestServiceQueryTailDoesNotReuseStaleResult` in `internal/platform/observability/service_test.go`, covering two identical sequential `IncludeTail:true` queries whose tail reader returns different results and must be called twice.
+- W4 locks UI/API reachability evidence in `frontend-app/src/pages/observability/ObservabilityPage.test.jsx`: recent search and trace drilldown payloads omit `includeTail`, so the RPC default remains reachable from the observability page. `frontend-app/src/shared/api/backendApi.test.js` already exactly covers the relevant API facade payload shapes without `includeTail:false`.
+
+Remaining DAG status:
+
+- Tasks 03-06 add broader service JSONL and RPC freshness regressions on the W2/W3 branches or integration branch; do not count this document update as evidence that those worker tasks have landed here.
+- The overall OBS-F01 package remains pending final package verification.
 
 ## Focus Finding
 
@@ -41,7 +55,7 @@ Vote:
 - Initial review: 5/5 agents raised this risk.
 - Follow-up reachability review: Confirmed, high confidence, high production relevance.
 
-Evidence:
+Pre-fix evidence:
 
 - `internal/platform/observability/service.go:42` stores `cache map[Query]QueryResult`.
 - `internal/platform/observability/service.go:239-241` returns `cachedTail(query)` before any file read.
@@ -67,9 +81,9 @@ Reachable paths:
 - Service query:
   `internal/platform/observability/service.go:153-169`
   calls `queryTail` when `IncludeTail` is true.
-- Tail cache:
+- Pre-fix tail cache:
   `internal/platform/observability/service.go:239-241`
-  returns old cached results for the same `Query`.
+  returned old cached results for the same `Query`. W1 removed this persistent completed-result cache.
 
 Trace drilldown follows the same pattern:
 
@@ -80,27 +94,27 @@ Trace drilldown follows the same pattern:
 - `internal/module/observability/rpc.go:136`
   uses the same `includeTail(...)` default.
 
-New writes are reachable but do not invalidate the cache:
+Pre-fix new writes were reachable but did not invalidate the cache:
 
 - `internal/module/observability/rpc.go:191-217` frontend ingest records events through `svc.Record`.
 - `internal/platform/observability/service.go:109-132` writes accepted events to the in-memory index and sink.
-- No cache clear, generation bump, or file watermark update occurs on that path.
+- Before W1, no cache clear, generation bump, or file watermark update occurred on that path.
 
-Upper-layer protections checked:
+Pre-fix upper-layer protections checked:
 
 - Explicit `includeTail:false` would avoid the tail cache, but the current observability UI does not pass it for recent logs or trace drilldown.
 - `limit` only bounds returned results; it does not force a tail refresh.
 - `OBS_TRACING_ENABLED=false` disables tracing, but default config enables tracing when not explicitly disabled.
 - Tail file guards and query timeout limit read cost, not freshness.
-- The 64-entry cache reset is incidental and unrelated to file freshness.
+- The pre-fix 64-entry cache reset was incidental and unrelated to file freshness.
 
-Production impact:
+Pre-fix production impact:
 
 The observability page can show normal-looking but stale results for recent logs and trace drilldown. The same cache path is also reachable through the slow/error RPC endpoints, even though those endpoints are not currently first-class controls on the observability page. Newly written JSONL events can remain invisible for repeated identical tail-backed queries until process restart or until enough unrelated query shapes clear the entire tail cache.
 
 This directly breaks incident diagnosis: an operator can refresh the same trace or recent-log query and still miss new errors because the service returns the old `QueryResult`.
 
-Required fix:
+Required fix from review:
 
 - Remove the persistent tail result cache, or make freshness explicit with TTL plus file path/size/mtime or sink generation validation.
 - Add a force-refresh query option if the UI needs manual refresh semantics.
