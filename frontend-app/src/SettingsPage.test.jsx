@@ -6,6 +6,7 @@ import { resetClientStoreForTests, useClientStore } from './entities/client/mode
 
 const backend = vi.hoisted(() => ({
   readConfig: vi.fn(),
+  getBuildInfo: vi.fn(),
   getWindowBootstrap: vi.fn(),
   getProjects: vi.fn(),
   getSidebarState: vi.fn(),
@@ -14,7 +15,12 @@ const backend = vi.hoisted(() => ({
   getMemorySnapshot: vi.fn(),
   setPreference: vi.fn(),
   getPreference: vi.fn(),
-  callBackend: vi.fn(),
+  readLspPromptHint: vi.fn(),
+  writeLspPromptHint: vi.fn(),
+  readBuiltinTools: vi.fn(),
+  writeBuiltinTool: vi.fn(),
+  listDashboardLogs: vi.fn(),
+  copyTextToClipboard: vi.fn(),
   onFilesDropped: vi.fn(() => () => {}),
   onBridgeEvent: vi.fn(() => () => {}),
 }));
@@ -25,15 +31,6 @@ vi.mock('./shared/api/backendApi.js', () => ({
   sendFrontendLogBatch: vi.fn(),
   emitFrontendTraceEvent: vi.fn(),
 }));
-
-// Mock navigator.clipboard
-const mockClipboardWriteText = vi.fn();
-Object.defineProperty(navigator, 'clipboard', {
-  value: {
-    writeText: mockClipboardWriteText,
-  },
-  writable: true,
-});
 
 const builtInTools = [
   { id: 'tool-1', label: 'File Search', description: 'Search workspace files', enabled: true, provider: 'claude', filterMode: 'hard' },
@@ -68,6 +65,12 @@ function resetSettingsStoreWithoutProject() {
 }
 
 function mockSettingsBootstrap() {
+  backend.getBuildInfo.mockResolvedValue({
+    version: 'v1.2.3',
+    runtime: 'linux/amd64',
+    buildTime: '2026-05-30T07:00:00Z',
+    commit: 'abc123def456',
+  });
   backend.readConfig.mockResolvedValue({ cwd: '/repo/app' });
   backend.getWindowBootstrap.mockResolvedValue({ ok: true });
   backend.getProjects.mockResolvedValue({ projects: ['/repo/app'], active: '/repo/app' });
@@ -95,28 +98,26 @@ function mockSettingsPreferences() {
 }
 
 function mockSettingsConfigApi() {
-  backend.callBackend.mockImplementation((method, _params) => {
-    if (method === 'config/read') {
-      return Promise.resolve({ cwd: '/repo/app' });
-    }
-    if (method === 'config/lspPromptHint/read') {
-      return Promise.resolve({
-        hint: 'effective prompt text',
-        defaultHint: 'default prompt text',
-        overrideHint: 'custom override text',
-        usingDefault: false,
-      });
-    }
-    if (method === 'config/builtinTools/read') {
-      return Promise.resolve({ tools: builtInTools });
-    }
-    return Promise.resolve({});
+  backend.readLspPromptHint.mockResolvedValue({
+    hint: 'effective prompt text',
+    defaultHint: 'default prompt text',
+    overrideHint: 'custom override text',
+    usingDefault: false,
   });
+  backend.readBuiltinTools.mockResolvedValue({ tools: builtInTools });
+  backend.writeLspPromptHint.mockResolvedValue({
+    hint: 'custom override text',
+    defaultHint: 'default prompt text',
+    overrideHint: 'custom override text',
+    usingDefault: false,
+  });
+  backend.writeBuiltinTool.mockResolvedValue({ tools: enabledBuiltInTools });
+  backend.listDashboardLogs.mockResolvedValue({ logs: [] });
+  backend.copyTextToClipboard.mockResolvedValue(true);
 }
 
 function resetSettingsPageTestState() {
   vi.clearAllMocks();
-  mockClipboardWriteText.mockReset();
   resetSettingsStore();
   mockSettingsBootstrap();
   mockSettingsPreferences();
@@ -147,27 +148,24 @@ async function expectPromptVisibilitySaved(value) {
 }
 
 async function copyEffectivePromptHint() {
-  mockClipboardWriteText.mockResolvedValueOnce();
+  backend.copyTextToClipboard.mockResolvedValueOnce(true);
   fireEvent.click(screen.getByTestId('settings-lsp-copy-button'));
   await waitFor(() => {
-    expect(mockClipboardWriteText).toHaveBeenCalledWith('effective prompt text');
+    expect(backend.copyTextToClipboard).toHaveBeenCalledWith('effective prompt text');
     expect(screen.getByTestId('settings-lsp-prompt-notice')).toHaveTextContent('已复制生效提示词');
     expect(screen.getByTestId('settings-lsp-prompt-notice')).toHaveAttribute('role', 'status');
   });
 }
 
 function mockPromptHintWriteSuccess() {
-  backend.callBackend.mockImplementation((method, params) => {
-    if (method === 'config/lspPromptHint/write') {
-      expect(params).toEqual({ cwd: '/repo/app', hint: 'custom override text' });
-      return Promise.resolve({
-        hint: 'custom override text',
-        defaultHint: 'default prompt text',
-        overrideHint: 'custom override text',
-        usingDefault: false,
-      });
-    }
-    return Promise.resolve({});
+  backend.writeLspPromptHint.mockImplementation((params) => {
+    expect(params).toEqual({ cwd: '/repo/app', hint: 'custom override text' });
+    return Promise.resolve({
+      hint: 'custom override text',
+      defaultHint: 'default prompt text',
+      overrideHint: 'custom override text',
+      usingDefault: false,
+    });
   });
 }
 
@@ -180,12 +178,9 @@ async function savePromptHintAndExpectSuccess() {
 }
 
 function mockBuiltinToolWriteSuccess() {
-  backend.callBackend.mockImplementation((method, params) => {
-    if (method === 'config/builtinTools/write') {
-      expect(params).toEqual({ cwd: '/repo/app', id: 'tool-2', enabled: true });
-      return Promise.resolve({ tools: enabledBuiltInTools });
-    }
-    return Promise.resolve({});
+  backend.writeBuiltinTool.mockImplementation((params) => {
+    expect(params).toEqual({ cwd: '/repo/app', id: 'tool-2', enabled: true });
+    return Promise.resolve({ tools: enabledBuiltInTools });
   });
 }
 
@@ -246,6 +241,273 @@ describe('SettingsPage provider settings', () => {
       expect(screen.getByText('已保存：auto / never')).toHaveAttribute('role', 'status');
     });
   });
+
+  it('loads and saves summary and approval for the active Claude provider', async () => {
+    backend.getPreference.mockImplementation(({ key }) => Promise.resolve({
+      'settings.provider.active': 'claude',
+      'settings.provider.claude.summary': 'auto',
+      'settings.provider.claude.approvalPolicy': 'on-failure',
+      'settings.provider.claude.model': 'sonnet',
+      'settings.provider.claude.effort': 'high',
+      'settings.provider.claude.sandbox': { type: 'workspaceWrite', writableRoots: ['/repo/app'], networkAccess: false },
+    }[key] ?? null));
+
+    await renderSettingsPage();
+
+    await waitFor(() => {
+      expect(screen.getByRole('combobox', { name: 'Active Provider' })).toHaveValue('claude');
+      expect(screen.getByRole('combobox', { name: '推理摘要 (Summary)' })).toHaveValue('auto');
+      expect(screen.getByRole('combobox', { name: '审批策略 (ApprovalPolicy)' })).toHaveValue('on-failure');
+    });
+
+    fireEvent.change(screen.getByTestId('provider-summary-mode-select'), { target: { value: 'none' } });
+    fireEvent.change(screen.getByTestId('provider-approval-mode-select'), { target: { value: 'never' } });
+    fireEvent.click(screen.getByTestId('provider-sandbox-save-button'));
+
+    await waitFor(() => {
+      expect(backend.setPreference).toHaveBeenCalledWith({
+        cwd: '/repo/app',
+        key: 'settings.provider.claude.summary',
+        value: 'none',
+      });
+      expect(backend.setPreference).toHaveBeenCalledWith({
+        cwd: '/repo/app',
+        key: 'settings.provider.claude.approvalPolicy',
+        value: 'never',
+      });
+    });
+    expect(backend.setPreference).not.toHaveBeenCalledWith(expect.objectContaining({
+      key: 'settings.provider.codex.summary',
+    }));
+    expect(backend.setPreference).not.toHaveBeenCalledWith(expect.objectContaining({
+      key: 'settings.provider.codex.approvalPolicy',
+    }));
+  });
+
+  it('loads provider model effort personality and saves read-only restricted roots', async () => {
+    const preferences = {
+      stallThresholdSec: 60,
+      'contextUsageAlerts.thresholds': [65, 80, 95],
+      'settings.provider.active': 'codex',
+      'settings.provider.codex.codexHome': '/home/test/.codex',
+      'settings.provider.codex.codexInstanceKey': 'main',
+      'settings.provider.codex.codexModelProvider': 'openai',
+      'settings.provider.codex.model': 'gpt-5.5',
+      'settings.provider.codex.effort': 'xhigh',
+      'settings.provider.codex.personality': 'pragmatic',
+      'settings.provider.codex.sandbox': {
+        type: 'readOnly',
+        access: {
+          type: 'restricted',
+          readableRoots: ['/repo/app', '/Users/ai/shared'],
+          includePlatformDefaults: true,
+        },
+      },
+    };
+    backend.getPreference.mockImplementation(({ key }) => Promise.resolve(preferences[key] ?? null));
+
+    await renderSettingsPage();
+
+    expect(screen.getByRole('combobox', { name: 'Provider Model' })).toHaveValue('gpt-5.5');
+    expect(screen.getByRole('combobox', { name: 'Provider Effort' })).toHaveValue('xhigh');
+    expect(screen.getByRole('combobox', { name: 'Personality' })).toHaveValue('pragmatic');
+    expect(screen.getByRole('combobox', { name: 'Read Only Mode' })).toHaveValue('restricted');
+    expect(screen.getByLabelText('Readable Roots')).toHaveValue('/repo/app\n/Users/ai/shared');
+
+    fireEvent.change(screen.getByLabelText('Readable Roots'), { target: { value: '/repo/app\n/Users/ai/docs' } });
+    fireEvent.click(screen.getByRole('button', { name: '保存 Provider 设置' }));
+
+    await waitFor(() => {
+      expect(backend.setPreference).toHaveBeenCalledWith({
+        cwd: '/repo/app',
+        key: 'settings.provider.codex.personality',
+        value: 'pragmatic',
+      });
+      expect(backend.setPreference).toHaveBeenCalledWith({
+        cwd: '/repo/app',
+        key: 'settings.provider.codex.sandbox',
+        value: {
+          type: 'readOnly',
+          access: {
+            type: 'restricted',
+            readableRoots: ['/repo/app', '/Users/ai/docs'],
+            includePlatformDefaults: true,
+          },
+        },
+      });
+    });
+  });
+
+  it('blocks provider save when writable roots contain relative paths', async () => {
+    const preferences = {
+      'settings.provider.active': 'codex',
+      'settings.provider.codex.model': 'gpt-5-codex',
+      'settings.provider.codex.effort': 'xhigh',
+      'settings.provider.codex.sandbox': {
+        type: 'workspaceWrite',
+        writableRoots: ['/repo/app'],
+        networkAccess: false,
+      },
+    };
+    backend.getPreference.mockImplementation(({ key }) => Promise.resolve(preferences[key] ?? null));
+
+    await renderSettingsPage();
+
+    fireEvent.change(screen.getByLabelText('Writable Roots'), { target: { value: '/repo/app\nrelative/path' } });
+    fireEvent.click(screen.getByRole('button', { name: '保存 Provider 设置' }));
+
+    await waitFor(() => {
+      expect(screen.getByRole('alert')).toHaveTextContent('路径必须以 / 开头：relative/path');
+    });
+    expect(backend.setPreference).not.toHaveBeenCalled();
+  });
+
+  it('keeps default provider model and effort inherited until the user changes them', async () => {
+    const preferences = {
+      'settings.provider.active': 'codex',
+      'settings.provider.codex.sandbox': {
+        type: 'workspaceWrite',
+        writableRoots: ['/repo/app'],
+        networkAccess: false,
+      },
+      'settings.provider.codex.personality': 'pragmatic',
+      'settings.provider.codex.codexHome': '/home/test/.codex',
+      'settings.provider.codex.codexInstanceKey': 'main',
+      'settings.provider.codex.codexModelProvider': 'openai',
+    };
+    backend.getPreference.mockImplementation(({ key }) => Promise.resolve(preferences[key] ?? null));
+
+    await renderSettingsPage();
+
+    fireEvent.click(screen.getByRole('button', { name: '保存 Provider 设置' }));
+
+    await waitFor(() => {
+      expect(backend.setPreference).toHaveBeenCalledWith({
+        cwd: '/repo/app',
+        key: 'settings.provider.codex.sandbox',
+        value: {
+          type: 'workspaceWrite',
+          writableRoots: ['/repo/app'],
+          networkAccess: false,
+        },
+      });
+    });
+    expect(backend.setPreference).not.toHaveBeenCalledWith(expect.objectContaining({
+      key: 'settings.provider.codex.model',
+    }));
+    expect(backend.setPreference).not.toHaveBeenCalledWith(expect.objectContaining({
+      key: 'settings.provider.codex.effort',
+    }));
+
+    fireEvent.change(screen.getByRole('combobox', { name: 'Provider Model' }), { target: { value: 'gpt-5.5' } });
+    fireEvent.change(screen.getByRole('combobox', { name: 'Provider Effort' }), { target: { value: 'high' } });
+    fireEvent.click(screen.getByRole('button', { name: '保存 Provider 设置' }));
+
+    await waitFor(() => {
+      expect(backend.setPreference).toHaveBeenCalledWith({
+        cwd: '/repo/app',
+        key: 'settings.provider.codex.model',
+        value: 'gpt-5.5',
+      });
+      expect(backend.setPreference).toHaveBeenCalledWith({
+        cwd: '/repo/app',
+        key: 'settings.provider.codex.effort',
+        value: 'high',
+      });
+    });
+  });
+
+  it('blocks workspaceWrite provider save when writable roots are empty', async () => {
+    const preferences = {
+      'settings.provider.active': 'codex',
+      'settings.provider.codex.sandbox': {
+        type: 'workspaceWrite',
+        writableRoots: [],
+        networkAccess: false,
+      },
+    };
+    backend.getPreference.mockImplementation(({ key }) => Promise.resolve(preferences[key] ?? null));
+
+    await renderSettingsPage();
+
+    fireEvent.click(screen.getByRole('button', { name: '保存 Provider 设置' }));
+
+    await waitFor(() => {
+      expect(screen.getByRole('alert')).toHaveTextContent('请至少填写一个绝对路径');
+    });
+    expect(backend.setPreference).not.toHaveBeenCalled();
+  });
+
+  it('falls back from scoped provider preferences to global values and canonicalizes Claude effort', async () => {
+    backend.getPreference.mockImplementation(({ cwd, key }) => {
+      const scoped = {
+        'settings.provider.active': null,
+        'settings.provider.claude.model': null,
+        'settings.provider.claude.effort': null,
+        'settings.provider.claude.sandbox': null,
+      };
+      const global = {
+        'settings.provider.active': 'claude',
+        'settings.provider.claude.model': 'claude-opus-4-7',
+        'settings.provider.claude.effort': 'max',
+        'settings.provider.claude.personality': 'friendly',
+        'settings.provider.claude.sandbox': { type: 'workspaceWrite', writableRoots: ['/repo/app'], networkAccess: false },
+      };
+      return Promise.resolve(cwd ? scoped[key] ?? null : global[key] ?? null);
+    });
+
+    await renderSettingsPage();
+
+    await waitFor(() => {
+      expect(screen.getByRole('combobox', { name: 'Active Provider' })).toHaveValue('claude');
+    });
+    expect(screen.getByRole('combobox', { name: 'Provider Model' })).toHaveValue('opus');
+    expect(screen.getByRole('combobox', { name: 'Provider Effort' })).toHaveValue('max');
+    expect(screen.getByRole('combobox', { name: 'Personality' })).toHaveValue('friendly');
+    expect(backend.getPreference).toHaveBeenCalledWith({ cwd: '/repo/app', key: 'settings.provider.claude.model' });
+    expect(backend.getPreference).toHaveBeenCalledWith({ key: 'settings.provider.claude.model' });
+
+    fireEvent.change(screen.getByRole('combobox', { name: 'Provider Model' }), { target: { value: 'sonnet' } });
+
+    await waitFor(() => {
+      expect(screen.getByRole('combobox', { name: 'Provider Effort' })).toHaveValue('high');
+    });
+    expect(screen.queryByRole('option', { name: 'max（仅 Opus）' })).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: '保存 Provider 设置' }));
+    await waitFor(() => {
+      expect(backend.setPreference).toHaveBeenCalledWith({
+        cwd: '/repo/app',
+        key: 'settings.provider.claude.model',
+        value: 'sonnet',
+      });
+      expect(backend.setPreference).toHaveBeenCalledWith({
+        cwd: '/repo/app',
+        key: 'settings.provider.claude.effort',
+        value: 'high',
+      });
+    });
+  });
+
+  it('treats scoped provider tombstones as cleared instead of falling back to globals', async () => {
+    backend.getPreference.mockImplementation(({ cwd, key }) => {
+      const scoped = {
+        'settings.provider.active': { cleared: true },
+      };
+      const global = {
+        'settings.provider.active': 'claude',
+      };
+      return Promise.resolve(cwd ? scoped[key] ?? null : global[key] ?? null);
+    });
+
+    await renderSettingsPage();
+
+    await waitFor(() => {
+      expect(screen.getByRole('combobox', { name: 'Active Provider' })).toHaveValue('codex');
+    });
+    expect(screen.getByRole('combobox', { name: 'Provider Model' })).toHaveValue('gpt-5-codex');
+    expect(backend.getPreference).not.toHaveBeenCalledWith({ key: 'settings.provider.active' });
+  });
 });
 
 describe('SettingsPage project scope guard', () => {
@@ -282,6 +544,7 @@ describe('SettingsPage prompt settings', () => {
   it('loads prompt settings and executes prompt actions', async () => {
     await renderSettingsPage();
     await expectPromptSettingsLoaded();
+    expect(backend.readLspPromptHint).toHaveBeenCalledWith({ cwd: '/repo/app' });
 
     fireEvent.click(screen.getByTestId('settings-show-injected-toggle-input'));
     await expectPromptVisibilitySaved(false);
@@ -298,12 +561,7 @@ describe('SettingsPage prompt settings', () => {
       expect(screen.getByTestId('settings-lsp-prompt-input')).toHaveValue('custom override text');
     });
 
-    backend.callBackend.mockImplementation((method) => {
-      if (method === 'config/lspPromptHint/write') {
-        return Promise.reject(new Error('disk full'));
-      }
-      return Promise.resolve({});
-    });
+    backend.writeLspPromptHint.mockRejectedValueOnce(new Error('disk full'));
 
     fireEvent.click(screen.getByTestId('settings-lsp-save-button'));
     await waitFor(() => {
@@ -319,6 +577,7 @@ describe('SettingsPage built-in tool settings', () => {
   it('handles model built-in capabilities accordion and tool toggles', async () => {
     await renderSettingsPage();
     await expectBuiltinToolsLoaded();
+    expect(backend.readBuiltinTools).toHaveBeenCalledWith({ cwd: '/repo/app' });
     openSoftAuditBuiltinToolGroup();
 
     expect(screen.getByText('Command Exec')).toBeInTheDocument();
@@ -349,6 +608,28 @@ describe('SettingsPage log settings', () => {
 
     await waitFor(() => {
       expect(useClientStore.getState().logLevel).toBe('error');
+    });
+  });
+
+  it('refreshes UI logs from the dashboard logs backend', async () => {
+    await renderSettingsPage();
+
+    backend.listDashboardLogs.mockResolvedValueOnce({
+      logs: [{
+        id: 42,
+        timestamp: '2026-05-30T07:00:00Z',
+        level: 'warn',
+        component: 'ui',
+        event_type: 'settings.refreshed',
+        message: 'settings refresh completed',
+      }],
+    });
+
+    fireEvent.click(screen.getByTestId('settings-log-refresh-button'));
+
+    await waitFor(() => {
+      expect(backend.listDashboardLogs).toHaveBeenCalledWith({ limit: 14 });
+      expect(screen.getByText('ui.settings.refreshed')).toBeInTheDocument();
     });
   });
 });
