@@ -216,6 +216,9 @@ func addSurfaceTool(surface *codexToolSurface, out *[]contract.DynamicToolSchema
 	if _, exists := surface.tools[name]; exists {
 		return fmt.Errorf("toolbridge: duplicate codex surface tool %q", name)
 	}
+	if existing, ok := surface.aliases[name]; ok && existing != name {
+		return fmt.Errorf("toolbridge: codex surface alias %q maps to both %q and %q", name, existing, name)
+	}
 	surface.tools[name] = entry
 	surface.aliases[name] = name
 	*out = append(*out, contract.DynamicToolSchema{
