@@ -354,7 +354,7 @@ function stripFrontendMetaPayload(value) {
   let changed = false;
   const cleaned = {};
   for (const [key, item] of Object.entries(value)) {
-    if (key.startsWith('_ao')) {
+    if (key.startsWith('_ao') && !isFrontendTraceMetaKey(key)) {
       changed = true;
       continue;
     }
@@ -363,12 +363,16 @@ function stripFrontendMetaPayload(value) {
   return changed ? cleaned : value;
 }
 
+function isFrontendTraceMetaKey(key) {
+  return key === '_aoTraceparent' || key === '_aoTraceId' || key === '_aoSpanId';
+}
+
 function stripFrontendTraceMetaPayload(value) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return value;
   let changed = false;
   const cleaned = {};
   for (const [key, item] of Object.entries(value)) {
-    if (key === '_aoTraceparent' || key === '_aoTraceId' || key === '_aoSpanId') {
+    if (isFrontendTraceMetaKey(key)) {
       changed = true;
       continue;
     }
