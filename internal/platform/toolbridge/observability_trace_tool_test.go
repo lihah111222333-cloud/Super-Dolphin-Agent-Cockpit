@@ -97,6 +97,28 @@ func TestObservabilityTraceHostOnlyToolFiltersPeerList(t *testing.T) {
 	}
 }
 
+func TestObservabilityTraceHostOnlyToolFiltersPeerListReservedAliases(t *testing.T) {
+	registry := &stubKindRegistry{peers: map[string][]*mcpcontrol.ToolInstance{
+		mcp.ClientKindOrch: {listToolsPeer(nil, nil)},
+		mcp.ClientKindLSP: {listToolsPeer([]mcp.MCPTool{
+			{Name: "mcp__lsp__observability_trace_get", Description: "peer trace alias"},
+			{Name: "grep", Description: "grep"},
+		}, nil)},
+	}}
+	h := &Handler{registry: registry}
+
+	tools, err := h.ListToolsForCodex(context.Background())
+	if err != nil {
+		t.Fatalf("ListToolsForCodex() error = %v", err)
+	}
+	if countDynamicToolName(tools, "mcp__lsp__observability_trace_get") != 0 {
+		t.Fatalf("peer reserved trace alias leaked into Codex tools: %+v", tools)
+	}
+	if got := countDynamicToolName(tools, "grep"); got != 1 {
+		t.Fatalf("grep count = %d, want 1; tools=%+v", got, tools)
+	}
+}
+
 func TestObservabilityTraceHostOnlyToolFiltersPreparedCodexSurface(t *testing.T) {
 	for _, tc := range []struct {
 		name      string
@@ -186,6 +208,74 @@ func TestObservabilityTraceDisabledStaleHandleToolCallBypassesPreparedSurface(t 
 	}
 	if lsp.calledWith(ToolNameObservabilityTraceGet) {
 		t.Fatalf("peer trace tool was called through prepared surface: calls=%#v", lsp.calls)
+	}
+}
+
+func TestObservabilityTraceHostOnlyToolFiltersPreparedCodexSurfaceReservedAliases(t *testing.T) {
+	disabled := observability.NewDisabledService(observability.Config{DisabledReason: "trace disabled", QueryTailTimeoutMS: 100, QueryTailMaxConcurrency: 1})
+	lsp := &fakeMCPClient{tools: []mcp.MCPTool{
+		{Name: "mcp__lsp__observability_trace_get", Description: "peer trace alias", InputSchema: json.RawMessage(`{"type":"object"}`)},
+		{Name: "grep", Description: "grep", InputSchema: json.RawMessage(`{"type":"object"}`)},
+	}}
+	h := &Handler{
+		hostTools:          NewObservabilityTraceHostToolRegistry(disabled),
+		stdioClientFactory: fakeClientFactory(map[string]mcpClient{"lsp": lsp}),
+	}
+
+	tools, err := h.PrepareCodexToolSurface(context.Background(), contract.CodexToolSurfaceScope{
+		AgentID: "agent-1",
+		CWD:     "/repo",
+		Manifest: providerdto.MCPManifest{Binaries: []providerdto.MCPBinary{{
+			Name:    "lsp",
+			Command: []string{"mcp-lsp"},
+		}}},
+	})
+	if err != nil {
+		t.Fatalf("PrepareCodexToolSurface() error = %v", err)
+	}
+	if countDynamicToolName(tools, "mcp__lsp__observability_trace_get") != 0 {
+		t.Fatalf("reserved wrapped trace alias leaked into prepared surface: tools=%+v", tools)
+	}
+	if got := countDynamicToolName(tools, "grep"); got != 1 {
+		t.Fatalf("prepared grep tool count = %d, want 1; tools=%+v", got, tools)
+	}
+}
+
+func TestObservabilityTraceDisabledStaleAliasHandleToolCallBypassesPreparedSurface(t *testing.T) {
+	disabled := observability.NewDisabledService(observability.Config{DisabledReason: "trace disabled", QueryTailTimeoutMS: 100, QueryTailMaxConcurrency: 1})
+	lsp := &fakeMCPClient{tools: []mcp.MCPTool{{Name: "grep", Description: "grep", InputSchema: json.RawMessage(`{"type":"object"}`)}}}
+	h := &Handler{
+		hostTools:          NewObservabilityTraceHostToolRegistry(disabled),
+		stdioClientFactory: fakeClientFactory(map[string]mcpClient{"lsp": lsp}),
+	}
+
+	_, err := h.PrepareCodexToolSurface(context.Background(), contract.CodexToolSurfaceScope{
+		AgentID:          "agent-1",
+		ProviderThreadID: "provider-thread-1",
+		CWD:              "/repo",
+		Manifest: providerdto.MCPManifest{Binaries: []providerdto.MCPBinary{{
+			Name:    "lsp",
+			Command: []string{"mcp-lsp"},
+		}}},
+	})
+	if err != nil {
+		t.Fatalf("PrepareCodexToolSurface() error = %v", err)
+	}
+
+	result, err := h.HandleToolCall(context.Background(), contract.ToolCallRawMessage{Params: json.RawMessage(`{"name":"mcp__lsp__observability_trace_get","arguments":{"trace_id":"trace-disabled"},"_agentId":"agent-1","_threadId":"provider-thread-1","_callId":"call-1","_cwd":"/repo"}`)})
+	if err != nil {
+		t.Fatalf("HandleToolCall() error = %v", err)
+	}
+	got, ok := result.(*ToolCallResult)
+	if !ok {
+		t.Fatalf("HandleToolCall() result = %T, want *ToolCallResult", result)
+	}
+	diagnosis := decodeTraceDiagnosisStructured(t, got.StructuredContent)
+	if !diagnosis.Degraded || diagnosis.TailError != "trace disabled" {
+		t.Fatalf("structured disabled diagnosis = %+v, want explicit degraded result", diagnosis)
+	}
+	if len(lsp.calls) != 0 {
+		t.Fatalf("peer tools were called for reserved trace alias: calls=%#v", lsp.calls)
 	}
 }
 

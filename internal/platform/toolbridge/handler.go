@@ -147,7 +147,12 @@ func (h *Handler) routeToolCall(ctx context.Context, req ToolCallRequest) (*Tool
 }
 
 func (h *Handler) routeReservedHostOnlyToolCall(ctx context.Context, req ToolCallRequest) (*ToolCallResult, bool, error) {
-	switch strings.TrimSpace(req.Name) {
+	toolName, reserved := reservedHostOnlyToolCanonicalName(req.Name)
+	if !reserved {
+		return nil, false, nil
+	}
+	req.Name = toolName
+	switch toolName {
 	case ToolNameMemoryRead:
 		result, err := h.routeHostOnlyToolCall(ctx, req, "reader_unavailable")
 		return result, true, err
