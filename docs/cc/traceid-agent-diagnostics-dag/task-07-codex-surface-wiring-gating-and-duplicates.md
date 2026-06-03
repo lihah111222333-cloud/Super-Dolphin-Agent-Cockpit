@@ -1,6 +1,6 @@
 # T07 - Codex Surface Wiring, Gating, And Duplicates
 
-Depends on: T05, T06
+Depends on: T05
 
 ## Objective
 
@@ -32,10 +32,11 @@ Wire `observability_trace_get` by:
 - Codex surface excludes it when tracing is disabled.
 - Reserved host-only duplicate names from MCP peers are skipped or logged, not treated as fatal surface errors.
 - Non-reserved duplicate conflicts should continue to fail fast.
+- Reserved duplicate handling must cover canonical Codex names and aliases, not only raw MCP tool names.
 
 ## Acceptance Criteria
 
 - `PrepareCodexToolSurface` returns a surface that contains the trace tool in enabled mode.
 - Disabled observability config does not advertise the tool.
 - Duplicate reserved host-only peer tool names do not block unrelated tools.
-
+- Non-reserved duplicate names and aliases still fail fast.
