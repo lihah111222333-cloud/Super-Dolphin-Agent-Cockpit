@@ -15,6 +15,7 @@ import {
   interruptTurn,
   listSharedFiles,
   onBridgeEvent,
+  onRuntimeReconnect,
   openNewWindow as openNewWindowRPC,
   readSharedFile,
   readConfig,
@@ -1348,6 +1349,7 @@ function preferredAssistantTimelineItem(existingItem, incomingItem) {
 function dedupeAssistantTimelineItems(items = []) {
   const output = [];
   let lastUserIndex = -1;
+  const seenIds = new Set();
 
   for (const item of items) {
     if (item?.role === 'user') {
@@ -1360,6 +1362,9 @@ function dedupeAssistantTimelineItems(items = []) {
       output.push(item);
       continue;
     }
+
+    // fast-path: skip exact id duplicates (cross-turn reconnect dedup)
+    if (item.id && seenIds.has(item.id)) continue;
 
     let duplicateIndex = -1;
     for (let index = output.length - 1; index > lastUserIndex; index -= 1) {
@@ -1374,8 +1379,8 @@ function dedupeAssistantTimelineItems(items = []) {
       output[duplicateIndex] = preferredAssistantTimelineItem(output[duplicateIndex], item);
       continue;
     }
-
     output.push(item);
+    if (item.id) seenIds.add(item.id);
   }
 
   return output;
@@ -1732,7 +1737,7 @@ function appendAssistantDeltaText(existingText, deltaText) {
   if (!base) return incoming;
   if (base.endsWith(incoming)) return base;
   if (incoming.endsWith(base)) return incoming;
-  const maxOverlap = Math.min(base.length, incoming.length);
+  const maxOverlap = Math.min(base.length, incoming.length, 32);
   for (let overlap = maxOverlap; overlap > 0; overlap -= 1) {
     if (base.slice(-overlap) === incoming.slice(0, overlap)) {
       return base + incoming.slice(overlap);
@@ -3011,7 +3016,6 @@ function attachThreadMessagesRuntime(runtime) {
     }
     catch (error) {
       emitThreadHistoryInitialPageTrace(id, null, 'error', error);
-      setThreadMessagesLoading(id, generation, false);
       addWarning('error', 'thread.messages.failed', { threadId: id, error: error.message });
     }
     finally {
@@ -3357,12 +3361,20 @@ function createLifecycleActions(runtime) {
     initializeEvents: () => {
       if (runtime.bridgeUnsubscribe) return;
       runtime.bridgeUnsubscribe = onBridgeEvent(runtime.handleBridgeEvent);
+      runtime.reconnectUnsubscribe = onRuntimeReconnect(() => {
+        const { activeThreadId } = runtime.get();
+        if (activeThreadId) void runtime.get().syncThreadState(activeThreadId, { includeDiff: true, preserveActiveThreadId: true });
+      });
     },
 
     destroy: () => {
       if (runtime.bridgeUnsubscribe) {
         runtime.bridgeUnsubscribe();
         runtime.bridgeUnsubscribe = null;
+      }
+      if (runtime.reconnectUnsubscribe) {
+        runtime.reconnectUnsubscribe();
+        runtime.reconnectUnsubscribe = null;
       }
       runtime.sequencesByThread.clear();
       runtime.composerDrafts.clear();

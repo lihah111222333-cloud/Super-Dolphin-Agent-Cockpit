@@ -957,3 +957,12 @@ export function onAppWillQuit(callback) {
     unsubscribeDoneLog: 'appWillQuit.unsubscribe.done',
   });
 }
+
+export function onRuntimeReconnect(callback) {
+  return subscribeRuntimeEvent('wails:loaded', callback, {
+    callbackFailedLog: 'reconnect.callback.failed',
+    subscribeUnavailableLog: 'reconnect.subscribe.unavailable',
+    subscribeReadyLog: 'reconnect.subscribe.ready',
+    unsubscribeDoneLog: 'reconnect.unsubscribe.done',
+  });
+}
