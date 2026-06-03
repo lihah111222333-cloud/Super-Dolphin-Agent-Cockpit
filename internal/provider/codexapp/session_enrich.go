@@ -11,6 +11,7 @@ import (
 
 	shareddto "github.com/anthropic-ai/super-agent-v3/internal/dto/shared"
 	tooldto "github.com/anthropic-ai/super-agent-v3/internal/dto/tool"
+	"github.com/anthropic-ai/super-agent-v3/internal/provider/codexapp/resultguard"
 	"github.com/anthropic-ai/super-agent-v3/pkg/skillmetrics"
 )
 
@@ -190,10 +191,11 @@ func (s *session) publishToolCallEnd(call preparedToolCall, result any, callErr 
 	header := call.header
 	header.Timestamp = time.Now()
 	success, errorText := toolCallEndOutcome(result, callErr)
+	success, errorText, resultPreview := resultguard.ApplyEmptyFileReadFromRaw(success, errorText, previewAny(result), call.header.ToolName, call.params.Params, result)
 	ev := tooldto.ToolCallEnd{
 		ToolCallHeader: header,
 		Success:        success,
-		Result:         previewAny(result),
+		Result:         resultPreview,
 		ElapsedMS:      time.Since(call.started).Milliseconds(),
 	}
 	if !success {
