@@ -1,6 +1,8 @@
 export { ChatPage, ProjectSelector } from './chat/ChatPage.jsx';
 export { PromptPage } from './prompts/PromptPage.jsx';
 export { WorkflowPage } from './workflows/WorkflowPage.jsx';
+export { TasksPage } from './tasks/TasksPage.jsx';
+export { CommandsPage } from './commands/CommandsPage.jsx';
 export { SkillsPage } from './skills/SkillsPage.jsx';
 export { MemoryPage } from './memory/MemoryPage.jsx';
 export { ObservabilityPage } from './observability/ObservabilityPage.jsx';

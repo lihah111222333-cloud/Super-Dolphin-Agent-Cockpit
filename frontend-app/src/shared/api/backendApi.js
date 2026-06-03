@@ -19,6 +19,10 @@ import {
 
 export const RPC_METHODS = Object.freeze({
   CONFIG_READ: 'config/read',
+  CONFIG_LSP_PROMPT_HINT_READ: 'config/lspPromptHint/read',
+  CONFIG_LSP_PROMPT_HINT_WRITE: 'config/lspPromptHint/write',
+  CONFIG_BUILTIN_TOOLS_READ: 'config/builtinTools/read',
+  CONFIG_BUILTIN_TOOLS_WRITE: 'config/builtinTools/write',
 
   UI_WINDOW_BOOTSTRAP_GET: 'ui/windowBootstrap/get',
   UI_STATE_GET: 'ui/state/get',
@@ -32,6 +36,9 @@ export const RPC_METHODS = Object.freeze({
   OBSERVABILITY_STATUS: 'observability/status',
   OBSERVABILITY_FRONTEND_INGEST: 'observability/frontend/ingest',
   UI_OPEN_NEW_WINDOW: 'ui/openNewWindow',
+  UI_CODE_LOCATE: 'ui/code/locate',
+  UI_CODE_OPEN: 'ui/code/open',
+  UI_CODE_SAVE: 'ui/code/save',
 
   UI_PROJECTS_GET: 'ui/projects/get',
   UI_PROJECTS_SET_ACTIVE: 'ui/projects/setActive',
@@ -43,6 +50,7 @@ export const RPC_METHODS = Object.freeze({
   UI_PREFERENCES_SET: 'ui/preferences/set',
 
   UI_DASHBOARD_GET: 'ui/dashboard/get',
+  DASHBOARD_LOGS: 'dashboard/logs',
   UI_MEMORY_GET: 'ui/memory/get',
   UI_MEMORY_ENTRY_GET: 'ui/memory/entry/get',
   UI_MEMORY_ENTRY_UPSERT: 'ui/memory/entry/upsert',
@@ -79,11 +87,21 @@ export const RPC_METHODS = Object.freeze({
   DASHBOARD_DAG_DELETE: 'dashboard/dagDelete',
   DASHBOARD_DAG_APPLY_OPS: 'dashboard/dagApplyOps',
 
+  CRONJOB_LIST: 'cronjob/list',
+  CRONJOB_GET: 'cronjob/get',
+  CRONJOB_CREATE: 'cronjob/create',
+  CRONJOB_UPDATE: 'cronjob/update',
+  CRONJOB_DELETE: 'cronjob/delete',
+  CRONJOB_RUN_ONCE: 'cronjob/runOnce',
+  CRONJOB_SET_ENABLED: 'cronjob/setEnabled',
+  CRONJOB_LIST_RUNS: 'cronjob/listRuns',
+
   SKILLS_LOCAL_DELETE: 'skills/local/delete',
   SKILLS_LOCAL_READ: 'skills/local/read',
   SKILLS_LOCAL_LIST_FILES: 'skills/local/listFiles',
   SKILLS_LOCAL_WRITE: 'skills/local/write',
   SKILLS_LOCAL_IMPORT_DIR: 'skills/local/importDir',
+  SKILLS_CREATE: 'skills/create',
   SKILLS_SUMMARY_SUGGEST: 'skills/summary/suggest',
   SKILLS_RESOLUTION_LIST: 'skills/resolution_list',
   SKILLS_RESOLUTION_PREVIEW: 'skills/resolution_preview',
@@ -103,6 +121,8 @@ export const RPC_METHODS = Object.freeze({
 
   TURN_START: 'turn/start',
   TURN_INTERRUPT: 'turn/interrupt',
+  TURN_FORCE_COMPLETE: 'turn/forceComplete',
+  APPROVAL_RESPOND: 'approval/respond',
 });
 
 const objectPrototype = Object.prototype;
@@ -447,6 +467,68 @@ function dashboardDagApplyOpsPayload(params) {
   };
 }
 
+function cronIdPayload(method, params) {
+  return {
+    id: requireKey(method, assertPlainObject(method, params), 'id').id,
+  };
+}
+
+function cronUpdatePayload(params) {
+  const payload = requireKey(RPC_METHODS.CRONJOB_UPDATE, assertPlainObject(RPC_METHODS.CRONJOB_UPDATE, params), 'id');
+  return { ...payload, id: payload.id };
+}
+
+function cronSetEnabledPayload(params) {
+  const payload = requireBoolean(
+    RPC_METHODS.CRONJOB_SET_ENABLED,
+    requireKey(RPC_METHODS.CRONJOB_SET_ENABLED, assertPlainObject(RPC_METHODS.CRONJOB_SET_ENABLED, params), 'id'),
+    'enabled',
+  );
+  return { id: payload.id, enabled: payload.enabled };
+}
+
+function cronListRunsPayload(params) {
+  const payload = assertPlainObject(RPC_METHODS.CRONJOB_LIST_RUNS, params);
+  const jobID = normalizeString(payload.job_id || payload.jobId);
+  if (!jobID) throw new Error(`${RPC_METHODS.CRONJOB_LIST_RUNS}: job_id is required`);
+  return cleanObject({
+    job_id: jobID,
+    limit: normalizeOptionalLimit(RPC_METHODS.CRONJOB_LIST_RUNS, payload),
+  });
+}
+
+function codeProjectsPayload(method, payload) {
+  if (!hasOwn(payload, 'projects') || payload.projects == null) return undefined;
+  if (!Array.isArray(payload.projects)) throw new Error(`${method}: projects must be an array`);
+  const projects = payload.projects.map(normalizeString).filter(Boolean);
+  return projects.length > 0 ? projects : undefined;
+}
+
+function optionalCodeInteger(method, payload, key) {
+  if (!hasOwn(payload, key) || payload[key] === undefined || payload[key] === null || payload[key] === '') return undefined;
+  const value = Number(payload[key]);
+  if (!Number.isFinite(value)) throw new Error(`${method}: ${key} must be a number`);
+  return Math.trunc(value);
+}
+
+function codeFilePayload(method, params, options = {}) {
+  const payload = requireKey(method, assertPlainObject(method, params), 'filePath');
+  const request = {
+    filePath: payload.filePath,
+    project: normalizeString(payload.project),
+    projects: codeProjectsPayload(method, payload),
+  };
+  if (options.includePosition) {
+    request.line = optionalCodeInteger(method, payload, 'line');
+    request.column = optionalCodeInteger(method, payload, 'column');
+  }
+  if (options.includeContent) {
+    if (!hasOwn(payload, 'content')) throw new Error(`${method}: content is required`);
+    request.content = (payload.content ?? '').toString();
+  }
+  return cleanObject(request);
+}
+
 
 function promptWritePayload(params) {
   const payload = requireKey(
@@ -583,6 +665,38 @@ function promptSectionPayload(method, params) {
   return requireKey(method, requireCwd(method, params), 'prompt_id');
 }
 
+function lspPromptHintWritePayload(params) {
+  const payload = requireCwd(RPC_METHODS.CONFIG_LSP_PROMPT_HINT_WRITE, params);
+  if (!hasOwn(payload, 'hint')) throw new Error(`${RPC_METHODS.CONFIG_LSP_PROMPT_HINT_WRITE}: hint is required`);
+  return { cwd: payload.cwd, hint: (payload.hint ?? '').toString() };
+}
+
+function builtinToolWritePayload(params) {
+  const payload = requireBoolean(
+    RPC_METHODS.CONFIG_BUILTIN_TOOLS_WRITE,
+    requireKey(RPC_METHODS.CONFIG_BUILTIN_TOOLS_WRITE, requireCwd(RPC_METHODS.CONFIG_BUILTIN_TOOLS_WRITE, params), 'id'),
+    'enabled',
+  );
+  return { cwd: payload.cwd, id: payload.id, enabled: payload.enabled };
+}
+
+function dashboardLogsPayload(params = {}) {
+  const payload = assertPlainObject(RPC_METHODS.DASHBOARD_LOGS, params);
+  return cleanObject({
+    source: normalizeString(payload.source),
+    category: normalizeString(payload.category),
+    keyword: normalizeString(payload.keyword),
+    level: normalizeString(payload.level),
+    logger: normalizeString(payload.logger),
+    component: normalizeString(payload.component),
+    agentId: normalizeString(payload.agentId || payload.agent_id),
+    threadId: normalizeString(payload.threadId || payload.thread_id),
+    eventType: normalizeString(payload.eventType || payload.event_type),
+    toolName: normalizeString(payload.toolName || payload.tool_name),
+    limit: normalizeOptionalLimit(RPC_METHODS.DASHBOARD_LOGS, payload),
+  });
+}
+
 function hasOwn(value, key) {
   return objectPrototype.hasOwnProperty.call(value, key);
 }
@@ -617,6 +731,10 @@ function createBackendCaller(callAPI) {
 function createConfigProjectApi(callBackend) {
   return {
     readConfig: () => callBackend(RPC_METHODS.CONFIG_READ, {}),
+    readLspPromptHint: (params) => callBackend(RPC_METHODS.CONFIG_LSP_PROMPT_HINT_READ, requireCwd(RPC_METHODS.CONFIG_LSP_PROMPT_HINT_READ, params)),
+    writeLspPromptHint: (params) => callBackend(RPC_METHODS.CONFIG_LSP_PROMPT_HINT_WRITE, lspPromptHintWritePayload(params)),
+    readBuiltinTools: (params) => callBackend(RPC_METHODS.CONFIG_BUILTIN_TOOLS_READ, requireCwd(RPC_METHODS.CONFIG_BUILTIN_TOOLS_READ, params)),
+    writeBuiltinTool: (params) => callBackend(RPC_METHODS.CONFIG_BUILTIN_TOOLS_WRITE, builtinToolWritePayload(params)),
     getWindowBootstrap: () => callBackend(RPC_METHODS.UI_WINDOW_BOOTSTRAP_GET, {}),
     getSidebarState: (params) => callBackend(RPC_METHODS.UI_SIDEBAR_GET, requireCwd(RPC_METHODS.UI_SIDEBAR_GET, params)),
     openNewWindow: (params) => callBackend(RPC_METHODS.UI_OPEN_NEW_WINDOW, requireCwd(RPC_METHODS.UI_OPEN_NEW_WINDOW, params)),
@@ -649,6 +767,7 @@ function createConfigProjectApi(callBackend) {
       RPC_METHODS.UI_DASHBOARD_GET,
       requireKey(RPC_METHODS.UI_DASHBOARD_GET, requireCwd(RPC_METHODS.UI_DASHBOARD_GET, params), 'page'),
     ),
+    listDashboardLogs: (params = {}) => callBackend(RPC_METHODS.DASHBOARD_LOGS, dashboardLogsPayload(params)),
   };
 }
 
@@ -745,6 +864,27 @@ function createPromptDagApi(callBackend) {
   };
 }
 
+function createCronApi(callBackend) {
+  return {
+    listCronJobs: () => callBackend(RPC_METHODS.CRONJOB_LIST, {}),
+    getCronJob: (params) => callBackend(RPC_METHODS.CRONJOB_GET, cronIdPayload(RPC_METHODS.CRONJOB_GET, params)),
+    createCronJob: (params) => callBackend(RPC_METHODS.CRONJOB_CREATE, assertPlainObject(RPC_METHODS.CRONJOB_CREATE, params)),
+    updateCronJob: (params) => callBackend(RPC_METHODS.CRONJOB_UPDATE, cronUpdatePayload(params)),
+    deleteCronJob: (params) => callBackend(RPC_METHODS.CRONJOB_DELETE, cronIdPayload(RPC_METHODS.CRONJOB_DELETE, params)),
+    runCronJobOnce: (params) => callBackend(RPC_METHODS.CRONJOB_RUN_ONCE, cronIdPayload(RPC_METHODS.CRONJOB_RUN_ONCE, params)),
+    setCronJobEnabled: (params) => callBackend(RPC_METHODS.CRONJOB_SET_ENABLED, cronSetEnabledPayload(params)),
+    listCronJobRuns: (params) => callBackend(RPC_METHODS.CRONJOB_LIST_RUNS, cronListRunsPayload(params)),
+  };
+}
+
+function createCodeApi(callBackend) {
+  return {
+    locateCodeFile: (params) => callBackend(RPC_METHODS.UI_CODE_LOCATE, codeFilePayload(RPC_METHODS.UI_CODE_LOCATE, params)),
+    openCodeFile: (params) => callBackend(RPC_METHODS.UI_CODE_OPEN, codeFilePayload(RPC_METHODS.UI_CODE_OPEN, params, { includePosition: true })),
+    saveCodeFile: (params) => callBackend(RPC_METHODS.UI_CODE_SAVE, codeFilePayload(RPC_METHODS.UI_CODE_SAVE, params, { includeContent: true })),
+  };
+}
+
 function createSkillApi(callBackend) {
   return {
     readSkill: (params) => callBackend(
@@ -756,6 +896,7 @@ function createSkillApi(callBackend) {
       requireKey(RPC_METHODS.SKILLS_LOCAL_LIST_FILES, requireCwd(RPC_METHODS.SKILLS_LOCAL_LIST_FILES, params), 'dir'),
     ),
     writeSkill: (params) => writeSkillPayload(callBackend, params),
+    createSkill: (params) => createSkillPayload(callBackend, params),
     importSkillDirectories: (params) => importSkillDirectoriesPayload(callBackend, params),
     suggestSkillSummary: (params) => suggestSkillSummaryPayload(callBackend, params),
     listSkillResolutions: (params) => callBackend(RPC_METHODS.SKILLS_RESOLUTION_LIST, requireCwd(RPC_METHODS.SKILLS_RESOLUTION_LIST, params)),
@@ -765,10 +906,20 @@ function createSkillApi(callBackend) {
     }),
     applySkillResolution: (params) => applySkillResolutionPayload(callBackend, params),
     deleteSkill: (params) => deleteSkillPayload(callBackend, params),
-    runDashboardCommand: () => {
-      throw new Error('dashboard command execution backend RPC is not registered');
-    },
   };
+}
+
+function createSkillPayload(callBackend, params) {
+  const payload = requireContent(
+    RPC_METHODS.SKILLS_CREATE,
+    requireKey(RPC_METHODS.SKILLS_CREATE, requireCwd(RPC_METHODS.SKILLS_CREATE, params), 'name'),
+  );
+  if (!payload.content.trim()) throw new Error(`${RPC_METHODS.SKILLS_CREATE}: content is required`);
+  return callBackend(RPC_METHODS.SKILLS_CREATE, {
+    cwd: payload.cwd,
+    name: payload.name,
+    content: payload.content,
+  });
 }
 
 function writeSkillPayload(callBackend, params) {
@@ -854,6 +1005,8 @@ function createThreadApi(callBackend) {
     startThread: (params) => callBackend(RPC_METHODS.THREAD_START, threadStartPayload(params)),
     startTurn: (params) => callBackend(RPC_METHODS.TURN_START, turnStartPayload(params)),
     interruptTurn: (params) => callBackend(RPC_METHODS.TURN_INTERRUPT, turnInterruptPayload(params)),
+    forceCompleteTurn: (params) => callBackend(RPC_METHODS.TURN_FORCE_COMPLETE, forceCompleteTurnPayload(params)),
+    respondApproval: (params) => callBackend(RPC_METHODS.APPROVAL_RESPOND, approvalRespondPayload(params)),
     compactThread: (params) => callBackend(RPC_METHODS.THREAD_COMPACT_START, compactThreadPayload(params)),
     recoverThread: (params) => callBackend(RPC_METHODS.THREAD_RECOVER, threadIdOnlyPayload(RPC_METHODS.THREAD_RECOVER, requireCwd(RPC_METHODS.THREAD_RECOVER, params))),
     renameThread: (params) => callBackend(RPC_METHODS.THREAD_NAME_SET, legacyThreadNamePayload(RPC_METHODS.THREAD_NAME_SET, params)),
@@ -920,6 +1073,21 @@ function turnInterruptPayload(params) {
   return cleanObject({ threadId: payload.threadId, turnId, source: normalizeString(payload.source) });
 }
 
+function forceCompleteTurnPayload(params) {
+  const payload = requireThreadId(RPC_METHODS.TURN_FORCE_COMPLETE, requireCwd(RPC_METHODS.TURN_FORCE_COMPLETE, params));
+  return { threadId: payload.threadId };
+}
+
+function approvalRespondPayload(params) {
+  const payload = assertPlainObject(RPC_METHODS.APPROVAL_RESPOND, params);
+  const rawRequestId = Number(payload.requestId || payload.request_id);
+  const requestId = Number.isFinite(rawRequestId) ? Math.trunc(rawRequestId) : 0;
+  if (requestId <= 0) throw new Error(`${RPC_METHODS.APPROVAL_RESPOND}: requestId is required`);
+  if (!hasOwn(payload, 'approved')) throw new Error(`${RPC_METHODS.APPROVAL_RESPOND}: approved is required`);
+  if (typeof payload.approved !== 'boolean') throw new Error(`${RPC_METHODS.APPROVAL_RESPOND}: approved must be boolean`);
+  return { requestId, approved: payload.approved };
+}
+
 function compactThreadPayload(params) {
   const payload = requireThreadId(RPC_METHODS.THREAD_COMPACT_START, requireCwd(RPC_METHODS.THREAD_COMPACT_START, params));
   return cleanObject({ threadId: payload.threadId, args: payload.args });
@@ -949,6 +1117,8 @@ export function createBackendApi(deps = {}) {
     ...createConfigProjectApi(callBackend),
     ...createObservabilityMemoryApi(callBackend),
     ...createPromptDagApi(callBackend),
+    ...createCronApi(callBackend),
+    ...createCodeApi(callBackend),
     ...createSkillApi(callBackend),
     ...createThreadApi(callBackend),
     ...createNativeApi(resolveNativeDeps(deps)),
@@ -959,6 +1129,10 @@ const backendApi = createBackendApi();
 
 export const callBackend = backendApi.callBackend;
 export const readConfig = backendApi.readConfig;
+export const readLspPromptHint = backendApi.readLspPromptHint;
+export const writeLspPromptHint = backendApi.writeLspPromptHint;
+export const readBuiltinTools = backendApi.readBuiltinTools;
+export const writeBuiltinTool = backendApi.writeBuiltinTool;
 export const getWindowBootstrap = backendApi.getWindowBootstrap;
 export const getSidebarState = backendApi.getSidebarState;
 export const openNewWindow = backendApi.openNewWindow;
@@ -971,6 +1145,7 @@ export const getPreference = backendApi.getPreference;
 export const getAllPreferences = backendApi.getAllPreferences;
 export const setPreference = backendApi.setPreference;
 export const getDashboardPage = backendApi.getDashboardPage;
+export const listDashboardLogs = backendApi.listDashboardLogs;
 export const getObservabilityTrace = backendApi.getObservabilityTrace;
 export const getObservabilityThreadRecent = backendApi.getObservabilityThreadRecent;
 export const listObservabilityRecent = backendApi.listObservabilityRecent;
@@ -1011,16 +1186,27 @@ export const terminateDagRun = backendApi.terminateDagRun;
 export const terminateDag = backendApi.terminateDag;
 export const deleteDag = backendApi.deleteDag;
 export const applyDagOps = backendApi.applyDagOps;
+export const listCronJobs = backendApi.listCronJobs;
+export const getCronJob = backendApi.getCronJob;
+export const createCronJob = backendApi.createCronJob;
+export const updateCronJob = backendApi.updateCronJob;
+export const deleteCronJob = backendApi.deleteCronJob;
+export const runCronJobOnce = backendApi.runCronJobOnce;
+export const setCronJobEnabled = backendApi.setCronJobEnabled;
+export const listCronJobRuns = backendApi.listCronJobRuns;
+export const locateCodeFile = backendApi.locateCodeFile;
+export const openCodeFile = backendApi.openCodeFile;
+export const saveCodeFile = backendApi.saveCodeFile;
 export const readSkill = backendApi.readSkill;
 export const listSkillFiles = backendApi.listSkillFiles;
 export const writeSkill = backendApi.writeSkill;
+export const createSkill = backendApi.createSkill;
 export const importSkillDirectories = backendApi.importSkillDirectories;
 export const suggestSkillSummary = backendApi.suggestSkillSummary;
 export const listSkillResolutions = backendApi.listSkillResolutions;
 export const previewSkillResolution = backendApi.previewSkillResolution;
 export const applySkillResolution = backendApi.applySkillResolution;
 export const deleteSkill = backendApi.deleteSkill;
-export const runDashboardCommand = backendApi.runDashboardCommand;
 export const getThreadMessages = backendApi.getThreadMessages;
 export const resolveThreadIdentity = backendApi.resolveThreadIdentity;
 export const archiveThread = backendApi.archiveThread;
@@ -1031,6 +1217,8 @@ export const setThreadConfig = backendApi.setThreadConfig;
 export const startThread = backendApi.startThread;
 export const startTurn = backendApi.startTurn;
 export const interruptTurn = backendApi.interruptTurn;
+export const forceCompleteTurn = backendApi.forceCompleteTurn;
+export const respondApproval = backendApi.respondApproval;
 export const compactThread = backendApi.compactThread;
 export const recoverThread = backendApi.recoverThread;
 export const renameThread = backendApi.renameThread;

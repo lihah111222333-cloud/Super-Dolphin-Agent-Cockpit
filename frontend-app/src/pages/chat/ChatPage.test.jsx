@@ -1,12 +1,16 @@
 import React from 'react';
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import mermaid from 'mermaid';
 import { ChatPage } from './ChatPage.jsx';
+import { locateCodeFile, openCodeFile } from '../../shared/api/backendApi.js';
 
 vi.mock('../../shared/api/backendApi.js', () => ({
   copyTextToClipboard: vi.fn(),
+  locateCodeFile: vi.fn(),
+  openCodeFile: vi.fn(),
   onFilesDropped: vi.fn(() => () => {}),
+  saveCodeFile: vi.fn(),
 }));
 
 vi.mock('mermaid', () => ({
@@ -117,13 +121,12 @@ function TestChatPageWrapper({ store, projectPath, rightPanelOpen: initialOpen =
         显示侧边栏
       </button>
       {feedback?.message ? (
-        <span
+        <output
           className={`action-feedback ${feedback.tone || 'info'}`}
           data-testid="chat-action-feedback"
-          role="status"
         >
           {feedback.message}
-        </span>
+        </output>
       ) : null}
       <ChatPage
         store={store}
@@ -137,6 +140,24 @@ function TestChatPageWrapper({ store, projectPath, rightPanelOpen: initialOpen =
 
 beforeEach(() => {
   vi.clearAllMocks();
+  locateCodeFile.mockResolvedValue({
+    ok: true,
+    paths: ['/repo/app/src/main.go'],
+    matches: [{ path: '/repo/app/src/main.go', relative: 'src/main.go' }],
+  });
+  openCodeFile.mockResolvedValue({
+    ok: true,
+    filePath: '/repo/app/src/main.go',
+    relative: 'src/main.go',
+    startLine: 9,
+    endLine: 11,
+    totalLines: 20,
+    snippet: [
+      { line: 9, text: 'func main() {' },
+      { line: 10, text: '  run()' },
+      { line: 11, text: '}' },
+    ],
+  });
 });
 
 describe('ChatPage module', () => {
@@ -235,6 +256,127 @@ describe('ChatPage module', () => {
     expect(card.querySelector('.thread-status-label')).toBeNull();
     expect(card.querySelector('.thread-status-dot')).toHaveClass('thread-status-dot--idle');
     expect(card.querySelector('.thread-status-dot')).toHaveAttribute('title', '空闲');
+  });
+
+  it('renders a command workspace with thread cards, metrics, layout controls and card actions', async () => {
+    const store = createFakeStore({
+      activeThreadId: 'agent-1',
+      threads: [
+        { id: 'agent-1', name: 'Agent Alpha', provider: 'codex', status: 'running', updatedAt: '2026-06-02T08:03:00Z' },
+        { id: 'agent-2', name: 'Agent Beta', provider: 'claude', status: 'error', updatedAt: '2026-06-02T08:02:00Z' },
+        { id: 'agent-3', name: 'Agent Gamma', provider: 'codex', status: 'thinking', updatedAt: '2026-06-02T08:01:00Z' },
+      ],
+      activityThreadAtById: {
+        'agent-1': '2026-06-02T08:03:00Z',
+        'agent-2': '2026-06-02T08:02:00Z',
+        'agent-3': '2026-06-02T08:01:00Z',
+      },
+      diffTextByThread: {
+        'agent-1': 'diff --git a/src/a.js b/src/a.js\n+new alpha',
+      },
+      hasInterruptibleThreadAction: vi.fn((threadId) => threadId === 'agent-1'),
+      threadTimelineReadyByThread: { 'agent-1': true, 'agent-2': true, 'agent-3': true },
+      timelinesByThread: {
+        'agent-1': [{ id: 'alpha-msg', role: 'assistant', text: 'Alpha 已完成初步分析', time: '2026-06-02T08:04:00Z' }],
+        'agent-2': [{ id: 'beta-msg', role: 'assistant', text: 'Beta 失败', time: '2026-06-02T08:02:00Z' }],
+        'agent-3': [{ id: 'gamma-msg', role: 'assistant', text: 'Gamma 思考中', time: '2026-06-02T08:01:00Z' }],
+      },
+    });
+
+    render(<TestChatPageWrapper store={store} projectPath="/repo/app" />);
+
+    fireEvent.click(screen.getByRole('button', { name: '命令工作区' }));
+
+    const workspace = await screen.findByTestId('cmd-workspace');
+    expect(workspace).toHaveTextContent('子Agent');
+    expect(workspace).toHaveTextContent('执行中');
+    expect(workspace).toHaveTextContent('思考/回复');
+    expect(workspace).toHaveTextContent('异常');
+    expect(workspace).toHaveTextContent('Agent Alpha');
+    expect(workspace).toHaveTextContent('Agent Beta');
+    expect(workspace).toHaveTextContent('Alpha 已完成初步分析');
+    expect(workspace).toHaveTextContent('diff --git a/src/a.js b/src/a.js');
+
+    fireEvent.click(within(workspace).getByRole('button', { name: 'A 紧凑' }));
+    expect(workspace).toHaveClass('layout-overview');
+    expect(workspace).not.toHaveTextContent('Alpha 已完成初步分析');
+
+    fireEvent.click(within(workspace).getByRole('button', { name: '3列' }));
+    expect(workspace).toHaveClass('cols-3');
+
+    fireEvent.click(within(workspace).getByRole('button', { name: '打开 Agent Beta' }));
+    expect(store.selectThread).toHaveBeenCalledWith('agent-2');
+
+    fireEvent.click(within(workspace).getByRole('button', { name: '历史 Agent Alpha' }));
+    expect(store.syncThreadState).toHaveBeenCalledWith('agent-1', {
+      includeArchived: true,
+      includeDiff: true,
+      preserveActiveThreadId: true,
+    });
+
+    fireEvent.click(within(workspace).getByRole('button', { name: '停止 Agent Alpha' }));
+    expect(store.interruptActiveThread).toHaveBeenCalledWith('agent-1');
+  });
+
+  it('handles timeline file refs and actionable citation chips', async () => {
+    const store = createActiveThreadStore([
+      {
+        id: 'assistant-1',
+        role: 'assistant',
+        text: [
+          ':codex-file-citation[]{path="src/main.go" line_range_start="9" line_range_end="11"}',
+          ':task-stub[Review the patch]{title="Review task"}',
+          ':automation-update[Workflow rerun completed]{name="Nightly lint" prompt="Run lint on main"}',
+          ':code-comment[Please rename this]{title="Naming" path="src/main.go" line_range_start="9" line_range_end="11"}',
+          '[Follow-up](agent://thread-2)',
+        ].join(' '),
+        time: '2026-06-02T08:00:00Z',
+      },
+    ], {
+      activeProject: '/repo/app',
+      projects: ['/repo/app'],
+      threads: [
+        { id: 'thread-1', name: '主线程', provider: 'codex', status: 'idle' },
+        { id: 'thread-2', name: '后续线程', provider: 'codex', status: 'idle' },
+      ],
+    });
+
+    render(<TestChatPageWrapper store={store} projectPath="/repo/app" />);
+
+    fireEvent.click(await screen.findByRole('button', { name: '打开文件引用 src/main.go' }));
+
+    const preview = await screen.findByRole('dialog', { name: '文件预览' });
+    expect(locateCodeFile).toHaveBeenCalledWith({
+      filePath: 'src/main.go',
+      line: 9,
+      column: 0,
+      project: '/repo/app',
+      projects: ['/repo/app'],
+    });
+    expect(openCodeFile).toHaveBeenCalledWith({
+      filePath: '/repo/app/src/main.go',
+      line: 9,
+      column: 0,
+      project: '/repo/app',
+      projects: ['/repo/app'],
+    });
+    expect(within(preview).getByText('src/main.go')).toBeInTheDocument();
+    fireEvent.click(within(preview).getByRole('button', { name: '关闭' }));
+
+    fireEvent.click(screen.getByRole('button', { name: 'Review task' }));
+    expect(store.setDraft).toHaveBeenLastCalledWith('Review the patch');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Nightly lint' }));
+    expect(store.setDraft).toHaveBeenLastCalledWith('Review the patch\n\nAutomation update (Nightly lint):\nRun lint on main');
+
+    fireEvent.click(screen.getByRole('button', { name: /Naming/ }));
+    await waitFor(() => {
+      expect(store.setDraft).toHaveBeenLastCalledWith(expect.stringContaining('Please rename this'));
+      expect(openCodeFile).toHaveBeenCalledTimes(2);
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Follow-up' }));
+    expect(store.selectThread).toHaveBeenCalledWith('thread-2');
   });
 
   it('materializes only the recent timeline window until older messages are requested', () => {

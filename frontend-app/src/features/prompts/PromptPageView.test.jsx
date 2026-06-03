@@ -6,13 +6,20 @@ import { PromptPageView } from './PromptPageView.jsx';
 
 const backend = vi.hoisted(() => ({
   commitPromptIntent: vi.fn(),
+  copyTextToClipboard: vi.fn(),
   deletePrompt: vi.fn(),
   discardPromptIntent: vi.fn(),
   draftPromptIntent: vi.fn(),
+  dryRunPromptIntent: vi.fn(),
+  getDashboardPrompts: vi.fn(),
   getPreference: vi.fn(),
+  getPrompt: vi.fn(),
+  listPromptSections: vi.fn(),
   listPromptAssets: vi.fn(),
   setPreference: vi.fn(),
+  writePromptSection: vi.fn(),
   writePrompt: vi.fn(),
+  deletePromptSection: vi.fn(),
 }));
 
 vi.mock('../../shared/api/backendApi.js', () => backend);
@@ -53,6 +60,13 @@ function mockPromptList() {
   });
   backend.getPreference.mockResolvedValue('');
   backend.writePrompt.mockResolvedValue({});
+  backend.getPrompt.mockResolvedValue({ prompt: { content: '先检查阻塞问题' } });
+  backend.copyTextToClipboard.mockResolvedValue(true);
+  backend.dryRunPromptIntent.mockResolvedValue({ would_use: true, action: 'expert', reasons: ['matched'] });
+  backend.getDashboardPrompts.mockResolvedValue({ prompts: [] });
+  backend.listPromptSections.mockResolvedValue({ sections: [] });
+  backend.writePromptSection.mockResolvedValue({ ok: true });
+  backend.deletePromptSection.mockResolvedValue({ ok: true });
 }
 
 beforeEach(() => {
@@ -166,5 +180,150 @@ describe('PromptPageView backend wiring', () => {
     expect(screen.queryByText('已创建助手')).not.toBeInTheDocument();
     expect(screen.queryByText('已启动助手')).not.toBeInTheDocument();
     expect(screen.getByText('已停用助手')).toBeInTheDocument();
+  });
+
+  it('falls back to readonly dashboard prompts when prompt-assets/list is not registered', async () => {
+    const missingMethodError = new Error('method not found');
+    missingMethodError.code = -32601;
+    backend.listPromptAssets.mockRejectedValueOnce(missingMethodError);
+    backend.getDashboardPrompts.mockResolvedValueOnce({
+      prompts: [{
+        id: 'legacy/prompt',
+        name: '旧提示词',
+        content: 'legacy readonly data',
+        tags: ['intent:expert'],
+      }],
+    });
+
+    renderPromptPage();
+
+    expect(await screen.findByText('旧提示词')).toBeInTheDocument();
+    expect(screen.getByText(/只读模式/)).toBeInTheDocument();
+    expect(backend.getDashboardPrompts).toHaveBeenCalledWith({ cwd: '/repo/app' });
+    expect(screen.getByRole('button', { name: '查看' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '删除' })).toBeDisabled();
+  });
+
+  it('copies saved prompt content after reading the complete prompt body', async () => {
+    backend.getPrompt.mockResolvedValueOnce({ prompt: { content: '完整提示词内容' } });
+
+    renderPromptPage();
+    const card = (await screen.findByText('代码审查专家')).closest('article');
+    fireEvent.click(within(card).getByRole('button', { name: '复制' }));
+
+    await waitFor(() => {
+      expect(backend.getPrompt).toHaveBeenCalledWith({ cwd: '/repo/app', id: 'main/reviewer' });
+      expect(backend.copyTextToClipboard).toHaveBeenCalledWith('完整提示词内容');
+    });
+    expect(await screen.findByText('已复制提示词内容')).toBeInTheDocument();
+  });
+
+  it('edits match_when JSON in advanced debug and blocks invalid JSON before saving', async () => {
+    window.__SUPER_DOLPHIN_PROMPT_DEBUG__ = true;
+    backend.listPromptAssets.mockResolvedValueOnce({
+      prompts: [{
+        id: 'main/reviewer',
+        name: '代码审查专家',
+        content: '先检查阻塞问题',
+        tags: ['review'],
+        match_when: { language: 'zh' },
+      }],
+    });
+
+    renderPromptPage();
+    fireEvent.click(await screen.findByRole('button', { name: '编辑' }));
+
+    const matchWhenInput = await screen.findByLabelText('match_when JSON');
+    expect(matchWhenInput).toHaveValue('{\n  "language": "zh"\n}');
+
+    fireEvent.change(matchWhenInput, { target: { value: '{bad json' } });
+    fireEvent.click(screen.getByRole('button', { name: '保存' }));
+    expect(await screen.findByText(/自动匹配条件不是合法 JSON/)).toBeInTheDocument();
+    expect(backend.writePrompt).not.toHaveBeenCalled();
+
+    fireEvent.change(matchWhenInput, { target: { value: '{"tags_has":["review"]}' } });
+    fireEvent.click(screen.getByRole('button', { name: '保存' }));
+    await waitFor(() => {
+      expect(backend.writePrompt).toHaveBeenCalledWith(expect.objectContaining({
+        match_when: { tags_has: ['review'] },
+      }));
+    });
+    delete window.__SUPER_DOLPHIN_PROMPT_DEBUG__;
+  });
+
+  it('loads, writes, and deletes prompt sections from the prompt editor', async () => {
+    backend.listPromptSections.mockResolvedValueOnce({
+      sections: [{ section_key: 'identity', body: '保持审查口吻', trigger_type: 'always', region: 'dynamic', ordinal: 1 }],
+    }).mockResolvedValue({ sections: [] });
+
+    renderPromptPage();
+    fireEvent.click(await screen.findByRole('button', { name: '编辑' }));
+
+    expect(await screen.findByText('提示词分段')).toBeInTheDocument();
+    expect(await screen.findByText('identity')).toBeInTheDocument();
+    expect(backend.listPromptSections).toHaveBeenCalledWith({ cwd: '/repo/app', prompt_id: 'main/reviewer' });
+
+    fireEvent.click(screen.getByRole('button', { name: '新增分段' }));
+    fireEvent.change(screen.getByLabelText('段名（section_key）'), { target: { value: 'workflow' } });
+    fireEvent.change(screen.getByLabelText('内容（body）'), { target: { value: '先列阻塞问题' } });
+    fireEvent.click(screen.getByRole('button', { name: '保存分段' }));
+    await waitFor(() => {
+      expect(backend.writePromptSection).toHaveBeenCalledWith(expect.objectContaining({
+        cwd: '/repo/app',
+        prompt_id: 'main/reviewer',
+        section_key: 'workflow',
+        body: '先列阻塞问题',
+      }));
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: '删除分段 identity' }));
+    await waitFor(() => {
+      expect(backend.deletePromptSection).toHaveBeenCalledWith({
+        cwd: '/repo/app',
+        prompt_id: 'main/reviewer',
+        section_key: 'identity',
+        scope: 'project',
+      });
+    });
+  });
+
+  it('runs prompt intent dry-run from the confirmation wizard without exposing routing internals', async () => {
+    backend.draftPromptIntent.mockResolvedValueOnce({
+      draft_key: 'intent/expert/review',
+      kind: 'expert',
+      scope: 'project',
+      status: 'review',
+      card: { title: '代码审查专家', output: '先检查阻塞问题' },
+      issues: [],
+    });
+    backend.dryRunPromptIntent.mockResolvedValueOnce({
+      would_use: true,
+      action: 'expert',
+      reasons: ['question provided: 如何审查这段代码？', 'matched'],
+    });
+
+    renderPromptPage();
+    fireEvent.click(await screen.findByRole('button', { name: '添加给 AI 的内容' }));
+    fireEvent.change(screen.getByLabelText('写下希望 AI 记住或使用的内容'), {
+      target: { value: '当用户要求代码审查时使用。' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: '帮我生成' }));
+    expect(await screen.findByText('代码审查专家')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByText('试问验证'));
+    fireEvent.change(screen.getByLabelText('试问问题'), { target: { value: '如何审查这段代码？' } });
+    fireEvent.click(screen.getByRole('button', { name: '验证' }));
+
+    await waitFor(() => {
+      expect(backend.dryRunPromptIntent).toHaveBeenCalledWith({
+        cwd: '/repo/app',
+        draftKey: 'intent/expert/review',
+        kind: 'expert',
+        card: { title: '代码审查专家', output: '先检查阻塞问题' },
+        question: '如何审查这段代码？',
+      });
+    });
+    expect(await screen.findByText(/这条内容会参与专家能力匹配/)).toBeInTheDocument();
+    expect(screen.queryByText(/question provided/)).not.toBeInTheDocument();
   });
 });

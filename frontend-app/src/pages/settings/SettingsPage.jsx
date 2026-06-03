@@ -1,7 +1,7 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Settings } from 'lucide-react';
 import { useClientStore } from '../../entities/client/model/useClientStore.js';
-import { callBackend, getBuildInfo, getPreference, setPreference } from '../../shared/api/backendApi.js';
+import { copyTextToClipboard, getBuildInfo, getPreference, listDashboardLogs, readBuiltinTools, readConfig, readLspPromptHint, setPreference, writeBuiltinTool, writeLspPromptHint as writeLspPromptHintBackend } from '../../shared/api/backendApi.js';
 import { PageHeader, Panel } from '../shared/pageComponents.jsx';
 
 const PROVIDER_LABELS = Object.freeze({
@@ -23,13 +23,70 @@ const SETTINGS_DEFAULTS = Object.freeze({
   activeProvider: 'codex',
   codexHome: '~/.codex',
   codexInstanceKey: 'default',
-  codexModelProvider: 'openai',
-  providerModel: 'gpt-5',
-  providerEffort: 'high',
+  providerModel: 'gpt-5-codex',
+  providerEffort: 'xhigh',
+  personality: 'pragmatic',
   sandboxPolicy: 'workspaceWrite',
+  readOnlyMode: 'fullAccess',
+  readableRoots: '',
   writableRoots: '',
   networkAccess: false,
 });
+
+const PROVIDER_DEFAULTS = Object.freeze({
+  codex: Object.freeze({ model: 'gpt-5-codex', effort: 'xhigh' }),
+  claude: Object.freeze({ model: 'sonnet', effort: 'high' }),
+});
+
+const CLAUDE_LONG_TO_SHORT = Object.freeze({
+  'claude-opus-4-7': 'opus',
+  'claude-opus-4-7[1m]': 'opus[1m]',
+  'claude-haiku-4-5': 'haiku',
+});
+
+const MODEL_OPTIONS_BY_PROVIDER = Object.freeze({
+  codex: Object.freeze([
+    { value: 'gpt-5-codex', label: 'GPT-5 Codex' },
+    { value: 'gpt-5.5', label: 'GPT-5.5' },
+    { value: 'gpt-5.4', label: 'GPT-5.4' },
+    { value: 'gpt-5.3-codex', label: 'GPT-5.3 Codex' },
+    { value: 'gpt-5.2', label: 'GPT-5.2' },
+  ]),
+  claude: Object.freeze([
+    { value: 'opus', label: 'Opus 4.7' },
+    { value: 'opus[1m]', label: 'Opus 4.7 [1M]' },
+    { value: 'claude-opus-4-6', label: 'Opus 4.6' },
+    { value: 'claude-opus-4-6[1m]', label: 'Opus 4.6 [1M]' },
+    { value: 'sonnet', label: 'Sonnet 4.7' },
+    { value: 'sonnet[1m]', label: 'Sonnet 4.7 [1M]' },
+    { value: 'claude-sonnet-4-6', label: 'Sonnet 4.6' },
+    { value: 'claude-sonnet-4-6[1m]', label: 'Sonnet 4.6 [1M]' },
+    { value: 'haiku', label: 'Haiku 4.5' },
+  ]),
+});
+
+const EFFORT_MODES_BY_PROVIDER = Object.freeze({
+  codex: Object.freeze([
+    { value: 'xhigh', label: '极高' },
+    { value: 'high', label: '高' },
+    { value: 'medium', label: '中' },
+    { value: 'low', label: '低' },
+    { value: 'minimal', label: '极低' },
+    { value: 'none', label: '关闭' },
+  ]),
+  claude: Object.freeze([
+    { value: 'max', label: 'max（仅 Opus）' },
+    { value: 'high', label: 'high' },
+    { value: 'medium', label: 'medium' },
+    { value: 'low', label: 'low' },
+  ]),
+});
+
+const PERSONALITY_OPTIONS = Object.freeze([
+  { value: 'pragmatic', label: 'pragmatic（务实高效，默认）' },
+  { value: 'friendly', label: 'friendly（友好气氛）' },
+  { value: 'none', label: 'none（默认风格）' },
+]);
 
 function providerSettingKey(provider, key) {
   return `settings.provider.${provider}.${key}`;
@@ -40,6 +97,37 @@ function stringSetting(value, fallback) {
   return fallback;
 }
 
+function providerConfigValue(value) {
+  if (value && typeof value === 'object' && !Array.isArray(value)) {
+    for (const key of ['value', 'model', 'id', 'key', 'name']) {
+      const text = providerConfigValue(value[key]);
+      if (text) return text;
+    }
+    return '';
+  }
+  return (value || '').toString().trim();
+}
+
+function isPreferenceTombstone(value) {
+  return Boolean(value && typeof value === 'object' && !Array.isArray(value) && value.cleared === true);
+}
+
+function isPreferenceAbsent(value) {
+  return value === null || value === undefined || (typeof value === 'string' && value.trim() === '');
+}
+
+async function readScopedPreference(cwd, key) {
+  const scope = (cwd || '').toString().trim();
+  if (scope) {
+    const scoped = await getPreference({ cwd: scope, key });
+    if (isPreferenceTombstone(scoped)) return '';
+    if (!isPreferenceAbsent(scoped)) return scoped;
+  }
+  const globalValue = await getPreference({ key });
+  if (isPreferenceTombstone(globalValue)) return '';
+  return isPreferenceAbsent(globalValue) ? null : globalValue;
+}
+
 function numberSetting(value, fallback) {
   const number = Number(value);
   return Number.isFinite(number) ? number : fallback;
@@ -48,6 +136,57 @@ function numberSetting(value, fallback) {
 function normalizeProviderName(value) {
   const provider = stringSetting(value, SETTINGS_DEFAULTS.activeProvider).toLowerCase();
   return provider === 'claude' ? 'claude' : 'codex';
+}
+
+function providerNameFromPreference(value) {
+  if (isPreferenceAbsent(value) || isPreferenceTombstone(value)) return SETTINGS_DEFAULTS.activeProvider;
+  const provider = providerConfigValue(value).toLowerCase();
+  if (provider === 'codex') return 'codex';
+  if (provider === 'claude' || provider.startsWith('claude-')) return 'claude';
+  throw new Error(`invalid provider preference: ${providerConfigValue(value) || String(value)}`);
+}
+
+function providerDefaults(provider) {
+  return PROVIDER_DEFAULTS[normalizeProviderName(provider)] || PROVIDER_DEFAULTS.codex;
+}
+
+function canonicalizeProviderModel(provider, value) {
+  const normalized = providerConfigValue(value);
+  if (normalizeProviderName(provider) !== 'claude') return normalized;
+  return CLAUDE_LONG_TO_SHORT[normalized] || normalized;
+}
+
+function isClaudeOpusFamilyModel(model) {
+  const normalized = providerConfigValue(model).toLowerCase();
+  return normalized === 'best' || normalized.includes('opus');
+}
+
+function normalizeProviderModelSetting(provider, value) {
+  return canonicalizeProviderModel(provider, value) || providerDefaults(provider).model;
+}
+
+function normalizeProviderEffortSetting(provider, model, value) {
+  const normalizedProvider = normalizeProviderName(provider);
+  const normalizedValue = providerConfigValue(value).toLowerCase();
+  if (normalizedProvider !== 'claude') {
+    return EFFORT_MODES_BY_PROVIDER.codex.some((item) => item.value === normalizedValue)
+      ? normalizedValue
+      : providerDefaults(normalizedProvider).effort;
+  }
+  switch (normalizedValue) {
+    case 'max':
+      return isClaudeOpusFamilyModel(model) ? 'max' : 'high';
+    case 'high':
+    case 'xhigh':
+      return 'high';
+    case 'medium':
+      return 'medium';
+    case 'low':
+    case 'minimal':
+      return 'low';
+    default:
+      return providerDefaults(normalizedProvider).effort;
+  }
 }
 
 function normalizeContextThresholds(value) {
@@ -65,10 +204,41 @@ function requireSettingsCwd(cwd) {
   return value;
 }
 
+function normalizeSandboxMode(value) {
+  const mode = (value || '').toString().trim();
+  if (!mode) return SETTINGS_DEFAULTS.sandboxPolicy;
+  if (mode === 'workspace-write') return 'workspaceWrite';
+  if (mode === 'read-only') return 'readOnly';
+  if (mode === 'danger-full-access') return 'dangerFullAccess';
+  if (mode === 'workspaceWrite' || mode === 'readOnly' || mode === 'dangerFullAccess') return mode;
+  throw new Error(`invalid sandbox policy: ${mode}`);
+}
+
+function sandboxPreferenceFromRaw(value) {
+  if (isPreferenceAbsent(value) || isPreferenceTombstone(value)) return null;
+  if (typeof value === 'string') {
+    const text = value.trim();
+    if (!text) return null;
+    if (text.startsWith('{')) {
+      try {
+        const parsed = JSON.parse(text);
+        if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+          throw new Error('sandbox preference JSON must be an object');
+        }
+        return parsed;
+      } catch (error) {
+        throw new Error('加载 Sandbox 失败：' + (error?.message || error), { cause: error });
+      }
+    }
+    return { type: normalizeSandboxMode(text) };
+  }
+  if (value && typeof value === 'object' && !Array.isArray(value)) return value;
+  throw new Error('加载 Sandbox 失败：sandbox preference must be an object');
+}
+
 function sandboxPolicyFromPreference(value) {
-  if (typeof value === 'string') return value;
   if (value && typeof value === 'object') {
-    return value.type || value.mode || SETTINGS_DEFAULTS.sandboxPolicy;
+    return normalizeSandboxMode(value.type || value.mode || SETTINGS_DEFAULTS.sandboxPolicy);
   }
   return SETTINGS_DEFAULTS.sandboxPolicy;
 }
@@ -78,20 +248,55 @@ function writableRootsFromPreference(value) {
   return value.writableRoots.join('\n');
 }
 
-function sandboxPreferenceValue(policy, writableRootsText, networkAccess) {
-  if (policy === 'readOnly') return { type: 'readOnly' };
-  if (policy === 'dangerFullAccess') return { type: 'dangerFullAccess' };
-  const writableRoots = writableRootsText
+function readOnlyModeFromPreference(value) {
+  if (!value || typeof value !== 'object' || value.type !== 'readOnly') return SETTINGS_DEFAULTS.readOnlyMode;
+  const access = value.access && typeof value.access === 'object' ? value.access : {};
+  return access.type === 'restricted' ? 'restricted' : SETTINGS_DEFAULTS.readOnlyMode;
+}
+
+function readableRootsFromPreference(value) {
+  if (!value || typeof value !== 'object' || value.type !== 'readOnly') return '';
+  const access = value.access && typeof value.access === 'object' ? value.access : {};
+  const roots = Array.isArray(access.readableRoots) ? access.readableRoots : access.readable_roots;
+  return Array.isArray(roots) ? roots.join('\n') : '';
+}
+
+function pathsFromTextarea(value) {
+  return (value || '')
+    .toString()
     .split(/\r?\n/)
     .flatMap((item) => {
       const root = item.trim();
       return root ? [root] : [];
     });
+}
+
+function absolutePathsError(value) {
+  const paths = pathsFromTextarea(value);
+  if (paths.length === 0) return '请至少填写一个绝对路径';
+  const bad = paths.filter((root) => !root.startsWith('/'));
+  return bad.length > 0 ? `路径必须以 / 开头：${bad.join(', ')}` : '';
+}
+
+function sandboxPreferenceValue(policy, writableRootsText, networkAccess, readOnlyMode, readableRootsText) {
+  if (policy === 'readOnly') {
+    if (readOnlyMode === 'restricted') {
+      return { type: 'readOnly', access: { type: 'restricted', readableRoots: pathsFromTextarea(readableRootsText), includePlatformDefaults: true } };
+    }
+    return { type: 'readOnly' };
+  }
+  if (policy === 'dangerFullAccess') return { type: 'dangerFullAccess' };
   return {
     type: 'workspaceWrite',
-    writableRoots,
+    writableRoots: pathsFromTextarea(writableRootsText),
     networkAccess: Boolean(networkAccess),
   };
+}
+
+function appendCurrentOption(options, currentValue) {
+  const normalized = providerConfigValue(currentValue);
+  if (!normalized || options.some((option) => providerConfigValue(option.value) === normalized)) return options;
+  return [...options, { value: normalized, label: normalized }];
 }
 
 function parsePositiveInteger(label, value) {
@@ -122,10 +327,16 @@ function defaultSettingsForm() {
     activeProvider: SETTINGS_DEFAULTS.activeProvider,
     codexHome: SETTINGS_DEFAULTS.codexHome,
     codexInstanceKey: SETTINGS_DEFAULTS.codexInstanceKey,
-    codexModelProvider: SETTINGS_DEFAULTS.codexModelProvider,
     providerModel: SETTINGS_DEFAULTS.providerModel,
     providerEffort: SETTINGS_DEFAULTS.providerEffort,
+    providerModelExplicit: false,
+    providerEffortExplicit: false,
+    providerModelTouched: false,
+    providerEffortTouched: false,
+    personality: SETTINGS_DEFAULTS.personality,
     sandboxPolicy: SETTINGS_DEFAULTS.sandboxPolicy,
+    readOnlyMode: SETTINGS_DEFAULTS.readOnlyMode,
+    readableRoots: SETTINGS_DEFAULTS.readableRoots,
     writableRoots: SETTINGS_DEFAULTS.writableRoots,
     networkAccess: SETTINGS_DEFAULTS.networkAccess,
   };
@@ -141,7 +352,7 @@ function SettingsPage({ projectPath }) {
   const store = useClientStore();
   const cwd = normalizeSettingsCwd(projectPath) || normalizeSettingsCwd(store.activeProject) || normalizeSettingsCwd(store.cwd);
   const runtime = useSettingsRuntime(cwd);
-  const provider = useProviderPreferences(cwd);
+  const provider = useProviderPreferences(cwd, runtime.form.activeProvider);
   const prompt = usePromptSettings(cwd);
   const builtins = useBuiltinToolsSettings(cwd);
   return <SettingsPageView builtins={builtins} cwd={cwd} prompt={prompt} provider={provider} runtime={runtime} store={store} />;
@@ -152,6 +363,12 @@ function useSettingsRuntime(cwd) {
   const [form, setForm] = useState(defaultSettingsForm);
   const [status, setStatus] = useState('');
   const [error, setError] = useState('');
+  const preferenceRequestSeq = useRef(0);
+  const nextPreferenceRequest = useCallback(() => {
+    preferenceRequestSeq.current += 1;
+    const requestSeq = preferenceRequestSeq.current;
+    return () => preferenceRequestSeq.current === requestSeq;
+  }, []);
   const refreshBuildInfo = useCallback(async () => {
     setError('');
     try {
@@ -163,26 +380,70 @@ function useSettingsRuntime(cwd) {
       setError(err.message || String(err));
     }
   }, []);
-  const loadPreferences = useCallback(() => loadRuntimePreferences({ cwd, setError, setForm }), [cwd]);
+  const loadPreferences = useCallback(() => loadRuntimePreferences({ cwd, isCurrent: nextPreferenceRequest(), setError, setForm }), [cwd, nextPreferenceRequest]);
   const updateForm = useCallback((key) => (event) => {
     const value = event.target.type === 'checkbox' ? event.target.checked : event.target.value;
-    setForm((current) => ({ ...current, [key]: value }));
+    setForm((current) => settingsFormWithUpdate(current, key, value));
   }, []);
+  const changeActiveProvider = useCallback((event) => changeActiveProviderPreference({ cwd, event, isCurrent: nextPreferenceRequest(), setError, setForm, setStatus }), [cwd, nextPreferenceRequest]);
   const saveRuntimeSettings = useCallback(() => saveRuntimePreferences({ cwd, form, setError, setStatus }), [cwd, form]);
   const saveProviderSettings = useCallback(() => saveProviderRuntimePreferences({ cwd, form, setError, setStatus }), [cwd, form]);
   useEffect(() => { void refreshBuildInfo(); }, [refreshBuildInfo]);
   useEffect(() => { void loadPreferences(); }, [loadPreferences]);
-  return { buildInfo, error, form, refreshBuildInfo, saveProviderSettings, saveRuntimeSettings, status, updateForm };
+  return { buildInfo, changeActiveProvider, error, form, refreshBuildInfo, saveProviderSettings, saveRuntimeSettings, status, updateForm };
 }
 
-async function loadRuntimePreferences({ cwd, setError, setForm }) {
+function settingsFormWithUpdate(current, key, value) {
+  if (key === 'activeProvider') {
+    const activeProvider = normalizeProviderName(value);
+    const providerModel = normalizeProviderModelSetting(activeProvider, current.providerModel);
+    return {
+      ...current,
+      activeProvider,
+      providerModel,
+      providerEffort: normalizeProviderEffortSetting(activeProvider, providerModel, current.providerEffort),
+      providerModelExplicit: false,
+      providerEffortExplicit: false,
+      providerModelTouched: false,
+      providerEffortTouched: false,
+    };
+  }
+  if (key === 'providerModel') {
+    const providerModel = normalizeProviderModelSetting(current.activeProvider, value);
+    return {
+      ...current,
+      providerModel,
+      providerEffort: normalizeProviderEffortSetting(current.activeProvider, providerModel, current.providerEffort),
+      providerModelTouched: true,
+    };
+  }
+  if (key === 'providerEffort') {
+    return {
+      ...current,
+      providerEffort: normalizeProviderEffortSetting(current.activeProvider, current.providerModel, value),
+      providerEffortTouched: true,
+    };
+  }
+  return { ...current, [key]: value };
+}
+
+function isCurrentPreferenceRequest(isCurrent) {
+  return typeof isCurrent !== 'function' || isCurrent();
+}
+
+async function loadRuntimePreferences({ cwd, isCurrent, setError, setForm }) {
   setError('');
   if (!cwd) return;
   try {
+    if (!isCurrentPreferenceRequest(isCurrent)) return;
     const values = await readRuntimePreferenceValues(cwd);
-    setForm(settingsFormFromPreferences(values));
+    if (isCurrentPreferenceRequest(isCurrent)) {
+      setForm(settingsFormFromPreferences(values));
+    }
   } catch (err) {
-    setError(err.message || String(err));
+    if (isCurrentPreferenceRequest(isCurrent)) {
+      setError(err.message || String(err));
+    }
   }
 }
 
@@ -190,24 +451,40 @@ async function readRuntimePreferenceValues(cwd) {
   const [stallValue, contextValue, activeProviderValue] = await Promise.all([
     getPreference({ cwd, key: SETTINGS_KEYS.stallThreshold }),
     getPreference({ cwd, key: SETTINGS_KEYS.contextThresholds }),
-    getPreference({ cwd, key: SETTINGS_KEYS.activeProvider }),
+    readScopedPreference(cwd, SETTINGS_KEYS.activeProvider),
   ]);
-  const activeProvider = normalizeProviderName(activeProviderValue);
-  const providerPrefix = 'settings.provider.' + activeProvider;
-  const providerValues = await Promise.all([
-    getPreference({ cwd, key: providerSettingKey('codex', 'codexHome') }),
-    getPreference({ cwd, key: providerSettingKey('codex', 'codexInstanceKey') }),
-    getPreference({ cwd, key: providerSettingKey('codex', 'codexModelProvider') }),
-    getPreference({ cwd, key: providerPrefix + '.model' }),
-    getPreference({ cwd, key: providerPrefix + '.effort' }),
-    getPreference({ cwd, key: providerPrefix + '.sandbox' }),
+  const activeProvider = providerNameFromPreference(activeProviderValue);
+  const providerValues = await readProviderPreferenceValues(cwd, activeProvider);
+  return { activeProvider, contextValue, providerValues, stallValue };
+}
+
+async function readRuntimePreferenceValuesForProvider(cwd, activeProvider) {
+  const [stallValue, contextValue, providerValues] = await Promise.all([
+    getPreference({ cwd, key: SETTINGS_KEYS.stallThreshold }),
+    getPreference({ cwd, key: SETTINGS_KEYS.contextThresholds }),
+    readProviderPreferenceValues(cwd, activeProvider),
   ]);
   return { activeProvider, contextValue, providerValues, stallValue };
 }
 
+async function readProviderPreferenceValues(cwd, activeProvider) {
+  const providerPrefix = 'settings.provider.' + activeProvider;
+  const isCodex = activeProvider === 'codex';
+  return Promise.all([
+    isCodex ? readScopedPreference(cwd, providerSettingKey('codex', 'codexHome')) : Promise.resolve(null),
+    isCodex ? readScopedPreference(cwd, providerSettingKey('codex', 'codexInstanceKey')) : Promise.resolve(null),
+    readScopedPreference(cwd, providerPrefix + '.model'),
+    readScopedPreference(cwd, providerPrefix + '.effort'),
+    readScopedPreference(cwd, providerPrefix + '.personality'),
+    readScopedPreference(cwd, providerPrefix + '.sandbox'),
+  ]);
+}
+
 function settingsFormFromPreferences({ activeProvider, contextValue, providerValues, stallValue }) {
-  const [codexHome, codexInstanceKey, codexModelProvider, providerModel, providerEffort, sandbox] = providerValues;
+  const [codexHome, codexInstanceKey, providerModel, providerEffort, personality, sandbox] = providerValues;
   const contextThresholds = normalizeContextThresholds(contextValue);
+  const model = normalizeProviderModelSetting(activeProvider, providerModel);
+  const sandboxPreference = sandboxPreferenceFromRaw(sandbox);
   return {
     ...defaultSettingsForm(),
     stallThresholdSec: String(numberSetting(stallValue, SETTINGS_DEFAULTS.stallThresholdSec)),
@@ -217,13 +494,40 @@ function settingsFormFromPreferences({ activeProvider, contextValue, providerVal
     activeProvider,
     codexHome: stringSetting(codexHome, SETTINGS_DEFAULTS.codexHome),
     codexInstanceKey: stringSetting(codexInstanceKey, SETTINGS_DEFAULTS.codexInstanceKey),
-    codexModelProvider: stringSetting(codexModelProvider, SETTINGS_DEFAULTS.codexModelProvider),
-    providerModel: stringSetting(providerModel, SETTINGS_DEFAULTS.providerModel),
-    providerEffort: stringSetting(providerEffort, SETTINGS_DEFAULTS.providerEffort),
-    sandboxPolicy: sandboxPolicyFromPreference(sandbox),
-    writableRoots: writableRootsFromPreference(sandbox),
-    networkAccess: Boolean(sandbox && typeof sandbox === 'object' && sandbox.networkAccess),
+    providerModel: model,
+    providerEffort: normalizeProviderEffortSetting(activeProvider, model, providerEffort),
+    providerModelExplicit: !isPreferenceAbsent(providerModel),
+    providerEffortExplicit: !isPreferenceAbsent(providerEffort),
+    providerModelTouched: false,
+    providerEffortTouched: false,
+    personality: providerConfigValue(personality) || SETTINGS_DEFAULTS.personality,
+    sandboxPolicy: sandboxPolicyFromPreference(sandboxPreference),
+    readOnlyMode: readOnlyModeFromPreference(sandboxPreference),
+    readableRoots: readableRootsFromPreference(sandboxPreference),
+    writableRoots: writableRootsFromPreference(sandboxPreference),
+    networkAccess: Boolean(sandboxPreference && typeof sandboxPreference === 'object' && sandboxPreference.networkAccess),
   };
+}
+
+async function changeActiveProviderPreference({ cwd, event, isCurrent, setError, setForm, setStatus }) {
+  const provider = normalizeProviderName(event.target.value);
+  setError('');
+  setStatus('');
+  setForm((current) => settingsFormWithUpdate(current, 'activeProvider', provider));
+  try {
+    const projectCwd = requireSettingsCwd(cwd);
+    if (!isCurrentPreferenceRequest(isCurrent)) return;
+    await setPreference({ cwd: projectCwd, key: SETTINGS_KEYS.activeProvider, value: provider });
+    const values = await readRuntimePreferenceValuesForProvider(projectCwd, provider);
+    if (isCurrentPreferenceRequest(isCurrent)) {
+      setForm(settingsFormFromPreferences(values));
+      setStatus('Active Provider 已切换为 ' + (PROVIDER_LABELS[provider] || provider));
+    }
+  } catch (err) {
+    if (isCurrentPreferenceRequest(isCurrent)) {
+      setError(err.message || String(err));
+    }
+  }
 }
 
 async function saveRuntimePreferences({ cwd, form, setError, setStatus }) {
@@ -245,6 +549,8 @@ async function saveProviderRuntimePreferences({ cwd, form, setError, setStatus }
   setStatus('');
   try {
     const projectCwd = requireSettingsCwd(cwd);
+    const rootError = form.sandboxPolicy === 'workspaceWrite' ? absolutePathsError(form.writableRoots) : '';
+    if (rootError) throw new Error(rootError);
     const provider = normalizeProviderName(form.activeProvider);
     await writeProviderRuntimePreferences(projectCwd, provider, form);
     setStatus('Provider 设置已保存');
@@ -254,45 +560,77 @@ async function saveProviderRuntimePreferences({ cwd, form, setError, setStatus }
 }
 
 async function writeProviderRuntimePreferences(cwd, provider, form) {
-  await Promise.all([
-    setPreference({ cwd, key: SETTINGS_KEYS.activeProvider, value: provider }),
-    setPreference({ cwd, key: providerSettingKey(provider, 'model'), value: form.providerModel.trim() }),
-    setPreference({ cwd, key: providerSettingKey(provider, 'effort'), value: form.providerEffort.trim() }),
-    setPreference({ cwd, key: providerSettingKey(provider, 'sandbox'), value: sandboxPreferenceValue(form.sandboxPolicy, form.writableRoots, form.networkAccess) }),
-    setPreference({ cwd, key: providerSettingKey('codex', 'codexHome'), value: form.codexHome.trim() }),
-    setPreference({ cwd, key: providerSettingKey('codex', 'codexInstanceKey'), value: form.codexInstanceKey.trim() }),
-    setPreference({ cwd, key: providerSettingKey('codex', 'codexModelProvider'), value: form.codexModelProvider.trim() }),
-  ]);
+  const providerModel = normalizeProviderModelSetting(provider, form.providerModel);
+  const providerEffort = normalizeProviderEffortSetting(provider, providerModel, form.providerEffort);
+  const calls = [
+    setPreference({ cwd, key: providerSettingKey(provider, 'personality'), value: form.personality.trim() }),
+    setPreference({ cwd, key: providerSettingKey(provider, 'sandbox'), value: sandboxPreferenceValue(form.sandboxPolicy, form.writableRoots, form.networkAccess, form.readOnlyMode, form.readableRoots) }),
+  ];
+  if (form.providerModelExplicit || form.providerModelTouched) {
+    calls.push(setPreference({ cwd, key: providerSettingKey(provider, 'model'), value: providerModel }));
+  }
+  if (form.providerEffortExplicit || form.providerEffortTouched) {
+    calls.push(setPreference({ cwd, key: providerSettingKey(provider, 'effort'), value: providerEffort }));
+  }
+  if (provider === 'codex') {
+    calls.push(
+      setPreference({ cwd, key: providerSettingKey('codex', 'codexHome'), value: codexIdentityPreferenceValue(form.codexHome) }),
+      setPreference({ cwd, key: providerSettingKey('codex', 'codexInstanceKey'), value: codexIdentityPreferenceValue(form.codexInstanceKey) }),
+    );
+  }
+  await Promise.all(calls);
 }
 
-function useProviderPreferences(cwd) {
+function codexIdentityPreferenceValue(value) {
+  const text = (value || '').toString().trim();
+  return text ? text : { cleared: true };
+}
+
+function useProviderPreferences(cwd, activeProvider) {
+  const provider = normalizeProviderName(activeProvider);
   const [summaryMode, setSummaryMode] = useState('detailed');
   const [approvalMode, setApprovalMode] = useState('on-request');
   const [notice, setNotice] = useState({ level: 'info', message: '' });
   const [saving, setSaving] = useState(false);
+  const loadRequestSeq = useRef(0);
+  const nextLoadRequest = useCallback(() => {
+    loadRequestSeq.current += 1;
+    const requestSeq = loadRequestSeq.current;
+    return () => loadRequestSeq.current === requestSeq;
+  }, []);
   const load = useCallback(async () => {
+    const isCurrent = nextLoadRequest();
     if (!cwd) return;
+    const providerKey = normalizeProviderName(activeProvider);
     try {
-      const summaryValue = await getPreference({ cwd, key: 'settings.provider.codex.summary' });
-      const approvalValue = await getPreference({ cwd, key: 'settings.provider.codex.approvalPolicy' });
-      setSummaryMode(summaryValue || 'detailed');
-      setApprovalMode(approvalValue || 'on-request');
-      setNotice({ level: 'info', message: '' });
+      if (!isCurrentPreferenceRequest(isCurrent)) return;
+      const [summaryValue, approvalValue] = await Promise.all([
+        readScopedPreference(cwd, providerSettingKey(providerKey, 'summary')),
+        readScopedPreference(cwd, providerSettingKey(providerKey, 'approvalPolicy')),
+      ]);
+      if (isCurrentPreferenceRequest(isCurrent)) {
+        setSummaryMode(providerConfigValue(summaryValue) || 'detailed');
+        setApprovalMode(providerConfigValue(approvalValue) || 'on-request');
+        setNotice({ level: 'info', message: '' });
+      }
     } catch (error) {
-      setNotice({ level: 'error', message: '加载 Preferences 失败: ' + error.message });
+      if (isCurrentPreferenceRequest(isCurrent)) {
+        setNotice({ level: 'error', message: '加载 Preferences 失败: ' + error.message });
+      }
     }
-  }, [cwd]);
-  const save = useCallback(() => saveProviderPreferenceValues({ approvalMode, cwd, saving, setNotice, setSaving, summaryMode }), [approvalMode, cwd, saving, summaryMode]);
+  }, [activeProvider, cwd, nextLoadRequest]);
+  const save = useCallback(() => saveProviderPreferenceValues({ approvalMode, cwd, provider, saving, setNotice, setSaving, summaryMode }), [approvalMode, cwd, provider, saving, summaryMode]);
   useEffect(() => { void load(); }, [load]);
-  return { approvalMode, load, notice, save, saving, setApprovalMode, setSummaryMode, summaryMode };
+  return { approvalMode, load, notice, provider, save, saving, setApprovalMode, setSummaryMode, summaryMode };
 }
 
-async function saveProviderPreferenceValues({ approvalMode, cwd, saving, setNotice, setSaving, summaryMode }) {
+async function saveProviderPreferenceValues({ approvalMode, cwd, provider, saving, setNotice, setSaving, summaryMode }) {
   if (!cwd || saving) return;
   setSaving(true);
   try {
-    await setPreference({ cwd, key: 'settings.provider.codex.summary', value: summaryMode });
-    await setPreference({ cwd, key: 'settings.provider.codex.approvalPolicy', value: approvalMode });
+    const providerKey = normalizeProviderName(provider);
+    await setPreference({ cwd, key: providerSettingKey(providerKey, 'summary'), value: summaryMode });
+    await setPreference({ cwd, key: providerSettingKey(providerKey, 'approvalPolicy'), value: approvalMode });
     setNotice({ level: 'info', message: '已保存：' + summaryMode + ' / ' + approvalMode });
   } catch (error) {
     setNotice({ level: 'error', message: '保存失败: ' + error.message });
@@ -315,8 +653,8 @@ function usePromptSettings(cwd) {
   const loadPrompt = useCallback(() => loadLspPromptState({ cwd, setDefaultHint, setEffectiveHint, setHint, setLoading, setNotice, setUsingDefault }), [cwd]);
   const loadScope = useCallback(() => loadPromptScope(setCurrentScopeCwd), []);
   const loadVisibility = useCallback(() => loadInjectedPromptVisibility({ cwd, setNotice, setShowInjected }), [cwd]);
-  const save = useCallback(() => writeLspPromptHint({ cwd, defaultHint, hint, saving, setDefaultHint, setEffectiveHint, setHint, setNotice, setSaving, setUsingDefault }), [cwd, defaultHint, hint, saving]);
-  const reset = useCallback(() => writeLspPromptHint({ cwd, defaultHint, hint: '', saving, setDefaultHint, setEffectiveHint, setHint, setNotice, setSaving, setUsingDefault }), [cwd, defaultHint, saving]);
+  const save = useCallback(() => saveLspPromptHintState({ cwd, defaultHint, hint, saving, setDefaultHint, setEffectiveHint, setHint, setNotice, setSaving, setUsingDefault }), [cwd, defaultHint, hint, saving]);
+  const reset = useCallback(() => saveLspPromptHintState({ cwd, defaultHint, hint: '', saving, setDefaultHint, setEffectiveHint, setHint, setNotice, setSaving, setUsingDefault }), [cwd, defaultHint, saving]);
   const copy = useCallback(() => copyEffectivePromptHint(promptDisplayHint(effectiveHint, defaultHint), setNotice), [defaultHint, effectiveHint]);
   const toggleVisibility = useCallback((event) => saveInjectedPromptVisibility({ cwd, event, loadVisibility, saving: showInjectedSaving, setNotice, setSaving: setShowInjectedSaving, setShowInjected }), [cwd, loadVisibility, showInjectedSaving]);
   useEffect(() => { void loadPrompt(); void loadScope(); void loadVisibility(); }, [loadPrompt, loadScope, loadVisibility]);
@@ -343,7 +681,7 @@ async function loadLspPromptState(state) {
   if (!state.cwd) return;
   state.setLoading(true);
   try {
-    const res = await callBackend('config/lspPromptHint/read', { cwd: state.cwd });
+    const res = await readLspPromptHint({ cwd: state.cwd });
     state.setHint((res?.overrideHint || '').toString());
     state.setEffectiveHint((res?.hint || '').toString());
     state.setDefaultHint((res?.defaultHint || '').toString());
@@ -358,7 +696,7 @@ async function loadLspPromptState(state) {
 
 async function loadPromptScope(setCurrentScopeCwd) {
   try {
-    const cfg = await callBackend('config/read', {});
+    const cfg = await readConfig();
     setCurrentScopeCwd((cfg?.cwd || '').toString().trim());
   } catch {
     setCurrentScopeCwd('');
@@ -375,11 +713,11 @@ async function loadInjectedPromptVisibility({ cwd, setNotice, setShowInjected })
   }
 }
 
-async function writeLspPromptHint(state) {
+async function saveLspPromptHintState(state) {
   if (!state.cwd || state.saving) return;
   state.setSaving(true);
   try {
-    const res = await callBackend('config/lspPromptHint/write', { cwd: state.cwd, hint: state.hint });
+    const res = await writeLspPromptHintBackend({ cwd: state.cwd, hint: state.hint });
     state.setEffectiveHint((res?.hint || '').toString());
     state.setDefaultHint((res?.defaultHint || state.defaultHint || '').toString());
     state.setHint((res?.overrideHint || '').toString());
@@ -398,8 +736,8 @@ async function copyEffectivePromptHint(text, setNotice) {
     return;
   }
   try {
-    await navigator.clipboard.writeText(text);
-    setNotice({ level: 'info', message: '已复制生效提示词' });
+    const ok = await copyTextToClipboard(text);
+    setNotice({ level: ok ? 'info' : 'error', message: ok ? '已复制生效提示词' : '复制失败' });
   } catch (error) {
     setNotice({ level: 'error', message: '复制失败：' + (error?.message || error) });
   }
@@ -476,7 +814,7 @@ async function loadBuiltinTools({ applyPayload, cwd, setLoading, setNotice }) {
   if (!cwd) return;
   setLoading(true);
   try {
-    applyPayload(await callBackend('config/builtinTools/read', { cwd }));
+    applyPayload(await readBuiltinTools({ cwd }));
     setNotice({ level: 'info', message: '' });
   } catch (error) {
     setNotice({ level: 'error', message: '加载失败：' + (error?.message || error) });
@@ -491,7 +829,7 @@ async function toggleBuiltinTool({ applyPayload, cwd, savingIds, setNotice, setS
   setSavingIds((prev) => ({ ...prev, [tool.id]: true }));
   setTools((prev) => prev.map((item) => (item.id === tool.id ? { ...item, enabled: nextEnabled } : item)));
   try {
-    applyPayload(await callBackend('config/builtinTools/write', { cwd, id: tool.id, enabled: nextEnabled }));
+    applyPayload(await writeBuiltinTool({ cwd, id: tool.id, enabled: nextEnabled }));
     setNotice({ level: 'info', message: (tool.label || tool.id) + ' 已' + (nextEnabled ? '启用' : '禁用') });
   } catch (error) {
     setTools((prev) => prev.map((item) => (item.id === tool.id ? { ...item, enabled: !nextEnabled } : item)));
@@ -573,7 +911,7 @@ function SettingsPageView({ builtins, cwd, prompt, provider, runtime, store }) {
 function SettingsNotices({ error, status }) {
   return (
     <>
-      {status ? <p className="settings-page-notice settings-status" role="status">{status}</p> : null}
+      {status ? <output className="settings-page-notice settings-status">{status}</output> : null}
       {error ? <p className="settings-page-notice danger-text" role="alert">{error}</p> : null}
     </>
   );
@@ -622,27 +960,35 @@ function ContextUsagePanel({ form, onSave, updateForm }) {
 }
 
 function ProviderSettingsPanel({ runtime }) {
-  const { form, saveProviderSettings, updateForm } = runtime;
+  const { changeActiveProvider, form, saveProviderSettings, updateForm } = runtime;
   return (
     <Panel title="PROVIDER">
-      <ProviderSettingsForm form={form} updateForm={updateForm} />
+      <ProviderSettingsForm changeActiveProvider={changeActiveProvider} form={form} updateForm={updateForm} />
       <div className="settings-actions"><button className="btn btn-primary" type="button" onClick={() => void saveProviderSettings()}>保存 Provider 设置</button></div>
     </Panel>
   );
 }
 
-function ProviderSettingsForm({ form, updateForm }) {
+function ProviderSettingsForm({ changeActiveProvider, form, updateForm }) {
+  const modelOptions = appendCurrentOption(MODEL_OPTIONS_BY_PROVIDER[form.activeProvider] || MODEL_OPTIONS_BY_PROVIDER.codex, form.providerModel);
+  const baseEffortOptions = EFFORT_MODES_BY_PROVIDER[form.activeProvider] || EFFORT_MODES_BY_PROVIDER.codex;
+  const filteredEffortOptions = form.activeProvider === 'claude' && !isClaudeOpusFamilyModel(form.providerModel)
+    ? baseEffortOptions.filter((item) => item.value !== 'max')
+    : baseEffortOptions;
+  const effortOptions = appendCurrentOption(filteredEffortOptions, normalizeProviderEffortSetting(form.activeProvider, form.providerModel, form.providerEffort));
   return (
     <div className="form-grid">
-      <label>Active Provider<select value={form.activeProvider} onChange={updateForm('activeProvider')}><option value="codex">Codex</option><option value="claude">Claude</option></select></label>
-      <label>Provider Model<input value={form.providerModel} onChange={updateForm('providerModel')} /></label>
-      <label>Provider Effort<input value={form.providerEffort} onChange={updateForm('providerEffort')} /></label>
-      <label>Codex Home<input aria-label="Codex Home" value={form.codexHome} onChange={updateForm('codexHome')} /></label>
-      <label>Instance Key<input aria-label="Instance Key" value={form.codexInstanceKey} onChange={updateForm('codexInstanceKey')} /></label>
-      <label>Model Provider<input aria-label="Model Provider" value={form.codexModelProvider} onChange={updateForm('codexModelProvider')} /></label>
+      <label>Active Provider<select value={form.activeProvider} onChange={changeActiveProvider}><option value="codex">Codex</option><option value="claude">Claude</option></select></label>
+      <label>Provider Model<select aria-label="Provider Model" value={form.providerModel} onChange={updateForm('providerModel')}>{modelOptions.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select></label>
+      <label>Provider Effort<select aria-label="Provider Effort" value={form.providerEffort} onChange={updateForm('providerEffort')}>{effortOptions.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select></label>
+      <label>Personality<select aria-label="Personality" value={form.personality} onChange={updateForm('personality')}>{appendCurrentOption(PERSONALITY_OPTIONS, form.personality).map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select></label>
+      {form.activeProvider === 'codex' ? <label>Codex Home<input aria-label="Codex Home" value={form.codexHome} onChange={updateForm('codexHome')} /></label> : null}
+      {form.activeProvider === 'codex' ? <label>Instance Key<input aria-label="Instance Key" value={form.codexInstanceKey} onChange={updateForm('codexInstanceKey')} /></label> : null}
       <label>Sandbox Policy<select aria-label="Sandbox Policy" value={form.sandboxPolicy} onChange={updateForm('sandboxPolicy')}><option value="workspaceWrite">workspaceWrite</option><option value="readOnly">readOnly</option><option value="dangerFullAccess">dangerFullAccess</option></select></label>
-      <label className="checkbox-line"><input type="checkbox" checked={form.networkAccess} onChange={updateForm('networkAccess')} /> Network Access</label>
-      <label className="wide">Writable Roots<textarea value={form.writableRoots} onChange={updateForm('writableRoots')} placeholder="每行一个绝对路径" /></label>
+      {form.sandboxPolicy === 'readOnly' ? <label>Read Only Mode<select aria-label="Read Only Mode" value={form.readOnlyMode} onChange={updateForm('readOnlyMode')}><option value="fullAccess">fullAccess（全量只读）</option><option value="restricted">restricted（限定目录）</option></select></label> : null}
+      {form.sandboxPolicy === 'workspaceWrite' ? <label className="checkbox-line"><input type="checkbox" checked={form.networkAccess} onChange={updateForm('networkAccess')} /> Network Access</label> : null}
+      {form.sandboxPolicy === 'workspaceWrite' ? <label className="wide">Writable Roots<textarea aria-label="Writable Roots" value={form.writableRoots} onChange={updateForm('writableRoots')} placeholder="每行一个绝对路径" /></label> : null}
+      {form.sandboxPolicy === 'readOnly' && form.readOnlyMode === 'restricted' ? <label className="wide">Readable Roots<textarea aria-label="Readable Roots" value={form.readableRoots} onChange={updateForm('readableRoots')} placeholder="每行一个绝对路径" /></label> : null}
     </div>
   );
 }
@@ -656,8 +1002,8 @@ function ProviderPropertiesCard({ provider }) {
         <ProviderSelectRow id="provider-approval-mode-select" label="审批策略 (ApprovalPolicy)" value={provider.approvalMode} onChange={provider.setApprovalMode} options={APPROVAL_MODE_OPTIONS} />
         {provider.notice.message ? <SettingsPromptNotice notice={provider.notice} className="settings-provider-notice" /> : null}
         <div className="settings-action-row settings-action-inline settings-provider-actions">
-          <button className="btn btn-secondary btn-toolbar-sm" onClick={provider.load} disabled={provider.saving}>刷新</button>
-          <button className="btn btn-primary btn-toolbar-sm" data-testid="provider-sandbox-save-button" onClick={provider.save} disabled={provider.saving}>{provider.saving ? '保存中...' : '保存'}</button>
+          <button type="button" className="btn btn-secondary btn-toolbar-sm" onClick={provider.load} disabled={provider.saving}>刷新</button>
+          <button type="button" className="btn btn-primary btn-toolbar-sm" data-testid="provider-sandbox-save-button" onClick={provider.save} disabled={provider.saving}>{provider.saving ? '保存中...' : '保存'}</button>
         </div>
       </div>
     </>
@@ -739,10 +1085,10 @@ function PromptTextareas({ prompt }) {
 function PromptActions({ prompt }) {
   return (
     <div className="settings-action-row settings-action-inline">
-      <button className="btn btn-secondary btn-toolbar-sm" data-testid="settings-lsp-refresh-button" onClick={prompt.loadPrompt} disabled={prompt.saving}>刷新</button>
-      <button className="btn btn-secondary btn-toolbar-sm" data-testid="settings-lsp-copy-button" onClick={prompt.copy} disabled={prompt.loading || prompt.saving}>复制生效提示词</button>
-      <button className="btn btn-secondary btn-toolbar-sm" data-testid="settings-lsp-reset-button" onClick={prompt.reset} disabled={prompt.loading || prompt.saving}>恢复默认</button>
-      <button className="btn btn-primary btn-toolbar-sm" data-testid="settings-lsp-save-button" onClick={prompt.save} disabled={prompt.loading || prompt.saving}>{prompt.saving ? '保存中...' : '保存提示词'}</button>
+      <button type="button" className="btn btn-secondary btn-toolbar-sm" data-testid="settings-lsp-refresh-button" onClick={prompt.loadPrompt} disabled={prompt.saving}>刷新</button>
+      <button type="button" className="btn btn-secondary btn-toolbar-sm" data-testid="settings-lsp-copy-button" onClick={prompt.copy} disabled={prompt.loading || prompt.saving}>复制生效提示词</button>
+      <button type="button" className="btn btn-secondary btn-toolbar-sm" data-testid="settings-lsp-reset-button" onClick={prompt.reset} disabled={prompt.loading || prompt.saving}>恢复默认</button>
+      <button type="button" className="btn btn-primary btn-toolbar-sm" data-testid="settings-lsp-save-button" onClick={prompt.save} disabled={prompt.loading || prompt.saving}>{prompt.saving ? '保存中...' : '保存提示词'}</button>
     </div>
   );
 }
@@ -811,18 +1157,52 @@ function BuiltinToolRow({ builtins, tool }) {
 }
 
 function UILogCard({ store }) {
-  const logList = store.logEntries ? store.logEntries.slice(0, 14) : [];
+  const [remoteLogs, setRemoteLogs] = useState([]);
+  const [logError, setLogError] = useState('');
+  const [refreshing, setRefreshing] = useState(false);
+  const refreshLogs = useCallback(async () => {
+    setRefreshing(true);
+    setLogError('');
+    try {
+      setRemoteLogs(normalizeDashboardLogs(await listDashboardLogs({ limit: 14 })));
+    } catch (error) {
+      setLogError('刷新日志失败：' + (error?.message || error));
+    } finally {
+      setRefreshing(false);
+    }
+  }, []);
+  const localLogs = store.logEntries ? store.logEntries.slice(0, 14) : [];
+  const logList = remoteLogs.length > 0 ? remoteLogs : localLogs;
   return (
     <>
       <div className="section-header">UI LOG</div>
       <div className="data-card-vue settings-log-card" data-testid="settings-log-card">
         <div className="data-row-vue"><strong>日志级别</strong><span>{store.logLevel}</span></div>
         <UILogLevelRow store={store} />
-        <div className="settings-action-row settings-log-action-row"><button className="btn btn-secondary btn-toolbar-sm" data-testid="settings-log-refresh-button">刷新日志</button></div>
+        <div className="settings-action-row settings-log-action-row"><button type="button" className="btn btn-secondary btn-toolbar-sm" data-testid="settings-log-refresh-button" onClick={() => { void refreshLogs(); }} disabled={refreshing}>{refreshing ? '刷新中...' : '刷新日志'}</button></div>
+        {logError ? <SettingsPromptNotice notice={{ level: 'error', message: logError }} testId="settings-log-notice" /> : null}
         <UILogList logList={logList} />
       </div>
     </>
   );
+}
+
+function normalizeDashboardLogs(payload) {
+  const list = Array.isArray(payload?.logs) ? payload.logs : [];
+  return list.map(normalizeDashboardLogEntry);
+}
+
+function normalizeDashboardLogEntry(entry, index) {
+  const scope = textValue(entry.component || entry.logger || entry.source || 'dashboard') || 'dashboard';
+  const event = textValue(entry.event_type || entry.eventType || entry.message || entry.raw || `log.${entry.id || index}`);
+  return {
+    id: entry.id || `${scope}-${index}`,
+    ts: entry.timestamp || entry.ts || entry.createdAt || entry.created_at,
+    level: textValue(entry.level || 'info').toLowerCase() || 'info',
+    scope,
+    event,
+    fields: entry,
+  };
 }
 
 function UILogLevelRow({ store }) {

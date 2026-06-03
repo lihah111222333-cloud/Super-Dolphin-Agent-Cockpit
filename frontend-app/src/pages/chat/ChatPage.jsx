@@ -1,8 +1,8 @@
 import React, { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Archive, ArrowLeft, Bot, Boxes, Brain, CheckCircle2, ChevronDown, Clock3, Code2, Copy, File, FileText, Folder, GitBranch, Link2, Pencil, Pin, Plus, Send, Settings, Sparkles, Terminal, Trash2, UserRound, Workflow, Wrench, X } from 'lucide-react';
+import { Archive, ArrowLeft, Bot, Boxes, Brain, CheckCircle2, ChevronDown, Clock3, Code2, Copy, File, FileText, Folder, GitBranch, Link2, Pencil, Pin, Plus, Search, Send, Settings, Sparkles, Terminal, Trash2, UserRound, Workflow, Wrench, X } from 'lucide-react';
 import { FocusTrapDialog } from '../../shared/ui/FocusTrapDialog.jsx';
-import { onFilesDropped, copyTextToClipboard } from '../../shared/api/backendApi.js';
+import { onFilesDropped, copyTextToClipboard, locateCodeFile, openCodeFile, saveCodeFile } from '../../shared/api/backendApi.js';
 import { appendCurrentModelOption, canonicalizeModelValue, modelOptionFor, normalizeConfigText, normalizeProviderKey, textValue } from '../shared/pageShared.js';
 
 const COMPOSER_DROP_TARGET_IDS = new Set(['chat-input-bar', 'composer-input', 'chatInput']);
@@ -41,6 +41,8 @@ const TIMELINE_MATERIALIZATION_INCREMENT = 80;
 
 const TIMELINE_SCROLL_LOAD_THRESHOLD = 32;
 
+const CONTEXT_USAGE_FORK_THRESHOLD = 90;
+
 const RUNTIME_STAT_TOOLTIP_WIDTH = 360;
 
 const RUNTIME_STAT_TOOLTIP_MIN_HEIGHT = 96;
@@ -63,6 +65,7 @@ const JSON_RENDER_TOOL_NAMES = Object.freeze(['json_render']);
 const GO_RUN_TOOL_NAMES = Object.freeze(['go_run']);
 
 const PLAYWRIGHT_TOOL_PREFIXES = Object.freeze(['mcp__playwright__', 'playwright_', 'browser_']);
+const APPROVAL_TERMINAL_STATUSES = new Set(['approved', 'rejected', 'denied', 'resolved', 'completed', 'complete', 'done', 'success', 'succeeded']);
 
 function clampWidth(value, min, max) {
   const numeric = Number(value);
@@ -224,7 +227,11 @@ function sumToolCallsByMatcher(toolMap, matcher) {
 }
 
 function sumToolCallsByNames(toolMap, names) {
-  const expected = new Set((names || []).map((name) => normalizeActivityToolName(name)).filter(Boolean));
+  const expected = new Set();
+  for (const rawName of names || []) {
+    const name = normalizeActivityToolName(rawName);
+    if (name) expected.add(name);
+  }
   if (expected.size === 0) return 0;
   return sumToolCallsByMatcher(toolMap, (name) => expected.has(name));
 }
@@ -262,12 +269,11 @@ function filteredActivityToolEntries(stats = {}, matcher) {
     if (!matcher(name, raw)) continue;
     merged[name] = (merged[name] || 0) + (Number(value) || 0);
   }
-  return (
-    Object.entries(merged)
-    .map(([name, count]) => ({ name, count }))
-    .filter((entry) => entry.count > 0)
-    .sort((left, right) => right.count - left.count || left.name.localeCompare(right.name))
-  );
+  const entries = [];
+  for (const [name, count] of Object.entries(merged)) {
+    if (count > 0) entries.push({ name, count });
+  }
+  return entries.sort((left, right) => right.count - left.count || left.name.localeCompare(right.name));
 }
 
 function activityStatDetailEntries(stats = {}, statKey = '') {
@@ -550,6 +556,362 @@ function parseUnifiedDiffLineEntries(fileText) {
   return String(fileText || '').split('\n').flatMap((line, index) => parseUnifiedDiffLineEntry(state, line, index));
 }
 
+function runtimeCodeScopePayload(filePath, projectPath, projects, position = null) {
+  const payload = { filePath };
+  const line = Number(position?.line);
+  const column = Number(position?.column);
+  if (Number.isFinite(line) && line > 0) payload.line = Math.floor(line);
+  if (position && Number.isFinite(column) && column >= 0) payload.column = Math.floor(column);
+  const project = normalizeProjectPath(projectPath);
+  if (project) payload.project = project;
+  const projectList = [];
+  for (const rawProject of Array.isArray(projects) ? projects : []) {
+    const normalizedProject = normalizeProjectPath(rawProject);
+    if (normalizedProject) projectList.push(normalizedProject);
+  }
+  if (projectList.length > 0) payload.projects = projectList;
+  return payload;
+}
+
+function normalizeCodeOpenSnippet(snippet) {
+  if (typeof snippet === 'string') return snippet;
+  if (!Array.isArray(snippet)) return '';
+  return snippet.map((line) => {
+    if (typeof line === 'string') return line;
+    if (line && typeof line === 'object') return (line.text ?? '').toString();
+    return '';
+  }).join('\n');
+}
+
+function normalizeCodePreviewText(value) {
+  return (value || '').toString().replace(/\r\n?/g, '\n');
+}
+
+function countCodePreviewLines(text) {
+  const normalized = normalizeCodePreviewText(text);
+  if (!normalized) return 0;
+  const lineBreaks = normalized.match(/\n/g)?.length || 0;
+  return normalized.endsWith('\n') ? lineBreaks : lineBreaks + 1;
+}
+
+function codePreviewFormatBytes(value) {
+  const size = Number(value);
+  if (!Number.isFinite(size) || size <= 0) return '';
+  if (size >= 1024 * 1024) return `${(size / (1024 * 1024)).toFixed(2)} MB`;
+  if (size >= 1024) return `${(size / 1024).toFixed(1)} KB`;
+  return `${Math.floor(size)} B`;
+}
+
+function codeOpenDisplayPath(result, fallback = '') {
+  return (result?.relative || result?.filePath || result?.path || fallback || '').toString().trim();
+}
+
+function isCodePreviewMarkdownPath(path) {
+  return /\.(md|markdown)$/i.test((path || '').toString().trim());
+}
+
+function isCodePreviewImagePath(path) {
+  return /\.(png|jpe?g|gif|webp|svg|ico)$/i.test((path || '').toString().trim());
+}
+
+function codePreviewFileUrl(path) {
+  const raw = (path || '').toString().trim();
+  if (!raw) return '';
+  if (/^(?:file|https?):\/\//i.test(raw) || /^data:image\//i.test(raw)) return raw;
+  if (/^[A-Za-z]:[\\/]/.test(raw)) return `file:///${raw.replace(/\\/g, '/')}`;
+  return `file://${raw}`;
+}
+
+function codePreviewLanguage(result, relative, previewKind) {
+  const language = (result?.language || '').toString().trim().toLowerCase();
+  if (language) return language === 'text' ? 'plaintext' : language;
+  if (previewKind === 'markdown') return 'markdown';
+  if (/\.json$/i.test(relative)) return 'json';
+  if (/\.(ya?ml)$/i.test(relative)) return 'yaml';
+  return 'plaintext';
+}
+
+function codePreviewLineRange(result, content) {
+  const startRaw = Number(result?.startLine);
+  const startLine = Number.isFinite(startRaw) && startRaw > 0 ? Math.floor(startRaw) : 1;
+  const endRaw = Number(result?.endLine);
+  const fallbackEnd = startLine + Math.max(0, countCodePreviewLines(content) - 1);
+  const endLine = Number.isFinite(endRaw) && endRaw >= startLine ? Math.floor(endRaw) : fallbackEnd;
+  const totalRaw = Number(result?.totalLines);
+  const totalLines = Number.isFinite(totalRaw) && totalRaw > 0 ? Math.floor(totalRaw) : Math.max(endLine, countCodePreviewLines(content));
+  return { startLine, endLine, totalLines };
+}
+
+function codePreviewMeta(preview) {
+  const parts = [];
+  if (preview?.image) {
+    if (preview.mediaType) parts.push(preview.mediaType);
+    const size = codePreviewFormatBytes(preview.sizeBytes);
+    if (size) parts.push(size);
+    return parts.join(' · ');
+  }
+  const startLine = Number(preview?.startLine);
+  const endLine = Number(preview?.endLine);
+  const totalLines = Number(preview?.totalLines);
+  if (Number.isFinite(startLine) && startLine > 0 && Number.isFinite(endLine) && endLine >= startLine) {
+    parts.push(startLine === endLine ? `第 ${startLine} 行` : `第 ${startLine}-${endLine} 行`);
+  }
+  if (Number.isFinite(totalLines) && totalLines > 0) parts.push(`共 ${totalLines} 行`);
+  return parts.join(' · ');
+}
+
+function codePreviewStateFromOpenResult(result, requestedPath, fallbackRelative = '') {
+  const filePath = (result?.filePath || result?.path || requestedPath || '').toString();
+  const relative = codeOpenDisplayPath(result, fallbackRelative || requestedPath);
+  const mediaType = (result?.mediaType || '').toString().trim().toLowerCase();
+  const image = Boolean(result?.image) || mediaType.startsWith('image/') || isCodePreviewImagePath(relative || filePath);
+  if (image) {
+    const previewUrl = (result?.previewURL || result?.previewUrl || '').toString().trim();
+    const thumbnailUrl = (result?.thumbnailURL || result?.thumbnailUrl || '').toString().trim();
+    const imageSrc = thumbnailUrl || previewUrl || codePreviewFileUrl(filePath);
+    const imageFullSrc = previewUrl || imageSrc;
+    return {
+      open: true,
+      loading: false,
+      saving: false,
+      filePath,
+      relative,
+      content: '',
+      draft: '',
+      error: '',
+      status: '',
+      previewKind: 'image',
+      language: '',
+      editable: false,
+      editing: false,
+      image: true,
+      imageSrc,
+      imageFullSrc,
+      mediaType: mediaType || 'image/*',
+      sizeBytes: Number.isFinite(Number(result?.sizeBytes)) ? Math.floor(Number(result.sizeBytes)) : 0,
+      startLine: 0,
+      endLine: 0,
+      totalLines: 0,
+    };
+  }
+  const content = normalizeCodePreviewText(normalizeCodeOpenSnippet(result?.snippet));
+  const explicitKind = (result?.previewKind || '').toString().trim().toLowerCase();
+  const previewKind = explicitKind === 'markdown' || isCodePreviewMarkdownPath(relative) || mediaType === 'text/markdown'
+    ? 'markdown'
+    : 'text';
+  const { startLine, endLine, totalLines } = codePreviewLineRange(result, content);
+  return {
+    open: true,
+    loading: false,
+    saving: false,
+    filePath,
+    relative,
+    content,
+    draft: content,
+    error: '',
+    status: '',
+    previewKind,
+    language: codePreviewLanguage(result, relative, previewKind),
+    editable: Boolean(filePath),
+    editing: previewKind !== 'markdown',
+    image: false,
+    imageSrc: '',
+    imageFullSrc: '',
+    mediaType: '',
+    sizeBytes: Number.isFinite(Number(result?.sizeBytes)) ? Math.floor(Number(result.sizeBytes)) : 0,
+    startLine,
+    endLine,
+    totalLines,
+  };
+}
+
+function emptyCodePreviewState() {
+  return {
+    open: false,
+    loading: false,
+    saving: false,
+    filePath: '',
+    relative: '',
+    content: '',
+    draft: '',
+    error: '',
+    status: '',
+    previewKind: 'text',
+    language: 'plaintext',
+    editable: false,
+    editing: true,
+    image: false,
+    imageSrc: '',
+    imageFullSrc: '',
+    mediaType: '',
+    sizeBytes: 0,
+    startLine: 0,
+    endLine: 0,
+    totalLines: 0,
+  };
+}
+
+function codeActionError(error, fallback) {
+  return (error?.message || fallback).toString();
+}
+
+function normalizeCodeLocateOptions(result) {
+  const options = [];
+  const seen = new Set();
+  const add = (value) => {
+    const text = (value || '').toString().trim();
+    if (!text || seen.has(text)) return;
+    seen.add(text);
+    options.push(text);
+  };
+  if (Array.isArray(result?.paths)) {
+    result.paths.forEach(add);
+  }
+  if (Array.isArray(result?.matches)) {
+    result.matches.forEach((match) => {
+      if (typeof match === 'string') {
+        add(match);
+        return;
+      }
+      add(match?.path || match?.filePath || match?.relative);
+    });
+  }
+  return options;
+}
+
+function emptyPathChoiceState() {
+  return {
+    open: false,
+    file: null,
+    options: [],
+    truncated: false,
+  };
+}
+
+function fileRefPosition(payload = {}) {
+  const line = Number(payload.line ?? payload.lineStart);
+  const column = Number(payload.column);
+  return {
+    line: Number.isFinite(line) && line > 0 ? Math.floor(line) : 1,
+    column: Number.isFinite(column) && column >= 0 ? Math.floor(column) : 0,
+  };
+}
+
+function useCodePreviewController({ projectPath, projects }) {
+  const [codePreview, setCodePreview] = useState(emptyCodePreviewState);
+  const [pathChoice, setPathChoice] = useState(emptyPathChoiceState);
+
+  const openCodePreviewForPath = useCallback(async (filePath, fallbackRelative = '', position = null) => {
+    const displayPath = (fallbackRelative || filePath || '').toString();
+    setCodePreview({
+      ...emptyCodePreviewState(),
+      open: true,
+      loading: true,
+      filePath,
+      relative: displayPath,
+    });
+    try {
+      const result = await openCodeFile(runtimeCodeScopePayload(filePath, projectPath, projects, position));
+      setCodePreview(codePreviewStateFromOpenResult(result, filePath, displayPath));
+    } catch (error) {
+      setCodePreview((current) => ({
+        ...current,
+        loading: false,
+        error: codeActionError(error, '打开失败'),
+      }));
+    }
+  }, [projectPath, projects]);
+
+  const openFileRef = useCallback(async (payload = {}) => {
+    const filePath = (payload.path || payload.filePath || '').toString().trim();
+    if (!filePath) return;
+    const position = fileRefPosition(payload);
+    setCodePreview({
+      ...emptyCodePreviewState(),
+      open: true,
+      loading: true,
+      filePath,
+      relative: filePath,
+    });
+    try {
+      const locateResult = await locateCodeFile(runtimeCodeScopePayload(filePath, projectPath, projects, position));
+      const options = normalizeCodeLocateOptions(locateResult);
+      if (options.length > 1) {
+        setCodePreview(emptyCodePreviewState());
+        setPathChoice({ open: true, file: { filename: filePath, position }, options, truncated: Boolean(locateResult?.truncated) });
+        return;
+      }
+      await openCodePreviewForPath(options[0] || filePath, filePath, position);
+    } catch (error) {
+      setCodePreview((current) => ({
+        ...current,
+        loading: false,
+        error: codeActionError(error, '定位失败'),
+      }));
+    }
+  }, [openCodePreviewForPath, projectPath, projects]);
+
+  const openChosenPath = useCallback(async (filePath) => {
+    const fallback = pathChoice.file?.filename || filePath;
+    const position = pathChoice.file?.position || null;
+    setPathChoice(emptyPathChoiceState());
+    await openCodePreviewForPath(filePath, fallback, position);
+  }, [openCodePreviewForPath, pathChoice.file]);
+
+  const savePreviewChanges = useCallback(async () => {
+    if (!codePreview.filePath || codePreview.saving) return;
+    setCodePreview((current) => ({ ...current, saving: true, error: '', status: '' }));
+    try {
+      const result = await saveCodeFile({
+        ...runtimeCodeScopePayload(codePreview.filePath, projectPath, projects),
+        content: codePreview.draft,
+      });
+      const relative = codeOpenDisplayPath(result, codePreview.relative || codePreview.filePath);
+      setCodePreview((current) => ({
+        ...current,
+        saving: false,
+        filePath: (result?.filePath || current.filePath).toString(),
+        relative,
+        content: current.draft,
+        editing: current.previewKind === 'markdown' ? false : current.editing,
+        totalLines: Number.isFinite(Number(result?.totalLines)) ? Math.floor(Number(result.totalLines)) : countCodePreviewLines(current.draft),
+        status: `已保存 ${relative}`,
+      }));
+    } catch (error) {
+      setCodePreview((current) => ({
+        ...current,
+        saving: false,
+        error: codeActionError(error, '保存失败'),
+      }));
+    }
+  }, [codePreview.draft, codePreview.filePath, codePreview.relative, codePreview.saving, projectPath, projects]);
+
+  const dialogs = (
+    <>
+      {codePreview.open ? (
+        <CodePreviewDialog
+          preview={codePreview}
+          onBeginEdit={() => setCodePreview((current) => ({ ...current, editing: true, error: '', status: '' }))}
+          onCancelEdit={() => setCodePreview((current) => ({ ...current, editing: false, draft: current.content, error: '', status: '' }))}
+          onChangeDraft={(draft) => setCodePreview((current) => ({ ...current, draft, error: '' }))}
+          onClose={() => setCodePreview(emptyCodePreviewState())}
+          onDirtyClose={() => setCodePreview((current) => ({ ...current, error: '请先保存或放弃预览更改' }))}
+          onSave={savePreviewChanges}
+        />
+      ) : null}
+      {pathChoice.open ? (
+        <PathChoiceDialog
+          choice={pathChoice}
+          onClose={() => setPathChoice(emptyPathChoiceState())}
+          onSelect={(filePath) => { void openChosenPath(filePath); }}
+        />
+      ) : null}
+    </>
+  );
+
+  return { dialogs, openFileRef };
+}
+
 function warningDetailText(entry) {
   if (entry?.runtimeKind === 'result' && entry?.fields && typeof entry.fields === 'object') {
     return JSON.stringify(entry.fields, null, 2);
@@ -619,6 +981,12 @@ function hasUsableProjectCwd(store) {
   return Boolean(cwd && cwd !== '.' && cwd !== '未选择项目');
 }
 
+function runtimeProjectPath(activeProject, fallbackProject) {
+  const normalized = normalizeProjectPath(activeProject);
+  if (normalized && normalized !== '.' && normalized !== '未选择项目') return normalized;
+  return normalizeProjectPath(fallbackProject);
+}
+
 function canUseProjectActionsForStore(store) {
   return store?.bootstrapStatus === 'ready' && hasUsableProjectCwd(store);
 }
@@ -629,7 +997,7 @@ function shouldIgnoreGlobalEscape(target) {
   const tagName = element.tagName.toLowerCase();
   if (['input', 'textarea', 'select', 'option'].includes(tagName)) return true;
   if (element.isContentEditable) return true;
-  return Boolean(element.closest('[role="dialog"], [role="menu"], [role="listbox"], [data-escape-scope="local"]'));
+  return Boolean(element.closest('dialog, [role="dialog"], [role="menu"], [role="listbox"], [data-escape-scope="local"]'));
 }
 
 function disambiguateProjectLabels(items) {
@@ -663,19 +1031,19 @@ function projectOptionsFor(projects = [], activeProject = '', fallbackProject = 
   addValue(fallbackProject);
   for (const project of projects || []) addValue(project);
 
-  const items = values
-    .filter((value) => value !== '.')
-    .map((value) => {
-      const segments = value.split(/[\\/]/).filter(Boolean);
-      const depth = Math.min(2, segments.length);
-      return {
-        value,
-        label: segments.slice(-depth).join('/') || value,
-        full: value,
-        segments,
-        depth,
-      };
+  const items = [];
+  for (const value of values) {
+    if (value === '.') continue;
+    const segments = value.split(/[\\/]/).filter(Boolean);
+    const depth = Math.min(2, segments.length);
+    items.push({
+      value,
+      label: segments.slice(-depth).join('/') || value,
+      full: value,
+      segments,
+      depth,
     });
+  }
   disambiguateProjectLabels(items);
   return [
     { value: '.', label: '当前目录 (.)', full: '.' },
@@ -818,7 +1186,7 @@ function threadMatchesActiveId(thread, activeThreadId) {
 }
 
 function activeThreadIdentifiers(activeThreadId, activeThread) {
-  return new Set([
+  const ids = [
     activeThreadId,
     activeThread?.id,
     activeThread?.threadId,
@@ -829,7 +1197,13 @@ function activeThreadIdentifiers(activeThreadId, activeThread) {
     activeThread?.provider_thread_id,
     activeThread?.sessionId,
     activeThread?.session_id,
-  ].map(normalizedThreadIdentity).filter(Boolean));
+  ];
+  const result = new Set();
+  for (const id of ids) {
+    const normalized = normalizedThreadIdentity(id);
+    if (normalized) result.add(normalized);
+  }
+  return result;
 }
 
 function threadScopedMapValue(map = {}, activeThreadId, activeThread, fallback = null) {
@@ -1054,6 +1428,64 @@ function runUIAction(action) {
   }
 }
 
+function composerTextFromCitation(payload = {}) {
+  const kind = (payload.kind || '').toString().trim();
+  const raw = (payload.raw || '').toString().trim();
+  if (kind === 'task') return (payload.prompt || payload.title || raw || '').toString().trim();
+  if (kind === 'automation-update') {
+    const title = (payload.title || '').toString().trim();
+    const prompt = (payload.prompt || '').toString().trim();
+    const message = (payload.message || raw || '').toString().trim();
+    if (title && prompt) return `Automation update (${title}):\n${prompt}`;
+    if (prompt) return `Automation update:\n${prompt}`;
+    if (message) return `Automation update:\n${message}`;
+    return title ? `Automation update (${title})` : '';
+  }
+  if (kind === 'code-comment') {
+    const title = (payload.title || '').toString().trim();
+    const message = (payload.message || raw || '').toString().trim();
+    const path = (payload.path || '').toString().trim();
+    const header = title || path ? `Code comment${path ? ` (${path})` : ''}${title ? `: ${title}` : ''}` : 'Code comment';
+    return message ? `${header}\n${message}` : (header === 'Code comment' ? '' : header);
+  }
+  return '';
+}
+
+function appendComposerCitation(store, payload) {
+  const nextText = composerTextFromCitation(payload);
+  if (!nextText || typeof store?.setDraft !== 'function') return false;
+  const current = (store.draft || '').toString().trim();
+  store.setDraft(current ? `${current}\n\n${nextText}` : nextText);
+  return true;
+}
+
+function handleTimelineCitationAction(payload, { store, openFileRef }) {
+  const kind = (payload?.kind || '').toString().trim();
+  if (!kind) return;
+  if (kind === 'conversation') {
+    const nextThreadId = (payload?.conversationId || '').toString().trim();
+    if (nextThreadId) store?.selectThread?.(nextThreadId);
+    return;
+  }
+  if (kind === 'skill') {
+    const path = (payload?.path || '').toString().trim();
+    if (path) void openFileRef({ path, line: 1, column: 0, raw: payload.raw || path });
+    return;
+  }
+  if (kind === 'image') {
+    const path = (payload?.path || '').toString().trim();
+    if (path) void openFileRef({ path, line: 1, column: 0, raw: payload.raw || path });
+    return;
+  }
+  if (kind === 'code-comment') {
+    appendComposerCitation(store, payload);
+    const path = (payload?.path || '').toString().trim();
+    if (path) void openFileRef({ path, line: Number(payload.lineStart) || 1, column: 0, raw: payload.raw || path });
+    return;
+  }
+  appendComposerCitation(store, payload);
+}
+
 function useChatThreadData(store, activeThreadId) {
   const activeThread = activeThreadForStore(store);
   const timelineBlocked = Boolean(activeThreadId && store.threadStateLoadingByThread?.[activeThreadId]);
@@ -1223,6 +1655,141 @@ function useActiveChatThreadSync(store, activeThreadId) {
   }, [activeThreadId, loading, store, timelineReady]);
 }
 
+function cmdStatusBucket(status) {
+  const normalized = normalizeTurnState(status);
+  if (normalized === 'running') return 'running';
+  if (['thinking', 'responding', 'waiting', 'starting', 'preparing'].includes(normalized)) return 'thinking';
+  if (normalized === 'editing') return 'editing';
+  if (['error', 'failed', 'stalled'].includes(normalized)) return 'error';
+  return '';
+}
+
+function cmdWorkspaceStats(threads = []) {
+  return threads.reduce((acc, thread) => {
+    acc.total += 1;
+    const bucket = cmdStatusBucket(thread.status);
+    if (bucket) acc[bucket] += 1;
+    return acc;
+  }, { total: 0, running: 0, thinking: 0, editing: 0, error: 0 });
+}
+
+function cmdWorkspaceThreads(store) {
+  return visibleThreadRows((store?.threads || []).filter((thread) => !thread.archived), store || {});
+}
+
+function cmdPreviewLine(message, index) {
+  const role = (message?.role || message?.kind || '').toString().trim().toLowerCase();
+  const label = role === 'user' ? '用户' : (role === 'assistant' ? '助手' : (role || '消息'));
+  const text = (message?.text || message?.content || message?.preview || '').toString().trim().split('\n')[0] || '暂无内容';
+  return { key: `${message?.id || index}:${index}`, text: `${label}: ${text}` };
+}
+
+function cmdThreadPreview(store, threadId) {
+  const messages = threadScopedMapValue(store?.timelinesByThread, threadId, { id: threadId }, []) || [];
+  return messages.filter((message) => !isReasoningMessage(message)).slice(-3).map(cmdPreviewLine);
+}
+
+function cmdThreadDiff(store, threadId) {
+  return (threadScopedMapValue(store?.diffTextByThread, threadId, { id: threadId }, '') || '').toString();
+}
+
+function CommandWorkspace({ store, activeThreadId, layout, setLayout, cols, setCols }) {
+  const threads = cmdWorkspaceThreads(store);
+  const stats = cmdWorkspaceStats(threads);
+  const recentThreads = threads.slice(0, 6);
+  return (
+    <section className={`cmd-workspace layout-${layout} cols-${cols}`} data-testid="cmd-workspace" aria-label="命令工作区">
+      <div className="cmd-workspace-toolbar">
+        <div className="cmd-layout-switch" aria-label="命令工作区布局">
+          <button type="button" className={layout === 'overview' ? 'active' : ''} onClick={() => setLayout('overview')}>A 紧凑</button>
+          <button type="button" className={layout === 'chat' ? 'active' : ''} onClick={() => setLayout('chat')}>B 对话</button>
+          <button type="button" className={layout === 'mix' ? 'active' : ''} onClick={() => setLayout('mix')}>C 混合</button>
+        </div>
+        <div className="cmd-layout-switch" aria-label="命令卡列数">
+          <button type="button" className={cols === 2 ? 'active' : ''} onClick={() => setCols(2)}>2列</button>
+          <button type="button" className={cols === 3 ? 'active' : ''} onClick={() => setCols(3)}>3列</button>
+        </div>
+      </div>
+      <div className="cmd-overview-metrics" aria-label="命令工作区指标">
+        <div><strong>{stats.total}</strong><span>子Agent</span></div>
+        <div><strong>{stats.running}</strong><span>执行中</span></div>
+        <div><strong>{stats.thinking}</strong><span>思考/回复</span></div>
+        <div><strong>{stats.editing}</strong><span>改文件</span></div>
+        <div><strong>{stats.error}</strong><span>异常</span></div>
+      </div>
+      {recentThreads.length > 0 ? (
+        <div className="cmd-recent-threads" aria-label="最近活跃线程">
+          <span>最近活跃:</span>
+          {recentThreads.map((thread) => (
+            <button type="button" className={thread.id === activeThreadId ? 'active' : ''} key={thread.id} onClick={() => store?.selectThread?.(thread.id)}>
+              {displayThreadName(thread, thread.id)}
+            </button>
+          ))}
+        </div>
+      ) : null}
+      <div className="cmd-card-grid">
+        {threads.length === 0 ? <p className="cmd-empty">暂无命令工作线程</p> : null}
+        {threads.map((thread) => (
+          <CommandThreadCard
+            active={thread.id === activeThreadId}
+            key={thread.id}
+            layout={layout}
+            preview={cmdThreadPreview(store, thread.id)}
+            diff={cmdThreadDiff(store, thread.id)}
+            store={store}
+            thread={thread}
+          />
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function CommandThreadCard({ active, diff, layout, preview, store, thread }) {
+  const name = displayThreadName(thread, thread.id);
+  const statusLabel = threadCardStatusLabel(thread, threadStatusBusy(thread.status)) || '等待指示';
+  const interruptible = Boolean(store?.hasInterruptibleThreadAction?.(thread.id));
+  return (
+    <article className={`cmd-thread-card${active ? ' active' : ''}`}>
+      <header>
+        <div>
+          <strong>{name}</strong>
+          <small>{thread.id}</small>
+        </div>
+        <span className={`cmd-status cmd-status--${threadStatusDotState(thread.status)}`}>{statusLabel}</span>
+        {thread.provider ? <span className="cmd-provider">{threadProviderLabel(thread.provider)}</span> : null}
+      </header>
+      {layout !== 'overview' ? (
+        <div className="cmd-thread-preview">
+          {active ? (
+            preview.length > 0 ? preview.map((line) => <p key={line.key}>{line.text}</p>) : <p className="muted">暂无消息</p>
+          ) : <p className="muted">点击卡片查看预览</p>}
+        </div>
+      ) : null}
+      {layout === 'mix' && active && diff ? <pre className="cmd-thread-diff">{diff}</pre> : null}
+      <div className="cmd-thread-actions">
+        <button type="button" onClick={() => store?.selectThread?.(thread.id)} aria-label={`打开 ${name}`}>打开</button>
+        <button type="button" onClick={() => store?.syncThreadState?.(thread.id, { includeArchived: true, includeDiff: true, preserveActiveThreadId: true })} aria-label={`历史 ${name}`}>历史</button>
+        <button type="button" onClick={() => store?.promptRenameThread?.(thread.id) || store?.beginInlineRename?.(thread.id)} aria-label={`改名 ${name}`}>改名</button>
+        <button type="button" disabled={!interruptible} title={interruptible ? '中断该 Agent 当前执行' : '当前没有可中断任务'} onClick={() => store?.interruptActiveThread?.(thread.id)} aria-label={`停止 ${name}`}>停止</button>
+      </div>
+    </article>
+  );
+}
+
+function ChatModeToolbar({ mode, setMode }) {
+  return (
+    <div className="chat-mode-toolbar" aria-label="聊天工作区模式">
+      <button type="button" className={mode === 'chat' ? 'active' : ''} onClick={() => setMode('chat')}>
+        <Bot size={14} aria-hidden="true" /> 对话
+      </button>
+      <button type="button" className={mode === 'cmd' ? 'active' : ''} onClick={() => setMode('cmd')}>
+        <Terminal size={14} aria-hidden="true" /> 命令工作区
+      </button>
+    </div>
+  );
+}
+
 function toggleRuntimePanel({ maxWidth, open, resizedRef, setOpen, store, viewportWidth }) {
   const next = !open;
   if (next) {
@@ -1293,6 +1860,16 @@ function ChatPage({ store, projectPath, rightPanelOpen = false, setRightPanelOpe
   const modelThreadId = composerConfigThreadId(store, activeThreadId);
   const threadData = useChatThreadData(store, activeThreadId);
   const canUseProjectActions = canUseProjectActionsForStore(store);
+  const runtimeProject = runtimeProjectPath(store.activeProject, projectPath);
+  const codePreview = useCodePreviewController({ projectPath: runtimeProject, projects: store.projects });
+  const [chatMode, setChatMode] = useState('chat');
+  const [cmdLayout, setCmdLayout] = useState('mix');
+  const [cmdCols, setCmdCols] = useState(2);
+  const messageActions = useMemo(() => ({
+    onFileRef: codePreview.openFileRef,
+    onCitation: (payload) => handleTimelineCitationAction(payload, { store, openFileRef: codePreview.openFileRef }),
+    onApproval: (message, approved) => store.respondApproval?.(message, approved),
+  }), [codePreview.openFileRef, store]);
   const viewportWidth = useViewportWidth();
   const rail = useThreadRailLayout(viewportWidth);
   const {
@@ -1347,61 +1924,79 @@ function ChatPage({ store, projectPath, rightPanelOpen = false, setRightPanelOpe
           timelineBlocked={threadData.timelineBlocked}
           timelineContentBlocked={threadData.timelineContentBlocked}
           canUseProjectActions={canUseProjectActions}
+          chatMode={chatMode}
+          setChatMode={setChatMode}
+          cmdLayout={cmdLayout}
+          setCmdLayout={setCmdLayout}
+          cmdCols={cmdCols}
+          setCmdCols={setCmdCols}
+          messageActions={messageActions}
         />
         <RuntimePanelSlot
           beginResize={beginRuntimeResize}
           handleKeyDown={handleRuntimeResizeKeyDown}
           maxWidth={runtimeMaxWidth}
           open={rightPanelOpen}
+          projectPath={runtimeProject}
+          projects={store.projects}
           threadData={threadData}
           width={rightPanelWidth}
         />
       </div>
+      {codePreview.dialogs}
     </section>
   );
 }
 
 function ThreadRailResizer({ rail }) {
   return (
-    <div
-      role="separator"
+    <button
+      type="button"
       className="splitter splitter--left"
-      aria-orientation="vertical"
+      role="separator"
       aria-label="调整会话栏宽度"
+      aria-orientation="vertical"
       aria-valuemin={THREAD_RAIL_MIN_WIDTH}
       aria-valuemax={rail.maxWidth}
       aria-valuenow={rail.width}
+      title="调整会话栏宽度"
       data-testid="thread-rail-resizer"
-      tabIndex={0}
       onKeyDown={rail.handleKeyDown}
       onPointerDown={rail.beginResize}
-    />
+    >
+      <span className="sr-only">调整会话栏宽度，当前 {rail.width} 像素</span>
+    </button>
   );
 }
 
-function RuntimePanelSlot({ beginResize, handleKeyDown, maxWidth, open, threadData, width }) {
+function RuntimePanelSlot({ beginResize, handleKeyDown, maxWidth, open, projectPath, projects, threadData, width }) {
   if (!open) return null;
   return (
     <>
-      <div
-        role="separator"
+      <button
+        type="button"
         className="splitter splitter--right"
-        aria-orientation="vertical"
+        role="separator"
         aria-label="调整侧边栏宽度"
-        aria-valuemin={0}
+        aria-orientation="vertical"
+        aria-valuemin={RIGHT_PANEL_CLOSE_THRESHOLD}
         aria-valuemax={maxWidth}
         aria-valuenow={width}
+        title="调整侧边栏宽度"
         data-testid="right-panel-resizer"
-        tabIndex={0}
         onKeyDown={handleKeyDown}
         onPointerDown={beginResize}
-      />
+      >
+        <span className="sr-only">调整侧边栏宽度，当前 {width} 像素</span>
+      </button>
       <RuntimePanel
         diffText={threadData.diffText}
         tokenUsage={threadData.tokenUsage}
         activityStats={threadData.activityStats}
         warnings={threadData.warnings}
         runtimeResults={threadData.runtimeResults}
+        projectPath={projectPath}
+        projects={projects}
       />
     </>
   );
@@ -1562,9 +2157,12 @@ function ThreadRail({ store }) {
   const threads = showArchivedThreads ? archivedThreads : activeThreads;
   const chatListLoading = Boolean(store.chatSurfaceLoadingCwd);
   const visibleThreads = visibleThreadRows(threads, store);
-  const staleThreadIds = showArchivedThreads
-    ? visibleThreads.filter((thread) => thread.staleReason).map((thread) => thread.id)
-    : [];
+  const staleThreadIds = [];
+  if (showArchivedThreads) {
+    for (const thread of visibleThreads) {
+      if (thread.staleReason) staleThreadIds.push(thread.id);
+    }
+  }
   const toggleArchiveLabel = showArchivedThreads ? '返回会话列表' : '打开归档列表';
   let emptyThreadText = '暂无会话，点击「新建对话」开始草稿';
   if (chatListLoading && !showArchivedThreads) {
@@ -1708,10 +2306,10 @@ function ThreadRailTools({
       <button type="button" className="round thread-new-primary" aria-label="新建对话" title="新对话：发送第一条消息时才会创建会话" onClick={onNewThread}>
         <Pencil size={17} />
       </button>
-      <span className="count thread-count" role="img" aria-label={`${count} 个 Agent`} title={`${count} 个 Agent`}>
+      <output className="count thread-count" aria-label={`${count} 个 Agent`} title={`${count} 个 Agent`}>
         <Bot size={14} />
         <strong>{count}</strong>
-      </span>
+      </output>
       {showArchivedThreads && staleThreadIds.length > 0 && !confirmCleanMode ? (
         <button type="button" className="round thread-clean" aria-label="清理无用对话" title="清理无用对话" onClick={onCleanMode}>
           <Trash2 size={15} />
@@ -1812,6 +2410,14 @@ function ThreadArchiveButton({ thread, archiveLabel, hoveredArchiveThreadId, loa
 }
 
 function ThreadRenameCardContent({ thread, editingName, renaming, onCancelRename, onRenameBlur, onSetEditingName, onSubmitRename }) {
+  const inputRef = useRef(null);
+  useEffect(() => {
+    const input = inputRef.current;
+    if (!input || renaming) return;
+    input.focus({ preventScroll: true });
+    input.select();
+  }, [renaming]);
+
   return (
     <>
       <span className="thread-pin thread-pin--placeholder" aria-hidden="true">
@@ -1819,12 +2425,12 @@ function ThreadRenameCardContent({ thread, editingName, renaming, onCancelRename
       </span>
       <div className="thread-main thread-main--editing">
         <input
+          ref={inputRef}
           className="thread-name-input"
           aria-label="会话别名"
           value={editingName}
           maxLength={64}
           disabled={renaming}
-          autoFocus
           onFocus={(event) => event.currentTarget.select()}
           onChange={(event) => onSetEditingName(event.target.value)}
           onClick={(event) => event.stopPropagation()}
@@ -1873,14 +2479,7 @@ function ThreadDisplayCardContent({ thread, store, hoveredPinThreadId, onBeginRe
         onToggle={() => store.toggleThreadPin(thread.id)}
       />
       <button type="button" className="thread-main" onClick={() => runUIAction(() => store.setActiveThread(thread.id))}>
-        <span
-          className="thread-name"
-          title={threadLabel}
-          onClick={(event) => {
-            event.stopPropagation();
-            onBeginRename(thread);
-          }}
-        >
+        <span className="thread-name" title={threadLabel}>
           {threadLabel}
         </span>
         <b>{threadProviderLabel(thread.provider)}</b>
@@ -1890,6 +2489,15 @@ function ThreadDisplayCardContent({ thread, store, hoveredPinThreadId, onBeginRe
           statusDotTitle={statusDotTitle}
           statusLabel={statusLabel}
         />
+      </button>
+      <button
+        type="button"
+        className="thread-rename-trigger"
+        aria-label="重命名会话"
+        title={`重命名 ${threadLabel}`}
+        onClick={() => onBeginRename(thread)}
+      >
+        <Pencil size={13} aria-hidden="true" />
       </button>
     </>
   );
@@ -2024,29 +2632,25 @@ function useModelSelectorController({ store, activeThreadId, disabled, wrapRef }
   const snapshot = modelSelectorSnapshot(store, activeThreadId);
   const { activeEffort, activeModel, activeThreadConfig, canOverrideThread, draftEffort, draftModel, providerKey } = snapshot;
   const [draft, setDraft] = useState({ model: draftModel, effort: draftEffort });
+  const closedDraft = { model: draftModel, effort: draftEffort };
+  if (disabled && open) {
+    setOpen(false);
+  }
+  const selectorOpen = open && !disabled;
+  const selectorDraft = selectorOpen ? draft : closedDraft;
 
   useEffect(() => {
-    if (!open) {
-      setDraft({ model: draftModel, effort: draftEffort });
-    }
-  }, [draftModel, draftEffort, open]);
-
-  useEffect(() => {
-    if (!open) return undefined;
+    if (!selectorOpen) return undefined;
     const onPointerDown = (event) => {
       if (wrapRef.current && !wrapRef.current.contains(event.target)) setOpen(false);
     };
     document.addEventListener('pointerdown', onPointerDown, true);
     return () => document.removeEventListener('pointerdown', onPointerDown, true);
-  }, [open, wrapRef]);
-
-  useEffect(() => {
-    if (disabled && open) setOpen(false);
-  }, [disabled, open]);
+  }, [selectorOpen, wrapRef]);
 
   const openSelector = async () => {
     if (disabled) return;
-    const nextOpen = !open;
+    const nextOpen = !selectorOpen;
     setDraft({ model: draftModel, effort: draftEffort });
     setOpen(nextOpen);
     if (!nextOpen || !activeThreadId) return;
@@ -2056,7 +2660,7 @@ function useModelSelectorController({ store, activeThreadId, disabled, wrapRef }
   };
 
   const saveModelConfig = async (patch) => {
-    const next = nextModelDraft(providerKey, draft, patch, activeModel);
+    const next = nextModelDraft(providerKey, selectorDraft, patch, activeModel);
     setDraft(next);
     await store.saveComposerModelConfig?.({ threadId: activeThreadId, model: next.model, effort: next.effort });
   };
@@ -2067,8 +2671,8 @@ function useModelSelectorController({ store, activeThreadId, disabled, wrapRef }
   };
 
   return {
-    ...modelSelectorDerivedState({ activeEffort, activeModel, activeThreadConfig, canOverrideThread, disabled, draft, providerKey, store, activeThreadId }),
-    open,
+    ...modelSelectorDerivedState({ activeEffort, activeModel, activeThreadConfig, canOverrideThread, disabled, draft: selectorDraft, providerKey, store, activeThreadId }),
+    open: selectorOpen,
     openSelector,
     restoreInheritance,
     saveModelConfig,
@@ -2109,7 +2713,7 @@ function ModelSelectorButton({ controller }) {
 function ModelSelectorDropdown({ controller }) {
   const optionDisabled = controller.disabled || controller.selectorBusy;
   return (
-    <div className="model-dropdown" role="dialog" aria-label="模型配置">
+    <dialog className="model-dropdown" open aria-label="模型配置">
       <label>
         <span>模型</span>
         <select aria-label="模型" value={controller.selectModelValue} disabled={optionDisabled} onChange={(event) => runUIAction(() => controller.saveModelConfig({ model: event.target.value }))}>
@@ -2129,7 +2733,7 @@ function ModelSelectorDropdown({ controller }) {
           继承全局
         </button>
       ) : null}
-    </div>
+    </dialog>
   );
 }
 
@@ -2149,12 +2753,13 @@ function collectTransferFiles(event) {
   if (!transfer) return [];
   const files = Array.from(transfer.files || []).filter(Boolean);
   if (files.length > 0) return files;
-  return (
-    Array.from(transfer.items || [])
-    .filter((item) => item?.kind === 'file')
-    .map((item) => item.getAsFile?.())
-    .filter(Boolean)
-  );
+  const collected = [];
+  for (const item of Array.from(transfer.items || [])) {
+    if (item?.kind !== 'file') continue;
+    const file = item.getAsFile?.();
+    if (file) collected.push(file);
+  }
+  return collected;
 }
 
 function extractClipboardImageFiles(event) {
@@ -2259,10 +2864,48 @@ const IMAGE_PATH_RE = /\.(?:png|jpe?g|webp|gif|svg)(?:[?#].*)?$/i;
 
 const INLINE_IMAGE_PATH_RE = /(?:file:\/\/\/?[^\s`<>()"']+|~?\/(?!\/)[^\s`<>()"']+|\.{1,2}\/[^\s`<>()"']+|[A-Za-z]:[\\/][^\s`<>()"']+)\.(?:png|jpe?g|webp|gif|svg)(?:[?#][^\s`<>()"']*)?/gi;
 
+const CODEX_DIRECTIVE_RE = /:(codex-file-citation|codex-terminal-citation|codex-image-citation|task-stub|automation-update|code-comment)(?:\[([^\]\n]*)])?(?:\{([^{}\n]*)})?/g;
+
+const CODEX_DIRECTIVE_TOKEN_RE = /^:(codex-file-citation|codex-terminal-citation|codex-image-citation|task-stub|automation-update|code-comment)(?:\[([^\]\n]*)])?(?:\{([^{}\n]*)})?$/;
+
+const DIRECTIVE_ATTR_RE = /([A-Za-z_][\w-]*)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'{}]+))/g;
+
 function basenameFromPath(path) {
   const value = (path || '').toString().trim().split(/[?#]/, 1)[0];
   if (!value) return '';
   return value.split(/[\\/]/).filter(Boolean).pop() || value;
+}
+
+function skillNameFromPath(path) {
+  const value = (path || '').toString().trim().split(/[?#]/, 1)[0].replace(/\\/g, '/');
+  const segments = value.split('/').filter(Boolean);
+  if (segments.length >= 2 && /^SKILL\.md$/i.test(segments[segments.length - 1])) return segments[segments.length - 2] || '';
+  return basenameFromPath(value).replace(/\.md$/i, '');
+}
+
+function parseDirectiveAttrs(rawAttrs) {
+  const attrs = {};
+  const source = (rawAttrs || '').toString();
+  for (const match of source.matchAll(DIRECTIVE_ATTR_RE)) {
+    const key = (match[1] || '').toString().trim();
+    if (!key) continue;
+    attrs[key] = (match[2] ?? match[3] ?? match[4] ?? '').toString();
+  }
+  return attrs;
+}
+
+function positiveInt(value, fallback = 0) {
+  const parsed = Number.parseInt((value || '').toString(), 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+function lineRangeLabel(startLine, endLine) {
+  const start = positiveInt(startLine, 0);
+  const end = positiveInt(endLine, 0);
+  if (start > 0 && end > 0 && end !== start) return `lines ${start}-${end}`;
+  if (start > 0) return `line ${start}`;
+  if (end > 0) return `line ${end}`;
+  return '';
 }
 
 function fileURLToPath(value) {
@@ -2309,7 +2952,7 @@ function renderImagePreview(rawSource, altText, key) {
 function LightboxShell({ label, href, onClose, children }) {
   const displayLabel = (label || '').toString().trim() || '预览';
   return createPortal(
-    <div className="image-lightbox" role="dialog" aria-modal="true" aria-label={`图片预览：${displayLabel}`}>
+    <dialog className="image-lightbox" open aria-label={`图片预览：${displayLabel}`}>
       <button type="button" className="image-lightbox-backdrop" aria-label="关闭图片预览" onClick={onClose} />
       <section className="image-lightbox-panel">
         <header>
@@ -2321,7 +2964,7 @@ function LightboxShell({ label, href, onClose, children }) {
         </header>
         {children}
       </section>
-    </div>,
+    </dialog>,
     document.body,
   );
 }
@@ -2472,7 +3115,7 @@ function renderPlainTextWithImagePreviews(text, keyPrefix) {
 }
 
 function inlineMarkdownPattern() {
-  const tokenPattern = '!\\[[^\\]]*]\\([^)]+\\)|\\[[^\\]]+]\\([^)]+\\)|`[^`]+`|\\*\\*[^*]+\\*\\*|__[^_]+__|~~[^~]+~~|\\*[^*]+\\*|_[^_]+_';
+  const tokenPattern = `${CODEX_DIRECTIVE_RE.source}|!\\[[^\\]]*]\\([^)]+\\)|\\[[^\\]]+]\\([^)]+\\)|\`[^\`]+\`|\\*\\*[^*]+\\*\\*|__[^_]+__|~~[^~]+~~|\\*[^*]+\\*|_[^_]+_`;
   return new RegExp(`(${INLINE_IMAGE_PATH_RE.source})|(${tokenPattern})`, 'gi');
 }
 
@@ -2488,8 +3131,182 @@ function renderMarkdownImageToken(token, key) {
   return <MarkdownImagePreview key={key} src={src} label={parsed?.[1] || basenameFromPath(parsed?.[2])} />;
 }
 
-function renderMarkdownLinkToken(token, key) {
+function citationLinkPayload(label, rawHref) {
+  const href = (rawHref || '').toString().trim();
+  if (!href) return null;
+  const skillMatch = href.match(/^app:\/\/([^/?#]+)/i);
+  if (skillMatch) {
+    return {
+      kind: 'skill',
+      skillId: (skillMatch[1] || '').toString(),
+      skillName: (label || skillMatch[1] || '').toString().trim(),
+      path: '',
+      conversationId: '',
+      raw: (label || '').toString(),
+    };
+  }
+  const conversationMatch = href.match(/^agent:\/\/([^/?#]+)/i);
+  if (conversationMatch) {
+    return {
+      kind: 'conversation',
+      skillId: '',
+      skillName: '',
+      path: '',
+      conversationId: (conversationMatch[1] || '').toString(),
+      raw: (label || '').toString(),
+    };
+  }
+  if (/(^|[/\\])SKILL\.md(?:[?#].*)?$/i.test(href)) {
+    return {
+      kind: 'skill',
+      skillId: '',
+      skillName: skillNameFromPath(href),
+      path: href,
+      conversationId: '',
+      raw: (label || '').toString(),
+    };
+  }
+  return null;
+}
+
+function renderCitationChip({ className = '', icon = '', label, payload, key, title = '', actions }) {
+  const displayLabel = (label || payload?.raw || payload?.title || payload?.kind || '引用').toString().trim();
+  return (
+    <button
+      type="button"
+      key={key}
+      className={`chat-md-citation ${className}`.trim()}
+      title={title || displayLabel}
+      onClick={() => actions?.onCitation?.(payload)}
+    >
+      {icon ? <span className="chat-md-citation__icon" aria-hidden="true">{icon}</span> : null}
+      <span className="chat-md-citation__body">
+        <span className="chat-md-citation__label">{displayLabel}</span>
+      </span>
+    </button>
+  );
+}
+
+function renderFileCitationButton({ key, path, line, endLine, raw, actions }) {
+  const filePath = (path || '').toString().trim();
+  if (!filePath) return raw || '';
+  const location = lineRangeLabel(line, endLine);
+  const display = (raw || '').toString().trim() || `${basenameFromPath(filePath)}${location ? ` (${location})` : ''}`;
+  const payload = { path: filePath, line: positiveInt(line, positiveInt(endLine, 1)), column: 0, raw: display };
+  return (
+    <button
+      type="button"
+      key={key}
+      className="chat-md-file-ref chat-md-file-citation"
+      aria-label={`打开文件引用 ${filePath}`}
+      title={location ? `${filePath} (${location})` : filePath}
+      onClick={() => actions?.onFileRef?.(payload)}
+    >
+      {display}
+    </button>
+  );
+}
+
+function renderDirectiveToken(token, key, actions = {}) {
+  const match = token.match(CODEX_DIRECTIVE_TOKEN_RE);
+  if (!match) return null;
+  const [, name, labelValue = '', rawAttrs = ''] = match;
+  const attrs = parseDirectiveAttrs(rawAttrs);
+  const label = (labelValue || '').toString().trim();
+  if (name === 'codex-file-citation') {
+    return renderFileCitationButton({
+      key,
+      path: attrs.path || label,
+      line: attrs.line_range_start,
+      endLine: attrs.line_range_end,
+      raw: label,
+      actions,
+    });
+  }
+  if (name === 'codex-terminal-citation') {
+    const lineStart = positiveInt(attrs.line_range_start, 0);
+    const lineEnd = positiveInt(attrs.line_range_end, 0);
+    return renderCitationChip({
+      key,
+      className: 'chat-md-terminal-citation',
+      icon: '⌘',
+      label: label || 'Terminal output',
+      title: attrs.terminal_chunk_id || label,
+      payload: { kind: 'terminal', chunkId: attrs.terminal_chunk_id || '', lineStart, lineEnd, raw: label || 'Terminal output' },
+      actions,
+    });
+  }
+  if (name === 'codex-image-citation') {
+    return renderCitationChip({
+      key,
+      className: 'chat-md-image-citation',
+      icon: 'IMG',
+      label: label || 'Image citation',
+      title: attrs.asset_pointer || label,
+      payload: { kind: 'image', assetPointer: attrs.asset_pointer || '', imageSrc: attrs.image_src || '', path: attrs.path || '', raw: label || 'Image citation' },
+      actions,
+    });
+  }
+  if (name === 'task-stub') {
+    const title = (attrs.title || label || 'Task').toString().trim();
+    return renderCitationChip({
+      key,
+      className: 'chat-md-task-stub',
+      icon: '✦',
+      label: title,
+      payload: { kind: 'task', title, prompt: label, raw: title },
+      actions,
+    });
+  }
+  if (name === 'automation-update') {
+    const title = (attrs.name || label || 'Automation').toString().trim();
+    const prompt = (attrs.prompt || label || '').toString().trim();
+    return renderCitationChip({
+      key,
+      className: 'chat-md-automation-update',
+      icon: '⚙',
+      label: title,
+      payload: { kind: 'automation-update', title, message: label, prompt, path: '', lineStart: 0, lineEnd: 0, raw: title },
+      actions,
+    });
+  }
+  if (name === 'code-comment') {
+    const path = (attrs.path || '').toString().trim();
+    const startLine = positiveInt(attrs.line_range_start, 0);
+    const endLine = positiveInt(attrs.line_range_end, startLine);
+    const title = (attrs.title || 'Code comment').toString().trim();
+    const location = path ? lineRangeLabel(startLine, endLine) : '';
+    const display = path ? `${title} · ${basenameFromPath(path)}${location ? ` (${location})` : ''}` : title;
+    return renderCitationChip({
+      key,
+      className: 'chat-md-code-comment',
+      icon: '💬',
+      label: display,
+      title: label || title,
+      payload: { kind: 'code-comment', title, message: label, prompt: '', path, lineStart: startLine, lineEnd: endLine, raw: display },
+      actions,
+    });
+  }
+  return null;
+}
+
+function renderMarkdownLinkToken(token, key, actions = {}) {
   const parsed = token.match(/^\[([^\]]+)]\(([^)]+)\)$/);
+  const citationPayload = citationLinkPayload(parsed?.[1], parsed?.[2]);
+  if (citationPayload) {
+    const label = citationPayload.kind === 'skill' && citationPayload.path && parsed?.[1] === parsed?.[2]
+      ? citationPayload.skillName
+      : parsed?.[1];
+    return renderCitationChip({
+      key,
+      className: citationPayload.kind === 'conversation' ? 'chat-md-conversation-chip' : 'chat-md-skill-chip',
+      icon: citationPayload.kind === 'conversation' ? '↗' : '◆',
+      label,
+      title: parsed?.[2] || label,
+      payload: { ...citationPayload, raw: label || citationPayload.raw },
+      actions,
+    });
+  }
   const href = safeMarkdownUrl(parsed?.[2]);
   return href ? <a key={key} href={href} target="_blank" rel="noreferrer">{parsed?.[1]}</a> : parsed?.[1] || token;
 }
@@ -2507,16 +3324,18 @@ function renderStyledInlineToken(token, key) {
   return <strong key={key}>{token.slice(2, -2)}</strong>;
 }
 
-function renderInlineMarkdownToken(token, key) {
+function renderInlineMarkdownToken(token, key, actions = {}) {
   const inlineImage = renderImagePreview(token, basenameFromPath(token), key);
   if (inlineImage) return inlineImage;
+  const directive = renderDirectiveToken(token, key, actions);
+  if (directive) return directive;
   if (token.startsWith('![')) return renderMarkdownImageToken(token, key);
-  if (token.startsWith('[')) return renderMarkdownLinkToken(token, key);
+  if (token.startsWith('[')) return renderMarkdownLinkToken(token, key, actions);
   if (token.startsWith('`')) return renderInlineCodeToken(token, key);
   return renderStyledInlineToken(token, key);
 }
 
-function renderInlineMarkdown(text, keyPrefix) {
+function renderInlineMarkdown(text, keyPrefix, actions = {}) {
   const source = (text || '').toString();
   const parts = [];
   let lastIndex = 0;
@@ -2524,7 +3343,7 @@ function renderInlineMarkdown(text, keyPrefix) {
   for (const match of source.matchAll(inlineMarkdownPattern())) {
     appendInlineTextSegment(parts, source, lastIndex, match.index, `${keyPrefix}-text-${matchIndex}`);
     const token = match[0];
-    parts.push(renderInlineMarkdownToken(token, `${keyPrefix}-inline-${matchIndex}`));
+    parts.push(renderInlineMarkdownToken(token, `${keyPrefix}-inline-${matchIndex}`, actions));
     lastIndex = match.index + token.length;
     matchIndex += 1;
   }
@@ -2532,13 +3351,34 @@ function renderInlineMarkdown(text, keyPrefix) {
   return parts.length > 0 ? parts : source;
 }
 
-function renderMarkdownParagraph(lines, key) {
+const EMPTY_MARKDOWN_ACTIONS = Object.freeze({});
+
+function InlineMarkdown({ text, inlineKey, actions = EMPTY_MARKDOWN_ACTIONS }) {
+  const nodes = renderInlineMarkdown(text, inlineKey, actions);
+  return <>{nodes}</>;
+}
+
+function MarkdownParagraph({ lines, paragraphKey, actions = EMPTY_MARKDOWN_ACTIONS }) {
+  const nodes = [];
+  const seenLines = new Map();
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index];
+    const seenCount = seenLines.get(line) || 0;
+    seenLines.set(line, seenCount + 1);
+    const lineKey = `${paragraphKey}-line-${line}${seenCount > 0 ? `-${seenCount}` : ''}`;
+    if (index > 0) nodes.push(<br key={`${paragraphKey}-br-${lineKey}`} />);
+    nodes.push(
+      <InlineMarkdown
+        key={`${paragraphKey}-inline-${lineKey}`}
+        text={line}
+        inlineKey={lineKey}
+        actions={actions}
+      />,
+    );
+  }
   return (
-    <p key={key}>
-      {lines.flatMap((line, index) => [
-        ...(index > 0 ? [<br key={`${key}-br-${index}`} />] : []),
-        ...renderInlineMarkdown(line, `${key}-${index}`),
-      ])}
+    <p>
+      {nodes}
     </p>
   );
 }
@@ -2620,19 +3460,21 @@ function isMermaidSource(source) {
   return /^(flowchart|graph|sequencediagram|classdiagram|statediagram|statediagram-v2|erdiagram|journey|gantt|pie|mindmap|timeline|gitgraph|quadrantchart|requirementdiagram)\b/.test(firstLine);
 }
 
+function mermaidInitialState(diagram) {
+  return diagram
+    ? { status: 'loading', svg: '', error: '' }
+    : { status: 'error', svg: '', error: 'Mermaid 图表内容为空' };
+}
+
 function MermaidDiagram({ source }) {
   const reactId = useId();
-  const [state, setState] = useState({ status: 'loading', svg: '', error: '' });
-  const [expanded, setExpanded] = useState(false);
   const diagram = normalizeMessageText(source).trim();
+  const [state, setState] = useState(() => mermaidInitialState(diagram));
+  const [expanded, setExpanded] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
-    if (!diagram) {
-      setState({ status: 'error', svg: '', error: 'Mermaid 图表内容为空' });
-      return () => { cancelled = true; };
-    }
-    setState({ status: 'loading', svg: '', error: '' });
+    if (!diagram) return undefined;
     loadMermaidModule()
       .then((mermaid) => mermaid.render(`mermaid-${reactId.replace(/[^a-zA-Z0-9_-]/g, '')}`, diagram))
       .then((result) => {
@@ -2688,7 +3530,7 @@ function MermaidDiagram({ source }) {
 
 function CodeBlock({ language = '', code = '' }) {
   if (isMermaidLanguage(language) || isMermaidSource(code)) {
-    return <MermaidDiagram source={code} />;
+    return <MermaidDiagram key={code} source={code} />;
   }
   return <pre><code>{code}</code></pre>;
 }
@@ -2918,7 +3760,11 @@ function isDiffOutput(text) {
 
 function isLogOutput(text) {
   const payload = candidatePayload(text);
-  const lines = payload.body.split('\n').map((line) => line.trimEnd()).filter(Boolean);
+  const lines = [];
+  for (const line of payload.body.split('\n')) {
+    const trimmed = line.trimEnd();
+    if (trimmed) lines.push(trimmed);
+  }
   if (lines.length === 0) return false;
   if (['log', 'logs', 'console', 'terminal'].includes(payload.language)) return true;
 
@@ -2931,7 +3777,11 @@ function isLogOutput(text) {
 
 function isConfigOutput(text) {
   const payload = candidatePayload(text);
-  const lines = payload.body.split('\n').map((line) => line.trim()).filter(Boolean);
+  const lines = [];
+  for (const line of payload.body.split('\n')) {
+    const trimmed = line.trim();
+    if (trimmed) lines.push(trimmed);
+  }
   if (lines.length < 2) return false;
   if (['yaml', 'yml', 'toml', 'ini', 'env', 'dotenv', 'properties'].includes(payload.language)) return true;
   const keyValueLines = lines.filter((line) => /^[-\w."']+(\s*[:=]\s*|\s+=\s+).+/.test(line));
@@ -2979,9 +3829,10 @@ function StructuredMessage({ kind, text }) {
   );
 }
 
-function markdownBlockContext(lines) {
+function markdownBlockContext(lines, actions = {}) {
   const nodes = [];
   return {
+    actions,
     lines,
     nodes,
     nextKey: (kind) => `${kind}-${nodes.length}`,
@@ -3031,7 +3882,8 @@ function consumeMarkdownFence(context, index) {
   const fence = splitMarkdownFenceLine(context.lines[index]);
   if (!fence) return null;
   if (fence.prefix.trim()) {
-    context.nodes.push(renderMarkdownParagraph([fence.prefix.trimEnd()], context.nextKey('paragraph')));
+    const paragraphKey = context.nextKey('paragraph');
+    context.nodes.push(<MarkdownParagraph key={paragraphKey} lines={[fence.prefix.trimEnd()]} paragraphKey={paragraphKey} actions={context.actions} />);
   }
   const key = context.nextKey('code');
   const code = readMarkdownCodeLines(context.lines, index, fence);
@@ -3089,7 +3941,7 @@ function consumeMarkdownHeading(context, index) {
   const HeadingTag = `h${level}`;
   context.nodes.push(
     <HeadingTag key={context.nextKey('heading')}>
-      {renderInlineMarkdown(heading[2], `heading-${context.nodes.length}`)}
+      <InlineMarkdown text={heading[2]} inlineKey={`heading-${context.nodes.length}`} actions={context.actions} />
     </HeadingTag>,
   );
   return { index: index + 1 };
@@ -3113,16 +3965,43 @@ function readMarkdownTableRows(lines, index) {
   return { rows, index: cursor };
 }
 
-function renderMarkdownTable(headers, rows, key) {
+function MarkdownTableHeaderCell({ cell, cellKey, actions = EMPTY_MARKDOWN_ACTIONS }) {
+  return (
+    <th>
+      <InlineMarkdown text={cell} inlineKey={cellKey} actions={actions} />
+    </th>
+  );
+}
+
+function MarkdownTableCell({ value, cellKey, actions = EMPTY_MARKDOWN_ACTIONS }) {
+  return (
+    <td>
+      <InlineMarkdown text={value} inlineKey={cellKey} actions={actions} />
+    </td>
+  );
+}
+
+function renderMarkdownTable(headers, rows, key, actions = {}) {
   return (
     <table key={key}>
       <thead>
-        <tr>{headers.map((cell, cellIndex) => <th key={`${key}-h-${cellIndex}`}>{renderInlineMarkdown(cell, `${key}-h-${cellIndex}`)}</th>)}</tr>
+        <tr>
+          {headers.map((cell, cellIndex) => (
+            <MarkdownTableHeaderCell key={`${key}-h-${cellIndex}`} cell={cell} cellKey={`${key}-h-${cellIndex}`} actions={actions} />
+          ))}
+        </tr>
       </thead>
       <tbody>
         {rows.map((row, rowIndex) => (
           <tr key={`${key}-r-${rowIndex}`}>
-            {headers.map((_, cellIndex) => <td key={`${key}-r-${rowIndex}-${cellIndex}`}>{renderInlineMarkdown(row[cellIndex] || '', `${key}-r-${rowIndex}-${cellIndex}`)}</td>)}
+            {headers.map((_, cellIndex) => (
+              <MarkdownTableCell
+                key={`${key}-r-${rowIndex}-${cellIndex}`}
+                value={row[cellIndex] || ''}
+                cellKey={`${key}-r-${rowIndex}-${cellIndex}`}
+                actions={actions}
+              />
+            ))}
           </tr>
         ))}
       </tbody>
@@ -3135,7 +4014,7 @@ function consumeMarkdownTable(context, index) {
   const key = context.nextKey('table');
   const headers = markdownTableCells(context.lines[index]);
   const body = readMarkdownTableRows(context.lines, index + 2);
-  context.nodes.push(renderMarkdownTable(headers, body.rows, key));
+  context.nodes.push(renderMarkdownTable(headers, body.rows, key, context.actions));
   return { index: body.index };
 }
 
@@ -3148,7 +4027,11 @@ function consumeMarkdownQuote(context, index) {
     quoteLines.push(context.lines[cursor].trim().replace(/^>\s?/, ''));
     cursor += 1;
   }
-  context.nodes.push(<blockquote key={key}>{renderMarkdownParagraph(quoteLines, `${key}-p`)}</blockquote>);
+  context.nodes.push(
+    <blockquote key={key}>
+      <MarkdownParagraph lines={quoteLines} paragraphKey={`${key}-p`} actions={context.actions} />
+    </blockquote>,
+  );
   return { index: cursor };
 }
 
@@ -3172,8 +4055,8 @@ function consumeMarkdownTaskList(context, index) {
     <ul key={key} className="task-list">
       {result.items.map((item, itemIndex) => (
         <li key={`${key}-${itemIndex}`}>
-          <input type="checkbox" checked={item.checked} disabled readOnly />
-          <span>{renderInlineMarkdown(item.text, `${key}-${itemIndex}`)}</span>
+          <input type="checkbox" checked={item.checked} disabled readOnly aria-label={item.text} />
+          <span><InlineMarkdown text={item.text} inlineKey={`${key}-${itemIndex}`} actions={context.actions} /></span>
         </li>
       ))}
     </ul>,
@@ -3210,7 +4093,11 @@ function consumeMarkdownList(context, index) {
   const result = readMarkdownListItems(context.lines, index, Boolean(ordered));
   context.nodes.push(
     <ListTag key={key}>
-      {result.items.map((item, itemIndex) => <li key={`${key}-${itemIndex}`}>{renderInlineMarkdown(item, `${key}-${itemIndex}`)}</li>)}
+      {result.items.map((item, itemIndex) => (
+        <li key={`${key}-${itemIndex}`}>
+          <InlineMarkdown text={item} inlineKey={`${key}-${itemIndex}`} actions={context.actions} />
+        </li>
+      ))}
     </ListTag>,
   );
   return { index: result.index };
@@ -3234,7 +4121,8 @@ function consumeMarkdownParagraphBlock(context, index) {
     paragraph.push(context.lines[cursor]);
     cursor += 1;
   }
-  context.nodes.push(renderMarkdownParagraph(paragraph, context.nextKey('paragraph')));
+  const paragraphKey = context.nextKey('paragraph');
+  context.nodes.push(<MarkdownParagraph key={paragraphKey} lines={paragraph} paragraphKey={paragraphKey} actions={context.actions} />);
   return { index: cursor };
 }
 
@@ -3260,27 +4148,57 @@ function consumeMarkdownBlock(context, index) {
   throw new Error('markdown block consumer pipeline is incomplete');
 }
 
-function renderMarkdownBlocks(lines) {
-  const context = markdownBlockContext(lines);
+function renderMarkdownBlocks(lines, actions = {}) {
+  const context = markdownBlockContext(lines, actions);
   let index = 0;
   while (index < lines.length) index = consumeMarkdownBlock(context, index);
   return context.nodes;
 }
 
-function MarkdownMessage({ text }) {
-  const nodes = renderMarkdownBlocks(markdownInputLines(text));
-  return <div className="message-markdown">{nodes.length > 0 ? nodes : <p />}</div>;
+function MarkdownBlocks({ lines, actions = EMPTY_MARKDOWN_ACTIONS, fallback = null }) {
+  const nodes = renderMarkdownBlocks(lines, actions);
+  return <>{nodes.length > 0 ? nodes : fallback}</>;
 }
 
-function MessageContent({ text }) {
+function MarkdownMessage({ text, actions }) {
+  return (
+    <div className="message-markdown">
+      <MarkdownBlocks lines={markdownInputLines(text)} actions={actions} fallback={<p />} />
+    </div>
+  );
+}
+
+function MessageContent({ text, actions }) {
   const output = detectMessageOutput(text);
-  if (output.kind === 'markdown') return <MarkdownMessage text={output.text} />;
+  if (output.kind === 'markdown') return <MarkdownMessage text={output.text} actions={actions} />;
   return <StructuredMessage kind={output.kind} text={output.text} />;
 }
 
 function isReasoningMessage(message) {
   const kind = (message?.kind || '').toString().trim().toLowerCase();
   return kind === 'thinking' || kind === 'reasoning' || kind === 'tool' || kind === 'command' || kind === 'process' || kind === 'plan';
+}
+
+function isApprovalMessage(message) {
+  return (message?.kind || '').toString().trim().toLowerCase() === 'approval';
+}
+
+function approvalRequestId(message) {
+  const raw = Number(message?.requestId || message?.request_id);
+  const requestId = Number.isFinite(raw) ? Math.trunc(raw) : 0;
+  return requestId > 0 ? requestId : 0;
+}
+
+function isApprovalTerminal(message) {
+  const status = (message?.status || '').toString().trim().toLowerCase();
+  return Boolean(status && APPROVAL_TERMINAL_STATUSES.has(status));
+}
+
+function approvalHintText({ requestId, busy, resolved, terminal }) {
+  if (requestId <= 0) return '审批请求缺少编号';
+  if (busy) return '正在提交审批结果';
+  if (resolved || terminal) return '审批结果已提交';
+  return '等待审批';
 }
 
 function reasoningTitle(message) {
@@ -3334,22 +4252,19 @@ function parsePlanItems(text) {
     '☐': false,
     '❌': false,
   };
-  return (
-    normalizeMessageText(text)
-    .split('\n')
-    .map((line) => line.trim())
-    .map((line) => {
-      const match = line.match(/^([✅☑✓✔🔄⏳○◯☐❌])?\s*(?:[-*]|\d+[.)])\s*(?:\[([ xX])\]\s*)?(.+)$/u);
-      if (!match) return null;
-      const label = (match[3] || '').trim();
-      if (!label || /^plan$/i.test(label)) return null;
-      return {
-        text: label,
-        done: match[1] ? statusMarkers[match[1]] === true : (match[2] || '').toLowerCase() === 'x',
-      };
-    })
-    .filter(Boolean)
-  );
+  const items = [];
+  for (const rawLine of normalizeMessageText(text).split('\n')) {
+    const line = rawLine.trim();
+    const match = line.match(/^([✅☑✓✔🔄⏳○◯☐❌])?\s*(?:[-*]|\d+[.)])\s*(?:\[([ xX])\]\s*)?(.+)$/u);
+    if (!match) continue;
+    const label = (match[3] || '').trim();
+    if (!label || /^plan$/i.test(label)) continue;
+    items.push({
+      text: label,
+      done: match[1] ? statusMarkers[match[1]] === true : (match[2] || '').toLowerCase() === 'x',
+    });
+  }
+  return items;
 }
 
 function ExecutionPlan({ message }) {
@@ -3378,8 +4293,8 @@ function ExecutionPlan({ message }) {
   );
 }
 
-function MessageAvatar({ role = 'assistant' }) {
-  const isUser = role === 'user';
+function MessageAvatar({ messageRole = 'assistant' }) {
+  const isUser = messageRole === 'user';
   const Icon = isUser ? UserRound : Bot;
   return (
     <div className={`avatar avatar--${isUser ? 'user' : 'assistant'}`} aria-hidden="true">
@@ -3686,6 +4601,7 @@ function ComposerDock({
     >
       <div className="composer-card">
         {composer.dropActive ? <div className="composer-drop-hint" aria-live="polite">松开即可添加附件</div> : null}
+        <ForkDraftCard store={store} />
         <ComposerAttachments attachments={attachments} onPreview={composer.previewAttachmentItem} onRemove={composer.removeAttachmentItem} />
         <ComposerTextarea
           composer={composer}
@@ -3718,6 +4634,7 @@ function ComposerTextarea({ composer, draft, handleKeyDown, setDraft }) {
       id="composer-input"
       data-testid="composer-input"
       data-file-drop-target=""
+      aria-label="输入给 Agent 的内容"
       rows={3}
       value={draft}
       onChange={(event) => setDraft(event.target.value)}
@@ -3772,6 +4689,56 @@ function ComposerAttachments({ attachments, onPreview, onRemove }) {
   );
 }
 
+function ForkDraftCard({ store }) {
+  const draft = store.forkDraft;
+  if (!draft?.open) return null;
+  const selected = new Set(draft.sharedFilePaths || []);
+  const files = Array.isArray(draft.availableSharedFiles) ? draft.availableSharedFiles : [];
+  return (
+    <section className="fork-draft-card" data-testid="fork-draft-card" aria-label="继承对话草稿">
+      <header>
+        <div>
+          <p>继承对话</p>
+          <strong>{draft.sourceTitle || '继承自当前会话'}</strong>
+        </div>
+        <button
+          type="button"
+          className="fork-draft-close"
+          aria-label="关闭继承对话草稿"
+          disabled={draft.submitting}
+          onClick={() => runUIAction(() => store.closeForkDraft?.())}
+        >
+          <X size={14} />
+        </button>
+      </header>
+      {draft.error ? <div className="fork-draft-error" role="alert">{draft.error}</div> : null}
+      <div className="fork-draft-files" aria-live="polite">
+        {draft.loadingSharedFiles ? <span className="fork-draft-muted">正在加载共享文件...</span> : null}
+        {!draft.loadingSharedFiles && files.length === 0 ? <span className="fork-draft-muted">暂无可选共享文件</span> : null}
+        {files.map((file) => (
+          <label key={file.path} className="fork-draft-file">
+            <input
+              type="checkbox"
+              aria-label={`选择共享文件 ${file.path}`}
+              checked={selected.has(file.path)}
+              disabled={draft.submitting}
+              onChange={() => runUIAction(() => store.toggleForkDraftSharedFile?.(file.path))}
+            />
+            <FileText size={14} />
+            <span>{file.path}</span>
+          </label>
+        ))}
+      </div>
+      <div className="fork-draft-actions">
+        <button type="button" disabled={draft.submitting} onClick={() => runUIAction(() => store.closeForkDraft?.())}>取消</button>
+        <button type="button" className="fork-draft-submit" disabled={draft.submitting} onClick={() => runUIAction(() => store.submitForkThread?.())}>
+          {draft.submitting ? '创建中...' : '创建继承对话'}
+        </button>
+      </div>
+    </section>
+  );
+}
+
 function ComposerMeta({
   canSend,
   canUseProjectActions,
@@ -3785,6 +4752,8 @@ function ComposerMeta({
   showProviderToggle,
   store,
 }) {
+  const canForkThread = canUseProjectActions && Boolean(store.hasActiveThreadActions?.());
+  const forkBlockedTitle = projectActionBlocked ? projectActionBlockedTitle : '当前没有可继承的会话';
   return (
     <div className="composer-meta">
       <button
@@ -3798,6 +4767,18 @@ function ComposerMeta({
         }}
       >
         <Plus size={18} />
+      </button>
+      <button
+        type="button"
+        className="composer-attach composer-fork"
+        aria-label="继承当前对话"
+        title={canForkThread ? '继承当前对话' : forkBlockedTitle}
+        disabled={!canForkThread}
+        onClick={() => {
+          if (canForkThread) runUIAction(() => store.openForkDraft?.());
+        }}
+      >
+        <GitBranch size={16} />
       </button>
       <label className="permission-chip">
         <span className="sr-only">发送权限</span>
@@ -3838,6 +4819,14 @@ function Conversation(props) {
     loadOlderThreadMessages,
     timelineBlocked,
     timelineContentBlocked = false,
+    chatMode = 'chat',
+    setChatMode = () => {},
+    cmdLayout = 'mix',
+    setCmdLayout = () => {},
+    cmdCols = 2,
+    setCmdCols = () => {},
+    messageActions,
+    store,
   } = props;
   const introMode = !activeThreadId && !timelineBlocked && messages.length === 0;
   const hasActiveReasoning = messages.some((message) => isReasoningMessage(message) && message.done === false);
@@ -3847,29 +4836,64 @@ function Conversation(props) {
   const composer = <ConversationComposer {...props} floating={introMode} showProviderToggle={!activeThreadId} />;
   return (
     <section className={`conversation${introMode ? ' conversation--intro' : ''}`}>
-      <ConversationTimeline
-        composer={composer}
-        introMode={introMode}
-        messages={messages}
-        pendingReasoning={pendingReasoning}
-        projectPath={projectPath}
-        activeThreadId={activeThreadId}
-        messagePagination={messagePagination}
-        loadOlderThreadMessages={loadOlderThreadMessages}
-        timelineContentBlocked={timelineContentBlocked}
-      />
-      {!introMode ? (
-        <WorkStatus
-          sending={sending}
-          loading={timelineContentBlocked}
+      {!introMode ? <ChatModeToolbar mode={chatMode} setMode={setChatMode} /> : null}
+      {chatMode === 'cmd' && !introMode ? (
+        <CommandWorkspace
+          store={store}
           activeThreadId={activeThreadId}
-          activeThread={activeThread}
-          statusEntry={statusEntry}
-          tokenUsage={tokenUsage}
+          layout={cmdLayout}
+          setLayout={setCmdLayout}
+          cols={cmdCols}
+          setCols={setCmdCols}
         />
-      ) : null}
-      {!introMode ? composer : null}
+      ) : (
+        <>
+          <ContextUsageBanner activeThreadId={activeThreadId} store={store} tokenUsage={tokenUsage} />
+          <ConversationTimeline
+            composer={composer}
+            introMode={introMode}
+            messages={messages}
+            pendingReasoning={pendingReasoning}
+            projectPath={projectPath}
+            activeThreadId={activeThreadId}
+            messagePagination={messagePagination}
+            loadOlderThreadMessages={loadOlderThreadMessages}
+            timelineContentBlocked={timelineContentBlocked}
+            messageActions={messageActions}
+          />
+          {!introMode ? (
+            <WorkStatus
+              sending={sending}
+              loading={timelineContentBlocked}
+              activeThreadId={activeThreadId}
+              activeThread={activeThread}
+              statusEntry={statusEntry}
+              tokenUsage={tokenUsage}
+            />
+          ) : null}
+          {!introMode ? composer : null}
+        </>
+      )}
     </section>
+  );
+}
+
+function ContextUsageBanner({ activeThreadId, store, tokenUsage }) {
+  if (!activeThreadId || !tokenUsage || tokenUsage.usedPercent < CONTEXT_USAGE_FORK_THRESHOLD) return null;
+  const canFork = Boolean(store?.hasActiveThreadActions?.());
+  return (
+    <output className="context-usage-banner" data-testid="context-usage-banner">
+      <span>上下文使用率 {Math.round(tokenUsage.usedPercent)}%</span>
+      <button
+        type="button"
+        disabled={!canFork}
+        onClick={() => {
+          if (canFork) runUIAction(() => store.openForkDraft?.({ origin: 'context-usage' }));
+        }}
+      >
+        新建继承会话
+      </button>
+    </output>
   );
 }
 
@@ -3922,29 +4946,16 @@ function useMaterializedTimelineWindow({ activeThreadId, introMode, messages, ti
     key: materializationKey,
   }));
   const messageCount = messages.length;
-  const materializedCount = materialization.key === materializationKey
-    ? materialization.count
-    : TIMELINE_INITIAL_MATERIALIZED_MESSAGES;
-
-  useEffect(() => {
-    setMaterialization((current) => {
-      if (current.key === materializationKey) return current;
-      return { count: TIMELINE_INITIAL_MATERIALIZED_MESSAGES, key: materializationKey };
-    });
-  }, [materializationKey]);
-
-  useEffect(() => {
-    setMaterialization((current) => {
-      if (current.key !== materializationKey) return current;
-      return {
-        ...current,
-        count: Math.min(
-          Math.max(TIMELINE_INITIAL_MATERIALIZED_MESSAGES, current.count),
-          Math.max(TIMELINE_INITIAL_MATERIALIZED_MESSAGES, messageCount),
-        ),
-      };
-    });
-  }, [materializationKey, messageCount]);
+  const activeMaterialization = materialization.key === materializationKey
+    ? materialization
+    : { count: TIMELINE_INITIAL_MATERIALIZED_MESSAGES, key: materializationKey };
+  if (activeMaterialization !== materialization) {
+    setMaterialization(activeMaterialization);
+  }
+  const materializedCount = Math.min(
+    Math.max(TIMELINE_INITIAL_MATERIALIZED_MESSAGES, activeMaterialization.count),
+    Math.max(TIMELINE_INITIAL_MATERIALIZED_MESSAGES, messageCount),
+  );
 
   const visibleStart = Math.max(0, messageCount - materializedCount);
   const visibleMessages = useMemo(() => messages.slice(visibleStart), [messages, visibleStart]);
@@ -3981,6 +4992,7 @@ function ConversationTimeline({
   messagePagination,
   loadOlderThreadMessages,
   timelineContentBlocked,
+  messageActions,
 }) {
   const {
     hiddenOlderCount,
@@ -4028,7 +5040,7 @@ function ConversationTimeline({
       {!introMode && !timelineContentBlocked && (hiddenOlderCount > 0 || hasBackendOlderPage) ? (
         <TimelineOlderMessagesMarker hiddenCount={hiddenOlderCount} loading={olderPageLoading} onReveal={requestOlderMessages} />
       ) : null}
-      {!introMode && !timelineContentBlocked ? visibleMessages.map((message) => <TimelineMessage key={message.id} message={message} />) : null}
+      {!introMode && !timelineContentBlocked ? visibleMessages.map((message) => <TimelineMessage key={message.id} message={message} actions={messageActions} />) : null}
       {!introMode && timelineContentBlocked ? <TimelineLoadingPlaceholder /> : null}
       {pendingReasoning ? <ReasoningTrace key={pendingReasoning.id} message={pendingReasoning} active /> : null}
     </div>
@@ -4060,15 +5072,76 @@ function IntroChatStage({ composer, projectPath }) {
   );
 }
 
-function TimelineMessage({ message }) {
+function TimelineMessage({ message, actions }) {
+  if (isApprovalMessage(message)) return <ApprovalTimelineMessage message={message} actions={actions} />;
   if (isReasoningMessage(message)) return <ReasoningTrace message={message} active={message.done === false} />;
   return (
     <article className={`message ${message.role}`}>
-      <MessageAvatar role={message.role} />
+      <MessageAvatar messageRole={message.role} />
       <div className="bubble">
         <header><span>{message.role === 'user' ? '你' : 'AI'}</span><time>{formatTime(message.time)}</time></header>
-        <MessageContent text={message.text} />
+        <MessageContent text={message.text} actions={actions} />
         {message.role === 'assistant' ? <AssistantMessageActions text={message.text} /> : null}
+      </div>
+    </article>
+  );
+}
+
+function ApprovalTimelineMessage({ message, actions }) {
+  const [busy, setBusy] = useState(false);
+  const [resolved, setResolved] = useState(false);
+  const requestId = approvalRequestId(message);
+  const terminal = isApprovalTerminal(message);
+  const disabled = requestId <= 0 || busy || resolved || terminal || typeof actions?.onApproval !== 'function';
+  const title = (message.title || message.command || '审批请求').toString().trim();
+  const hint = approvalHintText({ requestId, busy, resolved, terminal });
+
+  const submitApproval = async (approved) => {
+    if (disabled) return;
+    setBusy(true);
+    try {
+      const ok = await actions.onApproval(message, approved);
+      if (ok) setResolved(true);
+    }
+    finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <article className="message assistant approval-message" data-testid={`approval-request-${requestId || 'invalid'}`}>
+      <MessageAvatar messageRole="assistant" />
+      <div className="bubble approval-card">
+        <header>
+          <span>{title}</span>
+          <time>{formatTime(message.time)}</time>
+        </header>
+        <MessageContent text={message.text || message.command || '审批请求'} actions={actions} />
+        <div className="approval-footer">
+          <span className="approval-hint">{hint}</span>
+          <div className="approval-actions">
+            <button
+              type="button"
+              className="approval-action approval-action--approve"
+              aria-label={`同意审批 ${requestId}`}
+              disabled={disabled}
+              onClick={() => submitApproval(true)}
+            >
+              <CheckCircle2 size={14} />
+              <span>同意</span>
+            </button>
+            <button
+              type="button"
+              className="approval-action approval-action--reject"
+              aria-label={`拒绝审批 ${requestId}`}
+              disabled={disabled}
+              onClick={() => submitApproval(false)}
+            >
+              <X size={14} />
+              <span>拒绝</span>
+            </button>
+          </div>
+        </div>
       </div>
     </article>
   );
@@ -4155,8 +5228,11 @@ function useRuntimePanelLayout() {
   };
 }
 
-function RuntimePanel({ diffText, tokenUsage, activityStats, warnings, runtimeResults }) {
+function RuntimePanel({ diffText, tokenUsage, activityStats, warnings, runtimeResults, projectPath, projects }) {
   const [collapsedDiffFiles, setCollapsedDiffFiles] = useState(() => new Set());
+  const [diffActionNotice, setDiffActionNotice] = useState('');
+  const [codePreview, setCodePreview] = useState(emptyCodePreviewState);
+  const [pathChoice, setPathChoice] = useState(emptyPathChoiceState);
   const diffSummary = useMemo(() => summarizeUnifiedDiff(diffText), [diffText]);
   const runtimeLayout = useRuntimePanelLayout();
   const toggleDiffFile = (filename) => {
@@ -4167,6 +5243,75 @@ function RuntimePanel({ diffText, tokenUsage, activityStats, warnings, runtimeRe
       return next;
     });
   };
+  const locateDiffFile = async (file) => {
+    setDiffActionNotice(`正在定位 ${file.filename}`);
+    try {
+      const result = await locateCodeFile(runtimeCodeScopePayload(file.filename, projectPath, projects));
+      const options = normalizeCodeLocateOptions(result);
+      const count = options.length;
+      if (count > 1) {
+        setPathChoice({ open: true, file, options, truncated: Boolean(result?.truncated) });
+      }
+      setDiffActionNotice(`定位到 ${count} 个路径`);
+    } catch (error) {
+      setDiffActionNotice(codeActionError(error, '定位失败'));
+    }
+  };
+  const openCodePreviewForPath = async (filePath, fallbackRelative = '') => {
+    const displayPath = (fallbackRelative || filePath || '').toString();
+    setCodePreview({
+      ...emptyCodePreviewState(),
+      open: true,
+      loading: true,
+      filePath,
+      relative: displayPath,
+    });
+    try {
+      const result = await openCodeFile(runtimeCodeScopePayload(filePath, projectPath, projects));
+      setCodePreview(codePreviewStateFromOpenResult(result, filePath, displayPath));
+    } catch (error) {
+      setCodePreview((current) => ({
+        ...current,
+        loading: false,
+        error: codeActionError(error, '打开失败'),
+      }));
+    }
+  };
+  const openDiffFile = async (file) => {
+    await openCodePreviewForPath(file.filename, file.filename);
+  };
+  const openChosenPath = async (filePath) => {
+    const fallback = pathChoice.file?.filename || filePath;
+    setPathChoice(emptyPathChoiceState());
+    await openCodePreviewForPath(filePath, fallback);
+  };
+  const savePreviewChanges = async () => {
+    if (!codePreview.filePath || codePreview.saving) return;
+    setCodePreview((current) => ({ ...current, saving: true, error: '', status: '' }));
+    try {
+      const result = await saveCodeFile({
+        ...runtimeCodeScopePayload(codePreview.filePath, projectPath, projects),
+        content: codePreview.draft,
+      });
+      const relative = codeOpenDisplayPath(result, codePreview.relative || codePreview.filePath);
+      setCodePreview((current) => ({
+        ...current,
+        saving: false,
+        filePath: (result?.filePath || current.filePath).toString(),
+        relative,
+        content: current.draft,
+        editing: current.previewKind === 'markdown' ? false : current.editing,
+        totalLines: Number.isFinite(Number(result?.totalLines)) ? Math.floor(Number(result.totalLines)) : countCodePreviewLines(current.draft),
+        status: `已保存 ${relative}`,
+      }));
+    } catch (error) {
+      setCodePreview((current) => ({
+        ...current,
+        saving: false,
+        error: codeActionError(error, '保存失败'),
+      }));
+    }
+  };
   return (
     <aside
       className="runtime-panel"
@@ -4174,18 +5319,43 @@ function RuntimePanel({ diffText, tokenUsage, activityStats, warnings, runtimeRe
       style={runtimePanelHeightVars(runtimeLayout.activityPanelHeight, runtimeLayout.viewportHeight)}
     >
       <RuntimeToolbar diffSummary={diffSummary} />
-      <RuntimeDiffView diffText={diffText} diffSummary={diffSummary} collapsedFiles={collapsedDiffFiles} onToggleFile={toggleDiffFile} />
+      <RuntimeDiffView
+        diffText={diffText}
+        diffSummary={diffSummary}
+        collapsedFiles={collapsedDiffFiles}
+        actionNotice={diffActionNotice}
+        onLocateFile={locateDiffFile}
+        onOpenFile={openDiffFile}
+        onToggleFile={toggleDiffFile}
+      />
       <RuntimeActivityPanel
         activityStats={activityStats}
         tokenUsage={tokenUsage}
         warnings={warnings}
         runtimeResults={runtimeResults}
+        activityPanelMax={runtimeLayout.activityPanelMax}
         activityPanelHeight={runtimeLayout.activityPanelHeight}
-        activityPanelMaxHeight={runtimeLayout.activityPanelMax}
-        activityPanelMinHeight={ACTIVITY_PANEL_MIN_HEIGHT}
         onResizeKeyDown={runtimeLayout.handleActivityPanelResizeKeyDown}
         onResizeStart={runtimeLayout.beginActivityPanelResize}
       />
+      {codePreview.open ? (
+        <CodePreviewDialog
+          preview={codePreview}
+          onBeginEdit={() => setCodePreview((current) => ({ ...current, editing: true, error: '', status: '' }))}
+          onCancelEdit={() => setCodePreview((current) => ({ ...current, editing: false, draft: current.content, error: '', status: '' }))}
+          onChangeDraft={(draft) => setCodePreview((current) => ({ ...current, draft, error: '' }))}
+          onClose={() => setCodePreview(emptyCodePreviewState())}
+          onDirtyClose={() => setCodePreview((current) => ({ ...current, error: '请先保存或放弃预览更改' }))}
+          onSave={savePreviewChanges}
+        />
+      ) : null}
+      {pathChoice.open ? (
+        <PathChoiceDialog
+          choice={pathChoice}
+          onClose={() => setPathChoice(emptyPathChoiceState())}
+          onSelect={(filePath) => { void openChosenPath(filePath); }}
+        />
+      ) : null}
     </aside>
   );
 }
@@ -4205,10 +5375,11 @@ function RuntimeToolbar({ diffSummary }) {
   );
 }
 
-function RuntimeDiffView({ diffText, diffSummary, collapsedFiles, onToggleFile }) {
+function RuntimeDiffView({ diffText, diffSummary, collapsedFiles, actionNotice, onLocateFile, onOpenFile, onToggleFile }) {
   if (!diffText) return <div className="diff-empty">暂无代码变更</div>;
   return (
     <div className="diff-empty">
+      {actionNotice ? <output className="diff-action-notice">{actionNotice}</output> : null}
       <div className="diff-view" data-testid="diff-view">
         {diffSummary.files.map((file, index) => (
           <RuntimeDiffFile
@@ -4216,6 +5387,8 @@ function RuntimeDiffView({ diffText, diffSummary, collapsedFiles, onToggleFile }
             file={file}
             index={index}
             collapsed={collapsedFiles.has(`${file.filename}:${index}`)}
+            onLocate={() => onLocateFile(file)}
+            onOpen={() => onOpenFile(file)}
             onToggle={() => onToggleFile(`${file.filename}:${index}`)}
           />
         ))}
@@ -4224,20 +5397,123 @@ function RuntimeDiffView({ diffText, diffSummary, collapsedFiles, onToggleFile }
   );
 }
 
-function RuntimeDiffFile({ file, index, collapsed, onToggle }) {
+function RuntimeDiffFile({ file, index, collapsed, onLocate, onOpen, onToggle }) {
+  const toggleLabel = `${collapsed ? '展开' : '折叠'} ${file.filename}`;
   return (
     <section className={`diff-file-group${collapsed ? ' is-collapsed' : ''}`}>
       <div className="diff-file-header">
-        <button type="button" className="diff-file-toggle" aria-expanded={!collapsed} aria-controls={`runtime-diff-file-${index}`} onClick={onToggle}>
+        <button type="button" className="diff-file-toggle" aria-label={toggleLabel} aria-expanded={!collapsed} aria-controls={`runtime-diff-file-${index}`} onClick={onToggle}>
           <span className="diff-file-title">
             <ChevronDown className="diff-file-caret" size={14} aria-hidden="true" />
             <span className="diff-file-name">{file.filename}</span>
           </span>
           <span className="diff-file-stats" aria-hidden="true"><b className="good">+{file.additions}</b><b className="bad">-{file.deletions}</b></span>
         </button>
+        <div className="diff-file-actions">
+          <button type="button" className="diff-file-action" aria-label={`定位 ${file.filename}`} title={`定位 ${file.filename}`} onClick={onLocate}>
+            <Search size={13} aria-hidden="true" />
+          </button>
+          <button type="button" className="diff-file-action" aria-label={`打开 ${file.filename}`} title={`打开 ${file.filename}`} onClick={onOpen}>
+            <File size={13} aria-hidden="true" />
+          </button>
+        </div>
       </div>
       {!collapsed ? <RuntimeDiffLines file={file} index={index} /> : null}
     </section>
+  );
+}
+
+function PathChoiceDialog({ choice, onClose, onSelect }) {
+  const options = Array.isArray(choice?.options) ? choice.options : [];
+  return (
+    <FocusTrapDialog ariaLabel="选择文件路径" className="modal-box path-choice-modal" onClose={onClose}>
+      <header>
+        <div>
+          <h2>选择文件路径</h2>
+          <p>{choice?.file?.filename || '请选择要打开的文件'}</p>
+        </div>
+        <button type="button" aria-label="关闭路径选择" title="关闭路径选择" onClick={onClose}>
+          <X size={15} aria-hidden="true" />
+        </button>
+      </header>
+      <div className="path-choice-options">
+        {options.length > 0 ? options.map((path) => (
+          <button className="path-choice-option" key={path} type="button" onClick={() => onSelect(path)}>
+            {path}
+          </button>
+        )) : <p>没有可选路径</p>}
+      </div>
+      {choice?.truncated ? <p className="path-choice-truncated">结果已截断，仅显示部分结果</p> : null}
+      <footer>
+        <button type="button" onClick={onClose}>取消</button>
+      </footer>
+    </FocusTrapDialog>
+  );
+}
+
+function CodePreviewDialog({ preview, onBeginEdit, onCancelEdit, onChangeDraft, onClose, onDirtyClose, onSave }) {
+  const dirty = preview.draft !== preview.content;
+  const canEdit = Boolean(preview.editable) && !preview.image && !preview.loading;
+  const requestClose = () => {
+    if (dirty && !preview.loading && !preview.saving) {
+      onDirtyClose();
+      return;
+    }
+    onClose();
+  };
+  return (
+    <FocusTrapDialog ariaLabel="文件预览" className="modal-box code-preview-modal" initialFocusSelector={preview.editing && !preview.image ? 'textarea' : ''} onClose={requestClose}>
+      <header>
+        <div>
+          <h2>文件预览</h2>
+          <p className="code-preview-path">{preview.relative || preview.filePath}</p>
+          {codePreviewMeta(preview) ? <p className="code-preview-meta">{codePreviewMeta(preview)}</p> : null}
+        </div>
+        <button type="button" aria-label="关闭文件预览" title="关闭文件预览" onClick={requestClose}>
+          <X size={15} aria-hidden="true" />
+        </button>
+      </header>
+      {preview.loading ? (
+        <div className="code-preview-loading">正在打开文件</div>
+      ) : preview.image ? (
+        <figure className="code-preview-image">
+          <img src={preview.imageSrc || preview.imageFullSrc} alt={preview.relative || preview.filePath || '图片预览'} />
+        </figure>
+      ) : preview.editing ? (
+        <>
+          <textarea
+            aria-label="文件预览内容"
+            className="code-preview-editor"
+            spellCheck="false"
+            value={preview.draft}
+            onChange={(event) => onChangeDraft(event.target.value)}
+          />
+          {preview.previewKind === 'markdown' ? <p className="code-preview-hint">保存后会回到 Markdown 预览。</p> : null}
+        </>
+      ) : preview.previewKind === 'markdown' ? (
+        <div className="code-preview-markdown message-markdown">
+          <MarkdownBlocks lines={normalizeMessageText(preview.content).split('\n')} />
+        </div>
+      ) : (
+        <pre className="code-preview-text">{preview.content}</pre>
+      )}
+      {preview.error ? <p className="code-preview-error" role="alert">{preview.error}</p> : null}
+      {preview.status ? <output className="code-preview-status">{preview.status}</output> : null}
+      <footer>
+        <button type="button" onClick={requestClose}>关闭</button>
+        {canEdit && preview.previewKind === 'markdown' && !preview.editing ? (
+          <button type="button" onClick={onBeginEdit}>编辑预览</button>
+        ) : null}
+        {canEdit && preview.editing && preview.previewKind === 'markdown' ? (
+          <button type="button" disabled={preview.saving} onClick={onCancelEdit}>放弃更改</button>
+        ) : null}
+        {canEdit && preview.editing ? (
+          <button type="button" disabled={preview.loading || preview.saving || !dirty} onClick={onSave}>
+            {preview.saving ? '保存中' : '保存预览更改'}
+          </button>
+        ) : null}
+      </footer>
+    </FocusTrapDialog>
   );
 }
 
@@ -4261,31 +5537,32 @@ function RuntimeActivityPanel({
   tokenUsage,
   warnings,
   runtimeResults,
+  activityPanelMax,
   activityPanelHeight,
-  activityPanelMaxHeight,
-  activityPanelMinHeight,
   onResizeKeyDown,
   onResizeStart,
 }) {
   const [activeStat, setActiveStat] = useState(null);
   const [activeWarning, setActiveWarning] = useState(null);
   const panelRef = useRef(null);
+  const runtimePopupOpenRef = useRef(false);
   const stats = useMemo(() => activityStats || {}, [activityStats]);
   const statItems = useMemo(() => activityStatItems(stats), [stats]);
   const detailEntriesByStat = useMemo(() => Object.fromEntries(
     statItems.map((item) => [item.key, activityStatDetailEntries(stats, item.key)]),
   ), [statItems, stats]);
   const logEntries = useMemo(() => runtimeLogEntries(warnings, runtimeResults), [warnings, runtimeResults]);
+  const logLinesVisible = activityPanelHeight > ACTIVITY_PANEL_MIN_HEIGHT;
+  const visibleActiveWarning = logLinesVisible ? activeWarning : null;
   const activeWarningEntry = useMemo(
-    () => logEntries.find((entry) => entry.id === activeWarning?.id) || null,
-    [activeWarning, logEntries],
+    () => logEntries.find((entry) => entry.id === visibleActiveWarning?.id) || null,
+    [visibleActiveWarning, logEntries],
   );
   const activeStatItem = useMemo(
     () => statItems.find((item) => item.key === activeStat?.key) || null,
     [activeStat, statItems],
   );
   const activeStatDetailEntries = activeStat ? detailEntriesByStat[activeStat.key] || [] : [];
-  const logLinesVisible = activityPanelHeight > activityPanelMinHeight;
   const hideStatTooltip = useCallback(() => setActiveStat(null), []);
   const hideWarningPopover = useCallback(() => setActiveWarning(null), []);
   const toggleStatTooltip = (key, element) => {
@@ -4325,50 +5602,50 @@ function RuntimeActivityPanel({
     }
   };
 
-  useEffect(() => {
-    if (!logLinesVisible && activeWarning) hideWarningPopover();
-  }, [activeWarning, hideWarningPopover, logLinesVisible]);
+  if (!logLinesVisible && activeWarning) {
+    setActiveWarning(null);
+  }
 
   useEffect(() => {
-    if (!activeStat && !activeWarning) return undefined;
-    const handleDocumentPointerDown = (event) => {
-      if (panelRef.current?.contains(event.target)) return;
-      hideStatTooltip();
-      hideWarningPopover();
+    runtimePopupOpenRef.current = Boolean(activeStat || visibleActiveWarning);
+  }, [activeStat, visibleActiveWarning]);
+
+  useEffect(() => {
+    const keepRuntimePopupOpen = (target) => {
+      if (!(target instanceof Element)) return false;
+      return Boolean(target.closest('.runtime-stat, .runtime-stat-tooltip, .warning-log-line, .warning-log-popover, .activity-panel-resizer'));
+    };
+    const handleDocumentDismiss = (event) => {
+      if (!runtimePopupOpenRef.current) return;
+      if (keepRuntimePopupOpen(event.target)) return;
+      setActiveStat(null);
+      setActiveWarning(null);
     };
     const handleDocumentKeyDown = (event) => {
+      if (!runtimePopupOpenRef.current) return;
       if (event.key !== 'Escape') return;
-      hideStatTooltip();
-      hideWarningPopover();
+      setActiveStat(null);
+      setActiveWarning(null);
     };
-    document.addEventListener('pointerdown', handleDocumentPointerDown);
+    document.addEventListener('pointerdown', handleDocumentDismiss);
+    document.addEventListener('click', handleDocumentDismiss);
     document.addEventListener('keydown', handleDocumentKeyDown);
     return () => {
-      document.removeEventListener('pointerdown', handleDocumentPointerDown);
+      document.removeEventListener('pointerdown', handleDocumentDismiss);
+      document.removeEventListener('click', handleDocumentDismiss);
       document.removeEventListener('keydown', handleDocumentKeyDown);
     };
-  }, [activeStat, activeWarning, hideStatTooltip, hideWarningPopover]);
+  }, []);
 
   return (
     <section
       className={`runtime-activity-panel${logLinesVisible ? '' : ' is-log-collapsed'}`}
       aria-label="工具使用面板"
       ref={panelRef}
-      onPointerDown={(event) => {
-        if (event.target.closest('.runtime-stat, .runtime-stat-tooltip, .warning-log-line, .warning-log-popover')) return;
-        hideStatTooltip();
-        hideWarningPopover();
-      }}
-      onClick={(event) => {
-        if (event.target.closest('.runtime-stat, .runtime-stat-tooltip, .warning-log-line, .warning-log-popover')) return;
-        hideStatTooltip();
-        hideWarningPopover();
-      }}
     >
       <RuntimeActivityResizer
+        activityPanelMax={activityPanelMax}
         activityPanelHeight={activityPanelHeight}
-        activityPanelMaxHeight={activityPanelMaxHeight}
-        activityPanelMinHeight={activityPanelMinHeight}
         onResizeKeyDown={onResizeKeyDown}
         onResizeStart={onResizeStart}
       />
@@ -4386,42 +5663,44 @@ function RuntimeActivityPanel({
       />
       {logLinesVisible ? (
         <RuntimeLogLines
-          activeWarning={activeWarning}
+          activeWarning={visibleActiveWarning}
           entries={logEntries}
           onWarningKeyDown={handleWarningKeyDown}
           onToggleWarning={toggleWarningPopover}
         />
       ) : null}
-      <RuntimeWarningPopover entry={logLinesVisible ? activeWarningEntry : null} hoverState={activeWarning} />
+      <RuntimeWarningPopover entry={activeWarningEntry} hoverState={visibleActiveWarning} />
     </section>
   );
 }
 
-function RuntimeActivityResizer({ activityPanelHeight, activityPanelMaxHeight, activityPanelMinHeight, onResizeKeyDown, onResizeStart }) {
+function RuntimeActivityResizer({ activityPanelMax, activityPanelHeight, onResizeKeyDown, onResizeStart }) {
   return (
-    <div
-      role="separator"
+    <button
+      type="button"
       className="activity-panel-resizer"
-      aria-orientation="horizontal"
+      role="separator"
       aria-label="调整工具使用面板高度"
-      aria-valuemin={activityPanelMinHeight}
-      aria-valuemax={activityPanelMaxHeight}
+      aria-orientation="horizontal"
+      aria-valuemin={ACTIVITY_PANEL_MIN_HEIGHT}
+      aria-valuemax={activityPanelMax}
       aria-valuenow={activityPanelHeight}
       title="拖动调整工具使用面板高度，最大为应用高度的 1/2"
       data-testid="activity-panel-resizer"
-      tabIndex={0}
       onKeyDown={onResizeKeyDown}
       onPointerDown={(event) => onResizeStart(event, 'pointer')}
       onMouseDown={(event) => {
         if (!window.PointerEvent) onResizeStart(event, 'mouse');
       }}
-    />
+    >
+      <span className="sr-only">调整工具使用面板高度，当前 {activityPanelHeight} 像素</span>
+    </button>
   );
 }
 
 function RuntimeStatList({ activeStat, onStatKeyDown, onToggleStat, statItems, tokenUsage }) {
   return (
-    <div className="runtime-icons" role="list" aria-label="工具调用统计">
+    <ul className="runtime-icons" aria-label="工具调用统计">
       {statItems.map((item) => (
         <RuntimeStatItem
           key={item.key}
@@ -4431,32 +5710,33 @@ function RuntimeStatList({ activeStat, onStatKeyDown, onToggleStat, statItems, t
           onToggle={onToggleStat}
         />
       ))}
-      <span className="runtime-context" aria-label={tokenUsage ? `上下文使用率 ${tokenUsage.usedPercent.toFixed(1)}%` : '等待后端同步上下文使用率'}>
+      <li className="runtime-context" aria-label={tokenUsage ? `上下文使用率 ${tokenUsage.usedPercent.toFixed(1)}%` : '等待后端同步上下文使用率'}>
         {tokenUsage ? `${tokenUsage.usedPercent.toFixed(1)}% context` : 'context --'}
-      </span>
-    </div>
+      </li>
+    </ul>
   );
 }
 
 function RuntimeStatItem({ activeStat, item, onKeyDown, onToggle }) {
   const { key, label, icon: Icon, className, value } = item;
   return (
-    <span
-      className={`runtime-stat ${className}`}
-      role="listitem"
-      tabIndex={0}
-      aria-expanded={activeStat?.key === key}
-      aria-haspopup="dialog"
-      aria-label={key === 'tool' ? '工具调用总数' : `${label} 调用次数`}
-      onClick={(event) => {
-        event.stopPropagation();
-        onToggle(key, event.currentTarget);
-      }}
-      onKeyDown={(event) => onKeyDown(event, key)}
-    >
-      <Icon size={16} aria-hidden="true" />
-      <strong>{value}</strong>
-    </span>
+    <li className="runtime-stat-listitem">
+      <button
+        type="button"
+        className={`runtime-stat ${className}`}
+        aria-expanded={activeStat?.key === key}
+        aria-haspopup="dialog"
+        aria-label={key === 'tool' ? '工具调用总数' : `${label} 调用次数`}
+        onClick={(event) => {
+          event.stopPropagation();
+          onToggle(key, event.currentTarget);
+        }}
+        onKeyDown={(event) => onKeyDown(event, key)}
+      >
+        <Icon size={16} aria-hidden="true" />
+        <strong>{value}</strong>
+      </button>
+    </li>
   );
 }
 
@@ -4484,10 +5764,10 @@ function RuntimeLogLines({ activeWarning, entries, onWarningKeyDown, onToggleWar
     <div className="log-lines" data-testid="warning-log-panel">
       {entries.length === 0 ? <p><time>--:--</time> runtime log 等待事件</p> : null}
       {entries.map((entry) => (
-        <p
+        <button
+          type="button"
           key={entry.id}
           className={`warning-log-line runtime-log-line--${entry.runtimeKind || 'warning'}`}
-          tabIndex={0}
           aria-expanded={activeWarning?.id === entry.id}
           aria-haspopup="dialog"
           onClick={(event) => {
@@ -4498,7 +5778,7 @@ function RuntimeLogLines({ activeWarning, entries, onWarningKeyDown, onToggleWar
         >
           <time>{formatTime(runtimeLogTimestamp(entry))}</time> <b>{runtimeLogInlineLabel(entry)}</b>
           {Number(entry.occurrenceCount) > 1 ? <span> ×{Number(entry.occurrenceCount)}</span> : null}
-        </p>
+        </button>
       ))}
     </div>
   );

@@ -17,6 +17,8 @@ const backend = vi.hoisted(() => ({
   startThread: vi.fn(),
   startTurn: vi.fn(),
   interruptTurn: vi.fn(),
+  forceCompleteTurn: vi.fn(),
+  respondApproval: vi.fn(),
   compactThread: vi.fn(),
   recoverThread: vi.fn(),
   resolveThreadIdentity: vi.fn(),
@@ -32,6 +34,8 @@ const backend = vi.hoisted(() => ({
   beginTextClipboardWrite: vi.fn(),
   copyTextToClipboard: vi.fn(),
   emitFrontendTraceEvent: vi.fn(),
+  listSharedFiles: vi.fn(),
+  readSharedFile: vi.fn(),
   onBridgeEvent: vi.fn((callback) => {
     bridgeCallback = callback;
     return () => {
@@ -94,6 +98,8 @@ function registerBridgeEventHandlersForTest() {
     }[key] ?? null));
     backend.archiveThread.mockResolvedValue({ ok: true });
     backend.unarchiveThread.mockResolvedValue({ ok: true });
+    backend.forceCompleteTurn.mockResolvedValue({ confirmed: true });
+    backend.respondApproval.mockResolvedValue({ ok: true });
     backend.deleteThread.mockResolvedValue({ ok: true });
     backend.getThreadConfig.mockResolvedValue({
       threadId: 'thread-1',
@@ -113,6 +119,8 @@ function registerBridgeEventHandlersForTest() {
     backend.selectProjectDir.mockResolvedValue('/repo/new');
     backend.beginTextClipboardWrite.mockReturnValue(null);
     backend.copyTextToClipboard.mockResolvedValue(true);
+    backend.listSharedFiles.mockResolvedValue({ files: [] });
+    backend.readSharedFile.mockImplementation(({ path }) => Promise.resolve({ path, content: `content for ${path}` }));
   });
 
   it('bootstraps through config, window, projects, and sidebar without blocking on thread snapshot', async () => {
@@ -1049,6 +1057,75 @@ function registerBridgeEventHandlersForTest() {
     expect(useClientStore.getState().draft).toBe('');
   });
 
+  it('runs dashboard command cards through the current chat turn chain', async () => {
+    resetClientStoreForTests({
+      cwd: '/repo/app',
+      activeProject: '/repo/app',
+      activePage: 'commands',
+      activeThreadId: 'thread-1',
+      threads: [{ id: 'thread-1', name: 'Existing', provider: 'codex', status: 'idle' }],
+      draft: '',
+      attachments: [],
+    });
+    backend.startTurn.mockResolvedValue({ ok: true });
+
+    await expect(useClientStore.getState().runDashboardCommand({ command_template: 'make test' })).resolves.toBe(true);
+
+    expect(backend.startThread).not.toHaveBeenCalled();
+    expect(backend.startTurn).toHaveBeenCalledWith({
+      cwd: '/repo/app',
+      threadId: 'thread-1',
+      input: [{ type: 'text', text: '请执行以下命令并反馈结果：\nmake test' }],
+      manualSkillSelection: false,
+    });
+    expect(useClientStore.getState().activePage).toBe('chat');
+    expect(useClientStore.getState().draft).toBe('');
+  });
+
+  it('starts a chat session when running a dashboard command card without an active thread', async () => {
+    resetClientStoreForTests({
+      cwd: '/repo/app',
+      activeProject: '/repo/app',
+      activePage: 'commands',
+      activeThreadId: '',
+      threads: [],
+      draft: '',
+      attachments: [],
+    });
+    backend.startThread.mockResolvedValue({ threadId: 'thread-new' });
+    backend.startTurn.mockResolvedValue({ ok: true });
+
+    await expect(useClientStore.getState().runDashboardCommand({ command_template: 'npm run build' })).resolves.toBe(true);
+
+    expect(backend.startThread).toHaveBeenCalledWith(expect.objectContaining({
+      cwd: '/repo/app',
+      name: '请执行以下命令并反馈结果：\nnpm run build',
+      toolSurfaceMode: 'agent',
+      deferSpawn: true,
+    }));
+    expect(backend.startThread).toHaveBeenCalledBefore(backend.startTurn);
+    expect(backend.startTurn).toHaveBeenCalledWith({
+      cwd: '/repo/app',
+      threadId: 'thread-new',
+      input: [{ type: 'text', text: '请执行以下命令并反馈结果：\nnpm run build' }],
+      manualSkillSelection: false,
+    });
+    expect(useClientStore.getState().activePage).toBe('chat');
+  });
+
+  it('fails fast when a dashboard command card has no command template', async () => {
+    resetClientStoreForTests({
+      cwd: '/repo/app',
+      activeProject: '/repo/app',
+      activePage: 'commands',
+      activeThreadId: 'thread-1',
+    });
+
+    await expect(useClientStore.getState().runDashboardCommand({ command_template: '   ' }))
+      .rejects.toThrow('dashboard command card command_template is required');
+    expect(backend.startTurn).not.toHaveBeenCalled();
+  });
+
   it('upgrades auto tool mode to agent for engineering intents', async () => {
     resetClientStoreForTests({
       cwd: '/repo/app',
@@ -1916,7 +1993,7 @@ function registerBridgeEventHandlersForTest() {
     expect(useClientStore.getState().workflowRevision).toBe(0);
     bridgeCallback({
       type: 'task/node/statusChanged',
-      payload: { dag_key: 'flow-a', node_key: 'step', new_status: 'running' },
+      payload: { dag_key: 'flow-a', run_key: 'run-a', node_key: 'step', new_status: 'running' },
     });
     expect(useClientStore.getState().workflowRevision).toBe(1);
 
@@ -1925,6 +2002,17 @@ function registerBridgeEventHandlersForTest() {
       payload: { job_id: 'job-1', run_id: 'run-1', status: 'running' },
     });
     expect(useClientStore.getState().workflowRevision).toBe(2);
+  });
+
+  it('fails fast instead of refreshing workflow data for malformed task node status events', () => {
+    registerBridgeEventHandlersForTest();
+
+    expect(() => bridgeCallback({
+      type: 'task/node/statusChanged',
+      payload: { dag_key: 'flow-a', node_key: 'step', new_status: 'running' },
+    })).toThrow('dag status event run identity is required');
+
+    expect(useClientStore.getState().workflowRevision).toBe(0);
   });
 
   it('refreshes the chat list when the backend sidebar projection changes', async () => {
@@ -2078,14 +2166,37 @@ function registerBridgeEventHandlersForTest() {
     expect(backend.startTurn).not.toHaveBeenCalled();
   });
 
-  it('starts a new composer draft from a shared file continuation action', () => {
+  it('opens an inherited fork draft from a shared file continuation action when a source thread exists', () => {
     resetClientStoreForTests({
       cwd: '/repo/app',
       activeProject: '/repo/app',
       activeThreadId: 'thread-1',
       activePage: 'files',
+      threads: [{ id: 'thread-1', name: 'Existing thread', provider: 'codex', status: 'idle' }],
       draft: 'old draft',
       attachments: [{ path: 'reports/final.md', name: 'final.md' }],
+    });
+
+    expect(useClientStore.getState().continueWithSharedFile('reports/final.md')).toBe(true);
+
+    const state = useClientStore.getState();
+    expect(state.activePage).toBe('chat');
+    expect(state.activeThreadId).toBe('thread-1');
+    expect(state.forkDraft.open).toBe(true);
+    expect(state.forkDraft.sourceThreadId).toBe('thread-1');
+    expect(state.forkDraft.sourceTitle).toBe('继承自会话：Existing thread');
+    expect(state.forkDraft.sharedFilePaths).toEqual(['reports/final.md']);
+    expect(state.draft).toBe('old draft');
+  });
+
+  it('falls back to a new composer draft from a shared file when no source thread exists', () => {
+    resetClientStoreForTests({
+      cwd: '/repo/app',
+      activeProject: '/repo/app',
+      activeThreadId: '',
+      activePage: 'files',
+      draft: 'old draft',
+      attachments: [],
     });
 
     expect(useClientStore.getState().continueWithSharedFile('reports/final.md')).toBe(true);
@@ -2095,6 +2206,82 @@ function registerBridgeEventHandlersForTest() {
     expect(state.activeThreadId).toBe('');
     expect(state.draft).toContain('reports/final.md');
     expect(state.attachments).toEqual([{ path: 'reports/final.md', name: 'final.md' }]);
+  });
+
+  it('starts an inherited fork thread from the active timeline summary', async () => {
+    resetClientStoreForTests({
+      cwd: '/repo/app',
+      activeProject: '/repo/app',
+      activeThreadId: 'thread-1',
+      threads: [{ id: 'thread-1', name: 'Existing thread', provider: 'codex', status: 'idle' }],
+      timelinesByThread: {
+        'thread-1': [
+          { id: 'user-1', kind: 'user', text: 'first message' },
+          { id: 'assistant-1', kind: 'assistant', text: 'reply with next steps' },
+        ],
+      },
+    });
+    backend.startThread.mockResolvedValue({ threadId: 'thread-fork' });
+    backend.startTurn.mockResolvedValue({ ok: true });
+
+    await expect(useClientStore.getState().openForkDraft()).resolves.toBe(true);
+    await expect(useClientStore.getState().submitForkThread()).resolves.toBe('thread-fork');
+
+    expect(backend.startThread).toHaveBeenCalledWith(expect.objectContaining({
+      cwd: '/repo/app',
+      name: '继承自会话：Existing thread',
+      modelProvider: 'codex',
+      toolSurfaceMode: 'chat',
+      deferSpawn: true,
+      baseInstructions: expect.stringContaining('来源：继承自会话：Existing thread'),
+    }));
+    const startPayload = backend.startThread.mock.calls[0][0];
+    expect(startPayload.baseInstructions).toContain('摘要：');
+    expect(startPayload.baseInstructions).toContain('first message');
+    expect(startPayload.baseInstructions).toContain('reply with next steps');
+    expect(startPayload.baseInstructions).not.toContain('挂载的共享文件');
+    expect(backend.startThread).toHaveBeenCalledBefore(backend.startTurn);
+    expect(backend.startTurn).toHaveBeenCalledWith({
+      cwd: '/repo/app',
+      threadId: 'thread-fork',
+      input: [{ type: 'text', text: '请基于上文摘要，简要总结上次进展并提出下一步建议。' }],
+      manualSkillSelection: false,
+    });
+    expect(useClientStore.getState().activeThreadId).toBe('thread-fork');
+    expect(useClientStore.getState().forkDraft.open).toBe(false);
+  });
+
+  it('includes selected shared files in fork baseInstructions', async () => {
+    resetClientStoreForTests({
+      cwd: '/repo/app',
+      activeProject: '/repo/app',
+      activeThreadId: 'thread-1',
+      threads: [{ id: 'thread-1', name: 'Existing thread', provider: 'codex', status: 'idle' }],
+      timelinesByThread: {
+        'thread-1': [{ id: 'user-1', kind: 'user', text: 'continue with shared files' }],
+      },
+    });
+    backend.listSharedFiles.mockResolvedValue({
+      files: [{ path: 'notes/a.md' }, { path: 'notes/b.md' }],
+    });
+    backend.startThread.mockResolvedValue({ threadId: 'thread-fork' });
+    backend.startTurn.mockResolvedValue({ ok: true });
+
+    await useClientStore.getState().openForkDraft();
+    expect(useClientStore.getState().forkDraft.availableSharedFiles).toEqual([
+      { path: 'notes/a.md' },
+      { path: 'notes/b.md' },
+    ]);
+
+    expect(useClientStore.getState().toggleForkDraftSharedFile('notes/a.md')).toBe(true);
+    await useClientStore.getState().submitForkThread();
+
+    expect(backend.readSharedFile).toHaveBeenCalledWith({ path: 'notes/a.md' });
+    const startPayload = backend.startThread.mock.calls[0][0];
+    expect(startPayload.baseInstructions).toContain('挂载的共享文件');
+    expect(startPayload.baseInstructions).toContain('共享文件：notes/a.md');
+    expect(startPayload.baseInstructions).toContain('content for notes/a.md');
+    expect(startPayload.baseInstructions).not.toContain('共享文件：notes/b.md');
   });
 
 
@@ -3169,12 +3356,14 @@ function registerBridgeEventHandlersForTest() {
     });
 
     await useClientStore.getState().interruptActiveThread();
+    await useClientStore.getState().forceCompleteActiveThread();
     await useClientStore.getState().compactActiveThread();
     await useClientStore.getState().recoverActiveThread();
     await useClientStore.getState().renameThread('thread-1', 'Renamed');
     await useClientStore.getState().archiveThread('thread-1', true);
 
     expect(backend.interruptTurn).toHaveBeenCalledWith({ cwd: '/repo/app', threadId: 'thread-1', turnId: 'turn-1', source: 'ui_stop' });
+    expect(backend.forceCompleteTurn).toHaveBeenCalledWith({ cwd: '/repo/app', threadId: 'thread-1' });
     expect(backend.compactThread).toHaveBeenCalledWith({ cwd: '/repo/app', threadId: 'thread-1' });
     expect(backend.recoverThread).toHaveBeenCalledWith({ cwd: '/repo/app', threadId: 'thread-1' });
     expect(backend.renameThread).toHaveBeenCalledWith({ threadId: 'thread-1', name: 'Renamed' });
@@ -3184,6 +3373,23 @@ function registerBridgeEventHandlersForTest() {
       key: 'archivedThreadAtById.thread-1',
       value: expect.any(Number),
     });
+  });
+
+  it('responds to timeline approval requests through the approval RPC', async () => {
+    resetClientStoreForTests({
+      cwd: '/repo/app',
+      activeProject: '/repo/app',
+      activeThreadId: 'thread-1',
+      threads: [{ id: 'thread-1', name: '运行线程', provider: 'codex', status: 'waiting' }],
+    });
+
+    await expect(useClientStore.getState().respondApproval({ requestId: 11, command: 'deploy' }, true)).resolves.toBe(true);
+
+    expect(backend.respondApproval).toHaveBeenCalledWith({ requestId: 11, approved: true });
+    expect(useClientStore.getState().actionNotice).toEqual(expect.objectContaining({
+      message: '审批结果已提交',
+      tone: 'success',
+    }));
   });
 
   it('does not call interrupt when the selected running thread has no active turn id', async () => {

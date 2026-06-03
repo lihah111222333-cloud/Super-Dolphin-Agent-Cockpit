@@ -70,6 +70,7 @@ export function FocusTrapDialog({
 }) {
   const dialogRef = useRef(null);
   const restoreFocusRef = useRef(null);
+  const keyDownHandlerRef = useRef(null);
 
   useEffect(() => {
     restoreFocusRef.current = rememberActiveElement();
@@ -88,11 +89,9 @@ export function FocusTrapDialog({
     }
   }, [closeDisabled, onClose]);
 
-  const handleOverlayClick = useCallback((event) => {
-    if (event.target === event.currentTarget && closeOnOverlayClick) {
-      requestClose();
-    }
-  }, [closeOnOverlayClick, requestClose]);
+  const handleOverlayClick = useCallback(() => {
+    requestClose();
+  }, [requestClose]);
 
   const handleKeyDown = useCallback((event) => {
     if (event.key === 'Escape') {
@@ -106,20 +105,42 @@ export function FocusTrapDialog({
     trapTabKey(event, dialogRef.current);
   }, [requestClose]);
 
+  useEffect(() => {
+    keyDownHandlerRef.current = handleKeyDown;
+  }, [handleKeyDown]);
+
+  useEffect(() => {
+    const dialog = dialogRef.current;
+    if (!dialog) return undefined;
+    const listener = (event) => {
+      keyDownHandlerRef.current?.(event);
+    };
+    dialog.addEventListener('keydown', listener);
+    return () => dialog.removeEventListener('keydown', listener);
+  }, []);
+
   return (
-    <div className={overlayClassName} onClick={handleOverlayClick}>
-      <section
+    <div className={overlayClassName}>
+      {closeOnOverlayClick && !closeDisabled ? (
+        <button
+          type="button"
+          className="modal-overlay-backdrop"
+          aria-label={ariaLabel ? `关闭${ariaLabel}` : '关闭对话框'}
+          tabIndex={-1}
+          onClick={handleOverlayClick}
+        />
+      ) : null}
+      <dialog
         ref={dialogRef}
+        open
         className={className}
-        role="dialog"
         aria-modal="true"
         aria-label={ariaLabel}
         aria-labelledby={ariaLabelledBy}
         tabIndex={-1}
-        onKeyDown={handleKeyDown}
       >
         {children}
-      </section>
+      </dialog>
     </div>
   );
 }
