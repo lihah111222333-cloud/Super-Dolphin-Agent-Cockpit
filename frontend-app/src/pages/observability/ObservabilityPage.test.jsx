@@ -86,8 +86,9 @@ describe('ObservabilityPage module', () => {
 
   it('queries recent logs with the backend payload', async () => {
     const table = await queryRecentLogs();
+    const [payload] = listObservabilityRecent.mock.calls[0];
 
-    expect(listObservabilityRecent).toHaveBeenCalledWith({
+    expect(payload).toEqual({
       limit: 50,
       status: 'error',
       component: '',
@@ -97,8 +98,34 @@ describe('ObservabilityPage module', () => {
       agentId: '',
       keyword: 'thread/start',
     });
+    expect(payload).not.toHaveProperty('includeTail');
     expect(table).toHaveTextContent('trace-frontend-1');
     expect(table).toHaveTextContent('thread start failed');
+  });
+
+  it('shows recent events that do not have a trace id', async () => {
+    listObservabilityRecent.mockResolvedValueOnce({
+      source: 'jsonl_tail',
+      truncated: false,
+      events: [
+        {
+          ts: '2026-06-03T06:15:50.000Z',
+          method: 'provider.session.ready',
+          phase: 'provider.session.ready',
+          kind: 'provider',
+          status: 'ok',
+        },
+      ],
+    });
+
+    renderObservabilityPage();
+    fireEvent.click(screen.getByRole('button', { name: '查询最新日志' }));
+    const table = await screen.findByTestId('observability-recent-logs');
+
+    expect(table).toHaveTextContent('provider.session.ready');
+    expect(table).toHaveTextContent('trace=-');
+    expect(within(table).getByRole('button', { name: '打开 Trace -' })).toBeDisabled();
+    expect(within(table).getByRole('button', { name: '复制 Trace ID -' })).toBeDisabled();
   });
 
   it('expands a trace with the backend payload', async () => {
@@ -106,7 +133,10 @@ describe('ObservabilityPage module', () => {
 
     fireEvent.click(within(table).getByRole('button', { name: '打开 Trace trace-frontend-1' }));
 
-    await waitFor(() => expect(getObservabilityTrace).toHaveBeenCalledWith({ traceId: 'trace-frontend-1', limit: 50 }));
+    await waitFor(() => expect(getObservabilityTrace).toHaveBeenCalledTimes(1));
+    const [payload] = getObservabilityTrace.mock.calls[0];
+    expect(payload).toEqual({ traceId: 'trace-frontend-1', limit: 50 });
+    expect(payload).not.toHaveProperty('includeTail');
     expect(await within(table).findByTestId('observability-inline-trace-trace-frontend-1')).toHaveTextContent('Trace 结果');
     expect(within(table).getByRole('button', { name: '收起 Trace trace-frontend-1' })).toHaveAttribute('aria-expanded', 'true');
   });
