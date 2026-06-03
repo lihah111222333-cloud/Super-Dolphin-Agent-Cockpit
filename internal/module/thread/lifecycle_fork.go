@@ -32,7 +32,10 @@ func (s *service) Fork(ctx context.Context, threadID string) (ForkResult, error)
 	if newThreadID == "" {
 		return ForkResult{}, errors.New("fork thread id is required")
 	}
-	snapshot := s.resolveStablePromptSnapshot(ctx, threadID, provider, contract.PromptAssemblySnapshot{})
+	snapshot, err := s.resolveStablePromptSnapshot(ctx, threadID, provider, contract.PromptAssemblySnapshot{})
+	if err != nil {
+		return ForkResult{}, err
+	}
 	agentID := newThreadID
 	if err := s.launchAgent(
 		ctx,

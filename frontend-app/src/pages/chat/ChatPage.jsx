@@ -1209,6 +1209,19 @@ function useRuntimeDiffSync({ activeThreadId, open, store }) {
   }, [activeThreadId, open, store]);
 }
 
+function useActiveChatThreadSync(store, activeThreadId) {
+  const timelineReady = Boolean(activeThreadId && store.threadTimelineReadyByThread?.[activeThreadId]);
+  const loading = Boolean(activeThreadId && store.threadStateLoadingByThread?.[activeThreadId]);
+  useEffect(() => {
+    if (!activeThreadId || timelineReady || loading) return;
+    runUIAction(() => store.syncThreadState?.(activeThreadId, {
+      includeArchived: true,
+      includeDiff: true,
+      preserveActiveThreadId: true,
+    }));
+  }, [activeThreadId, loading, store, timelineReady]);
+}
+
 function toggleRuntimePanel({ maxWidth, open, resizedRef, setOpen, store, viewportWidth }) {
   const next = !open;
   if (next) {
@@ -1295,6 +1308,7 @@ function ChatPage({ store, projectPath, rightPanelOpen = false, setRightPanelOpe
     open: rightPanelOpen,
     setOpen: setRightPanelOpen,
   });
+  useActiveChatThreadSync(store, activeThreadId);
   useChatInterruptShortcut(store, activeThreadId);
   const layoutColumns = rightPanelOpen
     ? `${rail.width}px ${SPLITTER_WIDTH}px minmax(0, 1fr) ${SPLITTER_WIDTH}px ${rightPanelWidth}px`

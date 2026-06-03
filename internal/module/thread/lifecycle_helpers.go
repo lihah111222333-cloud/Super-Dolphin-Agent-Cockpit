@@ -317,8 +317,11 @@ func (s *service) launchAgent(
 	provider,
 	model string,
 ) error {
+	if s == nil {
+		return errors.New("thread: service is not configured")
+	}
 	if s.orchestration == nil {
-		return nil
+		return errors.New("thread: orchestration service is not configured")
 	}
 	req, err := buildLaunchRequest(agentID, cwd, name, parentID, agentType, memoryScope, provider, model)
 	if err != nil {
@@ -392,7 +395,7 @@ func (s *service) upsertPublicThread(
 	bindingOutcome bindingWriteOutcome,
 ) error {
 	if s.threadStore == nil {
-		return nil
+		return errors.New("thread: thread store is not configured")
 	}
 	displayName := strings.TrimSpace(util.FirstNonEmpty(state.Name, state.Prompt))
 	err := s.threadStore.Upsert(ctx, newThreadUpsertParams(threadstore.Thread{

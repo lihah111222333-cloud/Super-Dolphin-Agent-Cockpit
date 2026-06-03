@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"os"
 	"strings"
@@ -276,6 +277,10 @@ func (d *driver) StartSession(ctx context.Context, req dto.StartSessionRequest) 
 	req, err = d.prepareStartSessionRequest(ctx, req)
 	if err != nil {
 		return nil, err
+	}
+	req.ToolSurfaceMode, err = contract.NormalizeToolSurfaceMode(req.ToolSurfaceMode)
+	if err != nil {
+		return nil, fmt.Errorf("codexapp: tool surface mode: %w", err)
 	}
 	opts, err := d.resolveSessionOptions(ctx, req)
 	if err != nil {

@@ -1,7 +1,9 @@
-import React, { useCallback, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Copy } from 'lucide-react';
 import { getObservabilityTrace, listObservabilityRecent as getObservabilityRecent, copyTextToClipboard } from '../../shared/api/backendApi.js';
 import { errorMessage, textValue } from '../shared/pageShared.js';
+
+const recentLogRefreshIntervalMS = 2000;
 
 function stableBackendLogValue(value, seen = new WeakSet()) {
   if (!value || typeof value !== 'object') return value;
@@ -145,14 +147,43 @@ function expandedTraceErrorState(current, traceId, message, queryLimit) {
 function ObservabilityPage() {
   const { buildRecentParams, filters, queryLimit, setFilter } = useObservabilityFilters();
   const [recentResult, setRecentResult] = useState(null);
+  const [activeRecentParams, setActiveRecentParams] = useState(null);
   const [copiedTraceId, setCopiedTraceId] = useState('');
   const [notice, setNotice] = useState('');
   const [loading, setLoading] = useState(false);
   const { expandedTraces, setExpandedTraces, toggleTraceExpansion } = useObservabilityTraceExpansion({ queryLimit, setFilter, setNotice });
 
-  const refreshRecent = useCallback(async (overrides = {}) => {
-    setRecentResult(await getObservabilityRecent(buildRecentParams(overrides)));
-  }, [buildRecentParams]);
+  const refreshRecent = useCallback(async (params) => {
+    setRecentResult(await getObservabilityRecent(params));
+  }, []);
+
+  useEffect(() => {
+    if (!activeRecentParams) return undefined;
+    let disposed = false;
+    let refreshInFlight = false;
+    const refresh = async () => {
+      if (refreshInFlight) return;
+      refreshInFlight = true;
+      try {
+        const result = await getObservabilityRecent(activeRecentParams);
+        if (!disposed) {
+          setRecentResult(result);
+          setNotice('');
+        }
+      }
+      catch (error) {
+        if (!disposed) setNotice(errorMessage(error));
+      }
+      finally {
+        refreshInFlight = false;
+      }
+    };
+    const intervalID = window.setInterval(refresh, recentLogRefreshIntervalMS);
+    return () => {
+      disposed = true;
+      window.clearInterval(intervalID);
+    };
+  }, [activeRecentParams]);
 
   const copyTraceId = useCallback(async (value) => {
     const nextTraceId = textValue(value);
@@ -170,10 +201,13 @@ function ObservabilityPage() {
   const runQuery = useCallback(async () => {
     setLoading(true);
     setNotice('');
+    setActiveRecentParams(null);
     setExpandedTraces({});
     setCopiedTraceId('');
+    const params = buildRecentParams();
     try {
-      await refreshRecent();
+      await refreshRecent(params);
+      setActiveRecentParams(params);
     }
     catch (error) {
       setNotice(errorMessage(error));
@@ -181,7 +215,7 @@ function ObservabilityPage() {
     finally {
       setLoading(false);
     }
-  }, [refreshRecent, setExpandedTraces]);
+  }, [buildRecentParams, refreshRecent, setExpandedTraces]);
 
   return (
     <section className="settings-page observability-page" data-testid="observability-page">
@@ -218,7 +252,7 @@ function ObservabilitySearchForm({ filters, loading, onFilter, onSubmit }) {
   };
   return (
     <form className="observability-search" onSubmit={submit} aria-busy={loading}>
-      <div className="settings-grid">
+      <div className="observability-filter-grid">
         <ObservabilityTextFilter label="Trace ID" value={filters.traceId} placeholder="00-... 或 trace_id" onChange={(value) => onFilter('traceId', value)} />
         <ObservabilityTextFilter label="Thread ID" value={filters.threadId} placeholder="thread_..." onChange={(value) => onFilter('threadId', value)} />
         <ObservabilityTextFilter label="Agent ID" value={filters.agentId} placeholder="agent_..." onChange={(value) => onFilter('agentId', value)} />
@@ -302,12 +336,13 @@ function ObservabilityRecentLogs({ result, onOpenTrace, onCopyTrace, copiedTrace
 function groupObservabilityTraceRows(events) {
   const rowsByTrace = new Map();
   const source = Array.isArray(events) ? events : [];
-  for (const event of source) {
+  for (let index = 0; index < source.length; index += 1) {
+    const event = source[index];
     const traceID = textValue(event.trace_id);
     if (!traceID) continue;
     const existing = rowsByTrace.get(traceID);
     if (!existing) {
-      rowsByTrace.set(traceID, { key: traceID, traceID: textValue(event.trace_id), events: [event], representative: event });
+      rowsByTrace.set(traceID, { key: traceID, traceID: textValue(event.trace_id), events: [event], representative: event, firstIndex: index });
       continue;
     }
     existing.events.push(event);
@@ -324,7 +359,19 @@ function groupObservabilityTraceRows(events) {
       eventCount: row.events.length,
       error: row.events.find((event) => textValue(event.error))?.error || '',
     };
-  });
+  }).sort(compareObservabilityTraceRows);
+}
+
+function compareObservabilityTraceRows(left, right) {
+  const leftTime = observabilityTimestampMillis(left.timestamp);
+  const rightTime = observabilityTimestampMillis(right.timestamp);
+  if (leftTime !== rightTime) return rightTime - leftTime;
+  return (left.firstIndex || 0) - (right.firstIndex || 0);
+}
+
+function observabilityTimestampMillis(value) {
+  const parsed = Date.parse(textValue(value));
+  return Number.isFinite(parsed) ? parsed : 0;
 }
 
 function preferredObservabilityRepresentative(current, next) {

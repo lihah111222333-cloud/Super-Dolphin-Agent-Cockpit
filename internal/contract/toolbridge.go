@@ -3,6 +3,8 @@ package contract
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"strings"
 
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
 )
@@ -21,6 +23,36 @@ type DynamicToolSchema struct {
 	Description  string          `json:"description,omitempty"`
 	InputSchema  json.RawMessage `json:"inputSchema"`
 	OutputSchema json.RawMessage `json:"outputSchema,omitempty"`
+}
+
+const (
+	ToolSurfaceModeChat  = "chat"
+	ToolSurfaceModeAuto  = "auto"
+	ToolSurfaceModeAgent = "agent"
+)
+
+func NormalizeToolSurfaceMode(value string) (string, error) {
+	mode := strings.ToLower(strings.TrimSpace(value))
+	if mode == "" {
+		return "", nil
+	}
+	switch mode {
+	case ToolSurfaceModeChat, ToolSurfaceModeAuto, ToolSurfaceModeAgent:
+		return mode, nil
+	default:
+		return "", fmt.Errorf("invalid tool surface mode %q", strings.TrimSpace(value))
+	}
+}
+
+func ToolSurfaceModeUsesDynamicTools(mode string) bool {
+	switch strings.ToLower(strings.TrimSpace(mode)) {
+	case "", ToolSurfaceModeAgent:
+		return true
+	case ToolSurfaceModeChat, ToolSurfaceModeAuto:
+		return false
+	default:
+		return false
+	}
 }
 
 // ToolCallRawMessage carries a raw JSON-RPC tool call message from a provider

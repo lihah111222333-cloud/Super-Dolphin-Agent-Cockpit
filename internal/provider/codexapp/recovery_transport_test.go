@@ -227,6 +227,25 @@ func TestTransportReconnectDoesNotDispatchConnectionDeadForSupersededReader(t *t
 	assertNoConnectionDead(t, dead)
 }
 
+func TestSupersededReadLoopDoesNotFailPendingCallsFromReplacementSocket(t *testing.T) {
+	t.Parallel()
+
+	transport := &transport{serverURL: "ws://127.0.0.1:1"}
+	oldSocket := &websocket.Conn{}
+	transport.ws = &websocket.Conn{}
+	pending := &pendingCall{done: make(chan struct{})}
+	transport.pending.Store("initialize", pending)
+	defer transport.pending.Delete("initialize")
+
+	transport.endReadLoop(context.Background(), nil, oldSocket, errors.New("old socket closed"), "old socket closed")
+
+	select {
+	case <-pending.done:
+		t.Fatal("superseded read loop failed a pending call from the replacement socket")
+	default:
+	}
+}
+
 func TestTransportPassiveDisconnectDispatchesConnectionDead(t *testing.T) {
 	t.Parallel()
 

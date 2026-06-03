@@ -285,7 +285,7 @@ func (t *transport) endReadLoop(ctx context.Context, handler any, ws *websocket.
 	ctxErr := shared.CheckCtx(ctx)
 	expected := readLoopExpectedExit(closed, closing, superseded, ctxErr)
 	t.logReadLoopEnd(expected, closed, closing, superseded, ctxErr, err, message)
-	if err != nil {
+	if err != nil && (!superseded || closed || closing) {
 		t.failPending(err)
 	}
 	if handler != nil && !expected {

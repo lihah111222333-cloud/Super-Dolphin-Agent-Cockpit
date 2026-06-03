@@ -63,6 +63,37 @@ func TestToolBridge_StartSession_UsesDynamicTools(t *testing.T) {
 	assertDynamicToolsStartSession(t, recorder, s, listToolsCalls)
 }
 
+func TestToolBridge_StartSession_ChatModeSkipsDynamicTools(t *testing.T) {
+	recorder := &toolBridgeRPCRecorder{}
+	serverURL := startToolBridgeRPCServer(t, recorder)
+	manager := &ServerManager{}
+
+	listToolsCalls := 0
+	got := requireToolBridgeDriver(t, newDriver(nil, nil, nil, nil, manager, newSingleURLPoolForTest(t, serverURL), &recordingSkillMirrorReconciler{}, nil, func(context.Context) ([]codexprotocol.DynamicToolSchema, error) {
+		listToolsCalls++
+		return []codexprotocol.DynamicToolSchema{{
+			Name:        "tool.echo",
+			Description: "echo payload",
+			InputSchema: json.RawMessage(`{"type":"object"}`),
+		}}, nil
+	}))
+
+	sessionAny, err := got.StartSession(context.Background(), dto.StartSessionRequest{AgentID: "agent-1", CWD: t.TempDir(), ToolSurfaceMode: contract.ToolSurfaceModeChat})
+	if err != nil {
+		t.Fatalf("StartSession() error = %v", err)
+	}
+	s := requireCodexSession(t, sessionAny, "StartSession")
+	defer closeCodexTestSession(t, s)
+
+	if listToolsCalls != 0 {
+		t.Fatalf("listTools calls = %d, want 0", listToolsCalls)
+	}
+	params := recorder.threadStartParamsSnapshot()
+	if _, ok := params["dynamicTools"]; ok {
+		t.Fatalf("thread/start dynamicTools = %#v, want omitted", params["dynamicTools"])
+	}
+}
+
 func TestToolBridge_StartSession_PreparesScopedCodexSurface(t *testing.T) {
 	recorder := &toolBridgeRPCRecorder{}
 	serverURL := startToolBridgeRPCServer(t, recorder)

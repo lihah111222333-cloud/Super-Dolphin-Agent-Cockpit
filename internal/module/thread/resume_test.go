@@ -356,7 +356,7 @@ func TestServiceResumeBackfillsDefaultCodexIdentityWhenPackagedRuntime(t *testin
 		},
 	}
 
-	svc := NewService(silentLogger(), threads, bindings, sessions, starter, nil, nil, nil).(*service)
+	svc := NewService(silentLogger(), threads, bindings, sessions, starter, nil, &stubThreadOrchestration{}, nil).(*service)
 	_, err := svc.Resume(context.Background(), ResumeRequest{ThreadID: "thread-1"})
 	if err != nil {
 		t.Fatalf("Resume() error = %v", err)
@@ -420,7 +420,7 @@ func TestServiceResumePrefersStoredPromptSnapshot(t *testing.T) {
 		},
 	}
 
-	svc := NewService(silentLogger(), threads, bindings, sessions, starter, nil, nil, nil).(*service)
+	svc := NewService(silentLogger(), threads, bindings, sessions, starter, nil, &stubThreadOrchestration{}, nil).(*service)
 	_, err := svc.Resume(context.Background(), ResumeRequest{
 		ThreadID: "thread-1",
 		PromptSnapshot: contract.PromptAssemblySnapshot{
@@ -520,7 +520,7 @@ func TestServiceResumeRehydratesClaudeHomeFromStoredRuntime(t *testing.T) {
 		},
 	}
 
-	svc := NewService(silentLogger(), threads, bindings, sessions, starter, nil, nil, nil).(*service)
+	svc := NewService(silentLogger(), threads, bindings, sessions, starter, nil, &stubThreadOrchestration{}, nil).(*service)
 	if _, err := svc.Resume(context.Background(), ResumeRequest{ThreadID: "thread-claude-home"}); err != nil {
 		t.Fatalf("Resume() error = %v", err)
 	}
@@ -563,7 +563,7 @@ func TestServiceResumeRequestClaudeHomeOverridesStoredRuntime(t *testing.T) {
 		},
 	}
 
-	svc := NewService(silentLogger(), threads, bindings, sessions, starter, nil, nil, nil).(*service)
+	svc := NewService(silentLogger(), threads, bindings, sessions, starter, nil, &stubThreadOrchestration{}, nil).(*service)
 	if _, err := svc.Resume(context.Background(), ResumeRequest{ThreadID: "thread-claude-home-override", ClaudeHome: requestHome}); err != nil {
 		t.Fatalf("Resume() error = %v", err)
 	}

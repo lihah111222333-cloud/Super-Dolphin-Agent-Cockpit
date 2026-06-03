@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Workflow } from 'lucide-react';
 import { FocusTrapDialog } from '../../shared/ui/FocusTrapDialog.jsx';
@@ -7,6 +7,11 @@ import { appendCurrentModelOption, dashboardQueryErrorState, dashboardQueryKey, 
 import { PageHeader, Panel, RetryableSyncError } from '../shared/pageComponents.jsx';
 
 const DAG_RECENT_RUN_LIMIT = 5;
+const MAX_SCHEDULE_HOUR = 23;
+const MAX_SCHEDULE_MINUTE = 59;
+const DAYS_IN_MONTH = 31;
+const IDEMPOTENCY_RANDOM_RADIX = 16;
+const EMPTY_STATE_ICON_SIZE = 34;
 
 const DAG_DESIGNER_ENABLED_TOOLS = Object.freeze([
   'list_models',
@@ -223,7 +228,7 @@ function parseScheduleTime(value) {
   if (!match) return null;
   const hour = Number(match[1]);
   const minute = Number(match[2]);
-  if (!Number.isInteger(hour) || !Number.isInteger(minute) || hour < 0 || hour > 23 || minute < 0 || minute > 59) {
+  if (!Number.isInteger(hour) || !Number.isInteger(minute) || hour < 0 || hour > MAX_SCHEDULE_HOUR || minute < 0 || minute > MAX_SCHEDULE_MINUTE) {
     return null;
   }
   return { hour, minute, label: `${twoDigits(hour)}:${twoDigits(minute)}` };
@@ -239,7 +244,7 @@ function isDagWeekday(value) {
 
 function isMonthDayText(value) {
   const day = Number(value);
-  return Number.isInteger(day) && day >= 1 && day <= 31;
+  return Number.isInteger(day) && day >= 1 && day <= DAYS_IN_MONTH;
 }
 
 function parseCronScheduleParts(cronExpr) {
@@ -250,7 +255,7 @@ function parseCronScheduleParts(cronExpr) {
   const [minuteText, hourText, dayOfMonth, month, dayOfWeek] = parts;
   const hour = Number(hourText);
   const minute = Number(minuteText);
-  if (!Number.isInteger(hour) || !Number.isInteger(minute) || hour < 0 || hour > 23 || minute < 0 || minute > 59) {
+  if (!Number.isInteger(hour) || !Number.isInteger(minute) || hour < 0 || hour > MAX_SCHEDULE_HOUR || minute < 0 || minute > MAX_SCHEDULE_MINUTE) {
     return { error: DAG_SCHEDULE_FORMAT_WARNING };
   }
   return { minute, hour, dayOfMonth, month, dayOfWeek, time: `${twoDigits(hour)}:${twoDigits(minute)}` };
@@ -321,7 +326,7 @@ function cronExprFromSchedule(preset, time, weekday, monthDay) {
   }
   if (preset === 'monthly') {
     const day = Number(monthDay);
-    if (!Number.isInteger(day) || day < 1 || day > 31) return { cronExpr: '', error: '请选择每月几号' };
+    if (!Number.isInteger(day) || day < 1 || day > DAYS_IN_MONTH) return { cronExpr: '', error: '请选择每月几号' };
     return { cronExpr: `${minute} ${hour} ${day} * *`, error: '' };
   }
   return { cronExpr: '', error: '请选择运行频率' };
@@ -466,7 +471,10 @@ function rootNodesMissingAssignee(nodes = []) {
 function rootAssigneeWarning(nodes = []) {
   const missing = rootNodesMissingAssignee(nodes);
   if (missing.length === 0) return '';
-  const names = missing.map((node) => node.title || node.nodeKey).filter(Boolean).join('、');
+  const names = missing.flatMap((node) => {
+    const name = node.title || node.nodeKey;
+    return name ? [name] : [];
+  }).join('、');
   return names ? `首个步骤「${names}」缺少执行者，请先在高级设置中填写执行者。` : '首个步骤缺少执行者，请先在高级设置中填写执行者。';
 }
 
@@ -753,7 +761,7 @@ function useRunSelectedDagAction({ actionState, derived, list, notices, refresh 
     actionState.setError('');
     notices.clearNotice();
     try {
-      const result = await startDag({ dagKey: targetDagKey, triggerSource: 'manual', idempotencyKey: 'ui-' + Date.now() + '-' + Math.random().toString(16).slice(2) });
+      const result = await startDag({ dagKey: targetDagKey, triggerSource: 'manual', idempotencyKey: 'ui-' + Date.now() + '-' + Math.random().toString(IDEMPOTENCY_RANDOM_RADIX).slice(2) });
       const runKey = runKeyOf(result);
       await list.refreshDags().catch(() => []);
       await refresh.refreshDetail(targetDagKey, runKey).catch(() => {});
@@ -832,8 +840,10 @@ function useSaveScheduleAction({ actionState, derived, list, notices, refresh })
     try {
       await applyDagOps({ dagKey: targetDagKey, baseVersion: derived.baseVersion, ops: [{ op: 'update_dag', patch: { trigger: 'scheduled', cron_expr: cronExpr } }] });
       actionState.setScheduleOpen(false);
-      await list.refreshDags().catch(() => []);
-      await refresh.refreshDetail(targetDagKey).catch(() => {});
+      await Promise.all([
+        list.refreshDags().catch(() => []),
+        refresh.refreshDetail(targetDagKey).catch(() => {}),
+      ]);
       notices.showTaskNotice('已保存定时任务', targetDagKey);
     } catch (err) {
       actionState.setError('保存定时任务失败：' + errorMessage(err));
@@ -854,8 +864,10 @@ function useToggleScheduleAction({ actionState, derived, list, notices, refresh 
     notices.clearNotice();
     try {
       await applyDagOps({ dagKey: targetDagKey, baseVersion: derived.baseVersion, ops: [{ op: 'update_dag', patch: { schedule_enabled: enabled } }] });
-      await list.refreshDags().catch(() => []);
-      await refresh.refreshDetail(targetDagKey).catch(() => {});
+      await Promise.all([
+        list.refreshDags().catch(() => []),
+        refresh.refreshDetail(targetDagKey).catch(() => {}),
+      ]);
       notices.showTaskNotice(enabled ? '已启用自动运行' : '已暂停自动运行', targetDagKey);
     } catch (err) {
       actionState.setError('切换自动运行失败：' + errorMessage(err));
@@ -1159,6 +1171,26 @@ function WorkflowModals({ model }) {
 }
 
 function DagNodeEditor({ nodes, savingNodeKey, onSave }) {
+  const { activeNode, form, modelOptions, setActiveNodeKey, update } = useDagNodeEditorState(nodes);
+  if (!activeNode) return null;
+
+  return (
+    <Panel title="步骤设置">
+      <div className="dag-node-editor">
+        <DagNodeSelector activeNode={activeNode} nodes={nodes} setActiveNodeKey={setActiveNodeKey} />
+        <DagNodeConfigFields form={form} modelOptions={modelOptions} update={update} />
+        <DagNodeInstructionFields form={form} update={update} />
+        <div className="dag-node-editor-actions">
+          <button type="button" onClick={() => { void onSave(form, activeNode); }} disabled={savingNodeKey === activeNode.nodeKey}>
+            {savingNodeKey === activeNode.nodeKey ? '保存中...' : '保存步骤'}
+          </button>
+        </div>
+      </div>
+    </Panel>
+  );
+}
+
+function useDagNodeEditorState(nodes) {
   const [activeNodeKey, setActiveNodeKey] = useState(nodes[0]?.nodeKey || '');
   const activeNode = useMemo(
     () => nodes.find((node) => node.nodeKey === activeNodeKey) || nodes[0] || null,
@@ -1179,123 +1211,164 @@ function DagNodeEditor({ nodes, savingNodeKey, onSave }) {
     setForm(dagNodeFormFromNode(activeNode));
   }, [activeNode, formNodeKey]);
 
-  if (!activeNode) return null;
-  const update = (key) => (event) => setForm((current) => ({ ...current, [key]: event.target.value }));
+  const update = useCallback((key) => (event) => setForm((current) => ({ ...current, [key]: event.target.value })), []);
   const modelOptions = form.provider ? appendCurrentModelOption(form.provider, form.model) : [];
+  return { activeNode, form, modelOptions, setActiveNodeKey, update };
+}
 
+function DagNodeSelector({ nodes, activeNode, setActiveNodeKey }) {
   return (
-    <Panel title="步骤设置">
-      <div className="dag-node-editor">
-        <label>
-          步骤
-          <select value={activeNode.nodeKey} onChange={(event) => setActiveNodeKey(event.target.value)}>
-            {nodes.map((node) => <option key={node.nodeKey} value={node.nodeKey}>{node.title}</option>)}
-          </select>
-        </label>
-        <label>名称<input value={form.title} onChange={update('title')} aria-label="名称" /></label>
-        <label>执行者<input value={form.assignedTo} onChange={update('assignedTo')} aria-label="执行者" /></label>
-        <label>
-          执行引擎
-          <select value={form.provider} onChange={update('provider')} aria-label="执行引擎">
-            <option value="">默认</option>
-            <option value="claude">claude</option>
-            <option value="codex">codex</option>
-          </select>
-        </label>
-        <label>
-          模型
-          <select value={form.model} onChange={update('model')} aria-label="模型">
-            <option value="">默认</option>
-            {modelOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
-          </select>
-        </label>
-        <label>提示词<input value={form.promptKey} onChange={update('promptKey')} aria-label="提示词" /></label>
-        <label>依赖步骤<input value={form.dependsOn} onChange={update('dependsOn')} aria-label="依赖步骤" /></label>
-        <label className="wide">指令<textarea value={form.firstTurn} onChange={update('firstTurn')} aria-label="指令" /></label>
-        <label>输出文件<input value={form.outputFile} onChange={update('outputFile')} aria-label="输出文件" /></label>
-        <div className="dag-node-editor-actions">
-          <button type="button" onClick={() => { void onSave(form, activeNode); }} disabled={savingNodeKey === activeNode.nodeKey}>
-            {savingNodeKey === activeNode.nodeKey ? '保存中...' : '保存步骤'}
-          </button>
-        </div>
-      </div>
-    </Panel>
+    <label>
+      步骤
+      <select value={activeNode.nodeKey} onChange={(event) => setActiveNodeKey(event.target.value)}>
+        {nodes.map((node) => <option key={node.nodeKey} value={node.nodeKey}>{node.title}</option>)}
+      </select>
+    </label>
+  );
+}
+
+function DagNodeConfigFields({ form, update, modelOptions }) {
+  return (
+    <>
+      <label>名称<input value={form.title} onChange={update('title')} aria-label="名称" /></label>
+      <label>执行者<input value={form.assignedTo} onChange={update('assignedTo')} aria-label="执行者" /></label>
+      <label>
+        执行引擎
+        <select value={form.provider} onChange={update('provider')} aria-label="执行引擎">
+          <option value="">默认</option>
+          <option value="claude">claude</option>
+          <option value="codex">codex</option>
+        </select>
+      </label>
+      <label>
+        模型
+        <select value={form.model} onChange={update('model')} aria-label="模型">
+          <option value="">默认</option>
+          {modelOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+        </select>
+      </label>
+      <label>提示词<input value={form.promptKey} onChange={update('promptKey')} aria-label="提示词" /></label>
+      <label>依赖步骤<input value={form.dependsOn} onChange={update('dependsOn')} aria-label="依赖步骤" /></label>
+    </>
+  );
+}
+
+function DagNodeInstructionFields({ form, update }) {
+  return (
+    <>
+      <label className="wide">指令<textarea value={form.firstTurn} onChange={update('firstTurn')} aria-label="指令" /></label>
+      <label>输出文件<input value={form.outputFile} onChange={update('outputFile')} aria-label="输出文件" /></label>
+    </>
   );
 }
 
 function DagScheduleModal({ cron, actionLabel, saving, onClose, onSave }) {
-  const initialSchedule = useMemo(() => scheduleStateFromCron(cron), [cron]);
-  const [preset, setPreset] = useState(initialSchedule.preset);
-  const [time, setTime] = useState(initialSchedule.time);
-  const [weekday, setWeekday] = useState(initialSchedule.weekday);
-  const [monthDay, setMonthDay] = useState(initialSchedule.monthDay);
-  const [inputError, setInputError] = useState(initialSchedule.warning || '');
-  const monthDays = useMemo(() => Array.from({ length: 31 }, (_item, index) => (index + 1).toString()), []);
-  const previewText = scheduleLabelFromState({ preset, time, weekday, monthDay });
-
-  useEffect(() => {
-    setPreset(initialSchedule.preset);
-    setTime(initialSchedule.time);
-    setWeekday(initialSchedule.weekday);
-    setMonthDay(initialSchedule.monthDay);
-    setInputError(initialSchedule.warning || '');
-  }, [initialSchedule]);
-
-  const choose = (setter) => (event) => {
-    setter(event.target.value);
-    setInputError('');
-  };
-
-  const confirm = () => {
-    const { cronExpr, error } = cronExprFromSchedule(preset, time, weekday, monthDay);
-    if (error) {
-      setInputError(error);
-      return;
-    }
-    void onSave(cronExpr);
-  };
-
+  const schedule = useDagScheduleForm(cron, onSave);
   return (
     <FocusTrapDialog ariaLabel={actionLabel} closeDisabled={saving} onClose={onClose}>
         <header><h2>{actionLabel}</h2><button type="button" className="ghost" onClick={onClose} disabled={saving}>关闭</button></header>
         <div className="dag-node-editor">
-          <label>
-            运行频率
-            <select value={preset} onChange={choose(setPreset)} disabled={saving} aria-label="运行频率">
-              <option value="daily">每天</option>
-              <option value="weekdays">工作日</option>
-              <option value="weekly">每周</option>
-              <option value="monthly">每月</option>
-            </select>
-          </label>
-          {preset === 'weekly' ? (
-            <label>
-              星期几
-              <select value={weekday} onChange={choose(setWeekday)} disabled={saving} aria-label="星期几">
-                {DAG_WEEKDAY_OPTIONS.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
-              </select>
-            </label>
-          ) : null}
-          {preset === 'monthly' ? (
-            <label>
-              每月几号
-              <select value={monthDay} onChange={choose(setMonthDay)} disabled={saving} aria-label="每月几号">
-                {monthDays.map((day) => <option key={day} value={day}>{day} 日</option>)}
-              </select>
-            </label>
-          ) : null}
-          <label>
-            运行时间
-            <input value={time} type="time" onChange={choose(setTime)} disabled={saving} aria-label="运行时间" />
-          </label>
+          <DagSchedulePresetField saving={saving} schedule={schedule} />
+          <DagScheduleConditionalFields saving={saving} schedule={schedule} />
+          <DagScheduleTimeField saving={saving} schedule={schedule} />
         </div>
-        {previewText ? <p className="settings-status">{previewText} 自动运行</p> : null}
-        {inputError ? <p className="danger-text" role="alert">{inputError}</p> : null}
+        {schedule.previewText ? <p className="settings-status">{schedule.previewText} 自动运行</p> : null}
+        {schedule.inputError ? <p className="danger-text" role="alert">{schedule.inputError}</p> : null}
         <footer>
           <button type="button" className="ghost" onClick={onClose} disabled={saving}>取消</button>
-          <button type="button" onClick={confirm} disabled={saving}>{saving ? '保存中...' : actionLabel}</button>
+          <button type="button" onClick={schedule.confirm} disabled={saving}>{saving ? '保存中...' : actionLabel}</button>
         </footer>
     </FocusTrapDialog>
+  );
+}
+
+function dagScheduleFields(schedule) {
+  return {
+    preset: schedule.preset,
+    time: schedule.time,
+    weekday: schedule.weekday,
+    monthDay: schedule.monthDay,
+    inputError: schedule.warning || '',
+  };
+}
+
+function dagScheduleReducer(state, action) {
+  if (action.type === 'reset') return dagScheduleFields(action.schedule);
+  if (action.type === 'change') return { ...state, [action.key]: action.value, inputError: '' };
+  if (action.type === 'error') return { ...state, inputError: action.error };
+  throw new Error(`unknown dag schedule action: ${action.type}`);
+}
+
+function useDagScheduleForm(cron, onSave) {
+  const initialSchedule = useMemo(() => scheduleStateFromCron(cron), [cron]);
+  const [state, dispatch] = useReducer(dagScheduleReducer, initialSchedule, dagScheduleFields);
+  const monthDays = useMemo(() => Array.from({ length: DAYS_IN_MONTH }, (_item, index) => (index + 1).toString()), []);
+  const previewText = scheduleLabelFromState(state);
+
+  useEffect(() => {
+    dispatch({ type: 'reset', schedule: initialSchedule });
+  }, [initialSchedule]);
+
+  const choose = (key) => (event) => dispatch({ type: 'change', key, value: event.target.value });
+  const setInputError = (error) => dispatch({ type: 'error', error });
+
+  const confirm = () => confirmDagSchedule({ ...state, onSave, setInputError });
+  return { ...state, choose, confirm, monthDays, previewText };
+}
+
+function confirmDagSchedule({ monthDay, onSave, preset, setInputError, time, weekday }) {
+  const { cronExpr, error } = cronExprFromSchedule(preset, time, weekday, monthDay);
+  if (error) {
+    setInputError(error);
+    return;
+  }
+  void onSave(cronExpr);
+}
+
+function DagSchedulePresetField({ schedule, saving }) {
+  return (
+    <label>
+      运行频率
+      <select value={schedule.preset} onChange={schedule.choose('preset')} disabled={saving} aria-label="运行频率">
+        <option value="daily">每天</option>
+        <option value="weekdays">工作日</option>
+        <option value="weekly">每周</option>
+        <option value="monthly">每月</option>
+      </select>
+    </label>
+  );
+}
+
+function DagScheduleConditionalFields({ schedule, saving }) {
+  if (schedule.preset === 'weekly') {
+    return (
+      <label>
+        星期几
+        <select value={schedule.weekday} onChange={schedule.choose('weekday')} disabled={saving} aria-label="星期几">
+          {DAG_WEEKDAY_OPTIONS.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
+        </select>
+      </label>
+    );
+  }
+  if (schedule.preset === 'monthly') {
+    return (
+      <label>
+        每月几号
+        <select value={schedule.monthDay} onChange={schedule.choose('monthDay')} disabled={saving} aria-label="每月几号">
+          {schedule.monthDays.map((day) => <option key={day} value={day}>{day} 日</option>)}
+        </select>
+      </label>
+    );
+  }
+  return null;
+}
+
+function DagScheduleTimeField({ schedule, saving }) {
+  return (
+    <label>
+      运行时间
+      <input value={schedule.time} type="time" onChange={schedule.choose('time')} disabled={saving} aria-label="运行时间" />
+    </label>
   );
 }
 
@@ -1316,7 +1389,7 @@ function ConfirmDagDeleteModal({ dag, deleting, onClose, onConfirm }) {
 function EmptyState({ icon: Icon, title, text }) {
   return (
     <div className="empty-state">
-      <span><Icon size={34} /></span>
+      <span><Icon size={EMPTY_STATE_ICON_SIZE} /></span>
       <h2>{title}</h2>
       <p>{text}</p>
     </div>
