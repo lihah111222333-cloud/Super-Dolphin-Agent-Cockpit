@@ -131,6 +131,35 @@ function registerBridgeEventHandlersForTest() {
     expect(state.tokenUsageByThread['thread-1'].usedTokens).toBe(42);
   });
 
+  it('keeps sidebar tokenUsageByThread ahead of stale global token_usage', async () => {
+    backend.getSidebarState.mockResolvedValueOnce({
+      activeThreadId: 'thread-1',
+      threads: [
+        { id: 'thread-1', name: 'Active', provider: 'codex', status: 'running' },
+        { id: 'thread-2', name: 'Other', provider: 'codex', status: 'idle' },
+      ],
+      token_usage: { usedTokens: 999, contextWindowTokens: 2000, usedPercent: 50 },
+      tokenUsageByThread: {
+        'thread-1': { usedTokens: 42, contextWindowTokens: 100, usedPercent: 42 },
+        'thread-2': { usedTokens: 70, contextWindowTokens: 400, usedPercent: 17.5 },
+      },
+    });
+
+    await useClientStore.getState().bootstrap();
+
+    const state = useClientStore.getState();
+    expect(state.tokenUsageByThread['thread-1']).toEqual({
+      usedTokens: 42,
+      contextWindowTokens: 100,
+      usedPercent: 42,
+    });
+    expect(state.tokenUsageByThread['thread-2']).toEqual({
+      usedTokens: 70,
+      contextWindowTokens: 400,
+      usedPercent: 17.5,
+    });
+  });
+
   it('fails bootstrap when the active provider preference is missing', async () => {
     backend.getPreference.mockImplementation(({ key }) => Promise.resolve({
       'settings.provider.codex.codexHome': '~/.codex',
@@ -2604,6 +2633,112 @@ function registerBridgeEventHandlersForTest() {
     expect(state.warningEntries).toEqual([
       expect.objectContaining({ level: 'error', event: 'rpc.failed' }),
     ]);
+  });
+
+  it('normalizes legacy token usage pushes like the Vue frontend', () => {
+    resetClientStoreForTests({
+      cwd: '/repo/app',
+      activeProject: '/repo/app',
+      activeThreadId: 'thread-1',
+      threads: [{ id: 'thread-1', name: 'Demo', provider: 'codex' }],
+    });
+    registerBridgeEventHandlersForTest();
+
+    bridgeCallback({
+      type: 'thread/tokenUsage/updated',
+      payload: {
+        threadId: 'thread-1',
+        input_tokens: 40000,
+        output_tokens: 2000,
+        context_window: 258400,
+      },
+    });
+
+    const usage = useClientStore.getState().tokenUsageByThread['thread-1'];
+    expect(usage.usedTokens).toBe(42000);
+    expect(usage.contextWindowTokens).toBe(258400);
+    expect(usage.usedPercent).toBeCloseTo((42000 / 258400) * 100, 6);
+  });
+
+  it('normalizes Codex raw tokenUsage.last ahead of cumulative tokenUsage.total', () => {
+    resetClientStoreForTests({
+      cwd: '/repo/app',
+      activeProject: '/repo/app',
+      activeThreadId: 'thread-1',
+      threads: [{ id: 'thread-1', name: 'Demo', provider: 'codex' }],
+    });
+    registerBridgeEventHandlersForTest();
+
+    bridgeCallback({
+      type: 'thread/tokenUsage/updated',
+      payload: {
+        threadId: 'thread-1',
+        tokenUsage: {
+          total: { inputTokens: 4000000, outputTokens: 465418, totalTokens: 4465418 },
+          last: { inputTokens: 88502, outputTokens: 557 },
+        },
+        modelContextWindow: 258400,
+      },
+    });
+
+    const usage = useClientStore.getState().tokenUsageByThread['thread-1'];
+    expect(usage.usedTokens).toBe(89059);
+    expect(usage.contextWindowTokens).toBe(258400);
+    expect(usage.usedPercent).toBeCloseTo((89059 / 258400) * 100, 6);
+  });
+
+  it('normalizes Codex info.last_token_usage ahead of info.total_token_usage', () => {
+    resetClientStoreForTests({
+      cwd: '/repo/app',
+      activeProject: '/repo/app',
+      activeThreadId: 'thread-1',
+      threads: [{ id: 'thread-1', name: 'Demo', provider: 'codex' }],
+    });
+    registerBridgeEventHandlersForTest();
+
+    bridgeCallback({
+      type: 'thread/tokenUsage/updated',
+      payload: {
+        threadId: 'thread-1',
+        info: {
+          total_token_usage: { input_tokens: 4000000, output_tokens: 465418, total_tokens: 4465418 },
+          last_token_usage: { input_tokens: 88502, output_tokens: 557, total_tokens: 89059 },
+          model_context_window: 258400,
+        },
+      },
+    });
+
+    const usage = useClientStore.getState().tokenUsageByThread['thread-1'];
+    expect(usage.usedTokens).toBe(89059);
+    expect(usage.contextWindowTokens).toBe(258400);
+    expect(usage.usedPercent).toBeCloseTo((89059 / 258400) * 100, 6);
+  });
+
+  it('caps legacy token usage percentages without replacing current totals with cumulative totals', () => {
+    resetClientStoreForTests({
+      cwd: '/repo/app',
+      activeProject: '/repo/app',
+      activeThreadId: 'thread-1',
+      threads: [{ id: 'thread-1', name: 'Demo', provider: 'codex' }],
+    });
+    registerBridgeEventHandlersForTest();
+
+    bridgeCallback({
+      type: 'thread/tokenUsage/updated',
+      payload: {
+        threadId: 'thread-1',
+        input: 900000,
+        output: 50000,
+        total_tokens: 950000,
+        context_window: 872000,
+      },
+    });
+
+    expect(useClientStore.getState().tokenUsageByThread['thread-1']).toEqual({
+      usedTokens: 950000,
+      contextWindowTokens: 872000,
+      usedPercent: 100,
+    });
   });
 
   it('deduplicates repeated terminal tool ids from one bridge patch', () => {
