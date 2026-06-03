@@ -3,9 +3,12 @@ package observability
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -70,6 +73,42 @@ func TestTailReaderRejectsUnboundedTraceFileEnumeration(t *testing.T) {
 	if _, err := reader.Read(context.Background()); err == nil {
 		t.Fatalf("Read accepted too many trace files")
 	}
+}
+
+func TestTailReadStopsBetweenFileReadChunksWhenContextCancels(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	reader := cancelAfterFirstReadReader{cancel: cancel, data: strings.Repeat("x", 128*1024)}
+
+	_, err := readTailFileBytes(ctx, &reader, 128*1024)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("readTailFileBytes error = %v, want context canceled", err)
+	}
+}
+
+func TestTailParseStopsWhenContextCancels(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	var result TailReadResult
+
+	err := parseTailLines(ctx, "trace.jsonl", []byte(`{"trace_id":"trace"}`+"\n"), &result)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("parseTailLines error = %v, want context canceled", err)
+	}
+}
+
+type cancelAfterFirstReadReader struct {
+	cancel context.CancelFunc
+	data   string
+	read   bool
+}
+
+func (r *cancelAfterFirstReadReader) Read(p []byte) (int, error) {
+	if r.read {
+		return 0, io.EOF
+	}
+	r.read = true
+	r.cancel()
+	return copy(p, r.data), nil
 }
 
 func twoDigit(value int) string {
