@@ -5869,8 +5869,24 @@ function mockWorkflowDagLifecycle() {
     'settings.provider.codex.codexModelProvider': 'openrouter',
     'settings.activePromptKey': 'main/reviewer',
   }[key] ?? null));
-  backend.startThread.mockResolvedValue({ thread: { id: 'thread-design' } });
-  backend.getThreadState.mockResolvedValueOnce({ timelinesByThread: {}, activeThreadId: 'thread-design' });
+  backend.startThread.mockResolvedValue({ thread: { id: 'thread-design' }, provider: 'codex', modelProvider: 'codex' });
+  backend.getThreadState.mockImplementation(({ threadId }) => Promise.resolve(
+    threadId === 'thread-design'
+      ? {
+          timelinesByThread: {},
+          activeThreadId: 'thread-design',
+          threads: [{ id: 'thread-design', name: 'AI 设计流程', status: 'created', agentKey: 'dag_designer' }],
+        }
+      : {
+          activeThreadId: 'thread-1',
+          timelinesByThread: {
+            'thread-1': [{ id: 'assistant-1', kind: 'assistant', text: '来自后端的消息', ts: '2026-05-30T00:00:00Z' }],
+          },
+          diffTextByThread: {
+            'thread-1': 'diff --git a/file b/file',
+          },
+        },
+  ));
 }
 
 async function openWorkflowDashboard() {
@@ -5971,7 +5987,7 @@ async function designWorkflowWithAi() {
       deferSpawn: true,
     }));
     const designPayload = backend.startThread.mock.calls.at(-1)[0];
-    expect(designPayload.provider).toBeUndefined();
+    expect(designPayload.provider).toBe('codex');
     expect(designPayload.config).toEqual(expect.objectContaining({
       codexHome: '/Users/test/.codex-alt',
       codexInstanceKey: 'desktop-main',
@@ -5980,6 +5996,9 @@ async function designWorkflowWithAi() {
     }));
     expect(designPayload.config.enabledTools).toContain('task_start_dag');
   });
+  expect(await screen.findByText('AI 设计流程')).toBeInTheDocument();
+  expect(screen.getByText('AI 设计流程').closest('.thread-card')).toHaveTextContent('codex');
+  expect(screen.queryByText('unknown')).not.toBeInTheDocument();
 }
 
   it('runs, stops, deletes, schedules, edits and designs DAGs through the old RPC surface', async () => {
