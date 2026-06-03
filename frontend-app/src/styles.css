@@ -2060,7 +2060,7 @@ select {
   max-width: var(--conversation-content-width);
   justify-self: start;
   display: grid;
-  grid-template-columns: auto auto minmax(0, 1fr) auto;
+  grid-template-columns: auto auto minmax(0, 1fr) minmax(0, max-content);
   align-items: center;
   gap: 12px;
   margin-left: var(--conversation-content-left-gutter);
@@ -2099,9 +2099,11 @@ select {
 }
 
 .work-status code {
-  min-width: max-content;
+  min-width: 0;
+  max-width: 100%;
   justify-self: end;
-  overflow: visible;
+  overflow: hidden;
+  text-overflow: ellipsis;
   white-space: nowrap;
   border: 1px solid color-mix(in srgb, var(--info) 34%, var(--border));
   border-radius: 999px;
@@ -3277,13 +3279,38 @@ select {
 .run-row {
   min-height: 64px;
   display: grid;
-  grid-template-columns: 1fr auto auto;
+  grid-template-columns: minmax(128px, 1fr) minmax(56px, max-content) max-content;
   align-items: center;
-  gap: 24px;
+  column-gap: 24px;
   border: 1px solid transparent;
   border-radius: 7px;
   padding: 0 14px;
   color: var(--text-sec);
+  text-align: left;
+}
+
+.run-row span,
+.run-row em,
+.run-row time {
+  min-width: 0;
+}
+
+.run-row span {
+  justify-self: start;
+}
+
+.run-row em {
+  justify-self: end;
+  color: var(--muted);
+  font-style: normal;
+  white-space: nowrap;
+}
+
+.run-row time {
+  justify-self: end;
+  color: var(--text-sec);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
 
 .run-row.active {

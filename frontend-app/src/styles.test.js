@@ -251,6 +251,36 @@ describe('composer layout styles', () => {
     expect(statusDot['flex']).toBe('0 0 auto');
   });
 
+  it('keeps workflow run history rows aligned as scannable data columns', () => {
+    const row = declarationsFor('.run-row');
+    const label = declarationsFor('.run-row span');
+    const status = declarationsFor('.run-row em');
+    const time = declarationsFor('.run-row time');
+
+    expect(row.display).toBe('grid');
+    expect(row['grid-template-columns']).toBe('minmax(128px, 1fr) minmax(56px, max-content) max-content');
+    expect(row['text-align']).toBe('left');
+    expect(label['justify-self']).toBe('start');
+    expect(status['justify-self']).toBe('end');
+    expect(status['white-space']).toBe('nowrap');
+    expect(time['justify-self']).toBe('end');
+    expect(time['font-variant-numeric']).toBe('tabular-nums');
+    expect(time['white-space']).toBe('nowrap');
+  });
+
+  it('keeps the chat token usage chip inside the work status bar', () => {
+    const status = declarationsFor('.work-status');
+    const chip = declarationsFor('.work-status code');
+
+    expect(status.display).toBe('grid');
+    expect(status['grid-template-columns']).toBe('auto auto minmax(0, 1fr) minmax(0, max-content)');
+    expect(chip['min-width']).toBe('0');
+    expect(chip['max-width']).toBe('100%');
+    expect(chip.overflow).toBe('hidden');
+    expect(chip['text-overflow']).toBe('ellipsis');
+    expect(chip['white-space']).toBe('nowrap');
+  });
+
   it('keeps runtime panel details shrink-safe inside the right rail', () => {
     const panel = declarationsFor('.runtime-panel');
     const activityPanel = declarationsFor('.runtime-activity-panel');
@@ -545,12 +575,15 @@ describe('conversation grid styles', () => {
     const detail = declarationsFor('.work-status em');
     const token = declarationsFor('.work-status code');
 
-    expect(status['grid-template-columns']).toBe('auto auto minmax(0, 1fr) auto');
+    expect(status['grid-template-columns']).toBe('auto auto minmax(0, 1fr) minmax(0, max-content)');
     expect(detail['min-width']).toBe('0');
     expect(detail.overflow).toBe('hidden');
     expect(token['justify-self']).toBe('end');
+    expect(token['min-width']).toBe('0');
+    expect(token['max-width']).toBe('100%');
     expect(token['white-space']).toBe('nowrap');
-    expect(token.overflow).toBe('visible');
+    expect(token.overflow).toBe('hidden');
+    expect(token['text-overflow']).toBe('ellipsis');
   });
 });
 
