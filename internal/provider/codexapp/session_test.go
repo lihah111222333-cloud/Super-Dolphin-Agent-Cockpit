@@ -265,7 +265,7 @@ func TestOnInboundMessage_ToolsCall_DispatchesLifecycle(t *testing.T) {
 	manager.SetToolHandler(func(ctx context.Context, _ RawMessage) (any, error) {
 		sawLifecycleContext = contract.ToolLifecycleAlreadyPublished(ctx)
 		sawTrace, _ = observability.TraceFromContext(ctx)
-		return map[string]any{"ok": true}, nil
+		return map[string]any{"ok": true, "content": []any{map[string]any{"type": "text", "text": "package main"}}}, nil
 	})
 	resp := newRecordingResponder()
 	s := newInboundTestSession(ctx, nil, manager)
@@ -291,8 +291,9 @@ func TestOnInboundMessage_ToolsCall_DispatchesLifecycle(t *testing.T) {
 	if string(call.id) != `"req-1"` {
 		t.Fatalf("response id = %s, want req-1", string(call.id))
 	}
-	if !reflect.DeepEqual(call.result, map[string]any{"ok": true}) {
-		t.Fatalf("response result = %#v, want ok result", call.result)
+	wantResult := map[string]any{"ok": true, "content": []any{map[string]any{"type": "text", "text": "package main"}}}
+	if !reflect.DeepEqual(call.result, wantResult) {
+		t.Fatalf("response result = %#v, want file content result", call.result)
 	}
 	assertToolHandlerTraceContext(t, sawLifecycleContext, sawTrace)
 	end := waitToolCallEnd(t, endCh)

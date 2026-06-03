@@ -146,24 +146,36 @@ select {
 }
 
 .titlebar {
-  min-height: 36px;
+  height: 48px;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
-  padding: 4px 12px;
-  background: transparent;
+  gap: 18px;
+  padding: 0 16px;
+  background: var(--bg-elevated);
   color: var(--ink);
-  border-bottom: 0;
+  border-bottom: 1px solid var(--line);
   user-select: none;
+  backdrop-filter: none;
 }
 
+.sa-window[data-theme="light"] .titlebar {
+  background: var(--bg-elevated);
+}
+
+.titlebar-left,
 .titlebar-center,
 .titlebar-right {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 12px;
+  height: 100%;
   min-width: 0;
+}
+
+.titlebar-left {
+  flex: 0 0 auto;
+  justify-content: flex-start;
 }
 
 .titlebar-center {
@@ -175,6 +187,28 @@ select {
   flex: 0 0 auto;
   justify-content: flex-end;
   margin-left: auto;
+  gap: 12px;
+}
+
+.titlebar-brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.brand-orb {
+  width: 14px;
+  height: 14px;
+  border-radius: 4px;
+  background: linear-gradient(135deg, var(--primary), var(--primary-2));
+  box-shadow: none;
+}
+
+.titlebar strong {
+  font-size: 17px;
+  font-weight: 780;
+  letter-spacing: -0.03em;
 }
 
 .titlebar .project-select-wrap {
@@ -315,20 +349,29 @@ select {
 }
 
 .titlebar .sidebar-toggle {
-  min-width: 76px;
-}
-
-.titlebar .sidebar-toggle-label {
-  font-size: 12px;
-  font-weight: 500;
-  line-height: 1;
-  white-space: nowrap;
+  width: 28px;
+  min-width: 28px;
+  height: 28px;
+  gap: 0;
+  padding: 0;
+  border-color: var(--line);
+  box-shadow: none;
 }
 
 .titlebar .sidebar-toggle.active {
-  border-color: color-mix(in srgb, var(--success) 42%, var(--border));
-  color: var(--success);
-  background: color-mix(in srgb, var(--success) 10%, var(--surface));
+  border-color: var(--line);
+  color: var(--accent-2);
+  background: color-mix(in srgb, var(--accent-2) 9%, var(--panel-2));
+  box-shadow: none;
+}
+
+.titlebar .sidebar-toggle:focus {
+  outline: 0;
+}
+
+.titlebar .sidebar-toggle:focus-visible {
+  outline: 1px solid color-mix(in srgb, var(--accent-2) 58%, transparent);
+  outline-offset: 2px;
 }
 
 .titlebar .action-feedback {
@@ -367,7 +410,7 @@ select {
 }
 
 .sa-body {
-  height: calc(100vh - 36px);
+  height: calc(100vh - 48px);
   display: grid;
   grid-template-columns: 76px minmax(0, 1fr);
   background: transparent;
@@ -387,19 +430,18 @@ select {
 .nav-rail nav {
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  padding-top: 14px;
+  gap: 0;
+  padding-top: 0;
 }
 
 .nav-rail button {
   position: relative;
-  width: 76px;
+  width: 100%;
   min-height: 68px;
   display: grid;
   place-items: center;
   gap: 4px;
   border: 0;
-  border-left: 4px solid transparent;
   border-radius: 0 14px 14px 0;
   background: transparent;
   color: var(--muted);
@@ -407,10 +449,22 @@ select {
   transition: background 160ms ease, color 160ms ease, border-color 160ms ease;
 }
 
+.nav-rail button::before {
+  content: "";
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 4px;
+  background: transparent;
+  transition: background 160ms ease;
+}
+
 .nav-rail button.active {
   color: var(--ink);
   background: var(--accent-soft);
-  border-left-color: var(--accent-2);
+}
+
+.nav-rail button.active::before {
+  background: var(--accent-2);
 }
 
 .nav-rail button:hover {
@@ -453,8 +507,6 @@ select {
 .chat-page,
 .console-page,
 .workflow-page,
-.tasks-page,
-.commands-page,
 .memory-page,
 .settings-page {
   height: 100%;
@@ -487,9 +539,7 @@ select {
 .file-row button,
 .settings-page button,
 .memory-page button,
-.workflow-page button,
-.tasks-page button,
-.commands-page button {
+.workflow-page button {
   border: 1px solid var(--line);
   border-radius: var(--radius);
   background: var(--panel-2);
@@ -507,9 +557,7 @@ select {
 .file-row button:hover,
 .settings-page button:hover,
 .memory-page button:hover,
-.workflow-page button:hover,
-.tasks-page button:hover,
-.commands-page button:hover {
+.workflow-page button:hover {
   border-color: var(--accent-2);
   background: var(--panel-3);
 }
@@ -887,16 +935,17 @@ select {
 
 .thread-card {
   position: relative;
+  container-type: inline-size;
   min-height: 54px;
   display: grid;
-  grid-template-columns: minmax(0, 1fr);
-  align-items: stretch;
-  gap: 4px;
+  grid-template-columns: minmax(0, 1fr) minmax(0, max-content);
+  align-items: center;
+  gap: 4px 8px;
   border: 1px solid transparent;
   border-radius: var(--radius-md);
   background: transparent;
   color: var(--ink);
-  padding: 0;
+  padding: 8px;
   overflow: visible;
   transition: background var(--transition), border-color var(--transition);
 }
@@ -912,6 +961,8 @@ select {
 }
 
 .thread-main {
+  grid-column: 1;
+  width: 100%;
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
@@ -920,7 +971,7 @@ select {
   border: 0;
   background: transparent;
   color: inherit;
-  padding: 8px 84px 8px 8px;
+  padding: 0;
   text-align: left;
   cursor: pointer;
   font: inherit;
@@ -933,8 +984,8 @@ select {
 
 .thread-main--editing {
   grid-template-columns: minmax(0, 1fr) auto;
-  padding-left: 34px;
-  padding-right: 12px;
+  padding-left: 0;
+  padding-right: 0;
 }
 
 .thread-name {
@@ -977,10 +1028,10 @@ select {
 }
 
 .thread-archive {
-  position: absolute;
-  right: 6px;
-  top: 50%;
-  transform: translateY(-50%);
+  position: relative;
+  right: auto;
+  top: auto;
+  transform: none;
   width: 22px;
   height: 22px;
   display: inline-grid;
@@ -996,15 +1047,15 @@ select {
 }
 
 .thread-rename-trigger {
-  position: absolute;
-  right: 56px;
-  top: 50%;
+  position: relative;
+  right: auto;
+  top: auto;
   z-index: 2;
   width: 22px;
   height: 22px;
   display: inline-grid;
   place-items: center;
-  transform: translateY(-50%);
+  transform: none;
   border: 1px solid var(--border-strong);
   border-radius: 6px;
   background: var(--surface-2);
@@ -1042,12 +1093,12 @@ select {
 }
 
 .thread-pin {
-  position: absolute;
-  right: 32px;
-  top: 50%;
-  transform: translateY(-50%);
-  width: 18px;
-  height: 18px;
+  position: relative;
+  right: auto;
+  top: auto;
+  transform: none;
+  width: 22px;
+  height: 22px;
   display: inline-grid;
   place-items: center;
   border: none !important;
@@ -1060,6 +1111,27 @@ select {
   transition: opacity var(--transition), color var(--transition);
   z-index: 2;
   box-shadow: none !important;
+}
+
+.thread-card-actions {
+  grid-column: 2;
+  grid-row: 1;
+  min-width: 0;
+  max-width: 78px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  align-content: center;
+  justify-content: flex-end;
+  gap: 5px;
+  overflow: visible;
+}
+
+@container (max-width: 260px) {
+  .thread-card-actions {
+    max-width: 22px;
+    flex-direction: column;
+  }
 }
 
 .thread-card:hover .thread-archive,
@@ -1085,11 +1157,6 @@ select {
   border-style: none !important;
   opacity: 1 !important;
   box-shadow: none !important;
-}
-
-.thread-pin--placeholder {
-  pointer-events: none;
-  opacity: 0.48;
 }
 
 .thread-pin-tooltip,
@@ -1258,6 +1325,17 @@ select {
   overflow: hidden;
 }
 
+.conversation.drop-active::after {
+  content: "";
+  position: absolute;
+  inset: 12px;
+  z-index: 9;
+  pointer-events: none;
+  border: 1px dashed color-mix(in srgb, var(--info) 68%, var(--border));
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--info) 8%, transparent);
+}
+
 .conversation--intro {
   --conversation-intro-width: min(880px, calc(100% - 96px));
   --conversation-content-width: var(--conversation-intro-width);
@@ -1290,7 +1368,15 @@ select {
   background: var(--surface-3);
 }
 
+.timeline-shell {
+  position: relative;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
 .timeline {
+  height: 100%;
   min-width: 0;
   min-height: 0;
   display: flex;
@@ -1299,6 +1385,41 @@ select {
   overflow: auto;
   max-width: 100%;
   padding: 0 0 32px;
+}
+
+.chat-scroll-bottom-btn {
+  position: absolute;
+  right: max(18px, var(--conversation-content-right-gutter));
+  bottom: 18px;
+  z-index: 8;
+  width: 32px;
+  height: 32px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--surface) 88%, transparent);
+  color: var(--text-sec);
+  padding: 0;
+  box-shadow: 0 6px 8px color-mix(in srgb, var(--bg) 28%, transparent);
+  transition: transform var(--transition), border-color var(--transition), background var(--transition), color var(--transition);
+}
+
+.chat-scroll-bottom-btn:hover {
+  border-color: color-mix(in srgb, var(--accent-2) 44%, var(--border-strong));
+  background: color-mix(in srgb, var(--surface-2) 94%, var(--accent-2));
+  color: var(--text-pri);
+  transform: translateY(-1px);
+}
+
+.chat-scroll-bottom-btn:active {
+  transform: translateY(0);
+}
+
+.chat-scroll-bottom-btn:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
 }
 
 .conversation--intro .timeline {
@@ -2522,8 +2643,7 @@ select {
   padding: 0 22px 16px;
 }
 
-.composer button,
-.permission-chip select {
+.composer button {
   min-height: 34px;
   border: 1px solid var(--line-strong);
   border-radius: 999px;
@@ -2541,16 +2661,6 @@ select {
 
 .composer-fork {
   color: var(--info);
-}
-
-.permission-chip {
-  flex: 0 0 auto;
-}
-
-.permission-chip select {
-  padding: 0 12px;
-  background: color-mix(in srgb, var(--surface-2) 88%, var(--bg));
-  color: var(--text-sec);
 }
 
 .tool-surface-mode {
@@ -2605,9 +2715,9 @@ select {
   position: relative;
   margin-left: 0;
   flex: 0 0 auto;
-  width: 158px;
+  width: fit-content;
   min-width: 0;
-  max-width: min(210px, 46vw);
+  max-width: min(150px, 42vw);
 }
 
 .composer .provider {
@@ -2622,9 +2732,9 @@ select {
 
 .composer-model {
   min-height: 30px;
-  width: 100%;
+  width: fit-content;
   max-width: 100%;
-  padding: 0 9px;
+  padding: 0 7px 0 10px;
   border-radius: 999px;
   background: var(--surface-2);
   border: 1px solid var(--line);
@@ -2639,13 +2749,18 @@ select {
 
 .model-dropdown {
   position: absolute;
+  inset: auto 0 calc(100% + 8px) auto;
   right: 0;
   bottom: calc(100% + 8px);
   z-index: 25;
   width: 260px;
+  height: max-content;
   max-width: none;
+  max-height: min(320px, calc(100vh - 48px));
   margin: 0;
   display: grid;
+  grid-auto-rows: max-content;
+  align-content: start;
   gap: 10px;
   padding: 12px;
   border: 1px solid var(--line);
@@ -2653,6 +2768,7 @@ select {
   background: var(--surface);
   color: var(--text-pri);
   box-shadow: var(--shadow);
+  overflow: visible;
 }
 
 .model-dropdown label {
@@ -3539,9 +3655,7 @@ select {
 .console-page,
 .memory-page,
 .settings-page,
-.workflow-page,
-.tasks-page,
-.commands-page {
+.workflow-page {
   overflow: auto;
 }
 
@@ -3681,193 +3795,6 @@ select {
 .workflow-list em {
   color: var(--muted);
   font-style: normal;
-}
-
-.tasks-page > .tabs {
-  margin: 16px 28px 0;
-}
-
-.task-toolbar {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 10px;
-  padding: 16px 28px 0;
-}
-
-.task-toolbar button,
-.task-actions button,
-.commands-page .page-actions button {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.task-card-list,
-.cron-job-list,
-.command-card-list {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
-  gap: 14px;
-  padding: 16px 28px 28px;
-}
-
-.task-card,
-.cron-card,
-.command-card,
-.cron-form,
-.cron-runs-panel,
-.cron-delete-panel {
-  max-width: none;
-  margin: 0;
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  background: var(--surface);
-  color: var(--text-pri);
-  padding: 14px;
-}
-
-.task-card > div,
-.cron-card-head,
-.command-card-head {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 12px;
-  margin-bottom: 12px;
-}
-
-.task-card strong,
-.cron-card strong,
-.command-card strong {
-  display: block;
-  color: var(--text-sec);
-  font-size: 16px;
-}
-
-.task-card span,
-.cron-card span,
-.command-card span {
-  color: var(--text-muted);
-}
-
-.cron-card-head em,
-.command-card-head em {
-  border: 1px solid var(--line);
-  border-radius: var(--radius-sm);
-  color: var(--text-muted);
-  font-style: normal;
-  padding: 3px 8px;
-}
-
-.cron-card-head em.enabled {
-  border-color: color-mix(in srgb, var(--success) 42%, var(--line));
-  color: var(--success);
-}
-
-.cron-card-head em.disabled {
-  border-color: color-mix(in srgb, var(--danger) 35%, var(--line));
-  color: var(--danger);
-}
-
-.task-card dl,
-.cron-card dl,
-.command-card dl {
-  display: grid;
-  grid-template-columns: max-content minmax(0, 1fr);
-  gap: 8px 12px;
-  margin: 0;
-}
-
-.task-card dt,
-.cron-card dt,
-.command-card dt {
-  color: var(--text-muted);
-}
-
-.task-card dd,
-.cron-card dd,
-.command-card dd {
-  min-width: 0;
-  margin: 0;
-  color: var(--text-sec);
-  overflow-wrap: anywhere;
-}
-
-.task-actions {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: flex-end;
-  gap: 10px;
-  margin-top: 14px;
-}
-
-.cron-form {
-  margin: 16px 28px 0;
-}
-
-.cron-form-grid {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 12px;
-}
-
-.cron-form label,
-.task-toggle {
-  display: grid;
-  gap: 6px;
-  color: var(--text-muted);
-}
-
-.task-toggle {
-  grid-auto-flow: column;
-  justify-content: start;
-  align-items: center;
-  margin: 12px 0;
-}
-
-.cron-form input,
-.cron-form select,
-.cron-form textarea {
-  width: 100%;
-  border: 1px solid var(--line);
-  border-radius: var(--radius-sm);
-  background: var(--surface-2);
-  color: var(--text-pri);
-  padding: 9px 10px;
-}
-
-.command-template {
-  max-height: 180px;
-  overflow: auto;
-  border: 1px solid var(--line);
-  border-radius: var(--radius-sm);
-  background: var(--surface-2);
-  color: var(--text-sec);
-  padding: 10px;
-  white-space: pre-wrap;
-}
-
-.cron-runs-panel,
-.cron-delete-panel {
-  margin: 16px 28px 28px;
-}
-
-.cron-run-list {
-  display: grid;
-  gap: 10px;
-}
-
-.cron-run-row {
-  border: 1px solid var(--line);
-  border-radius: var(--radius-sm);
-  background: var(--surface-2);
-  padding: 10px;
-}
-
-.cron-run-row strong,
-.cron-run-row span,
-.cron-run-row em {
-  display: block;
 }
 
 .detail-top {
@@ -5818,7 +5745,7 @@ dd {
   }
 
   .nav-rail button {
-    width: 62px;
+    width: 100%;
   }
 
   .workflow-grid {
@@ -6762,8 +6689,6 @@ textarea:disabled {
 .settings-page button,
 .memory-page button,
 .workflow-page button,
-.tasks-page button,
-.commands-page button,
 .prompt-page button,
 .prompt-editor-modal button,
 .prompt-wizard-modal button,
@@ -6783,8 +6708,6 @@ textarea:disabled {
 .settings-page button:hover,
 .memory-page button:hover,
 .workflow-page button:hover,
-.tasks-page button:hover,
-.commands-page button:hover,
 .prompt-page button:hover,
 .prompt-editor-modal button:hover,
 .prompt-wizard-modal button:hover,
@@ -6822,6 +6745,18 @@ textarea:disabled {
   box-shadow: none;
 }
 
+.composer .send--interrupt {
+  border-color: color-mix(in srgb, var(--error) 48%, var(--border));
+  background: color-mix(in srgb, var(--error) 88%, var(--surface)) !important;
+  color: var(--primary-action-text) !important;
+}
+
+.composer .send--interrupt:hover {
+  border-color: color-mix(in srgb, var(--error) 64%, var(--border-strong));
+  background: color-mix(in srgb, var(--error) 76%, var(--surface)) !important;
+  color: var(--primary-action-text) !important;
+}
+
 .btn-secondary,
 .ghost {
   background: transparent !important;
@@ -6847,8 +6782,8 @@ textarea:disabled {
 }
 
 .nav-rail nav {
-  gap: 4px;
-  padding-top: 10px;
+  gap: 0;
+  padding-top: 0;
 }
 
 .nav-rail button {
@@ -6973,7 +6908,6 @@ textarea:disabled {
 .thread-clean-confirm,
 .thread-clean-cancel,
 .composer button,
-.permission-chip select,
 .composer-model,
 .runtime-toolbar button,
 .score,
@@ -7188,18 +7122,6 @@ textarea:disabled {
   min-height: 44px;
 }
 
-.permission-chip select {
-  border-color: var(--border-strong);
-  background: color-mix(in srgb, var(--surface-2) 88%, var(--bg));
-  color: var(--text-sec);
-}
-
-.permission-chip select:hover,
-.permission-chip select:focus-visible {
-  background: color-mix(in srgb, var(--surface-3) 82%, var(--bg));
-  color: var(--text-pri);
-}
-
 .tool-surface-mode button:hover,
 .tool-surface-mode button:focus-visible {
   color: var(--text-pri);
@@ -7208,6 +7130,10 @@ textarea:disabled {
 .composer .send svg {
   transform: rotate(-90deg);
   transform-origin: 50% 50%;
+}
+
+.composer .send--interrupt svg {
+  transform: none;
 }
 
 .composer-project,
@@ -7221,7 +7147,6 @@ textarea:disabled {
 }
 
 .sa-window[data-theme="light"] .composer button,
-.sa-window[data-theme="light"] .permission-chip select,
 .sa-window[data-theme="light"] .tool-surface-mode,
 .sa-window[data-theme="light"] .composer-model {
   border-color: var(--border);
@@ -7230,7 +7155,6 @@ textarea:disabled {
 }
 
 .sa-window[data-theme="light"] .composer button:hover,
-.sa-window[data-theme="light"] .permission-chip select:hover,
 .sa-window[data-theme="light"] .tool-surface-mode button:hover,
 .sa-window[data-theme="light"] .tool-surface-mode button:focus-visible,
 .sa-window[data-theme="light"] .composer-model:hover {
@@ -7276,7 +7200,6 @@ textarea:disabled {
 }
 
 .sa-window[data-theme="light"] .conversation--intro .composer--floating .composer-attach,
-.sa-window[data-theme="light"] .conversation--intro .composer--floating .permission-chip select,
 .sa-window[data-theme="light"] .conversation--intro .composer--floating .composer-model {
   border-color: var(--border-strong);
   background: color-mix(in srgb, var(--surface-2) 86%, var(--surface));
@@ -7493,8 +7416,6 @@ textarea:disabled {
 .memory-page,
 .settings-page,
 .workflow-page,
-.tasks-page,
-.commands-page,
 .prompt-page {
   background: var(--bg);
 }
@@ -8144,9 +8065,7 @@ textarea:disabled {
     align-items: stretch;
   }
 
-  .composer-model,
-  .permission-chip,
-  .permission-chip select {
+  .composer-model {
     width: 100%;
   }
 
@@ -8177,8 +8096,7 @@ textarea:disabled {
   .stat-grid,
   .form-grid,
   .memory-form-grid,
-  .prompt-editor-grid,
-  .cron-form-grid {
+  .prompt-editor-grid {
     grid-template-columns: 1fr;
   }
 
@@ -8199,183 +8117,6 @@ textarea:disabled {
   border-color: color-mix(in srgb, var(--blue) 15%, transparent) !important;
   background: color-mix(in srgb, var(--blue) 6%, transparent) !important;
   box-shadow: none !important;
-}
-
-.chat-mode-toolbar {
-  width: var(--conversation-content-width);
-  max-width: var(--conversation-content-width);
-  margin: 12px auto 0;
-  display: flex;
-  gap: 8px;
-  align-items: center;
-}
-
-.chat-mode-toolbar button {
-  height: 32px;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  border: 1px solid var(--border);
-  background: var(--panel);
-  color: var(--muted);
-  border-radius: 8px;
-  padding: 0 10px;
-}
-
-.chat-mode-toolbar button.active {
-  border-color: color-mix(in srgb, var(--blue) 40%, var(--border));
-  color: var(--text);
-  background: color-mix(in srgb, var(--blue) 10%, var(--panel));
-}
-
-.cmd-workspace {
-  width: var(--conversation-content-width);
-  max-width: var(--conversation-content-width);
-  margin: 12px auto 16px;
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  min-height: 0;
-}
-
-.cmd-workspace-toolbar,
-.cmd-layout-switch,
-.cmd-recent-threads,
-.cmd-thread-actions {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-}
-
-.cmd-layout-switch button,
-.cmd-recent-threads button,
-.cmd-thread-actions button {
-  height: 30px;
-  border: 1px solid var(--border);
-  background: var(--panel);
-  color: var(--muted);
-  border-radius: 8px;
-  padding: 0 10px;
-}
-
-.cmd-layout-switch button.active,
-.cmd-recent-threads button.active {
-  color: var(--text);
-  border-color: color-mix(in srgb, var(--blue) 38%, var(--border));
-  background: color-mix(in srgb, var(--blue) 9%, var(--panel));
-}
-
-.cmd-overview-metrics {
-  display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
-  gap: 8px;
-}
-
-.cmd-overview-metrics div {
-  border: 1px solid var(--border);
-  background: var(--panel);
-  border-radius: 8px;
-  padding: 10px;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-
-.cmd-overview-metrics strong {
-  font-size: 18px;
-}
-
-.cmd-overview-metrics span,
-.cmd-recent-threads span {
-  color: var(--muted);
-  font-size: 12px;
-}
-
-.cmd-card-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px;
-}
-
-.cmd-workspace.cols-3 .cmd-card-grid {
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-}
-
-.cmd-thread-card {
-  min-width: 0;
-  border: 1px solid var(--border);
-  background: var(--panel);
-  border-radius: 8px;
-  padding: 12px;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-
-.cmd-thread-card.active {
-  border-color: color-mix(in srgb, var(--blue) 42%, var(--border));
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--blue) 20%, transparent);
-}
-
-.cmd-thread-card header {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto auto;
-  gap: 8px;
-  align-items: start;
-}
-
-.cmd-thread-card strong,
-.cmd-thread-card small,
-.cmd-thread-preview p,
-.cmd-thread-diff {
-  overflow-wrap: anywhere;
-}
-
-.cmd-thread-card small,
-.cmd-thread-preview .muted {
-  color: var(--muted);
-}
-
-.cmd-status,
-.cmd-provider {
-  font-size: 12px;
-  border: 1px solid var(--border);
-  border-radius: 999px;
-  padding: 2px 7px;
-  color: var(--muted);
-}
-
-.cmd-status--running,
-.cmd-status--thinking {
-  color: var(--blue);
-}
-
-.cmd-status--error {
-  color: var(--danger);
-}
-
-.cmd-thread-preview {
-  min-height: 54px;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.cmd-thread-preview p {
-  margin: 0;
-  font-size: 13px;
-  line-height: 1.45;
-}
-
-.cmd-thread-diff {
-  max-height: 180px;
-  margin: 0;
-  overflow: auto;
-  border-radius: 8px;
-  padding: 10px;
-  background: var(--code-bg);
-  font-size: 12px;
 }
 
 .message-markdown .chat-md-citation,
@@ -8403,12 +8144,4 @@ textarea:disabled {
 .chat-md-citation__icon {
   color: var(--muted);
   font-size: 11px;
-}
-
-@media (max-width: 920px) {
-  .cmd-overview-metrics,
-  .cmd-card-grid,
-  .cmd-workspace.cols-3 .cmd-card-grid {
-    grid-template-columns: 1fr;
-  }
 }

@@ -162,14 +162,13 @@ import { createBackendApi, emitFrontendTraceEvent, RPC_METHODS } from './backend
     const callAPI = vi.fn().mockResolvedValue({ ok: true });
     const api = createBackendApi({ callAPI });
 
-    await api.interruptTurn({ cwd: '/repo/app', threadId: 'thread-1', turnId: 'turn-1', source: 'ui_stop' });
+    await api.interruptTurn({ cwd: '/repo/app', threadId: 'thread-1', source: 'ui_stop' });
     await api.forceCompleteTurn({ cwd: '/repo/app', threadId: 'thread-1' });
     await api.compactThread({ cwd: '/repo/app', threadId: 'thread-1' });
     await api.recoverThread({ cwd: '/repo/app', threadId: 'thread-1' });
 
     expect(callAPI).toHaveBeenNthCalledWith(1, RPC_METHODS.TURN_INTERRUPT, {
       threadId: 'thread-1',
-      turnId: 'turn-1',
       source: 'ui_stop',
     });
     expect(callAPI).toHaveBeenNthCalledWith(2, RPC_METHODS.TURN_FORCE_COMPLETE, {
@@ -200,12 +199,16 @@ import { createBackendApi, emitFrontendTraceEvent, RPC_METHODS } from './backend
       .toThrow('approval/respond: approved is required');
   });
 
-  it('fails fast before turn/interrupt when turnId is missing', () => {
-    const callAPI = vi.fn();
+  it('keeps turn/interrupt compatible with backend thread-only payloads', async () => {
+    const callAPI = vi.fn().mockResolvedValue({ ok: true });
     const api = createBackendApi({ callAPI });
 
-    expect(() => api.interruptTurn({ cwd: '/repo/app', threadId: 'thread-1' })).toThrow('turn/interrupt: turnId is required');
-    expect(callAPI).not.toHaveBeenCalled();
+    await api.interruptTurn({ cwd: '/repo/app', threadId: 'thread-1', source: 'ui_stop' });
+
+    expect(callAPI).toHaveBeenCalledWith(RPC_METHODS.TURN_INTERRUPT, {
+      threadId: 'thread-1',
+      source: 'ui_stop',
+    });
   });
 
   it('fails fast before cwd-scoped RPCs when cwd is missing', () => {

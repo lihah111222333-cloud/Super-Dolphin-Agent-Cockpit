@@ -21,7 +21,6 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/store/sharedfile"
 	"github.com/anthropic-ai/super-agent-v3/internal/store/sqlc"
 	"github.com/anthropic-ai/super-agent-v3/internal/store/systemlog"
-	"github.com/anthropic-ai/super-agent-v3/internal/store/tasktrace"
 	"github.com/anthropic-ai/super-agent-v3/internal/store/thread"
 	"github.com/anthropic-ai/super-agent-v3/internal/store/topologyapproval"
 	turndedupestore "github.com/anthropic-ai/super-agent-v3/internal/store/turndedupe"
@@ -53,7 +52,6 @@ var Module = fx.Module("store",
 	routingtest.Module,
 	sharedfile.Module,
 	systemlog.Module,
-	tasktrace.Module,
 	thread.Module,
 	topologyapproval.Module,
 	turndedupestore.Module,

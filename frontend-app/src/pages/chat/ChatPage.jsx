@@ -1,11 +1,13 @@
 import React, { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Archive, ArrowLeft, Bot, Boxes, Brain, CheckCircle2, ChevronDown, Clock3, Code2, Copy, File, FileText, Folder, GitBranch, Link2, Pencil, Pin, Plus, Search, Send, Settings, Sparkles, Terminal, Trash2, UserRound, Workflow, Wrench, X } from 'lucide-react';
+import { Archive, ArrowLeft, Bot, Boxes, Brain, CheckCircle2, ChevronDown, CircleStop, Clock3, Code2, Copy, File, FileText, Folder, GitBranch, Link2, Pencil, Pin, Plus, Search, Send, Settings, Sparkles, Terminal, Trash2, UserRound, Workflow, Wrench, X } from 'lucide-react';
 import { FocusTrapDialog } from '../../shared/ui/FocusTrapDialog.jsx';
 import { onFilesDropped, copyTextToClipboard, locateCodeFile, openCodeFile, saveCodeFile } from '../../shared/api/backendApi.js';
 import { appendCurrentModelOption, canonicalizeModelValue, modelOptionFor, normalizeConfigText, normalizeProviderKey, textValue } from '../shared/pageShared.js';
 
-const COMPOSER_DROP_TARGET_IDS = new Set(['chat-input-bar', 'composer-input', 'chatInput']);
+const CONVERSATION_DROP_TARGET_ID = 'conversation-drop-zone';
+const CLIPBOARD_FILE_PATH_TYPES = Object.freeze(['x-special/gnome-copied-files', 'text/uri-list', 'text/plain']);
+const DROP_FILE_PATH_TYPES = new Set(['x-special/gnome-copied-files', 'text/uri-list']);
 
 const THREAD_RAIL_MIN_WIDTH = 240;
 
@@ -83,6 +85,22 @@ function currentViewportHeight() {
   if (typeof window === 'undefined') return 0;
   const height = Number(window.innerHeight);
   return Number.isFinite(height) ? height : 0;
+}
+
+function scrollTimelineElementToBottom(timeline) {
+  if (!timeline) return;
+  if (typeof timeline.scrollTo === 'function') {
+    timeline.scrollTo({ top: timeline.scrollHeight, behavior: 'smooth' });
+  }
+  timeline.scrollTop = timeline.scrollHeight;
+}
+
+function requestTimelineBottomScroll(scrollToBottom) {
+  if (typeof window === 'undefined' || typeof window.requestAnimationFrame !== 'function') {
+    scrollToBottom();
+    return;
+  }
+  window.requestAnimationFrame(scrollToBottom);
 }
 
 function chatLayoutWidthBudget(viewportWidth = currentViewportWidth()) {
@@ -1655,141 +1673,6 @@ function useActiveChatThreadSync(store, activeThreadId) {
   }, [activeThreadId, loading, store, timelineReady]);
 }
 
-function cmdStatusBucket(status) {
-  const normalized = normalizeTurnState(status);
-  if (normalized === 'running') return 'running';
-  if (['thinking', 'responding', 'waiting', 'starting', 'preparing'].includes(normalized)) return 'thinking';
-  if (normalized === 'editing') return 'editing';
-  if (['error', 'failed', 'stalled'].includes(normalized)) return 'error';
-  return '';
-}
-
-function cmdWorkspaceStats(threads = []) {
-  return threads.reduce((acc, thread) => {
-    acc.total += 1;
-    const bucket = cmdStatusBucket(thread.status);
-    if (bucket) acc[bucket] += 1;
-    return acc;
-  }, { total: 0, running: 0, thinking: 0, editing: 0, error: 0 });
-}
-
-function cmdWorkspaceThreads(store) {
-  return visibleThreadRows((store?.threads || []).filter((thread) => !thread.archived), store || {});
-}
-
-function cmdPreviewLine(message, index) {
-  const role = (message?.role || message?.kind || '').toString().trim().toLowerCase();
-  const label = role === 'user' ? '用户' : (role === 'assistant' ? '助手' : (role || '消息'));
-  const text = (message?.text || message?.content || message?.preview || '').toString().trim().split('\n')[0] || '暂无内容';
-  return { key: `${message?.id || index}:${index}`, text: `${label}: ${text}` };
-}
-
-function cmdThreadPreview(store, threadId) {
-  const messages = threadScopedMapValue(store?.timelinesByThread, threadId, { id: threadId }, []) || [];
-  return messages.filter((message) => !isReasoningMessage(message)).slice(-3).map(cmdPreviewLine);
-}
-
-function cmdThreadDiff(store, threadId) {
-  return (threadScopedMapValue(store?.diffTextByThread, threadId, { id: threadId }, '') || '').toString();
-}
-
-function CommandWorkspace({ store, activeThreadId, layout, setLayout, cols, setCols }) {
-  const threads = cmdWorkspaceThreads(store);
-  const stats = cmdWorkspaceStats(threads);
-  const recentThreads = threads.slice(0, 6);
-  return (
-    <section className={`cmd-workspace layout-${layout} cols-${cols}`} data-testid="cmd-workspace" aria-label="命令工作区">
-      <div className="cmd-workspace-toolbar">
-        <div className="cmd-layout-switch" aria-label="命令工作区布局">
-          <button type="button" className={layout === 'overview' ? 'active' : ''} onClick={() => setLayout('overview')}>A 紧凑</button>
-          <button type="button" className={layout === 'chat' ? 'active' : ''} onClick={() => setLayout('chat')}>B 对话</button>
-          <button type="button" className={layout === 'mix' ? 'active' : ''} onClick={() => setLayout('mix')}>C 混合</button>
-        </div>
-        <div className="cmd-layout-switch" aria-label="命令卡列数">
-          <button type="button" className={cols === 2 ? 'active' : ''} onClick={() => setCols(2)}>2列</button>
-          <button type="button" className={cols === 3 ? 'active' : ''} onClick={() => setCols(3)}>3列</button>
-        </div>
-      </div>
-      <div className="cmd-overview-metrics" aria-label="命令工作区指标">
-        <div><strong>{stats.total}</strong><span>子Agent</span></div>
-        <div><strong>{stats.running}</strong><span>执行中</span></div>
-        <div><strong>{stats.thinking}</strong><span>思考/回复</span></div>
-        <div><strong>{stats.editing}</strong><span>改文件</span></div>
-        <div><strong>{stats.error}</strong><span>异常</span></div>
-      </div>
-      {recentThreads.length > 0 ? (
-        <div className="cmd-recent-threads" aria-label="最近活跃线程">
-          <span>最近活跃:</span>
-          {recentThreads.map((thread) => (
-            <button type="button" className={thread.id === activeThreadId ? 'active' : ''} key={thread.id} onClick={() => store?.selectThread?.(thread.id)}>
-              {displayThreadName(thread, thread.id)}
-            </button>
-          ))}
-        </div>
-      ) : null}
-      <div className="cmd-card-grid">
-        {threads.length === 0 ? <p className="cmd-empty">暂无命令工作线程</p> : null}
-        {threads.map((thread) => (
-          <CommandThreadCard
-            active={thread.id === activeThreadId}
-            key={thread.id}
-            layout={layout}
-            preview={cmdThreadPreview(store, thread.id)}
-            diff={cmdThreadDiff(store, thread.id)}
-            store={store}
-            thread={thread}
-          />
-        ))}
-      </div>
-    </section>
-  );
-}
-
-function CommandThreadCard({ active, diff, layout, preview, store, thread }) {
-  const name = displayThreadName(thread, thread.id);
-  const statusLabel = threadCardStatusLabel(thread, threadStatusBusy(thread.status)) || '等待指示';
-  const interruptible = Boolean(store?.hasInterruptibleThreadAction?.(thread.id));
-  return (
-    <article className={`cmd-thread-card${active ? ' active' : ''}`}>
-      <header>
-        <div>
-          <strong>{name}</strong>
-          <small>{thread.id}</small>
-        </div>
-        <span className={`cmd-status cmd-status--${threadStatusDotState(thread.status)}`}>{statusLabel}</span>
-        {thread.provider ? <span className="cmd-provider">{threadProviderLabel(thread.provider)}</span> : null}
-      </header>
-      {layout !== 'overview' ? (
-        <div className="cmd-thread-preview">
-          {active ? (
-            preview.length > 0 ? preview.map((line) => <p key={line.key}>{line.text}</p>) : <p className="muted">暂无消息</p>
-          ) : <p className="muted">点击卡片查看预览</p>}
-        </div>
-      ) : null}
-      {layout === 'mix' && active && diff ? <pre className="cmd-thread-diff">{diff}</pre> : null}
-      <div className="cmd-thread-actions">
-        <button type="button" onClick={() => store?.selectThread?.(thread.id)} aria-label={`打开 ${name}`}>打开</button>
-        <button type="button" onClick={() => store?.syncThreadState?.(thread.id, { includeArchived: true, includeDiff: true, preserveActiveThreadId: true })} aria-label={`历史 ${name}`}>历史</button>
-        <button type="button" onClick={() => store?.promptRenameThread?.(thread.id) || store?.beginInlineRename?.(thread.id)} aria-label={`改名 ${name}`}>改名</button>
-        <button type="button" disabled={!interruptible} title={interruptible ? '中断该 Agent 当前执行' : '当前没有可中断任务'} onClick={() => store?.interruptActiveThread?.(thread.id)} aria-label={`停止 ${name}`}>停止</button>
-      </div>
-    </article>
-  );
-}
-
-function ChatModeToolbar({ mode, setMode }) {
-  return (
-    <div className="chat-mode-toolbar" aria-label="聊天工作区模式">
-      <button type="button" className={mode === 'chat' ? 'active' : ''} onClick={() => setMode('chat')}>
-        <Bot size={14} aria-hidden="true" /> 对话
-      </button>
-      <button type="button" className={mode === 'cmd' ? 'active' : ''} onClick={() => setMode('cmd')}>
-        <Terminal size={14} aria-hidden="true" /> 命令工作区
-      </button>
-    </div>
-  );
-}
-
 function toggleRuntimePanel({ maxWidth, open, resizedRef, setOpen, store, viewportWidth }) {
   const next = !open;
   if (next) {
@@ -1862,9 +1745,6 @@ function ChatPage({ store, projectPath, rightPanelOpen = false, setRightPanelOpe
   const canUseProjectActions = canUseProjectActionsForStore(store);
   const runtimeProject = runtimeProjectPath(store.activeProject, projectPath);
   const codePreview = useCodePreviewController({ projectPath: runtimeProject, projects: store.projects });
-  const [chatMode, setChatMode] = useState('chat');
-  const [cmdLayout, setCmdLayout] = useState('mix');
-  const [cmdCols, setCmdCols] = useState(2);
   const messageActions = useMemo(() => ({
     onFileRef: codePreview.openFileRef,
     onCitation: (payload) => handleTimelineCitationAction(payload, { store, openFileRef: codePreview.openFileRef }),
@@ -1911,8 +1791,6 @@ function ChatPage({ store, projectPath, rightPanelOpen = false, setRightPanelOpe
           sending={store.sending}
           store={store}
           projectPath={projectPath}
-          permission={store.permission}
-          setPermission={store.setPermission}
           tokenUsage={threadData.tokenUsage}
           activeThreadId={activeThreadId}
           activeThread={threadData.activeThread}
@@ -1924,12 +1802,6 @@ function ChatPage({ store, projectPath, rightPanelOpen = false, setRightPanelOpe
           timelineBlocked={threadData.timelineBlocked}
           timelineContentBlocked={threadData.timelineContentBlocked}
           canUseProjectActions={canUseProjectActions}
-          chatMode={chatMode}
-          setChatMode={setChatMode}
-          cmdLayout={cmdLayout}
-          setCmdLayout={setCmdLayout}
-          cmdCols={cmdCols}
-          setCmdCols={setCmdCols}
           messageActions={messageActions}
         />
         <RuntimePanelSlot
@@ -2352,7 +2224,6 @@ function ThreadCard({
   onSubmitRename,
 }) {
   const archiveLabel = thread.archived ? '恢复会话' : '归档会话';
-  const threadLabel = displayThreadName(thread);
   return (
     <div className={`thread-card ${active ? 'active' : ''}`}>
       {editing ? (
@@ -2369,38 +2240,68 @@ function ThreadCard({
         <ThreadDisplayCardContent
           thread={thread}
           store={store}
-          threadLabel={threadLabel}
         />
       )}
-      <div className="thread-card-actions">
-        {!editing ? (
-          <>
-            <ThreadPinButton
-              thread={thread}
-              hoveredPinThreadId={hoveredPinThreadId}
-              onSetHoveredPinThreadId={onSetHoveredPinThreadId}
-              onToggle={() => store.toggleThreadPin(thread.id)}
-            />
-            <button
-              type="button"
-              className="thread-rename-trigger"
-              aria-label="重命名会话"
-              title={`重命名 ${threadLabel}`}
-              onClick={() => onBeginRename(thread)}
-            >
-              <Pencil size={13} aria-hidden="true" />
-            </button>
-          </>
-        ) : null}
-        <ThreadArchiveButton
-          thread={thread}
-          archiveLabel={archiveLabel}
-          hoveredArchiveThreadId={hoveredArchiveThreadId}
-          loading={Boolean(store.threadArchiveLoadingByThread?.[thread.id])}
-          onSetHoveredArchiveThreadId={onSetHoveredArchiveThreadId}
-          onToggle={() => store.archiveThread(thread.id, !thread.archived)}
-        />
-      </div>
+      <ThreadCardActions
+        thread={thread}
+        store={store}
+        editing={editing}
+        archiveLabel={archiveLabel}
+        hoveredArchiveThreadId={hoveredArchiveThreadId}
+        hoveredPinThreadId={hoveredPinThreadId}
+        loading={Boolean(store.threadArchiveLoadingByThread?.[thread.id])}
+        onBeginRename={onBeginRename}
+        onSetHoveredArchiveThreadId={onSetHoveredArchiveThreadId}
+        onSetHoveredPinThreadId={onSetHoveredPinThreadId}
+        onToggle={() => store.archiveThread(thread.id, !thread.archived)}
+      />
+    </div>
+  );
+}
+
+function ThreadCardActions({
+  thread,
+  store,
+  editing,
+  archiveLabel,
+  hoveredArchiveThreadId,
+  hoveredPinThreadId,
+  loading,
+  onBeginRename,
+  onSetHoveredArchiveThreadId,
+  onSetHoveredPinThreadId,
+  onToggle,
+}) {
+  const threadLabel = displayThreadName(thread);
+  return (
+    <div className="thread-card-actions" aria-label={`${threadLabel} 操作`}>
+      {!editing ? (
+        <>
+          <button
+            type="button"
+            className="thread-rename-trigger"
+            aria-label="重命名会话"
+            title={`重命名 ${threadLabel}`}
+            onClick={() => onBeginRename(thread)}
+          >
+            <Pencil size={13} aria-hidden="true" />
+          </button>
+          <ThreadPinButton
+            thread={thread}
+            hoveredPinThreadId={hoveredPinThreadId}
+            onSetHoveredPinThreadId={onSetHoveredPinThreadId}
+            onToggle={() => store.toggleThreadPin(thread.id)}
+          />
+        </>
+      ) : null}
+      <ThreadArchiveButton
+        thread={thread}
+        archiveLabel={archiveLabel}
+        hoveredArchiveThreadId={hoveredArchiveThreadId}
+        loading={loading}
+        onSetHoveredArchiveThreadId={onSetHoveredArchiveThreadId}
+        onToggle={onToggle}
+      />
     </div>
   );
 }
@@ -2479,8 +2380,9 @@ function handleThreadRenameKeyDown(event, thread, onSubmitRename, onCancelRename
   }
 }
 
-function ThreadDisplayCardContent({ thread, store, threadLabel }) {
+function ThreadDisplayCardContent({ thread, store }) {
   const running = threadStatusBusy(thread.status);
+  const threadLabel = displayThreadName(thread);
   const statusLabel = threadCardStatusLabel(thread, running);
   const statusDotState = threadStatusDotState(thread.status);
   const statusDotTitle = threadStatusDotTitle(thread.status, statusLabel);
@@ -2742,7 +2644,9 @@ function hasFilesTransfer(event) {
   const transfer = event?.dataTransfer;
   if (!transfer) return false;
   if (transfer.files && transfer.files.length > 0) return true;
-  return Array.from(transfer.types || []).includes('Files');
+  const types = Array.from(transfer.types || []).map((type) => textValue(type));
+  if (types.includes('Files')) return true;
+  return types.some((type) => DROP_FILE_PATH_TYPES.has(type));
 }
 
 function collectTransferFiles(event) {
@@ -2757,6 +2661,86 @@ function collectTransferFiles(event) {
     if (file) collected.push(file);
   }
   return collected;
+}
+
+function decodeClipboardFileUri(value) {
+  const raw = textValue(value).trim();
+  if (!/^file:/i.test(raw)) return '';
+  try {
+    const url = new URL(raw);
+    if (url.protocol !== 'file:') return '';
+    const hostname = textValue(url.hostname);
+    let pathname = decodeURIComponent(url.pathname || '');
+    if (/^\/[a-zA-Z]:[\\/]/.test(pathname)) pathname = pathname.slice(1);
+    if (hostname && hostname !== 'localhost') return `//${hostname}${pathname}`;
+    return pathname;
+  }
+  catch {
+    try {
+      return decodeURIComponent(raw.replace(/^file:\/+/i, '/'));
+    }
+    catch {
+      return raw.replace(/^file:\/+/i, '/');
+    }
+  }
+}
+
+function normalizeClipboardPathLine(line) {
+  let value = textValue(line).trim();
+  if (
+    value.length >= 2 &&
+    ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'")))
+  ) {
+    value = value.slice(1, -1).trim();
+  }
+  if (!value || value.startsWith('#')) return '';
+  if (value === 'copy' || value === 'cut') return '';
+  if (/^file:/i.test(value)) return decodeClipboardFileUri(value);
+  if (/^[a-zA-Z]:[\\/]/.test(value) || value.startsWith('/') || value.startsWith('\\\\')) return value;
+  return '';
+}
+
+function clipboardPathsFromText(text) {
+  const paths = [];
+  const seen = new Set();
+  for (const line of textValue(text).split(/\r?\n/)) {
+    const path = normalizeClipboardPathLine(line);
+    if (!path || seen.has(path)) continue;
+    seen.add(path);
+    paths.push(path);
+  }
+  return paths;
+}
+
+function extractFilePathsFromTransferData(transferData) {
+  if (!transferData || typeof transferData.getData !== 'function') return [];
+  const types = new Set(Array.from(transferData.types || []).map((type) => textValue(type)));
+  const paths = [];
+  const seen = new Set();
+  for (const type of CLIPBOARD_FILE_PATH_TYPES) {
+    if (types.size > 0 && !types.has(type)) continue;
+    let data;
+    try {
+      data = transferData.getData(type);
+    }
+    catch {
+      continue;
+    }
+    for (const path of clipboardPathsFromText(data)) {
+      if (seen.has(path)) continue;
+      seen.add(path);
+      paths.push(path);
+    }
+  }
+  return paths;
+}
+
+function extractTransferFilePaths(event) {
+  return extractFilePathsFromTransferData(event?.dataTransfer);
+}
+
+function extractClipboardFilePaths(event) {
+  return extractFilePathsFromTransferData(event?.clipboardData);
 }
 
 function extractClipboardImageFiles(event) {
@@ -4462,6 +4446,7 @@ function useComposerInteractions({
 }) {
   const [previewAttachment, setPreviewAttachment] = useState(null);
   const [dropActive, setDropActive] = useState(false);
+  const dropDepthRef = useRef(0);
   const isComposingRef = useRef(false);
   const activePreview = previewAttachment && attachments.some((item) => attachmentKey(item) === attachmentKey(previewAttachment))
     ? previewAttachment
@@ -4481,6 +4466,7 @@ function useComposerInteractions({
     attachPaths,
     attachPastedImages,
     canUseProjectActions,
+    dropDepthRef,
     projectActionBlocked,
     setDropActive,
   });
@@ -4498,7 +4484,12 @@ function useComposerInteractions({
   };
 }
 
-function useComposerTransferHandlers({ attachDroppedFiles, attachPaths, attachPastedImages, canUseProjectActions, projectActionBlocked, setDropActive }) {
+function useComposerTransferHandlers({ attachDroppedFiles, attachPaths, attachPastedImages, canUseProjectActions, dropDepthRef, projectActionBlocked, setDropActive }) {
+  const resetDropState = useCallback(() => {
+    dropDepthRef.current = 0;
+    setDropActive(false);
+  }, [dropDepthRef, setDropActive]);
+
   useEffect(() => {
     if (typeof attachPaths !== 'function') return undefined;
     return onFilesDropped((event) => {
@@ -4506,14 +4497,18 @@ function useComposerTransferHandlers({ attachDroppedFiles, attachPaths, attachPa
       const payload = event && typeof event === 'object' ? event : {};
       const files = Array.isArray(payload.files) ? payload.files : [];
       if (files.length === 0) return;
-      const details = payload.details && typeof payload.details === 'object' ? payload.details : {};
-      const targetId = textValue(details.id);
-      if (targetId && !COMPOSER_DROP_TARGET_IDS.has(targetId)) return;
       attachPaths(files);
-      setDropActive(false);
+      resetDropState();
     });
-  }, [attachPaths, canUseProjectActions, setDropActive]);
+  }, [attachPaths, canUseProjectActions, resetDropState]);
   const handlePaste = async (event) => {
+    const paths = extractClipboardFilePaths(event);
+    if (paths.length > 0) {
+      event.preventDefault();
+      if (projectActionBlocked) return;
+      if (typeof attachPaths === 'function') attachPaths(paths);
+      return;
+    }
     const images = extractClipboardImageFiles(event);
     if (images.length === 0) return;
     event.preventDefault();
@@ -4524,6 +4519,7 @@ function useComposerTransferHandlers({ attachDroppedFiles, attachPaths, attachPa
     if (!hasFilesTransfer(event)) return;
     event.preventDefault();
     if (projectActionBlocked) return;
+    dropDepthRef.current += 1;
     setDropActive(true);
   };
   const handleDragOver = (event) => {
@@ -4536,15 +4532,21 @@ function useComposerTransferHandlers({ attachDroppedFiles, attachPaths, attachPa
   const handleDragLeave = (event) => {
     if (!hasFilesTransfer(event)) return;
     event.preventDefault();
-    setDropActive(false);
+    dropDepthRef.current = Math.max(dropDepthRef.current - 1, 0);
+    if (dropDepthRef.current === 0) setDropActive(false);
   };
   const handleDrop = async (event) => {
     if (!hasFilesTransfer(event)) return;
     event.preventDefault();
-    setDropActive(false);
+    resetDropState();
     if (projectActionBlocked) return;
     const files = collectTransferFiles(event);
-    if (files.length > 0) await attachDroppedFiles(files);
+    if (files.length > 0) {
+      await attachDroppedFiles(files);
+      return;
+    }
+    const paths = extractTransferFilePaths(event);
+    if (paths.length > 0 && typeof attachPaths === 'function') attachPaths(paths);
   };
   return { handleDragEnter, handleDragLeave, handleDragOver, handleDrop, handlePaste };
 }
@@ -4556,32 +4558,19 @@ function ComposerDock({
   sendMessage,
   attachments,
   selectFiles,
-  attachPaths,
-  attachDroppedFiles,
-  attachPastedImages,
-  removeAttachment,
   sending,
   store,
-  permission,
-  setPermission,
   modelThreadId,
   showProviderToggle = true,
+  composer,
   canUseProjectActions = true,
 }) {
   const composerClass = `composer ${floating ? 'composer--floating' : 'composer--docked'}`;
   const hasComposerInput = Boolean(textValue(draft) || attachments.length > 0);
-  const canSend = canUseProjectActions && !sending && hasComposerInput;
+  const canInterrupt = canUseProjectActions && Boolean(store?.hasInterruptibleThreadAction?.(modelThreadId));
+  const canSend = canUseProjectActions && !sending && !canInterrupt && hasComposerInput;
   const projectActionBlocked = !canUseProjectActions;
   const projectActionBlockedTitle = '请先连接后端并选择项目';
-  const composer = useComposerInteractions({
-    attachments,
-    attachPaths,
-    attachDroppedFiles,
-    attachPastedImages,
-    removeAttachment,
-    projectActionBlocked,
-    canUseProjectActions,
-  });
 
   const handleKeyDown = useComposerSendKeyHandler({ canSend, composer, sendMessage });
 
@@ -4591,10 +4580,6 @@ function ComposerDock({
       className={`${composerClass}${composer.dropActive ? ' drop-active' : ''}`}
       data-testid="composer-dock"
       data-file-drop-target=""
-      onDragEnter={composer.handleDragEnter}
-      onDragOver={composer.handleDragOver}
-      onDragLeave={composer.handleDragLeave}
-      onDrop={(event) => runUIAction(() => composer.handleDrop(event))}
     >
       <div className="composer-card">
         {composer.dropActive ? <div className="composer-drop-hint" aria-live="polite">松开即可添加附件</div> : null}
@@ -4607,15 +4592,14 @@ function ComposerDock({
           setDraft={setDraft}
         />
         <ComposerMeta
+          canInterrupt={canInterrupt}
           canSend={canSend}
           canUseProjectActions={canUseProjectActions}
           modelThreadId={modelThreadId}
-          permission={permission}
           projectActionBlocked={projectActionBlocked}
           projectActionBlockedTitle={projectActionBlockedTitle}
           selectFiles={selectFiles}
           sendMessage={sendMessage}
-          setPermission={setPermission}
           showProviderToggle={showProviderToggle}
           store={store}
         />
@@ -4737,20 +4721,30 @@ function ForkDraftCard({ store }) {
 }
 
 function ComposerMeta({
+  canInterrupt,
   canSend,
   canUseProjectActions,
   modelThreadId,
-  permission,
   projectActionBlocked,
   projectActionBlockedTitle,
   selectFiles,
   sendMessage,
-  setPermission,
   showProviderToggle,
   store,
 }) {
   const canForkThread = canUseProjectActions && Boolean(store.hasActiveThreadActions?.());
   const forkBlockedTitle = projectActionBlocked ? projectActionBlockedTitle : '当前没有可继承的会话';
+  const primaryActionLabel = canInterrupt ? '中断当前执行' : '发送消息';
+  const primaryActionTitle = canInterrupt ? '中断当前执行' : undefined;
+  const primaryActionClass = `send${canInterrupt ? ' send--interrupt' : ''}`;
+  const primaryActionDisabled = canInterrupt ? false : !canSend;
+  const onPrimaryAction = () => {
+    if (canInterrupt) {
+      runUIAction(() => store.interruptActiveThread?.());
+      return;
+    }
+    if (canSend) runUIAction(() => sendMessage());
+  };
   return (
     <div className="composer-meta">
       <button
@@ -4777,25 +4771,11 @@ function ComposerMeta({
       >
         <GitBranch size={16} />
       </button>
-      <label className="permission-chip">
-        <span className="sr-only">发送权限</span>
-        <select
-          aria-label="发送权限"
-          value={permission}
-          disabled={projectActionBlocked}
-          title={projectActionBlocked ? projectActionBlockedTitle : undefined}
-          onChange={(event) => setPermission(event.target.value)}
-        >
-          <option>完全访问权限</option>
-          <option>工作区写入</option>
-          <option>只读模式</option>
-        </select>
-      </label>
       <div className="composer-actions">
         {showProviderToggle ? <ProviderToggle store={store} canUseProjectActions={canUseProjectActions} /> : null}
         <ModelSelector store={store} activeThreadId={modelThreadId} disabled={projectActionBlocked} />
-        <button type="button" className="send" aria-label="发送消息" disabled={!canSend} onClick={() => { if (canSend) runUIAction(() => sendMessage()); }}>
-          <Send size={18} />
+        <button type="button" className={primaryActionClass} aria-label={primaryActionLabel} title={primaryActionTitle} disabled={primaryActionDisabled} onClick={onPrimaryAction}>
+          {canInterrupt ? <CircleStop size={18} /> : <Send size={18} />}
         </button>
       </div>
     </div>
@@ -4816,61 +4796,86 @@ function Conversation(props) {
     loadOlderThreadMessages,
     timelineBlocked,
     timelineContentBlocked = false,
-    chatMode = 'chat',
-    setChatMode = () => {},
-    cmdLayout = 'mix',
-    setCmdLayout = () => {},
-    cmdCols = 2,
-    setCmdCols = () => {},
     messageActions,
     store,
+    attachments = [],
+    attachPaths,
+    attachDroppedFiles,
+    attachPastedImages,
+    removeAttachment,
+    canUseProjectActions = true,
+    sendMessage,
   } = props;
   const introMode = !activeThreadId && !timelineBlocked && messages.length === 0;
   const hasActiveReasoning = messages.some((message) => isReasoningMessage(message) && message.done === false);
   const pendingReasoning = !introMode && !timelineBlocked && !hasActiveReasoning && !hasAssistantReplyAfterLastUser(messages)
     ? syntheticReasoningMessage({ activeTurn, sending })
     : null;
-  const composer = <ConversationComposer {...props} floating={introMode} showProviderToggle={!activeThreadId} />;
+  const composerController = useComposerInteractions({
+    attachments,
+    attachPaths,
+    attachDroppedFiles,
+    attachPastedImages,
+    removeAttachment,
+    projectActionBlocked: !canUseProjectActions,
+    canUseProjectActions,
+  });
+  const timelineRef = useRef(null);
+  const scrollTimelineToBottom = useCallback(() => {
+    scrollTimelineElementToBottom(timelineRef.current);
+  }, []);
+  const sendMessageAndScrollToBottom = useCallback(() => {
+    const result = sendMessage();
+    requestTimelineBottomScroll(scrollTimelineToBottom);
+    return result;
+  }, [scrollTimelineToBottom, sendMessage]);
+  const composer = (
+    <ConversationComposer
+      {...props}
+      composer={composerController}
+      floating={introMode}
+      sendMessage={sendMessageAndScrollToBottom}
+      showProviderToggle={!activeThreadId}
+    />
+  );
+  const conversationClass = `conversation${introMode ? ' conversation--intro' : ''}${composerController.dropActive ? ' drop-active' : ''}`;
   return (
-    <section className={`conversation${introMode ? ' conversation--intro' : ''}`}>
-      {!introMode ? <ChatModeToolbar mode={chatMode} setMode={setChatMode} /> : null}
-      {chatMode === 'cmd' && !introMode ? (
-        <CommandWorkspace
-          store={store}
+    <section
+      id={CONVERSATION_DROP_TARGET_ID}
+      className={conversationClass}
+      data-testid={CONVERSATION_DROP_TARGET_ID}
+      data-file-drop-target=""
+      onDragEnter={composerController.handleDragEnter}
+      onDragOver={composerController.handleDragOver}
+      onDragLeave={composerController.handleDragLeave}
+      onDrop={(event) => runUIAction(() => composerController.handleDrop(event))}
+    >
+      <ContextUsageBanner activeThreadId={activeThreadId} store={store} tokenUsage={tokenUsage} />
+      <ConversationTimeline
+        composer={composer}
+        introMode={introMode}
+        messages={messages}
+        pendingReasoning={pendingReasoning}
+        projectPath={projectPath}
+        activeThreadId={activeThreadId}
+        messagePagination={messagePagination}
+        loadOlderThreadMessages={loadOlderThreadMessages}
+        timelineContentBlocked={timelineContentBlocked}
+        messageActions={messageActions}
+        onScrollToBottom={scrollTimelineToBottom}
+        timelineRef={timelineRef}
+      />
+      {!introMode ? (
+        <WorkStatus
+          sending={sending}
+          loading={timelineContentBlocked}
           activeThreadId={activeThreadId}
-          layout={cmdLayout}
-          setLayout={setCmdLayout}
-          cols={cmdCols}
-          setCols={setCmdCols}
+          activeThread={activeThread}
+          statusEntry={statusEntry}
+          tokenUsage={tokenUsage}
         />
-      ) : (
-        <>
-          <ContextUsageBanner activeThreadId={activeThreadId} store={store} tokenUsage={tokenUsage} />
-          <ConversationTimeline
-            composer={composer}
-            introMode={introMode}
-            messages={messages}
-            pendingReasoning={pendingReasoning}
-            projectPath={projectPath}
-            activeThreadId={activeThreadId}
-            messagePagination={messagePagination}
-            loadOlderThreadMessages={loadOlderThreadMessages}
-            timelineContentBlocked={timelineContentBlocked}
-            messageActions={messageActions}
-          />
-          {!introMode ? (
-            <WorkStatus
-              sending={sending}
-              loading={timelineContentBlocked}
-              activeThreadId={activeThreadId}
-              activeThread={activeThread}
-              statusEntry={statusEntry}
-              tokenUsage={tokenUsage}
-            />
-          ) : null}
-          {!introMode ? composer : null}
-        </>
-      )}
+      ) : null}
+      {!introMode ? composer : null}
     </section>
   );
 }
@@ -4901,16 +4906,11 @@ function ConversationComposer({
   sendMessage,
   attachments,
   selectFiles,
-  attachPaths,
-  attachDroppedFiles,
-  attachPastedImages,
-  removeAttachment,
   sending,
   store,
-  permission,
-  setPermission,
   modelThreadId,
   showProviderToggle,
+  composer,
   canUseProjectActions,
 }) {
   return (
@@ -4921,16 +4921,11 @@ function ConversationComposer({
       sendMessage={sendMessage}
       attachments={attachments}
       selectFiles={selectFiles}
-      attachPaths={attachPaths}
-      attachDroppedFiles={attachDroppedFiles}
-      attachPastedImages={attachPastedImages}
-      removeAttachment={removeAttachment}
       sending={sending}
       store={store}
-      permission={permission}
-      setPermission={setPermission}
       modelThreadId={modelThreadId}
       showProviderToggle={showProviderToggle}
+      composer={composer}
       canUseProjectActions={canUseProjectActions}
     />
   );
@@ -4990,6 +4985,8 @@ function ConversationTimeline({
   loadOlderThreadMessages,
   timelineContentBlocked,
   messageActions,
+  onScrollToBottom,
+  timelineRef,
 }) {
   const {
     hiddenOlderCount,
@@ -4999,7 +4996,6 @@ function ConversationTimeline({
   const olderPageRequestingThreadRef = useRef('');
   const [olderPageRequestingThreadId, setOlderPageRequestingThreadId] = useState('');
   const olderPageRequesting = olderPageRequestingThreadId === activeThreadId;
-  const containerRef = useRef(null);
   const bottomRef = useRef(null);
   const userScrolledRef = useRef(false);
   const olderPageLoading = Boolean(messagePagination?.loading || olderPageRequesting);
@@ -5027,7 +5023,7 @@ function ConversationTimeline({
       return;
     }
     if (canLoadBackendOlderPage) {
-      const container = containerRef.current;
+      const container = timelineRef.current;
       const beforeHeight = container ? container.scrollHeight : 0;
       requestBackendOlderPage();
       if (container && beforeHeight) {
@@ -5036,16 +5032,14 @@ function ConversationTimeline({
         });
       }
     }
-  }, [canLoadBackendOlderPage, hiddenOlderCount, requestBackendOlderPage, revealOlder, timelineContentBlocked]);
+  }, [canLoadBackendOlderPage, hiddenOlderCount, requestBackendOlderPage, revealOlder, timelineContentBlocked, timelineRef]);
   const handleScroll = useCallback((event) => {
     const el = event.currentTarget;
-    // detect user scrolling up — stop auto-follow
     userScrolledRef.current = el.scrollTop + el.clientHeight < el.scrollHeight - 100;
     if (timelineContentBlocked) return;
     if (hiddenOlderCount <= 0 && !hasBackendOlderPage) return;
     if (el.scrollTop <= TIMELINE_SCROLL_LOAD_THRESHOLD) requestOlderMessages();
   }, [hasBackendOlderPage, hiddenOlderCount, requestOlderMessages, timelineContentBlocked]);
-  // auto-scroll to bottom on new messages, unless user scrolled up
   const visibleLen = visibleMessages.length;
   const pendingLen = pendingReasoning ? 1 : 0;
   useEffect(() => {
@@ -5053,21 +5047,33 @@ function ConversationTimeline({
       bottomRef.current.scrollIntoView({ behavior: 'smooth' });
     }
   }, [visibleLen, pendingLen]);
-  // reset follow on new thread
   useEffect(() => {
     userScrolledRef.current = false;
   }, [activeThreadId]);
 
   return (
-    <div ref={containerRef} className="timeline" data-testid="chat-timeline" onScroll={handleScroll}>
-      {introMode ? <IntroChatStage composer={composer} projectPath={projectPath} /> : null}
-      {!introMode && !timelineContentBlocked && (hiddenOlderCount > 0 || hasBackendOlderPage) ? (
-        <TimelineOlderMessagesMarker hiddenCount={hiddenOlderCount} loading={olderPageLoading} onReveal={requestOlderMessages} />
+    <div className="timeline-shell">
+      <div className="timeline" data-testid="chat-timeline" ref={timelineRef} onScroll={handleScroll}>
+        {introMode ? <IntroChatStage composer={composer} projectPath={projectPath} /> : null}
+        {!introMode && !timelineContentBlocked && (hiddenOlderCount > 0 || hasBackendOlderPage) ? (
+          <TimelineOlderMessagesMarker hiddenCount={hiddenOlderCount} loading={olderPageLoading} onReveal={requestOlderMessages} />
+        ) : null}
+        {!introMode && !timelineContentBlocked ? visibleMessages.map((message) => <TimelineMessage key={message.id} message={message} actions={messageActions} />) : null}
+        {!introMode && timelineContentBlocked ? <TimelineLoadingPlaceholder /> : null}
+        {pendingReasoning ? <ReasoningTrace key={pendingReasoning.id} message={pendingReasoning} active /> : null}
+        <div ref={bottomRef} style={{ height: 0 }} aria-hidden="true" />
+      </div>
+      {activeThreadId && !introMode && !timelineContentBlocked ? (
+        <button
+          type="button"
+          className="chat-scroll-bottom-btn"
+          title="滚动到底部"
+          aria-label="滚动到底部"
+          onClick={onScrollToBottom}
+        >
+          <ChevronDown size={15} aria-hidden="true" />
+        </button>
       ) : null}
-      {!introMode && !timelineContentBlocked ? visibleMessages.map((message) => <TimelineMessage key={message.id} message={message} actions={messageActions} />) : null}
-      {!introMode && timelineContentBlocked ? <TimelineLoadingPlaceholder /> : null}
-      {pendingReasoning ? <ReasoningTrace key={pendingReasoning.id} message={pendingReasoning} active /> : null}
-      <div ref={bottomRef} style={{ height: 0 }} aria-hidden="true" />
     </div>
   );
 }

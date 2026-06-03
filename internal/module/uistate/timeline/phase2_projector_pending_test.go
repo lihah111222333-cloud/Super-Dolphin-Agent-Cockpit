@@ -123,6 +123,23 @@ func TestItemCompleted_FileChangeMarksSaved(t *testing.T) {
 	}, "expected file change completion to map to saved status")
 }
 
+func TestItemCompleted_UserMessageToolNameOnlyDoesNotAppendFallback(t *testing.T) {
+	t.Parallel()
+	requirePhase2TimelineShape(t)
+
+	svc, dispatcher, cleanup := newPhase2TimelineHarness(t)
+	defer cleanup()
+
+	event.Publish(dispatcher, turndto.ItemCompleted{
+		TurnHeader: phase2TurnHeader("t1", "agent-1", "turn-1"),
+		ItemType:   "userMessage",
+		ToolName:   "file",
+		Success:    true,
+	})
+
+	assertStableItemCount(t, svc, "t1", 0, "user message completion without call id or content should stay out of timeline")
+}
+
 func TestToolCallBegin_ToolKind(t *testing.T) {
 	t.Parallel()
 	requirePhase2TimelineShape(t)

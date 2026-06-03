@@ -1071,7 +1071,6 @@ function turnStartPayload(params) {
 function turnInterruptPayload(params) {
   const payload = requireThreadId(RPC_METHODS.TURN_INTERRUPT, requireCwd(RPC_METHODS.TURN_INTERRUPT, params));
   const turnId = normalizeString(payload.turnId || payload.turn_id);
-  if (!turnId) throw new Error(`${RPC_METHODS.TURN_INTERRUPT}: turnId is required`);
   return cleanObject({ threadId: payload.threadId, turnId, source: normalizeString(payload.source) });
 }
 

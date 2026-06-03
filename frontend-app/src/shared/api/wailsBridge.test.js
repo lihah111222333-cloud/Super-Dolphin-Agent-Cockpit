@@ -418,10 +418,13 @@ describe('wails bridge frontend trace emitter', () => {
     await waitForTraceFlush();
     await waitForTraceFlush();
 
-    const events = byID.mock.calls
-      .filter(([, method]) => method === 'observability/frontend/ingest')
-      .flatMap(([, , payload]) => payload.events);
-    expect(events).toHaveLength(2);
+    let events = [];
+    await waitFor(() => {
+      events = byID.mock.calls
+        .filter(([, method]) => method === 'observability/frontend/ingest')
+        .flatMap(([, , payload]) => payload.events);
+      expect(events).toHaveLength(2);
+    });
     expect(events[0]).toEqual(expect.objectContaining({
       phase: 'frontend.warning',
       method: 'memory.badge.refresh.failed',
