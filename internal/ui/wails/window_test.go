@@ -1,6 +1,8 @@
 package wails
 
 import (
+	"context"
+	"reflect"
 	"testing"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
@@ -9,7 +11,10 @@ import (
 func TestNewWindowOptionsMatchesDesktopDefaults(t *testing.T) {
 	t.Parallel()
 
-	options := newWindowOptions("Super Agent", true, "main", "", "")
+	options := newWindowOptions("Super Dolphin", true, "main", "", "")
+	if options.Title != "Super Dolphin" {
+		t.Fatalf("window title = %q, want Super Dolphin", options.Title)
+	}
 	if options.Width != 1440 || options.Height != 900 {
 		t.Fatalf("window size = %dx%d, want 1440x900", options.Width, options.Height)
 	}
@@ -54,5 +59,39 @@ func TestBuildFilesDroppedPayloadRejectsEmptyFileList(t *testing.T) {
 
 	if payload, ok := buildFilesDroppedPayload(nil, nil); ok || payload != nil {
 		t.Fatalf("buildFilesDroppedPayload() = (%#v, %t), want (nil, false)", payload, ok)
+	}
+}
+
+func TestEmitFilesDroppedEventMirrorsNativeEventToWebSocketPush(t *testing.T) {
+	t.Parallel()
+
+	nativeEvents := make([]string, 0, 1)
+	pushEvents := make([]string, 0, 1)
+	payload := map[string]any{"files": []string{"/tmp/a.txt"}}
+	app := &App{
+		emitter: func(event string, data any) {
+			nativeEvents = append(nativeEvents, event)
+			if !reflect.DeepEqual(data, payload) {
+				t.Fatalf("native payload = %#v, want original payload", data)
+			}
+		},
+		pushRuntimeEvent: func(ctx context.Context, event string, data any) {
+			if ctx == nil {
+				t.Fatal("push context is nil")
+			}
+			pushEvents = append(pushEvents, event)
+			if !reflect.DeepEqual(data, payload) {
+				t.Fatalf("push payload = %#v, want original payload", data)
+			}
+		},
+	}
+
+	emitFilesDroppedEvent(nil, app, payload)
+
+	if len(nativeEvents) != 1 || nativeEvents[0] != "files-dropped" {
+		t.Fatalf("native events = %#v, want files-dropped once", nativeEvents)
+	}
+	if len(pushEvents) != 1 || pushEvents[0] != "files-dropped" {
+		t.Fatalf("push events = %#v, want files-dropped once", pushEvents)
 	}
 }

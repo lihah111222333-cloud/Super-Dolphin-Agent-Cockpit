@@ -22,12 +22,13 @@ const (
 )
 
 type App struct {
-	dispatch      func(ctx context.Context, method string, params json.RawMessage) (json.RawMessage, error)
-	emitter       func(event string, data any)
-	wailsApp      *application.App
-	windowTitle   string
-	debug         bool
-	observability *observability.Service
+	dispatch         func(ctx context.Context, method string, params json.RawMessage) (json.RawMessage, error)
+	emitter          func(event string, data any)
+	pushRuntimeEvent func(ctx context.Context, event string, data any)
+	wailsApp         *application.App
+	windowTitle      string
+	debug            bool
+	observability    *observability.Service
 
 	group string
 
@@ -236,6 +237,19 @@ func (a *App) bindRuntime(wailsApp *application.App) {
 			return
 		}
 		wailsApp.Event.Emit(event, data)
+	}
+}
+
+func (a *App) emitRuntimeEvent(event string, data any) {
+	event = strings.TrimSpace(event)
+	if a == nil || event == "" {
+		return
+	}
+	if a.emitter != nil {
+		a.emitter(event, data)
+	}
+	if a.pushRuntimeEvent != nil {
+		a.pushRuntimeEvent(a.callContext(), event, data)
 	}
 }
 
