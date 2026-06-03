@@ -19,15 +19,16 @@ Complete closure work after the host-direct MVP is implemented:
 - run affected package tests through the guard wrapper;
 - inspect any guard or baseline diff before reporting done;
 - update this DAG or the source finding if implementation decisions differ;
-- optionally add RPC parity for `observability/trace/diagnose`;
-- optionally add `.agent/skills/trace-diagnosis/SKILL.md` so agents know to call `observability_trace_get` when users provide trace-like ids.
+- record RPC parity for `observability/trace/diagnose` as a follow-up unless the task is explicitly re-scoped;
+- record `.agent/skills/trace-diagnosis/SKILL.md` as a follow-up unless the task is explicitly re-scoped.
 
 ## Requirements
 
 - RPC parity is useful for UI and future peer forwarding, but not required for the first Codex-facing fix.
-- If RPC parity is implemented, route it through the same `DiagnoseTrace` platform API.
+- Do not implement RPC parity in T10 without explicit re-scoping; if it is implemented later, route it through the same `DiagnoseTrace` platform API.
 - Keep `observability/trace/get` as the raw event query.
-- The project skill must instruct agents to use the tool, not parse JSONL directly.
+- If the follow-up project skill is implemented later, it must instruct agents to use the tool, not parse JSONL directly.
+- Final report must include the implemented default limit, maximum limit, diagnosis payload bound, tail max bytes, tail timeout, and tail concurrency.
 
 ## Acceptance Criteria
 
@@ -43,4 +44,3 @@ Then report:
 - verification command and result;
 - any skipped follow-ups;
 - any remaining risks.
-

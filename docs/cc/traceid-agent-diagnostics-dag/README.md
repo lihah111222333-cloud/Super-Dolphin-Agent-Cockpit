@@ -17,12 +17,12 @@ Goal:
 | T02 | Query freshness and predicate alignment | T01 | `internal/platform/observability` |
 | T03 | Tail degradation and warning propagation | T01, T02 | `internal/platform/observability` |
 | T04 | Redacted model-facing projection | T01 | `internal/platform/observability` |
-| T05 | Host-direct trace tool registry | T03, T04 | `internal/platform/toolbridge` |
-| T06 | Host dispatch output and CWD contract | T05 | `internal/platform/toolbridge` |
-| T07 | Codex surface wiring, gating, and duplicate handling | T05, T06 | `internal/platform/toolbridge`, `internal/app` |
-| T08 | Platform observability tests | T02, T03, T04 | `internal/platform/observability` |
-| T09 | Toolbridge and Codex surface tests | T06, T07 | `internal/platform/toolbridge` |
-| T10 | Integration closure, verification, and follow-up docs | T08, T09 | `internal/module/observability`, `.agent/skills`, docs |
+| T06 | Host dispatch output and CWD contract | T01, T08 | `internal/platform/toolbridge` |
+| T05 | Host-direct trace tool registry | T03, T04, T06 | `internal/platform/toolbridge` |
+| T07 | Codex surface wiring, gating, and duplicate handling | T05 | `internal/platform/toolbridge`, `internal/app` |
+| T08 | Platform observability test gate | T02, T03, T04 | `internal/platform/observability` |
+| T09 | Toolbridge and Codex surface test gate | T05, T07 | `internal/platform/toolbridge` |
+| T10 | Integration closure, verification, and follow-up docs | T08, T09 | docs, verification |
 
 ## Edge List
 
@@ -30,18 +30,19 @@ Goal:
 T01 -> T02
 T01 -> T03
 T01 -> T04
+T01 -> T06
 T02 -> T03
 T03 -> T05
 T04 -> T05
-T05 -> T06
+T06 -> T05
 T05 -> T07
-T06 -> T07
 T02 -> T08
 T03 -> T08
 T04 -> T08
-T06 -> T09
+T05 -> T09
 T07 -> T09
 T08 -> T10
+T08 -> T06
 T09 -> T10
 ```
 
@@ -52,6 +53,21 @@ T09 -> T10
 - Do not advertise `observability_trace_get` when tracing is disabled.
 - If tail reads fail, return an explicit error or a degraded diagnosis; never return a clean diagnosis.
 - If duplicate host-only tool names are returned by MCP peers, the Codex surface must not fail entirely.
+- Treat T08 and T09 as test gates, not post-hoc test buckets; each behavior change must carry its own regression test in the same worktree commit.
+- Maximum implementation parallelism is two worker agents; do not run three implementation workers against this DAG because the observability and toolbridge files are tightly shared.
+
+## Safe Worktree Batches
+
+| Batch | Worker A | Worker B | Notes |
+| --- | --- | --- | --- |
+| 0 | Repair DAG and contract docs | none | Completed before implementation starts. |
+| 1 | T01 diagnosis contract | none | Freezes request fields, bounds, source/freshness, and raw-event ban. |
+| 2 | T02 + T03 freshness/tail degradation with tests | T04 projection/redaction with tests | The only main two-worker implementation batch. |
+| 3 | T08 platform test gate and observability integration check | optional read-only review | Must pass before toolbridge implementation starts. |
+| 4 | T06 dispatch, CWD/result contract | none | Runs before T05 so the trace registry consumes a frozen host-dispatch contract. |
+| 5 | T05 host registry + T07 wiring and duplicates | none | Kept single-worker to avoid toolbridge file conflicts. |
+| 6 | T09 toolbridge test gate and cross-check | optional read-only review | Do not split writes across `handler_host_tools.go` and `handler_peer_decode.go`. |
+| 7 | T10 final verification and follow-up report | none | RPC parity remains follow-up unless explicitly re-scoped. |
 
 ## Worktree Review And Merge Gate
 

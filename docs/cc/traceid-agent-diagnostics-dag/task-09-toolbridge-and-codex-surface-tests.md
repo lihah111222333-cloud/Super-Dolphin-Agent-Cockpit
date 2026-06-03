@@ -1,10 +1,10 @@
-# T09 - Toolbridge And Codex Surface Tests
+# T09 - Toolbridge And Codex Surface Test Gate
 
-Depends on: T06, T07
+Depends on: T05, T07
 
 ## Objective
 
-Lock toolbridge exposure, disabled gating, duplicate handling, CWD behavior, and output envelope behavior.
+Lock toolbridge exposure, disabled gating, stale direct calls, duplicate handling, CWD behavior, and output envelope behavior.
 
 ## Source Anchors
 
@@ -22,6 +22,7 @@ Add or extend tests for:
 - `observability_trace_get` calls return diagnosis payload with degraded fields when appropriate.
 - Result content is either `StructuredContent` or parseable bounded JSON text, matching the chosen T06 contract.
 - Reserved host-only duplicate names from MCP peers do not break surface preparation.
+- Non-reserved duplicate names and aliases still fail fast.
 - CWD behavior is covered for the trace tool path.
 
 ## Requirements
@@ -29,6 +30,8 @@ Add or extend tests for:
 - Keep non-reserved duplicate-name errors fail-fast.
 - Do not weaken existing memory host tool tests.
 - Assert input schema contains required `trace_id`.
+- Assert input schema exposes maximum `limit` and the server-side call path enforces it.
+- Do not leave all toolbridge tests to T09; behavior-changing work in T05, T06, and T07 must include its own tests before that worktree can pass review.
 
 ## Acceptance Criteria
 
@@ -37,4 +40,3 @@ Add or extend tests for:
 ```
 
 passes locally.
-
