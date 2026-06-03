@@ -2,9 +2,37 @@
 
 ## Summary
 
-Backend observability can record and query trace events, but Codex-facing tools do not expose a schema-validated diagnostic action that turns a `trace_id` into a bounded, redacted diagnosis.
+Status: resolved on integration branch `feat/traceid-agent-diagnostics`.
 
-## Finding
+Backend observability now exposes `observability_trace_get`, a Codex-facing, schema-validated host-direct tool that turns a `trace_id` into a bounded, redacted diagnosis. This document preserves the original finding, source evidence, and follow-up scope for RPC parity and project skill guidance.
+
+## Implementation Status
+
+Implemented source paths:
+
+- `internal/platform/observability/diagnose.go` defines `TraceDiagnosisRequest`, `TraceDiagnosis`, and `DiagnoseTrace`.
+- `internal/platform/observability/service.go` uses memory plus bounded JSONL tail reads with freshness, degradation, and tail-cost fields.
+- `internal/platform/observability/jsonl_reader.go` reports decode, truncation, file, byte, timeout, and warning details into query results.
+- `internal/platform/toolbridge/observability_trace_tool.go` registers `observability_trace_get` with strict input validation and the redacted diagnosis output.
+- `internal/platform/toolbridge/module.go` composes the trace registry with existing host-direct memory tools through Fx.
+- `internal/platform/toolbridge/handler_host_tools.go` and `handler_peer_decode.go` reserve host-only names, skip reserved peer duplicates and aliases, and keep non-reserved duplicate conflicts fail-fast.
+- `internal/platform/toolbridge/handler_host_tools.go` populates `StructuredContent` for host-direct results and supports CWD-optional host tools.
+
+Implemented contract values:
+
+- diagnosis default `limit`: 80 timeline entries;
+- diagnosis maximum `limit`: 200 timeline entries;
+- maximum serialized diagnosis payload: 256 KiB;
+- default JSONL query tail window: 20 MiB;
+- default JSONL tail timeout: 750 ms;
+- default JSONL tail max concurrency: 1.
+
+Follow-ups intentionally left open:
+
+- add RPC parity through `observability/trace/diagnose` while keeping `observability/trace/get` as the raw event query;
+- add `.agent/skills/trace-diagnosis/SKILL.md` so agents are explicitly taught to call `observability_trace_get` instead of parsing JSONL files directly.
+
+## Original Finding
 
 ### Trace IDs Need a Codex-Facing Diagnostic Tool
 
@@ -23,14 +51,14 @@ The app graph is capable of reaching a host-direct trace tool:
 
 - `internal/app/modules.go:59-83` wires `platformobservability.Module`, `moduleobservability.Module`, `codexapp.Module`, `toolbridge.Module`, `ToolbridgeAdapters`, and `ToolbridgeCodexBinding` in the same app graph.
 - `internal/platform/toolbridge/host_tools.go:10-34` defines the host-direct tool contract.
-- `internal/platform/toolbridge/module.go:71-85` currently composes host-direct tools from memory reader/writer dependencies only.
+- `internal/platform/toolbridge/module.go:71-85` originally composed host-direct tools from memory reader/writer dependencies only.
 - `internal/app/toolbridge_adapters.go:199-228` binds `toolbridge.Handler` into Codex `ServerManager` and `DriverFactory`.
 - `internal/provider/codexapp/support.go:325-341` prepares dynamic tools through the factory's `prepareTools` callback.
 - `internal/platform/toolbridge/handler_peer_decode.go:44-65` implements `PrepareCodexToolSurface`, which adds host tools before MCP stdio tools.
 - `internal/platform/toolbridge/handler_peer_decode.go:81-90` adds host tools to the Codex surface.
 - `internal/platform/toolbridge/handler_peer_decode.go:353-378` routes host-surface tool calls through `callHostTool`.
 
-The gap is that there is no current `observability_trace_get`, `observability/trace/diagnose`, or equivalent Codex-facing trace diagnosis tool in source. A user-provided trace id is therefore only a text clue for the agent, not a discoverable tool input.
+The original gap was that there was no `observability_trace_get`, `observability/trace/diagnose`, or equivalent Codex-facing trace diagnosis tool in source. A user-provided trace id was therefore only a text clue for the agent, not a discoverable tool input.
 
 ## Impact
 
@@ -44,7 +72,9 @@ An observability RPC caller can query a trace, but a Codex agent is not guarante
 
 That makes trace-driven performance and bug triage inconsistent even though the backend already records relevant data.
 
-## Source-Backed Readiness Risks
+## Original Source-Backed Readiness Risks
+
+The following list is preserved as the pre-implementation evidence reviewed for this work. The implemented status above records how the host-direct MVP addressed these risks.
 
 - `internal/platform/observability/service.go:153-170` returns memory results when tail read fails or when tail returns no events, without exposing degradation to callers.
 - `internal/platform/observability/module.go:28-31` returns a disabled service when tracing config is disabled, and `internal/platform/observability/service.go:93-107` exposes status and enabled state; a new tool must not advertise a working trace lookup when `svc.Enabled()` is false.
