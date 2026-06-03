@@ -48,8 +48,8 @@ That makes trace-driven performance and bug triage inconsistent even though the 
 
 - `internal/platform/observability/service.go:153-170` returns memory results when tail read fails or when tail returns no events, without exposing degradation to callers.
 - `internal/platform/observability/module.go:28-31` returns a disabled service when tracing config is disabled, and `internal/platform/observability/service.go:93-107` exposes status and enabled state; a new tool must not advertise a working trace lookup when `svc.Enabled()` is false.
-- `internal/platform/observability/service.go:239-301` caches tail query results by `Query` without TTL, file snapshot validation, or a force-refresh path.
-- `internal/module/observability/rpc.go:490-497` defaults `includeTail` to true, so callers can believe persisted history was consulted.
+- `internal/platform/observability/service.go:239-301` coalesces in-flight tail reads by `Query`; diagnosis freshness must report whether a fresh tail attempt happened and must not describe this as a completed-result cache.
+- `internal/module/observability/rpc.go:508-515` defaults `includeTail` to true, so callers can believe persisted history was consulted.
 - `internal/platform/observability/jsonl_reader.go:27-30` collects decode errors, while `jsonl_reader.go:44-51` drops them from `QueryResult`.
 - `internal/platform/observability/jsonl_reader.go:146-193` enumerates and stats tail files; `jsonl_reader.go:216-238` reads selected tail bytes into memory.
 - `internal/platform/observability/config.go:214-219` defaults tail reads to a 20 MB window, 750 ms timeout, and max concurrency of 1.
@@ -73,14 +73,16 @@ Add a shared platform API:
 Required behavior:
 
 - require a non-empty `TraceID`;
+- include `CWD` or `WorkspaceRoot` for repo-relative path normalization without using those fields to discover arbitrary trace files;
 - query memory and JSONL with matching predicate semantics;
-- support bounded `ForceRefresh` without making force refresh the default;
+- support bounded `ForceRefresh` as a fresh tail attempt without making force refresh the default;
 - never return a clean diagnosis when JSONL tail read fails;
 - either return an error, or return `degraded=true` with `tail_error` populated;
 - surface decode or partial-tail warnings through fields such as `tail_warnings` or `decode_error_count`;
 - include tail cost metadata such as `tail_files_scanned`, `tail_bytes_read`, and `tail_duration_ms`;
 - summarize slow, error, and panic spans;
 - preserve code anchors and stack summaries only as redacted, bounded data.
+- bound output with explicit defaults and maxima, including `Limit`, string sizes, stack frames, summary counts, and serialized payload size.
 
 ### Model-Facing Redacted Projection
 
@@ -90,7 +92,7 @@ Required output constraints:
 
 - omit raw `Metadata` unless keys are explicitly allowlisted;
 - omit prompt text, file snippets, and arbitrary user content;
-- redact PII-like and secret-like values before model exposure;
+- redact PII-like and secret-like values before model exposure, including absolute paths outside the workspace and filesystem paths embedded in tail errors or warnings;
 - normalize file and stack paths to repo-relative paths where possible;
 - bound timeline length, error summaries, stack frame count, and string sizes;
 - return source and freshness fields so the agent can tell memory-only, JSONL-tail, mixed, and degraded results apart.
@@ -130,7 +132,7 @@ Go tests should cover:
 - `internal/platform/observability`: diagnosis output is a redacted projection and does not include raw `TraceEvent` or raw metadata.
 - `internal/platform/toolbridge`: `PrepareCodexToolSurface` includes `observability_trace_get` when tracing is enabled.
 - `internal/platform/toolbridge`: `PrepareCodexToolSurface` excludes `observability_trace_get` when tracing is disabled, and stale direct calls return an explicit disabled/degraded outcome rather than a clean diagnosis.
-- `internal/platform/toolbridge`: `observability_trace_get` calls return a JSON tool result with a diagnosis payload, including degraded fields when appropriate.
+- `internal/platform/toolbridge`: `observability_trace_get` calls return either `StructuredContent` or bounded JSON text with a diagnosis payload, including degraded fields when appropriate.
 - `internal/platform/toolbridge`: the tool result is either populated as `StructuredContent` or covered by tests that assert the current JSON-text envelope is parseable and bounded.
 - `internal/platform/toolbridge`: reserved host-only duplicate names from MCP peers do not break `PrepareCodexToolSurface`.
 - `internal/platform/toolbridge`: CWD behavior is covered, either by proving `_cwd` is injected for this tool path or by testing a CWD-optional host dispatch branch.
