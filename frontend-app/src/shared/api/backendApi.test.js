@@ -162,13 +162,13 @@ import { createBackendApi, emitFrontendTraceEvent, RPC_METHODS } from './backend
     const callAPI = vi.fn().mockResolvedValue({ ok: true });
     const api = createBackendApi({ callAPI });
 
-    await api.interruptTurn({ cwd: '/repo/app', threadId: 'thread-1', source: 'ui_stop' });
+    await api.interruptTurn({ cwd: '/repo/app', threadId: 'thread-1', turnId: 'turn-1', source: 'ui_stop' });
     await api.forceCompleteTurn({ cwd: '/repo/app', threadId: 'thread-1' });
     await api.compactThread({ cwd: '/repo/app', threadId: 'thread-1' });
     await api.recoverThread({ cwd: '/repo/app', threadId: 'thread-1' });
 
     expect(callAPI).toHaveBeenNthCalledWith(1, RPC_METHODS.TURN_INTERRUPT, {
-      threadId: 'thread-1',
+      thread_id: 'thread-1',
       source: 'ui_stop',
     });
     expect(callAPI).toHaveBeenNthCalledWith(2, RPC_METHODS.TURN_FORCE_COMPLETE, {
@@ -199,14 +199,27 @@ import { createBackendApi, emitFrontendTraceEvent, RPC_METHODS } from './backend
       .toThrow('approval/respond: approved is required');
   });
 
-  it('keeps turn/interrupt compatible with backend thread-only payloads', async () => {
-    const callAPI = vi.fn().mockResolvedValue({ ok: true });
+  it('maps turn/interrupt to the backend request and response contract', async () => {
+    const response = {
+      ok: true,
+      turnId: 'turn-1',
+      status: 'interrupted',
+      confirmed: true,
+      mode: 'interrupt_confirmed',
+      interruptSent: true,
+      stateBefore: 'running',
+      stateAfter: 'interrupted',
+      waitedMs: 25,
+      activeObserved: false,
+    };
+    const callAPI = vi.fn().mockResolvedValue(response);
     const api = createBackendApi({ callAPI });
 
-    await api.interruptTurn({ cwd: '/repo/app', threadId: 'thread-1', source: 'ui_stop' });
+    await expect(api.interruptTurn({ cwd: '/repo/app', threadId: 'thread-1', turnId: 'turn-1', source: 'ui_stop' }))
+      .resolves.toEqual(response);
 
     expect(callAPI).toHaveBeenCalledWith(RPC_METHODS.TURN_INTERRUPT, {
-      threadId: 'thread-1',
+      thread_id: 'thread-1',
       source: 'ui_stop',
     });
   });
