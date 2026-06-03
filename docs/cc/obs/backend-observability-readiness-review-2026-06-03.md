@@ -41,10 +41,11 @@ Current W1/W4 implementation evidence:
 - W1 added `TestServiceQueryTailDoesNotReuseStaleResult` in `internal/platform/observability/service_test.go`, covering two identical sequential `IncludeTail:true` queries whose tail reader returns different results and must be called twice.
 - W4 locks UI/API reachability evidence in `frontend-app/src/pages/observability/ObservabilityPage.test.jsx`: recent search and trace drilldown payloads omit `includeTail`, so the RPC default remains reachable from the observability page. `frontend-app/src/shared/api/backendApi.test.js` already exactly covers the relevant API facade payload shapes without `includeTail:false`.
 
-Remaining DAG status:
+Final DAG status:
 
-- Tasks 03-06 add broader service JSONL and RPC freshness regressions on the W2/W3 branches or integration branch; do not count this document update as evidence that those worker tasks have landed here.
-- The overall OBS-F01 package remains pending final package verification.
+- Tasks 03-06 landed broader service JSONL and RPC freshness regressions on the integration branch.
+- W5 final package verification completed on `work/obs-tail-verify`; exact commands and results are recorded below.
+- Merge checklist outcome: W1-W4 worker branches had two review agents each, were committed in their worktrees, and were merged into `integration/obs-tail-cache-freshness`. The final integration range remained scoped to OBS-F01 files and docs; unrelated untracked files were not staged.
 
 ## Focus Finding
 
@@ -143,12 +144,30 @@ These were intentionally removed from the main blocker list because they did not
 
 ## Verification
 
-The follow-up review agent reported running:
+W5 final integration verification ran on `work/obs-tail-verify` at `4819712e` after W1-W4 integration.
 
 ```bash
 ./scripts/test_with_guard.sh ./internal/platform/observability ./internal/module/observability -count=1
 ```
 
-Result reported by the review agent: passed, including guard, `internal/archtest`, `internal/platform/observability`, and `internal/module/observability`.
+Result: exit 0. Guard passed, and these packages reported `ok`:
+
+- `github.com/anthropic-ai/super-agent-v3/internal/archtest`
+- `github.com/anthropic-ai/super-agent-v3/internal/platform/observability`
+- `github.com/anthropic-ai/super-agent-v3/internal/module/observability`
+
+```bash
+cd frontend-app
+npm test -- ObservabilityPage.test.jsx backendApi.test.js
+```
+
+Result: exit 0. Vitest reported 2 passed files and 26 passed tests:
+
+- `src/shared/api/backendApi.test.js` - 22 tests
+- `src/pages/observability/ObservabilityPage.test.jsx` - 4 tests
+
+The first frontend verification attempt in the W5 worktree failed because dependencies were not installed (`vitest: not found`). `npm ci` was run in `frontend-app`, then the same target test command passed. `npm ci` reported one critical audit finding; dependency audit remediation was outside this OBS-F01 verification scope.
+
+No broader `make test`, `make build-plain`, frontend lint, or frontend build command was run for this W5 verification.
 
 This document update is docs-only and does not change Go behavior.
