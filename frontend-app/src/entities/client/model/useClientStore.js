@@ -78,7 +78,7 @@ const RUNTIME_ASSISTANT_LOOSE_DUPLICATE_MIN_MATCHES = 4;
 const RUNTIME_ASSISTANT_LOOSE_DUPLICATE_MIN_RATIO = 0.65;
 const TIMELINE_KIND_KEYS = Object.freeze(['kind', 'type', 'eventType', 'event_type', 'role']);
 const TIMELINE_ROLE_KEYS = Object.freeze(['role', 'kind', 'type', 'eventType', 'event_type']);
-const TIMELINE_TEXT_KEYS = Object.freeze(['text', 'content', 'message', 'delta', 'output', 'result', 'answer', 'response', 'summary', 'preview']);
+const TIMELINE_TEXT_KEYS = Object.freeze(['text', 'content', 'message', 'delta', 'output', 'result', 'answer', 'response', 'summary', 'preview', 'error']);
 const TIMELINE_ID_KEYS = Object.freeze(['id', 'messageId', 'message_id']);
 const TIMELINE_TITLE_KEYS = Object.freeze(['title', 'label', 'name', 'tool', 'toolName', 'command']);
 const TIMELINE_TIME_KEYS = Object.freeze(['time', 'startedAt', 'started_at', 'ts', 'createdAt', 'created_at']);
@@ -1154,6 +1154,7 @@ function normalizeTimelineItem(item) {
     callId: normalizeString(firstFieldValue(item, TIMELINE_CALL_ID_KEYS)),
     requestId: positiveNumberFromFields(item, ['requestId', 'request_id']),
     command: normalizeString(item?.command),
+    toolName: normalizeString(item?.tool || item?.toolName || item?.tool_name),
     status,
     time: normalizeString(firstFieldValue(item, TIMELINE_TIME_KEYS)) || new Date().toISOString(),
     completedAt: normalizeString(firstFieldValue(item, TIMELINE_COMPLETED_KEYS)),
@@ -1511,12 +1512,33 @@ function isInjectedPromptTimelineItem(item) {
   return /^#\s+AGENTS\.md instructions for .+\n/i.test(text) && /<INSTRUCTIONS>[\s\S]*<\/INSTRUCTIONS>/i.test(text);
 }
 
+const MESSAGE_LIFECYCLE_ITEM_TYPES = new Set(['message', 'usermessage', 'user_message', 'assistantmessage', 'assistant_message']);
+const GENERIC_COMMAND_TITLES = new Set(['command', 'execute command', 'running command', '执行命令', '命令', '终端命令']);
+
+function isMessageLifecycleTimelineItem(item) {
+  if (item?.role) return false;
+  return MESSAGE_LIFECYCLE_ITEM_TYPES.has(normalizeString(item?.itemType).toLowerCase());
+}
+
+function isToolBackedCommandTimelineItem(item) {
+  return Boolean(normalizeString(item?.tool || item?.toolName || item?.tool_name));
+}
+
+function isMeaningfulCommandTimelineItem(item) {
+  if (normalizeString(item?.command)) return true;
+  if (normalizeString(item?.text || item?.output || item?.error)) return true;
+  const title = normalizeString(item?.title).trim();
+  return Boolean(title.startsWith('$ ') && !GENERIC_COMMAND_TITLES.has(title.toLowerCase()));
+}
+
 function isVisibleTimelineItem(item) {
   if (isInjectedPromptTimelineItem(item)) return false;
+  if (isMessageLifecycleTimelineItem(item)) return false;
   if (item?.role === 'user') return true;
   if (normalizeString(item?.text)) return true;
   const kind = normalizeTimelineKind(item);
-  return kind === 'thinking' || kind === 'reasoning' || kind === 'tool' || kind === 'command' || kind === 'process' || kind === 'plan';
+  if (kind === 'command') return !isToolBackedCommandTimelineItem(item) && isMeaningfulCommandTimelineItem(item);
+  return kind === 'thinking' || kind === 'reasoning' || kind === 'tool' || kind === 'process' || kind === 'plan';
 }
 
 function preferredAssistantTimelineItem(existingItem, incomingItem) {
@@ -1704,10 +1726,11 @@ function snapshotTimelineBase(state, nextThreads) {
 }
 
 function mergeSnapshotTimelineItems(existingTimeline, ready, items = []) {
+  const visibleExistingTimeline = existingTimeline.filter(isVisibleTimelineItem);
   const normalizedItems = items.map(normalizeTimelineItem);
   const visibleItems = normalizedItems.filter(isVisibleTimelineItem);
-  if (visibleItems.length === 0 && ready) return existingTimeline;
-  return mergeTimelineItems(existingTimeline, visibleItems, { preserveExistingVisible: true });
+  if (visibleItems.length === 0 && ready) return visibleExistingTimeline;
+  return mergeTimelineItems(visibleExistingTimeline, visibleItems, { preserveExistingVisible: true });
 }
 
 function snapshotTimelines(state, payload, nextThreads) {
@@ -2551,13 +2574,21 @@ function bridgePatchData(method, payload, threadId) {
 function bridgePatchTimeline(state, patch) {
   const timelinesByThread = { ...state.timelinesByThread };
   if (Array.isArray(patch.timelineItems)) {
+    const visibleItems = patch.timelineItems.map(normalizeTimelineItem).filter(isVisibleTimelineItem);
     timelinesByThread[patch.threadId] = mergeTimelineItems(
       timelinesByThread[patch.threadId] || [],
-      patch.timelineItems.map(normalizeTimelineItem).filter(isVisibleTimelineItem),
+      visibleItems,
       { preserveExistingVisible: true },
     );
   }
   return timelinesByThread;
+}
+
+function bridgePatchHasVisibleTimelineItems(patch) {
+  if (!Array.isArray(patch.timelineItems)) return false;
+  return patch.timelineItems
+    .map(normalizeTimelineItem)
+    .some(isVisibleTimelineItem);
 }
 
 function bridgePatchActiveTurn(state, patch) {
@@ -2650,6 +2681,9 @@ function bridgePatchState(state, patch) {
     threads: bridgePatchThreads(state, patch),
     activityThreadAtById: bridgePatchActivityThreadAt(state, patch),
     timelinesByThread: bridgePatchTimeline(state, patch),
+    threadTimelineReadyByThread: bridgePatchHasVisibleTimelineItems(patch)
+      ? { ...state.threadTimelineReadyByThread, [patch.threadId]: true }
+      : state.threadTimelineReadyByThread,
     tokenUsageByThread,
     activityStatsByThread,
     diffTextByThread,
@@ -3101,18 +3135,24 @@ function messagePageParams(id, before) {
 }
 
 function markThreadMessagesReady(set, id) {
-  set((state) => ({
-    timelinesByThread: state.threadTimelineReadyByThread?.[id]
-      ? state.timelinesByThread
-      : {
-        ...state.timelinesByThread,
-        [id]: mergeTimelineItems(state.timelinesByThread[id] || [], []),
+  set((state) => {
+    const timelineWasReady = Boolean(state.threadTimelineReadyByThread?.[id]);
+    return {
+      timelinesByThread: timelineWasReady
+        ? {
+          ...state.timelinesByThread,
+          [id]: mergeTimelineItems(state.timelinesByThread[id] || [], [], { preserveExistingVisible: true }),
+        }
+        : {
+          ...state.timelinesByThread,
+          [id]: mergeTimelineItems(state.timelinesByThread[id] || [], []),
+        },
+      threadTimelineReadyByThread: {
+        ...state.threadTimelineReadyByThread,
+        [id]: true,
       },
-    threadTimelineReadyByThread: {
-      ...state.threadTimelineReadyByThread,
-      [id]: true,
-    },
-  }));
+    };
+  });
 }
 
 async function fetchThreadMessagePage(id, before = '') {

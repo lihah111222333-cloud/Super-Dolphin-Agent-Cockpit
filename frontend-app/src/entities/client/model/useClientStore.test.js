@@ -2431,6 +2431,34 @@ function registerBridgeEventHandlersForTest() {
     ]);
   });
 
+  it('drops stale empty userMessage command cards while preserving cached messages', async () => {
+    backend.getThreadState.mockResolvedValue({
+      activeThreadId: 'thread-1',
+      threads: [{ id: 'thread-1', name: 'Existing', provider: 'codex', status: 'idle' }],
+      timelinesByThread: {},
+    });
+    backend.getThreadMessages.mockResolvedValue({ messages: [], hasMore: false, nextBefore: '' });
+    resetClientStoreForTests({
+      cwd: '/repo/app',
+      activeProject: '/repo/app',
+      activeThreadId: 'thread-1',
+      threads: [{ id: 'thread-1', name: 'Existing', provider: 'codex', status: 'running' }],
+      timelinesByThread: {
+        'thread-1': [
+          { id: 'cached-user', role: 'user', text: 'cached prompt', time: '2026-05-30T00:00:00Z' },
+          { id: 'item:userMessage', kind: 'command', status: 'completed', itemType: 'userMessage', done: true, success: true },
+        ],
+      },
+      threadTimelineReadyByThread: { 'thread-1': true },
+    });
+
+    await expect(useClientStore.getState().syncThreadState('thread-1')).resolves.toBe(true);
+
+    expect(useClientStore.getState().timelinesByThread['thread-1']).toEqual([
+      expect.objectContaining({ id: 'cached-user', text: 'cached prompt' }),
+    ]);
+  });
+
   it('ignores stale message pages and loading cleanup from older same-thread requests', async () => {
     const firstSnapshot = deferred();
     const secondSnapshot = deferred();
@@ -2970,6 +2998,128 @@ function registerBridgeEventHandlersForTest() {
       expect.objectContaining({ role: 'user', text: 'say ok' }),
       expect.objectContaining({ id: 'msg-final', role: 'assistant', text: 'ok', done: true }),
     ]);
+  });
+
+  it('marks visible live timeline bridge patches ready so tool cards survive empty history hydration', async () => {
+    backend.getThreadState.mockResolvedValue({
+      activeThreadId: 'thread-1',
+      threads: [{ id: 'thread-1', name: 'Thread 1', provider: 'codex', status: 'idle' }],
+      timelinesByThread: {},
+    });
+    backend.getThreadMessages.mockResolvedValue({ messages: [], hasMore: false, nextBefore: '' });
+    resetClientStoreForTests({
+      cwd: '/repo/app',
+      activeProject: '/repo/app',
+      activeThreadId: 'thread-1',
+      threads: [{ id: 'thread-1', name: 'Thread 1', provider: 'codex', status: 'running' }],
+      timelinesByThread: { 'thread-1': [] },
+      threadTimelineReadyByThread: {},
+    });
+    registerBridgeEventHandlersForTest();
+
+    bridgeCallback({
+      type: 'ui/thread/patch',
+      payload: {
+        threadId: 'thread-1',
+        sequence: '1',
+        timelineItems: [{
+          id: 'tool-file-read',
+          kind: 'tool',
+          title: 'file',
+          status: 'completed',
+          text: '{"success":true}',
+          callId: 'call-file',
+        }],
+      },
+    });
+
+    expect(useClientStore.getState().threadTimelineReadyByThread['thread-1']).toBe(true);
+
+    await expect(useClientStore.getState().syncThreadState('thread-1')).resolves.toBe(true);
+
+    expect(useClientStore.getState().timelinesByThread['thread-1']).toEqual([
+      expect.objectContaining({ id: 'tool-file-read', kind: 'tool', title: 'file' }),
+    ]);
+  });
+
+  it('does not mark structural-only bridge patches ready', () => {
+    resetClientStoreForTests({
+      cwd: '/repo/app',
+      activeProject: '/repo/app',
+      activeThreadId: 'thread-1',
+      threads: [{ id: 'thread-1', name: 'Thread 1', provider: 'codex', status: 'running' }],
+      timelinesByThread: { 'thread-1': [] },
+      threadTimelineReadyByThread: {},
+    });
+    registerBridgeEventHandlersForTest();
+
+    bridgeCallback({
+      type: 'ui/thread/patch',
+      payload: {
+        threadId: 'thread-1',
+        sequence: '1',
+        timelineItems: [{ id: 'turn-end:turn-1', kind: 'turn_end', status: 'completed' }],
+      },
+    });
+
+    expect(useClientStore.getState().threadTimelineReadyByThread['thread-1']).toBeUndefined();
+    expect(useClientStore.getState().timelinesByThread['thread-1']).toEqual([]);
+  });
+
+  it('drops live ghost command bridge patches emitted immediately after send', () => {
+    resetClientStoreForTests({
+      cwd: '/repo/app',
+      activeProject: '/repo/app',
+      activeThreadId: 'thread-1',
+      threads: [{ id: 'thread-1', name: 'Thread 1', provider: 'codex', status: 'running' }],
+      timelinesByThread: { 'thread-1': [] },
+      threadTimelineReadyByThread: {},
+    });
+    registerBridgeEventHandlersForTest();
+
+    bridgeCallback({
+      type: 'ui/thread/patch',
+      payload: {
+        threadId: 'thread-1',
+        sequence: '1',
+        timelineItems: [{
+          id: 'ghost-command',
+          kind: 'command',
+          title: '执行命令',
+          status: 'completed',
+          done: true,
+        }, {
+          id: 'tool-shadow-command',
+          kind: 'command',
+          title: 'file',
+          toolName: 'file',
+          status: 'completed',
+          done: true,
+        }],
+      },
+    });
+
+    expect(useClientStore.getState().timelinesByThread['thread-1']).toEqual([]);
+    expect(useClientStore.getState().threadTimelineReadyByThread['thread-1']).toBeUndefined();
+
+    bridgeCallback({
+      type: 'ui/thread/patch',
+      payload: {
+        threadId: 'thread-1',
+        sequence: '2',
+        timelineItems: [{
+          id: 'real-command',
+          kind: 'command',
+          command: 'npm test',
+          status: 'running',
+        }],
+      },
+    });
+
+    expect(useClientStore.getState().timelinesByThread['thread-1']).toEqual([
+      expect.objectContaining({ id: 'real-command', kind: 'command', command: 'npm test' }),
+    ]);
+    expect(useClientStore.getState().threadTimelineReadyByThread['thread-1']).toBe(true);
   });
 
   it('applies bridge patches for timeline, token usage, diff and warnings', () => {
