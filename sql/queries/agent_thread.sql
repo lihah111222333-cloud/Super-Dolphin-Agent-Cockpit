@@ -1,44 +1,38 @@
 -- name: GetAgentThreadByID :one
-SELECT thread_id, name, prompt, model, cwd, status, port, pid, created_at, updated_at, finished_at, last_event_type, error_message, workspace_run_key, owner_thread_id, parent_agent_id, agent_type, agent_memory_scope, config_override, agent_key, prompt_version_id, pending_launch, manually_renamed,
-       COALESCE((
-            SELECT b.agent_id
-            FROM agent_provider_binding b
-            WHERE b.provider_thread_id = agent_threads.thread_id
-               OR b.codex_thread_id = agent_threads.thread_id
-            ORDER BY b.updated_at DESC
-            LIMIT 1
-        ), '') AS agent_id
-FROM agent_threads
-WHERE thread_id = $1
+SELECT t.thread_id, t.name, t.prompt, t.model, t.cwd, t.status, t.port, t.pid, t.created_at, t.updated_at, t.finished_at, t.last_event_type, t.error_message, t.workspace_run_key, t.owner_thread_id, t.parent_agent_id, t.agent_type, t.agent_memory_scope, t.config_override, t.agent_key, t.prompt_version_id, t.pending_launch, t.manually_renamed,
+       COALESCE(b.agent_id, '') AS agent_id
+FROM agent_threads t
+LEFT JOIN LATERAL (
+    SELECT agent_id FROM agent_provider_binding
+    WHERE provider_thread_id = t.thread_id OR codex_thread_id = t.thread_id
+    ORDER BY updated_at DESC LIMIT 1
+) b ON true
+WHERE t.thread_id = $1
 LIMIT 1;
 
 -- name: GetAgentThreadByPort :one
-SELECT thread_id, name, prompt, model, cwd, status, port, pid, created_at, updated_at, finished_at, last_event_type, error_message, workspace_run_key, owner_thread_id, parent_agent_id, agent_type, agent_memory_scope, config_override, agent_key, prompt_version_id, pending_launch, manually_renamed,
-       COALESCE((
-            SELECT b.agent_id
-            FROM agent_provider_binding b
-            WHERE b.provider_thread_id = agent_threads.thread_id
-               OR b.codex_thread_id = agent_threads.thread_id
-            ORDER BY b.updated_at DESC
-            LIMIT 1
-        ), '') AS agent_id
-FROM agent_threads
-WHERE port = $1 AND status = 'running'
-ORDER BY updated_at DESC
+SELECT t.thread_id, t.name, t.prompt, t.model, t.cwd, t.status, t.port, t.pid, t.created_at, t.updated_at, t.finished_at, t.last_event_type, t.error_message, t.workspace_run_key, t.owner_thread_id, t.parent_agent_id, t.agent_type, t.agent_memory_scope, t.config_override, t.agent_key, t.prompt_version_id, t.pending_launch, t.manually_renamed,
+       COALESCE(b.agent_id, '') AS agent_id
+FROM agent_threads t
+LEFT JOIN LATERAL (
+    SELECT agent_id FROM agent_provider_binding
+    WHERE provider_thread_id = t.thread_id OR codex_thread_id = t.thread_id
+    ORDER BY updated_at DESC LIMIT 1
+) b ON true
+WHERE t.port = $1 AND t.status = 'running'
+ORDER BY t.updated_at DESC
 LIMIT 1;
 
 -- name: ListAgentThreads :many
-SELECT thread_id, name, prompt, model, cwd, status, port, pid, created_at, updated_at, finished_at, last_event_type, error_message, workspace_run_key, owner_thread_id, parent_agent_id, agent_type, agent_memory_scope, config_override, agent_key, prompt_version_id, pending_launch, manually_renamed,
-       COALESCE((
-            SELECT b.agent_id
-            FROM agent_provider_binding b
-            WHERE b.provider_thread_id = agent_threads.thread_id
-               OR b.codex_thread_id = agent_threads.thread_id
-            ORDER BY b.updated_at DESC
-            LIMIT 1
-        ), '') AS agent_id
-FROM agent_threads
-ORDER BY created_at DESC;
+SELECT t.thread_id, t.name, t.prompt, t.model, t.cwd, t.status, t.port, t.pid, t.created_at, t.updated_at, t.finished_at, t.last_event_type, t.error_message, t.workspace_run_key, t.owner_thread_id, t.parent_agent_id, t.agent_type, t.agent_memory_scope, t.config_override, t.agent_key, t.prompt_version_id, t.pending_launch, t.manually_renamed,
+       COALESCE(b.agent_id, '') AS agent_id
+FROM agent_threads t
+LEFT JOIN LATERAL (
+    SELECT agent_id FROM agent_provider_binding
+    WHERE provider_thread_id = t.thread_id OR codex_thread_id = t.thread_id
+    ORDER BY updated_at DESC LIMIT 1
+) b ON true
+ORDER BY t.created_at DESC;
 
 -- name: ListRunningAgents :many
 SELECT thread_id, port, pid, status
@@ -47,32 +41,28 @@ WHERE status = 'running'
 ORDER BY created_at DESC;
 
 -- name: ListRunningAgentThreads :many
-SELECT thread_id, name, prompt, model, cwd, status, port, pid, created_at, updated_at, finished_at, last_event_type, error_message, workspace_run_key, owner_thread_id, parent_agent_id, agent_type, agent_memory_scope, config_override, agent_key, prompt_version_id, pending_launch, manually_renamed,
-       COALESCE((
-            SELECT b.agent_id
-            FROM agent_provider_binding b
-            WHERE b.provider_thread_id = agent_threads.thread_id
-               OR b.codex_thread_id = agent_threads.thread_id
-            ORDER BY b.updated_at DESC
-            LIMIT 1
-        ), '') AS agent_id
-FROM agent_threads
-WHERE status = 'running'
-ORDER BY created_at ASC;
+SELECT t.thread_id, t.name, t.prompt, t.model, t.cwd, t.status, t.port, t.pid, t.created_at, t.updated_at, t.finished_at, t.last_event_type, t.error_message, t.workspace_run_key, t.owner_thread_id, t.parent_agent_id, t.agent_type, t.agent_memory_scope, t.config_override, t.agent_key, t.prompt_version_id, t.pending_launch, t.manually_renamed,
+       COALESCE(b.agent_id, '') AS agent_id
+FROM agent_threads t
+LEFT JOIN LATERAL (
+    SELECT agent_id FROM agent_provider_binding
+    WHERE provider_thread_id = t.thread_id OR codex_thread_id = t.thread_id
+    ORDER BY updated_at DESC LIMIT 1
+) b ON true
+WHERE t.status = 'running'
+ORDER BY t.created_at ASC;
 
 -- name: ListRecoverableAgentThreads :many
-SELECT thread_id, name, prompt, model, cwd, status, port, pid, created_at, updated_at, finished_at, last_event_type, error_message, workspace_run_key, owner_thread_id, parent_agent_id, agent_type, agent_memory_scope, config_override, agent_key, prompt_version_id, pending_launch, manually_renamed,
-       COALESCE((
-            SELECT b.agent_id
-            FROM agent_provider_binding b
-            WHERE b.provider_thread_id = agent_threads.thread_id
-               OR b.codex_thread_id = agent_threads.thread_id
-            ORDER BY b.updated_at DESC
-            LIMIT 1
-        ), '') AS agent_id
-FROM agent_threads
-WHERE status = 'created'
-ORDER BY created_at ASC;
+SELECT t.thread_id, t.name, t.prompt, t.model, t.cwd, t.status, t.port, t.pid, t.created_at, t.updated_at, t.finished_at, t.last_event_type, t.error_message, t.workspace_run_key, t.owner_thread_id, t.parent_agent_id, t.agent_type, t.agent_memory_scope, t.config_override, t.agent_key, t.prompt_version_id, t.pending_launch, t.manually_renamed,
+       COALESCE(b.agent_id, '') AS agent_id
+FROM agent_threads t
+LEFT JOIN LATERAL (
+    SELECT agent_id FROM agent_provider_binding
+    WHERE provider_thread_id = t.thread_id OR codex_thread_id = t.thread_id
+    ORDER BY updated_at DESC LIMIT 1
+) b ON true
+WHERE t.status = 'created'
+ORDER BY t.created_at ASC;
 
 -- name: UpsertAgentThread :exec
 INSERT INTO agent_threads (
@@ -146,17 +136,19 @@ SELECT EXISTS(
 );
 
 -- name: ListAgentThreadCwds :many
-SELECT thread_id, cwd
+SELECT DISTINCT ON (cwd) thread_id, cwd
 FROM agent_threads
 WHERE cwd <> ''
-ORDER BY created_at DESC;
+ORDER BY cwd, created_at DESC
+LIMIT 100;
 
 -- name: ListAgentThreadCwdsByPrefix :many
-SELECT thread_id, cwd
+SELECT DISTINCT ON (cwd) thread_id, cwd
 FROM agent_threads
 WHERE cwd <> ''
   AND cwd LIKE $1 || '%'
-ORDER BY created_at DESC;
+ORDER BY cwd, created_at DESC
+LIMIT 100;
 
 -- name: UpdateAgentThreadLaunchResult :exec
 -- Atomically clears pending_launch and stamps the router decision after the

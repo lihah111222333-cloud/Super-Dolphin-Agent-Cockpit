@@ -96,7 +96,6 @@ type Querier interface {
 	InsertCronJobRun(ctx context.Context, arg InsertCronJobRunParams) (CronJobRun, error)
 	InsertPromptVersion(ctx context.Context, arg InsertPromptVersionParams) (int64, error)
 	InsertSystemLog(ctx context.Context, arg InsertSystemLogParams) error
-	InsertTaskTrace(ctx context.Context, arg InsertTaskTraceParams) (TaskTrace, error)
 	ListAILogSystemLogs(ctx context.Context, arg ListAILogSystemLogsParams) ([]SystemLog, error)
 	ListAILogsByCategory(ctx context.Context, arg ListAILogsByCategoryParams) ([]ListAILogsByCategoryRow, error)
 	ListAgentFeedbackEventsByAgent(ctx context.Context, arg ListAgentFeedbackEventsByAgentParams) ([]AgentFeedbackEvent, error)
@@ -149,7 +148,6 @@ type Querier interface {
 	ListSessionInsightsByThread(ctx context.Context, arg ListSessionInsightsByThreadParams) ([]SessionInsight, error)
 	ListSharedFiles(ctx context.Context, arg ListSharedFilesParams) ([]SharedFile, error)
 	ListSystemLogs(ctx context.Context, arg ListSystemLogsParams) ([]SystemLog, error)
-	ListTaskTraces(ctx context.Context, arg ListTaskTracesParams) ([]TaskTrace, error)
 	ListUIPreferences(ctx context.Context, arg ListUIPreferencesParams) ([]ListUIPreferencesRow, error)
 	// Used on scheduler boot for crash recovery: any run stuck in submitting /
 	// submitted / running must be re-entered through Observe / LookupByDedupeKey
