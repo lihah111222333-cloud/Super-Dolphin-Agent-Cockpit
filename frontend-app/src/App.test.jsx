@@ -1188,6 +1188,82 @@ async function toggleInlineTraceFromRecentLogs(table) {
     expect(screen.queryByText(/```textSuper-Dolphin/)).not.toBeInTheDocument();
   });
 
+  it('renders common markdown code fence variants without leaking fence metadata', async () => {
+    backend.getThreadState.mockResolvedValue({
+      activeThreadId: 'thread-1',
+      timelinesByThread: {
+        'thread-1': [{
+          id: 'assistant-common-code-fences',
+          kind: 'assistant',
+          text: [
+            '常见代码块：',
+            '',
+            '~~~bash',
+            'npm run lint',
+            '~~~',
+            '',
+            '```bash title="frontend test"',
+            'npm test',
+            '```',
+            '',
+            '```js {1,3}',
+            'const value = 1;',
+            'console.log(value);',
+            '```',
+            '',
+            '缩进代码：',
+            '    pnpm install',
+            '    pnpm test',
+          ].join('\n'),
+          ts: '2026-05-30T00:00:00Z',
+        }],
+      },
+    });
+
+    const { container } = render(<App />);
+
+    expect(await screen.findByText('常见代码块：')).toBeInTheDocument();
+    const codeBlocks = Array.from(container.querySelectorAll('.message-markdown pre code'));
+    expect(codeBlocks).toHaveLength(4);
+    expect(codeBlocks[0]).toHaveTextContent('npm run lint');
+    expect(codeBlocks[1]).toHaveTextContent('npm test');
+    expect(codeBlocks[1]).not.toHaveTextContent('title="frontend test"');
+    expect(codeBlocks[2]).toHaveTextContent('const value = 1;');
+    expect(codeBlocks[2]).not.toHaveTextContent('{1,3}');
+    expect(codeBlocks[3]).toHaveTextContent('pnpm install');
+    expect(codeBlocks[3]).toHaveTextContent('pnpm test');
+    expect(screen.queryByText(/~~~bash/)).not.toBeInTheDocument();
+  });
+
+  it('renders unfenced terminal transcripts as code blocks instead of markdown quotes', async () => {
+    backend.getThreadState.mockResolvedValue({
+      activeThreadId: 'thread-1',
+      timelinesByThread: {
+        'thread-1': [{
+          id: 'assistant-terminal-transcript',
+          kind: 'assistant',
+          text: [
+            '执行结果：',
+            '$ npm test',
+            '> super-dolphin-frontend-app@0.1.0 test',
+            '> vitest run',
+            'PASS src/App.test.jsx',
+          ].join('\n'),
+          ts: '2026-05-30T00:00:00Z',
+        }],
+      },
+    });
+
+    const { container } = render(<App />);
+
+    expect(await screen.findByText('执行结果：')).toBeInTheDocument();
+    const codeBlock = container.querySelector('.message-markdown pre code');
+    expect(codeBlock).toHaveTextContent('$ npm test');
+    expect(codeBlock).toHaveTextContent('> vitest run');
+    expect(codeBlock).toHaveTextContent('PASS src/App.test.jsx');
+    expect(container.querySelector('.message-markdown blockquote')).toBeNull();
+  });
+
   it('renders generated local image paths from assistant replies as image previews', async () => {
     const imagePath = '/Users/ai/.codex/generated_images/019e8195-2f77-7aa1-96bd-63f784e87ac4/ig_088272cb55a587f8016a1d3d9660148191951c218f7b0b6c1.png';
     backend.getThreadState.mockResolvedValue({

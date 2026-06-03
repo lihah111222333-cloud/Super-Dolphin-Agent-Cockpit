@@ -733,6 +733,8 @@ const LEGACY_TURN_STATE_ALIASES = Object.freeze({
   发送中: 'preparing',
   pending: 'starting',
   recovering: 'syncing',
+  create: 'idle',
+  created: 'idle',
   错误: 'error',
   失败: 'failed',
   空闲: 'idle',
@@ -751,11 +753,12 @@ function threadProviderLabel(provider) {
 function threadCardStatusLabel(thread, running) {
   const status = (thread?.status || '').toString().trim();
   const normalized = status.toLowerCase();
-  const mapped = TURN_STATE_INFO[normalizeTurnState(status)];
-  if (!status || normalized === 'idle' || status === '空闲' || status === '等待指示') return '';
+  const normalizedState = normalizeTurnState(status);
+  const mapped = TURN_STATE_INFO[normalizedState];
+  if (!status || normalizedState === 'idle' || normalized === 'idle' || status === '空闲' || status === '等待指示') return '';
   if (mapped?.label) return mapped.label;
   if (running) return '工作中';
-  return status;
+  return '';
 }
 
 function threadStatusBusy(status) {
@@ -2520,8 +2523,14 @@ const CODE_FENCE_LANGUAGE_PREFIXES = Object.freeze([
   'mermaid',
   'javascript',
   'typescript',
+  'powershell',
   'plaintext',
   'markdown',
+  'dockerfile',
+  'makefile',
+  'terminal',
+  'console',
+  'python',
   'jsonc',
   'json',
   'bash',
@@ -2535,14 +2544,26 @@ const CODE_FENCE_LANGUAGE_PREFIXES = Object.freeze([
   'css',
   'tsx',
   'jsx',
+  'yml',
   'zsh',
   'sh',
   'txt',
   'sql',
   'log',
   'xml',
+  'env',
+  'ini',
+  'ps1',
+  'php',
+  'cpp',
+  'c++',
+  'rust',
+  'ruby',
   'go',
   'py',
+  'rs',
+  'rb',
+  'c',
   'md',
 ].sort((left, right) => right.length - left.length));
 
@@ -2648,38 +2669,195 @@ function CodeBlock({ language = '', code = '' }) {
   return <pre><code>{code}</code></pre>;
 }
 
-function splitMarkdownFenceLine(line) {
-  const markerIndex = line.indexOf('```');
-  if (markerIndex < 0) return null;
-  const prefix = line.slice(0, markerIndex);
-  const afterMarker = line.slice(markerIndex + 3).replace(/^\s+/, '');
-  if (!afterMarker) return { prefix, language: '', firstCodeLine: '' };
+function fenceMarkerMatch(line) {
+  const backtickIndex = line.indexOf('```');
+  const tildeIndex = line.indexOf('~~~');
+  if (backtickIndex < 0 && tildeIndex < 0) return null;
+  const markerIndex = backtickIndex < 0
+    ? tildeIndex
+    : (tildeIndex < 0 ? backtickIndex : Math.min(backtickIndex, tildeIndex));
+  const markerChar = line[markerIndex];
+  let fenceLength = 0;
+  while (line[markerIndex + fenceLength] === markerChar) fenceLength += 1;
+  if (fenceLength < 3) return null;
+  return { markerIndex, markerChar, fenceLength };
+}
 
-  const tokenMatch = afterMarker.match(/^([A-Za-z][\w-]*)(?:\s+(.*))?$/);
-  if (tokenMatch && tokenMatch[2] !== undefined) {
-    return { prefix, language: tokenMatch[1].toLowerCase(), firstCodeLine: tokenMatch[2] };
+function normalizeFenceLanguageToken(token) {
+  const value = (token || '').toString().trim().toLowerCase();
+  if (!value) return '';
+  const classMatch = value.match(/^\{\.?([a-z][\w+-]*)/);
+  if (classMatch) return classMatch[1].replace(/^language-/, '');
+  return value.replace(/^language-/, '').replace(/^\./, '');
+}
+
+function fenceInfoRestIsMetadata(rest) {
+  const value = (rest || '').toString().trim();
+  if (!value) return false;
+  return (
+    /^[{[(]/.test(value) ||
+    /^(?:title|filename|file|caption|linenos?|highlight|hl_lines|showlinenumbers|numberlines)\b/i.test(value) ||
+    /^[\w-]+\s*=/.test(value)
+  );
+}
+
+function parseFenceInfo(rawInfo) {
+  const info = (rawInfo || '').toString().trim();
+  if (!info) return { language: '', firstCodeLine: '' };
+
+  const tokenMatch = info.match(/^([A-Za-z][\w+-]*)(?:\s+(.+))?$/);
+  if (tokenMatch) {
+    const rest = tokenMatch[2] || '';
+    return {
+      language: normalizeFenceLanguageToken(tokenMatch[1]),
+      firstCodeLine: fenceInfoRestIsMetadata(rest) ? '' : rest,
+    };
   }
 
-  const lower = afterMarker.toLowerCase();
+  const classMatch = info.match(/^\{\.?([A-Za-z][\w+-]*)(?:\s+[^}]*)?}$/);
+  if (classMatch) {
+    return { language: normalizeFenceLanguageToken(classMatch[1]), firstCodeLine: '' };
+  }
+
+  const lower = info.toLowerCase();
   const language = CODE_FENCE_LANGUAGE_PREFIXES.find((item) => lower.startsWith(item));
-  if (language && afterMarker.length > language.length) {
-    return { prefix, language, firstCodeLine: afterMarker.slice(language.length) };
+  if (language && info.length > language.length) {
+    const suffix = info.slice(language.length);
+    return {
+      language,
+      firstCodeLine: fenceInfoRestIsMetadata(suffix) ? '' : suffix,
+    };
   }
 
-  return { prefix, language: afterMarker.toLowerCase(), firstCodeLine: '' };
+  return { language: normalizeFenceLanguageToken(info), firstCodeLine: '' };
+}
+
+function splitMarkdownFenceLine(line) {
+  const marker = fenceMarkerMatch(line);
+  if (!marker) return null;
+  const prefix = line.slice(0, marker.markerIndex);
+  const rawInfo = line.slice(marker.markerIndex + marker.fenceLength).replace(/^\s+/, '');
+  return {
+    prefix,
+    markerChar: marker.markerChar,
+    fenceLength: marker.fenceLength,
+    ...parseFenceInfo(rawInfo),
+  };
 }
 
 function normalizeMessageText(text) {
   return (text || '').toString().replace(/\r\n/g, '\n');
 }
 
+function isIndentedMarkdownCodeLine(line) {
+  return /^(?: {4}|\t)/.test(line || '');
+}
+
+function unindentMarkdownCodeLine(line) {
+  return (line || '').toString().replace(/^(?: {4}|\t)/, '');
+}
+
+function isTerminalPromptLine(line) {
+  return /^\s{0,3}(?:(?:[$❯➜λ])|(?:PS [^>]*>)|(?:[A-Za-z]:[\\/][^>]*>)|(?:[\w.-]+@[\w.-]+:[^\s$#>]*[$#]))\s+\S/.test(line || '');
+}
+
+function isInsideInlineCode(source, offset) {
+  let open = false;
+  for (let index = 0; index < offset; index += 1) {
+    if (source[index] !== '`') continue;
+    let runLength = 1;
+    while (source[index + runLength] === '`') runLength += 1;
+    if (runLength === 1) open = !open;
+    index += runLength - 1;
+  }
+  return open;
+}
+
+function markdownHeadingMatch(line) {
+  const trimmed = line.trim();
+  const standard = trimmed.match(/^(#{1,6})\s+(.+)$/);
+  if (standard) return standard;
+  const compact = trimmed.match(/^(#{2,6})(\S.+)$/);
+  if (!compact) return null;
+  return [compact[0], compact[1], compact[2]];
+}
+
+function unorderedMarkdownListItemText(line) {
+  const trimmed = line.trim();
+  const standard = trimmed.match(/^[-*]\s+(.+)$/);
+  if (standard) return standard[1];
+  const compact = trimmed.match(/^[-*]((?:[A-Z][A-Za-z0-9_-]{1,40}|[\u4e00-\u9fff][\u4e00-\u9fffA-Za-z0-9_-]{0,20})[:：].+)$/);
+  return compact?.[1] || '';
+}
+
+function startsSoftMarkdownHeading(source, index) {
+  if (index <= 0 || source[index] !== '#' || isInsideInlineCode(source, index)) return false;
+  let cursor = index;
+  while (source[cursor] === '#') cursor += 1;
+  const level = cursor - index;
+  if (level < 2 || level > 6 || !source[cursor] || /\s/.test(source[cursor])) return false;
+  return /[\s。！？!?；;：:，,.)）\]}]/.test(source[index - 1]);
+}
+
+function compactHeadingPrefixBeforeList(value) {
+  return /^#{2,6}[^:：\s]*$/.test(value.trim());
+}
+
+function startsSoftMarkdownList(source, index, segmentStart) {
+  if (index <= 0 || source[index] !== '-' || isInsideInlineCode(source, index)) return false;
+  if (compactHeadingPrefixBeforeList(source.slice(segmentStart, index))) return false;
+  if (!unorderedMarkdownListItemText(source.slice(index))) return false;
+  if (/^-\s+/.test(source.slice(index))) {
+    return /[\s。！？!?；;：:，,.)）\]}]/.test(source[index - 1]);
+  }
+  return !/[\\/]/.test(source[index - 1]);
+}
+
+function splitMarkdownSoftBlocks(line) {
+  const source = (line || '').toString();
+  if (!source || fenceMarkerMatch(source)) return [source];
+  const boundaries = [];
+  let segmentStart = 0;
+  for (let index = 1; index < source.length; index += 1) {
+    if (startsSoftMarkdownHeading(source, index)) {
+      boundaries.push(index);
+      segmentStart = index;
+      continue;
+    }
+    if (startsSoftMarkdownList(source, index, segmentStart)) {
+      boundaries.push(index);
+      segmentStart = index;
+    }
+  }
+  if (boundaries.length === 0) return [source];
+  const chunks = [];
+  let start = 0;
+  boundaries.forEach((boundary) => {
+    const chunk = source.slice(start, boundary).trimEnd();
+    if (chunk) chunks.push(chunk);
+    start = boundary;
+  });
+  const tail = source.slice(start).trimStart();
+  if (tail) chunks.push(tail);
+  return chunks.length > 0 ? chunks : [source];
+}
+
+function markdownInputLines(text) {
+  return normalizeMessageText(text).split('\n').flatMap(splitMarkdownSoftBlocks);
+}
+
 function standaloneCodeFence(text) {
-  const trimmed = normalizeMessageText(text).trim();
-  const match = trimmed.match(/^```([^\n`]*)\n([\s\S]*?)\n```$/);
-  if (!match) return null;
+  const lines = normalizeMessageText(text).trim().split('\n');
+  if (lines.length < 2) return null;
+  const opening = splitMarkdownFenceLine(lines[0]);
+  if (!opening || opening.prefix.trim()) return null;
+  const closing = markdownClosingFence(lines.at(-1), opening);
+  if (!closing) return null;
+  const bodyLines = lines.slice(1, -1);
+  if (opening.firstCodeLine) bodyLines.unshift(opening.firstCodeLine);
   return {
-    language: (match[1] || '').trim().toLowerCase(),
-    body: match[2],
+    language: opening.language,
+    body: bodyLines.join('\n'),
   };
 }
 
@@ -2723,7 +2901,7 @@ function isLogOutput(text) {
   const levelLines = lines.filter((line) => /^(\[[A-Z]+]|\d{4}-\d{2}-\d{2}[T\s]\d{2}:\d{2}:\d{2}|(?:TRACE|DEBUG|INFO|WARN|WARNING|ERROR|FATAL)\b)/.test(line));
   const stackTrace = lines.some((line) => /^(?:\w+\s*)?Error:/.test(line))
     && lines.some((line) => /^\s*at\s+.+:\d+:\d+\)?$/.test(line));
-  const terminalPrompt = lines.some((line) => /^[$#]\s+[A-Za-z0-9_./-]+/.test(line));
+  const terminalPrompt = isTerminalPromptLine(lines[0]);
   return stackTrace || levelLines.length > 0 || terminalPrompt;
 }
 
@@ -2797,14 +2975,26 @@ function consumeMarkdownSeparator(context, index) {
   return { index: index + 1 };
 }
 
-function readMarkdownCodeLines(lines, index, firstCodeLine) {
-  const codeLines = firstCodeLine ? [firstCodeLine] : [];
+function markdownClosingFence(line, openingFence) {
+  const value = (line || '').toString();
+  const indentMatch = value.match(/^ {0,3}/);
+  const markerStart = indentMatch?.[0].length || 0;
+  const rest = value.slice(markerStart);
+  const marker = openingFence.markerChar.repeat(openingFence.fenceLength);
+  if (!rest.startsWith(marker)) return null;
+  let cursor = openingFence.fenceLength;
+  while (rest[cursor] === openingFence.markerChar) cursor += 1;
+  return rest.slice(cursor).trim() ? null : { markerStart, markerLength: cursor };
+}
+
+function readMarkdownCodeLines(lines, index, fence) {
+  const codeLines = fence.firstCodeLine ? [fence.firstCodeLine] : [];
   let cursor = index + 1;
   while (cursor < lines.length) {
-    const closingIndex = lines[cursor].indexOf('```');
-    if (closingIndex >= 0) {
-      const beforeClose = lines[cursor].slice(0, closingIndex);
-      if (beforeClose) codeLines.push(beforeClose);
+    const closing = markdownClosingFence(lines[cursor], fence);
+    if (closing) {
+      const beforeClose = lines[cursor].slice(0, closing.markerStart);
+      if (beforeClose.trim()) codeLines.push(beforeClose);
       return { codeLines, index: cursor + 1 };
     }
     codeLines.push(lines[cursor]);
@@ -2820,13 +3010,56 @@ function consumeMarkdownFence(context, index) {
     context.nodes.push(renderMarkdownParagraph([fence.prefix.trimEnd()], context.nextKey('paragraph')));
   }
   const key = context.nextKey('code');
-  const code = readMarkdownCodeLines(context.lines, index, fence.firstCodeLine);
+  const code = readMarkdownCodeLines(context.lines, index, fence);
   context.nodes.push(<CodeBlock key={key} language={fence.language} code={code.codeLines.join('\n')} />);
   return { index: code.index };
 }
 
+function readIndentedMarkdownCodeLines(lines, index) {
+  const codeLines = [];
+  let cursor = index;
+  while (cursor < lines.length) {
+    if (!lines[cursor].trim()) {
+      codeLines.push('');
+      cursor += 1;
+      continue;
+    }
+    if (!isIndentedMarkdownCodeLine(lines[cursor])) break;
+    codeLines.push(unindentMarkdownCodeLine(lines[cursor]));
+    cursor += 1;
+  }
+  while (codeLines.length > 0 && codeLines.at(-1) === '') codeLines.pop();
+  return { codeLines, index: cursor };
+}
+
+function consumeIndentedMarkdownCode(context, index) {
+  if (!isIndentedMarkdownCodeLine(context.lines[index])) return null;
+  const result = readIndentedMarkdownCodeLines(context.lines, index);
+  if (result.codeLines.length === 0) return null;
+  context.nodes.push(<CodeBlock key={context.nextKey('code')} code={result.codeLines.join('\n')} />);
+  return { index: result.index };
+}
+
+function readTerminalTranscriptLines(lines, index) {
+  const codeLines = [];
+  let cursor = index;
+  while (cursor < lines.length) {
+    if (!lines[cursor].trim()) break;
+    codeLines.push(lines[cursor]);
+    cursor += 1;
+  }
+  return { codeLines, index: cursor };
+}
+
+function consumeTerminalTranscript(context, index) {
+  if (!isTerminalPromptLine(context.lines[index])) return null;
+  const result = readTerminalTranscriptLines(context.lines, index);
+  context.nodes.push(<CodeBlock key={context.nextKey('terminal')} language="terminal" code={result.codeLines.join('\n')} />);
+  return { index: result.index };
+}
+
 function consumeMarkdownHeading(context, index) {
-  const heading = context.lines[index].trim().match(/^(#{1,6})\s+(.+)$/);
+  const heading = markdownHeadingMatch(context.lines[index]);
   if (!heading) return null;
   const level = Math.min(6, heading[1].length);
   const HeadingTag = `h${level}`;
@@ -2899,7 +3132,7 @@ function readMarkdownTaskItems(lines, index) {
   const items = [];
   let cursor = index;
   while (cursor < lines.length) {
-    const itemMatch = lines[cursor].trim().match(/^[-*]\s+\[([ xX])]\s+(.+)$/);
+    const itemMatch = lines[cursor].trim().match(/^[-*]\s*\[([ xX])]\s+(.+)$/);
     if (!itemMatch) break;
     items.push({ checked: itemMatch[1].toLowerCase() === 'x', text: itemMatch[2] });
     cursor += 1;
@@ -2908,7 +3141,7 @@ function readMarkdownTaskItems(lines, index) {
 }
 
 function consumeMarkdownTaskList(context, index) {
-  if (!context.lines[index].trim().match(/^[-*]\s+\[([ xX])]\s+(.+)$/)) return null;
+  if (!context.lines[index].trim().match(/^[-*]\s*\[([ xX])]\s+(.+)$/)) return null;
   const key = context.nextKey('task-list');
   const result = readMarkdownTaskItems(context.lines, index);
   context.nodes.push(
@@ -2927,11 +3160,17 @@ function consumeMarkdownTaskList(context, index) {
 function readMarkdownListItems(lines, index, ordered) {
   const items = [];
   let cursor = index;
-  const itemPattern = ordered ? /^\d+\.\s+(.+)$/ : /^[-*]\s+(.+)$/;
   while (cursor < lines.length) {
-    const itemMatch = lines[cursor].trim().match(itemPattern);
-    if (!itemMatch) break;
-    items.push(itemMatch[1]);
+    if (ordered) {
+      const itemMatch = lines[cursor].trim().match(/^\d+\.\s+(.+)$/);
+      if (!itemMatch) break;
+      items.push(itemMatch[1]);
+    }
+    else {
+      const itemText = unorderedMarkdownListItemText(lines[cursor]);
+      if (!itemText) break;
+      items.push(itemText);
+    }
     cursor += 1;
   }
   return { items, index: cursor };
@@ -2939,7 +3178,7 @@ function readMarkdownListItems(lines, index, ordered) {
 
 function consumeMarkdownList(context, index) {
   const trimmed = context.lines[index].trim();
-  const unordered = trimmed.match(/^[-*]\s+(.+)$/);
+  const unordered = unorderedMarkdownListItemText(trimmed);
   const ordered = trimmed.match(/^\d+\.\s+(.+)$/);
   if (!unordered && !ordered) return null;
   const key = context.nextKey('list');
@@ -2957,10 +3196,10 @@ function startsMarkdownBlock(lines, index) {
   const next = lines[index];
   const trimmed = next.trim();
   if (!trimmed) return true;
-  if (next.includes('```') || trimmed.startsWith('>')) return true;
+  if (fenceMarkerMatch(next) || isIndentedMarkdownCodeLine(next) || isTerminalPromptLine(next) || trimmed.startsWith('>')) return true;
   if (/^(-{3,}|\*{3,}|_{3,})$/.test(trimmed)) return true;
-  if (/^(#{1,6})\s+(.+)$/.test(trimmed)) return true;
-  if (/^[-*]\s+(.+)$/.test(trimmed) || /^\d+\.\s+(.+)$/.test(trimmed)) return true;
+  if (markdownHeadingMatch(trimmed)) return true;
+  if (unorderedMarkdownListItemText(trimmed) || /^\d+\.\s+(.+)$/.test(trimmed)) return true;
   return markdownTableStarts(lines, index);
 }
 
@@ -2979,6 +3218,8 @@ const MARKDOWN_BLOCK_CONSUMERS = [
   consumeBlankMarkdownLine,
   consumeMarkdownSeparator,
   consumeMarkdownFence,
+  consumeIndentedMarkdownCode,
+  consumeTerminalTranscript,
   consumeMarkdownHeading,
   consumeMarkdownTable,
   consumeMarkdownQuote,
@@ -3003,7 +3244,7 @@ function renderMarkdownBlocks(lines) {
 }
 
 function MarkdownMessage({ text }) {
-  const nodes = renderMarkdownBlocks(normalizeMessageText(text).split('\n'));
+  const nodes = renderMarkdownBlocks(markdownInputLines(text));
   return <div className="message-markdown">{nodes.length > 0 ? nodes : <p />}</div>;
 }
 
