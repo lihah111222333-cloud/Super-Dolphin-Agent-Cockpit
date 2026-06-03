@@ -395,6 +395,10 @@ function Titlebar({ theme, onToggleTheme, store, projectPath, rightPanelOpen, se
 
   return (
     <header className="titlebar" data-testid="chat-toolbar">
+      <div className="titlebar-brand">
+        <span className="brand-orb" aria-hidden="true" />
+        <strong>Super Dolphin</strong>
+      </div>
       <div className="titlebar-center">
         {isChatPage && store && (
           <>
@@ -484,7 +488,6 @@ function Titlebar({ theme, onToggleTheme, store, projectPath, rightPanelOpen, se
             onClick={toggleRightPanel}
           >
             {rightPanelOpen ? <X size={14} /> : <Eye size={14} />}
-            <span className="sidebar-toggle-label">侧边栏</span>
           </button>
         )}
       </div>

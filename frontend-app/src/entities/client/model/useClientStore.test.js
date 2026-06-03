@@ -2697,6 +2697,51 @@ function registerBridgeEventHandlersForTest() {
     ]);
   });
 
+  it('removes a loosely matching runtime assistant duplicate when the formatted patch has small content differences', () => {
+    resetClientStoreForTests({
+      cwd: '/repo/app',
+      activeProject: '/repo/app',
+      activeThreadId: 'thread-1',
+      threads: [{ id: 'thread-1', name: 'Thread 1', provider: 'codex', status: 'running' }],
+      timelinesByThread: {
+        'thread-1': [{ id: 'user-1', role: 'user', text: '总结这个 Markdown 文件', time: '2026-06-03T13:15:36Z' }],
+      },
+    });
+    registerBridgeEventHandlersForTest();
+
+    bridgeCallback({
+      method: 'item/agentMessage/delta',
+      payload: {
+        threadId: 'thread-1',
+        turnId: 'turn-1',
+        stream: 'message',
+        delta: '我会用“核心信息提取与总结”技能来提炼这个 Markdown 文件。摘要这个文件是一个 JSON 内容库，包含 5 条抖音爆款短视频脚本，主题覆盖省钱生活、选择困难、亲情愧疚、健身变化和职场面试。内容结构每条视频都包含 title：标题 hook：开场钩子 script：完整短视频脚本 thumbnail_idea：封面设计思路 cta：评论/转发引导语。爆款套路总结：开头都使用强钩子：哭了、懂了、活下去、笑死、实拍变化。',
+      },
+    });
+    bridgeCallback({
+      type: 'ui/thread/patch',
+      payload: {
+        threadId: 'thread-1',
+        sequence: '1',
+        timelineItems: [{
+          id: 'assistant-from-patch',
+          kind: 'assistant',
+          text: '## 摘要\n\n这个文件是一个 JSON 内容库，包含 5 条抖音爆款短视频脚本，主题覆盖省钱生活、选择困难、亲情愧疚、健身变化和职场面试。\n\n## 内容结构\n\n每条视频都包含：\n\n- `title`：标题\n- `hook`：开场钩子\n- `script`：完整短视频脚本\n- `thumbnail_idea`：封面设计思路\n- `cta`：评论/转发引导语\n\n爆款套路总结：开头都使用强钩子：哭了、懂了、活下去、笑死、实拍变化。',
+          createdAt: '2026-06-03T13:15:40Z',
+        }],
+      },
+    });
+
+    const assistantMessages = useClientStore.getState().timelinesByThread['thread-1']
+      .filter((message) => message.role === 'assistant');
+    expect(assistantMessages).toEqual([
+      expect.objectContaining({
+        id: 'assistant-from-patch',
+        text: expect.stringContaining('## 摘要'),
+      }),
+    ]);
+  });
+
   it('deduplicates compact assistant replies that arrive in the same backend timeline patch', () => {
     resetClientStoreForTests({
       cwd: '/repo/app',
@@ -3407,6 +3452,24 @@ function registerBridgeEventHandlersForTest() {
       message: '当前没有可中断任务',
       tone: 'warning',
     }));
+  });
+
+  it('interrupts a runtime agent when backend status marks it interruptible without an active turn id', async () => {
+    resetClientStoreForTests({
+      cwd: '/repo/app',
+      activeProject: '/repo/app',
+      activeThreadId: 'agent_123',
+      threads: [{ id: 'agent_123', name: 'Runtime Agent', provider: 'codex', status: 'running' }],
+      statuses: {
+        agent_123: { status: 'running', interruptible: true },
+      },
+    });
+
+    expect(useClientStore.getState().hasInterruptibleThreadAction()).toBe(true);
+
+    await expect(useClientStore.getState().interruptActiveThread()).resolves.toBe(true);
+
+    expect(backend.interruptTurn).toHaveBeenCalledWith({ cwd: '/repo/app', threadId: 'agent_123', source: 'ui_stop' });
   });
 
   it('surfaces recover RPC failures without throwing an unhandled action error', async () => {

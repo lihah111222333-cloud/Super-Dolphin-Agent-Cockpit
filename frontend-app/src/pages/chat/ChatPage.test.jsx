@@ -51,7 +51,6 @@ function createFakeStore(overrides = {}) {
     newThread: vi.fn(),
     openNewWindow: vi.fn(),
     pendingActiveThreadId: '',
-    permission: '工作区写入',
     pinnedThreadAtById: {},
     provider: 'codex',
     providerConfig: { provider: 'codex', model: 'gpt-5.5', effort: 'xhigh' },
@@ -67,9 +66,6 @@ function createFakeStore(overrides = {}) {
     sending: false,
     setDraft: vi.fn((value) => {
       store.draft = value;
-    }),
-    setPermission: vi.fn((value) => {
-      store.permission = value;
     }),
     setRightPanelWidth: vi.fn((value) => {
       store.rightPanelWidth = value;
@@ -208,8 +204,30 @@ describe('ChatPage module', () => {
     expect(screen.getByText('测试在聊天页缺少覆盖。')).toBeInTheDocument();
     expect(screen.getByText('12 / 1000 tokens')).toBeInTheDocument();
 
+    const timeline = screen.getByTestId('chat-timeline');
+    Object.defineProperty(timeline, 'scrollHeight', { configurable: true, value: 960 });
+    Object.defineProperty(timeline, 'scrollTop', {
+      configurable: true,
+      value: 180,
+      writable: true,
+    });
+    const animationFrameCallbacks = [];
+    const requestAnimationFrameSpy = vi.spyOn(window, 'requestAnimationFrame').mockImplementation((callback) => {
+      animationFrameCallbacks.push(callback);
+      return animationFrameCallbacks.length;
+    });
+
     fireEvent.click(screen.getByRole('button', { name: '发送消息' }));
     expect(store.sendDraft).toHaveBeenCalledTimes(1);
+    expect(timeline.scrollTop).toBe(180);
+    expect(requestAnimationFrameSpy).toHaveBeenCalledTimes(1);
+
+    act(() => {
+      for (const callback of animationFrameCallbacks) callback(16);
+    });
+
+    expect(timeline.scrollTop).toBe(960);
+    requestAnimationFrameSpy.mockRestore();
 
     fireEvent.click(screen.getByRole('button', { name: '显示侧边栏' }));
     await waitFor(() => expect(screen.getByTestId('runtime-panel')).toBeInTheDocument());
@@ -221,6 +239,142 @@ describe('ChatPage module', () => {
       preserveActiveThreadId: true,
     });
     expect(screen.getByTestId('diff-view')).toBeInTheDocument();
+  });
+
+  it('turns the composer primary button into an interrupt action while the active thread is running', () => {
+    const store = createFakeStore({
+      activeThreadId: 'thread-1',
+      draft: '不要在运行中排队发送',
+      hasInterruptibleThreadAction: vi.fn(() => true),
+      threads: [{ id: 'thread-1', name: '运行会话', provider: 'codex', status: 'running', updatedAt: '2026-06-02T08:00:00Z' }],
+      threadTimelineReadyByThread: { 'thread-1': true },
+      timelinesByThread: {
+        'thread-1': [
+          { id: 'msg-1', role: 'assistant', text: '正在执行。', time: '2026-06-02T08:00:00Z' },
+        ],
+      },
+    });
+
+    render(<TestChatPageWrapper store={store} projectPath="/repo/app" />);
+
+    const interruptButton = screen.getByRole('button', { name: '中断当前执行' });
+    expect(interruptButton).toHaveClass('send--interrupt');
+    expect(interruptButton).toBeEnabled();
+    expect(screen.queryByRole('button', { name: '发送消息' })).not.toBeInTheDocument();
+
+    fireEvent.keyDown(screen.getByTestId('composer-input'), { key: 'Enter', code: 'Enter' });
+    expect(store.sendDraft).not.toHaveBeenCalled();
+
+    fireEvent.click(interruptButton);
+    expect(store.interruptActiveThread).toHaveBeenCalledTimes(1);
+    expect(store.sendDraft).not.toHaveBeenCalled();
+  });
+
+  it('accepts external file drops on the conversation window', async () => {
+    const store = createActiveThreadStore([
+      { id: 'msg-1', role: 'assistant', text: '把文件拖进来即可。', time: '2026-06-02T08:00:00Z' },
+    ]);
+
+    render(<TestChatPageWrapper store={store} projectPath="/repo/app" />);
+
+    const dropped = new File(['notes'], 'outside-notes.txt', { type: 'text/plain' });
+    Object.defineProperty(dropped, 'path', { value: '/tmp/outside-notes.txt' });
+    const conversation = screen.getByTestId('conversation-drop-zone');
+
+    fireEvent.dragEnter(conversation, {
+      dataTransfer: {
+        files: [dropped],
+        items: [],
+        types: ['Files'],
+      },
+    });
+
+    expect(conversation).toHaveClass('drop-active');
+
+    fireEvent.drop(conversation, {
+      dataTransfer: {
+        files: [dropped],
+        items: [],
+        types: ['Files'],
+      },
+    });
+
+    expect(store.attachDroppedFilesForComposer).toHaveBeenCalledWith([dropped]);
+    expect(conversation).not.toHaveClass('drop-active');
+  });
+
+  it('accepts external uri-list drops on the conversation window', () => {
+    const store = createActiveThreadStore([
+      { id: 'msg-1', role: 'assistant', text: '拖文件进来即可。', time: '2026-06-02T08:00:00Z' },
+    ]);
+
+    render(<TestChatPageWrapper store={store} projectPath="/repo/app" />);
+
+    const conversation = screen.getByTestId('conversation-drop-zone');
+    const dataTransfer = {
+      files: [],
+      items: [],
+      types: ['text/uri-list'],
+      getData: (type) => (type === 'text/uri-list' ? 'file:///tmp/dropped-uri-notes.txt' : ''),
+    };
+
+    fireEvent.dragEnter(conversation, { dataTransfer });
+
+    expect(conversation).toHaveClass('drop-active');
+
+    fireEvent.drop(conversation, { dataTransfer });
+
+    expect(store.attachPathsForComposer).toHaveBeenCalledWith(['/tmp/dropped-uri-notes.txt']);
+    expect(conversation).not.toHaveClass('drop-active');
+  });
+
+  it('attaches copied desktop file paths instead of pasting them as composer text', () => {
+    const store = createActiveThreadStore([
+      { id: 'msg-1', role: 'assistant', text: '可以直接粘贴文件。', time: '2026-06-02T08:00:00Z' },
+    ]);
+
+    render(<TestChatPageWrapper store={store} projectPath="/repo/app" />);
+
+    fireEvent.paste(screen.getByTestId('composer-input'), {
+      clipboardData: {
+        files: [],
+        items: [],
+        types: ['x-special/gnome-copied-files', 'text/uri-list', 'text/plain'],
+        getData: (type) => {
+          if (type === 'x-special/gnome-copied-files') return 'copy\nfile:///tmp/copied-notes.txt';
+          if (type === 'text/uri-list') return 'file:///tmp/copied-notes.txt';
+          if (type === 'text/plain') return '/tmp/copied-notes.txt';
+          return '';
+        },
+      },
+    });
+
+    expect(store.attachPathsForComposer).toHaveBeenCalledWith(['/tmp/copied-notes.txt']);
+    expect(store.setDraft).not.toHaveBeenCalled();
+  });
+
+  it('falls back to plain copied file paths when custom clipboard types cannot be read', () => {
+    const store = createActiveThreadStore([
+      { id: 'msg-1', role: 'assistant', text: '可以直接粘贴文件。', time: '2026-06-02T08:00:00Z' },
+    ]);
+
+    render(<TestChatPageWrapper store={store} projectPath="/repo/app" />);
+
+    fireEvent.paste(screen.getByTestId('composer-input'), {
+      clipboardData: {
+        files: [],
+        items: [],
+        types: ['x-special/gnome-copied-files', 'text/plain'],
+        getData: (type) => {
+          if (type === 'x-special/gnome-copied-files') throw new Error('clipboard type unavailable');
+          if (type === 'text/plain') return "'/tmp/copied quoted.txt'";
+          return '';
+        },
+      },
+    });
+
+    expect(store.attachPathsForComposer).toHaveBeenCalledWith(['/tmp/copied quoted.txt']);
+    expect(store.setDraft).not.toHaveBeenCalled();
   });
 
   it('renders compact assistant markdown block markers as formatted content', () => {
@@ -258,64 +412,28 @@ describe('ChatPage module', () => {
     expect(card.querySelector('.thread-status-dot')).toHaveAttribute('title', '空闲');
   });
 
-  it('renders a command workspace with thread cards, metrics, layout controls and card actions', async () => {
+  it('renders an active conversation without the chat mode switch cards', () => {
     const store = createFakeStore({
-      activeThreadId: 'agent-1',
+      activeThreadId: 'thread-1',
       threads: [
-        { id: 'agent-1', name: 'Agent Alpha', provider: 'codex', status: 'running', updatedAt: '2026-06-02T08:03:00Z' },
-        { id: 'agent-2', name: 'Agent Beta', provider: 'claude', status: 'error', updatedAt: '2026-06-02T08:02:00Z' },
-        { id: 'agent-3', name: 'Agent Gamma', provider: 'codex', status: 'thinking', updatedAt: '2026-06-02T08:01:00Z' },
+        { id: 'thread-1', name: '主线对话', provider: 'codex', status: 'idle', updatedAt: '2026-06-02T08:03:00Z' },
       ],
-      activityThreadAtById: {
-        'agent-1': '2026-06-02T08:03:00Z',
-        'agent-2': '2026-06-02T08:02:00Z',
-        'agent-3': '2026-06-02T08:01:00Z',
-      },
-      diffTextByThread: {
-        'agent-1': 'diff --git a/src/a.js b/src/a.js\n+new alpha',
-      },
-      hasInterruptibleThreadAction: vi.fn((threadId) => threadId === 'agent-1'),
-      threadTimelineReadyByThread: { 'agent-1': true, 'agent-2': true, 'agent-3': true },
+      threadTimelineReadyByThread: { 'thread-1': true },
       timelinesByThread: {
-        'agent-1': [{ id: 'alpha-msg', role: 'assistant', text: 'Alpha 已完成初步分析', time: '2026-06-02T08:04:00Z' }],
-        'agent-2': [{ id: 'beta-msg', role: 'assistant', text: 'Beta 失败', time: '2026-06-02T08:02:00Z' }],
-        'agent-3': [{ id: 'gamma-msg', role: 'assistant', text: 'Gamma 思考中', time: '2026-06-02T08:01:00Z' }],
+        'thread-1': [
+          { id: 'user-msg', role: 'user', text: '继续看这个会话', time: '2026-06-02T08:03:00Z' },
+          { id: 'assistant-msg', role: 'assistant', text: '时间线保持正常显示。', time: '2026-06-02T08:04:00Z' },
+        ],
       },
     });
 
     render(<TestChatPageWrapper store={store} projectPath="/repo/app" />);
 
-    fireEvent.click(screen.getByRole('button', { name: '命令工作区' }));
-
-    const workspace = await screen.findByTestId('cmd-workspace');
-    expect(workspace).toHaveTextContent('子Agent');
-    expect(workspace).toHaveTextContent('执行中');
-    expect(workspace).toHaveTextContent('思考/回复');
-    expect(workspace).toHaveTextContent('异常');
-    expect(workspace).toHaveTextContent('Agent Alpha');
-    expect(workspace).toHaveTextContent('Agent Beta');
-    expect(workspace).toHaveTextContent('Alpha 已完成初步分析');
-    expect(workspace).toHaveTextContent('diff --git a/src/a.js b/src/a.js');
-
-    fireEvent.click(within(workspace).getByRole('button', { name: 'A 紧凑' }));
-    expect(workspace).toHaveClass('layout-overview');
-    expect(workspace).not.toHaveTextContent('Alpha 已完成初步分析');
-
-    fireEvent.click(within(workspace).getByRole('button', { name: '3列' }));
-    expect(workspace).toHaveClass('cols-3');
-
-    fireEvent.click(within(workspace).getByRole('button', { name: '打开 Agent Beta' }));
-    expect(store.selectThread).toHaveBeenCalledWith('agent-2');
-
-    fireEvent.click(within(workspace).getByRole('button', { name: '历史 Agent Alpha' }));
-    expect(store.syncThreadState).toHaveBeenCalledWith('agent-1', {
-      includeArchived: true,
-      includeDiff: true,
-      preserveActiveThreadId: true,
-    });
-
-    fireEvent.click(within(workspace).getByRole('button', { name: '停止 Agent Alpha' }));
-    expect(store.interruptActiveThread).toHaveBeenCalledWith('agent-1');
+    expect(screen.queryByRole('button', { name: '对话' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '命令工作区' })).not.toBeInTheDocument();
+    expect(screen.queryByTestId('cmd-workspace')).not.toBeInTheDocument();
+    expect(screen.getByText('继续看这个会话')).toBeInTheDocument();
+    expect(screen.getByText('时间线保持正常显示。')).toBeInTheDocument();
   });
 
   it('handles timeline file refs and actionable citation chips', async () => {
@@ -419,6 +537,31 @@ describe('ChatPage module', () => {
 
     expect(screen.getByText('滚动历史消息 1')).toBeInTheDocument();
     expect(screen.queryByTestId('timeline-older-marker')).not.toBeInTheDocument();
+  });
+
+  it('keeps the bottom shortcut visible in active conversations', () => {
+    const messages = [
+      { id: 'bottom-msg-1', role: 'user', text: '先看上面的上下文', time: '2026-06-02T08:00:00Z' },
+      { id: 'bottom-msg-2', role: 'assistant', text: '最新回复在底部。', time: '2026-06-02T08:01:00Z' },
+    ];
+
+    render(<ChatPage store={createActiveThreadStore(messages)} projectPath="/repo/app" />);
+
+    const timeline = screen.getByTestId('chat-timeline');
+    Object.defineProperty(timeline, 'scrollHeight', { configurable: true, value: 1200 });
+    Object.defineProperty(timeline, 'scrollTop', {
+      configurable: true,
+      value: 180,
+      writable: true,
+    });
+
+    const bottomButton = screen.getByRole('button', { name: '滚动到底部' });
+    expect(bottomButton).toHaveAttribute('title', '滚动到底部');
+
+    fireEvent.click(bottomButton);
+
+    expect(timeline.scrollTop).toBe(1200);
+    expect(screen.getByRole('button', { name: '滚动到底部' })).toBe(bottomButton);
   });
 
   it('loads an older backend message page when no local older messages are hidden', async () => {

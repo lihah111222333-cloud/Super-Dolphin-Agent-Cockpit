@@ -567,14 +567,15 @@ async function showAllTraceDashboardEvents() {
   expect(screen.getAllByText('bus.event.lifecycle').length).toBeGreaterThan(0);
 }
 
-  it('renders the app shell toolbar without the product header title and defaults to dark theme', async () => {
+  it('renders the app shell toolbar with the local product title and defaults to dark theme', async () => {
     render(<App />);
 
     const shell = await screen.findByTestId('frontend-app');
+    const titlebar = document.querySelector('.titlebar');
     expect(shell).toHaveAttribute('data-theme', 'dark');
     expect(document.querySelector('.traffic-lights')).not.toBeInTheDocument();
-    expect(document.querySelector('.titlebar')).toBeInTheDocument();
-    expect(screen.queryByText('Super Agent')).not.toBeInTheDocument();
+    expect(titlebar).toBeInTheDocument();
+    expect(within(titlebar).getByText('Super Dolphin')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '切换到白天模式' })).toBeInTheDocument();
   });
 
@@ -794,7 +795,9 @@ async function toggleInlineTraceFromRecentLogs(table) {
     expect(await screen.findByText('后端线程')).toBeInTheDocument();
     expect(screen.getAllByRole('button', { name: '选择项目' })).toHaveLength(1);
     expect(screen.queryByLabelText('当前工作目录')).not.toBeInTheDocument();
-    expect(screen.getByRole('button', { name: '显示侧边栏' })).toHaveTextContent('侧边栏');
+    const sidebarToggle = screen.getByRole('button', { name: '显示侧边栏' });
+    expect(sidebarToggle).toHaveAttribute('title', '显示侧边栏');
+    expect(sidebarToggle).not.toHaveTextContent('侧边栏');
   });
 
   it('uses the current URL path as the active page on boot', async () => {
@@ -1033,7 +1036,7 @@ async function toggleInlineTraceFromRecentLogs(table) {
     const sendButton = screen.getByRole('button', { name: '发送消息' });
     expect(sendButton).toBeDisabled();
     expect(screen.getByRole('button', { name: '添加文件' })).toBeDisabled();
-    expect(screen.getByRole('combobox', { name: '发送权限' })).toBeDisabled();
+    expect(screen.queryByRole('combobox', { name: '发送权限' })).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: '选择模型' })).toBeDisabled();
 
     fireEvent.click(sendButton);
@@ -1043,6 +1046,39 @@ async function toggleInlineTraceFromRecentLogs(table) {
     expect(backend.startThread).not.toHaveBeenCalled();
     expect(backend.startTurn).not.toHaveBeenCalled();
     expect(backend.selectFiles).not.toHaveBeenCalled();
+  });
+
+  it('shows an enabled composer interrupt button for a running runtime agent without a draft', async () => {
+    resetClientStoreForTests({
+      bootstrapStatus: 'ready',
+      cwd: '/repo/app',
+      activeProject: '/repo/app',
+      activeThreadId: 'agent_123',
+      draft: '',
+      attachments: [],
+      threads: [{ id: 'agent_123', name: 'Runtime Agent', provider: 'codex', status: 'running' }],
+      statuses: {
+        agent_123: { status: 'running', interruptible: true },
+      },
+      threadTimelineReadyByThread: { agent_123: true },
+      timelinesByThread: {
+        agent_123: [{ id: 'assistant-1', role: 'assistant', text: '正在执行。' }],
+      },
+    });
+
+    render(<App skipBootstrap />);
+
+    const interruptButton = screen.getByRole('button', { name: '中断当前执行' });
+    expect(interruptButton).toBeEnabled();
+    expect(screen.queryByRole('button', { name: '发送消息' })).not.toBeInTheDocument();
+
+    fireEvent.click(interruptButton);
+
+    await waitFor(() => expect(backend.interruptTurn).toHaveBeenCalledWith({
+      cwd: '/repo/app',
+      threadId: 'agent_123',
+      source: 'ui_stop',
+    }));
   });
 
   it('renders assistant markdown messages as formatted content', async () => {
@@ -2276,6 +2312,43 @@ async function toggleInlineTraceFromRecentLogs(table) {
     expect(screen.getByText('工具结果已整理。')).toBeInTheDocument();
   });
 
+  it('coalesces running and completed lifecycle events for the same tool call', async () => {
+    backend.getThreadState.mockResolvedValue({
+      activeThreadId: 'thread-1',
+      timelinesByThread: {
+        'thread-1': [{
+          id: 'tool-file-running',
+          kind: 'tool',
+          title: 'file',
+          status: 'running',
+          call_id: 'call-file-1',
+          done: false,
+          ts: '2026-05-30T00:00:00Z',
+        }, {
+          id: 'tool-file-completed',
+          kind: 'tool',
+          title: 'file',
+          status: 'completed',
+          call_id: 'call-file-1',
+          text: '{\n  "success": true\n}',
+          done: true,
+          ts: '2026-05-30T00:00:00Z',
+          completedAt: '2026-05-30T00:00:01Z',
+        }],
+      },
+    });
+
+    render(<App />);
+
+    const traces = await screen.findAllByLabelText('AI 思考记录');
+    const fileTraces = traces.filter((node) => node.textContent.includes('file'));
+    expect(fileTraces).toHaveLength(1);
+    expect(fileTraces[0]).toHaveTextContent('已处理 1s');
+    expect(fileTraces[0]).toHaveTextContent('"success": true');
+    expect(within(fileTraces[0]).getByLabelText('工具步骤')).toHaveTextContent('完成');
+    expect(fileTraces[0]).not.toHaveTextContent('正在调用工具并等待返回结果。');
+  });
+
   it('renders AI execution plans as checklist details in the processing frame', async () => {
     backend.getThreadState.mockResolvedValue({
       activeThreadId: 'thread-1',
@@ -2419,7 +2492,7 @@ async function toggleInlineTraceFromRecentLogs(table) {
     expect(await screen.findByText('后端线程')).toBeInTheDocument();
     expect(container.querySelector('.traffic-lights')).toBeNull();
     expect(container.querySelectorAll('.titlebar')).toHaveLength(1);
-    expect(screen.queryByText('Super Agent')).not.toBeInTheDocument();
+    expect(within(container.querySelector('.titlebar')).getByText('Super Dolphin')).toBeInTheDocument();
   });
 
   it('keeps the user message visible and calls thread/start before turn/start for a new chat', async () => {
@@ -2432,7 +2505,7 @@ async function toggleInlineTraceFromRecentLogs(table) {
 
     await screen.findByText('我们应该在 app 中构建什么？');
     expect(screen.queryByTestId('composer-project')).not.toBeInTheDocument();
-    expect(screen.getByLabelText('发送权限')).toBeInTheDocument();
+    expect(screen.queryByLabelText('发送权限')).not.toBeInTheDocument();
     fireEvent.change(screen.getByTestId('composer-input'), {
       target: { value: '请真正调用后端聊天' },
     });
@@ -2535,6 +2608,10 @@ async function toggleInlineTraceFromRecentLogs(table) {
   });
 
   it('sends the composer draft when plain Enter is pressed inside the textarea', async () => {
+    backend.getSidebarState.mockResolvedValue({
+      activeThreadId: 'thread-1',
+      threads: [{ id: 'thread-1', name: '后端线程', provider: 'codex', status: 'idle' }],
+    });
     backend.startTurn.mockResolvedValue({ ok: true });
     render(<App />);
 
@@ -3206,7 +3283,7 @@ async function toggleInlineTraceFromRecentLogs(table) {
     expect(screen.queryByLabelText('权限')).not.toBeInTheDocument();
     expect(screen.getByLabelText('请先选择会话')).toBeDisabled();
     expect(screen.getByLabelText('添加文件')).toBeInTheDocument();
-    expect(screen.getByLabelText('发送权限')).toBeInTheDocument();
+    expect(screen.queryByLabelText('发送权限')).not.toBeInTheDocument();
     expect(screen.getByLabelText('会话列表')).toBeInTheDocument();
     expect(screen.getByLabelText('0 个 Agent')).toBeInTheDocument();
     expect(screen.getByLabelText('打开归档列表')).toBeEnabled();
@@ -3413,6 +3490,22 @@ async function toggleInlineTraceFromRecentLogs(table) {
     });
 
     expect(await screen.findByRole('button', { name: /预览附件 notes\.txt/ })).toBeInTheDocument();
+
+    fireEvent.paste(input, {
+      clipboardData: {
+        files: [],
+        items: [],
+        types: ['x-special/gnome-copied-files', 'text/uri-list', 'text/plain'],
+        getData: (type) => {
+          if (type === 'x-special/gnome-copied-files') return 'copy\nfile:///tmp/desktop-copy.txt';
+          if (type === 'text/uri-list') return 'file:///tmp/desktop-copy.txt';
+          if (type === 'text/plain') return '/tmp/desktop-copy.txt';
+          return '';
+        },
+      },
+    });
+
+    expect(await screen.findByRole('button', { name: /预览附件 desktop-copy\.txt/ })).toBeInTheDocument();
     expect(backend.saveClipboardImage).toHaveBeenCalledWith(expect.any(String));
   });
 
@@ -3428,9 +3521,12 @@ async function toggleInlineTraceFromRecentLogs(table) {
 
     const composer = screen.getByTestId('composer-dock');
     const input = screen.getByTestId('composer-input');
+    const conversation = screen.getByTestId('conversation-drop-zone');
     expect(composer).toHaveAttribute('data-file-drop-target');
     expect(input).toHaveAttribute('id', 'composer-input');
     expect(input).toHaveAttribute('data-file-drop-target');
+    expect(conversation).toHaveAttribute('id', 'conversation-drop-zone');
+    expect(conversation).toHaveAttribute('data-file-drop-target');
 
     act(() => {
       nativeDropHandler({
@@ -3440,6 +3536,24 @@ async function toggleInlineTraceFromRecentLogs(table) {
     });
 
     expect(await screen.findByRole('button', { name: /预览附件 native-editor-drop\.txt/ })).toBeInTheDocument();
+
+    act(() => {
+      nativeDropHandler({
+        files: ['/tmp/native-conversation-drop.txt'],
+        details: { id: 'conversation-drop-zone' },
+      });
+    });
+
+    expect(await screen.findByRole('button', { name: /预览附件 native-conversation-drop\.txt/ })).toBeInTheDocument();
+
+    act(() => {
+      nativeDropHandler({
+        files: ['/tmp/native-unknown-target-drop.txt'],
+        details: { id: 'timeline-inner-node' },
+      });
+    });
+
+    expect(await screen.findByRole('button', { name: /预览附件 native-unknown-target-drop\.txt/ })).toBeInTheDocument();
   });
 
   it('shows visible feedback for chat toolbar actions', async () => {
@@ -3506,7 +3620,7 @@ async function toggleInlineTraceFromRecentLogs(table) {
     expect(screen.queryByLabelText('选择附件')).not.toBeInTheDocument();
     expect(screen.queryByLabelText('权限')).not.toBeInTheDocument();
     expect(screen.getByLabelText('添加文件')).toBeInTheDocument();
-    expect(screen.getByLabelText('发送权限')).toBeInTheDocument();
+    expect(screen.queryByLabelText('发送权限')).not.toBeInTheDocument();
 
     expect(screen.queryByLabelText('切换 Claude / Codex provider')).not.toBeInTheDocument();
     expect(screen.queryByText('Codex')).not.toBeInTheDocument();
