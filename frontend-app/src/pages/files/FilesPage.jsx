@@ -18,8 +18,40 @@ const SHARED_FILE_SORTS = Object.freeze([
   { key: 'path-asc', label: '按文件名' },
 ]);
 
+const SHARED_FILE_FORMAT_LABELS = Object.freeze({
+  csv: 'CSV',
+  css: 'CSS',
+  go: 'Go',
+  htm: 'HTML',
+  html: 'HTML',
+  java: 'Java',
+  js: 'JavaScript',
+  json: 'JSON',
+  jsonl: 'JSONL',
+  jsx: 'React JSX',
+  log: '日志',
+  md: 'Markdown',
+  markdown: 'Markdown',
+  py: 'Python',
+  rs: 'Rust',
+  sh: 'Shell',
+  sql: 'SQL',
+  toml: 'TOML',
+  ts: 'TypeScript',
+  tsx: 'React TSX',
+  txt: '文本',
+  xml: 'XML',
+  yaml: 'YAML',
+  yml: 'YAML',
+});
+
 function dashboardGlobalQueryKey(page, ...parts) {
-  return ['dashboard', 'global', page, ...parts.map((part) => textValue(part)).filter(Boolean)];
+  const normalizedParts = [];
+  for (const part of parts) {
+    const value = textValue(part);
+    if (value) normalizedParts.push(value);
+  }
+  return ['dashboard', 'global', page, ...normalizedParts];
 }
 
 async function fetchSharedFilesDashboard() {
@@ -59,18 +91,157 @@ function sharedFileContent(file) {
   return (file?.content || '').toString();
 }
 
+function sharedFileExtension(path) {
+  const base = splitSharedFilePath(path).base.toLowerCase();
+  const dot = base.lastIndexOf('.');
+  if (dot <= 0 || dot === base.length - 1) return '';
+  return base.slice(dot + 1);
+}
+
+function sharedFileFormatLabel(file, language = '') {
+  const normalizedLanguage = textValue(language).toLowerCase();
+  if (normalizedLanguage) return SHARED_FILE_FORMAT_LABELS[normalizedLanguage] || normalizedLanguage.toUpperCase();
+  const extension = sharedFileExtension(file?.path);
+  return SHARED_FILE_FORMAT_LABELS[extension] || (extension ? extension.toUpperCase() : '文本');
+}
+
+function markdownFenceFromWholeText(text) {
+  const normalized = text.replace(/^\uFEFF/, '').trim();
+  if (!normalized) return null;
+  const lines = normalized.split('\n');
+  const opening = lines[0]?.trim().match(/^([`~]{3,})\s*([A-Za-z0-9_-]+)?\s*$/);
+  if (!opening || lines.length < 2) return null;
+
+  const marker = opening[1][0];
+  const minLength = opening[1].length;
+  const closing = lines[lines.length - 1]?.trim().match(/^([`~]{3,})\s*$/);
+  if (!closing || closing[1][0] !== marker || closing[1].length < minLength) return null;
+
+  return {
+    body: lines.slice(1, -1).join('\n').trim(),
+    language: textValue(opening[2]).toLowerCase(),
+  };
+}
+
+function jsonItemLabel(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return '';
+  const key = ['title', 'name', 'path', 'id', 'key'].find((candidate) => textValue(value[candidate]));
+  if (!key) return '';
+  const raw = textValue(value[key]);
+  const text = raw.length > 56 ? `${raw.slice(0, 56)}...` : raw;
+  return `首项 ${key}: ${text}`;
+}
+
+function jsonValueSummary(value) {
+  if (Array.isArray(value)) {
+    const itemLabel = jsonItemLabel(value[0]);
+    return `JSON 数组 · ${value.length} 项${itemLabel ? ` · ${itemLabel}` : ''}`;
+  }
+  if (!value || typeof value !== 'object') return `JSON 值 · ${String(value)}`;
+
+  const entries = Object.entries(value).slice(0, 4).map(([key, item]) => {
+    if (Array.isArray(item)) {
+      const itemLabel = jsonItemLabel(item[0]);
+      return `${key}: ${item.length} 项${itemLabel ? ` (${itemLabel})` : ''}`;
+    }
+    if (item && typeof item === 'object') return `${key}: 对象`;
+    const scalar = textValue(item);
+    if (!scalar) return `${key}: ${item === null ? 'null' : String(item)}`;
+    return `${key}: ${scalar.length > 44 ? `${scalar.slice(0, 44)}...` : scalar}`;
+  });
+  return entries.length > 0 ? `JSON 对象 · ${entries.join(' · ')}` : 'JSON 对象';
+}
+
+function jsonLikeFirstLabel(value) {
+  const match = value.match(/"(title|name|path|id|key)"\s*:\s*"([^"]+)/);
+  if (!match) return '';
+  const text = match[2].length > 56 ? `${match[2].slice(0, 56)}...` : match[2];
+  return `首项 ${match[1]}: ${text}`;
+}
+
+function jsonLikeSummary(value) {
+  const arrayMatch = value.match(/"([A-Za-z0-9_-]+)"\s*:\s*\[/);
+  if (arrayMatch) {
+    const titleCount = (value.match(/"title"\s*:/g) || []).length;
+    const objectCount = Math.max(0, (value.match(/\{\s*"[^"]+"\s*:/g) || []).length - 1);
+    const count = titleCount || objectCount;
+    const label = jsonLikeFirstLabel(value);
+    return `类 JSON · ${arrayMatch[1]}${count ? `: ${count} 项` : ''}${label ? ` · ${label}` : ''}`;
+  }
+  const keys = [...value.matchAll(/"([A-Za-z0-9_-]+)"\s*:/g)].slice(0, 4).map((match) => match[1]);
+  return keys.length > 0 ? `类 JSON · ${keys.join(' · ')}` : '类 JSON 文本';
+}
+
+function formatJsonLikeText(value) {
+  return value
+    .replace(/^\{\s*"([A-Za-z0-9_-]+)"\s*:\s*\[/, '{\n  "$1": [')
+    .replace(/\[\s*\{/g, '[\n  {')
+    .replace(/\},\s*\{/g, '\n  },\n  {')
+    .replace(/\{\s*"([A-Za-z0-9_-]+)"\s*:/g, '{\n    "$1":')
+    .replace(/",\s*"([A-Za-z0-9_-]+)"\s*:/g, '",\n    "$1":')
+    .replace(/\}\s*\]\s*\}$/g, '\n  }\n  ]\n}')
+    .replace(/^\{\n {4}/, '{\n  ')
+    .replace(/"([A-Za-z0-9_-]+)":(?!\s)/g, '"$1": ')
+    .trim();
+}
+
+function jsonDisplayFromText(text, strict) {
+  const value = text.trim();
+  if (!value || (!strict && !value.startsWith('{') && !value.startsWith('['))) return null;
+  try {
+    const parsed = JSON.parse(value);
+    return {
+      loose: false,
+      summary: jsonValueSummary(parsed),
+      text: JSON.stringify(parsed, null, 2),
+    };
+  } catch {
+    if (!strict) return null;
+    return {
+      loose: true,
+      summary: jsonLikeSummary(value),
+      text: formatJsonLikeText(value),
+    };
+  }
+}
+
+function sharedFileDisplay(file) {
+  const raw = sharedFileContent(file).trim();
+  if (!raw) return { formatLabel: '空文件', summary: '文件为空', text: '文件为空' };
+
+  const fence = markdownFenceFromWholeText(raw);
+  const body = fence ? fence.body : raw;
+  const extension = sharedFileExtension(file?.path);
+  const language = fence?.language || '';
+  const strictJson = language === 'json' || extension === 'json';
+  const jsonDisplay = jsonDisplayFromText(body, strictJson);
+  if (jsonDisplay) {
+    const jsonLabel = jsonDisplay.loose ? '类 JSON' : sharedFileFormatLabel(file, language || 'json');
+    const label = fence ? `${jsonLabel}（Markdown 代码块）` : jsonLabel;
+    return { formatLabel: label, summary: jsonDisplay.summary, text: jsonDisplay.text };
+  }
+
+  const label = fence ? `${sharedFileFormatLabel(file, language)}（Markdown 代码块）` : sharedFileFormatLabel(file);
+  return { formatLabel: label, summary: '', text: body || raw };
+}
+
 function sharedFileSummary(file) {
-  const text = sharedFileContent(file).trim();
+  const display = sharedFileDisplay(file);
+  const text = (display.summary || display.text).trim();
   if (!text) return '点击“打开”加载全文。';
-  const lines = text.split('\n').map((line) => line.trim()).filter(Boolean).slice(0, 2).join(' ');
-  return lines.length > 180 ? `${lines.slice(0, 180)}...` : lines;
+  const lines = [];
+  for (const line of text.split('\n')) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    lines.push(trimmed);
+    if (lines.length >= 2) break;
+  }
+  const summary = lines.join(' ');
+  return summary.length > 180 ? `${summary.slice(0, 180)}...` : summary;
 }
 
 function sharedFilePreview(file) {
-  const text = sharedFileContent(file).trim();
-  if (!text) return '文件为空';
-  const preview = text.split('\n').slice(0, 8).join('\n');
-  return preview.length > 600 ? `${preview.slice(0, 600)}...` : preview;
+  return sharedFileDisplay(file).text;
 }
 
 function normalizeSharedFile(raw, index) {
@@ -224,9 +395,15 @@ function useSharedFilesFilters(files, finalOutputRefs, retention) {
   const [searchText, setSearchText] = useState('');
   const [sortMode, setSortMode] = useState('updated-desc');
   const [category, setCategory] = useState('all');
-  const finalOutputByPath = useMemo(() => (
-    new Map(finalOutputRefs.filter((ref) => files.some((file) => file.path === ref.path)).map((ref) => [ref.path, ref]))
-  ), [files, finalOutputRefs]);
+  const finalOutputByPath = useMemo(() => {
+    const filePaths = new Set();
+    for (const file of files) filePaths.add(file.path);
+    const refs = new Map();
+    for (const ref of finalOutputRefs) {
+      if (filePaths.has(ref.path)) refs.set(ref.path, ref);
+    }
+    return refs;
+  }, [files, finalOutputRefs]);
   const retentionByPath = useMemo(() => new Map(retention.items.map((item) => [item.path, item])), [retention.items]);
   const finalCount = files.filter((file) => finalOutputByPath.has(file.path)).length;
   const workCount = Math.max(0, files.length - finalCount);
@@ -268,7 +445,6 @@ function useSharedFileActions({ exportDefaultPath, refreshFiles, store, protecti
   const [exportingPath, setExportingPath] = useState('');
   const [deletingPath, setDeletingPath] = useState('');
   const [copied, setCopied] = useState(false);
-  useEffect(() => { setNotice(null); }, []);
   const loadFileDetail = useSharedFileDetailLoader(setBusyPath);
   const openFile = useCallback(async (file) => {
     setNotice(null);
@@ -559,7 +735,7 @@ function SharedFileRow({
       {finalOutputRef ? (
         <small>Run {finalOutputRef.runKey || '-'} · DAG {finalOutputRef.dagKey || '-'} · Node {finalOutputRef.sourceNodeKey || '-'}</small>
       ) : null}
-      <pre>{sharedFileSummary(file)}</pre>
+      <pre className="shared-file-summary">{sharedFileSummary(file)}</pre>
       <footer>
         <button type="button" onClick={() => { void onOpen(file); }} disabled={busy}>
           <Eye size={14} /> {busy ? '加载中...' : '打开'}
@@ -601,6 +777,7 @@ function SharedFileViewer({ file, copied, exporting, onClose, onCopy, onExport }
         <dl className="shared-file-viewer-meta">
           <dt>来源</dt><dd>{file.updatedBy || '-'}</dd>
           <dt>更新时间</dt><dd>{sharedFileTimestamp(file.updatedAt)}</dd>
+          <dt>格式</dt><dd>{sharedFileDisplay(file).formatLabel}</dd>
         </dl>
         <pre className="shared-file-content-preview">{sharedFilePreview(file)}</pre>
     </FocusTrapDialog>

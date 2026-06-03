@@ -386,6 +386,22 @@ describe('theme-aware component styles', () => {
     expect(image.display).toBe('block');
     expect(image['max-width']).toBe('100%');
   });
+
+  it('keeps shared file rows compact while the preview modal can scroll content', () => {
+    const rowTitle = declarationsFor('.file-row h3');
+    const badge = declarationsFor('.file-row header span');
+    const summary = declarationsFor('.file-row .shared-file-summary');
+    const preview = declarationsFor('.shared-file-content-preview');
+
+    expect(rowTitle['min-width']).toBe('0');
+    expect(rowTitle.overflow).toBe('hidden');
+    expect(rowTitle['text-overflow']).toBe('ellipsis');
+    expect(badge.flex).toBe('0 0 auto');
+    expect(summary['max-height']).toBe('calc(1.45em * 3)');
+    expect(summary.overflow).toBe('hidden');
+    expect(preview['max-height']).toBe('52vh');
+    expect(preview.overflow).toBe('auto');
+  });
 });
 
 describe('timeline content styles', () => {
