@@ -2532,10 +2532,8 @@ function useModelSelectorController({ store, activeThreadId, disabled, wrapRef }
   const { activeEffort, activeModel, activeThreadConfig, canOverrideThread, draftEffort, draftModel, providerKey } = snapshot;
   const [draft, setDraft] = useState({ model: draftModel, effort: draftEffort });
   const closedDraft = { model: draftModel, effort: draftEffort };
-  if (disabled && open) {
-    setOpen(false);
-  }
   const selectorOpen = open && !disabled;
+  useEffect(() => { if (disabled && open) setOpen(false); }, [disabled, open]);
   const selectorDraft = selectorOpen ? draft : closedDraft;
 
   useEffect(() => {
@@ -2553,9 +2551,11 @@ function useModelSelectorController({ store, activeThreadId, disabled, wrapRef }
     setDraft({ model: draftModel, effort: draftEffort });
     setOpen(nextOpen);
     if (!nextOpen || !activeThreadId) return;
+    let cancelled = false;
     const loaded = await store.loadThreadConfig?.(activeThreadId);
-    if (!loaded) return;
+    if (cancelled || !loaded) return;
     setDraft(loadedModelDraft(loaded, activeModel, activeEffort));
+    return () => { cancelled = true; };
   };
 
   const saveModelConfig = async (patch) => {
@@ -4996,6 +4996,8 @@ function ConversationTimeline({
   const olderPageRequestingThreadRef = useRef('');
   const [olderPageRequestingThreadId, setOlderPageRequestingThreadId] = useState('');
   const olderPageRequesting = olderPageRequestingThreadId === activeThreadId;
+  const bottomRef = useRef(null);
+  const userScrolledRef = useRef(false);
   const olderPageLoading = Boolean(messagePagination?.loading || olderPageRequesting);
   const hasBackendOlderPage = Boolean(activeThreadId && messagePagination?.hasMore && typeof loadOlderThreadMessages === 'function');
   const canLoadBackendOlderPage = hasBackendOlderPage && !olderPageLoading;
@@ -5020,13 +5022,35 @@ function ConversationTimeline({
       revealOlder();
       return;
     }
-    if (canLoadBackendOlderPage) requestBackendOlderPage();
-  }, [canLoadBackendOlderPage, hiddenOlderCount, requestBackendOlderPage, revealOlder, timelineContentBlocked]);
+    if (canLoadBackendOlderPage) {
+      const container = timelineRef.current;
+      const beforeHeight = container ? container.scrollHeight : 0;
+      requestBackendOlderPage();
+      if (container && beforeHeight) {
+        requestAnimationFrame(() => {
+          container.scrollTop += container.scrollHeight - beforeHeight;
+        });
+      }
+    }
+  }, [canLoadBackendOlderPage, hiddenOlderCount, requestBackendOlderPage, revealOlder, timelineContentBlocked, timelineRef]);
   const handleScroll = useCallback((event) => {
+    const el = event.currentTarget;
+    userScrolledRef.current = el.scrollTop + el.clientHeight < el.scrollHeight - 100;
     if (timelineContentBlocked) return;
     if (hiddenOlderCount <= 0 && !hasBackendOlderPage) return;
-    if (event.currentTarget.scrollTop <= TIMELINE_SCROLL_LOAD_THRESHOLD) requestOlderMessages();
+    if (el.scrollTop <= TIMELINE_SCROLL_LOAD_THRESHOLD) requestOlderMessages();
   }, [hasBackendOlderPage, hiddenOlderCount, requestOlderMessages, timelineContentBlocked]);
+  const visibleLen = visibleMessages.length;
+  const pendingLen = pendingReasoning ? 1 : 0;
+  useEffect(() => {
+    if (!userScrolledRef.current && bottomRef.current?.scrollIntoView) {
+      bottomRef.current.scrollIntoView({ behavior: 'smooth' });
+    }
+  }, [visibleLen, pendingLen]);
+  useEffect(() => {
+    userScrolledRef.current = false;
+  }, [activeThreadId]);
+
   return (
     <div className="timeline-shell">
       <div className="timeline" data-testid="chat-timeline" ref={timelineRef} onScroll={handleScroll}>
@@ -5037,6 +5061,7 @@ function ConversationTimeline({
         {!introMode && !timelineContentBlocked ? visibleMessages.map((message) => <TimelineMessage key={message.id} message={message} actions={messageActions} />) : null}
         {!introMode && timelineContentBlocked ? <TimelineLoadingPlaceholder /> : null}
         {pendingReasoning ? <ReasoningTrace key={pendingReasoning.id} message={pendingReasoning} active /> : null}
+        <div ref={bottomRef} style={{ height: 0 }} aria-hidden="true" />
       </div>
       {activeThreadId && !introMode && !timelineContentBlocked ? (
         <button
@@ -5108,6 +5133,9 @@ function ApprovalTimelineMessage({ message, actions }) {
     try {
       const ok = await actions.onApproval(message, approved);
       if (ok) setResolved(true);
+    }
+    catch (error) {
+      actions.onError?.('approval.failed', error.message || String(error));
     }
     finally {
       setBusy(false);

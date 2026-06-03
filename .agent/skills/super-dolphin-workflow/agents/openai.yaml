@@ -1,0 +1,4 @@
+interface:
+  display_name: "Super-Dolphin 工作流"
+  short_description: "Super-Dolphin repo workflow and verification"
+  default_prompt: "Use $super-dolphin-workflow to handle a Super-Dolphin repo task with scoped inspection, verification, and git discipline."
