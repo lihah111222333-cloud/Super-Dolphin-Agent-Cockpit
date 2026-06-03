@@ -2352,6 +2352,7 @@ function ThreadCard({
   onSubmitRename,
 }) {
   const archiveLabel = thread.archived ? '恢复会话' : '归档会话';
+  const threadLabel = displayThreadName(thread);
   return (
     <div className={`thread-card ${active ? 'active' : ''}`}>
       {editing ? (
@@ -2368,19 +2369,38 @@ function ThreadCard({
         <ThreadDisplayCardContent
           thread={thread}
           store={store}
-          hoveredPinThreadId={hoveredPinThreadId}
-          onBeginRename={onBeginRename}
-          onSetHoveredPinThreadId={onSetHoveredPinThreadId}
+          threadLabel={threadLabel}
         />
       )}
-      <ThreadArchiveButton
-        thread={thread}
-        archiveLabel={archiveLabel}
-        hoveredArchiveThreadId={hoveredArchiveThreadId}
-        loading={Boolean(store.threadArchiveLoadingByThread?.[thread.id])}
-        onSetHoveredArchiveThreadId={onSetHoveredArchiveThreadId}
-        onToggle={() => store.archiveThread(thread.id, !thread.archived)}
-      />
+      <div className="thread-card-actions">
+        {!editing ? (
+          <>
+            <ThreadPinButton
+              thread={thread}
+              hoveredPinThreadId={hoveredPinThreadId}
+              onSetHoveredPinThreadId={onSetHoveredPinThreadId}
+              onToggle={() => store.toggleThreadPin(thread.id)}
+            />
+            <button
+              type="button"
+              className="thread-rename-trigger"
+              aria-label="重命名会话"
+              title={`重命名 ${threadLabel}`}
+              onClick={() => onBeginRename(thread)}
+            >
+              <Pencil size={13} aria-hidden="true" />
+            </button>
+          </>
+        ) : null}
+        <ThreadArchiveButton
+          thread={thread}
+          archiveLabel={archiveLabel}
+          hoveredArchiveThreadId={hoveredArchiveThreadId}
+          loading={Boolean(store.threadArchiveLoadingByThread?.[thread.id])}
+          onSetHoveredArchiveThreadId={onSetHoveredArchiveThreadId}
+          onToggle={() => store.archiveThread(thread.id, !thread.archived)}
+        />
+      </div>
     </div>
   );
 }
@@ -2419,37 +2439,32 @@ function ThreadRenameCardContent({ thread, editingName, renaming, onCancelRename
   }, [renaming]);
 
   return (
-    <>
-      <span className="thread-pin thread-pin--placeholder" aria-hidden="true">
-        <Pin size={14} strokeWidth={2.2} />
-      </span>
-      <div className="thread-main thread-main--editing">
-        <input
-          ref={inputRef}
-          className="thread-name-input"
-          aria-label="会话别名"
-          value={editingName}
-          maxLength={64}
-          disabled={renaming}
-          onFocus={(event) => event.currentTarget.select()}
-          onChange={(event) => onSetEditingName(event.target.value)}
-          onClick={(event) => event.stopPropagation()}
-          onBlur={(event) => onRenameBlur(event, thread)}
-          onKeyDown={(event) => handleThreadRenameKeyDown(event, thread, onSubmitRename, onCancelRename)}
-        />
-        <button
-          type="button"
-          className="thread-rename-save"
-          aria-label="保存别名"
-          data-rename-save-button-for={thread.id}
-          disabled={renaming}
-          onMouseDown={(event) => event.preventDefault()}
-          onClick={() => runUIAction(() => onSubmitRename(thread))}
-        >
-          保存
-        </button>
-      </div>
-    </>
+    <div className="thread-main thread-main--editing">
+      <input
+        ref={inputRef}
+        className="thread-name-input"
+        aria-label="会话别名"
+        value={editingName}
+        maxLength={64}
+        disabled={renaming}
+        onFocus={(event) => event.currentTarget.select()}
+        onChange={(event) => onSetEditingName(event.target.value)}
+        onClick={(event) => event.stopPropagation()}
+        onBlur={(event) => onRenameBlur(event, thread)}
+        onKeyDown={(event) => handleThreadRenameKeyDown(event, thread, onSubmitRename, onCancelRename)}
+      />
+      <button
+        type="button"
+        className="thread-rename-save"
+        aria-label="保存别名"
+        data-rename-save-button-for={thread.id}
+        disabled={renaming}
+        onMouseDown={(event) => event.preventDefault()}
+        onClick={() => runUIAction(() => onSubmitRename(thread))}
+      >
+        保存
+      </button>
+    </div>
   );
 }
 
@@ -2464,42 +2479,24 @@ function handleThreadRenameKeyDown(event, thread, onSubmitRename, onCancelRename
   }
 }
 
-function ThreadDisplayCardContent({ thread, store, hoveredPinThreadId, onBeginRename, onSetHoveredPinThreadId }) {
+function ThreadDisplayCardContent({ thread, store, threadLabel }) {
   const running = threadStatusBusy(thread.status);
-  const threadLabel = displayThreadName(thread);
   const statusLabel = threadCardStatusLabel(thread, running);
   const statusDotState = threadStatusDotState(thread.status);
   const statusDotTitle = threadStatusDotTitle(thread.status, statusLabel);
   return (
-    <>
-      <ThreadPinButton
+    <button type="button" className="thread-main" onClick={() => runUIAction(() => store.setActiveThread(thread.id))}>
+      <span className="thread-name" title={threadLabel}>
+        {threadLabel}
+      </span>
+      <b>{threadProviderLabel(thread.provider)}</b>
+      <ThreadStatusLine
         thread={thread}
-        hoveredPinThreadId={hoveredPinThreadId}
-        onSetHoveredPinThreadId={onSetHoveredPinThreadId}
-        onToggle={() => store.toggleThreadPin(thread.id)}
+        statusDotState={statusDotState}
+        statusDotTitle={statusDotTitle}
+        statusLabel={statusLabel}
       />
-      <button type="button" className="thread-main" onClick={() => runUIAction(() => store.setActiveThread(thread.id))}>
-        <span className="thread-name" title={threadLabel}>
-          {threadLabel}
-        </span>
-        <b>{threadProviderLabel(thread.provider)}</b>
-        <ThreadStatusLine
-          thread={thread}
-          statusDotState={statusDotState}
-          statusDotTitle={statusDotTitle}
-          statusLabel={statusLabel}
-        />
-      </button>
-      <button
-        type="button"
-        className="thread-rename-trigger"
-        aria-label="重命名会话"
-        title={`重命名 ${threadLabel}`}
-        onClick={() => onBeginRename(thread)}
-      >
-        <Pencil size={13} aria-hidden="true" />
-      </button>
-    </>
+    </button>
   );
 }
 
@@ -5002,6 +4999,9 @@ function ConversationTimeline({
   const olderPageRequestingThreadRef = useRef('');
   const [olderPageRequestingThreadId, setOlderPageRequestingThreadId] = useState('');
   const olderPageRequesting = olderPageRequestingThreadId === activeThreadId;
+  const containerRef = useRef(null);
+  const bottomRef = useRef(null);
+  const userScrolledRef = useRef(false);
   const olderPageLoading = Boolean(messagePagination?.loading || olderPageRequesting);
   const hasBackendOlderPage = Boolean(activeThreadId && messagePagination?.hasMore && typeof loadOlderThreadMessages === 'function');
   const canLoadBackendOlderPage = hasBackendOlderPage && !olderPageLoading;
@@ -5026,16 +5026,40 @@ function ConversationTimeline({
       revealOlder();
       return;
     }
-    if (canLoadBackendOlderPage) requestBackendOlderPage();
+    if (canLoadBackendOlderPage) {
+      const container = containerRef.current;
+      const beforeHeight = container ? container.scrollHeight : 0;
+      requestBackendOlderPage();
+      if (container && beforeHeight) {
+        requestAnimationFrame(() => {
+          container.scrollTop += container.scrollHeight - beforeHeight;
+        });
+      }
+    }
   }, [canLoadBackendOlderPage, hiddenOlderCount, requestBackendOlderPage, revealOlder, timelineContentBlocked]);
   const handleScroll = useCallback((event) => {
+    const el = event.currentTarget;
+    // detect user scrolling up — stop auto-follow
+    userScrolledRef.current = el.scrollTop + el.clientHeight < el.scrollHeight - 100;
     if (timelineContentBlocked) return;
     if (hiddenOlderCount <= 0 && !hasBackendOlderPage) return;
-    if (event.currentTarget.scrollTop <= TIMELINE_SCROLL_LOAD_THRESHOLD) requestOlderMessages();
+    if (el.scrollTop <= TIMELINE_SCROLL_LOAD_THRESHOLD) requestOlderMessages();
   }, [hasBackendOlderPage, hiddenOlderCount, requestOlderMessages, timelineContentBlocked]);
+  // auto-scroll to bottom on new messages, unless user scrolled up
+  const visibleLen = visibleMessages.length;
+  const pendingLen = pendingReasoning ? 1 : 0;
+  useEffect(() => {
+    if (!userScrolledRef.current && bottomRef.current?.scrollIntoView) {
+      bottomRef.current.scrollIntoView({ behavior: 'smooth' });
+    }
+  }, [visibleLen, pendingLen]);
+  // reset follow on new thread
+  useEffect(() => {
+    userScrolledRef.current = false;
+  }, [activeThreadId]);
 
   return (
-    <div className="timeline" data-testid="chat-timeline" onScroll={handleScroll}>
+    <div ref={containerRef} className="timeline" data-testid="chat-timeline" onScroll={handleScroll}>
       {introMode ? <IntroChatStage composer={composer} projectPath={projectPath} /> : null}
       {!introMode && !timelineContentBlocked && (hiddenOlderCount > 0 || hasBackendOlderPage) ? (
         <TimelineOlderMessagesMarker hiddenCount={hiddenOlderCount} loading={olderPageLoading} onReveal={requestOlderMessages} />
@@ -5043,6 +5067,7 @@ function ConversationTimeline({
       {!introMode && !timelineContentBlocked ? visibleMessages.map((message) => <TimelineMessage key={message.id} message={message} actions={messageActions} />) : null}
       {!introMode && timelineContentBlocked ? <TimelineLoadingPlaceholder /> : null}
       {pendingReasoning ? <ReasoningTrace key={pendingReasoning.id} message={pendingReasoning} active /> : null}
+      <div ref={bottomRef} style={{ height: 0 }} aria-hidden="true" />
     </div>
   );
 }
