@@ -2553,6 +2553,51 @@ function registerBridgeEventHandlersForTest() {
     ]);
   });
 
+  it('replaces a shorter runtime assistant completion when turn completion carries the full answer', () => {
+    resetClientStoreForTests({
+      cwd: '/repo/app',
+      activeProject: '/repo/app',
+      activeThreadId: 'thread-1',
+      threads: [{ id: 'thread-1', name: 'Thread 1', provider: 'codex', status: 'running' }],
+      timelinesByThread: {
+        'thread-1': [{ id: 'user-1', role: 'user', text: '检查抖音脚本', time: '2026-06-03T13:15:36Z' }],
+      },
+    });
+    registerBridgeEventHandlersForTest();
+
+    bridgeCallback({
+      method: 'item/completed',
+      payload: {
+        threadId: 'thread-1',
+        turnId: 'turn-1',
+        timestamp: '2026-06-03T13:15:38Z',
+        item: {
+          id: 'msg-short-prefix',
+          type: 'agentMessage',
+          text: '我先读取共享资源里是否有 `reports/douyin_viral_scripts.md`。',
+        },
+      },
+    });
+    bridgeCallback({
+      method: 'turn/completed',
+      payload: {
+        threadId: 'thread-1',
+        turnId: 'turn-1',
+        timestamp: '2026-06-03T13:15:43Z',
+        result: '我先读取共享资源里是否有 `reports/douyin_viral_scripts.md`。\n\n已找到脚本文件，接下来会根据模板整理今日任务。',
+      },
+    });
+
+    const assistantMessages = useClientStore.getState().timelinesByThread['thread-1']
+      .filter((message) => message.role === 'assistant');
+    expect(assistantMessages).toEqual([
+      expect.objectContaining({
+        id: 'assistant-final-turn-1',
+        text: '我先读取共享资源里是否有 `reports/douyin_viral_scripts.md`。\n\n已找到脚本文件，接下来会根据模板整理今日任务。',
+      }),
+    ]);
+  });
+
   it('applies fallback turn output deltas with empty stream as assistant message text', () => {
     resetClientStoreForTests({
       cwd: '/repo/app',
@@ -2596,6 +2641,60 @@ function registerBridgeEventHandlersForTest() {
     expect(useClientStore.getState().timelinesByThread['thread-1']).toEqual([
       expect.objectContaining({ role: 'user', text: 'say ok' }),
       expect.objectContaining({ id: 'assistant-stream-turn-1', role: 'assistant', text: 'ok', done: false }),
+    ]);
+  });
+
+  it('deduplicates overlapping assistant deltas before merging the formatted patch reply', () => {
+    resetClientStoreForTests({
+      cwd: '/repo/app',
+      activeProject: '/repo/app',
+      activeThreadId: 'thread-1',
+      threads: [{ id: 'thread-1', name: 'Thread 1', provider: 'codex', status: 'running' }],
+      timelinesByThread: {
+        'thread-1': [{ id: 'user-1', role: 'user', text: 'say math', time: '2026-05-30T00:00:00Z' }],
+      },
+    });
+    registerBridgeEventHandlersForTest();
+
+    bridgeCallback({
+      method: 'item/agentMessage/delta',
+      payload: {
+        threadId: 'thread-1',
+        turnId: 'turn-1',
+        delta: '正常',
+        stream: 'message',
+      },
+    });
+    bridgeCallback({
+      method: 'item/agentMessage/delta',
+      payload: {
+        threadId: 'thread-1',
+        turnId: 'turn-1',
+        delta: '常数学',
+        stream: 'message',
+      },
+    });
+    bridgeCallback({
+      type: 'ui/thread/patch',
+      payload: {
+        threadId: 'thread-1',
+        sequence: '1',
+        timelineItems: [{
+          id: 'assistant-from-patch',
+          kind: 'assistant',
+          text: '正常数学',
+          createdAt: '2026-05-30T00:01:00Z',
+        }],
+      },
+    });
+
+    const assistantMessages = useClientStore.getState().timelinesByThread['thread-1']
+      .filter((message) => message.role === 'assistant');
+    expect(assistantMessages).toEqual([
+      expect.objectContaining({
+        id: 'assistant-from-patch',
+        text: '正常数学',
+      }),
     ]);
   });
 
@@ -3010,6 +3109,27 @@ function registerBridgeEventHandlersForTest() {
         method: 'thread/config/get',
         req_id: 2,
       }),
+    }));
+  });
+
+  it('emits failed warning entries to frontend observability traces', () => {
+    useClientStore.getState().addWarning('warn', 'memory.badge.refresh.failed', {
+      error: '记忆中心加载超时，请检查记忆数据或后端状态。',
+      traceId: 'trace-memory-1',
+      spanId: 'span-memory-1',
+      threadId: 'thread-1',
+      req_id: 17,
+    });
+
+    expect(backend.emitFrontendTraceEvent).toHaveBeenCalledWith(expect.objectContaining({
+      phase: 'frontend.warning',
+      method: 'memory.badge.refresh.failed',
+      trace_id: 'trace-memory-1',
+      span_id: 'span-memory-1',
+      thread_id: 'thread-1',
+      status: 'error',
+      error: '记忆中心加载超时，请检查记忆数据或后端状态。',
+      metadata: { component: 'memory', req_id: 17 },
     }));
   });
 

@@ -38,6 +38,7 @@ const DEFAULT_PROVIDER = 'codex';
 const MAX_WARNING_ENTRIES = 300;
 const MAX_RUNTIME_RESULT_ENTRIES = 120;
 const RUNTIME_RESULT_DETAIL_LIMIT = 1600;
+const RUNTIME_ASSISTANT_PREFIX_DUPLICATE_MIN_CHARS = 24;
 const BRIDGE_PATCH_SLOW_MS = 50;
 const THREAD_MESSAGES_PAGE_SIZE = 300;
 const TOOL_SURFACE_MODE_AUTO = 'auto';
@@ -1260,6 +1261,15 @@ function sameTimelineContentCompact(left, right) {
   );
 }
 
+function sameTimelineContentPrefix(left, right) {
+  if (left?.role !== right?.role || normalizeTimelineKind(left) !== normalizeTimelineKind(right)) return false;
+  const leftText = compactTimelineText(left?.text);
+  const rightText = compactTimelineText(right?.text);
+  const shorterLength = Math.min(leftText.length, rightText.length);
+  if (shorterLength < RUNTIME_ASSISTANT_PREFIX_DUPLICATE_MIN_CHARS) return false;
+  return leftText.startsWith(rightText) || rightText.startsWith(leftText);
+}
+
 function normalizeTimelineKind(item) {
   const kind = normalizeString(item?.kind).toLowerCase();
   if (kind) return kind;
@@ -1672,6 +1682,22 @@ function isAssistantMessageDeltaEvent(eventName, payload = {}) {
   return !stream || stream === 'message' || stream === 'assistant' || stream === 'agentmessage' || stream === 'agent_message';
 }
 
+function appendAssistantDeltaText(existingText, deltaText) {
+  const base = (existingText || '').toString();
+  const incoming = (deltaText || '').toString();
+  if (!incoming) return base;
+  if (!base) return incoming;
+  if (base.endsWith(incoming)) return base;
+  if (incoming.endsWith(base)) return incoming;
+  const maxOverlap = Math.min(base.length, incoming.length);
+  for (let overlap = maxOverlap; overlap > 0; overlap -= 1) {
+    if (base.slice(-overlap) === incoming.slice(0, overlap)) {
+      return base + incoming.slice(overlap);
+    }
+  }
+  return base + incoming;
+}
+
 function mergeRuntimeAssistantCompletion(existingItems = [], completion) {
   if (!completion?.item) return existingItems;
   const finalItem = completion.item;
@@ -1684,16 +1710,25 @@ function mergeRuntimeAssistantCompletion(existingItems = [], completion) {
       break;
     }
   }
-  const duplicate = withoutReplaced.find((item, index) => (
+  const duplicateIndex = withoutReplaced.findIndex((item, index) => (
     item.role === 'assistant' &&
     item.done !== false &&
     (
       sameTimelineContent(item, finalItem) ||
-      (index > lastUserIndex && sameTimelineContentCompact(item, finalItem))
+      (index > lastUserIndex && (
+        sameTimelineContentCompact(item, finalItem) ||
+        (item.runtime && finalItem.runtime && sameTimelineContentPrefix(item, finalItem))
+      ))
     )
   ));
-  if (duplicate && (!completion.explicitId || duplicate.runtime || withoutReplaced.indexOf(duplicate) > lastUserIndex)) {
-    return dedupeAssistantTimelineItems(withoutReplaced);
+  if (duplicateIndex >= 0 && (
+    !completion.explicitId ||
+    withoutReplaced[duplicateIndex].runtime ||
+    duplicateIndex > lastUserIndex
+  )) {
+    return dedupeAssistantTimelineItems(sortTimelineChronologically(withoutReplaced.map((item, index) => (
+      index === duplicateIndex ? preferredAssistantTimelineItem(item, finalItem) : item
+    ))));
   }
   return dedupeAssistantTimelineItems([...withoutReplaced, finalItem]);
 }
@@ -2394,6 +2429,29 @@ function attachWarningRuntime(runtime) {
     warningErrorKey(fields),
   ].join('|');
 
+  const emitWarningTrace = (level, event, threadId, fields = {}) => {
+    const method = normalizeString(event);
+    if (!method) return;
+    const metadata = cleanObject({
+      component: warningTraceComponent(method),
+      req_id: fields.req_id ?? fields.reqId,
+    });
+    emitFrontendTraceEvent(cleanObject({
+      phase: 'frontend.warning',
+      method,
+      trace_id: normalizeString(fields.trace_id || fields.traceId),
+      span_id: normalizeString(fields.span_id || fields.spanId),
+      parent_span_id: normalizeString(fields.parent_span_id || fields.parentSpanId),
+      thread_id: threadId,
+      agent_id: normalizeString(fields.agent_id || fields.agentId),
+      turn_id: normalizeString(fields.turn_id || fields.turnId),
+      call_id: normalizeString(fields.call_id || fields.callId),
+      status: warningTraceStatus(level, method),
+      error: warningErrorKey(fields),
+      metadata: Object.keys(metadata).length > 0 ? metadata : undefined,
+    }));
+  };
+
   const addWarning = (level, event, fields = {}) => {
     if (level !== 'warn' && level !== 'error') return;
     const threadId = normalizeThreadId(runtimeThreadIdentifier(fields));
@@ -2411,9 +2469,20 @@ function attachWarningRuntime(runtime) {
     set((state) => ({
       warningEntries: mergeWarningEntries(state.warningEntries, entry, fields),
     }));
+    emitWarningTrace(level, event, threadId, fields);
   };
 
   Object.assign(runtime, { addWarning });
+}
+
+function warningTraceComponent(event) {
+  return normalizeString(event).split(/[./]/).filter(Boolean)[0] || '';
+}
+
+function warningTraceStatus(level, event) {
+  const method = normalizeString(event).toLowerCase();
+  if (level === 'error' || method.endsWith('.failed') || method.endsWith('/failed')) return 'error';
+  return 'ok';
 }
 
 function mergeWarningEntries(warningEntries, entry, fields) {
@@ -2905,7 +2974,7 @@ function attachAssistantEventRuntime(runtime) {
         return {
           ...item,
           role: 'assistant',
-          text: `${normalizeString(item.text)}${delta}`,
+          text: appendAssistantDeltaText(item.text, delta),
           done: false,
         };
       });
