@@ -106,6 +106,7 @@ const TOKEN_COLOR_RULES = [
   ['.thread-pin', ['color']],
   ['.thread-pin.active', ['border-color', 'background', 'color']],
   ['.thread-pin-tooltip', ['border', 'background', 'color']],
+  ['.thread-action-tooltip', ['border', 'background', 'color']],
   ['.image-lightbox-backdrop', ['background']],
   ['.message-markdown', ['color']],
   ['.message.assistant .message-markdown', ['color']],
@@ -251,6 +252,22 @@ describe('composer layout styles', () => {
     expect(statusDot['flex']).toBe('0 0 auto');
   });
 
+  it('renders the active thread archive action without an outer ring', () => {
+    const threadArchiveActive = declarationsFor('.thread-archive.active');
+    const threadArchiveFocus = declarationsFor('.thread-archive:focus-visible');
+    const threadPinActive = declarationsFor('.thread-pin.active');
+    const threadPinFocus = declarationsFor('.thread-pin:focus-visible');
+
+    expect(threadArchiveActive.color).toBe(threadPinActive.color);
+    expect(threadArchiveActive.border).toBe('none');
+    expect(threadArchiveActive.background).toBe(threadPinActive.background);
+    expect(threadArchiveActive['border-color']).toBe(threadPinActive['border-color']);
+    expect(threadArchiveActive['border-style']).toBe(threadPinActive['border-style']);
+    expect(threadArchiveActive.outline).toBe(threadPinFocus.outline);
+    expect(threadArchiveActive['box-shadow']).toBe(threadPinActive['box-shadow']);
+    expect(threadArchiveFocus.outline).toBe(threadPinFocus.outline);
+  });
+
   it('keeps workflow run history rows aligned as scannable data columns', () => {
     const row = declarationsFor('.run-row');
     const label = declarationsFor('.run-row span');
@@ -304,8 +321,8 @@ describe('composer layout styles', () => {
     expect(logs['overflow-x']).toBe('hidden');
     expect(tooltipRow['min-width']).toBe('0');
     expect(tooltipName['min-width']).toBe('0');
-    expect(tooltipName.overflow).toBe('hidden');
-    expect(tooltipName['text-overflow']).toBe('ellipsis');
+    expect(tooltipName.overflow).toBe('visible');
+    expect(tooltipName['white-space']).toBe('normal');
     expect(logLine['min-width']).toBe('0');
     expect(logLine.display).toBe('block');
     expect(logLine.width).toBe('100%');
@@ -536,6 +553,22 @@ describe('assistant message styles', () => {
     expect(markdown['line-height']).toBe('1.62');
   });
 
+  it('keeps streaming markdown and long code lines from forcing single-line layout', () => {
+    const markdown = declarationsFor('.message-markdown');
+    const markdownPre = declarationsFor('.message-markdown pre');
+    const markdownPreCode = declarationsFor('.message-markdown pre code');
+
+    expect(markdown['min-width']).toBe('0');
+    expect(markdown['max-width']).toBe('100%');
+    expect(markdown['white-space']).toBe('normal');
+    expect(markdown['overflow-wrap']).toBe('anywhere');
+    expect(markdownPre['max-width']).toBe('100%');
+    expect(markdownPre['white-space']).toBe('pre-wrap');
+    expect(markdownPre['overflow-wrap']).toBe('anywhere');
+    expect(markdownPreCode['white-space']).toBe('pre-wrap');
+    expect(markdownPreCode['overflow-wrap']).toBe('anywhere');
+  });
+
   it('styles assistant message copy actions as low-noise controls', () => {
     const actions = declarationsFor('.message-actions');
     const button = declarationsFor('.message-copy');
@@ -747,16 +780,23 @@ describe('runtime activity panel styles', () => {
   it('lets activity popovers render above the code diff panel', () => {
     const panel = declarationsFor('.runtime-panel');
     const activity = declarationsFor('.runtime-activity-panel');
+    const collapsedActivity = declarationsFor('.runtime-activity-panel.is-log-collapsed');
+    const collapsedIcons = declarationsFor('.runtime-activity-panel.is-log-collapsed .runtime-icons');
     const diff = declarationsFor('.diff-empty');
     const tooltip = declarationsFor('.runtime-stat-tooltip');
     const warningPopover = declarationsFor('.warning-log-popover');
 
+    expect(panel['--activity-panel-height']).toBe('64px');
+    expect(panel['--activity-panel-min-height']).toBe('64px');
     expect(panel['overflow-x']).toBe('visible');
     expect(panel['overflow-y']).toBe('visible');
     expect(panel['grid-template-rows']).toContain('var(--activity-panel-height)');
     expect(activity['overflow-x']).toBe('visible');
     expect(activity['overflow-y']).toBe('visible');
     expect(activity.height).toBe('var(--activity-panel-height)');
+    expect(collapsedActivity['grid-template-rows']).toBe('minmax(0, 1fr)');
+    expect(collapsedIcons.height).toBe('100%');
+    expect(collapsedIcons['border-bottom']).toBe('0');
     expect(Number(activity['z-index'])).toBeGreaterThan(Number(diff['z-index']));
     expect(tooltip.position).toBe('fixed');
     expect(tooltip.left).toBe('var(--runtime-stat-tooltip-left, 12px)');
@@ -813,14 +853,14 @@ describe('runtime resize styles', () => {
     expect(stat['justify-content']).toBe('center');
   });
 
-  it('truncates long runtime tool names without widening the tooltip', () => {
+  it('wraps long runtime tool names inside the click tooltip instead of using native hover titles', () => {
     const toolName = declarationsFor('.runtime-stat-tooltip-name');
 
     expect(toolName['min-width']).toBe('0');
-    expect(toolName.overflow).toBe('hidden');
+    expect(toolName.overflow).toBe('visible');
     expect(toolName['overflow-wrap']).toBe('anywhere');
-    expect(toolName['text-overflow']).toBe('ellipsis');
-    expect(toolName['white-space']).toBe('nowrap');
+    expect(toolName['text-overflow']).toBeUndefined();
+    expect(toolName['white-space']).toBe('normal');
   });
 
   it('keeps warning log details inside hover popovers', () => {

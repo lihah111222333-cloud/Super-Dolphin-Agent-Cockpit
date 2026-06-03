@@ -2010,6 +2010,7 @@ async function toggleInlineTraceFromRecentLogs(table) {
     fireEvent.click(screen.getByRole('button', { name: '显示侧边栏' }));
 
     const toolStat = screen.getByLabelText('工具调用总数');
+    expect(toolStat).not.toHaveAttribute('title');
     fireEvent.mouseEnter(toolStat);
     expect(screen.queryByTestId('runtime-stat-tooltip')).not.toBeInTheDocument();
     fireEvent.click(toolStat);
@@ -2017,7 +2018,7 @@ async function toggleInlineTraceFromRecentLogs(table) {
     const tooltip = await screen.findByTestId('runtime-stat-tooltip');
     expect(tooltip).toHaveTextContent('deeply_nested_tool_name_with_many_segments');
     expect(tooltip.querySelector('.runtime-stat-tooltip-row')).toBeInTheDocument();
-    expect(tooltip.querySelector('.runtime-stat-tooltip-name')).toHaveAttribute('title', 'deeply_nested_tool_name_with_many_segments');
+    expect(tooltip.querySelector('.runtime-stat-tooltip-name')).not.toHaveAttribute('title');
     expect(container.querySelector('.runtime-panel')).toHaveClass('runtime-panel');
   });
 
@@ -2158,6 +2159,8 @@ async function toggleInlineTraceFromRecentLogs(table) {
     expect(screen.getByRole('button', { name: '隐藏侧边栏' })).toBeInTheDocument();
     expect(within(container.querySelector('.runtime-panel')).getByRole('button', { name: 'file' })).toBeInTheDocument();
     expect(container.querySelector('.runtime-panel')).not.toHaveTextContent('diff --git a/file b/file');
+    expect(screen.getByRole('list', { name: '工具调用统计' })).toBeInTheDocument();
+    expect(screen.queryByTestId('warning-log-panel')).not.toBeInTheDocument();
     expect(layout).toHaveStyle({ gridTemplateColumns: '240px 6px minmax(0, 1fr) 6px 189px' });
   });
 
@@ -2190,12 +2193,12 @@ async function toggleInlineTraceFromRecentLogs(table) {
 
     const activityResizer = screen.getByRole('separator', { name: '调整工具使用面板高度' });
 
-    expect(activityResizer).toHaveAttribute('aria-valuenow', '160');
+    expect(activityResizer).toHaveAttribute('aria-valuenow', '64');
 
     fireEvent.keyDown(activityResizer, { key: 'ArrowUp' });
 
-    expect(activityResizer).toHaveAttribute('aria-valuenow', '176');
-    expect(screen.getByTestId('runtime-panel')).toHaveStyle({ '--activity-panel-height': '176px' });
+    expect(activityResizer).toHaveAttribute('aria-valuenow', '80');
+    expect(screen.getByTestId('runtime-panel')).toHaveStyle({ '--activity-panel-height': '80px' });
   });
 
   it('opens the right sidebar at one fifth on wide screens', async () => {
@@ -2388,6 +2391,8 @@ async function toggleInlineTraceFromRecentLogs(table) {
     });
 
     fireEvent.click(screen.getByRole('button', { name: '显示侧边栏' }));
+    expect(screen.queryByTestId('warning-log-panel')).not.toBeInTheDocument();
+    fireEvent.keyDown(screen.getByTestId('activity-panel-resizer'), { key: 'ArrowUp' });
 
     expect(within(screen.getByTestId('runtime-panel')).getByRole('button', { name: 'a' })).toBeInTheDocument();
     expect(screen.getByTestId('runtime-panel')).not.toHaveTextContent('diff --git a/a b/a');
@@ -2566,14 +2571,15 @@ async function toggleInlineTraceFromRecentLogs(table) {
     fireEvent.click(screen.getByRole('button', { name: '显示侧边栏' }));
 
     expect(screen.getByTestId('runtime-panel')).toHaveStyle({
-      '--activity-panel-height': '160px',
-      '--activity-panel-min-height': '96px',
+      '--activity-panel-height': '64px',
+      '--activity-panel-min-height': '64px',
       '--activity-panel-max-height': '286px',
       '--diff-panel-min-height': '286px',
-      '--diff-panel-max-height': '477px',
+      '--diff-panel-max-height': '509px',
     });
+    expect(screen.queryByTestId('warning-log-panel')).not.toBeInTheDocument();
     expect(screen.getByLabelText('LSP (8 tools) 调用次数')).toHaveTextContent('3');
-    expect(screen.getByLabelText('LSP (8 tools) 调用次数')).toHaveAttribute('title', 'LSP (8 tools): 3');
+    expect(screen.getByLabelText('LSP (8 tools) 调用次数')).not.toHaveAttribute('title');
     expect(screen.getByLabelText('工具调用总数')).toHaveTextContent('6');
     expect(screen.queryByText('edit:')).not.toBeInTheDocument();
 
@@ -2583,7 +2589,7 @@ async function toggleInlineTraceFromRecentLogs(table) {
     expect(screen.getByTestId('runtime-stat-tooltip')).toHaveTextContent('LSP (8 tools)');
     expect(screen.getByTestId('runtime-stat-tooltip')).toHaveTextContent('edit');
     expect(screen.getByTestId('runtime-stat-tooltip')).toHaveTextContent('3');
-    fireEvent.click(screen.getByTestId('warning-log-panel'));
+    fireEvent.click(screen.getByRole('region', { name: '工具使用面板' }));
     expect(screen.queryByTestId('runtime-stat-tooltip')).not.toBeInTheDocument();
 
     fireEvent.mouseDown(screen.getByTestId('activity-panel-resizer'), { clientY: 500 });
@@ -2593,6 +2599,7 @@ async function toggleInlineTraceFromRecentLogs(table) {
     await waitFor(() => {
       expect(screen.getByTestId('runtime-panel')).toHaveStyle({ '--activity-panel-height': '286px' });
     });
+    expect(screen.getByTestId('warning-log-panel')).toBeInTheDocument();
   });
 
   it('shows tool return entries alongside warning lines in the runtime panel', async () => {
@@ -2623,6 +2630,7 @@ async function toggleInlineTraceFromRecentLogs(table) {
     });
 
     fireEvent.click(screen.getByRole('button', { name: '显示侧边栏' }));
+    fireEvent.keyDown(screen.getByTestId('activity-panel-resizer'), { key: 'ArrowUp' });
 
     const logPanel = screen.getByTestId('warning-log-panel');
     expect(logPanel).toHaveTextContent('api.rpc.failed');
@@ -3384,13 +3392,30 @@ async function toggleInlineTraceFromRecentLogs(table) {
     render(<App />);
     await screen.findByText('后端线程');
 
-    fireEvent.mouseEnter(screen.getByLabelText('置顶对话'));
+    const pinButton = screen.getByLabelText('置顶对话');
+    expect(pinButton).not.toHaveAttribute('title');
+    fireEvent.mouseEnter(pinButton);
 
     expect(screen.getByTestId('thread-pin-tooltip')).toHaveTextContent('置顶对话');
 
-    fireEvent.mouseLeave(screen.getByLabelText('置顶对话'));
+    fireEvent.mouseLeave(pinButton);
 
     expect(screen.queryByTestId('thread-pin-tooltip')).not.toBeInTheDocument();
+  });
+
+  it('shows the archive action tooltip without a native title tooltip', async () => {
+    render(<App />);
+    await screen.findByText('后端线程');
+
+    const archiveButton = screen.getByLabelText('归档会话');
+    expect(archiveButton).not.toHaveAttribute('title');
+    fireEvent.mouseEnter(archiveButton);
+
+    expect(screen.getByTestId('thread-archive-tooltip')).toHaveTextContent('归档会话');
+
+    fireEvent.mouseLeave(archiveButton);
+
+    expect(screen.queryByTestId('thread-archive-tooltip')).not.toBeInTheDocument();
   });
 
   it('renames a thread inline through the legacy backend name RPC', async () => {
@@ -3685,6 +3710,7 @@ async function toggleInlineTraceFromRecentLogs(table) {
     render(<App />);
     await screen.findByText('后端线程');
     fireEvent.click(screen.getByRole('button', { name: '显示侧边栏' }));
+    fireEvent.keyDown(screen.getByTestId('activity-panel-resizer'), { key: 'ArrowUp' });
 
     act(() => {
       bridgeCallback({
