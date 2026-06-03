@@ -34,7 +34,6 @@ var (
 		"task_dag_nodes":         {},
 		"task_dag_runs":          {},
 		"task_dags":              {},
-		"task_traces":            {},
 		"topology_approvals":     {},
 		"ui_preferences":         {},
 		"workspace_run_files":    {},
@@ -85,10 +84,18 @@ func prepareQueryContext(ctx context.Context, queryer platformdb.Queryable, quer
 	if queryer == nil {
 		return nil, errors.New("dbquery queryer is not initialized")
 	}
+	query = injectLimitIfMissing(query, maxQueryRows)
 	if err := validateQuery(query, argCount); err != nil {
 		return nil, err
 	}
 	return ctx, nil
+}
+
+func injectLimitIfMissing(query string, max int) string {
+	if strings.Contains(strings.ToUpper(maskQuotedStrings(query)), " LIMIT ") {
+		return query
+	}
+	return query + fmt.Sprintf(" LIMIT %d", max)
 }
 
 func finalizeQuery(errp *error, finish platformdb.QueryFinish) {
