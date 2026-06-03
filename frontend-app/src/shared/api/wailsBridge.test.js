@@ -48,7 +48,12 @@ function createTestWebSocketClass(sockets) {
     constructor(url) {
       this.url = url;
       this.readyState = TestWebSocket.CONNECTING;
+      this.sent = [];
       sockets.push(this);
+    }
+
+    send(data) {
+      this.sent.push(data);
     }
 
     open() {
@@ -64,6 +69,12 @@ function createTestWebSocketClass(sockets) {
     emit(method, params) {
       this.onmessage?.({
         data: JSON.stringify({ jsonrpc: '2.0', method, params }),
+      });
+    }
+
+    receive(message) {
+      this.onmessage?.({
+        data: JSON.stringify(message),
       });
     }
   };
@@ -489,5 +500,39 @@ describe('development Wails runtime shim events', () => {
 
     expect(received).toHaveLength(2);
     expect(received[1].data.payload.text).toBe('after reconnect');
+  });
+
+  it('preserves trace metadata for backend correlation while stripping client meta from strict dev RPC routes', async () => {
+    const sockets = [];
+    vi.stubGlobal('WebSocket', createTestWebSocketClass(sockets));
+
+    const runtime = await importFreshDevRuntimeShim();
+    const traceId = '4bf92f3577b34da6a3ce929d0e0e4736';
+    const spanId = '00f067aa0ba902b7';
+    const resultPromise = runtime.Call.ByID(2963398832, 'thread/config/get', {
+      threadId: 'thread-1',
+      _aoTraceparent: `00-${traceId}-${spanId}-01`,
+      _aoTraceId: traceId,
+      _aoSpanId: spanId,
+      _aoClientKind: 'web-debug-shim',
+      _aoClientRoute: '/',
+      _aoRequestId: 42,
+    });
+    expect(sockets).toHaveLength(1);
+    sockets[0].open();
+    await Promise.resolve();
+
+    expect(sockets[0].sent).toHaveLength(1);
+    const request = JSON.parse(sockets[0].sent[0]);
+    expect(request.method).toBe('thread/config/get');
+    expect(request.params).toEqual({
+      threadId: 'thread-1',
+      _aoTraceparent: `00-${traceId}-${spanId}-01`,
+      _aoTraceId: traceId,
+      _aoSpanId: spanId,
+    });
+
+    sockets[0].receive({ jsonrpc: '2.0', id: request.id, result: { ok: true } });
+    await expect(resultPromise).resolves.toEqual({ ok: true });
   });
 });
