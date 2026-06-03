@@ -6,7 +6,8 @@ import { applyDagOps, deleteDag, getDashboardPage, getDagDetail, getDagRun, getD
 import { appendCurrentModelOption, dashboardQueryErrorState, dashboardQueryKey, errorMessage, firstText, listToText, numberOrNull, objectValue, optionalSettingsCwd, queryHasSnapshot, SKILLS_REQUEST_TIMEOUT_MS, textValue, useDashboardFocusInvalidation, withTimeout, wordListFromText } from '../shared/pageShared.js';
 import { PageHeader, Panel, RetryableSyncError } from '../shared/pageComponents.jsx';
 
-const DAG_RECENT_RUN_LIMIT = 5;
+const DAG_RECENT_RUN_LIMIT = 30;
+const DAG_RUN_HISTORY_VISIBLE_LIMIT = 10;
 const MAX_SCHEDULE_HOUR = 23;
 const MAX_SCHEDULE_MINUTE = 59;
 const DAYS_IN_MONTH = 31;
@@ -220,6 +221,41 @@ const DAG_WEEKDAY_LABELS = Object.freeze(Object.fromEntries(DAG_WEEKDAY_OPTIONS.
 
 function twoDigits(value) {
   return value.toString().padStart(2, '0');
+}
+
+function formatDagRunStartedAt(value) {
+  const text = textValue(value);
+  if (!text) return '时间未记录';
+  const matched = text.match(/^(\d{4})-(\d{2})-(\d{2})[T\s](\d{2}):(\d{2}):(\d{2})/);
+  if (matched) {
+    const [, year, month, day, hour, minute, second] = matched;
+    return `${year}-${month}-${day} ${hour}:${minute}:${second}`;
+  }
+  const parsed = new Date(text);
+  if (Number.isNaN(parsed.getTime())) return text;
+  return [
+    parsed.getFullYear().toString().padStart(4, '0'),
+    twoDigits(parsed.getMonth() + 1),
+    twoDigits(parsed.getDate()),
+  ].join('-') + ` ${twoDigits(parsed.getHours())}:${twoDigits(parsed.getMinutes())}:${twoDigits(parsed.getSeconds())}`;
+}
+
+function dagRunStartedAtMillis(run) {
+  const parsed = Date.parse(textValue(run?.startedAt));
+  return Number.isFinite(parsed) ? parsed : Number.POSITIVE_INFINITY;
+}
+
+function chronologicalWorkflowRuns(runs) {
+  const source = Array.isArray(runs) ? runs : [];
+  return source
+    .map((run, index) => ({ index, run }))
+    .sort((left, right) => {
+      const leftTime = dagRunStartedAtMillis(left.run);
+      const rightTime = dagRunStartedAtMillis(right.run);
+      if (leftTime !== rightTime) return leftTime - rightTime;
+      return left.index - right.index;
+    })
+    .map((entry) => entry.run);
 }
 
 function parseScheduleTime(value) {
@@ -1101,12 +1137,31 @@ function WorkflowStatGrid({ derived, selection }) {
 }
 
 function WorkflowRunHistory({ model }) {
-  const { detail, run } = model;
+  const { detail, run, selection } = model;
+  const [expanded, setExpanded] = useState(false);
+  useEffect(() => {
+    setExpanded(false);
+  }, [selection.selectedDagKey]);
+  const orderedRuns = useMemo(() => chronologicalWorkflowRuns(detail.runs), [detail.runs]);
+  const hiddenCount = Math.max(orderedRuns.length - DAG_RUN_HISTORY_VISIBLE_LIMIT, 0);
+  const visibleRuns = expanded || hiddenCount === 0 ? orderedRuns : orderedRuns.slice(hiddenCount);
   return (
     <Panel title="运行历史">
       <div className="dag-run-list">
         {detail.runs.length === 0 ? <p>暂无运行记录</p> : null}
-        {detail.runs.map((item, index) => <WorkflowRunRow index={index} key={item.id} run={item} runState={run} />)}
+        {hiddenCount > 0 ? (
+          <button type="button" className="dag-run-list-toggle" aria-expanded={expanded} onClick={() => setExpanded((current) => !current)}>
+            {expanded ? '收起较早运行记录' : `展开较早 ${hiddenCount} 次运行`}
+          </button>
+        ) : null}
+        {visibleRuns.map((item, index) => (
+          <WorkflowRunRow
+            index={expanded || hiddenCount === 0 ? index : hiddenCount + index}
+            key={item.id}
+            run={item}
+            runState={run}
+          />
+        ))}
       </div>
     </Panel>
   );
@@ -1114,11 +1169,12 @@ function WorkflowRunHistory({ model }) {
 
 function WorkflowRunRow({ index, run, runState }) {
   const active = run.runKey === runState.selectedRunKey;
+  const startedAt = textValue(run.startedAt);
   return (
     <button type="button" className={'run-row ' + (active ? 'active' : '')} onClick={() => { void runState.loadRunDetail(run.runKey); }}>
       <span>{'第 ' + (index + 1) + ' 次运行'}</span>
       <em>{dagStatusLabel(run.status)}</em>
-      <time>{run.startedAt || '时间未记录'}</time>
+      <time dateTime={startedAt || undefined} title={startedAt || undefined}>{formatDagRunStartedAt(startedAt)}</time>
     </button>
   );
 }
