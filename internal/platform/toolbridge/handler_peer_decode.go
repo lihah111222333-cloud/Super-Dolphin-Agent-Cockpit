@@ -185,6 +185,9 @@ func closeMCPClients(results []mcpSurfaceBinaryResult) {
 
 func addMCPToolsToSurface(surface *codexToolSurface, out *[]contract.DynamicToolSchema, family string, client mcpClient, tools []mcpdto.MCPTool) error {
 	for _, tool := range tools {
+		if isReservedHostOnlyToolName(tool.Name) {
+			continue
+		}
 		canonical := canonicalCodexToolName(family, tool.Name)
 		entry := codexToolEntry{name: canonical, realName: tool.Name, executionKind: "stdio", family: strings.TrimSpace(family), client: client}
 		if err := addSurfaceTool(surface, out, tool, entry); err != nil {
@@ -323,9 +326,15 @@ func nonEmptyUnique(values ...string) []string {
 func (h *Handler) routeCodexSurfaceToolCall(ctx context.Context, req ToolCallRequest) (*ToolCallResult, bool, error) {
 	surface := h.lookupCodexToolSurface(req)
 	if surface == nil {
+		if isReservedHostOnlyToolName(req.Name) {
+			return nil, false, nil
+		}
 		if req.Scoped && requiresCodexToolSurface(req.Name) {
 			return nil, true, fmt.Errorf("toolbridge: codex tool surface is not prepared for agent %q thread %q", req.AgentID, req.ThreadID)
 		}
+		return nil, false, nil
+	}
+	if surface.aliases[strings.TrimSpace(req.Name)] == "" && isReservedHostOnlyToolName(req.Name) {
 		return nil, false, nil
 	}
 	result, err := h.callCodexSurfaceTool(ctx, surface, req)
