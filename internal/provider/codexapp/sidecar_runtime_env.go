@@ -40,16 +40,12 @@ func lookupTrimmedEnvValue(env []string, key string) (string, bool) {
 	return value, ok && value != ""
 }
 
-// ---------------------------------------------------------------------------
 // Pure helpers (migrated from the deleted peer_spawn.go).
-// ---------------------------------------------------------------------------
-
 func (l *execPeerLauncher) peerEnvForTest(name string, parent []string) ([]string, error) {
-	var roots []string
-	if l != nil && l.workspaceRoots != nil {
-		roots = l.workspaceRoots()
+	if l == nil || l.workspaceRoots == nil {
+		return peerProcessEnv(name, parent, nil)
 	}
-	return peerProcessEnv(name, parent, roots)
+	return peerProcessEnv(name, parent, l.workspaceRoots())
 }
 
 func peerProcessEnv(name string, parent []string, configuredRoots []string) ([]string, error) {
@@ -71,22 +67,24 @@ func peerProcessEnv(name string, parent []string, configuredRoots []string) ([]s
 	if strings.TrimSpace(name) != "mcp-lsp" {
 		return env, nil
 	}
+	if len(configuredRoots) > 0 {
+		roots, err := normalizePeerWorkspaceRoots(configuredRoots)
+		if err != nil {
+			return nil, err
+		}
+		raw, err := json.Marshal(roots)
+		if err != nil {
+			return nil, err
+		}
+		return append(removeEnvKeys(env, "GO_AGENT_LSP_ROOT", "GO_AGENT_LSP_ROOTS"), "GO_AGENT_LSP_ROOT="+roots[0], "GO_AGENT_LSP_ROOTS="+string(raw)), nil
+	}
 	if raw, ok := lookupEnvValue(env, "GO_AGENT_LSP_ROOTS"); ok {
 		return env, validateMcpLSPPeerWorkspaceRoots(raw)
 	}
 	if root, ok := lookupEnvValue(env, "GO_AGENT_LSP_ROOT"); ok {
 		return env, validateMcpLSPPeerWorkspaceRoot(root)
 	}
-	roots, err := normalizePeerWorkspaceRoots(configuredRoots)
-	if err != nil {
-		return nil, err
-	}
-	raw, err := json.Marshal(roots)
-	if err != nil {
-		return nil, err
-	}
-	env = append(env, "GO_AGENT_LSP_ROOT="+roots[0], "GO_AGENT_LSP_ROOTS="+string(raw))
-	return env, nil
+	return nil, errors.New("mcp-lsp peer requires configured workspace root")
 }
 
 func injectPeerBootstrapIdentity(env []string, name string) ([]string, error) {

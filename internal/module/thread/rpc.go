@@ -124,6 +124,7 @@ func logStartRPCReceived(p startParams, cfg map[string]any) {
 		"cwd", p.CWD,
 		"has_prompt", strings.TrimSpace(p.Prompt) != "",
 		"has_base_instructions", strings.TrimSpace(p.BaseInstructions) != "",
+		"tool_surface_mode", p.ToolSurfaceMode,
 		"defer_spawn", p.DeferSpawn,
 		"selected_skills_n", len(p.SelectedSkills),
 		"config_provider", configTraceString(cfg, "provider"),
@@ -191,6 +192,7 @@ func buildStartRequestFromParams(p startParams, cfg map[string]any) StartRequest
 		Effort:                p.Effort,
 		Personality:           p.Personality,
 		Language:              p.Language,
+		ToolSurfaceMode:       p.ToolSurfaceMode,
 		Config:                cfg,
 
 		// p20.3 §4.3：public payload 用 `selectedSkills` / `manualSkillSelection`，

@@ -173,6 +173,7 @@ func trimStartRequest(req StartRequest) StartRequest {
 	req.Personality = strings.TrimSpace(req.Personality)
 	req.Language = strings.TrimSpace(req.Language)
 	req.GitRoot = strings.TrimSpace(req.GitRoot)
+	req.ToolSurfaceMode = strings.TrimSpace(req.ToolSurfaceMode)
 	return req
 }
 
@@ -197,6 +198,10 @@ func resolveStartConfig(req StartRequest) (StartRequest, error) {
 	req.CWD, err = resolveStartCWD(req.CWD)
 	if err != nil {
 		return StartRequest{}, err
+	}
+	req.ToolSurfaceMode, err = contract.NormalizeToolSurfaceMode(req.ToolSurfaceMode)
+	if err != nil {
+		return StartRequest{}, fmt.Errorf("thread start tool surface mode: %w", err)
 	}
 	req.Sandbox, err = startconfig.SanitizeSandbox(req.Sandbox)
 	if err != nil {
@@ -273,13 +278,14 @@ func (s *service) startSession(ctx context.Context, req StartRequest, input cont
 	logStartProviderSessionIdentity(agentID, req, config)
 	sessionCtx := context.WithoutCancel(ctx)
 	return s.starter.StartSession(sessionCtx, dto.StartSessionRequest{
-		Provider:      req.Provider,
-		AgentID:       agentID,
-		CWD:           cwd,
-		Model:         req.Model,
-		Instructions:  assembly.BaseInstructions,
-		StartAssembly: toProviderStartAssembly(assembly),
-		Config:        config,
+		Provider:        req.Provider,
+		AgentID:         agentID,
+		CWD:             cwd,
+		Model:           req.Model,
+		Instructions:    assembly.BaseInstructions,
+		StartAssembly:   toProviderStartAssembly(assembly),
+		Config:          config,
+		ToolSurfaceMode: req.ToolSurfaceMode,
 		// Legacy additive carrier only. Current skill runtime is resolved via
 		// canonical skills -> provider-native mirrors before provider launch.
 		LaunchSkillNames:  append([]string(nil), req.LaunchSkillNames...),

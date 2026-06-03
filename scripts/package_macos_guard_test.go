@@ -163,6 +163,18 @@ func TestPackageMacOSScriptsEmitTimingLogs(t *testing.T) {
 	assertScriptContains(t, verify, "phase_start \"homebrew dylib scan\"")
 }
 
+func TestPackageMacOSScriptEmbedsNewFrontendApp(t *testing.T) {
+	script := readScript(t, "package_macos.sh")
+
+	assertScriptContains(t, script, "cd \"$root/frontend-app\"")
+	assertScriptContains(t, script, "rsync -a --delete \"$root/frontend-app/dist\"/ \"$root/cmd/agent-terminal/frontend/dist\"/")
+	assertScriptContains(t, script, "go build -o bin/agent-terminal ./cmd/agent-terminal")
+	assertScriptDoesNotContain(t, script, "cd \"$root/cmd/agent-terminal/frontend\"")
+	assertScriptDoesNotContain(t, script, "make build-agent-terminal-plain")
+	assertScriptOrder(t, script, "npm run build", "rsync -a --delete \"$root/frontend-app/dist\"/ \"$root/cmd/agent-terminal/frontend/dist\"/")
+	assertScriptOrder(t, script, "rsync -a --delete \"$root/frontend-app/dist\"/ \"$root/cmd/agent-terminal/frontend/dist\"/", "go build -o bin/agent-terminal ./cmd/agent-terminal")
+}
+
 func TestPackageMacOSScriptUsesLinearDylibQueue(t *testing.T) {
 	script := readScript(t, "package_macos.sh")
 	body := functionBody(t, script, "bundle_macho_dylibs")

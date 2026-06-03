@@ -51,6 +51,9 @@ type storedThreadConfig struct {
 	// can have a visible name and a pinned agent persona before the user sends
 	// the first real requirement; SpawnIfNeeded restores the pin for routing.
 	AgentKey string `json:"agent_key,omitempty"`
+	// ToolSurfaceMode preserves the caller-selected chat/auto/agent surface
+	// through pending_launch so the lazy first turn does not re-enable tools.
+	ToolSurfaceMode string `json:"tool_surface_mode,omitempty"`
 }
 
 type offlineConfigSnapshot struct {

@@ -180,6 +180,20 @@ func (*persistentFlowStarter) ResumeSession(context.Context, dto.ResumeSessionRe
 	return nil, errors.New("unexpected resume")
 }
 
+type persistentFlowOrchestration struct{}
+
+func (*persistentFlowOrchestration) LaunchAgent(context.Context, threadmod.LaunchAgentRequest) error {
+	return nil
+}
+
+func (*persistentFlowOrchestration) StopAgent(context.Context, string) error { return nil }
+
+func (*persistentFlowOrchestration) Recover(context.Context, string) error { return nil }
+
+func (*persistentFlowOrchestration) BindSessionGeneration(context.Context, string, uint64) error {
+	return nil
+}
+
 type persistentFlowSession struct {
 	threadID string
 	rollout  string
@@ -254,7 +268,7 @@ func TestPersistentSubagentDefaultFlow_StartFiltersSpawnAgentAndToolbridgeBlocks
 	sessions := &persistentFlowSessions{byAgent: map[string]contract.Session{}}
 	starter := &persistentFlowStarter{sessions: sessions}
 	cfg := &platformconfig.Config{Agent: platformconfig.AgentConfig{PersistentSubagentDefault: true}}
-	service := threadmod.NewServiceWithPromptAssemblyAndSharedFiles(nil, store, nil, persistentFlowSharedFiles{}, sessions, starter, nil, nil, nil, nil, cfg, nil, nil, nil, nil, nil)
+	service := threadmod.NewServiceWithPromptAssemblyAndSharedFiles(nil, store, nil, persistentFlowSharedFiles{}, sessions, starter, nil, &persistentFlowOrchestration{}, nil, nil, cfg, nil, nil, nil, nil, nil)
 
 	result, err := service.Start(ctx, threadmod.StartRequest{
 		AgentID:       "agent-child-persistent",

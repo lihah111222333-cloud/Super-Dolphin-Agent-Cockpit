@@ -1,9 +1,9 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { QueryClient, QueryClientProvider, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Brain, FileText, FolderOpen, MessageCircle, Moon, MoreHorizontal, Search, Sparkles, Sun, Workflow } from 'lucide-react';
+import { Brain, FileText, FolderOpen, MessageCircle, Moon, MoreHorizontal, Search, Sparkles, Sun, Workflow, CircleStop, Copy, Eye, PanelTopOpen, RefreshCw, X } from 'lucide-react';
 import { useClientStore } from './entities/client/model/useClientStore.js';
-import { ChatPage, FilesPage, MemoryPage, ObservabilityPage, PromptPage, SettingsPage, SkillsPage, WorkflowPage } from './pages/index.js';
-import { dashboardQueryKey, errorMessage, fetchMemoryDashboard, memoryHealth, normalizeMemorySnapshot, optionalSettingsCwd, useDashboardFocusInvalidation } from './pages/shared/pageShared.js';
+import { ChatPage, FilesPage, MemoryPage, ObservabilityPage, PromptPage, SettingsPage, SkillsPage, WorkflowPage, ProjectSelector } from './pages/index.js';
+import { dashboardQueryKey, errorMessage, fetchMemoryDashboard, memoryHealth, normalizeMemorySnapshot, optionalSettingsCwd, useDashboardFocusInvalidation, textValue } from './pages/shared/pageShared.js';
 
 const navItems = [
   { id: 'chat', label: 'Chat', icon: MessageCircle },
@@ -223,8 +223,29 @@ function useMemoryBadgeState(store, projectPath) {
   };
 }
 
-function ActivePageContent({ store, projectPath, memoryRevision, setMemoryPageSimilarCount }) {
-  if (store.activePage === 'chat') return <ChatPage store={store} projectPath={projectPath} />;
+function runUIAction(action) {
+  try {
+    const result = typeof action === 'function' ? action() : action;
+    if (result && typeof result.catch === 'function') {
+      void result.catch(() => {});
+    }
+  }
+  catch (error) {
+    void error;
+  }
+}
+
+function ActivePageContent({ store, projectPath, memoryRevision, setMemoryPageSimilarCount, rightPanelOpen, setRightPanelOpen }) {
+  if (store.activePage === 'chat') {
+    return (
+      <ChatPage
+        store={store}
+        projectPath={projectPath}
+        rightPanelOpen={rightPanelOpen}
+        setRightPanelOpen={setRightPanelOpen}
+      />
+    );
+  }
   if (store.activePage === 'prompts') return <PromptPage projectPath={projectPath} store={store} refreshKey={store.promptRevision} />;
   if (store.activePage === 'workflows') return <WorkflowPage projectPath={projectPath} store={store} refreshKey={store.workflowRevision} />;
   if (store.activePage === 'skills') {
@@ -271,13 +292,21 @@ function useAppShellState(store, skipBootstrap) {
     navItems.find((item) => item.id === store.activePage)?.label || 'Chat'
   ), [store.activePage]);
   const { theme, toggleTheme } = useColorTheme();
-  return { activeLabel, memoryBadge, projectPath, theme, toggleTheme };
+  const [rightPanelOpen, setRightPanelOpen] = useState(false);
+  return { activeLabel, memoryBadge, projectPath, theme, toggleTheme, rightPanelOpen, setRightPanelOpen };
 }
 
-function AppWindow({ activeLabel, memoryBadge, projectPath, store, theme, toggleTheme }) {
+function AppWindow({ activeLabel, memoryBadge, projectPath, store, theme, toggleTheme, rightPanelOpen, setRightPanelOpen }) {
   return (
     <div className="sa-window" data-theme={theme} data-testid="frontend-app">
-      <Titlebar theme={theme} onToggleTheme={toggleTheme} />
+      <Titlebar
+        theme={theme}
+        onToggleTheme={toggleTheme}
+        store={store}
+        projectPath={projectPath}
+        rightPanelOpen={rightPanelOpen}
+        setRightPanelOpen={setRightPanelOpen}
+      />
       <div className="sa-body">
         <NavRail
           activePage={store.activePage}
@@ -290,6 +319,8 @@ function AppWindow({ activeLabel, memoryBadge, projectPath, store, theme, toggle
             projectPath={projectPath}
             memoryRevision={memoryBadge.memoryRevision}
             setMemoryPageSimilarCount={memoryBadge.setMemoryPageSimilarCount}
+            rightPanelOpen={rightPanelOpen}
+            setRightPanelOpen={setRightPanelOpen}
           />
           <span className="sr-only">当前页面：{activeLabel}</span>
         </main>
@@ -313,26 +344,114 @@ function App(props) {
   );
 }
 
-function Titlebar({ theme, onToggleTheme }) {
+function Titlebar({ theme, onToggleTheme, store, projectPath, rightPanelOpen, setRightPanelOpen }) {
   const isDark = theme === COLOR_THEMES.dark;
   const ThemeIcon = isDark ? Sun : Moon;
   const label = isDark ? '白天模式' : '黑夜模式';
+  const isChatPage = store?.activePage === 'chat';
+
+  const canUseThreadActions = Boolean(store?.hasActiveThreadActions?.());
+  const canInterruptThread = Boolean(store?.hasInterruptibleThreadAction?.());
+  const bootstrapFailureMessage = store?.bootstrapStatus === 'failed' && textValue(store?.error)
+    ? `连接后端失败：${textValue(store?.error)}`
+    : '';
+  const feedback = store?.actionNotice?.message
+    ? store?.actionNotice
+    : (bootstrapFailureMessage ? { message: bootstrapFailureMessage, tone: 'error' } : null);
+
+  const toggleRightPanel = () => {
+    setRightPanelOpen?.((prev) => !prev);
+  };
 
   return (
-    <header className="titlebar">
+    <header className="titlebar" data-testid="chat-toolbar">
       <div className="titlebar-brand">
         <span className="brand-orb" aria-hidden="true" />
         <strong>Super Agent</strong>
       </div>
-      <button
-        type="button"
-        className="theme-toggle"
-        onClick={onToggleTheme}
-        aria-label={`切换到${label}`}
-      >
-        <ThemeIcon size={16} aria-hidden="true" />
-        <span>{label}</span>
-      </button>
+      <div className="titlebar-center">
+        {isChatPage && store && (
+          <>
+            <ProjectSelector store={store} projectPath={projectPath} />
+            <button
+              type="button"
+              className="icon-btn"
+              aria-label="新窗口（独立进程）"
+              title="新窗口（独立进程）"
+              onClick={() => runUIAction(() => store.openNewWindow?.())}
+            >
+              <PanelTopOpen size={14} />
+            </button>
+            {canUseThreadActions ? (
+              <button
+                type="button"
+                className="icon-btn"
+                aria-label="复制当前线程"
+                title="复制当前线程"
+                onClick={() => runUIAction(() => store.copyActiveThreadInfo())}
+              >
+                <Copy size={14} />
+              </button>
+            ) : null}
+            {canInterruptThread ? (
+              <button
+                type="button"
+                className="icon-btn"
+                aria-label="停止"
+                title="中断当前执行"
+                onClick={() => runUIAction(() => store.interruptActiveThread())}
+              >
+                <CircleStop size={14} />
+              </button>
+            ) : null}
+            <button
+              type="button"
+              className="icon-btn"
+              aria-label={canUseThreadActions ? '进程恢复' : '请先选择会话'}
+              title={canUseThreadActions ? '手动杀进程并恢复连接' : '请先选择会话'}
+              disabled={!canUseThreadActions}
+              onClick={() => runUIAction(() => store.recoverActiveThread())}
+            >
+              <RefreshCw size={14} />
+            </button>
+          </>
+        )}
+        {feedback?.message ? (
+          <span
+            className={`action-feedback ${feedback.tone || 'info'}`}
+            data-testid="chat-action-feedback"
+            role="status"
+          >
+            {feedback.message}
+          </span>
+        ) : null}
+      </div>
+
+      <div className="titlebar-right">
+        <button
+          type="button"
+          className="theme-toggle"
+          onClick={onToggleTheme}
+          aria-label={`切换到${label}`}
+        >
+          <ThemeIcon size={14} aria-hidden="true" />
+          <span>{label}</span>
+        </button>
+
+        {isChatPage && (
+          <button
+            type="button"
+            className={`icon-btn sidebar-toggle ${rightPanelOpen ? 'active' : ''}`}
+            aria-label={rightPanelOpen ? '隐藏侧边栏' : '显示侧边栏'}
+            title={rightPanelOpen ? '隐藏侧边栏' : '显示侧边栏'}
+            aria-pressed={rightPanelOpen}
+            onClick={toggleRightPanel}
+          >
+            {rightPanelOpen ? <X size={14} /> : <Eye size={14} />}
+            <span className="sidebar-toggle-label">侧边栏</span>
+          </button>
+        )}
+      </div>
     </header>
   );
 }

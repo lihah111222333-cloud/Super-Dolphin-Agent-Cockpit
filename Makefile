@@ -1,4 +1,4 @@
-.PHONY: build build-plain build-agent-terminal build-agent-terminal-plain frontend-deps frontend-build run run-plain run-agent-terminal-debug run-agent-terminal-debug-plain build-peer-binaries package-macos package-linux test test-deferred vet clean guard guard-shell protocol-sync-check rpc-regression-check codemap-check codemap-refresh project-map-check project-map-refresh capcontract-check capcontract-refresh setup-cgo ui-cover-build ui-cover-run ui-cover-report app-cover-build app-cover-run app-cover-report log-audit p2-audit ida-test-all ida-test-heavy sqlc-generate sqlc-verify
+.PHONY: build build-plain build-agent-terminal build-agent-terminal-plain frontend-deps frontend-build run run-plain dev-hot run-agent-terminal-debug run-agent-terminal-debug-plain build-peer-binaries package-macos package-linux test test-deferred vet clean guard guard-shell protocol-sync-check rpc-regression-check codemap-check codemap-refresh project-map-check project-map-refresh capcontract-check capcontract-refresh setup-cgo ui-cover-build ui-cover-run ui-cover-report app-cover-build app-cover-run app-cover-report log-audit p2-audit ida-test-all ida-test-heavy sqlc-generate sqlc-verify
 
 # Auto-detect macOS version to avoid ld warnings about version mismatch.
 # Override with: make MIN_MACOS_VERSION=15.0 build
@@ -57,6 +57,9 @@ run: frontend-build
 
 run-plain: frontend-build
 	go run ./cmd/agent-terminal
+
+dev-hot:
+	./run-new-ui-desktop-hot.sh
 
 # Memory subsystem defaults (override on the command line if you really
 # want memory off, e.g. 'make run-agent-terminal-debug ENABLE_MEMORY_SYSTEM=0').

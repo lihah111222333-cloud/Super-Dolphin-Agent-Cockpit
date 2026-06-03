@@ -47,6 +47,9 @@ export DATABASE_URL="postgres://USER:PASS@127.0.0.1:5432/super_dolphin?sslmode=d
 ( cd frontend-app && npm install )
 ./run-new-ui-desktop.sh
 
+# For frontend HMR plus Go backend restart-on-change:
+./run-new-ui-desktop-hot.sh
+
 # Legacy embedded frontend assets are gitignored; build them only when working on
 # cmd/agent-terminal/frontend or a package-embed path:
 ( cd cmd/agent-terminal/frontend && npm install && npm run build )
@@ -93,6 +96,7 @@ Notes:
 
 ```bash
 ./run-new-ui-desktop.sh      # Run current React/Vite new UI in the desktop host
+./run-new-ui-desktop-hot.sh  # Same, with Vite HMR plus Go backend restart-on-change
 make build-plain           # Build all Go binaries (without Frida)
 make run-plain             # Run the cmd/server entry
 make build-agent-terminal  # Build the desktop UI binary (Wails + Frida)
@@ -106,6 +110,19 @@ make test                  # Full test suite
 go test ./... -count=1     # Direct Go test
 go test -bench=. ./...     # Run benchmarks
 ( cd frontend-app && npm run lint && npm test && npm run build )
+```
+
+### Hot Reload Dev Flow
+
+`./run-new-ui-desktop-hot.sh` keeps the React UI on the Vite dev server, so
+frontend edits use Vite HMR. It also watches backend source paths and restarts
+`cmd/agent-terminal` when Go, SQL, or runtime config files change.
+
+Useful overrides:
+
+```bash
+SUPER_DOLPHIN_HOT_POLL_INTERVAL=0.5 ./run-new-ui-desktop-hot.sh
+SUPER_DOLPHIN_HOT_WATCH_PATHS="cmd internal pkg go.mod go.sum" ./run-new-ui-desktop-hot.sh
 ```
 
 ### Notes for skill subsystem (post 2026-04-30 P4/P5/P6 cutover)

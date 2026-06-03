@@ -71,13 +71,14 @@ type TurnAssembly struct {
 }
 
 type StartSessionRequest struct {
-	Provider      string         `json:"provider"`
-	AgentID       string         `json:"agentId"`
-	CWD           string         `json:"cwd"`
-	Model         string         `json:"model,omitempty"`
-	Instructions  string         `json:"instructions,omitempty"`
-	StartAssembly StartAssembly  `json:"startAssembly"`
-	Config        map[string]any `json:"config,omitempty"`
+	Provider        string         `json:"provider"`
+	AgentID         string         `json:"agentId"`
+	CWD             string         `json:"cwd"`
+	Model           string         `json:"model,omitempty"`
+	Instructions    string         `json:"instructions,omitempty"`
+	StartAssembly   StartAssembly  `json:"startAssembly"`
+	Config          map[string]any `json:"config,omitempty"`
+	ToolSurfaceMode string         `json:"toolSurfaceMode,omitempty"`
 
 	// LaunchSkillNames is the legacy additive launch-time skill selection
 	// carrier. The current production path does not turn this into

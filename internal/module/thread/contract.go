@@ -71,6 +71,7 @@ type StartRequest struct {
 	Language                     string
 	GitRoot                      string
 	IsWorktree                   bool
+	ToolSurfaceMode              string
 	EnabledTools                 []string
 	AdditionalWorkingDirectories []string
 	MCPSnapshot                  contract.MCPSnapshot

@@ -43,14 +43,15 @@ func (s *service) startPendingThread(ctx context.Context, req StartRequest, agen
 	createdAt := time.Now().Unix()
 	displayName := resolveDisplayName(ctx, s.threadStore, agentID, req.Prompt, req.Name)
 	pendingStored := storedThreadConfig{
-		Model:       strings.TrimSpace(req.Model),
-		Effort:      strings.TrimSpace(req.Effort),
-		Approvals:   strings.TrimSpace(req.ApprovalPolicy),
-		Personality: strings.TrimSpace(req.Personality),
-		Provider:    strings.TrimSpace(req.Provider),
-		PromptKey:   strings.TrimSpace(req.PromptKey),
-		AgentKey:    strings.TrimSpace(req.AgentKey),
-		Runtime:     clone.RuntimeConfigMap(req.Config),
+		Model:           strings.TrimSpace(req.Model),
+		Effort:          strings.TrimSpace(req.Effort),
+		Approvals:       strings.TrimSpace(req.ApprovalPolicy),
+		Personality:     strings.TrimSpace(req.Personality),
+		Provider:        strings.TrimSpace(req.Provider),
+		PromptKey:       strings.TrimSpace(req.PromptKey),
+		AgentKey:        strings.TrimSpace(req.AgentKey),
+		ToolSurfaceMode: strings.TrimSpace(req.ToolSurfaceMode),
+		Runtime:         clone.RuntimeConfigMap(req.Config),
 	}
 	configOverride, err := encodeStoredThreadConfig(pendingStored)
 	if err != nil {
@@ -231,6 +232,7 @@ func buildPendingSpawnRequest(row *threadstore.Thread, agentID, userInputForRout
 		ApprovalPolicy:   storedCfg.Approvals,
 		AgentKey:         util.FirstNonEmpty(storedCfg.AgentKey, row.AgentKey),
 		PromptKey:        storedCfg.PromptKey,
+		ToolSurfaceMode:  storedCfg.ToolSurfaceMode,
 		Config:           clone.RuntimeConfigMap(storedCfg.Runtime),
 	}
 	normalized, normalizedAgentID, err := normalizeStartRequest(req)

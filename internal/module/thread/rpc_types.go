@@ -41,6 +41,9 @@ type startParams struct {
 	Effort      string          `json:"effort,omitempty"`
 	Personality string          `json:"personality,omitempty"`
 	Language    string          `json:"language,omitempty"`
+	// ToolSurfaceMode controls the provider tool surface for this thread.
+	// Supported values: chat, auto, agent.
+	ToolSurfaceMode string `json:"tool_surface_mode,omitempty"`
 	// json.RawMessage: justified -- open-ended key/value config bag decoded via
 	// decodeConfigMap into map[string]any; schema is caller-defined, not fixed.
 	Config json.RawMessage `json:"config,omitempty"`
@@ -153,6 +156,7 @@ func (p *startParams) fillLegacyStringFields(payload map[string]json.RawMessage)
 		compatStringAssignment{target: &p.BaseInstructions, field: "base instructions", keys: []string{"base_instructions", "baseInstructions", "instructions"}},
 		compatStringAssignment{target: &p.DeveloperInstructions, field: "developer instructions", keys: []string{"developer_instructions", "developerInstructions"}},
 		compatStringAssignment{target: &p.Name, field: "display name", keys: []string{"name"}},
+		compatStringAssignment{target: &p.ToolSurfaceMode, field: "tool surface mode", keys: []string{"tool_surface_mode", "toolSurfaceMode"}},
 	)
 }
 

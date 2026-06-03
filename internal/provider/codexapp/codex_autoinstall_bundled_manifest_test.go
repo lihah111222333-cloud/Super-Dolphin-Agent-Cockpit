@@ -115,6 +115,7 @@ func assertBundledManifestRejected(t *testing.T, writeManifest func(*testing.T, 
 }
 
 func TestEnsureCodexCLIAvailableAcceptsBundledManifestWithoutVendorFields(t *testing.T) {
+	skipCodexCLIIntegrationInShortMode(t)
 	resourcesRoot := t.TempDir()
 	peerDir := filepath.Join(resourcesRoot, "bin")
 	if err := os.MkdirAll(peerDir, 0o755); err != nil {

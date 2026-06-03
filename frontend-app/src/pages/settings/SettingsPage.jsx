@@ -15,6 +15,8 @@ const SETTINGS_KEYS = Object.freeze({
   activeProvider: 'settings.provider.active',
 });
 
+const SETTINGS_PROJECT_CWD_REQUIRED = '当前项目路径为空，无法保存设置';
+
 const SETTINGS_DEFAULTS = Object.freeze({
   stallThresholdSec: 30,
   contextThresholds: [70, 85, 95],
@@ -57,6 +59,12 @@ function normalizeContextThresholds(value) {
   ];
 }
 
+function requireSettingsCwd(cwd) {
+  const value = (cwd || '').toString().trim();
+  if (!value) throw new Error(SETTINGS_PROJECT_CWD_REQUIRED);
+  return value;
+}
+
 function sandboxPolicyFromPreference(value) {
   if (typeof value === 'string') return value;
   if (value && typeof value === 'object') {
@@ -75,8 +83,10 @@ function sandboxPreferenceValue(policy, writableRootsText, networkAccess) {
   if (policy === 'dangerFullAccess') return { type: 'dangerFullAccess' };
   const writableRoots = writableRootsText
     .split(/\r?\n/)
-    .map((item) => item.trim())
-    .filter(Boolean);
+    .flatMap((item) => {
+      const root = item.trim();
+      return root ? [root] : [];
+    });
   return {
     type: 'workspaceWrite',
     writableRoots,
@@ -121,9 +131,15 @@ function defaultSettingsForm() {
   };
 }
 
+function normalizeSettingsCwd(value) {
+  const text = (value || '').toString().trim();
+  if (!text || text === '.' || text === '未选择项目') return '';
+  return text;
+}
+
 function SettingsPage({ projectPath }) {
   const store = useClientStore();
-  const cwd = projectPath || store.activeProject || store.cwd;
+  const cwd = normalizeSettingsCwd(projectPath) || normalizeSettingsCwd(store.activeProject) || normalizeSettingsCwd(store.cwd);
   const runtime = useSettingsRuntime(cwd);
   const provider = useProviderPreferences(cwd);
   const prompt = usePromptSettings(cwd);
@@ -214,9 +230,10 @@ async function saveRuntimePreferences({ cwd, form, setError, setStatus }) {
   setError('');
   setStatus('');
   try {
+    const projectCwd = requireSettingsCwd(cwd);
     const { stallThresholdSec, contextThresholds } = validateRuntimeThresholds(form);
-    await setPreference({ cwd, key: SETTINGS_KEYS.stallThreshold, value: stallThresholdSec });
-    await setPreference({ cwd, key: SETTINGS_KEYS.contextThresholds, value: contextThresholds });
+    await setPreference({ cwd: projectCwd, key: SETTINGS_KEYS.stallThreshold, value: stallThresholdSec });
+    await setPreference({ cwd: projectCwd, key: SETTINGS_KEYS.contextThresholds, value: contextThresholds });
     setStatus('已保存超时与上下文使用率设置');
   } catch (err) {
     setError(err.message || String(err));
@@ -227,8 +244,9 @@ async function saveProviderRuntimePreferences({ cwd, form, setError, setStatus }
   setError('');
   setStatus('');
   try {
+    const projectCwd = requireSettingsCwd(cwd);
     const provider = normalizeProviderName(form.activeProvider);
-    await writeProviderRuntimePreferences(cwd, provider, form);
+    await writeProviderRuntimePreferences(projectCwd, provider, form);
     setStatus('Provider 设置已保存');
   } catch (err) {
     setError(err.message || String(err));
@@ -236,13 +254,15 @@ async function saveProviderRuntimePreferences({ cwd, form, setError, setStatus }
 }
 
 async function writeProviderRuntimePreferences(cwd, provider, form) {
-  await setPreference({ cwd, key: SETTINGS_KEYS.activeProvider, value: provider });
-  await setPreference({ cwd, key: providerSettingKey(provider, 'model'), value: form.providerModel.trim() });
-  await setPreference({ cwd, key: providerSettingKey(provider, 'effort'), value: form.providerEffort.trim() });
-  await setPreference({ cwd, key: providerSettingKey(provider, 'sandbox'), value: sandboxPreferenceValue(form.sandboxPolicy, form.writableRoots, form.networkAccess) });
-  await setPreference({ cwd, key: providerSettingKey('codex', 'codexHome'), value: form.codexHome.trim() });
-  await setPreference({ cwd, key: providerSettingKey('codex', 'codexInstanceKey'), value: form.codexInstanceKey.trim() });
-  await setPreference({ cwd, key: providerSettingKey('codex', 'codexModelProvider'), value: form.codexModelProvider.trim() });
+  await Promise.all([
+    setPreference({ cwd, key: SETTINGS_KEYS.activeProvider, value: provider }),
+    setPreference({ cwd, key: providerSettingKey(provider, 'model'), value: form.providerModel.trim() }),
+    setPreference({ cwd, key: providerSettingKey(provider, 'effort'), value: form.providerEffort.trim() }),
+    setPreference({ cwd, key: providerSettingKey(provider, 'sandbox'), value: sandboxPreferenceValue(form.sandboxPolicy, form.writableRoots, form.networkAccess) }),
+    setPreference({ cwd, key: providerSettingKey('codex', 'codexHome'), value: form.codexHome.trim() }),
+    setPreference({ cwd, key: providerSettingKey('codex', 'codexInstanceKey'), value: form.codexInstanceKey.trim() }),
+    setPreference({ cwd, key: providerSettingKey('codex', 'codexModelProvider'), value: form.codexModelProvider.trim() }),
+  ]);
 }
 
 function useProviderPreferences(cwd) {
@@ -427,16 +447,29 @@ function useBuiltinToolsSettings(cwd) {
 
 function normalizeBuiltinTools(payload) {
   const list = Array.isArray(payload?.tools) ? payload.tools : [];
-  return list.map((item) => ({
-    id: (item.id || '').toString(),
-    label: (item.label || item.id || '').toString(),
-    description: (item.description || '').toString(),
+  return list.map(normalizeBuiltinTool);
+}
+
+function normalizeBuiltinTool(item) {
+  return {
+    id: textValue(item.id),
+    label: textValue(item.label || item.id),
+    description: textValue(item.description),
     enabled: Boolean(item.enabled),
-    provider: (item.provider || 'claude').toString(),
-    replacedBy: item.replacedBy ? (item.replacedBy || '').toString() : undefined,
-    filterMode: (item.filterMode || '').toString() || undefined,
-    enforcement: (item.enforcement || '').toString() || undefined,
-  }));
+    provider: textValue(item.provider || 'claude'),
+    replacedBy: optionalTextValue(item.replacedBy),
+    filterMode: optionalTextValue(item.filterMode),
+    enforcement: optionalTextValue(item.enforcement),
+  };
+}
+
+function textValue(value) {
+  return (value || '').toString();
+}
+
+function optionalTextValue(value) {
+  const text = textValue(value);
+  return text || undefined;
 }
 
 async function loadBuiltinTools({ applyPayload, cwd, setLoading, setNotice }) {
@@ -554,7 +587,7 @@ function AboutPanel({ buildInfo, cwd }) {
         <dt>运行时</dt><dd>{buildInfo?.runtime || 'unknown'}</dd>
         <dt>构建时间</dt><dd>{buildInfo?.buildTime || 'unknown'}</dd>
         <dt>Commit</dt><dd>{buildInfo?.commit || 'unknown'}</dd>
-        <dt>当前项目</dt><dd>{cwd}</dd>
+        <dt>当前项目</dt><dd>{cwd || '未选择项目'}</dd>
       </dl>
     </Panel>
   );

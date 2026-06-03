@@ -25,6 +25,7 @@ func TestNewUIDesktopScriptContract(t *testing.T) {
 		`fail_if_port_busy "$VITE_DEV_HOST:$VITE_DEV_PORT"`,
 		`npm run dev -- --host "$VITE_DEV_HOST" --port "$VITE_DEV_PORT" --strictPort`,
 		`go run ./cmd/agent-terminal`,
+		`start_desktop_backend`,
 		`cleanup`,
 	}
 	for _, want := range required {
@@ -38,7 +39,7 @@ func TestNewUIDesktopScriptContract(t *testing.T) {
 	if strings.Contains(text, `cmd/agent-terminal/frontend && npm run dev`) {
 		t.Fatal("run-new-ui-desktop.sh must not start the legacy frontend dev server")
 	}
-	if strings.Contains(text, "cmd/agent-terminal/frontend") {
+	if strings.Contains(text, `cmd/agent-terminal/frontend && npm`) {
 		t.Fatal("run-new-ui-desktop.sh must not build or mutate the legacy frontend package")
 	}
 }
@@ -55,7 +56,7 @@ func TestNewUIDesktopScriptWaitsForBackendBeforeVite(t *testing.T) {
 		`print_backend_log_tail`,
 		`wait_for_any_process_exit`,
 		`CLEANUP_DONE`,
-		`go run ./cmd/agent-terminal >"$SUPER_DOLPHIN_BACKEND_LOG" 2>&1`,
+		`go run ./cmd/agent-terminal >>"$SUPER_DOLPHIN_BACKEND_LOG" 2>&1`,
 		`npm run dev -- --host "$VITE_DEV_HOST" --port "$VITE_DEV_PORT" --strictPort >"$SUPER_DOLPHIN_FRONTEND_LOG" 2>&1`,
 	}
 	for _, want := range required {
@@ -63,9 +64,9 @@ func TestNewUIDesktopScriptWaitsForBackendBeforeVite(t *testing.T) {
 			t.Fatalf("run-new-ui-desktop.sh missing %q", want)
 		}
 	}
-	assertTextOrder(t, text, `(cd "$PROJECT_DIR" && go run ./cmd/agent-terminal >"$SUPER_DOLPHIN_BACKEND_LOG" 2>&1) &`, "\nwait_for_backend\n")
+	assertTextOrder(t, text, "\nstart_desktop_backend\nwait_for_backend\n", `(cd "$FRONTEND_APP_DIR" && npm run dev -- --host "$VITE_DEV_HOST" --port "$VITE_DEV_PORT" --strictPort >"$SUPER_DOLPHIN_FRONTEND_LOG" 2>&1) &`)
 	assertTextOrder(t, text, "\nwait_for_backend\nseed_dev_preferences\n\n", `(cd "$FRONTEND_APP_DIR" && npm run dev -- --host "$VITE_DEV_HOST" --port "$VITE_DEV_PORT" --strictPort >"$SUPER_DOLPHIN_FRONTEND_LOG" 2>&1) &`)
-	assertTextOrder(t, text, `wait_for_http "$VITE_DEV_URL" "frontend-app vite"`, "\nwait_for_any_process_exit\n")
+	assertTextOrder(t, text, `wait_for_http "$VITE_DEV_URL" "frontend-app vite"`, "\n  wait_for_any_process_exit\n")
 }
 
 func TestNewUIDesktopScriptCleansChildProcessesAndStaleVite(t *testing.T) {
@@ -90,7 +91,7 @@ func TestNewUIDesktopScriptCleansChildProcessesAndStaleVite(t *testing.T) {
 		}
 	}
 	assertTextOrder(t, text, `stop_stale_vite_for_port "$VITE_DEV_PORT"`, `fail_if_port_busy "$VITE_DEV_HOST:$VITE_DEV_PORT"`)
-	assertTextOrder(t, text, `stop_process_tree "frontend-app vite" "$VITE_PID"`, `stop_process_tree "new UI desktop backend" "$DESKTOP_PID"`)
+	assertTextOrderAfter(t, text, "cleanup() {", `stop_process_tree "frontend-app vite" "$VITE_PID"`, `stop_process_tree "new UI desktop backend" "$DESKTOP_PID"`)
 }
 
 func TestNewUIDesktopScriptAutostartsLocalPostgresBeforeBackend(t *testing.T) {
@@ -122,7 +123,7 @@ func TestNewUIDesktopScriptAutostartsLocalPostgresBeforeBackend(t *testing.T) {
 		}
 	}
 	assertTextOrder(t, text, "ensure_dev_control_session_token\nconfigure_dev_postgres_runtime", `ensure_node_deps "$FRONTEND_APP_DIR"`)
-	assertTextOrder(t, text, "ensure_local_postgres\nensure_node_deps", `(cd "$PROJECT_DIR" && go run ./cmd/agent-terminal >"$SUPER_DOLPHIN_BACKEND_LOG" 2>&1) &`)
+	assertTextOrder(t, text, "ensure_local_postgres\nensure_node_deps", "\nstart_desktop_backend\n")
 	if strings.Contains(text, `export DATABASE_URL="${DATABASE_URL:-`) {
 		t.Fatal("run-new-ui-desktop.sh must not overwrite an explicit DATABASE_URL")
 	}
@@ -223,4 +224,13 @@ func assertTextOrder(t *testing.T, text, first, second string) {
 	if firstIndex >= secondIndex {
 		t.Fatalf("expected %q before %q", first, second)
 	}
+}
+
+func assertTextOrderAfter(t *testing.T, text, anchor, first, second string) {
+	t.Helper()
+	anchorIndex := strings.Index(text, anchor)
+	if anchorIndex < 0 {
+		t.Fatalf("missing anchor text %q", anchor)
+	}
+	assertTextOrder(t, text[anchorIndex:], first, second)
 }

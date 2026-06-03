@@ -32,7 +32,8 @@ const PROMPT_SCOPE_FILTERS = Object.freeze([
 
 const PROMPT_STATUS_FILTERS = Object.freeze([
   { key: 'all', label: '全部状态' },
-  { key: 'enabled', label: '启用中' },
+  { key: 'created', label: '已创建' },
+  { key: 'started', label: '已启动' },
   { key: 'disabled', label: '已停用' },
 ]);
 
@@ -206,6 +207,24 @@ function canForceLaunchPrompt(item) {
   return promptBucket(item) === 'expert' && item.enabled !== false && !item.isPendingDraft;
 }
 
+function promptLifecycleStatus(item, active) {
+  if (item.isPendingDraft) return 'pending';
+  if (item.enabled === false) return 'disabled';
+  if (active) return 'started';
+  return 'created';
+}
+
+function promptLifecycleStatusLabel(status) {
+  if (status === 'created') return '已创建';
+  if (status === 'started') return '已启动';
+  if (status === 'disabled') return '已停用';
+  return '';
+}
+
+function promptIsForceActive(item, activePromptId) {
+  return activePromptId === item.id && canForceLaunchPrompt(item);
+}
+
 function promptCounts(items) {
   const counts = { all: items.length, expert: 0, recall: 0, default_rule: 0, pending: 0 };
   items.forEach((item) => {
@@ -215,13 +234,12 @@ function promptCounts(items) {
   return counts;
 }
 
-function filterPrompts(items, tab, scopeFilter, statusFilter) {
+function filterPrompts(items, activePromptId, tab, scopeFilter, statusFilter) {
   return items.filter((item) => {
     if (tab !== 'all' && promptBucket(item) !== tab) return false;
     if (scopeFilter !== 'all' && item.scope !== scopeFilter) return false;
     if (tab === 'pending') return true;
-    if (statusFilter === 'enabled' && item.enabled === false) return false;
-    if (statusFilter === 'disabled' && item.enabled !== false) return false;
+    if (statusFilter !== 'all' && promptLifecycleStatus(item, promptIsForceActive(item, activePromptId)) !== statusFilter) return false;
     return true;
   });
 }
@@ -661,7 +679,7 @@ function PromptToolbar({ cwd, fallbackMode, onCreate }) {
   return (
     <div className="prompt-toolbar">
       <button type="button" onClick={onCreate} disabled={fallbackMode || !cwd}>
-        <Plus size={15} /> + 添加给 AI 的内容
+        <Plus size={15} /> 添加给 AI 的内容
       </button>
     </div>
   );
@@ -826,8 +844,8 @@ export function PromptPageView({ projectPath, refreshKey = 0, resolveLaunchPrefe
 
   const counts = useMemo(() => promptCounts(items), [items]);
   const visibleItems = useMemo(
-    () => filterPrompts(items, activeTab, scopeFilter, statusFilter),
-    [activeTab, items, scopeFilter, statusFilter],
+    () => filterPrompts(items, activePromptId, activeTab, scopeFilter, statusFilter),
+    [activePromptId, activeTab, items, scopeFilter, statusFilter],
   );
   const editorActions = usePromptEditorActions({
     cwd,
@@ -930,13 +948,15 @@ function promptBucketLabel(bucket) {
 
 function PromptBadges({ item, active }) {
   const bucket = promptBucket(item);
+  const lifecycleStatus = promptLifecycleStatus(item, active);
+  const lifecycleLabel = promptLifecycleStatusLabel(lifecycleStatus);
   return (
     <div className="prompt-badges">
       <span>{promptBucketLabel(bucket)}</span>
       {item.scope === 'global' ? <span>全局可用</span> : null}
       {item.isPendingDraft ? <span>待确认</span> : null}
-      {item.enabled === false && !item.isPendingDraft ? <span>已停用</span> : null}
-      {active ? <span className="active">强制中</span> : null}
+      {!item.isPendingDraft && lifecycleLabel ? <span>{lifecycleLabel}</span> : null}
+      {active ? <span className="active">强制使用</span> : null}
     </div>
   );
 }
