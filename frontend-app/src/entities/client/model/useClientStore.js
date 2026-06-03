@@ -200,6 +200,14 @@ function normalizeProviderName(value) {
   throw new Error(`invalid provider preference: ${normalizeProviderConfigValue(value)}`);
 }
 
+function knownProviderName(value) {
+  try {
+    return normalizeProviderName(value);
+  } catch {
+    return '';
+  }
+}
+
 function requireActiveProviderPreference(value, reason) {
   const provider = normalizeProviderName(value);
   if (!provider) {
@@ -625,8 +633,6 @@ function normalizeThreadProviderValue(raw, options = {}) {
     raw?.provider,
     raw?.modelProvider,
     raw?.model_provider,
-    raw?.agentKey,
-    raw?.agent_key,
     options.fallbackProvider,
   );
 }
@@ -1376,11 +1382,21 @@ function normalizeSnapshotThreadList(payload, state, options, maps) {
     .map((thread) => normalizeThread(thread, {
       archivedAtById: maps.archivedAtById,
       pinnedAtById: maps.pinnedAtById,
-      fallbackProvider: runtimeProviderForThread(thread, maps.runtimeById),
+      fallbackProvider: snapshotThreadFallbackProvider(thread, state, maps.runtimeById),
       fallbackCwd: snapshotThreadCwd(thread, maps.runtimeById),
     }))
     .filter((thread) => thread.id);
   return threads;
+}
+
+function snapshotThreadFallbackProvider(thread, state, runtimeById) {
+  const runtimeProvider = knownProviderName(runtimeProviderForThread(thread, runtimeById));
+  if (runtimeProvider) return runtimeProvider;
+  const existing = state.threads.find((candidate) => threadMatchesIdentifier(candidate, thread?.id));
+  const existingProvider = knownProviderName(existing?.provider);
+  if (existingProvider) return existingProvider;
+  if (threadMatchesIdentifier(thread, state.activeThreadId)) return knownProviderName(state.provider);
+  return '';
 }
 
 function shouldPreserveSnapshotThread(state, thread, nextThreads) {

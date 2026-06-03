@@ -959,6 +959,7 @@ function workflowDesignThreadPayload(cwd, launchConfig, launchPayload) {
   return {
     cwd,
     ...launchPayload,
+    provider: textValue(launchPayload.provider || launchPayload.modelProvider),
     name: 'AI 设计流程',
     agentKey: 'dag_designer',
     promptKey: 'main/dag_designer_zh',

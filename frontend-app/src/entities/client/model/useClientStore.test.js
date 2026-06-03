@@ -457,6 +457,59 @@ function registerBridgeEventHandlersForTest() {
     expect(useClientStore.getState().activeThreadId).toBe('thread-new');
   });
 
+  it('keeps thread state tokenUsageByThread ahead of stale global token_usage', async () => {
+    resetClientStoreForTests({
+      cwd: '/repo/app',
+      projectScopeCwd: '/repo/app',
+      activeProject: '/repo/app',
+      activeThreadId: 'thread-1',
+      threads: [{ id: 'thread-1', name: 'Active', provider: 'codex', status: 'running' }],
+    });
+    backend.getThreadState.mockResolvedValueOnce({
+      activeThreadId: 'thread-1',
+      threads: [{ id: 'thread-1', name: 'Active', provider: 'codex', status: 'running' }],
+      token_usage: { usedTokens: 999, contextWindowTokens: 2000, usedPercent: 50 },
+      tokenUsageByThread: {
+        'thread-1': { usedTokens: 42, contextWindowTokens: 100, usedPercent: 42 },
+      },
+      timelinesByThread: { 'thread-1': [] },
+    });
+    backend.getThreadMessages.mockResolvedValueOnce({ messages: [] });
+
+    await expect(useClientStore.getState().syncThreadState('thread-1')).resolves.toBe(true);
+
+    expect(useClientStore.getState().tokenUsageByThread['thread-1']).toEqual({
+      usedTokens: 42,
+      contextWindowTokens: 100,
+      usedPercent: 42,
+    });
+  });
+
+  it('uses the active provider for deferred workflow designer threads without runtime metadata', async () => {
+    resetClientStoreForTests({
+      cwd: '/repo/app',
+      projectScopeCwd: '/repo/app',
+      activeProject: '/repo/app',
+      activeThreadId: 'thread-design',
+      provider: 'codex',
+      threads: [],
+    });
+    backend.getThreadState.mockResolvedValueOnce({
+      activeThreadId: 'thread-design',
+      threads: [{ id: 'thread-design', name: 'AI 设计流程', status: 'created', agentKey: 'dag_designer' }],
+      timelinesByThread: { 'thread-design': [] },
+    });
+    backend.getThreadMessages.mockResolvedValueOnce({ messages: [] });
+
+    await expect(useClientStore.getState().syncThreadState('thread-design')).resolves.toBe(true);
+
+    expect(useClientStore.getState().threads[0]).toEqual(expect.objectContaining({
+      id: 'thread-design',
+      name: 'AI 设计流程',
+      provider: 'codex',
+    }));
+  });
+
   it('switches project immediately while the sidebar refresh continues in the background', async () => {
     const projectChange = deferred();
     const sidebarRefresh = deferred();
