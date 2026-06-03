@@ -3527,7 +3527,7 @@ function attachActiveThreadRpcRuntime(runtime) {
           notifyAction('当前没有可中断任务', 'warning', { threadId });
           return false;
         }
-        payload = cleanObject({ cwd, threadId: target.threadId, turnId: target.turnId, source: 'ui_stop' });
+        payload = cleanObject({ cwd, threadId: target.threadId, source: 'ui_stop' });
       }
       await rpc(cleanObject(payload));
       notifyAction({
