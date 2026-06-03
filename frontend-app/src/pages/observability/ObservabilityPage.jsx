@@ -322,8 +322,8 @@ function ObservabilityRecentLogs({ result, onOpenTrace, onCopyTrace, copiedTrace
               row={row}
               onOpenTrace={onOpenTrace}
               onCopyTrace={onCopyTrace}
-              copied={row.traceID === copiedTraceId}
-              traceState={expandedTraces[row.traceID]}
+              copied={Boolean(row.traceID) && row.traceID === copiedTraceId}
+              traceState={row.traceID ? expandedTraces[row.traceID] : undefined}
               key={row.key}
             />
           ))}
@@ -339,10 +339,10 @@ function groupObservabilityTraceRows(events) {
   for (let index = 0; index < source.length; index += 1) {
     const event = source[index];
     const traceID = textValue(event.trace_id);
-    if (!traceID) continue;
-    const existing = rowsByTrace.get(traceID);
+    const rowKey = traceID || observabilityEventRowKey(event, index);
+    const existing = rowsByTrace.get(rowKey);
     if (!existing) {
-      rowsByTrace.set(traceID, { key: traceID, traceID: textValue(event.trace_id), events: [event], representative: event, firstIndex: index });
+      rowsByTrace.set(rowKey, { key: rowKey, traceID, events: [event], representative: event, firstIndex: index });
       continue;
     }
     existing.events.push(event);
@@ -372,6 +372,13 @@ function compareObservabilityTraceRows(left, right) {
 function observabilityTimestampMillis(value) {
   const parsed = Date.parse(textValue(value));
   return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function observabilityEventRowKey(event, index) {
+  const parts = [event.ts, event.span_id, event.method, event.phase, event.kind]
+    .map(textValue)
+    .filter(Boolean);
+  return `event-${parts.join(':') || 'unknown'}-${index}`;
 }
 
 function preferredObservabilityRepresentative(current, next) {
