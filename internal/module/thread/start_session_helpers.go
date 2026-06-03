@@ -340,6 +340,7 @@ func buildStartSessionConfig(req StartRequest, input contract.StartInput, assemb
 		{input.GitRoot, []string{"gitRoot"}},
 		{input.Language, []string{"language"}},
 		{input.ScratchpadDir, []string{"scratchpadDir", "scratchpad_dir"}},
+		{req.ToolSurfaceMode, []string{"toolSurfaceMode", "tool_surface_mode"}},
 	} {
 		for _, key := range field.keys {
 			putConfigString(cfg, key, field.value)
@@ -403,11 +404,12 @@ func buildStartStoredThreadConfig(req StartRequest, input contract.StartInput, a
 	runtime := clone.RuntimeConfigMap(buildStartSessionConfig(req, input, assembly))
 	runtime = mergeStartSessionRuntimeIdentity(runtime, firstStartStoredConfigSession(session))
 	return storedThreadConfig{
-		Model:       strings.TrimSpace(input.Model),
-		Effort:      strings.TrimSpace(req.Effort),
-		Approvals:   strings.TrimSpace(req.ApprovalPolicy),
-		Personality: strings.TrimSpace(req.Personality),
-		Runtime:     runtime,
+		Model:           strings.TrimSpace(input.Model),
+		Effort:          strings.TrimSpace(req.Effort),
+		Approvals:       strings.TrimSpace(req.ApprovalPolicy),
+		Personality:     strings.TrimSpace(req.Personality),
+		Runtime:         runtime,
+		ToolSurfaceMode: strings.TrimSpace(req.ToolSurfaceMode),
 	}
 }
 

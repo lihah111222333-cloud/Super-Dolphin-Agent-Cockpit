@@ -208,7 +208,7 @@ func TestHandoff_UsesSourceBindingProvider(t *testing.T) {
 		sessions,
 		starter,
 		nil,
-		nil,
+		&stubThreadOrchestration{},
 		nil,
 	).(*service)
 

@@ -287,6 +287,7 @@ func TestPeerProcessEnvInjectsConfiguredMcpLSPWorkspaceRoots(t *testing.T) {
 	requireEnvValue(t, env, "GO_AGENT_LSP_ROOT", root)
 	requireEnvValue(t, env, "GO_AGENT_LSP_ROOTS", string(rawRoots))
 }
+
 func TestPeerProcessEnvRequiresSessionToken(t *testing.T) {
 	_, err := peerProcessEnv("mcp-orch", []string{"PATH=/bin"}, nil)
 	if err == nil || !strings.Contains(err.Error(), "GO_AGENT_CTL_SESSION_TOKEN") {

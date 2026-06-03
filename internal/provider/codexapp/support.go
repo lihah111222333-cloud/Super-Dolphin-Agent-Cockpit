@@ -293,25 +293,9 @@ func (d *driver) startDynamicSession(ctx context.Context, s *session, req dto.St
 		cleanupFailedSession(s, "force stop failed on dynamic tools preparation error")
 		return nil, err
 	}
-	names := make([]string, len(tools))
-	for i, t := range tools {
-		names[i] = t.Name
-	}
-	pkglogger.Info("codexapp: dynamic tools injected into thread/start",
-		"agent_id", req.AgentID,
-		"tool_count", len(tools),
-		"tool_names", names,
-	)
 	result, err := d.startRemoteThreadWithDynamicTools(ctx, s.transport, req, tools)
 	if err != nil {
-		pkglogger.Warn("codexapp: startDynamicSession failed before cleanup",
-			"agent_id", strings.TrimSpace(req.AgentID),
-			"provider", strings.TrimSpace(req.Provider),
-			"model", strings.TrimSpace(req.Model),
-			"config_model_provider", supportutil.ConfigString(req.Config, "modelProvider"),
-			"config_codex_model_provider", supportutil.ConfigString(req.Config, "codexModelProvider"),
-			"error", err,
-		)
+		pkglogger.Warn("codexapp: startDynamicSession failed before cleanup", "agent_id", strings.TrimSpace(req.AgentID), "error", err)
 		cleanupFailedSession(s, "force stop failed on start error")
 		return nil, err
 	}
@@ -323,6 +307,9 @@ func (d *driver) startDynamicSession(ctx context.Context, s *session, req dto.St
 }
 
 func (d *driver) prepareStartDynamicTools(ctx context.Context, s *session, req dto.StartSessionRequest) ([]codexprotocol.DynamicToolSchema, error) {
+	if !contract.ToolSurfaceModeUsesDynamicTools(req.ToolSurfaceMode) {
+		return nil, nil
+	}
 	if d == nil {
 		return nil, errors.New("codexapp: dynamic tools provider is not configured")
 	}
@@ -343,6 +330,9 @@ func (d *driver) prepareStartDynamicTools(ctx context.Context, s *session, req d
 
 func (d *driver) bindStartedToolSurface(s *session, req dto.StartSessionRequest, providerThreadID string) error {
 	if d == nil || d.prepareTools == nil {
+		return nil
+	}
+	if !contract.ToolSurfaceModeUsesDynamicTools(req.ToolSurfaceMode) {
 		return nil
 	}
 	if d.bindTools == nil {

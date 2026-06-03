@@ -12,6 +12,7 @@ import (
 )
 
 const ToolScopeContextKey = contextKey("mcp_tool_scope")
+const RuntimeWorkspaceScopeFallbackContextKey = contextKey("mcp_runtime_workspace_scope_fallback")
 
 // ToolScope is the trusted per-call scope carried on top-level tools/call
 // metadata. Tool arguments are intentionally excluded so model-provided
@@ -100,6 +101,21 @@ func ToolScopeFromContext(ctx context.Context) (ToolScope, bool) {
 	}
 	scope = NormalizeToolScope(scope)
 	return scope, !scope.isEmpty()
+}
+
+func WithRuntimeWorkspaceScopeFallback(ctx context.Context) context.Context {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	return context.WithValue(ctx, RuntimeWorkspaceScopeFallbackContextKey, true)
+}
+
+func RuntimeWorkspaceScopeFallbackFromContext(ctx context.Context) bool {
+	if ctx == nil {
+		return false
+	}
+	value, _ := ctx.Value(RuntimeWorkspaceScopeFallbackContextKey).(bool)
+	return value
 }
 
 func (scope ToolScope) isEmpty() bool {

@@ -89,7 +89,7 @@ func TestNewThreadHandlersDispatchStart(t *testing.T) {
 		},
 	}
 	server := newThreadTestServer(stub)
-	raw, err := server.Dispatch(context.Background(), "thread/start", json.RawMessage(`{"provider":"codex","cwd":"/tmp/demo","prompt":"hello"}`))
+	raw, err := server.Dispatch(context.Background(), "thread/start", json.RawMessage(`{"provider":"codex","cwd":"/tmp/demo","prompt":"hello","toolSurfaceMode":"chat"}`))
 	if err != nil {
 		t.Fatalf("Dispatch(thread/start) error = %v", err)
 	}
@@ -164,8 +164,43 @@ func assertNestedStartEffectiveFields(t *testing.T, effective map[string]any) {
 
 func assertThreadStartRequest(t *testing.T, req StartRequest) {
 	t.Helper()
-	if req.Provider != "codex" || req.CWD != "/tmp/demo" || req.Name != "" || req.Prompt != "hello" || req.BaseInstructions != "" {
+	if req.Provider != "codex" || req.CWD != "/tmp/demo" || req.Name != "" || req.Prompt != "hello" || req.BaseInstructions != "" || req.ToolSurfaceMode != "chat" {
 		t.Fatalf("StartRequest = %#v", req)
+	}
+}
+
+func TestNormalizeStartRequestRejectsInvalidToolSurfaceMode(t *testing.T) {
+	t.Parallel()
+
+	_, _, err := normalizeStartRequest(StartRequest{
+		Provider:        "codex",
+		CWD:             "/tmp/demo",
+		ToolSurfaceMode: "full",
+	})
+	if err == nil || !strings.Contains(err.Error(), "invalid tool surface mode") {
+		t.Fatalf("normalizeStartRequest() error = %v, want invalid tool surface mode", err)
+	}
+}
+
+func TestBuildPendingSpawnRequestPreservesToolSurfaceMode(t *testing.T) {
+	t.Parallel()
+
+	row := &threadstore.Thread{
+		ThreadID: "thread-pending",
+		Cwd:      "/tmp/demo",
+		Model:    "gpt-5.5",
+		Prompt:   "New chat",
+		ConfigOverride: mustStoredThreadConfigRaw(t, storedThreadConfig{
+			Provider:        "codex",
+			ToolSurfaceMode: "chat",
+		}),
+	}
+	req, err := buildPendingSpawnRequest(row, "thread-pending", "hello", "/tmp/demo")
+	if err != nil {
+		t.Fatalf("buildPendingSpawnRequest() error = %v", err)
+	}
+	if req.ToolSurfaceMode != "chat" {
+		t.Fatalf("ToolSurfaceMode = %q, want chat", req.ToolSurfaceMode)
 	}
 }
 

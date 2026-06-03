@@ -17,9 +17,10 @@ func TestPackageMacOSScriptRequiresPackagedCodexRelayConfig(t *testing.T) {
 	assertScriptContains(t, script, "SUPER_DOLPHIN_CODEX_RELAY_BOOTSTRAP_PROOF")
 	assertScriptContains(t, script, "SUPER_DOLPHIN_CODEX_RELAY_API_KEY")
 	assertScriptContains(t, script, "is required and must not be whitespace-only")
-	assertScriptContains(t, script, "privileged Codex relay API key env is not allowed")
 	assertScriptContains(t, script, "packaged_relay_bootstrap_token=\"${SUPER_DOLPHIN_CODEX_RELAY_BOOTSTRAP_TOKEN:-}\"")
-	assertScriptDoesNotContain(t, script, "packaged_relay_api_key=\"${SUPER_DOLPHIN_CODEX_RELAY_API_KEY:-}\"")
+	assertScriptContains(t, script, "packaged_relay_api_key=\"${SUPER_DOLPHIN_CODEX_RELAY_API_KEY:-}\"")
+	assertScriptContains(t, script, "packaged_relay_bootstrap_token=\"$packaged_relay_api_key\"")
+	assertScriptContains(t, script, "\"$codex_relay_privileged_api_key_env\" \"$packaged_relay_api_key\"")
 	assertScriptContains(t, script, "$resources/.env")
 }
 

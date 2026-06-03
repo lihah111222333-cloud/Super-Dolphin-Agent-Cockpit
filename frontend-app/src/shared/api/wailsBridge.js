@@ -597,18 +597,15 @@ export async function sendFrontendLogBatch(entries) {
   const batch = Array.isArray(entries) ? entries.filter(Boolean) : [];
   if (batch.length === 0) return;
   const runtime = await waitRuntime();
-  if (!runtime?.Call?.ByID) return;
+  if (!runtime?.Call?.ByID) {
+    throw new Error('frontend log bridge runtime Call.ByID is required');
+  }
   const { clientKind, clientRoute } = resolveClientMeta();
-  try {
-    await runtime.Call.ByID(METHOD_IDS.CALL_API, 'ui/log', {
-      entries: batch,
-      _aoClientKind: clientKind,
-      _aoClientRoute: clientRoute,
-    });
-  }
-  catch {
-    // Fail silently to avoid recursive storms
-  }
+  await runtime.Call.ByID(METHOD_IDS.CALL_API, 'ui/log', {
+    entries: batch,
+    _aoClientKind: clientKind,
+    _aoClientRoute: clientRoute,
+  });
 }
 
 export async function selectProjectDir(defaultPath = '') {
@@ -745,7 +742,7 @@ export async function copyTextToClipboard(text) {
   const failures = [];
   if (await copyTextViaNativeBridge(value, failures)) return true;
   if (await copyTextViaClipboardAPI(value, failures)) return true;
-  if (await copyTextViaExecCommand(value, failures)) return true;
+  if (copyTextViaExecCommand(value, failures)) return true;
 
   throw new Error(`clipboard copy failed: ${failures.join('; ')}`);
 }
@@ -784,7 +781,7 @@ async function copyTextViaClipboardAPI(value, failures) {
   return copied;
 }
 
-async function copyTextViaExecCommand(value, failures) {
+function copyTextViaExecCommand(value, failures) {
   let copied = false;
   try {
     if (!document?.body || typeof document.execCommand !== 'function') {

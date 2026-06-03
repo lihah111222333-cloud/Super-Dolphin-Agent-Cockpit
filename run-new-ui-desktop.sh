@@ -46,9 +46,10 @@ ensure_node_deps() {
 }
 
 ensure_peer_binaries() {
+  local peer_dir="${GO_AGENT_PEER_BIN_DIR:-$PROJECT_DIR}"
   local missing=0
   for bin in mcp-orch mcp-lsp; do
-    if [ ! -x "$PROJECT_DIR/$bin" ]; then
+    if [ ! -x "$peer_dir/$bin" ]; then
       missing=1
       break
     fi
@@ -56,8 +57,14 @@ ensure_peer_binaries() {
   if [ "$missing" = "0" ]; then
     return 0
   fi
-  echo "  → building peer binaries for new UI desktop"
-  (cd "$PROJECT_DIR" && go build -o ./mcp-orch ./cmd/mcp-orch/ && go build -o ./mcp-lsp ./cmd/mcp-lsp/)
+  rebuild_peer_binaries
+}
+
+rebuild_peer_binaries() {
+  local peer_dir="${GO_AGENT_PEER_BIN_DIR:-$PROJECT_DIR}"
+  mkdir -p "$peer_dir"
+  echo "  → building peer binaries for new UI desktop: $peer_dir"
+  (cd "$PROJECT_DIR" && go build -o "$peer_dir/mcp-orch" ./cmd/mcp-orch/ && go build -o "$peer_dir/mcp-lsp" ./cmd/mcp-lsp/)
 }
 
 wait_for_http() {
@@ -82,6 +89,21 @@ fail_if_port_busy() {
     lsof -nP -iTCP:"$port" -sTCP:LISTEN || true
     exit 1
   fi
+}
+
+wait_for_port_free() {
+  local addr="$1"
+  local label="$2"
+  local port="${addr##*:}"
+  for _ in $(seq 1 50); do
+    if ! lsof -tiTCP:"$port" -sTCP:LISTEN >/dev/null 2>&1; then
+      return 0
+    fi
+    sleep 0.2
+  done
+  echo "❌ timed out waiting for $label port $port to be free" >&2
+  lsof -nP -iTCP:"$port" -sTCP:LISTEN >&2 || true
+  exit 1
 }
 
 process_exited() {
@@ -207,6 +229,95 @@ wait_for_any_process_exit() {
       return "$status"
     fi
     sleep 0.5
+  done
+}
+
+backend_hot_reload_enabled() {
+  case "${SUPER_DOLPHIN_BACKEND_HOT_RELOAD:-0}" in
+    1|true|TRUE|yes|YES|on|ON) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+start_desktop_backend() {
+  if backend_hot_reload_enabled; then
+    rebuild_peer_binaries
+  fi
+  {
+    echo
+    echo "===== desktop backend start $(date -u '+%Y-%m-%dT%H:%M:%SZ') ====="
+  } >>"$SUPER_DOLPHIN_BACKEND_LOG"
+  (cd "$PROJECT_DIR" && go run ./cmd/agent-terminal >>"$SUPER_DOLPHIN_BACKEND_LOG" 2>&1) &
+  DESKTOP_PID=$!
+  echo "  → desktop backend started (PID: $DESKTOP_PID)"
+}
+
+restart_desktop_backend() {
+  echo "  → backend source changed; restarting desktop backend"
+  if [ -n "${DESKTOP_PID:-}" ]; then
+    stop_process_tree "new UI desktop backend" "$DESKTOP_PID"
+    wait_for_port_free "$SUPER_DOLPHIN_HTTP_ADDR" "desktop backend"
+  fi
+  start_desktop_backend
+  wait_for_backend
+  seed_dev_preferences
+}
+
+stat_backend_watch_file() {
+  local file="$1"
+  stat -f '%m %z %N' "$file" 2>/dev/null || stat -c '%Y %s %n' "$file" 2>/dev/null || true
+}
+
+snapshot_backend_watch_state() {
+  local rel path
+  for rel in $SUPER_DOLPHIN_HOT_WATCH_PATHS; do
+    path="$PROJECT_DIR/$rel"
+    if [ ! -e "$path" ]; then
+      continue
+    fi
+    if [ -f "$path" ]; then
+      printf '%s\n' "$path"
+      continue
+    fi
+    find "$path" \
+      \( -path '*/.git' -o -path '*/.tmp' -o -path '*/.build-cache' -o -path '*/bin' -o -path '*/dist' -o -path '*/node_modules' -o -path '*/frontend-app/dist' -o -path '*/cmd/agent-terminal/frontend/dist' \) -prune -o \
+      -type f \( -name '*.go' -o -name '*.sql' -o -name '*.yaml' -o -name '*.yml' -o -name '*.json' -o -name 'go.mod' -o -name 'go.sum' \) -print
+  done | LC_ALL=C sort -u | while IFS= read -r file; do
+    stat_backend_watch_file "$file"
+  done
+}
+
+run_backend_hot_supervisor_loop() {
+  local interval="$SUPER_DOLPHIN_HOT_POLL_INTERVAL"
+  local previous current status
+  previous="$(snapshot_backend_watch_state)"
+  echo "  backend hot reload: enabled"
+  echo "  backend watch paths: $SUPER_DOLPHIN_HOT_WATCH_PATHS"
+  echo "  backend poll interval: ${interval}s"
+  while true; do
+    if [ -n "${VITE_PID:-}" ] && process_exited "$VITE_PID"; then
+      wait "$VITE_PID"
+      status="$?"
+      if [ "$status" -ne 0 ]; then
+        print_frontend_log_tail
+      fi
+      return "$status"
+    fi
+    if [ -n "${DESKTOP_PID:-}" ] && process_exited "$DESKTOP_PID"; then
+      wait "$DESKTOP_PID"
+      status="$?"
+      if [ "$status" -ne 0 ]; then
+        print_backend_log_tail
+      fi
+      return "$status"
+    fi
+    sleep "$interval"
+    current="$(snapshot_backend_watch_state)"
+    if [ "$current" != "$previous" ]; then
+      previous="$current"
+      restart_desktop_backend
+      previous="$(snapshot_backend_watch_state)"
+    fi
   done
 }
 
@@ -507,7 +618,15 @@ if [ -z "$VITE_DEV_HOST" ] || [ -z "$VITE_DEV_PORT" ] || [ "$VITE_DEV_HOST" = "$
   echo "❌ VITE_DEV_URL must include host and port, got: $VITE_DEV_URL" >&2
   exit 1
 fi
-GO_AGENT_PEER_BIN_DIR="${GO_AGENT_PEER_BIN_DIR:-$PROJECT_DIR}"
+SUPER_DOLPHIN_BACKEND_HOT_RELOAD="${SUPER_DOLPHIN_BACKEND_HOT_RELOAD:-0}"
+SUPER_DOLPHIN_HOT_PEER_BIN_DIR="${SUPER_DOLPHIN_HOT_PEER_BIN_DIR:-$PROJECT_DIR/.tmp/run-new-ui-desktop-hot/peers}"
+if backend_hot_reload_enabled; then
+  GO_AGENT_PEER_BIN_DIR="${GO_AGENT_PEER_BIN_DIR:-$SUPER_DOLPHIN_HOT_PEER_BIN_DIR}"
+else
+  GO_AGENT_PEER_BIN_DIR="${GO_AGENT_PEER_BIN_DIR:-$PROJECT_DIR}"
+fi
+SUPER_DOLPHIN_HOT_WATCH_PATHS="${SUPER_DOLPHIN_HOT_WATCH_PATHS:-cmd internal pkg migrations sql go.mod go.sum sqlc.yaml}"
+SUPER_DOLPHIN_HOT_POLL_INTERVAL="${SUPER_DOLPHIN_HOT_POLL_INTERVAL:-1}"
 SUPER_DOLPHIN_RUNTIME_MODE="${SUPER_DOLPHIN_RUNTIME_MODE:-dev}"
 SUPER_DOLPHIN_RUNTIME_RESOURCES_DIR="${SUPER_DOLPHIN_RUNTIME_RESOURCES_DIR:-$PROJECT_DIR}"
 SUPER_DOLPHIN_DEV_ENTRYPOINT="${SUPER_DOLPHIN_DEV_ENTRYPOINT:-run-new-ui-desktop.sh}"
@@ -526,7 +645,7 @@ SUPER_DOLPHIN_LOCAL_POSTGRES_RUNTIME_DIR="${SUPER_DOLPHIN_LOCAL_POSTGRES_RUNTIME
 SUPER_DOLPHIN_LOCAL_POSTGRES_LOG="${SUPER_DOLPHIN_LOCAL_POSTGRES_LOG:-$PROJECT_DIR/.tmp/postgres.log}"
 export SUPER_DOLPHIN_HTTP_ADDR GO_AGENT_CTL_RPC_ADDR VITE_DEV_URL FRONTEND_DEVSERVER_URL GO_AGENT_PEER_BIN_DIR
 export SUPER_DOLPHIN_RUNTIME_MODE SUPER_DOLPHIN_RUNTIME_RESOURCES_DIR SUPER_DOLPHIN_DEV_ENTRYPOINT
-export SUPER_DOLPHIN_HOME
+export SUPER_DOLPHIN_HOME SUPER_DOLPHIN_BACKEND_HOT_RELOAD SUPER_DOLPHIN_HOT_WATCH_PATHS SUPER_DOLPHIN_HOT_POLL_INTERVAL
 export SUPER_DOLPHIN_LOCAL_POSTGRES_DATA_DIR SUPER_DOLPHIN_LOCAL_POSTGRES_RUNTIME_DIR SUPER_DOLPHIN_LOCAL_POSTGRES_LOG
 export LOG_LEVEL="${LOG_LEVEL:-debug}"
 export ENABLE_MEMORY_SYSTEM="${ENABLE_MEMORY_SYSTEM:-1}"
@@ -555,9 +674,12 @@ echo "  peer bin dir: $GO_AGENT_PEER_BIN_DIR"
 echo "  runtime:      $SUPER_DOLPHIN_RUNTIME_MODE ($SUPER_DOLPHIN_RUNTIME_RESOURCES_DIR)"
 echo "  home:         $SUPER_DOLPHIN_HOME"
 echo "  logs:         $SUPER_DOLPHIN_BACKEND_LOG"
+if backend_hot_reload_enabled; then
+  echo "  backend hot:  enabled"
+fi
 
-(cd "$PROJECT_DIR" && go run ./cmd/agent-terminal >"$SUPER_DOLPHIN_BACKEND_LOG" 2>&1) &
-DESKTOP_PID=$!
+: >"$SUPER_DOLPHIN_BACKEND_LOG"
+start_desktop_backend
 wait_for_backend
 seed_dev_preferences
 
@@ -565,4 +687,8 @@ seed_dev_preferences
 VITE_PID=$!
 wait_for_http "$VITE_DEV_URL" "frontend-app vite"
 
-wait_for_any_process_exit
+if backend_hot_reload_enabled; then
+  run_backend_hot_supervisor_loop
+else
+  wait_for_any_process_exit
+fi

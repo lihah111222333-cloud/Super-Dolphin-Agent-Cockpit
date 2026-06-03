@@ -134,19 +134,34 @@ function memoryEntryTitle(entry) {
   return firstText(entry.title, entry.description, entry.name, entry.path);
 }
 
-function memoryConsolidationResultMessage(result) {
-  const merged = Number(result?.merged) || 0;
-  const ignored = Number(result?.ignored) || 0;
-  const failed = Number(result?.failed) || 0;
-  const skipped = Number(result?.skipped) || 0;
-  const parts = [`已整合 ${merged} 组`];
-  if (ignored) parts.push(`${ignored} 组判定不应合`);
-  if (failed) parts.push(`${failed} 组失败`);
-  if (skipped) parts.push(`${skipped} 组跳过`);
-  const firstError = Array.isArray(result?.errors) ? result.errors[0] : '';
+function memoryConsolidationStats(result) {
   return {
-    level: failed || skipped ? 'warning' : 'info',
-    message: `${parts.join('，')}${firstError ? `，原因：${firstError}` : ''}`,
+    merged: Number(result?.merged) || 0,
+    ignored: Number(result?.ignored) || 0,
+    failed: Number(result?.failed) || 0,
+    skipped: Number(result?.skipped) || 0,
+  };
+}
+
+function memoryConsolidationParts(stats) {
+  return [
+    `已整合 ${stats.merged} 组`,
+    stats.ignored ? `${stats.ignored} 组判定不应合` : '',
+    stats.failed ? `${stats.failed} 组失败` : '',
+    stats.skipped ? `${stats.skipped} 组跳过` : '',
+  ].filter(Boolean);
+}
+
+function firstMemoryConsolidationError(result) {
+  return Array.isArray(result?.errors) ? textValue(result.errors[0]) : '';
+}
+
+function memoryConsolidationResultMessage(result) {
+  const stats = memoryConsolidationStats(result);
+  const firstError = firstMemoryConsolidationError(result);
+  return {
+    level: stats.failed || stats.skipped ? 'warning' : 'info',
+    message: `${memoryConsolidationParts(stats).join('，')}${firstError ? `，原因：${firstError}` : ''}`,
   };
 }
 
@@ -155,15 +170,15 @@ function memoryConsolidationJobFailed(status) {
   return new Error(message);
 }
 
-function clearMemorySimilarGroups(snapshot) {
-  if (!snapshot || typeof snapshot !== 'object' || Array.isArray(snapshot)) return snapshot;
-  const overview = snapshot.overview && typeof snapshot.overview === 'object' && !Array.isArray(snapshot.overview)
-    ? snapshot.overview
-    : {};
-  const health = overview.health && typeof overview.health === 'object' && !Array.isArray(overview.health)
-    ? overview.health
-    : null;
-  if (!health || !Array.isArray(health.similarGroups) || health.similarGroups.length === 0) return snapshot;
+function plainMemoryObject(value) {
+  return value && typeof value === 'object' && !Array.isArray(value) ? value : null;
+}
+
+function memoryHealthHasSimilarGroups(health) {
+  return Array.isArray(health?.similarGroups) && health.similarGroups.length > 0;
+}
+
+function memorySnapshotWithClearedSimilarGroups(snapshot, overview, health) {
   return {
     ...snapshot,
     overview: {
@@ -174,6 +189,14 @@ function clearMemorySimilarGroups(snapshot) {
       },
     },
   };
+}
+
+function clearMemorySimilarGroups(snapshot) {
+  const validSnapshot = plainMemoryObject(snapshot);
+  const overview = plainMemoryObject(validSnapshot?.overview) || {};
+  const health = plainMemoryObject(overview.health);
+  if (!validSnapshot || !memoryHealthHasSimilarGroups(health)) return snapshot;
+  return memorySnapshotWithClearedSimilarGroups(validSnapshot, overview, health);
 }
 
 async function waitForMemoryConsolidationJob(cwd, jobID) {
@@ -415,22 +438,39 @@ function useMemoryIgnoreGroup({ dashboard, ignoringKey, setIgnoringKey, showNoti
   }, [dashboard, ignoringKey, setIgnoringKey, showNotice]);
 }
 
+function shouldSkipMemoryMergeAll({ consolidationJob, mergingAll, similarGroups }) {
+  return !similarGroups.length || mergingAll || consolidationJob;
+}
+
+async function memoryLaunchPreferences(resolveLaunchPreferences, cwd) {
+  return typeof resolveLaunchPreferences === 'function' ? resolveLaunchPreferences(cwd) : null;
+}
+
+function assertMemoryConsolidationStarted(started, jobID) {
+  if (started?.status === 'failed') throw memoryConsolidationJobFailed(started);
+  if (started?.status !== 'succeeded' && !jobID) throw new Error('智能整合未能启动，请稍后重试');
+}
+
+async function applyStartedMemoryConsolidation({ applyConsolidationResult, cwd, jobID, setConsolidationJob, showNotice, started }) {
+  if (started?.status === 'succeeded') {
+    await applyConsolidationResult(cwd, started.result || {});
+    return;
+  }
+  setConsolidationJob({ cwd, jobId: jobID });
+  showNotice('info', '智能整合已在后台进行，完成后会自动更新');
+}
+
 function useMemoryMergeAllGroups({ applyConsolidationResult, consolidationJob, dashboard, mergingAll, resolveLaunchPreferences, setConsolidationJob, setMergingAll, showNotice, similarGroups }) {
   return useCallback(async () => {
-    if (!similarGroups.length || mergingAll || consolidationJob) return;
+    if (shouldSkipMemoryMergeAll({ consolidationJob, mergingAll, similarGroups })) return;
     if (!dashboard.memoryCwd) { showNotice('error', '正在连接本地项目...'); return; }
     setMergingAll(true);
     try {
-      const launchPreferences = typeof resolveLaunchPreferences === 'function' ? await resolveLaunchPreferences(dashboard.memoryCwd) : null;
+      const launchPreferences = await memoryLaunchPreferences(resolveLaunchPreferences, dashboard.memoryCwd);
       const started = await startConsolidateMemorySimilarities(memoryConsolidationStartPayload(dashboard.memoryCwd, launchPreferences));
       const jobID = textValue(started?.jobId);
-      if (started?.status === 'failed') throw memoryConsolidationJobFailed(started);
-      if (started?.status !== 'succeeded' && !jobID) throw new Error('智能整合未能启动，请稍后重试');
-      if (started?.status === 'succeeded') await applyConsolidationResult(dashboard.memoryCwd, started.result || {});
-      else {
-        setConsolidationJob({ cwd: dashboard.memoryCwd, jobId: jobID });
-        showNotice('info', '智能整合已在后台进行，完成后会自动更新');
-      }
+      assertMemoryConsolidationStarted(started, jobID);
+      await applyStartedMemoryConsolidation({ applyConsolidationResult, cwd: dashboard.memoryCwd, jobID, setConsolidationJob, showNotice, started });
     } catch (err) {
       showNotice('error', `智能整合失败：${errorMessage(err)}`);
     } finally {
@@ -472,7 +512,18 @@ function showMemoryConsolidationError(err, showNotice) {
   showNotice(level, level === 'warning' ? message : `智能整合失败：${message}`);
 }
 
-function MemoryPage({ projectPath, onSimilarCountChange, resolveLaunchPreferences }) {
+function useMemoryApplyConsolidationResult(queryClient, showNotice) {
+  return useCallback(async (cwd, result) => {
+    const summary = memoryConsolidationResultMessage(result);
+    if (!Number(result?.failed) && !Number(result?.skipped)) {
+      queryClient.setQueryData(dashboardQueryKey(cwd, 'memory'), clearMemorySimilarGroups);
+    }
+    showNotice(summary.level, summary.message);
+    await queryClient.invalidateQueries({ queryKey: dashboardQueryKey(cwd, 'memory') });
+  }, [queryClient, showNotice]);
+}
+
+function useMemoryPageModel({ projectPath, onSimilarCountChange, resolveLaunchPreferences }) {
   const dashboard = useMemoryDashboard(projectPath);
   const { notice, showNotice } = useMemoryNotice(dashboard.memoryCwd);
   const [searchText, setSearchText] = useState('');
@@ -483,16 +534,7 @@ function MemoryPage({ projectPath, onSimilarCountChange, resolveLaunchPreference
   const editor = useMemoryEditor({ dashboard, showNotice });
   const deletion = useMemoryDelete({ dashboard, showNotice });
   const { queryClient } = dashboard;
-
-  const applyConsolidationResult = useCallback(async (cwd, result) => {
-    const summary = memoryConsolidationResultMessage(result);
-    if (!Number(result?.failed) && !Number(result?.skipped)) {
-      queryClient.setQueryData(dashboardQueryKey(cwd, 'memory'), clearMemorySimilarGroups);
-    }
-    showNotice(summary.level, summary.message);
-    await queryClient.invalidateQueries({ queryKey: dashboardQueryKey(cwd, 'memory') });
-  }, [queryClient, showNotice]);
-
+  const applyConsolidationResult = useMemoryApplyConsolidationResult(queryClient, showNotice);
   const similarity = useMemorySimilarityActions({
     applyConsolidationResult,
     dashboard,
@@ -506,66 +548,40 @@ function MemoryPage({ projectPath, onSimilarCountChange, resolveLaunchPreference
     showNotice,
     similarity,
   });
-
-  return (
-    <MemoryPageView
-      activeCategory={activeCategory}
-      autoDream={autoDream}
-      dashboard={dashboard}
-      deletion={deletion}
-      derived={derived}
-      editor={editor}
-      notice={notice}
-      searchText={searchText}
-      setActiveCategory={setActiveCategory}
-      setSearchText={setSearchText}
-      setSimilarExpanded={setSimilarExpanded}
-      similarExpanded={similarExpanded}
-      similarity={similarity}
-    />
-  );
+  return { activeCategory, autoDream, dashboard, deletion, derived, editor, notice, searchText, setActiveCategory, setSearchText, setSimilarExpanded, similarExpanded, similarity };
 }
 
-function MemoryPageView({
-  activeCategory,
-  autoDream,
-  dashboard,
-  deletion,
-  derived,
-  editor,
-  notice,
-  searchText,
-  setActiveCategory,
-  setSearchText,
-  setSimilarExpanded,
-  similarExpanded,
-  similarity,
-}) {
+function MemoryPage({ projectPath, onSimilarCountChange, resolveLaunchPreferences }) {
+  const model = useMemoryPageModel({ projectPath, onSimilarCountChange, resolveLaunchPreferences });
+  return <MemoryPageView model={model} />;
+}
+
+function MemoryPageView({ model }) {
   return (
     <section className="memory-page">
       <MemoryPageHeader
-        disabled={dashboard.isProjectPending}
-        editor={editor}
-        searchText={searchText}
-        setSearchText={setSearchText}
+        disabled={model.dashboard.isProjectPending}
+        editor={model.editor}
+        searchText={model.searchText}
+        setSearchText={model.setSearchText}
       />
-      <MemoryStats autoDream={autoDream} categoryCounts={derived.categoryCounts} disabled={dashboard.isProjectPending} health={derived.health} />
+      <MemoryStats autoDream={model.autoDream} categoryCounts={model.derived.categoryCounts} disabled={model.dashboard.isProjectPending} health={model.derived.health} />
       <MemorySimilaritySection
-        expanded={similarExpanded}
-        groups={derived.similarGroups}
-        setExpanded={setSimilarExpanded}
-        similarity={similarity}
+        expanded={model.similarExpanded}
+        groups={model.derived.similarGroups}
+        setExpanded={model.setSimilarExpanded}
+        similarity={model.similarity}
       />
-      <MemoryStatusMessages dashboard={dashboard} notice={notice} />
-      <MemoryTabs activeCategory={activeCategory} categoryCounts={derived.categoryCounts} setActiveCategory={setActiveCategory} />
+      <MemoryStatusMessages dashboard={model.dashboard} notice={model.notice} />
+      <MemoryTabs activeCategory={model.activeCategory} categoryCounts={model.derived.categoryCounts} setActiveCategory={model.setActiveCategory} />
       <MemoryCardsSection
-        dashboard={dashboard}
-        deletion={deletion}
-        editor={editor}
-        searchText={searchText}
-        visibleEntries={derived.visibleEntries}
+        dashboard={model.dashboard}
+        deletion={model.deletion}
+        editor={model.editor}
+        searchText={model.searchText}
+        visibleEntries={model.derived.visibleEntries}
       />
-      <MemoryModals deletion={deletion} editor={editor} similarity={similarity} />
+      <MemoryModals deletion={model.deletion} editor={model.editor} similarity={model.similarity} />
     </section>
   );
 }
@@ -852,6 +868,68 @@ function MemoryCard({ entry, busy, deleting, onEdit, onDelete }) {
   );
 }
 
+function memoryEditorTypeChangePatch(type) {
+  return {
+    type,
+    target: memoryTargetForType(type),
+    content: memoryTemplateForType(type),
+  };
+}
+
+function MemoryEditorHeader({ editor, form }) {
+  return (
+    <header>
+      <div>
+        <h2>{editor.mode === 'edit' ? '编辑记忆' : '新建记忆'}</h2>
+        <p>{form.type === 'project' ? '项目记忆' : '偏好记忆'}</p>
+      </div>
+    </header>
+  );
+}
+
+function MemoryEditorFields({ form, identityLocked, onChange }) {
+  return (
+    <div className="memory-form-grid">
+      <label>分类
+        <select
+          value={form.type}
+          onChange={(event) => onChange(memoryEditorTypeChangePatch(event.target.value))}
+          disabled={identityLocked}
+        >
+          {MEMORY_EDITOR_TYPES.map((type) => <option key={type.key} value={type.key}>{type.label}</option>)}
+        </select>
+      </label>
+      <label>描述
+        <input value={form.description} onChange={(event) => onChange({ description: event.target.value })} placeholder="一句话描述为什么值得长期保留" />
+      </label>
+      <label>卡片标题
+        <input value={form.title} onChange={(event) => onChange({ title: event.target.value })} placeholder="卡片上显示的短标题" />
+      </label>
+    </div>
+  );
+}
+
+function MemoryEditorContentField({ form, onChange }) {
+  return (
+    <label className="memory-content-label">内容
+      <textarea rows={12} value={form.content} onChange={(event) => onChange({ content: event.target.value })} />
+    </label>
+  );
+}
+
+function MemoryEditorActions({ form, saving, onClose, onChange, onDelete, onSave }) {
+  return (
+    <div className="memory-editor-actions">
+      <button type="button" className="ghost" onClick={onClose} disabled={saving}>取消</button>
+      {form.existingPath ? <button type="button" className="danger" onClick={onDelete} disabled={saving}>删除</button> : null}
+      <button type="button" onClick={() => onChange({ content: memoryTemplateForType(form.type) })} disabled={saving}>套用当前类型模板</button>
+      <button type="button" className="light" onClick={() => { void onSave(); }} disabled={saving || !textValue(form.description) || !textValue(form.content)}>
+        {saving ? '保存中...' : '保存'}
+      </button>
+    </div>
+  );
+}
+
 function MemoryEditorModal({ editor, saving, onClose, onChange, onSave, onDelete }) {
   const form = editor.form;
   const identityLocked = editor.mode === 'edit' && Boolean(form.existingPath);
@@ -862,44 +940,10 @@ function MemoryEditorModal({ editor, saving, onClose, onChange, onSave, onDelete
       closeDisabled={saving}
       onClose={onClose}
     >
-        <header>
-          <div>
-            <h2>{editor.mode === 'edit' ? '编辑记忆' : '新建记忆'}</h2>
-            <p>{form.type === 'project' ? '项目记忆' : '偏好记忆'}</p>
-          </div>
-        </header>
-        <div className="memory-form-grid">
-          <label>分类
-            <select
-              value={form.type}
-              onChange={(event) => onChange({
-                type: event.target.value,
-                target: memoryTargetForType(event.target.value),
-                content: memoryTemplateForType(event.target.value),
-              })}
-              disabled={identityLocked}
-            >
-              {MEMORY_EDITOR_TYPES.map((type) => <option key={type.key} value={type.key}>{type.label}</option>)}
-            </select>
-          </label>
-          <label>描述
-            <input value={form.description} onChange={(event) => onChange({ description: event.target.value })} placeholder="一句话描述为什么值得长期保留" />
-          </label>
-          <label>卡片标题
-            <input value={form.title} onChange={(event) => onChange({ title: event.target.value })} placeholder="卡片上显示的短标题" />
-          </label>
-        </div>
-        <label className="memory-content-label">内容
-          <textarea rows={12} value={form.content} onChange={(event) => onChange({ content: event.target.value })} />
-        </label>
-        <div className="memory-editor-actions">
-          <button type="button" className="ghost" onClick={onClose} disabled={saving}>取消</button>
-          {form.existingPath ? <button type="button" className="danger" onClick={onDelete} disabled={saving}>删除</button> : null}
-          <button type="button" onClick={() => onChange({ content: memoryTemplateForType(form.type) })} disabled={saving}>套用当前类型模板</button>
-          <button type="button" className="light" onClick={() => { void onSave(); }} disabled={saving || !textValue(form.description) || !textValue(form.content)}>
-            {saving ? '保存中...' : '保存'}
-          </button>
-        </div>
+        <MemoryEditorHeader editor={editor} form={form} />
+        <MemoryEditorFields form={form} identityLocked={identityLocked} onChange={onChange} />
+        <MemoryEditorContentField form={form} onChange={onChange} />
+        <MemoryEditorActions form={form} saving={saving} onClose={onClose} onChange={onChange} onDelete={onDelete} onSave={onSave} />
     </FocusTrapDialog>
   );
 }

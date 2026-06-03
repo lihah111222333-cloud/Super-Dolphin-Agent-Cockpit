@@ -144,6 +144,35 @@ describe('wails bridge clipboard helpers', () => {
 describe('wails bridge warning logs', () => {
   beforeEach(resetWailsRuntimeMocks);
 
+  it('fails frontend log batch delivery when the runtime binding is unavailable', async () => {
+    vi.doMock(runtimeModule, () => ({
+      Call: {},
+      Events: { On: vi.fn() },
+    }));
+    const { sendFrontendLogBatch } = await import('./wailsBridge.js');
+
+    await expect(sendFrontendLogBatch([{ level: 'error', event: 'ui.failed' }])).rejects.toThrow(
+      'frontend log bridge runtime Call.ByID is required',
+    );
+  });
+
+  it('propagates frontend log batch RPC failures', async () => {
+    const error = new Error('log ingest unavailable');
+    const byID = vi.fn().mockRejectedValue(error);
+    vi.doMock(runtimeModule, () => ({
+      Call: { ByID: byID },
+      Events: { On: vi.fn() },
+    }));
+    const { sendFrontendLogBatch } = await import('./wailsBridge.js');
+
+    await expect(sendFrontendLogBatch([{ level: 'error', event: 'ui.failed' }])).rejects.toThrow(
+      'log ingest unavailable',
+    );
+    expect(byID).toHaveBeenCalledWith(expect.any(Number), 'ui/log', expect.objectContaining({
+      entries: [{ level: 'error', event: 'ui.failed' }],
+    }));
+  });
+
   it('reports a failed backend RPC once as api.rpc.failed', async () => {
     const error = new Error('backend unavailable');
     vi.doMock(runtimeModule, () => ({

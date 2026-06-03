@@ -1,4 +1,4 @@
-export { ChatPage } from './chat/ChatPage.jsx';
+export { ChatPage, ProjectSelector } from './chat/ChatPage.jsx';
 export { PromptPage } from './prompts/PromptPage.jsx';
 export { WorkflowPage } from './workflows/WorkflowPage.jsx';
 export { SkillsPage } from './skills/SkillsPage.jsx';

@@ -1,5 +1,5 @@
 import React from 'react';
-import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ObservabilityPage } from './ObservabilityPage.jsx';
 import { copyTextToClipboard, getObservabilityTrace, listObservabilityRecent } from '../../shared/api/backendApi.js';
@@ -49,7 +49,17 @@ function renderObservabilityPage() {
   return render(<ObservabilityPage />);
 }
 
-async function queryRecentLogs() {
+function deferredValue() {
+  let resolve;
+  let reject;
+  const promise = new Promise((promiseResolve, promiseReject) => {
+    resolve = promiseResolve;
+    reject = promiseReject;
+  });
+  return { promise, reject, resolve };
+}
+
+function queryRecentLogs() {
   renderObservabilityPage();
   fireEvent.change(screen.getByLabelText('状态'), { target: { value: 'error' } });
   fireEvent.change(screen.getByLabelText('关键词'), { target: { value: 'thread/start' } });
@@ -66,6 +76,7 @@ describe('ObservabilityPage module', () => {
 
   afterEach(() => {
     cleanup();
+    vi.useRealTimers();
     vi.clearAllMocks();
   });
 
@@ -138,5 +149,83 @@ describe('ObservabilityPage module', () => {
     await waitFor(() => expect(copyTextToClipboard).toHaveBeenCalledWith('trace-frontend-1'));
     expect(within(table).getByRole('button', { name: '复制 Trace ID trace-frontend-1' })).toHaveTextContent('已复制');
     expect(getObservabilityTrace).not.toHaveBeenCalled();
+  });
+
+  it('refreshes the active recent query and keeps the newest trace first', async () => {
+    const intervalSpy = vi.spyOn(window, 'setInterval');
+    const olderEvent = {
+      ...recentResult.events[0],
+      ts: '2026-06-02T09:01:22.000Z',
+      trace_id: 'trace-older',
+      span_id: 'span-older',
+      thread_id: 'thread-older',
+    };
+    const newerEvent = {
+      ...recentResult.events[0],
+      ts: '2026-06-02T09:01:25.000Z',
+      trace_id: 'trace-newer',
+      span_id: 'span-newer',
+      thread_id: 'thread-newer',
+    };
+    listObservabilityRecent
+      .mockResolvedValueOnce({ source: 'memory', truncated: false, events: [olderEvent] })
+      .mockResolvedValueOnce({ source: 'memory', truncated: false, events: [olderEvent, newerEvent] });
+    renderObservabilityPage();
+    fireEvent.change(screen.getByLabelText('状态'), { target: { value: 'error' } });
+    fireEvent.change(screen.getByLabelText('关键词'), { target: { value: 'thread/start' } });
+    fireEvent.click(screen.getByRole('button', { name: '查询最新日志' }));
+    const table = await screen.findByTestId('observability-recent-logs');
+
+    expect(table.querySelector('.observability-log-table-entry')).toHaveTextContent('trace-older');
+
+    let refreshCall;
+    await waitFor(() => {
+      refreshCall = intervalSpy.mock.calls.find(([, delay]) => delay === 2000);
+      expect(refreshCall).toBeTruthy();
+    });
+    refreshCall[0]();
+
+    await waitFor(() => expect(listObservabilityRecent).toHaveBeenCalledTimes(2));
+    const entries = table.querySelectorAll('.observability-log-table-entry');
+    expect(entries[0]).toHaveTextContent('trace-newer');
+    expect(entries[1]).toHaveTextContent('trace-older');
+  });
+
+  it('skips overlapping automatic recent refresh requests', async () => {
+    const intervalSpy = vi.spyOn(window, 'setInterval');
+    const olderEvent = {
+      ...recentResult.events[0],
+      ts: '2026-06-02T09:01:22.000Z',
+      trace_id: 'trace-older',
+      span_id: 'span-older',
+    };
+    const newerEvent = {
+      ...recentResult.events[0],
+      ts: '2026-06-02T09:01:25.000Z',
+      trace_id: 'trace-newer',
+      span_id: 'span-newer',
+    };
+    const refresh = deferredValue();
+    listObservabilityRecent
+      .mockResolvedValueOnce({ source: 'memory', truncated: false, events: [olderEvent] })
+      .mockReturnValueOnce(refresh.promise);
+    renderObservabilityPage();
+    fireEvent.click(screen.getByRole('button', { name: '查询最新日志' }));
+    const table = await screen.findByTestId('observability-recent-logs');
+    let refreshCall;
+    await waitFor(() => {
+      refreshCall = intervalSpy.mock.calls.find(([, delay]) => delay === 2000);
+      expect(refreshCall).toBeTruthy();
+    });
+
+    refreshCall[0]();
+    refreshCall[0]();
+
+    expect(listObservabilityRecent).toHaveBeenCalledTimes(2);
+    await act(async () => {
+      refresh.resolve({ source: 'memory', truncated: false, events: [olderEvent, newerEvent] });
+      await refresh.promise;
+    });
+    await waitFor(() => expect(table.querySelector('.observability-log-table-entry')).toHaveTextContent('trace-newer'));
   });
 });
