@@ -18,7 +18,6 @@ import (
 	promptstore "github.com/anthropic-ai/super-agent-v3/internal/store/prompt"
 	sharedfilestore "github.com/anthropic-ai/super-agent-v3/internal/store/sharedfile"
 	systemlogstore "github.com/anthropic-ai/super-agent-v3/internal/store/systemlog"
-	tasktracestore "github.com/anthropic-ai/super-agent-v3/internal/store/tasktrace"
 	"github.com/anthropic-ai/super-agent-v3/internal/util"
 	"golang.org/x/sync/errgroup"
 )
@@ -40,7 +39,6 @@ type service struct {
 	busLogs        buslogstore.Store
 	aiLogs         ailogstore.Store
 	dbQueries      dbquerystore.Store
-	taskTraces     tasktracestore.Store
 	commandCards   commandcardstore.Reader
 	prompts        promptstore.Reader
 	sharedFiles    sharedfilestore.Reader
@@ -61,7 +59,6 @@ func NewService(
 	busLogs buslogstore.Store,
 	aiLogs ailogstore.Store,
 	dbQueries dbquerystore.Store,
-	taskTraces tasktracestore.Store,
 	commandCards commandcardstore.Reader,
 	prompts promptstore.Reader,
 	sharedFiles sharedfilestore.Reader,
@@ -76,7 +73,6 @@ func NewService(
 		busLogs:        busLogs,
 		aiLogs:         aiLogs,
 		dbQueries:      dbQueries,
-		taskTraces:     taskTraces,
 		commandCards:   commandCards,
 		prompts:        prompts,
 		sharedFiles:    sharedFiles,
@@ -95,7 +91,6 @@ func newServiceWithDAGRuntime(
 	busLogs buslogstore.Store,
 	aiLogs ailogstore.Store,
 	dbQueries dbquerystore.Store,
-	taskTraces tasktracestore.Store,
 	commandCards commandcardstore.Reader,
 	prompts promptstore.Reader,
 	sharedFiles sharedfilestore.Reader,
@@ -109,7 +104,6 @@ func newServiceWithDAGRuntime(
 		busLogs,
 		aiLogs,
 		dbQueries,
-		taskTraces,
 		commandCards,
 		prompts,
 		sharedFiles,
@@ -220,24 +214,42 @@ func (s *service) GetLogs(ctx context.Context, filter LogFilter) ([]LogEntry, er
 	}
 	limit := util.ClampLimit(filter.Limit, 1, maxLogLimit, defaultLogLimit)
 	filter.Limit = limit
-	entries := make([]LogEntry, 0, limit)
+
+	var systemEntries, aiEntries []LogEntry
 	if mode.includeSystem {
-		entries, err = s.appendSystemLogs(ctx, entries, filter)
+		systemEntries, err = s.appendSystemLogs(ctx, nil, filter)
 		if err != nil {
 			return nil, err
 		}
 	}
 	if mode.includeAI {
-		entries, err = s.appendAILogs(ctx, entries, filter)
+		aiEntries, err = s.appendAILogs(ctx, nil, filter)
 		if err != nil {
 			return nil, err
 		}
 	}
-	sortLogEntries(entries)
-	if len(entries) > limit {
-		entries = entries[:limit]
+	if !mode.includeSystem {
+		return aiEntries, nil
 	}
-	return entries, nil
+	if !mode.includeAI {
+		return systemEntries, nil
+	}
+	return mergeLogEntries(systemEntries, aiEntries, limit), nil
+}
+
+func mergeLogEntries(a, b []LogEntry, limit int) []LogEntry {
+	out := make([]LogEntry, 0, limit)
+	i, j := 0, 0
+	for len(out) < limit && (i < len(a) || j < len(b)) {
+		if i < len(a) && (j >= len(b) || !a[i].Timestamp.Before(b[j].Timestamp)) {
+			out = append(out, a[i])
+			i++
+		} else {
+			out = append(out, b[j])
+			j++
+		}
+	}
+	return out
 }
 
 func (s *service) Query(ctx context.Context, query string, args ...any) ([]map[string]any, error) {

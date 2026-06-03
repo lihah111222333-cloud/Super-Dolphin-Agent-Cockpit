@@ -2368,18 +2368,67 @@ function ThreadCard({
         <ThreadDisplayCardContent
           thread={thread}
           store={store}
-          hoveredPinThreadId={hoveredPinThreadId}
-          onBeginRename={onBeginRename}
-          onSetHoveredPinThreadId={onSetHoveredPinThreadId}
         />
       )}
+      <ThreadCardActions
+        thread={thread}
+        store={store}
+        editing={editing}
+        archiveLabel={archiveLabel}
+        hoveredArchiveThreadId={hoveredArchiveThreadId}
+        hoveredPinThreadId={hoveredPinThreadId}
+        loading={Boolean(store.threadArchiveLoadingByThread?.[thread.id])}
+        onBeginRename={onBeginRename}
+        onSetHoveredArchiveThreadId={onSetHoveredArchiveThreadId}
+        onSetHoveredPinThreadId={onSetHoveredPinThreadId}
+        onToggle={() => store.archiveThread(thread.id, !thread.archived)}
+      />
+    </div>
+  );
+}
+
+function ThreadCardActions({
+  thread,
+  store,
+  editing,
+  archiveLabel,
+  hoveredArchiveThreadId,
+  hoveredPinThreadId,
+  loading,
+  onBeginRename,
+  onSetHoveredArchiveThreadId,
+  onSetHoveredPinThreadId,
+  onToggle,
+}) {
+  const threadLabel = displayThreadName(thread);
+  return (
+    <div className="thread-card-actions" aria-label={`${threadLabel} 操作`}>
+      {!editing ? (
+        <>
+          <button
+            type="button"
+            className="thread-rename-trigger"
+            aria-label="重命名会话"
+            title={`重命名 ${threadLabel}`}
+            onClick={() => onBeginRename(thread)}
+          >
+            <Pencil size={13} aria-hidden="true" />
+          </button>
+          <ThreadPinButton
+            thread={thread}
+            hoveredPinThreadId={hoveredPinThreadId}
+            onSetHoveredPinThreadId={onSetHoveredPinThreadId}
+            onToggle={() => store.toggleThreadPin(thread.id)}
+          />
+        </>
+      ) : null}
       <ThreadArchiveButton
         thread={thread}
         archiveLabel={archiveLabel}
         hoveredArchiveThreadId={hoveredArchiveThreadId}
-        loading={Boolean(store.threadArchiveLoadingByThread?.[thread.id])}
+        loading={loading}
         onSetHoveredArchiveThreadId={onSetHoveredArchiveThreadId}
-        onToggle={() => store.archiveThread(thread.id, !thread.archived)}
+        onToggle={onToggle}
       />
     </div>
   );
@@ -2419,37 +2468,32 @@ function ThreadRenameCardContent({ thread, editingName, renaming, onCancelRename
   }, [renaming]);
 
   return (
-    <>
-      <span className="thread-pin thread-pin--placeholder" aria-hidden="true">
-        <Pin size={14} strokeWidth={2.2} />
-      </span>
-      <div className="thread-main thread-main--editing">
-        <input
-          ref={inputRef}
-          className="thread-name-input"
-          aria-label="会话别名"
-          value={editingName}
-          maxLength={64}
-          disabled={renaming}
-          onFocus={(event) => event.currentTarget.select()}
-          onChange={(event) => onSetEditingName(event.target.value)}
-          onClick={(event) => event.stopPropagation()}
-          onBlur={(event) => onRenameBlur(event, thread)}
-          onKeyDown={(event) => handleThreadRenameKeyDown(event, thread, onSubmitRename, onCancelRename)}
-        />
-        <button
-          type="button"
-          className="thread-rename-save"
-          aria-label="保存别名"
-          data-rename-save-button-for={thread.id}
-          disabled={renaming}
-          onMouseDown={(event) => event.preventDefault()}
-          onClick={() => runUIAction(() => onSubmitRename(thread))}
-        >
-          保存
-        </button>
-      </div>
-    </>
+    <div className="thread-main thread-main--editing">
+      <input
+        ref={inputRef}
+        className="thread-name-input"
+        aria-label="会话别名"
+        value={editingName}
+        maxLength={64}
+        disabled={renaming}
+        onFocus={(event) => event.currentTarget.select()}
+        onChange={(event) => onSetEditingName(event.target.value)}
+        onClick={(event) => event.stopPropagation()}
+        onBlur={(event) => onRenameBlur(event, thread)}
+        onKeyDown={(event) => handleThreadRenameKeyDown(event, thread, onSubmitRename, onCancelRename)}
+      />
+      <button
+        type="button"
+        className="thread-rename-save"
+        aria-label="保存别名"
+        data-rename-save-button-for={thread.id}
+        disabled={renaming}
+        onMouseDown={(event) => event.preventDefault()}
+        onClick={() => runUIAction(() => onSubmitRename(thread))}
+      >
+        保存
+      </button>
+    </div>
   );
 }
 
@@ -2464,42 +2508,25 @@ function handleThreadRenameKeyDown(event, thread, onSubmitRename, onCancelRename
   }
 }
 
-function ThreadDisplayCardContent({ thread, store, hoveredPinThreadId, onBeginRename, onSetHoveredPinThreadId }) {
+function ThreadDisplayCardContent({ thread, store }) {
   const running = threadStatusBusy(thread.status);
   const threadLabel = displayThreadName(thread);
   const statusLabel = threadCardStatusLabel(thread, running);
   const statusDotState = threadStatusDotState(thread.status);
   const statusDotTitle = threadStatusDotTitle(thread.status, statusLabel);
   return (
-    <>
-      <ThreadPinButton
+    <button type="button" className="thread-main" onClick={() => runUIAction(() => store.setActiveThread(thread.id))}>
+      <span className="thread-name" title={threadLabel}>
+        {threadLabel}
+      </span>
+      <b>{threadProviderLabel(thread.provider)}</b>
+      <ThreadStatusLine
         thread={thread}
-        hoveredPinThreadId={hoveredPinThreadId}
-        onSetHoveredPinThreadId={onSetHoveredPinThreadId}
-        onToggle={() => store.toggleThreadPin(thread.id)}
+        statusDotState={statusDotState}
+        statusDotTitle={statusDotTitle}
+        statusLabel={statusLabel}
       />
-      <button type="button" className="thread-main" onClick={() => runUIAction(() => store.setActiveThread(thread.id))}>
-        <span className="thread-name" title={threadLabel}>
-          {threadLabel}
-        </span>
-        <b>{threadProviderLabel(thread.provider)}</b>
-        <ThreadStatusLine
-          thread={thread}
-          statusDotState={statusDotState}
-          statusDotTitle={statusDotTitle}
-          statusLabel={statusLabel}
-        />
-      </button>
-      <button
-        type="button"
-        className="thread-rename-trigger"
-        aria-label="重命名会话"
-        title={`重命名 ${threadLabel}`}
-        onClick={() => onBeginRename(thread)}
-      >
-        <Pencil size={13} aria-hidden="true" />
-      </button>
-    </>
+    </button>
   );
 }
 

@@ -65,7 +65,7 @@ const BOOTSTRAP_PAGE_ALIASES = Object.freeze({
   'memory-center': 'memory',
   memory: 'files',
 });
-const APP_PAGE_IDS = new Set(['chat', 'prompts', 'workflows', 'tasks', 'commands', 'skills', 'memory', 'observability', 'files', 'settings']);
+const APP_PAGE_IDS = new Set(['chat', 'prompts', 'workflows', 'skills', 'memory', 'observability', 'files', 'settings']);
 const IMAGE_ATTACHMENT_RE = /\.(png|jpe?g|gif|webp|bmp|svg)$/i;
 const ACTIVITY_COUNT_FIELDS = Object.freeze({
   lspCalls: Object.freeze(['lspCalls', 'lsp_calls']),
@@ -1953,12 +1953,6 @@ function createSendDraftRequest(state, cwd) {
       optimistic: true,
     },
   };
-}
-
-function dashboardCommandPrompt(card) {
-  const command = normalizeString(card?.command_template || card?.commandTemplate);
-  if (!command) throw new Error('dashboard command card command_template is required');
-  return `请执行以下命令并反馈结果：\n${command}`;
 }
 
 function forkSourceTitle(thread, threadId) {
@@ -4276,13 +4270,6 @@ function createComposerSendActions(runtime) {
         throw error;
       }
     },
-
-    runDashboardCommand: async (card) => {
-      const draft = dashboardCommandPrompt(card);
-      runtime.set({ activePage: 'chat', draft, attachments: [], toolSurfaceMode: 'agent' });
-      return runtime.get().sendDraft();
-    },
-
 
   };
 }
