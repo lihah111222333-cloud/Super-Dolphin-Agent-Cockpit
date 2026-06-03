@@ -72,6 +72,10 @@ const ACTIVITY_COUNT_FIELDS = Object.freeze({
   commands: Object.freeze(['commands']),
   fileEdits: Object.freeze(['fileEdits', 'file_edits']),
 });
+const RUNTIME_ASSISTANT_LOOSE_DUPLICATE_MIN_CHARS = 80;
+const RUNTIME_ASSISTANT_LOOSE_DUPLICATE_SHINGLE_SIZE = 12;
+const RUNTIME_ASSISTANT_LOOSE_DUPLICATE_MIN_MATCHES = 4;
+const RUNTIME_ASSISTANT_LOOSE_DUPLICATE_MIN_RATIO = 0.65;
 const TIMELINE_KIND_KEYS = Object.freeze(['kind', 'type', 'eventType', 'event_type', 'role']);
 const TIMELINE_ROLE_KEYS = Object.freeze(['role', 'kind', 'type', 'eventType', 'event_type']);
 const TIMELINE_TEXT_KEYS = Object.freeze(['text', 'content', 'message', 'delta', 'output', 'result', 'answer', 'response', 'summary', 'preview']);
@@ -79,11 +83,14 @@ const TIMELINE_ID_KEYS = Object.freeze(['id', 'messageId', 'message_id']);
 const TIMELINE_TITLE_KEYS = Object.freeze(['title', 'label', 'name', 'tool', 'toolName', 'command']);
 const TIMELINE_TIME_KEYS = Object.freeze(['time', 'startedAt', 'started_at', 'ts', 'createdAt', 'created_at']);
 const TIMELINE_COMPLETED_KEYS = Object.freeze(['completedAt', 'completed_at', 'finishedAt', 'finished_at']);
+const TIMELINE_CALL_ID_KEYS = Object.freeze(['callId', 'call_id', 'toolCallId', 'tool_call_id']);
 const ROOT_THREAD_IDENTITY_KEYS = Object.freeze(['threadId', 'thread_id', 'codexThreadId', 'codex_thread_id']);
 const THREAD_IDENTITY_KEYS = Object.freeze(['threadId', 'thread_id', 'codexThreadId', 'codex_thread_id', 'id']);
 const AGENT_IDENTITY_KEYS = Object.freeze(['agentId', 'agent_id']);
+const TIMELINE_LIFECYCLE_KINDS = new Set(['tool', 'command', 'process']);
 const RUNTIME_TOOL_FAILED_STATUSES = new Set(['failed', 'error']);
 const RUNTIME_TOOL_TERMINAL_STATUSES = new Set(['completed', 'complete', 'done', 'ok', 'success', 'succeeded', 'failed', 'error']);
+const TIMELINE_TERMINAL_STATUSES = new Set([...RUNTIME_TOOL_TERMINAL_STATUSES, 'skipped', 'cancelled', 'canceled', 'aborted']);
 const PROMPT_REVISION_EVENTS = new Set(['prompts/changed', 'prompt-assets/changed', 'ui/prompts/changed']);
 const BRIDGE_REVISION_EVENTS = Object.freeze([
   Object.freeze({ key: 'skillRevision', events: new Set(['skills/changed']) }),
@@ -900,6 +907,49 @@ function activeTurnIdForThread(state, threadId) {
   return '';
 }
 
+function threadIdentifierCandidates(state, value) {
+  const ids = new Set();
+  const add = (candidate) => {
+    const id = normalizeThreadId(candidate);
+    if (id) ids.add(id);
+  };
+  add(value);
+  const matchedThread = (state?.threads || []).find((thread) => threadMatchesIdentifier(thread, value));
+  if (matchedThread) {
+    add(matchedThread.id);
+    add(matchedThread.threadId);
+    add(matchedThread.thread_id);
+    add(matchedThread.agentId);
+    add(matchedThread.agent_id);
+    add(matchedThread.providerThreadId);
+    add(matchedThread.provider_thread_id);
+    add(matchedThread.sessionId);
+    add(matchedThread.session_id);
+  }
+  return [...ids];
+}
+
+function threadStatusEntryForState(state, value) {
+  for (const id of threadIdentifierCandidates(state, value)) {
+    const status = state?.statuses?.[id];
+    if (status && typeof status === 'object' && !Array.isArray(status)) return status;
+  }
+  return null;
+}
+
+function activeThreadInterruptTarget(state) {
+  const activeID = normalizeThreadId(state?.activeThreadId);
+  const threadID = backendThreadIdForState(state, activeID) || normalizeBackendThreadId(activeID);
+  if (!threadID) return { threadId: '', turnId: '', interruptible: false };
+  const turnID = activeTurnIdForThread(state, threadID);
+  const status = threadStatusEntryForState(state, threadID) || threadStatusEntryForState(state, activeID);
+  return {
+    threadId: threadID,
+    turnId: turnID,
+    interruptible: Boolean(turnID || status?.interruptible === true),
+  };
+}
+
 function backendThreadIdForArchiveState(state, value) {
   const id = normalizeThreadId(value);
   if (!id) return '';
@@ -1080,24 +1130,34 @@ function normalizeTimelineElapsedMs(item) {
   return undefined;
 }
 
+function normalizeTimelineDone(item, status) {
+  const normalizedStatus = normalizeString(status).toLowerCase();
+  if (TIMELINE_TERMINAL_STATUSES.has(normalizedStatus)) return true;
+  if (typeof item?.done === 'boolean') return item.done;
+  if (!normalizedStatus) return true;
+  return false;
+}
+
 function normalizeTimelineItem(item) {
   const rawKind = normalizeString(firstFieldValue(item, TIMELINE_KIND_KEYS)).toLowerCase();
   const rawRole = normalizeString(firstFieldValue(item, TIMELINE_ROLE_KEYS)).toLowerCase();
   const normalizedRole = rawRole.includes('user') ? 'user' : 'assistant';
   const normalizedKind = normalizeTimelineKindFromRaw(rawRole, rawKind);
   const text = extractText(firstFieldValue(item, TIMELINE_TEXT_KEYS));
+  const status = normalizeString(item?.status);
   return {
     id: normalizeString(firstFieldValue(item, TIMELINE_ID_KEYS)) || `${normalizedRole}-${Date.now()}`,
     role: normalizedRole,
     kind: normalizedKind,
     text,
     title: normalizeString(firstFieldValue(item, TIMELINE_TITLE_KEYS)),
+    callId: normalizeString(firstFieldValue(item, TIMELINE_CALL_ID_KEYS)),
     requestId: positiveNumberFromFields(item, ['requestId', 'request_id']),
     command: normalizeString(item?.command),
-    status: normalizeString(item?.status),
+    status,
     time: normalizeString(firstFieldValue(item, TIMELINE_TIME_KEYS)) || new Date().toISOString(),
     completedAt: normalizeString(firstFieldValue(item, TIMELINE_COMPLETED_KEYS)),
-    done: item?.done !== false,
+    done: normalizeTimelineDone(item, status),
     optimistic: Boolean(item?.optimistic),
     elapsedMs: normalizeTimelineElapsedMs(item),
   };
@@ -1287,12 +1347,106 @@ function sortTimelineChronologically(items = []) {
   );
 }
 
+function lifecycleTimelineKey(item) {
+  const kind = normalizeTimelineKind(item);
+  const callId = normalizeString(item?.callId);
+  if (item?.role !== 'assistant' || !callId || !TIMELINE_LIFECYCLE_KINDS.has(kind)) return '';
+  return `${kind}:${callId}`;
+}
+
+function isTerminalTimelineItem(item) {
+  const status = normalizeString(item?.status).toLowerCase();
+  return normalizeTimelineDone(item, status);
+}
+
+function timelineItemTextLength(item) {
+  return normalizeString(item?.text).length;
+}
+
+function timelineItemSortTime(item) {
+  return normalizeTimestamp(item?.completedAt || item?.time);
+}
+
+function preferredLifecycleTimelineItem(existingItem, incomingItem) {
+  const existingTerminal = isTerminalTimelineItem(existingItem);
+  const incomingTerminal = isTerminalTimelineItem(incomingItem);
+  if (existingTerminal !== incomingTerminal) return incomingTerminal ? incomingItem : existingItem;
+
+  const existingTextLength = timelineItemTextLength(existingItem);
+  const incomingTextLength = timelineItemTextLength(incomingItem);
+  if (existingTextLength !== incomingTextLength) return incomingTextLength > existingTextLength ? incomingItem : existingItem;
+
+  const existingTime = timelineItemSortTime(existingItem);
+  const incomingTime = timelineItemSortTime(incomingItem);
+  if (existingTime !== incomingTime) return incomingTime > existingTime ? incomingItem : existingItem;
+
+  return incomingItem;
+}
+
+function earlierTimelineTime(left, right) {
+  const leftTime = normalizeString(left?.time);
+  const rightTime = normalizeString(right?.time);
+  const leftTimestamp = normalizeTimestamp(leftTime);
+  const rightTimestamp = normalizeTimestamp(rightTime);
+  if (leftTimestamp > 0 && rightTimestamp > 0) return leftTimestamp <= rightTimestamp ? leftTime : rightTime;
+  return leftTime || rightTime;
+}
+
+function mergeLifecycleTimelineItem(existingItem, incomingItem) {
+  const preferred = preferredLifecycleTimelineItem(existingItem, incomingItem);
+  const fallback = preferred === incomingItem ? existingItem : incomingItem;
+  const status = normalizeString(preferred?.status) || normalizeString(fallback?.status);
+  const text = normalizeString(preferred?.text) ? preferred.text : fallback.text;
+
+  return {
+    ...fallback,
+    ...preferred,
+    id: normalizeString(preferred?.id) || normalizeString(fallback?.id),
+    callId: normalizeString(preferred?.callId) || normalizeString(fallback?.callId),
+    text,
+    title: normalizeString(preferred?.title) || normalizeString(fallback?.title),
+    status,
+    time: earlierTimelineTime(existingItem, incomingItem),
+    completedAt: normalizeString(preferred?.completedAt) || normalizeString(fallback?.completedAt),
+    done: normalizeTimelineDone(preferred, status),
+    elapsedMs: preferred?.elapsedMs ?? fallback?.elapsedMs,
+  };
+}
+
+function coalesceTimelineLifecycleItems(items = []) {
+  const output = [];
+  const indexByKey = new Map();
+
+  for (const item of items) {
+    const key = lifecycleTimelineKey(item);
+    if (!key) {
+      output.push(item);
+      continue;
+    }
+
+    const existingIndex = indexByKey.get(key);
+    if (existingIndex === undefined) {
+      indexByKey.set(key, output.length);
+      output.push(item);
+      continue;
+    }
+
+    output[existingIndex] = mergeLifecycleTimelineItem(output[existingIndex], item);
+  }
+
+  return output;
+}
+
 function sameTimelineContent(left, right) {
   return left?.role === right?.role && normalizeTimelineKind(left) === normalizeTimelineKind(right) && normalizeString(left?.text) === normalizeString(right?.text);
 }
 
 function compactTimelineText(value) {
   return normalizeString(value).replace(/\s+/g, '');
+}
+
+function looseTimelineText(value) {
+  return compactTimelineText(value).toLowerCase().replace(/[^\p{L}\p{N}]+/gu, '');
 }
 
 function sameTimelineContentCompact(left, right) {
@@ -1304,6 +1458,33 @@ function sameTimelineContentCompact(left, right) {
   );
 }
 
+function looseTimelineShingleMatch(shorterText, longerText) {
+  if (shorterText.length < RUNTIME_ASSISTANT_LOOSE_DUPLICATE_MIN_CHARS) return false;
+  const shingleSize = Math.min(RUNTIME_ASSISTANT_LOOSE_DUPLICATE_SHINGLE_SIZE, Math.floor(shorterText.length / RUNTIME_ASSISTANT_LOOSE_DUPLICATE_MIN_MATCHES));
+  if (shingleSize <= 0) return false;
+  const shingles = new Set();
+  for (let index = 0; index <= shorterText.length - shingleSize; index += shingleSize) {
+    shingles.add(shorterText.slice(index, index + shingleSize));
+  }
+  shingles.add(shorterText.slice(-shingleSize));
+  const candidates = [...shingles].filter(Boolean);
+  if (candidates.length < RUNTIME_ASSISTANT_LOOSE_DUPLICATE_MIN_MATCHES) return false;
+  const matches = candidates.filter((candidate) => longerText.includes(candidate)).length;
+  return matches >= RUNTIME_ASSISTANT_LOOSE_DUPLICATE_MIN_MATCHES && (matches / candidates.length) >= RUNTIME_ASSISTANT_LOOSE_DUPLICATE_MIN_RATIO;
+}
+
+function sameRuntimeAssistantContentLoose(left, right) {
+  if (!left?.runtime && !right?.runtime) return false;
+  if (left?.role !== right?.role || normalizeTimelineKind(left) !== normalizeTimelineKind(right)) return false;
+  const leftText = looseTimelineText(left?.text);
+  const rightText = looseTimelineText(right?.text);
+  if (!leftText || !rightText) return false;
+  const shorterText = leftText.length <= rightText.length ? leftText : rightText;
+  const longerText = leftText.length > rightText.length ? leftText : rightText;
+  if (shorterText.length < RUNTIME_ASSISTANT_LOOSE_DUPLICATE_MIN_CHARS) return false;
+  return longerText.includes(shorterText) || looseTimelineShingleMatch(shorterText, longerText);
+}
+
 function sameTimelineContentPrefix(left, right) {
   if (left?.role !== right?.role || normalizeTimelineKind(left) !== normalizeTimelineKind(right)) return false;
   const leftText = compactTimelineText(left?.text);
@@ -1311,6 +1492,10 @@ function sameTimelineContentPrefix(left, right) {
   const shorterLength = Math.min(leftText.length, rightText.length);
   if (shorterLength < RUNTIME_ASSISTANT_PREFIX_DUPLICATE_MIN_CHARS) return false;
   return leftText.startsWith(rightText) || rightText.startsWith(leftText);
+}
+
+function sameTimelineDuplicateContent(left, right) {
+  return sameTimelineContent(left, right) || sameTimelineContentCompact(left, right) || sameRuntimeAssistantContentLoose(left, right);
 }
 
 function normalizeTimelineKind(item) {
@@ -1364,7 +1549,7 @@ function dedupeAssistantTimelineItems(items = []) {
     let duplicateIndex = -1;
     for (let index = output.length - 1; index > lastUserIndex; index -= 1) {
       const candidate = output[index];
-      if (candidate?.role === 'assistant' && candidate.done !== false && sameTimelineContentCompact(candidate, item)) {
+      if (candidate?.role === 'assistant' && candidate.done !== false && sameTimelineDuplicateContent(candidate, item)) {
         duplicateIndex = index;
         break;
       }
@@ -1402,8 +1587,7 @@ function mergeTimelineItems(existingItems = [], incomingItems = [], options = {}
       ((preserveExistingVisible && isVisibleTimelineItem(existingItem)) || existingItem.role === 'user' || existingItem.optimistic || existingItem.runtime) &&
       !incomingIds.has(existingItem.id) &&
       !uniqueIncomingItems.some((incomingItem) => (
-        sameTimelineContent(existingItem, incomingItem) ||
-        sameTimelineContentCompact(existingItem, incomingItem)
+        sameTimelineDuplicateContent(existingItem, incomingItem)
       ))
     );
     if (shouldPreserveExistingMessage) {
@@ -1417,7 +1601,7 @@ function mergeTimelineItems(existingItems = [], incomingItems = [], options = {}
     }
   }
 
-  return dedupeAssistantTimelineItems(sortTimelineChronologically(merged));
+  return dedupeAssistantTimelineItems(coalesceTimelineLifecycleItems(sortTimelineChronologically(merged)));
 }
 
 function snapshotArchiveMap(state, payload) {
@@ -1760,6 +1944,7 @@ function mergeRuntimeAssistantCompletion(existingItems = [], completion) {
       sameTimelineContent(item, finalItem) ||
       (index > lastUserIndex && (
         sameTimelineContentCompact(item, finalItem) ||
+        sameRuntimeAssistantContentLoose(item, finalItem) ||
         (item.runtime && finalItem.runtime && sameTimelineContentPrefix(item, finalItem))
       ))
     )
@@ -1953,6 +2138,25 @@ function createSendDraftRequest(state, cwd) {
       optimistic: true,
     },
   };
+}
+
+function dashboardCommandTemplate(card) {
+  return normalizeString(card?.command_template || card?.commandTemplate);
+}
+
+function dashboardCommandPrompt(card) {
+  const command = dashboardCommandTemplate(card);
+  if (!command) throw new Error('dashboard command card command_template is required');
+  return `请执行以下命令并反馈结果：\n${command}`;
+}
+
+function createDashboardCommandRequest(state, cwd, card) {
+  return createSendDraftRequest({
+    ...state,
+    draft: dashboardCommandPrompt(card),
+    attachments: [],
+    toolSurfaceMode: 'agent',
+  }, cwd);
 }
 
 function forkSourceTitle(thread, threadId) {
@@ -2466,7 +2670,6 @@ const baseState = {
   projects: [],
   provider: DEFAULT_PROVIDER,
   providerConfig: normalizeProviderRuntimeConfig({}, DEFAULT_PROVIDER),
-  permission: '完全访问权限',
   activePage: 'chat',
   promptRevision: 0,
   promptPageCacheByCwd: {},
@@ -3303,7 +3506,8 @@ function attachActiveThreadRpcRuntime(runtime) {
 
   const activeThreadRPC = async (action, rpc) => {
     const currentState = get();
-    const threadId = backendThreadIdForState(currentState, currentState.activeThreadId);
+    const interruptTarget = action === 'thread.interrupt' ? activeThreadInterruptTarget(currentState) : null;
+    const threadId = interruptTarget?.threadId || backendThreadIdForState(currentState, currentState.activeThreadId);
     if (!threadId) {
       notifyAction('当前没有可操作的后端线程', 'warning');
       return false;
@@ -3318,12 +3522,12 @@ function attachActiveThreadRpcRuntime(runtime) {
       const cwd = requireCwd(action);
       let payload = { cwd, threadId };
       if (action === 'thread.interrupt') {
-        const turnId = activeTurnIdForThread(currentState, threadId);
-        if (!turnId) {
+        const target = interruptTarget || activeThreadInterruptTarget(currentState);
+        if (!target.interruptible) {
           notifyAction('当前没有可中断任务', 'warning', { threadId });
           return false;
         }
-        payload = { cwd, threadId, turnId, source: 'ui_stop' };
+        payload = cleanObject({ cwd, threadId: target.threadId, turnId: target.turnId, source: 'ui_stop' });
       }
       await rpc(cleanObject(payload));
       notifyAction({
@@ -3595,7 +3799,6 @@ function createResourcePageCacheActions(runtime) {
     },
     setDraft: (draft) => runtime.set({ draft }),
     setToolSurfaceMode: (toolSurfaceMode) => runtime.set({ toolSurfaceMode: normalizeToolSurfaceMode(toolSurfaceMode) }),
-    setPermission: (permission) => runtime.set({ permission }),
     setRightPanelWidth: (rightPanelWidth) => runtime.set({ rightPanelWidth }),
 
 
@@ -4274,6 +4477,55 @@ function createComposerSendActions(runtime) {
   };
 }
 
+function createDashboardCommandActions(runtime) {
+  return {
+    runDashboardCommand: async (card) => {
+      const cwd = runtime.requireCwd('dashboard command');
+      const request = createDashboardCommandRequest(runtime.get(), cwd, card);
+      if (!request) return false;
+
+      runtime.set((state) => ({
+        ...optimisticSendDraftState(state, request),
+        activePage: 'chat',
+      }));
+
+      let threadId = request.previousThreadId;
+      try {
+        if (!threadId) {
+          const started = await startNewDraftThread(request, resolveLaunchPreferences);
+          threadId = started.threadId;
+          runtime.set((state) => ({
+            ...promotedDraftThreadState(state, request, started),
+            activePage: 'chat',
+          }));
+        }
+
+        await startTurn({
+          cwd,
+          threadId,
+          input: request.input,
+          manualSkillSelection: false,
+        });
+        runtime.clearComposerDraft({ ...runtime.get(), activeThreadId: request.previousActiveThreadId }, request.previousActiveThreadId);
+        runtime.clearComposerDraft(runtime.get(), request.provisionalThreadId);
+        runtime.clearComposerDraft(runtime.get(), threadId);
+        runtime.set({ sending: false });
+        return true;
+      }
+      catch (error) {
+        const createdThreadId = createdThreadIdForSendRollback(runtime.get(), request, threadId);
+        runtime.set((state) => ({
+          ...rollbackSendDraftState(state, request, error),
+          activePage: 'commands',
+        }));
+        await deleteProvisionalThreadAfterSendFailure(createdThreadId, runtime.addWarning);
+        runtime.addWarning('error', 'dashboard.command.send.failed', { error: error.message });
+        throw error;
+      }
+    },
+  };
+}
+
 function createActiveThreadActions(runtime) {
   return {
     interruptActiveThread: () => runtime.activeThreadRPC('thread.interrupt', interruptTurn),
@@ -4283,9 +4535,7 @@ function createActiveThreadActions(runtime) {
 
     hasActiveThreadActions: () => Boolean(backendThreadIdForState(runtime.get(), runtime.get().activeThreadId)),
     hasInterruptibleThreadAction: () => {
-      const state = runtime.get();
-      const threadId = backendThreadIdForState(state, state.activeThreadId);
-      return Boolean(threadId && activeTurnIdForThread(state, threadId));
+      return activeThreadInterruptTarget(runtime.get()).interruptible;
     },
 
     refreshActiveThreadStatus: async () => {
@@ -4590,6 +4840,7 @@ function createClientStore(set, get) {
     ...createComposerFilePickerActions(runtime),
     ...createComposerDropActions(runtime),
     ...createComposerSendActions(runtime),
+    ...createDashboardCommandActions(runtime),
     ...createActiveThreadActions(runtime),
     ...createThreadCopyActions(runtime),
     ...createThreadRenamePinActions(runtime),
