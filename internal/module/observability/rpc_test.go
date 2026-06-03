@@ -236,6 +236,80 @@ func TestTraceGetRPCReportsTailSourceAndTruncation(t *testing.T) {
 	}
 }
 
+func TestTraceGetRPCDoesNotReuseStaleTailResult(t *testing.T) {
+	calls := 0
+	tail := platformobs.QueryTailReaderFunc(func(_ context.Context, query platformobs.Query) (platformobs.QueryResult, error) {
+		if query.TraceID != "tail-changing" {
+			t.Fatalf("tail query trace = %q", query.TraceID)
+		}
+		calls++
+		method := "second"
+		if calls == 1 {
+			method = "first"
+		}
+		return platformobs.QueryResult{
+			Source: platformobs.QuerySourceJSONLTail,
+			Events: []platformobs.TraceEvent{{
+				TraceID: "tail-changing",
+				Method:  method,
+			}},
+		}, nil
+	})
+	svc := platformobs.NewService(testTraceConfig(), platformobs.WithTailReader(tail))
+	server := newTestRPCServer(t, svc)
+	payload := json.RawMessage(`{"traceId":"tail-changing","limit":10}`)
+
+	first := dispatchQuery(t, server, "observability/trace/get", payload)
+	if len(first.Events) != 1 || first.Events[0].Method != "first" {
+		t.Fatalf("first tail response = %+v, want method first", first)
+	}
+	second := dispatchQuery(t, server, "observability/trace/get", payload)
+	if len(second.Events) != 1 || second.Events[0].Method != "second" {
+		t.Fatalf("second tail response = %+v, want method second", second)
+	}
+	if calls != 2 {
+		t.Fatalf("tail calls = %d, want 2", calls)
+	}
+}
+
+func TestRecentListRPCDoesNotReuseStaleTailResult(t *testing.T) {
+	base := time.Date(2026, 6, 2, 0, 0, 0, 0, time.UTC)
+	calls := 0
+	tail := platformobs.QueryTailReaderFunc(func(context.Context, platformobs.Query) (platformobs.QueryResult, error) {
+		calls++
+		traceID := "second"
+		if calls == 1 {
+			traceID = "first"
+		}
+		return platformobs.QueryResult{
+			Source: platformobs.QuerySourceJSONLTail,
+			Events: []platformobs.TraceEvent{{
+				Timestamp: base.Add(time.Duration(calls) * time.Millisecond),
+				TraceID:   traceID,
+				Kind:      "frontend",
+				Phase:     "frontend.rpc.done",
+				Method:    "ui/sidebar/get",
+				Status:    platformobs.StatusOK,
+			}},
+		}, nil
+	})
+	svc := platformobs.NewService(testTraceConfig(), platformobs.WithTailReader(tail))
+	server := newTestRPCServer(t, svc)
+	payload := json.RawMessage(`{"limit":10}`)
+
+	first := dispatchQuery(t, server, "observability/recent/list", payload)
+	if len(first.Events) != 1 || first.Events[0].TraceID != "first" {
+		t.Fatalf("first recent response = %+v, want trace first", first)
+	}
+	second := dispatchQuery(t, server, "observability/recent/list", payload)
+	if len(second.Events) != 1 || second.Events[0].TraceID != "second" {
+		t.Fatalf("second recent response = %+v, want trace second", second)
+	}
+	if calls != 2 {
+		t.Fatalf("tail calls = %d, want 2", calls)
+	}
+}
+
 func TestFrontendIngestSanitizesAllowlistedFields(t *testing.T) {
 	sink := &recordingSink{}
 	server := newTestRPCServer(t, newRecordingService(sink))
