@@ -185,6 +185,9 @@ func closeMCPClients(results []mcpSurfaceBinaryResult) {
 
 func addMCPToolsToSurface(surface *codexToolSurface, out *[]contract.DynamicToolSchema, family string, client mcpClient, tools []mcpdto.MCPTool) error {
 	for _, tool := range tools {
+		if _, reserved := reservedHostOnlySurfaceToolCanonicalName(family, tool.Name); reserved {
+			continue
+		}
 		canonical := canonicalCodexToolName(family, tool.Name)
 		entry := codexToolEntry{name: canonical, realName: tool.Name, executionKind: "stdio", family: strings.TrimSpace(family), client: client}
 		if err := addSurfaceTool(surface, out, tool, entry); err != nil {
@@ -212,6 +215,9 @@ func addSurfaceTool(surface *codexToolSurface, out *[]contract.DynamicToolSchema
 	}
 	if _, exists := surface.tools[name]; exists {
 		return fmt.Errorf("toolbridge: duplicate codex surface tool %q", name)
+	}
+	if existing, ok := surface.aliases[name]; ok && existing != name {
+		return fmt.Errorf("toolbridge: codex surface alias %q maps to both %q and %q", name, existing, name)
 	}
 	surface.tools[name] = entry
 	surface.aliases[name] = name
@@ -323,10 +329,18 @@ func nonEmptyUnique(values ...string) []string {
 func (h *Handler) routeCodexSurfaceToolCall(ctx context.Context, req ToolCallRequest) (*ToolCallResult, bool, error) {
 	surface := h.lookupCodexToolSurface(req)
 	if surface == nil {
+		if _, reserved := reservedHostOnlyToolCanonicalName(req.Name); reserved {
+			return nil, false, nil
+		}
 		if req.Scoped && requiresCodexToolSurface(req.Name) {
 			return nil, true, fmt.Errorf("toolbridge: codex tool surface is not prepared for agent %q thread %q", req.AgentID, req.ThreadID)
 		}
 		return nil, false, nil
+	}
+	if surface.aliases[strings.TrimSpace(req.Name)] == "" {
+		if _, reserved := reservedHostOnlyToolCanonicalName(req.Name); reserved {
+			return nil, false, nil
+		}
 	}
 	result, err := h.callCodexSurfaceTool(ctx, surface, req)
 	return result, true, err
