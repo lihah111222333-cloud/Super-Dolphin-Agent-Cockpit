@@ -989,6 +989,39 @@ function registerBridgeEventHandlersForTest() {
     }));
   });
 
+  it('upgrades auto tool mode to agent for trace diagnosis intents', async () => {
+    const drafts = [
+      '这个慢请求 trace_id=abc123 帮我定位一下',
+      'traceparent 是 00-abc123-def456-01，查链路追踪',
+      'span_id=def456 看下观测日志',
+      '请用 observability_trace_get 查本地落盘日志',
+    ];
+
+    for (const [index, draft] of drafts.entries()) {
+      resetClientStoreForTests({
+        cwd: '/repo/app',
+        activeProject: '/repo/app',
+        activeThreadId: '',
+        draft,
+        attachments: [],
+        toolSurfaceMode: 'auto',
+      });
+      backend.startThread.mockClear();
+      backend.startTurn.mockClear();
+      backend.startThread.mockResolvedValue({ threadId: `thread-trace-${index}` });
+      backend.startTurn.mockResolvedValue({ ok: true });
+
+      await useClientStore.getState().sendDraft();
+
+      expect(backend.startThread).toHaveBeenCalledWith(expect.objectContaining({
+        cwd: '/repo/app',
+        name: draft,
+        toolSurfaceMode: 'agent',
+        deferSpawn: true,
+      }));
+    }
+  });
+
   it('preserves the optimistic first user message when a fresh thread sync has an empty timeline', async () => {
     resetClientStoreForTests({
       cwd: '/repo/app',
