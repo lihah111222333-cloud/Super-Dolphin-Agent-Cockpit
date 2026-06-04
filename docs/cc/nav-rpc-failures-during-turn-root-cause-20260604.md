@@ -206,6 +206,31 @@ msg="uistate: ReadRuntimeConfig failed" threadID=... err="session not found ..."
    - 不建议简单吞掉 `CanceledError` 或 timeout 文案；应先减少请求风暴。
    - 若要增加 AbortSignal，需要贯通 `callAPI`、runtime shim/Wails、后端 ctx，而不是只在页面层 `Promise.race`。
 
+### Implementation acceptance / 验收清单（F8，未实施）
+
+本节只补跨层实现验收口径；本文仍是 docs-only root-cause 文档，未实施任何代码修复，也不处理 F1/F3/F9。
+
+实际修复进入合入前，至少应满足：
+
+1. **Frontend sidebar single-flight + trailing refresh。**
+   - 同一 `cwd` 的 burst `ui/sidebar/changed` 期间，最多允许 1 个 `ui/sidebar/get` in-flight；in-flight 期间的新事件只能标记 dirty / pending-after-current。
+   - 当前 in-flight 完成后，如 dirty 被置位，必须再触发 1 次 trailing refresh，确保最终 sidebar snapshot 反映最后一次事件，不能做 reuse-only 后丢 fresh。
+   - 用 `frontend-app` 侧 scoped Vitest 覆盖 burst coalesce、trailing refresh、旧响应不覆盖新状态。
+2. **SQLC batch 查询与生成校验。**
+   - `ListAgentThreadConfigsByIDs` 必须支持多个 thread ID，在 pgx 下不再出现 `IN ($1)` + `[]string` 作为单个 text 参数的编码失败。
+   - 增加或保留 SQL/store 防回归测试，证明多 ID batch 可用。
+   - 运行并通过 `make sqlc-verify`，同时运行受影响 Go package 测试。
+3. **Uistate fallback / warn 风暴关闭。**
+   - `ReadRuntimeConfigs failed` 不应再触发无界逐 thread `ReadRuntimeConfig` fallback 与 warn 风暴。
+   - 若 sidebar 不需要 runtime config，应移除无用读取；若仍需要读取，错误路径必须可诊断且受控，不得静默吞错或用隐式兜底掩盖 fail-fast 问题。
+   - 在 SQLC batch 修复路径下，复测日志中 `ReadRuntimeConfigs failed` 应为 0；如仍有 missing session / binding 等独立业务错误，必须聚合或显式报错，逐线程 `ReadRuntimeConfig failed` 不得形成风暴。
+4. **Legacy compatibility tests 仍是硬边界。**
+   - 事件面降噪只能收窄有证据的二次放大路径，不能删除 direct legacy refresh contract。
+   - 保留并通过 `internal/platform/eventsurface/legacy_test.go` 与 `internal/ui/wails/bridge_test.go` 相关兼容测试。
+5. **Manual trace/log 闭环复测。**
+   - 在 turn/run 进行中切换 prompts / skills / dashboard / shared files 等 nav 页，页面不再出现 8s 红框，底层 runtime trace 不再出现 30s timeout。
+   - 采集修复前后 trace/log，对比 `ui/sidebar/get` 数量、backend dispatch duration、pre-dispatch wait、uistate warn 数量，证明“事件风暴 -> sidebar get 数量 -> batch/fallback -> nav RPC timeout”链路被切断。
+
 ## 当前未做的事
 
 - 未修改业务代码。
