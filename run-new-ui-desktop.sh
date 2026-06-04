@@ -60,6 +60,30 @@ ensure_peer_binaries() {
   rebuild_peer_binaries
 }
 
+require_positive_integer() {
+  local name="$1"
+  local value="$2"
+  case "$value" in
+    ''|*[!0-9]*)
+      echo "❌ $name must be a positive integer, got: $value" >&2
+      exit 1
+      ;;
+  esac
+  if [ "$value" -le 0 ]; then
+    echo "❌ $name must be a positive integer, got: $value" >&2
+    exit 1
+  fi
+}
+
+require_positive_number() {
+  local name="$1"
+  local value="$2"
+  if ! awk -v value="$value" 'BEGIN { if (value ~ /^[0-9]+([.][0-9]+)?$/ && value + 0 > 0) exit 0; exit 1 }'; then
+    echo "❌ $name must be a positive number, got: $value" >&2
+    exit 1
+  fi
+}
+
 rebuild_peer_binaries() {
   local peer_dir="${GO_AGENT_PEER_BIN_DIR:-$PROJECT_DIR}"
   mkdir -p "$peer_dir"
@@ -70,7 +94,8 @@ rebuild_peer_binaries() {
 wait_for_http() {
   local url="$1"
   local label="$2"
-  for _ in $(seq 1 50); do
+  local attempts="$3"
+  for _ in $(seq 1 "$attempts"); do
     if curl -fsS "$url" >/dev/null 2>&1; then
       echo "  → $label ready: $url"
       return 0
@@ -79,18 +104,18 @@ wait_for_http() {
     if [ "$label" = "frontend-app vite" ]; then
       if [ -n "${VITE_PID:-}" ] && process_exited "$VITE_PID"; then
         echo "❌ $label exited before readiness: $url" >&2
-        wait "$VITE_PID" || true
+        capture_wait_status "$VITE_PID"
         print_frontend_log_tail
         exit 1
       fi
       if [ -n "${DESKTOP_PID:-}" ] && process_exited "$DESKTOP_PID"; then
         echo "❌ desktop backend exited before $label readiness: $url" >&2
-        wait "$DESKTOP_PID" || true
+        capture_wait_status "$DESKTOP_PID"
         print_backend_log_tail
         exit 1
       fi
     fi
-    sleep 0.2
+    sleep "$SUPER_DOLPHIN_READY_POLL_INTERVAL_SECONDS"
   done
   echo "❌ timed out waiting for $label: $url" >&2
   if [ "$label" = "frontend-app vite" ]; then
@@ -138,6 +163,15 @@ process_exited() {
     *Z*) return 0 ;;
   esac
   return 1
+}
+
+capture_wait_status() {
+  local pid="$1"
+  WAIT_STATUS=0
+  set +e
+  wait "$pid"
+  WAIT_STATUS="$?"
+  set -e
 }
 
 child_pids_of() {
@@ -218,7 +252,7 @@ print_frontend_log_tail() {
 
 wait_for_backend() {
   local url="http://${SUPER_DOLPHIN_HTTP_ADDR}/metrics"
-  for _ in $(seq 1 100); do
+  for _ in $(seq 1 "$SUPER_DOLPHIN_BACKEND_READY_ATTEMPTS"); do
     if curl -fsS "$url" >/dev/null 2>&1; then
       echo "  → desktop backend ready: $url"
       return 0
@@ -226,11 +260,11 @@ wait_for_backend() {
     # 误判防护：wait_for_backend/process_exited/print_backend_log_tail 防止后端失败静默等待。
     if [ -n "${DESKTOP_PID:-}" ] && process_exited "$DESKTOP_PID"; then
       echo "❌ desktop backend exited before readiness: $url" >&2
+      capture_wait_status "$DESKTOP_PID"
       print_backend_log_tail
-      wait "$DESKTOP_PID" || true
       exit 1
     fi
-    sleep 0.2
+    sleep "$SUPER_DOLPHIN_READY_POLL_INTERVAL_SECONDS"
   done
   echo "❌ timed out waiting for desktop backend: $url" >&2
   print_backend_log_tail
@@ -238,18 +272,19 @@ wait_for_backend() {
 }
 
 wait_for_any_process_exit() {
+  local status
   while true; do
     if [ -n "${DESKTOP_PID:-}" ] && process_exited "$DESKTOP_PID"; then
-      wait "$DESKTOP_PID"
-      local status="$?"
+      capture_wait_status "$DESKTOP_PID"
+      status="$WAIT_STATUS"
       if [ "$status" -ne 0 ]; then
         print_backend_log_tail
       fi
       return "$status"
     fi
     if [ -n "${VITE_PID:-}" ] && process_exited "$VITE_PID"; then
-      wait "$VITE_PID"
-      local status="$?"
+      capture_wait_status "$VITE_PID"
+      status="$WAIT_STATUS"
       if [ "$status" -ne 0 ]; then
         print_frontend_log_tail
       fi
@@ -342,16 +377,16 @@ run_backend_hot_supervisor_loop() {
   echo "  backend poll interval: ${interval}s"
   while true; do
     if [ -n "${VITE_PID:-}" ] && process_exited "$VITE_PID"; then
-      wait "$VITE_PID"
-      status="$?"
+      capture_wait_status "$VITE_PID"
+      status="$WAIT_STATUS"
       if [ "$status" -ne 0 ]; then
         print_frontend_log_tail
       fi
       return "$status"
     fi
     if [ -n "${DESKTOP_PID:-}" ] && process_exited "$DESKTOP_PID"; then
-      wait "$DESKTOP_PID"
-      status="$?"
+      capture_wait_status "$DESKTOP_PID"
+      status="$WAIT_STATUS"
       if [ "$status" -ne 0 ]; then
         print_backend_log_tail
       fi
@@ -656,6 +691,10 @@ SUPER_DOLPHIN_HTTP_ADDR="${SUPER_DOLPHIN_HTTP_ADDR:-127.0.0.1:4512}"
 GO_AGENT_CTL_RPC_ADDR="${GO_AGENT_CTL_RPC_ADDR:-127.0.0.1:8092}"
 VITE_DEV_URL="${VITE_DEV_URL:-http://127.0.0.1:5175}"
 FRONTEND_DEVSERVER_URL="${FRONTEND_DEVSERVER_URL:-$VITE_DEV_URL}"
+if [ "$FRONTEND_DEVSERVER_URL" != "$VITE_DEV_URL" ]; then
+  echo "❌ FRONTEND_DEVSERVER_URL must match VITE_DEV_URL for Wails readiness, got FRONTEND_DEVSERVER_URL=$FRONTEND_DEVSERVER_URL VITE_DEV_URL=$VITE_DEV_URL" >&2
+  exit 1
+fi
 VITE_DEV_HOST="${VITE_DEV_URL#http://}"
 VITE_DEV_HOST="${VITE_DEV_HOST#https://}"
 VITE_DEV_HOST="${VITE_DEV_HOST%%/*}"
@@ -668,6 +707,12 @@ if [ -z "$VITE_DEV_HOST" ] || [ -z "$VITE_DEV_PORT" ] || [ "$VITE_DEV_HOST" = "$
 fi
 SUPER_DOLPHIN_BACKEND_HOT_RELOAD="${SUPER_DOLPHIN_BACKEND_HOT_RELOAD:-0}"
 SUPER_DOLPHIN_VITE_USE_POLLING="${SUPER_DOLPHIN_VITE_USE_POLLING:-1}"
+SUPER_DOLPHIN_FRONTEND_READY_ATTEMPTS="${SUPER_DOLPHIN_FRONTEND_READY_ATTEMPTS:-300}"
+SUPER_DOLPHIN_BACKEND_READY_ATTEMPTS="${SUPER_DOLPHIN_BACKEND_READY_ATTEMPTS:-300}"
+SUPER_DOLPHIN_READY_POLL_INTERVAL_SECONDS="${SUPER_DOLPHIN_READY_POLL_INTERVAL_SECONDS:-0.2}"
+require_positive_integer "SUPER_DOLPHIN_FRONTEND_READY_ATTEMPTS" "$SUPER_DOLPHIN_FRONTEND_READY_ATTEMPTS"
+require_positive_integer "SUPER_DOLPHIN_BACKEND_READY_ATTEMPTS" "$SUPER_DOLPHIN_BACKEND_READY_ATTEMPTS"
+require_positive_number "SUPER_DOLPHIN_READY_POLL_INTERVAL_SECONDS" "$SUPER_DOLPHIN_READY_POLL_INTERVAL_SECONDS"
 SUPER_DOLPHIN_HOT_PEER_BIN_DIR="${SUPER_DOLPHIN_HOT_PEER_BIN_DIR:-$PROJECT_DIR/.tmp/run-new-ui-desktop-hot/peers}"
 if backend_hot_reload_enabled; then
   GO_AGENT_PEER_BIN_DIR="${GO_AGENT_PEER_BIN_DIR:-$SUPER_DOLPHIN_HOT_PEER_BIN_DIR}"
@@ -718,7 +763,7 @@ configure_frontend_watch_mode
 echo "┌─────────────────────────────────────────┐"
 echo "│  Super Agent new UI desktop             │"
 echo "└─────────────────────────────────────────┘"
-echo "  frontend-app: $VITE_DEV_URL"
+echo "  frontend-app: $FRONTEND_DEVSERVER_URL"
 echo "  bridge:       $SUPER_DOLPHIN_HTTP_ADDR"
 echo "  control rpc:  $GO_AGENT_CTL_RPC_ADDR"
 echo "  peer bin dir: $GO_AGENT_PEER_BIN_DIR"
@@ -731,13 +776,15 @@ if backend_hot_reload_enabled; then
 fi
 
 : >"$SUPER_DOLPHIN_BACKEND_LOG"
-start_desktop_backend
-wait_for_backend
-seed_dev_preferences
+: >"$SUPER_DOLPHIN_FRONTEND_LOG"
 
 (cd "$FRONTEND_APP_DIR" && npm run dev -- --host "$VITE_DEV_HOST" --port "$VITE_DEV_PORT" --strictPort >"$SUPER_DOLPHIN_FRONTEND_LOG" 2>&1) &
 VITE_PID=$!
-wait_for_http "$VITE_DEV_URL" "frontend-app vite"
+wait_for_http "$FRONTEND_DEVSERVER_URL" "frontend-app vite" "$SUPER_DOLPHIN_FRONTEND_READY_ATTEMPTS"
+
+start_desktop_backend
+wait_for_backend
+seed_dev_preferences
 
 if backend_hot_reload_enabled; then
   run_backend_hot_supervisor_loop
