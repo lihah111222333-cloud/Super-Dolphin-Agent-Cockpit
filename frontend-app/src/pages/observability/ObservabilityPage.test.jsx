@@ -160,6 +160,58 @@ describe('ObservabilityPage module', () => {
     expect(within(table).getByRole('button', { name: '收起 Trace trace-frontend-1' })).toHaveAttribute('aria-expanded', 'true');
   });
 
+  it('renders expanded trace detail as a full-width grid panel instead of a colspan table row', async () => {
+    const table = await queryRecentLogs();
+
+    fireEvent.click(within(table).getByRole('button', { name: '打开 Trace trace-frontend-1' }));
+
+    const inlineTrace = await within(table).findByTestId('observability-inline-trace-trace-frontend-1');
+    const detailRow = inlineTrace.closest('.observability-log-table-detail-row');
+    expect(detailRow).toBeTruthy();
+    expect(detailRow?.parentElement).toHaveClass('observability-log-table-body');
+    expect(inlineTrace.closest('tr')).toBeNull();
+    expect(inlineTrace.closest('td')).toBeNull();
+    expect(table.querySelector('[colspan]')).toBeNull();
+  });
+
+  it('renders repeated trace and span events without React key warnings', async () => {
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      getObservabilityTrace.mockResolvedValueOnce({
+        ...traceResult,
+        events: [
+          {
+            ...traceResult.events[0],
+            status: 'ok',
+            method: 'observability/recent/list',
+            phase: 'start',
+            ts: '2026-06-02T09:01:22.459Z',
+          },
+          {
+            ...traceResult.events[0],
+            status: 'ok',
+            method: 'observability/recent/list',
+            phase: 'done',
+            ts: '2026-06-02T09:01:22.460Z',
+          },
+        ],
+      });
+      const table = await queryRecentLogs();
+
+      fireEvent.click(within(table).getByRole('button', { name: '打开 Trace trace-frontend-1' }));
+
+      const inlineTrace = await within(table).findByTestId('observability-inline-trace-trace-frontend-1');
+      await waitFor(() => expect(within(inlineTrace).getAllByRole('listitem')).toHaveLength(2));
+      const duplicateKeyErrors = consoleError.mock.calls.filter((args) => (
+        args.some((arg) => String(arg).includes('Encountered two children with the same key'))
+      ));
+      expect(duplicateKeyErrors).toEqual([]);
+    }
+    finally {
+      consoleError.mockRestore();
+    }
+  });
+
   it('copies a trace id through the backend clipboard bridge', async () => {
     const table = await queryRecentLogs();
 
