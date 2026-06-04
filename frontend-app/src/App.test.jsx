@@ -6558,6 +6558,79 @@ async function continueChatFromFinalSharedFile() {
     });
   });
 
+  it('coalesces selected workflow detail and run refreshes when events and retry overlap', async () => {
+    const runningDag = {
+      dag_key: 'flow-a',
+      title: '流程 A',
+      status: 'running',
+      trigger: 'manual',
+      version: 1,
+      latest_run: { run_key: 'run-a', status: 'running' },
+    };
+    const node = { node_key: 'step', title: '步骤 A', node_type: 'agent', status: 'running', depends_on: [], config: {} };
+    backend.getDashboardPage.mockImplementation(({ page }) => Promise.resolve(
+      page === 'dags' ? { dags: [runningDag] } : { skills: [] },
+    ));
+    backend.getDagDetail.mockResolvedValue({ dag: runningDag, nodes: [node] });
+    backend.getDagRuns.mockImplementation(({ status }) => Promise.resolve({
+      runs: status === 'running' ? [runningDag.latest_run] : [runningDag.latest_run],
+    }));
+    backend.getDagRun.mockResolvedValue({ run: runningDag.latest_run, nodes: [node] });
+
+    render(<App />);
+    await screen.findByText('后端线程');
+    fireEvent.click(screen.getByLabelText('自动化'));
+    expect((await screen.findAllByText('流程 A')).length).toBeGreaterThanOrEqual(1);
+    expect((await screen.findAllByText('步骤 A')).length).toBeGreaterThanOrEqual(1);
+
+    vi.clearAllMocks();
+    const detailRefresh = deferred();
+    const recentRunsRefresh = deferred();
+    const activeRunsRefresh = deferred();
+    const runRefresh = deferred();
+    backend.getDashboardPage
+      .mockImplementationOnce(({ page }) => (
+        page === 'dags' ? Promise.reject(new Error('workflow backend offline')) : Promise.resolve({ skills: [] })
+      ))
+      .mockImplementation(({ page }) => Promise.resolve(
+        page === 'dags' ? { dags: [runningDag] } : { skills: [] },
+      ));
+    backend.getDagDetail.mockImplementation(() => detailRefresh.promise);
+    backend.getDagRuns.mockImplementation(({ status }) => (
+      status === 'running' ? activeRunsRefresh.promise : recentRunsRefresh.promise
+    ));
+    backend.getDagRun.mockImplementation(() => runRefresh.promise);
+
+    await act(async () => {
+      bridgeCallback?.({ type: 'task/node/statusChanged', payload: { dag_key: 'flow-a', run_key: 'run-a', node_key: 'step', new_status: 'running' } });
+      await Promise.resolve();
+    });
+    const alert = await screen.findByRole('alert');
+    expect(alert).toHaveTextContent('workflow backend offline');
+    await waitFor(() => expect(backend.getDagDetail).toHaveBeenCalledTimes(1));
+
+    fireEvent.click(within(alert).getByRole('button', { name: '重试同步' }));
+    await act(async () => {
+      bridgeCallback?.({ type: 'task/node/statusChanged', payload: { dag_key: 'flow-a', run_key: 'run-a', node_key: 'step', new_status: 'running' } });
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    await waitFor(() => expect(backend.getDashboardPage.mock.calls.length).toBeGreaterThanOrEqual(2));
+
+    expect(backend.getDagDetail).toHaveBeenCalledTimes(1);
+    expect(backend.getDagRuns).toHaveBeenCalledTimes(2);
+    expect(backend.getDagRun).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      detailRefresh.reject(new Error('detail backend offline'));
+      recentRunsRefresh.resolve({ runs: [runningDag.latest_run] });
+      activeRunsRefresh.resolve({ runs: [runningDag.latest_run] });
+      runRefresh.resolve({ run: runningDag.latest_run, nodes: [node] });
+    });
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('detail backend offline');
+  });
+
   it('shows a retryable blocking error instead of an empty workflow state on initial load failure', async () => {
     const flow = {
       dag_key: 'flow-a',
