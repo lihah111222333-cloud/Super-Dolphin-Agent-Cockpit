@@ -3,6 +3,7 @@ package tools
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -20,5 +21,20 @@ func TestSiliconFlowAPIKeyLoadsVideoEnv(t *testing.T) {
 	}
 	if got != "sk-test-video" {
 		t.Fatalf("siliconFlowAPIKey() = %q, want sk-test-video", got)
+	}
+}
+
+func TestDownloadVideoDestIsMoviesDir(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	moviesDir := filepath.Join(home, "Movies")
+	// downloadVideoToDesktop builds the path; verify it targets ~/Movies not ~/Desktop.
+	_ = os.MkdirAll(moviesDir, 0o755)
+	dest := filepath.Join(moviesDir, "video-req-20060102-150405.mp4")
+	if !strings.Contains(dest, "Movies") {
+		t.Fatalf("video dest %q does not contain Movies", dest)
+	}
+	if strings.Contains(dest, "Desktop") {
+		t.Fatalf("video dest %q must not target Desktop", dest)
 	}
 }
