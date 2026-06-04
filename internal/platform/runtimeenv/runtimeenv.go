@@ -385,16 +385,11 @@ func applyPackagedRuntimeEnv(runtime PackagedRuntime) error {
 // LoadVideoEnv reads $SUPER_DOLPHIN_HOME/video.env and sets any KEY=VALUE
 // pairs it finds as environment variables. Missing file is silently ignored.
 func LoadVideoEnv() error {
-	home := strings.TrimSpace(os.Getenv(superDolphinHomeEnv))
-	if home == "" {
-		var err error
-		home, err = os.UserHomeDir()
-		if err != nil {
-			return fmt.Errorf("resolve user home for video env: %w", err)
-		}
-		home = packagedAppDataDir(home)
+	path, err := videoEnvPath()
+	if err != nil {
+		return err
 	}
-	data, err := os.ReadFile(filepath.Join(home, "video.env"))
+	data, err := os.ReadFile(path)
 	if os.IsNotExist(err) {
 		return nil
 	}
@@ -415,6 +410,38 @@ func LoadVideoEnv() error {
 		}
 	}
 	return nil
+}
+
+func WriteVideoEnv(apiKey string) error {
+	apiKey = strings.TrimSpace(apiKey)
+	if apiKey == "" {
+		return fmt.Errorf("SILICONFLOW_API_KEY is required")
+	}
+	path, err := videoEnvPath()
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return fmt.Errorf("create video env directory: %w", err)
+	}
+	content := "SILICONFLOW_API_KEY=" + apiKey + "\n"
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+		return fmt.Errorf("write video env: %w", err)
+	}
+	return nil
+}
+
+func videoEnvPath() (string, error) {
+	home := strings.TrimSpace(os.Getenv(superDolphinHomeEnv))
+	if home == "" {
+		var err error
+		home, err = os.UserHomeDir()
+		if err != nil {
+			return "", fmt.Errorf("resolve user home for video env: %w", err)
+		}
+		home = packagedAppDataDir(home)
+	}
+	return filepath.Join(home, "video.env"), nil
 }
 
 func applySidecarRuntimeContract(contract SidecarRuntimeContract) error {
