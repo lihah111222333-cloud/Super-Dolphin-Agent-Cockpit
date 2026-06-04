@@ -224,6 +224,43 @@ func TestRecentListRPCLimitCountsTraceRowsAfterFiltering(t *testing.T) {
 	}
 }
 
+func TestRecentListRPCPushesSparseUIFiltersBeforeTailLimit(t *testing.T) {
+	base := time.Date(2026, 6, 2, 0, 0, 0, 0, time.UTC)
+	tailEvents := []platformobs.TraceEvent{{
+		Timestamp: base,
+		TraceID:   "trace-sparse",
+		SpanID:    "span-sparse",
+		Kind:      "frontend",
+		Method:    "rare/method",
+		AgentID:   "agent-rare",
+		Status:    platformobs.StatusError,
+		Metadata:  map[string]any{"note": "needle"},
+	}}
+	for n := 0; n < maxQueryLimit; n++ {
+		tailEvents = append(tailEvents, platformobs.TraceEvent{
+			Timestamp: base.Add(time.Duration(n+1) * time.Millisecond),
+			TraceID:   fmt.Sprintf("trace-common-%03d", n),
+			SpanID:    fmt.Sprintf("span-common-%03d", n),
+			Kind:      "backend",
+			Method:    "common/method",
+			AgentID:   "agent-common",
+			Status:    platformobs.StatusOK,
+		})
+	}
+	tail := platformobs.QueryTailReaderFunc(func(_ context.Context, query platformobs.Query) (platformobs.QueryResult, error) {
+		events, truncated := applyTailWindowForQuery(tailEvents, query)
+		return platformobs.QueryResult{Source: platformobs.QuerySourceJSONLTail, Events: events, Truncated: truncated}, nil
+	})
+	svc := platformobs.NewService(testTraceConfig(), platformobs.WithTailReader(tail))
+	server := newTestRPCServer(t, svc)
+
+	got := dispatchQuery(t, server, "observability/recent/list", json.RawMessage(`{"limit":1,"status":"error","component":"frontend","method":"rare/method","agentId":"agent-rare","keyword":"needle"}`))
+
+	if len(got.Events) != 1 || got.Events[0].TraceID != "trace-sparse" {
+		t.Fatalf("recent sparse events = %+v, want trace-sparse despite raw tail window", got.Events)
+	}
+}
+
 func TestRecentListRPCIncludesLatestEventsWithoutTraceID(t *testing.T) {
 	base := time.Date(2026, 6, 3, 14, 0, 1, 0, time.Local)
 	tail := platformobs.QueryTailReaderFunc(func(context.Context, platformobs.Query) (platformobs.QueryResult, error) {
@@ -441,6 +478,23 @@ func recordTrace(t *testing.T, svc *platformobs.Service, event platformobs.Trace
 	if err := svc.Record(t.Context(), event); err != nil {
 		t.Fatalf("Record: %v", err)
 	}
+}
+
+func applyTailWindowForQuery(events []platformobs.TraceEvent, query platformobs.Query) ([]platformobs.TraceEvent, bool) {
+	filtered := make([]platformobs.TraceEvent, 0, len(events))
+	for _, event := range events {
+		if eventMatchesComponent(event, query.Component) &&
+			eventMatchesStatus(event, string(query.Status)) &&
+			eventMatchesText(event.Method, query.Method) &&
+			eventMatchesText(event.AgentID, query.AgentID) &&
+			eventMatchesKeyword(event, query.Keyword) {
+			filtered = append(filtered, event)
+		}
+	}
+	if query.Limit > 0 && len(filtered) > query.Limit {
+		return filtered[len(filtered)-query.Limit:], true
+	}
+	return filtered, false
 }
 
 func newRecordingService(sink *recordingSink) *platformobs.Service {

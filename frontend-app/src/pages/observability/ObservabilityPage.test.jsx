@@ -67,6 +67,17 @@ function queryRecentLogs() {
   return screen.findByTestId('observability-recent-logs');
 }
 
+function formatParsedTimestamp(value) {
+  const parsed = new Date(value);
+  const year = String(parsed.getFullYear()).padStart(4, '0');
+  const month = String(parsed.getMonth() + 1).padStart(2, '0');
+  const day = String(parsed.getDate()).padStart(2, '0');
+  const hour = String(parsed.getHours()).padStart(2, '0');
+  const minute = String(parsed.getMinutes()).padStart(2, '0');
+  const second = String(parsed.getSeconds()).padStart(2, '0');
+  return `${year}-${month}-${day} ${hour}:${minute}:${second}`;
+}
+
 describe('ObservabilityPage module', () => {
   beforeEach(() => {
     listObservabilityRecent.mockResolvedValue(recentResult);
@@ -105,10 +116,44 @@ describe('ObservabilityPage module', () => {
       threadId: '',
       agentId: '',
       keyword: 'thread/start',
+      includeTail: true,
     });
-    expect(payload).not.toHaveProperty('includeTail');
     expect(table).toHaveTextContent('trace-frontend-1');
     expect(table).toHaveTextContent('thread start failed');
+  });
+
+  it('labels recent rows as matching event groups instead of full trace state', async () => {
+    listObservabilityRecent.mockResolvedValueOnce({
+      source: 'memory',
+      truncated: false,
+      events: [
+        {
+          ts: '2026-06-02T09:01:22.000Z',
+          trace_id: 'trace-mixed-1',
+          span_id: 'span-ok',
+          method: 'thread/start',
+          status: 'ok',
+          duration_ms: 10,
+        },
+        {
+          ts: '2026-06-02T09:01:23.000Z',
+          trace_id: 'trace-mixed-1',
+          span_id: 'span-slow',
+          method: 'thread/start',
+          status: 'slow',
+          duration_ms: 25,
+        },
+      ],
+    });
+
+    renderObservabilityPage();
+    fireEvent.click(screen.getByRole('button', { name: '查询最新日志' }));
+    const table = await screen.findByTestId('observability-recent-logs');
+
+    expect(table).toHaveTextContent('1 条匹配 event 分组 · 2 个匹配 event');
+    expect(within(table).getByRole('columnheader', { name: '匹配 event 状态' })).toBeInTheDocument();
+    expect(table.querySelector('.observability-log-table-entry')).toHaveTextContent('匹配 event 耗时合计 35ms');
+    expect(table.querySelector('.observability-log-table-entry')).toHaveTextContent('2 个匹配 event');
   });
 
   it('shows recent events that do not have a trace id', async () => {
@@ -147,6 +192,58 @@ describe('ObservabilityPage module', () => {
     expect(payload).not.toHaveProperty('includeTail');
     expect(await within(table).findByTestId('observability-inline-trace-trace-frontend-1')).toHaveTextContent('Trace 结果');
     expect(within(table).getByRole('button', { name: '收起 Trace trace-frontend-1' })).toHaveAttribute('aria-expanded', 'true');
+  });
+
+  it('renders expanded trace detail as a full-width grid panel instead of a colspan table row', async () => {
+    const table = await queryRecentLogs();
+
+    fireEvent.click(within(table).getByRole('button', { name: '打开 Trace trace-frontend-1' }));
+
+    const inlineTrace = await within(table).findByTestId('observability-inline-trace-trace-frontend-1');
+    const detailRow = inlineTrace.closest('.observability-log-table-detail-row');
+    expect(detailRow).toBeTruthy();
+    expect(detailRow?.parentElement).toHaveClass('observability-log-table-body');
+    expect(inlineTrace.closest('tr')).toBeNull();
+    expect(inlineTrace.closest('td')).toBeNull();
+    expect(table.querySelector('[colspan]')).toBeNull();
+  });
+
+  it('renders repeated trace and span events without React key warnings', async () => {
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      getObservabilityTrace.mockResolvedValueOnce({
+        ...traceResult,
+        events: [
+          {
+            ...traceResult.events[0],
+            status: 'ok',
+            method: 'observability/recent/list',
+            phase: 'start',
+            ts: '2026-06-02T09:01:22.459Z',
+          },
+          {
+            ...traceResult.events[0],
+            status: 'ok',
+            method: 'observability/recent/list',
+            phase: 'done',
+            ts: '2026-06-02T09:01:22.460Z',
+          },
+        ],
+      });
+      const table = await queryRecentLogs();
+
+      fireEvent.click(within(table).getByRole('button', { name: '打开 Trace trace-frontend-1' }));
+
+      const inlineTrace = await within(table).findByTestId('observability-inline-trace-trace-frontend-1');
+      await waitFor(() => expect(within(inlineTrace).getAllByRole('listitem')).toHaveLength(2));
+      const duplicateKeyErrors = consoleError.mock.calls.filter((args) => (
+        args.some((arg) => String(arg).includes('Encountered two children with the same key'))
+      ));
+      expect(duplicateKeyErrors).toEqual([]);
+    }
+    finally {
+      consoleError.mockRestore();
+    }
   });
 
   it('copies a trace id through the backend clipboard bridge', async () => {
@@ -194,9 +291,90 @@ describe('ObservabilityPage module', () => {
     refreshCall[0]();
 
     await waitFor(() => expect(listObservabilityRecent).toHaveBeenCalledTimes(2));
+    expect(listObservabilityRecent.mock.calls[1][0]).toEqual({
+      limit: 50,
+      status: 'error',
+      component: '',
+      method: '',
+      traceId: '',
+      threadId: '',
+      agentId: '',
+      keyword: 'thread/start',
+      includeTail: false,
+    });
     const entries = table.querySelectorAll('.observability-log-table-entry');
     expect(entries[0]).toHaveTextContent('trace-newer');
     expect(entries[1]).toHaveTextContent('trace-older');
+  });
+
+  it('normalizes mixed timezone timestamps to match parsed Date sorting', async () => {
+    const olderLocalTimestamp = '2026-06-04T15:34:52.792147+08:00';
+    const middleUTCTimestamp = '2026-06-04T07:34:53.575Z';
+    const newerUTCTimestamp = '2026-06-04T07:34:55.054Z';
+    const baseEvent = recentResult.events[0];
+    listObservabilityRecent.mockResolvedValueOnce({
+      source: 'memory',
+      truncated: false,
+      events: [
+        {
+          ...baseEvent,
+          ts: olderLocalTimestamp,
+          trace_id: 'trace-local-offset',
+          span_id: 'span-local-offset',
+        },
+        {
+          ...baseEvent,
+          ts: newerUTCTimestamp,
+          trace_id: 'trace-newest-utc',
+          span_id: 'span-newest-utc',
+        },
+        {
+          ...baseEvent,
+          ts: middleUTCTimestamp,
+          trace_id: 'trace-middle-utc',
+          span_id: 'span-middle-utc',
+        },
+      ],
+    });
+
+    renderObservabilityPage();
+    fireEvent.change(screen.getByLabelText('状态'), { target: { value: 'error' } });
+    fireEvent.click(screen.getByRole('button', { name: '查询最新日志' }));
+    const table = await screen.findByTestId('observability-recent-logs');
+    const entries = Array.from(table.querySelectorAll('.observability-log-table-entry'));
+
+    expect(entries).toHaveLength(3);
+    expect(entries[0]).toHaveTextContent('trace-newest-utc');
+    expect(entries[1]).toHaveTextContent('trace-middle-utc');
+    expect(entries[2]).toHaveTextContent('trace-local-offset');
+    expect(entries.map((entry) => entry.querySelector('time')?.textContent)).toEqual([
+      formatParsedTimestamp(newerUTCTimestamp),
+      formatParsedTimestamp(middleUTCTimestamp),
+      formatParsedTimestamp(olderLocalTimestamp),
+    ]);
+  });
+
+  it('keeps invalid recent timestamps visible as backend text', async () => {
+    listObservabilityRecent.mockResolvedValueOnce({
+      source: 'memory',
+      truncated: false,
+      events: [
+        {
+          ...recentResult.events[0],
+          ts: 'not-a-date',
+          trace_id: 'trace-invalid-time',
+          span_id: 'span-invalid-time',
+        },
+      ],
+    });
+
+    renderObservabilityPage();
+    fireEvent.click(screen.getByRole('button', { name: '查询最新日志' }));
+    const table = await screen.findByTestId('observability-recent-logs');
+    const timestamp = table.querySelector('.observability-log-table-entry time');
+
+    expect(timestamp).toHaveAttribute('dateTime', 'not-a-date');
+    expect(timestamp).toHaveTextContent('not-a-date');
   });
 
   it('skips overlapping automatic recent refresh requests', async () => {
@@ -235,5 +413,56 @@ describe('ObservabilityPage module', () => {
       await refresh.promise;
     });
     await waitFor(() => expect(table.querySelector('.observability-log-table-entry')).toHaveTextContent('trace-newer'));
+  });
+
+  it('keeps newer manual query results when an older automatic refresh resolves late', async () => {
+    const intervalSpy = vi.spyOn(window, 'setInterval');
+    const initialEvent = {
+      ...recentResult.events[0],
+      trace_id: 'trace-initial',
+      span_id: 'span-initial',
+      method: 'thread/start',
+    };
+    const staleRefreshEvent = {
+      ...recentResult.events[0],
+      trace_id: 'trace-stale-refresh',
+      span_id: 'span-stale-refresh',
+      method: 'thread/start',
+    };
+    const newerManualEvent = {
+      ...recentResult.events[0],
+      trace_id: 'trace-new-manual',
+      span_id: 'span-new-manual',
+      method: 'turn/start',
+    };
+    const staleRefresh = deferredValue();
+    listObservabilityRecent
+      .mockResolvedValueOnce({ source: 'memory', truncated: false, events: [initialEvent] })
+      .mockReturnValueOnce(staleRefresh.promise)
+      .mockResolvedValueOnce({ source: 'memory', truncated: false, events: [newerManualEvent] });
+    renderObservabilityPage();
+    fireEvent.change(screen.getByLabelText('关键词'), { target: { value: 'thread/start' } });
+    fireEvent.click(screen.getByRole('button', { name: '查询最新日志' }));
+    const table = await screen.findByTestId('observability-recent-logs');
+    expect(table).toHaveTextContent('trace-initial');
+    let refreshCall;
+    await waitFor(() => {
+      refreshCall = intervalSpy.mock.calls.find(([, delay]) => delay === 2000);
+      expect(refreshCall).toBeTruthy();
+    });
+    refreshCall[0]();
+    await waitFor(() => expect(listObservabilityRecent).toHaveBeenCalledTimes(2));
+
+    fireEvent.change(screen.getByLabelText('关键词'), { target: { value: 'turn/start' } });
+    fireEvent.click(screen.getByRole('button', { name: '查询最新日志' }));
+
+    await waitFor(() => expect(table).toHaveTextContent('trace-new-manual'));
+    await act(async () => {
+      staleRefresh.resolve({ source: 'memory', truncated: false, events: [staleRefreshEvent] });
+      await staleRefresh.promise;
+    });
+
+    expect(table).toHaveTextContent('trace-new-manual');
+    expect(table).not.toHaveTextContent('trace-stale-refresh');
   });
 });

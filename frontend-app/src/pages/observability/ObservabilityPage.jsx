@@ -50,11 +50,6 @@ function stableBackendLogValue(value, seen = new WeakSet()) {
 function formatObservabilityTimestamp(value) {
   const text = textValue(value);
   if (!text) return '-';
-  const matched = text.match(/^(\d{4})-(\d{2})-(\d{2})[T\s](\d{2}):(\d{2}):(\d{2})/);
-  if (matched) {
-    const [, year, month, day, hour, minute, second] = matched;
-    return `${year}-${month}-${day} ${hour}:${minute}:${second}`;
-  }
   const parsed = new Date(text);
   if (Number.isNaN(parsed.getTime())) return text;
   const year = String(parsed.getFullYear()).padStart(4, '0');
@@ -71,6 +66,12 @@ function formatObservabilityDuration(value) {
   const duration = Number(value);
   if (!Number.isFinite(duration) || duration <= 0) return '耗时未记录';
   return `${duration}ms`;
+}
+
+function formatMatchedEventDuration(value) {
+  const durationText = formatObservabilityDuration(value);
+  if (durationText === '耗时未记录') return '匹配 event 耗时未记录';
+  return `匹配 event 耗时合计 ${durationText}`;
 }
 
 function useObservabilityFilters() {
@@ -172,15 +173,12 @@ function ObservabilityPage() {
   const { buildRecentParams, filters, queryLimit, setFilter } = useObservabilityFilters();
   const [pageState, dispatchPageState] = useReducer(observabilityPageReducer, OBSERVABILITY_PAGE_INITIAL_STATE);
   const activeRecentParamsRef = useRef(null);
+  const recentRequestSequenceRef = useRef(0);
   const { copiedTraceId, loading, notice, recentResult } = pageState;
   const setNotice = useCallback((message) => {
     dispatchPageState({ type: 'notice/set', message });
   }, []);
   const { expandedTraces, setExpandedTraces, toggleTraceExpansion } = useObservabilityTraceExpansion({ queryLimit, setFilter, setNotice });
-
-  const refreshRecent = useCallback(async (params) => {
-    dispatchPageState({ type: 'recent/set', result: await getObservabilityRecent(params), clearNotice: false });
-  }, []);
 
   useEffect(() => {
     let disposed = false;
@@ -190,14 +188,18 @@ function ObservabilityPage() {
       if (!activeRecentParams) return;
       if (refreshInFlight) return;
       refreshInFlight = true;
+      const requestSequence = recentRequestSequenceRef.current + 1;
+      recentRequestSequenceRef.current = requestSequence;
       try {
-        const result = await getObservabilityRecent(activeRecentParams);
-        if (!disposed) {
+        const result = await getObservabilityRecent({ ...activeRecentParams, includeTail: false });
+        if (!disposed && recentRequestSequenceRef.current === requestSequence) {
           dispatchPageState({ type: 'recent/set', result, clearNotice: true });
         }
       }
       catch (error) {
-        if (!disposed) dispatchPageState({ type: 'notice/set', message: errorMessage(error) });
+        if (!disposed && recentRequestSequenceRef.current === requestSequence) {
+          dispatchPageState({ type: 'notice/set', message: errorMessage(error) });
+        }
       }
       finally {
         refreshInFlight = false;
@@ -225,20 +227,27 @@ function ObservabilityPage() {
 
   const runQuery = useCallback(async () => {
     dispatchPageState({ type: 'query/start' });
+    const requestSequence = recentRequestSequenceRef.current + 1;
+    recentRequestSequenceRef.current = requestSequence;
     activeRecentParamsRef.current = null;
     setExpandedTraces({});
-    const params = buildRecentParams();
+    const params = { ...buildRecentParams(), includeTail: true };
     try {
-      await refreshRecent(params);
-      activeRecentParamsRef.current = params;
+      const result = await getObservabilityRecent(params);
+      if (recentRequestSequenceRef.current === requestSequence) {
+        dispatchPageState({ type: 'recent/set', result, clearNotice: false });
+        activeRecentParamsRef.current = { ...params, includeTail: false };
+      }
     }
     catch (error) {
-      setNotice(errorMessage(error));
+      if (recentRequestSequenceRef.current === requestSequence) setNotice(errorMessage(error));
     }
     finally {
-      dispatchPageState({ type: 'query/finish' });
+      if (recentRequestSequenceRef.current === requestSequence) {
+        dispatchPageState({ type: 'query/finish' });
+      }
     }
-  }, [buildRecentParams, refreshRecent, setExpandedTraces, setNotice]);
+  }, [buildRecentParams, setExpandedTraces, setNotice]);
 
   return (
     <section className="settings-page observability-page" data-testid="observability-page">
@@ -324,23 +333,23 @@ function ObservabilityRecentLogs({ result, onOpenTrace, onCopyTrace, copiedTrace
     <div className="settings-card observability-result observability-system-log" data-testid="observability-recent-logs">
       <div className="observability-result-header">
         <div>
-          <h2>最新日志</h2>
-          <p>{traceRows.length} 条 trace · {eventCount} 个匹配 event · source={result.source || 'memory'} · truncated={String(Boolean(result.truncated))}</p>
+          <h2>最新匹配 event 分组</h2>
+          <p>{traceRows.length} 条匹配 event 分组 · {eventCount} 个匹配 event · source={result.source || 'memory'} · truncated={String(Boolean(result.truncated))}</p>
         </div>
       </div>
       {traceRows.length === 0 ? (
         <div className="empty-state">没有匹配的最近请求</div>
       ) : (
-        <table className="observability-log-table">
-          <thead className="observability-log-table-head">
-            <tr>
-              <th scope="col">时间</th>
-              <th scope="col">状态</th>
-              <th scope="col">请求摘要</th>
-              <th scope="col">操作</th>
-            </tr>
-          </thead>
-          <tbody>
+        <div className="observability-log-table" role="table" aria-label="最新匹配 event 分组">
+          <div className="observability-log-table-head" role="rowgroup">
+            <div className="observability-log-table-head-row" role="row">
+              <div role="columnheader">时间</div>
+              <div role="columnheader">匹配 event 状态</div>
+              <div role="columnheader">匹配 event 摘要</div>
+              <div role="columnheader">操作</div>
+            </div>
+          </div>
+          <div className="observability-log-table-body" role="rowgroup">
             {traceRows.map((row) => (
               <ObservabilityLogTableRow
                 row={row}
@@ -351,8 +360,8 @@ function ObservabilityRecentLogs({ result, onOpenTrace, onCopyTrace, copiedTrace
                 key={row.key}
               />
             ))}
-          </tbody>
-        </table>
+          </div>
+        </div>
       )}
     </div>
   );
@@ -456,14 +465,14 @@ function ObservabilityLogTableRow({ row, onOpenTrace, onCopyTrace, copied, trace
   const actionLabel = expanded ? '收起 Trace' : '打开 Trace';
   return (
     <>
-      <tr className="observability-log-table-entry observability-log-table-row">
-        <td>
+      <div className="observability-log-table-entry observability-log-table-row" role="row">
+        <div role="cell">
           <time dateTime={row.timestamp}>{formatObservabilityTimestamp(row.timestamp)}</time>
-        </td>
-        <td>
+        </div>
+        <div role="cell">
           <span className={`observability-status-pill is-${observabilityStatusClass(row.status)}`}>{row.status || 'ok'}</span>
-        </td>
-        <td>
+        </div>
+        <div role="cell">
           <div className="observability-log-summary">
             <strong>{event.method || event.phase || event.kind || 'event'}</strong>
             <p>{summary}</p>
@@ -472,8 +481,8 @@ function ObservabilityLogTableRow({ row, onOpenTrace, onCopyTrace, copied, trace
             </p>
             {row.error ? <p className="observability-event-error">{row.error}</p> : null}
           </div>
-        </td>
-        <td>
+        </div>
+        <div role="cell">
           <div className="observability-log-row-actions">
             <button
               type="button"
@@ -497,14 +506,14 @@ function ObservabilityLogTableRow({ row, onOpenTrace, onCopyTrace, copied, trace
               {actionLabel}
             </button>
           </div>
-        </td>
-      </tr>
+        </div>
+      </div>
       {expanded ? (
-        <tr className="observability-log-table-detail-row">
-          <td colSpan={4}>
+        <div className="observability-log-table-detail-row" role="row">
+          <div className="observability-log-table-detail-cell" role="cell">
             <ObservabilityInlineTraceResult traceID={traceID} detailId={detailId} state={traceState} />
-          </td>
-        </tr>
+          </div>
+        </div>
       ) : null}
     </>
   );
@@ -517,7 +526,7 @@ function observabilityTraceDetailId(traceID) {
 
 function observabilityTraceSummary(row) {
   const event = row.representative || {};
-  const durationText = formatObservabilityDuration(row.durationMS);
+  const durationText = formatMatchedEventDuration(row.durationMS);
   const parts = [
     event.kind,
     event.phase,
@@ -560,13 +569,14 @@ function ObservabilityInlineTraceResult({ traceID, detailId, state }) {
 function TraceEventTable({ events }) {
   const sourceEvents = useMemo(() => (Array.isArray(events) ? events : []), [events]);
   const eventSignature = useMemo(() => sourceEvents
-    .map((event, index) => `${textValue(event.trace_id)}:${textValue(event.span_id) || index}:${textValue(event.ts)}:${textValue(event.method)}`)
+    .map((event, index) => `${textValue(event.trace_id)}:${textValue(event.span_id) || index}:${textValue(event.phase)}:${textValue(event.ts)}:${textValue(event.method)}`)
     .join('|'), [sourceEvents]);
   const [displayState, setDisplayState] = useState({ eventSignature: '', showAll: false });
   const showAll = displayState.eventSignature === eventSignature ? displayState.showAll : false;
-  const keyEvents = useMemo(() => selectKeyTraceEvents(sourceEvents), [sourceEvents]);
-  const visibleEvents = showAll ? sourceEvents : keyEvents;
-  const hiddenCount = Math.max(sourceEvents.length - keyEvents.length, 0);
+  const allEventIndexes = useMemo(() => sourceEvents.map((_, index) => index), [sourceEvents]);
+  const keyEventIndexes = useMemo(() => selectKeyTraceEventIndexes(sourceEvents), [sourceEvents]);
+  const visibleEventIndexes = showAll ? allEventIndexes : keyEventIndexes;
+  const hiddenCount = Math.max(sourceEvents.length - keyEventIndexes.length, 0);
 
   if (!sourceEvents.length) return <div className="empty-state">没有匹配的 trace events</div>;
 
@@ -575,7 +585,7 @@ function TraceEventTable({ events }) {
       {hiddenCount > 0 ? (
         <div className="observability-trace-filter">
           <p>
-            默认显示关键事件 {visibleEvents.length}/{sourceEvents.length} · 已折叠 {hiddenCount} 条成功过程事件
+            默认显示关键事件 {visibleEventIndexes.length}/{sourceEvents.length} · 已折叠 {hiddenCount} 条成功过程事件
           </p>
           <button
             type="button"
@@ -587,17 +597,27 @@ function TraceEventTable({ events }) {
         </div>
       ) : null}
       <ol className="observability-table" aria-label="Trace events">
-        {visibleEvents.map((event, index) => (
-          <TraceEventRow event={event} index={index} key={`${event.trace_id || 'trace'}-${event.span_id || index}`} />
-        ))}
+        {visibleEventIndexes.map((sourceIndex, index) => {
+          const event = sourceEvents[sourceIndex];
+          return (
+            <TraceEventRow event={event} index={index} key={traceEventRenderKey(event, sourceIndex)} />
+          );
+        })}
       </ol>
     </>
   );
 }
 
-function selectKeyTraceEvents(events) {
+function traceEventRenderKey(event, sourceIndex) {
+  const parts = [event.trace_id, event.span_id, event.phase, event.ts, event.method, String(sourceIndex)]
+    .map(textValue)
+    .filter(Boolean);
+  return `trace-event-${parts.join(':')}`;
+}
+
+function selectKeyTraceEventIndexes(events) {
   const source = Array.isArray(events) ? events : [];
-  if (source.length <= 2) return source;
+  if (source.length <= 2) return source.map((_, index) => index);
   const selectedIndexes = new Set();
   source.forEach((event, index) => {
     if (isKeyTraceEvent(event)) selectedIndexes.add(index);
@@ -607,7 +627,6 @@ function selectKeyTraceEvents(events) {
   return (
     Array.from(selectedIndexes)
     .sort((left, right) => left - right)
-    .map((index) => source[index])
   );
 }
 
