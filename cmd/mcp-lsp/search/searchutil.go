@@ -487,11 +487,45 @@ func matchesPathGlob(root, candidate, rawGlob string) (bool, error) {
 }
 
 func matchesCompiledGlob(pattern, candidate string) (bool, error) {
+	if strings.Contains(pattern, "**") {
+		return matchesGlobSegments(strings.Split(pattern, "/"), strings.Split(candidate, "/"))
+	}
 	ok, err := path.Match(pattern, candidate)
 	if err != nil {
 		return false, fmt.Errorf("invalid glob %q: %w", pattern, err)
 	}
 	return ok, nil
+}
+
+func matchesGlobSegments(patterns, candidates []string) (bool, error) {
+	for len(patterns) > 0 {
+		if patterns[0] == "**" {
+			patterns = patterns[1:]
+			if len(patterns) == 0 {
+				return true, nil
+			}
+			for i := 0; i <= len(candidates); i++ {
+				ok, err := matchesGlobSegments(patterns, candidates[i:])
+				if err != nil || ok {
+					return ok, err
+				}
+			}
+			return false, nil
+		}
+		if len(candidates) == 0 {
+			return false, nil
+		}
+		ok, err := path.Match(patterns[0], candidates[0])
+		if err != nil {
+			return false, fmt.Errorf("invalid glob segment %q: %w", patterns[0], err)
+		}
+		if !ok {
+			return false, nil
+		}
+		patterns = patterns[1:]
+		candidates = candidates[1:]
+	}
+	return len(candidates) == 0, nil
 }
 
 func formatSGCommandError(prefix string, err error) error {
