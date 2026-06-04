@@ -28,6 +28,17 @@ function deferred() {
   return { promise, resolve, reject };
 }
 
+function formatParsedTimestampForTest(value) {
+  const parsed = new Date(value);
+  const year = String(parsed.getFullYear()).padStart(4, '0');
+  const month = String(parsed.getMonth() + 1).padStart(2, '0');
+  const day = String(parsed.getDate()).padStart(2, '0');
+  const hour = String(parsed.getHours()).padStart(2, '0');
+  const minute = String(parsed.getMinutes()).padStart(2, '0');
+  const second = String(parsed.getSeconds()).padStart(2, '0');
+  return `${year}-${month}-${day} ${hour}:${minute}:${second}`;
+}
+
 const backend = vi.hoisted(() => {
   const mockNames = `
 	    readConfig getWindowBootstrap openNewWindow getProjects setActiveProject addProject removeProject
@@ -536,7 +547,7 @@ async function expectTraceDashboardRows(table) {
   expect(traceRows[0]).toHaveTextContent('失败原因');
   const zeroDurationRow = traceRows.find((row) => row.textContent.includes('ui/sidebar/get'));
   expect(zeroDurationRow).toBeTruthy();
-  expect(zeroDurationRow).toHaveTextContent('2026-06-02 09:01:23');
+  expect(zeroDurationRow).toHaveTextContent(formatParsedTimestampForTest('2026-06-02T09:01:23.000Z'));
   expect(zeroDurationRow).toHaveTextContent('耗时未记录');
   expect(zeroDurationRow).not.toHaveTextContent('0ms');
   expect(zeroDurationRow).not.toHaveTextContent('code=-');
@@ -686,9 +697,9 @@ async function openRecentSystemLogs() {
 
 function expectRecentSystemLogsTable(table) {
   expect(table).toHaveTextContent('3 条 trace · 4 个匹配 event');
-  expect(table).toHaveTextContent('2026-06-02 09:01:22');
-  expect(table).toHaveTextContent('2026-06-02 09:02:03');
-  expect(table).toHaveTextContent('2026-06-02 09:03:04');
+  expect(table).toHaveTextContent(formatParsedTimestampForTest('2026-06-02T09:01:22.459Z'));
+  expect(table).toHaveTextContent(formatParsedTimestampForTest('2026-06-02T09:02:03.000Z'));
+  expect(table).toHaveTextContent(formatParsedTimestampForTest('2026-06-02T09:03:04.000Z'));
   expect(table).not.toHaveTextContent('2026-06-02T09:01:22.459Z');
   expect(table).toHaveTextContent('thread/start');
   expect(table).toHaveTextContent('trace-frontend-1');
