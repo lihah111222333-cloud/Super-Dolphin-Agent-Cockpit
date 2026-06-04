@@ -76,19 +76,27 @@ func SearchText(ctx context.Context, opts TextSearchOptions) ([]SearchMatch, err
 	if err := validateSearchGlob(opts.Glob); err != nil {
 		return nil, err
 	}
-	pathInfo, info, err := statSearchPath(opts.Root, opts.Roots, opts.Path)
+	searchPaths, err := statSearchPaths(opts.Root, opts.Roots, opts.Path)
 	if err != nil {
 		return nil, err
 	}
-	if !info.IsDir() {
-		return searchTextFile(ctx, pathInfo.AbsPath, pathInfo.AbsPath, opts.Glob, opts.MaxFileBytes, matcher)
-	}
-
 	results := make([]SearchMatch, 0, maxInt(opts.MaxResults, 8))
-	err = filepath.WalkDir(pathInfo.AbsPath, func(candidate string, entry os.DirEntry, walkErr error) error {
-		return walkSearchEntry(ctx, pathInfo.AbsPath, candidate, opts.Glob, opts.MaxFileBytes, matcher, &results, entry, walkErr)
-	})
-	return results, err
+	for _, searchPath := range searchPaths {
+		if !searchPath.Info.IsDir() {
+			found, err := searchTextFile(ctx, searchPath.Path.AbsPath, searchPath.Path.AbsPath, opts.Glob, opts.MaxFileBytes, matcher)
+			if err != nil {
+				return nil, err
+			}
+			results = append(results, found...)
+			continue
+		}
+		if err := filepath.WalkDir(searchPath.Path.AbsPath, func(candidate string, entry os.DirEntry, walkErr error) error {
+			return walkSearchEntry(ctx, searchPath.Path.AbsPath, candidate, opts.Glob, opts.MaxFileBytes, matcher, &results, entry, walkErr)
+		}); err != nil {
+			return nil, err
+		}
+	}
+	return results, nil
 }
 
 func SearchAST(ctx context.Context, opts ASTSearchOptions) ([]SearchMatch, error) {
@@ -99,11 +107,7 @@ func SearchAST(ctx context.Context, opts ASTSearchOptions) ([]SearchMatch, error
 	if err := validateSearchGlob(opts.Glob); err != nil {
 		return nil, err
 	}
-	pathInfo, info, err := statSearchPath(opts.Root, opts.Roots, opts.Path)
-	if err != nil {
-		return nil, err
-	}
-	language, err := normalizeASTLanguage(opts.Language, pathInfo.AbsPath, info.IsDir(), opts.Glob)
+	searchPaths, err := statSearchPaths(opts.Root, opts.Roots, opts.Path)
 	if err != nil {
 		return nil, err
 	}
@@ -111,13 +115,24 @@ func SearchAST(ctx context.Context, opts ASTSearchOptions) ([]SearchMatch, error
 		return nil, errors.New("sg not found in PATH")
 	}
 
-	// When the query looks like a tree-sitter node type (e.g. "function_declaration",
-	// "type_spec"), use sg scan with a kind-based rule instead of pattern matching.
-	if isLikelyNodeType(query) {
-		return runSGKindSearch(ctx, query, language, pathInfo.AbsPath, pathInfo.Root, opts.Glob)
+	results := make([]SearchMatch, 0, maxInt(opts.MaxResults, 8))
+	for _, searchPath := range searchPaths {
+		language, err := normalizeASTLanguage(opts.Language, searchPath.Path.AbsPath, searchPath.Info.IsDir(), opts.Glob)
+		if err != nil {
+			return nil, err
+		}
+		var found []SearchMatch
+		if isLikelyNodeType(query) {
+			found, err = runSGKindSearch(ctx, query, language, searchPath.Path.AbsPath, searchPath.Path.Root, opts.Glob)
+		} else {
+			found, err = runSGPatternSearch(ctx, query, language, searchPath.Path.AbsPath, searchPath.Path.Root, opts.Glob)
+		}
+		if err != nil {
+			return nil, err
+		}
+		results = append(results, found...)
 	}
-
-	return runSGPatternSearch(ctx, query, language, pathInfo.AbsPath, pathInfo.Root, opts.Glob)
+	return results, nil
 }
 
 func FilterAndCapSearchMatches(matches []SearchMatch, maxResults int) ([]SearchMatch, int, bool) {
@@ -167,6 +182,31 @@ func statSearchPath(root string, roots []string, rawPath string) (PathInfo, os.F
 		return PathInfo{}, nil, fmt.Errorf("path %q cannot be a symlink", pathInfo.DisplayPath)
 	}
 	return pathInfo, info, nil
+}
+
+type searchPathStat struct {
+	Path PathInfo
+	Info os.FileInfo
+}
+
+func statSearchPaths(root string, roots []string, rawPath string) ([]searchPathStat, error) {
+	pathInfo, info, err := statSearchPath(root, roots, rawPath)
+	if err == nil {
+		return []searchPathStat{{Path: pathInfo, Info: info}}, nil
+	}
+	fields := strings.Fields(rawPath)
+	if len(fields) <= 1 {
+		return nil, err
+	}
+	searchPaths := make([]searchPathStat, 0, len(fields))
+	for _, field := range fields {
+		pathInfo, info, fieldErr := statSearchPath(root, roots, field)
+		if fieldErr != nil {
+			return nil, fmt.Errorf("stat search path %q from %q: %w", field, rawPath, fieldErr)
+		}
+		searchPaths = append(searchPaths, searchPathStat{Path: pathInfo, Info: info})
+	}
+	return searchPaths, nil
 }
 
 func walkSearchEntry(

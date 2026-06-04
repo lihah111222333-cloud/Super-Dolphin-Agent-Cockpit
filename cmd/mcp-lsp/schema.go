@@ -71,7 +71,7 @@ var lspXrefSchema = objectSchema(map[string]schema{
 var lspGrepSchema = objectSchema(map[string]schema{
 	"action":         enumProp("Action", "text_search", "ast_search"),
 	"query":          stringProp("Search query"),
-	"path":           stringProp("Search root"),
+	"path":           stringProp("Search root; pass whitespace-separated paths to search multiple roots"),
 	"glob":           stringProp("Glob filter (text_search only)"),
 	"language":       stringProp("Language for AST"),
 	"regex":          booleanProp("Regex mode (default literal)"),
