@@ -371,6 +371,10 @@ function normalizeAttachmentInputItem(item) {
   return { type: 'mention', name: basename(path), path };
 }
 
+function hasAttachmentInputContent(attachments) {
+  return Array.isArray(attachments) && attachments.some((item) => normalizeAttachmentInputItem(item));
+}
+
 function normalizeTurnInput(input, attachments = []) {
   const extraItems = Array.isArray(attachments)
     ? attachments.map(normalizeAttachmentInputItem).filter(Boolean)
@@ -1079,6 +1083,9 @@ function stripThreadStartInternalKeys(rest) {
 function turnStartPayload(params) {
   const payload = requireThreadId(RPC_METHODS.TURN_START, requireCwd(RPC_METHODS.TURN_START, params));
   const { input, attachments, ...rest } = payload;
+  if (normalizeString(rest.prompt) && hasAttachmentInputContent(attachments)) {
+    throw new Error(`${RPC_METHODS.TURN_START}: prompt and attachments cannot both contain content`);
+  }
   return { ...rest, ...normalizeTurnInput(input, attachments) };
 }
 
