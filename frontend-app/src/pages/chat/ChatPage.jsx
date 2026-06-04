@@ -4722,11 +4722,11 @@ function useComposerTransferHandlers({ attachDroppedFiles, attachPaths, canUsePr
     resetDropState();
     if (projectActionBlocked) return;
     const files = collectTransferFiles(event);
+    const paths = extractTransferFilePaths(event);
     if (files.length > 0) {
       const attachedCount = await attachDroppedFiles(files);
-      if (attachedCount > 0) return;
+      if (attachedCount > 0 && paths.length === 0) return;
     }
-    const paths = extractTransferFilePaths(event);
     if (paths.length > 0 && typeof attachPaths === 'function') attachPaths(paths);
   };
   return { handleDragEnter, handleDragLeave, handleDragOver, handleDrop, handlePaste };
