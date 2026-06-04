@@ -639,6 +639,7 @@ function useWorkflowPageController({ projectPath, refreshKey, store }) {
 function useWorkflowListQuery(workflowCwd) {
   const queryClient = useQueryClient();
   const [workflowSyncFailure, setWorkflowSyncFailure] = useState('');
+  const workflowSyncFailureDataUpdatedAtRef = useRef(0);
   const dagsQuery = useQuery({
     queryKey: dashboardQueryKey(workflowCwd, 'dags'),
     queryFn: () => fetchDagsDashboard(workflowCwd),
@@ -648,6 +649,11 @@ function useWorkflowListQuery(workflowCwd) {
   const items = useMemo(() => (Array.isArray(dagsQuery.data) ? dagsQuery.data : []), [dagsQuery.data]);
   const loading = Boolean(workflowCwd) && dagsQuery.isPending && !hasSnapshot;
   const errorState = dashboardQueryErrorState(dagsQuery, hasSnapshot);
+  useEffect(() => {
+    if (workflowSyncFailure && dagsQuery.dataUpdatedAt > workflowSyncFailureDataUpdatedAtRef.current) {
+      setWorkflowSyncFailure('');
+    }
+  }, [dagsQuery.dataUpdatedAt, workflowSyncFailure]);
   const refreshDags = useCallback(async () => {
     if (!workflowCwd) return [];
     const key = dashboardQueryKey(workflowCwd, 'dags');
@@ -655,6 +661,7 @@ function useWorkflowListQuery(workflowCwd) {
       await queryClient.invalidateQueries({ queryKey: key }, { throwOnError: true });
       setWorkflowSyncFailure('');
     } catch (err) {
+      workflowSyncFailureDataUpdatedAtRef.current = queryClient.getQueryState(key)?.dataUpdatedAt || 0;
       setWorkflowSyncFailure('同步失败，显示的是上次成功的数据：' + errorMessage(err));
     }
     return queryClient.getQueryData(key) || [];
