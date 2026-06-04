@@ -18,7 +18,7 @@ For the full local desktop setup, run this from the repository root:
 ./run-new-ui-desktop.sh
 ```
 
-The script starts this app's Vite server, then launches `cmd/agent-terminal`
-with `VITE_DEV_URL` so the Wails desktop host proxies to `frontend-app`.
+The script starts this app's Vite server, waits for it to become ready, then launches `cmd/agent-terminal`
+with `FRONTEND_DEVSERVER_URL` so the Wails desktop host proxies to `frontend-app`.
 
 The design follows the provided dark macOS-style screenshots: title bar, narrow left navigation, dense black workspace, chat thread rail, runtime log panel, capability pages, workflow pages, skill cards, shared files, memory center, and settings.
