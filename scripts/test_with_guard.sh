@@ -8,10 +8,12 @@ usage() {
   cat <<'USAGE'
 Usage:
   scripts/test_with_guard.sh [go test args...]
+  scripts/test_with_guard.sh <file.go> [more.go...]
   scripts/test_with_guard.sh --guard-only
   scripts/test_with_guard.sh --help
 
 Examples:
+  scripts/test_with_guard.sh internal/app/app.go
   scripts/test_with_guard.sh ./internal/provider/claudecli/... -count=1
   scripts/test_with_guard.sh -run TestFoo ./internal/module/thread/...
   scripts/test_with_guard.sh --guard-only
@@ -34,6 +36,42 @@ run_go_test() {
   (
     cd "$ROOT_DIR"
     "$real_go" test "$@"
+  )
+}
+
+all_args_are_go_files() {
+  local arg
+  for arg in "$@"; do
+    [[ "$arg" == *.go ]] || return 1
+  done
+  return 0
+}
+
+run_single_file_guard() {
+  local real_go="$1"
+  shift
+  local -a go_files=()
+  local arg
+  for arg in "$@"; do
+    case "$arg" in
+      /*) go_files+=("$arg") ;;
+      *) go_files+=("$PWD/$arg") ;;
+    esac
+  done
+
+  (
+    cd "$ROOT_DIR"
+    local stderr status
+    stderr="$(mktemp)"
+    set +e
+    "$real_go" run ./scripts/code_size_guard.go -- "${go_files[@]}" 2>"$stderr"
+    status=$?
+    set -e
+    if [ "$status" -ne 0 ]; then
+      grep -v -E '^exit status [0-9]+$' "$stderr" >&2 || true
+    fi
+    rm -f "$stderr"
+    exit "$status"
   )
 }
 
@@ -71,6 +109,10 @@ main() {
       local real_go
       if ! real_go="$(resolve_real_go)"; then
         exit 1
+      fi
+      if all_args_are_go_files "$@"; then
+        run_single_file_guard "$real_go" "$@"
+        return
       fi
       run_guard "$real_go"
       run_go_test "$real_go" "$@"
