@@ -1136,9 +1136,6 @@ function PromptSavedActions({ item, active, actioning, fallbackMode, onEdit, onC
         {actioning === `copy:${item.id}` ? '复制中...' : '复制'}
       </button>
       <PromptForceAction item={item} active={active} actioning={actioning} onSetLaunch={onSetLaunch} onClearLaunch={onClearLaunch} />
-      <button type="button" className="ghost danger" disabled={fallbackMode || actioning === `delete:${item.id}`} onClick={() => onDelete(item)}>
-        {actioning === `delete:${item.id}` ? '删除中...' : '删除'}
-      </button>
     </>
   );
 }
@@ -1509,7 +1506,6 @@ function PromptEditorModal({ cwd, fallbackMode, form, notice, saving, onChange, 
             </div>
           </details>
         ) : null}
-        <PromptSectionsPanel key={`${cwd || ''}:${form.id || ''}:${form.scope || ''}`} cwd={cwd} promptId={form.id} promptScope={form.scope} fallbackMode={fallbackMode} />
         {notice ? <div className="prompt-notice">{notice}</div> : null}
         <footer>
           <button type="button" className="ghost" onClick={onClose} disabled={saving}>取消</button>

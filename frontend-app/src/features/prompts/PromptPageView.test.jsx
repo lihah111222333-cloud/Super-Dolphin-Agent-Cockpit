@@ -201,7 +201,6 @@ describe('PromptPageView backend wiring', () => {
     expect(screen.getByText(/只读模式/)).toBeInTheDocument();
     expect(backend.getDashboardPrompts).toHaveBeenCalledWith({ cwd: '/repo/app' });
     expect(screen.getByRole('button', { name: '查看' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: '删除' })).toBeDisabled();
   });
 
   it('copies saved prompt content after reading the complete prompt body', async () => {
@@ -251,40 +250,14 @@ describe('PromptPageView backend wiring', () => {
     delete window.__SUPER_DOLPHIN_PROMPT_DEBUG__;
   });
 
-  it('loads, writes, and deletes prompt sections from the prompt editor', async () => {
-    backend.listPromptSections.mockResolvedValueOnce({
-      sections: [{ section_key: 'identity', body: '保持审查口吻', trigger_type: 'always', region: 'dynamic', ordinal: 1 }],
-    }).mockResolvedValue({ sections: [] });
-
+  it('does not render the sections panel in the prompt editor', async () => {
     renderPromptPage();
     fireEvent.click(await screen.findByRole('button', { name: '编辑' }));
 
-    expect(await screen.findByText('提示词分段')).toBeInTheDocument();
-    expect(await screen.findByText('identity')).toBeInTheDocument();
-    expect(backend.listPromptSections).toHaveBeenCalledWith({ cwd: '/repo/app', prompt_id: 'main/reviewer' });
-
-    fireEvent.click(screen.getByRole('button', { name: '新增分段' }));
-    fireEvent.change(screen.getByLabelText('段名（section_key）'), { target: { value: 'workflow' } });
-    fireEvent.change(screen.getByLabelText('内容（body）'), { target: { value: '先列阻塞问题' } });
-    fireEvent.click(screen.getByRole('button', { name: '保存分段' }));
-    await waitFor(() => {
-      expect(backend.writePromptSection).toHaveBeenCalledWith(expect.objectContaining({
-        cwd: '/repo/app',
-        prompt_id: 'main/reviewer',
-        section_key: 'workflow',
-        body: '先列阻塞问题',
-      }));
-    });
-
-    fireEvent.click(screen.getByRole('button', { name: '删除分段 identity' }));
-    await waitFor(() => {
-      expect(backend.deletePromptSection).toHaveBeenCalledWith({
-        cwd: '/repo/app',
-        prompt_id: 'main/reviewer',
-        section_key: 'identity',
-        scope: 'project',
-      });
-    });
+    const editor = await screen.findByRole('dialog', { name: '编辑提示词' });
+    expect(within(editor).queryByText('提示词分段')).not.toBeInTheDocument();
+    expect(within(editor).getByLabelText('AI 使用时怎么做')).toBeInTheDocument();
+    expect(backend.listPromptSections).not.toHaveBeenCalled();
   });
 
   it('runs prompt intent dry-run from the confirmation wizard without exposing routing internals', async () => {
