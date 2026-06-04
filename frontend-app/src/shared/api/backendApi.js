@@ -377,6 +377,9 @@ function normalizeTurnInput(input, attachments = []) {
     : [];
 
   if (Array.isArray(input)) {
+    if (input.length > 0 && extraItems.length > 0) {
+      throw new Error(`${RPC_METHODS.TURN_START}: input and attachments cannot both contain content`);
+    }
     if (input.length === 0 && extraItems.length === 0) {
       throw new Error(`${RPC_METHODS.TURN_START}: input is required`);
     }
@@ -384,6 +387,9 @@ function normalizeTurnInput(input, attachments = []) {
   }
 
   const text = normalizeString(input);
+  if (text && extraItems.length > 0) {
+    throw new Error(`${RPC_METHODS.TURN_START}: input and attachments cannot both contain content`);
+  }
   if (!text && extraItems.length === 0) {
     throw new Error(`${RPC_METHODS.TURN_START}: input is required`);
   }

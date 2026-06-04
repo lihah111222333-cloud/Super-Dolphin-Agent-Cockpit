@@ -1057,6 +1057,8 @@ function registerBridgeEventHandlersForTest() {
       ],
       manualSkillSelection: false,
     });
+    const turnPayload = backend.startTurn.mock.calls[0][0];
+    expect(turnPayload).not.toHaveProperty('attachments');
 
     const timeline = useClientStore.getState().timelinesByThread['thread-new'];
     expect(timeline).toEqual([
