@@ -50,25 +50,32 @@ func ResolveFromEnvironment(projectRoot string) (contract.EmbeddedPostgresConfig
 func ResolveConfig(input ResolveInput) (contract.EmbeddedPostgresConfig, string) {
 	goos := firstNonEmpty(input.GOOS, runtime.GOOS)
 	goarch := firstNonEmpty(input.GOARCH, runtime.GOARCH)
-	packagedRuntime, packaged := runtimeenv.PackagedRuntimeFromExecutable(input.ExecutablePath, input.UserHome)
-	if databaseURL := firstEnv(input.Env, "DATABASE_URL", "POSTGRES_CONNECTION_STRING"); databaseURL != "" {
+	env := input.Env
+	if env == nil {
+		env = map[string]string{}
+	}
+	if databaseURL := firstEnv(env, "DATABASE_URL", "POSTGRES_CONNECTION_STRING"); databaseURL != "" {
 		return contract.EmbeddedPostgresConfig{}, databaseURL
 	}
-	if isSidecar(input.Env) || (!packaged && !embeddedPostgresRequested(input.Env)) {
+	if isSidecar(env) {
 		return contract.EmbeddedPostgresConfig{}, ""
 	}
-	base, resolveErr := appDataRoot(goos, input.Env, input.UserHome)
-	if packaged && strings.TrimSpace(input.Env[EnvHome]) == "" {
+	packagedRuntime, packaged := resolveInputPackagedRuntime(input, env, goos, goarch)
+	if !packaged && !embeddedPostgresRequested(env) {
+		return contract.EmbeddedPostgresConfig{}, ""
+	}
+	base, resolveErr := appDataRoot(goos, env, input.UserHome)
+	if packaged && strings.TrimSpace(env[EnvHome]) == "" {
 		base = packagedRuntime.AppDataDir
 	}
-	port, portErr := resolvePort(input.Env)
+	port, portErr := resolvePort(env)
 	resolveErr = joinResolveErrors(resolveErr, portErr)
 	binDir := resolveBinDir(input, goos, goarch, packagedRuntime, packaged)
 	cfg := contract.EmbeddedPostgresConfig{
 		Enabled:      true,
-		Owner:        resolveOwner(input.Env),
+		Owner:        resolveOwner(env),
 		BinDir:       binDir,
-		ShareDir:     resolveShareDir(input.Env, binDir),
+		ShareDir:     resolveShareDir(env, binDir),
 		DataDir:      filepath.Join(base, "postgres", "data"),
 		RuntimeDir:   resolveRuntimeDir(base, goos, packaged, port),
 		LogPath:      filepath.Join(base, "logs", "postgres.log"),
@@ -78,6 +85,20 @@ func ResolveConfig(input ResolveInput) (contract.EmbeddedPostgresConfig, string)
 		ResolveError: resolveErr,
 	}
 	return cfg, databaseURLFor(cfg)
+}
+
+func resolveInputPackagedRuntime(input ResolveInput, env map[string]string, goos, goarch string) (runtimeenv.PackagedRuntime, bool) {
+	resolved, err := runtimeenv.ResolveRuntime(runtimeenv.RuntimeResolveInput{
+		GOOS:           goos,
+		GOARCH:         goarch,
+		Env:            env,
+		ExecutablePath: input.ExecutablePath,
+		UserHome:       input.UserHome,
+	})
+	if err != nil || resolved.RuntimeMode != runtimeenv.RuntimeModePackaged || resolved.PackagedRuntime == nil {
+		return runtimeenv.PackagedRuntime{}, false
+	}
+	return *resolved.PackagedRuntime, true
 }
 
 func resolveRuntimeDir(base, goos string, packaged bool, port int) string {
