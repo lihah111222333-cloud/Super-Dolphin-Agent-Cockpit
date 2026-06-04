@@ -3,6 +3,7 @@ package rpc
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"maps"
 	"net"
 	"os"
@@ -32,6 +33,7 @@ type Server struct {
 
 	mu         sync.RWMutex
 	active     map[*jrpc2.Server]string
+	activeUIWS int
 	onConnects []func(*jrpc2.Server)
 }
 
@@ -478,6 +480,30 @@ func (s *Server) removeActive(srv *jrpc2.Server) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	delete(s.active, srv)
+}
+
+func (s *Server) reserveUIWebSocketSlot() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.activeUIWS >= wailsWSMaxActiveConnections {
+		return fmt.Errorf(
+			"wails websocket connection limit reached: max %d active UI websocket connections",
+			wailsWSMaxActiveConnections,
+		)
+	}
+	s.activeUIWS++
+	return nil
+}
+
+func (s *Server) releaseUIWebSocketSlot() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.activeUIWS <= 0 {
+		panic("rpc UI websocket slot released without a reservation")
+	}
+	s.activeUIWS--
 }
 
 func (s *Server) OnConnect(fn func(*jrpc2.Server)) {
