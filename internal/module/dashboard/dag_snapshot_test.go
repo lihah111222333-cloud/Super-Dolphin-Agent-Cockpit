@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -35,6 +36,69 @@ func TestGetDashboardPageDAGsUsesSnapshotQueriesWithoutOrchPeer(t *testing.T) {
 	}
 	if orchestration.listDAGsFilter.Limit != 0 || len(orchestration.listRunsRequests) != 0 {
 		t.Fatalf("orchestration should not be called, list filter=%#v runs=%#v", orchestration.listDAGsFilter, orchestration.listRunsRequests)
+	}
+}
+
+func TestGetDashboardPageDAGsBatchesLatestRunsFromSnapshot(t *testing.T) {
+	t.Parallel()
+
+	now := time.Date(2026, 6, 4, 9, 0, 0, 0, time.UTC)
+	db := &stubDashboardQueryStore{responses: []stubDashboardQueryResponse{
+		{
+			contains: []string{"FROM task_dags", "ORDER BY updated_at"},
+			rows: []map[string]any{
+				dashboardDAGRowWithKey(now, "dag-a"),
+				dashboardDAGRowWithKey(now, "dag-b"),
+				dashboardDAGRowWithKey(now, "dag-c"),
+			},
+		},
+		{
+			contains: []string{"FROM task_dag_runs", "ROW_NUMBER() OVER", "ANY($1::text[])"},
+			rows: []map[string]any{
+				dashboardRunRowWithKey(now, "dag-b", "run-b", []byte(`{"final_output":{"kind":"file","path":"reports/b.md"}}`)),
+				dashboardRunRowWithKey(now, "dag-a", "run-a", []byte(`{}`)),
+			},
+		},
+	}}
+	orchestration := &stubDashboardOrchestration{listDAGsErr: errDashboardStub, listRunsErr: errDashboardStub}
+	svc := &service{dbQueries: db, dagRuntime: orchestration}
+
+	got, err := svc.GetDashboardPage(context.Background(), "dags")
+	if err != nil {
+		t.Fatalf("GetDashboardPage(dags) error = %v", err)
+	}
+	requireSnapshotDashboardDAGOrder(t, got, []string{"dag-a", "dag-b", "dag-c"})
+	requireSnapshotLatestRun(t, got.DAGs[0], "run-a", false)
+	requireSnapshotLatestRun(t, got.DAGs[1], "run-b", true)
+	if got.DAGs[2].LatestRun != nil || got.DAGs[2].HasFinalOutput {
+		t.Fatalf("dag-c latest run = %#v final=%v, want no run and no final output", got.DAGs[2].LatestRun, got.DAGs[2].HasFinalOutput)
+	}
+	if len(db.calls) != 2 {
+		t.Fatalf("snapshot query calls = %#v, want list DAGs + single batch latest-runs query", db.calls)
+	}
+	if gotArgs, ok := db.calls[1].args[0].([]string); !ok || strings.Join(gotArgs, ",") != "dag-a,dag-b,dag-c" {
+		t.Fatalf("latest-runs batch dag keys arg = %#v, want dag-a,dag-b,dag-c", db.calls[1].args)
+	}
+	if len(orchestration.listRunsRequests) != 0 {
+		t.Fatalf("orchestration ListRuns should not be called, got %#v", orchestration.listRunsRequests)
+	}
+}
+
+func TestLatestRunsByDAGSnapshotQueryPassesDBQueryValidation(t *testing.T) {
+	t.Parallel()
+
+	db := &queryDBTXStub{}
+	svc := &service{dbQueries: dbquery.NewQueryStore(db, time.Second)}
+
+	got, err := svc.listLatestDAGRunsByDAGFromSnapshot(context.Background(), []string{"dag-a", "dag-b"})
+	if err != nil {
+		t.Fatalf("listLatestDAGRunsByDAGFromSnapshot() error = %v", err)
+	}
+	if len(got) != 0 {
+		t.Fatalf("listLatestDAGRunsByDAGFromSnapshot() = %#v, want no rows", got)
+	}
+	if gotArgs, ok := db.args[0].([]string); !ok || strings.Join(gotArgs, ",") != "dag-a,dag-b" {
+		t.Fatalf("query args = %#v, want dag-a,dag-b text array arg", db.args)
 	}
 }
 
@@ -105,6 +169,7 @@ func newDashboardSnapshotServiceForTest(now time.Time) (*service, *stubDashboard
 }
 
 type stubDashboardQueryStore struct {
+	mu        sync.Mutex
 	responses []stubDashboardQueryResponse
 	calls     []stubDashboardQueryCall
 }
@@ -121,6 +186,9 @@ type stubDashboardQueryCall struct {
 }
 
 func (s *stubDashboardQueryStore) Query(_ context.Context, query string, args ...any) ([]map[string]any, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	s.calls = append(s.calls, stubDashboardQueryCall{query: query, args: append([]any(nil), args...)})
 	for _, response := range s.responses {
 		if dashboardQueryContainsAll(query, response.contains) {
@@ -155,6 +223,28 @@ func cloneDashboardQueryRows(rows []map[string]any) []map[string]any {
 	return out
 }
 
+func requireSnapshotDashboardDAGOrder(t *testing.T, got *DashboardPage, want []string) {
+	t.Helper()
+	if got == nil || len(got.DAGs) != len(want) {
+		t.Fatalf("GetDashboardPage(dags).DAGs = %#v, want %d rows", got, len(want))
+	}
+	for index, wantKey := range want {
+		if got.DAGs[index].DagKey != wantKey {
+			t.Fatalf("DAG row %d key = %q, want %q in order %#v", index, got.DAGs[index].DagKey, wantKey, want)
+		}
+	}
+}
+
+func requireSnapshotLatestRun(t *testing.T, got DashboardDAG, wantRun string, wantFinal bool) {
+	t.Helper()
+	if got.LatestRun == nil || got.LatestRun.RunKey != wantRun {
+		t.Fatalf("DAG %q latest run = %#v, want %q", got.DagKey, got.LatestRun, wantRun)
+	}
+	if got.HasFinalOutput != wantFinal {
+		t.Fatalf("DAG %q HasFinalOutput = %v, want %v", got.DagKey, got.HasFinalOutput, wantFinal)
+	}
+}
+
 func dashboardDAGRow(now time.Time) map[string]any {
 	return map[string]any{
 		"id":          int64(11),
@@ -175,6 +265,13 @@ func dashboardDAGRow(now time.Time) map[string]any {
 	}
 }
 
+func dashboardDAGRowWithKey(now time.Time, dagKey string) map[string]any {
+	row := dashboardDAGRow(now)
+	row["dag_key"] = dagKey
+	row["title"] = strings.ToUpper(dagKey)
+	return row
+}
+
 func dashboardRunRow(now time.Time) map[string]any {
 	return map[string]any{
 		"id":                   int64(7),
@@ -192,6 +289,14 @@ func dashboardRunRow(now time.Time) map[string]any {
 		"created_at":           now.Add(-time.Minute),
 		"updated_at":           now,
 	}
+}
+
+func dashboardRunRowWithKey(now time.Time, dagKey, runKey string, metadata []byte) map[string]any {
+	row := dashboardRunRow(now)
+	row["run_key"] = runKey
+	row["dag_key"] = dagKey
+	row["metadata"] = metadata
+	return row
 }
 
 func dashboardNodeRow(now time.Time, runID *int64) map[string]any {
