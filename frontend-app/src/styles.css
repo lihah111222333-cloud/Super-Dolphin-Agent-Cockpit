@@ -1036,14 +1036,17 @@ select {
   height: 22px;
   display: inline-grid;
   place-items: center;
-  border: 1px solid var(--border-strong);
+  border: 0;
+  border-color: transparent;
   border-radius: 6px;
-  background: var(--surface-2);
-  color: var(--text-sec);
+  background: transparent;
+  color: var(--text-muted);
+  padding: 0;
   opacity: 0;
   transition: opacity var(--transition), border-color var(--transition), background var(--transition), color var(--transition);
   z-index: 2;
   cursor: pointer;
+  box-shadow: none;
 }
 
 .thread-rename-trigger {
@@ -1056,29 +1059,36 @@ select {
   display: inline-grid;
   place-items: center;
   transform: none;
-  border: 1px solid var(--border-strong);
+  border: 0;
+  border-color: transparent;
   border-radius: 6px;
-  background: var(--surface-2);
-  color: var(--text-sec);
+  background: transparent;
+  color: var(--text-muted);
+  padding: 0;
   opacity: 0;
   transition: opacity var(--transition), border-color var(--transition), background var(--transition), color var(--transition);
+  outline: 0;
+  box-shadow: none;
 }
 
 .thread-rename-trigger:hover,
 .thread-rename-trigger:focus-visible {
   color: var(--text-pri);
-  border-color: var(--border-strong);
-  background: var(--surface-3);
+  border-color: transparent;
+  background: transparent;
+  outline: 0;
   opacity: 1;
+  box-shadow: none;
 }
 
 .thread-archive:hover,
 .thread-archive:focus-visible {
   color: var(--text-pri);
-  border-color: var(--border-strong);
-  background: var(--surface-3);
+  border-color: transparent;
+  background: transparent;
   outline: 0;
   opacity: 1;
+  box-shadow: none;
 }
 
 .thread-archive.active {
@@ -1117,9 +1127,10 @@ select {
   grid-column: 2;
   grid-row: 1;
   min-width: 0;
-  max-width: 78px;
+  width: max-content;
+  max-width: max-content;
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   align-items: center;
   align-content: center;
   justify-content: flex-end;
@@ -1129,8 +1140,11 @@ select {
 
 @container (max-width: 260px) {
   .thread-card-actions {
-    max-width: 22px;
-    flex-direction: column;
+    grid-column: 1 / -1;
+    grid-row: 2;
+    width: 100%;
+    max-width: 100%;
+    gap: 3px;
   }
 }
 
