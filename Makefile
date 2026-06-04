@@ -1,4 +1,4 @@
-.PHONY: build build-plain build-agent-terminal build-agent-terminal-plain frontend-deps frontend-build run run-plain dev-hot run-agent-terminal-debug run-agent-terminal-debug-plain build-peer-binaries package-macos package-linux test test-deferred vet clean guard guard-shell protocol-sync-check rpc-regression-check codemap-check codemap-refresh project-map-check project-map-refresh capcontract-check capcontract-refresh setup-cgo ui-cover-build ui-cover-run ui-cover-report app-cover-build app-cover-run app-cover-report log-audit p2-audit ida-test-all ida-test-heavy sqlc-generate sqlc-verify
+.PHONY: build build-plain build-agent-terminal build-agent-terminal-plain frontend-deps frontend-build frontend-app-deps frontend-app-build frontend-legacy-deps frontend-legacy-build run run-plain dev-hot run-agent-terminal-debug run-agent-terminal-debug-plain build-peer-binaries package-macos package-linux test test-deferred vet clean guard guard-shell protocol-sync-check rpc-regression-check codemap-check codemap-refresh project-map-check project-map-refresh capcontract-check capcontract-refresh setup-cgo ui-cover-build ui-cover-run ui-cover-report app-cover-build app-cover-run app-cover-report log-audit p2-audit ida-test-all ida-test-heavy sqlc-generate sqlc-verify
 
 # Auto-detect macOS version to avoid ld warnings about version mismatch.
 # Override with: make MIN_MACOS_VERSION=15.0 build
@@ -7,7 +7,8 @@ FRIDA_VERSION_FILE ?= build/frida-version.txt
 FRIDA_DEVKIT_VERSION ?= $(shell cat $(FRIDA_VERSION_FILE) 2>/dev/null)
 FRIDA_LDFLAGS ?= -X github.com/multi-agent/go-agent-v2/pkg/idamcp.defaultFridaVersion=$(FRIDA_DEVKIT_VERSION)
 AGENT_TERMINAL_DEBUG_PORT ?= 4501
-FRONTEND_DIR := cmd/agent-terminal/frontend
+FRONTEND_APP_DIR := frontend-app
+LEGACY_FRONTEND_DIR := cmd/agent-terminal/frontend
 
 # NOTE: Do NOT use 'export CGO_*FLAGS' here — it causes cache thrashing between
 #       make and IDE/terminal builds (Go caches key on CGO flags).
@@ -37,16 +38,34 @@ build-agent-terminal: frontend-build
 build-agent-terminal-plain: frontend-build
 	go build -o bin/agent-terminal ./cmd/agent-terminal
 
-frontend-deps:
-	cd $(FRONTEND_DIR) && \
+frontend-deps: frontend-app-deps
+
+frontend-build: frontend-app-build
+
+frontend-app-deps:
+	cd $(FRONTEND_APP_DIR) && \
 	if [ ! -d node_modules ] || [ package-lock.json -nt node_modules ] || [ package.json -nt node_modules ]; then \
 		npm ci; \
 	else \
-		echo "frontend dependencies are up to date"; \
+		echo "frontend-app dependencies are up to date"; \
 	fi
 
-frontend-build: frontend-deps
-	cd $(FRONTEND_DIR) && npm run build
+frontend-app-build: frontend-app-deps
+	cd $(FRONTEND_APP_DIR) && npm run build
+	test -f $(FRONTEND_APP_DIR)/dist/index.html
+	rsync -a --delete $(FRONTEND_APP_DIR)/dist/ $(LEGACY_FRONTEND_DIR)/dist/
+	test -f $(LEGACY_FRONTEND_DIR)/dist/index.html
+
+frontend-legacy-deps:
+	cd $(LEGACY_FRONTEND_DIR) && \
+	if [ ! -d node_modules ] || [ package-lock.json -nt node_modules ] || [ package.json -nt node_modules ]; then \
+		npm ci; \
+	else \
+		echo "legacy frontend dependencies are up to date"; \
+	fi
+
+frontend-legacy-build: frontend-legacy-deps
+	cd $(LEGACY_FRONTEND_DIR) && npm run build
 
 # 推荐用 ./run-debug.sh：会跑 npm install/build、pre-flight 守卫
 # 这两个 target 只覆盖最小启动路径，前端 dist 必须先 build 过，否则 UI 是空的。
