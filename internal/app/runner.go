@@ -207,6 +207,7 @@ func reportRuntimeExit(err error, p runtimeParams) {
 	if err == nil || errors.Is(err, context.Canceled) {
 		return
 	}
+	// 误判防护：reportRuntimeExit 将非预期 runtime 退出升级给 WailsLifecycle.NotifyBackendFailed。
 	p.Logger.Error("runtime exited", "error", err)
 	if p.Lifecycle != nil {
 		p.Lifecycle.NotifyBackendFailed()

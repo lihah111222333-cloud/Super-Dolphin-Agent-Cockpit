@@ -1,7 +1,9 @@
 package app
 
 import (
+	"bytes"
 	"os"
+	"os/exec"
 	"strings"
 	"testing"
 )
@@ -44,12 +46,13 @@ func TestNewUIDesktopScriptContract(t *testing.T) {
 	}
 }
 
-func TestNewUIDesktopScriptWaitsForBackendBeforeVite(t *testing.T) {
+func TestNewUIDesktopScriptWaitsForFrontendBeforeBackend(t *testing.T) {
 	text := readRootScript(t, "../../run-new-ui-desktop.sh")
 
 	required := []string{
 		`SUPER_DOLPHIN_BACKEND_LOG="${SUPER_DOLPHIN_BACKEND_LOG:-$PROJECT_DIR/.tmp/run-new-ui-desktop/backend.log}"`,
 		`SUPER_DOLPHIN_FRONTEND_LOG="${SUPER_DOLPHIN_FRONTEND_LOG:-$PROJECT_DIR/.tmp/run-new-ui-desktop/frontend.log}"`,
+		`: >"$SUPER_DOLPHIN_FRONTEND_LOG"`,
 		`wait_for_backend`,
 		`http://${SUPER_DOLPHIN_HTTP_ADDR}/metrics`,
 		`process_exited "$DESKTOP_PID"`,
@@ -66,9 +69,85 @@ func TestNewUIDesktopScriptWaitsForBackendBeforeVite(t *testing.T) {
 			t.Fatalf("run-new-ui-desktop.sh missing %q", want)
 		}
 	}
-	assertTextOrder(t, text, "\nstart_desktop_backend\nwait_for_backend\n", `(cd "$FRONTEND_APP_DIR" && npm run dev -- --host "$VITE_DEV_HOST" --port "$VITE_DEV_PORT" --strictPort >"$SUPER_DOLPHIN_FRONTEND_LOG" 2>&1) &`)
-	assertTextOrder(t, text, "\nwait_for_backend\nseed_dev_preferences\n\n", `(cd "$FRONTEND_APP_DIR" && npm run dev -- --host "$VITE_DEV_HOST" --port "$VITE_DEV_PORT" --strictPort >"$SUPER_DOLPHIN_FRONTEND_LOG" 2>&1) &`)
-	assertTextOrder(t, text, `wait_for_http "$VITE_DEV_URL" "frontend-app vite"`, "\n  wait_for_any_process_exit\n")
+	assertTextOrder(t, text, `: >"$SUPER_DOLPHIN_FRONTEND_LOG"`, `(cd "$FRONTEND_APP_DIR" && npm run dev -- --host "$VITE_DEV_HOST" --port "$VITE_DEV_PORT" --strictPort >"$SUPER_DOLPHIN_FRONTEND_LOG" 2>&1) &`)
+	assertTextOrder(t, text, `(cd "$FRONTEND_APP_DIR" && npm run dev -- --host "$VITE_DEV_HOST" --port "$VITE_DEV_PORT" --strictPort >"$SUPER_DOLPHIN_FRONTEND_LOG" 2>&1) &`, `wait_for_http "$FRONTEND_DEVSERVER_URL" "frontend-app vite"`)
+	assertTextOrder(t, text, `wait_for_http "$FRONTEND_DEVSERVER_URL" "frontend-app vite"`, "\nstart_desktop_backend\n")
+	assertTextOrder(t, text, "\nstart_desktop_backend\nwait_for_backend\nseed_dev_preferences\n", "\n  wait_for_any_process_exit\n")
+	if strings.Contains(text, "\nstart_desktop_backend\nwait_for_backend\nseed_dev_preferences\n\n(cd \"$FRONTEND_APP_DIR\"") {
+		t.Fatal("run-new-ui-desktop.sh must not launch the desktop backend before Vite is ready")
+	}
+	if strings.Contains(text, `wait_for_http "$VITE_DEV_URL" "frontend-app vite"`) {
+		t.Fatal("run-new-ui-desktop.sh must wait for FRONTEND_DEVSERVER_URL, the URL Wails actually uses")
+	}
+}
+
+func TestNewUIDesktopScriptRejectsDivergentFrontendDevURLs(t *testing.T) {
+	text := readRootScript(t, "../../run-new-ui-desktop.sh")
+
+	required := []string{
+		`FRONTEND_DEVSERVER_URL="${FRONTEND_DEVSERVER_URL:-$VITE_DEV_URL}"`,
+		`if [ "$FRONTEND_DEVSERVER_URL" != "$VITE_DEV_URL" ]; then`,
+		`FRONTEND_DEVSERVER_URL must match VITE_DEV_URL`,
+		`wait_for_http "$FRONTEND_DEVSERVER_URL" "frontend-app vite"`,
+	}
+	for _, want := range required {
+		if !strings.Contains(text, want) {
+			t.Fatalf("run-new-ui-desktop.sh missing %q", want)
+		}
+	}
+	assertTextOrder(t, text, `if [ "$FRONTEND_DEVSERVER_URL" != "$VITE_DEV_URL" ]; then`, `stop_stale_vite_for_port "$VITE_DEV_PORT"`)
+}
+
+func TestNewUIDesktopScriptUsesValidatedConfigurableReadinessWindows(t *testing.T) {
+	text := readRootScript(t, "../../run-new-ui-desktop.sh")
+
+	required := []string{
+		`SUPER_DOLPHIN_FRONTEND_READY_ATTEMPTS="${SUPER_DOLPHIN_FRONTEND_READY_ATTEMPTS:-300}"`,
+		`SUPER_DOLPHIN_BACKEND_READY_ATTEMPTS="${SUPER_DOLPHIN_BACKEND_READY_ATTEMPTS:-300}"`,
+		`SUPER_DOLPHIN_READY_POLL_INTERVAL_SECONDS="${SUPER_DOLPHIN_READY_POLL_INTERVAL_SECONDS:-0.2}"`,
+		`require_positive_integer "SUPER_DOLPHIN_FRONTEND_READY_ATTEMPTS" "$SUPER_DOLPHIN_FRONTEND_READY_ATTEMPTS"`,
+		`require_positive_integer "SUPER_DOLPHIN_BACKEND_READY_ATTEMPTS" "$SUPER_DOLPHIN_BACKEND_READY_ATTEMPTS"`,
+		`require_positive_number "SUPER_DOLPHIN_READY_POLL_INTERVAL_SECONDS" "$SUPER_DOLPHIN_READY_POLL_INTERVAL_SECONDS"`,
+		`for _ in $(seq 1 "$attempts"); do`,
+		`sleep "$SUPER_DOLPHIN_READY_POLL_INTERVAL_SECONDS"`,
+		`wait_for_http "$FRONTEND_DEVSERVER_URL" "frontend-app vite" "$SUPER_DOLPHIN_FRONTEND_READY_ATTEMPTS"`,
+	}
+	for _, want := range required {
+		if !strings.Contains(text, want) {
+			t.Fatalf("run-new-ui-desktop.sh missing %q", want)
+		}
+	}
+	if strings.Contains(text, "for _ in $(seq 1 100); do") {
+		t.Fatal("run-new-ui-desktop.sh must not use fixed readiness attempt windows")
+	}
+}
+
+func TestNewUIDesktopScriptPrintsLogTailAfterNonZeroWait(t *testing.T) {
+	text := readRootScript(t, "../../run-new-ui-desktop.sh")
+
+	required := []string{
+		`capture_wait_status()`,
+		`set +e`,
+		`WAIT_STATUS="$?"`,
+		`set -e`,
+		`capture_wait_status "$DESKTOP_PID"`,
+		`capture_wait_status "$VITE_PID"`,
+		`print_backend_log_tail`,
+		`print_frontend_log_tail`,
+	}
+	for _, want := range required {
+		if !strings.Contains(text, want) {
+			t.Fatalf("run-new-ui-desktop.sh missing %q", want)
+		}
+	}
+	if strings.Contains(text, "wait \"$DESKTOP_PID\"\n      status=\"$?\"") ||
+		strings.Contains(text, "wait \"$VITE_PID\"\n      status=\"$?\"") ||
+		strings.Contains(text, "wait \"$DESKTOP_PID\"\n      local status=\"$?\"") ||
+		strings.Contains(text, "wait \"$VITE_PID\"\n      local status=\"$?\"") {
+		t.Fatal("run-new-ui-desktop.sh must capture wait status before set -e can skip log tail printing")
+	}
+	assertTextOrderAfter(t, text, `if [ -n "${DESKTOP_PID:-}" ] && process_exited "$DESKTOP_PID"; then`, `capture_wait_status "$DESKTOP_PID"`, `print_backend_log_tail`)
+	assertTextOrderAfter(t, text, `if [ -n "${VITE_PID:-}" ] && process_exited "$VITE_PID"; then`, `capture_wait_status "$VITE_PID"`, `print_frontend_log_tail`)
 }
 
 func TestNewUIDesktopScriptReportsFrontendReadinessFailures(t *testing.T) {
@@ -77,10 +156,10 @@ func TestNewUIDesktopScriptReportsFrontendReadinessFailures(t *testing.T) {
 	required := []string{
 		`if [ "$label" = "frontend-app vite" ]; then`,
 		`echo "❌ $label exited before readiness: $url" >&2`,
-		`wait "$VITE_PID" || true`,
+		`capture_wait_status "$VITE_PID"`,
 		`print_frontend_log_tail`,
 		`echo "❌ desktop backend exited before $label readiness: $url" >&2`,
-		`wait "$DESKTOP_PID" || true`,
+		`capture_wait_status "$DESKTOP_PID"`,
 		`print_backend_log_tail`,
 		`ENOSPC: System limit for number of file watchers reached`,
 		`frontend watcher limit hit`,
@@ -98,12 +177,12 @@ func TestNewUIDesktopScriptEnablesFrontendPollingWatchByDefault(t *testing.T) {
 	text := readRootScript(t, "../../run-new-ui-desktop.sh")
 
 	required := []string{
-		`frontend_watch_polling_enabled()`,
+		`parse_frontend_watch_bool()`,
+		`resolve_frontend_watch_polling()`,
 		`configure_frontend_watch_mode()`,
-		`SUPER_DOLPHIN_VITE_USE_POLLING="${SUPER_DOLPHIN_VITE_USE_POLLING:-1}"`,
 		`export SUPER_DOLPHIN_VITE_USE_POLLING`,
-		`export CHOKIDAR_USEPOLLING="${CHOKIDAR_USEPOLLING:-1}"`,
-		`FRONTEND_WATCH_MODE="polling (CHOKIDAR_USEPOLLING=$CHOKIDAR_USEPOLLING)"`,
+		`export CHOKIDAR_USEPOLLING`,
+		`FRONTEND_WATCH_MODE="polling (SUPER_DOLPHIN_VITE_USE_POLLING=$SUPER_DOLPHIN_VITE_USE_POLLING, CHOKIDAR_USEPOLLING=$CHOKIDAR_USEPOLLING)"`,
 		`configure_frontend_watch_mode`,
 		`frontend watch: $FRONTEND_WATCH_MODE`,
 	}
@@ -112,7 +191,69 @@ func TestNewUIDesktopScriptEnablesFrontendPollingWatchByDefault(t *testing.T) {
 			t.Fatalf("run-new-ui-desktop.sh missing %q", want)
 		}
 	}
-	assertTextOrder(t, text, "ensure_peer_binaries\nconfigure_frontend_watch_mode", `(cd "$FRONTEND_APP_DIR" && npm run dev -- --host "$VITE_DEV_HOST" --port "$VITE_DEV_PORT" --strictPort >"$SUPER_DOLPHIN_FRONTEND_LOG" 2>&1) &`)
+	assertTextOrder(t, text, "\nconfigure_frontend_watch_mode\nmkdir -p", `ensure_node_deps "$FRONTEND_APP_DIR"`)
+	assertTextOrder(t, text, "\nconfigure_frontend_watch_mode\n", `(cd "$FRONTEND_APP_DIR" && npm run dev -- --host "$VITE_DEV_HOST" --port "$VITE_DEV_PORT" --strictPort >"$SUPER_DOLPHIN_FRONTEND_LOG" 2>&1) &`)
+}
+
+func TestNewUIDesktopScriptFrontendWatchModeBooleanParsing(t *testing.T) {
+	tests := []struct {
+		name       string
+		env        map[string]string
+		wantStatus int
+		wantStdout string
+		wantStderr string
+	}{
+		{
+			name:       "default polling",
+			wantStatus: 0,
+			wantStdout: "1|1|polling (SUPER_DOLPHIN_VITE_USE_POLLING=1, CHOKIDAR_USEPOLLING=1)",
+		},
+		{
+			name:       "explicit super dolphin disables polling",
+			env:        map[string]string{"SUPER_DOLPHIN_VITE_USE_POLLING": "0"},
+			wantStatus: 0,
+			wantStdout: "0|0|native fs events (SUPER_DOLPHIN_VITE_USE_POLLING=0, CHOKIDAR_USEPOLLING=0)",
+		},
+		{
+			name:       "explicit chokidar disables polling",
+			env:        map[string]string{"CHOKIDAR_USEPOLLING": "false"},
+			wantStatus: 0,
+			wantStdout: "0|0|native fs events (SUPER_DOLPHIN_VITE_USE_POLLING=0, CHOKIDAR_USEPOLLING=0)",
+		},
+		{
+			name:       "invalid super dolphin boolean fails fast",
+			env:        map[string]string{"SUPER_DOLPHIN_VITE_USE_POLLING": "sometimes"},
+			wantStatus: 1,
+			wantStderr: "SUPER_DOLPHIN_VITE_USE_POLLING must be a boolean",
+		},
+		{
+			name:       "invalid chokidar boolean fails fast",
+			env:        map[string]string{"CHOKIDAR_USEPOLLING": "sometimes"},
+			wantStatus: 1,
+			wantStderr: "CHOKIDAR_USEPOLLING must be a boolean",
+		},
+		{
+			name:       "conflicting booleans fail fast",
+			env:        map[string]string{"SUPER_DOLPHIN_VITE_USE_POLLING": "0", "CHOKIDAR_USEPOLLING": "1"},
+			wantStatus: 1,
+			wantStderr: "conflicting frontend watch config",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			stdout, stderr, status := runFrontendWatchModeSnippet(t, tt.env)
+			if status != tt.wantStatus {
+				t.Fatalf("status = %d, want %d\nstdout:\n%s\nstderr:\n%s", status, tt.wantStatus, stdout, stderr)
+			}
+			if tt.wantStdout != "" && stdout != tt.wantStdout {
+				t.Fatalf("stdout = %q, want %q", stdout, tt.wantStdout)
+			}
+			if tt.wantStderr != "" && !strings.Contains(stderr, tt.wantStderr) {
+				t.Fatalf("stderr missing %q:\n%s", tt.wantStderr, stderr)
+			}
+		})
+	}
 }
 
 func TestNewUIDesktopScriptCleansChildProcessesAndStaleVite(t *testing.T) {
@@ -195,7 +336,7 @@ func TestNewUIDesktopScriptUsesShortDevHome(t *testing.T) {
 	assertTextOrder(t, text, `export SUPER_DOLPHIN_HOME`, "\nensure_dev_control_session_token\nconfigure_dev_postgres_runtime")
 }
 
-func TestNewUIDesktopScriptSeedsDevProviderPreferencesBeforeFrontend(t *testing.T) {
+func TestNewUIDesktopScriptSeedsDevProviderPreferencesAfterBackendReady(t *testing.T) {
 	text := readRootScript(t, "../../run-new-ui-desktop.sh")
 
 	required := []string{
@@ -220,8 +361,26 @@ func TestNewUIDesktopScriptSeedsDevProviderPreferencesBeforeFrontend(t *testing.
 			t.Fatalf("run-new-ui-desktop.sh missing %q", want)
 		}
 	}
-	seedCall := "\nseed_dev_preferences\n\n" + `(cd "$FRONTEND_APP_DIR" && npm run dev -- --host "$VITE_DEV_HOST" --port "$VITE_DEV_PORT" --strictPort >"$SUPER_DOLPHIN_FRONTEND_LOG" 2>&1) &`
-	assertTextOrder(t, text, "\nwait_for_backend\n", seedCall)
+	assertTextOrder(t, text, "\nstart_desktop_backend\nwait_for_backend\nseed_dev_preferences\n", "\nif backend_hot_reload_enabled; then\n  run_backend_hot_supervisor_loop")
+}
+
+func TestNewUIDesktopScriptReadmeMatchesStartupOrder(t *testing.T) {
+	script := readRootScript(t, "../../run-new-ui-desktop.sh")
+	readme := readRootScript(t, "../../frontend-app/README.md")
+
+	assertTextOrder(t, script, `wait_for_http "$FRONTEND_DEVSERVER_URL" "frontend-app vite"`, "\nstart_desktop_backend\n")
+	required := []string{
+		"The script starts this app's Vite server, waits for it to become ready, then launches `cmd/agent-terminal`",
+		"`FRONTEND_DEVSERVER_URL`",
+	}
+	for _, want := range required {
+		if !strings.Contains(readme, want) {
+			t.Fatalf("frontend-app/README.md missing %q", want)
+		}
+	}
+	if strings.Contains(readme, "with `VITE_DEV_URL` so the Wails desktop host proxies") {
+		t.Fatal("frontend-app/README.md must describe the actual Wails dev server URL contract")
+	}
 }
 
 func TestNewUIWebScriptContract(t *testing.T) {
@@ -255,6 +414,54 @@ func readRootScript(t *testing.T, path string) string {
 		t.Fatalf("read %s: %v", path, err)
 	}
 	return string(raw)
+}
+
+func runFrontendWatchModeSnippet(t *testing.T, env map[string]string) (string, string, int) {
+	t.Helper()
+	text := readRootScript(t, "../../run-new-ui-desktop.sh")
+	snippet := extractScriptSection(t, text, "parse_frontend_watch_bool() {", "\nstart_desktop_backend() {")
+	script := `set -euo pipefail
+` + snippet + `
+configure_frontend_watch_mode
+printf '%s|%s|%s\n' "$SUPER_DOLPHIN_VITE_USE_POLLING" "$CHOKIDAR_USEPOLLING" "$FRONTEND_WATCH_MODE"
+`
+	path := t.TempDir() + "/watch-mode.sh"
+	if err := os.WriteFile(path, []byte(script), 0o755); err != nil {
+		t.Fatalf("write watch-mode snippet: %v", err)
+	}
+
+	cmd := exec.Command("bash", path)
+	cmd.Env = []string{"PATH=" + os.Getenv("PATH")}
+	for key, value := range env {
+		cmd.Env = append(cmd.Env, key+"="+value)
+	}
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	err := cmd.Run()
+	status := 0
+	if err != nil {
+		exitErr, ok := err.(*exec.ExitError)
+		if !ok {
+			t.Fatalf("run watch-mode snippet: %v", err)
+		}
+		status = exitErr.ExitCode()
+	}
+	return strings.TrimSpace(stdout.String()), stderr.String(), status
+}
+
+func extractScriptSection(t *testing.T, text, startMarker, endMarker string) string {
+	t.Helper()
+	start := strings.Index(text, startMarker)
+	if start < 0 {
+		t.Fatalf("missing script section start %q", startMarker)
+	}
+	end := strings.Index(text[start:], endMarker)
+	if end < 0 {
+		t.Fatalf("missing script section end %q after %q", endMarker, startMarker)
+	}
+	return text[start : start+end]
 }
 
 func assertTextOrder(t *testing.T, text, first, second string) {

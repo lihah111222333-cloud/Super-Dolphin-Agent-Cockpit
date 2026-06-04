@@ -615,6 +615,29 @@ write_runtime_manifest() {
 JSON
 }
 
+build_current_frontend_app() {
+  if [[ "${SUPER_DOLPHIN_SKIP_FRONTEND_BUILD:-}" != "1" ]]; then
+    (
+      cd "$root/frontend-app"
+      npm ci
+      npm run build
+    )
+  elif [[ ! -f "$root/frontend-app/dist/index.html" ]]; then
+    echo "frontend dist missing; unset SUPER_DOLPHIN_SKIP_FRONTEND_BUILD or run npm run build first" >&2
+    exit 1
+  fi
+
+  if [[ ! -f "$root/frontend-app/dist/index.html" ]]; then
+    echo "frontend dist missing after build: $root/frontend-app/dist/index.html" >&2
+    exit 1
+  fi
+  rsync -a --delete "$root/frontend-app/dist"/ "$root/cmd/agent-terminal/frontend/dist"/
+  if [[ ! -f "$root/cmd/agent-terminal/frontend/dist/index.html" ]]; then
+    echo "embedded frontend dist missing after sync: $root/cmd/agent-terminal/frontend/dist/index.html" >&2
+    exit 1
+  fi
+}
+
 package_linux_main() {
   if [[ "$goos" != "linux" ]]; then
     echo "package_linux.sh must run with GOOS=linux; current GOOS=$goos" >&2
@@ -639,16 +662,12 @@ package_linux_main() {
   rm -rf "$stage" "$stage.tar.gz"
   mkdir -p "$stage/bin" "$stage/postgres/$platform"
 
-  (
-    cd "$root/cmd/agent-terminal/frontend"
-    npm ci
-    npm run build
-  )
+  build_current_frontend_app
 
   (
     cd "$root"
     make build-peer-binaries
-    make build-agent-terminal-plain
+    go build -o bin/agent-terminal ./cmd/agent-terminal
     go build -o bin/mcp-ida ./cmd/mcp-ida
   )
 

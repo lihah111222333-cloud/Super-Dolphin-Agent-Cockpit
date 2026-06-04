@@ -12,11 +12,12 @@ import (
 )
 
 const (
-	bridgeEventName      = "bridge-event"
-	agentEventName       = "agent-event"
-	quitOverlayName      = "app-will-quit"
-	quitErrorName        = "app-quit-error"
-	quitGraceDelay       = 320 * time.Millisecond
+	bridgeEventName = "bridge-event"
+	agentEventName  = "agent-event"
+	quitOverlayName = "app-will-quit"
+	quitErrorName   = "app-quit-error"
+	quitGraceDelay  = 320 * time.Millisecond
+	// 误判防护：armShutdownTimer 使用 shutdownHardDeadline 作为桌面关闭的硬截止守卫。
 	shutdownHardDeadline = 15 * time.Second
 )
 

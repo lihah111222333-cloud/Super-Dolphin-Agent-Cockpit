@@ -119,6 +119,28 @@ func TestPackageLinuxScriptBundlesModelRegistry(t *testing.T) {
 	assertScriptOrder(t, script, "export SUPER_DOLPHIN_MODEL_REGISTRY=\"$here/models.yaml\"", "exec \"$here/bin/agent-terminal\"")
 }
 
+func TestPackageLinuxScriptEmbedsNewFrontendApp(t *testing.T) {
+	script := readScript(t, "package_linux.sh")
+
+	assertScriptContains(t, script, "build_current_frontend_app")
+	assertScriptContains(t, script, "cd \"$root/frontend-app\"")
+	assertScriptContains(t, script, "rsync -a --delete \"$root/frontend-app/dist\"/ \"$root/cmd/agent-terminal/frontend/dist\"/")
+	assertScriptContains(t, script, "go build -o bin/agent-terminal ./cmd/agent-terminal")
+	assertScriptDoesNotContain(t, script, "cd \"$root/cmd/agent-terminal/frontend\"")
+	assertScriptDoesNotContain(t, script, "make build-agent-terminal-plain")
+	assertScriptOrder(t, script, "npm run build", "rsync -a --delete \"$root/frontend-app/dist\"/ \"$root/cmd/agent-terminal/frontend/dist\"/")
+	assertScriptOrder(t, script, "rsync -a --delete \"$root/frontend-app/dist\"/ \"$root/cmd/agent-terminal/frontend/dist\"/", "go build -o bin/agent-terminal ./cmd/agent-terminal")
+}
+
+func TestPackageLinuxScriptRequiresFrontendAppDistWhenSkippingBuild(t *testing.T) {
+	script := readScript(t, "package_linux.sh")
+
+	assertScriptContains(t, script, "SUPER_DOLPHIN_SKIP_FRONTEND_BUILD")
+	assertScriptContains(t, script, "frontend dist missing; unset SUPER_DOLPHIN_SKIP_FRONTEND_BUILD or run npm run build first")
+	assertScriptContains(t, script, "[[ ! -f \"$root/frontend-app/dist/index.html\" ]]")
+	assertScriptOrder(t, script, "[[ ! -f \"$root/frontend-app/dist/index.html\" ]]", "rsync -a --delete \"$root/frontend-app/dist\"/ \"$root/cmd/agent-terminal/frontend/dist\"/")
+}
+
 func TestPackageLinuxScriptWritesRuntimeManifestContract(t *testing.T) {
 	script := readScript(t, "package_linux.sh")
 	assertScriptContains(t, script, "write_runtime_manifest \"$stage\"")

@@ -3,6 +3,7 @@ package rpc
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -20,6 +21,11 @@ import (
 
 var defaultWSUpgrader = websocket.Upgrader{}
 
+const (
+	wailsWSMaxMessageBytes      int64 = 16 * 1024 * 1024
+	wailsWSMaxActiveConnections       = 32
+)
+
 var _ channel.Channel = (*wsChannel)(nil)
 
 // WSHandler bridges a websocket connection into a jrpc2 channel.
@@ -29,6 +35,12 @@ func WSHandler(server *Server, opts *jrpc2.ServerOptions) http.Handler {
 		mux = wsDispatchAssigner{server: server}
 	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		releaseSlot, err := reserveWailsWSConnectionSlot(server)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusServiceUnavailable)
+			return
+		}
+		defer releaseSlot()
 		conn, err := defaultWSUpgrader.Upgrade(w, r, nil)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
@@ -59,6 +71,18 @@ func WSHandler(server *Server, opts *jrpc2.ServerOptions) http.Handler {
 		}
 	})
 }
+
+func reserveWailsWSConnectionSlot(server *Server) (func(), error) {
+	if server == nil {
+		return noopWailsWSConnectionSlot, nil
+	}
+	if err := server.reserveUIWebSocketSlot(); err != nil {
+		return nil, err
+	}
+	return server.releaseUIWebSocketSlot, nil
+}
+
+func noopWailsWSConnectionSlot() {}
 
 type wsDispatchAssigner struct {
 	server *Server
@@ -254,13 +278,19 @@ func wsAllZeroHex(value string) bool {
 }
 
 type wsChannel struct {
-	conn      *websocket.Conn
-	sendMu    sync.Mutex
-	closeOnce sync.Once
+	conn           *websocket.Conn
+	readLimitBytes int64
+	sendMu         sync.Mutex
+	closeOnce      sync.Once
 }
 
 func newWSChannel(conn *websocket.Conn) *wsChannel {
-	return &wsChannel{conn: conn}
+	return newWSChannelWithReadLimit(conn, wailsWSMaxMessageBytes)
+}
+
+func newWSChannelWithReadLimit(conn *websocket.Conn, readLimitBytes int64) *wsChannel {
+	conn.SetReadLimit(readLimitBytes)
+	return &wsChannel{conn: conn, readLimitBytes: readLimitBytes}
 }
 
 func (c *wsChannel) Send(msg []byte) error {
@@ -276,7 +306,7 @@ func (c *wsChannel) Recv() ([]byte, error) {
 	for {
 		msgType, msg, err := c.conn.ReadMessage()
 		if err != nil {
-			return nil, recvWSError(err)
+			return nil, recvWSError(err, c.readLimitBytes)
 		}
 		if msgType == websocket.TextMessage || msgType == websocket.BinaryMessage {
 			return msg, nil
@@ -295,7 +325,10 @@ func (c *wsChannel) Close() error {
 	return nil
 }
 
-func recvWSError(err error) error {
+func recvWSError(err error, readLimitBytes int64) error {
+	if errors.Is(err, websocket.ErrReadLimit) {
+		return fmt.Errorf("wails websocket message size limit exceeded: max %d bytes: %w", readLimitBytes, err)
+	}
 	if websocket.IsCloseError(err, websocket.CloseNormalClosure, websocket.CloseGoingAway) || isExpectedCloseErr(err) {
 		return io.EOF
 	}
