@@ -177,7 +177,7 @@ func newWSTraceService(t *testing.T) *observability.Service {
 
 func newWSTraceServer(t *testing.T, svc *observability.Service, sawTrace *observability.TraceContext) *Server {
 	t.Helper()
-	server := NewServer(Params{Config: &config.Config{RPCAddr: "127.0.0.1:0"}, Observability: svc})
+	server := NewServer(Params{Config: &config.Config{RPCAddr: "127.0.0.1:0"}, TraceRecorder: testRPCTraceRecorder{svc}})
 	server.Register(handler.Map{"thread/echo": StrictHandler(func(ctx context.Context, req struct {
 		ThreadID string `json:"threadId"`
 	}) (map[string]string, error) {
