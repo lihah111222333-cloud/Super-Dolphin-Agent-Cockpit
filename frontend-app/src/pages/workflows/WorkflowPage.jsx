@@ -58,6 +58,32 @@ async function fetchDagsDashboard(cwd) {
   return normalizeDagsResponse(response);
 }
 
+const workflowQueryOperations = new Map();
+
+function coalesceWorkflowQueryOperation(queryKey, operation) {
+  const operationKey = JSON.stringify(queryKey);
+  const activeOperation = workflowQueryOperations.get(operationKey);
+  if (activeOperation) return activeOperation;
+  const operationPromise = Promise.resolve().then(operation);
+  const trackedOperation = operationPromise.finally(() => {
+    if (workflowQueryOperations.get(operationKey) === trackedOperation) {
+      workflowQueryOperations.delete(operationKey);
+    }
+  });
+  workflowQueryOperations.set(operationKey, trackedOperation);
+  return trackedOperation;
+}
+
+function invalidateWorkflowQuery(queryClient, queryKey) {
+  return coalesceWorkflowQueryOperation(queryKey, () => (
+    queryClient.invalidateQueries({ queryKey }, { cancelRefetch: false, throwOnError: true })
+  ));
+}
+
+function fetchWorkflowQuery(queryClient, queryKey, queryFn) {
+  return coalesceWorkflowQueryOperation(queryKey, () => queryClient.fetchQuery({ queryKey, queryFn }));
+}
+
 function cleanObject(payload) {
   return Object.fromEntries(
     Object.entries(payload).filter(([, value]) => value !== undefined && value !== ''),
@@ -652,7 +678,7 @@ function useWorkflowListQuery(workflowCwd) {
     if (!workflowCwd) return [];
     const key = dashboardQueryKey(workflowCwd, 'dags');
     try {
-      await queryClient.invalidateQueries({ queryKey: key }, { throwOnError: true });
+      await invalidateWorkflowQuery(queryClient, key);
       setWorkflowSyncFailure('');
     } catch (err) {
       setWorkflowSyncFailure('同步失败，显示的是上次成功的数据：' + errorMessage(err));
@@ -773,7 +799,8 @@ function useWorkflowRunDetail({ activeRun, runs, workflowCwd }) {
     const key = textValue(runKey);
     if (!key) { setSelectedRunKey(''); return null; }
     setSelectedRunKey(key);
-    return queryClient.fetchQuery({ queryKey: dashboardQueryKey(workflowCwd, 'dag-run', key), queryFn: () => fetchWorkflowRunDetail(key) });
+    const queryKey = dashboardQueryKey(workflowCwd, 'dag-run', key);
+    return fetchWorkflowQuery(queryClient, queryKey, () => fetchWorkflowRunDetail(key));
   }, [queryClient, workflowCwd]);
   return { loadRunDetail, selectedRun: runDetailQuery.data || null, selectedRunKey: effectiveSelectedRunKey, setSelectedRunKey };
 }
@@ -800,10 +827,16 @@ function useWorkflowRefresh({ refreshDags, refreshKey, selectedDagKeyRef, select
   const refreshDetail = useCallback(async (dagKey, preferredRunKey = '') => {
     const key = textValue(dagKey);
     if (!key) return;
+    const runKey = textValue(preferredRunKey) || textValue(selectedRunKey);
     if (preferredRunKey) setSelectedRunKey(textValue(preferredRunKey));
-    await queryClient.invalidateQueries({ queryKey: dashboardQueryKey(workflowCwd, 'dag-detail', key) });
-    await queryClient.invalidateQueries({ queryKey: dashboardQueryKey(workflowCwd, 'dag-run') });
-  }, [queryClient, setSelectedRunKey, workflowCwd]);
+    const operations = [
+      invalidateWorkflowQuery(queryClient, dashboardQueryKey(workflowCwd, 'dag-detail', key)),
+    ];
+    if (runKey) {
+      operations.push(invalidateWorkflowQuery(queryClient, dashboardQueryKey(workflowCwd, 'dag-run', runKey)));
+    }
+    await Promise.all(operations);
+  }, [queryClient, selectedRunKey, setSelectedRunKey, workflowCwd]);
   const refreshWorkflowSurface = useCallback(async () => {
     if (!workflowCwd) return;
     await refreshDags();
@@ -812,7 +845,7 @@ function useWorkflowRefresh({ refreshDags, refreshKey, selectedDagKeyRef, select
   useEffect(() => {
     if (workflowRefreshKey <= 0 || handledWorkflowRefreshRef.current === workflowRefreshKey) return;
     handledWorkflowRefreshRef.current = workflowRefreshKey;
-    void refreshWorkflowSurface();
+    void refreshWorkflowSurface().catch(() => {});
   }, [refreshWorkflowSurface, workflowRefreshKey]);
   return { refreshDetail, refreshWorkflowSurface };
 }
@@ -1125,7 +1158,7 @@ function WorkflowSyncAlert({ message, onRetry }) {
   return (
     <div className="danger-text workflow-sync-alert" role="alert">
       <span>{message}</span>
-      <button type="button" className="ghost" onClick={() => { void onRetry(); }}>重试同步</button>
+      <button type="button" className="ghost" onClick={() => { void onRetry().catch(() => {}); }}>重试同步</button>
     </div>
   );
 }
