@@ -36,9 +36,10 @@ GOFMT_FILES=()
 PKG_CANDIDATES=()
 MISSING_FILES=()
 DIRTY_FILES=()
-HAS_FRONTEND_CHANGES=0
+HAS_LEGACY_FRONTEND_CHANGES=0
+HAS_FRONTEND_APP_CHANGES=0
 
-is_frontend_code_path() {
+is_legacy_frontend_code_path() {
   case "$1" in
     cmd/agent-terminal/frontend/node_modules/*|\
     cmd/agent-terminal/frontend/.vite-cache/*|\
@@ -60,9 +61,43 @@ is_frontend_code_path() {
   esac
 }
 
+is_frontend_app_code_path() {
+  case "$1" in
+    frontend-app/node_modules/*|\
+    frontend-app/.vite-cache/*|\
+    frontend-app/.build-cache/*|\
+    frontend-app/.vitest/*|\
+    frontend-app/.eslintcache|\
+    frontend-app/dist/*|\
+    frontend-app/coverage/*|\
+    frontend-app/playwright-report/*|\
+    frontend-app/test-results/*|\
+    frontend-app/test-report/*|\
+    frontend-app/html-report/*|\
+    frontend-app/reports/*|\
+    frontend-app/vitest-report/*|\
+    frontend-app/npm-debug.log|\
+    frontend-app/yarn-error.log|\
+    frontend-app/pnpm-debug.log|\
+    frontend-app/full_test_output.txt|\
+    frontend-app/.DS_Store)
+      return 1
+      ;;
+    frontend-app/*)
+      return 0
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
 add_frontend_path() {
-  if is_frontend_code_path "$1"; then
-    HAS_FRONTEND_CHANGES=1
+  if is_legacy_frontend_code_path "$1"; then
+    HAS_LEGACY_FRONTEND_CHANGES=1
+  fi
+  if is_frontend_app_code_path "$1"; then
+    HAS_FRONTEND_APP_CHANGES=1
   fi
 }
 
@@ -144,6 +179,7 @@ while IFS= read -r -d '' status; do
       IFS= read -r -d '' new_path || { echo "❌ 解析 staged rename/copy new path 失败" >&2; exit 1; }
       add_pkg_for_path "$old_path"
       add_pkg_for_path "$new_path"
+      add_frontend_path "$old_path"
       add_frontend_path "$new_path"
       add_gofmt_file "$new_path"
       check_worktree_matches_index "$new_path"
@@ -192,7 +228,7 @@ for p in "${PKG_CANDIDATES[@]}"; do
   done < <(git ls-files --others --exclude-standard -z -- "$pkg_dir")
 done
 
-if [ ${#GOFMT_FILES[@]} -eq 0 ] && [ ${#PKG_CANDIDATES[@]} -eq 0 ] && [ "$HAS_FRONTEND_CHANGES" -eq 0 ]; then
+if [ ${#GOFMT_FILES[@]} -eq 0 ] && [ ${#PKG_CANDIDATES[@]} -eq 0 ] && [ "$HAS_LEGACY_FRONTEND_CHANGES" -eq 0 ] && [ "$HAS_FRONTEND_APP_CHANGES" -eq 0 ]; then
   exit 0
 fi
 
@@ -295,9 +331,9 @@ if [ ${#PKGS[@]} -gt 0 ]; then
   fi
 fi
 
-# ── Frontend Tests
-if [ "$HAS_FRONTEND_CHANGES" -eq 1 ]; then
-  echo "[pre-commit] frontend codebase guard..."
+# ── Legacy Frontend Tests
+if [ "$HAS_LEGACY_FRONTEND_CHANGES" -eq 1 ]; then
+  echo "[pre-commit] legacy frontend codebase guard..."
   (
     cd cmd/agent-terminal/frontend
     if ! node scripts/size-guard.cjs; then
@@ -307,11 +343,44 @@ if [ "$HAS_FRONTEND_CHANGES" -eq 1 ]; then
     fi
   )
 
-  echo "[pre-commit] frontend package tests..."
+  echo "[pre-commit] legacy frontend package tests..."
   (
     cd cmd/agent-terminal/frontend
     if ! npx vitest run; then
       echo "❌ 前端包测试失败" >&2
+      echo "  ⚠️  紧急 bypass（违反仓库规约 docs/1/会话习惯.md §10.12«禁止 bypass pre-commit hook»、需事后补检查）：git commit --no-verify" >&2
+      exit 1
+    fi
+  )
+fi
+
+# ── Current React Frontend Tests
+if [ "$HAS_FRONTEND_APP_CHANGES" -eq 1 ]; then
+  echo "[pre-commit] frontend-app lint..."
+  (
+    cd frontend-app
+    if ! npm run lint; then
+      echo "❌ frontend-app lint 失败" >&2
+      echo "  ⚠️  紧急 bypass（违反仓库规约 docs/1/会话习惯.md §10.12«禁止 bypass pre-commit hook»、需事后补检查）：git commit --no-verify" >&2
+      exit 1
+    fi
+  )
+
+  echo "[pre-commit] frontend-app tests..."
+  (
+    cd frontend-app
+    if ! npm test; then
+      echo "❌ frontend-app 测试失败" >&2
+      echo "  ⚠️  紧急 bypass（违反仓库规约 docs/1/会话习惯.md §10.12«禁止 bypass pre-commit hook»、需事后补检查）：git commit --no-verify" >&2
+      exit 1
+    fi
+  )
+
+  echo "[pre-commit] frontend-app build..."
+  (
+    cd frontend-app
+    if ! npm run build; then
+      echo "❌ frontend-app 构建失败" >&2
       echo "  ⚠️  紧急 bypass（违反仓库规约 docs/1/会话习惯.md §10.12«禁止 bypass pre-commit hook»、需事后补检查）：git commit --no-verify" >&2
       exit 1
     fi
