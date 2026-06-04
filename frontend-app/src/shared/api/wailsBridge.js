@@ -26,6 +26,7 @@ const FRONTEND_TRACE_ALLOWED_PHASES = new Set([
   'frontend.render.slow',
 ]);
 const FRONTEND_TRACE_ALLOWED_METADATA_KEYS = new Set(['req_id', 'component', 'react_phase']);
+const FRONTEND_TRACE_ALLOWED_STATUSES = new Set(['ok', 'slow', 'error']);
 const FRONTEND_TRACE_FORBIDDEN_KEYS = new Set([
   'result_preview',
   'prompt',
@@ -311,11 +312,12 @@ function sanitizeFrontendTraceEvent(event) {
   if (!event || typeof event !== 'object' || Array.isArray(event)) return null;
   const phase = safeTraceString(event.phase);
   if (!FRONTEND_TRACE_ALLOWED_PHASES.has(phase)) return null;
+  const status = safeTraceString(event.status).toLowerCase();
   const durationMS = Number(event.duration_ms);
   const out = {
     ts: new Date().toISOString(),
     phase,
-    status: event.status === 'error' ? 'error' : 'ok',
+    status: FRONTEND_TRACE_ALLOWED_STATUSES.has(status) ? status : 'ok',
   };
   for (const [target, source, limit] of [
     ['trace_id', 'trace_id', 64],
@@ -333,7 +335,7 @@ function sanitizeFrontendTraceEvent(event) {
     if (value) out[target] = value;
   }
   if (Number.isFinite(durationMS) && durationMS >= 0) out.duration_ms = Math.round(durationMS);
-  if (event.status === 'error') {
+  if (out.status === 'error') {
     const error = safeTraceErrorValue(event.error);
     if (error) out.error = error;
   }
@@ -345,6 +347,7 @@ function sanitizeFrontendTraceEvent(event) {
 function shouldRemoteFlushFrontendTrace(event) {
   if (!event) return false;
   if (event.status === 'error') return true;
+  if (event.status === 'slow') return true;
   if (event.phase === 'frontend.patch.apply.slow' || event.phase === 'frontend.render.slow') return true;
   if (event.phase === 'frontend.rpc.done' && Number(event.duration_ms) >= FRONTEND_TRACE_RPC_SLOW_MS) return true;
   return isFrontendTraceDebugEnabled();
@@ -529,6 +532,7 @@ function logAPIStart(reqId, method, payload, clientKind, clientRoute, trace) {
 
 function logAPIDone(reqId, method, start, result, clientKind, clientRoute, trace) {
   const durationMs = Date.now() - start;
+  const status = durationMs >= FRONTEND_TRACE_RPC_SLOW_MS ? 'slow' : 'ok';
   writeBridgeLog('debug', 'api.rpc.done', {
     req_id: reqId,
     method,
@@ -548,7 +552,7 @@ function logAPIDone(reqId, method, start, result, clientKind, clientRoute, trace
     client_kind: clientKind,
     client_route: clientRoute,
     duration_ms: durationMs,
-    status: 'ok',
+    status,
     metadata: { req_id: reqId },
   });
 }

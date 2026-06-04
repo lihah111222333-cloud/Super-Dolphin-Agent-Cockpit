@@ -548,6 +548,7 @@ describe('wails bridge frontend trace defaults', () => {
 
   afterEach(() => {
     vi.unstubAllGlobals();
+    vi.restoreAllMocks();
     delete window.__AO_FRONTEND_TRACE_DEBUG__;
   });
 
@@ -563,6 +564,36 @@ describe('wails bridge frontend trace defaults', () => {
     await waitForTraceFlush();
 
     expect(byID.mock.calls.some(([, method]) => method === 'observability/frontend/ingest')).toBe(false);
+  });
+
+  it('marks slow successful RPC done traces as slow when remote flushing', async () => {
+    let now = 0;
+    vi.spyOn(Date, 'now').mockImplementation(() => now);
+    const byID = vi.fn((_methodID, method, payload) => {
+      if (method === 'observability/frontend/ingest') return Promise.resolve({ recorded: payload.events.length });
+      now = 1000;
+      return Promise.resolve({ ok: true });
+    });
+    vi.doMock(runtimeModule, () => ({
+      Call: { ByID: byID },
+      Events: { On: vi.fn() },
+    }));
+    const { callAPI } = await import('./wailsBridge.js');
+
+    await expect(callAPI('observability/recent/list', {})).resolves.toEqual({ ok: true });
+    await waitForTraceFlush();
+    await waitForTraceFlush();
+
+    const ingestCall = byID.mock.calls.find(([, method]) => method === 'observability/frontend/ingest');
+    expect(ingestCall).toBeTruthy();
+    expect(ingestCall[2].events).toEqual([
+      expect.objectContaining({
+        phase: 'frontend.rpc.done',
+        method: 'observability/recent/list',
+        duration_ms: 1000,
+        status: 'slow',
+      }),
+    ]);
   });
 });
 

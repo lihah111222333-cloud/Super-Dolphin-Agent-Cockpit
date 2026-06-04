@@ -73,6 +73,12 @@ function formatObservabilityDuration(value) {
   return `${duration}ms`;
 }
 
+function formatMatchedEventDuration(value) {
+  const durationText = formatObservabilityDuration(value);
+  if (durationText === '耗时未记录') return '匹配 event 耗时未记录';
+  return `匹配 event 耗时合计 ${durationText}`;
+}
+
 function useObservabilityFilters() {
   const [filters, setFilters] = useState({
     agentId: '',
@@ -324,8 +330,8 @@ function ObservabilityRecentLogs({ result, onOpenTrace, onCopyTrace, copiedTrace
     <div className="settings-card observability-result observability-system-log" data-testid="observability-recent-logs">
       <div className="observability-result-header">
         <div>
-          <h2>最新日志</h2>
-          <p>{traceRows.length} 条 trace · {eventCount} 个匹配 event · source={result.source || 'memory'} · truncated={String(Boolean(result.truncated))}</p>
+          <h2>最新匹配 event 分组</h2>
+          <p>{traceRows.length} 条匹配 event 分组 · {eventCount} 个匹配 event · source={result.source || 'memory'} · truncated={String(Boolean(result.truncated))}</p>
         </div>
       </div>
       {traceRows.length === 0 ? (
@@ -335,8 +341,8 @@ function ObservabilityRecentLogs({ result, onOpenTrace, onCopyTrace, copiedTrace
           <thead className="observability-log-table-head">
             <tr>
               <th scope="col">时间</th>
-              <th scope="col">状态</th>
-              <th scope="col">请求摘要</th>
+              <th scope="col">匹配 event 状态</th>
+              <th scope="col">匹配 event 摘要</th>
               <th scope="col">操作</th>
             </tr>
           </thead>
@@ -517,7 +523,7 @@ function observabilityTraceDetailId(traceID) {
 
 function observabilityTraceSummary(row) {
   const event = row.representative || {};
-  const durationText = formatObservabilityDuration(row.durationMS);
+  const durationText = formatMatchedEventDuration(row.durationMS);
   const parts = [
     event.kind,
     event.phase,
