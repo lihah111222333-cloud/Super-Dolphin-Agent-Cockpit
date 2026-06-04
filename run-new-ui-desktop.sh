@@ -75,6 +75,7 @@ wait_for_http() {
       echo "  → $label ready: $url"
       return 0
     fi
+    # 误判防护：wait_for_http/process_exited/print_*_log_tail 防止前端 readiness 失败静默超时。
     if [ "$label" = "frontend-app vite" ]; then
       if [ -n "${VITE_PID:-}" ] && process_exited "$VITE_PID"; then
         echo "❌ $label exited before readiness: $url" >&2
@@ -101,6 +102,7 @@ wait_for_http() {
 fail_if_port_busy() {
   local addr="$1"
   local port="${addr##*:}"
+  # 误判防护：fail_if_port_busy 让非 stale 端口占用 fail-fast，避免连到旧进程。
   if lsof -tiTCP:"$port" -sTCP:LISTEN >/dev/null 2>&1; then
     echo "❌ port $port is already in use:"
     lsof -nP -iTCP:"$port" -sTCP:LISTEN || true
@@ -112,6 +114,7 @@ wait_for_port_free() {
   local addr="$1"
   local label="$2"
   local port="${addr##*:}"
+  # 误判防护：wait_for_port_free 是后端重启前的端口释放守卫。
   for _ in $(seq 1 50); do
     if ! lsof -tiTCP:"$port" -sTCP:LISTEN >/dev/null 2>&1; then
       return 0
@@ -126,6 +129,7 @@ wait_for_port_free() {
 process_exited() {
   local pid="$1"
   local stat
+  # 误判防护：process_exited 同时识别普通退出和 zombie 进程。
   if ! kill -0 "$pid" 2>/dev/null; then
     return 0
   fi
@@ -157,6 +161,7 @@ stop_process_tree() {
   local label="$1"
   local pid="$2"
   local child
+  # 误判防护：stop_process_tree 递归停止子进程，cleanup trap 依赖该守卫防泄漏。
   if [ -z "$pid" ]; then
     return 0
   fi
@@ -185,6 +190,7 @@ stop_stale_vite_for_port() {
     command_line="$(ps -p "$pid" -o command= 2>/dev/null || true)"
     case "$command_line" in
       *frontend-app/node_modules/.bin/vite*)
+        # 误判防护：stop_stale_vite_for_port 只清理 cwd 为 frontend-app 的同端口 Vite。
         if [ "$cwd" = "$FRONTEND_APP_DIR" ]; then
           stop_process_tree "stale frontend-app vite on port $port" "$pid"
         fi
@@ -217,6 +223,7 @@ wait_for_backend() {
       echo "  → desktop backend ready: $url"
       return 0
     fi
+    # 误判防护：wait_for_backend/process_exited/print_backend_log_tail 防止后端失败静默等待。
     if [ -n "${DESKTOP_PID:-}" ] && process_exited "$DESKTOP_PID"; then
       echo "❌ desktop backend exited before readiness: $url" >&2
       print_backend_log_tail
@@ -629,6 +636,7 @@ cleanup() {
   if [ "${CLEANUP_DONE:-}" = "1" ]; then
     return 0
   fi
+  # 误判防护：cleanup 使用 CLEANUP_DONE 守卫，EXIT/INT/TERM/HUP trap 可重复触发也只清理一次。
   CLEANUP_DONE="1"
   if [ -n "${VITE_PID:-}" ]; then
     stop_process_tree "frontend-app vite" "$VITE_PID"
@@ -653,6 +661,7 @@ VITE_DEV_HOST="${VITE_DEV_HOST#https://}"
 VITE_DEV_HOST="${VITE_DEV_HOST%%/*}"
 VITE_DEV_PORT="${VITE_DEV_HOST##*:}"
 VITE_DEV_HOST="${VITE_DEV_HOST%:*}"
+# 守卫规则：VITE_DEV_URL 必须包含 host/port；该规则不覆盖 Vite 外部 bind 旁路风险。
 if [ -z "$VITE_DEV_HOST" ] || [ -z "$VITE_DEV_PORT" ] || [ "$VITE_DEV_HOST" = "$VITE_DEV_PORT" ]; then
   echo "❌ VITE_DEV_URL must include host and port, got: $VITE_DEV_URL" >&2
   exit 1

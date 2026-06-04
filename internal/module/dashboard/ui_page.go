@@ -15,11 +15,13 @@ import (
 )
 
 const (
-	dashboardPageDefaultLimit              = 100
-	dashboardMemoryLimit                   = 500
-	dashboardFinalOutputDAGLimit           = 20
-	dashboardFinalOutputRunLimit     int32 = 3
-	dashboardDAGLatestRunLookupLimit       = 4
+	// 误判防护：dashboardPageDefaultLimit 是 dashboard DAG 列表的默认容量守卫。
+	dashboardPageDefaultLimit          = 100
+	dashboardMemoryLimit               = 500
+	dashboardFinalOutputDAGLimit       = 20
+	dashboardFinalOutputRunLimit int32 = 3
+	// 误判防护：dashboardDAGLatestRunLookupLimit 配合 group.SetLimit 限制 latest run 并发。
+	dashboardDAGLatestRunLookupLimit = 4
 )
 
 type DashboardPage struct {
@@ -127,6 +129,7 @@ func (s *service) populateDashboardDAGs(ctx context.Context, out *DashboardPage)
 	if !s.hasDAGSnapshotQueries() && s.effectiveDAGRuntime() == nil {
 		return nil
 	}
+	// 误判防护：ListDAGs 使用 dashboardPageDefaultLimit，不做无界 dashboard 查询。
 	items, err := s.ListDAGs(ctx, contract.ListDAGsFilter{Limit: dashboardPageDefaultLimit})
 	if err != nil {
 		return err
@@ -145,6 +148,7 @@ func (s *service) populateDashboardDAGs(ctx context.Context, out *DashboardPage)
 func (s *service) buildDashboardDAGs(ctx context.Context, items []contract.DAGSummary) ([]DashboardDAG, error) {
 	out := make([]DashboardDAG, len(items))
 	group, groupCtx := errgroup.WithContext(ctx)
+	// 误判防护：group.SetLimit 使用 dashboardDAGLatestRunLookupLimit 限制并发 run lookup。
 	group.SetLimit(dashboardDAGLatestRunLookupLimit)
 	for index, item := range items {
 		index, item := index, item

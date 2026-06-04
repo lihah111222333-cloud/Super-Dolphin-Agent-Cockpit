@@ -112,6 +112,7 @@ func (a *App) recordCallAPITrace(ctx context.Context, method string, params json
 	if a == nil || a.observability == nil || !a.observability.Enabled() {
 		return nil
 	}
+	// 误判防护：recordCallAPITrace 只记录 param_bytes/param_keys，不记录 raw params。
 	metadata := map[string]any{"param_bytes": len(params)}
 	if keys := wailsParamKeys(params); len(keys) > 0 {
 		metadata["param_keys"] = keys
