@@ -260,6 +260,16 @@ describe('PromptPageView backend wiring', () => {
     expect(backend.listPromptSections).not.toHaveBeenCalled();
   });
 
+  it('does not render a top-right close button in the prompt editor', async () => {
+    renderPromptPage();
+    fireEvent.click(await screen.findByRole('button', { name: '编辑' }));
+
+    const editor = await screen.findByRole('dialog', { name: '编辑提示词' });
+    expect(within(editor).queryByLabelText('关闭编辑器')).not.toBeInTheDocument();
+    expect(within(editor).getByRole('button', { name: '取消' })).toBeInTheDocument();
+    expect(within(editor).getByRole('button', { name: '保存' })).toBeInTheDocument();
+  });
+
   it('runs prompt intent dry-run from the confirmation wizard without exposing routing internals', async () => {
     backend.draftPromptIntent.mockResolvedValueOnce({
       draft_key: 'intent/expert/review',

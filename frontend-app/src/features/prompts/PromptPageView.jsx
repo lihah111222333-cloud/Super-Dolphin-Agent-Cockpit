@@ -1,6 +1,6 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import React, { useCallback, useEffect, useMemo, useReducer, useState } from 'react';
-import { CheckCircle2, File, FileText, Plus, X } from 'lucide-react';
+import { CheckCircle2, File, FileText, Plus } from 'lucide-react';
 import {
   commitPromptIntent,
   copyTextToClipboard,
@@ -11,12 +11,9 @@ import {
   getDashboardPrompts,
   getPreference,
   getPrompt,
-  listPromptSections,
   listPromptAssets,
   setPreference,
-  writePromptSection,
   writePrompt,
-  deletePromptSection,
 } from '../../shared/api/backendApi.js';
 import { FocusTrapDialog } from '../../shared/ui/FocusTrapDialog.jsx';
 
@@ -1128,7 +1125,7 @@ function PromptPendingActions({ item, actioning, onContinueDraft, onDiscardDraft
   );
 }
 
-function PromptSavedActions({ item, active, actioning, fallbackMode, onEdit, onCopy, onDelete, onSetLaunch, onClearLaunch }) {
+function PromptSavedActions({ item, active, actioning, fallbackMode, onEdit, onCopy, onSetLaunch, onClearLaunch }) {
   return (
     <>
       <button type="button" onClick={() => onEdit(item)}>{fallbackMode ? '查看' : '编辑'}</button>
@@ -1165,295 +1162,7 @@ function PromptCard(props) {
   );
 }
 
-function emptySectionForm() {
-  return {
-    originalKey: '',
-    sectionKey: '',
-    body: '',
-    region: 'dynamic',
-    ordinal: 0,
-    triggerType: 'always',
-    recallTopic: '',
-    enableWhen: '',
-    enabled: true,
-  };
-}
-
-function sectionFormFromItem(item) {
-  return {
-    originalKey: textValue(item?.section_key),
-    sectionKey: textValue(item?.section_key),
-    body: item?.body || '',
-    region: item?.region === 'static' ? 'static' : 'dynamic',
-    ordinal: Number.isFinite(Number(item?.ordinal)) ? Number(item.ordinal) : 0,
-    triggerType: textValue(item?.trigger_type) || 'always',
-    recallTopic: textValue(item?.recall_topic),
-    enableWhen: serializeJsonForEditor(item?.enable_when),
-    enabled: item?.enabled !== false,
-  };
-}
-
-function sectionScope(promptScope) {
-  return promptScope === 'global' ? 'global' : 'project';
-}
-
-function parseSectionEnableWhen(value) {
-  const text = textValue(value);
-  if (!text) return { value: undefined, error: '' };
-  try {
-    return { value: JSON.parse(text), error: '' };
-  }
-  catch (err) {
-    return { value: undefined, error: `enable_when 不是合法 JSON：${errorMessage(err)}` };
-  }
-}
-
-function sectionSummary(value) {
-  return trunc(value, 150);
-}
-
-function promptSectionsInitialState() {
-  return {
-    deletingKey: '',
-    editorMode: 'create',
-    editorOpen: false,
-    form: emptySectionForm(),
-    loading: false,
-    notice: '',
-    saving: false,
-    sections: [],
-  };
-}
-
-function promptSectionsReducer(state, action) {
-  switch (action.type) {
-    case 'delete/error':
-      return { ...state, deletingKey: '', notice: action.notice };
-    case 'delete/start':
-      return { ...state, deletingKey: action.sectionKey };
-    case 'delete/success':
-      return { ...state, deletingKey: '', notice: action.notice, sections: state.sections.filter((candidate) => candidate.section_key !== action.sectionKey) };
-    case 'editor/close':
-      return { ...state, editorOpen: false };
-    case 'editor/create':
-      return { ...state, editorMode: 'create', editorOpen: true, form: emptySectionForm() };
-    case 'editor/edit':
-      return { ...state, editorMode: 'edit', editorOpen: true, form: action.form };
-    case 'form/update':
-      return { ...state, form: { ...state.form, [action.key]: action.value } };
-    case 'load/empty':
-      return { ...state, sections: [] };
-    case 'load/error':
-      return { ...state, loading: false, notice: action.notice, sections: [] };
-    case 'load/start':
-      return { ...state, loading: true };
-    case 'load/success':
-      return { ...state, loading: false, notice: '', sections: action.sections };
-    case 'notice/set':
-      return { ...state, notice: action.notice };
-    case 'save/error':
-      return { ...state, notice: action.notice, saving: false };
-    case 'save/start':
-      return { ...state, saving: true };
-    case 'save/success':
-      return {
-        ...state,
-        editorOpen: false,
-        notice: action.notice,
-        saving: false,
-        sections: savedPromptSections(state.sections, action.originalKey, action.sectionKey, action.payload),
-      };
-    default:
-      return state;
-  }
-}
-
-function savedPromptSections(current, originalKey, sectionKey, payload) {
-  const next = current.filter((item) => item.section_key !== originalKey && item.section_key !== sectionKey);
-  return [...next, payload].sort((a, b) => Number(a.ordinal || 0) - Number(b.ordinal || 0));
-}
-
-function PromptSectionsPanel({ cwd, promptId, promptScope, fallbackMode }) {
-  const [state, dispatch] = useReducer(promptSectionsReducer, null, promptSectionsInitialState);
-  const { deletingKey, editorMode, editorOpen, form, loading, notice, saving, sections } = state;
-
-  const loadSections = useCallback(async () => {
-    if (!cwd || !promptId) {
-      dispatch({ type: 'load/empty' });
-      return;
-    }
-    dispatch({ type: 'load/start' });
-    try {
-      const response = await listPromptSections({ cwd, prompt_id: promptId });
-      dispatch({ type: 'load/success', sections: Array.isArray(response?.sections) ? response.sections : [] });
-    }
-    catch (err) {
-      dispatch({ type: 'load/error', notice: noticeText(err, '加载分段失败') });
-    }
-  }, [cwd, promptId]);
-
-  useEffect(() => {
-    void loadSections();
-  }, [loadSections]);
-
-  const openCreate = () => {
-    if (fallbackMode) {
-      dispatch({ type: 'notice/set', notice: '当前为只读模式，暂不支持修改分段' });
-      return;
-    }
-    if (!promptId) {
-      dispatch({ type: 'notice/set', notice: '请先保存提示词再添加分段' });
-      return;
-    }
-    dispatch({ type: 'editor/create' });
-  };
-
-  const openEdit = (item) => {
-    if (fallbackMode) {
-      dispatch({ type: 'notice/set', notice: '当前为只读模式，暂不支持修改分段' });
-      return;
-    }
-    dispatch({ type: 'editor/edit', form: sectionFormFromItem(item) });
-  };
-
-  const saveSection = async () => {
-    const sectionKey = textValue(form.sectionKey);
-    if (!sectionKey) {
-      dispatch({ type: 'notice/set', notice: '请填写段名（section_key）' });
-      return;
-    }
-    const parsedEnableWhen = parseSectionEnableWhen(form.enableWhen);
-    if (parsedEnableWhen.error) {
-      dispatch({ type: 'notice/set', notice: parsedEnableWhen.error });
-      return;
-    }
-    dispatch({ type: 'save/start' });
-    try {
-      if (editorMode === 'edit' && form.originalKey && form.originalKey !== sectionKey) {
-        await deletePromptSection({
-          cwd,
-          prompt_id: promptId,
-          section_key: form.originalKey,
-          scope: sectionScope(promptScope),
-        });
-      }
-      const payload = {
-        cwd,
-        prompt_id: promptId,
-        section_key: sectionKey,
-        region: form.region === 'static' ? 'static' : 'dynamic',
-        ordinal: Number.isFinite(Number(form.ordinal)) ? Number(form.ordinal) : 0,
-        body: form.body || '',
-        enabled: Boolean(form.enabled),
-        trigger_type: textValue(form.triggerType) || 'always',
-        recall_topic: textValue(form.triggerType) === 'recall' ? textValue(form.recallTopic) : '',
-        scope: sectionScope(promptScope),
-      };
-      if (parsedEnableWhen.value !== undefined) payload.enable_when = parsedEnableWhen.value;
-      await writePromptSection(payload);
-      dispatch({ type: 'save/success', notice: `分段已保存：${sectionKey}`, originalKey: form.originalKey, payload, sectionKey });
-    }
-    catch (err) {
-      dispatch({ type: 'save/error', notice: noticeText(err, '保存分段失败') });
-    }
-  };
-
-  const removeSection = async (item) => {
-    const sectionKey = textValue(item?.section_key);
-    if (!sectionKey || deletingKey) return;
-    dispatch({ type: 'delete/start', sectionKey });
-    try {
-      await deletePromptSection({
-        cwd,
-        prompt_id: promptId,
-        section_key: sectionKey,
-        scope: sectionScope(promptScope),
-      });
-      dispatch({ type: 'delete/success', notice: `分段已删除：${sectionKey}`, sectionKey });
-    }
-    catch (err) {
-      dispatch({ type: 'delete/error', notice: noticeText(err, '删除分段失败') });
-    }
-  };
-
-  const update = (key) => (event) => {
-    const { type, checked, value } = event.target;
-    dispatch({ type: 'form/update', key, value: type === 'checkbox' ? checked : value });
-  };
-
-  return (
-    <section className="prompt-sections-panel" aria-label="提示词分段">
-      <header>
-        <h3>提示词分段</h3>
-        <div>
-          <button type="button" className="ghost" disabled={!promptId || loading || fallbackMode} onClick={openCreate}>新增分段</button>
-          <button type="button" className="ghost" disabled={!promptId || loading} onClick={() => void loadSections()}>{loading ? '加载中...' : '刷新分段'}</button>
-        </div>
-      </header>
-      {loading ? <output className="prompt-loading" aria-live="polite">分段加载中...</output> : null}
-      {!loading && !promptId ? <div className="prompt-notice">请先保存提示词再添加分段。</div> : null}
-      {!loading && promptId && sections.length === 0 ? <div className="prompt-notice">尚未添加分段。</div> : null}
-      {sections.length ? (
-        <div className="prompt-sections-list">
-          {sections.map((item, index) => {
-            const sectionKey = textValue(item.section_key) || `section-${index}`;
-            return (
-              <article className="prompt-section-card" key={sectionKey}>
-                <div>
-                  <strong>{sectionKey}</strong>
-                  <span>{item.enabled === false ? '已停用' : textValue(item.trigger_type) || 'always'}</span>
-                </div>
-                <p>{sectionSummary(item.body)}</p>
-                <div className="prompt-card-actions">
-                  <button type="button" className="ghost" disabled={fallbackMode} onClick={() => openEdit(item)}>编辑分段</button>
-                  <button type="button" className="ghost danger" aria-label={`删除分段 ${sectionKey}`} disabled={fallbackMode || deletingKey === sectionKey} onClick={() => void removeSection(item)}>
-                    {deletingKey === sectionKey ? '删除中...' : '删除分段'}
-                  </button>
-                </div>
-              </article>
-            );
-          })}
-        </div>
-      ) : null}
-      {editorOpen ? (
-        <div className="prompt-section-editor">
-          <h4>{editorMode === 'create' ? '新增分段' : '编辑分段'}</h4>
-          <label>段名（section_key）<input value={form.sectionKey} onChange={update('sectionKey')} aria-label="段名（section_key）" /></label>
-          <label>内容（body）<textarea value={form.body} onChange={update('body')} aria-label="内容（body）" /></label>
-          <details>
-            <summary>高级字段</summary>
-            <div className="prompt-editor-grid prompt-advanced-grid">
-              <label>region
-                <select value={form.region} onChange={update('region')} aria-label="region">
-                  <option value="dynamic">dynamic</option>
-                  <option value="static">static</option>
-                </select>
-              </label>
-              <label>ordinal<input type="number" value={form.ordinal} onChange={update('ordinal')} aria-label="ordinal" /></label>
-              <label>trigger_type
-                <select value={form.triggerType} onChange={update('triggerType')} aria-label="trigger_type">
-                  <option value="always">always</option>
-                  <option value="keyword">keyword</option>
-                  <option value="recall">recall</option>
-                </select>
-              </label>
-              <label>recall_topic<input value={form.recallTopic} onChange={update('recallTopic')} aria-label="recall_topic" /></label>
-              <label className="wide">enable_when<textarea value={form.enableWhen} onChange={update('enableWhen')} aria-label="enable_when" /></label>
-              <label className="prompt-check"><input type="checkbox" checked={form.enabled} onChange={update('enabled')} /> enabled</label>
-            </div>
-          </details>
-          <div className="prompt-card-actions">
-            <button type="button" className="ghost" disabled={saving} onClick={() => dispatch({ type: 'editor/close' })}>取消分段</button>
-            <button type="button" disabled={saving || fallbackMode} onClick={() => void saveSection()}>{saving ? '保存中...' : '保存分段'}</button>
-          </div>
-        </div>
-      ) : null}
-      {notice ? <div className="prompt-notice">{notice}</div> : null}
-    </section>
-  );
-}
-
-function PromptEditorModal({ cwd, fallbackMode, form, notice, saving, onChange, onClose, onSave }) {
+function PromptEditorModal({ form, notice, saving, onChange, onClose, onSave }) {
   const update = (key) => (event) => {
     const { type, checked, value } = event.target;
     onChange({ ...form, [key]: type === 'checkbox' ? checked : value });
@@ -1476,7 +1185,6 @@ function PromptEditorModal({ cwd, fallbackMode, form, notice, saving, onChange, 
             <h2>编辑提示词</h2>
             <p>{scopeLabel}</p>
           </div>
-          <button type="button" onClick={onClose} aria-label="关闭编辑器" disabled={saving}><X size={16} /></button>
         </header>
         <div className="prompt-scope-copy">
           <div>可用范围：{scopeLabel}</div>

@@ -4554,9 +4554,10 @@ async function toggleInlineTraceFromRecentLogs(table) {
     fireEvent.click(editButton);
 
     const editor = await screen.findByRole('dialog', { name: '编辑提示词' });
-    const closeButton = within(editor).getByLabelText('关闭编辑器');
+    expect(within(editor).queryByLabelText('关闭编辑器')).not.toBeInTheDocument();
+    const firstScopeButton = within(editor).getByRole('button', { name: '这个项目' });
     await waitFor(() => {
-      expect(document.activeElement).toBe(closeButton);
+      expect(document.activeElement).toBe(firstScopeButton);
     });
 
     fireEvent.keyDown(editor, { key: 'Escape', code: 'Escape' });
