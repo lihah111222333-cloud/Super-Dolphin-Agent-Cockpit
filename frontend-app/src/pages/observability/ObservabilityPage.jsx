@@ -50,11 +50,6 @@ function stableBackendLogValue(value, seen = new WeakSet()) {
 function formatObservabilityTimestamp(value) {
   const text = textValue(value);
   if (!text) return '-';
-  const matched = text.match(/^(\d{4})-(\d{2})-(\d{2})[T\s](\d{2}):(\d{2}):(\d{2})/);
-  if (matched) {
-    const [, year, month, day, hour, minute, second] = matched;
-    return `${year}-${month}-${day} ${hour}:${minute}:${second}`;
-  }
   const parsed = new Date(text);
   if (Number.isNaN(parsed.getTime())) return text;
   const year = String(parsed.getFullYear()).padStart(4, '0');
