@@ -53,6 +53,20 @@ FROM task_dag_runs
 WHERE dag_key = $1 AND ($2::text = '' OR status = $2)
 ORDER BY started_at DESC, id DESC
 LIMIT $3`
+	dashboardListLatestRunsByDAGSnapshotQuery = `
+SELECT id, run_key, dag_key, dag_version_snapshot, trigger_source, status,
+       started_at, finished_at, events, budget_used, budget_limit, metadata,
+       created_at, updated_at
+FROM (
+    SELECT id, run_key, dag_key, dag_version_snapshot, trigger_source, status,
+           started_at, finished_at, events, budget_used, budget_limit, metadata,
+           created_at, updated_at,
+           ROW_NUMBER() OVER (PARTITION BY dag_key ORDER BY started_at DESC, id DESC) AS run_rank
+    FROM task_dag_runs
+    WHERE dag_key = ANY($1::text[])
+) latest_runs
+WHERE run_rank = 1
+LIMIT $2`
 	dashboardGetRunSnapshotQuery = `
 SELECT id, run_key, dag_key, dag_version_snapshot, trigger_source, status,
        started_at, finished_at, events, budget_used, budget_limit, metadata,
@@ -103,6 +117,27 @@ func (s *service) listDAGRunsFromSnapshot(ctx context.Context, dagKey, status st
 		return nil, err
 	}
 	return dashboardRunsFromRows(rows)
+}
+
+func (s *service) listLatestDAGRunsByDAGFromSnapshot(ctx context.Context, dagKeys []string) (map[string]contract.Run, error) {
+	if len(dagKeys) == 0 {
+		return map[string]contract.Run{}, nil
+	}
+	rows, err := s.dbQueries.Query(ctx, dashboardListLatestRunsByDAGSnapshotQuery, dagKeys, int32(len(dagKeys)))
+	if err != nil {
+		return nil, err
+	}
+	runs, err := dashboardRunsFromRows(rows)
+	if err != nil {
+		return nil, err
+	}
+	out := make(map[string]contract.Run, len(runs))
+	for _, run := range runs {
+		if _, exists := out[run.DagKey]; !exists {
+			out[run.DagKey] = run
+		}
+	}
+	return out, nil
 }
 
 func (s *service) getDAGRunFromSnapshot(ctx context.Context, runKey string) (contract.GetRunResponse, error) {
