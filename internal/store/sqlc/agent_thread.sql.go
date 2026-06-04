@@ -268,7 +268,7 @@ func (q *Queries) GetAgentThreadByPort(ctx context.Context, arg GetAgentThreadBy
 const listAgentThreadConfigsByIDs = `-- name: ListAgentThreadConfigsByIDs :many
 SELECT thread_id, model, config_override
 FROM agent_threads
-WHERE thread_id = ANY($1::text[])
+WHERE thread_id IN ($1)
 `
 
 type ListAgentThreadConfigsByIDsParams struct {

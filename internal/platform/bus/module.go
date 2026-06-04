@@ -4,7 +4,6 @@ import (
 	"context"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
-	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 	"github.com/kelindar/event"
 	"go.uber.org/fx"
 )
@@ -15,7 +14,7 @@ var Module = fx.Module(
 		NewDispatcher,
 		NewThreadEmitters,
 		NewUISharedFilesChangedEmitter,
-		provideLogSink,
+		NewLogSink,
 		NewSubscriberGroup,
 	),
 	fx.Invoke(registerLifecycle),
@@ -33,22 +32,6 @@ type subscriberGroupIn struct {
 
 	Dispatcher *event.Dispatcher
 	Specs      []SubscriberSpec `group:"bus.subscribers"`
-}
-
-type logSinkParams struct {
-	fx.In
-
-	Dispatcher *event.Dispatcher
-	Logger     *pkglogger.Logger
-	Trace      TraceRecorder `optional:"true"`
-}
-
-func provideLogSink(p logSinkParams) *LogSink {
-	return NewLogSink(LogSinkDeps{
-		Dispatcher: p.Dispatcher,
-		Logger:     p.Logger,
-		Trace:      p.Trace,
-	})
 }
 
 func NewSubscriberGroup(in subscriberGroupIn) *SubscriberGroup {

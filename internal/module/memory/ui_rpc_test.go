@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
-	"github.com/anthropic-ai/super-agent-v3/internal/module/memory/similarity"
 )
 
 func TestBuildUIMemorySnapshotIncludesDurableAndAgentMemories(t *testing.T) {
@@ -115,7 +114,7 @@ func TestSimilarityAdapterDreamExecutePassesRequestedProviderOptions(t *testing.
 }
 
 func TestConsolidateAllDreamFailureUsesUserFacingError(t *testing.T) {
-	err := publicConsolidateAllError(fmt.Errorf("%w: provider failed", similarity.ErrLLMConsolidate))
+	err := publicConsolidateAllError(fmt.Errorf("LLM consolidate: provider failed"))
 	if err == nil {
 		t.Fatal("publicConsolidateAllError() = nil, want user-facing error")
 	}

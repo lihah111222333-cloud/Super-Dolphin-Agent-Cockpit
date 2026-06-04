@@ -13,33 +13,6 @@ import (
 	"github.com/creachadair/jrpc2/handler"
 )
 
-type testRPCTraceRecorder struct{ svc *observability.Service }
-
-func (r testRPCTraceRecorder) Enabled() bool {
-	return r.svc != nil && r.svc.Enabled()
-}
-
-func (r testRPCTraceRecorder) RecordTrace(ctx context.Context, record TraceRecord) error {
-	return r.svc.Record(ctx, observability.TraceEvent{
-		Timestamp:    record.Timestamp,
-		TraceID:      record.TraceID,
-		SpanID:       record.SpanID,
-		ParentSpanID: record.ParentSpanID,
-		Kind:         record.Kind,
-		Phase:        record.Phase,
-		Method:       record.Method,
-		DurationMS:   record.DurationMS,
-		Status:       observability.Status(record.Status),
-		Error:        record.Error,
-		Code: observability.CodeAnchor{
-			File:     record.Code.File,
-			Function: record.Code.Function,
-			Line:     record.Code.Line,
-		},
-		Metadata: observability.Metadata(record.Metadata),
-	})
-}
-
 func assertRPCTraceEvent(t *testing.T, event observability.TraceEvent) {
 	t.Helper()
 	if event.TraceID != "4bf92f3577b34da6a3ce929d0e0e4736" || event.SpanID == "" || event.SpanID == "00f067aa0ba902b7" || event.ParentSpanID != "00f067aa0ba902b7" {
@@ -77,7 +50,7 @@ func TestServerDispatchTraceWriteFailureDoesNotBlockHandler(t *testing.T) {
 		t.Fatalf("ParseConfig: %v", err)
 	}
 	svc := observability.NewService(cfg, observability.WithSink(rpcFailingTraceSink{err: errors.New("trace sink unavailable")}))
-	server := NewServer(Params{Config: &config.Config{RPCAddr: "127.0.0.1:0"}, TraceRecorder: testRPCTraceRecorder{svc}})
+	server := NewServer(Params{Config: &config.Config{RPCAddr: "127.0.0.1:0"}, Observability: svc})
 	server.Register(handler.Map{"thread/start": StrictHandler(func(ctx context.Context, _ struct{}) (map[string]bool, error) {
 		trace, ok := observability.TraceFromContext(ctx)
 		if !ok {
@@ -105,7 +78,7 @@ func TestServerDispatchRecordsTraceEventsWithoutRawParamsPreview(t *testing.T) {
 	svc := observability.NewService(cfg)
 	server := NewServer(Params{
 		Config:        &config.Config{RPCAddr: "127.0.0.1:0"},
-		TraceRecorder: testRPCTraceRecorder{svc},
+		Observability: svc,
 	})
 	server.Register(handler.Map{"thread/start": StrictHandler(func(_ context.Context, req struct {
 		CWD              string `json:"cwd"`

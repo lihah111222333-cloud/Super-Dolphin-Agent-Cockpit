@@ -21,30 +21,12 @@ const FRONTEND_TRACE_ALLOWED_PHASES = new Set([
   'frontend.rpc.start',
   'frontend.rpc.done',
   'frontend.rpc.failed',
-  'runtime.rpc.pending',
-  'runtime.rpc.send.done',
-  'runtime.rpc.send.failed',
-  'runtime.rpc.settled',
-  'runtime.rpc.timeout',
-  'runtime.rpc.failed',
   'frontend.warning',
   'frontend.patch.apply.slow',
   'frontend.render.slow',
 ]);
-const FRONTEND_TRACE_ALLOWED_METADATA_KEYS = new Set([
-  'req_id',
-  'component',
-  'react_phase',
-  'pending_count',
-  'attempt',
-]);
+const FRONTEND_TRACE_ALLOWED_METADATA_KEYS = new Set(['req_id', 'component', 'react_phase']);
 const FRONTEND_TRACE_ALLOWED_STATUSES = new Set(['ok', 'slow', 'error']);
-const FRONTEND_RUNTIME_TRACE_DEFAULT_PHASES = new Set([
-  'runtime.rpc.pending',
-  'runtime.rpc.send.done',
-  'runtime.rpc.settled',
-]);
-const FRONTEND_RUNTIME_TRACE_SKIP_METHODS = new Set([FRONTEND_TRACE_INGEST_METHOD, 'ui/log']);
 // 误判防护：FRONTEND_TRACE_FORBIDDEN_KEYS 阻断 prompt/content/tool result 进入前端 trace。
 const FRONTEND_TRACE_FORBIDDEN_KEYS = new Set([
   'result_preview',
@@ -61,28 +43,6 @@ const FRONTEND_TRACE_FORBIDDEN_KEYS = new Set([
   'stack',
   'raw_stack',
 ]);
-const BRIDGE_LOG_FORBIDDEN_KEYS = new Set([
-  ...[...FRONTEND_TRACE_FORBIDDEN_KEYS].filter((key) => key !== 'result_preview'),
-  'params',
-  'raw_params',
-  'request_params',
-  'secret',
-  'token',
-  'password',
-  'api_key',
-  'auth',
-  'credential',
-  'credentials',
-  'authorization',
-  'auth_token',
-  'access_token',
-  'refresh_token',
-  'id_token',
-  'stack_trace',
-  'stacktrace',
-]);
-const BRIDGE_ERROR_DATA_SAFE_KEYS = new Set(['message', 'code', 'name', 'type', 'status']);
-const BRIDGE_REDACTED_VALUE = '[redacted]';
 
 // Track active log store to pipe warnings and errors
 let logStoreInstance = null;
@@ -91,81 +51,22 @@ export function registerBridgeLogStore(store) {
 }
 
 function serializableBridgeValue(value, seen = new WeakSet()) {
-  if (!value || typeof value !== 'object') return value;
-  if (seen.has(value)) return '[Circular]';
-  seen.add(value);
   if (value instanceof Error) {
     const out = {
       name: value.name || 'Error',
       message: value.message || '',
     };
     if ('code' in value && value.code !== undefined) out.code = value.code;
-    if ('data' in value && value.data !== undefined) out.data = serializableBridgeErrorData(value.data, seen);
+    if ('data' in value && value.data !== undefined) out.data = serializableBridgeValue(value.data, seen);
     return out;
   }
-  if (Array.isArray(value)) return value.map((item) => serializableBridgeValue(item, seen));
-  const parentIsErrorLike = isBridgeErrorLikeObject(value);
-  return Object.fromEntries(
-    Object.entries(value)
-      .filter(([key]) => !isForbiddenBridgeLogKey(key))
-      .map(([key, item]) => [
-        key,
-        parentIsErrorLike && normalizeBridgeLogKey(key) === 'data'
-          ? serializableBridgeErrorData(item, seen)
-          : serializableBridgeValue(item, seen),
-      ]),
-  );
-}
-
-function isPlainBridgeObject(value) {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
-  const proto = Object.getPrototypeOf(value);
-  return proto === Object.prototype || proto === null;
-}
-
-function hasOwnBridgeProperty(value, key) {
-  return Object.prototype.hasOwnProperty.call(value, key);
-}
-
-function isBridgeErrorLikeObject(value) {
-  if (!isPlainBridgeObject(value) || !hasOwnBridgeProperty(value, 'data')) return false;
-  return ['message', 'code', 'name', 'type'].some((key) => hasOwnBridgeProperty(value, key));
-}
-
-function serializableBridgeDiagnosticValue(value) {
-  if (value === undefined) return undefined;
-  if (value === null) return null;
-  if (typeof value === 'string') return BRIDGE_REDACTED_VALUE;
-  if (typeof value === 'number' || typeof value === 'boolean') return value;
-  return BRIDGE_REDACTED_VALUE;
-}
-
-function serializableBridgeErrorData(value, seen) {
-  if (!isPlainBridgeObject(value)) return BRIDGE_REDACTED_VALUE;
-  if (seen.has(value)) return BRIDGE_REDACTED_VALUE;
+  if (!value || typeof value !== 'object') return value;
+  if (seen.has(value)) return '[Circular]';
   seen.add(value);
-
-  const out = {};
-  for (const [key, item] of Object.entries(value)) {
-    const normalizedKey = normalizeBridgeLogKey(key);
-    if (!BRIDGE_ERROR_DATA_SAFE_KEYS.has(normalizedKey)) continue;
-    if (isForbiddenBridgeLogKey(key)) continue;
-    const safeValue = serializableBridgeDiagnosticValue(item);
-    if (safeValue !== undefined) out[key] = safeValue;
-  }
-  return Object.keys(out).length > 0 ? out : BRIDGE_REDACTED_VALUE;
-}
-
-function normalizeBridgeLogKey(key) {
-  return (key || '')
-    .toString()
-    .replace(/([a-z0-9])([A-Z])/g, '$1_$2')
-    .replace(/[\s.-]+/g, '_')
-    .toLowerCase();
-}
-
-function isForbiddenBridgeLogKey(key) {
-  return BRIDGE_LOG_FORBIDDEN_KEYS.has(normalizeBridgeLogKey(key));
+  if (Array.isArray(value)) return value.map((item) => serializableBridgeValue(item, seen));
+  return Object.fromEntries(
+    Object.entries(value).map(([key, item]) => [key, serializableBridgeValue(item, seen)]),
+  );
 }
 
 function writeBridgeLog(level, event, fields) {
@@ -175,19 +76,6 @@ function writeBridgeLog(level, event, fields) {
   } else {
     console[level === 'error' ? 'error' : 'log'](`[Bridge ${level}] ${event}`, serializableFields);
   }
-}
-
-function writeBridgeDebugLog(event, fields) {
-  if (!isFrontendTraceDebugEnabled()) return;
-  writeBridgeLog('debug', event, fields);
-}
-
-function writeBridgeSuccessDiagnosticLog(event, fields, isSlow) {
-  if (isSlow) {
-    writeBridgeLog('warn', event, fields);
-    return;
-  }
-  writeBridgeDebugLog(event, fields);
 }
 
 function compactBridgeValuePreview(value) {
@@ -477,7 +365,6 @@ function shouldRemoteFlushFrontendTrace(event) {
   if (!event) return false;
   if (event.status === 'error') return true;
   if (event.status === 'slow') return true;
-  if (FRONTEND_RUNTIME_TRACE_DEFAULT_PHASES.has(event.phase)) return true;
   if (event.phase === 'frontend.patch.apply.slow' || event.phase === 'frontend.render.slow') return true;
   if (event.phase === 'frontend.rpc.done' && Number(event.duration_ms) >= FRONTEND_TRACE_RPC_SLOW_MS) return true;
   return isFrontendTraceDebugEnabled();
@@ -533,76 +420,10 @@ export function emitFrontendTraceEvent(event, options = {}) {
   return true;
 }
 
-function runtimeTelemetryMetadata(event) {
-  const metadata = {};
-  for (const key of ['req_id', 'pending_count', 'attempt']) {
-    const value = event?.[key] ?? event?.metadata?.[key];
-    if (value !== undefined && value !== null && value !== '') metadata[key] = value;
-  }
-  return Object.keys(metadata).length > 0 ? metadata : undefined;
-}
-
-function runtimeTelemetryTraceEvent(event) {
-  if (!event || typeof event !== 'object' || Array.isArray(event)) return null;
-  const traceEvent = {
-    phase: event.phase,
-    method: event.method,
-    trace_id: event.trace_id,
-    span_id: event.span_id,
-    call_id: event.call_id,
-    duration_ms: event.duration_ms,
-    status: event.status,
-    error: event.error,
-    metadata: runtimeTelemetryMetadata(event),
-  };
-  return traceEvent;
-}
-
-function handleRuntimeTelemetryEvent(event) {
-  const traceEvent = runtimeTelemetryTraceEvent(event);
-  const sanitized = sanitizeFrontendTraceEvent(traceEvent);
-  if (!sanitized) return;
-  if (sanitized.status === 'error' || sanitized.status === 'slow' || isFrontendTraceDebugEnabled()) {
-    writeBridgeLog(
-      sanitized.status === 'error' || sanitized.status === 'slow' ? 'warn' : 'debug',
-      'runtime.rpc.telemetry',
-      sanitized,
-    );
-  }
-  if (FRONTEND_RUNTIME_TRACE_SKIP_METHODS.has(sanitized.method)) return;
-  emitFrontendTraceEvent(traceEvent);
-}
-
-function installRuntimeTelemetryHook() {
-  if (typeof window === 'undefined') return;
-  const currentHook = typeof window.__AO_WAILS_RUNTIME_TELEMETRY__ === 'function'
-    ? window.__AO_WAILS_RUNTIME_TELEMETRY__
-    : null;
-  const externalHook = currentHook?.__AO_BRIDGE_RUNTIME_TELEMETRY__ === true
-    ? currentHook.__AO_PREVIOUS_RUNTIME_TELEMETRY__ || null
-    : currentHook;
-  const hook = (event) => {
-    if (typeof externalHook === 'function') {
-      try {
-        externalHook(event);
-      }
-      catch (error) {
-        writeBridgeLog('warn', 'runtime.rpc.telemetry.external_hook_failed', { error });
-      }
-    }
-    handleRuntimeTelemetryEvent(event);
-  };
-  hook.__AO_BRIDGE_RUNTIME_TELEMETRY__ = true;
-  hook.__AO_PREVIOUS_RUNTIME_TELEMETRY__ = externalHook;
-  window.__AO_WAILS_RUNTIME_TELEMETRY__ = hook;
-}
-
-installRuntimeTelemetryHook();
-
 async function invokeRuntimeByID(methodID, args = [], options = {}) {
   const reqId = ++bridgeRequestSeq;
   const start = Date.now();
-  writeBridgeDebugLog('bridge.call.start', {
+  writeBridgeLog('debug', 'bridge.call.start', {
     req_id: reqId,
     method_id: methodID,
     arg_count: args.length,
@@ -635,12 +456,11 @@ async function invokeRuntimeByID(methodID, args = [], options = {}) {
     }
     throw error;
   }
-  const durationMs = Date.now() - start;
-  writeBridgeSuccessDiagnosticLog('bridge.call.done', {
+  writeBridgeLog('debug', 'bridge.call.done', {
     req_id: reqId,
     method_id: methodID,
-    duration_ms: durationMs,
-  }, durationMs >= FRONTEND_TRACE_RPC_SLOW_MS);
+    duration_ms: Date.now() - start,
+  });
   return result;
 }
 
@@ -707,7 +527,7 @@ function buildAPIPayload(rawPayload, reqId, clientKind, clientRoute, trace) {
 }
 
 function logAPIStart(reqId, method, payload, clientKind, clientRoute, trace) {
-  writeBridgeDebugLog('api.rpc.start', {
+  writeBridgeLog('debug', 'api.rpc.start', {
     req_id: reqId,
     method,
     client_kind: clientKind,
@@ -732,7 +552,7 @@ function logAPIStart(reqId, method, payload, clientKind, clientRoute, trace) {
 function logAPIDone(reqId, method, start, result, clientKind, clientRoute, trace) {
   const durationMs = Date.now() - start;
   const status = durationMs >= FRONTEND_TRACE_RPC_SLOW_MS ? 'slow' : 'ok';
-  writeBridgeSuccessDiagnosticLog('api.rpc.done', {
+  writeBridgeLog('debug', 'api.rpc.done', {
     req_id: reqId,
     method,
     client_kind: clientKind,
@@ -742,7 +562,7 @@ function logAPIDone(reqId, method, start, result, clientKind, clientRoute, trace
     traceparent: trace.traceparent,
     duration_ms: durationMs,
     result_preview: compactBridgeValuePreview(result),
-  }, status === 'slow');
+  });
   emitFrontendTraceEvent({
     phase: 'frontend.rpc.done',
     method,
