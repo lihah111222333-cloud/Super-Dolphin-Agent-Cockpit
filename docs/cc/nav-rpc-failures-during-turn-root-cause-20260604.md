@@ -14,7 +14,7 @@
 2. **每个 `ui/sidebar/get` 在后端当前又很重。**
    - `GetSidebar()` 的耗时主要在 `enrichFromDB()`。
    - `enrichFromDB()` 先尝试 `ReadRuntimeConfigs(ctx, threadIDs)` 批量读取 runtime config，但当前 SQLC 生成的 `ListAgentThreadConfigsByIDs` 是 `WHERE thread_id IN ($1)`，pgx 无法把 `[]string` 编码成 text 参数；批量读取失败后，uistate 退回对每个 thread 调 `ReadRuntimeConfig()`，产生大量 DB/session 查询与 warn 日志。
-3. 大量 6–10 秒级 `ui/sidebar/get` 堆积在同一个 dev Wails JSON-RPC/WebSocket 通道上；其他 nav 页 RPC（`prompt-assets/list`、`ui/preferences/get`、`ui/dashboard/get`、`dashboard/dagRuns` 等）在前端看到 20–30 秒等待甚至 30 秒 timeout，即使它们真正进入后端后只花几毫秒到几十毫秒。
+3. Trace 证明在 `frontend callAPI/runtime shim -> /wails/ws -> backend dispatch` 之间存在 pre-dispatch wait：大量 6–10 秒级 `ui/sidebar/get` 会挤压其他 nav 页 RPC（`prompt-assets/list`、`ui/preferences/get`、`ui/dashboard/get`、`dashboard/dagRuns` 等），使它们在前端看到 20–30 秒等待甚至 30 秒 timeout，即使真正进入后端 dispatch 后只花几毫秒到几十毫秒。源码只能证明 dev runtime 通过 `frontend-app/public/wails/runtime.js` 的 `/wails/ws` 路径进入 `internal/platform/rpc/transport_ws.go` 的 WebSocket RPC dispatch；具体等待点未被 trace 直接定位。
 
 因此，用户看到的“其他 navibar 功能一直红框、重试仍失败”，是 **sidebar 刷新风暴 + sidebar 后端读路径过重 + 前端/桥接层非中断式 timeout** 的组合结果。
 
@@ -72,7 +72,7 @@ Wails 事件桥：`internal/ui/wails/bridge.go`
 - `refreshSidebarSnapshotForCwdInBackground()` 每次都会执行 `getSidebarState({ cwd })`（行 3075-3089）。
 - 这里只有 `seq !== runtime.sidebarRefreshSeq` 的结果丢弃逻辑（行 3091、3104），没有取消旧请求，也没有同 cwd single-flight/coalesce。
 
-所以高频事件不会只更新本地 patch，而是放大成大量并发/排队的 `ui/sidebar/get`。
+所以高频事件不会只更新本地 patch，而是放大成大量 pending/in-flight 的 `ui/sidebar/get`；这些请求随后沿 dev runtime 的 `/wails/ws` 传输路径进入后端 dispatch，trace 只能定位到 dispatch 前存在等待，不能直接定位具体等待点。
 
 ### 3. `ui/sidebar/get` 后端读路径本身很重
 
@@ -161,7 +161,7 @@ msg="uistate: ReadRuntimeConfig failed" threadID=... err="session not found ..."
 | `819320ba` | `ui/preferences/get` | ok | 23122ms | 18:39:24.867，4ms | preference handler 不慢 |
 | `8b61d034` | `ui/dashboard/get` | 前端 30s timeout | 30016ms | 18:39:24.796，65ms | dashboard handler 很快，但前端已超时 |
 | `b66d9221` | `prompt-assets/list` | 前端 30s timeout | 30011ms | 18:39:24.666，44ms | 请求到后端时前端 pending 已被 timeout 删除 |
-| `a3aac825` | `turn/start` | 前端 30s timeout | 30040ms | 18:39:24.549，271ms | 普通对话也会被同一通道/队列拖住 |
+| `a3aac825` | `turn/start` | 前端 30s timeout | 30040ms | 18:39:24.549，271ms | 普通对话也受同一 pre-dispatch wait 现象影响 |
 | `2f172169` | `ui/sidebar/get` | 前端 30s timeout | 30059ms | 18:39:58.794，9828ms | sidebar 本身又慢，继续加压 |
 
 聚合统计也支持这个判断：
@@ -170,7 +170,7 @@ msg="uistate: ReadRuntimeConfig failed" threadID=... err="session not found ..."
 - `ui/preferences/get` 后端耗时 p50 4ms，但前端耗时 p50 22469ms。
 - `ui/dashboard/get` 后端耗时 p50 57ms，但前端耗时 p50 16600ms。
 
-这些数据说明“nav 页红框”不是这些 nav handler 的主因；它们大多是在 `ui/sidebar/get` 风暴中排队或被 dev runtime 30 秒短 timeout 击穿。
+这些数据说明“nav 页红框”不是这些 nav handler 的主因；它们大多是在 `ui/sidebar/get` 风暴中出现 pre-dispatch wait，或被 dev runtime 30 秒短 timeout 击穿。这里的直接证据是 frontend/runtime 耗时远大于 backend dispatch 耗时；源码只能把传输路径追到 `frontend-app/public/wails/runtime.js` 的 `/wails/ws` JSON-RPC send 与 `internal/platform/rpc/transport_ws.go` 的 `WSHandler` / `Dispatch`，尚不能证明等待发生在某个具体队列或串行执行点。
 
 ## 为什么重试也可能失败
 
@@ -178,15 +178,15 @@ msg="uistate: ReadRuntimeConfig failed" threadID=... err="session not found ..."
 
 - page-level `withTimeout()` 没有 AbortSignal，超时不会取消 Wails/RPC。
 - `frontend-app/src/shared/api/wailsBridge.js` 的 `callAPI()` 只是 await `runtime.Call.ByID(...)`，没有传递 abort（行 602-624）。
-- dev runtime shim 只有 `pendingCalls` map + `setTimeout`；timeout 后删除 pending 并 reject，但底层请求可能之后才到后端或才返回（`cmd/agent-terminal/frontend/wails/runtime.js:248-305`）。
+- dev runtime shim 只有 `pendingCalls` map + `setTimeout`；timeout 后删除 pending 并 reject，但底层请求可能之后才到后端或才返回（`frontend-app/public/wails/runtime.js:20,297-318,322-343`）。后端接入点是 `internal/platform/rpc/transport_ws.go:25-45,67-78`。
 
-所以点击“重试同步”会再加一个请求，不会清掉旧的 sidebar 请求或旧的 nav 请求。若 sidebar 风暴还在，重试仍排队/超时。
+所以点击“重试同步”会再加一个请求，不会清掉旧的 sidebar 请求或旧的 nav 请求。若 sidebar 风暴还在，重试仍可能继续落入 pre-dispatch wait 并超时。
 
 ## 与自动化页专项文档的关系
 
 已有文档 `docs/cc/workflow-sync-root-cause-20260604.md` 聚焦自动化页自身的刷新重入、DAG detail/run 扇出与 cached error 文案。那份结论仍解释“自动化页为什么会显示上次缓存数据”。
 
-本文件补的是更全局的一层：即使切到提示词、技能、记忆、共享文件等页面，只要运行中的 thread/run 触发了大量 UI 事件，前端 sidebar refresh 会挤占同一 RPC 通道；于是这些 nav 页面自己的请求也会表现为超时/红框。
+本文件补的是更全局的一层：即使切到提示词、技能、记忆、共享文件等页面，只要运行中的 thread/run 触发了大量 UI 事件，前端 sidebar refresh 风暴也会挤压其他 nav RPC 在 `frontend callAPI/runtime shim -> /wails/ws -> backend dispatch` 之间的等待窗口；于是这些 nav 页面自己的请求也会表现为超时/红框。具体等待点仍需额外 in-flight/concurrency telemetry 证明。
 
 ## 后续最小修复方向（未实施）
 
@@ -202,7 +202,7 @@ msg="uistate: ReadRuntimeConfig failed" threadID=... err="session not found ..."
 3. **减少 legacy refresh 放大。**
    - 评估 `ui/thread/changed` / timeline projection 是否还应被 `ExpandNotifications()` 再扩成 `ui/sidebar/changed`。
    - 已有 `ui/thread/patch` 增量事件时，sidebar 全量刷新应只在 thread list/order/name/status 真正需要时触发。
-4. **为 nav 页 timeout 增加更明确的排队/后台刷新语义。**
+4. **为 nav 页 timeout 增加更明确的 pre-dispatch wait / 后台刷新语义。**
    - 不建议简单吞掉 `CanceledError` 或 timeout 文案；应先减少请求风暴。
    - 若要增加 AbortSignal，需要贯通 `callAPI`、runtime shim/Wails、后端 ctx，而不是只在页面层 `Promise.race`。
 
