@@ -300,12 +300,22 @@ describe('composer layout styles', () => {
     expect(statusDot['flex']).toBe('0 0 auto');
   });
 
-  it('renders the active thread archive action without an outer ring', () => {
+  it('renders thread card icon actions without outer rings', () => {
+    const threadArchive = declarationsFor('.thread-archive');
     const threadArchiveActive = declarationsFor('.thread-archive.active');
     const threadArchiveFocus = declarationsFor('.thread-archive:focus-visible');
+    const threadRename = declarationsFor('.thread-rename-trigger');
+    const threadRenameFocus = declarationsFor('.thread-rename-trigger:focus-visible');
     const threadPinActive = declarationsFor('.thread-pin.active');
     const threadPinFocus = declarationsFor('.thread-pin:focus-visible');
 
+    expect(threadArchive.border).toBe('0');
+    expect(threadArchive.background).toBe('transparent');
+    expect(threadArchive['box-shadow']).toBe('none');
+    expect(threadRename.border).toBe('0');
+    expect(threadRename.background).toBe('transparent');
+    expect(threadRename.outline).toBe(threadPinFocus.outline);
+    expect(threadRename['box-shadow']).toBe('none');
     expect(threadArchiveActive.color).toBe(threadPinActive.color);
     expect(threadArchiveActive.border).toBe('none');
     expect(threadArchiveActive.background).toBe(threadPinActive.background);
@@ -314,6 +324,9 @@ describe('composer layout styles', () => {
     expect(threadArchiveActive.outline).toBe(threadPinFocus.outline);
     expect(threadArchiveActive['box-shadow']).toBe(threadPinActive['box-shadow']);
     expect(threadArchiveFocus.outline).toBe(threadPinFocus.outline);
+    expect(threadArchiveFocus['box-shadow']).toBe('none');
+    expect(threadRenameFocus.outline).toBe(threadPinFocus.outline);
+    expect(threadRenameFocus['box-shadow']).toBe('none');
   });
 
   it('lets thread card actions adapt inside the agent list width', () => {
@@ -334,9 +347,9 @@ describe('composer layout styles', () => {
     expect(editingMain['padding-left']).toBe('0');
     expect(editingMain['padding-right']).toBe('0');
     expect(actions.display).toBe('flex');
-    expect(actions['flex-wrap']).toBe('wrap');
+    expect(actions['flex-wrap']).toBe('nowrap');
     expect(actions['justify-content']).toBe('flex-end');
-    expect(actions['max-width']).toBe('78px');
+    expect(actions['max-width']).toBe('max-content');
     expect(archive.position).toBe('relative');
     expect(pin.position).toBe('relative');
     expect(rename.position).toBe('relative');
@@ -344,8 +357,12 @@ describe('composer layout styles', () => {
     expect(pin.transform).toBe('none');
     expect(rename.transform).toBe('none');
     expect(compactActions).toHaveLength(1);
-    expect(compactActions[0]['max-width']).toBe('22px');
-    expect(compactActions[0]['flex-direction']).toBe('column');
+    expect(compactActions[0]['grid-column']).toBe('1 / -1');
+    expect(compactActions[0]['grid-row']).toBe('2');
+    expect(compactActions[0].width).toBe('100%');
+    expect(compactActions[0]['max-width']).toBe('100%');
+    expect(compactActions[0].gap).toBe('3px');
+    expect(compactActions[0]['flex-direction']).toBeUndefined();
   });
 
   it('keeps workflow run history rows aligned as scannable data columns', () => {
