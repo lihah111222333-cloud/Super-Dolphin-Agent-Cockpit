@@ -10,6 +10,17 @@ const CLIPBOARD_FILE_PATH_TYPES = Object.freeze(['x-special/gnome-copied-files',
 const DROP_FILE_PATH_TYPES = new Set(['x-special/gnome-copied-files', 'text/uri-list']);
 const NATIVE_FILE_DROP_TARGET_IDS = new Set(['composer-input', 'chat-input-bar', CONVERSATION_DROP_TARGET_ID]);
 const NATIVE_FILE_DROP_TARGET_ATTRIBUTE = 'data-file-drop-target';
+const NATIVE_FILE_DROP_TARGET_CLASSES = new Set([
+  'composer',
+  'composer--docked',
+  'composer--floating',
+  'composer-card',
+  'composer-drop-hint',
+  'conversation',
+  'conversation--intro',
+  'timeline',
+  'timeline-shell',
+]);
 
 const THREAD_RAIL_MIN_WIDTH = 240;
 
@@ -2884,24 +2895,47 @@ function extractClipboardFiles(event) {
   return files;
 }
 
-function nativeDropFiles(event) {
+function nativeDropFiles(event, options) {
   if (!event || typeof event !== 'object') return [];
   const candidates = [event, event.data, event.payload, event.data?.payload];
   const payload = candidates.find((item) => item && typeof item === 'object' && Array.isArray(item.files));
-  if (!nativeDropTargetAcceptsFiles(payload?.details)) return [];
+  if (!nativeDropTargetAcceptsFiles(payload?.details, options)) return [];
   return payload?.files || [];
 }
 
-function nativeDropTargetAcceptsFiles(details) {
-  if (!details || typeof details !== 'object') return false;
+function nativeDropClassTokens(value) {
+  if (!value) return [];
+  const raw = Array.isArray(value)
+    ? value
+    : (typeof value === 'string' ? value.split(/\s+/) : []);
+  return raw.map((item) => textValue(item)).filter(Boolean);
+}
+
+function nativeDropHasAcceptedClass(value) {
+  return nativeDropClassTokens(value).some((className) => NATIVE_FILE_DROP_TARGET_CLASSES.has(className));
+}
+
+function nativeDropHasTargetEvidence(details, attributes) {
+  if (textValue(details?.id) || nativeDropClassTokens(details?.classList).length > 0) return true;
+  if (!attributes) return false;
+  return Boolean(textValue(attributes.id)
+    || nativeDropClassTokens(attributes.class).length > 0
+    || Object.keys(attributes).length > 0);
+}
+
+function nativeDropTargetAcceptsFiles(details, options = {}) {
+  if (!details || typeof details !== 'object') return Boolean(options.acceptEmptyDetails);
   const id = textValue(details.id);
   if (NATIVE_FILE_DROP_TARGET_IDS.has(id)) return true;
+  if (nativeDropHasAcceptedClass(details.classList)) return true;
 
   const attributes = details.attributes && typeof details.attributes === 'object' ? details.attributes : null;
-  if (!attributes) return false;
+  if (!attributes) return Boolean(options.acceptEmptyDetails && !nativeDropHasTargetEvidence(details, attributes));
   const attributeId = textValue(attributes.id);
   return NATIVE_FILE_DROP_TARGET_IDS.has(attributeId)
-    || Object.prototype.hasOwnProperty.call(attributes, NATIVE_FILE_DROP_TARGET_ATTRIBUTE);
+    || Object.prototype.hasOwnProperty.call(attributes, NATIVE_FILE_DROP_TARGET_ATTRIBUTE)
+    || nativeDropHasAcceptedClass(attributes.class)
+    || Boolean(options.acceptEmptyDetails && !nativeDropHasTargetEvidence(details, attributes));
 }
 
 function AttachmentPreviewModal({ attachment, onClose, onRemove }) {
@@ -4637,13 +4671,13 @@ function useComposerTransferHandlers({ attachDroppedFiles, attachPaths, canUsePr
   useEffect(() => {
     if (typeof attachPaths !== 'function') return undefined;
     return onFilesDropped((event) => {
-      if (!canUseProjectActions) return;
-      const files = nativeDropFiles(event);
+      const files = nativeDropFiles(event, { acceptEmptyDetails: dropDepthRef.current > 0 });
       if (files.length === 0) return;
+      if (!canUseProjectActions) return;
       attachPaths(files);
       resetDropState();
     });
-  }, [attachPaths, canUseProjectActions, resetDropState]);
+  }, [attachPaths, canUseProjectActions, dropDepthRef, resetDropState]);
   const handlePaste = async (event) => {
     const paths = extractClipboardFilePaths(event);
     if (paths.length > 0) {
