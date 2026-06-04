@@ -331,6 +331,32 @@ describe('ChatPage module', () => {
     expect(dropEvent.defaultPrevented).toBe(true);
   });
 
+  it('falls back to transfer file paths when a dropped DOM File has no path', async () => {
+    const store = createActiveThreadStore([
+      { id: 'msg-1', role: 'assistant', text: '拖文件进来即可。', time: '2026-06-02T08:00:00Z' },
+    ], {
+      attachDroppedFilesForComposer: vi.fn(() => 0),
+    });
+
+    render(<TestChatPageWrapper store={store} projectPath="/repo/app" />);
+
+    const dropped = new File(['notes'], 'browser-only-notes.txt', { type: 'text/plain' });
+    const conversation = screen.getByTestId('conversation-drop-zone');
+    const dataTransfer = {
+      files: [dropped],
+      items: [],
+      types: ['Files', 'text/uri-list'],
+      getData: (type) => (type === 'text/uri-list' ? 'file:///tmp/browser-only-notes.txt' : ''),
+    };
+
+    fireEvent.drop(conversation, { dataTransfer });
+
+    await waitFor(() => {
+      expect(store.attachDroppedFilesForComposer).toHaveBeenCalledWith([dropped]);
+    });
+    expect(store.attachPathsForComposer).toHaveBeenCalledWith(['/tmp/browser-only-notes.txt']);
+  });
+
   it('accepts external uri-list drops on the conversation window', () => {
     const store = createActiveThreadStore([
       { id: 'msg-1', role: 'assistant', text: '拖文件进来即可。', time: '2026-06-02T08:00:00Z' },
