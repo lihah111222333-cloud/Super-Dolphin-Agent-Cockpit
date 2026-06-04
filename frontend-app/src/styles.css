@@ -5272,12 +5272,12 @@ dd {
   overflow: auto;
 }
 
-.observability-log-table thead,
-.observability-log-table tbody {
+.observability-log-table-head,
+.observability-log-table-body {
   display: block;
 }
 
-.observability-log-table-head tr,
+.observability-log-table-head-row,
 .observability-log-table-row {
   min-width: 0;
   display: grid;
@@ -5294,8 +5294,8 @@ dd {
   font-weight: 700;
 }
 
-.observability-log-table th,
-.observability-log-table td {
+.observability-log-table [role='columnheader'],
+.observability-log-table [role='cell'] {
   min-width: 0;
   border: 0;
   padding: 0;
@@ -5388,6 +5388,17 @@ dd {
   border-color: color-mix(in srgb, var(--success) 55%, var(--line));
   background: color-mix(in srgb, var(--success) 18%, var(--panel-2));
   color: var(--success);
+}
+
+.observability-log-table-detail-row {
+  min-width: 0;
+  display: block;
+  width: 100%;
+}
+
+.observability-log-table-detail-cell {
+  min-width: 0;
+  display: block;
 }
 
 .observability-log-trace-detail {
