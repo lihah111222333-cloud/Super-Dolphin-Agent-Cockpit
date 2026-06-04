@@ -151,6 +151,46 @@ func TestSearchTextInvalidGlobReturnsError(t *testing.T) {
 	}
 }
 
+func TestSearchTextDoublestarGlobMatchesCurrentAndNestedFiles(t *testing.T) {
+	root, err := NormalizeRoot(t.TempDir())
+	if err != nil {
+		t.Fatalf("NormalizeRoot() error = %v", err)
+	}
+	writeSearchTestFile(t, filepath.Join(root, "current_test.go"), "package root\nconst needleCurrent = true\n")
+	writeSearchTestFile(t, filepath.Join(root, "nested", "child_test.go"), "package nested\nconst needleChild = true\n")
+	writeSearchTestFile(t, filepath.Join(root, "nested", "deeper", "grand_test.go"), "package deeper\nconst needleGrand = true\n")
+	writeSearchTestFile(t, filepath.Join(root, "nested", "skip.go"), "package nested\nconst needleSkip = true\n")
+
+	matches, err := SearchText(context.Background(), TextSearchOptions{
+		Root:         root,
+		Query:        "needle",
+		Glob:         "**/*_test.go",
+		MaxFileBytes: 1024,
+	})
+	if err != nil {
+		t.Fatalf("SearchText() error = %v", err)
+	}
+	if len(matches) != 3 {
+		t.Fatalf("SearchText() matches = %#v, want current and nested test files only", matches)
+	}
+	got := map[string]bool{}
+	for _, match := range matches {
+		rel, err := filepath.Rel(root, match.AbsPath)
+		if err != nil {
+			t.Fatalf("relative match path: %v", err)
+		}
+		got[filepath.ToSlash(rel)] = true
+	}
+	for _, want := range []string{"current_test.go", "nested/child_test.go", "nested/deeper/grand_test.go"} {
+		if !got[want] {
+			t.Fatalf("SearchText() paths = %#v, missing %s", got, want)
+		}
+	}
+	if got["nested/skip.go"] {
+		t.Fatalf("SearchText() paths = %#v, included non-test file", got)
+	}
+}
+
 func TestSearchTextSearchesWhitespaceSeparatedPaths(t *testing.T) {
 	root, err := NormalizeRoot(t.TempDir())
 	if err != nil {
