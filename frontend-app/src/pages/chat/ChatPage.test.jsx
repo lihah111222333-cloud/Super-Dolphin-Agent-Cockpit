@@ -431,6 +431,105 @@ describe('ChatPage module', () => {
     expect(store.setDraft).not.toHaveBeenCalled();
   });
 
+  it('attaches ordinary clipboard.files File objects with a path instead of pasting text', async () => {
+    const store = createActiveThreadStore([
+      { id: 'msg-1', role: 'assistant', text: '可以直接粘贴文件。', time: '2026-06-02T08:00:00Z' },
+    ]);
+
+    render(<TestChatPageWrapper store={store} projectPath="/repo/app" />);
+
+    const file = new File(['notes'], 'copied-notes.txt', { type: 'text/plain' });
+    Object.defineProperty(file, 'path', { value: '/tmp/copied-notes.txt' });
+
+    fireEvent.paste(screen.getByTestId('composer-input'), {
+      clipboardData: {
+        files: [file],
+        items: [],
+        types: ['Files'],
+        getData: () => '',
+      },
+    });
+
+    await waitFor(() => {
+      expect(store.attachDroppedFilesForComposer).toHaveBeenCalledWith([file]);
+    });
+    expect(store.setDraft).not.toHaveBeenCalled();
+  });
+
+  it('attaches ordinary clipboard.items getAsFile File objects with a path', async () => {
+    const store = createActiveThreadStore([
+      { id: 'msg-1', role: 'assistant', text: '可以直接粘贴文件。', time: '2026-06-02T08:00:00Z' },
+    ]);
+
+    render(<TestChatPageWrapper store={store} projectPath="/repo/app" />);
+
+    const file = new File(['notes'], 'item-notes.txt', { type: 'text/plain' });
+    Object.defineProperty(file, 'path', { value: '/tmp/item-notes.txt' });
+
+    fireEvent.paste(screen.getByTestId('composer-input'), {
+      clipboardData: {
+        files: [],
+        items: [
+          { kind: 'file', type: 'text/plain', getAsFile: vi.fn(() => file) },
+        ],
+        types: ['Files'],
+        getData: () => '',
+      },
+    });
+
+    await waitFor(() => {
+      expect(store.attachDroppedFilesForComposer).toHaveBeenCalledWith([file]);
+    });
+  });
+
+  it('routes PNG clipboard File objects with a path through dropped-file attachment handling', async () => {
+    const store = createActiveThreadStore([
+      { id: 'msg-1', role: 'assistant', text: '可以直接粘贴图片文件。', time: '2026-06-02T08:00:00Z' },
+    ]);
+
+    render(<TestChatPageWrapper store={store} projectPath="/repo/app" />);
+
+    const file = new File(['png'], 'copied-image.png', { type: 'image/png' });
+    Object.defineProperty(file, 'path', { value: '/tmp/copied-image.png' });
+
+    fireEvent.paste(screen.getByTestId('composer-input'), {
+      clipboardData: {
+        files: [file],
+        items: [],
+        types: ['Files'],
+        getData: () => '',
+      },
+    });
+
+    await waitFor(() => {
+      expect(store.attachDroppedFilesForComposer).toHaveBeenCalledWith([file]);
+    });
+    expect(store.attachPastedImagesForComposer).not.toHaveBeenCalled();
+  });
+
+  it('keeps no-path image paste in attachment handling', async () => {
+    const store = createActiveThreadStore([
+      { id: 'msg-1', role: 'assistant', text: '可以直接粘贴截图。', time: '2026-06-02T08:00:00Z' },
+    ]);
+
+    render(<TestChatPageWrapper store={store} projectPath="/repo/app" />);
+
+    const file = new File(['png'], 'screenshot.png', { type: 'image/png' });
+
+    fireEvent.paste(screen.getByTestId('composer-input'), {
+      clipboardData: {
+        files: [file],
+        items: [],
+        types: ['Files'],
+        getData: () => '',
+      },
+    });
+
+    await waitFor(() => {
+      expect(store.attachDroppedFilesForComposer).toHaveBeenCalledWith([file]);
+    });
+  });
+
   it('renders compact assistant markdown block markers as formatted content', () => {
     const store = createActiveThreadStore([
       {
