@@ -173,6 +173,15 @@ func TestNew_DefaultsLSPConfig(t *testing.T) {
 	if !cfg.LSP.DisableInitialWorkspaceBootstrap {
 		t.Fatal("LSP disable initial workspace bootstrap default = false, want true")
 	}
+	shell, ok := cfg.LSP.ProjectAdapters["shell"]
+	if !ok {
+		t.Fatal("LSP project adapters missing shell")
+	}
+	for _, ext := range []string{".sh", ".bash", ".zsh", ".ksh", ".bats"} {
+		if !slices.Contains(shell.FirstSourceExtensions, ext) {
+			t.Fatalf("LSP shell first source extensions = %#v, missing %s", shell.FirstSourceExtensions, ext)
+		}
+	}
 }
 
 func TestNew_LoadsLSPConfigFromDotEnv(t *testing.T) {
@@ -227,11 +236,14 @@ func clearLSPConfigEnv(t *testing.T) {
 		"LSP_RUST_ROOT_MARKERS",
 		"LSP_JAVA_ROOT_MARKERS",
 		"LSP_CSS_ROOT_MARKERS",
+		"LSP_SHELL_ROOT_MARKERS",
 		"LSP_JSTS_IGNORED_DIRS",
 		"LSP_PYTHON_IGNORED_DIRS",
 		"LSP_RUST_IGNORED_DIRS",
 		"LSP_JAVA_IGNORED_DIRS",
 		"LSP_CSS_IGNORED_DIRS",
+		"LSP_SHELL_IGNORED_DIRS",
+		"LSP_SHELL_FIRST_SOURCE_EXTENSIONS",
 		"LSP_DISABLE_INITIAL_WORKSPACE_BOOTSTRAP",
 	} {
 		t.Setenv(key, "")

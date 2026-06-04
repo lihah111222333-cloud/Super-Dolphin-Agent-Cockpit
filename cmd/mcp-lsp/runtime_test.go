@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 
 	lspmanager "github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/manager"
@@ -274,6 +275,32 @@ func TestRuntimeAdapterInitOptionsPackagedPythonDisablesSystemInterpreterProbe(t
 	}
 	if got := python["pythonPath"]; got != "/__super_dolphin_no_system_python__/python" {
 		t.Fatalf("python.pythonPath = %#v, want packaged no-system interpreter sentinel", got)
+	}
+}
+
+func TestRuntimePrimaryLanguageIDsIncludeShellscript(t *testing.T) {
+	if !slices.Contains(runtimePrimaryLanguageIDs(), "shellscript") {
+		t.Fatalf("runtimePrimaryLanguageIDs() = %#v, missing shellscript", runtimePrimaryLanguageIDs())
+	}
+}
+
+func TestSetupInstallerRegistersShellLanguageServer(t *testing.T) {
+	binDir := t.TempDir()
+	fakeServer := filepath.Join(binDir, "bash-language-server")
+	if err := os.WriteFile(fakeServer, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
+		t.Fatalf("write fake bash-language-server: %v", err)
+	}
+	t.Setenv("PATH", binDir)
+
+	result, err := setupInstaller().EnsureInstalledDetailed(context.Background(), "shellscript")
+	if err != nil {
+		t.Fatalf("EnsureInstalledDetailed(shellscript) error = %v", err)
+	}
+	if result.Binary != "bash-language-server" {
+		t.Fatalf("shell installer binary = %q, want bash-language-server", result.Binary)
+	}
+	if result.Path != fakeServer {
+		t.Fatalf("shell installer path = %q, want %q", result.Path, fakeServer)
 	}
 }
 

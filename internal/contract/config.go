@@ -42,6 +42,7 @@ const (
 	LSPServiceRust   = "rust"
 	LSPServiceJava   = "java"
 	LSPServiceCSS    = "css"
+	LSPServiceShell  = "shell"
 )
 
 // LSPConfig holds language-service startup and indexing configuration.
