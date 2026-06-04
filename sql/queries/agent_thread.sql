@@ -180,5 +180,5 @@ SELECT COUNT(*) FROM agent_threads;
 -- name: ListAgentThreadConfigsByIDs :many
 SELECT thread_id, model, config_override
 FROM agent_threads
-WHERE thread_id IN (sqlc.slice('thread_ids'));
+WHERE thread_id = ANY(sqlc.arg(thread_ids)::text[]);
 

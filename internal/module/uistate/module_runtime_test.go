@@ -158,6 +158,30 @@ func TestApplyTaskRuntimeToThreadRuntimeConfigDoesNotExposeLegacyTaskMetadata(t 
 	}
 }
 
+func TestEnrichFromDBSkipsPerThreadRuntimeFallbackAfterBatchError(t *testing.T) {
+	t.Parallel()
+
+	lookup := &runtimeConfigLookupStub{err: errors.New("batch config unavailable")}
+	svc, _, err := NewService(nil, nil, nil, nil, nil, lookup)
+	if err != nil {
+		t.Fatalf("NewService() error = %v", err)
+	}
+
+	svc.enrichFromDB(context.Background(), nil, []ThreadSummary{
+		{ID: "thread-1"},
+		{ID: " thread-2 "},
+		{ID: " "},
+	}, map[string]map[string]any{})
+
+	wantBatchIDs := []string{"thread-1", "thread-2"}
+	if len(lookup.batchThreadIDs) != 1 || !reflect.DeepEqual(lookup.batchThreadIDs[0], wantBatchIDs) {
+		t.Fatalf("ReadRuntimeConfigs IDs = %#v, want one batch %#v", lookup.batchThreadIDs, wantBatchIDs)
+	}
+	if len(lookup.singleThreadIDs) != 0 {
+		t.Fatalf("ReadRuntimeConfig fallback calls = %#v, want none after batch error", lookup.singleThreadIDs)
+	}
+}
+
 type threadListerStub struct {
 	refs  []contract.ThreadRef
 	err   error
@@ -170,18 +194,22 @@ func (s *threadListerStub) List(context.Context) ([]contract.ThreadRef, error) {
 }
 
 type runtimeConfigLookupStub struct {
-	cfg       map[string]any
-	err       error
-	threadIDs []string
+	cfg             map[string]any
+	err             error
+	threadIDs       []string
+	singleThreadIDs []string
+	batchThreadIDs  [][]string
 }
 
 func (s *runtimeConfigLookupStub) ReadRuntimeConfig(_ context.Context, threadID string) (map[string]any, error) {
 	s.threadIDs = append(s.threadIDs, threadID)
+	s.singleThreadIDs = append(s.singleThreadIDs, threadID)
 	return s.cfg, s.err
 }
 
 func (s *runtimeConfigLookupStub) ReadRuntimeConfigs(ctx context.Context, threadIDs []string) (map[string]map[string]any, error) {
 	s.threadIDs = append(s.threadIDs, threadIDs...)
+	s.batchThreadIDs = append(s.batchThreadIDs, append([]string(nil), threadIDs...))
 	if s.err != nil {
 		return nil, s.err
 	}
