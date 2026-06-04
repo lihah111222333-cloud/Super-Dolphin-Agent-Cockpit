@@ -4640,6 +4640,7 @@ function useComposerTransferHandlers({ attachDroppedFiles, attachPaths, attachPa
   const handleDragEnter = (event) => {
     if (!hasFilesTransfer(event)) return;
     event.preventDefault();
+    event.stopPropagation();
     if (projectActionBlocked) return;
     dropDepthRef.current += 1;
     setDropActive(true);
@@ -4647,6 +4648,7 @@ function useComposerTransferHandlers({ attachDroppedFiles, attachPaths, attachPa
   const handleDragOver = (event) => {
     if (!hasFilesTransfer(event)) return;
     event.preventDefault();
+    event.stopPropagation();
     if (projectActionBlocked) return;
     if (event.dataTransfer) event.dataTransfer.dropEffect = 'copy';
     setDropActive(true);
@@ -4654,12 +4656,14 @@ function useComposerTransferHandlers({ attachDroppedFiles, attachPaths, attachPa
   const handleDragLeave = (event) => {
     if (!hasFilesTransfer(event)) return;
     event.preventDefault();
+    event.stopPropagation();
     dropDepthRef.current = Math.max(dropDepthRef.current - 1, 0);
     if (dropDepthRef.current === 0) setDropActive(false);
   };
   const handleDrop = async (event) => {
     if (!hasFilesTransfer(event)) return;
     event.preventDefault();
+    event.stopPropagation();
     resetDropState();
     if (projectActionBlocked) return;
     const files = collectTransferFiles(event);
@@ -4671,6 +4675,29 @@ function useComposerTransferHandlers({ attachDroppedFiles, attachPaths, attachPa
     if (paths.length > 0 && typeof attachPaths === 'function') attachPaths(paths);
   };
   return { handleDragEnter, handleDragLeave, handleDragOver, handleDrop, handlePaste };
+}
+
+function useComposerDropTarget(ref, composer) {
+  useEffect(() => {
+    const target = ref.current;
+    if (!target) return undefined;
+
+    const handleDragEnter = (event) => composer.handleDragEnter(event);
+    const handleDragOver = (event) => composer.handleDragOver(event);
+    const handleDragLeave = (event) => composer.handleDragLeave(event);
+    const handleDrop = (event) => runUIAction(() => composer.handleDrop(event));
+
+    target.addEventListener('dragenter', handleDragEnter);
+    target.addEventListener('dragover', handleDragOver);
+    target.addEventListener('dragleave', handleDragLeave);
+    target.addEventListener('drop', handleDrop);
+    return () => {
+      target.removeEventListener('dragenter', handleDragEnter);
+      target.removeEventListener('dragover', handleDragOver);
+      target.removeEventListener('dragleave', handleDragLeave);
+      target.removeEventListener('drop', handleDrop);
+    };
+  }, [composer, ref]);
 }
 
 function ComposerDock({
@@ -4693,11 +4720,14 @@ function ComposerDock({
   const canSend = canUseProjectActions && !sending && !canInterrupt && hasComposerInput;
   const projectActionBlocked = !canUseProjectActions;
   const projectActionBlockedTitle = '请先连接后端并选择项目';
+  const dockRef = useRef(null);
+  useComposerDropTarget(dockRef, composer);
 
   const handleKeyDown = useComposerSendKeyHandler({ canSend, composer, sendMessage });
 
   return (
     <footer
+      ref={dockRef}
       id="chat-input-bar"
       className={`${composerClass}${composer.dropActive ? ' drop-active' : ''}`}
       data-testid="composer-dock"
@@ -4732,8 +4762,11 @@ function ComposerDock({
 }
 
 function ComposerTextarea({ composer, draft, handleKeyDown, setDraft }) {
+  const textareaRef = useRef(null);
+  useComposerDropTarget(textareaRef, composer);
   return (
     <textarea
+      ref={textareaRef}
       id="composer-input"
       data-testid="composer-input"
       data-file-drop-target=""
