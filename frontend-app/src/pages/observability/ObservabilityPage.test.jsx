@@ -122,6 +122,40 @@ describe('ObservabilityPage module', () => {
     expect(table).toHaveTextContent('thread start failed');
   });
 
+  it('labels recent rows as matching event groups instead of full trace state', async () => {
+    listObservabilityRecent.mockResolvedValueOnce({
+      source: 'memory',
+      truncated: false,
+      events: [
+        {
+          ts: '2026-06-02T09:01:22.000Z',
+          trace_id: 'trace-mixed-1',
+          span_id: 'span-ok',
+          method: 'thread/start',
+          status: 'ok',
+          duration_ms: 10,
+        },
+        {
+          ts: '2026-06-02T09:01:23.000Z',
+          trace_id: 'trace-mixed-1',
+          span_id: 'span-slow',
+          method: 'thread/start',
+          status: 'slow',
+          duration_ms: 25,
+        },
+      ],
+    });
+
+    renderObservabilityPage();
+    fireEvent.click(screen.getByRole('button', { name: '查询最新日志' }));
+    const table = await screen.findByTestId('observability-recent-logs');
+
+    expect(table).toHaveTextContent('1 条匹配 event 分组 · 2 个匹配 event');
+    expect(within(table).getByRole('columnheader', { name: '匹配 event 状态' })).toBeInTheDocument();
+    expect(table.querySelector('.observability-log-table-entry')).toHaveTextContent('匹配 event 耗时合计 35ms');
+    expect(table.querySelector('.observability-log-table-entry')).toHaveTextContent('2 个匹配 event');
+  });
+
   it('shows recent events that do not have a trace id', async () => {
     listObservabilityRecent.mockResolvedValueOnce({
       source: 'jsonl_tail',
