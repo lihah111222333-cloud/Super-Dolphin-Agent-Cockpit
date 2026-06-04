@@ -331,16 +331,16 @@ function ObservabilityRecentLogs({ result, onOpenTrace, onCopyTrace, copiedTrace
       {traceRows.length === 0 ? (
         <div className="empty-state">没有匹配的最近请求</div>
       ) : (
-        <table className="observability-log-table">
-          <thead className="observability-log-table-head">
-            <tr>
-              <th scope="col">时间</th>
-              <th scope="col">状态</th>
-              <th scope="col">请求摘要</th>
-              <th scope="col">操作</th>
-            </tr>
-          </thead>
-          <tbody>
+        <div className="observability-log-table" role="table" aria-label="最新日志">
+          <div className="observability-log-table-head" role="rowgroup">
+            <div className="observability-log-table-head-row" role="row">
+              <div role="columnheader">时间</div>
+              <div role="columnheader">状态</div>
+              <div role="columnheader">请求摘要</div>
+              <div role="columnheader">操作</div>
+            </div>
+          </div>
+          <div className="observability-log-table-body" role="rowgroup">
             {traceRows.map((row) => (
               <ObservabilityLogTableRow
                 row={row}
@@ -351,8 +351,8 @@ function ObservabilityRecentLogs({ result, onOpenTrace, onCopyTrace, copiedTrace
                 key={row.key}
               />
             ))}
-          </tbody>
-        </table>
+          </div>
+        </div>
       )}
     </div>
   );
@@ -456,14 +456,14 @@ function ObservabilityLogTableRow({ row, onOpenTrace, onCopyTrace, copied, trace
   const actionLabel = expanded ? '收起 Trace' : '打开 Trace';
   return (
     <>
-      <tr className="observability-log-table-entry observability-log-table-row">
-        <td>
+      <div className="observability-log-table-entry observability-log-table-row" role="row">
+        <div role="cell">
           <time dateTime={row.timestamp}>{formatObservabilityTimestamp(row.timestamp)}</time>
-        </td>
-        <td>
+        </div>
+        <div role="cell">
           <span className={`observability-status-pill is-${observabilityStatusClass(row.status)}`}>{row.status || 'ok'}</span>
-        </td>
-        <td>
+        </div>
+        <div role="cell">
           <div className="observability-log-summary">
             <strong>{event.method || event.phase || event.kind || 'event'}</strong>
             <p>{summary}</p>
@@ -472,8 +472,8 @@ function ObservabilityLogTableRow({ row, onOpenTrace, onCopyTrace, copied, trace
             </p>
             {row.error ? <p className="observability-event-error">{row.error}</p> : null}
           </div>
-        </td>
-        <td>
+        </div>
+        <div role="cell">
           <div className="observability-log-row-actions">
             <button
               type="button"
@@ -497,14 +497,14 @@ function ObservabilityLogTableRow({ row, onOpenTrace, onCopyTrace, copied, trace
               {actionLabel}
             </button>
           </div>
-        </td>
-      </tr>
+        </div>
+      </div>
       {expanded ? (
-        <tr className="observability-log-table-detail-row">
-          <td colSpan={4}>
+        <div className="observability-log-table-detail-row" role="row">
+          <div className="observability-log-table-detail-cell" role="cell">
             <ObservabilityInlineTraceResult traceID={traceID} detailId={detailId} state={traceState} />
-          </td>
-        </tr>
+          </div>
+        </div>
       ) : null}
     </>
   );
@@ -560,13 +560,14 @@ function ObservabilityInlineTraceResult({ traceID, detailId, state }) {
 function TraceEventTable({ events }) {
   const sourceEvents = useMemo(() => (Array.isArray(events) ? events : []), [events]);
   const eventSignature = useMemo(() => sourceEvents
-    .map((event, index) => `${textValue(event.trace_id)}:${textValue(event.span_id) || index}:${textValue(event.ts)}:${textValue(event.method)}`)
+    .map((event, index) => `${textValue(event.trace_id)}:${textValue(event.span_id) || index}:${textValue(event.phase)}:${textValue(event.ts)}:${textValue(event.method)}`)
     .join('|'), [sourceEvents]);
   const [displayState, setDisplayState] = useState({ eventSignature: '', showAll: false });
   const showAll = displayState.eventSignature === eventSignature ? displayState.showAll : false;
-  const keyEvents = useMemo(() => selectKeyTraceEvents(sourceEvents), [sourceEvents]);
-  const visibleEvents = showAll ? sourceEvents : keyEvents;
-  const hiddenCount = Math.max(sourceEvents.length - keyEvents.length, 0);
+  const allEventIndexes = useMemo(() => sourceEvents.map((_, index) => index), [sourceEvents]);
+  const keyEventIndexes = useMemo(() => selectKeyTraceEventIndexes(sourceEvents), [sourceEvents]);
+  const visibleEventIndexes = showAll ? allEventIndexes : keyEventIndexes;
+  const hiddenCount = Math.max(sourceEvents.length - keyEventIndexes.length, 0);
 
   if (!sourceEvents.length) return <div className="empty-state">没有匹配的 trace events</div>;
 
@@ -575,7 +576,7 @@ function TraceEventTable({ events }) {
       {hiddenCount > 0 ? (
         <div className="observability-trace-filter">
           <p>
-            默认显示关键事件 {visibleEvents.length}/{sourceEvents.length} · 已折叠 {hiddenCount} 条成功过程事件
+            默认显示关键事件 {visibleEventIndexes.length}/{sourceEvents.length} · 已折叠 {hiddenCount} 条成功过程事件
           </p>
           <button
             type="button"
@@ -587,17 +588,27 @@ function TraceEventTable({ events }) {
         </div>
       ) : null}
       <ol className="observability-table" aria-label="Trace events">
-        {visibleEvents.map((event, index) => (
-          <TraceEventRow event={event} index={index} key={`${event.trace_id || 'trace'}-${event.span_id || index}`} />
-        ))}
+        {visibleEventIndexes.map((sourceIndex, index) => {
+          const event = sourceEvents[sourceIndex];
+          return (
+            <TraceEventRow event={event} index={index} key={traceEventRenderKey(event, sourceIndex)} />
+          );
+        })}
       </ol>
     </>
   );
 }
 
-function selectKeyTraceEvents(events) {
+function traceEventRenderKey(event, sourceIndex) {
+  const parts = [event.trace_id, event.span_id, event.phase, event.ts, event.method, String(sourceIndex)]
+    .map(textValue)
+    .filter(Boolean);
+  return `trace-event-${parts.join(':')}`;
+}
+
+function selectKeyTraceEventIndexes(events) {
   const source = Array.isArray(events) ? events : [];
-  if (source.length <= 2) return source;
+  if (source.length <= 2) return source.map((_, index) => index);
   const selectedIndexes = new Set();
   source.forEach((event, index) => {
     if (isKeyTraceEvent(event)) selectedIndexes.add(index);
@@ -607,7 +618,6 @@ function selectKeyTraceEvents(events) {
   return (
     Array.from(selectedIndexes)
     .sort((left, right) => left - right)
-    .map((index) => source[index])
   );
 }
 
