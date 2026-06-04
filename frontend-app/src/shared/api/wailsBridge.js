@@ -172,6 +172,13 @@ function subscribeRuntimeEvent(eventName, callback, options = {}) {
     return false;
   };
 
+  const shouldEscalateCallbackError = (error, normalized) => {
+    if (typeof options.escalateCallbackError === 'function') {
+      return options.escalateCallbackError(error, normalized) === true;
+    }
+    return options.escalateCallbackError === true;
+  };
+
   const wrapped = (evt) => {
     const normalized = normalizeRuntimeEventEnvelope(evt);
     if (typeof options.beforeCallback === 'function') {
@@ -182,6 +189,12 @@ function subscribeRuntimeEvent(eventName, callback, options = {}) {
     }
     catch (error) {
       writeBridgeLog('error', options.callbackFailedLog || 'runtime.callback.failed', { error });
+      if (typeof options.onCallbackError === 'function') {
+        options.onCallbackError(error, normalized);
+      }
+      if (shouldEscalateCallbackError(error, normalized)) {
+        throw error;
+      }
     }
   };
 
@@ -938,12 +951,13 @@ export function onAgentEvent(callback) {
   });
 }
 
-export function onBridgeEvent(callback) {
+export function onBridgeEvent(callback, options = {}) {
   return subscribeRuntimeEvent('bridge-event', callback, {
     callbackFailedLog: 'bridge.callback.failed',
     subscribeUnavailableLog: 'bridge.subscribe.unavailable',
     subscribeReadyLog: 'bridge.subscribe.ready',
     unsubscribeDoneLog: 'bridge.unsubscribe.done',
+    ...options,
   });
 }
 

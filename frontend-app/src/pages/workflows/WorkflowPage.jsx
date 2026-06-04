@@ -49,6 +49,12 @@ const STARTABLE_DAG_TRIGGERS = new Set(['manual', 'scheduled', 'schedule', 'cron
 
 const RUNNING_RUN_STATUSES = new Set(['running', 'pending', 'dispatching', 'waiting_for_assignee']);
 
+const WORKFLOW_ACTION_TIMEOUT_MESSAGE = '自动化操作超时，请检查任务数据或后端状态。';
+
+function withWorkflowActionTimeout(promise) {
+  return withTimeout(promise, SKILLS_REQUEST_TIMEOUT_MS, WORKFLOW_ACTION_TIMEOUT_MESSAGE);
+}
+
 async function fetchDagsDashboard(cwd) {
   const response = await withTimeout(
     getDashboardPage({ cwd, page: 'dags' }),
@@ -903,7 +909,7 @@ function useRunSelectedDagAction({ actionState, derived, list, notices, refresh 
     actionState.setError('');
     notices.clearNotice();
     try {
-      const result = await startDag({ dagKey: targetDagKey, triggerSource: 'manual', idempotencyKey: 'ui-' + Date.now() + '-' + Math.random().toString(IDEMPOTENCY_RANDOM_RADIX).slice(2) });
+      const result = await withWorkflowActionTimeout(startDag({ dagKey: targetDagKey, triggerSource: 'manual', idempotencyKey: 'ui-' + Date.now() + '-' + Math.random().toString(IDEMPOTENCY_RANDOM_RADIX).slice(2) }));
       const runKey = runKeyOf(result);
       await list.refreshDags().catch(() => []);
       await refresh.refreshDetail(targetDagKey, runKey).catch(() => {});
@@ -925,7 +931,7 @@ function useStopSelectedDagAction({ actionState, derived, list, notices, refresh
     actionState.setError('');
     notices.clearNotice();
     try {
-      await terminateDagRun({ dagKey: targetDagKey, runKey: derived.activeRunKey, reason: 'user_requested' });
+      await withWorkflowActionTimeout(terminateDagRun({ dagKey: targetDagKey, runKey: derived.activeRunKey, reason: 'user_requested' }));
       notices.showTaskNotice('已停止运行', targetDagKey);
     } catch (err) {
       actionState.setError('停止运行失败：' + errorMessage(err));
@@ -951,7 +957,7 @@ function useDeleteDagAction({ actionState, derived, list, notices, selection }) 
     actionState.setError('');
     notices.clearNotice();
     try {
-      await deleteDag({ dagKey: targetKey });
+      await withWorkflowActionTimeout(deleteDag({ dagKey: targetKey }));
       actionState.setDeleteTarget(null);
       const fallback = list.items.filter((item) => item.dagKey !== targetKey);
       const nextItems = await list.refreshDags().catch(() => fallback);
@@ -980,7 +986,7 @@ function useSaveScheduleAction({ actionState, derived, list, notices, refresh })
     actionState.setError('');
     notices.clearNotice();
     try {
-      await applyDagOps({ dagKey: targetDagKey, baseVersion: derived.baseVersion, ops: [{ op: 'update_dag', patch: { trigger: 'scheduled', cron_expr: cronExpr } }] });
+      await withWorkflowActionTimeout(applyDagOps({ dagKey: targetDagKey, baseVersion: derived.baseVersion, ops: [{ op: 'update_dag', patch: { trigger: 'scheduled', cron_expr: cronExpr } }] }));
       actionState.setScheduleOpen(false);
       await Promise.all([
         list.refreshDags().catch(() => []),
@@ -1005,7 +1011,7 @@ function useToggleScheduleAction({ actionState, derived, list, notices, refresh 
     actionState.setError('');
     notices.clearNotice();
     try {
-      await applyDagOps({ dagKey: targetDagKey, baseVersion: derived.baseVersion, ops: [{ op: 'update_dag', patch: { schedule_enabled: enabled } }] });
+      await withWorkflowActionTimeout(applyDagOps({ dagKey: targetDagKey, baseVersion: derived.baseVersion, ops: [{ op: 'update_dag', patch: { schedule_enabled: enabled } }] }));
       await Promise.all([
         list.refreshDags().catch(() => []),
         refresh.refreshDetail(targetDagKey).catch(() => {}),
@@ -1028,7 +1034,7 @@ function useSaveAgentNodeAction({ actionState, derived, notices, refresh }) {
     actionState.setError('');
     notices.clearNotice();
     try {
-      await applyDagOps({ dagKey: targetDagKey, baseVersion: derived.baseVersion, ops: [{ op: 'update_node', node_key: node.nodeKey, patch: dagNodePatchFromForm(form, node) }] });
+      await withWorkflowActionTimeout(applyDagOps({ dagKey: targetDagKey, baseVersion: derived.baseVersion, ops: [{ op: 'update_node', node_key: node.nodeKey, patch: dagNodePatchFromForm(form, node) }] }));
       await refresh.refreshDetail(targetDagKey).catch(() => {});
       notices.showTaskNotice('已保存步骤 ' + node.title, targetDagKey);
     } catch (err) {
@@ -1049,11 +1055,11 @@ function useStartDesignFlowAction({ actionState, notices, store, workflowCwd }) 
       if (typeof store?.resolveLaunchPreferences !== 'function') throw new Error('自动化启动配置不可用');
       const launchPreferences = await store.resolveLaunchPreferences(workflowCwd);
       const { config: launchConfig = {}, ...launchPayload } = launchPreferences || {};
-      const response = await startThread(workflowDesignThreadPayload(workflowCwd, launchConfig, launchPayload, seedPrompt));
+      const response = await withWorkflowActionTimeout(startThread(workflowDesignThreadPayload(workflowCwd, launchConfig, launchPayload, seedPrompt)));
       const threadId = threadIdFromStartResponse(response);
       if (seedPrompt) {
         if (!threadId) throw new Error('自动化设计线程缺少 threadId');
-        await startTurn({ cwd: workflowCwd, threadId, input: seedPrompt });
+        await withWorkflowActionTimeout(startTurn({ cwd: workflowCwd, threadId, input: seedPrompt }));
       }
       if (threadId && typeof store?.setActiveThread === 'function') await store.setActiveThread(threadId);
       if (typeof store?.setActivePage === 'function') store.setActivePage('chat');

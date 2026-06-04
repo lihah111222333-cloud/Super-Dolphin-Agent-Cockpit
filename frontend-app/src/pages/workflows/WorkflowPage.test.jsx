@@ -1,7 +1,7 @@
 import React from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { WorkflowPage } from './WorkflowPage.jsx';
 
 const backend = vi.hoisted(() => ({
@@ -67,6 +67,10 @@ describe('WorkflowPage module', () => {
     vi.clearAllMocks();
   });
 
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   it('exports the workflow page component', () => {
     expect(WorkflowPage).toBeTypeOf('function');
   });
@@ -103,6 +107,28 @@ describe('WorkflowPage module', () => {
 
     const payload = backend.startDag.mock.calls[0][0];
     expect(payload.idempotencyKey).toMatch(/^ui-/);
+  });
+
+  it('restores the run action and shows an error when startDag times out', async () => {
+    mockWorkflowDag();
+    backend.startDag.mockReturnValue(new Promise(() => {}));
+
+    renderWorkflowPage();
+
+    const runButton = await screen.findByRole('button', { name: '运行' });
+    vi.useFakeTimers();
+    fireEvent.click(runButton);
+
+    expect(screen.getByRole('button', { name: '启动中...' })).toBeDisabled();
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(8000);
+    });
+
+    expect(screen.getByRole('button', { name: '运行' })).not.toBeDisabled();
+    expect(screen.getByRole('alert')).toHaveTextContent(
+      '启动自动化失败：自动化操作超时，请检查任务数据或后端状态。',
+    );
   });
 
   it('formats the active run row time as a readable date and time', async () => {
