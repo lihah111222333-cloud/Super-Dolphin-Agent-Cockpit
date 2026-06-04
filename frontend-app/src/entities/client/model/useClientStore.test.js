@@ -2,6 +2,7 @@ import { beforeEach, expect, it, vi } from 'vitest';
 
 let bridgeCallback;
 let bridgeOptions;
+let runtimeReconnectCallback;
 
 const backend = vi.hoisted(() => ({
   readConfig: vi.fn(),
@@ -45,7 +46,12 @@ const backend = vi.hoisted(() => ({
       bridgeOptions = null;
     };
   }),
-  onRuntimeReconnect: vi.fn(() => () => {}),
+  onRuntimeReconnect: vi.fn((callback) => {
+    runtimeReconnectCallback = callback;
+    return () => {
+      runtimeReconnectCallback = null;
+    };
+  }),
 }));
 
 function deferred() {
@@ -56,6 +62,12 @@ function deferred() {
     reject = promiseReject;
   });
   return { promise, resolve, reject };
+}
+
+async function flushPromises(count = 8) {
+  for (let i = 0; i < count; i += 1) {
+    await Promise.resolve();
+  }
 }
 
 vi.mock('../../../shared/api/backendApi.js', () => ({
@@ -74,6 +86,7 @@ function registerBridgeEventHandlersForTest() {
     vi.clearAllMocks();
     bridgeCallback = null;
     bridgeOptions = null;
+    runtimeReconnectCallback = null;
     resetClientStoreForTests();
     backend.readConfig.mockResolvedValue({ cwd: '/repo/app' });
     backend.getWindowBootstrap.mockResolvedValue({ snapshot: null });
@@ -225,6 +238,44 @@ function registerBridgeEventHandlersForTest() {
       effort: 'xhigh',
       codexModelProvider: '',
     }));
+  });
+
+  it('retries bootstrap after a transient cold-start runtime reconnect', async () => {
+    backend.readConfig
+      .mockRejectedValueOnce(new Error('Wails runtime bridge not ready'))
+      .mockResolvedValue({ cwd: '/repo/app' });
+
+    await expect(useClientStore.getState().bootstrap()).rejects.toThrow('Wails runtime bridge not ready');
+    expect(useClientStore.getState().bootstrapStatus).toBe('failed');
+    expect(runtimeReconnectCallback).toEqual(expect.any(Function));
+
+    runtimeReconnectCallback();
+    await flushPromises();
+
+    expect(backend.readConfig).toHaveBeenCalledTimes(2);
+    expect(useClientStore.getState().bootstrapStatus).toBe('ready');
+    expect(useClientStore.getState().activeProject).toBe('/repo/app');
+  });
+
+  it('retries bootstrap when runtime reconnect arrives before the first cold-start RPC fails', async () => {
+    const firstConfig = deferred();
+    backend.readConfig
+      .mockReturnValueOnce(firstConfig.promise)
+      .mockResolvedValue({ cwd: '/repo/app' });
+
+    const bootstrapPromise = useClientStore.getState().bootstrap();
+    await flushPromises(2);
+    expect(useClientStore.getState().bootstrapStatus).toBe('loading');
+    expect(runtimeReconnectCallback).toEqual(expect.any(Function));
+
+    runtimeReconnectCallback();
+    firstConfig.reject(new Error('runtime shim: failed to connect ws://127.0.0.1:5175/wails/ws'));
+    await expect(bootstrapPromise).rejects.toThrow('runtime shim: failed to connect');
+    await flushPromises();
+
+    expect(backend.readConfig).toHaveBeenCalledTimes(2);
+    expect(useClientStore.getState().bootstrapStatus).toBe('ready');
+    expect(useClientStore.getState().activeProject).toBe('/repo/app');
   });
 
   it('hydrates thread providers from sidebar runtime metadata', async () => {
