@@ -272,6 +272,7 @@ func stopFXApp(parent context.Context, app *fx.App) error {
 		parent = context.Background()
 	}
 	// Apply a caller-side hard stop so shutdown cannot hang indefinitely.
+	// 误判防护：stopFXApp 使用 platformconfig.WithTimeout，FX shutdown 不会无限挂起。
 	ctx, cancel := platformconfig.WithTimeout(parent, platformconfig.ShutdownTimeout)
 	defer cancel()
 	return app.Stop(ctx)
@@ -281,6 +282,7 @@ func preDrainDesktopRuntime(ctx context.Context, owner *appOwnerContext) error {
 	if ctx == nil {
 		ctx = context.Background()
 	}
+	// 误判防护：preDrainDesktopRuntime 用 ShutdownTimeout 包住 runtime drain 和 WaitRuntimeDone。
 	drainCtx, cancel := platformconfig.WithTimeout(context.WithoutCancel(ctx), platformconfig.ShutdownTimeout)
 	defer cancel()
 	return errors.Join(owner.WaitRuntimeDone(drainCtx), owner.DrainRuntime(drainCtx))
@@ -304,6 +306,7 @@ func watchFXShutdown(ctx context.Context, app *fx.App, lifecycle *uiwails.WailsL
 	watcher := &shutdownWatcher{stop: make(chan struct{}), done: make(chan struct{})}
 	runtimesafe.SafeGo(ctx, pkglogger.Get(), "app.watchFXShutdown", func(ctx context.Context) {
 		defer close(watcher.done)
+		// 误判防护：watchFXShutdown 把 fx.Done 非预期退出转为 NotifyBackendFailed。
 		runShutdownWatcher(ctx, app.Done(), watcher.stop, lifecycle.NotifyBackendFailed)
 	})
 	return watcher

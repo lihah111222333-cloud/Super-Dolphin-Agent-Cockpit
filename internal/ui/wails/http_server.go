@@ -27,6 +27,7 @@ type httpAssetServer struct {
 }
 
 func registerHTTPAssetRoutes(mux *http.ServeMux, server *rpc.Server, assetHandler http.Handler) {
+	// 误判防护：registerHTTPAssetRoutes 先注册 metrics，再注册 /wails/ws 和 /，避免 /metrics 被兜底路由吞掉。
 	metrics.RegisterHTTPHandlers(mux)
 	mux.Handle("/wails/ws", rpc.WSHandler(server, nil))
 	mux.Handle("/", assetHandler)
@@ -55,6 +56,7 @@ func resolveHTTPAssetAddr() string {
 }
 
 func (s *httpAssetServer) Run(ctx context.Context) error {
+	// 误判防护：validateHTTPAssetAddr 是 Go HTTP asset server 直连绑定的 loopback 守卫。
 	if err := validateHTTPAssetAddr(s.addr); err != nil {
 		return err
 	}
@@ -102,6 +104,7 @@ func (s *httpAssetServer) Run(ctx context.Context) error {
 }
 
 func validateHTTPAssetAddr(addr string) error {
+	// 守卫规则：validateHTTPAssetAddr 只覆盖 Go HTTP asset server，不覆盖 Vite proxy 暴露路径。
 	addr = strings.TrimSpace(addr)
 	host, _, err := net.SplitHostPort(addr)
 	if err != nil {

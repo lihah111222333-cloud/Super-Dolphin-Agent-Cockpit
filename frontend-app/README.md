@@ -12,13 +12,19 @@ npm install
 npm run dev
 ```
 
+Direct `npm run dev` and the root desktop script use polling file watches by
+default to avoid Linux `ENOSPC` watcher limits. To use native file events
+instead, set either `SUPER_DOLPHIN_VITE_USE_POLLING=0` or
+`CHOKIDAR_USEPOLLING=0`. If both variables are set, they must resolve to the
+same strict boolean value (`1/0`, `true/false`, `yes/no`, or `on/off`).
+
 For the full local desktop setup, run this from the repository root:
 
 ```bash
 ./run-new-ui-desktop.sh
 ```
 
-The script starts this app's Vite server, then launches `cmd/agent-terminal`
-with `VITE_DEV_URL` so the Wails desktop host proxies to `frontend-app`.
+The script starts this app's Vite server, waits for it to become ready, then launches `cmd/agent-terminal`
+with `FRONTEND_DEVSERVER_URL` so the Wails desktop host proxies to `frontend-app`.
 
 The design follows the provided dark macOS-style screenshots: title bar, narrow left navigation, dense black workspace, chat thread rail, runtime log panel, capability pages, workflow pages, skill cards, shared files, memory center, and settings.
