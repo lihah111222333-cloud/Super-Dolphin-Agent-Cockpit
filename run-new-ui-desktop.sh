@@ -301,6 +301,84 @@ backend_hot_reload_enabled() {
   esac
 }
 
+backend_hot_reload_config_error() {
+  echo "❌ $1" >&2
+  exit 1
+}
+
+validate_backend_hot_positive_integer() {
+  local name="$1"
+  local value="$2"
+  local max="$3"
+  if [ -z "$value" ]; then
+    backend_hot_reload_config_error "$name must be a positive integer"
+  fi
+  if ! [[ "$value" =~ ^[0-9]+$ ]]; then
+    backend_hot_reload_config_error "$name must be a positive integer, got: $value"
+  fi
+  if ! awk -v value="$value" -v max="$max" 'BEGIN { exit (value >= 1 && value <= max ? 0 : 1) }'; then
+    backend_hot_reload_config_error "$name must be between 1 and $max, got: $value"
+  fi
+}
+
+validate_backend_hot_poll_interval() {
+  local value="$1"
+  local min="${SUPER_DOLPHIN_HOT_MIN_POLL_INTERVAL:-1}"
+  if [ -z "$value" ]; then
+    backend_hot_reload_config_error "SUPER_DOLPHIN_HOT_POLL_INTERVAL must be a numeric value at least ${min}s"
+  fi
+  if ! [[ "$value" =~ ^[0-9]+([.][0-9]+)?$ ]]; then
+    backend_hot_reload_config_error "SUPER_DOLPHIN_HOT_POLL_INTERVAL must be a numeric value at least ${min}s, got: $value"
+  fi
+  if ! awk -v value="$value" -v min="$min" 'BEGIN { exit (value >= min ? 0 : 1) }'; then
+    backend_hot_reload_config_error "SUPER_DOLPHIN_HOT_POLL_INTERVAL must be at least ${min}s, got: $value"
+  fi
+}
+
+validate_backend_hot_watch_paths() {
+  local paths="$1"
+  local count=0
+  local rel path
+  if [ -z "$paths" ]; then
+    backend_hot_reload_config_error "SUPER_DOLPHIN_HOT_WATCH_PATHS must not be empty"
+  fi
+  for rel in $paths; do
+    count=$((count + 1))
+    if [ "$count" -gt "$SUPER_DOLPHIN_HOT_MAX_WATCH_PATHS" ]; then
+      backend_hot_reload_config_error "backend hot reload watch path limit exceeded ($count > $SUPER_DOLPHIN_HOT_MAX_WATCH_PATHS)"
+    fi
+    case "$rel" in
+      /*)
+        backend_hot_reload_config_error "SUPER_DOLPHIN_HOT_WATCH_PATHS entries must be repository-relative paths, got: $rel"
+        ;;
+      *//*)
+        backend_hot_reload_config_error "SUPER_DOLPHIN_HOT_WATCH_PATHS entries must be repository-relative paths without empty segments, got: $rel"
+        ;;
+    esac
+    case "/$rel/" in
+      */../*|*/./*)
+        backend_hot_reload_config_error "SUPER_DOLPHIN_HOT_WATCH_PATHS entries must be repository-relative paths without . or .. segments, got: $rel"
+        ;;
+    esac
+    path="$PROJECT_DIR/$rel"
+    if [ ! -e "$path" ]; then
+      backend_hot_reload_config_error "backend hot reload watch path does not exist: $rel"
+    fi
+  done
+  if [ "$count" -eq 0 ]; then
+    backend_hot_reload_config_error "SUPER_DOLPHIN_HOT_WATCH_PATHS must include at least one path"
+  fi
+}
+
+validate_backend_hot_reload_config() {
+  local max_paths_limit="${SUPER_DOLPHIN_HOT_MAX_WATCH_PATHS_LIMIT:-64}"
+  local max_files_limit="${SUPER_DOLPHIN_HOT_MAX_WATCH_FILES_LIMIT:-20000}"
+  validate_backend_hot_positive_integer "SUPER_DOLPHIN_HOT_MAX_WATCH_PATHS" "$SUPER_DOLPHIN_HOT_MAX_WATCH_PATHS" "$max_paths_limit"
+  validate_backend_hot_positive_integer "SUPER_DOLPHIN_HOT_MAX_WATCH_FILES" "$SUPER_DOLPHIN_HOT_MAX_WATCH_FILES" "$max_files_limit"
+  validate_backend_hot_poll_interval "$SUPER_DOLPHIN_HOT_POLL_INTERVAL"
+  validate_backend_hot_watch_paths "$SUPER_DOLPHIN_HOT_WATCH_PATHS"
+}
+
 parse_frontend_watch_bool() {
   local name="$1"
   local value="$2"
@@ -389,12 +467,12 @@ stat_backend_watch_file() {
   stat -f '%m %z %N' "$file" 2>/dev/null || stat -c '%Y %s %n' "$file" 2>/dev/null || true
 }
 
-snapshot_backend_watch_state() {
+list_backend_watch_files() {
   local rel path
   for rel in $SUPER_DOLPHIN_HOT_WATCH_PATHS; do
     path="$PROJECT_DIR/$rel"
     if [ ! -e "$path" ]; then
-      continue
+      backend_hot_reload_config_error "backend hot reload watch path does not exist: $rel"
     fi
     if [ -f "$path" ]; then
       printf '%s\n' "$path"
@@ -403,7 +481,30 @@ snapshot_backend_watch_state() {
     find "$path" \
       \( -path '*/.git' -o -path '*/.tmp' -o -path '*/.build-cache' -o -path '*/bin' -o -path '*/dist' -o -path '*/node_modules' -o -path '*/frontend-app/dist' -o -path '*/cmd/agent-terminal/frontend/dist' \) -prune -o \
       -type f \( -name '*.go' -o -name '*.sql' -o -name '*.yaml' -o -name '*.yml' -o -name '*.json' -o -name 'go.mod' -o -name 'go.sum' \) -print
-  done | LC_ALL=C sort -u | while IFS= read -r file; do
+  done
+}
+
+enforce_backend_watch_file_limit() {
+  local phase="$1"
+  awk -v max="$SUPER_DOLPHIN_HOT_MAX_WATCH_FILES" -v phase="$phase" '
+    {
+      count += 1
+      if (count > max) {
+        printf "❌ backend hot reload %s file limit exceeded (%d > %d)\n", phase, count, max > "/dev/stderr"
+        exit 1
+      }
+      print
+    }
+  '
+}
+
+snapshot_backend_watch_state() {
+  local files
+  files="$(list_backend_watch_files | enforce_backend_watch_file_limit "scan" | LC_ALL=C sort -u | enforce_backend_watch_file_limit "unique")"
+  if [ -z "$files" ]; then
+    return 0
+  fi
+  printf '%s\n' "$files" | while IFS= read -r file; do
     stat_backend_watch_file "$file"
   done
 }
@@ -806,8 +907,22 @@ if backend_hot_reload_enabled; then
 else
   GO_AGENT_PEER_BIN_DIR="${GO_AGENT_PEER_BIN_DIR:-$PROJECT_DIR}"
 fi
-SUPER_DOLPHIN_HOT_WATCH_PATHS="${SUPER_DOLPHIN_HOT_WATCH_PATHS:-cmd internal pkg migrations sql go.mod go.sum sqlc.yaml}"
-SUPER_DOLPHIN_HOT_POLL_INTERVAL="${SUPER_DOLPHIN_HOT_POLL_INTERVAL:-1}"
+if [ -z "${SUPER_DOLPHIN_HOT_WATCH_PATHS+x}" ]; then
+  SUPER_DOLPHIN_HOT_WATCH_PATHS="cmd internal pkg migrations sql go.mod go.sum sqlc.yaml"
+fi
+if [ -z "${SUPER_DOLPHIN_HOT_POLL_INTERVAL+x}" ]; then
+  SUPER_DOLPHIN_HOT_POLL_INTERVAL="1"
+fi
+if [ -z "${SUPER_DOLPHIN_HOT_MAX_WATCH_PATHS+x}" ]; then
+  SUPER_DOLPHIN_HOT_MAX_WATCH_PATHS="16"
+fi
+if [ -z "${SUPER_DOLPHIN_HOT_MAX_WATCH_FILES+x}" ]; then
+  SUPER_DOLPHIN_HOT_MAX_WATCH_FILES="5000"
+fi
+SUPER_DOLPHIN_HOT_MIN_POLL_INTERVAL="1"
+SUPER_DOLPHIN_HOT_MAX_WATCH_PATHS_LIMIT="64"
+SUPER_DOLPHIN_HOT_MAX_WATCH_FILES_LIMIT="20000"
+validate_backend_hot_reload_config
 SUPER_DOLPHIN_RUNTIME_MODE="${SUPER_DOLPHIN_RUNTIME_MODE:-dev}"
 SUPER_DOLPHIN_RUNTIME_RESOURCES_DIR="${SUPER_DOLPHIN_RUNTIME_RESOURCES_DIR:-$PROJECT_DIR}"
 SUPER_DOLPHIN_DEV_ENTRYPOINT="${SUPER_DOLPHIN_DEV_ENTRYPOINT:-run-new-ui-desktop.sh}"
