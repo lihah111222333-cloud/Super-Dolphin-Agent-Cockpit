@@ -70,6 +70,11 @@ func DefaultLSPConfig() contract.LSPConfig {
 				IgnoredDirNames:       []string{".build-cache", ".git", ".workspace", "dist", "node_modules", "vendor"},
 				FirstSourceExtensions: []string{".css"},
 			},
+			contract.LSPServiceShell: {
+				RootMarkers:           []string{".git", "package.json", "go.mod", "Makefile"},
+				IgnoredDirNames:       []string{".build-cache", ".git", ".workspace", "dist", "node_modules", "vendor"},
+				FirstSourceExtensions: []string{".sh", ".bash", ".zsh", ".ksh", ".bats"},
+			},
 		},
 		DocumentFallbackLanguageIDs:      []string{"markdown", "json", "yaml"},
 		DisableInitialWorkspaceBootstrap: true,
@@ -87,6 +92,7 @@ func lspConfigFromEnv() contract.LSPConfig {
 	applyProjectAdapterEnv(cfg.ProjectAdapters, contract.LSPServiceRust, "LSP_RUST")
 	applyProjectAdapterEnv(cfg.ProjectAdapters, contract.LSPServiceJava, "LSP_JAVA")
 	applyProjectAdapterEnv(cfg.ProjectAdapters, contract.LSPServiceCSS, "LSP_CSS")
+	applyProjectAdapterEnv(cfg.ProjectAdapters, contract.LSPServiceShell, "LSP_SHELL")
 	return cfg
 }
 

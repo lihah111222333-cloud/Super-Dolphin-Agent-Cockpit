@@ -179,7 +179,7 @@ func normalizeRuntimeWorkspaceRoot(base, root string) (string, error) {
 }
 
 func runtimePrimaryLanguageIDs() []string {
-	return []string{"go", "javascript", "python", "css", "rust", "java", "markdown"}
+	return []string{"go", "javascript", "python", "css", "rust", "java", "markdown", "shellscript"}
 }
 
 func runtimePrimaryLanguageIDsForBundle(adapters *multilsp.LanguageAdapterRegistry, bundle runtimeenv.LSPBundle, packaged bool) ([]string, error) {
@@ -400,6 +400,11 @@ func setupInstaller() *installer.Provider {
 		BinaryName:  "gopls",
 		InstallCmd:  "go",
 		InstallArgs: []string{"install", "golang.org/x/tools/gopls@latest"},
+	})
+	inst.Register("shellscript", installer.InstallerConfig{
+		BinaryName:  "bash-language-server",
+		InstallCmd:  "npm",
+		InstallArgs: []string{"install", "-g", "bash-language-server"},
 	})
 	for _, alias := range []string{"gomod", "gosum", "gowork"} {
 		inst.Register(alias, installer.InstallerConfig{

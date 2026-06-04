@@ -243,6 +243,42 @@ func TestDiagnosticsRefreshesStaleFileBeforeReturn(t *testing.T) {
 	}
 }
 
+func TestDiagnosticsShellScriptBootstrapsShellscriptLanguage(t *testing.T) {
+	root := t.TempDir()
+	target := writeDiagnosticsFixture(t, root, "broken.sh")
+
+	registry := &diagnosticsShellRegistry{}
+	handler := NewFileHandler(Config{WorkspaceRoot: root, Registry: registry})
+	req := marshalDiagnosticsInput(t, fileToolInput{Action: "diagnostics", FilePath: "broken.sh"})
+
+	_, err := handler(common.WithToolScope(context.Background(), common.ToolScope{CWD: root}), req)
+	if err != nil {
+		t.Fatalf("diagnostics returned error for shell script: %v", err)
+	}
+	wantURI := canonicalFileURI(t, target)
+	assertDiagnosticURIs(t, registry.bootstrapURIs, []string{wantURI})
+	assertDiagnosticURIs(t, registry.lastURIs, []string{wantURI})
+	if len(registry.bootstrapLanguageIDs) != 1 || registry.bootstrapLanguageIDs[0] != "shellscript" {
+		t.Fatalf("bootstrap language IDs = %#v, want shellscript", registry.bootstrapLanguageIDs)
+	}
+}
+
+type diagnosticsShellRegistry struct {
+	diagnosticsTestRegistry
+	bootstrapLanguageIDs []string
+}
+
+func (r *diagnosticsShellRegistry) BootstrapDocument(_ context.Context, uri string) error {
+	r.callOrder = append(r.callOrder, "bootstrap")
+	r.bootstrapURIs = append(r.bootstrapURIs, uri)
+	lang := lspmanager.DetectLanguageID(strings.TrimPrefix(uri, "file://"))
+	r.bootstrapLanguageIDs = append(r.bootstrapLanguageIDs, lang)
+	if lang != "shellscript" {
+		return fmt.Errorf("%s: %w", uri, lspmanager.ErrUnsupportedLanguage)
+	}
+	return nil
+}
+
 func TestDiagnosticsPassesTrustedToolScopeToRegistry(t *testing.T) {
 	mainRoot := t.TempDir()
 	scopedRoot := t.TempDir()
