@@ -111,7 +111,10 @@ Wails 事件桥：`internal/ui/wails/bridge.go`
 - `ui/sidebar/get` 是绝对主量：总出现 2413 行。
 - 后端 dispatch start：`ui/sidebar/get` 1028 次；后端 done：1008 次，全部标记 slow。
 - 前端 `ui/sidebar/get`：256 次 done，121 次 failed；失败多为 `runtime shim: rpc call timeout (30s) for ui/sidebar/get`。
-- `ui/sidebar/get` 后端耗时：min 2659ms，p50 7453ms，p90 8985ms，max 11935ms。
+- `ui/sidebar/get` 后端耗时分两种口径：
+  - 全量 backend done（`method == "ui/sidebar/get" && kind == "backend.rpc.dispatch.done"`，n=1008）：min 2659ms，median 8242.5ms，p90≈10552ms，max 13119ms。
+  - frontend-paired subset（可与 frontend trace 配对的 backend done 子集，n=377）：min 2659ms，median 7453ms，p90≈9003ms，max 11935ms。
+- 复算说明：全量 backend done 只按 backend dispatch done 过滤；frontend-paired subset 只用于解释可配对前端样本，不作为 1008 条全量 backend 基线。
 - 前端看到的 `ui/sidebar/get` 耗时：min 2676ms，p50 17088ms，p90 30040ms，max 30179ms。
 
 每分钟后端 `ui/sidebar/get` start 数：
