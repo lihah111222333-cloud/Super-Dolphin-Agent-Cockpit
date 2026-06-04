@@ -6498,6 +6498,66 @@ async function continueChatFromFinalSharedFile() {
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
   });
 
+  it('clears a stale workflow sync alert after focus refresh succeeds', async () => {
+    let dags = [{
+      dag_key: 'flow-a',
+      title: '流程 A',
+      status: 'running',
+      trigger: 'manual',
+      version: 1,
+      latest_run: { run_key: 'run-a', status: 'running' },
+    }];
+    backend.getDashboardPage.mockImplementation(({ page }) => Promise.resolve(
+      page === 'dags' ? { dags } : { skills: [] },
+    ));
+    backend.getDagDetail.mockImplementation(({ dagKey }) => {
+      const dag = dags.find((item) => item.dag_key === dagKey) || dags[0];
+      const suffix = (dag?.title || '').split(' ').pop() || '';
+      return Promise.resolve({
+        dag,
+        nodes: [{ node_key: 'step', title: `步骤 ${suffix}`, node_type: 'agent', status: 'running', depends_on: [], config: {} }],
+      });
+    });
+    backend.getDagRuns.mockImplementation(({ dagKey, status }) => {
+      const dag = dags.find((item) => item.dag_key === dagKey) || dags[0];
+      if (status === 'running') return Promise.resolve({ runs: dag?.latest_run ? [dag.latest_run] : [] });
+      return Promise.resolve({ runs: dag?.latest_run ? [dag.latest_run] : [] });
+    });
+    backend.getDagRun.mockImplementation(({ runKey }) => Promise.resolve({
+      run: { run_key: runKey, status: 'running' },
+      nodes: [],
+    }));
+
+    render(<App />);
+    await screen.findByText('后端线程');
+    fireEvent.click(screen.getByLabelText('自动化'));
+    expect((await screen.findAllByText('流程 A')).length).toBeGreaterThanOrEqual(1);
+
+    backend.getDashboardPage.mockRejectedValueOnce(new Error('workflow backend offline'));
+    await act(async () => {
+      bridgeCallback?.({ type: 'task/node/statusChanged', payload: { dag_key: 'flow-a', run_key: 'run-a', node_key: 'step', new_status: 'running' } });
+      await Promise.resolve();
+    });
+    expect(await screen.findByRole('alert')).toHaveTextContent('同步失败，显示的是上次成功的数据：workflow backend offline');
+
+    dags = [{
+      dag_key: 'flow-b',
+      title: '流程 B',
+      status: 'running',
+      trigger: 'manual',
+      version: 2,
+      latest_run: { run_key: 'run-b', status: 'running' },
+    }];
+    await act(async () => {
+      window.dispatchEvent(new Event('focus'));
+    });
+
+    expect((await screen.findAllByText('流程 B')).length).toBeGreaterThanOrEqual(1);
+    await waitFor(() => {
+      expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    });
+  });
+
   it('shows a retryable blocking error instead of an empty workflow state on initial load failure', async () => {
     const flow = {
       dag_key: 'flow-a',
