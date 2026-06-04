@@ -178,7 +178,11 @@ func downloadVideoToDesktop(ctx context.Context, videoURL, requestID string) (st
 		return "", err
 	}
 	filename := "video-" + requestID + "-" + time.Now().Format("20060102-150405") + ".mp4"
-	dest := filepath.Join(home, "Desktop", filename)
+	moviesDir := filepath.Join(home, "Movies")
+	if err := os.MkdirAll(moviesDir, 0o755); err != nil {
+		moviesDir = home
+	}
+	dest := filepath.Join(moviesDir, filename)
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, videoURL, nil)
 	if err != nil {
