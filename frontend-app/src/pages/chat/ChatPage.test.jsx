@@ -1,5 +1,5 @@
 import React from 'react';
-import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, createEvent, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import mermaid from 'mermaid';
 import { ChatPage } from './ChatPage.jsx';
@@ -301,6 +301,34 @@ describe('ChatPage module', () => {
 
     expect(store.attachDroppedFilesForComposer).toHaveBeenCalledWith([dropped]);
     expect(conversation).not.toHaveClass('drop-active');
+  });
+
+  it('accepts direct file drops on the composer input', async () => {
+    const store = createActiveThreadStore([
+      { id: 'msg-1', role: 'assistant', text: '把文件拖进输入框即可。', time: '2026-06-02T08:00:00Z' },
+    ]);
+
+    render(<TestChatPageWrapper store={store} projectPath="/repo/app" />);
+
+    const dropped = new File(['notes'], 'input-notes.txt', { type: 'text/plain' });
+    Object.defineProperty(dropped, 'path', { value: '/tmp/input-notes.txt' });
+    const input = screen.getByTestId('composer-input');
+    const dropEvent = createEvent.drop(input, {
+      bubbles: false,
+      cancelable: true,
+      dataTransfer: {
+        files: [dropped],
+        items: [],
+        types: ['Files'],
+      },
+    });
+
+    fireEvent(input, dropEvent);
+
+    await waitFor(() => {
+      expect(store.attachDroppedFilesForComposer).toHaveBeenCalledWith([dropped]);
+    });
+    expect(dropEvent.defaultPrevented).toBe(true);
   });
 
   it('accepts external uri-list drops on the conversation window', () => {
