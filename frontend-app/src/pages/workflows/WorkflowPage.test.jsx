@@ -1,6 +1,6 @@
 import React from 'react';
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { CancelledError, QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { WorkflowPage } from './WorkflowPage.jsx';
 
@@ -20,7 +20,25 @@ const backend = vi.hoisted(() => ({
 
 vi.mock('../../shared/api/backendApi.js', () => backend);
 
-function renderWorkflowPage(store = {}) {
+function deferred() {
+  let resolve;
+  let reject;
+  const promise = new Promise((promiseResolve, promiseReject) => {
+    resolve = promiseResolve;
+    reject = promiseReject;
+  });
+  return { promise, resolve, reject };
+}
+
+function workflowPageElement(queryClient, store = {}, pageProps = {}) {
+  return (
+    <QueryClientProvider client={queryClient}>
+      <WorkflowPage projectPath="/repo/app" store={store} {...pageProps} />
+    </QueryClientProvider>
+  );
+}
+
+function renderWorkflowPage(store = {}, pageProps = {}) {
   const queryClient = new QueryClient({
     defaultOptions: {
       queries: { retry: false },
@@ -28,11 +46,13 @@ function renderWorkflowPage(store = {}) {
     },
   });
 
-  return render(
-    <QueryClientProvider client={queryClient}>
-      <WorkflowPage projectPath="/repo/app" store={store} />
-    </QueryClientProvider>,
-  );
+  const result = render(workflowPageElement(queryClient, store, pageProps));
+  return {
+    ...result,
+    rerenderWorkflowPage: (nextPageProps = {}) => {
+      result.rerender(workflowPageElement(queryClient, store, nextPageProps));
+    },
+  };
 }
 
 function mockWorkflowDag() {
@@ -85,6 +105,82 @@ describe('WorkflowPage module', () => {
       expect(backend.getDagRuns).toHaveBeenCalledWith({ dagKey: 'daily-brief', limit: 30 });
       expect(backend.getDagRuns).toHaveBeenCalledWith({ dagKey: 'daily-brief', status: 'running', limit: 1 });
     });
+  });
+
+  it('coalesces pending DAG list refreshes without surfacing TanStack cancellation', async () => {
+    const dag = {
+      dag_key: 'daily-brief',
+      title: 'Daily Brief',
+      status: 'ready',
+      trigger: 'manual',
+      version: 7,
+    };
+    const pendingRefresh = deferred();
+    let dashboardCalls = 0;
+    backend.getDashboardPage.mockImplementation(() => {
+      dashboardCalls += 1;
+      if (dashboardCalls === 1) return Promise.resolve({ dags: [dag] });
+      if (dashboardCalls === 2) return pendingRefresh.promise;
+      return Promise.reject(new CancelledError());
+    });
+    backend.getDagDetail.mockResolvedValue({
+      dag,
+      nodes: [{ node_key: 'draft', title: 'Draft', node_type: 'agent', assigned_to: 'codex', depends_on: [] }],
+    });
+    backend.getDagRuns.mockResolvedValue({ runs: [] });
+    backend.getDagRun.mockResolvedValue({ run: null, nodes: [] });
+
+    const { rerenderWorkflowPage } = renderWorkflowPage({}, { refreshKey: 0 });
+
+    expect((await screen.findAllByText('Daily Brief')).length).toBeGreaterThanOrEqual(2);
+    expect(backend.getDashboardPage).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      rerenderWorkflowPage({ refreshKey: 1 });
+      await Promise.resolve();
+    });
+    await waitFor(() => expect(backend.getDashboardPage).toHaveBeenCalledTimes(2));
+
+    await act(async () => {
+      rerenderWorkflowPage({ refreshKey: 2 });
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(backend.getDashboardPage).toHaveBeenCalledTimes(2);
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+
+    await act(async () => {
+      pendingRefresh.resolve({ dags: [dag] });
+      await pendingRefresh.promise;
+    });
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
+  it('still reports real backend errors during DAG list refresh', async () => {
+    const dag = {
+      dag_key: 'daily-brief',
+      title: 'Daily Brief',
+      status: 'ready',
+      trigger: 'manual',
+      version: 7,
+    };
+    backend.getDashboardPage
+      .mockResolvedValueOnce({ dags: [dag] })
+      .mockRejectedValueOnce(new Error('workflow backend offline'));
+    backend.getDagDetail.mockResolvedValue({ dag, nodes: [] });
+    backend.getDagRuns.mockResolvedValue({ runs: [] });
+    backend.getDagRun.mockResolvedValue({ run: null, nodes: [] });
+
+    const { rerenderWorkflowPage } = renderWorkflowPage({}, { refreshKey: 0 });
+
+    expect((await screen.findAllByText('Daily Brief')).length).toBeGreaterThanOrEqual(2);
+    await act(async () => {
+      rerenderWorkflowPage({ refreshKey: 1 });
+      await Promise.resolve();
+    });
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('同步失败，显示的是上次成功的数据：workflow backend offline');
   });
 
   it('starts the selected DAG with the manual trigger payload', async () => {

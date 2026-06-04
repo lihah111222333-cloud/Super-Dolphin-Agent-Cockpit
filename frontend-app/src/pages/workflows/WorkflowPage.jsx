@@ -1,9 +1,9 @@
 import React, { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { isCancelledError, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Workflow } from 'lucide-react';
 import { FocusTrapDialog } from '../../shared/ui/FocusTrapDialog.jsx';
 import { applyDagOps, deleteDag, getDashboardPage, getDagDetail, getDagRun, getDagRuns, readSharedFile, startDag, startThread, startTurn, terminateDagRun } from '../../shared/api/backendApi.js';
-import { appendCurrentModelOption, dashboardQueryErrorState, dashboardQueryKey, errorMessage, firstText, listToText, numberOrNull, objectValue, optionalSettingsCwd, queryHasSnapshot, SKILLS_REQUEST_TIMEOUT_MS, textValue, useDashboardFocusInvalidation, withTimeout, wordListFromText } from '../shared/pageShared.js';
+import { appendCurrentModelOption, dashboardQueryErrorState, dashboardQueryKey, errorMessage, firstText, listToText, numberOrNull, objectValue, optionalSettingsCwd, queryHasSnapshot, SKILLS_REQUEST_TIMEOUT_MS, textValue, withTimeout, wordListFromText } from '../shared/pageShared.js';
 import { PageHeader, Panel, RetryableSyncError } from '../shared/pageComponents.jsx';
 
 const DAG_RECENT_RUN_LIMIT = 30;
@@ -48,6 +48,11 @@ const STARTABLE_DAG_STATUSES = new Set(['draft', 'ready']);
 const STARTABLE_DAG_TRIGGERS = new Set(['manual', 'scheduled', 'schedule', 'cron', '']);
 
 const RUNNING_RUN_STATUSES = new Set(['running', 'pending', 'dispatching', 'waiting_for_assignee']);
+
+function workflowDashboardQueryErrorState(query, hasSnapshot = queryHasSnapshot(query)) {
+  if (isCancelledError(query?.error)) return { cachedSyncError: '', blockingError: '' };
+  return dashboardQueryErrorState(query, hasSnapshot);
+}
 
 async function fetchDagsDashboard(cwd) {
   const response = await withTimeout(
@@ -617,19 +622,20 @@ function WorkflowPage({ projectPath, store, refreshKey = 0 }) {
 function useWorkflowPageController({ projectPath, refreshKey, store }) {
   const workflowCwd = optionalSettingsCwd(projectPath);
   const isProjectPending = !workflowCwd;
-  useDashboardFocusInvalidation(workflowCwd, 'dags');
   const list = useWorkflowListQuery(workflowCwd);
+  const { refreshDags } = list;
+  useWorkflowListFocusRefresh(workflowCwd, refreshDags);
   const activePage = store?.activePage;
   const mountedRef = useRef(false);
   useEffect(() => {
     if (!mountedRef.current) { mountedRef.current = true; return; }
-    if (activePage === 'workflows' && workflowCwd) void list.refreshDags();
-  }, [activePage, workflowCwd]); // eslint-disable-line react-hooks/exhaustive-deps
+    if (activePage === 'workflows' && workflowCwd) void refreshDags();
+  }, [activePage, refreshDags, workflowCwd]);
   const selection = useWorkflowSelection(list.items);
   const detail = useWorkflowDetailQuery({ items: list.items, selectedDag: selection.selectedDag, selectedDagKey: selection.selectedDagKey, workflowCwd });
   const run = useWorkflowRunDetail({ activeRun: detail.activeRun, runs: detail.runs, workflowCwd });
   const notices = useWorkflowNotice(selection.selectedDagKey);
-  const refresh = useWorkflowRefresh({ refreshDags: list.refreshDags, refreshKey, selectedDagKeyRef: selection.selectedDagKeyRef, selectedRunKey: run.selectedRunKey, setSelectedRunKey: run.setSelectedRunKey, workflowCwd });
+  const refresh = useWorkflowRefresh({ refreshDags, refreshKey, selectedDagKeyRef: selection.selectedDagKeyRef, selectedRunKey: run.selectedRunKey, setSelectedRunKey: run.setSelectedRunKey, workflowCwd });
   const actionState = useWorkflowActionState(detail.activeDetailDag);
   const derived = useWorkflowDerivedState({ detail, list, run, selection });
   const actions = useWorkflowActions({ actionState, derived, detail, list, notices, refresh, run, selection, store, workflowCwd });
@@ -638,6 +644,7 @@ function useWorkflowPageController({ projectPath, refreshKey, store }) {
 
 function useWorkflowListQuery(workflowCwd) {
   const queryClient = useQueryClient();
+  const refreshPromiseRef = useRef(null);
   const [workflowSyncFailure, setWorkflowSyncFailure] = useState('');
   const dagsQuery = useQuery({
     queryKey: dashboardQueryKey(workflowCwd, 'dags'),
@@ -647,19 +654,45 @@ function useWorkflowListQuery(workflowCwd) {
   const hasSnapshot = queryHasSnapshot(dagsQuery);
   const items = useMemo(() => (Array.isArray(dagsQuery.data) ? dagsQuery.data : []), [dagsQuery.data]);
   const loading = Boolean(workflowCwd) && dagsQuery.isPending && !hasSnapshot;
-  const errorState = dashboardQueryErrorState(dagsQuery, hasSnapshot);
+  const errorState = workflowDashboardQueryErrorState(dagsQuery, hasSnapshot);
   const refreshDags = useCallback(async () => {
     if (!workflowCwd) return [];
     const key = dashboardQueryKey(workflowCwd, 'dags');
-    try {
-      await queryClient.invalidateQueries({ queryKey: key }, { throwOnError: true });
-      setWorkflowSyncFailure('');
-    } catch (err) {
-      setWorkflowSyncFailure('同步失败，显示的是上次成功的数据：' + errorMessage(err));
-    }
-    return queryClient.getQueryData(key) || [];
+    if (refreshPromiseRef.current?.workflowCwd === workflowCwd) return refreshPromiseRef.current.promise;
+    const refreshPromise = (async () => {
+      try {
+        await queryClient.invalidateQueries({ queryKey: key }, { throwOnError: true, cancelRefetch: false });
+        setWorkflowSyncFailure('');
+      } catch (err) {
+        if (!isCancelledError(err)) {
+          setWorkflowSyncFailure('同步失败，显示的是上次成功的数据：' + errorMessage(err));
+        }
+      }
+      return queryClient.getQueryData(key) || [];
+    })();
+    refreshPromiseRef.current = { promise: refreshPromise, workflowCwd };
+    refreshPromise.finally(() => {
+      if (refreshPromiseRef.current?.promise === refreshPromise) refreshPromiseRef.current = null;
+    });
+    return refreshPromise;
   }, [queryClient, workflowCwd]);
   return { errorState, items, loading, refreshDags, syncFailure: workflowSyncFailure };
+}
+
+function useWorkflowListFocusRefresh(workflowCwd, refreshDags) {
+  useEffect(() => {
+    if (!workflowCwd) return undefined;
+    const refresh = () => {
+      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
+      void refreshDags();
+    };
+    window.addEventListener('focus', refresh);
+    document.addEventListener('visibilitychange', refresh);
+    return () => {
+      window.removeEventListener('focus', refresh);
+      document.removeEventListener('visibilitychange', refresh);
+    };
+  }, [refreshDags, workflowCwd]);
 }
 
 function useWorkflowSelection(items) {
@@ -747,7 +780,7 @@ function useWorkflowDetailQuery({ items, selectedDag, selectedDagKey, workflowCw
     activeDetailDag: detailData.dag || selectedDag || null,
     activeRun: detailData.activeRun || null,
     detailDag: detailData.dag || null,
-    detailErrorState: dashboardQueryErrorState(dagDetailQuery, hasSnapshot),
+    detailErrorState: workflowDashboardQueryErrorState(dagDetailQuery, hasSnapshot),
     detailLoading: Boolean(selectedDagKey) && dagDetailQuery.isPending && !hasSnapshot && !selectedDag,
     nodes,
     runs,
